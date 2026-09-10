@@ -12,6 +12,13 @@ from app.core.asset_types import ASSET_CATEGORY_LABELS, ASSET_TYPE_LABELS
 # 兼容历史 import：core/constants.TYPE_LABELS 曾为资产类型标签的别名，现统一指向 asset_types
 TYPE_LABELS = ASSET_TYPE_LABELS
 
+# ── 自选/搜索标的代码命名空间（#1286）──
+# 基金经理在 watchlist.symbol（及搜索 code）中统一表示为 'MGR_' + managers.mgr_code，
+# 与场内 SH/SZ 码、场外 6 位基金码、投顾组合平台原生码（ZHxxxx/CSIxxxx）隔离命名空间，
+# 防不同实体空间的代码碰撞。展示名解析须剥离该前缀回查 managers 表
+# （见 domains/watchlist/views._lookup_manager），否则会把 sha256 派生码直接甩给用户。
+MANAGER_SYMBOL_PREFIX = 'MGR_'
+
 # ── 汇率（MVP 阶段硬编码，后续可迁移到数据库）──
 EXCHANGE_RATES = {
     'CNY': 1.0,

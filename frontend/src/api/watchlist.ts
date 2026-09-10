@@ -51,6 +51,7 @@ export interface WatchlistItem {
   advisor_host?: string | null; // 主理人
   advisor_strategy_type?: string | null; // 策略类型（均衡/进取/稳健）
   advisor_org_name?: string | null; // 主理人所属机构/平台方
+  manager_company?: string | null; // 基金经理所属基金公司（仅 asset_type=manager 有值）
 }
 
 export interface HomeSummaryItem {

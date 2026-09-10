@@ -8,6 +8,7 @@ from datetime import date, timedelta
 
 from app.core.database import get_db
 from app.core.symbol_utils import get_normalizer
+from app.domains.funds.models import FundCompany, Manager
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.watchlist.models import WatchlistItem
@@ -336,6 +337,35 @@ class TestWatchlistItemCRUD:
         resp3 = _get(client, '/api/watchlist/items/', {'asset_types': 'STOCK'})
         symbols3 = {i['symbol'] for i in resp3.get_json()['data']}
         assert symbols3 == {'SH600519'}
+
+    def test_list_items_manager_display_name(self, client, db):
+        """基金经理行（#1286 MGR_ 命名空间）：display_name 取 managers.name、
+        manager_company 取所属公司，绝不把 sha256 派生码甩给用户（2026-09-10 反馈）。
+
+        mgr_code 大小写不敏感——搜索侧原样输出、历史行混存大小写。
+        """
+        company = FundCompany(code='YFD', name='易方达基金管理有限公司')
+        db.add(company)
+        db.commit()
+        db.add(Manager(mgr_code='abcd1234efgh', name='张坤', company_id=company.id))
+        db.commit()
+
+        _post(client, '/api/watchlist/items/', {'symbol': 'MGR_abcd1234efgh', 'asset_type': 'manager'})
+
+        resp = _get(client, '/api/watchlist/items/')
+        # normalize_and_infer_venue 对 manager/portfolio 走非交易实体分支：symbol 统一大写存储
+        item = next(i for i in resp.get_json()['data'] if i['symbol'] == 'MGR_ABCD1234EFGH')
+        assert item['display_name'] == '张坤'
+        assert item['manager_company'] == '易方达基金管理有限公司'
+        assert item['type_label'] == '基金经理'
+
+        # 大写存储 + 大小写不敏感回查：两种写法都能命中
+        from app.domains.watchlist.views import _lookup_manager
+
+        assert _lookup_manager('MGR_ABCD1234EFGH', db).name == '张坤'
+        assert _lookup_manager('MGR_abcd1234efgh', db).name == '张坤'
+        # 非经理符号不受影响
+        assert _lookup_manager('SH600519', db) is None
 
     def test_list_items_pagination(self, client, db):
         """#1048 回归：后端按 page/per_page 切片，total 为真实总数（翻页非假按钮）。"""

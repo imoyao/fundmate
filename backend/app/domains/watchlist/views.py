@@ -14,12 +14,12 @@ from loguru import logger
 from sqlalchemy import desc, func
 
 from app.core.auth import get_family_id, get_owned_or_404
-from app.core.constants import TYPE_LABELS
+from app.core.constants import MANAGER_SYMBOL_PREFIX, TYPE_LABELS
 from app.core.database import get_db
 from app.core.money import Money
 from app.core.utils import api_response, with_db
 from app.core.validation import parse_body
-from app.domains.funds.models import AdvisorPortfolio, DailyWorth, Fund
+from app.domains.funds.models import AdvisorPortfolio, DailyWorth, Fund, Manager
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
@@ -76,14 +76,33 @@ GROUP_COLORS = {
 
 
 # ─────────────── 辅助函数 ───────────────
+def _lookup_manager(symbol: str, db):
+    """按 watchlist symbol（`MGR_<mgr_code>`）回查 managers 表；非经理符号返回 None。
+
+    mgr_code 大小写不敏感——搜索侧（asset_search）原样输出、历史行存在大小写混存，
+    等值匹配会漏查（2026-09-10 用户反馈：经理名显示为 sha256 派生码）。
+    """
+    if not symbol or not symbol.startswith(MANAGER_SYMBOL_PREFIX):
+        return None
+    code = symbol[len(MANAGER_SYMBOL_PREFIX) :]
+    if not code:
+        return None
+    return db.query(Manager).filter(func.lower(Manager.mgr_code) == code.lower()).first()
+
+
 def _get_display_info(symbol: str, db) -> str:
     """根据标准化代码查询资产展示名称。
 
-    优先级：Security.name → Fund.name → AdvisorPortfolio.name → symbol 兜底。
+    优先级：Manager.name（MGR_ 前缀）→ Security.name → Fund.name →
+    AdvisorPortfolio.name → symbol 兜底。
     投顾组合（#1167，如且慢 ZHxxxx/蛋卷 CSIxxxx/天天基金 combo）既不在
-    Securities 也不在 Funds 里——若不补这一层，自选里会显示原始代码，
+    Securities 也不在 Funds 里；基金经理（#1286）也不在任何行情表里，只在
+    managers——不补这两层，自选里会显示原始代码 / sha256 派生码，
     编号对用户毫无意义。
     """
+    mgr = _lookup_manager(symbol, db)
+    if mgr and mgr.name:
+        return mgr.name
     sec = db.query(Security).filter_by(symbol=symbol).first()
     if sec and sec.name:
         return sec.name
@@ -123,6 +142,12 @@ def _enrich_item(item: WatchlistItem, db) -> dict:
         out['advisor_host'] = None
         out['advisor_strategy_type'] = None
         out['advisor_org_name'] = None
+
+    # 基金经理补充信息（#1286）：所属基金公司名。经理行没有对外有意义的交易代码，
+    # 第二行元信息由公司承担，否则只剩一个「基金经理」标签、信息量为零
+    # （2026-09-10 用户反馈）。
+    mgr = _lookup_manager(item.symbol, db)
+    out['manager_company'] = mgr.company.name if mgr and mgr.company else None
 
     # 补充价格与市值信息（从持仓表计算静态值）
     position_value = _compute_position_market_value(item.symbol, db)
@@ -283,6 +308,7 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
     display_name = (pos.name if pos and pos.name else None) or _get_display_info(symbol, db)
     # 投顾组合元信息：与 _enrich_item 同步，避免虚拟行（持仓聚合无 id 的行）漏字段
     advisor = db.query(AdvisorPortfolio).filter_by(code=symbol).first()
+    mgr = _lookup_manager(symbol, db)  # 经理行公司名：与 _enrich_item 同源
 
     current_price = _compute_avg_current_price(symbol, db)
     stats = _compute_holding_stats(symbol, db)
@@ -321,6 +347,8 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
         'advisor_host': (advisor.host if advisor else None),
         'advisor_strategy_type': (advisor.strategy_type if advisor else None),
         'advisor_org_name': (advisor.org_name if advisor else None),
+        # 基金经理所属公司（与 _enrich_item 同源；非经理为 None）
+        'manager_company': (mgr.company.name if mgr and mgr.company else None),
     }
 
 

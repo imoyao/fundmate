@@ -67,6 +67,9 @@ class WatchlistItemOut(BaseModel):
     advisor_host: Optional[str] = None  # 主理人
     advisor_strategy_type: Optional[str] = None  # 策略类型（均衡/进取/稳健）
     advisor_org_name: Optional[str] = None  # 主理人所属机构/平台方
+    # 基金经理补充信息（#1286，仅 asset_type=manager 时有值）：所属基金公司名。
+    # 经理行没有对外有意义的交易代码，第二行元信息由公司承担（2026-09-10 用户反馈）。
+    manager_company: Optional[str] = None
 
 
 # ── 分组 ──
