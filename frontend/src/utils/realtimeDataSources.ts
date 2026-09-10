@@ -3,6 +3,8 @@ import { formatDate, formatDateTime } from "./date";
 
 const JSONP_TIMEOUT = 5000;
 const HISTORY_TIMEOUT = 8000; // 历史净值序列较大，单独放宽超时
+// 行情批量并发：每批 5 个、批间 500ms。#808 设计稿写 3，实测 5 稳定无风控拦截，
+// 经 #821 P2-8 裁决以实运行为准收敛为 5（留档见 docs/working-notes/explore-issue808-status-2026-08-19.md）。
 const BATCH_SIZE = 5;
 const BATCH_DELAY = 500; // ms
 

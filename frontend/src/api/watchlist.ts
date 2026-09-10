@@ -45,6 +45,12 @@ export interface WatchlistItem {
   holding_pnl_percent?: number | null; // 持仓收益率（%）
   price_at_added?: number | null; // 添加自选日最近交易日收盘价（元）
   type_label?: string; // 资产类型中文标签（后端动态字段）
+  /** 投顾组合补充信息（后端 enrich，仅 AdvisorPortfolio 命中时有值；普通标的恒 null）。
+   *  供产品列渲染分层信息行「平台 · 主理人 · 策略」，避免与代码/类型/标签挤一行 */
+  advisor_platform?: string | null; // QIEMAN/DANJUAN/TIANTIAN/YINGMI
+  advisor_host?: string | null; // 主理人
+  advisor_strategy_type?: string | null; // 策略类型（均衡/进取/稳健）
+  advisor_org_name?: string | null; // 主理人所属机构/平台方
 }
 
 export interface HomeSummaryItem {

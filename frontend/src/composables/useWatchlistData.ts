@@ -66,6 +66,8 @@ function persistPageSize(): void {
 export interface WatchlistToolbarState {
   searchKeyword: ReturnType<typeof ref<string>>;
   currentView: ReturnType<typeof ref<string>>;
+  /** 资产类型多选筛选（「类型」弹层；空数组 = 不过滤） */
+  selectedAssetTypes: ReturnType<typeof ref<string[]>>;
   batchMode: ReturnType<typeof ref<boolean>>;
   selectedItems: ReturnType<typeof ref<WatchlistItem[]>>;
   batchMoveGroupId: ReturnType<typeof ref<number | null>>;
@@ -81,6 +83,7 @@ export function useWatchlistData(
   const {
     searchKeyword,
     currentView,
+    selectedAssetTypes,
     batchMode,
     selectedItems,
     batchMoveGroupId
@@ -125,6 +128,10 @@ export function useWatchlistData(
     // venue 过滤由顶部 el-segmented（currentView）唯一承担（方案 B 收敛三套入口）
     if (currentView.value === "exchange") params.venue = "EXCHANGE";
     else if (currentView.value === "otc") params.venue = "OTC";
+    // 资产类型多选（「类型」弹层）：逗号分隔小写枚举，后端 lower 后 in_ 匹配
+    if (selectedAssetTypes.value.length > 0) {
+      params.asset_types = selectedAssetTypes.value.join(",");
+    }
     if (searchKeyword.value) params.q = searchKeyword.value;
     // 用户列内排序（#991）：仅白名单字段由后端校验，跨页排序一致
     if (sortBy.value) {
@@ -401,11 +408,12 @@ export function useWatchlistData(
     }
   }
 
-  /** 重置全部筛选（搜索/分组/视图/标签），回弹到「持仓」默认态 */
+  /** 重置全部筛选（搜索/分组/视图/标签/类型），回弹到「持仓」默认态 */
   function resetFilters() {
     searchKeyword.value = "";
     groups.resetActiveGroup();
     currentView.value = "all";
+    selectedAssetTypes.value = [];
     tags.resetTagFilter();
   }
 

@@ -175,6 +175,7 @@
           @view-change="handleViewChange()"
           @tag-apply="tags.applyTagFilter()"
           @tag-clear="tags.clearTagFilter()"
+          @type-apply="handleViewChange()"
           @manage-groups="groupManagerVisible = true"
           @manage-group-items="groupItemsVisible = true"
         />

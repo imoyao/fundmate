@@ -101,6 +101,28 @@ def _patch_thermo_session(app, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _disable_async_backfill(monkeypatch):
+    """禁用创建自选/持仓时触发的异步回填后台线程（2026-09-09）。
+
+    trigger_backfill 起 daemon 线程跑 akshare/xalpha 适配器：既在测试里发真实
+    网络请求（偶发超时/flaky），又因 async_backfill 顶层 from-import 早绑定了
+    真实 SessionLocal 而绕过内存库、直接写开发库。与 _patch_thermo_session
+    同类的早绑定隐患，但正确做法不是对齐会话（不该跑），而是整体禁用。
+    注意消费方均为 from-import 绑定，须逐个 patch 其模块属性。"""
+    _noop = lambda *a, **k: None  # noqa: E731
+
+    import importlib
+
+    monkeypatch.setattr('app.services.async_backfill.trigger_backfill', _noop)
+    for mod_name in (
+        'app.services.watchlist_service',
+        'app.services.position_service',
+        'app.services.importer.orchestrator',
+    ):
+        monkeypatch.setattr(importlib.import_module(mod_name), 'trigger_backfill', _noop, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def clean_db(app):
     """每个测试结束后自动清空所有表，保证隔离"""
     yield
