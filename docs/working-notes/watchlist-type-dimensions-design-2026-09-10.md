@@ -35,30 +35,57 @@
 
 ---
 
-## 2. 跨平台投顾数据对齐（天天基金 / 且慢 / 蛋卷-雪球 / …）
+## 2. 投顾组合数据：跨平台通用适配（canonical 模型 + 适配器架构）
 
-### 2.1 现状
-- **仅天天基金有适配器**（`tiantian_advisor_adapter.py`），且慢/蛋卷/雪球**尚未适配**。
-- 天天 `FundIATGInfoAggr` 请求了 `SYL_Z,SYL_Y,SYL_1N,SYL_JN,SYL_LN`（各区间收益）与基准，但**只落库** `RISKLEVEL/STGCONCEPT/ESTABDATE`，`SYL_*`、`BASELINE` 被丢弃。
+> 用户要求：**改造成通用方案**；涉及设计模式/架构就要做对，**不要写"随时可能被推翻"的代码**。
 
-### 2.2 设计原则（用户要求）
-1. **各平台字段先对齐到 canonical 模型**，不要各自长一堆列（否则数据表过宽）。
-2. **平台特有/暂无法对齐的**字段，放**扩展 JSON 列**（如 `extra` / `raw`），不新开列。
-3. **某平台没有、但有价值的字段**：后期用**计算 / 预重写 / 回填**补（如"成立以来年化"可由累计收益 + 运行天数推算）。
-4. **命名自解释**：统一英文 snake_case、语义显式；**禁止拼音简称 / 平台黑话**（如 `syl_1n` ✗ → `return_1y` ✓）。
-5. **区间收益 canonical 化**（草案，待与各平台映射核对）：
-   `return_since_inception`（成立以来）、`return_ytd`（今年）、`return_1w`、`return_1m`、`return_3m`、`return_6m`、`return_1y`、`return_3y`、`annualized_since_inception`（成立以来年化）、`benchmark_since_inception`…
+### 2.1 现状（已核实）
+- **天天基金（TIANTIAN）**：已自动适配（`tiantian_advisor_adapter.py`）。但概览请求了 `SYL_Z,SYL_Y,SYL_1N,SYL_JN,SYL_LN`（各区间收益）与基准，**只落库** `RISKLEVEL/STGCONCEPT/ESTABDATE`，`SYL_*`/基准被丢弃。
+- **且慢（QIEMAN）**：**仅手动导入**（`import_qieman_holdings.py`，`source=qieman_manual`；官方 MCP 需专用 key，未接自动链路）。远足(ZH012926)/成长五剑(ZH030684) 已建档 → **需要自动化适配**。
+- **蛋卷（DANJUAN）/ 雪球 / 盈米(YINGMI)**：枚举已存在（前端 `ADVISOR_PLATFORM_LABELS`），**均未适配**。
+- 组合的**概览数据**（类别 / 成立以来 / 年化 / 最大回撤 / 相对基准超额 / 备注…）**基本未入库**。
 
-### 2.3 各平台映射表（待补齐）
-| canonical | 天天基金 | 且慢 | 蛋卷/雪球 | 备注 |
+### 2.2 目标：canonical 组合模型（平台无关）
+所有平台先映射到同一套字段（表不因平台而变宽）。**命名自解释、禁拼音简称**。
+
+| canonical（拟） | 中文 | 说明 |
+|---|---|---|
+| code / platform | 组合代码 / 平台 | platform：tiantian / qieman / danjuan / xueqiu / yingmi |
+| name | 产品名称 | |
+| category | 类别 | 权益 / 固收+ / …（枚举） |
+| host / host_org | 主理人 / 主理人机构 | |
+| risk_level | 风险等级 | **归一化到统一刻度**（平台各写 R3/中风险/2 → 对齐） |
+| estab_date | 成立日期 | |
+| stat_window_start / stat_window_end | 统计区间 | |
+| running_days | 运行时长 | |
+| cumulative_return | 累计收益(%) | |
+| annualized_return | 年化收益(%) | |
+| max_drawdown | 最大回撤(%) | |
+| excess_return | 相对基准累计超额(%) | |
+| benchmark_name / benchmark_annualized | 基准名 / 基准年化 | 万得偏股基金 / 混合债券型二级指数… |
+| notes | 备注 | |
+| source | 数据来源 | 适配器抓取 / 手动 / **AI 生成** |
+
+区间收益另立 canonical：`return_1m / return_3m / return_6m / return_1y / return_3y / return_ytd / return_since_inception`。
+
+### 2.3 通用架构（Ports & Adapters，避免一次性代码）
+- **接口（Port）**：`AdvisorPortfolioSource` 协议，方法 `fetch_overview / fetch_returns / fetch_holdings / fetch_industries / fetch_rebalances`。
+- **适配器（Adapter）**：每平台实现该协议 + **声明式字段映射**（平台字段 → canonical）。**新增平台 = 加一个适配器，不改表、不改调用方**。
+- **平台特有字段**：进 `extra` JSON 列，不新开列（防表过宽）。
+- **缺失值策略**：能算的**派生计算**（年化、最大回撤、相对基准超额）；不能算的置 `null` 并标 `source`。
+- **AI 补全（扩展项）**：无抓取源的字段（如定性"备注"）后期可 AI 生成并标 `source='ai'`——**列入扩展，不阻塞本期**。
+- 落点：`app/services/sync/adapters/`（一平台一文件）+ 统一 `AdvisorPortfolioSyncJob` 消费 canonical。
+
+### 2.4 各平台字段映射（待实测补齐）
+| canonical | 天天基金 | 且慢 | 蛋卷 / 雪球 | 备注 |
 |---|---|---|---|---|
-| return_since_inception | SYL_Z? | ? | ? | 语义待二次确认 |
-| return_1y | SYL_Y? | ? | ? | |
-| annualized_since_inception | 需计算 | ? | ? | 缺失时回填 |
-| risk_level | RISKLEVEL | ? | ? | |
-| strategy_type | STRATEGY_RATE/STGCONCEPT? | ? | ? | |
+| cumulative_return | 已有 `cum_return` | 待接 | 待接 | |
+| annualized_return | 已有 `annual_return` | 待接 | 待接 | |
+| max_drawdown | 待补 | 待接 | 待接 | |
+| excess_return / benchmark | 待补 | 待接 | 待接 | 需基准数据 |
+| return_1m/3m/1y… | `SYL_*`（已请求未落库） | 待接 | 待接 | |
 
-> 注：`SYL_*` 与中文区间的精确对应需实测核对后再固化，避免张冠李戴。
+> `SYL_*` 与中文区间的精确对应**必须实测核对后再固化**，避免张冠李戴。
 
 ---
 
@@ -120,7 +147,7 @@
 1. 默认列预算（≤1040）+ 备注编辑入口去列化（修横向滚动条根因，非"藏列"）。
 2. **A：类型自适应「关键描述」列**（默认显示各品类高价值字段）。
 3. 无效列对经理/组合/指数显示 `—`（而非 0/空）。
-4. 投顾区间收益补全入库（`SYL_*` → canonical，见 §2）。
+4. **投顾组合跨平台通用适配**：canonical 模型 + 适配器架构（§2.3）；本期先补 天天 的区间收益/最大回撤/相对基准超额 落库，并**接入且慢自动化适配**（远足等）。
 5. **B：行内抽屉（速览版）**——交互模型见 §5.2。
 
 ### 后期
@@ -129,7 +156,9 @@
 8. 各品类**完整详情页** + 抽屉内「查看详情」跳转（§5）。
 9. 组合行情迷你图 + 代表作品/生涯年化。
 10. A/C 类份额关联（§6）。
-11. 列配置跨设备同步（#1337，独立）。
+11. 蛋卷 / 雪球适配（§2.3：新增适配器即可）。
+12. **AI 补全**无抓取源字段（如定性备注），标 `source='ai'`（§2.3）。
+13. 列配置跨设备同步（#1337，独立）。
 
 ---
 
