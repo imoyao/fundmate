@@ -13,6 +13,8 @@
 - CrossDomainQuery.enrich_by_rows：通用两步法骨架，任何"user 记录 → market 数据"
   的联合查询都复用它，集中防 N+1。
 - enrich_watchlist_with_market：自选 + 基金资料/净值的具体复用方法。
+- fetch_market_records_by_keys：第 2 步「按冗余键批量取 market 侧」的集中实现
+  （funds / securities 两个命名空间），独立成函数以便测试。
 
 设计原则（见 docs/dev/db-data-domain.md 第 4 节）：
 - 不持有全局引擎；session 工厂通过构造注入，便于测试与双库落地后切换。
@@ -26,6 +28,62 @@ from typing import Any, Callable, Dict, List, Sequence, TypeVar
 
 T = TypeVar('T')
 K = TypeVar('K')
+
+# SQLite in_ 变量上限防御（部分构建为 999，与 sync/jobs/base.py 的 IN_CHUNK_SIZE 同因）
+_IN_CHUNK_SIZE = 900
+
+
+def _chunked(values, size: int = _IN_CHUNK_SIZE):
+    """把键集合分批，规避 SQLite in_ 变量上限。"""
+    values = list(values)
+    for i in range(0, len(values), size):
+        yield values[i : i + size]
+
+
+def fetch_market_records_by_keys(db, keys) -> Dict[Any, Any]:
+    """按 (market, code) 冗余键**批量**取 market 侧资料（funds 优先，回退 securities）。
+
+    这是「应用层两步法」第 2 步的集中实现，独立成函数以便复用与测试。
+
+    2026-09-11 修复（#1404）：此前该逻辑内联在
+    `CrossDomainQuery.enrich_watchlist_with_market._market_fetch` 里，且**完全忽略传入的
+    keys**——`for f in db.query(Fund).all()` 无条件全表加载。这与同函数上方
+    「避免每次取全表」的注释意图**正好相反**：自选列表每打开一次，就把全库约 2.7 万只
+    基金 + 全部证券载入 ORM 实体。现改为按 keys 分组后 `in_` 过滤。
+
+    命名空间约定：`market == 'FUND'` 的键落 `funds` 表；其余（如 `'SH'`）落 `securities`
+    表。两边 market 命名空间的映射由调用方保证（如 watchlist.market 与 Security.market）。
+
+    Args:
+        db: market 域 Session。
+        keys: 可迭代的 `(market, code)` 二元组。
+
+    Returns:
+        `{(market, code): 实体}`。**只包含命中 keys 的键**——未请求的记录不会被载入。
+    """
+    from app.domains.funds.models import Fund
+    from app.domains.securities.models import Security
+
+    key_set = {(market, code) for market, code in keys}
+    if not key_set:
+        return {}
+
+    m: Dict[Any, Any] = {}
+
+    fund_codes = {code for market, code in key_set if market == 'FUND'}
+    for chunk in _chunked(fund_codes):
+        for f in db.query(Fund).filter(Fund.fund_code.in_(chunk)).all():
+            m[('FUND', f.fund_code)] = f
+
+    # 非 FUND 命名空间：先按 symbol 收窄（symbol 通常跨市场唯一），
+    # 再用 (market, symbol) 精确匹配，避免把不同市场的同名代码错配进来。
+    sec_keys = {k for k in key_set if k[0] != 'FUND'}
+    for chunk in _chunked({code for _market, code in sec_keys}):
+        for s in db.query(Security).filter(Security.symbol.in_(chunk)).all():
+            if (s.market, s.symbol) in sec_keys:
+                m[(s.market, s.symbol)] = s
+
+    return m
 
 
 class CrossDomainQuery:
@@ -84,8 +142,9 @@ class CrossDomainQuery:
         取某 family 的全部自选（user 域），按 (market, symbol) 批量取市场侧资料
         （market 域 funds/securities），拼装返回。供前端"自选列表带实时估值"复用。
 
-        market_columns：预留，限定 market 侧取回的字段（避免每次取全表）；
-        当前实现取基础资料实体，后续可按需裁剪。
+        market_columns：**预留参数**，用于将来限定 market 侧取回的**字段**；当前实现返回
+        基础资料实体（整行）。注意它已与「避免全表」无关——**行**范围的收窄已由
+        `fetch_market_records_by_keys` 按 keys 落地（2026-09-11 修复 #1404）。
         """
         from app.domains.watchlist.models import WatchlistItem
 
@@ -93,16 +152,9 @@ class CrossDomainQuery:
             return db.query(WatchlistItem).filter(WatchlistItem.family_id == _fid).all()
 
         def _market_fetch(db, _keys):
-            # 批量按 (market, code) 取 market 侧资料（funds 优先，回退 securities）
-            from app.domains.funds.models import Fund
-            from app.domains.securities.models import Security
-
-            m: Dict[Any, Any] = {}
-            for f in db.query(Fund).all():
-                m[('FUND', f.fund_code)] = f
-            for s in db.query(Security).all():
-                m[(s.market, s.symbol)] = s
-            return m
+            # 批量按 (market, code) 取 market 侧资料；只加载请求到的键，不做全表扫描。
+            # 具体实现见模块级 fetch_market_records_by_keys（2026-09-11 修复 #1404）。
+            return fetch_market_records_by_keys(db, _keys)
 
         def _join_key(row):
             # watchlist.(market, symbol) 标准化代码构成跨域冗余键，market 域为权威。

@@ -33,7 +33,7 @@ class TemperatureService:
 
     @classmethod
     def save_singles(cls, items: List[dict]) -> int:
-        """保存单值指标到数据库（新表 temperature_single_values）"""
+        """保存单值指标到数据库（`market_single_values` / MarketSingleValue）"""
         db = SessionLocal()
         try:
             count = 0
@@ -141,7 +141,7 @@ class TemperatureService:
 
     @classmethod
     def save_composites(cls, items: List[dict]) -> int:
-        """保存复合指标到数据库（新表 temperature_composites）"""
+        """保存复合指标到数据库（`market_composites` / MarketComposite）"""
         db = SessionLocal()
         try:
             count = 0
@@ -199,7 +199,7 @@ class TemperatureService:
     @classmethod
     def save_multi_items(cls, items: List[dict]) -> int:
         """
-        保存多维列表数据到数据库（新表 temperature_multi_items）
+        保存多维列表数据到数据库（`market_multi_items` / MarketMultiItem）
 
         兼容两种入参格式：
         1) 嵌套：{'source': 'bias', 'collected_at': datetime, 'items': [{每条一行}]}
