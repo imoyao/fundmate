@@ -201,3 +201,14 @@
   color: var(--color-rise);
   font-weight: 500;
 }
+
+/* ── 指数估值列（#1285/#1394）── */
+.el-table .index-val {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.el-table .index-val-empty {
+  color: var(--text-disabled);
+}

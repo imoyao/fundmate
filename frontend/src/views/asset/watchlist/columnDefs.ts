@@ -42,6 +42,7 @@ export type ColumnRenderer =
   | "text" // 纯文本 / 枚举映射（#993 新增列：资产类型、所属分组）
   | "notes" // 投资笔记（点击编辑，#1285）
   | "bond" // 可转债条款（#1285/#1393：溢价率 / 强赎状态 / 剩余年限 / 评级）
+  | "indexVal" // 指数估值（#1285/#1394：市盈率 / 股息率，中证官方）
   | "actions"; // 操作列（circle 按钮：置顶/关注/编辑/删除）
 
 /** 实时估值可覆盖的字段（来自 getValuationItem 产出） */
@@ -224,6 +225,29 @@ export const watchlistColumnDefs: ColumnDef[] = [
     appliesTo: ["bond"],
     width: 84,
     align: "center",
+    hideable: true,
+    draggable: true
+  },
+  // ── 指数品类专属列（#1285 消费侧「指数」/ #1394）──
+  // 来源中证指数官方估值文件（免 cookie）。官方只下发近约 20 个交易日，
+  // 故「历史分位」暂不提供（见 #1394 讨论）；估值日期挂在 title 上，口径透明。
+  {
+    key: "index_pe",
+    label: "市盈率",
+    renderer: "indexVal",
+    appliesTo: ["index"],
+    width: 88,
+    align: "right",
+    hideable: true,
+    draggable: true
+  },
+  {
+    key: "index_dividend_yield",
+    label: "股息率",
+    renderer: "indexVal",
+    appliesTo: ["index"],
+    width: 88,
+    align: "right",
     hideable: true,
     draggable: true
   },

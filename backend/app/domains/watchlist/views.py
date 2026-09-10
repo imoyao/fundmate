@@ -20,6 +20,7 @@ from app.core.money import Money
 from app.core.utils import api_response, with_db
 from app.core.validation import parse_body
 from app.domains.funds.models import AdvisorPortfolio, DailyWorth
+from app.domains.indices.models import IndexValuation
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import ConvertibleBondTerm
@@ -121,6 +122,34 @@ def _apply_bond_fields(out: dict, symbol: str, db) -> None:
     out['bond_stock_name'] = term.stock_name
 
 
+def _index_code_from_symbol(symbol: str) -> str:
+    """'SH000300' / 'CSI930950' → '000300' / '930950'（估值表按裸代码存储）。"""
+    return ''.join(ch for ch in (symbol or '') if ch.isdigit())
+
+
+def _apply_index_valuation_fields(out: dict, symbol: str, db) -> None:
+    """指数估值 enrich（#1285 消费侧「指数」品类 / #1394）。
+
+    取该指数**最新一期**估值（历史序列留给后续的估值详情页）；表为空或该指数没有
+    官方估值文件时保持 None —— 前端显示 `—`，不编造数据。
+    """
+    code = _index_code_from_symbol(symbol)
+    if not code:
+        return
+    row = (
+        db.query(IndexValuation)
+        .filter(IndexValuation.index_code == code)
+        .order_by(IndexValuation.trade_date.desc())
+        .first()
+    )
+    if row is None:
+        return
+    out['index_pe'] = _to_float(row.pe_1)
+    out['index_pe_2'] = _to_float(row.pe_2)
+    out['index_dividend_yield'] = _to_float(row.dividend_yield_1)
+    out['index_valuation_date'] = row.trade_date
+
+
 def _enrich_item(item: WatchlistItem, db) -> dict:
     out = WatchlistItemOut.model_validate(item).model_dump()
     # watchlist.asset_type 历史存放大写（STOCK/ETF/...），对外统一归一为小写，
@@ -157,6 +186,9 @@ def _enrich_item(item: WatchlistItem, db) -> dict:
 
     # 可转债条款（#1285 消费侧 / #1393）：仅转债命中 convertible_bond_terms 时填充
     _apply_bond_fields(out, item.symbol, db)
+
+    # 指数估值（#1285 消费侧 / #1394）：仅指数命中 index_valuations 时填充
+    _apply_index_valuation_fields(out, item.symbol, db)
 
     # 补充价格与市值信息（从持仓表计算静态值）
     position_value = _compute_position_market_value(item.symbol, db)
@@ -361,6 +393,8 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
     }
     # 可转债条款（#1285/#1393）：与 _enrich_item 同源，避免虚拟行（持仓聚合无 id）漏字段
     _apply_bond_fields(row, symbol, db)
+    # 指数估值（#1285/#1394）：与 _enrich_item 同源
+    _apply_index_valuation_fields(row, symbol, db)
     return row
 
 

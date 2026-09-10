@@ -750,6 +750,37 @@ const renderBond: FunctionalComponent<{
   return dash();
 };
 
+/**
+ * 指数估值列（#1285 消费侧「指数」品类 / #1394）：市盈率 / 股息率。
+ *
+ * 口径透明：估值日期挂在 title（「截至 YYYY-MM-DD」）——官方文件只下发近约 20 个
+ * 交易日，展示时点必须让用户看得见，避免误以为是实时值。
+ */
+const renderIndexVal: FunctionalComponent<{
+  row: WatchlistRow;
+  def: ColumnDef;
+  ctx: RenderCtx;
+}> = props => {
+  const { row, def } = props;
+  const asOf = (field(row, "index_valuation_date") as string) || "";
+  const title = asOf ? `截至 ${asOf}` : undefined;
+  const dash = () => h("span", { class: "index-val-empty" }, "—");
+
+  if (def.key === "index_pe") {
+    const v = field(row, "index_pe") as number | null | undefined;
+    if (v == null) return dash();
+    return h("span", { class: "index-val", title }, v.toFixed(2));
+  }
+
+  if (def.key === "index_dividend_yield") {
+    const v = field(row, "index_dividend_yield") as number | null | undefined;
+    if (v == null) return dash();
+    return h("span", { class: "index-val", title }, `${v.toFixed(2)}%`);
+  }
+
+  return dash();
+};
+
 /** renderer 类型 -> 函数式组件 的注册表 */
 const REGISTRY: Record<
   ColumnRenderer,
@@ -768,6 +799,7 @@ const REGISTRY: Record<
   text: renderText as never,
   notes: renderNotes as never,
   bond: renderBond as never,
+  indexVal: renderIndexVal as never,
   sparkline: renderSparkline as never,
   actions: renderActions as never
 };

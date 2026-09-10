@@ -87,6 +87,12 @@ class WatchlistItemOut(BaseModel):
     bond_remain_size: Optional[float] = None  # 剩余规模（亿元）
     bond_issue_size: Optional[float] = None  # 发行规模（亿元）
     bond_stock_name: Optional[str] = None  # 正股名称
+    # 指数估值补充信息（#1285 消费侧「指数」品类 / #1394）：仅 asset_type=index 且
+    # index_valuations 存在该指数记录时下发；口径见后端 IndexValuation 模型注释。
+    index_pe: Optional[float] = None  # 市盈率（中证官方列「市盈率1」）
+    index_pe_2: Optional[float] = None  # 市盈率2（官方列名，口径以官方为准）
+    index_dividend_yield: Optional[float] = None  # 股息率(%)（官方列「股息率1」）
+    index_valuation_date: Optional[date] = None  # 估值日期（口径透明：前端可标「截至 X」）
 
 
 # ── 分组 ──
