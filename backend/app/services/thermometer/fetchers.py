@@ -49,7 +49,7 @@ import time
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import requests
 from loguru import logger
@@ -233,11 +233,13 @@ class QiemanFetcher(SingleValueFetcher):
             headers['Mcp-Session-Id'] = sid
         return self.session.post(QIEMAN_MCP_URL, json=payload, headers=headers, timeout=20)
 
-    def _call_mcp(self, api_key: str):
-        """完成 MCP 握手并调用 GetLatestQuotations，返回 (temperatureList, updatedOn)。"""
+    def _mcp_handshake(self, api_key: str) -> Optional[str]:
+        """MCP 握手（initialize + notifications/initialized），返回会话 sid。
+
+        且慢 Streamable HTTP：tools/call 必须在同会话（同一 Mcp-Session-Id）内调用。
+        """
         self.session.headers['x-api-key'] = api_key
         sid: Optional[str] = None
-
         r = self._mcp_post(
             {
                 'jsonrpc': '2.0',
@@ -253,8 +255,15 @@ class QiemanFetcher(SingleValueFetcher):
         )
         if r.status_code != 200:
             raise RuntimeError(f'MCP initialize 失败: HTTP {r.status_code}')
-        sid = r.headers.get('Mcp-Session-Id') or sid
+        return r.headers.get('Mcp-Session-Id') or sid
 
+    def _call_tool(self, api_key: str, tool: str, arguments: dict) -> str:
+        """完成 MCP 握手并调用任意工具，返回解析出的文本片段（兼容 SSE / JSON 两种响应）。
+
+        #1392 扩展点：原 `_call_mcp` 只调 `GetLatestQuotations`；抽成通用方法后，
+        且慢组合持仓（BatchGetStrategiesComposition）等可复用同一传输，无需重复握手逻辑。
+        """
+        sid = self._mcp_handshake(api_key)
         r2 = self._mcp_post({'jsonrpc': '2.0', 'method': 'notifications/initialized'}, sid)
         if r2.status_code >= 400:
             raise RuntimeError(f'MCP initialized 通知失败: HTTP {r2.status_code}')
@@ -265,7 +274,7 @@ class QiemanFetcher(SingleValueFetcher):
                 'jsonrpc': '2.0',
                 'id': 2,
                 'method': 'tools/call',
-                'params': {'name': QIEMAN_TOOL, 'arguments': {}},
+                'params': {'name': tool, 'arguments': arguments},
             },
             sid,
         )
@@ -295,18 +304,38 @@ class QiemanFetcher(SingleValueFetcher):
                 raise RuntimeError(f'MCP tools/call 返回错误: {msg["error"]}')
             content = msg.get('result', {}).get('content', [])
             text = ''.join(c.get('text', '') for c in content if c.get('type') == 'text')
-
         if not text:
             raise RuntimeError('MCP 调用返回为空')
+        return text
 
-        parsed = json.loads(text)
-        if isinstance(parsed, dict):
-            arr = parsed.get('temperatureList') or parsed.get('result') or []
-            upd = parsed.get('updatedOn') or parsed.get('updated')
-        else:
-            arr = parsed
-            upd = arr[0].get('updatedOn') or arr[0].get('updated') if arr and isinstance(arr[0], dict) else None
-        return arr, upd
+    def fetch_strategy_composition(self, strategy_code: str) -> List[dict]:
+        """且慢组合持仓（#1392）：调用 BatchGetStrategiesComposition。
+
+        返回归一化列表 [{code, name, ratio}]（ratio 为占比，单位 %）。容错解析：
+        且慢返回结构随版本可能变化，对 list / dict.result / dict.data 多种形状兜底；
+        ratio 缺失时置 None，由调用方决定是否落库。
+        """
+        api_key = os.getenv('QIEMAN_API_KEY')
+        if not api_key:
+            logger.warning('QIEMAN_API_KEY 未配置，跳过且慢组合持仓')
+            return []
+        try:
+            text = self._call_tool(api_key, 'BatchGetStrategiesComposition', {'strategyCodes': [strategy_code]})
+            parsed = json.loads(text)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f'且慢组合持仓获取失败 {strategy_code}: {e}')
+            return []
+        arr = parsed if isinstance(parsed, list) else parsed.get('result') or parsed.get('data') or []
+        out = []
+        for item in arr:
+            if not isinstance(item, dict):
+                continue
+            code = str(item.get('code') or item.get('fundCode') or '').strip()
+            name = str(item.get('name') or item.get('fundName') or '').strip()
+            ratio = _to_float(item.get('ratio') or item.get('weight'))
+            if code:
+                out.append({'code': code, 'name': name, 'ratio': ratio})
+        return out
 
     def fetch(self) -> Optional[Dict[str, Any]]:
         api_key = os.getenv('QIEMAN_API_KEY')
@@ -318,7 +347,18 @@ class QiemanFetcher(SingleValueFetcher):
         last_err: Optional[Exception] = None
         for attempt in range(2):
             try:
-                records, updated = self._call_mcp(api_key)
+                text = self._call_tool(api_key, QIEMAN_TOOL, {})
+                parsed = json.loads(text)
+                if isinstance(parsed, dict):
+                    records = parsed.get('temperatureList') or parsed.get('result') or []
+                    updated = parsed.get('updatedOn') or parsed.get('updated')
+                else:
+                    records = parsed
+                    updated = (
+                        records[0].get('updatedOn') or records[0].get('updated')
+                        if records and isinstance(records[0], dict)
+                        else None
+                    )
                 if records:
                     break
             except Exception as e:  # noqa: BLE001
