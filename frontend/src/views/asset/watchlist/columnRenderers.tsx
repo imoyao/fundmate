@@ -104,8 +104,33 @@ const ADVISOR_PLATFORM_LABELS: Record<string, string> = {
   YINGMI: "盈米"
 };
 
-/** 组装投顾组合分层信息行（平台 · 主理人 · 策略类型），非投顾行返回空串不渲染 */
-function advisorSubMeta(row: WatchlistRow): string {
+/** 组合类标的（非交易实体）：资产类型层面的判定，与后端 asset_types 单一来源对齐。
+    这类标的没有对外有意义的交易代码（股票/ETF/指数的 `# 代码` 才有意义），
+    名称与第二行元信息是唯一的识别信息。 */
+const COMPOSITE_ASSET_TYPES = new Set(["portfolio", "manager"]);
+
+/** 取行的 asset_type（后端已归一为小写；历史行可能大写，统一 lower 兜底） */
+function assetTypeOf(row: WatchlistRow): string {
+  return (
+    (field(row, "asset_type") as string | null | undefined) || ""
+  ).toLowerCase();
+}
+
+/** 行是否为投顾组合/基金经理等组合类标的 */
+function isCompositeAsset(row: WatchlistRow): boolean {
+  return COMPOSITE_ASSET_TYPES.has(assetTypeOf(row));
+}
+
+/**
+ * 组装产品列第二行元信息，非组合类行返回空串不渲染：
+ * - 基金经理：所属基金公司（后端 manager_company，如「易方达基金管理有限公司」）
+ * - 投顾组合：平台 · 主理人 · 策略类型
+ * 经理行没有交易代码、组合行的平台码对用户无意义，识别信息全由本行承担。
+ */
+function compositeSubMeta(row: WatchlistRow): string {
+  if (assetTypeOf(row) === "manager") {
+    return (field(row, "manager_company") as string | null | undefined) || "";
+  }
   const platform = advisorPlatform(row);
   if (!platform) return "";
   return [
@@ -117,7 +142,7 @@ function advisorSubMeta(row: WatchlistRow): string {
     .join(" · ");
 }
 
-/** 行是否为投顾/经理类组合（后端 AdvisorPortfolio 回查命中时下发 platform） */
+/** 投顾组合平台枚举（后端 AdvisorPortfolio 回查命中时下发 platform） */
 function advisorPlatform(row: WatchlistRow): string {
   return (field(row, "advisor_platform") as string | null | undefined) || "";
 }
@@ -400,11 +425,14 @@ const renderProduct: FunctionalComponent<{
           name: (field(row, "display_name") as string) || row.symbol,
           symbol: row.symbol,
           typeLabel: (field(row, "type_label") as string) || "",
-          // 投顾组合分层信息（平台 · 主理人 · 策略）独立成行，避免与代码/类型/标签挤一行
-          subMeta: advisorSubMeta(row),
-          // 投顾/经理类组合的平台编码（ZHxxxx/CSIxxxx）对用户无意义：隐藏代码段，
-          // 识别信息由分层行承担；股票/ETF/指数等保留 `# 代码`（用户 2026-09-09 拍板）
-          showCode: !advisorPlatform(row)
+          // 组合类标的的分层信息（经理→所属公司；投顾→平台 · 主理人 · 策略）独立成行，
+          // 避免与代码/类型/标签挤一行（用户 2026-09-09 拍板）
+          subMeta: compositeSubMeta(row),
+          // 组合类标的（投顾组合 ZHxxxx/CSIxxxx、基金经理 MGR_<mgr_code>）的编码对用户
+          // 无意义：整段不渲染，识别信息由分层行承担；股票/ETF/指数等保留 `# 代码`。
+          // 判定用 asset_type 而非 advisor_platform——经理行没有 AdvisorPortfolio 记录，
+          // 只认 platform 会漏掉经理（2026-09-10 用户反馈）。
+          showCode: !isCompositeAsset(row)
         },
         {
           meta: () => [

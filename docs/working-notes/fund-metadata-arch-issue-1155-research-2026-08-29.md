@@ -82,3 +82,16 @@
 - 经理抓取被跳过：`fund_manager_job.py:2` 注释；注册 `orchestrator.py:114`
 - 域注册表：`backend/app/core/db_factory.py:56-98`
 - 账本侧"基金公司"仅字符串/文本：`ledgers/constants.py:28`、`positions/models.py:127`
+
+
+---
+
+## 结论回填（2026-09-10）
+
+本文第二节提出的「`fund_management_companies` 归属待决策（走向 A 重归 market 域 / 走向 B 在 positions 上加外键）」**已按第三条路径收束**：**合并进 `fund_companies` 后删除死表**。
+
+- 死表判定复核通过：唯一写方 `amac_institution_job`，**零读者、零外键、零接口**；`db_factory` 那句「被 positions 引用」确认为**假注释**（positions 只 FK `sales_institutions`）。
+- AMAC 基金管理人公示信息（全称/注册地址/办公地址/官网/客服电话）改为 enrich 进 `fund_companies`（`full_name` + 4 个新列 + `is_active`），`name` 语义定为**简称**（界面默认显示）、`full_name` 为**权威全称**。
+- 未新建行：AMAC 不提供东财 8 位编码，硬造编码等于给公司主数据开第二个写者——这正是死表当初诞生的机制。
+- 顺带修掉的真实缺陷：`fund_companies` 内 8 组「简称行 + 全称行」重复实体（成因是四个 job 各自「查名建行」，东财给简称、akshare 给全称），招商基金的经理被分裂挂在 103 + 9 两行；现已收口唯一写入口 `company_resolver.get_or_create_fund_company` 并合并历史数据。
+- 决策全文见 `docs/spec/decisions.md` 2026-09-10 行；迁移脚本 `backend/scripts/migrate_fund_company_merge.py`。

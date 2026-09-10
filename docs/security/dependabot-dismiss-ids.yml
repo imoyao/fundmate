@@ -1,0 +1,124 @@
+# Dependabot 批量 dismiss 编号清单
+#
+# 用途：供 docs/security/dependabot-triage.md 第二节（后端 pip 73 个残留告警）
+#       批量处置使用；一个 alert 编号对应一条 dismiss 记录。
+# 背景：这些告警基于已删除的 backend/requirements/base.txt 的历史扫描结果，
+#       Dependabot 不会自动清除；实际依赖（pdm.lock）解析版本已 ≥ patched 版本，
+#       属「幽灵告警」，并非真实漏洞。
+# 处置：GitHub → Security → Dependabot alerts → 勾选下列编号批量 dismiss，
+#       reason 选 "This vulnerability is not in my codebase / no longer present"。
+# 迁移：由原仓库根目录的 da_phantom_ids.txt（2026-08-10 生成）转成结构化 YAML，
+#       以免裸 .txt 被误认作临时文件（见 #1285 讨论）。
+#
+# 结构：pip.alert_ids 为整数数组，降序排列，共 73 个。
+
+pip:
+  # 触发这批幽灵告警的清单文件（已删除，仅存在于历史扫描记录中）
+  manifest: backend/requirements/base.txt
+  generated_at: "2026-08-10"
+  reason: "This vulnerability is not in my codebase / no longer present"
+  alert_ids:
+    - 808
+    - 807
+    - 769
+    - 768
+    - 767
+    - 766
+    - 765
+    - 764
+    - 763
+    - 762
+    - 761
+    - 760
+    - 759
+    - 758
+    - 707
+    - 706
+    - 612
+    - 584
+    - 582
+    - 579
+    - 574
+    - 573
+    - 572
+    - 571
+    - 570
+    - 569
+    - 568
+    - 567
+    - 566
+    - 565
+    - 529
+    - 527
+    - 523
+    - 522
+    - 518
+    - 496
+    - 478
+    - 471
+    - 439
+    - 438
+    - 402
+    - 401
+    - 398
+    - 396
+    - 395
+    - 393
+    - 392
+    - 356
+    - 350
+    - 347
+    - 337
+    - 333
+    - 328
+    - 326
+    - 313
+    - 272
+    - 265
+    - 259
+    - 254
+    - 253
+    - 244
+    - 240
+    - 222
+    - 220
+    - 219
+    - 212
+    - 208
+    - 196
+    - 194
+    - 190
+    - 184
+    - 171
+    - 111
+
+npm:
+  # 全部为 dev/build 工具链的传递依赖，不进生产打包产物；
+  # patched 版本要么未发布、要么需破坏性大版本跳跃（会崩上游）。
+  # 处置：批量 dismiss，reason 选 "not reachable in production"（dev-toolchain only）。
+  # 说明：编号原以文本形式散落在 dependabot-triage.md §3.2，现结构化于此。
+  generated_at: "2026-08-10"
+  reason: "This vulnerability is not in my codebase / not reachable in production"
+  # 按所属 lockfile 分组；822 同时出现在根与 frontend
+  root:
+    path: pnpm-lock.yaml
+    alert_ids:
+      - 825
+      - 824
+      - 823
+      - 822
+      - 821
+      - 820
+      - 819
+      - 818
+      - 817
+      - 816
+      - 812
+      - 732
+      - 709
+  frontend:
+    path: frontend/pnpm-lock.yaml
+    alert_ids:
+      - 815
+      - 627
+      - 822

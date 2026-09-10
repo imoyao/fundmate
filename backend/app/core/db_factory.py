@@ -36,12 +36,15 @@ DOMAIN_USER = 'user'  # 用户核心账本库（Supabase，隐私数据，独立
 DOMAIN_MARKET = 'market'
 
 _DEFAULT_APP_DB = 'sqlite:///./invest.db'
-_DEFAULT_DEV_DB = 'sqlite:///./invest.dev.db'
+# development 缺省库：与 app 同文件——本地（含全新克隆、无 .env）只有一个 invest.db，
+# 既有数据零迁移。历史曾为独立 `invest.dev.db`，导致无 .env 的克隆另建一个空库、
+# 看不到 invest.db 里的存量数据；统一为 invest.db 后该坑消除。
+_DEFAULT_DEV_DB = 'sqlite:///./invest.db'
 
 
 def _development_user_url() -> str:
     """development 下 user 域 URL：显式配置 DEV_USER_DATABASE_URL 优先（独立库，
-    本地双库模拟）；未配置时与 market 域同库（DEV_DATABASE_URL，缺省 invest.dev.db）——
+    本地双库模拟）；未配置时与 market 域同库（DEV_DATABASE_URL，缺省 invest.db）——
     「默认放一起，显式配第二个库才分开」。"""
     return os.getenv('DEV_USER_DATABASE_URL') or os.getenv('DEV_DATABASE_URL') or _DEFAULT_DEV_DB
 
@@ -54,8 +57,12 @@ def _development_user_url() -> str:
 # 归属判定见 AGENTS.md「多引擎数据域约束」决策树。
 #
 # 边界先例（已固化，勿凭"公开=Turso"一刀切）：
-#  - sales_institutions / fund_management_companies：公开名录，但被 user 域表
-#    (ledgers/positions) 外键引用 → 随 user 域，避反向跨域 FK。
+#  - sales_institutions：公开名录，但被 user 域表 (ledgers) 外键引用 → 随 user 域，
+#    避反向跨域 FK。
+#  - fund_companies：公司主数据，被 market 域表 (funds/managers) 外键引用 →
+#    随 market 域。AMAC 基金管理人公示信息 enrich 进本表（2026-09-10 合并），
+#    曾有独立的 fund_management_companies（user 域）——实测零读者/零外键/零接口，
+#    已删除。注意别再把它登记回来。
 #  - managers / fund_managers：被 market 域表 (funds) 外键引用 → 随 market 域。
 DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     # ── market 域（Turso）：公开、读多写少、无限膨胀的市场数据 ──
@@ -94,7 +101,6 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'position_import_meta': DOMAIN_USER,  # 导入溯源（含 family_id）
     'assets': DOMAIN_USER,  # 静态资产（含 family_id）
     'sales_institutions': DOMAIN_USER,  # 销售机构名录（被 ledgers 引用，随 user 域）
-    'fund_management_companies': DOMAIN_USER,  # 基金公司名录（被 positions 引用，随 user 域）
     'watchlist': DOMAIN_USER,
     'watchlist_groups': DOMAIN_USER,
     'watchlist_item_group': DOMAIN_USER,
@@ -340,8 +346,9 @@ def user_session_factory() -> sessionmaker:
 
     单库/双库统一可用：
     - 配置了 SUPABASE_DATABASE_URL → 真 Supabase（最终验证 / 生产）。
-    - 未配置 → 自动回退本地 SQLite 文件（invest.user.dev.db），与 market 域
-      物理分离但零网络依赖，本地测试飞快。业务代码无需任何分支判断。
+    - 未配置 → development 下**默认与 market 域同库**（DEV_DATABASE_URL，缺省
+      invest.db，即本地单库）；只有显式配 DEV_USER_DATABASE_URL 才落到独立文件
+      （如 invest.user.dev.db，本地双库模拟）。业务代码无需任何分支判断。
     """
     eng = DatabaseFactory.create(DOMAIN_USER)
     return sessionmaker(autocommit=False, autoflush=False, bind=eng)

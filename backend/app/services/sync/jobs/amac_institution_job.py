@@ -12,6 +12,18 @@
 - 常用机构策展（#1081）：CURATED_INSTITUTIONS 命中行覆写 is_common/common_sort/
   display_name（代码即 source of truth，保证多环境迁移收敛）；未命中行的
   display_name 维持「仅首次写入」语义，不覆盖。
+
+两张名录的落点不同（2026-09-10 主数据合并后，勿再改回两张公司表）：
+- 销售机构 → 独立表 `sales_institutions`（`Ledger.sales_institution_id` 引用它）；
+- 基金管理人 → **enrich 进 `fund_companies`**（公司主数据唯一表）：AMAC 全称写
+  `full_name`，公示的地址/官网/电话写对应列。**不新建公司行**——`fund_companies.code`
+  非空且唯一（东财 8 位编码），AMAC 不提供该编码，硬造会把公司主数据的写权撕成两份，
+  这正是历史上 `fund_management_companies` 成为孤儿死表的成因（零读者、零外键）。
+
+AMAC 名录里没有「基金公司本体（直销）」这一行，这是**正确的**：基金管理人直销自家
+产品无须另取销售业务资格（《公开募集证券投资基金销售机构监督管理办法》第八条），
+故不进入销售机构公示。名录里的「公募基金管理公司销售子公司」是**独立法人**
+（嘉实财富/中欧财富/华夏财富…），必须单独成行。
 """
 
 import time
@@ -19,7 +31,9 @@ from typing import List
 
 import requests
 
-from app.domains.positions.models import FundManagementCompany, SalesInstitution
+from app.domains.funds.models import FundCompany
+from app.domains.positions.models import SalesInstitution
+from app.services.sync.company_resolver import build_fund_company_index, match_fund_company
 from app.services.sync.jobs.base import SyncJob
 from app.services.sync.pinyin_utils import generate_pinyin_abbr
 
@@ -72,6 +86,12 @@ class AmacInstitutionJob(SyncJob):
     def get_name(self) -> str:
         return 'amac_institution'
 
+    def _pre_run(self) -> None:
+        # _post_run 依赖的三个状态容器：先初始化，避免空数据/异常路径下 AttributeError
+        self._seen_org_names: set = set()
+        self._seen_house_names: set = set()
+        self._unmatched_houses: List[str] = []
+
     # ── 数据获取 ──
 
     def _fetch_data(self, full_sync: bool, targets: List[str]) -> List[dict]:
@@ -118,8 +138,10 @@ class AmacInstitutionJob(SyncJob):
     def _validate_data(self, raw_data: List[dict]) -> List[dict]:
         """按 kind 校验必填字段（权威全称非空）。
 
-        编码守卫：名称含 U+FFFD 替换符（�）说明解码失败/乱码，
-        直接丢弃并告警，**绝不写入库中**（2026-08-17 乱码污染事故后新增）。
+        编码守卫：名称含 U+FFFD 替换符说明解码失败/乱码，直接丢弃并告警，
+        **绝不写入库中**（2026-08-17 乱码污染事故后新增）。
+        源码里一律写 `'\ufffd'` 转义，**不要**写该字符的字面量——mojibake 守卫
+        钩子（pre-commit guard-mojibake）会把它判为源码损坏并拦住提交。
         """
         validated = []
         for item in raw_data:
@@ -143,16 +165,17 @@ class AmacInstitutionJob(SyncJob):
     def _save_data(self, new_data: List[dict]) -> None:
         self._seen_org_names: set = set()
         self._seen_house_names: set = set()
+        self._unmatched_houses: List[str] = []
 
         # 批量预载现有行，避免逐条 query 的 N+1 问题（#1084 review）
         existing_sales = {r.org_name: r for r in self.db.query(SalesInstitution).all()}
-        existing_houses = {r.house_name: r for r in self.db.query(FundManagementCompany).all()}
+        company_index = build_fund_company_index(self.db)
 
         for item in new_data:
             if item.get('kind') == 'sales':
                 self._upsert_sales(item, existing_sales)
             else:
-                self._upsert_house(item, existing_houses)
+                self._upsert_house(item, company_index)
         self.db.commit()
 
     def _upsert_sales(self, item: dict, existing: dict) -> None:
@@ -188,28 +211,28 @@ class AmacInstitutionJob(SyncJob):
             )
             self.stats['success'] += 1
 
-    def _upsert_house(self, item: dict, existing: dict) -> None:
+    def _upsert_house(self, item: dict, company_index: dict) -> None:
+        """把 AMAC 基金管理人公示信息 enrich 到既有 `fund_companies` 行。
+
+        匹配走 `company_resolver`（归一化名 + 业务族），实测 165 条命中 161 条。
+        命中的 4 条失配（北信瑞丰/华宸未来/施罗德（中国）等）**不新建行**——
+        `fund_companies.code` 非空唯一而 AMAC 不给编码，硬造编码等于在公司主数据上
+        开第二个写者（历史死表的成因）。改为累计告警，让缺口在对账里可见。
+        """
         house_name = item['houseName'].strip()
         self._seen_house_names.add(house_name)
-        row = existing.get(house_name)
-        if row:
-            row.register_addr = item.get('registerAddr') or row.register_addr
-            row.office_addr = item.get('officeAddr') or row.office_addr
-            row.website = item.get('website') or row.website
-            row.phone = item.get('phone') or row.phone
-            row.is_active = True
-        else:
-            self.db.add(
-                FundManagementCompany(
-                    house_name=house_name,
-                    register_addr=item.get('registerAddr'),
-                    office_addr=item.get('officeAddr'),
-                    website=item.get('website'),
-                    phone=item.get('phone'),
-                    is_active=True,
-                )
-            )
-            self.stats['success'] += 1
+        row = match_fund_company(company_index, house_name)
+        if row is None:
+            self._unmatched_houses.append(house_name)
+            self.stats['skipped'] += 1
+            return
+        # AMAC 全称 = 权威全称；`name`（简称）归东财链路，本 job 不碰
+        row.full_name = house_name
+        row.register_addr = item.get('registerAddr') or row.register_addr
+        row.office_addr = item.get('officeAddr') or row.office_addr
+        row.website = item.get('website') or row.website
+        row.phone = item.get('phone') or row.phone
+        row.is_active = True
 
     # ── 后置：下架/倒闭保护 ──
 
@@ -224,17 +247,29 @@ class AmacInstitutionJob(SyncJob):
             row.is_active = False
             self.logger.warning(f'销售机构已不在 AMAC 公示名单，标记失效: {row.org_name}')
 
+        # 基金管理人侧只失效「曾被本 job 认领」的行（full_name 非空）：`fund_companies`
+        # 的行权属东财链路（code/name/scale 由它维护），若不加这道闸，本 job 会把
+        # AMAC 名录里压根没有的券商资管系公司一律误标失效。
         inactive_houses = (
-            self.db.query(FundManagementCompany)
+            self.db.query(FundCompany)
             .filter(
-                FundManagementCompany.is_active.is_(True),
-                FundManagementCompany.house_name.notin_(self._seen_house_names),
+                FundCompany.is_active.is_(True),
+                FundCompany.full_name.isnot(None),
+                FundCompany.full_name.notin_(self._seen_house_names),
             )
             .all()
         )
         for row in inactive_houses:
             row.is_active = False
-            self.logger.warning(f'基金管理人已不在 AMAC 公示名单，标记失效: {row.house_name}')
+            self.logger.warning(f'基金管理人已不在 AMAC 公示名单，标记失效: {row.full_name}')
+
+        if self._unmatched_houses:
+            # 不静默丢：AMAC 有、公司主数据没有 = 东财快照落后或名称无法归一化，
+            # 需要人工确认是补数据还是加手动映射（company_resolver._MANUAL_MAPPING）
+            self.logger.warning(
+                f'AMAC 基金管理人有 {len(self._unmatched_houses)} 条未匹配到 fund_companies，'
+                f'本次未回填（不新建行）: {self._unmatched_houses}'
+            )
 
         if inactive_orgs or inactive_houses:
             self.db.commit()

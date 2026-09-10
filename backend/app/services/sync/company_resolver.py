@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # app/services/sync/company_resolver.py
 """
-基金公司 code 解析与回填（#1168 P1）。
+基金公司名称/code 解析与回填（#1168 P1，2026-09-10 扩展为主数据匹配枢纽）。
 
 数据源：天天基金基金公司列表 http://fund.eastmoney.com/js/jjjz_gs.js
 实测返回：var gs={op:[["80163340","安信基金"],["81608035","安联基金"],...]}
@@ -16,6 +16,12 @@ jjjz_gs.js 是简称（"易方达基金"），精确匹配会大量失配。故�
 仍未命中则查手动映射 _MANUAL_MAPPING；最后保留 code=name 占位并打 warning
 （设计文档明确接受的回退）。
 
+2026-09-10 起本模块同时是**跨来源公司主体匹配的唯一实现**：
+`normalize_company_name` / `build_fund_company_index` / `match_fund_company`
+三件套供 AMAC 名录回填（`amac_institution_job`）与历史数据合并
+（`scripts/migrate_fund_company_merge.py`）共用。命名与业务族判定规则见各函数
+docstring——同一实体只允许一处匹配逻辑，避免两份实现漂移。
+
 手动映射适用场景：东财 jjjz_gs.js 使用简称（如"国泰海通资管"），与
 fund_companies 全称（"上海国泰海通证券资产管理有限公司"）无法通过后缀
 归一化匹配。已实测确认可映射的公司列入 _MANUAL_MAPPING。
@@ -23,10 +29,11 @@ fund_companies 全称（"上海国泰海通证券资产管理有限公司"）无
 
 import json
 import re
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 import requests
 from loguru import logger
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.domains.funds.models import FundCompany
@@ -61,13 +68,20 @@ _MANUAL_MAPPING: Dict[str, str] = {
 }
 
 
-def _normalize_company_name(name: str) -> str:
-    """剥除常见法人主体后缀，保留品牌核心词用于匹配。
+def normalize_company_name(name: str) -> str:
+    """剥除常见法人主体后缀，保留品牌核心词用于匹配（**全仓唯一实现**）。
 
     采用迭代剥离：单次剥离会把「股份有限公司」+「证券」这类组合后缀拆成多级，
     必须反复剥到不再变化（如「银华基金管理股份有限公司」→「银华基金」→「银华」），
     才能与天天基金列表简称（「银华基金」归一化后为「银华」）对齐。同时去掉
     「(中国)」这类属地括号，避免其阻断后缀剥离（#1199 实测失配样本归因）。
+
+    跨来源同主体识别的公共入口：`company_resolver`（东财 code 解析）、
+    `amac_institution_job`（AMAC 名录 enrich 回填）、`migrate_fund_company_merge`
+    （历史数据合并）三处共用，**不要再写第二份**——两处实现必然漂移
+    （2026-09-10 展示名解析链两次实现导致首页/列表页不一致的同类教训）。
+
+    注意：归一化结果是**匹配键**，不是展示名，禁止入库或下发前端。
     """
     if not name:
         return ''
@@ -88,6 +102,124 @@ def _normalize_company_name(name: str) -> str:
             n = n[: -len(best)]
             changed = True
     return n
+
+
+# 兼容旧私有名（本模块内部历史调用点），新代码一律用公开名。
+_normalize_company_name = normalize_company_name
+
+
+def company_business_family(name: str) -> str:
+    """业务族标记：区分「基金管理人」与「券商/资管系」。
+
+    必要性（2026-09-10 实测）：后缀归一化会把「招商证券资产管理有限公司」与
+    「招商基金管理有限公司」**同时**收敛到键 `招商`。若不区分业务族，
+    AMAC 的「招商基金管理有限公司」可能被回填到券商资管那行（反之亦然）——
+    这类错配会让「公司官网/客服电话」张冠李戴，且因为同名不易被察觉。
+    """
+    return 'fund' if '基金' in (name or '') else 'other'
+
+
+# 兼容旧私有名，新代码一律用公开名。
+_business_family = company_business_family
+
+
+_FULL_NAME_SUFFIXES = ('股份有限公司', '有限责任公司', '有限公司', '公司')
+
+
+def looks_like_full_name(name: str) -> bool:
+    """是否「法人全称」形态（以公司后缀结尾）。
+
+    `fund_companies.name` 的列语义是**简称**（全称归 `full_name`），所以形态判断
+    是择规范行的第一准则，而不是引用数——2026-09-10 实测 8 组重复里两行的引用
+    分布恰好互补（全称行持 funds 引用、简称行持 managers 引用，是 fund_list_job 与
+    fund_manager_job 两个来源名形态不同造成的），按引用数合并会在「招商」那组
+    算错方向（全称行 114 funds + 9 managers 反而多过简称行 103 managers），
+    把规范行选成全称行，最终 `name` 里留着全称、简称丢失。
+    """
+    return bool(name) and name.endswith(_FULL_NAME_SUFFIXES)
+
+
+def canonical_company_order(row_id: int, name: str, ref_count: int) -> tuple:
+    """重复实体的「规范行」排序键（升序取第一个）。
+
+    规则：
+    1. **形态**：已是简称者优先（`name` 列语义是简称，全称属于 `full_name`）——
+       这条是主准则，见 `looks_like_full_name` 的实测说明；
+    2. **被引用多者优先**（`ref_count` = 挂在行下的经理数 + 基金数）——
+       同形态时说明哪一行在真正被使用；
+    3. id 小者（兜底，保证同输入同输出）。
+
+    实测 8 组重复的简称行同时持有东财权威 code（`jjjz_gs.js` 逐行校验），与本规则一致。
+    """
+    return (1 if looks_like_full_name(name) else 0, -ref_count, row_id)
+
+
+def pick_canonical_company(rows: Sequence[tuple]) -> tuple:
+    """从 `[(id, name, ref_count), ...]` 里选出规范行（纯函数，job 与迁移脚本共用）。
+
+    纯函数的原因：同一规则若在同步任务与迁移脚本里各写一份，必然漂移（本仓
+    2026-09-10 已因「展示名解析两份实现」踩过一次同类坑）。
+    """
+    return sorted(rows, key=lambda r: canonical_company_order(*r))[0]
+
+
+def build_fund_company_index(db: Session) -> Dict[tuple, FundCompany]:
+    """构建「归一化名 → FundCompany 行」索引，供跨来源批量 matching。
+
+    同一个归一化键命中多行 = `fund_companies` 内部有重复实体（2026-09-10 实测 8 组，
+    简称/全称各一行；招商基金的经理甚至分裂在两行 103 + 9）。索引**不改数据**，
+    只按 `pick_canonical_company` 确定性择一并告警，把重复暴露给数据治理任务
+    （`scripts/migrate_fund_company_merge.py`）。
+    """
+    from app.domains.funds.models import Fund, Manager
+
+    # 引用数 = 经理数 + 基金数（两个 consumer 都算，且与迁移脚本口径一致）
+    ref_counts = dict(
+        db.query(Manager.company_id, func.count(Manager.id))
+        .filter(Manager.company_id.isnot(None))
+        .group_by(Manager.company_id)
+        .all()
+    )
+    for cid, cnt in (
+        db.query(Fund.company_id, func.count(Fund.id)).filter(Fund.company_id.isnot(None)).group_by(Fund.company_id)
+    ):
+        ref_counts[cid] = ref_counts.get(cid, 0) + cnt
+    grouped: Dict[tuple, List[FundCompany]] = {}
+    for row in db.query(FundCompany).all():
+        if not row.name:
+            continue
+        grouped.setdefault(company_index_key(row.name), []).append(row)
+
+    index: Dict[tuple, FundCompany] = {}
+    for key, rows in grouped.items():
+        if len(rows) > 1:
+            canonical_id = pick_canonical_company([(r.id, r.name, ref_counts.get(r.id, 0)) for r in rows])[0]
+            logger.warning(
+                '基金公司存在重复实体（键 %r，ids=%s），暂择 id=%s 为准；需数据合并',
+                key,
+                [r.id for r in rows],
+                canonical_id,
+            )
+            rows = [r for r in rows if r.id == canonical_id]
+        index[key] = rows[0]
+    return index
+
+
+def company_index_key(name: str) -> tuple:
+    """匹配键 = （归一化名, 业务族）。业务族进键，使「招商基金」与
+    「招商证券资产管理」永不可能互相命中（二者归一化名同为 `招商`）。"""
+    return (normalize_company_name(name), company_business_family(name))
+
+
+def match_fund_company(index: Dict[tuple, FundCompany], name: str) -> Optional[FundCompany]:
+    """按名称在索引里查同一法人主体；无匹配返回 None。
+
+    匹配键含业务族，等价于两道闸同时满足——**宁可漏配（调用方记 warning，缺失可见）
+    也不误配**（把 A 公司的官网/客服电话写到 B 公司上，是最难发现的一类数据腐蚀）。
+    """
+    if not name:
+        return None
+    return index.get(company_index_key(name))
 
 
 def fetch_fund_company_list() -> List[Dict[str, str]]:
@@ -117,7 +249,7 @@ def get_company_code_by_name(name: str) -> Optional[str]:
             return None
         _cache = {}
         for c in companies:
-            norm = _normalize_company_name(c['name'])
+            norm = normalize_company_name(c['name'])
             # 精确名与归一化名都建索引，提高命中率
             _cache.setdefault(c['name'], c['code'])
             if norm:
@@ -127,7 +259,56 @@ def get_company_code_by_name(name: str) -> Optional[str]:
     exact = _cache.get(name)
     if exact:
         return exact
-    return _cache.get(_normalize_company_name(name))
+    return _cache.get(normalize_company_name(name))
+
+
+def get_or_create_fund_company(db: Session, name: str, cache: Optional[Dict[str, int]] = None) -> Optional[int]:
+    """按名称取公司 id，不存在才新建（**全仓唯一写入口，四个 job 共用**）。
+
+    为什么要收口：基金列表 / 基金详情 / 基金经理 三个同步任务都会带来公司名，
+    此前各自实现「查名 → 建行」，而各来源给的形态不同——东财基金列表给简称
+    （「招商基金」），akshare 基金经理给全称（「招商基金管理有限公司」）——
+    精确匹配全部落空，于是同一家公司在库里长出两行（2026-09-10 实测 8 组，
+    招商基金的经理被分裂挂在 103 + 9 两行上）。**同一实体只能有一个写入口**，
+    四个 job 各写一份必然漂移。
+
+    匹配顺序：
+    1. `name` 精确相等（快路径）；
+    2. 归一化名 + 业务族相等（`match_fund_company`）——「招商基金管理有限公司」
+       归一到与库内简称行「招商基金」同键，命中既有行、不再新建；
+    3. 仍未命中才新建：code 优先天天基金权威 code，未命中保留 `code=name` 占位
+       （由 `backfill_fund_company_codes` 后续补齐）。
+
+    `full_name` / 地址 / 官网等 AMAC 字段不在本函数写权内（单一写者原则，
+    见 `FundCompany` docstring）；本函数只负责「找到或创建那一行」。
+
+    cache：批处理场景传入 `{name: id}` 复用，避免逐条全表扫描；新行也会回写 cache。
+    """
+    if not name:
+        return None
+    if cache is not None and name in cache:
+        return cache[name]
+
+    inst = db.query(FundCompany).filter_by(name=name).first()
+    if inst is None:
+        # 跨来源形态差异（全称 ↔ 简称）靠归一化收敛，避免为同一主体建第二行
+        inst = match_fund_company(build_fund_company_index(db), name)
+    if inst is None:
+        real_code = get_company_code_by_name(name)
+        if not real_code:
+            logger.warning(f'基金公司「{name}」未匹配到权威 code，暂以名称占位')
+        candidate_code = real_code or name
+        # unique(code) 闸：占位 code=name 跨批次/跨运行可能已存在；权威 code 也可能
+        # 被同机构的简称/全称变体行占用（#1286 全量回填实测：银华基金 80000235）
+        inst = db.query(FundCompany).filter_by(code=candidate_code).first()
+        if inst is None:
+            inst = FundCompany(name=name, code=candidate_code)
+            db.add(inst)
+            db.flush()
+
+    if cache is not None:
+        cache[name] = inst.id
+    return inst.id
 
 
 def backfill_fund_company_codes(db: Session, dry_run: bool = True) -> Dict[str, object]:

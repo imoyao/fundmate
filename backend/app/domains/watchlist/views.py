@@ -19,10 +19,9 @@ from app.core.database import get_db
 from app.core.money import Money
 from app.core.utils import api_response, with_db
 from app.core.validation import parse_body
-from app.domains.funds.models import AdvisorPortfolio, DailyWorth, Fund
+from app.domains.funds.models import AdvisorPortfolio, DailyWorth
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
-from app.domains.securities.models import Security
 from app.domains.transactions.models import Transaction
 from app.domains.watchlist.models import (
     WatchlistGroup,
@@ -47,6 +46,8 @@ from app.services.watchlist_service import (
     build_home_summary,
     create_watchlist_item,
     get_filtered_items_query,
+    lookup_manager,
+    resolve_display_name,
 )
 
 watchlist_bp = APIBlueprint('watchlist', __name__, url_prefix='/api/watchlist')
@@ -76,24 +77,10 @@ GROUP_COLORS = {
 
 
 # ─────────────── 辅助函数 ───────────────
-def _get_display_info(symbol: str, db) -> str:
-    """根据标准化代码查询资产展示名称。
-
-    优先级：Security.name → Fund.name → AdvisorPortfolio.name → symbol 兜底。
-    投顾组合（#1167，如且慢 ZHxxxx/蛋卷 CSIxxxx/天天基金 combo）既不在
-    Securities 也不在 Funds 里——若不补这一层，自选里会显示原始代码，
-    编号对用户毫无意义。
-    """
-    sec = db.query(Security).filter_by(symbol=symbol).first()
-    if sec and sec.name:
-        return sec.name
-    fund = db.query(Fund).filter_by(fund_code=symbol).first()
-    if fund and fund.name:
-        return fund.name
-    advisor = db.query(AdvisorPortfolio).filter_by(code=symbol).first()
-    if advisor and advisor.name:
-        return advisor.name
-    return symbol
+# 展示名解析（resolve_display_name）与经理回查（lookup_manager）已收口到
+# services.watchlist_service：首页自选摘要与自选列表页**共用同一实现**。
+# 此前两处各写一份，只有本文件补了 Manager/AdvisorPortfolio 分支，导致列表页
+# 正常而首页仍显示 MGR_xxx（2026-09-10 复盘），故不再在此另立副本。
 
 
 def _enrich_item(item: WatchlistItem, db) -> dict:
@@ -104,7 +91,7 @@ def _enrich_item(item: WatchlistItem, db) -> dict:
     # 资产类型中文标签：单一来源 app.core.constants.TYPE_LABELS（#1171 枚举一致性），
     # 供前端「资产类型」列（#1332 候选列）直接展示，免前端再映射。
     out['type_label'] = TYPE_LABELS.get(out['asset_type']) or out['asset_type'] or ''
-    out['display_name'] = _get_display_info(item.symbol, db)
+    out['display_name'] = resolve_display_name(item.symbol, db)
     out['group_ids'] = [link.group_id for link in item.group_links]
     out['tag_ids'] = [link.tag_id for link in item.tag_links]
     # 所属分组名称列表（#1332 排序用，避免前端再映射 group_ids）
@@ -123,6 +110,12 @@ def _enrich_item(item: WatchlistItem, db) -> dict:
         out['advisor_host'] = None
         out['advisor_strategy_type'] = None
         out['advisor_org_name'] = None
+
+    # 基金经理补充信息（#1286）：所属基金公司名。经理行没有对外有意义的交易代码，
+    # 第二行元信息由公司承担，否则只剩一个「基金经理」标签、信息量为零
+    # （2026-09-10 用户反馈）。
+    mgr = lookup_manager(item.symbol, db)
+    out['manager_company'] = mgr.company.name if mgr and mgr.company else None
 
     # 补充价格与市值信息（从持仓表计算静态值）
     position_value = _compute_position_market_value(item.symbol, db)
@@ -255,7 +248,7 @@ def _list_holding_items(db, family_id, venue=None, search=None):
         if search:
             s = search.lower()
             # 名称匹配：优先用持仓名称，缺失时回退到 securities/funds 展示名（与 _build_holding_row 同源）
-            display = (pos_name or '') or _get_display_info(symbol, db)
+            display = (pos_name or '') or resolve_display_name(symbol, db)
             if s not in symbol.lower() and s not in (display or '').lower():
                 continue
         data.append(_build_holding_row(symbol, db, market=market, asset_type=asset_type, venue=row_venue))
@@ -280,9 +273,10 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
     market = market or (pos.market if pos else None)
     asset_type = asset_type or (pos.asset_type if pos else None)
     venue = venue or ('OTC' if asset_type == 'fund' else 'EXCHANGE')
-    display_name = (pos.name if pos and pos.name else None) or _get_display_info(symbol, db)
+    display_name = (pos.name if pos and pos.name else None) or resolve_display_name(symbol, db)
     # 投顾组合元信息：与 _enrich_item 同步，避免虚拟行（持仓聚合无 id 的行）漏字段
     advisor = db.query(AdvisorPortfolio).filter_by(code=symbol).first()
+    mgr = lookup_manager(symbol, db)  # 经理行公司名：与 _enrich_item 同源
 
     current_price = _compute_avg_current_price(symbol, db)
     stats = _compute_holding_stats(symbol, db)
@@ -321,6 +315,8 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
         'advisor_host': (advisor.host if advisor else None),
         'advisor_strategy_type': (advisor.strategy_type if advisor else None),
         'advisor_org_name': (advisor.org_name if advisor else None),
+        # 基金经理所属公司（与 _enrich_item 同源；非经理为 None）
+        'manager_company': (mgr.company.name if mgr and mgr.company else None),
     }
 
 

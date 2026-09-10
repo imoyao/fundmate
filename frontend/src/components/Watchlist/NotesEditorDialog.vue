@@ -1,6 +1,6 @@
 <!--
-  NotesEditorDialog · 自选行内投资笔记编辑弹窗（#1285）
-  - 为单个自选资产编辑投资笔记（watchlist.notes），与 Favorite（未竟之蹊）复盘页
+  NotesEditorDialog · 自选行内备注编辑弹窗（#1285）
+  - 为单个自选资产编辑备注（watchlist.notes），与 Favorite（未竟之蹊）复盘页
     共享同一字段，写回同一张表。
   - props：modelValue(显隐)、item(当前自选资产)。
   - emits：update:modelValue、saved(保存成功后触发，父组件负责刷新列表)。
@@ -17,7 +17,7 @@
       <span class="text-sm" :style="{ color: 'var(--text-secondary)' }">
         为
         <strong>{{ item?.display_name || item?.symbol }}</strong>
-        编辑投资笔记
+        编辑备注
       </span>
     </div>
     <el-input

@@ -16,7 +16,6 @@ class WatchlistItemCreate(BaseModel):
     asset_type: Optional[str] = Field(None, max_length=20, description='资产类型')
     venue: Optional[str] = Field(None, max_length=10, description='交易场所')
     add_reason: Optional[str] = Field(None, max_length=500, description='关注理由')
-    notes: Optional[str] = Field(None, max_length=2000, description='投资笔记')
     is_pinned: Optional[bool] = Field(False, description='置顶自选')
     cost_price: Optional[float] = Field(None, description='观察参考成本价（探市迁移透传）')
     quantity: Optional[float] = Field(None, description='观察参考份额（探市迁移透传）')
@@ -68,6 +67,11 @@ class WatchlistItemOut(BaseModel):
     advisor_host: Optional[str] = None  # 主理人
     advisor_strategy_type: Optional[str] = None  # 策略类型（均衡/进取/稳健）
     advisor_org_name: Optional[str] = None  # 主理人所属机构/平台方
+    # 基金经理补充信息（#1286）：经理行没有对外有意义的交易代码，第二行元信息由公司承担
+    # （2026-09-10 用户反馈：只显示「基金经理」标签时信息量为零）。
+    manager_company: Optional[str] = Field(
+        None, description='基金经理所属基金公司名（仅 asset_type=manager 有值，其余恒 null）'
+    )
 
 
 # ── 分组 ──
