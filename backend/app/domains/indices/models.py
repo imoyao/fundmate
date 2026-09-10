@@ -13,6 +13,34 @@ from app.core.database import Base, PrimaryKeyMixin, TimestampMixin
 from app.core.db_utils import SafeNumeric
 
 
+class IndexValuation(Base, PrimaryKeyMixin, TimestampMixin):
+    """指数估值（market 域，#1285 消费侧「指数」品类估值列）。
+
+    与 IndexDaily 的区别：日线是「点位」，本表是「估值指标」（市盈率 / 股息率）。
+    数据源：中证指数**官方**估值文件（akshare `stock_zh_index_value_csindex`，读
+    csindex OSS 的 indicator.xls，免 cookie、按指数代码），按 (index_code, trade_date)
+    覆盖式 upsert；回填链路见 services/sync/jobs/index_valuation_job.py。
+
+    口径提示（§3.10）：官方列名为「市盈率1 / 市盈率2 / 股息率1 / 股息率2」，本项目
+    **原样落库**、不做主观口径命名，避免把官方口径写错；前端展示取 pe_1 / dividend_yield_1。
+    历史分位（percentile）**暂不提供**：当前两个可选数据源（中证官方仅下发近约 20 个
+    交易日、乐咕乐股仅覆盖 12 个指数）都不足以算有意义的历史分位，缺口单开 issue 跟踪。
+    """
+
+    __tablename__ = 'index_valuations'
+
+    index_code = Column(String(20), nullable=False, comment='指数代码（如 000300，不含交易所后缀）')
+    index_name = Column(String(60), comment='指数中文简称')
+    trade_date = Column(Date, nullable=False, comment='估值日期')
+    pe_1 = Column(SafeNumeric(12, 4), comment='市盈率1（中证官方列名，口径以官方为准）')
+    pe_2 = Column(SafeNumeric(12, 4), comment='市盈率2（中证官方列名，口径以官方为准）')
+    dividend_yield_1 = Column(SafeNumeric(12, 4), comment='股息率1(%)（中证官方列名）')
+    dividend_yield_2 = Column(SafeNumeric(12, 4), comment='股息率2(%)（中证官方列名）')
+    source = Column(String(20), default='csindex', comment='数据来源')
+
+    __table_args__ = (UniqueConstraint('index_code', 'trade_date', name='uk_index_valuation_code_date'),)
+
+
 class IndexConstituent(Base, PrimaryKeyMixin, TimestampMixin):
     """指数成分股：某指数在某一刻的成分股票清单（按指数整体覆盖式更新）。"""
 
