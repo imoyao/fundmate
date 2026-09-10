@@ -30,7 +30,9 @@
 
 - **主分支**：`main`（稳定，受保护，禁止直接 push）
 - **集成分支**：`dev`（只接受功能分支的 PR 合并，禁止直接 push）
-- **CI 守卫**：`guard-direct-push` 拦截直接推 `main`（私有仓库无 branch protection）
+- **合并门禁（红灯不许合并）**：`ci.yml` 的 `质量门禁汇总`（job id `gate`）是 dev / main 的 **required status check**——任何上游 job（后端 / 前端 / 乱码 / changes）失败，gate 即失败，PR 不可合并。2026-09-11 实开，依据见 `docs/spec/decisions.md` D22。
+  - **该门禁的效力随仓库可见性变化**：required check 由 GitHub branch protection 承载，**仅在仓库为 public、或账户为付费计划时生效**。若切回 private 且无付费计划，GitHub 会停用 protection，门禁随之降级为「红灯在 PR 上可见，但不阻止合并」——此时必须人工确认红灯原因再合并，否则升级计划。因此**不要把「有保护」写死为长期前提**。
+  - 兜底守卫 `guard-direct-push`：拦截**直接 push `main`**（与仓库可见性无关）；`guard-direct-push` 已对准 `main`（旧版本误指已删除的 `M` 分支，等于空转）。
 - **所有进入 `main` 的改动必须通过 PR**（功能分支 → `dev` → `main`）
 
 ---
@@ -297,6 +299,14 @@
 - **探市（`/explore`、`/api/temperature/*`）与 `health` 免登录**，其余功能需登录（后端白名单 + 前端 `requiresAuth` 双轨一致）。
 - 抓取合规：仅允许公开市场数据（基金净值 / 市场情绪），**严禁**用户券商持仓的自动登录 / 爬取 / 同步。
 
+### 授权与可见性
+
+- **本仓库当前公开可见（public），但不是开源软件**：自有代码适用根 `LICENSE` = **PolyForm Noncommercial 1.0.0**（SPDX：`PolyForm-Noncommercial-1.0.0`），**禁止任何商业使用**；商业使用须另行取得书面授权。
+- **禁止把仓库描述为「开源」**：代码注释、文档、提交信息、PR / issue 描述、包元数据里一律不得出现「开源」「open source」「免费商用」等表述；需要指代时用「公开可见 / source-available（非商业许可）」。
+- **不得把 public / private 状态写死为规则前提**：可见状态可随时变更（含切回 private），而**授权不随可见性变化**——公开只代表可见、不构成使用许可，切回私有也不会放宽授权。凡结论依赖于当前可见性的，须写成**带条件的判断**，不得写成永久事实。
+- **第三方署名不可删**：`frontend/LICENSE` 是上游模板 [pure-admin](https://github.com/pure-admin) 的 MIT 声明，必须保留；本项目自有代码不因该文件而适用 MIT。
+- 对外授权口径以 `README.md`「授权与使用限制」与根 `LICENSE` 为准。
+
 ### 注释与文档
 
 - 代码在必要处加注释讲“为什么”。
@@ -546,7 +556,7 @@
 
 - 所有含中文的文本文件（`.md`、`.py`、`.vue` 等）必须保存为合法 UTF-8，内容可读中文。
 - 写入时确保整个链路 UTF-8 端到端，禁止 GBK/Latin-1 解码后再存为 UTF-8（二次编码导致 mojibake）。
-- **提交信息同样受约束**：`pre-commit` 的 `guard-mojibake-commit-msg` 钩子会在 `commit-msg` 阶段拦截乱码提交信息；CI 的 `mojibake-guard` job 作为兜底，扫描 PR 变更文件，防止经 `--no-verify` 或 `gh api` / MCP 直推绕过本地钩子。
+- **提交信息同样受约束**：`pre-commit` 的 `guard-mojibake-commit-msg` 钩子会在 `commit-msg` 阶段拦截乱码提交信息；CI 的 `mojibake_guard` job 作为兜底，扫描 PR 变更文件，防止经 `--no-verify` 或 `gh api` / MCP 直推绕过本地钩子。
 - **禁止 `git commit -m "中文..."` 内联写法**（PowerShell 等控制台会把中文按 GBK 传给 git 造成永久乱码历史）。一律用 `git commit -F <utf8文件>` 或 `scripts/commit_changes.py --message-file <...>`。
 - 本地 `guard_mojibake.py`（文件）与 `guard-mojibake-commit-msg`（提交信息）会拦截疑似乱码，禁止 `--no-verify` 绕过。
 

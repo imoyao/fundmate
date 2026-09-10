@@ -5,7 +5,7 @@
   "main": "index.js",
   "repository": "git@github.com:imoyao/fundmate.git",
   "author": "imoyao",
-  "license": "MIT",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "devDependencies": {
     "@duxweb/vitepress-theme": "^1.1.9",
     "js-yaml": "^4.3.1",
