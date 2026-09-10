@@ -34,6 +34,23 @@ from loguru import logger
 # 否则 `pdm run scheduler` 直接执行时 `import app.*` 会因找不到 app 包而 ImportError
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+# 必须先导入全部域模型再 init_db()：否则跨域外键（如 ledgers.portfolio_id → portfolios.id）
+# 解析失败并抛 NoReferencedTableError —— 本脚本此前漏了这段，`pdm run scheduler` 直接跑不起来
+# （2026-09-11 实测）。约定与 tests/conftest.py、app/tools/sync_metadata.py 一致。
+import app.domains.assets.models  # noqa: E402,F401
+import app.domains.families.models  # noqa: E402,F401
+import app.domains.funds.models  # noqa: E402,F401
+import app.domains.indices.models  # noqa: E402,F401
+import app.domains.ledgers.models  # noqa: E402,F401
+import app.domains.portfolios.models  # noqa: E402,F401
+import app.domains.positions.models  # noqa: E402,F401
+import app.domains.price_history.models  # noqa: E402,F401
+import app.domains.securities.models  # noqa: E402,F401
+import app.domains.strategy.models  # noqa: E402,F401
+import app.domains.summary.models  # noqa: E402,F401
+import app.domains.transactions.models  # noqa: E402,F401
+import app.domains.users.models  # noqa: E402,F401
+import app.domains.watchlist.models  # noqa: E402,F401
 from app.core.database import get_db, init_db  # noqa: E402
 from app.core.jitter import (  # noqa: E402
     apply_jitter,

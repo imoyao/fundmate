@@ -153,9 +153,9 @@ Port `AdvisorPortfolioSource`（`fetch_overview/returns/holdings/industries/reba
 | 基金最大回撤 | 自算（净值序列） | price_history | ⚠️ 需补算法 | `—` |
 | 基金规模/仓位/风险等级 | funds 表 | #1286 回填 | ✅ | `—` |
 | 指数 PE/PE分位/股息率 | 理杏仁/韭圈儿/legulegu 等 | 待选源 | ❌ 待接入 | `—` |
-| ETF 跟踪指数 | 基金档案"跟踪标的" | akshare `fund_etf_spot_em` / 指数官网 | ⚠️ 待实测覆盖 | `—` |
-| ETF↔联接关联 | 名称匹配+定期报告 | akshare `fund_name_em` | ⚠️ 待实测 | `—` |
-| 指数↔ETF 关联 | 跟踪标的字段 | 同上 | ⚠️ 待实测 | `—` |
+| ETF 跟踪指数 | — | ~~akshare `fund_etf_spot_em`「跟踪标的」~~ **实测该列不存在**（1605 只 ETF 全部无此字段）；交易所规模表（`fund_etf_scale_sse/szse`）同样无标的指数 | ❌ 降级 | `—` |
+| ETF↔联接关联 | 名称匹配 + 定期报告 | akshare `fund_name_em` | ⚠️ 待实测 | `—` |
+| 指数↔ETF 关联 | 名称匹配 `index_catalog` | 自建匹配（名录已回填 4041 条） | ⚠️ 实测总覆盖 **41.1%**（<90% 门槛）→ 只覆盖主流宽基 | `—` |
 | 投顾 组合概览 | 天天/且慢MCP | #1392 | ⚠️ 部分 | `—` |
 | 可转债静态条款 | 集思录/akshare | `bond_cb_redeem_jsl` | ⚠️ 待实测 | `—` |
 | 可转债动态强赎/下修计数 | 自算 | 正股收盘价 vs 触发价 | ❌ 后期 | `—` |
@@ -166,7 +166,7 @@ Port `AdvisorPortfolioSource`（`fetch_overview/returns/holdings/industries/reba
 - **指数估值**（PE / PE分位 / 股息率）：本期用 **akshare `index_value_hist_funddb`（封装韭圈儿）**，采用**"指定时间段"策略**（规避"所有时间段"抛 `KeyError: 'series'`）；理杏仁列为**后期增强源**；**数据源稳定性另开 issue 跟踪**（技术债，不挂里程碑）。
 - **基金最大回撤**：**自算**（天天基金 `F10DataApi.aspx?type=lsjz` 全量复权净值），口径见 §3.10。
 - **可转债静态条款**：以 **akshare `bond_cb_redeem_jsl`** 为准（**含强赎天计数 → 本期即可显示真实 `3/15`**），集思录作校验参照；进度条视觉化留后期。
-- **关联关系**：本期做 **ETF↔联接 + 指数↔ETF**；**需一次实测脚本**验证 akshare `fund_etf_spot_em` 的"跟踪标的"覆盖率（>90% 本期落地，否则先覆盖主流宽基）。
+- **关联关系**：**实测已完成（2026-09-11）**——akshare `fund_etf_spot_em` **无「跟踪标的」列**（1605 只 ETF 全无），交易所规模表亦无；改走「ETF 名称 ↔ `index_catalog` 名称」匹配，实测**总覆盖率 41.1%**（660/1605），**未达 90% 门槛** → 按本条既定规则**降级为「先覆盖主流宽基」**，其余留 `—`（开口）。
 - **指数代码 → 韭圈儿指数名称映射**：需实测覆盖，缺则建映射表。
 
 ---
