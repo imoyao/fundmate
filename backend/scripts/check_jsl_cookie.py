@@ -10,97 +10,43 @@
 用法（在 backend 目录；-m 以便 cwd 进入 sys.path）：
     pdm run python -m scripts.check_jsl_cookie
 
-输出：
-    [1] cookie 是否存在与长度
-    [2] 实际返回条数 / 全量条数
-    [3] 服务端提示（游客 或 正常）
-    → 判定 cookie 是否有效
+退出码：0=有效；1=未配置；2=已失效；3=请求失败
 """
 
 import json
-import os
 import sys
-import time
 from pathlib import Path
 
-import requests
 from dotenv import load_dotenv
 
-from app.core.requests_patch import install_requests_patch
+from app.services.jsl_session import check_jsl_cookie
 
 # 显式加载 backend/.env：app 包的 load_dotenv 在函数内（仅 import 包不会触发），
 # 独立脚本必须自己加载，否则 os.getenv 恒为空。
+# 放在 import 之后调用即可——check_jsl_cookie 是「调用期」读环境变量。
 load_dotenv(Path(__file__).resolve().parents[1] / '.env')
-
-URL = 'https://www.jisilu.cn/data/cbnew/cb_list_new/'
-PAYLOAD = {
-    'fprice': '',
-    'tprice': '',
-    'curr_iss_amt': '',
-    'volume': '',
-    'svolume': '',
-    'premium_rt': '',
-    'ytm_rt': '',
-    'market': '',
-    'rating_cd': '',
-    'is_search': 'N',
-    'btype': '',
-    'listed': 'Y',
-    'qflag': 'N',
-    'sw_cd': '',
-    'bond_ids': '',
-    'rp': '1000',
-    'page': '1',
-}
 
 
 def main() -> int:
-    # 触发 app 包初始化（含 backend/.env 加载），并给 requests 打上统一补丁
-    install_requests_patch()
-
-    cookie = os.getenv('JSL_COOKIE')
-    label = bool(cookie)
-    print(f'[1] JSL_COOKIE 已配置: {label}，长度: {len(cookie or "")}')
-    if not cookie:
+    status = check_jsl_cookie()
+    print(f'[1] JSL_COOKIE 已配置: {status.present}，长度: {status.cookie_len}')
+    if not status.present:
         print('[FAIL] 未配置 JSL_COOKIE（写入 backend/.env 后重试）')
         return 1
+    if status.error:
+        print(f'[FAIL] 请求集思录失败: {status.error}')
+        return 3
 
-    headers = {
-        'accept': 'application/json, text/javascript, */*; q=0.01',
-        'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
-        'cookie': cookie,
-        'origin': 'https://www.jisilu.cn',
-        'referer': 'https://www.jisilu.cn/data/cbnew/',
-        'user-agent': (
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-            '(KHTML, like Gecko) Chrome/91.0.4472.164 Safari/537.36'
-        ),
-        'x-requested-with': 'XMLHttpRequest',
-    }
-    params = {'___jsl': f'LST___t={int(time.time() * 1000)}'}
+    print(f'[2] 返回条数: {status.rows}，全量(上市): {status.total}')
+    print(f'[3] 服务端提示: {json.dumps(status.warn, ensure_ascii=True)}')
 
-    try:
-        resp = requests.post(URL, params=params, json=PAYLOAD, headers=headers, timeout=25)
-        data = resp.json()
-    except Exception as e:  # noqa: BLE001
-        print(f'[FAIL] 请求集思录失败: {e}')
-        return 1
-
-    rows = data.get('rows', [])
-    total = data.get('all')
-    warn = str(data.get('warn') or '')
-    print(f'[2] 返回条数: {len(rows)}，全量(上市): {total}')
-    print(f'[3] 服务端提示: {json.dumps(warn, ensure_ascii=True)}')
-
-    # 判定口径：只有服务端明确提示"游客"才算未登录。
-    # 不能用 len(rows) < total —— listed='Y' 过滤下 313/315 属正常（未上市/退市不返回）。
-    if '游客' in warn:
+    if not status.ok:
         print('[WARN] 仍为游客口径 → cookie 未被识别为已登录。')
         print('       处理：浏览器登录集思录（勾选记住我）→ F12 Network → 复制任意')
         print('       jisilu.cn 请求 Request Headers 里的整行 cookie → 覆盖 JSL_COOKIE。')
         return 2
 
-    print(f'[OK] cookie 有效：已登录，返回 {len(rows)} 条转债（全量 {total}）。')
+    print(f'[OK] cookie 有效：{status.summary}')
     return 0
 
 
