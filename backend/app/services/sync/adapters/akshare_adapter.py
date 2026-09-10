@@ -4,6 +4,7 @@
 # File : akshare_adapter.py
 # -*- coding: utf-8 -*-
 # app/services/sync/adapters/akshare_adapter.py
+import re
 import time
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -762,6 +763,16 @@ class AkshareAdapter(DataSourceAdapter):
                     return v
         return None
 
+    @staticmethod
+    def _parse_redeem_count(value):
+        """解析集思录强赎天计数，形如 `3/15 | 3` → (3, 15)：(已达天数, 触发所需天数)。"""
+        if value is None:
+            return (None, None)
+        m = re.search(r'(\d{1,2})\s*/\s*(\d{1,2})', str(value))
+        if m:
+            return (int(m.group(1)), int(m.group(2)))
+        return (AkshareAdapter._int(value), None)
+
     def fetch_convertible_bond_redeem(self) -> List[dict]:
         """集思录可转债强赎数据（ak.bond_cb_redeem_jsl）。
 
@@ -780,6 +791,7 @@ class AkshareAdapter(DataSourceAdapter):
                 code = str(self._cell(row, '代码', '转债代码') or '').strip()
                 if not code:
                     continue
+                count, required = self._parse_redeem_count(self._cell(row, '强赎天计数'))
                 out.append(
                     {
                         'bond_code': code.zfill(6),
@@ -791,8 +803,13 @@ class AkshareAdapter(DataSourceAdapter):
                         'remain_size': self._num(self._cell(row, '剩余规模')),
                         'convert_price': self._num(self._cell(row, '转股价')),
                         'force_redeem_price': self._num(self._cell(row, '强赎触发价')),
-                        'redeem_count': self._int(self._cell(row, '强赎天计数')),
-                        'redeem_clause': str(self._cell(row, '强赎条款') or ''),
+                        'redeem_trigger_ratio': self._num(self._cell(row, '强赎触发比')),
+                        'redeem_count': count,
+                        'redeem_required': required,
+                        'redeem_status': str(self._cell(row, '强赎状态') or '') or None,
+                        'redeem_clause': str(self._cell(row, '强赎条款') or '') or None,
+                        # 集思录强赎接口直接给到期日 → 剩余年限可由前端/服务端现算，无需另找数据源
+                        'maturity_date': self._cell(row, '到期日'),
                         'source': 'akshare_jsl',
                     }
                 )
@@ -824,8 +841,14 @@ class AkshareAdapter(DataSourceAdapter):
                     {
                         'bond_code': code.zfill(6),
                         'name': str(self._cell(row, '债券简称', '转债简称', '名称') or ''),
-                        'rating': self._cell(row, '债券评级', '信用评级', '评级'),
-                        'maturity_date': self._cell(row, '到期时间', '到期日'),
+                        # 东财 RPT_BOND_CB_LIST 列名（akshare 1.18.91 实测）
+                        'rating': self._cell(row, '信用评级', '债券评级'),
+                        'issue_size': self._num(self._cell(row, '发行规模')),
+                        'convert_price': self._num(self._cell(row, '转股价')),
+                        'convert_value': self._num(self._cell(row, '转股价值')),
+                        'premium_rate': self._num(self._cell(row, '转股溢价率')),
+                        'stock_name': str(self._cell(row, '正股简称', '正股名称') or ''),
+                        'stock_code_raw': str(self._cell(row, '正股代码') or '').strip(),
                         'source': 'akshare_bond_zh_cov',
                     }
                 )

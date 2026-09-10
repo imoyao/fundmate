@@ -10,7 +10,7 @@
 """
 
 from datetime import date, datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from loguru import logger
 
@@ -64,29 +64,23 @@ class ConvertibleBondSyncJob(SyncJob):
         return 'convertible_bond'
 
     def _fetch_data(self, full_sync: bool, targets: List[str]) -> List[dict]:
+        # 两源按 bond_code 合并：基本信息（东财 bond_zh_cov：评级/发行规模/转股价值/溢价率/
+        # 正股）打底，强赎数据（集思录 bond_cb_redeem_jsl：现价/强赎触发价·比/天计数/
+        # 强赎状态/到期日/剩余规模）以非空值覆盖。仅有单侧来源的也落库，保证名录完整。
+        basic = {b['bond_code']: dict(b) for b in self.adapter.fetch_convertible_bond_basic()}
         redeem = self.adapter.fetch_convertible_bond_redeem()
-        basic = {b['bond_code']: b for b in self.adapter.fetch_convertible_bond_basic()}
 
-        out: List[dict] = []
-        redeem_codes = set()
+        merged: Dict[str, dict] = dict(basic)
         for r in redeem:
             code = r.get('bond_code')
-            redeem_codes.add(code)
-            merged = dict(r)
-            b = basic.get(code) or {}
-            if b.get('rating'):
-                merged['rating'] = b['rating']
-            if b.get('maturity_date'):
-                merged['maturity_date'] = b['maturity_date']
-            if not merged.get('name') and b.get('name'):
-                merged['name'] = b['name']
-            out.append(merged)
-        # 仅有基本信息（如已到期 / 未上市）的也落库，保证名录完整
-        for code, b in basic.items():
-            if code not in redeem_codes:
-                out.append(dict(b))
-        logger.info(f'可转债条款原始记录 {len(out)} 条（强赎 {len(redeem)} + 基本 {len(basic)}）')
-        return out
+            if not code:
+                continue
+            target = merged.setdefault(code, {})
+            for k, v in r.items():
+                if v is not None:
+                    target[k] = v
+        logger.info(f'可转债条款原始记录 {len(merged)} 条（基本信息 {len(basic)} + 强赎 {len(redeem)}）')
+        return list(merged.values())
 
     def _validate_data(self, raw_data: List[dict]) -> List[dict]:
         out = []
@@ -114,8 +108,13 @@ class ConvertibleBondSyncJob(SyncJob):
                     'stock_name': r.get('stock_name') or None,
                     'price': r.get('price'),
                     'convert_price': r.get('convert_price'),
+                    'convert_value': r.get('convert_value'),
+                    'premium_rate': r.get('premium_rate'),
                     'force_redeem_price': r.get('force_redeem_price'),
                     'redeem_count': r.get('redeem_count'),
+                    'redeem_required': r.get('redeem_required'),
+                    'redeem_trigger_ratio': r.get('redeem_trigger_ratio'),
+                    'redeem_status': r.get('redeem_status') or None,
                     'redeem_clause': r.get('redeem_clause') or None,
                     'rating': r.get('rating') or None,
                     'maturity_date': _parse_date(r.get('maturity_date')),

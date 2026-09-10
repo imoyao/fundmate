@@ -51,6 +51,8 @@ class ConvertibleBondTerm(Base, PrimaryKeyMixin, TimestampMixin):
 
     redeem_count = Column(Integer, comment='强赎天计数（近 30 交易日中收盘价达触发价的天数）')
     redeem_required = Column(Integer, comment='强赎触发所需达标天数（通常 15）')
+    redeem_trigger_ratio = Column(SafeNumeric(6, 2), comment='强赎触发比(%)，如 130')
+    redeem_status = Column(String(20), comment='强赎状态：已公告强赎 / 公告要强赎 / 公告不强赎 / 已满足强赎条件')
     redeem_clause = Column(String(200), comment='强赎条款原文')
 
     rating = Column(String(10), comment='信用评级，如 AA+')
