@@ -87,8 +87,9 @@ class CommitMixin:
                     import_hash=row.get('import_hash'),
                     source=row.get('source', ''),
                     ledger_id=row.get('ledger_id'),
-                    # B2 修复：透传净发生金额（同花顺专用），现金/扣税/兑付分支按净额入账
-                    net_amount=row.get('net_amount') or 0,
+                    # B2 修复：透传净发生金额（同花顺专用），现金/扣税/兑付分支按净额入账；
+                    # 前端 row 为 JSON 浮点，经 str 桥接收口为 Decimal（#1375 阶段二）
+                    net_amount=Decimal(str(row.get('net_amount') or 0)),
                 )
             )
 

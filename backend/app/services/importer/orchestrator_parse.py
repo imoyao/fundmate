@@ -141,8 +141,10 @@ class ParsingMixin:
                     'is_duplicate': False,
                     'allocation': 'liquid' if rec.asset_type in ('money_fund', 'reverse_repo', 'cash') else None,
                     'link_group_id': rec.link_group_id,
-                    'trade_amount': rec.trade_amount,
-                    'net_amount': rec.net_amount,
+                    # 展示层显式转 float（#1375 阶段二）：字段已是 Decimal，
+                    # Flask JSON 会把 Decimal 序列化成字符串，前端契约要求 number
+                    'trade_amount': float(rec.trade_amount),
+                    'net_amount': float(rec.net_amount),
                     'notes': rec.raw_op_type or '',
                     'source': rec.source,  # 前端回传用
                     'is_calculated': rec.is_calculated,
@@ -401,12 +403,12 @@ class ParsingMixin:
             trade_date = trade_date.date()
 
         is_dividend = record.business_type in ('dividend_cash', 'dividend_reinvest')
-        # 金融口径收口（#1375）：record 字段本身是 Decimal（仅 net_amount 为 float，经 str 桥接），
+        # 金融口径收口（#1375 阶段二）：record 全部金额字段均为 Decimal，
         # 数据字典全程 Decimal 直传，禁止塌缩到 float 域中转；Money 各入口原生接受 Decimal
         avg_price = record.amount if is_dividend else (record.nav if record.nav else Decimal('0'))
         qty = record.shares if record.shares else Decimal('0')
         fee_val = record.fee
-        net_amount_val = Decimal(str(record.net_amount)) if record.net_amount else record.amount
+        net_amount_val = record.net_amount if record.net_amount else record.amount
 
         return {
             'symbol': record.symbol,
