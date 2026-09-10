@@ -72,6 +72,21 @@ class WatchlistItemOut(BaseModel):
     manager_company: Optional[str] = Field(
         None, description='基金经理所属基金公司名（仅 asset_type=manager 有值，其余恒 null）'
     )
+    # 可转债条款补充信息（#1285 消费侧 / #1393）：仅 asset_type=bond 且命中
+    # convertible_bond_terms 时有值，其余恒 null；前端「可转债」品类专属列据此渲染，
+    # 未落库时列内显示 `—`（不用 0 兜底，避免与真实 0 溢价率混淆）。
+    bond_convert_price: Optional[float] = None  # 转股价（元）
+    bond_convert_value: Optional[float] = None  # 转股价值（元）
+    bond_premium_rate: Optional[float] = None  # 转股溢价率（%）
+    bond_force_redeem_price: Optional[float] = None  # 强赎触发价（元）
+    bond_redeem_count: Optional[int] = None  # 强赎天计数（已达天数）
+    bond_redeem_required: Optional[int] = None  # 强赎触发所需天数（通常 15）
+    bond_redeem_status: Optional[str] = None  # 强赎状态（已公告强赎/公告不强赎/…）
+    bond_rating: Optional[str] = None  # 信用评级（AA+/AA/…）
+    bond_maturity_date: Optional[date] = None  # 到期日（前端据此算「剩余年限」）
+    bond_remain_size: Optional[float] = None  # 剩余规模（亿元）
+    bond_issue_size: Optional[float] = None  # 发行规模（亿元）
+    bond_stock_name: Optional[str] = None  # 正股名称
 
 
 # ── 分组 ──

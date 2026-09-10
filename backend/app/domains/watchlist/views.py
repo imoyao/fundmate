@@ -22,6 +22,7 @@ from app.core.validation import parse_body
 from app.domains.funds.models import AdvisorPortfolio, DailyWorth
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
+from app.domains.securities.models import ConvertibleBondTerm
 from app.domains.transactions.models import Transaction
 from app.domains.watchlist.models import (
     WatchlistGroup,
@@ -83,6 +84,43 @@ GROUP_COLORS = {
 # 正常而首页仍显示 MGR_xxx（2026-09-10 复盘），故不再在此另立副本。
 
 
+def _to_float(value):
+    """Decimal/数值 → float（None 安全）。
+
+    SafeNumeric 落库为 Decimal，若直接塞进响应 dict 会把 Decimal 带进 JSON
+    （Flask 默认编码器不认识 Decimal）。统一在此转换。
+    """
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _apply_bond_fields(out: dict, symbol: str, db) -> None:
+    """可转债条款 enrich（#1285 消费侧 / #1393）。
+
+    仅当 convertible_bond_terms 命中该 symbol 时填充（表未落库/非转债则一律保持
+    None，前端据此显示 `—`，不渲染假数据）。
+    """
+    term = db.query(ConvertibleBondTerm).filter_by(symbol=symbol).first()
+    if term is None:
+        return
+    out['bond_convert_price'] = _to_float(term.convert_price)
+    out['bond_convert_value'] = _to_float(term.convert_value)
+    out['bond_premium_rate'] = _to_float(term.premium_rate)
+    out['bond_force_redeem_price'] = _to_float(term.force_redeem_price)
+    out['bond_redeem_count'] = term.redeem_count
+    out['bond_redeem_required'] = term.redeem_required
+    out['bond_redeem_status'] = term.redeem_status
+    out['bond_rating'] = term.rating
+    out['bond_maturity_date'] = term.maturity_date
+    out['bond_remain_size'] = _to_float(term.remain_size)
+    out['bond_issue_size'] = _to_float(term.issue_size)
+    out['bond_stock_name'] = term.stock_name
+
+
 def _enrich_item(item: WatchlistItem, db) -> dict:
     out = WatchlistItemOut.model_validate(item).model_dump()
     # watchlist.asset_type 历史存放大写（STOCK/ETF/...），对外统一归一为小写，
@@ -116,6 +154,9 @@ def _enrich_item(item: WatchlistItem, db) -> dict:
     # （2026-09-10 用户反馈）。
     mgr = lookup_manager(item.symbol, db)
     out['manager_company'] = mgr.company.name if mgr and mgr.company else None
+
+    # 可转债条款（#1285 消费侧 / #1393）：仅转债命中 convertible_bond_terms 时填充
+    _apply_bond_fields(out, item.symbol, db)
 
     # 补充价格与市值信息（从持仓表计算静态值）
     position_value = _compute_position_market_value(item.symbol, db)
@@ -280,7 +321,7 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
 
     current_price = _compute_avg_current_price(symbol, db)
     stats = _compute_holding_stats(symbol, db)
-    return {
+    row = {
         'id': None,
         'symbol': symbol,
         'market': market,
@@ -318,6 +359,9 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
         # 基金经理所属公司（与 _enrich_item 同源；非经理为 None）
         'manager_company': (mgr.company.name if mgr and mgr.company else None),
     }
+    # 可转债条款（#1285/#1393）：与 _enrich_item 同源，避免虚拟行（持仓聚合无 id）漏字段
+    _apply_bond_fields(row, symbol, db)
+    return row
 
 
 def _build_all_items(db, family_id, venue=None, search=None, tag_ids_str=None, favorite=False, group_id=None):
