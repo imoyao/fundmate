@@ -15,11 +15,17 @@
 #   - 故改为轮询兜底：默认优先用火山方舟 DeepSeek Flash（deepseek-v4-flash-ga-260731，已验证可用），
 #     不可用时依次回退 Pro / 智谱免费模型。
 #
-# 降噪策略：
-#   1) 深度线路 TEMPERATURE=0.1，低温度降低模型随机发挥带来的误报
-#   2) 单一权威 prompt：docs/configs/ai-review-prompt.md，经根目录 .ai-review-deep.yaml 注入
-#   3) prompt 内置「误报防范/降噪清单」（2026-09-10 补强）：无问题不评论、禁复述 diff、
-#      禁建议「已存在的写法」、禁逆 PR 意图、注释删改不算缺陷、兼容历史值不算缺陷
+# 降噪策略（2026-09-11 改版：从「往 prompt 加禁止条目」改为「改结构性配置」）：
+#   1) 降噪开关集中在根目录 .ai-review-deep.yaml，prompt 不再是唯一的调节旋钮：
+#      审查范围收窄为「只送新增行」（ONLY_ADDED_WITH_CONTEXT）、inline/context 配额、
+#      agent 只读探索仓库、忽略 lockfile。
+#   2) 深度线路 TEMPERATURE=0.1，低温度降低模型随机发挥带来的误报。
+#   3) 单一权威 prompt：docs/configs/ai-review-prompt.md，经 .ai-review-deep.yaml 注入；
+#      summary 的输出契约另由 docs/configs/ai-review-system-summary.md 以 system 消息承担
+#      （system 优先级高于用户消息，原内置契约禁 markdown，与仓库结构化摘要冲突）。
+#   历史教训：2026-08-25 ~ 09-10 期间靠「每遇一类误报就往 prompt 追加一条」，16 天从 8.7KB
+#   涨到 29KB（近一半是逐 PR 案例），单 PR 仍产出 29~52 条评论且几乎全为误报，同时漏掉真实
+#   缺陷——证明清单式追加不可收敛。案例改存 docs/configs/ai-review-known-false-positives.md。
 #
 # 深度线路档位由 PR 标签决定（在 PR 界面点标签即可，零摩擦、不影响自动触发）：
 #   无标签            → 默认档：轮询兜底，优先 cheap（DeepSeek Flash）
@@ -29,6 +35,9 @@
 #
 # 失败保护（防假成功）：deep-review 在 AI 审查 step 之后校验「本轮是否在 PR 上发布了评论」。
 #   若 LLM 失败/限流/欠费导致 action 静默跳过（不发评论），则 job 标红失败，不再显示 success。
+#   2026-09-11 补强：原逻辑只看「探测是否选中健康模型」，但探测只发一次极短请求、真实审查是
+#   长上下文 + 多轮 agent，两者限流概率不同——PR #1412 实测到「探测 200 通过、实调用 429、
+#   一条评论都没发」却被判成功。现改为：PR 上一条 AI 评论都没有 → 一律失败。
 #
 # 前置：仓库 Settings → Secrets → Actions 新增
 #   ARK_API_KEY_CODEREVIEW（火山方舟，深度线路专用，值为本地 backend/.env 的 ARK_API_KEY）
@@ -166,10 +175,29 @@ jobs:
               core.info(`深度线路已发布评论，计数 ${before} → ${after}`);
               return;
             }
-            // 未新增评论：若探测选中的是健康模型，则属「去重跳过已有评论」，视为成功；
-            // 仅当所有候选模型均不可用（selected_ok=false）时才判定为失败，避免假成功。
-            if (selectedOk) {
-              core.info('本次未新增评论，但探测选中的模型健康（AI Review 因去重跳过已存在的评论），视为成功');
+            // 未新增评论必须再分两种，**不能只看「探测是否选中健康模型」**。
+            // 2026-09-10 PR #1412 实测反例：探测 glm-4.7-flash 返回 200（selected_ok=true），
+            // 但真正调用时上游 429（智谱 code 1302「账户已达到速率限制」），agent 模式与兜底
+            // 直连双双失败、summary 为空被跳过 → 一条评论都没发，旧逻辑却判为成功（假成功）。
+            // 之所以会出现这种错配：探测只发一次极短请求，而真实审查是长上下文 + 多轮 agent，
+            // 触发限流的概率高得多。所以「探测通过」不能等价于「本次审查成功」。
+            // 现规则：
+            //   a) PR 上已存在 AI 评论 → 视为「去重跳过已存在的评论」，成功；
+            //   b) PR 上一条 AI 评论都没有 → 本次确实什么都没产出，失败。
+            // 残留缺口（已知，不装作没有）：若历史评论已存在、而本轮又静默失败，仍会放行。
+            // 要彻底堵住需要 action 自身在 LLM 报错时非零退出，当前版本（v0.76.0）不提供该信号。
+            const hasAiTag = (body) =>
+              (body || '').includes('#ai-review-inline') || (body || '').includes('#ai-review-summary');
+            const inlineComments = (await github.rest.pulls.listReviewComments({ owner, repo, pull_number: pr })).data;
+            const generalComments = (await github.rest.issues.listComments({ owner, repo, issue_number: pr })).data;
+            const existingAi = [...inlineComments, ...generalComments].filter(c => hasAiTag(c.body)).length;
+
+            if (selectedOk && existingAi > 0) {
+              core.info(`本次未新增评论，但 PR 上已有 ${existingAi} 条 AI 评论（去重跳过），视为成功`);
               return;
             }
-            core.setFailed('深度线路 AI 审查未发布任何评论（所有候选模型均不可用/限流/欠费），标记为失败以避免假成功');
+            core.setFailed(
+              '深度线路 AI 审查未产出任何评论（候选模型均不可用/限流/欠费，或模型输出为空）——'
+              + `selected_ok=${selectedOk}，PR 上已有 AI 评论数=${existingAi}。`
+              + '标记为失败以避免假成功；请检查探测步骤输出中的 429 / 额度告警。'
+            );
