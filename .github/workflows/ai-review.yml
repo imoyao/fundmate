@@ -15,11 +15,17 @@
 #   - 故改为轮询兜底：默认优先用火山方舟 DeepSeek Flash（deepseek-v4-flash-ga-260731，已验证可用），
 #     不可用时依次回退 Pro / 智谱免费模型。
 #
-# 降噪策略：
-#   1) 深度线路 TEMPERATURE=0.1，低温度降低模型随机发挥带来的误报
-#   2) 单一权威 prompt：docs/configs/ai-review-prompt.md，经根目录 .ai-review-deep.yaml 注入
-#   3) prompt 内置「误报防范/降噪清单」（2026-09-10 补强）：无问题不评论、禁复述 diff、
-#      禁建议「已存在的写法」、禁逆 PR 意图、注释删改不算缺陷、兼容历史值不算缺陷
+# 降噪策略（2026-09-11 改版：从「往 prompt 加禁止条目」改为「改结构性配置」）：
+#   1) 降噪开关集中在根目录 .ai-review-deep.yaml，prompt 不再是唯一的调节旋钮：
+#      审查范围收窄为「只送新增行」（ONLY_ADDED_WITH_CONTEXT）、inline/context 配额、
+#      agent 只读探索仓库、忽略 lockfile。
+#   2) 深度线路 TEMPERATURE=0.1，低温度降低模型随机发挥带来的误报。
+#   3) 单一权威 prompt：docs/configs/ai-review-prompt.md，经 .ai-review-deep.yaml 注入；
+#      summary 的输出契约另由 docs/configs/ai-review-system-summary.md 以 system 消息承担
+#      （system 优先级高于用户消息，原内置契约禁 markdown，与仓库结构化摘要冲突）。
+#   历史教训：2026-08-25 ~ 09-10 期间靠「每遇一类误报就往 prompt 追加一条」，16 天从 8.7KB
+#   涨到 29KB（近一半是逐 PR 案例），单 PR 仍产出 29~52 条评论且几乎全为误报，同时漏掉真实
+#   缺陷——证明清单式追加不可收敛。案例改存 docs/configs/ai-review-known-false-positives.md。
 #
 # 深度线路档位由 PR 标签决定（在 PR 界面点标签即可，零摩擦、不影响自动触发）：
 #   无标签            → 默认档：轮询兜底，优先 cheap（DeepSeek Flash）
@@ -29,6 +35,9 @@
 #
 # 失败保护（防假成功）：deep-review 在 AI 审查 step 之后校验「本轮是否在 PR 上发布了评论」。
 #   若 LLM 失败/限流/欠费导致 action 静默跳过（不发评论），则 job 标红失败，不再显示 success。
+#   2026-09-11 补强：原逻辑只看「探测是否选中健康模型」，但探测只发一次极短请求、真实审查是
+#   长上下文 + 多轮 agent，两者限流概率不同——PR #1412 实测到「探测 200 通过、实调用 429、
+#   一条评论都没发」却被判成功。现改为：PR 上一条 AI 评论都没有 → 一律失败。
 #
 # 前置：仓库 Settings → Secrets → Actions 新增
 #   ARK_API_KEY_CODEREVIEW（火山方舟，深度线路专用，值为本地 backend/.env 的 ARK_API_KEY）
@@ -56,7 +65,9 @@ on:
 permissions:
   pull-requests: write
   contents: read
-  issues: read
+  # issues: write —— 校验步骤需要删除「agent 协议信封泄漏」的评论。
+  # PR 上的整体评论走的是 issues 端点（issues.deleteComment），只给 read 会 403。
+  issues: write
 
 jobs:
   # 深度审查线路：火山方舟 / 智谱，完整评审（summary + context + inline）。
@@ -153,23 +164,74 @@ jobs:
             const { owner, repo } = context.repo;
             const before = Number('${{ steps.pre-check.outputs.count }}');
             const selectedOk = '${{ steps.probe.outputs.selected_ok }}' === 'true';
+
+            const hasAiTag = (body) =>
+              (body || '').includes('#ai-review-inline') || (body || '').includes('#ai-review-summary');
+            const listInline = () => github.rest.pulls.listReviewComments({ owner, repo, pull_number: pr });
+            const listGeneral = () => github.rest.issues.listComments({ owner, repo, issue_number: pr });
+            const countAll = async () =>
+              (await listInline()).data.length + (await github.rest.pulls.listReviews({ owner, repo, pull_number: pr })).data.length;
+
+            // ---- 步骤 1：判断本轮是否新增评论（必须用「审查前」的快照做基准）----
             let after = before;
             for (let i = 0; i < 5; i++) {
-              const rc = (await github.rest.pulls.listReviewComments({ owner, repo, pull_number: pr })).data.length;
-              const rv = (await github.rest.pulls.listReviews({ owner, repo, pull_number: pr })).data.length;
-              after = rc + rv;
+              after = await countAll();
               if (after > before) break;
               await new Promise(r => setTimeout(r, 5000));
             }
-            // 本轮确实新增了评论 → 成功
-            if (after > before) {
+            const hadNew = after > before;
+
+            // ---- 步骤 2：清理「agent 协议信封泄漏」----
+            // 2026-09-10 PR #1412 实测：agent 模式下若模型反复返回 TOOL_CALL 却始终不返回 FINAL，
+            // 包内 AgentLoopService 的 force_final 兜底会把最后一条 TOOL_CALL 原文当作最终答案
+            // （services/agent/loop/service.py：fallback_step 解析成功但 action 非 FINAL 时走
+            //  `final_text = fallback_text`），于是评论区长出
+            //    {"action": "TOOL_CALL", "command": "git diff --name-only"}
+            // 这类用户不可读的内部协议 JSON。此处直接删除，不让协议泄漏到 PR 上。
+            const ENVELOPE_RE = /\{\s*"action"\s*:\s*"(?:TOOL_CALL|FINAL)"/;
+            let purged = 0;
+            for (const c of (await listInline()).data) {
+              if (hasAiTag(c.body) && ENVELOPE_RE.test(c.body)) {
+                await github.rest.pulls.deleteReviewComment({ owner, repo, comment_id: c.id });
+                purged++;
+                core.warning(`已删除泄漏 agent 协议信封的 AI 行内评论 ${c.path}:${c.line}`);
+              }
+            }
+            for (const c of (await listGeneral()).data) {
+              if (hasAiTag(c.body) && ENVELOPE_RE.test(c.body)) {
+                await github.rest.issues.deleteComment({ owner, repo, comment_id: c.id });
+                purged++;
+                core.warning('已删除泄漏 agent 协议信封的 AI 整体评论');
+              }
+            }
+            if (purged) core.notice(`清理了 ${purged} 条协议泄漏评论（agent 未返回 FINAL 的兜底路径所致）`);
+
+            // ---- 步骤 3：清理后仍在 PR 上的 AI 评论数，作为「本次是否真产出」的判据 ----
+            const aiComments = (await listInline()).data.filter(c => hasAiTag(c.body)).length
+              + (await listGeneral()).data.filter(c => hasAiTag(c.body)).length;
+
+            if (hadNew && aiComments > 0) {
               core.info(`深度线路已发布评论，计数 ${before} → ${after}`);
               return;
             }
-            // 未新增评论：若探测选中的是健康模型，则属「去重跳过已有评论」，视为成功；
-            // 仅当所有候选模型均不可用（selected_ok=false）时才判定为失败，避免假成功。
-            if (selectedOk) {
-              core.info('本次未新增评论，但探测选中的模型健康（AI Review 因去重跳过已存在的评论），视为成功');
+            if (selectedOk && aiComments > 0) {
+              core.info(`本次未新增评论，但 PR 上已有 ${aiComments} 条 AI 评论（去重跳过），视为成功`);
               return;
             }
-            core.setFailed('深度线路 AI 审查未发布任何评论（所有候选模型均不可用/限流/欠费），标记为失败以避免假成功');
+            // 未新增评论必须再分两种，**不能只看「探测是否选中健康模型」**。
+            // 2026-09-10 PR #1412 实测反例：探测 glm-4.7-flash 返回 200（selected_ok=true），
+            // 但真正调用时上游 429（智谱 code 1302「账户已达到速率限制」），agent 模式与兜底
+            // 直连双双失败、summary 为空被跳过 → 一条评论都没发，旧逻辑却判为成功（假成功）。
+            // 之所以会错配：探测只发一次极短请求，而真实审查是长上下文 + 多轮 agent，
+            // 触发限流的概率完全不同 —— 「探测通过」不能等价于「本次审查成功」。
+            // 另：若本次只产出了「协议泄漏评论」且已被步骤 2 全部删除，aiComments 会归零，
+            // 同样落到这里判失败（本次确实没有面向用户的有效产出）。
+            //
+            // 残留缺口（已知，不装作没有）：若历史 AI 评论已存在、而本轮又静默失败，仍会放行。
+            // 要彻底堵住需要 action 自身在 LLM 报错时非零退出，当前版本（v0.76.0）不提供该信号。
+            core.setFailed(
+              '深度线路 AI 审查未产出任何有效评论（候选模型均不可用/限流/欠费，模型输出为空，'
+              + '或只产出了被清理的协议泄漏评论）——'
+              + `selected_ok=${selectedOk}，清理后 PR 上 AI 评论数=${aiComments}，本轮新增=${hadNew}，`
+              + `协议泄漏已清理=${purged}。标记为失败以避免假成功；请检查探测步骤输出中的 429 / 额度告警。`
+            );

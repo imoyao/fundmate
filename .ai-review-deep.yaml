@@ -1,14 +1,99 @@
 # AI 深度审查自定义配置
 #
-# 与 .ai-review.yaml 指向同一份共享 prompt（docs/configs/ai-review-prompt.md）。
-# 强度差异由 prompt 内「按 review-command 自适应」段落 + AI_REVIEW_CONFIG_FILE_YAML
-# 区分的 review-command（run vs run-summary）决定，无需维护两份 prompt 内容。
+# 本仓 AI 深度审查的唯一配置文件：由 .github/workflows/ai-review.yml 的
+# ARK 线路通过 AI_REVIEW_CONFIG_FILE_YAML 显式指向本文件。
+# （历史上这里写过「与 .ai-review.yaml 共享 prompt」，但仓库里从来没有该文件，
+#   属过时注释，2026-09-11 更正。）
+#
+# prompt 内容只有一份：docs/configs/ai-review-prompt.md，同时注入
+# inline 与 summary 两条线路；强度差异由 prompt 内「按 review-command 自适应」
+# 段落决定，无需维护多份 prompt。
 # 路径相对仓库根目录（Action 在 checkout 后运行，根目录文件可访问）。
+#
+# ============================================================================
+# 2026-09-11 降噪改造
+#
+# 背景：2026-08-25 ~ 09-10 期间单 PR 产出 29~52 条评论，人工逐条核对几乎全为误报，
+#       同时漏掉了 4 个真实缺陷。根因是**结构性**的，不是 prompt 写得不够长
+#       （那份 prompt 一度涨到 29KB，其中近一半是逐 PR 案例，仍在被明确禁止过的
+#       类别上继续误报）。下面是五个结构性缺陷与对应开关：
+#
+#   1) review.mode 默认 FULL_FILE_DIFF —— 把整个文件（含全部历史行）喂给模型。
+#      于是模型对「不是本次改动」的历史代码提意见，并把「删除行」当成当前状态，
+#      由此产生「等价替换被读成删除/回归」这类批量误报。
+#      → 改为 ONLY_ADDED_WITH_CONTEXT（只送新增行 + 上下文行，不送删除行）。
+#   2) agent.enabled 默认 false —— 模型看不见仓库，只能凭补丁文本推测。
+#      于是大量「符号未定义 / 变量未使用 / 与某约定冲突」的凭空断言。
+#      → 开启 agent：允许只读命令（ls / cat / rg / grep / git show|diff|log|
+#        rev-parse|ls-files），强制「先核实后发言」。该命令白名单由包内策略
+#        （services/policy/service.py）强制执行，模型无法越界。
+#        失败时自动回落到直接对话（ReviewAgentLLMGateway 内置 fallback），
+#        不会静默中断审查。
+#   3) max_inline_comments / max_context_comments 默认 None —— 无硬上限。
+#      而内置提示词本身写着「prioritize ... (maximum 50 comments)」，模型天然
+#      倾向凑数式覆盖。
+#      → 设硬配额。注意截断语义是**保留前 N 条、丢弃尾部**（policy/service.py
+#        的 comments[:limit]），所以 prompt 里要求「按严重度从高到低排序输出」，
+#        排序错了就等于把严重问题丢进垃圾桶。
+#   4) inline_comment_fallback 默认 true —— inline 评论定位失败时改发普通评论，
+#      把「行号锚不上」的猜测性意见倾倒进摘要区，形成刷屏。
+#      → 关闭。锚不上的意见直接丢弃（锚不上本身往往就说明该行不是新增行）。
+#   5) 内置 system prompt（default_system_summary.md）规定 summary 必须
+#      「plain text, no markdown, 1-4 sentences」，而本仓 prompt 要求输出
+#      「## 审查结论 / Verdict → ## 阻断问题 …」的结构化摘要 —— 两者直接冲突，
+#      且 system 优先级高于用户消息，等于我们的摘要格式被静默吞掉。
+#      → 用仓库自持版本替换（下方 system_summary_prompt_files）。
+#
+# 注：review-command: run 实际只跑 inline + summary 两条线路（见包内
+#     cli/commands/run_review.py，不含 context review）。故 max_context_comments
+#     当前不生效，保留是为了将来切换命令时不至于没有护栏。
+# ============================================================================
 
 prompt:
+  # —— 审查指令：作为「用户消息」注入三条线路 ——
   summary_prompt_files:
     - docs/configs/ai-review-prompt.md
   context_prompt_files:
     - docs/configs/ai-review-prompt.md
   inline_prompt_files:
     - docs/configs/ai-review-prompt.md
+
+  # —— summary 输出契约：作为「system 消息」注入，优先级高于上面的用户消息 ——
+  # 关闭内置 default_system_summary.md（它禁止 markdown，与本仓结构化结论冲突），
+  # 换成仓库自持版本；仍保留「无问题时明确说没有实质缺陷」的静默约定。
+  include_summary_system_prompts: false
+  system_summary_prompt_files:
+    - docs/configs/ai-review-system-summary.md
+
+  # inline / context 继续沿用内置 system prompt：它们只定义 JSON 输出契约
+  # （file/line/message/suggestion 数组），不含冲突指令。逐字保留可避免下游解析失效
+  # （services/review/internal/inline/service.py 依赖该 JSON 结构）。
+
+# —— agent 模式：允许模型只读探索仓库，用证据替代猜测 ——
+# max_iterations 上限 100；8 次足够覆盖「核对符号定义 / 核对调用点 / 核对约定文档」，
+# 又不会让每次 PR 审查的 LLM 调用次数失控（每次迭代都是一次计费请求）。
+agent:
+  enabled: true
+  max_iterations: 8
+
+review:
+  # 只送「新增行 + 上下文行」；不送整文件、不送删除行。
+  mode: ONLY_ADDED_WITH_CONTEXT
+  context_lines: 10
+
+  # 硬配额：按模型输出顺序保留前 N 条，尾部直接丢弃（故 prompt 要求按严重度降序）。
+  max_inline_comments: 5
+  max_context_comments: 3
+
+  # inline 定位失败不再降级为普通评论，避免摘要区被「锚不上行号」的意见刷屏。
+  inline_comment_fallback: false
+
+  # 锁文件与压缩产物：审查价值为零，纯噪声（一次依赖升级能产出上百条无意义评论）。
+  # fnmatch 语义，* 可跨目录分隔符匹配。
+  ignore_changes:
+    - "*pnpm-lock.yaml"
+    - "*package-lock.json"
+    - "*pdm.lock"
+    - "*uv.lock"
+    - "*.min.js"
+    - "*.min.css"
