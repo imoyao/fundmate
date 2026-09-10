@@ -12,6 +12,7 @@ from app.domains.funds.models import FundCompany, Manager
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.watchlist.models import WatchlistItem
+from app.services.watchlist_service import lookup_manager, resolve_display_name
 
 normalizer = get_normalizer()
 
@@ -360,12 +361,35 @@ class TestWatchlistItemCRUD:
         assert item['type_label'] == '基金经理'
 
         # 大写存储 + 大小写不敏感回查：两种写法都能命中
-        from app.domains.watchlist.views import _lookup_manager
-
-        assert _lookup_manager('MGR_ABCD1234EFGH', db).name == '张坤'
-        assert _lookup_manager('MGR_abcd1234efgh', db).name == '张坤'
+        assert lookup_manager('MGR_ABCD1234EFGH', db).name == '张坤'
+        assert lookup_manager('MGR_abcd1234efgh', db).name == '张坤'
         # 非经理符号不受影响
-        assert _lookup_manager('SH600519', db) is None
+        assert lookup_manager('SH600519', db) is None
+
+        # 展示名解析链单一实现：投顾/market 侧标的仍走各自分支，不被 Manager 分支劫持
+        assert resolve_display_name('MGR_abcd1234efgh', db) == '张坤'
+        assert resolve_display_name('MGR_UNKNOWNCODE00', db) == 'MGR_UNKNOWNCODE00'
+
+    def test_home_summary_shares_display_name_chain(self, client, app):
+        """首页自选摘要（/home-summary/）与列表页**共用**同一展示名解析链。
+
+        防回归：两条链曾各写一份实现，只有列表页补了 Manager/AdvisorPortfolio 分支，
+        导致列表页正常、首页自选组件对经理行仍显示 MGR_ 派生码，对投顾组合显示
+        ZHxxxx 原始码（2026-09-10 复盘：同一展示需求两处实现必然漂移）。
+        """
+        with get_db() as db:
+            company = FundCompany(code='ZOFC', name='中欧基金管理有限公司')
+            db.add(company)
+            db.commit()
+            db.add(Manager(mgr_code='2a175148a49a', name='蓝小康', company_id=company.id))
+            db.commit()
+            db.add(WatchlistItem(symbol='MGR_2A175148A49A', status='WATCHING', is_pinned=True, pinned_at=date.today()))
+            db.commit()
+
+        resp = client.get('/api/watchlist/home-summary/')
+        assert resp.status_code == 200
+        item = next(i for i in resp.get_json()['data'] if i['symbol'] == 'MGR_2A175148A49A')
+        assert item['display_name'] == '蓝小康'
 
     def test_list_items_pagination(self, client, db):
         """#1048 回归：后端按 page/per_page 切片，total 为真实总数（翻页非假按钮）。"""
