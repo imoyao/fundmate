@@ -130,6 +130,23 @@ pdm run python scripts/diag_em.py
 完整需求与开发规范见 `docs/spec/index.md`（原根目录 `SPEC.md` 已拆分为多文件体系）。
 
 
-## License
+## 授权与使用限制（License）
 
-MIT
+**本仓库公开可见，但不是开源软件（source-available, noncommercial）。公开可读 ≠ 授权使用。**
+
+本项目自有代码适用根目录 [`LICENSE`](./LICENSE)：**PolyForm Noncommercial License 1.0.0**
+（SPDX 标识：`PolyForm-Noncommercial-1.0.0`）。
+
+- **允许**：个人学习、研究、实验、业余项目等**非商业**用途；慈善机构、教育机构、公共研究机构、公共安全/卫生机构、环保机构、政府机构的非商业使用。
+- **禁止**：任何**商业用途**——包括但不限于以本项目或其衍生品对外提供付费服务、销售、企业内部经营性使用。
+- **商业授权须另行取得书面许可**（联系仓库 owner）。
+- 变更与再分发须随附本许可全文或链接、以及 `Required Notice` 声明；**不得再授权（sublicense）**。
+
+边界说明：
+
+- `frontend/LICENSE` 是上游前端模板 [pure-admin](https://github.com/pure-admin) 的 MIT 声明，属**第三方署名**，仅覆盖其原始代码——本项目自有前端代码不因该文件而适用 MIT。
+- 第三方依赖（akshare、Element Plus、VitePress 等）各自适用其自身许可，不受本文件影响，也不因本文件而改变。
+- **时间效力**：2026-09-11 之前发布的版本曾适用 BSD-2-Clause；已按 BSD-2 取得的授权**对当时版本继续有效**，不可追溯撤回（新版本适用上面的非商业许可）。
+- 仓库的 public / private 状态与授权无关：**公开只代表可见，不构成任何使用许可**；反之切回私有也不会放宽授权。
+
+> 本段为仓库约定说明，不构成法律意见；商业合作请先取得书面授权。
