@@ -52,6 +52,33 @@ export interface WatchlistItem {
   advisor_strategy_type?: string | null; // 策略类型（均衡/进取/稳健）
   advisor_org_name?: string | null; // 主理人所属机构/平台方
   manager_company?: string | null; // 基金经理所属基金公司（仅 asset_type=manager 有值）
+  // ── 可转债条款（#1285 消费侧 / #1393）──
+  // 仅 asset_type=bond 且后端 convertible_bond_terms 命中时有值，其余 null。
+  // 数据源：集思录强赎（bond_cb_redeem_jsl）+ 东财基本信息（bond_zh_cov），免 cookie。
+  bond_convert_price?: number | null; // 转股价（元）
+  bond_convert_value?: number | null; // 转股价值（元）
+  bond_premium_rate?: number | null; // 转股溢价率（%）
+  bond_force_redeem_price?: number | null; // 强赎触发价（元）
+  bond_redeem_count?: number | null; // 强赎天计数（已达）
+  bond_redeem_required?: number | null; // 强赎触发所需天数
+  bond_redeem_status?: string | null; // 强赎状态
+  bond_rating?: string | null; // 信用评级
+  bond_maturity_date?: string | null; // 到期日（前端据此算剩余年限）
+  bond_remain_size?: number | null; // 剩余规模（亿元）
+  bond_issue_size?: number | null; // 发行规模（亿元）
+  bond_stock_name?: string | null; // 正股名称
+  // ── 指数估值（#1285 消费侧「指数」品类 / #1394）──
+  // 仅 asset_type=index 且后端 index_valuations 命中时有值；来源中证官方（免 cookie）。
+  index_pe?: number | null; // 市盈率（官方列「市盈率1」）
+  index_pe_2?: number | null; // 市盈率2（官方列名，口径以官方为准）
+  index_dividend_yield?: number | null; // 股息率(%)（官方列「股息率1」）
+  index_valuation_date?: string | null; // 估值日期（口径透明：展示「截至 X」）
+  // ── 基金最大回撤（#1285 消费侧「基金」品类 / 设计 §3.10）──
+  // §3.10 要求「存口径元数据，不只存数字」，故口径项随值一并下发，由前端展示。
+  fund_max_drawdown?: number | null; // 最大回撤(%)，负值
+  fund_max_drawdown_basis?: string | null; // current_tenure|prev_tenure|fixed_3y|insufficient
+  fund_max_drawdown_window?: string | null; // 窗口描述（如「近3年」）
+  fund_max_drawdown_as_of?: string | null; // 序列最后净值日（「截至」）
 }
 
 export interface HomeSummaryItem {

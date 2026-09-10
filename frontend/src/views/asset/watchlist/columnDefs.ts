@@ -41,6 +41,9 @@ export type ColumnRenderer =
   | "sparkline" // 迷你走势图（纯 SVG 折线，#990）
   | "text" // 纯文本 / 枚举映射（#993 新增列：资产类型、所属分组）
   | "notes" // 投资笔记（点击编辑，#1285）
+  | "bond" // 可转债条款（#1285/#1393：溢价率 / 强赎状态 / 剩余年限 / 评级）
+  | "indexVal" // 指数估值（#1285/#1394：市盈率 / 股息率，中证官方）
+  | "drawdown" // 基金最大回撤（#1285/§3.10：口径元数据挂 title）
   | "actions"; // 操作列（circle 按钮：置顶/关注/编辑/删除）
 
 /** 实时估值可覆盖的字段（来自 getValuationItem 产出） */
@@ -176,6 +179,91 @@ export const watchlistColumnDefs: ColumnDef[] = [
     sortable: "custom",
     realtimeField: "changePct",
     scope: "mixed",
+    hideable: true,
+    draggable: true
+  },
+  // ── 可转债品类专属列（#1285 消费侧 / #1393）──
+  // 决策核心是「条款博弈」：强赎状态优先于行情，故紧随涨跌幅之后。
+  // scope 缺省 = "category"：仅「可转债」品类视图显示；appliesTo=["bond"] 保证其他
+  // 品类视图不出现。数据来自后端 convertible_bond_terms enrich（未落库时渲染 `—`）。
+  // 不加 sortable：后端排序白名单暂未登记 bond_* 字段。
+  {
+    key: "bond_premium_rate",
+    label: "转股溢价率",
+    renderer: "bond",
+    appliesTo: ["bond"],
+    width: 104,
+    align: "right",
+    hideable: true,
+    draggable: true
+  },
+  {
+    // 复合列：强赎状态 + 天计数（如「已满足强赎条件 3/15」），完整文案在 title
+    key: "bond_redeem",
+    label: "强赎状态",
+    renderer: "bond",
+    appliesTo: ["bond"],
+    width: 148,
+    align: "left",
+    hideable: true,
+    draggable: true
+  },
+  {
+    // 由 bond_maturity_date 现算（不新增后端字段），title 显示到期日
+    key: "bond_remain_years",
+    label: "剩余年限",
+    renderer: "bond",
+    appliesTo: ["bond"],
+    width: 96,
+    align: "right",
+    hideable: true,
+    draggable: true
+  },
+  {
+    key: "bond_rating",
+    label: "评级",
+    renderer: "bond",
+    appliesTo: ["bond"],
+    width: 84,
+    align: "center",
+    hideable: true,
+    draggable: true
+  },
+  // ── 指数品类专属列（#1285 消费侧「指数」/ #1394）──
+  // 来源中证指数官方估值文件（免 cookie）。官方只下发近约 20 个交易日，
+  // 故「历史分位」暂不提供（见 #1394 讨论）；估值日期挂在 title 上，口径透明。
+  {
+    key: "index_pe",
+    label: "市盈率",
+    renderer: "indexVal",
+    appliesTo: ["index"],
+    width: 88,
+    align: "right",
+    hideable: true,
+    draggable: true
+  },
+  {
+    key: "index_dividend_yield",
+    label: "股息率",
+    renderer: "indexVal",
+    appliesTo: ["index"],
+    width: 88,
+    align: "right",
+    hideable: true,
+    draggable: true
+  },
+  // ── 基金品类专属列（#1285 消费侧「基金」/ §3.10）──
+  // 口径元数据（窗口/频率/复权/截至）随值下发并挂在列 title —— §3.10 明确要求
+  // 「存口径元数据，不只存数字」，否则同一列在不同基金间不可比。
+  // 本期仅 fixed_3y（近 3 年）一档；主动权益类的「现任经理任期」档依赖经理任期与
+  // 历任业绩数据（未接入），届时只需改后端 basis 选择逻辑，本列无需改动。
+  {
+    key: "fund_max_drawdown",
+    label: "最大回撤",
+    renderer: "drawdown",
+    appliesTo: ["fund"],
+    width: 96,
+    align: "right",
     hideable: true,
     draggable: true
   },

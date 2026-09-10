@@ -703,6 +703,45 @@ class AkshareAdapter(DataSourceAdapter):
             self.logger.warning(f'中证指数名录获取失败: {e}')
             return []
 
+    def fetch_index_valuation_csindex(self, index_code: str) -> List[dict]:
+        """中证指数**官方**估值（ak.stock_zh_index_value_csindex，#1285/#1394）。
+
+        读 csindex OSS 的 indicator.xls；免 cookie、按指数代码。官方列名为
+        「市盈率1 / 市盈率2 / 股息率1 / 股息率2」，**原样返回**不做主观口径改写
+        （口径提示见 IndexValuation 模型注释）。
+
+        注意：官方文件仅下发近约 20 个交易日，故本接口**不能**用于计算历史分位。
+        无估值文件的指数会抛错，由 Job 静默跳过。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.stock_zh_index_value_csindex(symbol=index_code)
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                d = self._parse_dividend_date(self._cell(row, '日期'))
+                if not d:
+                    continue
+                out.append(
+                    {
+                        'index_code': index_code,
+                        'index_name': str(self._cell(row, '指数中文简称', '指数中文全称') or ''),
+                        'trade_date': d,
+                        'pe_1': self._num(self._cell(row, '市盈率1')),
+                        'pe_2': self._num(self._cell(row, '市盈率2')),
+                        'dividend_yield_1': self._num(self._cell(row, '股息率1')),
+                        'dividend_yield_2': self._num(self._cell(row, '股息率2')),
+                        'source': 'csindex',
+                    }
+                )
+            return out
+        except Exception as e:
+            self.logger.warning(f'中证指数估值获取失败 {index_code}: {e}')
+            return []
+
     def fetch_index_catalog_cni(self) -> List[dict]:
         """国证指数官网全量名录（ak.index_all_cni），#1365 三源合并之国证源。
 

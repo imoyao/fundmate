@@ -690,6 +690,134 @@ const renderNotes: FunctionalComponent<{
   );
 };
 
+/**
+ * 可转债条款列（#1285 消费侧 / #1393）。
+ *
+ * 一个 renderer 覆盖 4 列（按 def.key 分派）：溢价率 / 强赎状态 / 剩余年限 / 评级。
+ * 数据缺席（表未落库 / 非转债）统一渲染 `—`，不用 0 兜底（0 溢价率是真实值）。
+ * 剩余年限由 `bond_maturity_date` 现算，避免为展示多存一个口径字段。
+ */
+const renderBond: FunctionalComponent<{
+  row: WatchlistRow;
+  def: ColumnDef;
+  ctx: RenderCtx;
+}> = props => {
+  const { row, def } = props;
+  const dash = () => h("span", { class: "bond-empty" }, "—");
+
+  if (def.key === "bond_premium_rate") {
+    const v = field(row, "bond_premium_rate") as number | null | undefined;
+    if (v == null) return dash();
+    return h("span", { class: "bond-num" }, `${v.toFixed(2)}%`);
+  }
+
+  if (def.key === "bond_redeem") {
+    const status = (field(row, "bond_redeem_status") as string) || "";
+    const count = field(row, "bond_redeem_count") as number | null | undefined;
+    const required = field(row, "bond_redeem_required") as
+      number | null | undefined;
+    if (!status && count == null) return dash();
+    const progress =
+      count != null && required != null ? `${count}/${required}` : "";
+    const text = [status, progress].filter(Boolean).join(" ");
+    // 「公告不强赎」属利好/中性，不着警示色；其余含「强赎」的状态高亮
+    const urgent = status.includes("强赎") && !status.includes("不");
+    return h(
+      "span",
+      { class: ["bond-redeem", { "is-urgent": urgent }], title: text },
+      text
+    );
+  }
+
+  if (def.key === "bond_remain_years") {
+    const maturity = (field(row, "bond_maturity_date") as string) || "";
+    if (!maturity) return dash();
+    const ts = Date.parse(maturity);
+    if (Number.isNaN(ts)) return dash();
+    const years = (ts - Date.now()) / 86400000 / 365.25;
+    return h(
+      "span",
+      { class: "bond-num", title: `到期日 ${maturity}` },
+      `${years.toFixed(2)} 年`
+    );
+  }
+
+  if (def.key === "bond_rating") {
+    const rating = (field(row, "bond_rating") as string) || "";
+    return rating ? h("span", { class: "bond-rating" }, rating) : dash();
+  }
+
+  return dash();
+};
+
+/**
+ * 指数估值列（#1285 消费侧「指数」品类 / #1394）：市盈率 / 股息率。
+ *
+ * 口径透明：估值日期挂在 title（「截至 YYYY-MM-DD」）——官方文件只下发近约 20 个
+ * 交易日，展示时点必须让用户看得见，避免误以为是实时值。
+ */
+const renderIndexVal: FunctionalComponent<{
+  row: WatchlistRow;
+  def: ColumnDef;
+  ctx: RenderCtx;
+}> = props => {
+  const { row, def } = props;
+  const asOf = (field(row, "index_valuation_date") as string) || "";
+  const title = asOf ? `截至 ${asOf}` : undefined;
+  const dash = () => h("span", { class: "index-val-empty" }, "—");
+
+  if (def.key === "index_pe") {
+    const v = field(row, "index_pe") as number | null | undefined;
+    if (v == null) return dash();
+    return h("span", { class: "index-val", title }, v.toFixed(2));
+  }
+
+  if (def.key === "index_dividend_yield") {
+    const v = field(row, "index_dividend_yield") as number | null | undefined;
+    if (v == null) return dash();
+    return h("span", { class: "index-val", title }, `${v.toFixed(2)}%`);
+  }
+
+  return dash();
+};
+
+/**
+ * 基金最大回撤列（#1285 消费侧「基金」品类 / 设计 §3.10）。
+ *
+ * §3.10 要求「存口径元数据，不只存数字」：tooltip 必须交代 窗口 / 频率 / 复权口径 /
+ * 截至日，否则同一列在不同基金间不可比。本期口径 = 近 3 年固定窗口 · 日频 · 累计净值。
+ * 数据不足（`basis=insufficient`）时显示 `—` 并在 title 说明原因，避免「看不出为什么空」。
+ * 配色刻意用中性色：回撤是风险指标，套用涨红跌绿会被误读成「今天跌了」。
+ */
+const renderDrawdown: FunctionalComponent<{
+  row: WatchlistRow;
+  def: ColumnDef;
+  ctx: RenderCtx;
+}> = props => {
+  const v = field(props.row, "fund_max_drawdown") as number | null | undefined;
+  const basis = (field(props.row, "fund_max_drawdown_basis") as string) || "";
+  const win = (field(props.row, "fund_max_drawdown_window") as string) || "";
+  const asOf = (field(props.row, "fund_max_drawdown_as_of") as string) || "";
+
+  if (v == null) {
+    const tip =
+      basis === "insufficient"
+        ? "数据不足（近 3 年净值点少于 60 个）"
+        : undefined;
+    return h("span", { class: "dd-empty", title: tip }, "—");
+  }
+
+  const tip = [
+    `口径：${win || "固定窗口"}`,
+    "日频",
+    "累计净值（分红不再投）",
+    asOf ? `截至 ${asOf}` : ""
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return h("span", { class: "dd-val", title: tip }, `${v.toFixed(2)}%`);
+};
+
 /** renderer 类型 -> 函数式组件 的注册表 */
 const REGISTRY: Record<
   ColumnRenderer,
@@ -707,6 +835,9 @@ const REGISTRY: Record<
   moneyRatio: renderMoneyRatio as never,
   text: renderText as never,
   notes: renderNotes as never,
+  bond: renderBond as never,
+  indexVal: renderIndexVal as never,
+  drawdown: renderDrawdown as never,
   sparkline: renderSparkline as never,
   actions: renderActions as never
 };

@@ -72,6 +72,35 @@ class WatchlistItemOut(BaseModel):
     manager_company: Optional[str] = Field(
         None, description='基金经理所属基金公司名（仅 asset_type=manager 有值，其余恒 null）'
     )
+    # 可转债条款补充信息（#1285 消费侧 / #1393）：仅 asset_type=bond 且命中
+    # convertible_bond_terms 时有值，其余恒 null；前端「可转债」品类专属列据此渲染，
+    # 未落库时列内显示 `—`（不用 0 兜底，避免与真实 0 溢价率混淆）。
+    bond_convert_price: Optional[float] = None  # 转股价（元）
+    bond_convert_value: Optional[float] = None  # 转股价值（元）
+    bond_premium_rate: Optional[float] = None  # 转股溢价率（%）
+    bond_force_redeem_price: Optional[float] = None  # 强赎触发价（元）
+    bond_redeem_count: Optional[int] = None  # 强赎天计数（已达天数）
+    bond_redeem_required: Optional[int] = None  # 强赎触发所需天数（通常 15）
+    bond_redeem_status: Optional[str] = None  # 强赎状态（已公告强赎/公告不强赎/…）
+    bond_rating: Optional[str] = None  # 信用评级（AA+/AA/…）
+    bond_maturity_date: Optional[date] = None  # 到期日（前端据此算「剩余年限」）
+    bond_remain_size: Optional[float] = None  # 剩余规模（亿元）
+    bond_issue_size: Optional[float] = None  # 发行规模（亿元）
+    bond_stock_name: Optional[str] = None  # 正股名称
+    # 指数估值补充信息（#1285 消费侧「指数」品类 / #1394）：仅 asset_type=index 且
+    # index_valuations 存在该指数记录时下发；口径见后端 IndexValuation 模型注释。
+    index_pe: Optional[float] = None  # 市盈率（中证官方列「市盈率1」）
+    index_pe_2: Optional[float] = None  # 市盈率2（官方列名，口径以官方为准）
+    index_dividend_yield: Optional[float] = None  # 股息率(%)（官方列「股息率1」）
+    index_valuation_date: Optional[date] = None  # 估值日期（口径透明：前端可标「截至 X」）
+    # 基金最大回撤（#1285 消费侧「基金」品类 / 设计 §3.10）。**不只给数字，同时给口径
+    # 元数据**——§3.10 明确要求「存口径元数据，不只存数字」，前端按 basis 决定色与 tooltip。
+    # 本期仅产出 fixed_3y（固定窗口近 3 年）；current_tenure / prev_tenure 依赖经理任期
+    # 与历任业绩数据（未接入），数据不足时 basis=insufficient 且值保持 None。
+    fund_max_drawdown: Optional[float] = None  # 最大回撤(%)，负值
+    fund_max_drawdown_basis: Optional[str] = None  # current_tenure|prev_tenure|fixed_3y|insufficient
+    fund_max_drawdown_window: Optional[str] = None  # 窗口描述（如「近3年」）
+    fund_max_drawdown_as_of: Optional[date] = None  # 序列最后净值日（「截至」）
 
 
 # ── 分组 ──

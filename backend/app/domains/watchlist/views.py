@@ -20,8 +20,10 @@ from app.core.money import Money
 from app.core.utils import api_response, with_db
 from app.core.validation import parse_body
 from app.domains.funds.models import AdvisorPortfolio, DailyWorth
+from app.domains.indices.models import IndexValuation
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
+from app.domains.securities.models import ConvertibleBondTerm
 from app.domains.transactions.models import Transaction
 from app.domains.watchlist.models import (
     WatchlistGroup,
@@ -41,6 +43,7 @@ from app.domains.watchlist.schemas import (
     WatchlistTagDefOut,
     WatchlistTagDefUpdate,
 )
+from app.services.fund_metrics import compute_max_drawdown, load_nav_points
 from app.services.watchlist_service import (
     build_groups_data,
     build_home_summary,
@@ -83,6 +86,118 @@ GROUP_COLORS = {
 # 正常而首页仍显示 MGR_xxx（2026-09-10 复盘），故不再在此另立副本。
 
 
+def _to_float(value):
+    """Decimal/数值 → float（None 安全）。
+
+    SafeNumeric 落库为 Decimal，若直接塞进响应 dict 会把 Decimal 带进 JSON
+    （Flask 默认编码器不认识 Decimal）。统一在此转换。
+    """
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _apply_bond_fields(out: dict, symbol: str, db) -> None:
+    """可转债条款 enrich（#1285 消费侧 / #1393）。
+
+    仅当 convertible_bond_terms 命中该 symbol 时填充（表未落库/非转债则一律保持
+    None，前端据此显示 `—`，不渲染假数据）。
+    """
+    term = db.query(ConvertibleBondTerm).filter_by(symbol=symbol).first()
+    if term is None:
+        return
+    out['bond_convert_price'] = _to_float(term.convert_price)
+    out['bond_convert_value'] = _to_float(term.convert_value)
+    out['bond_premium_rate'] = _to_float(term.premium_rate)
+    out['bond_force_redeem_price'] = _to_float(term.force_redeem_price)
+    out['bond_redeem_count'] = term.redeem_count
+    out['bond_redeem_required'] = term.redeem_required
+    out['bond_redeem_status'] = term.redeem_status
+    out['bond_rating'] = term.rating
+    out['bond_maturity_date'] = term.maturity_date
+    out['bond_remain_size'] = _to_float(term.remain_size)
+    out['bond_issue_size'] = _to_float(term.issue_size)
+    out['bond_stock_name'] = term.stock_name
+
+
+def _bare_code(symbol: str) -> str:
+    """'SH000300' / 'CSI930950' / 'OF000001' → '000300' / '930950' / '000001'。
+
+    指数估值表（index_valuations）与基金净值表（daily_worth）都按**裸代码**存储，
+    故统一在此抽取数字部分。
+    """
+    return ''.join(ch for ch in (symbol or '') if ch.isdigit())
+
+
+def _apply_index_valuation_fields(out: dict, symbol: str, db) -> None:
+    """指数估值 enrich（#1285 消费侧「指数」品类 / #1394）。
+
+    取该指数**最新一期**估值（历史序列留给后续的估值详情页）；表为空或该指数没有
+    官方估值文件时保持 None —— 前端显示 `—`，不编造数据。
+    """
+    code = _bare_code(symbol)
+    if not code:
+        return
+    row = (
+        db.query(IndexValuation)
+        .filter(IndexValuation.index_code == code)
+        .order_by(IndexValuation.trade_date.desc())
+        .first()
+    )
+    if row is None:
+        return
+    out['index_pe'] = _to_float(row.pe_1)
+    out['index_pe_2'] = _to_float(row.pe_2)
+    out['index_dividend_yield'] = _to_float(row.dividend_yield_1)
+    out['index_valuation_date'] = row.trade_date
+
+
+# ── 基金最大回撤（#1285 消费侧「基金」品类 / 设计 §3.10）──
+DRAWDOWN_FIXED_WINDOW_DAYS = 365 * 3  # 固定窗口档：近 3 年
+DRAWDOWN_FIXED_WINDOW_LABEL = '近3年'
+# 样本不足（次新基金/净值稀疏）时不下发数字，只标 basis=insufficient，前端显示 `—`
+DRAWDOWN_MIN_SAMPLES = 60
+
+
+def _apply_fund_drawdown_fields(out: dict, symbol: str, asset_type: str, db) -> None:
+    """基金最大回撤 enrich（口径见设计 §3.10「存口径元数据，不只存数字」）。
+
+    **本期口径**：固定窗口「近 3 年」，日频，基于 `daily_worth.acc_nav`（累计净值）
+    自算，`basis='fixed_3y'`。
+
+    为何不是「现任经理任期」：§3.10 对**主动权益类**要求绑定有效管理人任期，该档位
+    依赖经理任期 / 历任任期业绩 / 同类排名数据（均未接入），故本期不产出
+    `current_tenure` / `prev_tenure` 两档；字段与前端色板已按 basis 预留，
+    数据接入后只需在此处改 `basis` 选择逻辑，算法与服务层无需改动。
+    """
+    # 仅场外基金：daily_worth 按 6 位基金代码存净值；货基用万份收益口径，不适用本算法
+    if (asset_type or '').lower() != 'fund':
+        return
+    code = _bare_code(symbol)
+    if not code:
+        return
+
+    since = date.today() - timedelta(days=DRAWDOWN_FIXED_WINDOW_DAYS)
+    rows = (
+        db.query(DailyWorth)
+        .filter(DailyWorth.fund_code == code, DailyWorth.date >= since)
+        .order_by(DailyWorth.date)
+        .all()
+    )
+    result = compute_max_drawdown(load_nav_points(rows))
+    if result is None or result.sample_size < DRAWDOWN_MIN_SAMPLES:
+        out['fund_max_drawdown_basis'] = 'insufficient'
+        return
+
+    out['fund_max_drawdown'] = round(result.max_drawdown, 2)
+    out['fund_max_drawdown_basis'] = 'fixed_3y'
+    out['fund_max_drawdown_window'] = DRAWDOWN_FIXED_WINDOW_LABEL
+    out['fund_max_drawdown_as_of'] = result.as_of
+
+
 def _enrich_item(item: WatchlistItem, db) -> dict:
     out = WatchlistItemOut.model_validate(item).model_dump()
     # watchlist.asset_type 历史存放大写（STOCK/ETF/...），对外统一归一为小写，
@@ -116,6 +231,15 @@ def _enrich_item(item: WatchlistItem, db) -> dict:
     # （2026-09-10 用户反馈）。
     mgr = lookup_manager(item.symbol, db)
     out['manager_company'] = mgr.company.name if mgr and mgr.company else None
+
+    # 可转债条款（#1285 消费侧 / #1393）：仅转债命中 convertible_bond_terms 时填充
+    _apply_bond_fields(out, item.symbol, db)
+
+    # 指数估值（#1285 消费侧 / #1394）：仅指数命中 index_valuations 时填充
+    _apply_index_valuation_fields(out, item.symbol, db)
+
+    # 基金最大回撤（#1285 消费侧 / §3.10）：仅场外基金，口径元数据随值下发
+    _apply_fund_drawdown_fields(out, item.symbol, item.asset_type, db)
 
     # 补充价格与市值信息（从持仓表计算静态值）
     position_value = _compute_position_market_value(item.symbol, db)
@@ -280,7 +404,7 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
 
     current_price = _compute_avg_current_price(symbol, db)
     stats = _compute_holding_stats(symbol, db)
-    return {
+    row = {
         'id': None,
         'symbol': symbol,
         'market': market,
@@ -318,6 +442,13 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
         # 基金经理所属公司（与 _enrich_item 同源；非经理为 None）
         'manager_company': (mgr.company.name if mgr and mgr.company else None),
     }
+    # 可转债条款（#1285/#1393）：与 _enrich_item 同源，避免虚拟行（持仓聚合无 id）漏字段
+    _apply_bond_fields(row, symbol, db)
+    # 指数估值（#1285/#1394）：与 _enrich_item 同源
+    _apply_index_valuation_fields(row, symbol, db)
+    # 基金最大回撤（#1285/§3.10）：与 _enrich_item 同源，避免虚拟行漏字段
+    _apply_fund_drawdown_fields(row, symbol, asset_type, db)
+    return row
 
 
 def _build_all_items(db, family_id, venue=None, search=None, tag_ids_str=None, favorite=False, group_id=None):

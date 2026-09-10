@@ -169,3 +169,58 @@
   color: var(--brand-700);
   border-bottom: 1px dashed var(--brand-400);
 }
+
+/* ── 可转债品类列（#1285/#1393）── */
+.el-table .bond-num {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.el-table .bond-empty {
+  color: var(--text-disabled);
+}
+
+.el-table .bond-rating {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* 强赎状态：文本可超列宽，省略并以 title 看全文；含「强赎」的状态用涨色高亮 */
+.el-table .bond-redeem {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.el-table .bond-redeem.is-urgent {
+  color: var(--color-rise);
+  font-weight: 500;
+}
+
+/* ── 指数估值列（#1285/#1394）── */
+.el-table .index-val {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.el-table .index-val-empty {
+  color: var(--text-disabled);
+}
+
+/* ── 基金最大回撤列（#1285/§3.10）── */
+.el-table .dd-val {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  /* 回撤是风险指标而非涨跌：用中性色，不套涨红跌绿（否则被误读为「今日下跌」） */
+  color: var(--text-primary);
+}
+
+.el-table .dd-empty {
+  color: var(--text-disabled);
+}
