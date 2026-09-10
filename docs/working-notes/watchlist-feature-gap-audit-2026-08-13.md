@@ -9,7 +9,7 @@
 | 分组（系统+自定义） | #661 #860 | ✅ `WatchlistGroup.is_system` | ✅ 分组 tabs + `fetchGroups` | `models.py` / `index.vue` |
 | 自定义标签（labels 式） | #661 #860 | ✅ `WatchlistTagDef`+`WatchlistItemTag` | ✅ 增删改/打标 UI | `models.py` / `index.vue` |
 | 按产品区分（基础 `asset_type`） | #661 #860 | ⚠️ 仅 STOCK/ETF/FUND/CB/INDEX | ✅ 统一类型标签 | `models.py` |
-| 自选备注 `notes` 可编辑 UI | #661 #860 #1285 | 字段已建 | ✅ 已实现（自选页「备注」列 + 添加弹窗均支持，与 Favorite 复盘页共享 `watchlist.notes`） | `NotesEditorDialog.vue` / `AddToWatchlistModal.vue` |
+| 自选备注 `notes` 可编辑 UI | #661 #860 #1285 | 字段已建 | ✅ 已实现（自选页「备注」列，整格点击编辑；与 Favorite 复盘页共享 `watchlist.notes`） | `NotesEditorDialog.vue` |
 | 备注分享能力 | #661 #860 | — | — | 已砍：本期不做分享，备注仅本地编辑 |
 | 品种不同描述维度不同 | #661 #860 | ❌ 统一 schema | ❌ 统一表格 | `models.py` 单表 |
 | 基金经理/组合(投顾)可观察实体 | #661 #860 | ❌ 仅枚举无实体（`entity_type=MANAGER` 悬空） | ❌ 无 | `models.py` |
@@ -25,7 +25,7 @@
 - 分组（系统+自定义）：✅ 已实现。
 - 自定义标签（labels 式）：✅ 已实现。
 - 按产品区分：基础 `asset_type` 区分有；但无基金经理、组合（投顾）两类可观察实体。
-- 自定义备注：✅ 已实现（#1285，2026-09-10）。后端 `WatchlistItem.notes` + 前端自选页「备注」列（整格点击编辑）/ 添加弹窗均支持编辑，与 Favorite（未竟之蹊）复盘页共享同一 `watchlist.notes` 字段。分享能力已砍，本期不做。
+- 自定义备注：✅ 已实现（#1285，2026-09-10）。后端 `WatchlistItem.notes` + 前端自选页「备注」列（整格点击编辑）支持编辑，与 Favorite（未竟之蹊）复盘页共享同一 `watchlist.notes` 字段。分享能力已砍，本期不做。
 - 品种不同描述维度不同：❌ 未实现。所有类型共用统一字段。
 - 该 issue 关闭时已在 `docs/spec/tech-debt.md` 第 97 行诚实标注 2 项 `[ ]`（备注分享、品种维度）；其中备注编辑已在 #1285 落地、分享已砍，仅品种维度仍待 #1286 数据底座 / #1285 消费侧。
 
