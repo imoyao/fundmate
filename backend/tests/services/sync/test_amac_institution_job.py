@@ -5,21 +5,32 @@
 - 命中 CURATED_INSTITUTIONS 的行覆写 is_common/common_sort/display_name
   （代码即 source of truth，保证本地/生产/灾备重建各环境收敛）；
 - 未命中行不触碰这三个字段（display_name 维持「仅首次写入」既有语义）。
+
+2026-09-10 扩充：基金管理人（house）不再落独立表，而是 **enrich 进 fund_companies**
+（公司主数据唯一表）——全称写 full_name、地址/官网/电话入列，且**不新建公司行**。
 """
 
 from loguru import logger
 
+from app.domains.funds.models import FundCompany
 from app.domains.positions.models import SalesInstitution
 from app.services.sync.jobs.amac_institution_job import CURATED_INSTITUTIONS, AmacInstitutionJob
 
 
 def _make_job(db):
-    """绕过 __init__（免 adapter/抓取依赖），仅注入 _upsert_sales 所需状态。"""
+    """绕过 __init__（免 adapter/抓取依赖），仅注入 _upsert_* 所需状态。"""
     job = AmacInstitutionJob.__new__(AmacInstitutionJob)
     job.db = db
     job.logger = logger
-    job.stats = {'success': 0}
+    job.stats = {'success': 0, 'skipped': 0}
+    job._pre_run()
     return job
+
+
+def _house_item(house_name: str, **extra) -> dict:
+    item = {'kind': 'house', 'houseName': house_name}
+    item.update(extra)
+    return item
 
 
 def _sales_item(org_name: str, org_type: str = '独立基金销售机构') -> dict:
@@ -100,3 +111,79 @@ def test_pinyin_short_computed(db):
     assert ht.pinyin_short == 'HTZQ'
     xq = db.query(SalesInstitution).filter_by(org_name='北京雪球基金销售有限公司').one()
     assert xq.pinyin_short == 'BJXQJJXSYXGS'
+
+
+# ─────────── 基金管理人回填 fund_companies（2026-09-10）───────────
+
+
+def test_upsert_house_enriches_fund_company(db):
+    """AMAC 全称落 full_name，地址/官网/电话入列；不新建公司行。"""
+    db.add(FundCompany(code='80000228', name='华安基金'))
+    db.commit()
+    job = _make_job(db)
+    job._save_data(
+        [
+            _house_item(
+                '华安基金管理有限公司',
+                registerAddr='上海市',
+                officeAddr='上海市浦东新区',
+                website='www.huaan.com.cn',
+                phone='400-885-0099',
+            )
+        ]
+    )
+    row = db.query(FundCompany).filter_by(name='华安基金').one()
+    assert row.full_name == '华安基金管理有限公司'
+    assert row.register_addr == '上海市'
+    assert row.office_addr == '上海市浦东新区'
+    assert row.website == 'www.huaan.com.cn'
+    assert row.phone == '400-885-0099'
+    assert row.is_active is True
+    assert db.query(FundCompany).count() == 1  # 未新建行
+
+
+def test_upsert_house_does_not_overwrite_short_name(db):
+    """`name` 属东财链路写权，AMAC 不得改动（单一写者原则）。"""
+    db.add(FundCompany(code='80036782', name='招商基金'))
+    db.commit()
+    job = _make_job(db)
+    job._save_data([_house_item('招商基金管理有限公司')])
+    row = db.query(FundCompany).filter_by(code='80036782').one()
+    assert row.name == '招商基金'
+    assert row.full_name == '招商基金管理有限公司'
+
+
+def test_upsert_house_unmatched_not_created(db):
+    """AMAC 有、主数据没有的管理人：只累计告警，不新建行（AMAC 不提供东财编码）。"""
+    db.add(FundCompany(code='80000228', name='华安基金'))
+    db.commit()
+    job = _make_job(db)
+    job._save_data([_house_item('施罗德基金管理（中国）有限公司')])
+    assert db.query(FundCompany).count() == 1
+    assert job._unmatched_houses == ['施罗德基金管理（中国）有限公司']
+    assert job.stats['skipped'] == 1
+
+
+def test_upsert_house_does_not_cross_business_family(db):
+    """同归一化键但业务族不同（券商资管）不得被回填覆盖。"""
+    db.add(FundCompany(code='80036782', name='招商基金'))
+    db.add(FundCompany(code='80408086', name='招商证券资产管理有限公司'))
+    db.commit()
+    job = _make_job(db)
+    job._save_data([_house_item('招商基金管理有限公司', website='www.cmfchina.com')])
+    assert db.query(FundCompany).filter_by(name='招商基金').one().website == 'www.cmfchina.com'
+    assert db.query(FundCompany).filter_by(name='招商证券资产管理有限公司').one().website is None
+
+
+def test_post_run_deactivation_scoped_to_amac_managed_companies(db):
+    """is_active 失效只作用于「曾被 AMAC 认领」的行（full_name 非空），不误伤东财行。"""
+    db.add(SalesInstitution(org_name='某销售机构'))
+    db.add(FundCompany(code='80000228', name='华安基金', full_name='华安基金管理有限公司'))
+    db.add(FundCompany(code='80408086', name='招商证券资产管理有限公司'))  # 从未被 AMAC 认领
+    db.commit()
+    job = _make_job(db)
+    job._seen_org_names = {'某销售机构'}
+    job._seen_house_names = set()  # 本次 AMAC 名单为空 → 已认领行应失效
+    job._post_run()
+    assert db.query(FundCompany).filter_by(name='华安基金').one().is_active is False
+    assert db.query(FundCompany).filter_by(name='招商证券资产管理有限公司').one().is_active is True

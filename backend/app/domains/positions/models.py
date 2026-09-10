@@ -261,22 +261,6 @@ class SalesInstitution(Base, PrimaryKeyMixin, TimestampMixin):
     pinyin_short = Column(String(100), nullable=True, comment='名称拼音首字母简拼（同步 job 派生，供前端检索过滤）')
 
 
-class FundManagementCompany(Base, PrimaryKeyMixin, TimestampMixin):
-    """公募基金管理人权威名录（AMAC 公示，唯一基准）。
-
-    is_active 标记管理人是否仍在公示名单内（注销/停业时置 False，历史数据保留不删除）。
-    """
-
-    __tablename__ = 'fund_management_companies'
-
-    house_name = Column(String(200), unique=True, nullable=False, comment='管理人全称（AMAC 公示，唯一基准）')
-    register_addr = Column(String(200), comment='注册地址')
-    office_addr = Column(String(200), comment='办公地址')
-    website = Column(String(200), comment='官网')
-    phone = Column(String(100), comment='客服电话')
-    is_active = Column(Boolean, default=True, comment='是否在 AMAC 公示名单内')
-
-
 def resolve_sales_institution_id(db, source_broker):
     """按销售机构名（source_broker）匹配 AMAC 权威名录，返回机构 id；无匹配返回 None。
 

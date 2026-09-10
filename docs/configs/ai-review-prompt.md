@@ -43,7 +43,7 @@
   - **不要在 ORM 模型上加 `__data_domain__` 类属性**——当前实现只用 `DATA_DOMAIN_REGISTRY` 注册表（`validate_domain_labels` 校验的是注册表完整性），没有任何模型声明该属性；建议「给模型加 `__data_domain__`」是过时约定，属于冗余/错误建议。
   - 判定「该用哪个 session」时，**先查 `DATA_DOMAIN_REGISTRY`** 这张表属于 market 还是 user：**user 域表必须走 `user_session()`，market 域表走 `market_session()`**，禁止混用，也禁止用 `get_db()` / `SessionLocal`（market/app 引擎）去碰 user 域表。
   - **`get_db()` 碰 user 域表是已知遗留（issue #1085 跟踪，约 25 文件/150+ 处），非单 PR 引入**。除非该 PR 目标是双库迁移，否则**不要**就单处 `get_db()` 提 [阻断]/[主要]，可引用 #1085 作为已知项，不得据此阻塞合并；即便已注明，仍不要每处重复警告。注意：当前运行态默认 `init_db()` 把所有表建到 app 引擎，`get_db()` 在单库模式下可用；但若 PR 明确以双库/双 Session 为目标，user 域读写必须切到 `user_session()`，此时不要给 `get_db()` 兜底，而应明确改用 `user_session()`；若改 Session 路由，务必同步更新 `tests/conftest.py` 对 user 引擎的 patch，否则测试会因指向独立 SQLite 而失败。
-  - 具体到本仓库：`sales_institutions` 与 `fund_management_companies` 在注册表里都是 `DOMAIN_USER`，因此它们的读写只能用 `user_session()`——**绝不要建议改成 `market_session()`**，那会把 user 域数据落错库。
+  - 具体到本仓库：`sales_institutions` 在注册表里是 `DOMAIN_USER`，因此它的读写只能用 `user_session()`——**绝不要建议改成 `market_session()`**，那会把 user 域数据落错库。公司主数据是 `fund_companies`（`DOMAIN_MARKET`，被 `funds`/`managers` 外键引用）；**`fund_management_companies` 已于 2026-09-10 合并删除，见到针对该表的读写匹配/外键/域归属建议一律视为过时建议**（AMAC 基金管理人公示信息现 enrich 进 `fund_companies.full_name` 等列，见 `docs/spec/decisions.md` 2026-09-10 行）。
   - 跨域零外键、零 SQL join；跨域读取走应用层两步法（`app/services/common/cross_domain.py`）。
 
 **前端（Vue 3 / TS / Element Plus）**

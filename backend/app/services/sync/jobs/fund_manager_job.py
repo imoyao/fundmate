@@ -1,13 +1,13 @@
 # app/services/sync/jobs/fund_manager_job.py
 """基金经理同步任务（全量，当前接口不稳定，暂时跳过）"""
 
-from typing import List
+from typing import Dict, List
 
 from loguru import logger
 
 from app.core.db_utils import bulk_insert_if_not_exists
-from app.domains.funds.models import Fund, FundCompany, FundManager, Manager
-from app.services.sync.company_resolver import get_company_code_by_name
+from app.domains.funds.models import Fund, FundManager, Manager
+from app.services.sync.company_resolver import get_or_create_fund_company
 from app.services.sync.jobs.base import IN_CHUNK_SIZE, SyncJob
 
 
@@ -84,35 +84,13 @@ class FundManagerSyncJob(SyncJob):
         company_names = {item.get('company') for item in new_data if item.get('company')}
         company_map = {}
         if company_names:
-            existing = self.db.query(FundCompany).filter(FundCompany.name.in_(company_names)).all()
-            company_map = {c.name: c.id for c in existing}
-            # 补建缺失的基金公司，优先用真值 code（#1168）
+            # 唯一写入口（company_resolver）：精确名 → 归一化名 + 业务族 → 才新建。
+            # akshare 给的是全称（「招商基金管理有限公司」），库里规范行是简称
+            # （「招商基金」），此前只按精确名查会导致同一公司长出第二行
+            # （2026-09-10 实测 8 组，招商基金的经理被分裂挂 103 + 9 行）。
+            cache: Dict[str, int] = {}
             for name in company_names:
-                if name in company_map:
-                    continue
-                real_code = get_company_code_by_name(name)
-                if not real_code:
-                    logger.warning(f'基金公司「{name}」未匹配到权威 code，暂以名称占位')
-                    # 占位 code=name 同样受 unique(code) 约束：跨批次/跨运行可能已存在，先查后插
-                    existing_placeholder = self.db.query(FundCompany).filter_by(code=name).first()
-                    if existing_placeholder is not None:
-                        company_map[name] = existing_placeholder.id
-                        continue
-                    inst = FundCompany(name=name, code=name)
-                    self.db.add(inst)
-                    self.db.flush()
-                    company_map[name] = inst.id
-                    continue
-                # 权威 code 已被其他名称占用（同机构简称/全称变体）→ 复用既有行，
-                # 避免 unique(code) 冲突（#1286 全量回填实测：银华基金 80000235）
-                by_code = self.db.query(FundCompany).filter_by(code=real_code).first()
-                if by_code is not None:
-                    company_map[name] = by_code.id
-                    continue
-                inst = FundCompany(name=name, code=real_code)
-                self.db.add(inst)
-                self.db.flush()
-                company_map[name] = inst.id
+                company_map[name] = get_or_create_fund_company(self.db, name, cache=cache)
 
         # 1. 插入新经理（带公司关联）
         mgr_records = []

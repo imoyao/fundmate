@@ -54,8 +54,12 @@ def _development_user_url() -> str:
 # 归属判定见 AGENTS.md「多引擎数据域约束」决策树。
 #
 # 边界先例（已固化，勿凭"公开=Turso"一刀切）：
-#  - sales_institutions / fund_management_companies：公开名录，但被 user 域表
-#    (ledgers/positions) 外键引用 → 随 user 域，避反向跨域 FK。
+#  - sales_institutions：公开名录，但被 user 域表 (ledgers) 外键引用 → 随 user 域，
+#    避反向跨域 FK。
+#  - fund_companies：公司主数据，被 market 域表 (funds/managers) 外键引用 →
+#    随 market 域。AMAC 基金管理人公示信息 enrich 进本表（2026-09-10 合并），
+#    曾有独立的 fund_management_companies（user 域）——实测零读者/零外键/零接口，
+#    已删除。注意别再把它登记回来。
 #  - managers / fund_managers：被 market 域表 (funds) 外键引用 → 随 market 域。
 DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     # ── market 域（Turso）：公开、读多写少、无限膨胀的市场数据 ──
@@ -94,7 +98,6 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'position_import_meta': DOMAIN_USER,  # 导入溯源（含 family_id）
     'assets': DOMAIN_USER,  # 静态资产（含 family_id）
     'sales_institutions': DOMAIN_USER,  # 销售机构名录（被 ledgers 引用，随 user 域）
-    'fund_management_companies': DOMAIN_USER,  # 基金公司名录（被 positions 引用，随 user 域）
     'watchlist': DOMAIN_USER,
     'watchlist_groups': DOMAIN_USER,
     'watchlist_item_group': DOMAIN_USER,
