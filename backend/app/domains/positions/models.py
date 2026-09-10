@@ -234,6 +234,41 @@ class PositionImportMeta(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixi
     )
 
 
+class FundCompanyObservation(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
+    """基金 → 基金管理人「观察值」：导入样本侧的原始证据，供 market 域回填 funds.company_id。
+
+    为什么独立成表、不复用 `position_import_meta`（2026-09-10 定）：
+    后者与持仓对账生命周期绑定——影子行的 source_broker/fund_manager 是专用匹配键，
+    影子行在归因完成后被删除，渠道行的这两列按 §3.2 恒置 NULL 以避开部分唯一索引。
+    挂在其上的观察值会随归因流程消失：实测本库 102 条 E账户 meta 的 fund_manager 全为
+    NULL、影子行零残留，原始「基金管理人」已不可回溯。本表以 (family_id, fund_code)
+    为业务键 upsert，与持仓生命周期彻底解耦：归因、删影子行、重复/覆盖导入都不丢观察值。
+
+    数据域（app/core/db_factory.DATA_DOMAIN_REGISTRY）：含 family_id → **user 域**
+    （导入侧证据属用户私有数据，不落共享市场库，避免泄露「某用户持有某基金」）。
+
+    职责边界（单一写者原则，见 docs/spec/decisions.md）：
+    - 导入路径**只写本表**，绝不直写 market 域的 `funds.company_id`；
+    - `funds.company_id` 仍只由 market 域 job 消费本表后回填（fund_company_backfill），
+      杜绝「导入写一遍、同步再写一遍」的来回写。
+    """
+
+    __tablename__ = 'fund_company_observations'
+
+    fund_code = Column(String(20), nullable=False, comment='基金代码（跨域业务键，无 FK）')
+    company_name = Column(
+        String(100),
+        nullable=False,
+        comment='观察到的基金管理人名称（来源原始形态，多为中国结算给出的法人全称）',
+    )
+    source = Column(String(30), nullable=False, default='', comment='数据来源: e_account_holding / ai_holding')
+
+    __table_args__ = (
+        UniqueConstraint('family_id', 'fund_code', name='uq_fco_family_fund'),
+        Index('idx_fco_fund_code', 'fund_code'),
+    )
+
+
 class SalesInstitution(Base, PrimaryKeyMixin, TimestampMixin):
     """基金销售机构权威名录（AMAC 公示，唯一基准）。
 

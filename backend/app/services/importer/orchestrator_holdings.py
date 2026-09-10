@@ -21,6 +21,7 @@ from app.core.money import Money
 from app.domains.ledgers.constants import map_org_type_to_channel_category
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import (
+    FundCompanyObservation,
     Position,
     PositionImportMeta,
     SalesInstitution,
@@ -37,6 +38,10 @@ from app.services.position_service import PositionService
 
 class HoldingsMixin:
     """持仓快照导入与 E 账户对账归因。"""
+
+    # 分批 in_ 大小：与 sync/jobs/base.IN_CHUNK_SIZE 同口径（SQLite 变量上限 999 防御），
+    # 此处独立定义而非跨模块 import——避免 importer 依赖 sync.jobs 包触发 akshare 重依赖链。
+    _IN_CHUNK_SIZE = 900
 
     # ── 持仓分支（#1012，与交易分支完全并行，落 positions 不建流水）──
 
@@ -211,6 +216,9 @@ class HoldingsMixin:
         if not valid_rows:
             return {'imported': 0, 'skipped': len(raw_rows), 'errors': []}
 
+        # 观察值先落（早于逐行落库）：即使某行落库失败，观察值仍是有效证据
+        self.record_fund_company_observations(valid_rows)
+
         imported = 0
         commit_errors = []
         for row in valid_rows:
@@ -275,6 +283,61 @@ class HoldingsMixin:
                 'market_value': row.get('amount'),
             },
         }
+
+    # ── 基金公司观察值（导入侧证据，供 market 域 job 回填 funds.company_id）──
+
+    def record_fund_company_observations(self, rows: list) -> int:
+        """把导入行里观察到的「基金管理人」幂等落到 user 域观察表，返回涉及基金数。
+
+        为什么要落：E账户文件（及 OCR 结果）里的「基金管理人」是中国结算给出的法人全称，
+        是补 `funds.company_id` 覆盖率最权威的来源。但导入路径**不得直写 market 域**
+        （双库边界 + 单一写者原则：funds.company_id 的写权只归 market 域 job），
+        故这里只落本域观察表，由 market 域 job（fund_company_backfill）统一消费回填。
+
+        幂等：按 (family_id, fund_code) upsert，同一基金多次导入只保留末次观察值；
+        与持仓生命周期解耦——影子行被删、归因覆盖都不会丢观察值（详见模型 docstring）。
+        """
+        observed: dict = {}
+        for row in rows or []:
+            symbol = (row.get('symbol') or '').strip()
+            company = (row.get('fund_manager') or '').strip()
+            if symbol and company:
+                observed[symbol] = (company, (row.get('source') or '').strip())
+        if not observed:
+            return 0
+
+        # 分批 in_：导入行数可达数千，单条 in_ 超 SQLite 变量上限直接 OperationalError
+        codes = list(observed)
+        existing: dict = {}
+        for i in range(0, len(codes), self._IN_CHUNK_SIZE):
+            chunk = codes[i : i + self._IN_CHUNK_SIZE]
+            for obs in (
+                self.db.query(FundCompanyObservation)
+                .filter(
+                    FundCompanyObservation.family_id == self.family_id,
+                    FundCompanyObservation.fund_code.in_(chunk),
+                )
+                .all()
+            ):
+                existing[obs.fund_code] = obs
+
+        for code, (company, source) in observed.items():
+            obs = existing.get(code)
+            if obs is None:
+                self.db.add(
+                    FundCompanyObservation(
+                        family_id=self.family_id,
+                        fund_code=code,
+                        company_name=company,
+                        source=source,
+                    )
+                )
+            else:
+                obs.company_name = company
+                if source:
+                    obs.source = source
+        self.db.flush()
+        return len(observed)
 
     # ── E账户对账与归因（设计文档 e-account-reconciliation-design-2026-08-16，§12 v1.1.1 修正）──
 
@@ -600,6 +663,9 @@ class HoldingsMixin:
             'failed_rows': [],
             'conflict_list': [],
         }
+
+        # 观察值先落（先于逐行对账）：即使后续某行失败/被忽略，观察值仍是有效证据
+        self.record_fund_company_observations(rows)
 
         for idx, row in enumerate(rows):
             line = idx + 2  # 表头占第 1 行（与 parse 端点行号口径一致）
