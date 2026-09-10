@@ -44,6 +44,7 @@ export type ColumnRenderer =
   | "bond" // 可转债条款（#1285/#1393：溢价率 / 强赎状态 / 剩余年限 / 评级）
   | "indexVal" // 指数估值（#1285/#1394：市盈率 / 股息率，中证官方）
   | "drawdown" // 基金最大回撤（#1285/§3.10：口径元数据挂 title）
+  | "links" // 跨渠道关联（#1285 §3.8：数量角标 + 浮层）
   | "actions"; // 操作列（circle 按钮：置顶/关注/编辑/删除）
 
 /** 实时估值可覆盖的字段（来自 getValuationItem 产出） */
@@ -264,6 +265,19 @@ export const watchlistColumnDefs: ColumnDef[] = [
     appliesTo: ["fund"],
     width: 96,
     align: "right",
+    hideable: true,
+    draggable: true
+  },
+  {
+    // 跨渠道关联入口（#1285 §3.8「数量标记 + 浮层」）：hover 浮层列出关联标的名。
+    // 本期仅指数↔ETF 且只覆盖主流宽基（实测 akshare 无「跟踪标的」字段，总名称
+    // 匹配覆盖 41.1% < 90% 门槛 → 按设计降级）；无关联渲染 `—`。
+    key: "links",
+    label: "关联",
+    renderer: "links",
+    appliesTo: ["index", "etf"],
+    width: 84,
+    align: "center",
     hideable: true,
     draggable: true
   },

@@ -79,6 +79,10 @@ export interface WatchlistItem {
   fund_max_drawdown_basis?: string | null; // current_tenure|prev_tenure|fixed_3y|insufficient
   fund_max_drawdown_window?: string | null; // 窗口描述（如「近3年」）
   fund_max_drawdown_as_of?: string | null; // 序列最后净值日（「截至」）
+  // ── 跨渠道关联（#1285 设计 §3.8）：数量角标 + 浮层明细 ──
+  // 本期 link_type 仅 index_etf，且只覆盖主流宽基（实测 akshare 无「跟踪标的」字段）。
+  link_count?: number | null;
+  links?: { code: string; name: string | null; link_type: string | null }[];
 }
 
 export interface HomeSummaryItem {

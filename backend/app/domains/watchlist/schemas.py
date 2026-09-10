@@ -101,6 +101,11 @@ class WatchlistItemOut(BaseModel):
     fund_max_drawdown_basis: Optional[str] = None  # current_tenure|prev_tenure|fixed_3y|insufficient
     fund_max_drawdown_window: Optional[str] = None  # 窗口描述（如「近3年」）
     fund_max_drawdown_as_of: Optional[date] = None  # 序列最后净值日（「截至」）
+    # 跨渠道关联（#1285 设计 §3.8）：数量角标 + 浮层明细。
+    # links 元素形状：[{code, name, link_type}]（本期 link_type 仅 index_etf，
+    # 且只覆盖主流宽基——实测 akshare 无「跟踪标的」字段，见 channel_links 模型注释）。
+    link_count: Optional[int] = None
+    links: list[dict] = []
 
 
 # ── 分组 ──

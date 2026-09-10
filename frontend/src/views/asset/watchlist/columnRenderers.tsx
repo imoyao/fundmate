@@ -818,6 +818,35 @@ const renderDrawdown: FunctionalComponent<{
   return h("span", { class: "dd-val", title: tip }, `${v.toFixed(2)}%`);
 };
 
+/**
+ * 跨渠道关联入口（#1285 设计 §3.8「数量标记 + 浮层」）。
+ *
+ * 数量角标 + hover 浮层列出关联标的全名；数据来自后端 `channel_links`
+ * （本期仅 index_etf，且只覆盖主流宽基）。无关联渲染 `—`——不用「0 个」，
+ * 与全表「无数据一律 —」的约定保持一致。
+ */
+const renderLinks: FunctionalComponent<{
+  row: WatchlistRow;
+  def: ColumnDef;
+  ctx: RenderCtx;
+}> = props => {
+  const links =
+    (field(props.row, "links") as
+      { code: string; name: string | null }[] | undefined) ?? [];
+  if (!links.length) return h("span", { class: "link-empty" }, "—");
+
+  const content = links
+    .map(l => (l.name ? `${l.name}（${l.code}）` : l.code))
+    .join("、");
+  return h(
+    ElTooltip,
+    // content 走 props（字符串），避免为浮层引入额外渲染分支；showAfter 稍延迟，
+    // 避免鼠标掠过整列时浮层乱闪
+    { content, placement: "top", showAfter: 120, effect: "dark" },
+    { default: () => h("span", { class: "link-badge" }, `${links.length} 个`) }
+  );
+};
+
 /** renderer 类型 -> 函数式组件 的注册表 */
 const REGISTRY: Record<
   ColumnRenderer,
@@ -838,6 +867,7 @@ const REGISTRY: Record<
   bond: renderBond as never,
   indexVal: renderIndexVal as never,
   drawdown: renderDrawdown as never,
+  links: renderLinks as never,
   sparkline: renderSparkline as never,
   actions: renderActions as never
 };

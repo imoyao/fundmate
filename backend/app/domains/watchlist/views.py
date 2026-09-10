@@ -11,7 +11,7 @@ from datetime import date, timedelta
 from apiflask import APIBlueprint
 from flask import Response, abort, jsonify, request
 from loguru import logger
-from sqlalchemy import desc, func
+from sqlalchemy import desc, func, or_
 
 from app.core.auth import get_family_id, get_owned_or_404
 from app.core.constants import TYPE_LABELS
@@ -19,7 +19,7 @@ from app.core.database import get_db
 from app.core.money import Money
 from app.core.utils import api_response, with_db
 from app.core.validation import parse_body
-from app.domains.funds.models import AdvisorPortfolio, DailyWorth
+from app.domains.funds.models import AdvisorPortfolio, ChannelLink, DailyWorth
 from app.domains.indices.models import IndexValuation
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
@@ -198,6 +198,29 @@ def _apply_fund_drawdown_fields(out: dict, symbol: str, asset_type: str, db) -> 
     out['fund_max_drawdown_as_of'] = result.as_of
 
 
+def _apply_channel_link_fields(out: dict, symbol: str, db) -> None:
+    """跨渠道关联 enrich（#1285 设计 §3.8）：数量角标 + 浮层明细。
+
+    `channel_links` 存**有向**关系（index→etf），但本函数按裸代码**双向查**并对任一端
+    都返回「另一侧」清单：指数行看到 ETF、ETF 行看到指数，前端无需判断方向。
+    无关联时不写字段（前端渲染 `—`）。
+    """
+    code = _bare_code(symbol)
+    if not code:
+        return
+    rows = db.query(ChannelLink).filter(or_(ChannelLink.from_symbol == code, ChannelLink.to_symbol == code)).all()
+    if not rows:
+        return
+    links = []
+    for r in rows:
+        if r.from_symbol == code:
+            links.append({'code': r.to_symbol, 'name': r.to_name, 'link_type': r.link_type})
+        else:
+            links.append({'code': r.from_symbol, 'name': r.from_name, 'link_type': r.link_type})
+    out['link_count'] = len(links)
+    out['links'] = links
+
+
 def _enrich_item(item: WatchlistItem, db) -> dict:
     out = WatchlistItemOut.model_validate(item).model_dump()
     # watchlist.asset_type 历史存放大写（STOCK/ETF/...），对外统一归一为小写，
@@ -240,6 +263,9 @@ def _enrich_item(item: WatchlistItem, db) -> dict:
 
     # 基金最大回撤（#1285 消费侧 / §3.10）：仅场外基金，口径元数据随值下发
     _apply_fund_drawdown_fields(out, item.symbol, item.asset_type, db)
+
+    # 跨渠道关联（#1285 §3.8）：指数↔ETF（本期主流宽基）
+    _apply_channel_link_fields(out, item.symbol, db)
 
     # 补充价格与市值信息（从持仓表计算静态值）
     position_value = _compute_position_market_value(item.symbol, db)
@@ -448,6 +474,8 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
     _apply_index_valuation_fields(row, symbol, db)
     # 基金最大回撤（#1285/§3.10）：与 _enrich_item 同源，避免虚拟行漏字段
     _apply_fund_drawdown_fields(row, symbol, asset_type, db)
+    # 跨渠道关联（#1285 §3.8）：与 _enrich_item 同源
+    _apply_channel_link_fields(row, symbol, db)
     return row
 
 
