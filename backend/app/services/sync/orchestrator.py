@@ -38,6 +38,7 @@ from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
 from app.services.sync.jobs.advisor_portfolio_job import AdvisorPortfolioSyncJob
 from app.services.sync.jobs.amac_institution_job import AmacInstitutionJob
 from app.services.sync.jobs.asset_snapshot_job import AssetSnapshotJob
+from app.services.sync.jobs.convertible_bond_job import ConvertibleBondSyncJob
 from app.services.sync.jobs.dividend_split_job import DividendSplitSyncJob
 from app.services.sync.jobs.fund_detail_enrich_job import FundDetailEnrichJob
 from app.services.sync.jobs.fund_list_job import FundListSyncJob
@@ -138,6 +139,8 @@ class DataSyncOrchestrator:
         self.jobs['fund_nav'] = FundNavSyncJob(self.data_sources['xalpha'], self.db)
         self.jobs['price_history'] = PriceHistorySyncJob(self.data_sources['akshare'], self.db)
         self.jobs['index_constituents'] = IndexConstituentSyncJob(self.data_sources['akshare'], self.db)
+        # #1285/#1393：可转债条款（强赎状态 + 静态条款，akshare 集思录）
+        self.jobs['convertible_bond'] = ConvertibleBondSyncJob(self.data_sources['akshare'], self.db)
         # #1286：指数名录（聚合搜索可搜索的指数条目，与成分互补）
         self.jobs['index_catalog'] = IndexCatalogSyncJob(self.data_sources['akshare'], self.db)
         # #275：指数日线点位（万得全A 经韭圈儿公开接口，独立数据源）

@@ -730,3 +730,107 @@ class AkshareAdapter(DataSourceAdapter):
         except Exception as e:
             self.logger.warning(f'国证指数名录获取失败: {e}')
             return []
+
+    # ── 可转债条款（#1285 消费侧 / #1393） ──
+
+    @staticmethod
+    def _num(value) -> Optional[float]:
+        """宽松转 float，缺失/不可解析返回 None（区别于 _to_ratio 的 0.0 兜底）。"""
+        if value is None:
+            return None
+        s = str(value).strip()
+        if s in ('', 'nan', 'None', '--', '-'):
+            return None
+        try:
+            return float(s)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _int(value) -> Optional[int]:
+        """宽松转 int（强赎天计数等），缺失返回 None。"""
+        f = AkshareAdapter._num(value)
+        return int(f) if f is not None else None
+
+    @staticmethod
+    def _cell(row, *keys):
+        """按候选列名宽松取值（防 akshare 版本间列名漂移）；全缺返回 None。"""
+        for k in keys:
+            if k in row.index:
+                v = row[k]
+                if v is not None and str(v).strip() not in ('', 'nan', 'None', '--'):
+                    return v
+        return None
+
+    def fetch_convertible_bond_redeem(self) -> List[dict]:
+        """集思录可转债强赎数据（ak.bond_cb_redeem_jsl）。
+
+        覆盖静态条款主集：现价、正股、规模 / 剩余规模、转股价、强赎触发价、
+        **强赎天计数**、强赎条款。返回键为 canonical 字段名，Job 负责归一 symbol。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.bond_cb_redeem_jsl()
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                code = str(self._cell(row, '代码', '转债代码') or '').strip()
+                if not code:
+                    continue
+                out.append(
+                    {
+                        'bond_code': code.zfill(6),
+                        'name': str(self._cell(row, '名称', '转债名称') or ''),
+                        'price': self._num(self._cell(row, '现价', '转债现价')),
+                        'stock_name': str(self._cell(row, '正股名称', '正股简称') or ''),
+                        'stock_code_raw': str(self._cell(row, '正股代码') or '').strip(),
+                        'issue_size': self._num(self._cell(row, '规模', '发行规模')),
+                        'remain_size': self._num(self._cell(row, '剩余规模')),
+                        'convert_price': self._num(self._cell(row, '转股价')),
+                        'force_redeem_price': self._num(self._cell(row, '强赎触发价')),
+                        'redeem_count': self._int(self._cell(row, '强赎天计数')),
+                        'redeem_clause': str(self._cell(row, '强赎条款') or ''),
+                        'source': 'akshare_jsl',
+                    }
+                )
+            self.logger.info(f'获取到 {len(out)} 条可转债强赎数据')
+            return out
+        except Exception as e:
+            self.logger.error(f'获取可转债强赎数据失败: {e}')
+            return []
+
+    def fetch_convertible_bond_basic(self) -> List[dict]:
+        """可转债基本信息（ak.bond_zh_cov）：评级 / 到期日。
+
+        列名可能随 akshare 版本漂移，故宽松取列；缺失项返回 None，由 Job 与强赎
+        数据按 bond_code 合并（不强求齐全）。接口不可用时返回空，不影响主链路。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.bond_zh_cov()
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                code = str(self._cell(row, '债券代码', '转债代码', '代码') or '').strip()
+                if not code:
+                    continue
+                out.append(
+                    {
+                        'bond_code': code.zfill(6),
+                        'name': str(self._cell(row, '债券简称', '转债简称', '名称') or ''),
+                        'rating': self._cell(row, '债券评级', '信用评级', '评级'),
+                        'maturity_date': self._cell(row, '到期时间', '到期日'),
+                        'source': 'akshare_bond_zh_cov',
+                    }
+                )
+            self.logger.info(f'获取到 {len(out)} 条可转债基本信息')
+            return out
+        except Exception as e:
+            self.logger.warning(f'获取可转债基本信息失败: {e}')
+            return []
