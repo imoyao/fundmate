@@ -37,17 +37,17 @@ def _pending_txn(db, ledger, amount_yuan, confirm_date, family_id=1):
 class TestPendingMoneyFundEstimate:
     def test_future_confirm_flows_are_estimated(self, db):
         ledger = _make_ledger(db)
-        _pending_txn(db, ledger, 500.0, today_shanghai().date() + dt.timedelta(days=1))  # 明日确认
-        _pending_txn(db, ledger, 300.0, today_shanghai().date() + dt.timedelta(days=2))  # 后日确认
+        _pending_txn(db, ledger, 500.0, today_shanghai() + dt.timedelta(days=1))  # 明日确认
+        _pending_txn(db, ledger, 300.0, today_shanghai() + dt.timedelta(days=2))  # 后日确认
         db.commit()
 
         data = LedgerService.get_pending_money_fund_estimate(db, ledger.id, ledger.family_id)
         assert data['pending_amount_cents'] == Money.yuan_to_cents(800)
-        assert data['estimated_confirm_date'] == (today_shanghai().date() + dt.timedelta(days=1)).isoformat()
+        assert data['estimated_confirm_date'] == (today_shanghai() + dt.timedelta(days=1)).isoformat()
 
     def test_confirmed_flows_not_counted(self, db):
         ledger = _make_ledger(db)
-        _pending_txn(db, ledger, 500.0, today_shanghai().date() - dt.timedelta(days=1))  # 昨日已确认
+        _pending_txn(db, ledger, 500.0, today_shanghai() - dt.timedelta(days=1))  # 昨日已确认
         db.commit()
 
         data = LedgerService.get_pending_money_fund_estimate(db, ledger.id, ledger.family_id)
@@ -56,9 +56,9 @@ class TestPendingMoneyFundEstimate:
 
     def test_family_isolation(self, db):
         ledger_a = _make_ledger(db, family_id=1)
-        _pending_txn(db, ledger_a, 500.0, today_shanghai().date() + dt.timedelta(days=1), family_id=1)
+        _pending_txn(db, ledger_a, 500.0, today_shanghai() + dt.timedelta(days=1), family_id=1)
         ledger_b = _make_ledger(db, family_id=2)
-        _pending_txn(db, ledger_b, 999.0, today_shanghai().date() + dt.timedelta(days=1), family_id=2)
+        _pending_txn(db, ledger_b, 999.0, today_shanghai() + dt.timedelta(days=1), family_id=2)
         db.commit()
 
         data = LedgerService.get_pending_money_fund_estimate(db, ledger_a.id, ledger_a.family_id)
@@ -68,7 +68,7 @@ class TestPendingMoneyFundEstimate:
 class TestPendingEstimateEndpoint:
     def test_endpoint_returns_estimate(self, client, db):
         ledger = _make_ledger(db)
-        _pending_txn(db, ledger, 500.0, today_shanghai().date() + dt.timedelta(days=1))
+        _pending_txn(db, ledger, 500.0, today_shanghai() + dt.timedelta(days=1))
         db.commit()
 
         resp = client.get(f'/api/ledgers/{ledger.id}/pending-estimate/')

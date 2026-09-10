@@ -67,7 +67,7 @@ class LedgerService:
                     Transaction.asset_type.in_(CASH_EQUIVALENT_ASSET_TYPES),
                     Transaction.txn_type.in_(('buy', 'deposit')),
                     Transaction.status == 'success',
-                    Transaction.confirm_date > today_shanghai().date(),
+                    Transaction.confirm_date > today_shanghai(),
                 )
                 .one()
             )
