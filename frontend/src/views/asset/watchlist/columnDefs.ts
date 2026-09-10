@@ -270,6 +270,9 @@ export const watchlistColumnDefs: ColumnDef[] = [
     defaultHidden: true
   },
   {
+    // 备注编辑（#1285）。必须 defaultHidden:true —— 遵循本文件 #993 约定「新列默认隐藏」：
+    // 新列若默认可见，会直接加宽表格、顶出横向滚动条（#1381 曾误设 false 而复现该回归）。
+    // 用户经「管理 → 列设置」显式开启；编辑入口见列 renderer（点击整格打开 NotesEditorDialog）。
     key: "notes",
     label: "备注",
     renderer: "notes",
@@ -277,7 +280,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     align: "left",
     hideable: true,
     draggable: true,
-    defaultHidden: false
+    defaultHidden: true
   },
   {
     // 操作列：置顶 / 特别关注 / 移除 三个按钮，默认 45% 弱显、行 hover 全亮
