@@ -317,8 +317,8 @@ const tagText = computed(() => {
   font-size: 13px;
   line-height: 1.5;
   color: var(--text-secondary);
-  white-space: pre-wrap;
   word-break: break-word;
+  white-space: pre-wrap;
 }
 
 .wqv-footer {
