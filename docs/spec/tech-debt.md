@@ -4,7 +4,7 @@ title: 技术债务与开口项明细（tech-debt）
 
 # 技术债务与开口项明细（tech-debt）
 
-> ⚠️ **易腐烂内容**：本文件随修复进展频繁变化。最后核实日期：**2026-08-14**。每条债务修复后，须将状态更新为"✅ 已修复"并注明版本号；请勿删除历史条目（保留可追溯）。
+> ⚠️ **易腐烂内容**：本文件随修复进展频繁变化。最后核实日期：**2026-09-10**。每条债务修复后，须将状态更新为"✅ 已修复"并注明版本号；请勿删除历史条目（保留可追溯）。
 >
 > **看板同步（2026-08-14）**：本文档技术债务已全量同步至 GitHub Project 看板（多多贝·投资账本 #3）并按四象限赋级——补登被引用但未进看板的 #796/#230/#507/#911；将 §1/§9–§12 中无 issue 编号的独立债务条目提升为 issue #948–#976 并赋象限；其余被引用的 issue（#821/#825/#869/#894/#898/#912/#913/#820/#824/#933/#934/#937/#947 等）统一补挂象限。交叉引用以 issue 编号为准。
 >
@@ -182,6 +182,46 @@ title: 技术债务与开口项明细（tech-debt）
 4. 版权：品牌 logo 作「支持导入平台」事实性展示一般不构成侵权，但建议统一灰度处理（已实现），避免彩色图标杂乱。
 
 **备注**：首页与 `/frontend` 应用站是两个独立站点，本条目仅针对首页落地页。
+
+## 16. 数据存储过度工程化审计（2026-09-10 · 依据 decisions D21）
+
+> 触发：`#1396`（全库 `funds.company_id` 覆盖率）讨论中，用户提出「记账软件的数据策略应是用户触达驱动，而非全库完整性驱动」，并要求审计代码中已存在的过度工程化。
+> 审计方法：本地真库（`backend/invest.db`，1.22 GB）行数/填充率实测 + 全仓 grep 读写方核实 + `sync_logs` 运行史核对。**全部结论均有 file:line 或 SQL 计数支撑。**
+> 处置约定：**本条只记录不修改代码**（`conventions.md` §16.3）。★ = 须另开 issue 跟踪。
+
+### 16.1 实测快照
+
+| 表 | 库内 | 用户实际触达 | 结论 |
+|---|---|---|---|
+| `funds` | 26,938 行 | **117 只**（`positions ∪ watchlist ∪ transactions` 去重 6 位码） | 99.6% 用不上 |
+| `daily_worth` | 7,539,287 行 / 3,427 只 | **112 只** | 96.7% 用不上 |
+| `money_fund_daily_worth` | 1,215,108 行 | — | 待评估 |
+| `fund_managers` | 34,809 行 | — | 全量关系 |
+| `index_constituents` | 7,514 行 | — | 全量成分 |
+
+`sync_logs` 单次运行实测：`fund_nav` → `total=357, success=1,198,302, duration=448s`（一次写 120 万行净值）；`fund_manager` → `total=34,809, 416s`；`index_daily` → `10 项, 100s`。
+
+### 16.2 发现清单
+
+| # | 位置 | 问题 | 严重性 | 处置 |
+|---|---|---|---|---|
+| 1 ★ | `services/sync/jobs/fund_meta_job.py:50,71-82` | `existing = {f.fund_code: f for f in self.db.query(Fund).all()}`（全库 26,938 条）后 `for code, fund in existing.items(): self.adapter.fetch_fund_top_holdings(code)` → `ak.fund_portfolio_hold_em` **真·逐只 HTTP**。docstring 却称「本地只存用户核心池，**不把全市场基金灌进库**」——与 `fund_list_job` 实际把全市场灌入 `funds` **互相矛盾**。`orchestrator.py:388` 以 `['__full__']` 调它。**因从未跑通才未引爆**：`scale`/`recent_shares`/`equity_position` 填充率全 0%，`sync_logs` 无 `fund_meta` 记录。一旦执行即撞东财限流。 | 🔴 限流炸弹 | 另开 issue |
+| 2 ★ | `services/cross_domain.py:95-104` | 自选估值请求路径中 `_market_fetch` **忽略 `_keys`**，`for f in db.query(Fund).all()` 每次把 26,938 个 ORM 实体加载进内存。同函数上方注释写「market_columns：预留，限定 market 侧取回的字段（**避免每次取全表**）」——注释描述意图，实现做的是反面。 | 🔴 热路径 | 另开 issue |
+| 3 | `services/sync/jobs/fund_list_job.py:50-87` | docstring「基金列表同步任务（**全量**）」实为只增不改（`_deduplicate_by_unique_key` 只保留库里不存在的新基金）。实测 `sync_logs`：`total=1, success=0, skipped=26,927`。名称 / 契约谎报误导后来人。 | 🟠 契约谎报 | 与 #1396 一并讨论 |
+| 4 | `services/sync/jobs/fund_manager_job.py:37` | `codes = targets if targets else self._get_all_fund_codes()`——**空 targets 静默退化为全库**，与 `fund_detail_enrich_job`（空 targets 返回「无基金需要补充详情」）语义**相反**。注：该 job 走 `ak.fund_manager_em()` 一次全量 + 本地筛选，无速率风险，但语义陷阱须清除。 | 🟠 语义陷阱 | 登记待修 |
+| 5 | `domains/funds/models.py` | `funds` 表 22 列中 **7 列为死**：`symbol_prefix`（仅模型定义）、`pinyin_full`（仅 legacy `tools/sync_fund_basics.py` 写）、`risk_level`、`scale`、`recent_shares`、`equity_position` 六列填充率 **0%** 且零读者；`is_fe_charge` 填充率 100% 但值全为默认 `False` 且除模型定义外零引用。 | 🟡 字段债 | 登记，清理须用户拍板（§16.3） |
+| 6 | 库内（非仓库） | **14 张游离表**不在 `DATA_DOMAIN_REGISTRY`：9 张修复脚本遗留备份（`positions_name_repair_backup_20260907` 126 行、`transactions_name_repair_backup_20260907` 1460 行、`transactions_qty_repair_backup_20260826` 66 行、`positions_backup`/`positions_backup_v2`/`assets_backup`/`positions_current_backup`/`assets_name_repair_backup_20260907`/`positions_qty_repair_backup_20260826`）、`sales_broker_mappings`（4 行，代码零引用）、`temperature_single_values`/`temperature_multi_items`/`temperature_composites`（0 行，已改名 `market_*` 后未清理）。 | 🟡 卫生 | 登记，清理须用户拍板 |
+| 7 | `services/thermometer/service.py:36,144,202` | docstring 仍写「保存单值指标到数据库（**新表 temperature_single_values**）」「（新表 temperature_composites）」「（新表 temperature_multi_items）」，实际写入 `MarketSingleValue`(`market_single_values`) / `MarketComposite` / `MarketMultiItem`。**注释漂移**。 | 🟡 注释 | 登记待修 |
+| 8 ★ | `services/sync/orchestrator.py:341-358` | `_execute_job` 捕获 `job.run` 抛出的异常并返回 `{'status':'error'}`，但 `_save_sync_log` 只在 `run_job` 内部（:338）于 `job.run` **成功返回后**执行——**抛错时全链路无日志**。后果：`sync_logs` 仅有 10 个 `job_name`，`fund_meta`/`fund_type`/`index_catalog`/`convertible_bond`/`dividend_split`/`asset_snapshot`/`advisor_portfolio` 无任何记录，「某 job 到底跑没跑过」无法从日志回答。 | 🟠 可观测性 | 另开 issue |
+
+### 16.3 制度性修复（已完成，另见）
+
+- 新建 [`data-strategy.md`](./data-strategy.md)（L1~L4 分层 + 数据准入四问 + 表/列/job 准入细则）。
+- `conventions.md` §16.2 增补**数据维度**条款（冻结区改动，依据 `decisions.md` D21）。
+- `AGENTS.md` 增「数据策略（按需存、禁止全量堆砌）」硬约束节，作为 PR 流程闸门。
+- `#1396` 验收口径收敛为「用户触达基金的公司解析率 ≥95%」，全库覆盖率移出验收。
+
+---
 
 ## 2026-08-04 OOM 修复记录
 
