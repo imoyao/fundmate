@@ -311,6 +311,32 @@ class TestWatchlistItemCRUD:
         resp = _get(client, '/api/watchlist/items/', {'status': 'WATCHING'})
         assert len(resp.get_json()['data']) >= 2
 
+    def test_list_items_filter_by_asset_types(self, client, db):
+        """「类型」弹层多选（2026-09-09）：asset_types 逗号分隔小写枚举过滤，
+        历史大写行（STOCK）也须命中（lower 后比较）。"""
+        _post(client, '/api/watchlist/items/', {'symbol': 'SH600519', 'asset_type': 'stock', 'venue': 'EXCHANGE'})
+        _post(client, '/api/watchlist/items/', {'symbol': '001594', 'asset_type': 'fund'})
+        # 模拟历史大写残留行（#1171 归一前的旧数据）
+        with get_db() as db_:
+            legacy = WatchlistItem(symbol='OF.000001', market='CN_A', asset_type='FUND', venue='OTC', family_id=1)
+            db_.add(legacy)
+            db_.commit()
+
+        # 单类型：只命中基金行（含大写历史行）
+        resp = _get(client, '/api/watchlist/items/', {'asset_types': 'fund'})
+        symbols = {i['symbol'] for i in resp.get_json()['data']}
+        assert symbols == {'001594', 'OF.000001'}
+
+        # 多类型：股票 + 基金，逗号分隔
+        resp2 = _get(client, '/api/watchlist/items/', {'asset_types': 'stock,fund'})
+        symbols2 = {i['symbol'] for i in resp2.get_json()['data']}
+        assert 'SH600519' in symbols2 and '001594' in symbols2
+
+        # 大小写不敏感：大写枚举同样命中
+        resp3 = _get(client, '/api/watchlist/items/', {'asset_types': 'STOCK'})
+        symbols3 = {i['symbol'] for i in resp3.get_json()['data']}
+        assert symbols3 == {'SH600519'}
+
     def test_list_items_pagination(self, client, db):
         """#1048 回归：后端按 page/per_page 切片，total 为真实总数（翻页非假按钮）。"""
         for sym in ['AAA', 'BBB', 'CCC', 'DDD', 'EEE']:
