@@ -28,10 +28,11 @@ SQLALCHEMY_DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./invest.db')
 # dev -> 本地 SQLite；prod -> Turso（回退 DATABASE_URL）。见 db_factory。
 engine: Engine = DatabaseFactory.create(DOMAIN_APP)
 
-# user 域引擎：配置了 SUPABASE_DATABASE_URL 即真 Supabase；未配置自动回退本地
-# SQLite 文件（invest.user.dev.db），与 market 域物理分离但零网络依赖。
-# 单库模式下 user_engine 与 engine 指向同一库（如生产未配 Supabase 时回退到
-# 通用 DATABASE_URL 同库），此时双域表落在同一引擎，行为等价于旧单库。
+# user 域引擎：配置了 SUPABASE_DATABASE_URL 即真 Supabase；未配置则本地回退。
+# **development 默认与 market 同库**（DEV_DATABASE_URL，缺省 invest.db）——单库，
+# 本地既有数据零迁移；只有显式配 DEV_USER_DATABASE_URL 才拆独立文件（双库模拟）。
+# prod/staging 未配 Supabase 时回退 USER_DATABASE_URL（缺省与 DATABASE_URL 同库）。
+# 单库模式下 user_engine 与 engine 指向同一库，双域表落在同一引擎，等价于旧单库。
 # 注意：user_engine 是模块级全局，测试可经 monkeypatch 重定向到内存库（见 conftest）。
 user_engine: Engine = DatabaseFactory.create(DOMAIN_USER)
 
@@ -142,18 +143,19 @@ def get_engine(domain: str = DOMAIN_APP) -> Optional[Engine]:
     """按数据域取已缓存 engine（接缝：业务层后续按域路由）。
 
     - DOMAIN_APP：应用运行库（默认，市场域/非敏感数据）。
-    - DOMAIN_USER：用户核心账本库（Supabase，未配置返回 None，
-      表示仍走应用库兼容既有单库模式）。
+    - DOMAIN_USER：用户核心账本库。**永不返回 None**——未配 Supabase 时按
+      development 回退（默认与 market 同库，显式配 DEV_USER_DATABASE_URL 才独立），
+      其余环境回退 USER_DATABASE_URL。调用方无需判空。
     """
     return DatabaseFactory.create(domain)
 
 
 def get_user_sessionmaker() -> sessionmaker:
-    """用户库 SessionLocal（未配置 Supabase 时自动回退本地 SQLite 文件）。
+    """用户库 SessionLocal（未配 Supabase 时本地回退，永不返回 None）。
 
     单库/双库统一可用：配置了 SUPABASE_DATABASE_URL 即真 Supabase；
-    未配置则落本地 invest.user.dev.db，与 market 域物理隔离但零网络依赖。
-    调用方无需判断 None。
+    未配置则 development 下**默认与 market 同库**（缺省 invest.db，即单库），
+    显式配 DEV_USER_DATABASE_URL 才落到独立文件（双库模拟）。调用方无需判断空值。
     """
     user_engine = DatabaseFactory.create(DOMAIN_USER)
     return sessionmaker(autocommit=False, autoflush=False, bind=user_engine)
@@ -243,7 +245,7 @@ def init_db():
 def init_db_split():
     """双库模式：按数据域分别 create_all 到对应 engine。
 
-    - market 引擎必配（本地 dev 为 invest.dev.db，生产为 Turso）。
+    - market 引擎必配（本地 dev 为 invest.db，生产为 Turso）。
     - user 引擎：配了 SUPABASE_DATABASE_URL 即 Supabase；本地 development 下
       显式配置 DEV_USER_DATABASE_URL 才是独立文件（本地双库模拟），未配置时
       与 market 共用同一本地库（默认单库，本地既有数据立即可见）。显式拆分时
