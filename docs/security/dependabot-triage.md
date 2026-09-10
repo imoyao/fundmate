@@ -19,7 +19,7 @@
 
 **处置**：在 GitHub Security → Dependabot alerts 批量 dismiss 这 73 个，reason 选 "This vulnerability is not in my codebase / no longer present"。
 
-编号清单见同目录 `da_phantom_ids.txt`（一行一个）。
+编号清单见同目录 `dependabot-dismiss-ids.yml` 的 `pip.alert_ids`。
 
 ## 三、前端 npm（15 个，分两类）
 
@@ -54,7 +54,7 @@ CVE-2026-67213（告警 #826，2026-07-29 发布、08-13 更新）的 patched �
 
 ## 四、执行顺序建议
 
-1. **dismiss 73 个 pip 过期 alert**（da_phantom_ids.txt）—— 立即消除噪声
+1. **dismiss 73 个 pip 过期 alert**（清单见同目录 `dependabot-dismiss-ids.yml` 的 `pip.alert_ids`）—— 立即消除噪声
 2. **dismiss 15 个 npm alert**（明细见 3.2）—— dev 工具链不可达 / patched 不可满足
 3. 验证：`gh api` 重拉 alert 总数应趋近 0 open
 
