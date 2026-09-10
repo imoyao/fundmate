@@ -400,6 +400,13 @@
       @saved="onTagEditorSaved"
     />
 
+    <!-- 行内备注编辑弹窗（#1285） -->
+    <NotesEditorDialog
+      v-model="showNotesEditor"
+      :item="editingNotesItem"
+      @saved="onNotesSaved"
+    />
+
     <SettingsDrawer
       v-model="settingsDrawerVisible"
       :realtime-enabled="realtimeEnabled"
@@ -444,6 +451,7 @@ import GroupManagerDialog from "@/components/Watchlist/GroupManagerDialog.vue";
 // #987：组内产品增删（与 GroupManagerDialog 管「分组本身」分工不同）
 import GroupItemsDialog from "@/components/Watchlist/GroupItemsDialog.vue";
 import TagEditorDialog from "@/components/Watchlist/TagEditorDialog.vue";
+import NotesEditorDialog from "@/components/Watchlist/NotesEditorDialog.vue";
 import {
   getWatchlistTrends,
   type WatchlistItem,
@@ -529,6 +537,9 @@ const {
   editingItem,
   showTagEditor,
   openTagEditor,
+  editingNotesItem,
+  showNotesEditor,
+  openNotesEditor,
   exportData,
   resetFilters
 } = data;
@@ -852,6 +863,11 @@ const onTagEditorSaved = () => {
   fetchTags();
 };
 
+/** 备注保存成功后：刷新列表（单元格即时反映最新笔记） */
+const onNotesSaved = () => {
+  fetchData();
+};
+
 // ─────────────────────────────────────────────
 // 生命周期
 // ─────────────────────────────────────────────
@@ -1038,7 +1054,8 @@ const renderCtx = computed<RenderCtx>(() => ({
   actions: {
     togglePin: handleTogglePin,
     toggleFavorite: handleToggleFavorite,
-    remove: confirmRemove
+    remove: confirmRemove,
+    openNotesEditor: openNotesEditor
   },
   trends: trendMap.value
 }));
