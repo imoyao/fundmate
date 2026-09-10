@@ -19,9 +19,9 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.core.time_utils import now_shanghai
-from app.domains.funds.models import FeeRatio, Fund, FundCompany, FundType, PurchaseRule, RedeemRule
+from app.domains.funds.models import FeeRatio, Fund, FundType, PurchaseRule, RedeemRule
 from app.services.fund_service import FundService
-from app.services.sync.company_resolver import get_company_code_by_name
+from app.services.sync.company_resolver import get_or_create_fund_company
 from app.services.sync.fund_type_resolution import FundTypeResolver
 from app.services.sync.jobs.base import BATCH_SIZE_DETAIL_ENRICH, JobStatus, SyncJob
 
@@ -287,13 +287,7 @@ class FundDetailEnrichJob(SyncJob):
         return rule
 
     def _get_or_create_company(self, company_name: str) -> int:
-        # FundCompany.code 必填：优先用天天基金权威 code，未命中保留名称占位（#1168）
-        inst = self.db.query(FundCompany).filter_by(name=company_name).first()
-        if not inst:
-            real_code = get_company_code_by_name(company_name)
-            if not real_code:
-                logger.warning(f'基金公司「{company_name}」未匹配到权威 code，暂以名称占位')
-            inst = FundCompany(name=company_name, code=real_code or company_name)
-            self.db.add(inst)
-            self.db.flush()
-        return inst.id
+        # 唯一写入口（company_resolver）：归一化匹配既有行，杜绝为同一主体建第二行
+        if getattr(self, '_fund_company_cache', None) is None:
+            self._fund_company_cache: Dict[str, int] = {}
+        return get_or_create_fund_company(self.db, company_name, cache=self._fund_company_cache)

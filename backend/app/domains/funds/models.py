@@ -23,12 +23,39 @@ from app.core.db_utils import SafeNumeric
 
 
 class FundCompany(Base, PrimaryKeyMixin, TimestampMixin):
+    """基金公司主数据（**唯一可写表**，简称/全称同表双字段）。
+
+    命名约定（与 `Fund` 一致）：
+    - `name`：简称，如「易方达基金」——**界面默认显示这个**；
+    - `full_name`：权威全称，如「易方达基金管理有限公司」——详情页/核对用。
+
+    为什么要两个字段而不是两行：2026-09-10 实测库里存在 8 组「简称一行 + 全称一行」
+    的重复实体（如 `华安基金` 与 `华安基金管理有限公司` 各占一行），同一家公司的
+    经理被分裂挂到两行（招商基金 103 + 9）。**同一法人主体只能有一行**，
+    全称是这一行的属性，不是另一行。
+
+    单一写者原则（防跨源漂移，每个字段只有一个同步任务有写权）：
+    - `code` / `name` / `scale` ← 东财链路（`company_resolver` 解析 code，
+      `fund_detail_enrich_job` / 基金列表任务写名与规模）；
+    - `full_name` / `register_addr` / `office_addr` / `website` / `phone` /
+      `is_active` ← 仅 AMAC 名录任务（`amac_institution_job`）写。
+
+    历史：曾另有 `fund_management_companies`（user 域）表达同一概念——实测零读者、
+    零外键、零接口，2026-09-10 合并入本表后删除（见 `docs/spec/decisions.md`）。
+    """
+
     __tablename__ = 'fund_companies'
 
-    code = Column(String(20), unique=True, nullable=False, comment='公司编码')
-    name = Column(String(60), nullable=False, comment='公司名称')
-    full_name = Column(String(100), comment='全称')
+    code = Column(String(20), unique=True, nullable=False, comment='公司编码（东财 jjjz_gs，8 位）')
+    name = Column(String(60), nullable=False, comment='简称（界面默认显示）')
+    full_name = Column(String(100), comment='权威全称（AMAC 公示）')
     scale = Column(Float, comment='管理规模(亿)')
+    # ── 以下 5 列仅 AMAC 名录任务写（原 fund_management_companies 表字段，合并而来）──
+    register_addr = Column(String(200), comment='注册地址（AMAC 公示）')
+    office_addr = Column(String(200), comment='办公地址（AMAC 公示）')
+    website = Column(String(200), comment='官网（AMAC 公示）')
+    phone = Column(String(100), comment='客服电话（AMAC 公示）')
+    is_active = Column(Boolean, default=True, server_default=text('1'), comment='是否在 AMAC 基金管理人公示名单内')
 
 
 class FundVariety(Base, PrimaryKeyMixin):

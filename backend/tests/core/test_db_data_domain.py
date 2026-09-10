@@ -67,7 +67,8 @@ def test_tables_by_domain_grouping():
 
     # 抽样核对关键边界先例
     assert DATA_DOMAIN_REGISTRY['sales_institutions'] == DOMAIN_USER
-    assert DATA_DOMAIN_REGISTRY['fund_management_companies'] == DOMAIN_USER
+    # 公司主数据唯一表在 market 域（fund_management_companies 已于 2026-09-10 合并删除）
+    assert DATA_DOMAIN_REGISTRY['fund_companies'] == DOMAIN_MARKET
     assert DATA_DOMAIN_REGISTRY['managers'] == DOMAIN_MARKET
     assert DATA_DOMAIN_REGISTRY['fund_managers'] == DOMAIN_MARKET
     assert DATA_DOMAIN_REGISTRY['funds'] == DOMAIN_MARKET
