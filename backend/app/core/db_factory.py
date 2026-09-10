@@ -99,6 +99,11 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'positions': DOMAIN_USER,
     'transactions': DOMAIN_USER,
     'position_import_meta': DOMAIN_USER,  # 导入溯源（含 family_id）
+    # 导入侧观察值（基金→基金管理人原始证据，含 family_id）。含 family_id 故归 user 域：
+    # 它记录「某家庭导入的样本里出现某基金」，属用户私有数据，不落共享市场库。
+    # 消费方是 market 域 job（fund_company_backfill），按 AGENTS.md 规则 3「应用层两步法」
+    # 读取（先取键列表再 in_ 批查），不做跨域 JOIN；funds.company_id 仍由 market 域独占写权。
+    'fund_company_observations': DOMAIN_USER,
     'assets': DOMAIN_USER,  # 静态资产（含 family_id）
     'sales_institutions': DOMAIN_USER,  # 销售机构名录（被 ledgers 引用，随 user 域）
     'watchlist': DOMAIN_USER,

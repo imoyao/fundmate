@@ -60,6 +60,7 @@
 | `summary`（asset_snapshots） | 资产快照（family_id 隔离） | 中等 |
 | `usage`（user_usage） | 用量统计 | 轻量 |
 | `sales_institutions`（销售机构，AMAC 名录） | **被 `ledgers` 外键引用** | 恒定小表（几百~两千行），随 user 域走，避免反向跨域 FK |
+| `fund_company_observations`（基金→基金管理人观察值，2026-09-10 新增） | 导入样本侧的原始证据（含 `family_id`）：它记录「某家庭导入的样本里出现某基金、其管理人叫某某」，属用户私有数据 | 按 `(family_id, fund_code)` upsert，随导入量增长（远小于用户数×持仓数）。**归 user 域**（含 family_id）；消费方是 market 域 job `fund_company_backfill`，按 §4「应用层两步法」读取，**不做跨域 JOIN**。`funds.company_id` 仍只由 market 域写，导入路径不直写 |
 | **用户操作审计表**（规划中） | 记录用户在 App 内的写操作（谁/何时/改了哪条/改前改后） | 含 `user_id`，按用户数×操作频率增长；放 user 域，享 RLS，且与原操作同引擎可同事务 |
 
 ### 跨域关联键约定（冗余，非外键）

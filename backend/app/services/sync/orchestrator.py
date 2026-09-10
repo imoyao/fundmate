@@ -39,6 +39,7 @@ from app.services.sync.jobs.advisor_portfolio_job import AdvisorPortfolioSyncJob
 from app.services.sync.jobs.amac_institution_job import AmacInstitutionJob
 from app.services.sync.jobs.asset_snapshot_job import AssetSnapshotJob
 from app.services.sync.jobs.dividend_split_job import DividendSplitSyncJob
+from app.services.sync.jobs.fund_company_backfill_job import FundCompanyBackfillJob
 from app.services.sync.jobs.fund_detail_enrich_job import FundDetailEnrichJob
 from app.services.sync.jobs.fund_list_job import FundListSyncJob
 from app.services.sync.jobs.fund_manager_job import FundManagerSyncJob
@@ -131,6 +132,9 @@ class DataSyncOrchestrator:
             self.data_sources['akshare'], self.data_sources['xalpha'], self.db
         )
         self.jobs['fund_manager'] = FundManagerSyncJob(self.data_sources['akshare'], self.db)
+        # 消费导入侧观察值（user 域 fund_company_observations）补 funds.company_id：
+        # 纯本地解析、不联网，故 NullAdapter 占位（同 amac_institution 的处理）。
+        self.jobs['fund_company_backfill'] = FundCompanyBackfillJob(NullAdapter(), self.db)
         self.jobs['fund_meta'] = FundMetaSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['fund_type'] = FundTypeSyncJob(self.data_sources['akshare'], self.db)
         # 投顾组合数据源独立于 akshare/xalpha（天天基金公开接口，自带节流）
@@ -384,6 +388,9 @@ class DataSyncOrchestrator:
                 ('fund_type', fund_targets),  # 回填基金类型（核心池，#1155 根治项）
                 ('fund_meta', ['__full__']),  # 回填基金规模 + 近似股票仓位（#1286 数据底座）
                 ('fund_manager', fund_targets),  # 回填基金经理并关联基金公司（核心池）
+                # 导入侧观察值 → funds.company_id（不联网、幂等、只填空缺）：
+                # 紧跟基金公司相关任务，且 funds 已由 fund_list 建好
+                ('fund_company_backfill', []),
                 ('fund_nav', fund_targets),  # 净值增量同步（核心池）
                 ('price_history', stock_targets),  # 行情增量同步（核心池）
                 ('index_constituents', INDEX_TARGETS),  # 指数成分回填（#1286 数据底座）
