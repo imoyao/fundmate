@@ -11,6 +11,7 @@ import type { PluginOption } from "vite";
 import vueJsx from "@vitejs/plugin-vue-jsx";
 import tailwindcss from "@tailwindcss/vite";
 import { configCompressPlugin } from "./compress";
+import { depDriftGuard } from "./dep-drift-guard";
 import removeNoMatch from "vite-plugin-router-warn";
 import { visualizer } from "rollup-plugin-visualizer";
 import removeConsole from "vite-plugin-remove-console";
@@ -30,6 +31,8 @@ export function getPluginsList(
       hideConsole: true
     }),
     viteBuildInfo(),
+    // 依赖升级后自动重启 dev server，避免磁盘新版本与运行中旧缓存错位（#972）
+    depDriftGuard(),
     removeNoMatch(),
     svgLoader(),
     Icons({
