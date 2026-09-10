@@ -11,9 +11,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import distinct, func, or_, select
 from sqlalchemy.orm import Query, Session
 
+from app.core.constants import MANAGER_SYMBOL_PREFIX
 from app.core.money import Money
 from app.core.symbol_utils import get_normalizer
-from app.domains.funds.models import Fund
+from app.domains.funds.models import AdvisorPortfolio, Fund, Manager
 from app.domains.positions.models import Position
 from app.domains.securities.models import Security
 from app.domains.watchlist.models import WatchlistGroup, WatchlistItem, WatchlistItemGroup, WatchlistItemTag
@@ -162,14 +163,47 @@ def build_groups_data(db: Session, family_id: int) -> list[dict]:
     return groups_data
 
 
-def _get_display_name(symbol: str, db: Session) -> str:
-    """根据标准化代码查询资产展示名称"""
+def lookup_manager(symbol: str, db: Session):
+    """按 watchlist symbol（`MGR_<mgr_code>`）回查 managers 表；非经理符号返回 None。
+
+    mgr_code 大小写不敏感——搜索侧（asset_search）原样输出、历史行存在大小写混存，
+    等值匹配会漏查（2026-09-10 用户反馈：经理名显示为 sha256 派生码）。
+    """
+    if not symbol or not symbol.startswith(MANAGER_SYMBOL_PREFIX):
+        return None
+    code = symbol[len(MANAGER_SYMBOL_PREFIX) :]
+    if not code:
+        return None
+    return db.query(Manager).filter(func.lower(Manager.mgr_code) == code.lower()).first()
+
+
+def resolve_display_name(symbol: str, db: Session) -> str:
+    """资产展示名**唯一**解析链（自选列表页与首页自选摘要共用，禁止再各写一份）。
+
+    优先级：Manager.name（MGR_ 前缀）→ Security.name → Fund.name →
+    AdvisorPortfolio.name → symbol 兜底。
+
+    投顾组合（#1167，且慢 ZHxxxx / 蛋卷 / 天天基金 combo）既不在 Securities 也不在
+    Funds；基金经理（#1286）只在 managers 表。不补这两层，界面会把原始代码 /
+    sha256 派生码甩给用户，编号对用户毫无意义。
+
+    历史教训（本函数即为此收口）：views._get_display_info 与
+    services._get_display_name 曾是两份实现，前者补了 Manager/AdvisorPortfolio、
+    后者没补 → 自选列表页正常、首页自选组件仍显示 MGR_xxx。同一展示需求两处实现
+    必然漂移，故收口为单一实现，改一处即两处生效。
+    """
+    mgr = lookup_manager(symbol, db)
+    if mgr and mgr.name:
+        return mgr.name
     sec = db.query(Security).filter_by(symbol=symbol).first()
     if sec and sec.name:
         return sec.name
     fund = db.query(Fund).filter_by(fund_code=symbol).first()
     if fund and fund.name:
         return fund.name
+    advisor = db.query(AdvisorPortfolio).filter_by(code=symbol).first()
+    if advisor and advisor.name:
+        return advisor.name
     return symbol
 
 
@@ -311,7 +345,7 @@ def build_home_summary(db: Session, family_id: int) -> List[Dict[str, Any]]:
 
     data = []
     for item in result_items:
-        display_name = _get_display_name(item.symbol, db)
+        display_name = resolve_display_name(item.symbol, db)
         position_value_units = (
             db.query(func.sum(Position.quantity * Position.current_price))
             .filter(Position.symbol == item.symbol, Position.family_id == family_id)

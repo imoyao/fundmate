@@ -66,6 +66,7 @@ class Manager(Base, PrimaryKeyMixin, TimestampMixin):
     best_return = Column(Float, comment='最佳回报(%)')
     avatar_url = Column(String(300))
 
+    company = relationship('FundCompany', foreign_keys=[company_id])
     funds = relationship('Fund', secondary='fund_managers', back_populates='managers')
 
 
