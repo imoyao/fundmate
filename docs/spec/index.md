@@ -38,6 +38,26 @@ title: 多多贝 项目规范体系（文档枢纽）
 | [pricing-tier.md](./pricing-tier.md) | 付费/免费分层规范（判定准则、功能归属、双层估值开关、前端直连约束） | 低频 | 事实标准 |
 | [changelog.md](./changelog.md) | 版本更新记录与文档结束语 | 版本驱动 | 追溯 |
 
+## 专题与子文档索引
+
+上表列「体系级」核心文档；`docs/spec/` 下另有按主题成文的子文档，一并登记于本节。
+
+> **维护规则（防孤儿文档）**：在 `docs/spec/` 下**新增或删除** `.md` 文件，必须同步更新本节——只落文件不登记，等同制造孤儿文档（2026-09-11 盘点发现 11 篇未登记，其中 1 篇全仓零引用）。登记时须注明**性质**（决定其约束力与是否会腐烂），不得只写文件名。
+
+| 文档 | 职责 | 性质 |
+|------|------|------|
+| [importer-architecture.md](./importer-architecture.md) | 导入系统可扩展架构与社区贡献规范（导入类 issue 的「宪法」，解析器/持仓导入/去重/OCR 复用均须遵循） | 硬约束 |
+| [frontend-naming.md](./frontend-naming.md) | 前端命名规范（`conventions.md` §2.7 的前端补充细则） | 事实标准 |
+| [realtime-data-sources.md](./realtime-data-sources.md) | 自选/持仓**前端直连外部数据源**的权威归集（JSONP 源、字段约束）；与 `api.md`（后端自有端点）互补 | 事实标准 |
+| [site-architecture-and-traffic-routing.md](./site-architecture-and-traffic-routing.md) | 站点架构与导流方案（域名/子站职责边界、身份互通、数据隔离） | 事实标准 |
+| [frontend-naming-audit.md](./frontend-naming-audit.md) | 前端命名不规范点清单（执行层待办，只定位不即改） | 待办（易腐烂） |
+| [integrations-plan.md](./integrations-plan.md) | 用户凭证与第三方集成规划（自持 API Key、加密存储、家庭共享、审计日志） | 规划基线（未实现） |
+| [realtime-data-source-switching.md](./realtime-data-source-switching.md) | 多数据源切换与优选的设计参考（萃取自 jigu 复盘） | 参考（未实现） |
+| [temperature-architecture-plan.md](./temperature-architecture-plan.md) | 温度模块 + 投资概览页的评估与排期（2026-08-02） | 排期（易腐烂） |
+| [watchlist-column-defs.md](./watchlist-column-defs.md) | 自选表格 `columnDefs` 数据驱动设计（#995 前置，#990/#992/#993 的地基） | 设计依据 |
+| [launch-priority-baseline.md](./launch-priority-baseline.md) | 基础可用版上线优先级基线（四象限对齐） | 基线（易腐烂，待核实） |
+| [internal-index.md](./internal-index.md) | 内部资产 / 备忘索引（钩子清单） | 索引页（`srcExclude`，不参与构建） |
+
 ## 视觉设计语言（权威入口）
 
 - 亮色模式：[`../../frontend/design.md`](../../frontend/design.md)（v2.3.2）
