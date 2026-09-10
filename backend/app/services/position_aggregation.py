@@ -6,8 +6,10 @@
 
 设计要点（#1133 结论）：
 - **零 schema 迁移**：聚合视图是「品类维度」的虚拟视图，不新建物理账本、不加列。
-  产品信息（快照日期 / 管理人 / 分红方式 / 基金账户等）全部来自 #1012 已建的
-  `position_import_meta` 表，本服务只负责 join 出来。
+  产品信息（快照日期 / 分红方式 / 基金账户等）来自 #1012 已建的 `position_import_meta` 表，
+  **基金管理人例外**：该表同名列是「影子记录」的匹配键、归因到渠道后按设计置 NULL，
+  故改由 `symbol → funds.company_id → fund_companies.name` 组装（2026-09-10），
+  `position_import_meta.fund_manager` 仅作兜底。本服务只负责 join 出来。
 - **数据日期口径**：取持仓快照日（`position_import_meta.snapshot_date`，即导入
   对账日期 / Excel「份额日期」），**不取**「持仓最新更新日期」——用户可能手动改过，
   两边必须拉平到同一时间基准。页面顶部展示最早的一笔（最滞后、最诚实）。
@@ -40,7 +42,7 @@ from typing import Dict
 
 from app.core.constants import EXCHANGE_RATES
 from app.core.money import Money
-from app.domains.funds.models import Fund, FundType
+from app.domains.funds.models import Fund, FundCompany, FundType
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 
@@ -199,6 +201,31 @@ def _collect_rows(session, family_id: int, asset_types: tuple) -> list[dict]:
             except Exception:
                 nav_date_global = None
 
+    # ── 基金管理人（读侧组装，2026-09-10）：symbol → funds.company_id → fund_companies.name ──
+    # 为什么不直接读 position_import_meta.fund_manager：该列是「影子记录」的匹配键
+    # （部分唯一索引要求 source_broker + fund_manager 同时非空），而归因到渠道后的渠道 meta
+    # 按设计把这两列置 NULL（机构信息改由 sales_institution_id 承载），故它在聚合页恒为空。
+    # 持仓→公司本来就有链路（symbol → funds.fund_code → funds.company_id → fund_companies），
+    # 本服务只需把它 join 出来，无需回填、无需改数据（单一写者原则不被破坏）。
+    manager_by_symbol: Dict[str, str] = {}
+    if fund_symbols:
+        symbol_company: Dict[str, int] = {
+            fcode: cid
+            for fcode, cid in session.query(Fund.fund_code, Fund.company_id).filter(
+                Fund.fund_code.in_(fund_symbols), Fund.company_id.isnot(None)
+            )
+        }
+        if symbol_company:
+            company_names = {
+                cid: cname
+                for cid, cname in session.query(FundCompany.id, FundCompany.name).filter(
+                    FundCompany.id.in_(set(symbol_company.values()))
+                )
+            }
+            manager_by_symbol = {
+                code: company_names[cid] for code, cid in symbol_company.items() if cid in company_names
+            }
+
     rows: list[dict] = []
     for p in positions:
         ledger = ledgers.get(p.ledger_id)
@@ -239,7 +266,9 @@ def _collect_rows(session, family_id: int, asset_types: tuple) -> list[dict]:
                 'return_pct': return_pct,
                 # ── 以下来自 position_import_meta，无快照记录时全为 None ──
                 'snapshot_date': _iso_date(meta.snapshot_date) if meta else None,
-                'fund_manager': meta.fund_manager if meta else None,
+                # 基金管理人：主来源 = 公司主数据简称（与全站「界面默认显示简称」口径一致）；
+                # 无公司主数据时回退导入溯源原文（meta.fund_manager，目前仅影子记录会有值）
+                'fund_manager': manager_by_symbol.get(p.symbol) or (meta.fund_manager if meta else None),
                 'dividend_preference': meta.dividend_preference if meta else None,
                 'fund_account': meta.fund_account if meta else None,
                 'trade_account': meta.trade_account if meta else None,
