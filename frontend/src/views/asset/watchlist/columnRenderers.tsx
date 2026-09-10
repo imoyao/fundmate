@@ -407,6 +407,14 @@ const renderProduct: FunctionalComponent<{
     ctx.openTagEditor(row);
   };
 
+  /** 当前行的备注文本（空串＝未填写）——用于行内入口的「有无内容」状态 */
+  const noteText = (field(row, "notes") as string) || "";
+  /** 打开备注编辑弹窗（#1285）：与备注列共用同一 renderer action，不依赖备注列是否可见 */
+  const openNotesEntry = (e: Event) => {
+    e.stopPropagation();
+    ctx.actions.openNotesEditor(row);
+  };
+
   return h(
     "div",
     {
@@ -508,6 +516,26 @@ const renderProduct: FunctionalComponent<{
                       }
                     },
                     "＋ 标签"
+                  ),
+                  // 「备注」入口（#1285）：**不依赖备注列是否可见**——把编辑入口内联到产品列第二行，
+                  // 与「＋ 标签」同一交互语言（hover 浮现、整行有内容时提示）；已填写时以品牌色
+                  // 「备注」提示「此处有内容」。避免用户必须先在列设置里开启备注列才能编辑。
+                  h(
+                    "span",
+                    {
+                      class: ["add-note-btn", { "has-note": !!noteText }],
+                      role: "button",
+                      tabIndex: 0,
+                      title: noteText ? "编辑备注" : "添加备注",
+                      onClick: openNotesEntry,
+                      onKeydown: (e: KeyboardEvent) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          openNotesEntry(e);
+                        }
+                      }
+                    },
+                    noteText ? "备注" : "＋ 备注"
                   )
                 ]
               : [])

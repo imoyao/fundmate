@@ -149,3 +149,18 @@ export interface ColumnDef {
 - 新增一个展示字段（如某实时指标）只需：在 `columnDefs.ts` 加一条 + 在 renderer 注册表加一个分支；**不修改 `index.vue` 模板主体**。
 - 现有全部列行为（排序/实时覆盖/标签/操作/置顶图标）与重构前视觉与功能一致。
 - `pnpm run typecheck` 零错误。
+
+## 9. 品类视图列集（#1285，2026-09-10）
+
+引入列「视图作用域」，解决「混合视图把所有品类列并集导致默认超宽」：
+
+- `ColumnDef.scope`：
+  - `"mixed"`：混合视图（未按品类筛选）也显示的**通用列**——`product` / `current_price` / `change_pct` / `_actions`；
+  - `"category"`（默认）：**品类专属列**，仅当「类型筛选命中单一品类」时显示。
+- `ColumnDef.appliesTo`：适用 `asset_type` 列表（缺省＝全部品类），如持仓/市值/收益类列只对 `TRADABLE_TYPES`（不含 `index`/`manager`/`portfolio`）。
+- `useWatchlistColumnVisibility(activeCategory)`：`activeCategory` = 类型筛选命中单一品类时为其 `asset_type`，否则 `null`（混合视图）。可见列 = 顺序 × 用户显隐偏好 × 视图作用域：
+  - 用户显式开启（`shown`）→ **任何视图都显示**（覆盖视图作用域与默认隐藏）；
+  - 默认隐藏且未开启 → 隐藏；
+  - 其余按 `scope`/`appliesTo` 判定。
+- `isHidden(key)` 语义 = 「**当前视图下是否可见**」，设置面板勾选框与表格所见一致（勾上即任何视图都显示）。
+- 默认列预算 ≤ 1040px（见 `frontend/design.md`「冻结列与横向滚动规范」§4/§5）。

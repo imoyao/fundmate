@@ -228,6 +228,7 @@
             @sort-change="onSortChange"
             @cell-mouse-enter="handleCellMouseEnter"
             @cell-mouse-leave="handleCellMouseLeave"
+            @row-click="onRowClick"
           >
             <el-table-column
               v-if="batchMode"
@@ -407,6 +408,14 @@
       @saved="onNotesSaved"
     />
 
+    <!-- 行「速览」抽屉（#1285）：行点击打开，备注可一键进入编辑 -->
+    <WatchlistQuickViewDrawer
+      v-model="quickViewVisible"
+      :item="quickViewItem"
+      :all-tags="allTags"
+      @edit-notes="openNotesEditor"
+    />
+
     <SettingsDrawer
       v-model="settingsDrawerVisible"
       :realtime-enabled="realtimeEnabled"
@@ -462,6 +471,7 @@ import LayFooter from "@/layout/components/lay-footer/index.vue";
 // 金额/涨跌展示组件（MoneyDisplay/RiseFallText/MoneyWithRatio）已随 #995 列渲染器化
 // 迁移至 columnRenderers.tsx，本页模板不再直接使用
 import WatchlistRemoveDialog from "@/views/asset/watchlist/components/WatchlistRemoveDialog.vue";
+import WatchlistQuickViewDrawer from "@/views/asset/watchlist/components/WatchlistQuickViewDrawer.vue";
 import {
   useRealtimeQuotes,
   type RefreshInterval
@@ -496,8 +506,15 @@ const groups = useWatchlistGroups();
 const tags = useWatchlistTags();
 const toolbar = useWatchlistToolbar();
 const data = useWatchlistData(groups, tags, toolbar);
+// 当前品类（类型筛选命中单一品类时为其 asset_type；否则 null＝混合视图）。
+// 供列显隐在「混合视图通用列 / 品类视图专属列」间切换（#1285）。
+const activeCategory = computed<string | null>(() =>
+  toolbar.selectedAssetTypes.value.length === 1
+    ? toolbar.selectedAssetTypes.value[0]
+    : null
+);
 // 列显隐偏好（#993）：localforage 本机持久化，SettingsDrawer 经 prop 共享同一实例
-const columnSettings = useWatchlistColumnVisibility();
+const columnSettings = useWatchlistColumnVisibility(activeCategory);
 
 const {
   activeGroup,
@@ -867,6 +884,20 @@ const onTagEditorSaved = () => {
 const onNotesSaved = () => {
   fetchData();
 };
+
+// ── 行「速览」抽屉（#1285）──
+// 设计：行点击 → 抽屉（速览）→ 抽屉内「查看详情」→ 详情页。
+// 行内按钮（标签/备注/操作）已各自 stopPropagation，不触发速览；此处再对
+// .el-button 兜底过滤，避免操作列按钮点击时误开抽屉。
+const quickViewVisible = ref(false);
+const quickViewItem = ref<WatchlistItem | null>(null);
+
+function onRowClick(row: WatchlistItem, _column: unknown, event: Event): void {
+  const el = event.target as HTMLElement | null;
+  if (el?.closest(".el-button, button, .add-tag-btn, .add-note-btn")) return;
+  quickViewItem.value = row;
+  quickViewVisible.value = true;
+}
 
 // ─────────────────────────────────────────────
 // 生命周期

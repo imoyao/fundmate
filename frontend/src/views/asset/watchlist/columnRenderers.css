@@ -163,3 +163,9 @@
   outline: 1px solid var(--brand-400);
   outline-offset: 1px;
 }
+
+/* 已有备注：品牌色 + 下划虚线，提示「此处有内容可编辑」，与空态「＋ 备注」区分 */
+.el-table .add-note-btn.has-note {
+  color: var(--brand-700);
+  border-bottom: 1px dashed var(--brand-400);
+}
