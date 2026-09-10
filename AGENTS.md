@@ -349,7 +349,7 @@
 
 ## 数据策略（按需存、禁止全量堆砌）
 
-> 权威细则：[`docs/spec/data-strategy.md`](docs/spec/data-strategy.md)；决策依据：[`docs/spec/decisions.md`](docs/spec/decisions.md) D21（2026-09-10）；上位规范：`conventions.md` §16.2。
+> 权威细则：`docs/spec/data-strategy.md`；决策依据：`docs/spec/decisions.md` D21（2026-09-10）；上位规范：`conventions.md` §16.2。
 > 本节是**流程闸门**：新增数据实体不通过准入检查，PR 不得合入。
 
 ### 第一原则

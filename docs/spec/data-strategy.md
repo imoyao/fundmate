@@ -97,7 +97,7 @@ title: 数据策略（按需存、禁止全量堆砌）
 3. 登记 `core/db_factory.DATA_DOMAIN_REGISTRY`（见 `AGENTS.md`「数据域架构」硬规则 §1）——**数据策略准入与数据域登记并行，不可互相替代**。
 4. 同步更新 [`data-model.md`](./data-model.md)。
 
-> 反面先例：`fund_management_companies`（user 域，165 行）——唯一写方是一个 job，**零读者、零外键、零接口**，长期存在于库里，最终在 D21 前身决策中被合并删除。**建表时若执行了「读取路径」检查，这张表不会被建出来。**
+> 反面先例：`fund_management_companies`（user 域，165 行）——唯一写方是一个 job，**零读者、零外键、零接口**，长期存在于库里，最终在 `decisions.md` 的《基金公司主数据合并》（2026-09-10，D21 上一行）中被合并删除。**建表时若执行了「读取路径」检查，这张表不会被建出来。**
 
 ### 4.2 新增**列**
 
@@ -163,7 +163,7 @@ title: 数据策略（按需存、禁止全量堆砌）
 | 只写不读的表 | `fund_management_companies`（已删）、`sales_broker_mappings`（4 行，代码零引用） |
 | docstring 谎报 | `fund_list_job` 名为「全量同步」实为「只增不改」；`fund_meta_job` 称「不灌全市场」实为全库遍历 |
 | 空 targets 退化为全库 | `fund_manager_job.py:37` |
-| 请求路径全表扫描 | `cross_domain.py:95-104` 自选估值加载全部 26,938 个 ORM 实体 |
+| 请求路径全表扫描 | `cross_domain.py:95-104` 无条件加载全部 26,938 个 ORM 实体（**注**：全仓核实该模块当前**零生产调用方**，故属「零消费者的潜在炸弹」而非在跑的缺陷；接入前必须先改为两步法） |
 | 全史存储 | `fund_nav_job` 在 `full_sync=True` 时对每只基金写全部历史（≈2,200 天/只） |
 | 验收口径错配 | `#1396` 原定「全库 `company_id` ≥90%」——无产品场景支撑 |
 | 静默失败 | `orchestrator` 吞异常导致 7 个 job 在 `sync_logs` 中完全不可见 |
