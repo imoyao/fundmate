@@ -81,6 +81,7 @@ export interface RenderCtx {
     togglePin: (row: WatchlistRow) => void;
     toggleFavorite: (row: WatchlistRow) => void;
     remove: (row: WatchlistRow) => void;
+    openNotesEditor: (row: WatchlistRow) => void;
   };
   /** 近 N 日收盘价序列（sparkline 列，#990）：symbol → close 数组；无数据的 symbol 键缺省 */
   trends: Record<string, number[]>;
@@ -549,6 +550,55 @@ const renderActions: FunctionalComponent<{
   );
 };
 
+/**
+ * 投资笔记（#1285）：展示备注文本（或「＋ 备注」占位），点击打开编辑弹窗。
+ * 与 add-tag 同语言：未填写时弱化入口，已填写时整格可点编辑；
+ * 文本超长由 el-table 列的省略（title 看全文）或 CSS ellipsis 处理。
+ */
+const renderNotes: FunctionalComponent<{
+  row: WatchlistRow;
+  def: ColumnDef;
+  ctx: RenderCtx;
+}> = props => {
+  const note = (field(props.row, "notes") as string) || "";
+  const open = (e: Event) => {
+    e.stopPropagation();
+    props.ctx.actions.openNotesEditor(props.row);
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      open(e);
+    }
+  };
+  if (!note) {
+    return h(
+      "span",
+      {
+        class: "add-note-btn",
+        role: "button",
+        tabIndex: 0,
+        title: "添加备注",
+        onClick: open,
+        onKeydown: onKey
+      },
+      "＋ 备注"
+    );
+  }
+  return h(
+    "span",
+    {
+      class: "note-cell",
+      role: "button",
+      tabIndex: 0,
+      title: note,
+      onClick: open,
+      onKeydown: onKey
+    },
+    note
+  );
+};
+
 /** renderer 类型 -> 函数式组件 的注册表 */
 const REGISTRY: Record<
   ColumnRenderer,
@@ -565,6 +615,7 @@ const REGISTRY: Record<
   qty: renderQty as never,
   moneyRatio: renderMoneyRatio as never,
   text: renderText as never,
+  notes: renderNotes as never,
   sparkline: renderSparkline as never,
   actions: renderActions as never
 };

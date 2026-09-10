@@ -40,6 +40,7 @@ export type ColumnRenderer =
   | "moneyRatio" // MoneyWithRatio（金额 + 比率）
   | "sparkline" // 迷你走势图（纯 SVG 折线，#990）
   | "text" // 纯文本 / 枚举映射（#993 新增列：资产类型、所属分组）
+  | "notes" // 投资笔记（点击编辑，#1285）
   | "actions"; // 操作列（circle 按钮：置顶/关注/编辑/删除）
 
 /** 实时估值可覆盖的字段（来自 getValuationItem 产出） */
@@ -267,6 +268,16 @@ export const watchlistColumnDefs: ColumnDef[] = [
     hideable: true,
     draggable: true,
     defaultHidden: true
+  },
+  {
+    key: "notes",
+    label: "备注",
+    renderer: "notes",
+    width: 180,
+    align: "left",
+    hideable: true,
+    draggable: true,
+    defaultHidden: false
   },
   {
     // 操作列：置顶 / 特别关注 / 移除 三个按钮，默认 45% 弱显、行 hover 全亮

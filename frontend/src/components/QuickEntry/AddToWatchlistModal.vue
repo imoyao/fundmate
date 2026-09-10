@@ -204,6 +204,19 @@
           class="reason-input"
         />
       </el-form-item>
+
+      <!-- 投资笔记 -->
+      <el-form-item>
+        <el-input
+          v-model="notes"
+          type="textarea"
+          :rows="3"
+          placeholder="投资笔记 / 交易手札（选填）"
+          maxlength="2000"
+          show-word-limit
+          class="notes-input"
+        />
+      </el-form-item>
     </el-form>
 
     <template #footer>
@@ -299,6 +312,7 @@ const searchLoading = ref(false);
 const searchResults = ref<SearchAssetOption[]>([]);
 const selectedAsset = ref<SearchAssetOption | null>(null);
 const addReason = ref("");
+const notes = ref("");
 const pinToTop = ref(false);
 const submitting = ref(false);
 const assetAlreadyExists = ref(false);
@@ -462,6 +476,7 @@ const handleSubmit = async () => {
         selectedAsset.value.venue ??
         (selectedAsset.value.type === "fund" ? "OTC" : "EXCHANGE"),
       add_reason: addReason.value || undefined,
+      notes: notes.value || undefined,
       is_pinned: pinToTop.value
     });
     const newItem: WatchlistItem = itemRes.data;
@@ -506,6 +521,7 @@ const resetForm = () => {
   selectedAsset.value = null;
   searchResults.value = [];
   addReason.value = "";
+  notes.value = "";
   pinToTop.value = false;
   selectedGroupIds.value = [];
   selectedTagIds.value = [];

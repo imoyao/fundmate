@@ -123,3 +123,38 @@
   outline: 1px solid var(--brand-400);
   outline-offset: 1px;
 }
+
+/* ── 投资笔记列（#1285）──
+   整格可点编辑：未填写时弱化「＋ 备注」入口（与 add-tag-btn 同视觉语言），
+   已填写时文本省略（title 看全文）且整格可点打开编辑弹窗。 */
+.el-table .note-cell {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.el-table .note-cell:hover {
+  color: var(--text-primary);
+}
+
+.el-table .add-note-btn {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.el-table .add-note-btn:hover,
+.el-table .add-note-btn:focus-visible {
+  color: var(--brand-700);
+}
+
+.el-table .add-note-btn:focus-visible {
+  outline: 1px solid var(--brand-400);
+  outline-offset: 1px;
+}

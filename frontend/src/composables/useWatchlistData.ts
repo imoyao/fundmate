@@ -333,6 +333,21 @@ export function useWatchlistData(
   }
 
   // ─────────────────────────────────────────────
+  // 备注编辑（#1285）：与标签编辑共用「打开弹窗由页面负责」的模式
+  const editingNotesItem = ref<WatchlistItem | null>(null);
+  const showNotesEditor = ref(false);
+  function openNotesEditor(row: WatchlistItem) {
+    if (row.id == null) {
+      ElMessage.warning(
+        "该自选记录缺少主键，暂无法编辑备注，请刷新或重新添加自选"
+      );
+      return;
+    }
+    editingNotesItem.value = row;
+    showNotesEditor.value = true;
+  }
+
+  // ─────────────────────────────────────────────
   // 批量操作
   // ─────────────────────────────────────────────
 
@@ -438,6 +453,10 @@ export function useWatchlistData(
     editingItem,
     showTagEditor,
     openTagEditor,
+    // 备注编辑
+    editingNotesItem,
+    showNotesEditor,
+    openNotesEditor,
     // 批量
     handleSelectionChange,
     handleBatchDelete,

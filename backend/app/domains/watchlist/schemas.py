@@ -16,6 +16,7 @@ class WatchlistItemCreate(BaseModel):
     asset_type: Optional[str] = Field(None, max_length=20, description='资产类型')
     venue: Optional[str] = Field(None, max_length=10, description='交易场所')
     add_reason: Optional[str] = Field(None, max_length=500, description='关注理由')
+    notes: Optional[str] = Field(None, max_length=2000, description='投资笔记')
     is_pinned: Optional[bool] = Field(False, description='置顶自选')
     cost_price: Optional[float] = Field(None, description='观察参考成本价（探市迁移透传）')
     quantity: Optional[float] = Field(None, description='观察参考份额（探市迁移透传）')
