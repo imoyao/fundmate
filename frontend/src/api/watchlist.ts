@@ -88,7 +88,6 @@ export function createWatchlistItem(data: {
   asset_type?: string;
   venue?: string;
   add_reason?: string;
-  notes?: string;
   is_pinned?: boolean;
   cost_price?: number;
   quantity?: number;
