@@ -52,6 +52,21 @@ export interface WatchlistItem {
   advisor_strategy_type?: string | null; // 策略类型（均衡/进取/稳健）
   advisor_org_name?: string | null; // 主理人所属机构/平台方
   manager_company?: string | null; // 基金经理所属基金公司（仅 asset_type=manager 有值）
+  // ── 可转债条款（#1285 消费侧 / #1393）──
+  // 仅 asset_type=bond 且后端 convertible_bond_terms 命中时有值，其余 null。
+  // 数据源：集思录强赎（bond_cb_redeem_jsl）+ 东财基本信息（bond_zh_cov），免 cookie。
+  bond_convert_price?: number | null; // 转股价（元）
+  bond_convert_value?: number | null; // 转股价值（元）
+  bond_premium_rate?: number | null; // 转股溢价率（%）
+  bond_force_redeem_price?: number | null; // 强赎触发价（元）
+  bond_redeem_count?: number | null; // 强赎天计数（已达）
+  bond_redeem_required?: number | null; // 强赎触发所需天数
+  bond_redeem_status?: string | null; // 强赎状态
+  bond_rating?: string | null; // 信用评级
+  bond_maturity_date?: string | null; // 到期日（前端据此算剩余年限）
+  bond_remain_size?: number | null; // 剩余规模（亿元）
+  bond_issue_size?: number | null; // 发行规模（亿元）
+  bond_stock_name?: string | null; // 正股名称
 }
 
 export interface HomeSummaryItem {

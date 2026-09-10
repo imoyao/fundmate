@@ -169,3 +169,35 @@
   color: var(--brand-700);
   border-bottom: 1px dashed var(--brand-400);
 }
+
+/* ── 可转债品类列（#1285/#1393）── */
+.el-table .bond-num {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.el-table .bond-empty {
+  color: var(--text-disabled);
+}
+
+.el-table .bond-rating {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* 强赎状态：文本可超列宽，省略并以 title 看全文；含「强赎」的状态用涨色高亮 */
+.el-table .bond-redeem {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.el-table .bond-redeem.is-urgent {
+  color: var(--color-rise);
+  font-weight: 500;
+}

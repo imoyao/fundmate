@@ -690,6 +690,66 @@ const renderNotes: FunctionalComponent<{
   );
 };
 
+/**
+ * 可转债条款列（#1285 消费侧 / #1393）。
+ *
+ * 一个 renderer 覆盖 4 列（按 def.key 分派）：溢价率 / 强赎状态 / 剩余年限 / 评级。
+ * 数据缺席（表未落库 / 非转债）统一渲染 `—`，不用 0 兜底（0 溢价率是真实值）。
+ * 剩余年限由 `bond_maturity_date` 现算，避免为展示多存一个口径字段。
+ */
+const renderBond: FunctionalComponent<{
+  row: WatchlistRow;
+  def: ColumnDef;
+  ctx: RenderCtx;
+}> = props => {
+  const { row, def } = props;
+  const dash = () => h("span", { class: "bond-empty" }, "—");
+
+  if (def.key === "bond_premium_rate") {
+    const v = field(row, "bond_premium_rate") as number | null | undefined;
+    if (v == null) return dash();
+    return h("span", { class: "bond-num" }, `${v.toFixed(2)}%`);
+  }
+
+  if (def.key === "bond_redeem") {
+    const status = (field(row, "bond_redeem_status") as string) || "";
+    const count = field(row, "bond_redeem_count") as number | null | undefined;
+    const required = field(row, "bond_redeem_required") as
+      number | null | undefined;
+    if (!status && count == null) return dash();
+    const progress =
+      count != null && required != null ? `${count}/${required}` : "";
+    const text = [status, progress].filter(Boolean).join(" ");
+    // 「公告不强赎」属利好/中性，不着警示色；其余含「强赎」的状态高亮
+    const urgent = status.includes("强赎") && !status.includes("不");
+    return h(
+      "span",
+      { class: ["bond-redeem", { "is-urgent": urgent }], title: text },
+      text
+    );
+  }
+
+  if (def.key === "bond_remain_years") {
+    const maturity = (field(row, "bond_maturity_date") as string) || "";
+    if (!maturity) return dash();
+    const ts = Date.parse(maturity);
+    if (Number.isNaN(ts)) return dash();
+    const years = (ts - Date.now()) / 86400000 / 365.25;
+    return h(
+      "span",
+      { class: "bond-num", title: `到期日 ${maturity}` },
+      `${years.toFixed(2)} 年`
+    );
+  }
+
+  if (def.key === "bond_rating") {
+    const rating = (field(row, "bond_rating") as string) || "";
+    return rating ? h("span", { class: "bond-rating" }, rating) : dash();
+  }
+
+  return dash();
+};
+
 /** renderer 类型 -> 函数式组件 的注册表 */
 const REGISTRY: Record<
   ColumnRenderer,
@@ -707,6 +767,7 @@ const REGISTRY: Record<
   moneyRatio: renderMoneyRatio as never,
   text: renderText as never,
   notes: renderNotes as never,
+  bond: renderBond as never,
   sparkline: renderSparkline as never,
   actions: renderActions as never
 };
