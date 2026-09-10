@@ -193,6 +193,11 @@
       "issue_number": 1386,
       "synced_at": "2026-09-10T11:31:08Z",
       "origin": "github"
+    },
+    "dcc1258f-ef86-4957-8ad7-d8f92ad2d3db": {
+      "issue_number": 1396,
+      "synced_at": "2026-09-10T12:55:34Z",
+      "origin": "github"
     }
   },
   "_comment": "FeedLog ↔ GitHub 桥接状态文件。由 feedlog_bridge.py 自动维护，请勿手动编辑。"
