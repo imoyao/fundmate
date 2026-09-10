@@ -88,6 +88,7 @@
   - 判定「X 未定义」前，必须先核对：X 是否在同一文件其他函数 / 顶部已定义？是否经 `from ... import X` 引入（含 `app.core.constants`、`app.core.db_factory`、`app.domains.*` 等项目内模块）？是否在被调函数的入参 / 返回契约里？若只是本次 diff 未展示其定义，**不要**据此提问题，**更不得**在 suggestion 中给出 `null` 替换——那会将正常字段置为 `null`，直接破坏代码，属错误建议。 # added
   - 本仓库高频误报样例：`TYPE_LABELS`（来自 `app.core.constants`）、`_user_sort_metric` / `_enrich_item` / `_build_holding_row` / `_compute_holding_stats` 等本文件内函数，以及 `holding_cost_price` / `type_label` / `updated_at` / `groups` / `change_pct` / `position_market_value` 等 enrich 阶段下发、且列入 `_USER_SORTABLE_FIELDS` 白名单的字段——它们都已定义 / 已下发，不要以「未定义其含义 / 来源 / 计算方式」为由提问题。若只想补文档，至多 [次要] 且须注明「该字段已在 X 处定义」。
   - 注释 / 提交信息里引用的 issue 编号（如 `#993` / `#1085` / `#1171`）是正常跨引用，**不要**当作「引用错误 / 未定义」提问题。
+  - **「新增 Job 的适配器未引入 / 缺数据源配置」类误报（PR #1395 实证）**：本仓库大量 Job **不需要网络数据源**，统一用 `NullAdapter()` 占位（既有 `TemperatureJob`、`AmacInstitutionJob`，2026-09-10 起的 `FundCompanyBackfillJob`）。该适配器在 `sync/orchestrator.py` 顶部**已 `import`**，Job 经 `_register_jobs()` 注册即完成接线——本仓库**没有**额外的「数据源配置」环节。因此**禁止**以「未看到 `NullAdapter` 的引入 / 使用」「新 Job 应当有数据源配置」为由提问题（ruff F401/F811 全绿即证明 import 有效；`NullAdapter` 的语义就是「无数据源的占位」）。
 - **「前端改动未确认后端支持」类误报（PR #1344）**：审查前端 diff 时，若改动依赖后端字段 / 端点（例如 `sortable:"custom"` 透传后端排序、`realtimeField` 实时字段、`columnDefs` 与后端白名单对应），**不要**仅凭前端片段就断言「后端不支持 / 未确认后端支持」并建议「先确保后端支持」或「移除该属性」。正确做法：若 checkout 内含后端代码则核对后端是否支持；若无法核对，应作为「待人工确认」的 [次要] 备注，而非 [主要]/[阻断]，且不得建议删除前端已正确接入的逻辑。
 - **「测试未用 db 夹具 / 缺逻辑 / 断言不全」类误报（PR #1344）**：
   - 直接构造输入、调用被测函数 / 纯函数的**单测**（如 `_apply_user_sort` 等纯函数测试）**不需要** `db` 夹具；不要以「测试函数未使用夹具提供的数据库」为由提问题。 # added
