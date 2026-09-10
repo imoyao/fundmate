@@ -36,6 +36,7 @@ title: 多多贝 项目规范体系（文档枢纽）
 | [tech-debt.md](./tech-debt.md) | 技术债务与开口项明细 | 易腐烂（标核实日期） | 进度追踪 |
 | [decisions.md](./decisions.md) | 重要决策完整记录表 | append-only | 永久回溯 |
 | [pricing-tier.md](./pricing-tier.md) | 付费/免费分层规范（判定准则、功能归属、双层估值开关、前端直连约束） | 低频 | 事实标准 |
+| [data-strategy.md](./data-strategy.md) | 数据策略（L1~L4 分层、数据准入四问、表/列/job 准入细则） | 低频 | 硬约束 |
 | [changelog.md](./changelog.md) | 版本更新记录与文档结束语 | 版本驱动 | 追溯 |
 
 ## 视觉设计语言（权威入口）
