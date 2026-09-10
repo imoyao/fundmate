@@ -18,6 +18,8 @@
 # 降噪策略：
 #   1) 深度线路 TEMPERATURE=0.1，低温度降低模型随机发挥带来的误报
 #   2) 单一权威 prompt：docs/configs/ai-review-prompt.md，经根目录 .ai-review-deep.yaml 注入
+#   3) prompt 内置「误报防范/降噪清单」（2026-09-10 补强）：无问题不评论、禁复述 diff、
+#      禁建议「已存在的写法」、禁逆 PR 意图、注释删改不算缺陷、兼容历史值不算缺陷
 #
 # 深度线路档位由 PR 标签决定（在 PR 界面点标签即可，零摩擦、不影响自动触发）：
 #   无标签            → 默认档：轮询兜底，优先 cheap（DeepSeek Flash）
