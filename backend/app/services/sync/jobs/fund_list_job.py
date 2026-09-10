@@ -1,5 +1,16 @@
 # app/services/sync/jobs/fund_list_job.py
-"""基金列表同步任务（全量）"""
+"""基金列表同步任务（**只增不改 / insert-only**）。
+
+⚠️ 本任务**不更新已存在的基金**：`_deduplicate` 与 `_save_data` 会先后两次剔除库中
+已有的 `fund_code`，因此基金的**名称变更、类型变更、清盘状态**都不会被同步进来。
+
+历史教训：模块 docstring 曾写作「基金列表同步任务（全量）」，让人误以为它维护
+`funds` 表的最新快照——这正是「`funds.company_id` 覆盖率只有 11%」容易被误判为
+「同步覆盖不足」的诱因之一（真实根因见 #1395 / #1396）。
+
+若上述字段需要保持最新，必须另走 upsert 路径，并先评估 26,938 条全量写入的性能
+（见 #1402）。
+"""
 
 from typing import List
 
@@ -42,16 +53,19 @@ class FundListSyncJob(SyncJob):
     # ── 去重 ──
 
     def _deduplicate(self, data: List[dict]) -> List[dict]:
-        """基于 fund_code 去重"""
+        """剔除库中已存在的 fund_code（「只增不改」的第一道过滤）"""
         return self._deduplicate_by_unique_key(data, Fund, 'fund_code')
 
     # ── 保存 ──
 
     def _save_data(self, new_data: List[dict]) -> None:
         """
-        分两步写入：
+        分两步写入（**仅插入新基金，不更新已有记录**）：
         1. 提取新基金公司并插入 fund_companies 表
         2. 插入新的基金记录到 funds 表
+
+        第 3 步的 `existing_codes` 过滤是「只增不改」的第二道保险——即便调用方
+        绕过 `_deduplicate` 直接调本方法，也不会覆盖库中存量行。
         """
         # 1. 处理基金公司
         company_names = {item.get('company_name', '') for item in new_data if item.get('company_name')}

@@ -110,3 +110,26 @@ class TestFundListSyncJob:
         assert result['status'] == 'success'
         assert result['stats']['total'] == 2
         assert result['stats']['success'] == 2
+
+    def test_existing_fund_is_not_updated(self, job, db):
+        """「只增不改」契约：已存在 fund_code 的字段变更**不会**被同步（#1402）。
+
+        本测试锁定的正是「fund_list 不是全量刷新」这一事实。若将来真改成 upsert，
+        本测试会失败——届时必须同步更新模块 docstring 与 #1402 的结论，而不是
+        直接删断言。
+        """
+        db.add(Fund(fund_code='000001', name='旧名称'))
+        db.commit()
+
+        job.adapter.fetch_fund_list.return_value = [
+            {'fund_code': '000001', 'name': '新名称'},
+            {'fund_code': '000002', 'name': '基金B'},
+        ]
+        result = job.run(full_sync=True)
+        assert result['status'] == 'success'
+        assert result['stats']['total'] == 2
+        assert result['stats']['success'] == 1  # 仅 000002 入库，000001 被跳过
+
+        db.expire_all()
+        assert db.query(Fund).filter_by(fund_code='000001').one().name == '旧名称'
+        assert db.query(Fund).filter_by(fund_code='000002').one().name == '基金B'
