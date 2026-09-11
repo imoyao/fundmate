@@ -108,7 +108,9 @@ class Fund(Base, PrimaryKeyMixin, TimestampMixin):
     fund_type_id = Column(Integer, ForeignKey('fund_types.id'), comment='基金小类')
     fund_variety_id = Column(Integer, ForeignKey('fund_varieties.id'), comment='基金大类')
     company_id = Column(Integer, ForeignKey('fund_companies.id'), comment='基金公司')
-    # ── #1286 品种差异化维度：基金规模 / 近似股票仓位（回填见 FundMetaSyncJob）──
+    # ── #1286 品种差异化维度：基金规模 / 近似股票仓位 ──
+    # 回填见 FundScaleSyncJob（全市场一次拉取）与 FundPositionSyncJob（逐只，仅核心池）
+    # （2026-09-11 起由原 FundMetaSyncJob 拆分，见 #1403：逐只抓取必须按目标池限量）
     # 精度说明（PR #1358 review）：虽为市场参照估算字段（非用户记账链路），
     # 仍按份额/金额精度规范用 SafeNumeric，避免 Float 精度漂移。
     scale = Column(SafeNumeric(20, 6), comment='基金规模估算(亿元)=最近总份额×单位净值，来源 fund_scale_open_sina')
