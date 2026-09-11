@@ -45,8 +45,9 @@ from app.services.sync.jobs.fund_company_backfill_job import FundCompanyBackfill
 from app.services.sync.jobs.fund_detail_enrich_job import FundDetailEnrichJob
 from app.services.sync.jobs.fund_list_job import FundListSyncJob
 from app.services.sync.jobs.fund_manager_job import FundManagerSyncJob
-from app.services.sync.jobs.fund_meta_job import FundMetaSyncJob
 from app.services.sync.jobs.fund_nav_job import FundNavSyncJob
+from app.services.sync.jobs.fund_position_job import FundPositionSyncJob
+from app.services.sync.jobs.fund_scale_job import FundScaleSyncJob
 from app.services.sync.jobs.fund_type_job import FundTypeSyncJob
 from app.services.sync.jobs.index_catalog_job import IndexCatalogSyncJob
 from app.services.sync.jobs.index_constituent_job import INDEX_TARGETS, IndexConstituentSyncJob
@@ -138,7 +139,8 @@ class DataSyncOrchestrator:
         # 消费导入侧观察值（user 域 fund_company_observations）补 funds.company_id：
         # 纯本地解析、不联网，故 NullAdapter 占位（同 amac_institution 的处理）。
         self.jobs['fund_company_backfill'] = FundCompanyBackfillJob(NullAdapter(), self.db)
-        self.jobs['fund_meta'] = FundMetaSyncJob(self.data_sources['akshare'], self.db)
+        self.jobs['fund_scale'] = FundScaleSyncJob(self.data_sources['akshare'], self.db)
+        self.jobs['fund_position'] = FundPositionSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['fund_type'] = FundTypeSyncJob(self.data_sources['akshare'], self.db)
         # 投顾组合数据源独立于 akshare/xalpha（天天基金公开接口，自带节流）
         self.jobs['advisor_portfolio'] = AdvisorPortfolioSyncJob(TiantianAdvisorAdapter(), self.db)
@@ -399,7 +401,11 @@ class DataSyncOrchestrator:
                 ('fund_list', ['__full__']),  # 全量刷新基金列表
                 ('fund_detail_enrich', fund_targets),  # 补充基金详情（核心池）
                 ('fund_type', fund_targets),  # 回填基金类型（核心池，#1155 根治项）
-                ('fund_meta', ['__full__']),  # 回填基金规模 + 近似股票仓位（#1286 数据底座）
+                # #1286 数据底座：拆成两条成本量级不同的链路（原 fund_meta 一条全干，见 #1403）
+                #   fund_scale —— 单次 HTTP 返回全市场列表，§4.3.3 允许全量
+                #   fund_position —— 逐只 HTTP（≈1.8s/只），§4.3.3 强制按目标池限量
+                ('fund_scale', ['__full__']),
+                ('fund_position', fund_targets),  # 空 targets 显式跳过，不退化为全库
                 ('fund_manager', fund_targets),  # 回填基金经理并关联基金公司（核心池）
                 # 导入侧观察值 → funds.company_id（不联网、幂等、只填空缺）：
                 # 紧跟基金公司相关任务，且 funds 已由 fund_list 建好
