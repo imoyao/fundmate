@@ -155,7 +155,7 @@ export interface ColumnDef {
 引入列「视图作用域」，解决「混合视图把所有品类列并集导致默认超宽」：
 
 - `ColumnDef.scope`：
-  - `"mixed"`：混合视图（未按品类筛选）也显示的**通用列**——`product` / `created_at` / `current_price` / `change_pct` / `holding_quantity` / `position_market_value` / `holding_pnl` / `_actions`（**#1421 修订**：原集只有 4 列，默认视图信息量过低；现集合计 ≈1010px，仍守 1040px 预算）；
+  - `"mixed"`：混合视图（未按品类筛选）也显示的**通用列**——`product` / `created_at` / `current_price` / `change_pct` / `trend` / `holding_quantity` / `position_market_value` / `added_return` / `holding_pnl` / `holding_cost_price` / `_actions`（**#1421/#1422 修订**：原集只有 4 列，默认视图信息量过低；现集约 1338px，超宽部分由**表格内部横向滚动**承载）；
   - `"category"`（默认）：**品类专属列**，仅当「类型筛选命中单一品类」时显示。
   - **通用列判定标准（#1421）**：该列对「**全部品类**」或「**全部可交易品类**（`TRADABLE_TYPES` 7 类）」都成立、不会恒为 `—` → 归 `"mixed"`；只有**真品类专属列**（可转债条款 / 指数估值 / 基金回撤 / 关联 / 投顾指标）留 `"category"`。
 - `ColumnDef.appliesTo`：适用 `asset_type` 列表（缺省＝全部品类），如持仓/市值/收益类列只对 `TRADABLE_TYPES`（不含 `index`/`manager`/`portfolio`）。
@@ -165,4 +165,4 @@ export interface ColumnDef {
   - 其余按 `scope`/`appliesTo` 判定。
 - `isHidden(key)` 语义 = 「**当前视图下是否可见**」，设置面板勾选框与表格所见一致（勾上即任何视图都显示）。
 - 列宽表达（#1421）：非固定列一律用 `ColumnDef.minWidth`，`ColumnDef.width` 只给固定列（`product` / `_actions` / `_selection`）。原因：EP 只把「无数字 `width`」的列纳入容器余量分配（`flexColumns`），全列固定宽会让表格宽度恒等于 Σ 列宽、容器再宽也不铺满。
-- 默认列预算 ≤ 1040px（见 `frontend/design.md`「冻结列与横向滚动规范」§4/§5）。
+- **默认可见列不受宽度预算约束**（#1422 拍板，取代 #1285 的「默认列总宽 ≤ 1040px」）：混合视图默认展示全部通用列，总宽可超容器，由**表格内部横向滚动**承载；禁止以「藏列」换取「不滚动」。见 `frontend/design.md`「冻结列与横向滚动规范」§4/§5（已同步）。
