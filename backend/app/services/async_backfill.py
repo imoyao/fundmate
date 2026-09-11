@@ -11,12 +11,15 @@
 """
 
 import threading
+from datetime import date, datetime
+from typing import Optional
 
 from loguru import logger
 
 from app.core.constants import SOURCE_VERSION_V2_RECALC
 from app.core.database import SessionLocal
 from app.core.db_utils import bulk_insert_if_not_exists
+from app.core.time_utils import today_shanghai
 from app.domains.funds.models import DailyWorth, MoneyFundDailyWorth
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
@@ -24,11 +27,41 @@ from app.services.sync.adapters.akshare_adapter import AkshareAdapter
 from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
 
 
+def _as_date(value) -> Optional[date]:
+    """将 'YYYY-MM-DD' 字符串解析为 date；解析失败返回 None。"""
+    if not value:
+        return None
+    try:
+        return datetime.strptime(str(value)[:10], '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        return None
+
+
+def _drop_today(records: list, date_field: str) -> list:
+    """T 日不回填：丢弃日期 >= 今日（上海时区）的记录，回填止于 T-1。
+
+    当日净值/行情未收盘、未定稿，回填进去会让用户看到不完整/变动中的数据，
+    故仅回填到 T-1。适配器若本身只返回已定稿数据，本过滤为防御性冗余。
+    """
+    cutoff = today_shanghai()
+    kept = []
+    for r in records:
+        d = _as_date(r.get(date_field))
+        if d is not None and d >= cutoff:
+            continue
+        kept.append(r)
+    return kept
+
+
 def _backfill_fund_nav(fund_code: str):
     db = SessionLocal()
     try:
         adapter = XalphaAdapter()
         records = adapter.fetch_fund_nav(fund_code)
+        if not records:
+            return
+        # T 日不回填：丢弃 date >= 今日（上海时区）的记录，回填止于 T-1
+        records = _drop_today(records, 'date')
         if not records:
             return
 
@@ -92,6 +125,10 @@ def _backfill_stock_price(symbol: str):
         adapter = AkshareAdapter()
         records = adapter.fetch_stock_price(symbol)
         if not isinstance(records, list) or not records:
+            return
+        # T 日不回填：丢弃 trade_date >= 今日（上海时区）的记录，回填止于 T-1
+        records = _drop_today(records, 'trade_date')
+        if not records:
             return
 
         allowed_columns = {c.name for c in PriceHistory.__table__.columns}
