@@ -608,11 +608,11 @@ onMounted(async () => {
   flex: 1;
   min-width: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 14px;
   font-weight: 500;
   line-height: 20px;
   color: var(--text-primary);
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -628,10 +628,10 @@ onMounted(async () => {
 
 .asset-option__meta {
   overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 12px;
   line-height: 16px;
   color: var(--text-tertiary);
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -650,11 +650,11 @@ onMounted(async () => {
 
 .selected-asset-card__name {
   overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 15px;
   font-weight: 600;
   line-height: 22px;
   color: var(--text-primary);
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -691,10 +691,10 @@ onMounted(async () => {
 }
 
 .selected-asset-card__meta-item dd {
-  overflow: hidden;
   margin: 0;
-  color: var(--text-secondary);
+  overflow: hidden;
   text-overflow: ellipsis;
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 
