@@ -574,9 +574,11 @@
 
 ### Issue 优先级与 Project 看板
 
-- 内置字段 **`象限`**（Q1:RED 重要紧急 / Q2:YELLOW 重要不紧急 / Q3:GREEN 紧急不重要 / Q4:GRAY 不重要不紧急）。
-- 创建/处理 issue 时务必用 `象限` 标优先级，**禁止另建 priority 字段**。
+- 内置字段 **`象阵`**（Q1:RED 重要紧急 / Q2:YELLOW 重要不紧急 / Q3:GREEN 紧急不重要 / Q4:GRAY 不重要不紧急）。
+- 创建/处理 issue 时务必用 `象阵` 标优先级，**禁止另建 priority 字段**。
+- **注意：该字段在 GitHub 上的实际名称是 `象阵`（U+8C61 U+9635），不是 `象限`** —— 2026-09-11 经 GraphQL 实测确认（`fields` 返回 `name: "象阵"`，id 与本文件所载 field id 一致）；此前本文件写作「象限」，会误导按名查字段的操作。
 - 看板操作：`gh project item-add 3 --owner imoyao --url <issue-url>`，然后 GraphQL 更新 `singleSelectOptionId`（Q1=`84f4167a` / Q2=`2aead21d` / Q3=`3ea6e338` / Q4=`d3517118`，field id=`PVTSSF_lAHOAV6ff84AAot3zhaGpdo`）。
+  - 实测补充（2026-09-11）：`gh project item-add` 在本机 token 下**可能静默不生效**（exit 0 但条目未入板）。可靠做法是直接调 GraphQL `addProjectV2ItemById(input: {projectId, contentId: <issue node_id>})`，再用 `updateProjectV2ItemFieldValue` 设置 `象阵` 与 `Status`。
 - **治理纪律**：路线图/未来设想类 issue 打 `归档` 标签并关闭（不删除），引用到索引 #920。
 
 ### AI 自动提交标注
