@@ -70,6 +70,12 @@ title: 架构与技术设计（architecture）
 
 用户新增持仓或自选标的时，后台异步回填该标的的全部历史净值/行情。使用 `threading.Thread` 实现，不阻塞前端请求，失败静默处理。
 
+**T 日不回填边界（#824）**：回填范围止于 **T-1**，不写入当日（上海时区 `today_shanghai()`）未收盘、未定稿的净值/行情。原因：盘中数据未定，回填进去用户会看到不完整/变动中的数据而困惑。
+
+- 实现位置：`backend/app/services/async_backfill.py` 的 `_drop_today()`，在 `_backfill_fund_nav`（按 `date`）与 `_backfill_stock_price`（按 `trade_date`）插入前丢弃 `日期 >= 今日` 的记录。
+- 适配器若本身只返回已定稿数据，该过滤为防御性冗余，不改变既有行为。
+- 适用范围：**导入历史交易触发的按需回填** 与 **自选/持仓新增触发的回填** 共用同一边界（导入器与回填共用）。
+
 #### 3.3.4 基金详情补充任务
 
 `FundDetailEnrichJob` 负责补充核心池基金的分类、公司、风险等级、成立日期、业绩基准、拼音简拼、费率规则等静态信息。数据源：`ak.fund_info_ths`（详情） + `xalpha.fundinfo`（费率）。
