@@ -847,6 +847,67 @@ const renderLinks: FunctionalComponent<{
   );
 };
 
+/**
+ * 投顾组合品类差异化指标列（#1392）。
+ *
+ * 一个 renderer 覆盖 10 列（按 def.key 分派）：区间收益（近1周/月/年/今年以来/成立以来）、
+ * 最大回撤、超额收益、业绩基准、持仓基金数、持仓集中度（HHI）。
+ * 数据缺席（advisor 未落库 / API 未提供）统一渲染 `—`，不用 0 兜底。
+ * - 收益类（return_ 等区间收益列 / excess_return）：套用 RiseFallText 涨红跌绿；
+ * - 最大回撤：风险指标，刻意中性色（避免被误读成「今天跌了」），title 交代口径；
+ * - 集中度：HHI = Σ(占比%²)，越高越集中，title 解释口径。
+ */
+const RENDERER_ADVISOR_RETURNS = new Set([
+  "return_1w",
+  "return_1m",
+  "return_1y",
+  "return_ytd",
+  "return_since_incep",
+  "excess_return"
+]);
+const renderAdvisor: FunctionalComponent<{
+  row: WatchlistRow;
+  def: ColumnDef;
+  ctx: RenderCtx;
+}> = props => {
+  const { row, def } = props;
+  const v = field(row, def.key);
+  const dash = () =>
+    h("span", { class: "text-sm", style: { color: "var(--text-tertiary)" } }, "—");
+  if (v == null || v === "") return dash();
+
+  if (def.key === "max_drawdown") {
+    return h(
+      "span",
+      {
+        class: "dd-val",
+        title: "最大回撤(%)：API 未直接提供时为空（待补算）"
+      },
+      `${Number(v).toFixed(2)}%`
+    );
+  }
+  if (def.key === "advisor_concentration") {
+    return h(
+      "span",
+      {
+        class: "text-sm",
+        title: "持仓集中度 HHI = Σ(占比%²)，越高越集中"
+      },
+      `${Number(v).toFixed(1)}`
+    );
+  }
+  if (def.key === "advisor_holding_count") {
+    return h("span", { class: "text-sm" }, `${v}`);
+  }
+  if (def.key === "advisor_benchmark") {
+    return h("span", { class: "text-sm", title: "业绩比较基准" }, String(v));
+  }
+  if (RENDERER_ADVISOR_RETURNS.has(def.key)) {
+    return h(RiseFallText, { value: Number(v), size: "sm" });
+  }
+  return dash();
+};
+
 /** renderer 类型 -> 函数式组件 的注册表 */
 const REGISTRY: Record<
   ColumnRenderer,
@@ -868,6 +929,7 @@ const REGISTRY: Record<
   indexVal: renderIndexVal as never,
   drawdown: renderDrawdown as never,
   links: renderLinks as never,
+  advisor: renderAdvisor as never,
   sparkline: renderSparkline as never,
   actions: renderActions as never
 };

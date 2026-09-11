@@ -67,6 +67,19 @@ class WatchlistItemOut(BaseModel):
     advisor_host: Optional[str] = None  # 主理人
     advisor_strategy_type: Optional[str] = None  # 策略类型（均衡/进取/稳健）
     advisor_org_name: Optional[str] = None  # 主理人所属机构/平台方
+    # 投顾品类差异化指标（#1392，仅 asset_type=portfolio 且 AdvisorPortfolio 命中时有值；
+    # 其余恒 null，前端「投顾组合」品类专属列据此渲染，未落库显示 `—`）。
+    # 区间收益来自天天 SYL_* 实测映射；回撤/超额 API 不直接提供时为空。
+    return_1w: Optional[float] = None  # 近1周收益(%)
+    return_1m: Optional[float] = None  # 近1月收益(%)
+    return_1y: Optional[float] = None  # 近1年收益(%)
+    return_ytd: Optional[float] = None  # 今年以来收益(%)
+    return_since_incep: Optional[float] = None  # 成立以来收益(%)
+    max_drawdown: Optional[float] = None  # 最大回撤(%)
+    excess_return: Optional[float] = None  # 相对基准超额收益(%)
+    advisor_benchmark: Optional[str] = None  # 业绩比较基准
+    advisor_holding_count: Optional[int] = None  # 持仓基金数
+    advisor_concentration: Optional[float] = None  # 持仓集中度 HHI = Σ(占比%²)
     # 基金经理补充信息（#1286）：经理行没有对外有意义的交易代码，第二行元信息由公司承担
     # （2026-09-10 用户反馈：只显示「基金经理」标签时信息量为零）。
     manager_company: Optional[str] = Field(

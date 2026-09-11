@@ -19,7 +19,7 @@ from app.core.database import get_db
 from app.core.money import Money
 from app.core.utils import api_response, with_db
 from app.core.validation import parse_body
-from app.domains.funds.models import AdvisorPortfolio, ChannelLink, DailyWorth
+from app.domains.funds.models import AdvisorHolding, AdvisorPortfolio, ChannelLink, DailyWorth
 from app.domains.indices.models import IndexValuation
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
@@ -221,6 +221,60 @@ def _apply_channel_link_fields(out: dict, symbol: str, db) -> None:
     out['links'] = links
 
 
+def _apply_advisor_fields(out: dict, symbol: str, db) -> None:
+    """投顾品类差异化指标 enrich（#1392）。
+
+    命中 AdvisorPortfolio（按 code=symbol）时补充：平台/主理人/策略类型（#1167）+ 区间收益
+    （return_1w/1m/1y/ytd/since_incep，来自天天 SYL_* 实测映射）+ 最大回撤/超额/业绩基准
+    （API 不直接提供时为空）+ 持仓集中度（HHI = Σ占比²，由 advisor_holdings.after_ratio 现算）。
+    非投顾标的（advisor 为 None）时上述字段一律置 None —— 前端品类列据此渲染 `—`，不编造。
+    """
+    # #1392 投顾品类列所需字段（区间收益 + 回撤 + 超额），统一先在 out 挂默认 None，
+    # 命中 advisor 再覆盖，避免非投顾标的漏字段导致前端 key 缺失
+    _ADVISOR_METRIC_KEYS = (
+        'return_1w',
+        'return_1m',
+        'return_1y',
+        'return_ytd',
+        'return_since_incep',
+        'max_drawdown',
+        'excess_return',
+    )
+    for k in _ADVISOR_METRIC_KEYS:
+        out[k] = None
+    out['advisor_benchmark'] = None
+    out['advisor_holding_count'] = None
+    out['advisor_concentration'] = None
+    # #1167 既有字段默认 None（命中再覆盖）
+    out['advisor_platform'] = None
+    out['advisor_host'] = None
+    out['advisor_strategy_type'] = None
+    out['advisor_org_name'] = None
+
+    advisor = db.query(AdvisorPortfolio).filter_by(code=symbol).first()
+    if advisor is None:
+        return
+    out['advisor_platform'] = advisor.platform
+    out['advisor_host'] = advisor.host
+    out['advisor_strategy_type'] = advisor.strategy_type
+    out['advisor_org_name'] = advisor.org_name
+    for k in _ADVISOR_METRIC_KEYS:
+        out[k] = _to_float(getattr(advisor, k))
+    out['advisor_benchmark'] = advisor.benchmark
+    # 持仓集中度：HHI = Σ(占比%²)，越高越集中；同时给持仓基金数（信息密度）
+    ratios = [
+        float(r[0])
+        for r in db.query(AdvisorHolding.after_ratio).filter_by(portfolio_id=advisor.id).all()
+        if r[0] is not None
+    ]
+    if ratios:
+        out['advisor_holding_count'] = len(ratios)
+        out['advisor_concentration'] = round(sum(r * r for r in ratios), 1)
+    else:
+        out['advisor_holding_count'] = 0
+        out['advisor_concentration'] = None
+
+
 def _enrich_item(item: WatchlistItem, db) -> dict:
     out = WatchlistItemOut.model_validate(item).model_dump()
     # watchlist.asset_type 历史存放大写（STOCK/ETF/...），对外统一归一为小写，
@@ -235,19 +289,10 @@ def _enrich_item(item: WatchlistItem, db) -> dict:
     # 所属分组名称列表（#1332 排序用，避免前端再映射 group_ids）
     out['group_names'] = [link.watchlist_group.name for link in item.group_links if link.watchlist_group]
 
-    # 投顾组合补充信息（#1167）：平台 / 主理人 / 策略类型。普通标的字段为 None，
-    # 前端 product 列按需渲染第二行元信息，避免与代码/类型/标签挤在一行。
-    advisor = db.query(AdvisorPortfolio).filter_by(code=item.symbol).first()
-    if advisor:
-        out['advisor_platform'] = advisor.platform
-        out['advisor_host'] = advisor.host
-        out['advisor_strategy_type'] = advisor.strategy_type
-        out['advisor_org_name'] = advisor.org_name
-    else:
-        out['advisor_platform'] = None
-        out['advisor_host'] = None
-        out['advisor_strategy_type'] = None
-        out['advisor_org_name'] = None
+    # 投顾组合补充信息（#1167 / #1392 投顾品类差异化指标）：平台 / 主理人 / 策略类型 +
+    # 区间收益 / 回撤 / 超额 / 业绩基准 / 持仓集中度。普通标的字段一律 None，
+    # 前端 product 列按需渲染第二行元信息，品类列按 appliesTo=["portfolio"] 显示。
+    _apply_advisor_fields(out, item.symbol, db)
 
     # 基金经理补充信息（#1286）：所属基金公司名。经理行没有对外有意义的交易代码，
     # 第二行元信息由公司承担，否则只剩一个「基金经理」标签、信息量为零
@@ -465,9 +510,30 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
         'advisor_host': (advisor.host if advisor else None),
         'advisor_strategy_type': (advisor.strategy_type if advisor else None),
         'advisor_org_name': (advisor.org_name if advisor else None),
-        # 基金经理所属公司（与 _enrich_item 同源；非经理为 None）
-        'manager_company': (mgr.company.name if mgr and mgr.company else None),
+        'return_1w': (_to_float(advisor.return_1w) if advisor else None),
+        'return_1m': (_to_float(advisor.return_1m) if advisor else None),
+        'return_1y': (_to_float(advisor.return_1y) if advisor else None),
+        'return_ytd': (_to_float(advisor.return_ytd) if advisor else None),
+        'return_since_incep': (_to_float(advisor.return_since_incep) if advisor else None),
+        'max_drawdown': (_to_float(advisor.max_drawdown) if advisor else None),
+        'excess_return': (_to_float(advisor.excess_return) if advisor else None),
+        'advisor_benchmark': (advisor.benchmark if advisor else None),
+        'advisor_holding_count': 0,
+        'advisor_concentration': None,
     }
+    # 持仓集中度（HHI）：与 _apply_advisor_fields 同源，避免虚拟行（持仓聚合无 id）漏字段
+    if advisor is not None:
+        _ratios = [
+            float(r[0])
+            for r in db.query(AdvisorHolding.after_ratio).filter_by(portfolio_id=advisor.id).all()
+            if r[0] is not None
+        ]
+        if _ratios:
+            row['advisor_holding_count'] = len(_ratios)
+            row['advisor_concentration'] = round(sum(r * r for r in _ratios), 1)
+    # 基金经理所属公司（与 _enrich_item 同源；非经理为 None）
+    mgr = lookup_manager(symbol, db)
+    row['manager_company'] = mgr.company.name if mgr and mgr.company else None
     # 可转债条款（#1285/#1393）：与 _enrich_item 同源，避免虚拟行（持仓聚合无 id）漏字段
     _apply_bond_fields(row, symbol, db)
     # 指数估值（#1285/#1394）：与 _enrich_item 同源
