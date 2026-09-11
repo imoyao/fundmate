@@ -41,7 +41,7 @@ ETF 的「跟踪标的」在**任何免 cookie 数据源里都不存在**（2026
 未命中的留 `—`，缺口（跨境/商品标的、名录缺精确指数名）记在 #1419（远期）。
 """
 
-from typing import Dict, Iterable, List, NamedTuple, Optional, Sequence, Tuple
+from typing import Iterable, List, NamedTuple, Optional, Sequence, Tuple
 
 # ── 公司名派生：`fund_companies.name` 是简称（「易方达基金」），全称是法人口径
 # （「易方达基金管理有限公司」）；而 ETF 名称里出现的是**去掉「基金」二字的简称**
@@ -290,9 +290,6 @@ class ChannelNameMatcher:
         # 最长优先：保证「中证1000」不被「中证100」吞掉、主题名不被母指数吞掉。
         table.sort(key=lambda item: -len(item[2]))
         self._table = tuple(table)
-        self._by_core: Dict[str, List[Tuple[str, str]]] = {}
-        for code, name, core in table:
-            self._by_core.setdefault(core, []).append((code, name))
 
     @property
     def company_tokens(self) -> Tuple[str, ...]:
@@ -339,10 +336,6 @@ class ChannelNameMatcher:
         if best is None:
             return None
         return IndexHit(best[1], best[2], best[3])
-
-    def etf_candidates(self, core: str) -> List[Tuple[str, str]]:
-        """归一化核心名 → 候选 ETF `[(code, name)]`（供 ETF↔联接 消歧）。"""
-        return self._by_core.get(core, [])
 
 
 def pick_manager(name: str, company_tokens: Sequence[str]) -> Optional[str]:
