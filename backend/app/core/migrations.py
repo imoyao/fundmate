@@ -104,3 +104,38 @@ def migrate_watchlist_venue_not_null(engine: Engine) -> str:
         logger.info(f'[OK] watchlist venue NULL 回填空串 {n} 行（唯一键对存量数据恢复生效）')
         return f'[OK] venue NULL 回填空串 {n} 行'
     return '[SKIP] 无 venue 为 NULL 的历史数据'
+
+
+def migrate_advisor_portfolio_metrics(engine: Engine) -> str:
+    """advisor_portfolios 补 投顾品类差异化指标列（#1392）：区间收益 / 回撤 / 超额。
+
+    SQLite / libsql 支持对「可空列」直接 ALTER ADD COLUMN（无需整表重建）。
+    幂等：列已存在则跳过。非 SQLite 引擎（Supabase Postgres）由 ORM 模型 / 迁移工具负责，
+    直接跳过，避免 init_db 在 Supabase 路径上误跑 SQLite 专属 SQL。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
+
+    cols = [
+        ('return_1w', 'NUMERIC(7,2)'),
+        ('return_1m', 'NUMERIC(7,2)'),
+        ('return_1y', 'NUMERIC(7,2)'),
+        ('return_ytd', 'NUMERIC(7,2)'),
+        ('return_since_incep', 'NUMERIC(7,2)'),
+        ('benchmark', 'VARCHAR(50)'),
+        ('max_drawdown', 'NUMERIC(6,2)'),
+        ('excess_return', 'NUMERIC(7,2)'),
+    ]
+    with engine.connect() as conn:
+        existing = {c['name'] for c in inspect(engine).get_columns('advisor_portfolios')}
+        added = []
+        for name, typ in cols:
+            if name not in existing:
+                conn.execute(text(f'ALTER TABLE advisor_portfolios ADD COLUMN {name} {typ}'))
+                added.append(name)
+        conn.commit()
+    if added:
+        logger.info(f'[OK] advisor_portfolios 增加列: {added}')
+        return f'[OK] 增加列 {added}'
+    return '[SKIP] advisor_portfolios 指标列已存在'

@@ -19,10 +19,12 @@ from typing import Any, List, Optional
 from loguru import logger
 
 from app.domains.funds.models import AdvisorAdjustHistory, AdvisorHolding, AdvisorIndustryAlloc, AdvisorPortfolio
+from app.services.sync.adapters.qieman_advisor_adapter import QiemanAdvisorAdapter
 from app.services.sync.jobs.base import SyncJob
 
 SOURCE_TIANTIAN = 'tiantian'
-SOURCE_QIEMAN = 'qieman_manual'
+SOURCE_QIEMAN = 'qieman_manual'  # 手动导入（import_qieman_holdings）
+SOURCE_QIEMAN_AUTO = 'qieman'  # 自动抓取（#1392 MCP）
 
 
 def _parse_date(v: Any) -> Optional[_dt.date]:
@@ -70,7 +72,8 @@ def flatten_qieman_composition(data: dict, strategy_code: Optional[str] = None) 
                     ratio_f = float(ratio)
                 except ValueError:
                     ratio_f = None
-                d = _parse_date(f.get('最新更新时间'))
+                # 实测：不同组合/版本返回 最新更新时间 / 调仓时间 / 最新净值日期 之一，全部兜底
+                d = _parse_date(f.get('最新更新时间') or f.get('调仓时间') or f.get('最新净值日期'))
                 if d and (as_of is None or d > as_of):
                     as_of = d
                 out.append({'fund_code': code, 'fund_name': f.get('基金名称'), 'after_ratio': ratio_f})
@@ -80,9 +83,14 @@ def flatten_qieman_composition(data: dict, strategy_code: Optional[str] = None) 
 
 
 class AdvisorPortfolioSyncJob(SyncJob):
-    """投顾组合元数据 + 持仓/行业/调仓历史同步（天天基金公开接口）。"""
+    """投顾组合元数据 + 持仓/行业/调仓历史同步（天天基金公开接口 + 且慢 MCP 自动抓取）。"""
 
     batch_size = 10  # 每批组合数（每个组合 4 个接口请求，batch 过大拉长单事务）
+
+    def __init__(self, adapter, db):
+        super().__init__(adapter, db)
+        # 且慢持仓自动抓取复用 MCP（与温度计同 key），独立于天天适配器
+        self.qieman_adapter = QiemanAdvisorAdapter()
 
     @property
     def _allow_empty_data(self) -> bool:
@@ -104,7 +112,8 @@ class AdvisorPortfolioSyncJob(SyncJob):
                 return real
         rows = (
             self.db.query(AdvisorPortfolio.code)
-            .filter(AdvisorPortfolio.platform == 'TIANTIAN', AdvisorPortfolio.is_active.is_(True))
+            .filter(AdvisorPortfolio.is_active.is_(True))
+            .filter(AdvisorPortfolio.platform.in_(['TIANTIAN', 'QIEMAN']))
             .all()
         )
         return [r.code for r in rows]
@@ -120,15 +129,36 @@ class AdvisorPortfolioSyncJob(SyncJob):
             tg = tg.strip()
             if not tg:
                 continue
-            self.logger.info(f'抓取投顾组合 {tg} ...')
-            payload = {
-                'tgcode': tg,
-                'overview': self.adapter.fetch_overview(tg),
-                'industry': self.adapter.fetch_industry(tg),
-                'holdings': self.adapter.fetch_current_holdings(tg),
-                'history': self.adapter.fetch_adjust_history(tg),
-            }
-            payloads.append(payload)
+            if tg.upper().startswith('ZH'):
+                # 且慢（#1392）：仅持仓自动抓取（MCP），概览来自库内建档（seed/手动）
+                holdings = self.qieman_adapter.fetch_holdings(tg)
+                funds = [
+                    {'fund_code': h['code'], 'fund_name': h.get('name'), 'after_ratio': h.get('ratio')}
+                    for h in holdings
+                ]
+                adj_dates = [h['adj_time'] for h in holdings if h.get('adj_time')]
+                as_of = _parse_date(max(adj_dates)) if adj_dates else None
+                self.logger.info(f'且慢组合 {tg} 抓取持仓 {len(funds)} 条 (as_of={as_of})')
+                payloads.append(
+                    {
+                        'tgcode': tg,
+                        'platform': 'QIEMAN',
+                        'overview': {},
+                        'holdings': {'funds': funds, 'adjust_date': as_of},
+                    }
+                )
+            else:
+                self.logger.info(f'抓取投顾组合 {tg} ...')
+                payloads.append(
+                    {
+                        'tgcode': tg,
+                        'platform': 'TIANTIAN',
+                        'overview': self.adapter.fetch_overview(tg),
+                        'industry': self.adapter.fetch_industry(tg),
+                        'holdings': self.adapter.fetch_current_holdings(tg),
+                        'history': self.adapter.fetch_adjust_history(tg),
+                    }
+                )
         return payloads
 
     # ── 校验 / 去重 ──
@@ -156,10 +186,10 @@ class AdvisorPortfolioSyncJob(SyncJob):
 
     # ── 落库 ──
 
-    def _get_or_create_portfolio(self, tgcode: str) -> AdvisorPortfolio:
-        row = self.db.query(AdvisorPortfolio).filter_by(platform='TIANTIAN', code=tgcode).first()
+    def _get_or_create_portfolio(self, tgcode: str, platform: str = 'TIANTIAN') -> AdvisorPortfolio:
+        row = self.db.query(AdvisorPortfolio).filter_by(platform=platform, code=tgcode).first()
         if row is None:
-            row = AdvisorPortfolio(platform='TIANTIAN', code=tgcode, name=tgcode)
+            row = AdvisorPortfolio(platform=platform, code=tgcode, name=tgcode)
             self.db.add(row)
             self.db.flush()
         return row
@@ -188,71 +218,84 @@ class AdvisorPortfolioSyncJob(SyncJob):
 
     def _save_data(self, new_data: List[dict]) -> None:
         for p in new_data:
-            portfolio = self._get_or_create_portfolio(p['tgcode'])
+            platform = p.get('platform', 'TIANTIAN')
+            portfolio = self._get_or_create_portfolio(p['tgcode'], platform)
             ov = p.get('overview') or {}
-            if ov.get('name'):
-                portfolio.name = ov['name']
-            if ov.get('risk_level'):
-                portfolio.risk_level = ov['risk_level']
-            if ov.get('strategy_desc'):
-                portfolio.strategy_desc = ov['strategy_desc'][:500]
-            estab = _parse_date(ov.get('estab_date'))
-            if estab:
-                portfolio.estab_date = estab
 
+            if platform == 'TIANTIAN':
+                # 天天：概览 + 区间收益（SYL_* 实测映射，见 tiantian_advisor_adapter）
+                if ov.get('name'):
+                    portfolio.name = ov['name']
+                if ov.get('risk_level'):
+                    portfolio.risk_level = ov['risk_level']
+                if ov.get('strategy_desc'):
+                    portfolio.strategy_desc = ov['strategy_desc'][:500]
+                estab = _parse_date(ov.get('estab_date'))
+                if estab:
+                    portfolio.estab_date = estab
+                returns = ov.get('returns') or {}
+                for col in ('return_1w', 'return_1m', 'return_1y', 'return_ytd', 'return_since_incep'):
+                    if returns.get(col) is not None:
+                        setattr(portfolio, col, returns[col])
+
+            # 持仓：两平台通用，source 区分
             holdings = p.get('holdings') or {}
             as_of = _parse_date(holdings.get('adjust_date'))
-            n_hold = self._apply_holdings(portfolio, holdings.get('funds') or [], as_of, SOURCE_TIANTIAN)
+            source = SOURCE_QIEMAN_AUTO if platform == 'QIEMAN' else SOURCE_TIANTIAN
+            n_hold = self._apply_holdings(portfolio, holdings.get('funds') or [], as_of, source)
 
-            # 行业配置：快照日随当前持仓日（接口不单独给日期）
-            industry = p.get('industry') or []
-            if industry and as_of:
-                self.db.query(AdvisorIndustryAlloc).filter_by(portfolio_id=portfolio.id, as_of_date=as_of).delete()
-                self.db.bulk_insert_mappings(
-                    AdvisorIndustryAlloc,
-                    [
-                        {
-                            'portfolio_id': portfolio.id,
-                            'as_of_date': as_of,
-                            'industry_name': r['industry_name'],
-                            'ratio': r.get('ratio'),
-                            'source': SOURCE_TIANTIAN,
-                        }
-                        for r in industry
-                    ],
+            if platform == 'TIANTIAN':
+                # 行业配置：快照日随当前持仓日（接口不单独给日期）
+                industry = p.get('industry') or []
+                if industry and as_of:
+                    self.db.query(AdvisorIndustryAlloc).filter_by(portfolio_id=portfolio.id, as_of_date=as_of).delete()
+                    self.db.bulk_insert_mappings(
+                        AdvisorIndustryAlloc,
+                        [
+                            {
+                                'portfolio_id': portfolio.id,
+                                'as_of_date': as_of,
+                                'industry_name': r['industry_name'],
+                                'ratio': r.get('ratio'),
+                                'source': SOURCE_TIANTIAN,
+                            }
+                            for r in industry
+                        ],
+                    )
+                # 历史调仓：逐调仓日覆盖
+                n_hist = 0
+                for node in p.get('history') or []:
+                    hd = _parse_date(node.get('adjust_date'))
+                    if not hd or not node.get('funds'):
+                        continue
+                    self.db.query(AdvisorAdjustHistory).filter_by(portfolio_id=portfolio.id, adjust_date=hd).delete()
+                    self.db.bulk_insert_mappings(
+                        AdvisorAdjustHistory,
+                        [
+                            {
+                                'portfolio_id': portfolio.id,
+                                'adjust_date': hd,
+                                'reason': (node.get('reason') or '')[:300],
+                                'fund_code': f['fund_code'],
+                                'fund_name': f.get('fund_name'),
+                                'pre_ratio': f.get('pre_ratio'),
+                                'after_ratio': f.get('after_ratio'),
+                                'op_code': f.get('op_code'),
+                                'op_name': f.get('op_name'),
+                                'source': SOURCE_TIANTIAN,
+                            }
+                            for f in node['funds']
+                        ],
+                    )
+                    n_hist += len(node['funds'])
+                self.db.commit()
+                self.logger.info(
+                    f'投顾组合 {p["tgcode"]} 落库: 持仓 {n_hold} 条(as_of={as_of}), 行业 {len(industry)} 条, 历史 {n_hist} 条'
                 )
-
-            # 历史调仓：逐调仓日覆盖
-            n_hist = 0
-            for node in p.get('history') or []:
-                hd = _parse_date(node.get('adjust_date'))
-                if not hd or not node.get('funds'):
-                    continue
-                self.db.query(AdvisorAdjustHistory).filter_by(portfolio_id=portfolio.id, adjust_date=hd).delete()
-                self.db.bulk_insert_mappings(
-                    AdvisorAdjustHistory,
-                    [
-                        {
-                            'portfolio_id': portfolio.id,
-                            'adjust_date': hd,
-                            'reason': (node.get('reason') or '')[:300],
-                            'fund_code': f['fund_code'],
-                            'fund_name': f.get('fund_name'),
-                            'pre_ratio': f.get('pre_ratio'),
-                            'after_ratio': f.get('after_ratio'),
-                            'op_code': f.get('op_code'),
-                            'op_name': f.get('op_name'),
-                            'source': SOURCE_TIANTIAN,
-                        }
-                        for f in node['funds']
-                    ],
-                )
-                n_hist += len(node['funds'])
-
-            self.db.commit()
-            self.logger.info(
-                f'投顾组合 {p["tgcode"]} 落库: 持仓 {n_hold} 条(as_of={as_of}), 行业 {len(industry)} 条, 历史 {n_hist} 条'
-            )
+            else:
+                # 且慢（#1392）：仅持仓自动抓取，组合概览来自库内建档（seed/手动）
+                self.db.commit()
+                self.logger.info(f'且慢组合 {p["tgcode"]} 落库: 持仓 {n_hold} 条 (as_of={as_of})')
 
 
 def import_qieman_holdings(db, data: dict, portfolio_code: str) -> int:

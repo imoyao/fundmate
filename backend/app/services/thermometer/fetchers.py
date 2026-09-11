@@ -232,7 +232,7 @@ def _normalize_holding(item: dict, category: Optional[str] = None) -> Optional[d
     """把一条且慢持仓记录归一化成统一 schema；缺少基金代码视为无效记录，返回 None。
 
     兼容两套字段命名：
-      · 中文键（MCP 真实返回）  ：基金代码 / 基金名称 / 持仓占比 / 最新净值 / 调仓时间 / 基金类型
+      · 中文键（MCP 真实返回）  ：基金代码 / 基金名称 / 持仓占比 / 最新净值 / 最新更新时间（或 调仓时间）/ 基金类型
       · 英文键（旧扁平形态）    ：code|fundCode / name|fundName / ratio|weight
 
     占比可能是带百分号的字符串（``"4.54%"``），统一用 :func:`_parse_pct` 转成 float，
@@ -255,7 +255,8 @@ def _normalize_holding(item: dict, category: Optional[str] = None) -> Optional[d
         'category': category,
         'nav': _to_float(item.get('最新净值')),
         'nav_date': str(item.get('最新净值日期') or '') or None,
-        'adj_time': str(item.get('调仓时间') or '') or None,
+        # 实测：该接口不同组合/版本返回 最新更新时间 / 调仓时间 / 最新净值日期 之一，全部兜底
+        'adj_time': str(item.get('最新更新时间') or item.get('调仓时间') or item.get('最新净值日期') or '') or None,
         'fund_type': str(item.get('基金类型') or '') or None,
     }
 

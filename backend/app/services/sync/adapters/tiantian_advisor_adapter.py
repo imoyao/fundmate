@@ -110,8 +110,22 @@ class TiantianAdvisorAdapter:
 
     # ── 各数据面（互相独立，单面失败不影响其余） ──
 
+    # SYL_* → 中文区间（实测核对，2026-09：Y=月 N=年 Z=周 JN=今年 LN=成立，与
+    # getTGQuoteByFavor 带标签区间交叉验证自洽）。API 仅提供区间收益，不含回撤/超额。
+    SYL_TO_INTERVAL = {
+        'SYL_Z': 'return_1w',
+        'SYL_Y': 'return_1m',
+        'SYL_1N': 'return_1y',
+        'SYL_JN': 'return_ytd',
+        'SYL_LN': 'return_since_incep',
+    }
+
     def fetch_overview(self, tgcode: str) -> dict:
-        """投顾概览（dataapi FundIATGInfoAggr，GET，字段最全）。"""
+        """投顾概览（dataapi FundIATGInfoAggr，GET，字段最全）。
+
+        返回 {name, risk_level, strategy_desc, estab_date, returns:{区间列:值}, raw}。
+        returns 由 SYL_* 实测映射而来（见 SYL_TO_INTERVAL）。
+        """
         params = {
             'FIELDS': ('TGNAME,RISKLEVEL,STRATEGY_RATE,STGCONCEPT,ESTABDATE,STATUS,SYL_Z,SYL_Y,SYL_1N,SYL_JN,SYL_LN'),
             'TGCODE': tgcode,
@@ -124,11 +138,13 @@ class TiantianAdvisorAdapter:
             data = j.get('data') if j.get('success') else None
             if isinstance(data, list) and data:
                 d = data[0]
+                returns = {col: _to_float(d.get(syl)) for syl, col in self.SYL_TO_INTERVAL.items()}
                 return {
                     'name': d.get('TGNAME'),
                     'risk_level': str(d.get('RISKLEVEL')) if d.get('RISKLEVEL') is not None else None,
                     'strategy_desc': d.get('STGCONCEPT'),
                     'estab_date': d.get('ESTABDATE'),
+                    'returns': returns,
                     'raw': d,
                 }
         except (ValueError, TypeError) as e:
