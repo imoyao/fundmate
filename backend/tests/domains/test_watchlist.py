@@ -188,6 +188,86 @@ class TestWatchlistItemCRUD:
         assert isinstance(data2['type_label'], str)
         assert data2['type_label'] == 'mystery'
 
+    def test_enrich_advisor_metrics(self, client, db):
+        """#1392：投顾组合 enrich 输出区间收益/回撤/超额/集中度；非投顾标的恒为 None。
+
+        先建自选拿到归一化后的 symbol，再建 AdvisorPortfolio（code 对齐），最后经
+        GET /items/ 重新 enrich（POST 时 advisor 尚未落库），避免 symbol 归一化干扰。
+        """
+        from app.domains.funds.models import AdvisorHolding, AdvisorPortfolio
+
+        resp = _post(
+            client,
+            '/api/watchlist/items/',
+            {'symbol': 'ZH013136', 'venue': 'OTC', 'asset_type': 'portfolio'},
+        )
+        assert resp.status_code == 200
+        symbol = resp.get_json()['data']['symbol']
+
+        adv = AdvisorPortfolio(
+            code=symbol,
+            platform='QIEMAN',
+            name='测试组合',
+            strategy_type='均衡',
+            return_1w=1.23,
+            return_1m=-2.5,
+            return_1y=12.34,
+            return_ytd=5.6,
+            return_since_incep=30.1,
+            max_drawdown=-15.2,
+            excess_return=3.3,
+            benchmark='沪深300',
+        )
+        db.add(adv)
+        db.commit()
+        db.refresh(adv)
+        # 两个持仓各 50% → HHI = 2500 + 2500 = 5000.0
+        db.add(
+            AdvisorHolding(
+                portfolio_id=adv.id,
+                as_of_date=date.today(),
+                fund_code='000001',
+                after_ratio=50.0,
+                source='qieman_manual',
+            )
+        )
+        db.add(
+            AdvisorHolding(
+                portfolio_id=adv.id,
+                as_of_date=date.today(),
+                fund_code='000002',
+                after_ratio=50.0,
+                source='qieman_manual',
+            )
+        )
+        db.commit()
+
+        list_resp = _get(client, '/api/watchlist/items/')
+        item = next(i for i in list_resp.get_json()['data'] if i['symbol'] == symbol)
+        assert item['advisor_platform'] == 'QIEMAN'
+        assert item['return_1w'] == 1.23
+        assert item['return_1m'] == -2.5
+        assert item['return_1y'] == 12.34
+        assert item['return_ytd'] == 5.6
+        assert item['return_since_incep'] == 30.1
+        assert item['max_drawdown'] == -15.2
+        assert item['excess_return'] == 3.3
+        assert item['advisor_benchmark'] == '沪深300'
+        assert item['advisor_holding_count'] == 2
+        assert item['advisor_concentration'] == 5000.0
+
+        # 非投顾标的：指标恒为 None（不编造）
+        resp2 = _post(
+            client,
+            '/api/watchlist/items/',
+            {'symbol': 'SH600519', 'venue': 'EXCHANGE', 'asset_type': 'stock'},
+        )
+        assert resp2.status_code == 200
+        d2 = resp2.get_json()['data']
+        assert d2['return_1w'] is None
+        assert d2['advisor_holding_count'] is None
+        assert d2['advisor_concentration'] is None
+
     def test_add_item_standardize_sh(self, client, db):
         resp = _post(
             client,

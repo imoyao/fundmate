@@ -703,6 +703,33 @@ class AkshareAdapter(DataSourceAdapter):
             self.logger.warning(f'中证指数名录获取失败: {e}')
             return []
 
+    def fetch_etf_list(self) -> List[dict]:
+        """全市场 ETF 名录（ak.fund_etf_spot_em 的 代码/名称，#1285 §3.8）。
+
+        ⚠️ 该接口**不含「跟踪标的」字段**（2026-09-11 实测 1605 只全无），交易所 ETF
+        规模表同样无标的指数 —— 故跨渠道关联只能靠**名称匹配**（见 channel_link_job）。
+        返回 [{code, name}]，行情字段此处不用。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.fund_etf_spot_em()
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                code = str(self._cell(row, '代码') or '').strip()
+                name = str(self._cell(row, '名称') or '').strip()
+                if not code or not name:
+                    continue
+                out.append({'code': code, 'name': name})
+            self.logger.info(f'获取到 {len(out)} 只 ETF 名录')
+            return out
+        except Exception as e:
+            self.logger.error(f'获取 ETF 名录失败: {e}')
+            return []
+
     def fetch_index_valuation_csindex(self, index_code: str) -> List[dict]:
         """中证指数**官方**估值（ak.stock_zh_index_value_csindex，#1285/#1394）。
 

@@ -49,7 +49,7 @@ import time
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import requests
 from loguru import logger
@@ -212,6 +212,55 @@ class JisiluCBFetcher(SingleValueFetcher):
             return None
 
 
+def _parse_pct(value: Any) -> Optional[float]:
+    """把 '4.54%' / '4.54' / '' / None 解析为 float(4.54)；非法返回 None。
+
+    且慢持仓占比字段是字符串（含 %），需先剥离再转 float。
+    """
+    if value is None:
+        return None
+    s = str(value).replace('%', '').replace(',', '').strip()
+    if not s:
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _normalize_holding(item: dict, category: Optional[str] = None) -> Optional[dict]:
+    """把一条且慢持仓记录归一化成统一 schema；缺少基金代码视为无效记录，返回 None。
+
+    兼容两套字段命名：
+      · 中文键（MCP 真实返回）  ：基金代码 / 基金名称 / 持仓占比 / 最新净值 / 最新更新时间（或 调仓时间）/ 基金类型
+      · 英文键（旧扁平形态）    ：code|fundCode / name|fundName / ratio|weight
+
+    占比可能是带百分号的字符串（``"4.54%"``），统一用 :func:`_parse_pct` 转成 float，
+    避免调用方再各自处理百分号。
+    """
+    code = str(item.get('基金代码') or item.get('code') or item.get('fundCode') or '').strip()
+    if not code:
+        return None
+
+    ratio_raw = item.get('持仓占比')
+    if ratio_raw is None:
+        ratio_raw = item.get('ratio')
+    if ratio_raw is None:
+        ratio_raw = item.get('weight')
+
+    return {
+        'code': code,
+        'name': str(item.get('基金名称') or item.get('name') or item.get('fundName') or '').strip(),
+        'ratio': _parse_pct(ratio_raw),
+        'category': category,
+        'nav': _to_float(item.get('最新净值')),
+        'nav_date': str(item.get('最新净值日期') or '') or None,
+        # 实测：该接口不同组合/版本返回 最新更新时间 / 调仓时间 / 最新净值日期 之一，全部兜底
+        'adj_time': str(item.get('最新更新时间') or item.get('调仓时间') or item.get('最新净值日期') or '') or None,
+        'fund_type': str(item.get('基金类型') or '') or None,
+    }
+
+
 class QiemanFetcher(SingleValueFetcher):
     """且慢：市场温度计（中证全A），通过 MCP Streamable HTTP 协议获取。"""
 
@@ -233,11 +282,13 @@ class QiemanFetcher(SingleValueFetcher):
             headers['Mcp-Session-Id'] = sid
         return self.session.post(QIEMAN_MCP_URL, json=payload, headers=headers, timeout=20)
 
-    def _call_mcp(self, api_key: str):
-        """完成 MCP 握手并调用 GetLatestQuotations，返回 (temperatureList, updatedOn)。"""
+    def _mcp_handshake(self, api_key: str) -> Optional[str]:
+        """MCP 握手（initialize + notifications/initialized），返回会话 sid。
+
+        且慢 Streamable HTTP：tools/call 必须在同会话（同一 Mcp-Session-Id）内调用。
+        """
         self.session.headers['x-api-key'] = api_key
         sid: Optional[str] = None
-
         r = self._mcp_post(
             {
                 'jsonrpc': '2.0',
@@ -253,8 +304,15 @@ class QiemanFetcher(SingleValueFetcher):
         )
         if r.status_code != 200:
             raise RuntimeError(f'MCP initialize 失败: HTTP {r.status_code}')
-        sid = r.headers.get('Mcp-Session-Id') or sid
+        return r.headers.get('Mcp-Session-Id') or sid
 
+    def _call_tool(self, api_key: str, tool: str, arguments: dict) -> str:
+        """完成 MCP 握手并调用任意工具，返回解析出的文本片段（兼容 SSE / JSON 两种响应）。
+
+        #1392 扩展点：原 `_call_mcp` 只调 `GetLatestQuotations`；抽成通用方法后，
+        且慢组合持仓（BatchGetStrategiesComposition）等可复用同一传输，无需重复握手逻辑。
+        """
+        sid = self._mcp_handshake(api_key)
         r2 = self._mcp_post({'jsonrpc': '2.0', 'method': 'notifications/initialized'}, sid)
         if r2.status_code >= 400:
             raise RuntimeError(f'MCP initialized 通知失败: HTTP {r2.status_code}')
@@ -265,7 +323,7 @@ class QiemanFetcher(SingleValueFetcher):
                 'jsonrpc': '2.0',
                 'id': 2,
                 'method': 'tools/call',
-                'params': {'name': QIEMAN_TOOL, 'arguments': {}},
+                'params': {'name': tool, 'arguments': arguments},
             },
             sid,
         )
@@ -295,18 +353,60 @@ class QiemanFetcher(SingleValueFetcher):
                 raise RuntimeError(f'MCP tools/call 返回错误: {msg["error"]}')
             content = msg.get('result', {}).get('content', [])
             text = ''.join(c.get('text', '') for c in content if c.get('type') == 'text')
-
         if not text:
             raise RuntimeError('MCP 调用返回为空')
+        return text
 
-        parsed = json.loads(text)
-        if isinstance(parsed, dict):
-            arr = parsed.get('temperatureList') or parsed.get('result') or []
-            upd = parsed.get('updatedOn') or parsed.get('updated')
-        else:
-            arr = parsed
-            upd = arr[0].get('updatedOn') or arr[0].get('updated') if arr and isinstance(arr[0], dict) else None
-        return arr, upd
+    def fetch_strategy_composition(self, strategy_code: str) -> List[dict]:
+        """且慢组合持仓（#1392）：BatchGetStrategiesComposition。
+
+        真实返回结构（实测 2026-09）：
+            {"<code>": {"<基金类别>": {"持有成分":[{"基金代码","基金名称","持仓占比":"4.54%",
+                "最新净值","调仓时间","基金类型",...}], "分类占比":<str|num>}, ...}}
+        即**按基金类别分桶**，故需遍历每个类别的 ``持有成分`` 列表并打平，
+        这样单靠外层 code 取不到任何持仓（早期按扁平结构解析会静默返回空列表）。
+
+        另保留两种扁平形态兜底（旧版/其他版本工具）：顶层 list，或 ``{result|data: [...]}``。
+
+        返回归一化列表：[{code, name, ratio, category, nav, nav_date, adj_time, fund_type}]。
+        ratio 由 "4.54%" 解析为 float(4.54)；字段缺失一律置 None。
+        无 key / code 不存在 / 结构不可识别时返回 []。
+        """
+        api_key = os.getenv('QIEMAN_API_KEY')
+        if not api_key:
+            logger.warning('QIEMAN_API_KEY 未配置，跳过且慢组合持仓')
+            return []
+        try:
+            text = self._call_tool(api_key, 'BatchGetStrategiesComposition', {'strategyCodes': [strategy_code]})
+            parsed = json.loads(text)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f'且慢组合持仓获取失败 {strategy_code}: {e}')
+            return []
+
+        # 收集 (原始记录, 所属类别)；扁平形态没有类别信息，故为 None
+        raw_items: List[tuple] = []
+        if isinstance(parsed, list):
+            raw_items.extend((i, None) for i in parsed if isinstance(i, dict))
+        elif isinstance(parsed, dict):
+            code_block = parsed.get(strategy_code)
+            if isinstance(code_block, dict):
+                # 主路径：{strategy_code: {类别: {持有成分: [...]}}}
+                for category, body in code_block.items():
+                    if not isinstance(body, dict):
+                        continue
+                    raw_items.extend((i, category) for i in body.get('持有成分') or [] if isinstance(i, dict))
+            else:
+                # 兜底：{result|data: [...]} 扁平容器
+                flat = parsed.get('result') or parsed.get('data') or []
+                if isinstance(flat, list):
+                    raw_items.extend((i, None) for i in flat if isinstance(i, dict))
+
+        out = []
+        for raw, category in raw_items:
+            rec = _normalize_holding(raw, category)
+            if rec:
+                out.append(rec)
+        return out
 
     def fetch(self) -> Optional[Dict[str, Any]]:
         api_key = os.getenv('QIEMAN_API_KEY')
@@ -318,7 +418,18 @@ class QiemanFetcher(SingleValueFetcher):
         last_err: Optional[Exception] = None
         for attempt in range(2):
             try:
-                records, updated = self._call_mcp(api_key)
+                text = self._call_tool(api_key, QIEMAN_TOOL, {})
+                parsed = json.loads(text)
+                if isinstance(parsed, dict):
+                    records = parsed.get('temperatureList') or parsed.get('result') or []
+                    updated = parsed.get('updatedOn') or parsed.get('updated')
+                else:
+                    records = parsed
+                    updated = (
+                        records[0].get('updatedOn') or records[0].get('updated')
+                        if records and isinstance(records[0], dict)
+                        else None
+                    )
                 if records:
                     break
             except Exception as e:  # noqa: BLE001

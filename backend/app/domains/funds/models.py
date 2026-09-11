@@ -146,6 +146,38 @@ class FundManager(Base, PrimaryKeyMixin):
     end_date = Column(Date, comment='任职结束')
 
 
+class ChannelLink(Base, PrimaryKeyMixin, TimestampMixin):
+    """跨渠道关联（#1285 设计 §3.8）：指数↔ETF、ETF↔联接基金。
+
+    同一底层资产在多个渠道的同义标的（指数 / 场内 ETF / 场外联接），用于自选页的
+    「关联入口」（角标数量 + 浮层）。存**有向**关系 `from_symbol → to_symbol`，
+    语义是「从该标的出发可跳转的关联标的」。
+
+    - `link_type='index_etf'`：from=指数（裸代码，如 000300），to=ETF（裸代码，如 510300）
+    - `link_type='etf_feeder'`：from=ETF（如 510300），to=联接基金（如 000051）
+
+    **统一存裸代码**（不含 SH/SZ/CSI 前缀）：自选行的 symbol 前缀形态不统一
+    （SH000300 / CSI000300 / SZ399006），按裸代码 join 才能前缀无关地命中；
+    展示所需的名称冗余在 `from_name` / `to_name`。
+
+    本期边界（2026-09-11 实测降级）：akshare `fund_etf_spot_em` **无「跟踪标的」字段**、
+    交易所规模表亦无，名称匹配总覆盖仅 **41.1%**（<90% 门槛），故按**主流宽基白名单**
+    精确匹配，其余留 `—`；`match_type` 记录匹配置信方式，便于后续人工校正/扩面。
+    """
+
+    __tablename__ = 'channel_links'
+
+    link_type = Column(String(20), nullable=False, comment='关系类型: index_etf / etf_feeder')
+    from_symbol = Column(String(30), nullable=False, comment='起点裸代码（指数代码 / ETF 代码）')
+    to_symbol = Column(String(30), nullable=False, comment='终点裸代码（ETF 代码 / 联接基金代码）')
+    from_name = Column(String(80), comment='起点名称（冗余，浮层直接展示）')
+    to_name = Column(String(80), comment='终点名称（冗余）')
+    match_type = Column(String(20), comment='匹配置信方式: whitelist_keyword / feeder_suffix / manual')
+    source = Column(String(20), default='auto', comment='来源: auto / manual')
+
+    __table_args__ = (UniqueConstraint('link_type', 'from_symbol', 'to_symbol', name='uk_channel_link'),)
+
+
 class DailyWorth(Base, PrimaryKeyMixin, TimestampMixin):
     """基金每日净值"""
 
@@ -249,6 +281,18 @@ class AdvisorPortfolio(Base, PrimaryKeyMixin, TimestampMixin):
     # ── #1167 概览补充字段（天天基金 FundIATGInfoAggr / 平台元数据）──
     estab_date = Column(Date, comment='组合成立日期')
     strategy_desc = Column(String(500), comment='策略说明（STGCONCEPT）')
+
+    # ── #1392 投顾品类差异化指标（区间收益 / 回撤 / 超额，落库供自选投顾列展示）──
+    # 数据源：天天基金 FundIATGInfoAggr 的 SYL_*，映射已实测核对（见 tiantian_advisor_adapter）。
+    # 回撤/超额 API 不直接提供（实测结论），暂留空、待补算；列已就绪不影响主链路。
+    return_1w = Column(SafeNumeric(7, 2), comment='近1周收益(%)（SYL_Z）')
+    return_1m = Column(SafeNumeric(7, 2), comment='近1月收益(%)（SYL_Y）')
+    return_1y = Column(SafeNumeric(7, 2), comment='近1年收益(%)（SYL_1N）')
+    return_ytd = Column(SafeNumeric(7, 2), comment='今年以来收益(%)（SYL_JN）')
+    return_since_incep = Column(SafeNumeric(7, 2), comment='成立以来收益(%)（SYL_LN）')
+    benchmark = Column(String(50), comment='业绩比较基准')
+    max_drawdown = Column(SafeNumeric(6, 2), comment='最大回撤(%)，API 未直接提供时为空')
+    excess_return = Column(SafeNumeric(7, 2), comment='相对基准超额收益(%)，待补算')
 
 
 class AdvisorHolding(Base, PrimaryKeyMixin, TimestampMixin):
