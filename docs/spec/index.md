@@ -57,6 +57,7 @@ title: 多多贝 项目规范体系（文档枢纽）
 | [temperature-architecture-plan.md](./temperature-architecture-plan.md) | 温度模块 + 投资概览页的评估与排期（2026-08-02） | 排期（易腐烂） |
 | [watchlist-column-defs.md](./watchlist-column-defs.md) | 自选表格 `columnDefs` 数据驱动设计（#995 前置，#990/#992/#993 的地基） | 设计依据 |
 | [launch-priority-baseline.md](./launch-priority-baseline.md) | 基础可用版上线优先级基线（四象限对齐） | 基线（易腐烂，待核实） |
+| [ai-review.md](./ai-review.md) | AI 代码审查链路机制与配置事实（配置分层、配额截断、降噪结论、排障指引） | 事实标准（依据包源码实测） |
 | [internal-index.md](./internal-index.md) | 内部资产 / 备忘索引（钩子清单） | 索引页（`srcExclude`，不参与构建） |
 
 ## 视觉设计语言（权威入口）
