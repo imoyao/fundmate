@@ -52,11 +52,15 @@ export default [
       requiresAuth: false // 探市免登录（D4），与 /temperature 写法统一（#822）
     }
   },
-  // 在 remaining 路由数组中新增温度计页面
+  // 旧「温度计」独立入口（2026-09-12 方案 D 收敛）：重定向到探市「深度」档。
+  // 保留该 path 以承接外部已分享链接与历史书签；页面组件已并入 /explore，
+  // 因此不再有 component（原 @/views/temperature/index.vue 已迁移为
+  // views/explore/components/ExploreDetailPanel.vue）。
   {
     path: "/temperature",
     name: "Temperature",
-    component: () => import("@/views/temperature/index.vue"),
+    // 字符串形式：本数组是字面量，函数式 redirect 会被 TS 统一推断成 string（TS2322）
+    redirect: "/explore?view=detail",
     meta: {
       title: "市场温度计",
       showLink: false,

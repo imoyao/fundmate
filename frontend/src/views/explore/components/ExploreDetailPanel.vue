@@ -1,178 +1,142 @@
-<!-- frontend/src/views/temperature/index.vue -->
+<!-- frontend/src/views/explore/components/ExploreDetailPanel.vue -->
+<!--
+  探市「深度」档（方案 D，2026-09-12）：
+  由原 /temperature 页面整体迁移而来。header / footer / 未登录引导条已剥离
+  （由父页面 views/explore/index.vue 统一提供），仅保留温度画像主体内容。
+-->
 <template>
-  <div class="temperature-page">
-    <!-- 顶部导航（公共组件，与探市完全一致） -->
-    <MarketHeader :logo="MARKET_LOGO" badge="温度计" :navs="headerNavs" />
+  <div v-loading="loading" class="detail-panel">
+    <!-- 综合仪表盘 -->
+    <section class="dashboard-section">
+      <MetricGrid>
+        <!-- 综合温度仪表（大） -->
+        <TemperatureGaugeCard
+          :value="compositeValue"
+          title="综合市场温度"
+          :level="compositeLevel"
+          caption="基于多源市场数据计算"
+          :updated-at="updatedAt"
+          size="lg"
+          featured
+        />
 
-    <!-- 未登录引导条：温度计页为公开数据页（D4），登录态仅用于转化引导 -->
-    <section v-if="!isAuthenticated" class="auth-banner">
-      <div class="auth-banner__inner">
-        <div class="auth-banner__text">
-          登录后可使用极致自选管理（分组 / 标签 / AI 批量导入）
-        </div>
-        <el-button size="small" type="primary" @click="goAuth">
-          登录 / 注册
-        </el-button>
-      </div>
+        <!-- 核心指标卡片 -->
+        <MetricCard
+          v-for="metric in coreMetrics"
+          :key="metric.key"
+          :title="metric.title"
+          :value="metric.value"
+          :unit="metric.unit"
+          :level="metric.level"
+        />
+      </MetricGrid>
     </section>
 
-    <!-- 页面内容 -->
-    <div v-loading="loading" class="page-content">
-      <!-- 综合仪表盘 -->
-      <section class="dashboard-section">
-        <MetricGrid>
-          <!-- 综合温度仪表（大） -->
-          <TemperatureGaugeCard
-            :value="compositeValue"
-            title="综合市场温度"
-            :level="compositeLevel"
-            caption="基于多源市场数据计算"
-            :updated-at="updatedAt"
-            size="lg"
-            featured
-          />
+    <!-- 温度解读 + 市场机会：与仪表卡配套，放在趋势图上方 -->
+    <section class="context-section">
+      <div class="context-grid">
+        <TemperatureContextCard
+          :temperature="compositeValue"
+          :fear-greed="fearGreedValue"
+          :fear-greed-label="fearGreedLabel"
+          :periods="tempPeriods"
+          caption="综合 6 个市场指标与市场情绪推导"
+          class="context-card"
+        />
 
-          <!-- 核心指标卡片 -->
-          <MetricCard
-            v-for="metric in coreMetrics"
-            :key="metric.key"
-            :title="metric.title"
-            :value="metric.value"
-            :unit="metric.unit"
-            :level="metric.level"
-          />
-        </MetricGrid>
-      </section>
-
-      <!-- 温度解读 + 市场机会：与仪表卡配套，放在趋势图上方 -->
-      <section class="context-section">
-        <div class="context-grid">
-          <TemperatureContextCard
-            :temperature="compositeValue"
-            :fear-greed="fearGreedValue"
-            :fear-greed-label="fearGreedLabel"
-            :periods="tempPeriods"
-            caption="综合 6 个市场指标与市场情绪推导"
-            class="context-card"
-          />
-
-          <!-- 市场机会（来自 temperature store，由综合温度与股债性价比推导） -->
-          <div v-if="tempStore.opportunityList.length" class="opportunity-card">
-            <SectionHeader title="市场机会" />
-            <div class="opportunity-list">
-              <div
-                v-for="op in tempStore.opportunityList"
-                :key="op.name"
-                class="opportunity-item"
-                :class="`opportunity-item--${op.tone}`"
-              >
-                <div class="opportunity-head">
-                  <span class="opportunity-name">{{ op.name }}</span>
-                  <span class="opportunity-tag">{{
-                    op.tone === "safe"
-                      ? "机会"
-                      : op.tone === "danger"
-                        ? "风险"
-                        : "中性"
-                  }}</span>
-                </div>
-                <p class="opportunity-desc">{{ op.desc }}</p>
+        <!-- 市场机会（来自 temperature store，由综合温度与股债性价比推导） -->
+        <div v-if="tempStore.opportunityList.length" class="opportunity-card">
+          <SectionHeader title="市场机会" />
+          <div class="opportunity-list">
+            <div
+              v-for="op in tempStore.opportunityList"
+              :key="op.name"
+              class="opportunity-item"
+              :class="`opportunity-item--${op.tone}`"
+            >
+              <div class="opportunity-head">
+                <span class="opportunity-name">{{ op.name }}</span>
+                <span class="opportunity-tag">{{
+                  op.tone === "safe"
+                    ? "机会"
+                    : op.tone === "danger"
+                      ? "风险"
+                      : "中性"
+                }}</span>
               </div>
+              <p class="opportunity-desc">{{ op.desc }}</p>
             </div>
           </div>
         </div>
-      </section>
+      </div>
+    </section>
 
-      <!-- 温度趋势图 -->
-      <section class="chart-section">
-        <SectionHeader title="综合温度趋势">
-          <template #action>
-            <el-radio-group
-              v-model="historyDays"
-              size="small"
-              @change="fetchHistory"
-            >
-              <el-radio-button :value="30">30天</el-radio-button>
-              <el-radio-button :value="90">90天</el-radio-button>
-              <el-radio-button :value="180">半年</el-radio-button>
-            </el-radio-group>
-          </template>
-        </SectionHeader>
-        <div class="chart-wrapper">
-          <v-chart
-            ref="chartRef"
-            :option="chartOption"
-            :autoresize="true"
-            style="width: 100%; height: 300px"
-          />
-        </div>
-      </section>
+    <!-- 温度趋势图 -->
+    <section class="chart-section">
+      <SectionHeader title="综合温度趋势">
+        <template #action>
+          <el-radio-group
+            v-model="historyDays"
+            size="small"
+            @change="fetchHistory"
+          >
+            <el-radio-button :value="30">30天</el-radio-button>
+            <el-radio-button :value="90">90天</el-radio-button>
+            <el-radio-button :value="180">半年</el-radio-button>
+          </el-radio-group>
+        </template>
+      </SectionHeader>
+      <div class="chart-wrapper">
+        <v-chart
+          ref="chartRef"
+          :option="chartOption"
+          :autoresize="true"
+          style="width: 100%; height: 300px"
+        />
+      </div>
+    </section>
 
-      <!-- 行业乖离度排行：表格形式，支持排序筛选 -->
-      <BiasTable
-        :items="biasItems"
-        :date="biasDate"
-        :stale="biasStale"
-        :loading="biasLoading"
-      />
-
-      <!-- 行业拥挤度排行：表格形式，与乖离度并列（不同维度） -->
-      <CrowdingTable
-        :items="crowdingValidItems"
-        :date="crowdingDate"
-        :stale="crowdingStale"
-        :loading="crowdingLoading"
-      />
-
-      <!-- 全部市场温度指标：紧凑表格 -->
-      <MetricDetailTable :items="detailMetrics" />
-    </div>
-
-    <!-- 底部（页面级页脚，探市 / 温度计 复用） -->
-    <PageFooter
-      revisit-text="温度计给出的是市场冷热参考，不构成投资建议。可前往探市页查看指数快照与行业机会。"
-      :revisit-items="[
-        '回看温度计各指标口径，逐项核对计算方式',
-        '把当前市场冷热记录下来，做纵向对比',
-        '关注公众号获取更多市场温度解读'
-      ]"
-      :sources="footerSources"
-      copyright="© 2026 多多贝 · 让投资更从容"
+    <!-- 行业乖离度排行：表格形式，支持排序筛选 -->
+    <BiasTable
+      :items="biasItems"
+      :date="biasDate"
+      :stale="biasStale"
+      :loading="biasLoading"
     />
+
+    <!-- 行业拥挤度排行：表格形式，与乖离度并列（不同维度） -->
+    <CrowdingTable
+      :items="crowdingValidItems"
+      :date="crowdingDate"
+      :stale="crowdingStale"
+      :loading="crowdingLoading"
+    />
+
+    <!-- 全部市场温度指标：紧凑表格 -->
+    <MetricDetailTable :items="detailMetrics" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from "vue";
-import { useRouter } from "vue-router";
 import VChart from "vue-echarts";
 import { getTemperatureHistory, getMultiItems } from "@/api/temperature";
-import MarketHeader from "@/components/MarketHeader/index.vue";
-import PageFooter from "@/components/PageFooter/index.vue";
 import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
+import MetricCard from "@/components/MetricCard/index.vue";
+import MetricGrid from "@/components/MetricGrid/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import TemperatureContextCard from "@/components/TemperatureContextCard/index.vue";
 import { useTemperatureStore } from "@/store/modules/temperature";
-import {
-  MARKET_LOGO,
-  useMarketHeaderNavs
-} from "@/components/MarketHeader/config";
-import { buildMarketFooterSources } from "@/components/MarketFooter/config";
-import { useAuthState } from "@/composables/useAuthState";
 import { getCssVar } from "@/composables/echarts/theme";
 import { useTemperatureOverview } from "@/composables/temperature/useTemperatureOverview";
 import { CORE_SINGLE_SOURCES } from "@/constants/temperature";
-import BiasTable from "./components/BiasTable.vue";
-import CrowdingTable from "./components/CrowdingTable.vue";
-import MetricDetailTable from "./components/MetricDetailTable.vue";
+import BiasTable from "./detail/BiasTable.vue";
+import CrowdingTable from "./detail/CrowdingTable.vue";
+import MetricDetailTable from "./detail/MetricDetailTable.vue";
 
-// 登录态感知（温度计为公开数据页 D4，仅用于登录转化引导）
-const { isAuthenticated } = useAuthState();
-const router = useRouter();
-
-const goAuth = () => {
-  router.push("/login");
-};
+defineOptions({
+  name: "ExploreDetailPanel"
+});
 
 // 温度三色：动态读取全局 token（src/style/colors.css 的 --temp-*），
 // 保持与页面其它元素单一来源、视觉一致（design.md 红线：图表颜色用 getComputedStyle 读取）
@@ -196,10 +160,6 @@ function hexToRgba(hex: string, alpha: number): string {
   const n = parseInt(m[1], 16);
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 }
-
-defineOptions({
-  name: "TemperaturePage"
-});
 
 // ================================================================
 // 市场温度总览数据（两页共用 composable，见 #980）
@@ -513,13 +473,6 @@ const fetchCrowding = async () => {
   }
 };
 
-// ================================================================
-// Header / Footer 公共组件数据
-// ================================================================
-const headerNavs = useMarketHeaderNavs();
-
-const footerSources = buildMarketFooterSources();
-
 // 温度 store：承载综合温度、股债性价比与市场机会清单
 const tempStore = useTemperatureStore();
 
@@ -550,42 +503,16 @@ watch(historyDays, () => {
 }
 
 @media (width <= 768px) {
-  .page-content {
+  .detail-panel {
     padding: 16px;
   }
 }
 
-.temperature-page {
-  min-height: 100vh;
-  background: var(--bg-page);
-}
-
-/* 页面内容 */
-.page-content {
+/* 深度档容器：与概览档共用同一套页面边距与最大宽度 */
+.detail-panel {
   max-width: 1280px;
   padding: var(--space-standard) 24px 16px;
   margin: 0 auto;
-}
-
-/* 未登录引导条（登录转化） */
-.auth-banner {
-  max-width: 1280px;
-  padding: 10px 24px 0;
-  margin: 0 auto;
-
-  &__inner {
-    display: flex;
-    gap: 16px;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 18px;
-    font-size: 13px;
-    color: var(--text-secondary);
-    background: var(--bg-card);
-    border: 1px solid var(--brand-400);
-    border-radius: 10px;
-    box-shadow: var(--shadow-raised);
-  }
 }
 
 /* 仪表盘区域 */
@@ -611,77 +538,6 @@ watch(historyDays, () => {
   width: 100%;
   height: 300px;
 }
-
-/* 市场机会（temperature store） */
-.opportunity-section {
-  margin-bottom: 24px;
-}
-
-.opportunity-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: var(--space-compact);
-}
-
-.opportunity-item {
-  padding: 16px 18px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-left: 3px solid var(--text-tertiary);
-  border-radius: 12px;
-  box-shadow: var(--shadow-raised);
-}
-
-.opportunity-item--safe {
-  border-left-color: var(--temp-low);
-}
-
-.opportunity-item--danger {
-  border-left-color: var(--temp-high);
-}
-
-.opportunity-item--normal {
-  border-left-color: var(--temp-mid);
-}
-
-.opportunity-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-
-.opportunity-name {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.opportunity-tag {
-  padding: 2px 8px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  background: var(--bg-subtle);
-  border-radius: 999px;
-}
-
-.opportunity-item--safe .opportunity-tag {
-  color: var(--temp-low);
-  background: color-mix(in srgb, var(--temp-low) 18%, transparent);
-}
-
-.opportunity-item--danger .opportunity-tag {
-  color: var(--temp-high);
-  background: color-mix(in srgb, var(--temp-high) 18%, transparent);
-}
-
-.opportunity-desc {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--text-secondary);
-}
-
-/* 表格视觉基线由全站统一主题维护（src/style/el-table.css），勿在本页 :deep 覆盖 */
 
 /* ============================================================
    温度解读 + 市场机会（并排）
@@ -712,12 +568,6 @@ watch(historyDays, () => {
   margin-bottom: 12px;
 }
 
-/* stylelint-disable no-duplicate-selectors */
-
-/* 以下 .opportunity-* 选择器与上方「市场机会区块」(1086 行起, grid 平铺布局) 同名,
-   但此处用于「市场机会卡片」(flex 纵向布局, 独立配色与间距), 二者是有意差异化的
-   两套视觉而非重复定义。通过局部禁用 no-duplicate-selectors 保留此差异,
-   切勿合并或重命名, 否则会破坏卡片内的纵向排列与卡片专属样式。 */
 .opportunity-list {
   display: flex;
   flex-direction: column;
@@ -787,9 +637,5 @@ watch(historyDays, () => {
   color: var(--text-secondary);
 }
 
-/* stylelint-disable-enable no-duplicate-selectors */
-
-/* ============================================================
-   温度计页面样式
-   ============================================================ */
+/* 表格视觉基线由全站统一主题维护（src/style/el-table.css），勿在本页 :deep 覆盖 */
 </style>

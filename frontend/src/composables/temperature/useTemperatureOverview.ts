@@ -1,5 +1,6 @@
 // frontend/src/composables/temperature/useTemperatureOverview.ts
-// 市场温度总览数据 composable：探市页（/explore）与温度计页（/temperature）共用。
+// 市场温度总览数据 composable：探市页（/explore）的「概览」与「深度」两档共用。
+// （2026-09-12 方案 D 前为 /explore 与 /temperature 两页共用。）
 // 抽取自 explore/index.vue 的温度数据块（原 587-740 行），temperature 页后续接入（见 #980）。
 // 契约以 explore 现有行为为基准：解析 getTemperatureOverview 的 singles/composites，
 // 产出页面所需的全部温度 refs 与 fetchTemperature() 方法。

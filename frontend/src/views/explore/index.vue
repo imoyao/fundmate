@@ -1,7 +1,12 @@
 <!-- frontend/src/views/explore/index.vue -->
+<!--
+  探市页（免登录沙盒，站点唯一市场入口，D4）。
+  方案 D（2026-09-12）：原 /temperature 独立页收敛为本页「深度」档，
+  页内以胶囊 Tab 切换「概览 / 深度」，档位与 ?view= 查询参数双向同步。
+-->
 <template>
   <div class="explore-page">
-    <!-- ===== 顶部导航（公共组件，与温度计完全一致） ===== -->
+    <!-- ===== 顶部导航（公共组件） ===== -->
     <MarketHeader
       :logo="MARKET_LOGO"
       badge="探市"
@@ -9,94 +14,112 @@
       @logo-click="onLogoClick"
     />
 
-    <!-- ============================================================ -->
-    <!-- 温度数据仪表盘                                                -->
-    <!-- ============================================================ -->
-    <!-- 温度数据仪表盘（#984 拆分至 components/ExploreTemperatureDashboard.vue） -->
-    <ExploreTemperatureDashboard
-      ref="dashboardRef"
-      @go-temperature="goToTemperature"
-    />
-
-    <!-- ============================================================ -->
-    <!-- 大类资产观察（#1436 / #1444 收口实现：新增区块，紧跟温度仪表盘） -->
-    <!-- ============================================================ -->
-    <ExploreAssetOverview />
-
-    <!-- ============================================================ -->
-    <!-- 添加/观察栏（仅未登录；登录后隐藏，引导去自选页管理）       -->
-    <!-- ============================================================ -->
-    <!-- 添加/观察栏（#984 拆分至 components/ExploreAddSection.vue；仅未登录渲染） -->
-    <ExploreAddSection
-      v-if="!isAuthenticated"
-      id="add-section"
-      :add-holding="addHolding"
-      :quotes-map="quotesMap"
-    />
-
-    <!-- 匿名用户转化区（#822 todo1）：补回 #808 注册 CTA / 损失厌恶文案 -->
-    <section v-if="!isAuthenticated" class="conv-banner">
-      <div class="conv-banner__inner">
-        <div class="conv-banner__text">
-          <div class="conv-banner__title">免费注册，解锁完整投资账本</div>
-          <div class="conv-banner__desc">
-            注册后观察列表跨设备同步，并可在自选页管理分组、标签与 AI
-            批量导入——当前为本地临时观察，清除浏览器数据会丢失。
-          </div>
-        </div>
-        <el-button type="primary" @click="goToLogin">
-          立即注册 / 登录
-          <IconifyIconOffline icon="ep:arrow-right" class="ml-1" />
-        </el-button>
+    <!-- ===== 档位切换（分组胶囊 Tab，design.md 规范） ===== -->
+    <nav class="panel-switch" aria-label="探市视图切换">
+      <div class="panel-switch__inner">
+        <button
+          v-for="tab in panelTabs"
+          :key="tab.key"
+          type="button"
+          class="panel-tab"
+          :class="{ 'panel-tab--active': activePanel === tab.key }"
+          @click="switchPanel(tab.key)"
+        >
+          {{ tab.label }}
+        </button>
+        <span class="panel-switch__hint">{{ activeHint }}</span>
       </div>
-    </section>
+    </nav>
 
-    <!-- 已登录：引导去自选页（探市只做展示与观察，管理能力收敛到登录后的自选） -->
-    <section v-if="isAuthenticated" class="auth-guide">
-      <div class="auth-guide__inner">
-        <div class="auth-guide__text">
-          <div class="auth-guide__title">已登录，可前往自选页管理资产</div>
-          <div class="auth-guide__desc">
-            探市页仅用于浏览市场数据；分组、标签、AI
-            批量导入等功能已迁移至自选页统一管理。
+    <!-- ============================================================ -->
+    <!-- 概览档：温度锚点 + 指数快照 + 观察列表（漏斗主体）            -->
+    <!-- ============================================================ -->
+    <template v-if="activePanel === 'overview'">
+      <!-- 温度数据仪表盘（#984 拆分至 components/ExploreTemperatureDashboard.vue） -->
+      <ExploreTemperatureDashboard
+        ref="dashboardRef"
+        @go-detail="switchPanel('detail')"
+      />
+
+      <!-- ============================================================ -->
+      <!-- 大类资产观察（#1436 / #1444 收口实现：新增区块，紧跟温度仪表盘） -->
+      <!-- ============================================================ -->
+      <ExploreAssetOverview />
+
+      <!-- 添加/观察栏（#984 拆分；仅未登录渲染） -->
+      <ExploreAddSection
+        v-if="!isAuthenticated"
+        id="add-section"
+        :add-holding="addHolding"
+        :quotes-map="quotesMap"
+      />
+
+      <!-- 匿名用户转化区（#822 todo1）：补回 #808 注册 CTA / 损失厌恶文案 -->
+      <section v-if="!isAuthenticated" class="conv-banner">
+        <div class="conv-banner__inner">
+          <div class="conv-banner__text">
+            <div class="conv-banner__title">免费注册，解锁完整投资账本</div>
+            <div class="conv-banner__desc">
+              注册后观察列表跨设备同步，并可在自选页管理分组、标签与 AI
+              批量导入——当前为本地临时观察，清除浏览器数据会丢失。
+            </div>
           </div>
+          <el-button type="primary" @click="goToLogin">
+            立即注册 / 登录
+            <IconifyIconOffline icon="ep:arrow-right" class="ml-1" />
+          </el-button>
         </div>
-        <el-button type="primary" @click="goToWatchlist">
-          前往自选页
-          <IconifyIconOffline icon="ep:arrow-right" class="ml-1" />
-        </el-button>
-      </div>
-    </section>
+      </section>
+
+      <!-- 已登录：引导去自选页（探市只做展示与观察，管理能力收敛到登录后的自选） -->
+      <section v-if="isAuthenticated" class="auth-guide">
+        <div class="auth-guide__inner">
+          <div class="auth-guide__text">
+            <div class="auth-guide__title">已登录，可前往自选页管理资产</div>
+            <div class="auth-guide__desc">
+              探市页仅用于浏览市场数据；分组、标签、AI
+              批量导入等功能已迁移至自选页统一管理。
+            </div>
+          </div>
+          <el-button type="primary" @click="goToWatchlist">
+            前往自选页
+            <IconifyIconOffline icon="ep:arrow-right" class="ml-1" />
+          </el-button>
+        </div>
+      </section>
+
+      <!-- 观察列表（#984 拆分，纯展示+事件上抛） -->
+      <ExploreWatchlistTable
+        :rows="tableData"
+        :loading="loading"
+        :total-count="totalCount"
+        :is-pure-observation-mode="isPureObservationMode"
+        :summary="summary"
+        :status-class="statusClass"
+        :status-text="statusText"
+        :refresh-interval="refreshInterval"
+        :last-update-time="lastUpdateTime"
+        @remove="handleRemove"
+        @jump="handleJump"
+        @favorite="handleFavorite"
+        @refresh="manualRefresh"
+        @interval-change="setRefreshInterval"
+      />
+    </template>
 
     <!-- ============================================================ -->
-    <!-- 观察列表                                                     -->
+    <!-- 深度档：完整温度画像（由原 /temperature 页面迁移而来）        -->
     <!-- ============================================================ -->
-    <!-- 观察列表（#984 拆分至 components/ExploreWatchlistTable.vue，纯展示+事件上抛） -->
-    <ExploreWatchlistTable
-      :rows="tableData"
-      :loading="loading"
-      :total-count="totalCount"
-      :is-pure-observation-mode="isPureObservationMode"
-      :summary="summary"
-      :status-class="statusClass"
-      :status-text="statusText"
-      :refresh-interval="refreshInterval"
-      :last-update-time="lastUpdateTime"
-      @remove="handleRemove"
-      @jump="handleJump"
-      @favorite="handleFavorite"
-      @refresh="manualRefresh"
-      @interval-change="setRefreshInterval"
-    />
+    <ExploreDetailPanel v-else />
 
     <!-- ============================================================ -->
     <!-- 底部（公共组件）：数据来源 + 免责声明                         -->
     <!-- ============================================================ -->
     <PageFooter
-      revisit-text="探市页汇总指数快照与行业机会，辅助判断布局方向，不构成投资建议。"
+      revisit-text="探市页汇总市场温度、行业冷热与指数快照，辅助判断布局方向，不构成投资建议。"
       :revisit-items="[
-        '回看探市各指数与行业的计算口径',
-        '把当前行业冷热记录下来，做纵向对比',
+        '回看温度与行业冷热的计算口径',
+        '把当前市场冷热记录下来，做纵向对比',
         '关注公众号获取更多市场监测解读'
       ]"
       :sources="footerSources"
@@ -107,7 +130,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import { useLocalHoldings } from "@/composables/useLocalHoldings";
@@ -134,6 +157,7 @@ import { batchFetchQuotes } from "@/utils/realtimeDataSources";
 import { useTemperatureOverview } from "@/composables/temperature/useTemperatureOverview";
 import ExploreTemperatureDashboard from "./components/ExploreTemperatureDashboard.vue";
 import ExploreAssetOverview from "./components/ExploreAssetOverview.vue";
+import ExploreDetailPanel from "./components/ExploreDetailPanel.vue";
 import { getTypeLabel } from "@/constants/assetType";
 import { pricePrecision } from "@/utils/pricePrecision";
 import { useAuthState } from "@/composables/useAuthState";
@@ -147,7 +171,47 @@ defineOptions({
 // 登录态感知（探市免登录页）：登录后隐藏「添加观察」，引导去自选页管理（D4 + 方案 §3.3）
 const { isAuthenticated } = useAuthState();
 
+const route = useRoute();
 const router = useRouter();
+
+// ================================================================
+// 档位切换（方案 D）：概览 / 深度，与 ?view= 查询参数双向同步
+// ================================================================
+type PanelKey = "overview" | "detail";
+
+const panelTabs: Array<{ key: PanelKey; label: string }> = [
+  { key: "overview", label: "概览" },
+  { key: "detail", label: "深度" }
+];
+
+const PANEL_HINTS: Record<PanelKey, string> = {
+  overview: "一屏看懂市场冷热，并建立自己的观察列表",
+  detail: "行业维度、趋势与全部指标明细"
+};
+
+const normalizePanel = (raw: unknown): PanelKey =>
+  raw === "detail" ? "detail" : "overview";
+
+const activePanel = ref<PanelKey>(normalizePanel(route.query.view));
+
+const activeHint = computed(() => PANEL_HINTS[activePanel.value]);
+
+// URL 变化（含 /temperature 重定向过来、浏览器前进后退）时同步档位
+watch(
+  () => route.query.view,
+  raw => {
+    activePanel.value = normalizePanel(raw);
+  }
+);
+
+const switchPanel = (key: PanelKey) => {
+  activePanel.value = key;
+  // replace 而非 push：切换档位不应污染历史栈，避免返回键在档位间循环
+  router.replace({
+    path: "/explore",
+    query: key === "detail" ? { view: "detail" } : {}
+  });
+};
 
 // ================================================================
 // 本地持仓
@@ -221,10 +285,6 @@ watch(
   },
   { deep: true }
 );
-
-// ================================================================
-// 指数数据：已随温度仪表盘拆分至子组件（#984）
-// ================================================================
 
 // ================================================================
 // 市场温度数据：已拆分至 components/ExploreTemperatureDashboard.vue（#984）。
@@ -341,10 +401,6 @@ const statusText = computed(() => {
 // ================================================================
 // 页面方法
 // ================================================================
-const goToTemperature = () => {
-  router.push("/temperature");
-};
-
 const goToWatchlist = () => {
   router.push("/watchlist");
 };
@@ -419,288 +475,86 @@ onMounted(() => {
 </script>
 
 <style lang="scss" scoped>
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0.3;
-  }
-}
-
-/* ============================================================
-   8. 响应式
-   ============================================================ */
-@media (width <= 1024px) {
-  .metrics-row {
-    grid-template-columns: 1fr;
-  }
-
-  .liquidity-card {
-    flex-direction: row;
-    gap: 20px;
-    align-items: center;
-  }
-
-  .liquidity-divider {
-    width: 1px;
-    height: 64px;
-  }
-}
-
-@media (width <= 768px) {
-  .temperature-dashboard {
-    padding: 0 16px 12px;
-  }
-
-  .snapshot-items {
-    gap: 12px;
-  }
-
-  .liquidity-card {
-    flex-direction: column;
-    gap: 16px;
-    align-items: stretch;
-  }
-
-  .liquidity-metric {
-    align-items: center;
-    text-align: center;
-  }
-
-  .liquidity-divider {
-    width: auto;
-    height: 1px;
-  }
-
-  .liquidity-actions {
-    flex-direction: row;
-    justify-content: center;
-  }
-}
-
-@media (width <= 480px) {
-  .core-value {
-    font-size: 26px;
-  }
-
-  .liquidity-metric__value {
-    font-size: 28px;
-  }
-}
-
-/* ============================================================
-   2. 布局重置
-   ============================================================ */
 .explore-page {
   min-height: 100vh;
   background: var(--bg-page);
 }
 
 /* ============================================================
-   3. 顶部导航
+   档位切换：分组胶囊 Tab（design.md「分组胶囊 Tab」规范）
+   选中态 = 软按钮语义（brand 底 + brand 字），非涨跌色
    ============================================================ */
-
-/* ============================================================
-   4. 温度仪表盘
-   ============================================================ */
-.temperature-dashboard {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+.panel-switch {
   max-width: 1280px;
-  padding: var(--space-standard) 24px 16px;
+  padding: var(--space-standard) 24px 0;
   margin: 0 auto;
-}
 
-/* 探市「综合温度」卡内的进度条与跳转提示（来自 TemperatureGaugeCard 的 footer 插槽，属父组件作用域） */
-.primary-bar {
-  height: 3px;
-  overflow: hidden;
-  background: var(--bg-soft);
-  border-radius: 2px;
-}
-
-.primary-fill {
-  height: 100%;
-  border-radius: 2px;
-  transition:
-    width 0.8s ease,
-    background 0.6s ease;
-}
-
-.primary-link {
-  display: inline-block;
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--el-color-primary);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-/* ---- 4.2 分组指标区：情绪/估值两列等宽，流动性独占一行 ---- */
-.metrics-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-top: 16px;
-
-  &--single {
-    grid-template-columns: 1fr;
-  }
-}
-
-.metrics-group {
-  padding: 16px 18px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: 12px;
-  box-shadow: var(--shadow-raised);
-}
-
-.liquidity-block {
-  display: flex;
-  flex-direction: column;
-  padding: 16px 18px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: 12px;
-  box-shadow: var(--shadow-raised);
-}
-
-.liquidity-card {
-  display: flex;
-  flex-direction: row;
-  gap: 24px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 4px;
-  margin-top: 4px;
-}
-
-.liquidity-metric {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 10px;
-  align-items: flex-start;
-  text-align: left;
-
-  &__label {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-secondary);
-  }
-
-  &__body {
+  &__inner {
     display: flex;
-    flex-wrap: wrap;
     gap: 8px;
-    align-items: baseline;
-  }
-
-  &__value {
-    font-family: var(--font-mono);
-    font-size: 42px;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    line-height: 1;
-    color: var(--text-primary);
-  }
-
-  &__unit {
-    font-size: 16px;
-    font-weight: 500;
-    color: var(--text-secondary);
+    align-items: center;
+    padding-bottom: 12px;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--border-subtle);
   }
 
   &__hint {
+    margin-left: auto;
     font-size: 12px;
     color: var(--text-tertiary);
+    white-space: nowrap;
   }
 }
 
-.liquidity-divider {
+.panel-tab {
   flex-shrink: 0;
-  width: 1px;
-  height: 64px;
-  background: var(--border-light);
-}
-
-.liquidity-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 120px;
-}
-
-.liquidity-btn {
-  justify-content: flex-start;
-  padding: 0;
+  height: 32px;
+  padding: 0 16px;
+  font-family: inherit;
   font-size: 13px;
+  font-weight: 500;
   color: var(--text-secondary);
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
 
   &:hover {
+    background: var(--bg-hover);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
+
+  &--active {
     color: var(--brand-700);
+    background: var(--brand-100);
+    border-color: var(--brand-400);
+
+    &:hover {
+      background: var(--brand-200);
+    }
   }
 }
 
-/* ---- 4.3 指数快照 ---- */
-.index-snapshot {
-  padding: 16px 20px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: 12px;
-  box-shadow: var(--shadow-raised);
-}
+@media (width <= 768px) {
+  .panel-switch {
+    padding: 16px 16px 0;
 
-.snapshot-title {
-  margin-bottom: 10px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.snapshot-items {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 24px;
-}
-
-.snapshot-item {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.snapshot-name {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.snapshot-price {
-  font-family: var(--font-mono);
-  font-size: 16px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
-.snapshot-change {
-  font-size: 13px;
+    &__hint {
+      display: none;
+    }
+  }
 }
 
 /* ============================================================
-   5. 添加/观察栏
+   匿名用户注册转化区（#822 todo1）
    ============================================================ */
-
-/* ============================================================
-   6. 观察列表
-   ============================================================ */
-
-/* ---- 匿名用户注册转化区（#822 todo1） ---- */
 .conv-banner {
   max-width: 1280px;
   padding: 0 24px 16px;
@@ -714,6 +568,41 @@ onMounted(() => {
     padding: 18px 24px;
     background: linear-gradient(135deg, var(--brand-50), var(--bg-card));
     border: 1px solid var(--brand-400);
+    border-radius: 12px;
+    box-shadow: var(--shadow-raised);
+  }
+
+  &__title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  &__desc {
+    max-width: 860px;
+    margin-top: 4px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+  }
+}
+
+/* ============================================================
+   已登录引导区
+   ============================================================ */
+.auth-guide {
+  max-width: 1280px;
+  padding: 0 24px 16px;
+  margin: 0 auto;
+
+  &__inner {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 24px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-light);
     border-radius: 12px;
     box-shadow: var(--shadow-raised);
   }
