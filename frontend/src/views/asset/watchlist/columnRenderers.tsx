@@ -873,7 +873,11 @@ const renderAdvisor: FunctionalComponent<{
   const { row, def } = props;
   const v = field(row, def.key);
   const dash = () =>
-    h("span", { class: "text-sm", style: { color: "var(--text-tertiary)" } }, "—");
+    h(
+      "span",
+      { class: "text-sm", style: { color: "var(--text-tertiary)" } },
+      "—"
+    );
   if (v == null || v === "") return dash();
 
   if (def.key === "max_drawdown") {
