@@ -212,6 +212,54 @@ class JisiluCBFetcher(SingleValueFetcher):
             return None
 
 
+def _parse_pct(value: Any) -> Optional[float]:
+    """把 '4.54%' / '4.54' / '' / None 解析为 float(4.54)；非法返回 None。
+
+    且慢持仓占比字段是字符串（含 %），需先剥离再转 float。
+    """
+    if value is None:
+        return None
+    s = str(value).replace('%', '').replace(',', '').strip()
+    if not s:
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _normalize_holding(item: dict, category: Optional[str] = None) -> Optional[dict]:
+    """把一条且慢持仓记录归一化成统一 schema；缺少基金代码视为无效记录，返回 None。
+
+    兼容两套字段命名：
+      · 中文键（MCP 真实返回）  ：基金代码 / 基金名称 / 持仓占比 / 最新净值 / 调仓时间 / 基金类型
+      · 英文键（旧扁平形态）    ：code|fundCode / name|fundName / ratio|weight
+
+    占比可能是带百分号的字符串（``"4.54%"``），统一用 :func:`_parse_pct` 转成 float，
+    避免调用方再各自处理百分号。
+    """
+    code = str(item.get('基金代码') or item.get('code') or item.get('fundCode') or '').strip()
+    if not code:
+        return None
+
+    ratio_raw = item.get('持仓占比')
+    if ratio_raw is None:
+        ratio_raw = item.get('ratio')
+    if ratio_raw is None:
+        ratio_raw = item.get('weight')
+
+    return {
+        'code': code,
+        'name': str(item.get('基金名称') or item.get('name') or item.get('fundName') or '').strip(),
+        'ratio': _parse_pct(ratio_raw),
+        'category': category,
+        'nav': _to_float(item.get('最新净值')),
+        'nav_date': str(item.get('最新净值日期') or '') or None,
+        'adj_time': str(item.get('调仓时间') or '') or None,
+        'fund_type': str(item.get('基金类型') or '') or None,
+    }
+
+
 class QiemanFetcher(SingleValueFetcher):
     """且慢：市场温度计（中证全A），通过 MCP Streamable HTTP 协议获取。"""
 
@@ -309,11 +357,19 @@ class QiemanFetcher(SingleValueFetcher):
         return text
 
     def fetch_strategy_composition(self, strategy_code: str) -> List[dict]:
-        """且慢组合持仓（#1392）：调用 BatchGetStrategiesComposition。
+        """且慢组合持仓（#1392）：BatchGetStrategiesComposition。
 
-        返回归一化列表 [{code, name, ratio}]（ratio 为占比，单位 %）。容错解析：
-        且慢返回结构随版本可能变化，对 list / dict.result / dict.data 多种形状兜底；
-        ratio 缺失时置 None，由调用方决定是否落库。
+        真实返回结构（实测 2026-09）：
+            {"<code>": {"<基金类别>": {"持有成分":[{"基金代码","基金名称","持仓占比":"4.54%",
+                "最新净值","调仓时间","基金类型",...}], "分类占比":<str|num>}, ...}}
+        即**按基金类别分桶**，故需遍历每个类别的 ``持有成分`` 列表并打平，
+        这样单靠外层 code 取不到任何持仓（早期按扁平结构解析会静默返回空列表）。
+
+        另保留两种扁平形态兜底（旧版/其他版本工具）：顶层 list，或 ``{result|data: [...]}``。
+
+        返回归一化列表：[{code, name, ratio, category, nav, nav_date, adj_time, fund_type}]。
+        ratio 由 "4.54%" 解析为 float(4.54)；字段缺失一律置 None。
+        无 key / code 不存在 / 结构不可识别时返回 []。
         """
         api_key = os.getenv('QIEMAN_API_KEY')
         if not api_key:
@@ -325,16 +381,30 @@ class QiemanFetcher(SingleValueFetcher):
         except Exception as e:  # noqa: BLE001
             logger.error(f'且慢组合持仓获取失败 {strategy_code}: {e}')
             return []
-        arr = parsed if isinstance(parsed, list) else parsed.get('result') or parsed.get('data') or []
+
+        # 收集 (原始记录, 所属类别)；扁平形态没有类别信息，故为 None
+        raw_items: List[tuple] = []
+        if isinstance(parsed, list):
+            raw_items.extend((i, None) for i in parsed if isinstance(i, dict))
+        elif isinstance(parsed, dict):
+            code_block = parsed.get(strategy_code)
+            if isinstance(code_block, dict):
+                # 主路径：{strategy_code: {类别: {持有成分: [...]}}}
+                for category, body in code_block.items():
+                    if not isinstance(body, dict):
+                        continue
+                    raw_items.extend((i, category) for i in body.get('持有成分') or [] if isinstance(i, dict))
+            else:
+                # 兜底：{result|data: [...]} 扁平容器
+                flat = parsed.get('result') or parsed.get('data') or []
+                if isinstance(flat, list):
+                    raw_items.extend((i, None) for i in flat if isinstance(i, dict))
+
         out = []
-        for item in arr:
-            if not isinstance(item, dict):
-                continue
-            code = str(item.get('code') or item.get('fundCode') or '').strip()
-            name = str(item.get('name') or item.get('fundName') or '').strip()
-            ratio = _to_float(item.get('ratio') or item.get('weight'))
-            if code:
-                out.append({'code': code, 'name': name, 'ratio': ratio})
+        for raw, category in raw_items:
+            rec = _normalize_holding(raw, category)
+            if rec:
+                out.append(rec)
         return out
 
     def fetch(self) -> Optional[Dict[str, Any]]:
