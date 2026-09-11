@@ -24,6 +24,18 @@
  * product 列名称前（常驻可见、点击即切换，见 columnRenderers.tsx renderProduct），
  * 置顶行另由 index.vue 的 :row-class-name 加底色区分；本表因此净释放约 44px
  * 横向空间（原独立 marker 列 44px 已并入 product 列内联，actions 列宽保持 110）。
+ *
+ * ── 2026-09-11 列宽表达方式与混合视图列集修订（#1421）──
+ * 1) **列宽一律用 `minWidth` 表达**（固定列 product/_actions/selection 例外，仍用
+ *    `width`）。原因：EP 的 `updateColumnsWidth()` 只把「不带数字 width」的列纳入
+ *    余量分配（flexColumns），全列固定宽会让表格实体宽度恒等于 Σ列宽，容器再宽也
+ *    铺不满，右侧留大片空白。改用 minWidth 后：容器有余量 → 按 minWidth 比例拉伸
+ *    铺满；容器不足 → 各列回到 minWidth 并启用表格内部横向滚动。
+ * 2) **混合视图通用列集扩充**：原集只有「名称/价格/涨跌幅/操作」4 列，默认视图信息
+ *    量过低（持仓数量/市值/收益/添加自选日全部不可见）。现将「对所有品类都成立」
+ *    与「对所有可交易品类都成立」的记账核心列纳入 mixed，仅把**真品类专属列**
+ *    （bond_* / index_* / fund_max_drawdown / links / advisor_* / return_*）留在品类视图。
+ *    混合视图列宽合计 ≈1010px，仍守 design.md 的 1040px 预算。
  */
 
 import type { WatchlistItem } from "@/api/watchlist";
@@ -58,7 +70,13 @@ export interface ColumnDef {
   label: string;
   /** 渲染器类型 */
   renderer: ColumnRenderer;
+  /**
+   * 固定宽度（px）。**只给固定列用**（product 左冻结 / _actions 右冻结 / _selection）。
+   * 其余列一律用 `minWidth`：EP 仅把「无数字 width」的列纳入容器余量分配，
+   * 全列固定宽会导致表格宽度恒等于列宽之和、容器再宽也铺不满（#1421 根因 2）。
+   */
   width?: number;
+  /** 最小宽度（px）：非固定列的常态写法；容器有余量时由 EP 按比例拉伸以铺满 */
   minWidth?: number;
   align?: "left" | "center" | "right";
   fixed?: "left" | "right";
@@ -78,10 +96,13 @@ export interface ColumnDef {
   /** #992 预留：是否参与拖拽排序（列顺序） */
   draggable?: boolean;
   /**
-   * 视图作用域（#1285 品类差异化）：
-   * - `"mixed"`：混合视图（未按品类筛选）也显示的「通用列」——名称 / 价格净值 / 涨跌幅 / 操作。
+   * 视图作用域（#1285 品类差异化；混合视图列集于 #1421 修订）：
+   * - `"mixed"`：混合视图（未按品类筛选）也显示的「通用列」——名称 / 添加自选日 /
+   *   最新价 / 涨跌幅 / 持有数量 / 持仓市值 / 持仓收益 / 操作。
+   *   判定标准：**该列对「全部品类」或「全部可交易品类」都成立**，不会恒为 `—`。
    * - `"category"`（默认）：仅在「品类视图」（类型筛选命中单一品类）显示；
    *   用户若在「列设置」显式开启，则任何视图都显示（当前标的不适用时渲染 `—`）。
+   *   本档只留**真品类专属列**（可转债条款 / 指数估值 / 基金回撤 / 关联 / 投顾指标）。
    */
   scope?: "mixed" | "category";
   /**
@@ -111,7 +132,11 @@ export interface ColumnDef {
  */
 /**
  * 可交易 / 可持有资产类型：持仓数量、市值、涨跌收益等列**仅对它们有意义**。
- * 指数（不可买）、基金经理、投顾组合（非交易实体）不在此列，品类视图下不展示这些列。
+ * 指数（不可买）、基金经理、投顾组合（非交易实体）不在此列。
+ *
+ * 注意（#1421）：本常量同时被用作「可交易品类通用列」的判据——这些列对 **7 类可交易
+ * 标的**全部成立，属于**可交易品类通用列**而非品类专属列，故已纳入混合视图；
+ * 仅指数 / 经理 / 投顾组合三类在混合视图下渲染 `—`。
  */
 export const TRADABLE_TYPES = [
   "stock",
@@ -140,6 +165,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     renderer: "product",
     // design.md「冻结列与横向滚动规范」+ components.md「ProductDisplay 列宽三档」：
     // 自选属「含类型标签且列多需要呼吸感」档，首列 232px 并左侧冻结。
+    // 冻结列保持固定 width（不参与余量分配），保证冻结区宽度稳定。
     // 注意：不能用 show-overflow-tooltip——EP 会给单元格加 white-space:nowrap，
     // 会把「名称 / 代码+标签」的两行结构压回一行（#1281 单行压扁式的成因之一）；
     // 长名称由 ProductDisplay 内部 ellipsis + title 全名兜底。
@@ -154,7 +180,9 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "created_at",
     label: "添加自选日",
     renderer: "date",
-    width: 112,
+    // 添加自选日与品类无关（appliesTo 缺省＝全部品类都会走到），属通用列（#1421）
+    scope: "mixed",
+    minWidth: 104,
     align: "center",
     sortable: "custom",
     hideable: true,
@@ -164,7 +192,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "current_price",
     label: "最新价",
     renderer: "money",
-    width: 96,
+    minWidth: 96,
     align: "right",
     sortable: "custom",
     realtimeField: "currentPrice",
@@ -176,7 +204,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "change_pct",
     label: "涨跌幅",
     renderer: "riseFall",
-    width: 96,
+    minWidth: 96,
     align: "right",
     sortable: "custom",
     realtimeField: "changePct",
@@ -194,7 +222,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "转股溢价率",
     renderer: "bond",
     appliesTo: ["bond"],
-    width: 104,
+    minWidth: 104,
     align: "right",
     hideable: true,
     draggable: true
@@ -205,7 +233,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "强赎状态",
     renderer: "bond",
     appliesTo: ["bond"],
-    width: 148,
+    minWidth: 148,
     align: "left",
     hideable: true,
     draggable: true
@@ -216,7 +244,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "剩余年限",
     renderer: "bond",
     appliesTo: ["bond"],
-    width: 96,
+    minWidth: 96,
     align: "right",
     hideable: true,
     draggable: true
@@ -226,7 +254,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "评级",
     renderer: "bond",
     appliesTo: ["bond"],
-    width: 84,
+    minWidth: 84,
     align: "center",
     hideable: true,
     draggable: true
@@ -239,7 +267,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "市盈率",
     renderer: "indexVal",
     appliesTo: ["index"],
-    width: 88,
+    minWidth: 88,
     align: "right",
     hideable: true,
     draggable: true
@@ -249,7 +277,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "股息率",
     renderer: "indexVal",
     appliesTo: ["index"],
-    width: 88,
+    minWidth: 88,
     align: "right",
     hideable: true,
     draggable: true
@@ -264,7 +292,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "最大回撤",
     renderer: "drawdown",
     appliesTo: ["fund"],
-    width: 96,
+    minWidth: 96,
     align: "right",
     hideable: true,
     draggable: true
@@ -277,7 +305,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "关联",
     renderer: "links",
     appliesTo: ["index", "etf"],
-    width: 84,
+    minWidth: 84,
     align: "center",
     hideable: true,
     draggable: true
@@ -290,7 +318,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     appliesTo: TRADABLE_TYPES,
     // 图形 72×22（#1281 第二轮：20px 高在 54px 行高里显得过扁，回调到 22px）+
     // 左右各 10px 留白 = 92px 列宽
-    width: 92,
+    minWidth: 92,
     align: "center",
     hideable: true,
     draggable: true
@@ -300,7 +328,9 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "持有数量",
     renderer: "qty",
     appliesTo: TRADABLE_TYPES,
-    width: 112,
+    // 对全部 7 类可交易标的都成立 → 可交易品类通用列（#1421 纳入混合视图）
+    scope: "mixed",
+    minWidth: 104,
     align: "right",
     sortable: "custom",
     hideable: true,
@@ -311,9 +341,11 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "持仓市值",
     renderer: "moneyRatio",
     appliesTo: TRADABLE_TYPES,
+    // 对全部 7 类可交易标的都成立 → 可交易品类通用列（#1421 纳入混合视图）
+    scope: "mixed",
     // 两行堆叠（金额在上、占比在下）：列宽只需容纳 `¥109,600.00`（约 96px）
-    // + 单元格左右 padding，148px 留有余量
-    width: 148,
+    // + 单元格左右 padding，140px 留有余量
+    minWidth: 140,
     align: "right",
     sortable: "custom",
     hideable: true,
@@ -325,8 +357,8 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "添加后涨幅",
     renderer: "moneyRatio",
     appliesTo: TRADABLE_TYPES,
-    // 同持仓市值：两行堆叠，148px
-    width: 148,
+    // 同持仓市值：两行堆叠，140px（仍留在品类视图，混合视图经列设置可开启）
+    minWidth: 140,
     align: "right",
     sortable: "custom",
     hideable: true,
@@ -338,8 +370,10 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "持仓收益",
     renderer: "moneyRatio",
     appliesTo: TRADABLE_TYPES,
+    // 对全部 7 类可交易标的都成立 → 可交易品类通用列（#1421 纳入混合视图）
+    scope: "mixed",
     // 无货币符号（showCurrency=false），宽度需求小于另两个金额列
-    width: 136,
+    minWidth: 128,
     align: "right",
     sortable: "custom",
     hideable: true,
@@ -364,7 +398,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     // #1332：开放列内排序（白名单已登记）；无真实持仓时显示 --
     sortable: "custom",
     props: { nullable: true },
-    width: 96,
+    minWidth: 96,
     align: "right",
     hideable: true,
     draggable: true,
@@ -377,7 +411,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     renderer: "text",
     // #1332：开放列内排序（白名单已登记 type_label）
     sortable: "custom",
-    width: 104,
+    minWidth: 104,
     align: "center",
     hideable: true,
     draggable: true,
@@ -391,7 +425,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     renderer: "text",
     // #1332：开放列内排序（白名单已登记 groups，后端按 group_names 首个名排）
     sortable: "custom",
-    width: 132,
+    minWidth: 132,
     align: "left",
     hideable: true,
     draggable: true,
@@ -401,7 +435,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "updated_at",
     label: "更新时间",
     renderer: "date",
-    width: 112,
+    minWidth: 112,
     align: "center",
     sortable: "custom", // #1332：后端排序白名单已放开 updated_at（ISO 字符串字典序即时间序）
     hideable: true,
@@ -415,7 +449,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "notes",
     label: "备注",
     renderer: "notes",
-    width: 180,
+    minWidth: 180,
     align: "left",
     hideable: true,
     draggable: true,
@@ -432,7 +466,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "近1周",
     renderer: "advisor",
     appliesTo: ["portfolio"],
-    width: 88,
+    minWidth: 88,
     align: "right",
     hideable: true,
     draggable: true,
@@ -443,7 +477,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "近1月",
     renderer: "advisor",
     appliesTo: ["portfolio"],
-    width: 88,
+    minWidth: 88,
     align: "right",
     hideable: true,
     draggable: true,
@@ -454,7 +488,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "近1年",
     renderer: "advisor",
     appliesTo: ["portfolio"],
-    width: 88,
+    minWidth: 88,
     align: "right",
     hideable: true,
     draggable: true,
@@ -465,7 +499,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "今年以来",
     renderer: "advisor",
     appliesTo: ["portfolio"],
-    width: 96,
+    minWidth: 96,
     align: "right",
     hideable: true,
     draggable: true,
@@ -476,7 +510,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "成立以来",
     renderer: "advisor",
     appliesTo: ["portfolio"],
-    width: 96,
+    minWidth: 96,
     align: "right",
     hideable: true,
     draggable: true,
@@ -487,7 +521,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "最大回撤",
     renderer: "advisor",
     appliesTo: ["portfolio"],
-    width: 96,
+    minWidth: 96,
     align: "right",
     hideable: true,
     draggable: true,
@@ -498,7 +532,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "超额收益",
     renderer: "advisor",
     appliesTo: ["portfolio"],
-    width: 96,
+    minWidth: 96,
     align: "right",
     hideable: true,
     draggable: true,
@@ -509,7 +543,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "业绩基准",
     renderer: "advisor",
     appliesTo: ["portfolio"],
-    width: 120,
+    minWidth: 120,
     align: "left",
     hideable: true,
     draggable: true,
@@ -520,7 +554,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "持仓基金数",
     renderer: "advisor",
     appliesTo: ["portfolio"],
-    width: 104,
+    minWidth: 104,
     align: "right",
     hideable: true,
     draggable: true,
@@ -531,7 +565,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "持仓集中度",
     renderer: "advisor",
     appliesTo: ["portfolio"],
-    width: 112,
+    minWidth: 112,
     align: "right",
     hideable: true,
     draggable: true,
