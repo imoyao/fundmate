@@ -109,6 +109,27 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: 安装 ripgrep（agent 模式只读命令依赖，当前为预留）
+        # ⚠️ 注意：`.ai-review-deep.yaml` 的 agent 模式当前**已关闭**（证据见该文件注释），
+        # 故此步骤在 agent 关闭期间不产生实际作用，**是为将来重开 agent 保留的前置条件**
+        # （缺 rg 会直接让 agent 崩溃，见下方历史实证）。别误删，也别当成现役依赖。
+        # 2026-09-11 实测：.ai-review-deep.yaml 开了 agent.enabled，模型会执行只读命令
+        # 核实符号是否在别处定义（白名单见包内 services/policy/service.py，含 rg）。
+        # 但 ubuntu-latest runner **没有预装 ripgrep**，于是
+        #   Agent command failed: ... FileNotFoundError: [Errno 2] No such file or directory: 'rg'
+        # agent 流程崩溃 → 后续 inline/summary 拿不到 JSON 数组
+        #   （No JSON array found in LLM output）→ 零评论 → 被防假成功守卫判 FAIL。
+        # PR #1414 / #1415 / #1417 三个 deep-review 红灯都是这个原因，与额度无关
+        # （探测日志明确 CHOSEN: deepseek-v4-flash-ga-260731 (selected_ok=true)）。
+        run: |
+          if command -v rg >/dev/null 2>&1; then
+            echo "runner 已预装：$(rg --version | head -1)"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ripgrep
+            echo "已安装：$(rg --version | head -1)"
+          fi
+
       - name: 探测可用模型（轮询 + 兜底）
         id: probe
         env:
@@ -215,7 +236,22 @@ jobs:
               return;
             }
             if (selectedOk && aiComments > 0) {
-              core.info(`本次未新增评论，但 PR 上已有 ${aiComments} 条 AI 评论（去重跳过），视为成功`);
+              // 2026-09-11 PR #1411 实测：本轮一条评论都没产出，却因为有 22 条**历史** AI 评论
+              // 而被判成功——这是假成功的残留缺口（无法区分「去重跳过」与「本轮静默失败」，
+              // ai-review v0.76.0 不在 LLM 报错时非零退出，拿不到该信号）。
+              // 成功结论保持不变（历史评论尚在使用期内），但必须打出醒目告警，否则它会一直
+              // 伪装成"AI 审查通过"，让人误以为模型额度与 agent 都正常。
+              core.warning(
+                `⚠️ 本轮未新增评论，仅凭 PR 上已有的 ${aiComments} 条历史 AI 评论判为成功。` +
+                  ' 这可能是「去重跳过」，也可能是本轮静默失败（假成功）——' +
+                  ' 请在「AI 深度审查」步骤里核对是否存在以下报错：' +
+                  " Empty LLM output / No JSON array found in LLM output / Empty LLM summary /" +
+                  ' FileNotFoundError / Agent command blocked by policy / 429 / 额度告警。'
+              );
+              core.info(
+                '提示：要彻底堵住这个缺口，需 ai-review action 自身在 LLM 报错时非零退出；' +
+                  ' 当前版本（v0.76.0）不提供该信号，见 tech-debt。'
+              );
               return;
             }
             // 未新增评论必须再分两种，**不能只看「探测是否选中健康模型」**。

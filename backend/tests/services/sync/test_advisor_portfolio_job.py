@@ -141,11 +141,11 @@ def test_validate_skips_empty_payload(job):
 
 
 def test_resolve_targets_from_db(job, db):
-    """缺省 targets 时只抓库内 TIANTIAN 在售组合。"""
+    """缺省 targets 时抓库内 TIANTIAN + QIEMAN 在售组合（#1392 自动抓且慢）。"""
     db.add(AdvisorPortfolio(platform='TIANTIAN', code='ABC123', name='t'))
     db.add(AdvisorPortfolio(platform='QIEMAN', code='ZH999999', name='q'))
     db.commit()
-    assert job._resolve_targets([]) == ['ABC123']
+    assert set(job._resolve_targets([])) == {'ABC123', 'ZH999999'}
 
 
 def test_flatten_qieman_composition():
@@ -205,3 +205,38 @@ def test_qieman_import(db):
     # 未建档组合应报错而非静默建卡
     with pytest.raises(ValueError):
         import_qieman_holdings(db, {'ZH888888': {}}, 'ZH888888')
+
+
+def test_qieman_auto_fetch(job, db, monkeypatch):
+    """#1392 且慢持仓自动抓取：MCP 返回持仓 → advisor_holdings(source=qieman)。"""
+    holdings = [
+        {
+            'code': '110011',
+            'name': '易方达中小盘',
+            'ratio': 32.5,
+            'category': '混合基金',
+            'nav': 1.0,
+            'nav_date': '2026-09-10',
+            'adj_time': '2026-09-10 00:00:00',
+            'fund_type': 'MIX_FUND',
+        },
+        {
+            'code': '161725',
+            'name': '招商中证白酒',
+            'ratio': 18.0,
+            'category': '股票基金',
+            'nav': 1.0,
+            'nav_date': '2026-09-10',
+            'adj_time': '2026-09-10 00:00:00',
+            'fund_type': 'STOCK_FUND',
+        },
+    ]
+    monkeypatch.setattr(job.qieman_adapter, 'fetch_holdings', lambda code: holdings)
+
+    result = job.run(full_sync=True, targets=['ZH013136'])
+    assert result['status'] == 'success'
+
+    p = db.query(AdvisorPortfolio).filter_by(platform='QIEMAN', code='ZH013136').one()
+    hs = db.query(AdvisorHolding).filter_by(portfolio_id=p.id, source='qieman').all()
+    assert {h.fund_code for h in hs} == {'110011', '161725'}
+    assert next(h for h in hs if h.fund_code == '110011').after_ratio == pytest.approx(32.5)

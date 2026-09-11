@@ -224,3 +224,19 @@
 .el-table .dd-empty {
   color: var(--text-disabled);
 }
+
+/* ── 跨渠道关联列（#1285 §3.8）── */
+.el-table .link-badge {
+  display: inline-block;
+  padding: 0 6px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--brand-700);
+  background: var(--brand-50, var(--bg-soft));
+  border-radius: 9px;
+  cursor: default;
+}
+
+.el-table .link-empty {
+  color: var(--text-disabled);
+}

@@ -1,5 +1,15 @@
 # app/services/sync/jobs/fund_manager_job.py
-"""基金经理同步任务（全量，当前接口不稳定，暂时跳过）"""
+"""基金经理同步任务（全量回填 / 按目标筛选）。
+
+目标语义与 `fund_type_job` 一致，二者都遵循 `SyncJob.run` 的既定契约：
+
+- `targets` 非空 → 只处理这几只基金（走 `_execute_batches` 分批）；
+- `targets` 为空 → **全量回填**，即遍历库内全部基金。
+
+空列表在本文件里唯一表示「未指定目标」，**不是**「无目标、跳过」。
+「无目标跳过」由 `base.run` 在 `targets == []` 分支、于进入分批流程**之前**完成，
+因此永远流不到 `_fetch_data`（`run_all_jobs` 传给本 job 的是 `fund_targets` 列表）。
+"""
 
 from typing import Dict, List
 
@@ -37,7 +47,11 @@ class FundManagerSyncJob(SyncJob):
     # ── 数据获取 ──
 
     def _fetch_data(self, full_sync: bool, targets: List[str]) -> List[dict]:
-        """遍历所有基金代码，获取关联的基金经理"""
+        """遍历目标基金代码，获取关联的基金经理。
+
+        `targets` 为空表示**全量回填**（取库内全部基金），不是「无目标、跳过」——
+        完整语义见模块 docstring。
+        """
         codes = targets if targets else self._get_all_fund_codes()
         if not codes:
             return []

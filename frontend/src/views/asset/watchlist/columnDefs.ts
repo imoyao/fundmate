@@ -44,6 +44,8 @@ export type ColumnRenderer =
   | "bond" // 可转债条款（#1285/#1393：溢价率 / 强赎状态 / 剩余年限 / 评级）
   | "indexVal" // 指数估值（#1285/#1394：市盈率 / 股息率，中证官方）
   | "drawdown" // 基金最大回撤（#1285/§3.10：口径元数据挂 title）
+  | "links" // 跨渠道关联（#1285 §3.8：数量角标 + 浮层）
+  | "advisor" // 投顾组合品类差异化指标（#1392：区间收益/回撤/超额/集中度）
   | "actions"; // 操作列（circle 按钮：置顶/关注/编辑/删除）
 
 /** 实时估值可覆盖的字段（来自 getValuationItem 产出） */
@@ -268,6 +270,19 @@ export const watchlistColumnDefs: ColumnDef[] = [
     draggable: true
   },
   {
+    // 跨渠道关联入口（#1285 §3.8「数量标记 + 浮层」）：hover 浮层列出关联标的名。
+    // 本期仅指数↔ETF 且只覆盖主流宽基（实测 akshare 无「跟踪标的」字段，总名称
+    // 匹配覆盖 41.1% < 90% 门槛 → 按设计降级）；无关联渲染 `—`。
+    key: "links",
+    label: "关联",
+    renderer: "links",
+    appliesTo: ["index", "etf"],
+    width: 84,
+    align: "center",
+    hideable: true,
+    draggable: true
+  },
+  {
     // 近 60 日收盘迷你走势（#990）：数据源 price_history，无数据降级 --
     key: "trend",
     label: "走势",
@@ -402,6 +417,122 @@ export const watchlistColumnDefs: ColumnDef[] = [
     renderer: "notes",
     width: 180,
     align: "left",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  // ── 投顾组合品类专属列（#1392 投顾品类差异化指标）──
+  // 数据来自后端 AdvisorPortfolio enrich（区间收益/回撤/超额/集中度）。
+  // scope 默认 "category" + appliesTo:["portfolio"]：仅投顾组合品类视图显示
+  // （用户按「投顾组合」类型筛选时）；均 defaultHidden:true（#993 约定新列默认隐藏，
+  // 用户在「列设置」显式开启，不打扰老用户与默认表格宽度）。
+  // 排序：后端 _USER_SORTABLE_FIELDS 暂未登记 return_*/advisor_*，故不加 sortable。
+  {
+    key: "return_1w",
+    label: "近1周",
+    renderer: "advisor",
+    appliesTo: ["portfolio"],
+    width: 88,
+    align: "right",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    key: "return_1m",
+    label: "近1月",
+    renderer: "advisor",
+    appliesTo: ["portfolio"],
+    width: 88,
+    align: "right",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    key: "return_1y",
+    label: "近1年",
+    renderer: "advisor",
+    appliesTo: ["portfolio"],
+    width: 88,
+    align: "right",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    key: "return_ytd",
+    label: "今年以来",
+    renderer: "advisor",
+    appliesTo: ["portfolio"],
+    width: 96,
+    align: "right",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    key: "return_since_incep",
+    label: "成立以来",
+    renderer: "advisor",
+    appliesTo: ["portfolio"],
+    width: 96,
+    align: "right",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    key: "max_drawdown",
+    label: "最大回撤",
+    renderer: "advisor",
+    appliesTo: ["portfolio"],
+    width: 96,
+    align: "right",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    key: "excess_return",
+    label: "超额收益",
+    renderer: "advisor",
+    appliesTo: ["portfolio"],
+    width: 96,
+    align: "right",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    key: "advisor_benchmark",
+    label: "业绩基准",
+    renderer: "advisor",
+    appliesTo: ["portfolio"],
+    width: 120,
+    align: "left",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    key: "advisor_holding_count",
+    label: "持仓基金数",
+    renderer: "advisor",
+    appliesTo: ["portfolio"],
+    width: 104,
+    align: "right",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    key: "advisor_concentration",
+    label: "持仓集中度",
+    renderer: "advisor",
+    appliesTo: ["portfolio"],
+    width: 112,
+    align: "right",
     hideable: true,
     draggable: true,
     defaultHidden: true

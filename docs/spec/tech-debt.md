@@ -63,7 +63,7 @@ title: 技术债务与开口项明细（tech-debt）
 | **全站 footer 对齐问题（前端布局）** | 🟡 中 | `layout/components/lay-content/index.vue` 的 `.main-content`（内容区）与 `layout/components/lay-footer/index.vue` 的 `.app-footer__inner`（页脚内容）分属不同容器/坐标系，折叠侧边栏后两者左右边缘不对齐；页脚与内容未共用同一套 `max-width` + 居中 + 左右 padding 约束。 | **✅ 已修复 (2026-08-09 实证回填)**：`.main-content`（`index.scss:75-79`）与 `.app-footer__inner`（`lay-footer/index.vue:40-49`）已共用同一套宽度约束——`max-width: 1400px` + `margin: 0 auto` + 48px 左右 padding（`var(--space-12)`），折叠/展开侧边栏时左右边缘严格对齐；fixedHeader 模式下外层 `el-scrollbar` 容器（1440px）内再居中，留 20px 呼吸空间仍对齐。 |
 | **依赖升级引入样式/运行时回归风险（前端 `pnpm up`）** | 🟠 高 | 2026-08-03 执行 `pnpm up` 将前端依赖整体升级：element-plus 2.11.5→2.14.3、vue 3.5.22→3.5.40、tailwind 4.1→4.3、sass 1.93→1.102、vite 7.1→7.3、echarts 6、@vueuse/core 14.x 等。**未做充分回归（仅验证 typecheck 通过 + DEV 能起）**，升级后未重新人工核对各页面样式。典型症状：温度计/探市页 header/footer 样式在 DEV 下错乱（实为下面的「dev server 与磁盘依赖版本错位」所致，非 header/footer 代码改动）。header/footer 接入温度计/探市页为更早提交（`891868d`/`bc38d75`/`aa2fffa`），本次未改动。 | **待解决（2026-08-03 记录）**：升级后须对所有路由页做一轮样式回归（尤其 element-plus 2.11→2.14 的组件样式、tailwind v4 工具类、sass 1.93→1.102 混合宏）；建议固定本次升级为一次独立 commit，便于出问题时 `git revert` 二分定位。<br>**2026-08-04 更新**：随 OOM 修复一并完成了 ECharts 全量→按需引入改造（8 文件），typecheck 通过（无新增错误），但样式回归仍待人工核对。 |
 | **生产 `build` 因 OOM 失败（前端 vite 7）** | ~~🟠 高~~ **✅ 已修复 (2026-08-04)** | 2026-08-03 `pnpm run build` 直接 `JavaScript heap out of memory`（exit 1），`NODE_OPTIONS=--max-old-space-size=8192` 仍不足。疑似 vite 7 + 升级后依赖体积膨胀（echarts 6、element-plus 2.14 等）导致打包内存占用激增。该问题**不影响本地 DEV 看页面**，但阻塞生产部署与 Vercel 构建。 | **已修复（2026-08-04）**。经排查 OOM 由四因素叠加导致：① Rollup 无 `manualChunks` 分包；② ECharts 全量引入（8 处）；③ `@iconify/json` 巨型依赖（node_modules 超 200MB）；④ Element Plus 全量 CSS 引入。**详细修复记录见 `docs/working-notes/build-oom-fix-2026-08-04.md`**。**2026-08-04 最终验证**：`pnpm build` 成功（39.65s / 4.33 MB），补充安装 `@iconify-json/ri` 修复 login 页缺失 RemixIcon 图标。 |
-| **dev server 进程存活但磁盘 `node_modules` 已升级 → 版本错位** | 🟡 中 | 2026-08-03 升级依赖时，凌晨 1:20 启动的旧 vite dev server（PID 6756/15644，端口 8449）仍在运行，其加载的模块缓存为旧版本；而 `pnpm up` 已把磁盘 `node_modules` 换成新版本。进程与磁盘依赖版本错位 → HMR 下 CSS/组件样式错乱（用户「看到的样式又不对了」即此因）。非 header/footer 代码被改。 | **待解决（2026-08-03 记录）**：升级依赖后必须重启 dev server（杀旧进程 + 重新 `pnpm dev`），且 `dev` 脚本或服务编排应保证依赖变更时自动重启。当前本地旧进程需人工清理。 |
+| **dev server 进程存活但磁盘 `node_modules` 已升级 → 版本错位** | 🟡 中 | 2026-08-03 升级依赖时，凌晨 1:20 启动的旧 vite dev server（PID 6756/15644，端口 8449）仍在运行，其加载的模块缓存为旧版本；而 `pnpm up` 已把磁盘 `node_modules` 换成新版本。进程与磁盘依赖版本错位 → HMR 下 CSS/组件样式错乱（用户「看到的样式又不对了」即此因）。非 header/footer 代码被改。 | **已闭环（2026-09-11，#972）**：① 新增 vite 插件 `frontend/build/dep-drift-guard.ts`，监听 `pnpm-lock.yaml` / `package.json`，变更即 `server.restart(true)` 重建模块图与依赖预构建（去抖 300ms；`server.restart` 做能力探测 + try/catch，不可用/失败时退化为醒目告警要求手动重启，绝不阻断开发；`DISABLE_DEP_DRIFT_GUARD=1` 可关闭）。② AGENTS.md 常用前端命令下补「升级依赖后必须重启 dev server」提醒。<br>**实测（本机 vite 7.3.6）**：dev server 就绪 → 重写锁文件 → 日志出现「检测到依赖清单变化 / dev server 已重启」，重启前后 `curl` 均 200，无重启循环。<br>**残留**：插件只在 dev server 已运行时生效；若升级期间未开 dev server 则无所谓，若开了但插件被关闭（env）仍需人工重启。 |
 | **`pnpm-lock.yaml` 与实际安装版本不一致** | 🟡 中 | 2026-08-03 build 日志显示运行时解析到 `@vueuse/core@14.3.0`，但 `package.json` 写 `^14.4.0`（caret 范围内），且 lock 文件与本次 `pnpm up` 后的实际安装版本存在偏离嫌疑。lock 文件可信度存疑，可能导致「本地能跑、CI 装到不同版本」的不一致。 | **✅ 已一致 (2026-08-09 实证回填)**：`pnpm-lock.yaml` importers 段解析版本与 `package.json` specifier 吻合（vue 3.5.40、element-plus 2.14.3、vite 7.3.6、echarts 6.1.0 等），lock 文件已提交且无未提交 diff。剩余建议：CI 加 `pnpm install --frozen-lockfile` 校验。 |
 | **前端命名规范整理（参照 Pure Admin + Vue 官方）** | 🟡 中 | 早期前端代码粗糙，命名/类型组织不统一：`api/` 下 `any`/`Record<string, any>`/`object` 泛滥、API 函数命名不一致（`refreshTokenApi`/`getLogin`）、类型与实现混放、components 层级混用。2026-08-03 已先产出规范（`frontend-naming.md`）+ 不规范点清单（`frontend-naming-audit.md`），并按决策「保持现状不强制统一 views 目录形态」。 | **待逐条执行（2026-08-03 记录）**：P0 清 `any`（先对齐后端 `api/types.d.ts` 契约）→ P1（API 命名统一、类型集中、components 改目录组件）→ P2（utils/constants/config 边界）。详见 `frontend-naming-audit.md`，逐条改造需另行确认后执行。 |
 | **前端全量 TypeScript typecheck 修复（31→0 错误）** | ~~🟢 低~~ **✅ 已修复 (2026-08-04)** | 2026-08-03 先修复 8 个 A 类错误；2026-08-04 继续修复剩余 31 个错误直至 vue-tsc --noEmit 零错误。涉及 9 个文件，分为 5 类：① `DefaultRow` 类型不存在于 @pureadmin/table（9 处→any）；② Vue 3 模板中嵌套 Ref 不自动解包（8 处→as any）；③ API 接口缺失字段（5 处→补 optional）；④ API 响应类型不完整（1 处→any+注释）；⑤ 组件 props 类型不匹配（3 处→对齐源码定义）。详细记录见 `docs/working-notes/build-oom-fix-2026-08-04.md`。 | **已修复（2026-08-04）**：`vue-tsc --noEmit` 零错误；新增 `conventions.md` 第 6 章「TypeScript 编码强制约束」作为防回潮红线；pre-commit hook 已加入 `vue-tsc --noEmit` 门禁拦截。 |
@@ -207,12 +207,12 @@ title: 技术债务与开口项明细（tech-debt）
 |---|---|---|---|---|
 | 1 ★ | `services/sync/jobs/fund_meta_job.py:50,71-82` | `existing = {f.fund_code: f for f in self.db.query(Fund).all()}`（全库 26,938 条）后 `for code, fund in existing.items(): self.adapter.fetch_fund_top_holdings(code)` → `ak.fund_portfolio_hold_em` **真·逐只 HTTP**。docstring 却称「本地只存用户核心池，**不把全市场基金灌进库**」——与 `fund_list_job` 实际把全市场灌入 `funds` **互相矛盾**。`orchestrator.py:388` 以 `['__full__']` 调它。**因从未跑通才未引爆**：`scale`/`recent_shares`/`equity_position` 填充率全 0%，`sync_logs` 无 `fund_meta` 记录。一旦执行即撞东财限流。 | 🔴 限流炸弹 | 另开 issue |
 | 2 | `services/cross_domain.py:95-104` | `_market_fetch` **忽略传入的 `_keys`**，`for f in db.query(Fund).all()` 把全库 26,938 个 ORM 实体加载进内存——与同函数上方注释「market_columns：预留，限定 market 侧取回的字段（**避免每次取全表**）」意图**完全相反**。**核实修正（勿沿用初判）**：全仓检索确认该模块**当前零生产调用方**（`backend/app/` 内除自身外无引用，仅 `tests/core/test_cross_domain.py` 使用），故**不是热路径缺陷，而是「零消费者的潜在炸弹」**——一旦有人按模块设计意图接入「自选 + 市场资料」联合查询，即为每次请求全表扫描。附带讽刺：该模块正是 2026-09-09 从 `services/common/`（当时被判为「为分层而分层」的空壳包）上提保留下来的，而它自身如今也成了无消费者的孤立模块。 | 🟡 潜在（无调用方） | ✅ 已修复（#1404）：抽出 `fetch_market_records_by_keys` 按 keys 过滤，不再全表加载。**仍无生产调用方**，接入前须复核 |
-| 3 | `services/sync/jobs/fund_list_job.py:50-87` | docstring「基金列表同步任务（**全量**）」实为只增不改（`_deduplicate_by_unique_key` 只保留库里不存在的新基金）。实测 `sync_logs`：`total=1, success=0, skipped=26,927`。名称 / 契约谎报误导后来人。 | 🟠 契约谎报 | 与 #1396 一并讨论 |
-| 4 | `services/sync/jobs/fund_manager_job.py:37` | `codes = targets if targets else self._get_all_fund_codes()`——**空 targets 静默退化为全库**，与 `fund_detail_enrich_job`（空 targets 返回「无基金需要补充详情」）语义**相反**。注：该 job 走 `ak.fund_manager_em()` 一次全量 + 本地筛选，无速率风险，但语义陷阱须清除。 | 🟠 语义陷阱 | 登记待修 |
+| 3 | `services/sync/jobs/fund_list_job.py:50-87` | docstring「基金列表同步任务（**全量**）」实为只增不改（`_deduplicate_by_unique_key` 只保留库里不存在的新基金）。实测 `sync_logs`：`total=1, success=0, skipped=26,927`。名称 / 契约谎报误导后来人。 | 🟠 契约谎报 | ✅ 已闭环（#1402）：docstring 改为如实描述「只增不改」+ 测试锁定 |
+| 4 | `services/sync/jobs/fund_manager_job.py:37` | `codes = targets if targets else self._get_all_fund_codes()`——**空 targets 静默退化为全库**，与 `fund_detail_enrich_job`（空 targets 返回「无基金需要补充详情」）语义**相反**。注：该 job 走 `ak.fund_manager_em()` 一次全量 + 本地筛选，无速率风险，但语义陷阱须清除。 | 🟠 语义陷阱 | ✅ 已闭环（#1402）：语义写明「空 targets = 全量回填」+ 3 条测试锁定。**原判有误，见 §16.4** |
 | 5 | `domains/funds/models.py` | `funds` 表 22 列中 **7 列为死**：`symbol_prefix`（仅模型定义）、`pinyin_full`（仅 legacy `tools/sync_fund_basics.py` 写）、`risk_level`、`scale`、`recent_shares`、`equity_position` 六列填充率 **0%** 且零读者；`is_fe_charge` 填充率 100% 但值全为默认 `False` 且除模型定义外零引用。 | 🟡 字段债 | 登记，清理须用户拍板（§16.3） |
 | 6 | 库内（非仓库） | **14 张游离表**不在 `DATA_DOMAIN_REGISTRY`：9 张修复脚本遗留备份（`positions_name_repair_backup_20260907` 126 行、`transactions_name_repair_backup_20260907` 1460 行、`transactions_qty_repair_backup_20260826` 66 行、`positions_backup`/`positions_backup_v2`/`assets_backup`/`positions_current_backup`/`assets_name_repair_backup_20260907`/`positions_qty_repair_backup_20260826`）、`sales_broker_mappings`（4 行，代码零引用）、`temperature_single_values`/`temperature_multi_items`/`temperature_composites`（0 行，已改名 `market_*` 后未清理）。 | 🟡 卫生 | 登记，清理须用户拍板 |
 | 7 | `services/thermometer/service.py:36,144,202` | docstring 仍写「保存单值指标到数据库（**新表 temperature_single_values**）」「（新表 temperature_composites）」「（新表 temperature_multi_items）」，实际写入 `MarketSingleValue`(`market_single_values`) / `MarketComposite` / `MarketMultiItem`。**注释漂移**。 | 🟡 注释 | ✅ 已闭环（#1404）：docstring 改为真实表名 `market_single_values` / `market_composites` / `market_multi_items` |
-| 8 ★ | `services/sync/orchestrator.py:341-358` | `_execute_job` 捕获 `job.run` 抛出的异常并返回 `{'status':'error'}`，但 `_save_sync_log` 只在 `run_job` 内部（:338）于 `job.run` **成功返回后**执行——**抛错时全链路无日志**。后果：`sync_logs` 仅有 10 个 `job_name`，`fund_meta`/`fund_type`/`index_catalog`/`convertible_bond`/`dividend_split`/`asset_snapshot`/`advisor_portfolio` 无任何记录，「某 job 到底跑没跑过」无法从日志回答。 | 🟠 可观测性 | 另开 issue |
+| 8 ★ | `services/sync/orchestrator.py:341-358` | `_execute_job` 捕获 `job.run` 抛出的异常并返回 `{'status':'error'}`，但 `_save_sync_log` 只在 `run_job` 内部（:338）于 `job.run` **成功返回后**执行——**抛错时全链路无日志**。后果：`sync_logs` 仅有 10 个 `job_name`，`fund_meta`/`fund_type`/`index_catalog`/`convertible_bond`/`dividend_split`/`asset_snapshot`/`advisor_portfolio` 无任何记录，「某 job 到底跑没跑过」无法从日志回答。 | 🟠 可观测性 | ✅ 已闭环（#1402）：`_execute_job` 异常路径新增 `_save_error_sync_log` + 3 条边界测试 |
 
 ### 16.3 制度性修复（已完成，另见）
 
@@ -220,6 +220,33 @@ title: 技术债务与开口项明细（tech-debt）
 - `conventions.md` §16.2 增补**数据维度**条款（冻结区改动，依据 `decisions.md` D21）。
 - `AGENTS.md` 增「数据策略（按需存、禁止全量堆砌）」硬约束节，作为 PR 流程闸门。
 - `#1396` 验收口径收敛为「用户触达基金的公司解析率 ≥95%」，全库覆盖率移出验收。
+
+### 16.4 闭环记录：契约类三条（2026-09-11 · #1402）
+
+- **第 3 条（`fund_list` 契约谎报）**：docstring 由「基金列表同步任务（全量）」改为如实描述
+  「**只增不改 / insert-only**」，并新增测试 `test_existing_fund_is_not_updated` 锁定
+  「已存在基金的名称 / 类型 / 状态变更不会同步」。流程不变，仅消除误导。
+
+- **第 4 条（空 targets 语义）｜原判有误，特此更正**：原文称「空 targets 的正确语义是
+  『无需处理、跳过』」，并以 `fund_detail_enrich_job` 作对照。核实后该前提**不成立**：
+
+  - `fund_type_job._fetch_data` 的 docstring 明确写着「targets 为空（全量回填）时返回全部」；
+  - `base.run` 本就是按「`targets is None` → 子类自己获取全部数据（适用于全量列表 Job）」
+    设计的，源码注释同上；
+  - `fund_detail_enrich_job` 走**自定义 run 流程**，它继承的基类 `_fetch_data` 只是返回 `[]`
+    的占位实现，与 `fund_manager_job` **不可比**；
+  - `run_all_jobs` 传给 `fund_manager` 的是 `fund_targets` 列表——空列表在 `base.run` 的
+    `targets == []` 分支就已跳过，**根本流不到 `_fetch_data`**。「退化全库」只在
+    `targets is None`（CLI 直调，如 `pdm run sync --job fund_manager`）时可达，
+    而那正是设计中的全量回填路径。
+
+  故本次**只补文档与测试锁定，不改行为**。若按原文改成「跳过」，上述 CLI 调用会变成空操作，
+  属回归。三条测试（None→全量 / []→跳过不抓取 / 显式→只处理目标）已把三态钉死。
+
+- **第 8 条（异常无审计）**：`orchestrator` 新增 `_save_error_sync_log`，job 抛异常时同样落
+  `status=error` 行，`error_detail` 带原文，`data_source` 取自 job 适配器。防御三个边界：
+  `snapshot_time` 为 `None`（`started_at` 是 NOT NULL 列）、`job_name` 未注册（避免 KeyError
+  顶替原始异常）、审计自身写库失败（回滚并降级为日志，不掩盖真因）。
 
 ---
 

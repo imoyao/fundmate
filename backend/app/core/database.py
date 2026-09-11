@@ -16,6 +16,7 @@ from app.core.db_factory import (
     DatabaseFactory,
 )
 from app.core.migrations import (
+    migrate_advisor_portfolio_metrics,
     migrate_watchlist_unique_key,
     migrate_watchlist_venue_not_null,
 )
@@ -226,6 +227,9 @@ def init_db():
     for t in grouped[DOMAIN_MARKET]:
         t.to_metadata(market_meta)
     market_meta.create_all(bind=engine)
+    # 投顾组合指标列（#1392）：create_all 不替存量表加列，迁移须在结构校验前补齐，
+    # 否则 _validate_schema 会因模型列多于库表而报错阻断启动
+    migrate_advisor_portfolio_metrics(engine)
     _validate_schema(engine, market_meta, label='market')
     # user 域表 → 用户引擎
     user_meta = MetaData()
@@ -276,6 +280,8 @@ def init_db_split():
     for t in grouped[DOMAIN_MARKET]:
         t.to_metadata(market_meta)
     market_meta.create_all(bind=app_eng)
+    # 投顾组合指标列（#1392）：迁移须在结构校验前补齐，否则 _validate_schema 报错阻断启动
+    migrate_advisor_portfolio_metrics(app_eng)
     _validate_schema(app_eng, market_meta, label='market')
     # user 域表 → 用户引擎（若已配置）
     if user_eng is not None:

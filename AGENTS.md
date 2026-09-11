@@ -188,6 +188,14 @@
 | 构建 | `pnpm build` |
 | 提交 | husky + commitlint 强制 conventional commits（type 枚举见 `commitlint.config.js`） |
 
+> ⚠️ **升级/安装依赖后必须重启 dev server**（Issue #972）。
+> `pnpm up` / `pnpm install` 只改磁盘上的 `node_modules`，**已在运行的 vite 仍持有旧模块与旧
+> 依赖预构建产物**，HMR 会把新旧版本混在一起，症状是「CSS/组件样式莫名错乱」「改了不生效」——
+> 极易被误判成业务代码 bug（历史上误判过暗黑模式，见 #976）。
+> `dev` 已内置 `frontend/build/dep-drift-guard.ts`：检测到 `pnpm-lock.yaml` / `package.json`
+> 变化会自动 `server.restart(true)`；若日志提示不支持自动重启，则 **Ctrl+C 后重新 `pnpm dev`**。
+> 需要临时关闭：`DISABLE_DEP_DRIFT_GUARD=1 pnpm dev`。
+
 ### 前端约束
 
 - **禁止 `any` / `Record<string, any>`** 作为 API 入参/响应类型。

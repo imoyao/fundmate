@@ -70,10 +70,23 @@ prompt:
   # （services/review/internal/inline/service.py 依赖该 JSON 结构）。
 
 # —— agent 模式：允许模型只读探索仓库，用证据替代猜测 ——
-# max_iterations 上限 100；8 次足够覆盖「核对符号定义 / 核对调用点 / 核对约定文档」，
-# 又不会让每次 PR 审查的 LLM 调用次数失控（每次迭代都是一次计费请求）。
+#
+# ⚠️ 2026-09-11 实测：**关闭**。开启后 deep-review 稳定零产出，原因不是模型额度：
+#   1. 包内只读命令白名单（services/policy/service.py）只有
+#      ls / cat / rg / grep / git(show|diff|log|rev-parse|ls-files)，**不可通过配置扩展**；
+#   2. 模型想「只看文件某一段」时天然会用 `sed -n '1,140p' <file>` → 被拦：
+#        WARNING | AGENT_TOOL_SERVICE | Agent command blocked by policy: sed -n ...
+#   3. 被拦后模型不再按 TOOL_CALL/FINAL 信封输出，第 3 轮被判 unstructured response
+#      直接停止 → inline 与 summary 双双 `LLM returned empty` → 零评论
+#      → 被防假成功守卫判 FAIL（PR #1414/#1415/#1417/#1418 四次复现）。
+#   另有 runner 缺 `rg` 的坑，已在 workflow 里补安装步骤，但装了也只是让步骤 2 更早发生。
+#
+#   结论：在当前 action 版本（v0.76.0）下 agent 模式不可用。降噪主力是下面 review 段的
+#   ONLY_ADDED_WITH_CONTEXT + 硬配额 + inline_comment_fallback: false，不依赖 agent。
+#   若要重开，需先让上游放开白名单（至少允许 sed/head/tail/awk），或在 system agent
+#   prompt 里把可用命令清单写死并禁止尝试白名单外命令。
 agent:
-  enabled: true
+  enabled: false
   max_iterations: 8
 
 review:
