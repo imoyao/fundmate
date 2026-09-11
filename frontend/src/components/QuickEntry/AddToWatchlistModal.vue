@@ -8,7 +8,11 @@
     :close-on-click-modal="false"
     @closed="resetForm"
   >
-    <!-- 搜索框 -->
+    <!-- 搜索框。结果项按「名称 / 品类 · 识别信息」两行分层展示：
+         组合类标的（投顾组合 / 基金经理）的平台原生码对用户无意义——且慢 ZHxxxx、
+         天天基金 tgCode 更是平台私有标识，故整段不展示代码，识别信息由
+         名称 + 品类 + 平台/主理人承担（与自选表格产品列同口径，见
+         `@/constants/advisorPlatform`）。 -->
     <el-form label-width="0px" class="asset-form">
       <el-form-item>
         <el-select
@@ -17,77 +21,69 @@
           remote
           filterable
           reserve-keyword
-          placeholder="输入代码或名称搜索..."
+          placeholder="输入名称搜索，如「远足」「沪深300」"
           :remote-method="remoteSearch"
           :loading="searchLoading"
           clearable
-          class="w-full"
+          class="w-full asset-search"
+          popper-class="add-asset-option-popper"
           @change="onAssetSelected"
         >
           <el-option
             v-for="item in searchResults"
             :key="item.symbol"
-            :label="`${item.symbol} · ${item.name}`"
+            :label="item.name"
             :value="item"
           >
-            <div class="flex justify-between items-center">
-              <span class="text-sm font-medium">{{ item.symbol }}</span>
-              <span
-                class="text-xs ml-2"
-                :style="{ color: 'var(--text-tertiary)' }"
-                >{{ item.name }}</span
-              >
-              <span
-                class="text-xs ml-2"
-                :style="{ color: 'var(--text-tertiary)' }"
-                >{{ getTypeLabel(item.type || "") }}</span
-              >
-              <span
-                class="text-xs ml-2"
-                :style="{ color: getMarketColor(item.market) }"
-              >
-                {{ item.market ? getMarketLabel(item.market) : "—" }}
-              </span>
+            <div class="asset-option">
+              <div class="asset-option__head">
+                <span class="asset-option__name" :title="item.name">
+                  {{ item.name }}
+                </span>
+                <span class="asset-option__type">{{ typeLabelOf(item) }}</span>
+              </div>
+              <div v-if="metaLineOf(item)" class="asset-option__meta">
+                {{ metaLineOf(item) }}
+              </div>
             </div>
           </el-option>
         </el-select>
       </el-form-item>
 
-      <!-- 已选择资产信息 -->
-      <div v-if="selectedAsset" class="selected-asset-card rounded-xl p-4 mb-4">
-        <div class="flex justify-between items-center mb-2">
-          <span class="font-bold" :style="{ color: 'var(--text-primary)' }">{{
-            selectedAsset.name
+      <!-- 已选择资产信息：按「名称 / 品类 / 关键识别信息」分层。
+           组合类标的（投顾组合 / 基金经理）不出现「代码」行——见上方搜索框注释。 -->
+      <div v-if="selectedAsset" class="selected-asset-card rounded-xl mb-4">
+        <div class="selected-asset-card__head">
+          <span class="selected-asset-card__name" :title="selectedAsset.name">
+            {{ selectedAsset.name }}
+          </span>
+          <span class="selected-asset-card__type">{{
+            typeLabelOf(selectedAsset)
           }}</span>
+          <span class="flex-1" />
+          <el-tag v-if="assetAlreadyExists" type="warning" size="small">
+            已在自选
+          </el-tag>
           <el-tag
-            v-if="!assetAlreadyExists && selectedAsset.venue"
+            v-else-if="venueLabelOf(selectedAsset)"
             size="small"
             class="venue-tag"
             :class="selectedAsset.venue === 'OTC' ? 'tag-otc' : 'tag-exchange'"
           >
-            {{ getVenueLabel(selectedAsset.venue) }}
+            {{ venueLabelOf(selectedAsset) }}
           </el-tag>
-          <el-tag v-else type="warning" size="small">已在自选</el-tag>
         </div>
-        <div
-          class="grid grid-cols-2 gap-2 text-xs"
-          :style="{ color: 'var(--text-secondary)' }"
-        >
-          <div>
-            <span :style="{ color: 'var(--text-tertiary)' }">代码：</span
-            >{{ selectedAsset.symbol }}
+
+        <dl v-if="selectedMetaRows.length" class="selected-asset-card__meta">
+          <div
+            v-for="row in selectedMetaRows"
+            :key="row.label"
+            class="selected-asset-card__meta-item"
+          >
+            <dt>{{ row.label }}</dt>
+            <dd :title="row.value">{{ row.value }}</dd>
           </div>
-          <div>
-            <span :style="{ color: 'var(--text-tertiary)' }">市场：</span
-            >{{
-              selectedAsset.market ? getMarketLabel(selectedAsset.market) : "—"
-            }}
-          </div>
-          <div>
-            <span :style="{ color: 'var(--text-tertiary)' }">类型：</span
-            >{{ getTypeLabel(selectedAsset.type) }}
-          </div>
-        </div>
+        </dl>
 
         <!-- 置顶开关 -->
         <div
@@ -262,8 +258,13 @@ import type {
   WatchlistTag,
   WatchlistItem
 } from "@/api/watchlist";
+import {
+  getAdvisorPlatformLabel,
+  isCompositeAssetType
+} from "@/constants/advisorPlatform";
 import { getTypeLabel } from "@/constants/assetType";
 import { getMarketLabel, getVenueLabel } from "@/constants/market";
+import type { AssetSearchExtra } from "@/api/search";
 import TagFormDialog from "@/components/Watchlist/TagFormDialog.vue";
 import GroupFormDialog from "@/components/Watchlist/GroupFormDialog.vue";
 
@@ -273,6 +274,9 @@ interface SearchAssetOption {
   market: string;
   type?: string;
   venue: string;
+  /** 品种差异化展示字段（#1285）：组合类的 platform/host、经理的 company 等。
+      原先在 remoteSearch 映射时被丢弃，导致弹窗无法按「平台」而非「编码」展示。 */
+  extra?: AssetSearchExtra;
   searchType?: "sec" | "fund";
   subscription_rate?: number;
   is_money_fund?: boolean;
@@ -441,6 +445,8 @@ const remoteSearch = async (query: string) => {
       market: item.market ?? "",
       type: item.type,
       venue: item.venue ?? "",
+      // extra 必须整段透传：平台（投顾组合）、主理人、所属公司（经理）都靠它展示
+      extra: item.extra,
       searchType: item.type === "fund" ? ("fund" as const) : ("sec" as const)
     }));
   } finally {
@@ -509,16 +515,59 @@ const handleSubmit = async () => {
   }
 };
 
-// 工具方法
-const getMarketColor = (market: string): string => {
-  const map: Record<string, string> = {
-    HK: "var(--chart-04)",
-    SH: "var(--chart-07)",
-    SZ: "var(--chart-08)",
-    US: "var(--chart-06)"
-  };
-  return map[market] || "var(--text-tertiary)";
+// ── 展示派生（组合类标的不展示平台原生码，见 @/constants/advisorPlatform）──
+
+/** 品类中文标签（后端 asset_type → 中文，如 portfolio → 投顾组合） */
+const typeLabelOf = (item: SearchAssetOption): string =>
+  getTypeLabel(item.type || "");
+
+/** 交易场所标签（EXCHANGE 场内 / OTC 场外；空串＝无市场实体，不展示） */
+const venueLabelOf = (item: SearchAssetOption): string =>
+  item.venue ? getVenueLabel(item.venue) : "";
+
+/**
+ * 搜索结果项的识别信息行（列表第二行）：
+ * - 投顾组合：`平台 · 主理人`（组合码是平台原生码，对用户无意义 → 不展示）
+ * - 基金经理：所属基金公司（经理码 MGR_ 派生，同样不展示）
+ * - 其它品种：`# 代码 · 场内外`（代码是股票/ETF/基金/指数的对外识别信息，保留）
+ */
+const metaLineOf = (item: SearchAssetOption): string => {
+  const extra = item.extra ?? {};
+  if (isCompositeAssetType(item.type)) {
+    if (item.type === "manager") return extra.company || "";
+    return [getAdvisorPlatformLabel(extra.platform), extra.host]
+      .filter((v): v is string => Boolean(v))
+      .join(" · ");
+  }
+  const code = item.symbol ? `# ${item.symbol}` : "";
+  return [code, venueLabelOf(item)].filter(Boolean).join(" · ");
 };
+
+/**
+ * 已选资产的关键信息行（信息卡内两列栅格）。
+ * 组合类标的不出现「代码」行；缺失值直接过滤，避免整片「—」噪音。
+ */
+const selectedMetaRows = computed<{ label: string; value: string }[]>(() => {
+  const item = selectedAsset.value;
+  if (!item) return [];
+  const extra = item.extra ?? {};
+  const rows = isCompositeAssetType(item.type)
+    ? item.type === "manager"
+      ? [{ label: "所属公司", value: extra.company || "" }]
+      : [
+          { label: "平台", value: getAdvisorPlatformLabel(extra.platform) },
+          { label: "主理人", value: extra.host || "" }
+        ]
+    : [
+        { label: "代码", value: item.symbol },
+        {
+          label: "市场",
+          value: item.market ? getMarketLabel(item.market) : ""
+        },
+        { label: "类型", value: getTypeLabel(item.type || "") }
+      ];
+  return rows.filter(r => Boolean(r.value));
+});
 
 const resetForm = () => {
   selectedAsset.value = null;
@@ -537,9 +586,116 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* 资产信息卡片背景 */
+/* ── 搜索结果项：两行分层（名称 + 品类胶囊 / 识别信息行）──
+   注意：下拉浮层被 teleport 到 body，这里只负责「行内结构」，浮层容器样式
+   （高度、行高、hover）在文件末尾的非 scoped 块中按 popper-class 限定。 */
+.asset-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+}
+
+.asset-option__head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.asset-option__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.asset-option__type {
+  flex-shrink: 0;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--text-secondary);
+  background-color: var(--bg-soft);
+  border-radius: var(--radius-pill);
+}
+
+.asset-option__meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+/* ── 已选资产信息卡 ── */
 .selected-asset-card {
+  padding: var(--space-compact);
   background-color: var(--bg-warm);
+}
+
+.selected-asset-card__head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.selected-asset-card__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.selected-asset-card__type {
+  flex-shrink: 0;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--text-secondary);
+  background-color: var(--bg-soft);
+  border-radius: var(--radius-pill);
+}
+
+/* 关键信息两列栅格：label 弱化、value 单行省略（长公司名不撑破卡片） */
+.selected-asset-card__meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 16px;
+  margin-top: 10px;
+}
+
+.selected-asset-card__meta-item {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.selected-asset-card__meta-item dt {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.selected-asset-card__meta-item dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 /* 表单元素通用 */
@@ -625,5 +781,33 @@ onMounted(async () => {
 :deep(.el-select .el-input__wrapper:focus-within),
 :deep(.el-switch:focus-visible .el-switch__core) {
   box-shadow: var(--focus-ring) !important;
+}
+</style>
+
+<!-- 下拉浮层样式必须放在**非 scoped** 块：el-select 的 dropdown 被 teleport 到 body，
+     scoped 属性与 :deep() 都命中不到浮层 DOM。此处以 popper-class 限定作用域，
+     只影响本弹窗的搜索下拉，不污染其它 el-select。 -->
+<style>
+/* EP 默认 .el-select-dropdown__item 是 height / line-height: 34px 的「单行」容器，
+   自绘的两行内容会贴顶，视觉上就是「文字没有上下居中」（用户实测反馈）。
+   这里把高度交给内容（height: auto + 上下 padding）并重置 line-height: normal，
+   让行内 flex 的 align-items: center 真正生效。 */
+.add-asset-option-popper .el-select-dropdown__item {
+  height: auto;
+  min-height: 48px;
+  padding: 6px 12px;
+  line-height: normal;
+  white-space: normal;
+}
+
+.add-asset-option-popper .el-select-dropdown__item:not(.is-disabled):hover {
+  background-color: var(--bg-hover);
+}
+
+/* 选中态回到品牌软底（与全站「软按钮」语言一致），不用 EP 默认的实心主色文字 */
+.add-asset-option-popper .el-select-dropdown__item.is-selected {
+  font-weight: 400;
+  color: var(--text-primary);
+  background-color: var(--brand-100);
 }
 </style>
