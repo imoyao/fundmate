@@ -822,8 +822,8 @@ const renderDrawdown: FunctionalComponent<{
  * 跨渠道关联入口（#1285 设计 §3.8「数量标记 + 浮层」）。
  *
  * 数量角标 + hover 浮层列出关联标的全名；数据来自后端 `channel_links`
- * （本期仅 index_etf，且只覆盖主流宽基）。无关联渲染 `—`——不用「0 个」，
- * 与全表「无数据一律 —」的约定保持一致。
+ *（index_etf 指数↔场内 ETF、etf_feeder 场内 ETF↔场外联接，两类混排）。
+ * 无关联渲染 `—`——不用「0 个」，与全表「无数据一律 —」的约定保持一致。
  */
 const renderLinks: FunctionalComponent<{
   row: WatchlistRow;

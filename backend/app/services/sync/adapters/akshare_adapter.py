@@ -730,6 +730,38 @@ class AkshareAdapter(DataSourceAdapter):
             self.logger.error(f'获取 ETF 名录失败: {e}')
             return []
 
+    def fetch_etf_list_ths(self) -> List[dict]:
+        """同花顺 ETF 名录（ak.fund_etf_category_ths「基金名称」= **基金全称**，#1413）。
+
+        为什么还要这一路：跨渠道关联靠名称匹配，而**匹配成败取决于文本源**
+        （2026-09-11 实测，见 services/sync/name_match.py docstring）——
+        东财 `fund_etf_spot_em` 给的是**交易所场内简称**（「通信ETF国泰」），指数名被压没了；
+        同花顺给的是**基金全称**（「国泰中证全指通信设备ETF」），保留完整指数名，
+        与 `index_catalog` 的名录才能对上。
+        实测覆盖率：东财简称 45.2% → 同花顺全称 89.0%（毛）/ 67.3%（过滤后落库口径）。
+
+        返回 [{code, name}]；查询失败返回空列表，由调用方回退东财简称（**不阻断**主链路）。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.fund_etf_category_ths(symbol='ETF基金')
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                code = str(self._cell(row, '基金代码') or '').strip()
+                name = str(self._cell(row, '基金名称') or '').strip()
+                if not code or not name:
+                    continue
+                out.append({'code': code, 'name': name})
+            self.logger.info(f'获取到 {len(out)} 只 ETF 全称名录（同花顺）')
+            return out
+        except Exception as e:
+            self.logger.warning(f'获取同花顺 ETF 名录失败（回退东财简称）: {e}')
+            return []
+
     def fetch_index_valuation_csindex(self, index_code: str) -> List[dict]:
         """中证指数**官方**估值（ak.stock_zh_index_value_csindex，#1285/#1394）。
 

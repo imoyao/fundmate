@@ -160,9 +160,14 @@ class ChannelLink(Base, PrimaryKeyMixin, TimestampMixin):
     （SH000300 / CSI000300 / SZ399006），按裸代码 join 才能前缀无关地命中；
     展示所需的名称冗余在 `from_name` / `to_name`。
 
-    本期边界（2026-09-11 实测降级）：akshare `fund_etf_spot_em` **无「跟踪标的」字段**、
-    交易所规模表亦无，名称匹配总覆盖仅 **41.1%**（<90% 门槛），故按**主流宽基白名单**
-    精确匹配，其余留 `—`；`match_type` 记录匹配置信方式，便于后续人工校正/扩面。
+    **为什么靠名称匹配**：akshare `fund_etf_spot_em` **无「跟踪标的」字段**、交易所规模表
+    亦无（2026-09-11 实测），只能靠产品名。第一版（PR #1399）用东财**场内简称**
+    （指数名被压没，覆盖 41.1%）→ 降级为 13 个宽基白名单、实落 274 条。2026-09-11 改版：
+    换同花顺**基金全称**作匹配文本 + 最长核心名匹配（覆盖 89.0% 毛 / 66.4% 落库口径），
+    并补齐 `etf_feeder` 第二层（68.3%）。算法与实测依据见 `services/sync/name_match.py`。
+    仍匹配不上的（跨境/商品 ETF 的跟踪标的不在 `index_catalog` 内）留 `—`，缺口记 #1419。
+
+    `match_type` 记录匹配置信方式，便于后续人工校正/扩面。
     """
 
     __tablename__ = 'channel_links'
@@ -172,7 +177,10 @@ class ChannelLink(Base, PrimaryKeyMixin, TimestampMixin):
     to_symbol = Column(String(30), nullable=False, comment='终点裸代码（ETF 代码 / 联接基金代码）')
     from_name = Column(String(80), comment='起点名称（冗余，浮层直接展示）')
     to_name = Column(String(80), comment='终点名称（冗余）')
-    match_type = Column(String(20), comment='匹配置信方式: whitelist_keyword / feeder_suffix / manual')
+    match_type = Column(
+        String(20),
+        comment='匹配置信方式: name_longest_core（指数↔ETF）/ feeder_core_manager（ETF↔联接）/ manual',
+    )
     source = Column(String(20), default='auto', comment='来源: auto / manual')
 
     __table_args__ = (UniqueConstraint('link_type', 'from_symbol', 'to_symbol', name='uk_channel_link'),)

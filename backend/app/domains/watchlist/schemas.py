@@ -115,8 +115,11 @@ class WatchlistItemOut(BaseModel):
     fund_max_drawdown_window: Optional[str] = None  # 窗口描述（如「近3年」）
     fund_max_drawdown_as_of: Optional[date] = None  # 序列最后净值日（「截至」）
     # 跨渠道关联（#1285 设计 §3.8）：数量角标 + 浮层明细。
-    # links 元素形状：[{code, name, link_type}]（本期 link_type 仅 index_etf，
-    # 且只覆盖主流宽基——实测 akshare 无「跟踪标的」字段，见 channel_links 模型注释）。
+    # links 元素形状：[{code, name, link_type}]；link_type 现有两类：
+    #   index_etf —— 指数 ↔ 场内 ETF（第一层）
+    #   etf_feeder —— 场内 ETF ↔ 场外联接基金（第二层）
+    # 靠名称匹配（实测 akshare 无「跟踪标的」字段），落库口径覆盖率约 66.4%；
+    # 跨境/商品 ETF 的跟踪标的不在 index_catalog 内，缺口见 #1419。
     link_count: Optional[int] = None
     links: list[dict] = []
 
