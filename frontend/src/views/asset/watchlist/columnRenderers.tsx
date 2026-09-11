@@ -29,6 +29,10 @@ import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import MoneyWithRatio from "@/components/MoneyWithRatio/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
+import {
+  getAdvisorPlatformLabel,
+  isCompositeAssetType
+} from "@/constants/advisorPlatform";
 import { formatDate } from "@/utils/date";
 import { pricePrecision } from "@/utils/pricePrecision";
 import type { ColumnDef, ColumnRenderer, WatchlistRow } from "./columnDefs";
@@ -92,23 +96,6 @@ function field(row: WatchlistRow, key: string): unknown {
   return (row as unknown as Record<string, unknown>)[key];
 }
 
-/**
- * 投顾组合平台枚举 → 中文（AdvisorPortfolio.platform）。
- * 后端存英文枚举（QIEMAN/DANJUAN/TIANTIAN/YINGMI），编号式枚举对用户无意义，
- * 展示层统一转平台名；未知值原样兜底（新增平台未同步映射时不至于空白）。
- */
-const ADVISOR_PLATFORM_LABELS: Record<string, string> = {
-  QIEMAN: "且慢",
-  DANJUAN: "蛋卷基金",
-  TIANTIAN: "天天基金",
-  YINGMI: "盈米"
-};
-
-/** 组合类标的（非交易实体）：资产类型层面的判定，与后端 asset_types 单一来源对齐。
-    这类标的没有对外有意义的交易代码（股票/ETF/指数的 `# 代码` 才有意义），
-    名称与第二行元信息是唯一的识别信息。 */
-const COMPOSITE_ASSET_TYPES = new Set(["portfolio", "manager"]);
-
 /** 取行的 asset_type（后端已归一为小写；历史行可能大写，统一 lower 兜底） */
 function assetTypeOf(row: WatchlistRow): string {
   return (
@@ -116,9 +103,11 @@ function assetTypeOf(row: WatchlistRow): string {
   ).toLowerCase();
 }
 
-/** 行是否为投顾组合/基金经理等组合类标的 */
+/** 行是否为投顾组合/基金经理等组合类标的。
+    判定与平台中文映射统一收口在 `@/constants/advisorPlatform`
+    （「添加自选」弹窗同样消费，避免两份实现漂移）。 */
 function isCompositeAsset(row: WatchlistRow): boolean {
-  return COMPOSITE_ASSET_TYPES.has(assetTypeOf(row));
+  return isCompositeAssetType(assetTypeOf(row));
 }
 
 /**
@@ -134,7 +123,7 @@ function compositeSubMeta(row: WatchlistRow): string {
   const platform = advisorPlatform(row);
   if (!platform) return "";
   return [
-    ADVISOR_PLATFORM_LABELS[platform] || platform,
+    getAdvisorPlatformLabel(platform),
     field(row, "advisor_host") as string | null | undefined,
     field(row, "advisor_strategy_type") as string | null | undefined
   ]
