@@ -9,12 +9,18 @@ title: AI Review 历史误报案例库（不注入 prompt）
 >
 > **追加规则前先来这里登记案例**，流程见 `docs/configs/ai-review-prompt.md` 文末「附」。
 > 判断次序：**能降级为配置的，不进 prompt**（审查范围、配额、忽略路径、agent 开关）→ 剩下的才抽象成一般规则。
+>
+> ⚠️ **口径更新（2026-09-11）**：下表「现在由什么拦住」一列中凡写有「prompt §0 验证义务 / 先看文件 / 必须 `rg` 出证据」
+> 者，其原始含义是「模型先读仓库再发言」。但 `agent.enabled` 实测失败已关闭（`.ai-review-deep.yaml`，
+> 证据链见 `docs/spec/ai-review.md` §7），**该能力不存在**。`prompt §0` 已同步改写为
+> 「**不得对看不见的仓库做任何断言**」。
+> 即：拦截方向不变（都是「不许猜」），但从「要求核实」改为「禁止越界断言」——**不再依赖读仓库能力**。
 
 ## 一、按类型归档
 
 | 误报类型 | 首次实证 | 模型当时的典型说法 | 事实 | 现在由什么拦住 |
 |---|---|---|---|---|
-| **符号「未定义 / 未使用 / 重复导入」** | #1344 | 「`TYPE_LABELS` 未定义」「`_user_sort_metric` 找不到定义」「`holding_cost_price` 来源不明」 | 全部已定义：来自 `app.core.constants`、同文件其它函数，或 enrich 阶段下发 | prompt §0 验证义务（必须 `rg` 出证据）+ `.ai-review-deep.yaml` 的 `agent.enabled: true`（有仓库读权） |
+| **符号「未定义 / 未使用 / 重复导入」** | #1344 | 「`TYPE_LABELS` 未定义」「`_user_sort_metric` 找不到定义」「`holding_cost_price` 来源不明」 | 全部已定义：来自 `app.core.constants`、同文件其它函数，或 enrich 阶段下发 | `prompt §0` 的硬禁止：无工具读仓库 → 该类别**一律不得提**。（当时曾寄望 `agent.enabled: true` 提供读权，2026-09-11 实测该配置必致零产出，已关闭） |
 | **同一符号同时被判「未使用」与「未定义」** | #1399 | 对 `index.vue` 的 `activeCategory` 同时发「定义未使用」（511/513/515）与「使用未定义」（517） | 511 定义、517 使用，两处都在同一文件 | 同上；两条互斥断言同时出现即自证误报 |
 | **同一元素同时被判「被删」与「被加回」** | #1399 | 对 `WatchlistFilterBar.vue` 的 `reverse_repo` 同时发「被删除」与「被加回」 | 从未删除过 | `.ai-review-deep.yaml` 的 `review.mode: ONLY_ADDED_WITH_CONTEXT`（不再把删除行当审查对象） |
 | **等价替换被读成删除 / 回归** | #1369（**46 条行内意见全误报**） | 「`TradeService` 的 import 被删，需加回」「同一模块 import 了两次」 | 补丁里 `-` 旧路径与相邻 `+` 新路径是**换源**（`services/trade_rules` → `services/trading`） | 同上（`ONLY_ADDED_WITH_CONTEXT`）+ prompt §2 范围纪律 |

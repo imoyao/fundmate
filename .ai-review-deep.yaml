@@ -29,6 +29,8 @@
 #        （services/policy/service.py）强制执行，模型无法越界。
 #        失败时自动回落到直接对话（ReviewAgentLLMGateway 内置 fallback），
 #        不会静默中断审查。
+#      ⚠️ 该对策已**撤回**：实测开启后必然零产出，见下方 agent 段（2026-09-11）。
+#         现最终口径是「无工具 → 不得对仓库做断言」，prompt §〇 已据此改写。
 #   3) max_inline_comments / max_context_comments 默认 None —— 无硬上限。
 #      而内置提示词本身写着「prioritize ... (maximum 50 comments)」，模型天然
 #      倾向凑数式覆盖。
