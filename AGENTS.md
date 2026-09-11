@@ -208,6 +208,21 @@
 
 > 多 worktree 并行开发时，每个 worktree 重复 `pnpm install` / `pdm install` 既耗时又占盘。本节规定复用策略，所有 AI / 开发者开新 worktree 后**必须**按此执行。
 
+### 主仓库只跑 dev server，不在其中切分支（强制，2026-09-11）
+
+- **主仓库 `D:\codes\fundmate` 常驻 `dev`，只用于运行 dev server。一切代码改动都在独立 worktree 里做**
+  （`git worktree add ../<repo>-<issue#> -b <type>/<issue#>-<slug> origin/dev`），改完走 PR 合入 `dev`；
+  主工作区**始终不切分支、不 stash、不被 pull 覆盖**。CLI 的 cwd 可以是主仓库（读操作、`gh`、`git log`
+  之类都无所谓），但只要要**改文件**，就换到 worktree。
+- **禁止在主仓库执行会改写工作区的命令**：`git checkout <分支>` / `git switch` / `git stash pop|apply` /
+  `git reset --hard` / 有本地改动时的 `git pull` 等。确需切换分支时**先停掉 dev server**。
+- **为什么**（#1421 事故复盘，2026-09-11 实测）：主仓库跑着 Vite 时切分支，git 是**逐个文件**改写工作区的——
+  它先 unlink 了 `frontend/build/dep-drift-guard.ts`，而仍然 import 它的 `frontend/build/plugins.ts`
+  尚未被改写；Vite 监听着「配置依赖」的变化，立刻重载配置 bundle，重新读到的仍是新版 `plugins.ts`，于是报
+  `Could not resolve "./dep-drift-guard"` → `server restart failed`。dev server 与磁盘状态随即错位，
+  而报错指向一个「明明存在」的文件，极易被误判成代码缺陷。**这是工作流问题，不是代码缺陷。**
+- 同理：跑着 dev server 的工作区不要被 `git worktree remove`、外部脚本或编辑器插件批量改写文件。
+
 ### 原理（为什么不能"直接复用主仓库依赖"）
 
 - pnpm / PDM 均使用**全局 content-addressable store/cache** 去重：包体只下载一次（pnpm 默认 `%LOCALAPPDATA%\pnpm\store`；PDM 默认 `~/.cache/pdm`）。
