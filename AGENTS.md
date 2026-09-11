@@ -252,6 +252,19 @@
    **自检铁律**：装完必须打印 `app` 模块路径确认指向**当前 worktree**，否则测试跑的是别人的代码，
    而失败信息会指向错误的方向。
 
+   **风险提示：pdm 2.26 走 uv 后端时有副作用（2026-09-11 实测）**。`pdm install` 会用临时文件
+   `backend/pyproject.toml.<随机后缀>` 重写 `pyproject.toml` 再 rename 覆盖，并额外生成 `uv.lock`。
+   两个后果：
+
+   - **不要在 install 执行期间删除或移动那个临时文件**：rename 会因源文件缺失报 `FileNotFoundError`，
+     结果是 `pyproject.toml` 直接从工作区**消失**。连带伤害很隐蔽——`ruff` 读不到
+     `[tool.ruff.format] quote-style = "single"` 就退回默认双引号，一次 `ruff format` 能把整文件
+     单引号改成双引号，diff 从数行膨胀到数百行（先查行尾会白费功夫）。
+     丢失后用 `git checkout -- backend/pyproject.toml` 恢复，重跑 format 即收敛。
+   - **若该次 install 报错**（如 `pywin32` 拒绝访问），产出的 `.venv` 是**不完整**的（典型症状
+     `No module named 'pluggy'`），不要在此基础上跑测试。应急可借主 worktree 的 `.venv`，
+     但须把 cwd 设为本 worktree 的 `backend/`，并先打印 `app.__file__` 确认指向正确。
+
 3. **锁文件不一致**（某分支升级了依赖）→ 禁止 junction，走正规安装：
 
    ```powershell
