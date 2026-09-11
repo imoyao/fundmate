@@ -365,6 +365,10 @@ class DataSyncOrchestrator:
             return result
         except Exception as e:
             logger.exception(f'任务 {job_name} 异常: {e}，继续执行下一个任务')
+            # 异常路径同样落一条审计行（#1402）。
+            # run_job 只在 job.run **正常返回**之后才调 _save_sync_log；一旦抛异常，
+            # sync_logs 全链路无记录，「某 job 到底跑没跑过、失败在哪一步」无法回答。
+            self._save_error_sync_log(job_name, full_sync, e)
             return {'job_name': job_name, 'status': 'error', 'error': str(e)}
 
     def run_all_jobs(self, full_sync: bool = False, target_file: Optional[str] = None) -> Dict[str, Any]:
@@ -440,3 +444,40 @@ class DataSyncOrchestrator:
         )
         self.db.add(log_entry)
         self.db.commit()
+
+    def _save_error_sync_log(self, job_name: str, full_sync: bool, error: Exception) -> None:
+        """异常路径的审计落库（#1402）。
+
+        与 `_save_sync_log` 的关键差别：本方法必须在「job 没跑完」时也安全，因此
+        全程防御式取值：
+
+        - `job.snapshot_time` 可能仍是 `None`（未进入 `run()` 就炸），而 `started_at`
+          列是 NOT NULL，照抄 `_save_sync_log` 会再抛一次；
+        - `self.jobs[job_name]` 可能根本不存在（`run_job` 对未知任务名抛 ValueError），
+          用下标访问会把原始异常替换成 KeyError；
+        - 审计写入本身失败绝不能向上抛——本方法存在的意义是「让失败可见」，
+          若它自己炸掉，调用方正在冒泡的原始异常就被掩盖了。
+        """
+        job = self.jobs.get(job_name)
+        now = now_shanghai()
+        started_at = getattr(job, 'snapshot_time', None) or now
+        try:
+            log_entry = SyncLog(
+                job_name=job_name,
+                status='error',
+                full_sync=full_sync,
+                stats=None,
+                error_detail=str(error),
+                data_source=(job.adapter.get_name() if job is not None else None),
+                data_source_version=(job.adapter.get_version() if job is not None else None),
+                started_at=started_at,
+                finished_at=now,
+                duration_seconds=(now - started_at).total_seconds(),
+            )
+            self.db.add(log_entry)
+            self.db.commit()
+            logger.info(f'已为异常任务 {job_name} 写入 sync_logs（status=error）')
+        except Exception:
+            # 回滚并把自身异常降级为日志，保住调用方正在冒泡的原始异常
+            self.db.rollback()
+            logger.exception(f'写入 {job_name} 失败审计日志时出错（已忽略，不影响主流程）')

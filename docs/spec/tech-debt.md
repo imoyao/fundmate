@@ -207,12 +207,12 @@ title: 技术债务与开口项明细（tech-debt）
 |---|---|---|---|---|
 | 1 ★ | `services/sync/jobs/fund_meta_job.py:50,71-82` | `existing = {f.fund_code: f for f in self.db.query(Fund).all()}`（全库 26,938 条）后 `for code, fund in existing.items(): self.adapter.fetch_fund_top_holdings(code)` → `ak.fund_portfolio_hold_em` **真·逐只 HTTP**。docstring 却称「本地只存用户核心池，**不把全市场基金灌进库**」——与 `fund_list_job` 实际把全市场灌入 `funds` **互相矛盾**。`orchestrator.py:388` 以 `['__full__']` 调它。**因从未跑通才未引爆**：`scale`/`recent_shares`/`equity_position` 填充率全 0%，`sync_logs` 无 `fund_meta` 记录。一旦执行即撞东财限流。 | 🔴 限流炸弹 | 另开 issue |
 | 2 | `services/cross_domain.py:95-104` | `_market_fetch` **忽略传入的 `_keys`**，`for f in db.query(Fund).all()` 把全库 26,938 个 ORM 实体加载进内存——与同函数上方注释「market_columns：预留，限定 market 侧取回的字段（**避免每次取全表**）」意图**完全相反**。**核实修正（勿沿用初判）**：全仓检索确认该模块**当前零生产调用方**（`backend/app/` 内除自身外无引用，仅 `tests/core/test_cross_domain.py` 使用），故**不是热路径缺陷，而是「零消费者的潜在炸弹」**——一旦有人按模块设计意图接入「自选 + 市场资料」联合查询，即为每次请求全表扫描。附带讽刺：该模块正是 2026-09-09 从 `services/common/`（当时被判为「为分层而分层」的空壳包）上提保留下来的，而它自身如今也成了无消费者的孤立模块。 | 🟡 潜在（无调用方） | 登记；接入前必须先改。**不开独立 issue** |
-| 3 | `services/sync/jobs/fund_list_job.py:50-87` | docstring「基金列表同步任务（**全量**）」实为只增不改（`_deduplicate_by_unique_key` 只保留库里不存在的新基金）。实测 `sync_logs`：`total=1, success=0, skipped=26,927`。名称 / 契约谎报误导后来人。 | 🟠 契约谎报 | 与 #1396 一并讨论 |
-| 4 | `services/sync/jobs/fund_manager_job.py:37` | `codes = targets if targets else self._get_all_fund_codes()`——**空 targets 静默退化为全库**，与 `fund_detail_enrich_job`（空 targets 返回「无基金需要补充详情」）语义**相反**。注：该 job 走 `ak.fund_manager_em()` 一次全量 + 本地筛选，无速率风险，但语义陷阱须清除。 | 🟠 语义陷阱 | 登记待修 |
+| 3 | `services/sync/jobs/fund_list_job.py:50-87` | docstring「基金列表同步任务（**全量**）」实为只增不改（`_deduplicate_by_unique_key` 只保留库里不存在的新基金）。实测 `sync_logs`：`total=1, success=0, skipped=26,927`。名称 / 契约谎报误导后来人。 | 🟠 契约谎报 | ✅ 已闭环（#1402）：docstring 改为如实描述「只增不改」+ 测试锁定 |
+| 4 | `services/sync/jobs/fund_manager_job.py:37` | `codes = targets if targets else self._get_all_fund_codes()`——**空 targets 静默退化为全库**，与 `fund_detail_enrich_job`（空 targets 返回「无基金需要补充详情」）语义**相反**。注：该 job 走 `ak.fund_manager_em()` 一次全量 + 本地筛选，无速率风险，但语义陷阱须清除。 | 🟠 语义陷阱 | ✅ 已闭环（#1402）：语义写明「空 targets = 全量回填」+ 3 条测试锁定。**原判有误，见 §16.4** |
 | 5 | `domains/funds/models.py` | `funds` 表 22 列中 **7 列为死**：`symbol_prefix`（仅模型定义）、`pinyin_full`（仅 legacy `tools/sync_fund_basics.py` 写）、`risk_level`、`scale`、`recent_shares`、`equity_position` 六列填充率 **0%** 且零读者；`is_fe_charge` 填充率 100% 但值全为默认 `False` 且除模型定义外零引用。 | 🟡 字段债 | 登记，清理须用户拍板（§16.3） |
 | 6 | 库内（非仓库） | **14 张游离表**不在 `DATA_DOMAIN_REGISTRY`：9 张修复脚本遗留备份（`positions_name_repair_backup_20260907` 126 行、`transactions_name_repair_backup_20260907` 1460 行、`transactions_qty_repair_backup_20260826` 66 行、`positions_backup`/`positions_backup_v2`/`assets_backup`/`positions_current_backup`/`assets_name_repair_backup_20260907`/`positions_qty_repair_backup_20260826`）、`sales_broker_mappings`（4 行，代码零引用）、`temperature_single_values`/`temperature_multi_items`/`temperature_composites`（0 行，已改名 `market_*` 后未清理）。 | 🟡 卫生 | 登记，清理须用户拍板 |
 | 7 | `services/thermometer/service.py:36,144,202` | docstring 仍写「保存单值指标到数据库（**新表 temperature_single_values**）」「（新表 temperature_composites）」「（新表 temperature_multi_items）」，实际写入 `MarketSingleValue`(`market_single_values`) / `MarketComposite` / `MarketMultiItem`。**注释漂移**。 | 🟡 注释 | 登记待修 |
-| 8 ★ | `services/sync/orchestrator.py:341-358` | `_execute_job` 捕获 `job.run` 抛出的异常并返回 `{'status':'error'}`，但 `_save_sync_log` 只在 `run_job` 内部（:338）于 `job.run` **成功返回后**执行——**抛错时全链路无日志**。后果：`sync_logs` 仅有 10 个 `job_name`，`fund_meta`/`fund_type`/`index_catalog`/`convertible_bond`/`dividend_split`/`asset_snapshot`/`advisor_portfolio` 无任何记录，「某 job 到底跑没跑过」无法从日志回答。 | 🟠 可观测性 | 另开 issue |
+| 8 ★ | `services/sync/orchestrator.py:341-358` | `_execute_job` 捕获 `job.run` 抛出的异常并返回 `{'status':'error'}`，但 `_save_sync_log` 只在 `run_job` 内部（:338）于 `job.run` **成功返回后**执行——**抛错时全链路无日志**。后果：`sync_logs` 仅有 10 个 `job_name`，`fund_meta`/`fund_type`/`index_catalog`/`convertible_bond`/`dividend_split`/`asset_snapshot`/`advisor_portfolio` 无任何记录，「某 job 到底跑没跑过」无法从日志回答。 | 🟠 可观测性 | ✅ 已闭环（#1402）：`_execute_job` 异常路径新增 `_save_error_sync_log` + 3 条边界测试 |
 
 ### 16.3 制度性修复（已完成，另见）
 
@@ -220,6 +220,33 @@ title: 技术债务与开口项明细（tech-debt）
 - `conventions.md` §16.2 增补**数据维度**条款（冻结区改动，依据 `decisions.md` D21）。
 - `AGENTS.md` 增「数据策略（按需存、禁止全量堆砌）」硬约束节，作为 PR 流程闸门。
 - `#1396` 验收口径收敛为「用户触达基金的公司解析率 ≥95%」，全库覆盖率移出验收。
+
+### 16.4 闭环记录：契约类三条（2026-09-11 · #1402）
+
+- **第 3 条（`fund_list` 契约谎报）**：docstring 由「基金列表同步任务（全量）」改为如实描述
+  「**只增不改 / insert-only**」，并新增测试 `test_existing_fund_is_not_updated` 锁定
+  「已存在基金的名称 / 类型 / 状态变更不会同步」。流程不变，仅消除误导。
+
+- **第 4 条（空 targets 语义）｜原判有误，特此更正**：原文称「空 targets 的正确语义是
+  『无需处理、跳过』」，并以 `fund_detail_enrich_job` 作对照。核实后该前提**不成立**：
+
+  - `fund_type_job._fetch_data` 的 docstring 明确写着「targets 为空（全量回填）时返回全部」；
+  - `base.run` 本就是按「`targets is None` → 子类自己获取全部数据（适用于全量列表 Job）」
+    设计的，源码注释同上；
+  - `fund_detail_enrich_job` 走**自定义 run 流程**，它继承的基类 `_fetch_data` 只是返回 `[]`
+    的占位实现，与 `fund_manager_job` **不可比**；
+  - `run_all_jobs` 传给 `fund_manager` 的是 `fund_targets` 列表——空列表在 `base.run` 的
+    `targets == []` 分支就已跳过，**根本流不到 `_fetch_data`**。「退化全库」只在
+    `targets is None`（CLI 直调，如 `pdm run sync --job fund_manager`）时可达，
+    而那正是设计中的全量回填路径。
+
+  故本次**只补文档与测试锁定，不改行为**。若按原文改成「跳过」，上述 CLI 调用会变成空操作，
+  属回归。三条测试（None→全量 / []→跳过不抓取 / 显式→只处理目标）已把三态钉死。
+
+- **第 8 条（异常无审计）**：`orchestrator` 新增 `_save_error_sync_log`，job 抛异常时同样落
+  `status=error` 行，`error_detail` 带原文，`data_source` 取自 job 适配器。防御三个边界：
+  `snapshot_time` 为 `None`（`started_at` 是 NOT NULL 列）、`job_name` 未注册（避免 KeyError
+  顶替原始异常）、审计自身写库失败（回滚并降级为日志，不掩盖真因）。
 
 ---
 
