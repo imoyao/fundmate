@@ -109,7 +109,10 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: 安装 ripgrep（agent 模式只读命令依赖）
+      - name: 安装 ripgrep（agent 模式只读命令依赖，当前为预留）
+        # ⚠️ 注意：`.ai-review-deep.yaml` 的 agent 模式当前**已关闭**（证据见该文件注释），
+        # 故此步骤在 agent 关闭期间不产生实际作用，**是为将来重开 agent 保留的前置条件**
+        # （缺 rg 会直接让 agent 崩溃，见下方历史实证）。别误删，也别当成现役依赖。
         # 2026-09-11 实测：.ai-review-deep.yaml 开了 agent.enabled，模型会执行只读命令
         # 核实符号是否在别处定义（白名单见包内 services/policy/service.py，含 rg）。
         # 但 ubuntu-latest runner **没有预装 ripgrep**，于是
@@ -241,8 +244,9 @@ jobs:
               core.warning(
                 `⚠️ 本轮未新增评论，仅凭 PR 上已有的 ${aiComments} 条历史 AI 评论判为成功。` +
                   ' 这可能是「去重跳过」，也可能是本轮静默失败（假成功）——' +
-                  ' 请核对「AI 深度审查」步骤中是否有 FileNotFoundError / No JSON array found / 429 等报错，' +
-                  ' 以及「安装 ripgrep」步骤是否真的安装成功。'
+                  ' 请在「AI 深度审查」步骤里核对是否存在以下报错：' +
+                  " Empty LLM output / No JSON array found in LLM output / Empty LLM summary /" +
+                  ' FileNotFoundError / Agent command blocked by policy / 429 / 额度告警。'
               );
               core.info(
                 '提示：要彻底堵住这个缺口，需 ai-review action 自身在 LLM 报错时非零退出；' +
