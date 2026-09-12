@@ -476,7 +476,10 @@ def _calc_anomaly(change_pct: Optional[float], closes: List[float]) -> Optional[
             sigma = round(sd, 2)
             multiple = round(abs(change_pct) / sd, 2)
 
-    hit_sigma = sigma is not None and abs(change_pct) > ANOMALY_SIGMA_MULTIPLE * sigma
+    # 注意：sigma 是 round(sd, 2) 的结果，当 sd 极小（0 < sd < 0.005%）时会被舍入成 0.0，
+    # 此时若只用 round 值比较会退化为 abs(change_pct) > 0，把任何非零涨跌都误判为 σ 异动。
+    # 故必须额外要求 sigma > 0（用原始 sd 比较更精确，这里用 round 值的 0 守卫已足够挡住退化情形）。
+    hit_sigma = sigma is not None and sigma > 0 and abs(change_pct) > ANOMALY_SIGMA_MULTIPLE * sigma
     hit_abs = abs(change_pct) >= ANOMALY_ABS_THRESHOLD
     if not (hit_sigma or hit_abs):
         return None
