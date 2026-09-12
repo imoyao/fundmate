@@ -133,14 +133,26 @@ export function useWatchlistColumnVisibility(
   );
 
   /**
-   * 按品类分组（设置面板「表格列显示」分块渲染）：顺序取 COLUMN_GROUP_META，
-   * 每个分组装入归属该组的 hideable 列；无列的组剔除，避免空标题。
+   * 按「品类视图」分组（设置面板「表格列显示」分导航渲染，2026-09-12 修订）：
+   * 每个非「通用」视图 = 通用列（scope:"mixed"）+ 该品类专属列合并呈现，
+   * 让用户在「基金」视图下一屏配齐基金相关的所有列，不必跨两个分组跳。
+   * 通用列因同一 key 共享，跨视图显隐状态天然同步；UI 以配色区分「通用/专属」。
+   * 「通用」视图只装通用列；无列的组剔除，避免空标题。
    */
+  const generalCols = computed(() =>
+    hideableColumns.value.filter(c => c.scope === "mixed")
+  );
   const groupedHideableColumns = computed(() =>
-    COLUMN_GROUP_META.map(g => ({
-      ...g,
-      cols: hideableColumns.value.filter(c => getColumnGroup(c.key) === g.key)
-    })).filter(g => g.cols.length > 0)
+    COLUMN_GROUP_META.map(g => {
+      const specific = hideableColumns.value.filter(
+        c => getColumnGroup(c.key) === g.key
+      );
+      const cols =
+        g.key === "general"
+          ? generalCols.value
+          : [...generalCols.value, ...specific];
+      return { ...g, cols };
+    }).filter(g => g.cols.length > 0)
   );
 
   /**
