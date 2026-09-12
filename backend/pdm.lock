@@ -5,7 +5,7 @@
 groups = ["default", "dev", "test"]
 strategy = []
 lock_version = "4.5.0"
-content_hash = "sha256:ebadec1da3454e6d52878f8c4206e6b9b1d0e3785e32caa07e173de93ab0a011"
+content_hash = "sha256:185c8049f5a3b8b9e1f4173fb17ce56165ae2078821195c9f56ec6ebdfc382db"
 
 [[metadata.targets]]
 requires_python = ">=3.12"
@@ -96,6 +96,18 @@ dependencies = [
 files = [
     {file = "apispec-6.10.0-py3-none-any.whl", hash = "sha256:8ff23e0de9a0ceb62ff70047241126315bd17b8d0565a567934c0156f4ddbb43"},
     {file = "apispec-6.10.0.tar.gz", hash = "sha256:0a888555cd4aa5fb7176041be15684154fd8961055e1672e703abf737e8761bf"},
+]
+
+[[package]]
+name = "apscheduler"
+version = "3.11.3"
+summary = ""
+dependencies = [
+    "tzlocal",
+]
+files = [
+    {file = "apscheduler-3.11.3-py3-none-any.whl", hash = "sha256:bbeb2ec02d23d3c06a6c07ed7f0f3939ada6680eb121fae809a69bb42c537a30"},
+    {file = "apscheduler-3.11.3.tar.gz", hash = "sha256:cd2fcc9330039a81a5893472ad49facf23a6d5604cbe1d918c835c6de7834d5a"},
 ]
 
 [[package]]
@@ -2789,6 +2801,18 @@ summary = ""
 files = [
     {file = "tzdata-2026.3-py2.py3-none-any.whl", hash = "sha256:dc096730c87af6cab1b171c9d532be840741ff5d459015e7f6947bd7d7e54931"},
     {file = "tzdata-2026.3.tar.gz", hash = "sha256:4a1518b8993086a7982523e071643f3c0e5f213e75b21318e78bcabfff9d1415"},
+]
+
+[[package]]
+name = "tzlocal"
+version = "5.4.4"
+summary = ""
+dependencies = [
+    "tzdata; sys_platform == \"win32\"",
+]
+files = [
+    {file = "tzlocal-5.4.4-py3-none-any.whl", hash = "sha256:aae09f0126a8a86fa736be266eb4a471380d26a0de3bc14844e7821fee3e2a15"},
+    {file = "tzlocal-5.4.4.tar.gz", hash = "sha256:8dbb8660838688a7b6ba4fed31d18dedf842afb4d47ca050d6d891c2c15f3be4"},
 ]
 
 [[package]]

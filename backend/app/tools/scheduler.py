@@ -17,8 +17,13 @@ SCF cron / 系统 cron）每日触发本脚本，复用 DataSyncOrchestrator 跑
     pdm run scheduler --jitter 1800   # 起跑前在 0~1800s 内随机延迟
     pdm run scheduler --no-jitter     # 关闭随机延迟（本地调试用）
     pdm run scheduler --check-jsl     # 只做集思录 cookie 自检/保活
+    pdm run scheduler --status        # 只读：本机调度开关 / 单实例锁 / 各任务上次成功时间
 
 依赖：外部定时触发设施（CI schedule / SCF cron / 系统 cron），属运维部署项。
+
+本机常驻（无外部定时器）见 `app/services/daily_scheduler.py`：`.env` 置
+`SCHEDULER_ENABLED=1` 由应用启动时进程内调度，或 `pdm run scheduler-daemon`
+以独立守护进程常驻（#1467）。
 """
 
 import argparse
@@ -73,6 +78,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument('--no-jitter', action='store_true', help='关闭随机延迟（本地调试）')
     parser.add_argument('--check-jsl', action='store_true', help='只做集思录 cookie 自检/保活')
+    parser.add_argument('--status', action='store_true', help='只读打印本机调度状态（不动数据）')
     return parser.parse_args()
 
 
@@ -80,6 +86,15 @@ def main() -> None:
     # 显式指定 backend/.env，避免从 cron 等非项目根目录执行时加载不到
     load_dotenv(Path(__file__).resolve().parents[2] / '.env')
     args = _parse_args()
+
+    # 只读状态：先于 jitter / init_db，做到「查状态」不扰动任何东西。
+    # 惰性导入：describe_status 在 daily_scheduler 里，正常抓取路径不需要它。
+    if args.status:
+        from app.services.daily_scheduler import describe_status
+
+        for line in describe_status():
+            print(line)
+        return
 
     # 只做集思录 cookie 自检/保活：可在 cron 里单挂一条（带 --jitter）
     # 手工自检要即时反馈，故仅在**显式**传 --jitter 时才抖动。
