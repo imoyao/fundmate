@@ -354,6 +354,11 @@ def ensure_watchlist_for_positions(db: Session, family_id: int, symbols: Optiona
     - 已存在 → 升级为 HOLDING（缺失时创建）；
     - 单标的失败仅记录日志、不中断整批（持仓写入路径要求静默，#1458 后续）。
     返回新建数量（已存在升级不计入，避免一次买入多次计数）。
+
+    **不在此处提交事务**：本函数常被持仓写入链路（import/orchestrator 的
+    `with db.begin()` 上下文）调用，提前 commit 会关闭外层事务导致后续操作
+    报 "closed transaction"。改由各调用方在自身事务内统一提交（视图端点显式
+    commit）。
     """
     active_q = db.query(Position).filter(Position.family_id == family_id, Position.ownership_status == 'active')
     if symbols is not None:
@@ -384,7 +389,6 @@ def ensure_watchlist_for_positions(db: Session, family_id: int, symbols: Optiona
                 item.status = 'HOLDING'
         except Exception:
             logger.exception('ensure_watchlist_for_positions 单标的失败: family=%s symbol=%s', family_id, pos.symbol)
-    db.commit()
     return created
 
 
@@ -392,6 +396,9 @@ def reconcile_watchlist_status(db: Session, family_id: int, symbols: Optional[Li
     """卖出/重算后对齐自选状态：有活跃持仓→确保 HOLDING；无活跃持仓但状态 HOLDING→降级 WATCHING。
 
     返回 (promoted, demoted)。单标的失败仅记录日志、不中断整批。
+
+    **不在此处提交事务**：同 ensure_watchlist_for_positions（见其 docstring），
+    由调用方在自身事务内统一提交。
     """
     active_q = db.query(Position.symbol).filter(Position.family_id == family_id, Position.ownership_status == 'active')
     if symbols is not None:
@@ -416,7 +423,6 @@ def reconcile_watchlist_status(db: Session, family_id: int, symbols: Optional[Li
                     demoted += 1
         except Exception:
             logger.exception('reconcile_watchlist_status 单标的失败: family=%s symbol=%s', family_id, item.symbol)
-    db.commit()
     return promoted, demoted
 
 
@@ -587,8 +593,8 @@ def get_filtered_items_query(
         except ValueError:
             raise ValueError('tag_ids 参数格式错误')
         if tag_id_list:
-            item_ids_sub_query = (
-                db.query(distinct(WatchlistItemTag.item_id)).filter(WatchlistItemTag.tag_id.in_(tag_id_list)).subquery()
+            item_ids_sub_query = select(distinct(WatchlistItemTag.item_id)).filter(
+                WatchlistItemTag.tag_id.in_(tag_id_list)
             )
             query = query.filter(WatchlistItem.id.in_(item_ids_sub_query))
     elif tag_id:

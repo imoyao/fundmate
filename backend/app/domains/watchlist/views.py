@@ -662,6 +662,7 @@ def reconcile_watchlist():
         promoted = demoted = 0
         if demote:
             promoted, demoted = reconcile_watchlist_status(db, family_id)
+        db.commit()
     return jsonify(
         {
             'data': {'created': created, 'promoted': promoted, 'demoted': demoted},
