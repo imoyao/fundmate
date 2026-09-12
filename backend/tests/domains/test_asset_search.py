@@ -109,13 +109,17 @@ class TestSearchAssets:
         assert core_first[:2] == ['SH000300', 'SH000905']
 
     def test_index_publisher(self, client, db):
-        """指数编制/发布机构（#1425）：按 source + 交易所/代码段派生，判定不出则不下发。"""
+        """指数编制/发布机构（#1425 方案 B）：名录存机构代码，搜索下发中文名；
+        未回填/未知（NULL）→ 不下发该维度，前端不展示（宁缺勿错）。"""
         _seed(db)
         db.add_all(
             [
-                IndexCatalog(index_code='930950', name='中证偏股基金指数', exchange='CSI', source='csindex'),
+                IndexCatalog(
+                    index_code='930950', name='中证偏股基金指数', exchange='CSI', source='csindex', publisher='CSI'
+                ),
+                IndexCatalog(index_code='399317', name='国证A指', exchange='CNI', source='cni', publisher='CNI'),
+                # 未回填（如 sina 源）：publisher 为 NULL → 搜索不下发该维度
                 IndexCatalog(index_code='399303', name='国证2000', exchange='SZ', source='sina'),
-                IndexCatalog(index_code='899050', name='北证50', exchange='BJ', source='sina'),
             ]
         )
         db.commit()
@@ -125,14 +129,9 @@ class TestSearchAssets:
             hits = {i['code']: i for i in resp.get_json()['data'] if i['asset_type'] == 'index'}
             return hits
 
-        # 中证官网源 → 中证指数公司
         assert _index_hit('930950')['CSI930950']['extra']['publisher'] == '中证指数公司'
-        # sina 源：沪市 000xxx 为上证系列，由中证指数公司编制
-        assert _index_hit('000300')['SH000300']['extra']['publisher'] == '中证指数公司'
-        # sina 源：深市 399xxx 为深证系列，由国证编制
-        assert _index_hit('399303')['SZ399303']['extra']['publisher'] == '国证指数'
-        # 无法权威判定（北证等其它代码段）→ 宁缺勿错：不下发该维度，前端不展示
-        assert 'publisher' not in _index_hit('899050')['899050']['extra']
+        assert _index_hit('399317')['CNI399317']['extra']['publisher'] == '国证指数'
+        assert 'publisher' not in _index_hit('399303')['SZ399303']['extra']
 
     def test_portfolio_hit_with_platform(self, client, db):
         _seed(db)

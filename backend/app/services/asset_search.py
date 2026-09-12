@@ -66,37 +66,13 @@ def _search_funds(db: Session, q: str) -> List[Dict]:
     ]
 
 
-def _resolve_index_publisher(source: str | None, exchange: str | None, index_code: str) -> str | None:
-    """指数编制/发布机构（#1425 搜索区分度）。
-
-    **只在能权威判定时给出**，判定不出返回 None（前端不展示该维度，符合
-    `docs/spec/data-strategy.md` 的「参考展示类可降级」——错误的发布方比没有更糟）。
-
-    - source='csindex' → 中证指数有限公司（中证官网源，最权威）；
-    - source='cni'     → 国证指数（深圳证券信息有限公司）；
-    - source='sina'    → 新浪只是行情转发源，无法权威判定发布方，按交易所 + 代码段推断：
-      沪市 000xxx 为上证系列（由中证指数公司编制）、深市 399xxx 为深证系列（由国证编制）。
-      现库 sina 源 732 条全部为 SH000xxx / SZ399xxx 形态，未见例外；若出现其它代码段
-      会返回 None（宁缺勿错），后续接权威源时再补。
-    """
-    if source == 'csindex':
-        return '中证指数公司'
-    if source == 'cni':
-        return '国证指数'
-    if exchange == 'SH' and (index_code or '').startswith('000'):
-        return '中证指数公司'
-    if exchange == 'SZ' and (index_code or '').startswith('399'):
-        return '国证指数'
-    return None
-
-
 def _search_indices(db: Session, q: str) -> List[Dict]:
     """指数名录（index_catalog 表，三源合并：sina/中证/国证，#1365）。
 
     code 归一化：exchange 作为命名空间前缀——SH000300 / SZ399001（交易所）、
     CSI930950（中证）、CNI399303（国证），与场内证券 SH600519 形态同构。
     """
-    from app.domains.indices.models import IndexCatalog
+    from app.domains.indices.models import INDEX_PUBLISHER_LABELS, IndexCatalog
 
     # 同时匹配「裸码」「名称」与「命名空间前缀码」：聚合搜索返回的 code 是
     # 前缀形态（SH000300 / CSI930950），用户若直接搜前缀码也能命中（#1362 评审 #5）。
@@ -120,10 +96,10 @@ def _search_indices(db: Session, q: str) -> List[Dict]:
     for r in rows:
         prefix = r.exchange if r.exchange in ('SH', 'SZ', 'CSI', 'CNI') else ''
         market = 'CN_A' if prefix in ('SH', 'SZ') else (r.exchange or 'CN_A')
-        # 编制/发布机构（#1425）：查询时由 source/exchange/代码段派生，不落库。
-        # 判定不出（None）时**不下发该字段**——前端据「字段缺失」降级不展示，
-        # 与「错误的发布方比没有更糟」的取舍一致。
-        publisher = _resolve_index_publisher(r.source, r.exchange, r.index_code)
+        # 编制/发布机构（#1425）：读名录表存储的机构代码（三源作业按来源回填），
+        # 映射为中文展示名下发；未知/未回填（NULL）时不下发该字段——
+        # 前端据「字段缺失」降级不展示，与「错误的发布方比没有更糟」的取舍一致。
+        publisher = INDEX_PUBLISHER_LABELS.get(r.publisher)
         extra = {
             'exchange': r.exchange,
             'is_core': r.is_core,
