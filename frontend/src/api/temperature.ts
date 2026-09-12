@@ -10,6 +10,13 @@ export interface TemperatureBand {
 export interface TemperatureOverviewResponse {
   data: {
     updated_at: string;
+    /** #1431 数据新鲜度守卫：最新数据日期距今超阈值即为陈旧，前端须显式提示 */
+    freshness?: {
+      latest: string | null;
+      age_days: number | null;
+      stale: boolean;
+      threshold_days: number;
+    };
     singles: Array<{
       source: string;
       name: string;

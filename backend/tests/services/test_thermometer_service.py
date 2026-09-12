@@ -14,6 +14,7 @@ from app.domains.temperature.models import (
     MarketMultiItem,
     MarketSingleValue,
 )
+from app.services.thermometer.constants import FRESHNESS_THRESHOLD_DAYS
 from app.services.thermometer.service import TemperatureService
 
 
@@ -185,3 +186,58 @@ def test_get_overview_multi_branch(db):
     # 每条记录含标准字段
     for it in multi['bias']:
         assert {'item_type', 'item_code', 'item_name', 'data', 'stale'} <= set(it)
+
+
+# ─────────────────── #1431 数据新鲜度守卫 ───────────────────
+
+
+def test_get_overview_freshness_stale_when_old(db):
+    """最新数据超阈值未更新时，overview 须带 freshness.stale=True（显式提示，不静默展示旧值）。"""
+    old = date.today() - timedelta(days=30)
+    db.add(
+        MarketSingleValue(
+            source='eastmoney_volume',
+            name='全市场成交额',
+            value=10000.0,
+            label='温和',
+            unit='亿',
+            collected_at=old,
+            stale=False,
+        )
+    )
+    db.commit()
+
+    fr = TemperatureService.get_overview()['freshness']
+    assert fr['stale'] is True
+    assert fr['latest'] == old.isoformat()
+    assert fr['age_days'] == 30
+    assert fr['threshold_days'] == FRESHNESS_THRESHOLD_DAYS
+
+
+def test_get_overview_freshness_fresh_when_recent(db):
+    """数据新鲜时 freshness.stale=False，且 latest 取三表最大 collected_at。"""
+    db.add(
+        MarketSingleValue(
+            source='eastmoney_volume',
+            name='全市场成交额',
+            value=10000.0,
+            label='温和',
+            unit='亿',
+            collected_at=date.today(),
+            stale=False,
+        )
+    )
+    db.commit()
+
+    fr = TemperatureService.get_overview()['freshness']
+    assert fr['stale'] is False
+    assert fr['age_days'] == 0
+    assert fr['latest'] == date.today().isoformat()
+
+
+def test_get_overview_freshness_empty_db_not_stale(db):
+    """空库时 age_days/latest 为 None，且不得误判为 stale。"""
+    fr = TemperatureService.get_overview()['freshness']
+    assert fr['latest'] is None
+    assert fr['age_days'] is None
+    assert fr['stale'] is False

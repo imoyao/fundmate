@@ -397,11 +397,12 @@ def test_turnover_rank_short_history_returns_none():
     assert ic._turnover_rank(None) is None
 
 
-def test_em_extra_dims_failure_returns_none(monkeypatch):
-    """东财历史抓取失败时两维字段均为 None，且不抛异常。"""
+def test_extra_dims_failure_returns_none(monkeypatch):
+    """两源均失败时两维字段均为 None，且不抛异常。"""
+    monkeypatch.setattr(ic, '_csindex_hist', lambda code, **kw: None)
     monkeypatch.setattr(ic, '_em_industry_hist', lambda code: None)
 
-    out = ic._em_extra_dims('000990.SH', None)
+    out = ic._extra_dims('000990.SH', None)
 
     assert out == {
         'amount_pct': None,
@@ -411,17 +412,16 @@ def test_em_extra_dims_failure_returns_none(monkeypatch):
     }
 
 
-def test_em_extra_dims_merges_both_dims(monkeypatch):
-    """东财历史正常时两维分位合并进结果。"""
+def test_extra_dims_merges_both_dims(monkeypatch):
+    """成交额（中证官网，非东财）与换手率（东财）两维分位合并进结果。"""
     dates = pd.date_range('2024-01-01', periods=210, freq='B')
-    fake_hist = pd.DataFrame(
-        {'amount': [100.0] * 200 + [200.0] * 10, 'turnover': [1.0] * 200 + [3.0] * 10},
-        index=dates,
-    )
-    fake_mkt = pd.DataFrame({'amount': [1000.0] * 210}, index=dates)
-    monkeypatch.setattr(ic, '_em_industry_hist', lambda code: fake_hist)
+    fake_cs = pd.DataFrame({'amount': [100.0] * 200 + [200.0] * 10}, index=dates)
+    fake_mkt_cs = pd.DataFrame({'amount': [1000.0] * 210}, index=dates)
+    fake_em = pd.DataFrame({'amount': [100.0] * 210, 'turnover': [1.0] * 200 + [3.0] * 10}, index=dates)
+    monkeypatch.setattr(ic, '_csindex_hist', lambda code, **kw: fake_cs)
+    monkeypatch.setattr(ic, '_em_industry_hist', lambda code: fake_em)
 
-    out = ic._em_extra_dims('000990.SH', fake_mkt)
+    out = ic._extra_dims('000990.SH', fake_mkt_cs)
 
     assert out['amount_pct'] == pytest.approx(20.0)
     assert out['amount_pct_rank'] == pytest.approx(200 / 210 * 100, abs=0.1)
