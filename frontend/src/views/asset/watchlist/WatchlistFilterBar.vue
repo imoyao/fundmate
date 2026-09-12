@@ -9,7 +9,7 @@ import {
   onBeforeUnmount,
   nextTick
 } from "vue";
-import { Files, Filter, Folder, Plus } from "@element-plus/icons-vue";
+import { Check, Files, Filter, Folder, Plus } from "@element-plus/icons-vue";
 import GroupFormDialog from "@/components/Watchlist/GroupFormDialog.vue";
 import type { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import type { useWatchlistTags } from "@/composables/useWatchlistTags";
@@ -124,10 +124,6 @@ const visibleTypeOptions = computed<string[]>(() =>
   isHoldingGroup.value ? [...HOLDING_ALLOWED_TYPES] : [...ASSET_TYPE_OPTIONS]
 );
 
-// ── 筛选面板 Tab 化（问题 1）：类型 / 标签 两段不再上下堆叠滚动，
-//    改用 Tab 切换，每个 Tab 内容独立滚动；操作按钮上移到面板顶部 sticky。
-const filterTab = ref<"type" | "tag">("type");
-
 // 标签过多时面板内搜索（标签会随使用无限增长，见用户反馈）。
 const tagSearch = ref("");
 const filteredTags = computed(() => {
@@ -173,12 +169,6 @@ watch(tagFilterVisibleModel, visible => {
   if (!visible) return;
   props.tags.onTagFilterShow();
   draftAssetTypes.value = [...selectedAssetTypesModel.value];
-  // 智能默认 Tab：仅选了标签未选类型时直接落到「标签」Tab，减少一次点击
-  filterTab.value =
-    draftFilterTagIdsModel.value.length > 0 &&
-    draftAssetTypes.value.length === 0
-      ? "tag"
-      : "type";
 });
 
 // 切换视图：同值不重复触发（原 el-segmented v-model+change 行为等价）
@@ -404,7 +394,7 @@ watch(
             </el-button>
           </template>
           <div class="filter-panel">
-            <!-- 顶部操作栏：重置 / 取消 / 确定 常驻可见（sticky），不再沉入滚动区
+            <!-- 顶部操作栏：重置 / 取消 / 确定 常驻可见，不再沉入滚动区
                  （用户反馈：选项多时按钮被推到滚动底部，必须滚到底才能点确定） -->
             <div class="filter-panel__header">
               <el-button
@@ -428,45 +418,30 @@ watch(
               </div>
             </div>
 
-            <!-- Tab 头：类型 / 标签 切换，避免两段上下堆叠滚动
-                 （类型固定、标签会随使用无限增长，见用户反馈） -->
-            <div
-              class="filter-panel__tabs"
-              role="tablist"
-              aria-label="筛选维度"
-            >
-              <button
-                type="button"
-                role="tab"
-                class="filter-panel__tab"
-                :class="{ 'is-active': filterTab === 'type' }"
-                :aria-selected="filterTab === 'type'"
-                @click="filterTab = 'type'"
-              >
-                类型
-              </button>
-              <button
-                type="button"
-                role="tab"
-                class="filter-panel__tab"
-                :class="{ 'is-active': filterTab === 'tag' }"
-                :aria-selected="filterTab === 'tag'"
-                @click="filterTab = 'tag'"
-              >
-                标签
-                <span v-if="selectedTagCount" class="filter-panel__tab-count">
-                  {{ selectedTagCount }}
-                </span>
-              </button>
-            </div>
-
-            <!-- 内容区：随 Tab 切换，独立滚动 -->
+            <!-- 内容区：类型 / 标签 两段平铺展示（不再用 Tab 切换，
+                 用户一眼看到所有可组合的筛选条件，整体滚动） -->
             <div class="filter-panel__body">
-              <section
-                v-show="filterTab === 'type'"
-                class="filter-panel__section"
-              >
-                <p class="filter-panel__title">类型</p>
+              <!-- 类型：多选胶囊，选中态左侧显示勾选图标 -->
+              <section class="filter-panel__section">
+                <div class="filter-panel__section-title">
+                  <span class="filter-panel__section-label">类型</span>
+                  <div class="filter-panel__section-meta">
+                    <span
+                      v-if="draftAssetTypes.length"
+                      class="filter-panel__section-count"
+                    >
+                      已选 {{ draftAssetTypes.length }}
+                    </span>
+                    <button
+                      v-if="draftAssetTypes.length"
+                      type="button"
+                      class="filter-panel__clear"
+                      @click="draftAssetTypes = []"
+                    >
+                      清空
+                    </button>
+                  </div>
+                </div>
                 <div class="filter-panel__chips">
                   <button
                     v-for="t in visibleTypeOptions"
@@ -476,6 +451,11 @@ watch(
                     :class="{ 'is-selected': draftAssetTypes.includes(t) }"
                     @click="toggleDraftType(t)"
                   >
+                    <span class="filter-chip__prefix">
+                      <el-icon v-if="draftAssetTypes.includes(t)">
+                        <Check />
+                      </el-icon>
+                    </span>
                     {{ assetTypeLabel(t) }}
                   </button>
                 </div>
@@ -484,11 +464,27 @@ watch(
                 </p>
               </section>
 
-              <section
-                v-show="filterTab === 'tag'"
-                class="filter-panel__section"
-              >
-                <p class="filter-panel__title">标签</p>
+              <!-- 标签：多选胶囊，色点随选中态转为勾选图标；标签过多时面板内搜索 -->
+              <section class="filter-panel__section">
+                <div class="filter-panel__section-title">
+                  <span class="filter-panel__section-label">标签</span>
+                  <div class="filter-panel__section-meta">
+                    <span
+                      v-if="draftFilterTagIdsModel.length"
+                      class="filter-panel__section-count"
+                    >
+                      已选 {{ draftFilterTagIdsModel.length }}
+                    </span>
+                    <button
+                      v-if="draftFilterTagIdsModel.length"
+                      type="button"
+                      class="filter-panel__clear"
+                      @click="draftFilterTagIdsModel = []"
+                    >
+                      清空
+                    </button>
+                  </div>
+                </div>
                 <el-input
                   v-model="tagSearch"
                   size="small"
@@ -497,7 +493,7 @@ watch(
                   class="filter-panel__search"
                 />
                 <div class="filter-panel__chips">
-                  <!-- 标签胶囊：标签色为底 + 色点 + 名称（chipStyle 注入 --chip-*），
+                  <!-- 标签胶囊：未选中显示标签色点，选中态转为勾选图标（chipStyle 注入 --chip-*），
                        与「管理标签」/表格内标签胶囊同一颜色语言 -->
                   <button
                     v-for="t in filteredTags"
@@ -510,10 +506,14 @@ watch(
                     :style="chipStyle(t)"
                     @click="toggleDraftTag(t.id)"
                   >
-                    <span
-                      class="filter-chip__dot"
-                      :style="{ backgroundColor: t.color || undefined }"
-                    />
+                    <span class="filter-chip__prefix">
+                      <span
+                        v-if="!draftFilterTagIdsModel.includes(t.id)"
+                        class="filter-chip__dot"
+                        :style="{ backgroundColor: t.color || undefined }"
+                      />
+                      <el-icon v-else><Check /></el-icon>
+                    </span>
                     {{ t.name }}
                   </button>
                   <p
@@ -896,11 +896,43 @@ watch(
   border-top: 1px solid var(--border-light);
 }
 
-.filter-panel__title {
+.filter-panel__section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin: 0 0 8px;
+}
+
+.filter-panel__section-label {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-tertiary);
+}
+
+.filter-panel__section-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.filter-panel__section-count {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.filter-panel__clear {
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--brand-700);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  transition: color 150ms ease;
+}
+
+.filter-panel__clear:hover {
+  color: var(--brand-800);
 }
 
 .filter-panel__chips {
@@ -943,8 +975,18 @@ watch(
   border-color: var(--chip-border, var(--brand-400));
 }
 
-.filter-chip__dot {
+/* 胶囊左侧状态区：固定 14px，未选中时（标签胶囊）显示色点，
+   选中态转为勾选图标，位置恒定、无布局跳动 */
+.filter-chip__prefix {
+  display: inline-flex;
   flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+}
+
+.filter-chip__dot {
   width: 8px;
   height: 8px;
   background-color: var(--text-tertiary);
@@ -966,49 +1008,7 @@ watch(
   border-bottom: 1px solid var(--border-light);
 }
 
-.filter-panel__tabs {
-  display: flex;
-  flex-shrink: 0;
-  gap: 4px;
-  padding: 10px 0;
-}
-
-.filter-panel__tab {
-  display: inline-flex;
-  gap: 4px;
-  align-items: center;
-  height: 30px;
-  padding: 0 14px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  background-color: transparent;
-  border: none;
-  border-radius: var(--radius-pill);
-  transition:
-    background-color 150ms ease,
-    color 150ms ease;
-}
-
-.filter-panel__tab:hover {
-  color: var(--text-primary);
-  background-color: var(--bg-hover);
-}
-
-.filter-panel__tab.is-active {
-  font-weight: 500;
-  color: var(--brand-700);
-  background-color: var(--brand-100);
-}
-
-.filter-panel__tab-count {
-  font-family: var(--font-mono, monospace);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--brand-700);
-}
-
-/* 内容区独立滚动：类型 / 标签 两段不再上下堆叠，切换 Tab 即可，按钮常驻顶部 */
+/* 内容区独立滚动：类型 / 标签 两段平铺展示，按钮常驻顶部 */
 .filter-panel__body {
   padding-top: 10px;
   overflow-y: auto;
