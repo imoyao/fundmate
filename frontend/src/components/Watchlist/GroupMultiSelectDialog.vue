@@ -129,14 +129,14 @@ function close(): void {
 }
 
 .gm-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
   max-height: 50vh;
+  padding: 0;
+  margin: 0;
   overflow-y: auto;
+  list-style: none;
 }
 
 .gm-row {
