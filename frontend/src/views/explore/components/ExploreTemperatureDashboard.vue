@@ -118,13 +118,16 @@ onMounted(() => {
 
     <MetricGrid>
       <!-- 综合温度 -->
+      <!-- 尺寸/外观与深度档对齐（同为 lg + featured，经 prop 表达）；
+           禁止再手拼 class="gauge-card--featured" 旁路 —— 概览与深度两档
+           的温度计卡必须是同一视觉，否则切档时卡片会跳变。 -->
       <TemperatureGaugeCard
-        class="gauge-card--featured"
         :value="compositeTemperature?.value ?? null"
         title="综合温度"
         :level="compositeTemperature?.level || '暂无'"
         caption="综合6个市场指标"
-        size="sm"
+        size="lg"
+        featured
         clickable
         @click="emit('go-detail')"
       >
