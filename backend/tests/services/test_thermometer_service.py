@@ -9,6 +9,7 @@ temperature service 层补充测试（离线、确定性）：覆盖
 
 from datetime import date, timedelta
 
+from app.core.time_utils import today_shanghai
 from app.domains.temperature.models import (
     MarketComposite,
     MarketMultiItem,
@@ -193,7 +194,7 @@ def test_get_overview_multi_branch(db):
 
 def test_get_overview_freshness_stale_when_old(db):
     """最新数据超阈值未更新时，overview 须带 freshness.stale=True（显式提示，不静默展示旧值）。"""
-    old = date.today() - timedelta(days=30)
+    old = today_shanghai() - timedelta(days=30)
     db.add(
         MarketSingleValue(
             source='eastmoney_volume',
@@ -223,7 +224,7 @@ def test_get_overview_freshness_fresh_when_recent(db):
             value=10000.0,
             label='温和',
             unit='亿',
-            collected_at=date.today(),
+            collected_at=today_shanghai(),
             stale=False,
         )
     )
@@ -232,7 +233,7 @@ def test_get_overview_freshness_fresh_when_recent(db):
     fr = TemperatureService.get_overview()['freshness']
     assert fr['stale'] is False
     assert fr['age_days'] == 0
-    assert fr['latest'] == date.today().isoformat()
+    assert fr['latest'] == today_shanghai().isoformat()
 
 
 def test_get_overview_freshness_empty_db_not_stale(db):
