@@ -1226,8 +1226,7 @@ const renderCtx = computed<RenderCtx>(() => ({
      `overflow-x: clip` 与 `overflow-y: visible` 可以共存（clip 不会像 hidden 那样
      把另一轴强制成 auto），于是「纵向照常吸顶 + 横向永不溢出页面」同时成立。
      ⚠️ 不要把这里改回 `overflow: visible` 或整段删掉：会同时让吸顶失效 / 页面横滚。 */
-  overflow-x: clip;
-  overflow-y: visible;
+  overflow: clip visible;
 }
 
 .watchlist-table-wrap :deep(.el-table__header-wrapper) {
