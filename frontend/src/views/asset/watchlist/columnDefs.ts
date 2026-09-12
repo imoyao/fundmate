@@ -411,14 +411,18 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "添加后涨幅",
     renderer: "moneyRatio",
     appliesTo: TRADABLE_TYPES,
-    // #1425：同走势——140px 放不进 1040px 默认预算，回到品类视图 + 列设置可选。
-    // 若后续确要进默认集，必须同时从默认集里拿掉等量宽度的列（铁律 1）。
+    // #1425：同走势——140px 放不进 1040px 默认预算，回到「列设置可选」（默认隐藏）。
+    // 若后续确要进默认集，必须同时从默认集里拿掉等量宽度的列（铁律 1），否则
+    // 默认视图列总宽 > 1040 会在主流笔记本（内容区 ≈1046px）直接横向滚动、固定列被推出视口。
+    // 本次（2026-09-12）回归即此：注释写「回到可选」却漏写 defaultHidden，致其默认可见，
+    // 默认列 1150px 超预算 110px、复现 #1341 式横滚 + 固定列消失。
     scope: "mixed",
     // 同持仓市值：两行堆叠，140px
     minWidth: 140,
     align: "right",
     sortable: "custom",
     hideable: true,
+    defaultHidden: true,
     draggable: true,
     derived: "addedReturn" // value=addedReturnAmount(row), ratio=addedReturnPct(row)
   },
