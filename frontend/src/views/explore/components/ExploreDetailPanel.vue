@@ -8,6 +8,16 @@
 -->
 <template>
   <div v-loading="loading" class="detail-panel">
+    <!-- 数据新鲜度守卫（#1431）：最新数据超阈值未更新时显式提示，不静默展示旧值 -->
+    <div v-if="freshness?.stale" class="freshness-alert" role="alert">
+      <IconifyIconOffline icon="ep:warning" class="freshness-alert__icon" />
+      <span class="freshness-alert__text">
+        当前展示的是 {{ freshness.latest || "更早" }} 的市场数据（距今约
+        {{ freshness.age_days }} 天，已超过 {{ freshness.threshold_days }}
+        天阈值），数据源可能暂不可用，请谨慎参考。
+      </span>
+    </div>
+
     <!-- 综合仪表盘 -->
     <section class="dashboard-section">
       <MetricGrid>
@@ -101,6 +111,7 @@
 import { ref, computed, onMounted } from "vue";
 import { getMultiItems } from "@/api/temperature";
 import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
+import { Icon as IconifyIconOffline } from "@iconify/vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
@@ -121,8 +132,14 @@ defineOptions({
 // ================================================================
 // 市场温度总览：与概览档共享同一份数据实例（单例 + 并发去重，见该 composable 头注释）
 // ================================================================
-const { loading, overview, compositeTemperature, fearData, fetchTemperature } =
-  useTemperatureOverview();
+const {
+  loading,
+  overview,
+  compositeTemperature,
+  freshness,
+  fearData,
+  fetchTemperature
+} = useTemperatureOverview();
 
 // 核心指标清单收口在 useCoreMetrics（见 #980）
 const { coreMetrics } = useCoreMetrics();
@@ -249,6 +266,35 @@ onMounted(async () => {
 </script>
 
 <style lang="scss" scoped>
+/* 数据新鲜度守卫横幅（#1431）：沿用「数据滞后」pill 的警示色视觉语言 */
+.freshness-alert {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-warning, #d97706);
+  background: color-mix(
+    in srgb,
+    var(--color-warning, #d97706) 12%,
+    transparent
+  );
+  border: 1px solid
+    color-mix(in srgb, var(--color-warning, #d97706) 35%, transparent);
+  border-radius: 8px;
+}
+
+.freshness-alert__icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.freshness-alert__text {
+  flex: 1;
+}
+
 /* ===== 响应式 ===== */
 @media (width <= 960px) {
   .context-grid {

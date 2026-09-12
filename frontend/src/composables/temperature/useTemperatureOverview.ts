@@ -32,6 +32,14 @@ function createTemperatureOverview() {
   /** 原始响应（data 部分），供需要完整数据的调用方使用 */
   const overview = ref<TemperatureOverviewResponse["data"] | null>(null);
 
+  /** 数据新鲜度（#1431）：最新数据距今超阈值即为陈旧，前端须显式提示而非静默展示旧值 */
+  const freshness = ref<{
+    latest: string | null;
+    age_days: number | null;
+    stale: boolean;
+    threshold_days: number;
+  } | null>(null);
+
   // 综合温度（后端两源合成，当前占位）
   const compositeTemperature = ref<{ value: number; level: string } | null>(
     null
@@ -66,6 +74,8 @@ function createTemperatureOverview() {
       const data = res.data;
       if (!data) throw new Error("无效响应");
       overview.value = data;
+      // 数据新鲜度（#1431）
+      freshness.value = data.freshness ?? null;
 
       // 自算·股债利差（不涉 PE）
       const selfCalc = data.composites?.self_calc;
@@ -170,6 +180,7 @@ function createTemperatureOverview() {
   return {
     loading,
     overview,
+    freshness,
     compositeTemperature,
     selfCalcPercent,
     selfCalcLevel,

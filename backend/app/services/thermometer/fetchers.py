@@ -72,6 +72,9 @@ from app.services.thermometer.constants import (
     QIEMAN_MCP_URL,
     QIEMAN_PROTOCOL_VERSION,
     QIEMAN_TOOL,
+    SINA_REFERER,
+    SINA_VOLUME_BOARDS,
+    SINA_VOLUME_URL,
     YOUZHIYOUXING_URL,
     _to_float,
     label_fear,
@@ -155,13 +158,24 @@ class SingleValueFetcher(BaseFetcher, ABC):
 
 # ─────────────────────────── 单值源 ───────────────────────────
 class EastmoneyVolumeFetcher(SingleValueFetcher):
-    """东财：全市场成交额（上证 + 深证 + 北证）。"""
+    """全市场成交额（上证 + 深证 + 北证）。
+
+    主源：东财 push2（`f48` 成交额）；#1431：东财为「突发配额后限流」通道，
+    全部失败时回退 **新浪** `s_` 前缀简版行情（非东财，单请求），避免该指标整体缺失。
+    """
 
     source = 'eastmoney_volume'
     name = '全市场成交额'
     unit = '亿'
 
     def fetch(self) -> Optional[Dict[str, Any]]:
+        payload = self._fetch_eastmoney()
+        if payload is not None:
+            return payload
+        logger.warning('东财全市场成交额不可用，回退新浪通道')
+        return self._fetch_sina()
+
+    def _fetch_eastmoney(self) -> Optional[Dict[str, Any]]:
         total = 0.0
         parts: Dict[str, float] = {}
         for board_name, secid in EASTMONEY_BOARDS.items():
@@ -181,7 +195,7 @@ class EastmoneyVolumeFetcher(SingleValueFetcher):
                         if attempt == 2:
                             logger.debug(f'东财 {board_name} {host} 失败: {e}')
                         else:
-                            time.sleep(0.5)
+                            time.sleep(1.5)  # 长退避（#1431）：东财限流敏感
                 if success:
                     break
             if not success:
@@ -189,7 +203,31 @@ class EastmoneyVolumeFetcher(SingleValueFetcher):
                 return None
         if total == 0:
             return None
-        return self.payload(round(total, 1), label_volume(total), raw={'parts': parts})
+        return self.payload(round(total, 1), label_volume(total), raw={'parts': parts, 'source': 'eastmoney'})
+
+    def _fetch_sina(self) -> Optional[Dict[str, Any]]:
+        """新浪 `s_` 前缀简版行情兜底：解析各板块成交额（非东财，单请求）。"""
+        try:
+            resp = self.session.get(SINA_VOLUME_URL, headers={'Referer': SINA_REFERER}, timeout=10)
+            resp.raise_for_status()
+            resp.encoding = 'gbk'
+            total = 0.0
+            parts: Dict[str, float] = {}
+            for board_name, (sym, divisor) in SINA_VOLUME_BOARDS.items():
+                m = re.search(rf'hq_str_{sym}="([^"]*)"', resp.text)
+                fields = m.group(1).split(',') if m else []
+                if len(fields) < 6:
+                    logger.warning(f'新浪 {board_name} 成交额缺失')
+                    return None
+                amt = float(fields[5]) / divisor  # → 亿元
+                total += amt
+                parts[board_name] = round(amt, 1)
+            if total <= 0:
+                return None
+            return self.payload(round(total, 1), label_volume(total), raw={'parts': parts, 'source': 'sina'})
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f'新浪成交额兜底失败: {e}')
+            return None
 
 
 class JisiluCBFetcher(SingleValueFetcher):

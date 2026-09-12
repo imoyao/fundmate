@@ -6,8 +6,13 @@
 """
 乖离率直连行情（绕开 akshare / 东财限流）
 
-优先级：腾讯行情（股票/ETF/宽基指数） > 东财 push2his（申万行业 / 兜底）。
-不依赖 akshare，避免其上游东财接口限流/封 IP 导致的运行时失败。
+优先级：
+  - 申万行业        : 申万宏源研究官网（akshare index_hist_sw，非东财） > 东财 push2his 兜底；
+  - 股票/ETF/宽基指数: 腾讯行情 > 东财 push2his 兜底。
+不依赖单点数据源，避免某一路（尤其东财 push2his）限流/封 IP 导致的运行时全败。
+
+东财 push2his 属「突发配额后限流」型通道（2026-09-12 隔离实证：隔离探针前 2 次 200，
+随后连续失败 RemoteDisconnected），故一律降为**兜底**并配长退避（见 _EM_BACKOFF_BASE）。
 
 symbol 约定（与 bias/constants.py 一致）：
   - 申万一级行业: '801010.SI'  -> 东财 secid '90.801010'
@@ -35,6 +40,11 @@ _HEAD_E = {
 # 市场后缀 -> 腾讯前缀 / 东财指数 secid 前缀
 _SUFFIX_TENCENT = {'SH': 'sh', 'SZ': 'sz', 'BJ': 'bj'}
 _SUFFIX_EM_INDEX = {'SH': '1', 'SZ': '0', 'BJ': '0'}
+
+# 东财退避基数（秒）：#1431 —— 东财为「突发配额后限流」通道，退避窗口显著拉长，
+# 避免持续冲击同一出口加重封禁；配合重试次数下调为 2。
+_EM_BACKOFF_BASE = 8.0
+_EM_RETRIES = 2
 
 
 def _split_code(symbol: str) -> Tuple[str, str]:
@@ -88,7 +98,7 @@ def fetch_close_tencent(symbol: str, days: int = 90, timeout: int = 8) -> Option
 
 
 def fetch_close_eastmoney(secid: str, days: int = 90, timeout: int = 8) -> Optional[Tuple[List[float], str]]:
-    """东财 K 线（申万行业 / 指数兜底）。带 Referer + 退避重试。"""
+    """东财 K 线（申万行业兜底 / 指数兜底）。带 Referer + 长退避重试（#1431）。"""
     params = {
         'secid': secid,
         'fields1': 'f1,f2,f3',
@@ -98,7 +108,7 @@ def fetch_close_eastmoney(secid: str, days: int = 90, timeout: int = 8) -> Optio
         'beg': '0',
         'end': '20500101',
     }
-    for _ in range(3):
+    for attempt in range(_EM_RETRIES):
         try:
             r = requests.get(_EASTMONEY, params=params, headers=_HEAD_E, timeout=timeout)
             r.raise_for_status()
@@ -111,5 +121,33 @@ def fetch_close_eastmoney(secid: str, days: int = 90, timeout: int = 8) -> Optio
                 return closes[-days:] or closes, str(parsed[-1][0])[:10]
         except Exception as e:  # noqa: BLE001
             logger.debug(f'东财行情失败 {secid}: {e}')
-            time.sleep(2)
+            if attempt < _EM_RETRIES - 1:
+                time.sleep(_EM_BACKOFF_BASE * (attempt + 1))  # 8s / 16s 递增退避
+    return None
+
+
+def fetch_close_sw_industry(symbol: str, days: int = 90, timeout: int = 10) -> Optional[Tuple[List[float], str]]:
+    """申万行业日线（申万宏源研究官网，akshare index_hist_sw；**非东财**，作为申万行业首选源）。
+
+    symbol 约定：'801010.SI' -> akshare index_hist_sw('801010', period='day')。
+    非申万后缀直接返回 None（交回上层走腾讯/东财）。
+    返回 (收盘价序列, 最后交易日) 或 None；异常一律吞掉降级，不阻塞主链路。
+    """
+    code, suffix = _split_code(symbol)
+    if suffix != 'SI':
+        return None
+    try:
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        df = ak.index_hist_sw(symbol=code[:6], period='day')
+        if df is None or df.empty or '收盘' not in df.columns:
+            return None
+        df = df.sort_values('日期')
+        closes = df['收盘'].astype(float).tolist()
+        if not closes:
+            return None
+        return closes[-days:], str(df['日期'].iloc[-1])[:10]
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f'申万行业行情失败 {symbol}: {e}')
     return None
