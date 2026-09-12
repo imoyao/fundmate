@@ -38,7 +38,8 @@
     <!-- ============================================================ -->
     <!-- 概览档：温度锚点 + 指数快照 + 观察列表（漏斗主体）            -->
     <!-- ============================================================ -->
-    <template v-if="activePanel === 'overview'">
+    <!-- 常驻渲染：切档只切显示（v-show），不卸载重挂 —— 两档的 onMounted 都会取数，用 v-if 会让每次切档都重打一遍接口 -->
+    <div v-show="activePanel === 'overview'">
       <ExploreTemperatureDashboard @go-detail="switchPanel('detail')" />
 
       <!-- ============================================================ -->
@@ -104,12 +105,16 @@
         @refresh="manualRefresh"
         @interval-change="setRefreshInterval"
       />
-    </template>
+    </div>
 
     <!-- ============================================================ -->
     <!-- 深度档：完整温度画像（由原温度计页迁移而来）                  -->
     <!-- ============================================================ -->
-    <ExploreDetailPanel v-else />
+    <!-- 首次进入才挂载（其 onMounted 会打 4 个接口），此后常驻只切显示 -->
+    <ExploreDetailPanel
+      v-if="detailMounted"
+      v-show="activePanel === 'detail'"
+    />
 
     <!-- ============================================================ -->
     <!-- 底部（公共组件）：数据来源 + 免责声明                         -->
@@ -192,6 +197,20 @@ const switchPanel = (key: PanelKey) => {
     query: key === "detail" ? { view: "detail" } : {}
   });
 };
+
+/**
+ * 档位内容「常驻」策略（见 #980「页面只做编排、数据不重复取」）：
+ * 切档只切显示、不卸载组件 —— 两档的 onMounted 各自取数
+ * （概览档：温度总览 + 大类资产；深度档：温度总览 + 乖离率 + 拥挤度 + 趋势），
+ * 若用 v-if 卸载重挂，每次切档都会把接口重打一遍。
+ *
+ * 深度档额外用 detailMounted 做「首次进入才挂载」：它的取数更重，
+ * 用户从不进深度档就不该产生这批请求；概览档是首屏，直接常驻。
+ */
+const detailMounted = ref(activePanel.value === "detail");
+watch(activePanel, val => {
+  if (val === "detail") detailMounted.value = true;
+});
 
 // ================================================================
 // 观察列表：数据与行为收口在 composable（见 #980 第三步）
