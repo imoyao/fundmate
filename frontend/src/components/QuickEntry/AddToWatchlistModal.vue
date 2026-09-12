@@ -42,7 +42,9 @@
               <span class="asset-option__col2" :title="rowColumns(item).col2">{{
                 rowColumns(item).col2
               }}</span>
-              <span class="asset-option__type">{{ rowColumns(item).col3 }}</span>
+              <span class="asset-option__type">{{
+                rowColumns(item).col3
+              }}</span>
             </div>
           </el-option>
         </el-select>
@@ -595,8 +597,8 @@ onMounted(async () => {
    （高度、行高、hover）在文件末尾的非 scoped 块中按 popper-class 限定。 */
 .asset-option {
   display: flex;
-  align-items: center;
   gap: 10px;
+  align-items: center;
   width: 100%;
   min-width: 0;
 }
@@ -606,11 +608,11 @@ onMounted(async () => {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
   line-height: 20px;
   color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .asset-option__col2 {
@@ -618,11 +620,11 @@ onMounted(async () => {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: 14px;
   font-weight: 500;
   line-height: 20px;
   color: var(--text-primary);
+  white-space: nowrap;
 }
 
 .asset-option__type {
@@ -643,8 +645,8 @@ onMounted(async () => {
 
 .selected-asset-card__head {
   display: flex;
-  align-items: center;
   gap: 10px;
+  align-items: center;
   min-width: 0;
 }
 
@@ -653,11 +655,11 @@ onMounted(async () => {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
   line-height: 22px;
   color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .selected-asset-card__col2 {
@@ -665,11 +667,11 @@ onMounted(async () => {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: 15px;
   font-weight: 600;
   line-height: 22px;
   color: var(--text-primary);
+  white-space: nowrap;
 }
 
 .selected-asset-card__type {

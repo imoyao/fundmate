@@ -116,7 +116,9 @@ const selectedAssetTypesModel = computed({
 // ── 持仓分组限制（问题 2 修复）──
 // 当前是否在「持仓」分组：持仓分组只有真实持仓（股票 / 基金类），
 // 经理 / 组合 / 指数等无持仓语义的类型在此视图下不可选。
-const isHoldingGroup = computed(() => props.groups.activeGroup.value === "holding");
+const isHoldingGroup = computed(
+  () => props.groups.activeGroup.value === "holding"
+);
 // 弹层内展示的类型选项：持仓分组下收窄为仅股票 / 基金，避免误选无持仓语义的类型。
 const visibleTypeOptions = computed<string[]>(() =>
   isHoldingGroup.value ? [...HOLDING_ALLOWED_TYPES] : [...ASSET_TYPE_OPTIONS]
@@ -173,7 +175,8 @@ watch(tagFilterVisibleModel, visible => {
   draftAssetTypes.value = [...selectedAssetTypesModel.value];
   // 智能默认 Tab：仅选了标签未选类型时直接落到「标签」Tab，减少一次点击
   filterTab.value =
-    draftFilterTagIdsModel.value.length > 0 && draftAssetTypes.value.length === 0
+    draftFilterTagIdsModel.value.length > 0 &&
+    draftAssetTypes.value.length === 0
       ? "tag"
       : "type";
 });
@@ -427,7 +430,11 @@ watch(
 
             <!-- Tab 头：类型 / 标签 切换，避免两段上下堆叠滚动
                  （类型固定、标签会随使用无限增长，见用户反馈） -->
-            <div class="filter-panel__tabs" role="tablist" aria-label="筛选维度">
+            <div
+              class="filter-panel__tabs"
+              role="tablist"
+              aria-label="筛选维度"
+            >
               <button
                 type="button"
                 role="tab"
@@ -455,7 +462,10 @@ watch(
 
             <!-- 内容区：随 Tab 切换，独立滚动 -->
             <div class="filter-panel__body">
-              <section v-show="filterTab === 'type'" class="filter-panel__section">
+              <section
+                v-show="filterTab === 'type'"
+                class="filter-panel__section"
+              >
                 <p class="filter-panel__title">类型</p>
                 <div class="filter-panel__chips">
                   <button
@@ -474,7 +484,10 @@ watch(
                 </p>
               </section>
 
-              <section v-show="filterTab === 'tag'" class="filter-panel__section">
+              <section
+                v-show="filterTab === 'tag'"
+                class="filter-panel__section"
+              >
                 <p class="filter-panel__title">标签</p>
                 <el-input
                   v-model="tagSearch"
@@ -503,7 +516,10 @@ watch(
                     />
                     {{ t.name }}
                   </button>
-                  <p v-if="filteredTags.length === 0" class="filter-panel__empty">
+                  <p
+                    v-if="filteredTags.length === 0"
+                    class="filter-panel__empty"
+                  >
                     无匹配标签
                   </p>
                 </div>
@@ -943,9 +959,9 @@ watch(
 
 .filter-panel__header {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
-  flex-shrink: 0;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--border-light);
 }
@@ -994,8 +1010,8 @@ watch(
 
 /* 内容区独立滚动：类型 / 标签 两段不再上下堆叠，切换 Tab 即可，按钮常驻顶部 */
 .filter-panel__body {
-  overflow-y: auto;
   padding-top: 10px;
+  overflow-y: auto;
 }
 
 .filter-panel__search {

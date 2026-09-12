@@ -921,9 +921,8 @@ onMounted(async () => {
     // 避免「持仓分组筛经理却显示股票、表头却变」的 bug（问题 2）。
     if (activeGroup.value === "holding") {
       const allowed = new Set(["stock", "fund"]);
-      toolbar.selectedAssetTypes.value = toolbar.selectedAssetTypes.value.filter(
-        t => allowed.has(t)
-      );
+      toolbar.selectedAssetTypes.value =
+        toolbar.selectedAssetTypes.value.filter(t => allowed.has(t));
     }
     currentPage.value = 1;
     fetchData();
