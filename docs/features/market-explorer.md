@@ -122,13 +122,14 @@ title: 探市（大类资产观察）设计
 
 | 候选方案 | 实测结果 |
 |---------|---------|
-| `yfinance`（Yahoo） | **本仓未安装**（`ModuleNotFoundError`）；裸调 Yahoo chart API 对 6 个符号**全部 HTTP 403**（Yahoo 要求 cookie + crumb 会话握手）⇒ 采纳即**新增依赖**，且连通性**未验证** |
+| `yfinance`（Yahoo） | ✅ 已按「加依赖」路线**在隔离环境实测**（`D:/codes/_venvs/yf-probe`，yfinance **1.7.0**）：**装了也没用** —— `yf.download` 与 `yf.Ticker().history()` 在**含代理与清除代理直连两条路径**下，对全部 6 个符号均返回 `YFRateLimitError: Too Many Requests`；裸 `requests` 直连 Yahoo chart API 返回 **HTTP 403 + 中文拦截页**（`<html lang="zh">`，3369 字节 HTML，非 JSON）⇒ **Yahoo 对本机整体拒绝（地区级封锁）**，不是缺依赖 |
 | `stooq` CSV | **已加 JS 反爬** —— 响应体为「This site requires JavaScript to verify your browser」；正确符号（`^nkx`/`^ukx`/`^dax`/`^cac`）与对照组（`^spx`/`aapl.us`）一并失败 |
 | akshare `index_investing_global`（英为财情） | **1.18.91 中不存在**（`exists=False`） |
 | akshare `index_global_hist_em` / `index_global_spot_em` | 存在，但**都是东财通道**（已挂，见 `#1431`） |
 
-⇒ **在现有依赖下，海外 4 资产无解。** 因此「软占位」不是临时凑数，而是**当前唯一零成本答案**——
-若将来真要补上，代价是新增一个第三方依赖（需单独立项 + 先做隔离环境连通性实验）。
+⇒ **在现有依赖 + yfinance 均不可用的情况下，海外 4 资产无解。** 因此「软占位」不是临时凑数，
+而是**当前唯一零成本答案**——它的地位已从「待定」升级为「**结论**」：
+除非换到能访问 Yahoo / stooq 的网络出口，否则不必再在这 4 个资产上投入。
 
 ## 3. 口径统一（文章 1 的三个坑 + 对策）
 
