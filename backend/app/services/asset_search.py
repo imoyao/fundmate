@@ -66,6 +66,30 @@ def _search_funds(db: Session, q: str) -> List[Dict]:
     ]
 
 
+def _resolve_index_publisher(source: str | None, exchange: str | None, index_code: str) -> str | None:
+    """指数编制/发布机构（#1425 搜索区分度）。
+
+    **只在能权威判定时给出**，判定不出返回 None（前端不展示该维度，符合
+    `docs/spec/data-strategy.md` 的「参考展示类可降级」——错误的发布方比没有更糟）。
+
+    - source='csindex' → 中证指数有限公司（中证官网源，最权威）；
+    - source='cni'     → 国证指数（深圳证券信息有限公司）；
+    - source='sina'    → 新浪只是行情转发源，无法权威判定发布方，按交易所 + 代码段推断：
+      沪市 000xxx 为上证系列（由中证指数公司编制）、深市 399xxx 为深证系列（由国证编制）。
+      现库 sina 源 732 条全部为 SH000xxx / SZ399xxx 形态，未见例外；若出现其它代码段
+      会返回 None（宁缺勿错），后续接权威源时再补。
+    """
+    if source == 'csindex':
+        return '中证指数公司'
+    if source == 'cni':
+        return '国证指数'
+    if exchange == 'SH' and (index_code or '').startswith('000'):
+        return '中证指数公司'
+    if exchange == 'SZ' and (index_code or '').startswith('399'):
+        return '国证指数'
+    return None
+
+
 def _search_indices(db: Session, q: str) -> List[Dict]:
     """指数名录（index_catalog 表，三源合并：sina/中证/国证，#1365）。
 
@@ -96,6 +120,17 @@ def _search_indices(db: Session, q: str) -> List[Dict]:
     for r in rows:
         prefix = r.exchange if r.exchange in ('SH', 'SZ', 'CSI', 'CNI') else ''
         market = 'CN_A' if prefix in ('SH', 'SZ') else (r.exchange or 'CN_A')
+        # 编制/发布机构（#1425）：查询时由 source/exchange/代码段派生，不落库。
+        # 判定不出（None）时**不下发该字段**——前端据「字段缺失」降级不展示，
+        # 与「错误的发布方比没有更糟」的取舍一致。
+        publisher = _resolve_index_publisher(r.source, r.exchange, r.index_code)
+        extra = {
+            'exchange': r.exchange,
+            'is_core': r.is_core,
+            'core_rank': r.core_rank,
+        }
+        if publisher:
+            extra['publisher'] = publisher
         out.append(
             {
                 'code': f'{prefix}{r.index_code}',
@@ -103,11 +138,7 @@ def _search_indices(db: Session, q: str) -> List[Dict]:
                 'asset_type': 'index',
                 'market': market,
                 'venue': 'EXCHANGE' if prefix in ('SH', 'SZ') else '',
-                'extra': {
-                    'exchange': r.exchange,
-                    'is_core': r.is_core,
-                    'core_rank': r.core_rank,
-                },
+                'extra': extra,
             }
         )
     return out

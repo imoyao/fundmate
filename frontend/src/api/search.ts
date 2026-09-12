@@ -7,6 +7,9 @@ export interface AssetSearchExtra {
   host?: string | null;
   company?: string | null;
   exchange?: string | null;
+  /** 指数编制/发布机构（#1425，如「中证指数公司」「国证指数」）。
+   *  后端按 source + 交易所/代码段派生，判定不出不下发该字段 → 前端不展示（宁缺勿错）。 */
+  publisher?: string | null;
 }
 
 /** 聚合搜索统一信封条目（#1286）：code 即 watchlist.symbol 的取值
