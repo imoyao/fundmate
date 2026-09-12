@@ -1,42 +1,66 @@
 <!--
-  MetricDetailTable · 全部市场温度指标紧凑表格
-  从 temperature/index.vue 拆分（#980），模板与相关样式随组件 scoped 迁移。
+  MetricDetailTable · 全部市场温度指标表格
+  从 temperature/index.vue 拆分（#980）。
+
+  2026-09-12：由自写 div grid 改为 <el-table>。
+  原实现在页面内自绘表头 / 行 / 边框，绕过了 frontend/src/style/el-table.css
+  定义的全站表格基线。该文件明确要求「所有 el-table 走全局基线，
+  禁止各页面 ::deep(.el-table) 里自行覆盖，否则会重新分化出多套表格风格；
+  新增页面表格直接用 <el-table> 即可自动继承基线，无需任何样式代码」。
+  自绘结果就是本表与同页 BiasTable / CrowdingTable 视觉不一致（边框、表头底色、
+  行高、hover 全都各写一套）。改为 el-table 后三张表共享同一基线。
   内部复用 utils/temperatureFormat 的 displaySource / formatValue / valueColorClass。
 -->
 <template>
   <section class="cards-section">
     <SectionHeader title="全部市场温度指标" />
-    <div class="metric-table">
-      <div class="metric-table-head">
-        <span class="col-name">指标</span>
-        <span class="col-source">来源</span>
-        <span class="col-value">数值</span>
-        <span class="col-label">等级</span>
-      </div>
-      <div
-        v-for="item in items"
-        :key="`${item.source}-${item.name}`"
-        class="metric-table-row"
-        :class="{ stale: item.stale }"
-      >
-        <div class="col-name">
-          <span class="metric-name-text">{{ item.name }}</span>
-          <el-tooltip v-if="item.note" :content="item.note" placement="top">
-            <el-icon class="info-icon"><Info-Filled /></el-icon>
-          </el-tooltip>
-        </div>
-        <div class="col-source">
-          <span class="source-tag">{{ displaySource(item.source) }}</span>
-        </div>
-        <div class="col-value" :class="valueColorClass(item.value, item.label)">
-          {{ formatValue(item.value) }}{{ item.unit || "" }}
-        </div>
-        <div class="col-label">
-          <TemperatureLevelBadge :level="item.label" size="sm" />
-        </div>
-      </div>
-      <div v-if="!items.length" class="empty-state">暂无更多指标</div>
-    </div>
+    <el-table
+      :data="items"
+      border
+      style="width: 100%"
+      max-height="520"
+      :row-class-name="rowClassName"
+    >
+      <el-table-column prop="name" label="指标" min-width="200">
+        <template #default="{ row }">
+          <div class="metric-name-cell">
+            <span class="metric-name-text">{{ row.name }}</span>
+            <el-tooltip v-if="row.note" :content="row.note" placement="top">
+              <el-icon class="info-icon"><Info-Filled /></el-icon>
+            </el-tooltip>
+          </div>
+        </template>
+      </el-table-column>
+
+      <el-table-column label="来源" width="130">
+        <template #default="{ row }">
+          <span class="source-tag">{{ displaySource(row.source) }}</span>
+        </template>
+      </el-table-column>
+
+      <el-table-column label="数值" width="120" align="right">
+        <template #default="{ row }">
+          <span
+            class="metric-value"
+            :class="[
+              valueColorClass(row.value, row.label),
+              { stale: row.stale }
+            ]"
+            >{{ formatValue(row.value) }}{{ row.unit || "" }}</span
+          >
+        </template>
+      </el-table-column>
+
+      <el-table-column label="等级" width="150" align="right">
+        <template #default="{ row }">
+          <TemperatureLevelBadge :level="row.label" size="sm" />
+        </template>
+      </el-table-column>
+
+      <template #empty>
+        <div class="empty-state">暂无更多指标</div>
+      </template>
+    </el-table>
   </section>
 </template>
 
@@ -61,73 +85,24 @@ withDefaults(
     items: () => []
   }
 );
+
+/** 数据滞后行：整行降透明度，与 BiasTable / CrowdingTable 的「滞后」语义一致。
+ *  属 el-table.css 规则 3 允许保留的「行内行为」样式，不涉及视觉基线。 */
+const rowClassName = ({ row }: { row: any }) => (row?.stale ? "is-stale" : "");
 </script>
 
 <style lang="scss" scoped>
-/* ===== 响应式（自 temperature/index.vue 迁移） ===== */
-@media (width <= 768px) {
-  .metric-table-head,
-  .metric-table-row {
-    grid-template-columns: 2fr 80px 80px;
-    gap: 8px;
-    padding: 10px 12px;
-  }
-
-  .metric-table-head .col-source,
-  .metric-table-row .col-source {
-    display: none;
-  }
-}
-
+/* 区块容器与 BiasTable / CrowdingTable 保持同一卡片规范 */
 .cards-section {
+  padding: 20px 24px;
   margin-bottom: 24px;
-}
-
-.metric-table {
-  overflow: hidden;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   box-shadow: var(--shadow-raised);
 }
 
-.metric-table-head,
-.metric-table-row {
-  display: grid;
-  grid-template-columns: 2fr 1fr 100px 100px;
-  gap: 12px;
-  align-items: center;
-  padding: 12px 16px;
-}
-
-.metric-table-head {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  background: var(--bg-subtle);
-}
-
-.metric-table-row {
-  font-size: 13px;
-  border-top: 1px solid var(--border-light);
-  transition: background 0.12s ease;
-}
-
-.metric-table-row:hover {
-  background: var(--bg-subtle);
-}
-
-.metric-table-row.stale {
-  opacity: 0.6;
-}
-
-.metric-table-row.stale .col-value {
-  text-decoration: line-through;
-}
-
-.col-name {
+.metric-name-cell {
   display: flex;
   gap: 6px;
   align-items: center;
@@ -138,7 +113,6 @@ withDefaults(
   overflow: hidden;
   text-overflow: ellipsis;
   font-weight: 500;
-  color: var(--text-primary);
   white-space: nowrap;
 }
 
@@ -148,14 +122,7 @@ withDefaults(
   cursor: help;
 }
 
-.col-source {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 12px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-
+/* 来源小标签：仅作来源标注，视觉与全站胶囊族一致 */
 .source-tag {
   display: inline-block;
   padding: 2px 8px;
@@ -166,21 +133,9 @@ withDefaults(
   border-radius: 6px;
 }
 
-.col-value {
+.metric-value {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.col-label {
-  text-align: right;
-}
-
-.empty-state {
-  padding: 40px 0;
-  font-size: 14px;
-  color: var(--text-tertiary);
-  text-align: center;
 }
 
 /* ===== 指标数值颜色（val-* 令牌） ===== */
@@ -196,5 +151,19 @@ withDefaults(
   color: var(--text-secondary);
 }
 
-/* ===== 全部指标紧凑表格区块（自 temperature/index.vue 迁移） ===== */
+/* 数据滞后：整行降透明度 + 数值划线 */
+:deep(.el-table__row.is-stale) {
+  opacity: 0.6;
+}
+
+.metric-value.stale {
+  text-decoration: line-through;
+}
+
+.empty-state {
+  padding: 40px 0;
+  font-size: 14px;
+  color: var(--text-tertiary);
+  text-align: center;
+}
 </style>
