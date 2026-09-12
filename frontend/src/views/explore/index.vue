@@ -73,7 +73,8 @@
       </section>
 
       <!-- 已登录：引导去自选页（探市只做展示与观察，管理能力收敛到登录后的自选） -->
-      <section v-if="isAuthenticated" class="auth-guide">
+      <!-- 可关闭且关闭后永久生效（localStorage）——避免常驻提示反复打扰 -->
+      <section v-if="isAuthenticated && !authGuideDismissed" class="auth-guide">
         <div class="auth-guide__inner">
           <div class="auth-guide__text">
             <div class="auth-guide__title">已登录，可前往自选页管理资产</div>
@@ -82,10 +83,21 @@
               批量导入等功能已迁移至自选页统一管理。
             </div>
           </div>
-          <el-button type="primary" @click="goToWatchlist">
-            前往自选页
-            <IconifyIconOffline icon="ep:arrow-right" class="ml-1" />
-          </el-button>
+          <div class="auth-guide__actions">
+            <el-button type="primary" @click="goToWatchlist">
+              前往自选页
+              <IconifyIconOffline icon="ep:arrow-right" class="ml-1" />
+            </el-button>
+            <button
+              type="button"
+              class="auth-guide__close"
+              title="不再提示"
+              aria-label="不再提示"
+              @click="dismissAuthGuide"
+            >
+              <IconifyIconOffline icon="ep:close" />
+            </button>
+          </div>
         </div>
       </section>
 
@@ -135,6 +147,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { useLocalStorage } from "@vueuse/core";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import MarketHeader from "@/components/MarketHeader/index.vue";
 import PageFooter from "@/components/PageFooter/index.vue";
@@ -156,6 +169,20 @@ defineOptions({
 
 // 登录态感知（探市免登录页，D4）
 const { isAuthenticated } = useAuthState();
+
+/**
+ * 登录后引导条（「已登录，可前往自选页管理资产」）可手动关闭，关闭后永久生效。
+ * 用 localStorage 持久化；key 带版本号——将来文案/引导目标改版时递增 v2，
+ * 老用户的关闭状态自然失效，会重新看到一次新提示。
+ */
+const AUTH_GUIDE_DISMISS_KEY = "explore:auth-guide-dismissed:v1";
+const authGuideDismissed = useLocalStorage<boolean>(
+  AUTH_GUIDE_DISMISS_KEY,
+  false
+);
+const dismissAuthGuide = () => {
+  authGuideDismissed.value = true;
+};
 
 const route = useRoute();
 const router = useRouter();
@@ -397,7 +424,7 @@ onMounted(startRealtime);
     padding: 18px 24px;
     background: var(--bg-card);
     border: 1px solid var(--border-light);
-    border-radius: 12px;
+    border-radius: var(--radius-card);
     box-shadow: var(--shadow-raised);
   }
 
@@ -413,6 +440,36 @@ onMounted(startRealtime);
     font-size: 13px;
     line-height: 1.6;
     color: var(--text-secondary);
+  }
+
+  &__actions {
+    display: flex;
+    flex-shrink: 0;
+    gap: 8px;
+    align-items: center;
+  }
+
+  &__close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    font-size: 15px;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    transition:
+      color 0.15s ease,
+      background 0.15s ease;
+
+    &:hover {
+      color: var(--text-primary);
+      background: var(--bg-soft);
+    }
   }
 }
 </style>

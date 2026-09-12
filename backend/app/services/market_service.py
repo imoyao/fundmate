@@ -17,6 +17,10 @@
 保证页面永远可渲染。
 """
 
+import re
+import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
@@ -29,6 +33,45 @@ from app.core.time_utils import now_shanghai
 # 单资产序列缓存 30 分钟（overview 由各序列现算组装，不整体缓存）。
 _SERIES_TTL = 1800
 _cache = CacheService(namespace='market_overview')
+
+# 债券收益率轨：只取近 N 个自然日。
+# 2026-09-12 实测：不传 start_date 时 akshare 会翻 19 页拉全部历史（≈9500 行，单次 ~29s），
+# 是该接口首屏超时（前端 timeout 10s）的主因；传近月起点后降至 ~2.5s（30 行）。
+_BOND_SERIES_DAYS = 30
+
+# 资产序列取数并发度。
+# 2026-09-12 实测：清缓存后 14 个资产**串行**取数合计 ~40s（各源网络往返之和），
+# 是首屏超时的另一半根因（bond 修好后仍不够）。改并发后总耗时 ≈ 最慢单源耗时。
+# 取 6 而非全量 14：避免瞬时打爆对端（新浪/东财）与本地连接池；akshare 各函数互不共享状态。
+_FETCH_WORKERS = 6
+
+# 单个资产 / 债券收益率轨的取数上限（秒）。
+# 2026-09-12 实测踩坑：并发取数偶发「单源长时间挂住」——14 个资产全部取数成功并落缓存后，
+# 线程池仍 11 分钟不回收。若沿用 `with ThreadPoolExecutor(...)`（退出时隐式 wait=True），
+# 会把整个请求拖死，比超时更糟。故：逐个 future 设超时 + 显式 shutdown(wait=False)，
+# 超时项降级为软占位，使响应时间有确定上界。
+_PER_FETCH_TIMEOUT = 20
+
+# ─────────────────── ⚡ 异动双线参数（docs/features/market-explorer.md §5.5）───────────────────
+# 线 1（相对 / 自适应）：|当日涨跌| > ANOMALY_SIGMA_MULTIPLE × σ(过去 ANOMALY_SIGMA_WINDOW 个交易日日收益)
+# 线 2（绝对 / 兜底）：  |当日涨跌| >= ANOMALY_ABS_THRESHOLD
+# 任一触发 → 亮 ⚡。
+# 取值依据（2026-09-12 用 index_daily 的 10 个万得指数长历史 + 14 个在观察资产实测）：
+#   k=2.5 命中约 7.6~8.3 次/年/资产（k=2.0 约 15 次/年偏滥，k=3.0 约 4 次/年偏吝）；
+#   且 k=2.5 + abs=3.0 能复现原文样例——原油 +3.5%/σ≈2% 亮（走线 2）、日经 +2% 不亮。
+# 三者均为模块级常量，如需按资产覆盖可在 ASSET_CONFIG 单项里加同名键。
+ANOMALY_SIGMA_WINDOW = 250
+ANOMALY_SIGMA_MULTIPLE = 2.5
+ANOMALY_ABS_THRESHOLD = 3.0
+# 线 1 至少要有这么多个历史日收益样本才启用（否则只用线 2，避免新资产被小样本 σ 误判）
+ANOMALY_MIN_SAMPLES = 60
+
+# 10 年期列名精确匹配：必须排除同日发布的「10年-2年」期限利差列。
+# 2026-09-12 实测的取列 bug：原实现按 `'10年' in col` 匹配，遍历到后面的
+# 「中国国债收益率10年-2年」会把已匹配到的「中国国债收益率10年」覆盖掉，
+# 导致前端把期限利差（0.44%）当成 10 年收益率展示（美债同理显示 0.33%）。
+_CN_10Y_RE = re.compile(r'^中国国债收益率\s*10\s*年$')
+_US_10Y_RE = re.compile(r'^美国国债收益率\s*10\s*年$')
 
 
 # ─────────────────────────── 20 资产配置 ───────────────────────────
@@ -339,40 +382,49 @@ def _position_label(pct: Optional[float]) -> str:
     return '适中'
 
 
-def _fetch_bond_yield_10y() -> Optional[Dict[str, Any]]:
-    """债券收益率轨：中美国债 10Y 收益率 + 日变动(bp)。best-effort，失败返回 None。
+def _fetch_bond_yield_10y_uncached() -> Optional[Dict[str, Any]]:
+    """实际取数（无缓存层）：中美国债 10Y 收益率 + 日变动(bp)。best-effort，失败返回 None。
 
-    bond_zh_us_rate 列名随 akshare 版本变化，这里做宽匹配 + 异常兜底，
-    解析不出也不影响价格轨展示。
+    列名随 akshare 版本变化，这里用锚定 ^…$ 的正则精确匹配「10年」列，
+    以免被同名后缀的「10年-2年」期限利差列覆盖（见 _CN_10Y_RE 注释）。
     """
     try:
         ak = get_akshare()
-        df = ak.bond_zh_us_rate()
+        # 只取近 N 天：不传 start_date 会翻 19 页拉全历史，单次 ~29s（首屏超时主因）
+        start = (now_shanghai() - timedelta(days=_BOND_SERIES_DAYS)).strftime('%Y%m%d')
+        df = ak.bond_zh_us_rate(start_date=start)
         if df is None or getattr(df, 'empty', True):
             return None
-        # 找含「10年」的中美国债收益率列（先判美国，避免「美国国债」被「国债」误归入中国）
+
         cn_col = us_col = None
         for col in df.columns:
-            c = str(col)
-            if '10年' not in c:
-                continue
-            if '美国' in c:
-                us_col = col
-            elif '中国' in c:
+            c = str(col).strip()
+            if cn_col is None and _CN_10Y_RE.match(c):
                 cn_col = col
+            elif us_col is None and _US_10Y_RE.match(c):
+                us_col = col
         if cn_col is None:
+            logger.warning('债券收益率轨：未匹配到「中国国债收益率10年」列，跳过。列名={}', list(df.columns))
             return None
-        vals = [_safe_float(v) for v in df[cn_col].tolist() if _safe_float(v) is not None]
-        if len(vals) < 2:
+
+        def _tail2(col: Any) -> List[float]:
+            """按时间升序取该列最后两个有效值。"""
+            out: List[float] = []
+            for v in df[col].tolist():
+                f = _safe_float(v)
+                if f is not None:
+                    out.append(f)
+            return out
+
+        cn_vals = _tail2(cn_col)
+        if len(cn_vals) < 2:
             return None
-        last, prev = vals[-1], vals[-2]
-        bp = round((last - prev) * 100, 1)  # 收益率变动（基点）
         result: Dict[str, Any] = {
-            'cn_10y': round(last, 2),
-            'cn_10y_change_bp': bp,
+            'cn_10y': round(cn_vals[-1], 2),
+            'cn_10y_change_bp': round((cn_vals[-1] - cn_vals[-2]) * 100, 1),
         }
         if us_col is not None:
-            us_vals = [_safe_float(v) for v in df[us_col].tolist() if _safe_float(v) is not None]
+            us_vals = _tail2(us_col)
             if len(us_vals) >= 2:
                 result['us_10y'] = round(us_vals[-1], 2)
                 result['us_10y_change_bp'] = round((us_vals[-1] - us_vals[-2]) * 100, 1)
@@ -380,6 +432,84 @@ def _fetch_bond_yield_10y() -> Optional[Dict[str, Any]]:
     except Exception as e:  # noqa: BLE001
         logger.warning('债券收益率轨取数失败（best-effort 跳过）: {}', e)
         return None
+
+
+def _fetch_bond_yield_10y() -> Optional[Dict[str, Any]]:
+    """债券收益率轨（带 30 分钟缓存）。
+
+    此前该函数**没有任何缓存**，每个请求都会打一次东财接口；
+    叠加无 start_date 的 29s 全量翻页，是 /api/market/overview 首屏超时的根因。
+    """
+    return _cache.get_or_set('bond_yield:10y', producer=_fetch_bond_yield_10y_uncached, ttl=_SERIES_TTL)
+
+
+def _calc_anomaly(change_pct: Optional[float], closes: List[float]) -> Optional[Dict[str, Any]]:
+    """⚡ 异动双线判定（docs/features/market-explorer.md §5.5）。
+
+    线 1（相对 / 自适应）：|当日涨跌| > k × σ(过去 window 个交易日日收益)
+    线 2（绝对 / 兜底）：  |当日涨跌| >= 绝对阈值
+    任一触发即 triggered=True。判不出（数据不足 / 无当日涨跌）返回 None。
+
+    返回结构（前端渲染 ⚡ 徽标与「异动解读」用）：
+      {triggered, rule, today_pct, sigma, multiple, sigma_window,
+       sigma_multiple, abs_threshold, basis_note}
+    """
+    if change_pct is None:
+        return None
+
+    # 由收盘价序列现算日收益（不依赖 index_daily.ret_pct —— 该列实测量纲错乱，不可用）
+    rets: List[float] = []
+    for i in range(1, len(closes)):
+        prev = closes[i - 1]
+        if prev:
+            rets.append((closes[i] - prev) / prev * 100.0)
+
+    sigma: Optional[float] = None
+    multiple: Optional[float] = None
+    # 历史窗口不含当日（rets[-1] 即当日）
+    hist = rets[-(ANOMALY_SIGMA_WINDOW + 1) : -1]
+    if len(hist) >= ANOMALY_MIN_SAMPLES:
+        mean = sum(hist) / len(hist)
+        var = sum((x - mean) ** 2 for x in hist) / (len(hist) - 1)  # 样本方差（n-1）
+        sd = var**0.5
+        if sd > 0:
+            sigma = round(sd, 2)
+            multiple = round(abs(change_pct) / sd, 2)
+
+    hit_sigma = sigma is not None and abs(change_pct) > ANOMALY_SIGMA_MULTIPLE * sigma
+    hit_abs = abs(change_pct) >= ANOMALY_ABS_THRESHOLD
+    if not (hit_sigma or hit_abs):
+        return None
+
+    if hit_sigma and hit_abs:
+        rule = 'both'
+    elif hit_sigma:
+        rule = 'sigma'
+    else:
+        rule = 'abs'
+
+    # 规则自述（原文要求的「异动解读」是当日新闻事实，本项目暂无新闻源，
+    # 故此处只给可实证的规则解释，不编造新闻——见 notes 与文档 §5.5 的说明）
+    parts: List[str] = []
+    if hit_abs:
+        parts.append(f'单日 {change_pct:+.2f}%，超过 {ANOMALY_ABS_THRESHOLD:g}% 绝对阈值')
+    if hit_sigma and multiple is not None and sigma is not None:
+        parts.append(
+            f'{"且" if hit_abs else ""}为其近 {ANOMALY_SIGMA_WINDOW} 个交易日日波动（σ={sigma:.2f}%）'
+            f'的 {multiple:.2f} 倍，超过 {ANOMALY_SIGMA_MULTIPLE:g}σ 上限'
+        )
+
+    return {
+        'triggered': True,
+        'rule': rule,
+        'today_pct': change_pct,
+        'sigma': sigma,
+        'multiple': multiple,
+        'sigma_window': ANOMALY_SIGMA_WINDOW,
+        'sigma_multiple': ANOMALY_SIGMA_MULTIPLE,
+        'abs_threshold': ANOMALY_ABS_THRESHOLD,
+        'basis_note': '，'.join(parts),
+    }
 
 
 class MarketOverviewService:
@@ -400,22 +530,47 @@ class MarketOverviewService:
             for asset in ASSET_CONFIG:
                 if asset.get('available', True):
                     _cache.invalidate(f'series:{asset["key"]}')
+            # 债券收益率轨也有 30 分钟缓存，一并失效，避免 force=true 拿到旧值
+            _cache.invalidate('bond_yield:10y')
 
         groups_map: Dict[str, List[Dict[str, Any]]] = {c: [] for c in cls.CATEGORY_ORDER}
         unavailable_count = 0
+        anomaly_count = 0
         bond_yield = None
 
-        for asset in ASSET_CONFIG:
-            item = cls._build_asset_item(asset)
+        # 资产序列取数并发执行：串行时 14 个源合计 ~40s（见 _FETCH_WORKERS 注释），
+        # 是首屏超时的主要来源；债券收益率轨一并丢进池里，不额外占用关键路径时间。
+        #
+        # 超时与退出策略（见 _PER_FETCH_TIMEOUT 注释）：**所有资产共享同一个 deadline**
+        # —— `future.result(timeout=T)` 的 T 是从「调用时刻」起算，逐个传常量会让 14 个
+        # 资产的超时累加（实测 14×20s=280s）；改用统一 deadline 后总等待有确定上界。
+        # 超时项降级为软占位；显式 shutdown(wait=False) 而非 `with`（后者 exit 时 wait=True
+        # 会被挂死线程拖住）。
+        pool = ThreadPoolExecutor(max_workers=_FETCH_WORKERS)
+        items: List[Dict[str, Any]] = []
+        try:
+            futures = [(asset, pool.submit(cls._build_asset_item, asset)) for asset in ASSET_CONFIG]
+            bond_future = pool.submit(_fetch_bond_yield_10y)
+            deadline = time.monotonic() + _PER_FETCH_TIMEOUT
+            for asset, fut in futures:
+                try:
+                    items.append(fut.result(timeout=max(0.0, deadline - time.monotonic())))
+                except Exception as e:  # noqa: BLE001
+                    logger.warning('资产 {}({}) 取数超时/失败，降级为软占位: {}', asset['name'], asset['key'], e)
+                    items.append(cls._unavailable_item(asset, f'取数超时（>{_PER_FETCH_TIMEOUT}s）或失败，已降级'))
+            try:
+                bond_yield = bond_future.result(timeout=max(0.0, deadline - time.monotonic()))
+            except Exception as e:  # noqa: BLE001
+                logger.warning('债券收益率轨跳过: {}', e)
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+
+        for asset, item in zip(ASSET_CONFIG, items):
             if not item.get('available'):
                 unavailable_count += 1
+            if item.get('anomaly'):
+                anomaly_count += 1
             groups_map.setdefault(asset['category'], []).append(item)
-
-        # 债券收益率轨（best-effort，独立取数）
-        try:
-            bond_yield = _fetch_bond_yield_10y()
-        except Exception as e:  # noqa: BLE001
-            logger.warning('债券收益率轨跳过: {}', e)
 
         groups = [{'category': c, 'assets': groups_map[c]} for c in cls.CATEGORY_ORDER if groups_map.get(c)]
 
@@ -427,18 +582,21 @@ class MarketOverviewService:
             ),
             'groups': groups,
             'unavailable_count': unavailable_count,
+            'anomaly_count': anomaly_count,
             'bond_yield': bond_yield,
             'notes': [
                 '商品（黄金/白银/原油）采用国内主力连续口径，与海外 ETF 代理口径可能方向相反，仅供参考。',
                 '离岸人民币 USDCNH 取不到离岸口径，以在岸中行牌价替代并标注；与离岸价有点差。',
                 '比特币无稳定日频源，按决策软占位。',
+                '⚡ 异动按「双线规则」判定（|当日涨跌| > 2.5σ(近250日) 或 >= 3% 绝对值），'
+                '解读行是规则自述；原文要求的「当日新闻事实解释」需新闻源，尚未接入。',
             ],
         }
 
-    @classmethod
-    def _build_asset_item(cls, asset: Dict[str, Any]) -> Dict[str, Any]:
-        """构造单个资产项；不可得资产返回软占位。"""
-        base = {
+    @staticmethod
+    def _base_item(asset: Dict[str, Any]) -> Dict[str, Any]:
+        """资产项的公共骨架（可取数 / 软占位共用）。"""
+        return {
             'key': asset['key'],
             'name': asset['name'],
             'category': asset['category'],
@@ -447,15 +605,26 @@ class MarketOverviewService:
             'trade_date': None,
             'data_asof': None,
             'position': None,
+            'anomaly': None,
             'caliber': asset.get('caliber'),
             'reason': None,
         }
 
-        if not asset.get('available', True):
-            base['available'] = False
-            base['reason'] = asset.get('reason', '暂无可靠数据源')
-            return base
+    @classmethod
+    def _unavailable_item(cls, asset: Dict[str, Any], reason: str) -> Dict[str, Any]:
+        """构造软占位项（缺源 / 取数失败 / 超时降级）。"""
+        item = cls._base_item(asset)
+        item['available'] = False
+        item['reason'] = reason
+        return item
 
+    @classmethod
+    def _build_asset_item(cls, asset: Dict[str, Any]) -> Dict[str, Any]:
+        """构造单个资产项；不可得资产返回软占位。"""
+        if not asset.get('available', True):
+            return cls._unavailable_item(asset, asset.get('reason', '暂无可靠数据源'))
+
+        base = cls._base_item(asset)
         try:
             dates, closes = _fetch_close_series(asset)
             change, trade_date, data_asof = _calc_daily_change(dates, closes)
@@ -473,6 +642,9 @@ class MarketOverviewService:
                     'basis': basis,
                     'window': window,
                 }
+
+            # ⚡ 异动双线判定（§5.5）：未命中返回 None，前端据此决定是否显示徽标
+            base['anomaly'] = _calc_anomaly(change, closes)
         except Exception as e:  # noqa: BLE001
             # 取数失败 → 软占位（不 500）
             logger.warning('资产 {}({}) 取数失败，降级为软占位: {}', asset['name'], asset['key'], e)
