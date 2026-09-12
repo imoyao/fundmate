@@ -100,11 +100,38 @@ const ASSET_TYPE_OPTIONS = [
   "portfolio"
 ] as const;
 
+/** 持仓分组（activeGroup === 'holding'）下可筛选的资产类型：仅股票与基金。
+ *  经理 / 组合 / 指数 / ETF / 可转债等在「持仓」语义下不存在（持仓只来自 positions 表，
+ *  其 asset_type 实际为 stock/fund 类），禁止选择，从根上杜绝
+ *  「持仓分组筛经理却显示股票、表头却变」的 bug（用户反馈，问题 2）。 */
+const HOLDING_ALLOWED_TYPES = ["stock", "fund"] as const;
+
 const selectedAssetTypesModel = computed({
   get: () => props.toolbar.selectedAssetTypes.value,
   set: (value: string[]) => {
     props.toolbar.selectedAssetTypes.value = value;
   }
+});
+
+// ── 持仓分组限制（问题 2 修复）──
+// 当前是否在「持仓」分组：持仓分组只有真实持仓（股票 / 基金类），
+// 经理 / 组合 / 指数等无持仓语义的类型在此视图下不可选。
+const isHoldingGroup = computed(() => props.groups.activeGroup.value === "holding");
+// 弹层内展示的类型选项：持仓分组下收窄为仅股票 / 基金，避免误选无持仓语义的类型。
+const visibleTypeOptions = computed<string[]>(() =>
+  isHoldingGroup.value ? [...HOLDING_ALLOWED_TYPES] : [...ASSET_TYPE_OPTIONS]
+);
+
+// ── 筛选面板 Tab 化（问题 1）：类型 / 标签 两段不再上下堆叠滚动，
+//    改用 Tab 切换，每个 Tab 内容独立滚动；操作按钮上移到面板顶部 sticky。
+const filterTab = ref<"type" | "tag">("type");
+
+// 标签过多时面板内搜索（标签会随使用无限增长，见用户反馈）。
+const tagSearch = ref("");
+const filteredTags = computed(() => {
+  const kw = tagSearch.value.trim().toLowerCase();
+  if (!kw) return allTags.value;
+  return allTags.value.filter(t => t.name.toLowerCase().includes(kw));
 });
 
 // 类型草稿。与标签草稿同一节奏：打开「筛选」面板时同步已生效筛选，点「确定」才提交。
@@ -144,6 +171,11 @@ watch(tagFilterVisibleModel, visible => {
   if (!visible) return;
   props.tags.onTagFilterShow();
   draftAssetTypes.value = [...selectedAssetTypesModel.value];
+  // 智能默认 Tab：仅选了标签未选类型时直接落到「标签」Tab，减少一次点击
+  filterTab.value =
+    draftFilterTagIdsModel.value.length > 0 && draftAssetTypes.value.length === 0
+      ? "tag"
+      : "type";
 });
 
 // 切换视图：同值不重复触发（原 el-segmented v-model+change 行为等价）
@@ -352,7 +384,7 @@ watch(
           v-model:visible="tagFilterVisibleModel"
           trigger="click"
           placement="bottom-start"
-          :width="272"
+          :width="320"
           popper-class="watchlist-filter-popper"
         >
           <template #reference>
@@ -369,51 +401,9 @@ watch(
             </el-button>
           </template>
           <div class="filter-panel">
-            <section class="filter-panel__section">
-              <p class="filter-panel__title">类型</p>
-              <div class="filter-panel__chips">
-                <button
-                  v-for="t in ASSET_TYPE_OPTIONS"
-                  :key="t"
-                  type="button"
-                  class="filter-chip"
-                  :class="{ 'is-selected': draftAssetTypes.includes(t) }"
-                  @click="toggleDraftType(t)"
-                >
-                  {{ assetTypeLabel(t) }}
-                </button>
-              </div>
-            </section>
-
-            <section class="filter-panel__section">
-              <p class="filter-panel__title">标签</p>
-              <div class="filter-panel__chips">
-                <!-- 标签胶囊：标签色为底 + 色点 + 名称（chipStyle 注入 --chip-*），
-                     与「管理标签」/表格内标签胶囊同一颜色语言 -->
-                <button
-                  v-for="t in allTags"
-                  :key="t.id"
-                  type="button"
-                  class="filter-chip filter-chip--tag"
-                  :class="{
-                    'is-selected': draftFilterTagIdsModel.includes(t.id)
-                  }"
-                  :style="chipStyle(t)"
-                  @click="toggleDraftTag(t.id)"
-                >
-                  <span
-                    class="filter-chip__dot"
-                    :style="{ backgroundColor: t.color || undefined }"
-                  />
-                  {{ t.name }}
-                </button>
-                <p v-if="allTags.length === 0" class="filter-panel__empty">
-                  暂无标签，可在「管理」中新建
-                </p>
-              </div>
-            </section>
-
-            <div class="filter-panel__footer">
+            <!-- 顶部操作栏：重置 / 取消 / 确定 常驻可见（sticky），不再沉入滚动区
+                 （用户反馈：选项多时按钮被推到滚动底部，必须滚到底才能点确定） -->
+            <div class="filter-panel__header">
               <el-button
                 size="small"
                 text
@@ -433,6 +423,91 @@ watch(
                   确定
                 </el-button>
               </div>
+            </div>
+
+            <!-- Tab 头：类型 / 标签 切换，避免两段上下堆叠滚动
+                 （类型固定、标签会随使用无限增长，见用户反馈） -->
+            <div class="filter-panel__tabs" role="tablist" aria-label="筛选维度">
+              <button
+                type="button"
+                role="tab"
+                class="filter-panel__tab"
+                :class="{ 'is-active': filterTab === 'type' }"
+                :aria-selected="filterTab === 'type'"
+                @click="filterTab = 'type'"
+              >
+                类型
+              </button>
+              <button
+                type="button"
+                role="tab"
+                class="filter-panel__tab"
+                :class="{ 'is-active': filterTab === 'tag' }"
+                :aria-selected="filterTab === 'tag'"
+                @click="filterTab = 'tag'"
+              >
+                标签
+                <span v-if="selectedTagCount" class="filter-panel__tab-count">
+                  {{ selectedTagCount }}
+                </span>
+              </button>
+            </div>
+
+            <!-- 内容区：随 Tab 切换，独立滚动 -->
+            <div class="filter-panel__body">
+              <section v-show="filterTab === 'type'" class="filter-panel__section">
+                <p class="filter-panel__title">类型</p>
+                <div class="filter-panel__chips">
+                  <button
+                    v-for="t in visibleTypeOptions"
+                    :key="t"
+                    type="button"
+                    class="filter-chip"
+                    :class="{ 'is-selected': draftAssetTypes.includes(t) }"
+                    @click="toggleDraftType(t)"
+                  >
+                    {{ assetTypeLabel(t) }}
+                  </button>
+                </div>
+                <p v-if="isHoldingGroup" class="filter-panel__hint">
+                  持仓分组仅支持筛选股票 / 基金
+                </p>
+              </section>
+
+              <section v-show="filterTab === 'tag'" class="filter-panel__section">
+                <p class="filter-panel__title">标签</p>
+                <el-input
+                  v-model="tagSearch"
+                  size="small"
+                  clearable
+                  placeholder="搜索标签"
+                  class="filter-panel__search"
+                />
+                <div class="filter-panel__chips">
+                  <!-- 标签胶囊：标签色为底 + 色点 + 名称（chipStyle 注入 --chip-*），
+                       与「管理标签」/表格内标签胶囊同一颜色语言 -->
+                  <button
+                    v-for="t in filteredTags"
+                    :key="t.id"
+                    type="button"
+                    class="filter-chip filter-chip--tag"
+                    :class="{
+                      'is-selected': draftFilterTagIdsModel.includes(t.id)
+                    }"
+                    :style="chipStyle(t)"
+                    @click="toggleDraftTag(t.id)"
+                  >
+                    <span
+                      class="filter-chip__dot"
+                      :style="{ backgroundColor: t.color || undefined }"
+                    />
+                    {{ t.name }}
+                  </button>
+                  <p v-if="filteredTags.length === 0" class="filter-panel__empty">
+                    无匹配标签
+                  </p>
+                </div>
+              </section>
             </div>
           </div>
         </el-popover>
@@ -793,8 +868,9 @@ watch(
 }
 
 .filter-panel {
-  max-height: 320px;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  max-height: 72vh;
 }
 
 /* 面板内分区（类型 / 标签）：段标题 + 胶囊组，段间用发丝线分隔层级 */
@@ -865,12 +941,70 @@ watch(
   color: var(--text-tertiary);
 }
 
-.filter-panel__footer {
+.filter-panel__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-top: 12px;
-  margin-top: 12px;
-  border-top: 1px solid var(--border-light);
+  flex-shrink: 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.filter-panel__tabs {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+  padding: 10px 0;
+}
+
+.filter-panel__tab {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  height: 30px;
+  padding: 0 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  background-color: transparent;
+  border: none;
+  border-radius: var(--radius-pill);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.filter-panel__tab:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-hover);
+}
+
+.filter-panel__tab.is-active {
+  font-weight: 500;
+  color: var(--brand-700);
+  background-color: var(--brand-100);
+}
+
+.filter-panel__tab-count {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--brand-700);
+}
+
+/* 内容区独立滚动：类型 / 标签 两段不再上下堆叠，切换 Tab 即可，按钮常驻顶部 */
+.filter-panel__body {
+  overflow-y: auto;
+  padding-top: 10px;
+}
+
+.filter-panel__search {
+  margin-bottom: 8px;
+}
+
+.filter-panel__hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
 }
 </style>
