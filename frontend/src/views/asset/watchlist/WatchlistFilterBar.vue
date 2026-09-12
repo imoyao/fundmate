@@ -394,54 +394,11 @@ watch(
             </el-button>
           </template>
           <div class="filter-panel">
-            <!-- 顶部操作栏：重置 / 取消 / 确定 常驻可见，不再沉入滚动区
-                 （用户反馈：选项多时按钮被推到滚动底部，必须滚到底才能点确定） -->
-            <div class="filter-panel__header">
-              <el-button
-                size="small"
-                text
-                type="primary"
-                :disabled="!hasAnyFilter"
-                @click="resetAllFilters"
-              >
-                重置
-              </el-button>
-              <div class="flex gap-2">
-                <el-button size="small" @click="tagFilterVisibleModel = false">
-                  取消
-                </el-button>
-                <!-- 确定：一次性提交「类型 + 标签」两组草稿；刷新只走一条路径，
-                     避免标签 watch 与类型刷新叠加成两次请求（见 applyFilters 注释） -->
-                <el-button size="small" type="primary" @click="applyFilters">
-                  确定
-                </el-button>
-              </div>
-            </div>
-
-            <!-- 内容区：类型 / 标签 两段平铺展示（不再用 Tab 切换，
-                 用户一眼看到所有可组合的筛选条件，整体滚动） -->
+            <!-- 内容区：类型 / 标签 两段平铺展示，无区标题、无分割线，
+                 中间以留白分隔，整体滚动 -->
             <div class="filter-panel__body">
               <!-- 类型：多选胶囊，选中态左侧显示勾选图标 -->
               <section class="filter-panel__section">
-                <div class="filter-panel__section-title">
-                  <span class="filter-panel__section-label">类型</span>
-                  <div class="filter-panel__section-meta">
-                    <span
-                      v-if="draftAssetTypes.length"
-                      class="filter-panel__section-count"
-                    >
-                      已选 {{ draftAssetTypes.length }}
-                    </span>
-                    <button
-                      v-if="draftAssetTypes.length"
-                      type="button"
-                      class="filter-panel__clear"
-                      @click="draftAssetTypes = []"
-                    >
-                      清空
-                    </button>
-                  </div>
-                </div>
                 <div class="filter-panel__chips">
                   <button
                     v-for="t in visibleTypeOptions"
@@ -465,26 +422,9 @@ watch(
               </section>
 
               <!-- 标签：多选胶囊，色点随选中态转为勾选图标；标签过多时面板内搜索 -->
-              <section class="filter-panel__section">
-                <div class="filter-panel__section-title">
-                  <span class="filter-panel__section-label">标签</span>
-                  <div class="filter-panel__section-meta">
-                    <span
-                      v-if="draftFilterTagIdsModel.length"
-                      class="filter-panel__section-count"
-                    >
-                      已选 {{ draftFilterTagIdsModel.length }}
-                    </span>
-                    <button
-                      v-if="draftFilterTagIdsModel.length"
-                      type="button"
-                      class="filter-panel__clear"
-                      @click="draftFilterTagIdsModel = []"
-                    >
-                      清空
-                    </button>
-                  </div>
-                </div>
+              <section
+                class="filter-panel__section filter-panel__section--tags"
+              >
                 <el-input
                   v-model="tagSearch"
                   size="small"
@@ -524,6 +464,29 @@ watch(
                   </p>
                 </div>
               </section>
+            </div>
+
+            <!-- 底部固定操作栏：无论标签有多少，重置 / 取消 / 确定 永远可见 -->
+            <div class="filter-panel__footer">
+              <el-button
+                size="small"
+                text
+                type="primary"
+                :disabled="!hasAnyFilter"
+                @click="resetAllFilters"
+              >
+                重置
+              </el-button>
+              <div class="flex gap-2">
+                <el-button size="small" @click="tagFilterVisibleModel = false">
+                  取消
+                </el-button>
+                <!-- 确定：一次性提交「类型 + 标签」两组草稿；刷新只走一条路径，
+                     避免标签 watch 与类型刷新叠加成两次请求（见 applyFilters 注释） -->
+                <el-button size="small" type="primary" @click="applyFilters">
+                  确定
+                </el-button>
+              </div>
             </div>
           </div>
         </el-popover>
@@ -889,50 +852,9 @@ watch(
   max-height: 72vh;
 }
 
-/* 面板内分区（类型 / 标签）：段标题 + 胶囊组，段间用发丝线分隔层级 */
+/* 两段之间用留白分隔，去掉怪异分割线 */
 .filter-panel__section + .filter-panel__section {
-  padding-top: 12px;
-  margin-top: 12px;
-  border-top: 1px solid var(--border-light);
-}
-
-.filter-panel__section-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 0 0 8px;
-}
-
-.filter-panel__section-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-tertiary);
-}
-
-.filter-panel__section-meta {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.filter-panel__section-count {
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
-
-.filter-panel__clear {
-  padding: 0;
-  font-size: 12px;
-  line-height: 1;
-  color: var(--brand-700);
-  cursor: pointer;
-  background: transparent;
-  border: none;
-  transition: color 150ms ease;
-}
-
-.filter-panel__clear:hover {
-  color: var(--brand-800);
+  margin-top: 16px;
 }
 
 .filter-panel__chips {
@@ -999,22 +921,26 @@ watch(
   color: var(--text-tertiary);
 }
 
-.filter-panel__header {
+/* 底部固定操作栏：始终在可视区底部，不随中间内容滚动 */
+.filter-panel__footer {
   display: flex;
   flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border-light);
+  padding-top: 10px;
+  border-top: 1px solid var(--border-light);
 }
 
-/* 内容区独立滚动：类型 / 标签 两段平铺展示，按钮常驻顶部 */
+/* 内容区：类型 / 标签 两段平铺展示，占满剩余高度并独立滚动 */
 .filter-panel__body {
-  padding-top: 10px;
+  flex: 1;
+  min-height: 0;
+  padding: 12px 0;
   overflow-y: auto;
 }
 
 .filter-panel__search {
+  width: 100%;
   margin-bottom: 8px;
 }
 
