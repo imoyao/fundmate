@@ -35,7 +35,12 @@
             :label="item.name"
             :value="item"
           >
-            <div class="asset-option">
+            <div
+              class="asset-option"
+              :class="{
+                'asset-option--composite': isCompositeAssetType(item.type)
+              }"
+            >
               <span class="asset-option__col1" :title="rowColumns(item).col1">{{
                 rowColumns(item).col1
               }}</span>
@@ -603,6 +608,16 @@ onMounted(async () => {
   min-width: 0;
 }
 
+/* 组合类标的（投顾/经理）次标识通常很短，若让 col2 flex:1 会把类型标签推到最右侧，
+   与 col2 之间留下大片空白，显得行过宽且重心不稳；改为内容宽度后布局更紧凑。 */
+.asset-option--composite {
+  justify-content: flex-start;
+}
+
+.asset-option--composite .asset-option__col2 {
+  flex: 0 1 auto;
+}
+
 .asset-option__col1 {
   flex: 0 0 110px;
   min-width: 0;
@@ -807,11 +822,14 @@ onMounted(async () => {
 /* EP 默认 .el-select-dropdown__item 是 height / line-height: 34px 的「单行」容器，
    自绘的两行内容会贴顶，视觉上就是「文字没有上下居中」（用户实测反馈）。
    这里把高度交给内容（height: auto + 上下 padding）并重置 line-height: normal，
-   让行内 flex 的 align-items: center 真正生效。 */
+   同时显式 flex + align-items: center 保证行内内容垂直居中；
+   min-height 从 48px 降到 36px，单行选项不再显得过于高挑。 */
 .add-asset-option-popper .el-select-dropdown__item {
+  display: flex;
+  align-items: center;
   height: auto;
-  min-height: 48px;
-  padding: 6px 12px;
+  min-height: 36px;
+  padding: 8px 12px;
   line-height: normal;
   white-space: normal;
 }
