@@ -19,6 +19,11 @@
     />
 
     <!-- ============================================================ -->
+    <!-- 大类资产观察（#1436 / #1444 收口实现：新增区块，紧跟温度仪表盘） -->
+    <!-- ============================================================ -->
+    <ExploreAssetOverview />
+
+    <!-- ============================================================ -->
     <!-- 添加/观察栏（仅未登录；登录后隐藏，引导去自选页管理）       -->
     <!-- ============================================================ -->
     <!-- 添加/观察栏（#984 拆分至 components/ExploreAddSection.vue；仅未登录渲染） -->
@@ -128,6 +133,7 @@ import { buildMarketFooterSources } from "@/components/MarketFooter/config";
 import { batchFetchQuotes } from "@/utils/realtimeDataSources";
 import { useTemperatureOverview } from "@/composables/temperature/useTemperatureOverview";
 import ExploreTemperatureDashboard from "./components/ExploreTemperatureDashboard.vue";
+import ExploreAssetOverview from "./components/ExploreAssetOverview.vue";
 import { getTypeLabel } from "@/constants/assetType";
 import { pricePrecision } from "@/utils/pricePrecision";
 import { useAuthState } from "@/composables/useAuthState";
