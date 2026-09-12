@@ -14,9 +14,7 @@ const { loading, error, overview, fetchOverview } = useMarketOverview();
 
 const groups = computed<MarketGroup[]>(() => overview.value?.groups ?? []);
 const asOfNote = computed(() => overview.value?.as_of_note ?? "");
-const unavailableCount = computed(
-  () => overview.value?.unavailable_count ?? 0
-);
+const unavailableCount = computed(() => overview.value?.unavailable_count ?? 0);
 const bondYield = computed(() => overview.value?.bond_yield ?? null);
 const updatedAt = computed(() => overview.value?.updated_at ?? "");
 
@@ -227,8 +225,8 @@ onMounted(() => {
 .state-hint {
   padding: 24px;
   font-size: 14px;
-  text-align: center;
   color: var(--text-secondary);
+  text-align: center;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
@@ -353,13 +351,13 @@ onMounted(() => {
   &__track {
     position: relative;
     height: 6px;
-    border-radius: 3px;
     background: linear-gradient(
       90deg,
       var(--temp-low) 0%,
       var(--temp-mid) 50%,
       var(--temp-high) 100%
     );
+    border-radius: 3px;
   }
 
   &__cursor {
@@ -369,8 +367,8 @@ onMounted(() => {
     height: 10px;
     border: 2px solid #fff;
     border-radius: 50%;
+    box-shadow: 0 0 0 1px rgb(0 0 0 / 10%);
     transform: translate(-50%, -50%);
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1);
   }
 
   &__meta {

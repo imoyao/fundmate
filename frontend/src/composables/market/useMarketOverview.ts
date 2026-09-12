@@ -1,10 +1,7 @@
 // src/composables/market/useMarketOverview.ts
 // 探市·大类资产观察 数据 composable：供 ExploreAssetOverview 使用。
 import { ref } from "vue";
-import {
-  getMarketOverview,
-  type MarketOverviewResponse
-} from "@/api/market";
+import { getMarketOverview, type MarketOverviewResponse } from "@/api/market";
 
 export function useMarketOverview() {
   /** 请求进行中 */
