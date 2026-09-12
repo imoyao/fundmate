@@ -70,21 +70,16 @@ const draftFilterTagIdsModel = computed({
   }
 });
 const allTags = computed(() => props.tags.allTags.value);
-const currentViewModel = computed({
-  get: () => props.toolbar.currentView.value,
-  set: (value: "all" | "exchange" | "otc") => {
-    props.toolbar.currentView.value = value;
-  }
-});
 const selectedTagCount = computed(
   () => props.tags.selectedFilterTagIds.value.length
 );
 
-// ── 类型筛选弹层（2026-09-09 用户拍板方案 A）──
-// 维度说明：现有 segmented 是 venue（场内/场外）维度；「头部产品/基金经理/指数」
-// 本质是标的形态（asset_type）维度，混排进 segmented 无法表达「场内+股票」类组合
-// 查询，故做成与「标签筛选」同一交互语言的弹层多选，可正交组合。
-// key 列表为自选场景的交易性类型（业务选择属前端职责）；中文标签统一走
+// ── 类型筛选（2026-09-09 用户拍板方案 A；2026-09-12 改为「主界面单选快捷 + 弹层多选」）──
+// 主界面「类型快捷 segmented」（全部/股票/基金/ETF/可转债）为单维度快速切换（单选覆盖式）；
+// 「筛选」弹层内「产品类型」为弹层多选，可与标签正交组合（如「股票 + 某标签」）。
+// venue（场内/场外）维度 2026-09-12 已从主界面移除：普通用户对场内/场外心智门槛高，
+// 且与类型维度重叠；当前 toolbar.currentView 恒为 'all'，后端不过滤 venue（见 useWatchlistData）。
+// 类型 key 列表为自选场景交易性类型（业务选择属前端职责）；中文标签统一走
 // useEnumLabels.assetTypeLabel（后端 /enums/asset_type 唯一真相源，禁止手抄映射）。
 const ASSET_TYPE_OPTIONS = [
   "stock",
@@ -127,11 +122,56 @@ const visibleTypeOptions = computed<string[]>(() =>
 // Popover 内当前激活的分类面板：产品类型 / 资产标签
 const activePanel = ref<"type" | "tag">("type");
 
-// 主界面高频类型快捷入口：仅展示最常用的股票 / 基金
-const QUICK_TYPE_OPTIONS = [
-  { label: "股票", value: "stock" },
-  { label: "基金", value: "fund" }
+// 主界面高频类型快捷入口：全部 / 股票 / 基金 / ETF / 可转债（单选覆盖式）。
+// 与「筛选」Popover 的多选正交：此处是单维度快速切换，组合筛选仍走 Popover。
+// 中文 label 走 assetTypeLabel（后端 /enums/asset_type 唯一真相源，禁止手抄映射），
+// 「可转债」对应资产类型 bond（useEnumLabels 已映射）。
+const QUICK_TYPES = [
+  { label: assetTypeLabel("stock"), value: "stock" },
+  { label: assetTypeLabel("fund"), value: "fund" },
+  { label: assetTypeLabel("etf"), value: "etf" },
+  { label: assetTypeLabel("bond"), value: "bond" }
 ] as const;
+
+// segmented 选项含「全部」（清除类型筛选），其余为高频类型。
+const TYPE_SEGMENTED_OPTIONS = [
+  { label: "全部", value: "all" },
+  ...QUICK_TYPES
+] as const;
+
+/**
+ * 当前单选激活项派生：
+ * - 无类型筛选 → 'all'（高亮「全部」）；
+ * - 恰好单选一个高频类型 → 该类型；
+ * - 多选 / 选了 Popover 里的其它类型 → ''（无高亮，组合态，看「筛选」角标）。
+ */
+const quickActive = computed<string>(() => {
+  const t = selectedAssetTypesModel.value;
+  if (t.length === 0) return "all";
+  if (t.length === 1 && QUICK_TYPES.some(q => q.value === t[0])) return t[0];
+  return "";
+});
+
+/**
+ * 主界面类型快捷入口（单选覆盖式）：点击即设置该类型为唯一生效筛选并刷新列表；
+ * 再次点击当前项 → 取消回「全部」；「全部」→ 清空类型筛选。
+ * 与 Popover 内多选正交：此处只能单维度，复杂组合进 Popover。
+ */
+function selectQuickType(value: string) {
+  if (value === "all") {
+    if (selectedAssetTypesModel.value.length === 0) return;
+    selectedAssetTypesModel.value = [];
+  } else if (
+    selectedAssetTypesModel.value.length === 1 &&
+    selectedAssetTypesModel.value[0] === value
+  ) {
+    selectedAssetTypesModel.value = [];
+  } else {
+    selectedAssetTypesModel.value = [value];
+  }
+  draftAssetTypes.value = [...selectedAssetTypesModel.value];
+  emit("filter-apply");
+}
 
 // 标签过多时面板内搜索（标签会随使用无限增长，见用户反馈）。
 const tagSearch = ref("");
@@ -149,20 +189,6 @@ function toggleDraftType(type: string) {
   const idx = draftAssetTypes.value.indexOf(type);
   if (idx >= 0) draftAssetTypes.value.splice(idx, 1);
   else draftAssetTypes.value.push(type);
-}
-
-/**
- * 主界面高频类型快捷入口：点击直接 toggle 生效类型，并同步到 Popover 草稿。
- * 与「视图」切换同级：即时生效并触发列表刷新；复杂组合通过「筛选」按钮进入面板操作。
- */
-function toggleQuickType(type: string) {
-  const current = selectedAssetTypesModel.value;
-  const next = current.includes(type)
-    ? current.filter(t => t !== type)
-    : [...current, type];
-  selectedAssetTypesModel.value = next;
-  draftAssetTypes.value = [...next];
-  emit("filter-apply");
 }
 
 /** 已生效的筛选条件数（类型 + 标签）：用于筛选入口按钮的角标 */
@@ -183,13 +209,6 @@ const hasAnyFilter = computed(
     draftFilterTagIdsModel.value.length > 0
 );
 
-// 视图筛选选项（venue 维度）
-const viewOptions = [
-  { label: "全部", value: "all" },
-  { label: "场内", value: "exchange" },
-  { label: "场外", value: "otc" }
-] as const;
-
 // 打开「筛选」面板时把已生效筛选同步到两组草稿（类型 + 标签）。
 // 原触发按钮 @click 内的 onTagFilterShow 迁移至此：trigger="click" 后开合由 EP 接管，
 // 组件不再经手打开动作。
@@ -199,13 +218,6 @@ watch(tagFilterVisibleModel, visible => {
   props.tags.onTagFilterShow();
   draftAssetTypes.value = [...selectedAssetTypesModel.value];
 });
-
-// 切换视图：同值不重复触发（原 el-segmented v-model+change 行为等价）
-function selectView(value: (typeof viewOptions)[number]["value"]) {
-  if (currentViewModel.value === value) return;
-  currentViewModel.value = value;
-  emit("view-change");
-}
 
 const addDialogVisible = ref(false);
 
@@ -397,35 +409,20 @@ watch(
         </el-tooltip>
         <div class="right-divider" />
 
-        <!-- 视图 segmented：全部 / 场内 / 场外（venue 维度，一级筛选胶囊）。
+        <!-- 类型快捷 segmented：全部 / 股票 / 基金 / ETF / 可转债（单选覆盖式）。
              手写分段控制器（弃用 el-segmented：JS 绝对定位滑块与自定义尺寸错位，
-             见 OcrImportModal 同款决策）；选中态仅浅红底 + 深红字 -->
-        <div class="view-segmented" role="tablist" aria-label="视图筛选">
+             见 OcrImportModal 同款决策）；选中态仅浅红底 + 深红字。
+             与「筛选」Popover 多选正交：此处单维度快速切换，组合仍走 Popover。 -->
+        <div class="type-segmented" role="tablist" aria-label="类型快捷筛选">
           <button
-            v-for="opt in viewOptions"
+            v-for="opt in TYPE_SEGMENTED_OPTIONS"
             :key="opt.value"
             type="button"
             role="tab"
-            class="view-segmented__item"
-            :class="{ 'is-active': currentViewModel === opt.value }"
-            :aria-selected="currentViewModel === opt.value"
-            @click="selectView(opt.value)"
-          >
-            {{ opt.label }}
-          </button>
-        </div>
-
-        <!-- 高频类型快捷入口：股票 / 基金。点击即 toggle，与 Popover 内类型筛选状态同步 -->
-        <div class="quick-type-bar" role="group" aria-label="类型快捷筛选">
-          <button
-            v-for="opt in QUICK_TYPE_OPTIONS"
-            :key="opt.value"
-            type="button"
-            class="quick-type-chip"
-            :class="{
-              'is-active': selectedAssetTypesModel.includes(opt.value)
-            }"
-            @click="toggleQuickType(opt.value)"
+            class="type-segmented__item"
+            :class="{ 'is-active': quickActive === opt.value }"
+            :aria-selected="quickActive === opt.value"
+            @click="selectQuickType(opt.value)"
           >
             {{ opt.label }}
           </button>
@@ -868,10 +865,10 @@ watch(
   border-color: var(--brand-400);
 }
 
-/* ===== 视图分段控制器（全部/场内/场外）：手写，弃用 el-segmented =====
+/* ===== 类型快捷分段控制器（全部/股票/基金/ETF/可转债）：手写，弃用 el-segmented =====
    与分组 tab 同高（轨道 32px）；item 统一几何尺寸，hover/选中仅底色深浅递进，
    文字 flex 居中；选中态仅浅红底 + 深红字，无边框 */
-.view-segmented {
+.type-segmented {
   display: flex;
   gap: 2px;
   height: 32px;
@@ -885,7 +882,7 @@ watch(
   border-radius: var(--radius-pill);
 }
 
-.view-segmented__item {
+.type-segmented__item {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -904,63 +901,24 @@ watch(
 }
 
 /* 原生 button 点击后收掉浏览器默认 focus 外框；键盘导航保留细描边兜底 */
-.view-segmented__item:focus {
+.type-segmented__item:focus {
   outline: none;
 }
 
-.view-segmented__item:focus-visible {
+.type-segmented__item:focus-visible {
   outline: 1px solid var(--brand-400);
   outline-offset: 1px;
 }
 
-.view-segmented__item:hover {
+.type-segmented__item:hover {
   color: var(--text-primary);
   background-color: var(--bg-hover);
 }
 
-.view-segmented__item.is-active {
+.type-segmented__item.is-active {
   font-weight: 600;
   color: var(--brand-700);
   background-color: var(--brand-100);
-}
-
-/* 高频类型快捷入口：与视图 segmented 同高同语言 */
-.quick-type-bar {
-  display: flex;
-  flex-shrink: 0;
-  gap: 6px;
-  align-items: center;
-}
-
-.quick-type-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 32px;
-  padding: 0 14px;
-  font-size: var(--text-label);
-  line-height: 1;
-  color: var(--text-secondary);
-  cursor: pointer;
-  background-color: transparent;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-pill);
-  transition:
-    background-color 150ms ease,
-    color 150ms ease,
-    border-color 150ms ease;
-}
-
-.quick-type-chip:hover {
-  color: var(--text-primary);
-  background-color: var(--bg-hover);
-}
-
-.quick-type-chip.is-active {
-  font-weight: 500;
-  color: var(--brand-700);
-  background-color: var(--brand-100);
-  border-color: var(--brand-400);
 }
 
 .filter-panel {

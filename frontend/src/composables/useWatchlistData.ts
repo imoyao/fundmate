@@ -125,7 +125,8 @@ export function useWatchlistData(
         }
       }
     }
-    // venue 过滤由顶部 el-segmented（currentView）唯一承担（方案 B 收敛三套入口）
+    // venue（场内/场外）过滤：2026-09-12 主界面已移除场所切换按钮，currentView 恒为 'all'，
+    // 此分支实际不再命中（全部显示）。保留逻辑以兼容后续如需在「筛选」弹层内加回 venue 维度。
     if (currentView.value === "exchange") params.venue = "EXCHANGE";
     else if (currentView.value === "otc") params.venue = "OTC";
     // 资产类型多选（「类型」弹层）：逗号分隔小写枚举，后端 lower 后 in_ 匹配
