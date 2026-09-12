@@ -331,7 +331,7 @@ const handleAssetFormSubmit = () => {
       padding: 8px 15px;
       margin-left: 10px;
       font-size: 14px;
-      color: #fff;
+      color: var(--text-inverse);
       cursor: pointer;
       background-color: var(--el-color-primary);
       border: none;
@@ -474,7 +474,7 @@ const handleAssetFormSubmit = () => {
     }
 
     .btn-primary {
-      color: #fff;
+      color: var(--text-inverse);
       background-color: var(--el-color-primary);
       border: none;
 

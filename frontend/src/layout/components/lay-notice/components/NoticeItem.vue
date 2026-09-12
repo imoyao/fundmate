@@ -123,7 +123,7 @@ function hoverDescription(event, description) {
 
   .notice-container-avatar {
     margin-right: 16px;
-    background: #fff;
+    background: var(--bg-card);
   }
 
   .notice-container-text {

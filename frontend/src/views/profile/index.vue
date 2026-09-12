@@ -1115,7 +1115,7 @@ onMounted(async () => {
   width: 16px;
   height: 16px;
   font-size: 10px;
-  color: #fff;
+  color: var(--text-inverse);
   background: var(--brand-500);
   border-radius: 50%;
 }
@@ -1212,7 +1212,7 @@ onMounted(async () => {
 }
 
 .field-hint--warn {
-  color: var(--color-danger, #e5484d);
+  color: var(--color-danger);
 }
 
 /* ===== 账号安全行 ===== */
@@ -1352,7 +1352,7 @@ onMounted(async () => {
 }
 
 .danger-btn:hover {
-  color: #fff;
+  color: var(--text-inverse);
   background-color: var(--danger);
   border-color: transparent;
 }
@@ -1364,7 +1364,7 @@ onMounted(async () => {
 }
 
 .danger-btn:active {
-  color: #fff;
+  color: var(--text-inverse);
   background-color: var(--danger);
   border-color: transparent;
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 15%);

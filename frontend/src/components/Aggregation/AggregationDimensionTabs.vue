@@ -109,7 +109,7 @@ function select(value: AggregationDimension) {
 
 /* 对齐截图：选中态为品牌色实心填充（非浅底），白字，带轻投影 */
 .dimension-capsule.active {
-  color: #fff;
+  color: var(--text-inverse);
   background: var(--brand-600, #f06b57);
   border-color: var(--brand-600, #f06b57);
   box-shadow: 0 1px 3px rgb(0 0 0 / 6%);

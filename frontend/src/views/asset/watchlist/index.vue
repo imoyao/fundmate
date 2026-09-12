@@ -1422,7 +1422,7 @@ const renderCtx = computed<RenderCtx>(() => ({
 }
 
 .batch-delete-btn:hover {
-  color: #fff;
+  color: var(--text-inverse);
   background-color: var(--color-danger);
   border-color: var(--color-danger);
 }
