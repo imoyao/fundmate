@@ -401,6 +401,14 @@
       @changed="onGroupItemsChanged"
     />
 
+    <!-- #1449 多分组管理：行操作列「加入分组」弹层（一个产品可属多个自定义分组） -->
+    <GroupMultiSelectDialog
+      v-model="multiGroupVisible"
+      :item="multiGroupItem"
+      :groups="customGroups"
+      @changed="onMultiGroupChanged"
+    />
+
     <!-- 行内标签编辑弹窗（共有组件 TagEditorDialog） -->
     <TagEditorDialog
       v-model="showTagEditor"
@@ -467,6 +475,8 @@ import TagManagerDialog from "@/components/Watchlist/TagManagerDialog.vue";
 import GroupManagerDialog from "@/components/Watchlist/GroupManagerDialog.vue";
 // #987：组内产品增删（与 GroupManagerDialog 管「分组本身」分工不同）
 import GroupItemsDialog from "@/components/Watchlist/GroupItemsDialog.vue";
+// #1449 多分组管理：行操作列「加入分组」弹层（一个产品可属多个自定义分组）
+import GroupMultiSelectDialog from "@/components/Watchlist/GroupMultiSelectDialog.vue";
 import TagEditorDialog from "@/components/Watchlist/TagEditorDialog.vue";
 import NotesEditorDialog from "@/components/Watchlist/NotesEditorDialog.vue";
 import {
@@ -609,6 +619,19 @@ const isEmptyCustomGroup = computed(
 
 function openGroupItemsDialog(): void {
   groupItemsVisible.value = true;
+}
+
+// ── #1449 多分组管理：行操作列「加入分组」入口 ──
+const multiGroupVisible = ref(false);
+const multiGroupItem = ref<WatchlistItem | null>(null);
+function openMultiGroupDialog(row: WatchlistItem): void {
+  multiGroupItem.value = row;
+  multiGroupVisible.value = true;
+}
+/** 多分组增删成功后：分组计数与列表都需刷新（与 onGroupItemsChanged 同源） */
+function onMultiGroupChanged(): void {
+  fetchGroups();
+  fetchData();
 }
 
 /** 组内增删成功后：分组计数与列表都需刷新（#987 验收标准：计数与列表实时生效） */
@@ -917,12 +940,14 @@ onMounted(async () => {
   fetchTags();
   fetchData();
   watch(activeGroup, () => {
-    // 持仓分组仅支持股票 / 基金筛选：切到持仓分组时清除其它类型，
-    // 避免「持仓分组筛经理却显示股票、表头却变」的 bug（问题 2）。
+    // 持仓分组只含真实持仓（stock/fund/etf/bond/index/convertible），
+    // 不含「经理」等非持仓类型——切到持仓分组时仅清掉非持仓类型，
+    // 其余持仓类型一律保留并生效（#1449：此前整体清空非 stock/fund 类型，
+    // 导致 ETF/可转债等持仓类型筛选在持仓分组下形同虚设）。
     if (activeGroup.value === "holding") {
-      const allowed = new Set(["stock", "fund"]);
+      const holdingTypes = new Set(["stock", "fund", "etf", "bond", "index", "convertible"]);
       toolbar.selectedAssetTypes.value =
-        toolbar.selectedAssetTypes.value.filter(t => allowed.has(t));
+        toolbar.selectedAssetTypes.value.filter(t => holdingTypes.has(t));
     }
     currentPage.value = 1;
     fetchData();
@@ -1103,7 +1128,8 @@ const renderCtx = computed<RenderCtx>(() => ({
     togglePin: handleTogglePin,
     toggleFavorite: handleToggleFavorite,
     remove: confirmRemove,
-    openNotesEditor: openNotesEditor
+    openNotesEditor: openNotesEditor,
+    addToGroup: openMultiGroupDialog
   },
   trends: trendMap.value
 }));

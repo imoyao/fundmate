@@ -93,6 +93,8 @@ export interface RenderCtx {
     toggleFavorite: (row: WatchlistRow) => void;
     remove: (row: WatchlistRow) => void;
     openNotesEditor: (row: WatchlistRow) => void;
+    /** 打开「加入分组」弹层（多分组管理，#1449）：勾选多个自定义分组 */
+    addToGroup: (row: WatchlistRow) => void;
   };
   /** 近 N 日收盘价序列（sparkline 列，#990）：symbol → close 数组；无数据的 symbol 键缺省 */
   trends: Record<string, number[]>;
@@ -635,6 +637,16 @@ const renderActions: FunctionalComponent<{
         (e: Event) => {
           e.stopPropagation();
           a.remove(row);
+        }
+      ),
+      tooltipBtn(
+        "加入分组",
+        "ep:folder-add",
+        undefined,
+        !editable,
+        (e: Event) => {
+          e.stopPropagation();
+          a.addToGroup(row);
         }
       )
     ]
