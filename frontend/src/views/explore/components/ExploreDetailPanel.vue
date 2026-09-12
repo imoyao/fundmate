@@ -202,6 +202,8 @@ const fetchBias = async () => {
   } catch (e) {
     console.error("获取乖离率数据失败:", e);
     biasItems.value = [];
+    biasDate.value = "";
+    biasStale.value = false;
   } finally {
     biasLoading.value = false;
   }
@@ -224,6 +226,8 @@ const fetchCrowding = async () => {
   } catch (e) {
     console.error("获取行业拥挤度数据失败:", e);
     crowdingItems.value = [];
+    crowdingDate.value = "";
+    crowdingStale.value = false;
   } finally {
     crowdingLoading.value = false;
   }

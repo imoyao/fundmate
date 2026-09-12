@@ -156,10 +156,15 @@ function createTemperatureOverview() {
    */
   const fetchTemperature = (force = false): Promise<void> => {
     if (inflight && !force) return inflight;
-    inflight = doFetch().finally(() => {
-      inflight = null;
+    const request = doFetch();
+    inflight = request;
+    // 只在「当前 inflight 仍是本次请求」时才清空：否则 force 刷新期间旧请求结束，
+    // 会误清新请求的引用，让后续调用以为没有请求在跑而重复发起。
+    return request.finally(() => {
+      if (inflight === request) {
+        inflight = null;
+      }
     });
-    return inflight;
   };
 
   return {

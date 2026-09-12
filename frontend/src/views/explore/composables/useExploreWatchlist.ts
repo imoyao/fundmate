@@ -143,7 +143,9 @@ export function useExploreWatchlist(router: Router) {
         const qty = h.quantity ?? 0;
         const prevClose = quote?.prevClose ?? price;
         const pnl = (price - prevClose) * qty;
-        const positionPnl = (price - cost) * qty;
+        // 行情缺失时不能把 price 当 0 代入持仓收益：否则 (0 - cost) * qty
+        // 会显示成巨额虚假亏损；无行情应视为「无盈亏」。
+        const positionPnl = quote ? (price - cost) * qty : 0;
         return {
           ...h,
           quote,
