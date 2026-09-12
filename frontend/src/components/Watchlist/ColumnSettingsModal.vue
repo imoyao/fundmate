@@ -162,7 +162,7 @@ const hiddenCount = computed(() => {
   padding: 0 4px;
   font-size: 10px;
   line-height: 16px;
-  color: #fff;
+  color: var(--el-color-white);
   text-align: center;
   background-color: var(--color-warning);
   border-radius: 8px;
