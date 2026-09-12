@@ -5,7 +5,7 @@ title: 数据自动更新清单（分层 · 频率 · 现状 · 缺口）
 # 数据自动更新清单
 
 **版本**: v1.0
-**最后更新**: 2026-09-11
+**最后更新**: 2026-09-12
 **性质**: 事实标准（成本与现状列均为真库 / 真接口实测，非推断；「现状」列会腐烂，引用前先重跑第 5 节的诊断命令）
 
 > 分层口径（L1~L4）与准入四问定义在 [`data-strategy.md`](./data-strategy.md)，本文**不重复定义**，只登记「哪些数据靠什么刷新」。
@@ -101,13 +101,32 @@ gh run view <run_id> --log-failed
 > **重要区分**：本项目**设计上不引入常驻调度器**（`app/core/jitter.py` 与 `app/tools/scheduler.py` 均写明「由外部定时器触发」），故「本地没有调度进程」是**预期行为**，不是缺陷。
 > 真正的问题是**外部触发器存在但连接不到库**——即上表中的 secrets 缺口。
 
+### 5.1 2026-09-12 修复（#1434）
+
+workflow 已按如下三处改（定义仍在 `main`，因为 `schedule` 只认默认分支）：
+
+| 项 | 修复 |
+|----|------|
+| 调度分支 | `actions/checkout` 显式 `ref: ${{ env.SCHEDULER_REF }}`（默认 `dev`）→ **实际执行 dev 代码**，避开 main 的旧代码 |
+| 失败告警 | job 失败时用 `actions/github-script` **自动开/更新一个 tracking issue**（`permissions: issues: write`） |
+| secrets 预检 | 新增「校验必需 secrets」步骤：缺失即 `exit 1` 并 `::error` 列出缺失项 —— 不再出现「secret 展开为空串 → `create_engine('')` → ArgumentError、真因不可见」 |
+
+**仍缺、需人工配值的 secrets**（`gh secret list` 实测）：
+
+- 缺失：`APP_ENV`、`DATABASE_URL`、`SUPABASE_DATABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`
+- 已有：`SUPABASE_URL`、`SUPABASE_ANON_KEY`
+
+> 注意 `APP_ENV` 决定选哪套引擎：`production` → market 域走 `TURSO_DATABASE_URL`（回退 `DATABASE_URL`），
+> user 域走 `SUPABASE_DATABASE_URL`（见 `app/core/db_factory.py:169-215`）。本机 `backend/.env` 内已有这些键，
+> 但**是否为生产值需人工确认**。
+
 ## 6. 缺口与待办
 
 | # | 缺口 | 影响 | 去向 |
 |---|------|------|------|
-| 1 | `daily-snapshot` 所需 secrets 为空 | 每日调度 100% 失败，净值 / 快照停更 | 自动化 issue |
-| 2 | 调度无失败告警 | 连续 7 天全红无人知晓 | 同上 |
-| 3 | 调度跑 `main`（落后 `dev`） | 即使 secrets 配好，跑的也是旧代码 | 同上 |
+| 1 | `daily-snapshot` 所需 secrets 为空 | 每日调度 100% 失败，净值 / 快照停更 | **代码侧已加预检（§5.1）；仍需人工配值** |
+| 2 | 调度无失败告警 | 连续 7 天全红无人知晓 | ✅ 已修（§5.1，自动开/更新 issue） |
+| 3 | 调度跑 `main`（落后 `dev`） | 即使 secrets 配好，跑的也是旧代码 | ✅ 已修（§5.1，checkout `ref: dev`） |
 | 4 | `fund_nav` / `price_history` 已停摆 | 净值止于 08-14、行情止于 05-31 | 随 #1 一并恢复 |
 | 5 | 线上 SaaS 多库分层（热 / 温 / 冷） | 单库撑不起全量历史 | 另开 issue，不在本地范围 |
 | 6 | `funds` 7 列中 3 列的源缺失 / 未接入 | `risk_level` 等无数据可填 | 见 `tech-debt.md` §16.2 第 5 条 |

@@ -28,6 +28,17 @@ EASTMONEY_BOARDS: Dict[str, str] = {
 EASTMONEY_HOSTS = ['push2.eastmoney.com', 'push2delay.eastmoney.com']
 EASTMONEY_REFERER = 'https://quote.eastmoney.com/'
 
+# ─── 新浪：全市场成交额兜底（#1431；东财 push2 限流时的替代源）───
+# 新浪 s_ 前缀简版行情字段：名称,点位,涨跌额,涨跌幅,成交量,成交额。
+# 单位差异（实测）：沪/深 成交额为「万元」，北证为「元」——故按板块给出换算除数（→ 亿元）。
+SINA_VOLUME_BOARDS: Dict[str, tuple] = {
+    '上证': ('s_sh000001', 1e4),
+    '深证': ('s_sz399001', 1e4),
+    '北证': ('s_bj899050', 1e8),
+}
+SINA_VOLUME_URL = 'https://hq.sinajs.cn/list=' + ','.join(v[0] for v in SINA_VOLUME_BOARDS.values())
+SINA_REFERER = 'https://finance.sina.com.cn'
+
 # ─── 集思录 ───
 JISILU_CB_URL = 'https://www.jisilu.cn/data/indicator/get_cb_temperature/'
 JISILU_INDICATOR_URL = 'https://www.jisilu.cn/data/indicator/get_last_indicator/'
@@ -59,6 +70,12 @@ LINKS = {
 def label_volume(total: float) -> str:
     """全市场成交额定性标签。"""
     return '放量' if total > 12000 else ('缩量' if total < 8000 else '温和')
+
+
+# ─── 数据新鲜度守卫（#1431）───
+# 温度类数据的最新 collected_at 距今超过该天数即视为「陈旧」，前端须显式提示，
+# 不允许静默展示旧快照。取 5 天以容纳周末 + 单个节假日。
+FRESHNESS_THRESHOLD_DAYS = 5
 
 
 def _to_float(value: object) -> Optional[float]:

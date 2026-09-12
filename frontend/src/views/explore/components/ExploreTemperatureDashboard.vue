@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
+import { Icon as IconifyIconOffline } from "@iconify/vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
@@ -28,7 +29,8 @@ const emit = defineEmits<{
 // ================================================================
 // 市场温度数据（两页共用 composable，见 #980）
 // ================================================================
-const { compositeTemperature, fetchTemperature } = useTemperatureOverview();
+const { compositeTemperature, freshness, fetchTemperature } =
+  useTemperatureOverview();
 
 // 核心指标清单收口在 useCoreMetrics（见 #980）：两档不再各写一遍指标映射
 const { overviewMetrics } = useCoreMetrics();
@@ -104,15 +106,28 @@ onMounted(() => {
   <!-- 温度锚点：综合温度 + 恐惧贪婪 + 股债性价比（一屏一行）        -->
   <!-- ============================================================ -->
   <section class="temperature-dashboard">
+    <!-- 数据新鲜度守卫（#1431）：最新数据超阈值未更新时显式提示，不静默展示旧值 -->
+    <div v-if="freshness?.stale" class="freshness-alert" role="alert">
+      <IconifyIconOffline icon="ep:warning" class="freshness-alert__icon" />
+      <span class="freshness-alert__text">
+        当前展示的是 {{ freshness.latest || "更早" }} 的市场数据（距今约
+        {{ freshness.age_days }} 天，已超过 {{ freshness.threshold_days }}
+        天阈值），数据源可能暂不可用，请谨慎参考。
+      </span>
+    </div>
+
     <MetricGrid>
       <!-- 综合温度 -->
+      <!-- 尺寸/外观与深度档对齐（同为 lg + featured，经 prop 表达）；
+           禁止再手拼 class="gauge-card--featured" 旁路 —— 概览与深度两档
+           的温度计卡必须是同一视觉，否则切档时卡片会跳变。 -->
       <TemperatureGaugeCard
-        class="gauge-card--featured"
         :value="compositeTemperature?.value ?? null"
         title="综合温度"
         :level="compositeTemperature?.level || '暂无'"
         caption="综合6个市场指标"
-        size="sm"
+        size="lg"
+        featured
         clickable
         @click="emit('go-detail')"
       >
@@ -162,6 +177,35 @@ onMounted(() => {
 </template>
 
 <style lang="scss" scoped>
+/* 数据新鲜度守卫横幅（#1431）：沿用「数据滞后」pill 的警示色视觉语言 */
+.freshness-alert {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-warning, #d97706);
+  background: color-mix(
+    in srgb,
+    var(--color-warning, #d97706) 12%,
+    transparent
+  );
+  border: 1px solid
+    color-mix(in srgb, var(--color-warning, #d97706) 35%, transparent);
+  border-radius: 8px;
+}
+
+.freshness-alert__icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.freshness-alert__text {
+  flex: 1;
+}
+
 @media (width <= 768px) {
   .temperature-dashboard {
     padding: 0 16px 12px;

@@ -58,7 +58,12 @@
               <li v-for="item in inGroup" :key="itemKey(item)" class="gi-row">
                 <div class="gi-row__main">
                   <span class="gi-name">{{ item.display_name }}</span>
-                  <span class="gi-code">{{ item.symbol }}</span>
+                  <span v-if="showCode(item)" class="gi-code">{{
+                    item.symbol
+                  }}</span>
+                  <span v-else-if="subtitleOf(item)" class="gi-code">{{
+                    subtitleOf(item)
+                  }}</span>
                 </div>
                 <el-button
                   class="gi-icon-btn"
@@ -100,7 +105,12 @@
                 />
                 <div class="gi-row__main" @click="addItem(item)">
                   <span class="gi-name">{{ item.display_name }}</span>
-                  <span class="gi-code">{{ item.symbol }}</span>
+                  <span v-if="showCode(item)" class="gi-code">{{
+                    item.symbol
+                  }}</span>
+                  <span v-else-if="subtitleOf(item)" class="gi-code">{{
+                    subtitleOf(item)
+                  }}</span>
                 </div>
               </li>
             </ul>
@@ -126,6 +136,7 @@ import {
   type WatchlistItem,
   type WatchlistGroup
 } from "@/api/watchlist";
+import { buildAssetSubtitle, shouldShowAssetCode } from "@/utils/assetDisplay";
 
 const props = defineProps<{
   modelValue: boolean;
@@ -154,11 +165,20 @@ function itemKey(item: WatchlistItem): string | number {
   return item.id ?? item.symbol;
 }
 
+function subtitleOf(item: WatchlistItem): string {
+  return buildAssetSubtitle(item);
+}
+
+function showCode(item: WatchlistItem): boolean {
+  return shouldShowAssetCode(item);
+}
+
 function matchKeyword(item: WatchlistItem, kw: string): boolean {
-  return (
-    (item.symbol ?? "").toLowerCase().includes(kw) ||
-    (item.display_name ?? "").toLowerCase().includes(kw)
-  );
+  const haystack = [item.symbol, item.display_name, subtitleOf(item)]
+    .filter((v): v is string => Boolean(v))
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(kw);
 }
 
 /** 本组产品（受搜索词过滤，便于大分组内定位） */
@@ -393,10 +413,14 @@ function close(): void {
 }
 
 .gi-code {
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary);
+  white-space: nowrap;
 }
 
 /* 移除按钮：默认弱化可见，行 hover 才全亮（与表格操作列同一弱化语言） */

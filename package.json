@@ -8,7 +8,7 @@
   "license": "PolyForm-Noncommercial-1.0.0",
   "devDependencies": {
     "@duxweb/vitepress-theme": "^1.1.9",
-    "js-yaml": "^4.3.1",
+    "js-yaml": "^4.3.2",
     "vitepress": "^1.6.4",
     "vitepress-plugin-auto-sidebar": "^1.4.0"
   },
