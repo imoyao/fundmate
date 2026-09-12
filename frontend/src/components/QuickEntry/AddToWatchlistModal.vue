@@ -36,15 +36,13 @@
             :value="item"
           >
             <div class="asset-option">
-              <div class="asset-option__head">
-                <span class="asset-option__name" :title="item.name">
-                  {{ item.name }}
-                </span>
-                <span class="asset-option__type">{{ typeLabelOf(item) }}</span>
-              </div>
-              <div v-if="metaLineOf(item)" class="asset-option__meta">
-                {{ metaLineOf(item) }}
-              </div>
+              <span class="asset-option__col1" :title="rowColumns(item).col1">{{
+                rowColumns(item).col1
+              }}</span>
+              <span class="asset-option__col2" :title="rowColumns(item).col2">{{
+                rowColumns(item).col2
+              }}</span>
+              <span class="asset-option__type">{{ rowColumns(item).col3 }}</span>
             </div>
           </el-option>
         </el-select>
@@ -54,13 +52,19 @@
            组合类标的（投顾组合 / 基金经理）不出现「代码」行——见上方搜索框注释。 -->
       <div v-if="selectedAsset" class="selected-asset-card rounded-xl mb-4">
         <div class="selected-asset-card__head">
-          <span class="selected-asset-card__name" :title="selectedAsset.name">
-            {{ selectedAsset.name }}
-          </span>
+          <span
+            class="selected-asset-card__col1"
+            :title="rowColumns(selectedAsset).col1"
+            >{{ rowColumns(selectedAsset).col1 }}</span
+          >
+          <span
+            class="selected-asset-card__col2"
+            :title="rowColumns(selectedAsset).col2"
+            >{{ rowColumns(selectedAsset).col2 }}</span
+          >
           <span class="selected-asset-card__type">{{
-            typeLabelOf(selectedAsset)
+            rowColumns(selectedAsset).col3
           }}</span>
-          <span class="flex-1" />
           <el-tag v-if="assetAlreadyExists" type="warning" size="small">
             已在自选
           </el-tag>
@@ -526,28 +530,33 @@ const venueLabelOf = (item: SearchAssetOption): string =>
   item.venue ? getVenueLabel(item.venue) : "";
 
 /**
- * 搜索结果项的识别信息行（列表第二行）：
- * - 投顾组合：`平台 · 主理人`（组合码是平台原生码，对用户无意义 → 不展示）
- * - 基金经理：所属基金公司（经理码 MGR_ 派生，同样不展示）
- * - 指数：`# 代码 · 发布机构`（#1425：同一套指数体系下靠发布方区分，如沪深300=中证、
- *   国证2000=国证；发布方判定不出时不展示，宁缺勿错）
- * - 其它品种：`# 代码 · 场内外`（代码是股票/ETF/基金/指数的对外识别信息，保留）
+ * 搜索结果 / 已选信息卡的主行三列：以「用户最关心」为序，全部一行平铺、类型独占末列。
+ * - 带编码品种（股票/基金/ETF/指数/可转债/加密等）：编码 | 名称 | 类型
+ * - 组合类（基金经理/投顾）：名称 | 公司·平台·主理人 | 类型
+ *   平台原生码（且慢 ZHxxxx / 天天基金 tgCode）对用户无意义，整段不展示，由
+ *   名称 + 品类 + 平台/主理人承担（与自选表格产品列同口径，见 @/constants/advisorPlatform）。
  */
-const metaLineOf = (item: SearchAssetOption): string => {
+interface RowColumns {
+  col1: string;
+  col2: string;
+  col3: string;
+}
+const rowColumns = (item: SearchAssetOption): RowColumns => {
   const extra = item.extra ?? {};
+  const type = typeLabelOf(item);
   if (isCompositeAssetType(item.type)) {
-    if (item.type === "manager") return extra.company || "";
-    return [getAdvisorPlatformLabel(extra.platform), extra.host]
-      .filter((v): v is string => Boolean(v))
-      .join(" · ");
+    if (item.type === "manager") {
+      return { col1: item.name, col2: extra.company || "", col3: type };
+    }
+    return {
+      col1: item.name,
+      col2: [getAdvisorPlatformLabel(extra.platform), extra.host]
+        .filter((v): v is string => Boolean(v))
+        .join(" · "),
+      col3: type
+    };
   }
-  if (item.type === "index") {
-    return [item.symbol ? `# ${item.symbol}` : "", extra.publisher]
-      .filter((v): v is string => Boolean(v))
-      .join(" · ");
-  }
-  const code = item.symbol ? `# ${item.symbol}` : "";
-  return [code, venueLabelOf(item)].filter(Boolean).join(" · ");
+  return { col1: item.symbol || "", col2: item.name, col3: type };
 };
 
 /**
@@ -557,23 +566,11 @@ const metaLineOf = (item: SearchAssetOption): string => {
 const selectedMetaRows = computed<{ label: string; value: string }[]>(() => {
   const item = selectedAsset.value;
   if (!item) return [];
-  const extra = item.extra ?? {};
-  const rows = isCompositeAssetType(item.type)
-    ? item.type === "manager"
-      ? [{ label: "所属公司", value: extra.company || "" }]
-      : [
-          { label: "平台", value: getAdvisorPlatformLabel(extra.platform) },
-          { label: "主理人", value: extra.host || "" }
-        ]
-    : [
-        { label: "代码", value: item.symbol },
-        {
-          label: "市场",
-          value: item.market ? getMarketLabel(item.market) : ""
-        },
-        { label: "类型", value: getTypeLabel(item.type || "") }
-      ];
-  return rows.filter(r => Boolean(r.value));
+  // 主行三列（rowColumns）已覆盖 编码/名称/类型（或 名称/公司/类型），
+  // 此处仅补主行未承载的次要信息，避免与头部重复堆叠。
+  if (isCompositeAssetType(item.type)) return [];
+  const market = item.market ? getMarketLabel(item.market) : "";
+  return market ? [{ label: "市场", value: market }] : [];
 });
 
 const resetForm = () => {
@@ -593,34 +590,39 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* ── 搜索结果项：两行分层（名称 + 品类胶囊 / 识别信息行）──
+/* ── 搜索结果项：主行三列（主标识 | 次标识 | 类型），全部一行平铺、类型独占末列。
    注意：下拉浮层被 teleport 到 body，这里只负责「行内结构」，浮层容器样式
    （高度、行高、hover）在文件末尾的非 scoped 块中按 popper-class 限定。 */
 .asset-option {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 10px;
   width: 100%;
   min-width: 0;
 }
 
-.asset-option__head {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  min-width: 0;
-}
-
-.asset-option__name {
-  flex: 1;
+.asset-option__col1 {
+  flex: 0 0 110px;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.asset-option__col2 {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 14px;
   font-weight: 500;
   line-height: 20px;
   color: var(--text-primary);
-  white-space: nowrap;
 }
 
 .asset-option__type {
@@ -633,15 +635,6 @@ onMounted(async () => {
   border-radius: var(--radius-pill);
 }
 
-.asset-option__meta {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--text-tertiary);
-  white-space: nowrap;
-}
-
 /* ── 已选资产信息卡 ── */
 .selected-asset-card {
   padding: var(--space-compact);
@@ -650,19 +643,33 @@ onMounted(async () => {
 
 .selected-asset-card__head {
   display: flex;
-  gap: 8px;
   align-items: center;
+  gap: 10px;
   min-width: 0;
 }
 
-.selected-asset-card__name {
+.selected-asset-card__col1 {
+  flex: 0 0 110px;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 22px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.selected-asset-card__col2 {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 15px;
   font-weight: 600;
   line-height: 22px;
   color: var(--text-primary);
-  white-space: nowrap;
 }
 
 .selected-asset-card__type {
