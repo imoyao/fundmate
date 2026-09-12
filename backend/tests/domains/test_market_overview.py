@@ -23,7 +23,7 @@ def _make_series_df(n: int = 520, base: float = 3000.0, kind: str = 'stock'):
     dates = pd.date_range('2024-01-01', periods=n, freq='D').strftime('%Y-%m-%d')
     # 用正弦 + 趋势，保证分位可计算且非平凡
     xs = np.linspace(0, 6 * np.pi, n)
-    closes = base + 200 * np.sin(xs) + np.linspace(0, 150, n)
+    closes = base + 50 * np.sin(xs) + np.linspace(0, 150, n)
     if kind == 'currency':
         # 汇率口径：中行折算价列
         return pd.DataFrame({'日期': dates, '中行折算价': closes / 400.0})

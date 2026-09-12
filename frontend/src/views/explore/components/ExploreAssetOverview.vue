@@ -40,10 +40,7 @@ const positionColor = (asset: MarketAsset): string => {
 };
 
 // 收益率变动(bp) 用中性色，不套用涨红跌绿（§3.4 纪律）
-const yieldTone = (bp: number | undefined) => {
-  if (bp == null) return "var(--text-secondary)";
-  return "var(--text-secondary)";
-};
+const yieldTone = (_bp?: number) => "var(--text-secondary)";
 
 onMounted(() => {
   fetchOverview();
@@ -158,8 +155,8 @@ onMounted(() => {
           <span
             class="bond-yield__bp"
             :style="{ color: yieldTone(bondYield.cn_10y_change_bp) }"
-            >{{ bondYield.cn_10y_change_bp >= 0 ? "+" : ""
-            }}{{ bondYield.cn_10y_change_bp }} bp</span
+            >{{ (bondYield.cn_10y_change_bp ?? 0) >= 0 ? "+" : ""
+            }}{{ bondYield.cn_10y_change_bp ?? 0 }} bp</span
           >
         </div>
         <div v-if="bondYield.us_10y != null" class="bond-yield__item">
@@ -169,7 +166,7 @@ onMounted(() => {
             class="bond-yield__bp"
             :style="{ color: yieldTone(bondYield.us_10y_change_bp) }"
             >{{ (bondYield.us_10y_change_bp ?? 0) >= 0 ? "+" : ""
-            }}{{ bondYield.us_10y_change_bp }} bp</span
+            }}{{ bondYield.us_10y_change_bp ?? 0 }} bp</span
           >
         </div>
         <span class="bond-yield__hint"
@@ -365,7 +362,7 @@ onMounted(() => {
     top: 50%;
     width: 10px;
     height: 10px;
-    border: 2px solid #fff;
+    border: 2px solid var(--text-inverse);
     border-radius: 50%;
     box-shadow: 0 0 0 1px rgb(0 0 0 / 10%);
     transform: translate(-50%, -50%);

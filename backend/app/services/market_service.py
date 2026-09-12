@@ -26,9 +26,8 @@ from app.core.cache import CacheService
 from app.core.time_utils import now_shanghai
 
 # ─────────────────────────── 缓存 ───────────────────────────
-# 单资产序列缓存 30 分钟；整份 overview 缓存 10 分钟。
+# 单资产序列缓存 30 分钟（overview 由各序列现算组装，不整体缓存）。
 _SERIES_TTL = 1800
-_OVERVIEW_TTL = 600
 _cache = CacheService(namespace='market_overview')
 
 
@@ -230,7 +229,7 @@ def _safe_float(v: Any) -> Optional[float]:
         return None
     try:
         f = float(v)
-        if f != f:  # NaN
+        if f != f or f in (float('inf'), float('-inf')):  # NaN / ±inf
             return None
         return f
     except (TypeError, ValueError):
@@ -379,7 +378,7 @@ def _fetch_bond_yield_10y() -> Optional[Dict[str, Any]]:
                 result['us_10y_change_bp'] = round((us_vals[-1] - us_vals[-2]) * 100, 1)
         return result
     except Exception as e:  # noqa: BLE001
-        logger.warning(f'债券收益率轨取数失败（best-effort 跳过）: {e}')
+        logger.warning('债券收益率轨取数失败（best-effort 跳过）: {}', e)
         return None
 
 
@@ -416,7 +415,7 @@ class MarketOverviewService:
         try:
             bond_yield = _fetch_bond_yield_10y()
         except Exception as e:  # noqa: BLE001
-            logger.warning(f'债券收益率轨跳过: {e}')
+            logger.warning('债券收益率轨跳过: {}', e)
 
         groups = [{'category': c, 'assets': groups_map[c]} for c in cls.CATEGORY_ORDER if groups_map.get(c)]
 
@@ -476,7 +475,7 @@ class MarketOverviewService:
                 }
         except Exception as e:  # noqa: BLE001
             # 取数失败 → 软占位（不 500）
-            logger.warning(f'资产 {asset["name"]}({asset["key"]}) 取数失败，降级为软占位: {e}')
+            logger.warning('资产 {}({}) 取数失败，降级为软占位: {}', asset['name'], asset['key'], e)
             base['available'] = False
             base['reason'] = f'取数失败（已降级）: {type(e).__name__}'
         return base
