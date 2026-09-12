@@ -54,7 +54,9 @@ class FakeAk:
     def currency_boc_sina(self, *args):
         return _make_series_df(kind='currency')
 
-    def bond_zh_us_rate(self, *args):
+    def bond_zh_us_rate(self, *args, **kwargs):
+        # 真实 akshare 签名支持 start_date；服务层传它以避免「不传则翻 19 页拉全历史」（#1461）。
+        # 故假实现必须接受关键字参数，否则会 FakeAk.bond_zh_us_rate() 报 unexpected kwarg。
         dates = pd.date_range('2024-01-01', periods=520, freq='D').strftime('%Y-%m-%d')
         return pd.DataFrame(
             {
@@ -140,3 +142,24 @@ def test_bond_yield_parsed(patch_akshare):
     assert by['us_10y'] is not None
     # 中债 10Y 末值 = 1.85 + 0.001*519 = 2.369
     assert abs(by['cn_10y'] - 2.369) < 0.01
+
+
+def test_bond_yield_passes_start_date(monkeypatch):
+    """#1461：`bond_zh_us_rate` 必须带 `start_date`。
+
+    不传时 akshare 会翻 19 页拉全历史（≈9500 行 / ~29s），是 `/api/market/overview`
+    首屏超时的主因。此断言锁住该修复，避免回退成全量翻页。
+    """
+    fake = FakeAk()
+    captured: dict = {}
+
+    def spy(*args, **kwargs):
+        captured.update(kwargs)
+        return fake.bond_zh_us_rate(*args, **kwargs)
+
+    monkeypatch.setattr(fake, 'bond_zh_us_rate', spy)
+    monkeypatch.setattr(market_service, 'get_akshare', lambda: fake)
+
+    MarketOverviewService.get_overview(force_refresh=True)
+
+    assert captured.get('start_date'), '未给 bond_zh_us_rate 传 start_date：会退化为全量翻页（~29s），首屏仍会超时'
