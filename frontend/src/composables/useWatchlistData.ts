@@ -167,6 +167,12 @@ export function useWatchlistData(
    * 拉取「全量过滤结果」（忽略分页），供实时估值汇总条使用（#1245）。
    * 后端 per_page 上限 200，故按页累加直到取尽（安全阀防止异常死循环），
    * 确保汇总口径与整组一致、翻页时不再跳变。
+   *
+   * `fields=lite`：汇总只消费 current_price / holding_* / position_market_value，
+   * 不需要基金回撤、可转债条款、指数估值、跨渠道关联这些展示专用字段。
+   * 后端据此跳过这些按 symbol 查库（含扫 3 年 daily_worth 的基金回撤）的 enrich——
+   * 实测这是自选列表接口最大的单点耗时，不传该参数会让「全量拉取」为 164 行
+   * 各算一遍回撤，叠加本函数与首页分页请求的两次全量构建，足以把首屏拖过 10s 超时。
    */
   async function fetchAllItems() {
     const base: Record<string, string | number | boolean> = {
@@ -176,7 +182,12 @@ export function useWatchlistData(
     const all: WatchlistItem[] = [];
     const perPage = 200;
     for (let page = 1; page <= 50; page++) {
-      const res = await getWatchlistItems({ ...base, page, per_page: perPage });
+      const res = await getWatchlistItems({
+        ...base,
+        page,
+        per_page: perPage,
+        fields: "lite"
+      });
       const rows = (res.data ?? []) as WatchlistItem[];
       all.push(...rows);
       if (rows.length < perPage) break;
