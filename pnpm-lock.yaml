@@ -4,10 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  nanoid: 3.3.18
-  decode-uri-component: 0.5.0
-
 importers:
 
   .:
@@ -21,13 +17,13 @@ importers:
     devDependencies:
       '@duxweb/vitepress-theme':
         specifier: ^1.1.9
-        version: 1.1.9(mermaid@11.16.1)(tailwindcss@4.3.3)(vitepress@1.6.4(@algolia/client-search@5.56.0)(@types/node@26.1.1)(less@3.13.1)(nprogress@0.2.0)(postcss@8.5.19)(search-insights@2.17.3)(stylus@0.54.8))
+        version: 1.1.9(mermaid@11.16.1)(tailwindcss@4.3.3)(vitepress@1.6.4(@algolia/client-search@5.56.0)(@types/node@26.1.1)(less@3.13.1)(nprogress@0.2.0)(postcss@8.5.19)(search-insights@2.17.3)(stylus@0.54.8(supports-color@5.5.0)))
       js-yaml:
-        specifier: ^4.3.1
-        version: 4.3.1
+        specifier: ^4.3.2
+        version: 4.3.2
       vitepress:
         specifier: ^1.6.4
-        version: 1.6.4(@algolia/client-search@5.56.0)(@types/node@26.1.1)(less@3.13.1)(nprogress@0.2.0)(postcss@8.5.19)(search-insights@2.17.3)(stylus@0.54.8)
+        version: 1.6.4(@algolia/client-search@5.56.0)(@types/node@26.1.1)(less@3.13.1)(nprogress@0.2.0)(postcss@8.5.19)(search-insights@2.17.3)(stylus@0.54.8(supports-color@5.5.0))
       vitepress-plugin-auto-sidebar:
         specifier: ^1.4.0
         version: 1.4.0
@@ -1051,9 +1047,9 @@ packages:
       supports-color:
         optional: true
 
-  decode-uri-component@0.5.0:
-    resolution: {integrity: sha512-1BiQVoK8C9gUbQU6NzAtO/tkz2qOFpEObMWpcFvhx4fYnj4Oc5yzaJN/LD36ihkVUdXyh5ZekzX+yM+ty/SrPg==}
-    engines: {node: '>=14.16'}
+  decode-uri-component@0.2.2:
+    resolution: {integrity: sha512-FqUYQ+8o158GyGTrMFJms9qh3CqTKvAqgqsTnkLI8sKu0028orqBhxNMFkFen0zGyg6epACD32pjVk58ngIErQ==}
+    engines: {node: '>=0.10'}
 
   delaunator@5.1.0:
     resolution: {integrity: sha512-AGrQ4QSgssa1NGmWmLPqN5NY2KajF5MqxetNEO+o0n3ZwZZeTmt7bBnvzHWrmkZFxGgr4HdyFgelzgi06otLuQ==}
@@ -1138,7 +1134,7 @@ packages:
 
   glob@7.2.3:
     resolution: {integrity: sha512-nFR0zLpU2YCaRxwoCJvL6UvCH2JFyFVIvwTLsIf21AuHlMskA1hhTdk+LlYJtOlYt9v6dvszD2BGRqBL+iQK9Q==}
-    deprecated: Glob versions prior to v9 are no longer supported
+    deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
 
   graceful-fs@4.2.11:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
@@ -1225,8 +1221,8 @@ packages:
     resolution: {integrity: sha512-ttBQIIQPDeLjpPOohtUdXuXUVoA2uIB6fEH9HyJ7234s5mBJ5wTx20njxplLZQgLaOfpmPQA7X2t5AX6tIPbog==}
     hasBin: true
 
-  js-yaml@4.3.1:
-    resolution: {integrity: sha512-CY6crGq313MX8GkwvB7tzgp99vjQxY1++5y10/BKN/GUfHqWaOGQMNZkBvqSzsZKWk/ijwHlWzzkLulsGHhjWQ==}
+  js-yaml@4.3.2:
+    resolution: {integrity: sha512-SFNOvSJ+Dgf/9An904Yx+CgSlIPCkIpao4qo51lpee25TIRejdH3rhR4EZMGoNx3/TP3O+wzWuiTFl4sqbltzA==}
     hasBin: true
 
   katex@0.16.47:
@@ -1871,13 +1867,13 @@ snapshots:
     transitivePeerDependencies:
       - '@algolia/client-search'
 
-  '@duxweb/vitepress-theme@1.1.9(mermaid@11.16.1)(tailwindcss@4.3.3)(vitepress@1.6.4(@algolia/client-search@5.56.0)(@types/node@26.1.1)(less@3.13.1)(nprogress@0.2.0)(postcss@8.5.19)(search-insights@2.17.3)(stylus@0.54.8))':
+  '@duxweb/vitepress-theme@1.1.9(mermaid@11.16.1)(tailwindcss@4.3.3)(vitepress@1.6.4(@algolia/client-search@5.56.0)(@types/node@26.1.1)(less@3.13.1)(nprogress@0.2.0)(postcss@8.5.19)(search-insights@2.17.3)(stylus@0.54.8(supports-color@5.5.0)))':
     dependencies:
       '@iconify/tailwind4': 1.2.3(tailwindcss@4.3.3)
       '@vueuse/core': 11.3.0(vue@3.5.40)
       dayjs: 1.11.21
       minisearch: 7.2.0
-      vitepress: 1.6.4(@algolia/client-search@5.56.0)(@types/node@26.1.1)(less@3.13.1)(nprogress@0.2.0)(postcss@8.5.19)(search-insights@2.17.3)(stylus@0.54.8)
+      vitepress: 1.6.4(@algolia/client-search@5.56.0)(@types/node@26.1.1)(less@3.13.1)(nprogress@0.2.0)(postcss@8.5.19)(search-insights@2.17.3)(stylus@0.54.8(supports-color@5.5.0))
       vitepress-mermaid-renderer: 1.1.28(mermaid@11.16.1)(vue@3.5.40)
       vue: 3.5.40
     transitivePeerDependencies:
@@ -2278,9 +2274,9 @@ snapshots:
       d3-selection: 3.0.0
       d3-transition: 3.0.1(d3-selection@3.0.0)
 
-  '@vitejs/plugin-vue@5.2.4(vite@5.4.21(@types/node@26.1.1)(less@3.13.1)(stylus@0.54.8))(vue@3.5.40)':
+  '@vitejs/plugin-vue@5.2.4(vite@5.4.21(@types/node@26.1.1)(less@3.13.1)(stylus@0.54.8(supports-color@5.5.0)))(vue@3.5.40)':
     dependencies:
-      vite: 5.4.21(@types/node@26.1.1)(less@3.13.1)(stylus@0.54.8)
+      vite: 5.4.21(@types/node@26.1.1)(less@3.13.1)(stylus@0.54.8(supports-color@5.5.0))
       vue: 3.5.40
 
   '@vue/compiler-core@3.5.40':
@@ -2740,12 +2736,14 @@ snapshots:
 
   dayjs@1.11.21: {}
 
-  debug@3.1.0:
+  debug@3.1.0(supports-color@5.5.0):
     dependencies:
       ms: 2.0.0
+    optionalDependencies:
+      supports-color: 5.5.0
     optional: true
 
-  decode-uri-component@0.5.0:
+  decode-uri-component@0.2.2:
     optional: true
 
   delaunator@5.1.0:
@@ -2929,7 +2927,7 @@ snapshots:
       argparse: 1.0.10
       esprima: 4.0.1
 
-  js-yaml@4.3.1:
+  js-yaml@4.3.2:
     dependencies:
       argparse: 2.0.1
 
@@ -3250,7 +3248,7 @@ snapshots:
   source-map-resolve@0.5.3:
     dependencies:
       atob: 2.1.2
-      decode-uri-component: 0.5.0
+      decode-uri-component: 0.2.2
       resolve-url: 0.2.1
       source-map-url: 0.4.1
       urix: 0.1.0
@@ -3280,10 +3278,10 @@ snapshots:
 
   stylis@4.4.0: {}
 
-  stylus@0.54.8:
+  stylus@0.54.8(supports-color@5.5.0):
     dependencies:
       css-parse: 2.0.0
-      debug: 3.1.0
+      debug: 3.1.0(supports-color@5.5.0)
       glob: 7.2.3
       mkdirp: 1.0.4
       safer-buffer: 2.1.2
@@ -3416,7 +3414,7 @@ snapshots:
       '@types/unist': 3.0.3
       vfile-message: 4.0.3
 
-  vite@5.4.21(@types/node@26.1.1)(less@3.13.1)(stylus@0.54.8):
+  vite@5.4.21(@types/node@26.1.1)(less@3.13.1)(stylus@0.54.8(supports-color@5.5.0)):
     dependencies:
       esbuild: 0.21.5
       postcss: 8.5.19
@@ -3425,7 +3423,7 @@ snapshots:
       '@types/node': 26.1.1
       fsevents: 2.3.3
       less: 3.13.1
-      stylus: 0.54.8
+      stylus: 0.54.8(supports-color@5.5.0)
 
   vitepress-mermaid-renderer@1.1.28(mermaid@11.16.1)(vue@3.5.40):
     dependencies:
@@ -3436,7 +3434,7 @@ snapshots:
     dependencies:
       front-matter: 4.0.2
 
-  vitepress@1.6.4(@algolia/client-search@5.56.0)(@types/node@26.1.1)(less@3.13.1)(nprogress@0.2.0)(postcss@8.5.19)(search-insights@2.17.3)(stylus@0.54.8):
+  vitepress@1.6.4(@algolia/client-search@5.56.0)(@types/node@26.1.1)(less@3.13.1)(nprogress@0.2.0)(postcss@8.5.19)(search-insights@2.17.3)(stylus@0.54.8(supports-color@5.5.0)):
     dependencies:
       '@docsearch/css': 3.8.2
       '@docsearch/js': 3.8.2(@algolia/client-search@5.56.0)(search-insights@2.17.3)
@@ -3445,7 +3443,7 @@ snapshots:
       '@shikijs/transformers': 2.5.0
       '@shikijs/types': 2.5.0
       '@types/markdown-it': 14.1.2
-      '@vitejs/plugin-vue': 5.2.4(vite@5.4.21(@types/node@26.1.1)(less@3.13.1)(stylus@0.54.8))(vue@3.5.40)
+      '@vitejs/plugin-vue': 5.2.4(vite@5.4.21(@types/node@26.1.1)(less@3.13.1)(stylus@0.54.8(supports-color@5.5.0)))(vue@3.5.40)
       '@vue/devtools-api': 7.7.10
       '@vue/shared': 3.5.40
       '@vueuse/core': 12.8.2
@@ -3454,7 +3452,7 @@ snapshots:
       mark.js: 8.11.1
       minisearch: 7.2.0
       shiki: 2.5.0
-      vite: 5.4.21(@types/node@26.1.1)(less@3.13.1)(stylus@0.54.8)
+      vite: 5.4.21(@types/node@26.1.1)(less@3.13.1)(stylus@0.54.8(supports-color@5.5.0))
       vue: 3.5.40
     optionalDependencies:
       postcss: 8.5.19
