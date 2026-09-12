@@ -72,6 +72,32 @@ class IndexCatalog(Base, PrimaryKeyMixin, TimestampMixin):
     # ── 核心指数白名单（#1365）：人工策展，三源覆盖式重建时必须保留（见 job._save_data）──
     is_core = Column(Boolean, default=False, comment='核心指数白名单（自选「指数」分组置顶/优先展示）')
     core_rank = Column(Integer, comment='核心指数展示排序（越小越靠前；非核心为 NULL）')
+    # ── 编制/发布机构（#1425 搜索区分度）──
+    # 存**代码**而非中文名：展示名可能调整、代码稳定，且未来可按发布方筛选/分组；
+    # 中文名由后端统一映射（INDEX_PUBLISHER_LABELS）后经搜索 extra 下发，前端直接展示不抄映射。
+    # 回填由 index_catalog_job 按来源写入（csindex→CSI、cni→CNI、sina→NULL）：
+    # sina 只是行情转发源，无法权威判定发布方（沪深300 若按 SH 前缀写成「上交所」即错误），
+    # 留空 = 前端不展示该维度，可降级（data-strategy「参考展示类」口径，宁缺勿错）。
+    publisher = Column(
+        String(20),
+        nullable=True,
+        comment='编制/发布机构代码: CSI=中证指数公司 / CNI=国证指数 / WIND=万得…，未知留空',
+    )
+
+
+# 编制/发布机构代码 → 中文展示名（#1425）。单一真相源在后端，前端直接展示、不再抄一份映射。
+INDEX_PUBLISHER_LABELS = {
+    'CSI': '中证指数公司',
+    'CNI': '国证指数',
+    'WIND': '万得',
+}
+
+# 数据源 → 发布机构代码回填映射（#1425）。
+# csindex（中证官网）/ cni（国证官网）可权威判定；sina 是行情转发源 → 不回填（NULL）。
+PUBLISHER_BY_SOURCE = {
+    'csindex': 'CSI',
+    'cni': 'CNI',
+}
 
 
 class IndexDaily(Base, PrimaryKeyMixin, TimestampMixin):

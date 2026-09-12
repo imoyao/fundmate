@@ -74,6 +74,13 @@ export interface RenderCtx {
   openTagEditor: (row: WatchlistRow) => void;
   /** 是否批量管理模式（true 时 actions 列显示 "-" 占位） */
   batchMode: boolean;
+  /**
+   * 是否处于「品类视图」（类型筛选命中单一品类，见 #1285）。
+   * 用途：让产品列的分层信息行与**品类专属列**去重——例如基金经理的「所属公司」
+   * 在经理品类视图已有独立列（`manager_company`），产品列就不该再重复显示一遍；
+   * 混合视图没有该列，分层行仍需承担公司信息（否则经理行的公司无处可见）。
+   */
+  categoryView: boolean;
   /** 当前 hover 行的 key（row.id ?? row.symbol，由 index.vue @cell-mouse-enter/leave 维护）。
    *  操作列/产品列是 fixed 列，EP 固定列独立 DOM，CSS :hover 无法跨表同步，
    *  因此行 hover 淡入必须由 JS 行 hover 状态驱动（见 design.md 行内操作交互规范）。 */
@@ -112,12 +119,15 @@ function isCompositeAsset(row: WatchlistRow): boolean {
 
 /**
  * 组装产品列第二行元信息，非组合类行返回空串不渲染：
- * - 基金经理：所属基金公司（后端 manager_company，如「易方达基金管理有限公司」）
+ * - 基金经理：所属基金公司（后端 manager_company，如「易方达基金管理有限公司」）；
+ *   **品类视图下返回空串**——该视图已有独立列 `manager_company`，此处重复渲染只会让
+ *   同一信息出现两次（2026-09-11 用户反馈「公司跟名称挤在一格」后的去重处理）。
  * - 投顾组合：平台 · 主理人 · 策略类型
  * 经理行没有交易代码、组合行的平台码对用户无意义，识别信息全由本行承担。
  */
-function compositeSubMeta(row: WatchlistRow): string {
+function compositeSubMeta(row: WatchlistRow, categoryView: boolean): string {
   if (assetTypeOf(row) === "manager") {
+    if (categoryView) return "";
     return (field(row, "manager_company") as string | null | undefined) || "";
   }
   const platform = advisorPlatform(row);
@@ -423,8 +433,9 @@ const renderProduct: FunctionalComponent<{
           symbol: row.symbol,
           typeLabel: (field(row, "type_label") as string) || "",
           // 组合类标的的分层信息（经理→所属公司；投顾→平台 · 主理人 · 策略）独立成行，
-          // 避免与代码/类型/标签挤一行（用户 2026-09-09 拍板）
-          subMeta: compositeSubMeta(row),
+          // 避免与代码/类型/标签挤一行（用户 2026-09-09 拍板）。
+          // 品类视图下与品类专属列去重（经理的「所属公司」有独立列时此处不再渲染）
+          subMeta: compositeSubMeta(row, ctx.categoryView),
           // 组合类标的（投顾组合 ZHxxxx/CSIxxxx、基金经理 MGR_<mgr_code>）的编码对用户
           // 无意义：整段不渲染，识别信息由分层行承担；股票/ETF/指数等保留 `# 代码`。
           // 判定用 asset_type 而非 advisor_platform——经理行没有 AdvisorPortfolio 记录，

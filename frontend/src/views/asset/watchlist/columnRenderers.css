@@ -154,6 +154,50 @@
   cursor: pointer;
 }
 
+/* 空态「＋ 备注」入口：与「＋ 标签」**完全同款**的虚线胶囊——二者同为「行内新增入口」，
+   视觉语言必须一致；且同样默认 opacity:0，整行 hover / 键盘聚焦才显现。
+   （2026-09-11 用户反馈：原先常显，每个未填备注的行都挂一个「＋ 备注」，干扰观感。
+   仅空态如此；已填写备注时保持常显，见下方 .has-note——那是「此处有内容」的状态提示，
+   藏起来会丢信息，与「入口」不是一类东西。） */
+.el-table .add-note-btn:not(.has-note) {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-tertiary);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-pill);
+  opacity: 0;
+  transition:
+    opacity 150ms ease,
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+/* 整行 hover（含跨 fixed 列的 JS 驱动 .is-row-hovered）或键盘聚焦时才显现 */
+.el-table .el-table__row:hover .add-note-btn:not(.has-note),
+.el-table .is-row-hovered .add-note-btn:not(.has-note),
+.el-table .add-note-btn:focus-visible {
+  opacity: 1;
+}
+
+/* 触摸设备无 hover：入口默认可见，保证可发现 */
+@media (hover: none) {
+  .el-table .add-note-btn:not(.has-note) {
+    opacity: 1;
+  }
+}
+
+.el-table .add-note-btn:not(.has-note):hover {
+  color: var(--brand-700);
+  background-color: var(--brand-100);
+  border-color: var(--brand-400);
+}
+
 .el-table .add-note-btn:hover,
 .el-table .add-note-btn:focus-visible {
   color: var(--brand-700);
@@ -164,7 +208,7 @@
   outline-offset: 1px;
 }
 
-/* 已有备注：品牌色 + 下划虚线，提示「此处有内容可编辑」，与空态「＋ 备注」区分 */
+/* 已有备注：品牌色 + 下划虚线，提示「此处有内容可编辑」，与空态「＋ 备注」区分（常显） */
 .el-table .add-note-btn.has-note {
   color: var(--brand-700);
   border-bottom: 1px dashed var(--brand-400);

@@ -16,7 +16,7 @@ from typing import List
 
 from loguru import logger
 
-from app.domains.indices.models import IndexCatalog
+from app.domains.indices.models import PUBLISHER_BY_SOURCE, IndexCatalog
 from app.services.sync.jobs.base import SyncJob
 
 
@@ -76,12 +76,16 @@ class IndexCatalogSyncJob(SyncJob):
         self.db.query(IndexCatalog).delete(synchronize_session=False)
         for r in new_data:
             is_core, core_rank = prev_flags.get(r['index_code'], (False, None))
+            source = r.get('source', 'sina')
             self.db.add(
                 IndexCatalog(
                     index_code=r['index_code'],
                     name=r['name'],
                     exchange=r.get('exchange'),
-                    source=r.get('source', 'sina'),
+                    source=source,
+                    # 编制/发布机构（#1425）：按来源回填（csindex→CSI、cni→CNI）；
+                    # sina 为行情转发源无法权威判定 → 留空（NULL），前端不展示该维度。
+                    publisher=PUBLISHER_BY_SOURCE.get(source),
                     is_core=is_core,
                     core_rank=core_rank,
                 )

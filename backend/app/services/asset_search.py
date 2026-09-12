@@ -72,7 +72,7 @@ def _search_indices(db: Session, q: str) -> List[Dict]:
     code 归一化：exchange 作为命名空间前缀——SH000300 / SZ399001（交易所）、
     CSI930950（中证）、CNI399303（国证），与场内证券 SH600519 形态同构。
     """
-    from app.domains.indices.models import IndexCatalog
+    from app.domains.indices.models import INDEX_PUBLISHER_LABELS, IndexCatalog
 
     # 同时匹配「裸码」「名称」与「命名空间前缀码」：聚合搜索返回的 code 是
     # 前缀形态（SH000300 / CSI930950），用户若直接搜前缀码也能命中（#1362 评审 #5）。
@@ -96,6 +96,17 @@ def _search_indices(db: Session, q: str) -> List[Dict]:
     for r in rows:
         prefix = r.exchange if r.exchange in ('SH', 'SZ', 'CSI', 'CNI') else ''
         market = 'CN_A' if prefix in ('SH', 'SZ') else (r.exchange or 'CN_A')
+        # 编制/发布机构（#1425）：读名录表存储的机构代码（三源作业按来源回填），
+        # 映射为中文展示名下发；未知/未回填（NULL）时不下发该字段——
+        # 前端据「字段缺失」降级不展示，与「错误的发布方比没有更糟」的取舍一致。
+        publisher = INDEX_PUBLISHER_LABELS.get(r.publisher)
+        extra = {
+            'exchange': r.exchange,
+            'is_core': r.is_core,
+            'core_rank': r.core_rank,
+        }
+        if publisher:
+            extra['publisher'] = publisher
         out.append(
             {
                 'code': f'{prefix}{r.index_code}',
@@ -103,11 +114,7 @@ def _search_indices(db: Session, q: str) -> List[Dict]:
                 'asset_type': 'index',
                 'market': market,
                 'venue': 'EXCHANGE' if prefix in ('SH', 'SZ') else '',
-                'extra': {
-                    'exchange': r.exchange,
-                    'is_core': r.is_core,
-                    'core_rank': r.core_rank,
-                },
+                'extra': extra,
             }
         )
     return out

@@ -109,3 +109,23 @@ class TestIndexCatalogSyncJob:
         result = job.run(full_sync=True, targets=['__full__'])
         assert result['status'] == 'success'
         assert db.query(IndexCatalog).count() == 1
+
+    def test_publisher_backfilled_by_source(self, job, db):
+        """编制/发布机构按来源回填（#1425 方案 B）：csindex→CSI、cni→CNI、sina→留空。
+
+        sina 只是行情转发源，无法权威判定发布方（沪深300 若按 SH 前缀写成「上交所」
+        即错误），留空 = 前端不展示该维度（可降级，宁缺勿错）。
+        """
+        job.adapter.fetch_index_catalog.return_value = SINA_ROWS
+        job.adapter.fetch_index_catalog_csindex.return_value = CSI_ROWS
+        job.adapter.fetch_index_catalog_cni.return_value = CNI_ROWS
+
+        result = job.run(full_sync=True, targets=['__full__'])
+        assert result['status'] == 'success'
+
+        csi = db.query(IndexCatalog).filter_by(index_code='930950').one()
+        assert csi.publisher == 'CSI'
+        cni = db.query(IndexCatalog).filter_by(index_code='399317').one()
+        assert cni.publisher == 'CNI'
+        sina = db.query(IndexCatalog).filter_by(index_code='000300').one()
+        assert sina.publisher is None

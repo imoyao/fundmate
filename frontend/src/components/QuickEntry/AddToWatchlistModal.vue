@@ -529,6 +529,8 @@ const venueLabelOf = (item: SearchAssetOption): string =>
  * 搜索结果项的识别信息行（列表第二行）：
  * - 投顾组合：`平台 · 主理人`（组合码是平台原生码，对用户无意义 → 不展示）
  * - 基金经理：所属基金公司（经理码 MGR_ 派生，同样不展示）
+ * - 指数：`# 代码 · 发布机构`（#1425：同一套指数体系下靠发布方区分，如沪深300=中证、
+ *   国证2000=国证；发布方判定不出时不展示，宁缺勿错）
  * - 其它品种：`# 代码 · 场内外`（代码是股票/ETF/基金/指数的对外识别信息，保留）
  */
 const metaLineOf = (item: SearchAssetOption): string => {
@@ -536,6 +538,11 @@ const metaLineOf = (item: SearchAssetOption): string => {
   if (isCompositeAssetType(item.type)) {
     if (item.type === "manager") return extra.company || "";
     return [getAdvisorPlatformLabel(extra.platform), extra.host]
+      .filter((v): v is string => Boolean(v))
+      .join(" · ");
+  }
+  if (item.type === "index") {
+    return [item.symbol ? `# ${item.symbol}` : "", extra.publisher]
       .filter((v): v is string => Boolean(v))
       .join(" · ");
   }
