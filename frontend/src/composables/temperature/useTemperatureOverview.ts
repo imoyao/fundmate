@@ -1,8 +1,15 @@
 // frontend/src/composables/temperature/useTemperatureOverview.ts
-// 市场温度总览数据 composable：探市页（/explore）与温度计页（/temperature）共用。
-// 抽取自 explore/index.vue 的温度数据块（原 587-740 行），temperature 页后续接入（见 #980）。
-// 契约以 explore 现有行为为基准：解析 getTemperatureOverview 的 singles/composites，
-// 产出页面所需的全部温度 refs 与 fetchTemperature() 方法。
+// 市场温度总览数据 composable：探市页（/explore）的「概览」与「深度」两档共用。
+//
+// 【为什么是单例】（2026-09-12 重构，见 #980）
+// 本 composable 原是**工厂函数**：每次调用都新建一整套 ref，并各自请求一次
+// `GET /api/temperature/overview`。方案 D 把原独立温度计页收进探市页后，
+// 「概览 / 深度」两档各调一次 ⇒ 切档（v-if 卸载重建）会**反复请求同一份数据**，
+// 且两档各自持有一份互不感知的副本。
+// 现改为**模块级单例 + 并发去重**：所有调用方共享同一份状态，同一时刻只发一个请求。
+//
+// 契约与改造前一致（返回字段不变）；唯一新增是 `fetchTemperature(force?)`。
+// 抽取自 explore/index.vue 的温度数据块（原 587-740 行，见 #980）。
 import { ref } from "vue";
 import {
   getTemperatureOverview,
@@ -19,7 +26,7 @@ export interface JisiluIndicator {
   median_pe_level?: string;
 }
 
-export function useTemperatureOverview() {
+function createTemperatureOverview() {
   /** 请求进行中标记 */
   const loading = ref(false);
   /** 原始响应（data 部分），供需要完整数据的调用方使用 */
@@ -51,7 +58,8 @@ export function useTemperatureOverview() {
   const cbLabel = ref<string>("");
   const jisiluIndicator = ref<JisiluIndicator | null>(null);
 
-  const fetchTemperature = async () => {
+  /** 真正执行请求（并发去重由外层 fetchTemperature 负责） */
+  const doFetch = async () => {
     loading.value = true;
     try {
       const res = await getTemperatureOverview();
@@ -139,6 +147,26 @@ export function useTemperatureOverview() {
     }
   };
 
+  /** 进行中的请求：并发调用方复用它，不重复打接口 */
+  let inflight: Promise<void> | null = null;
+
+  /**
+   * 拉取市场温度总览。
+   * @param force 为 true 时忽略进行中的请求，强制再拉一次（手动刷新场景）
+   */
+  const fetchTemperature = (force = false): Promise<void> => {
+    if (inflight && !force) return inflight;
+    const request = doFetch();
+    inflight = request;
+    // 只在「当前 inflight 仍是本次请求」时才清空：否则 force 刷新期间旧请求结束，
+    // 会误清新请求的引用，让后续调用以为没有请求在跑而重复发起。
+    return request.finally(() => {
+      if (inflight === request) {
+        inflight = null;
+      }
+    });
+  };
+
   return {
     loading,
     overview,
@@ -156,4 +184,19 @@ export function useTemperatureOverview() {
     jisiluIndicator,
     fetchTemperature
   };
+}
+
+type TemperatureOverview = ReturnType<typeof createTemperatureOverview>;
+
+/**
+ * 模块级单例：探市页「概览」「深度」两档共享同一份温度数据。
+ * 首次调用创建，后续调用直接复用（不新建 ref、不重复请求）。
+ */
+let shared: TemperatureOverview | null = null;
+
+export function useTemperatureOverview(): TemperatureOverview {
+  if (!shared) {
+    shared = createTemperatureOverview();
+  }
+  return shared;
 }
