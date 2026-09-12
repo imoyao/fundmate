@@ -728,15 +728,60 @@ class TestHoldingGroupRealPositions:
         assert body['total'] == 2
         symbols = {d['symbol'] for d in body['data']}
         assert symbols == {'SH600519', 'HK00700'}
-        # 虚拟行约定：id=None，行操作字段为空
-        for d in body['data']:
-            assert d['id'] is None
-            assert d['status'] == 'HOLDING'
-            assert d['is_pinned'] is False
-            assert d['favorite'] is False
-            assert d['group_ids'] == []
-            assert d['tag_ids'] == []
-            assert d['display_name'] in ('茅台', '腾讯')
+        by_symbol = {d['symbol']: d for d in body['data']}
+        # SH600519 已入自选 → 持仓行回填真实自选记录（id 非空，可打标签/备注）
+        maotai = by_symbol['SH600519']
+        assert maotai['id'] is not None
+        assert maotai['status'] == 'HOLDING'
+        assert maotai['is_pinned'] is False
+        assert maotai['favorite'] is False
+        assert maotai['group_ids'] == []
+        assert maotai['tag_ids'] == []
+        assert maotai['display_name'] == '茅台'
+        # HK00700 未入自选 → 仍是虚拟行（id=None，行操作禁用，前端据此提示一键加入）
+        tencent = by_symbol['HK00700']
+        assert tencent['id'] is None
+        assert tencent['status'] == 'HOLDING'
+        assert tencent['display_name'] == '腾讯'
+
+    def test_reconcile_creates_holding_items_and_gaps(self, client, db, make_position):
+        """持仓自动入自选：缺口检测 + 一键补齐 + 持仓行回填真实 id + 清仓降级。"""
+        make_position(
+            symbol='SH600519',
+            name='茅台',
+            asset_type='stock',
+            market='SH',
+            account_name='华泰',
+            quantity=100,
+            avg_price=18,
+            current_price=18,
+        )
+
+        # 缺口检测：有持仓但未入自选
+        gaps_resp = _get(client, '/api/watchlist/holding-gaps/')
+        assert gaps_resp.status_code == 200
+        assert gaps_resp.get_json()['count'] == 1
+        assert gaps_resp.get_json()['data'][0]['symbol'] == 'SH600519'
+
+        # 一键补齐
+        rec_resp = _post(client, '/api/watchlist/reconcile/', {})
+        assert rec_resp.status_code == 200
+        assert rec_resp.get_json()['data']['created'] == 1
+
+        # 补齐后无缺口
+        assert _get(client, '/api/watchlist/holding-gaps/').get_json()['count'] == 0
+
+        # 持仓分组该行现已回填真实自选记录（id 非空，可打标签/备注）
+        items_resp = _get(client, '/api/watchlist/items/', {'status': 'HOLDING'})
+        rows = {d['symbol']: d for d in items_resp.get_json()['data']}
+        assert rows['SH600519']['id'] is not None
+
+        # 仅观察、无持仓的 HOLDING 项应降级为 WATCHING（清仓后对齐）
+        db.add(WatchlistItem(symbol='HK00700', market='HK', status='HOLDING'))
+        db.commit()
+        _post(client, '/api/watchlist/reconcile/', {'demote': True})
+        demoted = db.query(WatchlistItem).filter_by(symbol='HK00700', market='HK').first()
+        assert demoted.status == 'WATCHING'
 
     def test_holding_group_aggregates_multi_account_symbol(self, client, db, make_position):
         """同一 symbol 多账户多行按 symbol 聚合为一行"""

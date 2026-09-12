@@ -178,6 +178,37 @@
           @manage-group-items="groupItemsVisible = true"
         />
 
+        <!-- 持仓未入自选提示（#1458 后续：持仓即自选）：缺口可一键补齐 -->
+        <el-alert
+          v-if="holdingGaps.length > 0"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="holding-gap-banner"
+        >
+          <template #title>
+            <span
+              >有 {{ holdingGaps.length }} 个持仓产品尚未加入自选，暂无法打标签
+              / 写备注。</span
+            >
+          </template>
+          <template #default>
+            <span
+              >持仓即自选：补齐后即可像普通自选一样管理，卖出后也不会被删除。</span
+            >
+            <el-button
+              type="warning"
+              size="small"
+              plain
+              class="ml-2"
+              :loading="reconciling"
+              @click="handleAddAllToWatchlist"
+            >
+              一键加入自选
+            </el-button>
+          </template>
+        </el-alert>
+
         <!-- 估值横幅与状态 -->
         <!-- ✅ 核心修复：用 template 包裹，加上 v-if 物理移除整个模块 -->
         <template v-if="realtimeEnabled">
@@ -481,8 +512,11 @@ import TagEditorDialog from "@/components/Watchlist/TagEditorDialog.vue";
 import NotesEditorDialog from "@/components/Watchlist/NotesEditorDialog.vue";
 import {
   getWatchlistTrends,
+  getHoldingGaps,
+  reconcileWatchlist,
   type WatchlistItem,
-  type WatchlistGroup
+  type WatchlistGroup,
+  type HoldingGap
 } from "@/api/watchlist";
 import CardBlock from "@/components/CardBlock/index.vue";
 import LayFooter from "@/layout/components/lay-footer/index.vue";
@@ -602,6 +636,34 @@ const {
 // 本弹窗只管「某个自定义分组里有哪些产品」，对应空白组快捷添加 + 常规组内增删。
 // 系统分组由后端规律方法维护，不提供组内增删（activeCustomGroup 为 null 即不生效）。
 const groupItemsVisible = ref(false);
+
+// ── #1458 后续：持仓即自选 —— 缺口提示与一键补齐 ──
+const holdingGaps = ref<HoldingGap[]>([]);
+const reconciling = ref(false);
+
+async function fetchHoldingGaps(): Promise<void> {
+  try {
+    const res = await getHoldingGaps();
+    holdingGaps.value = res.data ?? [];
+  } catch {
+    // 缺口检测失败不影响主列表，静默
+    holdingGaps.value = [];
+  }
+}
+
+async function handleAddAllToWatchlist(): Promise<void> {
+  reconciling.value = true;
+  try {
+    await reconcileWatchlist(true);
+    ElMessage.success("已为持仓补齐自选，现在可打标签 / 写备注");
+    await fetchHoldingGaps();
+    await fetchData();
+  } catch {
+    ElMessage.error("一键加入自选失败，请稍后重试");
+  } finally {
+    reconciling.value = false;
+  }
+}
 /** 当前选中的自定义分组对象；系统分组或未选中时为 null */
 const activeCustomGroup = computed<WatchlistGroup | null>(() => {
   const gid = activeCustomGroupId.value;
@@ -939,6 +1001,7 @@ onMounted(async () => {
   fetchGroups();
   fetchTags();
   fetchData();
+  fetchHoldingGaps();
   watch(activeGroup, () => {
     // 持仓分组只含真实持仓（stock/fund/etf/bond/index/convertible），
     // 不含「经理」等非持仓类型——切到持仓分组时仅清掉非持仓类型，
@@ -1144,6 +1207,15 @@ const renderCtx = computed<RenderCtx>(() => ({
 
 <style scoped>
 /* 旧刷新频率下拉（.refresh-interval-select/.is-spinning）样式已随 el-segmented 化删除 */
+
+/* #1458 后续：持仓未入自选的引导 banner（warning 级） */
+.holding-gap-banner {
+  margin: 12px 0;
+}
+
+.holding-gap-banner .ml-2 {
+  margin-left: 8px;
+}
 
 /* ======================================
    自选卡片沿用 design.md「表格/列表/筛选栏：--space-compact(16px)」

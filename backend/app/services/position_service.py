@@ -36,6 +36,33 @@ from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_money_fund_s
 from app.services.importer.records import compute_position_hash
 from app.services.pnl_service import compute_sell_realized_cents
 from app.services.trading import TransactionService, validate_buy, validate_sell
+from app.services.watchlist_service import (
+    ensure_watchlist_for_positions,
+    reconcile_watchlist_status,
+)
+
+
+def _silent_ensure_watchlist(db: Session, family_id: int, symbol: str) -> None:
+    """买入/持仓快照后：静默补齐 HOLDING 自选记录（#1458 后续：持仓即自选）。
+
+    后台静默失败——绝不影响主交易链路，也不向用户暴露错误。
+    """
+    try:
+        ensure_watchlist_for_positions(db, family_id, [symbol])
+    except Exception:
+        logger.warning('持仓自动入自选失败（已静默）: family=%s symbol=%s', family_id, symbol)
+
+
+def _silent_reconcile_watchlist(db: Session, family_id: int, symbol: str) -> None:
+    """卖出/重算后：静默对齐自选状态（有持仓→HOLDING，无持仓→WATCHING）。
+
+    后台静默失败——绝不影响主交易链路，也不向用户暴露错误。
+    """
+    try:
+        reconcile_watchlist_status(db, family_id, [symbol])
+    except Exception:
+        logger.warning('持仓状态对齐自选失败（已静默）: family=%s symbol=%s', family_id, symbol)
+
 
 # 允许写入持仓模型的字段白名单（防止注入无效字段）
 _ALLOWED_POSITION_FIELDS = {
@@ -516,6 +543,8 @@ class PositionService:
         except Exception:
             pass
 
+        # #1458 后续：持仓快照导入即入自选（静默，失败不影响主链路）
+        _silent_ensure_watchlist(db, family_id, symbol)
         return position
 
     @staticmethod
@@ -780,6 +809,8 @@ class PositionService:
                 trigger_backfill(asset_type, symbol)
             except Exception:
                 pass
+            # #1458 后续：买入即入自选（静默，失败不影响主链路）
+            _silent_ensure_watchlist(db, data.get('family_id', 1), symbol)
             return position
 
         except Exception:
@@ -888,6 +919,8 @@ class PositionService:
                 )
 
             db.flush()
+            # #1458 后续：卖出/清仓后对齐自选状态（静默，失败不影响主链路）
+            _silent_reconcile_watchlist(db, data.get('family_id', 1), existing.symbol)
             if is_cleared:
                 return None
             db.refresh(existing)
@@ -953,6 +986,8 @@ class PositionService:
             if pos.current_price in (None, 0):
                 pos.current_price = avg_price_units
             db.flush()
+            # #1458 后续：重算后对齐自选状态（静默）
+            _silent_reconcile_watchlist(db, pos.family_id, pos.symbol)
             return pos
 
         # 持仓行已被整笔卖出清空删除：依据剩余买入流水重建
@@ -979,6 +1014,8 @@ class PositionService:
         for t in txns:
             t.position_id = new_pos.id
         db.flush()
+        # #1458 后续：重算后对齐自选状态（静默）
+        _silent_reconcile_watchlist(db, new_pos.family_id, new_pos.symbol)
         return new_pos
 
     @staticmethod
