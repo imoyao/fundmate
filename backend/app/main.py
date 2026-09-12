@@ -44,6 +44,7 @@ from app.domains.usage.views import usage_bp  # noqa: E402
 from app.domains.users.views import users_bp  # noqa: E402
 from app.domains.utils.views import utils_bp  # noqa: E402
 from app.domains.watchlist.views import watchlist_bp  # noqa: E402
+from app.services.daily_scheduler import start_daily_scheduler  # noqa: E402
 
 
 def create_app() -> APIFlask:
@@ -98,6 +99,11 @@ def create_app() -> APIFlask:
     # 初始化数据库
     with app.app_context():
         init_db()
+
+    # 本机每日数据抓取（#1467）：自选/持仓净值 + 温度计，进程内按 cron 触发。
+    # 仅在 SCHEDULER_ENABLED 打开、且当前不是测试/CI/重载父进程时启动；启动失败只记
+    # 日志（调度是增强项，不是可用性前提，绝不能因此让应用起不来）。
+    start_daily_scheduler(debug=app.debug)
 
     # 注册全局异常处理器（统一 {data, message, error_code} 信封）。
     # 必须在 create_app() 内部注册，否则测试 fixture 直接调用 create_app()

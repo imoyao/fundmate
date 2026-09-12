@@ -14,7 +14,6 @@ import csv
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -25,6 +24,11 @@ from sqlalchemy.orm import Session
 import app
 from app.core.config import SYNC__FUND_LIST_SOURCE
 from app.core.database import SQLALCHEMY_DATABASE_URL as DB_URL
+
+# 文件锁实现已抽到 core（#1467）：进程内每日调度器与应用启动路径都要用它，
+# 留在本模块会让它们为了借锁而连带加载 akshare。此处保留同名导入以兼容既有
+# 调用方与测试的 monkeypatch 目标（`app.services.sync.orchestrator.acquire_lock`）。
+from app.core.file_lock import acquire_lock
 from app.core.time_utils import now_shanghai
 from app.domains.positions.models import Position
 from app.domains.watchlist.models import WatchlistItem
@@ -58,37 +62,6 @@ from app.services.sync.jobs.stock_list_job import StockListSyncJob
 from app.services.thermometer.jobs import TemperatureJob
 
 BASE_DIR = Path(app.__path__[0]).parent
-
-
-# ============================================================
-# 跨平台原子文件锁
-# ============================================================
-
-
-def acquire_lock(lock_file: Path) -> tuple:
-    """
-    尝试获取原子文件锁。
-
-    返回:
-        (成功标志, 文件描述符)。
-        如果获取失败，返回 (False, None)。
-    """
-    lock_file.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        fd = os.open(lock_file, os.O_CREAT | os.O_RDWR)
-        if sys.platform == 'win32':
-            import msvcrt
-
-            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
-        else:
-            import fcntl
-
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        return True, fd
-    except (OSError, IOError):
-        if 'fd' in locals():
-            os.close(fd)
-        return False, None
 
 
 # ============================================================

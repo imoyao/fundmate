@@ -140,7 +140,10 @@
   - `services/sync/`：双适配器（xalpha/akshare）+ 编排器。
   - `services/thermometer/`：温度计（含全 A 中位 PB 历史基线）。
   - `services/bias/`、`importer/`、`performance/`（XIRR）。
+  - `services/daily_scheduler.py`：本机常驻每日调度（进程内 APScheduler；自选/持仓净值 + 温度计，#1467）。
 - **同步入口**：两套 CLI（`pdm run invoke grab.*` 和 `pdm run sync --job`），共用 `DataSyncOrchestrator`。
+  **本机常驻**另有两条路：`.env` 置 `SCHEDULER_ENABLED=1` 随应用启动，或 `pdm run scheduler-daemon`
+  独立守护（同机靠单实例锁只跑一份）；详见 `docs/dev/scheduler-tasks.md`。
 
 ### 日志（2026-08-09 统一）
 
@@ -163,6 +166,7 @@
 | 运行 API | `pdm run flask --app app.main:app run --debug --host 0.0.0.0 --port 8000` |
 | 测试 | `pdm run pytest -p no:xdist`（或 `pdm run invoke test`） |
 | 同步任务 | `pdm run invoke grab.temperature` / `grab.all` / `grab.job <name>`<br>或 `pdm run sync --job temperature` |
+| 本机每日调度 | `pdm run invoke sched.status`（状态，只读）<br>`pdm run scheduler-daemon`（常驻守护，Ctrl+C 退出） |
 | Lint & Format | `pdm run ruff check .` / `pdm run ruff format .` |
 | 诊断东财抓取 | `pdm run python scripts/diag_em.py` |
 
