@@ -100,15 +100,22 @@ export function useWatchlistColumnVisibility(
   const activeCat = computed(() => activeCategory?.value ?? null);
 
   /**
-   * 视图作用域可见性（不含用户显隐偏好）：
-   * - `scope:"mixed"` 通用列：混合视图也显示；
-   * - `scope:"category"`（默认）：仅当命中当前品类（`appliesTo` 缺省＝全部品类）才显示。
+   * 视图作用域可见性（不含用户显隐偏好）。两个维度各管一段，互不越权：
+   * - **混合视图**（`cat == null`）：看 `scope` —— 只有 `scope:"mixed"` 的通用列出现；
+   * - **品类视图**（命中单一品类）：看 `appliesTo` —— 该列对当前品类成立（缺省＝全品类）即出现，
+   *   与 `scope` 无关。`scope` 只回答「混合视图要不要出现」，不回答「品类视图要不要出现」。
+   *
+   * 历史坑（#1425 用户实测）：原实现把 `if (def.scope === "mixed") return true;` 短路在最前，
+   * 于是「最新价 / 涨跌幅 / 持有数量 / 持仓市值 / 持仓收益」这些 `scope:"mixed"` 的列，
+   * 在**基金经理、投顾组合**这类无行情、无持仓语义的品类视图里也照常出现
+   * （选「基金经理」看到的表头却是最新价 / 涨跌幅 / 持有数量）。
+   * 现改为品类视图一律由 `appliesTo` 把关，配合 columnDefs 的
+   * `QUOTE_TYPES`（有行情）与 `TRADABLE_TYPES`（可交易）收敛适用范围。
    */
   function isVisibleInView(def: ColumnDef): boolean {
-    if (def.scope === "mixed") return true;
     const cat = activeCat.value;
-    if (cat && (!def.appliesTo || def.appliesTo.includes(cat))) return true;
-    return false;
+    if (cat) return !def.appliesTo || def.appliesTo.includes(cat);
+    return def.scope === "mixed";
   }
 
   const hideableColumns = computed(() =>

@@ -9,7 +9,7 @@ import {
   onBeforeUnmount,
   nextTick
 } from "vue";
-import { Files, Folder, Plus } from "@element-plus/icons-vue";
+import { Files, Filter, Folder, Plus } from "@element-plus/icons-vue";
 import GroupFormDialog from "@/components/Watchlist/GroupFormDialog.vue";
 import type { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import type { useWatchlistTags } from "@/composables/useWatchlistTags";
@@ -36,10 +36,12 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "view-change"): void;
-  (e: "tag-apply"): void;
-  (e: "tag-clear"): void;
-  /** 类型弹层「确定」：把草稿提交为生效筛选并刷新列表 */
-  (e: "type-apply"): void;
+  /**
+   * 「筛选」面板确定：类型 + 标签两组草稿均已提交，请父页面按新条件刷新列表。
+   * 仅在「标签未变化、只有类型变化」时触发——标签变化由 useWatchlistData 的
+   * watch(selectedFilterTagIds) 自动置第 1 页并刷新，两者同时触发会打两次请求。
+   */
+  (e: "filter-apply"): void;
   /** 管理分组本身（新建/改名/删除）→ GroupManagerDialog */
   (e: "manage-groups"): void;
   /** #987：管理当前自定义分组「里有哪些产品」→ GroupItemsDialog */
@@ -105,13 +107,9 @@ const selectedAssetTypesModel = computed({
   }
 });
 
-// 弹层草稿：打开时同步已提交筛选，确定才提交（与标签筛选同一交互节奏）
-const typeFilterVisible = ref(false);
+// 类型草稿。与标签草稿同一节奏：打开「筛选」面板时同步已生效筛选，点「确定」才提交。
+// 面板开合统一由 tagFilterVisibleModel 承担（类型与标签本就是同一个面板，见下方 watch）。
 const draftAssetTypes = ref<string[]>([]);
-watch(typeFilterVisible, visible => {
-  if (visible) draftAssetTypes.value = [...selectedAssetTypesModel.value];
-});
-const selectedTypeCount = computed(() => selectedAssetTypesModel.value.length);
 
 function toggleDraftType(type: string) {
   const idx = draftAssetTypes.value.indexOf(type);
@@ -119,20 +117,18 @@ function toggleDraftType(type: string) {
   else draftAssetTypes.value.push(type);
 }
 
-/** 确定提交草稿并通知父页面刷新；空选即清除类型筛选 */
-function applyTypeFilter() {
-  selectedAssetTypesModel.value = [...draftAssetTypes.value];
-  typeFilterVisible.value = false;
-  emit("type-apply");
-}
+/** 已生效的筛选条件数（类型 + 标签）：用于筛选入口按钮的角标 */
+const activeFilterCount = computed(
+  () => selectedAssetTypesModel.value.length + selectedTagCount.value
+);
 
-/** 一键重置：清草稿直接提交空数组（清除筛选）并关闭 */
-function resetTypeFilter() {
-  draftAssetTypes.value = [];
-  selectedAssetTypesModel.value = [];
-  typeFilterVisible.value = false;
-  emit("type-apply");
-}
+/** 是否有「已生效」或「草稿中」的条件：决定面板内「重置」是否可用 */
+const hasAnyFilter = computed(
+  () =>
+    activeFilterCount.value > 0 ||
+    draftAssetTypes.value.length > 0 ||
+    draftFilterTagIdsModel.value.length > 0
+);
 
 // 视图筛选选项（venue 维度）
 const viewOptions = [
@@ -141,10 +137,13 @@ const viewOptions = [
   { label: "场外", value: "otc" }
 ] as const;
 
-// 打开面板时把已提交筛选同步到草稿（原触发按钮 @click 内的 onTagFilterShow 迁移至此，
-// 因 trigger="click" 后开合由 EP 接管，组件不再经手打开动作）
+// 打开「筛选」面板时把已生效筛选同步到两组草稿（类型 + 标签）。
+// 原触发按钮 @click 内的 onTagFilterShow 迁移至此：trigger="click" 后开合由 EP 接管，
+// 组件不再经手打开动作。
 watch(tagFilterVisibleModel, visible => {
-  if (visible) props.tags.onTagFilterShow();
+  if (!visible) return;
+  props.tags.onTagFilterShow();
+  draftAssetTypes.value = [...selectedAssetTypesModel.value];
 });
 
 // 切换视图：同值不重复触发（原 el-segmented v-model+change 行为等价）
@@ -188,11 +187,37 @@ function toggleDraftTag(id: number) {
   else draftFilterTagIdsModel.value.push(id);
 }
 
-// 一键重置：清空草稿并提交（applyTagFilter 提交空数组即清除标签筛选），关闭面板
-function resetFilter() {
-  draftFilterTagIdsModel.value = [];
-  emit("tag-apply");
+/**
+ * 「确定」：一次性提交类型 + 标签两组草稿并关闭面板。
+ *
+ * 刷新只走**一条**路径，避免重复请求：
+ * - 标签有变化 → useWatchlistData 内部 `watch(selectedFilterTagIds)` 会自动置第 1 页并刷新
+ *   （类型已先写入，刷出来的就是新条件）；
+ * - 只有类型变化 → 标签 watch 不触发，补发 `filter-apply` 让页面刷新；
+ * - 两者都没变 → 只关面板，不打请求。
+ */
+function applyFilters() {
+  const beforeTags = [...props.tags.selectedFilterTagIds.value]
+    .sort()
+    .join(",");
+  const beforeTypes = [...selectedAssetTypesModel.value].sort().join(",");
+
+  selectedAssetTypesModel.value = [...draftAssetTypes.value];
+  props.tags.selectedFilterTagIds.value = [...draftFilterTagIdsModel.value];
   tagFilterVisibleModel.value = false;
+
+  const tagsChanged =
+    [...props.tags.selectedFilterTagIds.value].sort().join(",") !== beforeTags;
+  const typesChanged =
+    [...selectedAssetTypesModel.value].sort().join(",") !== beforeTypes;
+  if (!tagsChanged && typesChanged) emit("filter-apply");
+}
+
+/** 一键重置：清空两组草稿后走同一条提交路径（清空即清除筛选），并关闭面板 */
+function resetAllFilters() {
+  draftAssetTypes.value = [];
+  draftFilterTagIdsModel.value = [];
+  applyFilters();
 }
 
 /** 胶囊颜色：标签色为底（12% 透明度）+ 同色字 + 同色边框（数据色例外，缺失回退 DEFAULT_TAG_COLOR）。
@@ -315,133 +340,96 @@ watch(
         </el-tooltip>
         <div class="right-divider" />
 
-        <!-- 标签筛选（bottom-start 左对齐触发按钮，减少浮层错位感）。
-             trigger="click" + v-model:visible：EP 原生接管「点击外部 / Esc 自动收起」，
-             替代旧手动 :visible（必须点取消才能关，反直觉）。
-             点外部关闭不丢草稿：草稿仅在重新打开时由 watch 重置为已提交筛选 -->
+        <!-- 筛选入口（2026-09-11 收敛）：原先「标签筛选」与「类型」是两个同构弹层并排，
+             加上 venue 分段控制器后右段出现三个筛选控件，用户要在两套相同交互之间来回
+             切换才能确认「到底筛了什么」，认知负担明显。现合并为一个「筛选」入口：
+             面板内按「类型 / 标签」两段分区，按钮用角标表达已生效条件数（0 时不显示）。
+             venue（全部/场内/场外）仍保留为独立分段控制器——它是「视图」而非「筛选条件」，
+             高频切换且只有 3 项，收进面板反而平白多两次点击。
+             trigger="click" + v-model:visible：EP 原生接管「点击外部 / Esc 自动收起」；
+             点外部关闭不丢草稿：草稿仅在重新打开时由 watch 重置为已提交筛选。 -->
         <el-popover
           v-model:visible="tagFilterVisibleModel"
           trigger="click"
           placement="bottom-start"
-          :width="260"
-          title="按标签筛选"
+          :width="272"
+          popper-class="watchlist-filter-popper"
         >
           <template #reference>
-            <el-button class="tag-filter-btn">
-              标签筛选<template v-if="selectedTagCount">
-                ({{ selectedTagCount }})
-              </template>
+            <el-button
+              class="filter-entry-btn"
+              :class="{ 'is-active': activeFilterCount > 0 }"
+              aria-label="筛选自选列表"
+            >
+              <el-icon class="filter-entry-btn__icon"><Filter /></el-icon>
+              筛选
+              <span v-if="activeFilterCount" class="filter-entry-btn__count">
+                {{ activeFilterCount }}
+              </span>
             </el-button>
           </template>
-          <div class="tag-filter-panel">
-            <!-- 标签筛选胶囊（多选）：标签色为底 + 色点 + 名称，与「管理标签」/表格内标签胶囊同一颜色语言 -->
-            <div class="tag-filter-chips">
-              <button
-                v-for="t in allTags"
-                :key="t.id"
-                type="button"
-                class="tag-filter-chip"
-                :class="{
-                  'is-selected': draftFilterTagIdsModel.includes(t.id)
-                }"
-                :style="chipStyle(t)"
-                @click="toggleDraftTag(t.id)"
-              >
-                <span
-                  class="tag-filter-chip__dot"
-                  :style="{
-                    backgroundColor: t.color || undefined
+          <div class="filter-panel">
+            <section class="filter-panel__section">
+              <p class="filter-panel__title">类型</p>
+              <div class="filter-panel__chips">
+                <button
+                  v-for="t in ASSET_TYPE_OPTIONS"
+                  :key="t"
+                  type="button"
+                  class="filter-chip"
+                  :class="{ 'is-selected': draftAssetTypes.includes(t) }"
+                  @click="toggleDraftType(t)"
+                >
+                  {{ assetTypeLabel(t) }}
+                </button>
+              </div>
+            </section>
+
+            <section class="filter-panel__section">
+              <p class="filter-panel__title">标签</p>
+              <div class="filter-panel__chips">
+                <!-- 标签胶囊：标签色为底 + 色点 + 名称（chipStyle 注入 --chip-*），
+                     与「管理标签」/表格内标签胶囊同一颜色语言 -->
+                <button
+                  v-for="t in allTags"
+                  :key="t.id"
+                  type="button"
+                  class="filter-chip filter-chip--tag"
+                  :class="{
+                    'is-selected': draftFilterTagIdsModel.includes(t.id)
                   }"
-                />
-                {{ t.name }}
-              </button>
-              <p v-if="allTags.length === 0" class="tag-filter-empty">
-                暂无标签，可在「管理」中新建
-              </p>
-            </div>
-            <div class="flex items-center justify-between mt-3">
+                  :style="chipStyle(t)"
+                  @click="toggleDraftTag(t.id)"
+                >
+                  <span
+                    class="filter-chip__dot"
+                    :style="{ backgroundColor: t.color || undefined }"
+                  />
+                  {{ t.name }}
+                </button>
+                <p v-if="allTags.length === 0" class="filter-panel__empty">
+                  暂无标签，可在「管理」中新建
+                </p>
+              </div>
+            </section>
+
+            <div class="filter-panel__footer">
               <el-button
                 size="small"
                 text
                 type="primary"
-                :disabled="
-                  draftFilterTagIdsModel.length === 0 && selectedTagCount === 0
-                "
-                @click="resetFilter"
+                :disabled="!hasAnyFilter"
+                @click="resetAllFilters"
               >
-                重置筛选
+                重置
               </el-button>
               <div class="flex gap-2">
                 <el-button size="small" @click="tagFilterVisibleModel = false">
                   取消
                 </el-button>
-                <!-- 确定按钮：未勾选任何标签时禁用（勾选草稿后才可提交）。
-                     点击「确定」才把草稿提交为生效筛选；期间点标签只改草稿、
-                     不动列表，支持连续多选后再一次确定（2026-09-05 交互回归修复） -->
-                <el-button
-                  size="small"
-                  type="primary"
-                  :disabled="draftFilterTagIdsModel.length === 0"
-                  @click="emit('tag-apply')"
-                >
-                  确定
-                </el-button>
-              </div>
-            </div>
-          </div>
-        </el-popover>
-
-        <!-- 类型筛选（2026-09-09）：asset_type 维度多选弹层，与标签筛选同一交互语言
-             （草稿 + 确定/重置，点外部关闭不丢草稿）。与 venue segmented 正交可组合 -->
-        <el-popover
-          v-model:visible="typeFilterVisible"
-          trigger="click"
-          placement="bottom-start"
-          :width="260"
-          title="按类型筛选"
-        >
-          <template #reference>
-            <el-button class="tag-filter-btn">
-              类型<template v-if="selectedTypeCount">
-                ({{ selectedTypeCount }})
-              </template>
-            </el-button>
-          </template>
-          <div class="tag-filter-panel">
-            <div class="tag-filter-chips">
-              <button
-                v-for="t in ASSET_TYPE_OPTIONS"
-                :key="t"
-                type="button"
-                class="tag-filter-chip"
-                :class="{ 'is-selected': draftAssetTypes.includes(t) }"
-                @click="toggleDraftType(t)"
-              >
-                {{ assetTypeLabel(t) }}
-              </button>
-            </div>
-            <div class="flex items-center justify-between mt-3">
-              <el-button
-                size="small"
-                text
-                type="primary"
-                :disabled="
-                  draftAssetTypes.length === 0 && selectedTypeCount === 0
-                "
-                @click="resetTypeFilter"
-              >
-                重置筛选
-              </el-button>
-              <div class="flex gap-2">
-                <el-button size="small" @click="typeFilterVisible = false">
-                  取消
-                </el-button>
-                <el-button
-                  size="small"
-                  type="primary"
-                  :disabled="draftAssetTypes.length === 0"
-                  @click="applyTypeFilter"
-                >
+                <!-- 确定：一次性提交「类型 + 标签」两组草稿；刷新只走一条路径，
+                     避免标签 watch 与类型刷新叠加成两次请求（见 applyFilters 注释） -->
+                <el-button size="small" type="primary" @click="applyFilters">
                   确定
                 </el-button>
               </div>
@@ -523,8 +511,17 @@ watch(
   align-items: center;
 }
 
-/* 标签筛选按钮：32px 胶囊，与分组 tab / segmented 同高（浅色 soft 按钮，未选中 --text-secondary） */
-.tag-filter-btn {
+/* 筛选入口按钮：32px 胶囊，与分组 tab / segmented 同高。
+   默认 1px 描边（--border-default）把控件从卡片底色里「立」起来；
+   有生效条件时转品牌软底 + 品牌描边 + 数字角标（见 .is-active）。
+   关于描边/阴影的取舍（2026-09-11 用户提问）：**只加描边，不加带色阴影**——
+   design.md 的阴影是「层级浮起」语义（card / popover / modal），把彩色阴影挂到胶囊上
+   属装饰性阴影，与「克制」冲突；描边则是设计语言里既有的构件边界
+   （Input / 软按钮 / ProductDisplay 的类型胶囊都在用）。 */
+.filter-entry-btn {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
   height: 32px;
   padding: 0 12px;
   font-size: var(--text-label);
@@ -538,9 +535,36 @@ watch(
     border-color 150ms ease;
 }
 
-.tag-filter-btn:hover {
+.filter-entry-btn:hover {
   color: var(--text-primary);
   background-color: var(--bg-hover);
+}
+
+.filter-entry-btn.is-active {
+  font-weight: 500;
+  color: var(--brand-700);
+  background-color: var(--brand-100);
+  border-color: var(--brand-400);
+}
+
+.filter-entry-btn__icon {
+  font-size: 14px;
+}
+
+/* 条件数角标：品牌实底 + 卡片色字，16px 胶囊（与分组 tab 的数量徽章同为「数字角标」语言） */
+.filter-entry-btn__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--bg-card);
+  background-color: var(--brand-700);
+  border-radius: var(--radius-pill);
 }
 
 /* ===== 分组胶囊 Tab（design.md「分组胶囊 Tab · 方案 B」2026-08-14，数值与 index.vue 原实现逐值对齐） ===== */
@@ -721,6 +745,11 @@ watch(
   height: 32px;
   padding: 3px;
   background-color: var(--bg-soft);
+
+  /* 轨道补 1px 描边：与筛选入口按钮、面板内胶囊统一「构件边界」语言，
+     避免一整条筛选带里只有分段控制器没有边界、显得糊在卡片底色上（2026-09-11）。
+     注意：只在**轨道**上加描边；选中项仍保持「浅红软底 + 深红字、无边框」不变。 */
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-pill);
 }
 
@@ -763,20 +792,36 @@ watch(
   background-color: var(--brand-100);
 }
 
-.tag-filter-panel {
-  max-height: 240px;
+.filter-panel {
+  max-height: 320px;
   overflow-y: auto;
 }
 
-/* 标签筛选胶囊组：flex 换行，多选胶囊（与「管理标签」颜色胶囊同语言） */
-.tag-filter-chips {
+/* 面板内分区（类型 / 标签）：段标题 + 胶囊组，段间用发丝线分隔层级 */
+.filter-panel__section + .filter-panel__section {
+  padding-top: 12px;
+  margin-top: 12px;
+  border-top: 1px solid var(--border-light);
+}
+
+.filter-panel__title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+
+.filter-panel__chips {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
 
-/* 胶囊：默认中性（--bg-muted + 灰点），选中态以标签色为底（--chip-bg/--chip-color/--chip-border 由 chipStyle 注入） */
-.tag-filter-chip {
+/* 筛选胶囊：默认中性描边（与入口按钮同一描边语言，比原先的 --bg-muted 灰底更清爽）；
+   选中态——标签胶囊走标签色（chipStyle 注入 --chip-*），类型胶囊无注入则**回退品牌软底**。
+   此前的写法是直接取 var(--chip-color) 而没有回退值，类型胶囊（不注入 --chip-*）
+   的选中态因此完全无视觉反馈——这正是「类型筛选看着粗糙」的直接原因（2026-09-11 修正）。 */
+.filter-chip {
   display: inline-flex;
   gap: 6px;
   align-items: center;
@@ -785,8 +830,8 @@ watch(
   font-size: 13px;
   color: var(--text-secondary);
   cursor: pointer;
-  background-color: var(--bg-muted);
-  border: 1px solid var(--border-light);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-pill);
   transition:
     background-color 150ms ease,
@@ -794,17 +839,19 @@ watch(
     border-color 150ms ease;
 }
 
-.tag-filter-chip:hover {
+.filter-chip:hover {
+  color: var(--text-primary);
   background-color: var(--bg-hover);
 }
 
-.tag-filter-chip.is-selected {
-  color: var(--chip-color);
-  background-color: var(--chip-bg);
-  border-color: var(--chip-border);
+.filter-chip.is-selected {
+  font-weight: 500;
+  color: var(--chip-color, var(--brand-700));
+  background-color: var(--chip-bg, var(--brand-100));
+  border-color: var(--chip-border, var(--brand-400));
 }
 
-.tag-filter-chip__dot {
+.filter-chip__dot {
   flex-shrink: 0;
   width: 8px;
   height: 8px;
@@ -812,9 +859,18 @@ watch(
   border-radius: 50%;
 }
 
-.tag-filter-empty {
+.filter-panel__empty {
   margin: 4px 0;
   font-size: 12px;
   color: var(--text-tertiary);
+}
+
+.filter-panel__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 12px;
+  margin-top: 12px;
+  border-top: 1px solid var(--border-light);
 }
 </style>

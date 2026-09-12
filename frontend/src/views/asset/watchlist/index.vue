@@ -173,9 +173,7 @@
           :toolbar="toolbar"
           :on-refresh="onCatalogChanged"
           @view-change="handleViewChange()"
-          @tag-apply="tags.applyTagFilter()"
-          @tag-clear="tags.clearTagFilter()"
-          @type-apply="handleViewChange()"
+          @filter-apply="handleViewChange()"
           @manage-groups="groupManagerVisible = true"
           @manage-group-items="groupItemsVisible = true"
         />
@@ -218,6 +216,16 @@
                :data 在 loading 时置空：分组切换/搜索等加载中，让表格回到表头 + 空体
                的高度（整页收缩为一屏），骨架屏得以完整覆盖可视区——若保留旧行，
                旧行高度会把页面撑长，滚到底部时骨架只盖到 wrap 高度、下方露出大片空白。 -->
+          <!-- 表格宽度铁律（#1285 / #1341 / #1421 / #1425，改这里前先读 design.md
+               「冻结列与横向滚动规范」§4/§5）：
+               ① 默认可见列总宽 ≤ 1040px —— 列集在 columnDefs.ts，「加一列必须减一列」；
+               ② 横向滚动**只允许发生在表格内部**：页面级横向滚动条由本页 flex
+                  min-width:0 链（.watchlist-page / .watchlist-scroll / .watchlist-card /
+                  本容器）禁止（#1341），**不要摘掉任何一层 min-width:0**；
+               ③ 两端必须冻结：product 左冻结 + _actions 右冻结（defs 里的 fixed），
+                  中间列才滚动 —— 用户滑动时始终能看到「哪只标的」与「能做什么」。
+               三者同时成立才符合设计；只满足其一（如为铺满而不守预算）会立刻退回
+               「整表溢出」状态（该问题已三次回归）。 -->
           <el-table
             ref="tableRef"
             :data="loading ? [] : items"
@@ -1078,6 +1086,8 @@ const renderCtx = computed<RenderCtx>(() => ({
   },
   openTagEditor,
   batchMode: batchMode.value,
+  // 品类视图（类型筛选命中单一品类）：供产品列与品类专属列去重（#1425）
+  categoryView: activeCategory.value !== null,
   hoveredRowKey: hoveredRowKey.value,
   setHoveredRowKey: (key: string | number | null) => {
     hoveredRowKey.value = key;
@@ -1207,13 +1217,17 @@ const renderCtx = computed<RenderCtx>(() => ({
 .watchlist-table-wrap :deep(.el-table) {
   min-width: 0;
 
-  /* 吸顶需要：overflow:visible 让表头 sticky 上溯到布局滚动容器（见上方长注释）。
-     配套 min-width:0：el-table 是 .watchlist-table-wrap 的 flex 子项，默认 min-width:auto
-     会被列总宽撑开、把整页顶出横向滚动条（#1341）。放开后 el-table 约束到容器宽度，
-     多出的列宽由 .el-table__body-wrapper 内部横向滚动承载，页面不再溢出。
-     此约束是通用防护：今后新增可排序列（见 columnDefs.ts）只要总宽超视口，
-     都只会在表格内出现横向滚动，不会再撑宽页面。 */
-  overflow: visible;
+  /* 纵向 visible：表头 sticky 的必要条件——overflow:hidden 会让 el-table 成为
+     header-wrapper 的「最近滚动祖先」，sticky 相对表格自身而不随页面滚，吸顶失效
+     （见上方长注释）。
+     **横向必须 clip**：列总宽 > 容器宽时表格内部会出现横向滚动（见 columnDefs 的
+     minWidth 机制）。若横向也 visible，超宽的表体会直接溢出卡片、把整页顶出横向
+     滚动条——这正是 #1341 已修、2026-09-12 又复现的形态。
+     `overflow-x: clip` 与 `overflow-y: visible` 可以共存（clip 不会像 hidden 那样
+     把另一轴强制成 auto），于是「纵向照常吸顶 + 横向永不溢出页面」同时成立。
+     ⚠️ 不要把这里改回 `overflow: visible` 或整段删掉：会同时让吸顶失效 / 页面横滚。 */
+  overflow-x: clip;
+  overflow-y: visible;
 }
 
 .watchlist-table-wrap :deep(.el-table__header-wrapper) {

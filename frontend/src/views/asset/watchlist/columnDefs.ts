@@ -25,19 +25,29 @@
  * 置顶行另由 index.vue 的 :row-class-name 加底色区分；本表因此净释放约 44px
  * 横向空间（原独立 marker 列 44px 已并入 product 列内联，actions 列宽保持 110）。
  *
- * ── 2026-09-11 列宽表达方式与混合视图列集修订（#1421 / #1422）──
+ * ── 2026-09-11 列宽表达方式与混合视图列集修订（#1421 / #1422 / #1425）──
  * 1) **列宽一律用 `minWidth` 表达**（固定列 product/_actions/selection 例外，仍用
  *    `width`）。原因：EP 的 `updateColumnsWidth()` 只把「不带数字 width」的列纳入
  *    余量分配（flexColumns），全列固定宽会让表格实体宽度恒等于 Σ列宽，容器再宽也
  *    铺不满，右侧留大片空白。改用 minWidth 后：容器有余量 → 按 minWidth 比例拉伸
- *    铺满；容器不足 → 各列回到 minWidth 并启用**表格内部横向滚动**（页面不横滚）。
- * 2) **混合视图通用列集恢复为「全部通用列」**：原集只有「名称/价格/涨跌幅/操作」4 列，
- *    默认视图信息量过低（持仓数量/市值/收益/走势/添加自选日等全部不可见）。现将
- *    「对所有品类都成立」与「对所有可交易品类都成立」的列全部纳入 mixed，仅把
- *    **真品类专属列**（bond_* / index_* / fund_max_drawdown / links / advisor_* /
- *    return_*）留在品类视图。
- *    **不再用「藏列」守宽度预算**（#1285 的 1040px 预算就此作废）：默认列总宽可超容器，
- *    由表格内部横向滚动承载；宽屏（容器富余）则由 minWidth 比例拉伸铺满，不出现滚动。
+ *    铺满；容器不足 → 各列回到 minWidth 并在**表格内部**横向滚动。
+ * 2) **混合视图通用列集 = 名称 / 添加自选日 / 最新价 / 涨跌幅 / 持有数量 / 持仓市值 /
+ *    持仓收益 / 操作（≈1010px）**：即「对所有品类都成立」+「对所有可交易品类都成立」的
+ *    列。真品类专属列（bond_* / index_* / fund_max_drawdown / links / advisor_* /
+ *    return_*）留品类视图；走势 / 添加后涨幅 / 成本价 因预算不足，改为
+ *    「品类视图 + 列设置可选」。
+ *
+ * ── 表格宽度铁律（#1285 立，2026-09-11 #1425 重申：改本文件前先读完这三条）──
+ * 1. **默认可见列总宽 ≤ 1040px**（design.md「冻结列与横向滚动规范」）：按最受约束的
+ *    1366×768 推出内容区宽度，保证默认视图**不出现横向滚动**。要加默认列，必须同时
+ *    从默认集里拿掉等量宽度——**不接受「加了列导致默认视图开始滚」**。
+ * 2. **横向滚动只能发生在表格内部**：`.el-table` 的外框宽 = 容器宽，列总宽超出时由
+ *    Element Plus 在表格内部滚动；**页面级横向滚动条禁止**（#1341 的 flex min-width:0
+ *    链就是这条的实现，改布局层时别把它拿掉）。
+ * 3. **左右两端必须冻结**：`product`（fixed left）与 `_actions`（fixed right）恒定不滚动，
+ *    用户滚中间列时始终能看到「这是哪只标的」与「能对它做什么」。
+ *    → 三条必须同时满足。这是同一个问题的三次回归（#1285 → #1341 → #1425）：
+ *      只满足其一（例如「为了铺满而不守预算」）会立刻退回「整表溢出」状态。
  */
 
 import type { WatchlistItem } from "@/api/watchlist";
@@ -76,6 +86,14 @@ export interface ColumnDef {
    * 固定宽度（px）。**只给固定列用**（product 左冻结 / _actions 右冻结 / _selection）。
    * 其余列一律用 `minWidth`：EP 仅把「无数字 width」的列纳入容器余量分配，
    * 全列固定宽会导致表格宽度恒等于列宽之和、容器再宽也铺不满（#1421 根因 2）。
+   *
+   * ── 冻结列契约（design.md「冻结列与横向滚动规范」，2026-09-12 补记）──
+   * - 标了 `fixed` 的列**必须给数字 `width`**：EP 用 `ΣrealWidth` 计算冻结区宽度并
+   *   据此定位；只给 `minWidth` 会让冻结区随容器变宽而漂移，固定列与中间滚动区错位。
+   * - 表格布局恒为：**左侧冻结（product）→ 中间列可横向滚动 → 右侧冻结（_actions）**。
+   * - 表格**外框宽度 = 容器宽度**（内容区约 1040px）；列总宽超出时只在表格内部横向滚动，
+   *   由 index.vue 的 `overflow-x: clip` 兜底。⚠️ 任何「让表格按 Σ 列宽撑开」的改动
+   *   都会造成**页面级**横向滚动条，即 #1341 回归。
    */
   width?: number;
   /** 最小宽度（px）：非固定列的常态写法；容器有余量时由 EP 按比例拉伸以铺满 */
@@ -100,9 +118,9 @@ export interface ColumnDef {
   /**
    * 视图作用域（#1285 品类差异化；混合视图列集于 #1421/#1422 修订）：
    * - `"mixed"`：混合视图（未按品类筛选）也显示的「通用列」——名称 / 添加自选日 /
-   *   最新价 / 涨跌幅 / 走势 / 持有数量 / 持仓市值 / 添加后涨幅 / 持仓收益 /
-   *   成本价 / 操作。
-   *   判定标准：**该列对「全部品类」或「全部可交易品类」都成立**，不会恒为 `—`。
+   *   最新价 / 涨跌幅 / 持有数量 / 持仓市值 / 持仓收益 / 操作（≈1010px）。
+   *   判定标准：**该列对「全部品类」或「全部可交易品类」都成立**且不会恒为 `—`，
+   *   同时**放得进 1040px 预算**——两者取交集才是 mixed（见文件头「表格宽度铁律」）。
    * - `"category"`（默认）：仅在「品类视图」（类型筛选命中单一品类）显示；
    *   用户若在「列设置」显式开启，则任何视图都显示（当前标的不适用时渲染 `—`）。
    *   本档只留**真品类专属列**（可转债条款 / 指数估值 / 基金回撤 / 关联 / 投顾指标）。
@@ -137,8 +155,10 @@ export interface ColumnDef {
  * 可交易 / 可持有资产类型：持仓数量、市值、涨跌收益等列**仅对它们有意义**。
  * 指数（不可买）、基金经理、投顾组合（非交易实体）不在此列。
  *
- * 注意（#1421/#1422）：本常量同时被用作「可交易品类通用列」的判据——这些列对 **7 类可交易
- * 标的**全部成立，属于**可交易品类通用列**而非品类专属列，故已纳入混合视图；
+ * 注意（#1421/#1422/#1425）：本常量同时被用作「可交易品类通用列」的判据——这些列对 **7 类
+ * 可交易标的**全部成立，属**可交易品类通用列**而非品类专属列。其中
+ * 持有数量 / 持仓市值 / 持仓收益 已纳入混合视图；走势 / 添加后涨幅 / 成本价 因
+ * 1040px 预算放不下，留在品类视图（混合视图可在「管理 → 列设置」显式开启）。
  * 仅指数 / 经理 / 投顾组合三类在混合视图下渲染 `—`。
  */
 export const TRADABLE_TYPES = [
@@ -150,6 +170,15 @@ export const TRADABLE_TYPES = [
   "crypto",
   "reverse_repo"
 ];
+
+/**
+ * 有「行情」的品类：最新价 / 涨跌幅这两列只对它们有意义。
+ *
+ * 为什么不能缺省（appliesTo 不写）就等于「全品类适用」：品类视图的列集由 appliesTo 决定，
+ * 缺省会被判为「对基金经理也适用」，于是经理视图里会冒出「最新价 / 涨跌幅」这类无意义列
+ * （2026-09-11 用户实测反馈）。指数虽然不可买，但有最新点位与涨跌幅，故一并包含。
+ */
+export const QUOTE_TYPES = [...TRADABLE_TYPES, "index"];
 
 export const watchlistColumnDefs: ColumnDef[] = [
   {
@@ -180,6 +209,21 @@ export const watchlistColumnDefs: ColumnDef[] = [
     scope: "mixed"
   },
   {
+    // 基金经理品类专属列：所属基金公司（后端 enrich 的 manager_company）。
+    // 为什么独立成列而不是挤在产品列里：公司是「选人」场景的主要区分维度
+    // （同名/同风格经理靠公司区分），232px 的产品列里既排不出层级也读不全
+    // （2026-09-11 用户反馈：公司跟名称/代码挤在一格）。
+    // 数据仅 asset_type=manager 有值，故 appliesTo 只含 manager。
+    key: "manager_company",
+    label: "所属公司",
+    renderer: "text",
+    appliesTo: ["manager"],
+    minWidth: 180,
+    align: "left",
+    hideable: true,
+    draggable: true
+  },
+  {
     key: "created_at",
     label: "添加自选日",
     renderer: "date",
@@ -195,6 +239,8 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "current_price",
     label: "最新价",
     renderer: "money",
+    // 混合视图显示（scope mixed）；品类视图下只对「有行情」的品类出现（QUOTE_TYPES）
+    appliesTo: QUOTE_TYPES,
     minWidth: 96,
     align: "right",
     sortable: "custom",
@@ -207,6 +253,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "change_pct",
     label: "涨跌幅",
     renderer: "riseFall",
+    appliesTo: QUOTE_TYPES,
     minWidth: 96,
     align: "right",
     sortable: "custom",
@@ -319,7 +366,9 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "走势",
     renderer: "sparkline",
     appliesTo: TRADABLE_TYPES,
-    // 对全部 7 类可交易标的都成立 → 可交易品类通用列（#1422 纳入混合视图）
+    // #1425：回到「品类视图专属」。走势 92px 放不进 1040px 默认预算，
+    // 若强行进默认集会让 1366 屏默认视图开始横向滚动（违反文件头铁律 1）；
+    // 混合视图仍可在「管理 → 列设置」显式开启（shown 语义＝任何视图都显示）。
     scope: "mixed",
     // 图形 72×22（#1281 第二轮：20px 高在 54px 行高里显得过扁，回调到 22px）+
     // 左右各 10px 留白 = 92px 列宽
@@ -362,7 +411,8 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "添加后涨幅",
     renderer: "moneyRatio",
     appliesTo: TRADABLE_TYPES,
-    // 对全部 7 类可交易标的都成立 → 可交易品类通用列（#1422 纳入混合视图）
+    // #1425：同走势——140px 放不进 1040px 默认预算，回到品类视图 + 列设置可选。
+    // 若后续确要进默认集，必须同时从默认集里拿掉等量宽度的列（铁律 1）。
     scope: "mixed",
     // 同持仓市值：两行堆叠，140px
     minWidth: 140,
@@ -406,16 +456,15 @@ export const watchlistColumnDefs: ColumnDef[] = [
     appliesTo: TRADABLE_TYPES,
     // #1332：开放列内排序（白名单已登记）；无真实持仓时显示 --
     sortable: "custom",
-    // 对全部 7 类可交易标的都成立 → 可交易品类通用列（#1422 纳入混合视图）。
-    // 由此**去掉 defaultHidden**：它原是 #993 的「新增列默认隐藏」候选列，
-    // 但已被明确要求进入默认混合视图，继续隐藏会与「默认视图要信息完整」的诉求冲突。
+    // #1425：回到 #993 的「新增候选列默认隐藏」语义——默认列集要守 1040px 预算，
+    // 成本价 96px 不进默认集；用户在「管理 → 列设置」勾选后任何视图都显示。
     // 未持仓的自选标的该列渲染 `--`（props.nullable），属预期，不视为无效列。
-    scope: "mixed",
     props: { nullable: true },
     minWidth: 96,
     align: "right",
     hideable: true,
-    draggable: true
+    draggable: true,
+    defaultHidden: true
   },
   {
     // 资产类型中文标签（后端动态字段 type_label）
