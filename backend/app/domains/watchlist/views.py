@@ -415,7 +415,7 @@ def _compute_avg_current_price(symbol, db):
     return Money.price_units_to_yuan(avg_price_units) if avg_price_units else 0.0
 
 
-def _list_holding_items(db, family_id, venue=None, search=None):
+def _list_holding_items(db, family_id, venue=None, search=None, asset_types=None):
     """持仓分组列表：返回 positions 表全部 active 持仓的虚拟行（按 symbol 聚合）。
 
     与 watchlist.status 快照解耦：一个 symbol 可能多账户多行，distinct 后按 symbol 聚合；
@@ -447,6 +447,12 @@ def _list_holding_items(db, family_id, venue=None, search=None):
             if s not in symbol.lower() and s not in (display or '').lower():
                 continue
         data.append(_build_holding_row(symbol, db, market=market, asset_type=asset_type, venue=row_venue))
+    # 持仓分组支持类型筛选（#1449）：虚拟行已带小写 asset_type，按前端传来的
+    # 逗号分隔类型集合过滤，与真实自选行的 asset_types 语义一致。
+    if asset_types:
+        type_set = {t.strip().lower() for t in asset_types.split(',') if t.strip()}
+        if type_set:
+            data = [r for r in data if (r.get('asset_type') or '').lower() in type_set]
     data.sort(key=lambda r: r['position_market_value'] or 0, reverse=True)
     return data
 
@@ -771,7 +777,13 @@ def list_items():
         if params['status'] == 'HOLDING':
             # 持仓分组 = 全部真实持仓（positions 表 active，按 symbol 聚合），
             # 不走 watchlist.status 快照查询；返回虚拟行（id=None，前端据此禁用行操作）
-            data = _list_holding_items(db, get_family_id(), venue=params['venue'], search=params['search'])
+            data = _list_holding_items(
+                db,
+                get_family_id(),
+                venue=params['venue'],
+                search=params['search'],
+                asset_types=params['asset_types'],
+            )
             data = _apply_user_sort(data, params['sort_by'], params['sort_order'])
             total = len(data)
             page_data = data[offset : offset + per_page]
