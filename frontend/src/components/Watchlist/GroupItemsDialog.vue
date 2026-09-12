@@ -164,7 +164,9 @@ function matchKeyword(item: WatchlistItem, kw: string): boolean {
 /** 本组产品（受搜索词过滤，便于大分组内定位） */
 const inGroup = computed(() => {
   const kw = keyword.value.trim().toLowerCase();
-  return inGroupItems.value.filter(item => (kw ? matchKeyword(item, kw) : true));
+  return inGroupItems.value.filter(item =>
+    kw ? matchKeyword(item, kw) : true
+  );
 });
 
 /** 可添加候选：排除本组成员、以及无自选记录 id 的虚拟持仓行 */
@@ -194,7 +196,11 @@ async function fetchInGroup(): Promise<void> {
   let fetched = 0;
   let total = Infinity;
   while (page <= MAX_PAGES && fetched < total) {
-    const res = await getWatchlistItems({ group_id: gid, page, per_page: perPage });
+    const res = await getWatchlistItems({
+      group_id: gid,
+      page,
+      per_page: perPage
+    });
     const rows = (res.data ?? []) as WatchlistItem[];
     if (rows.length === 0) break;
     all.push(...rows);

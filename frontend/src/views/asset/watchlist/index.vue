@@ -945,7 +945,14 @@ onMounted(async () => {
     // 其余持仓类型一律保留并生效（#1449：此前整体清空非 stock/fund 类型，
     // 导致 ETF/可转债等持仓类型筛选在持仓分组下形同虚设）。
     if (activeGroup.value === "holding") {
-      const holdingTypes = new Set(["stock", "fund", "etf", "bond", "index", "convertible"]);
+      const holdingTypes = new Set([
+        "stock",
+        "fund",
+        "etf",
+        "bond",
+        "index",
+        "convertible"
+      ]);
       toolbar.selectedAssetTypes.value =
         toolbar.selectedAssetTypes.value.filter(t => holdingTypes.has(t));
     }
