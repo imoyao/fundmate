@@ -22,7 +22,7 @@ const itemStyle = computed(() => {
     return {
       background:
         item?.path === active.value ? useEpThemeStoreHook().epThemeColor : "",
-      color: item.path === active.value ? "#fff" : "",
+      color: item.path === active.value ? "var(--text-inverse)" : "",
       fontSize: item.path === active.value ? "16px" : "14px"
     };
   };

@@ -20,8 +20,8 @@ const iconClass = computed(() => {
     "cursor-pointer",
     "transition-colors",
     "hover:bg-[#0000000f]",
-    "dark:hover:bg-[#ffffff1f]",
-    "dark:hover:text-[#ffffffd9]"
+    "dark:hover:bg-white/10",
+    "dark:hover:text-white/85"
   ];
 });
 

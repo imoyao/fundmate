@@ -485,7 +485,7 @@ watch([stockOpType, fundOpType], () => {
 /* 选中状态时的果冻回弹动画 */
 :deep(.el-radio-button.is-active .el-radio-button__inner) {
   color: var(--color-danger) !important;
-  background: #fff !important;
+  background: var(--bg-card) !important;
   box-shadow: 0 1px 3px rgb(0 0 0 / 6%) !important;
   animation: button-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }

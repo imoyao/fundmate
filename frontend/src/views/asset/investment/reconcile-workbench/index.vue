@@ -979,7 +979,7 @@ onMounted(() => {
   padding: 0 5px;
   font-size: 11px;
   line-height: 1;
-  color: #fff;
+  color: var(--text-inverse);
   background: var(--brand-600, #d98b2b);
   border-radius: 999px;
 }
