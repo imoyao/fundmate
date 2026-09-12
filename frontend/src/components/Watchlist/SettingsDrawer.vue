@@ -217,17 +217,27 @@
             </p>
           </div>
         </div>
-        <div class="flex flex-wrap gap-x-4 gap-y-1">
-          <el-checkbox
-            v-for="col in hideableCols"
-            :key="col.key"
-            :model-value="!columnSettings.isHidden(col.key)"
-            @change="(v: boolean) => columnSettings.toggleColumn(col.key, v)"
-          >
-            {{ col.label }}
-          </el-checkbox>
+        <div class="column-groups">
+          <div v-for="grp in groupedCols" :key="grp.key" class="column-group">
+            <div class="column-group__head">
+              <span class="column-group__title">{{ grp.title }}</span>
+              <span class="column-group__desc">{{ grp.desc }}</span>
+            </div>
+            <div class="flex flex-wrap gap-x-4 gap-y-1">
+              <el-checkbox
+                v-for="col in grp.cols"
+                :key="col.key"
+                :model-value="!columnSettings.isHidden(col.key)"
+                @change="
+                  (v: boolean) => columnSettings.toggleColumn(col.key, v)
+                "
+              >
+                {{ col.label }}
+              </el-checkbox>
+            </div>
+          </div>
         </div>
-        <div v-if="hiddenCount > 0" class="flex justify-end mt-2">
+        <div v-if="hiddenCount > 0" class="flex justify-end mt-3">
           <el-button text size="small" @click="columnSettings.resetColumns()">
             恢复默认列
           </el-button>
@@ -375,6 +385,10 @@ const visible = computed({
 const hideableCols = computed(
   () => props.columnSettings?.hideableColumns.value ?? []
 );
+/** 按品类分组的可隐藏列（2026-09-12）：设置面板分块渲染，分别控制每类字段 */
+const groupedCols = computed(
+  () => props.columnSettings?.groupedHideableColumns.value ?? []
+);
 const hiddenCount = computed(() => {
   if (!props.columnSettings) return 0;
   return [...hideableCols.value].filter(col =>
@@ -396,7 +410,36 @@ const onRefreshIntervalChange = (value: string | number | boolean) => {
 
 <style scoped>
 .settings-drawer-body {
+  /* 列显示分组后卡片内容变长，确保抽屉内可纵向滚动（不撑破布局） */
+  max-height: calc(100vh - 56px);
   padding: 0 4px;
+  overflow-y: auto;
+}
+
+/* ── 表格列显示：按品类分组（2026-09-12）── */
+.column-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.column-group__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+
+.column-group__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.column-group__desc {
+  font-size: 11px;
+  color: var(--text-tertiary);
 }
 
 /* 分组小标题：text-xs + --text-tertiary，贴近本组卡片、与上一组拉开间距

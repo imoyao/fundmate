@@ -664,3 +664,98 @@ export const watchlistColumnDefs: ColumnDef[] = [
 export function getDefaultVisibleColumns(): ColumnDef[] {
   return watchlistColumnDefs.filter(d => d.key !== "_selection");
 }
+
+/**
+ * ── 列分组（设置面板「表格列显示」按品类归类，2026-09-12）──
+ * 用户原声：列设置里「全部字段摊在一块，不知道哪一个是哪一品类的」、没有组织性。
+ * 现按数据语义归组，设置面板据此分组渲染，让用户对每一类分别控制显隐。
+ * 分组是纯 UI 归类，**不影响**表格视图作用域逻辑（isVisibleInView 仍按 scope/appliesTo）；
+ * 集中映射表维护，不改动各 ColumnDef 对象的 width/scope/appliesTo（已测逻辑零触碰）。
+ */
+export type ColumnGroup =
+  | "general" // 通用字段：名称、行情与持仓等所有类别共用的基础列
+  | "bond" // 可转债专属条款
+  | "index" // 指数专属估值
+  | "fund" // 基金专属回撤
+  | "manager" // 基金经理专属
+  | "portfolio" // 投顾组合专属区间指标
+  | "extra"; // 补充字段：默认隐藏、跨品类，开启后任何视图都显示
+
+/** 分组展示顺序与文案（设置面板渲染顺序即此；desc 说明该组适用场景） */
+export const COLUMN_GROUP_META: {
+  key: ColumnGroup;
+  title: string;
+  desc: string;
+}[] = [
+  {
+    key: "general",
+    title: "通用字段",
+    desc: "名称、行情与持仓等所有类别共用的基础列"
+  },
+  { key: "bond", title: "可转债", desc: "仅在「可转债」品类视图显示的条款列" },
+  { key: "index", title: "指数", desc: "仅在「指数」品类视图显示的估值列" },
+  { key: "fund", title: "基金", desc: "仅在「基金」品类视图显示的回撤列" },
+  {
+    key: "manager",
+    title: "基金经理",
+    desc: "仅在「基金经理」品类视图显示的公司列"
+  },
+  {
+    key: "portfolio",
+    title: "投顾组合",
+    desc: "仅在「投顾组合」品类视图显示的区间指标"
+  },
+  {
+    key: "extra",
+    title: "补充字段",
+    desc: "默认隐藏、跨品类，开启后任何视图都显示"
+  }
+];
+
+/** key → 分组：集中维护，覆盖全部 hideable 列；缺省兜底 extra（补充字段） */
+const COLUMN_GROUP_MAP: Record<string, ColumnGroup> = {
+  // 通用（混合视图基础列 / 行情 / 持仓类）
+  created_at: "general",
+  current_price: "general",
+  change_pct: "general",
+  trend: "general",
+  holding_quantity: "general",
+  position_market_value: "general",
+  added_return: "general",
+  holding_pnl: "general",
+  // 可转债条款
+  bond_premium_rate: "bond",
+  bond_redeem: "bond",
+  bond_remain_years: "bond",
+  bond_rating: "bond",
+  // 指数估值
+  index_pe: "index",
+  index_dividend_yield: "index",
+  // 基金回撤
+  fund_max_drawdown: "fund",
+  // 基金经理
+  manager_company: "manager",
+  // 投顾组合区间指标
+  return_1w: "portfolio",
+  return_1m: "portfolio",
+  return_1y: "portfolio",
+  return_ytd: "portfolio",
+  return_since_incep: "portfolio",
+  max_drawdown: "portfolio",
+  excess_return: "portfolio",
+  advisor_benchmark: "portfolio",
+  advisor_holding_count: "portfolio",
+  advisor_concentration: "portfolio",
+  // 补充字段（默认隐藏、跨品类）
+  holding_cost_price: "extra",
+  type_label: "extra",
+  groups: "extra",
+  updated_at: "extra",
+  notes: "extra",
+  links: "extra"
+};
+
+/** 取列的分组（缺省 extra），供设置面板分组渲染 */
+export function getColumnGroup(key: string): ColumnGroup {
+  return COLUMN_GROUP_MAP[key] ?? "extra";
+}

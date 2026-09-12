@@ -17,7 +17,10 @@ import { computed, ref, type ComputedRef, type Ref } from "vue";
 import { localForage } from "@/utils/localforage";
 import {
   watchlistColumnDefs,
-  type ColumnDef
+  COLUMN_GROUP_META,
+  getColumnGroup,
+  type ColumnDef,
+  type ColumnGroup
 } from "@/views/asset/watchlist/columnDefs";
 
 const STORAGE_KEY = "watchlist-column-settings";
@@ -79,6 +82,13 @@ function persistSettings(): void {
 export interface WatchlistColumnVisibility {
   /** 可被用户隐藏的列（hideable=true），供设置面板渲染勾选项 */
   hideableColumns: ComputedRef<ColumnDef[]>;
+  /**
+   * 按品类分组的可隐藏列（2026-09-12）：分组仅影响设置面板的呈现组织，
+   * 不改变显隐判定（仍走 isHidden/toggleColumn）。空分组自动剔除。
+   */
+  groupedHideableColumns: ComputedRef<
+    { key: ColumnGroup; title: string; desc: string; cols: ColumnDef[] }[]
+  >;
   /** 实际参与表格渲染的列：按自定义顺序排列，再过滤掉被隐藏的列 */
   visibleColumns: ComputedRef<ColumnDef[]>;
   isHidden: (key: string) => boolean;
@@ -120,6 +130,17 @@ export function useWatchlistColumnVisibility(
 
   const hideableColumns = computed(() =>
     watchlistColumnDefs.filter(d => d.hideable)
+  );
+
+  /**
+   * 按品类分组（设置面板「表格列显示」分块渲染）：顺序取 COLUMN_GROUP_META，
+   * 每个分组装入归属该组的 hideable 列；无列的组剔除，避免空标题。
+   */
+  const groupedHideableColumns = computed(() =>
+    COLUMN_GROUP_META.map(g => ({
+      ...g,
+      cols: hideableColumns.value.filter(c => getColumnGroup(c.key) === g.key)
+    })).filter(g => g.cols.length > 0)
   );
 
   /**
@@ -207,6 +228,7 @@ export function useWatchlistColumnVisibility(
 
   return {
     hideableColumns,
+    groupedHideableColumns,
     visibleColumns,
     isHidden,
     toggleColumn,
