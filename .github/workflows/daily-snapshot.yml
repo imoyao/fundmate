@@ -1,4 +1,4 @@
-# 每日定时调度（#1182）
+# 每日定时调度（#1182 落地 / #1434 修复）
 #
 # 不引入常驻调度器：由本 workflow 的 schedule 触发器每日跑一次 `pdm run scheduler`，
 # 复用 DataSyncOrchestrator 执行全量增量同步（fund_nav 刷新净值）+ 资产快照落账
@@ -10,8 +10,17 @@
 #       a) 系统 cron / SCF cron 在部署服务器上执行 `pdm run scheduler`；或
 #       b) 本 schedule 改为 curl 打到部署服务器的受保护 webhook（需自行实现触发端点）。
 #   - 单 job 失败不中断整体（Orchestrator 已捕获并继续），但 scheduler 进程遇未捕获异常
-#     会以退出码 1 结束，本 workflow 随之标红，可接 Actions 失败通知。
+#     会以退出码 1 结束，本 workflow 随之标红，并由末尾「失败告警」步骤自动开/更新 issue。
 #   - 失败审计：每个 job 的结果已写入 SyncLog（Orchestrator._save_sync_log），可在库内追溯。
+#
+# ── #1434 修复要点 ──
+#   1) 调度分支：`schedule` 事件只读取**默认分支（main）**上的本文件，而 main 长期落后 dev。
+#      故 workflow 定义仍从 main 读取，但 **checkout 显式取 `SCHEDULER_REF`（默认 dev）**，
+#      保证实际执行的是 dev 代码，而不是 main 上的旧代码。
+#   2) secrets 预检：必需 secrets 缺失时**立即失败并列出缺失项**。此前 workflow 把不存在的
+#      secret 展开成**空串**注入 env，覆盖了代码里的默认值 → `create_engine('')` →
+#      `sqlalchemy.exc.ArgumentError`，启动即崩且真因不可见（连续 7 天全红无人知）。
+#   3) 失败告警：job 失败时自动开/更新一个 tracking issue（见 job 末尾），不再静默。
 
 name: 每日定时调度
 
@@ -28,6 +37,11 @@ concurrency:
 
 permissions:
   contents: read
+  issues: write # 失败告警需要开/更新 issue
+
+env:
+  # 实际执行代码的分支（main 只承载 workflow 定义）——见文件头 #1434 说明 1)
+  SCHEDULER_REF: dev
 
 jobs:
   daily-scheduler:
@@ -37,7 +51,10 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v5
+      - name: 检出代码（ref=${{ env.SCHEDULER_REF }}）
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SCHEDULER_REF }}
 
       - name: 设置 Python 3.12
         uses: actions/setup-python@v6
@@ -54,12 +71,70 @@ jobs:
           PDM_USE_UV: "false"
         run: pdm install -G dev
 
+      - name: 校验必需 secrets（缺失即快速失败）
+        env:
+          APP_ENV: ${{ secrets.APP_ENV }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+        run: |
+          missing=""
+          for name in APP_ENV DATABASE_URL SUPABASE_DATABASE_URL; do
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error title=缺少必需 secrets::未配置：$missing"
+            echo "请在仓库 Settings → Secrets and variables → Actions 配置后重跑（见 #1434）。"
+            echo "（APP_ENV=${APP_ENV:-<空>}，执行 ref=$SCHEDULER_REF）"
+            exit 1
+          fi
+          echo "secrets 预检通过（APP_ENV=$APP_ENV）"
+
       - name: 运行每日调度
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           AUTH_ENABLED: ${{ secrets.AUTH_ENABLED }}
           APP_ENV: ${{ secrets.APP_ENV }}
         run: pdm run scheduler
+
+      - name: 失败告警（自动开/更新 issue）
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const title = '【自动告警】每日调度 daily-snapshot 失败';
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const body = [
+              '每日调度 workflow 运行失败（#1434）。',
+              '',
+              `- 触发事件：\`${context.eventName}\``,
+              `- workflow 定义分支：\`${context.ref}\``,
+              `- 执行代码 ref：\`${process.env.SCHEDULER_REF || 'dev'}\``,
+              `- 时间（UTC）：${new Date().toISOString()}`,
+              `- 运行日志：${runUrl}`,
+              '',
+              '> 本 issue 由 workflow 自动创建/更新；调度恢复后请手动关闭。',
+            ].join('\n');
+
+            const { data: openIssues } = await github.rest.issues.listForRepo({
+              owner, repo, state: 'open', per_page: 100,
+            });
+            const existing = openIssues.find(
+              (it) => it.title === title && !it.pull_request,
+            );
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: existing.number, body,
+              });
+              core.notice(`已评论既有告警 issue #${existing.number}`);
+            } else {
+              const created = await github.rest.issues.create({
+                owner, repo, title, body,
+              });
+              core.notice(`已创建告警 issue #${created.data.number}`);
+            }
