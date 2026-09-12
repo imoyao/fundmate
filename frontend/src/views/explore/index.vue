@@ -1,8 +1,12 @@
 <!-- frontend/src/views/explore/index.vue -->
 <!--
   探市页（免登录沙盒，站点唯一市场入口，D4）。
-  方案 D（2026-09-12）：原 /temperature 独立页收敛为本页「深度」档，
-  页内以胶囊 Tab 切换「概览 / 深度」，档位与 ?view= 查询参数双向同步。
+
+  方案 D（2026-09-12）：原独立温度计页收敛为本页「深度」档，页内以胶囊 Tab 切换
+  「概览 / 深度」，档位与 ?view= 查询参数双向同步。
+
+  本文件**只做编排**（#980）：数据与列表行为收口在 useExploreWatchlist，
+  温度数据收口在 useTemperatureOverview（单例），核心指标清单收口在 useCoreMetrics。
 -->
 <template>
   <div class="explore-page">
@@ -35,18 +39,14 @@
     <!-- 概览档：温度锚点 + 指数快照 + 观察列表（漏斗主体）            -->
     <!-- ============================================================ -->
     <template v-if="activePanel === 'overview'">
-      <!-- 温度数据仪表盘（#984 拆分至 components/ExploreTemperatureDashboard.vue） -->
-      <ExploreTemperatureDashboard
-        ref="dashboardRef"
-        @go-detail="switchPanel('detail')"
-      />
+      <ExploreTemperatureDashboard @go-detail="switchPanel('detail')" />
 
       <!-- ============================================================ -->
       <!-- 大类资产观察（#1436 / #1444 收口实现：新增区块，紧跟温度仪表盘） -->
       <!-- ============================================================ -->
       <ExploreAssetOverview />
 
-      <!-- 添加/观察栏（#984 拆分；仅未登录渲染） -->
+      <!-- 添加/观察栏（仅未登录渲染） -->
       <ExploreAddSection
         v-if="!isAuthenticated"
         id="add-section"
@@ -54,7 +54,7 @@
         :quotes-map="quotesMap"
       />
 
-      <!-- 匿名用户转化区（#822 todo1）：补回 #808 注册 CTA / 损失厌恶文案 -->
+      <!-- 匿名用户转化区（#822 todo1）：注册 CTA / 损失厌恶文案 -->
       <section v-if="!isAuthenticated" class="conv-banner">
         <div class="conv-banner__inner">
           <div class="conv-banner__text">
@@ -88,7 +88,6 @@
         </div>
       </section>
 
-      <!-- 观察列表（#984 拆分，纯展示+事件上抛） -->
       <ExploreWatchlistTable
         :rows="tableData"
         :loading="loading"
@@ -108,7 +107,7 @@
     </template>
 
     <!-- ============================================================ -->
-    <!-- 深度档：完整温度画像（由原 /temperature 页面迁移而来）        -->
+    <!-- 深度档：完整温度画像（由原温度计页迁移而来）                  -->
     <!-- ============================================================ -->
     <ExploreDetailPanel v-else />
 
@@ -129,53 +128,35 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ElMessage } from "element-plus";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
-import { useLocalHoldings } from "@/composables/useLocalHoldings";
-import {
-  useRealtimeQuotes,
-  REFRESH_INTERVAL_OPTIONS
-} from "@/composables/useRealtimeQuotes";
-import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
-import RiseFallText from "@/components/RiseFallText/index.vue";
-import ProductDisplay from "@/components/ProductDisplay/index.vue";
-import TemperatureLevelBadge from "@/components/TemperatureLevelBadge/index.vue";
 import MarketHeader from "@/components/MarketHeader/index.vue";
 import PageFooter from "@/components/PageFooter/index.vue";
-import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
-import MetricCard from "@/components/MetricCard/index.vue";
-import MetricGrid from "@/components/MetricGrid/index.vue";
-import SectionHeader from "@/components/SectionHeader/index.vue";
 import {
   MARKET_LOGO,
   useMarketHeaderNavs
 } from "@/components/MarketHeader/config";
 import { buildMarketFooterSources } from "@/components/MarketFooter/config";
-import { batchFetchQuotes } from "@/utils/realtimeDataSources";
+import { useAuthState } from "@/composables/useAuthState";
 import { useTemperatureOverview } from "@/composables/temperature/useTemperatureOverview";
 import ExploreTemperatureDashboard from "./components/ExploreTemperatureDashboard.vue";
 import ExploreAssetOverview from "./components/ExploreAssetOverview.vue";
 import ExploreDetailPanel from "./components/ExploreDetailPanel.vue";
-import { getTypeLabel } from "@/constants/assetType";
-import { pricePrecision } from "@/utils/pricePrecision";
-import { useAuthState } from "@/composables/useAuthState";
-import { formatDateTime } from "@/utils/date";
-import { createWatchlistItem } from "@/api/watchlist";
+import { useExploreWatchlist } from "./composables/useExploreWatchlist";
 
 defineOptions({
   name: "ExplorePage"
 });
 
-// 登录态感知（探市免登录页）：登录后隐藏「添加观察」，引导去自选页管理（D4 + 方案 §3.3）
+// 登录态感知（探市免登录页，D4）
 const { isAuthenticated } = useAuthState();
 
 const route = useRoute();
 const router = useRouter();
 
 // ================================================================
-// 档位切换（方案 D）：概览 / 深度，与 ?view= 查询参数双向同步
+// 档位切换：概览 / 深度，与 ?view= 查询参数双向同步
 // ================================================================
 type PanelKey = "overview" | "detail";
 
@@ -193,7 +174,6 @@ const normalizePanel = (raw: unknown): PanelKey =>
   raw === "detail" ? "detail" : "overview";
 
 const activePanel = ref<PanelKey>(normalizePanel(route.query.view));
-
 const activeHint = computed(() => PANEL_HINTS[activePanel.value]);
 
 // URL 变化（含 /temperature 重定向过来、浏览器前进后退）时同步档位
@@ -214,264 +194,59 @@ const switchPanel = (key: PanelKey) => {
 };
 
 // ================================================================
-// 本地持仓
-// ================================================================
-let localHoldings;
-try {
-  localHoldings = useLocalHoldings();
-} catch (e) {
-  console.error("useLocalHoldings 初始化失败:", e);
-  const fallbackHoldings = ref([]);
-  localHoldings = {
-    holdings: fallbackHoldings,
-    addHolding: () => ({ success: false, message: "初始化失败" }),
-    removeHolding: () => {},
-    updateHolding: () => {},
-    clearAll: () => {},
-    getHoldingsForQuotes: () => [],
-    isPureObservationMode: computed(() => false),
-    totalCount: computed(() => 0)
-  };
-}
-
-const holdings = localHoldings.holdings;
-const addHolding = localHoldings.addHolding;
-const removeHolding = localHoldings.removeHolding;
-const getHoldingsForQuotes = localHoldings.getHoldingsForQuotes;
-const totalCount = localHoldings.totalCount;
-const isPureObservationMode = localHoldings.isPureObservationMode;
-
-// ================================================================
-// 实时估值
+// 观察列表：数据与行为收口在 composable（见 #980 第三步）
 // ================================================================
 const {
-  items,
+  addHolding,
+  quotesMap,
+  tableData,
+  loading,
+  totalCount,
+  isPureObservationMode,
   summary,
-  enabled,
-  toggle,
-  status,
-  lastUpdateTime,
+  statusClass,
+  statusText,
   refreshInterval,
+  lastUpdateTime,
   setRefreshInterval,
-  manualRefresh
-} = useRealtimeQuotes(
-  () => {
-    try {
-      return getHoldingsForQuotes();
-    } catch {
-      return [];
-    }
-  },
-  () => undefined
-);
-
-const quotesMap = computed(() => {
-  const map: Record<string, any> = {};
-  if (!items || !items.value) return map;
-  items.value.forEach((item: any) => {
-    if (item.symbol) {
-      map[item.symbol] = item;
-    }
-  });
-  return map;
-});
-
-watch(
-  () => holdings.value,
-  newHoldings => {
-    if (enabled.value && newHoldings && newHoldings.length > 0) {
-      manualRefresh();
-    }
-  },
-  { deep: true }
-);
-
-// ================================================================
-// 市场温度数据：已拆分至 components/ExploreTemperatureDashboard.vue（#984）。
-// links（数据来源）经子组件 defineExpose 暴露，供 footer 使用。
-// ================================================================
-const dashboardRef = ref<{ links: Record<string, string> } | null>(null);
-
-// ================================================================
-// 表格数据
-// ================================================================
-const loading = ref(false);
-
-const tableData = computed(() => {
-  try {
-    let hold: any[] = [];
-    if (
-      localHoldings &&
-      typeof localHoldings.holdings === "object" &&
-      "value" in localHoldings.holdings
-    ) {
-      const h = localHoldings.holdings.value;
-      if (Array.isArray(h)) {
-        hold = h;
-      }
-    }
-    if (hold.length === 0) return [];
-
-    const map = quotesMap.value;
-    return hold.map(h => {
-      const quote = map[h.symbol] || null;
-      const price = quote?.currentPrice ?? 0;
-      const changePct = quote?.changePct ?? 0;
-      const cost = h.costPrice ?? 0;
-      const qty = h.quantity ?? 0;
-      const prevClose = quote?.prevClose ?? price;
-      const pnl = (price - prevClose) * qty;
-      const positionPnl = (price - cost) * qty;
-      return {
-        ...h,
-        quote,
-        price,
-        changePct,
-        pnl,
-        positionPnl
-      };
-    });
-  } catch {
-    return [];
-  }
-});
-
-// ================================================================
-// 删除（确认框在子组件内，这里只负责真正移除）
-// ================================================================
-const handleRemove = (id: string) => {
-  removeHolding(id);
-  ElMessage.success("已移除");
-};
-
-// ================================================================
-// 深度分析跳转（外部工具，逻辑留在父页面）
-// ================================================================
-const handleJump = (row: any, command: string) => {
-  let url = "";
-  const code = row.symbol;
-  const market = code.startsWith("6") ? "SH" : "SZ";
-  const marketLower = code.startsWith("6") ? "sh" : "sz";
-
-  switch (command) {
-    case "xueqiu":
-      url = `https://xueqiu.com/S/${market}${code}`;
-      break;
-    case "eastmoney":
-      url = `https://quote.eastmoney.com/${marketLower}${code}.html`;
-      break;
-    case "tiantian":
-      url = `https://fund.eastmoney.com/${code}.html`;
-      break;
-    default:
-      return;
-  }
-  window.open(url, "_blank");
-};
-
-// ================================================================
-// 状态指示器
-// ================================================================
-const statusClass = computed(() => {
-  switch (status.value) {
-    case "trading":
-      return "status-trading";
-    case "closed":
-      return "status-closed";
-    case "error":
-      return "status-error";
-    default:
-      return "status-idle";
-  }
-});
-
-const statusText = computed(() => {
-  switch (status.value) {
-    case "trading":
-      return "实时更新";
-    case "closed":
-      return "休市中";
-    case "error":
-      return "连接异常";
-    default:
-      return "等待中";
-  }
-});
-
-// ================================================================
-// 页面方法
-// ================================================================
-const goToWatchlist = () => {
-  router.push("/watchlist");
-};
-
-// logo 点击：登录态感知路由（#822 todo3）
-// 已登录 → 工作台 /welcome；未登录 → 探市首页 /explore
-const onLogoClick = () => {
-  if (isAuthenticated.value) {
-    router.push("/welcome");
-  } else {
-    router.push("/explore");
-  }
-};
-
-const goToLogin = () => {
-  router.push("/login");
-};
-
-// 收藏到自选（#822 todo2）：呼应自选分组
-// 已登录 → 写入后端 watchlist；未登录 → 引导注册
-interface ExploreFavoriteRow {
-  symbol: string;
-  type: string;
-  name: string;
-}
-const handleFavorite = async (row: ExploreFavoriteRow) => {
-  if (!isAuthenticated.value) {
-    ElMessage.warning("登录后可收藏到自选，立即注册解锁跨设备同步");
-    router.push("/login");
-    return;
-  }
-  try {
-    await createWatchlistItem({
-      symbol: row.symbol,
-      asset_type: row.type,
-      // venue 必传：后端 normalize_and_infer_venue 对非 fund 且无 venue 的标的
-      // 直接 ValueError('缺少 asset_type 或 venue') → 400「收藏失败」。
-      // 场外基金 OTC，其余（股票/ETF/指数等场内标的）EXCHANGE，与后端口径一致
-      venue: row.type === "fund" ? "OTC" : "EXCHANGE"
-    });
-    ElMessage.success(`已收藏「${row.name}」到自选`);
-  } catch (e: unknown) {
-    // 409 = 后端查重命中「该资产已在自选列表中」：是预期结果不是故障，
-    // 用 warning 提示而非 error（否则用户重复点击会看到一串红色报错）
-    const status = (e as { response?: { status?: number } })?.response?.status;
-    if (status === 409) {
-      ElMessage.warning(`「${row.name}」已在自选中，无需重复收藏`);
-      return;
-    }
-    const msg = e instanceof Error ? e.message : String(e);
-    ElMessage.error(msg || "收藏失败，请重试");
-  }
-};
+  manualRefresh,
+  startRealtime,
+  handleRemove,
+  handleJump,
+  handleFavorite
+} = useExploreWatchlist(router);
 
 // ================================================================
 // Header / Footer 公共组件数据
 // ================================================================
 const headerNavs = useMarketHeaderNavs();
 
-const footerSources = computed(() =>
-  buildMarketFooterSources(dashboardRef.value?.links ?? {})
-);
+// 来源链接直接取温度 composable（单例）：不依赖概览档组件的挂载状态，
+// 切到深度档时 footer 来源条不会因组件卸载而变空。
+const { links } = useTemperatureOverview();
+const footerSources = computed(() => buildMarketFooterSources(links.value));
+
+// ================================================================
+// 页面导航（页面编排职责，留在页面内）
+// ================================================================
+const goToWatchlist = () => {
+  router.push("/watchlist");
+};
+
+const goToLogin = () => {
+  router.push("/login");
+};
+
+// logo 点击：登录态感知路由（#822 todo3）
+// 已登录 → 工作台 /welcome；未登录 → 探市首页 /explore
+const onLogoClick = () => {
+  router.push(isAuthenticated.value ? "/welcome" : "/explore");
+};
 
 // ================================================================
 // 生命周期
 // ================================================================
-onMounted(() => {
-  if (!enabled.value) {
-    toggle(true);
-  }
-});
+onMounted(startRealtime);
 </script>
 
 <style lang="scss" scoped>

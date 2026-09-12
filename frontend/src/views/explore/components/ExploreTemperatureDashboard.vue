@@ -7,6 +7,7 @@ import MetricCard from "@/components/MetricCard/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import { batchFetchQuotes } from "@/utils/realtimeDataSources";
 import { useTemperatureOverview } from "@/composables/temperature/useTemperatureOverview";
+import { useCoreMetrics } from "@/composables/temperature/useCoreMetrics";
 
 /**
  * 探市·概览档温度锚点（#984 拆分；2026-09-12 方案 D 精简）。
@@ -27,17 +28,13 @@ const emit = defineEmits<{
 // ================================================================
 // 市场温度数据（两页共用 composable，见 #980）
 // ================================================================
-const {
-  compositeTemperature,
-  selfCalcPercent,
-  selfCalcLevel,
-  links,
-  fearData,
-  fetchTemperature
-} = useTemperatureOverview();
+const { compositeTemperature, fetchTemperature } = useTemperatureOverview();
 
-/** links 暴露给父页面：底部 footer 的数据来源列表依赖它 */
-defineExpose({ links });
+// 核心指标清单收口在 useCoreMetrics（见 #980）：两档不再各写一遍指标映射
+const { overviewMetrics } = useCoreMetrics();
+
+// 说明：数据来源链接（links）现由父页面直接从 useTemperatureOverview 读取，
+// 本组件不再 defineExpose —— 避免 footer 依赖概览档组件的挂载状态。
 
 // 综合温度进度条颜色：按温度档位取色，偏低时为绿色
 const progressColor = computed(() => {
@@ -136,19 +133,14 @@ onMounted(() => {
         </template>
       </TemperatureGaugeCard>
 
-      <!-- 恐惧贪婪 -->
+      <!-- 核心锚点指标（恐惧贪婪 / 股债性价比）：清单定义见 useCoreMetrics -->
       <MetricCard
-        title="恐惧贪婪"
-        :value="fearData ? fearData.value : null"
-        :level="fearData?.label || '暂无数据'"
-      />
-
-      <!-- 股债性价比 -->
-      <MetricCard
-        title="股债性价比"
-        :value="selfCalcPercent != null ? selfCalcPercent : null"
-        unit="%"
-        :level="selfCalcLevel"
+        v-for="metric in overviewMetrics"
+        :key="metric.key"
+        :title="metric.title"
+        :value="metric.value"
+        :unit="metric.unit"
+        :level="metric.level"
       />
     </MetricGrid>
 
