@@ -5,8 +5,11 @@
 #   - 前端：typecheck + lint(检查模式) + build
 #
 # 路径过滤：仅当对应目录改动时才跑对应 job，节省私有库 Actions 分钟数。
-# 建议：在仓库 branch protection 中将本工作流的两个 job 设为 required status check，
-#       这样 merge 前强制卡人（光有 workflow 不卡 merge）。
+#
+# 合并门禁（2026-09-11 实开）：本工作流的 `质量门禁汇总`（job id `gate`）已设为
+#   dev / main 的 required status check —— merge 前强制卡人。光有 workflow 不卡 merge，
+#   必须配 branch protection；而 protection 仅在仓库为 public（或账户为付费计划）时可用，
+#   切回 private 后会失效（届时门禁退回「可见但不阻止」，须人工把关，见 AGENTS.md 项目概述）。
 #
 # 注意：后端依赖走阿里云镜像且含 gitee 上的 xalpha，海外 runner 安装可能偏慢；
 #       若 install 超时，可将 PDM 源改为官方 PyPI 提速（不影响本项目配置）。
@@ -20,11 +23,11 @@ on:
     branches:
       - dev
       - main
-  # 防直推卡点：直接 push 到受保护分支 M 时，下方 guard-direct-push job 会拦截。
+  # 防直推卡点：直接 push 到受保护分支 main 时，下方 guard-direct-push job 会拦截。
   # 通过 PR 合并的 push 属于 pull_request 事件，不会触发本 push 卡点。
   push:
     branches:
-      - M
+      - main
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -67,6 +70,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: 设置 Python 3.12
+        id: setup-python
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -74,12 +78,30 @@ jobs:
       - name: 安装 PDM
         run: pip install pdm
 
+      # 依赖缓存：避免每次 PR 全量重装 akshare/playwright/pypinyin 等重型依赖
+      # （此前无缓存，仅安装就占 6~8 分钟，是 CI 耗时大头）。
+      # 锁文件变则 key 失效，restore-keys 回退到旧锁缓存后由 pdm install 增量更新。
+      # 注意：强制 in-project venv（backend/.venv）才能被缓存命中。
+      - name: 缓存 PDM 依赖
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pdm
+            backend/.venv
+          key: pdm-${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('backend/pdm.lock') }}
+          restore-keys: |
+            pdm-${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-
+            pdm-${{ runner.os }}-
+
       # dev 组含 ruff / pytest / invoke 等
       - name: 安装依赖
         env:
           # backend/pdm.toml 强制 use_uv=true，但 CI runner 上 uv 不支持 PEP 582；
           # 用环境变量覆盖项目配置回退 pip 安装
           PDM_USE_UV: "false"
+          # 强制 in-project venv（backend/.venv），使其可被上方缓存命中；
+          # 用环境变量局部设置，避免 `pdm config` 改写 runner 全局配置
+          PDM_VENV_IN_PROJECT: "true"
         run: pdm install -G dev
 
       - name: Ruff 检查
@@ -99,7 +121,7 @@ jobs:
   # 乱码守卫（mojibake）：防止任何绕过本地 pre-commit 钩子的提交（--no-verify、
   # 或经 gh api / MCP 直推导致本地钩子不执行）把 GBK 乱码合进 PR。
   # 扫描 PR 变更的全部文本类型文件 + 逐提交校验中文提交信息（两层兜底）。
-  mojibake-guard:
+  mojibake_guard:
     name: 乱码守卫 (mojibake)
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
@@ -194,17 +216,58 @@ jobs:
       - name: 构建
         run: pnpm build
 
+  # 合并门禁汇总（2026-09-11 新增）：把上面各 job 的结论收敛为**单一** required status check。
+  #
+  # 为什么不直接 require 上面几个 job，而要多一个汇总 job：
+  #   backend / frontend 由 dorny/paths-filter 决定是否运行——不跑时 GitHub 报的是
+  #   「skipped」，而 required check 遇到 skipped 的判定容易变成「Expected 永远等待」，
+  #   把「本次没改该目录」的正常 PR 卡死。汇总 job 无条件执行，只把**失败 / 取消**判为
+  #   不通过，skipped 视为通过，语义唯一、不会误卡。
+  #
+  # 维护约定：**新增需要卡人的 job，必须同时加进本 job 的 `needs`**；汇总逻辑本身遍历
+  #   全部 needs，不需要改脚本。
+  gate:
+    name: 质量门禁汇总
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    needs: [changes, backend, frontend, mojibake_guard]
+    runs-on: ubuntu-latest
+    steps:
+      - name: 汇总各 job 结论（失败 / 取消 → 不通过）
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+
+          needs = json.loads(os.environ["NEEDS"])
+          ok = {"success", "skipped"}
+          print("各 job 结论：")
+          for name, body in needs.items():
+              print(f"  {name}: {body.get('result')}")
+          bad = {n: b.get("result") for n, b in needs.items() if b.get("result") not in ok}
+          if bad:
+              print("未通过的 job：")
+              for name, result in bad.items():
+                  print(f"  -> {name} = {result}")
+              print("::error::质量门禁未通过：存在失败或被取消的 job，本 PR 不可合并（红灯不许合并）。")
+              sys.exit(1)
+          print("OK: 质量门禁通过（skipped 视为通过——该目录本次无改动）。")
+          PY
+
   # 防直推卡点（替代 GitHub Pro 才有的 branch protection）
-  # 私有仓库无 branch protection，用此 job 拦截「直接 push 到 M」的行为：
-  # 正常流程是 fork/分支 → PR → merge，merge 产生的 push 属 pull_request 事件不触发本 job；
-  # 只有「本地直接 git push origin M」才会触发并失败。
+  # 用此 job 拦截「直接 push 到 main」的行为：
+  # 正常流程是 分支 → PR → merge，merge 产生的 push 属 pull_request 事件不触发本 job；
+  # 只有「本地直接 git push origin main」才会触发并失败。
+  #
+  # 历史坑（2026-09-11 修正）：此 job 原写作 branches: [M] / refs/heads/M —— `M` 早已
+  # 随分支清理删除，导致守卫**从未真正运行过**，main 长期处于无保护状态。
   guard-direct-push:
-    name: 禁止直接 push 到 M（请走 PR）
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/M' }}
+    name: 禁止直接 push 到 main（请走 PR）
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     steps:
       - name: 拦截直推
         run: |
-          echo "::error::检测到直接向主分支 M 推送。请改用 PR 流程：从 M 切出分支 → 提交 → 开 PR → review 后合并。"
-          echo "::error::Direct push to main branch M is blocked. Use a PR instead."
+          echo "::error::检测到直接向主分支 main 推送。请改用 PR 流程：从 dev 切出分支 → 提交 → 开 PR → review 后合并。"
+          echo "::error::Direct push to main is blocked. Use a PR instead."
           exit 1
