@@ -20,7 +20,7 @@
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
@@ -335,7 +335,20 @@ def _fetch_close_series(asset: Dict[str, Any]) -> Tuple[List[str], List[float]]:
         raise ValueError(f'未知数据源 {asset["source"]}')
 
     def producer() -> Tuple[List[str], List[float]]:
-        df = fn(*asset['args'])
+        # akshare 的 currency_boc_sina 默认日期被硬编码成 20230304~20231110，会导致探市页
+        # 汇率卡永远显示 2023 年数据（复盘实测：尾部停在 2023-11-10）。强制传入近期窗口：
+        # 既拿到当前汇率，又保留足够长的历史用于 500 日分位计算（#1451 已明确这两张卡是
+        # 在岸中行牌价替代，非真 DXY / 离岸 CNH）。
+        if asset['source'] == 'currency_boc_sina':
+            end = date.today()
+            start = end - timedelta(days=900)  # ~2.5 年，保证 ≥500 交易日用于分位口径
+            df = fn(
+                *asset['args'],
+                start_date=start.strftime('%Y%m%d'),
+                end_date=end.strftime('%Y%m%d'),
+            )
+        else:
+            df = fn(*asset['args'])
         return _normalize_series(df)
 
     return _cache.get_or_set(cache_key, ttl=_SERIES_TTL, producer=producer)
