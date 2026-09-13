@@ -70,7 +70,7 @@ export interface WatchlistToolbarState {
   selectedAssetTypes: ReturnType<typeof ref<string[]>>;
   batchMode: ReturnType<typeof ref<boolean>>;
   selectedItems: ReturnType<typeof ref<WatchlistItem[]>>;
-  batchMoveGroupId: ReturnType<typeof ref<number | null>>;
+  batchMoveGroupId: ReturnType<typeof ref<number | undefined>>;
 }
 
 export function useWatchlistData(
@@ -400,7 +400,7 @@ export function useWatchlistData(
     }
   }
 
-  const handleBatchMoveToGroup = async (groupId: number | null) => {
+  const handleBatchMoveToGroup = async (groupId: number | null | undefined) => {
     if (!groupId || selectedItems.value.length === 0) return;
     try {
       // 虚拟持仓行（id=null）无自选记录，不可移动，过滤后仅对真实自选行发起请求
@@ -413,7 +413,7 @@ export function useWatchlistData(
       ElMessage.success(
         `已将 ${selectedItems.value.length} 个资产移动到所选分组`
       );
-      batchMoveGroupId.value = null;
+      batchMoveGroupId.value = undefined;
       batchMode.value = false;
       selectedItems.value = [];
       fetchData();

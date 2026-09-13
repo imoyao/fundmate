@@ -17,26 +17,32 @@
     class="money-display"
     :class="[
       `size-${size}`,
-      isRise && !hideColor && autoColor ? 'is-rise' : '',
-      isFall && !hideColor && autoColor ? 'is-fall' : '',
-      isZero && !hideColor && autoColor ? 'is-zero' : '',
+      !isEmpty && isRise && !hideColor && autoColor ? 'is-rise' : '',
+      !isEmpty && isFall && !hideColor && autoColor ? 'is-fall' : '',
+      !isEmpty && isZero && !hideColor && autoColor ? 'is-zero' : '',
       hideColor ? 'no-color' : ''
     ]"
     :style="{ color: customColor }"
   >
-    <!-- 正负号 -->
-    <span v-if="showSign && !isZero" class="sign">
-      {{ isRise ? "+" : "-" }}
-    </span>
+    <!-- 空值占位（value 为 null/undefined/空串）：仅显示占位文本，不套涨跌色 -->
+    <template v-if="isEmpty">
+      <span class="number">{{ emptyText }}</span>
+    </template>
+    <template v-else>
+      <!-- 正负号 -->
+      <span v-if="showSign && !isZero" class="sign">
+        {{ isRise ? "+" : "-" }}
+      </span>
 
-    <!-- 货币符号 -->
-    <span v-if="showCurrency" class="currency">{{ currencySymbol }}</span>
+      <!-- 货币符号 -->
+      <span v-if="showCurrency" class="currency">{{ currencySymbol }}</span>
 
-    <!-- 金额数字（等宽 + 千分位） -->
-    <span class="number">{{ formattedValue }}</span>
+      <!-- 金额数字（等宽 + 千分位） -->
+      <span class="number">{{ formattedValue }}</span>
 
-    <!-- 后缀（可选） -->
-    <span v-if="suffix" class="suffix">{{ suffix }}</span>
+      <!-- 后缀（可选） -->
+      <span v-if="suffix" class="suffix">{{ suffix }}</span>
+    </template>
   </span>
 </template>
 
@@ -44,8 +50,8 @@
 import { computed } from "vue";
 
 export interface MoneyDisplayProps {
-  /** 金额数值 */
-  value: number | string;
+  /** 金额数值，允许 null/undefined（无数据时渲染 emptyText 占位，不报 prop 校验告警） */
+  value?: number | string | null;
 
   /** 货币符号，默认 ¥ */
   currency?: string;
@@ -70,6 +76,9 @@ export interface MoneyDisplayProps {
 
   /** 尺寸：xs | sm | md | lg | xl | hero */
   size?: "xs" | "sm" | "md" | "lg" | "xl" | "hero";
+
+  /** 无数据时的占位文本，默认 -- */
+  emptyText?: string;
 }
 
 const props = withDefaults(defineProps<MoneyDisplayProps>(), {
@@ -80,11 +89,16 @@ const props = withDefaults(defineProps<MoneyDisplayProps>(), {
   autoColor: true,
   customColor: "",
   suffix: "",
-  size: "md"
+  size: "md",
+  emptyText: "--"
 });
+
+/** 是否为空（null / undefined / 空串）：渲染占位，不进入数值计算 */
+const isEmpty = computed(() => props.value == null || props.value === "");
 
 /** 数值转换为数字 */
 const numericValue = computed(() => {
+  if (isEmpty.value) return 0;
   const val =
     typeof props.value === "string" ? parseFloat(props.value) : props.value;
   return isNaN(val) ? 0 : val;

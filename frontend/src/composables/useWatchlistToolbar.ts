@@ -21,8 +21,9 @@ export function useWatchlistToolbar() {
   // 批量选择模式
   const batchMode = ref(false);
   const selectedItems = ref<WatchlistItem[]>([]);
-  // 批量移动目标分组（下拉草稿）
-  const batchMoveGroupId = ref<number | null>(null);
+  // 批量移动目标分组（下拉草稿）；用 undefined 而非 null，避免 el-select 的
+  // modelValue 类型（String | Number，不含 null）触发 prop 校验告警
+  const batchMoveGroupId = ref<number | undefined>(undefined);
 
   // 弹窗开关（页面模板绑定到对应组件）
   const addDialogVisible = ref(false);
