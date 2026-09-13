@@ -680,6 +680,13 @@ const isEmptyCustomGroup = computed(
 );
 
 function openGroupItemsDialog(): void {
+  // 防呆：系统分组（含「全部」）由后端规律维护，不支持手动增删成员。
+  // 「管理本组产品」按钮虽已用 v-if=currentIsCustom 拦截，此处再兜底，
+  // 防止任何入口（空态快捷入口等）在系统分组下误开弹窗。
+  if (!currentIsCustom.value) {
+    ElMessage.warning("系统分组（含「全部」）由系统维护，不能手动增删成员");
+    return;
+  }
   groupItemsVisible.value = true;
 }
 
