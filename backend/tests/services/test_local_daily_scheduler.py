@@ -51,11 +51,11 @@ def _reset_singleton():
 
 
 class TestLoadConfig:
-    def test_default_is_disabled_with_two_jobs(self):
+    def test_default_is_disabled_with_three_jobs(self):
         cfg = ds.load_config({})
         # 必须显式打开：否则 conftest 每个用例都会 create_app()，测试里就会真的起抓取线程
         assert cfg.enabled is False
-        assert cfg.job_names() == ['temperature', 'fund_nav']
+        assert cfg.job_names() == ['temperature', 'fund_nav', 'advisor_portfolio']
         assert cfg.timezone == ds.DEFAULT_TIMEZONE
         assert cfg.skip_non_trading_day is True
         assert cfg.run_on_start is True
@@ -63,6 +63,22 @@ class TestLoadConfig:
         crons = {spec.job_name: spec.cron for spec in cfg.jobs}
         assert crons['temperature'] == ds.DEFAULT_TEMPERATURE_CRON
         assert crons['fund_nav'] == ds.DEFAULT_NAV_CRON
+        assert crons['advisor_portfolio'] == ds.DEFAULT_ADVISOR_CRON
+
+    def test_advisor_job_has_no_target_kind(self):
+        """投顾 job 的目标池是「组合代码」，不能套 fund/stock。
+
+        resolve_targets() 只产 fund/stock 两类；这里 target_kind 必须为 None，
+        让 job 内部 _resolve_targets 回退库内全部在售组合。套成 'fund' 会拿到空列表，
+        而该 job 空目标不报错，结果是「每天记一条 success 但什么都没同步」的静默空跑。
+        """
+        cfg = ds.load_config({})
+        spec = next(s for s in cfg.jobs if s.job_name == 'advisor_portfolio')
+        assert spec.target_kind is None
+
+    def test_advisor_job_can_be_disabled_alone(self):
+        cfg = ds.load_config({ds.ENV_ENABLED: 'true', ds.ENV_ADVISOR_ENABLED: '0'})
+        assert cfg.job_names() == ['temperature', 'fund_nav']
 
     @pytest.mark.parametrize('raw,expected', [('1', True), ('true', True), ('on', True), ('0', False), ('no', False)])
     def test_enabled_switch_parsing(self, raw, expected):
@@ -73,6 +89,7 @@ class TestLoadConfig:
             {
                 ds.ENV_ENABLED: 'true',
                 ds.ENV_TEMPERATURE_ENABLED: '0',
+                ds.ENV_ADVISOR_ENABLED: '0',
                 ds.ENV_NAV_CRON: '5 22 * * 1-5',
             }
         )

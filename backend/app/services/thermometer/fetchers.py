@@ -71,6 +71,12 @@ from app.services.thermometer.constants import (
     QIEMAN_CLIENT_INFO,
     QIEMAN_MCP_URL,
     QIEMAN_PROTOCOL_VERSION,
+    QIEMAN_STRATEGY_BATCH_SIZE,
+    QIEMAN_STRATEGY_COMPOSITION_TOOL,
+    QIEMAN_STRATEGY_DETAIL_FIELDS,
+    QIEMAN_STRATEGY_DETAIL_TOOL,
+    QIEMAN_STRATEGY_NUM_FIELDS,
+    QIEMAN_STRATEGY_PCT_FIELDS,
     QIEMAN_TOOL,
     SINA_REFERER,
     SINA_VOLUME_BOARDS,
@@ -299,6 +305,41 @@ def _normalize_holding(item: dict, category: Optional[str] = None) -> Optional[d
     }
 
 
+def _normalize_strategy_detail(item: dict) -> Optional[dict]:
+    """把 GetStrategyDetails 单条记录归一化成英文键 schema（#1468）。
+
+    中文键按 :data:`QIEMAN_STRATEGY_DETAIL_FIELDS` 映射为英文键：
+      · 百分比字段（``'20.32%'``）剥 % 转 float；
+      · 纯数值字段（策略净值 / 夏普比率）直接转 float；
+      · 其余字符串字段 strip 后空串归一为 None。
+    缺少「策略代码」视为无效记录，返回 None。
+
+    返回形如 ``{code, name, summary, desc, estab_date, risk_level, org_name,
+    nav, nav_date, return_1w, return_1m, return_1y, return_since_incep,
+    max_drawdown, sharpe_ratio, volatility, annual_return, url, ...}``。
+    """
+    if not isinstance(item, dict):
+        return None
+    code = str(item.get('策略代码') or item.get('code') or '').strip()
+    if not code:
+        return None
+
+    rec: dict = {'code': code}
+    for cn_key, en_key in QIEMAN_STRATEGY_DETAIL_FIELDS.items():
+        if en_key == 'code':
+            continue
+        raw = item.get(cn_key)
+        if en_key in QIEMAN_STRATEGY_PCT_FIELDS:
+            rec[en_key] = _parse_pct(raw)
+        elif en_key in QIEMAN_STRATEGY_NUM_FIELDS:
+            rec[en_key] = _to_float(raw)
+        elif isinstance(raw, str):
+            rec[en_key] = raw.strip() or None
+        else:
+            rec[en_key] = raw
+    return rec
+
+
 class QiemanFetcher(SingleValueFetcher):
     """且慢：市场温度计（中证全A），通过 MCP Streamable HTTP 协议获取。"""
 
@@ -415,7 +456,7 @@ class QiemanFetcher(SingleValueFetcher):
             logger.warning('QIEMAN_API_KEY 未配置，跳过且慢组合持仓')
             return []
         try:
-            text = self._call_tool(api_key, 'BatchGetStrategiesComposition', {'strategyCodes': [strategy_code]})
+            text = self._call_tool(api_key, QIEMAN_STRATEGY_COMPOSITION_TOOL, {'strategyCodes': [strategy_code]})
             parsed = json.loads(text)
         except Exception as e:  # noqa: BLE001
             logger.error(f'且慢组合持仓获取失败 {strategy_code}: {e}')
@@ -444,6 +485,57 @@ class QiemanFetcher(SingleValueFetcher):
             rec = _normalize_holding(raw, category)
             if rec:
                 out.append(rec)
+        return out
+
+    def fetch_strategy_details(
+        self, strategy_codes: List[str], batch_size: int = QIEMAN_STRATEGY_BATCH_SIZE
+    ) -> List[dict]:
+        """且慢投顾组合概览 / 风险收益指标（#1468）：GetStrategyDetails。
+
+        真实返回结构（实测 2026-09）：
+            {"pageSize":100,"rows":[{"策略代码":"ZH012926","策略名称":"远足",
+              "策略简介":..., "策略描述":..., "策略成立时间":"2017-07-24",
+              "策略风险等级":"中高风险","管理人名称":"盈米基金","策略净值":3.2206,
+              "最新净值日期":"2026-09-11","日收益率":"-0.68%","周收益率":"0.80%",
+              "月收益率":"-0.14%","年收益率":"20.32%","成立以来收益率":"222.06%",
+              "最大回撤":"32.96%","夏普比率":0.6724,"波动率":"18.07%",
+              "年化收益率":"13.65%","url":"https://qieman.com/alfa/portfolio/ZH012926"},
+              ...],"status":"查询成功","hasMoreRows":false}
+
+        归一化交给 :func:`_normalize_strategy_detail`（中文键 → 英文键 + 百分号剥除）。
+        按 ``batch_size`` 分批调用（接口 pageSize 上限 100，且显式传 pageSize 避免默认 20 截断），
+        单批失败只跳过该批、不影响其余批次；无 key 或全部失败时返回 []，不抛错。
+        """
+        api_key = os.getenv('QIEMAN_API_KEY')
+        if not api_key:
+            logger.warning('QIEMAN_API_KEY 未配置，跳过且慢组合概览')
+            return []
+
+        codes = [str(c).strip() for c in (strategy_codes or []) if str(c).strip()]
+        if not codes:
+            return []
+
+        out: List[dict] = []
+        seen: set = set()
+        for i in range(0, len(codes), batch_size):
+            chunk = codes[i : i + batch_size]
+            try:
+                text = self._call_tool(
+                    api_key,
+                    QIEMAN_STRATEGY_DETAIL_TOOL,
+                    {'strategyCodes': chunk, 'pageSize': min(len(chunk), 100)},
+                )
+                parsed = json.loads(text)
+            except Exception as e:  # noqa: BLE001
+                logger.error(f'且慢组合概览获取失败（{len(chunk)} 个，如 {chunk[:3]}）: {e}')
+                continue
+            rows = parsed.get('rows') if isinstance(parsed, dict) else parsed
+            for raw in rows or []:
+                rec = _normalize_strategy_detail(raw)
+                if rec and rec['code'] not in seen:
+                    seen.add(rec['code'])
+                    out.append(rec)
+        logger.info(f'且慢组合概览抓取 {len(out)}/{len(codes)} 条')
         return out
 
     def fetch(self) -> Optional[Dict[str, Any]]:

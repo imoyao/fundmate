@@ -80,6 +80,20 @@ class WatchlistItemOut(BaseModel):
     advisor_benchmark: Optional[str] = None  # 业绩比较基准
     advisor_holding_count: Optional[int] = None  # 持仓基金数
     advisor_concentration: Optional[float] = None  # 持仓集中度 HHI = Σ(占比%²)
+    # 且慢组合补充指标（#1468，GetStrategyDetails 实时抓取；仅投顾命中时有值，其余恒 null）
+    return_1d: Optional[float] = None  # 近1日收益(%)
+    return_1q: Optional[float] = None  # 近1季度收益(%)
+    return_6m: Optional[float] = None  # 近半年收益(%)
+    volatility: Optional[float] = None  # 年化波动率(%)
+    sharpe_ratio: Optional[float] = None  # 夏普比率
+    # 且慢组合策展元数据（#1468，来源 advisor_catalog 注册表 + 概览抓取）
+    advisor_allocation: Optional[str] = None  # 配置目标 key（liquid/stable/longterm/...）
+    advisor_allocation_label: Optional[str] = None  # 配置目标中文标签（活钱/稳健底仓/长期增值/...）
+    advisor_product_type: Optional[str] = None  # 产品类型（货币/货币+/纯债/固收+/平衡/权益(偏股)）
+    advisor_strategy_summary: Optional[str] = None  # 策略简介（短）
+    advisor_nav: Optional[float] = None  # 组合最新净值
+    advisor_nav_date: Optional[str] = None  # 组合净值日期（YYYY-MM-DD）
+    advisor_source_url: Optional[str] = None  # 组合官方页面链接
     # 基金经理补充信息（#1286）：经理行没有对外有意义的交易代码，第二行元信息由公司承担
     # （2026-09-10 用户反馈：只显示「基金经理」标签时信息量为零）。
     manager_company: Optional[str] = Field(

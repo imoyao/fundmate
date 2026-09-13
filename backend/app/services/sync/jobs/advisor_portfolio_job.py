@@ -4,9 +4,16 @@
 天天基金平台：公开接口自动抓取（概览/当前持仓/行业配置/历史调仓），
 targets 为 tgCode 列表；缺省取库内 platform=TIANTIAN 且在售的组合。
 
-且慢平台：无免费公开持仓接口（MCP composition 需专用 key，暂未接入），
-提供 import_qieman_holdings() 手动导入入口（scripts/import_qieman_holdings.py），
-落同一组表，source='qieman_manual' 区分。
+且慢平台（#1392 / #1468）：走官方 MCP（QIEMAN_API_KEY，与温度计同 key）自动抓取——
+- 概览 / 风险收益指标：GetStrategyDetails（名称、管理人、风险等级、成立日、
+  区间收益、最大回撤、波动率、夏普比率）
+- 当前持仓：BatchGetStrategiesComposition
+组合清单来自 app/domains/funds/advisor_catalog.py（元数据注册表），由
+scripts/seed_advisors.py 建档。仍保留 import_qieman_holdings() 手动导入入口
+（source='qieman_manual'）作为兜底。
+
+⚠️ 且慢组合代码命名空间不统一（ZHxxxx / LONG_WIN / J7 / WALLET / SIxxxx），
+**禁止按代码前缀判定平台归属**，一律以 AdvisorPortfolio.platform 为准。
 
 覆盖式更新语义：
 - 当前持仓/行业配置：同一 (portfolio, as_of_date) 先删后插；
@@ -17,7 +24,10 @@ import datetime as _dt
 from typing import Any, List, Optional
 
 from loguru import logger
+from sqlalchemy import func
 
+from app.core.constants import ADVISOR_ADJUST_OP_NAME
+from app.domains.funds.advisor_catalog import get_qieman_strategy
 from app.domains.funds.models import AdvisorAdjustHistory, AdvisorHolding, AdvisorIndustryAlloc, AdvisorPortfolio
 from app.services.sync.adapters.qieman_advisor_adapter import QiemanAdvisorAdapter
 from app.services.sync.jobs.base import SyncJob
@@ -102,35 +112,53 @@ class AdvisorPortfolioSyncJob(SyncJob):
 
     # ── 目标解析 ──
 
-    def _resolve_targets(self, targets: List[str]) -> List[str]:
-        # 过滤占位符 '__full__'：真实代码原样返回；若目标全为占位符或为空，
-        # 回退查库内全部在售天天基金组合，避免把 '__full__' 当成字面 tgcode 直连外部接口
-        # （PR #1359 / #1360 review：仅整体判断 ['__full__'] 会漏判混入真实代码的场景）。
-        if targets:
-            real = [t for t in targets if t != '__full__']
-            if real:
-                return real
+    @staticmethod
+    def _infer_platform(code: str) -> str:
+        """库内未建档时的平台兜底：且慢元数据注册表命中即 QIEMAN，否则按天天基金。
+
+        不能按代码前缀猜平台——且慢码含 LONG_WIN / LONG_WIN_S / J7 / WALLET / SIxxxx
+        等非 ``ZH`` 命名空间，前缀判定会把它们误送进天天适配器。
+        """
+        return 'QIEMAN' if get_qieman_strategy(code) else 'TIANTIAN'
+
+    def _resolve_targets(self, targets: List[str]) -> List[tuple]:
+        """解析本轮待抓组合 → ``[(code, platform), ...]``。
+
+        - 显式 targets：按 code 回查库内 platform；库内未建档的代码再用
+          :meth:`_infer_platform`（且慢注册表）兜底。
+        - 占位符 '__full__' 或空：回退库内全部在售的天天基金 + 且慢组合。
+        """
+        real = [t for t in (targets or []) if t != '__full__']
+        if real:
+            rows = (
+                self.db.query(AdvisorPortfolio.code, AdvisorPortfolio.platform)
+                .filter(AdvisorPortfolio.code.in_(real))
+                .all()
+            )
+            known = {r.code: (r.platform or 'TIANTIAN') for r in rows}
+            return [(c, known.get(c) or self._infer_platform(c)) for c in real]
         rows = (
-            self.db.query(AdvisorPortfolio.code)
+            self.db.query(AdvisorPortfolio.code, AdvisorPortfolio.platform)
             .filter(AdvisorPortfolio.is_active.is_(True))
             .filter(AdvisorPortfolio.platform.in_(['TIANTIAN', 'QIEMAN']))
             .all()
         )
-        return [r.code for r in rows]
+        return [(r.code, r.platform) for r in rows]
 
     # ── 抓取 ──
 
     def _fetch_data(self, full_sync: bool, targets: List[str]) -> List[dict]:
-        tgcodes = self._resolve_targets(targets)
-        if not tgcodes:
+        pairs = self._resolve_targets(targets)
+        if not pairs:
             return []
         payloads = []
-        for tg in tgcodes:
-            tg = tg.strip()
+        for tg, platform in pairs:
+            tg = (tg or '').strip()
             if not tg:
                 continue
-            if tg.upper().startswith('ZH'):
-                # 且慢（#1392）：仅持仓自动抓取（MCP），概览来自库内建档（seed/手动）
+            if platform == 'QIEMAN':
+                # 且慢（#1392/#1468）：概览（GetStrategyDetails）+ 持仓（MCP）
+                overview = self.qieman_adapter.fetch_overview(tg)
                 holdings = self.qieman_adapter.fetch_holdings(tg)
                 funds = [
                     {'fund_code': h['code'], 'fund_name': h.get('name'), 'after_ratio': h.get('ratio')}
@@ -138,12 +166,14 @@ class AdvisorPortfolioSyncJob(SyncJob):
                 ]
                 adj_dates = [h['adj_time'] for h in holdings if h.get('adj_time')]
                 as_of = _parse_date(max(adj_dates)) if adj_dates else None
-                self.logger.info(f'且慢组合 {tg} 抓取持仓 {len(funds)} 条 (as_of={as_of})')
+                self.logger.info(
+                    f'且慢组合 {tg} 抓取概览 {"有" if overview else "无"} / 持仓 {len(funds)} 条 (as_of={as_of})'
+                )
                 payloads.append(
                     {
                         'tgcode': tg,
                         'platform': 'QIEMAN',
-                        'overview': {},
+                        'overview': overview,
                         'holdings': {'funds': funds, 'adjust_date': as_of},
                     }
                 )
@@ -216,6 +246,124 @@ class AdvisorPortfolioSyncJob(SyncJob):
         self.db.bulk_insert_mappings(AdvisorHolding, rows)
         return len(rows)
 
+    #: 且慢概览（GetStrategyDetails 归一化键）中可直接落 AdvisorPortfolio 的数值列
+    _QIEMAN_OVERVIEW_NUM_COLS = (
+        'annual_return',
+        'max_drawdown',
+        'volatility',
+        'sharpe_ratio',
+        'nav',
+        'return_1d',
+        'return_1w',
+        'return_1m',
+        'return_1q',
+        'return_6m',
+        'return_1y',
+        'return_since_incep',
+    )
+
+    def _apply_qieman_overview(self, portfolio: AdvisorPortfolio, ov: dict) -> None:
+        """把且慢概览（GetStrategyDetails）写入组合档案（#1468）。
+
+        只覆盖官方权威字段（名称 / 管理人 / 风险等级 / 成立日 / 简介 / 策略说明 /
+        净值与净值日 / 组合链接 / 各类收益指标），**一次抓取全部落库**，
+        避免日后为拿单个字段再手动抓。
+
+        ``host`` / ``allocation`` / ``product_type`` 属**策展字段**（来源
+        app/domains/funds/advisor_catalog.py 注册表），此处不动，避免被接口空值冲掉。
+        """
+        if not ov:
+            return
+        if ov.get('name'):
+            portfolio.name = ov['name'][:100]
+        if ov.get('org_name'):
+            portfolio.org_name = ov['org_name'][:100]
+        if ov.get('risk_level'):
+            portfolio.risk_level = ov['risk_level'][:20]
+        if ov.get('summary'):
+            portfolio.strategy_summary = ov['summary'][:300]
+        if ov.get('url'):
+            portfolio.source_url = ov['url'][:120]
+        estab = _parse_date(ov.get('estab_date'))
+        if estab:
+            portfolio.estab_date = estab
+        nav_date = _parse_date(ov.get('nav_date'))
+        if nav_date:
+            portfolio.nav_date = nav_date
+        desc = ov.get('desc') or ov.get('summary')
+        if desc:
+            portfolio.strategy_desc = desc[:500]
+        for col in self._QIEMAN_OVERVIEW_NUM_COLS:
+            if ov.get(col) is not None:
+                setattr(portfolio, col, ov[col])
+
+    def _derive_qieman_adjust(self, portfolio: AdvisorPortfolio, as_of) -> int:
+        """由「本次快照 vs 上一快照」推导且慢调仓明细，落 advisor_adjust_histories（#1468）。
+
+        且慢 MCP **没有**历史调仓接口（只有当前持仓，以及每只基金自带的调仓时间），
+        因此调仓历史由我们自己的快照序列推导：同一组合按 ``as_of_date`` 逐次快照，
+        相邻两次占比之差即本次调仓的「调仓前 / 调仓后占比」与方向（加仓 / 减仓 / 新增）。
+
+        - 首次快照没有前值可对比，**跳过**（不编造 0 → X 的假建仓记录）；
+        - ``reason`` 记录推导来源（前一次快照日），便于回溯；
+        - 天天基金有官方 adjustHistory，不走此路径。
+
+        返回写入行数。
+        """
+        if not as_of:
+            return 0
+        prev_date = (
+            self.db.query(func.max(AdvisorHolding.as_of_date))
+            .filter(AdvisorHolding.portfolio_id == portfolio.id, AdvisorHolding.as_of_date < as_of)
+            .scalar()
+        )
+        if prev_date is None:
+            return 0
+
+        def _snapshot(day) -> dict:
+            return {
+                r.fund_code: (float(r.after_ratio) if r.after_ratio is not None else None, r.fund_name)
+                for r in self.db.query(AdvisorHolding).filter_by(portfolio_id=portfolio.id, as_of_date=day).all()
+            }
+
+        prev, cur = _snapshot(prev_date), _snapshot(as_of)
+        rows = []
+        for code in sorted(set(prev) | set(cur)):
+            b, b_name = prev.get(code, (None, None))
+            a, a_name = cur.get(code, (None, None))
+            if b is None and a is None:
+                continue
+            if b is None:
+                op = 4  # 新增
+            elif a is None:
+                op = 3  # 减仓（清仓至 0）
+            elif a > b:
+                op = 2  # 加仓
+            elif a < b:
+                op = 3  # 减仓
+            else:
+                op = 5  # 持平
+            rows.append(
+                {
+                    'portfolio_id': portfolio.id,
+                    'adjust_date': as_of,
+                    'reason': f'由 {prev_date} 持仓快照推导'[:300],
+                    'fund_code': code,
+                    'fund_name': a_name or b_name,
+                    'pre_ratio': b if b is not None else 0.0,
+                    'after_ratio': a if a is not None else 0.0,
+                    'op_code': op,
+                    'op_name': ADVISOR_ADJUST_OP_NAME.get(op),
+                    'source': SOURCE_QIEMAN_AUTO,
+                }
+            )
+        if not rows:
+            return 0
+        # 同调仓日整体覆盖（与天天历史调仓同语义）
+        self.db.query(AdvisorAdjustHistory).filter_by(portfolio_id=portfolio.id, adjust_date=as_of).delete()
+        self.db.bulk_insert_mappings(AdvisorAdjustHistory, rows)
+        return len(rows)
+
     def _save_data(self, new_data: List[dict]) -> None:
         for p in new_data:
             platform = p.get('platform', 'TIANTIAN')
@@ -237,6 +385,9 @@ class AdvisorPortfolioSyncJob(SyncJob):
                 for col in ('return_1w', 'return_1m', 'return_1y', 'return_ytd', 'return_since_incep'):
                     if returns.get(col) is not None:
                         setattr(portfolio, col, returns[col])
+            elif platform == 'QIEMAN':
+                # 且慢：概览 / 风险收益指标（GetStrategyDetails，#1468）
+                self._apply_qieman_overview(portfolio, ov)
 
             # 持仓：两平台通用，source 区分
             holdings = p.get('holdings') or {}
@@ -293,9 +444,14 @@ class AdvisorPortfolioSyncJob(SyncJob):
                     f'投顾组合 {p["tgcode"]} 落库: 持仓 {n_hold} 条(as_of={as_of}), 行业 {len(industry)} 条, 历史 {n_hist} 条'
                 )
             else:
-                # 且慢（#1392）：仅持仓自动抓取，组合概览来自库内建档（seed/手动）
+                # 且慢（#1392/#1468）：概览 + 持仓自动抓取；调仓明细由快照序列推导。
+                # host/allocation/product_type 等策展字段由 advisor_catalog 注册表 seed 维护。
+                n_adj = self._derive_qieman_adjust(portfolio, as_of) if n_hold else 0
                 self.db.commit()
-                self.logger.info(f'且慢组合 {p["tgcode"]} 落库: 持仓 {n_hold} 条 (as_of={as_of})')
+                self.logger.info(
+                    f'且慢组合 {p["tgcode"]} 落库: 概览 {len(ov)} 字段, 持仓 {n_hold} 条 (as_of={as_of}), '
+                    f'推导调仓 {n_adj} 条'
+                )
 
 
 def import_qieman_holdings(db, data: dict, portfolio_code: str) -> int:

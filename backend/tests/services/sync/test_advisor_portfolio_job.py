@@ -145,7 +145,27 @@ def test_resolve_targets_from_db(job, db):
     db.add(AdvisorPortfolio(platform='TIANTIAN', code='ABC123', name='t'))
     db.add(AdvisorPortfolio(platform='QIEMAN', code='ZH999999', name='q'))
     db.commit()
-    assert set(job._resolve_targets([])) == {'ABC123', 'ZH999999'}
+    assert set(job._resolve_targets([])) == {('ABC123', 'TIANTIAN'), ('ZH999999', 'QIEMAN')}
+
+
+def test_resolve_targets_explicit_platform(job, db):
+    """显式 targets 的平台解析（#1468）。
+
+    且慢码含 LONG_WIN / J7 / SIxxxx 等非 ZH 命名空间，禁止按代码前缀判平台：
+    库内以 platform 为准，库内未建档的再按 advisor_catalog 注册表兜底。
+    """
+    db.add(AdvisorPortfolio(platform='QIEMAN', code='LONG_WIN', name='长赢指数投资计划-150份'))
+    db.commit()
+
+    assert job._resolve_targets(['LONG_WIN']) == [('LONG_WIN', 'QIEMAN')]
+    # 库内未建档、但且慢注册表收录 → QIEMAN（前缀兜底会误判为天天基金）
+    assert job._resolve_targets(['J7']) == [('J7', 'QIEMAN')]
+    # 库内 / 注册表均不命中 → 天天基金
+    assert job._resolve_targets(['UNKNOWN_TG']) == [('UNKNOWN_TG', 'TIANTIAN')]
+    # 占位符被过滤
+    assert job._resolve_targets(['__full__', 'LONG_WIN']) == [('LONG_WIN', 'QIEMAN')]
+    assert job._infer_platform('LONG_WIN_S') == 'QIEMAN'
+    assert job._infer_platform('SI000090') == 'QIEMAN'
 
 
 def test_flatten_qieman_composition():
@@ -208,7 +228,7 @@ def test_qieman_import(db):
 
 
 def test_qieman_auto_fetch(job, db, monkeypatch):
-    """#1392 且慢持仓自动抓取：MCP 返回持仓 → advisor_holdings(source=qieman)。"""
+    """#1392/#1468 且慢自动抓取：MCP 返回概览 + 持仓 → 组合档案 + advisor_holdings。"""
     holdings = [
         {
             'code': '110011',
@@ -231,12 +251,138 @@ def test_qieman_auto_fetch(job, db, monkeypatch):
             'fund_type': 'STOCK_FUND',
         },
     ]
+    overview = {
+        'code': 'ZH013136',
+        'name': '我要稳稳的幸福',
+        'org_name': '交银施罗德',
+        'risk_level': '中低风险',
+        'estab_date': '2017-01-20',
+        'summary': '稳健理财，力争长期稳健增值',
+        'desc': None,
+        'annual_return': 4.8,
+        'max_drawdown': 2.79,
+        'volatility': 2.36,
+        'sharpe_ratio': 1.234,
+        'return_1w': 0.1,
+        'return_1m': 0.2,
+        'return_1y': 3.3,
+        'return_since_incep': 40.0,
+    }
     monkeypatch.setattr(job.qieman_adapter, 'fetch_holdings', lambda code: holdings)
+    monkeypatch.setattr(job.qieman_adapter, 'fetch_overview', lambda code: overview)
 
     result = job.run(full_sync=True, targets=['ZH013136'])
     assert result['status'] == 'success'
 
     p = db.query(AdvisorPortfolio).filter_by(platform='QIEMAN', code='ZH013136').one()
+    # 概览 / 风险收益指标落库（#1468）
+    assert p.name == '我要稳稳的幸福'
+    assert p.org_name == '交银施罗德'
+    assert p.risk_level == '中低风险'
+    assert str(p.estab_date) == '2017-01-20'
+    assert p.strategy_desc == '稳健理财，力争长期稳健增值'  # desc 为空时回退 summary
+    # SafeNumeric 读出为 Decimal，比较前统一转 float
+    assert float(p.annual_return) == pytest.approx(4.8)
+    assert float(p.max_drawdown) == pytest.approx(2.79)
+    assert float(p.volatility) == pytest.approx(2.36)
+    assert float(p.sharpe_ratio) == pytest.approx(1.234)
+    assert float(p.return_1y) == pytest.approx(3.3)
+    # 持仓落库
     hs = db.query(AdvisorHolding).filter_by(portfolio_id=p.id, source='qieman').all()
     assert {h.fund_code for h in hs} == {'110011', '161725'}
     assert next(h for h in hs if h.fund_code == '110011').after_ratio == pytest.approx(32.5)
+
+
+def test_qieman_overview_empty_keeps_curated_fields(job, db, monkeypatch):
+    """概览抓取为空（接口失败/无 key）时不得清空策展字段（#1468）。"""
+    db.add(
+        AdvisorPortfolio(
+            platform='QIEMAN',
+            code='ZH013136',
+            name='我要稳稳的幸福',
+            host='基民柠檬',
+            allocation='stable',
+            product_type='固收+',
+        )
+    )
+    db.commit()
+    monkeypatch.setattr(job.qieman_adapter, 'fetch_holdings', lambda code: [])
+    monkeypatch.setattr(job.qieman_adapter, 'fetch_overview', lambda code: {})
+
+    job.run(full_sync=True, targets=['ZH013136'])
+
+    p = db.query(AdvisorPortfolio).filter_by(platform='QIEMAN', code='ZH013136').one()
+    assert p.host == '基民柠檬'
+    assert p.allocation == 'stable'
+    assert p.product_type == '固收+'
+
+
+def test_qieman_derive_adjust_from_snapshots(job, db, monkeypatch):
+    """#1468 且慢调仓明细：且慢无历史调仓接口，由相邻两次持仓快照推导前后占比与方向。"""
+    p = AdvisorPortfolio(platform='QIEMAN', code='ZH999888', name='测试组合')
+    db.add(p)
+    db.commit()
+    # 上一快照（2026-06-30）：A 20% / B 10% / C 5%
+    db.bulk_insert_mappings(
+        AdvisorHolding,
+        [
+            {
+                'portfolio_id': p.id,
+                'as_of_date': date(2026, 6, 30),
+                'fund_code': c,
+                'fund_name': n,
+                'after_ratio': r,
+                'source': 'qieman',
+            }
+            for c, n, r in [('000001', 'A', 20.0), ('000002', 'B', 10.0), ('000003', 'C', 5.0)]
+        ],
+    )
+    db.commit()
+
+    # 本次快照（2026-09-11）：A 加仓至 25% / B 减至 4% / C 清仓 / D 新增 8%
+    holdings = [
+        {'code': '000001', 'name': 'A', 'ratio': 25.0, 'adj_time': '2026-09-11 00:00:00'},
+        {'code': '000002', 'name': 'B', 'ratio': 4.0, 'adj_time': '2026-09-11 00:00:00'},
+        {'code': '000004', 'name': 'D', 'ratio': 8.0, 'adj_time': '2026-09-11 00:00:00'},
+    ]
+    monkeypatch.setattr(job.qieman_adapter, 'fetch_holdings', lambda code: holdings)
+    monkeypatch.setattr(job.qieman_adapter, 'fetch_overview', lambda code: {})
+
+    job.run(full_sync=True, targets=['ZH999888'])
+
+    rows = {
+        r.fund_code: r
+        for r in db.query(AdvisorAdjustHistory).filter_by(portfolio_id=p.id, adjust_date=date(2026, 9, 11)).all()
+    }
+    assert set(rows) == {'000001', '000002', '000003', '000004'}
+    # 加仓：20 → 25
+    assert float(rows['000001'].pre_ratio) == pytest.approx(20.0)
+    assert float(rows['000001'].after_ratio) == pytest.approx(25.0)
+    assert rows['000001'].op_name == '加仓'
+    # 减仓：10 → 4
+    assert rows['000002'].op_name == '减仓'
+    # 清仓：5 → 0（仍记减仓，after=0）
+    assert rows['000003'].op_name == '减仓'
+    assert float(rows['000003'].after_ratio) == pytest.approx(0.0)
+    # 新增：0 → 8
+    assert rows['000004'].op_name == '新增'
+    assert float(rows['000004'].pre_ratio) == pytest.approx(0.0)
+    assert all(r.source == 'qieman' for r in rows.values())
+
+
+def test_qieman_first_snapshot_creates_no_adjust(job, db, monkeypatch):
+    """首次快照没有前值可对比 → 不编造调仓记录（#1468）。"""
+    db.add(AdvisorPortfolio(platform='QIEMAN', code='ZH999777', name='首建组合'))
+    db.commit()
+    monkeypatch.setattr(
+        job.qieman_adapter,
+        'fetch_holdings',
+        lambda code: [{'code': '000001', 'name': 'A', 'ratio': 50.0, 'adj_time': '2026-09-11 00:00:00'}],
+    )
+    monkeypatch.setattr(job.qieman_adapter, 'fetch_overview', lambda code: {})
+
+    job.run(full_sync=True, targets=['ZH999777'])
+
+    p = db.query(AdvisorPortfolio).filter_by(platform='QIEMAN', code='ZH999777').one()
+    assert db.query(AdvisorAdjustHistory).filter_by(portfolio_id=p.id).count() == 0
+    assert db.query(AdvisorHolding).filter_by(portfolio_id=p.id).count() == 1

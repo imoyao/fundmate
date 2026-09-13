@@ -51,6 +51,21 @@ export interface WatchlistItem {
   advisor_host?: string | null; // 主理人
   advisor_strategy_type?: string | null; // 策略类型（均衡/进取/稳健）
   advisor_org_name?: string | null; // 主理人所属机构/平台方
+  // ── 且慢组合补充指标与策展元数据（#1468）──
+  // 指标部分来自 GetStrategyDetails 实时抓取，策展部分来自后端 advisor_catalog 注册表。
+  // 仅 asset_type=portfolio 且 AdvisorPortfolio 命中时有值，其余恒 null。
+  return_1d?: number | null; // 近1日收益(%)
+  return_1q?: number | null; // 近1季度收益(%)
+  return_6m?: number | null; // 近半年收益(%)
+  volatility?: number | null; // 年化波动率(%)
+  sharpe_ratio?: number | null; // 夏普比率
+  advisor_allocation?: string | null; // 配置目标 key（liquid/stable/longterm/...）
+  advisor_allocation_label?: string | null; // 配置目标中文标签（活钱/稳健底仓/长期增值/...）
+  advisor_product_type?: string | null; // 产品类型（货币/货币+/纯债/固收+/平衡/权益(偏股)）
+  advisor_strategy_summary?: string | null; // 策略简介（短）
+  advisor_nav?: number | null; // 组合最新净值
+  advisor_nav_date?: string | null; // 净值日期（YYYY-MM-DD）
+  advisor_source_url?: string | null; // 组合官方页面链接
   manager_company?: string | null; // 基金经理所属基金公司（仅 asset_type=manager 有值）
   // ── 可转债条款（#1285 消费侧 / #1393）──
   // 仅 asset_type=bond 且后端 convertible_bond_terms 命中时有值，其余 null。

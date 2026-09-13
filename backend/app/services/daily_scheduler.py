@@ -84,12 +84,17 @@ ENV_TEMPERATURE_ENABLED = 'SCHEDULER_TEMPERATURE_ENABLED'
 ENV_TEMPERATURE_CRON = 'SCHEDULER_TEMPERATURE_CRON'
 ENV_NAV_ENABLED = 'SCHEDULER_NAV_ENABLED'
 ENV_NAV_CRON = 'SCHEDULER_NAV_CRON'
+ENV_ADVISOR_ENABLED = 'SCHEDULER_ADVISOR_ENABLED'
+ENV_ADVISOR_CRON = 'SCHEDULER_ADVISOR_CRON'
 
 DEFAULT_TIMEZONE = 'Asia/Shanghai'
 # 温度计：集思录中位 PB / 韭圈儿 / 行业拥挤度盘后即出
 DEFAULT_TEMPERATURE_CRON = '0 20 * * *'
 # 基金净值：场外净值 19:00~24:00 陆续公布
 DEFAULT_NAV_CRON = '30 21 * * *'
+# 投顾组合：排在净值之后——且慢调仓快照带当日净值占比，且调仓多发生在盘后，
+# 排在净值前会用到前一日口径。这也是且慢调仓历史的**唯一**来源（无官方历史接口）。
+DEFAULT_ADVISOR_CRON = '0 22 * * *'
 
 # backend/ 目录（app/services/daily_scheduler.py → parents[2]）
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -158,6 +163,18 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[str], str], ...] = (
         DEFAULT_NAV_CRON,
         'fund',
         '自选 + 持仓的基金净值（当日增量）',
+    ),
+    (
+        # 投顾组合持仓/调仓快照（#1468）。target_kind 留 None 是刻意的：
+        # 目标池是「组合代码」（ZHxxxx / LONG_WIN / 天天 combo），不是基金或股票代码，
+        # resolve_targets() 只产 fund/stock 两类，强行套会拿到空列表。
+        # 留 None 后 job 内部 _resolve_targets 会回退库内全部在售的 TIANTIAN + QIEMAN 组合。
+        'advisor_portfolio',
+        ENV_ADVISOR_ENABLED,
+        ENV_ADVISOR_CRON,
+        DEFAULT_ADVISOR_CRON,
+        None,
+        '投顾组合持仓 / 调仓快照（且慢 + 天天；且慢无历史调仓接口，快照序列是唯一来源）',
     ),
 )
 

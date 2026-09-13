@@ -72,6 +72,15 @@ ALLOCATION_LABELS = {
     'security': '保险保障',
 }
 
+# ── 且慢「四笔钱」→ 五笔钱（ALLOCATION_LABELS）映射（#1468）──
+# 且慢组合自带的 活钱/稳钱/长钱 分类，映射到本系统 assets/positions 的 allocation 词表，
+# 避免为投顾组合另立一套并行分类。注册表 advisor_catalog 的 bucket 字段经此归一。
+QIEMAN_BUCKET_TO_ALLOCATION = {
+    '活钱': 'liquid',
+    '稳钱': 'stable',
+    '长钱': 'longterm',
+}
+
 # ── 通用资产大类标签 ──
 # 已收口到 app/core/asset_types.ASSET_CATEGORY_LABELS（本文件顶部 import），勿在此手写。
 
@@ -145,6 +154,11 @@ OP_TYPE_LABEL = {
     'tax': '扣税',
     'other': '其他',
 }
+
+# ── 投顾组合调仓操作类型（#1167 / #1468）──
+# 天天基金 adjustList 的 operationInt 与且慢「快照序列推导」共用同一词表，为单一真相源；
+# 禁止在适配器 / job 内各自硬编码一份（历史上 adapter 与 scripts 各存过一份）。
+ADVISOR_ADJUST_OP_NAME = {1: '建仓', 2: '加仓', 3: '减仓', 4: '新增', 5: '持平'}
 
 
 # 批量导入常量定义

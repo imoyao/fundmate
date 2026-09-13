@@ -139,3 +139,46 @@ def migrate_advisor_portfolio_metrics(engine: Engine) -> str:
         logger.info(f'[OK] advisor_portfolios 增加列: {added}')
         return f'[OK] 增加列 {added}'
     return '[SKIP] advisor_portfolios 指标列已存在'
+
+
+def migrate_advisor_portfolio_metadata(engine: Engine) -> str:
+    """advisor_portfolios 补且慢组合策展元数据列（#1468）。
+
+    含两类：
+    - 策展分类：``allocation``（五笔钱）/ ``product_type``（产品类型）
+    - GetStrategyDetails 抓取：``volatility`` / ``sharpe_ratio`` / ``strategy_summary`` /
+      ``source_url`` / ``nav`` / ``nav_date`` / ``return_1d`` / ``return_1q`` / ``return_6m``
+
+    与 :func:`migrate_advisor_portfolio_metrics` 同源同法：SQLite / libsql 支持对「可空列」
+    直接 ALTER ADD COLUMN（无需整表重建）。幂等：列已存在则跳过。非 SQLite 引擎
+    （Supabase Postgres）由 ORM 模型 / 迁移工具负责，直接跳过，避免 init_db 误跑 SQLite 专属 SQL。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
+
+    cols = [
+        ('volatility', 'NUMERIC(6,2)'),
+        ('sharpe_ratio', 'NUMERIC(6,3)'),
+        ('allocation', 'VARCHAR(20)'),
+        ('product_type', 'VARCHAR(20)'),
+        ('strategy_summary', 'VARCHAR(300)'),
+        ('source_url', 'VARCHAR(120)'),
+        ('nav', 'NUMERIC(12,6)'),
+        ('nav_date', 'DATE'),
+        ('return_1d', 'NUMERIC(7,2)'),
+        ('return_1q', 'NUMERIC(7,2)'),
+        ('return_6m', 'NUMERIC(7,2)'),
+    ]
+    with engine.connect() as conn:
+        existing = {c['name'] for c in inspect(engine).get_columns('advisor_portfolios')}
+        added = []
+        for name, typ in cols:
+            if name not in existing:
+                conn.execute(text(f'ALTER TABLE advisor_portfolios ADD COLUMN {name} {typ}'))
+                added.append(name)
+        conn.commit()
+    if added:
+        logger.info(f'[OK] advisor_portfolios 增加列: {added}')
+        return f'[OK] 增加列 {added}'
+    return '[SKIP] advisor_portfolios 元数据列已存在'

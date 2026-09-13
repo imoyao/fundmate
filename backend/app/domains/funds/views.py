@@ -2,6 +2,7 @@ from datetime import datetime
 
 from apiflask import APIBlueprint
 from flask import jsonify, request
+from sqlalchemy import func
 
 from app.core.auth import get_family_id
 from app.core.database import get_db
@@ -148,3 +149,164 @@ def sync_fund_fees(fund_code: str):
             return jsonify({'data': {'message': '费率同步成功'}, 'message': 'ok'})
         else:
             return jsonify({'data': None, 'message': '同步失败，请稍后重试'})
+
+
+# ── 投顾组合明细只读接口（#1468）──
+# advisor_holdings / advisor_adjust_histories 此前一直是「只写不读」：同步任务落库，
+# 但全后端没有任何接口暴露，调仓与持仓数据事实上锁在库里。这里补两个只读口子，
+# 供自选「投顾组合」速览抽屉消费（market 域公开参照数据，无需登录）。
+
+
+def _f(v) -> float | None:
+    """SafeNumeric 读回是 Decimal，Flask jsonify 会把它序列化成字符串，必须显式转 float。"""
+    return float(v) if v is not None else None
+
+
+@bp.get('/advisors/<string:code>/holdings/')
+def get_advisor_holdings(code: str):
+    """投顾组合当前持仓（只读）。
+
+    返回最新快照日的成分基金与占比。每只基金带 `in_local_db` —— 该基金是否已收录进
+    本地 `funds` 表（组合成分可能暂缺于本地名录，如 QDII），前端据此决定能否跳详情。
+    """
+    from app.domains.funds.models import AdvisorHolding, AdvisorPortfolio, Fund
+
+    with get_db() as db:
+        portfolio = db.query(AdvisorPortfolio).filter_by(code=code).first()
+        if portfolio is None:
+            return jsonify({'data': None, 'message': '投顾组合不存在'}), 404
+
+        as_of = db.query(func.max(AdvisorHolding.as_of_date)).filter_by(portfolio_id=portfolio.id).scalar()
+        if as_of is None:
+            return jsonify(
+                {
+                    'data': {
+                        'code': portfolio.code,
+                        'name': portfolio.name,
+                        'platform': portfolio.platform,
+                        'as_of_date': None,
+                        'holdings': [],
+                    },
+                    'message': 'ok',
+                }
+            )
+
+        rows = (
+            db.query(AdvisorHolding)
+            .filter_by(portfolio_id=portfolio.id, as_of_date=as_of)
+            .order_by(AdvisorHolding.after_ratio.desc())
+            .all()
+        )
+        codes = [r.fund_code for r in rows]
+        # 两步法关联（模型注释：组合成分不建硬外键，避免暂缺基金阻塞写入）
+        known = {c for (c,) in db.query(Fund.fund_code).filter(Fund.fund_code.in_(codes)).all() if c}
+
+    holdings = [
+        {
+            'fund_code': r.fund_code,
+            'fund_name': r.fund_name,
+            'pre_ratio': _f(r.pre_ratio),
+            'after_ratio': _f(r.after_ratio),
+            'op_name': r.op_name,
+            'in_local_db': r.fund_code in known,
+        }
+        for r in rows
+    ]
+    return jsonify(
+        {
+            'data': {
+                'code': portfolio.code,
+                'name': portfolio.name,
+                'platform': portfolio.platform,
+                'as_of_date': as_of.isoformat(),
+                'holdings': holdings,
+            },
+            'message': 'ok',
+        }
+    )
+
+
+@bp.get('/advisors/<string:code>/adjusts/')
+def get_advisor_adjusts(code: str):
+    """投顾组合调仓明细（只读），按调仓日倒序分组。
+
+    查询参数：
+    - `limit`：最近 N 个调仓日，缺省 10，上限 50；
+    - `date`：只取指定调仓日（YYYY-MM-DD），与 limit 互斥时优先 date。
+
+    来源差异写进每条的 `source`：且慢无历史调仓接口，明细由我们的持仓快照序列推导
+    （`qieman`，`reason` 记录推导所依据的上一次快照日）；天天来自官方接口（`tiantian`）。
+    """
+    from app.domains.funds.models import AdvisorAdjustHistory, AdvisorPortfolio
+
+    raw_limit = request.args.get('limit', '10')
+    try:
+        limit = max(1, min(50, int(raw_limit)))
+    except ValueError:
+        limit = 10
+    only_date = request.args.get('date')
+
+    with get_db() as db:
+        portfolio = db.query(AdvisorPortfolio).filter_by(code=code).first()
+        if portfolio is None:
+            return jsonify({'data': None, 'message': '投顾组合不存在'}), 404
+
+        q = db.query(AdvisorAdjustHistory.adjust_date).filter_by(portfolio_id=portfolio.id)
+        if only_date:
+            dates = [d for (d,) in q.distinct().all() if d.isoformat() == only_date]
+        else:
+            dates = [d for (d,) in q.distinct().order_by(AdvisorAdjustHistory.adjust_date.desc()).limit(limit).all()]
+        if not dates:
+            return jsonify(
+                {
+                    'data': {
+                        'code': portfolio.code,
+                        'name': portfolio.name,
+                        'platform': portfolio.platform,
+                        'adjusts': [],
+                    },
+                    'message': 'ok',
+                }
+            )
+
+        rows = (
+            db.query(AdvisorAdjustHistory)
+            .filter(
+                AdvisorAdjustHistory.portfolio_id == portfolio.id,
+                AdvisorAdjustHistory.adjust_date.in_(dates),
+            )
+            .order_by(
+                AdvisorAdjustHistory.adjust_date.desc(),
+                AdvisorAdjustHistory.after_ratio.desc(),
+            )
+            .all()
+        )
+
+    # 按调仓日分组；reason 同日冗余存储，取首条即可
+    grouped: dict[str, dict] = {}
+    for r in rows:
+        d = r.adjust_date.isoformat()
+        bucket = grouped.setdefault(d, {'adjust_date': d, 'reason': r.reason, 'source': r.source, 'items': []})
+        if not bucket['reason'] and r.reason:
+            bucket['reason'] = r.reason
+        bucket['items'].append(
+            {
+                'fund_code': r.fund_code,
+                'fund_name': r.fund_name,
+                'op_name': r.op_name,
+                'pre_ratio': _f(r.pre_ratio),
+                'after_ratio': _f(r.after_ratio),
+            }
+        )
+    adjusts = [grouped[d.isoformat()] for d in sorted(dates, reverse=True) if d.isoformat() in grouped]
+    return jsonify(
+        {
+            'data': {
+                'code': portfolio.code,
+                'name': portfolio.name,
+                'platform': portfolio.platform,
+                'adjusts': adjusts,
+            },
+            'message': 'ok',
+        }
+    )

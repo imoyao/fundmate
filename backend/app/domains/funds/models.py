@@ -304,6 +304,23 @@ class AdvisorPortfolio(Base, PrimaryKeyMixin, TimestampMixin):
     max_drawdown = Column(SafeNumeric(6, 2), comment='最大回撤(%)，API 未直接提供时为空')
     excess_return = Column(SafeNumeric(7, 2), comment='相对基准超额收益(%)，待补算')
 
+    # ── #1468 且慢组合策展元数据（调研注册表 + GetStrategyDetails 实时抓取）──
+    # 与上方 #1392 指标列一样，属「列已就绪、不影响主链路」的补充字段；
+    # allocation 沿用 assets/positions 的「五笔钱」词表（见 core.constants.ALLOCATION_LABELS），
+    # 且慢「四笔钱」活钱/稳钱/长钱 依次映射为 liquid/stable/longterm。
+    volatility = Column(SafeNumeric(6, 2), comment='年化波动率(%)')
+    sharpe_ratio = Column(SafeNumeric(6, 3), comment='夏普比率')
+    allocation = Column(String(20), comment='配置目标（五笔钱：liquid/stable/longterm/...）')
+    product_type = Column(String(20), comment='产品类型(货币/货币+/纯债/固收+/平衡/权益(偏股))')
+    # 概览其余可用字段（一次抓取全部落库，避免日后为拿单个字段再手动抓）
+    strategy_summary = Column(String(300), comment='策略简介（短，GetStrategyDetails 策略简介）')
+    source_url = Column(String(120), comment='组合官方页面链接（且慢 qieman.com/alfa/portfolio/<code>）')
+    nav = Column(SafeNumeric(12, 6), comment='组合最新净值')
+    nav_date = Column(Date, comment='组合净值日期')
+    return_1d = Column(SafeNumeric(7, 2), comment='近1日收益(%)')
+    return_1q = Column(SafeNumeric(7, 2), comment='近1季度收益(%)')
+    return_6m = Column(SafeNumeric(7, 2), comment='近半年收益(%)')
+
 
 class AdvisorHolding(Base, PrimaryKeyMixin, TimestampMixin):
     """投顾组合当前基金级持仓（#1167）。
