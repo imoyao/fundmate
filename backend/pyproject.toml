@@ -33,6 +33,7 @@ dependencies = [
     "scipy==1.13.1",
     "baostock>=0.9.3",
     "apscheduler<4,>=3.10",
+    "sqlalchemy-libsql>=0.2.0; sys_platform != \"win32\"",
 ]
 requires-python = ">=3.12"
 

@@ -115,6 +115,80 @@ def test_factory_create_dev_sqlite_real_engine(monkeypatch):
     DatabaseFactory.reset()
 
 
+def test_normalize_db_url_turso_rewrites_scheme_and_extracts_auth():
+    """裸 turso:// 应归一为 sqlite+libsql://，且 authToken 转入 connect_args。"""
+    url, extra = db_factory._normalize_db_url('turso://abc@foo.turso.io/mydb?authToken=secret-token')
+    assert url.startswith('sqlite+libsql://')
+    assert 'foo.turso.io' in url
+    assert 'authToken' not in url  # 已移出 URL
+    assert extra.get('auth_token') == 'secret-token'
+
+
+def test_normalize_db_url_libsql_rewrites_scheme():
+    url, extra = db_factory._normalize_db_url('libsql://foo.turso.io/mydb')
+    assert url == 'sqlite+libsql://foo.turso.io/mydb'
+    assert extra == {}
+
+
+def test_normalize_db_url_https_turso_rewrites_scheme():
+    """https://*.turso.io 也应被归一（Turso 云常用 https 端点）。"""
+    url, extra = db_factory._normalize_db_url('https://example.turso.io/?authToken=tk')
+    assert url.startswith('sqlite+libsql://')
+    assert 'example.turso.io' in url
+    assert extra.get('auth_token') == 'tk'
+
+
+def test_normalize_db_url_non_turso_unchanged():
+    for raw in (
+        'sqlite:///./invest.db',
+        'postgresql://u:p@db.supabase.co:5432/postgres',
+        'sqlite+libsql://foo.turso.io/mydb?auth_token=tk',  # 已归一，幂等
+    ):
+        url, extra = db_factory._normalize_db_url(raw)
+        assert url == raw
+        assert extra == {}
+
+
+def test_factory_build_prod_turso_normalizes_scheme_and_auth(monkeypatch):
+    """生产环境 turso:// URL 经 build() 后应把归一后的 URL 与 auth_token 传给 create_engine。"""
+    _reset_and_set(
+        monkeypatch,
+        {
+            'APP_ENV': 'production',
+            'TURSO_DATABASE_URL': 'turso://abc@foo.turso.io/mydb?authToken=secret-token',
+            'DATABASE_URL': None,
+        },
+    )
+    fake_engine = object()
+    with mock.patch.object(db_factory, 'create_engine', return_value=fake_engine) as m:
+        eng = DatabaseFactory.build(DOMAIN_APP, env='production')
+    assert eng is fake_engine
+    called_url, called_kwargs = m.call_args.args[0], m.call_args.kwargs
+    assert str(called_url).startswith('sqlite+libsql://')
+    assert 'turso.io' in str(called_url)
+    assert 'authToken' not in str(called_url)
+    assert called_kwargs.get('connect_args', {}).get('auth_token') == 'secret-token'
+
+
+def test_factory_build_dev_sqlite_pragmas_skips_libsql(monkeypatch):
+    """本地 SQLite 引擎仍应用 PRAGMA；libsql 引擎不应用（避免向远端发 PRAGMA）。"""
+    _reset_and_set(
+        monkeypatch,
+        {
+            'APP_ENV': 'production',
+            'TURSO_DATABASE_URL': 'turso://abc@foo.turso.io/mydb?authToken=tk',
+        },
+    )
+    fake_engine = object()
+    with (
+        mock.patch.object(db_factory, 'create_engine', return_value=fake_engine),
+        mock.patch.object(db_factory, '_apply_sqlite_pragmas') as pragma,
+    ):
+        DatabaseFactory.build(DOMAIN_APP, env='production')
+    # libsql 引擎不应触发本地 PRAGMA
+    pragma.assert_not_called()
+
+
 def test_factory_create_user_mock_engine(monkeypatch):
     """用户库引擎构建：mock create_engine（本机无 psycopg2），验证传入 URL。"""
     _reset_and_set(
