@@ -33,6 +33,11 @@ daily-snapshot 因 secrets 缺失连续 7 天全红，本地库净值止于 2026
 |-----|-----------------|------|
 | `temperature` | 20:00 | 温度计：集思录中位 PB / 韭圈儿 / 行业拥挤度 / 乖离率，即**温度计页面**的数据 |
 | `fund_nav` | 21:30 | **自选 + 持仓**的基金净值当日增量（目标池由 `orchestrator.resolve_targets()` 现取） |
+| `advisor_portfolio` | 22:00 | 投顾组合持仓 / 调仓快照（且慢 + 天天，目标池 = 库内全部在售组合） |
+
+> `advisor_portfolio` 排在建净值之后是刻意的：且慢调仓快照带的是当日占比口径。
+> 它还是**且慢调仓历史的唯一来源**——且慢没有历史调仓接口，明细靠相邻两次快照对比推导
+> （见 `_derive_qieman_adjust`），不每天留一份快照就永远推不出调仓。
 
 - **非开盘日不抓**：周末 / 法定节假日 / 调休补班周末一律跳过（口径唯一来自
   `app/core/trading_calendar.py`）——非交易日没有新数据，空跑只会白送请求 + 留下失败审计。
@@ -50,11 +55,13 @@ SCHEDULER_ENABLED=1                    # 总开关（模板 .env.example 已默�
 # SCHEDULER_TIMEZONE=Asia/Shanghai
 # SCHEDULER_TEMPERATURE_CRON=0 20 * * *
 # SCHEDULER_NAV_CRON=30 21 * * *
+# SCHEDULER_ADVISOR_CRON=0 22 * * *
 # SCHEDULER_SKIP_NON_TRADING_DAY=true  # 休市不抓
 # SCHEDULER_RUN_ON_START=true          # 启动补跑
 # SCHEDULER_STARTUP_DELAY_SECONDS=180
 # SCHEDULER_TEMPERATURE_ENABLED=true
 # SCHEDULER_NAV_ENABLED=true
+# SCHEDULER_ADVISOR_ENABLED=true
 ```
 
 ### 不会启动的场景（都是刻意的）
@@ -103,7 +110,8 @@ pdm run invoke sched.status     # 或 pdm run scheduler --status（只读）
   - 备选：SCF 定时器 / 系统 cron 在部署服务器执行 `pdm run scheduler`（详见 workflow 注释）。
 
 > 注意：本通道跑的是**全量增量同步**（含 `asset_snapshot` 资产快照落账）；
-> 上节的本机通道只跑用户最关心的两项（`temperature` / `fund_nav`），不含资产快照。
+> 上节的本机通道只跑用户最关心的三项（`temperature` / `fund_nav` / `advisor_portfolio`），
+> 不含资产快照——资产快照只在 CI 侧做，本机不做落账。
 
 ### 每日更新的信息
 
@@ -111,6 +119,9 @@ pdm run invoke sched.status     # 或 pdm run scheduler --status（只读）
 - [x] 基金组合配置 / 类型 / 经理等元数据（`fund_list` / `fund_detail_enrich` / `fund_type` / `fund_manager`）
 - [x] 每日账户更新（盈利情况）：`asset_snapshot` job 落 `asset_snapshots` 表
       （家庭/账户两级，含货基每日收益 `money_fund_income_cents`，#863 P1-5）
+- [x] 投顾组合持仓 / 调仓快照（`advisor_portfolio` job，且慢 + 天天全量在售组合）：
+      持仓按 `(组合, 快照日)` 覆盖式更新；**且慢无历史调仓接口**，调仓明细由相邻两次
+      快照对比推导（`_derive_qieman_adjust`），故每天留一份快照是调仓历史的唯一来源
 
 ### 季度更新（规划中）
 

@@ -637,6 +637,122 @@ export const watchlistColumnDefs: ColumnDef[] = [
     draggable: true,
     defaultHidden: true
   },
+  // ── 且慢组合补充列（#1468）──
+  // 区间收益（近1日/近1季/近半年）、风险指标（波动率/夏普）来自 GetStrategyDetails 实时抓取；
+  // 配置目标 / 产品类型 / 策略简介 / 净值 / 官方链接来自 advisor_catalog 策展 + 概览落库。
+  // 口径与上面 #1392 列一致：scope 默认 category + appliesTo:["portfolio"]，
+  // 均 defaultHidden:true（#993「新列默认隐藏」，不冲击默认表格宽度预算）。
+  {
+    key: "return_1d",
+    label: "近1日",
+    renderer: "advisor",
+    appliesTo: ["portfolio"],
+    minWidth: 88,
+    align: "right",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    key: "return_1q",
+    label: "近1季",
+    renderer: "advisor",
+    appliesTo: ["portfolio"],
+    minWidth: 88,
+    align: "right",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    key: "return_6m",
+    label: "近半年",
+    renderer: "advisor",
+    appliesTo: ["portfolio"],
+    minWidth: 88,
+    align: "right",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    key: "volatility",
+    label: "年化波动率",
+    renderer: "advisor",
+    appliesTo: ["portfolio"],
+    minWidth: 104,
+    align: "right",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    key: "sharpe_ratio",
+    label: "夏普比率",
+    renderer: "advisor",
+    appliesTo: ["portfolio"],
+    minWidth: 96,
+    align: "right",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    key: "advisor_allocation_label",
+    label: "配置目标",
+    renderer: "advisor",
+    appliesTo: ["portfolio"],
+    minWidth: 96,
+    align: "left",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    key: "advisor_product_type",
+    label: "产品类型",
+    renderer: "advisor",
+    appliesTo: ["portfolio"],
+    minWidth: 104,
+    align: "left",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    // 净值日期不单独开列，挂在本列 title（「截至 YYYY-MM-DD」），避免多一列挤占宽度
+    key: "advisor_nav",
+    label: "组合净值",
+    renderer: "advisor",
+    appliesTo: ["portfolio"],
+    minWidth: 96,
+    align: "right",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    key: "advisor_strategy_summary",
+    label: "策略简介",
+    renderer: "advisor",
+    appliesTo: ["portfolio"],
+    minWidth: 200,
+    align: "left",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    key: "advisor_source_url",
+    label: "官方链接",
+    renderer: "advisor",
+    appliesTo: ["portfolio"],
+    minWidth: 88,
+    align: "center",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
   {
     // 操作列：置顶 / 特别关注 / 移除 三个按钮，默认 45% 弱显、行 hover 全亮
     //（2026-09-05 回归）：曾把按钮拆到产品列 hover 图标，但 fixed 列 hover 状态
@@ -746,6 +862,17 @@ const COLUMN_GROUP_MAP: Record<string, ColumnGroup> = {
   advisor_benchmark: "portfolio",
   advisor_holding_count: "portfolio",
   advisor_concentration: "portfolio",
+  // #1468 且慢组合补充列
+  return_1d: "portfolio",
+  return_1q: "portfolio",
+  return_6m: "portfolio",
+  volatility: "portfolio",
+  sharpe_ratio: "portfolio",
+  advisor_allocation_label: "portfolio",
+  advisor_product_type: "portfolio",
+  advisor_nav: "portfolio",
+  advisor_strategy_summary: "portfolio",
+  advisor_source_url: "portfolio",
   // 补充字段（默认隐藏、跨品类）
   holding_cost_price: "extra",
   type_label: "extra",

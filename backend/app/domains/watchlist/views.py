@@ -14,7 +14,7 @@ from loguru import logger
 from sqlalchemy import desc, func, or_
 
 from app.core.auth import get_family_id, get_owned_or_404
-from app.core.constants import TYPE_LABELS
+from app.core.constants import ALLOCATION_LABELS, TYPE_LABELS
 from app.core.database import get_db
 from app.core.money import Money
 from app.core.utils import api_response, with_db
@@ -48,11 +48,8 @@ from app.services.watchlist_service import (
     build_groups_data,
     build_home_summary,
     create_watchlist_item,
-    ensure_watchlist_for_positions,
     get_filtered_items_query,
-    get_holding_gaps,
     lookup_manager,
-    reconcile_watchlist_status,
     resolve_display_name,
 )
 
@@ -235,19 +232,33 @@ def _apply_advisor_fields(out: dict, symbol: str, db) -> None:
     # #1392 投顾品类列所需字段（区间收益 + 回撤 + 超额），统一先在 out 挂默认 None，
     # 命中 advisor 再覆盖，避免非投顾标的漏字段导致前端 key 缺失
     _ADVISOR_METRIC_KEYS = (
+        'return_1d',
         'return_1w',
         'return_1m',
+        'return_1q',
+        'return_6m',
         'return_1y',
         'return_ytd',
         'return_since_incep',
         'max_drawdown',
         'excess_return',
+        # #1468 且慢组合补充指标（GetStrategyDetails 实时抓取）
+        'volatility',
+        'sharpe_ratio',
     )
     for k in _ADVISOR_METRIC_KEYS:
         out[k] = None
     out['advisor_benchmark'] = None
     out['advisor_holding_count'] = None
     out['advisor_concentration'] = None
+    # #1468 且慢策展元数据（配置目标 / 产品类型 / 简介 / 净值 / 官方链接）
+    out['advisor_allocation'] = None
+    out['advisor_allocation_label'] = None
+    out['advisor_product_type'] = None
+    out['advisor_strategy_summary'] = None
+    out['advisor_nav'] = None
+    out['advisor_nav_date'] = None
+    out['advisor_source_url'] = None
     # #1167 既有字段默认 None（命中再覆盖）
     out['advisor_platform'] = None
     out['advisor_host'] = None
@@ -264,6 +275,15 @@ def _apply_advisor_fields(out: dict, symbol: str, db) -> None:
     for k in _ADVISOR_METRIC_KEYS:
         out[k] = _to_float(getattr(advisor, k))
     out['advisor_benchmark'] = advisor.benchmark
+    # 配置目标（五笔钱）：key 与中文标签都给，前端免于手抄一份词表
+    alloc = advisor.allocation
+    out['advisor_allocation'] = alloc
+    out['advisor_allocation_label'] = ALLOCATION_LABELS.get(alloc, alloc) if alloc else None
+    out['advisor_product_type'] = advisor.product_type
+    out['advisor_strategy_summary'] = advisor.strategy_summary
+    out['advisor_nav'] = _to_float(advisor.nav)
+    out['advisor_nav_date'] = advisor.nav_date.isoformat() if advisor.nav_date else None
+    out['advisor_source_url'] = advisor.source_url
     # 持仓集中度：HHI = Σ(占比%²)，越高越集中；同时给持仓基金数（信息密度）
     ratios = [
         float(r[0])
@@ -463,18 +483,16 @@ def _list_holding_items(db, family_id, venue=None, search=None, asset_types=None
             display = (pos_name or '') or resolve_display_name(symbol, db)
             if s not in symbol.lower() and s not in (display or '').lower():
                 continue
-        # 持仓虚拟行优先回填真实自选记录（若已入自选）→ 行内可打标签/备注；
-        # 未入自选则保持 id=None，前端据此提示「一键加入」。
-        # defer_display=True：展示专用字段延后到分页之后补算（见 _finalize_page）。
-        holding_row = _build_holding_row(
-            symbol,
-            db,
-            market=market,
-            asset_type=asset_type,
-            venue=row_venue,
-            defer_display=defer_display,
+        data.append(
+            _build_holding_row(
+                symbol,
+                db,
+                market=market,
+                asset_type=asset_type,
+                venue=row_venue,
+                defer_display=defer_display,
+            )
         )
-        data.append(_enrich_holding_with_watchlist(holding_row, db, family_id))
     # 持仓分组支持类型筛选（#1449）：虚拟行已带小写 asset_type，按前端传来的
     # 逗号分隔类型集合过滤，与真实自选行的 asset_types 语义一致。
     if asset_types:
@@ -551,7 +569,22 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None, def
         'return_since_incep': (_to_float(advisor.return_since_incep) if advisor else None),
         'max_drawdown': (_to_float(advisor.max_drawdown) if advisor else None),
         'excess_return': (_to_float(advisor.excess_return) if advisor else None),
+        # #1468 且慢补充指标 + 策展元数据（与 _apply_advisor_fields 保持同字段集）
+        'return_1d': (_to_float(advisor.return_1d) if advisor else None),
+        'return_1q': (_to_float(advisor.return_1q) if advisor else None),
+        'return_6m': (_to_float(advisor.return_6m) if advisor else None),
+        'volatility': (_to_float(advisor.volatility) if advisor else None),
+        'sharpe_ratio': (_to_float(advisor.sharpe_ratio) if advisor else None),
         'advisor_benchmark': (advisor.benchmark if advisor else None),
+        'advisor_allocation': (advisor.allocation if advisor else None),
+        'advisor_allocation_label': (
+            ALLOCATION_LABELS.get(advisor.allocation, advisor.allocation) if advisor and advisor.allocation else None
+        ),
+        'advisor_product_type': (advisor.product_type if advisor else None),
+        'advisor_strategy_summary': (advisor.strategy_summary if advisor else None),
+        'advisor_nav': (_to_float(advisor.nav) if advisor else None),
+        'advisor_nav_date': (advisor.nav_date.isoformat() if advisor and advisor.nav_date else None),
+        'advisor_source_url': (advisor.source_url if advisor else None),
         'advisor_holding_count': 0,
         'advisor_concentration': None,
     }
@@ -571,39 +604,6 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None, def
     # 展示专用字段（可转债条款 / 指数估值 / 基金最大回撤 / 跨渠道关联）：支持延后补算
     if not defer_display:
         _apply_deferred_display_fields(row, symbol, asset_type, db)
-    return row
-
-
-def _enrich_holding_with_watchlist(row: dict, db, family_id: int) -> dict:
-    """持仓虚拟行若存在真实自选记录，回填 id/分组/标签/备注等可编辑字段。
-
-    使「持仓」分组内的产品也能打标签、加备注（#1458 后续：持仓即自选）。
-    仅当无自选记录时保持 id=None——前端据此禁用行操作并提示「一键加入自选」。
-    「全部」分组天然包含这些真实自选记录，无需在此处理，口径保持一致。
-    """
-    item = (
-        db.query(WatchlistItem)
-        .filter_by(symbol=row['symbol'], market=row['market'], venue=row['venue'], family_id=family_id)
-        .first()
-    )
-    if item is None:
-        item = db.query(WatchlistItem).filter_by(symbol=row['symbol'], family_id=family_id).first()
-    if item is None:
-        return row
-    row = dict(row)
-    row['id'] = item.id
-    row['group_ids'] = [g.group_id for g in item.group_links]
-    row['group_names'] = [g.watchlist_group.name for g in item.group_links]
-    row['tag_ids'] = [t.tag_id for t in item.tag_links]
-    row['notes'] = item.notes
-    row['is_pinned'] = item.is_pinned
-    row['pinned_at'] = item.pinned_at
-    row['favorite'] = item.favorite
-    row['favorite_at'] = item.favorite_at
-    row['add_reason'] = item.add_reason
-    row['cost_price'] = item.cost_price
-    row['quantity'] = item.quantity
-    row['status'] = 'HOLDING'  # 持仓分组恒为 HOLDING
     return row
 
 
@@ -652,42 +652,6 @@ def home_summary():
     with get_db() as db:
         data = build_home_summary(db, get_family_id())
     return jsonify({'data': data, 'message': 'ok'})
-
-
-@watchlist_bp.get('/holding-gaps/')
-def holding_gaps():
-    """「有活跃持仓但未加入自选」的缺口列表（前端 banner 引导一键加入）。
-
-    仅读取、幂等；不修改任何数据。缺口判定见 watchlist_service.get_holding_gaps。
-    """
-    with get_db() as db:
-        gaps = get_holding_gaps(db, get_family_id())
-    return jsonify({'data': gaps, 'count': len(gaps), 'message': 'ok'})
-
-
-@watchlist_bp.post('/reconcile/')
-def reconcile_watchlist():
-    """一键补齐：为活跃持仓创建 HOLDING 自选记录（买入即入自选的批量版）。
-
-    同时对齐卖出/清仓后的状态：无活跃持仓的 HOLDING 项降级为 WATCHING。
-    单标的失败仅记录日志、不中断，返回汇总供前端提示（#1458 后续）。
-    请求体可选：{"demote": true} 控制是否执行降级（默认 true）。
-    """
-    body = request.get_json(silent=True) or {}
-    demote = body.get('demote', True)
-    with get_db() as db:
-        family_id = get_family_id()
-        created = ensure_watchlist_for_positions(db, family_id)
-        promoted = demoted = 0
-        if demote:
-            promoted, demoted = reconcile_watchlist_status(db, family_id)
-        db.commit()
-    return jsonify(
-        {
-            'data': {'created': created, 'promoted': promoted, 'demoted': demoted},
-            'message': 'ok',
-        }
-    )
 
 
 @watchlist_bp.get('/trends/')
