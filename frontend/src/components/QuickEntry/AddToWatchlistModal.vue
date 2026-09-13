@@ -639,10 +639,10 @@ onMounted(async () => {
 .asset-option__sub {
   flex: 0 0 auto;
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
   line-height: 20px;
   color: var(--text-tertiary);
   white-space: nowrap;
-  font-variant-numeric: tabular-nums;
 }
 
 .asset-option__type {
@@ -662,41 +662,50 @@ onMounted(async () => {
   color: var(--asset-type-fund);
   background-color: var(--asset-type-fund-bg);
 }
+
 .asset-option__type--stock {
   color: var(--asset-type-stock);
   background-color: var(--asset-type-stock-bg);
 }
+
 .asset-option__type--etf {
   color: var(--asset-type-etf);
   background-color: var(--asset-type-etf-bg);
 }
+
 .asset-option__type--index {
   color: var(--asset-type-index);
   background-color: var(--asset-type-index-bg);
 }
+
 .asset-option__type--bond {
   color: var(--asset-type-bond);
   background-color: var(--asset-type-bond-bg);
 }
+
 .asset-option__type--crypto {
   color: var(--asset-type-crypto);
   background-color: var(--asset-type-crypto-bg);
 }
+
 .asset-option__type--portfolio {
   color: var(--asset-type-portfolio);
   background-color: var(--asset-type-portfolio-bg);
 }
+
 .asset-option__type--manager {
   color: var(--asset-type-manager);
   background-color: var(--asset-type-manager-bg);
 }
+
 .asset-option__type--money_fund {
-  color: var(--asset-type-money_fund);
-  background-color: var(--asset-type-money_fund-bg);
+  color: var(--asset-type-money-fund);
+  background-color: var(--asset-type-money-fund-bg);
 }
+
 .asset-option__type--reverse_repo {
-  color: var(--asset-type-reverse_repo);
-  background-color: var(--asset-type-reverse_repo-bg);
+  color: var(--asset-type-reverse-repo);
+  background-color: var(--asset-type-reverse-repo-bg);
 }
 
 /* ── 已选资产信息卡 ── */
@@ -746,41 +755,50 @@ onMounted(async () => {
   color: var(--asset-type-fund);
   background-color: var(--asset-type-fund-bg);
 }
+
 .selected-asset-card__type--stock {
   color: var(--asset-type-stock);
   background-color: var(--asset-type-stock-bg);
 }
+
 .selected-asset-card__type--etf {
   color: var(--asset-type-etf);
   background-color: var(--asset-type-etf-bg);
 }
+
 .selected-asset-card__type--index {
   color: var(--asset-type-index);
   background-color: var(--asset-type-index-bg);
 }
+
 .selected-asset-card__type--bond {
   color: var(--asset-type-bond);
   background-color: var(--asset-type-bond-bg);
 }
+
 .selected-asset-card__type--crypto {
   color: var(--asset-type-crypto);
   background-color: var(--asset-type-crypto-bg);
 }
+
 .selected-asset-card__type--portfolio {
   color: var(--asset-type-portfolio);
   background-color: var(--asset-type-portfolio-bg);
 }
+
 .selected-asset-card__type--manager {
   color: var(--asset-type-manager);
   background-color: var(--asset-type-manager-bg);
 }
+
 .selected-asset-card__type--money_fund {
-  color: var(--asset-type-money_fund);
-  background-color: var(--asset-type-money_fund-bg);
+  color: var(--asset-type-money-fund);
+  background-color: var(--asset-type-money-fund-bg);
 }
+
 .selected-asset-card__type--reverse_repo {
-  color: var(--asset-type-reverse_repo);
-  background-color: var(--asset-type-reverse_repo-bg);
+  color: var(--asset-type-reverse-repo);
+  background-color: var(--asset-type-reverse-repo-bg);
 }
 
 /* 关键信息两列栅格：label 弱化、value 单行省略（长公司名不撑破卡片） */
