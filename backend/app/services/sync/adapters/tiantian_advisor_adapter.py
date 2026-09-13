@@ -27,6 +27,7 @@ from typing import Any, List, Optional
 import requests
 from loguru import logger
 
+from app.core.constants import ADVISOR_ADJUST_OP_NAME as ADJUST_OP_NAME
 from app.core.time_utils import now_shanghai
 
 COMBINE_HOST = 'https://uni-fundts.1234567.com.cn'
@@ -48,8 +49,7 @@ MAX_RETRIES = 3
 RETRY_BACKOFF = (2, 4, 8)  # 指数退避（秒）
 TIMEOUT = 20
 
-# operationInt → 操作名
-ADJUST_OP_NAME = {1: '建仓', 2: '加仓', 3: '减仓', 4: '新增', 5: '持平'}
+# operationInt → 操作名（词表单一真相源见 app.core.constants.ADVISOR_ADJUST_OP_NAME）
 
 # 模块级节流：同一进程内所有请求共享（适配器可能被多 job 实例化）
 _throttle_lock = threading.Lock()
@@ -72,6 +72,14 @@ class TiantianAdvisorAdapter:
         self.session = requests.Session()
         self.session.headers.update(HEADERS)
         self.logger = logger.bind(adapter='tiantian_advisor')
+
+    # ── 适配器标识（orchestrator._save_sync_log 审计落库需要，缺则 AttributeError）──
+
+    def get_name(self) -> str:
+        return 'tiantian_advisor'
+
+    def get_version(self) -> str:
+        return 'v1'
 
     # ── HTTP 基础（节流 + 重试） ──
 

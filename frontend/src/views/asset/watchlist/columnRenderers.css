@@ -284,3 +284,25 @@
 .el-table .link-empty {
   color: var(--text-disabled);
 }
+
+/* ── 且慢组合补充列（#1468）── */
+/* 策略简介：单行省略，完整内容挂 title（列宽 200px 装不下整段简介） */
+.el-table .ellipsis-cell {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+/* 官方链接：用品牌色表达「可跳转」，不用涨红跌绿语义色 */
+.el-table .advisor-source-link {
+  color: var(--el-color-primary);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.el-table .advisor-source-link:hover {
+  text-decoration: underline;
+}

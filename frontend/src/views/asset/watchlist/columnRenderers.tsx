@@ -870,13 +870,28 @@ const renderLinks: FunctionalComponent<{
  * - 集中度：HHI = Σ(占比%²)，越高越集中，title 解释口径。
  */
 const RENDERER_ADVISOR_RETURNS = new Set([
+  // #1468 且慢补充区间（与后端 _ADVISOR_METRIC_KEYS 对齐）
+  "return_1d",
   "return_1w",
   "return_1m",
+  "return_1q",
+  "return_6m",
   "return_1y",
   "return_ytd",
   "return_since_incep",
   "excess_return"
 ]);
+
+/** 只放行 http(s) 链接：后端落库的是外部站点的 url，防 javascript: 之类的注入 */
+function safeExternalUrl(raw: unknown): string | null {
+  if (typeof raw !== "string" || !raw) return null;
+  try {
+    const u = new URL(raw);
+    return u.protocol === "http:" || u.protocol === "https:" ? raw : null;
+  } catch {
+    return null;
+  }
+}
 const renderAdvisor: FunctionalComponent<{
   row: WatchlistRow;
   def: ColumnDef;
@@ -917,6 +932,76 @@ const renderAdvisor: FunctionalComponent<{
   }
   if (def.key === "advisor_benchmark") {
     return h("span", { class: "text-sm", title: "业绩比较基准" }, String(v));
+  }
+  // ── #1468 且慢组合补充列 ──
+  if (def.key === "volatility") {
+    return h(
+      "span",
+      {
+        class: "text-sm",
+        title: "年化波动率(%)：衡量组合净值波动幅度，越低越平稳"
+      },
+      `${Number(v).toFixed(2)}%`
+    );
+  }
+  if (def.key === "sharpe_ratio") {
+    return h(
+      "span",
+      {
+        class: "text-sm",
+        title: "夏普比率：每承担一单位波动换取的超额收益，越高越好"
+      },
+      Number(v).toFixed(2)
+    );
+  }
+  if (def.key === "advisor_nav") {
+    // 净值日期并入 title，不单独开列（口径透明：让用户知道这是哪天的净值）
+    const navDate = field(row, "advisor_nav_date") as string | null | undefined;
+    return h(
+      "span",
+      {
+        class: "text-sm",
+        title: navDate ? `组合净值（截至 ${navDate}）` : "组合最新净值"
+      },
+      Number(v).toFixed(4)
+    );
+  }
+  if (def.key === "advisor_allocation_label") {
+    const raw = field(row, "advisor_allocation") as string | null | undefined;
+    return h(
+      "span",
+      {
+        class: "text-sm",
+        title: raw ? `配置目标：${String(v)}（${raw}）` : "配置目标"
+      },
+      String(v)
+    );
+  }
+  if (def.key === "advisor_product_type") {
+    return h("span", { class: "text-sm", title: "产品类型" }, String(v));
+  }
+  if (def.key === "advisor_strategy_summary") {
+    return h(
+      "span",
+      { class: "text-sm ellipsis-cell", title: String(v) },
+      String(v)
+    );
+  }
+  if (def.key === "advisor_source_url") {
+    const url = safeExternalUrl(v);
+    if (!url) return dash();
+    return h(
+      "a",
+      {
+        class: "text-sm advisor-source-link",
+        href: url,
+        target: "_blank",
+        rel: "noopener noreferrer",
+        // 阻止冒泡：表格行点击会打开详情抽屉，点链接不应触发
+        onClick: (e: MouseEvent) => e.stopPropagation()
+      },
+      "查看"
+    );
   }
   if (RENDERER_ADVISOR_RETURNS.has(def.key)) {
     return h(RiseFallText, { value: Number(v), size: "sm" });

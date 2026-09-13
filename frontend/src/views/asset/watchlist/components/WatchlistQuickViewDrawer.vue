@@ -133,6 +133,94 @@
         </dl>
       </section>
 
+      <!-- 投顾组合信息（#1468）：配置目标 / 产品类型 / 净值 / 策略简介 / 官方链接 -->
+      <section v-if="isPortfolio" class="wqv-sec">
+        <h4 class="wqv-sec__title">投顾信息</h4>
+        <dl class="wqv-list">
+          <div class="wqv-row">
+            <dt class="wqv-label">配置目标</dt>
+            <dd class="wqv-value">
+              {{ item.advisor_allocation_label || "—" }}
+            </dd>
+          </div>
+          <div class="wqv-row">
+            <dt class="wqv-label">产品类型</dt>
+            <dd class="wqv-value">{{ item.advisor_product_type || "—" }}</dd>
+          </div>
+          <div class="wqv-row">
+            <dt class="wqv-label">组合净值</dt>
+            <dd class="wqv-value">{{ navText || "—" }}</dd>
+          </div>
+          <div v-if="strategySummary" class="wqv-row">
+            <dt class="wqv-label">策略简介</dt>
+            <dd class="wqv-value wqv-value--wrap">{{ strategySummary }}</dd>
+          </div>
+          <div v-if="sourceUrl" class="wqv-row">
+            <dt class="wqv-label">官方页面</dt>
+            <dd class="wqv-value">
+              <a
+                class="wqv-link"
+                :href="sourceUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                >前往查看</a
+              >
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <!-- 投顾组合成分与调仓（#1468）：抽屉打开时按需拉取，不进列表主请求 -->
+      <section v-if="isPortfolio" class="wqv-sec">
+        <h4 class="wqv-sec__title">成分与调仓</h4>
+
+        <div v-if="detailLoading" class="wqv-hint">加载中…</div>
+        <div v-else-if="detailError" class="wqv-empty">{{ detailError }}</div>
+        <template v-else>
+          <dl class="wqv-list">
+            <div class="wqv-row">
+              <dt class="wqv-label">成分基金</dt>
+              <dd class="wqv-value">
+                <span v-if="holdingsCount">{{ holdingsCount }} 只</span>
+                <span v-else class="wqv-empty">—</span>
+                <span v-if="missingCount" class="wqv-hint">
+                  · {{ missingCount }} 只未收录本地
+                </span>
+              </dd>
+            </div>
+          </dl>
+
+          <div v-if="adjustGroups.length" class="wqv-adjusts">
+            <div
+              v-for="g in adjustGroups"
+              :key="g.adjust_date"
+              class="wqv-adjust"
+            >
+              <div class="wqv-adjust__head">
+                <span class="wqv-adjust__date">{{ g.adjust_date }}</span>
+                <span class="wqv-hint">{{ g.items.length }} 只调整</span>
+              </div>
+              <ul class="wqv-adjust__list">
+                <li v-for="it in g.items" :key="it.fund_code" class="wqv-li">
+                  <span class="wqv-li__name" :title="it.fund_name || ''">
+                    {{ it.fund_name || it.fund_code }}
+                  </span>
+                  <span class="wqv-li__ratio">
+                    <span :class="opClass(it.op_name)">{{ it.op_name }}</span>
+                    {{ ratioText(it) }}
+                  </span>
+                </li>
+              </ul>
+            </div>
+          </div>
+          <div v-else class="wqv-empty">
+            暂无调仓记录{{
+              isQieman ? "（需累积 ≥2 次持仓快照后自动推导）" : ""
+            }}
+          </div>
+        </template>
+      </section>
+
       <!-- 备注（可编辑） -->
       <section class="wqv-sec">
         <div class="wqv-sec__head">
@@ -155,11 +243,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import { formatDate } from "@/utils/date";
 import { pricePrecision } from "@/utils/pricePrecision";
+import {
+  getAdvisorAdjusts,
+  getAdvisorHoldings,
+  type AdvisorAdjustGroup,
+  type AdvisorAdjustItem,
+  type AdvisorAdjustsResult,
+  type AdvisorHoldingsResult
+} from "@/api/funds";
 import type { WatchlistItem } from "@/api/watchlist";
 
 const props = defineProps<{
@@ -188,6 +284,33 @@ const NON_HOLDABLE_TYPES = new Set(["index", "manager", "portfolio"]);
 const assetType = computed(() => (props.item?.asset_type || "").toLowerCase());
 const isComposite = computed(() => COMPOSITE_TYPES.has(assetType.value));
 const isHoldable = computed(() => !NON_HOLDABLE_TYPES.has(assetType.value));
+/** 投顾组合：额外展示策展元数据与策略简介（#1468） */
+const isPortfolio = computed(() => assetType.value === "portfolio");
+
+/** 策略简介完整文本（表格列里是单行省略的，抽屉里给全文） */
+const strategySummary = computed(
+  () => props.item?.advisor_strategy_summary || ""
+);
+
+/** 组合净值 + 净值日期，合并成「1.2345（截至 2026-09-11）」 */
+const navText = computed(() => {
+  const nav = props.item?.advisor_nav;
+  if (nav == null) return "";
+  const d = props.item?.advisor_nav_date;
+  return d ? `${nav.toFixed(4)}（截至 ${d}）` : nav.toFixed(4);
+});
+
+/** 只放行 http(s)：外部站点 url 直接插 href 有注入风险 */
+const sourceUrl = computed(() => {
+  const raw = props.item?.advisor_source_url;
+  if (!raw) return "";
+  try {
+    const u = new URL(raw);
+    return u.protocol === "http:" || u.protocol === "https:" ? raw : "";
+  } catch {
+    return "";
+  }
+});
 const precision = computed(() => pricePrecision(props.item?.asset_type ?? ""));
 
 const hasPrice = computed(
@@ -222,6 +345,75 @@ const tagText = computed(() => {
     .filter((n): n is string => !!n);
   return names.length ? names.join("、") : "—";
 });
+
+/* ── #1468 成分与调仓：抽屉打开时按需拉取 ──
+   不进列表主请求：只有点开速览的组合才需要，105 只组合全量带明细会拖慢列表。 */
+
+const isQieman = computed(
+  () => (props.item?.advisor_platform || "").toUpperCase() === "QIEMAN"
+);
+const detailLoading = ref(false);
+const detailError = ref("");
+const holdingsCount = ref(0);
+const missingCount = ref(0);
+const adjustGroups = ref<AdvisorAdjustGroup[]>([]);
+
+/** http 拦截器可能已拆信封也可能没拆（仓库里两种写法并存），这里都兜住 */
+function unwrap<T>(res: unknown): T | null {
+  if (!res) return null;
+  const r = res as { data?: unknown };
+  return ((r.data ?? res) as T) ?? null;
+}
+
+async function loadDetail(symbol: string) {
+  detailLoading.value = true;
+  detailError.value = "";
+  holdingsCount.value = 0;
+  missingCount.value = 0;
+  adjustGroups.value = [];
+  try {
+    const [hRes, aRes] = await Promise.all([
+      getAdvisorHoldings(symbol),
+      getAdvisorAdjusts(symbol, 3)
+    ]);
+    const h = unwrap<AdvisorHoldingsResult>(hRes);
+    const holdings = h?.holdings ?? [];
+    holdingsCount.value = holdings.length;
+    missingCount.value = holdings.filter(x => !x.in_local_db).length;
+
+    const a = unwrap<AdvisorAdjustsResult>(aRes);
+    adjustGroups.value = a?.adjusts ?? [];
+  } catch {
+    detailError.value = "明细加载失败";
+  } finally {
+    detailLoading.value = false;
+  }
+}
+
+watch(
+  () => [props.modelValue, props.item?.symbol, isPortfolio.value] as const,
+  ([open, symbol, isPf]) => {
+    if (!open || !isPf || !symbol) return;
+    void loadDetail(String(symbol));
+  },
+  { immediate: true }
+);
+
+/** 加仓/减仓用涨跌语义色，新增/持平/建仓用中性色（不是「行情」，别误导） */
+function opClass(op: string | null): string {
+  if (op === "加仓") return "wqv-op wqv-op--add";
+  if (op === "减仓") return "wqv-op wqv-op--cut";
+  return "wqv-op";
+}
+
+function ratioText(it: AdvisorAdjustItem): string {
+  const pre = it.pre_ratio;
+  const after = it.after_ratio;
+  if (pre == null && after == null) return "";
+  if (pre == null) return `${after?.toFixed(2)}%`;
+  if (after == null) return `${pre.toFixed(2)}% → —`;
+  return `${pre.toFixed(2)}% → ${after.toFixed(2)}%`;
+}
 </script>
 
 <style scoped>
@@ -310,6 +502,86 @@ const tagText = computed(() => {
 
 .wqv-empty {
   color: var(--text-disabled);
+}
+
+/* #1468 策略简介可能上百字，右对齐 + 换行阅读（默认 .wqv-value 是 text-align:right） */
+.wqv-value--wrap {
+  max-width: 260px;
+  line-height: 1.6;
+  text-align: left;
+  white-space: pre-wrap;
+}
+
+.wqv-link {
+  color: var(--el-color-primary);
+  text-decoration: none;
+}
+
+.wqv-link:hover {
+  text-decoration: underline;
+}
+
+/* #1468 调仓明细：按调仓日分组的紧凑列表 */
+.wqv-adjusts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.wqv-adjust__head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+
+.wqv-adjust__date {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.wqv-adjust__list {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.wqv-li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 2px 0;
+  font-size: 12px;
+}
+
+.wqv-li__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.wqv-li__ratio {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary);
+}
+
+.wqv-op {
+  margin-right: 4px;
+  color: var(--text-tertiary);
+}
+
+/* 加/减仓用涨跌语义变量（不硬编码色值），其余操作保持中性色 */
+.wqv-op--add {
+  color: var(--color-rise);
+}
+
+.wqv-op--cut {
+  color: var(--color-fall);
 }
 
 .wqv-notes {

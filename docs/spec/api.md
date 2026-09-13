@@ -23,6 +23,8 @@ title: 核心 API 端点清单（api）
 |GET|/api/summary/|仪表盘总资产汇总数据|
 |GET|/api/funds/search/|基金模糊搜索|
 |GET|/api/funds/managers/search/|基金经理搜索|
+|GET|/api/funds/advisors/{code}/holdings/|投顾组合当前持仓（#1468）：最新快照日的成分基金与占比，每只带 `in_local_db` 标注是否已收录本地 `funds` 表|
+|GET|/api/funds/advisors/{code}/adjusts/|投顾组合调仓明细（#1468）：按调仓日倒序分组，`?limit=N`（缺省 10 上限 50）、`?date=YYYY-MM-DD` 精确取某日；且慢明细由持仓快照序列推导，无官方历史接口|
 |GET|/api/securities/search/|证券股票搜索|
 |GET/POST|/api/watchlist/items/|自选资产列表、新增|
 |PATCH/DELETE|/api/watchlist/items/{item_id}/|更新、删除自选|

@@ -83,3 +83,72 @@ export function searchFunds(query: string) {
 export function getFundFeeRates(fundCode: string) {
   return http.request<any>("get", `/api/funds/${fundCode}/fee-rates/`);
 }
+
+// ── 投顾组合明细只读接口（#1468）──
+// advisor_holdings / advisor_adjust_histories 此前只写不读（同步任务落库但无接口暴露），
+// 这两个口子把持仓与调仓明细开放给前端消费。属 market 域公开参照数据，无需登录。
+
+/** 组合成分基金（当前最新快照） */
+export interface AdvisorHoldingItem {
+  fund_code: string;
+  fund_name: string | null;
+  /** 调仓前占比(%)，首次快照无前值 */
+  pre_ratio: number | null;
+  /** 调仓后 / 当前占比(%) */
+  after_ratio: number | null;
+  op_name: string | null;
+  /** 是否已收录进本地 funds 表（暂缺时前端不提供跳转，避免点了没反应） */
+  in_local_db: boolean;
+}
+
+export interface AdvisorHoldingsResult {
+  code: string;
+  name: string;
+  platform: string;
+  /** 快照日（YYYY-MM-DD）；无持仓时为 null */
+  as_of_date: string | null;
+  holdings: AdvisorHoldingItem[];
+}
+
+/** 单只基金的调仓明细 */
+export interface AdvisorAdjustItem {
+  fund_code: string;
+  fund_name: string | null;
+  op_name: string | null;
+  pre_ratio: number | null;
+  after_ratio: number | null;
+}
+
+/** 一次调仓（同一调仓日）的整体记录 */
+export interface AdvisorAdjustGroup {
+  adjust_date: string;
+  reason: string | null;
+  /** `qieman` = 由我们的持仓快照序列推导；`tiantian` = 官方接口 */
+  source: string;
+  items: AdvisorAdjustItem[];
+}
+
+export interface AdvisorAdjustsResult {
+  code: string;
+  name: string;
+  platform: string;
+  /** 按调仓日倒序 */
+  adjusts: AdvisorAdjustGroup[];
+}
+
+/** 组合当前持仓（含成分基金是否收录本地名录） */
+export function getAdvisorHoldings(code: string) {
+  return http.request<ApiResponse<AdvisorHoldingsResult>>(
+    "get",
+    `/api/funds/advisors/${code}/holdings/`
+  );
+}
+
+/** 组合调仓明细，按调仓日分组；limit = 最近 N 个调仓日（后端上限 50） */
+export function getAdvisorAdjusts(code: string, limit = 3) {
+  return http.request<ApiResponse<AdvisorAdjustsResult>>(
+    "get",
+    `/api/funds/advisors/${code}/adjusts/`,
+    { params: { limit } }
+  );
+}

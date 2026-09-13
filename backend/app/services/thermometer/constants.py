@@ -48,7 +48,60 @@ JISILU_REFERER = 'https://www.jisilu.cn/data/indicator/'
 QIEMAN_MCP_URL = 'https://stargate.yingmi.com/mcp/v2'
 QIEMAN_PROTOCOL_VERSION = '2024-11-05'
 QIEMAN_CLIENT_INFO = {'name': 'fundmate', 'version': '1.0.0'}
-QIEMAN_TOOL = 'GetLatestQuotations'
+QIEMAN_TOOL = 'GetLatestQuotations'  # 市场温度计
+QIEMAN_STRATEGY_DETAIL_TOOL = 'GetStrategyDetails'  # 投顾组合概览/风险收益指标
+QIEMAN_STRATEGY_COMPOSITION_TOOL = 'BatchGetStrategiesComposition'  # 投顾组合持仓
+
+# 且慢组合概览（GetStrategyDetails）中文字段 → 归一化英文键（实测 2026-09）。
+# 集中在此便于接口扩字段时只改一处，勿散落到 fetcher / job。
+QIEMAN_STRATEGY_DETAIL_FIELDS: Dict[str, str] = {
+    '策略代码': 'code',
+    '策略名称': 'name',
+    '策略简介': 'summary',
+    '策略描述': 'desc',
+    '策略成立时间': 'estab_date',
+    '策略风险等级': 'risk_level',
+    '管理人名称': 'org_name',
+    '管理人简介': 'org_intro',
+    '管理人头像': 'org_avatar',
+    '是否实名认证': 'verified',
+    '策略净值': 'nav',
+    '最新净值日期': 'nav_date',
+    '日收益率': 'return_1d',
+    '周收益率': 'return_1w',
+    '月收益率': 'return_1m',
+    '季度收益率': 'return_1q',
+    '半年收益率': 'return_6m',
+    '年收益率': 'return_1y',
+    '成立以来收益率': 'return_since_incep',
+    '最大回撤': 'max_drawdown',
+    '夏普比率': 'sharpe_ratio',
+    '波动率': 'volatility',
+    '年化收益率': 'annual_return',
+    'url': 'url',
+}
+
+#: 上述字段中「带百分号的字符串」集合，归一化时剥 % 转 float（'20.32%' → 20.32）
+QIEMAN_STRATEGY_PCT_FIELDS = frozenset(
+    {
+        'return_1d',
+        'return_1w',
+        'return_1m',
+        'return_1q',
+        'return_6m',
+        'return_1y',
+        'return_since_incep',
+        'max_drawdown',
+        'volatility',
+        'annual_return',
+    }
+)
+
+#: 上述字段中的纯数值字段，归一化时直接转 float
+QIEMAN_STRATEGY_NUM_FIELDS = frozenset({'nav', 'sharpe_ratio'})
+
+#: GetStrategyDetails 单次可传的组合代码上限（接口 pageSize 上限 100，留余量）
+QIEMAN_STRATEGY_BATCH_SIZE = 50
 
 # ─── 有知有行 ───
 YOUZHIYOUXING_URL = 'https://youzhiyouxing.cn/thermometer'
