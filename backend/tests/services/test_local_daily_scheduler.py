@@ -166,6 +166,14 @@ class TestRestDay:
     def test_ordinary_monday_is_trading_day(self):
         assert ds.is_rest_day(MONDAY) is False
 
+    def test_no_arg_uses_today_shanghai(self):
+        # 回归：_startup_catch_up 以 is_rest_day() 无参调用，today=None 时
+        # 走 today_shanghai()（已返回 date，不可再 .date()），此前会崩
+        # AttributeError: 'datetime.date' object has no attribute 'date'
+        result = ds.is_rest_day()
+        assert isinstance(result, bool)
+        assert result is (not ds.is_trading_day(ds.today_shanghai()))
+
 
 # ── 触发时刻解析 ────────────────────────────────────────────────────────
 

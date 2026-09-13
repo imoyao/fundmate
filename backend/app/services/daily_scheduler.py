@@ -283,7 +283,7 @@ def is_rest_day(today: Optional[date] = None) -> bool:
     口径唯一来自 `app.core.trading_calendar`：非开盘日净值与温度都不会更新，
     按点空跑只会白送一批请求 + 留下失败的 sync_log，故直接跳过。
     """
-    return not is_trading_day(today or today_shanghai().date())
+    return not is_trading_day(today or today_shanghai())
 
 
 def today_fire_time(cron: str, tzinfo: Any, now: datetime) -> Optional[datetime]:
