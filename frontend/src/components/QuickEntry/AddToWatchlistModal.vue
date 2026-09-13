@@ -8,11 +8,11 @@
     :close-on-click-modal="false"
     @closed="resetForm"
   >
-    <!-- 搜索框。结果项按「名称 / 品类 · 识别信息」两行分层展示：
-         组合类标的（投顾组合 / 基金经理）的平台原生码对用户无意义——且慢 ZHxxxx、
-         天天基金 tgCode 更是平台私有标识，故整段不展示代码，识别信息由
-         名称 + 品类 + 平台/主理人承担（与自选表格产品列同口径，见
-         `@/constants/advisorPlatform`）。 -->
+    <!-- 搜索框。结果项统一为「名称(主) · 次要锚点(灰) · 类型(最右配色)」一行三列：
+         带编码品种（股票/基金/ETF/指数/可转债/加密）：名称 | 编码 | 类型；
+         组合类（投顾组合/基金经理）：名称 | 平台·主理人 | 类型。
+         组合类平台原生码（且慢 ZHxxxx / 天天基金 tgCode）对用户无意义，整段不展示，
+         由名称 + 平台/主理人承担（见 @/constants/advisorPlatform）。 -->
     <el-form label-width="0px" class="asset-form">
       <el-form-item>
         <el-select
@@ -35,43 +35,46 @@
             :label="item.name"
             :value="item"
           >
-            <div
-              class="asset-option"
-              :class="{
-                'asset-option--composite': isCompositeAssetType(item.type)
-              }"
-            >
-              <span class="asset-option__col1" :title="rowColumns(item).col1">{{
-                rowColumns(item).col1
+            <div class="asset-option">
+              <span class="asset-option__name" :title="rowColumns(item).name">{{
+                rowColumns(item).name
               }}</span>
-              <span class="asset-option__col2" :title="rowColumns(item).col2">{{
-                rowColumns(item).col2
-              }}</span>
-              <span class="asset-option__type">{{
-                rowColumns(item).col3
-              }}</span>
+              <span
+                v-if="rowColumns(item).sub"
+                class="asset-option__sub"
+                :title="rowColumns(item).sub"
+                >{{ rowColumns(item).sub }}</span
+              >
+              <span
+                class="asset-option__type"
+                :class="`asset-option__type--${rowColumns(item).typeKey}`"
+                >{{ rowColumns(item).type }}</span
+              >
             </div>
           </el-option>
         </el-select>
       </el-form-item>
 
-      <!-- 已选择资产信息：按「名称 / 品类 / 关键识别信息」分层。
-           组合类标的（投顾组合 / 基金经理）不出现「代码」行——见上方搜索框注释。 -->
+      <!-- 已选择资产信息：主行与搜索项同结构（名称主视觉 · 次要锚点灰 · 类型配色最右）。
+           组合类标的（投顾组合 / 基金经理）不展示平台原生码——见上方搜索框注释。 -->
       <div v-if="selectedAsset" class="selected-asset-card rounded-xl mb-4">
         <div class="selected-asset-card__head">
           <span
-            class="selected-asset-card__col1"
-            :title="rowColumns(selectedAsset).col1"
-            >{{ rowColumns(selectedAsset).col1 }}</span
+            class="selected-asset-card__name"
+            :title="rowColumns(selectedAsset).name"
+            >{{ rowColumns(selectedAsset).name }}</span
           >
           <span
-            class="selected-asset-card__col2"
-            :title="rowColumns(selectedAsset).col2"
-            >{{ rowColumns(selectedAsset).col2 }}</span
+            v-if="rowColumns(selectedAsset).sub"
+            class="selected-asset-card__sub"
+            :title="rowColumns(selectedAsset).sub"
+            >{{ rowColumns(selectedAsset).sub }}</span
           >
-          <span class="selected-asset-card__type">{{
-            rowColumns(selectedAsset).col3
-          }}</span>
+          <span
+            class="selected-asset-card__type"
+            :class="`selected-asset-card__type--${rowColumns(selectedAsset).typeKey}`"
+            >{{ rowColumns(selectedAsset).type }}</span
+          >
           <el-tag v-if="assetAlreadyExists" type="warning" size="small">
             已在自选
           </el-tag>
@@ -537,33 +540,42 @@ const venueLabelOf = (item: SearchAssetOption): string =>
   item.venue ? getVenueLabel(item.venue) : "";
 
 /**
- * 搜索结果 / 已选信息卡的主行三列：以「用户最关心」为序，全部一行平铺、类型独占末列。
- * - 带编码品种（股票/基金/ETF/指数/可转债/加密等）：编码 | 名称 | 类型
- * - 组合类（基金经理/投顾）：名称 | 公司·平台·主理人 | 类型
- *   平台原生码（且慢 ZHxxxx / 天天基金 tgCode）对用户无意义，整段不展示，由
- *   名称 + 品类 + 平台/主理人承担（与自选表格产品列同口径，见 @/constants/advisorPlatform）。
+ * 搜索结果 / 已选信息卡主行：方案 A——名称统一为主视觉，次要锚点(灰)置右，类型配色最右。
+ * 所有品种行内结构完全一致，混合列表不再「各是各的」：
+ * - 带编码品种（股票/基金/ETF/指数/可转债/加密等）：名称 | 编码 | 类型
+ * - 组合类（基金经理/投顾）：名称 | 平台·主理人/公司 | 类型
+ *   平台原生码（且慢 ZHxxxx / 天天基金 tgCode）对用户无意义，整段不展示，
+ *   由名称 + 平台/主理人承担（见 @/constants/advisorPlatform）。
  */
 interface RowColumns {
-  col1: string;
-  col2: string;
-  col3: string;
+  /** 主视觉：资产名称。所有品种统一加粗主色、左对齐占满、超长省略 */
+  name: string;
+  /** 次要锚点：编码 / 平台·主理人 / 市场。灰色小字，无则不展示 */
+  sub?: string;
+  /** 类型中文标签（最右 pill 文本） */
+  type: string;
+  /** 原始 asset_type，用于类型 pill 按品种配色 */
+  typeKey: string;
 }
 const rowColumns = (item: SearchAssetOption): RowColumns => {
   const extra = item.extra ?? {};
   const type = typeLabelOf(item);
+  const typeKey = item.type || "";
   if (isCompositeAssetType(item.type)) {
     if (item.type === "manager") {
-      return { col1: item.name, col2: extra.company || "", col3: type };
+      return {
+        name: item.name,
+        sub: extra.company || undefined,
+        type,
+        typeKey
+      };
     }
-    return {
-      col1: item.name,
-      col2: [getAdvisorPlatformLabel(extra.platform), extra.host]
-        .filter((v): v is string => Boolean(v))
-        .join(" · "),
-      col3: type
-    };
+    const sub = [getAdvisorPlatformLabel(extra.platform), extra.host]
+      .filter((v): v is string => Boolean(v))
+      .join(" · ");
+    return { name: item.name, sub: sub || undefined, type, typeKey };
   }
-  return { col1: item.symbol || "", col2: item.name, col3: type };
+  return { name: item.name, sub: item.symbol || undefined, type, typeKey };
 };
 
 /**
@@ -573,7 +585,7 @@ const rowColumns = (item: SearchAssetOption): RowColumns => {
 const selectedMetaRows = computed<{ label: string; value: string }[]>(() => {
   const item = selectedAsset.value;
   if (!item) return [];
-  // 主行三列（rowColumns）已覆盖 编码/名称/类型（或 名称/公司/类型），
+  // 主行（rowColumns）已覆盖 名称/编码/类型（或 名称/平台/类型），
   // 此处仅补主行未承载的次要信息，避免与头部重复堆叠。
   if (isCompositeAssetType(item.type)) return [];
   const market = item.market ? getMarketLabel(item.market) : "";
@@ -597,7 +609,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* ── 搜索结果项：主行三列（主标识 | 次标识 | 类型），全部一行平铺、类型独占末列。
+/* ── 搜索结果项：主行三列（名称主视觉 | 次要锚点灰 | 类型配色最右），全部一行平铺。
    注意：下拉浮层被 teleport 到 body，这里只负责「行内结构」，浮层容器样式
    （高度、行高、hover）在文件末尾的非 scoped 块中按 popper-class 限定。 */
 .asset-option {
@@ -608,38 +620,29 @@ onMounted(async () => {
   min-width: 0;
 }
 
-/* 组合类标的（投顾/经理）次标识通常很短，若让 col2 flex:1 会把类型标签推到最右侧，
-   与 col2 之间留下大片空白，显得行过宽且重心不稳；改为内容宽度后布局更紧凑。 */
-.asset-option--composite {
-  justify-content: flex-start;
-}
-
-.asset-option--composite .asset-option__col2 {
-  flex: 0 1 auto;
-}
-
-.asset-option__col1 {
-  flex: 0 0 110px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  line-height: 20px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-
-.asset-option__col2 {
+/* 名称：所有品种统一主视觉（加粗、主色、占满左列、超长省略）。
+   方案 A：名称恒为主视觉，次要锚点（代码/平台/主理人）落到右侧灰字，
+   类型 pill 固定最右——混合列表里每行结构完全一致。 */
+.asset-option__name {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   line-height: 20px;
   color: var(--text-primary);
   white-space: nowrap;
+}
+
+/* 次要锚点：编码 / 平台·主理人 / 市场；灰色小字、不占空间、无则不渲染 */
+.asset-option__sub {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .asset-option__type {
@@ -650,6 +653,50 @@ onMounted(async () => {
   color: var(--text-secondary);
   background-color: var(--bg-soft);
   border-radius: var(--radius-pill);
+}
+
+/* 类型 pill 按品种配色：色值来自 colors.css / dark.scss 的 --asset-type-* 专属
+   token（深莫兰迪文字色 + 低透明同 hue 底，10 品种互不撞色，暗色同名覆盖）；
+   未知品种走默认灰。 */
+.asset-option__type--fund {
+  color: var(--asset-type-fund);
+  background-color: var(--asset-type-fund-bg);
+}
+.asset-option__type--stock {
+  color: var(--asset-type-stock);
+  background-color: var(--asset-type-stock-bg);
+}
+.asset-option__type--etf {
+  color: var(--asset-type-etf);
+  background-color: var(--asset-type-etf-bg);
+}
+.asset-option__type--index {
+  color: var(--asset-type-index);
+  background-color: var(--asset-type-index-bg);
+}
+.asset-option__type--bond {
+  color: var(--asset-type-bond);
+  background-color: var(--asset-type-bond-bg);
+}
+.asset-option__type--crypto {
+  color: var(--asset-type-crypto);
+  background-color: var(--asset-type-crypto-bg);
+}
+.asset-option__type--portfolio {
+  color: var(--asset-type-portfolio);
+  background-color: var(--asset-type-portfolio-bg);
+}
+.asset-option__type--manager {
+  color: var(--asset-type-manager);
+  background-color: var(--asset-type-manager-bg);
+}
+.asset-option__type--money_fund {
+  color: var(--asset-type-money_fund);
+  background-color: var(--asset-type-money_fund-bg);
+}
+.asset-option__type--reverse_repo {
+  color: var(--asset-type-reverse_repo);
+  background-color: var(--asset-type-reverse_repo-bg);
 }
 
 /* ── 已选资产信息卡 ── */
@@ -665,19 +712,7 @@ onMounted(async () => {
   min-width: 0;
 }
 
-.selected-asset-card__col1 {
-  flex: 0 0 110px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  line-height: 22px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-
-.selected-asset-card__col2 {
+.selected-asset-card__name {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -689,6 +724,14 @@ onMounted(async () => {
   white-space: nowrap;
 }
 
+.selected-asset-card__sub {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 22px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
 .selected-asset-card__type {
   flex-shrink: 0;
   padding: 0 6px;
@@ -697,6 +740,47 @@ onMounted(async () => {
   color: var(--text-secondary);
   background-color: var(--bg-soft);
   border-radius: var(--radius-pill);
+}
+
+.selected-asset-card__type--fund {
+  color: var(--asset-type-fund);
+  background-color: var(--asset-type-fund-bg);
+}
+.selected-asset-card__type--stock {
+  color: var(--asset-type-stock);
+  background-color: var(--asset-type-stock-bg);
+}
+.selected-asset-card__type--etf {
+  color: var(--asset-type-etf);
+  background-color: var(--asset-type-etf-bg);
+}
+.selected-asset-card__type--index {
+  color: var(--asset-type-index);
+  background-color: var(--asset-type-index-bg);
+}
+.selected-asset-card__type--bond {
+  color: var(--asset-type-bond);
+  background-color: var(--asset-type-bond-bg);
+}
+.selected-asset-card__type--crypto {
+  color: var(--asset-type-crypto);
+  background-color: var(--asset-type-crypto-bg);
+}
+.selected-asset-card__type--portfolio {
+  color: var(--asset-type-portfolio);
+  background-color: var(--asset-type-portfolio-bg);
+}
+.selected-asset-card__type--manager {
+  color: var(--asset-type-manager);
+  background-color: var(--asset-type-manager-bg);
+}
+.selected-asset-card__type--money_fund {
+  color: var(--asset-type-money_fund);
+  background-color: var(--asset-type-money_fund-bg);
+}
+.selected-asset-card__type--reverse_repo {
+  color: var(--asset-type-reverse_repo);
+  background-color: var(--asset-type-reverse_repo-bg);
 }
 
 /* 关键信息两列栅格：label 弱化、value 单行省略（长公司名不撑破卡片） */

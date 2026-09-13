@@ -253,6 +253,31 @@
   --chart-06: #7bc49a;
   --chart-07: #a3b5c7;
   --chart-08: #d5c4c4;
+
+  /* ===== 资产类型 pill 色（搜索下拉 / 已选信息卡的类型标签按品种着色） =====
+     深莫兰迪文字色 + 低透明同 hue 底，同屏 10 品种互不撞色；
+     暗色变体在 dark.scss 的 .dark 块同名覆盖。文字色承担对比度，
+     底色仅辅助区分（透明度 16%-24%）。2026-09-13 新增。 */
+  --asset-type-fund: #5f81a3; /* 基金 · 灰蓝 */
+  --asset-type-fund-bg: rgba(122, 154, 168, 0.16);
+  --asset-type-stock: #8268a3; /* 股票 · 紫 */
+  --asset-type-stock-bg: rgba(157, 129, 169, 0.16);
+  --asset-type-etf: #4f8f75; /* ETF · 薄荷绿 */
+  --asset-type-etf-bg: rgba(168, 203, 192, 0.2);
+  --asset-type-bond: #a0784a; /* 可转债 · 驼 */
+  --asset-type-bond-bg: rgba(196, 166, 138, 0.22);
+  --asset-type-crypto: #b06e80; /* 加密货币 · 灰玫瑰 */
+  --asset-type-crypto-bg: rgba(196, 160, 168, 0.2);
+  --asset-type-index: #676d99; /* 指数 · 靛 */
+  --asset-type-index-bg: rgba(122, 127, 168, 0.16);
+  --asset-type-portfolio: var(--brand-700); /* 投顾组合 · 品牌珊瑚红 */
+  --asset-type-portfolio-bg: rgba(227, 79, 56, 0.1);
+  --asset-type-manager: #4a8f96; /* 基金经理 · 青 */
+  --asset-type-manager-bg: rgba(111, 176, 184, 0.18);
+  --asset-type-money_fund: #7d8f5e; /* 货币基金 · 橄榄 */
+  --asset-type-money_fund-bg: rgba(156, 175, 136, 0.2);
+  --asset-type-reverse_repo: #97824f; /* 逆回购 · 沙金 */
+  --asset-type-reverse_repo-bg: rgba(212, 200, 152, 0.24);
 }
 
 /* ============================================================
