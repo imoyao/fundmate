@@ -51,7 +51,7 @@ class FakeAk:
     def stock_us_daily(self, *args):
         return _make_series_df(base=95.0)
 
-    def currency_boc_sina(self, *args):
+    def currency_boc_sina(self, *args, **kwargs):
         return _make_series_df(kind='currency')
 
     def bond_zh_us_rate(self, *args, **kwargs):
@@ -70,7 +70,7 @@ class FakeAk:
 class FakeAkRaiseOnCurrency(FakeAk):
     """currency_boc_sina 抛异常，验证汇率类资产降级。"""
 
-    def currency_boc_sina(self, *args):
+    def currency_boc_sina(self, *args, **kwargs):
         raise ConnectionError('东财通道不可达（模拟）')
 
 
@@ -163,3 +163,29 @@ def test_bond_yield_passes_start_date(monkeypatch):
     MarketOverviewService.get_overview(force_refresh=True)
 
     assert captured.get('start_date'), '未给 bond_zh_us_rate 传 start_date：会退化为全量翻页（~29s），首屏仍会超时'
+
+
+def test_currency_boc_sina_uses_recent_dates(monkeypatch):
+    """#1451/#1481：akshare 的 `currency_boc_sina` 默认日期被硬编码成 20230304~20231110，
+
+    会让探市页「美元指数 / 离岸人民币」两张卡永远显示 2023 年数据（复盘实测尾部停在
+    2023-11-10）。`_fetch_close_series` 必须给该源强制传入近期窗口，否则即使换源也修不好。
+    """
+    fake = FakeAk()
+    captured: dict = {}
+
+    def spy(*args, **kwargs):
+        captured.update(kwargs)
+        return fake.currency_boc_sina(*args, **kwargs)
+
+    monkeypatch.setattr(fake, 'currency_boc_sina', spy)
+    monkeypatch.setattr(market_service, 'get_akshare', lambda: fake)
+
+    MarketOverviewService.get_overview(force_refresh=True)
+
+    assert captured.get('start_date'), (
+        '未给 currency_boc_sina 传 start_date：会退化为 2023 年硬编码窗口，探市页汇率卡仍显示陈旧数据'
+    )
+    assert not str(captured['start_date']).startswith('2023'), (
+        f'start_date 仍是 2023 硬编码窗口（{captured.get("start_date")}），汇率卡会显示 2023 年数据'
+    )
