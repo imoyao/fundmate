@@ -233,6 +233,28 @@ export function getHomeSummary() {
   );
 }
 
+/** 持仓缺口：有活跃持仓但未加入自选的标的列表（前端 banner 引导一键加入）。 */
+export interface HoldingGap {
+  symbol: string;
+  name: string;
+  asset_type: string | null;
+}
+
+export function getHoldingGaps() {
+  return http.request<ApiResponse<HoldingGap[]>>(
+    "get",
+    "/api/watchlist/holding-gaps/"
+  );
+}
+
+/** 一键补齐：为活跃持仓创建 HOLDING 自选记录（买入即入自选的批量版）。
+ *  demote=true 时同时把无持仓的 HOLDING 项降级为 WATCHING。返回 { created, promoted, demoted }。 */
+export function reconcileWatchlist(demote = true) {
+  return http.request<
+    ApiResponse<{ created: number; promoted: number; demoted: number }>
+  >("post", "/api/watchlist/reconcile/", { data: { demote } });
+}
+
 // ---------- 标签相关 ----------
 export interface WatchlistTag {
   id: number;
