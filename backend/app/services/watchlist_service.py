@@ -8,6 +8,7 @@
 from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
+from loguru import logger
 from sqlalchemy import distinct, func, or_, select
 from sqlalchemy.orm import Query, Session
 
@@ -306,6 +307,158 @@ def create_watchlist_item(db: Session, data: Dict[str, Any], family_id: int) -> 
     return item
 
 
+def _infer_venue_for_asset_type(asset_type: Optional[str]) -> Optional[str]:
+    """持仓无 venue 列，按资产类型推断与 watchlist 一致的 venue（与 _list_holding_items 同源）。
+
+    - 经理/组合/指数：无交易场所，存空串；
+    - 基金/货基：OTC；其余（股票/ETF/可转债）：EXCHANGE。
+    normalize_and_infer_venue 对经理/组合/指数会忽略传入 venue，故空串安全。
+    """
+    at = (asset_type or '').strip().lower()
+    if at in ('manager', 'portfolio', 'index'):
+        return ''
+    if at in ('fund', 'money_fund'):
+        return 'OTC'
+    return 'EXCHANGE'
+
+
+def _normalize_for_position(symbol: str, asset_type: Optional[str]) -> Dict[str, Any]:
+    """把持仓 (symbol, asset_type) 归一到与 watchlist 唯一键一致的 (symbol, market, venue)。"""
+    venue = _infer_venue_for_asset_type(asset_type)
+    return normalize_and_infer_venue(symbol, venue, asset_type)
+
+
+def _find_watchlist_item_for_position(
+    db: Session, family_id: int, symbol: str, asset_type: Optional[str]
+) -> Optional[WatchlistItem]:
+    """按 symbol 定位持仓对应的自选记录（优先精确市场/venue 匹配，否则仅 symbol）。"""
+    norm = _normalize_for_position(symbol, asset_type)
+    item = (
+        db.query(WatchlistItem)
+        .filter_by(
+            symbol=norm['symbol'],
+            market=norm['market'],
+            venue=norm['venue'],
+            family_id=family_id,
+        )
+        .first()
+    )
+    if item is None:
+        item = db.query(WatchlistItem).filter_by(symbol=norm['symbol'], family_id=family_id).first()
+    return item
+
+
+def ensure_watchlist_for_positions(db: Session, family_id: int, symbols: Optional[List[str]] = None) -> int:
+    """为活跃持仓补齐 HOLDING 自选记录（买入即入自选 / 一键加入）。
+
+    - 已存在 → 升级为 HOLDING（缺失时创建）；
+    - 单标的失败仅记录日志、不中断整批（持仓写入路径要求静默，#1458 后续）。
+    返回新建数量（已存在升级不计入，避免一次买入多次计数）。
+
+    **不在此处提交事务**：本函数常被持仓写入链路（import/orchestrator 的
+    `with db.begin()` 上下文）调用，提前 commit 会关闭外层事务导致后续操作
+    报 "closed transaction"。改由各调用方在自身事务内统一提交（视图端点显式
+    commit）。
+    """
+    active_q = db.query(Position).filter(Position.family_id == family_id, Position.ownership_status == 'active')
+    if symbols is not None:
+        active_q = active_q.filter(Position.symbol.in_(symbols))
+    positions = active_q.all()
+
+    seen: set = set()
+    created = 0
+    for pos in positions:
+        if pos.symbol in seen:
+            continue  # 同一 symbol 多账户行已聚合
+        seen.add(pos.symbol)
+        try:
+            item = _find_watchlist_item_for_position(db, family_id, pos.symbol, pos.asset_type)
+            if item is None:
+                norm = _normalize_for_position(pos.symbol, pos.asset_type)
+                item = WatchlistItem(
+                    symbol=norm['symbol'],
+                    market=norm['market'],
+                    asset_type=(pos.asset_type or '').strip().lower() or None,
+                    venue=norm['venue'],
+                    status='HOLDING',
+                    family_id=family_id,
+                )
+                db.add(item)
+                created += 1
+            elif item.status != 'HOLDING':
+                item.status = 'HOLDING'
+        except Exception:
+            logger.exception('ensure_watchlist_for_positions 单标的失败: family=%s symbol=%s', family_id, pos.symbol)
+    return created
+
+
+def reconcile_watchlist_status(db: Session, family_id: int, symbols: Optional[List[str]] = None) -> Tuple[int, int]:
+    """卖出/重算后对齐自选状态：有活跃持仓→确保 HOLDING；无活跃持仓但状态 HOLDING→降级 WATCHING。
+
+    返回 (promoted, demoted)。单标的失败仅记录日志、不中断整批。
+
+    **不在此处提交事务**：同 ensure_watchlist_for_positions（见其 docstring），
+    由调用方在自身事务内统一提交。
+    """
+    active_q = db.query(Position.symbol).filter(Position.family_id == family_id, Position.ownership_status == 'active')
+    if symbols is not None:
+        active_q = active_q.filter(Position.symbol.in_(symbols))
+    active_symbols = {s for (s,) in active_q.distinct().all()}
+
+    items_q = db.query(WatchlistItem).filter(WatchlistItem.family_id == family_id)
+    if symbols is not None:
+        items_q = items_q.filter(WatchlistItem.symbol.in_(symbols))
+
+    promoted = 0
+    demoted = 0
+    for item in items_q.all():
+        try:
+            if item.symbol in active_symbols:
+                if item.status != 'HOLDING':
+                    item.status = 'HOLDING'
+                    promoted += 1
+            else:
+                if item.status == 'HOLDING':
+                    item.status = 'WATCHING'
+                    demoted += 1
+        except Exception:
+            logger.exception('reconcile_watchlist_status 单标的失败: family=%s symbol=%s', family_id, item.symbol)
+    return promoted, demoted
+
+
+def get_holding_gaps(db: Session, family_id: int) -> List[Dict[str, Any]]:
+    """返回「有活跃持仓但未加入自选」的标的列表（前端 banner 引导一键加入）。
+
+    判定：活跃持仓 symbol 在 watchlist 中不存在记录即为缺口。
+    """
+    watchlist_symbols = {
+        sym for (sym,) in db.query(WatchlistItem.symbol).filter(WatchlistItem.family_id == family_id).all()
+    }
+    rows = (
+        db.query(Position.symbol, Position.name, Position.asset_type)
+        .filter(Position.family_id == family_id, Position.ownership_status == 'active')
+        .distinct()
+        .all()
+    )
+    gaps: List[Dict[str, Any]] = []
+    seen: set = set()
+    for symbol, name, asset_type in rows:
+        if symbol in seen:
+            continue
+        seen.add(symbol)
+        norm = _normalize_for_position(symbol, asset_type)
+        if norm['symbol'] in watchlist_symbols:
+            continue
+        gaps.append(
+            {
+                'symbol': norm['symbol'],
+                'name': name or resolve_display_name(symbol, db),
+                'asset_type': (asset_type or '').strip().lower() or None,
+            }
+        )
+    return gaps
+
+
 def build_home_summary(db: Session, family_id: int) -> List[Dict[str, Any]]:
     """构建首页自选摘要数据"""
     pinned = (
@@ -440,8 +593,8 @@ def get_filtered_items_query(
         except ValueError:
             raise ValueError('tag_ids 参数格式错误')
         if tag_id_list:
-            item_ids_sub_query = (
-                db.query(distinct(WatchlistItemTag.item_id)).filter(WatchlistItemTag.tag_id.in_(tag_id_list)).subquery()
+            item_ids_sub_query = select(distinct(WatchlistItemTag.item_id)).filter(
+                WatchlistItemTag.tag_id.in_(tag_id_list)
             )
             query = query.filter(WatchlistItem.id.in_(item_ids_sub_query))
     elif tag_id:
