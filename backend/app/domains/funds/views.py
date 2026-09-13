@@ -157,7 +157,7 @@ def sync_fund_fees(fund_code: str):
 # 供自选「投顾组合」速览抽屉消费（market 域公开参照数据，无需登录）。
 
 
-def _f(v) -> float | None:
+def _safe_float(v) -> float | None:
     """SafeNumeric 读回是 Decimal，Flask jsonify 会把它序列化成字符串，必须显式转 float。"""
     return float(v) if v is not None else None
 
@@ -205,8 +205,8 @@ def get_advisor_holdings(code: str):
         {
             'fund_code': r.fund_code,
             'fund_name': r.fund_name,
-            'pre_ratio': _f(r.pre_ratio),
-            'after_ratio': _f(r.after_ratio),
+            'pre_ratio': _safe_float(r.pre_ratio),
+            'after_ratio': _safe_float(r.after_ratio),
             'op_name': r.op_name,
             'in_local_db': r.fund_code in known,
         }
@@ -294,8 +294,8 @@ def get_advisor_adjusts(code: str):
                 'fund_code': r.fund_code,
                 'fund_name': r.fund_name,
                 'op_name': r.op_name,
-                'pre_ratio': _f(r.pre_ratio),
-                'after_ratio': _f(r.after_ratio),
+                'pre_ratio': _safe_float(r.pre_ratio),
+                'after_ratio': _safe_float(r.after_ratio),
             }
         )
     adjusts = [grouped[d.isoformat()] for d in sorted(dates, reverse=True) if d.isoformat() in grouped]
