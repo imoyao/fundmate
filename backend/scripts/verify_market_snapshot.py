@@ -86,7 +86,7 @@ def main() -> int:
         print('=== 1. 跑落库 job（真实 akshare）===')
         t0 = time.monotonic()
         result = MarketSnapshotSyncJob(db).run()
-        print(f"耗时 {time.monotonic() - t0:.1f}s  status={result['status']}")
+        print(f'耗时 {time.monotonic() - t0:.1f}s  status={result["status"]}')
         stats = {k: v for k, v in result['stats'].items() if k != 'errors'}
         print(f'stats={stats}')
         for err in result['stats'].get('errors', []):
@@ -147,7 +147,7 @@ def main() -> int:
         lat.sort()
         p95 = lat[min(len(lat) - 1, int(len(lat) * 0.95))]
         print(f'  min={lat[0]:.1f}ms  median={statistics.median(lat):.1f}ms  p95={p95:.1f}ms  max={lat[-1]:.1f}ms')
-        print(f"  data_source={resp.get('data_source')}  资产组数={len(resp.get('groups', []))}")
+        print(f'  data_source={resp.get("data_source")}  资产组数={len(resp.get("groups", []))}')
         if p95 >= 300:
             print('  [FAIL] p95 超过验收标准 300ms')
             failures.append('读库 p95 超 300ms')

@@ -173,7 +173,7 @@ def test_bond_yield_passes_start_date(monkeypatch):
 
 
 def test_currency_boc_sina_passes_explicit_date_range(monkeypatch):
-    """#1460 F6：`currency_boc_sina` 必须显式传 `start_date` / `end_date`。
+    """#1460 F6 / #1481：`currency_boc_sina` 必须显式传 `start_date` / `end_date`。
 
     akshare 该函数的默认区间被上游**硬编码为 `20230304`~`20231110`**，只传品种名会
     永远拿到 2023 年那 180 行——页面上「美元指数」「离岸人民币」两张卡会一直展示
@@ -194,6 +194,10 @@ def test_currency_boc_sina_passes_explicit_date_range(monkeypatch):
     assert captured.get('start_date'), '未给 currency_boc_sina 传 start_date：会拿到 akshare 硬编码的 2023 年窗口'
     assert captured.get('end_date'), '未给 currency_boc_sina 传 end_date'
     assert captured['start_date'] < captured['end_date']
+    # akshare 硬编码的窗口是 `20230304`~`20231110`；显式传入的值必须不是它。
+    # 注意：不能用「不以 2023 开头」判定——近 3 年窗口的起点本就可能落在 2023 年。
+    assert captured['start_date'] != '20230304', 'start_date 仍是 akshare 硬编码的 20230304'
+    assert captured['end_date'] != '20231110', 'end_date 仍是 akshare 硬编码的 20231110'
     # 近 3 年（≥500 交易日），满足 500 日分位与 250 日 σ 两个窗口
     assert captured['start_date'][:4] <= str(now_shanghai().year - 2)
 
@@ -284,7 +288,11 @@ class TestOverviewFromDb:
         monkeypatch.setenv('MARKET_OVERVIEW_SOURCE', 'db')
         today = now_shanghai().date()
         _add_snapshot(
-            db, code='sh000001', name='上证指数', collected_at=today - timedelta(days=1), data=_good_payload(0.5, '2026-09-12 08:02:00')
+            db,
+            code='sh000001',
+            name='上证指数',
+            collected_at=today - timedelta(days=1),
+            data=_good_payload(0.5, '2026-09-12 08:02:00'),
         )
         _add_snapshot(db, code='sh000001', name='上证指数', collected_at=today, stale=True)
         db.commit()

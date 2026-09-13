@@ -44,7 +44,9 @@ def _currency_df(base: float = 6.8, end: str | None = None) -> pd.DataFrame:
         dates = pd.date_range(end=end, periods=400, freq='D')
     else:
         dates = pd.date_range('2024-01-01', periods=520, freq='D')
-    return pd.DataFrame({'日期': dates.strftime('%Y-%m-%d'), '中行折算价': [base + i * 0.0001 for i in range(len(dates))]})
+    return pd.DataFrame(
+        {'日期': dates.strftime('%Y-%m-%d'), '中行折算价': [base + i * 0.0001 for i in range(len(dates))]}
+    )
 
 
 def _bond_df() -> pd.DataFrame:

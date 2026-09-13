@@ -411,6 +411,9 @@ def _fetch_close_series(asset: Dict[str, Any]) -> Tuple[List[str], List[float]]:
     args, kwargs = _resolve_source_call(asset)
 
     def producer() -> Tuple[List[str], List[float]]:
+        # 日期窗口由 `_resolve_source_call` 按资产声明的 `date_range_years` 统一注入，
+        # 不在这里对单个 source 特判（`currency_boc_sina` 默认区间被上游硬编码为
+        # 20230304~20231110，不传日期必拿 2023 年数据，详见该函数文档）。
         df = fn(*args, **kwargs)
         return _normalize_series(df)
 
