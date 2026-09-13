@@ -8,11 +8,24 @@ import { Icon as IconifyIconOffline } from "@iconify/vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import { useMarketOverview } from "@/composables/market/useMarketOverview";
-import type { MarketAsset, MarketGroup } from "@/api/market";
+import type { MarketAnomaly, MarketAsset, MarketGroup } from "@/api/market";
 
 const { loading, error, overview, fetchOverview } = useMarketOverview();
 
 const groups = computed<MarketGroup[]>(() => overview.value?.groups ?? []);
+
+/** ⚡ 命中异动的资产（扁平化后供区块底部「异动解读」渲染） */
+const anomalyAssets = computed<
+  { asset: MarketAsset; anomaly: MarketAnomaly }[]
+>(() =>
+  groups.value
+    .flatMap(group => group.assets)
+    .map(asset => ({ asset, anomaly: asset.anomaly }))
+    .filter(
+      (x): x is { asset: MarketAsset; anomaly: MarketAnomaly } =>
+        x.anomaly !== null
+    )
+);
 const asOfNote = computed(() => overview.value?.as_of_note ?? "");
 const unavailableCount = computed(() => overview.value?.unavailable_count ?? 0);
 const bondYield = computed(() => overview.value?.bond_yield ?? null);
@@ -85,7 +98,17 @@ onMounted(() => {
             :class="{ 'asset-card--disabled': !asset.available }"
           >
             <div class="asset-card__top">
-              <span class="asset-card__name">{{ asset.name }}</span>
+              <span class="asset-card__name">
+                {{ asset.name }}
+                <!-- ⚡ 异动标记（§5.5 双线规则），命中才渲染；用图标而非 emoji（AGENTS.md 禁 emoji） -->
+                <span
+                  v-if="asset.anomaly"
+                  class="asset-card__anomaly"
+                  :title="`异动：${asset.anomaly.basis_note}`"
+                >
+                  <IconifyIconOffline icon="ep:lightning" />
+                </span>
+              </span>
               <span
                 v-if="asset.caliber"
                 class="asset-card__caliber"
@@ -144,6 +167,39 @@ onMounted(() => {
         </div>
       </div>
     </template>
+
+    <!-- ⚡ 异动解读（§6.1 区块底部）：列出当日命中双线规则的资产 + 规则自述 -->
+    <div v-if="anomalyAssets.length" class="anomaly-panel">
+      <div class="anomaly-panel__head">
+        <IconifyIconOffline icon="ep:lightning" class="anomaly-panel__icon" />
+        <span>异动解读</span>
+        <span class="anomaly-panel__count">{{ anomalyAssets.length }} 项</span>
+      </div>
+      <ul class="anomaly-panel__list">
+        <li
+          v-for="item in anomalyAssets"
+          :key="item.asset.key"
+          class="anomaly-item"
+        >
+          <span class="anomaly-item__name">{{ item.asset.name }}</span>
+          <span class="anomaly-item__change">
+            <RiseFallText
+              :value="item.anomaly.today_pct"
+              :precision="2"
+              size="sm"
+            />
+          </span>
+          <span class="anomaly-item__note">{{ item.anomaly.basis_note }}</span>
+        </li>
+      </ul>
+      <div class="anomaly-panel__foot">
+        判定用「双线规则」：单日涨跌超过自身近
+        {{ anomalyAssets[0].anomaly.sigma_window }} 个交易日波动（σ）的
+        {{ anomalyAssets[0].anomaly.sigma_multiple }} 倍，或超过
+        {{ anomalyAssets[0].anomaly.abs_threshold }}%
+        绝对阈值。此处为规则自述，暂未接入新闻源。
+      </div>
+    </div>
 
     <!-- 债券收益率轨（双轨：价格轨在卡片，收益率轨在此单独展示，不套涨红跌绿） -->
     <div v-if="bondYield" class="bond-yield">
@@ -299,6 +355,22 @@ onMounted(() => {
     color: var(--text-primary);
   }
 
+  /* ⚡ 异动标记：暖沙金底 + 品牌橙图标，刻意避开涨跌红绿语义 */
+  &__anomaly {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 3px;
+    margin-left: 4px;
+    font-size: 13px;
+    line-height: 1.5;
+    vertical-align: middle;
+    color: var(--brand-700);
+    cursor: help;
+    background: var(--color-warning-20);
+    border-radius: 4px;
+  }
+
   &__caliber {
     flex-shrink: 0;
     padding: 1px 6px;
@@ -383,6 +455,77 @@ onMounted(() => {
   &__label {
     font-size: 13px;
     font-weight: 600;
+  }
+}
+
+/* ⚡ 异动解读面板 */
+.anomaly-panel {
+  padding: 14px 16px;
+  background: var(--color-warning-20);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md);
+
+  &__head {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  &__icon {
+    font-size: 16px;
+    color: var(--brand-700);
+  }
+
+  &__count {
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--text-tertiary);
+  }
+
+  &__list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+  }
+
+  &__foot {
+    padding-top: 10px;
+    margin-top: 10px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-tertiary);
+    border-top: 1px solid var(--color-warning);
+  }
+}
+
+.anomaly-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 13px;
+
+  &__name {
+    min-width: 72px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  &__change {
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__note {
+    flex: 1 1 240px;
+    line-height: 1.6;
+    color: var(--text-secondary);
   }
 }
 
