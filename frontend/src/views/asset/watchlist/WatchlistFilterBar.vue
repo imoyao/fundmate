@@ -394,7 +394,7 @@ watch(
              与上方「管理分组」（管分组本身的新建/改名/删除）是两件事——本入口
              管「这个组里有哪些产品」，系统分组由后端规律维护故不展示。 -->
         <el-tooltip
-          v-if="groups.currentIsCustom"
+          v-if="groups.currentIsCustom.value"
           content="管理本组产品"
           placement="bottom"
         >

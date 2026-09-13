@@ -175,7 +175,7 @@
           @view-change="handleViewChange()"
           @filter-apply="handleViewChange()"
           @manage-groups="groupManagerVisible = true"
-          @manage-group-items="groupItemsVisible = true"
+          @manage-group-items="onManageGroupItems"
         />
 
         <!-- 持仓未入自选提示（#1458 后续：持仓即自选）：缺口可一键补齐 -->
@@ -670,6 +670,15 @@ const activeCustomGroup = computed<WatchlistGroup | null>(() => {
   if (gid == null) return null;
   return customGroups.value.find(g => g.id === gid) ?? null;
 });
+
+// 从自定义分组切到系统分组时，自动关闭「本组产品」抽屉，
+// 避免 activeCustomGroup 变为 null 后左栏显示「本组产品 0 项」的困惑。
+watch(currentIsCustom, isCustom => {
+  if (!isCustom && groupItemsVisible.value) {
+    groupItemsVisible.value = false;
+  }
+});
+
 /** 空态是否落在「空白自定义分组」：需为自定义分组且未叠加标签筛选
     （叠加了标签筛选时的空结果是筛选无匹配，不应引导去加产品） */
 const isEmptyCustomGroup = computed(
@@ -680,6 +689,18 @@ const isEmptyCustomGroup = computed(
 );
 
 function openGroupItemsDialog(): void {
+  if (!currentIsCustom.value) {
+    ElMessage.warning("系统分组不支持手动管理组内产品");
+    return;
+  }
+  groupItemsVisible.value = true;
+}
+
+function onManageGroupItems(): void {
+  if (!currentIsCustom.value) {
+    ElMessage.warning("系统分组不支持手动管理组内产品");
+    return;
+  }
   groupItemsVisible.value = true;
 }
 
