@@ -71,6 +71,7 @@ title: 数据自动更新清单（分层 · 频率 · 现状 · 缺口）
 | 基金经理 | L3 | `fund_manager` | 每季 | 2026-09-08 | 2/4 | ⚠️ 有失败 |
 | 基金公司主数据 | L3 | `amac_institution` | 每季 | 2026-08-24 | 4/4 | ⚠️ 稀疏 |
 | 指数名录 / 成分 / 日线 | L3 | `index_catalog` / `index_constituents` / `index_daily` | 日 / 季 / 日 | 09-11 / 09-08 / 09-09 | 各 1~2 次 | ⚠️ 稀疏 |
+| 探市 20 资产快照 | L3 | `market_snapshot` | 每日 08:00 | 待首次跑 | — | 🆕 #1460 方案 B 新建（15 行/天，见 `market-explorer.md` §7） |
 | 温度指标 | L3 | `temperature` | 每日 | 2026-08-02 | 25/26 | ⏸ |
 | 跨渠道关联 | L4 | `channel_link` | 每月 | 2026-09-11 | 1/1 | ✅ |
 | 资产快照 | L2 | `asset_snapshot` | 每日 | 无记录 | — | ❓ 日志盲区（#1402 前抛错不落日志） |
@@ -125,19 +126,23 @@ workflow 已按如下三处改（定义仍在 `main`，因为 `schedule` 只认�
 
 上表的根因是**「本机库没有任何触发器」**（CI 通道跑的是生产库），于是本机页面上看到的
 净值 / 温度永远是陈旧的。#1467 补上本机这一环：应用启动时起**进程内 APScheduler**
-（`app/services/daily_scheduler.py`），按 cron 跑两项：
+（`app/services/daily_scheduler.py`），按 cron 跑三项：
 
-| job | 触发（北京） | 对应第 4 节的数据项 |
-|-----|-------------|-------------------|
-| `temperature` | 20:00 | 温度指标 |
-| `fund_nav` | 21:30 | 净值 `daily_worth` / 货基万份收益 |
+| job | 触发（北京） | 交易日口径 | 对应第 4 节的数据项 |
+|-----|-------------|-----------|-------------------|
+| `temperature` | 20:00 | `cn`（A 股休市跳过） | 温度指标 |
+| `fund_nav` | 21:30 | `cn`（A 股休市跳过） | 净值 `daily_worth` / 货基万份收益 |
+| `market_snapshot` | 08:00 | `none`（**7×24，A 股假期照常跑**） | 探市 20 资产快照（#1460 方案 B） |
 
 - 开关 `SCHEDULER_ENABLED`（`backend/.env.example` 默认开，代码默认关）；非开盘日跳过；
   应用启动后延迟补跑「当天已过触发时刻却没成功」的任务；`data/daily_scheduler.lock`
   单实例锁保证同机只跑一份。
+- **按任务交易日口径**：`DailyJobSpec.calendar` 取 `cn` / `none`。探市资产的成分含美股 /
+  商品 / 汇率，「A 股休市」≠「全球休市」，按全局布尔跳过会让这些卡片在国庆**停更一周**，
+  故 `market_snapshot` 标 `none`；补跑判定同样逐任务进行，无全局早退。
 - **与 CI 通道的分工**：本机通道更新本机 SQLite（开发 / 自用），CI 通道更新生产库
   （Turso / Supabase），两者是不同库，不冲突、也不互为替代。
-- 本机通道**不含** `asset_snapshot`（资产快照）；需要的话在 `_JOB_TEMPLATES` 追加一行。
+- 本机通道**仍不含** `asset_snapshot`（资产快照）；需要的话在 `_JOB_TEMPLATES` 追加一行。
 - 查状态：`pdm run invoke sched.status`。详见 `docs/dev/scheduler-tasks.md`。
 
 > 仍**未被任何通道覆盖**的数据项：`price_history`（行情）、`fund_detail_enrich`、
@@ -153,7 +158,12 @@ workflow 已按如下三处改（定义仍在 `main`，因为 `schedule` 只认�
 | 4 | `fund_nav` / `price_history` 已停摆 | 净值止于 08-14、行情止于 05-31 | 净值随 #1 恢复；本机另由 §5.2 覆盖 |
 | 5 | 线上 SaaS 多库分层（热 / 温 / 冷） | 单库撑不起全量历史 | 另开 issue，不在本地范围 |
 | 6 | `funds` 7 列中 3 列的源缺失 / 未接入 | `risk_level` 等无数据可填 | 见 `tech-debt.md` §16.2 第 5 条 |
-| 7 | 本机库无触发器 → 本机页面数据陈旧 | 本地看到的净值 / 温度长期不更新 | ✅ 已修（§5.2；仅覆盖 `temperature` / `fund_nav`） |
+| 7 | 本机库无触发器 → 本机页面数据陈旧 | 本地看到的净值 / 温度长期不更新 | ✅ 已修（§5.2；覆盖 `temperature` / `fund_nav` / `market_snapshot`） |
+| 8 | `execution_plan` 漏 5 个已注册 job | `run_all_jobs` 实际只跑 16 个，`temperature` / `convertible_bond` / `index_valuation` / `channel_link` / `amac_institution` 从未被编排器批量调度 | ✅ 已修（2026-09-13，#1460 顺带；补 `None` 目标池 + 新增「注册集 = 计划集」双向断言测试） |
+| 9 | `AmacInstitutionJob` 的 `_pre_run` / `_post_run` 钩子从不被调用 | 基类 `SyncJob.run()` 未调用这两个钩子，该 job 的「标记失效机构」逻辑永不执行 | ⬜ **另开 issue**（超 #1460 范围，属独立缺陷） |
+| 10 | 探市汇率卡曾长期展示 2023 年数据（F6） | 美元指数 / 离岸人民币的「当日涨跌」是 2023 年的 | ✅ 已修（2026-09-13；根因是 `currency_boc_sina` 默认区间被上游硬编码，显式传 `start_date`/`end_date` 即可） |
+| 11 | 并发取数会 abort 整个进程（V8 / py_mini_racer） | akshare 有 **40 个模块**用 py_mini_racer（探市 14 资产里 11 个），每次调用新建 V8 isolate，`_FETCH_WORKERS=6` 并发首次创建触发 `FATAL`；**C++ abort 抓不住，Web 服务 / 调度器一起没** | ✅ 已修（2026-09-13；`app/core/v8_guard.py` 守卫挂在全仓唯一收口点 `get_akshare()` 上 → 结构性免疫，见 `decisions.md` D24） |
+| 12 | 周末汇率卡显示 `+0.00%` | 源在非工作日追加「顺延行」（值同前一日、中间价 NaN），当日涨跌被算成 0，掩盖周五真实变动；2 张卡同源同参故同时为 0 | ⬜ **待产品口径决策**（剔除顺延行 / 改用最近有效观测日 / 接受现状），见 `market-snapshot-persist-plan-2026-09-13.md` §8.1 |
 
 ## 7. 维护约定
 

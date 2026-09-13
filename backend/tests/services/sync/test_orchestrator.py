@@ -114,3 +114,79 @@ class TestExecuteJobErrorAudit:
 
         assert result['status'] == 'error'
         assert '上游接口 500' in result['error']
+
+
+class TestExecutionPlanCoversAllJobs:
+    """`execution_plan` 必须覆盖 `_register_jobs()` 注册的**全部** job（#1460 修复）。
+
+    背景：`temperature` / `index_valuation` / `convertible_bond` / `amac_institution` /
+    `channel_link` 这 5 个 job **注册了却从未进过 `execution_plan`**（`git log -S` 证实是
+    历史遗漏而非有意排除）。后果是 `grab.all` / `pdm run sync --all` / CI 的
+    `pdm run scheduler` 都不刷新温度计（连带 bias 乖离率、industry_crowding 拥挤度——
+    它们跑在 `TemperatureJob` 内部），而 `backend/tasks.py` 与 `tools/sync_cli.py`
+    的文案却写着「全部同步任务（元数据 + 温度）」——文案与实现不一致。
+
+    本测试是**回归防线**：新增 job 却忘了进计划，会在这里红。
+    """
+
+    @staticmethod
+    def _plan_job_names(orch, monkeypatch):
+        """跑一遍 run_all_jobs 但只记录执行了哪些 job（不真跑、不备份库）。"""
+        seen = []
+
+        def _record(job_name, full_sync, targets=None):
+            seen.append(job_name)
+            return {'job_name': job_name, 'status': 'success'}
+
+        monkeypatch.setattr(orch, '_execute_job', _record)
+        monkeypatch.setattr(orch, '_backup_database', lambda: None)
+        monkeypatch.setattr('app.services.sync.orchestrator.acquire_lock', lambda *a, **k: (True, None))
+        orch.run_all_jobs()
+        return seen
+
+    def test_plan_covers_every_registered_job(self, db, monkeypatch):
+        orch = DataSyncOrchestrator(db)
+        plan = self._plan_job_names(orch, monkeypatch)
+
+        missing = sorted(set(orch.jobs) - set(plan))
+        assert not missing, f'以下 job 已注册但不在 execution_plan，grab.all 会静默漏跑：{missing}'
+        extra = sorted(set(plan) - set(orch.jobs))
+        assert not extra, f'execution_plan 里有未注册的 job：{extra}'
+
+    def test_previously_missing_jobs_are_now_planned(self, db, monkeypatch):
+        """#1460 顺带修复：这 5 个 job 必须回到计划里。"""
+        orch = DataSyncOrchestrator(db)
+        plan = set(self._plan_job_names(orch, monkeypatch))
+        for name in ('temperature', 'index_valuation', 'convertible_bond', 'amac_institution', 'channel_link'):
+            assert name in plan, f'{name} 未进 execution_plan'
+
+    def test_market_snapshot_registered_and_planned(self, db, monkeypatch):
+        """#1460：探市快照 job 必须注册且进计划（否则读库路径永远拿不到数据）。"""
+        orch = DataSyncOrchestrator(db)
+        assert 'market_snapshot' in orch.jobs
+        assert orch.jobs['market_snapshot'].get_name() == 'market_snapshot'
+        assert 'market_snapshot' in set(self._plan_job_names(orch, monkeypatch))
+
+    def test_no_target_pool_jobs_pass_none_not_empty_list(self, db, monkeypatch):
+        """无目标池的 job 必须传 `None`，不能传 `[]` 或 `['__full__']`。
+
+        - `[]` 会被基类 `SyncJob.run()` 当成「空目标池」→ 直接跳过（这些 job 的
+          `_allow_empty_data=True`），**静默空跑**；
+        - `['__full__']` 只对显式过滤该哨兵值的 job 安全：`IndexValuationSyncJob` 是
+          `codes = targets if targets else INDEX_VALUATION_TARGETS`，传 `['__full__']`
+          会真去抓一个字面代码 `'__full__'`。
+        """
+        orch = DataSyncOrchestrator(db)
+        captured = {}
+
+        def _record(job_name, full_sync, targets=None):
+            captured[job_name] = targets
+            return {'job_name': job_name, 'status': 'success'}
+
+        monkeypatch.setattr(orch, '_execute_job', _record)
+        monkeypatch.setattr(orch, '_backup_database', lambda: None)
+        monkeypatch.setattr('app.services.sync.orchestrator.acquire_lock', lambda *a, **k: (True, None))
+        orch.run_all_jobs()
+
+        for name in ('temperature', 'index_valuation', 'convertible_bond', 'amac_institution', 'channel_link'):
+            assert captured.get(name) is None, f'{name} 应传 None，实际 {captured.get(name)!r}'

@@ -26,9 +26,17 @@
        记日志，绝不让「数据更新」这个增强项把应用启动搞挂。
 
 触发时刻（北京时间，均可用环境变量覆盖，见 backend/.env.example）
+    - `market_snapshot` 08:00 —— 探市 20 大类资产快照（#1460）。美股 04:00/05:00（北京）
+      收盘后，与商品「08:00 快照」口径统一。**交易日口径 `none`**（见下）。
     - `temperature` 20:00 —— 温度源（集思录中位 PB / 韭圈儿 / 行业拥挤度）盘后即出。
     - `fund_nav`    21:30 —— 场外基金净值通常 19:00~24:00 陆续公布，21:30 可覆盖大头；
       当晚漏掉的由次日增量的「上次成功日 − 1 天」窗口自动补齐（见 `FundNavSyncJob`）。
+
+交易日口径（按任务，不全局一刀切）
+    每个任务带 `calendar` 字段：`cn` 跟 A 股日历（休市跳过），`none` 为 7×24 不跳过。
+    探市快照取 `none`——它的 20 个资产里有美股 / 商品 / 汇率，**A 股放假不等于全球放假**，
+    按全局布尔跳过会让这些卡片在国庆假期停更一周。`temperature` / `fund_nav` 取 `cn`
+    （与引入本字段前的全局行为一致）。
 
 用法
     - 应用内：`.env` 里置 `SCHEDULER_ENABLED=1`，`create_app()` 自动启动（默认路径）。
@@ -84,12 +92,27 @@ ENV_TEMPERATURE_ENABLED = 'SCHEDULER_TEMPERATURE_ENABLED'
 ENV_TEMPERATURE_CRON = 'SCHEDULER_TEMPERATURE_CRON'
 ENV_NAV_ENABLED = 'SCHEDULER_NAV_ENABLED'
 ENV_NAV_CRON = 'SCHEDULER_NAV_CRON'
+ENV_MARKET_ENABLED = 'SCHEDULER_MARKET_ENABLED'
+ENV_MARKET_CRON = 'SCHEDULER_MARKET_CRON'
 
 DEFAULT_TIMEZONE = 'Asia/Shanghai'
 # 温度计：集思录中位 PB / 韭圈儿 / 行业拥挤度盘后即出
 DEFAULT_TEMPERATURE_CRON = '0 20 * * *'
 # 基金净值：场外净值 19:00~24:00 陆续公布
 DEFAULT_NAV_CRON = '30 21 * * *'
+# 探市 20 资产快照：美股 04:00/05:00（北京）收盘后；与商品「08:00 快照」口径统一
+DEFAULT_MARKET_CRON = '0 8 * * *'
+
+# ── 交易日口径（按任务，而非全局一刀切） ──────────────────────────────
+# `cn`：跟 A 股日历（周末 / 法定节假日 / 调休补班周末都跳过）——温度计与场外净值
+#       只在 A 股开盘日才有新值。
+# `none`：7×24 不跳过——探市快照的 20 个资产里有美股 / 商品 / 汇率，
+#       **A 股放假不等于全球放假**（国庆 7 天标普/纳指/美债/黄金照常交易）。
+#       A 股假期跳过它等于让这些卡片整整停更一周。
+# 缺省 `cn`（与引入本字段前的全局布尔行为一致，保证既有两任务行为不变）。
+CALENDAR_CN = 'cn'
+CALENDAR_NONE = 'none'
+DEFAULT_CALENDAR = CALENDAR_CN
 
 # backend/ 目录（app/services/daily_scheduler.py → parents[2]）
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -116,12 +139,15 @@ class DailyJobSpec:
             （持仓 + 自选）——**绝不能省**：`FundNavSyncJob` 拿到空 targets 会直接
             跳过（`_allow_empty_data=True`），等于空跑还不报错。
         description: 人可读说明，进日志与 `--status`。
+        calendar: 交易日口径，`'cn'`（跟 A 股日历，休市跳过）或 `'none'`（7×24 不跳过）。
+            见模块顶部 CALENDAR_* 常量注释。
     """
 
     job_name: str
     cron: str
     target_kind: Optional[str]
     description: str
+    calendar: str = DEFAULT_CALENDAR
 
 
 @dataclass(frozen=True)
@@ -141,8 +167,8 @@ class DailySchedulerConfig:
         return [spec.job_name for spec in self.jobs]
 
 
-# job 名 → (开关环境变量, cron 环境变量, 默认 cron, 目标类型, 说明)
-_JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[str], str], ...] = (
+# job 名 → (开关环境变量, cron 环境变量, 默认 cron, 目标类型, 说明, 交易日口径)
+_JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[str], str, str], ...] = (
     (
         'temperature',
         ENV_TEMPERATURE_ENABLED,
@@ -150,6 +176,7 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[str], str], ...] = (
         DEFAULT_TEMPERATURE_CRON,
         None,
         '温度计（集思录 / 韭圈儿 / 行业拥挤度 / 乖离率）',
+        CALENDAR_CN,
     ),
     (
         'fund_nav',
@@ -158,6 +185,18 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[str], str], ...] = (
         DEFAULT_NAV_CRON,
         'fund',
         '自选 + 持仓的基金净值（当日增量）',
+        CALENDAR_CN,
+    ),
+    (
+        # #1460：探市 20 资产快照落库（供 /api/market/overview 读库）
+        'market_snapshot',
+        ENV_MARKET_ENABLED,
+        ENV_MARKET_CRON,
+        DEFAULT_MARKET_CRON,
+        None,  # 自身取全量资产，无目标池（绝不能传 'fund'/'stock'：会去查持仓+自选）
+        '探市 20 大类资产快照（涨跌 + 分位 + ⚡ 异动）',
+        # 用 none 而非 cn：资产含美股/商品/汇率，A 股休市时它们照常交易
+        CALENDAR_NONE,
     ),
 )
 
@@ -192,7 +231,7 @@ def load_config(env: Optional[Mapping[str, str]] = None) -> DailySchedulerConfig
     source: Mapping[str, str] = os.environ if env is None else env
 
     jobs: List[DailyJobSpec] = []
-    for job_name, enabled_env, cron_env, default_cron, target_kind, description in _JOB_TEMPLATES:
+    for job_name, enabled_env, cron_env, default_cron, target_kind, description, calendar in _JOB_TEMPLATES:
         if not _truthy(source.get(enabled_env), True):
             continue
         jobs.append(
@@ -201,6 +240,7 @@ def load_config(env: Optional[Mapping[str, str]] = None) -> DailySchedulerConfig
                 cron=(source.get(cron_env) or default_cron).strip(),
                 target_kind=target_kind,
                 description=description,
+                calendar=calendar,
             )
         )
 
@@ -283,7 +323,20 @@ def is_rest_day(today: Optional[date] = None) -> bool:
     口径唯一来自 `app.core.trading_calendar`：非开盘日净值与温度都不会更新，
     按点空跑只会白送一批请求 + 留下失败的 sync_log，故直接跳过。
     """
-    return not is_trading_day(today or today_shanghai().date())
+    # 注意 `today_shanghai()` 返回的就是 `date`（见 app/core/time_utils.py），不要再 `.date()`
+    return not is_trading_day(today or today_shanghai())
+
+
+def is_job_rest_day(spec: DailyJobSpec, today: Optional[date] = None) -> bool:
+    """该任务今天是否因**交易日口径**而应跳过。
+
+    只有 `calendar='cn'` 的任务受 A 股日历约束。`calendar='none'` 的任务
+    （探市 20 资产快照）在 A 股假期照常跑——它的资产里有美股 / 商品 / 汇率，
+    「A 股休市」不等于「全球休市」；按全局一刀切跳过会让这些卡片停更一周。
+    """
+    if spec.calendar != CALENDAR_CN:
+        return False
+    return is_rest_day(today)
 
 
 def today_fire_time(cron: str, tzinfo: Any, now: datetime) -> Optional[datetime]:
@@ -316,11 +369,13 @@ def catch_up_targets(
     tzinfo = ZoneInfo(config.timezone)
     if now.tzinfo is None:
         now = now.replace(tzinfo=tzinfo)
-    if config.skip_non_trading_day and is_rest_day(now.date()):
-        return []
 
     due: List[str] = []
     for spec in config.jobs:
+        # 交易日口径**按任务**判定，不再全局早退：A 股休市只该挡掉 cn 口径的任务，
+        # 不能把 calendar='none' 的探市快照一起挡掉。
+        if config.skip_non_trading_day and is_job_rest_day(spec, now.date()):
+            continue
         fire = today_fire_time(spec.cron, tzinfo, now)
         if fire is None or now < fire:
             continue
@@ -491,7 +546,7 @@ class DailyScheduler:
             )
 
     def _run_job(self, spec: DailyJobSpec) -> None:
-        if self.config.skip_non_trading_day and is_rest_day():
+        if self.config.skip_non_trading_day and is_job_rest_day(spec):
             logger.info(f'[每日调度] {spec.job_name} 跳过：今天休市（无新数据可抓）')
             return
 
@@ -504,10 +559,8 @@ class DailyScheduler:
             logger.warning(f'[每日调度] {spec.job_name} 未成功：status={status} {result.get("error") or ""}')
 
     def _startup_catch_up(self) -> None:
-        if self.config.skip_non_trading_day and is_rest_day():
-            logger.info('[每日调度] 启动补跑跳过：今天休市')
-            return
-
+        # 此处**不做全局休市早退**：交易日口径已按任务判定（见 catch_up_targets），
+        # 在这里再按 A 股日历挡一次会把 calendar='none' 的任务一并挡掉。
         now = datetime.now(ZoneInfo(self.config.timezone))
         last_dates = {spec.job_name: last_success_date(spec.job_name) for spec in self.config.jobs}
         due = catch_up_targets(self.config, now, last_dates)
@@ -626,7 +679,7 @@ def describe_status(config: Optional[DailySchedulerConfig] = None) -> List[str]:
                 fire = today_fire_time(spec.cron, tzinfo, now)
                 last = SyncLog.get_last_sync_time(db, spec.job_name)
                 lines.append(
-                    f'  · {spec.job_name:<12} cron={spec.cron:<12} '
+                    f'  · {spec.job_name:<15} cron={spec.cron:<12} 日历={spec.calendar:<4} '
                     f'今日触发={fire.strftime("%H:%M") if fire else "不触发"} '
                     f'上次成功={last.strftime("%Y-%m-%d %H:%M") if last else "无记录"}  {spec.description}'
                 )

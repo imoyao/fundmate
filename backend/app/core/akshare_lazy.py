@@ -11,7 +11,13 @@ _AKSHARE = None
 
 
 def get_akshare():
-    """返回已配置的 akshare 模块（进程内首次调用时导入）。"""
+    """返回已配置的 akshare 模块（进程内首次调用时导入）。
+
+    本函数是全仓 akshare 的**唯一收口点**，因此 V8 并发守卫（`app.core.v8_guard`）也挂在这里：
+    akshare 有 40 个模块用 `py_mini_racer` 解密新浪/巨潮系 JS 数据，且每次调用新建 V8 isolate，
+    多线程并发首次创建会让进程 `FATAL` abort（C++ 层，抓不住）。放在收口点意味着**任何**
+    取数路径都自动免疫，不依赖开发者记得手动预热。详见 `app/core/v8_guard.py` 的实测对照。
+    """
     global _AKSHARE
     if _AKSHARE is None:
         import akshare as ak
@@ -23,5 +29,11 @@ def get_akshare():
         if _set_option is not None:
             _set_option('request_interval', 3)
             _set_option('use_thread', False)
+
+        # 在把 ak 交出去之前串行初始化一次 V8（双检锁 + 结果缓存，仅首次真正执行）
+        from app.core.v8_guard import ensure_v8_ready
+
+        ensure_v8_ready()
+
         _AKSHARE = ak
     return _AKSHARE

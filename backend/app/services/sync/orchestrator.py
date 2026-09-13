@@ -57,6 +57,7 @@ from app.services.sync.jobs.index_catalog_job import IndexCatalogSyncJob
 from app.services.sync.jobs.index_constituent_job import INDEX_TARGETS, IndexConstituentSyncJob
 from app.services.sync.jobs.index_daily_job import IndexDailySyncJob
 from app.services.sync.jobs.index_valuation_job import IndexValuationSyncJob
+from app.services.sync.jobs.market_snapshot_job import MarketSnapshotSyncJob
 from app.services.sync.jobs.price_history_job import PriceHistorySyncJob
 from app.services.sync.jobs.stock_list_job import StockListSyncJob
 from app.services.thermometer.jobs import TemperatureJob
@@ -138,6 +139,9 @@ class DataSyncOrchestrator:
         self.jobs['dividend_split'] = DividendSplitSyncJob(self.data_sources['akshare'], self.db)
         # #1182：资产快照每日落账（家庭/账户两级，含货基每日收益），无外部数据源
         self.jobs['asset_snapshot'] = AssetSnapshotJob(self.db)
+        # #1460：探市 20 大类资产每日快照落库（只落算好的结果，不落收盘序列），
+        # 供 /api/market/overview 读库；无外部适配器，取数在 market_service 内直连 akshare
+        self.jobs['market_snapshot'] = MarketSnapshotSyncJob(self.db)
 
     # ── 目标代码解析 ──
 
@@ -348,10 +352,12 @@ class DataSyncOrchestrator:
 
     def run_all_jobs(self, full_sync: bool = False, target_file: Optional[str] = None) -> Dict[str, Any]:
         """
-        按依赖顺序执行所有同步任务。
+        按依赖顺序执行所有同步任务（顺序见下方 `execution_plan`）。
 
-        执行顺序:
-            stock_list → fund_list → fund_detail_enrich → fund_nav → price_history
+        计划内的每一项都必须是在 `_register_jobs()` 里注册过的 job —— 「注册了却不在计划里」
+        会让 `grab.all` 静默漏跑（#1460 修复：`temperature` / `index_valuation` /
+        `convertible_bond` / `amac_institution` / `channel_link` 5 个此前从未进过计划）。
+        `tests/services/sync/test_orchestrator.py` 有断言钉死这一不变量。
 
         单实例锁保证同时只有一个同步进程运行。
         """
@@ -388,8 +394,34 @@ class DataSyncOrchestrator:
                 ('index_constituents', INDEX_TARGETS),  # 指数成分回填（#1286 数据底座）
                 ('index_catalog', ['__full__']),  # 指数名录重建（#1286 聚合搜索底座）
                 ('index_daily', ['__full__']),  # 指数日线（万得全A 全量 10 年，#275）
+                # #1460：探市 20 大类资产快照落库（只落算好的结果，不落收盘序列）。
+                # 不依赖净值/行情，放在这里即可；页面读取只认「库里有今天的行」。
+                ('market_snapshot', None),
                 ('dividend_split', stock_targets + fund_targets),  # 分红/送股抓取（#1179）
                 ('advisor_portfolio', ['__full__']),  # 投顾组合持仓/调仓回填（#1167，组合数少且自带节流）
+                # ── 以下 5 个此前**注册了却从未进过本计划**（#1460 顺带修复）──
+                # 后果：`grab.all` / `pdm run sync --all` / CI 的 `pdm run scheduler` 都
+                # 不刷新温度计（连带 bias 乖离率、industry_crowding 拥挤度——它们跑在
+                # TemperatureJob 内部），也不刷新可转债条款、指数估值、AMAC 主数据、
+                # 跨渠道关联；而 backend/tasks.py 与 tools/sync_cli.py 的文案都写着
+                # 「全部同步任务（元数据 + 温度）」，文案与实现不一致。
+                #
+                # ⚠️ 这 5 个一律传 `None`（不是 `[]`、也不是 `['__full__']`）：
+                #   - `[]` 会被基类 `SyncJob.run()` 当成「空目标池」→ 直接跳过（这些 job
+                #     的 `_allow_empty_data=True`），**静默空跑**；
+                #   - `['__full__']` 只对显式过滤该哨兵值的 job 安全。`IndexValuationSyncJob`
+                #     是 `codes = targets if targets else INDEX_VALUATION_TARGETS`，传
+                #     `['__full__']` 会真去抓一个字面代码 `'__full__'`；
+                #   - `None` 才会走基类的「无外部目标列表」分支，调 `_fetch_data()` 抓自身全量。
+                #
+                # 本次只修「漏」，不重构分组：按频率拆「每日/每周/每月/每季」会改变
+                # 「全量同步」的语义、需同步改文案，见 data-refresh-scheduling-plan
+                # §8-D2 与 §10-PR3，单独 PR 处理。
+                ('temperature', None),  # 温度计（含乖离率 / 拥挤度）+ 顺带清理 1 年前的多维列表
+                ('convertible_bond', None),  # 可转债条款（东财 + 集思录双源合并）
+                ('index_valuation', None),  # 指数估值（中证官方，12 指数 ≈2 分钟）
+                ('channel_link', None),  # 跨渠道关联（指数↔ETF，台账建议每月）
+                ('amac_institution', None),  # AMAC 基金管理人主数据（台账建议每季）
                 # #1182：资产快照落账放最后，确保前面的净值/行情已刷新，快照取到最新值
                 ('asset_snapshot', []),
             ]

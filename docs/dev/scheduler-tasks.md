@@ -29,19 +29,23 @@ daily-snapshot 因 secrets 缺失连续 7 天全红，本地库净值止于 2026
 
 ### 每日任务
 
-| job | 触发（北京时间） | 内容 |
-|-----|-----------------|------|
-| `temperature` | 20:00 | 温度计：集思录中位 PB / 韭圈儿 / 行业拥挤度 / 乖离率，即**温度计页面**的数据 |
-| `fund_nav` | 21:30 | **自选 + 持仓**的基金净值当日增量（目标池由 `orchestrator.resolve_targets()` 现取） |
+| job | 触发（北京时间） | 交易日口径 | 内容 |
+|-----|-----------------|-----------|------|
+| `temperature` | 20:00 | `cn` | 温度计：集思录中位 PB / 韭圈儿 / 行业拥挤度 / 乖离率，即**温度计页面**的数据 |
+| `fund_nav` | 21:30 | `cn` | **自选 + 持仓**的基金净值当日增量（目标池由 `orchestrator.resolve_targets()` 现取） |
+| `market_snapshot` | 08:00 | `none` | 探市 20 大类资产每日快照落库（14 个可取数资产 + 1 条债券收益率轨 = 15 行），#1460 方案 B |
 
-- **非开盘日不抓**：周末 / 法定节假日 / 调休补班周末一律跳过（口径唯一来自
+- **非开盘日按任务判定**：`DailyJobSpec.calendar` 取 `cn` / `none`。标 `cn` 的（`temperature` /
+  `fund_nav`）在周末 / 法定节假日 / 调休补班周末一律跳过（口径唯一来自
   `app/core/trading_calendar.py`）——非交易日没有新数据，空跑只会白送请求 + 留下失败审计。
-- **启动补跑**：应用启动后延迟 180s 检查「当天已过触发时刻、却还没有成功记录」的任务并补跑。
-  早上 9 点启动不会抢跑（那时数据还没发布），晚上到家开机则能把当天漏掉的补上。
+  标 `none` 的（`market_snapshot`）**7×24 照常跑**：它的资产含美股 / 商品 / 汇率，
+  「A 股休市」不等于「全球休市」，一刀切会让这些卡片在国庆**停更一周**。
+- **启动补跑**：应用启动后延迟 180s 检查「当天已过触发时刻、却还没有成功记录」的任务并补跑，
+  **同样逐任务判定交易日**。早上 9 点启动不会抢跑（那时数据还没发布），晚上到家开机则能把当天漏掉的补上。
 - **抓取礼仪**：每个任务开工前做随机延迟，窗口复用 `SYNC_JITTER_SECONDS`（#1400）。
 - **扩任务**：想再加一项（如 `asset_snapshot`，纯本地计算无外部数据源、是前端「每日收益」的
-  数据源），在 `app/services/daily_scheduler.py` 的 `_JOB_TEMPLATES` 加一行即可，
-  配置项会自动出现在 `--status` 里。
+  数据源），在 `app/services/daily_scheduler.py` 的 `_JOB_TEMPLATES` 加一行即可（7 元组：
+  名字 / cron / 目标池 / 说明 / 开关 env / cron env / **日历**），配置项会自动出现在 `--status` 里。
 
 ### 配置（`backend/.env`，全部可选）
 
@@ -50,11 +54,13 @@ SCHEDULER_ENABLED=1                    # 总开关（模板 .env.example 已默�
 # SCHEDULER_TIMEZONE=Asia/Shanghai
 # SCHEDULER_TEMPERATURE_CRON=0 20 * * *
 # SCHEDULER_NAV_CRON=30 21 * * *
-# SCHEDULER_SKIP_NON_TRADING_DAY=true  # 休市不抓
+# SCHEDULER_MARKET_CRON=0 8 * * *      # 探市快照（等美股收盘后）
+# SCHEDULER_SKIP_NON_TRADING_DAY=true  # 休市不抓（只对 calendar='cn' 的任务生效）
 # SCHEDULER_RUN_ON_START=true          # 启动补跑
 # SCHEDULER_STARTUP_DELAY_SECONDS=180
 # SCHEDULER_TEMPERATURE_ENABLED=true
 # SCHEDULER_NAV_ENABLED=true
+# SCHEDULER_MARKET_ENABLED=true        # 探市快照开关
 ```
 
 ### 不会启动的场景（都是刻意的）
@@ -82,7 +88,24 @@ pdm run invoke sched.status     # 或 pdm run scheduler --status（只读）
 - 应用接线：`app/main.py` 的 `create_app()` → `start_daily_scheduler(debug=app.debug)`
 - 守护进程：`app/tools/scheduler_daemon.py`（`pdm run scheduler-daemon`）
 - 文件锁：`app/core/file_lock.py`（从 orchestrator 抽出，供调度器与编排器共用）
-- 测试：`tests/services/test_local_daily_scheduler.py`（全离线，替身编排器）
+- 探市快照 job：`app/services/sync/jobs/market_snapshot_job.py`（#1460 方案 B）
+- 测试：`tests/services/test_local_daily_scheduler.py`（全离线，替身编排器）、
+  `tests/services/sync/test_daily_scheduler.py`（交易日口径 / 探市调度）
+
+### 探市快照落库（`market_snapshot`，#1460 方案 B）
+
+`market_snapshot` 每天 08:00 把「探市 20 大类资产」的当日涨跌 + 分位落进 `market_multi_items`
+（`source='market_snapshot'`），探市页即可毫秒级读库。**只落结果、不落收盘序列**；
+6 个「源不存在」的结构性软占位不入库；单资产取数失败落 `stale=true`（读时回退上次成功值）。
+取数来源由 `MARKET_OVERVIEW_SOURCE` 控制：
+
+| 取值 | 行为 |
+|------|------|
+| `live`（**默认**） | 端点每次实时取数（与落库前行为一致），落库 job 照常跑 |
+| `db` | 端点优先读库；库空 / 查询异常自动回退实时取数 |
+
+> 灰度建议：先让 `live` 跑几天，核对库内 15 行数据（尤其汇率两行是否已不是 2023 年），
+> 再切 `db`。非法值一律回退 `live`——配置错误不该让页面变成静默读陈旧数据的页面。
 
 ---
 

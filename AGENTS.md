@@ -358,6 +358,18 @@
 - 已由 `core/requests_patch.py` 全局修复（`impersonate chrome`），**不要**靠加 UA/Referer 头硬修。
 - akshare 已设 `request_interval=3`、`use_thread=False`。
 - pypinyin 重型依赖（3.2MB 词典）必须保持延迟导入（见 `fund_detail_enrich_job.py`）。
+- **并发取数前必须预热 V8（硬约束，事故来源见 `decisions.md` D24）**：akshare 有 **40 个模块**
+  用 `py_mini_racer` 解密新浪/巨潮系 JS 数据（`stock_zh_index_daily` / `stock_zh_a_daily` /
+  `stock_hk_index_daily_sina` / `index_us_stock_sina` / `fund_etf_hist_sina` /
+  `futures_main_sina` / `bond_zh_cov` …），**每次调用都新建一个 `MiniRacer()`**，而 V8 的
+  configurable pool **只能初始化一次**——多线程并发首次创建会触发
+  `FATAL: Check failed: !IsConfigurablePoolInitialized()`。**那是 C++ abort 而非 Python 异常**，
+  `except Exception` 抓不住、`try/finally` 拦不住，**会直接杀掉整个进程**（Web 服务 / 调度器
+  守护进程一起没，表现为「服务突然消失」而非「某个资产取数失败」）。
+  **已结构性解决**：守卫在 `app/core/v8_guard.py`（`ensure_v8_ready()`，双检锁 + 结果缓存），
+  并挂在**全仓唯一收口点** `app/core/akshare_lazy.get_akshare()` 上——**只要走 `get_akshare()`
+  就自动免疫，不需要手动预热**。唯一例外：绕过它直接 `import akshare`（当前仅两个 CLI 脚本），
+  此类路径若要多线程，必须自行调用 `ensure_v8_ready()` 或改为串行。
 
 ### 温度计基线数据
 
