@@ -32,6 +32,7 @@ dependencies = [
     "akshare>=1.18.81",
     "scipy==1.13.1",
     "baostock>=0.9.3",
+    "apscheduler<4,>=3.10",
 ]
 requires-python = ">=3.12"
 
@@ -109,5 +110,9 @@ numpy = ">=1.24,<2.0"
 # 元数据/市场温度(含乖离度)同步：pdm run sync --all / pdm run sync --job temperature
 sync = "python app/tools/sync_metadata.py"
 # 每日定时调度（#1182）：pdm run scheduler 跑全量增量同步 + 资产快照落账；
-# 由外部定时器（CI schedule / SCF cron / 系统 cron）每日触发，不引入常驻调度器
+# 由外部定时器（CI schedule / SCF cron / 系统 cron）每日触发
 scheduler = "python app/tools/scheduler.py"
+# 本机常驻每日调度守护进程（#1467）：无外部定时器时，用它在后台按 cron 更新
+# 自选/持仓净值 + 温度计；与「应用内调度」（SCHEDULER_ENABLED=1）二选一，
+# 单实例锁保证同机只有一个生效。
+scheduler-daemon = "python app/tools/scheduler_daemon.py"

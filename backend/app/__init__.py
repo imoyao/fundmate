@@ -62,3 +62,10 @@ class InterceptHandler(logging.Handler):
 # 统一接入 loguru，避免与业务日志分家。此前 InterceptHandler 仅定义未挂载，属历史遗漏。
 # force=True 覆盖可能存在的默认 root handler；进程启动时执行一次，重复 import 幂等。
 logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
+
+# 第三方库定向降噪（#1467）：level=0 意味着「一条都不拦」，而 APScheduler 的调度主循环
+# **每秒**打一条 DEBUG（"Looking for jobs to run"）——本机常驻调度一开就是刷屏，会把真正
+# 有信息量的业务日志淹掉。故把它降到 WARNING（保留「任务执行失败」这类有用的行）。
+# 放在这里而不是调度器模块里：按 AGENTS.md，`import logging` 只允许出现在本文件，
+# 且「第三方日志怎么处理」本就归此处统一管辖。
+logging.getLogger('apscheduler').setLevel(logging.WARNING)
