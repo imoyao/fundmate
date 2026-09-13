@@ -5,7 +5,7 @@
 个人资料更新仅作用于当前登录用户（`g.current_user`），不跨家庭。
 """
 
-from datetime import date
+from datetime import date, datetime
 
 from apiflask import APIBlueprint
 from flask import abort, g, jsonify
@@ -99,7 +99,10 @@ def record_stats():
         if first_txn_date is None:
             return jsonify({'data': {'first_entry_date': None, 'record_days': 0}, 'message': 'ok'})
 
-        first_entry_date = first_txn_date.date()
+        # first_txn_date 来自 coalesce(trade_date, confirm_date)：trade_date 是 DateTime 列、
+        # confirm_date 是 Date 列。若最早一笔 trade_date 为 NULL，first_txn_date 已是 date，
+        # 再 .date() 会 AttributeError（与 daily_scheduler #1482 同款）。按既有惯例 isinstance 守卫。
+        first_entry_date = first_txn_date.date() if isinstance(first_txn_date, datetime) else first_txn_date
         record_days = max((date.today() - first_entry_date).days, 0)
         return jsonify(
             {
