@@ -201,6 +201,29 @@ html.dark {
   --bg-hover: #33302c;
   --bg-muted: #2c2926;
 
+  /* ===== 资产类型 pill 色（暗色适配 · 与 colors.css 同名覆盖） =====
+     文字色整体提亮保证深底对比，底色透明度略降避免糊底。2026-09-13 新增。 */
+  --asset-type-fund: #8fb3cc;
+  --asset-type-fund-bg: rgb(122 154 168 / 22%);
+  --asset-type-stock: #a98cc4;
+  --asset-type-stock-bg: rgb(157 129 169 / 22%);
+  --asset-type-etf: #8cc4ab;
+  --asset-type-etf-bg: rgb(168 203 192 / 18%);
+  --asset-type-bond: #c9a071;
+  --asset-type-bond-bg: rgb(196 166 138 / 20%);
+  --asset-type-crypto: #cf93a3;
+  --asset-type-crypto-bg: rgb(196 160 168 / 20%);
+  --asset-type-index: #9aa0cc;
+  --asset-type-index-bg: rgb(122 127 168 / 24%);
+  --asset-type-portfolio: var(--brand-700);
+  --asset-type-portfolio-bg: rgb(212 90 68 / 16%);
+  --asset-type-manager: #6fb0b8;
+  --asset-type-manager-bg: rgb(111 176 184 / 18%);
+  --asset-type-money_fund: #a8b98a;
+  --asset-type-money_fund-bg: rgb(156 175 136 / 20%);
+  --asset-type-reverse_repo: #c4b382;
+  --asset-type-reverse_repo-bg: rgb(212 200 152 / 20%);
+
   /* ===== 毛玻璃（记账托盘 / 回到顶部） ===== */
   --glass-bg: rgb(36 33 32 / 72%);
   --glass-bg-hover: rgb(44 41 38 / 88%);
