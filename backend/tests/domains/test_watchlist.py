@@ -8,7 +8,7 @@ from datetime import date, timedelta
 
 from app.core.database import get_db
 from app.core.symbol_utils import get_normalizer
-from app.domains.funds.models import FundCompany, Manager
+from app.domains.funds.models import ChannelLink, FundCompany, Manager
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.watchlist.models import WatchlistItem
@@ -1092,6 +1092,90 @@ class TestAllGroupUnionPositions:
 
 
 # ─────────────── 用户列内排序（#991）纯函数测试 ───────────────
+class TestListItemsDeferredDisplayEnrich:
+    """列表接口「展示专用字段延后到分页之后」的不变式（性能改造）。
+
+    背景：展示专用 enrich（基金回撤 / 可转债条款 / 指数估值 / 跨渠道关联）按 symbol 逐行
+    查库，基金回撤还要扫 3 年 daily_worth 序列，实测占 `GET /items/` 总耗时约 55%。
+    它们**均不在 `_USER_SORTABLE_FIELDS` 白名单内**（排序不依赖），故改为
+    「先排序定序 → 分页 → 只对页内行补算」；`?fields=lite` 连页内行也跳过
+    （供前端全量拉取算估值汇总，汇总只消费价格/持仓/市值）。
+
+    本组用例锁死这两条，避免日后有人把耗时的 enricher 挪回基础 enrich 而悄悄回退性能。
+    """
+
+    @staticmethod
+    def _seed_index_with_link(db):
+        """指数自选行 + 一条 channel_links，作为「展示专用字段」的可观测探针。"""
+        db.add(WatchlistItem(symbol='SH000300', market='SH', asset_type='index', status='WATCHING'))
+        db.add(
+            ChannelLink(
+                link_type='index_etf',
+                from_symbol='000300',
+                to_symbol='510300',
+                from_name='沪深300',
+                to_name='沪深300ETF',
+                match_type='name_longest_core',
+                source='auto',
+            )
+        )
+        db.commit()
+
+    def test_page_rows_carry_display_only_fields(self, client, db):
+        """默认（非 lite）：页内行必须带上展示专用字段——延后补算不能漏算。"""
+        self._seed_index_with_link(db)
+
+        body = _get(client, '/api/watchlist/items/', {'page': 1, 'per_page': 20}).get_json()
+        row = next(d for d in body['data'] if d['symbol'] == 'SH000300')
+        assert row['link_count'] == 1
+        assert row['links'][0]['code'] == '510300'
+        assert row['links'][0]['link_type'] == 'index_etf'
+
+    def test_fields_lite_keeps_base_fields_and_skips_display_only(self, client, db):
+        """fields=lite：基础字段照常下发，展示专用字段不下发（避免为汇总白算）。"""
+        self._seed_index_with_link(db)
+
+        full = _get(client, '/api/watchlist/items/', {'per_page': 20}).get_json()['data'][0]
+        lite = _get(client, '/api/watchlist/items/', {'per_page': 20, 'fields': 'lite'}).get_json()['data'][0]
+
+        assert lite['symbol'] == full['symbol'] == 'SH000300'
+        assert lite['type_label'] == full['type_label']
+        assert lite['position_market_value'] == full['position_market_value']
+        assert lite['current_price'] == full['current_price']
+        # 展示专用字段：仅 full 下发
+        assert full['link_count'] == 1
+        assert lite.get('link_count') is None
+
+    def test_display_only_enrich_runs_only_for_page_rows(self, client, db, monkeypatch):
+        """只对页内行补算：page=2&per_page=1 时补算 1 行，而非全量 3 行；lite 则 0 行。
+
+        `_apply_deferred_display_fields` 正是耗时归属处，用它当观测点——一旦退化成
+        「全量行都算」（本次改造前的行为），本用例立即失败。
+        """
+        import app.domains.watchlist.views as wv
+
+        for i in range(3):
+            db.add(WatchlistItem(symbol=f'SH60000{i}', market='SH', asset_type='stock', status='WATCHING'))
+        db.commit()
+
+        calls: list[str] = []
+        original = wv._apply_deferred_display_fields
+
+        def spy(out, symbol, asset_type, db_):
+            calls.append(symbol)
+            return original(out, symbol, asset_type, db_)
+
+        monkeypatch.setattr(wv, '_apply_deferred_display_fields', spy)
+
+        body = _get(client, '/api/watchlist/items/', {'page': 2, 'per_page': 1}).get_json()
+        assert len(body['data']) == 1
+        assert calls == [body['data'][0]['symbol']]
+
+        calls.clear()
+        _get(client, '/api/watchlist/items/', {'page': 1, 'per_page': 1, 'fields': 'lite'})
+        assert calls == []
+
+
 class TestApplyUserSort:
     """_apply_user_sort：白名单校验 / 置顶前置 / None 恒排末尾 / 派生列现算"""
 
