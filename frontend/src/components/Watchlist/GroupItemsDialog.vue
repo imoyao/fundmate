@@ -95,14 +95,19 @@
                 :key="itemKey(item)"
                 class="gi-row gi-row--pick"
               >
-                <!-- 勾选即加入：勾选后该行随即进入左栏「本组产品」，
-                     故 checkbox 恒为未勾选态、只作一次性动作触发器 -->
-                <el-checkbox
-                  class="gi-check"
-                  :model-value="false"
-                  @click.stop
-                  @change="addItem(item)"
-                />
+                <!-- 点击整行或右侧「+」即加入本组（加入后该行随即进入左栏「本组产品」，
+                     并从右栏候选消失）。用明确的「+」按钮替代原「恒为未勾选的 checkbox」：
+                     原实现 checkbox 永远不显示勾选态、看起来像失效控件，属于误报式 UX bug。 -->
+                <el-button
+                  class="gi-add-btn"
+                  size="small"
+                  circle
+                  text
+                  :title="`添加到本组：${item.display_name}`"
+                  @click.stop="addItem(item)"
+                >
+                  <el-icon><Plus /></el-icon>
+                </el-button>
                 <div class="gi-row__main" @click="addItem(item)">
                   <span class="gi-name">{{ item.display_name }}</span>
                   <span v-if="showCode(item)" class="gi-code">{{
@@ -128,7 +133,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
 import { ElMessage } from "element-plus";
-import { Search, Close } from "@element-plus/icons-vue";
+import { Search, Close, Plus } from "@element-plus/icons-vue";
 import {
   getWatchlistItems,
   addItemToGroup,
@@ -451,10 +456,24 @@ function close(): void {
   text-align: center;
 }
 
-/* 勾选框：归零 EP 默认右边距，间距统一由行 gap 控制 */
-.gi-check {
+/* 「+」添加按钮：右缘弱化的圆形图标按钮，整行 hover 才全亮，与行内移除按钮同语言 */
+.gi-add-btn {
   flex-shrink: 0;
-  height: auto;
   margin-right: 0;
+  color: var(--text-tertiary);
+  opacity: 0.55;
+  transition:
+    opacity 150ms ease,
+    color 150ms ease,
+    background-color 150ms ease;
+}
+
+.gi-row--pick:hover .gi-add-btn {
+  opacity: 1;
+}
+
+.gi-add-btn:hover {
+  color: var(--brand-700);
+  background-color: var(--bg-hover);
 }
 </style>
