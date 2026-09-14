@@ -236,7 +236,7 @@ class TemperatureJob(SyncJob):
                 logger.error(f'乖离率计算异常: {e}')
                 errors.append({'source': 'bias', 'error': str(e)})
 
-        # ---- 行业拥挤度（legulegu 免费行情自算，可选源，失败整组标灰） ----
+        # ---- 行业拥挤度（外部临时源优先，申万官网单源兜底，失败整组标灰） ----
         try:
             from app.services.thermometer.industry_crowding import fetch_industry_crowding
 
@@ -249,6 +249,23 @@ class TemperatureJob(SyncJob):
         except Exception as e:
             logger.error(f'行业拥挤度计算异常: {e}')
             errors.append({'source': 'industry_crowding', 'error': str(e)})
+
+        # ---- 热门赛道拥挤度（同一外部源，category=track，18 条；可选维度） ----
+        # 失败/关停只记日志、不并入 errors：赛道是附加维度，不应把整个温度任务判为失败；
+        # 前端在赛道视图下拿不到数据时显示「暂不可用」提示而非报错。
+        try:
+            from app.services.thermometer.fundfof_crowding import (
+                fetch_fundfof_track_crowding,
+            )
+
+            track_records = fetch_fundfof_track_crowding()
+            if track_records:
+                records.extend(track_records)
+                logger.info(f'赛道拥挤度获取成功: {len(track_records)} 条')
+            else:
+                logger.info('赛道拥挤度返回为空（外部源关停或不可用），本次不落库赛道维度')
+        except Exception as e:
+            logger.warning(f'赛道拥挤度获取异常（已忽略，不影响其它维度）: {e}')
 
         self.stats['errors'] = errors
         return records

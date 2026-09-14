@@ -11,7 +11,11 @@
   3. 换手率百分位（资金热度）：行业换手率的历史百分位。
 
  数据源：
-  · PB 维度（默认 legulegu 免费，无需 token）：覆盖部分申万行业（消费/医药/金融/信息…）。
+ · **外部临时源（默认开启，可一键关停）**：fundfof.com 公开接口，提供 31 个申万一级行业的
+   综合拥挤度 / 成交额占比 / 换手率 / 60 日线上占比 / 60 日新高占比 / 融资买入占比 / 百万大单
+   （均为百分位口径）。这是**过渡方案**：该接口未授权、随时可能失效，仅个人自用验证，
+   环境变量 `FUNDFOF_CROWDING_ENABLED=0` 即回落以下原三路径。见 `fundfof_crowding.py` 头注释。
+ · PB 维度（默认 legulegu 免费，无需 token）：覆盖部分申万行业（消费/医药/金融/信息…）。
      · 分母(全A中位PB)：优先 ak.stock_a_all_pb()（legulegu，2005+全历史，免费无 token）。
      · 分子(行业PB)：legulegu index-basic-pb（免费，需 token，由 akshare 内置 JS 生成）。
      · 分母兜底链：legulegu 不可用 → 本地缓存 → baostock 批量当日全A中位PB → 东财实时 → 全失败整组标灰。
@@ -67,6 +71,16 @@ except Exception:  # noqa
         return datetime.datetime.now()
 
 
+try:
+    from app.services.thermometer.fundfof_crowding import fetch_fundfof_crowding
+except Exception as e:  # noqa: BLE001
+    logger.warning(f'外部临时源(fundfof)导入失败，将回落原路径: {e}')
+
+    def fetch_fundfof_crowding():
+        """导入失败兜底：视为不可用（不阻塞主链路）。"""
+        return []
+
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 CACHE_DIR = os.path.join(HERE, 'cache', 'baostock_pb')  # baostock 路径的本地 PB 缓存
 ALLPB_CACHE = os.path.join(
@@ -82,9 +96,11 @@ def _log(*a):
 
 
 # 申万一级行业（用于 tushare / 展示）
+# 2026-09-14（#1431 决策 D）：对齐申万现行 31 个——剔除 2021 版已拆分的过时条目
+# 801020「采掘」（拆为 801950 煤炭 / 801960 石油石化），补入 801970 环保 / 801980 美容护理。
+# 权威口径：akshare `sw_index_first_info()`（申万官网），数量以 sw_industry_source.EXPECTED_INDUSTRY_COUNT 为准。
 SW_INDUSTRY = {
     '农林牧渔': '801010.SH',
-    '采掘': '801020.SH',
     '化工': '801030.SH',
     '钢铁': '801040.SH',
     '有色金属': '801050.SH',
@@ -111,6 +127,10 @@ SW_INDUSTRY = {
     '非银金融': '801790.SH',
     '汽车': '801880.SH',
     '机械设备': '801890.SH',
+    '煤炭': '801950.SH',
+    '石油石化': '801960.SH',
+    '环保': '801970.SH',
+    '美容护理': '801980.SH',
 }
 # legulegu 免费路径：实测可用的行业指数（覆盖不均，但方法完整可跑）
 LEGULEGU_INDUSTRY = {
@@ -620,41 +640,96 @@ except Exception:
     BAO_OK = False
 
 
+def _is_index_code(code: str) -> bool:
+    """粗判指数代码（`query_all_stock` 返回含指数，指数无 pbMRQ）。
+
+    · `sh.000xxx` / `sh.950xxx` / `sh.880xxx`：上证系列指数；
+    · `sz.399xxx`：深证系列指数；
+    · 其余（含 `sz.000xxx` 个股，如 平安银行）视为个股。
+    """
+    parts = str(code).split('.')
+    if len(parts) != 2:
+        return True
+    prefix, num = parts[0], parts[1]
+    if prefix == 'sh':
+        return num.startswith(('000', '950', '880'))
+    if prefix == 'sz':
+        return num.startswith('399')
+    return False
+
+
 def bao_industry_map():
-    """全市场 股票->申万一级行业 映射（缓存到 json）。"""
+    """全市场 股票->行业 映射（缓存到 json）。
+
+    ⚠️ 口径说明（#1431 本机实测）：baostock `query_stock_industry()` 的 `industry` 字段是
+    **证监会行业分类代码**（实测值形如 `J66` / `C39hzx` / `I65`），`industryClassification`
+    实测为空，**并非申万一级行业名**。因此本映射**不能**用于「申万一级行业 PB」聚合——
+    `industry_pb_baostock` 无法产出申万口径的行业 PB 序列，PB 分位这条免费路径实际不成立
+    （详见 #1502）。保留实现仅供可能的其它用途，勿据此认为 PB 分位可由此补齐。
+
+    迭代方式修正（#1431）：baostock 的 `rs.next()` 返回 **bool**（是否还有下一行），
+    行数据须用 `rs.get_row_data()` 取。原实现 `while r := rs.next(): r[0]` 会抛
+    `TypeError: 'bool' object is not subscriptable`，即该函数自加入起从未成功执行。
+    """
     path = os.path.join(CACHE_DIR, 'industry_map.json')
     if os.path.exists(path):
         return json.load(open(path, encoding='utf-8'))
     os.makedirs(CACHE_DIR, exist_ok=True)
     bs.login()
-    rs = bs.query_stock_industry()  # 无 code => 返回全市场
-    m = {}
-    while r := rs.next():
-        code, ind = r[0], (r[1] if len(r) > 1 else '')
-        if ind:
-            m[code] = ind  # ind 即申万一级（如 '食品加工','银行'…）
-    bs.logout()
+    try:
+        rs = bs.query_stock_industry()  # 无 code => 返回全市场
+        m = {}
+        while rs.next():
+            row = rs.get_row_data()
+            # 列序：updateDate, code, code_name, industry, industryClassification
+            if len(row) > 3 and row[3]:
+                m[row[1]] = row[3]
+    finally:
+        bs.logout()
     json.dump(m, open(path, 'w', encoding='utf-8'), ensure_ascii=False)
     return m
 
 
 def bao_backfill_pb(start='2010-06-01', end=None):
-    """一次性回补：全市场每支股票每日 pbMRQ -> 存 parquet。仅本机可直连 baostock 时运行。"""
+    """一次性回补：全市场每支股票每日 pbMRQ -> 存 parquet。仅本机可直连 baostock 时运行。
+
+    迭代方式修正（#1431）：同 `bao_industry_map`，行数据须用 `rs.get_row_data()`；
+    原实现 `iter(rs.next, None)` 会在首轮把 `False` 当作行数据 → `TypeError`（从未成功执行）。
+    """
     end = end or datetime.date.today().isoformat()
     os.makedirs(CACHE_DIR, exist_ok=True)
     bs.login()
-    rs = bs.query_all_stock(day=datetime.date.today().isoformat())
-    codes = [r[0] for r in iter(rs.next, None)]
-    _log(f'共 {len(codes)} 支股票，开始回补 pbMRQ({start}~{end})…')
-    for code in codes:
-        f = os.path.join(CACHE_DIR, code.replace('.', '_') + '.parquet')
-        if os.path.exists(f):
-            continue
-        r2 = bs.query_history_k_data_plus(code, 'date,pbMRQ', start_date=start, end_date=end, frequency='d')
-        rows = [r for r in iter(r2.next, None)]
-        if rows:
-            pd.DataFrame(rows, columns=['date', 'pbMRQ']).to_parquet(f)
-    bs.logout()
+    try:
+        rs = bs.query_all_stock(day=datetime.date.today().isoformat())
+        codes = []
+        while rs.next():
+            row = rs.get_row_data()
+            code = row[0] if row else ''
+            if code and not _is_index_code(code):
+                codes.append(code)
+        _log(f'共 {len(codes)} 支股票，开始回补 pbMRQ({start}~{end})…')
+        for code in codes:
+            f = os.path.join(CACHE_DIR, code.replace('.', '_') + '.parquet')
+            if os.path.exists(f):
+                continue
+            r2 = bs.query_history_k_data_plus(code, 'date,pbMRQ', start_date=start, end_date=end, frequency='d')
+            rows = []
+            while r2.next():
+                rows.append(r2.get_row_data())
+            if rows:
+                df = pd.DataFrame(rows, columns=['date', 'pbMRQ'])
+                try:
+                    df.to_parquet(f)
+                except Exception as e:  # noqa: BLE001
+                    # 环境无 parquet 引擎（pyarrow / fastparquet）时不应中断整轮回补：
+                    # 回退 CSV（与 _em_cache_save 同策略）并记日志。
+                    _log(f'  [warn] parquet 落盘失败({code})，回退 CSV: {str(e)[:60]}')
+                    try:
+                        df.to_csv(f.replace('.parquet', '.csv'), index=False)
+                    except Exception as e2:  # noqa: BLE001
+                        _log(f'  [warn] CSV 落盘亦失败({code}): {str(e2)[:60]}')
+    finally:
+        bs.logout()
     _log('回补完成。')
 
 
@@ -759,6 +834,71 @@ def _placeholder(note: str = '行业拥挤度数据暂不可用') -> dict:
     }
 
 
+def _sw_share_records() -> List[dict]:
+    """申万官网单源路径（#1431）：不依赖 PB 源，产出 31 行的「成交额占比分位 + BIASn」。
+
+    这是 #1431 的兜底闭环：即使 legulegu / baostock / tushare 全不可用（PB 分位维为空），
+    也能让前端拥挤度表看到 31 个申万行业的**资金热度**与**行业乖离率**，而不是整组标灰。
+
+    PB 分位（估值视角，`crowding_pct`）需行业 PB 源，本路径下为 None 并在 note 说明；
+    指标口径见 `sw_industry_source`（占比分位 = 250 日滚动窗口；BIASn = 简单 MA 6/20/60）。
+    """
+    try:
+        from app.services.thermometer.sw_industry_source import (
+            fetch_sw_metrics,
+            list_sw_industries,
+        )
+
+        names = list_sw_industries()
+        if not names:
+            return []
+        metrics = fetch_sw_metrics(list(names.keys()))
+        if not metrics:
+            return []
+
+        note = (
+            '成交额占比分位与乖离率来自申万宏源官网（非东财）；'
+            'PB 分位需行业 PB 源（legulegu/baostock/tushare），本路径下为空'
+        )
+        records = []
+        for code, name in names.items():
+            m = metrics.get(code)
+            if not m or m.get('amount_pct_rank') is None:
+                continue
+            records.append(
+                {
+                    'kind': 'multi',
+                    'source': 'industry_crowding',
+                    'item_type': 'industry',
+                    'item_code': code,
+                    'item_name': name,
+                    'data': {
+                        'crowding_pct': None,
+                        'multiple': None,
+                        'ind_pb': None,
+                        'mkt_pb': None,
+                        'history_days': m.get('history_days'),
+                        'hist_ok': False,
+                        'amount_pct': m.get('amount_pct'),
+                        'amount_pct_rank': m.get('amount_pct_rank'),
+                        'turnover': None,
+                        'turnover_rank': None,
+                        'bias6': m.get('bias6'),
+                        'bias20': m.get('bias20'),
+                        'bias60': m.get('bias60'),
+                        'amount_src': 'sw_industry_official',
+                        'note': note,
+                    },
+                    'collected_at': now_shanghai(),
+                    'stale': False,
+                }
+            )
+        return records
+    except Exception as e:  # noqa: BLE001
+        _log('  [warn] 申万官网单源路径失败:', str(e)[:80])
+        return []
+
+
 def _record(name: str, code: str, c: dict) -> dict:
     """单行业有效记录 -> 扁平 multi 格式。"""
     note = f'倍数{c.get("multiple")} 行业PB{c.get("ind_pb")} 全A中位PB{c.get("mkt_pb")}' + (
@@ -783,6 +923,10 @@ def _record(name: str, code: str, c: dict) -> dict:
             'amount_pct_rank': c.get('amount_pct_rank'),
             'turnover': c.get('turnover'),
             'turnover_rank': c.get('turnover_rank'),
+            # 行业乖离率 BIASn（简单 MA 口径，#1431/#892）：与 bias 模块的 LOGBIAS 口径不同、互不替代
+            'bias6': c.get('bias6'),
+            'bias20': c.get('bias20'),
+            'bias60': c.get('bias60'),
             'note': note,
         },
         'collected_at': now_shanghai(),
@@ -792,7 +936,15 @@ def _record(name: str, code: str, c: dict) -> dict:
 
 def fetch_industry_crowding() -> List[dict]:
     """
-    给 TemperatureJob 用的行业拥挤度抓取（legulegu 免费行情自算）。
+    给 TemperatureJob 用的行业拥挤度抓取。
+
+    路径优先级（2026-09-14 #1431）：
+      0. **fundfof 外部临时源**（默认开启，`FUNDFOF_CROWDING_ENABLED=0` 关停）：31 个申万一级行业，
+         综合拥挤度 + 成交额占比 / 换手率 / 60 日线上占比 / 60 日新高占比 / 融资买入占比 / 百万大单
+         分位；BIASn 由 provider 内用申万官网源补齐（该接口无乖离率）；
+      1. tushare（需 `TUSHARE_TOKEN`）/ baostock（需 `industry_map.json`）：申万一级 31 行业 + PB 分位；
+      2. **申万宏源官网单源**（默认）：31 行业，出「成交额占比分位 + BIASn」，PB 分位需 PB 源故为空；
+      3. legulegu：仅 8 个中证行业，降为最后兜底。
 
     Returns:
         List[dict] —— 扁平 multi 记录（每条一个行业；失败时为单条 stale 占位）。
@@ -804,26 +956,48 @@ def fetch_industry_crowding() -> List[dict]:
     if not HAS_AK:
         return [_placeholder('行业拥挤度依赖(akshare/pandas/requests)未安装')]
 
+    # 0) fundfof 外部临时源（#1431，默认开启）：取到数据即优先返回 —— 它的综合拥挤度 /
+    #    成交额占比 / 换手率 / 60 日线上占比 / 60 日新高占比 / 融资买入占比 / 百万大单分位
+    #    正是免费栈缺的维度；BIASn 已在 provider 内用申万官网源补齐。
+    #    关停开关（FUNDFOF_CROWDING_ENABLED=0）或该源不可达时，行为与接入前完全一致。
+    fundfof_records = fetch_fundfof_crowding()
+    if fundfof_records:
+        return fundfof_records
+
     try:
         mkt, meta = market_pb_series()
         if mkt is None or mkt.dropna().empty:
+            # #1431：PB 源不可用时不再整组标灰 —— 先走「申万官网单源」路径，
+            # 至少让 31 行的资金热度（成交额占比分位）与行业乖离率（BIASn）可见。
+            sw_records = _sw_share_records()
+            if sw_records:
+                _log(f'PB 源不可用，降级为申万官网单源路径（{len(sw_records)} 行：占比分位 + BIASn）')
+                return sw_records
             return [
                 _placeholder(
-                    '分母(全A中位PB)数据源暂不可用：legulegu 限流/不可达且本环境无东财实时PB，'
+                    '分母(全A中位PB)与申万官网源均不可用：legulegu 限流/不可达且本环境无东财实时PB，'
                     '建议本机运行一次以建立历史缓存，届时行业拥挤度自动恢复。'
                 )
             ]
         _log(f'市场分母: 全A中位PB={mkt.iloc[-1]:.2f} ({mkt.index[-1].date()}) 来源={meta["src"]}')
 
-        # 选路径：默认 legulegu（免费·部分行业）；baostock/tushare 覆盖更全但需本机/ token。
+        # 选路径（2026-09-14 #1431 调整优先级）：
+        #   1) tushare / baostock：覆盖申万一级全部 31 个行业，且能同时出 PB 分位 → 最优；
+        #   2) 申万宏源官网单源：31 行业、零东财，出「成交额占比分位 + BIASn」（PB 分位需 PB 源）
+        #      —— 作为默认路径，避免回落成「只有 8 个中证行业」的 legulegu 口径（决策 D：对齐 31 个申万行业）；
+        #   3) legulegu：仅 8 个中证行业且依赖其免费额度，降为最后兜底。
         if os.getenv('TUSHARE_TOKEN'):
             mode, src, fetcher = 'tushare', SW_INDUSTRY, industry_pb_tushare
             _log('路径: Tushare(申万一级 31 行业全覆盖)')
         elif BAO_OK and os.path.exists(os.path.join(CACHE_DIR, 'industry_map.json')):
             return _fetch_baostock_all(mkt, meta)
         else:
+            sw_records = _sw_share_records()
+            if sw_records:
+                _log(f'路径: 申万官网单源（{len(sw_records)} 行业：成交额占比分位 + BIASn；PB 分位需 PB 源）')
+                return sw_records
             mode, src, fetcher = 'legulegu', LEGULEGU_INDUSTRY, industry_pb_legulegu
-            _log('路径: legulegu(免费·部分行业)')
+            _log('路径: legulegu(免费·仅 8 个中证行业，最后兜底)')
 
         records = []
         # 两维分母：中证全指 000985 成交额历史（**中证指数官网，非东财**；仅 legulegu 路径需要，循环外拉一次复用）
