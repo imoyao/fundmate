@@ -20,6 +20,10 @@ class WatchlistItem(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         nullable=False,
         comment='标准化代码（场内 SH600519 形态/场外基金 6 位码；经理 MGR_ 前缀/组合平台原生码，#1286）',
     )
+    name = Column(
+        String(100),
+        comment='产品名称快照（#1508：创建自选时随搜索回显一并落库；读取优先用快照，缺失才回退反查链）',
+    )
     market = Column(String(10), nullable=False, default='', comment='市场代码（无市场实体如经理/组合存空串，#1286）')
     asset_type = Column(
         String(20), comment='资产类型：stock/etf/fund/bond/index/manager/portfolio（小写，单一来源 core/asset_types）'

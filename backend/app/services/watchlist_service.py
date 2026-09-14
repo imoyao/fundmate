@@ -196,7 +196,11 @@ def bare_code_of(symbol: str) -> str:
 
 
 def resolve_display_name(symbol: str, db: Session, asset_type: Optional[str] = None) -> str:
-    """资产展示名**唯一**解析链（自选列表页与首页自选摘要共用，禁止再各写一份）。
+    """资产展示名**反查链**（自选列表页与首页自选摘要共用，禁止再各写一份）。
+
+    ⚠️ #1508 起：凡手上已有 `WatchlistItem` 的调用点，一律改用
+    :func:`resolve_item_display_name`（**快照优先**，本函数仅作快照缺失时的兜底）。
+    本函数仍在「只有裸 symbol、没有 item」的场景使用（如持仓缺口、估值 enrich）。
 
     优先级：Manager.name（MGR_ 前缀）→ Security.name → Fund.name →
     AdvisorPortfolio.name → symbol 兜底。
@@ -271,6 +275,24 @@ def resolve_display_name(symbol: str, db: Session, asset_type: Optional[str] = N
     return symbol
 
 
+def resolve_item_display_name(item: WatchlistItem, db: Session) -> str:
+    """**带快照优先**的展示名解析（#1508）——凡手上已有 WatchlistItem 的调用点都应走这里。
+
+    优先级：`watchlist.name` 快照 → :func:`resolve_display_name` 反查链 → symbol 兜底。
+
+    为什么要快照优先：`resolve_display_name` 是**读时重猜**——在 funds/index_catalog/
+    securities/convertible_bond_terms/advisor_portfolios/managers 六张**码空间重叠**的表里
+    按裸码反查（本库 index_catalog 与 funds 同码重叠 258 条）。只要创建时把名称落库，
+    读取端就不必再猜，从根上消灭「显示成无关基金名」这一类 bug（#1497/#1499 的根因）。
+
+    快照可空（历史行 / 无名称来源）→ 落回反查链，行为与快照引入前完全一致，**不倒退**。
+    """
+    snap = (getattr(item, 'name', None) or '').strip()
+    if snap:
+        return snap
+    return resolve_display_name(item.symbol, db, item.asset_type)
+
+
 def normalize_and_infer_venue(
     symbol: str,
     venue: Optional[str] = None,
@@ -323,6 +345,11 @@ def create_watchlist_item(db: Session, data: Dict[str, Any], family_id: int) -> 
     # 写入前归一为小写，与后端 asset_types 单一来源（stock/etf/fund/bond/index）及 positions 域一致，
     # 并修正历史大写（STOCK/ETF/...）导致 venue 推断（asset_type=='fund'）失效的问题（#1171）。
     raw_asset_type = (data.get('asset_type') or '').strip().lower() or None
+    # 名称快照（#1508）：搜索接口已回显 name，前端随 symbol 一并提交；此处落库，
+    # 读取端 resolve_item_display_name 即优先用快照，不再跨表反查重猜（#1497 根因）。
+    # strip 后空串归一为 None（避免把空串当「已命名」而跳过兜底）；超长截断到列宽。
+    raw_name = (data.get('name') or '').strip()
+    name = raw_name[:100] or None
     normalized = normalize_and_infer_venue(
         data['symbol'],
         data.get('venue'),
@@ -345,6 +372,7 @@ def create_watchlist_item(db: Session, data: Dict[str, Any], family_id: int) -> 
 
     item = WatchlistItem(
         symbol=symbol,
+        name=name,
         market=normalized['market'],
         asset_type=raw_asset_type,
         venue=normalized['venue'],
@@ -440,6 +468,9 @@ def ensure_watchlist_for_positions(db: Session, family_id: int, symbols: Optiona
                 norm = _normalize_for_position(pos.symbol, pos.asset_type)
                 item = WatchlistItem(
                     symbol=norm['symbol'],
+                    # 名称快照（#1508）：持仓表已存 name 快照（positions.name），
+                    # 买入自动入自选时顺手带上，避免新行又落到读时反查。
+                    name=(pos.name or '').strip()[:100] or None,
                     market=norm['market'],
                     asset_type=(pos.asset_type or '').strip().lower() or None,
                     venue=norm['venue'],
@@ -448,8 +479,12 @@ def ensure_watchlist_for_positions(db: Session, family_id: int, symbols: Optiona
                 )
                 db.add(item)
                 created += 1
-            elif item.status != 'HOLDING':
-                item.status = 'HOLDING'
+            else:
+                # 存量补写（#1508）：老行无快照、持仓侧有名称 → 顺手回填一次（只补不改）。
+                if not (item.name or '').strip() and (pos.name or '').strip():
+                    item.name = pos.name.strip()[:100]
+                if item.status != 'HOLDING':
+                    item.status = 'HOLDING'
         except Exception:
             logger.exception('ensure_watchlist_for_positions 单标的失败: family=%s symbol=%s', family_id, pos.symbol)
     return created
@@ -561,7 +596,7 @@ def build_home_summary(db: Session, family_id: int) -> List[Dict[str, Any]]:
 
     data = []
     for item in result_items:
-        display_name = resolve_display_name(item.symbol, db, item.asset_type)
+        display_name = resolve_item_display_name(item, db)
         position_value_units = (
             db.query(func.sum(Position.quantity * Position.current_price))
             .filter(Position.symbol == item.symbol, Position.family_id == family_id)

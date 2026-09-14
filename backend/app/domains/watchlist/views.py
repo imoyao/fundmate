@@ -54,6 +54,7 @@ from app.services.watchlist_service import (
     lookup_manager,
     reconcile_watchlist_status,
     resolve_display_name,
+    resolve_item_display_name,
 )
 
 watchlist_bp = APIBlueprint('watchlist', __name__, url_prefix='/api/watchlist')
@@ -332,7 +333,8 @@ def _enrich_item(item: WatchlistItem, db, defer_display: bool = False) -> dict:
     out['type_label'] = TYPE_LABELS.get(out['asset_type']) or out['asset_type'] or ''
     # 传归一后的 asset_type：裸码跨表不唯一（SH000906 的 000906 同时命中 index_catalog
     # 与 funds），指数须据此优先查 index_catalog，否则会被错标成一只场外基金名（#1497）。
-    out['display_name'] = resolve_display_name(item.symbol, db, out['asset_type'])
+    # #1508 起**优先用 watchlist.name 快照**（创建时随搜索回显落库），快照缺失才走反查链。
+    out['display_name'] = resolve_item_display_name(item, db)
     out['group_ids'] = [link.group_id for link in item.group_links]
     out['tag_ids'] = [link.tag_id for link in item.tag_links]
     # 所属分组名称列表（#1332 排序用，避免前端再映射 group_ids）

@@ -221,6 +221,9 @@ export function useExploreWatchlist(router: Router) {
     try {
       await createWatchlistItem({
         symbol: row.symbol,
+        // 名称快照（#1508）：搜索/探市早已回显 name，此前只传 symbol 导致后端只能读时
+        // 跨 6 张重叠码空间的表反查重猜（#1497 根因）。现随创建一并落库。
+        name: row.name,
         asset_type: row.type,
         // venue 必传：后端 normalize_and_infer_venue 对非 fund 且无 venue 的标的
         // 直接 ValueError('缺少 asset_type 或 venue') → 400「收藏失败」。

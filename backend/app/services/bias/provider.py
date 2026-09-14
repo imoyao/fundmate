@@ -86,20 +86,16 @@ class ProductProvider:
         if include_watchlist:
             from app.domains.watchlist.models import WatchlistItem
 
+            # 一次性带出 symbol/name/asset_type（#1508）：此前这里残留着 2026-07-31 的旧块
+            # ——它引用 `WatchlistItem.name`（该列当时并不存在），且**不带 family_id 过滤**；
+            # 2026-08-07 多用户改造新增了下方 family 隔离块却漏删旧块，形成「同条件跑两遍、
+            # 后者丢家庭隔离」的重复代码。加 name 列后旧块不再 AttributeError，反而会静默
+            # 产生重复条目，故一并删除，只保留 family 隔离版并直接用上 name 快照。
             watchlist = (
-                db_session.query(WatchlistItem.symbol, WatchlistItem.asset_type)
+                db_session.query(WatchlistItem.symbol, WatchlistItem.name, WatchlistItem.asset_type)
                 .filter(WatchlistItem.family_id == family_id)
                 .all()
             )
-            for symbol, asset_type in watchlist:
-                item_type = _infer_item_type(asset_type)
-                if symbol:
-                    result.append((symbol, item_type, symbol))
-
-        if include_watchlist:
-            from app.domains.watchlist.models import WatchlistItem
-
-            watchlist = db_session.query(WatchlistItem.symbol, WatchlistItem.name, WatchlistItem.asset_type).all()
             for symbol, name, asset_type in watchlist:
                 item_type = _infer_item_type(asset_type)
                 if symbol:

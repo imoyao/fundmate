@@ -351,6 +351,8 @@ const handleImport = async () => {
       // （否则股票 600519 / 深市 ETF 159915 会被误判为场外基金导入）
       await createWatchlistItem({
         symbol: item.symbol || item.code,
+        // 名称快照（#1508）：OCR 识别结果自带 name，随创建落库
+        name: item.name,
         asset_type: item.type || "fund",
         market: item.market,
         venue: item.venue || "OTC",

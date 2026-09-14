@@ -15,6 +15,10 @@ class WatchlistItemCreate(BaseModel):
     market: Optional[str] = Field(None, max_length=10, description='市场代码')
     asset_type: Optional[str] = Field(None, max_length=20, description='资产类型')
     venue: Optional[str] = Field(None, max_length=10, description='交易场所')
+    # 名称快照（#1508）：搜索接口 `GET /api/search/assets/` 已回显 name，前端此前丢弃 →
+    # watchlist 无 name 列，展示名只能读时跨 6 张重叠码空间的表反查重猜（#1497/#1499 根因）。
+    # 现由前端随 symbol 一并提交落库；可空（老客户端 / 无名称来源时仍走反查链兜底）。
+    name: Optional[str] = Field(None, max_length=100, description='产品名称快照（可选）')
     add_reason: Optional[str] = Field(None, max_length=500, description='关注理由')
     is_pinned: Optional[bool] = Field(False, description='置顶自选')
     cost_price: Optional[float] = Field(None, description='观察参考成本价（探市迁移透传）')
