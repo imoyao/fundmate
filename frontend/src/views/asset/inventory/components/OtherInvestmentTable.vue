@@ -1,12 +1,5 @@
 <template>
-  <div
-    class="rounded-xl p-6 sm:p-8 mt-4"
-    :style="{
-      backgroundColor: 'var(--bg-card)',
-      border: '1px solid var(--border-default)',
-      boxShadow: 'var(--shadow-raised)'
-    }"
-  >
+  <CardBlock>
     <el-table
       :data="assets"
       style="width: 100%"
@@ -56,7 +49,7 @@
         </template>
       </el-table-column>
     </el-table>
-  </div>
+  </CardBlock>
 </template>
 
 <script setup lang="ts">
@@ -66,8 +59,12 @@
  * 自 `views/asset/inventory/index.vue` 拆出（#955）。承载非交易类投资理财资产
  * （#1354：银行理财 / 投顾 / 信托 / 私募 / 理财型保险等存量大类），
  * 细分标签优先取 `minor_category`，存量数据回退历史大类标签。
+ *
+ * #1501：外层卡片容器收敛为 `CardBlock`，表格视觉基线（边框 / hover / 行高）
+ * 一律走 `src/style/el-table.css`，本组件不再写 `:deep(.el-table ...)`。
  */
 import type { AssetRecord } from "@/api/assets";
+import CardBlock from "@/components/CardBlock/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import {
@@ -88,24 +85,3 @@ const emit = defineEmits<{
   remove: [row: AssetRecord];
 }>();
 </script>
-
-<style scoped>
-/* 表格行高增加，提升呼吸感 */
-:deep(.el-table__body td) {
-  padding-top: 14px;
-  padding-bottom: 14px;
-}
-
-:deep(.el-table__header th) {
-  padding-top: 12px;
-  padding-bottom: 12px;
-}
-
-:deep(.el-table td) {
-  border-bottom-color: var(--border-light);
-}
-
-:deep(.el-table__body tr:hover > td) {
-  background-color: var(--bg-hover) !important;
-}
-</style>

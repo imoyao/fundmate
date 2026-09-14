@@ -1,12 +1,5 @@
 <template>
-  <div
-    class="rounded-xl p-6 sm:p-8 flex flex-col mt-4"
-    :style="{
-      backgroundColor: 'var(--bg-card)',
-      border: '1px solid var(--border-default)',
-      boxShadow: 'var(--shadow-raised)'
-    }"
-  >
+  <CardBlock class="flex flex-col">
     <el-table
       v-loading="loading"
       height="400"
@@ -51,7 +44,7 @@
         @current-change="emit('update:page', $event)"
       />
     </div>
-  </div>
+  </CardBlock>
 </template>
 
 <script setup lang="ts">
@@ -60,8 +53,12 @@
  *
  * 自 `views/asset/inventory/index.vue` 拆出（#955）。纯展示 + 翻页事件，
  * 数据由页面数据层提供（`useInventoryData`），本组件不发请求。
+ *
+ * #1501：外层卡片容器收敛为 `CardBlock`，表格视觉基线（边框 / hover / 行高）
+ * 一律走 `src/style/el-table.css`，本组件不再写 `:deep(.el-table ...)`。
  */
 import type { Position } from "@/api/types";
+import CardBlock from "@/components/CardBlock/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import {
@@ -85,24 +82,3 @@ const emit = defineEmits<{
   "update:page": [page: number];
 }>();
 </script>
-
-<style scoped>
-/* 表格行高增加，提升呼吸感 */
-:deep(.el-table__body td) {
-  padding-top: 14px;
-  padding-bottom: 14px;
-}
-
-:deep(.el-table__header th) {
-  padding-top: 12px;
-  padding-bottom: 12px;
-}
-
-:deep(.el-table td) {
-  border-bottom-color: var(--border-light);
-}
-
-:deep(.el-table__body tr:hover > td) {
-  background-color: var(--bg-hover) !important;
-}
-</style>

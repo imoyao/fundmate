@@ -4,7 +4,11 @@
  * 自 `views/asset/inventory/index.vue` 拆出（#955）。本文件**只放数据**，不含逻辑：
  * - `INVENTORY_CATEGORIES`：顶部大类标签栏的目录（标签 / 配色变量 / 注释文案）
  * - `ASSET_TYPE_MAP`：各大类下的快捷录入类型（图标 / 配色变量）
- * - `INVENTORY_TABLE_*_STYLE`：页内多处 `el-table` 共用的表头 / 单元格基线样式
+ * - `INVENTORY_TABLE_*_STYLE`：页内多处 `el-table` 共用的表头 / 单元格字号字重
+ *
+ * 说明（#1501）：表格的**视觉基线**（边框 / 表头底色 / 行 hover / 文字色）一律由
+ * `src/style/el-table.css` 统一维护，页面不得再用 `:deep(.el-table ...)` 覆盖；
+ * 这里只保留基线未定义的字号 / 字重两项。
  */
 
 /** 顶部标签栏的一个资产大类 */

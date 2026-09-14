@@ -1,107 +1,78 @@
 <template>
   <div
-    class="inventory-home p-4 md:p-8 min-h-full"
+    class="inventory-home min-h-full"
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
-    <!-- 页面标题 -->
-    <div class="mb-10">
-      <h2 class="text-2xl font-bold" :style="{ color: 'var(--text-primary)' }">
-        全面盘点
-      </h2>
-      <p class="text-sm mt-3" :style="{ color: 'var(--text-tertiary)' }">
-        选择资产大类，快速录入或导入
-      </p>
-    </div>
+    <!-- 页面页头（设计系统强制复用组件，自带 1280 居中 + 24px 内边距） -->
+    <PageHeaderBar title="全面盘点" subtitle="选择资产大类，快速录入或导入" />
 
-    <!-- 顶部资产分类标签栏 -->
-    <CategoryTabs
-      v-model:active="activeCategory"
-      :categories="INVENTORY_CATEGORIES"
-      :total-of="getCategoryTotal"
-    />
-
-    <!-- 下方内容区域 -->
-    <div class="content-area">
-      <!-- 第一层：大类注释卡片 -->
+    <!-- 内容区：与页头同宽同内边距，保证左边缘严格对齐 -->
+    <div class="inventory-shell">
+      <!-- 第一层：大类标签栏 + 大类注释 -->
+      <CategoryTabs
+        v-model:active="activeCategory"
+        :categories="INVENTORY_CATEGORIES"
+        :total-of="getCategoryTotal"
+      />
       <CategoryDescBar :desc="activeCategoryDesc" />
 
       <!-- ==================== 场景 A：投资理财 ==================== -->
       <template v-if="activeCategory === 'investment'">
         <!-- 1. 投资分布 -->
-        <h4
-          class="text-lg font-semibold mt-10 mb-10"
-          :style="{ color: 'var(--text-primary)' }"
-        >
-          投资分布
-        </h4>
-        <InvestmentDistribution :groups="investmentGroups" />
+        <section class="inventory-section">
+          <SectionHeader title="投资分布" />
+          <InvestmentDistribution :groups="investmentGroups" />
+        </section>
 
         <!-- 2. 快捷操作 -->
-        <h4
-          class="text-lg font-semibold mt-10 mb-10"
-          :style="{ color: 'var(--text-primary)' }"
-        >
-          快捷操作
-        </h4>
-        <QuickActionGrid
-          :items="INVESTMENT_QUICK_ACTIONS"
-          :columns="3"
-          @select="onInvestmentQuickAction"
-        />
+        <section class="inventory-section">
+          <SectionHeader title="快捷操作" />
+          <QuickActionGrid
+            :items="INVESTMENT_QUICK_ACTIONS"
+            :columns="3"
+            @select="onInvestmentQuickAction"
+          />
+        </section>
 
         <!-- 3. 持仓明细 -->
-        <h4
-          class="text-lg font-semibold mt-10 mb-10"
-          :style="{ color: 'var(--text-primary)' }"
-        >
-          持仓明细
-        </h4>
-        <InvestmentPositionTable
-          v-model:page="investmentPage"
-          :positions="investmentPositions"
-          :total="investmentTotal"
-          :loading="investmentLoading"
-        />
+        <section class="inventory-section">
+          <SectionHeader title="持仓明细" />
+          <InvestmentPositionTable
+            v-model:page="investmentPage"
+            :positions="investmentPositions"
+            :total="investmentTotal"
+            :loading="investmentLoading"
+          />
+        </section>
 
         <!-- 4. 其他投资（非交易类投资理财资产，#1354：银行理财/信托等存量大类并入此处） -->
-        <template v-if="currentAssets.length > 0">
-          <h4
-            class="text-lg font-semibold mt-10 mb-10"
-            :style="{ color: 'var(--text-primary)' }"
-          >
-            其他投资
-          </h4>
+        <section v-if="currentAssets.length > 0" class="inventory-section">
+          <SectionHeader title="其他投资" />
           <OtherInvestmentTable
             :assets="currentAssets"
             @edit="openEditAssetDialog"
             @remove="removeAsset"
           />
-        </template>
+        </section>
       </template>
 
       <!-- ==================== 场景 B：其他大类 ==================== -->
       <template v-else>
         <!-- 1. 快捷操作（顺序调整到资产明细上方） -->
-        <h4
-          class="text-lg font-semibold mt-10 mb-10"
-          :style="{ color: 'var(--text-primary)' }"
-        >
-          快捷操作
-        </h4>
-        <QuickActionGrid :items="activeAssetTypes" @select="handleAddType" />
+        <section class="inventory-section">
+          <SectionHeader title="快捷操作" />
+          <QuickActionGrid :items="activeAssetTypes" @select="handleAddType" />
+        </section>
 
         <!-- 2. 资产明细 -->
-        <h4
-          class="text-lg font-semibold mt-10 mb-10"
-          :style="{ color: 'var(--text-primary)' }"
-        >
-          资产明细
-        </h4>
-        <CategoryAssetTable
-          :assets="currentAssets"
-          @edit="openEditAssetDialog"
-          @remove="removeAsset"
-        />
+        <section class="inventory-section">
+          <SectionHeader title="资产明细" />
+          <CategoryAssetTable
+            :assets="currentAssets"
+            @edit="openEditAssetDialog"
+            @remove="removeAsset"
+          />
+        </section>
       </template>
     </div>
 
@@ -119,7 +90,8 @@
  * 全面盘点页（InventoryHome）· 页面编排层。
  *
  * 自 #955 拆分：本文件只负责「编排」——大类切换、区块顺序与事件转发。
- * - 目录数据与表格基线样式 → `./constants.ts`
+ * 自 #1501 收敛：页头走 PageHeaderBar、区块标题走 SectionHeader、区块容器走 CardBlock。
+ * - 目录数据与表格字号字重 → `./constants.ts`
  * - 纯函数（颜色 / 标签 / 分组口径）→ `./helpers.ts`
  * - 数据读写、缓存与全局刷新 → `./useInventoryData.ts`
  * - 区块 UI → `./components/*`
@@ -128,6 +100,8 @@ import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { AssetRecord } from "@/api/assets";
 import { INVESTMENT_MAJOR_KEYS } from "@/constants";
+import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
+import SectionHeader from "@/components/SectionHeader/index.vue";
 import {
   ASSET_TYPE_MAP,
   INVENTORY_CATEGORIES,
@@ -249,3 +223,29 @@ onMounted(() => {
   fetchData();
 });
 </script>
+
+<style scoped>
+/* 页面底部留白：页头自带 --space-section 下边距，这里补一个对称的底部。 */
+.inventory-home {
+  padding-bottom: var(--space-section);
+}
+
+/* 内容区与 PageHeaderBar 同宽同内边距（1280 / 24px），
+   保证页头与内容左边缘严格对齐——页头自带 max-width:1280px + padding:0 24px + margin:0 auto，
+   若内容区继续全宽铺开，宽屏下会出现「页头居中、内容顶边」的错位。
+   1280 与 PageHeaderBar / PageFooter / 探市页一致（#1501）。 */
+.inventory-shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-section);
+  max-width: 1280px;
+  padding: 0 var(--space-standard);
+  margin: 0 auto;
+}
+
+/* 区块：标题（SectionHeader 自带 12px 下边距）+ 内容，纵向间距交给 shell 的 gap */
+.inventory-section {
+  display: flex;
+  flex-direction: column;
+}
+</style>

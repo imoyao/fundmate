@@ -1,6 +1,6 @@
 <template>
   <div
-    class="mb-10 rounded-xl p-6 flex items-start gap-3"
+    class="rounded-xl p-6 flex items-start gap-3"
     :style="{ backgroundColor: 'var(--bg-soft)' }"
   >
     <IconifyIconOffline
