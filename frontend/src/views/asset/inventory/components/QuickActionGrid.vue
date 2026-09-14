@@ -84,8 +84,10 @@ const GRID_CLASS: Record<3 | 4, string> = {
   transition: all 0.2s ease;
 }
 
+/* 卡片上有内联 boxShadow（--shadow-raised），普通规则盖不过它，
+   故 hover 抬升阴影必须 !important；与 InvestmentDistribution 同一处理 */
 .summary-card-item:hover {
-  box-shadow: var(--shadow-float);
+  box-shadow: var(--shadow-float) !important;
   transform: translateY(-2px);
 }
 
