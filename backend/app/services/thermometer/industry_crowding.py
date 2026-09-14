@@ -640,41 +640,96 @@ except Exception:
     BAO_OK = False
 
 
+def _is_index_code(code: str) -> bool:
+    """粗判指数代码（`query_all_stock` 返回含指数，指数无 pbMRQ）。
+
+    · `sh.000xxx` / `sh.950xxx` / `sh.880xxx`：上证系列指数；
+    · `sz.399xxx`：深证系列指数；
+    · 其余（含 `sz.000xxx` 个股，如 平安银行）视为个股。
+    """
+    parts = str(code).split('.')
+    if len(parts) != 2:
+        return True
+    prefix, num = parts[0], parts[1]
+    if prefix == 'sh':
+        return num.startswith(('000', '950', '880'))
+    if prefix == 'sz':
+        return num.startswith('399')
+    return False
+
+
 def bao_industry_map():
-    """全市场 股票->申万一级行业 映射（缓存到 json）。"""
+    """全市场 股票->行业 映射（缓存到 json）。
+
+    ⚠️ 口径说明（#1431 本机实测）：baostock `query_stock_industry()` 的 `industry` 字段是
+    **证监会行业分类代码**（实测值形如 `J66` / `C39hzx` / `I65`），`industryClassification`
+    实测为空，**并非申万一级行业名**。因此本映射**不能**用于「申万一级行业 PB」聚合——
+    `industry_pb_baostock` 无法产出申万口径的行业 PB 序列，PB 分位这条免费路径实际不成立
+    （详见 #1502）。保留实现仅供可能的其它用途，勿据此认为 PB 分位可由此补齐。
+
+    迭代方式修正（#1431）：baostock 的 `rs.next()` 返回 **bool**（是否还有下一行），
+    行数据须用 `rs.get_row_data()` 取。原实现 `while r := rs.next(): r[0]` 会抛
+    `TypeError: 'bool' object is not subscriptable`，即该函数自加入起从未成功执行。
+    """
     path = os.path.join(CACHE_DIR, 'industry_map.json')
     if os.path.exists(path):
         return json.load(open(path, encoding='utf-8'))
     os.makedirs(CACHE_DIR, exist_ok=True)
     bs.login()
-    rs = bs.query_stock_industry()  # 无 code => 返回全市场
-    m = {}
-    while r := rs.next():
-        code, ind = r[0], (r[1] if len(r) > 1 else '')
-        if ind:
-            m[code] = ind  # ind 即申万一级（如 '食品加工','银行'…）
-    bs.logout()
+    try:
+        rs = bs.query_stock_industry()  # 无 code => 返回全市场
+        m = {}
+        while rs.next():
+            row = rs.get_row_data()
+            # 列序：updateDate, code, code_name, industry, industryClassification
+            if len(row) > 3 and row[3]:
+                m[row[1]] = row[3]
+    finally:
+        bs.logout()
     json.dump(m, open(path, 'w', encoding='utf-8'), ensure_ascii=False)
     return m
 
 
 def bao_backfill_pb(start='2010-06-01', end=None):
-    """一次性回补：全市场每支股票每日 pbMRQ -> 存 parquet。仅本机可直连 baostock 时运行。"""
+    """一次性回补：全市场每支股票每日 pbMRQ -> 存 parquet。仅本机可直连 baostock 时运行。
+
+    迭代方式修正（#1431）：同 `bao_industry_map`，行数据须用 `rs.get_row_data()`；
+    原实现 `iter(rs.next, None)` 会在首轮把 `False` 当作行数据 → `TypeError`（从未成功执行）。
+    """
     end = end or datetime.date.today().isoformat()
     os.makedirs(CACHE_DIR, exist_ok=True)
     bs.login()
-    rs = bs.query_all_stock(day=datetime.date.today().isoformat())
-    codes = [r[0] for r in iter(rs.next, None)]
-    _log(f'共 {len(codes)} 支股票，开始回补 pbMRQ({start}~{end})…')
-    for code in codes:
-        f = os.path.join(CACHE_DIR, code.replace('.', '_') + '.parquet')
-        if os.path.exists(f):
-            continue
-        r2 = bs.query_history_k_data_plus(code, 'date,pbMRQ', start_date=start, end_date=end, frequency='d')
-        rows = [r for r in iter(r2.next, None)]
-        if rows:
-            pd.DataFrame(rows, columns=['date', 'pbMRQ']).to_parquet(f)
-    bs.logout()
+    try:
+        rs = bs.query_all_stock(day=datetime.date.today().isoformat())
+        codes = []
+        while rs.next():
+            row = rs.get_row_data()
+            code = row[0] if row else ''
+            if code and not _is_index_code(code):
+                codes.append(code)
+        _log(f'共 {len(codes)} 支股票，开始回补 pbMRQ({start}~{end})…')
+        for code in codes:
+            f = os.path.join(CACHE_DIR, code.replace('.', '_') + '.parquet')
+            if os.path.exists(f):
+                continue
+            r2 = bs.query_history_k_data_plus(code, 'date,pbMRQ', start_date=start, end_date=end, frequency='d')
+            rows = []
+            while r2.next():
+                rows.append(r2.get_row_data())
+            if rows:
+                df = pd.DataFrame(rows, columns=['date', 'pbMRQ'])
+                try:
+                    df.to_parquet(f)
+                except Exception as e:  # noqa: BLE001
+                    # 环境无 parquet 引擎（pyarrow / fastparquet）时不应中断整轮回补：
+                    # 回退 CSV（与 _em_cache_save 同策略）并记日志。
+                    _log(f'  [warn] parquet 落盘失败({code})，回退 CSV: {str(e)[:60]}')
+                    try:
+                        df.to_csv(f.replace('.parquet', '.csv'), index=False)
+                    except Exception as e2:  # noqa: BLE001
+                        _log(f'  [warn] CSV 落盘亦失败({code}): {str(e2)[:60]}')
+    finally:
+        bs.logout()
     _log('回补完成。')
 
 
