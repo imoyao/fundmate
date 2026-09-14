@@ -15,6 +15,12 @@ class WatchlistItemCreate(BaseModel):
     market: Optional[str] = Field(None, max_length=10, description='市场代码')
     asset_type: Optional[str] = Field(None, max_length=20, description='资产类型')
     venue: Optional[str] = Field(None, max_length=10, description='交易场所')
+    # 名称快照（#1508）：**修复前** `watchlist` 表没有 name 列，而搜索接口
+    # `GET /api/search/assets/` 本就回显 name、前端却丢弃 → 展示名只能读时跨 6 张
+    # 重叠码空间的表反查重猜（#1497 / #1499 的根因）。本字段即落库的快照，对应列由
+    # `core/migrations.py::migrate_watchlist_name_snapshot` 在启动期为存量库补齐。
+    # 可空：老客户端不传 / 无名称来源时，读取端仍走既有反查链兜底（行为不倒退）。
+    name: Optional[str] = Field(None, max_length=100, description='产品名称快照（可选）')
     add_reason: Optional[str] = Field(None, max_length=500, description='关注理由')
     is_pinned: Optional[bool] = Field(False, description='置顶自选')
     cost_price: Optional[float] = Field(None, description='观察参考成本价（探市迁移透传）')
