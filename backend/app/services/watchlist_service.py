@@ -213,12 +213,13 @@ def resolve_display_name(symbol: str, db: Session, asset_type: Optional[str] = N
     ── 裸码回退（#1497，2026-09-14）──
     场内 ETF / 指数 / 场内基金在 watchlist 里是带前缀码（`SZ159857`、`SH000906`），
     但 funds/index_catalog 按裸码存名 → 原实现等值比对必落空，名称退化成代码。
-    故新增两条**裸码**回退：指数查 `index_catalog`、其余查 `funds`。
+    故新增**裸码**回退：指数查 `index_catalog`、其余查 `funds`。
 
     为何需要 asset_type 参与：裸码跨表**不唯一**。实测 `SH000906` 的裸码 `000906`
-    同时命中 `index_catalog`（中证800）与 `funds`（广发全球精选股票(QDII)美元A）——
-    若不分类型一律先查 funds，指数行会被错标成一只场外基金名。故 asset_type 为
-    'index' 时先查 `index_catalog` 并以之为准；其余类型才落 funds 裸码回退。
+    同时命中 `index_catalog`（中证800）与 `funds`（广发全球精选股票(QDII)美元A）。
+    故 asset_type 为 'index' 时名称**只认 `index_catalog`**，且**未命中也不回退 funds**——
+    本库两表同码重叠 258 条，回退会把「沪深300(000300)」错标成「德邦德利货币A(000300)」；
+    宁可退回 symbol 显示代码，也不给一个错的名字。其余类型才落 funds 裸码回退。
 
     asset_type 缺省为 None（历史调用点未传）时仍走安全的保守顺序：裸码只补 funds，
     不动指数（指数语义靠调用方显式传 'index' 才启用，避免无类型信息时猜错）。
@@ -243,22 +244,26 @@ def resolve_display_name(symbol: str, db: Session, asset_type: Optional[str] = N
         return bond.name
 
     # 指数：symbol 是 SH000906/CSI930950 形态，名称只在 index_catalog（按裸码存）。
-    # 必须排在 funds 裸码回退之前——否则 SH000906 会被 funds 里的 000906 抢先命中（见 docstring）。
     if (asset_type or '').strip().lower() == 'index':
+        # 指数语义已由调用方确定 → 名称**只认 index_catalog**，未命中时**不得回退 funds**
+        # （#1497 review 补漏，2026-09-14）：裸码跨表不唯一，本库 index_catalog 与 funds
+        # 同码重叠 258 条且撞的是主流码——000300 指数=沪深300 / funds=德邦德利货币A，
+        # 000905 指数=中证500 / funds=鹏华安盈宝货币A。回退会把指数错标成一只无关的
+        # 货币基金名，比显示代码更糟（与 views._enrich_item 处注释的意图一致）。
         idx = db.query(IndexCatalog).filter_by(index_code=bare_code_of(symbol)).first()
         if idx and idx.name:
             return idx.name
-
-    fund = db.query(Fund).filter_by(fund_code=symbol).first()
-    if fund and fund.name:
-        return fund.name
-    # 裸码回退：场内 ETF/基金 symbol 带 SH/SZ 前缀，funds.fund_code 存裸码（#1497）。
-    # 仅在带前缀等值查未命中时尝试，不改变原有精确匹配的优先级。
-    bare = bare_code_of(symbol)
-    if bare and bare != symbol:
-        fund = db.query(Fund).filter_by(fund_code=bare).first()
+    else:
+        fund = db.query(Fund).filter_by(fund_code=symbol).first()
         if fund and fund.name:
             return fund.name
+        # 裸码回退：场内 ETF/基金 symbol 带 SH/SZ 前缀，funds.fund_code 存裸码（#1497）。
+        # 仅在带前缀等值查未命中时尝试，不改变原有精确匹配的优先级。
+        bare = bare_code_of(symbol)
+        if bare and bare != symbol:
+            fund = db.query(Fund).filter_by(fund_code=bare).first()
+            if fund and fund.name:
+                return fund.name
 
     advisor = db.query(AdvisorPortfolio).filter_by(code=symbol).first()
     if advisor and advisor.name:
