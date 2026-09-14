@@ -174,9 +174,7 @@ class TestCacheAndDegrade:
         assert fc.fetch_fundfof_crowding() == []
 
     def test_bad_shape_does_not_write_cache(self, monkeypatch):
-        monkeypatch.setattr(
-            fc.requests, 'get', lambda *a, **k: _FakeResp({'success': False, 'message': 'boom'})
-        )
+        monkeypatch.setattr(fc.requests, 'get', lambda *a, **k: _FakeResp({'success': False, 'message': 'boom'}))
         assert fc.fetch_latest() is None
         assert not fc._read_cache_any_age()
 
@@ -289,7 +287,11 @@ class TestTrackCategory:
             fc.requests,
             'get',
             lambda *a, **k: _FakeResp(
-                {'success': True, 'trading_day': '2026-09-11', 'data': [{'code': 12693.0, 'name': '光通信', 'crowding': 1.0}]}
+                {
+                    'success': True,
+                    'trading_day': '2026-09-11',
+                    'data': [{'code': 12693.0, 'name': '光通信', 'crowding': 1.0}],
+                }
             ),
         )
         recs = fc.fetch_fundfof_crowding('track')
@@ -299,4 +301,3 @@ class TestTrackCategory:
     def test_track_returns_empty_when_disabled(self, monkeypatch):
         monkeypatch.setenv('FUNDFOF_CROWDING_ENABLED', '0')
         assert fc.fetch_fundfof_track_crowding() == []
-

@@ -107,9 +107,7 @@ CATEGORY_SPECS: Dict[str, Dict[str, str]] = {
     },
 }
 
-_UA = (
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
-)
+_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
 
 _TRUTHY_OFF = {'0', 'false', 'no', 'off'}
 
@@ -376,7 +374,11 @@ def fetch_fundfof_crowding(category: str = 'sw') -> List[dict]:
     if key == 'sw' and _merge_sw_bias_enabled():
         _merge_sw_bias(records)
 
-    _log('fundfof[{}] 接入：{} 条（{}，trading_day={}）'.format(key, len(records), spec['label'], payload.get('trading_day') or '?'))
+    _log(
+        'fundfof[{}] 接入：{} 条（{}，trading_day={}）'.format(
+            key, len(records), spec['label'], payload.get('trading_day') or '?'
+        )
+    )
     return records
 
 

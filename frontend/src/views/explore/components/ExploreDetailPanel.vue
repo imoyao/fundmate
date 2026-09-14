@@ -89,7 +89,7 @@
     <!-- 行业 / 赛道排行（#1431）：单一卡片承载
          一级分类（申万行业 / 热门赛道）× 二级视图（拥挤度 / 乖离率），
          避免多张大表纵向堆叠；赛道维度无乖离率，切换分类时自动回到拥挤度 -->
-    <section class="industry-rank-section">
+    <CardBlock class="industry-rank-section">
       <SectionHeader title="行业 / 赛道排行" :info="activeRankView.info">
         <template #action>
           <div class="rank-switch" role="tablist" aria-label="排行分类切换">
@@ -172,7 +172,7 @@
         :items="biasItems"
         :loading="biasLoading"
       />
-    </section>
+    </CardBlock>
 
     <!-- 全部市场温度指标：紧凑表格 -->
     <MetricDetailTable :items="detailMetrics" />
@@ -186,6 +186,7 @@ import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
+import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import TemperatureContextCard from "@/components/TemperatureContextCard/index.vue";
 import { useTemperatureStore } from "@/store/modules/temperature";
@@ -666,13 +667,10 @@ onMounted(async () => {
 /* ============================================================
    行业排行（#1431 评审）：拥挤度 / 乖离率 双视图共用同一张卡片
    ============================================================ */
+/* 卡片外观统一由 CardBlock 提供（docs/design/components.md「CardBlock · 区块卡片容器」），
+   此处只保留区块外边距，禁在本页重复手写 token 卡片样式 */
 .industry-rank-section {
-  padding: 20px 24px;
   margin-bottom: 24px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: 12px;
-  box-shadow: var(--shadow-raised);
 }
 
 .rank-updated {
@@ -714,6 +712,9 @@ onMounted(async () => {
   background: transparent;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-pill);
+  transform: translateZ(0);
+  transform-origin: center;
+  will-change: transform;
   transition:
     color 0.18s ease,
     background-color 0.18s ease,
@@ -727,7 +728,30 @@ onMounted(async () => {
 }
 
 .rank-switch__item:active {
-  transform: scale(0.94);
+  transform: translateZ(0) scale(0.92);
+}
+
+/* 果冻回弹关键帧（docs/design/components.md「果冻胶囊按钮组（D13）」） */
+@keyframes style-pop {
+  0% {
+    transform: translateZ(0) scale(1);
+  }
+
+  30% {
+    transform: translateZ(0) scale(0.92);
+  }
+
+  60% {
+    transform: translateZ(0) scale(1.05);
+  }
+
+  80% {
+    transform: translateZ(0) scale(0.97);
+  }
+
+  100% {
+    transform: translateZ(0) scale(1);
+  }
 }
 
 .rank-switch__item:focus-visible {
@@ -740,6 +764,7 @@ onMounted(async () => {
   background: var(--brand-100);
   border-color: var(--brand-400);
   box-shadow: 0 1px 3px rgb(0 0 0 / 6%);
+  animation: style-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 /* ============================================================

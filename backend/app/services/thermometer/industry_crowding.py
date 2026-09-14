@@ -70,6 +70,7 @@ except Exception:  # noqa
     def now_shanghai():
         return datetime.datetime.now()
 
+
 try:
     from app.services.thermometer.fundfof_crowding import fetch_fundfof_crowding
 except Exception as e:  # noqa: BLE001
