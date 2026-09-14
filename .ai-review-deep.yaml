@@ -112,3 +112,6 @@ review:
     - "*uv.lock"
     - "*.min.js"
     - "*.min.css"
+    # 案例库是纯归档（文件头即写明「刻意不注入 prompt」，仅作维护者台账），
+    # 审查它零价值；2026-09-14 实测 #1491 的误报里亦有对它的元评论。
+    - "docs/configs/ai-review-known-false-positives.md"
