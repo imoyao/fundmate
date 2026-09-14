@@ -68,7 +68,7 @@ defineProps<{
 }
 
 .summary-card-item:hover {
-  box-shadow: var(--shadow-float);
+  box-shadow: var(--shadow-float) !important;
   transform: translateY(-2px);
 }
 
