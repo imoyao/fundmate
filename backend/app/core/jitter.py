@@ -41,7 +41,9 @@ def resolve_jitter_seconds(cli_value: Optional[int] = None) -> int:
     if raw:
         try:
             return max(0, int(float(raw)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
+            # OverflowError：#1491 评审——`int(float('inf'))`（如 env 写成 inf / 1e400）不被
+            # TypeError/ValueError 覆盖，会直接崩掉调度器
             logger.warning(f'{ENV_JITTER_SECONDS}={raw!r} 无法解析，回退默认 {DEFAULT_JITTER_SECONDS}s')
     return DEFAULT_JITTER_SECONDS
 
@@ -54,7 +56,8 @@ def resolve_job_gap_seconds(cli_value: Optional[int] = None) -> int:
     if raw:
         try:
             return max(0, int(float(raw)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
+            # 同 resolve_jitter_seconds：inf / 1e400 会抛 OverflowError（#1491 评审）
             logger.warning(f'{ENV_JOB_GAP_SECONDS}={raw!r} 无法解析，回退默认 {DEFAULT_JOB_GAP_SECONDS}s')
     return DEFAULT_JOB_GAP_SECONDS
 

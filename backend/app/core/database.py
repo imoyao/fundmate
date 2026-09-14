@@ -18,6 +18,7 @@ from app.core.db_factory import (
 from app.core.migrations import (
     migrate_advisor_portfolio_metadata,
     migrate_advisor_portfolio_metrics,
+    migrate_channel_link_indexes,
     migrate_watchlist_family_scoped_unique_key,
     migrate_watchlist_unique_key,
     migrate_watchlist_venue_not_null,
@@ -234,6 +235,8 @@ def init_db():
     migrate_advisor_portfolio_metrics(engine)
     # 投顾组合策展元数据列（#1468）：波动率/夏普/配置目标/产品类型，同上须先于结构校验
     migrate_advisor_portfolio_metadata(engine)
+    # channel_links.to_symbol 索引（#1491 评审）：create_all 只建新表、不给存量表加索引
+    migrate_channel_link_indexes(engine)
     _validate_schema(engine, market_meta, label='market')
     # user 域表 → 用户引擎
     user_meta = MetaData()
@@ -290,6 +293,8 @@ def init_db_split():
     migrate_advisor_portfolio_metrics(app_eng)
     # 投顾组合策展元数据列（#1468）：波动率/夏普/配置目标/产品类型，同上须先于结构校验
     migrate_advisor_portfolio_metadata(app_eng)
+    # channel_links.to_symbol 索引（#1491 评审）
+    migrate_channel_link_indexes(app_eng)
     _validate_schema(app_eng, market_meta, label='market')
     # user 域表 → 用户引擎（若已配置）
     if user_eng is not None:

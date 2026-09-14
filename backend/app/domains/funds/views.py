@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from apiflask import APIBlueprint
 from flask import jsonify, request
@@ -174,7 +174,8 @@ def get_advisor_holdings(code: str):
     with get_db() as db:
         portfolio = db.query(AdvisorPortfolio).filter_by(code=code).first()
         if portfolio is None:
-            return jsonify({'data': None, 'message': '投顾组合不存在'}), 404
+            # 错误响应补齐统一信封的 error_code（#1491 评审）：前端据此区分错误类型
+            return jsonify({'data': None, 'message': '投顾组合不存在', 'error_code': 'ADVISOR_NOT_FOUND'}), 404
 
         as_of = db.query(func.max(AdvisorHolding.as_of_date)).filter_by(portfolio_id=portfolio.id).scalar()
         if as_of is None:
@@ -249,11 +250,22 @@ def get_advisor_adjusts(code: str):
     with get_db() as db:
         portfolio = db.query(AdvisorPortfolio).filter_by(code=code).first()
         if portfolio is None:
-            return jsonify({'data': None, 'message': '投顾组合不存在'}), 404
+            # 错误响应补齐统一信封的 error_code（#1491 评审）
+            return jsonify({'data': None, 'message': '投顾组合不存在', 'error_code': 'ADVISOR_NOT_FOUND'}), 404
 
         q = db.query(AdvisorAdjustHistory.adjust_date).filter_by(portfolio_id=portfolio.id)
         if only_date:
-            dates = [d for (d,) in q.distinct().all() if d.isoformat() == only_date]
+            # 在 SQL 层过滤指定日期（#1491 评审）：原实现取全量 distinct 再内存比对；
+            # 非法日期解析失败 → 空结果（与原来 isoformat 永不相等的行为一致）
+            try:
+                wanted_date = date.fromisoformat(only_date)
+            except ValueError:
+                wanted_date = None
+            dates = (
+                [d for (d,) in q.filter(AdvisorAdjustHistory.adjust_date == wanted_date).distinct().all()]
+                if wanted_date is not None
+                else []
+            )
         else:
             dates = [d for (d,) in q.distinct().order_by(AdvisorAdjustHistory.adjust_date.desc()).limit(limit).all()]
         if not dates:

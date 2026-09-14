@@ -126,7 +126,7 @@ def fetch_close_eastmoney(secid: str, days: int = 90, timeout: int = 8) -> Optio
     return None
 
 
-def fetch_close_sw_industry(symbol: str, days: int = 90, timeout: int = 10) -> Optional[Tuple[List[float], str]]:
+def fetch_close_sw_industry(symbol: str, days: int = 90) -> Optional[Tuple[List[float], str]]:
     """申万行业日线（申万宏源研究官网，akshare index_hist_sw；**非东财**，作为申万行业首选源）。
 
     symbol 约定：'801010.SI' -> akshare index_hist_sw('801010', period='day')。

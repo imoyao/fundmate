@@ -50,7 +50,8 @@ def _silent_ensure_watchlist(db: Session, family_id: int, symbol: str) -> None:
     try:
         ensure_watchlist_for_positions(db, family_id, [symbol])
     except Exception:
-        logger.warning('持仓自动入自选失败（已静默）: family=%s symbol=%s', family_id, symbol)
+        # loguru 只认 {}：用 %s 会导致参数被静默丢弃，日志里看不到 family/symbol（#1491 评审）
+        logger.warning('持仓自动入自选失败（已静默）: family={} symbol={}', family_id, symbol)
 
 
 def _silent_reconcile_watchlist(db: Session, family_id: int, symbol: str) -> None:
@@ -61,7 +62,8 @@ def _silent_reconcile_watchlist(db: Session, family_id: int, symbol: str) -> Non
     try:
         reconcile_watchlist_status(db, family_id, [symbol])
     except Exception:
-        logger.warning('持仓状态对齐自选失败（已静默）: family=%s symbol=%s', family_id, symbol)
+        # 同 _silent_ensure_watchlist：loguru 用 {} 占位（#1491 评审）
+        logger.warning('持仓状态对齐自选失败（已静默）: family={} symbol={}', family_id, symbol)
 
 
 # 允许写入持仓模型的字段白名单（防止注入无效字段）
