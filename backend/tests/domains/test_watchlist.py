@@ -450,6 +450,69 @@ class TestWatchlistItemCRUD:
         assert resolve_display_name('MGR_abcd1234efgh', db) == '张坤'
         assert resolve_display_name('MGR_UNKNOWNCODE00', db) == 'MGR_UNKNOWNCODE00'
 
+    def test_resolve_display_name_bare_code_fallback(self, client, db):
+        """场内 ETF/场内基金名称落到裸码回退（#1497，2026-09-14 用户反馈）。
+
+        根因：watchlist.symbol 是**带前缀**形态（SZ159857），而 funds.fund_code 按
+        **裸 6 位码**存储（159857）→ 原实现等值查 funds 必落空，展示名退化成代码本身，
+        自选页「代码/名称」列首行直接显示 SZ159857。
+        """
+        from app.domains.funds.models import Fund
+
+        db.add(Fund(fund_code='159857', name='光伏ETF天弘'))
+        db.add(Fund(fund_code='513130', name='恒生科技ETF华泰柏瑞'))
+        # 场外基金也可能 histor 带前缀（SZ004369/前海开源聚财宝B）
+        db.add(Fund(fund_code='004369', name='前海开源聚财宝B'))
+        db.commit()
+
+        # 带前缀 → 裸码回退命中
+        assert resolve_display_name('SZ159857', db) == '光伏ETF天弘'
+        assert resolve_display_name('SH513130', db) == '恒生科技ETF华泰柏瑞'
+        assert resolve_display_name('SZ004369', db) == '前海开源聚财宝B'
+        # 裸码本身仍可查（不能因新增回退而破坏原有精确匹配）
+        assert resolve_display_name('159857', db) == '光伏ETF天弘'
+        # 都查不到时仍回退 symbol（不编造）
+        assert resolve_display_name('SZ999999', db) == 'SZ999999'
+
+    def test_resolve_display_name_index_not_hijacked_by_fund(self, client, db):
+        """#1497 核心边界：裸码跨表不唯一，指数必须优先 index_catalog。
+
+        实测 `SH000906` 的裸码 `000906` **同时**命中：
+          - index_catalog  → 000906 = 中证800
+          - funds          → 000906 = 广发全球精选股票(QDII)美元A
+        若不分类型一律先查 funds，指数行会被错标成一只场外基金名。
+        asset_type='index' 时必须先查 index_catalog 并以之为准。
+        """
+        from app.domains.funds.models import Fund
+        from app.domains.indices.models import IndexCatalog
+
+        db.add(Fund(fund_code='000906', name='广发全球精选股票(QDII)美元A'))
+        db.add(IndexCatalog(index_code='000906', name='中证800', exchange='SH'))
+        db.commit()
+
+        # 传 'index' → 走 index_catalog，绝不落到同码基金
+        assert resolve_display_name('SH000906', db, 'index') == '中证800'
+        # asset_type 大小写不敏感（历史行存大写）
+        assert resolve_display_name('SH000906', db, 'INDEX') == '中证800'
+        # 缺 asset_type 时保守：不启用指数分支，落 funds（宁可显示同码基金名也不猜错）
+        # —— 该行为由调用方显式传 asset_type 规避（views/_enrich_item 均已传）
+        assert resolve_display_name('SH000906', db) == '广发全球精选股票(QDII)美元A'
+
+    def test_list_items_etf_display_name(self, client, db):
+        """端到端：#1497 自选列表里场内 ETF 名显示中文而非代码。"""
+        from app.domains.funds.models import Fund
+
+        db.add(Fund(fund_code='159857', name='光伏ETF天弘'))
+        db.commit()
+
+        # etf 是交易性资产，必须带 venue（normalize_and_infer_venue 对非 fund 类型要求显式 venue）
+        _post(client, '/api/watchlist/items/', {'symbol': 'SZ159857', 'asset_type': 'etf', 'venue': 'EXCHANGE'})
+        resp = _get(client, '/api/watchlist/items/')
+        assert resp.status_code == 200
+        item = next(i for i in resp.get_json()['data'] if i['symbol'] == 'SZ159857')
+        # 回归点：此前这里是 'SZ159857'（代码），修复后为基金名
+        assert item['display_name'] == '光伏ETF天弘'
+
     def test_home_summary_shares_display_name_chain(self, client, app):
         """首页自选摘要（/home-summary/）与列表页**共用**同一展示名解析链。
 

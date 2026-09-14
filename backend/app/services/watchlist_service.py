@@ -16,6 +16,7 @@ from app.core.constants import MANAGER_SYMBOL_PREFIX
 from app.core.money import Money
 from app.core.symbol_utils import get_normalizer
 from app.domains.funds.models import AdvisorPortfolio, Fund, Manager
+from app.domains.indices.models import IndexCatalog
 from app.domains.positions.models import Position
 from app.domains.securities.models import Security
 from app.domains.watchlist.models import WatchlistGroup, WatchlistItem, WatchlistItemGroup, WatchlistItemTag
@@ -178,7 +179,23 @@ def lookup_manager(symbol: str, db: Session):
     return db.query(Manager).filter(func.lower(Manager.mgr_code) == code.lower()).first()
 
 
-def resolve_display_name(symbol: str, db: Session) -> str:
+def bare_code_of(symbol: str) -> str:
+    """提取 symbol 的**裸数字代码**部分（去交易所/命名空间前缀）。
+
+    `SZ159857` → `159857`、`SH000906` → `000906`、`CSI930950` → `930950`。
+
+    存在的理由：`watchlist.symbol` 是**带前缀**形态（场内 `SH/SZ`、指数
+    `SH/SZ/CSI/CNI`），而承载名称的 `funds.fund_code` 与 `index_catalog.index_code`
+    一律按**裸 6 位码**存储——不折算前缀就永远等值查不到（2026-09-14 用户反馈：
+    自选页部分 ETF/指数名显示成 `SZ159857` 这样的代码）。
+
+    本函数与 views._bare_code 同义（后者服务估值/回撤 enrich）。此处独立实现是为
+    避免 service 层反向依赖 domains 层视图；两者语义须保持一致（纯数字过滤）。
+    """
+    return ''.join(ch for ch in (symbol or '') if ch.isdigit())
+
+
+def resolve_display_name(symbol: str, db: Session, asset_type: Optional[str] = None) -> str:
     """资产展示名**唯一**解析链（自选列表页与首页自选摘要共用，禁止再各写一份）。
 
     优先级：Manager.name（MGR_ 前缀）→ Security.name → Fund.name →
@@ -192,6 +209,19 @@ def resolve_display_name(symbol: str, db: Session) -> str:
     services._get_display_name 曾是两份实现，前者补了 Manager/AdvisorPortfolio、
     后者没补 → 自选列表页正常、首页自选组件仍显示 MGR_xxx。同一展示需求两处实现
     必然漂移，故收口为单一实现，改一处即两处生效。
+
+    ── 裸码回退（#1497，2026-09-14）──
+    场内 ETF / 指数 / 场内基金在 watchlist 里是带前缀码（`SZ159857`、`SH000906`），
+    但 funds/index_catalog 按裸码存名 → 原实现等值比对必落空，名称退化成代码。
+    故新增两条**裸码**回退：指数查 `index_catalog`、其余查 `funds`。
+
+    为何需要 asset_type 参与：裸码跨表**不唯一**。实测 `SH000906` 的裸码 `000906`
+    同时命中 `index_catalog`（中证800）与 `funds`（广发全球精选股票(QDII)美元A）——
+    若不分类型一律先查 funds，指数行会被错标成一只场外基金名。故 asset_type 为
+    'index' 时先查 `index_catalog` 并以之为准；其余类型才落 funds 裸码回退。
+
+    asset_type 缺省为 None（历史调用点未传）时仍走安全的保守顺序：裸码只补 funds，
+    不动指数（指数语义靠调用方显式传 'index' 才启用，避免无类型信息时猜错）。
     """
     mgr = lookup_manager(symbol, db)
     if mgr and mgr.name:
@@ -199,9 +229,25 @@ def resolve_display_name(symbol: str, db: Session) -> str:
     sec = db.query(Security).filter_by(symbol=symbol).first()
     if sec and sec.name:
         return sec.name
+
+    # 指数：symbol 是 SH000906/CSI930950 形态，名称只在 index_catalog（按裸码存）。
+    # 必须排在 funds 裸码回退之前——否则 SH000906 会被 funds 里的 000906 抢先命中（见 docstring）。
+    if (asset_type or '').strip().lower() == 'index':
+        idx = db.query(IndexCatalog).filter_by(index_code=bare_code_of(symbol)).first()
+        if idx and idx.name:
+            return idx.name
+
     fund = db.query(Fund).filter_by(fund_code=symbol).first()
     if fund and fund.name:
         return fund.name
+    # 裸码回退：场内 ETF/基金 symbol 带 SH/SZ 前缀，funds.fund_code 存裸码（#1497）。
+    # 仅在带前缀等值查未命中时尝试，不改变原有精确匹配的优先级。
+    bare = bare_code_of(symbol)
+    if bare and bare != symbol:
+        fund = db.query(Fund).filter_by(fund_code=bare).first()
+        if fund and fund.name:
+            return fund.name
+
     advisor = db.query(AdvisorPortfolio).filter_by(code=symbol).first()
     if advisor and advisor.name:
         return advisor.name
@@ -452,7 +498,7 @@ def get_holding_gaps(db: Session, family_id: int) -> List[Dict[str, Any]]:
         gaps.append(
             {
                 'symbol': norm['symbol'],
-                'name': name or resolve_display_name(symbol, db),
+                'name': name or resolve_display_name(symbol, db, asset_type),
                 'asset_type': (asset_type or '').strip().lower() or None,
             }
         )
@@ -498,7 +544,7 @@ def build_home_summary(db: Session, family_id: int) -> List[Dict[str, Any]]:
 
     data = []
     for item in result_items:
-        display_name = resolve_display_name(item.symbol, db)
+        display_name = resolve_display_name(item.symbol, db, item.asset_type)
         position_value_units = (
             db.query(func.sum(Position.quantity * Position.current_price))
             .filter(Position.symbol == item.symbol, Position.family_id == family_id)
