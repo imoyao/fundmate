@@ -498,6 +498,35 @@ class TestWatchlistItemCRUD:
         # —— 该行为由调用方显式传 asset_type 规避（views/_enrich_item 均已传）
         assert resolve_display_name('SH000906', db) == '广发全球精选股票(QDII)美元A'
 
+    def test_resolve_display_name_index_missing_must_not_fall_to_fund(self, client, db):
+        """#1497 review 补漏：指数语义已确定时，index_catalog 未命中**不得**回退 funds。
+
+        漏掉的边界：`asset_type='index'` 且裸码不在 index_catalog，此前的实现会继续
+        落进 funds 精确/裸码回退 → 指数行被错标成一只同裸码的**无关**场外基金名。
+        本库实测 index_catalog 与 funds 同码重叠 258 条，且撞主流码：
+          000300 指数=沪深300     / funds=德邦德利货币A
+          000905 指数=中证500     / funds=鹏华安盈宝货币A
+        预期：宁可退回 symbol 显示代码，也不给一个错的名字。
+        """
+        from app.domains.funds.models import Fund
+        from app.domains.indices.models import IndexCatalog
+
+        # funds 有同裸码，index_catalog 没有 → 回退会误命中
+        db.add(Fund(fund_code='000300', name='德邦德利货币A'))
+        # 另一个：index_catalog 有，确认指数分支仍正常
+        db.add(IndexCatalog(index_code='000906', name='中证800', exchange='SH'))
+        db.commit()
+
+        # 回归点：此前返回 '德邦德利货币A'（错名），修复后返回 symbol（显示代码）
+        assert resolve_display_name('SH000300', db, 'index') == 'SH000300'
+        # 大小写不敏感，同样不回退
+        assert resolve_display_name('SH000300', db, 'INDEX') == 'SH000300'
+        # 指数命中 index_catalog 时不受影响
+        assert resolve_display_name('SH000906', db, 'index') == '中证800'
+        # 非指数类型仍照常回退 funds（回退能力未被削弱）
+        assert resolve_display_name('SH000300', db, 'etf') == '德邦德利货币A'
+        assert resolve_display_name('SH000300', db) == '德邦德利货币A'
+
     def test_list_items_etf_display_name(self, client, db):
         """端到端：#1497 自选列表里场内 ETF 名显示中文而非代码。"""
         from app.domains.funds.models import Fund
