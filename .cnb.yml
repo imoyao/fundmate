@@ -1,0 +1,48 @@
+# 镜像同步专用分支（sync/mirror）
+# 作用：每小时把 GitHub 原始仓库 imoyao/fundmate 的 dev、main 快进同步到 CNB duoduobei/fundmate
+#
+# 为什么放在独立分支：dev / main 是被同步的目标，若把配置写在那边，会被下一次同步覆盖，
+# 或让 CNB 侧产生独有提交，导致后续无法快进。因此配置单独放本分支，本分支不参与同步。
+#
+# 安全约束：
+#   1. 只同步 dev / main 两个分支，不动其它分支、不动标签
+#   2. 只允许 fast-forward；CNB 侧一旦出现独有提交，任务失败并打印 src/dst，等人工处理
+#   3. 绝不 force push、绝不删除分支
+#
+# 定时任务说明（docs.cnb.cool/zh/build/crontab.html）：
+#   - 表达式以 crontab: 为前缀，时区 Asia/Shanghai，最小间隔 5 分钟
+#   - 执行身份为最后修改并推送本配置的用户
+sync/mirror:
+  "crontab: 0 * * * *":
+    - name: 镜像同步 dev / main
+      stages:
+        - name: sync from github
+          script: |
+            set -e
+            SRC=https://github.com/imoyao/fundmate.git
+            DST=https://cnb:$CNB_TOKEN@cnb.cool/duoduobei/fundmate.git
+            WORK=$(mktemp -d)
+            git init --bare -q "$WORK"
+            cd "$WORK"
+            git remote add src "$SRC"
+            git remote add dst "$DST"
+            FAILED=0
+            for b in dev main; do
+              git fetch --quiet src "refs/heads/$b:refs/src/$b" || { echo "[$b] 源仓库无此分支，跳过"; continue; }
+              if ! git fetch --quiet dst "refs/heads/$b:refs/dst/$b"; then
+                echo "[$b] 目标仓库无此分支，跳过"; continue
+              fi
+              S=$(git rev-parse "refs/src/$b")
+              D=$(git rev-parse "refs/dst/$b")
+              if [ "$S" = "$D" ]; then
+                echo "[$b] 已一致 $D"; continue
+              fi
+              if git merge-base --is-ancestor "refs/dst/$b" "refs/src/$b"; then
+                git push --quiet dst "refs/src/$b:refs/heads/$b"
+                echo "[$b] 快进 $D -> $S"
+              else
+                echo "[$b] 无法快进：CNB 侧存在独有提交（dst=$D src=$S），已跳过，需人工处理"
+                FAILED=1
+              fi
+            done
+            exit $FAILED
