@@ -1,7 +1,7 @@
 <template>
   <div
     v-if="groups.length > 0"
-    class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4 mb-8 mt-4"
+    class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4"
   >
     <div
       v-for="group in groups"

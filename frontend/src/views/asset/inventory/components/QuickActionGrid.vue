@@ -1,5 +1,5 @@
 <template>
-  <div class="grid gap-4 mb-8 mt-4" :class="GRID_CLASS[columns]">
+  <div class="grid gap-4" :class="GRID_CLASS[columns]">
     <div
       v-for="item in items"
       :key="item.key"
@@ -84,8 +84,10 @@ const GRID_CLASS: Record<3 | 4, string> = {
   transition: all 0.2s ease;
 }
 
+/* !important 不可省：卡片根节点有内联 boxShadow（--shadow-raised），
+   内联样式优先级高于普通规则，不加 !important 时 hover 阴影不生效（与 InvestmentDistribution 同） */
 .summary-card-item:hover {
-  box-shadow: var(--shadow-float);
+  box-shadow: var(--shadow-float) !important;
   transform: translateY(-2px);
 }
 

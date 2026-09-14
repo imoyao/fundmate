@@ -1,13 +1,5 @@
 <template>
-  <div
-    v-if="assets.length > 0"
-    class="rounded-xl p-6 sm:p-8"
-    :style="{
-      backgroundColor: 'var(--bg-card)',
-      border: '1px solid var(--border-default)',
-      boxShadow: 'var(--shadow-raised)'
-    }"
-  >
+  <CardBlock v-if="assets.length > 0">
     <el-table
       :height="assets.length >= 5 ? 400 : null"
       :data="assets"
@@ -76,11 +68,12 @@
         </template>
       </el-table-column>
     </el-table>
-  </div>
+  </CardBlock>
 
+  <!-- 空状态是虚线占位框，不是「区块卡」，故不走 CardBlock（CardBlock 为实线边框） -->
   <div
     v-else
-    class="rounded-xl py-6 sm:py-8 px-10 text-center border border-dashed mt-4"
+    class="rounded-xl py-6 sm:py-8 px-10 text-center border border-dashed"
     :style="{
       borderColor: 'var(--border-default)',
       backgroundColor: 'var(--bg-card)'
@@ -97,8 +90,12 @@
  * 自 `views/asset/inventory/index.vue` 拆出（#955）。比「其他投资」表多出
  * 「大类」与「配置目标」两列，故与 `OtherInvestmentTable` 分列而非用 props 分支揉成一个。
  * 空状态（无记录）由本组件内聚，避免调用方重复写「有数据才渲染」的判断。
+ *
+ * #1501：表格卡片容器收敛为 `CardBlock`，表格视觉基线（边框 / hover / 行高）
+ * 一律走 `src/style/el-table.css`，本组件不再写 `:deep(.el-table ...)`。
  */
 import type { AssetRecord } from "@/api/assets";
+import CardBlock from "@/components/CardBlock/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import {
@@ -124,24 +121,3 @@ const emit = defineEmits<{
   remove: [row: AssetRecord];
 }>();
 </script>
-
-<style scoped>
-/* 表格行高增加，提升呼吸感 */
-:deep(.el-table__body td) {
-  padding-top: 14px;
-  padding-bottom: 14px;
-}
-
-:deep(.el-table__header th) {
-  padding-top: 12px;
-  padding-bottom: 12px;
-}
-
-:deep(.el-table td) {
-  border-bottom-color: var(--border-light);
-}
-
-:deep(.el-table__body tr:hover > td) {
-  background-color: var(--bg-hover) !important;
-}
-</style>
