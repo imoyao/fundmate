@@ -83,8 +83,11 @@ function tabStyle(cat: InventoryCategory) {
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* 选中态卡片由 tabStyle() 注入内联 boxShadow（--shadow-raised），普通规则盖不过
+   内联样式，故 hover 抬升阴影必须 !important；与 InvestmentDistribution /
+   QuickActionGrid 同一处理（#955 拆分时漏了本组件）。 */
 .category-tab:hover {
-  box-shadow: var(--shadow-float);
+  box-shadow: var(--shadow-float) !important;
   transform: translateY(-2px);
 }
 
