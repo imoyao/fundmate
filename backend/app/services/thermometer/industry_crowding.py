@@ -82,9 +82,11 @@ def _log(*a):
 
 
 # 申万一级行业（用于 tushare / 展示）
+# 2026-09-14（#1431 决策 D）：对齐申万现行 31 个——剔除 2021 版已拆分的过时条目
+# 801020「采掘」（拆为 801950 煤炭 / 801960 石油石化），补入 801970 环保 / 801980 美容护理。
+# 权威口径：akshare `sw_index_first_info()`（申万官网），数量以 sw_industry_source.EXPECTED_INDUSTRY_COUNT 为准。
 SW_INDUSTRY = {
     '农林牧渔': '801010.SH',
-    '采掘': '801020.SH',
     '化工': '801030.SH',
     '钢铁': '801040.SH',
     '有色金属': '801050.SH',
@@ -111,6 +113,10 @@ SW_INDUSTRY = {
     '非银金融': '801790.SH',
     '汽车': '801880.SH',
     '机械设备': '801890.SH',
+    '煤炭': '801950.SH',
+    '石油石化': '801960.SH',
+    '环保': '801970.SH',
+    '美容护理': '801980.SH',
 }
 # legulegu 免费路径：实测可用的行业指数（覆盖不均，但方法完整可跑）
 LEGULEGU_INDUSTRY = {
@@ -759,6 +765,71 @@ def _placeholder(note: str = '行业拥挤度数据暂不可用') -> dict:
     }
 
 
+def _sw_share_records() -> List[dict]:
+    """申万官网单源路径（#1431）：不依赖 PB 源，产出 31 行的「成交额占比分位 + BIASn」。
+
+    这是 #1431 的兜底闭环：即使 legulegu / baostock / tushare 全不可用（PB 分位维为空），
+    也能让前端拥挤度表看到 31 个申万行业的**资金热度**与**行业乖离率**，而不是整组标灰。
+
+    PB 分位（估值视角，`crowding_pct`）需行业 PB 源，本路径下为 None 并在 note 说明；
+    指标口径见 `sw_industry_source`（占比分位 = 250 日滚动窗口；BIASn = 简单 MA 6/20/60）。
+    """
+    try:
+        from app.services.thermometer.sw_industry_source import (
+            fetch_sw_metrics,
+            list_sw_industries,
+        )
+
+        names = list_sw_industries()
+        if not names:
+            return []
+        metrics = fetch_sw_metrics(list(names.keys()))
+        if not metrics:
+            return []
+
+        note = (
+            '成交额占比分位与乖离率来自申万宏源官网（非东财）；'
+            'PB 分位需行业 PB 源（legulegu/baostock/tushare），本路径下为空'
+        )
+        records = []
+        for code, name in names.items():
+            m = metrics.get(code)
+            if not m or m.get('amount_pct_rank') is None:
+                continue
+            records.append(
+                {
+                    'kind': 'multi',
+                    'source': 'industry_crowding',
+                    'item_type': 'industry',
+                    'item_code': code,
+                    'item_name': name,
+                    'data': {
+                        'crowding_pct': None,
+                        'multiple': None,
+                        'ind_pb': None,
+                        'mkt_pb': None,
+                        'history_days': m.get('history_days'),
+                        'hist_ok': False,
+                        'amount_pct': m.get('amount_pct'),
+                        'amount_pct_rank': m.get('amount_pct_rank'),
+                        'turnover': None,
+                        'turnover_rank': None,
+                        'bias6': m.get('bias6'),
+                        'bias20': m.get('bias20'),
+                        'bias60': m.get('bias60'),
+                        'amount_src': 'sw_industry_official',
+                        'note': note,
+                    },
+                    'collected_at': now_shanghai(),
+                    'stale': False,
+                }
+            )
+        return records
+    except Exception as e:  # noqa: BLE001
+        _log('  [warn] 申万官网单源路径失败:', str(e)[:80])
+        return []
+
+
 def _record(name: str, code: str, c: dict) -> dict:
     """单行业有效记录 -> 扁平 multi 格式。"""
     note = f'倍数{c.get("multiple")} 行业PB{c.get("ind_pb")} 全A中位PB{c.get("mkt_pb")}' + (
@@ -783,6 +854,10 @@ def _record(name: str, code: str, c: dict) -> dict:
             'amount_pct_rank': c.get('amount_pct_rank'),
             'turnover': c.get('turnover'),
             'turnover_rank': c.get('turnover_rank'),
+            # 行业乖离率 BIASn（简单 MA 口径，#1431/#892）：与 bias 模块的 LOGBIAS 口径不同、互不替代
+            'bias6': c.get('bias6'),
+            'bias20': c.get('bias20'),
+            'bias60': c.get('bias60'),
             'note': note,
         },
         'collected_at': now_shanghai(),
@@ -807,9 +882,15 @@ def fetch_industry_crowding() -> List[dict]:
     try:
         mkt, meta = market_pb_series()
         if mkt is None or mkt.dropna().empty:
+            # #1431：PB 源不可用时不再整组标灰 —— 先走「申万官网单源」路径，
+            # 至少让 31 行的资金热度（成交额占比分位）与行业乖离率（BIASn）可见。
+            sw_records = _sw_share_records()
+            if sw_records:
+                _log(f'PB 源不可用，降级为申万官网单源路径（{len(sw_records)} 行：占比分位 + BIASn）')
+                return sw_records
             return [
                 _placeholder(
-                    '分母(全A中位PB)数据源暂不可用：legulegu 限流/不可达且本环境无东财实时PB，'
+                    '分母(全A中位PB)与申万官网源均不可用：legulegu 限流/不可达且本环境无东财实时PB，'
                     '建议本机运行一次以建立历史缓存，届时行业拥挤度自动恢复。'
                 )
             ]
