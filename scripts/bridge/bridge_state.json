@@ -178,6 +178,31 @@
       "issue_number": 1365,
       "synced_at": "2026-09-08T15:55:09Z",
       "origin": "github"
+    },
+    "5e466cb6-980b-4bf4-ad79-228e49b16e4d": {
+      "issue_number": 1370,
+      "synced_at": "2026-09-09T12:09:46Z",
+      "origin": "github"
+    },
+    "a034aa54-3dca-403b-876d-a02de5594363": {
+      "issue_number": 1375,
+      "synced_at": "2026-09-09T16:21:03Z",
+      "origin": "github"
+    },
+    "60d37378-88e0-44a3-996a-440b9ffa1434": {
+      "issue_number": 1386,
+      "synced_at": "2026-09-10T11:31:08Z",
+      "origin": "github"
+    },
+    "dcc1258f-ef86-4957-8ad7-d8f92ad2d3db": {
+      "issue_number": 1396,
+      "synced_at": "2026-09-10T12:55:34Z",
+      "origin": "github"
+    },
+    "5b25516d-47d0-44e9-bf1a-1ab3a2841a0c": {
+      "issue_number": 1402,
+      "synced_at": "2026-09-10T14:50:25Z",
+      "origin": "github"
     }
   },
   "_comment": "FeedLog ↔ GitHub 桥接状态文件。由 feedlog_bridge.py 自动维护，请勿手动编辑。"
