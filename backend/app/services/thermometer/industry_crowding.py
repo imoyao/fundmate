@@ -867,7 +867,12 @@ def _record(name: str, code: str, c: dict) -> dict:
 
 def fetch_industry_crowding() -> List[dict]:
     """
-    给 TemperatureJob 用的行业拥挤度抓取（legulegu 免费行情自算）。
+    给 TemperatureJob 用的行业拥挤度抓取。
+
+    路径优先级（2026-09-14 #1431）：
+      1. tushare（需 `TUSHARE_TOKEN`）/ baostock（需 `industry_map.json`）：申万一级 31 行业 + PB 分位；
+      2. **申万宏源官网单源**（默认）：31 行业，出「成交额占比分位 + BIASn」，PB 分位需 PB 源故为空；
+      3. legulegu：仅 8 个中证行业，降为最后兜底。
 
     Returns:
         List[dict] —— 扁平 multi 记录（每条一个行业；失败时为单条 stale 占位）。
@@ -896,15 +901,23 @@ def fetch_industry_crowding() -> List[dict]:
             ]
         _log(f'市场分母: 全A中位PB={mkt.iloc[-1]:.2f} ({mkt.index[-1].date()}) 来源={meta["src"]}')
 
-        # 选路径：默认 legulegu（免费·部分行业）；baostock/tushare 覆盖更全但需本机/ token。
+        # 选路径（2026-09-14 #1431 调整优先级）：
+        #   1) tushare / baostock：覆盖申万一级全部 31 个行业，且能同时出 PB 分位 → 最优；
+        #   2) 申万宏源官网单源：31 行业、零东财，出「成交额占比分位 + BIASn」（PB 分位需 PB 源）
+        #      —— 作为默认路径，避免回落成「只有 8 个中证行业」的 legulegu 口径（决策 D：对齐 31 个申万行业）；
+        #   3) legulegu：仅 8 个中证行业且依赖其免费额度，降为最后兜底。
         if os.getenv('TUSHARE_TOKEN'):
             mode, src, fetcher = 'tushare', SW_INDUSTRY, industry_pb_tushare
             _log('路径: Tushare(申万一级 31 行业全覆盖)')
         elif BAO_OK and os.path.exists(os.path.join(CACHE_DIR, 'industry_map.json')):
             return _fetch_baostock_all(mkt, meta)
         else:
+            sw_records = _sw_share_records()
+            if sw_records:
+                _log(f'路径: 申万官网单源（{len(sw_records)} 行业：成交额占比分位 + BIASn；PB 分位需 PB 源）')
+                return sw_records
             mode, src, fetcher = 'legulegu', LEGULEGU_INDUSTRY, industry_pb_legulegu
-            _log('路径: legulegu(免费·部分行业)')
+            _log('路径: legulegu(免费·仅 8 个中证行业，最后兜底)')
 
         records = []
         # 两维分母：中证全指 000985 成交额历史（**中证指数官网，非东财**；仅 legulegu 路径需要，循环外拉一次复用）

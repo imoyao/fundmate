@@ -6,6 +6,8 @@
 2. `fetch_industry_crowding()` 在 PB 源不可用时**先降级到申万路径**、两者都不可用才整组标灰。
 """
 
+import pandas as pd
+
 from app.services.thermometer import industry_crowding as ic
 from app.services.thermometer import sw_industry_source as sw
 
@@ -95,6 +97,35 @@ class TestFetchIndustryCrowdingFallback:
         assert out[0]['item_code'] == '__NA__'
         assert out[0]['stale'] is True
         assert '申万官网源均不可用' in out[0]['data']['note']
+
+    def test_prefers_sw_path_over_legulegu(self, monkeypatch):
+        """决策 D：默认路径为申万 31 行业；legulegu（仅 8 个中证行业）降为最后兜底。"""
+        mkt = pd.Series([1.0, 1.1], index=pd.to_datetime(['2026-09-11', '2026-09-14']))
+        monkeypatch.setattr(ic, 'market_pb_series', lambda: (mkt, {'src': 'legulegu', 'hist_ok': True}))
+        monkeypatch.setattr(ic, '_sw_share_records', lambda: [{'item_code': '801010'}])
+        monkeypatch.delenv('TUSHARE_TOKEN', raising=False)
+        monkeypatch.setattr(ic, 'BAO_OK', False)
+        assert ic.fetch_industry_crowding() == [{'item_code': '801010'}]
+
+    def test_falls_back_to_legulegu_when_sw_path_empty(self, monkeypatch):
+        """申万路径无产出时，仍回退到既有 legulegu 路径（不因新增路径而丢原有能力）。"""
+        mkt = pd.Series([1.0, 1.1], index=pd.to_datetime(['2026-09-11', '2026-09-14']))
+        monkeypatch.setattr(ic, 'market_pb_series', lambda: (mkt, {'src': 'legulegu', 'hist_ok': True}))
+        monkeypatch.setattr(ic, '_sw_share_records', lambda: [])
+        monkeypatch.delenv('TUSHARE_TOKEN', raising=False)
+        monkeypatch.setattr(ic, 'BAO_OK', False)
+        called = {'n': 0}
+
+        def _fake_pb(_code):
+            called['n'] += 1
+            return None  # 该用例只验证「确实进入了 legulegu 分支」
+
+        monkeypatch.setattr(ic, 'industry_pb_legulegu', _fake_pb)
+        monkeypatch.setattr(ic, '_csindex_hist', lambda *a, **k: None)
+        monkeypatch.setattr(ic.time, 'sleep', lambda *_: None)  # legulegu 分支每行业 sleep 1.5s
+        out = ic.fetch_industry_crowding()
+        assert called['n'] > 0
+        assert out and out[0]['stale'] is True  # 无有效记录 → 占位
 
 
 class TestSwIndustryListAligned:
