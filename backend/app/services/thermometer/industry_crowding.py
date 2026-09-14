@@ -11,7 +11,11 @@
   3. 换手率百分位（资金热度）：行业换手率的历史百分位。
 
  数据源：
-  · PB 维度（默认 legulegu 免费，无需 token）：覆盖部分申万行业（消费/医药/金融/信息…）。
+ · **外部临时源（默认开启，可一键关停）**：fundfof.com 公开接口，提供 31 个申万一级行业的
+   综合拥挤度 / 成交额占比 / 换手率 / 60 日线上占比 / 60 日新高占比 / 融资买入占比 / 百万大单
+   （均为百分位口径）。这是**过渡方案**：该接口未授权、随时可能失效，仅个人自用验证，
+   环境变量 `FUNDFOF_CROWDING_ENABLED=0` 即回落以下原三路径。见 `fundfof_crowding.py` 头注释。
+ · PB 维度（默认 legulegu 免费，无需 token）：覆盖部分申万行业（消费/医药/金融/信息…）。
      · 分母(全A中位PB)：优先 ak.stock_a_all_pb()（legulegu，2005+全历史，免费无 token）。
      · 分子(行业PB)：legulegu index-basic-pb（免费，需 token，由 akshare 内置 JS 生成）。
      · 分母兜底链：legulegu 不可用 → 本地缓存 → baostock 批量当日全A中位PB → 东财实时 → 全失败整组标灰。
@@ -65,6 +69,15 @@ except Exception:  # noqa
 
     def now_shanghai():
         return datetime.datetime.now()
+
+try:
+    from app.services.thermometer.fundfof_crowding import fetch_fundfof_crowding
+except Exception as e:  # noqa: BLE001
+    logger.warning(f'外部临时源(fundfof)导入失败，将回落原路径: {e}')
+
+    def fetch_fundfof_crowding():
+        """导入失败兜底：视为不可用（不阻塞主链路）。"""
+        return []
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -870,6 +883,9 @@ def fetch_industry_crowding() -> List[dict]:
     给 TemperatureJob 用的行业拥挤度抓取。
 
     路径优先级（2026-09-14 #1431）：
+      0. **fundfof 外部临时源**（默认开启，`FUNDFOF_CROWDING_ENABLED=0` 关停）：31 个申万一级行业，
+         综合拥挤度 + 成交额占比 / 换手率 / 60 日线上占比 / 60 日新高占比 / 融资买入占比 / 百万大单
+         分位；BIASn 由 provider 内用申万官网源补齐（该接口无乖离率）；
       1. tushare（需 `TUSHARE_TOKEN`）/ baostock（需 `industry_map.json`）：申万一级 31 行业 + PB 分位；
       2. **申万宏源官网单源**（默认）：31 行业，出「成交额占比分位 + BIASn」，PB 分位需 PB 源故为空；
       3. legulegu：仅 8 个中证行业，降为最后兜底。
@@ -883,6 +899,14 @@ def fetch_industry_crowding() -> List[dict]:
     """
     if not HAS_AK:
         return [_placeholder('行业拥挤度依赖(akshare/pandas/requests)未安装')]
+
+    # 0) fundfof 外部临时源（#1431，默认开启）：取到数据即优先返回 —— 它的综合拥挤度 /
+    #    成交额占比 / 换手率 / 60 日线上占比 / 60 日新高占比 / 融资买入占比 / 百万大单分位
+    #    正是免费栈缺的维度；BIASn 已在 provider 内用申万官网源补齐。
+    #    关停开关（FUNDFOF_CROWDING_ENABLED=0）或该源不可达时，行为与接入前完全一致。
+    fundfof_records = fetch_fundfof_crowding()
+    if fundfof_records:
+        return fundfof_records
 
     try:
         mkt, meta = market_pb_series()

@@ -147,6 +147,106 @@
           </div>
         </template>
       </el-table-column>
+      <!-- 以下四列来自外部临时源（fundfof 公开接口，非我方自算）：左侧为当期值、右侧为历史分位 -->
+      <el-table-column
+        prop="data.ma60_ratio"
+        width="150"
+        align="right"
+        sortable
+      >
+        <template #header>
+          <el-tooltip
+            content="60 日均线上方个股占比（该行业成分股中收盘价在 MA60 之上的比例）。右侧为该值的历史分位。数据来自外部临时源，非我方自算。"
+            placement="top"
+          >
+            <span>60线上占比</span>
+          </el-tooltip>
+        </template>
+        <template #default="{ row }">
+          <div class="dim-cell">
+            <span class="dim-value">{{ fmtPct(row.data?.ma60_ratio) }}</span>
+            <span
+              class="dim-rank"
+              :class="crowdingColorClass(row.data?.ma60_ratio_pct)"
+            >
+              {{ fmtPct(row.data?.ma60_ratio_pct) }}
+            </span>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column
+        prop="data.high60_ratio"
+        width="150"
+        align="right"
+        sortable
+      >
+        <template #header>
+          <el-tooltip
+            content="60 日新高个股占比（该行业成分股中创 60 日新高的比例）。右侧为该值的历史分位。数据来自外部临时源，非我方自算。"
+            placement="top"
+          >
+            <span>新高占比</span>
+          </el-tooltip>
+        </template>
+        <template #default="{ row }">
+          <div class="dim-cell">
+            <span class="dim-value">{{ fmtPct(row.data?.high60_ratio) }}</span>
+            <span
+              class="dim-rank"
+              :class="crowdingColorClass(row.data?.high60_ratio_pct)"
+            >
+              {{ fmtPct(row.data?.high60_ratio_pct) }}
+            </span>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column
+        prop="data.margin_ratio"
+        width="150"
+        align="right"
+        sortable
+      >
+        <template #header>
+          <el-tooltip
+            content="融资买入额占该行业成交额比例。右侧为该值的历史分位（融资余额是相对慢变量）。数据来自外部临时源，非我方自算。"
+            placement="top"
+          >
+            <span>融资买入占比</span>
+          </el-tooltip>
+        </template>
+        <template #default="{ row }">
+          <div class="dim-cell">
+            <span class="dim-value">{{ fmtPct(row.data?.margin_ratio) }}</span>
+            <span
+              class="dim-rank"
+              :class="crowdingColorClass(row.data?.margin_ratio_pct)"
+            >
+              {{ fmtPct(row.data?.margin_ratio_pct) }}
+            </span>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column prop="data.big_order" width="150" align="right" sortable>
+        <template #header>
+          <el-tooltip
+            content="百万大单净买入额（亿元，正=净买入）。数据来自外部临时源，非我方自算。"
+            placement="top"
+          >
+            <span>百万大单</span>
+          </el-tooltip>
+        </template>
+        <template #default="{ row }">
+          <span :class="bigOrderClass(row.data?.big_order)">
+            {{
+              row.data?.big_order != null
+                ? (row.data.big_order > 0 ? "+" : "") +
+                  row.data.big_order.toFixed(1) +
+                  "亿"
+                : "--"
+            }}
+          </span>
+        </template>
+      </el-table-column>
       <!-- 行业乖离率 BIASn（简单 MA 口径，#1431）：正=偏离均线上方、负=下方。
            与「行业乖离度排行」表的 LOGBIAS（对数 EMA20）口径不同，故分列展示、互不混淆 -->
       <el-table-column
@@ -233,6 +333,16 @@ import {
 } from "@/utils/temperatureFormat";
 
 defineOptions({ name: "CrowdingTable" });
+
+/** 百分比展示：null/undefined → “--”，否则一位小数 + %（外部源与自算值共用） */
+const fmtPct = (v: number | null | undefined) =>
+  v == null ? "--" : `${Number(v).toFixed(1)}%`;
+
+/** 百万大单着色：净买入红、净卖出绿（沿用全站涨跌配色语义） */
+const bigOrderClass = (v: number | null | undefined) => {
+  if (v == null || v === 0) return "";
+  return v > 0 ? "big-order--in" : "big-order--out";
+};
 
 /** 行业乖离率窗口（简单 MA 口径，与后端 sw_industry_source.BIAS_WINDOWS 对齐） */
 const BIAS_WINDOWS = [6, 20, 60];
@@ -376,6 +486,49 @@ withDefaults(
 .crowding-note {
   font-size: 12px;
   color: var(--text-tertiary);
+}
+
+/* ===== 外部源维度单元格（当期值 + 历史分位，分位沿用 val-* 档位配色） ===== */
+.dim-cell {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: flex-end;
+}
+
+.dim-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.dim-rank {
+  min-width: 42px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.dim-rank.val-low {
+  color: var(--temp-low);
+}
+
+.dim-rank.val-mid {
+  color: var(--temp-mid);
+}
+
+.dim-rank.val-high {
+  color: var(--temp-high);
+}
+
+/* 百万大单：净买入（红）/ 净卖出（绿），沿用涨跌配色语义 */
+.big-order--in {
+  font-variant-numeric: tabular-nums;
+  color: var(--temp-high);
+}
+
+.big-order--out {
+  font-variant-numeric: tabular-nums;
+  color: var(--temp-low);
 }
 
 /* ===== 拥挤度数值颜色（val-* 令牌） ===== */

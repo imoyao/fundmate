@@ -7,6 +7,7 @@
 """
 
 import pandas as pd
+import pytest
 
 from app.services.thermometer import industry_crowding as ic
 from app.services.thermometer import sw_industry_source as sw
@@ -82,6 +83,15 @@ class TestSwShareRecords:
 
 
 class TestFetchIndustryCrowdingFallback:
+    @pytest.fixture(autouse=True)
+    def _disable_external_source(self, monkeypatch):
+        """本类验证的是「无外部源」时的原三路径降级链。
+
+        #1431 起 `fetch_industry_crowding` 默认优先走 fundfof 外部临时源（有网即命中），
+        会先于本类断言的路径返回，故这里显式关停（环境变量即真实开关，顺带验证其可关性）。
+        """
+        monkeypatch.setenv('FUNDFOF_CROWDING_ENABLED', '0')
+
     def test_falls_back_to_sw_path_when_pb_unavailable(self, monkeypatch):
         monkeypatch.setattr(ic, 'market_pb_series', lambda: (None, {'src': 'unavailable'}))
         monkeypatch.setattr(ic, '_sw_share_records', lambda: [{'item_code': '801010', 'source': 'industry_crowding'}])
