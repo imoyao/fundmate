@@ -669,10 +669,10 @@ onMounted(async () => {
 }
 
 /* ============================================================
-   行业排行（#1431 评审）：拥挤度 / 乖离率 双视图共用同一张卡片
+   行业排行（#1431）：拥挤度 / 乖离率双视图共用一张卡片
+   卡片外观统一由 CardBlock 提供（docs/design/components.md「CardBlock · 区块卡片容器」），
+   本页只保留区块外边距，禁在此重复手写 token 卡片样式
    ============================================================ */
-/* 卡片外观统一由 CardBlock 提供（docs/design/components.md「CardBlock · 区块卡片容器」），
-   此处只保留区块外边距，禁在本页重复手写 token 卡片样式 */
 .industry-rank-section {
   margin-bottom: 24px;
 }
@@ -718,12 +718,12 @@ onMounted(async () => {
   border-radius: var(--radius-pill);
   transform: translateZ(0);
   transform-origin: center;
-  will-change: transform;
   transition:
     color 0.18s ease,
     background-color 0.18s ease,
     border-color 0.18s ease,
     transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+  will-change: transform;
 }
 
 .rank-switch__item:hover {
