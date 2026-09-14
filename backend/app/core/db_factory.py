@@ -82,9 +82,11 @@ def _normalize_db_url(url: str) -> tuple[str, Dict]:
         token = qp.get('authToken') or qp.get('auth_token')
         if token:
             extra_connect_args['auth_token'] = token[0]
-            remaining = {k: v for k, v in qp.items() if k not in ('authToken', 'auth_token')}
-            if remaining:
-                url += '?' + urllib.parse.urlencode(remaining, doseq=True)
+        # 非认证参数（如 region=...）一律保留：#1491 评审——原实现只在存在 authToken 时
+        # 才把剩余 query 拼回，无 token 的 URL 上其余查询参数会被整体丢弃
+        remaining = {k: v for k, v in qp.items() if k not in ('authToken', 'auth_token')}
+        if remaining:
+            url += '?' + urllib.parse.urlencode(remaining, doseq=True)
     return url, extra_connect_args
 
 

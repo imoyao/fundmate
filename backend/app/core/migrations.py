@@ -182,3 +182,31 @@ def migrate_advisor_portfolio_metadata(engine: Engine) -> str:
         logger.info(f'[OK] advisor_portfolios 增加列: {added}')
         return f'[OK] 增加列 {added}'
     return '[SKIP] advisor_portfolios 元数据列已存在'
+
+
+def migrate_channel_link_indexes(engine: Engine) -> str:
+    """channel_links 补 to_symbol 索引（#1491 评审）。
+
+    `to_symbol` 是查询 / join 字段（跨渠道关联回填与「ETF→联接」查询都按它过滤），
+    模型此前未声明索引 → 按目标代码查找会全表扫描。
+
+    SQLite 支持 `CREATE INDEX IF NOT EXISTS`，无需重建表；非 SQLite 引擎
+    （Supabase Postgres）由 ORM 模型 / 迁移工具负责，直接跳过。
+    `create_all` 只建新表、不给存量表加索引，故与 watchlist 约束同法由 init_db 启动期兜底。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，索引由 ORM 模型/迁移工具负责'
+
+    if 'channel_links' not in inspect(engine).get_table_names():
+        return '[SKIP] channel_links 表不存在（空库，init_db 将按新模型建表）'
+
+    with engine.connect() as conn:
+        conn.execute(text('CREATE INDEX IF NOT EXISTS ix_channel_links_to_symbol ON channel_links (to_symbol)'))
+        conn.commit()
+
+    names = [i['name'] for i in inspect(engine).get_indexes('channel_links')]
+    if 'ix_channel_links_to_symbol' in names:
+        logger.info('[OK] channel_links.to_symbol 索引已就绪')
+        return '[OK] channel_links.to_symbol 索引已就绪'
+    raise RuntimeError('channel_links.to_symbol 索引创建后校验失败')

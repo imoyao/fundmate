@@ -83,7 +83,7 @@ def validate_session_state(state) -> SessionState:
 
 
 def merge_user_input(state: SessionState, user_input: str) -> SessionState:
-    """把本轮用户输入追加进 history（轻量摘要，不存全量原文）。"""
+    """把本轮用户输入追加进 history（当前保存完整原文，未做截断/摘要）。"""
     history = list(state.get('history', []))
     history.append({'role': 'user', 'content': user_input})
     updated = SessionState(**state)

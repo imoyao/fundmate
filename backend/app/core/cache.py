@@ -89,16 +89,20 @@ class CacheService:
         return None
 
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
-        """写入两级缓存；任一层失败静默（缓存故障不阻断主链路）。"""
+        """写入两级缓存；任一层失败静默（缓存故障不阻断主链路）。
+
+        `value is None` 直接忽略：`get()` 以 None 表示未命中，写进去会让该键永久 miss，
+        与 `get_or_set`「producer 返回 None 即不写入」的约定保持一致（#1491 评审）。
+        """
+        if value is None:
+            return
         full = f'{self._ns}:{key}'
-        expire_at = time.time() + (ttl if ttl is not None else self._default_ttl)
+        ttl = ttl if ttl is not None else self._default_ttl
+        expire_at = time.time() + ttl
         with self._lock:
-            self._lru[full] = (expire_at, value)
-            self._lru.move_to_end(full)
-            while len(self._lru) > _LRU_MAX:
-                self._lru.popitem(last=False)
+            self._lru_put(full, expire_at, value)
         if self._backend == 'local':
-            self._file_set(full, value, ttl if ttl is not None else self._default_ttl)
+            self._file_set(full, value, ttl)
 
     def get_or_set(self, key: str, producer: Callable[[], Any], ttl: Optional[int] = None) -> Any:
         """命中即返；未命中调 producer 并写缓存（语义对齐 fetchers._cached）。"""
@@ -112,15 +116,28 @@ class CacheService:
         return data
 
     def invalidate(self, key: str) -> None:
-        """主动失效（两级同删）。"""
+        """主动失效（两级同删）。
+
+        文件删除放在同一把锁内（#1491 评审）：与 `_file_get` 的「回填 LRU」互斥，
+        避免已失效的数据又被回填回 L1 造成失效不彻底。
+        """
         full = f'{self._ns}:{key}'
         with self._lock:
             self._lru.pop(full, None)
-        if self._backend == 'local' and self._file_dir is not None:
-            try:
-                (self._file_dir / f'{_FILE_PREFIX}{_safe_name(full)}.pkl').unlink(missing_ok=True)
-            except OSError:
-                pass
+            if self._backend == 'local' and self._file_dir is not None:
+                _unlink_quiet(self._file_dir / f'{_FILE_PREFIX}{_safe_name(full)}.pkl')
+
+    # ─────────────── LRU 内部 ───────────────
+    def _lru_put(self, full: str, expire_at: float, value: Any) -> None:
+        """写入 L1 并按 _LRU_MAX 淘汰（调用方须持 self._lock）。
+
+        `set` 与 `_file_get` 回填共用同一策略：此前回填路径漏了淘汰，
+        文件命中较多时 LRU 可越过上限（#1491 评审）。
+        """
+        self._lru[full] = (expire_at, value)
+        self._lru.move_to_end(full)
+        while len(self._lru) > _LRU_MAX:
+            self._lru.popitem(last=False)
 
     # ─────────────── 文件层 ───────────────
     def _file_get(self, full: str, now: float) -> Optional[Any]:
@@ -133,11 +150,15 @@ class CacheService:
             with open(path, 'rb') as fh:
                 expire_at, value = pickle.load(fh)
             if now >= expire_at:
+                # 过期即删除：否则后续每次 get 都要重复读盘并再次判定过期（#1491 评审）
+                _unlink_quiet(path)
                 return None
-            # 文件命中回填 LRU，加速后续访问
+            # 文件命中回填 LRU（含上限淘汰，与 set 同策略），加速后续访问
             with self._lock:
-                self._lru[full] = (expire_at, value)
-                self._lru.move_to_end(full)
+                # 持锁确认文件仍在，避免与 invalidate 竞态时把已失效数据回填回 L1（#1491 评审）
+                if not path.exists():
+                    return None
+                self._lru_put(full, expire_at, value)
             return value
         except Exception:  # noqa: BLE001 - 文件损坏/版本不兼容等一律当未命中
             return None
@@ -156,3 +177,11 @@ class CacheService:
 def _safe_name(key: str) -> str:
     """key 中文件系统敏感字符替换为下划线（namespace 已在构造时清理）。"""
     return ''.join(c if c.isalnum() or c in '-_.' else '_' for c in key)
+
+
+def _unlink_quiet(path: Path) -> None:
+    """删除缓存文件且不抛异常（缓存层故障一律静默）。"""
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass

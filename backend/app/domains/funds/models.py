@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -185,7 +186,12 @@ class ChannelLink(Base, PrimaryKeyMixin, TimestampMixin):
     )
     source = Column(String(20), default='auto', comment='来源: auto / manual')
 
-    __table_args__ = (UniqueConstraint('link_type', 'from_symbol', 'to_symbol', name='uk_channel_link'),)
+    # #1491 评审：to_symbol 是查询/join 字段（见类注释），缺索引会全表扫描；
+    # 存量库由 migrate_channel_link_indexes 在启动期补建（create_all 不给存量表加索引）
+    __table_args__ = (
+        UniqueConstraint('link_type', 'from_symbol', 'to_symbol', name='uk_channel_link'),
+        Index('ix_channel_links_to_symbol', 'to_symbol'),
+    )
 
 
 class DailyWorth(Base, PrimaryKeyMixin, TimestampMixin):

@@ -150,7 +150,15 @@ def _search_managers(db: Session, q: str) -> List[Dict]:
     """基金经理（managers 表）。code 带 MGR_ 前缀（#1286 命名空间约定，防与数字码空间碰撞）。"""
     from app.domains.funds.models import FundCompany, Manager
 
-    rows = db.query(Manager).filter(Manager.name.ilike(f'%{q}%')).limit(_PER_PROVIDER_LIMIT).all()
+    # 支持按 MGR_ 前缀码搜索（#1491 评审）：先剥前缀再匹配 mgr_code，与其它 Provider
+    # 同时匹配 code/name 的行为一致；否则用户粘贴 'MGR_xxx' 永远搜不到。
+    mgr_code_q = q[4:] if q.upper().startswith('MGR_') else q
+    rows = (
+        db.query(Manager)
+        .filter(or_(Manager.mgr_code.ilike(f'%{mgr_code_q}%'), Manager.name.ilike(f'%{q}%')))
+        .limit(_PER_PROVIDER_LIMIT)
+        .all()
+    )
     # Manager 无 company relationship（仅 company_id 列），公司名走一次批量两步查询
     company_ids = {m.company_id for m in rows if m.company_id}
     company_map = {}
