@@ -301,3 +301,77 @@ class TestTrackCategory:
     def test_track_returns_empty_when_disabled(self, monkeypatch):
         monkeypatch.setenv('FUNDFOF_CROWDING_ENABLED', '0')
         assert fc.fetch_fundfof_track_crowding() == []
+
+
+def _history_payload(freq='weekly', mode='value', indicator='crowding'):
+    return {
+        'success': True,
+        'dates': ['2026-09-04', '2026-09-11'],
+        'data': [
+            {'code': '801010.SI', 'name': '农林牧渔', 'values': [1.0, 2.0]},
+            {'code': '801030.SI', 'name': '基础化工', 'values': [None, 3.0]},
+        ],
+        'freq': freq,
+        'mode': mode,
+        'indicator': indicator,
+    }
+
+
+class TestHistory:
+    """趋势视图用的历史序列（不落库、按需代理 + 缓存）。"""
+
+    def test_invalid_params_rejected_without_request(self, monkeypatch):
+        def _boom(*a, **k):
+            raise AssertionError('参数非法时不应发起请求')
+
+        monkeypatch.setattr(fc.requests, 'get', _boom)
+        assert fc.fetch_history(category='nope') is None
+        assert fc.fetch_history(indicator='nope') is None
+        assert fc.fetch_history(freq='daily') is None  # 实测 daily 会 422
+        assert fc.fetch_history(mode='nope') is None
+
+    def test_disabled_returns_none(self, monkeypatch):
+        monkeypatch.setenv('FUNDFOF_CROWDING_ENABLED', '0')
+        assert fc.fetch_history() is None
+
+    def test_ok_then_cache_hit(self, monkeypatch):
+        calls = {'n': 0, 'params': None}
+
+        def _get(url, params=None, **kwargs):
+            calls['n'] += 1
+            calls['params'] = params
+            assert url.endswith('/api/market/crowding/history')
+            return _FakeResp(_history_payload())
+
+        monkeypatch.setattr(fc.requests, 'get', _get)
+        first = fc.fetch_history()
+        assert first is not None
+        assert first['items'][0]['name'] == '农林牧渔'
+        assert first['source_kind'] == 'external_temp'
+        assert calls['params'] == {'category': 'sw', 'indicator': 'crowding', 'freq': 'weekly', 'mode': 'value'}
+
+        second = fc.fetch_history()
+        assert second is not None and calls['n'] == 1  # 第二次命中磁盘缓存
+
+    def test_monthly_and_mode_pct_forwarded(self, monkeypatch):
+        seen = {}
+
+        def _get(url, params=None, **kwargs):
+            seen.update(params or {})
+            return _FakeResp(_history_payload(freq='monthly', mode='pct'))
+
+        monkeypatch.setattr(fc.requests, 'get', _get)
+        out = fc.fetch_history(category='track', indicator='turnover_rate', freq='monthly', mode='pct')
+        assert out is not None and out['freq'] == 'monthly'
+        assert seen == {'category': 'track', 'indicator': 'turnover_rate', 'freq': 'monthly', 'mode': 'pct'}
+
+    def test_unreachable_without_cache_returns_none(self, monkeypatch):
+        def _boom(*a, **k):
+            raise RuntimeError('network down')
+
+        monkeypatch.setattr(fc.requests, 'get', _boom)
+        assert fc.fetch_history(category='track', freq='monthly') is None
+
+    def test_bad_shape_returns_none(self, monkeypatch):
+        monkeypatch.setattr(fc.requests, 'get', lambda *a, **k: _FakeResp({'success': False}))
+        assert fc.fetch_history() is None

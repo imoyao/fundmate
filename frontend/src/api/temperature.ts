@@ -144,3 +144,43 @@ export const getMultiItems = (source: string, date?: string) => {
   }
   return http.get<MultiItemsResponse, unknown>(url);
 };
+
+export interface CrowdingHistoryResponse {
+  // 外部源不可用时后端返回 data: null + 可读 message（前端提示，不报错）
+  data: {
+    dates: string[];
+    items: Array<{ code: string; name: string; values: (number | null)[] }>;
+    freq: string;
+    mode: string;
+    indicator: string;
+    category: string;
+    source_kind?: string;
+  } | null;
+  message: string;
+}
+
+/**
+ * 获取行业 / 赛道拥挤度历史序列（趋势视图）
+ *
+ * 历史序列不落库，由后端代理外部临时源并缓存（#1431；源见 #1502）。
+ * @param category sw（申万行业）/ track（热门赛道）
+ * @param indicator crowding / turnover_ratio / turnover_rate / ma60_ratio / high60_ratio / margin_ratio / big_order
+ * @param freq weekly / monthly（外部源不支持 daily）
+ * @param mode value（原值）/ pct（分位）
+ */
+export const getCrowdingHistory = (params: {
+  category: string;
+  indicator?: string;
+  freq?: string;
+  mode?: string;
+}) => {
+  const query = new URLSearchParams({
+    category: params.category,
+    indicator: params.indicator || "crowding",
+    freq: params.freq || "weekly",
+    mode: params.mode || "value"
+  });
+  return http.get<CrowdingHistoryResponse, unknown>(
+    `/api/temperature/crowding-history?${query.toString()}`
+  );
+};

@@ -385,3 +385,121 @@ def fetch_fundfof_crowding(category: str = 'sw') -> List[dict]:
 def fetch_fundfof_track_crowding() -> List[dict]:
     """热门赛道维度（`category=track`，18 条）：无 BIASn，失败返回 `[]`。"""
     return fetch_fundfof_crowding('track')
+
+
+# ───────────────── 历史序列（趋势视图，不落库、按需代理） ─────────────────
+HISTORY_PATH = '/api/market/crowding/history'
+
+# 白名单（本机实测 2026-09-14：daily 会 422；freq 默认 weekly / mode 默认 value）
+HISTORY_CATEGORIES = tuple(CATEGORY_SPECS)
+HISTORY_FREQS = ('weekly', 'monthly')
+HISTORY_MODES = ('value', 'pct')
+HISTORY_INDICATORS = (
+    'crowding',
+    'turnover_ratio',
+    'turnover_rate',
+    'ma60_ratio',
+    'high60_ratio',
+    'margin_ratio',
+    'big_order',
+)
+HISTORY_CACHE_TTL_HOURS = 6
+
+
+def _history_cache_file(category: str, indicator: str, freq: str, mode: str) -> str:
+    return os.path.join(CACHE_DIR, f'history_{category}_{indicator}_{freq}_{mode}.json')
+
+
+def fetch_history(
+    category: str = 'sw',
+    indicator: str = 'crowding',
+    freq: str = 'weekly',
+    mode: str = 'value',
+) -> Optional[Dict[str, Any]]:
+    """取历史序列（趋势视图用；**不落库**，按需代理 + 磁盘缓存）。
+
+    历史序列是「按需读取」的长序列（31 行 × 30 期），塞进 `market_multi_items`（最新快照表）
+    不合适，故本函数直连外部源并缓存，由视图层代理给前端。
+
+    Args:
+        category: `sw` / `track`。
+        indicator: 见 `HISTORY_INDICATORS`。
+        freq: `weekly` / `monthly`（实测 `daily` 会 422）。
+        mode: `value`（原值）/ `pct`（分位）。
+
+    Returns:
+        `{'dates': [...], 'items': [{'code','name','values':[...]}], 'freq','mode','indicator'}`
+        —— 参数非法 / 关停 / 依赖缺失 / 不可达且无缓存时返回 None（由视图层给出提示，不报错）。
+    """
+    if not enabled() or not HAS_REQUESTS:
+        return None
+    if (
+        category not in HISTORY_CATEGORIES
+        or indicator not in HISTORY_INDICATORS
+        or freq not in HISTORY_FREQS
+        or mode not in HISTORY_MODES
+    ):
+        _log(f'  [warn] history 参数非法：{category}/{indicator}/{freq}/{mode}')
+        return None
+
+    cache_path = _history_cache_file(category, indicator, freq, mode)
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, encoding='utf-8') as fh:
+                cached = json.load(fh)
+            ts = cached.get('_cached_at')
+            if ts:
+                age = (datetime.datetime.now() - datetime.datetime.fromisoformat(ts)).total_seconds() / 3600
+                if age <= HISTORY_CACHE_TTL_HOURS and cached.get('items'):
+                    return cached
+        except Exception as e:  # noqa: BLE001
+            _log('  [warn] history 缓存读取失败:', str(e)[:80])
+
+    try:
+        resp = requests.get(
+            BASE + HISTORY_PATH,
+            params={'category': category, 'indicator': indicator, 'freq': freq, 'mode': mode},
+            headers={'User-Agent': _UA, 'Referer': BASE + '/market-crowding', 'Accept': 'application/json, */*'},
+            timeout=TIMEOUT,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+    except Exception as e:  # noqa: BLE001
+        _log('  [warn] history 接口不可达（已降级）:', str(e)[:100])
+        return _read_history_cache_any_age(cache_path)
+
+    if not payload.get('success') or not isinstance(payload.get('data'), list):
+        _log('  [warn] history 返回结构异常:', str(payload)[:120])
+        return _read_history_cache_any_age(cache_path)
+
+    body = {
+        'dates': payload.get('dates') or [],
+        'items': payload['data'],
+        'freq': payload.get('freq') or freq,
+        'mode': payload.get('mode') or mode,
+        'indicator': payload.get('indicator') or indicator,
+        'category': category,
+        'source_kind': 'external_temp',
+        'note': NOTE,
+    }
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        disk = dict(body)
+        disk['_cached_at'] = datetime.datetime.now().isoformat()
+        with open(cache_path, 'w', encoding='utf-8') as fh:
+            json.dump(disk, fh, ensure_ascii=False)
+    except Exception as e:  # noqa: BLE001
+        _log('  [warn] history 缓存写入失败:', str(e)[:80])
+    return body
+
+
+def _read_history_cache_any_age(cache_path: str) -> Optional[Dict[str, Any]]:
+    """接口不可达时用旧缓存降级（忽略 TTL），让趋势图仍有内容而不是空白。"""
+    if not os.path.exists(cache_path):
+        return None
+    try:
+        with open(cache_path, encoding='utf-8') as fh:
+            cached = json.load(fh)
+        return cached if cached.get('items') else None
+    except Exception:  # noqa: BLE001
+        return None

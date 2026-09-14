@@ -174,6 +174,9 @@
       />
     </CardBlock>
 
+    <!-- 拥挤度趋势（周度 / 月度；随上方分类联动「申万行业 / 热门赛道」） -->
+    <IndustryCrowdingTrend :category="rankCategory" />
+
     <!-- 全部市场温度指标：紧凑表格 -->
     <MetricDetailTable :items="detailMetrics" />
   </div>
@@ -198,6 +201,7 @@ import {
   CROWDING_LOW_THRESHOLD
 } from "@/constants/temperature";
 import TemperatureTrendChart from "./TemperatureTrendChart.vue";
+import IndustryCrowdingTrend from "./IndustryCrowdingTrend.vue";
 import BiasTable from "./detail/BiasTable.vue";
 import CrowdingTable from "./detail/CrowdingTable.vue";
 import MetricDetailTable from "./detail/MetricDetailTable.vue";
