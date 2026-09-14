@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""fundfof 行业拥挤度外部源（**临时**，可一键关停）
-====================================================
+"""fundfof 拥挤度外部源（**临时**，可一键关停）· 行业 + 赛道
+============================================================
 定位（务必先读）：这是**过渡方案**，不是长期数据源。
 
 背景（#1431 决策）：行业拥挤度的目标维度（换手率 / 60 日线上占比 / 60 日新高占比 /
@@ -8,7 +8,7 @@
   · 申万官网 `index_hist_sw` 无换手率字段；
   · 拿不到申万一级成分股（akshare 无 `sw_index_first_cons`，`sw_index_third_cons` 实测 0 行），
     故 60 日线上/新高占比无法自算；
-  · 东财个股日线受限流（RemoteDisconnected）。
+  · 东财个股日线受限流（RemoteDisconnected）；PB 行业分位无免费源。
 而 `www.fundfof.com` 的公开接口恰好提供上述全部维度（申万代码 + 名称 + 分位），
 先接入把表补齐，等我方自有数据（付费源 / 自建成分股映射）就位后**直接切掉**。
 
@@ -18,14 +18,21 @@
   · 仅用于个人自用验证，**不应对外发布**；对外形态必须换成自有或授权数据源。
 
 开关：环境变量 `FUNDFOF_CROWDING_ENABLED`（默认开启；置 `0/false/no/off` 即关停 → 回落原三路径）。
-      环境变量 `FUNDFOF_CROWDING_MERGE_SW_BIAS`（默认开启）用申万官网源补 BIASn（该接口无乖离率）。
+      环境变量 `FUNDFOF_CROWDING_MERGE_SW_BIAS`（默认开启）用申万官网源补行业 BIASn。
+
+维度（category）：
+  · `sw`    → 申万一级 31 行业，落 `source='industry_crowding'` / `item_type='industry'`
+              （BIASn 由申万官网源补齐；乖离率该接口不提供）
+  · `track` → 18 个热门赛道（概念指数 + 申万细分，如 光通信 / AI芯片 / 半导体设备），
+              落 `source='track_crowding'` / `item_type='concept'`（无 BIASn，该维度不适用）
 
 接口（匿名 GET，无需鉴权，实测 200）：
-  · GET /api/market/crowding/latest      —— 31 个申万一级行业全维度快照
-  · GET /api/market/crowding/indicators  —— 指标清单（key/label/has_pct）
-  · GET /api/market/crowding/history     —— 各行业时间序列（本期未用）
+  · GET /api/market/crowding/latest?category=sw|track   —— 快照（实测 sw=31 行 / track=18 行）
+  · GET /api/market/crowding/indicators                 —— 指标清单
+  · GET /api/market/crowding/history                    —— 时间序列（本期未用）
+  注：参数名是 `category`（不是 `cat`）；`concept` / `hot` 等取值实测 422，勿用。
 
-字段映射（→ 我们 industry_crowding 的 data 结构）：
+字段映射（→ 我们 market_multi_items 的 data 结构）：
   crowding_pct(综合拥挤度分位) → crowding_pct；crowding → crowding_value
   turnover_ratio/turnover_pct  → amount_pct / amount_pct_rank（成交额占全A比例及其分位）
   turnover_rate/turnover_rate_pct → turnover / turnover_rank（换手率及其分位）
@@ -33,7 +40,8 @@
   high60_ratio/high60_pct      → high60_ratio / high60_ratio_pct（60 日新高占比）
   margin_ratio/margin_pct      → margin_ratio / margin_ratio_pct（融资买入占比）
   big_order/big_order_pct      → big_order / big_order_pct（百万大单）
-  PB 三列（ind_pb/multiple/mkt_pb）该接口不提供 → 保持 None（口径不混用）。
+  PB 三列（ind_pb/multiple/mkt_pb）该接口不提供 → 保持 None（口径不混用，前端文案已注明）。
+  数值缺失一律 None（前端显示 `--`），绝不用 0 顶替；赛道的 big_order / margin 存在整列为空的情况。
 """
 
 import datetime
@@ -61,7 +69,7 @@ except Exception:  # noqa: BLE001
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CACHE_DIR = os.path.join(HERE, 'cache', 'fundfof_crowding')  # 运行时缓存，不入库
-CACHE_FILE = os.path.join(CACHE_DIR, 'latest.json')
+CACHE_FILE = os.path.join(CACHE_DIR, 'latest.json')  # 行业（sw）缓存；赛道缓存由它派生
 
 BASE = 'https://www.fundfof.com'
 LATEST_PATH = '/api/market/crowding/latest'
@@ -69,7 +77,35 @@ REQUIRED_FIELDS = {'code', 'name', 'crowding'}
 
 TIMEOUT = 20
 CACHE_TTL_HOURS = 6  # 该接口为日频数据（带 trading_day），6 小时内复用缓存、避免重复请求
+
+# 来源标注（前端据此显示「数据来源」提示条；不依赖对 note 文案做字符串解析）
+SRC_EXTERNAL = 'fundfof'
+
 NOTE = '数据来自 fundfof.com 公开接口（临时外部源，未授权，仅供自用验证；口径为其综合拥挤度体系）'
+
+
+def _note(category: str) -> str:
+    """按维度给出说明（赛道维度无 BIASn，且部分维度存在整列为空）。"""
+    if category == 'track':
+        return NOTE + '；赛道维度无行业乖离率，且部分赛道的大单/融资维度本身为空'
+    return NOTE + '；行业乖离率由申万宏源官网源补齐'
+
+
+# 维度配置：category 参数 → 落库的 source / item_type / 中文名
+CATEGORY_SPECS: Dict[str, Dict[str, str]] = {
+    'sw': {
+        'param': 'sw',
+        'source': 'industry_crowding',
+        'item_type': 'industry',
+        'label': '申万一级行业',
+    },
+    'track': {
+        'param': 'track',
+        'source': 'track_crowding',
+        'item_type': 'concept',
+        'label': '热门赛道',
+    },
+}
 
 _UA = (
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
@@ -84,7 +120,7 @@ def enabled() -> bool:
 
 
 def _merge_sw_bias_enabled() -> bool:
-    """是否用申万官网源补 BIASn（该接口无乖离率字段）。"""
+    """是否用申万官网源补行业 BIASn（该接口无乖离率字段）。"""
     return os.getenv('FUNDFOF_CROWDING_MERGE_SW_BIAS', '1').strip().lower() not in _TRUTHY_OFF
 
 
@@ -92,13 +128,30 @@ def _log(*a):
     logger.debug(' '.join(str(x) for x in a))
 
 
+def _spec(category: str) -> Dict[str, str]:
+    """取维度配置；未知维度回落行业（保证调用方永不因拼错而崩）。"""
+    spec = CATEGORY_SPECS.get(category)
+    if spec is None:
+        _log(f'  [warn] 未知 category={category!r}，回落 sw')
+        return CATEGORY_SPECS['sw']
+    return spec
+
+
+def _cache_file(category: str) -> str:
+    """缓存路径：sw 用模块级 CACHE_FILE（便于测试 monkeypatch），其余按后缀派生。"""
+    if category == 'sw':
+        return CACHE_FILE
+    return CACHE_FILE.replace('.json', f'_{category}.json')
+
+
 # ───────────────── 磁盘缓存 ─────────────────
-def _read_cache(max_age_hours: float = CACHE_TTL_HOURS) -> Optional[Dict[str, Any]]:
+def _read_cache(category: str = 'sw', max_age_hours: float = CACHE_TTL_HOURS) -> Optional[Dict[str, Any]]:
     """读缓存；超过 max_age_hours 视为过期返回 None（过期不删，留作降级兜底）。"""
-    if not os.path.exists(CACHE_FILE):
+    path = _cache_file(category)
+    if not os.path.exists(path):
         return None
     try:
-        with open(CACHE_FILE, encoding='utf-8') as fh:
+        with open(path, encoding='utf-8') as fh:
             payload = json.load(fh)
         ts = payload.get('_cached_at')
         if not ts:
@@ -112,72 +165,81 @@ def _read_cache(max_age_hours: float = CACHE_TTL_HOURS) -> Optional[Dict[str, An
         return None
 
 
-def _read_cache_any_age() -> Optional[Dict[str, Any]]:
+def _read_cache_any_age(category: str = 'sw') -> Optional[Dict[str, Any]]:
     """读缓存（忽略时效）：接口不可达时用最近一次成功结果降级，不让整表变空。"""
-    if not os.path.exists(CACHE_FILE):
+    path = _cache_file(category)
+    if not os.path.exists(path):
         return None
     try:
-        with open(CACHE_FILE, encoding='utf-8') as fh:
+        with open(path, encoding='utf-8') as fh:
             return json.load(fh)
     except Exception:  # noqa: BLE001
         return None
 
 
-def _write_cache(payload: Dict[str, Any]) -> None:
+def _write_cache(payload: Dict[str, Any], category: str = 'sw') -> None:
     """写缓存：失败仅记日志，绝不抛异常（缓存不可写不应影响主链路）。"""
     try:
         os.makedirs(CACHE_DIR, exist_ok=True)
         body = dict(payload)
         body['_cached_at'] = datetime.datetime.now().isoformat()
-        with open(CACHE_FILE, 'w', encoding='utf-8') as fh:
+        with open(_cache_file(category), 'w', encoding='utf-8') as fh:
             json.dump(body, fh, ensure_ascii=False)
     except Exception as e:  # noqa: BLE001
         _log('  [warn] fundfof 缓存写入失败:', str(e)[:80])
 
 
 # ───────────────── 网络 ─────────────────
-def fetch_latest(force: bool = False) -> Optional[Dict[str, Any]]:
+def fetch_latest(category: str = 'sw', force: bool = False) -> Optional[Dict[str, Any]]:
     """取最新快照（优先缓存；force=True 跳过时效检查直接请求）。
 
     Returns:
-        `{'trading_day': str, 'items': [...]}`,不可达且无缓存时返回 None。
+        `{'trading_day': str, 'items': [...]}`；不可达且无缓存时返回 None。
     """
     if not HAS_REQUESTS:
         return None
+    spec = _spec(category)
     if not force:
-        cached = _read_cache()
+        cached = _read_cache(category)
         if cached and cached.get('items'):
-            _log('  fundfof 拥挤度命中缓存（{} 行）'.format(len(cached['items'])))
+            _log('  fundfof[{}] 命中缓存（{} 行）'.format(category, len(cached['items'])))
             return cached
 
     try:
         resp = requests.get(
             BASE + LATEST_PATH,
+            params={'category': spec['param']},
             headers={'User-Agent': _UA, 'Referer': BASE + '/market-crowding', 'Accept': 'application/json, */*'},
             timeout=TIMEOUT,
         )
         resp.raise_for_status()
         payload = resp.json()
     except Exception as e:  # noqa: BLE001
-        _log('  [warn] fundfof 接口不可达（已降级）:', str(e)[:100])
-        stale = _read_cache_any_age()
+        _log('  [warn] fundfof[{}] 接口不可达（已降级）: {}'.format(category, str(e)[:100]))
+        stale = _read_cache_any_age(category)
         if stale and stale.get('items'):
-            _log('  fundfof 降级为历史缓存（{} 行）'.format(len(stale['items'])))
+            _log('  fundfof[{}] 降级为历史缓存（{} 行）'.format(category, len(stale['items'])))
         return stale
 
     if not payload.get('success') or not isinstance(payload.get('data'), list):
-        _log('  [warn] fundfof 返回结构异常:', str(payload)[:120])
-        return _read_cache_any_age()
+        _log('  [warn] fundfof[{}] 返回结构异常: {}'.format(category, str(payload)[:120]))
+        return _read_cache_any_age(category)
 
     body = {'trading_day': payload.get('trading_day') or '', 'items': payload['data']}
-    _write_cache(body)
+    _write_cache(body, category)
     return body
 
 
 # ───────────────── 映射 ─────────────────
-def _norm_code(code: str) -> str:
-    """申万代码归一化：`801010.SI` / `801010.SH` → `801010`（与 sw_industry_source 口径一致）。"""
-    return str(code or '').split('.')[0].strip()
+def _norm_code(code: Any) -> str:
+    """代码归一化：`801010.SI` / `801010.SH` → `801010`；概念指数 `12693.0` → `12693`。
+
+    赛道维度（track）的 code 形态混杂（概念指数为数字、申万细分为 xxx.SI），统一去小数与后缀。
+    """
+    text = str(code if code is not None else '').strip()
+    if not text:
+        return ''
+    return text.split('.')[0].strip()
 
 
 def _num(v: Any) -> Optional[float]:
@@ -190,11 +252,13 @@ def _num(v: Any) -> Optional[float]:
         return None
 
 
-def to_records(payload: Dict[str, Any]) -> List[dict]:
-    """把 fundfof 快照映射为我们 industry_crowding 的扁平 multi 记录。
+def to_records(payload: Dict[str, Any], category: str = 'sw') -> List[dict]:
+    """把 fundfof 快照映射为 market_multi_items 的扁平记录（行业 / 赛道同一套字段）。
 
     只保留字段齐备（code/name/crowding）的行；数值缺失一律 None，不用 0 顶替。
     """
+    spec = _spec(category)
+    note = _note(category if category in CATEGORY_SPECS else 'sw')
     out: List[dict] = []
     for row in payload.get('items') or []:
         if not isinstance(row, dict) or not REQUIRED_FIELDS.issubset(row):
@@ -206,15 +270,16 @@ def to_records(payload: Dict[str, Any]) -> List[dict]:
         out.append(
             {
                 'kind': 'multi',
-                'source': 'industry_crowding',
-                'item_type': 'industry',
+                'source': spec['source'],
+                'item_type': spec['item_type'],
                 'item_code': code,
                 'item_name': name,
                 'data': {
                     # 综合拥挤度（该接口为多维度合成口径；与我方「PB 倍数分位」口径不同，故另存原始分）
                     'crowding_pct': _num(row.get('crowding_pct')),
                     'crowding_value': _num(row.get('crowding')),
-                    'crowd_src': 'fundfof',
+                    'crowd_src': SRC_EXTERNAL,
+                    'source_kind': 'external_temp',  # 前端据此显示「外部临时源」提示条
                     # PB 三列该接口不提供：保持 None，绝不与其它口径混用
                     'multiple': None,
                     'ind_pb': None,
@@ -233,14 +298,14 @@ def to_records(payload: Dict[str, Any]) -> List[dict]:
                     # 60 日新高占比及其分位
                     'high60_ratio': _num(row.get('high60_ratio')),
                     'high60_ratio_pct': _num(row.get('high60_pct')),
-                    # 融资买入占比及其分位
+                    # 融资买入占比及其分位（赛道维度存在整列为空）
                     'margin_ratio': _num(row.get('margin_ratio')),
                     'margin_ratio_pct': _num(row.get('margin_pct')),
-                    # 百万大单及其分位（该接口 big_order_pct 实测为 null）
+                    # 百万大单及其分位（该接口 big_order_pct 实测恒为 null）
                     'big_order': _num(row.get('big_order')),
                     'big_order_pct': _num(row.get('big_order_pct')),
-                    'amount_src': 'fundfof',
-                    'note': NOTE,
+                    'amount_src': SRC_EXTERNAL,
+                    'note': note,
                 },
                 'collected_at': now_shanghai(),
                 'stale': False,
@@ -253,7 +318,7 @@ def _merge_sw_bias(records: List[dict]) -> None:
     """用申万官网源补 BIASn（就地修改；失败静默，不影响主数据）。
 
     该接口无乖离率字段，而我方表有「乖离 6/20/60 日」列，故复用 `sw_industry_source`
-    的简单 MA 口径补齐；申万源不可达时该三列留空（不阻塞）。
+    的简单 MA 口径补齐；申万源不可达时该三列留空（不阻塞）。仅对行业维度适用。
     """
     try:
         from app.services.thermometer.sw_industry_source import (
@@ -282,12 +347,15 @@ def _merge_sw_bias(records: List[dict]) -> None:
         _log('  [warn] BIASn 补齐失败（不影响主数据）:', str(e)[:80])
 
 
-def fetch_fundfof_crowding() -> List[dict]:
-    """外部源主入口：开关 + 缓存 + 映射（+ 可选 BIAS 补齐）。
+def fetch_fundfof_crowding(category: str = 'sw') -> List[dict]:
+    """外部源主入口：开关 + 缓存 + 映射（行业维度额外补 BIASn）。
+
+    Args:
+        category: `sw`（申万一级行业，默认）/ `track`（热门赛道）。
 
     Returns:
-        List[dict]：31 行扁平 multi 记录；开关关闭 / 依赖缺失 / 接口与缓存都不可用时返回 `[]`
-        （由调用方 `fetch_industry_crowding` 回落原三路径，行为与接入前一致）。
+        List[dict]：扁平 multi 记录；开关关闭 / 依赖缺失 / 接口与缓存都不可用时返回 `[]`
+        （由调用方回落原路径，行为与接入前一致，**不抛异常**）。
     """
     if not enabled():
         _log('fundfof 外部源已关闭（FUNDFOF_CROWDING_ENABLED=0）')
@@ -295,17 +363,23 @@ def fetch_fundfof_crowding() -> List[dict]:
     if not HAS_REQUESTS:
         return []
 
-    payload = fetch_latest()
+    spec = _spec(category)
+    key = category if category in CATEGORY_SPECS else 'sw'
+    payload = fetch_latest(key)
     if not payload or not payload.get('items'):
         return []
 
-    records = to_records(payload)
+    records = to_records(payload, key)
     if not records:
         return []
 
-    if _merge_sw_bias_enabled():
+    if key == 'sw' and _merge_sw_bias_enabled():
         _merge_sw_bias(records)
 
-    if payload.get('trading_day'):
-        _log(f'fundfof 拥挤度接入：{len(records)} 行业（trading_day={payload["trading_day"]}）')
+    _log('fundfof[{}] 接入：{} 条（{}，trading_day={}）'.format(key, len(records), spec['label'], payload.get('trading_day') or '?'))
     return records
+
+
+def fetch_fundfof_track_crowding() -> List[dict]:
+    """热门赛道维度（`category=track`，18 条）：无 BIASn，失败返回 `[]`。"""
+    return fetch_fundfof_crowding('track')

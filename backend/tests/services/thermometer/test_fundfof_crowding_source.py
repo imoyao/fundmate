@@ -226,3 +226,77 @@ class TestMainChainPriority:
         monkeypatch.setattr(ic, 'market_pb_series', lambda: (None, {'src': 'unreachable'}))
         monkeypatch.setattr(ic, '_sw_share_records', lambda: [{'item_code': '801030'}])
         assert ic.fetch_industry_crowding() == [{'item_code': '801030'}]
+
+
+class TestTrackCategory:
+    """赛道维度（#1431 决策）：category=track，落 track_crowding / concept，无 BIASn。"""
+
+    def test_track_maps_to_concept_source(self):
+        recs = fc.to_records({'items': FAKE_ITEMS}, 'track')
+        assert recs[0]['source'] == 'track_crowding'
+        assert recs[0]['item_type'] == 'concept'
+        assert '赛道' in recs[0]['data']['note']
+
+    def test_sw_maps_to_industry_source(self):
+        recs = fc.to_records({'items': FAKE_ITEMS})
+        assert recs[0]['source'] == 'industry_crowding'
+        assert recs[0]['item_type'] == 'industry'
+
+    def test_source_kind_marks_external(self):
+        """前端据此显示「外部临时源」提示条，不依赖解析 note 文案。"""
+        recs = fc.to_records({'items': FAKE_ITEMS}, 'track')
+        assert recs[0]['data']['source_kind'] == 'external_temp'
+
+    def test_numeric_code_normalized(self):
+        """赛道 code 形态混杂：概念指数为数字（12693.0）、申万细分为 801030.SI。"""
+        recs = fc.to_records(
+            {
+                'items': [
+                    {'code': 12693.0, 'name': '光通信', 'crowding': 22.13},
+                    {'code': '801030.SI', 'name': '基础化工', 'crowding': 1.0},
+                ]
+            },
+            'track',
+        )
+        assert [r['item_code'] for r in recs] == ['12693', '801030']
+
+    def test_unknown_category_falls_back_to_sw(self):
+        recs = fc.to_records({'items': FAKE_ITEMS}, 'nope')
+        assert recs[0]['source'] == 'industry_crowding'
+
+    def test_track_cache_file_derived(self):
+        assert fc._cache_file('sw') == fc.CACHE_FILE
+        assert fc._cache_file('track') != fc.CACHE_FILE
+        assert fc._cache_file('track').endswith('_track.json')
+
+    def test_latest_passes_category_param(self, monkeypatch):
+        seen = {}
+
+        def _get(url, params=None, **kwargs):
+            seen.update(params or {})
+            return _FakeResp(FAKE_PAYLOAD)
+
+        monkeypatch.setattr(fc.requests, 'get', _get)
+        fc.fetch_latest('track', force=True)
+        assert seen.get('category') == 'track'
+
+    def test_track_does_not_merge_bias(self, monkeypatch):
+        """赛道无行业乖离率：即使开关打开也不合并 BIASn。"""
+        monkeypatch.setenv('FUNDFOF_CROWDING_MERGE_SW_BIAS', '1')
+        monkeypatch.setattr(sw, 'list_sw_industries', lambda: {'12693': '光通信'})
+        monkeypatch.setattr(sw, 'fetch_sw_metrics', lambda *a, **k: {'12693': {'bias6': 9.9}})
+        monkeypatch.setattr(
+            fc.requests,
+            'get',
+            lambda *a, **k: _FakeResp(
+                {'success': True, 'trading_day': '2026-09-11', 'data': [{'code': 12693.0, 'name': '光通信', 'crowding': 1.0}]}
+            ),
+        )
+        recs = fc.fetch_fundfof_crowding('track')
+        assert len(recs) == 1
+        assert 'bias6' not in recs[0]['data']
+
+    def test_track_returns_empty_when_disabled(self, monkeypatch):
+        monkeypatch.setenv('FUNDFOF_CROWDING_ENABLED', '0')
+        assert fc.fetch_fundfof_track_crowding() == []
+

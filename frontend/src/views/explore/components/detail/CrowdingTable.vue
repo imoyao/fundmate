@@ -32,7 +32,14 @@
       max-height="520"
       :default-sort="{ prop: 'data.crowding_pct', order: 'ascending' }"
     >
-      <el-table-column prop="item_name" label="行业" min-width="140" sortable>
+      <!-- 榜单序号：一眼看出排名（表现力优化，参考外部站的榜单感） -->
+      <el-table-column type="index" label="#" width="56" align="center" />
+      <el-table-column
+        prop="item_name"
+        :label="nameColumnLabel"
+        min-width="140"
+        sortable
+      >
         <template #default="{ row }">
           <span>{{ row.item_name }}</span>
           <el-tag
@@ -47,11 +54,18 @@
       </el-table-column>
       <el-table-column
         prop="data.crowding_pct"
-        label="拥挤度"
         width="220"
         align="right"
         sortable
       >
+        <template #header>
+          <el-tooltip
+            content="综合拥挤度分位（0-100）：综合成交额占比、换手率、60日线上占比、新高占比、融资买入占比、百万大单等多维度合成的历史分位，越高越拥挤。"
+            placement="top"
+          >
+            <span>拥挤度</span>
+          </el-tooltip>
+        </template>
         <template #default="{ row }">
           <div class="crowding-cell">
             <span
@@ -268,39 +282,45 @@
           </span>
         </template>
       </el-table-column>
-      <el-table-column
-        prop="data.multiple"
-        label="PB倍数"
-        width="110"
-        align="right"
-        sortable
-      >
+      <el-table-column prop="data.multiple" width="110" align="right" sortable>
+        <template #header>
+          <el-tooltip
+            content="行业 PB ÷ 全A 中位 PB 的当前倍数（估值口径）。需行业 PB 源（legulegu / baostock / tushare），当前无可用免费源，故该列留空——不是故障。"
+            placement="top"
+          >
+            <span>PB倍数</span>
+          </el-tooltip>
+        </template>
         <template #default="{ row }">
           <span>{{
             row.data?.multiple != null ? row.data.multiple.toFixed(2) : "--"
           }}</span>
         </template>
       </el-table-column>
-      <el-table-column
-        prop="data.ind_pb"
-        label="行业PB"
-        width="110"
-        align="right"
-        sortable
-      >
+      <el-table-column prop="data.ind_pb" width="110" align="right" sortable>
+        <template #header>
+          <el-tooltip
+            content="该行业成分股 PB 中位数。需行业 PB 源（legulegu / baostock / tushare），当前无可用免费源，故该列留空。"
+            placement="top"
+          >
+            <span>行业PB</span>
+          </el-tooltip>
+        </template>
         <template #default="{ row }">
           <span>{{
             row.data?.ind_pb != null ? row.data.ind_pb.toFixed(2) : "--"
           }}</span>
         </template>
       </el-table-column>
-      <el-table-column
-        prop="data.mkt_pb"
-        label="全A中位PB"
-        width="120"
-        align="right"
-        sortable
-      >
+      <el-table-column prop="data.mkt_pb" width="120" align="right" sortable>
+        <template #header>
+          <el-tooltip
+            content="全 A 股 PB 中位数（估值分位的分母）。需行情/估值源，当前无可用免费源，故该列留空。"
+            placement="top"
+          >
+            <span>全A中位PB</span>
+          </el-tooltip>
+        </template>
         <template #default="{ row }">
           <span>{{
             row.data?.mkt_pb != null ? row.data.mkt_pb.toFixed(2) : "--"
@@ -317,8 +337,7 @@
       </el-table-column>
     </el-table>
     <div v-if="!items.length && !loading" class="empty-state">
-      行业拥挤度数据暂不可用（申万宏源官网与 legulegu
-      数据源均受限，本机运行一次建立缓存后自动恢复）。
+      暂无数据：数据源当前不可用（外部临时源或申万宏源官网），稍后自动恢复；不影响页面其它部分。
     </div>
   </section>
 </template>
@@ -359,12 +378,15 @@ withDefaults(
     loading?: boolean;
     /** 嵌入式模式：不渲染自身卡片外壳与标题（由父级「行业排行」卡片承载，用于双视图切换） */
     embedded?: boolean;
+    /** 首列名称：行业视图为「行业」、赛道视图为「赛道」 */
+    nameColumnLabel?: string;
   }>(),
   {
     date: "",
     stale: false,
     loading: false,
-    embedded: false
+    embedded: false,
+    nameColumnLabel: "行业"
   }
 );
 </script>
