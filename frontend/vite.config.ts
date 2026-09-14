@@ -11,8 +11,9 @@ import {
 
 export default ({ mode }: ConfigEnv): UserConfigExport => {
 
+  const env = loadEnv(mode, root);
   const { VITE_CDN, VITE_PORT, VITE_COMPRESSION, VITE_PUBLIC_PATH } =
-    wrapperEnv(loadEnv(mode, root));
+    wrapperEnv(env);
   return {
     base: VITE_PUBLIC_PATH,
     root,
@@ -27,7 +28,9 @@ export default ({ mode }: ConfigEnv): UserConfigExport => {
       // 本地跨域代理 https://cn.vitejs.dev/config/server-options.html#server-proxy
       proxy: {
         "/api": {
-          target: "http://127.0.0.1:8000", // 后端地址
+          // 后端地址：可用 VITE_API_TARGET 覆盖（便于并行跑多套实例 / worktree 预览），
+          // 未配置时保持原默认值，行为不变。
+          target: env.VITE_API_TARGET || "http://127.0.0.1:8000",
           changeOrigin: true,
           // 如果后端没有 /api 前缀，可以 rewrite 去掉
           // rewrite: (path) => path.replace(/^\/api/, '')
