@@ -80,21 +80,30 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - 尺寸由使用方通过 class 控制（如 profile 头像 `.avatar-frame` 88px），组件本身不预设尺寸。
 - 参考实现：`frontend/src/views/profile/index.vue` 头像容器（`<Superellipse :power="3">` 包裹 `avatar-frame`）。
 
-## 12 列栅格与容器层级（布局强制统一）
+## 12 列栅格与容器层级（设计草案 · 未落地）
 
-页面区块统一采用「区块卡外套 + 卡内指标块」两级容器，列宽仅允许以下组合：
+> ⚠️ **状态：设计草案，尚未在代码中实现。** 本节描述的 `.block-shell` / `.grid-12` /
+> `.col-4` / `.col-8` 以及 `MetricGrid :columns="12"` 目前**全仓零实现**（issue #1506 跟踪）。
+> 在补齐实现之前，本节只是布局意图的参考，**不是**「单一来源 / 必须」约束，也不应被
+> 当作现状去核对代码。
+>
+> 当前页面的**事实标准**是：内容宽度 1280px（`PageHeaderBar` / `PageFooter` / 盘点页
+> `.inventory-shell` 同宽同内边距）；区块标题用 `SectionHeader`；卡片容器用 `CardBlock`；
+> 列排布用 Tailwind 响应式栅格（`grid` + `gap-*`）。新页面请先对齐这套事实标准。
+
+页面区块建议采用「区块卡外套 + 卡内指标块」两级容器的布局意图，列宽仅允许以下组合：
 
 - **8 + 4**：左侧主内容（如温度仪表 / 机会清单 / 概览 4 宫格）占 8 列，右侧辅助（如可转债温度 / 心理账户 / 操作卡）占 4 列。
 - **4 + 4 + 4**：三类并列指标的窄列布局（如市场宽度 / 大类资产 / 资产与持仓每组 4 象限）。
 - **12**：单一整块（极少见）。
 
-实现约束（单一来源）：
+提案中的实现方式（待落地，非现状）：
 
 - 页面外层用 `.block-shell` 包裹 `SectionHeader` + 内容区；块与块之间 `gap: var(--space-5)`（24px，注意：原文档曾误写为 `--space-7`，该 token 在 Spacing 章节未定义，已统一为 `--space-5`）。
 - 内容区用 `.grid-12`（`display:grid; grid-template-columns: repeat(12, 1fr); gap: var(--space-5)`），子项用 `.col-4` / `.col-8`（`grid-column: span N`）。
-- 每层 `MetricGrid` 内部 **必须 `:columns="12"`**，由父级 `.col-4/.col-8` 决定其实际占宽；禁止在 `.col-*` 内写 `:columns="4"`（会造成 4+4+4 与 8+4 视觉错位）。
+- 每层 `MetricGrid` 内部 **计划 `:columns="12"`**，由父级 `.col-4/.col-8` 决定其实际占宽（禁止在 `.col-*` 内写 `:columns="4"`）。
 - 响应式：≤960px 时所有 `.col-4 / .col-8` 退化为 `grid-column: span 12`。
-- **心理账户**等次级区块必须补充「区块卡外套」（`SectionHeader` + 卡片容器），与「财务晴雨表」等主区块视觉对齐，禁止裸列表直接铺在页面上。
+- **心理账户**等次级区块应补充「区块卡外套」（`SectionHeader` + 卡片容器），与「财务晴雨表」等主区块视觉对齐，禁止裸列表直接铺在页面上。
 
 ## MetricCard · 指标卡（统一数字排布）
 
