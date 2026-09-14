@@ -50,10 +50,15 @@ class WatchlistItem(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     group_links = relationship('WatchlistItemGroup', back_populates='watchlist_item', cascade='all, delete-orphan')
     tag_links = relationship('WatchlistItemTag', back_populates='watchlist_item', cascade='all, delete-orphan')
 
-    # #1286：唯一键回归设计基线 (symbol, market, venue)——原 (symbol, venue) 无法区分
-    # 跨市场同码（000001 上证指数 vs 平安银行）。注意 SQLite UNIQUE 中 NULL 互不相等，
-    # 无市场实体必须存空串 '' 而非 NULL，否则唯一性静默失效。
-    __table_args__ = (UniqueConstraint('symbol', 'market', 'venue', name='uk_watchlist_symbol_market_venue'),)
+    # #1491 评审：唯一键必须含 family_id——本表继承 FamilyScopedMixin（含 family_id），
+    # 写入查重也是家庭维度（watchlist_service.create_watchlist_item）。若唯一键不含 family_id，
+    # 家庭 B 关注家庭 A 已关注的同一标的时，应用层查重判定「不存在」→ INSERT 撞 DB 唯一约束
+    # → IntegrityError(500)，即「一个家庭关注过的标的，其他家庭再也加不进来」。
+    # 另：#1286 起用 (symbol, market, venue) 区分跨市场同码（000001 上证指数 vs 平安银行）。
+    # 注意 SQLite UNIQUE 中 NULL 互不相等，无市场实体必须存空串 '' 而非 NULL，否则唯一性静默失效。
+    __table_args__ = (
+        UniqueConstraint('family_id', 'symbol', 'market', 'venue', name='uk_watchlist_family_symbol_market_venue'),
+    )
 
 
 class WatchlistGroup(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):

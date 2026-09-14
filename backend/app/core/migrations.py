@@ -35,6 +35,10 @@ def migrate_watchlist_unique_key(engine: Engine) -> str:
         ddl = conn.execute(text("SELECT sql FROM sqlite_master WHERE type='table' AND name='watchlist'")).scalar()
         if ddl is None:
             return '[SKIP] watchlist 表不存在（空库，init_db 将按新约束建表）'
+        if 'uk_watchlist_family_symbol_market_venue' in ddl:
+            # 已是家庭维度唯一键（由 migrate_watchlist_family_scoped_unique_key 升级而来）：
+            # 本迁移的目标（纳入 market）已包含在其中，直接跳过，避免误判为「结构异常」。
+            return '[SKIP] 新唯一键（含 family_id）已存在，无需迁移'
         if 'uk_watchlist_symbol_market_venue' in ddl:
             return '[SKIP] 新唯一键已存在，无需迁移'
         if 'uk_watchlist_symbol_venue' not in ddl:
@@ -74,6 +78,80 @@ def migrate_watchlist_unique_key(engine: Engine) -> str:
         logger.info(f'[OK] watchlist 唯一键已迁移为 (symbol, market, venue)；当前唯一索引: {idx}')
         return f'[OK] 唯一键已迁移为 (symbol, market, venue)；当前唯一索引: {idx}'
     raise RuntimeError('watchlist 唯一键迁移后校验失败')
+
+
+def migrate_watchlist_family_scoped_unique_key(engine: Engine) -> str:
+    """自选表唯一键补 family_id：(symbol, market, venue) → (family_id, symbol, market, venue)（#1491 评审阻断项）。
+
+    watchlist 继承 FamilyScopedMixin（含 family_id），写入查重也按家庭维度
+    （watchlist_service.create_watchlist_item 的 filter_by(..., family_id=family_id)）。
+    唯一键不含 family_id 时：家庭 B 关注家庭 A 已关注的同一标的，应用层查重判定「不存在」，
+    INSERT 却撞 DB 唯一约束 → IntegrityError(500)。即一个家庭关注过的标的，其他家庭再也加不进来。
+
+    与前一个迁移同法：SQLite 不支持改约束，走「建新表→拷贝→删旧→改名」标准重建流程；
+    非 SQLite（Supabase Postgres）由 ORM 模型 / 迁移工具负责，直接跳过。
+    兼容两种前序形态：(symbol, market, venue) 与更旧的 (symbol, venue)。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎（如 Supabase Postgres），唯一键由 ORM 模型/迁移工具负责，无需重建'
+
+    with engine.connect() as conn:
+        ddl = conn.execute(text("SELECT sql FROM sqlite_master WHERE type='table' AND name='watchlist'")).scalar()
+        if ddl is None:
+            return '[SKIP] watchlist 表不存在（空库，init_db 将按新约束建表）'
+        if 'uk_watchlist_family_symbol_market_venue' in ddl:
+            return '[SKIP] 家庭维度唯一键已存在，无需迁移'
+
+        cols = [c['name'] for c in inspect(engine).get_columns('watchlist')]
+        if 'family_id' not in cols:
+            raise RuntimeError(f'watchlist 表无 family_id 列，结构异常，请人工确认：\n{ddl}')
+
+        new_constraint = 'CONSTRAINT uk_watchlist_family_symbol_market_venue UNIQUE (family_id, symbol, market, venue)'
+        new_ddl = ddl.replace(
+            'CONSTRAINT uk_watchlist_symbol_market_venue UNIQUE (symbol, market, venue)',
+            new_constraint,
+        )
+        if new_ddl == ddl:
+            # 更早形态：(symbol, venue)（前一个迁移尚未跑）
+            new_ddl = ddl.replace(
+                'CONSTRAINT uk_watchlist_symbol_venue UNIQUE (symbol, venue)',
+                new_constraint,
+            )
+        if new_ddl == ddl:
+            # 无名约束兜底：UNIQUE (symbol, market, venue) / UNIQUE (symbol, venue)
+            new_ddl = re.sub(
+                r'UNIQUE\s*\(\s*symbol\s*,\s*m\w*\s*,\s*venue\s*\)',
+                new_constraint,
+                ddl,
+                count=1,
+            )
+        if new_ddl == ddl:
+            new_ddl = re.sub(
+                r'UNIQUE\s*\(\s*symbol\s*,\s*venue\s*\)',
+                new_constraint,
+                ddl,
+                count=1,
+            )
+        if new_ddl == ddl:
+            raise RuntimeError(f'约束替换失败，watchlist 表结构：\n{ddl}')
+
+        col_list = ', '.join(cols)
+
+        new_ddl = new_ddl.replace('CREATE TABLE watchlist', 'CREATE TABLE watchlist_new', 1)
+        conn.execute(text('PRAGMA foreign_keys=OFF'))
+        conn.execute(text(new_ddl))
+        conn.execute(text(f'INSERT INTO watchlist_new SELECT {col_list} FROM watchlist'))
+        conn.execute(text('DROP TABLE watchlist'))
+        conn.execute(text('ALTER TABLE watchlist_new RENAME TO watchlist'))
+        conn.commit()
+
+    with engine.connect() as conn:
+        ddl2 = conn.execute(text("SELECT sql FROM sqlite_master WHERE type='table' AND name='watchlist'")).scalar()
+    if 'uk_watchlist_family_symbol_market_venue' in (ddl2 or ''):
+        logger.info('[OK] watchlist 唯一键已迁移为 (family_id, symbol, market, venue)')
+        return '[OK] 唯一键已迁移为 (family_id, symbol, market, venue)'
+    raise RuntimeError('watchlist 家庭维度唯一键迁移后校验失败')
 
 
 def migrate_watchlist_venue_not_null(engine: Engine) -> str:

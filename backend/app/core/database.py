@@ -19,6 +19,7 @@ from app.core.migrations import (
     migrate_advisor_portfolio_metadata,
     migrate_advisor_portfolio_metrics,
     migrate_channel_link_indexes,
+    migrate_watchlist_family_scoped_unique_key,
     migrate_watchlist_unique_key,
     migrate_watchlist_venue_not_null,
 )
@@ -246,9 +247,11 @@ def init_db():
     # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键 (symbol, venue)
     # → (symbol, market, venue) 防跨市场同码冲突。create_all 只增表不改表，旧库
     # 仍停留旧约束会静默失效，故启动期按 user 域自动执行，幂等可重复跑。
-    # 先回填历史 NULL venue（否则唯一键对存量行失效），再迁唯一键
+    # 先回填历史 NULL venue（否则唯一键对存量行失效），再迁唯一键；
+    # 最后补 family_id（#1491 评审阻断项：唯一键不含 family_id 会让其他家庭再也无法关注同一标的）
     migrate_watchlist_venue_not_null(user_engine)
     migrate_watchlist_unique_key(user_engine)
+    migrate_watchlist_family_scoped_unique_key(user_engine)
     _seed_default_identity()
 
 
@@ -304,6 +307,7 @@ def init_db_split():
         # 双库模式同样按 user 域引擎自动执行，幂等。
         migrate_watchlist_venue_not_null(user_eng)
         migrate_watchlist_unique_key(user_eng)
+        migrate_watchlist_family_scoped_unique_key(user_eng)
     # 双库模式：种子必须落到 user 引擎（修复跨域 bug），bind 传 user_eng；
     # 未配 Supabase 时 user_eng 为本地回退文件，仍与 market 域隔离。
     _seed_default_identity(bind=user_eng)
