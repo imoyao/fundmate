@@ -24,7 +24,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Sequence, TypeVar
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, TypeVar
+
+from app.core.symbol_utils import split_symbol
 
 T = TypeVar('T')
 K = TypeVar('K')
@@ -32,12 +34,52 @@ K = TypeVar('K')
 # SQLite in_ 变量上限防御（部分构建为 999，与 sync/jobs/base.py 的 IN_CHUNK_SIZE 同因）
 _IN_CHUNK_SIZE = 900
 
+# watchlist 侧市场命名空间（StockCodeNormalizer 输出：SH/SZ/BJ/HK/US/CRYPTO）
+# → securities 表契约市场（models.Security.market：CN_A / CN_HK / US / CRYPTO / COMMODITY）
+_SECURITY_MARKET_BY_KEY_MARKET = {'SH': 'CN_A', 'SZ': 'CN_A', 'BJ': 'CN_A', 'HK': 'CN_HK'}
+
 
 def _chunked(values, size: int = _IN_CHUNK_SIZE):
     """把键集合分批，规避 SQLite in_ 变量上限。"""
     values = list(values)
     for i in range(0, len(values), size):
         yield values[i : i + size]
+
+
+def to_security_key(market: str, symbol: str) -> Optional[Tuple[str, str]]:
+    """把 watchlist 侧 (market, symbol) 映射为 securities 表契约键（#1491 评审修复）。
+
+    两套命名空间此前被默认「由调用方保证一致」，实际并不一致：
+
+    - watchlist.market 来自 StockCodeNormalizer，取值为 `SH/SZ/BJ/HK/US/CRYPTO`，
+      symbol 形如 `SH600519` / `HK00700`（归一化后的带前缀形态）；
+    - `securities.market` 是资产大类（`CN_A/CN_HK/US/CRYPTO/COMMODITY`），
+      symbol 是交易系统形态（A 股纯 6 位 `600519`、港股 `00700.HK`，见 `app/tools/sync_security_basics.py`）。
+
+    不做映射时 `(s.market, s.symbol) in sec_keys` 永远为假 → 自选列表的行情/资料
+    enrich 静默全空。**返回 None 表示该键在 securities 契约下无对应形态**：
+    宁可取不到（与既有行为一致），也不猜测错配。
+
+    Args:
+        market: watchlist 侧市场（normalizer 命名空间）。
+        symbol: watchlist 侧标准化代码（如 `SH600519` / `HK00700`）。
+
+    Returns:
+        `(securities.market, securities.symbol)`，无对应形态时为 None。
+    """
+    sec_market = _SECURITY_MARKET_BY_KEY_MARKET.get(market)
+    if not sec_market:
+        return None
+    code = (symbol or '').strip().upper()
+    if market in ('SH', 'SZ', 'BJ'):
+        _prefix, number = split_symbol(code)
+        if number and number.isdigit():
+            return sec_market, number
+    if market == 'HK':
+        digits = code[2:] if code.startswith('HK') else code
+        if digits.isdigit():
+            return sec_market, f'{digits.zfill(5)}.HK'
+    return None
 
 
 def fetch_market_records_by_keys(db, keys) -> Dict[Any, Any]:
@@ -52,14 +94,18 @@ def fetch_market_records_by_keys(db, keys) -> Dict[Any, Any]:
     基金 + 全部证券载入 ORM 实体。现改为按 keys 分组后 `in_` 过滤。
 
     命名空间约定：`market == 'FUND'` 的键落 `funds` 表；其余（如 `'SH'`）落 `securities`
-    表。两边 market 命名空间的映射由调用方保证（如 watchlist.market 与 Security.market）。
+    表。调用方传入的是 **user 侧（watchlist）命名空间**的键；securities 侧契约由
+    :func:`to_security_key` 显式映射（`SH/SZ/BJ → CN_A` 且去前缀，`HK → CN_HK`），
+    不再依赖调用方自觉对齐两套命名空间（#1491 评审：此前直接比较 `(s.market, s.symbol)`
+    导致 securities 永远命中不上）。
 
     Args:
         db: market 域 Session。
-        keys: 可迭代的 `(market, code)` 二元组。
+        keys: 可迭代的 `(market, code)` 二元组（watchlist 命名空间）。
 
     Returns:
-        `{(market, code): 实体}`。**只包含命中 keys 的键**——未请求的记录不会被载入。
+        `{(market, code): 实体}`，键为**传入的原始键**。**只包含命中 keys 的键**——
+        未请求的记录不会被载入。
     """
     from app.domains.funds.models import Fund
     from app.domains.securities.models import Security
@@ -75,13 +121,19 @@ def fetch_market_records_by_keys(db, keys) -> Dict[Any, Any]:
         for f in db.query(Fund).filter(Fund.fund_code.in_(chunk)).all():
             m[('FUND', f.fund_code)] = f
 
-    # 非 FUND 命名空间：先按 symbol 收窄（symbol 通常跨市场唯一），
-    # 再用 (market, symbol) 精确匹配，避免把不同市场的同名代码错配进来。
+    # 非 FUND 命名空间：先把 watchlist 键映射为 securities 契约键，
+    # 再按 symbol 收窄（symbol 通常跨市场唯一）+ (market, symbol) 精确反查，
+    # 避免把不同市场的同名代码错配进来；命中后按**原始键**登记，供上层 join_key 取用。
     sec_keys = {k for k in key_set if k[0] != 'FUND'}
-    for chunk in _chunked({code for _market, code in sec_keys}):
+    origins_by_security_key: Dict[Tuple[str, str], List[Tuple[str, str]]] = {}
+    for key in sec_keys:
+        sec_key = to_security_key(*key)
+        if sec_key is not None:
+            origins_by_security_key.setdefault(sec_key, []).append(key)
+    for chunk in _chunked({code for _market, code in origins_by_security_key}):
         for s in db.query(Security).filter(Security.symbol.in_(chunk)).all():
-            if (s.market, s.symbol) in sec_keys:
-                m[(s.market, s.symbol)] = s
+            for origin in origins_by_security_key.get((s.market, s.symbol), ()):
+                m[origin] = s
 
     return m
 
@@ -158,8 +210,8 @@ class CrossDomainQuery:
 
         def _join_key(row):
             # watchlist.(market, symbol) 标准化代码构成跨域冗余键，market 域为权威。
-            # 注意：两边 market 命名空间需由调用方约定一致（watchlist.market 如
-            # 'FUND'/'SH' 与 Security.market 如 'CN_A' 的映射由上层保证）。
+            # watchlist 命名空间 → securities 契约的映射由 fetch_market_records_by_keys
+            # 经 to_security_key 统一完成（#1491 评审），此处只产出原始键。
             return (row.market, row.symbol)
 
         return self.enrich_by_rows(

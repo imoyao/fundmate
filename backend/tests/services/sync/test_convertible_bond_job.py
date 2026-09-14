@@ -30,6 +30,8 @@ class _FakeAdapter:
                 'redeem_status': '已满足强赎条件',
                 'redeem_clause': '近30交易日有15日收盘价≥转股价130%',
                 'maturity_date': '2027-06-15',
+                # #1491 评审：上游给空串时不得覆盖基本信息源的有效值（如 name / rating）
+                'rating': '',
                 'source': 'akshare_jsl',
             },
         ]
@@ -72,8 +74,9 @@ def test_convertible_bond_job_upsert_and_merge(db):
     assert r.redeem_required == 15
     assert r.redeem_status == '已满足强赎条件'
     assert r.maturity_date is not None
-    # 基本信息源（评级 / 转股价值 / 溢价率）
+    # 基本信息源（评级 / 转股价值 / 溢价率）；强赎源的空串不得覆盖基本信息源的有效值
     assert r.rating == 'AA+'
+    assert r.name == '南银转债'
     assert float(r.premium_rate) == 12.3
     assert float(r.convert_value) == 105.2
     assert r.stock_symbol is not None
