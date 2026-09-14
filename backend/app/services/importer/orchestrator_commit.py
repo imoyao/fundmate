@@ -164,8 +164,12 @@ class CommitMixin:
                 return False
 
         confirm_date = self._parse_row_date(row)
-        # 净额优先（THS 口径），缺失退化用发生金额；金额一律整数分（#1375：Decimal 收口）
-        amount_yuan = abs(Decimal(str(row.get('net_amount') or row.get('amount') or 0)))
+        # 净额优先（THS 口径），**仅当字段缺失（None）时**退化用发生金额；
+        # 不能用 `or`——净额恰为 0 会被误判为缺失并取发生额（#1491 评审）。
+        # 金额一律整数分（#1375：Decimal 收口）
+        raw_net_amount = row.get('net_amount')
+        amount = raw_net_amount if raw_net_amount is not None else (row.get('amount') or 0)
+        amount_yuan = abs(Decimal(str(amount)))
         TransactionService.create(
             db=self.db,
             symbol=row.get('symbol', ''),

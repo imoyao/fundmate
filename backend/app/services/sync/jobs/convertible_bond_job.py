@@ -77,7 +77,9 @@ class ConvertibleBondSyncJob(SyncJob):
                 continue
             target = merged.setdefault(code, {})
             for k, v in r.items():
-                if v is not None:
+                # 空串等同缺失（#1491 评审）：下游 _validate_data 用 `or None` 把空串视为缺失，
+                # 若此处让空串覆盖 basic 的有效值，名称/评级等字段会被清空。
+                if v is not None and v != '':
                     target[k] = v
         logger.info(f'可转债条款原始记录 {len(merged)} 条（基本信息 {len(basic)} + 强赎 {len(redeem)}）')
         return list(merged.values())

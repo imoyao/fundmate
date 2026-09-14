@@ -37,6 +37,18 @@ class TestUniqueKey:
             db.commit()
         db.rollback()
 
+    def test_same_symbol_other_family_allowed(self, db):
+        """#1491 评审阻断项回归：唯一键含 family_id，其他家庭可关注同一标的。
+
+        修复前唯一键为 (symbol, market, venue)：家庭 2 添加家庭 1 已关注的标的会撞唯一约束
+        （应用层查重按 family_id 判定「不存在」→ INSERT → IntegrityError 500）。
+        """
+        db.add(WatchlistItem(symbol='600519', market='CN_A', venue='EXCHANGE', family_id=1))
+        db.commit()
+        db.add(WatchlistItem(symbol='600519', market='CN_A', venue='EXCHANGE', family_id=2))
+        db.commit()
+        assert db.query(WatchlistItem).count() == 2
+
 
 class TestNormalizeAndInferVenue:
     def test_manager_no_market(self):
@@ -138,10 +150,10 @@ class TestWatchlistUniqueKeyMigration:
         with eng.connect() as conn:
             ddl = conn.execute(text("SELECT sql FROM sqlite_master WHERE name='watchlist'")).scalar()
             old_ddl = ddl.replace(
-                'CONSTRAINT uk_watchlist_symbol_market_venue UNIQUE (symbol, market, venue)',
+                'CONSTRAINT uk_watchlist_family_symbol_market_venue UNIQUE (family_id, symbol, market, venue)',
                 'CONSTRAINT uk_watchlist_symbol_venue UNIQUE (symbol, venue)',
             )
-            assert old_ddl != ddl, '模型已不含三列约束，测试前提失效'
+            assert old_ddl != ddl, '模型已不含家庭维度约束，测试前提失效'
             conn.execute(text('PRAGMA foreign_keys=OFF'))
             conn.execute(text('DROP TABLE watchlist'))
             conn.execute(text(old_ddl))
@@ -207,6 +219,82 @@ class TestWatchlistUniqueKeyMigration:
 
         eng = create_engine('sqlite:///:memory:', connect_args={'check_same_thread': False})
         WatchlistItem.metadata.create_all(bind=eng, tables=[WatchlistItem.__table__])
-        # 全新库已是三列约束，迁移应幂等跳过，不报错
+        # 全新库已是家庭维度约束（含 market），迁移应幂等跳过，不报错
         status = migrate_watchlist_unique_key(eng)
         assert 'SKIP' in status
+
+
+class TestWatchlistFamilyScopedUniqueKeyMigration:
+    """#1491 评审：唯一键补 family_id（(symbol, market, venue) → 含 family_id）的存量库迁移。"""
+
+    def test_migrate_three_column_constraint_to_family_scoped(self):
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.orm import sessionmaker
+
+        from app.core.migrations import migrate_watchlist_family_scoped_unique_key
+        from app.domains.watchlist.models import WatchlistItem
+
+        eng = create_engine('sqlite:///:memory:', connect_args={'check_same_thread': False})
+        # 1) 用模型建新表，再降级为三列唯一键，模拟「库仍是旧约束」的存量库
+        WatchlistItem.metadata.create_all(bind=eng, tables=[WatchlistItem.__table__])
+        with eng.connect() as conn:
+            ddl = conn.execute(text("SELECT sql FROM sqlite_master WHERE name='watchlist'")).scalar()
+            old_ddl = ddl.replace(
+                'CONSTRAINT uk_watchlist_family_symbol_market_venue UNIQUE (family_id, symbol, market, venue)',
+                'CONSTRAINT uk_watchlist_symbol_market_venue UNIQUE (symbol, market, venue)',
+            )
+            assert old_ddl != ddl, '模型已不含家庭维度约束，测试前提失效'
+            conn.execute(text('PRAGMA foreign_keys=OFF'))
+            conn.execute(text('DROP TABLE watchlist'))
+            conn.execute(text(old_ddl))
+            conn.commit()
+
+        Sess = sessionmaker(bind=eng)
+        with Sess() as s:
+            s.add(
+                WatchlistItem(
+                    symbol='600519',
+                    market='CN_A',
+                    asset_type='stock',
+                    venue='EXCHANGE',
+                    status='WATCHING',
+                    family_id=1,
+                )
+            )
+            s.commit()
+
+        # 2) 执行迁移（init_db 启动期同款调用）
+        status = migrate_watchlist_family_scoped_unique_key(eng)
+        assert 'OK' in status
+
+        # 3) 新约束生效、原数据保留
+        with eng.connect() as conn:
+            ddl2 = conn.execute(text("SELECT sql FROM sqlite_master WHERE name='watchlist'")).scalar()
+            assert 'uk_watchlist_family_symbol_market_venue' in ddl2
+            assert conn.execute(text('SELECT count(*) FROM watchlist')).scalar() == 1
+
+        # 4) 迁移后其他家庭可关注同一标的——这正是本次修复的目标
+        with Sess() as s:
+            s.add(
+                WatchlistItem(
+                    symbol='600519',
+                    market='CN_A',
+                    asset_type='stock',
+                    venue='EXCHANGE',
+                    status='WATCHING',
+                    family_id=2,
+                )
+            )
+            s.commit()
+        with eng.connect() as conn:
+            assert conn.execute(text('SELECT count(*) FROM watchlist')).scalar() == 2
+
+    def test_migrate_idempotent_when_family_constraint_present(self):
+        from sqlalchemy import create_engine
+
+        from app.core.migrations import migrate_watchlist_family_scoped_unique_key
+        from app.domains.watchlist.models import WatchlistItem
+
+        eng = create_engine('sqlite:///:memory:', connect_args={'check_same_thread': False})
+        WatchlistItem.metadata.create_all(bind=eng, tables=[WatchlistItem.__table__])
+        assert 'SKIP' in migrate_watchlist_family_scoped_unique_key(eng)
