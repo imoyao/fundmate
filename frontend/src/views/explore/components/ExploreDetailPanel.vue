@@ -86,21 +86,51 @@
     <!-- 综合温度趋势（自带标题栏、周期切换与取数） -->
     <TemperatureTrendChart />
 
-    <!-- 行业乖离度排行：表格形式，支持排序筛选 -->
-    <BiasTable
-      :items="biasItems"
-      :date="biasDate"
-      :stale="biasStale"
-      :loading="biasLoading"
-    />
+    <!-- 行业排行（#1431 评审）：拥挤度 / 乖离率 双视图共用一个卡片，点击胶囊切换，
+         避免两张大表纵向堆叠把页面拖长、也让「点一下换视图」比滚动更快 -->
+    <section class="industry-rank-section">
+      <SectionHeader title="行业排行" :info="activeRankView.info">
+        <template #action>
+          <div class="rank-switch" role="tablist" aria-label="行业排行视图切换">
+            <button
+              v-for="view in RANK_VIEWS"
+              :key="view.key"
+              type="button"
+              role="tab"
+              class="rank-switch__item"
+              :class="{ 'rank-switch__item--active': rankView === view.key }"
+              :aria-selected="rankView === view.key"
+              @click="rankView = view.key"
+            >
+              {{ view.label }}
+            </button>
+          </div>
+          <span class="rank-updated"
+            >更新：{{ activeRankView.date || "暂无" }}</span
+          >
+          <el-tooltip
+            v-if="activeRankView.stale"
+            :content="activeRankView.staleTip"
+            placement="top"
+          >
+            <span class="rank-stale-pill">数据滞后</span>
+          </el-tooltip>
+        </template>
+      </SectionHeader>
 
-    <!-- 行业拥挤度排行：表格形式，与乖离度并列（不同维度） -->
-    <CrowdingTable
-      :items="crowdingValidItems"
-      :date="crowdingDate"
-      :stale="crowdingStale"
-      :loading="crowdingLoading"
-    />
+      <CrowdingTable
+        v-show="rankView === 'crowding'"
+        embedded
+        :items="crowdingValidItems"
+        :loading="crowdingLoading"
+      />
+      <BiasTable
+        v-show="rankView === 'bias'"
+        embedded
+        :items="biasItems"
+        :loading="biasLoading"
+      />
+    </section>
 
     <!-- 全部市场温度指标：紧凑表格 -->
     <MetricDetailTable :items="detailMetrics" />
@@ -159,9 +189,43 @@ const crowdingStale = ref(false);
 const crowdingLoading = ref(false);
 
 // ================================================================
+// 行业排行双视图（#1431 评审）：共用一个卡片，胶囊切换，避免纵向堆叠
+// ================================================================
+const RANK_VIEWS = [
+  {
+    key: "crowding",
+    label: "行业拥挤度",
+    info: "成交额占比分位 = 该行业成交额占全部申万一级行业成交额的比例，在过去 250 个交易日中的百分位（申万宏源官网单源自算，非东财）。越高越拥挤。PB 倍数分位需行业 PB 源，缺源时该列为空。",
+    staleTip:
+      "数据源（申万宏源官网 / legulegu）暂不可用，当前为最近一次成功计算的结果或占位提示，非实时数据，仅供参考。"
+  },
+  {
+    key: "bias",
+    label: "行业乖离率",
+    info: "LOGBIAS = (ln(收盘) − EMA20(ln(收盘))) × 100：正 = 位于均线上方（偏热），负 = 下方（偏冷）；档位阈值 ±15 / ±5。",
+    staleTip:
+      "行情源（申万宏源官网 / 腾讯）暂不可用，当前乖离率基于最近一次成功抓取的价格计算，非实时数据，仅供参考。"
+  }
+] as const;
+
+const rankView = ref<(typeof RANK_VIEWS)[number]["key"]>("crowding");
+
+// ================================================================
 // 计算属性
 // ================================================================
 const updatedAt = computed(() => overview.value?.updated_at || "");
+
+/** 当前视图对应的提示、更新时间与滞后状态（标题行统一展示，避免每个表各显示一份） */
+const activeRankView = computed(() => {
+  const view = RANK_VIEWS.find(v => v.key === rankView.value) ?? RANK_VIEWS[0];
+  const isCrowding = rankView.value === "crowding";
+  return {
+    info: view.info,
+    staleTip: view.staleTip,
+    date: isCrowding ? crowdingDate.value : biasDate.value,
+    stale: isCrowding ? crowdingStale.value : biasStale.value
+  };
+});
 
 const compositeValue = computed(
   () => compositeTemperature.value?.value ?? null
@@ -420,6 +484,85 @@ onMounted(async () => {
   font-size: 13px;
   line-height: 1.5;
   color: var(--text-secondary);
+}
+
+/* ============================================================
+   行业排行（#1431 评审）：拥挤度 / 乖离率 双视图共用同一张卡片
+   ============================================================ */
+.industry-rank-section {
+  padding: 20px 24px;
+  margin-bottom: 24px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  box-shadow: var(--shadow-raised);
+}
+
+.rank-updated {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.rank-stale-pill {
+  padding: 2px 8px;
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--color-warning, #d97706);
+  white-space: nowrap;
+  cursor: help;
+  background: color-mix(
+    in srgb,
+    var(--color-warning, #d97706) 12%,
+    transparent
+  );
+  border: 1px solid
+    color-mix(in srgb, var(--color-warning, #d97706) 35%, transparent);
+  border-radius: 6px 6px 6px 0;
+}
+
+/* 果冻胶囊按钮组（docs/design/components.md「果冻胶囊按钮组（D13）」） */
+.rank-switch {
+  display: inline-flex;
+  gap: 6px;
+  margin-right: 12px;
+}
+
+.rank-switch__item {
+  padding: 4px 14px;
+  font-size: 13px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  transition:
+    color 0.18s ease,
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.rank-switch__item:hover {
+  color: var(--text-primary);
+  border-color: var(--brand-400);
+}
+
+.rank-switch__item:active {
+  transform: scale(0.94);
+}
+
+.rank-switch__item:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.rank-switch__item--active {
+  color: var(--brand-700);
+  background: var(--brand-100);
+  border-color: var(--brand-400);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 6%);
 }
 
 /* 表格视觉基线由全站统一主题维护（src/style/el-table.css），勿在本页 :deep 覆盖 */

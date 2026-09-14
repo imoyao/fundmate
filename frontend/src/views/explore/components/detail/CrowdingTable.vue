@@ -4,8 +4,15 @@
   内部复用 utils/temperatureFormat 的 crowdingColorClass / crowdingBarStyle。
 -->
 <template>
-  <section class="crowding-section">
-    <SectionHeader title="行业拥挤度排行">
+  <section
+    :class="
+      embedded
+        ? 'crowding-section crowding-section--embedded'
+        : 'crowding-section'
+    "
+  >
+    <!-- embedded：由父级「行业排行」卡片统一承载标题、视图切换与更新时间 -->
+    <SectionHeader v-if="!embedded" title="行业拥挤度排行">
       <template #action>
         <span class="bias-updated">更新：{{ date || "暂无" }}</span>
         <el-tooltip
@@ -240,11 +247,14 @@ withDefaults(
     stale?: boolean;
     /** 加载中（el-table v-loading） */
     loading?: boolean;
+    /** 嵌入式模式：不渲染自身卡片外壳与标题（由父级「行业排行」卡片承载，用于双视图切换） */
+    embedded?: boolean;
   }>(),
   {
     date: "",
     stale: false,
-    loading: false
+    loading: false,
+    embedded: false
   }
 );
 </script>
@@ -263,6 +273,16 @@ withDefaults(
 .bias-updated {
   font-size: 12px;
   color: var(--text-tertiary);
+}
+
+/* embedded：外壳与标题交给父级卡片，本组件只出表格 */
+.crowding-section--embedded {
+  padding: 0;
+  margin: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .bias-stale-pill {
