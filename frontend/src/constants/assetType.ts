@@ -14,6 +14,8 @@ export const ASSET_TYPE_LABELS: Record<string, string> = {
   bond: "可转债",
   index: "指数",
   crypto: "加密货币",
+  manager: "基金经理",
+  portfolio: "投顾组合",
   saving: "存款",
   cash: "现金",
   static: "其他",

@@ -1277,7 +1277,7 @@ onMounted(() => {
 }
 
 .import-mode-switch__item.is-active {
-  color: var(--text-on-brand, #fff);
+  color: var(--text-on-brand, var(--text-inverse));
   background: var(--brand-600);
   box-shadow: var(--shadow-raised);
 }
@@ -1333,7 +1333,7 @@ onMounted(() => {
 }
 
 .ocr-segmented__item.is-active {
-  color: var(--text-on-brand, #fff);
+  color: var(--text-on-brand, var(--text-inverse));
   background: var(--brand-600);
 }
 

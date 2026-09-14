@@ -149,3 +149,21 @@ export interface ColumnDef {
 - 新增一个展示字段（如某实时指标）只需：在 `columnDefs.ts` 加一条 + 在 renderer 注册表加一个分支；**不修改 `index.vue` 模板主体**。
 - 现有全部列行为（排序/实时覆盖/标签/操作/置顶图标）与重构前视觉与功能一致。
 - `pnpm run typecheck` 零错误。
+
+## 9. 品类视图列集（#1285，2026-09-10）
+
+引入列「视图作用域」，解决「混合视图把所有品类列并集导致默认超宽」：
+
+- `ColumnDef.scope`：
+  - `"mixed"`：混合视图（未按品类筛选）也显示的**通用列**——`product` / `created_at` / `current_price` / `change_pct` / `holding_quantity` / `position_market_value` / `holding_pnl` / `_actions`（**#1421/#1422/#1425 修订**：原集只有 4 列、默认视图信息量过低；#1422 一度扩到 11 列 ≈1338px，实测整表超出 1040px 设计宽度，#1425 收敛回 8 列 ≈1010px —— 走势 / 添加后涨幅 / 成本价 改为「品类视图 + 列设置可选」）；
+  - `"category"`（默认）：**品类专属列**，仅当「类型筛选命中单一品类」时显示。
+  - **通用列判定标准（#1421）**：该列对「**全部品类**」或「**全部可交易品类**（`TRADABLE_TYPES` 7 类）」都成立、不会恒为 `—` → 归 `"mixed"`；只有**真品类专属列**（可转债条款 / 指数估值 / 基金回撤 / 关联 / 投顾指标）留 `"category"`。
+- `ColumnDef.appliesTo`：适用 `asset_type` 列表（缺省＝全部品类），如持仓/市值/收益类列只对 `TRADABLE_TYPES`（不含 `index`/`manager`/`portfolio`）。
+- `useWatchlistColumnVisibility(activeCategory)`：`activeCategory` = 类型筛选命中单一品类时为其 `asset_type`，否则 `null`（混合视图）。可见列 = 顺序 × 用户显隐偏好 × 视图作用域：
+  - 用户显式开启（`shown`）→ **任何视图都显示**（覆盖视图作用域与默认隐藏）；
+  - 默认隐藏且未开启 → 隐藏；
+  - 其余按 `scope`/`appliesTo` 判定。
+- `isHidden(key)` 语义 = 「**当前视图下是否可见**」，设置面板勾选框与表格所见一致（勾上即任何视图都显示）。
+- 列宽表达（#1421）：非固定列一律用 `ColumnDef.minWidth`，`ColumnDef.width` 只给固定列（`product` / `_actions` / `_selection`）。原因：EP 只把「无数字 `width`」的列纳入容器余量分配（`flexColumns`），全列固定宽会让表格宽度恒等于 Σ 列宽、容器再宽也不铺满。
+- **默认可见列总宽 ≤ 1040px（#1285 立，#1425 重申）**：要加默认列必须同时从默认集里拿掉等量宽度，**不接受「加了列导致默认视图开始滚动」**；横向滚动只发生在**表格内部**（`.el-table` 外框 = 容器宽，页面级横滚禁止），且 `product`（左冻结）与 `_actions`（右冻结）恒定不滚。见 `frontend/design.md`「冻结列与横向滚动规范」§4/§5（已同步）。
+- **品类视图的列集由 `appliesTo` 决定，与 `scope` 无关**（`scope` 只决定「混合视图要不要出现」）：新增 `mixed` 列时必须检查它在**经理 / 投顾组合**等无行情、无持仓语义的品类视图里是否也需要 `appliesTo` 收窄（#1425：最新价/涨跌幅 → `QUOTE_TYPES`）。

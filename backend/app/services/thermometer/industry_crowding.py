@@ -17,20 +17,23 @@
      · 分母兜底链：legulegu 不可用 → 本地缓存 → baostock 批量当日全A中位PB → 东财实时 → 全失败整组标灰。
      · 分子全覆盖路径（可选，预留）：baostock(申万一级全行业)/tushare(申万一级31行业)，
        需本机直连 baostock 或 TUSHARE_TOKEN，沙箱网络不可达故默认不走。
-  · 成交额/换手率维度（东财 push2his K线接口）：legulegu 的 sw-congestion / sw-amount-ratio
-    为 VIP 接口（免费 token 返回 {"vip": false}，拿不到数据），故改用东财行业指数历史
-    （2011-08 起，15 年，满足分位窗口）；成交额分母用中证全指 000985（覆盖沪深全A）。
+  · 成交额占比维度（**中证指数官网，非东财**，#1431）：行业指数与分母(中证全指 000985)
+    的成交金额均取自 csindex（akshare `stock_zh_index_hist_csindex`），与 PB 维度的中证行业口径一致。
+    来源：legulegu 的 sw-congestion / sw-amount-ratio 为 VIP 接口（免费 token 返回 {"vip": false}），
+    故改用中证官网（不提供换手率）。
+  · 换手率维度（东财 push2his K线接口，**降级为兜底**）：中证官网无换手率，故仍走东财行业指数
+    历史（2011-08 起，15 年，满足分位窗口）；东财受突发配额限流，故配长退避（见下）。
 
  请求规范（东财 WAF 敏感，防封禁，见 core/requests_patch.py 文件头）：
   · 本地缓存优先（cache/em_industry_hist/，运行时缓存不入库）：缓存新鲜直接复用，0 请求；
   · 缓存过期只拉增量（beg=缓存最新日期），不重复全量拉取；
-  · 请求间隔克制：行业循环 1.5s，请求前 0.5s，失败退避 2s 后最多重试 1 次；
+  · 请求间隔克制：行业循环 1.5s，请求前 1.0s，失败退避 8s 后最多重试 1 次（#1431 拉长）；
   · 完整浏览器请求头伪装（UA/Referer/Accept/Accept-Language）。
   教训：连续 9 次全量请求会触发东财 IP 级 RemoteDisconnected 封禁（限流窗口 5+ 分钟），
-        请求必须克制、伪装、带缓存，绝不能一上来就打流量。
+        请求必须克制、伪装、带缓存，绝不能一上来就打流量。成交额维度已迁走，东财仅剩换手率一处。
 
 健壮性：所有网络调用均 try/except + timeout，失败整组返回 stale 占位；
-        东财两维失败仅对应字段为 None 并在 note 标注，绝不抛异常阻塞
+        两维失败仅对应字段为 None 并在 note 标注，绝不抛异常阻塞
         TemperatureJob 主链路（与 README 降级设计一致）。
 
 接入方式（供 TemperatureJob 调用）：
@@ -459,7 +462,7 @@ def _em_fetch(code: str, beg) -> Optional[pd.DataFrame]:
     }
     session = _em_session()
     for attempt in range(2):  # 首次 + 最多 1 次重试
-        time.sleep(0.5)
+        time.sleep(1.0)  # 降频：请求前间隔（#1431，东财限流敏感）
         try:
             r = session.get(
                 'https://push2his.eastmoney.com/api/qt/stock/kline/get',
@@ -484,7 +487,7 @@ def _em_fetch(code: str, beg) -> Optional[pd.DataFrame]:
         except Exception as e:  # noqa
             _log(f'  [warn] 东财行业指数历史抓取失败({code}) 第{attempt + 1}次:', str(e)[:60])
             if attempt == 0:
-                time.sleep(2)  # 退避后重试一次
+                time.sleep(8)  # 长退避（#1431）：东财为突发配额后限流通道，拉长重试间隔
     return None
 
 
@@ -522,6 +525,31 @@ def _em_industry_hist(code: str) -> Optional[pd.DataFrame]:
     return df
 
 
+def _csindex_hist(code: str, start: str = '20180101') -> Optional[pd.DataFrame]:
+    """中证指数官网指数历史（**非东财**）：返回 date 索引、含 amount(成交金额) 列的 DataFrame。
+
+    用途（#1431）：作为「成交额占比分位」维度的替代源，去除东财 push2his 单点。
+    中证官网（csindex.com.cn）不提供换手率，故换手率维度仍走东财（配长退避）。
+    """
+    base = code.split('.')[0]
+    try:
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        end = datetime.date.today().strftime('%Y%m%d')
+        df = ak.stock_zh_index_hist_csindex(symbol=base, start_date=start, end_date=end)
+        if df is None or df.empty or '成交金额' not in df.columns:
+            return None
+        out = df[['日期', '成交金额']].copy()
+        out['日期'] = pd.to_datetime(out['日期'])
+        out['成交金额'] = pd.to_numeric(out['成交金额'], errors='coerce')
+        out = out.rename(columns={'成交金额': 'amount'}).dropna().set_index('日期').sort_index()
+        return out if not out.empty else None
+    except Exception as e:  # noqa
+        _log(f'  [warn] 中证官网指数历史抓取失败({code}):', str(e)[:60])
+        return None
+
+
 def _amount_ratio_rank(ind_hist: Optional[pd.DataFrame], mkt_hist: Optional[pd.DataFrame]) -> Optional[dict]:
     """成交额占比分位：行业成交额 / 中证全指成交额 的历史占比序列 -> 当前占比的历史百分位。
 
@@ -557,24 +585,29 @@ def _turnover_rank(ind_hist: Optional[pd.DataFrame]) -> Optional[dict]:
     }
 
 
-def _em_extra_dims(code: str, mkt_hist: Optional[pd.DataFrame]) -> dict:
-    """东财两维（成交额占比分位 + 换手率分位）合并结果；任一失败对应字段为 None。
+def _extra_dims(code: str, mkt_cs: Optional[pd.DataFrame]) -> dict:
+    """两维（成交额占比分位 + 换手率分位）合并结果；任一失败对应字段为 None。
 
+    #1431 去东财单点：
+      · 成交额占比分位 → **中证指数官网**（非东财）优先，与分母同源；
+      · 换手率分位     → 中证官网不提供，仍走东财 push2his（限流敏感，配长退避）；不可用则置 None。
     内部已 try/except 兜底，绝不抛异常阻塞主链路。
     """
     out = {'amount_pct': None, 'amount_pct_rank': None, 'turnover': None, 'turnover_rank': None}
+    # 成交额：中证指数官网（非东财）
     try:
-        ind_hist = _em_industry_hist(code)
-        if ind_hist is None:
-            return out
-        ar = _amount_ratio_rank(ind_hist, mkt_hist)
+        ar = _amount_ratio_rank(_csindex_hist(code), mkt_cs)
         if ar:
             out.update(ar)
-        tr = _turnover_rank(ind_hist)
+    except Exception as e:  # noqa
+        _log(f'  [warn] 中证成交额分位计算失败({code}):', str(e)[:60])
+    # 换手率：仅东财提供（长退避；拿不到则该维为 None，不影响成交额维）
+    try:
+        tr = _turnover_rank(_em_industry_hist(code))
         if tr:
             out.update(tr)
     except Exception as e:  # noqa
-        _log(f'  [warn] 东财两维计算失败({code}):', str(e)[:60])
+        _log(f'  [warn] 东财换手率分位计算失败({code}):', str(e)[:60])
     return out
 
 
@@ -793,20 +826,20 @@ def fetch_industry_crowding() -> List[dict]:
             _log('路径: legulegu(免费·部分行业)')
 
         records = []
-        # 东财两维分母：中证全指 000985 成交额历史（仅 legulegu 路径需要，循环外拉一次复用）
-        mkt_hist = _em_industry_hist('000985.SH') if mode == 'legulegu' else None
+        # 两维分母：中证全指 000985 成交额历史（**中证指数官网，非东财**；仅 legulegu 路径需要，循环外拉一次复用）
+        mkt_cs = _csindex_hist('000985.SH') if mode == 'legulegu' else None
         for name, code in src.items():
             try:
                 s = fetcher(code)
-                time.sleep(1.5)  # 东财请求之间保持间隔（WAF 限流敏感，见模块 docstring 请求规范）
+                time.sleep(1.5)  # 数据源请求之间保持间隔（限流敏感，见模块 docstring 请求规范）
                 if s is None or s.empty:
                     continue
                 c = crowding(s, mkt, meta.get('hist_ok', False))
                 if c is None:
                     continue
                 if mode == 'legulegu':
-                    # 东财两维：成交额占比分位 + 换手率分位（失败降级 None，不阻塞主链路）
-                    c.update(_em_extra_dims(code, mkt_hist))
+                    # 两维：成交额占比分位（中证官网） + 换手率分位（东财长退避）；失败降级 None，不阻塞主链路
+                    c.update(_extra_dims(code, mkt_cs))
                 records.append(_record(name, code, c))
             except Exception as e:  # noqa
                 _log(f'  {name} 异常: {str(e)[:40]}')

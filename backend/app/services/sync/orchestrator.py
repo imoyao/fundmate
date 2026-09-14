@@ -14,7 +14,6 @@ import csv
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -25,58 +24,44 @@ from sqlalchemy.orm import Session
 import app
 from app.core.config import SYNC__FUND_LIST_SOURCE
 from app.core.database import SQLALCHEMY_DATABASE_URL as DB_URL
+
+# 文件锁实现已抽到 core（#1467）：进程内每日调度器与应用启动路径都要用它，
+# 留在本模块会让它们为了借锁而连带加载 akshare。此处保留同名导入以兼容既有
+# 调用方与测试的 monkeypatch 目标（`app.services.sync.orchestrator.acquire_lock`）。
+from app.core.file_lock import acquire_lock
 from app.core.time_utils import now_shanghai
 from app.domains.positions.models import Position
 from app.domains.watchlist.models import WatchlistItem
 from app.models.sync_log import SyncLog
 from app.services.sync.adapters.akshare_adapter import AkshareAdapter
 from app.services.sync.adapters.eastmoney_adapter import EastmoneyAdapter
+from app.services.sync.adapters.jiucaishuo_adapter import JiucaishuoAdapter
 from app.services.sync.adapters.null_adapter import NullAdapter
+from app.services.sync.adapters.tiantian_advisor_adapter import TiantianAdvisorAdapter
 from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
+from app.services.sync.jobs.advisor_portfolio_job import AdvisorPortfolioSyncJob
 from app.services.sync.jobs.amac_institution_job import AmacInstitutionJob
 from app.services.sync.jobs.asset_snapshot_job import AssetSnapshotJob
+from app.services.sync.jobs.channel_link_job import ChannelLinkSyncJob
+from app.services.sync.jobs.convertible_bond_job import ConvertibleBondSyncJob
 from app.services.sync.jobs.dividend_split_job import DividendSplitSyncJob
+from app.services.sync.jobs.fund_company_backfill_job import FundCompanyBackfillJob
 from app.services.sync.jobs.fund_detail_enrich_job import FundDetailEnrichJob
 from app.services.sync.jobs.fund_list_job import FundListSyncJob
 from app.services.sync.jobs.fund_manager_job import FundManagerSyncJob
 from app.services.sync.jobs.fund_nav_job import FundNavSyncJob
+from app.services.sync.jobs.fund_position_job import FundPositionSyncJob
+from app.services.sync.jobs.fund_scale_job import FundScaleSyncJob
 from app.services.sync.jobs.fund_type_job import FundTypeSyncJob
+from app.services.sync.jobs.index_catalog_job import IndexCatalogSyncJob
+from app.services.sync.jobs.index_constituent_job import INDEX_TARGETS, IndexConstituentSyncJob
+from app.services.sync.jobs.index_daily_job import IndexDailySyncJob
+from app.services.sync.jobs.index_valuation_job import IndexValuationSyncJob
 from app.services.sync.jobs.price_history_job import PriceHistorySyncJob
 from app.services.sync.jobs.stock_list_job import StockListSyncJob
 from app.services.thermometer.jobs import TemperatureJob
 
 BASE_DIR = Path(app.__path__[0]).parent
-
-
-# ============================================================
-# 跨平台原子文件锁
-# ============================================================
-
-
-def acquire_lock(lock_file: Path) -> tuple:
-    """
-    尝试获取原子文件锁。
-
-    返回:
-        (成功标志, 文件描述符)。
-        如果获取失败，返回 (False, None)。
-    """
-    lock_file.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        fd = os.open(lock_file, os.O_CREAT | os.O_RDWR)
-        if sys.platform == 'win32':
-            import msvcrt
-
-            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
-        else:
-            import fcntl
-
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        return True, fd
-    except (OSError, IOError):
-        if 'fd' in locals():
-            os.close(fd)
-        return False, None
 
 
 # ============================================================
@@ -124,9 +109,27 @@ class DataSyncOrchestrator:
             self.data_sources['akshare'], self.data_sources['xalpha'], self.db
         )
         self.jobs['fund_manager'] = FundManagerSyncJob(self.data_sources['akshare'], self.db)
+        # 消费导入侧观察值（user 域 fund_company_observations）补 funds.company_id：
+        # 纯本地解析、不联网，故 NullAdapter 占位（同 amac_institution 的处理）。
+        self.jobs['fund_company_backfill'] = FundCompanyBackfillJob(NullAdapter(), self.db)
+        self.jobs['fund_scale'] = FundScaleSyncJob(self.data_sources['akshare'], self.db)
+        self.jobs['fund_position'] = FundPositionSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['fund_type'] = FundTypeSyncJob(self.data_sources['akshare'], self.db)
+        # 投顾组合数据源独立于 akshare/xalpha（天天基金公开接口，自带节流）
+        self.jobs['advisor_portfolio'] = AdvisorPortfolioSyncJob(TiantianAdvisorAdapter(), self.db)
         self.jobs['fund_nav'] = FundNavSyncJob(self.data_sources['xalpha'], self.db)
         self.jobs['price_history'] = PriceHistorySyncJob(self.data_sources['akshare'], self.db)
+        self.jobs['index_constituents'] = IndexConstituentSyncJob(self.data_sources['akshare'], self.db)
+        # #1285/#1394：指数估值（中证官方：市盈率 / 股息率）
+        self.jobs['index_valuation'] = IndexValuationSyncJob(self.data_sources['akshare'], self.db)
+        # #1285 §3.8：跨渠道关联（指数↔ETF，主流宽基白名单）
+        self.jobs['channel_link'] = ChannelLinkSyncJob(self.data_sources['akshare'], self.db)
+        # #1285/#1393：可转债条款（强赎状态 + 静态条款，akshare 集思录）
+        self.jobs['convertible_bond'] = ConvertibleBondSyncJob(self.data_sources['akshare'], self.db)
+        # #1286：指数名录（聚合搜索可搜索的指数条目，与成分互补）
+        self.jobs['index_catalog'] = IndexCatalogSyncJob(self.data_sources['akshare'], self.db)
+        # #275：指数日线点位（万得全A 经韭圈儿公开接口，独立数据源）
+        self.jobs['index_daily'] = IndexDailySyncJob(JiucaishuoAdapter(), self.db)
         self.jobs['temperature'] = TemperatureJob(NullAdapter(), self.db)
         # AMAC 名录为 HTTP JSON 直抓（非 akshare/xalpha 数据源），NullAdapter 占位；
         # 此前仅 invoke grab.* 通道可达，注册后 pdm run sync --job 亦可直达（#1081 策展应用入口）
@@ -337,6 +340,10 @@ class DataSyncOrchestrator:
             return result
         except Exception as e:
             logger.exception(f'任务 {job_name} 异常: {e}，继续执行下一个任务')
+            # 异常路径同样落一条审计行（#1402）。
+            # run_job 只在 job.run **正常返回**之后才调 _save_sync_log；一旦抛异常，
+            # sync_logs 全链路无记录，「某 job 到底跑没跑过、失败在哪一步」无法回答。
+            self._save_error_sync_log(job_name, full_sync, e)
             return {'job_name': job_name, 'status': 'error', 'error': str(e)}
 
     def run_all_jobs(self, full_sync: bool = False, target_file: Optional[str] = None) -> Dict[str, Any]:
@@ -367,10 +374,22 @@ class DataSyncOrchestrator:
                 ('fund_list', ['__full__']),  # 全量刷新基金列表
                 ('fund_detail_enrich', fund_targets),  # 补充基金详情（核心池）
                 ('fund_type', fund_targets),  # 回填基金类型（核心池，#1155 根治项）
+                # #1286 数据底座：拆成两条成本量级不同的链路（原 fund_meta 一条全干，见 #1403）
+                #   fund_scale —— 单次 HTTP 返回全市场列表，§4.3.3 允许全量
+                #   fund_position —— 逐只 HTTP（≈1.8s/只），§4.3.3 强制按目标池限量
+                ('fund_scale', ['__full__']),
+                ('fund_position', fund_targets),  # 空 targets 显式跳过，不退化为全库
                 ('fund_manager', fund_targets),  # 回填基金经理并关联基金公司（核心池）
+                # 导入侧观察值 → funds.company_id（不联网、幂等、只填空缺）：
+                # 紧跟基金公司相关任务，且 funds 已由 fund_list 建好
+                ('fund_company_backfill', []),
                 ('fund_nav', fund_targets),  # 净值增量同步（核心池）
                 ('price_history', stock_targets),  # 行情增量同步（核心池）
+                ('index_constituents', INDEX_TARGETS),  # 指数成分回填（#1286 数据底座）
+                ('index_catalog', ['__full__']),  # 指数名录重建（#1286 聚合搜索底座）
+                ('index_daily', ['__full__']),  # 指数日线（万得全A 全量 10 年，#275）
                 ('dividend_split', stock_targets + fund_targets),  # 分红/送股抓取（#1179）
+                ('advisor_portfolio', ['__full__']),  # 投顾组合持仓/调仓回填（#1167，组合数少且自带节流）
                 # #1182：资产快照落账放最后，确保前面的净值/行情已刷新，快照取到最新值
                 ('asset_snapshot', []),
             ]
@@ -404,3 +423,40 @@ class DataSyncOrchestrator:
         )
         self.db.add(log_entry)
         self.db.commit()
+
+    def _save_error_sync_log(self, job_name: str, full_sync: bool, error: Exception) -> None:
+        """异常路径的审计落库（#1402）。
+
+        与 `_save_sync_log` 的关键差别：本方法必须在「job 没跑完」时也安全，因此
+        全程防御式取值：
+
+        - `job.snapshot_time` 可能仍是 `None`（未进入 `run()` 就炸），而 `started_at`
+          列是 NOT NULL，照抄 `_save_sync_log` 会再抛一次；
+        - `self.jobs[job_name]` 可能根本不存在（`run_job` 对未知任务名抛 ValueError），
+          用下标访问会把原始异常替换成 KeyError；
+        - 审计写入本身失败绝不能向上抛——本方法存在的意义是「让失败可见」，
+          若它自己炸掉，调用方正在冒泡的原始异常就被掩盖了。
+        """
+        job = self.jobs.get(job_name)
+        now = now_shanghai()
+        started_at = getattr(job, 'snapshot_time', None) or now
+        try:
+            log_entry = SyncLog(
+                job_name=job_name,
+                status='error',
+                full_sync=full_sync,
+                stats=None,
+                error_detail=str(error),
+                data_source=(job.adapter.get_name() if job is not None else None),
+                data_source_version=(job.adapter.get_version() if job is not None else None),
+                started_at=started_at,
+                finished_at=now,
+                duration_seconds=(now - started_at).total_seconds(),
+            )
+            self.db.add(log_entry)
+            self.db.commit()
+            logger.info(f'已为异常任务 {job_name} 写入 sync_logs（status=error）')
+        except Exception:
+            # 回滚并把自身异常降级为日志，保住调用方正在冒泡的原始异常
+            self.db.rollback()
+            logger.exception(f'写入 {job_name} 失败审计日志时出错（已忽略，不影响主流程）')

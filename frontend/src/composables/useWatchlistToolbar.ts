@@ -14,11 +14,16 @@ export function useWatchlistToolbar() {
   const searchKeyword = ref("");
   // 视图 segmented：全部 / 场内 / 场外（唯一 venue 入口，方案 B 收敛三套）
   const currentView = ref<"all" | "exchange" | "otc">("all");
+  // 资产类型多选筛选（「类型」弹层，2026-09-09 用户拍板方案 A）：
+  // 与 venue 维度正交，可组合使用（如「场内 + 股票/ETF」）。
+  // 存 asset_type 小写枚举，空数组 = 不过滤
+  const selectedAssetTypes = ref<string[]>([]);
   // 批量选择模式
   const batchMode = ref(false);
   const selectedItems = ref<WatchlistItem[]>([]);
-  // 批量移动目标分组（下拉草稿）
-  const batchMoveGroupId = ref<number | null>(null);
+  // 批量移动目标分组（下拉草稿）；用 undefined 而非 null，避免 el-select 的
+  // modelValue 类型（String | Number，不含 null）触发 prop 校验告警
+  const batchMoveGroupId = ref<number | undefined>(undefined);
 
   // 弹窗开关（页面模板绑定到对应组件）
   const addDialogVisible = ref(false);
@@ -52,6 +57,7 @@ export function useWatchlistToolbar() {
   return {
     searchKeyword,
     currentView,
+    selectedAssetTypes,
     batchMode,
     selectedItems,
     batchMoveGroupId,

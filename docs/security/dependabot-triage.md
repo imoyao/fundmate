@@ -7,8 +7,8 @@
 - 远端 open alert 总数：**88**
 - 按 manifest 分布：
   - `backend/requirements/base.txt`（已删除的旧文件）：**73** ← 全部过期残留
-  - 根 `pnpm-lock.yaml`：**12**
-  - `frontend/pnpm-lock.yaml`：**3**
+  - 根 `pnpm-lock.yaml`：**13**
+  - `frontend/pnpm-lock.yaml`：**3**（其中 822 与根重叠；npm 去重后合计 15）
 
 ## 二、后端 pip（73 个，全部 dismiss）
 
@@ -19,7 +19,7 @@
 
 **处置**：在 GitHub Security → Dependabot alerts 批量 dismiss 这 73 个，reason 选 "This vulnerability is not in my codebase / no longer present"。
 
-编号清单见同目录 `da_phantom_ids.txt`（一行一个）。
+编号清单见同目录 `dependabot-dismiss-ids.yml` 的 `pip.alert_ids`。
 
 ## 三、前端 npm（15 个，分两类）
 
@@ -41,6 +41,8 @@
 
 ### 3.2 明细（15 个 npm alert 编号）
 
+编号清单见同目录 `dependabot-dismiss-ids.yml` 的 `npm.root.alert_ids` / `npm.frontend.alert_ids`（下方为带包名的可读明细）。
+
 根 `pnpm-lock.yaml`：825/824/823 image-size、822 nanoid、821 js-yaml、820/819 vite(6.x CVE,5.x不受影响)、818 vite、817 postcss、816/812 brace-expansion、732 esbuild、709 trim
 frontend `pnpm-lock.yaml`：815 esbuild、627 esbuild、822 nanoid（已在根列，frontend 实例同号）
 
@@ -54,8 +56,8 @@ CVE-2026-67213（告警 #826，2026-07-29 发布、08-13 更新）的 patched �
 
 ## 四、执行顺序建议
 
-1. **dismiss 73 个 pip 过期 alert**（da_phantom_ids.txt）—— 立即消除噪声
-2. **dismiss 15 个 npm alert**（明细见 3.2）—— dev 工具链不可达 / patched 不可满足
+1. **dismiss 73 个 pip 过期 alert**（清单见同目录 `dependabot-dismiss-ids.yml` 的 `pip.alert_ids`）—— 立即消除噪声
+2. **dismiss 15 个 npm alert**（清单见同目录 `dependabot-dismiss-ids.yml` 的 `npm.root.alert_ids` / `npm.frontend.alert_ids`；明细见 3.2）—— dev 工具链不可达 / patched 不可满足
 3. 验证：`gh api` 重拉 alert 总数应趋近 0 open
 
 > 注：本地 `pnpm update` / `pnpm up` 实测对这 5 个传递依赖无效（受上游 semver 范围锁死，报 "Already up to date"），且强行 override 有破坏性风险，故不升级、走 dismiss。

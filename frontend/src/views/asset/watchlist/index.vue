@@ -173,11 +173,41 @@
           :toolbar="toolbar"
           :on-refresh="onCatalogChanged"
           @view-change="handleViewChange()"
-          @tag-apply="tags.applyTagFilter()"
-          @tag-clear="tags.clearTagFilter()"
+          @filter-apply="handleViewChange()"
           @manage-groups="groupManagerVisible = true"
-          @manage-group-items="groupItemsVisible = true"
+          @manage-group-items="onManageGroupItems"
         />
+
+        <!-- 持仓未入自选提示（#1458 后续：持仓即自选）：缺口可一键补齐 -->
+        <el-alert
+          v-if="holdingGaps.length > 0"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="holding-gap-banner"
+        >
+          <template #title>
+            <span
+              >有 {{ holdingGaps.length }} 个持仓产品尚未加入自选，暂无法打标签
+              / 写备注。</span
+            >
+          </template>
+          <template #default>
+            <span
+              >持仓即自选：补齐后即可像普通自选一样管理，卖出后也不会被删除。</span
+            >
+            <el-button
+              type="warning"
+              size="small"
+              plain
+              class="ml-2"
+              :loading="reconciling"
+              @click="handleAddAllToWatchlist"
+            >
+              一键加入自选
+            </el-button>
+          </template>
+        </el-alert>
 
         <!-- 估值横幅与状态 -->
         <!-- ✅ 核心修复：用 template 包裹，加上 v-if 物理移除整个模块 -->
@@ -217,6 +247,16 @@
                :data 在 loading 时置空：分组切换/搜索等加载中，让表格回到表头 + 空体
                的高度（整页收缩为一屏），骨架屏得以完整覆盖可视区——若保留旧行，
                旧行高度会把页面撑长，滚到底部时骨架只盖到 wrap 高度、下方露出大片空白。 -->
+          <!-- 表格宽度铁律（#1285 / #1341 / #1421 / #1425，改这里前先读 design.md
+               「冻结列与横向滚动规范」§4/§5）：
+               ① 默认可见列总宽 ≤ 1040px —— 列集在 columnDefs.ts，「加一列必须减一列」；
+               ② 横向滚动**只允许发生在表格内部**：页面级横向滚动条由本页 flex
+                  min-width:0 链（.watchlist-page / .watchlist-scroll / .watchlist-card /
+                  本容器）禁止（#1341），**不要摘掉任何一层 min-width:0**；
+               ③ 两端必须冻结：product 左冻结 + _actions 右冻结（defs 里的 fixed），
+                  中间列才滚动 —— 用户滑动时始终能看到「哪只标的」与「能做什么」。
+               三者同时成立才符合设计；只满足其一（如为铺满而不守预算）会立刻退回
+               「整表溢出」状态（该问题已三次回归）。 -->
           <el-table
             ref="tableRef"
             :data="loading ? [] : items"
@@ -227,6 +267,7 @@
             @sort-change="onSortChange"
             @cell-mouse-enter="handleCellMouseEnter"
             @cell-mouse-leave="handleCellMouseLeave"
+            @row-click="onRowClick"
           >
             <el-table-column
               v-if="batchMode"
@@ -391,12 +432,35 @@
       @changed="onGroupItemsChanged"
     />
 
+    <!-- #1449 多分组管理：行操作列「加入分组」弹层（一个产品可属多个自定义分组） -->
+    <GroupMultiSelectDialog
+      v-model="multiGroupVisible"
+      :item="multiGroupItem"
+      :groups="customGroups"
+      @changed="onMultiGroupChanged"
+    />
+
     <!-- 行内标签编辑弹窗（共有组件 TagEditorDialog） -->
     <TagEditorDialog
       v-model="showTagEditor"
       :item="editingItem"
       :all-tags="allTags"
       @saved="onTagEditorSaved"
+    />
+
+    <!-- 行内备注编辑弹窗（#1285） -->
+    <NotesEditorDialog
+      v-model="showNotesEditor"
+      :item="editingNotesItem"
+      @saved="onNotesSaved"
+    />
+
+    <!-- 行「速览」抽屉（#1285）：行点击打开，备注可一键进入编辑 -->
+    <WatchlistQuickViewDrawer
+      v-model="quickViewVisible"
+      :item="quickViewItem"
+      :all-tags="allTags"
+      @edit-notes="openNotesEditor"
     />
 
     <SettingsDrawer
@@ -442,17 +506,24 @@ import TagManagerDialog from "@/components/Watchlist/TagManagerDialog.vue";
 import GroupManagerDialog from "@/components/Watchlist/GroupManagerDialog.vue";
 // #987：组内产品增删（与 GroupManagerDialog 管「分组本身」分工不同）
 import GroupItemsDialog from "@/components/Watchlist/GroupItemsDialog.vue";
+// #1449 多分组管理：行操作列「加入分组」弹层（一个产品可属多个自定义分组）
+import GroupMultiSelectDialog from "@/components/Watchlist/GroupMultiSelectDialog.vue";
 import TagEditorDialog from "@/components/Watchlist/TagEditorDialog.vue";
+import NotesEditorDialog from "@/components/Watchlist/NotesEditorDialog.vue";
 import {
   getWatchlistTrends,
+  getHoldingGaps,
+  reconcileWatchlist,
   type WatchlistItem,
-  type WatchlistGroup
+  type WatchlistGroup,
+  type HoldingGap
 } from "@/api/watchlist";
 import CardBlock from "@/components/CardBlock/index.vue";
 import LayFooter from "@/layout/components/lay-footer/index.vue";
 // 金额/涨跌展示组件（MoneyDisplay/RiseFallText/MoneyWithRatio）已随 #995 列渲染器化
 // 迁移至 columnRenderers.tsx，本页模板不再直接使用
 import WatchlistRemoveDialog from "@/views/asset/watchlist/components/WatchlistRemoveDialog.vue";
+import WatchlistQuickViewDrawer from "@/views/asset/watchlist/components/WatchlistQuickViewDrawer.vue";
 import {
   useRealtimeQuotes,
   type RefreshInterval
@@ -487,8 +558,15 @@ const groups = useWatchlistGroups();
 const tags = useWatchlistTags();
 const toolbar = useWatchlistToolbar();
 const data = useWatchlistData(groups, tags, toolbar);
+// 当前品类（类型筛选命中单一品类时为其 asset_type；否则 null＝混合视图）。
+// 供列显隐在「混合视图通用列 / 品类视图专属列」间切换（#1285）。
+const activeCategory = computed<string | null>(() =>
+  toolbar.selectedAssetTypes.value.length === 1
+    ? toolbar.selectedAssetTypes.value[0]
+    : null
+);
 // 列显隐偏好（#993）：localforage 本机持久化，SettingsDrawer 经 prop 共享同一实例
-const columnSettings = useWatchlistColumnVisibility();
+const columnSettings = useWatchlistColumnVisibility(activeCategory);
 
 const {
   activeGroup,
@@ -528,6 +606,9 @@ const {
   editingItem,
   showTagEditor,
   openTagEditor,
+  editingNotesItem,
+  showNotesEditor,
+  openNotesEditor,
   exportData,
   resetFilters
 } = data;
@@ -555,12 +636,49 @@ const {
 // 本弹窗只管「某个自定义分组里有哪些产品」，对应空白组快捷添加 + 常规组内增删。
 // 系统分组由后端规律方法维护，不提供组内增删（activeCustomGroup 为 null 即不生效）。
 const groupItemsVisible = ref(false);
+
+// ── #1458 后续：持仓即自选 —— 缺口提示与一键补齐 ──
+const holdingGaps = ref<HoldingGap[]>([]);
+const reconciling = ref(false);
+
+async function fetchHoldingGaps(): Promise<void> {
+  try {
+    const res = await getHoldingGaps();
+    holdingGaps.value = res.data ?? [];
+  } catch {
+    // 缺口检测失败不影响主列表，静默
+    holdingGaps.value = [];
+  }
+}
+
+async function handleAddAllToWatchlist(): Promise<void> {
+  reconciling.value = true;
+  try {
+    await reconcileWatchlist(true);
+    ElMessage.success("已为持仓补齐自选，现在可打标签 / 写备注");
+    await fetchHoldingGaps();
+    await fetchData();
+  } catch {
+    ElMessage.error("一键加入自选失败，请稍后重试");
+  } finally {
+    reconciling.value = false;
+  }
+}
 /** 当前选中的自定义分组对象；系统分组或未选中时为 null */
 const activeCustomGroup = computed<WatchlistGroup | null>(() => {
   const gid = activeCustomGroupId.value;
   if (gid == null) return null;
   return customGroups.value.find(g => g.id === gid) ?? null;
 });
+
+// 从自定义分组切到系统分组时，自动关闭「本组产品」抽屉，
+// 避免 activeCustomGroup 变为 null 后左栏显示「本组产品 0 项」的困惑。
+watch(currentIsCustom, isCustom => {
+  if (!isCustom && groupItemsVisible.value) {
+    groupItemsVisible.value = false;
+  }
+});
+
 /** 空态是否落在「空白自定义分组」：需为自定义分组且未叠加标签筛选
     （叠加了标签筛选时的空结果是筛选无匹配，不应引导去加产品） */
 const isEmptyCustomGroup = computed(
@@ -571,7 +689,35 @@ const isEmptyCustomGroup = computed(
 );
 
 function openGroupItemsDialog(): void {
+  // 防呆：系统分组（含「全部」）由后端规律维护，不支持手动增删成员。
+  // 「管理本组产品」按钮虽已用 v-if=currentIsCustom 拦截，此处再兜底，
+  // 防止任何入口（空态快捷入口等）在系统分组下误开弹窗。
+  if (!currentIsCustom.value) {
+    ElMessage.warning("系统分组（含「全部」）由系统维护，不能手动增删成员");
+    return;
+  }
   groupItemsVisible.value = true;
+}
+
+function onManageGroupItems(): void {
+  if (!currentIsCustom.value) {
+    ElMessage.warning("系统分组（含「全部」）由系统维护，不能手动增删成员");
+    return;
+  }
+  groupItemsVisible.value = true;
+}
+
+// ── #1449 多分组管理：行操作列「加入分组」入口 ──
+const multiGroupVisible = ref(false);
+const multiGroupItem = ref<WatchlistItem | null>(null);
+function openMultiGroupDialog(row: WatchlistItem): void {
+  multiGroupItem.value = row;
+  multiGroupVisible.value = true;
+}
+/** 多分组增删成功后：分组计数与列表都需刷新（与 onGroupItemsChanged 同源） */
+function onMultiGroupChanged(): void {
+  fetchGroups();
+  fetchData();
 }
 
 /** 组内增删成功后：分组计数与列表都需刷新（#987 验收标准：计数与列表实时生效） */
@@ -851,6 +997,25 @@ const onTagEditorSaved = () => {
   fetchTags();
 };
 
+/** 备注保存成功后：刷新列表（单元格即时反映最新笔记） */
+const onNotesSaved = () => {
+  fetchData();
+};
+
+// ── 行「速览」抽屉（#1285）──
+// 设计：行点击 → 抽屉（速览）→ 抽屉内「查看详情」→ 详情页。
+// 行内按钮（标签/备注/操作）已各自 stopPropagation，不触发速览；此处再对
+// .el-button 兜底过滤，避免操作列按钮点击时误开抽屉。
+const quickViewVisible = ref(false);
+const quickViewItem = ref<WatchlistItem | null>(null);
+
+function onRowClick(row: WatchlistItem, _column: unknown, event: Event): void {
+  const el = event.target as HTMLElement | null;
+  if (el?.closest(".el-button, button, .add-tag-btn, .add-note-btn")) return;
+  quickViewItem.value = row;
+  quickViewVisible.value = true;
+}
+
 // ─────────────────────────────────────────────
 // 生命周期
 // ─────────────────────────────────────────────
@@ -860,7 +1025,24 @@ onMounted(async () => {
   fetchGroups();
   fetchTags();
   fetchData();
+  fetchHoldingGaps();
   watch(activeGroup, () => {
+    // 持仓分组只含真实持仓（stock/fund/etf/bond/index/convertible），
+    // 不含「经理」等非持仓类型——切到持仓分组时仅清掉非持仓类型，
+    // 其余持仓类型一律保留并生效（#1449：此前整体清空非 stock/fund 类型，
+    // 导致 ETF/可转债等持仓类型筛选在持仓分组下形同虚设）。
+    if (activeGroup.value === "holding") {
+      const holdingTypes = new Set([
+        "stock",
+        "fund",
+        "etf",
+        "bond",
+        "index",
+        "convertible"
+      ]);
+      toolbar.selectedAssetTypes.value =
+        toolbar.selectedAssetTypes.value.filter(t => holdingTypes.has(t));
+    }
     currentPage.value = 1;
     fetchData();
   });
@@ -1030,6 +1212,8 @@ const renderCtx = computed<RenderCtx>(() => ({
   },
   openTagEditor,
   batchMode: batchMode.value,
+  // 品类视图（类型筛选命中单一品类）：供产品列与品类专属列去重（#1425）
+  categoryView: activeCategory.value !== null,
   hoveredRowKey: hoveredRowKey.value,
   setHoveredRowKey: (key: string | number | null) => {
     hoveredRowKey.value = key;
@@ -1037,7 +1221,9 @@ const renderCtx = computed<RenderCtx>(() => ({
   actions: {
     togglePin: handleTogglePin,
     toggleFavorite: handleToggleFavorite,
-    remove: confirmRemove
+    remove: confirmRemove,
+    openNotesEditor: openNotesEditor,
+    addToGroup: openMultiGroupDialog
   },
   trends: trendMap.value
 }));
@@ -1045,6 +1231,15 @@ const renderCtx = computed<RenderCtx>(() => ({
 
 <style scoped>
 /* 旧刷新频率下拉（.refresh-interval-select/.is-spinning）样式已随 el-segmented 化删除 */
+
+/* #1458 后续：持仓未入自选的引导 banner（warning 级） */
+.holding-gap-banner {
+  margin: 12px 0;
+}
+
+.holding-gap-banner .ml-2 {
+  margin-left: 8px;
+}
 
 /* ======================================
    自选卡片沿用 design.md「表格/列表/筛选栏：--space-compact(16px)」
@@ -1158,13 +1353,16 @@ const renderCtx = computed<RenderCtx>(() => ({
 .watchlist-table-wrap :deep(.el-table) {
   min-width: 0;
 
-  /* 吸顶需要：overflow:visible 让表头 sticky 上溯到布局滚动容器（见上方长注释）。
-     配套 min-width:0：el-table 是 .watchlist-table-wrap 的 flex 子项，默认 min-width:auto
-     会被列总宽撑开、把整页顶出横向滚动条（#1341）。放开后 el-table 约束到容器宽度，
-     多出的列宽由 .el-table__body-wrapper 内部横向滚动承载，页面不再溢出。
-     此约束是通用防护：今后新增可排序列（见 columnDefs.ts）只要总宽超视口，
-     都只会在表格内出现横向滚动，不会再撑宽页面。 */
-  overflow: visible;
+  /* 纵向 visible：表头 sticky 的必要条件——overflow:hidden 会让 el-table 成为
+     header-wrapper 的「最近滚动祖先」，sticky 相对表格自身而不随页面滚，吸顶失效
+     （见上方长注释）。
+     **横向必须 clip**：列总宽 > 容器宽时表格内部会出现横向滚动（见 columnDefs 的
+     minWidth 机制）。若横向也 visible，超宽的表体会直接溢出卡片、把整页顶出横向
+     滚动条——这正是 #1341 已修、2026-09-12 又复现的形态。
+     `overflow-x: clip` 与 `overflow-y: visible` 可以共存（clip 不会像 hidden 那样
+     把另一轴强制成 auto），于是「纵向照常吸顶 + 横向永不溢出页面」同时成立。
+     ⚠️ 不要把这里改回 `overflow: visible` 或整段删掉：会同时让吸顶失效 / 页面横滚。 */
+  overflow: clip visible;
 }
 
 .watchlist-table-wrap :deep(.el-table__header-wrapper) {
@@ -1320,7 +1518,7 @@ const renderCtx = computed<RenderCtx>(() => ({
 }
 
 .batch-delete-btn:hover {
-  color: #fff;
+  color: var(--text-inverse);
   background-color: var(--color-danger);
   border-color: var(--color-danger);
 }

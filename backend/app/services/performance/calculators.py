@@ -14,6 +14,9 @@ from loguru import logger
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+# EXCLUDED_ASSET_TYPES 唯一来源为 app.core.asset_types（#1171 枚举一致性）；
+# 原 services/performance/constants.py 只是 12 行 re-export 转发层，已删除。
+from app.core.asset_types import EXCLUDED_ASSET_TYPES
 from app.core.money import Money
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
@@ -21,7 +24,6 @@ from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
 from app.domains.transactions.models import Transaction
 from app.services.nav_service import NavService
-from app.services.performance.constants import EXCLUDED_ASSET_TYPES
 from app.services.performance.xirr_engine import calculate_xirr, generate_cashflows, generate_portfolio_cashflows
 
 

@@ -30,7 +30,6 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_MSG = REPO_ROOT / ".git" / "COMMIT_MSG"
 
 
 def _utf8_env() -> dict[str, str]:
@@ -61,9 +60,24 @@ def _run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
     )
 
 
+def _git_path(name: str) -> Path:
+    """解析仓库内部文件路径（普通仓库与 linked worktree 都返回正确结果）。
+
+    不能用 `REPO_ROOT / ".git" / name`：在 linked worktree 里 `.git` 是一个**文件**
+    （指向 gitdir 的指针），当目录拼接必然 FileNotFoundError。而本仓库的规范恰恰是
+    「换分支必须用 worktree」，所以旧写法等于该工具在本仓最主流的工作方式下直接不可用。
+    `git rev-parse --git-path` 由 git 自己解析，两种情况都正确。
+    """
+    return Path(_run(["git", "rev-parse", "--git-path", name]).stdout.strip())
+
+
+def _default_msg() -> Path:
+    return _git_path("COMMIT_MSG")
+
+
 def _load_message(path: Path | None) -> str | None:
     """读取提交信息文件（UTF-8）。dry-run 允许缺失（返回 None），apply 必须存在。"""
-    msg_path = path if path is not None else DEFAULT_MSG
+    msg_path = path if path is not None else _default_msg()
     if not msg_path.is_file():
         return None
     try:
@@ -167,7 +181,7 @@ def main() -> None:
     message = _load_message(args.message_file)
     if args.apply and message is None:
         sys.exit(
-            f"ERROR: 提交需要提交信息。请先写入 UTF-8 消息文件 {DEFAULT_MSG}，或用 --message-file 指定。"
+            f"ERROR: 提交需要提交信息。请先写入 UTF-8 消息文件 {_default_msg()}，或用 --message-file 指定。"
         )
 
     targets = _target_files(args.files)
@@ -210,7 +224,7 @@ def main() -> None:
         _run(["git", "add", "--", *targets])
 
     # 提交信息经临时文件传给 git commit（--file），避免 shell 内联中文乱码
-    msg_path = REPO_ROOT / ".git" / "COMMIT_MSG_TMP"
+    msg_path = _git_path("COMMIT_MSG_TMP")
     msg_path.write_text(message + "\n", encoding="utf-8")
     try:
         res = _run(["git", "commit", "--file", str(msg_path)], check=False)

@@ -611,7 +611,7 @@ onMounted(() => {
   padding: 0 6px;
   font-size: 11px;
   line-height: 20px;
-  color: #fff;
+  color: var(--text-inverse);
   background-color: var(--bg-page);
   border: none;
 }

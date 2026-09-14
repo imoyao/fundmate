@@ -12,8 +12,8 @@ import pytest
 from app.core.exceptions import ErrorCode, SBException
 from app.services.ai_recognizer import agent_loop, guards
 from app.services.ai_recognizer import llm as llm_mod
-from app.services.ai_recognizer.session_manager import validate_session_state
-from app.services.ai_recognizer.tools.executor import ToolExecutor
+from app.services.ai_recognizer.agent_loop import validate_session_state
+from app.services.ai_recognizer.tools import ToolExecutor
 
 
 # ── parse_agent_action 容错 ──

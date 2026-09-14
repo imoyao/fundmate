@@ -25,7 +25,7 @@
   width: 100%;
   font-size: 14px;
   color: var(--el-text-color-primary);
-  background: #fff;
+  background: var(--bg-card);
   box-shadow: 0 0 1px #888;
 
   .scroll-item {
@@ -129,7 +129,7 @@
     white-space: nowrap;
     outline: 0;
     list-style-type: none;
-    background: #fff;
+    background: var(--bg-card);
     border-radius: 4px;
     box-shadow: 0 2px 8px rgb(0 0 0 / 15%);
 
@@ -191,7 +191,7 @@
 
 .scroll-item.is-active {
   position: relative;
-  color: #fff;
+  color: var(--text-inverse);
   box-shadow: 0 0 0.7px #888;
 
   .chrome-tab {

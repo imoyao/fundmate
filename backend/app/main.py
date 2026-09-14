@@ -26,12 +26,15 @@ from app.domains.funds.views import bp as funds_bp  # noqa: E402
 from app.domains.health import bp as health_bp  # noqa: E402
 from app.domains.importers.e_account_views import e_account_bp  # noqa: E402
 from app.domains.importers.views import importers_bp  # noqa: E402
+from app.domains.indices import models  # noqa: F401, E402  # 确保 index_constituents 表随 init_db 建表
 from app.domains.ledgers.views import ledgers_bp  # noqa: E402
+from app.domains.market.views import market_bp  # noqa: E402
 from app.domains.ocr.views import ocr_bp  # noqa: E402
 from app.domains.performance.views import bp as performance_bp  # noqa: E402
 from app.domains.portfolios.views import portfolios_bp  # noqa: E402
 from app.domains.positions.views import bp as positions_bp  # noqa: E402
 from app.domains.reconciliation.views import bp as reconciliation_bp  # noqa: E402
+from app.domains.search.views import bp as search_bp  # noqa: E402
 from app.domains.securities.views import bp as securities_bp  # noqa: E402
 from app.domains.strategy.views import strategy_bp  # noqa: E402
 from app.domains.summary.views import bp as summary_bp  # noqa: E402
@@ -41,6 +44,7 @@ from app.domains.usage.views import usage_bp  # noqa: E402
 from app.domains.users.views import users_bp  # noqa: E402
 from app.domains.utils.views import utils_bp  # noqa: E402
 from app.domains.watchlist.views import watchlist_bp  # noqa: E402
+from app.services.daily_scheduler import start_daily_scheduler  # noqa: E402
 
 
 def create_app() -> APIFlask:
@@ -71,12 +75,14 @@ def create_app() -> APIFlask:
     app.register_blueprint(transactions_bp)
     app.register_blueprint(summary_bp)
     app.register_blueprint(securities_bp)
+    app.register_blueprint(search_bp)
     app.register_blueprint(funds_bp)
     app.register_blueprint(watchlist_bp)
     app.register_blueprint(ocr_bp)
     app.register_blueprint(importers_bp)
     app.register_blueprint(e_account_bp)
     app.register_blueprint(ledgers_bp)
+    app.register_blueprint(market_bp)
     app.register_blueprint(utils_bp)
     app.register_blueprint(performance_bp)
     app.register_blueprint(portfolios_bp)
@@ -93,6 +99,11 @@ def create_app() -> APIFlask:
     # 初始化数据库
     with app.app_context():
         init_db()
+
+    # 本机每日数据抓取（#1467）：自选/持仓净值 + 温度计，进程内按 cron 触发。
+    # 仅在 SCHEDULER_ENABLED 打开、且当前不是测试/CI/重载父进程时启动；启动失败只记
+    # 日志（调度是增强项，不是可用性前提，绝不能因此让应用起不来）。
+    start_daily_scheduler(debug=app.debug)
 
     # 注册全局异常处理器（统一 {data, message, error_code} 信封）。
     # 必须在 create_app() 内部注册，否则测试 fixture 直接调用 create_app()

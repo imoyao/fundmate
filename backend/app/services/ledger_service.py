@@ -5,14 +5,13 @@
 # -*- coding: utf-8 -*-
 """账户业务逻辑服务层"""
 
-from datetime import date
-
 from loguru import logger
 from sqlalchemy import desc, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.constants import ALLOCATION_LABELS, LEDGER_TYPE_LABELS, TYPE_LABELS
 from app.core.money import Money
+from app.core.time_utils import today_shanghai
 from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
@@ -68,7 +67,7 @@ class LedgerService:
                     Transaction.asset_type.in_(CASH_EQUIVALENT_ASSET_TYPES),
                     Transaction.txn_type.in_(('buy', 'deposit')),
                     Transaction.status == 'success',
-                    Transaction.confirm_date > date.today(),
+                    Transaction.confirm_date > today_shanghai(),
                 )
                 .one()
             )
@@ -462,7 +461,7 @@ class LedgerService:
                     'avg_price': Money.price_units_to_yuan(avg),
                     'current_price': Money.price_units_to_yuan(eff_price),
                     # 持有时长（天）：基于首次建仓确认日，无确认日返回 None（#862）
-                    'holding_days': (date.today() - p.confirm_date).days if p.confirm_date else None,
+                    'holding_days': (today_shanghai() - p.confirm_date).days if p.confirm_date else None,
                     'allocation': p.allocation,
                     'allocation_label': ALLOCATION_LABELS.get(p.allocation, p.allocation or '未配置'),
                     'position_ratio': ratio,  # 绝对为 float

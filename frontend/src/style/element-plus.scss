@@ -103,7 +103,7 @@
 
 /* 克隆并自定义 ElMessage 样式，不会影响 ElMessage 原本样式，在 src/utils/message.ts 中调用自定义样式 ElMessage 方法即可，整体暗色风格在 src/style/dark.scss 文件进行了适配 */
 .pure-message {
-  background: #fff !important;
+  background: var(--bg-card) !important;
   border-width: 0 !important;
   box-shadow:
     0 3px 6px -4px #0000001f,

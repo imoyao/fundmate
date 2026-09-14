@@ -4,6 +4,7 @@ fundmate 开发任务集合（invoke + rich）
 
 把日常开发指令统一到一个入口，避免散落在 README / 命令行记忆里：
   - 数据抓取（复用 app.tools.sync_cli）
+  - 本机每日调度状态（sched.status，只读）
   - 测试（pytest，默认单进程；按模块/全量）
   - 后端启动（uvicorn）
   - 文档（前端 docs 站点，需到 frontend 目录）
@@ -11,6 +12,7 @@ fundmate 开发任务集合（invoke + rich）
 用法：
     pdm run invoke --list              # 列出全部任务
     pdm run invoke grab.temperature    # 跑市场温度同步
+    pdm run invoke sched.status        # 查看本机每日调度状态（只读）
     pdm run invoke test                # 跑全部后端测试
     pdm run invoke test --path backend/tests/services
     pdm run invoke serve               # 启动 API（默认 :5000）
@@ -65,6 +67,7 @@ def _list_tasks() -> None:
         ('grab.all', '全部同步任务（元数据 + 温度）'),
         ('grab.job <name>', '透传跑单个 Job（如 fund_nav / temperature）'),
         ('grab.verify-jisilu', '只读诊断：确认 jisilu_indicator 已含 level 字段'),
+        ('sched.status', '只读查看本机每日调度：开关 / 单实例锁 / 各任务上次成功时间'),
         ('test', '跑后端 pytest（默认全量、单进程；可用 --path 限定）'),
         ('serve', '启动 API（uvicorn，默认 0.0.0.0:5000）'),
         ('docs.dev', '本地文档预览（vuepress dev，需 frontend 环境）'),
@@ -116,6 +119,19 @@ def verify_jisilu(c):
         'pdm run python -m app.tools.sync_cli verify-jisilu',
         '验证 jisilu_indicator level 字段',
     )
+
+
+# --------------------------------------------------------------------------- #
+# 本机每日调度（#1467）
+# --------------------------------------------------------------------------- #
+@task(name='status')
+def sched_status(c):
+    """只读查看本机每日调度状态（开关 / 单实例锁 / 各任务上次成功时间）。
+
+    调度本身不常驻：开关打开时由应用启动时进程内调度，否则用
+    `pdm run scheduler-daemon` 常驻。本任务只读，便于确认「到底跑没跑」。
+    """
+    return _run(c, 'pdm run scheduler --status', '每日调度状态')
 
 
 # --------------------------------------------------------------------------- #
@@ -190,5 +206,8 @@ DOCS = Collection('docs')
 DOCS.add_task(docs_dev, name='dev')
 DOCS.add_task(docs_build, name='build')
 
+SCHED = Collection('sched')
+SCHED.add_task(sched_status, name='status')
+
 # 顶级集合（关键字参数给子集合命名，避免 "Non-root collections must have a name!"）
-namespace = Collection(grab=GRAB, docs=DOCS, test=test, serve=serve, help=help)
+namespace = Collection(grab=GRAB, docs=DOCS, sched=SCHED, test=test, serve=serve, help=help)

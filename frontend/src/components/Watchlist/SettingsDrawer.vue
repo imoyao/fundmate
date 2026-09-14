@@ -185,16 +185,17 @@
         系统设置
       </p>
 
-      <!-- 列显示设置（#993）：勾选即时生效，localforage 本机持久化 -->
+      <!-- 列显示设置（#993）：点击打开宽模态框，按品类导航分别控制（方案三，2026-09-12） -->
       <div
-        class="settings-card rounded-xl p-4"
+        class="settings-card rounded-xl p-4 cursor-pointer transition-shadow"
         :style="{
           backgroundColor: 'var(--bg-card)',
           border: '1px solid var(--border-light)',
           boxShadow: 'var(--shadow-raised)'
         }"
+        @click="columnDialogVisible = true"
       >
-        <div class="flex items-center gap-3 mb-3">
+        <div class="flex items-center gap-3">
           <div
             class="w-10 h-10 rounded-lg flex items-center justify-center"
             :style="{ backgroundColor: 'var(--bg-soft)' }"
@@ -213,26 +214,21 @@
               表格列显示
             </h4>
             <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
-              勾选需要展示的列（本机自动保存）
+              按品类分组设置展示列（本机自动保存）
             </p>
           </div>
-        </div>
-        <div class="flex flex-wrap gap-x-4 gap-y-1">
-          <el-checkbox
-            v-for="col in hideableCols"
-            :key="col.key"
-            :model-value="!columnSettings.isHidden(col.key)"
-            @change="(v: boolean) => columnSettings.toggleColumn(col.key, v)"
-          >
-            {{ col.label }}
-          </el-checkbox>
-        </div>
-        <div v-if="hiddenCount > 0" class="flex justify-end mt-2">
-          <el-button text size="small" @click="columnSettings.resetColumns()">
-            恢复默认列
-          </el-button>
+          <IconifyIconOffline
+            icon="ep:arrow-right"
+            class="text-sm"
+            :style="{ color: 'var(--text-tertiary)' }"
+          />
         </div>
       </div>
+
+      <ColumnSettingsModal
+        v-model="columnDialogVisible"
+        :column-settings="columnSettings"
+      />
 
       <!-- 排序设置（预留） -->
       <div
@@ -325,7 +321,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { useSupabaseAuth } from "@/composables/useSupabaseAuth";
@@ -334,6 +330,7 @@ import {
   type RefreshInterval
 } from "@/composables/useRealtimeQuotes";
 import type { WatchlistColumnVisibility } from "@/composables/useWatchlistColumnVisibility";
+import ColumnSettingsModal from "@/components/Watchlist/ColumnSettingsModal.vue";
 
 const { hasPendingExploreData, manualMigrate } = useSupabaseAuth();
 
@@ -371,16 +368,8 @@ const visible = computed({
   set: val => emit("update:modelValue", val)
 });
 
-// ── 列显示设置（#993）：prop 内的 ref 不自动解包，经 computed 桥接供模板使用 ──
-const hideableCols = computed(
-  () => props.columnSettings?.hideableColumns.value ?? []
-);
-const hiddenCount = computed(() => {
-  if (!props.columnSettings) return 0;
-  return [...hideableCols.value].filter(col =>
-    props.columnSettings!.isHidden(col.key)
-  ).length;
-});
+// ── 列显示设置（#993）：入口卡片打开宽模态框（方案三，2026-09-12）──
+const columnDialogVisible = ref(false);
 
 /** 刷新档位选项（label 与 explore 页一致：`${s}s`） */
 const intervalOptions = REFRESH_INTERVAL_OPTIONS.map(s => ({
@@ -396,7 +385,10 @@ const onRefreshIntervalChange = (value: string | number | boolean) => {
 
 <style scoped>
 .settings-drawer-body {
+  /* 列显示分组后卡片内容变长，确保抽屉内可纵向滚动（不撑破布局） */
+  max-height: calc(100vh - 56px);
   padding: 0 4px;
+  overflow-y: auto;
 }
 
 /* 分组小标题：text-xs + --text-tertiary，贴近本组卡片、与上一组拉开间距

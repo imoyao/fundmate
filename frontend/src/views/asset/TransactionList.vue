@@ -646,7 +646,7 @@ onUnmounted(unbindScroll);
   justify-content: center;
   width: 20px;
   height: 20px;
-  color: #fff;
+  color: var(--text-inverse);
   border-radius: 50%;
   box-shadow: 0 2px 4px rgb(0 0 0 / 10%);
 }
@@ -709,6 +709,6 @@ onUnmounted(unbindScroll);
 
 :deep(.el-collapse-item__content) {
   padding: 12px 0 0 !important;
-  background: #fff;
+  background: var(--bg-card);
 }
 </style>

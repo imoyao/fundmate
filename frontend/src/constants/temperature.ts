@@ -1,6 +1,6 @@
 // src/constants/temperature.ts
 /**
- * 温度计页（views/temperature）业务常量。
+ * 温度计业务常量（现由探市页「深度」档消费）。
  * 从 temperature/index.vue 拆分下沉（#980），供页面与表格组件共享，
  * 避免同一阈值/映射在多个文件重复定义。
  */

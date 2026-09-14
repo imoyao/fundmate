@@ -245,6 +245,24 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
   - `min-width: 120` — 纯名称紧凑场景（TransactionList 交易流水，无代码标签）
 - **截断与 hover 提示**：组件内 `product-name` 已单行截断（`overflow: hidden; text-overflow: ellipsis`），名称溢出时由组件自身的 `title` 展示全名。**不要在含两行单元格（紧凑模式）的列上使用 `show-overflow-tooltip`**——EP 会给单元格加 `white-space: nowrap`，把两行结构压回一行；该 tooltip 只适合真正的单行单元格。
 
+### 组合类标的的识别信息呈现（投顾组合 / 基金经理，强制口径）
+
+组合类标的（`asset_type` ∈ `portfolio` / `manager`）**没有对外有意义的交易代码**：投顾组合用平台原生码（且慢 `ZHxxxx`、天天基金 `tgCode`），基金经理用 `MGR_` 派生码；其中天天基金 `tgCode` 属平台私有标识。因此：
+
+- **禁止在 UI 上展示组合类标的的编码**（表格产品列、搜索下拉、详情抽屉一律不展示）。识别信息由 **名称 + 品类 +（平台 / 主理人 / 所属公司）** 承担；股票 / ETF / 基金 / 指数等**保留** `# 代码`（代码是它们的对外识别信息，也是用户核对标的的依据）。
+- 统一实现：`src/constants/advisorPlatform.ts`
+  - `isCompositeAssetType(type)` — 组合类标的判定（大小写不敏感）
+  - `getAdvisorPlatformLabel(platform)` — `QIEMAN` / `DANJUAN` / `TIANTIAN` / `YINGMI` → 且慢 / 蛋卷基金 / 天天基金 / 盈米（未知值原样兜底）
+  - **禁止各处再复制一份平台中文映射**（#1171 枚举一致性教训）。
+- 既有落地：自选表格产品列 `views/asset/watchlist/columnRenderers.tsx`（`showCode: !isCompositeAsset`）与 `components/ProductDisplay`（`showCode` prop）。
+
+### 添加自选弹窗 · 搜索结果项（`components/QuickEntry/AddToWatchlistModal.vue`）
+
+- **两行分层**：第一行「名称 + 品类胶囊」（`--bg-soft` 底、`--radius-pill`、11px），第二行「识别信息行」（12px、`--text-tertiary`）——投顾组合为 `平台 · 主理人`，基金经理为所属公司，其余品种为 `# 代码 · 场内外`。名称单行省略 + `title` 兜全名。
+- **禁止**把「代码 / 名称 / 类型 / 市场」四项平铺一行（`justify-between`）：实测信息主次不清，且无市场实体的品种（组合 / 经理）会出现 `—` 占位噪音。
+- **下拉浮层样式必须写在不带 `scoped` 的样式块里**（`el-select` 的 dropdown 被 teleport 到 body，scoped 与 `:deep()` 都命中不到），并用 `popper-class` 限定作用域。EP 默认 `.el-select-dropdown__item` 是 `height` / `line-height: 34px` 的单行容器，自绘多行内容会**贴顶显示（视觉上「文字没有上下居中」）**，须覆写为 `height: auto` + `line-height: normal` 才能让行内 flex 的 `align-items: center` 生效。
+- 已选资产信息卡与搜索项同口径：组合类不出现「代码」行，展示 平台 / 主理人；其余展示 代码 / 市场 / 类型。缺失值整行过滤，不渲染 `—`。
+
 ## PageSkeleton · 页面骨架屏（强制复用）
 
 - 用途：页面加载骨架屏，模拟真实页面结构（概览指标卡 / 图表卡 / 表格行），作为内容占位容器防布局偏移（CLS）。

@@ -28,6 +28,17 @@ EASTMONEY_BOARDS: Dict[str, str] = {
 EASTMONEY_HOSTS = ['push2.eastmoney.com', 'push2delay.eastmoney.com']
 EASTMONEY_REFERER = 'https://quote.eastmoney.com/'
 
+# ─── 新浪：全市场成交额兜底（#1431；东财 push2 限流时的替代源）───
+# 新浪 s_ 前缀简版行情字段：名称,点位,涨跌额,涨跌幅,成交量,成交额。
+# 单位差异（实测）：沪/深 成交额为「万元」，北证为「元」——故按板块给出换算除数（→ 亿元）。
+SINA_VOLUME_BOARDS: Dict[str, tuple] = {
+    '上证': ('s_sh000001', 1e4),
+    '深证': ('s_sz399001', 1e4),
+    '北证': ('s_bj899050', 1e8),
+}
+SINA_VOLUME_URL = 'https://hq.sinajs.cn/list=' + ','.join(v[0] for v in SINA_VOLUME_BOARDS.values())
+SINA_REFERER = 'https://finance.sina.com.cn'
+
 # ─── 集思录 ───
 JISILU_CB_URL = 'https://www.jisilu.cn/data/indicator/get_cb_temperature/'
 JISILU_INDICATOR_URL = 'https://www.jisilu.cn/data/indicator/get_last_indicator/'
@@ -37,7 +48,60 @@ JISILU_REFERER = 'https://www.jisilu.cn/data/indicator/'
 QIEMAN_MCP_URL = 'https://stargate.yingmi.com/mcp/v2'
 QIEMAN_PROTOCOL_VERSION = '2024-11-05'
 QIEMAN_CLIENT_INFO = {'name': 'fundmate', 'version': '1.0.0'}
-QIEMAN_TOOL = 'GetLatestQuotations'
+QIEMAN_TOOL = 'GetLatestQuotations'  # 市场温度计
+QIEMAN_STRATEGY_DETAIL_TOOL = 'GetStrategyDetails'  # 投顾组合概览/风险收益指标
+QIEMAN_STRATEGY_COMPOSITION_TOOL = 'BatchGetStrategiesComposition'  # 投顾组合持仓
+
+# 且慢组合概览（GetStrategyDetails）中文字段 → 归一化英文键（实测 2026-09）。
+# 集中在此便于接口扩字段时只改一处，勿散落到 fetcher / job。
+QIEMAN_STRATEGY_DETAIL_FIELDS: Dict[str, str] = {
+    '策略代码': 'code',
+    '策略名称': 'name',
+    '策略简介': 'summary',
+    '策略描述': 'desc',
+    '策略成立时间': 'estab_date',
+    '策略风险等级': 'risk_level',
+    '管理人名称': 'org_name',
+    '管理人简介': 'org_intro',
+    '管理人头像': 'org_avatar',
+    '是否实名认证': 'verified',
+    '策略净值': 'nav',
+    '最新净值日期': 'nav_date',
+    '日收益率': 'return_1d',
+    '周收益率': 'return_1w',
+    '月收益率': 'return_1m',
+    '季度收益率': 'return_1q',
+    '半年收益率': 'return_6m',
+    '年收益率': 'return_1y',
+    '成立以来收益率': 'return_since_incep',
+    '最大回撤': 'max_drawdown',
+    '夏普比率': 'sharpe_ratio',
+    '波动率': 'volatility',
+    '年化收益率': 'annual_return',
+    'url': 'url',
+}
+
+#: 上述字段中「带百分号的字符串」集合，归一化时剥 % 转 float（'20.32%' → 20.32）
+QIEMAN_STRATEGY_PCT_FIELDS = frozenset(
+    {
+        'return_1d',
+        'return_1w',
+        'return_1m',
+        'return_1q',
+        'return_6m',
+        'return_1y',
+        'return_since_incep',
+        'max_drawdown',
+        'volatility',
+        'annual_return',
+    }
+)
+
+#: 上述字段中的纯数值字段，归一化时直接转 float
+QIEMAN_STRATEGY_NUM_FIELDS = frozenset({'nav', 'sharpe_ratio'})
+
+#: GetStrategyDetails 单次可传的组合代码上限（接口 pageSize 上限 100，留余量）
+QIEMAN_STRATEGY_BATCH_SIZE = 50
 
 # ─── 有知有行 ───
 YOUZHIYOUXING_URL = 'https://youzhiyouxing.cn/thermometer'
@@ -59,6 +123,12 @@ LINKS = {
 def label_volume(total: float) -> str:
     """全市场成交额定性标签。"""
     return '放量' if total > 12000 else ('缩量' if total < 8000 else '温和')
+
+
+# ─── 数据新鲜度守卫（#1431）───
+# 温度类数据的最新 collected_at 距今超过该天数即视为「陈旧」，前端须显式提示，
+# 不允许静默展示旧快照。取 5 天以容纳周末 + 单个节假日。
+FRESHNESS_THRESHOLD_DAYS = 5
 
 
 def _to_float(value: object) -> Optional[float]:

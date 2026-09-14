@@ -67,6 +67,7 @@ from app.services.bias.constants import (
 from app.services.bias.direct_feeds import (
     _eastmoney_secid,
     fetch_close_eastmoney,
+    fetch_close_sw_industry,
     fetch_close_tencent,
 )
 from app.services.bias.schemas import BiasResult
@@ -250,11 +251,17 @@ class PriceFetcher:
 
         return None
 
-    # ── 数据源优先级（直连绕开 akshare/东财限流）：腾讯 > 东财 > akshare 兜底 ──
+    # ── 数据源优先级（#1431：去除东财单点）──
+    #   申万行业 : 申万宏源官网（index_hist_sw，非东财） > 东财兜底
+    #   股票/ETF/宽基 : 腾讯 > 东财兜底（宽基）
     def _fetch_direct(self, symbol: str, item_type: str):
-        """直连行情：申万行业走东财(90.x)，股票/ETF/宽基走腾讯；返回 (values, data_last_date)。"""
+        """直连行情：申万行业走申万宏源官网，股票/ETF/宽基走腾讯；东财仅作兜底。"""
         try:
             if item_type == ITEM_TYPE_INDUSTRY:
+                # 申万行业首选申万宏源研究官网（非东财）；失败再退东财 push2his
+                res = fetch_close_sw_industry(symbol, self.days)
+                if res:
+                    return res
                 secid = _eastmoney_secid(symbol)
                 if secid:
                     res = fetch_close_eastmoney(secid, self.days)

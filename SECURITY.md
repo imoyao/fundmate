@@ -1,21 +1,41 @@
-# Security Policy
+# 安全策略（Security Policy）
 
-## Supported Versions
+> 本项目是**个人 / 家庭自用的投资记账工具**，非商业、非企业级服务。仓库公开可见，但**不是开源软件**（授权见根 [`LICENSE`](./LICENSE)）。
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+## 支持范围
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+不按版本号维护支持矩阵：本项目**只维护默认分支 `main` 与集成分支 `dev` 的最新代码**，不回溯修复历史版本。
 
-## Reporting a Vulnerability
+## 报告漏洞
 
-Use this section to tell people how to report a vulnerability.
+**请勿开公开 issue。** 私下报告渠道（任选其一）：
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+1. **邮件**：`immoyao@gmail.com`（仓库作者，亦见 `backend/pyproject.toml` 的 `authors`）
+2. **GitHub 私密报告**：仓库 `Security` → `Advisories` → `Report a vulnerability`
+   （若看不到该入口，说明仓库未开启私密报告功能，请改用邮件）
+
+报告请尽量包含：
+
+- 受影响的文件 / 提交（commit SHA 或分支名）；
+- 复现步骤（能最小化最好）与预期、实际行为；
+- 影响面判断：是否能越权读到他人或他人家庭的账本数据、是否能取得密钥 / token、是否影响金额计算正确性。
+
+## 响应预期
+
+单人维护，**尽力在 7 天内首次回复**。确认后按紧急程度排期，修复随 PR 合入 `dev`，并在 `docs/spec/changelog.md` 记录（涉及用户数据或密钥泄漏时另行说明）。
+
+## 在范围内
+
+本项目自有代码（`backend/app`、`frontend/src`、`scripts/`）中的：
+
+- **鉴权 / 授权缺陷**：绕过登录、越权读取他人或他人家庭的账本数据（`user_id` / `family_id` 隔离被绕过）；
+- **敏感信息泄露**：密钥 / token 进入日志、进入前端产物或被提交到公开位置；
+- **注入类缺陷**：SQL 拼接注入、路径穿越；
+- **金额 / 份额计算正确性缺陷**（本项目对此零容忍，按安全级处理）。
+
+## 不在范围内
+
+- 第三方依赖自身的漏洞——请上报给上游，本项目会跟进修依赖；
+- 本地部署环境配置不当（例如把开发库 / 调试端口暴露到公网）；
+- 需要物理接触设备、或需要用户主动执行恶意代码的攻击；
+- 缺 HTTPS/HSTS、无 CSP 等纯加固建议（可开 issue 讨论，不走安全通道）。

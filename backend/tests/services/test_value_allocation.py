@@ -18,7 +18,7 @@ from app.core.constants import ValuationMode
 from app.core.money import Money
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
-from app.services.value_allocation_service import allocate_value
+from app.services.position_valuation import allocate_value
 
 
 def _make_balance(db, symbol, account_name, override_yuan, family_id=1):

@@ -5,9 +5,9 @@ from urllib.parse import quote
 
 import pytest
 
-from app.domains.funds.models import Fund, FundType
+from app.domains.funds.models import Fund, FundCompany, FundType
 from app.domains.ledgers.models import Ledger
-from app.domains.positions.models import Position, SalesInstitution
+from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 
 
 def _make_fund_ledger(db, name, sales_institution_id=None, frontend_app=None, ledger_type='fund', is_aggregation=False):
@@ -352,3 +352,64 @@ def test_fund_aggregation_fund_type_breakdown(client, db):
     assert bd[0]['count'] == 2
     assert bd[2]['name'] == '未分类'
     assert bd[2]['market_value_cents'] == 300 * 100
+
+
+# ────────────────────────────────────────────────────────────────
+# 基金管理人来源（2026-09-10）：改走 funds→fund_companies，meta 兜底
+# ────────────────────────────────────────────────────────────────
+def _make_import_meta(db, position, symbol, fund_manager=None):
+    meta = PositionImportMeta(
+        position_id=position.id,
+        symbol=symbol,
+        family_id=1,
+        source='e_account_holding',
+        fund_manager=fund_manager,
+    )
+    db.add(meta)
+    db.flush()
+    return meta
+
+
+def test_fund_aggregation_fund_manager_from_company(client, db):
+    """基金管理人主来源 = 公司主数据简称（funds.company_id → fund_companies.name）。
+
+    背景：`position_import_meta.fund_manager` 是影子记录的匹配键，归因到渠道后按设计置
+    NULL，故聚合页此前恒为空。改走 funds→公司后，只要 `funds.company_id` 有值即可显示。
+    """
+    company = FundCompany(code='80036782', name='招商基金', full_name='招商基金管理有限公司')
+    db.add(company)
+    db.flush()
+    fund = _make_fund_record(db, '012414', '招商中证白酒C')
+    fund.company_id = company.id
+    db.flush()
+
+    l1 = _make_fund_ledger(db, '支付宝')
+    pos = _make_fund_position(db, l1, '012414', '招商中证白酒C', 100 * 10000, 10 * 10000)
+    _make_import_meta(db, pos, '012414', fund_manager=None)
+    db.commit()
+
+    data = client.get('/api/ledgers/fund-aggregation/?dimension=product').get_json()['data']
+    assert data['groups'][0]['fund_manager'] == '招商基金'
+    # 明细行同样带上（按渠道维度展示消费 sources[].fund_manager）
+    assert data['groups'][0]['sources'][0]['fund_manager'] == '招商基金'
+
+
+def test_fund_aggregation_fund_manager_falls_back_to_meta(client, db):
+    """公司主数据缺失（funds 未收录 / company_id 为空）时，回退 position_import_meta 原文。"""
+    l1 = _make_fund_ledger(db, '支付宝')
+    pos = _make_fund_position(db, l1, '159915', '某ETF联接', 100 * 10000, 10 * 10000)
+    _make_import_meta(db, pos, '159915', fund_manager='易方达基金管理有限公司')
+    db.commit()
+
+    data = client.get('/api/ledgers/fund-aggregation/?dimension=product').get_json()['data']
+    assert data['groups'][0]['fund_manager'] == '易方达基金管理有限公司'
+
+
+def test_fund_aggregation_fund_manager_none_when_both_missing(client, db):
+    """公司主数据与 meta 都没有 → None（前端不渲染该行）。"""
+    l1 = _make_fund_ledger(db, '支付宝')
+    _make_fund_position(db, l1, '000001', '华夏成长', 100 * 10000, 10 * 10000)
+    db.commit()
+
+    data = client.get('/api/ledgers/fund-aggregation/?dimension=product').get_json()['data']
+    assert data['groups'][0]['fund_manager'] is None

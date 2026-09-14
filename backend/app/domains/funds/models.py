@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -23,12 +24,39 @@ from app.core.db_utils import SafeNumeric
 
 
 class FundCompany(Base, PrimaryKeyMixin, TimestampMixin):
+    """基金公司主数据（**唯一可写表**，简称/全称同表双字段）。
+
+    命名约定（与 `Fund` 一致）：
+    - `name`：简称，如「易方达基金」——**界面默认显示这个**；
+    - `full_name`：权威全称，如「易方达基金管理有限公司」——详情页/核对用。
+
+    为什么要两个字段而不是两行：2026-09-10 实测库里存在 8 组「简称一行 + 全称一行」
+    的重复实体（如 `华安基金` 与 `华安基金管理有限公司` 各占一行），同一家公司的
+    经理被分裂挂到两行（招商基金 103 + 9）。**同一法人主体只能有一行**，
+    全称是这一行的属性，不是另一行。
+
+    单一写者原则（防跨源漂移，每个字段只有一个同步任务有写权）：
+    - `code` / `name` / `scale` ← 东财链路（`company_resolver` 解析 code，
+      `fund_detail_enrich_job` / 基金列表任务写名与规模）；
+    - `full_name` / `register_addr` / `office_addr` / `website` / `phone` /
+      `is_active` ← 仅 AMAC 名录任务（`amac_institution_job`）写。
+
+    历史：曾另有 `fund_management_companies`（user 域）表达同一概念——实测零读者、
+    零外键、零接口，2026-09-10 合并入本表后删除（见 `docs/spec/decisions.md`）。
+    """
+
     __tablename__ = 'fund_companies'
 
-    code = Column(String(20), unique=True, nullable=False, comment='公司编码')
-    name = Column(String(60), nullable=False, comment='公司名称')
-    full_name = Column(String(100), comment='全称')
+    code = Column(String(20), unique=True, nullable=False, comment='公司编码（东财 jjjz_gs，8 位）')
+    name = Column(String(60), nullable=False, comment='简称（界面默认显示）')
+    full_name = Column(String(100), comment='权威全称（AMAC 公示）')
     scale = Column(Float, comment='管理规模(亿)')
+    # ── 以下 5 列仅 AMAC 名录任务写（原 fund_management_companies 表字段，合并而来）──
+    register_addr = Column(String(200), comment='注册地址（AMAC 公示）')
+    office_addr = Column(String(200), comment='办公地址（AMAC 公示）')
+    website = Column(String(200), comment='官网（AMAC 公示）')
+    phone = Column(String(100), comment='客服电话（AMAC 公示）')
+    is_active = Column(Boolean, default=True, server_default=text('1'), comment='是否在 AMAC 基金管理人公示名单内')
 
 
 class FundVariety(Base, PrimaryKeyMixin):
@@ -66,6 +94,7 @@ class Manager(Base, PrimaryKeyMixin, TimestampMixin):
     best_return = Column(Float, comment='最佳回报(%)')
     avatar_url = Column(String(300))
 
+    company = relationship('FundCompany', foreign_keys=[company_id])
     funds = relationship('Fund', secondary='fund_managers', back_populates='managers')
 
 
@@ -80,6 +109,17 @@ class Fund(Base, PrimaryKeyMixin, TimestampMixin):
     fund_type_id = Column(Integer, ForeignKey('fund_types.id'), comment='基金小类')
     fund_variety_id = Column(Integer, ForeignKey('fund_varieties.id'), comment='基金大类')
     company_id = Column(Integer, ForeignKey('fund_companies.id'), comment='基金公司')
+    # ── #1286 品种差异化维度：基金规模 / 近似股票仓位 ──
+    # 回填见 FundScaleSyncJob（全市场一次拉取）与 FundPositionSyncJob（逐只，仅核心池）
+    # （2026-09-11 起由原 FundMetaSyncJob 拆分，见 #1403：逐只抓取必须按目标池限量）
+    # 精度说明（PR #1358 review）：虽为市场参照估算字段（非用户记账链路），
+    # 仍按份额/金额精度规范用 SafeNumeric，避免 Float 精度漂移。
+    scale = Column(SafeNumeric(20, 6), comment='基金规模估算(亿元)=最近总份额×单位净值，来源 fund_scale_open_sina')
+    recent_shares = Column(SafeNumeric(20, 4), comment='最近总份额(份)，来源 fund_scale_open_sina')
+    equity_position = Column(
+        SafeNumeric(5, 2),
+        comment='近似股票仓位(%)=前十大重仓占净值比合计，来源 fund_portfolio_hold_em（仅近似，非全口径资产配置）',
+    )
     risk_level = Column(Integer, comment='风险等级 1-5')
     is_fe_charge = Column(Boolean, default=False, comment='前端收费')
     benchmark = Column(String(200), comment='业绩比较基准')
@@ -107,6 +147,51 @@ class FundManager(Base, PrimaryKeyMixin):
     is_classic = Column(Boolean, default=False, comment='代表作品')
     start_date = Column(Date, comment='任职起始')
     end_date = Column(Date, comment='任职结束')
+
+
+class ChannelLink(Base, PrimaryKeyMixin, TimestampMixin):
+    """跨渠道关联（#1285 设计 §3.8）：指数↔ETF、ETF↔联接基金。
+
+    同一底层资产在多个渠道的同义标的（指数 / 场内 ETF / 场外联接），用于自选页的
+    「关联入口」（角标数量 + 浮层）。存**有向**关系 `from_symbol → to_symbol`，
+    语义是「从该标的出发可跳转的关联标的」。
+
+    - `link_type='index_etf'`：from=指数（裸代码，如 000300），to=ETF（裸代码，如 510300）
+    - `link_type='etf_feeder'`：from=ETF（如 510300），to=联接基金（如 000051）
+
+    **统一存裸代码**（不含 SH/SZ/CSI 前缀）：自选行的 symbol 前缀形态不统一
+    （SH000300 / CSI000300 / SZ399006），按裸代码 join 才能前缀无关地命中；
+    展示所需的名称冗余在 `from_name` / `to_name`。
+
+    **为什么靠名称匹配**：akshare `fund_etf_spot_em` **无「跟踪标的」字段**、交易所规模表
+    亦无（2026-09-11 实测），只能靠产品名。第一版（PR #1399）用东财**场内简称**
+    （指数名被压没，覆盖 41.1%）→ 降级为 13 个宽基白名单、实落 274 条。2026-09-11 改版：
+    换同花顺**基金全称**作匹配文本 + 最长核心名匹配（覆盖 89.0% 毛 / 66.4% 落库口径），
+    并补齐 `etf_feeder` 第二层（68.3%）。算法与实测依据见 `services/sync/name_match.py`。
+    仍匹配不上的（跨境/商品 ETF 的跟踪标的不在 `index_catalog` 内）留 `—`，缺口记 #1419。
+
+    `match_type` 记录匹配置信方式，便于后续人工校正/扩面。
+    """
+
+    __tablename__ = 'channel_links'
+
+    link_type = Column(String(20), nullable=False, comment='关系类型: index_etf / etf_feeder')
+    from_symbol = Column(String(30), nullable=False, comment='起点裸代码（指数代码 / ETF 代码）')
+    to_symbol = Column(String(30), nullable=False, comment='终点裸代码（ETF 代码 / 联接基金代码）')
+    from_name = Column(String(80), comment='起点名称（冗余，浮层直接展示）')
+    to_name = Column(String(80), comment='终点名称（冗余）')
+    match_type = Column(
+        String(20),
+        comment='匹配置信方式: name_longest_core（指数↔ETF）/ feeder_core_manager（ETF↔联接）/ manual',
+    )
+    source = Column(String(20), default='auto', comment='来源: auto / manual')
+
+    # #1491 评审：to_symbol 是查询/join 字段（见类注释），缺索引会全表扫描；
+    # 存量库由 migrate_channel_link_indexes 在启动期补建（create_all 不给存量表加索引）
+    __table_args__ = (
+        UniqueConstraint('link_type', 'from_symbol', 'to_symbol', name='uk_channel_link'),
+        Index('ix_channel_links_to_symbol', 'to_symbol'),
+    )
 
 
 class DailyWorth(Base, PrimaryKeyMixin, TimestampMixin):
@@ -205,7 +290,110 @@ class AdvisorPortfolio(Base, PrimaryKeyMixin, TimestampMixin):
     org_name = Column(String(100), comment='主理人所属机构/平台方')
     risk_level = Column(String(20), comment='风险等级')
     strategy_type = Column(String(40), comment='策略类型(均衡/进取/稳健)')
-    cum_return = Column(Float, comment='累计收益(%)')
-    annual_return = Column(Float, comment='年化收益(%)')
+    cum_return = Column(SafeNumeric(7, 2), comment='累计收益(%)')
+    annual_return = Column(SafeNumeric(7, 2), comment='年化收益(%)')
     running_days = Column(Integer, comment='运行天数')
     is_active = Column(Boolean, default=True, comment='是否在售/有效')
+    # ── #1167 概览补充字段（天天基金 FundIATGInfoAggr / 平台元数据）──
+    estab_date = Column(Date, comment='组合成立日期')
+    strategy_desc = Column(String(500), comment='策略说明（STGCONCEPT）')
+
+    # ── #1392 投顾品类差异化指标（区间收益 / 回撤 / 超额，落库供自选投顾列展示）──
+    # 数据源：天天基金 FundIATGInfoAggr 的 SYL_*，映射已实测核对（见 tiantian_advisor_adapter）。
+    # 回撤/超额 API 不直接提供（实测结论），暂留空、待补算；列已就绪不影响主链路。
+    return_1w = Column(SafeNumeric(7, 2), comment='近1周收益(%)（SYL_Z）')
+    return_1m = Column(SafeNumeric(7, 2), comment='近1月收益(%)（SYL_Y）')
+    return_1y = Column(SafeNumeric(7, 2), comment='近1年收益(%)（SYL_1N）')
+    return_ytd = Column(SafeNumeric(7, 2), comment='今年以来收益(%)（SYL_JN）')
+    return_since_incep = Column(SafeNumeric(7, 2), comment='成立以来收益(%)（SYL_LN）')
+    benchmark = Column(String(50), comment='业绩比较基准')
+    max_drawdown = Column(SafeNumeric(6, 2), comment='最大回撤(%)，API 未直接提供时为空')
+    excess_return = Column(SafeNumeric(7, 2), comment='相对基准超额收益(%)，待补算')
+
+    # ── #1468 且慢组合策展元数据（调研注册表 + GetStrategyDetails 实时抓取）──
+    # 与上方 #1392 指标列一样，属「列已就绪、不影响主链路」的补充字段；
+    # allocation 沿用 assets/positions 的「五笔钱」词表（见 core.constants.ALLOCATION_LABELS），
+    # 且慢「四笔钱」活钱/稳钱/长钱 依次映射为 liquid/stable/longterm。
+    volatility = Column(SafeNumeric(6, 2), comment='年化波动率(%)')
+    sharpe_ratio = Column(SafeNumeric(6, 3), comment='夏普比率')
+    allocation = Column(String(20), comment='配置目标（五笔钱：liquid/stable/longterm/...）')
+    product_type = Column(String(20), comment='产品类型(货币/货币+/纯债/固收+/平衡/权益(偏股))')
+    # 概览其余可用字段（一次抓取全部落库，避免日后为拿单个字段再手动抓）
+    strategy_summary = Column(String(300), comment='策略简介（短，GetStrategyDetails 策略简介）')
+    source_url = Column(String(120), comment='组合官方页面链接（且慢 qieman.com/alfa/portfolio/<code>）')
+    nav = Column(SafeNumeric(12, 6), comment='组合最新净值')
+    nav_date = Column(Date, comment='组合净值日期')
+    return_1d = Column(SafeNumeric(7, 2), comment='近1日收益(%)')
+    return_1q = Column(SafeNumeric(7, 2), comment='近1季度收益(%)')
+    return_6m = Column(SafeNumeric(7, 2), comment='近半年收益(%)')
+
+
+class AdvisorHolding(Base, PrimaryKeyMixin, TimestampMixin):
+    """投顾组合当前基金级持仓（#1167）。
+
+    语义：最新一次调仓后的基金占比快照（天天基金 getAdjustWarehouse tag=0 的
+    afterRatio；且慢为 BatchGetStrategiesComposition 持仓占比，手动导入）。
+    同一组合同一调仓日整体覆盖式更新。
+
+    fund_code 用业务键不建硬外键：组合成分基金可能暂缺于本地 funds 表，
+    硬外键会阻塞写入；关联查询走应用层两步法。
+    """
+
+    __tablename__ = 'advisor_holdings'
+
+    portfolio_id = Column(
+        Integer, ForeignKey('advisor_portfolios.id'), nullable=False, index=True, comment='所属投顾组合'
+    )
+    as_of_date = Column(Date, nullable=False, index=True, comment='调仓日期（快照日）')
+    fund_code = Column(String(6), nullable=False, index=True, comment='成分基金代码（业务键）')
+    fund_name = Column(String(100), comment='成分基金名称')
+    pre_ratio = Column(SafeNumeric(5, 2), comment='调仓前占比(%)')
+    after_ratio = Column(SafeNumeric(5, 2), comment='调仓后/当前占比(%)')
+    op_code = Column(Integer, comment='操作类型: 1建仓/2加仓/3减仓/4新增/5持平')
+    op_name = Column(String(10), comment='操作名称')
+    source = Column(String(20), nullable=False, comment='数据来源: tiantian/qieman_manual')
+
+    __table_args__ = (UniqueConstraint('portfolio_id', 'fund_code', 'as_of_date', name='uq_advisor_holding_p_f_d'),)
+
+
+class AdvisorIndustryAlloc(Base, PrimaryKeyMixin, TimestampMixin):
+    """投顾组合持仓行业配置（#1167，天天基金 getHoldWarehouseIndustryRatio）。"""
+
+    __tablename__ = 'advisor_industry_allocs'
+
+    portfolio_id = Column(
+        Integer, ForeignKey('advisor_portfolios.id'), nullable=False, index=True, comment='所属投顾组合'
+    )
+    as_of_date = Column(Date, nullable=False, index=True, comment='快照日期')
+    industry_name = Column(String(50), nullable=False, comment='行业名称')
+    ratio = Column(SafeNumeric(5, 2), comment='行业占比(%)')
+    source = Column(String(20), nullable=False, comment='数据来源: tiantian')
+
+    __table_args__ = (
+        UniqueConstraint('portfolio_id', 'industry_name', 'as_of_date', name='uq_advisor_industry_p_i_d'),
+    )
+
+
+class AdvisorAdjustHistory(Base, PrimaryKeyMixin, TimestampMixin):
+    """投顾组合历史调仓明细（#1167，天天基金 getAdjustWarehouse tag=1）。
+
+    每条 = 某次调仓中单只基金的前后占比；同一(组合, 调仓日, 基金)唯一，
+    重复同步按唯一键覆盖，调仓理由 reason 随行冗余存储。
+    """
+
+    __tablename__ = 'advisor_adjust_histories'
+
+    portfolio_id = Column(
+        Integer, ForeignKey('advisor_portfolios.id'), nullable=False, index=True, comment='所属投顾组合'
+    )
+    adjust_date = Column(Date, nullable=False, index=True, comment='调仓日期')
+    reason = Column(String(300), comment='调仓理由')
+    fund_code = Column(String(6), nullable=False, comment='成分基金代码（业务键）')
+    fund_name = Column(String(100), comment='成分基金名称')
+    pre_ratio = Column(SafeNumeric(5, 2), comment='调仓前占比(%)')
+    after_ratio = Column(SafeNumeric(5, 2), comment='调仓后占比(%)')
+    op_code = Column(Integer, comment='操作类型: 1建仓/2加仓/3减仓/4新增/5持平')
+    op_name = Column(String(10), comment='操作名称')
+    source = Column(String(20), nullable=False, comment='数据来源: tiantian')
+
+    __table_args__ = (UniqueConstraint('portfolio_id', 'adjust_date', 'fund_code', name='uq_advisor_adjust_p_d_f'),)

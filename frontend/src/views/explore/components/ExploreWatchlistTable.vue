@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import { ElMessageBox } from "element-plus";
 import { REFRESH_INTERVAL_OPTIONS } from "@/composables/useRealtimeQuotes";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
@@ -12,6 +13,7 @@ import { formatDateTime } from "@/utils/date";
  * 探市·观察列表（#984 explore/index.vue 拆分）。
  * 纯展示组件：汇总条 + 表格；数据经 props 注入，
  * 删除/深度分析跳转/刷新/档位切换经事件上抛由父页面编排。
+ * 移动端（≤768px）表格降级为卡片列表（#821 P2-7，#808 §7.2）。
  */
 defineProps<{
   rows: any[];
@@ -51,6 +53,29 @@ function handleRemoveConfirm(id: string) {
   })
     .then(() => emit("remove", id))
     .catch(() => {});
+}
+
+// ================================================================
+// 移动端断点（#821 P2-7）：≤768px 表格降级为卡片列表
+// ================================================================
+const MOBILE_MQ = "(max-width: 768px)";
+const isMobile = ref(
+  typeof window !== "undefined" && window.matchMedia(MOBILE_MQ).matches
+);
+let mq: MediaQueryList | null = null;
+
+onMounted(() => {
+  mq = window.matchMedia(MOBILE_MQ);
+  isMobile.value = mq.matches;
+  mq.addEventListener("change", onMqChange);
+});
+
+onBeforeUnmount(() => {
+  mq?.removeEventListener("change", onMqChange);
+});
+
+function onMqChange(e: MediaQueryListEvent) {
+  isMobile.value = e.matches;
 }
 
 // 深度分析外部工具清单（基金/ETF 多一个天天基金）
@@ -110,8 +135,9 @@ const getAvailableTools = (type: string) => {
       </div>
     </div>
 
-    <!-- 表格视觉基线统一在 src/style/el-table.css 维护，勿在本页 :deep 覆盖 -->
+    <!-- 桌面端表格（视觉基线统一在 src/style/el-table.css 维护，勿在本页 :deep 覆盖） -->
     <el-table
+      v-if="!isMobile"
       v-loading="loading"
       :data="rows"
       border
@@ -207,6 +233,85 @@ const getAvailableTools = (type: string) => {
         </template>
       </el-table-column>
     </el-table>
+
+    <!-- 移动端卡片降级（#821 P2-7，#808 §7.2）：窄屏横向表格不可用，
+         改为纵向卡片；信息与桌面列一一对应，涨红跌绿走 RiseFallText 语义变量 -->
+    <div v-else v-loading="loading" class="holding-cards">
+      <div v-if="!rows.length" class="cards-empty">
+        暂无观察资产，添加你关注的标的开始研究
+      </div>
+      <div v-for="row in rows" :key="row.id ?? row.symbol" class="holding-card">
+        <div class="card-head">
+          <ProductDisplay
+            :name="row.name"
+            :symbol="row.symbol"
+            :type-label="getTypeLabel(row.type)"
+          />
+          <div class="card-actions">
+            <el-button
+              link
+              size="small"
+              type="primary"
+              @click="emit('favorite', row as ExploreRow)"
+              >收藏</el-button
+            >
+            <el-button
+              link
+              size="small"
+              style="color: var(--text-tertiary)"
+              @click="handleRemoveConfirm(row.id)"
+              >删除</el-button
+            >
+          </div>
+        </div>
+
+        <div class="card-metrics">
+          <div class="metric">
+            <span class="metric-label">最新价</span>
+            <MoneyDisplay
+              :value="row.price"
+              :show-sign="false"
+              :precision="pricePrecision(row.type)"
+            />
+          </div>
+          <div class="metric">
+            <span class="metric-label">涨跌幅</span>
+            <RiseFallText :value="row.changePct" />
+          </div>
+          <template v-if="!isPureObservationMode">
+            <div class="metric">
+              <span class="metric-label">当日盈亏</span>
+              <MoneyDisplay :value="row.pnl ?? 0" :show-sign="true" />
+            </div>
+            <div class="metric">
+              <span class="metric-label">持仓收益</span>
+              <MoneyDisplay :value="row.positionPnl ?? 0" :show-sign="true" />
+            </div>
+          </template>
+        </div>
+
+        <div class="card-foot">
+          <el-dropdown
+            @command="
+              (command: string) => emit('jump', row as ExploreRow, command)
+            "
+          >
+            <el-button size="small" type="primary" plain>分析 ▼</el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  v-for="tool in getAvailableTools(row.type)"
+                  :key="tool.key"
+                  :command="tool.key"
+                >
+                  {{ tool.label }}
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -312,5 +417,72 @@ const getAvailableTools = (type: string) => {
       background: var(--text-disabled);
     }
   }
+}
+
+/* ============================================================
+   移动端卡片降级（#821 P2-7，≤768px）：仅移动端渲染，桌面端不出现
+   ============================================================ */
+.holding-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cards-empty {
+  padding: 32px 16px;
+  font-size: 13px;
+  color: var(--text-tertiary);
+  text-align: center;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+}
+
+.holding-card {
+  padding: 14px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  box-shadow: var(--shadow-raised);
+}
+
+.card-head {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  justify-content: space-between;
+
+  .card-actions {
+    display: flex;
+    flex-shrink: 0;
+  }
+}
+
+.card-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px 16px;
+  padding-top: 10px;
+  margin-top: 10px;
+  border-top: 1px solid var(--border-light);
+
+  .metric {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    justify-content: space-between;
+    font-size: 14px;
+  }
+
+  .metric-label {
+    font-size: 12px;
+    color: var(--text-tertiary);
+  }
+}
+
+.card-foot {
+  padding-top: 10px;
+  margin-top: 10px;
+  border-top: 1px solid var(--border-light);
 }
 </style>

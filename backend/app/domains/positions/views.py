@@ -20,10 +20,9 @@ from app.domains.positions.models import Position
 from app.domains.positions.schemas import PositionCreate, PositionOut, PositionUpdate
 from app.domains.transactions.models import Transaction
 from app.services.position_service import PositionService
-from app.services.position_valuation import market_value_cents
+from app.services.position_valuation import allocate_value, market_value_cents
 from app.services.price_range_service import resolve_security_price_range
-from app.services.trade_rules import TradeService
-from app.services.value_allocation_service import allocate_value
+from app.services.trading import TradeService
 
 bp = APIBlueprint('positions', __name__, url_prefix='/api/positions/')
 

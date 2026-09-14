@@ -17,6 +17,7 @@
 - [文档站与落地页](#文档站与落地页)
 - [核心约束](#核心约束)
 - [数据域架构（双引擎硬规则）](#数据域架构双引擎硬规则)
+- [数据策略（按需存、禁止全量堆砌）](#数据策略按需存禁止全量堆砌)
 - [Issue 全局治理（里程碑强制）](#issue-全局治理里程碑强制)
 - [双库架构 Issue 治理（里程碑 #14）](#双库架构-issue-治理里程碑-14)
 - [自动化工具](#自动化工具)
@@ -29,7 +30,9 @@
 
 - **主分支**：`main`（稳定，受保护，禁止直接 push）
 - **集成分支**：`dev`（只接受功能分支的 PR 合并，禁止直接 push）
-- **CI 守卫**：`guard-direct-push` 拦截直接推 `main`（私有仓库无 branch protection）
+- **合并门禁（红灯不许合并）**：`ci.yml` 的 `质量门禁汇总`（job id `gate`）是 dev / main 的 **required status check**——任何上游 job（后端 / 前端 / 乱码 / changes）失败，gate 即失败，PR 不可合并。2026-09-11 实开，依据见 `docs/spec/decisions.md` D22。
+  - **该门禁的效力随仓库可见性变化**：required check 由 GitHub branch protection 承载，**仅在仓库为 public、或账户为付费计划时生效**。若切回 private 且无付费计划，GitHub 会停用 protection，门禁随之降级为「红灯在 PR 上可见，但不阻止合并」——此时必须人工确认红灯原因再合并，否则升级计划。因此**不要把「有保护」写死为长期前提**。
+  - 兜底守卫 `guard-direct-push`：拦截**直接 push `main`**（与仓库可见性无关）；`guard-direct-push` 已对准 `main`（旧版本误指已删除的 `M` 分支，等于空转）。
 - **所有进入 `main` 的改动必须通过 PR**（功能分支 → `dev` → `main`）
 
 ---
@@ -137,7 +140,10 @@
   - `services/sync/`：双适配器（xalpha/akshare）+ 编排器。
   - `services/thermometer/`：温度计（含全 A 中位 PB 历史基线）。
   - `services/bias/`、`importer/`、`performance/`（XIRR）。
+  - `services/daily_scheduler.py`：本机常驻每日调度（进程内 APScheduler；自选/持仓净值 + 温度计，#1467）。
 - **同步入口**：两套 CLI（`pdm run invoke grab.*` 和 `pdm run sync --job`），共用 `DataSyncOrchestrator`。
+  **本机常驻**另有两条路：`.env` 置 `SCHEDULER_ENABLED=1` 随应用启动，或 `pdm run scheduler-daemon`
+  独立守护（同机靠单实例锁只跑一份）；详见 `docs/dev/scheduler-tasks.md`。
 
 ### 日志（2026-08-09 统一）
 
@@ -160,6 +166,7 @@
 | 运行 API | `pdm run flask --app app.main:app run --debug --host 0.0.0.0 --port 8000` |
 | 测试 | `pdm run pytest -p no:xdist`（或 `pdm run invoke test`） |
 | 同步任务 | `pdm run invoke grab.temperature` / `grab.all` / `grab.job <name>`<br>或 `pdm run sync --job temperature` |
+| 本机每日调度 | `pdm run invoke sched.status`（状态，只读）<br>`pdm run scheduler-daemon`（常驻守护，Ctrl+C 退出） |
 | Lint & Format | `pdm run ruff check .` / `pdm run ruff format .` |
 | 诊断东财抓取 | `pdm run python scripts/diag_em.py` |
 
@@ -185,6 +192,14 @@
 | 构建 | `pnpm build` |
 | 提交 | husky + commitlint 强制 conventional commits（type 枚举见 `commitlint.config.js`） |
 
+> ⚠️ **升级/安装依赖后必须重启 dev server**（Issue #972）。
+> `pnpm up` / `pnpm install` 只改磁盘上的 `node_modules`，**已在运行的 vite 仍持有旧模块与旧
+> 依赖预构建产物**，HMR 会把新旧版本混在一起，症状是「CSS/组件样式莫名错乱」「改了不生效」——
+> 极易被误判成业务代码 bug（历史上误判过暗黑模式，见 #976）。
+> `dev` 已内置 `frontend/build/dep-drift-guard.ts`：检测到 `pnpm-lock.yaml` / `package.json`
+> 变化会自动 `server.restart(true)`；若日志提示不支持自动重启，则 **Ctrl+C 后重新 `pnpm dev`**。
+> 需要临时关闭：`DISABLE_DEP_DRIFT_GUARD=1 pnpm dev`。
+
 ### 前端约束
 
 - **禁止 `any` / `Record<string, any>`** 作为 API 入参/响应类型。
@@ -196,6 +211,21 @@
 ## 依赖复用与 Worktree 规范
 
 > 多 worktree 并行开发时，每个 worktree 重复 `pnpm install` / `pdm install` 既耗时又占盘。本节规定复用策略，所有 AI / 开发者开新 worktree 后**必须**按此执行。
+
+### 主仓库只跑 dev server，不在其中切分支（强制，2026-09-11）
+
+- **主仓库 `D:\codes\fundmate` 常驻 `dev`，只用于运行 dev server。一切代码改动都在独立 worktree 里做**
+  （`git worktree add ../<repo>-<issue#> -b <type>/<issue#>-<slug> origin/dev`），改完走 PR 合入 `dev`；
+  主工作区**始终不切分支、不 stash、不被 pull 覆盖**。CLI 的 cwd 可以是主仓库（读操作、`gh`、`git log`
+  之类都无所谓），但只要要**改文件**，就换到 worktree。
+- **禁止在主仓库执行会改写工作区的命令**：`git checkout <分支>` / `git switch` / `git stash pop|apply` /
+  `git reset --hard` / 有本地改动时的 `git pull` 等。确需切换分支时**先停掉 dev server**。
+- **为什么**（#1421 事故复盘，2026-09-11 实测）：主仓库跑着 Vite 时切分支，git 是**逐个文件**改写工作区的——
+  它先 unlink 了 `frontend/build/dep-drift-guard.ts`，而仍然 import 它的 `frontend/build/plugins.ts`
+  尚未被改写；Vite 监听着「配置依赖」的变化，立刻重载配置 bundle，重新读到的仍是新版 `plugins.ts`，于是报
+  `Could not resolve "./dep-drift-guard"` → `server restart failed`。dev server 与磁盘状态随即错位，
+  而报错指向一个「明明存在」的文件，极易被误判成代码缺陷。**这是工作流问题，不是代码缺陷。**
+- 同理：跑着 dev server 的工作区不要被 `git worktree remove`、外部脚本或编辑器插件批量改写文件。
 
 ### 原理（为什么不能"直接复用主仓库依赖"）
 
@@ -240,6 +270,19 @@
 
    **自检铁律**：装完必须打印 `app` 模块路径确认指向**当前 worktree**，否则测试跑的是别人的代码，
    而失败信息会指向错误的方向。
+
+   **风险提示：pdm 2.26 走 uv 后端时有副作用（2026-09-11 实测）**。`pdm install` 会用临时文件
+   `backend/pyproject.toml.<随机后缀>` 重写 `pyproject.toml` 再 rename 覆盖，并额外生成 `uv.lock`。
+   两个后果：
+
+   - **不要在 install 执行期间删除或移动那个临时文件**：rename 会因源文件缺失报 `FileNotFoundError`，
+     结果是 `pyproject.toml` 直接从工作区**消失**。连带伤害很隐蔽——`ruff` 读不到
+     `[tool.ruff.format] quote-style = "single"` 就退回默认双引号，一次 `ruff format` 能把整文件
+     单引号改成双引号，diff 从数行膨胀到数百行（先查行尾会白费功夫）。
+     丢失后用 `git checkout -- backend/pyproject.toml` 恢复，重跑 format 即收敛。
+   - **若该次 install 报错**（如 `pywin32` 拒绝访问），产出的 `.venv` 是**不完整**的（典型症状
+     `No module named 'pluggy'`），不要在此基础上跑测试。应急可借主 worktree 的 `.venv`，
+     但须把 cwd 设为本 worktree 的 `backend/`，并先打印 `app.__file__` 确认指向正确。
 
 3. **锁文件不一致**（某分支升级了依赖）→ 禁止 junction，走正规安装：
 
@@ -296,6 +339,14 @@
 - **探市（`/explore`、`/api/temperature/*`）与 `health` 免登录**，其余功能需登录（后端白名单 + 前端 `requiresAuth` 双轨一致）。
 - 抓取合规：仅允许公开市场数据（基金净值 / 市场情绪），**严禁**用户券商持仓的自动登录 / 爬取 / 同步。
 
+### 授权与可见性
+
+- **本仓库当前公开可见（public），但不是开源软件**：自有代码适用根 `LICENSE` = **PolyForm Noncommercial 1.0.0**（SPDX：`PolyForm-Noncommercial-1.0.0`），**禁止任何商业使用**；商业使用须另行取得书面授权。
+- **禁止把仓库描述为「开源」**：代码注释、文档、提交信息、PR / issue 描述、包元数据里一律不得出现「开源」「open source」「免费商用」等表述；需要指代时用「公开可见 / source-available（非商业许可）」。
+- **不得把 public / private 状态写死为规则前提**：可见状态可随时变更（含切回 private），而**授权不随可见性变化**——公开只代表可见、不构成使用许可，切回私有也不会放宽授权。凡结论依赖于当前可见性的，须写成**带条件的判断**，不得写成永久事实。
+- **第三方署名不可删**：`frontend/LICENSE` 是上游模板 [pure-admin](https://github.com/pure-admin) 的 MIT 声明，必须保留；本项目自有代码不因该文件而适用 MIT。
+- 对外授权口径以 `README.md`「授权与使用限制」与根 `LICENSE` 为准。
+
 ### 注释与文档
 
 - 代码在必要处加注释讲“为什么”。
@@ -326,7 +377,7 @@
 
 ### 语义定义
 
-- **市场域（`market`）**：公开、读多写少、随时间无限膨胀的数据（净值、行情、温度、指数、基金基础资料、基金管理人、系统同步审计）。开发期用本地 `invest.dev.db`，生产用 Turso。
+- **市场域（`market`）**：公开、读多写少、随时间无限膨胀的数据（净值、行情、温度、指数、基金基础资料、基金管理人、系统同步审计）。开发期用本地 `invest.db`，生产用 Turso。
 - **用户域（`user`）**：含 `family_id`/`user_id` 的用户私有数据（账户、持仓、交易、组合、自选关系、家庭、用户、销售机构、用户操作审计）。开发期默认与 market 同库（显式设 `DEV_USER_DATABASE_URL` 才独立），生产用 Supabase。
 
 ### 强制规则
@@ -343,6 +394,43 @@
 6. **会话入口只有 `market_session()` 和 `user_session()`**，禁止混用。
 7. **单库/双库统一可用（默认单库）**：未显式配置独立 user 库（`DEV_USER_DATABASE_URL` / `SUPABASE_DATABASE_URL`）时，user 域与 market 域同库；显式配置才拆，业务代码零改动。
 8. **Neon 灾备仅替换连接串**，业务代码不变；但 auth 需单独处理（延后）。
+
+---
+
+## 数据策略（按需存、禁止全量堆砌）
+
+> 权威细则：`docs/spec/data-strategy.md`；决策依据：`docs/spec/decisions.md` D21（2026-09-10）；上位规范：`conventions.md` §16.2。
+> 本节是**流程闸门**：新增数据实体不通过准入检查，PR 不得合入。
+
+### 第一原则
+
+**数据策略由产品场景驱动，不由工程完整性驱动。** 记账软件的核心价值是「算得准」（L1 用户数据 + L2 派生计算）；参考展示类（L3，如基金公司 / 经理 / 全称 / 指数估值）与关联关系类（L4，如 ETF↔联接、A/C 份额）数据**按需取 + 缓存 + 可降级 `—`**，缺了不影响产品可用性。**「工程上重要」不等于「产品上重要」。**
+
+> 教训来源：项目早已有 `conventions.md` §16.2「禁止过度工程」，但该节只约束**代码**，从未约束**数据**——「按需开发」被读成「不写多余代码」而非「不存多余数据」，导致本地库 1.22 GB，`funds` 26,938 行中用户实际触达仅 117 只（0.43%）。
+
+### 数据准入四问（强制，写进 PR 描述）
+
+新增 **表 / 列 / job / 抓取目标池** 时，必须逐条回答：
+
+1. **谁在用？**（具体到功能 / 接口 / 界面元素，不接受「以后可能用到」）
+2. **什么场景用？**（用户在什么操作路径下看到它）
+3. **缺了会怎样？**（降级影响是否可接受——可接受即不必存）
+4. **成本多大？**（新增存储量 / 外部请求数 / 限流风险）
+
+**前三问答不出具体答案 → 判定为伪需求，禁止开发。** 回答与结论须留痕在 PR 描述或对应 issue 评论中，不得只在口头讨论。
+
+### 硬约束
+
+1. **新列必须当场指定读者**——API 序列化字段 / 计算输入 / 界面展示三者之一；禁止「先存着，以后可能有用」。新列的预期填充率与写者须在 PR 中说明。
+2. **新表必须有读路径**——只写不读的表禁止建立（反面先例：已删除的 `fund_management_companies`）。
+3. **抓取目标池必须显式**——只能来自用户触达范围（`positions ∪ watchlist`，经 `orchestrator.resolve_targets()`）或代码内明确配置的核心池常量。**禁止 `targets if targets else 全库` 这类静默退化**（反例 `fund_manager_job.py:37`）；空 targets 的正确语义是「跳过」。
+4. **`__full__` 使用有前提**——仅当该 job 单次调用**不产生逐条外部请求**时可用全量；逐只抓取类 job 一律按目标池限量，且须设批量上限与节流。
+5. **job 名称 / docstring 必须与行为一致**——禁止「名为全量、实为只增不改」这类契约谎报。
+6. **请求路径禁止全表扫描**——接口 / 页面渲染路径中禁止无条件 `db.query(Model).all()`；跨域读走 `services/cross_domain.py` 两步法。
+7. **同一实体只能有一张可写表，每个字段只有一个 job 有写权**（沿用既有防漂移原则）。
+8. **孤儿表 / 死列不得私自删除**（`conventions.md` §16.3）——发现后登记 `docs/spec/tech-debt.md` 并报用户拍板；库内游离于 `DATA_DOMAIN_REGISTRY` 之外的表须登记或清理，不得长期沉默。
+9. **验收口径纪律**——issue 验收标准不得未经第 1~3 问验证就写「全库覆盖率 ≥X%」；参考展示类数据优先采用「用户触达口径」。
+10. **新增表仍须先登记 `core/db_factory.DATA_DOMAIN_REGISTRY`**（见「数据域架构」硬规则 §1）——数据策略准入与数据域登记并行，不可互相替代。
 
 ---
 
@@ -490,9 +578,11 @@
 
 ### Issue 优先级与 Project 看板
 
-- 内置字段 **`象限`**（Q1:RED 重要紧急 / Q2:YELLOW 重要不紧急 / Q3:GREEN 紧急不重要 / Q4:GRAY 不重要不紧急）。
-- 创建/处理 issue 时务必用 `象限` 标优先级，**禁止另建 priority 字段**。
+- 内置字段 **`象阵`**（Q1:RED 重要紧急 / Q2:YELLOW 重要不紧急 / Q3:GREEN 紧急不重要 / Q4:GRAY 不重要不紧急）。
+- 创建/处理 issue 时务必用 `象阵` 标优先级，**禁止另建 priority 字段**。
+- **注意：该字段在 GitHub 上的实际名称是 `象阵`（U+8C61 U+9635），不是 `象限`** —— 2026-09-11 经 GraphQL 实测确认（`fields` 返回 `name: "象阵"`，id 与本文件所载 field id 一致）；此前本文件写作「象限」，会误导按名查字段的操作。
 - 看板操作：`gh project item-add 3 --owner imoyao --url <issue-url>`，然后 GraphQL 更新 `singleSelectOptionId`（Q1=`84f4167a` / Q2=`2aead21d` / Q3=`3ea6e338` / Q4=`d3517118`，field id=`PVTSSF_lAHOAV6ff84AAot3zhaGpdo`）。
+  - 实测补充（2026-09-11）：`gh project item-add` 在本机 token 下**可能静默不生效**（exit 0 但条目未入板）。可靠做法是直接调 GraphQL `addProjectV2ItemById(input: {projectId, contentId: <issue node_id>})`，再用 `updateProjectV2ItemFieldValue` 设置 `象阵` 与 `Status`。
 - **治理纪律**：路线图/未来设想类 issue 打 `归档` 标签并关闭（不删除），引用到索引 #920。
 
 ### AI 自动提交标注
@@ -508,7 +598,7 @@
 
 - 所有含中文的文本文件（`.md`、`.py`、`.vue` 等）必须保存为合法 UTF-8，内容可读中文。
 - 写入时确保整个链路 UTF-8 端到端，禁止 GBK/Latin-1 解码后再存为 UTF-8（二次编码导致 mojibake）。
-- **提交信息同样受约束**：`pre-commit` 的 `guard-mojibake-commit-msg` 钩子会在 `commit-msg` 阶段拦截乱码提交信息；CI 的 `mojibake-guard` job 作为兜底，扫描 PR 变更文件，防止经 `--no-verify` 或 `gh api` / MCP 直推绕过本地钩子。
+- **提交信息同样受约束**：`pre-commit` 的 `guard-mojibake-commit-msg` 钩子会在 `commit-msg` 阶段拦截乱码提交信息；CI 的 `mojibake_guard` job 作为兜底，扫描 PR 变更文件，防止经 `--no-verify` 或 `gh api` / MCP 直推绕过本地钩子。
 - **禁止 `git commit -m "中文..."` 内联写法**（PowerShell 等控制台会把中文按 GBK 传给 git 造成永久乱码历史）。一律用 `git commit -F <utf8文件>` 或 `scripts/commit_changes.py --message-file <...>`。
 - 本地 `guard_mojibake.py`（文件）与 `guard-mojibake-commit-msg`（提交信息）会拦截疑似乱码，禁止 `--no-verify` 绕过。
 

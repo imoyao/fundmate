@@ -66,9 +66,11 @@ function persistPageSize(): void {
 export interface WatchlistToolbarState {
   searchKeyword: ReturnType<typeof ref<string>>;
   currentView: ReturnType<typeof ref<string>>;
+  /** 资产类型多选筛选（「类型」弹层；空数组 = 不过滤） */
+  selectedAssetTypes: ReturnType<typeof ref<string[]>>;
   batchMode: ReturnType<typeof ref<boolean>>;
   selectedItems: ReturnType<typeof ref<WatchlistItem[]>>;
-  batchMoveGroupId: ReturnType<typeof ref<number | null>>;
+  batchMoveGroupId: ReturnType<typeof ref<number | undefined>>;
 }
 
 export function useWatchlistData(
@@ -81,6 +83,7 @@ export function useWatchlistData(
   const {
     searchKeyword,
     currentView,
+    selectedAssetTypes,
     batchMode,
     selectedItems,
     batchMoveGroupId
@@ -122,9 +125,14 @@ export function useWatchlistData(
         }
       }
     }
-    // venue 过滤由顶部 el-segmented（currentView）唯一承担（方案 B 收敛三套入口）
+    // venue（场内/场外）过滤：2026-09-12 主界面已移除场所切换按钮，currentView 恒为 'all'，
+    // 此分支实际不再命中（全部显示）。保留逻辑以兼容后续如需在「筛选」弹层内加回 venue 维度。
     if (currentView.value === "exchange") params.venue = "EXCHANGE";
     else if (currentView.value === "otc") params.venue = "OTC";
+    // 资产类型多选（「类型」弹层）：逗号分隔小写枚举，后端 lower 后 in_ 匹配
+    if (selectedAssetTypes.value.length > 0) {
+      params.asset_types = selectedAssetTypes.value.join(",");
+    }
     if (searchKeyword.value) params.q = searchKeyword.value;
     // 用户列内排序（#991）：仅白名单字段由后端校验，跨页排序一致
     if (sortBy.value) {
@@ -159,6 +167,12 @@ export function useWatchlistData(
    * 拉取「全量过滤结果」（忽略分页），供实时估值汇总条使用（#1245）。
    * 后端 per_page 上限 200，故按页累加直到取尽（安全阀防止异常死循环），
    * 确保汇总口径与整组一致、翻页时不再跳变。
+   *
+   * `fields=lite`：汇总只消费 current_price / holding_* / position_market_value，
+   * 不需要基金回撤、可转债条款、指数估值、跨渠道关联这些展示专用字段。
+   * 后端据此跳过这些按 symbol 查库（含扫 3 年 daily_worth 的基金回撤）的 enrich——
+   * 实测这是自选列表接口最大的单点耗时，不传该参数会让「全量拉取」为 164 行
+   * 各算一遍回撤，叠加本函数与首页分页请求的两次全量构建，足以把首屏拖过 10s 超时。
    */
   async function fetchAllItems() {
     const base: Record<string, string | number | boolean> = {
@@ -168,7 +182,12 @@ export function useWatchlistData(
     const all: WatchlistItem[] = [];
     const perPage = 200;
     for (let page = 1; page <= 50; page++) {
-      const res = await getWatchlistItems({ ...base, page, per_page: perPage });
+      const res = await getWatchlistItems({
+        ...base,
+        page,
+        per_page: perPage,
+        fields: "lite"
+      });
       const rows = (res.data ?? []) as WatchlistItem[];
       all.push(...rows);
       if (rows.length < perPage) break;
@@ -333,6 +352,21 @@ export function useWatchlistData(
   }
 
   // ─────────────────────────────────────────────
+  // 备注编辑（#1285）：与标签编辑共用「打开弹窗由页面负责」的模式
+  const editingNotesItem = ref<WatchlistItem | null>(null);
+  const showNotesEditor = ref(false);
+  function openNotesEditor(row: WatchlistItem) {
+    if (row.id == null) {
+      ElMessage.warning(
+        "该自选记录缺少主键，暂无法编辑备注，请刷新或重新添加自选"
+      );
+      return;
+    }
+    editingNotesItem.value = row;
+    showNotesEditor.value = true;
+  }
+
+  // ─────────────────────────────────────────────
   // 批量操作
   // ─────────────────────────────────────────────
 
@@ -366,7 +400,7 @@ export function useWatchlistData(
     }
   }
 
-  const handleBatchMoveToGroup = async (groupId: number | null) => {
+  const handleBatchMoveToGroup = async (groupId: number | null | undefined) => {
     if (!groupId || selectedItems.value.length === 0) return;
     try {
       // 虚拟持仓行（id=null）无自选记录，不可移动，过滤后仅对真实自选行发起请求
@@ -379,7 +413,7 @@ export function useWatchlistData(
       ElMessage.success(
         `已将 ${selectedItems.value.length} 个资产移动到所选分组`
       );
-      batchMoveGroupId.value = null;
+      batchMoveGroupId.value = undefined;
       batchMode.value = false;
       selectedItems.value = [];
       fetchData();
@@ -401,11 +435,12 @@ export function useWatchlistData(
     }
   }
 
-  /** 重置全部筛选（搜索/分组/视图/标签），回弹到「持仓」默认态 */
+  /** 重置全部筛选（搜索/分组/视图/标签/类型），回弹到「持仓」默认态 */
   function resetFilters() {
     searchKeyword.value = "";
     groups.resetActiveGroup();
     currentView.value = "all";
+    selectedAssetTypes.value = [];
     tags.resetTagFilter();
   }
 
@@ -438,6 +473,10 @@ export function useWatchlistData(
     editingItem,
     showTagEditor,
     openTagEditor,
+    // 备注编辑
+    editingNotesItem,
+    showNotesEditor,
+    openNotesEditor,
     // 批量
     handleSelectionChange,
     handleBatchDelete,

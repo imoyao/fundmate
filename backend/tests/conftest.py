@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 import app.domains.assets.models  # noqa: F401
 import app.domains.families.models  # noqa: F401
 import app.domains.funds.models  # noqa: F401
+import app.domains.indices.models  # noqa: F401
 import app.domains.positions.models  # noqa: F401
 import app.domains.price_history.models  # noqa: F401
 import app.domains.securities.models  # noqa: F401
@@ -48,11 +49,12 @@ def app(monkeypatch):
     monkeypatch.setattr(_db_factory, 'market_session_factory', lambda: TestMarketSessionLocal)
 
     # 彻底禁用异步回填线程（直接替换已导入的引用）
-    import app.services.importer.orchestrator
+    # #1370：orchestrator 拆分后 trigger_backfill 的调用点在 orchestrator_commit
+    import app.services.importer.orchestrator_commit
     import app.services.position_service
 
     monkeypatch.setattr(app.services.position_service, 'trigger_backfill', lambda *a, **kw: None)
-    monkeypatch.setattr(app.services.importer.orchestrator, 'trigger_backfill', lambda *a, **kw: None)
+    monkeypatch.setattr(app.services.importer.orchestrator_commit, 'trigger_backfill', lambda *a, **kw: None)
 
     Base.metadata.create_all(bind=test_engine)
     Base.metadata.create_all(bind=market_engine)
@@ -96,6 +98,28 @@ def _patch_thermo_session(app, monkeypatch):
     import app.services.ai_recognizer.guards as ai_guards
 
     monkeypatch.setattr(ai_guards, 'SessionLocal', PatchedSessionLocal)
+
+
+@pytest.fixture(autouse=True)
+def _disable_async_backfill(monkeypatch):
+    """禁用创建自选/持仓时触发的异步回填后台线程（2026-09-09）。
+
+    trigger_backfill 起 daemon 线程跑 akshare/xalpha 适配器：既在测试里发真实
+    网络请求（偶发超时/flaky），又因 async_backfill 顶层 from-import 早绑定了
+    真实 SessionLocal 而绕过内存库、直接写开发库。与 _patch_thermo_session
+    同类的早绑定隐患，但正确做法不是对齐会话（不该跑），而是整体禁用。
+    注意消费方均为 from-import 绑定，须逐个 patch 其模块属性。"""
+    _noop = lambda *a, **k: None  # noqa: E731
+
+    import importlib
+
+    monkeypatch.setattr('app.services.async_backfill.trigger_backfill', _noop)
+    for mod_name in (
+        'app.services.watchlist_service',
+        'app.services.position_service',
+        'app.services.importer.orchestrator',
+    ):
+        monkeypatch.setattr(importlib.import_module(mod_name), 'trigger_backfill', _noop, raising=False)
 
 
 @pytest.fixture(autouse=True)

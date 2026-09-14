@@ -29,6 +29,10 @@ import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import MoneyWithRatio from "@/components/MoneyWithRatio/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
+import {
+  getAdvisorPlatformLabel,
+  isCompositeAssetType
+} from "@/constants/advisorPlatform";
 import { formatDate } from "@/utils/date";
 import { pricePrecision } from "@/utils/pricePrecision";
 import type { ColumnDef, ColumnRenderer, WatchlistRow } from "./columnDefs";
@@ -70,6 +74,13 @@ export interface RenderCtx {
   openTagEditor: (row: WatchlistRow) => void;
   /** 是否批量管理模式（true 时 actions 列显示 "-" 占位） */
   batchMode: boolean;
+  /**
+   * 是否处于「品类视图」（类型筛选命中单一品类，见 #1285）。
+   * 用途：让产品列的分层信息行与**品类专属列**去重——例如基金经理的「所属公司」
+   * 在经理品类视图已有独立列（`manager_company`），产品列就不该再重复显示一遍；
+   * 混合视图没有该列，分层行仍需承担公司信息（否则经理行的公司无处可见）。
+   */
+  categoryView: boolean;
   /** 当前 hover 行的 key（row.id ?? row.symbol，由 index.vue @cell-mouse-enter/leave 维护）。
    *  操作列/产品列是 fixed 列，EP 固定列独立 DOM，CSS :hover 无法跨表同步，
    *  因此行 hover 淡入必须由 JS 行 hover 状态驱动（见 design.md 行内操作交互规范）。 */
@@ -81,6 +92,9 @@ export interface RenderCtx {
     togglePin: (row: WatchlistRow) => void;
     toggleFavorite: (row: WatchlistRow) => void;
     remove: (row: WatchlistRow) => void;
+    openNotesEditor: (row: WatchlistRow) => void;
+    /** 打开「加入分组」弹层（多分组管理，#1449）：勾选多个自定义分组 */
+    addToGroup: (row: WatchlistRow) => void;
   };
   /** 近 N 日收盘价序列（sparkline 列，#990）：symbol → close 数组；无数据的 symbol 键缺省 */
   trends: Record<string, number[]>;
@@ -89,6 +103,49 @@ export interface RenderCtx {
 /** 安全地从 row 取任意字段（WatchlistItem 无索引签名，需经 unknown 中转） */
 function field(row: WatchlistRow, key: string): unknown {
   return (row as unknown as Record<string, unknown>)[key];
+}
+
+/** 取行的 asset_type（后端已归一为小写；历史行可能大写，统一 lower 兜底） */
+function assetTypeOf(row: WatchlistRow): string {
+  return (
+    (field(row, "asset_type") as string | null | undefined) || ""
+  ).toLowerCase();
+}
+
+/** 行是否为投顾组合/基金经理等组合类标的。
+    判定与平台中文映射统一收口在 `@/constants/advisorPlatform`
+    （「添加自选」弹窗同样消费，避免两份实现漂移）。 */
+function isCompositeAsset(row: WatchlistRow): boolean {
+  return isCompositeAssetType(assetTypeOf(row));
+}
+
+/**
+ * 组装产品列第二行元信息，非组合类行返回空串不渲染：
+ * - 基金经理：所属基金公司（后端 manager_company，如「易方达基金管理有限公司」）；
+ *   **品类视图下返回空串**——该视图已有独立列 `manager_company`，此处重复渲染只会让
+ *   同一信息出现两次（2026-09-11 用户反馈「公司跟名称挤在一格」后的去重处理）。
+ * - 投顾组合：平台 · 主理人 · 策略类型
+ * 经理行没有交易代码、组合行的平台码对用户无意义，识别信息全由本行承担。
+ */
+function compositeSubMeta(row: WatchlistRow, categoryView: boolean): string {
+  if (assetTypeOf(row) === "manager") {
+    if (categoryView) return "";
+    return (field(row, "manager_company") as string | null | undefined) || "";
+  }
+  const platform = advisorPlatform(row);
+  if (!platform) return "";
+  return [
+    getAdvisorPlatformLabel(platform),
+    field(row, "advisor_host") as string | null | undefined,
+    field(row, "advisor_strategy_type") as string | null | undefined
+  ]
+    .filter((v): v is string => Boolean(v))
+    .join(" · ");
+}
+
+/** 投顾组合平台枚举（后端 AdvisorPortfolio 回查命中时下发 platform） */
+function advisorPlatform(row: WatchlistRow): string {
+  return (field(row, "advisor_platform") as string | null | undefined) || "";
 }
 
 /** 解析某列应显示的「基础静态值」与「实时覆盖值」 */
@@ -351,6 +408,14 @@ const renderProduct: FunctionalComponent<{
     ctx.openTagEditor(row);
   };
 
+  /** 当前行的备注文本（空串＝未填写）——用于行内入口的「有无内容」状态 */
+  const noteText = (field(row, "notes") as string) || "";
+  /** 打开备注编辑弹窗（#1285）：与备注列共用同一 renderer action，不依赖备注列是否可见 */
+  const openNotesEntry = (e: Event) => {
+    e.stopPropagation();
+    ctx.actions.openNotesEditor(row);
+  };
+
   return h(
     "div",
     {
@@ -368,7 +433,16 @@ const renderProduct: FunctionalComponent<{
           compact: true,
           name: (field(row, "display_name") as string) || row.symbol,
           symbol: row.symbol,
-          typeLabel: (field(row, "type_label") as string) || ""
+          typeLabel: (field(row, "type_label") as string) || "",
+          // 组合类标的的分层信息（经理→所属公司；投顾→平台 · 主理人 · 策略）独立成行，
+          // 避免与代码/类型/标签挤一行（用户 2026-09-09 拍板）。
+          // 品类视图下与品类专属列去重（经理的「所属公司」有独立列时此处不再渲染）
+          subMeta: compositeSubMeta(row, ctx.categoryView),
+          // 组合类标的（投顾组合 ZHxxxx/CSIxxxx、基金经理 MGR_<mgr_code>）的编码对用户
+          // 无意义：整段不渲染，识别信息由分层行承担；股票/ETF/指数等保留 `# 代码`。
+          // 判定用 asset_type 而非 advisor_platform——经理行没有 AdvisorPortfolio 记录，
+          // 只认 platform 会漏掉经理（2026-09-10 用户反馈）。
+          showCode: !isCompositeAsset(row)
         },
         {
           meta: () => [
@@ -444,6 +518,26 @@ const renderProduct: FunctionalComponent<{
                       }
                     },
                     "＋ 标签"
+                  ),
+                  // 「备注」入口（#1285）：**不依赖备注列是否可见**——把编辑入口内联到产品列第二行，
+                  // 与「＋ 标签」同一交互语言（hover 浮现、整行有内容时提示）；已填写时以品牌色
+                  // 「备注」提示「此处有内容」。避免用户必须先在列设置里开启备注列才能编辑。
+                  h(
+                    "span",
+                    {
+                      class: ["add-note-btn", { "has-note": !!noteText }],
+                      role: "button",
+                      tabIndex: 0,
+                      title: noteText ? "编辑备注" : "添加备注",
+                      onClick: openNotesEntry,
+                      onKeydown: (e: KeyboardEvent) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          openNotesEntry(e);
+                        }
+                      }
+                    },
+                    noteText ? "备注" : "＋ 备注"
                   )
                 ]
               : [])
@@ -544,9 +638,375 @@ const renderActions: FunctionalComponent<{
           e.stopPropagation();
           a.remove(row);
         }
+      ),
+      tooltipBtn(
+        "加入分组",
+        "ep:folder-add",
+        undefined,
+        !editable,
+        (e: Event) => {
+          e.stopPropagation();
+          a.addToGroup(row);
+        }
       )
     ]
   );
+};
+
+/**
+ * 投资笔记（#1285）：展示备注文本（或「＋ 备注」占位），点击打开编辑弹窗。
+ * 与 add-tag 同语言：未填写时弱化入口，已填写时整格可点编辑；
+ * 文本超长由 el-table 列的省略（title 看全文）或 CSS ellipsis 处理。
+ */
+const renderNotes: FunctionalComponent<{
+  row: WatchlistRow;
+  def: ColumnDef;
+  ctx: RenderCtx;
+}> = props => {
+  const note = (field(props.row, "notes") as string) || "";
+  const open = (e: Event) => {
+    e.stopPropagation();
+    props.ctx.actions.openNotesEditor(props.row);
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      open(e);
+    }
+  };
+  if (!note) {
+    return h(
+      "span",
+      {
+        class: "add-note-btn",
+        role: "button",
+        tabIndex: 0,
+        title: "添加备注",
+        onClick: open,
+        onKeydown: onKey
+      },
+      "＋ 备注"
+    );
+  }
+  return h(
+    "span",
+    {
+      class: "note-cell",
+      role: "button",
+      tabIndex: 0,
+      title: note,
+      onClick: open,
+      onKeydown: onKey
+    },
+    note
+  );
+};
+
+/**
+ * 可转债条款列（#1285 消费侧 / #1393）。
+ *
+ * 一个 renderer 覆盖 4 列（按 def.key 分派）：溢价率 / 强赎状态 / 剩余年限 / 评级。
+ * 数据缺席（表未落库 / 非转债）统一渲染 `—`，不用 0 兜底（0 溢价率是真实值）。
+ * 剩余年限由 `bond_maturity_date` 现算，避免为展示多存一个口径字段。
+ */
+const renderBond: FunctionalComponent<{
+  row: WatchlistRow;
+  def: ColumnDef;
+  ctx: RenderCtx;
+}> = props => {
+  const { row, def } = props;
+  const dash = () => h("span", { class: "bond-empty" }, "—");
+
+  if (def.key === "bond_premium_rate") {
+    const v = field(row, "bond_premium_rate") as number | null | undefined;
+    if (v == null) return dash();
+    return h("span", { class: "bond-num" }, `${v.toFixed(2)}%`);
+  }
+
+  if (def.key === "bond_redeem") {
+    const status = (field(row, "bond_redeem_status") as string) || "";
+    const count = field(row, "bond_redeem_count") as number | null | undefined;
+    const required = field(row, "bond_redeem_required") as
+      number | null | undefined;
+    if (!status && count == null) return dash();
+    const progress =
+      count != null && required != null ? `${count}/${required}` : "";
+    const text = [status, progress].filter(Boolean).join(" ");
+    // 「公告不强赎」属利好/中性，不着警示色；其余含「强赎」的状态高亮
+    const urgent = status.includes("强赎") && !status.includes("不");
+    return h(
+      "span",
+      { class: ["bond-redeem", { "is-urgent": urgent }], title: text },
+      text
+    );
+  }
+
+  if (def.key === "bond_remain_years") {
+    const maturity = (field(row, "bond_maturity_date") as string) || "";
+    if (!maturity) return dash();
+    const ts = Date.parse(maturity);
+    if (Number.isNaN(ts)) return dash();
+    const years = (ts - Date.now()) / 86400000 / 365.25;
+    return h(
+      "span",
+      { class: "bond-num", title: `到期日 ${maturity}` },
+      `${years.toFixed(2)} 年`
+    );
+  }
+
+  if (def.key === "bond_rating") {
+    const rating = (field(row, "bond_rating") as string) || "";
+    return rating ? h("span", { class: "bond-rating" }, rating) : dash();
+  }
+
+  return dash();
+};
+
+/**
+ * 指数估值列（#1285 消费侧「指数」品类 / #1394）：市盈率 / 股息率。
+ *
+ * 口径透明：估值日期挂在 title（「截至 YYYY-MM-DD」）——官方文件只下发近约 20 个
+ * 交易日，展示时点必须让用户看得见，避免误以为是实时值。
+ */
+const renderIndexVal: FunctionalComponent<{
+  row: WatchlistRow;
+  def: ColumnDef;
+  ctx: RenderCtx;
+}> = props => {
+  const { row, def } = props;
+  const asOf = (field(row, "index_valuation_date") as string) || "";
+  const title = asOf ? `截至 ${asOf}` : undefined;
+  const dash = () => h("span", { class: "index-val-empty" }, "—");
+
+  if (def.key === "index_pe") {
+    const v = field(row, "index_pe") as number | null | undefined;
+    if (v == null) return dash();
+    return h("span", { class: "index-val", title }, v.toFixed(2));
+  }
+
+  if (def.key === "index_dividend_yield") {
+    const v = field(row, "index_dividend_yield") as number | null | undefined;
+    if (v == null) return dash();
+    return h("span", { class: "index-val", title }, `${v.toFixed(2)}%`);
+  }
+
+  return dash();
+};
+
+/**
+ * 基金最大回撤列（#1285 消费侧「基金」品类 / 设计 §3.10）。
+ *
+ * §3.10 要求「存口径元数据，不只存数字」：tooltip 必须交代 窗口 / 频率 / 复权口径 /
+ * 截至日，否则同一列在不同基金间不可比。本期口径 = 近 3 年固定窗口 · 日频 · 累计净值。
+ * 数据不足（`basis=insufficient`）时显示 `—` 并在 title 说明原因，避免「看不出为什么空」。
+ * 配色刻意用中性色：回撤是风险指标，套用涨红跌绿会被误读成「今天跌了」。
+ */
+const renderDrawdown: FunctionalComponent<{
+  row: WatchlistRow;
+  def: ColumnDef;
+  ctx: RenderCtx;
+}> = props => {
+  const v = field(props.row, "fund_max_drawdown") as number | null | undefined;
+  const basis = (field(props.row, "fund_max_drawdown_basis") as string) || "";
+  const win = (field(props.row, "fund_max_drawdown_window") as string) || "";
+  const asOf = (field(props.row, "fund_max_drawdown_as_of") as string) || "";
+
+  if (v == null) {
+    const tip =
+      basis === "insufficient"
+        ? "数据不足（近 3 年净值点少于 60 个）"
+        : undefined;
+    return h("span", { class: "dd-empty", title: tip }, "—");
+  }
+
+  const tip = [
+    `口径：${win || "固定窗口"}`,
+    "日频",
+    "累计净值（分红不再投）",
+    asOf ? `截至 ${asOf}` : ""
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return h("span", { class: "dd-val", title: tip }, `${v.toFixed(2)}%`);
+};
+
+/**
+ * 跨渠道关联入口（#1285 设计 §3.8「数量标记 + 浮层」）。
+ *
+ * 数量角标 + hover 浮层列出关联标的全名；数据来自后端 `channel_links`
+ *（index_etf 指数↔场内 ETF、etf_feeder 场内 ETF↔场外联接，两类混排）。
+ * 无关联渲染 `—`——不用「0 个」，与全表「无数据一律 —」的约定保持一致。
+ */
+const renderLinks: FunctionalComponent<{
+  row: WatchlistRow;
+  def: ColumnDef;
+  ctx: RenderCtx;
+}> = props => {
+  const links =
+    (field(props.row, "links") as
+      { code: string; name: string | null }[] | undefined) ?? [];
+  if (!links.length) return h("span", { class: "link-empty" }, "—");
+
+  const content = links
+    .map(l => (l.name ? `${l.name}（${l.code}）` : l.code))
+    .join("、");
+  return h(
+    ElTooltip,
+    // content 走 props（字符串），避免为浮层引入额外渲染分支；showAfter 稍延迟，
+    // 避免鼠标掠过整列时浮层乱闪
+    { content, placement: "top", showAfter: 120, effect: "dark" },
+    { default: () => h("span", { class: "link-badge" }, `${links.length} 个`) }
+  );
+};
+
+/**
+ * 投顾组合品类差异化指标列（#1392）。
+ *
+ * 一个 renderer 覆盖 10 列（按 def.key 分派）：区间收益（近1周/月/年/今年以来/成立以来）、
+ * 最大回撤、超额收益、业绩基准、持仓基金数、持仓集中度（HHI）。
+ * 数据缺席（advisor 未落库 / API 未提供）统一渲染 `—`，不用 0 兜底。
+ * - 收益类（return_ 等区间收益列 / excess_return）：套用 RiseFallText 涨红跌绿；
+ * - 最大回撤：风险指标，刻意中性色（避免被误读成「今天跌了」），title 交代口径；
+ * - 集中度：HHI = Σ(占比%²)，越高越集中，title 解释口径。
+ */
+const RENDERER_ADVISOR_RETURNS = new Set([
+  // #1468 且慢补充区间（与后端 _ADVISOR_METRIC_KEYS 对齐）
+  "return_1d",
+  "return_1w",
+  "return_1m",
+  "return_1q",
+  "return_6m",
+  "return_1y",
+  "return_ytd",
+  "return_since_incep",
+  "excess_return"
+]);
+
+/** 只放行 http(s) 链接：后端落库的是外部站点的 url，防 javascript: 之类的注入 */
+function safeExternalUrl(raw: unknown): string | null {
+  if (typeof raw !== "string" || !raw) return null;
+  try {
+    const u = new URL(raw);
+    return u.protocol === "http:" || u.protocol === "https:" ? raw : null;
+  } catch {
+    return null;
+  }
+}
+const renderAdvisor: FunctionalComponent<{
+  row: WatchlistRow;
+  def: ColumnDef;
+  ctx: RenderCtx;
+}> = props => {
+  const { row, def } = props;
+  const v = field(row, def.key);
+  const dash = () =>
+    h(
+      "span",
+      { class: "text-sm", style: { color: "var(--text-tertiary)" } },
+      "—"
+    );
+  if (v == null || v === "") return dash();
+
+  if (def.key === "max_drawdown") {
+    return h(
+      "span",
+      {
+        class: "dd-val",
+        title: "最大回撤(%)：API 未直接提供时为空（待补算）"
+      },
+      `${Number(v).toFixed(2)}%`
+    );
+  }
+  if (def.key === "advisor_concentration") {
+    return h(
+      "span",
+      {
+        class: "text-sm",
+        title: "持仓集中度 HHI = Σ(占比%²)，越高越集中"
+      },
+      `${Number(v).toFixed(1)}`
+    );
+  }
+  if (def.key === "advisor_holding_count") {
+    return h("span", { class: "text-sm" }, `${v}`);
+  }
+  if (def.key === "advisor_benchmark") {
+    return h("span", { class: "text-sm", title: "业绩比较基准" }, String(v));
+  }
+  // ── #1468 且慢组合补充列 ──
+  if (def.key === "volatility") {
+    return h(
+      "span",
+      {
+        class: "text-sm",
+        title: "年化波动率(%)：衡量组合净值波动幅度，越低越平稳"
+      },
+      `${Number(v).toFixed(2)}%`
+    );
+  }
+  if (def.key === "sharpe_ratio") {
+    return h(
+      "span",
+      {
+        class: "text-sm",
+        title: "夏普比率：每承担一单位波动换取的超额收益，越高越好"
+      },
+      Number(v).toFixed(2)
+    );
+  }
+  if (def.key === "advisor_nav") {
+    // 净值日期并入 title，不单独开列（口径透明：让用户知道这是哪天的净值）
+    const navDate = field(row, "advisor_nav_date") as string | null | undefined;
+    return h(
+      "span",
+      {
+        class: "text-sm",
+        title: navDate ? `组合净值（截至 ${navDate}）` : "组合最新净值"
+      },
+      Number(v).toFixed(4)
+    );
+  }
+  if (def.key === "advisor_allocation_label") {
+    const raw = field(row, "advisor_allocation") as string | null | undefined;
+    return h(
+      "span",
+      {
+        class: "text-sm",
+        title: raw ? `配置目标：${String(v)}（${raw}）` : "配置目标"
+      },
+      String(v)
+    );
+  }
+  if (def.key === "advisor_product_type") {
+    return h("span", { class: "text-sm", title: "产品类型" }, String(v));
+  }
+  if (def.key === "advisor_strategy_summary") {
+    return h(
+      "span",
+      { class: "text-sm ellipsis-cell", title: String(v) },
+      String(v)
+    );
+  }
+  if (def.key === "advisor_source_url") {
+    const url = safeExternalUrl(v);
+    if (!url) return dash();
+    return h(
+      "a",
+      {
+        class: "text-sm advisor-source-link",
+        href: url,
+        target: "_blank",
+        rel: "noopener noreferrer",
+        // 阻止冒泡：表格行点击会打开详情抽屉，点链接不应触发
+        onClick: (e: MouseEvent) => e.stopPropagation()
+      },
+      "查看"
+    );
+  }
+  if (RENDERER_ADVISOR_RETURNS.has(def.key)) {
+    return h(RiseFallText, { value: Number(v), size: "sm" });
+  }
+  return dash();
 };
 
 /** renderer 类型 -> 函数式组件 的注册表 */
@@ -565,6 +1025,12 @@ const REGISTRY: Record<
   qty: renderQty as never,
   moneyRatio: renderMoneyRatio as never,
   text: renderText as never,
+  notes: renderNotes as never,
+  bond: renderBond as never,
+  indexVal: renderIndexVal as never,
+  drawdown: renderDrawdown as never,
+  links: renderLinks as never,
+  advisor: renderAdvisor as never,
   sparkline: renderSparkline as never,
   actions: renderActions as never
 };

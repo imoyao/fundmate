@@ -1,6 +1,6 @@
 // src/utils/temperatureFormat.ts
 /**
- * 温度计页（views/temperature）展示辅助纯函数。
+ * 温度展示辅助纯函数（现由探市页「深度」档消费）。
  * 从 temperature/index.vue 拆分下沉（#980），逻辑与原实现逐字保留，
  * 阈值配置统一来自 constants/temperature，避免页面与组件各自维护。
  */

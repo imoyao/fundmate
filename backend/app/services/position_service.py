@@ -35,8 +35,36 @@ from app.services.async_backfill import trigger_backfill
 from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_money_fund_symbol, normalize_fund_code
 from app.services.importer.records import compute_position_hash
 from app.services.pnl_service import compute_sell_realized_cents
-from app.services.trade_rules import validate_buy, validate_sell
-from app.services.transaction_service import TransactionService
+from app.services.trading import TransactionService, validate_buy, validate_sell
+from app.services.watchlist_service import (
+    ensure_watchlist_for_positions,
+    reconcile_watchlist_status,
+)
+
+
+def _silent_ensure_watchlist(db: Session, family_id: int, symbol: str) -> None:
+    """买入/持仓快照后：静默补齐 HOLDING 自选记录（#1458 后续：持仓即自选）。
+
+    后台静默失败——绝不影响主交易链路，也不向用户暴露错误。
+    """
+    try:
+        ensure_watchlist_for_positions(db, family_id, [symbol])
+    except Exception:
+        # loguru 只认 {}：用 %s 会导致参数被静默丢弃，日志里看不到 family/symbol（#1491 评审）
+        logger.warning('持仓自动入自选失败（已静默）: family={} symbol={}', family_id, symbol)
+
+
+def _silent_reconcile_watchlist(db: Session, family_id: int, symbol: str) -> None:
+    """卖出/重算后：静默对齐自选状态（有持仓→HOLDING，无持仓→WATCHING）。
+
+    后台静默失败——绝不影响主交易链路，也不向用户暴露错误。
+    """
+    try:
+        reconcile_watchlist_status(db, family_id, [symbol])
+    except Exception:
+        # 同 _silent_ensure_watchlist：loguru 用 {} 占位（#1491 评审）
+        logger.warning('持仓状态对齐自选失败（已静默）: family={} symbol={}', family_id, symbol)
+
 
 # 允许写入持仓模型的字段白名单（防止注入无效字段）
 _ALLOWED_POSITION_FIELDS = {
@@ -156,7 +184,7 @@ def _create_cash_transfer_transaction(db: Session, data: dict, txn_type: str) ->
     为现金管理产品（货币基金/逆回购）创建孤立交易流水。
     金额转换为分后存储。
     """
-    net_amount = abs(float(data.get('net_amount', 0) or 0))
+    net_amount = abs(data.get('net_amount', 0) or 0)
     TransactionService.create(
         db=db,
         position_id=None,
@@ -199,7 +227,7 @@ def _create_orphan_transaction(
     qty_units = Money.shares_to_min_unit(quantity)
     price_units = Money.yuan_to_price_units(price)
     amount_cents = Money.yuan_to_cents(amount) if amount else Money.multiply_price_quantity(price_units, qty_units)
-    fee_cents = Money.yuan_to_cents(float(data.get('fee', 0) or 0))
+    fee_cents = Money.yuan_to_cents(data.get('fee', 0) or 0)
 
     TransactionService.create(
         db=db,
@@ -237,9 +265,9 @@ def _is_reinvest(data: dict) -> bool:
     if data.get('op_type') != 'dividend_reinvest':
         return False
 
-    shares = float(data.get('quantity') or 0)
-    nav = float(data.get('nav') or 0)
-    amount = float(data.get('dividend_amount') or 0)
+    shares = data.get('quantity') or 0
+    nav = data.get('nav') or 0
+    amount = data.get('dividend_amount') or 0
 
     if shares <= 0:
         logger.warning('红利再投资缺少份额，降级按现金分红处理')
@@ -517,6 +545,8 @@ class PositionService:
         except Exception:
             pass
 
+        # #1458 后续：持仓快照导入即入自选（静默，失败不影响主链路）
+        _silent_ensure_watchlist(db, family_id, symbol)
         return position
 
     @staticmethod
@@ -761,7 +791,7 @@ class PositionService:
                 link_group_id=data.get('link_group_id'),
                 quantity=qty_units,
                 price=price_units,
-                fee=Money.yuan_to_cents(float(data.get('fee', 0) or 0)),
+                fee=Money.yuan_to_cents(data.get('fee', 0) or 0),
                 # balance 模式没有 price×qty 可算，流水金额直接取用户录入的金额
                 amount=amount_cents if is_balance else Money.multiply_price_quantity(price_units, qty_units),
                 status='success',
@@ -781,6 +811,8 @@ class PositionService:
                 trigger_backfill(asset_type, symbol)
             except Exception:
                 pass
+            # #1458 后续：买入即入自选（静默，失败不影响主链路）
+            _silent_ensure_watchlist(db, data.get('family_id', 1), symbol)
             return position
 
         except Exception:
@@ -833,7 +865,7 @@ class PositionService:
             # 必须在份额扣减前取成本均价：移动加权下卖出本不改均价，但显式提前取值
             # 可避免后续重构引入顺序依赖。结果落在流水的 realized_pnl 上而不是持仓上，
             # 因为清仓时持仓行会被 delete，记在持仓上会随持仓一起丢失。
-            fee_cents = Money.yuan_to_cents(float(data.get('fee', 0) or 0))
+            fee_cents = Money.yuan_to_cents(data.get('fee', 0) or 0)
             realized_cents = compute_sell_realized_cents(
                 price_units=price_units,
                 avg_price_units=existing.avg_price or 0,
@@ -889,6 +921,8 @@ class PositionService:
                 )
 
             db.flush()
+            # #1458 后续：卖出/清仓后对齐自选状态（静默，失败不影响主链路）
+            _silent_reconcile_watchlist(db, data.get('family_id', 1), existing.symbol)
             if is_cleared:
                 return None
             db.refresh(existing)
@@ -954,6 +988,8 @@ class PositionService:
             if pos.current_price in (None, 0):
                 pos.current_price = avg_price_units
             db.flush()
+            # #1458 后续：重算后对齐自选状态（静默）
+            _silent_reconcile_watchlist(db, pos.family_id, pos.symbol)
             return pos
 
         # 持仓行已被整笔卖出清空删除：依据剩余买入流水重建
@@ -980,6 +1016,8 @@ class PositionService:
         for t in txns:
             t.position_id = new_pos.id
         db.flush()
+        # #1458 后续：重算后对齐自选状态（静默）
+        _silent_reconcile_watchlist(db, new_pos.family_id, new_pos.symbol)
         return new_pos
 
     @staticmethod
@@ -1191,7 +1229,7 @@ class PositionService:
         手动记账传 position_id 直接定位；导入路径按 (symbol, account_name, family_id) 匹配。
         """
         family_id = data.get('family_id', 1)
-        qty = float(data.get('quantity') or 0)
+        qty = data.get('quantity') or 0
 
         if qty <= 0:
             # 缺份额：无法计入，记孤儿流水（notes 标明），不阻断整批导入
@@ -1239,7 +1277,7 @@ class PositionService:
             asset_type=_get_asset_type(data),
             quantity=qty_units,
             price=0,
-            fee=Money.yuan_to_cents(float(data.get('fee', 0) or 0)),
+            fee=Money.yuan_to_cents(data.get('fee', 0) or 0),
             amount=0,
             status='success',
             entry_status='success',

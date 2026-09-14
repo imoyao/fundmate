@@ -11,18 +11,19 @@ from datetime import date, timedelta
 from apiflask import APIBlueprint
 from flask import Response, abort, jsonify, request
 from loguru import logger
-from sqlalchemy import desc, func
+from sqlalchemy import desc, func, or_
 
 from app.core.auth import get_family_id, get_owned_or_404
-from app.core.constants import TYPE_LABELS
+from app.core.constants import ALLOCATION_LABELS, TYPE_LABELS
 from app.core.database import get_db
 from app.core.money import Money
 from app.core.utils import api_response, with_db
 from app.core.validation import parse_body
-from app.domains.funds.models import DailyWorth, Fund
+from app.domains.funds.models import AdvisorHolding, AdvisorPortfolio, ChannelLink, DailyWorth
+from app.domains.indices.models import IndexValuation
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
-from app.domains.securities.models import Security
+from app.domains.securities.models import ConvertibleBondTerm
 from app.domains.transactions.models import Transaction
 from app.domains.watchlist.models import (
     WatchlistGroup,
@@ -42,11 +43,17 @@ from app.domains.watchlist.schemas import (
     WatchlistTagDefOut,
     WatchlistTagDefUpdate,
 )
+from app.services.fund_metrics import compute_max_drawdown, load_nav_points
 from app.services.watchlist_service import (
     build_groups_data,
     build_home_summary,
     create_watchlist_item,
+    ensure_watchlist_for_positions,
     get_filtered_items_query,
+    get_holding_gaps,
+    lookup_manager,
+    reconcile_watchlist_status,
+    resolve_display_name,
 )
 
 watchlist_bp = APIBlueprint('watchlist', __name__, url_prefix='/api/watchlist')
@@ -76,18 +83,246 @@ GROUP_COLORS = {
 
 
 # ─────────────── 辅助函数 ───────────────
-def _get_display_info(symbol: str, db) -> str:
-    """根据标准化代码查询资产展示名称，优先取 Security.name，其次 Fund.name，兜底 symbol."""
-    sec = db.query(Security).filter_by(symbol=symbol).first()
-    if sec and sec.name:
-        return sec.name
-    fund = db.query(Fund).filter_by(fund_code=symbol).first()
-    if fund and fund.name:
-        return fund.name
-    return symbol
+# 展示名解析（resolve_display_name）与经理回查（lookup_manager）已收口到
+# services.watchlist_service：首页自选摘要与自选列表页**共用同一实现**。
+# 此前两处各写一份，只有本文件补了 Manager/AdvisorPortfolio 分支，导致列表页
+# 正常而首页仍显示 MGR_xxx（2026-09-10 复盘），故不再在此另立副本。
 
 
-def _enrich_item(item: WatchlistItem, db) -> dict:
+def _to_float(value):
+    """Decimal/数值 → float（None 安全）。
+
+    SafeNumeric 落库为 Decimal，若直接塞进响应 dict 会把 Decimal 带进 JSON
+    （Flask 默认编码器不认识 Decimal）。统一在此转换。
+    """
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _apply_bond_fields(out: dict, symbol: str, db) -> None:
+    """可转债条款 enrich（#1285 消费侧 / #1393）。
+
+    仅当 convertible_bond_terms 命中该 symbol 时填充（表未落库/非转债则一律保持
+    None，前端据此显示 `—`，不渲染假数据）。
+    """
+    term = db.query(ConvertibleBondTerm).filter_by(symbol=symbol).first()
+    if term is None:
+        return
+    out['bond_convert_price'] = _to_float(term.convert_price)
+    out['bond_convert_value'] = _to_float(term.convert_value)
+    out['bond_premium_rate'] = _to_float(term.premium_rate)
+    out['bond_force_redeem_price'] = _to_float(term.force_redeem_price)
+    out['bond_redeem_count'] = term.redeem_count
+    out['bond_redeem_required'] = term.redeem_required
+    out['bond_redeem_status'] = term.redeem_status
+    out['bond_rating'] = term.rating
+    out['bond_maturity_date'] = term.maturity_date
+    out['bond_remain_size'] = _to_float(term.remain_size)
+    out['bond_issue_size'] = _to_float(term.issue_size)
+    out['bond_stock_name'] = term.stock_name
+
+
+def _bare_code(symbol: str) -> str:
+    """'SH000300' / 'CSI930950' / 'OF000001' → '000300' / '930950' / '000001'。
+
+    指数估值表（index_valuations）与基金净值表（daily_worth）都按**裸代码**存储，
+    故统一在此抽取数字部分。
+    """
+    return ''.join(ch for ch in (symbol or '') if ch.isdigit())
+
+
+def _apply_index_valuation_fields(out: dict, symbol: str, db) -> None:
+    """指数估值 enrich（#1285 消费侧「指数」品类 / #1394）。
+
+    取该指数**最新一期**估值（历史序列留给后续的估值详情页）；表为空或该指数没有
+    官方估值文件时保持 None —— 前端显示 `—`，不编造数据。
+    """
+    code = _bare_code(symbol)
+    if not code:
+        return
+    row = (
+        db.query(IndexValuation)
+        .filter(IndexValuation.index_code == code)
+        .order_by(IndexValuation.trade_date.desc())
+        .first()
+    )
+    if row is None:
+        return
+    out['index_pe'] = _to_float(row.pe_1)
+    out['index_pe_2'] = _to_float(row.pe_2)
+    out['index_dividend_yield'] = _to_float(row.dividend_yield_1)
+    out['index_valuation_date'] = row.trade_date
+
+
+# ── 基金最大回撤（#1285 消费侧「基金」品类 / 设计 §3.10）──
+DRAWDOWN_FIXED_WINDOW_DAYS = 365 * 3  # 固定窗口档：近 3 年
+DRAWDOWN_FIXED_WINDOW_LABEL = '近3年'
+# 样本不足（次新基金/净值稀疏）时不下发数字，只标 basis=insufficient，前端显示 `—`
+DRAWDOWN_MIN_SAMPLES = 60
+
+
+def _apply_fund_drawdown_fields(out: dict, symbol: str, asset_type: str, db) -> None:
+    """基金最大回撤 enrich（口径见设计 §3.10「存口径元数据，不只存数字」）。
+
+    **本期口径**：固定窗口「近 3 年」，日频，基于 `daily_worth.acc_nav`（累计净值）
+    自算，`basis='fixed_3y'`。
+
+    为何不是「现任经理任期」：§3.10 对**主动权益类**要求绑定有效管理人任期，该档位
+    依赖经理任期 / 历任任期业绩 / 同类排名数据（均未接入），故本期不产出
+    `current_tenure` / `prev_tenure` 两档；字段与前端色板已按 basis 预留，
+    数据接入后只需在此处改 `basis` 选择逻辑，算法与服务层无需改动。
+    """
+    # 仅场外基金：daily_worth 按 6 位基金代码存净值；货基用万份收益口径，不适用本算法
+    if (asset_type or '').lower() != 'fund':
+        return
+    code = _bare_code(symbol)
+    if not code:
+        return
+
+    since = date.today() - timedelta(days=DRAWDOWN_FIXED_WINDOW_DAYS)
+    rows = (
+        db.query(DailyWorth)
+        .filter(DailyWorth.fund_code == code, DailyWorth.date >= since)
+        .order_by(DailyWorth.date)
+        .all()
+    )
+    result = compute_max_drawdown(load_nav_points(rows))
+    if result is None or result.sample_size < DRAWDOWN_MIN_SAMPLES:
+        out['fund_max_drawdown_basis'] = 'insufficient'
+        return
+
+    out['fund_max_drawdown'] = round(result.max_drawdown, 2)
+    out['fund_max_drawdown_basis'] = 'fixed_3y'
+    out['fund_max_drawdown_window'] = DRAWDOWN_FIXED_WINDOW_LABEL
+    out['fund_max_drawdown_as_of'] = result.as_of
+
+
+def _apply_channel_link_fields(out: dict, symbol: str, db) -> None:
+    """跨渠道关联 enrich（#1285 设计 §3.8）：数量角标 + 浮层明细。
+
+    `channel_links` 存**有向**关系（index→etf），但本函数按裸代码**双向查**并对任一端
+    都返回「另一侧」清单：指数行看到 ETF、ETF 行看到指数，前端无需判断方向。
+    无关联时不写字段（前端渲染 `—`）。
+    """
+    code = _bare_code(symbol)
+    if not code:
+        return
+    rows = db.query(ChannelLink).filter(or_(ChannelLink.from_symbol == code, ChannelLink.to_symbol == code)).all()
+    if not rows:
+        return
+    links = []
+    for r in rows:
+        if r.from_symbol == code:
+            links.append({'code': r.to_symbol, 'name': r.to_name, 'link_type': r.link_type})
+        else:
+            links.append({'code': r.from_symbol, 'name': r.from_name, 'link_type': r.link_type})
+    out['link_count'] = len(links)
+    out['links'] = links
+
+
+def _apply_advisor_fields(out: dict, symbol: str, db) -> None:
+    """投顾品类差异化指标 enrich（#1392）。
+
+    命中 AdvisorPortfolio（按 code=symbol）时补充：平台/主理人/策略类型（#1167）+ 区间收益
+    （return_1w/1m/1y/ytd/since_incep，来自天天 SYL_* 实测映射）+ 最大回撤/超额/业绩基准
+    （API 不直接提供时为空）+ 持仓集中度（HHI = Σ占比²，由 advisor_holdings.after_ratio 现算）。
+    非投顾标的（advisor 为 None）时上述字段一律置 None —— 前端品类列据此渲染 `—`，不编造。
+    """
+    # #1392 投顾品类列所需字段（区间收益 + 回撤 + 超额），统一先在 out 挂默认 None，
+    # 命中 advisor 再覆盖，避免非投顾标的漏字段导致前端 key 缺失
+    _ADVISOR_METRIC_KEYS = (
+        'return_1d',
+        'return_1w',
+        'return_1m',
+        'return_1q',
+        'return_6m',
+        'return_1y',
+        'return_ytd',
+        'return_since_incep',
+        'max_drawdown',
+        'excess_return',
+        # #1468 且慢组合补充指标（GetStrategyDetails 实时抓取）
+        'volatility',
+        'sharpe_ratio',
+    )
+    for k in _ADVISOR_METRIC_KEYS:
+        out[k] = None
+    out['advisor_benchmark'] = None
+    out['advisor_holding_count'] = None
+    out['advisor_concentration'] = None
+    # #1468 且慢策展元数据（配置目标 / 产品类型 / 简介 / 净值 / 官方链接）
+    out['advisor_allocation'] = None
+    out['advisor_allocation_label'] = None
+    out['advisor_product_type'] = None
+    out['advisor_strategy_summary'] = None
+    out['advisor_nav'] = None
+    out['advisor_nav_date'] = None
+    out['advisor_source_url'] = None
+    # #1167 既有字段默认 None（命中再覆盖）
+    out['advisor_platform'] = None
+    out['advisor_host'] = None
+    out['advisor_strategy_type'] = None
+    out['advisor_org_name'] = None
+
+    advisor = db.query(AdvisorPortfolio).filter_by(code=symbol).first()
+    if advisor is None:
+        return
+    out['advisor_platform'] = advisor.platform
+    out['advisor_host'] = advisor.host
+    out['advisor_strategy_type'] = advisor.strategy_type
+    out['advisor_org_name'] = advisor.org_name
+    for k in _ADVISOR_METRIC_KEYS:
+        out[k] = _to_float(getattr(advisor, k))
+    out['advisor_benchmark'] = advisor.benchmark
+    # 配置目标（五笔钱）：key 与中文标签都给，前端免于手抄一份词表
+    alloc = advisor.allocation
+    out['advisor_allocation'] = alloc
+    out['advisor_allocation_label'] = ALLOCATION_LABELS.get(alloc, alloc) if alloc else None
+    out['advisor_product_type'] = advisor.product_type
+    out['advisor_strategy_summary'] = advisor.strategy_summary
+    out['advisor_nav'] = _to_float(advisor.nav)
+    out['advisor_nav_date'] = advisor.nav_date.isoformat() if advisor.nav_date else None
+    out['advisor_source_url'] = advisor.source_url
+    # 持仓集中度：HHI = Σ(占比%²)，越高越集中；同时给持仓基金数（信息密度）
+    ratios = [
+        float(r[0])
+        for r in db.query(AdvisorHolding.after_ratio).filter_by(portfolio_id=advisor.id).all()
+        if r[0] is not None
+    ]
+    if ratios:
+        out['advisor_holding_count'] = len(ratios)
+        out['advisor_concentration'] = round(sum(r * r for r in ratios), 1)
+    else:
+        out['advisor_holding_count'] = 0
+        out['advisor_concentration'] = None
+
+
+def _apply_deferred_display_fields(out: dict, symbol: str, asset_type: str, db) -> None:
+    """「展示专用」enrich 统一入口（可延后到分页之后补算）。
+
+    这四个 enricher 只填充**展示**字段（可转债条款 / 指数估值 / 基金最大回撤 /
+    跨渠道关联），**均不在 `_USER_SORTABLE_FIELDS` 白名单内**，即排序不依赖它们；
+    而它们各自要按 symbol 查库（基金回撤还需按 fund_code 扫 `daily_worth` 近 3 年序列，
+    是本接口最贵的单点，实测占总耗时 ~55%）。
+
+    `list_items` 因此先用 `defer_display=True` 建全量行 → 排序 → 分页 → 只对本页补算，
+    避免「页大小 20 却为 164 行全部算回撤」的浪费；`fields=lite` 则完全跳过
+    （供前端仅取汇总口径的全量拉取使用，见 useWatchlistData.fetchAllItems）。
+
+    ⚠️ 新增**展示专用**字段请加在此处，并确认未登记进 `_USER_SORTABLE_FIELDS`；
+    若新增字段需要参与排序，则不能延后，必须留在基础 enrich 内。
+    """
+    _apply_bond_fields(out, symbol, db)
+    _apply_index_valuation_fields(out, symbol, db)
+    _apply_fund_drawdown_fields(out, symbol, asset_type, db)
+    _apply_channel_link_fields(out, symbol, db)
+
+
+def _enrich_item(item: WatchlistItem, db, defer_display: bool = False) -> dict:
     out = WatchlistItemOut.model_validate(item).model_dump()
     # watchlist.asset_type 历史存放大写（STOCK/ETF/...），对外统一归一为小写，
     # 与后端 asset_types 单一来源（stock/etf/fund/bond/index）及 positions 域保持一致（#1171）。
@@ -95,11 +330,27 @@ def _enrich_item(item: WatchlistItem, db) -> dict:
     # 资产类型中文标签：单一来源 app.core.constants.TYPE_LABELS（#1171 枚举一致性），
     # 供前端「资产类型」列（#1332 候选列）直接展示，免前端再映射。
     out['type_label'] = TYPE_LABELS.get(out['asset_type']) or out['asset_type'] or ''
-    out['display_name'] = _get_display_info(item.symbol, db)
+    out['display_name'] = resolve_display_name(item.symbol, db)
     out['group_ids'] = [link.group_id for link in item.group_links]
     out['tag_ids'] = [link.tag_id for link in item.tag_links]
     # 所属分组名称列表（#1332 排序用，避免前端再映射 group_ids）
     out['group_names'] = [link.watchlist_group.name for link in item.group_links if link.watchlist_group]
+
+    # 投顾组合补充信息（#1167 / #1392 投顾品类差异化指标）：平台 / 主理人 / 策略类型 +
+    # 区间收益 / 回撤 / 超额 / 业绩基准 / 持仓集中度。普通标的字段一律 None，
+    # 前端 product 列按需渲染第二行元信息，品类列按 appliesTo=["portfolio"] 显示。
+    _apply_advisor_fields(out, item.symbol, db)
+
+    # 基金经理补充信息（#1286）：所属基金公司名。经理行没有对外有意义的交易代码，
+    # 第二行元信息由公司承担，否则只剩一个「基金经理」标签、信息量为零
+    # （2026-09-10 用户反馈）。
+    mgr = lookup_manager(item.symbol, db)
+    out['manager_company'] = mgr.company.name if mgr and mgr.company else None
+
+    # 展示专用字段（可转债条款 / 指数估值 / 基金最大回撤 / 跨渠道关联）：
+    # 排序不依赖它们，故支持延后到分页之后补算（见 _apply_deferred_display_fields）。
+    if not defer_display:
+        _apply_deferred_display_fields(out, item.symbol, item.asset_type, db)
 
     # 补充价格与市值信息（从持仓表计算静态值）
     position_value = _compute_position_market_value(item.symbol, db)
@@ -204,7 +455,7 @@ def _compute_avg_current_price(symbol, db):
     return Money.price_units_to_yuan(avg_price_units) if avg_price_units else 0.0
 
 
-def _list_holding_items(db, family_id, venue=None, search=None):
+def _list_holding_items(db, family_id, venue=None, search=None, asset_types=None, defer_display=False):
     """持仓分组列表：返回 positions 表全部 active 持仓的虚拟行（按 symbol 聚合）。
 
     与 watchlist.status 快照解耦：一个 symbol 可能多账户多行，distinct 后按 symbol 聚合；
@@ -232,15 +483,32 @@ def _list_holding_items(db, family_id, venue=None, search=None):
         if search:
             s = search.lower()
             # 名称匹配：优先用持仓名称，缺失时回退到 securities/funds 展示名（与 _build_holding_row 同源）
-            display = (pos_name or '') or _get_display_info(symbol, db)
+            display = (pos_name or '') or resolve_display_name(symbol, db)
             if s not in symbol.lower() and s not in (display or '').lower():
                 continue
-        data.append(_build_holding_row(symbol, db, market=market, asset_type=asset_type, venue=row_venue))
+        # 持仓虚拟行优先回填真实自选记录（若已入自选）→ 行内可打标签/备注；
+        # 未入自选则保持 id=None，前端据此提示「一键加入」。
+        # defer_display=True：展示专用字段延后到分页之后补算（见 _finalize_page）。
+        holding_row = _build_holding_row(
+            symbol,
+            db,
+            market=market,
+            asset_type=asset_type,
+            venue=row_venue,
+            defer_display=defer_display,
+        )
+        data.append(_enrich_holding_with_watchlist(holding_row, db, family_id))
+    # 持仓分组支持类型筛选（#1449）：虚拟行已带小写 asset_type，按前端传来的
+    # 逗号分隔类型集合过滤，与真实自选行的 asset_types 语义一致。
+    if asset_types:
+        type_set = {t.strip().lower() for t in asset_types.split(',') if t.strip()}
+        if type_set:
+            data = [r for r in data if (r.get('asset_type') or '').lower() in type_set]
     data.sort(key=lambda r: r['position_market_value'] or 0, reverse=True)
     return data
 
 
-def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
+def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None, defer_display: bool = False):
     """构造持仓虚拟行 dict，字段对齐 WatchlistItemOut/_enrich_item 输出（前端直接复用）。
 
     id=None 是虚拟行约定：该 symbol 可能不在自选表，行操作（置顶/关注/标签/移除）一律禁用。
@@ -257,11 +525,14 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
     market = market or (pos.market if pos else None)
     asset_type = asset_type or (pos.asset_type if pos else None)
     venue = venue or ('OTC' if asset_type == 'fund' else 'EXCHANGE')
-    display_name = (pos.name if pos and pos.name else None) or _get_display_info(symbol, db)
+    display_name = (pos.name if pos and pos.name else None) or resolve_display_name(symbol, db)
+    # 投顾组合元信息：与 _enrich_item 同步，避免虚拟行（持仓聚合无 id 的行）漏字段
+    advisor = db.query(AdvisorPortfolio).filter_by(code=symbol).first()
+    mgr = lookup_manager(symbol, db)  # 经理行公司名：与 _enrich_item 同源
 
     current_price = _compute_avg_current_price(symbol, db)
     stats = _compute_holding_stats(symbol, db)
-    return {
+    row = {
         'id': None,
         'symbol': symbol,
         'market': market,
@@ -291,10 +562,92 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
         'holding_pnl': round(stats['pnl'], 2) if stats else None,
         'holding_pnl_percent': round(stats['pnl_percent'], 2) if stats else None,
         'price_at_added': None,
+        # 投顾组合补充信息（与 _enrich_item 同源；非投顾为 None）
+        'advisor_platform': (advisor.platform if advisor else None),
+        'advisor_host': (advisor.host if advisor else None),
+        'advisor_strategy_type': (advisor.strategy_type if advisor else None),
+        'advisor_org_name': (advisor.org_name if advisor else None),
+        'return_1w': (_to_float(advisor.return_1w) if advisor else None),
+        'return_1m': (_to_float(advisor.return_1m) if advisor else None),
+        'return_1y': (_to_float(advisor.return_1y) if advisor else None),
+        'return_ytd': (_to_float(advisor.return_ytd) if advisor else None),
+        'return_since_incep': (_to_float(advisor.return_since_incep) if advisor else None),
+        'max_drawdown': (_to_float(advisor.max_drawdown) if advisor else None),
+        'excess_return': (_to_float(advisor.excess_return) if advisor else None),
+        # #1468 且慢补充指标 + 策展元数据（与 _apply_advisor_fields 保持同字段集）
+        'return_1d': (_to_float(advisor.return_1d) if advisor else None),
+        'return_1q': (_to_float(advisor.return_1q) if advisor else None),
+        'return_6m': (_to_float(advisor.return_6m) if advisor else None),
+        'volatility': (_to_float(advisor.volatility) if advisor else None),
+        'sharpe_ratio': (_to_float(advisor.sharpe_ratio) if advisor else None),
+        'advisor_benchmark': (advisor.benchmark if advisor else None),
+        'advisor_allocation': (advisor.allocation if advisor else None),
+        'advisor_allocation_label': (
+            ALLOCATION_LABELS.get(advisor.allocation, advisor.allocation) if advisor and advisor.allocation else None
+        ),
+        'advisor_product_type': (advisor.product_type if advisor else None),
+        'advisor_strategy_summary': (advisor.strategy_summary if advisor else None),
+        'advisor_nav': (_to_float(advisor.nav) if advisor else None),
+        'advisor_nav_date': (advisor.nav_date.isoformat() if advisor and advisor.nav_date else None),
+        'advisor_source_url': (advisor.source_url if advisor else None),
+        'advisor_holding_count': 0,
+        'advisor_concentration': None,
     }
+    # 持仓集中度（HHI）：与 _apply_advisor_fields 同源，避免虚拟行（持仓聚合无 id）漏字段
+    if advisor is not None:
+        _ratios = [
+            float(r[0])
+            for r in db.query(AdvisorHolding.after_ratio).filter_by(portfolio_id=advisor.id).all()
+            if r[0] is not None
+        ]
+        if _ratios:
+            row['advisor_holding_count'] = len(_ratios)
+            row['advisor_concentration'] = round(sum(r * r for r in _ratios), 1)
+    # 基金经理所属公司（与 _enrich_item 同源；非经理为 None）。
+    # 复用上方已取的 mgr，避免同一行重复查库（141 行即 141 次多余查询）。
+    row['manager_company'] = mgr.company.name if mgr and mgr.company else None
+    # 展示专用字段（可转债条款 / 指数估值 / 基金最大回撤 / 跨渠道关联）：支持延后补算
+    if not defer_display:
+        _apply_deferred_display_fields(row, symbol, asset_type, db)
+    return row
 
 
-def _build_all_items(db, family_id, venue=None, search=None, tag_ids_str=None, favorite=False, group_id=None):
+def _enrich_holding_with_watchlist(row: dict, db, family_id: int) -> dict:
+    """持仓虚拟行若存在真实自选记录，回填 id/分组/标签/备注等可编辑字段。
+
+    使「持仓」分组内的产品也能打标签、加备注（#1458 后续：持仓即自选）。
+    仅当无自选记录时保持 id=None——前端据此禁用行操作并提示「一键加入自选」。
+    「全部」分组天然包含这些真实自选记录，无需在此处理，口径保持一致。
+    """
+    item = (
+        db.query(WatchlistItem)
+        .filter_by(symbol=row['symbol'], market=row['market'], venue=row['venue'], family_id=family_id)
+        .first()
+    )
+    if item is None:
+        item = db.query(WatchlistItem).filter_by(symbol=row['symbol'], family_id=family_id).first()
+    if item is None:
+        return row
+    row = dict(row)
+    row['id'] = item.id
+    row['group_ids'] = [g.group_id for g in item.group_links]
+    row['group_names'] = [g.watchlist_group.name for g in item.group_links]
+    row['tag_ids'] = [t.tag_id for t in item.tag_links]
+    row['notes'] = item.notes
+    row['is_pinned'] = item.is_pinned
+    row['pinned_at'] = item.pinned_at
+    row['favorite'] = item.favorite
+    row['favorite_at'] = item.favorite_at
+    row['add_reason'] = item.add_reason
+    row['cost_price'] = item.cost_price
+    row['quantity'] = item.quantity
+    row['status'] = 'HOLDING'  # 持仓分组恒为 HOLDING
+    return row
+
+
+def _build_all_items(
+    db, family_id, venue=None, search=None, tag_ids_str=None, favorite=False, group_id=None, defer_display=False
+):
     """「全部」分组数据：自选清单 ∪ 真实持仓补集（同一 symbol 自选记录优先，去重）。
 
     语义（与分组 count 口径一致，保证「全部 N 条」与分组数字吻合）：
@@ -316,10 +669,10 @@ def _build_all_items(db, family_id, venue=None, search=None, tag_ids_str=None, f
     }
     query, _ = get_filtered_items_query(db, family_id, **params)
     items = query.order_by(WatchlistItem.is_pinned.desc(), WatchlistItem.updated_at.desc()).all()
-    data = [_enrich_item(item, db) for item in items]
+    data = [_enrich_item(item, db, defer_display=defer_display) for item in items]
 
     if not (tag_ids_str or favorite or group_id):
-        holding_rows = _list_holding_items(db, family_id, venue=venue, search=search)
+        holding_rows = _list_holding_items(db, family_id, venue=venue, search=search, defer_display=defer_display)
         watch_symbols = {item['symbol'] for item in data}
         for row in holding_rows:
             if row['symbol'] in watch_symbols:
@@ -337,6 +690,42 @@ def home_summary():
     with get_db() as db:
         data = build_home_summary(db, get_family_id())
     return jsonify({'data': data, 'message': 'ok'})
+
+
+@watchlist_bp.get('/holding-gaps/')
+def holding_gaps():
+    """「有活跃持仓但未加入自选」的缺口列表（前端 banner 引导一键加入）。
+
+    仅读取、幂等；不修改任何数据。缺口判定见 watchlist_service.get_holding_gaps。
+    """
+    with get_db() as db:
+        gaps = get_holding_gaps(db, get_family_id())
+    return jsonify({'data': gaps, 'count': len(gaps), 'message': 'ok'})
+
+
+@watchlist_bp.post('/reconcile/')
+def reconcile_watchlist():
+    """一键补齐：为活跃持仓创建 HOLDING 自选记录（买入即入自选的批量版）。
+
+    同时对齐卖出/清仓后的状态：无活跃持仓的 HOLDING 项降级为 WATCHING。
+    单标的失败仅记录日志、不中断，返回汇总供前端提示（#1458 后续）。
+    请求体可选：{"demote": true} 控制是否执行降级（默认 true）。
+    """
+    body = request.get_json(silent=True) or {}
+    demote = body.get('demote', True)
+    with get_db() as db:
+        family_id = get_family_id()
+        created = ensure_watchlist_for_positions(db, family_id)
+        promoted = demoted = 0
+        if demote:
+            promoted, demoted = reconcile_watchlist_status(db, family_id)
+        db.commit()
+    return jsonify(
+        {
+            'data': {'created': created, 'promoted': promoted, 'demoted': demoted},
+            'message': 'ok',
+        }
+    )
 
 
 @watchlist_bp.get('/trends/')
@@ -492,9 +881,34 @@ def _apply_user_sort(data: list, sort_by, sort_order):
     return [r for _, r in known] + unknown
 
 
+def _finalize_page(page_data: list, db, lite: bool) -> list:
+    """对**已分页**的页内行补算展示专用字段（`fields=lite` 时跳过）。
+
+    放在分页之后是本接口的性能关键：展示专用 enrich 按 symbol 查库，基金回撤还要扫
+    3 年 `daily_worth` 序列，实测占本接口总耗时约 55%（全量 164 行 vs 页内 20 行，
+    相差一个数量级）。排序不依赖这些字段（均未进 `_USER_SORTABLE_FIELDS`），故可安全延后。
+    """
+    if lite:
+        return page_data
+    for row in page_data:
+        symbol = row.get('symbol')
+        if not symbol:
+            continue
+        _apply_deferred_display_fields(row, symbol, row.get('asset_type') or '', db)
+    return page_data
+
+
 @watchlist_bp.get('/items/')
 def list_items():
-    """获取自选列表，支持多种筛选、置顶优先排序与用户列内排序（sort_by/sort_order）"""
+    """获取自选列表，支持多种筛选、置顶优先排序与用户列内排序（sort_by/sort_order）。
+
+    分页语义：**先在完整结果集上排序定序，只用页内行做完整 enrich**。
+    展示专用字段（基金回撤 / 可转债条款 / 指数估值 / 跨渠道关联）一律延后到分页之后
+    对本页补算——它们不参与排序，却按 symbol 逐行查库，是全接口最大的单点耗时。
+
+    `?fields=lite`：只回基础字段，连页内行也跳过上述 enrich。供前端「全量拉取供估值
+    汇总」使用（汇总只消费价格/持仓/市值），避免为一份汇总把每一行都算一遍回撤。
+    """
     params = {
         'status': request.args.get('status'),
         'venue': request.args.get('venue'),
@@ -505,13 +919,19 @@ def list_items():
         'symbol': request.args.get('symbol'),
         'tag_ids_str': request.args.get('tag_ids'),
         'tag_id': request.args.get('tag_id', type=int),
+        'asset_types': request.args.get('asset_types'),
         'page': request.args.get('page', type=int, default=1),
         'per_page': request.args.get('per_page', type=int, default=20),
         'sort_by': request.args.get('sort_by'),
         'sort_order': request.args.get('sort_order', 'asc'),
+        # fields=lite：只回基础字段，跳过展示专用 enrich（基金回撤/可转债条款/指数估值/
+        # 跨渠道关联）。供前端「全量拉取供估值汇总」使用——汇总只消费 current_price /
+        # holding_* / position_market_value，不需要展示专用字段。
+        'fields': (request.args.get('fields') or 'full').strip().lower(),
     }
 
     with get_db() as db:
+        lite = params['fields'] == 'lite'
         # 分页参数：page 从 1 开始；per_page 限幅 [1, 200] 避免一次性拉取全量
         page = max(params['page'] or 1, 1)
         per_page = max(min(params['per_page'] or 20, 200), 1)
@@ -519,17 +939,27 @@ def list_items():
         if params['status'] == 'HOLDING':
             # 持仓分组 = 全部真实持仓（positions 表 active，按 symbol 聚合），
             # 不走 watchlist.status 快照查询；返回虚拟行（id=None，前端据此禁用行操作）
-            data = _list_holding_items(db, get_family_id(), venue=params['venue'], search=params['search'])
+            data = _list_holding_items(
+                db,
+                get_family_id(),
+                venue=params['venue'],
+                search=params['search'],
+                asset_types=params['asset_types'],
+                defer_display=True,  # 展示专用字段延后到分页之后（见 _finalize_page）
+            )
             data = _apply_user_sort(data, params['sort_by'], params['sort_order'])
             total = len(data)
-            page_data = data[offset : offset + per_page]
+            page_data = _finalize_page(data[offset : offset + per_page], db, lite)
             return jsonify({'data': page_data, 'total': total, 'message': 'ok'})
 
-        if not params['status'] and not (params['symbol'] or params['market'] or params['tag_id']):
+        if not params['status'] and not (
+            params['symbol'] or params['market'] or params['tag_id'] or params['asset_types']
+        ):
             # 「全部」分组 = 自选清单 ∪ 真实持仓补集（同一 symbol 自选优先），
             # 前端「全部」分组不传 status 走此分支，解决「全部 < 持仓」口径矛盾。
-            # 仅无查找型参数（symbol/market/tag_id）时合并——AddToWatchlistModal/OcrImportModal
-            # 的「symbol 查重」等调用依赖原过滤语义，不得在此被稀释。
+            # 仅无查找型参数（symbol/market/tag_id/asset_types）时合并——
+            # AddToWatchlistModal/OcrImportModal 的「symbol 查重」与「类型筛选」
+            # 等调用依赖原过滤语义，不得在此被稀释。
             try:
                 data = _build_all_items(
                     db,
@@ -539,12 +969,13 @@ def list_items():
                     tag_ids_str=params['tag_ids_str'],
                     favorite=params['favorite'],
                     group_id=params['group_id'],
+                    defer_display=True,  # 同上：分页后再补展示专用字段
                 )
             except ValueError as e:
                 abort(400, str(e))
             data = _apply_user_sort(data, params['sort_by'], params['sort_order'])
             total = len(data)
-            page_data = data[offset : offset + per_page]
+            page_data = _finalize_page(data[offset : offset + per_page], db, lite)
             return jsonify({'data': page_data, 'total': total, 'message': 'ok'})
 
         try:
@@ -560,16 +991,17 @@ def list_items():
                 symbol=params['symbol'],
                 tag_ids_str=params['tag_ids_str'],
                 tag_id=params['tag_id'],
+                asset_types=params['asset_types'],
             )
         except ValueError as e:
             abort(400, str(e))
 
         items = query.order_by(WatchlistItem.is_pinned.desc(), WatchlistItem.updated_at.desc()).all()
-        data = [_enrich_item(item, db) for item in items]
+        data = [_enrich_item(item, db, defer_display=True) for item in items]
         data = _apply_user_sort(data, params['sort_by'], params['sort_order'])
 
         total = len(data)
-        page_data = data[offset : offset + per_page]
+        page_data = _finalize_page(data[offset : offset + per_page], db, lite)
         return jsonify({'data': page_data, 'total': total, 'message': 'ok'})
 
 
@@ -587,7 +1019,6 @@ def create_item():
             return jsonify({'data': _enrich_item(item, db), 'message': 'ok'})
         except ValueError as e:
             msg = str(e)
-            print(f'--------MSG--1111111111111----{msg}')
             if '已在自选' in msg:
                 return jsonify({'data': None, 'message': msg}), 409
             else:
@@ -780,8 +1211,6 @@ def create_tag():
         if existing:
             abort(409, f'标签「{name}」已存在')
 
-        logger.info(f'============{json_data.color}===')
-
         tag = WatchlistTagDef(name=name, color=json_data.color, family_id=get_family_id())
         db.add(tag)
         db.commit()
@@ -952,13 +1381,16 @@ def export_items():
         'symbol': request.args.get('symbol'),
         'tag_ids_str': request.args.get('tag_ids'),
         'tag_id': request.args.get('tag_id', type=int),
+        'asset_types': request.args.get('asset_types'),
     }
 
     with get_db() as db:
         if params['status'] == 'HOLDING':
             # 持仓分组导出：与列表一致，导出全部真实持仓（虚拟行，id=None）
             rows = _list_holding_items(db, get_family_id(), venue=params['venue'], search=params['search'])
-        elif not params['status'] and not (params['symbol'] or params['market'] or params['tag_id']):
+        elif not params['status'] and not (
+            params['symbol'] or params['market'] or params['tag_id'] or params['asset_types']
+        ):
             # 「全部」导出与列表口径一致：自选 ∪ 持仓补集（复用同一合并逻辑；
             # 带 symbol/market/tag_id 查找参数时仍走原过滤语义，与列表分支对齐）
             try:

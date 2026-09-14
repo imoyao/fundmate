@@ -319,14 +319,15 @@ const handleRecognize = async () => {
 async function probeExisting(items: OcrImportItem[]): Promise<Set<string>> {
   const set = new Set<string>();
   for (const it of items) {
+    // 空/空白代码必须跳过：后端对空 symbol 跳过过滤走「全部」分支返回整页数据，
+    // 会被误判成「已存在」——无代码的候选（如只有组合名的投顾行）一律保守当作新项
+    const key = (it.symbol || it.code || "").trim();
+    if (!key) continue;
     try {
       // 用标准化 symbol 探测（场内如 SH600519），与后端查重口径一致
-      const res = await getWatchlistItems({
-        symbol: it.symbol || it.code,
-        per_page: 1
-      });
+      const res = await getWatchlistItems({ symbol: key, per_page: 1 });
       const data = (res as any).data ?? [];
-      if (data.length > 0) set.add(it.symbol || it.code);
+      if (data.length > 0) set.add(key);
     } catch {
       // 网络异常不阻断已存在判断，保守当作新项
     }

@@ -276,8 +276,9 @@ class THSStockParser(BaseImportParser):
         quantity = self._safe_float(raw, '成交数量')
         price = self._safe_float(raw, '成交均价')
         fee = self._safe_float(raw, 'fee')
-        trade_amount = self._safe_float(raw, '成交金额')
-        net_amount_raw = self._safe_float(raw, '发生金额')
+        # 金融口径收口（#1375 阶段二）：金额域直接进 Decimal，raw→float→Decimal 的桥接收敛为一处
+        trade_amount = self._safe_decimal(self._safe_float(raw, '成交金额'))
+        net_amount_raw = self._safe_decimal(self._safe_float(raw, '发生金额'))
 
         actual_amount = self._compute_actual_amount(business_type, trade_amount, net_amount_raw)
         net_amount_abs = abs(net_amount_raw)
@@ -297,20 +298,20 @@ class THSStockParser(BaseImportParser):
             transaction_id=contract_id,
             source=self.source,
             raw_op_type=op_type_cn,  # 保留原始中文操作类型
-            trade_amount=float(trade_amount),
-            net_amount=float(net_amount_abs),
+            trade_amount=trade_amount,
+            net_amount=net_amount_abs,
         )
 
     def _parse_cash_transfer(self, raw: dict, op_type_cn: str) -> StandardTransactionRecord:
         """处理资金划转类型"""
-        net_amount_raw = self._safe_float(raw, '发生金额')
+        net_amount_raw = self._safe_decimal(self._safe_float(raw, '发生金额'))
         return StandardTransactionRecord(
             confirm_date=self._parse_ths_date(raw),
             asset_type='cash',
             symbol=CASH_SYMBOL,
             name=op_type_cn,  # 使用操作类型作为名称
             business_type='deposit' if net_amount_raw >= 0 else 'withdraw',
-            amount=Decimal(str(abs(net_amount_raw))),
+            amount=abs(net_amount_raw),
             account_name='',
             source=self.source,
         )
@@ -328,7 +329,7 @@ class THSStockParser(BaseImportParser):
             raise ValueError(f'无效的日期格式: {date_str}')
 
     @staticmethod
-    def _compute_actual_amount(business_type: str, trade_amount: float, net_amount_raw: float) -> float:
+    def _compute_actual_amount(business_type: str, trade_amount: Decimal, net_amount_raw: Decimal) -> Decimal:
         if business_type == 'tax':
             # 扣税：取发生金额的绝对值，然后强制为负
             return -abs(net_amount_raw) if net_amount_raw != 0 else -abs(trade_amount)

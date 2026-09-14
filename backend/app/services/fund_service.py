@@ -264,9 +264,11 @@ class FundService:
                 cache = FundService._FUND_NAME_EM_CACHE
                 now = time.time()
                 if cache['data'] is None or now - cache['ts'] > FundService._FUND_NAME_EM_TTL:
-                    from app.services.sync.adapters.akshare_adapter import AKShareAdapter
+                    # #1363 修复：此前误拼 AKShareAdapter → ImportError 被下方 except 静默吞掉，
+                    # 外部兜底自引入起从未生效。类名以 orchestrator 注册处（AkshareAdapter）为准。
+                    from app.services.sync.adapters.akshare_adapter import AkshareAdapter
 
-                    cache['data'] = AKShareAdapter().fetch_fund_list()
+                    cache['data'] = AkshareAdapter().fetch_fund_list()
                     cache['ts'] = now
                 kw = keyword.lower()
                 for item in cache['data'] or []:

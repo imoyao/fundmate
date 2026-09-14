@@ -91,8 +91,9 @@ class StandardTransactionRecord:
     fee: Decimal = Decimal('0')  # 手续费
     transaction_id: Optional[str] = None  # 平台交易流水号（去重核心）
 
-    trade_amount: float = 0.0  # 原始成交金额（同花顺专用）
-    net_amount: float = 0.0  # 净发生金额绝对值（同花顺专用）
+    # ── 金融口径（#1375 阶段二）：金额字段一律 Decimal，禁止 float 域中转 ──
+    trade_amount: Decimal = Decimal('0')  # 原始成交金额（同花顺专用）
+    net_amount: Decimal = Decimal('0')  # 净发生金额绝对值（同花顺专用）
 
     # ── 系统字段 ──
     import_hash: Optional[str] = None  # 交易级哈希（用于去重和幂等性）

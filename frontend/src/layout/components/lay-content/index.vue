@@ -134,6 +134,16 @@ const transitionMain = defineComponent({
               :view-style="{
                 display: 'flex',
                 flex: 'auto',
+                /* 2026-09-12：补 width:'100%'，掐断 flex-basis:auto 的 max-content 撑宽。
+                 * 根因（页面级横向滚动条第 4 次回归，#1341/#1425 同源）：本 el-scrollbar 的
+                 * wrap-style 是 display:flex + flex-wrap:wrap——滚动容器自身是 flex+wrap 容器，
+                 * 而 view 的 flex:'auto' 即 flex-basis:auto，基准尺寸取内容 max-content。
+                 * 当页面内容天然宽于视口（如自选页品类视图 Σ列宽 ≈1442px > 内容区 ≈1046px），
+                 * flex-wrap 容器的子项换行后保持 max-content 宽、不再收缩，view 遂被撑到 Σ宽，
+                 * wrap(overflow:auto) 出现页面级横向滚动条，el-table 固定列被推出视口。
+                 * 显式 width:'100%' 后 flex-basis:auto 解析到视口宽：view 恒等于滚动视口宽，
+                 * 超宽内容交由页面自身内部滚动（el-table）或 wrap 滚动承载，符合预期。 */
+                width: '100%',
                 /* 2026-09-05：改 overflow:hidden → 'clip'。
                  * 原 'hidden' 会建立滚动容器（scroll container），导致 fixedHeader 模式下
                  * 自选/列表类页面的 position:sticky 被它截断、无法向上找到真正的滚动

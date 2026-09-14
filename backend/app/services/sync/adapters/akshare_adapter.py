@@ -4,6 +4,8 @@
 # File : akshare_adapter.py
 # -*- coding: utf-8 -*-
 # app/services/sync/adapters/akshare_adapter.py
+import re
+import time
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -12,10 +14,17 @@ from loguru import logger
 from app.core.symbol_utils import get_normalizer
 from app.services.sync.adapters.base import DataSourceAdapter
 
+# 基金经理全量接口（东财 fund_manager_em）偶发抖动，首次拉取的有限重试策略
+_FUND_MANAGER_RETRY = 3
+_FUND_MANAGER_RETRY_SLEEP = 3  # 秒
+
 
 class AkshareAdapter(DataSourceAdapter):
     def __init__(self):
         self._fund_manager_cache = None
+        # 是否已发起过全量拉取（注意：不能用 hasattr(_fund_manager_cache) 判定，
+        # 该属性在 __init__ 即存在，会导致「首次拉取」分支永不执行、经理同步恒空转）
+        self._fund_manager_fetched = False
         self.logger = logger.bind(adapter='akshare')
 
     def get_name(self) -> str:
@@ -255,29 +264,44 @@ class AkshareAdapter(DataSourceAdapter):
         raise NotImplementedError
 
     def fetch_fund_manager(self, fund_code: str) -> List[dict]:
-        """获取指定基金的基金经理，全量数据仅请求一次，失败后静默跳过"""
+        """获取指定基金的基金经理，全量数据仅请求一次，失败后静默跳过
+
+        该接口（东财 fund_manager_em）偶发抖动；此前一次失败就把缓存置 None，
+        导致本轮后续所有基金都静默返回空（表现为「经理全量同步跑了但一条没进」）。
+        故首次拉取做有限重试，只有连续重试均失败才标记为不可用。
+        """
         from app.core.akshare_lazy import get_akshare
 
         ak = get_akshare()
 
-        # 如果已经请求过（无论成功或失败），直接使用缓存结果
-        if hasattr(self, '_fund_manager_cache'):
+        # 已经请求过（成功或失败），直接使用缓存结果
+        if self._fund_manager_fetched:
             df = self._fund_manager_cache
             if df is None or df.empty:
                 return []
             # 有缓存数据，按基金代码筛选
             return self._filter_managers(df, fund_code)
 
-        # 第一次请求全量数据
-        try:
-            df = ak.fund_manager_em()
-        except Exception as e:
-            self.logger.warning(f'基金经理全量接口不可用: {e}，后续将跳过所有经理同步')
-            self._fund_manager_cache = None  # 标记为失败，永久跳过
-            return []
+        # 第一次请求全量数据（带重试，规避偶发抖动）
+        df = None
+        for attempt in range(_FUND_MANAGER_RETRY):
+            try:
+                df = ak.fund_manager_em()
+                break
+            except Exception as e:  # noqa: BLE001
+                if attempt == _FUND_MANAGER_RETRY - 1:
+                    self.logger.warning(f'基金经理全量接口不可用: {e}，后续将跳过所有经理同步')
+                else:
+                    self.logger.warning(f'基金经理全量接口第 {attempt + 1}/{_FUND_MANAGER_RETRY} 次失败: {e}，稍后重试')
+                    time.sleep(_FUND_MANAGER_RETRY_SLEEP)
+
+        # 无论成败只拉一次：成功则缓存 df，失败则缓存 None 并跳过本轮后续基金。
+        # 缺了这一步会退化为「逐基金重复全量请求」（#1286 回填实测踩坑）。
+        self._fund_manager_fetched = True
 
         if df is None or df.empty:
-            self.logger.warning('基金经理全量数据为空')
+            if df is not None:
+                self.logger.warning('基金经理全量数据为空')
             self._fund_manager_cache = None
             return []
 
@@ -477,4 +501,457 @@ class AkshareAdapter(DataSourceAdapter):
             return out
         except Exception as e:
             self.logger.error(f'获取基金 {fund_code} 分红公告失败: {e}')
+            return []
+
+    # ── 基金规模 / 近似股票仓位（#1286 数据底座，复用 akshare 现成接口） ──
+
+    def fetch_fund_scale(self) -> List[dict]:
+        """全市场开放式基金规模（ak.fund_scale_open_sina）。
+
+        接口仅给「最近总份额」与「单位净值」，不直接给规模列；规模由调用方按
+        shares×nav 估算（亿元）。返回 [{fund_code, shares, nav}]。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.fund_scale_open_sina()
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                code = str(row.get('基金代码', '')).strip()
+                if not code or len(code) != 6 or not code.isdigit():
+                    continue
+                out.append(
+                    {
+                        'fund_code': code,
+                        'shares': self._to_ratio(row.get('最近总份额')),
+                        'nav': self._to_ratio(row.get('单位净值')),
+                    }
+                )
+            self.logger.info(f'获取到 {len(out)} 只基金规模数据')
+            return out
+        except Exception as e:
+            self.logger.error(f'获取基金规模失败: {e}')
+            return []
+
+    def fetch_fund_top_holdings(self, fund_code: str) -> List[dict]:
+        """单只基金前十大重仓（ak.fund_portfolio_hold_em）。
+
+        返回 [{stock_code, stock_name, ratio(占净值比例)}]；调用方累加 top10 作为近似股票仓位。
+        单基金抓取，失败静默返回空，由 Job 控制重试/跳过。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.fund_portfolio_hold_em(symbol=fund_code)
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                out.append(
+                    {
+                        'stock_code': str(row.get('股票代码', '')).strip(),
+                        'stock_name': str(row.get('股票名称', '')),
+                        'ratio': self._to_ratio(row.get('占净值比例')),
+                    }
+                )
+            return out
+        except Exception as e:
+            self.logger.warning(f'获取基金 {fund_code} 重仓失败: {e}')
+            return []
+
+    def fetch_index_constituents_csindex(self, index_code: str) -> List[dict]:
+        """中证系指数成分（ak.index_stock_cons_csindex）。
+
+        返回 [{symbol, stock_name, index_name}]；非 csindex 系列指数会抛错，由 Job 回退 sina。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.index_stock_cons_csindex(symbol=index_code)
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                out.append(
+                    {
+                        'symbol': str(row.get('成分券代码', '')).strip(),
+                        'stock_name': str(row.get('成分券名称', '')),
+                        'index_name': str(row.get('指数名称', '')),
+                    }
+                )
+            return out
+        except Exception as e:
+            self.logger.warning(f'csindex 成分获取失败 {index_code}: {e}')
+            return []
+
+    def fetch_index_constituents_sina(self, index_code: str) -> List[dict]:
+        """新浪指数成分（ak.index_stock_cons），csindex 系列缺失时的回退。
+
+        返回 [{symbol, stock_name, in_date}]。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.index_stock_cons(symbol=index_code)
+            if df is None or df.empty:
+                return []
+            has_date = '日期' in df.columns
+            out = []
+            for _, row in df.iterrows():
+                out.append(
+                    {
+                        'symbol': str(row.get('品种代码', '')).strip(),
+                        'stock_name': str(row.get('品种名称', '')),
+                        'in_date': str(row.get('日期', '')) if has_date else None,
+                    }
+                )
+            return out
+        except Exception as e:
+            self.logger.warning(f'sina 成分获取失败 {index_code}: {e}')
+            return []
+
+    def fetch_index_catalog(self) -> List[dict]:
+        """新浪指数名录（ak.index_stock_info），#1286/#1365 聚合搜索底座之三源之一。
+
+        返回 [{index_code, name, exchange, source}]，归一化为 SH000300 形态。
+
+        兼容两种 akshare 版本形态（#1366 实测）：
+        - 旧版：中文列名（代码/名称），代码带 sh/sz 前缀 → 直接拆前缀；
+        - 新版（≥1.18.x）：英文列名（index_code/display_name），裸 6 位码无前缀
+          → 按交易所惯例归属（39 开头=SZ，其余=SH）；归属歧义由三源去重优先级
+          （csindex/cni 后到覆盖不可能——sina 优先，但归属错误风险已被
+          「名录仅收录指数、000xxx 沪 / 399xxx 深」的惯例约束收敛）。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.index_stock_info()
+            if df is None or df.empty:
+                return []
+            code_col = self._pick_col(df, ('index_code', '代码'))
+            name_col = self._pick_col(df, ('display_name', '名称', '简称'))
+            out = []
+            for _, row in df.iterrows():
+                raw = str(row[code_col]).strip().lower()
+                if not raw:
+                    continue
+                exchange = ''
+                if raw.startswith('sh'):
+                    exchange, index_code = 'SH', raw[2:]
+                elif raw.startswith('sz'):
+                    exchange, index_code = 'SZ', raw[2:]
+                elif len(raw) == 6 and raw.isdigit():
+                    # 新版裸码：39 开头为深交所指数，其余（000/880/950 等）归沪
+                    index_code = raw
+                    exchange = 'SZ' if raw.startswith('39') else 'SH'
+                else:
+                    index_code = raw
+                out.append(
+                    {
+                        'index_code': index_code,
+                        'name': str(row[name_col]).strip(),
+                        'exchange': exchange,
+                        'source': 'sina',
+                    }
+                )
+            return out
+        except Exception as e:
+            self.logger.warning(f'新浪指数名录获取失败: {e}')
+            return []
+
+    @staticmethod
+    def _pick_col(df, keywords: tuple) -> str:
+        """按子串匹配 DataFrame 列名（防 akshare 版本间列名漂移 + 控制台 mojibake 误判）。"""
+        for c in df.columns:
+            if any(k in str(c) for k in keywords):
+                return c
+        raise KeyError(f'未找到含 {keywords} 的列，实际列: {list(df.columns)}')
+
+    def fetch_index_catalog_csindex(self) -> List[dict]:
+        """中证指数官网全量名录（ak.index_csindex_all），#1365 三源合并之中证源。
+
+        中证专属代码唯一来源：930950（中证偏股基金）/932000（中证2000）/
+        000510（中证A500）等。exchange 记 'CSI' 作统一编码命名空间前缀。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.index_csindex_all()
+            if df is None or df.empty:
+                return []
+            code_col = self._pick_col(df, ('指数代码', '代码'))
+            name_col = self._pick_col(df, ('简称', '名称'))
+            return [
+                {
+                    'index_code': str(r[code_col]).strip().zfill(6),
+                    'name': str(r[name_col]).strip(),
+                    'exchange': 'CSI',
+                    'source': 'csindex',
+                }
+                for _, r in df.iterrows()
+                if str(r[code_col]).strip()
+            ]
+        except Exception as e:
+            self.logger.warning(f'中证指数名录获取失败: {e}')
+            return []
+
+    def fetch_etf_list(self) -> List[dict]:
+        """全市场 ETF 名录（ak.fund_etf_spot_em 的 代码/名称，#1285 §3.8）。
+
+        ⚠️ 该接口**不含「跟踪标的」字段**（2026-09-11 实测 1605 只全无），交易所 ETF
+        规模表同样无标的指数 —— 故跨渠道关联只能靠**名称匹配**（见 channel_link_job）。
+        返回 [{code, name}]，行情字段此处不用。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.fund_etf_spot_em()
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                code = str(self._cell(row, '代码') or '').strip()
+                name = str(self._cell(row, '名称') or '').strip()
+                if not code or not name:
+                    continue
+                out.append({'code': code, 'name': name})
+            self.logger.info(f'获取到 {len(out)} 只 ETF 名录')
+            return out
+        except Exception as e:
+            self.logger.error(f'获取 ETF 名录失败: {e}')
+            return []
+
+    def fetch_etf_list_ths(self) -> List[dict]:
+        """同花顺 ETF 名录（ak.fund_etf_category_ths「基金名称」= **基金全称**，#1413）。
+
+        为什么还要这一路：跨渠道关联靠名称匹配，而**匹配成败取决于文本源**
+        （2026-09-11 实测，见 services/sync/name_match.py docstring）——
+        东财 `fund_etf_spot_em` 给的是**交易所场内简称**（「通信ETF国泰」），指数名被压没了；
+        同花顺给的是**基金全称**（「国泰中证全指通信设备ETF」），保留完整指数名，
+        与 `index_catalog` 的名录才能对上。
+        实测覆盖率：东财简称 45.2% → 同花顺全称 89.0%（毛）/ 67.3%（过滤后落库口径）。
+
+        返回 [{code, name}]；查询失败返回空列表，由调用方回退东财简称（**不阻断**主链路）。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.fund_etf_category_ths(symbol='ETF基金')
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                code = str(self._cell(row, '基金代码') or '').strip()
+                name = str(self._cell(row, '基金名称') or '').strip()
+                if not code or not name:
+                    continue
+                out.append({'code': code, 'name': name})
+            self.logger.info(f'获取到 {len(out)} 只 ETF 全称名录（同花顺）')
+            return out
+        except Exception as e:
+            self.logger.warning(f'获取同花顺 ETF 名录失败（回退东财简称）: {e}')
+            return []
+
+    def fetch_index_valuation_csindex(self, index_code: str) -> List[dict]:
+        """中证指数**官方**估值（ak.stock_zh_index_value_csindex，#1285/#1394）。
+
+        读 csindex OSS 的 indicator.xls；免 cookie、按指数代码。官方列名为
+        「市盈率1 / 市盈率2 / 股息率1 / 股息率2」，**原样返回**不做主观口径改写
+        （口径提示见 IndexValuation 模型注释）。
+
+        注意：官方文件仅下发近约 20 个交易日，故本接口**不能**用于计算历史分位。
+        无估值文件的指数会抛错，由 Job 静默跳过。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.stock_zh_index_value_csindex(symbol=index_code)
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                d = self._parse_dividend_date(self._cell(row, '日期'))
+                if not d:
+                    continue
+                out.append(
+                    {
+                        'index_code': index_code,
+                        'index_name': str(self._cell(row, '指数中文简称', '指数中文全称') or ''),
+                        'trade_date': d,
+                        'pe_1': self._num(self._cell(row, '市盈率1')),
+                        'pe_2': self._num(self._cell(row, '市盈率2')),
+                        'dividend_yield_1': self._num(self._cell(row, '股息率1')),
+                        'dividend_yield_2': self._num(self._cell(row, '股息率2')),
+                        'source': 'csindex',
+                    }
+                )
+            return out
+        except Exception as e:
+            self.logger.warning(f'中证指数估值获取失败 {index_code}: {e}')
+            return []
+
+    def fetch_index_catalog_cni(self) -> List[dict]:
+        """国证指数官网全量名录（ak.index_all_cni），#1365 三源合并之国证源。
+
+        国证专属代码唯一来源：399303（国证2000）/399317（国证A指，
+        万得全A 881001 的权威免费替代）等。exchange 记 'CNI'。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.index_all_cni()
+            if df is None or df.empty:
+                return []
+            code_col = self._pick_col(df, ('指数代码', '代码'))
+            name_col = self._pick_col(df, ('简称', '名称'))
+            return [
+                {
+                    'index_code': str(r[code_col]).strip().zfill(6),
+                    'name': str(r[name_col]).strip(),
+                    'exchange': 'CNI',
+                    'source': 'cni',
+                }
+                for _, r in df.iterrows()
+                if str(r[code_col]).strip()
+            ]
+        except Exception as e:
+            self.logger.warning(f'国证指数名录获取失败: {e}')
+            return []
+
+    # ── 可转债条款（#1285 消费侧 / #1393） ──
+
+    @staticmethod
+    def _num(value) -> Optional[float]:
+        """宽松转 float，缺失/不可解析返回 None（区别于 _to_ratio 的 0.0 兜底）。"""
+        if value is None:
+            return None
+        s = str(value).strip()
+        if s in ('', 'nan', 'None', '--', '-'):
+            return None
+        try:
+            return float(s)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _int(value) -> Optional[int]:
+        """宽松转 int（强赎天计数等），缺失返回 None。"""
+        f = AkshareAdapter._num(value)
+        return int(f) if f is not None else None
+
+    @staticmethod
+    def _cell(row, *keys):
+        """按候选列名宽松取值（防 akshare 版本间列名漂移）；全缺返回 None。"""
+        for k in keys:
+            if k in row.index:
+                v = row[k]
+                if v is not None and str(v).strip() not in ('', 'nan', 'None', '--'):
+                    return v
+        return None
+
+    @staticmethod
+    def _parse_redeem_count(value):
+        """解析集思录强赎天计数，形如 `3/15 | 3` → (3, 15)：(已达天数, 触发所需天数)。"""
+        if value is None:
+            return (None, None)
+        m = re.search(r'(\d{1,2})\s*/\s*(\d{1,2})', str(value))
+        if m:
+            return (int(m.group(1)), int(m.group(2)))
+        return (AkshareAdapter._int(value), None)
+
+    def fetch_convertible_bond_redeem(self) -> List[dict]:
+        """集思录可转债强赎数据（ak.bond_cb_redeem_jsl）。
+
+        覆盖静态条款主集：现价、正股、规模 / 剩余规模、转股价、强赎触发价、
+        **强赎天计数**、强赎条款。返回键为 canonical 字段名，Job 负责归一 symbol。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.bond_cb_redeem_jsl()
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                code = str(self._cell(row, '代码', '转债代码') or '').strip()
+                if not code:
+                    continue
+                count, required = self._parse_redeem_count(self._cell(row, '强赎天计数'))
+                out.append(
+                    {
+                        'bond_code': code.zfill(6),
+                        'name': str(self._cell(row, '名称', '转债名称') or ''),
+                        'price': self._num(self._cell(row, '现价', '转债现价')),
+                        'stock_name': str(self._cell(row, '正股名称', '正股简称') or ''),
+                        'stock_code_raw': str(self._cell(row, '正股代码') or '').strip(),
+                        'issue_size': self._num(self._cell(row, '规模', '发行规模')),
+                        'remain_size': self._num(self._cell(row, '剩余规模')),
+                        'convert_price': self._num(self._cell(row, '转股价')),
+                        'force_redeem_price': self._num(self._cell(row, '强赎触发价')),
+                        'redeem_trigger_ratio': self._num(self._cell(row, '强赎触发比')),
+                        'redeem_count': count,
+                        'redeem_required': required,
+                        'redeem_status': str(self._cell(row, '强赎状态') or '') or None,
+                        'redeem_clause': str(self._cell(row, '强赎条款') or '') or None,
+                        # 集思录强赎接口直接给到期日 → 剩余年限可由前端/服务端现算，无需另找数据源
+                        'maturity_date': self._cell(row, '到期日'),
+                        'source': 'akshare_jsl',
+                    }
+                )
+            self.logger.info(f'获取到 {len(out)} 条可转债强赎数据')
+            return out
+        except Exception as e:
+            self.logger.error(f'获取可转债强赎数据失败: {e}')
+            return []
+
+    def fetch_convertible_bond_basic(self) -> List[dict]:
+        """可转债基本信息（ak.bond_zh_cov）：评级 / 到期日。
+
+        列名可能随 akshare 版本漂移，故宽松取列；缺失项返回 None，由 Job 与强赎
+        数据按 bond_code 合并（不强求齐全）。接口不可用时返回空，不影响主链路。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.bond_zh_cov()
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                code = str(self._cell(row, '债券代码', '转债代码', '代码') or '').strip()
+                if not code:
+                    continue
+                out.append(
+                    {
+                        'bond_code': code.zfill(6),
+                        'name': str(self._cell(row, '债券简称', '转债简称', '名称') or ''),
+                        # 东财 RPT_BOND_CB_LIST 列名（akshare 1.18.91 实测）
+                        'rating': self._cell(row, '信用评级', '债券评级'),
+                        'issue_size': self._num(self._cell(row, '发行规模')),
+                        'convert_price': self._num(self._cell(row, '转股价')),
+                        'convert_value': self._num(self._cell(row, '转股价值')),
+                        'premium_rate': self._num(self._cell(row, '转股溢价率')),
+                        'stock_name': str(self._cell(row, '正股简称', '正股名称') or ''),
+                        'stock_code_raw': str(self._cell(row, '正股代码') or '').strip(),
+                        'source': 'akshare_bond_zh_cov',
+                    }
+                )
+            self.logger.info(f'获取到 {len(out)} 条可转债基本信息')
+            return out
+        except Exception as e:
+            self.logger.warning(f'获取可转债基本信息失败: {e}')
             return []

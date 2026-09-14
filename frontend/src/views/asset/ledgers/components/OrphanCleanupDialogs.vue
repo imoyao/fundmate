@@ -383,9 +383,9 @@ async function handleOrphanCleanup() {
   --el-button-border-color: var(--color-danger-system);
   --el-button-hover-bg-color: var(--color-danger-system);
   --el-button-hover-border-color: var(--color-danger-system);
-  --el-button-hover-text-color: #fff;
+  --el-button-hover-text-color: var(--text-inverse);
   --el-button-active-bg-color: var(--color-danger-system);
   --el-button-active-border-color: var(--color-danger-system);
-  --el-button-active-text-color: #fff;
+  --el-button-active-text-color: var(--text-inverse);
 }
 </style>

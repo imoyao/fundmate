@@ -27,15 +27,18 @@ import argparse
 import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
-from loguru import logger
+# 将项目根目录（backend/）加入 Python 路径 —— 必须在 import app 之前（同
+# sync_metadata.py，#1366：原插入层级差一级且位于 import app 之后）。
+BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(BACKEND_DIR))
 
-from app.core.database import get_db, init_db
+from dotenv import load_dotenv  # noqa: E402
+from loguru import logger  # noqa: E402
 
-# 将项目根目录加入 Python 路径
-sys.path.insert(0, str(Path(__file__).parent.parent))
+from app.core.database import get_db, init_db  # noqa: E402
+
 # 加载 .env（backend/ 目录）
-env_path = Path(__file__).parent.parent.parent / '.env'
+env_path = BACKEND_DIR / '.env'
 load_dotenv(dotenv_path=env_path)
 
 

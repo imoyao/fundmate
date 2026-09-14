@@ -19,7 +19,7 @@ import pytest
 
 from app.core.money import Money
 from app.domains.ledgers.models import Ledger
-from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
+from app.domains.positions.models import FundCompanyObservation, Position, PositionImportMeta, SalesInstitution
 from app.services.importer.orchestrator import ImportOrchestrator
 from app.services.summary_service import get_summary_data
 
@@ -583,3 +583,53 @@ def test_reconcile_savepoint_rollback_single_row(db, monkeypatch):
     assert db.query(Position).filter_by(symbol=SYMBOL, family_id=1).count() == 0
     # 正常行落库（影子 + 渠道 active 各 1）
     assert db.query(Position).filter_by(symbol='022222', family_id=1).count() == 2
+
+
+# ── 基金公司观察值（导入侧证据，供 market 域 job 回填 funds.company_id）──
+#
+# 语义：导入路径**不得直写** market 域的 funds.company_id（双库边界 + 单一写者），
+# 只把样本里的「基金管理人」落到 user 域观察表；回填由 market 域 job 消费完成。
+
+
+def test_reconcile_records_fund_company_observation(db):
+    """对账落库时把「基金管理人」写进观察表（family 隔离、来源留痕）。"""
+    orch = ImportOrchestrator(db, family_id=1)
+    orch.reconcile_holdings([_row()])
+
+    rows = db.query(FundCompanyObservation).all()
+    assert len(rows) == 1
+    assert rows[0].fund_code == SYMBOL
+    assert rows[0].company_name == FUND_MANAGER
+    assert rows[0].family_id == 1
+    assert rows[0].source == 'e_account_holding'
+
+
+def test_reconcile_observation_upsert_not_duplicate(db):
+    """重复导入只保留一条观察值（按 family_id + fund_code upsert，与持仓生命周期解耦）。"""
+    orch = ImportOrchestrator(db, family_id=1)
+    orch.reconcile_holdings([_row()])
+    orch.reconcile_holdings([_row(quantity=1200.0)])
+
+    rows = db.query(FundCompanyObservation).filter_by(fund_code=SYMBOL).all()
+    assert len(rows) == 1
+
+
+def test_reconcile_ignores_blank_fund_manager(db):
+    """基金管理人为空的行不产生观察值（无证据可落，不落空串）。"""
+    orch = ImportOrchestrator(db, family_id=1)
+    orch.reconcile_holdings([_row(fund_manager='')])
+
+    assert db.query(FundCompanyObservation).count() == 0
+
+
+def test_commit_holdings_records_observation(db):
+    """通用快照导入路径同样落观察值（AI/OCR 导入与 E账户共用同一份证据表）。"""
+    ledger = _make_channel_ledger(db)
+    orch = ImportOrchestrator(db, family_id=1)
+    row = _row()
+    row['ledger_id'] = ledger.id
+    orch.commit_holdings([row])
+
+    rows = db.query(FundCompanyObservation).all()
+    assert len(rows) == 1
+    assert rows[0].company_name == FUND_MANAGER

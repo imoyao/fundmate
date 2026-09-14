@@ -12,6 +12,14 @@ from app.core.asset_types import ASSET_CATEGORY_LABELS, ASSET_TYPE_LABELS
 # 兼容历史 import：core/constants.TYPE_LABELS 曾为资产类型标签的别名，现统一指向 asset_types
 TYPE_LABELS = ASSET_TYPE_LABELS
 
+# ── 自选/搜索标的代码命名空间（#1286）──
+# 基金经理在 watchlist.symbol（及搜索 code）中统一表示为 'MGR_' + managers.mgr_code，
+# 与场内 SH/SZ 码、场外 6 位基金码、投顾组合平台原生码（ZHxxxx/CSIxxxx）隔离命名空间，
+# 防不同实体空间的代码碰撞。展示名解析须剥离该前缀回查 managers 表
+# （见 services/watchlist_service.lookup_manager / resolve_display_name 唯一实现），
+# 否则会把 sha256 派生码直接甩给用户。
+MANAGER_SYMBOL_PREFIX = 'MGR_'
+
 # ── 汇率（MVP 阶段硬编码，后续可迁移到数据库）──
 EXCHANGE_RATES = {
     'CNY': 1.0,
@@ -37,11 +45,22 @@ LEDGER_TYPE_LABELS = {
 }
 
 # ── 市场标签 ──
+# 兼容两套市场词表：securities 域的 CN_A/CN_HK/US/CRYPTO/COMMODITY 与
+# 交易所维度的 SH/SZ/HK/US（自选/前端展示用）。'' 为无市场实体
+# （基金经理/投顾组合，#1286）的约定取值。
 MARKET_LABELS = {
     'CN_A': 'A股',
     'CN_HK': '港股',
     'US': '美股',
     'CRYPTO': '虚拟币',
+    'SH': '沪市',
+    'SZ': '深市',
+    'HK': '港股',
+    'COMMODITY': '大宗商品',
+    # 指数名录三源合并（#1365）：中证/国证专属代码的命名空间前缀
+    'CSI': '中证',
+    'CNI': '国证',
+    '': '通用',
 }
 
 # ── 五笔钱 / 配置目标标签 ──
@@ -51,6 +70,15 @@ ALLOCATION_LABELS = {
     'longterm': '长期增值',
     'speculative': '高风险博弈',
     'security': '保险保障',
+}
+
+# ── 且慢「四笔钱」→ 五笔钱（ALLOCATION_LABELS）映射（#1468）──
+# 且慢组合自带的 活钱/稳钱/长钱 分类，映射到本系统 assets/positions 的 allocation 词表，
+# 避免为投顾组合另立一套并行分类。注册表 advisor_catalog 的 bucket 字段经此归一。
+QIEMAN_BUCKET_TO_ALLOCATION = {
+    '活钱': 'liquid',
+    '稳钱': 'stable',
+    '长钱': 'longterm',
 }
 
 # ── 通用资产大类标签 ──
@@ -126,6 +154,11 @@ OP_TYPE_LABEL = {
     'tax': '扣税',
     'other': '其他',
 }
+
+# ── 投顾组合调仓操作类型（#1167 / #1468）──
+# 天天基金 adjustList 的 operationInt 与且慢「快照序列推导」共用同一词表，为单一真相源；
+# 禁止在适配器 / job 内各自硬编码一份（历史上 adapter 与 scripts 各存过一份）。
+ADVISOR_ADJUST_OP_NAME = {1: '建仓', 2: '加仓', 3: '减仓', 4: '新增', 5: '持平'}
 
 
 # 批量导入常量定义

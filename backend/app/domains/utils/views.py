@@ -104,7 +104,7 @@ def get_enums():
         ASSET_TYPE_LABELS,
         INVESTMENT_MINOR_CATEGORIES,
     )
-    from app.core.constants import OP_TYPE_LABEL, POSITION_SOURCE_LABELS
+    from app.core.constants import MARKET_LABELS, OP_TYPE_LABEL, POSITION_SOURCE_LABELS
 
     return jsonify(
         {
@@ -115,6 +115,8 @@ def get_enums():
                 # #1354：投资理财下的细分子类（写 minor_category），前端禁止再建平级大类
                 'investment_minor': INVESTMENT_MINOR_CATEGORIES,
                 'op_type_labels': OP_TYPE_LABEL,
+                # #1286：市场码 → 中文标签（含无市场实体 '' → 通用）
+                'market': MARKET_LABELS,
             },
             'message': 'ok',
         }

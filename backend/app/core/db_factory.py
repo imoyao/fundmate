@@ -19,6 +19,7 @@ FLASK_DEBUG 仅控制调试器，不再混用作环境开关。
 from __future__ import annotations
 
 import os
+import urllib.parse
 from dataclasses import dataclass, field
 from typing import Dict, Optional
 
@@ -36,14 +37,66 @@ DOMAIN_USER = 'user'  # 用户核心账本库（Supabase，隐私数据，独立
 DOMAIN_MARKET = 'market'
 
 _DEFAULT_APP_DB = 'sqlite:///./invest.db'
-_DEFAULT_DEV_DB = 'sqlite:///./invest.dev.db'
+# development 缺省库：与 app 同文件——本地（含全新克隆、无 .env）只有一个 invest.db，
+# 既有数据零迁移。历史曾为独立 `invest.dev.db`，导致无 .env 的克隆另建一个空库、
+# 看不到 invest.db 里的存量数据；统一为 invest.db 后该坑消除。
+_DEFAULT_DEV_DB = 'sqlite:///./invest.db'
 
 
 def _development_user_url() -> str:
     """development 下 user 域 URL：显式配置 DEV_USER_DATABASE_URL 优先（独立库，
-    本地双库模拟）；未配置时与 market 域同库（DEV_DATABASE_URL，缺省 invest.dev.db）——
+    本地双库模拟）；未配置时与 market 域同库（DEV_DATABASE_URL，缺省 invest.db）——
     「默认放一起，显式配第二个库才分开」。"""
     return os.getenv('DEV_USER_DATABASE_URL') or os.getenv('DEV_DATABASE_URL') or _DEFAULT_DEV_DB
+
+
+def _normalize_db_url(url: str) -> tuple[str, Dict]:
+    """把 Turso / libSQL 连接串归一为 sqlalchemy-libsql 可解析的 scheme。
+
+    sqlalchemy-libsql 注册的方言是 `libsql` / `sqlite+libsql`，**不**认识裸
+    `turso://`、`libsql://` 乃至 `https://*.turso.io`——后者曾导致生产
+    `init_db()` 报 `NoSuchModuleError: sqlalchemy.dialects:turso`
+    （数据刷新 #7 / #1467）。
+
+    统一重写为 `sqlite+libsql://`，并把 Turso 下发的 `authToken` 从 query
+    提取到 connect_args（libsql 驱动要求以 connect arg 传入，而非 URL query）。
+
+    对 SQLite / Postgres 等非 Turso URL 原样返回，connect_args 为空字典。
+    本函数幂等：已是 `sqlite+libsql://` 的 URL 直接透传。
+    """
+    extra_connect_args: Dict = {}
+    parsed = urllib.parse.urlparse(url)
+    scheme = parsed.scheme.lower()
+
+    # 判定是否 Turso / libSQL 连接（裸 turso://、libsql://、或 https://*.turso.io）
+    is_turso = scheme in ('turso', 'libsql') or (scheme == 'https' and 'turso' in parsed.netloc.lower())
+    if not is_turso:
+        return url, extra_connect_args
+
+    # scheme 归一为 sqlalchemy-libsql 认识的 `sqlite+libsql://`
+    host_part = parsed.netloc + parsed.path
+    url = 'sqlite+libsql://' + host_part
+    if parsed.query:
+        # 提取 authToken 到 connect_args，避免 URL 上残留（libsql 要求 connect arg）
+        qp = urllib.parse.parse_qs(parsed.query)
+        token = qp.get('authToken') or qp.get('auth_token')
+        if token:
+            extra_connect_args['auth_token'] = token[0]
+        # 非认证参数（如 region=...）一律保留：#1491 评审——原实现只在存在 authToken 时
+        # 才把剩余 query 拼回，无 token 的 URL 上其余查询参数会被整体丢弃
+        remaining = {k: v for k, v in qp.items() if k not in ('authToken', 'auth_token')}
+        if remaining:
+            url += '?' + urllib.parse.urlencode(remaining, doseq=True)
+    return url, extra_connect_args
+
+
+def _needs_sqlite_pragmas(url: str) -> bool:
+    """仅本地 SQLite（`sqlite://` 文件 / 内存）需要 WAL / 外键 PRAGMA。
+
+    `sqlite+libsql://`（Turso 远端）不应应用本地 PRAGMA，否则会向远端发送
+    其不支持的 PRAGMA 语句而失败。
+    """
+    return url.startswith('sqlite') and 'libsql' not in url
 
 
 # --------------------------------------------------------------------------- #
@@ -54,8 +107,12 @@ def _development_user_url() -> str:
 # 归属判定见 AGENTS.md「多引擎数据域约束」决策树。
 #
 # 边界先例（已固化，勿凭"公开=Turso"一刀切）：
-#  - sales_institutions / fund_management_companies：公开名录，但被 user 域表
-#    (ledgers/positions) 外键引用 → 随 user 域，避反向跨域 FK。
+#  - sales_institutions：公开名录，但被 user 域表 (ledgers) 外键引用 → 随 user 域，
+#    避反向跨域 FK。
+#  - fund_companies：公司主数据，被 market 域表 (funds/managers) 外键引用 →
+#    随 market 域。AMAC 基金管理人公示信息 enrich 进本表（2026-09-10 合并），
+#    曾有独立的 fund_management_companies（user 域）——实测零读者/零外键/零接口，
+#    已删除。注意别再把它登记回来。
 #  - managers / fund_managers：被 market 域表 (funds) 外键引用 → 随 market 域。
 DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     # ── market 域（Turso）：公开、读多写少、无限膨胀的市场数据 ──
@@ -67,6 +124,15 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'managers': DOMAIN_MARKET,  # 基金管理人（被 funds 引用）
     'fund_managers': DOMAIN_MARKET,  # 基金-经理关联（被 funds 引用）
     'advisor_portfolios': DOMAIN_MARKET,  # 投顾/基金组合公开参照（且慢/蛋卷/天天基金）
+    'index_constituents': DOMAIN_MARKET,  # 指数成分股（#1286 品种差异化维度：指数→成分）
+    'index_catalog': DOMAIN_MARKET,  # 指数名录（#1286 聚合搜索可搜索的指数条目）
+    'index_daily': DOMAIN_MARKET,  # 指数日线点位（#275 基准对比底座，万得全A 经韭圈儿公开接口）
+    'index_valuations': DOMAIN_MARKET,  # 指数估值（#1285/#1394：市盈率/股息率，中证官方）
+    'channel_links': DOMAIN_MARKET,  # 跨渠道关联（#1285 §3.8：指数↔ETF / ETF↔联接）
+    'advisor_holdings': DOMAIN_MARKET,  # 投顾组合当前基金级持仓（#1167）
+    'advisor_industry_allocs': DOMAIN_MARKET,  # 投顾组合行业配置（#1167）
+    'advisor_adjust_histories': DOMAIN_MARKET,  # 投顾组合历史调仓明细（#1167）
+    'convertible_bond_terms': DOMAIN_MARKET,  # 可转债条款（#1285/#1393：强赎/回售/转股）
     'daily_worth': DOMAIN_MARKET,  # 基金净值（最大体积表）
     'money_fund_daily_worth': DOMAIN_MARKET,  # 货基净值
     'purchase_rules': DOMAIN_MARKET,
@@ -86,9 +152,13 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'positions': DOMAIN_USER,
     'transactions': DOMAIN_USER,
     'position_import_meta': DOMAIN_USER,  # 导入溯源（含 family_id）
+    # 导入侧观察值（基金→基金管理人原始证据，含 family_id）。含 family_id 故归 user 域：
+    # 它记录「某家庭导入的样本里出现某基金」，属用户私有数据，不落共享市场库。
+    # 消费方是 market 域 job（fund_company_backfill），按 AGENTS.md 规则 3「应用层两步法」
+    # 读取（先取键列表再 in_ 批查），不做跨域 JOIN；funds.company_id 仍由 market 域独占写权。
+    'fund_company_observations': DOMAIN_USER,
     'assets': DOMAIN_USER,  # 静态资产（含 family_id）
     'sales_institutions': DOMAIN_USER,  # 销售机构名录（被 ledgers 引用，随 user 域）
-    'fund_management_companies': DOMAIN_USER,  # 基金公司名录（被 positions 引用，随 user 域）
     'watchlist': DOMAIN_USER,
     'watchlist_groups': DOMAIN_USER,
     'watchlist_item_group': DOMAIN_USER,
@@ -234,14 +304,16 @@ class DatabaseFactory:
 
         assert cfg is not None, f'数据域 {domain} 无法解析连接配置'
 
+        url, extra_connect_args = _normalize_db_url(cfg.url)
+        connect_args = {**cfg.connect_args, **extra_connect_args}
         engine = create_engine(
-            cfg.url,
-            connect_args=cfg.connect_args,
+            url,
+            connect_args=connect_args,
             pool_pre_ping=cfg.pool_pre_ping,
             echo=cfg.echo,
         )
-        # 仅 SQLite 类驱动需要 PRAGMA（按 URL scheme 判断，避免污染 Postgres）
-        if str(cfg.url).startswith(('sqlite://', 'sqlite+')):
+        # 仅本地 SQLite 需要 PRAGMA（按 URL 判断，避免 libsql / Postgres 误用）
+        if _needs_sqlite_pragmas(url):
             _apply_sqlite_pragmas(engine)
         return engine
 
@@ -334,8 +406,9 @@ def user_session_factory() -> sessionmaker:
 
     单库/双库统一可用：
     - 配置了 SUPABASE_DATABASE_URL → 真 Supabase（最终验证 / 生产）。
-    - 未配置 → 自动回退本地 SQLite 文件（invest.user.dev.db），与 market 域
-      物理分离但零网络依赖，本地测试飞快。业务代码无需任何分支判断。
+    - 未配置 → development 下**默认与 market 域同库**（DEV_DATABASE_URL，缺省
+      invest.db，即本地单库）；只有显式配 DEV_USER_DATABASE_URL 才落到独立文件
+      （如 invest.user.dev.db，本地双库模拟）。业务代码无需任何分支判断。
     """
     eng = DatabaseFactory.create(DOMAIN_USER)
     return sessionmaker(autocommit=False, autoflush=False, bind=eng)

@@ -15,6 +15,14 @@ from app.core.db_factory import (
     DOMAIN_USER,
     DatabaseFactory,
 )
+from app.core.migrations import (
+    migrate_advisor_portfolio_metadata,
+    migrate_advisor_portfolio_metrics,
+    migrate_channel_link_indexes,
+    migrate_watchlist_family_scoped_unique_key,
+    migrate_watchlist_unique_key,
+    migrate_watchlist_venue_not_null,
+)
 
 # 保留历史符号：部分模块（如 sync/orchestrator 备份路径）仍引用，
 # 指向当前应用运行库的 URL，供文件库路径推断使用。
@@ -24,10 +32,11 @@ SQLALCHEMY_DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./invest.db')
 # dev -> 本地 SQLite；prod -> Turso（回退 DATABASE_URL）。见 db_factory。
 engine: Engine = DatabaseFactory.create(DOMAIN_APP)
 
-# user 域引擎：配置了 SUPABASE_DATABASE_URL 即真 Supabase；未配置自动回退本地
-# SQLite 文件（invest.user.dev.db），与 market 域物理分离但零网络依赖。
-# 单库模式下 user_engine 与 engine 指向同一库（如生产未配 Supabase 时回退到
-# 通用 DATABASE_URL 同库），此时双域表落在同一引擎，行为等价于旧单库。
+# user 域引擎：配置了 SUPABASE_DATABASE_URL 即真 Supabase；未配置则本地回退。
+# **development 默认与 market 同库**（DEV_DATABASE_URL，缺省 invest.db）——单库，
+# 本地既有数据零迁移；只有显式配 DEV_USER_DATABASE_URL 才拆独立文件（双库模拟）。
+# prod/staging 未配 Supabase 时回退 USER_DATABASE_URL（缺省与 DATABASE_URL 同库）。
+# 单库模式下 user_engine 与 engine 指向同一库，双域表落在同一引擎，等价于旧单库。
 # 注意：user_engine 是模块级全局，测试可经 monkeypatch 重定向到内存库（见 conftest）。
 user_engine: Engine = DatabaseFactory.create(DOMAIN_USER)
 
@@ -138,18 +147,19 @@ def get_engine(domain: str = DOMAIN_APP) -> Optional[Engine]:
     """按数据域取已缓存 engine（接缝：业务层后续按域路由）。
 
     - DOMAIN_APP：应用运行库（默认，市场域/非敏感数据）。
-    - DOMAIN_USER：用户核心账本库（Supabase，未配置返回 None，
-      表示仍走应用库兼容既有单库模式）。
+    - DOMAIN_USER：用户核心账本库。**永不返回 None**——未配 Supabase 时按
+      development 回退（默认与 market 同库，显式配 DEV_USER_DATABASE_URL 才独立），
+      其余环境回退 USER_DATABASE_URL。调用方无需判空。
     """
     return DatabaseFactory.create(domain)
 
 
 def get_user_sessionmaker() -> sessionmaker:
-    """用户库 SessionLocal（未配置 Supabase 时自动回退本地 SQLite 文件）。
+    """用户库 SessionLocal（未配 Supabase 时本地回退，永不返回 None）。
 
     单库/双库统一可用：配置了 SUPABASE_DATABASE_URL 即真 Supabase；
-    未配置则落本地 invest.user.dev.db，与 market 域物理隔离但零网络依赖。
-    调用方无需判断 None。
+    未配置则 development 下**默认与 market 同库**（缺省 invest.db，即单库），
+    显式配 DEV_USER_DATABASE_URL 才落到独立文件（双库模拟）。调用方无需判断空值。
     """
     user_engine = DatabaseFactory.create(DOMAIN_USER)
     return sessionmaker(autocommit=False, autoflush=False, bind=user_engine)
@@ -220,6 +230,13 @@ def init_db():
     for t in grouped[DOMAIN_MARKET]:
         t.to_metadata(market_meta)
     market_meta.create_all(bind=engine)
+    # 投顾组合指标列（#1392）：create_all 不替存量表加列，迁移须在结构校验前补齐，
+    # 否则 _validate_schema 会因模型列多于库表而报错阻断启动
+    migrate_advisor_portfolio_metrics(engine)
+    # 投顾组合策展元数据列（#1468）：波动率/夏普/配置目标/产品类型，同上须先于结构校验
+    migrate_advisor_portfolio_metadata(engine)
+    # channel_links.to_symbol 索引（#1491 评审）：create_all 只建新表、不给存量表加索引
+    migrate_channel_link_indexes(engine)
     _validate_schema(engine, market_meta, label='market')
     # user 域表 → 用户引擎
     user_meta = MetaData()
@@ -227,13 +244,21 @@ def init_db():
         t.to_metadata(user_meta)
     user_meta.create_all(bind=user_engine)
     _validate_schema(user_engine, user_meta, label='user')
+    # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键 (symbol, venue)
+    # → (symbol, market, venue) 防跨市场同码冲突。create_all 只增表不改表，旧库
+    # 仍停留旧约束会静默失效，故启动期按 user 域自动执行，幂等可重复跑。
+    # 先回填历史 NULL venue（否则唯一键对存量行失效），再迁唯一键；
+    # 最后补 family_id（#1491 评审阻断项：唯一键不含 family_id 会让其他家庭再也无法关注同一标的）
+    migrate_watchlist_venue_not_null(user_engine)
+    migrate_watchlist_unique_key(user_engine)
+    migrate_watchlist_family_scoped_unique_key(user_engine)
     _seed_default_identity()
 
 
 def init_db_split():
     """双库模式：按数据域分别 create_all 到对应 engine。
 
-    - market 引擎必配（本地 dev 为 invest.dev.db，生产为 Turso）。
+    - market 引擎必配（本地 dev 为 invest.db，生产为 Turso）。
     - user 引擎：配了 SUPABASE_DATABASE_URL 即 Supabase；本地 development 下
       显式配置 DEV_USER_DATABASE_URL 才是独立文件（本地双库模拟），未配置时
       与 market 共用同一本地库（默认单库，本地既有数据立即可见）。显式拆分时
@@ -264,6 +289,12 @@ def init_db_split():
     for t in grouped[DOMAIN_MARKET]:
         t.to_metadata(market_meta)
     market_meta.create_all(bind=app_eng)
+    # 投顾组合指标列（#1392）：迁移须在结构校验前补齐，否则 _validate_schema 报错阻断启动
+    migrate_advisor_portfolio_metrics(app_eng)
+    # 投顾组合策展元数据列（#1468）：波动率/夏普/配置目标/产品类型，同上须先于结构校验
+    migrate_advisor_portfolio_metadata(app_eng)
+    # channel_links.to_symbol 索引（#1491 评审）
+    migrate_channel_link_indexes(app_eng)
     _validate_schema(app_eng, market_meta, label='market')
     # user 域表 → 用户引擎（若已配置）
     if user_eng is not None:
@@ -272,6 +303,11 @@ def init_db_split():
             t.to_metadata(user_meta)
         user_meta.create_all(bind=user_eng)
         _validate_schema(user_eng, user_meta, label='user')
+        # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键回归基线，
+        # 双库模式同样按 user 域引擎自动执行，幂等。
+        migrate_watchlist_venue_not_null(user_eng)
+        migrate_watchlist_unique_key(user_eng)
+        migrate_watchlist_family_scoped_unique_key(user_eng)
     # 双库模式：种子必须落到 user 引擎（修复跨域 bug），bind 传 user_eng；
     # 未配 Supabase 时 user_eng 为本地回退文件，仍与 market 域隔离。
     _seed_default_identity(bind=user_eng)

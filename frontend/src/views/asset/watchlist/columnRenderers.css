@@ -27,12 +27,15 @@
    用户要求「标签见字」——此前 6px 实心色点只剩色块、无任何语义，已废弃（#1281 第二轮）。
    颜色为用户数据色（design.md「数据色例外」，缺失回退中性）；
    底纹/描边颜色由 renderer 以 inline style 注入（数据色例外，不走设计令牌）。
-   chip 宽度受限时内部省略，全名与「点击编辑」由 title 承载。 */
+   chip 宽度受限时内部省略，全名与「点击编辑」由 title 承载。
+   min-width 40px（2026-09-09）：radius-pill 在宽≈高（18px）时退化成正圆——
+   一两字短标签必须保住椭圆形态，居中收口避免文字偏左；长标签仍受 max-width 92px 省略。 */
 .el-table .tag-chip {
   display: inline-flex;
   flex-shrink: 1;
   align-items: center;
-  min-width: 0;
+  justify-content: center;
+  min-width: 40px;
   max-width: 92px;
   height: 18px;
   padding: 0 7px;
@@ -65,9 +68,11 @@
   outline-offset: 1px;
 }
 
-/* 超出展示上限的标签数折叠（+N）：纯文字弱化，title 列出全部标签名 */
+/* 超出展示上限的标签数折叠（+N）：纯文字弱化，title 列出全部标签名；
+   min-width 归零——+N 是计数徽记不是标签，不参与 40px 椭圆下限 */
 .el-table .tag-chip--more {
   flex-shrink: 0;
+  min-width: 0;
   max-width: none;
   padding: 0 2px;
   color: var(--text-tertiary);
@@ -122,4 +127,182 @@
 .el-table .add-tag-btn:focus-visible {
   outline: 1px solid var(--brand-400);
   outline-offset: 1px;
+}
+
+/* ── 投资笔记列（#1285）──
+   整格可点编辑：未填写时弱化「＋ 备注」入口（与 add-tag-btn 同视觉语言），
+   已填写时文本省略（title 看全文）且整格可点打开编辑弹窗。 */
+.el-table .note-cell {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.el-table .note-cell:hover {
+  color: var(--text-primary);
+}
+
+.el-table .add-note-btn {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+/* 空态「＋ 备注」入口：与「＋ 标签」**完全同款**的虚线胶囊——二者同为「行内新增入口」，
+   视觉语言必须一致；且同样默认 opacity:0，整行 hover / 键盘聚焦才显现。
+   （2026-09-11 用户反馈：原先常显，每个未填备注的行都挂一个「＋ 备注」，干扰观感。
+   仅空态如此；已填写备注时保持常显，见下方 .has-note——那是「此处有内容」的状态提示，
+   藏起来会丢信息，与「入口」不是一类东西。） */
+.el-table .add-note-btn:not(.has-note) {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-tertiary);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-pill);
+  opacity: 0;
+  transition:
+    opacity 150ms ease,
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+/* 整行 hover（含跨 fixed 列的 JS 驱动 .is-row-hovered）或键盘聚焦时才显现 */
+.el-table .el-table__row:hover .add-note-btn:not(.has-note),
+.el-table .is-row-hovered .add-note-btn:not(.has-note),
+.el-table .add-note-btn:focus-visible {
+  opacity: 1;
+}
+
+/* 触摸设备无 hover：入口默认可见，保证可发现 */
+@media (hover: none) {
+  .el-table .add-note-btn:not(.has-note) {
+    opacity: 1;
+  }
+}
+
+.el-table .add-note-btn:not(.has-note):hover {
+  color: var(--brand-700);
+  background-color: var(--brand-100);
+  border-color: var(--brand-400);
+}
+
+.el-table .add-note-btn:hover,
+.el-table .add-note-btn:focus-visible {
+  color: var(--brand-700);
+}
+
+.el-table .add-note-btn:focus-visible {
+  outline: 1px solid var(--brand-400);
+  outline-offset: 1px;
+}
+
+/* 已有备注：品牌色 + 下划虚线，提示「此处有内容可编辑」，与空态「＋ 备注」区分（常显） */
+.el-table .add-note-btn.has-note {
+  color: var(--brand-700);
+  border-bottom: 1px dashed var(--brand-400);
+}
+
+/* ── 可转债品类列（#1285/#1393）── */
+.el-table .bond-num {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.el-table .bond-empty {
+  color: var(--text-disabled);
+}
+
+.el-table .bond-rating {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* 强赎状态：文本可超列宽，省略并以 title 看全文；含「强赎」的状态用涨色高亮 */
+.el-table .bond-redeem {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.el-table .bond-redeem.is-urgent {
+  color: var(--color-rise);
+  font-weight: 500;
+}
+
+/* ── 指数估值列（#1285/#1394）── */
+.el-table .index-val {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.el-table .index-val-empty {
+  color: var(--text-disabled);
+}
+
+/* ── 基金最大回撤列（#1285/§3.10）── */
+.el-table .dd-val {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  /* 回撤是风险指标而非涨跌：用中性色，不套涨红跌绿（否则被误读为「今日下跌」） */
+  color: var(--text-primary);
+}
+
+.el-table .dd-empty {
+  color: var(--text-disabled);
+}
+
+/* ── 跨渠道关联列（#1285 §3.8）── */
+.el-table .link-badge {
+  display: inline-block;
+  padding: 0 6px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--brand-700);
+  background: var(--brand-50, var(--bg-soft));
+  border-radius: 9px;
+  cursor: default;
+}
+
+.el-table .link-empty {
+  color: var(--text-disabled);
+}
+
+/* ── 且慢组合补充列（#1468）── */
+/* 策略简介：单行省略，完整内容挂 title（列宽 200px 装不下整段简介） */
+.el-table .ellipsis-cell {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+/* 官方链接：用品牌色表达「可跳转」，不用涨红跌绿语义色 */
+.el-table .advisor-source-link {
+  color: var(--el-color-primary);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.el-table .advisor-source-link:hover {
+  text-decoration: underline;
 }

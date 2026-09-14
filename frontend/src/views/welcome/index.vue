@@ -1037,7 +1037,7 @@ onUnmounted(() => {
   font-size: 14px;
   font-weight: 500;
   line-height: 1;
-  color: #fff;
+  color: var(--text-inverse);
   white-space: nowrap;
   background-color: var(--brand-700);
   border-radius: var(--radius-pill);

@@ -181,7 +181,7 @@
 
     .el-menu-item.is-active.nest-menu > * {
       z-index: 1;
-      color: #fff;
+      color: var(--text-inverse);
     }
 
     .el-menu-item.is-active.nest-menu::before {
@@ -230,7 +230,7 @@
     /* 无子集的激活菜单背景 */
     .is-active.submenu-title-noDropdown.outer-most > * {
       z-index: 1;
-      color: #fff;
+      color: var(--text-inverse);
     }
 
     .is-active.submenu-title-noDropdown.outer-most::before {
@@ -294,7 +294,7 @@
 
     .el-menu-item.is-active.nest-menu > * {
       z-index: 1;
-      color: #fff;
+      color: var(--text-inverse);
     }
 
     .el-menu-item.is-active.nest-menu::before {
@@ -382,7 +382,7 @@
 
     .el-menu-item.is-active.nest-menu > * {
       z-index: 1;
-      color: #fff;
+      color: var(--text-inverse);
     }
 
     .el-menu-item.is-active.nest-menu::before {

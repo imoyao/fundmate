@@ -33,7 +33,7 @@ class TemperatureService:
 
     @classmethod
     def save_singles(cls, items: List[dict]) -> int:
-        """保存单值指标到数据库（新表 temperature_single_values）"""
+        """保存单值指标到数据库（`market_single_values` / MarketSingleValue）"""
         db = SessionLocal()
         try:
             count = 0
@@ -141,7 +141,7 @@ class TemperatureService:
 
     @classmethod
     def save_composites(cls, items: List[dict]) -> int:
-        """保存复合指标到数据库（新表 temperature_composites）"""
+        """保存复合指标到数据库（`market_composites` / MarketComposite）"""
         db = SessionLocal()
         try:
             count = 0
@@ -199,7 +199,7 @@ class TemperatureService:
     @classmethod
     def save_multi_items(cls, items: List[dict]) -> int:
         """
-        保存多维列表数据到数据库（新表 temperature_multi_items）
+        保存多维列表数据到数据库（`market_multi_items` / MarketMultiItem）
 
         兼容两种入参格式：
         1) 嵌套：{'source': 'bias', 'collected_at': datetime, 'items': [{每条一行}]}
@@ -448,12 +448,34 @@ class TemperatureService:
         # 4.3 B3: 综合温度环下方结论副文案（短/中/长期档位拼接）
         conclusion = cls._build_conclusion(bands)
 
-        # 5. 更新时间
+        # 5. 更新时间 + 数据新鲜度守卫（#1431：陈旧数据须显式提示，而非静默展示旧值）
         latest = db.query(MarketSingleValue).order_by(MarketSingleValue.collected_at.desc()).first()
         updated_at = latest.collected_at.strftime('%Y-%m-%d') if latest else today_shanghai().strftime('%Y-%m-%d')
 
+        # 三表取最大 collected_at 作为「全量温度数据的最新日期」
+        from app.services.thermometer.constants import FRESHNESS_THRESHOLD_DAYS
+
+        candidates = [
+            db.query(func.max(MarketSingleValue.collected_at)).scalar(),
+            db.query(func.max(MarketComposite.collected_at)).scalar(),
+            db.query(func.max(MarketMultiItem.collected_at)).scalar(),
+        ]
+        dates = [d for d in candidates if d is not None]
+        if dates:
+            latest_date = max(dates)
+            age_days = (today_shanghai() - latest_date).days
+        else:
+            latest_date, age_days = None, None
+        freshness = {
+            'latest': latest_date.isoformat() if latest_date else None,
+            'age_days': age_days,
+            'stale': bool(age_days is not None and age_days > FRESHNESS_THRESHOLD_DAYS),
+            'threshold_days': FRESHNESS_THRESHOLD_DAYS,
+        }
+
         return {
             'updated_at': updated_at,
+            'freshness': freshness,
             'singles': singles,
             'composites': composites,
             'multi': multi,

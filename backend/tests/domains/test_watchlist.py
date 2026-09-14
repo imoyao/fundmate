@@ -8,9 +8,11 @@ from datetime import date, timedelta
 
 from app.core.database import get_db
 from app.core.symbol_utils import get_normalizer
+from app.domains.funds.models import ChannelLink, FundCompany, Manager
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.watchlist.models import WatchlistItem
+from app.services.watchlist_service import lookup_manager, resolve_display_name
 
 normalizer = get_normalizer()
 
@@ -186,6 +188,86 @@ class TestWatchlistItemCRUD:
         assert isinstance(data2['type_label'], str)
         assert data2['type_label'] == 'mystery'
 
+    def test_enrich_advisor_metrics(self, client, db):
+        """#1392：投顾组合 enrich 输出区间收益/回撤/超额/集中度；非投顾标的恒为 None。
+
+        先建自选拿到归一化后的 symbol，再建 AdvisorPortfolio（code 对齐），最后经
+        GET /items/ 重新 enrich（POST 时 advisor 尚未落库），避免 symbol 归一化干扰。
+        """
+        from app.domains.funds.models import AdvisorHolding, AdvisorPortfolio
+
+        resp = _post(
+            client,
+            '/api/watchlist/items/',
+            {'symbol': 'ZH013136', 'venue': 'OTC', 'asset_type': 'portfolio'},
+        )
+        assert resp.status_code == 200
+        symbol = resp.get_json()['data']['symbol']
+
+        adv = AdvisorPortfolio(
+            code=symbol,
+            platform='QIEMAN',
+            name='测试组合',
+            strategy_type='均衡',
+            return_1w=1.23,
+            return_1m=-2.5,
+            return_1y=12.34,
+            return_ytd=5.6,
+            return_since_incep=30.1,
+            max_drawdown=-15.2,
+            excess_return=3.3,
+            benchmark='沪深300',
+        )
+        db.add(adv)
+        db.commit()
+        db.refresh(adv)
+        # 两个持仓各 50% → HHI = 2500 + 2500 = 5000.0
+        db.add(
+            AdvisorHolding(
+                portfolio_id=adv.id,
+                as_of_date=date.today(),
+                fund_code='000001',
+                after_ratio=50.0,
+                source='qieman_manual',
+            )
+        )
+        db.add(
+            AdvisorHolding(
+                portfolio_id=adv.id,
+                as_of_date=date.today(),
+                fund_code='000002',
+                after_ratio=50.0,
+                source='qieman_manual',
+            )
+        )
+        db.commit()
+
+        list_resp = _get(client, '/api/watchlist/items/')
+        item = next(i for i in list_resp.get_json()['data'] if i['symbol'] == symbol)
+        assert item['advisor_platform'] == 'QIEMAN'
+        assert item['return_1w'] == 1.23
+        assert item['return_1m'] == -2.5
+        assert item['return_1y'] == 12.34
+        assert item['return_ytd'] == 5.6
+        assert item['return_since_incep'] == 30.1
+        assert item['max_drawdown'] == -15.2
+        assert item['excess_return'] == 3.3
+        assert item['advisor_benchmark'] == '沪深300'
+        assert item['advisor_holding_count'] == 2
+        assert item['advisor_concentration'] == 5000.0
+
+        # 非投顾标的：指标恒为 None（不编造）
+        resp2 = _post(
+            client,
+            '/api/watchlist/items/',
+            {'symbol': 'SH600519', 'venue': 'EXCHANGE', 'asset_type': 'stock'},
+        )
+        assert resp2.status_code == 200
+        d2 = resp2.get_json()['data']
+        assert d2['return_1w'] is None
+        assert d2['advisor_holding_count'] is None
+        assert d2['advisor_concentration'] is None
+
     def test_add_item_standardize_sh(self, client, db):
         resp = _post(
             client,
@@ -310,6 +392,84 @@ class TestWatchlistItemCRUD:
         _post(client, '/api/watchlist/items/', {'symbol': 'AAPL', 'venue': 'EXCHANGE'})
         resp = _get(client, '/api/watchlist/items/', {'status': 'WATCHING'})
         assert len(resp.get_json()['data']) >= 2
+
+    def test_list_items_filter_by_asset_types(self, client, db):
+        """「类型」弹层多选（2026-09-09）：asset_types 逗号分隔小写枚举过滤，
+        历史大写行（STOCK）也须命中（lower 后比较）。"""
+        _post(client, '/api/watchlist/items/', {'symbol': 'SH600519', 'asset_type': 'stock', 'venue': 'EXCHANGE'})
+        _post(client, '/api/watchlist/items/', {'symbol': '001594', 'asset_type': 'fund'})
+        # 模拟历史大写残留行（#1171 归一前的旧数据）
+        with get_db() as db_:
+            legacy = WatchlistItem(symbol='OF.000001', market='CN_A', asset_type='FUND', venue='OTC', family_id=1)
+            db_.add(legacy)
+            db_.commit()
+
+        # 单类型：只命中基金行（含大写历史行）
+        resp = _get(client, '/api/watchlist/items/', {'asset_types': 'fund'})
+        symbols = {i['symbol'] for i in resp.get_json()['data']}
+        assert symbols == {'001594', 'OF.000001'}
+
+        # 多类型：股票 + 基金，逗号分隔
+        resp2 = _get(client, '/api/watchlist/items/', {'asset_types': 'stock,fund'})
+        symbols2 = {i['symbol'] for i in resp2.get_json()['data']}
+        assert 'SH600519' in symbols2 and '001594' in symbols2
+
+        # 大小写不敏感：大写枚举同样命中
+        resp3 = _get(client, '/api/watchlist/items/', {'asset_types': 'STOCK'})
+        symbols3 = {i['symbol'] for i in resp3.get_json()['data']}
+        assert symbols3 == {'SH600519'}
+
+    def test_list_items_manager_display_name(self, client, db):
+        """基金经理行（#1286 MGR_ 命名空间）：display_name 取 managers.name、
+        manager_company 取所属公司，绝不把 sha256 派生码甩给用户（2026-09-10 反馈）。
+
+        mgr_code 大小写不敏感——搜索侧原样输出、历史行混存大小写。
+        """
+        company = FundCompany(code='YFD', name='易方达基金管理有限公司')
+        db.add(company)
+        db.commit()
+        db.add(Manager(mgr_code='abcd1234efgh', name='张坤', company_id=company.id))
+        db.commit()
+
+        _post(client, '/api/watchlist/items/', {'symbol': 'MGR_abcd1234efgh', 'asset_type': 'manager'})
+
+        resp = _get(client, '/api/watchlist/items/')
+        # normalize_and_infer_venue 对 manager/portfolio 走非交易实体分支：symbol 统一大写存储
+        item = next(i for i in resp.get_json()['data'] if i['symbol'] == 'MGR_ABCD1234EFGH')
+        assert item['display_name'] == '张坤'
+        assert item['manager_company'] == '易方达基金管理有限公司'
+        assert item['type_label'] == '基金经理'
+
+        # 大写存储 + 大小写不敏感回查：两种写法都能命中
+        assert lookup_manager('MGR_ABCD1234EFGH', db).name == '张坤'
+        assert lookup_manager('MGR_abcd1234efgh', db).name == '张坤'
+        # 非经理符号不受影响
+        assert lookup_manager('SH600519', db) is None
+
+        # 展示名解析链单一实现：投顾/market 侧标的仍走各自分支，不被 Manager 分支劫持
+        assert resolve_display_name('MGR_abcd1234efgh', db) == '张坤'
+        assert resolve_display_name('MGR_UNKNOWNCODE00', db) == 'MGR_UNKNOWNCODE00'
+
+    def test_home_summary_shares_display_name_chain(self, client, app):
+        """首页自选摘要（/home-summary/）与列表页**共用**同一展示名解析链。
+
+        防回归：两条链曾各写一份实现，只有列表页补了 Manager/AdvisorPortfolio 分支，
+        导致列表页正常、首页自选组件对经理行仍显示 MGR_ 派生码，对投顾组合显示
+        ZHxxxx 原始码（2026-09-10 复盘：同一展示需求两处实现必然漂移）。
+        """
+        with get_db() as db:
+            company = FundCompany(code='ZOFC', name='中欧基金管理有限公司')
+            db.add(company)
+            db.commit()
+            db.add(Manager(mgr_code='2a175148a49a', name='蓝小康', company_id=company.id))
+            db.commit()
+            db.add(WatchlistItem(symbol='MGR_2A175148A49A', status='WATCHING', is_pinned=True, pinned_at=date.today()))
+            db.commit()
+
+        resp = client.get('/api/watchlist/home-summary/')
+        assert resp.status_code == 200
+        item = next(i for i in resp.get_json()['data'] if i['symbol'] == 'MGR_2A175148A49A')
+        assert item['display_name'] == '蓝小康'
 
     def test_list_items_pagination(self, client, db):
         """#1048 回归：后端按 page/per_page 切片，total 为真实总数（翻页非假按钮）。"""
@@ -568,15 +728,60 @@ class TestHoldingGroupRealPositions:
         assert body['total'] == 2
         symbols = {d['symbol'] for d in body['data']}
         assert symbols == {'SH600519', 'HK00700'}
-        # 虚拟行约定：id=None，行操作字段为空
-        for d in body['data']:
-            assert d['id'] is None
-            assert d['status'] == 'HOLDING'
-            assert d['is_pinned'] is False
-            assert d['favorite'] is False
-            assert d['group_ids'] == []
-            assert d['tag_ids'] == []
-            assert d['display_name'] in ('茅台', '腾讯')
+        by_symbol = {d['symbol']: d for d in body['data']}
+        # SH600519 已入自选 → 持仓行回填真实自选记录（id 非空，可打标签/备注）
+        maotai = by_symbol['SH600519']
+        assert maotai['id'] is not None
+        assert maotai['status'] == 'HOLDING'
+        assert maotai['is_pinned'] is False
+        assert maotai['favorite'] is False
+        assert maotai['group_ids'] == []
+        assert maotai['tag_ids'] == []
+        assert maotai['display_name'] == '茅台'
+        # HK00700 未入自选 → 仍是虚拟行（id=None，行操作禁用，前端据此提示一键加入）
+        tencent = by_symbol['HK00700']
+        assert tencent['id'] is None
+        assert tencent['status'] == 'HOLDING'
+        assert tencent['display_name'] == '腾讯'
+
+    def test_reconcile_creates_holding_items_and_gaps(self, client, db, make_position):
+        """持仓自动入自选：缺口检测 + 一键补齐 + 持仓行回填真实 id + 清仓降级。"""
+        make_position(
+            symbol='SH600519',
+            name='茅台',
+            asset_type='stock',
+            market='SH',
+            account_name='华泰',
+            quantity=100,
+            avg_price=18,
+            current_price=18,
+        )
+
+        # 缺口检测：有持仓但未入自选
+        gaps_resp = _get(client, '/api/watchlist/holding-gaps/')
+        assert gaps_resp.status_code == 200
+        assert gaps_resp.get_json()['count'] == 1
+        assert gaps_resp.get_json()['data'][0]['symbol'] == 'SH600519'
+
+        # 一键补齐
+        rec_resp = _post(client, '/api/watchlist/reconcile/', {})
+        assert rec_resp.status_code == 200
+        assert rec_resp.get_json()['data']['created'] == 1
+
+        # 补齐后无缺口
+        assert _get(client, '/api/watchlist/holding-gaps/').get_json()['count'] == 0
+
+        # 持仓分组该行现已回填真实自选记录（id 非空，可打标签/备注）
+        items_resp = _get(client, '/api/watchlist/items/', {'status': 'HOLDING'})
+        rows = {d['symbol']: d for d in items_resp.get_json()['data']}
+        assert rows['SH600519']['id'] is not None
+
+        # 仅观察、无持仓的 HOLDING 项应降级为 WATCHING（清仓后对齐）
+        db.add(WatchlistItem(symbol='HK00700', market='HK', status='HOLDING'))
+        db.commit()
+        _post(client, '/api/watchlist/reconcile/', {'demote': True})
+        demoted = db.query(WatchlistItem).filter_by(symbol='HK00700', market='HK').first()
+        assert demoted.status == 'WATCHING'
 
     def test_holding_group_aggregates_multi_account_symbol(self, client, db, make_position):
         """同一 symbol 多账户多行按 symbol 聚合为一行"""
@@ -887,6 +1092,90 @@ class TestAllGroupUnionPositions:
 
 
 # ─────────────── 用户列内排序（#991）纯函数测试 ───────────────
+class TestListItemsDeferredDisplayEnrich:
+    """列表接口「展示专用字段延后到分页之后」的不变式（性能改造）。
+
+    背景：展示专用 enrich（基金回撤 / 可转债条款 / 指数估值 / 跨渠道关联）按 symbol 逐行
+    查库，基金回撤还要扫 3 年 daily_worth 序列，实测占 `GET /items/` 总耗时约 55%。
+    它们**均不在 `_USER_SORTABLE_FIELDS` 白名单内**（排序不依赖），故改为
+    「先排序定序 → 分页 → 只对页内行补算」；`?fields=lite` 连页内行也跳过
+    （供前端全量拉取算估值汇总，汇总只消费价格/持仓/市值）。
+
+    本组用例锁死这两条，避免日后有人把耗时的 enricher 挪回基础 enrich 而悄悄回退性能。
+    """
+
+    @staticmethod
+    def _seed_index_with_link(db):
+        """指数自选行 + 一条 channel_links，作为「展示专用字段」的可观测探针。"""
+        db.add(WatchlistItem(symbol='SH000300', market='SH', asset_type='index', status='WATCHING'))
+        db.add(
+            ChannelLink(
+                link_type='index_etf',
+                from_symbol='000300',
+                to_symbol='510300',
+                from_name='沪深300',
+                to_name='沪深300ETF',
+                match_type='name_longest_core',
+                source='auto',
+            )
+        )
+        db.commit()
+
+    def test_page_rows_carry_display_only_fields(self, client, db):
+        """默认（非 lite）：页内行必须带上展示专用字段——延后补算不能漏算。"""
+        self._seed_index_with_link(db)
+
+        body = _get(client, '/api/watchlist/items/', {'page': 1, 'per_page': 20}).get_json()
+        row = next(d for d in body['data'] if d['symbol'] == 'SH000300')
+        assert row['link_count'] == 1
+        assert row['links'][0]['code'] == '510300'
+        assert row['links'][0]['link_type'] == 'index_etf'
+
+    def test_fields_lite_keeps_base_fields_and_skips_display_only(self, client, db):
+        """fields=lite：基础字段照常下发，展示专用字段不下发（避免为汇总白算）。"""
+        self._seed_index_with_link(db)
+
+        full = _get(client, '/api/watchlist/items/', {'per_page': 20}).get_json()['data'][0]
+        lite = _get(client, '/api/watchlist/items/', {'per_page': 20, 'fields': 'lite'}).get_json()['data'][0]
+
+        assert lite['symbol'] == full['symbol'] == 'SH000300'
+        assert lite['type_label'] == full['type_label']
+        assert lite['position_market_value'] == full['position_market_value']
+        assert lite['current_price'] == full['current_price']
+        # 展示专用字段：仅 full 下发
+        assert full['link_count'] == 1
+        assert lite.get('link_count') is None
+
+    def test_display_only_enrich_runs_only_for_page_rows(self, client, db, monkeypatch):
+        """只对页内行补算：page=2&per_page=1 时补算 1 行，而非全量 3 行；lite 则 0 行。
+
+        `_apply_deferred_display_fields` 正是耗时归属处，用它当观测点——一旦退化成
+        「全量行都算」（本次改造前的行为），本用例立即失败。
+        """
+        import app.domains.watchlist.views as wv
+
+        for i in range(3):
+            db.add(WatchlistItem(symbol=f'SH60000{i}', market='SH', asset_type='stock', status='WATCHING'))
+        db.commit()
+
+        calls: list[str] = []
+        original = wv._apply_deferred_display_fields
+
+        def spy(out, symbol, asset_type, db_):
+            calls.append(symbol)
+            return original(out, symbol, asset_type, db_)
+
+        monkeypatch.setattr(wv, '_apply_deferred_display_fields', spy)
+
+        body = _get(client, '/api/watchlist/items/', {'page': 2, 'per_page': 1}).get_json()
+        assert len(body['data']) == 1
+        assert calls == [body['data'][0]['symbol']]
+
+        calls.clear()
+        _get(client, '/api/watchlist/items/', {'page': 1, 'per_page': 1, 'fields': 'lite'})
+        assert calls == []
+
+
 class TestApplyUserSort:
     """_apply_user_sort：白名单校验 / 置顶前置 / None 恒排末尾 / 派生列现算"""
 

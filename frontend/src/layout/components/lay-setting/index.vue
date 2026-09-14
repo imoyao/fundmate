@@ -577,7 +577,7 @@ onUnmounted(() => removeMatchMedia);
           right: 0;
           width: 70%;
           height: 30%;
-          background: #fff;
+          background: var(--bg-card);
           box-shadow: 0 0 1px #888;
         }
       }
@@ -609,7 +609,7 @@ onUnmounted(() => removeMatchMedia);
           left: 0;
           width: 30%;
           height: 70%;
-          background: #fff;
+          background: var(--bg-card);
           box-shadow: 0 0 1px #888;
         }
       }

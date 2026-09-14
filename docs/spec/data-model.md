@@ -39,6 +39,51 @@ securities、funds、fund_companies、managers、fund_managers、daily_worth 全
 
 **精度规范**（v4.4）：`daily_worth.unit_nav` 和 `acc_nav` 改为 `DECIMAL(18,6)`，避免浮点误差。
 
+#### 5.4.1 基金公司主数据（fund_companies）语义与不变式
+
+**表定位**（market 域）：`FundCompany` 承载基金公司主数据，东财链路提供基础身份、AMAC 链路提供权威全称。
+
+| 字段 | 语义 |
+|------|------|
+| `code` | 东财 `jjjz_gs` 8 位代码 |
+| `name` | **简称**（界面默认展示） |
+| `full_name` | **AMAC 权威全称** |
+| `register_addr` / `office_addr` / `website` / `phone` / `is_active` | 来自 AMAC |
+
+> 死表 `fund_management_companies` 已并入本表并 DROP，禁止再登记或引用。
+
+**写入权归属（硬约束）**
+
+- **唯一写入口**：`services/sync/company_resolver.get_or_create_fund_company()`，由 4 个同步 job 共用。禁止各 job 自行构造 `FundCompany(name=...)`。
+- 配套函数：`normalize_company_name` / `company_business_family` / `match_fund_company`。
+- **不变式**：全仓**只有 1 处**写 `fund_companies.name`（建行时，无 UPDATE）→ 同步只建行、绝不改存量行；形态修复必须走显式脚本。
+- 字段写权分离：`name` / `code` / `scale` 归东财链路；`full_name` 与 AMAC 字段**仅 AMAC job 写**。
+
+**身份解析（`resolve_company_identity()`）**
+
+返回「（东财 code, 东财简称）」，匹配顺序：手动映射 → 东财原文名精确 → **归一化名 + 业务族**。
+
+> **归一化键必须带业务族**：东财名录含券商资管，若只按名称归一，会让「招商基金」与「招商证券资管」（同为键 `招商`）互相取错 code。
+
+**归并规则**
+
+- 简称行与全称行的**名称键永远收敛不了**（中邮 / 东方红 / 中银 / 浦银），典型形态是「简称行持经理、全称行持基金」。
+- 因此归并**必须用 code 兜底**；合并时须把冗余行的 AMAC 字段提升到规范行，否则会随冗余行 DROP 一起丢失。
+
+**与持仓链路的衔接**
+
+- E 账户导入**以 6 位基金代码定身份**；导入文件中的「基金名称」只落 `positions.name`（纯展示），「销售机构」经 `source_broker` 路由到 `sales_institution_id`。
+- **持仓 → 公司**链路：`positions.symbol → funds.fund_code → funds.company_id → fund_companies`，**不经过 fund_manager**。
+
+**已知设计态与遗留**
+
+- `position_import_meta.fund_manager` **全为 NULL 属设计使然**（影子记录的唯一匹配键 + 部分索引；归因到渠道后按设计置 NULL）。原值不可回溯（已扫遍 16 个库与备份）→ **「补 fund_manager FK」一项应取消**。
+- `fund_list_job` 对 `company_id` 的贡献**恒为 0**：`ak.fund_name_em()` 不返回公司名，其公司处理分支为死代码，且该 job 只增不改（docstring 谎报，见 #1402）。这是公司覆盖率仅 11% 的成因。
+- #1386 遗留：`中科沃土基金管理有限公司` 占位行**已拍板保留**；`国联证券资产管理` / `众盈基金` 无 AMAC 全称可用。
+- **直销 vs 代销**：基金管理人直销自家产品无需另行取得销售牌照（证监会令第175号第八条）→ **直销 = 基金公司本体**；独立成行的是基金公司设立的销售子公司（9 家）。当前**不建**「销售机构 ↔ 基金公司」关联表。
+
+**相关符号命名空间**：基金经理 `MGR_<mgr_code>`，投顾组合为平台原生码（`ZHxxxx` / `CSIxxxx`）。回查须**大小写不敏感**——实测 `managers.mgr_code` 存小写，等值匹配必漏查。
+
 ### 5.5 自选关注体系
 
 分组、标签、资产关联、异动提醒、清仓持仓快照，支撑用户自定义资产监控体系。

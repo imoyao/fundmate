@@ -67,7 +67,8 @@ def test_tables_by_domain_grouping():
 
     # 抽样核对关键边界先例
     assert DATA_DOMAIN_REGISTRY['sales_institutions'] == DOMAIN_USER
-    assert DATA_DOMAIN_REGISTRY['fund_management_companies'] == DOMAIN_USER
+    # 公司主数据唯一表在 market 域（fund_management_companies 已于 2026-09-10 合并删除）
+    assert DATA_DOMAIN_REGISTRY['fund_companies'] == DOMAIN_MARKET
     assert DATA_DOMAIN_REGISTRY['managers'] == DOMAIN_MARKET
     assert DATA_DOMAIN_REGISTRY['fund_managers'] == DOMAIN_MARKET
     assert DATA_DOMAIN_REGISTRY['funds'] == DOMAIN_MARKET
@@ -164,10 +165,11 @@ def test_init_db_split_builds_both_domains(monkeypatch):
 
 
 def test_local_fallback_uses_separate_user_database(monkeypatch, tmp_path):
-    """集成验证：未配 Supabase 时，market/user 自动落到两个独立本地 SQLite 文件。
+    """集成验证「本地双库模拟」：显式配 DEV_USER_DATABASE_URL 时，market/user 落到
+    两个独立本地 SQLite 文件，user 表不会混入 market 库文件。
 
-    对应「本地双库模拟」真实路径：清空引擎缓存 + 不设 SUPABASE_DATABASE_URL，
-    让 DatabaseFactory 走 for_user 回退逻辑，确认 user 表不会混入 market 库文件。
+    注意：独立库须显式配置 DEV_USER_DATABASE_URL，**不是**缺省行为（缺省单库，
+    见 test_development_bare_default_is_single_invest_db）。
     """
     monkeypatch.delenv('SUPABASE_DATABASE_URL', raising=False)
     monkeypatch.setenv('APP_ENV', 'development')
@@ -238,6 +240,29 @@ def test_seed_default_identity_split_mode_writes_to_user_engine(monkeypatch, tmp
             assert db.query(Family).filter_by(id=1).first() is None, (
                 'families 种子错误地写到了 market 引擎（跨域 bug 复发）'
             )
+
+
+def test_development_bare_default_is_single_invest_db(monkeypatch):
+    """development 下**完全未配置**任何库变量时，market 与 user 都缺省落到 invest.db。
+
+    防回归：缺省库名曾为独立的 `invest.dev.db`，导致无 `.env` 的全新克隆另建一个空库、
+    看不到既有 `invest.db` 里的数据（用户规则：本地默认只有一个 invest.db）。
+    本用例在「裸环境」下锁死缺省文件名。
+    """
+    for var in (
+        'SUPABASE_DATABASE_URL',
+        'DEV_FORCE_SUPABASE',
+        'DEV_DATABASE_URL',
+        'DEV_USER_DATABASE_URL',
+        'USER_DATABASE_URL',
+        'DATABASE_URL',
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+    common = db_factory._DEFAULT_DEV_DB
+    assert common == 'sqlite:///./invest.db'
+    assert db_factory.DatabaseConfig.for_app('development').url == common
+    assert db_factory.DatabaseConfig.for_user('development').url == common
 
 
 def test_development_without_user_url_shares_market_database(monkeypatch, tmp_path):

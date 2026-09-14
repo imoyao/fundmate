@@ -35,6 +35,8 @@ class JobStatus(Enum):
 BATCH_SIZE_DEFAULT = 50
 BATCH_SIZE_DETAIL_ENRICH = 50  # FundDetailEnrichJob 每批提交的基金数
 MAX_RETRIES = 3
+# in_ 查询分批大小：SQLite 变量上限防御（部分构建为 999）
+IN_CHUNK_SIZE = 900
 
 
 class SyncJob(ABC):
@@ -117,7 +119,12 @@ class SyncJob(ABC):
             return []
         col = getattr(model, unique_key)
         unique_values = [item[unique_key] for item in data]
-        existing = {row[0] for row in self.db.query(col).filter(col.in_(unique_values)).all()}
+        existing: set = set()
+        # 分批 in_ 查询：全量回填时唯一键可达数千上万（如经理 mgr_code），
+        # 单条 in_ 超 SQLite 变量上限直接 OperationalError（#1286 实测踩坑）
+        for i in range(0, len(unique_values), IN_CHUNK_SIZE):
+            chunk = unique_values[i : i + IN_CHUNK_SIZE]
+            existing.update(row[0] for row in self.db.query(col).filter(col.in_(chunk)).all())
         return [item for item in data if item[unique_key] not in existing]
 
     # ── 分批执行核心 ──

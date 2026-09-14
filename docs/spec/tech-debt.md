@@ -4,7 +4,7 @@ title: 技术债务与开口项明细（tech-debt）
 
 # 技术债务与开口项明细（tech-debt）
 
-> ⚠️ **易腐烂内容**：本文件随修复进展频繁变化。最后核实日期：**2026-08-14**。每条债务修复后，须将状态更新为"✅ 已修复"并注明版本号；请勿删除历史条目（保留可追溯）。
+> ⚠️ **易腐烂内容**：本文件随修复进展频繁变化。最后核实日期：**2026-09-10**。每条债务修复后，须将状态更新为"✅ 已修复"并注明版本号；请勿删除历史条目（保留可追溯）。
 >
 > **看板同步（2026-08-14）**：本文档技术债务已全量同步至 GitHub Project 看板（多多贝·投资账本 #3）并按四象限赋级——补登被引用但未进看板的 #796/#230/#507/#911；将 §1/§9–§12 中无 issue 编号的独立债务条目提升为 issue #948–#976 并赋象限；其余被引用的 issue（#821/#825/#869/#894/#898/#912/#913/#820/#824/#933/#934/#937/#947 等）统一补挂象限。交叉引用以 issue 编号为准。
 >
@@ -63,7 +63,7 @@ title: 技术债务与开口项明细（tech-debt）
 | **全站 footer 对齐问题（前端布局）** | 🟡 中 | `layout/components/lay-content/index.vue` 的 `.main-content`（内容区）与 `layout/components/lay-footer/index.vue` 的 `.app-footer__inner`（页脚内容）分属不同容器/坐标系，折叠侧边栏后两者左右边缘不对齐；页脚与内容未共用同一套 `max-width` + 居中 + 左右 padding 约束。 | **✅ 已修复 (2026-08-09 实证回填)**：`.main-content`（`index.scss:75-79`）与 `.app-footer__inner`（`lay-footer/index.vue:40-49`）已共用同一套宽度约束——`max-width: 1400px` + `margin: 0 auto` + 48px 左右 padding（`var(--space-12)`），折叠/展开侧边栏时左右边缘严格对齐；fixedHeader 模式下外层 `el-scrollbar` 容器（1440px）内再居中，留 20px 呼吸空间仍对齐。 |
 | **依赖升级引入样式/运行时回归风险（前端 `pnpm up`）** | 🟠 高 | 2026-08-03 执行 `pnpm up` 将前端依赖整体升级：element-plus 2.11.5→2.14.3、vue 3.5.22→3.5.40、tailwind 4.1→4.3、sass 1.93→1.102、vite 7.1→7.3、echarts 6、@vueuse/core 14.x 等。**未做充分回归（仅验证 typecheck 通过 + DEV 能起）**，升级后未重新人工核对各页面样式。典型症状：温度计/探市页 header/footer 样式在 DEV 下错乱（实为下面的「dev server 与磁盘依赖版本错位」所致，非 header/footer 代码改动）。header/footer 接入温度计/探市页为更早提交（`891868d`/`bc38d75`/`aa2fffa`），本次未改动。 | **待解决（2026-08-03 记录）**：升级后须对所有路由页做一轮样式回归（尤其 element-plus 2.11→2.14 的组件样式、tailwind v4 工具类、sass 1.93→1.102 混合宏）；建议固定本次升级为一次独立 commit，便于出问题时 `git revert` 二分定位。<br>**2026-08-04 更新**：随 OOM 修复一并完成了 ECharts 全量→按需引入改造（8 文件），typecheck 通过（无新增错误），但样式回归仍待人工核对。 |
 | **生产 `build` 因 OOM 失败（前端 vite 7）** | ~~🟠 高~~ **✅ 已修复 (2026-08-04)** | 2026-08-03 `pnpm run build` 直接 `JavaScript heap out of memory`（exit 1），`NODE_OPTIONS=--max-old-space-size=8192` 仍不足。疑似 vite 7 + 升级后依赖体积膨胀（echarts 6、element-plus 2.14 等）导致打包内存占用激增。该问题**不影响本地 DEV 看页面**，但阻塞生产部署与 Vercel 构建。 | **已修复（2026-08-04）**。经排查 OOM 由四因素叠加导致：① Rollup 无 `manualChunks` 分包；② ECharts 全量引入（8 处）；③ `@iconify/json` 巨型依赖（node_modules 超 200MB）；④ Element Plus 全量 CSS 引入。**详细修复记录见 `docs/working-notes/build-oom-fix-2026-08-04.md`**。**2026-08-04 最终验证**：`pnpm build` 成功（39.65s / 4.33 MB），补充安装 `@iconify-json/ri` 修复 login 页缺失 RemixIcon 图标。 |
-| **dev server 进程存活但磁盘 `node_modules` 已升级 → 版本错位** | 🟡 中 | 2026-08-03 升级依赖时，凌晨 1:20 启动的旧 vite dev server（PID 6756/15644，端口 8449）仍在运行，其加载的模块缓存为旧版本；而 `pnpm up` 已把磁盘 `node_modules` 换成新版本。进程与磁盘依赖版本错位 → HMR 下 CSS/组件样式错乱（用户「看到的样式又不对了」即此因）。非 header/footer 代码被改。 | **待解决（2026-08-03 记录）**：升级依赖后必须重启 dev server（杀旧进程 + 重新 `pnpm dev`），且 `dev` 脚本或服务编排应保证依赖变更时自动重启。当前本地旧进程需人工清理。 |
+| **dev server 进程存活但磁盘 `node_modules` 已升级 → 版本错位** | 🟡 中 | 2026-08-03 升级依赖时，凌晨 1:20 启动的旧 vite dev server（PID 6756/15644，端口 8449）仍在运行，其加载的模块缓存为旧版本；而 `pnpm up` 已把磁盘 `node_modules` 换成新版本。进程与磁盘依赖版本错位 → HMR 下 CSS/组件样式错乱（用户「看到的样式又不对了」即此因）。非 header/footer 代码被改。 | **已闭环（2026-09-11，#972）**：① 新增 vite 插件 `frontend/build/dep-drift-guard.ts`，监听 `pnpm-lock.yaml` / `package.json`，变更即 `server.restart(true)` 重建模块图与依赖预构建（去抖 300ms；`server.restart` 做能力探测 + try/catch，不可用/失败时退化为醒目告警要求手动重启，绝不阻断开发；`DISABLE_DEP_DRIFT_GUARD=1` 可关闭）。② AGENTS.md 常用前端命令下补「升级依赖后必须重启 dev server」提醒。<br>**实测（本机 vite 7.3.6）**：dev server 就绪 → 重写锁文件 → 日志出现「检测到依赖清单变化 / dev server 已重启」，重启前后 `curl` 均 200，无重启循环。<br>**残留**：插件只在 dev server 已运行时生效；若升级期间未开 dev server 则无所谓，若开了但插件被关闭（env）仍需人工重启。 |
 | **`pnpm-lock.yaml` 与实际安装版本不一致** | 🟡 中 | 2026-08-03 build 日志显示运行时解析到 `@vueuse/core@14.3.0`，但 `package.json` 写 `^14.4.0`（caret 范围内），且 lock 文件与本次 `pnpm up` 后的实际安装版本存在偏离嫌疑。lock 文件可信度存疑，可能导致「本地能跑、CI 装到不同版本」的不一致。 | **✅ 已一致 (2026-08-09 实证回填)**：`pnpm-lock.yaml` importers 段解析版本与 `package.json` specifier 吻合（vue 3.5.40、element-plus 2.14.3、vite 7.3.6、echarts 6.1.0 等），lock 文件已提交且无未提交 diff。剩余建议：CI 加 `pnpm install --frozen-lockfile` 校验。 |
 | **前端命名规范整理（参照 Pure Admin + Vue 官方）** | 🟡 中 | 早期前端代码粗糙，命名/类型组织不统一：`api/` 下 `any`/`Record<string, any>`/`object` 泛滥、API 函数命名不一致（`refreshTokenApi`/`getLogin`）、类型与实现混放、components 层级混用。2026-08-03 已先产出规范（`frontend-naming.md`）+ 不规范点清单（`frontend-naming-audit.md`），并按决策「保持现状不强制统一 views 目录形态」。 | **待逐条执行（2026-08-03 记录）**：P0 清 `any`（先对齐后端 `api/types.d.ts` 契约）→ P1（API 命名统一、类型集中、components 改目录组件）→ P2（utils/constants/config 边界）。详见 `frontend-naming-audit.md`，逐条改造需另行确认后执行。 |
 | **前端全量 TypeScript typecheck 修复（31→0 错误）** | ~~🟢 低~~ **✅ 已修复 (2026-08-04)** | 2026-08-03 先修复 8 个 A 类错误；2026-08-04 继续修复剩余 31 个错误直至 vue-tsc --noEmit 零错误。涉及 9 个文件，分为 5 类：① `DefaultRow` 类型不存在于 @pureadmin/table（9 处→any）；② Vue 3 模板中嵌套 Ref 不自动解包（8 处→as any）；③ API 接口缺失字段（5 处→补 optional）；④ API 响应类型不完整（1 处→any+注释）；⑤ 组件 props 类型不匹配（3 处→对齐源码定义）。详细记录见 `docs/working-notes/build-oom-fix-2026-08-04.md`。 | **已修复（2026-08-04）**：`vue-tsc --noEmit` 零错误；新增 `conventions.md` 第 6 章「TypeScript 编码强制约束」作为防回潮红线；pre-commit hook 已加入 `vue-tsc --noEmit` 门禁拦截。 |
@@ -104,7 +104,7 @@ title: 技术债务与开口项明细（tech-debt）
 | issue | 关闭判定 | 正文未勾选 / 残留项 | 登记位置 |
 |---|---|---|---|
 | #796 组合年化收益率 | 功能已交付 | ~~§8.3 的 11 个单测用例仅约 6/11 覆盖~~ **已于 2026-08-08 补齐**：新增单笔买入/单笔卖出/定投后全赎/部分卖出续持/资金转入转出与内部划转配对/极端收益率与 [-1,10] 区间截断/货基与逆回购排除 | `tests/services/performance/test_xirr_engine.py`（23 条全通过，NPV 相对残差断言等价「与 Excel 一致」） |
-| #661 自选功能 | 核心完成 | checklist 2 项 `[ ]`：自定义备注（支持分享）、品种不同描述维度不同 | 待产品明确后排期 |
+| #661 自选功能 | 核心完成 | checklist 1 项 `[ ]`：品种不同描述维度不同（备注编辑已在 #1285 落地、分享已砍） | 待 #1286 数据底座 / #1285 消费侧 |
 | #230 数据来源整合 | 整合框架完成 | 基金经理信息未同步、指数行情同步不可用 | 见 tech-debt 既有条目（基金经理信息未同步）+ `services/sync` |
 | #429 交割单导入 | 导入主体完成 | 导出→#819；天天基金无数据、卖出份额推算、模板导入查重 | 导出见 #819 |
 | #507 定时任务清单 | 笔记归档 | 待办（基金经理信息更新等）与 #229 重叠且未做 | 双向交叉引用 #229 |
@@ -183,6 +183,73 @@ title: 技术债务与开口项明细（tech-debt）
 
 **备注**：首页与 `/frontend` 应用站是两个独立站点，本条目仅针对首页落地页。
 
+## 16. 数据存储过度工程化审计（2026-09-10 · 依据 decisions D21）
+
+> 触发：`#1396`（全库 `funds.company_id` 覆盖率）讨论中，用户提出「记账软件的数据策略应是用户触达驱动，而非全库完整性驱动」，并要求审计代码中已存在的过度工程化。
+> 审计方法：本地真库（`backend/invest.db`，1.22 GB）行数/填充率实测 + 全仓 grep 读写方核实 + `sync_logs` 运行史核对。**全部结论均有 file:line 或 SQL 计数支撑。**
+> 处置约定：**本条只记录不修改代码**（`conventions.md` §16.3）。★ = 须另开 issue 跟踪。
+
+### 16.1 实测快照
+
+| 表 | 库内 | 用户实际触达 | 结论 |
+|---|---|---|---|
+| `funds` | 26,938 行 | **117 只**（`positions ∪ watchlist ∪ transactions` 去重 6 位码） | 99.6% 用不上 |
+| `daily_worth` | 7,539,287 行 / 3,427 只 | **112 只** | 96.7% 用不上 |
+| `money_fund_daily_worth` | 1,215,108 行 | — | 待评估 |
+| `fund_managers` | 34,809 行 | — | 全量关系 |
+| `index_constituents` | 7,514 行 | — | 全量成分 |
+
+`sync_logs` 单次运行实测：`fund_nav` → `total=357, success=1,198,302, duration=448s`（一次写 120 万行净值）；`fund_manager` → `total=34,809, 416s`；`index_daily` → `10 项, 100s`。
+
+### 16.2 发现清单
+
+| # | 位置 | 问题 | 严重性 | 处置 |
+|---|---|---|---|---|
+| 1 ★ | `services/sync/jobs/fund_meta_job.py:50,71-82` | `existing = {f.fund_code: f for f in self.db.query(Fund).all()}`（全库 26,938 条）后 `for code, fund in existing.items(): self.adapter.fetch_fund_top_holdings(code)` → `ak.fund_portfolio_hold_em` **真·逐只 HTTP**。docstring 却称「本地只存用户核心池，**不把全市场基金灌进库**」——与 `fund_list_job` 实际把全市场灌入 `funds` **互相矛盾**。`orchestrator.py:388` 以 `['__full__']` 调它。**因从未跑通才未引爆**：`scale`/`recent_shares`/`equity_position` 填充率全 0%，`sync_logs` 无 `fund_meta` 记录。一旦执行即撞东财限流。 | 🔴 限流炸弹 | ✅ 已闭环（#1403，2026-09-11）：拆为两个 job —— `fund_scale`（单次调用返回全市场列表，§4.3.3 允许全量）与 `fund_position`（逐只，仅核心池 + 硬上限 500；`__full__` 与空 targets **显式跳过**，不再退化全库） |
+| 2 | `services/cross_domain.py:95-104` | `_market_fetch` **忽略传入的 `_keys`**，`for f in db.query(Fund).all()` 把全库 26,938 个 ORM 实体加载进内存——与同函数上方注释「market_columns：预留，限定 market 侧取回的字段（**避免每次取全表**）」意图**完全相反**。**核实修正（勿沿用初判）**：全仓检索确认该模块**当前零生产调用方**（`backend/app/` 内除自身外无引用，仅 `tests/core/test_cross_domain.py` 使用），故**不是热路径缺陷，而是「零消费者的潜在炸弹」**——一旦有人按模块设计意图接入「自选 + 市场资料」联合查询，即为每次请求全表扫描。附带讽刺：该模块正是 2026-09-09 从 `services/common/`（当时被判为「为分层而分层」的空壳包）上提保留下来的，而它自身如今也成了无消费者的孤立模块。 | 🟡 潜在（无调用方） | ✅ 已修复（#1404）：抽出 `fetch_market_records_by_keys` 按 keys 过滤，不再全表加载。**仍无生产调用方**，接入前须复核 |
+| 3 | `services/sync/jobs/fund_list_job.py:50-87` | docstring「基金列表同步任务（**全量**）」实为只增不改（`_deduplicate_by_unique_key` 只保留库里不存在的新基金）。实测 `sync_logs`：`total=1, success=0, skipped=26,927`。名称 / 契约谎报误导后来人。 | 🟠 契约谎报 | ✅ 已闭环（#1402）：docstring 改为如实描述「只增不改」+ 测试锁定 |
+| 4 | `services/sync/jobs/fund_manager_job.py:37` | `codes = targets if targets else self._get_all_fund_codes()`——**空 targets 静默退化为全库**，与 `fund_detail_enrich_job`（空 targets 返回「无基金需要补充详情」）语义**相反**。注：该 job 走 `ak.fund_manager_em()` 一次全量 + 本地筛选，无速率风险，但语义陷阱须清除。 | 🟠 语义陷阱 | ✅ 已闭环（#1402）：语义写明「空 targets = 全量回填」+ 3 条测试锁定。**原判有误，见 §16.4** |
+| 5 | `domains/funds/models.py` | `funds` 表 22 列中 7 列填充率为 0%（`is_fe_charge` 100% 但全为默认值）。**原判「死列 / 零读者」有误**——2026-09-11 逐列复核后按**成因**分四类，处置各不相同：① **源不提供** `risk_level`（映射与写入代码均在位：`akshare_adapter.py:385-397` + `fund_detail_enrich_job.py:162`，但实测 `ak.fund_info_ths` 18 字段、`ak.fund_individual_basic_info_xq` 14 字段**均不含「风险等级」**；同 job 写的 `benchmark` 有 11.51% 填充率，证明 job 跑过）；② **回填链路未跑通** `scale` / `recent_shares` / `equity_position`（**是 #1285 明确要展示的「基金：规模 / 股票仓位」正式字段**，底座由 #1286 定义、#1358 落地模型，填充为空是因为回填 job 从未跑通，见本表第 1 条）；③ **v1 迁移遗留** `symbol_prefix` / `is_fe_charge`（v1 备份 `.backup-v1-2026-08-01/fundmate/data/dkhs/base.py` 内有真实取数逻辑，v2 换 akshare 后未接）；④ **功能未启用** `pinyin_full`（`fund_service.py:216` 搜索只用 `pinyin_abbr`）。 | 🟡 字段债 | ✅ 已结论（2026-09-11 用户拍板**全部保留**）：① 待换源或按投资类型估算后标注「估算」；② 由拆分后的 `fund_scale` / `fund_position` 回填；③④ 保留待用。**禁止按「0% 填充」直接删列**——同一条指标下四种成因的处置完全不同 |
+| 6 | 库内（非仓库） | **14 张游离表**不在 `DATA_DOMAIN_REGISTRY`：9 张修复脚本遗留备份（`positions_name_repair_backup_20260907` 126 行、`transactions_name_repair_backup_20260907` 1460 行、`transactions_qty_repair_backup_20260826` 66 行、`positions_backup`/`positions_backup_v2`/`assets_backup`/`positions_current_backup`/`assets_name_repair_backup_20260907`/`positions_qty_repair_backup_20260826`）、`sales_broker_mappings`（4 行，代码零引用）、`temperature_single_values`/`temperature_multi_items`/`temperature_composites`（0 行，已改名 `market_*` 后未清理）。 | 🟡 卫生 | 登记，清理须用户拍板 |
+| 7 | `services/thermometer/service.py:36,144,202` | docstring 仍写「保存单值指标到数据库（**新表 temperature_single_values**）」「（新表 temperature_composites）」「（新表 temperature_multi_items）」，实际写入 `MarketSingleValue`(`market_single_values`) / `MarketComposite` / `MarketMultiItem`。**注释漂移**。 | 🟡 注释 | ✅ 已闭环（#1404）：docstring 改为真实表名 `market_single_values` / `market_composites` / `market_multi_items` |
+| 8 ★ | `services/sync/orchestrator.py:341-358` | `_execute_job` 捕获 `job.run` 抛出的异常并返回 `{'status':'error'}`，但 `_save_sync_log` 只在 `run_job` 内部（:338）于 `job.run` **成功返回后**执行——**抛错时全链路无日志**。后果：`sync_logs` 仅有 10 个 `job_name`，`fund_meta`/`fund_type`/`index_catalog`/`convertible_bond`/`dividend_split`/`asset_snapshot`/`advisor_portfolio` 无任何记录，「某 job 到底跑没跑过」无法从日志回答。 | 🟠 可观测性 | ✅ 已闭环（#1402）：`_execute_job` 异常路径新增 `_save_error_sync_log` + 3 条边界测试 |
+
+### 16.3 制度性修复（已完成，另见）
+
+- 新建 [`data-strategy.md`](./data-strategy.md)（L1~L4 分层 + 数据准入四问 + 表/列/job 准入细则）。
+- `conventions.md` §16.2 增补**数据维度**条款（冻结区改动，依据 `decisions.md` D21）。
+- `AGENTS.md` 增「数据策略（按需存、禁止全量堆砌）」硬约束节，作为 PR 流程闸门。
+- `#1396` 验收口径收敛为「用户触达基金的公司解析率 ≥95%」，全库覆盖率移出验收。
+
+### 16.4 闭环记录：契约类三条（2026-09-11 · #1402）
+
+- **第 3 条（`fund_list` 契约谎报）**：docstring 由「基金列表同步任务（全量）」改为如实描述
+  「**只增不改 / insert-only**」，并新增测试 `test_existing_fund_is_not_updated` 锁定
+  「已存在基金的名称 / 类型 / 状态变更不会同步」。流程不变，仅消除误导。
+
+- **第 4 条（空 targets 语义）｜原判有误，特此更正**：原文称「空 targets 的正确语义是
+  『无需处理、跳过』」，并以 `fund_detail_enrich_job` 作对照。核实后该前提**不成立**：
+
+  - `fund_type_job._fetch_data` 的 docstring 明确写着「targets 为空（全量回填）时返回全部」；
+  - `base.run` 本就是按「`targets is None` → 子类自己获取全部数据（适用于全量列表 Job）」
+    设计的，源码注释同上；
+  - `fund_detail_enrich_job` 走**自定义 run 流程**，它继承的基类 `_fetch_data` 只是返回 `[]`
+    的占位实现，与 `fund_manager_job` **不可比**；
+  - `run_all_jobs` 传给 `fund_manager` 的是 `fund_targets` 列表——空列表在 `base.run` 的
+    `targets == []` 分支就已跳过，**根本流不到 `_fetch_data`**。「退化全库」只在
+    `targets is None`（CLI 直调，如 `pdm run sync --job fund_manager`）时可达，
+    而那正是设计中的全量回填路径。
+
+  故本次**只补文档与测试锁定，不改行为**。若按原文改成「跳过」，上述 CLI 调用会变成空操作，
+  属回归。三条测试（None→全量 / []→跳过不抓取 / 显式→只处理目标）已把三态钉死。
+
+- **第 8 条（异常无审计）**：`orchestrator` 新增 `_save_error_sync_log`，job 抛异常时同样落
+  `status=error` 行，`error_detail` 带原文，`data_source` 取自 job 适配器。防御三个边界：
+  `snapshot_time` 为 `None`（`started_at` 是 NOT NULL 列）、`job_name` 未注册（避免 KeyError
+  顶替原始异常）、审计自身写库失败（回滚并降级为日志，不掩盖真因）。
+
+---
+
 ## 2026-08-04 OOM 修复记录
 
     98:plainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplain
@@ -241,3 +308,26 @@ title: 技术债务与开口项明细（tech-debt）
    151|| 样式回归未做 | ECharts 功能不受影响（只是导入路径变化），但依赖升级带来的样式变化仍需人工核对 |
    152|| Element Plus 全量 CSS | 仍引入 ~800KB 全量 CSS，后续可优化 |
    153|| Build 最终验证 | 需用户本地执行 `pnpm run build` 确认通过（环境限制无法完整执行） |
+
+> ⚠️ **本行以上至「## 2026-08-04 OOM 修复记录」标题之间共 86 行（文件 158–243 行）已损坏**：整段是带行号前缀的粘贴产物——每行形如「行号 + 冒号/竖线 + 原文」，另有一行字面量为 `plainplainplain…`。原文并未丢失（剥掉行号前缀即可复原），但**渲染已完全失效**（标题、表格均不成立）。本轮未修（超出本次任务范围），修法见本节末段。
+
+## 2026-09-11 仓库治理：CI 守卫与合并门禁（修复 3 项 + 开口 1 项）
+
+触发：PR #1399 在「前端类型检查 + Lint + 构建」**红灯**（stylelint 报 1 条属性顺序）的状态下被合并进 `dev`，而仓库当时没有任何机制阻止。复核时另发现守卫本身是死代码。
+
+| # | 事项 | 状态 |
+|---|------|------|
+| 1 | `ci.yml` 的 `guard-direct-push` job 触发条件写的是 `branches: [M]` / `refs/heads/M`——`M` 是**早已随分支清理删除的历史分支**，该 job 自创建起**一次都没有运行过**，`main` 实际处于「无保护 + 无守卫」状态 | ✅ 已修复（改指 `main`，展示名与报错文案同步） |
+| 2 | `ci.yml` 的乱码守卫 job id 为 `mojibake-guard`（含连字符）——GitHub 表达式里 `needs.mojibake-guard` 会被解析成**减法**，既无法被别的 job 引用，也就无法纳入汇总结论 | ✅ 已修复（job id → `mojibake_guard`；展示名「乱码守卫 (mojibake)」不变，AGENTS.md §编码安全 引用文案同步） |
+| 3 | 合并门禁需要一个**单一权威** required check：直接 require `backend` / `frontend` 会在「本次未改该目录 → job 被 paths-filter 跳过」时产生 `skipped` 判定歧义，易出现「Expected 永远等待」把正常 PR 卡死 | ✅ 已落地（新增 `gate` job，display name「质量门禁汇总」；失败/取消即不通过，`skipped` 视为通过） |
+| 4 | **合并门禁的效力与仓库可见性强耦合**：required status check 由 GitHub branch protection 承载，**只在仓库为 public（或账户为付费计划）时生效**。若切回 private 且无付费计划，GitHub 会停用 protection，`质量门禁汇总` 随之消失——红灯**不再阻止合并**，门禁降级为「PR 上可见的信号」 | ⚠️ 开口项（平台约束，无代码解法） |
+
+第 4 项的缓解与判定口径：
+
+- 兜底守卫 `guard-direct-push`（拦直推 `main`）**与可见性无关**，任何状态下都生效；但**拦不住「红灯 PR 被点合并」**。
+- 因此 private 状态下唯一防线是**人工规则**：合并前必须确认 `质量门禁汇总` 为绿。该口径已写入 `AGENTS.md` 项目概述，避免「以为有门禁」的误判。
+- 长期私有化的两种正解：① 升级到含保护分支的付费计划；② 改走「合并后检出」守卫（`push` 到 `dev` 时回查该提交所属 PR 的检查结论，红灯则开 issue 并使 run 失败）——**当前不实施**：单人维护、红灯在 PR 页一眼可见，加检测器属过度工程。
+
+附：本文件 158–243 行的损坏段（见开头提示）与本轮治理无关，属既有残留，需专门清一次。建议修法二选一：① **机械剥离前缀**——每行去掉行首的「行号 + 冒号/竖线」，注意竖线场景下原行首的 `|` 要保留（否则表格列会丢）；② **从引入该段的提交重新取原文覆盖**（更稳，可避免剥离规则在边界行上出错）。**留待专门一次文档清理**，不与本轮治理混做。
+
+配套决策见 `docs/spec/decisions.md` 2026-09-11 行（D22）；授权变更见根 `LICENSE`、`README.md`「授权与使用限制」与 `AGENTS.md` 核心约束「授权与可见性」。

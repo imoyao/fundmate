@@ -118,7 +118,7 @@ function setFilter(key: string) {
 }
 
 .summary-tab.active .tab-count {
-  color: #fff;
+  color: var(--text-inverse);
   background: var(--color-primary);
 }
 </style>
