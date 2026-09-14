@@ -10,7 +10,7 @@
         <span class="bias-updated">更新：{{ date || "暂无" }}</span>
         <el-tooltip
           v-if="stale"
-          content="legulegu 数据源暂不可用，当前为最近一次成功计算的结果或占位提示，非实时数据，仅供参考。"
+          content="数据源（申万宏源官网 / legulegu）暂不可用，当前为最近一次成功计算的结果或占位提示，非实时数据，仅供参考。"
           placement="top"
         >
           <span class="bias-stale-pill">数据滞后</span>
@@ -72,11 +72,18 @@
       <!-- 成交额占比（历史百分位）：复用拥挤度配色与进度条语义，数据源降级为 null 时显示 -- -->
       <el-table-column
         prop="data.amount_pct_rank"
-        label="成交额占比"
         width="220"
         align="right"
         sortable
       >
+        <template #header>
+          <el-tooltip
+            content="该行业成交额占比在过去 250 个交易日内的百分位。默认由申万宏源官网单源自算（分母 = 当日 31 个申万一级行业成交额之和）；申万源不可用时回退中证指数官网口径（分母为中证全指），两种口径数值不可直接比较。"
+            placement="top"
+          >
+            <span>成交额占比</span>
+          </el-tooltip>
+        </template>
         <template #default="{ row }">
           <div class="crowding-cell">
             <span
@@ -133,6 +140,27 @@
           </div>
         </template>
       </el-table-column>
+      <!-- 行业乖离率 BIASn（简单 MA 口径，#1431）：正=偏离均线上方、负=下方。
+           与「行业乖离度排行」表的 LOGBIAS（对数 EMA20）口径不同，故分列展示、互不混淆 -->
+      <el-table-column
+        v-for="n in BIAS_WINDOWS"
+        :key="`bias${n}`"
+        :prop="`data.bias${n}`"
+        :label="`乖离${n}日`"
+        width="96"
+        align="right"
+        sortable
+      >
+        <template #default="{ row }">
+          <span :class="biasColorClass(row.data?.[`bias${n}`])">
+            {{
+              row.data?.[`bias${n}`] != null
+                ? formatValue(row.data[`bias${n}`]) + "%"
+                : "--"
+            }}
+          </span>
+        </template>
+      </el-table-column>
       <el-table-column
         prop="data.multiple"
         label="PB倍数"
@@ -182,8 +210,8 @@
       </el-table-column>
     </el-table>
     <div v-if="!items.length && !loading" class="empty-state">
-      行业拥挤度数据暂不可用（legulegu
-      数据源受限，本机运行一次建立历史缓存后自动恢复）。
+      行业拥挤度数据暂不可用（申万宏源官网与 legulegu
+      数据源均受限，本机运行一次建立缓存后自动恢复）。
     </div>
   </section>
 </template>
@@ -191,11 +219,16 @@
 <script setup lang="ts">
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import {
+  biasColorClass,
   crowdingBarStyle,
-  crowdingColorClass
+  crowdingColorClass,
+  formatValue
 } from "@/utils/temperatureFormat";
 
 defineOptions({ name: "CrowdingTable" });
+
+/** 行业乖离率窗口（简单 MA 口径，与后端 sw_industry_source.BIAS_WINDOWS 对齐） */
+const BIAS_WINDOWS = [6, 20, 60];
 
 withDefaults(
   defineProps<{

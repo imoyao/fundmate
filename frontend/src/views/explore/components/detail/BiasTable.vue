@@ -10,7 +10,7 @@
         <span class="bias-updated">更新：{{ date || "暂无" }}</span>
         <el-tooltip
           v-if="stale"
-          content="东财行情接口暂不可用，当前乖离率基于最近一次成功抓取的价格计算，非实时数据，仅供参考。"
+          content="行情源（申万宏源官网 / 腾讯）暂不可用，当前乖离率基于最近一次成功抓取的价格计算，非实时数据，仅供参考。"
           placement="top"
         >
           <span class="bias-stale-pill">数据滞后</span>
@@ -140,7 +140,7 @@ withDefaults(
     items: any[];
     /** 数据更新时间，空串显示「暂无」 */
     date?: string;
-    /** 数据是否滞后（东财行情接口不可用） */
+    /** 数据是否滞后（行情源不可用：申万宏源官网 / 腾讯 / 东财兜底） */
     stale?: boolean;
     /** 加载中（el-table v-loading） */
     loading?: boolean;
