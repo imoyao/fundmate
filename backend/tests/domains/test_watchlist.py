@@ -1681,9 +1681,7 @@ class TestNameSnapshot:
         """存量补写：已有自选行但快照为空时，买入路径顺手回填一次（只补不改）。"""
         from app.services.watchlist_service import ensure_watchlist_for_positions
 
-        db.add(
-            WatchlistItem(symbol='SH600519', market='CN_A', venue='EXCHANGE', status='WATCHING', family_id=1)
-        )
+        db.add(WatchlistItem(symbol='SH600519', market='CN_A', venue='EXCHANGE', status='WATCHING', family_id=1))
         db.add(
             Position(
                 symbol='SH600519',
@@ -1750,22 +1748,28 @@ class TestBiasProviderWatchlistProducts:
 
         db.add(
             WatchlistItem(
-                symbol='SH600519', name='贵州茅台', asset_type='stock',
-                market='CN_A', venue='EXCHANGE', family_id=1,
+                symbol='SH600519',
+                name='贵州茅台',
+                asset_type='stock',
+                market='CN_A',
+                venue='EXCHANGE',
+                family_id=1,
             )
         )
         # 其他家庭的标的不应混入
         db.add(
             WatchlistItem(
-                symbol='SZ000001', name='平安银行', asset_type='stock',
-                market='CN_A', venue='EXCHANGE', family_id=2,
+                symbol='SZ000001',
+                name='平安银行',
+                asset_type='stock',
+                market='CN_A',
+                venue='EXCHANGE',
+                family_id=2,
             )
         )
         db.commit()
 
-        rows = ProductProvider.get_user_products(
-            db, include_holdings=False, include_watchlist=True, family_id=1
-        )
+        rows = ProductProvider.get_user_products(db, include_holdings=False, include_watchlist=True, family_id=1)
         symbols = [s for s, _t, _n in rows]
         # 旧块会与 family 块各追加一次 → 重复；修复后每个 symbol 只出现一次
         assert symbols == ['SH600519']
