@@ -513,6 +513,39 @@ class TestWatchlistItemCRUD:
         # 回归点：此前这里是 'SZ159857'（代码），修复后为基金名
         assert item['display_name'] == '光伏ETF天弘'
 
+    def test_resolve_display_name_convertible_bond(self, client, db):
+        """可转债名取自 convertible_bond_terms（#1499）。
+
+        根因：`securities` 表**只装股票**，可转债不在其中；名称在
+        `convertible_bond_terms.name`。原解析链无此分支 → 名称退化成代码。
+        该表 symbol 与 watchlist.symbol 同构（SH110081 带前缀），等值匹配即可。
+        """
+        from app.domains.securities.models import ConvertibleBondTerm
+
+        db.add(ConvertibleBondTerm(symbol='SZ128100', bond_code='128100', name='搜特转债'))
+        db.add(ConvertibleBondTerm(symbol='SH110081', bond_code='110081', name='闻泰转债'))
+        db.commit()
+
+        assert resolve_display_name('SZ128100', db, 'bond') == '搜特转债'
+        assert resolve_display_name('SH110081', db, 'bond') == '闻泰转债'
+        # 不带 asset_type 也能命中（bond 分支不依赖类型，走 symbol 精确匹配）
+        assert resolve_display_name('SZ128100', db) == '搜特转债'
+        # 表中没有的转债仍回退 symbol，不编造
+        assert resolve_display_name('SZ999999', db, 'bond') == 'SZ999999'
+
+    def test_list_items_convertible_bond_display_name(self, client, db):
+        """端到端：#1499 自选列表里可转债名显示中文而非代码。"""
+        from app.domains.securities.models import ConvertibleBondTerm
+
+        db.add(ConvertibleBondTerm(symbol='SZ128100', bond_code='128100', name='搜特转债'))
+        db.commit()
+
+        _post(client, '/api/watchlist/items/', {'symbol': 'SZ128100', 'asset_type': 'bond', 'venue': 'EXCHANGE'})
+        resp = _get(client, '/api/watchlist/items/')
+        assert resp.status_code == 200
+        item = next(i for i in resp.get_json()['data'] if i['symbol'] == 'SZ128100')
+        assert item['display_name'] == '搜特转债'
+
     def test_home_summary_shares_display_name_chain(self, client, app):
         """首页自选摘要（/home-summary/）与列表页**共用**同一展示名解析链。
 

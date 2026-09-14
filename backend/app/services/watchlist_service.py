@@ -18,7 +18,7 @@ from app.core.symbol_utils import get_normalizer
 from app.domains.funds.models import AdvisorPortfolio, Fund, Manager
 from app.domains.indices.models import IndexCatalog
 from app.domains.positions.models import Position
-from app.domains.securities.models import Security
+from app.domains.securities.models import ConvertibleBondTerm, Security
 from app.domains.watchlist.models import WatchlistGroup, WatchlistItem, WatchlistItemGroup, WatchlistItemTag
 from app.services.async_backfill import trigger_backfill
 
@@ -222,6 +222,11 @@ def resolve_display_name(symbol: str, db: Session, asset_type: Optional[str] = N
 
     asset_type 缺省为 None（历史调用点未传）时仍走安全的保守顺序：裸码只补 funds，
     不动指数（指数语义靠调用方显式传 'index' 才启用，避免无类型信息时猜错）。
+
+    ── 可转债（#1499，2026-09-14）──
+    可转债名称在 `convertible_bond_terms.name`，而该表**曾被漏掉**（securities 只装股票）。
+    2026-09-14 前该表为 0 行（`convertible_bond` 同步任务从未跑），补分支后仍需数据落库
+    才生效——**代码与数据两端都到位，可转债名才不会退化成代码**。
     """
     mgr = lookup_manager(symbol, db)
     if mgr and mgr.name:
@@ -229,6 +234,13 @@ def resolve_display_name(symbol: str, db: Session, asset_type: Optional[str] = N
     sec = db.query(Security).filter_by(symbol=symbol).first()
     if sec and sec.name:
         return sec.name
+
+    # 可转债：名称在 convertible_bond_terms（symbol 同为 SH110081 带前缀形态，#1499）。
+    # securities 表**只装股票**，可转债不在其中 → 不补此分支名称必退化成代码。
+    # 该表 symbol 与 watchlist.symbol 同构（均 SH/SZ + 6 位），等值匹配即可，无需裸码回退。
+    bond = db.query(ConvertibleBondTerm).filter_by(symbol=symbol).first()
+    if bond and bond.name:
+        return bond.name
 
     # 指数：symbol 是 SH000906/CSI930950 形态，名称只在 index_catalog（按裸码存）。
     # 必须排在 funds 裸码回退之前——否则 SH000906 会被 funds 里的 000906 抢先命中（见 docstring）。
