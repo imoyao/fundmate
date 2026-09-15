@@ -168,7 +168,7 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[str], str], ...] = (
         # 投顾组合持仓/调仓快照（#1468）。target_kind 留 None 是刻意的：
         # 目标池是「组合代码」（ZHxxxx / LONG_WIN / 天天 combo），不是基金或股票代码，
         # resolve_targets() 只产 fund/stock 两类，强行套会拿到空列表。
-        # 留 None 后 job 内部 _resolve_targets 会回退库内全部在售的 TIANTIAN + QIEMAN 组合。
+        # 留 None 后 job 内部 _resolve_targets 会回退库内全部在售、且已有适配器的平台组合（#1392）。
         'advisor_portfolio',
         ENV_ADVISOR_ENABLED,
         ENV_ADVISOR_CRON,
