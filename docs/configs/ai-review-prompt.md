@@ -105,7 +105,7 @@
 
 - 金额与份额：业务代码**禁止**直接 `*100` 或 `/100`、禁止裸 `float` 运算；换算必须走 `core/money.py` 的 `Money`（`yuan_to_cents` / `shares_to_min_unit`）；净值用 `DECIMAL(18,6)`。
 - `Money` 仅用于**业务层的金额与份额换算**；**数据库列仍是 `Integer`**（金额按「分」、份额按「0.0001 份」存整数，见 `Position.quantity` / `avg_price` / `current_price`、`Asset.amount`）。**不要**建议把 `Integer` 列或测试 fixture 值改成 `Money` 类型。
-- 日志：统一 `from loguru import logger`；**禁止**新增 `import logging` 加 `logging.getLogger`（唯一例外 `app/__init__.py` 的 `InterceptHandler`）。loguru **必须**用 `{}` 占位符（`logger.warning('... {} ...', x)`）；`%s` 与 `%d` 不会被替换、参数被静默丢弃，见到即以 [次要] 提出并给出 `{}` 写法。
+- 日志：统一 `from loguru import logger`；**禁止**新增 `import logging` 加 `logging.getLogger`（唯一例外 `app/__init__.py` 的 `InterceptHandler`）。**统一使用 f-string 插值**（`logger.warning(f'... {x} ...')`）——与仓内现状（f-string 约 280 处 vs `{}` 占位符约 30 处）及 `docs/working-notes/pr1362-review-closure-2026-09-09.md` 的有意决策一致。`%s` / `%d` 传参式（如 `logger.warning('%s', x)`）会被 loguru 静默丢弃参数、输出字面 `%s`，见到即以 [次要] 提出并给出 f-string 写法。`{}` 占位符 loguru 亦原生支持，但非项目主流风格，不强制、也不以此为由提意见。
 - API 错误统一 `{data, message, error_code}` 信封；端点尾斜杠约定见维度 3。
 - **禁止**新增 `backend.fundmate` 引用（V1 已退役）；`backend/pyproject.toml` 的项目名 `showbuy` 是历史遗留，勿据此判断归属。
 - 测试：用 `tests/conftest.py` 夹具，**禁止**直接导入 `SessionLocal`；`pypinyin` 必须延迟导入。
