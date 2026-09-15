@@ -48,6 +48,10 @@ ASSET_TYPE_LABELS: dict[str, str] = {
     'liability': '负债',
 }
 
+# asset_type 合法取值集合（权威校验源，与上方标签映射同源，禁止手抄第二份）。
+# 用于写入校验（ORM @validates / pydantic）与前端共用（经 /api/utils/enums 下发）。
+ASSET_TYPE_VALUES: tuple[str, ...] = tuple(ASSET_TYPE_LABELS.keys())
+
 # ── 资产大类（major_category）标签：唯一权威映射 ──
 ASSET_CATEGORY_LABELS: dict[str, str] = {
     'cash': '流动资金',
@@ -126,3 +130,30 @@ def get_investment_minor_label(minor_category: str | None) -> str:
     if not minor_category:
         return ''
     return INVESTMENT_MINOR_CATEGORIES.get(minor_category, minor_category)
+
+
+def is_valid_asset_type(asset_type: str | None) -> bool:
+    """asset_type 是否合法（大小写不敏感，命中 ASSET_TYPE_VALUES）。空值视为不合法。"""
+    if not asset_type:
+        return False
+    return asset_type.lower() in ASSET_TYPE_LABELS
+
+
+def normalize_asset_type(asset_type: str | None) -> str | None:
+    """asset_type 规范化为小写（大小写不敏感）；空值原样返回；非空非法抛 ValueError。
+
+    供 ORM @validates 与 pydantic field_validator 共用（#1527）。系统读取 / 过滤端已统一
+    .lower()，此处写时归一可彻底消除大小写漂移，兼容历史大写存量行（#1171 归一前旧数据）。
+    """
+    if not asset_type:
+        return asset_type
+    lowered = asset_type.lower()
+    if lowered not in ASSET_TYPE_LABELS:
+        raise ValueError(
+            f'非法 asset_type: {asset_type!r}，应为 core/asset_types.ASSET_TYPE_VALUES 之一'
+        )
+    return lowered
+
+
+# 兼容别名：校验即规范化（大小写不敏感）
+validate_asset_type = normalize_asset_type
