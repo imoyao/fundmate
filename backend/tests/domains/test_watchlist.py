@@ -172,21 +172,19 @@ class TestWatchlistItemCRUD:
         assert resp.status_code == 200
         data = resp.get_json()['data']
         # type_label 与 asset_type 经 TYPE_LABELS 单一来源收口一致；
-        # 未命中时回落为 asset_type 本身（字符串），asset_type 为空才回落空串
+        # 合法值命中标签，空值回落空串。#1527 后新写入已封死未知值，
+        # 这里的 fallback 仅服务于历史存量数据。
         assert data['type_label'] == TYPE_LABELS.get(data['asset_type'])
         assert isinstance(data['type_label'], str)
 
-        # 未知/缺失 asset_type：TYPE_LABELS 未命中时回落为 asset_type 本身（字符串，非 None），
-        # 前端「资产类型」列恒显示字符串、不出现 None（回应 review：断言需覆盖其他取值）
+        # #1527：未知 asset_type 纳入白名单约束，API 入口直接 422 拒绝，
+        # 不再「回退为原字符串」兜底——收掉此前 review 标注的 TODO，封死随手乱编的口子。
         resp2 = _post(
             client,
             '/api/watchlist/items/',
             {'symbol': '999999', 'name': '未知类型标的', 'venue': 'EXCHANGE', 'asset_type': 'mystery'},
         )
-        assert resp2.status_code == 200
-        data2 = resp2.get_json()['data']
-        assert isinstance(data2['type_label'], str)
-        assert data2['type_label'] == 'mystery'
+        assert resp2.status_code == 422
 
     def test_enrich_advisor_metrics(self, client, db):
         """#1392：投顾组合 enrich 输出区间收益/回撤/超额/集中度；非投顾标的恒为 None。
@@ -1774,3 +1772,34 @@ class TestBiasProviderWatchlistProducts:
         # 旧块会与 family 块各追加一次 → 重复；修复后每个 symbol 只出现一次
         assert symbols == ['SH600519']
         assert rows[0][2] == '贵州茅台'  # 名称来自快照而非 symbol 兜底
+
+
+# ─────────────── #1527 asset_type 强约束 ───────────────
+class TestWatchlistAssetTypeConstraint:
+    def test_add_item_rejects_unknown_asset_type(self, client):
+        """非法 asset_type 必须在 API 入口被 pydantic 校验拒绝（422）。"""
+        resp = _post(
+            client,
+            '/api/watchlist/items/',
+            {'symbol': 'SH600519', 'asset_type': 'not_a_type', 'venue': 'EXCHANGE'},
+        )
+        assert resp.status_code == 422
+
+    def test_add_item_accepts_known_asset_type(self, client):
+        """合法 asset_type 正常落库，行为不倒退。"""
+        resp = _post(
+            client,
+            '/api/watchlist/items/',
+            {'symbol': 'SH600519', 'asset_type': 'stock', 'venue': 'EXCHANGE'},
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()['data']['asset_type'] == 'stock'
+
+    def test_add_item_empty_asset_type_allowed(self, client):
+        """空 asset_type 兼容存量/可选（不传则放行，读取端走反查链）。"""
+        resp = _post(
+            client,
+            '/api/watchlist/items/',
+            {'symbol': 'SH600519', 'venue': 'EXCHANGE'},
+        )
+        assert resp.status_code == 200
