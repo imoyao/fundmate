@@ -9,6 +9,7 @@
 """
 
 import pytest
+from loguru import logger
 from sqlalchemy import MetaData
 
 # 触发全部域模型注册到 Base.metadata（conftest 未覆盖的域在此补导入）
@@ -53,7 +54,11 @@ def test_all_model_tables_registered_in_registry():
 
 
 def test_no_orphan_registry_entries():
-    """注册表不应有"模型未定义却登记"的孤儿（提示文档/代码漂移）。"""
+    """注册表不应有"模型未定义却登记"的孤儿（提示文档/代码漂移）。
+
+    本测试运行前已由模块顶部 import 灌满 Base.metadata，故 orphan 判据成立；
+    未导入全量模型的进程（CLI / 定时任务）不能用这个判据，见 #1521。
+    """
     model_tables = set(Base.metadata.tables.keys())
     orphan = sorted(set(DATA_DOMAIN_REGISTRY) - model_tables - set(db_factory.PENDING_DOMAIN_REGISTRY))
     assert orphan == [], f'注册表存在孤儿表（模型未定义）：{orphan}'
@@ -80,6 +85,51 @@ def test_tables_by_domain_grouping():
 def test_validate_domain_labels_passes_on_real_metadata():
     """启动断言对真实 metadata 应通过（不抛异常）。"""
     DatabaseFactory.validate_domain_labels(Base.metadata)
+
+
+def test_classify_registry_orphans_splits_by_source_definition():
+    """分类：源码里有定义 → 仅未导入；源码里找不到 → 疑似已删除（#1521）。
+
+    空 metadata 模拟「本进程一个模型都没导入」的极端情形（等价于 CLI / 定时任务只导入部分模型），
+    注册表全部条目都进 orphan，此时分类完全由源码决定。
+    """
+    fake_source = "__tablename__ = 'funds'\n__tablename__ = 'positions'\n"
+    not_imported, missing = DatabaseFactory.classify_registry_orphans(MetaData(), source_text=fake_source)
+
+    assert 'funds' in not_imported and 'positions' in not_imported
+    # 其余已登记表在 fake_source 里没有定义，应判为可疑孤儿
+    assert missing, '源码中找不到的表应判为 missing_in_source'
+    assert not (set(not_imported) & set(missing))
+    # user_audit_log 是 PENDING 项，不参与孤儿判定
+    assert 'user_audit_log' not in not_imported and 'user_audit_log' not in missing
+
+
+def test_classify_registry_orphans_no_false_alarm_on_real_source():
+    """核心验收（#1521）：源码仍在的表，不得被判成『模型已删除』。"""
+    _, missing = DatabaseFactory.classify_registry_orphans(MetaData())
+    assert missing == [], f'源码中仍有模型定义却被判为孤儿（误报）：{missing}'
+
+
+def test_classify_registry_orphans_unreadable_source_never_reports_missing(monkeypatch):
+    """读不到源码时按『未知』处理：全部归为未导入，绝不反推模型已删除。"""
+    monkeypatch.setattr(db_factory, '_model_source_text', lambda: None)
+    not_imported, missing = DatabaseFactory.classify_registry_orphans(MetaData())
+    assert missing == []
+    assert not_imported, '未知情形下应把全部 orphan 归为未导入'
+
+
+def test_validate_domain_labels_only_warns_on_missing_model():
+    """只导入部分模型时不得产生 warning（旧版误报为『模型未定义』，#1521）。"""
+    records: list = []
+    handler_id = logger.add(lambda m: records.append(m), level='INFO', format='{level.name}|{message}')
+    try:
+        DatabaseFactory.validate_domain_labels(MetaData())
+    finally:
+        logger.remove(handler_id)
+
+    warnings = [r for r in records if r.startswith('WARNING')]
+    assert warnings == [], f'未导入模型不应产生 warning：{warnings}'
+    assert any('未 import' in r for r in records), '应有一条 info 说明这些表只是本进程未导入'
 
 
 def test_market_session_factory_usable(monkeypatch):

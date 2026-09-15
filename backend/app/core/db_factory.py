@@ -21,7 +21,8 @@ from __future__ import annotations
 import os
 import urllib.parse
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from pathlib import Path
+from typing import Dict, Optional, Tuple
 
 from loguru import logger
 from sqlalchemy import Engine, create_engine, event
@@ -217,6 +218,33 @@ PENDING_DOMAIN_REGISTRY: Dict[str, str] = {
 }
 
 
+# 模型源码位置（仅供孤儿表二次判定用）：域模型在 app/domains/<域>/models.py，
+# 少量历史模型在 app/models/ 下。
+_MODEL_SOURCE_GLOBS = ('domains/*/models.py', 'models/*.py')
+
+
+def _model_source_text() -> Optional[str]:
+    """拼接模型源码文本（只读文件，不执行模块代码）。
+
+    WHY：孤儿告警原本以 `metadata.tables` 为唯一判据，而它只含「本进程已 import」的模型——
+    CLI / 定时任务只导入所需模型时，已登记且模型仍在的表会被误报成「模型未定义」（#1521）。
+    这里改用源码文本做二次判定以区分两种情形；因为不 import，也就不会引入循环导入或
+    导入期副作用（导入期建 engine 的教训见 #1513）。
+
+    返回 None 表示无法读取（目录缺失等），调用方须按「未知」处理，
+    不得据此断言模型已删除。
+    """
+    app_dir = Path(__file__).resolve().parents[1]
+    chunks = []
+    for pattern in _MODEL_SOURCE_GLOBS:
+        for path in sorted(app_dir.glob(pattern)):
+            try:
+                chunks.append(path.read_text(encoding='utf-8'))
+            except OSError:
+                continue
+    return '\n'.join(chunks) if chunks else None
+
+
 def normalize_table_domain(table_name: str) -> Optional[str]:
     """查表名对应的数据域；未登记返回 None（供启动校验拦截）。"""
     return DATA_DOMAIN_REGISTRY.get(table_name)
@@ -387,8 +415,11 @@ class DatabaseFactory:
 
         返回 {'market': [Table...], 'user': [Table...]}。
         校验：凡 metadata 中的表必须已在 DATA_DOMAIN_REGISTRY 登记，否则抛 ValueError
-        （防漏声明导致建错库 / 读错库）。同时校验注册表有无"模型已不存在"的孤儿项，
-        打印告警（不致命，但提示文档与代码漂移）。
+        （防漏声明导致建错库 / 读错库）。
+
+        注意：本方法**不**判断注册表孤儿项——metadata 只含本进程已 import 的模型，
+        在这里判孤儿会把「未导入」误报成「模型已删除」，孤儿判定见
+        `classify_registry_orphans()` / `validate_domain_labels()`（#1521）。
         """
         from sqlalchemy import MetaData
 
@@ -413,23 +444,56 @@ class DatabaseFactory:
         return result
 
     @classmethod
+    def classify_registry_orphans(cls, metadata, source_text: Optional[str] = None) -> Tuple[list, list]:
+        """把「已登记但不在 metadata 中」的表分成两类。
+
+        返回 `(not_imported, missing_in_source)`：
+        - `not_imported`：源码里能找到该表名的定义 → 只是本进程没 import，属正常现象；
+        - `missing_in_source`：源码里也找不到 → 疑似模型已删除（注册表 / 文档漂移），需处理。
+
+        `source_text` 无法取得（None）时全部归入 `not_imported`：宁可不报，也不把
+        「没读到源码」错报成「模型已删除」——后者会把排查引向完全错误的方向（#1521）。
+        """
+        registry_keys = set(DATA_DOMAIN_REGISTRY)
+        model_tables = set(metadata.tables.keys()) if metadata is not None else set()
+        orphan = sorted(registry_keys - model_tables - set(PENDING_DOMAIN_REGISTRY))
+        if not orphan:
+            return [], []
+
+        if source_text is None:
+            source_text = _model_source_text()
+        if source_text is None:
+            return orphan, []
+
+        declared = [name for name in orphan if f"'{name}'" in source_text or f'"{name}"' in source_text]
+        missing = [name for name in orphan if name not in declared]
+        return declared, missing
+
+    @classmethod
     def validate_domain_labels(cls, metadata) -> None:
         """启动期断言：每个表都已声明合法数据域（供 init_db 调用）。
 
-        除致命校验（漏登记）外，额外检查注册表孤儿项（模型已不存在但仍在
-        注册表），打印告警提示文档/代码漂移。此告警仅在启动路径触发，
-        避免测试期 import 时序造成噪音。
+        除致命校验（漏登记）外，额外检查注册表孤儿项。孤儿分两类、措辞分开（#1521）：
+        本进程未 import 的表只记 info（CLI / 定时任务只导入所需模型属正常，旧版把它
+        报成「模型未定义」曾误导排查），只有源码里也找不到的才记 warning。
         """
         grouped = cls.tables_by_domain(metadata)
-        registry_keys = set(DATA_DOMAIN_REGISTRY)
-        model_tables = set(metadata.tables.keys())
-        orphan = sorted(registry_keys - model_tables - set(PENDING_DOMAIN_REGISTRY))
-        if orphan:
-            import logging
+        not_imported, missing = cls.classify_registry_orphans(metadata)
 
-            logging.getLogger(__name__).warning(
-                'DATA_DOMAIN_REGISTRY 存在孤儿表（模型未定义但已登记）：%s，请同步文档与代码。',
-                orphan,
+        if not_imported:
+            logger.info(
+                '以下表已登记、源码中也有模型定义，但本进程未 import（共 {} 张）：{}。'
+                '这不是错误——CLI / 定时任务只导入所需模型属正常现象，无需处理。',
+                len(not_imported),
+                not_imported,
+            )
+        if missing:
+            logger.warning(
+                'DATA_DOMAIN_REGISTRY 存在孤儿表（已登记但源码中找不到定义，疑为模型已删除）：{}。'
+                '请同步 db_factory.DATA_DOMAIN_REGISTRY 与 docs/dev/db-data-domain.md；'
+                '排查：rg -n "{}" backend/app/domains backend/app/models --glob "*.py"',
+                missing,
+                '|'.join(missing),
             )
         return grouped
 
