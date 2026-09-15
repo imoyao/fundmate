@@ -841,16 +841,19 @@ def _sw_share_records() -> List[dict]:
     `py_mini_racer` 内嵌 V8 的**原生 FATAL 崩溃**（进程直接死、Python 层 try/except 都捕获不到，
     会拖垮整个后端）。故**默认禁用** akshare 调用：fungfof 不可达时直接由 legulegu 兜底
     （8 个中证行业，非 akshare、不崩），不再走会崩的申万官网自算。仅当
-    `SW_FALLBACK_AKSHARE_ENABLED=1` 且环境 `py_mini_racer` 已修复时才启用（启用即自担原生崩溃风险）。
+    `SW_FALLBACK_AKSHARE_ENABLED` 明确为开启语义（`1/true/yes/on`）且环境 `py_mini_racer`
+    已修复时才启用（启用即自担原生崩溃风险）；空值 / 任意其它值一律按默认禁用处理。
 
     PB 分位（估值视角，`crowding_pct`）需行业 PB 源，本路径下为 None 并在 note 说明；
     指标口径见 `sw_industry_source`（占比分位 = 250 日滚动窗口；BIASn = 简单 MA 6/20/60）。
     """
-    if os.getenv('SW_FALLBACK_AKSHARE_ENABLED', '0').strip().lower() in (
-        '0',
-        'false',
-        'no',
-        'off',
+    # 默认禁用：仅当 env 明确为开启语义（1/true/yes/on）才放行，空值 / 任意其它值一律禁用，
+    # 避免误设空串或乱值意外触发会崩的 akshare 路径（#1511，review 意见）。
+    if os.getenv('SW_FALLBACK_AKSHARE_ENABLED', '0').strip().lower() not in (
+        '1',
+        'true',
+        'yes',
+        'on',
     ):
         return []
     try:

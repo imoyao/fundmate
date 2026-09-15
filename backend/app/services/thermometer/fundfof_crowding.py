@@ -112,6 +112,7 @@ CATEGORY_SPECS: Dict[str, Dict[str, str]] = {
 _UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
 
 _TRUTHY_OFF = {'0', 'false', 'no', 'off'}
+_TRUTHY_ON = {'1', 'true', 'yes', 'on'}
 
 
 def enabled() -> bool:
@@ -125,9 +126,10 @@ def _merge_sw_bias_enabled() -> bool:
     默认关闭：补齐路径会调用 akshare `index_hist_sw`，而 akshare 在部分 Windows 环境会触发
     `py_mini_racer`（内嵌 V8）的原生 FATAL 崩溃，直接杀死后端进程（#1511）。关掉它即可避免
     每次温度任务都调 akshare；fundfof 自身已提供拥挤度 / 换手率 / 60日线上 / 新高 / 融资 / 大单
-    等维度，BIASn 仅作补充。确需时设 `FUNDFOF_CROWDING_MERGE_SW_BIAS=1` 并自担环境风险。
+    等维度，BIASn 仅作补充。仅当 `FUNDFOF_CROWDING_MERGE_SW_BIAS` 明确为开启语义（1/true/yes/on）
+    时才启用；空值 / 任意其它值一律按默认关闭处理，避免误设触发原生崩溃。
     """
-    return os.getenv('FUNDFOF_CROWDING_MERGE_SW_BIAS', '0').strip().lower() not in _TRUTHY_OFF
+    return os.getenv('FUNDFOF_CROWDING_MERGE_SW_BIAS', '0').strip().lower() in _TRUTHY_ON
 
 
 def _log(*a):
