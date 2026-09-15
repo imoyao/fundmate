@@ -16,8 +16,9 @@ from app.core.constants import MANAGER_SYMBOL_PREFIX
 from app.core.money import Money
 from app.core.symbol_utils import get_normalizer
 from app.domains.funds.models import AdvisorPortfolio, Fund, Manager
+from app.domains.indices.models import IndexCatalog
 from app.domains.positions.models import Position
-from app.domains.securities.models import Security
+from app.domains.securities.models import ConvertibleBondTerm, Security
 from app.domains.watchlist.models import WatchlistGroup, WatchlistItem, WatchlistItemGroup, WatchlistItemTag
 from app.services.async_backfill import trigger_backfill
 
@@ -178,8 +179,28 @@ def lookup_manager(symbol: str, db: Session):
     return db.query(Manager).filter(func.lower(Manager.mgr_code) == code.lower()).first()
 
 
-def resolve_display_name(symbol: str, db: Session) -> str:
-    """资产展示名**唯一**解析链（自选列表页与首页自选摘要共用，禁止再各写一份）。
+def bare_code_of(symbol: str) -> str:
+    """提取 symbol 的**裸数字代码**部分（去交易所/命名空间前缀）。
+
+    `SZ159857` → `159857`、`SH000906` → `000906`、`CSI930950` → `930950`。
+
+    存在的理由：`watchlist.symbol` 是**带前缀**形态（场内 `SH/SZ`、指数
+    `SH/SZ/CSI/CNI`），而承载名称的 `funds.fund_code` 与 `index_catalog.index_code`
+    一律按**裸 6 位码**存储——不折算前缀就永远等值查不到（2026-09-14 用户反馈：
+    自选页部分 ETF/指数名显示成 `SZ159857` 这样的代码）。
+
+    本函数与 views._bare_code 同义（后者服务估值/回撤 enrich）。此处独立实现是为
+    避免 service 层反向依赖 domains 层视图；两者语义须保持一致（纯数字过滤）。
+    """
+    return ''.join(ch for ch in (symbol or '') if ch.isdigit())
+
+
+def resolve_display_name(symbol: str, db: Session, asset_type: Optional[str] = None) -> str:
+    """资产展示名**反查链**（自选列表页与首页自选摘要共用，禁止再各写一份）。
+
+    ⚠️ #1508 起：凡手上已有 `WatchlistItem` 的调用点，一律改用
+    :func:`resolve_item_display_name`（**快照优先**，本函数仅作快照缺失时的兜底）。
+    本函数仍在「只有裸 symbol、没有 item」的场景使用（如持仓缺口、估值 enrich）。
 
     优先级：Manager.name（MGR_ 前缀）→ Security.name → Fund.name →
     AdvisorPortfolio.name → symbol 兜底。
@@ -192,6 +213,25 @@ def resolve_display_name(symbol: str, db: Session) -> str:
     services._get_display_name 曾是两份实现，前者补了 Manager/AdvisorPortfolio、
     后者没补 → 自选列表页正常、首页自选组件仍显示 MGR_xxx。同一展示需求两处实现
     必然漂移，故收口为单一实现，改一处即两处生效。
+
+    ── 裸码回退（#1497，2026-09-14）──
+    场内 ETF / 指数 / 场内基金在 watchlist 里是带前缀码（`SZ159857`、`SH000906`），
+    但 funds/index_catalog 按裸码存名 → 原实现等值比对必落空，名称退化成代码。
+    故新增**裸码**回退：指数查 `index_catalog`、其余查 `funds`。
+
+    为何需要 asset_type 参与：裸码跨表**不唯一**。实测 `SH000906` 的裸码 `000906`
+    同时命中 `index_catalog`（中证800）与 `funds`（广发全球精选股票(QDII)美元A）。
+    故 asset_type 为 'index' 时名称**只认 `index_catalog`**，且**未命中也不回退 funds**——
+    本库两表同码重叠 258 条，回退会把「沪深300(000300)」错标成「德邦德利货币A(000300)」；
+    宁可退回 symbol 显示代码，也不给一个错的名字。其余类型才落 funds 裸码回退。
+
+    asset_type 缺省为 None（历史调用点未传）时仍走安全的保守顺序：裸码只补 funds，
+    不动指数（指数语义靠调用方显式传 'index' 才启用，避免无类型信息时猜错）。
+
+    ── 可转债（#1499，2026-09-14）──
+    可转债名称在 `convertible_bond_terms.name`，而该表**曾被漏掉**（securities 只装股票）。
+    2026-09-14 前该表为 0 行（`convertible_bond` 同步任务从未跑），补分支后仍需数据落库
+    才生效——**代码与数据两端都到位，可转债名才不会退化成代码**。
     """
     mgr = lookup_manager(symbol, db)
     if mgr and mgr.name:
@@ -199,13 +239,58 @@ def resolve_display_name(symbol: str, db: Session) -> str:
     sec = db.query(Security).filter_by(symbol=symbol).first()
     if sec and sec.name:
         return sec.name
-    fund = db.query(Fund).filter_by(fund_code=symbol).first()
-    if fund and fund.name:
-        return fund.name
+
+    # 可转债：名称在 convertible_bond_terms（symbol 同为 SH110081 带前缀形态，#1499）。
+    # securities 表**只装股票**，可转债不在其中 → 不补此分支名称必退化成代码。
+    # 该表 symbol 与 watchlist.symbol 同构（均 SH/SZ + 6 位），等值匹配即可，无需裸码回退。
+    bond = db.query(ConvertibleBondTerm).filter_by(symbol=symbol).first()
+    if bond and bond.name:
+        return bond.name
+
+    # 指数：symbol 是 SH000906/CSI930950 形态，名称只在 index_catalog（按裸码存）。
+    if (asset_type or '').strip().lower() == 'index':
+        # 指数语义已由调用方确定 → 名称**只认 index_catalog**，未命中时**不得回退 funds**
+        # （#1497 review 补漏，2026-09-14）：裸码跨表不唯一，本库 index_catalog 与 funds
+        # 同码重叠 258 条且撞的是主流码——000300 指数=沪深300 / funds=德邦德利货币A，
+        # 000905 指数=中证500 / funds=鹏华安盈宝货币A。回退会把指数错标成一只无关的
+        # 货币基金名，比显示代码更糟（与 views._enrich_item 处注释的意图一致）。
+        idx = db.query(IndexCatalog).filter_by(index_code=bare_code_of(symbol)).first()
+        if idx and idx.name:
+            return idx.name
+    else:
+        fund = db.query(Fund).filter_by(fund_code=symbol).first()
+        if fund and fund.name:
+            return fund.name
+        # 裸码回退：场内 ETF/基金 symbol 带 SH/SZ 前缀，funds.fund_code 存裸码（#1497）。
+        # 仅在带前缀等值查未命中时尝试，不改变原有精确匹配的优先级。
+        bare = bare_code_of(symbol)
+        if bare and bare != symbol:
+            fund = db.query(Fund).filter_by(fund_code=bare).first()
+            if fund and fund.name:
+                return fund.name
+
     advisor = db.query(AdvisorPortfolio).filter_by(code=symbol).first()
     if advisor and advisor.name:
         return advisor.name
     return symbol
+
+
+def resolve_item_display_name(item: WatchlistItem, db: Session) -> str:
+    """**带快照优先**的展示名解析（#1508）——凡手上已有 WatchlistItem 的调用点都应走这里。
+
+    优先级：`watchlist.name` 快照 → :func:`resolve_display_name` 反查链 → symbol 兜底。
+
+    为什么要快照优先：`resolve_display_name` 是**读时重猜**——在 funds/index_catalog/
+    securities/convertible_bond_terms/advisor_portfolios/managers 六张**码空间重叠**的表里
+    按裸码反查（本库 index_catalog 与 funds 同码重叠 258 条）。只要创建时把名称落库，
+    读取端就不必再猜，从根上消灭「显示成无关基金名」这一类 bug（#1497/#1499 的根因）。
+
+    快照可空（历史行 / 无名称来源）→ 落回反查链，行为与快照引入前完全一致，**不倒退**。
+    """
+    snap = (getattr(item, 'name', None) or '').strip()
+    if snap:
+        return snap
+    return resolve_display_name(item.symbol, db, item.asset_type)
 
 
 def normalize_and_infer_venue(
@@ -260,6 +345,11 @@ def create_watchlist_item(db: Session, data: Dict[str, Any], family_id: int) -> 
     # 写入前归一为小写，与后端 asset_types 单一来源（stock/etf/fund/bond/index）及 positions 域一致，
     # 并修正历史大写（STOCK/ETF/...）导致 venue 推断（asset_type=='fund'）失效的问题（#1171）。
     raw_asset_type = (data.get('asset_type') or '').strip().lower() or None
+    # 名称快照（#1508）：搜索接口已回显 name，前端随 symbol 一并提交；此处落库，
+    # 读取端 resolve_item_display_name 即优先用快照，不再跨表反查重猜（#1497 根因）。
+    # strip 后空串归一为 None（避免把空串当「已命名」而跳过兜底）；超长截断到列宽。
+    raw_name = (data.get('name') or '').strip()
+    name = raw_name[:100] or None
     normalized = normalize_and_infer_venue(
         data['symbol'],
         data.get('venue'),
@@ -282,6 +372,7 @@ def create_watchlist_item(db: Session, data: Dict[str, Any], family_id: int) -> 
 
     item = WatchlistItem(
         symbol=symbol,
+        name=name,
         market=normalized['market'],
         asset_type=raw_asset_type,
         venue=normalized['venue'],
@@ -377,6 +468,9 @@ def ensure_watchlist_for_positions(db: Session, family_id: int, symbols: Optiona
                 norm = _normalize_for_position(pos.symbol, pos.asset_type)
                 item = WatchlistItem(
                     symbol=norm['symbol'],
+                    # 名称快照（#1508）：持仓表已存 name 快照（positions.name），
+                    # 买入自动入自选时顺手带上，避免新行又落到读时反查。
+                    name=(pos.name or '').strip()[:100] or None,
                     market=norm['market'],
                     asset_type=(pos.asset_type or '').strip().lower() or None,
                     venue=norm['venue'],
@@ -385,8 +479,12 @@ def ensure_watchlist_for_positions(db: Session, family_id: int, symbols: Optiona
                 )
                 db.add(item)
                 created += 1
-            elif item.status != 'HOLDING':
-                item.status = 'HOLDING'
+            else:
+                # 存量补写（#1508）：老行无快照、持仓侧有名称 → 顺手回填一次（只补不改）。
+                if not (item.name or '').strip() and (pos.name or '').strip():
+                    item.name = pos.name.strip()[:100]
+                if item.status != 'HOLDING':
+                    item.status = 'HOLDING'
         except Exception:
             logger.exception('ensure_watchlist_for_positions 单标的失败: family=%s symbol=%s', family_id, pos.symbol)
     return created
@@ -452,7 +550,7 @@ def get_holding_gaps(db: Session, family_id: int) -> List[Dict[str, Any]]:
         gaps.append(
             {
                 'symbol': norm['symbol'],
-                'name': name or resolve_display_name(symbol, db),
+                'name': name or resolve_display_name(symbol, db, asset_type),
                 'asset_type': (asset_type or '').strip().lower() or None,
             }
         )
@@ -498,7 +596,7 @@ def build_home_summary(db: Session, family_id: int) -> List[Dict[str, Any]]:
 
     data = []
     for item in result_items:
-        display_name = resolve_display_name(item.symbol, db)
+        display_name = resolve_item_display_name(item, db)
         position_value_units = (
             db.query(func.sum(Position.quantity * Position.current_price))
             .filter(Position.symbol == item.symbol, Position.family_id == family_id)

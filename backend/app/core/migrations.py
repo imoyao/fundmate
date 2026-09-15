@@ -184,6 +184,44 @@ def migrate_watchlist_venue_not_null(engine: Engine) -> str:
     return '[SKIP] 无 venue 为 NULL 的历史数据'
 
 
+def migrate_watchlist_name_snapshot(engine: Engine) -> str:
+    """watchlist 补 name 名称快照列（#1508）。
+
+    背景：自选展示名此前**不落库**，只在读取时由 ``resolve_display_name`` 跨
+    funds / index_catalog / securities / convertible_bond_terms / advisor_portfolios /
+    managers 六张**码空间重叠**的表按裸码反查（index_catalog 与 funds 同码重叠 258 条，
+    000300 指数=沪深300 / funds=德邦德利货币A），任何一次「未命中就回退别表」的猜测
+    都可能给出**错名**（#1497 / #1499 的根因）。本迁移补上快照列，让名称随产品一起落库。
+
+    加入方式：SQLite / libsql 支持对「可空列」直接 ``ALTER TABLE ADD COLUMN``（无需整表重建）。
+    幂等：列已存在则跳过。非 SQLite 引擎（Supabase Postgres）由 ORM 模型 / 迁移工具负责，
+    直接跳过，避免 init_db 在 Supabase 路径上误跑 SQLite 专属 SQL。
+
+    历史行 ``name`` 为 NULL → 读取端自动落回反查链，行为与迁移前一致（不倒退）；
+    随后的买入（``ensure_watchlist_for_positions``）会顺带回填（``positions.name``）。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
+
+    if 'watchlist' not in inspect(engine).get_table_names():
+        return '[SKIP] watchlist 表不存在（空库，init_db 将按新模型建表）'
+
+    cols = [('name', 'VARCHAR(100)')]
+    with engine.connect() as conn:
+        existing = {c['name'] for c in inspect(engine).get_columns('watchlist')}
+        added = []
+        for name, typ in cols:
+            if name not in existing:
+                conn.execute(text(f'ALTER TABLE watchlist ADD COLUMN {name} {typ}'))
+                added.append(name)
+        conn.commit()
+    if added:
+        logger.info(f'[OK] watchlist 增加列: {added}')
+        return f'[OK] 增加列 {added}'
+    return '[SKIP] watchlist.name 快照列已存在'
+
+
 def migrate_advisor_portfolio_metrics(engine: Engine) -> str:
     """advisor_portfolios 补 投顾品类差异化指标列（#1392）：区间收益 / 回撤 / 超额。
 

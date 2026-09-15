@@ -209,3 +209,95 @@ def test_factory_create_user_mock_engine(monkeypatch):
     app_eng = DatabaseFactory.create(DOMAIN_APP)
     assert app_eng is not eng
     DatabaseFactory.reset()
+
+
+# --------------------------------------------------------------------------- #
+# #1519：connect_args 必须按方言取值
+#
+# 历史缺陷：app 域在 staging / production 无条件注入 SQLite 专有的
+# `timeout` / `check_same_thread`，而那两个环境默认指向 Turso（libSQL），
+# 其 DBAPI 不接受这些关键字 → 建连时 TypeError（CI 定时任务启动即崩）。
+# --------------------------------------------------------------------------- #
+
+
+def test_sqlite_connect_args_only_for_local_sqlite():
+    """本地 SQLite 才需要 check_same_thread / timeout；libSQL、Postgres 一律为空。"""
+    local = db_factory._sqlite_connect_args('sqlite:///./invest.db')
+    assert local == {'check_same_thread': False, 'timeout': 30}
+    assert db_factory._sqlite_connect_args('sqlite+pysqlite:///./invest.db') == local
+
+    for remote in (
+        'sqlite+libsql://foo.turso.io/mydb',  # 归一后的 Turso
+        'turso://abc@foo.turso.io/mydb',  # 归一前的裸 scheme
+        'libsql://foo.turso.io/mydb',
+        'https://foo.turso.io/',
+        'postgresql://u:p@db.supabase.co:5432/postgres',
+    ):
+        assert db_factory._sqlite_connect_args(remote) == {}, remote
+
+
+def test_config_for_app_production_turso_has_no_sqlite_args(monkeypatch):
+    """生产指向 Turso 时，配置层不得带 SQLite 专有 connect_args（#1519 根因处）。"""
+    _reset_and_set(
+        monkeypatch,
+        {
+            'APP_ENV': 'production',
+            'TURSO_DATABASE_URL': 'turso://abc@foo.turso.io/mydb?authToken=tk',
+            'DATABASE_URL': None,
+        },
+    )
+    cfg = DatabaseConfig.for_app('production')
+    assert cfg.connect_args == {}
+
+
+def test_config_for_app_dev_sqlite_keeps_sqlite_args(monkeypatch):
+    """回归保护：本地开发仍必须带 SQLite 专有参数（否则并发写会踩 pysqlite 限制）。"""
+    _reset_and_set(
+        monkeypatch,
+        {'APP_ENV': 'development', 'DEV_DATABASE_URL': 'sqlite:///./test.dev.db'},
+    )
+    cfg = DatabaseConfig.for_app('development')
+    assert cfg.connect_args.get('check_same_thread') is False
+    assert cfg.connect_args.get('timeout') == 30
+
+
+def test_factory_build_turso_passes_only_auth_token_as_connect_args(monkeypatch):
+    """端到端（打桩 create_engine）：Turso 引擎的 connect_args 只有 auth_token。"""
+    _reset_and_set(
+        monkeypatch,
+        {
+            'APP_ENV': 'production',
+            'TURSO_DATABASE_URL': 'turso://abc@foo.turso.io/mydb?authToken=secret-token',
+            'DATABASE_URL': None,
+        },
+    )
+    fake_engine = object()
+    with mock.patch.object(db_factory, 'create_engine', return_value=fake_engine) as m:
+        DatabaseFactory.build(DOMAIN_APP, env='production')
+    connect_args = m.call_args.kwargs.get('connect_args', {})
+    assert connect_args.get('auth_token') == 'secret-token'
+    assert 'timeout' not in connect_args
+    assert 'check_same_thread' not in connect_args
+
+
+def test_factory_build_strips_leaked_sqlite_args_for_libsql(monkeypatch):
+    """兜底闸门：即使配置层残留 SQLite 参数，build() 也要就地剔除（防将来回归）。"""
+    _reset_and_set(
+        monkeypatch,
+        {'APP_ENV': 'production', 'TURSO_DATABASE_URL': 'turso://abc@foo.turso.io/mydb?authToken=tk'},
+    )
+    leaked = DatabaseConfig(
+        name=DOMAIN_APP,
+        url='turso://abc@foo.turso.io/mydb?authToken=tk',
+        connect_args={'check_same_thread': False, 'timeout': 30},
+    )
+    fake_engine = object()
+    with (
+        mock.patch.object(db_factory.DatabaseConfig, 'for_app', return_value=leaked),
+        mock.patch.object(db_factory, 'create_engine', return_value=fake_engine) as m,
+    ):
+        DatabaseFactory.build(DOMAIN_APP, env='production')
+    connect_args = m.call_args.kwargs.get('connect_args', {})
+    assert 'timeout' not in connect_args
+    assert 'check_same_thread' not in connect_args
+    assert connect_args.get('auth_token') == 'tk'

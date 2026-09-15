@@ -54,6 +54,7 @@ from app.services.watchlist_service import (
     lookup_manager,
     reconcile_watchlist_status,
     resolve_display_name,
+    resolve_item_display_name,
 )
 
 watchlist_bp = APIBlueprint('watchlist', __name__, url_prefix='/api/watchlist')
@@ -330,7 +331,10 @@ def _enrich_item(item: WatchlistItem, db, defer_display: bool = False) -> dict:
     # 资产类型中文标签：单一来源 app.core.constants.TYPE_LABELS（#1171 枚举一致性），
     # 供前端「资产类型」列（#1332 候选列）直接展示，免前端再映射。
     out['type_label'] = TYPE_LABELS.get(out['asset_type']) or out['asset_type'] or ''
-    out['display_name'] = resolve_display_name(item.symbol, db)
+    # 传归一后的 asset_type：裸码跨表不唯一（SH000906 的 000906 同时命中 index_catalog
+    # 与 funds），指数须据此优先查 index_catalog，否则会被错标成一只场外基金名（#1497）。
+    # #1508 起**优先用 watchlist.name 快照**（创建时随搜索回显落库），快照缺失才走反查链。
+    out['display_name'] = resolve_item_display_name(item, db)
     out['group_ids'] = [link.group_id for link in item.group_links]
     out['tag_ids'] = [link.tag_id for link in item.tag_links]
     # 所属分组名称列表（#1332 排序用，避免前端再映射 group_ids）
@@ -482,8 +486,9 @@ def _list_holding_items(db, family_id, venue=None, search=None, asset_types=None
             continue
         if search:
             s = search.lower()
-            # 名称匹配：优先用持仓名称，缺失时回退到 securities/funds 展示名（与 _build_holding_row 同源）
-            display = (pos_name or '') or resolve_display_name(symbol, db)
+            # 名称匹配：优先用持仓名称，缺失时回退到 securities/funds 展示名（与 _build_holding_row 同源）。
+            # 传 asset_type：#1497 裸码跨表不唯一，指数须优先 index_catalog，否则会被 funds 同码基金劫持。
+            display = (pos_name or '') or resolve_display_name(symbol, db, asset_type)
             if s not in symbol.lower() and s not in (display or '').lower():
                 continue
         # 持仓虚拟行优先回填真实自选记录（若已入自选）→ 行内可打标签/备注；
@@ -525,7 +530,8 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None, def
     market = market or (pos.market if pos else None)
     asset_type = asset_type or (pos.asset_type if pos else None)
     venue = venue or ('OTC' if asset_type == 'fund' else 'EXCHANGE')
-    display_name = (pos.name if pos and pos.name else None) or resolve_display_name(symbol, db)
+    # 传 asset_type：#1497 裸码跨表不唯一，指数须优先 index_catalog（见 resolve_display_name docstring）
+    display_name = (pos.name if pos and pos.name else None) or resolve_display_name(symbol, db, asset_type)
     # 投顾组合元信息：与 _enrich_item 同步，避免虚拟行（持仓聚合无 id 的行）漏字段
     advisor = db.query(AdvisorPortfolio).filter_by(code=symbol).first()
     mgr = lookup_manager(symbol, db)  # 经理行公司名：与 _enrich_item 同源

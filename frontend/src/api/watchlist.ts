@@ -134,6 +134,9 @@ export function createWatchlistItem(data: {
   market?: string;
   asset_type?: string;
   venue?: string;
+  /** 产品名称快照（#1508）：搜索接口已回显 name，随创建一并落库，
+      读取端优先用快照，避免读时跨重叠码空间反查出错名。 */
+  name?: string;
   add_reason?: string;
   is_pinned?: boolean;
   cost_price?: number;

@@ -34,6 +34,11 @@ dependencies = [
     "baostock>=0.9.3",
     "apscheduler<4,>=3.10",
     "sqlalchemy-libsql>=0.2.0; sys_platform != \"win32\"",
+    # 生产 user 域走 Supabase Postgres，SQLAlchemy 解析 `postgresql://` 时默认选 psycopg2
+    # 方言；此前该驱动从未声明，导致 CI 定时任务（daily-snapshot）注入生产
+    # SUPABASE_DATABASE_URL 后启动即崩于 ModuleNotFoundError: psycopg2（#1434 / #1514）。
+    # 与 sqlalchemy-libsql 同款平台标记：Windows 本机只用 SQLite，装 -binary 无必要且易失败。
+    "psycopg2-binary>=2.9.10; sys_platform != \"win32\"",
 ]
 requires-python = ">=3.12"
 

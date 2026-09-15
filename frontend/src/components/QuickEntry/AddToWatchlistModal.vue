@@ -493,6 +493,8 @@ const handleSubmit = async () => {
     // 创建自选资产
     const itemRes = await createWatchlistItem({
       symbol: selectedAsset.value.symbol,
+      // 名称快照（#1508）：搜索结果本就带 name，随创建落库，避免后端读时反查出错名
+      name: selectedAsset.value.name,
       market: selectedAsset.value.market,
       asset_type: selectedAsset.value.type,
       // venue 用 ?? 兜底：无市场实体（经理/组合）后端返回空串，须原样透传而非转 EXCHANGE

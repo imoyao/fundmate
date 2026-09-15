@@ -21,8 +21,10 @@ from __future__ import annotations
 import os
 import urllib.parse
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from pathlib import Path
+from typing import Dict, Optional, Tuple
 
+from loguru import logger
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import sessionmaker
 
@@ -90,13 +92,46 @@ def _normalize_db_url(url: str) -> tuple[str, Dict]:
     return url, extra_connect_args
 
 
+# SQLite(pysqlite) 专有的 connect_args：只有本地文件/内存库接受。
+# libSQL(Turso) 与 psycopg2 的 DBAPI 签名不接受 `timeout`，无条件注入会在建连时
+# TypeError（#1519）——见 _sqlite_connect_args 与 build() 的兜底闸门。
+_SQLITE_ONLY_CONNECT_ARGS = ('check_same_thread', 'timeout')
+
+
+def _is_local_sqlite(url: str) -> bool:
+    """URL 是否指向**本地** SQLite（文件 / 内存），而非远端 libSQL（Turso）。
+
+    `sqlite://`、`sqlite+pysqlite://` 是本地；`sqlite+libsql://`（含由
+    `turso://` / `libsql://` / `https://*.turso.io` 归一而来）是远端。
+    """
+    scheme = urllib.parse.urlparse(url).scheme.lower()
+    return scheme in ('sqlite', 'sqlite+pysqlite')
+
+
+def _sqlite_connect_args(url: str) -> Dict:
+    """按 URL 方言给 connect_args：只有本地 SQLite 才需要 SQLite 专有参数。
+
+    为什么必须按方言判断（#1519 / #1514）：`check_same_thread`、`timeout` 是
+    **pysqlite 专有**关键字。历史上 app 域在 staging / production 分支无条件注入它们，
+    而这两个环境默认指向 Turso（`sqlite+libsql://`）；libSQL 的
+    `libsql_experimental.connect()` 不接受 `timeout`，于是**建立连接时**抛
+    `TypeError: connect() got an unexpected keyword argument 'timeout'`——
+    CI 定时任务因此启动即崩，且报错点离真因很远。
+
+    远端 libSQL 的认证参数（`auth_token`）由 `_normalize_db_url` 单独提供，不在此处。
+    """
+    if _is_local_sqlite(url):
+        return {'check_same_thread': False, 'timeout': 30}
+    return {}
+
+
 def _needs_sqlite_pragmas(url: str) -> bool:
     """仅本地 SQLite（`sqlite://` 文件 / 内存）需要 WAL / 外键 PRAGMA。
 
     `sqlite+libsql://`（Turso 远端）不应应用本地 PRAGMA，否则会向远端发送
     其不支持的 PRAGMA 语句而失败。
     """
-    return url.startswith('sqlite') and 'libsql' not in url
+    return _is_local_sqlite(url)
 
 
 # --------------------------------------------------------------------------- #
@@ -183,6 +218,33 @@ PENDING_DOMAIN_REGISTRY: Dict[str, str] = {
 }
 
 
+# 模型源码位置（仅供孤儿表二次判定用）：域模型在 app/domains/<域>/models.py，
+# 少量历史模型在 app/models/ 下。
+_MODEL_SOURCE_GLOBS = ('domains/*/models.py', 'models/*.py')
+
+
+def _model_source_text() -> Optional[str]:
+    """拼接模型源码文本（只读文件，不执行模块代码）。
+
+    WHY：孤儿告警原本以 `metadata.tables` 为唯一判据，而它只含「本进程已 import」的模型——
+    CLI / 定时任务只导入所需模型时，已登记且模型仍在的表会被误报成「模型未定义」（#1521）。
+    这里改用源码文本做二次判定以区分两种情形；因为不 import，也就不会引入循环导入或
+    导入期副作用（导入期建 engine 的教训见 #1513）。
+
+    返回 None 表示无法读取（目录缺失等），调用方须按「未知」处理，
+    不得据此断言模型已删除。
+    """
+    app_dir = Path(__file__).resolve().parents[1]
+    chunks = []
+    for pattern in _MODEL_SOURCE_GLOBS:
+        for path in sorted(app_dir.glob(pattern)):
+            try:
+                chunks.append(path.read_text(encoding='utf-8'))
+            except OSError:
+                continue
+    return '\n'.join(chunks) if chunks else None
+
+
 def normalize_table_domain(table_name: str) -> Optional[str]:
     """查表名对应的数据域；未登记返回 None（供启动校验拦截）。"""
     return DATA_DOMAIN_REGISTRY.get(table_name)
@@ -217,19 +279,16 @@ class DatabaseConfig:
         """应用运行库配置：dev 用本地 SQLite，prod 用 Turso（可回退 DATABASE_URL）。"""
         if env == 'development':
             url = os.getenv('DEV_DATABASE_URL', _DEFAULT_DEV_DB)
-            connect_args = {'check_same_thread': False, 'timeout': 30}
-            return cls(name=DOMAIN_APP, url=url, connect_args=connect_args, pool_pre_ping=False)
+            return cls(name=DOMAIN_APP, url=url, connect_args=_sqlite_connect_args(url), pool_pre_ping=False)
 
         if env == 'staging':
             url = os.getenv('STAGING_DATABASE_URL') or os.getenv('DATABASE_URL', _DEFAULT_APP_DB)
-            connect_args = {'check_same_thread': False, 'timeout': 30}
-            return cls(name=DOMAIN_APP, url=url, connect_args=connect_args, pool_pre_ping=False)
+            return cls(name=DOMAIN_APP, url=url, connect_args=_sqlite_connect_args(url), pool_pre_ping=False)
 
         # production：优先 Turso 运行库，回退到通用 DATABASE_URL（便于过渡期）
         url = os.getenv('TURSO_DATABASE_URL') or os.getenv('DATABASE_URL', _DEFAULT_APP_DB)
-        # Turso (libsql/https) 通常无需 check_same_thread；保留通用缺省
-        connect_args = {'check_same_thread': False, 'timeout': 30}
-        return cls(name=DOMAIN_APP, url=url, connect_args=connect_args, pool_pre_ping=True)
+        # 方言决定 connect_args：Turso(libSQL) 不认识 SQLite 专有的 timeout（#1519）
+        return cls(name=DOMAIN_APP, url=url, connect_args=_sqlite_connect_args(url), pool_pre_ping=True)
 
     @classmethod
     def for_user(cls, env: str) -> 'DatabaseConfig':
@@ -250,8 +309,7 @@ class DatabaseConfig:
         """
         if env == 'development' and not os.getenv('DEV_FORCE_SUPABASE'):
             url = _development_user_url()
-            connect_args = {'check_same_thread': False, 'timeout': 30}
-            return cls(name=DOMAIN_USER, url=url, connect_args=connect_args, pool_pre_ping=False)
+            return cls(name=DOMAIN_USER, url=url, connect_args=_sqlite_connect_args(url), pool_pre_ping=False)
         url = os.getenv('SUPABASE_DATABASE_URL')
         if url:
             # Postgres 不需要 SQLite 专用 connect_args
@@ -263,8 +321,12 @@ class DatabaseConfig:
             fallback = _development_user_url()
         else:
             fallback = os.getenv('USER_DATABASE_URL', _DEFAULT_APP_DB)
-        connect_args = {'check_same_thread': False, 'timeout': 30}
-        return cls(name=DOMAIN_USER, url=fallback, connect_args=connect_args, pool_pre_ping=False)
+        return cls(
+            name=DOMAIN_USER,
+            url=fallback,
+            connect_args=_sqlite_connect_args(fallback),
+            pool_pre_ping=False,
+        )
 
 
 def _apply_sqlite_pragmas(engine: Engine) -> None:
@@ -306,6 +368,20 @@ class DatabaseFactory:
 
         url, extra_connect_args = _normalize_db_url(cfg.url)
         connect_args = {**cfg.connect_args, **extra_connect_args}
+        # 兜底闸门（#1519）：方言不是本地 SQLite 时，剔除 SQLite 专有 connect_args。
+        # 配置层（for_app / for_user）已按方言取值，此处再拦一道，防止将来新增分支
+        # 又无条件注入 `timeout` / `check_same_thread`——它们只有 pysqlite 接受，
+        # 传给 libSQL / psycopg2 会在**建立连接时**抛 TypeError，报错点离真因极远。
+        if not _is_local_sqlite(url):
+            leaked = [k for k in _SQLITE_ONLY_CONNECT_ARGS if k in connect_args]
+            if leaked:
+                for k in leaked:
+                    connect_args.pop(k, None)
+                logger.warning(
+                    '方言 {} 不支持 SQLite 专有 connect_args {}，已剔除（#1519）',
+                    url.split('://', 1)[0],
+                    leaked,
+                )
         engine = create_engine(
             url,
             connect_args=connect_args,
@@ -339,8 +415,11 @@ class DatabaseFactory:
 
         返回 {'market': [Table...], 'user': [Table...]}。
         校验：凡 metadata 中的表必须已在 DATA_DOMAIN_REGISTRY 登记，否则抛 ValueError
-        （防漏声明导致建错库 / 读错库）。同时校验注册表有无"模型已不存在"的孤儿项，
-        打印告警（不致命，但提示文档与代码漂移）。
+        （防漏声明导致建错库 / 读错库）。
+
+        注意：本方法**不**判断注册表孤儿项——metadata 只含本进程已 import 的模型，
+        在这里判孤儿会把「未导入」误报成「模型已删除」，孤儿判定见
+        `classify_registry_orphans()` / `validate_domain_labels()`（#1521）。
         """
         from sqlalchemy import MetaData
 
@@ -365,23 +444,56 @@ class DatabaseFactory:
         return result
 
     @classmethod
+    def classify_registry_orphans(cls, metadata, source_text: Optional[str] = None) -> Tuple[list, list]:
+        """把「已登记但不在 metadata 中」的表分成两类。
+
+        返回 `(not_imported, missing_in_source)`：
+        - `not_imported`：源码里能找到该表名的定义 → 只是本进程没 import，属正常现象；
+        - `missing_in_source`：源码里也找不到 → 疑似模型已删除（注册表 / 文档漂移），需处理。
+
+        `source_text` 无法取得（None）时全部归入 `not_imported`：宁可不报，也不把
+        「没读到源码」错报成「模型已删除」——后者会把排查引向完全错误的方向（#1521）。
+        """
+        registry_keys = set(DATA_DOMAIN_REGISTRY)
+        model_tables = set(metadata.tables.keys()) if metadata is not None else set()
+        orphan = sorted(registry_keys - model_tables - set(PENDING_DOMAIN_REGISTRY))
+        if not orphan:
+            return [], []
+
+        if source_text is None:
+            source_text = _model_source_text()
+        if source_text is None:
+            return orphan, []
+
+        declared = [name for name in orphan if f"'{name}'" in source_text or f'"{name}"' in source_text]
+        missing = [name for name in orphan if name not in declared]
+        return declared, missing
+
+    @classmethod
     def validate_domain_labels(cls, metadata) -> None:
         """启动期断言：每个表都已声明合法数据域（供 init_db 调用）。
 
-        除致命校验（漏登记）外，额外检查注册表孤儿项（模型已不存在但仍在
-        注册表），打印告警提示文档/代码漂移。此告警仅在启动路径触发，
-        避免测试期 import 时序造成噪音。
+        除致命校验（漏登记）外，额外检查注册表孤儿项。孤儿分两类、措辞分开（#1521）：
+        本进程未 import 的表只记 info（CLI / 定时任务只导入所需模型属正常，旧版把它
+        报成「模型未定义」曾误导排查），只有源码里也找不到的才记 warning。
         """
         grouped = cls.tables_by_domain(metadata)
-        registry_keys = set(DATA_DOMAIN_REGISTRY)
-        model_tables = set(metadata.tables.keys())
-        orphan = sorted(registry_keys - model_tables - set(PENDING_DOMAIN_REGISTRY))
-        if orphan:
-            import logging
+        not_imported, missing = cls.classify_registry_orphans(metadata)
 
-            logging.getLogger(__name__).warning(
-                'DATA_DOMAIN_REGISTRY 存在孤儿表（模型未定义但已登记）：%s，请同步文档与代码。',
-                orphan,
+        if not_imported:
+            logger.info(
+                '以下表已登记、源码中也有模型定义，但本进程未 import（共 {} 张）：{}。'
+                '这不是错误——CLI / 定时任务只导入所需模型属正常现象，无需处理。',
+                len(not_imported),
+                not_imported,
+            )
+        if missing:
+            logger.warning(
+                'DATA_DOMAIN_REGISTRY 存在孤儿表（已登记但源码中找不到定义，疑为模型已删除）：{}。'
+                '请同步 db_factory.DATA_DOMAIN_REGISTRY 与 docs/dev/db-data-domain.md；'
+                '排查：rg -n "{}" backend/app/domains backend/app/models --glob "*.py"',
+                missing,
+                '|'.join(missing),
             )
         return grouped
 

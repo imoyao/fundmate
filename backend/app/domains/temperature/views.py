@@ -100,3 +100,41 @@ def get_multi_items():
         return jsonify({'data': data, 'message': 'success'})
     except Exception as e:
         return jsonify({'message': str(e)}), 500
+
+
+@thermometer_bp.get('/crowding-history')
+def get_crowding_history():
+    """行业 / 赛道拥挤度历史序列（趋势视图用；#1431 / 外部源见 #1502）。
+
+    历史序列是「按需读取」的长序列，不落 `market_multi_items`（最新快照表），
+    故此处代理外部源并复用其服务端缓存（TTL 6h）。
+
+    Query:
+      category: sw（默认）/ track
+      indicator: crowding（默认）/ turnover_ratio / turnover_rate / ma60_ratio /
+                 high60_ratio / margin_ratio / big_order
+      freq: weekly（默认）/ monthly
+      mode: value（默认，原值）/ pct（分位）
+
+    Response:
+      {'data': {'dates': [...], 'items': [{'code','name','values'}], 'freq', 'mode',
+                'indicator', 'category', 'source_kind'}, 'message': 'success'}
+      参数非法 / 外部源关停 / 不可达且无缓存 → 200 + `data: null` + 可读 message
+      （前端显示「暂不可用」提示，而非报错）。
+    """
+    from app.services.thermometer.fundfof_crowding import fetch_history
+
+    category = (request.args.get('category') or 'sw').strip()
+    indicator = (request.args.get('indicator') or 'crowding').strip()
+    freq = (request.args.get('freq') or 'weekly').strip()
+    mode = (request.args.get('mode') or 'value').strip()
+
+    try:
+        data = fetch_history(category=category, indicator=indicator, freq=freq, mode=mode)
+    except Exception as e:  # noqa: BLE001
+        # 外部源异常不该让前端拿到 500：返回空数据 + 可读提示
+        return jsonify({'data': None, 'message': f'历史序列暂不可用：{str(e)[:80]}'})
+
+    if not data:
+        return jsonify({'data': None, 'message': '历史序列暂不可用（外部源关停或不可达）'})
+    return jsonify({'data': data, 'message': 'success'})

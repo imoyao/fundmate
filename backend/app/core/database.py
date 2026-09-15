@@ -2,6 +2,7 @@
 """数据库连接与基础仓储类."""
 
 import os
+import sys
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Optional
@@ -20,6 +21,7 @@ from app.core.migrations import (
     migrate_advisor_portfolio_metrics,
     migrate_channel_link_indexes,
     migrate_watchlist_family_scoped_unique_key,
+    migrate_watchlist_name_snapshot,
     migrate_watchlist_unique_key,
     migrate_watchlist_venue_not_null,
 )
@@ -28,17 +30,48 @@ from app.core.migrations import (
 # 指向当前应用运行库的 URL，供文件库路径推断使用。
 SQLALCHEMY_DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./invest.db')
 
-# 默认 engine = 应用运行库（市场域/非敏感数据），按 APP_ENV 自动切换
-# dev -> 本地 SQLite；prod -> Turso（回退 DATABASE_URL）。见 db_factory。
-engine: Engine = DatabaseFactory.create(DOMAIN_APP)
+# ⚠️ engine / user_engine **不再在导入期构造**（#1513）。
+#
+# 旧写法是模块级 `engine = DatabaseFactory.create(DOMAIN_APP)`——`create_engine()` 会
+# 立刻解析方言并 import 对应 DBAPI，于是「缺一个域的驱动/连接串」被放大成「整个后端
+# 不可导入」：CI 只想跑 market 域调度，却因 user 域缺 psycopg2 在 import 阶段崩溃，
+# 且栈顶看着像「模型导入失败」，报错点离真因极远（#1434 / #1514）。
+#
+# 现改为 PEP 562 模块级 __getattr__ 惰性构造：首次访问 `database.engine` /
+# `database.user_engine` 时才建引擎，对外名字与语义不变，conftest 的 monkeypatch
+# 重定向照旧生效（setattr 会写进模块 __dict__，之后查找不再走 __getattr__）。
+# 模块内部一律经 _engine_for(domain) 取值，不要直接写裸 `engine`。
+#
+# 域语义：
+# - engine（DOMAIN_APP）：应用运行库（市场域/非敏感数据），按 APP_ENV 自动切换，
+#   dev -> 本地 SQLite；prod -> Turso（回退 DATABASE_URL）。见 db_factory。
+# - user_engine（DOMAIN_USER）：配了 SUPABASE_DATABASE_URL 即真 Supabase；
+#   **development 默认与 market 同库**（DEV_DATABASE_URL，缺省 invest.db）——单库，
+#   本地既有数据零迁移；只有显式配 DEV_USER_DATABASE_URL 才拆独立文件（双库模拟）。
+#   prod/staging 未配 Supabase 时回退 USER_DATABASE_URL（缺省与 DATABASE_URL 同库）。
 
-# user 域引擎：配置了 SUPABASE_DATABASE_URL 即真 Supabase；未配置则本地回退。
-# **development 默认与 market 同库**（DEV_DATABASE_URL，缺省 invest.db）——单库，
-# 本地既有数据零迁移；只有显式配 DEV_USER_DATABASE_URL 才拆独立文件（双库模拟）。
-# prod/staging 未配 Supabase 时回退 USER_DATABASE_URL（缺省与 DATABASE_URL 同库）。
-# 单库模式下 user_engine 与 engine 指向同一库，双域表落在同一引擎，等价于旧单库。
-# 注意：user_engine 是模块级全局，测试可经 monkeypatch 重定向到内存库（见 conftest）。
-user_engine: Engine = DatabaseFactory.create(DOMAIN_USER)
+
+def _engine_for(domain: str) -> Engine:
+    """取指定域的当前引擎（惰性，且尊重测试的 monkeypatch）。
+
+    取值顺序：
+    1. 模块属性 `engine` / `user_engine` —— conftest 会把它们重定向到内存库，必须优先；
+       这里只读 `__dict__` 而不触发 `__getattr__`，避免「取值」反过来把引擎造出来；
+    2. 否则走 `DatabaseFactory.create()`（内部有缓存，重复调用不重复建引擎）。
+    """
+    module = sys.modules[__name__]
+    attr = 'user_engine' if domain == DOMAIN_USER else 'engine'
+    eng = vars(module).get(attr)
+    return eng if eng is not None else DatabaseFactory.create(domain)
+
+
+def __getattr__(name: str):
+    """PEP 562：惰性构造 `engine` / `user_engine`（首次访问才 create_engine，见 #1513）。"""
+    if name == 'engine':
+        return DatabaseFactory.create(DOMAIN_APP)
+    if name == 'user_engine':
+        return DatabaseFactory.create(DOMAIN_USER)
+    raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
 
 
 # 按表路由的会话：单一 session 即可跨域查询（如持仓页同时读 positions + daily_worth），
@@ -50,7 +83,7 @@ def _build_routing_binds():
     binds = {}
     for table in Base.metadata.tables.values():
         domain = DATA_DOMAIN_REGISTRY.get(table.name)
-        binds[table] = user_engine if domain == DOMAIN_USER else engine
+        binds[table] = _engine_for(DOMAIN_USER if domain == DOMAIN_USER else DOMAIN_APP)
     return binds
 
 
@@ -65,15 +98,20 @@ def _get_routing_binds():
 
 
 class _RoutingSessionMaker(sessionmaker):
-    """sessionmaker 子类：每次创建 session 时按表注入域路由 binds（懒构建一次）。"""
+    """sessionmaker 子类：每次创建 session 时按表注入域路由 binds（懒构建一次）。
+
+    bind 同样惰性注入（#1513）：构造时不传 bind，避免 `SessionLocal = ...(bind=engine)`
+    在导入期就把引擎造出来；默认 bind 推迟到首次开 session 时才解析。
+    """
 
     def __call__(self, **kw):
         if 'binds' not in kw:
             kw['binds'] = _get_routing_binds()
+        kw.setdefault('bind', _engine_for(DOMAIN_APP))
         return super().__call__(**kw)
 
 
-SessionLocal = _RoutingSessionMaker(autocommit=False, autoflush=False, bind=engine)
+SessionLocal = _RoutingSessionMaker(autocommit=False, autoflush=False)
 
 Base = declarative_base()
 
@@ -161,8 +199,7 @@ def get_user_sessionmaker() -> sessionmaker:
     未配置则 development 下**默认与 market 同库**（缺省 invest.db，即单库），
     显式配 DEV_USER_DATABASE_URL 才落到独立文件（双库模拟）。调用方无需判断空值。
     """
-    user_engine = DatabaseFactory.create(DOMAIN_USER)
-    return sessionmaker(autocommit=False, autoflush=False, bind=user_engine)
+    return sessionmaker(autocommit=False, autoflush=False, bind=_engine_for(DOMAIN_USER))
 
 
 def _validate_schema(bind, metadata, label: str = 'app') -> None:
@@ -225,33 +262,39 @@ def init_db():
 
     DatabaseFactory.validate_domain_labels(Base.metadata)
     grouped = DatabaseFactory.tables_by_domain(Base.metadata)
+    # 引擎在此才真正构造（#1513）：导入期不建，故只跑 market 域的入口不受 user 域驱动缺失牵连
+    app_eng = _engine_for(DOMAIN_APP)
+    user_eng = _engine_for(DOMAIN_USER)
     # market 域表 → 应用引擎
     market_meta = MetaData()
     for t in grouped[DOMAIN_MARKET]:
         t.to_metadata(market_meta)
-    market_meta.create_all(bind=engine)
+    market_meta.create_all(bind=app_eng)
     # 投顾组合指标列（#1392）：create_all 不替存量表加列，迁移须在结构校验前补齐，
     # 否则 _validate_schema 会因模型列多于库表而报错阻断启动
-    migrate_advisor_portfolio_metrics(engine)
+    migrate_advisor_portfolio_metrics(app_eng)
     # 投顾组合策展元数据列（#1468）：波动率/夏普/配置目标/产品类型，同上须先于结构校验
-    migrate_advisor_portfolio_metadata(engine)
+    migrate_advisor_portfolio_metadata(app_eng)
     # channel_links.to_symbol 索引（#1491 评审）：create_all 只建新表、不给存量表加索引
-    migrate_channel_link_indexes(engine)
-    _validate_schema(engine, market_meta, label='market')
+    migrate_channel_link_indexes(app_eng)
+    _validate_schema(app_eng, market_meta, label='market')
     # user 域表 → 用户引擎
     user_meta = MetaData()
     for t in grouped[DOMAIN_USER]:
         t.to_metadata(user_meta)
-    user_meta.create_all(bind=user_engine)
-    _validate_schema(user_engine, user_meta, label='user')
+    user_meta.create_all(bind=user_eng)
+    # watchlist.name 名称快照列（#1508）：create_all 不替存量表加列，迁移须先于结构校验，
+    # 否则 _validate_schema 会因模型列多于库表而报错阻断启动（与下方投顾列同因）。
+    migrate_watchlist_name_snapshot(user_eng)
+    _validate_schema(user_eng, user_meta, label='user')
     # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键 (symbol, venue)
     # → (symbol, market, venue) 防跨市场同码冲突。create_all 只增表不改表，旧库
     # 仍停留旧约束会静默失效，故启动期按 user 域自动执行，幂等可重复跑。
     # 先回填历史 NULL venue（否则唯一键对存量行失效），再迁唯一键；
     # 最后补 family_id（#1491 评审阻断项：唯一键不含 family_id 会让其他家庭再也无法关注同一标的）
-    migrate_watchlist_venue_not_null(user_engine)
-    migrate_watchlist_unique_key(user_engine)
-    migrate_watchlist_family_scoped_unique_key(user_engine)
+    migrate_watchlist_venue_not_null(user_eng)
+    migrate_watchlist_unique_key(user_eng)
+    migrate_watchlist_family_scoped_unique_key(user_eng)
     _seed_default_identity()
 
 
@@ -302,6 +345,8 @@ def init_db_split():
         for t in grouped[DOMAIN_USER]:
             t.to_metadata(user_meta)
         user_meta.create_all(bind=user_eng)
+        # watchlist.name 名称快照列（#1508）：同上，须先于结构校验
+        migrate_watchlist_name_snapshot(user_eng)
         _validate_schema(user_eng, user_meta, label='user')
         # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键回归基线，
         # 双库模式同样按 user 域引擎自动执行，幂等。
@@ -352,11 +397,13 @@ def _seed_default_identity(bind=None):
     from app.domains.users.models import ROLE_ADMIN, User
 
     # 默认落到 user 引擎（Family/User 属于 user 域）；单库模式下 user_engine == engine。
-    target_bind = bind if bind is not None else user_engine
+    target_bind = bind if bind is not None else _engine_for(DOMAIN_USER)
 
     # 双库模式（bind 即 user 引擎）下，确保 user 域表已存在再写入；
     # 单库模式表已由 init_db 的 create_all 建好，无需重复。
-    if bind is not None and bind is not SessionLocal.kw['bind']:
+    # 判据：传入的 bind 不是 app 引擎即视为「建在别的库上」——SessionLocal 的 bind 已惰性
+    # 注入（#1513），故这里不能再读 SessionLocal.kw['bind']（该键已不存在）。
+    if bind is not None and bind is not _engine_for(DOMAIN_APP):
         grouped = DatabaseFactory.tables_by_domain(Base.metadata)
         from sqlalchemy.schema import MetaData
 

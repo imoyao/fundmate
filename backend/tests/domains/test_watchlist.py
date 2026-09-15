@@ -450,6 +450,131 @@ class TestWatchlistItemCRUD:
         assert resolve_display_name('MGR_abcd1234efgh', db) == '张坤'
         assert resolve_display_name('MGR_UNKNOWNCODE00', db) == 'MGR_UNKNOWNCODE00'
 
+    def test_resolve_display_name_bare_code_fallback(self, client, db):
+        """场内 ETF/场内基金名称落到裸码回退（#1497，2026-09-14 用户反馈）。
+
+        根因：watchlist.symbol 是**带前缀**形态（SZ159857），而 funds.fund_code 按
+        **裸 6 位码**存储（159857）→ 原实现等值查 funds 必落空，展示名退化成代码本身，
+        自选页「代码/名称」列首行直接显示 SZ159857。
+        """
+        from app.domains.funds.models import Fund
+
+        db.add(Fund(fund_code='159857', name='光伏ETF天弘'))
+        db.add(Fund(fund_code='513130', name='恒生科技ETF华泰柏瑞'))
+        # 场外基金也可能 histor 带前缀（SZ004369/前海开源聚财宝B）
+        db.add(Fund(fund_code='004369', name='前海开源聚财宝B'))
+        db.commit()
+
+        # 带前缀 → 裸码回退命中
+        assert resolve_display_name('SZ159857', db) == '光伏ETF天弘'
+        assert resolve_display_name('SH513130', db) == '恒生科技ETF华泰柏瑞'
+        assert resolve_display_name('SZ004369', db) == '前海开源聚财宝B'
+        # 裸码本身仍可查（不能因新增回退而破坏原有精确匹配）
+        assert resolve_display_name('159857', db) == '光伏ETF天弘'
+        # 都查不到时仍回退 symbol（不编造）
+        assert resolve_display_name('SZ999999', db) == 'SZ999999'
+
+    def test_resolve_display_name_index_not_hijacked_by_fund(self, client, db):
+        """#1497 核心边界：裸码跨表不唯一，指数必须优先 index_catalog。
+
+        实测 `SH000906` 的裸码 `000906` **同时**命中：
+          - index_catalog  → 000906 = 中证800
+          - funds          → 000906 = 广发全球精选股票(QDII)美元A
+        若不分类型一律先查 funds，指数行会被错标成一只场外基金名。
+        asset_type='index' 时必须先查 index_catalog 并以之为准。
+        """
+        from app.domains.funds.models import Fund
+        from app.domains.indices.models import IndexCatalog
+
+        db.add(Fund(fund_code='000906', name='广发全球精选股票(QDII)美元A'))
+        db.add(IndexCatalog(index_code='000906', name='中证800', exchange='SH'))
+        db.commit()
+
+        # 传 'index' → 走 index_catalog，绝不落到同码基金
+        assert resolve_display_name('SH000906', db, 'index') == '中证800'
+        # asset_type 大小写不敏感（历史行存大写）
+        assert resolve_display_name('SH000906', db, 'INDEX') == '中证800'
+        # 缺 asset_type 时保守：不启用指数分支，落 funds（宁可显示同码基金名也不猜错）
+        # —— 该行为由调用方显式传 asset_type 规避（views/_enrich_item 均已传）
+        assert resolve_display_name('SH000906', db) == '广发全球精选股票(QDII)美元A'
+
+    def test_resolve_display_name_index_missing_must_not_fall_to_fund(self, client, db):
+        """#1497 review 补漏：指数语义已确定时，index_catalog 未命中**不得**回退 funds。
+
+        漏掉的边界：`asset_type='index'` 且裸码不在 index_catalog，此前的实现会继续
+        落进 funds 精确/裸码回退 → 指数行被错标成一只同裸码的**无关**场外基金名。
+        本库实测 index_catalog 与 funds 同码重叠 258 条，且撞主流码：
+          000300 指数=沪深300     / funds=德邦德利货币A
+          000905 指数=中证500     / funds=鹏华安盈宝货币A
+        预期：宁可退回 symbol 显示代码，也不给一个错的名字。
+        """
+        from app.domains.funds.models import Fund
+        from app.domains.indices.models import IndexCatalog
+
+        # funds 有同裸码，index_catalog 没有 → 回退会误命中
+        db.add(Fund(fund_code='000300', name='德邦德利货币A'))
+        # 另一个：index_catalog 有，确认指数分支仍正常
+        db.add(IndexCatalog(index_code='000906', name='中证800', exchange='SH'))
+        db.commit()
+
+        # 回归点：此前返回 '德邦德利货币A'（错名），修复后返回 symbol（显示代码）
+        assert resolve_display_name('SH000300', db, 'index') == 'SH000300'
+        # 大小写不敏感，同样不回退
+        assert resolve_display_name('SH000300', db, 'INDEX') == 'SH000300'
+        # 指数命中 index_catalog 时不受影响
+        assert resolve_display_name('SH000906', db, 'index') == '中证800'
+        # 非指数类型仍照常回退 funds（回退能力未被削弱）
+        assert resolve_display_name('SH000300', db, 'etf') == '德邦德利货币A'
+        assert resolve_display_name('SH000300', db) == '德邦德利货币A'
+
+    def test_list_items_etf_display_name(self, client, db):
+        """端到端：#1497 自选列表里场内 ETF 名显示中文而非代码。"""
+        from app.domains.funds.models import Fund
+
+        db.add(Fund(fund_code='159857', name='光伏ETF天弘'))
+        db.commit()
+
+        # etf 是交易性资产，必须带 venue（normalize_and_infer_venue 对非 fund 类型要求显式 venue）
+        _post(client, '/api/watchlist/items/', {'symbol': 'SZ159857', 'asset_type': 'etf', 'venue': 'EXCHANGE'})
+        resp = _get(client, '/api/watchlist/items/')
+        assert resp.status_code == 200
+        item = next(i for i in resp.get_json()['data'] if i['symbol'] == 'SZ159857')
+        # 回归点：此前这里是 'SZ159857'（代码），修复后为基金名
+        assert item['display_name'] == '光伏ETF天弘'
+
+    def test_resolve_display_name_convertible_bond(self, client, db):
+        """可转债名取自 convertible_bond_terms（#1499）。
+
+        根因：`securities` 表**只装股票**，可转债不在其中；名称在
+        `convertible_bond_terms.name`。原解析链无此分支 → 名称退化成代码。
+        该表 symbol 与 watchlist.symbol 同构（SH110081 带前缀），等值匹配即可。
+        """
+        from app.domains.securities.models import ConvertibleBondTerm
+
+        db.add(ConvertibleBondTerm(symbol='SZ128100', bond_code='128100', name='搜特转债'))
+        db.add(ConvertibleBondTerm(symbol='SH110081', bond_code='110081', name='闻泰转债'))
+        db.commit()
+
+        assert resolve_display_name('SZ128100', db, 'bond') == '搜特转债'
+        assert resolve_display_name('SH110081', db, 'bond') == '闻泰转债'
+        # 不带 asset_type 也能命中（bond 分支不依赖类型，走 symbol 精确匹配）
+        assert resolve_display_name('SZ128100', db) == '搜特转债'
+        # 表中没有的转债仍回退 symbol，不编造
+        assert resolve_display_name('SZ999999', db, 'bond') == 'SZ999999'
+
+    def test_list_items_convertible_bond_display_name(self, client, db):
+        """端到端：#1499 自选列表里可转债名显示中文而非代码。"""
+        from app.domains.securities.models import ConvertibleBondTerm
+
+        db.add(ConvertibleBondTerm(symbol='SZ128100', bond_code='128100', name='搜特转债'))
+        db.commit()
+
+        _post(client, '/api/watchlist/items/', {'symbol': 'SZ128100', 'asset_type': 'bond', 'venue': 'EXCHANGE'})
+        resp = _get(client, '/api/watchlist/items/')
+        assert resp.status_code == 200
+        item = next(i for i in resp.get_json()['data'] if i['symbol'] == 'SZ128100')
+        assert item['display_name'] == '搜特转债'
+
     def test_home_summary_shares_display_name_chain(self, client, app):
         """首页自选摘要（/home-summary/）与列表页**共用**同一展示名解析链。
 
@@ -1428,3 +1553,224 @@ class TestTrends:
         resp = _get(client, '/api/watchlist/trends/', {'symbols': ''})
         assert resp.status_code == 200
         assert resp.get_json()['data'] == {}
+
+
+class TestNameSnapshot:
+    """名称快照（#1508）：创建时落库 → 读取端优先 → 缺失回退，端到端。
+
+    根因回顾：watchlist 此前**无 name 列**，展示名只能读时跨
+    funds/index_catalog/securities/convertible_bond_terms/advisor_portfolios/managers
+    六张**码空间重叠**的表按裸码反查（index_catalog 与 funds 同码重叠 258 条）→
+    任何一次「未命中就回退别表」都可能给出错名（#1497 / #1499 的根因）。
+    修复：创建时随搜索回显把 name 落库，读取端 resolve_item_display_name 优先用快照。
+    """
+
+    def test_create_persists_name_snapshot(self, client, db):
+        """POST 带 name → 落库；响应 display_name 直接用快照。"""
+        resp = _post(
+            client,
+            '/api/watchlist/items/',
+            {'symbol': 'SZ159857', 'name': '光伏ETF天弘', 'asset_type': 'etf', 'venue': 'EXCHANGE'},
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()['data']['display_name'] == '光伏ETF天弘'
+
+        row = db.query(WatchlistItem).filter_by(symbol='SZ159857').one()
+        assert row.name == '光伏ETF天弘'
+
+    def test_snapshot_wins_over_bare_code_table_collision(self, client, db):
+        """快照优先的**判别用例**：裸码撞表时快照给出真实名称（#1497/#1499 根因场景）。
+
+        构造 `SH000906`：funds 有同裸码 `000906`（广发全球精选股票(QDII)美元A），
+        index_catalog 里没有 000906。
+        - 对照（不传 name）：asset_type=index 时 #1497 保证不回退 funds → 退回 symbol
+          （既有行为：宁可显示代码，也不给错名）；
+        - 传 name：直接用快照 → 真实指数名，且既非 symbol 也非同裸码基金名。
+
+        要点：本用例在「还原快照实现」后必然失败（那时只能退化成代码），以此守住边界；
+        仅断言「指数优先查 index_catalog」不足以判别——那条已被 #1497 的修复兜住。
+        """
+        from app.domains.funds.models import Fund
+
+        db.add(Fund(fund_code='000906', name='广发全球精选股票(QDII)美元A'))
+        db.commit()
+
+        # 对照：不传 name → 反查链退回 symbol
+        _post(
+            client,
+            '/api/watchlist/items/',
+            {'symbol': 'SH000906', 'asset_type': 'index', 'venue': 'EXCHANGE'},
+        )
+        resp = _get(client, '/api/watchlist/items/')
+        item = next(i for i in resp.get_json()['data'] if i['symbol'] == 'SH000906')
+        assert item['display_name'] == 'SH000906'
+
+        # 传 name → 快照胜出（裸码同样撞 000906，但快照不需要任何查表）
+        _post(
+            client,
+            '/api/watchlist/items/',
+            {'symbol': 'CSI000906', 'name': '中证800', 'asset_type': 'index', 'venue': 'EXCHANGE'},
+        )
+        resp = _get(client, '/api/watchlist/items/')
+        item = next(i for i in resp.get_json()['data'] if i['symbol'] == 'CSI000906')
+        assert item['display_name'] == '中证800'
+        assert item['display_name'] not in ('CSI000906', '广发全球精选股票(QDII)美元A')
+
+    def test_missing_snapshot_falls_back_to_resolution(self, client, db):
+        """无快照（老客户端）→ 行为与快照引入前一致：仍走反查链，不倒退。"""
+        from app.domains.funds.models import Fund
+
+        db.add(Fund(fund_code='159857', name='光伏ETF天弘'))
+        db.commit()
+
+        _post(
+            client,
+            '/api/watchlist/items/',
+            {'symbol': 'SZ159857', 'asset_type': 'etf', 'venue': 'EXCHANGE'},
+        )
+        row = db.query(WatchlistItem).filter_by(symbol='SZ159857').one()
+        assert row.name is None
+
+        resp = _get(client, '/api/watchlist/items/')
+        item = next(i for i in resp.get_json()['data'] if i['symbol'] == 'SZ159857')
+        assert item['display_name'] == '光伏ETF天弘'
+
+    def test_blank_snapshot_normalized_to_none(self, client, db):
+        """纯空白 name 归一为 None——否则空串会被当成「已命名」而跳过反查兜底。"""
+        from app.domains.funds.models import Fund
+
+        db.add(Fund(fund_code='159857', name='光伏ETF天弘'))
+        db.commit()
+
+        _post(
+            client,
+            '/api/watchlist/items/',
+            {'symbol': 'SZ159857', 'name': '   ', 'asset_type': 'etf', 'venue': 'EXCHANGE'},
+        )
+        row = db.query(WatchlistItem).filter_by(symbol='SZ159857').one()
+        assert row.name is None
+
+        resp = _get(client, '/api/watchlist/items/')
+        item = next(i for i in resp.get_json()['data'] if i['symbol'] == 'SZ159857')
+        assert item['display_name'] == '光伏ETF天弘'
+
+    def test_ensure_from_position_fills_snapshot(self, db):
+        """买入自动入自选：新行直接带 positions.name 快照（不再落回读时反查）。"""
+        from app.services.watchlist_service import ensure_watchlist_for_positions
+
+        db.add(
+            Position(
+                symbol='SH600519',
+                name='贵州茅台',
+                asset_type='stock',
+                account_name='华泰',
+                quantity=100,
+                avg_price=1800,
+                current_price=1800,
+            )
+        )
+        db.commit()
+
+        created = ensure_watchlist_for_positions(db, 1)
+        db.commit()
+        assert created == 1
+        row = db.query(WatchlistItem).filter_by(symbol='SH600519').one()
+        assert row.name == '贵州茅台'
+
+    def test_ensure_from_position_backfills_existing_blank_snapshot(self, db):
+        """存量补写：已有自选行但快照为空时，买入路径顺手回填一次（只补不改）。"""
+        from app.services.watchlist_service import ensure_watchlist_for_positions
+
+        db.add(WatchlistItem(symbol='SH600519', market='CN_A', venue='EXCHANGE', status='WATCHING', family_id=1))
+        db.add(
+            Position(
+                symbol='SH600519',
+                name='贵州茅台',
+                asset_type='stock',
+                account_name='华泰',
+                quantity=100,
+                avg_price=1800,
+                current_price=1800,
+            )
+        )
+        db.commit()
+
+        created = ensure_watchlist_for_positions(db, 1)
+        db.commit()
+        assert created == 0  # 已存在 → 只升级状态 + 回填快照
+        row = db.query(WatchlistItem).filter_by(symbol='SH600519').one()
+        assert row.name == '贵州茅台'
+        assert row.status == 'HOLDING'
+
+
+class TestResolveItemDisplayName:
+    """resolve_item_display_name：快照优先、缺失回退（#1508 单元级）。"""
+
+    def test_snapshot_preferred(self, db):
+        from app.services.watchlist_service import resolve_item_display_name
+
+        item = WatchlistItem(symbol='SZ159857', name='自定义快照名', market='CN_A', venue='EXCHANGE')
+        db.add(item)
+        db.commit()
+        assert resolve_item_display_name(item, db) == '自定义快照名'
+
+    def test_blank_snapshot_falls_back(self, db):
+        from app.domains.funds.models import Fund
+        from app.services.watchlist_service import resolve_item_display_name
+
+        db.add(Fund(fund_code='159857', name='光伏ETF天弘'))
+        item = WatchlistItem(symbol='SZ159857', name='   ', market='CN_A', venue='EXCHANGE')
+        db.add(item)
+        db.commit()
+        # 空白快照不算数 → 落回反查链
+        assert resolve_item_display_name(item, db) == '光伏ETF天弘'
+
+    def test_none_snapshot_falls_back_to_symbol(self, db):
+        from app.services.watchlist_service import resolve_item_display_name
+
+        item = WatchlistItem(symbol='SZ999999', market='CN_A', venue='EXCHANGE')
+        db.add(item)
+        db.commit()
+        assert resolve_item_display_name(item, db) == 'SZ999999'
+
+
+class TestBiasProviderWatchlistProducts:
+    """get_user_products(include_watchlist=True) 的回归（#1508 顺带修复）。
+
+    历史缺陷：2026-08-07 多用户改造新增 family 隔离块时**漏删** 2026-07-31 的旧块，
+    两段同 `if include_watchlist:` 代码并存，旧块引用当时**并不存在**的
+    `WatchlistItem.name` 列且**不带 family_id 过滤**。该函数当前全仓零调用 → 缺陷
+    未暴露；但 #1508 补上 name 列后旧块不再 AttributeError，会静默产生重复条目。
+    """
+
+    def test_include_watchlist_no_duplicates_and_family_scoped(self, db):
+        from app.services.bias.provider import ProductProvider
+
+        db.add(
+            WatchlistItem(
+                symbol='SH600519',
+                name='贵州茅台',
+                asset_type='stock',
+                market='CN_A',
+                venue='EXCHANGE',
+                family_id=1,
+            )
+        )
+        # 其他家庭的标的不应混入
+        db.add(
+            WatchlistItem(
+                symbol='SZ000001',
+                name='平安银行',
+                asset_type='stock',
+                market='CN_A',
+                venue='EXCHANGE',
+                family_id=2,
+            )
+        )
+        db.commit()
+
+        rows = ProductProvider.get_user_products(db, include_holdings=False, include_watchlist=True, family_id=1)
+        symbols = [s for s, _t, _n in rows]
+        # 旧块会与 family 块各追加一次 → 重复；修复后每个 symbol 只出现一次
+        assert symbols == ['SH600519']
+        assert rows[0][2] == '贵州茅台'  # 名称来自快照而非 symbol 兜底

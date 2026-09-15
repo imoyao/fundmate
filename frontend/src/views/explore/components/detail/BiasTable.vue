@@ -4,13 +4,16 @@
   内部复用 utils/temperatureFormat 的 biasColorClass / biasBarStyle / formatValue。
 -->
 <template>
-  <section class="bias-section">
-    <SectionHeader title="行业乖离度排行">
+  <section
+    :class="embedded ? 'bias-section bias-section--embedded' : 'bias-section'"
+  >
+    <!-- embedded：由父级「行业排行」卡片统一承载标题、视图切换与更新时间 -->
+    <SectionHeader v-if="!embedded" title="行业乖离度排行">
       <template #action>
         <span class="bias-updated">更新：{{ date || "暂无" }}</span>
         <el-tooltip
           v-if="stale"
-          content="东财行情接口暂不可用，当前乖离率基于最近一次成功抓取的价格计算，非实时数据，仅供参考。"
+          content="行情源（申万宏源官网 / 腾讯）暂不可用，当前乖离率基于最近一次成功抓取的价格计算，非实时数据，仅供参考。"
           placement="top"
         >
           <span class="bias-stale-pill">数据滞后</span>
@@ -140,15 +143,18 @@ withDefaults(
     items: any[];
     /** 数据更新时间，空串显示「暂无」 */
     date?: string;
-    /** 数据是否滞后（东财行情接口不可用） */
+    /** 数据是否滞后（行情源不可用：申万宏源官网 / 腾讯 / 东财兜底） */
     stale?: boolean;
     /** 加载中（el-table v-loading） */
     loading?: boolean;
+    /** 嵌入式模式：不渲染自身卡片外壳与标题（由父级「行业排行」卡片承载，用于双视图切换） */
+    embedded?: boolean;
   }>(),
   {
     date: "",
     stale: false,
-    loading: false
+    loading: false,
+    embedded: false
   }
 );
 </script>
@@ -167,6 +173,16 @@ withDefaults(
 .bias-updated {
   font-size: 12px;
   color: var(--text-tertiary);
+}
+
+/* embedded：外壳与标题交给父级卡片，本组件只出表格 */
+.bias-section--embedded {
+  padding: 0;
+  margin: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .bias-stale-pill {

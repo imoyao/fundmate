@@ -27,6 +27,12 @@
    不得把它们降级成「请核对」的软话术——在无工具的前提下，那只是噪声。
 3. **只审 diff 文本自身能证实的缺陷**：补丁内可见的逻辑错误、边界条件、金额与单位换算、
    前后端字段配对、异常处理、类型与语法错误。
+4. **不得凭命名推断语义，也不得引用 diff 中不存在的文本**（2026-09-14 新增，实证见案例库 #1491）：
+   - 函数 / 变量 / 参数 / 类 / 文件的**名字不构成其行为的证据**。叫 `_to_ratio` 不代表它做了 `/100`，
+     叫 `timeout` 不代表它被使用，叫 `session` 不代表它绑定哪个引擎。只有当 diff 内**字面写出了**
+     实现语句（如 `return float(value)`）时，才允许就该行为发言。
+   - **不得引用或清理 diff 里根本没有的片段**（例如断言「新增行带 `# added` 残留」而补丁中不存在该字符串）。
+     这属伪造证据，比不提意见严重得多。
 
 **每条意见都必须能只用 diff 内的 `文件:行号` 自证**；引用不到补丁中的行，就不要发。
 
@@ -99,15 +105,19 @@
 
 - 金额与份额：业务代码**禁止**直接 `*100` 或 `/100`、禁止裸 `float` 运算；换算必须走 `core/money.py` 的 `Money`（`yuan_to_cents` / `shares_to_min_unit`）；净值用 `DECIMAL(18,6)`。
 - `Money` 仅用于**业务层的金额与份额换算**；**数据库列仍是 `Integer`**（金额按「分」、份额按「0.0001 份」存整数，见 `Position.quantity` / `avg_price` / `current_price`、`Asset.amount`）。**不要**建议把 `Integer` 列或测试 fixture 值改成 `Money` 类型。
-- 日志：统一 `from loguru import logger`；**禁止**新增 `import logging` 加 `logging.getLogger`（唯一例外 `app/__init__.py` 的 `InterceptHandler`）。loguru **必须**用 `{}` 占位符（`logger.warning('... {} ...', x)`）；`%s` 与 `%d` 不会被替换、参数被静默丢弃，见到即以 [次要] 提出并给出 `{}` 写法。
+- 日志：统一 `from loguru import logger`；**禁止**新增 `import logging` 加 `logging.getLogger`（唯一例外 `app/__init__.py` 的 `InterceptHandler`）。**统一使用 f-string 插值**（`logger.warning(f'... {x} ...')`）——与仓内现状（f-string 约 280 处 vs `{}` 占位符约 30 处）及 `docs/working-notes/pr1362-review-closure-2026-09-09.md` 的有意决策一致。`%s` / `%d` 传参式（如 `logger.warning('%s', x)`）会被 loguru 静默丢弃参数、输出字面 `%s`，见到即以 [次要] 提出并给出 f-string 写法。`{}` 占位符 loguru 亦原生支持，但非项目主流风格，不强制、也不以此为由提意见。
 - API 错误统一 `{data, message, error_code}` 信封；端点尾斜杠约定见维度 3。
 - **禁止**新增 `backend.fundmate` 引用（V1 已退役）；`backend/pyproject.toml` 的项目名 `showbuy` 是历史遗留，勿据此判断归属。
 - 测试：用 `tests/conftest.py` 夹具，**禁止**直接导入 `SessionLocal`；`pypinyin` 必须延迟导入。
 - `services/thermometer/data/all_pb.csv` **禁止**删除或加进 `.gitignore`（温度计基线）。
 - 双库约束（权威来源 = `backend/app/core/db_factory.py` 的 `DATA_DOMAIN_REGISTRY`）：
   - **不要**在 ORM 模型上加 `__data_domain__` 类属性——当前实现只用注册表（`validate_domain_labels` 校验注册表完整性），没有任何模型声明该属性；建议「给模型加 `__data_domain__`」是过时约定。
-  - 判定该用哪个 session：**先查 `DATA_DOMAIN_REGISTRY`**——user 域表必须走 `user_session()`，market 域表走 `market_session()`，禁止混用。
-  - **`get_db()` 碰 user 域表是已知遗留**（issue #1085 跟踪，约 25 文件、150+ 处），**非单 PR 引入**。除非该 PR 的目标就是双库迁移，否则**不要**就单处 `get_db()` 提 [阻断] 或 [主要]，也不要每处重复警告。
+  - **`get_db()` / `SessionLocal` 不是「user 域 session」，不存在跨域违规**（2026-09-14 更正，原文误称其为「已知遗留」，已致 #1491 误报）：它返回的是
+    `app/core/database.py` 的 `_RoutingSessionMaker` **按表域自动路由** session——`_get_routing_binds()` 按注册表把
+    user 域表绑到 user 引擎、market 域表绑到 app 引擎。这正是 #1085「双库模式就绪」的成果（**2026-09-02 已关闭**），
+    调用点零改动即正确。因此**不得**以「market 域表用了 `get_db()`，应改 `market_session()`」为由提任何级别意见。
+  - `user_session()` / `market_session()` 是**显式指定域**的入口，用于需要绕开路由的少数场景；与 `get_db()` 并存，**两种写法都正确**，不要互相改写。
+  - `DATA_DOMAIN_REGISTRY`（`backend/app/core/db_factory.py`）是「表 → 域」归属的唯一权威：新增表必须登记，未登记会被启动校验拦截。
   - `sales_institutions` 在注册表里是 `DOMAIN_USER`，其读写只能用 `user_session()`——**绝不要**建议改成 `market_session()`，那会把 user 域数据落错库。
   - 公司主数据是 `fund_companies`（`DOMAIN_MARKET`，被 `funds` 与 `managers` 外键引用）；`fund_management_companies` 已于 2026-09-10 合并删除，针对该表的任何读写、外键、域归属建议**一律过时**。
   - 跨域零外键、零 SQL join；跨域读取走应用层两步法（`app/services/common/cross_domain.py`）。

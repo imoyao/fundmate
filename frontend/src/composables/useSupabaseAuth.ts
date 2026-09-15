@@ -165,6 +165,8 @@ export function useSupabaseAuth() {
         // 1) 始终写入自选（观察状态），保持原迁移行为
         await createWatchlistItem({
           symbol: h.symbol,
+          // 名称快照（#1508）：本地持仓本就有 name，迁移时一并落库
+          name: h.name,
           asset_type: h.type,
           venue: h.type === "fund" ? "OTC" : "EXCHANGE",
           add_reason: "探市观察迁移",

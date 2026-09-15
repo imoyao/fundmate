@@ -179,7 +179,9 @@ jobs:
       - name: 设置 pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          # 与根 package.json 的 packageManager 保持一致（#1520）：pnpm ≥12 不再读
+          # package.json 的 pnpm.overrides，钉住版本才能保住安全 pin。
+          version: 9.15.9
 
       - name: 设置 Node 22
         uses: actions/setup-node@v4
@@ -226,10 +228,32 @@ jobs:
   #
   # 维护约定：**新增需要卡人的 job，必须同时加进本 job 的 `needs`**；汇总逻辑本身遍历
   #   全部 needs，不需要改脚本。
+
+  # pnpm overrides 守卫（#1520）：把「安全 pin 被静默丢弃」变成显式红灯。
+  #
+  # 背景：pnpm 从 v12 起不再读取 package.json 的 `pnpm` 字段，`pnpm.overrides` 被忽略，
+  # 症状只有一行 WARN、构建照绿，唯一可见信号是依赖悄悄退回有漏洞版本（实测
+  # decode-uri-component 0.5.0 → 0.2.2，即 Dependabot 报的那条）。
+  # 本 job 只做静态校验（读 package.json + pnpm-lock.yaml），不安装依赖，故轻到可常开。
+  pnpm_overrides_guard:
+    name: 守卫:pnpm overrides 生效
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: 设置 Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+
+      - name: 校验 4 条安全 override 在锁中真实生效
+        run: node scripts/check_pnpm_overrides.mjs
+
   gate:
     name: 质量门禁汇总
     if: ${{ always() && github.event_name == 'pull_request' }}
-    needs: [changes, backend, frontend, mojibake_guard]
+    needs: [changes, backend, frontend, mojibake_guard, pnpm_overrides_guard]
     runs-on: ubuntu-latest
     steps:
       - name: 汇总各 job 结论（失败 / 取消 → 不通过）

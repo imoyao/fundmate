@@ -4,7 +4,7 @@ title: 技术债务与开口项明细（tech-debt）
 
 # 技术债务与开口项明细（tech-debt）
 
-> ⚠️ **易腐烂内容**：本文件随修复进展频繁变化。最后核实日期：**2026-09-10**。每条债务修复后，须将状态更新为"✅ 已修复"并注明版本号；请勿删除历史条目（保留可追溯）。
+> ⚠️ **易腐烂内容**：本文件随修复进展频繁变化。最后核实日期：**2026-09-14**。每条债务修复后，须将状态更新为"✅ 已修复"并注明版本号；请勿删除历史条目（保留可追溯）。
 >
 > **看板同步（2026-08-14）**：本文档技术债务已全量同步至 GitHub Project 看板（多多贝·投资账本 #3）并按四象限赋级——补登被引用但未进看板的 #796/#230/#507/#911；将 §1/§9–§12 中无 issue 编号的独立债务条目提升为 issue #948–#976 并赋象限；其余被引用的 issue（#821/#825/#869/#894/#898/#912/#913/#820/#824/#933/#934/#937/#947 等）统一补挂象限。交叉引用以 issue 编号为准。
 >
@@ -30,7 +30,7 @@ title: 技术债务与开口项明细（tech-debt）
 | 导入时出现 SAWarning: Identity map already had an identity for... | 低 | 同一 Session 内多次加载同一持仓后尝试 flush，导致 ORM 身份映射冲突 | 后续优化 PositionService 会话管理，当前不影响数据正确性 |
 | ~~PDF 解析器对无效日期行的处理~~ | ~~低~~ **✅ 已修复 (2026-08-09)** | 原行为：`alipay_pdf.py::_row_to_record` 对无效确认日期静默 `return None`，整行无记录被丢弃且不产生任何错误提示 | **实证回填**：改为 `raise ValueError('确认日期无效: ...')`，由 `parse()` 的异常分支统一收集为 `SBImportError`（含行号），无效日期行**被报告**而非静默丢失；`test_invalid_confirm_date` 同步锁定 `errors` 非空断言（14 passed）。 |
 | **`Ledger.ledger_type` 缺少 `property`（实物资产）类型** | **低** | **早期设计优先覆盖金融资产，实物资产通过 `Asset` 表快速兼容，未在账户类型体系中显式支持。用户录入房产等固定资产时无法选择匹配的账户类型，只能变通使用 `family` 类型。** | **P2 阶段新增 `property` 类型，统一 `LEDGER_TYPE_LABELS` 映射，前端账户创建页同步添加选项。届时需同步校验 `linked_cash_ledger_id` 仅对 `stock/fund` 有效。当前变通方案：引导用户使用 `family` 类型。** |
-| 前端 `Inventory.vue` 虽经轻量重构，仍有 800+ 行，未完全拆分 | 中 | 功能迭代优先级高于重构，拆分延后 | P2 拆分 |
+| ~~前端 `Inventory.vue` 虽经轻量重构，仍有 800+ 行，未完全拆分~~ | ~~中~~ **✅ 已修复 (2026-09-14, #955)** | ~~功能迭代优先级高于重构，拆分延后~~ | **已拆分**：`frontend/src/views/asset/inventory/index.vue` 1237 → 251 行（注意：该条目写于 800+ 行时，此后实际已增长到 1237 行，债务在恶化）。按职责拆为：`constants.ts`（大类目录 / 快捷录入类型 / 表格基线样式）、`helpers.ts`（颜色换算 / 标签解析 / 投资分组口径，纯函数）、`useInventoryData.ts`（汇总 / 分布 / 分组 / 明细分页 / 分类缓存 / `usePageRefresh` 订阅 / 资产删除）与 `components/` 下 8 个区块组件（`CategoryTabs` / `CategoryDescBar` / `InvestmentDistribution` / `QuickActionGrid` / `InvestmentPositionTable` / `OtherInvestmentTable` / `CategoryAssetTable` / `AssetEditDialog`），单文件均 ≤ 300 行。顺带闭环验收条款里的既有缺陷：**`defineOptions.name` 由 `InventoryHome` 改为与路由 `router/modules/home.ts` 一致的 `Inventory`**（此前不一致，keep-alive 无法命中）；移除死代码 `allAssets` 与页面级 `loading`（仅写不读）。行为与视觉零变化；`pnpm typecheck` 零错误，eslint / prettier / stylelint 通过，`pnpm build` 通过，且已不再命中 `check_vue_size.mjs` 的 400 行页面规模门禁（拆分前在列）。<br>**视觉残留项已由 #1501 闭环（2026-09-14, PR #1505）**：① 手写卡片容器收敛到 `CardBlock`（空状态虚线占位框除外，它不是区块卡）；② 6 处手写 `<h4>` 区块标题改用 `SectionHeader`，区块间距交给 `.inventory-shell` 的 flex `gap`；③ 页头改用 `PageHeaderBar`，内容区随之收口到 `.inventory-shell`（`max-width:1280px` + `padding:0 var(--space-standard)`，与 `PageHeaderBar` / `PageFooter` / 探市页同宽——页头自带 1280 居中，内容若继续全宽铺开会左右错位）；④ 删除三个表格组件内全部 `:deep(.el-table ...)` 覆盖，表格视觉基线回归 `src/style/el-table.css` 单一维护点。<br>**仍保留**：`INVENTORY_TABLE_HEADER_STYLE` / `INVENTORY_TABLE_CELL_STYLE` 对应的 `:header-cell-style` / `:cell-style`（只含字号字重，`el-table.css` 未定义该两项；删除会回落到 Element Plus 默认 `font-weight:600 / 14px`，属更大的视觉变更，待单独评估）。 |
 | 按平台分组盈亏缺失 | 低 | 用户无法与平台账单对账 | P2-14 实现 |
 | ~~交易记录导出功能缺失~~ | ~~低~~ **✅ 已实现 (2026-08-09)** | 原描述：用户无法备份数据 | **实证回填**：P2-15 已于 2026-08-07 上线（roadmap §2.6）——后端 `export_transactions`（`transactions/views.py:102`，`GET /api/transactions/export/`）；前端交易流水页导出按钮 + blob 下载（`TransactionList.vue:22,449`，`api/transactions.ts:27`）；`test_transactions_export_csv` 通过。 |
 | 支付宝解析器对特殊格式（引号内逗号）的容错性 | 低 | 实际用户导出格式已稳定，当前方案够用 | 若未来出现新格式再适配 |
