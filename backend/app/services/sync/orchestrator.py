@@ -33,11 +33,11 @@ from app.core.time_utils import now_shanghai
 from app.domains.positions.models import Position
 from app.domains.watchlist.models import WatchlistItem
 from app.models.sync_log import SyncLog
+from app.services.sync.adapters.advisor_source import AdvisorSourceRegistry
 from app.services.sync.adapters.akshare_adapter import AkshareAdapter
 from app.services.sync.adapters.eastmoney_adapter import EastmoneyAdapter
 from app.services.sync.adapters.jiucaishuo_adapter import JiucaishuoAdapter
 from app.services.sync.adapters.null_adapter import NullAdapter
-from app.services.sync.adapters.tiantian_advisor_adapter import TiantianAdvisorAdapter
 from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
 from app.services.sync.jobs.advisor_portfolio_job import AdvisorPortfolioSyncJob
 from app.services.sync.jobs.amac_institution_job import AmacInstitutionJob
@@ -115,8 +115,10 @@ class DataSyncOrchestrator:
         self.jobs['fund_scale'] = FundScaleSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['fund_position'] = FundPositionSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['fund_type'] = FundTypeSyncJob(self.data_sources['akshare'], self.db)
-        # 投顾组合数据源独立于 akshare/xalpha（天天基金公开接口，自带节流）
-        self.jobs['advisor_portfolio'] = AdvisorPortfolioSyncJob(TiantianAdvisorAdapter(), self.db)
+        # 投顾组合：一任务多平台（天天公开接口 + 且慢 MCP，Port 契约见 #1392）。
+        # job 不认识具体平台，按 AdvisorPortfolio.platform 从注册表取适配器；
+        # 注册表同时充当 SyncJob 的 adapter 槽位（sync_logs 审计读 get_name/get_version）。
+        self.jobs['advisor_portfolio'] = AdvisorPortfolioSyncJob(AdvisorSourceRegistry(), self.db)
         self.jobs['fund_nav'] = FundNavSyncJob(self.data_sources['xalpha'], self.db)
         self.jobs['price_history'] = PriceHistorySyncJob(self.data_sources['akshare'], self.db)
         self.jobs['index_constituents'] = IndexConstituentSyncJob(self.data_sources['akshare'], self.db)

@@ -15,7 +15,7 @@ title: 投顾组合（Advisor Portfolio）数据域设计与实现
 
 | 表 | 说明 |
 |----|------|
-| `advisor_portfolios` | 组合主表：`code`（平台组合码，**unique**）、`platform`（QIEMAN/DANJUAN/TIANTIAN/YINGMI）、name/host/org_name/risk_level/strategy_type、累计与年化收益、#1167 补充的 estab_date/strategy_desc |
+| `advisor_portfolios` | 组合主表：`code`（平台组合码，**unique**）、`platform`（QIEMAN/DANJUAN/TIANTIAN/YINGMI）、name/host/org_name/risk_level/strategy_type、累计与年化收益、#1167 补充的 estab_date/strategy_desc、#1392 补充的 `source`（写入来源）与 `extra`（平台特有字段 JSON） |
 | `advisor_holdings` | 当前持仓快照：同一 (portfolio, as_of_date) 整体覆盖；`fund_code` 存业务键不建外键（成分基金可能暂缺于 funds 表） |
 | `advisor_industry_alloc` | 行业配置快照：快照日随当前持仓调仓日 |
 | `advisor_adjust_history` | 历史调仓：同一 (portfolio, adjust_date) 整体覆盖，调仓理由随行冗余 |
@@ -30,12 +30,36 @@ title: 投顾组合（Advisor Portfolio）数据域设计与实现
 - 经理（`asset_type='manager'`）同理：`symbol = MGR_ + 权威外部经理 id`（派生码方案 sha256 已废），market/venue 同样存空串。
 - 唯一键 `(symbol, market, venue)` 天然覆盖新品种，自选表不加任何外键（双库硬规则 §2 跨域零外键）。
 
-## 4. 同步链路
+## 4. 同步链路（Ports & Adapters，#1392）
 
-- **天天基金**：`AdvisorPortfolioSyncJob`（`app/services/sync/jobs/advisor_portfolio_job.py`）+ `TiantianAdvisorAdapter`，公开接口零鉴权直抓四个数据面（概览/当前持仓/行业配置/历史调仓），覆盖式更新。已在 orchestrator 注册（`advisor_portfolio` job）。
-- **且慢**：无免费公开持仓接口，走手动导入 `import_qieman_holdings()`（`scripts/import_qieman_holdings.py`），`source='qieman_manual'` 区分。
+架构：**一个同步任务 + 每平台一个适配器**，平台差异全部收在适配器里。
+
+| 角色 | 位置 |
+|------|------|
+| Port（平台无关契约） | `app/services/sync/adapters/advisor_source.py`（`AdvisorPortfolioSource` + 注册表 + canonical 字段规格） |
+| Adapter | `adapters/tiantian_advisor_adapter.py`、`adapters/qieman_advisor_adapter.py` |
+| 落库语义（与平台无关） | `jobs/advisor_portfolio_job.py` |
+
+- **天天基金**：公开接口零鉴权直抓四个数据面（概览 / 当前持仓 / 行业配置 / 历史调仓），覆盖式更新。
+- **且慢**：官方 MCP（`QIEMAN_API_KEY`，与温度计同 key）自动抓概览（`GetStrategyDetails`）与持仓
+  （`BatchGetStrategiesComposition`）；**无官方历史调仓接口**，调仓明细由相邻两次持仓快照推导
+  （`source='qieman'`，`reason` 记录推导依据的快照日）。手动导入 `import_qieman_holdings()`
+  （`source='qieman_manual'`）仅作兜底。
+- 任务不认识任何平台：按 `AdvisorPortfolio.platform` 从注册表取适配器；缺省 targets 时抓库内
+  **已有适配器**的平台的在售组合。已在 orchestrator 注册（`advisor_portfolio` job）。
 - 回填 SOP：`pdm run python scripts/seed_advisors.py` 建档（幂等 upsert）→ `pdm run invoke grab.advisor_portfolio`（或 `sync --job advisor_portfolio`）。
 - tgcode 获取方式与接口调研留档：`docs/working-notes/advisor-ttfund-id-research-2026-09-08.md` 等 4 篇 advisor 系列备忘。
+
+### 4.1 新增一个平台（如蛋卷）要改什么
+
+1. 写一个继承 `AdvisorPortfolioSource` 的适配器：实现 `fetch_overview / fetch_holdings /
+   fetch_industries / fetch_rebalances`（无某数据面返回空），挂 `@register_advisor_source`，
+   声明 `platform` 与 `derive_rebalances_from_snapshots`；
+2. 若该平台有官方调仓接口，置 `has_official_rebalances = True`，否则置 `False` 并开启快照推导；
+3. 完 —— **不需要改 job、不需要改表**：canonical 覆盖不到的平台特有字段自动落 `extra`（JSON）。
+
+落库语义（概览只覆盖非 None 值 / 策展字段 `host`、`allocation`、`product_type` 永不被抓取覆盖 /
+持仓与行业按快照日覆盖 / 调仓按调仓日覆盖）由 job 统一实现，新平台自动继承。
 
 ## 5. 待办
 
