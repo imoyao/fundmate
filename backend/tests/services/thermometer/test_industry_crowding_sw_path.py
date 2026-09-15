@@ -35,6 +35,11 @@ def _fake_metrics():
 
 
 class TestSwShareRecords:
+    @pytest.fixture(autouse=True)
+    def _enable_sw_fallback(self, monkeypatch):
+        """本类验证申万官网单源真实逻辑，需显式开启 `SW_FALLBACK_AKSHARE_ENABLED`（#1511 起默认关闭）。"""
+        monkeypatch.setenv('SW_FALLBACK_AKSHARE_ENABLED', '1')
+
     def test_shapes_and_fields(self, monkeypatch):
         monkeypatch.setattr(sw, 'list_sw_industries', lambda: {'801010': '农林牧渔', '801030': '化工'})
         monkeypatch.setattr(sw, 'fetch_sw_metrics', lambda *a, **k: _fake_metrics())
