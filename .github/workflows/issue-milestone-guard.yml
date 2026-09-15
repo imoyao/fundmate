@@ -3,20 +3,35 @@
 # 依据 AGENTS.md「Issue 全局治理（里程碑强制）」：所有 issue 创建后必须挂里程碑，
 # 禁止长期 <<NONE>>（参考 #1287 看板整理教训：2026-09-02 曾 31 个开放 issue 未挂里程碑，已清零）。
 #
-# 触发：issue 被 新建 / 编辑 / 重开 时检查其 milestone 字段；
+# 触发（#1515 修正）：
+#   - issues: opened / edited / reopened / **milestoned** / **demilestoned**
+#     ⚠️ 补挂里程碑时 GitHub 发出的事件是 `milestoned`，**不是** `edited`。
+#        旧版只订阅 opened/edited/reopened，于是「补挂后不自愈」：整改完成了 run 仍然是红的，
+#        红灯的可信度随之崩塌（与 #1434「连续 7 天失败无人知」属同类失效：信号先不可信，问题才被掩盖）。
+#        订阅 demilestoned 用于反向校验——「已挂又被摘掉」同样算违规。
+#   - workflow_dispatch：按 issue 编号手动复检，不必再靠「改一次正文骗出 edited」来重跑。
+#
+# 判定：统一**回读 API** 的 milestone 字段作为唯一判据——两条触发路径共用同一逻辑，
+#       不依赖事件负载（dispatch 路径根本没有 issue payload）。
 #   - 有里程碑 → 通过；
-#   - 无里程碑 → 在 issue 下评论提醒责任人补挂，并使本 workflow run 失败（红），
-#     作为「拦住新建漏挂」的止损信号（issue 本身无法被 Action 自动关闭/拦截，
-#     故以失败 run + 评论提醒）。
+#   - 无里程碑 → 在该 issue 下评论提醒（同一 issue 只留一条，见 MARKER 去重），
+#     并使本 workflow run 失败（红），作为「拦住新建漏挂」的止损信号
+#     （issue 本身无法被 Action 自动关闭/拦截，故以失败 run + 评论提醒）。
 #
 # 注意：pull_request 事件不会触发本工作流（PR 不是 issue），不影响正常 PR 流程。
-#       补挂里程碑（edit 触发 edited）后本守卫自动复检通过，自愈。
 
 name: Issue 里程碑守卫
 
 on:
   issues:
-    types: [opened, edited, reopened]
+    types: [opened, edited, reopened, milestoned, demilestoned]
+  # 手动复检入口（#1515）：入参为要复检的 issue 编号
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 要复检的 issue 编号
+        required: true
+        type: string
 
 permissions:
   issues: write
@@ -27,26 +42,53 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # issues 事件取上下文里的编号；手动 dispatch 时事件负载为空，回退到输入入参
+      ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
     steps:
-      - name: 无里程碑 → 评论提醒并使 run 失败
-        if: ${{ github.event.issue.milestone == null }}
-        env:
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
+      - name: 校验 issue 编号
         run: |
+          if [ -z "${ISSUE_NUMBER:-}" ]; then
+            echo "::error::未取到 issue 编号（事件=$GITHUB_EVENT_NAME）"
+            exit 1
+          fi
+
+      - name: 读取里程碑并判定
+        run: |
+          set -euo pipefail
+
+          milestone=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}" \
+                        --jq '.milestone.title // ""')
+
+          if [ -n "$milestone" ]; then
+            echo "OK: issue #$ISSUE_NUMBER 已挂里程碑（$milestone），通过。"
+            exit 0
+          fi
+
           echo "issue #$ISSUE_NUMBER 未挂里程碑，提醒责任人补挂。"
-          gh issue comment "$ISSUE_NUMBER" --body "$(cat <<'EOF'
+
+          # 去重：反复 edited / demilestoned 不应刷出多条同样的提醒评论
+          MARKER='milestone-guard-reminder'
+          already=$(gh issue view "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --json comments \
+                      --jq "[.comments[] | select(.body | test(\"$MARKER\"))] | length")
+
+          if [ "$already" = "0" ]; then
+            {
+              printf '<!-- %s -->\n' "$MARKER"
+              cat <<'EOF'
           ⚠️ 本 issue 未挂**里程碑**，违反仓库全局规则（AGENTS.md「Issue 全局治理（里程碑强制）」）。
 
           请尽快为其指派合适的里程碑：
-          - 主题明确 → 归入对应产品里程碑（M0–M6、P0、base-data、自选增强、双库架构 #14 等）；
+          - 主题明确 → 归入对应产品里程碑（M0–M6、P0 导入统一入口、基础数据、自选增强、双库架构 #14 等）；
           - 确属远期 / 待定 → 归入 `M6 待办积压 Backlog`，不得长期 `<<NONE>>`。
 
           修正方式：在 issue 右侧 **Milestone** 下拉选择，或评论区 `@` 维护者处理。
           EOF
-          )"
+            } > /tmp/milestone-guard-body.md
+            gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" \
+              --body-file /tmp/milestone-guard-body.md
+          else
+            echo "已有 $already 条提醒评论，跳过重复评论。"
+          fi
+
           echo "::error::Issue #$ISSUE_NUMBER 缺少里程碑，请在处理前补挂（见上方评论）。"
           exit 1
-
-      - name: 有里程碑 → 通过
-        if: ${{ github.event.issue.milestone != null }}
-        run: 'echo "OK: issue #${{ github.event.issue.number }} 已挂里程碑，通过。"'
