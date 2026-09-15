@@ -169,7 +169,8 @@ pdm run python -c "from app.core.database import init_db_split; init_db_split()"
 
 ### 9.5 测试覆盖
 
-- `tests/core/test_db_data_domain.py`：注册表完整性、分组、孤儿告警、本地回退落到独立文件（`test_local_fallback_uses_separate_user_database`）、`init_db_split` 双引擎建表互不相交。
+- `tests/core/test_db_data_domain.py`：注册表完整性、分组、孤儿判定、本地回退落到独立文件（`test_local_fallback_uses_separate_user_database`）、`init_db_split` 双引擎建表互不相交。
+  - 孤儿判定（#1521）：`metadata.tables` 只含**本进程已 import** 的模型，故「已登记但不在 metadata」不等于模型已删除。现由 `DatabaseFactory.classify_registry_orphans()` 二次判定——源码（`app/domains/*/models.py`、`app/models/*.py`）里能找到定义 → 仅「本进程未 import」，记 info；源码里也找不到 → 才是孤儿，记 warning。CLI / 定时任务只导入所需模型属正常，不再误报。
 - `tests/core/test_cross_domain.py`：两内存 SQLite 验证 `enrich_by_rows` 两步法拼装。
 
 > 注意：CI / 测试默认 `APP_ENV` 若非 `development`，market 域会走 production 回退（`DATABASE_URL` 同库）。验证「双库物理分离」的测试需显式设 `APP_ENV=development` + 两个独立 dev URL。
