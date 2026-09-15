@@ -18,7 +18,9 @@
   · 仅用于个人自用验证，**不应对外发布**；对外形态必须换成自有或授权数据源。
 
 开关：环境变量 `FUNDFOF_CROWDING_ENABLED`（默认开启；置 `0/false/no/off` 即关停 → 回落原三路径）。
-      环境变量 `FUNDFOF_CROWDING_MERGE_SW_BIAS`（默认开启）用申万官网源补行业 BIASn。
+      环境变量 `FUNDFOF_CROWDING_MERGE_SW_BIAS`（**默认关闭**）：已知 akshare 在部分 Windows 环境会触发
+      `py_mini_racer` 内嵌 V8 的原生 FATAL 崩溃（进程直接死、Python 层无法捕获，见 #1511）；
+      故 BIASn 补齐默认关闭。确需申万行业乖离率时手动开启 `=1` 并自担环境风险。
 
 维度（category）：
   · `sw`    → 申万一级 31 行业，落 `source='industry_crowding'` / `item_type='industry'`
@@ -110,6 +112,7 @@ CATEGORY_SPECS: Dict[str, Dict[str, str]] = {
 _UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
 
 _TRUTHY_OFF = {'0', 'false', 'no', 'off'}
+_TRUTHY_ON = {'1', 'true', 'yes', 'on'}
 
 
 def enabled() -> bool:
@@ -118,8 +121,15 @@ def enabled() -> bool:
 
 
 def _merge_sw_bias_enabled() -> bool:
-    """是否用申万官网源补行业 BIASn（该接口无乖离率字段）。"""
-    return os.getenv('FUNDFOF_CROWDING_MERGE_SW_BIAS', '1').strip().lower() not in _TRUTHY_OFF
+    """是否用申万官网源补行业 BIASn（该接口无乖离率字段）。
+
+    默认关闭：补齐路径会调用 akshare `index_hist_sw`，而 akshare 在部分 Windows 环境会触发
+    `py_mini_racer`（内嵌 V8）的原生 FATAL 崩溃，直接杀死后端进程（#1511）。关掉它即可避免
+    每次温度任务都调 akshare；fundfof 自身已提供拥挤度 / 换手率 / 60日线上 / 新高 / 融资 / 大单
+    等维度，BIASn 仅作补充。仅当 `FUNDFOF_CROWDING_MERGE_SW_BIAS` 明确为开启语义（1/true/yes/on）
+    时才启用；空值 / 任意其它值一律按默认关闭处理，避免误设触发原生崩溃。
+    """
+    return os.getenv('FUNDFOF_CROWDING_MERGE_SW_BIAS', '0').strip().lower() in _TRUTHY_ON
 
 
 def _log(*a):
@@ -314,6 +324,11 @@ def to_records(payload: Dict[str, Any], category: str = 'sw') -> List[dict]:
 
 def _merge_sw_bias(records: List[dict]) -> None:
     """用申万官网源补 BIASn（就地修改；失败静默，不影响主数据）。
+
+    ⚠️ 该路径调用 akshare `index_hist_sw`，已知在部分 Windows 环境触发 `py_mini_racer` 内嵌 V8
+    的原生 FATAL 崩溃（进程直接死、Python 层无法 try/except 捕获，见 #1511）。故默认由
+    `_merge_sw_bias_enabled()` 关闭；开启即表示已知并接受该风险（需要时手动设
+    `FUNDFOF_CROWDING_MERGE_SW_BIAS=1`）。
 
     该接口无乖离率字段，而我方表有「乖离 6/20/60 日」列，故复用 `sw_industry_source`
     的简单 MA 口径补齐；申万源不可达时该三列留空（不阻塞）。仅对行业维度适用。
