@@ -61,6 +61,7 @@ env/
 *.db
 *.db-shm
 *.db-wal
+# 乖离率价格缓存安全网（自 #1540 起缓存改落 $CACHE_FILE_DIR，本目录已不再是落点）
 data/bias_price_cache/
 # 温度计运行时缓存安全网（自 #1539 起缓存改落 $CACHE_FILE_DIR，本目录已不再是落点，见 cache/README.md）
 app/services/thermometer/cache/*/
