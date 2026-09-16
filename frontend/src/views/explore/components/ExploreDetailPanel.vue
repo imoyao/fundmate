@@ -57,11 +57,11 @@
         />
 
         <!-- 市场机会（来自 temperature store，由综合温度与股债性价比推导） -->
-        <div v-if="tempStore.opportunityList.length" class="opportunity-card">
+        <div v-if="opportunityList.length" class="opportunity-card">
           <SectionHeader title="市场机会" />
           <div class="opportunity-list">
             <div
-              v-for="op in tempStore.opportunityList"
+              v-for="op in opportunityList"
               :key="op.name"
               class="opportunity-item"
               :class="`opportunity-item--${op.tone}`"
@@ -192,7 +192,6 @@ import MetricGrid from "@/components/MetricGrid/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import TemperatureContextCard from "@/components/TemperatureContextCard/index.vue";
-import { useTemperatureStore } from "@/store/modules/temperature";
 import { useTemperatureOverview } from "@/composables/temperature/useTemperatureOverview";
 import { useCoreMetrics } from "@/composables/temperature/useCoreMetrics";
 import {
@@ -495,19 +494,30 @@ const fetchTrack = async () => {
   }
 };
 
-// 温度 store：承载综合温度、股债性价比与市场机会清单
-const tempStore = useTemperatureStore();
+// ================================================================
+// 市场机会清单（B3：后端 insights 归集，前端只映射 tone→样式）
+// #1546 T2.1：直接由总览响应派生，**不再经 temperature store 重复打一次**
+// /api/temperature/overview（原实现是 composable 与 store 各拉一遍同一接口）
+// ================================================================
+const opportunityList = computed(() =>
+  (overview.value?.insights ?? []).map(i => ({
+    name: i.name,
+    desc: i.desc,
+    tone: i.tone
+  }))
+);
 
 // ================================================================
 // 生命周期
 // ================================================================
-onMounted(async () => {
-  await fetchTemperature();
-  await fetchBias();
-  await fetchCrowding();
-  await fetchTrack();
-  // NOTE: 与 useTemperatureOverview 各自调用一次 getTemperatureOverview，后续可合并为单一数据源
-  await tempStore.fetchTemperature();
+onMounted(() => {
+  // #1546 T2.1：并发取数（原为串行 await，4 个请求首尾相接，最后一个才轮到温度）
+  void Promise.all([
+    fetchTemperature(),
+    fetchBias(),
+    fetchCrowding(),
+    fetchTrack()
+  ]);
 });
 </script>
 
