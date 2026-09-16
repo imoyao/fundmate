@@ -623,7 +623,7 @@ WeChatRSS 的 `analyze.py` + `erniao.py` 插件**当前已实测跑通**：云�
 ### 14.3 代码层已做的缓解（与部署约束互补，非替代）
 
 - `app/core/requests_patch.py`：全局 `requests` 补丁（浏览器头 + 连接复用 + 3 次指数退避重试 + `N.push2`→`push2` host 重写保险）。进程启动一次安装，覆盖所有 akshare 调用（已源码核实：乖离度用到的 akshare 函数均走 `requests.get`/`Session.get`，被补丁覆盖）。
-- `app/services/bias/calculator.py` 的 `PriceFetcher`：持久化文件缓存（`backend/data/bias_price_cache/*.json`）。实时抓取失败且本地有旧缓存时，**回退旧数据并标 `stale=True`**（BiasResult.stale 透传落库），断网/东财挂时仍有数据可算，前端可感知滞后。
+- `app/services/bias/calculator.py` 的 `PriceFetcher`：持久化文件缓存（`CACHE_FILE_DIR` 下的 `bias_price_cache/*.json`，#1540 起不再落在源码树的 `backend/data/`）。实时抓取失败且本地有旧缓存时，**回退旧数据并标 `stale=True`**（BiasResult.stale 透传落库），断网/东财挂时仍有数据可算，前端可感知滞后。
 - `scripts/diag_em.py`：连通性诊断（A 裸 requests / B 候选 host / C 真实 akshare）；退出本机代理后跑 `pdm run python scripts/diag_em.py` 确认 [C] 通过即证明代码路径可用、根因在代理/出口 IP。
 
 ### 14.4 验收与待办

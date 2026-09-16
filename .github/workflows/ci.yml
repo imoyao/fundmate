@@ -250,10 +250,28 @@ jobs:
       - name: 校验 4 条安全 override 在锁中真实生效
         run: node scripts/check_pnpm_overrides.mjs
 
+  # 缓存目录单一真相源守卫（#1540 治本项）：把「新增未经 resolve_cache_file_dir() /
+  # resolve_cache_subdir() 路由的硬编码缓存目录」变成显式红灯，杜绝 #1531 → #1537 → #1539 →
+  # #1540 连犯四次的回潮。纯 AST + 标准库扫描 backend/app，秒级、零依赖，故轻到可常开。
+  cache_dir_guard:
+    name: 守卫:缓存目录单一真相源
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: 校验无未经路由的硬编码缓存目录
+        run: python scripts/guard_cache_dir.py
+
   gate:
     name: 质量门禁汇总
     if: ${{ always() && github.event_name == 'pull_request' }}
-    needs: [changes, backend, frontend, mojibake_guard, pnpm_overrides_guard]
+    needs: [changes, backend, frontend, mojibake_guard, pnpm_overrides_guard, cache_dir_guard]
     runs-on: ubuntu-latest
     steps:
       - name: 汇总各 job 结论（失败 / 取消 → 不通过）
