@@ -4,7 +4,9 @@
 设计约束（issue #892「Redis 预留」节）：
 - **框架无关**：不 import flask、不绑 Flask-Caching——Flask→FastAPI 迁移不受影响。
 - **默认后端 = 进程内 LRU + 文件**：LRU 抗高频重复读，文件层抗冷启动（进程重启后
-  首次访问免重算，复用 fetchers._cached 的 pickle 模式）。
+  首次访问免重算，复用 fetchers._cached 的 pickle 模式）。文件层目录取 env
+  `CACHE_FILE_DIR`（缺省系统临时目录），可经构造参数 `file_dir=` 覆盖——便于按环境
+  指定，也让测试能注入 `tmp_path` 做用例级隔离（#1531）。
 - **Redis 为可选后端、默认关闭**：设 env `CACHE_BACKEND=redis` 且 redis 可导入时启用，
   其余情况静默回退本地后端，调用方零感知（多实例部署才有意义，单机勿开）。
 - **数据分级红线**：仅允许缓存自建分析结果与公开行情（温度计/拥挤度等）；
@@ -27,11 +29,31 @@ from loguru import logger
 
 # ─────────────────────────── 配置 ───────────────────────────
 # env 驱动，避免 import 时读 app config（core 模块互相依赖要克制）。
-_BACKEND = os.environ.get('CACHE_BACKEND', 'local').lower()
-_FILE_DIR = Path(os.environ.get('CACHE_FILE_DIR', Path(tempfile.gettempdir()) / 'fundmate_cache'))
+#
+# 注意：env 一律**构造期解析**，不要固化成模块级常量（#1531）。
+# 原先是 `_BACKEND = os.environ.get(...)` / `_FILE_DIR = Path(os.environ.get(...))`，
+# 导入之后再改 env 就完全无效：测试里写的 `os.environ['CACHE_FILE_DIR'] = tmp_path`
+# 成了假隔离（实际仍读写全局临时目录），`CACHE_BACKEND` 的 monkeypatch 也让
+# redis 回退用例退化为假阳性。
 _DEFAULT_TTL = 600  # 秒；调用方应显式传 ttl
 _LRU_MAX = 256  # 条；进程内热点上限
 _FILE_PREFIX = 'cache_'
+_FILE_DIR_NAME = 'fundmate_cache'
+
+
+def _env_backend() -> str:
+    """后端选择（构造期读 env，理由见上方注释）。"""
+    return os.environ.get('CACHE_BACKEND', 'local').lower()
+
+
+def _env_file_dir() -> Path:
+    """文件层默认目录：`CACHE_FILE_DIR` 优先，否则落系统临时目录（构造期读 env）。
+
+    回归背景（#1531）：该目录**跨进程存活**，残留的 pkl 会在 ttl 内让下一个进程
+    直接命中——测试结果因此取决于「上一轮跑过什么」，真失败与污染失败外观一致。
+    """
+    raw = os.environ.get('CACHE_FILE_DIR')
+    return Path(raw) if raw else Path(tempfile.gettempdir()) / _FILE_DIR_NAME
 
 
 class CacheService:
@@ -41,15 +63,26 @@ class CacheService:
 
         cache = CacheService(namespace='crowding')
         val = cache.get_or_set('industry_crowding:20260910', ttl=3600, producer=fetch)
+
+    Args:
+        namespace: 命名空间，隔离不同业务的键。
+        default_ttl: 未显式传 ttl 时的默认过期秒数。
+        file_dir: 文件层目录。缺省取 env `CACHE_FILE_DIR`（未设则系统临时目录）；
+            显式传入优先于 env，测试用它注入 `tmp_path` 做用例级隔离（#1531）。
     """
 
-    def __init__(self, namespace: str = 'default', default_ttl: int = _DEFAULT_TTL):
+    def __init__(
+        self,
+        namespace: str = 'default',
+        default_ttl: int = _DEFAULT_TTL,
+        file_dir: Path | str | None = None,
+    ):
         self._ns = namespace.strip().replace('/', '_') or 'default'
         self._default_ttl = default_ttl
         self._lru: OrderedDict[str, tuple[float, Any]] = OrderedDict()
         self._lock = threading.Lock()
         self._backend = self._resolve_backend()
-        self._file_dir: Optional[Path] = _FILE_DIR
+        self._file_dir: Optional[Path] = Path(file_dir) if file_dir is not None else _env_file_dir()
         if self._file_dir is not None:
             try:
                 self._file_dir.mkdir(parents=True, exist_ok=True)
@@ -58,8 +91,12 @@ class CacheService:
 
     # ─────────────── 后端解析 ───────────────
     def _resolve_backend(self) -> str:
-        """redis 仅在 env 显式指定且 redis 可导入时启用，否则回退 local（默认关）。"""
-        if _BACKEND == 'redis':
+        """redis 仅在 env 显式指定且 redis 可导入时启用，否则回退 local（默认关）。
+
+        env 在构造期读取（#1531）：读模块级常量会让 monkeypatch `CACHE_BACKEND`
+        的用例测不到本分支（假阳性），本方法则保证「进程内改 env 后新建实例」生效。
+        """
+        if _env_backend() == 'redis':
             try:
                 import redis  # noqa: F401
 

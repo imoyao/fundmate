@@ -123,6 +123,21 @@ def _disable_async_backfill(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_cache_file_dir(tmp_path, monkeypatch):
+    """把缓存文件层重定向到用例私有目录（#1531）。
+
+    `app/core/cache.py` 的文件层默认落 `tempfile.gettempdir()/fundmate_cache`——
+    该目录**跨进程共享、无清理**：残留的 pkl 会在 ttl 内被下一个进程直接命中，于是
+    「上一轮跑过什么」决定本轮结果（#1531 现象：ttl 内重跑 test_cache 必失败，真失败
+    与污染失败的报错外观完全一致）。此处统一隔离；显式传 `file_dir=` 的用例不受影响。
+
+    注意：cache.py 必须**构造期**读 env 本 fixture 才有效（原先 import 期固化常量，
+    测试里写 `os.environ['CACHE_FILE_DIR']` 属于假隔离，实际仍读写全局目录）。
+    """
+    monkeypatch.setenv('CACHE_FILE_DIR', str(tmp_path / 'fundmate_cache'))
+
+
+@pytest.fixture(autouse=True)
 def clean_db(app):
     """每个测试结束后自动清空所有表，保证隔离"""
     yield
