@@ -45,13 +45,19 @@ class TestSharedCacheDir:
         assert fetchers._cache()._file_dir == CacheService(namespace='probe')._file_dir == target
 
     def test_write_lands_in_isolated_dir(self, tmp_path):
-        """隔离夹具覆盖 fetchers 落盘路径，且不污染全局临时目录（验收 2）。"""
-        fetchers._cache().set(SELF_CALC_CACHE_KEY, {'v': 1}, ttl=SELF_CALC_CACHE_TTL)
+        """隔离夹具覆盖 fetchers 落盘路径，本次写盘不进全局共享目录（验收 2）。"""
         filename = f'cache_thermometer_{SELF_CALC_CACHE_KEY}.pkl'
+        global_path = Path(tempfile.gettempdir()) / 'fundmate_cache' / filename
+
+        # ⚠️ 断言「本次没写进全局目录」，**不是**断言「全局目录里没有这个文件」——
+        # 该目录跨进程共享且无清理：本机跑过应用 / dev server 就会留下同名残留，
+        # 断言「不存在」等于把别人的残留算成失败（#1531 那类污染，只是方向相反）。
+        before = global_path.stat().st_mtime if global_path.exists() else None
+        fetchers._cache().set(SELF_CALC_CACHE_KEY, {'v': 1}, ttl=SELF_CALC_CACHE_TTL)
+        after = global_path.stat().st_mtime if global_path.exists() else None
 
         assert (_isolated_dir(tmp_path) / filename).exists(), 'fetchers 落盘未被 conftest 隔离夹具覆盖'
-        global_dir = Path(tempfile.gettempdir()) / 'fundmate_cache'
-        assert not (global_dir / filename).exists(), 'fetchers 仍写进跨进程共享的全局临时目录，#1537 未生效'
+        assert after == before, '本次写盘落进了跨进程共享的全局临时目录，#1537 未生效'
 
 
 class TestSelfCalcCacheSemantics:
