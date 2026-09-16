@@ -5,8 +5,9 @@
 """自选股数据模型 v2.1 — 命名优化版"""
 
 from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Index, Integer, String, UniqueConstraint
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 
+from app.core.asset_types import normalize_asset_type
 from app.core.database import Base, FamilyScopedMixin, PrimaryKeyMixin, TimestampMixin
 
 
@@ -28,6 +29,15 @@ class WatchlistItem(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     asset_type = Column(
         String(20), comment='资产类型：stock/etf/fund/bond/index/manager/portfolio（小写，单一来源 core/asset_types）'
     )
+
+    @validates('asset_type')
+    def _validate_asset_type(self, key: str, value: str | None) -> str | None:
+        # 空值放行（兼容存量 / 可选）；非空按小写命中权威集合，否则拒绝写入；
+        # 命中后规范化为小写存储，消除大小写漂移（#1527；系统读取 / 过滤端已统一 .lower()）。
+        if value in (None, ''):
+            return value
+        return normalize_asset_type(value)
+
     venue = Column(
         String(10),
         nullable=False,

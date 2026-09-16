@@ -6,7 +6,9 @@
 from datetime import date, datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.core.asset_types import normalize_asset_type
 
 
 # ── 自选资产 ──
@@ -14,6 +16,13 @@ class WatchlistItemCreate(BaseModel):
     symbol: str = Field(..., max_length=50, description='标准化代码')
     market: Optional[str] = Field(None, max_length=10, description='市场代码')
     asset_type: Optional[str] = Field(None, max_length=20, description='资产类型')
+
+    @field_validator('asset_type')
+    @classmethod
+    def _check_asset_type(cls, v: Optional[str]) -> Optional[str]:
+        # API 入口第一道关卡（#1527）：空值放行，非空规范化为小写并校验，否则 422 拒绝。
+        return normalize_asset_type(v)
+
     venue: Optional[str] = Field(None, max_length=10, description='交易场所')
     # 名称快照（#1508）：**修复前** `watchlist` 表没有 name 列，而搜索接口
     # `GET /api/search/assets/` 本就回显 name、前端却丢弃 → 展示名只能读时跨 6 张
