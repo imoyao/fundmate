@@ -149,9 +149,7 @@ def normalize_asset_type(asset_type: str | None) -> str | None:
         return asset_type
     lowered = asset_type.lower()
     if lowered not in ASSET_TYPE_LABELS:
-        raise ValueError(
-            f'非法 asset_type: {asset_type!r}，应为 core/asset_types.ASSET_TYPE_VALUES 之一'
-        )
+        raise ValueError(f'非法 asset_type: {asset_type!r}，应为 core/asset_types.ASSET_TYPE_VALUES 之一')
     return lowered
 
 

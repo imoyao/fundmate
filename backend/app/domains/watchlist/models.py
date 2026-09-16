@@ -37,6 +37,7 @@ class WatchlistItem(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         if value in (None, ''):
             return value
         return normalize_asset_type(value)
+
     venue = Column(
         String(10),
         nullable=False,
