@@ -24,6 +24,8 @@ CI / 测试隔离）只生效一半：`app/core/cache.py` 认 `CACHE_FILE_DIR`�
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from app.core.cache import resolve_cache_file_dir, resolve_cache_subdir
 from app.services.thermometer import fundfof_crowding as fc
 from app.services.thermometer import industry_crowding as ic
@@ -66,6 +68,19 @@ class TestSubdirResolver:
         resolved = resolve_cache_subdir('probe')
         assert resolved.parent == resolve_cache_file_dir()
         assert str(resolved).startswith(str(Path(tempfile.gettempdir())))
+
+    def test_subdir_rejects_absolute_name(self, tmp_path):
+        """绝对路径 name 会被 `Path` 的 `/` 语义吞掉父目录（root / '/etc' → /etc），拒绝之。
+
+        这条契约正是 #1531 / #1537 / #1539 要对付的「落盘目录没有单一真相源」：
+        一旦子目录能跳出缓存根，「按环境指定目录」又会变成部分生效。
+
+        ⚠️ 用 `tmp_path` 而非字面量 `'/etc'`：Python 3.13 起 `ntpath.isabs()` 不再把
+        单个斜杠开头视为绝对路径（Windows 上 `Path('/etc').is_absolute()` 为 False），
+        字面量会造成本机红、Linux CI 绿的假差异。
+        """
+        with pytest.raises(ValueError, match='绝对路径'):
+            resolve_cache_subdir(str(tmp_path))
 
 
 class TestThermometerCacheDirs:

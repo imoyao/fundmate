@@ -75,7 +75,15 @@ def resolve_cache_subdir(name: str) -> Path:
     （#1531 → #1537 → #1539 已连犯三次）。
 
     同样**必须调用期解析**，理由见 :func:`resolve_cache_file_dir`。
+
+    Raises:
+        ValueError: `name` 是绝对路径。``Path`` 的 `/` 语义下 `root / '/etc'` 会直接返回
+            ``'/etc'``——子目录就此跳出了缓存根目录，本函数「一切落盘都在同一个根之下」
+            的契约被静默打破（正是 #1531 / #1537 / #1539 要对付的「目录没有单一真相源」）。
+            调用方一律传相对名字，故这是**契约自检**而非容错分支。
     """
+    if Path(name).is_absolute():
+        raise ValueError(f'resolve_cache_subdir 只接受相对子目录名，收到绝对路径：{name!r}')
     return resolve_cache_file_dir() / name
 
 
