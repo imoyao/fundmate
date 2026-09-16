@@ -82,14 +82,28 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 
 ## 12 列栅格与容器层级（设计草案 · 未落地）
 
-> ⚠️ **状态：设计草案，尚未在代码中实现。** 本节描述的 `.block-shell` / `.grid-12` /
-> `.col-4` / `.col-8` 以及 `MetricGrid :columns="12"` 目前**全仓零实现**（issue #1506 跟踪）。
-> 在补齐实现之前，本节只是布局意图的参考，**不是**「单一来源 / 必须」约束，也不应被
-> 当作现状去核对代码。
+> ⚠️ **状态：布局意图，从未实现，短期内也不打算实现（#1506 核实，2026-09-16 复核）。**
+> 本节提到的 `.block-shell` / `.grid-12` / `.col-4` / `.col-8` **全仓零实现**，
+> 也不应当被当作待办清单去照做。
 >
-> 当前页面的**事实标准**是：内容宽度 1280px（`PageHeaderBar` / `PageFooter` / 盘点页
-> `.inventory-shell` 同宽同内边距）；区块标题用 `SectionHeader`；卡片容器用 `CardBlock`；
-> 列排布用 Tailwind 响应式栅格（`grid` + `gap-*`）。新页面请先对齐这套事实标准。
+> 补充说明两处旧文稿的错误，勿再引用：
+>
+> 1. 旧版写「每层 `MetricGrid` 内部必须 `:columns="12"`」——**该 prop 根本不存在**。
+>    `MetricGrid` 曾声明 `columns`，但 template 与 style 从未读取它（纯死 prop），
+>    已于 2026-09-16 删除；该组件走 flex 自均分，本来也不接受列数控制。
+> 2. 旧版把「内容宽度 1280px」写成事实标准——**只对内容列成立**，外壳另有 1400px 一档，
+>    详见下方「实际生效的容器约定」。
+
+**实际生效的容器约定（写代码照这条，不要照本节上方的草案）**：
+
+- **内容列宽度**：`--layout-content-width`（当前 1280px）+ 横向 `--space-standard`(24px) + `margin: 0 auto`。
+  唯一来源是 `frontend/src/style/colors.css`，页面里**禁止**写死 `1280px`（CI 守卫拦截）。
+- **外层壳宽度**：`--layout-shell-width`（当前 1400px），用于 `.main-content` / `AppFooter` / `MarketHeader`。
+  与内容列是否收敛为一档属视觉变更，待决策（见 `frontend/design.md` §Viewport）。
+- **区块**：`SectionHeader` + `CardBlock`；两者间距由外层容器 `display:flex; flex-direction:column; gap: var(--space-section)` 控制（见 `.inventory-shell`）。
+- **栅格**：直接用 Tailwind 响应式栅格（`grid` + `grid-cols-*` + `gap-*`）。**不再计划**引入第二套 `.grid-12` 栅格工具类。
+
+下列内容仅保留为布局意图，供未来若做整体重构时参考：
 
 页面区块建议采用「区块卡外套 + 卡内指标块」两级容器的布局意图，列宽仅允许以下组合：
 
@@ -101,7 +115,7 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 
 - 页面外层用 `.block-shell` 包裹 `SectionHeader` + 内容区；块与块之间 `gap: var(--space-5)`（24px，注意：原文档曾误写为 `--space-7`，该 token 在 Spacing 章节未定义，已统一为 `--space-5`）。
 - 内容区用 `.grid-12`（`display:grid; grid-template-columns: repeat(12, 1fr); gap: var(--space-5)`），子项用 `.col-4` / `.col-8`（`grid-column: span N`）。
-- 每层 `MetricGrid` 内部 **计划 `:columns="12"`**，由父级 `.col-4/.col-8` 决定其实际占宽（禁止在 `.col-*` 内写 `:columns="4"`）。
+  （已废弃：旧稿要求给内层 `MetricGrid` 传 `:columns="12"` —— 该 prop 已于 2026-09-16 删除，见本节开头说明。）
 - 响应式：≤960px 时所有 `.col-4 / .col-8` 退化为 `grid-column: span 12`。
 - **心理账户**等次级区块应补充「区块卡外套」（`SectionHeader` + 卡片容器），与「财务晴雨表」等主区块视觉对齐，禁止裸列表直接铺在页面上。
 

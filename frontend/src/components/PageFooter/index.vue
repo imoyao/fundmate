@@ -151,7 +151,7 @@ withDefaults(
     gap: 16px;
     align-items: center;
     justify-content: space-between;
-    max-width: 1280px;
+    max-width: var(--layout-content-width);
     padding: 0 24px;
     margin: 0 auto;
   }
@@ -254,7 +254,7 @@ withDefaults(
   }
 
   &__copyright {
-    max-width: 1280px;
+    max-width: var(--layout-content-width);
     padding: 0 24px;
     margin: 16px auto 0;
     font-size: 12px;

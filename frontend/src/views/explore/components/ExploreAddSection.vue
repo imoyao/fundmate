@@ -241,14 +241,14 @@ const addHotAsset = (item: (typeof hotAssets)[0]) => {
 
 <style lang="scss" scoped>
 .add-section {
-  max-width: 1280px;
+  max-width: var(--layout-content-width);
   padding: 16px 24px 8px;
   margin: 0 auto;
 }
 
 /* 5.1 登录态引导卡（登录后替代添加栏） */
 .auth-guide {
-  max-width: 1280px;
+  max-width: var(--layout-content-width);
   padding: 16px 24px 8px;
   margin: 0 auto;
 

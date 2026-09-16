@@ -75,7 +75,7 @@
    保证折叠/展开侧边栏时,页脚与内容左右边缘严格对齐
    ============================================ */
 .main-content {
-  max-width: 1400px;
+  max-width: var(--layout-shell-width);
   padding: var(--space-12);
   margin: 0 auto;
 }

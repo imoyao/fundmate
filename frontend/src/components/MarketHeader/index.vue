@@ -82,7 +82,7 @@ withDefaults(
     gap: 24px;
     align-items: center;
     justify-content: space-between;
-    max-width: 1400px;
+    max-width: var(--layout-shell-width);
     padding: 16px var(--space-12);
     margin: 0 auto;
   }

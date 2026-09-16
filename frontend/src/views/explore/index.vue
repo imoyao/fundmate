@@ -306,7 +306,7 @@ onMounted(startRealtime);
    选中态 = 软按钮语义（brand 底 + brand 字），非涨跌色
    ============================================================ */
 .panel-switch {
-  max-width: 1280px;
+  max-width: var(--layout-content-width);
   padding: var(--space-standard) 24px 0;
   margin: 0 auto;
 
@@ -377,7 +377,7 @@ onMounted(startRealtime);
    匿名用户注册转化区（#822 todo1）
    ============================================================ */
 .conv-banner {
-  max-width: 1280px;
+  max-width: var(--layout-content-width);
   padding: 0 24px 16px;
   margin: 0 auto;
 
@@ -412,7 +412,7 @@ onMounted(startRealtime);
    已登录引导区
    ============================================================ */
 .auth-guide {
-  max-width: 1280px;
+  max-width: var(--layout-content-width);
   padding: 0 24px 16px;
   margin: 0 auto;
 

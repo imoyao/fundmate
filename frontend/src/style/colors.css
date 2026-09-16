@@ -238,6 +238,16 @@
   --space-16: 64px;
   --space-section: 48px; /* 区块/页脚与内容的纵向间隔（PageHeaderBar / PageFooter 共用） */
 
+  /* ===== 布局宽度（容器单一来源，#1506） =====
+     历史包袱：内容列曾以「max-width: 1280px」硬编码散落 9 个文件（13 处），
+     外壳另有一套 1400px（.main-content / AppFooter / MarketHeader），二者叠加导致
+     探市页页头与页脚同内容区的左右边缘错开 60px。
+     本组令牌先把数值收口到一处，**不改变任何像素**，是否把两档收敛为一档另行决策。
+     规则：所有页面 / 区块容器一律引用本组令牌，禁止再写死宽度字面量
+     （CI 守卫 scripts/guard_layout_widths.py 拦截）。 */
+  --layout-content-width: 1280px; /* 内容列：页头 / 内容区 / 页脚的内层最大宽度 */
+  --layout-shell-width: 1400px; /* 外壳：布局容器 / 全站页脚 / 探市顶栏的外层最大宽度 */
+
   /* ===== 圆角 ===== */
   --radius-sm: 6px;
   --radius-md: 12px;

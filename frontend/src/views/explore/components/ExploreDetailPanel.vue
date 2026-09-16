@@ -556,7 +556,7 @@ onMounted(async () => {
 
 /* 深度档容器：与概览档共用同一套页面边距与最大宽度 */
 .detail-panel {
-  max-width: 1280px;
+  max-width: var(--layout-content-width);
   padding: var(--space-standard) 24px 16px;
   margin: 0 auto;
 }

@@ -50,7 +50,7 @@ withDefaults(
     gap: 4px 16px;
     align-items: center;
     justify-content: center;
-    max-width: 1400px;
+    max-width: var(--layout-shell-width);
     min-height: 40px;
     padding: 0 var(--space-12);
     margin: 0 auto;

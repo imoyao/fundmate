@@ -118,6 +118,22 @@ jobs:
       - name: 运行测试
         run: pdm run python -m pytest -p no:xdist -m "not slow"
 
+  # 布局宽度守卫（#1506）：容器宽度曾有 1280px / 1400px 两套硬编码散落 13+ 个文件，
+  # 导致页头 / 页脚与内容区左右边缘错开。已收口为 --layout-* 令牌，本 job 防止再次写死。
+  layout_guard:
+    name: 布局宽度守卫 (layout-width)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: 扫描容器宽度字面量
+        run: python scripts/guard_layout_widths.py
+
   # 乱码守卫（mojibake）：防止任何绕过本地 pre-commit 钩子的提交（--no-verify、
   # 或经 gh api / MCP 直推导致本地钩子不执行）把 GBK 乱码合进 PR。
   # 扫描 PR 变更的全部文本类型文件 + 逐提交校验中文提交信息（两层兜底）。
@@ -253,7 +269,7 @@ jobs:
   gate:
     name: 质量门禁汇总
     if: ${{ always() && github.event_name == 'pull_request' }}
-    needs: [changes, backend, frontend, mojibake_guard, pnpm_overrides_guard]
+    needs: [changes, backend, frontend, mojibake_guard, pnpm_overrides_guard, layout_guard]
     runs-on: ubuntu-latest
     steps:
       - name: 汇总各 job 结论（失败 / 取消 → 不通过）
