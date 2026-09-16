@@ -21,8 +21,10 @@
     <!-- 综合仪表盘 -->
     <section class="dashboard-section">
       <MetricGrid>
-        <!-- 综合温度仪表（大） -->
+        <!-- 综合温度仪表（大）——与概览档同源同貌；gaugeVisible 保证同一时刻
+             全页只有一份仪表盘在 DOM 中（#1549 T4.1，参数由 index.vue 按档位传入） -->
         <TemperatureGaugeCard
+          v-if="gaugeVisible"
           :value="compositeValue"
           title="综合市场温度"
           :level="compositeLevel"
@@ -210,6 +212,19 @@ defineOptions({
   name: "ExploreDetailPanel"
 });
 
+/**
+ * 是否渲染「综合温度」仪表盘（本组件其余区块不受影响）。
+ * 父页面按当前档位传入：深度档显示时 true、概览档 false ——
+ * 概览档已有一份同源同貌的温度计卡，两份同时留在 DOM 中属重复（#1549 T4.1）。
+ * 仪表卡自身不取数（数据来自单例 composable），卸载重挂不会多打接口。
+ */
+withDefaults(
+  defineProps<{
+    gaugeVisible?: boolean;
+  }>(),
+  { gaugeVisible: true }
+);
+
 // ================================================================
 // 市场温度总览：与概览档共享同一份数据实例（单例 + 并发去重，见该 composable 头注释）
 // ================================================================
@@ -358,7 +373,11 @@ const compositeValue = computed(
   () => compositeTemperature.value?.value ?? null
 );
 
-const compositeLevel = computed(() => compositeTemperature.value?.level || "");
+// 等级文案与概览档同源同文案（含「暂无」兜底）：缺数据时不能兜成 TemperatureLevelBadge
+// 的默认「适中」——那会在无数据时给出「市场平稳」的错误结论（#1549 T4.1）。
+const compositeLevel = computed(
+  () => compositeTemperature.value?.level || "暂无"
+);
 
 // 温度解读卡（TemperatureContextCard）所需数据，从 composable 的 fearData 推导
 const fearGreedValue = computed<number | null>(() => {

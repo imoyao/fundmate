@@ -18,16 +18,34 @@
       @logo-click="onLogoClick"
     />
 
+    <!-- 页面统一页头（PageHeaderBar）：H1 + 副标题 + 数据更新时间胶囊。
+         更新时间与「综合温度」卡同源（temperature/overview 的 updated_at），不另取一份。 -->
+    <PageHeaderBar
+      title="探市"
+      subtitle="汇总市场温度、行业冷热与指数快照，辅助判断当前的布局方向"
+      :updated-at="headerUpdatedAt"
+    />
+
     <!-- ===== 档位切换（分组胶囊 Tab，design.md 规范） ===== -->
-    <nav class="panel-switch" aria-label="探市视图切换">
-      <div class="panel-switch__inner">
+    <!-- ARIA tabs 模式（#1549 T4.4）：容器 role=tablist、子项 role=tab + aria-selected +
+         roving tabindex（只有选中项可被 Tab 键到达），←/→/Home/End 切换并把焦点交给新选中项。
+         Enter / Space 不在此绑定：<button> 原生 click 已覆盖，重复绑定会触发两次切换。 -->
+    <nav class="panel-switch">
+      <div class="panel-switch__inner" role="tablist" aria-label="探市视图切换">
         <button
-          v-for="tab in panelTabs"
+          v-for="(tab, index) in panelTabs"
+          :id="`panel-tab-${tab.key}`"
           :key="tab.key"
+          :ref="el => setTabRef(el, index)"
           type="button"
+          role="tab"
           class="panel-tab"
           :class="{ 'panel-tab--active': activePanel === tab.key }"
+          :aria-selected="activePanel === tab.key ? 'true' : 'false'"
+          :aria-controls="`panel-${tab.key}`"
+          :tabindex="activePanel === tab.key ? 0 : -1"
           @click="switchPanel(tab.key)"
+          @keydown="onTabKeydown($event, index)"
         >
           {{ tab.label }}
         </button>
@@ -39,8 +57,16 @@
     <!-- 概览档：温度锚点 + 指数快照 + 观察列表（漏斗主体）            -->
     <!-- ============================================================ -->
     <!-- 常驻渲染：切档只切显示（v-show），不卸载重挂 —— 两档的 onMounted 都会取数，用 v-if 会让每次切档都重打一遍接口 -->
-    <div v-show="activePanel === 'overview'">
-      <ExploreTemperatureDashboard @go-detail="switchPanel('detail')" />
+    <div
+      v-show="activePanel === 'overview'"
+      id="panel-overview"
+      role="tabpanel"
+      aria-labelledby="panel-tab-overview"
+    >
+      <ExploreTemperatureDashboard
+        :gauge-visible="activePanel === 'overview'"
+        @go-detail="switchPanel('detail')"
+      />
 
       <!-- ============================================================ -->
       <!-- 大类资产观察（#1436 / #1444 收口实现：新增区块，紧跟温度仪表盘） -->
@@ -126,6 +152,10 @@
     <ExploreDetailPanel
       v-if="detailMounted"
       v-show="activePanel === 'detail'"
+      id="panel-detail"
+      role="tabpanel"
+      aria-labelledby="panel-tab-detail"
+      :gauge-visible="activePanel === 'detail'"
     />
 
     <!-- ============================================================ -->
@@ -145,11 +175,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, nextTick, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useLocalStorage } from "@vueuse/core";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import MarketHeader from "@/components/MarketHeader/index.vue";
+import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import PageFooter from "@/components/PageFooter/index.vue";
 import {
   MARKET_LOGO,
@@ -225,6 +256,45 @@ const switchPanel = (key: PanelKey) => {
   });
 };
 
+// ================================================================
+// 档位 Tab 的键盘可达性（ARIA tabs 模式，见 #1549 T4.4）
+// ================================================================
+/** Tab 按钮元素引用表：roving tabindex 下用于把焦点交给新选中项 */
+const tabRefs = ref<HTMLButtonElement[]>([]);
+
+const setTabRef = (el: unknown, index: number) => {
+  if (el instanceof HTMLButtonElement) tabRefs.value[index] = el;
+};
+
+/**
+ * ← / → 循环切换，Home / End 跳首尾；切换后焦点跟随选中项。
+ * Enter / Space 不处理：<button> 原生 click 已经触发 switchPanel，
+ * 再在此绑定会切两次（router.replace 幂等不影响结果，但没必要）。
+ */
+const onTabKeydown = (event: KeyboardEvent, index: number) => {
+  const last = panelTabs.length - 1;
+  let next: number;
+  switch (event.key) {
+    case "ArrowRight":
+      next = index === last ? 0 : index + 1;
+      break;
+    case "ArrowLeft":
+      next = index === 0 ? last : index - 1;
+      break;
+    case "Home":
+      next = 0;
+      break;
+    case "End":
+      next = last;
+      break;
+    default:
+      return;
+  }
+  event.preventDefault();
+  switchPanel(panelTabs[next].key);
+  nextTick(() => tabRefs.value[next]?.focus());
+};
+
 /**
  * 档位内容「常驻」策略（见 #980「页面只做编排、数据不重复取」）：
  * 切档只切显示、不卸载组件 —— 两档的 onMounted 各自取数
@@ -269,8 +339,14 @@ const headerNavs = useMarketHeaderNavs();
 
 // 来源链接直接取温度 composable（单例）：不依赖概览档组件的挂载状态，
 // 切到深度档时 footer 来源条不会因组件卸载而变空。
-const { links } = useTemperatureOverview();
+const { overview, links } = useTemperatureOverview();
 const footerSources = computed(() => buildMarketFooterSources(links.value));
+
+// 页头「更新时间」胶囊：与「综合温度」卡同源（temperature/overview 的 updated_at），
+// 后端格式为 "YYYY-MM-DD HH:MM:SS"；后缀「更新」沿用 PageHeaderBar 的 prop 约定。
+const headerUpdatedAt = computed(() =>
+  overview.value?.updated_at ? `${overview.value.updated_at} 更新` : ""
+);
 
 // ================================================================
 // 页面导航（页面编排职责，留在页面内）
@@ -389,7 +465,7 @@ onMounted(startRealtime);
     padding: 18px 24px;
     background: linear-gradient(135deg, var(--brand-50), var(--bg-card));
     border: 1px solid var(--brand-400);
-    border-radius: 12px;
+    border-radius: var(--radius-card);
     box-shadow: var(--shadow-raised);
   }
 
