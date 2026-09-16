@@ -83,6 +83,43 @@ pdm run invoke sched.status     # 或 pdm run scheduler --status（只读）
 输出包含：开关、时区、各任务 cron 与今日触发时刻、**上次成功时间**、单实例锁是否被占用。
 日志检索关键字：`[每日调度]`。
 
+### 出问题去哪看日志（文件日志，#1551）
+
+两套材料互补，缺一不可：
+
+| 材料 | 位置 | 回答的问题 |
+|------|------|-----------|
+| 任务审计 | `sync_logs` 表（`pdm run invoke sched.status` 里的「上次成功时间」） | **跑没跑过、成没成**（`success` / `failed` / `manual_intervention`） |
+| 过程日志 | `backend/logs/fundmate_YYYY-MM-DD.log` | **哪一步炸的**：完整异常栈、HTTP 请求、重试次数与原始错误 |
+
+文件日志由 `app/core/logging_config.py` 统一配置，`app/__init__.py` 调用一次即对
+全部入口生效（Flask dev server / `pdm run sync` / `scheduler-daemon` / `invoke grab.*`）。
+
+- **路径**：`backend/logs/fundmate_YYYY-MM-DD.log`（与 CMD 输出**逐字同格式**，不必换算）
+- **轮转**：每日 00:00；**保留 7 天**，旧文件自动压成 `.zip`
+- **级别**：默认 `DEBUG`（批跑排查要看到 HTTP 状态码与重试细节）
+- **排查起手式**：
+
+  ```bash
+  grep -n "每日调度" backend/logs/fundmate_2026-09-16.log      # 当天各任务的起止与结论
+  grep -n "manual_intervention\|IntegrityError" backend/logs/fundmate_*.log
+  ```
+
+- **可调项**（`backend/.env`，默认值即可用）：`LOG_DIR` / `LOG_LEVEL` /
+  `LOG_RETENTION_DAYS` / `LOG_ENABLED=0`（关闭）。详见 `.env.example`「文件日志」段。
+- **pytest 进程默认不落盘**：否则跑一遍测试就把 DEBUG 噪音写进 `backend/logs/` 并霸占
+  7 天保留窗口；需要在测试里验证落盘时显式 `LOG_ENABLED=1`。
+
+> **多进程已知限制**：`dev server` 与 `scheduler-daemon` 若同时运行，两个进程会写同一份
+> 日志（单实例锁只保证**调度**不重复，不保证**进程**唯一）。文件名带进程号可以让两者各写
+> 各的，但 loguru 的保留策略是按文件名里的时间占位符生成清理 glob 的，多一个占位符就清不掉
+> 旧文件——两者只能取一，此处选**保留策略可用**。代价是跨零点轮转存在竞态（最坏情况是某次
+> `rename` 失败并打一行错误日志）。
+>
+> **教训来源（#1550）**：货基净值去重查错表的缺陷从 2026-08-14 起每天让 `fund_nav` 失败一次，
+> 而失败现场只存在于 CMD 窗口——窗口一关，证据全无；叠加当时「审计写入跟着一起崩」，
+> `sync_logs` 里也查不到任何记录，于是静默了整整一个月。这就是本节的由来。
+
 ### 实现位置
 
 - 调度器：`app/services/daily_scheduler.py`（配置 / 进程判定 / 交易日 / 补跑 / 单实例锁）

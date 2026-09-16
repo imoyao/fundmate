@@ -69,3 +69,12 @@ logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
 # 放在这里而不是调度器模块里：按 AGENTS.md，`import logging` 只允许出现在本文件，
 # 且「第三方日志怎么处理」本就归此处统一管辖。
 logging.getLogger('apscheduler').setLevel(logging.WARNING)
+
+# 文件日志落盘（#1551）：默认写 backend/logs/fundmate_YYYY-MM-DD.log，每日轮转、
+# 保留 7 天，同时**保留** stderr 输出（不 logger.remove()）。
+# 挂在这里而不是各入口脚本：Flask dev server / `pdm run sync` / `scheduler-daemon`
+# / `invoke grab.*` 都要经过 `import app`，一处生效即全覆盖。
+# 关掉用 LOG_ENABLED=0（CI 或临时排查），详见 app/core/logging_config.py。
+from app.core.logging_config import setup_file_logging  # noqa: E402
+
+setup_file_logging()
