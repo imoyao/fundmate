@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
 """测试 DataSyncOrchestrator 的调度和锁机制"""
 
+from datetime import date
 from unittest.mock import MagicMock, patch
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
+from app.core.time_utils import now_shanghai
+from app.domains.funds.models import DailyWorth, Fund
 from app.models.sync_log import SyncLog
 from app.services.sync.orchestrator import DataSyncOrchestrator
 
@@ -114,3 +118,73 @@ class TestExecuteJobErrorAudit:
 
         assert result['status'] == 'error'
         assert '上游接口 500' in result['error']
+
+
+class TestRunJobAuditSurvivesPoisonedSession:
+    """#1550 第 3 环：`job.run()` 正常返回 ≠ Session 健康，审计仍必须留痕。
+
+    案发形态（2026-09-16）：job 内部批量写入 flush 撞唯一约束后把 Session 留在
+    必须先 rollback 的状态，`job.run` 照常返回结果；`run_job` 随后写 `sync_logs`
+    时 commit 抛 PendingRollbackError 并冒泡出去，`daily_scheduler` 只做
+    `logger.exception` 吞掉——`sync_logs` 里连一行都没有，`fund_nav` 因此静默失败
+    整整一个月（最后一条成功记录停在 2026-08-14 / id=128）。
+    """
+
+    @staticmethod
+    def _poisoning_job(db):
+        """run() 先污染 Session（模拟 flush 撞唯一约束）再返回失败结果。
+
+        刻意**不在 run() 里 commit**：让事务停在「必须 rollback」的状态，
+        正是案发形态（job 吞掉 IntegrityError、照常返回结果，Session 已中毒）。
+        """
+
+        class _PoisoningJob:
+            def __init__(self):
+                self.adapter = MagicMock()
+                self.adapter.get_name.return_value = 'poisoned-src'
+                self.adapter.get_version.return_value = '0.1'
+                self.snapshot_time = None
+
+            def run(self, *args, **kwargs):
+                self.snapshot_time = now_shanghai()
+                # 与测试预置的行同键 → flush 撞唯一约束
+                db.add(DailyWorth(fund_code='000001', date=date(2025, 1, 1), unit_nav=1.0))
+                try:
+                    db.flush()
+                except IntegrityError:
+                    pass
+                return {'status': 'manual_intervention', 'stats': {'errors': ['UNIQUE constraint failed']}}
+
+        return _PoisoningJob()
+
+    def test_audit_row_written_even_when_session_is_poisoned(self, db):
+        _seed_daily_worth_row(db)
+        orch = DataSyncOrchestrator(db)
+        orch.jobs['poisoned'] = self._poisoning_job(db)
+
+        result = orch.run_job('poisoned', full_sync=False, targets=['000001'])
+
+        assert result['status'] == 'manual_intervention', 'run_job 不得把审计异常替换成新异常'
+        db.expire_all()
+        rows = db.query(SyncLog).filter_by(job_name='poisoned').all()
+        assert len(rows) == 1, '审计表必须留下「跑过且失败」这一行'
+        assert rows[0].status == 'manual_intervention', '降级记录须保留 job 真实终态，而非一律 error'
+
+    def test_audit_failure_never_bubbles_out_of_run_job(self, db):
+        """审计连挂两次时，run_job 仍须正常返回结果（不能让审计把任务带崩）"""
+        _seed_daily_worth_row(db)
+        orch = DataSyncOrchestrator(db)
+        orch.jobs['poisoned'] = self._poisoning_job(db)
+
+        with patch.object(orch.db, 'commit', side_effect=RuntimeError('磁盘只读')):
+            result = orch.run_job('poisoned', full_sync=False, targets=['000001'])
+
+        assert result['status'] == 'manual_intervention'
+
+
+def _seed_daily_worth_row(db) -> None:
+    """预置一行 daily_worth，用于构造「flush 撞唯一约束」的中毒场景"""
+    if not db.query(Fund).filter_by(fund_code='000001').first():
+        db.add(Fund(fund_code='000001', name='测试基金'))
+    db.add(DailyWorth(fund_code='000001', date=date(2025, 1, 1), unit_nav=1.0))
+    db.commit()
