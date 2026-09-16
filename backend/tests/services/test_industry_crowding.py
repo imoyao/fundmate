@@ -33,9 +33,15 @@ class _FakeSession:
 
 @pytest.fixture
 def em_cache_dir(tmp_path, monkeypatch):
-    """把东财历史缓存目录重定向到临时目录，避免污染仓库 cache/。"""
-    monkeypatch.setattr(ic, 'EM_HIST_CACHE_DIR', str(tmp_path))
-    return str(tmp_path)
+    """把东财历史缓存目录重定向到用例私有目录，避免污染源码树（#1539）。
+
+    改法：目录不再由模块级常量指定，而是**调用期**解析 env `CACHE_FILE_DIR`
+    （`ic.em_hist_cache_dir()` → `<CACHE_FILE_DIR>/em_industry_hist`）。
+    故这里只设 env —— 既完成隔离，也顺带守住「env 真的被认」这条回归线：
+    若有人把目录退回成 import 期常量，本夹具的 env 就会失效，相关用例随即写进源码树。
+    """
+    monkeypatch.setenv('CACHE_FILE_DIR', str(tmp_path))
+    return ic.em_hist_cache_dir()
 
 
 @pytest.fixture(autouse=True)

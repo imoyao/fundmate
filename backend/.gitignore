@@ -62,7 +62,7 @@ env/
 *.db-shm
 *.db-wal
 data/bias_price_cache/
-# 温度计运行时缓存（可安全删除，系统自动重建；cache/README.md 仍入库）
+# 温度计运行时缓存安全网（自 #1539 起缓存改落 $CACHE_FILE_DIR，本目录已不再是落点，见 cache/README.md）
 app/services/thermometer/cache/*/
 .pdm.toml
 # 该文件加入后，对于不同分支合并总是提示冲突，取消跟踪

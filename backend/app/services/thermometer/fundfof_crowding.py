@@ -53,6 +53,8 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
+from app.core.cache import resolve_cache_subdir
+
 try:
     import requests
 
@@ -69,9 +71,20 @@ except Exception:  # noqa: BLE001
         return datetime.datetime.now()
 
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-CACHE_DIR = os.path.join(HERE, 'cache', 'fundfof_crowding')  # 运行时缓存，不入库
-CACHE_FILE = os.path.join(CACHE_DIR, 'latest.json')  # 行业（sw）缓存；赛道缓存由它派生
+def fundfof_cache_dir() -> str:
+    """fundfof 拥挤度的本地缓存目录（#1539）。
+
+    原先硬编码为 `HERE/cache/fundfof_crowding`（**源码树内**），不认 env `CACHE_FILE_DIR`：
+    按环境指定缓存目录（容器 / 只读文件系统 / CI）时只生效一半。现经
+    `resolve_cache_subdir()` 与其它缓存同源。
+
+    ⚠️ **必须调用期解析**，不要退回模块级常量——常量在 import 那一刻就绑定了环境，
+    之后再设 `CACHE_FILE_DIR` 完全无效（#1531 / #1537 / #1539 同一个坑，已连犯三次）。
+    """
+    return str(resolve_cache_subdir('fundfof_crowding'))
+
+
+CACHE_FILE_NAME = 'latest.json'  # 行业（sw）缓存文件名；赛道缓存由它派生（纯字符串，不绑环境）
 
 BASE = 'https://www.fundfof.com'
 LATEST_PATH = '/api/market/crowding/latest'
@@ -146,10 +159,13 @@ def _spec(category: str) -> Dict[str, str]:
 
 
 def _cache_file(category: str) -> str:
-    """缓存路径：sw 用模块级 CACHE_FILE（便于测试 monkeypatch），其余按后缀派生。"""
-    if category == 'sw':
-        return CACHE_FILE
-    return CACHE_FILE.replace('.json', f'_{category}.json')
+    """缓存路径：sw 用 `CACHE_FILE_NAME`，其余按后缀派生。
+
+    目录经 `fundfof_cache_dir()` **调用期**解析（#1539）——测试要隔离只需设 env
+    `CACHE_FILE_DIR`（见 `tests/conftest.py::_isolate_cache_file_dir`），不必再 patch 模块常量。
+    """
+    name = CACHE_FILE_NAME if category == 'sw' else CACHE_FILE_NAME.replace('.json', f'_{category}.json')
+    return os.path.join(fundfof_cache_dir(), name)
 
 
 # ───────────────── 磁盘缓存 ─────────────────
@@ -188,7 +204,7 @@ def _read_cache_any_age(category: str = 'sw') -> Optional[Dict[str, Any]]:
 def _write_cache(payload: Dict[str, Any], category: str = 'sw') -> None:
     """写缓存：失败仅记日志，绝不抛异常（缓存不可写不应影响主链路）。"""
     try:
-        os.makedirs(CACHE_DIR, exist_ok=True)
+        os.makedirs(fundfof_cache_dir(), exist_ok=True)
         body = dict(payload)
         body['_cached_at'] = datetime.datetime.now().isoformat()
         with open(_cache_file(category), 'w', encoding='utf-8') as fh:
@@ -422,7 +438,7 @@ HISTORY_CACHE_TTL_HOURS = 6
 
 
 def _history_cache_file(category: str, indicator: str, freq: str, mode: str) -> str:
-    return os.path.join(CACHE_DIR, f'history_{category}_{indicator}_{freq}_{mode}.json')
+    return os.path.join(fundfof_cache_dir(), f'history_{category}_{indicator}_{freq}_{mode}.json')
 
 
 def fetch_history(
@@ -498,7 +514,7 @@ def fetch_history(
         'note': NOTE,
     }
     try:
-        os.makedirs(CACHE_DIR, exist_ok=True)
+        os.makedirs(fundfof_cache_dir(), exist_ok=True)
         disk = dict(body)
         disk['_cached_at'] = datetime.datetime.now().isoformat()
         with open(cache_path, 'w', encoding='utf-8') as fh:

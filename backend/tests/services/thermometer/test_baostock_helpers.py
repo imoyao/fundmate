@@ -43,8 +43,12 @@ class _FakeRS:
 
 @pytest.fixture
 def _baostock_offline(tmp_path, monkeypatch):
-    """把 baostock 登录/登出替换成空操作，缓存目录指向 tmp_path（不打网络、不落真实缓存）。"""
-    monkeypatch.setattr(ic, 'CACHE_DIR', str(tmp_path))
+    """把 baostock 登录/登出替换成空操作，缓存目录指向用例私有目录（不打网络、不落真实缓存）。
+
+    #1539：缓存目录由模块级常量改为**调用期**解析 env `CACHE_FILE_DIR`
+    （`ic.baostock_cache_dir()` → `<CACHE_FILE_DIR>/baostock_pb`），故这里只设 env。
+    """
+    monkeypatch.setenv('CACHE_FILE_DIR', str(tmp_path))
     monkeypatch.setattr(ic.bs, 'login', lambda *a, **k: None)
     monkeypatch.setattr(ic.bs, 'logout', lambda *a, **k: None)
 
@@ -97,8 +101,9 @@ class TestBaostockIteration:
     def test_backfill_skips_existing_cache(self, _baostock_offline, monkeypatch):
         from pathlib import Path
 
-        Path(ic.CACHE_DIR).mkdir(parents=True, exist_ok=True)
-        f = Path(ic.CACHE_DIR) / 'sh_600000.parquet'
+        cache_dir = Path(ic.baostock_cache_dir())
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        f = cache_dir / 'sh_600000.parquet'
         f.write_bytes(b'dummy')
         queried = []
 
