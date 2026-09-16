@@ -104,6 +104,27 @@ class TestFileDirIsolation:
         CacheService(namespace='probe').set('k', 'v', ttl=600)
         assert not global_file.exists(), '文件层写进了全局临时目录，#1531 的隔离失效'
 
+    def test_resolver_reads_env_at_call_time(self, tmp_path, monkeypatch):
+        """`resolve_cache_file_dir()` 在**调用期**读 env（#1537）。
+
+        这是 #1531 的同一个坑换个地方：一旦固化成模块级常量，import 之后再设
+        `CACHE_FILE_DIR`（本文件上方的 autouse 隔离夹具正是这么做的）完全无效，
+        于是「测试里看起来隔离了、实际仍写全局目录」。全仓文件缓存目录只此一个入口。
+        """
+        from app.core.cache import resolve_cache_file_dir
+
+        monkeypatch.setenv('CACHE_FILE_DIR', str(tmp_path / 'first'))
+        assert resolve_cache_file_dir() == tmp_path / 'first'
+        monkeypatch.setenv('CACHE_FILE_DIR', str(tmp_path / 'second'))
+        assert resolve_cache_file_dir() == tmp_path / 'second', '目录被固化在首次调用，env 不再生效'
+
+    def test_resolver_default_is_global_temp_dir(self, monkeypatch):
+        """未设 env 时缺省落系统临时目录下的 `fundmate_cache`（保持既有约定）。"""
+        from app.core.cache import resolve_cache_file_dir
+
+        monkeypatch.delenv('CACHE_FILE_DIR', raising=False)
+        assert resolve_cache_file_dir() == Path(tempfile.gettempdir()) / 'fundmate_cache'
+
 
 class TestGetOrSet:
     def test_producer_called_once(self):

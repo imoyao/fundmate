@@ -42,14 +42,11 @@ stale=True 表示数据不可用（已标灰），不会阻塞其它源。
 
 import json
 import os
-import pickle
 import re
-import tempfile
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import requests
 from loguru import logger
@@ -59,6 +56,7 @@ try:
 except ImportError:
     logger.warning('playwright 未安装，无法降级抓取韭圈儿')
 
+from app.core.cache import CacheService
 from app.core.constants import DEFAULT_REQUEST_TIMEOUT, USER_AGENT
 from app.services.thermometer.constants import (
     EASTMONEY_BOARDS,
@@ -78,9 +76,12 @@ from app.services.thermometer.constants import (
     QIEMAN_STRATEGY_NUM_FIELDS,
     QIEMAN_STRATEGY_PCT_FIELDS,
     QIEMAN_TOOL,
+    SELF_CALC_CACHE_KEY,
+    SELF_CALC_CACHE_TTL,
     SINA_REFERER,
     SINA_VOLUME_BOARDS,
     SINA_VOLUME_URL,
+    THERMOMETER_CACHE_NAMESPACE,
     YOUZHIYOUXING_URL,
     _to_float,
     label_fear,
@@ -88,31 +89,23 @@ from app.services.thermometer.constants import (
     label_volume,
 )
 
-# 轻量文件缓存（用于缓存 akshare 等慢速抓取结果，按 TTL 复用）
-_CACHE_DIR = Path(tempfile.gettempdir()) / 'fundmate_cache'
 
+# ─────────────────────────── 本地缓存 ───────────────────────────
+def _cache() -> CacheService:
+    """温度计抓取的本地缓存，统一走 :class:`~app.core.cache.CacheService`（#1537）。
 
-def _cached(key: str, ttl: int, producer: Callable[[], Any]) -> Any:
-    """简单文件缓存：命中且在 ttl 秒内直接返回，否则调用 producer 并写入缓存。
+    本模块原先自带一套 ``_cached()`` 文件缓存，目录**硬编码**全局临时目录，与
+    ``CacheService`` 共用 ``fundmate_cache`` 却不认 ``CACHE_FILE_DIR``——按环境指定
+    缓存目录（容器 / CI / 多实例）时只生效一半，测试的用例级隔离也漏掉了这条路径。
+    现统一：目录由 ``CacheService`` 经 ``resolve_cache_file_dir()`` 解析，与它同源。
 
-    akshare 的部分接口需顺序下载大量分页数据（如 CPI 历史约 19 页），
-    单次要 20+ 秒；这些数据日内变化极小，缓存 12 小时可大幅缩短同步耗时。
+    **每次调用新建实例，不做模块级单例**：``CacheService`` 在构造期读
+    ``CACHE_FILE_DIR``（#1531），做成模块级单例等于把 env 固化在「第一次调用」那一刻，
+    ``tests/conftest.py::_isolate_cache_file_dir`` 的 autouse 隔离会跨用例失效——
+    正是 #1537 要封的那类漏网。代价仅一个 OrderedDict + 一次 ``mkdir(exist_ok=True)``，
+    可忽略；LRU 层因此不跨调用复用，实际生效的是文件层（与替换前行为一致）。
     """
-    try:
-        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        path = _CACHE_DIR / f'{key}.pkl'
-        if path.exists() and (time.time() - path.stat().st_mtime) < ttl:
-            with open(path, 'rb') as fh:
-                return pickle.load(fh)
-    except Exception:  # noqa: BLE001
-        pass
-    data = producer()
-    try:
-        with open(path, 'wb') as fh:
-            pickle.dump(data, fh)
-    except Exception:  # noqa: BLE001
-        pass
-    return data
+    return CacheService(namespace=THERMOMETER_CACHE_NAMESPACE)
 
 
 # ─────────────────────────── 基类 ───────────────────────────
@@ -812,15 +805,17 @@ class JisiluIndicatorFetcher(BaseFetcher):
 
 
 class SelfCalcFetcher(BaseFetcher):
-    """自算估值分位（本地计算，依赖 akshare / pandas）。"""
+    """自算估值分位（本地计算，依赖 akshare / pandas）。
+
+    结果经 :class:`~app.core.cache.CacheService` 缓存 12 小时（#1537）——akshare 侧
+    CPI 历史约 19 页顺序下载、单次 20+ 秒，而数据日内变化极小。
+    """
 
     source = 'self_calc'
     name = '自算估值分位'
 
     def fetch(self) -> Optional[Dict[str, Any]]:
         try:
-            # 缓存 key
-            CACHE_KEY = 'self_calc_data'
 
             def _producer():
                 from app.core.akshare_lazy import get_akshare
@@ -897,10 +892,10 @@ class SelfCalcFetcher(BaseFetcher):
                     'stale': False,
                 }
 
-            # 使用缓存（12小时）
-
-            result = _cached(CACHE_KEY, 12 * 3600, _producer)
-            return result
+            # 12 小时缓存。producer 返回 None 时 CacheService 不写盘、下次调用重试
+            # （#1537 起由 CacheService 定义该语义；替换前的 _cached 会把 None 也缓存
+            #   12 小时，一次 akshare 抖动就让本指标连续标灰且不重试）。
+            return _cache().get_or_set(SELF_CALC_CACHE_KEY, _producer, ttl=SELF_CALC_CACHE_TTL)
 
         except Exception as e:
             logger.error(f'自算估值分位计算失败: {e}')
