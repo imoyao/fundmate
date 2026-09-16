@@ -7,7 +7,8 @@
   首次访问免重算）。文件层目录由 :func:`resolve_cache_file_dir` **唯一**解析
   （env `CACHE_FILE_DIR`，缺省系统临时目录），可经构造参数 `file_dir=` 覆盖——便于
   按环境指定，也让测试能注入 `tmp_path` 做用例级隔离（#1531）。该解析入口是全仓
-  「文件缓存落哪儿」的单一真相源，温度计 fetchers 亦经它取目录（#1537）。
+  「文件缓存落哪儿」的单一真相源：温度计 fetchers 经它取目录（#1537），
+  行业拥挤度 / FOF 拥挤度的 parquet·JSON 缓存经 `resolve_cache_subdir()` 分目录（#1539）。
 - **Redis 为可选后端、默认关闭**：设 env `CACHE_BACKEND=redis` 且 redis 可导入时启用，
   其余情况静默回退本地后端，调用方零感知（多实例部署才有意义，单机勿开）。
 - **数据分级红线**：仅允许缓存自建分析结果与公开行情（温度计/拥挤度等）；
@@ -63,6 +64,19 @@ def resolve_cache_file_dir() -> Path:
     """
     raw = os.environ.get('CACHE_FILE_DIR')
     return Path(raw) if raw else Path(tempfile.gettempdir()) / _FILE_DIR_NAME
+
+
+def resolve_cache_subdir(name: str) -> Path:
+    """`resolve_cache_file_dir()` 下的命名子目录（#1539）。
+
+    供**非 pickle 值对象**的大型缓存分目录使用（parquet / CSV / JSON 等）：它们不便走
+    `CacheService` 的「pickle 一个值 + `expire_at` 写进文件」语义，但**目录**仍必须只有
+    一个真相源——否则又会回到「改 `CACHE_FILE_DIR` 只生效一半」的老问题
+    （#1531 → #1537 → #1539 已连犯三次）。
+
+    同样**必须调用期解析**，理由见 :func:`resolve_cache_file_dir`。
+    """
+    return resolve_cache_file_dir() / name
 
 
 class CacheService:

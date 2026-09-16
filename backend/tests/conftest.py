@@ -137,6 +137,11 @@ def _isolate_cache_file_dir(tmp_path, monkeypatch):
     反之，任何把该 env 固化成模块级常量的实现都绕得过去：cache.py 曾是 import 期常量、
     fetchers 曾硬编码全局临时目录，各自漏过一次。新增文件缓存请一律走
     `resolve_cache_file_dir()`，不要另立目录解析。
+
+    **补充（#1539）**：温度计的三处**分目录**缓存（`baostock_pb` / `em_industry_hist` /
+    `fundfof_crowding`）也已收口到 `resolve_cache_subdir()`，同样纳入本夹具覆盖
+    （见 `tests/services/thermometer/test_cache_dirs.py`）。它们原先各自在测试里
+    monkeypatch 模块常量，属「新增一处缓存就要记得补一条 patch」的约定式隔离，现已取消。
     """
     monkeypatch.setenv('CACHE_FILE_DIR', str(tmp_path / 'fundmate_cache'))
 
