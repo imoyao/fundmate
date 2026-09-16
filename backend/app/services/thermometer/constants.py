@@ -119,6 +119,16 @@ LINKS = {
 }
 
 
+# ─── 本地缓存（统一走 app.core.cache.CacheService，#1537）───
+# 命名空间与键名集中在此：CacheService 的落盘文件名是 `cache_{namespace}_{key}.pkl`，
+# 改名等于换缓存（旧文件成孤儿、首跑重算一次），故不要散落到 fetcher 里。
+THERMOMETER_CACHE_NAMESPACE = 'thermometer'
+# 自算估值分位（股债利差）：akshare 侧 CPI 历史约 19 页顺序下载、单次 20+ 秒，
+# 而数据日内变化极小——缓存 12 小时可大幅缩短同步耗时。
+SELF_CALC_CACHE_KEY = 'self_calc'
+SELF_CALC_CACHE_TTL = 12 * 3600
+
+
 # ─── 标签阈值函数（集中管理"魔法数字"）───
 def label_volume(total: float) -> str:
     """全市场成交额定性标签。"""

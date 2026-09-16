@@ -124,15 +124,19 @@ def _disable_async_backfill(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _isolate_cache_file_dir(tmp_path, monkeypatch):
-    """把缓存文件层重定向到用例私有目录（#1531）。
+    """把缓存文件层重定向到用例私有目录（#1531 / #1537）。
 
     `app/core/cache.py` 的文件层默认落 `tempfile.gettempdir()/fundmate_cache`——
     该目录**跨进程共享、无清理**：残留的 pkl 会在 ttl 内被下一个进程直接命中，于是
     「上一轮跑过什么」决定本轮结果（#1531 现象：ttl 内重跑 test_cache 必失败，真失败
     与污染失败的报错外观完全一致）。此处统一隔离；显式传 `file_dir=` 的用例不受影响。
 
-    注意：cache.py 必须**构造期**读 env 本 fixture 才有效（原先 import 期固化常量，
-    测试里写 `os.environ['CACHE_FILE_DIR']` 属于假隔离，实际仍读写全局目录）。
+    **覆盖范围**（#1537）：本夹具靠 env 生效，凡是**调用期**读 `CACHE_FILE_DIR` 的实现
+    都被覆盖——`CacheService` 与温度计 fetchers 现已共用 `resolve_cache_file_dir()`，
+    两条落盘路径一并纳入（见 `tests/services/thermometer/test_fetchers_cache.py`）。
+    反之，任何把该 env 固化成模块级常量的实现都绕得过去：cache.py 曾是 import 期常量、
+    fetchers 曾硬编码全局临时目录，各自漏过一次。新增文件缓存请一律走
+    `resolve_cache_file_dir()`，不要另立目录解析。
     """
     monkeypatch.setenv('CACHE_FILE_DIR', str(tmp_path / 'fundmate_cache'))
 

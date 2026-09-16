@@ -4,9 +4,10 @@
 设计约束（issue #892「Redis 预留」节）：
 - **框架无关**：不 import flask、不绑 Flask-Caching——Flask→FastAPI 迁移不受影响。
 - **默认后端 = 进程内 LRU + 文件**：LRU 抗高频重复读，文件层抗冷启动（进程重启后
-  首次访问免重算，复用 fetchers._cached 的 pickle 模式）。文件层目录取 env
-  `CACHE_FILE_DIR`（缺省系统临时目录），可经构造参数 `file_dir=` 覆盖——便于按环境
-  指定，也让测试能注入 `tmp_path` 做用例级隔离（#1531）。
+  首次访问免重算）。文件层目录由 :func:`resolve_cache_file_dir` **唯一**解析
+  （env `CACHE_FILE_DIR`，缺省系统临时目录），可经构造参数 `file_dir=` 覆盖——便于
+  按环境指定，也让测试能注入 `tmp_path` 做用例级隔离（#1531）。该解析入口是全仓
+  「文件缓存落哪儿」的单一真相源，温度计 fetchers 亦经它取目录（#1537）。
 - **Redis 为可选后端、默认关闭**：设 env `CACHE_BACKEND=redis` 且 redis 可导入时启用，
   其余情况静默回退本地后端，调用方零感知（多实例部署才有意义，单机勿开）。
 - **数据分级红线**：仅允许缓存自建分析结果与公开行情（温度计/拥挤度等）；
@@ -46,8 +47,16 @@ def _env_backend() -> str:
     return os.environ.get('CACHE_BACKEND', 'local').lower()
 
 
-def _env_file_dir() -> Path:
-    """文件层默认目录：`CACHE_FILE_DIR` 优先，否则落系统临时目录（构造期读 env）。
+def resolve_cache_file_dir() -> Path:
+    """缓存文件层的**唯一**目录解析入口：env `CACHE_FILE_DIR` 优先，否则系统临时目录。
+
+    全仓「文件缓存落哪儿」的单一真相源（#1537）：`CacheService` 与温度计 fetchers
+    共用本函数，杜绝「同一个目录、两套实现、只有一套认 env」的部分生效——
+    按环境指定目录时只生效一半，比完全不生效更难排查。
+
+    **必须在调用期解析**，不要固化成模块级常量（#1531 / #1537 是同一个坑）：
+    常量在 import 那一刻就绑定了当时的环境，之后再设 `CACHE_FILE_DIR` 完全无效，
+    `tests/conftest.py::_isolate_cache_file_dir` 会静默失效。
 
     回归背景（#1531）：该目录**跨进程存活**，残留的 pkl 会在 ttl 内让下一个进程
     直接命中——测试结果因此取决于「上一轮跑过什么」，真失败与污染失败外观一致。
@@ -82,7 +91,7 @@ class CacheService:
         self._lru: OrderedDict[str, tuple[float, Any]] = OrderedDict()
         self._lock = threading.Lock()
         self._backend = self._resolve_backend()
-        self._file_dir: Optional[Path] = Path(file_dir) if file_dir is not None else _env_file_dir()
+        self._file_dir: Optional[Path] = Path(file_dir) if file_dir is not None else resolve_cache_file_dir()
         if self._file_dir is not None:
             try:
                 self._file_dir.mkdir(parents=True, exist_ok=True)
