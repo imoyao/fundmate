@@ -268,10 +268,30 @@ jobs:
       - name: 校验无未经路由的硬编码缓存目录
         run: python scripts/guard_cache_dir.py
 
+  # CSS 令牌守卫（#1545 T1.4）：把「被 var() 引用、源码里却没定义」的幽灵令牌
+  # 变成显式红灯。背景：--bg-subtle 曾被 6 处引用却全仓零定义，导致
+  # `color-mix(..., var(--bg-subtle))` 整条声明静默失效（市场机会卡只剩左边框有颜色），
+  # 而构建 / 类型检查 / lint 全绿——没有任何机制能发现。本守卫冻结存量基线、拦截新增。
+  # 纯 Node 静态扫描 frontend/src，零依赖、秒级，故轻到可常开。
+  css_token_guard:
+    name: 守卫:CSS 令牌引用定义一致
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: 设置 Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+
+      - name: 校验无幽灵令牌（引用但未定义）
+        run: node scripts/check_css_vars.mjs
+
   gate:
     name: 质量门禁汇总
     if: ${{ always() && github.event_name == 'pull_request' }}
-    needs: [changes, backend, frontend, mojibake_guard, pnpm_overrides_guard, cache_dir_guard]
+    needs: [changes, backend, frontend, mojibake_guard, pnpm_overrides_guard, cache_dir_guard, css_token_guard]
     runs-on: ubuntu-latest
     steps:
       - name: 汇总各 job 结论（失败 / 取消 → 不通过）

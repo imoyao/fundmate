@@ -13,7 +13,7 @@
       <IconifyIconOffline
         icon="ep:warning-filled"
         class="mr-2 text-sm shrink-0"
-        :style="{ color: 'var(--color-warning)' }"
+        :style="{ color: 'var(--color-warning-ink)' }"
       />
       <span>实时估值基于历史季报计算，不代表最终净值，仅供参考。</span>
     </div>

@@ -154,7 +154,7 @@ const {
 
 .banner-icon {
   font-size: 16px;
-  color: var(--color-warning);
+  color: var(--color-warning-ink);
 }
 
 .banner-text {

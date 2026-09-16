@@ -45,11 +45,20 @@ const categoryColor = (category: string) =>
   CATEGORY_TOKEN[category] || "var(--text-secondary)";
 
 // 相对位置分位 → 温度三色（偏低绿 / 适中沙 / 偏高红）
+// #1545 拆两族：游标等「图形 / 实色」用 --temp-*；
+// 标签文字必须用 --temp-*-ink（实色作文字对比度不足，白底仅 1.68–3.96:1）。
 const positionColor = (asset: MarketAsset): string => {
   const label = asset.position?.label;
   if (label === "偏低") return "var(--temp-low)";
   if (label === "偏高") return "var(--temp-high)";
   return "var(--temp-mid)";
+};
+
+const positionLabelColor = (asset: MarketAsset): string => {
+  const label = asset.position?.label;
+  if (label === "偏低") return "var(--temp-low-ink)";
+  if (label === "偏高") return "var(--temp-high-ink)";
+  return "var(--temp-mid-ink)";
 };
 
 // 收益率变动(bp) 用中性色，不套用涨红跌绿（§3.4 纪律）
@@ -152,7 +161,7 @@ onMounted(() => {
                   <span class="pos-bar__basis">{{ asset.position.basis }}</span>
                   <span
                     class="pos-bar__label"
-                    :style="{ color: positionColor(asset) }"
+                    :style="{ color: positionLabelColor(asset) }"
                     >{{ asset.position.label }}</span
                   >
                 </div>
