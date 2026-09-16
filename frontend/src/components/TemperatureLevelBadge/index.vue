@@ -97,19 +97,19 @@ const sizeClass = computed(() => `size-${props.size}`);
 
 /* ===== 低温·机会区（绿） ===== */
 .temperature-level-badge.tone-low {
-  color: var(--temp-low);
+  color: var(--temp-low-ink);
   background: var(--temp-low-bg);
 }
 
 /* ===== 适中·平稳（暖沙金） ===== */
 .temperature-level-badge.tone-mid {
-  color: var(--temp-mid);
+  color: var(--temp-mid-ink);
   background: var(--temp-mid-bg);
 }
 
 /* ===== 高温·谨慎区（红，独立于品牌涨色） ===== */
 .temperature-level-badge.tone-high {
-  color: var(--temp-high);
+  color: var(--temp-high-ink);
   background: var(--temp-high-bg);
 }
 </style>

@@ -146,7 +146,9 @@
         </el-radio-group>
       </div>
       <div class="text-xs mt-1" style="color: var(--text-tertiary)">
-        <span v-if="isTradingDay === false" style="color: var(--color-warning)"
+        <span
+          v-if="isTradingDay === false"
+          style="color: var(--color-warning-ink)"
           >所选日期非交易日，请确认 ·
         </span>
         <span v-if="form.isAfter15 && selectedSecurityOption?.type === 'fund'">

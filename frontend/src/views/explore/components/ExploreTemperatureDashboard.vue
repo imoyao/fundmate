@@ -186,7 +186,7 @@ onMounted(() => {
   margin-bottom: 12px;
   font-size: 13px;
   line-height: 1.6;
-  color: var(--color-warning, #d97706);
+  color: var(--color-warning-ink);
   background: color-mix(
     in srgb,
     var(--color-warning, #d97706) 12%,

@@ -294,11 +294,11 @@ watch(
 
     .usage-banner__icon,
     .usage-banner__count strong {
-      color: var(--color-warning);
+      color: var(--color-warning-ink);
     }
 
     .usage-banner__hint {
-      color: var(--color-warning);
+      color: var(--color-warning-ink);
     }
   }
 

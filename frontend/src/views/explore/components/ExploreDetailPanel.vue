@@ -521,7 +521,7 @@ onMounted(async () => {
   margin-bottom: 12px;
   font-size: 13px;
   line-height: 1.6;
-  color: var(--color-warning, #d97706);
+  color: var(--color-warning-ink);
   background: color-mix(
     in srgb,
     var(--color-warning, #d97706) 12%,
@@ -652,12 +652,12 @@ onMounted(async () => {
 }
 
 .opportunity-item--safe .opportunity-tag {
-  color: var(--temp-low);
+  color: var(--temp-low-ink);
   background: color-mix(in srgb, var(--temp-low) 18%, transparent);
 }
 
 .opportunity-item--danger .opportunity-tag {
-  color: var(--temp-high);
+  color: var(--temp-high-ink);
   background: color-mix(in srgb, var(--temp-high) 18%, transparent);
 }
 
@@ -688,7 +688,7 @@ onMounted(async () => {
   font-size: 11px;
   font-weight: 500;
   line-height: 1.4;
-  color: var(--color-warning, #d97706);
+  color: var(--color-warning-ink);
   white-space: nowrap;
   cursor: help;
   background: color-mix(
@@ -792,7 +792,7 @@ onMounted(async () => {
 }
 
 .rank-source-notice--warning {
-  color: var(--color-warning, #d97706);
+  color: var(--color-warning-ink);
   background: color-mix(
     in srgb,
     var(--color-warning, #d97706) 10%,

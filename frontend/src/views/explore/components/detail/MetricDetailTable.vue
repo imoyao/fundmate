@@ -140,11 +140,11 @@ const rowClassName = ({ row }: { row: any }) => (row?.stale ? "is-stale" : "");
 
 /* ===== 指标数值颜色（val-* 令牌） ===== */
 .val-high {
-  color: var(--temp-high);
+  color: var(--temp-high-ink);
 }
 
 .val-low {
-  color: var(--temp-low);
+  color: var(--temp-low-ink);
 }
 
 .val-mid {

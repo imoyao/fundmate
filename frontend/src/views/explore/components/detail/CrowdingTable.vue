@@ -423,7 +423,7 @@ withDefaults(
   font-size: 11px;
   font-weight: 500;
   line-height: 1.4;
-  color: var(--color-warning, #d97706);
+  color: var(--color-warning-ink);
   white-space: nowrap;
   cursor: help;
   background: color-mix(
@@ -531,35 +531,35 @@ withDefaults(
 }
 
 .dim-rank.val-low {
-  color: var(--temp-low);
+  color: var(--temp-low-ink);
 }
 
 .dim-rank.val-mid {
-  color: var(--temp-mid);
+  color: var(--temp-mid-ink);
 }
 
 .dim-rank.val-high {
-  color: var(--temp-high);
+  color: var(--temp-high-ink);
 }
 
 /* 百万大单：净买入（红）/ 净卖出（绿），沿用涨跌配色语义 */
 .big-order--in {
   font-variant-numeric: tabular-nums;
-  color: var(--temp-high);
+  color: var(--temp-high-ink);
 }
 
 .big-order--out {
   font-variant-numeric: tabular-nums;
-  color: var(--temp-low);
+  color: var(--temp-low-ink);
 }
 
 /* ===== 拥挤度数值颜色（val-* 令牌） ===== */
 .val-high {
-  color: var(--temp-high);
+  color: var(--temp-high-ink);
 }
 
 .val-low {
-  color: var(--temp-low);
+  color: var(--temp-low-ink);
 }
 
 .val-mid {
