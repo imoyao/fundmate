@@ -398,7 +398,7 @@ withDefaults(
   margin-bottom: 24px;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   box-shadow: var(--shadow-raised);
 }
 

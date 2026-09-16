@@ -339,6 +339,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0; /* 允许在窄轨道内收窄，防「内容 min-content 顶宽 → 横向溢出」（#1549 T4.3） */
   padding: 14px 16px;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
@@ -359,6 +360,7 @@ onMounted(() => {
   }
 
   &__name {
+    min-width: 0; /* 长名称换行而非顶宽（禁截断，故不加 ellipsis） */
     font-size: 14px;
     font-weight: 600;
     color: var(--text-primary);
@@ -606,18 +608,29 @@ onMounted(() => {
   }
 }
 
-/* 响应式 */
+/* 响应式（#1549 T4.3）
+   原实现 ≤768px 把栅格底线压到 140px：375px 视口下 auto-fill 会塞 2 列、每列仅
+   ~165px，「指数名 + 口径标 + 相对位置条」挤在一起。改为显式列数，并把轨道写成
+   minmax(0, 1fr) —— 允许轨道收窄到内容 min-content 以下，杜绝资产卡顶宽容器后横向溢出。 */
 @media (width <= 768px) {
   .asset-overview {
     padding: 0 16px 12px;
   }
 
+  /* 481–768px：两列（每列 218–368px），横向留白充足 */
   .asset-grid {
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .bond-yield__hint {
     margin-left: 0;
+  }
+}
+
+@media (width <= 480px) {
+  /* 375px 档：可用宽度 343px，两列仅 ~165px 过挤 → 单列满宽 */
+  .asset-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

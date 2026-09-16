@@ -1,7 +1,9 @@
 <!--
   TemperatureGaugeCard · 温度环形卡（三页复用）
   纯 SVG 圆环，不引入 echarts。颜色按数值档位取全局 token（单一来源）：
-    综合市场温度：<40 → --temp-low（绿·机会），40–60 → --temp-mid（金·平稳），>60 → --temp-high（红·谨慎）
+    综合市场温度（scale="level"，默认）：<40 → --temp-low（绿·机会），40–60 → --temp-mid（金·平稳），>60 → --temp-high（红·谨慎）
+    其它温度带（scale="band"）：≤15 → --temp-cold，≤35 → --temp-cool，≤65 → --temp-neutral，≤85 → --temp-warm，>85 → --temp-hot
+  两套阈值与取值均以 docs/design/components.md 为准，勿在此各写一份。
   标题行右侧固定 TemperatureLevelBadge（与设计约束一致）。
   页面差异通过 props 表达：
     - size:  'lg' 温度计页英雄卡（大） / 'sm' 探市页入口卡（小）
@@ -61,6 +63,8 @@ import { computed } from "vue";
 import TemperatureLevelBadge from "@/components/TemperatureLevelBadge/index.vue";
 
 type TemperatureTone = "low" | "mid" | "high";
+type TemperatureBand = "cold" | "cool" | "neutral" | "warm" | "hot";
+type TemperatureScale = "level" | "band";
 
 const props = withDefaults(
   defineProps<{
@@ -82,6 +86,12 @@ const props = withDefaults(
     clickable?: boolean;
     /** 显式色调，优先级高于数值推断（用于非综合温度的环形，如可转债） */
     tone?: TemperatureTone;
+    /**
+     * 取色刻度（阈值单一来源见 docs/design/components.md）：
+     * - `level`（默认）综合市场温度三档：<40 → 低、40–60 → 中、>60 → 高
+     * - `band` 其它温度五档温度带：≤15 / ≤35 / ≤65 / ≤85 / >85
+     */
+    scale?: TemperatureScale;
   }>(),
   {
     value: null,
@@ -92,7 +102,8 @@ const props = withDefaults(
     size: "lg",
     featured: false,
     clickable: false,
-    tone: "" as TemperatureTone
+    tone: "" as TemperatureTone,
+    scale: "level"
   }
 );
 
@@ -126,9 +137,41 @@ const inferredTone = computed<TemperatureTone>(() => {
   return "mid";
 });
 
-const ringColor = computed(
-  () => `var(--temp-${props.tone || inferredTone.value})`
-);
+/**
+ * 五档温度带阈值（#1549 T3.4）——逐条对齐 docs/design/components.md，
+ * 供可转债等**非综合温度**环形取色，避免与涨跌红绿语义混淆。
+ * 改阈值必须同步改文档（两处只允许有一份口径）。
+ */
+const BAND_THRESHOLDS: ReadonlyArray<{ upper: number; band: TemperatureBand }> =
+  [
+    { upper: 15, band: "cold" }, // ≤15 极冷
+    { upper: 35, band: "cool" }, // ≤35 偏冷
+    { upper: 65, band: "neutral" }, // ≤65 中性
+    { upper: 85, band: "warm" }, // ≤85 偏热
+    { upper: Number.POSITIVE_INFINITY, band: "hot" } // >85 极热
+  ];
+
+/** 温度带色令牌（单一来源 src/style/colors.css 的 --temp-cold/cool/neutral/warm/hot） */
+const BAND_COLOR: Record<TemperatureBand, string> = {
+  cold: "var(--temp-cold)",
+  cool: "var(--temp-cool)",
+  neutral: "var(--temp-neutral)",
+  warm: "var(--temp-warm)",
+  hot: "var(--temp-hot)"
+};
+
+const inferredBand = computed<TemperatureBand>(() => {
+  const v = props.value;
+  if (v === null || v === undefined || Number.isNaN(v)) return "neutral";
+  return BAND_THRESHOLDS.find(t => v <= t.upper)?.band ?? "neutral";
+});
+
+/** 环形取色：显式 tone 最高优先 → scale 决定走三档还是五档 */
+const ringColor = computed(() => {
+  if (props.tone) return `var(--temp-${props.tone})`;
+  if (props.scale === "band") return BAND_COLOR[inferredBand.value];
+  return `var(--temp-${inferredTone.value})`;
+});
 
 const onClick = () => {
   if (props.clickable) emit("click");
