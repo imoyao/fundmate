@@ -36,7 +36,7 @@ withDefaults(
   gap: 16px;
   align-items: flex-start;
   justify-content: space-between;
-  max-width: 1280px;
+  max-width: var(--layout-content-width);
   padding: 0 24px;
   margin: 0 auto var(--space-section);
 

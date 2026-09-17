@@ -237,7 +237,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-width: 1280px;
+  max-width: var(--layout-content-width);
   padding: var(--space-standard) 24px 16px;
   margin: 0 auto;
 }

@@ -3,7 +3,7 @@
     class="inventory-home min-h-full"
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
-    <!-- 页面页头（设计系统强制复用组件，自带 1280 居中 + 24px 内边距） -->
+    <!-- 页面页头（设计系统强制复用组件，自带内容列居中 + 内边距） -->
     <PageHeaderBar title="全面盘点" subtitle="选择资产大类，快速录入或导入" />
 
     <!-- 内容区：与页头同宽同内边距，保证左边缘严格对齐 -->
@@ -230,15 +230,15 @@ onMounted(() => {
   padding-bottom: var(--space-section);
 }
 
-/* 内容区与 PageHeaderBar 同宽同内边距（1280 / 24px），
-   保证页头与内容左边缘严格对齐——页头自带 max-width:1280px + padding:0 24px + margin:0 auto，
+/* 内容区与 PageHeaderBar 同宽同内边距（--layout-content-width / --space-standard），
+   保证页头与内容左边缘严格对齐——页头自带 max-width + padding:0 + margin:0 auto，
    若内容区继续全宽铺开，宽屏下会出现「页头居中、内容顶边」的错位。
-   1280 与 PageHeaderBar / PageFooter / 探市页一致（#1501）。 */
+   与 PageHeaderBar / PageFooter / 探市页同值（#1501）；具体数值见 --layout-content-width 单一来源（#1506）。 */
 .inventory-shell {
   display: flex;
   flex-direction: column;
   gap: var(--space-section);
-  max-width: 1280px;
+  max-width: var(--layout-content-width);
   padding: 0 var(--space-standard);
   margin: 0 auto;
 }

@@ -331,7 +331,7 @@ const getAvailableTools = (type: string) => {
    观察列表样式（自 index.vue 随组件迁移，#984）
    ============================================================ */
 .watchlist-section {
-  max-width: 1280px;
+  max-width: var(--layout-content-width);
   padding: 0 24px 24px;
   margin: 0 auto;
 }

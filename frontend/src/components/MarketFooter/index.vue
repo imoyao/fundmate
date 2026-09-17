@@ -83,7 +83,7 @@ withDefaults(
     display: flex;
     flex-direction: column;
     gap: 10px;
-    max-width: 1400px;
+    max-width: var(--layout-shell-width);
     padding: 24px var(--space-12);
     margin: 0 auto;
   }
