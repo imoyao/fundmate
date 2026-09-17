@@ -322,8 +322,37 @@ class DataSyncOrchestrator:
 
         result = job.run(full_sync, targets=targets)
         result['duration'] = (now_shanghai() - job.snapshot_time).total_seconds()
-        self._save_sync_log(job_name, result, full_sync)
+        self._save_sync_log_with_fallback(job_name, result, full_sync)
         return result
+
+    def _save_sync_log_with_fallback(self, job_name: str, result: Dict[str, Any], full_sync: bool) -> None:
+        """审计落库必须「无论 job 结果如何都留下痕迹」（#1550）。
+
+        `job.run()` 正常返回**不代表 Session 健康**：批量写入在 flush 阶段失败
+        （如 UNIQUE 冲突）会把 Session 留在必须先 rollback 的状态，此时
+        `_save_sync_log` 的 `commit()` 直接抛 PendingRollbackError。
+
+        旧行为下这个异常会冒泡出 `run_job`，而 `daily_scheduler.run_sync_job`
+        只做 `logger.exception` 吞掉——`sync_logs` 里连一行都没有。后果实测：
+        fund_nav 自 2026-08-14（id=128）起静默失败整整一个月，只能在 CMD 里看见，
+        且因为 `SyncLog.get_last_sync_time` 只认 status='success'，增量起点被永久
+        钉死在同一天，永远无法自愈。
+
+        因此：先 rollback 重写一次；仍失败则降级为最小字段的 error 记录，
+        宁可丢字段也不能丢「这个 job 跑过且失败了」这件事。
+        """
+        try:
+            self._save_sync_log(job_name, result, full_sync)
+            return
+        except Exception as exc:  # noqa: BLE001 - 审计失败不得冒泡
+            logger.warning(f'{job_name} 审计落库失败（{exc}），rollback 后重试一次')
+            self.db.rollback()
+
+        try:
+            self._save_sync_log(job_name, result, full_sync)
+        except Exception as exc:  # noqa: BLE001 - 同上
+            logger.exception(f'{job_name} 审计落库二次失败，降级为最小记录（原始错误: {exc}）')
+            self._save_error_sync_log(job_name, full_sync, exc, status=str(result.get('status', 'error')))
 
     def _execute_job(self, job_name: str, full_sync: bool, targets: Optional[List[str]] = None) -> Dict[str, Any]:
         """
@@ -426,7 +455,7 @@ class DataSyncOrchestrator:
         self.db.add(log_entry)
         self.db.commit()
 
-    def _save_error_sync_log(self, job_name: str, full_sync: bool, error: Exception) -> None:
+    def _save_error_sync_log(self, job_name: str, full_sync: bool, error: Exception, status: str = 'error') -> None:
         """异常路径的审计落库（#1402）。
 
         与 `_save_sync_log` 的关键差别：本方法必须在「job 没跑完」时也安全，因此
@@ -438,6 +467,10 @@ class DataSyncOrchestrator:
           用下标访问会把原始异常替换成 KeyError；
         - 审计写入本身失败绝不能向上抛——本方法存在的意义是「让失败可见」，
           若它自己炸掉，调用方正在冒泡的原始异常就被掩盖了。
+
+        `status` 默认 `'error'`（调用方是「job 抛异常」）；`run_job` 的审计降级路径
+        会传入 job 真实终态（如 `manual_intervention`），避免把「跑完了但失败」
+        误记成「没跑完」。
         """
         job = self.jobs.get(job_name)
         now = now_shanghai()
@@ -445,7 +478,7 @@ class DataSyncOrchestrator:
         try:
             log_entry = SyncLog(
                 job_name=job_name,
-                status='error',
+                status=status,
                 full_sync=full_sync,
                 stats=None,
                 error_detail=str(error),
