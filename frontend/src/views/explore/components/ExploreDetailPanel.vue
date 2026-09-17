@@ -59,7 +59,7 @@
         />
 
         <!-- 市场机会（来自 temperature store，由综合温度与股债性价比推导） -->
-        <div v-if="opportunityList.length" class="opportunity-card">
+        <CardBlock v-if="opportunityList.length" class="opportunity-card">
           <SectionHeader title="市场机会" />
           <div class="opportunity-list">
             <div
@@ -81,7 +81,7 @@
               <p class="opportunity-desc">{{ op.desc }}</p>
             </div>
           </div>
-        </div>
+        </CardBlock>
       </div>
     </section>
 
@@ -609,19 +609,16 @@ onMounted(() => {
   align-items: stretch;
 }
 
-.context-card,
-.opportunity-card {
+/* TemperatureContextCard 自带卡片外壳（--bg-card / --border-light / --radius-lg /
+   --shadow-raised），父级此处只补裁切，不再重复声明外壳（#1547 T3.1）。 */
+.context-card {
   overflow: hidden;
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-raised);
 }
 
+/* 区块外壳统一走 CardBlock（#1547 T3.1 收敛），此处只留内部排布 */
 .opportunity-card {
   display: flex;
   flex-direction: column;
-  padding: 16px;
 }
 
 .opportunity-card :deep(.section-header) {

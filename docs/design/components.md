@@ -146,6 +146,9 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - 用途：区块卡（`SectionHeader` + 内容区）的统一容器，**禁止各页面手写 `bg-white rounded-2xl p-6 shadow-sm border` 等重复样式**。
 - 结构：纯容器 `<section class="card-block">` + 默认插槽；与 `SectionHeader`、`MetricCard` 卡片视觉一致（`--bg-card` + `--radius-lg` + `--border-light` + `--shadow-raised` + `--space-standard` 内边距）。
 - 间距由使用方通过 class 控制（如 `class="mb-6"`），组件不预设外边距。
+- **判定「区块卡」**（#1547 T3.1）：元素自身承载 `SectionHeader`（或等价标题行）且属页面级区块 → 必须走 `CardBlock`。
+  以下属**卡内元素**，**不走** `CardBlock`，但仍须 token 化、禁字面量圆角：栅格内的列表项卡（`.holding-card` / `.asset-card`）、
+  状态提示条（`.state-hint`）、面板内信息条（`.asof-bar` / `.bond-yield`）、引导横幅（`.auth-guide__inner`）。
 
 ## PortfolioEditDialog · 组合编辑对话框（强制复用）
 
