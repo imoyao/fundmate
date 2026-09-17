@@ -71,6 +71,7 @@ import os
 import sys
 import threading
 import time
+from importlib import metadata as importlib_metadata
 from pathlib import Path
 from typing import Any, Dict, Optional, TextIO
 
@@ -121,6 +122,28 @@ def _in_test_process() -> bool:
     而 `import app` 一个进程只发生一次，不拦就会把轨迹文件写进 `backend/logs/`）。
     """
     return 'pytest' in sys.modules or 'PYTEST_CURRENT_TEST' in os.environ
+
+
+def _backend_package() -> str:
+    """当前进程实际使用的 V8 后端包与其版本（用于把「跑的是哪个实现」写进日志）。
+
+    ⚠️ akshare 的依赖是**平台条件式**的，两个平台装的是**不同的包**（只是目录都叫
+    `py_mini_racer/`）：
+
+    - Windows / macOS：`mini-racer`（新包名，锁在 0.14.1）—— 提供 `MiniRacer.close()`
+    - Linux（含 CI）  ：`py-mini-racer`（老包名，锁在 0.6.0）—— **无 `close()`**，靠 `__del__` 释放
+
+    两个版本都在 `MiniRacer.__init__` 内调 `mr_init_context`（已核 0.6.0 源码），故守卫的
+    patch 点跨版本一致；但 API 表面不同，凡涉及 `close()` 之类调用必须 `getattr` 防御。
+    把这个差异显式暴露出来，以免后人误以为「CI 绿 = Windows 上的崩溃已修好」——
+    崩溃实测只在 Windows 复现，CI（Linux）只是**不回归**。
+    """
+    for dist in ('mini-racer', 'py-mini-racer'):
+        try:
+            return f'{dist} {importlib_metadata.version(dist)}'
+        except importlib_metadata.PackageNotFoundError:
+            continue
+    return 'unknown'
 
 
 def _trace_enabled() -> bool:
@@ -239,14 +262,32 @@ def _warmup_once() -> bool:
     started = time.monotonic()
     try:
         mr = MiniRacer()
-        try:
-            mr.eval('1 + 1')
-        finally:
-            # 显式关闭，避免预热实例的 isolate 吊到进程退出才回收。
-            mr.close()
     except Exception as exc:  # noqa: BLE001 - 预热失败不得拦住应用启动
         logger.warning(f'V8 预热失败（已降级为仅依赖构造锁，功能不受影响）：{exc}')
         return False
+
+    # 到这里预热目标已达成：崩溃点（V8 的 PartitionAlloc 配置池首次初始化）就在**构造内部**
+    # 的 `mr_init_context`，构造成功即说明该进程级初始化已完成，且不可回退。
+    # 下面两步都是 best-effort，失败**不得**影响 `_warmed_up`：
+    #
+    # 1) 探活 eval —— 顺带确认引擎真能执行脚本；
+    # 2) 释放 close —— ⚠️ **该 API 跨包版本不一致，硬调会炸**：
+    #    akshare 的依赖是平台条件式的（`mini-racer; sys_platform != "linux"` /
+    #    `py-mini-racer; sys_platform == "linux"`），Windows/macOS 装新包 `mini-racer`
+    #    （锁在 0.14.1）**有** `close()`，而 Linux（CI）装老包 `py-mini-racer`（锁在 0.6.0）
+    #    **没有** `close()`。直接写 `mr.close()` 会让 CI 红——这是本 PR 实测踩到的坑。
+    try:
+        mr.eval('1 + 1')
+    except Exception as exc:  # noqa: BLE001 - 探活失败不改变「构造已完成」这一事实
+        logger.debug(f'V8 预热探活未通过（不影响守卫）：{exc}')
+
+    closer = getattr(mr, 'close', None)
+    if callable(closer):
+        try:
+            # 显式关闭，避免预热实例的 isolate 吊到进程退出才回收。
+            closer()
+        except Exception as exc:  # noqa: BLE001 - 释放失败不影响守卫
+            logger.debug(f'V8 预热实例释放失败（不影响守卫）：{exc}')
 
     _warmed_up = True
     logger.info(f'V8 预热完成（{time.monotonic() - started:.2f}s），并发构造窗口已前移')
@@ -273,7 +314,7 @@ def install_v8_guard(warmup: bool = True) -> bool:
         return False
 
     if _patch_mini_racer_class(MiniRacer):
-        logger.info('V8 并发构造守卫已安装：MiniRacer() 构造串行化（#1566）')
+        logger.info(f'V8 并发构造守卫已安装：MiniRacer() 构造串行化（{_backend_package()}，#1566）')
 
     if warmup:
         _warmup_once()
@@ -290,6 +331,7 @@ def guard_status() -> Dict[str, Any]:
     init = _cls.__init__
     return {
         'available': True,
+        'backend': _backend_package(),
         'patched': bool(getattr(init, _PATCH_MARKER, False)),
         'warmed_up': _warmed_up,
         'trace_enabled': _trace_enabled(),
