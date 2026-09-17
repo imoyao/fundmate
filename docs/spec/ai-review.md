@@ -91,15 +91,18 @@ v0.76.0 的 agent 模式在本仓环境下**必然失败**：
 | 档位 | 模型 | 日期 | 备注 |
 |------|------|------|------|
 | pro | `doubao-seed-2-1-pro-260915` | 2026-09-15 | 默认首选 |
-| pro | `deepseek-v4-1-flash-260910` | 2026-09-14 | |
+| pro | `deepseek-v4-pro-ga-260813` | 2026-08-14 | 暂停中（安全体验模式），恢复后自动可用 |
+| cheap | `deepseek-v4-1-flash-260910` | 2026-09-14 | |
 | cheap | `glm-5-3-flash-260828` | 2026-09-03 | 方舟托管 |
+| cheap | `deepseek-v4-flash-ga-260731` | 2026-08-03 | 暂停中（同上） |
 | cheap | `doubao-seed-2-1-turbo-260628` | 2026-06-16 | 兜底 |
 
 - **已删除**：智谱独立线路（原 `free` 档 `glm-4.7-flash` / `glm-4-flash` / `glm-4v-flash`）——
   实测常 429 且产出价值低，纯浪费 Actions 分钟；GLM 家族改由方舟托管的 `glm-5-3-flash` 承接，
   `ZHIPU_API_KEY` secret 可删。
-- **已移出**：`deepseek-v4-{flash,pro}-ga-*`——账号被方舟「安全体验模式」限额暂停
-  （429 `SetLimitExceeded`），需在方舟「模型开通」页调整或关闭该模式；恢复时加回 `CANDIDATES` 即可。
+- **暂停中的模型保留在候选池**：`deepseek-v4-{flash,pro}-ga-*` 当前被账号的方舟「安全体验模式」
+  限额暂停（429 `SetLimitExceeded`），探测标 429 后自动跳过、不影响其它候选；在方舟「模型开通」页
+  调整或关闭该模式后，**无需改代码**即可自动重新参与（删掉反而要多改一次代码）。
 - 推论（不变）：**未要求 infra 执行时，该 check 的绿色不作数**。
 
 ## 9. 相关文件

@@ -16,14 +16,15 @@
   GITHUB_OUTPUT    GitHub Actions 输出文件路径（由 runner 注入）
 
 档位（tier）：
-  pro    最新最强的两个：豆包 Seed 2.1 Pro（2026-09-15）+ DeepSeek V4.1（2026-09-14），默认首选
-  cheap  轻量档：GLM 5.3 Flash（2026-09-03）+ 豆包 Seed 2.1 Turbo（2026-06-16），pro 不可用时顶上
+  pro    Pro 级：豆包 Seed 2.1 Pro（2026-09-15，默认首选）+ DeepSeek Pro（暂停中）
+  cheap  轻量档：DeepSeek V4.1（2026-09-14）+ GLM 5.3 Flash（2026-09-03）+ DeepSeek Flash（暂停中）
+         + 豆包 Seed 2.1 Turbo（2026-06-16），pro 不可用时顶上
 
 2026-09-17 候选池重排（按「越新越强越前」——老模型弱，找不出问题）：
   - 全部候选改走方舟同一把 key；**智谱独立线路（原 free 档）已删除**：glm-4.7-flash 等实测常 429
     且产出价值低，纯浪费 Actions 分钟；GLM 家族改由方舟托管的 glm-5-3-flash 承接。
-  - 被方舟「安全体验模式」限额暂停的 deepseek-v4-{flash,pro}-ga-* 也已移出（429 SetLimitExceeded）；
-    若日后在方舟「模型开通」页调整或关闭该模式，把它们加回下方 CANDIDATES 即可。
+  - 被方舟「安全体验模式」限额暂停的 deepseek-v4-{flash,pro}-ga-* **保留在候选池**（探测标 429 后
+    自动跳过，不影响别的候选）；在方舟「模型开通」页恢复开通后，无需改代码即可自动重新参与。
 """
 
 import json
@@ -38,11 +39,15 @@ API_URLS = {
 }
 
 # (供应商, 模型, 档位)
-# 2026-09-17 候选池：越新越强越前，全部走方舟同一把 key（可用性均为当日实测）
+# 2026-09-17 候选池：越新越强越前，全部走方舟同一把 key。
+# **被限额暂停的模型一律保留在列表里**：探测会把它们标成 429 并自动跳过，不影响其余候选；
+# 方舟「模型开通」页恢复开通后，无需改动本文件即可自动重新参与（删掉反而要多改一次代码）。
 CANDIDATES = [
-    ("ark", "doubao-seed-2-1-pro-260915", "pro"),      # 2026-09-15 最新豆包 Pro
-    ("ark", "deepseek-v4-1-flash-260910", "pro"),      # 2026-09-14 最新 DeepSeek V4.1
+    ("ark", "doubao-seed-2-1-pro-260915", "pro"),      # 2026-09-15 最新豆包 Pro（当前默认首选）
+    ("ark", "deepseek-v4-pro-ga-260813", "pro"),       # 方舟 DeepSeek Pro（暂停中，恢复后自动可用）
+    ("ark", "deepseek-v4-1-flash-260910", "cheap"),    # 2026-09-14 最新 DeepSeek V4.1
     ("ark", "glm-5-3-flash-260828", "cheap"),          # 2026-09-03 GLM 5.3（方舟托管）
+    ("ark", "deepseek-v4-flash-ga-260731", "cheap"),   # 方舟 DeepSeek Flash（暂停中，恢复后自动可用）
     ("ark", "doubao-seed-2-1-turbo-260628", "cheap"),  # 2026-06-16 同族轻量兜底
 ]
 
