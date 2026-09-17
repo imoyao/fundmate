@@ -1026,8 +1026,8 @@ onMounted(() => {
   display: flex;
   gap: 12px;
   align-items: flex-start;
-  padding: var(--space-3) var(--space-4);
-  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-compact);
+  margin-bottom: var(--space-compact);
   background: var(--bg-soft);
   border: 1px solid var(--border-subtle);
   border-left: 3px solid var(--el-color-info);

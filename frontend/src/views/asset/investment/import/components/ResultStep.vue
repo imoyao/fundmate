@@ -230,7 +230,7 @@ const hasSupplements = computed(
 /* ── 容器 ── */
 .import-result {
   max-width: 520px;
-  padding: var(--space-8) var(--space-standard) var(--space-loose);
+  padding: var(--space-loose) var(--space-standard) var(--space-loose);
   margin: 0 auto;
 }
 

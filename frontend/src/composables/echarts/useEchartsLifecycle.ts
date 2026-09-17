@@ -1,6 +1,7 @@
 // src/composables/echarts/useEchartsLifecycle.ts
-import { onMounted, onBeforeUnmount, onActivated, type Ref } from "vue";
+import { onMounted, onBeforeUnmount, onActivated, watch, type Ref } from "vue";
 import type echarts from "@/plugins/echarts";
+import { useThemeTick } from "./theme";
 
 /** ECharts 实例类型（取 echarts.init 的返回类型，避免版本差异导致的类型名不匹配） */
 export type EChartsInstance = ReturnType<typeof echarts.init>;
@@ -65,6 +66,10 @@ export function useEchartsLifecycle(
       charts[i] = spec.build(el);
     });
   };
+
+  const themeTick = useThemeTick();
+  // 主题切换（暗色）时 CSS 变量已变，重绘所有图表使其重新读取颜色（#976）
+  watch(themeTick, render);
 
   const resize = () => {
     charts.forEach(c => c?.resize());

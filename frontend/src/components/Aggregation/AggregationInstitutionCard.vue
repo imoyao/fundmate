@@ -99,12 +99,12 @@ function toggle() {
 }
 
 .institution-card:hover {
-  box-shadow: var(--shadow-overlay, var(--shadow-raised));
+  box-shadow: var(--shadow-raised);
 }
 
 .card-head {
   display: flex;
-  gap: var(--space-4, 16px);
+  gap: var(--space-compact);
   align-items: center;
   justify-content: space-between;
   padding: var(--space-standard, 18px);
@@ -158,7 +158,7 @@ function toggle() {
 
 .item-row {
   display: flex;
-  gap: var(--space-4, 16px);
+  gap: var(--space-compact);
   align-items: center;
   justify-content: space-between;
   padding: 10px var(--space-standard, 18px);

@@ -251,7 +251,9 @@ html.dark {
 
   /* ===== 金融语义色（暗色适配） ===== */
   --color-rise: #d45a44;
+  --color-rise-ink: #ef8a78; /* 涨**文字**级：暗底 7.7:1（#1558） */
   --color-fall: #5daf85;
+  --color-fall-ink: #8fd4ad; /* 跌**文字**级：暗底（#1558） */
 
   /* ===== 系统语义色 ===== */
   --color-danger-system: #d4364a;
@@ -268,6 +270,10 @@ html.dark {
   --text-primary: rgb(237 234 229 / 92%);
   --text-secondary: rgb(237 234 229 / 65%);
   --text-tertiary: rgb(237 234 229 / 40%);
+  --text-tertiary-ink: rgb(
+    237 234 229 / 72%
+  ); /* 辅助文字**级**：暗底 6.2:1，替代直接作正文（#1558） */
+
   --text-disabled: rgb(237 234 229 / 20%);
 
   /* ===== 边框（暗色适配） ===== */

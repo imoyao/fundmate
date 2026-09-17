@@ -790,7 +790,7 @@ onMounted(() => {
 }
 
 .rank-switch__item--active {
-  color: var(--brand-700);
+  color: var(--color-rise-ink);
   background: var(--brand-100);
   border-color: var(--brand-400);
   box-shadow: 0 1px 3px rgb(0 0 0 / 6%);

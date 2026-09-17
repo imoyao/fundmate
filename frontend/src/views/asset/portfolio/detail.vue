@@ -599,14 +599,14 @@ onMounted(async () => {
 }
 
 .xirr-empty {
-  padding: var(--space-4);
+  padding: var(--space-compact);
   color: var(--text-tertiary);
   text-align: center;
 }
 
 /* 空状态 */
 .table-empty {
-  padding: var(--space-6);
+  padding: var(--space-standard);
   color: var(--text-tertiary);
   text-align: center;
 }

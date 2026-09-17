@@ -285,16 +285,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from "vue";
+import { ref, onMounted, nextTick, watch } from "vue";
 import echarts from "@/plugins/echarts";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
+import { useThemeTick } from "@/composables/echarts/theme";
 
 const predictionChartRef = ref<HTMLCanvasElement | null>(null);
 let predictionChart: echarts.ECharts | null = null;
+const themeTick = useThemeTick();
 
 const initPredictionChart = () => {
   if (!predictionChartRef.value) return;
-  predictionChart = echarts.init(predictionChartRef.value);
+  predictionChart = predictionChart ?? echarts.init(predictionChartRef.value);
   predictionChart.setOption({
     tooltip: { trigger: "axis" },
     grid: { left: "3%", right: "4%", bottom: "10%", containLabel: true },
@@ -341,6 +343,9 @@ onMounted(() => {
     window.addEventListener("resize", resizeChart);
   });
 });
+
+// 主题切换（暗色）时重绘预测图（#976）
+watch(themeTick, () => initPredictionChart());
 </script>
 
 <style scoped>

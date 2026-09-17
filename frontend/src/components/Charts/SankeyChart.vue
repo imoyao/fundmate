@@ -20,7 +20,7 @@
 import { ref, computed, onBeforeUnmount, watch, nextTick } from "vue";
 import echarts from "@/plugins/echarts";
 import { IconifyIconOffline } from "@/components/ReIcon";
-import { getCssVar } from "@/composables/echarts/theme";
+import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
 
 const props = defineProps<{
   data: { nodes: any[]; links: any[] };
@@ -29,6 +29,7 @@ const props = defineProps<{
 
 const chartRef = ref<HTMLDivElement>();
 let chart: echarts.ECharts | null = null;
+const themeTick = useThemeTick();
 const isEmpty = ref(true);
 const totalValue = ref(0);
 const containerHeight = ref(400);
@@ -379,6 +380,9 @@ watch(
   () => nextTick(renderChart),
   { deep: true, immediate: true }
 );
+
+// 主题切换（暗色）时重绘桑基图，重新读取语义色（#976）
+watch(themeTick, () => nextTick(renderChart));
 
 const resizeHandler = () => chart?.resize();
 window.addEventListener("resize", resizeHandler);

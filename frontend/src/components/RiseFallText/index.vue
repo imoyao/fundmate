@@ -149,7 +149,7 @@ const sizeClass = computed(() => {
 
 /* ===== 涨（红） ===== */
 .rise-fall-text.is-rise {
-  color: var(--color-rise, #e34f38);
+  color: var(--color-rise-ink, #c0341f);
 }
 
 /* ===== 跌（绿） ===== */
@@ -173,7 +173,7 @@ const sizeClass = computed(() => {
 }
 
 [data-theme="dark"] .rise-fall-text.is-fall {
-  color: var(--color-fall, #5daf85);
+  color: var(--color-fall-ink, #8fd4ad);
 }
 
 /* ===== 尺寸变体 ===== */

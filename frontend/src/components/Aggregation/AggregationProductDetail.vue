@@ -515,7 +515,7 @@ function fmtShort(d: string | null): string {
 .edit-actions {
   display: flex;
   gap: 8px;
-  margin-top: var(--space-4, 16px);
+  margin-top: var(--space-compact);
 }
 
 /* ── 资金进出提示（#1217）── */
@@ -524,7 +524,7 @@ function fmtShort(d: string | null): string {
   gap: 8px;
   align-items: flex-start;
   padding: var(--space-3, 12px);
-  margin-top: var(--space-4, 16px);
+  margin-top: var(--space-compact);
   font-size: 12px;
   line-height: 1.7;
   color: var(--text-tertiary);
@@ -548,7 +548,7 @@ function fmtShort(d: string | null): string {
 .info-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-4, 16px);
+  gap: var(--space-compact);
   padding: var(--space-5, 24px) 0;
   border-bottom: 1px solid var(--border-light);
 }
@@ -624,7 +624,7 @@ function fmtShort(d: string | null): string {
 
 /* ── 分渠道持仓详情 ── */
 .channel-section {
-  margin-top: var(--space-4, 16px);
+  margin-top: var(--space-compact);
 }
 
 .section-title {
@@ -720,7 +720,7 @@ function fmtShort(d: string | null): string {
   /* 不再加 border-top：上方 .info-grid 已有 border-bottom，
      重复加会呈现「两条分割线」的观感 */
   padding-top: var(--space-2, 8px);
-  margin-top: var(--space-4, 16px);
+  margin-top: var(--space-compact);
 }
 
 /* ── 免责声明 ── */
@@ -729,7 +729,7 @@ function fmtShort(d: string | null): string {
   gap: 6px;
   align-items: flex-start;
   padding: var(--space-3, 12px);
-  margin-top: var(--space-6, 28px);
+  margin-top: var(--space-6);
   font-size: 11px;
   line-height: 1.7;
   color: var(--text-tertiary);

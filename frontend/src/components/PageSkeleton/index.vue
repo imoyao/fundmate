@@ -74,7 +74,7 @@ withDefaults(
 .page-skeleton {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-compact);
   padding: var(--space-3) 0;
 
   /* 卡 / 图表 / 表 用同一 token 卡片语言（与 CardBlock / MetricCard 一致） */

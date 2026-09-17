@@ -265,7 +265,7 @@ function handleClick() {
 
 .product-card:hover {
   border-color: var(--border-default);
-  box-shadow: var(--shadow-overlay, var(--shadow-raised));
+  box-shadow: var(--shadow-raised);
   transform: translateY(-2px);
 }
 

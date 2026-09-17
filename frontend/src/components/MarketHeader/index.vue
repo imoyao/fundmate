@@ -104,7 +104,7 @@ withDefaults(
   &__badge {
     padding: 2px 10px;
     font-size: 12px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
     background: var(--bg-soft);
     border: 1px solid var(--border-light);
     border-radius: var(--radius-pill);
