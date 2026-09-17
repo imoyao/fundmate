@@ -307,7 +307,7 @@ jobs:
   gate:
     name: 质量门禁汇总
     if: ${{ always() && github.event_name == 'pull_request' }}
-    needs: [changes, backend, frontend, mojibake_guard, pnpm_overrides_guard, cache_dir_guard, css_token_guard]
+    needs: [changes, backend, frontend, mojibake_guard, pnpm_overrides_guard, cache_dir_guard, css_token_guard, layout_guard]
     runs-on: ubuntu-latest
     steps:
       - name: 汇总各 job 结论（失败 / 取消 → 不通过）
