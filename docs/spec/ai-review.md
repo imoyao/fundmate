@@ -73,15 +73,38 @@ v0.76.0 的 agent 模式在本仓环境下**必然失败**：
 
 > **排障指引**：AI 零产出时，**先读日志找 `Empty LLM output` / `blocked by policy`**，不要先怀疑额度或模型档位。模型只要真跑完，会在结论里列出「已核对」的行号。
 
-## 8. 健康探测的局限
+## 8. 健康探测与运行期故障转移
 
-- `scripts/llm_health_probe.py` 只发一次极短请求，与真实审查（长上下文 + 多轮）的限流概率**完全不同**。
-- 实测出现过「探测 200 通过、真实调用 429、零评论却被判 success」的**假成功**。
-- 火山方舟付费档 429 时，探测会自动兜底到智谱免费档 —— 此时探测成功**不代表**真实链路可用。
-- 推论：**未要求 infra 执行时，该 check 的绿色不作数**。
+**探测选型 ≠ 运行期可用。** `scripts/llm_health_probe.py` 只发一次极短请求（`max_tokens: 5`），
+与真实审查（长上下文 + 多轮）的限流概率**完全不同**。两次实测：
+2026-09-10 PR #1412（智谱 code 1302）、2026-09-17 PR #1567（智谱 code 1305）——
+**探测 200 通过、真实调用 429、零评论**；同一轮里其它健康候选探测过却用不上，
+因为 ai-review v0.76.0 只接受**一套** `model / endpoint / token`，没有跨模型重试。
+
+**2026-09-17 起改为两轮故障转移**（`.github/workflows/ai-review.yml`）：
+第 1 轮零产出 → 用 `EXCLUDE_MODELS` 排除该模型重新探测 → 换一个候选重试第 2 轮；
+第 2 轮仍零产出才判 job 失败。校验逻辑抽到 `scripts/ai_review_verify_guard.js`（两轮共用，避免复制漂移）。
+多出的成本只落在失败运行上（这类运行本来就得人工重跑）。
+
+**候选池（2026-09-17 重排：越新越强越前——老模型弱，找不出问题）**，全部走方舟同一把 key：
+
+| 档位 | 模型 | 日期 | 备注 |
+|------|------|------|------|
+| pro | `doubao-seed-2-1-pro-260915` | 2026-09-15 | 默认首选 |
+| pro | `deepseek-v4-1-flash-260910` | 2026-09-14 | |
+| cheap | `glm-5-3-flash-260828` | 2026-09-03 | 方舟托管 |
+| cheap | `doubao-seed-2-1-turbo-260628` | 2026-06-16 | 兜底 |
+
+- **已删除**：智谱独立线路（原 `free` 档 `glm-4.7-flash` / `glm-4-flash` / `glm-4v-flash`）——
+  实测常 429 且产出价值低，纯浪费 Actions 分钟；GLM 家族改由方舟托管的 `glm-5-3-flash` 承接，
+  `ZHIPU_API_KEY` secret 可删。
+- **已移出**：`deepseek-v4-{flash,pro}-ga-*`——账号被方舟「安全体验模式」限额暂停
+  （429 `SetLimitExceeded`），需在方舟「模型开通」页调整或关闭该模式；恢复时加回 `CANDIDATES` 即可。
+- 推论（不变）：**未要求 infra 执行时，该 check 的绿色不作数**。
 
 ## 9. 相关文件
 
 - 配置：`.ai-review-deep.yaml`（仓库根目录）
 - 提示词：`docs/configs/ai-review-prompt.md`、`docs/configs/ai-review-system-summary.md`、`docs/configs/ai-review-known-false-positives.md`
 - 护栏与探测：`scripts/verify_ai_review_config.py`、`scripts/llm_health_probe.py`
+- 产出校验（防假成功，两轮共用）：`scripts/ai_review_verify_guard.js`

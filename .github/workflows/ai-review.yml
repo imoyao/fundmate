@@ -15,6 +15,26 @@
 #   - 故改为轮询兜底：默认优先用火山方舟 DeepSeek Flash（deepseek-v4-flash-ga-260731，已验证可用），
 #     不可用时依次回退 Pro / 智谱免费模型。
 #
+# 运行期故障转移（2026-09-17 新增，#1567 教训）：
+#   上面的「轮询兜底」只发生在**探测**阶段——一旦选定，整轮审查就被钉死在那一个模型上
+#   （ai-review v0.76.0 只接受一套 model / endpoint / token，不提供跨模型重试）。
+#   而探测只发一次极短请求，与真实长上下文审查的限流概率完全不同：2026-09-17 PR #1567
+#   实测「探测 glm-4.7-flash 200 通过 → 真调 429（智谱 code 1305）→ 零评论」，同一轮里
+#   其它健康候选探测过却用不上。
+#   故本 workflow 现在最多跑两轮：第 1 轮零产出 → 用 EXCLUDE_MODELS 排除该模型重新探测
+#   → 换一个候选重试第 2 轮；第 2 轮仍零产出才判 job 失败。多出的成本只落在失败运行上
+#   （这类运行本来就得人工重跑）。
+#
+# 候选池重排（2026-09-17，按「越新越强越前」——老模型弱，找不出问题）：
+#   pro   豆包 Seed 2.1 Pro（doubao-seed-2-1-pro-260915，2026-09-15，默认首选）
+#         DeepSeek V4.1（deepseek-v4-1-flash-260910，2026-09-14）
+#   cheap GLM 5.3 Flash（glm-5-3-flash-260828，2026-09-03，方舟托管）
+#         豆包 Seed 2.1 Turbo（doubao-seed-2-1-turbo-260628，2026-06-16）
+#   全部走方舟同一把 key，故端点/密钥不再按 provider 切换。
+#   已删除：智谱独立线路（原 free 档）——常 429 且产出价值低，纯浪费 Actions 分钟。
+#   已移出：deepseek-v4-{flash,pro}-ga-*——账号被方舟「安全体验模式」限额暂停
+#   （429 SetLimitExceeded），需在方舟「模型开通」页调整或关闭该模式。
+#
 # 降噪策略（2026-09-11 改版：从「往 prompt 加禁止条目」改为「改结构性配置」）：
 #   1) 降噪开关集中在根目录 .ai-review-deep.yaml，prompt 不再是唯一的调节旋钮：
 #      审查范围收窄为「只送新增行」（ONLY_ADDED_WITH_CONTEXT）、inline/context 配额、
@@ -28,20 +48,22 @@
 #   缺陷——证明清单式追加不可收敛。案例改存 docs/configs/ai-review-known-false-positives.md。
 #
 # 深度线路档位由 PR 标签决定（在 PR 界面点标签即可，零摩擦、不影响自动触发）：
-#   无标签            → 默认档：轮询兜底，优先 cheap（DeepSeek Flash）
-#   review:pro        → 仅用 pro 档（DeepSeek Pro），不可用时判失败
-#   review:deepseek   → 显式指定 cheap 档（DeepSeek Flash）
-# 优先级（MODEL_PRIORITY，可在下方步骤覆盖）：cheap,pro,free
+#   无标签            → 默认档：轮询兜底，优先 pro（豆包 Seed 2.1 Pro）
+#   review:pro        → 仅用 pro 档（豆包 Seed 2.1 Pro / DeepSeek V4.1）
+#   review:deepseek   → 沿用旧标签名，落到 cheap 档（GLM 5.3 / 豆包 Turbo）
+# 优先级（MODEL_PRIORITY，可在下方步骤覆盖）：pro,cheap（质量优先；想省钱改成 cheap,pro）
 #
 # 失败保护（防假成功）：deep-review 在 AI 审查 step 之后校验「本轮是否在 PR 上发布了评论」。
 #   若 LLM 失败/限流/欠费导致 action 静默跳过（不发评论），则 job 标红失败，不再显示 success。
 #   2026-09-11 补强：原逻辑只看「探测是否选中健康模型」，但探测只发一次极短请求、真实审查是
 #   长上下文 + 多轮 agent，两者限流概率不同——PR #1412 实测到「探测 200 通过、实调用 429、
 #   一条评论都没发」却被判成功。现改为：PR 上一条 AI 评论都没有 → 一律失败。
+#   2026-09-17：校验逻辑抽到 scripts/ai_review_verify_guard.js（两轮共用，避免复制漂移）；
+#   第 1 轮失败由 continue-on-error 接住并触发换模型重试，第 2 轮失败才判 job 红。
 #
 # 前置：仓库 Settings → Secrets → Actions 新增
 #   ARK_API_KEY_CODEREVIEW（火山方舟，深度线路专用，值为本地 backend/.env 的 ARK_API_KEY）
-#   ZHIPU_API_KEY（智谱开放平台，作为免费兜底线路）
+# 2026-09-17 起不再需要 ZHIPU_API_KEY（智谱独立线路已删除）——仓库 Secrets 里那条可以删掉。
 
 name: AI Code Review
 
@@ -72,7 +94,7 @@ permissions:
 jobs:
   # 深度审查线路：火山方舟 / 智谱，完整评审（summary + context + inline）。
   # 模型由「轮询探测脚本」按优先级自动选择（见 probe 步骤），标签仅决定档位。
-  # 前置：仓库 Settings → Secrets → Actions 新增 ARK_API_KEY_CODEREVIEW 与 ZHIPU_API_KEY。
+  # 前置：仓库 Settings → Secrets → Actions 新增 ARK_API_KEY_CODEREVIEW（2026-09-17 起不再需要 ZHIPU_API_KEY）。
   deep-review:
     runs-on: ubuntu-latest
     steps:
@@ -130,17 +152,6 @@ jobs:
             echo "已安装：$(rg --version | head -1)"
           fi
 
-      - name: 探测可用模型（轮询 + 兜底）
-        id: probe
-        env:
-          ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
-          ARK_API_KEY_CODEREVIEW: ${{ secrets.ARK_API_KEY_CODEREVIEW }}
-          REVIEW_TIER: ${{ steps.resolve-labels.outputs.tier }}
-          # 优先级：cheap(DeepSeek Flash) → pro(DeepSeek Pro) → free(智谱 GLM)。
-          # 想改为「免费优先、额度用光再用付费」可改成 "free,cheap,pro"。
-          MODEL_PRIORITY: "cheap,pro,free"
-        run: python scripts/llm_health_probe.py
-
       - name: 记录审查前评论数
         if: ${{ github.event_name == 'pull_request' }}
         id: pre-check
@@ -153,21 +164,39 @@ jobs:
             const reviews = (await github.rest.pulls.listReviews({ owner, repo, pull_number: pr })).data.length;
             core.setOutput('count', reviewComments + reviews);
 
-      - name: AI 深度审查
+      # ============================================================================
+      # 第 1 轮：探测 → 审查 → 校验
+      # ============================================================================
+      - name: 探测可用模型（第 1 轮）
+        id: probe
+        env:
+          ARK_API_KEY_CODEREVIEW: ${{ secrets.ARK_API_KEY_CODEREVIEW }}
+          REVIEW_TIER: ${{ steps.resolve-labels.outputs.tier }}
+          # 质量优先：pro（豆包 Seed 2.1 Pro / DeepSeek V4.1）→ cheap（GLM 5.3 Flash / 豆包 Turbo）。
+          # 全部走方舟同一把 key；想省钱可改成 "cheap,pro"（脚本顶部 docstring 有档位说明）。
+          MODEL_PRIORITY: "pro,cheap"
+        run: python scripts/llm_health_probe.py
+
+      - name: AI 深度审查（第 1 轮）
+        id: review_1
+        # 失败不终局：本轮是否真产出由下方校验判定；零产出则由「第 2 轮」换模型重试
+        continue-on-error: true
         uses: Nikita-Filonov/ai-review@v0.76.0
         with:
           review-command: run
         env:
           # —— 自定义 prompt：深度审查指令（严重度分级 + 项目专属清单）——
           AI_REVIEW_CONFIG_FILE_YAML: ".ai-review-deep.yaml"
-          # —— LLM 配置：模型 / 端点 / 密钥均由「探测步骤」按轮询结果动态决定 ——
+          # —— LLM 配置：模型由「探测步骤」按轮询结果动态决定 ——
+          # 供应商固定为方舟（2026-09-17 起智谱独立线路已移除，GLM 家族改由方舟托管的 glm-5-3 承接），
+          # 故端点与密钥不再需要按 provider 三元切换。
           LLM__PROVIDER: "OPENAI"
           LLM__META__MODEL: ${{ steps.probe.outputs.model }}
           LLM__META__MAX_TOKENS: "16000"
           # 深度审查追求严谨稳定，低温度降低误报
           LLM__META__TEMPERATURE: "0.1"
-          LLM__HTTP_CLIENT__API_URL: ${{ steps.probe.outputs.provider == 'zhipu' && 'https://open.bigmodel.cn/api/paas/v4/' || 'https://ark.cn-beijing.volces.com/api/v3/' }}
-          LLM__HTTP_CLIENT__API_TOKEN: ${{ steps.probe.outputs.provider == 'zhipu' && secrets.ZHIPU_API_KEY || secrets.ARK_API_KEY_CODEREVIEW }}
+          LLM__HTTP_CLIENT__API_URL: "https://ark.cn-beijing.volces.com/api/v3/"
+          LLM__HTTP_CLIENT__API_TOKEN: ${{ secrets.ARK_API_KEY_CODEREVIEW }}
           # —— GitHub 集成 ——
           VCS__PROVIDER: "GITHUB"
           VCS__PIPELINE__OWNER: ${{ github.repository_owner }}
@@ -176,98 +205,82 @@ jobs:
           VCS__HTTP_CLIENT__API_URL: "https://api.github.com"
           VCS__HTTP_CLIENT__API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 校验深度线路评论已发布（防假成功）
+      - name: 校验深度线路评论已发布（第 1 轮 · 防假成功）
+        id: verify_1
         if: ${{ github.event_name == 'pull_request' }}
+        # 第 1 轮失败不当场终局（continue-on-error）：只用于触发下方换模型重试。
+        # 真正决定 job 红绿的是第 2 轮校验（那里没有 continue-on-error）。
+        continue-on-error: true
         uses: actions/github-script@v7
+        env:
+          AI_REVIEW_ROUND: "1"
+          AI_REVIEW_BEFORE: ${{ steps.pre-check.outputs.count }}
+          AI_REVIEW_SELECTED_OK: ${{ steps.probe.outputs.selected_ok }}
+        with:
+          # 校验逻辑抽到 scripts/ai_review_verify_guard.js（单一来源，两轮共用，避免复制漂移）
+          script: |
+            const path = process.env.GITHUB_WORKSPACE + '/scripts/ai_review_verify_guard.js';
+            await require(path)({ github, context, core });
+
+      # ============================================================================
+      # 第 2 轮（运行期故障转移，2026-09-17 新增）：仅在第 1 轮零产出时触发
+      #   排除第 1 轮那个模型重新探测，换一个候选重试一次。
+      #   起因：探测通过 ≠ 真实长上下文审查可用 —— 2026-09-17 PR #1567 实测「探测 glm-4.7-flash
+      #   200 通过 → 真调 429（code 1305）→ 零评论」，同一轮里其它健康候选探测过却用不上
+      #   （ai-review v0.76.0 只接受一套 model / endpoint / token，没有跨模型重试）。
+      #   成本：只在第 1 轮已失败的运行上多花一轮 LLM + Actions 分钟（这类运行本来就得人工重跑）。
+      # ============================================================================
+      - name: 探测可用模型（第 2 轮 · 排除第 1 轮模型）
+        id: probe_2
+        if: ${{ github.event_name == 'pull_request' && steps.verify_1.outcome == 'failure' }}
+        env:
+          ARK_API_KEY_CODEREVIEW: ${{ secrets.ARK_API_KEY_CODEREVIEW }}
+          REVIEW_TIER: ${{ steps.resolve-labels.outputs.tier }}
+          # 把第 1 轮失败的那个模型排除掉（脚本直接跳过，不再浪费一次探测）
+          EXCLUDE_MODELS: ${{ steps.probe.outputs.model }}
+          MODEL_PRIORITY: "pro,cheap"
+        run: python scripts/llm_health_probe.py
+
+      - name: AI 深度审查（第 2 轮 · 换模型）
+        id: review_2
+        if: ${{ github.event_name == 'pull_request' && steps.verify_1.outcome == 'failure' }}
+        continue-on-error: true
+        uses: Nikita-Filonov/ai-review@v0.76.0
+        with:
+          review-command: run
+        env:
+          AI_REVIEW_CONFIG_FILE_YAML: ".ai-review-deep.yaml"
+          LLM__PROVIDER: "OPENAI"
+          LLM__META__MODEL: ${{ steps.probe_2.outputs.model }}
+          LLM__META__MAX_TOKENS: "16000"
+          LLM__META__TEMPERATURE: "0.1"
+          LLM__HTTP_CLIENT__API_URL: "https://ark.cn-beijing.volces.com/api/v3/"
+          LLM__HTTP_CLIENT__API_TOKEN: ${{ secrets.ARK_API_KEY_CODEREVIEW }}
+          VCS__PROVIDER: "GITHUB"
+          VCS__PIPELINE__OWNER: ${{ github.repository_owner }}
+          VCS__PIPELINE__REPO: ${{ github.event.repository.name }}
+          VCS__PIPELINE__PULL_NUMBER: ${{ github.event.pull_request.number }}
+          VCS__HTTP_CLIENT__API_URL: "https://api.github.com"
+          VCS__HTTP_CLIENT__API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 校验深度线路评论已发布（第 2 轮 · 防假成功，决定 job 红绿）
+        if: ${{ github.event_name == 'pull_request' && steps.verify_1.outcome == 'failure' }}
+        uses: actions/github-script@v7
+        env:
+          AI_REVIEW_ROUND: "2"
+          # 基准仍是「审查前」那一次快照：第 1 轮若产出过评论，第 1 轮校验就已放行
+          AI_REVIEW_BEFORE: ${{ steps.pre-check.outputs.count }}
+          AI_REVIEW_SELECTED_OK: ${{ steps.probe_2.outputs.selected_ok }}
         with:
           script: |
-            const pr = context.payload.pull_request.number;
-            const { owner, repo } = context.repo;
-            const before = Number('${{ steps.pre-check.outputs.count }}');
-            const selectedOk = '${{ steps.probe.outputs.selected_ok }}' === 'true';
+            const path = process.env.GITHUB_WORKSPACE + '/scripts/ai_review_verify_guard.js';
+            await require(path)({ github, context, core });
 
-            const hasAiTag = (body) =>
-              (body || '').includes('#ai-review-inline') || (body || '').includes('#ai-review-summary');
-            const listInline = () => github.rest.pulls.listReviewComments({ owner, repo, pull_number: pr });
-            const listGeneral = () => github.rest.issues.listComments({ owner, repo, issue_number: pr });
-            const countAll = async () =>
-              (await listInline()).data.length + (await github.rest.pulls.listReviews({ owner, repo, pull_number: pr })).data.length;
-
-            // ---- 步骤 1：判断本轮是否新增评论（必须用「审查前」的快照做基准）----
-            let after = before;
-            for (let i = 0; i < 5; i++) {
-              after = await countAll();
-              if (after > before) break;
-              await new Promise(r => setTimeout(r, 5000));
-            }
-            const hadNew = after > before;
-
-            // ---- 步骤 2：清理「agent 协议信封泄漏」----
-            // 2026-09-10 PR #1412 实测：agent 模式下若模型反复返回 TOOL_CALL 却始终不返回 FINAL，
-            // 包内 AgentLoopService 的 force_final 兜底会把最后一条 TOOL_CALL 原文当作最终答案
-            // （services/agent/loop/service.py：fallback_step 解析成功但 action 非 FINAL 时走
-            //  `final_text = fallback_text`），于是评论区长出
-            //    {"action": "TOOL_CALL", "command": "git diff --name-only"}
-            // 这类用户不可读的内部协议 JSON。此处直接删除，不让协议泄漏到 PR 上。
-            const ENVELOPE_RE = /\{\s*"action"\s*:\s*"(?:TOOL_CALL|FINAL)"/;
-            let purged = 0;
-            for (const c of (await listInline()).data) {
-              if (hasAiTag(c.body) && ENVELOPE_RE.test(c.body)) {
-                await github.rest.pulls.deleteReviewComment({ owner, repo, comment_id: c.id });
-                purged++;
-                core.warning(`已删除泄漏 agent 协议信封的 AI 行内评论 ${c.path}:${c.line}`);
-              }
-            }
-            for (const c of (await listGeneral()).data) {
-              if (hasAiTag(c.body) && ENVELOPE_RE.test(c.body)) {
-                await github.rest.issues.deleteComment({ owner, repo, comment_id: c.id });
-                purged++;
-                core.warning('已删除泄漏 agent 协议信封的 AI 整体评论');
-              }
-            }
-            if (purged) core.notice(`清理了 ${purged} 条协议泄漏评论（agent 未返回 FINAL 的兜底路径所致）`);
-
-            // ---- 步骤 3：清理后仍在 PR 上的 AI 评论数，作为「本次是否真产出」的判据 ----
-            const aiComments = (await listInline()).data.filter(c => hasAiTag(c.body)).length
-              + (await listGeneral()).data.filter(c => hasAiTag(c.body)).length;
-
-            if (hadNew && aiComments > 0) {
-              core.info(`深度线路已发布评论，计数 ${before} → ${after}`);
-              return;
-            }
-            if (selectedOk && aiComments > 0) {
-              // 2026-09-11 PR #1411 实测：本轮一条评论都没产出，却因为有 22 条**历史** AI 评论
-              // 而被判成功——这是假成功的残留缺口（无法区分「去重跳过」与「本轮静默失败」，
-              // ai-review v0.76.0 不在 LLM 报错时非零退出，拿不到该信号）。
-              // 成功结论保持不变（历史评论尚在使用期内），但必须打出醒目告警，否则它会一直
-              // 伪装成"AI 审查通过"，让人误以为模型额度与 agent 都正常。
-              core.warning(
-                `⚠️ 本轮未新增评论，仅凭 PR 上已有的 ${aiComments} 条历史 AI 评论判为成功。` +
-                  ' 这可能是「去重跳过」，也可能是本轮静默失败（假成功）——' +
-                  ' 请在「AI 深度审查」步骤里核对是否存在以下报错：' +
-                  " Empty LLM output / No JSON array found in LLM output / Empty LLM summary /" +
-                  ' FileNotFoundError / Agent command blocked by policy / 429 / 额度告警。'
-              );
-              core.info(
-                '提示：要彻底堵住这个缺口，需 ai-review action 自身在 LLM 报错时非零退出；' +
-                  ' 当前版本（v0.76.0）不提供该信号，见 tech-debt。'
-              );
-              return;
-            }
-            // 未新增评论必须再分两种，**不能只看「探测是否选中健康模型」**。
-            // 2026-09-10 PR #1412 实测反例：探测 glm-4.7-flash 返回 200（selected_ok=true），
-            // 但真正调用时上游 429（智谱 code 1302「账户已达到速率限制」），agent 模式与兜底
-            // 直连双双失败、summary 为空被跳过 → 一条评论都没发，旧逻辑却判为成功（假成功）。
-            // 之所以会错配：探测只发一次极短请求，而真实审查是长上下文 + 多轮 agent，
-            // 触发限流的概率完全不同 —— 「探测通过」不能等价于「本次审查成功」。
-            // 另：若本次只产出了「协议泄漏评论」且已被步骤 2 全部删除，aiComments 会归零，
-            // 同样落到这里判失败（本次确实没有面向用户的有效产出）。
-            //
-            // 残留缺口（已知，不装作没有）：若历史 AI 评论已存在、而本轮又静默失败，仍会放行。
-            // 要彻底堵住需要 action 自身在 LLM 报错时非零退出，当前版本（v0.76.0）不提供该信号。
-            core.setFailed(
-              '深度线路 AI 审查未产出任何有效评论（候选模型均不可用/限流/欠费，模型输出为空，'
-              + '或只产出了被清理的协议泄漏评论）——'
-              + `selected_ok=${selectedOk}，清理后 PR 上 AI 评论数=${aiComments}，本轮新增=${hadNew}，`
-              + `协议泄漏已清理=${purged}。标记为失败以避免假成功；请检查探测步骤输出中的 429 / 额度告警。`
-            );
+      - name: 故障转移结果
+        if: ${{ always() && steps.verify_1.outcome == 'failure' }}
+        run: |
+          if [ "${{ steps.verify_2.outcome }}" = "success" ]; then
+            echo "::notice::第 1 轮（${{ steps.probe.outputs.model }}）零产出，已自动换模型（${{ steps.probe_2.outputs.model }}）重试成功。"
+          else
+            echo "::warning::两轮 AI 审查均未产出评论：第 1 轮 ${{ steps.probe.outputs.model }}、第 2 轮 ${{ steps.probe_2.outputs.model }}。请核对探测输出里的 429 / 额度告警。"
+          fi

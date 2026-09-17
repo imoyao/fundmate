@@ -8,16 +8,22 @@
 既可在 CI 中作为步骤运行（写入 GitHub Actions 输出），也可本地直接运行做「列举 + 轮询」。
 
 环境变量输入：
-  ZHIPU_API_KEY / ARK_API_KEY_CODEREVIEW   各供应商 API Key（缺省则跳过对应候选）
-  MODEL_PRIORITY   逗号分隔的档位顺序，如 "cheap,pro,free"（默认 cheap,pro,free）
+  ARK_API_KEY_CODEREVIEW   方舟 API Key（缺省则所有候选都返回 no_key）
+  MODEL_PRIORITY   逗号分隔的档位顺序，如 "pro,cheap"（默认 pro,cheap，质量优先）
   REVIEW_TIER      "pro" | "cheap" | "default"，收窄允许的档位（由 PR 标签决定）
   PROBE_TIMEOUT    单次探测超时秒数（默认 20）
+  EXCLUDE_MODELS   逗号分隔的模型 ID，直接跳过不探测（换模型重试时排除上一轮已失败的模型）
   GITHUB_OUTPUT    GitHub Actions 输出文件路径（由 runner 注入）
 
 档位（tier）：
-  free   智谱 GLM 免费模型
-  cheap  火山方舟 DeepSeek Flash（快而便宜，默认主力）
-  pro    火山方舟 DeepSeek Pro（最强、按需、成本最高）
+  pro    最新最强的两个：豆包 Seed 2.1 Pro（2026-09-15）+ DeepSeek V4.1（2026-09-14），默认首选
+  cheap  轻量档：GLM 5.3 Flash（2026-09-03）+ 豆包 Seed 2.1 Turbo（2026-06-16），pro 不可用时顶上
+
+2026-09-17 候选池重排（按「越新越强越前」——老模型弱，找不出问题）：
+  - 全部候选改走方舟同一把 key；**智谱独立线路（原 free 档）已删除**：glm-4.7-flash 等实测常 429
+    且产出价值低，纯浪费 Actions 分钟；GLM 家族改由方舟托管的 glm-5-3-flash 承接。
+  - 被方舟「安全体验模式」限额暂停的 deepseek-v4-{flash,pro}-ga-* 也已移出（429 SetLimitExceeded）；
+    若日后在方舟「模型开通」页调整或关闭该模式，把它们加回下方 CANDIDATES 即可。
 """
 
 import json
@@ -28,21 +34,19 @@ import urllib.request
 
 # 各供应商的 chat/completions 端点
 API_URLS = {
-    "zhipu": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
     "ark": "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
 }
 
 # (供应商, 模型, 档位)
+# 2026-09-17 候选池：越新越强越前，全部走方舟同一把 key（可用性均为当日实测）
 CANDIDATES = [
-    ("ark", "deepseek-v4-flash-ga-260731", "cheap"),
-    ("ark", "deepseek-v4-pro-ga-260813", "pro"),
-    ("zhipu", "glm-4.7-flash", "free"),
-    ("zhipu", "glm-4-flash", "free"),
-    ("zhipu", "glm-4v-flash", "free"),
+    ("ark", "doubao-seed-2-1-pro-260915", "pro"),      # 2026-09-15 最新豆包 Pro
+    ("ark", "deepseek-v4-1-flash-260910", "pro"),      # 2026-09-14 最新 DeepSeek V4.1
+    ("ark", "glm-5-3-flash-260828", "cheap"),          # 2026-09-03 GLM 5.3（方舟托管）
+    ("ark", "doubao-seed-2-1-turbo-260628", "cheap"),  # 2026-06-16 同族轻量兜底
 ]
 
 KEY_ENV = {
-    "zhipu": "ZHIPU_API_KEY",
     "ark": "ARK_API_KEY_CODEREVIEW",
 }
 
@@ -92,13 +96,18 @@ def probe(provider: str, model: str):
 def main():
     tier_order = [
         t.strip()
-        for t in os.environ.get("MODEL_PRIORITY", "cheap,pro,free").split(",")
+        for t in os.environ.get("MODEL_PRIORITY", "pro,cheap").split(",")
         if t.strip()
     ]
     review_tier = os.environ.get("REVIEW_TIER", "default")
+    # 换模型重试（workflow 第 2 轮）会传入上一轮失败的模型，直接跳过、不浪费一次探测
+    excluded = {m.strip() for m in os.environ.get("EXCLUDE_MODELS", "").split(",") if m.strip()}
 
     results = []
     for provider, model, tier in CANDIDATES:
+        if model in excluded:
+            print(f"{provider:<7} {model:<32} {tier:<6} {'excluded':<10} 已排除（EXCLUDE_MODELS）", flush=True)
+            continue
         status, detail = probe(provider, model)
         results.append(
             {
@@ -115,7 +124,7 @@ def main():
     if review_tier == "pro":
         allowed = {"pro"}
     elif review_tier == "cheap":
-        allowed = {"cheap", "free", "pro"}
+        allowed = {"cheap", "pro"}
 
     tier_rank = {t: i for i, t in enumerate(tier_order)}
     ordered = [r for r in results if r["tier"] in allowed]
