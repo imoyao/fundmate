@@ -96,10 +96,10 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 
 **实际生效的容器约定（写代码照这条，不要照本节上方的草案）**：
 
-- **内容列宽度**：`--layout-content-width`（当前 1280px）+ 横向 `--space-standard`(24px) + `margin: 0 auto`。
-  唯一来源是 `frontend/src/style/colors.css`，页面里**禁止**写死 `1280px`（CI 守卫拦截）。
+- **内容列宽度**：`--layout-content-width`（当前 1400px，**#1548 起与外壳同宽**）+ 横向 `--space-standard`(24px) + `margin: 0 auto`。
+  唯一来源是 `frontend/src/style/colors.css`，页面里**禁止**写死 `1280px` / `1400px`（CI 守卫拦截）。
 - **外层壳宽度**：`--layout-shell-width`（当前 1400px），用于 `.main-content` / `AppFooter` / `MarketHeader`。
-  与内容列是否收敛为一档属视觉变更，待决策（见 `frontend/design.md` §Viewport）。
+  两档已由 #1548 **收敛为一档 1400px**——原先 1280 / 1400 并存导致的「探市页页头与内容区左右边缘错开 60px」随之消失。
 - **区块**：`SectionHeader` + `CardBlock`；两者间距由外层容器 `display:flex; flex-direction:column; gap: var(--space-section)` 控制（见 `.inventory-shell`）。
 - **栅格**：直接用 Tailwind 响应式栅格（`grid` + `grid-cols-*` + `gap-*`）。**不再计划**引入第二套 `.grid-12` 栅格工具类。
 

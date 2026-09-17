@@ -9,7 +9,8 @@ WHY
 （内容列）左右边缘错开 60px」，而这类漂移此前没有任何自动化拦截（issue #1506）。
 
 #1506 已把两档收口为 CSS 令牌 ``--layout-content-width`` / ``--layout-shell-width``
-（定义在 ``frontend/src/style/colors.css``，见 frontend/design.md §Viewport）。
+（定义在 ``frontend/src/style/colors.css``，见 frontend/design.md §Viewport）；
+#1548 进一步把两档**收敛为一档 1400px**（内容列 1280 → 1400，60px 错位消失）。
 本守卫负责防止回潮：任何新的容器宽度字面量都会在 CI 变红。
 
 用法
@@ -35,6 +36,8 @@ TOKEN_DEFINITION_FILE = Path("frontend/src/style/colors.css")
 
 # 受管的外观布局宽度：新增的值必须先在 colors.css 定义同名令牌再来这里登记，
 # 否则这道守卫形同虚设（写死别的数字照样能绕过去）。
+# 1280 自 #1548 起已不再是任何令牌的取值（两档收敛为 1400），但**保留在受管列表**中：
+# 它是需要拦截的历史字面量，防止有人把内容列写回 1280px 而绕过令牌。
 MANAGED_WIDTHS = ("1280", "1400")
 
 CSS_WIDTH_RE = re.compile(
