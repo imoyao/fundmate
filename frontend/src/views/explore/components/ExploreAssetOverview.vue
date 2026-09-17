@@ -45,11 +45,20 @@ const categoryColor = (category: string) =>
   CATEGORY_TOKEN[category] || "var(--text-secondary)";
 
 // 相对位置分位 → 温度三色（偏低绿 / 适中沙 / 偏高红）
+// #1545 拆两族：游标等「图形 / 实色」用 --temp-*；
+// 标签文字必须用 --temp-*-ink（实色作文字对比度不足，白底仅 1.68–3.96:1）。
 const positionColor = (asset: MarketAsset): string => {
   const label = asset.position?.label;
   if (label === "偏低") return "var(--temp-low)";
   if (label === "偏高") return "var(--temp-high)";
   return "var(--temp-mid)";
+};
+
+const positionLabelColor = (asset: MarketAsset): string => {
+  const label = asset.position?.label;
+  if (label === "偏低") return "var(--temp-low-ink)";
+  if (label === "偏高") return "var(--temp-high-ink)";
+  return "var(--temp-mid-ink)";
 };
 
 // 收益率变动(bp) 用中性色，不套用涨红跌绿（§3.4 纪律）
@@ -152,7 +161,7 @@ onMounted(() => {
                   <span class="pos-bar__basis">{{ asset.position.basis }}</span>
                   <span
                     class="pos-bar__label"
-                    :style="{ color: positionColor(asset) }"
+                    :style="{ color: positionLabelColor(asset) }"
                     >{{ asset.position.label }}</span
                   >
                 </div>
@@ -330,6 +339,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0; /* 允许在窄轨道内收窄，防「内容 min-content 顶宽 → 横向溢出」（#1549 T4.3） */
   padding: 14px 16px;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
@@ -350,6 +360,7 @@ onMounted(() => {
   }
 
   &__name {
+    min-width: 0; /* 长名称换行而非顶宽（禁截断，故不加 ellipsis） */
     font-size: 14px;
     font-weight: 600;
     color: var(--text-primary);
@@ -597,18 +608,29 @@ onMounted(() => {
   }
 }
 
-/* 响应式 */
+/* 响应式（#1549 T4.3）
+   原实现 ≤768px 把栅格底线压到 140px：375px 视口下 auto-fill 会塞 2 列、每列仅
+   ~165px，「指数名 + 口径标 + 相对位置条」挤在一起。改为显式列数，并把轨道写成
+   minmax(0, 1fr) —— 允许轨道收窄到内容 min-content 以下，杜绝资产卡顶宽容器后横向溢出。 */
 @media (width <= 768px) {
   .asset-overview {
     padding: 0 16px 12px;
   }
 
+  /* 481–768px：两列（每列 218–368px），横向留白充足 */
   .asset-grid {
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .bond-yield__hint {
     margin-left: 0;
+  }
+}
+
+@media (width <= 480px) {
+  /* 375px 档：可用宽度 343px，两列仅 ~165px 过挤 → 单列满宽 */
+  .asset-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

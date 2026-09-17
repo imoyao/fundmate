@@ -350,7 +350,7 @@ const hasSupplements = computed(
 }
 
 .warning-icon {
-  color: var(--color-warning);
+  color: var(--color-warning-ink);
 }
 
 .info-icon {

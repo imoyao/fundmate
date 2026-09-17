@@ -315,9 +315,11 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 
 - 供「探市 / 温度计 / 达报」使用，纯 SVG 圆环（与现有温度计页一致，不引入 echarts）。
 - 标题默认「综合市场温度」，可转债温度等通过 `title` prop 覆盖（如 `title="可转债温度"`）。
-- 颜色语义分两类，单一来源见 `src/style/colors.css` 的 `--temp-*` token：
-  - **综合市场温度**（`title === "综合市场温度"`）：取档位语义色 `<40 → --temp-low`，`40–60 → --temp-mid`，`>60 → --temp-high`。
-  - **其它温度（如可转债）**：按数值取温度带色，与档位阈值对齐：`≤15 → --temp-cold`，`≤35 → --temp-cool`，`≤65 → --temp-neutral`，`≤85 → --temp-warm`，`>85 → --temp-hot`。保证颜色语义与数值区间严格对应，避免与涨跌红绿混淆。
+- 颜色语义分两类，单一来源见 `src/style/colors.css` 的 `--temp-*` token，由 `scale` prop 选择：
+  - **`scale="level"`（默认）· 综合市场温度**：取档位语义色 `<40 → --temp-low`，`40–60 → --temp-mid`，`>60 → --temp-high`。
+  - **`scale="band"` · 其它温度（如可转债）**：按数值取温度带色，与档位阈值逐条对齐：`≤15 → --temp-cold`，`≤35 → --temp-cool`，`≤65 → --temp-neutral`，`≤85 → --temp-warm`，`>85 → --temp-hot`。保证颜色语义与数值区间严格对应，避免与涨跌红绿混淆。
+  - 显式覆盖：`tone="low" | "mid" | "high"` 优先级最高，用于不必按数值推断的场合。
+  - **现状（2026-09-16 核对）**：两个调用方（探市概览档 / 深度档）均为综合市场温度，走 `level` 三档；`band` 五档已实现（#1549 T3.4），供后续非综合温度环形使用。**阈值与取色表只允许有一份口径**：改本表须同步 `frontend/src/components/TemperatureGaugeCard/index.vue` 的 `BAND_THRESHOLDS` / `BAND_COLOR`。
 - 档位文案：偏低·偏冷 / 正常·温和 / 偏高·偏热（由 `level` prop 透传，对应温度档位文案）。
 - **职责单一**：本组件只渲染圆环与标题、caption，不再内嵌恐惧贪婪或短中长期。相关上下文由 `TemperatureContextCard` 承载。
 

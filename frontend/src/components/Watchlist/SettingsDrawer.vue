@@ -113,7 +113,7 @@
             <IconifyIconOffline
               icon="ep:operation"
               class="text-lg"
-              :style="{ color: 'var(--color-warning)' }"
+              :style="{ color: 'var(--color-warning-ink)' }"
             />
           </div>
           <div class="flex-1">

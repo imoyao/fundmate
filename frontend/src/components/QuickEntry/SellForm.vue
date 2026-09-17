@@ -162,7 +162,7 @@
             <div
               v-else-if="isOddLot && form.type !== 'fund'"
               class="text-xs"
-              style="color: var(--color-warning)"
+              style="color: var(--color-warning-ink)"
             >
               （含碎股，可全部卖出）
             </div>
@@ -305,7 +305,7 @@
         <div
           v-if="maxQuantity > totalCalculatedHold"
           class="text-xs mt-2"
-          style="color: var(--color-warning)"
+          style="color: var(--color-warning-ink)"
         >
           注：当前持有 {{ maxQuantity.toFixed(4) }} 份，其中
           {{ totalCalculatedHold.toFixed(4) }}

@@ -3,6 +3,7 @@ import { ref, reactive } from "vue";
 import { ElMessage } from "element-plus";
 import { useAssetSearch } from "@/composables/useAssetSearch";
 import { getTypeLabel } from "@/constants/assetType";
+import CardBlock from "@/components/CardBlock/index.vue";
 
 /**
  * 探市·添加观察栏（#984 explore/index.vue 拆分）。
@@ -154,7 +155,7 @@ const addHotAsset = (item: (typeof hotAssets)[0]) => {
 </script>
 
 <template>
-  <div class="add-card">
+  <CardBlock>
     <div class="add-form-row">
       <div class="input-wrapper">
         <el-autocomplete
@@ -236,54 +237,14 @@ const addHotAsset = (item: (typeof hotAssets)[0]) => {
         </div>
       </div>
     </div>
-  </div>
+  </CardBlock>
 </template>
 
 <style lang="scss" scoped>
-.add-section {
-  max-width: var(--layout-content-width);
-  padding: 16px 24px 8px;
-  margin: 0 auto;
-}
-
-/* 5.1 登录态引导卡（登录后替代添加栏） */
-.auth-guide {
-  max-width: var(--layout-content-width);
-  padding: 16px 24px 8px;
-  margin: 0 auto;
-
-  &__inner {
-    display: flex;
-    gap: 20px;
-    align-items: center;
-    justify-content: space-between;
-    padding: 20px 24px;
-    background: var(--bg-card);
-    border: 1px solid var(--brand-400);
-    border-radius: 12px;
-    box-shadow: var(--shadow-raised);
-  }
-
-  &__title {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  &__desc {
-    margin-top: 4px;
-    font-size: 13px;
-    color: var(--text-secondary);
-  }
-}
-
-.add-card {
-  padding: 20px 24px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: 12px;
-  box-shadow: var(--shadow-raised);
-}
+/* 外壳改由 CardBlock 承载（#1547 T3.1）：原 `.add-card` 的
+   bg-card / border-light / radius / shadow / padding 手写卡片样式删除，不再各页自绘。
+   同时清掉本组件内两块**模板从未引用**的死样式 —— `.add-section` 与 `.auth-guide`
+   均为 #984 从 index.vue 拆分时的残留（`.auth-guide` 的活体在 index.vue 内）。 */
 
 .add-form-row {
   display: flex;

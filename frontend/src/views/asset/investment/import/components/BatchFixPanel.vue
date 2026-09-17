@@ -250,7 +250,7 @@ const autoFixableCount = computed(() => {
 }
 
 .bf-hint--warn {
-  color: var(--color-warning);
+  color: var(--color-warning-ink);
 }
 
 .bf-hint--ok {

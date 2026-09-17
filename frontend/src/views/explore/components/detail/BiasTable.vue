@@ -166,7 +166,7 @@ withDefaults(
   margin-bottom: 24px;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   box-shadow: var(--shadow-raised);
 }
 
@@ -191,7 +191,7 @@ withDefaults(
   font-size: 11px;
   font-weight: 500;
   line-height: 1.4;
-  color: var(--color-warning, #d97706);
+  color: var(--color-warning-ink);
   white-space: nowrap;
   cursor: help;
   background: color-mix(
@@ -275,7 +275,7 @@ withDefaults(
 
 /* ===== 乖离率数值颜色 ===== */
 .bias-extreme-high {
-  color: var(--temp-high);
+  color: var(--temp-high-ink);
 }
 
 .bias-high {
@@ -283,7 +283,7 @@ withDefaults(
 }
 
 .bias-extreme-low {
-  color: var(--temp-low);
+  color: var(--temp-low-ink);
 }
 
 .bias-low {

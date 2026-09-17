@@ -428,6 +428,7 @@ const getAvailableTools = (type: string) => {
   gap: 12px;
 }
 
+/* 移动端列表项卡片（非区块卡，故不走 CardBlock）：外观 token 化，禁字面量圆角（#1547 T3.1） */
 .cards-empty {
   padding: 32px 16px;
   font-size: 13px;
@@ -435,14 +436,14 @@ const getAvailableTools = (type: string) => {
   text-align: center;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
-  border-radius: 12px;
+  border-radius: var(--radius-card);
 }
 
 .holding-card {
   padding: 14px 16px;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   box-shadow: var(--shadow-raised);
 }
 

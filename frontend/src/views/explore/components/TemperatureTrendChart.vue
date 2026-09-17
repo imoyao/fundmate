@@ -5,7 +5,7 @@
   抽出前该图表（约 130 行 option + 取数）内联在页面里，让页面主文件无法回到「只做编排」。
 -->
 <template>
-  <section class="chart-section">
+  <CardBlock class="chart-section">
     <SectionHeader title="综合温度趋势">
       <template #action>
         <el-radio-group v-model="historyDays" size="small">
@@ -23,7 +23,7 @@
         style="width: 100%; height: 300px"
       />
     </div>
-  </section>
+  </CardBlock>
 </template>
 
 <script setup lang="ts">
@@ -31,6 +31,7 @@ import { ref, computed, onMounted, watch } from "vue";
 import VChart from "vue-echarts";
 import { getTemperatureHistory } from "@/api/temperature";
 import SectionHeader from "@/components/SectionHeader/index.vue";
+import CardBlock from "@/components/CardBlock/index.vue";
 import { getCssVar } from "@/composables/echarts/theme";
 
 defineOptions({
@@ -209,13 +210,10 @@ watch(historyDays, fetchHistory);
 </script>
 
 <style lang="scss" scoped>
+/* 卡片外观统一由 CardBlock 承载（#1547 T3.1）：bg-card / border-light /
+   radius-lg / shadow-raised / padding 不再手写，本类只保留区块外边距。 */
 .chart-section {
-  padding: 20px 24px;
   margin-bottom: 24px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: 12px;
-  box-shadow: var(--shadow-raised);
 }
 
 .chart-wrapper {

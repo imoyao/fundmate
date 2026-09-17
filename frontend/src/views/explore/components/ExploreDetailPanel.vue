@@ -21,8 +21,10 @@
     <!-- 综合仪表盘 -->
     <section class="dashboard-section">
       <MetricGrid>
-        <!-- 综合温度仪表（大） -->
+        <!-- 综合温度仪表（大）——与概览档同源同貌；gaugeVisible 保证同一时刻
+             全页只有一份仪表盘在 DOM 中（#1549 T4.1，参数由 index.vue 按档位传入） -->
         <TemperatureGaugeCard
+          v-if="gaugeVisible"
           :value="compositeValue"
           title="综合市场温度"
           :level="compositeLevel"
@@ -57,11 +59,11 @@
         />
 
         <!-- 市场机会（来自 temperature store，由综合温度与股债性价比推导） -->
-        <div v-if="tempStore.opportunityList.length" class="opportunity-card">
+        <div v-if="opportunityList.length" class="opportunity-card">
           <SectionHeader title="市场机会" />
           <div class="opportunity-list">
             <div
-              v-for="op in tempStore.opportunityList"
+              v-for="op in opportunityList"
               :key="op.name"
               class="opportunity-item"
               :class="`opportunity-item--${op.tone}`"
@@ -192,7 +194,6 @@ import MetricGrid from "@/components/MetricGrid/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import TemperatureContextCard from "@/components/TemperatureContextCard/index.vue";
-import { useTemperatureStore } from "@/store/modules/temperature";
 import { useTemperatureOverview } from "@/composables/temperature/useTemperatureOverview";
 import { useCoreMetrics } from "@/composables/temperature/useCoreMetrics";
 import {
@@ -209,6 +210,19 @@ import MetricDetailTable from "./detail/MetricDetailTable.vue";
 defineOptions({
   name: "ExploreDetailPanel"
 });
+
+/**
+ * 是否渲染「综合温度」仪表盘（本组件其余区块不受影响）。
+ * 父页面按当前档位传入：深度档显示时 true、概览档 false ——
+ * 概览档已有一份同源同貌的温度计卡，两份同时留在 DOM 中属重复（#1549 T4.1）。
+ * 仪表卡自身不取数（数据来自单例 composable），卸载重挂不会多打接口。
+ */
+withDefaults(
+  defineProps<{
+    gaugeVisible?: boolean;
+  }>(),
+  { gaugeVisible: true }
+);
 
 // ================================================================
 // 市场温度总览：与概览档共享同一份数据实例（单例 + 并发去重，见该 composable 头注释）
@@ -358,7 +372,11 @@ const compositeValue = computed(
   () => compositeTemperature.value?.value ?? null
 );
 
-const compositeLevel = computed(() => compositeTemperature.value?.level || "");
+// 等级文案与概览档同源同文案（含「暂无」兜底）：缺数据时不能兜成 TemperatureLevelBadge
+// 的默认「适中」——那会在无数据时给出「市场平稳」的错误结论（#1549 T4.1）。
+const compositeLevel = computed(
+  () => compositeTemperature.value?.level || "暂无"
+);
 
 // 温度解读卡（TemperatureContextCard）所需数据，从 composable 的 fearData 推导
 const fearGreedValue = computed<number | null>(() => {
@@ -495,19 +513,30 @@ const fetchTrack = async () => {
   }
 };
 
-// 温度 store：承载综合温度、股债性价比与市场机会清单
-const tempStore = useTemperatureStore();
+// ================================================================
+// 市场机会清单（B3：后端 insights 归集，前端只映射 tone→样式）
+// #1546 T2.1：直接由总览响应派生，**不再经 temperature store 重复打一次**
+// /api/temperature/overview（原实现是 composable 与 store 各拉一遍同一接口）
+// ================================================================
+const opportunityList = computed(() =>
+  (overview.value?.insights ?? []).map(i => ({
+    name: i.name,
+    desc: i.desc,
+    tone: i.tone
+  }))
+);
 
 // ================================================================
 // 生命周期
 // ================================================================
-onMounted(async () => {
-  await fetchTemperature();
-  await fetchBias();
-  await fetchCrowding();
-  await fetchTrack();
-  // NOTE: 与 useTemperatureOverview 各自调用一次 getTemperatureOverview，后续可合并为单一数据源
-  await tempStore.fetchTemperature();
+onMounted(() => {
+  // #1546 T2.1：并发取数（原为串行 await，4 个请求首尾相接，最后一个才轮到温度）
+  void Promise.all([
+    fetchTemperature(),
+    fetchBias(),
+    fetchCrowding(),
+    fetchTrack()
+  ]);
 });
 </script>
 
@@ -521,7 +550,7 @@ onMounted(async () => {
   margin-bottom: 12px;
   font-size: 13px;
   line-height: 1.6;
-  color: var(--color-warning, #d97706);
+  color: var(--color-warning-ink);
   background: color-mix(
     in srgb,
     var(--color-warning, #d97706) 12%,
@@ -652,12 +681,12 @@ onMounted(async () => {
 }
 
 .opportunity-item--safe .opportunity-tag {
-  color: var(--temp-low);
+  color: var(--temp-low-ink);
   background: color-mix(in srgb, var(--temp-low) 18%, transparent);
 }
 
 .opportunity-item--danger .opportunity-tag {
-  color: var(--temp-high);
+  color: var(--temp-high-ink);
   background: color-mix(in srgb, var(--temp-high) 18%, transparent);
 }
 
@@ -688,7 +717,7 @@ onMounted(async () => {
   font-size: 11px;
   font-weight: 500;
   line-height: 1.4;
-  color: var(--color-warning, #d97706);
+  color: var(--color-warning-ink);
   white-space: nowrap;
   cursor: help;
   background: color-mix(
@@ -792,7 +821,7 @@ onMounted(async () => {
 }
 
 .rank-source-notice--warning {
-  color: var(--color-warning, #d97706);
+  color: var(--color-warning-ink);
   background: color-mix(
     in srgb,
     var(--color-warning, #d97706) 10%,

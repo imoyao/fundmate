@@ -10,7 +10,7 @@
         <div
           v-if="hasUnread"
           class="flex items-center gap-2 text-sm"
-          :style="{ color: 'var(--color-warning)' }"
+          :style="{ color: 'var(--color-warning-ink)' }"
         >
           <span>📬 你有 {{ unreadCount }} 条未读消息</span>
           <button
@@ -623,9 +623,9 @@ const temperatureConclusion = ref("");
 
 // level → 温度语义色令牌（B3 边界：色令牌留前端，禁后端下发颜色码）
 const levelColorVar: Record<string, string> = {
-  偏低: "var(--temp-low)",
-  适中: "var(--temp-mid)",
-  偏高: "var(--temp-high)",
+  偏低: "var(--temp-low-ink)",
+  适中: "var(--temp-mid-ink)",
+  偏高: "var(--temp-high-ink)",
   未知: "var(--text-tertiary)"
 };
 const levelBgVar: Record<string, string> = {
@@ -729,7 +729,7 @@ const mentalAccounts = computed(() => {
   const toneColor: Record<string, string> = {
     safe: "var(--color-success)",
     neutral: "var(--brand-700)",
-    warning: "var(--color-warning)",
+    warning: "var(--color-warning-ink)",
     danger: "var(--color-danger)"
   };
   return parsed.map(a => ({
