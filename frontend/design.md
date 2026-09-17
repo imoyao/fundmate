@@ -221,13 +221,17 @@
 
 | 令牌 | 当前值 | 适用 |
 |------|--------|------|
-| `--layout-content-width` | 1280px | 内容列：页面页头 / 内容区 / 页面页脚（`PageHeaderBar` / `.inventory-shell` / 探市各区块 / `PageFooter`） |
+| `--layout-content-width` | 1400px | 内容列：页面页头 / 内容区 / 页面页脚（`PageHeaderBar` / `.inventory-shell` / 探市各区块 / `PageFooter`） |
 | `--layout-shell-width` | 1400px | 外层壳：布局容器 `.main-content` / 全站页脚 `AppFooter` / 探市顶栏 `MarketHeader` |
 
 - **强制**：任何页面或区块容器的最大宽度必须引用上述令牌，**禁止**写死 `1280px` / `1400px` 等字面量
   （含 Tailwind 任意值如 `max-w-[1280px]`），由 `scripts/guard_layout_widths.py` + CI `layout_guard` 拦截。
-- **待决策（不阻塞开发）**：两档是否收敛为一档（内容列与 chrome 统一宽度）属**视觉变更**，需一次性
-  改动 + 全站肉眼验收后再定，届时只改令牌值，调用方零改动。
+- **已定案（#1548）：两档收敛为一档 `1400px`。** `--layout-content-width` 由 `1280px` 改为 `1400px`，
+  内容列与外壳同宽，探市页页头（壳）与内容区原先约 60px 的左右错位消失。
+  - 这是**视觉变更**（内容列在 ≥1280px 视口下变宽），因此**单独成一个 PR**，不与拆分 / 重构类改动混提。
+  - 调用方**零改动**——全部宽度都经令牌引用，改值即全站生效。
+  - 若宽屏下正文行宽观感不适，**只需回调本令牌值**（例如回到 1280px），仍无需改任何调用方；
+    这也是当初先建令牌、后改数值的原因（见 #1506 决策记录）。
 
 
 ## Elevation & Depth
