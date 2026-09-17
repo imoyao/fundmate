@@ -191,8 +191,15 @@ html.dark {
 
 /* ↓↓↓ 以下为 多多贝 暗色模式覆盖 ↓↓↓ */
 
-/* ===== 🆕 多多贝 暗色模式变量 ===== */
-.dark {
+/* ===== 🆕 多多贝 暗色模式变量 =====
+   选择器必须是 `:root.dark`（特异性 0,2,0），**不能**写成 `.dark`（0,1,0）：
+   dark class 由 documentElement.classList.add("dark") 挂在 <html> 上，
+   而 colors.css 的 `:root`（同为 0,1,0）在 main.ts 中**后**于 index.scss 加载，
+   同特异性下后者胜 → `.dark` 写法下本块 67 个业务令牌全被亮色值覆盖（#1557）。
+   也不用 `html.dark`：文件顶部第 4 行的框架块已占用该选择器，
+   再写一次会触发 stylelint `no-duplicate-selectors`（前端 lint 是 CI 门禁）。
+   改动本块前请先跑 `pnpm exec stylelint src/style/dark.scss` 与亮/暗双模走查。 */
+:root.dark {
   /* ===== 基底色（深灰系统） ===== */
   --bg-page: #1a1816;
   --bg-card: #242120;
@@ -307,8 +314,12 @@ html.dark {
   --el-border-color-light: var(--border-light);
 }
 
-/* ===== 🆕 暗色模式下的菜单适配 ===== */
-.dark html[data-theme="showbuy"] {
+/* ===== 🆕 暗色模式下的菜单适配 =====
+   原写作 `.dark html[data-theme="showbuy"]`：dark 类挂在 <html> 上，
+   而后代又要求 <html>，html 不可能是自身的后代 → 该规则**永不匹配**，
+   暗色侧边栏菜单配色（--pure-theme-*）长期未生效。改为属性同层选择器。
+   用 `:root.dark` 与上方业务暗色块保持同一约定（见该块注释）。 */
+:root.dark[data-theme="showbuy"] {
   /* 菜单基础色 */
   --pure-theme-menu-bg: var(--bg-card);
   --pure-theme-sub-menu-bg: var(--bg-soft);
