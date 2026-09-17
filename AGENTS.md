@@ -136,6 +136,8 @@
   - `core/auth.py`：Supabase JWT 验签 + 白名单鉴权中间件。
   - `core/exceptions.py`：`SBException` + 统一错误信封。
   - `core/requests_patch.py`：东财 TLS 补丁（全局 `impersonate chrome`）。
+  - `core/v8_guard.py`：`py_mini_racer` 并发构造守卫（进程级锁 + 启动预热），防止 akshare
+    并发取数触发 V8 Fast Fail 硬杀后端（#1566；不要绕过它去「修」各调用点）。
 - **服务层**：
   - `services/sync/`：双适配器（xalpha/akshare）+ 编排器。
   - `services/thermometer/`：温度计（含全 A 中位 PB 历史基线）。
