@@ -828,8 +828,8 @@ onMounted(() => {
 
 /* 分组拖拽中：整段高亮，强化「正在重排整段分组」的反馈（与卡片拖拽态分层） */
 .ledger-group--dragging {
-  background: var(--brand-50);
-  border-radius: var(--radius-xl);
+  background: var(--brand-100);
+  border-radius: var(--radius-lg);
   box-shadow: 0 0 0 2px var(--brand-300);
 }
 

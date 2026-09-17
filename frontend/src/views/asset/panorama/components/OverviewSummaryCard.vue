@@ -140,7 +140,7 @@ import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import { type AssetSnapshotItem } from "@/api/summary";
 import echarts from "@/plugins/echarts";
-import { getCssVar } from "@/composables/echarts/theme";
+import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
 
 const props = defineProps<{
   totalAssets: number;
@@ -152,6 +152,7 @@ const props = defineProps<{
 
 const waterfallChartRef = ref<HTMLDivElement>();
 let waterfallChart: echarts.ECharts | null = null;
+const themeTick = useThemeTick();
 
 // 工具函数：安全读取 CSS 变量（无 fallback 硬编码）
 const getCSSColor = (varName: string): string => {
@@ -261,6 +262,9 @@ watch(
     initWaterfallChart();
   }
 );
+
+// 主题切换（暗色）时重绘瀑布图，重新读取语义色（#976）
+watch(themeTick, () => nextTick(initWaterfallChart));
 
 onMounted(() => {
   if (props.distributions) initWaterfallChart();

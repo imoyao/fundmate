@@ -3,7 +3,11 @@ import { computed } from "vue";
 import VChart from "vue-echarts";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
-import { getCssVar, getChartPalette } from "@/composables/echarts/theme";
+import {
+  getCssVar,
+  getChartPalette,
+  useThemeTick
+} from "@/composables/echarts/theme";
 import type { AggregationTypeBreakdownItem } from "@/api/ledger";
 
 /**
@@ -83,8 +87,13 @@ function pctOf(cents: number): string {
   return total > 0 ? ((cents / total) * 100).toFixed(1) : "0";
 }
 
-/** 8 色分类配色板（实时读 CSS 语义变量，design.md 红线：禁止硬编码 hex） */
-const donutPalette = getChartPalette();
+const themeTick = useThemeTick();
+/** 8 色分类配色板（实时读 CSS 语义变量，design.md 红线：禁止硬编码 hex）。
+ * 用 computed 依赖 themeTick，主题切换时重读配色板（#976） */
+const donutPalette = computed(() => {
+  void themeTick.value;
+  return getChartPalette();
+});
 
 const donutOption = computed(() => {
   const reduceMotion =
@@ -121,7 +130,9 @@ const donutOption = computed(() => {
         data: breakdownItems.value.map((x, i) => ({
           name: x.name,
           value: x.market_value_cents / 100,
-          itemStyle: { color: donutPalette[i % donutPalette.length] }
+          itemStyle: {
+            color: donutPalette.value[i % donutPalette.value.length]
+          }
         }))
       }
     ]
@@ -250,7 +261,7 @@ const donutOption = computed(() => {
 .hero-donut-block {
   display: flex;
   flex: none;
-  gap: var(--space-4, 16px);
+  gap: var(--space-compact);
   align-items: center;
 }
 
@@ -401,9 +412,9 @@ const donutOption = computed(() => {
 @media (width <= 768px) {
   .hero {
     flex-direction: column;
-    gap: var(--space-4, 16px);
+    gap: var(--space-compact);
     align-items: stretch;
-    padding: var(--space-5, 24px) var(--space-4, 16px);
+    padding: var(--space-5, 24px) var(--space-compact);
   }
 
   .hero-donut-block {

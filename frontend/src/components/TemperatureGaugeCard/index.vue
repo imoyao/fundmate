@@ -283,13 +283,13 @@ const onClick = () => {
 .gauge-caption {
   margin-top: 6px;
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .gauge-updated {
   margin-top: 2px;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .gauge-footer {

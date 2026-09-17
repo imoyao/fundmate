@@ -971,7 +971,7 @@ useEventListener(document, "keydown", ({ code }) => {
      直接沿用会糊成一团；暗色下改用"深灰底 + 品牌色低透明度光晕"，
      品牌色饱和度已由 dark.scss 降 20%（--brand-700 → #d45a44）。
    - 低透明度光晕用 color-mix(in srgb, var(--brand-700) x%, transparent)
-     实现（等价于 rgba(var(--brand-700-rgb), x) 手法，项目无 -rgb 变量；
+     实现（等价于 rgba(品牌主色-rgb, x) 手法，项目无 -rgb 变量；
      需 Chrome 111+，与 design.dark.md 接受的 hsl(from) 现代语法同级）。
    - 发光仅用于静止/呼吸装饰，遵守 design.dark.md「禁止动画循环中发光」
      性能红线——涟漪/光环用低透明度边框与扩散环表达，不用 box-shadow 辉光。

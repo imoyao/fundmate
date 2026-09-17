@@ -262,7 +262,7 @@ onMounted(() => {
   display: inline-block;
   margin-top: 6px;
   font-size: 12px;
-  color: var(--el-color-primary);
+  color: var(--color-rise-ink);
   white-space: nowrap;
   cursor: pointer;
 }

@@ -51,18 +51,8 @@ const ALLOW_PREFIX = ["--el-", "--pure-", "--tw-"];
  * 基线」的项打印提示（不阻断）。
  */
 const BASELINE = new Set([
-  "--space-4",
-  "--space-6",
-  "--space-8",
-  "--shadow-overlay",
-  "--c-success",
-  "--border-strong",
-  "--bg-secondary",
-  "--color-gray-200", // 疑似 tailwind v4 调色板注入，待核实
-  "--text-on-brand",
-  "--brand-50",
-  "--radius-xl",
-  "--brand-700-rgb"
+  // 2026-09-17 #1558：12 个存量幽灵令牌已全部清零（引用改既有令牌 / src 零引用直接移除），见 PR。
+  // 见 docs/working-notes 或 issue #1558。清空后守卫会拦截任何「新增」未定义令牌。
 ]);
 
 function walk(dir) {

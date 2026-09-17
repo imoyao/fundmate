@@ -276,7 +276,7 @@
   font-size: 12px;
   line-height: 18px;
   color: var(--brand-700);
-  background: var(--brand-50, var(--bg-soft));
+  background: var(--bg-soft);
   border-radius: 9px;
   cursor: default;
 }

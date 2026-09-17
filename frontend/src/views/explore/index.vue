@@ -398,7 +398,7 @@ onMounted(startRealtime);
   &__hint {
     margin-left: auto;
     font-size: 12px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
     white-space: nowrap;
   }
 }
@@ -429,7 +429,7 @@ onMounted(startRealtime);
   }
 
   &--active {
-    color: var(--brand-700);
+    color: var(--color-rise-ink);
     background: var(--brand-100);
     border-color: var(--brand-400);
 
@@ -463,7 +463,7 @@ onMounted(startRealtime);
     align-items: center;
     justify-content: space-between;
     padding: 18px 24px;
-    background: linear-gradient(135deg, var(--brand-50), var(--bg-card));
+    background: linear-gradient(135deg, var(--brand-100), var(--bg-card));
     border: 1px solid var(--brand-400);
     border-radius: var(--radius-card);
     box-shadow: var(--shadow-raised);

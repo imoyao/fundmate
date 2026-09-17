@@ -212,7 +212,7 @@ const save = async () => {
   justify-content: center;
   color: var(--text-secondary);
   background-color: var(--bg-soft);
-  border: 1px dashed var(--border-strong);
+  border: 1px dashed var(--border-default);
 }
 
 .group-form__preview {

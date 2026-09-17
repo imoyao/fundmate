@@ -484,7 +484,7 @@ onMounted(() => load());
 
 @media (width <= 640px) {
   .aggregation-page {
-    padding: var(--space-4, 16px);
+    padding: var(--space-compact);
   }
 
   .card-grid {

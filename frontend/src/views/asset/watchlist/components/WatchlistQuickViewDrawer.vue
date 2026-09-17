@@ -420,7 +420,7 @@ function ratioText(it: AdvisorAdjustItem): string {
 .wqv {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4, 16px);
+  gap: var(--space-compact);
 }
 
 .wqv-head {

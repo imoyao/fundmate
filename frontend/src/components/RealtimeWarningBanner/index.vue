@@ -101,6 +101,6 @@ function dismiss() {
 .realtime-warning-banner__close:hover {
   color: var(--text-primary);
   background-color: var(--bg-hover);
-  border-color: var(--border-strong);
+  border-color: var(--border-default);
 }
 </style>

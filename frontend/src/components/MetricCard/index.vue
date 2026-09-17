@@ -127,7 +127,7 @@ const displayValue = computed(() => {
   &__unit {
     font-size: 15px;
     font-weight: 500;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   &__badge {
@@ -137,7 +137,7 @@ const displayValue = computed(() => {
   &__caption {
     font-size: 12px;
     line-height: 1.4;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   /* featured：核心指标放大 */

@@ -75,7 +75,7 @@ withDefaults(
   &__dot {
     width: 6px;
     height: 6px;
-    background: var(--c-success);
+    background: var(--color-success);
     border-radius: 50%;
   }
 }

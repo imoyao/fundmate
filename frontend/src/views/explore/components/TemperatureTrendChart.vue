@@ -32,7 +32,7 @@ import VChart from "vue-echarts";
 import { getTemperatureHistory } from "@/api/temperature";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
-import { getCssVar } from "@/composables/echarts/theme";
+import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
 
 defineOptions({
   name: "TemperatureTrendChart"
@@ -43,7 +43,9 @@ defineOptions({
  * 用 computed 实时读取，暗色切换时 CSS 变量变化可正确重读。
  * 红线（design.md）：图表颜色禁止硬编码。
  */
+const themeTick = useThemeTick();
 function readTempColorVar(name: string): string {
+  void themeTick.value; // 建立主题切换依赖，使温度色在暗色切换时重读
   return getCssVar(name, "#888");
 }
 
@@ -79,6 +81,7 @@ const fetchHistory = async () => {
 };
 
 const chartOption = computed(() => {
+  void themeTick.value; // 主题切换时重算 option，触发 vue-echarts 重绘（#976）
   const dates = historyData.value.dates || [];
   const values = historyData.value.values || [];
   const levels = historyData.value.levels || [];

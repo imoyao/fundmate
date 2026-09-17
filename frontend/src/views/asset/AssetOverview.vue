@@ -229,7 +229,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from "vue";
+import { ref, computed, onMounted, nextTick, watch } from "vue";
 import echarts from "@/plugins/echarts";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import GhostDuplicateBanner from "@/components/GhostDuplicateBanner/index.vue";
@@ -241,7 +241,7 @@ import {
   type AssetSnapshotItem,
   type GroupItem
 } from "@/api/summary";
-import { getCssVar } from "@/composables/echarts/theme";
+import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
 import { formatAmount } from "@/utils/currency";
 
 const distributionChartRef = ref<HTMLCanvasElement | null>(null);
@@ -251,6 +251,7 @@ const riskHeatmapChartRef = ref<HTMLCanvasElement | null>(null);
 let distributionChart: echarts.ECharts | null = null;
 let profitTrendChart: echarts.ECharts | null = null;
 let riskHeatmapChart: echarts.ECharts | null = null;
+const themeTick = useThemeTick();
 
 // 真实数据源（替代原硬编码假数据）：大类市值分布来自 /summary/distributions/，
 // 净值走势来自 /summary/snapshots/（资产快照历史，升序）。
@@ -306,7 +307,8 @@ const CHART_PALETTE_VARS = [
 
 const initDistributionChart = () => {
   if (!distributionChartRef.value) return;
-  distributionChart = echarts.init(distributionChartRef.value);
+  distributionChart =
+    distributionChart ?? echarts.init(distributionChartRef.value);
   const isEmpty = distributionData.value.length === 0;
   distributionChart.setOption({
     tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
@@ -347,7 +349,8 @@ const initDistributionChart = () => {
 
 const initProfitTrendChart = () => {
   if (!profitTrendChartRef.value) return;
-  profitTrendChart = echarts.init(profitTrendChartRef.value);
+  profitTrendChart =
+    profitTrendChart ?? echarts.init(profitTrendChartRef.value);
   profitTrendChart.setOption({
     tooltip: { trigger: "axis" },
     grid: { right: "4%", bottom: "8%", containLabel: true, left: "4%" },
@@ -386,7 +389,8 @@ const initProfitTrendChart = () => {
 // 风险热力图：当前无真实风险评分数据源，下线为假数据，仅展示空态提示
 const initRiskHeatmapChart = () => {
   if (!riskHeatmapChartRef.value) return;
-  riskHeatmapChart = echarts.init(riskHeatmapChartRef.value);
+  riskHeatmapChart =
+    riskHeatmapChart ?? echarts.init(riskHeatmapChartRef.value);
   riskHeatmapChart.setOption({
     title: {
       text: "暂无风险评分数据",
@@ -456,6 +460,13 @@ onMounted(async () => {
     initRiskHeatmapChart();
     window.addEventListener("resize", resizeCharts);
   });
+});
+
+// 主题切换（暗色）时重绘所有图表，重新读取语义色（#976）
+watch(themeTick, () => {
+  initDistributionChart();
+  initProfitTrendChart();
+  initRiskHeatmapChart();
 });
 </script>
 

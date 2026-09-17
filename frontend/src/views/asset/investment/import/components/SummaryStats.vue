@@ -113,7 +113,7 @@ function setFilter(key: string) {
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary);
   text-align: center;
-  background: var(--bg-secondary);
+  background: var(--bg-subtle);
   border-radius: 999px;
 }
 
