@@ -26,6 +26,7 @@ rename 失败并打一行错误日志）。详见 `docs/dev/scheduler-tasks.md`�
 
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -44,6 +45,31 @@ DEFAULT_LEVEL = 'DEBUG'
 # 与 loguru 默认格式保持逐字一致：文件里看到的行 = CMD 里看到的行，
 # 排查时不必在两套格式之间换算。
 LOG_FORMAT = '{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}'
+
+# 进程本地时区对齐目标：loguru 的文件名 / 轮转 / 行内时间都取**进程本地时区**，
+# 而项目约定「时间一律上海」（见 app/core/time_utils.py），故把本地时区钉到上海。
+SHANGHAI_TZ_NAME = 'Asia/Shanghai'
+
+
+def _align_process_timezone_to_shanghai() -> None:
+    """把进程本地时区对齐到上海，使 loguru 的「本地时间」= 上海时间（#1551 修正）。
+
+    WHY：loguru 的文件名 `{time:YYYY-MM-DD}`、`rotation='00:00'` 与日志行时间都取
+    **进程本地时区**（`loguru._file_sink.FileDateFormatter` → `_datetime.aware_now()`
+    → `datetime.now()` / `localtime()`），**不读 `record["time"]`**——所以
+    `logger.configure(patcher=...)` 既改不动文件名，还会把行内时间格式打成字面量。
+    而项目约定「所有时间必须经 `app/core/time_utils.py` 取上海时间」。CI runner 本地
+    时区是 UTC，UTC 16:00 之后文件名比上海日期早一天，与 `today_shanghai()` 断言分叉。
+
+    这里把进程 TZ 钉到上海，让「文件名 / 轮转边界 / 行内时间」三者与 time_utils 一致。
+    只影响依赖本地时区的调用（`datetime.now()` / `time.localtime()` / loguru），
+    不影响显式时区（`now_shanghai()` / `datetime.now(timezone.utc)`）。
+    Windows 无 `time.tzset`：跳过（本机 OS 时区即上海，无需处理）。
+    """
+    os.environ['TZ'] = SHANGHAI_TZ_NAME
+    if hasattr(time, 'tzset'):
+        time.tzset()
+
 
 _TRUTHY = {'0', 'false', 'no', 'off'}
 
@@ -103,6 +129,9 @@ def setup_file_logging() -> Optional[int]:
     - 目录不可写**不抛异常**：日志配置失败不该拦住应用启动，降级为一行警告。
     """
     global _sink_id
+
+    # 对齐进程时区到上海：loguru 文件名 / 轮转 / 行内时间都取本地时区（#1551）
+    _align_process_timezone_to_shanghai()
 
     explicit = os.getenv('LOG_ENABLED', '').strip().lower()
     if explicit in _TRUTHY:
