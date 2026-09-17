@@ -4,7 +4,9 @@
   内部复用 utils/temperatureFormat 的 crowdingColorClass / crowdingBarStyle。
 -->
 <template>
-  <section
+  <!-- 非 embedded 时根节点换成 CardBlock：区块外壳统一由 CardBlock 提供（#1547 T3.1） -->
+  <component
+    :is="embedded ? 'section' : CardBlock"
     :class="
       embedded
         ? 'crowding-section crowding-section--embedded'
@@ -339,10 +341,11 @@
     <div v-if="!items.length && !loading" class="empty-state">
       暂无数据：数据源当前不可用（外部临时源或申万宏源官网），稍后自动恢复；不影响页面其它部分。
     </div>
-  </section>
+  </component>
 </template>
 
 <script setup lang="ts">
+import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import {
   biasColorClass,
@@ -409,12 +412,7 @@ withDefaults(
 
 /* embedded：外壳与标题交给父级卡片，本组件只出表格 */
 .crowding-section--embedded {
-  padding: 0;
   margin: 0;
-  background: none;
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
 }
 
 .bias-stale-pill {

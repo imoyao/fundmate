@@ -12,7 +12,7 @@
   内部复用 utils/temperatureFormat 的 displaySource / formatValue / valueColorClass。
 -->
 <template>
-  <section class="cards-section">
+  <CardBlock class="cards-section">
     <SectionHeader title="全部市场温度指标" />
     <el-table
       :data="items"
@@ -61,10 +61,11 @@
         <div class="empty-state">暂无更多指标</div>
       </template>
     </el-table>
-  </section>
+  </CardBlock>
 </template>
 
 <script setup lang="ts">
+import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import TemperatureLevelBadge from "@/components/TemperatureLevelBadge/index.vue";
 import { InfoFilled } from "@element-plus/icons-vue";
@@ -92,14 +93,11 @@ const rowClassName = ({ row }: { row: any }) => (row?.stale ? "is-stale" : "");
 </script>
 
 <style lang="scss" scoped>
-/* 区块容器与 BiasTable / CrowdingTable 保持同一卡片规范 */
+/* 区块外壳统一走 CardBlock（#1547 T3.1 收敛），此处只留区块间距。
+   外壳由 CardBlock 提供：--bg-card + --border-light + --radius-lg + --shadow-raised
+   + --space-standard（24px）内边距，与 BiasTable / CrowdingTable 同规范。 */
 .cards-section {
-  padding: 20px 24px;
   margin-bottom: 24px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-raised);
 }
 
 .metric-name-cell {

@@ -4,7 +4,9 @@
   内部复用 utils/temperatureFormat 的 biasColorClass / biasBarStyle / formatValue。
 -->
 <template>
-  <section
+  <!-- 非 embedded 时根节点换成 CardBlock：区块外壳统一由 CardBlock 提供（#1547 T3.1） -->
+  <component
+    :is="embedded ? 'section' : CardBlock"
     :class="embedded ? 'bias-section bias-section--embedded' : 'bias-section'"
   >
     <!-- embedded：由父级「行业排行」卡片统一承载标题、视图切换与更新时间 -->
@@ -124,10 +126,11 @@
     <div v-if="!items.length && !loading" class="empty-state">
       暂无乖离率数据
     </div>
-  </section>
+  </component>
 </template>
 
 <script setup lang="ts">
+import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import {
   biasBarStyle,
@@ -177,12 +180,7 @@ withDefaults(
 
 /* embedded：外壳与标题交给父级卡片，本组件只出表格 */
 .bias-section--embedded {
-  padding: 0;
   margin: 0;
-  background: none;
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
 }
 
 .bias-stale-pill {
