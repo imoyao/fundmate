@@ -613,6 +613,8 @@ useEventListener(document, "keydown", ({ code }) => {
 </script>
 
 <style lang="scss" scoped>
+@use "@/style/breakpoints" as bp;
+
 /* 背景角度注册为可插值属性（Chrome/Safari 111+；不支持时渐变按 135deg 静态显示，安全降级） */
 @property --bg-angle {
   syntax: "<angle>";
@@ -687,48 +689,6 @@ useEventListener(document, "keydown", ({ code }) => {
   50% {
     opacity: var(--nautilus-opacity-max, 0.12);
     transform: translate(-50%, -50%) scale(1.03) rotate(2deg);
-  }
-}
-
-/* 移动端：品牌区仅剩 logo+名称，插画进一步压淡（防御性，<969px 时 aside 已隐藏） */
-@media (width <= 768px) {
-  .login-brand-bg {
-    opacity: 0.04;
-  }
-}
-
-/* ---------- 响应式 ---------- */
-@media (width <= 968px) {
-  /* 移动端表单卡片回归"页面本体"，去掉卡片化包装 */
-  .login-form {
-    padding: 0;
-    background: transparent;
-    border: none;
-    box-shadow: none;
-  }
-}
-
-@media (width <= 480px) {
-  .privacy-policy-wrapper {
-    align-items: flex-start;
-
-    .privacy-checkbox {
-      margin-top: 2px;
-    }
-
-    .privacy-text {
-      font-size: 13px;
-    }
-  }
-}
-
-/* 动效偏好：减弱动态 */
-@media (prefers-reduced-motion: reduce) {
-  .login-ripple,
-  .coral-curve,
-  .login-page,
-  .login-brand-bg {
-    animation: none;
   }
 }
 
@@ -1112,4 +1072,54 @@ useEventListener(document, "keydown", ({ code }) => {
    - 本块只负责视觉表现与微调；色值一律取自 design.md 既有令牌
      （--brand-* / --bg-* / --text-* / --border-* / --radius-* / --shadow-* 等）
    ===================================================================== */
+
+/* ============ 响应式 ============
+   ⚠️ 以下四块原先都排在各自的基础声明**之前**——媒体查询不改变特异性，覆盖被后面
+   同选择器的声明压掉、**从未生效**（2026-09-18 修复，见 #1576 同类台账）。 */
+
+/* 移动端：品牌区仅剩 logo+名称，插画进一步压淡（防御性，<969px 时 aside 已隐藏） */
+@include bp.below("md") {
+  .login-brand-bg {
+    opacity: 0.04;
+  }
+}
+
+/* 移动端表单卡片回归「页面本体」，去掉卡片化包装。
+   阈值保持 968px：它与模板里的 `max-[968px]:` / `min-[969px]:` 是**成对**的，
+   改走 Tailwind 档会让 SCSS 与 class 分叉（那正是 #1571 要避免的事）。 */
+@media (width <= 968px) /* breakpoint-allow: 与模板 max-[968px] 配对 */ {
+  /* 说明（已上移到 @media 同行）：与模板任意值断点 max-[968px] 配对 */
+  .login-form {
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+  }
+}
+
+/* 窄屏隐私区（内容级阈值，与页面布局断点不同轴） */
+@media (width <= 480px) /* breakpoint-allow: 隐私区内容级阈值 */ {
+  /* 说明（已上移到 @media 同行）：隐私文案的字号/对齐属内容级阈值 */
+  .privacy-policy-wrapper {
+    align-items: flex-start;
+
+    .privacy-checkbox {
+      margin-top: 2px;
+    }
+
+    .privacy-text {
+      font-size: 13px;
+    }
+  }
+}
+
+/* 动效偏好：减弱动态 */
+@media (prefers-reduced-motion: reduce) {
+  .login-ripple,
+  .coral-curve,
+  .login-page,
+  .login-brand-bg {
+    animation: none;
+  }
+}
 </style>

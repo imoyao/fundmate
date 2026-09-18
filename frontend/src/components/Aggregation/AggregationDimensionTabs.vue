@@ -66,16 +66,6 @@ function select(value: AggregationDimension) {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .dimension-capsule {
-    transition: none;
-  }
-
-  .dimension-capsule.active {
-    animation: none;
-  }
-}
-
 .dimension-tabs {
   display: inline-flex;
   gap: 8px;
@@ -123,5 +113,18 @@ function select(value: AggregationDimension) {
 .dimension-capsule:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
+}
+
+/* 尊重系统「减弱动态效果」。
+   ⚠️ 本块原先排在基础声明**之前**——媒体查询不改变特异性，`transition` / `animation`
+   被后面同选择器的声明压掉，等于**从未生效**（2026-09-18 修复，见 #1576 同类台账）。 */
+@media (prefers-reduced-motion: reduce) {
+  .dimension-capsule {
+    transition: none;
+  }
+
+  .dimension-capsule.active {
+    animation: none;
+  }
 }
 </style>

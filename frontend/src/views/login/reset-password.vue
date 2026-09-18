@@ -240,6 +240,8 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
 </script>
 
 <style lang="scss" scoped>
+@use "@/style/breakpoints" as bp;
+
 @keyframes bg-breathe {
   0%,
   100% {
@@ -311,33 +313,6 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
   50% {
     opacity: var(--nautilus-opacity-max, 0.18);
     transform: translate(-50%, -50%) scale(1.06) rotate(3deg);
-  }
-}
-
-@media (width <= 768px) {
-  .login-brand-bg {
-    opacity: 0.04;
-  }
-}
-
-/* ---------- 响应式 ---------- */
-@media (width <= 968px) {
-  .login-form {
-    padding: 0;
-    background: transparent;
-    border: none;
-    box-shadow: none;
-  }
-}
-
-/* 动效偏好：减弱动态 */
-@media (prefers-reduced-motion: reduce) {
-  .login-ripple,
-  .login-bg-decor,
-  .login-brand-bg,
-  .login-bubble,
-  .coral {
-    animation: none;
   }
 }
 
@@ -617,4 +592,37 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
    重置密码页 · 品牌深海鹦鹉螺主题（与登录页同款视觉语言，精简版）
    色值一律取自 design.md 既有令牌（--brand-* / --bg-* / --text-* 等）
    ===================================================================== */
+
+/* ============ 响应式 ============
+   ⚠️ 以下三块原先都排在各自的基础声明**之前**，覆盖被后面同选择器的声明压掉、
+   **从未生效**（2026-09-18 修复，见 #1576 同类台账）。 */
+
+/* 移动端：品牌区压淡（<969px 时 aside 已隐藏） */
+@include bp.below("md") {
+  .login-brand-bg {
+    opacity: 0.04;
+  }
+}
+
+/* 移动端表单卡片回归「页面本体」；阈值与模板的 `max-[968px]:` / `min-[969px]:` 成对 */
+@media (width <= 968px) /* breakpoint-allow: 与模板 max-[968px] 配对 */ {
+  /* 说明（已上移到 @media 同行）：与模板任意值断点 max-[968px] 配对 */
+  .login-form {
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+  }
+}
+
+/* 动效偏好：减弱动态 */
+@media (prefers-reduced-motion: reduce) {
+  .login-ripple,
+  .login-bg-decor,
+  .login-brand-bg,
+  .login-bubble,
+  .coral {
+    animation: none;
+  }
+}
 </style>
