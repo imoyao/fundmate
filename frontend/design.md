@@ -350,6 +350,12 @@
 | `PageFooter` / `MarketFooter` | `components/PageFooter` / `components/MarketFooter` | 探市 / 温度计页脚（复盘引导 + 公众号） |
 | `AppFooter`（全站页脚） | `layout/components/lay-footer` | 三栏品牌/导航/公众号 + 风险免责 + 版权 |
 
+**`MetricGrid` 响应式语义（2026-09-18 起真正生效，#1576）**：卡片最小宽度由 `--metric-basis` 控制，
+三档为 `<1024px → 240px`（`bp.below("lg")`）、`<640px → 100%`（`bp.below("sm")`，每行一张卡）、
+其余 `200px`。**这三条覆盖必须写在基础声明之后**——媒体查询不改变特异性，写在前面会被
+`.metric-grid { --metric-basis: 200px }` 压掉（2026-09-17 之前正是这样静默失效的，全档实测恒为
+`200px`，详见 #1576）。同族先例见 #1557（暗色令牌被 `:root` 压掉）：**源序即语义**。
+
 ### 交互状态映射（通用规则）
 
 | 状态 | 背景 | 边框 | 阴影 |
