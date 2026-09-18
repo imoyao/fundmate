@@ -63,6 +63,8 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
+    # 防 pytest 偶发 hang 卡满 GitHub 默认 6h 兜底：单进程后端测试正常 ~19min，给 30min 余量（#1596 排查 CI 卡死）
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: backend
