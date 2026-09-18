@@ -372,7 +372,7 @@ const getAvailableTools = (type: string) => {
 
   .summary-hint {
     font-size: 13px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   .summary-right {
@@ -380,7 +380,7 @@ const getAvailableTools = (type: string) => {
     gap: 12px;
     align-items: center;
     font-size: 13px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   .refresh-interval-select {
@@ -432,7 +432,7 @@ const getAvailableTools = (type: string) => {
 .cards-empty {
   padding: 32px 16px;
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: center;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
@@ -477,7 +477,7 @@ const getAvailableTools = (type: string) => {
 
   .metric-label {
     font-size: 12px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 }
 

@@ -711,7 +711,7 @@ onMounted(() => {
 
 .rank-updated {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .rank-stale-pill {
@@ -776,7 +776,7 @@ onMounted(() => {
 .rank-switch__item {
   padding: 4px 14px;
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   cursor: pointer;
   background: transparent;
   border: 1px solid var(--border-default);
@@ -882,7 +882,7 @@ onMounted(() => {
   gap: 14px;
   margin-bottom: 10px;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .rank-legend__item {

@@ -279,7 +279,7 @@ const addHotAsset = (item: (typeof hotAssets)[0]) => {
 
 .input-prefix {
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .suggestion-item {
@@ -315,7 +315,7 @@ const addHotAsset = (item: (typeof hotAssets)[0]) => {
 
   .hot-label {
     font-size: 13px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
     white-space: nowrap;
   }
 
@@ -349,7 +349,7 @@ const addHotAsset = (item: (typeof hotAssets)[0]) => {
 
     .hot-code {
       font-size: 11px;
-      color: var(--text-tertiary);
+      color: var(--text-tertiary-ink);
     }
   }
 }

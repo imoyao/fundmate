@@ -407,7 +407,7 @@ withDefaults(
 
 .bias-updated {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* embedded：外壳与标题交给父级卡片，本组件只出表格 */
@@ -442,7 +442,7 @@ withDefaults(
 .empty-state {
   padding: 40px 0;
   font-size: 14px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: center;
 }
 
@@ -498,14 +498,14 @@ withDefaults(
 .crowding-note-tag {
   padding: 2px 8px;
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-soft);
   border-radius: 6px;
 }
 
 .crowding-note {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* ===== 外部源维度单元格（当期值 + 历史分位，分位沿用 val-* 档位配色） ===== */
