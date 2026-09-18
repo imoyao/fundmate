@@ -37,7 +37,11 @@ def _fake_metrics():
 class TestSwShareRecords:
     @pytest.fixture(autouse=True)
     def _enable_sw_fallback(self, monkeypatch):
-        """本类验证申万官网单源真实逻辑，需显式开启 `SW_FALLBACK_AKSHARE_ENABLED`（#1511 起默认关闭）。"""
+        """本类验证申万官网单源真实逻辑。
+
+        #1566 起该开关**默认开启**（#1512 把默认值改为关闭系误诊，已回滚）；此处仍显式设值，
+        让本类不依赖默认值——默认行为由类外的 test_sw_fallback_enabled_by_default 独立守住。
+        """
         monkeypatch.setenv('SW_FALLBACK_AKSHARE_ENABLED', '1')
 
     def test_shapes_and_fields(self, monkeypatch):
@@ -150,3 +154,27 @@ class TestSwIndustryListAligned:
         assert len(codes) == sw.EXPECTED_INDUSTRY_COUNT
         assert '801020' not in codes
         assert {'801950', '801960', '801970', '801980'} <= codes
+
+
+def test_sw_fallback_enabled_by_default(monkeypatch):
+    """`SW_FALLBACK_AKSHARE_ENABLED` 默认必须是**开启**（#1566 回滚 #1512 的误诊默认值）。
+
+    该路径调的是 `akshare.index_hist_sw`，其实现（`index_research_sw.py`）只有 `requests.get`，
+    **不 import py_mini_racer**，与 V8 原生崩溃无因果关系；关掉它只会让前端少掉 31 个申万行业的
+    成交额占比分位与 BIASn。V8 并发风险由 `app/core/v8_guard.py` 在进程级覆盖。
+    """
+    monkeypatch.delenv('SW_FALLBACK_AKSHARE_ENABLED', raising=False)
+    monkeypatch.setattr(sw, 'list_sw_industries', lambda: {'801010': '农林牧渔'})
+    monkeypatch.setattr(sw, 'fetch_sw_metrics', lambda *a, **k: _fake_metrics())
+
+    assert ic._sw_share_records(), '默认值被改回关闭了——申万单源路径会静默失效'
+
+
+def test_sw_fallback_disabled_by_explicit_off(monkeypatch):
+    """显式 `0/false/no/off` 仍能关停（白名单语义保留，便于临时排查）。"""
+    monkeypatch.setattr(sw, 'list_sw_industries', lambda: {'801010': '农林牧渔'})
+    monkeypatch.setattr(sw, 'fetch_sw_metrics', lambda *a, **k: _fake_metrics())
+
+    for off in ('0', 'false', 'NO', 'off'):
+        monkeypatch.setenv('SW_FALLBACK_AKSHARE_ENABLED', off)
+        assert ic._sw_share_records() == [], f'{off!r} 应关停申万单源路径'
