@@ -69,6 +69,73 @@ module.exports = async function verifyAiReviewComments({ github, context, core }
   const aiComments = (await listInline()).data.filter(c => hasAiTag(c.body)).length
     + (await listGeneral()).data.filter(c => hasAiTag(c.body)).length;
 
+  // ---- 步骤 4（#1581 行为 a）：统计「生成标记」类幻觉，只计数、不删除、不影响 job 成败 ----
+  // 背景：#1395 / #1491 / #1496 / #1575 / #1578 **五次**复发同一类幻觉——模型声称代码里有
+  // `# added` 这类「生成过程残留标记」（diff 标注的形态），而该字符串在补丁里根本不存在。
+  // #1577 已用真实数据否决方案 B（「字面量是否出现在 diff 中」这条判定轴会**漏** #1496、
+  // 且会**误杀** #1491 的一条真意见）；#1581 拍板只做**最窄的一件事**：在 AI 评论上
+  // （**inline 与 summary 两条通道都扫**——第 5 次复发恰恰发生在 summary）识别「生成标记」形态
+  // 并写进 job summary。**不删评论、不改 job 成败**（行为 a = 零风险）。
+  // 已知取舍（写在这里，避免下一个人以为是缺陷）：
+  //   ① 计数是**下界**——只认固定标记形态，不含「伪造其它字面量」类幻觉；
+  //   ② **会误计**「在讨论该幻觉」的正常评论（例如「本文件没有 `# added` 残留」）——
+  //      行为 a 下的代价只是 summary 里多一行；若将来升级到 b/c（附提示 / 删除），
+  //      必须先把「是否对代码内容作断言」这层判定补上，否则就退回到方案 B 的误杀问题。
+  const MARKER_PATTERNS = [
+    /#\s*(?:added|changed|removed|generated)\b/i,
+    /\/\/\s*(?:added|changed|removed|generated)\b/i,
+    /<!--\s*(?:added|changed|removed|generated)/i,
+  ];
+  const findMarkers = (body) => MARKER_PATTERNS.flatMap(re => (body || '').match(re) || []);
+  // 整段包 try/catch：这是**附加观测**，绝不能让自身的任何异常影响「防假成功」这条主判定
+  // （本步骤若抛错，下面 `if (hadNew && aiComments > 0)` 的 return 就走不到，job 会因守卫自身报错而变红）。
+  try {
+    const markerRows = [];
+    const collectMarkers = (comments, kind) => {
+      for (const c of comments) {
+        if (!hasAiTag(c.body)) continue;
+        const hits = findMarkers(c.body);
+        if (!hits.length) continue;
+        markerRows.push([
+          kind,
+          kind === 'inline' ? `${c.path}:${c.line || '-'}` : `comment#${c.id}`,
+          [...new Set(hits)].join(' / '),
+          (c.body || '').replace(/\s+/g, ' ').slice(0, 120),
+        ]);
+      }
+    };
+    collectMarkers((await listInline()).data, 'inline');
+    collectMarkers((await listGeneral()).data, 'summary');
+    if (!markerRows.length) {
+      core.info('生成标记幻觉统计（#1581）：本轮 AI 评论中未发现 `# added` 类生成标记');
+    } else {
+      core.warning(
+        `⚠️ 发现 ${markerRows.length} 条 AI 评论疑似「生成标记」类幻觉（如 \`# added\`）。` +
+          ' 本步骤只计数、不删除、不影响 job 成败（#1581 行为 a）——' +
+          ' 历史 5 次复发同型，见 docs/configs/ai-review-known-false-positives.md §四。' +
+          ' 复核要点：这些标记在 diff 里并不存在，**不要照做**。'
+      );
+      if (core.summary) {
+        await core.summary
+          .addHeading(`ai-review 生成标记幻觉统计（#1581 行为 a）：${markerRows.length} 条`, 3)
+          .addTable([
+            [
+              { data: '通道', header: true },
+              { data: '位置', header: true },
+              { data: '命中标记', header: true },
+              { data: '正文预览', header: true },
+            ],
+            ...markerRows,
+          ])
+          .addRaw('> 说明：只计数、不删除、不影响 job 成败；计数为**下界**，且会误计「正在讨论该幻觉」的评论。\n')
+          .write();
+      }
+    }
+  } catch (err) {
+    // 观测失败绝不阻断主判定：只留一条告警，然后继续走下面的成功/失败分支。
+    core.warning(`生成标记统计（#1581）执行异常，已跳过（不影响本次校验结论）：${err && err.message}`);
+  }
+
   if (hadNew && aiComments > 0) {
     core.info(`第 ${round} 轮深度线路已发布评论，计数 ${before} → ${after}`);
     return;
