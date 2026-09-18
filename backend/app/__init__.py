@@ -40,6 +40,16 @@ from app.core.requests_patch import install_requests_patch
 
 install_requests_patch()
 
+# 全局 V8 守卫（#1566）：akshare 有多个接口每次调用都新建 `py_mini_racer.MiniRacer()`，
+# 而 V8 的 isolate 创建（`mr_init_context`）不是线程安全的——探市页 / 投资概览页用
+# `ThreadPoolExecutor(max_workers=6)` 并发取 20 个资产（其中 5 个走新浪指数），
+# 多线程同时构造就会命中 V8 的 `CHECK(!IsConfigurablePoolInitialized())`，
+# 以 Fast Fail 硬杀整个后端进程（exit 0xC0000409，Python 层 try/except 完全无效）。
+# 这里把构造串行化并预热，详见 app/core/v8_guard.py。
+from app.core.v8_guard import install_v8_guard  # noqa: E402
+
+install_v8_guard()
+
 # akshare 全局限速配置（request_interval=3 / use_thread=False）已下沉到
 # app.core.akshare_lazy.get_akshare()，在首次真正使用 akshare 时才加载并应用，
 # 避免应用启动期就 import akshare（约 3s），从而加快 flask reloader 的重载速度。
