@@ -1,0 +1,71 @@
+//// 断点单一来源（#1571）
+////
+//// WHY
+//// ---
+//// 仓库此前并存**三套**响应式词汇，互不知情：
+////   1. `frontend/design.md` §Viewport 的断点表（401 / 601 / 961 / 1200 / 1400）——**零实现**；
+////   2. 各组件里手写的 `@media (width <= Npx)`，N 取 470~1180 之间十余个互不相同的值；
+////   3. Tailwind 的 `sm:` / `md:` / `lg:` 前缀（`tailwindcss` v4 默认断点），已在 32 个文件里生效。
+//// 后果与 #1506 遇到的容器宽度问题同构：没有单一来源，同一屏在不同文件里按不同阈值换挡，
+//// 而这类漂移没有任何自动化拦截。
+////
+//// 决策（2026-09-17，见 docs/spec/decisions.md）：**对齐 Tailwind v4 默认断点**。
+//// 理由：`md:` / `lg:` 前缀早已在模板中使用，SCSS 若另立一套数值就是**新增第三套**词汇
+//// （#1506 已否决过「并行的第二套体系」）；对齐后 SCSS 与 Tailwind 前缀同阈值、同语义。
+////
+//// 单位用 rem 而非 px：跟随用户浏览器的字号缩放（Tailwind v4 默认即 rem）。
+////
+//// 用法
+//// ----
+////     @use "@/style/breakpoints" as bp;
+////
+////     .x {
+////       @include bp.below("md") { /* < 768px */ }
+////       @include bp.above("lg") { /* >= 1024px */ }
+////     }
+////
+//// 禁止在业务文件里再写 `@media (width <= 768px)` 这类裸值——
+//// `scripts/guard_breakpoints.py` 会拦截（存量已冻结为基线，见该脚本）。
+////
+//// 与 Tailwind 的关系：本表数值必须与 `node_modules/tailwindcss/theme.css` 的
+//// `--breakpoint-*` 逐条一致；改这里就要同步改那里（或反过来一并改），
+//// 两边不一致会让 `md:` 前缀与 `bp.below("md")` 在同一屏上分叉。
+
+@use "sass:map";
+
+/// 断点表（名称 → 触发宽度），数值对齐 Tailwind v4 默认主题的 --breakpoint-*。
+/// 括号内为 1rem = 16px 时的等值像素，仅供阅读，勿据此改值。
+$breakpoints: (
+  "sm": 40rem,
+  //  640px：大屏手机横向 / 小平板
+  "md": 48rem,
+  //  768px：平板竖屏
+  "lg": 64rem,
+  // 1024px：桌面端（设计稿基准）
+  "xl": 80rem,
+  // 1280px：大桌面
+  "2xl": 96rem // 1536px：宽屏
+);
+
+/// 取断点值；名称写错时直接编译报错，避免静默生成一条永不命中的媒体查询。
+@function breakpoint($name) {
+  @if not map.has-key($breakpoints, $name) {
+    @error "未知断点 `#{$name}`；可用断点：#{$breakpoints}";
+  }
+
+  @return map.get($breakpoints, $name);
+}
+
+/// 小于该断点（**不含**断点本身）——移动端优先写法。
+@mixin below($name) {
+  @media (width < breakpoint($name)) {
+    @content;
+  }
+}
+
+/// 大于等于该断点。
+@mixin above($name) {
+  @media (width >= breakpoint($name)) {
+    @content;
+  }
+}
