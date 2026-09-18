@@ -59,7 +59,8 @@ def _cache_in_tmp(tmp_path, monkeypatch):
     """
     monkeypatch.setenv('CACHE_FILE_DIR', str(tmp_path))
     monkeypatch.setenv('FUNDFOF_CROWDING_ENABLED', '1')
-    monkeypatch.setenv('FUNDFOF_CROWDING_MERGE_SW_BIAS', '0')  # 默认不触发申万源（另有用例覆盖）
+    # 显式关停申万补齐以隔离本类（开启态由 TestMergeSwBias 覆盖；默认值由守卫用例独立守住）
+    monkeypatch.setenv('FUNDFOF_CROWDING_MERGE_SW_BIAS', '0')
 
 
 class TestToggle:
@@ -78,6 +79,24 @@ class TestToggle:
     def test_on_values(self, monkeypatch, value):
         monkeypatch.setenv('FUNDFOF_CROWDING_ENABLED', value)
         assert fc.enabled() is True
+
+
+def test_merge_sw_bias_enabled_by_default(monkeypatch):
+    """`FUNDFOF_CROWDING_MERGE_SW_BIAS` 默认必须是**开启**（#1566 回滚 #1512 的误诊默认值）。
+
+    补齐路径调的是 `akshare.index_hist_sw`——其实现 `index_research_sw.py` 只有 `requests.get`，
+    **不 import py_mini_racer**，与 V8 原生崩溃没有因果关系。关掉它只会丢行业 BIASn 三列。
+    真正的 V8 并发风险由 `app/core/v8_guard.py` 在进程级覆盖。
+    """
+    monkeypatch.delenv('FUNDFOF_CROWDING_MERGE_SW_BIAS', raising=False)
+    assert fc._merge_sw_bias_enabled() is True
+
+
+@pytest.mark.parametrize('value', ['0', 'false', 'NO', 'off'])
+def test_merge_sw_bias_disabled_by_explicit_off(monkeypatch, value):
+    """显式 `0/false/no/off` 仍能关停（白名单语义保留，便于临时排查）。"""
+    monkeypatch.setenv('FUNDFOF_CROWDING_MERGE_SW_BIAS', value)
+    assert fc._merge_sw_bias_enabled() is False
 
 
 class TestMapping:
