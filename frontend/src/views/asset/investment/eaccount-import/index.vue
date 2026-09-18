@@ -1215,7 +1215,7 @@ onMounted(() => {
 
 .conflict-list__diff {
   font-weight: 500;
-  color: var(--color-rise);
+  color: var(--color-rise-ink);
 }
 
 /* 失败行：中性弱化，不喧宾夺主 */

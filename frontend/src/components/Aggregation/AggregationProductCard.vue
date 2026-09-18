@@ -336,7 +336,7 @@ function handleClick() {
 }
 
 .return-badge--positive {
-  color: var(--color-rise);
+  color: var(--color-rise-ink);
   background: var(--brand-100);
 }
 

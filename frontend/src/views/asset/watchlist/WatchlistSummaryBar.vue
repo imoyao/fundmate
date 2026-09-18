@@ -283,11 +283,11 @@ const intervalOptions = [
 }
 
 .text-up {
-  color: var(--color-rise);
+  color: var(--color-rise-ink);
 }
 
 .text-down {
-  color: var(--color-fall);
+  color: var(--color-fall-ink);
 }
 
 .text-flat {

@@ -623,11 +623,11 @@ onMounted(fetchData);
 }
 
 .diff-cell.is-rise {
-  color: var(--color-rise);
+  color: var(--color-rise-ink);
 }
 
 .diff-cell.is-fall {
-  color: var(--color-fall);
+  color: var(--color-fall-ink);
 }
 
 .diff-cell.is-zero {

@@ -577,11 +577,11 @@ function ratioText(it: AdvisorAdjustItem): string {
 
 /* 加/减仓用涨跌语义变量（不硬编码色值），其余操作保持中性色 */
 .wqv-op--add {
-  color: var(--color-rise);
+  color: var(--color-rise-ink);
 }
 
 .wqv-op--cut {
-  color: var(--color-fall);
+  color: var(--color-fall-ink);
 }
 
 .wqv-notes {
