@@ -533,6 +533,9 @@ onMounted(startRealtime);
     height: 28px;
     padding: 0;
     font-size: 15px;
+
+    /* audit-text-contrast: exempt 非文本图形（图标字形），按 WCAG 1.4.11 需 3:1，本令牌在页底 / 卡片底实测 3.57~3.69:1，达标；
+       若改用 -ink 会与相邻正文同权，反而压平层级。登记见 docs/spec/tech-debt.md（#1586） */
     color: var(--text-tertiary);
     cursor: pointer;
     background: transparent;

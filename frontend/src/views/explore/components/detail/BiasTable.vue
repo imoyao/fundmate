@@ -175,7 +175,7 @@ withDefaults(
 
 .bias-updated {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* embedded：外壳与标题交给父级卡片，本组件只出表格 */
@@ -210,7 +210,7 @@ withDefaults(
 .empty-state {
   padding: 40px 0;
   font-size: 14px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: center;
 }
 
@@ -268,7 +268,7 @@ withDefaults(
   display: flex;
   justify-content: space-between;
   font-size: 10px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* ===== 乖离率数值颜色 ===== */

@@ -366,3 +366,54 @@ title: 技术债务与开口项明细（tech-debt）
 - 其余带较宽操作槽、同样使用该组件的页面（`Aggregation/*`、`inventory` 等）**存在同样的风险**，
   待逐个量测后决定走「就地覆盖」还是「公共组件放开换行 + `min-width: 0`」——
   后者一动全体变版、需一次性肉眼验收，属独立决策。
+
+## 2026-09-18 文字色 WCAG 扫描：探市页已归零，保留项与跨页面残留登记（#1586）
+
+卡内交付：#1589（审计器 `scripts/audit_text_contrast.mjs`）、#1591（13 处底色级令牌换 `-ink` +
+`--color-fall-ink` 校准到 AA）、本轮（探市页 29 处 `--text-tertiary` + 3 处 `--text-disabled` 收敛）。
+
+### 已修（**探市页不达标项已归零**，可用审计器复核）
+
+| 类别 | 处数 | 处置 |
+|---|---|---|
+| 底色级令牌当文字色（全站） | 13 | ✅ 换同名 `-ink`（#1591） |
+| `--text-tertiary` 作正文（探市页） | 26 | ✅ 换 `--text-tertiary-ink`（3.57~3.69 → 5.78~5.98:1） |
+| `--text-disabled` 作可读信息（探市页） | 3 | ✅ 换 `--text-tertiary-ink`（1.71~1.77 → 5.78~5.98:1） |
+
+复核命令：`node scripts/audit_text_contrast.mjs --scope explore --all`
+→ 目标类 **0 处**、不达标 **0 处**、豁免 **3 处**。
+
+### 保留不改（**代码内有 `audit-text-contrast: exempt` 指令 + 理由**）
+
+判断依据：WCAG 1.4.11 对**非文本图形**只要求 3:1，而 `--text-tertiary` 实测 3.57~3.69:1 —— 达标；
+改用 `-ink`（5.78:1）会让图标与相邻正文同权，反而压平层级。
+
+| 位置 | 元素 | 说明 |
+|---|---|---|
+| `views/explore/components/detail/MetricDetailTable.vue` | `.info-icon` | `el-icon` 图标字形（tooltip 触发） |
+| `views/explore/components/ExploreAssetOverview.vue` | `.asof-bar__icon` | `ep:info-filled` 图标字形 |
+| `views/explore/index.vue` | `.auth-guide__close` | 28×28 图标按钮（`ep:close`） |
+
+**豁免是"有理由的保留"，不是白名单**：指令必须带理由文本；新增豁免会被审计器单列，不会被静默吸收。
+
+### 开口项（**未做，需拍板/另立卡**）
+
+| # | 事项 | 状态 |
+|---|------|------|
+| 1 | **`--text-tertiary-ink` 与 `--text-secondary` 层级倒挂**：亮端 5.98 vs 5.77:1、暗端 7.55 vs 6.42:1 —— "辅助文字级"令牌比"次要文字"更重，两端同病。本卡按既有 `-ink` 约定沿用，未改值；要真正分层需重新选值（辅助应落 4.6~5.0:1 且轻于 secondary） | ❌ 待拍板（**颜色观感变更**） |
+| 2 | `--text-disabled`（亮 1.77:1）全站仍有 20 处 `color:` 用法，其中「真禁用控件」（如 `pure-segmented-item-disabled`）可豁免，其余需逐处分类——本卡只清了探市页 | ❌ 另立卡 |
+| 3 | 跨页面残留：`--text-tertiary` 全站 253 处 `color:` 用法中，探市页已清；`Aggregation/*`、`ledgers`、`login`、`watchlist` 等页面未逐处判定 | ❌ 另立卡（**本卡已限定探市页**，此条为选定的验收口径） |
+| 4 | 把审计器接进 CI 门禁 | ❌ **不做**：纯静态 + 固定背景基准会产生误报，红灯会卡住正常 PR；维持「手动跑、看报告」 |
+
+### 附：本轮修掉的两个**取证工具缺陷**（比逐处替换更要紧）
+
+1. **审计器字号判定方向错**：原实现只在 `color:` 行**之后**找 `font-size`，而本仓绝大多数规则把
+   `font-size` 写在 `color:` **之前**（`.bias-updated { font-size: 12px; color: … }`），
+   于是全部退化成 `[字号?]`、一律按 4.5:1 判 —— 系统性把"大字达标"误报成"不达标"。
+   已改为沿「最内层规则 → 外层规则」逐级取（SCSS 嵌套把 `font-size` 写在祖先规则里也能取到）。
+2. **暗色端零覆盖**：暗色令牌是 `rgb(237 234 229 / N%)` 半透明写法，原 `parseHex` 直接返回 `null`
+   并 `continue` —— **所有暗色 `color:` 用法从未被计算过**。已加 alpha 合成（按各自背景合成后再算对比度）。
+
+同时更正 `design.md` / `design.dark.md` 中 8 个文字令牌里 **7 个失实的对比度数字**
+（亮端 `--text-tertiary` 记 4.8:1"✅"、实测 3.69:1；`--text-disabled` 记 3.1:1、实测 1.77:1；
+暗端 15.2/9.8/5.6/2.8:1 全部偏高）。**"4.8:1 ✅" 这个错数字正是 253 处不达标用法长期未被发现的原因。**

@@ -274,6 +274,9 @@ onMounted(() => {
     flex-shrink: 0;
     margin-top: 2px;
     font-size: 15px;
+
+    /* audit-text-contrast: exempt 非文本图形（图标字形），按 WCAG 1.4.11 需 3:1，本令牌在页底 / 卡片底实测 3.57~3.69:1，达标；
+       若改用 -ink 会与相邻正文同权，反而压平层级。登记见 docs/spec/tech-debt.md（#1586） */
     color: var(--text-tertiary);
   }
 
@@ -324,7 +327,7 @@ onMounted(() => {
 
   &__count {
     font-size: 13px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 }
 
@@ -395,30 +398,35 @@ onMounted(() => {
   &__change {
     font-variant-numeric: tabular-nums;
 
+    /* 无数据占位「—」：原文案用 --text-disabled（1.67:1）在卡底近乎不可见，
+       用户无法区分「无数据」与「渲染坏了」。占位符是信息，不是禁用控件，
+       不适用 WCAG 对 inactive component 的豁免，故改用文字级令牌（5.78:1）。 */
     &--na {
       font-family: var(--font-mono);
       font-size: 28px;
       font-weight: 700;
-      color: var(--text-disabled);
+      color: var(--text-tertiary-ink);
     }
   }
 
+  /* 不可用原因说明：真实可读文案，13px 正文级 → 必须 ≥ 4.5:1 */
   &__reason {
     font-size: 13px;
     line-height: 1.5;
-    color: var(--text-disabled);
+    color: var(--text-tertiary-ink);
   }
 
+  /* 同 &--na：占位「—」 */
   &__nopin {
     font-family: var(--font-mono);
     font-size: 18px;
-    color: var(--text-disabled);
+    color: var(--text-tertiary-ink);
   }
 
   &__caliber-text {
     font-size: 13px;
     line-height: 1.5;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 }
 
@@ -460,7 +468,7 @@ onMounted(() => {
 
   &__basis {
     font-size: 13px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   &__label {
@@ -494,7 +502,7 @@ onMounted(() => {
   &__count {
     font-size: 13px;
     font-weight: 400;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   &__list {
@@ -511,7 +519,7 @@ onMounted(() => {
     margin-top: 10px;
     font-size: 12px;
     line-height: 1.6;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
     border-top: 1px solid var(--color-warning);
   }
 }
@@ -590,7 +598,7 @@ onMounted(() => {
   &__hint {
     margin-left: auto;
     font-size: 13px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 }
 
@@ -601,10 +609,10 @@ onMounted(() => {
   align-items: center;
   justify-content: flex-end;
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 
   &__time {
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 }
 
