@@ -1,0 +1,9 @@
+# SPA 路由回退（Cloudflare Pages 会读取输出目录里的本文件；Vite 原样拷贝 frontend/public/ → dist/）
+#
+# 语义：请求路径在静态资源里没有命中时，不再 404，而是回退到 /index.html（200 = rewrite 而非 301），
+# 由前端路由接管。应用站生产构建当前是 hash 模式（frontend/.env.production 的
+# VITE_ROUTER_HISTORY="hash"），hash 深链（/#/explore）本不触发 404——本文件是为切换到
+# history 模式预留的兜底，同时补齐 Cloudflare Pages 侧的 SPA 回退配置（#1430 验收项）。
+#
+# Vercel 侧用根 vercel.json 的 rewrites，EdgeOne 侧在控制台配（见 docs/ops/deployment.md §3）。
+/*    /index.html   200
