@@ -331,3 +331,25 @@ title: 技术债务与开口项明细（tech-debt）
 附：本文件 158–243 行的损坏段（见开头提示）与本轮治理无关，属既有残留，需专门清一次。建议修法二选一：① **机械剥离前缀**——每行去掉行首的「行号 + 冒号/竖线」，注意竖线场景下原行首的 `|` 要保留（否则表格列会丢）；② **从引入该段的提交重新取原文覆盖**（更稳，可避免剥离规则在边界行上出错）。**留待专门一次文档清理**，不与本轮治理混做。
 
 配套决策见 `docs/spec/decisions.md` 2026-09-11 行（D22）；授权变更见根 `LICENSE`、`README.md`「授权与使用限制」与 `AGENTS.md` 核心约束「授权与可见性」。
+
+## 2026-09-18 死媒体块覆盖：MetricGrid 已修，其余同类待逐个复核（#1576）
+
+触发：#1571 实测发现 `MetricGrid` 的两条 `@media`（`--metric-basis: 240px` / `100%`）排在基础声明
+`.metric-grid { --metric-basis: 200px }` **之前**——媒体查询不改变特异性，同特异性下后写的规则胜出，
+故两档**从未生效**（320~1920 全档实测恒为 `200px`）。与 #1557（暗色令牌被 `colors.css` 的 `:root`
+同特异性压掉）同属「**源序即语义**」这一类。
+
+| # | 事项 | 状态 |
+|---|------|------|
+| 1 | `MetricGrid` 两条响应式块移到基础声明之后，并改用 `bp.below("lg"/"sm")`（Tailwind 对齐） | ✅ 已修（#1576；边界随之外移 `960→1023`、`560→639`，9 档 before/after 实测） |
+| 2 | 全仓扫描「媒体块内声明被其后同选择器规则覆盖」的同类写法 | ⚠️ **有同类：29 条候选**。抽检 3 处均为真实死覆盖（`MetricCard/index.vue` 的 `.metric-card__value` 字号 26px、`ExploreDetailPanel.vue` 的 `.context-grid` / `.detail-panel`、`profile/index.vue` 的 `.setting-row` 系列）；其余待逐个复核（扫描器为近似匹配，含嵌套上下文误报） |
+| 3 | 是否新增硬守卫（自动检测该类死代码） | ❌ **不做**（理由见 `decisions.md` 2026-09-18：静态近似信噪比不足；且 `stylelint --fix` 这个制造器已由 `order/order` 槽位修正堵住）。**可复活**：把本次一次性扫描器升级为「冻结基线 + 只拦新增」的 warn 模式守卫 |
+
+候选分布（文件 → 命中数，均为「媒体块内声明 + 其后同名规则」，需人工复核）：
+`Aggregation/AggregationDimensionTabs.vue` 2、`Aggregation/AggregationProductCard.vue` 3、
+`MetricCard/index.vue` 1、`TemperatureGaugeCard/index.vue` 1、`style/element-plus.scss` 2、
+`views/asset/favorites/components/RoadEmptyState.vue` 1、`views/asset/ledgers/components/LedgerCard.vue` 3、
+`views/explore/components/ExploreDetailPanel.vue` 2、`views/explore/components/ExploreTemperatureDashboard.vue` 1、
+`views/login/index.vue` 3、`views/login/reset-password.vue` 2、`views/profile/index.vue` 7。
+
+完整 29 条位置清单见 **#1576 评论**（含文件:行号与属性名）。

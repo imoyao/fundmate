@@ -16,35 +16,17 @@
 </template>
 
 <style lang="scss" scoped>
-/* ⚠️ 已知缺陷（#1571 实测发现，修复单独立项，勿在此 PR 顺手改）：
-   下面两条 @media 目前是**死代码**——它们排在基础规则 `.metric-grid
-   { --metric-basis: 200px }` **之前**，而媒体查询不改变特异性，同特异性下
-   后写的规则胜出，故 `--metric-basis` 在 320~1920 全档实测恒为 200px，
-   240px / 100% 两档从未生效。修好它们会改变 320~960 档的每行卡片数
-   （属视觉变更，按 #1548 口径应单独成一个 PR）。
-   本次只对「写死的 min-width 可能大于容器」做兜底，不触碰级联顺序。 */
+@use "@/style/breakpoints" as bp;
 
-/* 响应式：窄屏提高最小宽度占比 */
-@media (width <= 960px) {
-  .metric-grid {
-    --metric-basis: 240px;
-  }
-}
-
-@media (width <= 560px) {
-  .metric-grid {
-    --metric-basis: 100%;
-  }
-
-  :deep(.metric-card),
-  :deep(.gauge-card),
-  :deep(.explore-actions-card),
-  :deep(.metric-card--featured),
-  :deep(.gauge-card--featured) {
-    flex: 1 1 100%;
-    min-width: 100%;
-  }
-}
+/* ⚠️ 顺序即语义：下面两条响应式块**必须留在各自基础声明之后**。
+   媒体查询不改变特异性，同特异性下后写的规则胜出——2026-09-18（#1576）之前，
+   这两块排在基础规则 `.metric-grid { --metric-basis: 200px }` **之前**，于是
+   `--metric-basis` 在 320~1920 全档实测恒为 200px，`240px` / `100%` 两档从未生效，
+   连 `min-width: calc(var(--metric-basis) * 1.6)` 也恒为 320px（320 视口下的
+   横向溢出根因，已由 #1571 的 `min()` 兜底先止血）。断点值一律走
+   `_breakpoints.scss` 单一来源（`scripts/guard_breakpoints.py` 拦截裸值），
+   且 mixin 编译产物就是 @media —— `stylelint --fix` 若把它挪到声明之前，
+   会再次把覆盖改死，见 `stylelint.config.js` 的 `order/order` 注解。 */
 
 .metric-grid {
   --metric-basis: 200px;
@@ -53,6 +35,17 @@
   flex-wrap: wrap;
   gap: var(--space-compact);
   align-items: stretch;
+
+  /* 窄屏提高最小卡宽（原写 960px，2026-09-18 起对齐 Tailwind `lg` = 1024px：
+     本仓断点已收口为 Tailwind v4 同阈值，#1571 决策） */
+  @include bp.below("lg") {
+    --metric-basis: 240px;
+  }
+
+  /* 手机档：单卡占满一行（原写 560px，对齐 Tailwind `sm` = 640px） */
+  @include bp.below("sm") {
+    --metric-basis: 100%;
+  }
 }
 
 /* 普通卡：等比拉伸填满，最小宽度 200px。
@@ -64,15 +57,27 @@
 :deep(.explore-actions-card) {
   flex: 1 1 var(--metric-basis);
   min-width: min(var(--metric-basis), 100%);
+
+  /* 手机档强制满宽：仅靠 --metric-basis: 100% 时卡片仍会被 flex-grow 与内容
+     宽度影响，故显式改 flex 简写 + min-width（#1576 验收：每行一张卡）。 */
+  @include bp.below("sm") {
+    flex: 1 1 100%;
+    min-width: 100%;
+  }
 }
 
 /* featured 卡：占约 2 倍宽度。
    同理加 100% 上限。此处是 #1571 实测到的**真实溢出源**：320 视口下
-   --metric-basis 计算值为 200px（原因见上方死代码说明），200 × 1.6 = 320px
+   --metric-basis 计算值为 200px（原因见上方顺序说明），200 × 1.6 = 320px
    > 网格 272px，卡片右侧顶出视口 24px。 */
 :deep(.metric-card--featured),
 :deep(.gauge-card--featured) {
   flex: 2 1 calc(var(--metric-basis) * 2);
   min-width: min(calc(var(--metric-basis) * 1.6), 100%);
+
+  @include bp.below("sm") {
+    flex: 1 1 100%;
+    min-width: 100%;
+  }
 }
 </style>
