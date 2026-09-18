@@ -242,7 +242,7 @@
 }
 
 .el-table .bond-redeem.is-urgent {
-  color: var(--color-rise);
+  color: var(--color-rise-ink);
   font-weight: 500;
 }
 
