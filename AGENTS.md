@@ -117,7 +117,7 @@
 | 前端 | Vue 3 + TypeScript + Vite，Element Plus，pure-admin，pnpm |
 | 文档站 | VitePress（根目录 pnpm） |
 | 落地页 | 已移交主站 duoduobei-web（duoduobei.com），本仓不再构建；应用站部署目标为前端 SPA |
-| 测试 | pytest（**必须单进程**，因 xdist 多 worker 导致 OOM） |
+| 测试 | 后端 pytest（**必须单进程**，因 xdist 多 worker 导致 OOM）；前端 Playwright E2E（`pnpm test:e2e`，**不进 per-PR 门禁**，见 `docs/dev/frontend-e2e.md`） |
 | 代码检查 | Ruff（后端，120 行宽，单引号），ESLint + Prettier + Stylelint（前端） |
 | 提交钩子 | pre-commit（后端 ruff），husky + commitlint（前端，但因 `ignore-scripts=true` 未实际安装） |
 
@@ -191,6 +191,7 @@
 | 类型检查 | `pnpm typecheck`（`tsc --noEmit && vue-tsc --noEmit --skipLibCheck`） |
 | Lint | `pnpm lint`（eslint + prettier + stylelint） |
 | 构建 | `pnpm build` |
+| E2E（前端） | `pnpm test:e2e`（Playwright；自带 dev server 端口 **8849**，不依赖后端与真实 Supabase，见 `docs/dev/frontend-e2e.md`） |
 | 提交 | husky + commitlint 强制 conventional commits（type 枚举见 `commitlint.config.js`） |
 
 > ⚠️ **升级/安装依赖后必须重启 dev server**（Issue #972）。
@@ -369,6 +370,8 @@
 
 - 后端：`pytest` 全量单进程通过。
 - 前端：`vue-tsc` 零错误（需手动运行，因 husky 未安装）。
+- 前端 E2E：**不是每次提交都要跑**，但改动**路由守卫 / 布局 / permission store / 侧边栏**时
+  必须跑 `pnpm test:e2e`（`ci.yml` 只做静态检查；E2E 由 `e2e.yml` 每夜或手动触发）。
 
 ---
 

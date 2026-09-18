@@ -63,6 +63,8 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
+    # 防 pytest 偶发 hang 卡满 GitHub 默认 6h 兜底：单进程后端测试正常 ~19min，给 30min 余量（#1596 排查 CI 卡死）
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: backend
@@ -227,8 +229,10 @@ jobs:
       # 检查模式（不带 --fix），有问题即失败，确保门禁有效
       - name: Lint 检查
         run: |
-          pnpm exec eslint "{src,mock,build}/**/*.{vue,js,ts,tsx}" --max-warnings 0
-          pnpm exec prettier --check "src/**/*.{js,ts,json,tsx,css,scss,vue,html}"
+          # e2e / playwright.config.ts 也纳入（#1568）：E2E 用例不进 per-PR 门禁地跑，
+          # 但**静态检查必须进**——否则那批文件会成为唯一无人检查的角落。
+          pnpm exec eslint "{src,mock,build,e2e}/**/*.{vue,js,ts,tsx}" "playwright.config.ts" --max-warnings 0
+          pnpm exec prettier --check "src/**/*.{js,ts,json,tsx,css,scss,vue,html}" "e2e/**/*.ts" "playwright.config.ts"
           pnpm exec stylelint "**/*.{html,vue,css,scss}" --cache-location node_modules/.cache/stylelint/
 
       # 页面规模门禁（#980 治本项）：扫描 .vue 文件行数，超出阈值报告。

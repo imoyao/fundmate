@@ -13,6 +13,12 @@ npm-debug.log*
 .pnpm-debug.log
 tests/**/coverage/
 
+# Playwright E2E（#1568）产物：报告与失败现场不入库
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/
+
 # Editor directories and files
 .idea
 *.suo
