@@ -27,6 +27,7 @@
 | 原位置 | 替代方法 | 状态 |
 |--------|----------|------|
 | position_aggregation 市值计算 | `get_latest_navs(allow_remote=False)` | ✅ 已迁移 |
+| 持仓现价回写 job（#1104，`position_price`） | `get_latest_navs_with_dates(allow_remote=False)` | ✅ 已接入（需净值**日期**做新鲜度闸门，故走带日期变体） |
 | LedgerService._batch_fund_latest_navs() | `get_latest_navs(allow_remote=False)` | ✅ 已委托（保留方法名兼容 3 处调用方） |
 | calculators._get_fund_latest_nav() | `get_latest_navs(allow_remote=False)` | ✅ 已委托 |
 | calculators._batch_get_position_values() | `get_latest_navs(allow_remote=False)` | ✅ 已委托 |
@@ -108,6 +109,31 @@ class NavService:
         Returns:
             {fund_code: unit_nav} 映射，无数据的基金不在其中
         """
+        dated = NavService.get_latest_navs_with_dates(
+            db,
+            fund_codes,
+            allow_remote=allow_remote,
+            stale_threshold_days=stale_threshold_days,
+        )
+        return {code: nav for code, (nav, _nav_date) in dated.items()}
+
+    @staticmethod
+    def get_latest_navs_with_dates(
+        db: Session,
+        fund_codes: List[str],
+        *,
+        allow_remote: bool = True,
+        stale_threshold_days: int = 3,
+    ) -> Dict[str, Tuple[float, date]]:
+        """批量获取最新单位净值**及其净值日期**（`:meth:`get_latest_navs` 的带日期变体）。
+
+        同源同参，只多返回日期——**唯一区别**是调用方需要按「净值新鲜度」做闸门时用本方法：
+        例如持仓现价回写（#1104，`position_price` job）只接受 7 天内的确认净值，
+        没有日期就无法判断「这条净值是不是早就该更新了」。
+
+        Returns:
+            {fund_code: (unit_nav, nav_date)}；无数据的基金不在其中。
+        """
         if not fund_codes:
             return {}
 
@@ -115,7 +141,7 @@ class NavService:
         latest = NavService._query_latest_from_db(db, fund_codes)
 
         if not allow_remote:
-            return {code: nav for code, (nav, _) in latest.items()}
+            return latest
 
         # 2. 检测缺失或过旧的基金
         today = date.today()
@@ -131,7 +157,7 @@ class NavService:
                 stale_codes.append(code)  # 有数据但过旧
 
         if not stale_codes:
-            return {code: nav for code, (nav, _) in latest.items()}
+            return latest
 
         # 3. 远程拉取缺失/过旧的净值（并发，单只失败不影响整体）
         logger.info(
@@ -144,9 +170,11 @@ class NavService:
         if fetched:
             NavService._persist_fetched(fetched, today)
 
-        # 4. 合并：远程结果优先（更新），其余用库中值
-        result = {code: nav for code, (nav, _) in latest.items()}
-        result.update(fetched)
+        # 4. 合并：远程结果优先（更新）；远程结果的净值日期即今日——
+        #    _persist_fetched(fetched, today) 正是按今日落库，两处口径必须一致，
+        #    否则带日期变体会把「刚拉到的新净值」标成旧日期，调用方的新鲜度闸门会误杀。
+        result = dict(latest)
+        result.update({code: (nav, today) for code, nav in fetched.items()})
         return result
 
     @staticmethod

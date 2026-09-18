@@ -57,6 +57,7 @@ from app.services.sync.jobs.index_catalog_job import IndexCatalogSyncJob
 from app.services.sync.jobs.index_constituent_job import INDEX_TARGETS, IndexConstituentSyncJob
 from app.services.sync.jobs.index_daily_job import IndexDailySyncJob
 from app.services.sync.jobs.index_valuation_job import IndexValuationSyncJob
+from app.services.sync.jobs.position_price_job import PositionPriceSyncJob
 from app.services.sync.jobs.price_history_job import PriceHistorySyncJob
 from app.services.sync.jobs.stock_list_job import StockListSyncJob
 from app.services.thermometer.jobs import TemperatureJob
@@ -140,6 +141,10 @@ class DataSyncOrchestrator:
         self.jobs['dividend_split'] = DividendSplitSyncJob(self.data_sources['akshare'], self.db)
         # #1182：资产快照每日落账（家庭/账户两级，含货基每日收益），无外部数据源
         self.jobs['asset_snapshot'] = AssetSnapshotJob(self.db)
+        # #1104：持仓现价回写（已确认净值 / 货基面值 → positions.current_price）。
+        # 只读库内已有净值、不联网，故 NullAdapter 占位；目标池自持仓表（user 域），
+        # 不吃 resolve_targets() 的 fund/stock 池，故入参 targets 被忽略。
+        self.jobs['position_price'] = PositionPriceSyncJob(self.db)
 
     # ── 目标代码解析 ──
 
@@ -421,6 +426,10 @@ class DataSyncOrchestrator:
                 ('index_daily', ['__full__']),  # 指数日线（万得全A 全量 10 年，#275）
                 ('dividend_split', stock_targets + fund_targets),  # 分红/送股抓取（#1179）
                 ('advisor_portfolio', ['__full__']),  # 投顾组合持仓/调仓回填（#1167，组合数少且自带节流）
+                # #1104：持仓现价回写——必须排在净值/行情之后、资产快照之前：
+                # 快照的市值/盈亏读的正是 positions.current_price，顺序错了快照就还是旧价。
+                # 不联网（只读库内已确认净值），故无请求风暴风险；目标池自持仓表，targets 传空。
+                ('position_price', []),
                 # #1182：资产快照落账放最后，确保前面的净值/行情已刷新，快照取到最新值
                 ('asset_snapshot', []),
             ]
