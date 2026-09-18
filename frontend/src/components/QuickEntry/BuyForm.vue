@@ -360,7 +360,7 @@ import {
   LEDGER_TYPE_SHORT,
   LEDGER_TYPE_OPTIONS
 } from "@/constants";
-import { getLedgerColor, bgFromColor } from "@/utils/ledger";
+import { getLedgerColor } from "@/utils/ledger";
 import { DEFAULT_SUB_RATE } from "@/utils/trading";
 
 interface SecurityOption {
