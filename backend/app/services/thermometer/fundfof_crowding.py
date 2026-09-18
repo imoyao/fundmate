@@ -18,12 +18,11 @@
   · 仅用于个人自用验证，**不应对外发布**；对外形态必须换成自有或授权数据源。
 
 开关：环境变量 `FUNDFOF_CROWDING_ENABLED`（默认开启；置 `0/false/no/off` 即关停 → 回落原三路径）。
-      环境变量 `FUNDFOF_CROWDING_MERGE_SW_BIAS`（**默认关闭**）：BIASn 补齐会调 akshare
-      `index_hist_sw`，默认关掉可省掉每次温度任务的这次额外请求。
-      ⚠️ 归因更正（#1566）：原注释称该路径会触发 `py_mini_racer` 内嵌 V8 的原生 FATAL 崩溃
-      （引用 #1511），**不成立**——`index_hist_sw` 全程只有 `requests.get`，不碰 V8。
-      真因是并发构造 `MiniRacer`（#1566），已由 `app/core/v8_guard.py` 进程级修复；
-      故本开关默认值不再是防崩溃措施，是否放开属独立功能决策（见 #1566 验收标准 4）。
+      环境变量 `FUNDFOF_CROWDING_MERGE_SW_BIAS`（默认开启；置 `0/false/no/off` 即关停）用申万官网源补行业 BIASn。
+      ⚠️ 历史更正（#1566）：2026-09-15 的 #1512 曾以「akshare 触发 py_mini_racer 原生崩溃」为由把本开关
+      默认关闭，该归因**不成立**——`index_hist_sw`（akshare/index/index_research_sw.py）全程只有
+      `requests.get`，不碰 V8。真实崩溃源是**并发构造 `MiniRacer`**（探市 6 线程取数），现由
+      `app/core/v8_guard.py` 在进程级收口。故本开关恢复默认开启。
 
 维度（category）：
   · `sw`    → 申万一级 31 行业，落 `source='industry_crowding'` / `item_type='industry'`
@@ -128,7 +127,6 @@ CATEGORY_SPECS: Dict[str, Dict[str, str]] = {
 _UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
 
 _TRUTHY_OFF = {'0', 'false', 'no', 'off'}
-_TRUTHY_ON = {'1', 'true', 'yes', 'on'}
 
 
 def enabled() -> bool:
@@ -139,19 +137,16 @@ def enabled() -> bool:
 def _merge_sw_bias_enabled() -> bool:
     """是否用申万官网源补行业 BIASn（该接口无乖离率字段）。
 
-    默认关闭：补齐路径会调 akshare `index_hist_sw`，关掉可省掉每次温度任务的这次额外请求；
-    fundfof 自身已提供拥挤度 / 换手率 / 60日线上 / 新高 / 融资 / 大单等维度，BIASn 仅作补充。
+    默认开启，显式置 `0/false/no/off` 才关停（白名单逻辑保留：空值 / 乱值不改变默认，
+    避免误设空串意外关掉补齐路径）。
 
-    ⚠️ 归因更正（#1566）：本开关原注释称「akshare 在部分 Windows 环境会触发 `py_mini_racer`
-    （内嵌 V8）的原生 FATAL 崩溃」（#1512 / commit 73d052e05 据此默认关闭），**该归因不成立**——
-    `index_hist_sw` 实现在 `akshare/index/index_research_sw.py`，全程只有 `requests.get` +
-    `r.json()`，既不 import 也不调用 `py_mini_racer`。关掉它只丢功能、对崩溃零作用
-    （这正是 9/17 照崩的原因）。真因见 #1566，已由 `app/core/v8_guard.py` 进程级修复。
-
-    仅当 `FUNDFOF_CROWDING_MERGE_SW_BIAS` 明确为开启语义（1/true/yes/on）时才启用；
-    空值 / 任意其它值一律按默认关闭处理。
+    ⚠️ 历史更正（#1566）：#1512 曾以「该路径调 akshare `index_hist_sw` 会触发
+    `py_mini_racer` 内嵌 V8 原生 FATAL」为由把本开关默认关闭。该归因经实证不成立——
+    `index_research_sw.py` 只有 `requests.get`、压根不 import V8（`grep MiniRacer` 零命中）。
+    真实崩溃源是**多线程并发构造 `MiniRacer`**（探市 6 线程取数撞车），已由
+    `app/core/v8_guard.py` 在进程级收口，与本路径无关，故恢复默认开启。
     """
-    return os.getenv('FUNDFOF_CROWDING_MERGE_SW_BIAS', '0').strip().lower() in _TRUTHY_ON
+    return os.getenv('FUNDFOF_CROWDING_MERGE_SW_BIAS', '1').strip().lower() not in _TRUTHY_OFF
 
 
 def _log(*a):
@@ -350,15 +345,11 @@ def to_records(payload: Dict[str, Any], category: str = 'sw') -> List[dict]:
 def _merge_sw_bias(records: List[dict]) -> None:
     """用申万官网源补 BIASn（就地修改；失败静默，不影响主数据）。
 
-    该路径调用 akshare `index_hist_sw`，故默认由 `_merge_sw_bias_enabled()` 关闭以省掉这次
-    额外请求；需要时手动设 `FUNDFOF_CROWDING_MERGE_SW_BIAS=1` 开启。
-
-    ⚠️ 归因更正（#1566）：原注释称此路径「已知在部分 Windows 环境触发 `py_mini_racer` 内嵌 V8
-    的原生 FATAL 崩溃」（#1511），**不成立**——`index_hist_sw` 全程只有 `requests.get`，
-    不经过 V8。真因是并发构造 MiniRacer，已由 `app/core/v8_guard.py` 进程级修复。
-
     该接口无乖离率字段，而我方表有「乖离 6/20/60 日」列，故复用 `sw_industry_source`
     的简单 MA 口径补齐；申万源不可达时该三列留空（不阻塞）。仅对行业维度适用。
+
+    ⚠️ 历史更正（#1566）：本路径调的是 akshare `index_hist_sw`，**不经过 py_mini_racer**，
+    与 V8 原生崩溃无关（该崩溃由并发构造 MiniRacer 引起，现由 `app/core/v8_guard.py` 兜住）。
     """
     try:
         from app.services.thermometer.sw_industry_source import (

@@ -864,30 +864,24 @@ def _placeholder(note: str = '行业拥挤度数据暂不可用') -> dict:
 def _sw_share_records() -> List[dict]:
     """申万官网单源路径（#1431 兜底）：产出 31 行「成交额占比分位 + BIASn」。
 
-    默认禁用：该路径依赖 akshare `index_hist_sw`（申万宏源官网），关掉可免掉温度任务多打一路请求；
-    fundfof 不可达时改由 legulegu 兜底（8 个中证行业）。
+    默认**启用**；显式置 `SW_FALLBACK_AKSHARE_ENABLED=0/false/no/off` 才停用（白名单逻辑保留——
+    空值 / 乱值不改变默认，避免误设空串意外改变取数路径）。
 
-    ⚠️ 归因更正（#1566）：本函数原注释把「`py_mini_racer` 内嵌 V8 的原生 FATAL 崩溃」归给这条路径
-    （引用 #1511；#1512 / commit 73d052e05 据此默认关闭了本开关），**该归因不成立**——
-    `index_hist_sw` 实现在 `akshare/index/index_research_sw.py`，全程只有 `requests.get` + `r.json()`，
-    既不 import 也不调用 `py_mini_racer`，不可能触发 V8 崩溃。关掉它只丢这 31 个行业的
-    成交额占比分位与 BIASn，对崩溃零作用（这正是 9/17 照崩的原因）。
-
-    真因是**多线程并发构造 `MiniRacer`**（#1566），已由 `app/core/v8_guard.py` 做进程级修复。
-    因此本开关的默认值**不再是「防崩溃措施」**；是否放开需另行验证申万源的可用性与数据质量
-    （属独立功能决策，见 #1566 验收标准 4）。空值 / 任意其它值仍按默认禁用处理。
+    ⚠️ 历史更正（#1566）：#1512 曾以「该路径依赖 akshare `index_hist_sw`，而 akshare 在部分 Windows
+    环境会触发 `py_mini_racer` 内嵌 V8 的**原生 FATAL 崩溃**」为由把本路径默认禁用。该归因经实证
+    **不成立**——`akshare/index/index_research_sw.py` 全程只有 `requests.get`，不 import V8
+    （`grep -n "mini_racer\\|MiniRacer" ...` 零命中）。真实崩溃源是**多线程并发构造 `MiniRacer`**
+    （探市 `MarketOverviewService` 6 线程取数撞车，见 issue #1566 的最小复现），现由
+    `app/core/v8_guard.py` 在进程级收口，与本路径无关，故恢复默认启用。
 
     PB 分位（估值视角，`crowding_pct`）需行业 PB 源，本路径下为 None 并在 note 说明；
     指标口径见 `sw_industry_source`（占比分位 = 250 日滚动窗口；BIASn = 简单 MA 6/20/60）。
     """
-    # 默认禁用：仅当 env 明确为开启语义（1/true/yes/on）才放行，空值 / 任意其它值一律禁用。
-    # （原注释称此举是为了「避免误设空串或乱值意外触发会崩的 akshare 路径」；该归因已于
-    #   #1566 更正——这条路径全程只有 requests.get，根本不经过 V8，「会崩」不成立。）
-    if os.getenv('SW_FALLBACK_AKSHARE_ENABLED', '0').strip().lower() not in (
-        '1',
-        'true',
-        'yes',
-        'on',
+    if os.getenv('SW_FALLBACK_AKSHARE_ENABLED', '1').strip().lower() in (
+        '0',
+        'false',
+        'no',
+        'off',
     ):
         return []
     try:
