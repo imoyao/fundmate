@@ -95,12 +95,11 @@
 │   ├── .vitepress/
 │   ├── spec/               # 规范（conventions.md 冻结区）
 │   └── working-notes/      # 内部备忘（全局屏蔽，文件名须英文 kebab-case + 日期后缀）
-├── scripts/                # 根目录脚本（构建落地页、提交工具、守卫等）
+├── scripts/                # 根目录脚本（提交工具、守卫、文档/前端审计等）
 ├── site/                   # 主站共享资产（style.css, logo.svg 必须入库）
-├── landing.template.html   # 落地页模板
-├── landing.content.yml     # 落地页内容
-├── package.json            # 根目录：仅文档站与落地页依赖
-└── vercel.json             # Vercel 构建配置
+├── package.json            # 根目录：仅文档站依赖（落地页脚本已随移交移除）
+├── wrangler.toml           # Cloudflare Pages 配置（应用站备线，输出 frontend/dist）
+└── vercel.json             # Vercel 配置（应用站兜底：frontend/ 构建 + SPA 回退）
 ```
 
 **重要**：
@@ -304,7 +303,7 @@
 
 - **文档站**：根目录执行 `pnpm run docs:dev` / `docs:build`。
 - **内部备忘**：一律放 `docs/working-notes/`（全局屏蔽），文件名必须英文 kebab-case + 日期后缀，如 `deployment-2026-08-04.md`，正文标题可用中文。新增备忘须同步登记进 `working-notes/README.md` 索引表。
-- **落地页**：`pnpm run build:landing` / `build:about` / `build:story` / `build:pages`。`vercel.json` 构建时会执行 `build:landing`。
+- **落地页**：已移交主站仓库 `duoduobei-web`（`duoduobei.com`），本仓**不再构建落地页**——四条 `build:landing/about/story/pages` 脚本与 `scripts/build-landing.mjs` 均已移除。根 `vercel.json` 现指向**应用站**（`frontend/` 构建 → `frontend/dist` + SPA 回退），Cloudflare Pages 侧见根 `wrangler.toml`，详见 `docs/ops/deployment.md` §3。
 - **Markdown lint**：`pnpm run docs:lint-md`（CI 用 `npx lint-md docs`，不带 `-f`）。
 
 ---
