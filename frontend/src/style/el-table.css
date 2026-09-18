@@ -58,7 +58,7 @@
   border-radius: 999px;
   font-size: 12px;
   line-height: 18px;
-  color: var(--text-disabled);
+  color: var(--text-tertiary-ink);
   background: var(--bg-muted);
   border: 1px dashed var(--border-default);
   cursor: pointer;

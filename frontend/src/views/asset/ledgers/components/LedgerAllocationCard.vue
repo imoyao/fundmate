@@ -201,6 +201,6 @@ const allocationOption = computed(() => {
   align-items: center;
   justify-content: center;
   min-height: 220px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 </style>

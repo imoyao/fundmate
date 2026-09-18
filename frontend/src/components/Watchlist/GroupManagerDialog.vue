@@ -213,7 +213,7 @@ const deleteGroup = async (groupId: number) => {
 .group-empty {
   padding: var(--space-standard);
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: center;
 }
 
@@ -255,7 +255,7 @@ const deleteGroup = async (groupId: number) => {
   flex-shrink: 0;
   padding: 2px 8px;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background-color: var(--bg-soft);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-pill);
@@ -265,7 +265,7 @@ const deleteGroup = async (groupId: number) => {
   flex: 1;
   min-width: 0;
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .group-row__actions {

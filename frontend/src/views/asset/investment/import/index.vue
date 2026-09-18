@@ -141,7 +141,7 @@ const withMock = ref(false);
 .import-subtitle {
   margin: 0;
   font-size: var(--text-small);
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* #1239 草稿恢复 Banner：中性信息色，非红非弹窗（柔性原则 §2.5） */
@@ -225,7 +225,7 @@ const withMock = ref(false);
 
 .dev-jump-hint {
   margin-top: 6px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 </style>
 

@@ -132,7 +132,7 @@ function toggle() {
 .institution-sub {
   margin-top: 4px;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .head-right {
@@ -144,7 +144,7 @@ function toggle() {
 
 .expand-icon {
   font-size: 14px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   transition: transform 0.2s ease;
 }
 
@@ -188,7 +188,7 @@ function toggle() {
   flex: none;
   font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .item-metrics {

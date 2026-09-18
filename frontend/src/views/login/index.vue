@@ -785,7 +785,7 @@ useEventListener(document, "keydown", ({ code }) => {
 }
 
 .login-wordmark-sub {
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .login-slogan {
@@ -807,7 +807,7 @@ useEventListener(document, "keydown", ({ code }) => {
 }
 
 .login-tagline {
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   letter-spacing: 0.04em;
 }
 

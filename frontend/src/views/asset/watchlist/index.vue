@@ -1457,7 +1457,7 @@ const renderCtx = computed<RenderCtx>(() => ({
   width: 28px;
   height: 28px;
   padding: 0;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background-color: transparent;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-pill);
@@ -1528,6 +1528,7 @@ const renderCtx = computed<RenderCtx>(() => ({
 }
 
 .batch-delete-btn:disabled {
+  /* audit-text-contrast: exempt .batch-delete-btn:disabled 为**真禁用**控件，按 WCAG 1.4.3 对 inactive component 的豁免；**「无数据占位符」不适用本豁免**（那是信息，须用 --text-tertiary-ink）。登记见 docs/spec/tech-debt.md（#1599） */
   color: var(--text-disabled);
   cursor: not-allowed;
   border-color: var(--text-disabled);
@@ -1535,6 +1536,7 @@ const renderCtx = computed<RenderCtx>(() => ({
 }
 
 .batch-delete-btn:disabled:hover {
+  /* audit-text-contrast: exempt .batch-delete-btn:disabled:hover 为**真禁用**控件，按 WCAG 1.4.3 对 inactive component 的豁免；**「无数据占位符」不适用本豁免**（那是信息，须用 --text-tertiary-ink）。登记见 docs/spec/tech-debt.md（#1599） */
   color: var(--text-disabled);
   background-color: transparent;
 }
@@ -1578,7 +1580,7 @@ const renderCtx = computed<RenderCtx>(() => ({
 
 .page-size-select__label {
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   white-space: nowrap;
 }
 
@@ -1682,7 +1684,7 @@ const renderCtx = computed<RenderCtx>(() => ({
 .watchlist-empty__hint {
   margin: 0;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 空白自定义分组的虚线「+ 从全部自选添加」入口（issue #987）。

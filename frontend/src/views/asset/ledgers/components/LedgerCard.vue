@@ -332,7 +332,7 @@ const emit = defineEmits<{
   width: 22px;
   height: 22px;
   margin-right: 2px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   touch-action: none;
   cursor: grab;
   border-radius: var(--radius-sm);
@@ -369,7 +369,7 @@ const emit = defineEmits<{
 
 .ledger-row-action {
   /* text 图标按钮常显为中性灰图标，视觉权重统一 */
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   opacity: 0;
   transition:
     opacity 0.2s ease,
@@ -431,7 +431,7 @@ const emit = defineEmits<{
   margin-bottom: var(--space-2);
   font-size: 12px;
   line-height: 18px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-page);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-pill);

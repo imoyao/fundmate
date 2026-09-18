@@ -843,7 +843,7 @@ onMounted(async () => {
   }
 
   :deep(.page-header__subtitle) {
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 }
 
@@ -987,7 +987,7 @@ onMounted(async () => {
   gap: 6px;
   align-items: center;
   padding: 6px 6px 4px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   cursor: pointer;
   background: var(--bg-card);
   border: 1px solid var(--border-default);
@@ -1108,7 +1108,7 @@ onMounted(async () => {
 .field-block__desc {
   font-size: 13px;
   line-height: 1.4;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .field-block__input-row {
@@ -1138,6 +1138,7 @@ onMounted(async () => {
 
 /* 🔥 禁用态优化：去除灰底，变为幽灵按钮，视觉轻量不抢戏 */
 .field-block__save.is-disabled {
+  /* audit-text-contrast: exempt .field-block__save.is-disabled 为**真禁用**控件，按 WCAG 1.4.3 对 inactive component 的豁免；**「无数据占位符」不适用本豁免**（那是信息，须用 --text-tertiary-ink）。登记见 docs/spec/tech-debt.md（#1599） */
   color: var(--text-disabled) !important;
   cursor: not-allowed !important;
   background: transparent !important;
@@ -1150,7 +1151,7 @@ onMounted(async () => {
 .field-count {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* ===== 敏感词提示 ===== */
@@ -1201,7 +1202,7 @@ onMounted(async () => {
 .setting-row__desc {
   font-size: 12px;
   line-height: 1.4;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .setting-row__main {
@@ -1277,7 +1278,7 @@ onMounted(async () => {
 .danger-zone__desc {
   font-size: 12px;
   line-height: 1.4;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* ===== 危险幽灵按钮 ===== */
@@ -1322,7 +1323,7 @@ onMounted(async () => {
 .dialog-hint {
   margin: 0;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* ===== 退出确认弹窗内容 ===== */

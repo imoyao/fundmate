@@ -217,6 +217,6 @@ const {
 
 .summary-secondary {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 </style>

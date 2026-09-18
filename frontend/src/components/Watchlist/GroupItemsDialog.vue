@@ -359,7 +359,7 @@ function close(): void {
 .gi-count {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 列表容器：细边卡片，与 TagManagerDialog 的「白底卡片列表」同语言；
@@ -424,14 +424,14 @@ function close(): void {
   text-overflow: ellipsis;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   white-space: nowrap;
 }
 
 /* 移除按钮：默认弱化可见，行 hover 才全亮（与表格操作列同一弱化语言） */
 .gi-icon-btn {
   flex-shrink: 0;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   opacity: 0.55;
   transition:
     opacity 150ms ease,
@@ -452,7 +452,7 @@ function close(): void {
   padding: var(--space-3) 0;
   margin: 0;
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: center;
 }
 
@@ -460,7 +460,7 @@ function close(): void {
 .gi-add-btn {
   flex-shrink: 0;
   margin-right: 0;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   opacity: 0.55;
   transition:
     opacity 150ms ease,

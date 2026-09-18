@@ -76,7 +76,7 @@ function select(value: AggregationDimension) {
   padding: 6px 16px;
   font-family: var(--font-ui);
   font-size: 14px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   cursor: pointer;
   background: transparent;
   border: 1px solid var(--border-default);

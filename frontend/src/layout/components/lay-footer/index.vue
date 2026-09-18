@@ -40,7 +40,7 @@ withDefaults(
   /* 高度与左侧边栏折叠区（left-collapse 40px）同高——底部视觉一条水平线；
      用 min-height 而非固定 height 防止内部内容（长链接/换行）溢出 */
   min-height: 40px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-page);
   border-top: 1px solid var(--border-light);
 
@@ -62,7 +62,7 @@ withDefaults(
     margin: 0;
     font-size: 12px;
     line-height: 1.5;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
     white-space: normal;
   }
 

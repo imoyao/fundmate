@@ -414,7 +414,7 @@ function fmtShort(d: string | null): string {
   margin-top: 4px;
   font-family: var(--font-mono);
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* ── 大数字锚点 ── */
@@ -455,7 +455,7 @@ function fmtShort(d: string | null): string {
   margin: 8px 0 0;
   font-size: 12px;
   line-height: 1.6;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .preview-block {
@@ -509,7 +509,7 @@ function fmtShort(d: string | null): string {
   font-family: var(--font-mono);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .edit-actions {
@@ -527,7 +527,7 @@ function fmtShort(d: string | null): string {
   margin-top: var(--space-compact);
   font-size: 12px;
   line-height: 1.7;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-soft, var(--bg-page));
   border-radius: var(--radius-md);
 }
@@ -561,7 +561,7 @@ function fmtShort(d: string | null): string {
 
 .cell-label {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .cell-value {
@@ -604,7 +604,7 @@ function fmtShort(d: string | null): string {
 /* 机构别名：辅助提示，弱化显示 */
 .meta-alias {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .meta-link {
@@ -696,7 +696,7 @@ function fmtShort(d: string | null): string {
   padding: 2px 8px;
   margin-left: auto;
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-card);
   border-radius: var(--radius-sm);
 }
@@ -732,7 +732,7 @@ function fmtShort(d: string | null): string {
   margin-top: var(--space-6);
   font-size: 11px;
   line-height: 1.7;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-soft, var(--bg-page));
   border-radius: var(--radius-md);
 }

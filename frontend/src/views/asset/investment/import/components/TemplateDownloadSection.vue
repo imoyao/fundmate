@@ -25,7 +25,7 @@ const { isStandardMode, accountType, templateFields } =
   margin: 0;
   font-size: 12px;
   line-height: 1.6;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: left;
 }
 </style>

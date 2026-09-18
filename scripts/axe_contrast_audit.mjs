@@ -56,6 +56,8 @@ const AXE_FILE = arg('--axe-file', null);
 const ALLOW = flag('--allow-violations');
 /** 不注入会话 cookie（用于 `/explore` `/login` 这类免登录路由——登录态下它们可能被改路由到首页）。 */
 const NO_COOKIE = flag('--no-cookie');
+/** 截图目录：共享组件的改动「一改全站变版」，数字之外必须留下可肉眼复核的证据。 */
+const SHOT_DIR = arg('--shot', null);
 const SETTLE_MS = Number(arg('--settle-ms', '5000'));
 const PORT = Number(arg('--cdp-port', '9333'));
 /** 与 frontend/.env 的 VITE_SUPABASE_URL 一致；仅用于推算 cookie 名，不需要真凭据。 */
@@ -273,6 +275,23 @@ try {
     }
 
     const finalUrl = await evaluate('location.pathname + location.search');
+    // 截图（全页）：`--shot <dir>` 时按 theme+route 落盘，供人眼复核共享组件的改动。
+    // 先临时抬高视口再截：后台布局是「固定外壳 + 内部滚动」，否则只能拿到 487px 的视口高度。
+    if (SHOT_DIR) {
+      await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 2400, deviceScaleFactor: 1, mobile: false });
+      await sleep(900);
+      const metrics = await send('Page.getLayoutMetrics');
+      const h = Math.min(Math.ceil(metrics.result?.cssContentSize?.height ?? 2400), 6000);
+      const shot = await send('Page.captureScreenshot', {
+        format: 'png',
+        captureBeyondViewport: true,
+        clip: { x: 0, y: 0, width: 1280, height: h, scale: 1 },
+      });
+      await send('Emulation.clearDeviceMetricsOverride');
+      const name = `${THEME}_${route.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '') || 'root'}.png`;
+      writeFileSync(join(SHOT_DIR, name), Buffer.from(shot.result?.data ?? '', 'base64'));
+      console.log(`  📷 ${join(SHOT_DIR, name)}  (${h}px)`);
+    }
     // 「量到的是哪个页面」必须自证：dev 构建带 code-inspector，data-insp-path 就是真实源文件路径。
     const context = await evaluate(
       `(() => {` +

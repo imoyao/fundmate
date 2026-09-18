@@ -440,7 +440,7 @@ function ratioText(it: AdvisorAdjustItem): string {
   gap: 8px;
   align-items: center;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .wqv-sec {
@@ -490,7 +490,7 @@ function ratioText(it: AdvisorAdjustItem): string {
 .wqv-label {
   flex-shrink: 0;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .wqv-value {
@@ -501,7 +501,7 @@ function ratioText(it: AdvisorAdjustItem): string {
 }
 
 .wqv-empty {
-  color: var(--text-disabled);
+  color: var(--text-tertiary-ink);
 }
 
 /* #1468 策略简介可能上百字，右对齐 + 换行阅读（默认 .wqv-value 是 text-align:right） */
@@ -567,12 +567,12 @@ function ratioText(it: AdvisorAdjustItem): string {
 .wqv-li__ratio {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .wqv-op {
   margin-right: 4px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 加/减仓用涨跌语义变量（不硬编码色值），其余操作保持中性色 */
@@ -603,6 +603,6 @@ function ratioText(it: AdvisorAdjustItem): string {
 
 .wqv-hint {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 </style>

@@ -42,6 +42,9 @@ const COLORS_CSS = `:root {
   --bg-card: #ffffff;
   --text-tertiary: #8c8478;
   --text-tertiary-ink: #6b6258;
+  --text-disabled: #c9c2b8;
+  --text-inverse: #ffffff;
+  --brand-700: #e34f38;
   --color-rise: #e34f38;
   --color-rise-ink: #c0341f;
 }
@@ -101,6 +104,22 @@ const FIXTURE = `/* 夹具：#1586 审计器回归
 /* ⑥ 暗色半透明令牌（选择器含 dark）→ 必须做 alpha 合成后参与判定 */
 .panel-dark__text {
   color: var(--text-tertiary);
+}
+
+/* ⑦ 反色白字（按定义用于品牌/彩色实底）→ 归「静态不可判定」，不得报成不达标 */
+.inverse-btn {
+  color: var(--text-inverse);
+}
+
+/* ⑧ 真不达标（--text-disabled 作正文）→ 必须仍被报出来（新增分类不得顺手漏报） */
+.disabled-bad {
+  font-size: 12px;
+  color: var(--text-disabled);
+}
+
+/* ⑨ 品牌色当文字（此前两个分类桶都不收 → 被静默忽略）→ 归「品牌色当文字色」段 */
+.brand-btn {
+  color: var(--brand-700);
 }
 `;
 
@@ -197,11 +216,32 @@ test('exempt 指令：移入「已登记豁免」并保留理由与选择器，�
 
 test('汇总口径：不达标数与豁免数可被复核', () => {
   const out = full();
-  // 不达标 3 处 = real-bad + ancestor-small &__child + panel-dark__text
+  // 不达标 4 处 = real-bad + ancestor-small &__child + panel-dark__text + disabled-bad
   const listed = noInkBad(out)
     .split('\n')
     .filter(l => l.startsWith('frontend')).length;
-  assert.equal(listed, 3, `不达标段应恰好 3 条，实际 ${listed} 条：\n${out}`);
+  assert.equal(listed, 4, `不达标段应恰好 4 条，实际 ${listed} 条：\n${out}`);
   assert.match(out, /已登记豁免（代码内有 audit-text-contrast 指令，共 1 处）/);
   assert.match(out, /发现「底色级令牌当文字色」 2 处，其中按其字号判据不达标 0 处/);
+});
+
+test('反色白字（--text-inverse）归入「静态不可判定」，不报成不达标', () => {
+  const out = full();
+  assert.ok(!noInkBad(out).includes('inverse-btn'), '--text-inverse 不得出现在不达标段（白底算恒 1:1，纯误报）');
+  const sec = section(out, '静态不可判定');
+  assert.match(sec, /inverse-btn/, '应进「静态不可判定」段');
+  assert.match(sec, /axe 为准/, '该段须写明判定口径交给 axe');
+});
+
+test('品牌色当文字（--brand-*）不再被静默忽略', () => {
+  const out = full();
+  assert.ok(!noInkBad(out).includes('brand-btn'), '--brand-* 不得混进不达标段（判定依赖有效背景，须交 axe）');
+  const sec = section(out, '品牌色当文字色');
+  assert.match(sec, /--brand-700/, '应给出按令牌的规模汇总');
+  assert.match(out, /品牌色当文字色（`--brand-\*`，共 1 处/, '段标题应报出总处数（口径与规模一眼可见）');
+  assert.match(sec, /axe 判/, '须写明判定口径交给 axe');
+});
+
+test('新增分类不得漏报 B 类（--text-disabled 作正文仍须报出）', () => {
+  assert.match(noInkBad(full()), /\.disabled-bad/, '--text-disabled 作正文必须仍被报出');
 });

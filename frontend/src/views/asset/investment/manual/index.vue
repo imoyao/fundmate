@@ -460,7 +460,7 @@ watch([stockOpType, fundOpType], () => {
 /* 🔥 单选按钮组：克制、优雅的 Segmented Control + 果冻回弹动画 */
 :deep(.el-radio-button__inner) {
   font-weight: 500;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: transparent !important;
   border: none !important;
   border-radius: 6px;

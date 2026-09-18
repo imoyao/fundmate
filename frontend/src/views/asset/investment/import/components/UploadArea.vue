@@ -164,19 +164,19 @@ const {
 .upload-hint {
   margin: 12px 0 0;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .upload-format-info {
   margin-top: 6px;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .upload-flow-hint {
   margin-top: 10px;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .upload-error {

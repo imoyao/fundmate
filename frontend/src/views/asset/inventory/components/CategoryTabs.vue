@@ -112,6 +112,6 @@ function tabStyle(cat: InventoryCategory) {
   justify-content: center;
   margin-top: 2px;
   font-size: 16px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 </style>

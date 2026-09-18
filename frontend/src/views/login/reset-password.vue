@@ -429,7 +429,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
 }
 
 .login-wordmark-sub {
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .login-slogan {
@@ -447,7 +447,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
 }
 
 .login-tagline {
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   letter-spacing: 0.04em;
 }
 
@@ -535,7 +535,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
 .reset-status-tip {
   margin-top: 12px;
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: center;
 }
 
