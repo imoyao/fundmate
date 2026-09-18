@@ -353,3 +353,16 @@ title: 技术债务与开口项明细（tech-debt）
 `views/login/index.vue` 3、`views/login/reset-password.vue` 2、`views/profile/index.vue` 7。
 
 位置清单见 **#1576 评论**（含文件:行号与属性名；探市页 3 处已随 #1583 修复，不再列出）。
+完整 29 条位置清单见 **#1576 评论**（含文件:行号与属性名）。
+
+## 2026-09-18 公共 `SectionHeader` 操作槽在窄屏不换行（#1585 范围外发现）
+
+`frontend/src/components/SectionHeader/index.vue` 的 `.section-header__action` 是
+`inline-flex` + `flex-shrink: 0`，而 `.section-header` 是默认 `nowrap` 的 flex 行——
+操作槽内容较宽时**既不能换行也不能收缩**，会把卡片（进而把文档）撑出视口。
+
+- 探市详情面板（「行业 / 赛道排行」的操作槽 ≈414px）已在 **#1585** 用**页面内的 `:deep()` 覆盖**修掉
+  （320/375 文档溢出 155 / 100 → **0**；≥640 逐字不变），**未改公共组件**；
+- 其余带较宽操作槽、同样使用该组件的页面（`Aggregation/*`、`inventory` 等）**存在同样的风险**，
+  待逐个量测后决定走「就地覆盖」还是「公共组件放开换行 + `min-width: 0`」——
+  后者一动全体变版、需一次性肉眼验收，属独立决策。
