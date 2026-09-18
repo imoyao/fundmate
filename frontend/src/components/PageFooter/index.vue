@@ -181,20 +181,22 @@ withDefaults(
     gap: 4px;
     align-items: center;
     font-size: 12px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   &__sources-label {
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   &__source {
-    color: var(--brand-700);
+    /* 原文为 `--brand-700`（#e34f38，页底 3.73:1 不达 AA，且违反 design.md「业务代码禁止直接调用 --brand-*」）。
+       改用文字级 `--color-rise-ink`（#c0341f，与品牌同色相 8°，页底 5.41:1）。真机 axe 实证：#1599 */
+    color: var(--color-rise-ink);
     text-decoration: none;
     cursor: pointer;
 
     &--static {
-      color: var(--text-tertiary);
+      color: var(--text-tertiary-ink);
       cursor: default;
     }
   }
@@ -232,7 +234,7 @@ withDefaults(
       margin: 0;
       font-size: 12px;
       line-height: 1.5;
-      color: var(--text-tertiary);
+      color: var(--text-tertiary-ink);
     }
 
     &__qr {
@@ -258,7 +260,7 @@ withDefaults(
     padding: 0 24px;
     margin: 16px auto 0;
     font-size: 12px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
     text-align: center;
   }
 }

@@ -75,7 +75,7 @@ withDefaults(
 
 <style lang="scss" scoped>
 .market-footer {
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-page);
   border-top: 1px solid var(--border-light);
 
@@ -129,7 +129,7 @@ withDefaults(
   }
 
   &__label {
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   &__source {
@@ -137,22 +137,22 @@ withDefaults(
     text-decoration: none;
 
     &--static {
-      color: var(--text-tertiary);
+      color: var(--text-tertiary-ink);
     }
 
     &--dev {
-      color: var(--text-disabled);
+      color: var(--text-tertiary-ink);
     }
   }
 
   &__disclaimer {
     font-size: 12px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   &__copyright {
     font-size: 12px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 }
 </style>

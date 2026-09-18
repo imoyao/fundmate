@@ -108,7 +108,7 @@ defineProps({
 
 .product-code {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* ── 紧凑模式（数据密集表格）：名称一行 + 元信息（代码/类型/插槽）一行 ──
@@ -166,7 +166,7 @@ defineProps({
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   line-height: 20px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 类型以弱化小字呈现（非色块）：既不占行高，也避免「仅靠颜色传意」 */
@@ -175,7 +175,7 @@ defineProps({
   padding: 0 4px;
   font-size: 11px;
   line-height: 20px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background-color: var(--bg-soft);
   border-radius: var(--radius-sm);
 }

@@ -192,7 +192,7 @@ function updateResolution(key: string, value: MigrationAction) {
 
 .mig-route__arrow {
   font-size: 14px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 总数右对齐：等宽数字保证跳动时不抖 */
@@ -206,7 +206,7 @@ function updateResolution(key: string, value: MigrationAction) {
 .mig-note {
   margin-top: var(--space-1);
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 长列表限高滚动：底栏（状态 + 确认按钮）始终可见 */
@@ -247,7 +247,7 @@ function updateResolution(key: string, value: MigrationAction) {
 .mig-section__hint {
   margin-left: auto;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* keep / duplicate 行：名称居左、数值摘要居右 */
@@ -279,7 +279,7 @@ function updateResolution(key: string, value: MigrationAction) {
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: normal;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .mig-row__values {
@@ -292,7 +292,7 @@ function updateResolution(key: string, value: MigrationAction) {
 .mig-empty {
   padding: var(--space-loose) 0;
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: center;
 }
 
@@ -307,6 +307,6 @@ function updateResolution(key: string, value: MigrationAction) {
 
 .mig-footer__status {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 </style>

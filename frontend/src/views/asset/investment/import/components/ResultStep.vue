@@ -299,7 +299,7 @@ const hasSupplements = computed(
   margin: 0;
   font-size: var(--text-small);
   line-height: 1.6;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 全部通过时的「干净」状态：稍亮一点表示正向反馈 */

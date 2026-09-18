@@ -583,7 +583,7 @@ onMounted(async () => {
 
 .xirr-label {
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .xirr-value {
@@ -600,14 +600,14 @@ onMounted(async () => {
 
 .xirr-empty {
   padding: var(--space-compact);
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: center;
 }
 
 /* 空状态 */
 .table-empty {
   padding: var(--space-standard);
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: center;
 }
 </style>

@@ -33,12 +33,16 @@
  *   字号沿「最内层规则 → 外层规则」逐级取（SCSS 嵌套常见把 `font-size` 写在祖先规则里）；
  *   全链路都读不到才标 `?` —— **不替你猜**（宁可让人复核，也别给错结论）。
  *
- * 已知局限（**故意保守**）
- * ------------------------
+ * 已知局限（**故意保守，但每条都点明，不留静默漏洞**）
+ * ------------------------------------------------
  *   1. 背景只按 `--bg-page` / `--bg-card` 两个基准算，渐变 / 图片 / 多层叠加不模拟
  *      （半透明令牌会先与该基准合成）；
- *   2. 只认 `color: var(--token)` 形式；`color-mix()` / 字面量不拆；
- *   3. 不判断可见性（禁用态 / `opacity: 0`）与是否被更靠后的规则覆盖 → 由人复核。
+ *   2. 只认样式块里 `color: var(--token)` 形式；`color-mix()` / 字面量不拆；
+ *   3. **模板内联样式完全不在扫描范围内**（`style="color: var(--text-tertiary)"` 与
+ *      `:style="{ color: 'var(--text-tertiary)' }"` 两种写法都读不到）—— 实测全站有 **163 处**，
+ *      它们在真机 axe 里会现形（#1599 已登记为独立批次）；
+ *   4. `--text-inverse` 与 `--brand-*` 这两类**按定义不用中性基准底**，单列分段、判定交 axe（见下）；
+ *   5. 不判断可见性（禁用态 / `opacity: 0`）与是否被更靠后的规则覆盖 → 由人复核。
  *   因此本脚本用于**缩小复核范围**，不是最终裁决。
  */
 
@@ -235,6 +239,21 @@ const WHITE = [255, 255, 255];
 
 const isTextLevel = t => t.endsWith('-ink') || t.startsWith('--text-') || t === '--text-inverse';
 const inkOf = t => (light.has(`${t}-ink`) ? `${t}-ink` : null);
+/**
+ * 静态**不可判定**的令牌：它们的背景按定义不是这两条中性基准底，拿基准底去算必然误报。
+ * `--text-inverse` 是「品牌色 / 深色实底上的反色白字」（如 `.btn-primary`、`.el-menu-item.is-active`），
+ * 白底上算恒为 1.00:1 —— 实测 20 处全是误报。此名单只影响**报告归类**，不影响真机 axe 的判定
+ * （axe 能读到渲染后的有效背景，品牌实底白字不达标时它照样会报，见 #1600）。
+ */
+const NO_BASELINE = new Set(['--text-inverse']);
+/**
+ * `--brand-*` 当 `color:` 用：**此前两个分类桶都不收**（它既不是「有同名 -ink 的底色级」，也不是
+ * `--text-*` 文字级）→ 被静默忽略。实测全站 214 处，其中 brand-100~600 是极浅色调，对白底只有
+ * 1.5~3.0:1。**但不能机械替换**：品牌实底上浅色调当文字可能是刻意为之 —— 判定依赖**有效背景**，
+ * 只能交给真机 axe。本器只给「规模 + 基准底对比度」，`--brand-detail` 才逐条列出。
+ */
+const BRAND_PREFIX = '--brand-';
+const brandDetail = args.includes('--brand-detail');
 
 /**
  * 人工豁免指令（写在 `color:` 声明上方 3 行内，或同一行）：
@@ -242,11 +261,17 @@ const inkOf = t => (light.has(`${t}-ink`) ? `${t}-ink` : null);
  * 以行注释或块注释承载均可。用途：把「已判定并登记为保留」的项从「不达标」里摘出来，
  * 但仍在报告里单列 —— 让「不达标清零」这一验收口径可被机器复核，而不是靠人记忆。
  */
-const EXEMPT_RE = /audit-text-contrast:\s*exempt\b\s*([^\n*]*)/;
+const EXEMPT_RE = /audit-text-contrast:\s*exempt\b\s*([^\n]*)/;
 function findExempt(lines, idx) {
   for (let j = idx; j >= Math.max(0, idx - 3); j--) {
     const m = EXEMPT_RE.exec(lines[j]);
-    if (m) return m[1].replace(/[\s*]+$/, '').trim() || '（未写理由）';
+    if (!m) continue;
+    // 理由里可能含 Markdown 加粗（`**…**`）与注释收尾 `*/` —— 按行取满，再剥掉尾部记号
+    const why = m[1]
+      .replace(/\*\/\s*$/, '')
+      .replace(/[\s*]+$/, '')
+      .trim();
+    return why || '（未写理由）';
   }
   return null;
 }
@@ -255,6 +280,8 @@ const files = walk(SRC).filter(f => !scope || f.includes(scope));
 const offenders = []; // 底色级当文字色（本卡的目标类）
 const inkBad = []; // 已是文字级但仍不达标
 const exempted = []; // 人工豁免（有指令 + 理由）
+const noBaseline = []; // 静态不可判定（背景非中性基准底）→ 交真机 axe
+const brandRows = []; // `--brand-*` 当文字色：同样须真机判定，但此前被静默忽略
 for (const f of files) {
   const raw = readFileSync(f, 'utf8');
   const lines = raw.split('\n');
@@ -287,6 +314,14 @@ for (const f of files) {
     if (exemptWhy) {
       row.exemptWhy = exemptWhy;
       exempted.push(row);
+      continue;
+    }
+    if (NO_BASELINE.has(u.token)) {
+      if (!v.ok) noBaseline.push(row);
+      continue;
+    }
+    if (u.token.startsWith(BRAND_PREFIX)) {
+      brandRows.push(row);
       continue;
     }
     if (!isTextLevel(u.token) && ink) offenders.push(row);
@@ -333,6 +368,40 @@ if (showAll && inkBad.length) {
   if (badNoInk.length) {
     console.log(`\n--- B. 无同名 -ink（${badNoInk.length} 处，需改字号/加粗或登记豁免） ---`);
     for (const r of badNoInk.sort((a, b) => a.worst - b.worst)) console.log(fmt(r));
+  }
+}
+
+if (showAll && noBaseline.length) {
+  console.log(`\n=== 静态不可判定（背景为品牌/彩色实底，共 ${noBaseline.length} 处 → 交真机 axe） ===`);
+  console.log('（这些令牌按定义不用中性基准底，拿白底/卡底算必然误报；判定一律以 axe 为准）');
+  for (const r of noBaseline) {
+    console.log(
+      `${relative(process.cwd(), r.file)}:${r.line}  ${r.token}  [${r.fontSize || '字号?'}]  选择器: ${String(r.selector).replace(/\s+/g, ' ').slice(0, 70)}`
+    );
+  }
+}
+
+if (brandRows.length) {
+  const byTok = new Map();
+  for (const r of brandRows) {
+    if (!byTok.has(r.token)) byTok.set(r.token, { n: 0, worst: Infinity, rows: [] });
+    const e = byTok.get(r.token);
+    e.n++;
+    e.worst = Math.min(e.worst, r.worst);
+    e.rows.push(r);
+  }
+  const below = brandRows.filter(r => !r.ok).length;
+  console.log(`\n=== 品牌色当文字色（\`--brand-*\`，共 ${brandRows.length} 处，其中基准底口径下不达标 ${below} 处） ===`);
+  console.log('（**判断依据是有效背景**：品牌实底上浅色调当文字可能是刻意的 → 一律交真机 axe 判；');
+  console.log('  本器只报规模与「白底 / 页底」口径的对比度，逐条位置加 `--brand-detail`）');
+  for (const [tok, e] of [...byTok.entries()].sort((a, b) => a[1].worst - b[1].worst)) {
+    console.log(`  ${tok.padEnd(12)} ${String(e.n).padStart(3)} 处   基准底最差 ${e.worst.toFixed(2)}:1${e.worst < 4.5 ? '  ← 若确实落在中性底上则不达标' : ''}`);
+  }
+  if (brandDetail) {
+    console.log('\n  —— 逐条（--brand-detail）——');
+    for (const r of brandRows.sort((a, b) => a.worst - b.worst)) {
+      console.log(`  ${relative(process.cwd(), r.file)}:${r.line}  ${r.token}  [${r.fontSize || '字号?'}]  ${String(r.selector).replace(/\s+/g, ' ').slice(0, 60)}`);
+    }
   }
 }
 

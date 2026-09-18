@@ -117,7 +117,7 @@ function handleCreateLedger() {
 .account-hint {
   margin-top: 12px;
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .import-mode-group {

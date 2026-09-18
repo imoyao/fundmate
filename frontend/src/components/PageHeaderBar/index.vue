@@ -100,7 +100,7 @@ withDefaults(
     align-items: center;
     padding: 4px 10px;
     font-size: 12px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
     white-space: nowrap;
     background: var(--bg-soft);
     border: 1px solid var(--border-light);

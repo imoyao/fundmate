@@ -852,7 +852,7 @@ onMounted(() => {
 .txn-asset-code {
   margin-left: 6px;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* Tab 工具栏（#982）：搜索框绝对定位到 Tab 头右侧，与标签同一行。
@@ -891,7 +891,7 @@ onMounted(() => {
 
 .mig-route__arrow {
   font-size: 14px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 总数右对齐：等宽数字保证跳动时不抖 */
@@ -905,7 +905,7 @@ onMounted(() => {
 .mig-note {
   margin-top: var(--space-1);
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 长列表限高滚动：底栏（状态 + 确认按钮）始终可见 */
@@ -946,7 +946,7 @@ onMounted(() => {
 .mig-section__hint {
   margin-left: auto;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* keep / duplicate 行：名称居左、数值摘要居右 */
@@ -979,7 +979,7 @@ onMounted(() => {
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: normal;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .mig-row__values {
@@ -1056,7 +1056,7 @@ onMounted(() => {
 .soft-reconcile-banner__detail {
   margin: 4px 0 0;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .soft-reconcile-banner__actions {
@@ -1096,7 +1096,7 @@ onMounted(() => {
 
 .mig-compare__label {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-soft);
 }
 
@@ -1122,13 +1122,13 @@ onMounted(() => {
   margin: 4px 0 0;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .mig-empty {
   padding: var(--space-loose) 0;
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: center;
 }
 
@@ -1143,7 +1143,7 @@ onMounted(() => {
 
 .mig-footer__status {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* ===== 目标账户选择器：机构标注与未绑定提示 ===== */

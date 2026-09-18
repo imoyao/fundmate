@@ -117,7 +117,7 @@ onMounted(async () => {
   align-items: flex-start;
   padding: 12px 14px;
   margin-bottom: 16px;
-  color: var(--brand-700);
+  color: var(--color-rise-ink);
   background: var(--brand-100);
   border-radius: var(--radius-sm, 8px);
 }
@@ -125,7 +125,7 @@ onMounted(async () => {
 .ghost-dup-banner__icon {
   flex: none;
   margin-top: 2px;
-  color: var(--brand-700);
+  color: var(--color-rise-ink);
 }
 
 .ghost-dup-banner__body {
@@ -137,7 +137,7 @@ onMounted(async () => {
   margin: 0 0 6px;
   font-size: var(--text-body, 14px);
   font-weight: 600;
-  color: var(--brand-700);
+  color: var(--color-rise-ink);
 }
 
 .ghost-dup-banner__list {
@@ -155,7 +155,7 @@ onMounted(async () => {
   gap: 6px;
   align-items: baseline;
   font-size: var(--text-label, 13px);
-  color: var(--brand-700);
+  color: var(--color-rise-ink);
   opacity: 0.9;
 }
 
@@ -175,7 +175,7 @@ onMounted(async () => {
   justify-content: center;
   width: 24px;
   height: 24px;
-  color: var(--brand-700);
+  color: var(--color-rise-ink);
   cursor: pointer;
   background: transparent;
   border: none;

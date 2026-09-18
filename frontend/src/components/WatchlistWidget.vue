@@ -268,7 +268,7 @@ defineExpose({ hasPinned });
 }
 
 .view-all-link {
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .view-all-link:hover {

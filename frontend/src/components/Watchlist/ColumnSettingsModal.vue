@@ -177,7 +177,7 @@ const hiddenCount = computed(() => {
 .cs-content__desc {
   margin-bottom: 12px;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 通用列 / 专属列配色区分（用户建议：两类字段不应混在一起） */

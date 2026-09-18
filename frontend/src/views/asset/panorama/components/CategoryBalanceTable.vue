@@ -273,7 +273,7 @@ function goToInventory(categoryKey: string) {
   padding: 4px 14px;
   font-size: 14px;
   font-weight: 400;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   cursor: pointer;
   background: transparent;
   border: none;

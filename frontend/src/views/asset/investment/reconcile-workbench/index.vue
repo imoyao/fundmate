@@ -927,7 +927,7 @@ onMounted(() => {
 .workbench-head__subtitle {
   margin: 0;
   font-size: var(--text-small);
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .workbench-head__actions {
@@ -1025,7 +1025,7 @@ onMounted(() => {
 }
 
 .disc-diff-zero {
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .disc-diff-pos {
@@ -1053,13 +1053,13 @@ onMounted(() => {
 }
 
 .disc-status--ignored {
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-soft);
 }
 
 .disc-muted {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 域 A/C 占位 */
@@ -1087,13 +1087,13 @@ onMounted(() => {
 }
 
 .domain-status-tag--planned {
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-soft);
 }
 
 .domain-placeholder__hint {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .domain-placeholder__desc {

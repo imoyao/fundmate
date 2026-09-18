@@ -393,7 +393,7 @@ onMounted(() => load());
 
 .search-icon {
   font-size: 14px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .type-tabs,
@@ -473,7 +473,7 @@ onMounted(() => load());
 
 .state-hint {
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .pagination-bar {

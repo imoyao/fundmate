@@ -525,7 +525,7 @@ function onSalesInstitutionChange(val: number | null) {
   margin: var(--space-3, 8px) 0 0;
   font-size: var(--text-label, 13px);
   line-height: 18px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 活期+ 下拉中的「非货币基金」标注（全量搜索 + 选择时限制）：
@@ -536,7 +536,7 @@ function onSalesInstitutionChange(val: number | null) {
   margin-left: var(--space-3, 8px);
   font-size: var(--text-label, 13px);
   line-height: 18px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-soft);
   border-radius: var(--radius-sm, 4px);
 }
@@ -569,7 +569,7 @@ function onSalesInstitutionChange(val: number | null) {
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: var(--text-label, 13px);
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   white-space: nowrap;
 }
 

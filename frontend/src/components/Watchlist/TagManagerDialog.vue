@@ -214,7 +214,7 @@ const deleteTag = async (tagId: number) => {
 .tag-empty {
   padding: var(--space-standard);
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: center;
 }
 
@@ -258,7 +258,7 @@ const deleteTag = async (tagId: number) => {
   flex: 1;
   min-width: 0;
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 行内操作：默认隐藏，hover 显现 */

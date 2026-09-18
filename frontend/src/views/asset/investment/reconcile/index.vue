@@ -465,7 +465,7 @@ onMounted(fetchData);
   align-items: center;
   padding: 4px 10px;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   white-space: nowrap;
   background: var(--bg-soft);
   border: 1px solid var(--border-light);
@@ -492,7 +492,7 @@ onMounted(fetchData);
 
 .filter-bar__count {
   font-size: var(--text-label);
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 一级筛选分段控制器：胶囊语言与 watchlist view-segmented 一致
@@ -577,7 +577,7 @@ onMounted(fetchData);
 
 .fund-cell__symbol {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 长文本省略（销售机构等） */
@@ -631,7 +631,7 @@ onMounted(fetchData);
 }
 
 .diff-cell.is-zero {
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* ===== 状态标签：四态语义（pending 行动品牌色 / attributed 中性软底 /
@@ -652,7 +652,7 @@ onMounted(fetchData);
 }
 
 .status-tag--ignored {
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background-color: transparent;
   border: 1px dashed var(--border-default);
 }
@@ -673,7 +673,7 @@ onMounted(fetchData);
 
 .row-actions__readonly {
   font-size: var(--text-label);
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   white-space: nowrap;
 }
 
@@ -710,13 +710,13 @@ onMounted(fetchData);
 .reconcile-empty__copy {
   margin: 0;
   font-size: var(--text-label);
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .reconcile-empty__hint {
   margin: 0;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 页面根容器：字体继承全局 token + 全页数字等宽（design.md「数字等宽对齐落地规范」） */

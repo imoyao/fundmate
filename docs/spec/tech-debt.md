@@ -465,3 +465,55 @@ axe 用于**验收**（真、可回归）。本次 token 变更的前后对比�
 同时更正 `design.md` / `design.dark.md` 中 8 个文字令牌里 **7 个失实的对比度数字**
 （亮端 `--text-tertiary` 记 4.8:1"✅"、实测 3.69:1；`--text-disabled` 记 3.1:1、实测 1.77:1；
 暗端 15.2/9.8/5.6/2.8:1 全部偏高）。**"4.8:1 ✅" 这个错数字正是 253 处不达标用法长期未被发现的原因。**
+
+## 2026-09-18 文字色收敛（二）批次 1：A/B 类全量 + `--brand-*` / `--text-inverse` 口径归位（#1599）
+
+承接 #1586 / #1598。**静态口径已零残留**，真机 axe 亦大幅下降；本批次同时补掉审计器的 3 个「静默漏洞」。
+
+### 已修（合计 205 处）
+
+| 类别 | 处数 | 处置 |
+|---|---|---|
+| A 类 `--text-tertiary` 作正文（全站 66 个文件） | 192 | → `--text-tertiary-ink`（其中 1 处行尾带注释、被施工脚本的严格断言漏掉，后补） |
+| B 类 `--text-disabled` 作**占位 / 待填 / 来源标记** | 7 | → `--text-tertiary-ink`：`.wqv-empty`「—」、`.cell-pending`（**可点击**待填单元格，非禁用）、`.bond-empty` / `.index-val-empty` / `.dd-empty` / `.link-empty`、`market-footer__source--dev` |
+| `color: var(--brand-*)`（真机实证 + 可静态配对） | 6 | → `--color-rise-ink`：`PageFooter` 链接 5 处、`GhostDuplicateBanner` 5 处。原 `--brand-700` 页底 3.73:1、品牌底 3.61:1，且违反 design.md「业务代码禁止直接调用 `--brand-*`」；`--color-rise-ink`（`#c0341f`）色相 8° 同族、页底 5.41:1 |
+
+### 已登记豁免（+7）
+
+真 `:disabled` / `.is-disabled` 控件 7 处（`.ocr-primary-btn:disabled`×2、`.pure-segmented-item-disabled`×2、
+`.batch-delete-btn:disabled`(+`:hover`)、`.field-block__save.is-disabled`、暗色 `dark.scss` 同款）→
+代码内 `audit-text-contrast: exempt <理由>`，理由写明「WCAG 1.4.3 inactive component 豁免」**并注明
+「无数据占位符不适用本豁免」**（那是信息，须用 `--text-tertiary-ink`）。豁免总数 3 → 10。
+
+### 真机 axe 前后（同路由 `/profile,/asset/ledgers,/`、同 axe-core 版本、亮暗各一遍）
+
+| 档 | 前 | 后 | 回归 | 修好 |
+|---|---|---|---|---|
+| 亮 | 34 | **23** | 0 | 11 |
+| 暗 | 23 | **12** | 0 | 11 |
+
+同时输出亮暗双档全页截图（`--shot <dir>`），供共享组件「一改全站变版」的肉眼复核。
+
+### 审计器再补 3 个「静默漏洞」（工具缺陷累计 5 个）
+
+1. `--text-inverse`（20 处）此前被判「不达标」—— 它按定义是**品牌 / 彩色实底上的反色白字**，
+   拿中性基准底算恒为 1.00:1。现单列「静态不可判定」，判定交 axe。
+2. **`color: var(--brand-*)` 两个分类桶都不收 → 被静默忽略**（既非「有同名 `-ink` 的底色级」，
+   也非 `--text-*`）。实测 92 处。现单列「品牌色当文字色」段（给规模 + 基准底对比度，
+   逐条位置加 `--brand-detail`），判定交 axe。
+3. 豁免理由含 Markdown 加粗（`**…**`）时被 `*` 截断成半句 → 改为按行取满再剥尾部记号。
+
+回归用例 18 → **21**（新增 inverse / brand 两条 + 一条「新增分类不得漏报 B 类」）。
+**反向验证**：把两个新分类禁用 → 3 条用例转红；恢复 → 全绿。
+
+### 开口项（批次 2 起，同一张卡）
+
+| # | 事项 | 依据 |
+|---|---|---|
+| 1 | **模板内联样式 163 处**：`style="color: var(--text-tertiary)"` 与 `:style="{ color: 'var(--text-tertiary)' }"` 两种写法。静态器**读不到**（盲区③，已写进脚本「已知局限」不再静默），真机 axe 会现形 | 计数 163，集中在 `QuickEntry/BuyForm·SellForm·DividendForm` 等 |
+| 2 | **`--brand-*` 当文字 92 处**：brand-100~600 对白底仅 1.5~3.0:1；但**判定依赖有效背景**（品牌实底上浅色调可能是刻意的）→ 须逐处真机判定。真机剩余 13 处含 `SidebarLogo` 6、`lay-tag` 2、`SidebarItem` 2、`profile` 2、`welcome` 1 —— 其中侧边栏 logo 属**品牌标识**，改色是设计取舍 | 静态段 + axe |
+| 3 | Element Plus 内置 `--el-color-danger`（`#f56c6c`）作文字 on `--bg-muted` = **2.70:1** | axe；上游默认色，需覆盖或改语义令牌 |
+| 4 | 盲区①「继承来的颜色」：静态器按 `color:` **声明**归属，祖先设色、后代继承时量不到（welcome / ledgers 各有命中） | axe 与静态器结果差 |
+
+复跑：`node scripts/audit_text_contrast.mjs --all`（静态）；
+`node scripts/axe_contrast_audit.mjs --routes /profile,/asset/ledgers,/ --shot <dir>`（真机 + 截图）。

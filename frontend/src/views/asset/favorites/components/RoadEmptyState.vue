@@ -103,7 +103,7 @@ defineEmits<{
   max-width: 420px;
   font-size: 13px;
   line-height: 1.8;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .road-empty__actions {

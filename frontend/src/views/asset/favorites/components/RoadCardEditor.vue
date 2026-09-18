@@ -158,7 +158,7 @@ function onSave() {
 .road-form__hint {
   margin-top: 2px;
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .road-form__field {

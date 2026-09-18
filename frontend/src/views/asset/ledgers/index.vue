@@ -794,7 +794,7 @@ onMounted(() => {
   justify-content: center;
   width: 22px;
   height: 22px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   touch-action: none;
   cursor: grab;
   border-radius: var(--radius-sm);
@@ -956,7 +956,7 @@ onMounted(() => {
 .overview-metrics .metric-label {
   font-size: var(--text-label, 13px);
   line-height: 18px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 负债率胶囊：--bg-soft 底 + --radius-pill + --text-tertiary 字，弱化中性信息。
@@ -969,7 +969,7 @@ onMounted(() => {
   padding: 1px 10px;
   font-size: var(--text-label, 13px);
   line-height: 20px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-soft);
   border-radius: var(--radius-pill);
 }

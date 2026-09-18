@@ -277,7 +277,7 @@ function handleClick() {
   align-items: center;
   margin-top: 3px;
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .product-code {
@@ -346,7 +346,7 @@ function handleClick() {
 }
 
 .return-badge--flat {
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-soft);
 }
 
@@ -357,7 +357,7 @@ function handleClick() {
   align-items: baseline;
   justify-content: space-between;
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .secondary-item {
@@ -376,7 +376,7 @@ function handleClick() {
 .secondary-label {
   flex: none;
   font-size: 10px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   white-space: nowrap;
 }
 
@@ -385,7 +385,7 @@ function handleClick() {
   text-overflow: ellipsis;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   white-space: nowrap;
 }
 
@@ -400,7 +400,7 @@ function handleClick() {
   align-items: center;
   padding-top: var(--space-2, 8px);
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   border-top: 1px solid var(--border-subtle, var(--border-light));
 }
 

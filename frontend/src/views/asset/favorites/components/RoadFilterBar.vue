@@ -201,7 +201,7 @@ defineEmits<{
   font-family: var(--font-mono, monospace);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .road-pill.is-active .road-pill__count {

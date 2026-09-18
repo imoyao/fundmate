@@ -520,7 +520,7 @@ onMounted(() => {
     display: inline-flex;
     align-self: center;
     font-size: 14px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   &__label {
@@ -544,7 +544,7 @@ onMounted(() => {
   &__hint {
     margin-left: auto;
     font-size: var(--text-label);
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   &.is-low .usage-banner__count strong {
@@ -694,6 +694,7 @@ onMounted(() => {
 }
 
 .ocr-primary-btn:disabled {
+  /* audit-text-contrast: exempt .ocr-primary-btn:disabled 为**真禁用**控件，按 WCAG 1.4.3 对 inactive component 的豁免；**「无数据占位符」不适用本豁免**（那是信息，须用 --text-tertiary-ink）。登记见 docs/spec/tech-debt.md（#1599） */
   color: var(--text-disabled);
   cursor: not allowed;
   background-color: var(--bg-muted);

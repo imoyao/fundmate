@@ -643,7 +643,7 @@ onMounted(async () => {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   line-height: 20px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   white-space: nowrap;
 }
 
@@ -739,7 +739,7 @@ onMounted(async () => {
   flex: 0 0 auto;
   font-size: 12px;
   line-height: 22px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   white-space: nowrap;
 }
 
@@ -822,7 +822,7 @@ onMounted(async () => {
 
 .selected-asset-card__meta-item dt {
   flex-shrink: 0;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .selected-asset-card__meta-item dd {
@@ -855,7 +855,7 @@ onMounted(async () => {
   right: 8px;
   bottom: 4px;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 :deep(.el-select) {
@@ -895,7 +895,7 @@ onMounted(async () => {
   width: 32px;
   height: 32px;
   padding: 0;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background-color: transparent;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-pill);

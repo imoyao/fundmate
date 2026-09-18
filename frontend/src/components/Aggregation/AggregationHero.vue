@@ -292,7 +292,7 @@ const donutOption = computed(() => {
 
 .donut-center-label {
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .donut-center-count {
@@ -390,7 +390,7 @@ const donutOption = computed(() => {
 
 .stat-label {
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   white-space: nowrap;
 }
 
@@ -405,7 +405,7 @@ const donutOption = computed(() => {
   flex: none;
   margin-left: 4px;
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   opacity: 0.5;
 }
 

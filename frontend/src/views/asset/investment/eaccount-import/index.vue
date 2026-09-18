@@ -913,13 +913,13 @@ onMounted(() => {
 .upload-hint {
   margin: 12px 0 0;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .upload-format-info {
   margin-top: 6px;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .upload-error {
@@ -1068,7 +1068,7 @@ onMounted(() => {
 
 .fund-cell__symbol {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .ellipsis-text {
@@ -1086,7 +1086,7 @@ onMounted(() => {
 
 .preview-empty {
   padding: 24px 0;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: center;
 }
 
@@ -1105,7 +1105,7 @@ onMounted(() => {
 
 .preview-footer__count {
   font-size: var(--text-label);
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* ===== 结果区 ===== */
@@ -1204,7 +1204,7 @@ onMounted(() => {
 
 .conflict-list__symbol {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .conflict-list__detail {
@@ -1235,7 +1235,7 @@ onMounted(() => {
 
 .failed-list__line {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .failed-list__symbol {
@@ -1340,7 +1340,7 @@ onMounted(() => {
 .ai-format-hint {
   margin-bottom: var(--space-2);
   font-size: var(--text-small);
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .ai-format-hint__example {
