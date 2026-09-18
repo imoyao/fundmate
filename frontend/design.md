@@ -222,6 +222,7 @@
 
   由 `scripts/guard_breakpoints.py`（pre-commit + CI `layout_guard`）拦截，
   存量写法已冻结为基线、**只减不增**。
+- **同类「媒体查询写在基础声明之前、被同特异性后写规则压掉」的存量写法**：已在 `docs/spec/tech-debt.md`（2026-09-18）建台账，并按文件逐个迁移；探市页 3 处已随 #1583 修复（`ExploreDetailPanel` 的 `.context-grid` / `.detail-panel`、`ExploreTemperatureDashboard` 的 `.temperature-dashboard`）。
 - **⚠️ `@include bp.*` 必须写在同规则的基础声明之后**：它编译成 `@media`，而媒体查询
   不改变特异性——放到前面会被基础声明压掉、静默失效。`stylelint --fix` 曾按
   「at-rule 要在 declaration 之前」自动这么挪过，故 `stylelint.config.js` 的

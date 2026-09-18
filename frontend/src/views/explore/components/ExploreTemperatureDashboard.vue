@@ -198,6 +198,8 @@ onMounted(() => {
 </template>
 
 <style lang="scss" scoped>
+@use "@/style/breakpoints" as bp;
+
 /* 数据新鲜度守卫横幅（#1431）：沿用「数据滞后」pill 的警示色视觉语言 */
 .freshness-alert {
   display: flex;
@@ -227,12 +229,6 @@ onMounted(() => {
   flex: 1;
 }
 
-@media (width <= 768px) {
-  .temperature-dashboard {
-    padding: 0 16px 12px;
-  }
-}
-
 .temperature-dashboard {
   display: flex;
   flex-direction: column;
@@ -240,6 +236,12 @@ onMounted(() => {
   max-width: var(--layout-content-width);
   padding: var(--space-standard) 24px 16px;
   margin: 0 auto;
+
+  /* 窄屏收内边距（原为「768px 及以下」的裸查询，且排在基础声明**之前** → 被 `padding`
+     压掉、从未生效；2026-09-18 修复，断点对齐 Tailwind `md` = 768px）。 */
+  @include bp.below("md") {
+    padding: 0 16px 12px;
+  }
 }
 
 /* 「综合温度」卡内的进度条与跳转提示（来自 TemperatureGaugeCard 的 footer 插槽） */
