@@ -50,10 +50,18 @@ export default {
           "screen",
           "function",
           "if",
+          "else",
           "each",
           "include",
           "mixin",
-          "use"
+          "use",
+          "error",
+          "warn",
+          "debug",
+          "return",
+          "extend",
+          "forward",
+          "at-root"
         ]
       }
     ],
@@ -91,6 +99,16 @@ export default {
         {
           type: "at-rule",
           name: "supports"
+        },
+        // `include` 与 `media` 同槽（声明之后）：断点 mixin（#1571 的 bp.below/above、
+        // sidebar.scss 的 merge-style）**编译产物就是 @media**。而媒体查询不改变特异性，
+        // 同特异性下后写的规则胜出——一旦被 `stylelint --fix` 挪到基础声明**之前**，
+        // 这些覆盖就会静默失效（MetricGrid 的 --metric-basis 两档正是这么死的，
+        // 见 scripts/guard_breakpoints.py 与 docs/spec/decisions.md 2026-09-17 条目）。
+        // 故此处必须让 include 与 media 同槽：位置就是语义，不能只按「长得像不像 at-rule」排。
+        {
+          type: "at-rule",
+          name: "include"
         },
         {
           type: "at-rule",

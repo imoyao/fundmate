@@ -86,6 +86,16 @@ repos:
         files: ^frontend/src/.*\.(vue|ts|tsx|js|jsx|css|scss|sass)$
         exclude: ^frontend/src/style/colors\.css$
         pass_filenames: true
+      - id: guard-breakpoints
+        name: guard raw breakpoint media queries
+        entry: python scripts/guard_breakpoints.py
+        language: python
+        # 断点必须走 @use "@/style/breakpoints" 的 bp.below()/bp.above()（#1571）：
+        # 此前 design.md 断点表零实现、业务文件手写 470~1180 十余个互不相同的阈值，
+        # 与 Tailwind 的 md:/lg: 前缀并存成三套词汇
+        files: ^frontend/src/.*\.(vue|css|scss|sass)$
+        exclude: ^frontend/src/style/_breakpoints\.scss$
+        pass_filenames: true
       - id: forbid-bp-input
         name: forbid APIFlask @bp.input() auto-paradigm
         entry: python scripts/forbid_bp_input.py

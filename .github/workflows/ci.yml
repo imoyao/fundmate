@@ -120,6 +120,9 @@ jobs:
 
   # 布局宽度守卫（#1506）：容器宽度曾有 1280px / 1400px 两套硬编码散落 13+ 个文件，
   # 导致页头 / 页脚与内容区左右边缘错开。已收口为 --layout-* 令牌，本 job 防止再次写死。
+  # 断点守卫（#1571）并入本 job 而非另起 job：两者同属「布局宽度」一类，
+  # 且**不新增 job 就不必改动下面 gate 的 needs 列表**——#1559 / #1560 两次事故
+  # 都是合并冲突把 gate.needs 里的 job 弄丢，少动一次就少一次风险。
   layout_guard:
     name: 布局宽度守卫 (layout-width)
     runs-on: ubuntu-latest
@@ -133,6 +136,9 @@ jobs:
 
       - name: 扫描容器宽度字面量
         run: python scripts/guard_layout_widths.py
+
+      - name: 扫描裸断点媒体查询
+        run: python scripts/guard_breakpoints.py
 
   # 乱码守卫（mojibake）：防止任何绕过本地 pre-commit 钩子的提交（--no-verify、
   # 或经 gh api / MCP 直推导致本地钩子不执行）把 GBK 乱码合进 PR。
