@@ -541,6 +541,8 @@ onMounted(() => {
 </script>
 
 <style lang="scss" scoped>
+@use "@/style/breakpoints" as bp;
+
 /* 数据新鲜度守卫横幅（#1431）：沿用「数据滞后」pill 的警示色视觉语言 */
 .freshness-alert {
   display: flex;
@@ -570,24 +572,20 @@ onMounted(() => {
   flex: 1;
 }
 
-/* ===== 响应式 ===== */
-@media (width <= 960px) {
-  .context-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (width <= 768px) {
-  .detail-panel {
-    padding: 16px;
-  }
-}
-
 /* 深度档容器：与概览档共用同一套页面边距与最大宽度 */
 .detail-panel {
   max-width: var(--layout-content-width);
   padding: var(--space-standard) 24px 16px;
   margin: 0 auto;
+
+  /* 窄屏收内边距。
+     ⚠️ 本块必须留在基础声明**之后**：`@include` 的编译产物就是媒体查询，而媒体查询不改变
+     特异性——写在 `padding` 之前会被它压掉。2026-09-18 之前本块正是排在前面
+     （条件是「768px 及以下」的裸查询），于是窄屏始终是 24px 侧边距，从未生效
+     （同族缺陷见 #1576 / #1557：源序即语义）。 */
+  @include bp.below("md") {
+    padding: 16px;
+  }
 }
 
 /* 仪表盘区域 */
@@ -607,6 +605,14 @@ onMounted(() => {
   grid-template-columns: 1.6fr 1fr;
   gap: 16px;
   align-items: stretch;
+
+  /* 窄屏「温度解读 + 市场机会」由并排改单列。
+     同 `padding` 那条：必须留在基础声明之后，否则会被 `grid-template-columns: 1.6fr 1fr` 压掉
+     （2026-09-18 之前是「960px 及以下」的裸查询且排在前面，从未生效）。
+     断点按 Tailwind 单一来源取 `lg`（<1024px；原数值 960px 随断点对齐外移）。 */
+  @include bp.below("lg") {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* TemperatureContextCard 自带卡片外壳（--bg-card / --border-light / --radius-lg /
