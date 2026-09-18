@@ -342,7 +342,7 @@ title: 技术债务与开口项明细（tech-debt）
 | # | 事项 | 状态 |
 |---|------|------|
 | 1 | `MetricGrid` 两条响应式块移到基础声明之后，并改用 `bp.below("lg"/"sm")`（Tailwind 对齐） | ✅ 已修（#1576；边界随之外移 `960→1023`、`560→639`，9 档 before/after 实测） |
-| 2 | 全仓扫描「媒体块内声明被其后同选择器规则覆盖」的同类写法 | ⚠️ **原 29 条候选 → 现存 23 条**：**探市页 3 处已修**（#1583：`ExploreDetailPanel.vue` 的 `.context-grid` / `.detail-panel`、`ExploreTemperatureDashboard.vue` 的 `.temperature-dashboard`）；**组件级 3 处已修**（本批：`MetricCard/index.vue` 的 `.metric-card__value` 字号、`TemperatureGaugeCard/index.vue` 的 `.gauge-card` 内边距、`RoadEmptyState.vue` 的 **`prefers-reduced-motion` 失效**）。抽检另 2 处（`profile/index.vue` 的 `.setting-row` 系列等）仍待逐个复核（扫描器为近似匹配，含嵌套上下文误报） |
+| 2 | 全仓扫描「媒体块内声明被其后同选择器规则覆盖」的同类写法 | ✅ **已归零**（2026-09-18）：第 1 批 `MetricGrid`（#1580）、第 2 批探市页 3 处（#1583）、第 3 批组件级 3 处（#1588）、第 4 批 Aggregation/LedgerCard/login 13 处（#1590）、第 5 批 `profile` 7 处 + `element-plus.scss` 2 处（本批）均已移到基础声明之后。审计器残留的 1 处命中为**注释文本误报**（注释里写了选择器名），非真缺陷 |
 | 3 | 是否新增硬守卫（自动检测该类死代码） | ❌ **不做**（理由见 `decisions.md` 2026-09-18：静态近似信噪比不足；且 `stylelint --fix` 这个制造器已由 `order/order` 槽位修正堵住）。**可复活**：把本次一次性扫描器升级为「冻结基线 + 只拦新增」的 warn 模式守卫 |
 
 候选分布（文件 → 命中数，均为「媒体块内声明 + 其后同名规则」，需人工复核）：

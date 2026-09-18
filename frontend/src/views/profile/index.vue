@@ -800,57 +800,6 @@ onMounted(async () => {
   }
 }
 
-/* ===== 响应式 ===== */
-@media (width <= 640px) {
-  .avatar-zone {
-    align-items: flex-start;
-  }
-
-  .avatar-top-row {
-    width: 100%;
-  }
-
-  .setting-row {
-    flex-direction: column;
-    gap: var(--space-2);
-    align-items: flex-start;
-  }
-
-  .setting-row__label {
-    flex-basis: auto;
-    min-width: 0;
-  }
-
-  .setting-row__main {
-    justify-content: flex-start;
-    width: 100%;
-  }
-
-  .style-card-group {
-    justify-content: flex-start;
-  }
-
-  .danger-zone {
-    align-items: flex-start;
-  }
-
-  .field-block__input-row {
-    flex-direction: column;
-    gap: var(--space-2);
-    align-items: stretch;
-  }
-
-  .field-input {
-    width: 100%;
-    max-width: 100%;
-  }
-
-  .field-block__save {
-    align-self: flex-end;
-    margin-left: 0;
-  }
-}
-
 /* ===== 概览页统一卡片与悬停交互 ===== */
 .profile-card {
   padding: var(--space-standard);
@@ -1388,5 +1337,60 @@ onMounted(async () => {
   display: flex;
   gap: var(--space-2);
   justify-content: flex-end;
+}
+
+/* ===== 响应式 ===== */
+
+/* 窄屏（<640px）：设置页的行式布局改竖排。
+   ⚠️ 本块原先排在各自的基础声明**之前**——媒体查询不改变特异性，覆盖被后面同选择器的声明压掉、**从未生效**（2026-09-18 修复，见 #1576 同类台账）。 */
+@media (width <= 640px) {
+  /* breakpoint-allow: 本文件 style 块是纯 CSS（无 lang="scss"），无法用 bp mixin */
+  .avatar-zone {
+    align-items: flex-start;
+  }
+
+  .avatar-top-row {
+    width: 100%;
+  }
+
+  .setting-row {
+    flex-direction: column;
+    gap: var(--space-2);
+    align-items: flex-start;
+  }
+
+  .setting-row__label {
+    flex-basis: auto;
+    min-width: 0;
+  }
+
+  .setting-row__main {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .style-card-group {
+    justify-content: flex-start;
+  }
+
+  .danger-zone {
+    align-items: flex-start;
+  }
+
+  .field-block__input-row {
+    flex-direction: column;
+    gap: var(--space-2);
+    align-items: stretch;
+  }
+
+  .field-input {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .field-block__save {
+    align-self: flex-end;
+    margin-left: 0;
+  }
 }
 </style>
