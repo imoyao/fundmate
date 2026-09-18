@@ -278,7 +278,9 @@ for (const f of files) {
     const ink = inkOf(u.token);
     if (ink) {
       row.ink = ink;
-      const inkRaw = light.get(ink);
+      // 「换后对比度」必须与当前行同主题：暗色行若拿亮色 -ink 值去算，
+      // 会得出「换完仍是 2.67:1」这种误导性建议（#1586 回归用例抓到）。
+      const inkRaw = (darkCtx ? dark.get(ink) : light.get(ink)) || light.get(ink) || dark.get(ink);
       row.inkWorst = Math.min(contrast(parseColor(inkRaw, bgPage), bgPage), contrast(parseColor(inkRaw, bgCard), bgCard));
     }
     const exemptWhy = findExempt(lines, u.line - 1);
@@ -337,7 +339,11 @@ if (showAll && inkBad.length) {
 if (showAll && exempted.length) {
   console.log(`\n=== 已登记豁免（代码内有 audit-text-contrast 指令，共 ${exempted.length} 处） ===`);
   for (const r of exempted.sort((a, b) => a.worst - b.worst)) {
-    console.log(`${relative(process.cwd(), r.file)}:${r.line}  ${r.token} ${r.hex}  ${r.worst.toFixed(2)}:1  [${r.fontSize || '字号?'}]\n    理由: ${r.exemptWhy}`);
+    console.log(
+      `${relative(process.cwd(), r.file)}:${r.line}  ${r.token} ${r.hex}  ${r.worst.toFixed(2)}:1  [${r.fontSize || '字号?'}]\n` +
+        `    选择器: ${String(r.selector).replace(/\s+/g, ' ').slice(0, 100)}\n` +
+        `    理由: ${r.exemptWhy}`
+    );
   }
 }
 
