@@ -339,7 +339,7 @@ import { validateTradeOrder } from "@/api/positions";
 import type { Position } from "@/api/types";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { LEDGER_TYPE_SHORT } from "@/constants";
-import { getLedgerColor, bgFromColor } from "@/utils/ledger";
+import { getLedgerColor } from "@/utils/ledger";
 import {
   getStep,
   SELL_QUICK_RATIOS,

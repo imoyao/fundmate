@@ -71,6 +71,9 @@ html.dark {
   /* 系统配置面板 */
   .right-panel-items {
     .el-divider__text {
+      /* css-vars-ok: 有意让本元素上的 --el-bg-color 变成 guaranteed-invalid（自引用），
+         使 el-divider__text 的背景回退为 unset（透明），文字不遮挡分隔线。
+         更正确的写法是 background-color: transparent，但需真机走查确认，见 #1602。 */
       --el-bg-color: var(--el-bg-color);
     }
 

@@ -2,12 +2,23 @@
 /**
  * CSS 自定义属性（令牌）守卫（#1545 T1.4）
  *
- * 拦截「被 var() 引用、却在源码里找不到定义」的幽灵令牌。
+ * 拦截两类问题：
  *
- * 为什么需要它：`--bg-subtle` 曾被 6 处引用（探市市场机会卡 + 记账导入页），
- * 但全仓零定义——`var(--bg-subtle)` 求值无效，导致整条 `color-mix(...)` 声明
- * 静默失效（市场机会卡只剩左边框有颜色），而构建 / 类型检查 / lint 全绿，
- * 没有任何机制能发现。本守卫把这类「引用与定义脱节」变成显式红灯。
+ * ① 「幽灵令牌」——被 var() 引用、却在源码里找不到定义。
+ *    `--bg-subtle` 曾被 6 处引用（探市市场机会卡 + 记账导入页）但全仓零定义，
+ *    `var(--bg-subtle)` 求值无效导致整条 `color-mix(...)` 声明静默失效，
+ *    而构建 / 类型检查 / lint 全绿。
+ *
+ * ② 「自引用令牌」——`--x: var(--x)`（#1602）。按 CSS 规范这是循环引用，
+ *    该变量在计算期 guaranteed-invalid，**反而会覆盖掉**同元素上更早定义的真实值。
+ *    `design-tokens.css` 曾因此有 14 个令牌（--bg-* / --text-* / --border-light /
+ *    --border-subtle / --shadow-modal / --radius-pill）把 colors.css 的真实定义
+ *    覆盖成无效值，仅仅因为 main.ts 在 index.scss 之后又导入了一次 colors.css
+ *    才侥幸生效。① 的检测完全抓不到这类：`--x: var(--x)` 在 ① 眼里既是「定义」
+ *    又是「使用」，天然自洽。
+ *
+ * 两类分别可用行内指令豁免（须带理由），指令形如 css-vars-ok: ...，
+ * 写在声明所在行或上一行即可（详见脚本内的 OK_RE）。
  *
  * 实现：纯 Node（零依赖）。扫描 frontend/src 下所有
  * .css / .scss / .vue / .ts / .tsx / .js / .jsx / .mjs 文件，
@@ -17,7 +28,7 @@
  * 白名单：`--el-*` / `--pure-*` / `--tw-*` 由 element-plus / pure-admin /
  * tailwind 运行时注入，不属于本仓定义范围。
  *
- * 退出码：发现**新增**幽灵令牌 → 1（CI 红灯）。
+ * 退出码：发现**新增**幽灵令牌或**任何**自引用令牌 → 1（CI 红灯）。
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, extname, dirname } from "node:path";
@@ -91,6 +102,54 @@ for (const f of files) {
       used.get(name).push(`${rel}:${i + 1}`);
     }
   });
+}
+
+// ── 自引用检测（#1602）──────────────────────────────────────────────
+// `--x: <值里含 var(--x)>` 是 CSS 循环引用：该变量 guaranteed-invalid，
+// 且会**覆盖**同元素上更早/更低特异性的真实定义。跨行声明（rgba( 换行）也要能匹配。
+const OK_RE = /css-vars-ok:\s*([^\n*]*)/;
+const hasOk = (lines, idx) => {
+  // 向上最多 8 行找豁免指令（覆盖多行注释块）；越过「本行之前的已结束声明」即停，
+  // 避免命中更早、不相干的豁免。
+  for (let j = idx; j >= Math.max(0, idx - 8); j--) {
+    if (OK_RE.test(lines[j])) return true;
+    if (j < idx && /;\s*$/.test(lines[j]) && !/^\s*(\/\*|\*|\/\/)/.test(lines[j])) return false;
+  }
+  return false;
+};
+const DECL_RE = /^\s*(--[A-Za-z0-9_-]+)\s*:\s*([^;]*);/gm;
+
+const selfRefs = [];
+for (const f of files) {
+  const text = readFileSync(f, "utf8");
+  const rel = relative(ROOT, f).replace(/\\/g, "/");
+  const lines = text.split("\n");
+  for (const m of text.matchAll(DECL_RE)) {
+    const name = m[1];
+    // 值里出现对自身的 var() 引用即构成循环（带 fallback 的写法同样成立）
+    const selfUse = new RegExp("var\\(\\s*" + name.replace(/[-]/g, "\\-") + "\\s*[,)]");
+    if (!selfUse.test(m[2])) continue;
+    const lineNo = text.slice(0, m.index).split("\n").length;
+    if (hasOk(lines, lineNo - 1)) continue;
+    selfRefs.push({ name, loc: `${rel}:${lineNo}` });
+  }
+}
+
+if (selfRefs.length) {
+  console.error(
+    `✗ 发现 ${selfRefs.length} 个「自引用」CSS 变量（值是 var(自身) → 循环引用，变量失效并覆盖真实定义）：\n`
+  );
+  const byName = new Map();
+  for (const r of selfRefs) {
+    if (!byName.has(r.name)) byName.set(r.name, []);
+    byName.get(r.name).push(r.loc);
+  }
+  for (const [name, locs] of byName) console.error(`  ${name}  ${locs.join(", ")}`);
+  console.error(
+    "\n自引用没有任何正面作用：直接删掉该声明即可，值会由同元素/更低特异性的真实定义提供。" +
+      "\n（若确属有意为之，在声明行或其上一行写 css-vars-ok: <理由> 并说明后果。）"
+  );
+  process.exit(1);
 }
 
 const missing = [];
