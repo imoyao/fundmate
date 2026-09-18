@@ -740,6 +740,39 @@ onMounted(() => {
   margin-right: 12px;
 }
 
+/* ============================================================
+   窄屏修溢出（#1585）：行业/赛道排行的区块标题行
+   ------------------------------------------------------------
+   WHY：操作槽里塞了「分类胶囊组 + 视图胶囊组 + 更新时间 + 滞后提示」，
+   自然宽度约 414px；而公共 `SectionHeader` 的 `.section-header__action` 是
+   `inline-flex; flex-shrink: 0`，`.section-header` 又是默认 `nowrap` 的 flex 行——
+   两者叠加后这一行**既不能换行也不能收缩**，320/375 视口下把卡片（进而把文档）撑破：
+   实测文档级横向溢出 155px（#1576 记录）→ #1583 修内边距后 147px → **本块清零**。
+
+   只在**本区块**放开（不动公共 `SectionHeader`）：改公共组件会让 Aggregation /
+   inventory 等所有带操作槽的页面一起变版，属另一条决策；那里的同类风险已登记。
+   ============================================================ */
+@include bp.below("sm") {
+  :deep(.section-header) {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  :deep(.section-header__action) {
+    /* 覆盖公共组件的 `flex-shrink: 0`：允许收缩到容器宽并**内部换行** */
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    row-gap: 8px;
+    min-width: 0;
+  }
+
+  .rank-switch {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    margin-right: 0; /* 独占一行时右侧不需要让位 */
+  }
+}
+
 .rank-switch__item {
   padding: 4px 14px;
   font-size: 13px;
