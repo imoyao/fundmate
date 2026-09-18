@@ -117,4 +117,4 @@ v0.76.0 的 agent 模式在本仓环境下**必然失败**：
 - 配置：`.ai-review-deep.yaml`（仓库根目录）
 - 提示词：`docs/configs/ai-review-prompt.md`、`docs/configs/ai-review-system-summary.md`、`docs/configs/ai-review-known-false-positives.md`
 - 护栏与探测：`scripts/verify_ai_review_config.py`、`scripts/llm_health_probe.py`
-- 产出校验（防假成功，两轮共用）：`scripts/ai_review_verify_guard.js`
+- 产出校验（防假成功，两轮共用）：`scripts/ai_review_verify_guard.js`——**回归用例**：`scripts/tests/ai_review_verify_guard.test.js`（#1584；`pnpm test:scripts`，或 CI job「守卫:脚本单测 (scripts)」；零新依赖、纯 mock 无网络）——**2026-09-18 起（#1581）**该脚本另统计 AI 评论里的「生成标记」类幻觉（`# added` 等固定形态，inline + summary 双通道）并写进 job summary：**只计数、不删除评论、不改变 job 成败**。

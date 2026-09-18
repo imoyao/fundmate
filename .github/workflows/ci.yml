@@ -310,10 +310,30 @@ jobs:
       - name: 校验无幽灵令牌（引用但未定义）
         run: node scripts/check_css_vars.mjs
 
+  # 守卫脚本单测（#1584）：`scripts/ai_review_verify_guard.js` 被 ai-review workflow **直接驱动**，
+  # 且它同时决定「本轮审查算不算真产出（否则 core.setFailed → job 红）」「要不要清理协议信封泄漏评论」
+  # 「生成标记幻觉计数」——写错就是把 job 带红或带绿（假红灯 / 假绿），故给它一份回归网。
+  # 零新依赖（只用 Node 内置 node:test / node:assert），纯离线 mock，无需 LLM 额度。
+  scripts_test:
+    name: 守卫:脚本单测 (scripts)
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: 设置 Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+
+      # 引号是必须的：bash 不展开双引号内的 glob，交给 Node 自己的测试发现（跨平台一致）
+      - name: 跑 scripts/ 下的守卫脚本单测
+        run: node --test "scripts/tests/*.test.js"
+
   gate:
     name: 质量门禁汇总
     if: ${{ always() && github.event_name == 'pull_request' }}
-    needs: [changes, backend, frontend, mojibake_guard, pnpm_overrides_guard, cache_dir_guard, css_token_guard, layout_guard]
+    needs: [changes, backend, frontend, mojibake_guard, pnpm_overrides_guard, cache_dir_guard, css_token_guard, layout_guard, scripts_test]
     runs-on: ubuntu-latest
     steps:
       - name: 汇总各 job 结论（失败 / 取消 → 不通过）
