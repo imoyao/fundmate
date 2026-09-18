@@ -179,20 +179,7 @@ const onClick = () => {
 </script>
 
 <style lang="scss" scoped>
-/* ===== 响应式 ===== */
-@media (width <= 768px) {
-  .gauge-card {
-    flex-direction: column;
-    align-items: center;
-    padding: 20px;
-    text-align: center;
-  }
-
-  .gauge-card--sm {
-    flex-direction: row;
-    text-align: left;
-  }
-}
+@use "@/style/breakpoints" as bp;
 
 .gauge-card {
   display: flex;
@@ -207,6 +194,26 @@ const onClick = () => {
     transform 0.18s ease,
     box-shadow 0.18s ease,
     border-color 0.18s ease;
+
+  /* 窄屏改竖排、收内边距（原为 `width <= 768px` 的裸查询，且**排在 `.gauge-card`
+     基础声明之前**——媒体查询不改变特异性，`align-items: center` / `padding` 被后面的
+     基础声明压掉，**从未生效**；2026-09-18 修复，见 #1576 同类登记）。
+
+     ⚠️ 位置有讲究：本块排在 `.gauge-card` 之后、`--sm` / `--featured` 等**修饰类之前**——
+     这样它只覆盖基础卡片的 padding，`--sm` 的紧凑内边距（18px 20px）与 `--featured` 的
+     梯度底色仍由各自的规则决定，不被打回。 */
+  @include bp.below("md") {
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    text-align: center;
+
+    /* 小号卡（探市入口）窄屏仍保持横排紧凑 */
+    &.gauge-card--sm {
+      flex-direction: row;
+      text-align: left;
+    }
+  }
 }
 
 .gauge-ring {

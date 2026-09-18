@@ -68,12 +68,6 @@ defineEmits<{
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .road-empty__art {
-    animation: none;
-  }
-}
-
 .road-empty {
   display: flex;
   flex-direction: column;
@@ -89,6 +83,13 @@ defineEmits<{
   margin-bottom: 8px;
   opacity: 0.9;
   animation: road-breathe 7s ease-in-out infinite;
+
+  /* 尊重系统的「减弱动态效果」（原本这块**排在基础声明之前**——媒体查询不改变特异性，
+     被后面的 `animation: road-breathe …` 压掉，**等于从未生效**：开了 reduced-motion 的用户
+     照样看到 7s 无限呼吸动画。2026-09-18 修复，见 #1576 同类登记）。 */
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
 }
 
 .road-empty__slogan {

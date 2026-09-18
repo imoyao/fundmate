@@ -62,15 +62,7 @@ const displayValue = computed(() => {
 </script>
 
 <style lang="scss" scoped>
-@media (width <= 480px) {
-  .metric-card__value {
-    font-size: 26px;
-  }
-
-  .metric-card--featured .metric-card__value {
-    font-size: 34px;
-  }
-}
+@use "@/style/breakpoints" as bp;
 
 .metric-card {
   display: flex;
@@ -161,4 +153,22 @@ const displayValue = computed(() => {
    结构：标题行(标题 + 等级标签) → 大数字 + 小单位 → 副文案
    数字：30px(默认) / 40px(featured)，单位 15px
    ============================================================ */
+
+/* 窄屏缩小数字字号（原为 `width <= 480px` 的裸查询，且**排在基础声明之前**——
+   媒体查询不改变特异性，被后面同选择器的 30px / 40px 压掉，**从未生效**；
+   2026-09-18 修复，见 #1576 同类登记）。
+
+   ⚠️ 边界随断点单一来源外移：原 480px → 现 `bp.below("sm")`（<640px）。
+   这是本批里外移幅度最大的一处（+160px），因为它原本用的是**卡片内**字号阈值、
+   而仓库只保留 Tailwind 那五档；若你希望贴近原像素，可改用 `breakpoint-allow`
+   并在此说明理由（`scripts/guard_breakpoints.py` 支持该豁免）。 */
+@include bp.below("sm") {
+  .metric-card__value {
+    font-size: 26px;
+  }
+
+  .metric-card--featured .metric-card__value {
+    font-size: 34px;
+  }
+}
 </style>
