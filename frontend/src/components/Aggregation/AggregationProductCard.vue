@@ -229,23 +229,6 @@ function handleClick() {
 </template>
 
 <style scoped>
-/* ── 响应式：小屏保持一致 ── */
-@media (width <= 520px) {
-  .primary-amount :deep(.money-display) {
-    font-size: 17px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .product-card {
-    transition: none;
-  }
-
-  .product-card:hover {
-    transform: none;
-  }
-}
-
 .product-card {
   display: flex;
   flex-direction: column;
@@ -438,5 +421,25 @@ function handleClick() {
 
 .foot-channel {
   cursor: help;
+}
+
+/* ── 响应式：小屏保持一致 ──
+   ⚠️ 以下两块原先都排在基础声明**之前**，被同特异性、后写的规则压掉（2026-09-18 修复）。 */
+@media (width <= 520px) /* breakpoint-allow: 卡片内金额字号（内容级） */ {
+  /* 说明（已上移到 @media 同行）：这是**卡片内金额字号**（内容级阈值），不是页面布局断点 */
+  .primary-amount :deep(.money-display) {
+    font-size: 17px;
+  }
+}
+
+/* 尊重系统「减弱动态效果」 */
+@media (prefers-reduced-motion: reduce) {
+  .product-card {
+    transition: none;
+  }
+
+  .product-card:hover {
+    transform: none;
+  }
 }
 </style>

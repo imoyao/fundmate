@@ -239,29 +239,6 @@ const emit = defineEmits<{
 </template>
 
 <style scoped>
-@media (hover: none) {
-  .ledger-row-action {
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ledger-card,
-  .ledger-row-action {
-    transition: none;
-  }
-
-  .ledger-card:hover {
-    transform: none;
-  }
-}
-
-@media (hover: none) {
-  .ledger-card.is-archived {
-    opacity: 0.7;
-  }
-}
-
 .ledger-card {
   padding: var(--space-compact);
   cursor: pointer;
@@ -461,4 +438,29 @@ const emit = defineEmits<{
 }
 
 /* 触屏设备无 hover 态，直接常显，避免删除入口不可达 */
+
+/* ── 触屏 / 动效偏好适配 ──
+   ⚠️ 以下三块原先都排在基础声明**之前**，被同特异性、后写的规则压掉（2026-09-18 修复，见 #1576 台账）。 */
+@media (hover: none) {
+  .ledger-row-action {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ledger-card,
+  .ledger-row-action {
+    transition: none;
+  }
+
+  .ledger-card:hover {
+    transform: none;
+  }
+}
+
+@media (hover: none) {
+  .ledger-card.is-archived {
+    opacity: 0.7;
+  }
+}
 </style>
