@@ -608,3 +608,54 @@ static → `--color-neutral`（回退中性）；QDII → `--asset-cat-fund`；F
   **补后仍复现**，故挂起点在别处（疑在 CDP 就绪后的 `WebSocket` 等待段，脚本该段无超时）。
 - 结论：本批改动的证据链为**静态口径 + 30 条回归用例 + 双向反向验证 + 双实现对账**；
   **真机 axe 复跑仍待做**（脚本挂起需单独排查，不属本批改动范围，已在此登记）。
+
+## 2026-09-19 品牌实底按钮白字达 AA：新增 --brand-solid 三态令牌（#1600）
+
+issue #1600 的现象是 `.el-button--primary > span` 白字 3.85:1（亮）/ 3.92:1（暗）。本卡按**方案 A** 处置，
+但落地形态是**语义令牌**而非全站替换 hex —— 因为「实底底色」在亮 / 暗两套主题下**不是同一映射**（见下）。
+
+### 决定：新增三态语义令牌，全站 11 处收敛
+
+| 令牌 | 亮色（`colors.css`） | 白字 | 暗色（`dark.scss`） | 白字 |
+|---|---|---|---|---|
+| `--brand-solid` | `var(--brand-800)` `#CC3D27` | 4.92:1 | `#c94a33` | 4.66:1 |
+| `--brand-solid-hover` | `var(--brand-900)` `#A52E1C` | 6.98:1 | `var(--brand-800)` `#BF4F3B` | 4.78:1 |
+| `--brand-solid-active` | `var(--brand-1000)` `#7A2010` | 10.29:1 | `var(--brand-500)` `#994438` | 6.48:1 |
+
+**为什么暗色不能复用亮色的「下移一档」**：暗色 brand 阶在 800 之后**反转** —— 900 `#E87A66` / 1000 `#FAD9D0`
+比 800 `#BF4F3B` **更浅**，白字仅 2.84 / 1.32:1。故 `dark.scss` 必须用 `:root.dark` 同名覆盖（#1557）。
+这正是「必须落成语义令牌」而非「全站把 700 换成 800」的原因：**换值解决不了暗色端**。
+
+收敛点（11 处）：`theme.scss` 的 `.el-button--primary`；`AssetManagement.vue` 的 `.action-button` / `.btn-primary`；
+`welcome/index.vue` 的 `.hover-card-btn:hover` / `.btn-welcome-cta`；`watchlist/index.vue` 的 `.icon-tool-btn.is-active`；
+`WatchlistFilterBar.vue` 两处计数徽标；`RoadCard.vue` 的 `.road-check.is-on`；
+`OcrImportModal.vue` / `RecognizerImportModal.vue` 的 `.ocr-primary-btn`。
+配套文字统一 `--text-inverse`（`colors.css` 定义、暗色**未覆盖** → 两套主题恒为 `#fff`）。
+
+### 顺带查实并修掉的 3 个连带缺陷
+
+| # | 缺陷 | 证据 | 处置 |
+|---|---|---|---|
+| 1 | `background-color: var(--el-color-primary-light-1)`（`AssetManagement` 两个主按钮的 hover）→ **hover 时按钮底色消失** | 该令牌在 EP `theme-chalk` 与本仓 `theme.scss` 映射里**都未定义**、且无 fallback → 自定义属性无效引用在**计算期**失效 → `background-color` 取 initial(`transparent`)。构建产物中 `--el-color-primary-light-1:` 定义数 **0**，而同族 `--el-color-primary-light-3:` 为 **5**（证明检索方法有效，非假阴性） | 改 `--brand-solid-hover` |
+| 2 | 4 处用 `--bg-card` 当实底按钮文字 | `design.dark.md` 明文禁止（「文字不引用背景色」红线）；暗色 `--bg-card` `#242120` 落在实底上仅 **3.43:1** | 改 `--text-inverse` |
+| 3 | `watchlist` 的 `.icon-tool-btn.is-active` 文字用 `--brand-100` | 该令牌暗色下翻成 `#2D1612`，落在实底上仅 **3.65:1**（亮色 4.60:1 尚可 → 典型的「亮色对、暗色错」） | 改 `--text-inverse` |
+
+### 禁用态（刻意不修，有据）
+
+EP 主按钮禁用态走 `--el-button-disabled-bg-color: var(--el-color-primary-light-5)`（= `--brand-400` `#FABDB0`）
++ `--el-button-disabled-text-color: var(--el-color-white)`，白字 **1.62:1**。
+按 **WCAG 1.4.3 对 inactive component 的豁免**（真禁用控件、有 `disabled` 属性）**不算缺陷**，
+口径与 #1599 一致（「无数据占位符」不适用本豁免，这里是真禁用 → 适用），故**不参与实底阶梯**。
+
+### 未做 / 残留
+
+| # | 事项 | 说明 |
+|---|---|---|
+| 1 | **真机 axe 复跑**（issue 验收第 1 项） | 本环境跑不通（见本文件 #1599 一节的登记：长时间零输出）。本卡证据链 = 令牌对比度**自算**（11 个值全部复核吻合）+ `check_css_vars` 令牌守卫 + `audit_text_contrast` 静态 |
+| 2 | `AssetManagement.vue` 的 `.action-link { color: var(--el-color-primary) }`（= `--brand-700` 作链接文字，白底 **3.86:1**） | 属 **#1599 文字色线**（`--brand-*` 作文字），非本卡「实底底色」范围；且 `design.md` 明确把 `--brand-700` 用于「链接 / 描边 / 文字高亮」→ 要改须先定「链接文字是否另立 `-ink`」，是设计取舍 |
+| 3 | 2 处 `--brand-700` 作**非文字**背景：`reset-password.vue` 的 `.login-bubble`（8px 气泡，`opacity .15`）、`CategoryBalanceTable.vue` 的 `::after` 2px 下划线 | **装饰性**，不承载信息 → WCAG 1.4.11 不适用，刻意保留 |
+
+复跑：
+`node scripts/check_css_vars.mjs`（令牌定义 / 引用一致）；
+`node scripts/audit_text_contrast.mjs --all`（文字色，非本卡主口径）；
+真机：`node scripts/axe_contrast_audit.mjs --routes /profile,/asset/ledgers`（亮）+ `--theme dark`（暗）——**当前环境受阻**。

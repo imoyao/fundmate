@@ -504,11 +504,12 @@ onMounted(() => {
 }
 
 .ocr-primary-btn {
-  background-color: var(--brand-700);
+  color: var(--text-inverse);
+  background-color: var(--brand-solid);
 }
 
 .ocr-primary-btn:hover:not(:disabled) {
-  background-color: var(--brand-600);
+  background-color: var(--brand-solid-hover);
 }
 
 /* 禁用态：无内容/无图片时变浅灰，明确不可点击 */

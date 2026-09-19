@@ -686,11 +686,11 @@ onMounted(() => {
 
 .ocr-primary-btn {
   color: var(--text-inverse);
-  background-color: var(--brand-700);
+  background-color: var(--brand-solid);
 }
 
 .ocr-primary-btn:hover:not(:disabled) {
-  background-color: var(--brand-600);
+  background-color: var(--brand-solid-hover);
 }
 
 .ocr-primary-btn:disabled {

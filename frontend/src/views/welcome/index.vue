@@ -1017,8 +1017,10 @@ onUnmounted(() => {
 }
 
 .hover-card-btn:hover {
-  color: var(--bg-card) !important;
-  background-color: var(--brand-700) !important;
+  /* #1600：原 `--bg-card` 作文字——暗色下 --bg-card 为深色 #242120，在品牌实底上仅 3.43:1，
+     且违反 design.dark.md「禁止使用 --bg-card 作按钮文字」的编码红线；改用 --text-inverse。 */
+  color: var(--text-inverse) !important;
+  background-color: var(--brand-solid) !important;
   transform: scale(1.05);
 }
 
@@ -1041,7 +1043,7 @@ onUnmounted(() => {
   line-height: 1;
   color: var(--text-inverse);
   white-space: nowrap;
-  background-color: var(--brand-700);
+  background-color: var(--brand-solid);
   border-radius: var(--radius-pill);
   transition:
     background-color 0.2s ease,
@@ -1049,11 +1051,11 @@ onUnmounted(() => {
 }
 
 .btn-welcome-cta:hover {
-  background-color: var(--brand-800);
+  background-color: var(--brand-solid-hover);
 }
 
 .btn-welcome-cta:active {
-  background-color: var(--brand-900);
+  background-color: var(--brand-solid-active);
   transform: translateY(1px);
 }
 

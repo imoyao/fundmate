@@ -176,14 +176,20 @@ html[data-theme="showbuy"] .sidebar-logo-container .sidebar-title {
 }
 
 /* 确保按钮等组件使用品牌色 */
-.el-button--primary {
-  --el-button-bg-color: var(--brand-700);
-  --el-button-border-color: var(--brand-700);
-  --el-button-text-color: #fff;
-  --el-button-hover-bg-color: var(--brand-800);
-  --el-button-hover-border-color: var(--brand-800);
-  --el-button-hover-text-color: #fff;
-  --el-button-active-bg-color: var(--brand-900);
-  --el-button-active-border-color: var(--brand-900);
-  --el-button-active-text-color: #fff;
+.el-button.el-button--primary {
+  /* #1600：实底主按钮白字须达 WCAG AA(≥4.5:1)。
+     选择器用 `.el-button.el-button--primary`(0,2,0) 以压过 Element Plus 自带
+     `.el-button--primary`(0,1,0) 对 `--el-button-bg-color: var(--el-color-primary)` 的定义，
+     否则底色会被 EP 默认（= --brand-700，白字仅 3.86:1）压回去。
+     底色一律走 --brand-solid 三态令牌（亮/暗取值分别在 colors.css 与 dark.scss 定义），
+     本文件不再写死 #hex、也不再有 :root.dark 分支。 */
+  --el-button-bg-color: var(--brand-solid);
+  --el-button-border-color: var(--brand-solid);
+  --el-button-text-color: var(--text-inverse);
+  --el-button-hover-bg-color: var(--brand-solid-hover);
+  --el-button-hover-border-color: var(--brand-solid-hover);
+  --el-button-hover-text-color: var(--text-inverse);
+  --el-button-active-bg-color: var(--brand-solid-active);
+  --el-button-active-border-color: var(--brand-solid-active);
+  --el-button-active-text-color: var(--text-inverse);
 }

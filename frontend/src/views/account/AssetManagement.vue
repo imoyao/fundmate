@@ -333,12 +333,12 @@ const handleAssetFormSubmit = () => {
       font-size: 14px;
       color: var(--text-inverse);
       cursor: pointer;
-      background-color: var(--el-color-primary);
+      background-color: var(--brand-solid);
       border: none;
       border-radius: 4px;
 
       &:hover {
-        background-color: var(--el-color-primary-light-1);
+        background-color: var(--brand-solid-hover);
       }
     }
   }
@@ -475,11 +475,11 @@ const handleAssetFormSubmit = () => {
 
     .btn-primary {
       color: var(--text-inverse);
-      background-color: var(--el-color-primary);
+      background-color: var(--brand-solid);
       border: none;
 
       &:hover {
-        background-color: var(--el-color-primary-light-1);
+        background-color: var(--brand-solid-hover);
       }
     }
 
