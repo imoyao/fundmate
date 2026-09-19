@@ -50,7 +50,7 @@ def test_static_and_runtime_route_sets_identical(app):
         'AST 与 url_map 不一致：\n'
         f'  仅 AST 有: {sorted(ast_routes - runtime_routes)}\n'
         f'  仅 url_map 有: {sorted(runtime_routes - ast_routes)}\n'
-        '（新增路由请沿用 @<bp>.<method>(\'<path>/\') 范式，或同步更新守卫解析）'
+        "（新增路由请沿用 @<bp>.<method>('<path>/') 范式，或同步更新守卫解析）"
     )
 
 
@@ -58,9 +58,7 @@ def test_all_routes_have_trailing_slash_except_allowlist(app):
     """除豁免清单外，所有路由必须以 `/` 结尾（conventions.md §2.6）。"""
     guard = _load_guard()
     allowlist = guard.NO_TRAILING_SLASH_ALLOWLIST
-    offenders = sorted(
-        f'{m} {p}' for p, m in _url_map_routes(app) if not p.endswith('/') and p not in allowlist
-    )
+    offenders = sorted(f'{m} {p}' for p, m in _url_map_routes(app) if not p.endswith('/') and p not in allowlist)
     assert offenders == [], '以下端点缺尾斜杠：\n  ' + '\n  '.join(offenders)
 
 
@@ -85,4 +83,6 @@ def test_api_md_auto_section_is_in_sync():
     """api.md 的自动端点段必须与实现一致（文档漂移即红灯）。"""
     guard = _load_guard()
     problems = guard.check_api_md(guard.collect_routes(), write=False)
-    assert problems == [], '文档漂移：' + '；'.join(problems) + '（跑 `python scripts/check_api_conventions.py --write`）'
+    assert problems == [], (
+        '文档漂移：' + '；'.join(problems) + '（跑 `python scripts/check_api_conventions.py --write`）'
+    )
