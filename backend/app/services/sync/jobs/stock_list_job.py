@@ -6,7 +6,7 @@ from typing import List
 from loguru import logger
 
 from app.domains.securities.models import Security
-from app.services.sync.jobs.base import SyncJob
+from app.services.job_base import SyncJob
 
 
 class StockListSyncJob(SyncJob):

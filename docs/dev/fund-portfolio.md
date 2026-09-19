@@ -36,7 +36,7 @@ title: 投顾组合（Advisor Portfolio）数据域设计与实现
 
 | 角色 | 位置 |
 |------|------|
-| Port（平台无关契约） | `app/services/sync/adapters/advisor_source.py`（`AdvisorPortfolioSource` + 注册表 + canonical 字段规格） |
+| Port（平台无关契约） | `app/services/adapters/advisor_source.py`（`AdvisorPortfolioSource` + 注册表 + canonical 字段规格） |
 | Adapter | `adapters/tiantian_advisor_adapter.py`、`adapters/qieman_advisor_adapter.py` |
 | 落库语义（与平台无关） | `jobs/advisor_portfolio_job.py` |
 

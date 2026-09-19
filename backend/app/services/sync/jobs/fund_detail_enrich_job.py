@@ -21,9 +21,9 @@ from sqlalchemy.orm import Session
 from app.core.time_utils import now_shanghai
 from app.domains.funds.models import FeeRatio, Fund, FundType, PurchaseRule, RedeemRule
 from app.services.fund_service import FundService
+from app.services.job_base import BATCH_SIZE_DETAIL_ENRICH, JobStatus, SyncJob
 from app.services.sync.company_resolver import get_or_create_fund_company
 from app.services.sync.fund_type_resolution import FundTypeResolver
-from app.services.sync.jobs.base import BATCH_SIZE_DETAIL_ENRICH, JobStatus, SyncJob
 
 
 class FundDetailEnrichJob(SyncJob):

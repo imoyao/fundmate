@@ -17,7 +17,7 @@ from typing import List
 from loguru import logger
 
 from app.domains.indices.models import PUBLISHER_BY_SOURCE, IndexCatalog
-from app.services.sync.jobs.base import SyncJob
+from app.services.job_base import SyncJob
 
 
 class IndexCatalogSyncJob(SyncJob):

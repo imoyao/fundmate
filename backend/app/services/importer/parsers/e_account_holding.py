@@ -24,8 +24,8 @@ from typing import List, Optional, Tuple
 import pandas as pd
 
 from app.core.constants import PositionSource
+from app.services.import_records import SBImportError, StandardHoldingRecord
 from app.services.importer.base import BaseHoldingParser
-from app.services.importer.records import SBImportError, StandardHoldingRecord
 from app.services.importer.utils import clean_amount, clean_nav, clean_shares, normalize_fund_code, parse_date
 
 # 表头定位关键列：必须同时出现才认定为真正的表头行

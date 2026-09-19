@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from app.services.sync.adapters.akshare_adapter import AkshareAdapter
+from app.services.adapters.akshare_adapter import AkshareAdapter
 
 fixtures = Path('tests/fixtures')
 fixtures.mkdir(parents=True, exist_ok=True)

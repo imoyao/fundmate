@@ -2,7 +2,7 @@
 # Author : imoyao
 # Date : 2026/7/23 22:40
 # File : null_adapter.py
-# backend/app/services/sync/adapters/null_adapter.py
+# backend/app/services/adapters/null_adapter.py
 
 """
 空适配器，用于不需要数据源的同步任务（如 TemperatureJob）。

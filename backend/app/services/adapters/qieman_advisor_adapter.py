@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """且慢投顾组合适配器（#1392）：复用且慢 MCP（stargate.yingmi.com）自动抓组合持仓与概览。
 
-实现 :class:`~app.services.sync.adapters.advisor_source.AdvisorPortfolioSource`：
+实现 :class:`~app.services.adapters.advisor_source.AdvisorPortfolioSource`：
 把 MCP 归一化结果翻译成 canonical（差异只在少量别名），平台细节（工具名 / 中文键 / 百分号串）
 全部留在 ``thermometer/fetchers.QiemanFetcher`` 与本文件内。
 
@@ -21,7 +21,7 @@
 本适配器替代原 import_qieman_holdings 手动 JSON 导入。
 """
 
-from app.services.sync.adapters.advisor_source import (
+from app.services.adapters.advisor_source import (
     CANONICAL_OVERVIEW_COLUMNS,
     EXTRA_KEY,
     AdvisorPortfolioSource,

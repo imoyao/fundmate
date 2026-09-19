@@ -27,7 +27,7 @@ from app.domains.positions.models import (
     SalesInstitution,
     resolve_sales_institution_id,
 )
-from app.services.importer.records import (
+from app.services.import_records import (
     SBImportError,
     StandardHoldingRecord,
     compute_position_hash,

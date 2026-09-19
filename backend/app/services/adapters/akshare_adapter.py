@@ -3,7 +3,7 @@
 # Date : 2026/5/30 11:24
 # File : akshare_adapter.py
 # -*- coding: utf-8 -*-
-# app/services/sync/adapters/akshare_adapter.py
+# app/services/adapters/akshare_adapter.py
 import re
 import time
 from datetime import date, datetime, timedelta
@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 from loguru import logger
 
 from app.core.symbol_utils import get_normalizer
-from app.services.sync.adapters.base import DataSourceAdapter
+from app.services.adapters.base import DataSourceAdapter
 
 # 基金经理全量接口（东财 fund_manager_em）偶发抖动，首次拉取的有限重试策略
 _FUND_MANAGER_RETRY = 3
@@ -38,7 +38,7 @@ class AkshareAdapter(DataSourceAdapter):
 
     # ── 股票列表 ──
 
-    # app/services/sync/adapters/akshare_adapter.py
+    # app/services/adapters/akshare_adapter.py
 
     def _parse_fund_info_dataframe(self, df, fund_code: str) -> Dict[str, Any]:
         """

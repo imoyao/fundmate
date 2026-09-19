@@ -5,7 +5,7 @@
 """
 
 from app.domains.securities.models import ConvertibleBondTerm
-from app.services.sync.adapters.akshare_adapter import AkshareAdapter
+from app.services.adapters.akshare_adapter import AkshareAdapter
 from app.services.sync.jobs.convertible_bond_job import ConvertibleBondSyncJob
 
 

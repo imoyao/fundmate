@@ -17,8 +17,8 @@ from typing import List
 from loguru import logger
 
 from app.domains.funds.models import Fund
+from app.services.job_base import SyncJob
 from app.services.sync.company_resolver import get_or_create_fund_company
-from app.services.sync.jobs.base import SyncJob
 
 
 class FundListSyncJob(SyncJob):

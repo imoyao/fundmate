@@ -33,7 +33,7 @@ from app.domains.positions.models import Position, PositionImportMeta, resolve_s
 from app.domains.transactions.models import Transaction
 from app.services.async_backfill import trigger_backfill
 from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_money_fund_symbol, normalize_fund_code
-from app.services.importer.records import compute_position_hash
+from app.services.import_records import compute_position_hash
 from app.services.pnl_service import compute_sell_realized_cents
 from app.services.trading import TransactionService, validate_buy, validate_sell
 from app.services.watchlist_service import (

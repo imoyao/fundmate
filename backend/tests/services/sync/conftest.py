@@ -26,11 +26,11 @@ def skip_lock(monkeypatch):
 
 @pytest.fixture
 def mock_xalpha():
-    with patch('app.services.sync.adapters.xalpha_adapter.xa') as mock:
+    with patch('app.services.adapters.xalpha_adapter.xa') as mock:
         yield mock
 
 
 @pytest.fixture
 def mock_akshare():
-    with patch('app.services.sync.adapters.akshare_adapter.ak') as mock:
+    with patch('app.services.adapters.akshare_adapter.ak') as mock:
         yield mock
