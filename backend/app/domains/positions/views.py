@@ -17,39 +17,15 @@ from app.core.utils import paginate
 from app.core.validation import parse_body
 from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
-from app.domains.positions.schemas import PositionCreate, PositionOut, PositionUpdate
+from app.domains.positions.schemas import PositionCreate, PositionUpdate
 from app.domains.transactions.models import Transaction
+from app.services.position_presenter import enrich_position_dict
 from app.services.position_service import PositionService
-from app.services.position_valuation import allocate_value, market_value_cents
+from app.services.position_valuation import allocate_value
 from app.services.price_range_service import resolve_security_price_range
 from app.services.trading import TradeService
 
 bp = APIBlueprint('positions', __name__, url_prefix='/api/positions/')
-
-
-def enrich_position_dict(p: Position) -> dict:
-    if not p.market:
-        p.market = 'UNKNOWN'
-    d = PositionOut.model_validate(p).model_dump()
-    d['type_label'] = TYPE_LABELS.get(p.asset_type, p.asset_type)
-    d['market_label'] = MARKET_LABELS.get(p.market, p.market)
-    d['allocation_label'] = ALLOCATION_LABELS.get(p.allocation, p.allocation or '未分类')
-    # 转换内部单位到展示单位
-    d['quantity'] = Money.min_unit_to_shares(p.quantity)
-    d['avg_price'] = Money.price_units_to_yuan(p.avg_price)
-    d['current_price'] = Money.price_units_to_yuan(p.current_price)
-    d['market_value_override'] = (
-        Money.cents_to_yuan(p.market_value_override) if p.market_value_override is not None else None
-    )
-    # 市值/盈亏（#1174 收口）：委托唯一口径 position_valuation.market_value_cents。
-    # 本币直算——汇率折算仅存在于 summary 聚合口径（total_*_cny）；单条明细与 current_price 保持本币一致。
-    d['market_value'] = Money.cents_to_yuan(market_value_cents(p))
-    d['pnl'] = (
-        Money.cents_to_yuan(Money.multiply_price_quantity(p.current_price - p.avg_price, p.quantity))
-        if p.avg_price
-        else 0.0
-    )
-    return d
 
 
 @bp.get('/')

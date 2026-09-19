@@ -660,6 +660,46 @@ EP 主按钮禁用态走 `--el-button-disabled-bg-color: var(--el-color-primary-
 `node scripts/audit_text_contrast.mjs --all`（文字色，非本卡主口径）；
 真机：`node scripts/axe_contrast_audit.mjs --routes /profile,/asset/ledgers`（亮）+ `--theme dark`（暗）——**当前环境受阻**。
 
+## 2026-09-19 后端依赖方向：core 切断 + 跨域 views 互引归零，剩余收敛登记（#1607 批次 1/2）
+
+issue #1607 的处置策略是「先出决策 + 分批收敛」。**批次 1** = 决策 + core 反向依赖切断；
+**批次 2** = 跨域 views 互引归零 + 守卫泛化 + services 内部方向定调。两批均未做「服务/适配器
+物理搬家」这类高 churn 改造（留批次 3）。
+
+### 批次 1 已完成（PR 见 #1607 评论）
+
+| 项 | 内容 | 证据 |
+|---|---|---|
+| 分层决策 | `core ← domains.{models,schemas} ← services ← domains.{views}`；**判据用「边方向」而非包级双向对数量**（包级双向对多由 `views→services` + `services→models` 两条合法边叠加而成） | `decisions.md` 2026-09-19 行（D24）、`architecture.md` §6 |
+| core 反向依赖切断 | `core/auth.py` 的 User 读写下沉为 `domains/users/identity.py::UserIdentity` 并注入（未注入显式报错）；默认家庭/用户种子移入 `domains/users/seed.py`；`init_db()` 不再代为 `import app.models.sync_log` | core→domains 边 **4 → 0** |
+| 守卫与回归网 | pre-commit + CI 的 backend job（**不新增 job、不动 `gate.needs`**）+ pytest 同源回归 | 批次 2 起统一到 `scripts/guard_layer_direction.py`（原名 `guard_core_imports.py`）与 `tests/core/test_layer_direction.py`（原 `test_core_layer_boundary.py`）；注入/种子用例拆到 `tests/core/test_identity_wiring.py` |
+
+### 批次 2 已完成
+
+| 项 | 内容 | 证据 |
+|---|---|---|
+| 跨域 views 互引归零 | `enrich_position_dict` 从 `domains/positions/views.py` 下沉到 `services/position_presenter.py`（该函数本就依赖 `position_valuation` 口径，且被 positions/ledgers 两域共用）；`ledgers/views.py` 改 import services，`positions/views.py` 从 services 取用并清掉随之无用的 import | 违规边 **1 → 0**；`guards` R4 覆盖 |
+| 守卫泛化为四类非法边 | `scripts/guard_layer_direction.py`：R1 core→domains/models、R2 services→`domains.*.views`、R3 `domains.*.{models,schemas}`→services、R4 跨域 views 互引；同时支持动态 import 字面量；**不判合法边与包级双向对** | `tests/core/test_layer_direction.py`：真实 app 全绿 + 15 条参数化（每规则灵敏度 + 合法边反向保护） |
+| services 内部方向定调 | **编排/注册类**（`sync/orchestrator`、`thermometer/jobs`、`importer/orchestrator*`）可依赖其它领域服务；**领域服务**（`fund_service`/`position_service` 等）不得反向依赖编排层；跨家族**共享件**（`SyncJob` 基类、数据源适配器、`importer.records`）不得被当作"某家族的服务"引用 | `architecture.md` §6、`decisions.md` D25；物理上提登记为批次 3 |
+| 模型位置条款（原「双轨」） | 业务模型 `domains/*/models.py`；**跨域 / 系统级模型**（现仅 `app/models/sync_log.py`）放 `app/models/`，属**被承认的第二类**而非"无规则的例外"；`db_factory` 注释同步 | `architecture.md` §6、`db_factory.py` 注释 |
+
+### 开口项（批次 3，仍挂 #1607）
+
+| # | 事项 | 当前事实 | 处置方向 |
+|---|---|---|---|
+| 1 | 跨家族**共享件寄生**在家族包内 | `services/sync/jobs/base.py`（`SyncJob` 基类）被 thermometer / bias 反过来 import；`services/sync/adapters/*` 被 `fund_service` / `async_backfill` / `price_range_service` 引用；`services/importer/records.py` 被 `position_service` / `ocr/views` 引用 | 上提为中立模块（如 `services/jobs_base.py`、`services/adapters/`、`services/records.py`），或明确「适配器属第三方数据层」的独立位置；改动面大（20+ 文件机械改 import），单独立批并全量回归 |
+| 2 | services 内部 4 对双向 | `sync ↔ thermometer`、`bias ↔ thermometer`、`sync ↔ fund_service`、`importer ↔ position_service` —— 逐边判定：**编排→服务**合法（`sync/orchestrator → thermometer.jobs`、`importer/orchestrator_holdings → PositionService`）；**服务→共享件**属上提项（第 1 条）；**`bias/job.py:106 → thermometer.service`** 为函数内延迟导入，待批次 3 复核是否可改为经注入获取 | 随第 1 条一起做；届时 R 规则可加「领域服务不得 import 编排模块」的机器判定 |
+| 3 | 跨域模型引用 | `assets↔ledgers`、`positions↔transactions`、`portfolios↔positions`、`users↔families`（末者由批次 1 种子引入） | 逐对评估是否可改注入 / 聚合层，**不预设必须清零**（跨域 models 引用是当前允许的边） |
+| 4 | 包级双向依赖对计数（观测值） | **23 → 20**（批次 1：-4 core 边 +1 `users→families.models`；批次 2：跨域 views 边归零但该边原本单向，对数不变） | 主指标看「违规边 0」；包级对数不会也不应清零（合法边叠加） |
+
+### 行为变化（对外 API 零变更，仅 CLI 侧）
+
+- **CLI 入口不再播种默认家庭/用户**：`sync_cli` / `scheduler` / `scheduler_daemon` / `sync_metadata`
+  只建表，不再写入 family 1 / user 1（这些入口本就不需要身份行）。需要时调用
+  `app.domains.users.seed.seed_default_identity()`；`scripts/migrate_family_id.py` 已显式调用，行为与改前一致。
+- `init_db()` 只建「**调用方已 import 的模型**」的表：新增域模型后，绕过应用工厂的 CLI 入口须自行导入该模型
+  （此前 `init_db` 只代为导入过 `app.models.sync_log` 一个，`sync_cli` 已按其补上）。
+- 批次 2 的 `enrich_position_dict` 搬迁是**纯位置变更**：函数体逐字未改，HTTP 响应字段与数值口径不变。
 ## 2026-09-19 错误响应统一信封（#1610，D27）：63 处已补齐 + 守卫上线
 
 ### 已完成
@@ -687,9 +727,12 @@ EP 主按钮禁用态走 `--el-button-disabled-bg-color: var(--el-color-primary-
 | 1 | `summary/views.py` 6 处逐视图 `try/except Exception → 500` 未收敛 | 仍重复实现全局处理器职责、绕过 `logger.opt(exception=True)` 留痕。收敛会让 500 响应体由 `data: {空结构}` / `message: '服务器内部错误: <内部细节>'` 变为 `data: None` / 泛化 message（**对外可观察变化**），需单独拍板 |
 | 2 | 前端尚未消费 `error_code` | 契约已可用（三字段 + int），前端 `api/search.ts` 目前仅声明类型未分支处理；接入错误分类时可直接用 |
 
+
 ### 复跑
 
 ```bash
+python scripts/guard_layer_direction.py
+cd backend && pdm run pytest tests/core/test_layer_direction.py tests/core/test_identity_wiring.py -p no:xdist -q
 python scripts/guard_error_envelope.py
 cd backend && pdm run pytest tests/test_error_envelope.py tests/test_auth.py tests/domains -p no:xdist -q
 ```
@@ -719,4 +762,5 @@ cd backend && pdm run pytest tests/test_error_envelope.py tests/test_auth.py tes
 python scripts/check_api_conventions.py
 python scripts/check_api_conventions.py --write   # 改路由后重建自动段
 cd backend && pdm run pytest tests/test_api_conventions.py -p no:xdist -q
+
 ```

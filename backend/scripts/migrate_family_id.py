@@ -8,7 +8,7 @@
 本脚本幂等执行：
 1. 读取 `app/core/database` 中所有含 `family_id` 列的模型表；
 2. 对缺失该列的既有表执行 `ALTER TABLE ... ADD COLUMN family_id INTEGER NOT NULL DEFAULT 1`；
-3. 种子默认家庭 1 / 默认用户 1（复用 `_seed_default_identity`）。
+3. 种子默认家庭 1 / 默认用户 1（`app.domains.users.seed.seed_default_identity`，#1607 从 core 移出）。
 
 用法（在 backend 目录）：
     pdm run python scripts/migrate_family_id.py
@@ -80,6 +80,10 @@ def main() -> None:
     db_core.engine = engine
     db_core.SessionLocal.configure(bind=engine)
     db_core.init_db()
+    # 种子已从 core 移到 user 域（#1607）：init_db 只建表，须显式调用播种
+    from app.domains.users.seed import seed_default_identity
+
+    seed_default_identity()
     print('[OK] 默认家庭 1 / 默认用户 1 就绪')
 
 
