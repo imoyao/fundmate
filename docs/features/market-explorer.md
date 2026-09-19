@@ -316,7 +316,7 @@ title: 探市（大类资产观察）设计
 
 1. **估值条的绿→红与温度三色同源**（低=绿、高=红），应复用同一套 token，不要再造一套；
 2. **强度条的灰→紫是第三套配色**，与涨跌、温度都不同。项目 tokens 里已有可对应项
-   （`--color-primary` = `#7a7fa8` 灰紫蓝、`--tag-thistle`、`--tag-periwinkle`），
+   （`--color-primary` = `#7a7fa8` 灰紫蓝、`--palette-thistle`、`--palette-periwinkle`），
    但 `design.md` 正文未收录这三者——落地时**以 `frontend/src/style/colors.css` 为准**，
    并顺手补文档。
 
@@ -502,7 +502,7 @@ pdm run brief --dry-run --out brief.html # 只渲染到本地文件，不发信�
 | 涨 / 跌 | `--color-rise` `#E34F38` / `--color-fall` `#7BC49A` | **禁止直接用 `--brand-*`**（编码红线） |
 | 颜色深浅 = 幅度 | 由 `--color-rise`/`--color-fall` 按幅度取色阶 | 对应原文「颜色越深幅度越大」 |
 | 温度三色（探市位条 / 温度计） | `--temp-low` / `--temp-mid` / `--temp-high` | 见 6.4.2 缺口 ① |
-| 强度条（灰→紫） | `--color-primary` `#7a7fa8` ／ `--tag-thistle` ／ `--tag-periwinkle` | 见 6.4.2 缺口 ② |
+| 强度条（灰→紫） | `--color-primary` `#7a7fa8` ／ `--palette-thistle` ／ `--palette-periwinkle` | 见 6.4.2 缺口 ② |
 | 20 资产分组标识 | `--asset-stock` / `--asset-bond` / `--asset-etf` / `--asset-crypto` / `--asset-saving` | **已有资产类别色，直接复用** |
 | 主要 / 次要 / 辅助文字 | `--text-primary` `#2D2A24` ／ `--text-secondary` `#6B655C` ／ `--text-tertiary` `#8C8478` | 暖灰体系 |
 | 边框 / 卡片内分割 | `--border-default` `#E5DDD4` ／ `--border-subtle` | |
@@ -526,7 +526,7 @@ pdm run brief --dry-run --out brief.html # 只渲染到本地文件，不发信�
 必须先落 token，再写页面**，否则就是第三次踩同一个坑。
 
 **② 「强度条 灰→紫」在 `design.md` 正文无记录。**
-token 层有可对应项（`--color-primary` 灰紫蓝 / `--tag-thistle` / `--tag-periwinkle`），
+token 层有可对应项（`--color-primary` 灰紫蓝 / `--palette-thistle` / `--palette-periwinkle`），
 但设计语言正文只覆盖品牌色、功能色、中性色三族。落地时应**以 `colors.css` 为准**，
 并顺手把这族颜色补进 `design.md`，避免下一个人再找不到。
 
