@@ -4,9 +4,9 @@
       <IconifyIconOffline
         icon="ep:folder-opened"
         class="text-4xl mb-2"
-        :style="{ color: 'var(--text-tertiary)' }"
+        :style="{ color: 'var(--text-tertiary-ink)' }"
       />
-      <p :style="{ color: 'var(--text-tertiary)' }">暂无资产构成数据</p>
+      <p :style="{ color: 'var(--text-tertiary-ink)' }">暂无资产构成数据</p>
     </div>
     <div
       ref="chartRef"

@@ -35,7 +35,7 @@
           :precision="quantityPrecision"
           :step="quantityStep"
         />
-        <div class="text-xs mt-1" style="color: var(--text-tertiary)">
+        <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
           <template v-if="isFund">基金份额，根据金额自动反算</template>
           <template v-else>数量为整数（股 / 张）</template>
         </div>
@@ -85,7 +85,7 @@
           :step="0.01"
           placeholder="0.00"
         />
-        <div class="text-xs mt-1" style="color: var(--text-tertiary)">
+        <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
           <span v-if="isFund">金额为权威数据，份额自动反算，可手动修改</span>
           <span v-else>自动计算：数量 × 单价 + 手续费，可手动修改</span>
         </div>
@@ -125,7 +125,7 @@
         <div
           v-if="isFund"
           class="text-xs mt-1"
-          style="color: var(--text-tertiary)"
+          style="color: var(--text-tertiary-ink)"
         >
           预计确认日：{{ confirmDateDisplay || "计算中..." }}
         </div>
@@ -444,7 +444,9 @@ async function handleSave() {
 :deep(.el-form-item__error) {
   padding-top: 2px;
   font-size: 0.75rem;
-  color: var(--el-color-danger, #f56c6c);
+
+  /* `--el-color-danger` 是 Element Plus 默认 #f56c6c（对白底 2.90:1，不达 AA）→ 用本项目语义危险色（4.74:1） */
+  color: var(--color-danger);
   transition: none;
 }
 </style>

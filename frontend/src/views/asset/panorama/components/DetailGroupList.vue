@@ -12,7 +12,7 @@
         :style="{ backgroundColor: 'var(--bg-soft)' }"
       >
         <span :style="{ color: 'var(--text-primary)' }">{{ group.name }}</span>
-        <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+        <span class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
           {{ group.items.length }} 项
         </span>
       </div>
@@ -24,7 +24,10 @@
             :show-sign="false"
             :show-currency="true"
           />
-          <span class="ml-2 text-xs" :style="{ color: 'var(--text-tertiary)' }">
+          <span
+            class="ml-2 text-xs"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
+          >
             占
             {{ ((Math.abs(group.total) / totalAssets) * 100).toFixed(1) }}%
           </span>

@@ -7,7 +7,7 @@
       <h2 class="text-2xl font-bold" :style="{ color: 'var(--text-primary)' }">
         策略视图
       </h2>
-      <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary)' }">
+      <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary-ink)' }">
         按投资风格标签分组查看持仓表现。此为纯分析功能，不参与组合收益率计算。
       </p>
     </div>
@@ -30,7 +30,7 @@
     <div
       v-if="loading"
       class="text-center py-20"
-      :style="{ color: 'var(--text-tertiary)' }"
+      :style="{ color: 'var(--text-tertiary-ink)' }"
     >
       <p>加载中...</p>
     </div>
@@ -40,7 +40,7 @@
       <div class="flex justify-between items-center mb-6">
         <div class="flex gap-4">
           <el-card shadow="never" class="summary-card">
-            <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+            <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
               总持仓
             </p>
             <p
@@ -51,7 +51,7 @@
             </p>
           </el-card>
           <el-card shadow="never" class="summary-card">
-            <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+            <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
               标签数
             </p>
             <p
@@ -62,7 +62,7 @@
             </p>
           </el-card>
           <el-card shadow="never" class="summary-card">
-            <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+            <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
               总市值
             </p>
             <p
@@ -77,7 +77,7 @@
             </p>
           </el-card>
           <el-card shadow="never" class="summary-card">
-            <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+            <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
               总盈亏
             </p>
             <p class="text-xl font-bold">
@@ -100,7 +100,7 @@
             {{ group.tag }}
             <span
               class="text-sm font-normal ml-2"
-              :style="{ color: 'var(--text-tertiary)' }"
+              :style="{ color: 'var(--text-tertiary-ink)' }"
             >
               {{ group.holdings.length }} 只持仓 · 市值
               <MoneyDisplay
@@ -205,14 +205,14 @@
                     <span
                       v-else
                       class="text-xs"
-                      :style="{ color: 'var(--text-tertiary)' }"
+                      :style="{ color: 'var(--text-tertiary-ink)' }"
                     >
                       未设置
                     </span>
                     <IconifyIconOffline
                       icon="ep:arrow-down"
                       class="ml-1 text-xs"
-                      :style="{ color: 'var(--text-tertiary)' }"
+                      :style="{ color: 'var(--text-tertiary-ink)' }"
                     />
                   </div>
                 </template>
@@ -274,7 +274,7 @@
       <div
         v-if="strategyGroups.length === 0"
         class="text-center py-20"
-        :style="{ color: 'var(--text-tertiary)' }"
+        :style="{ color: 'var(--text-tertiary-ink)' }"
       >
         <IconifyIconOffline
           icon="ep:collection"

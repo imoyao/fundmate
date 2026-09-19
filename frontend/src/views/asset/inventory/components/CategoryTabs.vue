@@ -18,7 +18,11 @@
             size="sm"
           />
         </template>
-        <span v-else class="text-sm" :style="{ color: 'var(--text-tertiary)' }">
+        <span
+          v-else
+          class="text-sm"
+          :style="{ color: 'var(--text-tertiary-ink)' }"
+        >
           无记录
         </span>
       </span>
