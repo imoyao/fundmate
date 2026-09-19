@@ -302,8 +302,12 @@ class TestMigrationConflictResolution:
         assert db.query(Position).filter(Position.id == tgt_pos_id).first() is None
 
     def test_conservation_failure_rolls_back(self, client, db, monkeypatch):
-        """守恒校验被注入异常 → 500 且整体回滚，源数据原样"""
-        from app.domains.ledgers import views as ledger_views
+        """守恒校验被注入异常 → 500 且整体回滚，源数据原样
+
+        注入点随 #1606 从 `domains.ledgers.views` 迁到 `services.ledger_migration_service`
+        （守恒校验是业务规则，已下沉服务层）。
+        """
+        from app.services import ledger_migration_service as migration_svc
 
         src_id, tgt_id = _make_pair(client)
         db.add(_pos('000001', '基金一', src_id, '基金源', 100, 10.0))
@@ -312,7 +316,7 @@ class TestMigrationConflictResolution:
         def _boom(*args, **kwargs):
             raise RuntimeError('注入的守恒校验失败')
 
-        monkeypatch.setattr(ledger_views, '_verify_migration_conservation', _boom)
+        monkeypatch.setattr(migration_svc, '_verify_migration_conservation', _boom)
 
         resp = client.post(f'/api/ledgers/{src_id}/migrations/commit/', json={'target_ledger_id': tgt_id})
         assert resp.status_code == 500
