@@ -659,3 +659,41 @@ EP 主按钮禁用态走 `--el-button-disabled-bg-color: var(--el-color-primary-
 `node scripts/check_css_vars.mjs`（令牌定义 / 引用一致）；
 `node scripts/audit_text_contrast.mjs --all`（文字色，非本卡主口径）；
 真机：`node scripts/axe_contrast_audit.mjs --routes /profile,/asset/ledgers`（亮）+ `--theme dark`（暗）——**当前环境受阻**。
+
+## 2026-09-19 后端依赖方向：core 反向依赖已切断，剩余收敛登记（#1607 批次 1）
+
+issue #1607 的处置策略是「先出决策 + 分批收敛」，**本批只做批次 1（决策 + core 反向依赖切断）**，
+不一次性推翻 domains ↔ services。
+
+### 已完成
+
+| 项 | 内容 | 证据 |
+|---|---|---|
+| 分层决策 | `core ← domains.{models,schemas} ← services ← domains.{views}`；**判据用「边方向」而非包级双向对数量**（包级双向对多由 `views→services` + `services→models` 两条合法边叠加而成） | `decisions.md` 2026-09-19 行（D24）、`architecture.md` §6 |
+| core 反向依赖切断 | `core/auth.py` 的 User 读写下沉为 `domains/users/identity.py::UserIdentity` 并注入（未注入显式报错）；默认家庭/用户种子移入 `domains/users/seed.py`；`init_db()` 不再代为 `import app.models.sync_log` | `scripts/guard_core_imports.py` 扫 25 个文件零违规；core→domains 边 **4 → 0** |
+| 守卫与回归网 | pre-commit（`guard-core-imports`）+ CI 的 backend job（**不新增 job、不动 `gate.needs`**）+ pytest 同源回归 | `tests/core/test_core_layer_boundary.py`（5 条，含「插违规样本必红」的灵敏度验证） |
+
+### 开口项（批次 2 起，仍挂 #1607）
+
+| # | 事项 | 当前值 | 目标 |
+|---|---|---|---|
+| 1 | 跨域 views 互引 | **1 条**：`domains/ledgers/views.py:29` 的 `from app.domains.positions.views import enrich_position_dict` | 0（把该函数收进 services 或 positions 的查询入口） |
+| 2 | `services` 内部方向未定 | `sync ↔ thermometer`、`bias ↔ thermometer`、`sync ↔ fund_service`、`importer ↔ position_service` 四对双向 | 先定「编排层 → 领域服务」单向，再逐对收敛 |
+| 3 | 跨域模型引用 | `assets↔ledgers`、`positions↔transactions`、`portfolios↔positions`、`users↔families`（末者由本批种子引入，属允许的跨域 models 引用） | 逐对评估是否可改注入 / 聚合层，**不预设必须清零** |
+| 4 | 模型双轨 | `app/models/sync_log.py` 仍在 `domains/*/models.py` 之外，`DATA_DOMAIN_REGISTRY` 登记面横跨两处 | 迁入对应域或独立 `models/` 包（属独立决策，可与批次 2 合并） |
+| 5 | 包级双向依赖对计数（观测值） | **23 → 20**（-4 core 边，+1 `users→families.models`） | 主指标改看「违规边 0」；包级对数不会也不应清零（合法边叠加） |
+
+### 行为变化（对外 API 零变更，仅 CLI 侧）
+
+- **CLI 入口不再播种默认家庭/用户**：`sync_cli` / `scheduler` / `scheduler_daemon` / `sync_metadata`
+  只建表，不再写入 family 1 / user 1（这些入口本就不需要身份行）。需要时调用
+  `app.domains.users.seed.seed_default_identity()`；`scripts/migrate_family_id.py` 已显式调用，行为与改前一致。
+- `init_db()` 只建「**调用方已 import 的模型**」的表：新增域模型后，绕过应用工厂的 CLI 入口须自行导入该模型
+  （此前 `init_db` 只代为导入过 `app.models.sync_log` 一个，`sync_cli` 已按其补上）。
+
+### 复跑
+
+```bash
+python scripts/guard_core_imports.py
+cd backend && pdm run pytest tests/core/test_core_layer_boundary.py -p no:xdist -q
+```

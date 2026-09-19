@@ -242,19 +242,20 @@ def _validate_schema(bind, metadata, label: str = 'app') -> None:
 
 
 def init_db():
-    """创建所有表并写入默认家庭/用户（多用户地基）。
+    """创建所有表（按数据域分建）——只做「结构」，不写业务种子数据。
 
     双库就绪（#1085）：按数据域把表分别建到对应引擎——
     market 域 → engine（应用运行库），user 域 → user_engine（Supabase / 本地回退）。
     单库模式下两引擎指向同一库，等价于旧单库建表；双库模式下自然分离。
-    默认家庭 1 + 默认用户 1 兼容既有单用户数据。
+
+    边界（#1607）：core 是业务无关的基础设施层，**不 import 领域层**，故
+    「默认家庭 1 + 默认用户 1」这类 user 域业务数据的播种已移到
+    `app.domains.users.seed.seed_default_identity()`，由调用方（应用组合根 / CLI 入口）
+    在建表之后自行调用。同理，表集合取决于**调用方已 import 的模型**：本函数不再代为
+    导入顶层模型（`app.models.sync_log`），入口须自行保证模型注册齐全，否则缺表。
     """
-    # 确保顶层模型已注册到 Base.metadata（否则 DATA_DOMAIN_REGISTRY 会因
-    # 模型未导入而报孤儿表告警）。sync_log 仅在 services/sync 被加载时才导入，
-    # 启动路径未必触达，故此处显式导入（与 sync_metadata 的防御式导入一致）。
     from sqlalchemy.schema import MetaData
 
-    import app.models.sync_log  # noqa: F401
     from app.core.db_factory import (
         DOMAIN_MARKET,
         DOMAIN_USER,
@@ -298,11 +299,10 @@ def init_db():
     migrate_watchlist_venue_not_null(user_eng)
     migrate_watchlist_unique_key(user_eng)
     migrate_watchlist_family_scoped_unique_key(user_eng)
-    _seed_default_identity()
 
 
 def init_db_split():
-    """双库模式：按数据域分别 create_all 到对应 engine。
+    """双库模式：按数据域分别 create_all 到对应 engine（只做结构，不播种子）。
 
     - market 引擎必配（本地 dev 为 invest.db，生产为 Turso）。
     - user 引擎：配了 SUPABASE_DATABASE_URL 即 Supabase；本地 development 下
@@ -314,8 +314,10 @@ def init_db_split():
     注：用户库（Supabase）生产建表建议由 Supabase 迁移工具独立负责，此方法
     主要用于开发期本地双库验证 / CI 校验，不强制生产路径。本地需要模拟双库时，
     请先显式设置 DEV_USER_DATABASE_URL 再调用本方法。
+
+    边界（#1607）：默认家庭 / 默认用户种子已移到
+    `app.domains.users.seed.seed_default_identity()`，需要时由调用方在本方法之后调用。
     """
-    import app.models.sync_log  # noqa: F401
     from app.core.db_factory import (
         DOMAIN_APP,
         DOMAIN_MARKET,
@@ -358,9 +360,6 @@ def init_db_split():
         migrate_watchlist_venue_not_null(user_eng)
         migrate_watchlist_unique_key(user_eng)
         migrate_watchlist_family_scoped_unique_key(user_eng)
-    # 双库模式：种子必须落到 user 引擎（修复跨域 bug），bind 传 user_eng；
-    # 未配 Supabase 时 user_eng 为本地回退文件，仍与 market 域隔离。
-    _seed_default_identity(bind=user_eng)
 
 
 @contextmanager
@@ -387,49 +386,6 @@ def user_session():
         db.close()
 
 
-def _seed_default_identity(bind=None):
-    """幂等写入默认家庭 1 与默认用户 1，保证无鉴权模式下查询可用。
-
-    Family / User 属于 user 域。写入目标引擎由调用方决定，避免跨域错写：
-    - 单库模式 init_db()：所有表建在 app 引擎，bind 默认取 app 引擎
-      （即 SessionLocal 的 bind），保证单库内数据自洽。
-    - 双库模式 init_db_split()：必须传 user 引擎作为 bind，使家庭/用户落到
-      user 域库（Supabase / 本地回退文件），与 market 域物理隔离；此前的 bug
-      是用 market 引擎的 SessionLocal 写入 user 域表，真双库分离时落错库。
-    """
-    from app.core.db_factory import DOMAIN_USER, DatabaseFactory
-    from app.domains.families.models import Family
-    from app.domains.users.models import ROLE_ADMIN, User
-
-    # 默认落到 user 引擎（Family/User 属于 user 域）；单库模式下 user_engine == engine。
-    target_bind = bind if bind is not None else _engine_for(DOMAIN_USER)
-
-    # 双库模式（bind 即 user 引擎）下，确保 user 域表已存在再写入；
-    # 单库模式表已由 init_db 的 create_all 建好，无需重复。
-    # 判据：传入的 bind 不是 app 引擎即视为「建在别的库上」——SessionLocal 的 bind 已惰性
-    # 注入（#1513），故这里不能再读 SessionLocal.kw['bind']（该键已不存在）。
-    if bind is not None and bind is not _engine_for(DOMAIN_APP):
-        grouped = DatabaseFactory.tables_by_domain(Base.metadata)
-        from sqlalchemy.schema import MetaData
-
-        user_meta = MetaData()
-        for t in grouped[DOMAIN_USER]:
-            t.to_metadata(user_meta)
-        user_meta.create_all(bind=bind)
-
-    UserSession = sessionmaker(autocommit=False, autoflush=False, bind=target_bind)
-    with UserSession() as db:
-        if not db.query(Family).filter_by(id=1).first():
-            db.add(Family(id=1, name='默认家庭'))
-        if not db.query(User).filter_by(id=1).first():
-            db.add(
-                User(
-                    id=1,
-                    family_id=1,
-                    username='local',
-                    nickname='本地用户',
-                    role=ROLE_ADMIN,
-                    is_active=1,
-                )
-            )
-        db.commit()
+# 注：默认家庭 / 默认用户种子（原 `_seed_default_identity`）已移至
+# `app.domains.users.seed.seed_default_identity()`——core 不 import 领域层（#1607），
+# 「种子业务数据」属 user 域职责，由组合根在建表后调用。
