@@ -169,3 +169,20 @@ core  ←  domains.<域>.models / schemas  ←  services  ←  domains.<域>.vie
   `tests/core/test_layer_direction.py`（逐规则灵敏度 + 合法边反向保护）。
   判据用「**边方向**」而不是「包级双向依赖对数量」——包级双向对多数由 `views→services` 与
   `services→models` 两条**合法边**叠加而成（如 `domains.positions` ↔ `services.position_service`），不构成违规。
+
+### 6.1 视图层判据（#1606 批次 1）
+
+`domains/*/views.py` 的职责边界（决策见 `decisions.md` 2026-09-19 行 D26）：
+
+| 项 | 判据 | 落地 |
+|---|---|---|
+| **允许** | 解析入参 / 归属校验 / 调用 services / 组织 `{data, message}` / 常量级展示映射 | — |
+| **禁止** | 视图内业务规则（校验链、状态机、去重合并策略、守恒校验、跨资源编排）；用 `db.query` 做聚合统计；跨域 import 其它域的 views | 基线冻结，新增即红 |
+| **事务** | 同一视图函数内最多一次显式 `commit()`；多步写入整体成功或整体回滚 | 同上 |
+| **规模** | 单函数 ≤ 60 行；视图文件行数 / DB 调用数**只减不增** | `scripts/check_view_thickness.py`（pre-commit + CI backend job） |
+
+存量超标**按批次收敛**（不一次性推平：131 个端点批量改写风险大于收益），先立边界、堵新增。
+批次 1 已落地：`ledgers` 账户迁移域 → `services/ledger_migration_service.py`；
+`watchlist` 展示增强 → `services/watchlist_display.py`（与 `watchlist_service` 的查询/写入/状态机分层）。
+后续批次候选：`ledgers` 余下视图内业务规则（活期+ 绑定换绑、改名快照刷新、类型变更校验）、
+`positions` / `funds` 等同类文件。

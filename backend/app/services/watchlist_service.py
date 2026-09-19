@@ -253,7 +253,7 @@ def resolve_display_name(symbol: str, db: Session, asset_type: Optional[str] = N
         # （#1497 review 补漏，2026-09-14）：裸码跨表不唯一，本库 index_catalog 与 funds
         # 同码重叠 258 条且撞的是主流码——000300 指数=沪深300 / funds=德邦德利货币A，
         # 000905 指数=中证500 / funds=鹏华安盈宝货币A。回退会把指数错标成一只无关的
-        # 货币基金名，比显示代码更糟（与 views._enrich_item 处注释的意图一致）。
+        # 货币基金名，比显示代码更糟（与 watchlist_display.enrich_item 处注释的意图一致）。
         idx = db.query(IndexCatalog).filter_by(index_code=bare_code_of(symbol)).first()
         if idx and idx.name:
             return idx.name
@@ -399,7 +399,7 @@ def create_watchlist_item(db: Session, data: Dict[str, Any], family_id: int) -> 
 
 
 def _infer_venue_for_asset_type(asset_type: Optional[str]) -> Optional[str]:
-    """持仓无 venue 列，按资产类型推断与 watchlist 一致的 venue（与 _list_holding_items 同源）。
+    """持仓无 venue 列，按资产类型推断与 watchlist 一致的 venue（与 list_holding_items 同源）。
 
     - 经理/组合/指数：无交易场所，存空串；
     - 基金/货基：OTC；其余（股票/ETF/可转债）：EXCHANGE。
