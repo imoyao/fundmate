@@ -116,11 +116,11 @@ jobs:
       - name: 守卫:禁止 @bp.input 自动范式
         run: python ../scripts/forbid_bp_input.py
 
-      # 守卫：core 不得反向依赖领域层（#1607：依赖方向 core ← domains ← services）。
+      # 守卫：后端分层依赖方向（#1607：core ← domains ← services ← domains.views）。
       # 不新增 job（同 layout_guard 的教训）：不新增 job 就不必改 gate.needs，
       # 少动一次少一次「合并冲突把 needs 弄丢」的风险。
-      - name: 守卫:core 零领域依赖
-        run: python ../scripts/guard_core_imports.py
+      - name: 守卫:分层依赖方向
+        run: python ../scripts/guard_layer_direction.py
 
       # 单进程（避 OOM），排除需联网的 slow 测试
       - name: 运行测试

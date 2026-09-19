@@ -218,8 +218,9 @@ PENDING_DOMAIN_REGISTRY: Dict[str, str] = {
 }
 
 
-# 模型源码位置（仅供孤儿表二次判定用）：域模型在 app/domains/<域>/models.py，
-# 少量历史模型在 app/models/ 下。
+# 模型源码位置（仅供孤儿表二次判定用）：业务模型在 app/domains/<域>/models.py；
+# 跨域 / 系统级模型在 app/models/ 下（现仅 sync_log，属**被承认的第二类**而非「例外」，
+# 见 architecture.md §6「模型位置」）。
 _MODEL_SOURCE_GLOBS = ('domains/*/models.py', 'models/*.py')
 
 
