@@ -409,7 +409,7 @@ const getAvailableTools = (type: string) => {
     }
 
     &.status-error {
-      background: var(--color-danger-system);
+      background: var(--color-danger);
       animation: pulse 1s infinite;
     }
 

@@ -183,7 +183,7 @@ const {
   padding: 12px 16px;
   margin-top: 16px;
   font-size: 14px;
-  color: var(--color-danger-system);
+  color: var(--color-danger);
   text-align: center;
   background: var(--color-danger-10);
   border: 1px solid var(--color-danger-30);

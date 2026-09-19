@@ -125,9 +125,9 @@ const GROUP_META_MAP: Record<
   securities: {
     label: "股票",
     icon: "ep:trend-charts",
-    color: "var(--invest-stock)"
+    color: "var(--asset-cat-stock)"
   },
-  fund: { label: "基金", icon: "ep:money", color: "var(--invest-fund)" }
+  fund: { label: "基金", icon: "ep:money", color: "var(--asset-cat-fund)" }
 };
 
 /**

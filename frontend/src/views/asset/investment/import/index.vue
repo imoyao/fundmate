@@ -251,10 +251,10 @@ const withMock = ref(false);
 }
 
 .el-message--error {
-  --el-message-text-color: var(--color-danger-system);
+  --el-message-text-color: var(--color-danger);
 }
 
 .text-error {
-  color: var(--color-danger-system);
+  color: var(--color-danger);
 }
 </style>

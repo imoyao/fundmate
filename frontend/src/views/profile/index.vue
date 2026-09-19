@@ -1162,7 +1162,7 @@ onMounted(async () => {
 }
 
 .field-hint--warn {
-  color: var(--color-danger);
+  color: var(--color-warning-ink);
 }
 
 /* ===== 账号安全行 ===== */
@@ -1283,8 +1283,8 @@ onMounted(async () => {
 
 /* ===== 危险幽灵按钮 ===== */
 
-/* 危险色走语义别名 --danger（= --color-danger-system #d4364a，design.md 危险按钮规范），
-   勿用旧 token --color-danger（#c83e66 历史遗留值） */
+/* 危险色走语义别名 --danger（= --color-danger #d4364a，design.md 危险按钮规范）。
+   #1602：原 -system 后缀已去除，全站唯一危险色就是 --color-danger */
 .danger-btn {
   flex-shrink: 0;
   height: 40px;

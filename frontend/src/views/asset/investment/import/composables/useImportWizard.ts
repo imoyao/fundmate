@@ -80,11 +80,11 @@ export function useImportWizard() {
   }
 
   const fundTypeColorMap: Record<string, string> = {
-    股票型: "var(--invest-stock)",
-    混合型: "var(--invest-fund)",
-    债券型: "var(--invest-bond)",
+    股票型: "var(--asset-cat-stock)",
+    混合型: "var(--asset-cat-fund)",
+    债券型: "var(--asset-cat-bond)",
     货币型: "var(--tag-sage-green)",
-    指数型: "var(--invest-etf)",
+    指数型: "var(--asset-cat-etf)",
     QDII: "var(--tag-periwinkle)",
     FOF: "var(--tag-thistle)"
   };

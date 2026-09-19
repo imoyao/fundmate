@@ -491,7 +491,7 @@ function onCardClick() {
 }
 
 .road-op--danger:hover {
-  color: var(--color-danger-system);
+  color: var(--color-danger);
   background: var(--color-danger-20);
 }
 </style>

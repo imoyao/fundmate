@@ -1033,7 +1033,7 @@ onMounted(() => {
 }
 
 .disc-diff-neg {
-  color: var(--color-danger-system);
+  color: var(--color-danger);
 }
 
 .disc-status {

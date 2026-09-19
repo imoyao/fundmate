@@ -69,15 +69,15 @@ const NODE_COLOR_VARS: Record<string, string> = {
   活钱: "--tag-muted-blue",
   稳健底仓: "--tag-thistle",
   长期增值: "--brand-700",
-  高风险博弈: "--color-danger",
+  高风险博弈: "--sankey-speculative",
   保险保障: "--color-accent",
   未配置资产: "--color-neutral",
-  股票: "--asset-stock",
-  基金: "--asset-fund",
-  可转债: "--asset-bond",
-  ETF: "--asset-etf",
-  虚拟货币: "--asset-crypto",
-  银行存款: "--asset-saving"
+  股票: "--asset-cat-stock",
+  基金: "--asset-cat-fund",
+  可转债: "--asset-cat-bond",
+  ETF: "--asset-cat-etf",
+  虚拟货币: "--asset-cat-crypto",
+  银行存款: "--asset-cat-saving"
 };
 
 function getNodeColor(name: string): string {

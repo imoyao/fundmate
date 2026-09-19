@@ -321,7 +321,7 @@ async function handleOrphanCleanup() {
       </section>
     </div>
     <template #footer>
-      <!-- 主按钮在右、危险按钮在左；清理按钮危险色走语义 token（--color-danger-system），
+      <!-- 主按钮在右、危险按钮在左；清理按钮危险色走语义 token（--color-danger），
            覆盖 Element Plus 默认 danger（#f56c6c）以对齐设计语言 -->
       <el-button
         type="danger"
@@ -377,15 +377,15 @@ async function handleOrphanCleanup() {
   white-space: nowrap;
 }
 
-/* 清理按钮：危险色走语义 token --color-danger-system，覆盖 EP 默认 danger */
+/* 清理按钮：危险色走语义 token --color-danger，覆盖 EP 默认 danger */
 .orphan-clean-btn {
-  --el-button-text-color: var(--color-danger-system);
-  --el-button-border-color: var(--color-danger-system);
-  --el-button-hover-bg-color: var(--color-danger-system);
-  --el-button-hover-border-color: var(--color-danger-system);
+  --el-button-text-color: var(--color-danger);
+  --el-button-border-color: var(--color-danger);
+  --el-button-hover-bg-color: var(--color-danger);
+  --el-button-hover-border-color: var(--color-danger);
   --el-button-hover-text-color: var(--text-inverse);
-  --el-button-active-bg-color: var(--color-danger-system);
-  --el-button-active-border-color: var(--color-danger-system);
+  --el-button-active-bg-color: var(--color-danger);
+  --el-button-active-border-color: var(--color-danger);
   --el-button-active-text-color: var(--text-inverse);
 }
 </style>

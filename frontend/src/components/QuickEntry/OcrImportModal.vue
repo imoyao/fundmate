@@ -164,7 +164,7 @@ const imageFile = ref<File | null>(null);
 const textContent = ref("");
 const recognizing = ref(false);
 const importing = ref(false);
-// 文本域行内错误（design.md：错误提示走行内小字 + --color-danger-system，不用全局弹红）
+// 文本域行内错误（design.md：错误提示走行内小字 + --color-danger，不用全局弹红）
 const textError = ref("");
 
 const remaining = ref(0);
@@ -716,7 +716,7 @@ onMounted(() => {
 .ocr-textarea__error {
   margin: var(--space-2) 0 0;
   font-size: var(--text-label);
-  color: var(--color-danger-system);
+  color: var(--color-danger);
 }
 
 /* ============================================

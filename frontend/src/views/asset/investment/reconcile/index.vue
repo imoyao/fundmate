@@ -327,7 +327,7 @@ async function handleRefresh() {
   refreshing.value = false;
 }
 
-/** 归因覆盖：危险操作（删除渠道原记录），确认按钮走 --color-danger-system */
+/** 归因覆盖：危险操作（删除渠道原记录），确认按钮走 --color-danger */
 async function handleCover(row: ReconciliationItem) {
   try {
     await ElMessageBox.confirm(
@@ -678,10 +678,10 @@ onMounted(fetchData);
 }
 
 /* 归因覆盖按钮：危险语义（覆盖 = 删除渠道原记录），危险色走
-   --color-danger-system（design.md「危险按钮」幽灵态） */
+   --color-danger（design.md「危险按钮」幽灵态） */
 .btn-cover-danger {
-  --el-button-text-color: var(--color-danger-system);
-  --el-button-hover-text-color: var(--color-danger-system);
+  --el-button-text-color: var(--color-danger);
+  --el-button-hover-text-color: var(--color-danger);
   --el-button-hover-bg-color: var(--color-danger-20);
 }
 
@@ -723,14 +723,14 @@ onMounted(fetchData);
 </style>
 
 <!-- 归因覆盖确认框按钮：ElMessageBox 渲染在 body 下，scoped 样式不可达，
-     需全局样式将确认按钮染为危险色（--color-danger-system） -->
+     需全局样式将确认按钮染为危险色（--color-danger） -->
 <style>
 .el-message-box .reconcile-confirm-danger.el-button--primary {
-  --el-button-bg-color: var(--color-danger-system);
-  --el-button-border-color: var(--color-danger-system);
-  --el-button-hover-bg-color: var(--color-danger-system);
-  --el-button-hover-border-color: var(--color-danger-system);
-  --el-button-active-bg-color: var(--color-danger-system);
-  --el-button-active-border-color: var(--color-danger-system);
+  --el-button-bg-color: var(--color-danger);
+  --el-button-border-color: var(--color-danger);
+  --el-button-hover-bg-color: var(--color-danger);
+  --el-button-hover-border-color: var(--color-danger);
+  --el-button-active-bg-color: var(--color-danger);
+  --el-button-active-border-color: var(--color-danger);
 }
 </style>
