@@ -70,7 +70,11 @@ _PROBES = [
     ('domains/assets/views.py', 'from app.domains.ledgers.models import Ledger\n', None),
     ('core/probe_src.py', 'from app.core.money import Money\n', None),
     # 家族包依赖共享件（正确方向）与同包内互引必须放行
-    ('services/sync/company_resolver.py', 'from app.services.adapters.eastmoney_adapter import fetch_fund_company_list\n', None),
+    (
+        'services/sync/company_resolver.py',
+        'from app.services.adapters.eastmoney_adapter import fetch_fund_company_list\n',
+        None,
+    ),
     ('services/sync/jobs/probe.py', 'from app.services.job_base import SyncJob\n', None),
     ('services/adapters/probe.py', 'from app.services.adapters.base import DataSourceAdapter\n', None),
     ('services/adapters/probe.py', 'from app.domains.funds.models import FundCompany\n', None),
