@@ -179,7 +179,7 @@ def _holding_candidates_to_rows(items: list, ledger_id) -> list:
     return result['rows']
 
 
-@ocr_bp.post('/recognize')
+@ocr_bp.post('/recognize/', strict_slashes=False)
 def ocr_recognize():
     """上传图片（base64）→ 方案方舟识别 → 候选列表/预览行；消耗 1 次当日配额。"""
     user_id = _current_user_id()
@@ -226,7 +226,7 @@ def ocr_recognize():
     return jsonify({'data': {'items': items[:OCR_MAX_ITEMS], 'usage': usage}, 'message': 'ok'})
 
 
-@ocr_bp.post('/parse')
+@ocr_bp.post('/parse/', strict_slashes=False)
 def ocr_parse_text():
     """纯文本 → LLM 批量提取（AI 批量导入）；消耗 1 次当日配额。"""
     user_id = _current_user_id()

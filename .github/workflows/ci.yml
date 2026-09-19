@@ -121,6 +121,11 @@ jobs:
       - name: 守卫:错误信封 error_code
         run: python ../scripts/guard_error_envelope.py
 
+      # 守卫：API 约定（#1611）——尾斜杠（含明文豁免清单）+ api.md 全量端点段一致性。
+      # 零依赖 AST，可直接用裸 python 跑（不 import app）
+      - name: 守卫:API 约定（尾斜杠 + api.md）
+        run: python ../scripts/check_api_conventions.py
+
       # 单进程（避 OOM），排除需联网的 slow 测试
       - name: 运行测试
         run: pdm run python -m pytest -p no:xdist -m "not slow"

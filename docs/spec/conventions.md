@@ -43,6 +43,12 @@ title: 全局强制设计规范（conventions · 🔒 冻结区）
 ### 2.6 RESTful 与 URL 统一规范
 
 - 所有 API 端点强制尾部斜杠，杜绝 308 重定向导致的前端异常
+- **例外（#1611，2026-09-19 决策 D28）**：`/api/health`（运维探活端点，探活工具普遍按 `/health` 调用）与
+  `/api/temperature/{overview,history,multi,crowding-history}`（探市免登录接口，前端按无斜杠调用）**保持无尾斜杠**；
+  例外清单以 `scripts/check_api_conventions.py` 的 `NO_TRAILING_SLASH_ALLOWLIST` 为**唯一执行口径**，新增例外必须先在此登记。
+- **迁移兼容（同上）**：2026-09-19 补齐尾斜杠的 13 个端点带 `strict_slashes=False`，**同时接受旧的无斜杠写法**——
+  避免线上旧 bundle / 未覆盖的外部调用方在切换瞬间拿到 404（`strict_slashes=True` 时无斜杠会 404，不是 308）。
+  待确认无旧写法调用方后可移除该参数（登记于 `tech-debt.md`）。
 - 资源名词复数化，URL 不包含动词，动作语义由 HTTP Method 表达
 - 嵌套资源严格遵循层级语义，保证接口可读性与统一性
 

@@ -94,7 +94,7 @@ export interface MarketOverviewResponse {
  */
 export const getMarketOverview = (force = false) => {
   return http.get<MarketOverviewResponse, unknown>(
-    `/api/market/overview${force ? "?force=true" : ""}`,
+    `/api/market/overview/${force ? "?force=true" : ""}`,
     undefined,
     { timeout: 25000 }
   );

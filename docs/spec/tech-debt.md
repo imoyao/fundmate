@@ -693,3 +693,30 @@ EP 主按钮禁用态走 `--el-button-disabled-bg-color: var(--el-color-primary-
 python scripts/guard_error_envelope.py
 cd backend && pdm run pytest tests/test_error_envelope.py tests/test_auth.py tests/domains -p no:xdist -q
 ```
+
+## 2026-09-19 规范一致性批次（#1611，D28）：尾斜杠 / api.md / 日志三项收敛
+
+### 已完成
+
+| 项 | 内容 | 证据 |
+|---|---|---|
+| A. 尾斜杠 | 5 个端点写入**规范例外**（`/api/health` + 4 个探市接口）；其余 **13 个补齐**（auth×3 / importers×5 / ocr×2 / market / users / usage），前端 23 处调用同步；13 条带 `strict_slashes=False` **迁移期容忍旧的无斜杠写法** | 131 路由中无尾斜杠 **18 → 5**（全为豁免）；`tests/test_api_conventions.py` 钉住「双写法均 200」 |
+| B. api.md 滞后 | 保留人工「核心端点（带说明）」表 + 新增**全量端点自动段**（131 条，标记 `AUTO-ENDPOINTS`），由守卫 `--write` 生成，文档与实现逐条一致 | `python scripts/check_api_conventions.py` → `OK`（131 条一致） |
+| C. 日志例外 | `services/nav_service.py` 的 `import logging` + `getLogger` 收敛为 loguru（`%s` → `{}`） | 全仓 `import logging` 仅剩 `app/__init__.py`（已声明的合法例外） |
+| 守卫 | 新增 `scripts/check_api_conventions.py`（零依赖 AST）：尾斜杠 + 豁免清单 + api.md 自动段一致性；接入 pre-commit 与 CI 的 backend job | `backend/tests/test_api_conventions.py` 5 条（静态↔运行时 `url_map` 交叉校验 131/131 IDENTICAL、豁免无死条目、迁移容忍、文档不漂移） |
+
+### 开口项
+
+| # | 事项 | 说明 |
+|---|---|---|
+| 1 | `strict_slashes=False` 属迁移期兼容 | 待线上旧 bundle 过期、且确认无外部调用方使用无斜杠写法后移除（移除后无斜杠将 404）。移除前须先跑一遍访问日志或 E2E 确认 |
+| 2 | `/api/health` 与 4 个探市接口的无斜杠是**明文例外** | 若要统一，需改运维探活配置与前端调用，属独立决策（当前按 #1611 建议豁免并登记） |
+| 3 | api.md 的「核心端点」表仍需人工维护 | 自动段保证**全量一致**；人工表只承担"带功能说明的核心索引"角色，新增核心接口时手动补一行（无守卫，靠评审） |
+
+### 复跑
+
+```bash
+python scripts/check_api_conventions.py
+python scripts/check_api_conventions.py --write   # 改路由后重建自动段
+cd backend && pdm run pytest tests/test_api_conventions.py -p no:xdist -q
+```

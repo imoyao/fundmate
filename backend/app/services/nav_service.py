@@ -52,19 +52,17 @@
 
 from __future__ import annotations
 
-import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Dict, List, Tuple
 
+from loguru import logger
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.domains.funds.models import DailyWorth
 from app.services.fund_service import FundService
-
-logger = logging.getLogger(__name__)
 
 
 class NavService:
@@ -161,7 +159,7 @@ class NavService:
 
         # 3. 远程拉取缺失/过旧的净值（并发，单只失败不影响整体）
         logger.info(
-            'NavService: %d 只基金需远程补全净值: %s',
+            'NavService: {} 只基金需远程补全净值: {}',
             len(stale_codes),
             stale_codes[:10],
         )
@@ -279,7 +277,7 @@ class NavService:
                     if val is not None and val > 0:
                         fetched[code] = float(val)
                 except Exception as e:
-                    logger.warning('NavService: 远程拉取 %s 净值失败: %s', code, e)
+                    logger.warning('NavService: 远程拉取 {} 净值失败: {}', code, e)
 
         return fetched
 

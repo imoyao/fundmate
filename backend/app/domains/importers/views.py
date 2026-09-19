@@ -48,7 +48,7 @@ class ConfirmImportRequest(Schema):
 # ── 模板下载 ──
 
 
-@importers_bp.get('/template/<template_type>')
+@importers_bp.get('/template/<template_type>/', strict_slashes=False)
 def download_import_template(template_type: str):
     info = get_template_info(template_type)
     if info is None:
@@ -69,7 +69,7 @@ def download_import_template(template_type: str):
 # ── 文件解析 ──
 
 
-@importers_bp.post('/parse')
+@importers_bp.post('/parse/', strict_slashes=False)
 def parse_file():
     if 'file' not in request.files:
         abort(400, '请上传文件')
@@ -149,7 +149,7 @@ def parse_file():
 # ── 确认导入 ──
 
 
-@importers_bp.post('/confirm')
+@importers_bp.post('/confirm/', strict_slashes=False)
 def confirm_import():
     rows = request.get_json()
     if not rows:
@@ -168,7 +168,7 @@ def confirm_import():
 # ── 持仓导入（#1012，E账户快照，落 positions 不建流水）──
 
 
-@importers_bp.post('/holdings/parse')
+@importers_bp.post('/holdings/parse/', strict_slashes=False)
 def parse_holding_file():
     """解析基金E账户持仓导出文件，返回预览行（含去重标记）。
 
@@ -237,7 +237,7 @@ def parse_holding_file():
         ), 500
 
 
-@importers_bp.post('/holdings/confirm')
+@importers_bp.post('/holdings/confirm/', strict_slashes=False)
 def confirm_holding_import():
     """确认导入持仓快照：过滤重复/错误行后 upsert 至 positions（不建交易流水）。"""
     rows = request.get_json()
