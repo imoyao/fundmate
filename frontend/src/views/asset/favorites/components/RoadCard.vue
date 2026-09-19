@@ -341,9 +341,10 @@ function onCardClick() {
 }
 
 .road-check.is-on {
-  color: var(--bg-card);
-  background: var(--brand-700);
-  border-color: var(--brand-700);
+  /* #1600：原 `--bg-card` 作文字（design.dark.md 明文红线），暗色下仅 3.43:1 → 改 --text-inverse */
+  color: var(--text-inverse);
+  background: var(--brand-solid);
+  border-color: var(--brand-solid);
 }
 
 .road-edit-entry {

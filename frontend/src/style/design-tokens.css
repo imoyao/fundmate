@@ -26,7 +26,7 @@
   /* 品牌色（语义别名） */
   --brand: var(--brand-700);
   --brand-hover: var(--brand-800);
-  --brand-active: var(--brand-900);
+  --brand-active: var(--brand-1000);
   --brand-bg: var(--brand-100);
   --brand-border: var(--brand-400);
 

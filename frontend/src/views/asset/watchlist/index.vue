@@ -1474,14 +1474,16 @@ const renderCtx = computed<RenderCtx>(() => ({
 
 /* 实时开启态：品牌色实底高亮——开关在图标组里是否可见/是否已开，一眼可辨 */
 .icon-tool-btn.is-active {
-  color: var(--brand-100);
-  background-color: var(--brand-700);
-  border-color: var(--brand-700);
+  /* #1600：文字原用 --brand-100，但该令牌在暗色下翻成深色 #2D1612 → 在实底上仅 3.65:1；
+     改用 --text-inverse（两套主题恒为 #fff），亮 4.92:1 / 暗 4.66:1 均达 AA。 */
+  color: var(--text-inverse);
+  background-color: var(--brand-solid);
+  border-color: var(--brand-solid);
 }
 
 .icon-tool-btn.is-active:hover {
-  background-color: var(--brand-800);
-  border-color: var(--brand-800);
+  background-color: var(--brand-solid-hover);
+  border-color: var(--brand-solid-hover);
 }
 
 /* 批量模式：移动到分组下拉 */

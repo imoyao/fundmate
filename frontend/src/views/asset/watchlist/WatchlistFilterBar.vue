@@ -691,8 +691,8 @@ watch(
   font-size: 11px;
   font-weight: 500;
   line-height: 1;
-  color: var(--bg-card);
-  background-color: var(--brand-700);
+  color: var(--text-inverse);
+  background-color: var(--brand-solid);
   border-radius: var(--radius-pill);
 }
 
@@ -989,8 +989,8 @@ watch(
   font-size: 11px;
   font-weight: 500;
   line-height: 1;
-  color: var(--bg-card);
-  background-color: var(--brand-700);
+  color: var(--text-inverse);
+  background-color: var(--brand-solid);
   border-radius: var(--radius-pill);
 }
 
