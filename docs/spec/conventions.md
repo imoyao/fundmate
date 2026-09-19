@@ -164,6 +164,24 @@ title: 全局强制设计规范（conventions · 🔒 冻结区）
 - 原因：软按钮背景通透，位移会破坏其"轻量、辅助"的视觉定位
 - 完整按钮变体与状态定义参见 [`../../frontend/design.md`](../../frontend/design.md)
 
+### 3.11 设计令牌命名分层（#1602 收尾）
+
+令牌一律**先判层再命名**，层决定它能否被业务代码直接引用：
+
+| 层 | 命名形态 | 规则 | 例 |
+|---|---|---|---|
+| 1. 原始色板 primitive | `--palette-<色名>` | 只有色值、不含语义。**业务代码优先不用**；确实要引用须说明理由——同一色常被复用于多个语义，按用途命名会自相矛盾（`--palette-thistle` 既是桑基图「稳健底仓」又是导入向导「FOF」） | `--palette-thistle` / `--palette-sage-green` |
+| 2. 语义 semantic | `--color-rise/fall/danger/warning/success/info`、`--bg-*`、`--text-*-ink`、`--border-*` | 表意，可被业务直接引用；**文字一律走 `-ink` 变体**（WCAG AA，见 `tech-debt.md` 文字色线） | `--color-rise-ink` / `--text-tertiary-ink` |
+| 3. 域 domain | `--chart-*` / `--asset-cat-*` / `--sankey-*` / `--category-*` / `--add-type-*` | 按域归属，**禁止跨域复用**——跨维度耦合会让「改一个色」静默改掉另一处语义 | `--asset-cat-stock`（品种）、`--sankey-speculative`（风险档位） |
+
+**准入规则**：新增令牌先判层——能落到 semantic / domain 就不新增 primitive；确实只需要「一个颜色」时才进 primitive 层。
+
+**禁止**：① 用语义色表达品种或分类（历史债「股票=信息色」「债券=警告色」「储蓄=成功色」）；
+② 域色跨域复用；③ 在 JS/TS 里用字符串拼接派生令牌（`baseColor + "20"` 会生成非法 CSS 被浏览器静默丢弃，
+构建与 lint 全绿），派生一律用 `color-mix(in srgb, var(--x) N%, transparent)`。
+
+> 决策背景与实测见 `decisions.md`；存量跨层引用与未收敛项登记在 `tech-debt.md`。
+
 ## 3. 开发踩坑准则（原 SPEC 第 4 章 · 长期维护避坑、细节追溯）
 
 ### 4.1 问题诊断准则

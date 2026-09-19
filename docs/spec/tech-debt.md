@@ -517,3 +517,31 @@ axe 用于**验收**（真、可回归）。本次 token 变更的前后对比�
 
 复跑：`node scripts/audit_text_contrast.mjs --all`（静态）；
 `node scripts/axe_contrast_audit.mjs --routes /profile,/asset/ledgers,/ --shot <dir>`（真机 + 截图）。
+
+## 2026-09-19 设计令牌命名分层 + `--tag-*` 收敛为 `--palette-*`（#1602 收尾）
+
+卡 1（#1603 清 14 个自引用令牌）与卡 2/3（#1604 合并危险色双份定义 + 品种色板收敛）此前已合入。
+本卡收尾剩两项，并顺带查实 #1604 的一处漏改。
+
+### 已完成
+
+| 项 | 处置 |
+|---|---|
+| 非语义色名收敛 | `--tag-*` → `--palette-*`（12 色板定义 + 引用共 54 处机械改名，**值零变化**，以「改名前后定义值序列逐行 diff」验证） |
+| 死令牌 | 删 `--tag-muted-blue-20` / `--tag-thistle-20`（零引用；派生一律 `color-mix`，同本卡既有规则） |
+| 命名分层约定 | 三层（primitive / semantic / domain）+「新增令牌先判层」准入规则 + 三条禁止项 → `conventions.md` §3.11；决策见 `decisions.md` 2026-09-19 行 |
+| **#1604 漏改（本卡唯一可见颜色变更）** | `useImportWizard.ts` 的 `typeColorMap`(8 项) 与 `fundTypeColorMap` 的货币型 / QDII / FOF 由 `--palette-*` **装饰色**归位 `--asset-cat-*`。缺陷表现：「同一个股票」在导入向导是蓝灰、在自选 / 买卖表单是紫。依据：colors.css 中 `--asset-cat-*` 的注释**早已写明**「业务代码禁止再借用装饰色表达品种」→ 属**违反既有规则的漏改**，不需要新拍板 |
+
+**判定映射（cash / static 在 12 槽位里无同名槽位）**：cash → `--asset-cat-money-fund`（同属现金管理工具）；
+static → `--color-neutral`（回退中性）；QDII → `--asset-cat-fund`；FOF → `--asset-cat-portfolio`（语义最近的「组合」槽位）。
+映射集中在 `useImportWizard.ts` 一个函数内，若设计上要给 cash / static 独立槽位，改这一处即可。
+
+### 未做（本卡登记，需先定名且含可见颜色取舍）
+
+| # | 事项 | 为什么不在本卡做 |
+|---|---|---|
+| 1 | **桑基图「仓位分类」仍直接引用 primitive 层**：流动资金 → `palette-mint-green`、投资理财 → `palette-periwinkle`、固定资产 → `palette-warm-taupe`、应收款 → `palette-stone-gray`、活钱 → `palette-muted-blue`、稳健底仓 → `palette-thistle`（`SankeyChart.vue` / `CategoryBalanceTable.vue`） | 这是**另一条分类轴**（仓位分类，不是品种），12 个 `--asset-cat-*` 槽位中无对应物；应新增 domain 层令牌（如 `--inventory-cat-*`）并先定名 |
+| 2 | **对账工作台状态色**：`palette-sage-green`（差异正 / 已清 / 就绪）、`palette-caramel`（待处理） | 同属 domain 层缺失（宜命名为 `--status-*`）；且 `palette-sage-green` 当 `color:` 用对白底仅 **2.32:1**，与 #1599 文字色线交叉，处置须一并定 |
+| 3 | `docs/spec/temperature-architecture-plan.md` 里两处 `--tag-*` 提及 | **刻意保留**：该文件是 2026-08 的历史验收记录（原文含「颜色✅今日已修」），改它等于篡改历史结论 |
+
+复跑：`grep -rn -- '--tag-' frontend/src` 应为 0 命中（`docs/` 仅剩上表第 3 项那 2 处历史记录）。
