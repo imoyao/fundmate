@@ -218,7 +218,7 @@
 
           <!-- GitHub 登录（跨子域 SSO 共用同一 Supabase 项目） -->
           <el-divider v-if="!isRegisterMode" class="login-divider">
-            <span class="text-xs" style="color: var(--text-tertiary)"
+            <span class="text-xs" style="color: var(--text-tertiary-ink)"
               >其他登录方式</span
             >
           </el-divider>
@@ -247,7 +247,7 @@
 
           <!-- 登录提示 -->
           <div v-if="!isRegisterMode" class="login-hint mt-3">
-            <span class="text-xs" style="color: var(--text-tertiary)">
+            <span class="text-xs" style="color: var(--text-tertiary-ink)">
               使用邮箱或用户名登录
             </span>
           </div>

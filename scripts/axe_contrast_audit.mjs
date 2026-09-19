@@ -138,6 +138,11 @@ async function connectCDP(onLog = console.error) {
     [
       '--headless=new',
       '--disable-gpu',
+      // 本地审计必须绕开系统代理：本机装了 DevSidecar（127.0.0.1:31180/31181），
+      // 它会把对 127.0.0.1 的请求也代理掉，实测表现为页面加载 502、
+      // 脚本**长时间零输出**（11 分钟无结果，看起来像卡死，实际是页面永远加载不出来）。
+      // 审计目标是本地 dev server，走代理没有任何意义，故显式关闭。
+      '--no-proxy-server',
       '--no-first-run',
       '--no-default-browser-check',
       '--disable-extensions',

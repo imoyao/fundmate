@@ -17,7 +17,7 @@
           负债端
         </button>
       </div>
-      <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+      <span class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
         {{ balanceTab === "assets" ? "资产构成" : "负债明细" }}
       </span>
     </div>
@@ -26,7 +26,7 @@
       <thead
         class="text-left text-xs border-b"
         :style="{
-          color: 'var(--text-tertiary)',
+          color: 'var(--text-tertiary-ink)',
           borderColor: 'var(--border-light)'
         }"
       >
@@ -113,7 +113,7 @@
       <thead
         class="text-left text-xs border-b"
         :style="{
-          color: 'var(--text-tertiary)',
+          color: 'var(--text-tertiary-ink)',
           borderColor: 'var(--border-light)'
         }"
       >

@@ -147,7 +147,9 @@ const emit = defineEmits<{
          避免大数字撑高整行把右侧指标挤到下方） -->
     <div class="ledger-metrics">
       <div class="metric metric--main">
-        <span class="metric-label" :style="{ color: 'var(--text-tertiary)' }"
+        <span
+          class="metric-label"
+          :style="{ color: 'var(--text-tertiary-ink)' }"
           >总资产</span
         >
         <span class="metric-value" :style="{ color: 'var(--text-primary)' }">
@@ -163,16 +165,23 @@ const emit = defineEmits<{
       <div class="metric-side">
         <!-- 当日盈亏：暂无当日行情数据，保留占位符 -->
         <div class="metric">
-          <span class="metric-label" :style="{ color: 'var(--text-tertiary)' }"
+          <span
+            class="metric-label"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
             >当日盈亏</span
           >
-          <span class="metric-value" :style="{ color: 'var(--text-tertiary)' }"
+          <span
+            class="metric-value"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
             >--</span
           >
         </div>
         <!-- 持仓盈亏：银行显示活期余额、实物显示估值项数 -->
         <div class="metric">
-          <span class="metric-label" :style="{ color: 'var(--text-tertiary)' }">
+          <span
+            class="metric-label"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
+          >
             {{
               ledger.ledger_type === "bank"
                 ? "活期余额"
@@ -221,7 +230,7 @@ const emit = defineEmits<{
       v-if="ledger.ledger_type === 'bank' && ledger.linked_liability > 0"
       class="ledger-liability"
     >
-      <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
+      <span class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }"
         >关联负债</span
       >
       <span
@@ -387,7 +396,7 @@ const emit = defineEmits<{
 
 .ledger-row-actions .ledger-row-action--danger:hover,
 .ledger-row-actions .ledger-row-action--danger:focus-visible {
-  color: var(--el-color-danger);
+  color: var(--color-danger);
   background-color: var(--el-color-danger-light-9);
 }
 

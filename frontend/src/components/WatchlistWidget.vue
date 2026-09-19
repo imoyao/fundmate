@@ -11,7 +11,7 @@
       class="flex-none mb-4 border-b"
       :style="{ borderColor: 'var(--border-light)' }"
     >
-      <p class="text-xs pb-3" :style="{ color: 'var(--text-tertiary)' }">
+      <p class="text-xs pb-3" :style="{ color: 'var(--text-tertiary-ink)' }">
         {{ description }}
       </p>
     </div>
@@ -23,14 +23,14 @@
         class="flex-1 flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer"
         :style="{
           borderColor: 'var(--border-light)',
-          color: 'var(--text-tertiary)'
+          color: 'var(--text-tertiary-ink)'
         }"
         @click="emit('add')"
       >
         <IconifyIconOffline
           icon="ep:star"
           class="text-3xl mb-3"
-          :style="{ color: 'var(--text-tertiary)' }"
+          :style="{ color: 'var(--text-tertiary-ink)' }"
         />
         <p
           class="text-base font-medium mb-1"
@@ -63,7 +63,7 @@
             <tr
               class="text-left text-xs border-b"
               :style="{
-                color: 'var(--text-tertiary)',
+                color: 'var(--text-tertiary-ink)',
                 borderColor: 'var(--border-light)'
               }"
             >
@@ -120,7 +120,7 @@
                 <span
                   v-else
                   class="text-xs"
-                  :style="{ color: 'var(--text-tertiary)' }"
+                  :style="{ color: 'var(--text-tertiary-ink)' }"
                   >--</span
                 >
               </td>
@@ -136,7 +136,7 @@
                 <span
                   v-else
                   class="text-xs"
-                  :style="{ color: 'var(--text-tertiary)' }"
+                  :style="{ color: 'var(--text-tertiary-ink)' }"
                   >--</span
                 >
               </td>
@@ -152,7 +152,7 @@
                 <span
                   v-else
                   class="text-xs"
-                  :style="{ color: 'var(--text-tertiary)' }"
+                  :style="{ color: 'var(--text-tertiary-ink)' }"
                   >--</span
                 >
               </td>

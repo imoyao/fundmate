@@ -30,7 +30,7 @@
             }}</span>
             <span
               class="text-xs whitespace-nowrap"
-              :style="{ color: 'var(--text-tertiary)' }"
+              :style="{ color: 'var(--text-tertiary-ink)' }"
             >
               可用 {{ Number(pos.quantity).toFixed(2) }} 份
             </span>
@@ -40,7 +40,7 @@
       <div
         v-if="accountPositions.length === 0"
         class="text-xs mt-1"
-        style="color: var(--text-tertiary)"
+        style="color: var(--text-tertiary-ink)"
       >
         当前账户无可用持仓，无法登记。
       </div>
@@ -68,7 +68,7 @@
             <el-radio-button :value="true">15:00后</el-radio-button>
           </el-radio-group>
         </div>
-        <div class="text-xs mt-1" style="color: var(--text-tertiary)">
+        <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
           <span
             v-if="
               showIsAfter15 && selectedPosition?.type === 'fund' && confirmDate
@@ -94,7 +94,7 @@
           :min="0"
           placeholder="输入分红到账金额"
         />
-        <div class="text-xs mt-1" style="color: var(--text-tertiary)">
+        <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
           现金分红直接入账，不改变持仓份额
         </div>
       </el-form-item>
@@ -130,7 +130,7 @@
           >
             <template #append>份</template>
           </el-input>
-          <div class="text-xs mt-1" style="color: var(--text-tertiary)">
+          <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
             按「红利金额 ÷ 净值」自动计算
           </div>
         </el-form-item>
@@ -147,7 +147,7 @@
             :min="0"
             placeholder="输入送股/拆分增加的份额"
           />
-          <div class="text-xs mt-1" style="color: var(--text-tertiary)">
+          <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
             送股/拆分直接增加持仓份额，成本不变，持仓均价被自动稀释
           </div>
         </el-form-item>

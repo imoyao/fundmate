@@ -12,7 +12,7 @@
         >
           资产总览
         </h2>
-        <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary)' }">
+        <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary-ink)' }">
           多维度审视你的财富版图
         </p>
       </div>

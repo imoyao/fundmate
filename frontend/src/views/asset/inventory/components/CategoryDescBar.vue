@@ -6,7 +6,7 @@
     <IconifyIconOffline
       icon="ep:info-filled"
       class="text-xl mt-0.5 shrink-0"
-      :style="{ color: 'var(--text-tertiary)' }"
+      :style="{ color: 'var(--text-tertiary-ink)' }"
     />
     <p
       class="text-sm leading-relaxed"

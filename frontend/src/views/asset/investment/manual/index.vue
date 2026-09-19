@@ -181,7 +181,7 @@
         <IconifyIconOffline
           icon="ep:pointer"
           class="text-4xl mb-3"
-          :style="{ color: 'var(--text-tertiary)' }"
+          :style="{ color: 'var(--text-tertiary-ink)' }"
         />
         <p
           class="text-base font-medium"
@@ -189,7 +189,7 @@
         >
           请先从上方选择交易账户
         </p>
-        <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary)' }">
+        <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary-ink)' }">
           我们将根据账户类型自动匹配可用的记账操作
         </p>
       </div>
@@ -244,7 +244,7 @@
         <div
           v-else
           class="py-8 text-center"
-          :style="{ color: 'var(--text-tertiary)' }"
+          :style="{ color: 'var(--text-tertiary-ink)' }"
         >
           <IconifyIconOffline icon="ep:box" class="text-4xl mb-2" />
           <p>{{ getFundOpLabel(fundOpType) }} 功能开发中</p>

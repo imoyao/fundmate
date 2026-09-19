@@ -123,6 +123,67 @@ const FIXTURE = `/* 夹具：#1586 审计器回归
 }
 `;
 
+/**
+ * Vue 夹具：**模板内联样式**（#1599 批次 2 新增的扫描口径）。
+ *
+ * WHY 单独一份：内联与样式块的语料形态不同（元素属性值 vs 选择器+声明），
+ * 新增这条口径的**风险是两头都给错答案**——既可能漏扫（改写完了却报 0），
+ * 也可能过度扫描（把 `background-color` 或整段属性值读成文字色，或与样式块口径
+ * 把同一处各报一次）。故段号接续 FIXTURE 的 ①~⑨，逐条钉住。
+ */
+const VUE_FIXTURE = `<template>
+  <!-- ⑩ 静态 style 属性：有同名 -ink → 必须报出并标 [模板内联] -->
+  <div class="il-static" style="color: var(--text-tertiary)">内联静态</div>
+
+  <!-- ⑪ 绑定形态（:style 对象字面量）→ 同一口径必须覆盖 -->
+  <span class="il-bound" :style="{ color: 'var(--text-tertiary)' }">内联绑定</span>
+
+  <!-- ⑫ 属性值跨行（多行对象字面量是常见写法）→ 仍要读到 -->
+  <p
+    class="il-bound-multiline"
+    :style="{
+      color: 'var(--text-tertiary)',
+    }"
+  >
+    跨行绑定
+  </p>
+
+  <!-- ⑬ 字号写在同一属性内 → 按大字 3:1 判，不得误报为不达标 -->
+  <b class="il-large" style="color: var(--color-rise); font-size: 28px; font-weight: 700">内联大字</b>
+
+  <!-- ⑭ background-color / backgroundColor 都不是 color → 两种形态都不得被扫成文字色 -->
+  <i class="il-bg-static" style="background-color: var(--text-tertiary)">底色</i>
+  <i class="il-bg-bound" :style="{ backgroundColor: 'var(--text-tertiary)' }">底色</i>
+
+  <!-- ⑮ 绑定了颜色但值不可静态解析 → 必须显式登记，不得静默 -->
+  <em class="il-dynamic" :style="{ color: textColor }">动态色</em>
+
+  <!-- ⑯ 静态属性跨行：属性值里的 color 声明落在**行首**，样式块口径也会读到 → 去重后只报一次 -->
+  <div
+    class="il-crossline"
+    style="
+      color: var(--text-tertiary);
+    "
+  >
+    跨行静态
+  </div>
+
+  <!-- audit-text-contrast: exempt 内联图标字形，非文本（回归夹具） -->
+  <svg class="il-exempt" style="color: var(--text-tertiary)">图标</svg>
+</template>
+
+<script setup lang="ts">
+const textColor = '#8c8478';
+</script>
+
+<style scoped>
+/* 对照：样式块里的老口径写法 —— 用于确认新逻辑没有把样式块整片跳过 */
+.block-tertiary {
+  color: var(--text-tertiary);
+}
+</style>
+`;
+
 /** 造一棵最小仓库树并跑真脚本，返回 stdout。 */
 function runAudit(extraArgs = []) {
   const root = mkdtempSync(join(tmpdir(), 'audit-contrast-'));
@@ -131,6 +192,7 @@ function runAudit(extraArgs = []) {
     writeFileSync(join(root, 'frontend', 'src', 'style', 'colors.css'), COLORS_CSS);
     writeFileSync(join(root, 'frontend', 'src', 'style', 'dark.scss'), DARK_SCSS);
     writeFileSync(join(root, 'frontend', 'src', 'fixture.scss'), FIXTURE);
+    writeFileSync(join(root, 'frontend', 'src', 'fixture-inline.vue'), VUE_FIXTURE);
     return execFileSync(process.execPath, [SCRIPT, ...extraArgs], { cwd: root, encoding: 'utf8' });
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -216,13 +278,16 @@ test('exempt 指令：移入「已登记豁免」并保留理由与选择器，�
 
 test('汇总口径：不达标数与豁免数可被复核', () => {
   const out = full();
-  // 不达标 4 处 = real-bad + ancestor-small &__child + panel-dark__text + disabled-bad
+  // 不达标 9 处 = 样式块 4（real-bad / ancestor-small &__child / panel-dark__text / disabled-bad）
+  //   + 对照用样式块 1（.block-tertiary）
+  //   + 内联 4（il-static / il-bound / il-bound-multiline / il-crossline）
+  // 内联口径纳入后计数上抬是**口径扩展**的结果，不是放宽判据：每条都仍逐项断言。
   const listed = noInkBad(out)
     .split('\n')
     .filter(l => l.startsWith('frontend')).length;
-  assert.equal(listed, 4, `不达标段应恰好 4 条，实际 ${listed} 条：\n${out}`);
-  assert.match(out, /已登记豁免（代码内有 audit-text-contrast 指令，共 1 处）/);
-  assert.match(out, /发现「底色级令牌当文字色」 2 处，其中按其字号判据不达标 0 处/);
+  assert.equal(listed, 9, `不达标段应恰好 9 条，实际 ${listed} 条：\n${out}`);
+  assert.match(out, /已登记豁免（代码内有 audit-text-contrast 指令，共 2 处）/);
+  assert.match(out, /发现「底色级令牌当文字色」 3 处，其中按其字号判据不达标 0 处/);
 });
 
 test('反色白字（--text-inverse）归入「静态不可判定」，不报成不达标', () => {
@@ -244,4 +309,67 @@ test('品牌色当文字（--brand-*）不再被静默忽略', () => {
 
 test('新增分类不得漏报 B 类（--text-disabled 作正文仍须报出）', () => {
   assert.match(noInkBad(full()), /\.disabled-bad/, '--text-disabled 作正文必须仍被报出');
+});
+
+// ------------------------------------------------ 模板内联样式口径（#1599 批次 2）
+//
+// 这组用例的存在理由：内联扫描是**新加的能力**，两头都可能给错答案 ——
+// 漏扫（改完却报 0，人会以为已经清零）或过度扫描（把 background-color 读成文字色、
+// 同一个声明被两个口径各报一次）。故正向、反向、去重、防过度抑制四类各钉一条。
+
+test('内联⑩：静态 style 属性里的 color 必须被扫到（此前完全读不到）', () => {
+  const block = noInkBad(full()).split('\n\n').find(b => b.includes('il-static')) || '';
+  assert.ok(block, '模板内联的 color 声明必须被扫到（原实现整片漏扫）');
+  assert.match(block, /\[模板内联\]/, '须标出来源，便于与样式块口径区分');
+  assert.match(block, /div\.il-static/, '选择器应回退为「标签名 + class」供人工定位');
+});
+
+test('内联⑪：:style 对象字面量里的 color 必须被扫到', () => {
+  const block = noInkBad(full()).split('\n\n').find(b => b.includes('il-bound')) || '';
+  assert.ok(block, '`:style="{ color: ... }"` 形态必须覆盖');
+  assert.match(block, /span\.il-bound/, '应带出元素上下文');
+});
+
+test('内联⑫：属性值跨行（多行对象字面量）不得漏扫', () => {
+  const block = noInkBad(full()).split('\n\n').find(b => b.includes('il-bound-multiline')) || '';
+  assert.ok(block, '跨行属性值是常见写法，漏扫等于新口径形同虚设');
+});
+
+test('内联⑬：字号写在同一属性内时按大字判，不得误报为不达标', () => {
+  const out = full();
+  const large = section(out, '大字/装饰场景');
+  const block = large.split('\n\n').find(b => b.includes('il-large')) || '';
+  assert.ok(block, '内联 28px/700 属大字 → 应落在大字段');
+  assert.match(block, /\[28px 700\]/, '字号应取「同一 style 属性内」的声明，而不是退化成「字号?」');
+  assert.match(block, /\[模板内联\]/);
+  assert.ok(!noInkBad(out).includes('il-large'), '大字达标项不得被误报为不达标');
+});
+
+test('内联⑭：background-color / backgroundColor 不得被扫成文字色（防过度扫描）', () => {
+  const out = full();
+  assert.ok(!out.includes('il-bg-static'), `\`background-color\` 不是 \`color\`，不得进任何段：\n${out}`);
+  assert.ok(!out.includes('il-bg-bound'), `\`backgroundColor\` 同理（JS 对象形态）：\n${out}`);
+});
+
+test('内联⑮：值不可静态解析的 :style 绑定须显式登记，不得静默', () => {
+  const out = full();
+  const sec = section(out, '内联样式不可静态解析');
+  assert.ok(sec, `应输出该段（哪怕 0 处也要让人看得见口径）：\n${out}`);
+  assert.match(sec, /il-dynamic/, `\`:style="{ color: textColor }"\` 必须出现在该段（原实现是静默忽略）：\n${out}`);
+  assert.match(sec, /交真机 axe/, '该段须写明判定出口，否则等于换了个地方静默');
+});
+
+test('内联⑯：跨行属性值里的声明不得被两个口径各报一次（去重）', () => {
+  const out = full();
+  const blocks = out.split('\n\n').filter(b => b.includes('il-crossline'));
+  assert.equal(blocks.length, 1, `il-crossline 应恰好 1 条，实际 ${blocks.length} 条（重复计数说明内联区间未被样式块口径跳过）：\n${out}`);
+});
+
+test('内联⑰：HTML 注释形式的 exempt 指令生效，且理由不带 `-->` 残留', () => {
+  const out = full();
+  assert.ok(!noInkBad(out).includes('il-exempt'), '带内联豁免指令的项不得出现在不达标段');
+  const sec = section(out, '已登记豁免');
+  assert.match(sec, /il-exempt/, '应带出元素上下文，使豁免可被定位');
+  assert.match(sec, /内联图标字形，非文本（回归夹具）/, '理由应完整带出');
+  assert.ok(!sec.includes('-->'), 'HTML 注释收尾 `-->` 必须被剥掉（否则理由被污染）');
 });

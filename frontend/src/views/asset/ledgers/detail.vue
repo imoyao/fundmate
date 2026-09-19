@@ -41,7 +41,7 @@
           </el-button>
           <IconifyIconOffline
             icon="ep:arrow-right"
-            :style="{ color: 'var(--text-tertiary)' }"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
           />
         </div>
       </div>
@@ -72,7 +72,7 @@
               <template v-if="summaryData?.portfolio_name">
                 <span
                   class="text-xs"
-                  :style="{ color: 'var(--text-tertiary)' }"
+                  :style="{ color: 'var(--text-tertiary-ink)' }"
                 >
                   · 组合: {{ summaryData.portfolio_name }}</span
                 >
@@ -129,7 +129,7 @@
               <div>
                 <p
                   class="text-sm mb-2"
-                  :style="{ color: 'var(--text-tertiary)' }"
+                  :style="{ color: 'var(--text-tertiary-ink)' }"
                 >
                   总资产
                 </p>
@@ -156,7 +156,7 @@
                 <div class="flex flex-col">
                   <span
                     class="text-xs mb-1"
-                    :style="{ color: 'var(--text-tertiary)' }"
+                    :style="{ color: 'var(--text-tertiary-ink)' }"
                     >持仓盈亏</span
                   >
                   <MoneyDisplay
@@ -168,7 +168,7 @@
                 <div class="flex flex-col">
                   <span
                     class="text-xs mb-1"
-                    :style="{ color: 'var(--text-tertiary)' }"
+                    :style="{ color: 'var(--text-tertiary-ink)' }"
                     >持仓数量</span
                   >
                   <span
@@ -181,7 +181,7 @@
                 <div class="flex flex-col">
                   <span
                     class="text-xs mb-1"
-                    :style="{ color: 'var(--text-tertiary)' }"
+                    :style="{ color: 'var(--text-tertiary-ink)' }"
                     >资金余额</span
                   >
                   <MoneyDisplay
@@ -194,7 +194,7 @@
                   <span
                     v-else
                     class="text-sm"
-                    :style="{ color: 'var(--text-tertiary)' }"
+                    :style="{ color: 'var(--text-tertiary-ink)' }"
                     >--</span
                   >
                 </div>
@@ -208,7 +208,7 @@
                 >
                   <span
                     class="text-xs mb-1"
-                    :style="{ color: 'var(--text-tertiary)' }"
+                    :style="{ color: 'var(--text-tertiary-ink)' }"
                     >关联负债</span
                   >
                   <MoneyDisplay
@@ -225,7 +225,7 @@
                 >
                   <span
                     class="text-xs mb-1"
-                    :style="{ color: 'var(--text-tertiary)' }"
+                    :style="{ color: 'var(--text-tertiary-ink)' }"
                     >货基今日收益</span
                   >
                   <MoneyDisplay
@@ -236,7 +236,7 @@
                   <span
                     v-else
                     class="text-sm"
-                    :style="{ color: 'var(--text-tertiary)' }"
+                    :style="{ color: 'var(--text-tertiary-ink)' }"
                     >--</span
                   >
                 </div>
@@ -271,7 +271,7 @@
             class="flex min-h-[160px] flex-1 items-center justify-center rounded-lg border border-dashed text-sm"
             :style="{
               borderColor: 'var(--border-subtle)',
-              color: 'var(--text-tertiary)'
+              color: 'var(--text-tertiary-ink)'
             }"
           >
             账户深度分析（持仓集中度 / 行业分布 / 收益日历等）规划中，敬请期待
@@ -599,7 +599,7 @@
                 <div
                   v-if="transactionsTotal === 0"
                   class="text-center py-8"
-                  :style="{ color: 'var(--text-tertiary)' }"
+                  :style="{ color: 'var(--text-tertiary-ink)' }"
                 >
                   暂无交易记录
                 </div>

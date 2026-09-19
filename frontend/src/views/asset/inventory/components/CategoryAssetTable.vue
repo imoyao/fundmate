@@ -79,7 +79,7 @@
       backgroundColor: 'var(--bg-card)'
     }"
   >
-    <p :style="{ color: 'var(--text-tertiary)' }">暂无此分类下的资产记录</p>
+    <p :style="{ color: 'var(--text-tertiary-ink)' }">暂无此分类下的资产记录</p>
   </div>
 </template>
 
