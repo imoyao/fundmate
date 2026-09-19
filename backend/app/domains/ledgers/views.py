@@ -25,7 +25,6 @@ from app.domains.ledgers.constants import (
 )
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, SalesInstitution
-from app.domains.positions.views import enrich_position_dict
 from app.domains.transactions.models import Transaction
 from app.services import ledger_migration_service as migration_svc
 from app.services.fund_service import FundService
@@ -35,6 +34,7 @@ from app.services.position_aggregation import (
 from app.services.position_aggregation import (
     get_fund_aggregation as svc_get_fund_aggregation,
 )
+from app.services.position_presenter import enrich_position_dict
 from app.services.trading import TransactionService
 
 # 外部基金列表缓存（进程级，基金列表极少变动）：用于「本地库无此货基时」补建 Fund 行

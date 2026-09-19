@@ -102,13 +102,15 @@ repos:
         language: python
         files: ^backend/app/.*\.py$
         pass_filenames: false
-      - id: guard-core-imports
-        name: guard core layer domain imports
-        entry: python scripts/guard_core_imports.py
+      - id: guard-layer-direction
+        name: guard backend layer dependency direction
+        entry: python scripts/guard_layer_direction.py
         language: python
-        # core 不得反向依赖领域层（#1607）：此前 core.auth 直接持有 User 模型、
-        # core.database 把默认家庭/用户种子写在基础设施层，靠函数内延迟 import 掩盖
-        files: ^backend/app/core/.*\.py$
+        # 分层依赖方向（#1607）：R1 core→domains/models、R2 services→domains.views、
+        # R3 domains.models|schemas→services、R4 跨域 views 互引。
+        # 此前 core.auth 直接持有 User、core.database 把种子写在基础设施层，
+        # 且 ledgers.views 直接引用 positions.views，全靠函数内 import 掩盖
+        files: ^backend/app/(core|services|domains)/.*\.py$
         pass_filenames: false
       - id: check-view-thickness
         name: guard view layer thickness
