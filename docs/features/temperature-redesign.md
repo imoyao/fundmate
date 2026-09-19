@@ -82,8 +82,8 @@ permalink: /ai-recover
 为彻底修复 undefined 变量 bug 且不与"红涨绿跌"混淆，**新增温度专用 token**（写入 `colors.css`），替换所有 `--warm/--cold2/--ok/--mid`：
 
 ```css
---temp-low:   #4F9D69;  /* 低温 · 机会区（绿，取自 --tag-sage-green 系） */
---temp-mid:   var(--tag-warm-sand);  /* 适中 · 平稳（暖沙金，用户确认） */
+--temp-low:   #4F9D69;  /* 低温 · 机会区（绿，取自 --palette-sage-green 系） */
+--temp-mid:   var(--palette-warm-sand);  /* 适中 · 平稳（暖沙金，用户确认） */
 --temp-high:  #D9534F;  /* 高温 · 谨慎区（红，独立于品牌涨色） */
 --temp-low-bg:   rgba(79,157,105,0.14);
 --temp-mid-bg:   rgba(212,200,152,0.20);

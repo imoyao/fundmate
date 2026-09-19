@@ -1029,7 +1029,7 @@ onMounted(() => {
 }
 
 .disc-diff-pos {
-  color: var(--tag-sage-green);
+  color: var(--palette-sage-green);
 }
 
 .disc-diff-neg {
@@ -1043,13 +1043,13 @@ onMounted(() => {
 }
 
 .disc-status--pending {
-  color: var(--tag-caramel);
-  background: color-mix(in srgb, var(--tag-caramel) 12%, transparent);
+  color: var(--palette-caramel);
+  background: color-mix(in srgb, var(--palette-caramel) 12%, transparent);
 }
 
 .disc-status--cleared {
-  color: var(--tag-sage-green);
-  background: color-mix(in srgb, var(--tag-sage-green) 12%, transparent);
+  color: var(--palette-sage-green);
+  background: color-mix(in srgb, var(--palette-sage-green) 12%, transparent);
 }
 
 .disc-status--ignored {
@@ -1082,8 +1082,8 @@ onMounted(() => {
 }
 
 .domain-status-tag--ready {
-  color: var(--tag-sage-green);
-  background: color-mix(in srgb, var(--tag-sage-green) 12%, transparent);
+  color: var(--palette-sage-green);
+  background: color-mix(in srgb, var(--palette-sage-green) 12%, transparent);
 }
 
 .domain-status-tag--planned {

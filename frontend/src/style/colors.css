@@ -95,24 +95,28 @@
   --category-liability-bg: rgba(196, 160, 168, 0.13);
   --category-insurance-bg: rgba(232, 213, 196, 0.13);
 
-  /* 标签/分组色板（12色） */
-  --tag-purple-gray: #7a7fa8;
-  --tag-sage-green: #81b29a;
-  --tag-dusty-rose: #c85a6a;
-  --tag-warm-sand: #d4c898;
-  --tag-thistle: #9d81a9;
-  --tag-warm-taupe: #a89f94;
-  --tag-muted-blue: #7a9aa8;
-  --tag-rose-taupe: #b88a8a;
-  --tag-stone-gray: #8e8b82;
-  --tag-mint-green: #a8cbc0;
-  --tag-caramel: #c4a68a;
-  --tag-periwinkle: #b4bee0;
+  /* ===== 原始色板（primitive 层，12 色）=====
+     命名按**颜色**而非用途：这些色被多处复用于互不相同的语义
+     （`--palette-thistle` 既是桑基图的「稳健底仓」、又是导入向导的「FOF」；
+       `--palette-sage-green` 既是「存款」、又是对账工作台的「已清」），
+     按用途命名只会得到自相矛盾的名字。故按层级命名，并明确：
+     **业务代码优先用 semantic / domain 层令牌**，直接引用本层须说明理由。
+     分层规则见 docs/spec/conventions.md §3.11「设计令牌命名分层」。 */
+  --palette-purple-gray: #7a7fa8;
+  --palette-sage-green: #81b29a;
+  --palette-dusty-rose: #c85a6a;
+  --palette-warm-sand: #d4c898;
+  --palette-thistle: #9d81a9;
+  --palette-warm-taupe: #a89f94;
+  --palette-muted-blue: #7a9aa8;
+  --palette-rose-taupe: #b88a8a;
+  --palette-stone-gray: #8e8b82;
+  --palette-mint-green: #a8cbc0;
+  --palette-caramel: #c4a68a;
+  --palette-periwinkle: #b4bee0;
 
   --color-primary-10: rgba(122, 127, 168, 0.1);
 
-  --tag-muted-blue-20: rgba(122, 154, 168, 0.2);
-  --tag-thistle-20: rgba(157, 129, 169, 0.2);
   --color-primary-20: rgba(122, 127, 168, 0.2);
   --color-warning-20: rgba(212, 200, 152, 0.2);
   --color-danger-20: rgba(212, 54, 74, 0.2);
@@ -173,7 +177,7 @@
      一个品种一个色相锚；全部亮度归一化到白底 4.8:1 —— 同时可作 `color:` 文字、
      图表描边 / 节点填充、卡片封面色层，无需 -ink 二级令牌。
      · 改色 = 只改下面这 12 行，桑基图 / 收藏 / 探市 / 库存 / 导入向导 / 自选 pill 全站跟随。
-     · 业务代码禁止再借用 --tag-* 装饰色或 rise/fall/warning/danger 语义色表达品种
+     · 业务代码禁止再借用 --palette-* 装饰色或 rise/fall/warning/danger 语义色表达品种
        （历史债：曾出现「股票=信息色」「债券=警告色」「储蓄=成功色」「股票账户=危险色」）。
      · 暗色值在 dark.scss 的 `:root.dark` 块同名覆盖。 */
   --asset-cat-stock: #8265a8; /* 股票 · H266° */
@@ -249,7 +253,9 @@
 
   /* ===== 温度语义色（独立于涨跌色，避免与红涨绿跌混淆） ===== */
   --temp-low: #4f9d69; /* 低温·机会区（绿）——**底色 / 图形**级 */
-  --temp-mid: var(--tag-warm-sand); /* 适中·平稳（暖沙金）——**底色 / 图形**级 */
+  --temp-mid: var(
+    --palette-warm-sand
+  ); /* 适中·平稳（暖沙金）——**底色 / 图形**级 */
   --temp-high: #d9534f; /* 高温·谨慎区（红，独立于品牌涨色）——**底色 / 图形**级 */
   --temp-low-bg: rgba(79, 157, 105, 0.14);
   --temp-mid-bg: rgba(212, 200, 152, 0.2);
