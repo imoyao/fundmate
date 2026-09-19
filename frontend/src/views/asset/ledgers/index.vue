@@ -917,8 +917,8 @@ onMounted(() => {
   padding: 2px 8px;
   font-size: 12px;
   line-height: 18px;
-  color: var(--color-danger);
-  background: var(--color-danger-20);
+  color: var(--color-warning-ink);
+  background: var(--color-warning-20);
   border-radius: var(--radius-pill);
 }
 

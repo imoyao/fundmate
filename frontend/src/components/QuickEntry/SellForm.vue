@@ -152,7 +152,7 @@
             <div
               v-if="showQtyHint"
               class="text-xs"
-              style="color: var(--color-danger-system)"
+              style="color: var(--color-danger)"
             >
               <template v-if="form.type === 'fund'"
                 >每笔最少 0.0001 份</template

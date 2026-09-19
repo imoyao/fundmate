@@ -215,7 +215,7 @@
                     :value="-summaryData.linked_liability"
                     size="md"
                     :auto-color="false"
-                    custom-color="var(--color-danger-system)"
+                    custom-color="var(--color-danger)"
                   />
                 </div>
                 <!-- 货基收益（仅基金账户展示） -->

@@ -648,7 +648,7 @@ onMounted(() => {
 .ocr-textarea__error {
   margin: var(--space-2) 0 0;
   font-size: var(--text-label);
-  color: var(--color-danger-system);
+  color: var(--color-danger);
 }
 
 .result-section {

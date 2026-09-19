@@ -13,7 +13,6 @@
   /* ===== 语义功能色（原有，保持兼容） ===== */
   --color-primary: #7a7fa8; /* 主色：灰紫蓝，用于主按钮、选中态、导航高亮 */
   --color-success: #81b29a; /* 成功色：鼠尾草绿，用于成功状态、负向收益/下跌🟢 */
-  --color-danger: #c83e66; /* ⚠️ 保留原值，逐步迁移至 --color-rise */
   --color-warning: #d4c898; /* 警告色：暖沙金，**仅作底色 / 边框 / 渐变**，禁止作前景文字（#1545） */
   --color-warning-ink: #806218; /* 告警**文字**级：深暖沙金，白底 5.71:1（#1545） */
   --color-info: #7a9aa8; /* 信息色：灰蓝，用于信息提示、次要分类、辅助操作 */
@@ -54,6 +53,9 @@
   --sankey-liquid: #7a9aa8;
   --sankey-stable: #9d81a9;
   --sankey-longterm: #7a7fa8;
+  /* 五笔钱·高风险档位专用色（#1602）：与 --color-danger（删除/破坏性操作）**刻意解耦**——
+     若写成 var(--color-danger)，则「调整危险色」会静默改掉图表档位色，属跨维度耦合。
+     取值 = 原 --color-danger 遗留值 #c83e66，故本次重构对桑基图**零视觉变化**。 */
   --sankey-speculative: #c83e66;
   --sankey-security: #b88a8a;
 
@@ -64,14 +66,6 @@
   --category-receivable: #8e8b82;
   --category-liability: #c4a0a8;
   --category-insurance: #e8d5c4;
-
-  /* 投资子类型色 */
-  --invest-stock: #9d81a9;
-  --invest-fund: #a3b5c7;
-  --invest-bond: #8e8b82;
-  --invest-etf: #b5c4b1;
-  --invest-crypto: #c4a0a8;
-  --invest-saving: #9caf88;
 
   /* 添加类型卡片通用色 */
   --add-type-cash: #b5c4b1;
@@ -121,34 +115,20 @@
   --tag-thistle-20: rgba(157, 129, 169, 0.2);
   --color-primary-20: rgba(122, 127, 168, 0.2);
   --color-warning-20: rgba(212, 200, 152, 0.2);
-  --color-danger-20: rgba(200, 62, 102, 0.2);
+  --color-danger-20: rgba(212, 54, 74, 0.2);
   --color-danger-10: rgba(
-    200,
-    62,
-    102,
+    212,
+    54,
+    74,
     0.1
-  ); /* 🆕 危险色 10% 透明（上传错误框底色，原未定义导致坏链） */
+  ); /* 危险色 10% 透明（上传错误框底色） */
   --color-danger-30: rgba(
-    200,
-    62,
-    102,
+    212,
+    54,
+    74,
     0.3
-  ); /* 🆕 危险色 30% 透明（上传错误框描边，原未定义导致坏链） */
+  ); /* 危险色 30% 透明（上传错误框描边） */
   --color-accent-20: rgba(184, 138, 138, 0.2);
-  --asset-stock-20: rgba(123, 143, 161, 0.2);
-  --asset-fund-20: rgba(232, 168, 124, 0.2);
-  --asset-bond-20: rgba(212, 200, 152, 0.2);
-  --asset-etf-20: rgba(168, 203, 192, 0.2);
-  --asset-crypto-20: rgba(196, 166, 138, 0.2);
-  --asset-saving-20: rgba(129, 178, 154, 0.2);
-
-  /* 资产类型卡片色（语义化别名） */
-  --asset-stock: var(--tag-muted-blue);
-  --asset-fund: var(--color-accent);
-  --asset-bond: var(--tag-warm-sand);
-  --asset-etf: var(--tag-mint-green);
-  --asset-crypto: var(--tag-caramel);
-  --asset-saving: var(--tag-sage-green);
 
   /* ============================================================
      第二部分：🆕 新增语义变量（设计语言 v2.3.2 强制规范）
@@ -177,7 +157,86 @@
                                 未达 AA 正文 4.5:1，见 #1586） */
 
   /* ===== 系统语义色（独立于品牌色） ===== */
-  --color-danger-system: #d4364a; /* 删除/错误/破坏性操作（独立危险色） */
+  --color-danger: #d4364a; /* 删除/错误/破坏性操作。唯一危险色（#1602：原 --color-danger 遗留值与 -system 双份定义已合并） */
+
+  /* ===== 资产品种色：唯一真相源（#1602） =====
+     「股票 / 基金 / ETF / 可转债 / 加密货币 / 银行存款」等品种的**唯一**着色入口。
+     一个品种一个色相锚；全部亮度归一化到白底 4.8:1 —— 同时可作 `color:` 文字、
+     图表描边 / 节点填充、卡片封面色层，无需 -ink 二级令牌。
+     · 改色 = 只改下面这 12 行，桑基图 / 收藏 / 探市 / 库存 / 导入向导 / 自选 pill 全站跟随。
+     · 业务代码禁止再借用 --tag-* 装饰色或 rise/fall/warning/danger 语义色表达品种
+       （历史债：曾出现「股票=信息色」「债券=警告色」「储蓄=成功色」「股票账户=危险色」）。
+     · 暗色值在 dark.scss 的 `:root.dark` 块同名覆盖。 */
+  --asset-cat-stock: #8265a8; /* 股票 · H266° */
+  --asset-cat-fund: #557596; /* 基金 · H210° */
+  --asset-cat-etf: #457c73; /* ETF · H171° */
+  --asset-cat-bond: #8a6d4d; /* 可转债 · H32° */
+  --asset-cat-crypto: #a25b84; /* 加密货币 · H326° */
+  --asset-cat-saving: #617a45; /* 银行存款 · H89° */
+  --asset-cat-index: #666ea9; /* 指数 · H233° */
+  --asset-cat-portfolio: #9c5aa0; /* 投顾组合 · H296° */
+  --asset-cat-manager: #497982; /* 基金经理 · H189° */
+  --asset-cat-money-fund: #507e47; /* 货币基金 · H110° */
+  --asset-cat-reverse-repo: #747642; /* 逆回购 · H62° */
+  --asset-cat-property: #477e4f; /* 房产 · H129° */
+
+  /* 品种底色：同色相 18% 透明（pill / 标签背景），随上游颜色自动跟随 */
+  --asset-cat-stock-bg: color-mix(
+    in srgb,
+    var(--asset-cat-stock) 18%,
+    transparent
+  );
+  --asset-cat-fund-bg: color-mix(
+    in srgb,
+    var(--asset-cat-fund) 18%,
+    transparent
+  );
+  --asset-cat-etf-bg: color-mix(in srgb, var(--asset-cat-etf) 18%, transparent);
+  --asset-cat-bond-bg: color-mix(
+    in srgb,
+    var(--asset-cat-bond) 18%,
+    transparent
+  );
+  --asset-cat-crypto-bg: color-mix(
+    in srgb,
+    var(--asset-cat-crypto) 18%,
+    transparent
+  );
+  --asset-cat-saving-bg: color-mix(
+    in srgb,
+    var(--asset-cat-saving) 18%,
+    transparent
+  );
+  --asset-cat-index-bg: color-mix(
+    in srgb,
+    var(--asset-cat-index) 18%,
+    transparent
+  );
+  --asset-cat-portfolio-bg: color-mix(
+    in srgb,
+    var(--asset-cat-portfolio) 18%,
+    transparent
+  );
+  --asset-cat-manager-bg: color-mix(
+    in srgb,
+    var(--asset-cat-manager) 18%,
+    transparent
+  );
+  --asset-cat-money-fund-bg: color-mix(
+    in srgb,
+    var(--asset-cat-money-fund) 18%,
+    transparent
+  );
+  --asset-cat-reverse-repo-bg: color-mix(
+    in srgb,
+    var(--asset-cat-reverse-repo) 18%,
+    transparent
+  );
+  --asset-cat-property-bg: color-mix(
+    in srgb,
+    var(--asset-cat-property) 18%,
+    transparent
+  );
 
   /* ===== 温度语义色（独立于涨跌色，避免与红涨绿跌混淆） ===== */
   --temp-low: #4f9d69; /* 低温·机会区（绿）——**底色 / 图形**级 */
@@ -284,31 +343,6 @@
   --chart-06: #7bc49a;
   --chart-07: #a3b5c7;
   --chart-08: #d5c4c4;
-
-  /* ===== 资产类型 pill 色（搜索下拉 / 已选信息卡的类型标签按品种着色） =====
-     深莫兰迪文字色 + 低透明同 hue 底，同屏 10 品种互不撞色；
-     暗色变体在 dark.scss 的 .dark 块同名覆盖。文字色承担对比度，
-     底色仅辅助区分（透明度 16%-24%）。2026-09-13 新增。 */
-  --asset-type-fund: #5f81a3; /* 基金 · 灰蓝 */
-  --asset-type-fund-bg: rgba(122, 154, 168, 0.16);
-  --asset-type-stock: #8268a3; /* 股票 · 紫 */
-  --asset-type-stock-bg: rgba(157, 129, 169, 0.16);
-  --asset-type-etf: #4f8f75; /* ETF · 薄荷绿 */
-  --asset-type-etf-bg: rgba(168, 203, 192, 0.2);
-  --asset-type-bond: #a0784a; /* 可转债 · 驼 */
-  --asset-type-bond-bg: rgba(196, 166, 138, 0.22);
-  --asset-type-crypto: #b06e80; /* 加密货币 · 灰玫瑰 */
-  --asset-type-crypto-bg: rgba(196, 160, 168, 0.2);
-  --asset-type-index: #676d99; /* 指数 · 靛 */
-  --asset-type-index-bg: rgba(122, 127, 168, 0.16);
-  --asset-type-portfolio: var(--brand-700); /* 投顾组合 · 品牌珊瑚红 */
-  --asset-type-portfolio-bg: rgba(227, 79, 56, 0.1);
-  --asset-type-manager: #4a8f96; /* 基金经理 · 青 */
-  --asset-type-manager-bg: rgba(111, 176, 184, 0.18);
-  --asset-type-money-fund: #7d8f5e; /* 货币基金 · 橄榄 */
-  --asset-type-money-fund-bg: rgba(156, 175, 136, 0.2);
-  --asset-type-reverse-repo: #97824f; /* 逆回购 · 沙金 */
-  --asset-type-reverse-repo-bg: rgba(212, 200, 152, 0.24);
 }
 
 /* ============================================================

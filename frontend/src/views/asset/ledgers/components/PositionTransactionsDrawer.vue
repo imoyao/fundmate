@@ -151,7 +151,7 @@
           :style="{
             color:
               (positionData?.pnl_rate ?? 0) >= 0
-                ? 'var(--color-danger)'
+                ? 'var(--color-rise)'
                 : 'var(--color-success)'
           }"
         >
@@ -272,7 +272,7 @@
               <span
                 :class="
                   row.txn_type === 'buy' || row.txn_type === 'deposit'
-                    ? 'text-[var(--color-danger)]'
+                    ? 'text-[var(--color-rise)]'
                     : 'text-[var(--color-success)]'
                 "
               >
@@ -410,7 +410,7 @@ const xirrColor = computed(() =>
   xirr.value == null
     ? "var(--text-primary)"
     : xirr.value >= 0
-      ? "var(--color-danger)"
+      ? "var(--color-rise)"
       : "var(--color-success)"
 );
 

@@ -174,7 +174,7 @@ const INVESTMENT_QUICK_ACTIONS: QuickActionItem[] = [
     icon: "ep:briefcase",
     label: "记录其他投资",
     desc: "银行理财、投顾、信托、私募、理财型保险",
-    color: "var(--invest-saving)"
+    color: "var(--asset-cat-saving)"
   }
 ];
 

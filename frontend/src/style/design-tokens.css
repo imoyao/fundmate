@@ -35,7 +35,7 @@
   --fall: var(--color-fall);
 
   /* 系统语义 */
-  --danger: var(--color-danger-system);
+  --danger: var(--color-danger);
 
   /* 背景语义：--bg-page / --bg-card / --bg-warm / --bg-soft / --bg-hover /
      --bg-muted 已由 colors.css（亮）与 dark.scss（暗）定义，本层不重复声明 */

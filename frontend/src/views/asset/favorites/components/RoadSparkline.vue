@@ -54,7 +54,7 @@ const props = withDefaults(
     /** 封面标注（净值/价格/点位），空字符串不渲染 */
     metricLabel?: string;
   }>(),
-  { color: "var(--asset-stock)", metricLabel: "" }
+  { color: "var(--asset-cat-stock)", metricLabel: "" }
 );
 
 const WIDTH = 300;

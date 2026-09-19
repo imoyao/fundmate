@@ -926,7 +926,7 @@ onMounted(() => {
   padding: 12px 16px;
   margin-top: var(--space-compact);
   font-size: var(--text-small);
-  color: var(--color-danger-system);
+  color: var(--color-danger);
   text-align: center;
   background: var(--color-danger-20);
   border: 1px solid var(--color-danger);

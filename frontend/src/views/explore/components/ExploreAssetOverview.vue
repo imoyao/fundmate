@@ -31,14 +31,14 @@ const unavailableCount = computed(() => overview.value?.unavailable_count ?? 0);
 const bondYield = computed(() => overview.value?.bond_yield ?? null);
 const updatedAt = computed(() => overview.value?.updated_at ?? "");
 
-// 分类 → 资产类别色 token（复用项目既有 --asset-* 族，无商品专属 token，商品映射到 etf 薄荷绿）
+// 分类 → 品种色 token（唯一真相源 --asset-cat-*；无商品专属 token，商品映射到 etf 绿）
 const CATEGORY_TOKEN: Record<string, string> = {
-  A股: "var(--asset-stock)",
-  港股: "var(--asset-stock)",
-  海外: "var(--asset-stock)",
-  债券: "var(--asset-bond)",
-  商品: "var(--asset-etf)",
-  汇率: "var(--asset-saving)"
+  A股: "var(--asset-cat-stock)",
+  港股: "var(--asset-cat-stock)",
+  海外: "var(--asset-cat-stock)",
+  债券: "var(--asset-cat-bond)",
+  商品: "var(--asset-cat-etf)",
+  汇率: "var(--asset-cat-saving)"
 };
 
 const categoryColor = (category: string) =>

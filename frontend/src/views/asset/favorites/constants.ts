@@ -44,10 +44,10 @@ export const STATUS_TABS: StatusTab[] = [
  * cover 只用于封面色层，卡片文字/边框仍走语义令牌。
  */
 export const ENTITY_COLOR: Record<RoadEntityType, string> = {
-  stock: "var(--asset-stock)",
-  fund: "var(--asset-fund)",
-  index: "var(--tag-warm-sand)",
-  manager: "var(--tag-purple-gray)"
+  stock: "var(--asset-cat-stock)",
+  fund: "var(--asset-cat-fund)",
+  index: "var(--asset-cat-index)",
+  manager: "var(--asset-cat-manager)"
 };
 
 export const ENTITY_LABEL: Record<RoadEntityType, string> = {

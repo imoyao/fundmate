@@ -657,57 +657,57 @@ onMounted(async () => {
   border-radius: var(--radius-pill);
 }
 
-/* 类型 pill 按品种配色：色值来自 colors.css / dark.scss 的 --asset-type-* 专属
-   token（深莫兰迪文字色 + 低透明同 hue 底，10 品种互不撞色，暗色同名覆盖）；
+/* 类型 pill 按品种配色：色值来自 colors.css / dark.scss 的 `--asset-cat-*`
+   唯一真相源（莫兰迪文字色 + 18% 同 hue 底，12 品种互不撞色，暗色同名覆盖）；
    未知品种走默认灰。 */
 .asset-option__type--fund {
-  color: var(--asset-type-fund);
-  background-color: var(--asset-type-fund-bg);
+  color: var(--asset-cat-fund);
+  background-color: var(--asset-cat-fund-bg);
 }
 
 .asset-option__type--stock {
-  color: var(--asset-type-stock);
-  background-color: var(--asset-type-stock-bg);
+  color: var(--asset-cat-stock);
+  background-color: var(--asset-cat-stock-bg);
 }
 
 .asset-option__type--etf {
-  color: var(--asset-type-etf);
-  background-color: var(--asset-type-etf-bg);
+  color: var(--asset-cat-etf);
+  background-color: var(--asset-cat-etf-bg);
 }
 
 .asset-option__type--index {
-  color: var(--asset-type-index);
-  background-color: var(--asset-type-index-bg);
+  color: var(--asset-cat-index);
+  background-color: var(--asset-cat-index-bg);
 }
 
 .asset-option__type--bond {
-  color: var(--asset-type-bond);
-  background-color: var(--asset-type-bond-bg);
+  color: var(--asset-cat-bond);
+  background-color: var(--asset-cat-bond-bg);
 }
 
 .asset-option__type--crypto {
-  color: var(--asset-type-crypto);
-  background-color: var(--asset-type-crypto-bg);
+  color: var(--asset-cat-crypto);
+  background-color: var(--asset-cat-crypto-bg);
 }
 
 .asset-option__type--portfolio {
-  color: var(--asset-type-portfolio);
-  background-color: var(--asset-type-portfolio-bg);
+  color: var(--asset-cat-portfolio);
+  background-color: var(--asset-cat-portfolio-bg);
 }
 
 .asset-option__type--manager {
-  color: var(--asset-type-manager);
-  background-color: var(--asset-type-manager-bg);
+  color: var(--asset-cat-manager);
+  background-color: var(--asset-cat-manager-bg);
 }
 
 .asset-option__type--money_fund {
-  color: var(--asset-type-money-fund);
-  background-color: var(--asset-type-money-fund-bg);
+  color: var(--asset-cat-money-fund);
+  background-color: var(--asset-cat-money-fund-bg);
 }
 
 .asset-option__type--reverse_repo {
-  color: var(--asset-type-reverse-repo);
-  background-color: var(--asset-type-reverse-repo-bg);
+  color: var(--asset-cat-reverse-repo);
+  background-color: var(--asset-cat-reverse-repo-bg);
 }
 
 /* ── 已选资产信息卡 ── */
@@ -754,53 +754,53 @@ onMounted(async () => {
 }
 
 .selected-asset-card__type--fund {
-  color: var(--asset-type-fund);
-  background-color: var(--asset-type-fund-bg);
+  color: var(--asset-cat-fund);
+  background-color: var(--asset-cat-fund-bg);
 }
 
 .selected-asset-card__type--stock {
-  color: var(--asset-type-stock);
-  background-color: var(--asset-type-stock-bg);
+  color: var(--asset-cat-stock);
+  background-color: var(--asset-cat-stock-bg);
 }
 
 .selected-asset-card__type--etf {
-  color: var(--asset-type-etf);
-  background-color: var(--asset-type-etf-bg);
+  color: var(--asset-cat-etf);
+  background-color: var(--asset-cat-etf-bg);
 }
 
 .selected-asset-card__type--index {
-  color: var(--asset-type-index);
-  background-color: var(--asset-type-index-bg);
+  color: var(--asset-cat-index);
+  background-color: var(--asset-cat-index-bg);
 }
 
 .selected-asset-card__type--bond {
-  color: var(--asset-type-bond);
-  background-color: var(--asset-type-bond-bg);
+  color: var(--asset-cat-bond);
+  background-color: var(--asset-cat-bond-bg);
 }
 
 .selected-asset-card__type--crypto {
-  color: var(--asset-type-crypto);
-  background-color: var(--asset-type-crypto-bg);
+  color: var(--asset-cat-crypto);
+  background-color: var(--asset-cat-crypto-bg);
 }
 
 .selected-asset-card__type--portfolio {
-  color: var(--asset-type-portfolio);
-  background-color: var(--asset-type-portfolio-bg);
+  color: var(--asset-cat-portfolio);
+  background-color: var(--asset-cat-portfolio-bg);
 }
 
 .selected-asset-card__type--manager {
-  color: var(--asset-type-manager);
-  background-color: var(--asset-type-manager-bg);
+  color: var(--asset-cat-manager);
+  background-color: var(--asset-cat-manager-bg);
 }
 
 .selected-asset-card__type--money_fund {
-  color: var(--asset-type-money-fund);
-  background-color: var(--asset-type-money-fund-bg);
+  color: var(--asset-cat-money-fund);
+  background-color: var(--asset-cat-money-fund-bg);
 }
 
 .selected-asset-card__type--reverse_repo {
-  color: var(--asset-type-reverse-repo);
-  background-color: var(--asset-type-reverse-repo-bg);
+  color: var(--asset-cat-reverse-repo);
+  background-color: var(--asset-cat-reverse-repo-bg);
 }
 
 /* 关键信息两列栅格：label 弱化、value 单行省略（长公司名不撑破卡片） */
