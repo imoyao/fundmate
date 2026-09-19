@@ -110,3 +110,11 @@ repos:
         # core.database 把默认家庭/用户种子写在基础设施层，靠函数内延迟 import 掩盖
         files: ^backend/app/core/.*\.py$
         pass_filenames: false
+      - id: check-view-thickness
+        name: guard view layer thickness
+        entry: python scripts/check_view_thickness.py
+        language: python
+        # 视图层只做 HTTP 编排（#1606）：业务规则（校验链/状态机/守恒校验/合并策略）与
+        # 事务必须落在 services；视图文件行数、query/commit 次数、单函数行数只减不增
+        files: ^backend/app/domains/.*/views\.py$
+        pass_filenames: false
