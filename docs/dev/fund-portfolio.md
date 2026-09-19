@@ -18,7 +18,7 @@ title: 投顾组合（Advisor Portfolio）数据域设计与实现
 | `advisor_portfolios` | 组合主表：`code`（平台组合码，**unique**）、`platform`（QIEMAN/DANJUAN/TIANTIAN/YINGMI）、name/host/org_name/risk_level/strategy_type、累计与年化收益、#1167 补充的 estab_date/strategy_desc、#1392 补充的 `source`（写入来源）与 `extra`（平台特有字段 JSON） |
 | `advisor_holdings` | 当前持仓快照：同一 (portfolio, as_of_date) 整体覆盖；`fund_code` 存业务键不建外键（成分基金可能暂缺于 funds 表） |
 | `advisor_industry_alloc` | 行业配置快照：快照日随当前持仓调仓日 |
-| `advisor_adjust_history` | 历史调仓：同一 (portfolio, adjust_date) 整体覆盖，调仓理由随行冗余 |
+| `advisor_adjust_history` | 历史调仓：同一 (portfolio, adjust_date) 整体覆盖，调仓理由随行冗余。**只记真实调仓**（#1622） |
 
 四表均登记在 `app/core/db_factory.DATA_DOMAIN_REGISTRY` 的 market 域，由启动校验兜底。
 
@@ -45,6 +45,13 @@ title: 投顾组合（Advisor Portfolio）数据域设计与实现
   （`BatchGetStrategiesComposition`）；**无官方历史调仓接口**，调仓明细由相邻两次持仓快照推导
   （`source='qieman'`，`reason` 记录推导依据的快照日）。手动导入 `import_qieman_holdings()`
   （`source='qieman_manual'`）仅作兜底。
+  - **只记真实调仓（#1622）**：且慢给的「持仓占比」是**市值口径**、每天随净值自然漂移
+    （实测 4880 个基金级差异：p50=0.01pp、p99=0.23pp），而快照日几乎每个交易日都推进。
+    故推导判据为「`|Δratio| > ADVISOR_ADJUST_MIN_DELTA_PCT`（0.5pp ≈ 2×p99）」，且**不写
+    `op=5 持平` 行**、**无变化不写任何行**——修复前把漂移也记成调仓，导致每个交易日都生成
+    一整组"调仓"（开发库实测：99 个组合 4907 行噪音 → 真实 53 行）。
+  - **历史起点限制**：且慢无官方历史，调仓历史只能从我们**首个持仓快照**起算；更早的真实调仓
+    无法回溯（要回溯只能改抓取源，属另一决策）。
 - 任务不认识任何平台：按 `AdvisorPortfolio.platform` 从注册表取适配器；缺省 targets 时抓库内
   **已有适配器**的平台的在售组合。已在 orchestrator 注册（`advisor_portfolio` job）。
 - 回填 SOP：`pdm run python scripts/seed_advisors.py` 建档（幂等 upsert）→ `pdm run invoke grab.advisor_portfolio`（或 `sync --job advisor_portfolio`）。
