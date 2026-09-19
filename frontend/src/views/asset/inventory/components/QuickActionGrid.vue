@@ -32,7 +32,7 @@
           <p
             v-if="item.desc"
             class="text-xs mt-1"
-            :style="{ color: 'var(--text-tertiary)' }"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
           >
             {{ item.desc }}
           </p>

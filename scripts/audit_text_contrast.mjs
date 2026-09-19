@@ -37,22 +37,26 @@
  * ------------------------------------------------
  *   1. 背景只按 `--bg-page` / `--bg-card` 两个基准算，渐变 / 图片 / 多层叠加不模拟
  *      （半透明令牌会先与该基准合成）；
- *   2. 只认样式块里 `color: var(--token)` 形式；`color-mix()` / 字面量不拆；
- *   3. **模板内联样式完全不在扫描范围内**（`style="color: var(--text-tertiary)"` 与
- *      `:style="{ color: 'var(--text-tertiary)' }"` 两种写法都读不到）—— 实测全站有 **163 处**，
- *      它们在真机 axe 里会现形（#1599 已登记为独立批次）；
+ *   2. 只认 `color: var(--token)` 形式；`color-mix()` / 字面量不拆，通过变量间接赋值
+ *      （`:style="expr"`）也不拆 —— 但这类会**显式计数并单列分段**，不留静默；
+ *   3. **模板内联样式已纳入扫描**（#1599 批次 2）：`style="color: var(--x)"` 与
+ *      `:style="{ color: 'var(--x)' }"`（含跨行、数组写法）都能读到。三处口径与样式块**刻意不同**，
+ *      逐条标注在报告里：字号只取「同一 style 属性内」的声明（取不到标 `字号?`，不猜 class 字号）、
+ *      基准底一律取**亮色**（亮底对比度更低＝更严口径；暗色端交真机 axe，混算反而给错数字）、
+ *      选择器回退为「标签名 + class」；
  *   4. `--text-inverse` 与 `--brand-*` 这两类**按定义不用中性基准底**，单列分段、判定交 axe（见下）；
  *   5. 不判断可见性（禁用态 / `opacity: 0`）与是否被更靠后的规则覆盖 → 由人复核。
  *   因此本脚本用于**缩小复核范围**，不是最终裁决。
  */
 
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, extname } from 'node:path';
 import process from 'node:process';
 
 const SRC = 'frontend/src';
 const COLORS_CSS = 'frontend/src/style/colors.css';
 const DARK_SCSS = 'frontend/src/style/dark.scss';
+const THEME_SCSS = 'frontend/src/style/theme.scss';
 const EXTS = new Set(['.vue', '.scss', '.css']);
 
 const args = process.argv.slice(2);
@@ -105,6 +109,24 @@ function collectTokens(text) {
   const out = new Map();
   for (const m of text.matchAll(/^\s*(--[A-Za-z0-9_-]+)\s*:\s*(#[0-9a-fA-F]{3,6}|rgba?\([^)]*\))\s*;/gm)) {
     if (!out.has(m[1])) out.set(m[1], m[2]);
+  }
+  return out;
+}
+
+/**
+ * 抽 `--token: var(--other);` 别名并**解引用**成实际色值（#1599 批次 2）。
+ *
+ * WHY 必须做：Element Plus 的主题映射层（`style/theme.scss`）把 `--el-color-primary` 写成
+ * `var(--brand-700)` —— 原 `collectTokens` 只认字面量，于是 `--el-color-*` 系列**不在令牌表里**，
+ * `parseColor` 返回 null 后 `continue` → **用它们当文字色的地方全站漏扫**（静态实测 81 处，
+ * 而 issue #1599 里只登记了 1 处 axe 命中）。这正是「工具悄悄给错答案」的又一例：
+ * 人拿「静态清零」当验收依据，实际有一整族令牌从未被看过。
+ */
+function collectVarAliases(text, base) {
+  const out = new Map();
+  for (const m of text.matchAll(/^\s*(--[A-Za-z0-9_-]+)\s*:\s*var\(\s*(--[A-Za-z0-9_-]+)\s*\)\s*;/gm)) {
+    const v = base.get(m[2]);
+    if (v && !out.has(m[1])) out.set(m[1], v);
   }
   return out;
 }
@@ -185,17 +207,145 @@ function buildRules(text) {
   return rules;
 }
 
-/** 收集 `color: var(--x)` 声明：行号、选择器、以及**按 CSS 级联**取到的字号/字重。 */
-function collectColorUses(rawText, path) {
+/** 每行起始字符偏移：把「行号」换算成「字符区间」用（判定某声明是否落在内联样式属性值里）。 */
+function lineOffsets(rawText) {
+  const offsets = [0];
+  for (let i = 0; i < rawText.length; i++) if (rawText[i] === '\n') offsets.push(i + 1);
+  return offsets;
+}
+
+/** SFC 的 `<template>` 块行区间（第一个 `<template` → 最后一个 `</template>`）；无则返回 null。 */
+function templateRange(lines) {
+  let start = -1;
+  let end = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (start < 0 && /<template[\s>]/.test(lines[i])) start = i;
+    if (/<\/template>/.test(lines[i])) end = i;
+  }
+  return start < 0 || end < start ? null : { start, end };
+}
+
+/**
+ * 收集**模板内联样式**里的 `color: var(--x)`（#1599 批次 2）。
+ *
+ * WHY 单开一个收集器而不是复用 `collectColorUses`
+ * ------------------------------------------------
+ * 两者要读的语料不同：样式块是「选择器 + 声明」，内联是「元素属性值（CSS 串或 JS 对象字面量）」。
+ * 硬塞进一个函数会让 `buildRules` 把 Vue 插值 `{{ }}` 和 `:style="{…}"` 也当成规则块，
+ * 得出的「选择器」是垃圾、字号来源也是错的 —— 也就是**又给一次错答案**。
+ *
+ * 三处口径与样式块不同（都写进报告，不静默）：
+ *   · 字号：只取同一 style 属性内的 `font-size` / `fontSize`；取不到标 `字号?`，按正文 4.5:1 判；
+ *   · 主题：基准底一律取**亮色**（亮底对比度更低＝更严口径；暗色端由真机 axe 覆盖）；
+ *   · 选择器：回退为「标签名 + class」，作为人工定位线索。
+ *
+ * 返回 `{ uses, covered, unresolved }`：`covered` 是属性值的字符区间，
+ * 供样式块扫描跳过（多行 `style="` 里的 `color:` 在行首，会被两处都读到 → 重复计数）。
+ */
+function collectInlineColorUses(rawText, path) {
+  const uses = [];
+  const covered = [];
+  const unresolved = [];
+  if (!path.endsWith('.vue')) return { uses, covered, unresolved };
+
+  const lines = rawText.split('\n');
+  const range = templateRange(lines);
+  if (!range) return { uses, covered, unresolved };
+  const offsets = lineOffsets(rawText);
+  const lineAt = idx => {
+    let lo = 0;
+    let hi = offsets.length - 1;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      if (offsets[mid] <= idx) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo + 1;
+  };
+
+  // 只在 `<template>` 行区间内找 style 属性（避开 `<script>` 里以字符串形式出现的 "style="）
+  const segStart = offsets[range.start];
+  const segEnd = offsets[Math.min(range.end + 1, lines.length - 1)] ?? rawText.length;
+  const seg = rawText.slice(segStart, segEnd);
+
+  // `:style=` / `v-bind:style=` 是一支，裸 `style=` 是另一支（后面的 lookbehind 防止把 `:style` 再吃一次）
+  const attrRe = /(?:(?::|v-bind:)style|(?<![:\w-])style)\s*=\s*"([^"]*)"/g;
+  const cssColorRe = /(?<![-a-z])color\s*:\s*var\(\s*(--[A-Za-z0-9_-]+)\s*\)/g;
+  const cssSizeRe = /(?<![-a-z])font-size\s*:\s*([^;"'`]+)/;
+  const cssWeightRe = /(?<![-a-z])font-weight\s*:\s*([^;"'`]+)/;
+  const jsColorRe = /(?<![-a-zA-Z])(?:['"]color['"]|color)\s*:\s*['"`]\s*var\(\s*(--[A-Za-z0-9_-]+)\s*\)/g;
+  // 兜底判据必须与上面的解析同源：只认**小写 color 键**。
+  // 用 `/color/i` 会把 `backgroundColor` / `background-color` 也算成文字色声明，
+  // 于是「不可静态解析」清单被底色声明灌满 —— 那是另一种「静默」：真问题被噪声埋掉。
+  const cssColorKeyRe = /(?<![-a-z])color\s*:/;
+  const jsColorKeyRe = /(?<![-a-zA-Z])(?:['"]color['"]|color)\s*:/;
+  const jsSizeRe = /['"]?fontSize['"]?\s*:\s*['"`]?\s*([\d.]+(?:px|rem|em)?)/;
+  const jsWeightRe = /['"]?fontWeight['"]?\s*:\s*['"`]?\s*(\d+)/;
+
+  let m;
+  while ((m = attrRe.exec(seg)) !== null) {
+    const bound = m[0].trimStart().startsWith(':') || m[0].includes('v-bind:');
+    const value = m[1];
+    const valueStart = segStart + m.index + m[0].indexOf('"') + 1;
+    covered.push([valueStart, valueStart + value.length]);
+    const lineno = lineAt(valueStart);
+
+    // 元素上下文：属性往前最近的 `<` 起算，取标签名与 class（内联样式没有选择器可报）
+    const head = seg.slice(Math.max(0, m.index - 400), m.index);
+    const seg2 = head.slice(head.lastIndexOf('<'));
+    const tag = (/^<\s*([A-Za-z][\w.-]*)/.exec(seg2) || [])[1] || '';
+    const cls = (/class\s*=\s*"([^"]*)"/.exec(seg2) || [])[1] || '';
+    const ctx = `${tag || '?'}${cls ? `.${cls.trim().split(/\s+/).join('.')}` : ''} 的 style 属性`;
+    const origin = '模板内联';
+
+    const found = [];
+    for (const re of bound ? [jsColorRe] : [cssColorRe]) {
+      re.lastIndex = 0;
+      let c;
+      while ((c = re.exec(value)) !== null) found.push(c[1]);
+    }
+    if (!found.length) {
+      // 值是「颜色声明」但不可静态解析（`:style="{ color: textColor }"` / `style="color: #333"`）
+      // → 显式登记，不静默（判据与解析同源，见上面的 cssColorKeyRe / jsColorKeyRe）
+      if ((bound ? jsColorKeyRe : cssColorKeyRe).test(value)) {
+        unresolved.push({ file: path, line: lineno, ctx });
+      }
+      continue;
+    }
+    const sizeM = (bound ? jsSizeRe : cssSizeRe).exec(value);
+    const weightM = (bound ? jsWeightRe : cssWeightRe).exec(value);
+    for (const token of found) {
+      uses.push({
+        file: path,
+        line: lineno,
+        token,
+        selector: ctx,
+        fontSize: sizeM ? sizeM[1].trim() : null,
+        fontWeight: weightM ? weightM[1].trim() : null,
+        sizeScope: ctx,
+        origin,
+        originKind: bound ? ':style 绑定' : 'style 属性',
+      });
+    }
+  }
+  return { uses, covered, unresolved };
+}
+
+/** 收集样式块里的 `color: var(--x)` 声明：行号、选择器、以及**按 CSS 级联**取到的字号/字重。 */
+function collectColorUses(rawText, path, covered = []) {
   const uses = [];
   const lines = rawText.split('\n');
   const declRe = /^\s*color:\s*var\(\s*(--[A-Za-z0-9_-]+)/;
   const sizeRe = /^\s*(font-size|font-weight)\s*:\s*([^;]+);/;
   const rules = buildRules(rawText);
+  const offsets = lineOffsets(rawText);
+  const isInline = idx => covered.some(c => idx >= c[0] && idx < c[1]);
 
   for (let i = 0; i < lines.length; i++) {
     const m = declRe.exec(lines[i]);
     if (!m) continue;
+    // 落在某个 style 属性值内部的声明归内联口径（否则会被两个口径各报一次）
+    if (isInline(offsets[i] + m[0].indexOf('color'))) continue;
     const lineno = i + 1;
 
     // 包含该行的规则，按 start 降序 = 由内到外。字号可能声明在外层规则里（SCSS 嵌套）。
@@ -235,6 +385,16 @@ function need(ratio, fontSize, fontWeight) {
 
 const light = collectTokens(readFileSync(COLORS_CSS, 'utf8'));
 const dark = collectTokens(readFileSync(DARK_SCSS, 'utf8'));
+// Element Plus 主题映射层：`--el-color-primary: var(--brand-700)` 这类别名要解引用后并入，
+// 否则整族 `--el-color-*` 不在令牌表里 → 用它们当文字色的地方全站漏扫（见 collectVarAliases 注释）。
+if (existsSync(THEME_SCSS)) {
+  for (const [k, v] of collectVarAliases(readFileSync(THEME_SCSS, 'utf8'), light)) {
+    if (!light.has(k)) light.set(k, v);
+  }
+}
+// Element Plus 自带的两个绝对色（无本项目映射，值即字面量）
+if (!light.has('--el-color-white')) light.set('--el-color-white', '#ffffff');
+if (!light.has('--el-color-black')) light.set('--el-color-black', '#000000');
 const WHITE = [255, 255, 255];
 
 const isTextLevel = t => t.endsWith('-ink') || t.startsWith('--text-') || t === '--text-inverse';
@@ -245,7 +405,7 @@ const inkOf = t => (light.has(`${t}-ink`) ? `${t}-ink` : null);
  * 白底上算恒为 1.00:1 —— 实测 20 处全是误报。此名单只影响**报告归类**，不影响真机 axe 的判定
  * （axe 能读到渲染后的有效背景，品牌实底白字不达标时它照样会报，见 #1600）。
  */
-const NO_BASELINE = new Set(['--text-inverse']);
+const NO_BASELINE = new Set(['--text-inverse', '--el-color-white']);
 /**
  * `--brand-*` 当 `color:` 用：**此前两个分类桶都不收**（它既不是「有同名 -ink 的底色级」，也不是
  * `--text-*` 文字级）→ 被静默忽略。实测全站 214 处，其中 brand-100~600 是极浅色调，对白底只有
@@ -266,9 +426,9 @@ function findExempt(lines, idx) {
   for (let j = idx; j >= Math.max(0, idx - 3); j--) {
     const m = EXEMPT_RE.exec(lines[j]);
     if (!m) continue;
-    // 理由里可能含 Markdown 加粗（`**…**`）与注释收尾 `*/` —— 按行取满，再剥掉尾部记号
+    // 理由里可能含 Markdown 加粗（`**…**`）与注释收尾（`*/` 或 HTML 的 `-->`）—— 按行取满，再剥掉尾部记号
     const why = m[1]
-      .replace(/\*\/\s*$/, '')
+      .replace(/(?:\*\/|-->)\s*$/, '')
       .replace(/[\s*]+$/, '')
       .trim();
     return why || '（未写理由）';
@@ -282,13 +442,21 @@ const inkBad = []; // 已是文字级但仍不达标
 const exempted = []; // 人工豁免（有指令 + 理由）
 const noBaseline = []; // 静态不可判定（背景非中性基准底）→ 交真机 axe
 const brandRows = []; // `--brand-*` 当文字色：同样须真机判定，但此前被静默忽略
+const orphanBad = []; // 底色级当文字色**且无同名 -ink**：此前两个桶都不收 → 被静默丢弃
+const unresolvedInline = []; // 内联 style 绑定了颜色但值不可静态解析 → 显式登记，不静默
+let inlineTotal = 0; // 模板内联命中的总处数（含达标项，用于让「覆盖了多少」一眼可见）
 for (const f of files) {
   const raw = readFileSync(f, 'utf8');
   const lines = raw.split('\n');
-  for (const u of collectColorUses(raw, f)) {
+  const inline = collectInlineColorUses(raw, f);
+  unresolvedInline.push(...inline.unresolved);
+  const styleBlock = collectColorUses(raw, f, inline.covered);
+  for (const u of [...styleBlock, ...inline.uses].sort((a, b) => a.line - b.line)) {
     // 主题上下文：选择器里带 dark / 文件就是 dark.scss → 用暗色令牌值与暗色卡底，
     // 否则用亮色（避免拿亮色值去算暗色块，得出毫无意义的 1.0:1 / 2.0:1）。
-    const darkCtx = /dark/i.test(u.selector) || f.includes('dark.');
+    // 内联样式例外：基准底一律取亮色（亮底对比度更低＝更严口径），暗色端交真机 axe。
+    const darkCtx = u.origin ? false : /dark/i.test(u.selector) || f.includes('dark.');
+    if (u.origin) inlineTotal++;
     const rawVal = (darkCtx ? dark.get(u.token) : light.get(u.token)) || light.get(u.token) || dark.get(u.token);
     const bgCard = parseColor(darkCtx ? dark.get('--bg-card') || '#242120' : light.get('--bg-card') || '#ffffff') || WHITE;
     const bgPage = parseColor(darkCtx ? dark.get('--bg-page') || '#1a1816' : light.get('--bg-page') || '#ffffff') || WHITE;
@@ -326,6 +494,10 @@ for (const f of files) {
     }
     if (!isTextLevel(u.token) && ink) offenders.push(row);
     else if (isTextLevel(u.token) && !v.ok) inkBad.push(row);
+    // 第三类静默漏洞：底色级令牌当文字色、且**没有同名 -ink** → 前两个分支都不收，直接被丢弃。
+    // Element Plus 主题映射族（`--el-color-primary` 等）就是这么漏的：既不是 `--text-*` 文字级，
+    // 也没有 `-ink` 变体。实测静默 81 处，其中不达标的必须报出来。
+    else if (!isTextLevel(u.token) && !ink && !v.ok) orphanBad.push(row);
   }
 }
 
@@ -340,14 +512,16 @@ const fmt = r => {
       : '（无同名 `-ink` 令牌，需人工判断）';
   return (
     `${relative(process.cwd(), r.file)}:${r.line}\n` +
-    `    ${r.token} ${r.hex}  ${ratioStr}  [${size}${heavy}]${sizeSrc}  需 ${r.limit}  ${r.ok ? '（大字豁免内 OK）' : '**不达标**'}\n` +
+    `    ${r.token} ${r.hex}  ${ratioStr}  [${size}${heavy}]${sizeSrc}${r.origin ? '  [模板内联]' : ''}  需 ${r.limit}  ${r.ok ? '（大字豁免内 OK）' : '**不达标**'}\n` +
     `    选择器: ${String(r.selector).replace(/\s+/g, ' ').slice(0, 100)}\n` +
     `    建议:   ${fix}`
   );
 };
 
 const reallyBad = offenders.filter(r => !r.ok);
-console.log(`扫描 ${files.length} 个文件；发现「底色级令牌当文字色」 ${offenders.length} 处，其中按其字号判据不达标 ${reallyBad.length} 处\n`);
+console.log(`扫描 ${files.length} 个文件；发现「底色级令牌当文字色」 ${offenders.length} 处，其中按其字号判据不达标 ${reallyBad.length} 处`);
+console.log(`（模板内联样式另命中 ${inlineTotal} 处：\`style="color: var(--x)"\` 与 \`:style="{ color: 'var(--x)' }"\`，已并入下列各段并标 [模板内联]）`);
+console.log(`（另有「底色级令牌当文字色且无同名 -ink」不达标 ${orphanBad.length} 处 —— 这类此前被静默丢弃，\`--all\` 时列出）\n`);
 console.log('=== 不达标（建议换 -ink） ===');
 for (const r of reallyBad.sort((a, b) => a.worst - b.worst)) console.log(fmt(r));
 
@@ -369,6 +543,12 @@ if (showAll && inkBad.length) {
     console.log(`\n--- B. 无同名 -ink（${badNoInk.length} 处，需改字号/加粗或登记豁免） ---`);
     for (const r of badNoInk.sort((a, b) => a.worst - b.worst)) console.log(fmt(r));
   }
+}
+
+if (showAll && orphanBad.length) {
+  console.log(`\n=== 底色级令牌当文字色 · 无同名 -ink（${orphanBad.length} 处 → 换语义令牌 / 补 -ink / 登记豁免） ===`);
+  console.log('（这类此前**两个分类桶都不收，等于静默丢弃**；Element Plus 主题映射族 `--el-color-*` 是主要来源）');
+  for (const r of orphanBad.sort((a, b) => a.worst - b.worst)) console.log(fmt(r));
 }
 
 if (showAll && noBaseline.length) {
@@ -416,6 +596,17 @@ if (showAll && exempted.length) {
   }
 }
 
+if (unresolvedInline.length) {
+  console.log(`\n=== 内联样式不可静态解析（${unresolvedInline.length} 处 → 交真机 axe / 人工确认） ===`);
+  console.log('（`:style` 绑定了颜色但值不是字面量 `var(--x)`（如 `:style="{ color: textColor }"`）—— 本器无从判定，');
+  console.log('  列出位置只为让「还有多少没被扫到」这件事可被复核；判定一律**交真机 axe**，不留静默）');
+  for (const r of unresolvedInline) {
+    console.log(`${relative(process.cwd(), r.file)}:${r.line}  ${String(r.ctx).slice(0, 90)}`);
+  }
+}
+
 console.log('\n说明：背景取 `--bg-page`（页底）与 `--bg-card`（卡片底）两个基准，半透明令牌先按各自背景合成；');
 console.log('      字体字号沿「最内层规则 → 外层规则」逐级取，`字号?` 表示全链路未声明、需人工确认；');
+console.log('      模板内联样式（#1599 批次 2）口径见文件头「已知局限」第 3 条：字号只取属性内声明、');
+console.log('      基准底一律取亮色（更严）、选择器回退为「标签名 + class」；暗色端一律以真机 axe 为准；');
 console.log('      本脚本不模拟渐变与图片背景、不判断可见性，用于**缩小复核范围**，不是最终裁决。');

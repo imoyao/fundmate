@@ -195,7 +195,10 @@ async function handleOrphanCleanup() {
         :disabled="ledger.id === 'orphan'"
       >
         <span>{{ ledger.name }}</span>
-        <span class="ml-1 text-xs" :style="{ color: 'var(--text-tertiary)' }">
+        <span
+          class="ml-1 text-xs"
+          :style="{ color: 'var(--text-tertiary-ink)' }"
+        >
           {{ LEDGER_TYPE_SHORT[ledger.ledger_type] || ledger.ledger_type }}
         </span>
       </el-option>

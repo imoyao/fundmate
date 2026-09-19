@@ -7,7 +7,7 @@
       <h2 class="text-2xl font-bold" :style="{ color: 'var(--text-primary)' }">
         投资分析
       </h2>
-      <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary)' }">
+      <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary-ink)' }">
         查看投资收益与风险指标
       </p>
     </div>
@@ -127,7 +127,10 @@
           class="text-center p-4 rounded-xl"
           :style="{ backgroundColor: 'var(--brand-100)' }"
         >
-          <p class="text-xs mb-1" :style="{ color: 'var(--text-tertiary)' }">
+          <p
+            class="text-xs mb-1"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
+          >
             总收益率
           </p>
           <RiseFallText :value="15.3" suffix="%" size="lg" />
@@ -136,7 +139,10 @@
           class="text-center p-4 rounded-xl"
           :style="{ backgroundColor: 'var(--brand-100)' }"
         >
-          <p class="text-xs mb-1" :style="{ color: 'var(--text-tertiary)' }">
+          <p
+            class="text-xs mb-1"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
+          >
             年化收益率
           </p>
           <RiseFallText :value="12.5" suffix="%" size="lg" />
@@ -147,7 +153,10 @@
           class="text-center p-4 rounded-xl"
           :style="{ backgroundColor: 'var(--color-warning-20)' }"
         >
-          <p class="text-xs mb-1" :style="{ color: 'var(--text-tertiary)' }">
+          <p
+            class="text-xs mb-1"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
+          >
             最大回撤
           </p>
           <RiseFallText
@@ -161,7 +170,10 @@
           class="text-center p-4 rounded-xl"
           :style="{ backgroundColor: 'var(--bg-soft)' }"
         >
-          <p class="text-xs mb-1" :style="{ color: 'var(--text-tertiary)' }">
+          <p
+            class="text-xs mb-1"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
+          >
             夏普比率
           </p>
           <p

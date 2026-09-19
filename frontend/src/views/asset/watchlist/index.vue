@@ -108,7 +108,7 @@
                 <IconifyIconOffline
                   icon="ep:info-filled"
                   class="search-hint text-sm cursor-help transition-opacity"
-                  :style="{ color: 'var(--text-tertiary)' }"
+                  :style="{ color: 'var(--text-tertiary-ink)' }"
                 />
               </el-tooltip>
             </div>

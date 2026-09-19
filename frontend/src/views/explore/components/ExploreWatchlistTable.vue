@@ -226,7 +226,7 @@ const getAvailableTools = (type: string) => {
           <el-button
             link
             size="small"
-            style="color: var(--text-tertiary)"
+            style="color: var(--text-tertiary-ink)"
             @click="handleRemoveConfirm(row.id)"
             >删除</el-button
           >
@@ -258,7 +258,7 @@ const getAvailableTools = (type: string) => {
             <el-button
               link
               size="small"
-              style="color: var(--text-tertiary)"
+              style="color: var(--text-tertiary-ink)"
               @click="handleRemoveConfirm(row.id)"
               >删除</el-button
             >

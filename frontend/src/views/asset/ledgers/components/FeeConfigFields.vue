@@ -13,7 +13,7 @@
           placeholder="如 0.00025 表示万2.5"
           @update:model-value="updateStockFee('commission_rate', $event)"
         />
-        <p class="text-xs mt-1" :style="{ color: 'var(--text-tertiary)' }">
+        <p class="text-xs mt-1" :style="{ color: 'var(--text-tertiary-ink)' }">
           如万2.5输入 0.00025
         </p>
       </el-form-item>
@@ -69,7 +69,7 @@
           placeholder="0.1 表示 1 折"
           @update:model-value="updateFundFee($event)"
         />
-        <p class="text-xs mt-1" :style="{ color: 'var(--text-tertiary)' }">
+        <p class="text-xs mt-1" :style="{ color: 'var(--text-tertiary-ink)' }">
           0.1 = 1折，0.01 = 0.1折，0 = 免申购费
         </p>
       </el-form-item>

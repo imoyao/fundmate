@@ -115,7 +115,7 @@ const allocationOption = computed(() => {
 
 <template>
   <div class="overview-card allocation-card">
-    <p class="text-sm mb-2" :style="{ color: 'var(--text-tertiary)' }">
+    <p class="text-sm mb-2" :style="{ color: 'var(--text-tertiary-ink)' }">
       资产配置
     </p>
     <div v-if="hasAllocationData" class="allocation-chart-wrap">
@@ -123,7 +123,7 @@ const allocationOption = computed(() => {
       <div class="allocation-center">
         <span
           class="allocation-center-label"
-          :style="{ color: 'var(--text-tertiary)' }"
+          :style="{ color: 'var(--text-tertiary-ink)' }"
           >总资产</span
         >
         <MoneyDisplay
@@ -144,7 +144,7 @@ const allocationOption = computed(() => {
         icon="ep:pie-chart"
         class="text-4xl mb-2 opacity-30"
       />
-      <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">
+      <p class="text-sm" :style="{ color: 'var(--text-tertiary-ink)' }">
         暂无资产配置数据
       </p>
     </div>

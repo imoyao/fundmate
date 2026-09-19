@@ -12,7 +12,7 @@
         >
           投资组合
         </h2>
-        <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary)' }">
+        <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary-ink)' }">
           管理你的投资策略组合，关联账户进行收益分析
         </p>
       </div>
@@ -25,7 +25,7 @@
     <div
       v-if="loading"
       class="text-center py-20"
-      :style="{ color: 'var(--text-tertiary)' }"
+      :style="{ color: 'var(--text-tertiary-ink)' }"
     >
       <p>加载中...</p>
     </div>
@@ -34,7 +34,7 @@
     <div
       v-else-if="portfolios.length === 0"
       class="text-center py-20"
-      :style="{ color: 'var(--text-tertiary)' }"
+      :style="{ color: 'var(--text-tertiary-ink)' }"
     >
       <IconifyIconOffline
         icon="ep:collection"
@@ -82,7 +82,7 @@
               {{ item.purpose || "未设定目的" }}
             </span>
           </div>
-          <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+          <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
             创建于 {{ formatDate(item.created_at ?? "") }}
           </p>
         </div>
