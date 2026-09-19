@@ -347,25 +347,35 @@ class ParsingMixin:
         clean_input = self._clean_fund_name(fund_name)
         search_pattern = f'%{clean_input}%'
 
+        # 跨域约束（#1605）：Fund 属 market 域，Position / WatchlistItem 属 user 域。
+        # 双库模式下两域不在同一库，禁止出现在同一条 SQL —— 按表路由会把「含 user 域表」
+        # 的 join 整体发往 user 引擎，而 user 库没有 funds 表，直接
+        # OperationalError: no such table: funds（单库开发环境结构上测不出）。
+        # 故一律走「两步法」：先取 user 域的 symbol 集合，再回 market 域用 in_ 匹配。
+        def _first_matching_code(symbols: List[str]) -> Optional[str]:
+            """在给定 symbol 集合内按名称模糊匹配，返回首个命中的基金代码。"""
+            if not symbols:
+                return None
+            row = (
+                self.db.query(Fund.fund_code)
+                .filter(Fund.fund_code.in_(symbols), Fund.name.ilike(search_pattern))
+                .first()
+            )
+            return row[0] if row else None
+
         # 1. 持仓优先
-        pos_fund = (
-            self.db.query(Fund.fund_code)
-            .join(Position, Position.symbol == Fund.fund_code)
-            .filter(Fund.name.ilike(search_pattern))
-            .first()
-        )
-        if pos_fund:
-            return pos_fund[0]
+        holding_symbols = [s for (s,) in self.db.query(Position.symbol).filter(Position.symbol.isnot(None)).all()]
+        matched = _first_matching_code(holding_symbols)
+        if matched:
+            return matched
 
         # 2. 自选
-        watch_fund = (
-            self.db.query(Fund.fund_code)
-            .join(WatchlistItem, WatchlistItem.symbol == Fund.fund_code)
-            .filter(Fund.name.ilike(search_pattern))
-            .first()
-        )
-        if watch_fund:
-            return watch_fund[0]
+        watch_symbols = [
+            s for (s,) in self.db.query(WatchlistItem.symbol).filter(WatchlistItem.symbol.isnot(None)).all()
+        ]
+        matched = _first_matching_code(watch_symbols)
+        if matched:
+            return matched
 
         # 3. 全库搜索，限制 10 条
         candidates = self.db.query(Fund.fund_code, Fund.name).filter(Fund.name.ilike(search_pattern)).limit(10).all()
@@ -373,9 +383,10 @@ class ParsingMixin:
             return None
 
         # 相似度选择
-        # 相似度算法粗糙（仅长度差），改进需先评估对既有导入行为的影响：
-        # 本函数无测试覆盖，SequenceMatcher 比率会改变既有匹配结果（用户已习惯的
-        # 导入行为），2026-08-17 评估后暂缓，保持现状。
+        # 相似度算法粗糙（仅长度差），SequenceMatcher 比率会改变既有匹配结果（用户已
+        # 习惯的导入行为），2026-08-17 评估后暂缓，保持现状。
+        # 注：本函数现已由 tests/services/importer/test_cross_domain_fund_match.py
+        # 锁定当前口径，替换算法前须先评估对既有导入行为的影响。
         scored = []
         for code, name in candidates:
             clean_name = self._clean_fund_name(name)
