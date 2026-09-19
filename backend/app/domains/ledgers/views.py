@@ -58,7 +58,7 @@ def _resolve_money_fund(db, fund_code: str):
         cache = _FUND_NAME_EM_CACHE
         now = time.time()
         if cache['data'] is None or now - cache['ts'] > _FUND_NAME_EM_TTL:
-            from app.services.sync.adapters.akshare_adapter import AKShareAdapter
+            from app.services.adapters.akshare_adapter import AKShareAdapter
 
             cache['data'] = AKShareAdapter().fetch_fund_list()
             cache['ts'] = now

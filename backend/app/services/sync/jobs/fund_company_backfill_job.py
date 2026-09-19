@@ -34,8 +34,8 @@ from sqlalchemy import func
 from app.core.time_utils import now_shanghai
 from app.domains.funds.models import Fund, FundCompany
 from app.domains.positions.models import FundCompanyObservation
+from app.services.job_base import IN_CHUNK_SIZE, JobStatus, SyncJob
 from app.services.sync.company_resolver import get_or_create_fund_company
-from app.services.sync.jobs.base import IN_CHUNK_SIZE, JobStatus, SyncJob
 
 
 class FundCompanyBackfillJob(SyncJob):

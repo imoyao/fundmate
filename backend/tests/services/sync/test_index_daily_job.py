@@ -12,7 +12,7 @@ import pytest
 
 from app.core.db_factory import DATA_DOMAIN_REGISTRY
 from app.domains.indices.models import IndexDaily
-from app.services.sync.adapters.jiucaishuo_adapter import JiucaishuoAdapter
+from app.services.adapters.jiucaishuo_adapter import JiucaishuoAdapter
 from app.services.sync.jobs.index_daily_job import DEFAULT_TARGETS, WIND_INDEX_TARGETS, IndexDailySyncJob
 
 

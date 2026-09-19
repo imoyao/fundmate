@@ -5,12 +5,13 @@
 
     core ← domains.{models,schemas} ← services ← domains.{views}
 
-本文件把四条**非法边**（R1~R4）钉进 pytest，与 `scripts/guard_layer_direction.py`
+本文件把五条**非法边**（R1~R5）钉进 pytest，与 `scripts/guard_layer_direction.py`
 共用同一份判定逻辑（按路径加载脚本，不重复实现）——本地跑 `pytest` 即可发现回潮，
 不必等 CI 守卫。
 
-参数化用例覆盖「每条规则都能报错」的**灵敏度**（防「永远返回空」的假绿），
-以及三条**合法边**的反向保护（防守卫收得过紧把正常写法判红）。
+参数化用例覆盖「每条规则都能报错」的**灵敏度**（防「永远返回空」的假绿）、
+**合法边**的反向保护（防守卫收得过紧把正常写法判红），以及 R5 冻结基线的边界
+（已登记的既有边放行、同源的其它反向边仍须报错）。
 """
 
 import importlib.util
@@ -57,6 +58,10 @@ _PROBES = [
     # ── R4：跨域引用对方 views ──
     ('domains/ledgers/views.py', 'from app.domains.positions.views import enrich_position_dict\n', 'R4'),
     ('domains/ledgers/views.py', 'import app.domains.importers.e_account_views\n', 'R4'),
+    # ── R5：services 顶层共享件反向依赖家族包（#1607 批次 3 上提后新增） ──
+    ('services/adapters/probe.py', 'from app.services.sync.company_resolver import x\n', 'R5'),
+    ('services/job_base.py', 'from app.services.thermometer.fetchers import y\n', 'R5'),
+    ('services/import_records.py', 'import app.services.importer.orchestrator_parse\n', 'R5'),
     # ── 合法边（反向保护）：以下写法必须放行 ──
     ('domains/ledgers/views.py', 'from app.services.position_presenter import enrich_position_dict\n', None),
     ('domains/positions/views.py', 'from app.domains.positions.schemas import PositionOut\n', None),
@@ -64,6 +69,23 @@ _PROBES = [
     ('domains/positions/models.py', 'from app.core.database import Base\n', None),
     ('domains/assets/views.py', 'from app.domains.ledgers.models import Ledger\n', None),
     ('core/probe_src.py', 'from app.core.money import Money\n', None),
+    # 家族包依赖共享件（正确方向）与同包内互引必须放行
+    ('services/sync/company_resolver.py', 'from app.services.adapters.eastmoney_adapter import fetch_fund_company_list\n', None),
+    ('services/sync/jobs/probe.py', 'from app.services.job_base import SyncJob\n', None),
+    ('services/adapters/probe.py', 'from app.services.adapters.base import DataSourceAdapter\n', None),
+    ('services/adapters/probe.py', 'from app.domains.funds.models import FundCompany\n', None),
+    # R5 冻结基线：已登记的那条既有反向边放行（改 R5_ALLOWLIST 会让本用例失败，强制知情）
+    (
+        'services/adapters/qieman_advisor_adapter.py',
+        'from app.services.thermometer.fetchers import QiemanFetcher\n',
+        None,
+    ),
+    # 但同一源的**其它**反向边仍须报错（冻结基线不构成"该文件豁免"）
+    (
+        'services/adapters/qieman_advisor_adapter.py',
+        'from app.services.sync.orchestrator import DataSyncOrchestrator\n',
+        'R5',
+    ),
 ]
 
 

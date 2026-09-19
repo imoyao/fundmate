@@ -30,7 +30,7 @@ title: 架构与技术设计（architecture）
 
 ## 2. 第三方数据适配层（原 SPEC 第 6 章 · 原"第三方集成架构（xalpha 完整边界定义）"）
 
-> 原章节标题偏窄（仅提 xalpha）。当前代码已实现 **`xalpha_adapter.py` 与 `akshare_adapter.py` 双适配器**，统一经 `DataSourceAdapter` 防腐层封装，因此本章更名为「第三方数据适配层」，覆盖全部第三方数据源。
+> 原章节标题偏窄（仅提 xalpha）。当前代码已实现 **`xalpha_adapter.py` 与 `akshare_adapter.py` 双适配器**，统一经 `DataSourceAdapter` 防腐层封装，因此本章更名为「第三方数据适配层」，覆盖全部第三方数据源。**实现位置**：`backend/app/services/adapters/`（xalpha / akshare / 东财直连 / 韭圈儿 / 各投顾平台）——它是跨家族共享的独立层，**不属任何 job 家族**（#1607 批次 3 从 `services/sync/adapters/` 上提；决策见 `decisions.md` D26）。
 
 - **职责边界**：仅负责外部数据获取、净值解析、组合数学计算，不参与业务入库、不参与前端交互、不参与权限逻辑
 - **缓存策略**：独立文件夹本地缓存，与业务数据库物理隔离，可手动清理（xalpha 使用 `xa.set_backend("csv", path="data/xalpha_cache")` 启用）
@@ -152,11 +152,13 @@ core  ←  domains.<域>.models / schemas  ←  services  ←  domains.<域>.vie
   未注入时显式报错而非静默降级。
 - **domains.\*.models / schemas**：叶子层，只依赖 core；不得依赖 services，不得引用其它域的 views。
 - **services**：业务服务层，依赖 core 与 `domains.*.models/schemas`；**不得** import `domains.*.views`。
-  *services 内部方向（#1607 批次 2）*：**编排 / 注册类**模块（`sync/orchestrator`、`thermometer/jobs`、
+  *services 内部方向（#1607 批次 2 / 3）*：**编排 / 注册类**模块（`sync/orchestrator`、`thermometer/jobs`、
   `importer/orchestrator*`）可依赖其它领域的服务与 job；**领域服务**（`fund_service` / `position_service` /
-  `pnl_service` / `watchlist_service` 等）**不得反向依赖编排层**。跨家族共享的**基础设施**（job 基类
-  `SyncJob`、数据源适配器、`importer.records` 等）**不得寄生在某个家族包内被当作"某家族的服务"引用**——
-  物理上提为中立模块的事宜见 `tech-debt.md` #1607 批次 3。
+  `pnl_service` / `watchlist_service` 等）**不得反向依赖编排层**。跨家族**共享件一律放 `services/` 顶层**
+  （现为 `job_base.py`（`SyncJob` 基类）、`adapters/`（第三方数据适配层）、`import_records.py`（导入标准化
+  记录）），家族包内只留该家族独有实现——共享件若是**叶子**（不得反向依赖家族包），否则又会"寄生"
+  （守卫 R5 固定）。**例外 1 条**（已登记、只拦新增）：`adapters/qieman_advisor_adapter` → 
+  `thermometer.fetchers`（且慢 MCP 取数仍在 thermometer 家族内，上提需连带搬基类与常量，见批次 4）。
 - **domains.\*.views**：HTTP 编排层，依赖 services 与各域 models/schemas；**跨域不得引用对方 views**
   （共用逻辑下沉 services，先例：`services/position_presenter.py::enrich_position_dict`）。
 - **模型位置**：业务模型一律 `domains/*/models.py`；**跨域 / 系统级模型**（现仅 `app/models/sync_log.py`，
@@ -164,8 +166,9 @@ core  ←  domains.<域>.models / schemas  ←  services  ←  domains.<域>.vie
 - **建表 / 种子边界**：`core.database.init_db()` 只建「调用方已 import 的模型」的表，不代为导入顶层模型、
   不写业务数据；默认家庭 1 / 默认用户 1 的播种在 `domains/users/seed.py`，由组合根在建表后调用
   （绕过应用工厂的 CLI 入口需要身份行时自行调用）。
-- **守卫**：`scripts/guard_layer_direction.py`（pre-commit + CI 的 backend job）——四类非法边 R1 core→domains /
-  R2 services→`domains.*.views` / R3 `domains.*.{models,schemas}`→services / R4 跨域 views 互引；配套
-  `tests/core/test_layer_direction.py`（逐规则灵敏度 + 合法边反向保护）。
+- **守卫**：`scripts/guard_layer_direction.py`（pre-commit + CI 的 backend job）——五类非法边 R1 core→domains /
+  R2 services→`domains.*.views` / R3 `domains.*.{models,schemas}`→services / R4 跨域 views 互引 /
+  R5 `services/` 顶层共享件→家族包（含 1 条冻结基线）；配套 `tests/core/test_layer_direction.py`
+  （逐规则灵敏度 + 合法边反向保护 + 冻结基线边界）。
   判据用「**边方向**」而不是「包级双向依赖对数量」——包级双向对多数由 `views→services` 与
   `services→models` 两条**合法边**叠加而成（如 `domains.positions` ↔ `services.position_service`），不构成违规。

@@ -24,12 +24,12 @@ from app.domains.securities.models import Security
 from app.domains.transactions.models import Transaction
 from app.domains.watchlist.models import WatchlistItem
 from app.services.fund_service import FundService
-from app.services.importer.mappings import OP_TYPE_LABEL
-from app.services.importer.records import (
+from app.services.import_records import (
     SBImportError,
     StandardTransactionRecord,
     compute_record_hash,
 )
+from app.services.importer.mappings import OP_TYPE_LABEL
 from app.services.importer.registry import get_parser
 
 

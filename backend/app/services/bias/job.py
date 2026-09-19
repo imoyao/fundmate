@@ -20,7 +20,7 @@ from app.services.bias.calculator import BiasCalculator, PriceFetcher
 from app.services.bias.constants import SOURCE_BIAS
 from app.services.bias.provider import ProductProvider
 from app.services.bias.schemas import BiasResult
-from app.services.sync.jobs.base import SyncJob
+from app.services.job_base import SyncJob
 
 
 class BiasJob(SyncJob):
@@ -102,7 +102,12 @@ class BiasJob(SyncJob):
         if not new_data:
             return
 
-        # 使用 TemperatureService 的 save_multi_items 方法
+        # 使用 TemperatureService 的 save_multi_items 方法。
+        # 这里的**延迟导入是必需的**，不是「用延迟 import 掩盖依赖」（#1607 批次 3 复核）：
+        # `thermometer/__init__.py` 会 eager import `.jobs`，而 `jobs.py` 又 import 本模块来
+        # 注册 BiasJob —— 模块级导入会形成 `thermometer.__init__ → jobs → bias.job →
+        # thermometer.service` 的导入期环。依赖方向本身合法（job → 领域服务，见
+        # decisions.md D25「services 内部方向」），只是位置必须延后。
         from app.services.thermometer.service import TemperatureService
 
         service = TemperatureService()

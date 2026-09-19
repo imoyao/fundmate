@@ -23,8 +23,8 @@ from app.core.time_utils import today_shanghai
 from app.domains.funds.models import DailyWorth, MoneyFundDailyWorth
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
-from app.services.sync.adapters.akshare_adapter import AkshareAdapter
-from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
+from app.services.adapters.akshare_adapter import AkshareAdapter
+from app.services.adapters.xalpha_adapter import XalphaAdapter
 
 
 def _as_date(value) -> Optional[date]:

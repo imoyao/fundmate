@@ -13,7 +13,7 @@ from loguru import logger
 import app.services.sync.company_resolver as company_resolver
 from app.domains.funds.models import Fund, FundCompany
 from app.domains.positions.models import FundCompanyObservation
-from app.services.sync.adapters.null_adapter import NullAdapter
+from app.services.adapters.null_adapter import NullAdapter
 from app.services.sync.jobs.fund_company_backfill_job import FundCompanyBackfillJob
 
 FUND_CODE = '012345'

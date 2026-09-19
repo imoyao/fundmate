@@ -21,7 +21,7 @@ from typing import List
 from loguru import logger
 
 from app.domains.indices.models import IndexDaily
-from app.services.sync.jobs.base import SyncJob
+from app.services.job_base import SyncJob
 
 # 万得系指数目标清单（#275 定稿）：韭圈儿 gu_code 原生形态（.WI 后缀）。
 # 来源：#275 2022 年评论梳理的「适用性广泛」万得基金系列指数 + 万得全A；

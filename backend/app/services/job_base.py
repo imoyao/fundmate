@@ -1,6 +1,12 @@
-# app/services/sync/jobs/base.py
+# app/services/job_base.py
 """
-同步任务基类 —— 重构版 v2.0
+跨家族共享的同步任务基类 —— 重构版 v2.0
+
+为什么在 services 顶层，而不是 `services/sync/jobs/`（#1607 批次 3）：
+`SyncJob` / `JobStatus` 被 sync、thermometer、bias 三个 job 家族共用，原先"寄生"在 sync
+家族包内，导致 thermometer / bias 反向 import `services.sync`——这是包级双向依赖的成因之一
+（决策见 `docs/spec/decisions.md` 2026-09-19 D25；`architecture.md` §6「services 内部方向」）。
+约定：**跨家族共享件放 `services/` 顶层，家族包内只留该家族独有实现**。
 
 职责：
 - 提供统一的 run() 流程（不再区分子类覆盖）
