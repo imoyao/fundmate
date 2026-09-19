@@ -1272,23 +1272,23 @@ class TestListItemsDeferredDisplayEnrich:
     def test_display_only_enrich_runs_only_for_page_rows(self, client, db, monkeypatch):
         """只对页内行补算：page=2&per_page=1 时补算 1 行，而非全量 3 行；lite 则 0 行。
 
-        `_apply_deferred_display_fields` 正是耗时归属处，用它当观测点——一旦退化成
+        `apply_deferred_display_fields` 正是耗时归属处，用它当观测点——一旦退化成
         「全量行都算」（本次改造前的行为），本用例立即失败。
         """
-        import app.domains.watchlist.views as wv
+        import app.services.watchlist_display as wd
 
         for i in range(3):
             db.add(WatchlistItem(symbol=f'SH60000{i}', market='SH', asset_type='stock', status='WATCHING'))
         db.commit()
 
         calls: list[str] = []
-        original = wv._apply_deferred_display_fields
+        original = wd.apply_deferred_display_fields
 
         def spy(out, symbol, asset_type, db_):
             calls.append(symbol)
             return original(out, symbol, asset_type, db_)
 
-        monkeypatch.setattr(wv, '_apply_deferred_display_fields', spy)
+        monkeypatch.setattr(wd, 'apply_deferred_display_fields', spy)
 
         body = _get(client, '/api/watchlist/items/', {'page': 2, 'per_page': 1}).get_json()
         assert len(body['data']) == 1
@@ -1300,7 +1300,7 @@ class TestListItemsDeferredDisplayEnrich:
 
 
 class TestApplyUserSort:
-    """_apply_user_sort：白名单校验 / 置顶前置 / None 恒排末尾 / 派生列现算"""
+    """apply_user_sort：白名单校验 / 置顶前置 / None 恒排末尾 / 派生列现算"""
 
     @staticmethod
     def _row(symbol, **kw):
@@ -1309,51 +1309,51 @@ class TestApplyUserSort:
         return row
 
     def test_unknown_or_missing_field_keeps_order(self):
-        from app.domains.watchlist.views import _apply_user_sort
+        from app.services.watchlist_display import apply_user_sort
 
         data = [self._row('A', current_price=2.0), self._row('B')]
         # 非白名单字段 / 未传 sort_by：原序返回（走默认置顶+更新时间）
-        assert _apply_user_sort(data, 'notes', 'desc') == data
-        assert _apply_user_sort(data, None, 'asc') == data
+        assert apply_user_sort(data, 'notes', 'desc') == data
+        assert apply_user_sort(data, None, 'asc') == data
 
     def test_sort_by_current_price_desc(self):
-        from app.domains.watchlist.views import _apply_user_sort
+        from app.services.watchlist_display import apply_user_sort
 
         data = [
             self._row('A', current_price=1.0),
             self._row('B', current_price=3.0),
             self._row('C', current_price=2.0),
         ]
-        result = _apply_user_sort(data, 'current_price', 'desc')
+        result = apply_user_sort(data, 'current_price', 'desc')
         assert [r['symbol'] for r in result] == ['B', 'C', 'A']
 
     def test_pinned_stays_first_after_user_sort(self):
-        from app.domains.watchlist.views import _apply_user_sort
+        from app.services.watchlist_display import apply_user_sort
 
         data = [
             self._row('A', current_price=1.0),
             self._row('P', current_price=0.5, is_pinned=True),
             self._row('B', current_price=3.0),
         ]
-        result = _apply_user_sort(data, 'current_price', 'desc')
+        result = apply_user_sort(data, 'current_price', 'desc')
         # 用户排序生效（B > A），但置顶行仍恒在顶部
         assert [r['symbol'] for r in result] == ['P', 'B', 'A']
 
     def test_none_values_last_regardless_of_direction(self):
-        from app.domains.watchlist.views import _apply_user_sort
+        from app.services.watchlist_display import apply_user_sort
 
         data = [
             self._row('N', change_pct=None),
             self._row('A', change_pct=1.0),
             self._row('B', change_pct=-1.0),
         ]
-        desc = _apply_user_sort(data, 'change_pct', 'desc')
-        asc = _apply_user_sort(data, 'change_pct', 'asc')
+        desc = apply_user_sort(data, 'change_pct', 'desc')
+        asc = apply_user_sort(data, 'change_pct', 'asc')
         assert [r['symbol'] for r in desc] == ['A', 'B', 'N']
         assert [r['symbol'] for r in asc] == ['B', 'A', 'N']
 
     def test_added_return_derived_metric(self):
-        from app.domains.watchlist.views import _apply_user_sort
+        from app.services.watchlist_display import apply_user_sort
 
         data = [
             # 收益 = (现价 - 成本) × 数量：A=100，B=400，C 缺数量 → None
@@ -1361,11 +1361,11 @@ class TestApplyUserSort:
             self._row('B', current_price=6.0, price_at_added=5.0, holding_quantity=400),
             self._row('C', current_price=9.0, price_at_added=8.0, holding_quantity=None),
         ]
-        result = _apply_user_sort(data, 'added_return', 'desc')
+        result = apply_user_sort(data, 'added_return', 'desc')
         assert [r['symbol'] for r in result] == ['B', 'A', 'C']
 
     def test_sort_by_product_by_symbol(self):
-        from app.domains.watchlist.views import _apply_user_sort
+        from app.services.watchlist_display import apply_user_sort
 
         # 「代码/名称」列（#1331）按 symbol（代码）字典序排，稳定且不耦合名称
         data = [
@@ -1373,13 +1373,13 @@ class TestApplyUserSort:
             self._row('HK00700'),
             self._row('OF.123456'),
         ]
-        asc = _apply_user_sort(data, 'product', 'asc')
-        desc = _apply_user_sort(data, 'product', 'desc')
+        asc = apply_user_sort(data, 'product', 'asc')
+        desc = apply_user_sort(data, 'product', 'desc')
         assert [r['symbol'] for r in asc] == ['HK00700', 'OF.123456', 'SH600519']
         assert [r['symbol'] for r in desc] == ['SH600519', 'OF.123456', 'HK00700']
 
     def test_sort_by_product_pinned_stays_first(self):
-        from app.domains.watchlist.views import _apply_user_sort
+        from app.services.watchlist_display import apply_user_sort
 
         # 故意把置顶行设为「字典序本应排最后」者（SH600519），以验证「置顶恒前置」
         # 真正生效：若置顶逻辑失效，asc 下 SH 应落末尾，本断言会失配（旧用例用 HK00700
@@ -1389,8 +1389,8 @@ class TestApplyUserSort:
             self._row('HK00700'),
             self._row('OF.123456'),
         ]
-        asc = _apply_user_sort(data, 'product', 'asc')
-        desc = _apply_user_sort(data, 'product', 'desc')
+        asc = apply_user_sort(data, 'product', 'asc')
+        desc = apply_user_sort(data, 'product', 'desc')
         # 置顶行恒在顶部，与升降序无关
         assert [r['symbol'] for r in asc] == ['SH600519', 'HK00700', 'OF.123456']
         assert [r['symbol'] for r in desc] == ['SH600519', 'OF.123456', 'HK00700']
@@ -1398,7 +1398,7 @@ class TestApplyUserSort:
     def test_non_whitelist_sort_by_warns_and_keeps_order(self):
         import loguru
 
-        from app.domains.watchlist.views import _apply_user_sort
+        from app.services.watchlist_display import apply_user_sort
 
         # 非白名单字段（#1331 新增告警分支）：原序返回 + 告警，消除「点击无反应」式
         # 静默失败。用临时 sink 捕获真实格式化后的日志，验证 loguru「{!r}」占位符确实
@@ -1407,7 +1407,7 @@ class TestApplyUserSort:
         captured = []
         sink_id = loguru.logger.add(lambda m: captured.append(str(m)), level='WARNING')
         try:
-            result = _apply_user_sort(data, 'unknown_field', 'asc')
+            result = apply_user_sort(data, 'unknown_field', 'asc')
         finally:
             loguru.logger.remove(sink_id)
         # 非白名单不重排，维持原序
@@ -1417,7 +1417,7 @@ class TestApplyUserSort:
         assert any('unknown_field' in line for line in captured)
 
     def test_sort_by_product_missing_symbol_last(self):
-        from app.domains.watchlist.views import _apply_user_sort
+        from app.services.watchlist_display import apply_user_sort
 
         # symbol 缺失 → 排序键 None → 无论升降序都排末尾
         data = [
@@ -1425,17 +1425,17 @@ class TestApplyUserSort:
             self._row('SH600519'),
             self._row('HK00700'),
         ]
-        asc = _apply_user_sort(data, 'product', 'asc')
-        desc = _apply_user_sort(data, 'product', 'desc')
+        asc = apply_user_sort(data, 'product', 'asc')
+        desc = apply_user_sort(data, 'product', 'desc')
         assert [r['symbol'] for r in asc] == ['HK00700', 'SH600519', None]
         assert [r['symbol'] for r in desc] == ['SH600519', 'HK00700', None]
 
     # ─────────────── #1332：#993 候选列排序（成本价/资产类型/所属分组/更新时间）───────────────
-    # 以下为 _apply_user_sort 纯函数单测（与既有 sort 测试同款），直接构造 dict 行、不依赖 db 夹具；
+    # 以下为 apply_user_sort 纯函数单测（与既有 sort 测试同款），直接构造 dict 行、不依赖 db 夹具；
     # 4 个候选列对应的后端排序白名单见 views._USER_SORTABLE_FIELDS（已放开 holding_cost_price/
     # type_label/updated_at/groups），前端 columnDefs 四列均标 sortable:"custom" 透传后端。
     def test_sort_by_holding_cost_price(self):
-        from app.domains.watchlist.views import _apply_user_sort
+        from app.services.watchlist_display import apply_user_sort
 
         # 加权成本均价（数值）：降序 B(5) > C(3) > A(1)
         data = [
@@ -1443,11 +1443,11 @@ class TestApplyUserSort:
             self._row('B', holding_cost_price=5.0),
             self._row('C', holding_cost_price=3.0),
         ]
-        result = _apply_user_sort(data, 'holding_cost_price', 'desc')
+        result = apply_user_sort(data, 'holding_cost_price', 'desc')
         assert [r['symbol'] for r in result] == ['B', 'C', 'A']
 
     def test_sort_by_type_label(self):
-        from app.domains.watchlist.views import _apply_user_sort
+        from app.services.watchlist_display import apply_user_sort
 
         # 资产类型中文标签（字符串字典序）：typeA < typeB < typeC
         data = [
@@ -1455,11 +1455,11 @@ class TestApplyUserSort:
             self._row('B', type_label='typeA'),
             self._row('C', type_label='typeB'),
         ]
-        result = _apply_user_sort(data, 'type_label', 'asc')
+        result = apply_user_sort(data, 'type_label', 'asc')
         assert [r['symbol'] for r in result] == ['B', 'C', 'A']
 
     def test_sort_by_updated_at_desc(self):
-        from app.domains.watchlist.views import _apply_user_sort
+        from app.services.watchlist_display import apply_user_sort
 
         # 后端 updated_at 为 ISO 字符串，字典序即时间序
         data = [
@@ -1467,11 +1467,11 @@ class TestApplyUserSort:
             self._row('B', updated_at='2026-09-03 10:00:00'),
             self._row('C', updated_at='2026-09-02 10:00:00'),
         ]
-        result = _apply_user_sort(data, 'updated_at', 'desc')
+        result = apply_user_sort(data, 'updated_at', 'desc')
         assert [r['symbol'] for r in result] == ['B', 'C', 'A']
 
     def test_sort_by_groups_first_name(self):
-        from app.domains.watchlist.views import _apply_user_sort
+        from app.services.watchlist_display import apply_user_sort
 
         # 列 key="groups"（分组 id 经 ctx.groupNames 映射）；后端按 group_names 首个名排序
         data = [
@@ -1479,11 +1479,11 @@ class TestApplyUserSort:
             self._row('B', group_names=['groupA']),
             self._row('C', group_names=[]),
         ]
-        result = _apply_user_sort(data, 'groups', 'asc')
+        result = apply_user_sort(data, 'groups', 'asc')
         assert [r['symbol'] for r in result] == ['B', 'A', 'C']
 
     def test_sort_by_groups_first_id(self):
-        from app.domains.watchlist.views import _apply_user_sort
+        from app.services.watchlist_display import apply_user_sort
 
         # 所属分组（多值，#1332）：按首个分组 id 字典序；无分组恒排末尾
         data = [
@@ -1491,7 +1491,7 @@ class TestApplyUserSort:
             self._row('B', group_ids=[1]),
             self._row('C', group_ids=[]),
         ]
-        result = _apply_user_sort(data, 'groups', 'asc')
+        result = apply_user_sort(data, 'groups', 'asc')
         # B(1) < A(3) < C(无分组→末尾)
         assert [r['symbol'] for r in result] == ['B', 'A', 'C']
 

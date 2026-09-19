@@ -128,3 +128,11 @@ repos:
         # 且 ledgers.views 直接引用 positions.views，全靠函数内 import 掩盖
         files: ^backend/app/(core|services|domains)/.*\.py$
         pass_filenames: false
+      - id: check-view-thickness
+        name: guard view layer thickness
+        entry: python scripts/check_view_thickness.py
+        language: python
+        # 视图层只做 HTTP 编排（#1606）：业务规则（校验链/状态机/守恒校验/合并策略）与
+        # 事务必须落在 services；视图文件行数、query/commit 次数、单函数行数只减不增
+        files: ^backend/app/domains/.*/views\.py$
+        pass_filenames: false

@@ -132,6 +132,11 @@ jobs:
       - name: 守卫:分层依赖方向
         run: python ../scripts/guard_layer_direction.py
 
+      # 守卫：视图层厚度（#1606：视图只做 HTTP 编排，业务规则与事务下沉 services）。
+      # 同样并入本 job 而不新增 job——不新增 job 就不必改 gate.needs。
+      - name: 守卫:视图层厚度
+        run: python ../scripts/check_view_thickness.py
+
       # 单进程（避 OOM），排除需联网的 slow 测试
       - name: 运行测试
         run: pdm run python -m pytest -p no:xdist -m "not slow"

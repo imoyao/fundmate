@@ -10,8 +10,7 @@ from datetime import date, datetime
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 from loguru import logger
-from sqlalchemy import func, or_
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func
 
 from app.core.auth import get_family_id, get_owned_or_404
 from app.core.constants import ALLOCATION_LABELS, LEDGER_TYPE_LABELS
@@ -25,8 +24,9 @@ from app.domains.ledgers.constants import (
     map_org_type_to_channel_category,
 )
 from app.domains.ledgers.models import Ledger
-from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
+from app.domains.positions.models import Position, SalesInstitution
 from app.domains.transactions.models import Transaction
+from app.services import ledger_migration_service as migration_svc
 from app.services.fund_service import FundService
 from app.services.position_aggregation import (
     DEFAULT_PAGE_SIZE,
@@ -817,159 +817,9 @@ def unarchive_ledger(ledger_id: int):
         return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
 
 
-def _migrate_transactions(
-    db,
-    src_ledger_id,
-    tgt_ledger_id,
-    tgt_account_name,
-    src_position_id=None,
-    tgt_position_id=None,
-):
-    """把来源账户下的交易记录一并归并到目标账户，保持与持仓的 ledger 一致。
-
-    - src_position_id 给定时只处理该持仓下的交易；为 None 时处理账户级
-      （position_id 为空，如存取/费用）交易。
-    - 交易改挂目标账户的 ledger_id / account_name；合并到目标持仓时同步改 position_id。
-    - 若目标账户已存在相同 import_hash 的交易（重复导入），丢弃来源这份以归一，
-      避免触发 uq_txn_import_hash(ledger_id, import_hash) 唯一约束冲突。
-    """
-    q = db.query(Transaction).filter(Transaction.ledger_id == src_ledger_id)
-    if src_position_id is None:
-        q = q.filter(Transaction.position_id.is_(None))
-    else:
-        q = q.filter(Transaction.position_id == src_position_id)
-    txns = q.all()
-    if not txns:
-        return 0
-    count = 0
-    for t in txns:
-        if t.import_hash:
-            exists = (
-                db.query(Transaction)
-                .filter(
-                    Transaction.ledger_id == tgt_ledger_id,
-                    Transaction.import_hash == t.import_hash,
-                )
-                .first()
-            )
-            if exists is not None:
-                db.delete(t)  # 重复交易：保留目标账户那份
-                count += 1
-                continue
-        t.ledger_id = tgt_ledger_id
-        t.account_name = tgt_account_name
-        if src_position_id is not None:
-            t.position_id = tgt_position_id
-        count += 1
-    return count
-
-
 # ────────────────────────── 账本批量迁移（两段式：预览 → 提交） ──────────────────────────
-
-
-def _find_target_position(db, target_ledger_id, symbol, family_id):
-    """在目标账本中找同 symbol 持仓（uq_positions_ledger_symbol 业务键）。"""
-    return (
-        db.query(Position)
-        .filter(
-            Position.ledger_id == target_ledger_id,
-            Position.symbol == symbol,
-            Position.family_id == family_id,
-        )
-        .first()
-    )
-
-
-def _find_target_asset(db, target_ledger_id, asset, family_id):
-    """在目标账本中按 (name, major_category, minor_category) 定位同类资产。"""
-    return (
-        db.query(Asset)
-        .filter(
-            Asset.ledger_id == target_ledger_id,
-            Asset.name == asset.name,
-            Asset.major_category == asset.major_category,
-            Asset.minor_category == asset.minor_category,
-            Asset.family_id == family_id,
-        )
-        .first()
-    )
-
-
-def _position_read_view(pos):
-    """持仓可读视图：份额（份）/确认净值（元）/ISO 日期，供前端直接展示比对。"""
-    return {
-        'quantity': Money.min_unit_to_shares(pos.quantity),
-        'avg_price': Money.price_units_to_yuan(pos.avg_price) if pos.avg_price else None,
-        'confirm_date': pos.confirm_date.isoformat() if pos.confirm_date else None,
-    }
-
-
-def _asset_read_view(asset):
-    """资产可读视图：金额（元）。"""
-    return {'amount': Money.cents_to_yuan(asset.amount) if asset.amount else None}
-
-
-def _classify_position(src_pos, dup):
-    """持仓三分类：keep / duplicate / conflict（conflict 附系统建议 suggestion）。
-
-    判定口径（设计文档 §5.1/§5.2）：份额+确认日期+确认净值全等 → 精确重复；
-    任一不一致 → 冲突。仅确认日期不同（份额与确认净值全等）大概率是同一笔被写两遍、
-    日期为手填噪声，建议保留目标；其余冲突建议加权合并。
-    """
-    if dup is None:
-        return 'keep', None, []
-    if (
-        src_pos.quantity == dup.quantity
-        and src_pos.confirm_date == dup.confirm_date
-        and src_pos.avg_price == dup.avg_price
-    ):
-        return 'duplicate', None, []
-    src_view, tgt_view = _position_read_view(src_pos), _position_read_view(dup)
-    conflict_fields = [k for k in ('quantity', 'avg_price', 'confirm_date') if src_view[k] != tgt_view[k]]
-    if src_pos.quantity == dup.quantity and src_pos.avg_price == dup.avg_price:
-        suggestion = 'keep_target'
-    else:
-        suggestion = 'merge'
-    return 'conflict', suggestion, conflict_fields
-
-
-def _classify_asset(src_asset, dup):
-    """资产二分类判定（无 merge）：金额一致 → duplicate，否则 conflict。
-
-    返回与 _classify_position 相同的三元组形状（suggestion 恒为 None），便于调用方统一解包。
-    """
-    if dup is None:
-        return 'keep', None, []
-    if src_asset.amount == dup.amount:
-        return 'duplicate', None, []
-    return 'conflict', None, ['amount']
-
-
-def _check_migration_target(source, target):
-    """迁移目标合法性校验：同家庭（防 IDOR）、同类型（计算口径一致）。返回错误信封或 None。"""
-    if source.family_id != target.family_id:
-        return {'data': None, 'message': '只能迁移到同家庭账户'}, 403
-    if source.ledger_type != target.ledger_type:
-        return {'data': None, 'message': '只能迁移到同类型账户'}, 400
-    return None
-
-
-def _institution_view(db, ledger):
-    """账本绑定机构的展示视图：{id, name}；未绑定（或名录机构已不存在）返回 None。
-
-    name 取 display_name（常用别名如「支付宝」），缺省回退 AMAC 权威全称 org_name。
-    """
-    if not ledger.sales_institution_id:
-        return None
-    inst = db.query(SalesInstitution).filter_by(id=ledger.sales_institution_id).first()
-    if inst is None:
-        return None
-    return {'id': inst.id, 'name': inst.display_name or inst.org_name}
-
-
-def _cross_institution(source, target, src_inst, tgt_inst):
-    """跨机构判定：双方都已绑定机构且 id 不同才为 True；任一未绑定 → False。"""
-    return src_inst is not None and tgt_inst is not None and src_inst['id'] != tgt_inst['id']
+# 业务规则（三分类 / 决议 / 守恒校验 / 单事务回滚）已下沉 services.ledger_migration_service（#1606），
+# 视图只保留入参解析、归属校验与响应组织；错误经 MigrationError 转统一信封。
 
 
 @ledgers_bp.post('/<int:ledger_id>/migrations/preview/')
@@ -988,122 +838,12 @@ def preview_migration(ledger_id: int):
         target = db.query(Ledger).get(target_id)
         if not source or not target:
             return jsonify({'data': None, 'message': '账户不存在', 'error_code': 1002}), 404
-        err = _check_migration_target(source, target)
-        if err:
-            return jsonify(err[0]), err[1]
-
-        family_id = get_family_id()
-        items = []
-        # 守恒预估一律用最小单位整数（份×10000），避免 float 误差；
-        # 冲突行按系统建议计入（前端可改决议，故仅为预估，真正守恒校验在 commit 后置执行）。
-        source_out_min = 0
-        target_in_min = 0
-        for p in db.query(Position).filter(Position.ledger_id == source.id).all():
-            dup = _find_target_position(db, target.id, p.symbol, family_id)
-            classification, suggestion, conflict_fields = _classify_position(p, dup)
-            items.append(
-                {
-                    'kind': 'position',
-                    'symbol': p.symbol,
-                    'name': p.name,
-                    # 资产类型：前端据此切换展示术语（基金用「确认净值」，股票用「成本价」）
-                    'asset_type': p.asset_type,
-                    'classification': classification,
-                    'suggestion': suggestion,
-                    'source': _position_read_view(p),
-                    'target': _position_read_view(dup) if dup is not None else None,
-                    'conflict_fields': conflict_fields,
-                }
-            )
-            qty = p.quantity or 0
-            source_out_min += qty
-            if classification == 'keep' or classification == 'duplicate':
-                # keep：源份额并入目标；duplicate：目标已有同额一份，净增 0
-                if classification == 'keep':
-                    target_in_min += qty
-            elif suggestion == 'merge':
-                target_in_min += qty
-            elif suggestion == 'keep_source':
-                # 整条覆盖：目标净增 = 源份额 − 被覆盖的目标份额（可能为负）
-                target_in_min += qty - (dup.quantity or 0)
-
-        for a in db.query(Asset).filter(Asset.ledger_id == source.id, Asset.family_id == family_id).all():
-            dup = _find_target_asset(db, target.id, a, family_id)
-            classification, _, conflict_fields = _classify_asset(a, dup)
-            items.append(
-                {
-                    'kind': 'asset',
-                    'symbol': None,
-                    'name': a.name,
-                    # 决议定位键：commit 按 (name, major_category, minor_category) 匹配资产决议，
-                    # preview 必须带出分类键，否则前端无法组装合法决议
-                    'major_category': a.major_category,
-                    'minor_category': a.minor_category,
-                    'classification': classification,
-                    'suggestion': None,  # 资产无 merge，不给建议
-                    'source': _asset_read_view(a),
-                    'target': _asset_read_view(dup) if dup is not None else None,
-                    'conflict_fields': conflict_fields,
-                }
-            )
-
-        # 账户级交易（position_id 为空，如存取/费用）在 commit 时无条件归并，预览只报数
-        account_txn_count = (
-            db.query(Transaction).filter(Transaction.ledger_id == source.id, Transaction.position_id.is_(None)).count()
-        )
-
-        # 销售机构软优先：跨机构不禁止迁移，但前端须提示，commit 需用户显式确认
-        src_inst = _institution_view(db, source)
-        tgt_inst = _institution_view(db, target)
-
-        return jsonify(
-            {
-                'data': {
-                    'items': items,
-                    'conservation': {
-                        'source_out_positions': source_out_min,
-                        'target_in_positions': target_in_min,
-                        'account_level_transactions': account_txn_count,
-                    },
-                    'institution': {
-                        'source': src_inst,
-                        'target': tgt_inst,
-                        'cross_institution': _cross_institution(source, target, src_inst, tgt_inst),
-                    },
-                },
-                'message': 'ok',
-            }
-        )
-
-
-def _delete_position_with_meta(db, position):
-    """删除持仓及其导入溯源元数据。
-
-    不依赖数据库层 CASCADE：SQLite 需 PRAGMA foreign_keys=ON 才会触发外键级联，
-    各环境（测试内存库/本地开发库）未必开启，应用层显式删除保证 meta 不残留。
-    """
-    db.query(PositionImportMeta).filter(PositionImportMeta.position_id == position.id).delete()
-    db.delete(position)
-
-
-def _verify_migration_conservation(db, expectations, source_id, target_id):
-    """守恒后置校验（写库后、commit 前）：任何不符立即抛异常触发整体回滚。
-
-    - 逐行核对目标持仓数量/确认净值与动作语义期望值；
-    - 源账本不应残留任何持仓/资产（conflict 未决议已在入口 400 拦截，走到这里即应清空）。
-    """
-    # 会话为 autoflush=False：先把挂起的 UPDATE/DELETE 刷库，否则下面的 SQL 校验读到旧值
-    db.flush()
-    for pid, exp_quantity, exp_avg_price in expectations:
-        row = db.query(Position).filter(Position.id == pid, Position.ledger_id == target_id).first()
-        if row is None:
-            raise RuntimeError(f'守恒校验失败：持仓 {pid} 未落在目标账本')
-        if row.quantity != exp_quantity or (row.avg_price or 0) != exp_avg_price:
-            raise RuntimeError(f'守恒校验失败：持仓 {pid} 数量/确认净值与动作语义期望值不符')
-    if db.query(Position).filter(Position.ledger_id == source_id).count() > 0:
-        raise RuntimeError('守恒校验失败：源账本仍残留持仓')
-    if db.query(Asset).filter(Asset.ledger_id == source_id).count() > 0:
-        raise RuntimeError('守恒校验失败：源账本仍残留资产')
+        try:
+            migration_svc.check_migration_target(source, target)
+            payload = migration_svc.preview_migration(db, source, target, get_family_id())
+        except migration_svc.MigrationError as e:
+            return jsonify({'data': None, 'message': e.message}), e.status_code
+        return jsonify({'data': payload, 'message': 'ok'})
 
 
 @ledgers_bp.post('/<int:ledger_id>/migrations/commit/')
@@ -1123,210 +863,28 @@ def commit_migration(ledger_id: int):
         target = db.query(Ledger).get(target_id)
         if not source or not target:
             return jsonify({'data': None, 'message': '账户不存在', 'error_code': 1002}), 404
-        err = _check_migration_target(source, target)
-        if err:
-            return jsonify(err[0]), err[1]
-
-        # 跨销售机构软闸门：双方均已绑定且机构不同时，须用户显式确认才放行；
-        # 任一方未绑定或同机构 → 直接放行。校验在任何写库动作之前。
-        src_inst = _institution_view(db, source)
-        tgt_inst = _institution_view(db, target)
-        if _cross_institution(source, target, src_inst, tgt_inst) and data.get('allow_cross_institution') is not True:
-            return jsonify(
-                {
-                    'data': None,
-                    'message': '跨销售机构迁移需显式确认，可能造成交易归属混乱；'
-                    '请携带 allow_cross_institution=true 重试',
-                    'error_code': 1001,
-                }
-            ), 400
-
-        # 解析用户决议表：持仓按 symbol、资产按 (name, major, minor) 定位
-        pos_resolutions = {}
-        asset_resolutions = {}
-        for r in data.get('resolutions') or []:
-            action = r.get('action')
-            if r.get('kind') == 'position':
-                pos_resolutions[r.get('symbol')] = action
-            elif r.get('kind') == 'asset':
-                asset_resolutions[(r.get('name'), r.get('major_category'), r.get('minor_category'))] = action
-
-        family_id = get_family_id()
-
-        # ── 第一步：纯读分类 + 决议完整性检查（此时不写任何数据）──
-        plan = []  # (kind, 源对象, 目标对象或 None, 动作)
-        unresolved = []
-        for p in db.query(Position).filter(Position.ledger_id == source.id).all():
-            dup = _find_target_position(db, target.id, p.symbol, family_id)
-            classification, _, _ = _classify_position(p, dup)
-            if classification == 'keep':
-                plan.append(('position', p, None, 'keep'))
-            elif classification == 'duplicate':
-                plan.append(('position', p, dup, 'duplicate'))
-            else:
-                action = pos_resolutions.get(p.symbol)
-                if action not in ('keep_source', 'keep_target', 'merge'):
-                    unresolved.append(p.symbol)
-                else:
-                    plan.append(('position', p, dup, action))
-
-        for a in db.query(Asset).filter(Asset.ledger_id == source.id, Asset.family_id == family_id).all():
-            dup = _find_target_asset(db, target.id, a, family_id)
-            classification, _, _ = _classify_asset(a, dup)
-            if classification == 'keep':
-                plan.append(('asset', a, None, 'keep'))
-            elif classification == 'duplicate':
-                plan.append(('asset', a, dup, 'duplicate'))
-            else:
-                action = asset_resolutions.get((a.name, a.major_category, a.minor_category))
-                if action not in ('keep_source', 'keep_target'):
-                    unresolved.append(a.name)
-                else:
-                    plan.append(('asset', a, dup, action))
-
-        if unresolved:
-            # 缺决议直接拒绝：列明未决议项，保证「未确认不写库」
-            return jsonify(
-                {
-                    'data': None,
-                    'message': '以下冲突项未决议，请逐条选择保留源/保留目标/合并后再提交：' + '、'.join(unresolved),
-                    'error_code': 1001,
-                }
-            ), 400
-
-        # ── 第二步：单事务执行 + 守恒校验 + 提交；任一异常整体回滚 ──
         try:
-            migrated = deduped = merged = keep_source_cnt = asset_cnt = txn_cnt = 0
-            expectations = []  # (目标持仓 id, 期望数量最小单位, 期望确认净值分)
-            for kind, src_obj, dup, action in plan:
-                if kind == 'position':
-                    if action == 'keep':
-                        # 无同名冲突：源行整条改挂目标账本，交易随行归并
-                        src_obj.ledger_id = target.id
-                        src_obj.account_name = target.name
-                        src_obj.updated_at = func.now()
-                        txn_cnt += _migrate_transactions(
-                            db,
-                            source.id,
-                            target.id,
-                            target.name,
-                            src_position_id=src_obj.id,
-                            tgt_position_id=src_obj.id,
-                        )
-                        expectations.append((src_obj.id, src_obj.quantity or 0, src_obj.avg_price or 0))
-                        migrated += 1
-                    elif action in ('duplicate', 'keep_target'):
-                        # 精确重复/用户弃源：源交易并入目标持仓（import_hash 去重）后删源行
-                        txn_cnt += _migrate_transactions(
-                            db,
-                            source.id,
-                            target.id,
-                            target.name,
-                            src_position_id=src_obj.id,
-                            tgt_position_id=dup.id,
-                        )
-                        expectations.append((dup.id, dup.quantity or 0, dup.avg_price or 0))
-                        _delete_position_with_meta(db, src_obj)
-                        deduped += 1
-                    elif action == 'keep_source':
-                        # 源整条覆盖目标：先把目标持仓名下交易改挂到源持仓
-                        # （复用 _migrate_transactions 去重逻辑、方向相反），删目标行后源行改挂目标账本。
-                        # 删除必须先 flush 落库，否则源行改挂会撞 uq_positions_ledger_symbol。
-                        txn_cnt += _migrate_transactions(
-                            db,
-                            target.id,
-                            source.id,
-                            source.name,
-                            src_position_id=dup.id,
-                            tgt_position_id=src_obj.id,
-                        )
-                        _delete_position_with_meta(db, dup)
-                        db.flush()
-                        src_obj.ledger_id = target.id
-                        src_obj.account_name = target.name
-                        src_obj.updated_at = func.now()
-                        # 源行名下交易（含刚从目标并入的）统一对齐目标账本
-                        txn_cnt += _migrate_transactions(
-                            db,
-                            source.id,
-                            target.id,
-                            target.name,
-                            src_position_id=src_obj.id,
-                            tgt_position_id=src_obj.id,
-                        )
-                        expectations.append((src_obj.id, src_obj.quantity or 0, src_obj.avg_price or 0))
-                        keep_source_cnt += 1
-                    elif action == 'merge':
-                        # 加权平均合并（全程最小单位整数，四舍五入到分；份额和为 0 取 0）
-                        q1, q2 = dup.quantity or 0, src_obj.quantity or 0
-                        p1, p2 = dup.avg_price or 0, src_obj.avg_price or 0
-                        total_q = q1 + q2
-                        merged_price = ((q1 * p1 + q2 * p2 + total_q // 2) // total_q) if total_q else 0
-                        dates = [d for d in (dup.confirm_date, src_obj.confirm_date) if d is not None]
-                        dup.quantity = total_q
-                        dup.avg_price = merged_price
-                        if dates:
-                            dup.confirm_date = max(dates)  # 确认日期取较新（仅展示口径，不参与计算）
-                        # 其余字段（name/market/portfolio_id 等）保留目标原值
-                        txn_cnt += _migrate_transactions(
-                            db,
-                            source.id,
-                            target.id,
-                            target.name,
-                            src_position_id=src_obj.id,
-                            tgt_position_id=dup.id,
-                        )
-                        expectations.append((dup.id, total_q, merged_price))
-                        _delete_position_with_meta(db, src_obj)  # 源行及其导入溯源一并清除
-                        merged += 1
-                else:
-                    if action == 'keep':
-                        src_obj.ledger_id = target.id
-                        src_obj.account_name = target.name
-                        src_obj.updated_at = func.now()
-                    elif action in ('duplicate', 'keep_target'):
-                        db.delete(src_obj)  # 弃源保目标
-                    elif action == 'keep_source':
-                        # 源覆盖目标：先删目标行（flush 避免唯一键冲突），源行改挂目标账本
-                        db.delete(dup)
-                        db.flush()
-                        src_obj.ledger_id = target.id
-                        src_obj.account_name = target.name
-                        src_obj.updated_at = func.now()
-                    asset_cnt += 1
+            migration_svc.check_migration_target(source, target)
+            counts = migration_svc.commit_migration(
+                db,
+                source,
+                target,
+                get_family_id(),
+                resolutions=data.get('resolutions') or [],
+                # 跨销售机构软闸门：仅显式 true 放行（与下沉前 `is not True` 判定等价）
+                allow_cross_institution=data.get('allow_cross_institution') is True,
+            )
+        except migration_svc.MigrationError as e:
+            return jsonify({'data': None, 'message': e.message}), e.status_code
 
-            # 账户级交易（position_id 为空，如存取/费用）无条件归并到目标账户
-            txn_cnt += _migrate_transactions(db, source.id, target.id, target.name)
-
-            # 守恒后置校验：不过即抛异常 → 整体回滚，源数据原样
-            _verify_migration_conservation(db, expectations, source.id, target.id)
-
-            db.commit()
-        except Exception:
-            db.rollback()
-            # 记录完整堆栈便于排查；对外只返回统一信封，不泄露内部细节
-            logger.exception('账本迁移提交失败，已整体回滚：src={} tgt={}', ledger_id, target_id)
-            return jsonify({'data': None, 'message': '迁移失败，已整体回滚，源数据未变动', 'error_code': 5004}), 500
-
+        # 响应文案属「响应组织」职责，留在视图层（计数来自服务层）
         message = (
-            f'已迁移至「{target.name}」：{migrated} 项持仓迁入、{deduped} 项去重、'
-            f'{merged} 项合并、{keep_source_cnt} 项冲突留源、{asset_cnt} 项资产'
+            f'已迁移至「{target.name}」：{counts["position_count"]} 项持仓迁入、{counts["dedup_count"]} 项去重、'
+            f'{counts["merged_count"]} 项合并、{counts["keep_source_count"]} 项冲突留源、{counts["asset_count"]} 项资产'
         )
-        if txn_cnt:
-            message += f'；另归并 {txn_cnt} 笔交易'
-        return jsonify(
-            {
-                'data': {
-                    'position_count': migrated,
-                    'dedup_count': deduped,
-                    'merged_count': merged,
-                    'keep_source_count': keep_source_cnt,
-                    'asset_count': asset_cnt,
-                    'transaction_count': txn_cnt,
-                },
-                'message': message,
-            }
-        )
+        if counts['transaction_count']:
+            message += f'；另归并 {counts["transaction_count"]} 笔交易'
+        return jsonify({'data': counts, 'message': message})
 
 
 # ────────────────────────────── 账户详情页专用接口 ──────────────────────────────
@@ -1602,110 +1160,17 @@ def update_ledger_transaction(ledger_id: int, transaction_id: int):
 # ────────────────────────────── 未归置数据（orphan）归入/清理 ──────────────────────────────
 
 
-def _orphan_ledger_condition(ledger_id_col, valid_ledger_ids):
-    """孤儿判定条件：ledger_id 为空或指向已删除账户（与 ledger_service 语义一致）"""
-    return or_(ledger_id_col.is_(None), ~ledger_id_col.in_(valid_ledger_ids))
-
-
 @ledgers_bp.get('/orphan/detail/')
 def get_orphan_detail():
-    """查询未归置数据（孤儿）明细：孤儿持仓/资产/交易清单 + 汇总。
+    """查询未归置数据（孤儿）明细：孤儿持仓/资产/交易清单 + 汇总（业务规则见 service）。
 
     前端此前只能看到汇总数字（N 个持仓、合计 ¥X），无法定位具体是哪些数据；
-    本接口补齐明细，孤儿判定与 migrate/delete 完全一致（ledger_id 为空或不在
-    当前家庭有效账户 id 集合内），保证「明细展示 → 归入/清理」所见即所得。
+    本接口补齐明细，孤儿判定与归入/清理完全一致（ledger_id 为空或不在当前家庭
+    有效账户 id 集合内），保证「明细展示 → 归入/清理」所见即所得。
     """
     with get_db() as db:
-        family_id = get_family_id()
-        # 当前家庭全部账户 id 集合（孤儿判定基准，与 migrate/delete 相同）
-        valid_ledger_ids = [lid for (lid,) in db.query(Ledger.id).filter(Ledger.family_id == family_id).all()]
-
-        # ── 孤儿持仓：逐行算市值/盈亏，复用 Money.multiply_price_quantity 的
-        #    ROUND_HALF_UP 语义（与 ledger_service.get_positions_paginated 一致，
-        #    避免 SQL 聚合与逐行四舍五入的分位差异）
-        orphan_positions = (
-            db.query(Position)
-            .filter(Position.family_id == family_id, _orphan_ledger_condition(Position.ledger_id, valid_ledger_ids))
-            .all()
-        )
-        positions = []
-        position_mv_cents = 0
-        for p in orphan_positions:
-            mv_cents = Money.multiply_price_quantity(p.current_price, p.quantity)
-            # 盈亏 = (现价 - 成本) × 数量；无成本价时盈亏记 0（与持仓列表语义一致）
-            pnl_cents = Money.multiply_price_quantity(p.current_price - p.avg_price, p.quantity) if p.avg_price else 0
-            position_mv_cents += mv_cents
-            positions.append(
-                {
-                    'id': p.id,
-                    'symbol': p.symbol,
-                    'name': p.name,
-                    'quantity': Money.min_unit_to_shares(p.quantity),
-                    'avg_price': Money.price_units_to_yuan(p.avg_price),
-                    'market_value': Money.cents_to_yuan(mv_cents),
-                    'pnl': Money.cents_to_yuan(pnl_cents),
-                }
-            )
-
-        # ── 孤儿资产：金额为存量价值，直接计入汇总
-        orphan_assets = (
-            db.query(Asset)
-            .filter(Asset.family_id == family_id, _orphan_ledger_condition(Asset.ledger_id, valid_ledger_ids))
-            .all()
-        )
-        assets = []
-        asset_amount_cents = 0
-        for a in orphan_assets:
-            asset_amount_cents += a.amount or 0
-            assets.append(
-                {
-                    'id': a.id,
-                    'name': a.name,
-                    'amount': Money.cents_to_yuan(a.amount),
-                    'major_category': a.major_category,
-                }
-            )
-
-        # ── 孤儿交易：ledger_id 悬空（与 migrate 归入交易的判定一致）。
-        #    交易是流水而非存量，金额不计入 total_market_value，避免与持仓/资产重复计算
-        orphan_txns = (
-            db.query(Transaction)
-            .filter(
-                Transaction.family_id == family_id,
-                _orphan_ledger_condition(Transaction.ledger_id, valid_ledger_ids),
-            )
-            .all()
-        )
-        transactions = []
-        for t in orphan_txns:
-            transactions.append(
-                {
-                    'id': t.id,
-                    'position_name': t.position_name or '未知资产',
-                    # txn_type 保持后端原始枚举值（buy/sell/dividend…），翻译交给前端
-                    'txn_type': t.txn_type,
-                    'amount': Money.cents_to_yuan(t.amount),
-                    # 纯日期（YYYY-MM-DD），不带时间
-                    'confirm_date': t.confirm_date.isoformat()[:10] if t.confirm_date else None,
-                }
-            )
-
-        return jsonify(
-            {
-                'data': {
-                    'positions': positions,
-                    'assets': assets,
-                    'transactions': transactions,
-                    'summary': {
-                        'position_count': len(positions),
-                        'asset_count': len(assets),
-                        'transaction_count': len(transactions),
-                        'total_market_value': Money.cents_to_yuan(position_mv_cents + asset_amount_cents),
-                    },
-                },
-                'message': 'ok',
-            }
-        )
+        payload = migration_svc.build_orphan_detail(db, get_family_id())
+    return jsonify({'data': payload, 'message': 'ok'})
 
 
 @ledgers_bp.post('/orphan/migrations/')
@@ -1718,66 +1183,15 @@ def migrate_orphan_data():
 
     with get_db() as db:
         target = get_owned_or_404(db, Ledger, target_id)
-        family_id = get_family_id()
-        # 当前家庭全部账户 id 集合（孤儿判定基准）
-        valid_ledger_ids = [lid for (lid,) in db.query(Ledger.id).filter(Ledger.family_id == family_id).all()]
-        orphan_cond = _orphan_ledger_condition(Position.ledger_id, valid_ledger_ids)
-
-        # 孤儿持仓 id 集合（供对应悬空交易归入使用）
-        orphan_position_ids = [
-            pid for (pid,) in db.query(Position.id).filter(Position.family_id == family_id, orphan_cond).all()
-        ]
-
         try:
-            # 归入孤儿持仓：更新 ledger_id 与 account_name 快照
-            position_count = (
-                db.query(Position)
-                .filter(Position.family_id == family_id, orphan_cond)
-                .update(
-                    {Position.ledger_id: target.id, Position.account_name: target.name},
-                    synchronize_session=False,
-                )
-            )
-            # 归入孤儿持仓对应的悬空交易（position_id 命中孤儿持仓，且 ledger_id 悬空）
-            transaction_count = (
-                db.query(Transaction)
-                .filter(
-                    Transaction.family_id == family_id,
-                    Transaction.position_id.in_(orphan_position_ids),
-                    _orphan_ledger_condition(Transaction.ledger_id, valid_ledger_ids),
-                )
-                .update(
-                    {Transaction.ledger_id: target.id, Transaction.account_name: target.name},
-                    synchronize_session=False,
-                )
-            )
-            # 归入孤儿资产
-            asset_count = (
-                db.query(Asset)
-                .filter(Asset.family_id == family_id, _orphan_ledger_condition(Asset.ledger_id, valid_ledger_ids))
-                .update(
-                    {Asset.ledger_id: target.id, Asset.account_name: target.name},
-                    synchronize_session=False,
-                )
-            )
-            db.commit()
-        except IntegrityError:
-            # uq_positions_ledger_symbol 唯一约束冲突：归入导致目标账户出现同名持仓
-            db.rollback()
-            return jsonify(
-                {'data': None, 'message': '归入失败：目标账户已存在同名持仓，请选择其他账户', 'error_code': 1001}
-            ), 400
-
-        total = position_count + asset_count + transaction_count
+            counts = migration_svc.migrate_orphan_data(db, target, get_family_id())
+        except migration_svc.MigrationError as e:
+            return jsonify({'data': None, 'message': e.message}), e.status_code
+        # 文案在会话内取 target.name（服务层已提交，对象过期后需会话存活才能懒加载）
         return jsonify(
             {
-                'data': {
-                    'position_count': position_count,
-                    'asset_count': asset_count,
-                    'transaction_count': transaction_count,
-                    'total': total,
-                },
-                'message': f'已将 {total} 项未归置数据归入「{target.name}」',
+                'data': counts,
+                'message': f'已将 {counts["total"]} 项未归置数据归入「{target.name}」',
             }
         )
 
@@ -1786,45 +1200,11 @@ def migrate_orphan_data():
 def delete_orphan_data():
     """清理所有未归置数据（孤儿持仓/资产/交易）"""
     with get_db() as db:
-        family_id = get_family_id()
-        valid_ledger_ids = [lid for (lid,) in db.query(Ledger.id).filter(Ledger.family_id == family_id).all()]
-        orphan_cond = _orphan_ledger_condition(Position.ledger_id, valid_ledger_ids)
-
-        orphan_position_ids = [
-            pid for (pid,) in db.query(Position.id).filter(Position.family_id == family_id, orphan_cond).all()
-        ]
-
-        # 先删交易：position 命中孤儿持仓 或 ledger_id 悬空
-        transaction_count = (
-            db.query(Transaction)
-            .filter(
-                Transaction.family_id == family_id,
-                or_(
-                    Transaction.position_id.in_(orphan_position_ids),
-                    _orphan_ledger_condition(Transaction.ledger_id, valid_ledger_ids),
-                ),
-            )
-            .delete(synchronize_session=False)
-        )
-        # 再删孤儿持仓
-        position_count = (
-            db.query(Position).filter(Position.family_id == family_id, orphan_cond).delete(synchronize_session=False)
-        )
-        # 最后删孤儿资产
-        asset_count = (
-            db.query(Asset)
-            .filter(Asset.family_id == family_id, _orphan_ledger_condition(Asset.ledger_id, valid_ledger_ids))
-            .delete(synchronize_session=False)
-        )
-        db.commit()
-
-        return jsonify(
-            {
-                'data': {
-                    'position_count': position_count,
-                    'asset_count': asset_count,
-                    'transaction_count': transaction_count,
-                },
-                'message': f'已清理 {position_count + asset_count + transaction_count} 项未归置数据',
-            }
-        )
+        counts = migration_svc.delete_orphan_data(db, get_family_id())
+    total = counts['position_count'] + counts['asset_count'] + counts['transaction_count']
+    return jsonify(
+        {
+            'data': counts,
+            'message': f'已清理 {total} 项未归置数据',
+        }
+    )

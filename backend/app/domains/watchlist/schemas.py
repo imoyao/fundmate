@@ -70,7 +70,8 @@ class WatchlistItemOut(BaseModel):
     display_name: Optional[str] = None
     group_ids: list[int] = []
     tag_ids: list[int] = []
-    # 真实持仓统计（views._enrich_item 动态补充；区别于上方迁移透传的 cost_price/quantity）
+    # 真实持仓统计（services.watchlist_display.enrich_item 动态补充；
+    # 区别于上方迁移透传的 cost_price/quantity）
     holding_quantity: Optional[float] = None  # 真实持仓数量（份/股，positions 汇总）
     holding_cost_price: Optional[float] = None  # 加权成本均价（元）
     holding_pnl: Optional[float] = None  # 持仓收益（元）
