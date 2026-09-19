@@ -38,6 +38,7 @@ from app.core.db_factory import (
     market_session_factory,
     user_session_factory,
 )
+from app.domains.users.seed import seed_default_identity
 
 
 @pytest.fixture(autouse=True)
@@ -255,11 +256,14 @@ def test_local_fallback_uses_separate_user_database(monkeypatch, tmp_path):
 
 
 def test_seed_default_identity_split_mode_writes_to_user_engine(monkeypatch, tmp_path):
-    """回归测试：修复跨域 bug——_seed_default_identity 曾用 market 引擎的 SessionLocal
-    写入 user 域的 families/users 表，真双库分离时会落到错误库。
+    """回归测试：修复跨域 bug——种子曾用 market 引擎的 SessionLocal 写入 user 域的
+    families/users 表，真双库分离时会落到错误库。
 
-    验证：init_db_split 本地双 SQLite 模式下，种子家庭/用户只落在 user 引擎，
-    market 引擎里查不到 families/users 行（跨域 bug 修复前会落在这里）。
+    验证：init_db_split + seed_default_identity 本地双 SQLite 模式下，种子家庭/用户
+    只落在 user 引擎，market 引擎里查不到 families/users 行（跨域 bug 修复前会落在这里）。
+
+    注（#1607）：播种已从 `app/core/database.py` 移到 `app.domains.users.seed`，
+    故这里显式调用；断言不变——默认落点仍是 user 域引擎。
     """
     from sqlalchemy import inspect
     from sqlalchemy.orm import sessionmaker
@@ -272,6 +276,7 @@ def test_seed_default_identity_split_mode_writes_to_user_engine(monkeypatch, tmp
 
     # 走真实双库建表 + 种子路径
     init_db_split()
+    seed_default_identity()
 
     market_eng = DatabaseFactory.create(DOMAIN_MARKET)
     user_eng = DatabaseFactory.create(DOMAIN_USER)

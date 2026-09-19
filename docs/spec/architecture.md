@@ -137,3 +137,25 @@ BiasJob._fetch_data()
 4. 最新的报错截图或要解决的具体问题
 
 > **UI/UX 设计规范索引**：完整视觉设计语言请参阅 [`../../frontend/design.md`](../../frontend/design.md)（亮色模式 v2.3.2）和 [`../../frontend/design.dark.md`](../../frontend/design.dark.md)（暗色模式 v1.4）。本体系仅记录与业务/技术架构有交集的强制决策。
+
+## 6. 后端分层与依赖方向（2026-09-19 定稿，#1607）
+
+> 决策原文见 [`decisions.md`](./decisions.md) 2026-09-19 行（D24）；本节只记**应然状态**，改动须先动决策。
+
+```
+core  ←  domains.<域>.models / schemas  ←  services  ←  domains.<域>.views
+```
+
+- **core**（DB / money / auth / 异常 / 补丁 / 缓存 / 迁移）：业务无关的基础设施层，**零** `app.domains.*` / `app.models.*` 引用；
+  需要领域能力时由组合根（`app/main.py` 的 `create_app()`）**注入**——先例是 `register_user_identity()`
+  注入 `domains/users/identity.py::UserIdentity`（鉴权中间件只持实现对象，不持 `User` 模型），
+  未注入时显式报错而非静默降级。
+- **domains.\*.models / schemas**：叶子层，只依赖 core；不得依赖 services，不得引用其它域的 views。
+- **services**：业务服务层，依赖 core 与 `domains.*.models/schemas`；**不得** import `domains.*.views`。
+- **domains.\*.views**：HTTP 编排层，依赖 services 与各域 models/schemas；**跨域不得引用对方 views**。
+- **建表 / 种子边界**：`core.database.init_db()` 只建「调用方已 import 的模型」的表，不代为导入顶层模型、
+  不写业务数据；默认家庭 1 / 默认用户 1 的播种在 `domains/users/seed.py`，由组合根在建表后调用
+  （绕过应用工厂的 CLI 入口需要身份行时自行调用）。
+- **守卫**：`scripts/guard_core_imports.py`（pre-commit + CI 的 backend job）+ `tests/core/test_core_layer_boundary.py`。
+  判据用「**边方向**」而不是「包级双向依赖对数量」——包级双向对多数由 `views→services` 与
+  `services→models` 两条**合法边**叠加而成（如 `domains.positions` ↔ `services.position_service`），不构成违规。
