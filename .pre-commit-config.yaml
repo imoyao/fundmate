@@ -102,6 +102,22 @@ repos:
         language: python
         files: ^backend/app/.*\.py$
         pass_filenames: false
+      - id: guard-error-envelope
+        name: guard error envelope (error_code present)
+        entry: python scripts/guard_error_envelope.py
+        language: python
+        # 错误响应三字段信封（#1610）：视图内自建错误响应必须带 error_code。
+        # 此前 63 处只有 {data, message}，temperature 3 处连 data 都缺
+        files: ^backend/app/.*\.py$
+        pass_filenames: false
+      - id: check-api-conventions
+        name: check API conventions (trailing slash + api.md coverage)
+        entry: python scripts/check_api_conventions.py
+        language: python
+        # 尾斜杠（#1611，conventions §2.6 冻结区，含明文豁免清单）与 api.md 全量端点段一致性
+        # 此前 18 个端点无尾斜杠、api.md 只列 30/131 条
+        files: ^(backend/app/domains/.*\.py|docs/spec/api\.md)$
+        pass_filenames: false
       - id: guard-layer-direction
         name: guard backend layer dependency direction
         entry: python scripts/guard_layer_direction.py

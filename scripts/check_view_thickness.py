@@ -58,23 +58,27 @@ NEW_FILE_LIMITS = {
 # 存量基线（2026-09-19 冻结，#1606 批次 1 下沉后重取）。
 # **只减不增**：不要手工调大——要走「把业务规则下沉 services」的正当路径；
 # 确实因合并等原因需要重取时，用 `--report` 生成新块并说明理由。
+# 2026-09-20 重取（合并原因，非放宽）：错误信封补齐（#1610 / D27 要求每个错误响应带 error_code）
+# 使 4 个视图文件共 +26 行 —— assets +5 / importers +4(+2 max_func) / ledgers +15(+12 max_func) /
+# summary +2；增量全部是信封字段，不含任何业务规则，且相对 #1606 下沉前（ledgers 1811 行）仍是大幅收敛。
+# 同批 positions 因 #1607 批次 2 把展示口径移出视图而 −24 行，已一并**收紧**（基线只减不增）。
 BASELINE: dict[str, dict[str, int]] = {
-    "backend/app/domains/assets/views.py": {"lines": 204, "orm_queries": 4, "commits": 3, "max_func": 44},
+    "backend/app/domains/assets/views.py": {"lines": 209, "orm_queries": 4, "commits": 3, "max_func": 44},
     "backend/app/domains/auth/views.py": {"lines": 137, "orm_queries": 3, "commits": 0, "max_func": 45},
     "backend/app/domains/families/views.py": {"lines": 72, "orm_queries": 2, "commits": 1, "max_func": 22},
     "backend/app/domains/funds/views.py": {"lines": 324, "orm_queries": 9, "commits": 0, "max_func": 94},
-    "backend/app/domains/importers/views.py": {"lines": 250, "orm_queries": 1, "commits": 0, "max_func": 72},
-    "backend/app/domains/ledgers/views.py": {"lines": 1195, "orm_queries": 30, "commits": 9, "max_func": 138},
+    "backend/app/domains/importers/views.py": {"lines": 254, "orm_queries": 1, "commits": 0, "max_func": 74},
+    "backend/app/domains/ledgers/views.py": {"lines": 1210, "orm_queries": 30, "commits": 9, "max_func": 150},
     "backend/app/domains/market/views.py": {"lines": 50, "orm_queries": 0, "commits": 0, "max_func": 35},
     "backend/app/domains/ocr/views.py": {"lines": 262, "orm_queries": 1, "commits": 0, "max_func": 69},
     "backend/app/domains/performance/views.py": {"lines": 93, "orm_queries": 1, "commits": 0, "max_func": 36},
     "backend/app/domains/portfolios/views.py": {"lines": 266, "orm_queries": 5, "commits": 3, "max_func": 104},
-    "backend/app/domains/positions/views.py": {"lines": 397, "orm_queries": 8, "commits": 5, "max_func": 81},
+    "backend/app/domains/positions/views.py": {"lines": 373, "orm_queries": 8, "commits": 5, "max_func": 81},
     "backend/app/domains/reconciliation/views.py": {"lines": 225, "orm_queries": 2, "commits": 3, "max_func": 48},
     "backend/app/domains/search/views.py": {"lines": 25, "orm_queries": 0, "commits": 0, "max_func": 7},
     "backend/app/domains/securities/views.py": {"lines": 72, "orm_queries": 1, "commits": 0, "max_func": 35},
     "backend/app/domains/strategy/views.py": {"lines": 239, "orm_queries": 9, "commits": 4, "max_func": 98},
-    "backend/app/domains/summary/views.py": {"lines": 139, "orm_queries": 0, "commits": 0, "max_func": 20},
+    "backend/app/domains/summary/views.py": {"lines": 141, "orm_queries": 0, "commits": 0, "max_func": 20},
     "backend/app/domains/temperature/views.py": {"lines": 140, "orm_queries": 0, "commits": 0, "max_func": 38},
     "backend/app/domains/transactions/views.py": {"lines": 198, "orm_queries": 4, "commits": 1, "max_func": 76},
     "backend/app/domains/usage/views.py": {"lines": 68, "orm_queries": 0, "commits": 0, "max_func": 27},

@@ -79,7 +79,7 @@ def get_temperature_history():
         data = TemperatureService.get_history(source, days)
         return jsonify({'data': data, 'message': 'success'})
     except Exception as e:
-        return jsonify({'message': str(e)}), 500
+        return jsonify({'message': str(e), 'error_code': 5004, 'data': None}), 500
 
 
 @thermometer_bp.get('/multi')
@@ -89,7 +89,7 @@ def get_multi_items():
     date_str = request.args.get('date')
 
     if not source:
-        return jsonify({'message': 'source 参数必填'}), 400
+        return jsonify({'message': 'source 参数必填', 'error_code': 1001, 'data': None}), 400
 
     target_date = None
     if date_str:
@@ -99,7 +99,7 @@ def get_multi_items():
         data = TemperatureService.get_multi_items(source, target_date)
         return jsonify({'data': data, 'message': 'success'})
     except Exception as e:
-        return jsonify({'message': str(e)}), 500
+        return jsonify({'message': str(e), 'error_code': 5004, 'data': None}), 500
 
 
 @thermometer_bp.get('/crowding-history')

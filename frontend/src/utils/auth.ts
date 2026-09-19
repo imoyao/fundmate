@@ -36,7 +36,7 @@ export function removeToken() {
   Cookies.remove(TokenKey);
   Cookies.remove(multipleTabsKey);
   storageLocal().removeItem(userKey);
-  // 注意：Supabase session 的清理统一由后端 /api/auth/logout 负责，
+  // 注意：Supabase session 的清理统一由后端 /api/auth/logout/ 负责，
   // 前端不再直连 supabase.co，避免把认证请求暴露在公网。
 }
 

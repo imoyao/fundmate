@@ -97,6 +97,7 @@ def create_asset():
                         {
                             'data': None,
                             'message': '错误：固定资产（房产/车辆/固定设备）不能绑定到银行账户下，请选择「实物资产」账户',
+                            'error_code': 1001,
                         }
                     ), 400
 
@@ -133,7 +134,11 @@ def update_asset(id):
 
             if new_ledger.ledger_type == 'bank' and target_major in ('fixed', 'real_estate', 'vehicle'):
                 return jsonify(
-                    {'data': None, 'message': '错误：固定资产不能迁移到银行账户下，请选择「实物资产」账户'}
+                    {
+                        'data': None,
+                        'message': '错误：固定资产不能迁移到银行账户下，请选择「实物资产」账户',
+                        'error_code': 1001,
+                    }
                 ), 400
 
         if 'amount' in update_data:
