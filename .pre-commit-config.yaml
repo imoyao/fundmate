@@ -102,3 +102,11 @@ repos:
         language: python
         files: ^backend/app/.*\.py$
         pass_filenames: false
+      - id: guard-error-envelope
+        name: guard error envelope (error_code present)
+        entry: python scripts/guard_error_envelope.py
+        language: python
+        # 错误响应三字段信封（#1610）：视图内自建错误响应必须带 error_code。
+        # 此前 63 处只有 {data, message}，temperature 3 处连 data 都缺
+        files: ^backend/app/.*\.py$
+        pass_filenames: false

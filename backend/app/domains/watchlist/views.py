@@ -1026,9 +1026,9 @@ def create_item():
         except ValueError as e:
             msg = str(e)
             if '已在自选' in msg:
-                return jsonify({'data': None, 'message': msg}), 409
+                return jsonify({'data': None, 'message': msg, 'error_code': 1003}), 409
             else:
-                return jsonify({'data': None, 'message': msg}), 400
+                return jsonify({'data': None, 'message': msg, 'error_code': 1001}), 400
 
 
 @watchlist_bp.patch('/items/<int:item_id>/')

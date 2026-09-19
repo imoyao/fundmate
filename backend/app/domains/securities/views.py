@@ -25,7 +25,7 @@ def get_price_range(symbol: str):
         try:
             _date.fromisoformat(raw)
         except ValueError:
-            return jsonify({'data': None, 'message': '日期格式错误，应为 YYYY-MM-DD'}), 400
+            return jsonify({'data': None, 'message': '日期格式错误，应为 YYYY-MM-DD', 'error_code': 1001}), 400
 
     # 复用统一价格区间服务（含代码归一化、本地优先、实时兜底）。
     data = resolve_security_price_range(symbol, raw, use_live_fallback=True)

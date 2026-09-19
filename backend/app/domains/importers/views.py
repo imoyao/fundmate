@@ -128,6 +128,7 @@ def parse_file():
                 'duplicate_count': 0,
                 'cash_transfer_count': 0,
                 'message': msg,
+                'error_code': 1001,
             }
         ), 400
     except Exception as e:
@@ -140,6 +141,7 @@ def parse_file():
                 'duplicate_count': 0,
                 'cash_transfer_count': 0,
                 'message': f'服务器内部错误: {str(e)}',
+                'error_code': 5004,
             }
         ), 500  # 注意返回 500，前端能识别
 
@@ -216,6 +218,7 @@ def parse_holding_file():
                 'ledger_id': None,
                 'ledger_name': '',
                 'message': msg,
+                'error_code': 1001,
             }
         ), 400
     except Exception as e:
@@ -229,6 +232,7 @@ def parse_holding_file():
                 'ledger_id': None,
                 'ledger_name': '',
                 'message': f'服务器内部错误: {str(e)}',
+                'error_code': 5004,
             }
         ), 500
 

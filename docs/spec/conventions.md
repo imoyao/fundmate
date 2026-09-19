@@ -32,6 +32,7 @@ title: 全局强制设计规范（conventions · 🔒 冻结区）
 
 - 任何后端重构、服务层抽取、代码优化，**对外 API 必须完全兼容**，请求参数、响应字段、嵌套结构、状态码不可变动
 - 前端筛选参数、分页参数、类型枚举参数属于全局契约，变更必须同步更新前端、测试、文档并记录 Breaking Change
+- **错误响应统一信封（#1610，2026-09-19 决策 D27）**：错误路径一律返回 `{data, message, error_code}` **三字段**（成功响应保持 `{data, message}` 不变）；`error_code` 取 `app/core/exceptions.py::ErrorCode` 的 **int** 值（与 `main.py` 全局处理器 / `SBException` 一致），**禁止**新增 string 码或两字段错误体。静态守卫 `scripts/guard_error_envelope.py`（pre-commit + CI），新增错误响应无需手写 `data`/`error_code` 之外的判断逻辑。
 
 ### 2.5 测试强制规范
 

@@ -65,7 +65,7 @@ def get_fund_nav(fund_code: str):
 
             target = _date.fromisoformat(raw)
         except ValueError:
-            return jsonify({'data': None, 'message': '日期格式错误，应为 YYYY-MM-DD'}), 400
+            return jsonify({'data': None, 'message': '日期格式错误，应为 YYYY-MM-DD', 'error_code': 1001}), 400
 
     with get_db() as db:
         from app.domains.funds.models import DailyWorth
@@ -94,7 +94,7 @@ def get_fund_fee_rates(fund_code: str):
     with get_db() as db:
         data = FundService.get_fund_fee_rates(db, fund_code)
         if data is None:
-            return jsonify({'data': None, 'message': '基金代码不存在'}), 404
+            return jsonify({'data': None, 'message': '基金代码不存在', 'error_code': 1002}), 404
     return jsonify({'data': data, 'message': 'ok'})
 
 
@@ -107,14 +107,14 @@ def estimate_redeem_fee():
 
     # 细化参数缺失提示
     if not position_id:
-        return jsonify({'data': None, 'message': '缺少持仓 ID'}), 400
+        return jsonify({'data': None, 'message': '缺少持仓 ID', 'error_code': 1001}), 400
     if not sell_date_str:
-        return jsonify({'data': None, 'message': '缺少卖出日期'}), 400
+        return jsonify({'data': None, 'message': '缺少卖出日期', 'error_code': 1001}), 400
 
     try:
         sell_date = datetime.strptime(sell_date_str, '%Y-%m-%d').date()
     except ValueError:
-        return jsonify({'data': None, 'message': '日期格式错误'}), 400
+        return jsonify({'data': None, 'message': '日期格式错误', 'error_code': 1001}), 400
 
     raw_shares = data.get('shares')
     sell_shares = None
@@ -124,7 +124,7 @@ def estimate_redeem_fee():
             if val > 0:
                 sell_shares = val
         except (TypeError, ValueError):
-            return jsonify({'data': None, 'message': '份额格式错误'}), 400
+            return jsonify({'data': None, 'message': '份额格式错误', 'error_code': 1001}), 400
 
     with get_db() as db:
         try:
@@ -137,7 +137,7 @@ def estimate_redeem_fee():
             )
             return jsonify({'data': result, 'message': 'ok'})
         except ValueError as e:
-            return jsonify({'data': None, 'message': str(e)}), 400
+            return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400
 
 
 @bp.post('/<string:fund_code>/fee-sync/')
@@ -175,7 +175,7 @@ def get_advisor_holdings(code: str):
         portfolio = db.query(AdvisorPortfolio).filter_by(code=code).first()
         if portfolio is None:
             # 错误响应补齐统一信封的 error_code（#1491 评审）：前端据此区分错误类型
-            return jsonify({'data': None, 'message': '投顾组合不存在', 'error_code': 'ADVISOR_NOT_FOUND'}), 404
+            return jsonify({'data': None, 'message': '投顾组合不存在', 'error_code': 1002}), 404
 
         as_of = db.query(func.max(AdvisorHolding.as_of_date)).filter_by(portfolio_id=portfolio.id).scalar()
         if as_of is None:
@@ -251,7 +251,7 @@ def get_advisor_adjusts(code: str):
         portfolio = db.query(AdvisorPortfolio).filter_by(code=code).first()
         if portfolio is None:
             # 错误响应补齐统一信封的 error_code（#1491 评审）
-            return jsonify({'data': None, 'message': '投顾组合不存在', 'error_code': 'ADVISOR_NOT_FOUND'}), 404
+            return jsonify({'data': None, 'message': '投顾组合不存在', 'error_code': 1002}), 404
 
         q = db.query(AdvisorAdjustHistory.adjust_date).filter_by(portfolio_id=portfolio.id)
         if only_date:

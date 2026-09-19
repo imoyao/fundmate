@@ -373,17 +373,19 @@ def create_ledger():
         with get_db() as db:
             institution = db.query(SalesInstitution).filter_by(id=sales_institution_id).first()
             if not institution:
-                return jsonify({'data': None, 'message': '关联的销售机构不存在'}), 400
+                return jsonify({'data': None, 'message': '关联的销售机构不存在', 'error_code': 1001}), 400
             institution_org_type = institution.org_type
 
     # 校验关联的现金账户
     if linked_cash_id is not None:
         if ledger_type not in ('stock', 'fund'):
-            return jsonify({'data': None, 'message': '只有证券账户或基金可以关联现金账户'}), 400
+            return jsonify({'data': None, 'message': '只有证券账户或基金可以关联现金账户', 'error_code': 1001}), 400
         with get_db() as db:
             cash_ledger = db.query(Ledger).filter_by(id=linked_cash_id, ledger_type='bank').first()
             if not cash_ledger or cash_ledger.family_id != get_family_id():
-                return jsonify({'data': None, 'message': '关联的现金账户不存在或类型不是现金账户'}), 400
+                return jsonify(
+                    {'data': None, 'message': '关联的现金账户不存在或类型不是现金账户', 'error_code': 1001}
+                ), 400
 
     # 派生 channel_category / ledger_type（#1101 渠道分类重设计，铁律见设计文档 §2.3）：
     #   - 显式给了 channel_category → 以它为准，并据其反推 ledger_type（手动账本路径）；
@@ -404,17 +406,17 @@ def create_ledger():
     linked_money_fund_id = None
     if linked_money_fund_code:
         if ledger_type not in ('stock', 'fund'):
-            return jsonify({'data': None, 'message': '只有证券账户或基金可以绑定活期+'}), 400
+            return jsonify({'data': None, 'message': '只有证券账户或基金可以绑定活期+', 'error_code': 1001}), 400
         with get_db() as db:
             fund = _resolve_money_fund(db, linked_money_fund_code)
             if not fund:
-                return jsonify({'data': None, 'message': '绑定的活期+不存在'}), 400
+                return jsonify({'data': None, 'message': '绑定的活期+不存在', 'error_code': 1001}), 400
             reject = _check_money_fund_bindable(db, fund, ledger_type)
             if reject:
-                return jsonify({'data': None, 'message': reject}), 400
+                return jsonify({'data': None, 'message': reject, 'error_code': 1001}), 400
             linked_money_fund_id = fund.id
     elif auto_purchase_money_fund:
-        return jsonify({'data': None, 'message': '请先绑定活期+，再开启自动申购'}), 400
+        return jsonify({'data': None, 'message': '请先绑定活期+，再开启自动申购', 'error_code': 1001}), 400
 
     with get_db() as db:
         ledger = Ledger(
@@ -533,7 +535,7 @@ def reorder_ledgers():
     ledger_type = data.get('ledger_type')
     ordered_ids = data.get('ordered_ids')
     if not isinstance(ledger_type, str) or not isinstance(ordered_ids, list):
-        return jsonify({'data': None, 'message': '参数错误：ledger_type 与 ordered_ids 必填'}), 400
+        return jsonify({'data': None, 'message': '参数错误：ledger_type 与 ordered_ids 必填', 'error_code': 1001}), 400
 
     with get_db() as db:
         fam = get_family_id()
@@ -605,7 +607,7 @@ def update_ledger(ledger_id: int):
         if name is not None:
             name = name.strip()
             if not name:
-                return jsonify({'data': None, 'message': '账户名称不能为空'}), 400
+                return jsonify({'data': None, 'message': '账户名称不能为空', 'error_code': 1001}), 400
             if name != ledger.name:
                 renamed_to = name
             ledger.name = name
@@ -622,7 +624,11 @@ def update_ledger(ledger_id: int):
             )
             if has_data:
                 return jsonify(
-                    {'data': None, 'message': '账户已有交易/持仓/资产数据，类型不可更改；如需调整请先归档后新建'}
+                    {
+                        'data': None,
+                        'message': '账户已有交易/持仓/资产数据，类型不可更改；如需调整请先归档后新建',
+                        'error_code': 1003,
+                    }
                 ), 409
             ledger.ledger_type = ledger_type
 
@@ -630,7 +636,7 @@ def update_ledger(ledger_id: int):
         if 'is_active' in data:
             is_active = data['is_active']
             if not isinstance(is_active, bool):
-                return jsonify({'data': None, 'message': 'is_active 必须为布尔值'}), 400
+                return jsonify({'data': None, 'message': 'is_active 必须为布尔值', 'error_code': 1001}), 400
             ledger.is_active = is_active
 
         default_allocation = data.get('default_allocation')
@@ -652,10 +658,14 @@ def update_ledger(ledger_id: int):
             if linked_cash_id is not None:
                 current_type = ledger_type if ledger_type is not None else ledger.ledger_type
                 if current_type not in ('stock', 'fund'):
-                    return jsonify({'data': None, 'message': '只有证券账户或基金可以关联现金账户'}), 400
+                    return jsonify(
+                        {'data': None, 'message': '只有证券账户或基金可以关联现金账户', 'error_code': 1001}
+                    ), 400
                 cash_ledger = db.query(Ledger).filter_by(id=linked_cash_id, ledger_type='bank').first()
                 if not cash_ledger or cash_ledger.family_id != get_family_id():
-                    return jsonify({'data': None, 'message': '关联的现金账户不存在或类型不是现金账户'}), 400
+                    return jsonify(
+                        {'data': None, 'message': '关联的现金账户不存在或类型不是现金账户', 'error_code': 1001}
+                    ), 400
             # 无论值是否为 None，均更新
             ledger.linked_cash_ledger_id = linked_cash_id
 
@@ -670,13 +680,15 @@ def update_ledger(ledger_id: int):
                 ledger.auto_purchase_money_fund = False
             else:
                 if ledger.ledger_type not in ('stock', 'fund'):
-                    return jsonify({'data': None, 'message': '只有证券账户或基金可以绑定活期+'}), 400
+                    return jsonify(
+                        {'data': None, 'message': '只有证券账户或基金可以绑定活期+', 'error_code': 1001}
+                    ), 400
                 fund = _resolve_money_fund(db, fund_code)
                 if not fund:
-                    return jsonify({'data': None, 'message': '绑定的活期+不存在'}), 400
+                    return jsonify({'data': None, 'message': '绑定的活期+不存在', 'error_code': 1001}), 400
                 reject = _check_money_fund_bindable(db, fund, ledger.ledger_type)
                 if reject:
-                    return jsonify({'data': None, 'message': reject}), 400
+                    return jsonify({'data': None, 'message': reject, 'error_code': 1001}), 400
                 ledger.linked_money_fund_id = fund.id
                 # #1137 换绑活期+：原绑定货基仍有净额持仓时，赎回 A 并申购 B（资产中性）。
                 # 仅当从 A 换到 B（ID 不同）才触发，首次绑定 / 解绑重绑不触发。
@@ -689,9 +701,11 @@ def update_ledger(ledger_id: int):
         if 'auto_purchase_money_fund' in data:
             auto_purchase = data['auto_purchase_money_fund']
             if not isinstance(auto_purchase, bool):
-                return jsonify({'data': None, 'message': 'auto_purchase_money_fund 必须为布尔值'}), 400
+                return jsonify(
+                    {'data': None, 'message': 'auto_purchase_money_fund 必须为布尔值', 'error_code': 1001}
+                ), 400
             if auto_purchase and not ledger.linked_money_fund_id:
-                return jsonify({'data': None, 'message': '请先绑定活期+，再开启自动申购'}), 400
+                return jsonify({'data': None, 'message': '请先绑定活期+，再开启自动申购', 'error_code': 1001}), 400
             ledger.auto_purchase_money_fund = auto_purchase
 
         # 更新 sales_institution_id（允许设置为 None）
@@ -700,7 +714,7 @@ def update_ledger(ledger_id: int):
             if sales_institution_id is not None:
                 institution = db.query(SalesInstitution).filter_by(id=sales_institution_id).first()
                 if not institution:
-                    return jsonify({'data': None, 'message': '关联的销售机构不存在'}), 400
+                    return jsonify({'data': None, 'message': '关联的销售机构不存在', 'error_code': 1001}), 400
             # 无论值是否为 None，均更新
             ledger.sales_institution_id = sales_institution_id
 
@@ -720,7 +734,7 @@ def update_ledger(ledger_id: int):
             elif isinstance(fee_config, str):
                 ledger.fee_config = fee_config
             else:
-                return jsonify({'data': None, 'message': 'fee_config 格式无效'}), 400
+                return jsonify({'data': None, 'message': 'fee_config 格式无效', 'error_code': 1001}), 400
 
         # #1354：改名后级联刷新下游快照，否则明细页仍显示旧账户名
         if renamed_to:
@@ -764,6 +778,7 @@ def delete_ledger(ledger_id: int):
                     {
                         'data': None,
                         'message': f'无法删除：账户「{ledger.name}」下还有 {position_count} 笔持仓、{asset_count} 项资产、{transaction_count} 笔交易，请先迁移或勾选"同时删除"',
+                        'error_code': 1001,
                     }
                 ), 400
 
@@ -966,13 +981,13 @@ def preview_migration(ledger_id: int):
     data = request.get_json() or {}
     target_id = data.get('target_ledger_id')
     if not target_id:
-        return jsonify({'data': None, 'message': '缺少 target_ledger_id'}), 400
+        return jsonify({'data': None, 'message': '缺少 target_ledger_id', 'error_code': 1001}), 400
 
     with get_db() as db:
         source = get_owned_or_404(db, Ledger, ledger_id)
         target = db.query(Ledger).get(target_id)
         if not source or not target:
-            return jsonify({'data': None, 'message': '账户不存在'}), 404
+            return jsonify({'data': None, 'message': '账户不存在', 'error_code': 1002}), 404
         err = _check_migration_target(source, target)
         if err:
             return jsonify(err[0]), err[1]
@@ -1101,13 +1116,13 @@ def commit_migration(ledger_id: int):
     data = request.get_json() or {}
     target_id = data.get('target_ledger_id')
     if not target_id:
-        return jsonify({'data': None, 'message': '缺少 target_ledger_id'}), 400
+        return jsonify({'data': None, 'message': '缺少 target_ledger_id', 'error_code': 1001}), 400
 
     with get_db() as db:
         source = get_owned_or_404(db, Ledger, ledger_id)
         target = db.query(Ledger).get(target_id)
         if not source or not target:
-            return jsonify({'data': None, 'message': '账户不存在'}), 404
+            return jsonify({'data': None, 'message': '账户不存在', 'error_code': 1002}), 404
         err = _check_migration_target(source, target)
         if err:
             return jsonify(err[0]), err[1]
@@ -1122,6 +1137,7 @@ def commit_migration(ledger_id: int):
                     'data': None,
                     'message': '跨销售机构迁移需显式确认，可能造成交易归属混乱；'
                     '请携带 allow_cross_institution=true 重试',
+                    'error_code': 1001,
                 }
             ), 400
 
@@ -1174,6 +1190,7 @@ def commit_migration(ledger_id: int):
                 {
                     'data': None,
                     'message': '以下冲突项未决议，请逐条选择保留源/保留目标/合并后再提交：' + '、'.join(unresolved),
+                    'error_code': 1001,
                 }
             ), 400
 
@@ -1289,7 +1306,7 @@ def commit_migration(ledger_id: int):
             db.rollback()
             # 记录完整堆栈便于排查；对外只返回统一信封，不泄露内部细节
             logger.exception('账本迁移提交失败，已整体回滚：src={} tgt={}', ledger_id, target_id)
-            return jsonify({'data': None, 'message': '迁移失败，已整体回滚，源数据未变动'}), 500
+            return jsonify({'data': None, 'message': '迁移失败，已整体回滚，源数据未变动', 'error_code': 5004}), 500
 
         message = (
             f'已迁移至「{target.name}」：{migrated} 项持仓迁入、{deduped} 项去重、'
@@ -1374,7 +1391,7 @@ def get_ledger_positions(ledger_id: int):
     with get_db() as db:
         ledger = get_owned_or_404(db, Ledger, ledger_id)
         if not ledger:
-            return jsonify({'data': None, 'message': '账户不存在'}), 404
+            return jsonify({'data': None, 'message': '账户不存在', 'error_code': 1002}), 404
         items, total = LedgerService.get_positions_paginated(db, ledger.id, page, per_page, search=search)
         return jsonify(
             {
@@ -1399,7 +1416,7 @@ def get_ledger_transactions(ledger_id: int):
     with get_db() as db:
         ledger = get_owned_or_404(db, Ledger, ledger_id)
         if not ledger:
-            return jsonify({'data': None, 'message': '账户不存在'}), 404
+            return jsonify({'data': None, 'message': '账户不存在', 'error_code': 1002}), 404
         items, total = LedgerService.get_transactions_paginated(db, ledger.id, page, per_page, search=search)
         return jsonify(
             {
@@ -1697,7 +1714,7 @@ def migrate_orphan_data():
     data = request.get_json() or {}
     target_id = data.get('target_ledger_id')
     if not target_id:
-        return jsonify({'data': None, 'message': '缺少 target_ledger_id'}), 400
+        return jsonify({'data': None, 'message': '缺少 target_ledger_id', 'error_code': 1001}), 400
 
     with get_db() as db:
         target = get_owned_or_404(db, Ledger, target_id)
@@ -1747,7 +1764,9 @@ def migrate_orphan_data():
         except IntegrityError:
             # uq_positions_ledger_symbol 唯一约束冲突：归入导致目标账户出现同名持仓
             db.rollback()
-            return jsonify({'data': None, 'message': '归入失败：目标账户已存在同名持仓，请选择其他账户'}), 400
+            return jsonify(
+                {'data': None, 'message': '归入失败：目标账户已存在同名持仓，请选择其他账户', 'error_code': 1001}
+            ), 400
 
         total = position_count + asset_count + transaction_count
         return jsonify(

@@ -659,3 +659,37 @@ EP 主按钮禁用态走 `--el-button-disabled-bg-color: var(--el-color-primary-
 `node scripts/check_css_vars.mjs`（令牌定义 / 引用一致）；
 `node scripts/audit_text_contrast.mjs --all`（文字色，非本卡主口径）；
 真机：`node scripts/axe_contrast_audit.mjs --routes /profile,/asset/ledgers`（亮）+ `--theme dark`（暗）——**当前环境受阻**。
+
+## 2026-09-19 错误响应统一信封（#1610，D27）：63 处已补齐 + 守卫上线
+
+### 已完成
+
+| 项 | 内容 | 证据 |
+|---|---|---|
+| 63 处补齐 `error_code` | AST 口径（`return jsonify({...}), status>=400` 的 dict 字面量）实测 63 处，按 HTTP 状态映射 `ErrorCode.code` 补齐；缺 `data` 的一并补 `None` | `python scripts/guard_error_envelope.py` → `OK`（扫描 229 文件）；diff 为 **63 行改动**、零附带损伤 |
+| 5 处 string 码归位 int | `ADVISOR_NOT_FOUND`→1002、`INVALID_PARAMS`→1001、`GHOST_DUPLICATES_SCAN_FAILED`→5004 | 统一后全仓 `error_code` 仅 int（复扫 0 处 string） |
+| 静态守卫 | 新增 `scripts/guard_error_envelope.py`（只读扫描 + `--fix` 幂等修复），接入 pre-commit 与 CI 的 backend job（**不新增 job、不动 `gate.needs`**） | `.pre-commit-config.yaml`、`.github/workflows/ci.yml` |
+| 规范与决策 | 条款写入冻结区 `conventions.md` §2.4；决策 + **事故记录**入 `decisions.md`（D27） | — |
+| 验证 | `tests/test_error_envelope.py` + `tests/test_auth.py` + `tests/domains` → **683 passed**；`ruff check/format` 全绿 | — |
+
+### 事故记录（防重蹈）
+
+首个未入库实现 `scripts/audit_error_envelope.py` 用 `ast.unparse` 重写 dict 文本，
+且按**字符偏移**拼接（`ast` 的 `col_offset` 实为 **UTF-8 字节偏移**）→ **8 个 views.py 被写坏**
+（dict 之后的源码被整段吃掉），而它把解析失败的**静默 `[SKIP]`**，于是自扫报 `OK`（**假绿**）。
+修正版：字节偏移 + 只插入 + 写盘前自校验 + 解析失败即红灯；旧脚本已删除。
+**教训**：任何「改源码」的脚本，落盘前必须**重新解析 + 复扫**，且**不得对解析失败静默跳过**。
+
+### 开口项
+
+| # | 事项 | 说明 |
+|---|---|---|
+| 1 | `summary/views.py` 6 处逐视图 `try/except Exception → 500` 未收敛 | 仍重复实现全局处理器职责、绕过 `logger.opt(exception=True)` 留痕。收敛会让 500 响应体由 `data: {空结构}` / `message: '服务器内部错误: <内部细节>'` 变为 `data: None` / 泛化 message（**对外可观察变化**），需单独拍板 |
+| 2 | 前端尚未消费 `error_code` | 契约已可用（三字段 + int），前端 `api/search.ts` 目前仅声明类型未分支处理；接入错误分类时可直接用 |
+
+### 复跑
+
+```bash
+python scripts/guard_error_envelope.py
+cd backend && pdm run pytest tests/test_error_envelope.py tests/test_auth.py tests/domains -p no:xdist -q
+```
