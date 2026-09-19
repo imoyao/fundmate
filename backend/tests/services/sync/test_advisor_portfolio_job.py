@@ -607,6 +607,97 @@ def test_qieman_first_snapshot_creates_no_adjust(db):
     assert db.query(AdvisorHolding).filter_by(portfolio_id=p.id).count() == 1
 
 
+def _seed_drift_snapshot(db, code: str, as_of: date, ratios: dict) -> AdvisorPortfolio:
+    """落一条 QIEMAN 组合 + 一条历史持仓快照（模拟"上次抓取"的结果）。"""
+    p = AdvisorPortfolio(platform='QIEMAN', code=code, name='漂移组合')
+    db.add(p)
+    db.commit()
+    db.bulk_insert_mappings(
+        AdvisorHolding,
+        [
+            {
+                'portfolio_id': p.id,
+                'as_of_date': as_of,
+                'fund_code': c,
+                'fund_name': c,
+                'after_ratio': r,
+                'source': 'qieman',
+            }
+            for c, r in ratios.items()
+        ],
+    )
+    db.commit()
+    return p
+
+
+def _derived_source(as_of: str, ratios: dict) -> _FakeSource:
+    return _FakeSource(
+        'QIEMAN',
+        has_official_rebalances=False,
+        derive_rebalances=True,
+        holdings={
+            'as_of_date': as_of,
+            'funds': [{'fund_code': c, 'fund_name': c, 'after_ratio': r} for c, r in ratios.items()],
+        },
+    )
+
+
+def test_qieman_net_value_drift_writes_no_adjust(db):
+    """#1622 回归：占比是市值口径、每天随净值微漂（实测 p99≈0.23pp）——不得记成调仓。
+
+    原实现的症状：每个交易日都写满一整组「调仓」（没变的写 op=5 持平），
+    自选页抽屉里因此每天一条调仓历史。
+    """
+    p = _seed_drift_snapshot(db, 'ZH0001622', date(2026, 9, 17), {'000001': 10.30, '000002': 5.50, '000003': 3.10})
+    src = _derived_source('2026-09-18 00:00:00', {'000001': 10.38, '000002': 5.42, '000003': 3.18})
+
+    _make_job(db, QIEMAN=src).run(full_sync=True, targets=['ZH0001622'])
+
+    assert db.query(AdvisorAdjustHistory).filter_by(portfolio_id=p.id).count() == 0, '净值漂移被误记为调仓'
+    # 快照本身仍照常落库（持仓序列不受影响）
+    assert db.query(AdvisorHolding).filter_by(portfolio_id=p.id, as_of_date=date(2026, 9, 18)).count() == 3
+
+
+def test_qieman_only_real_changes_recorded_no_flat_rows(db):
+    """只有超阈值的真实变化入账，且**不写 op=5 持平行**（没变不是调仓）。"""
+    p = _seed_drift_snapshot(db, 'ZH0001623', date(2026, 9, 17), {'000001': 10.0, '000002': 5.0, '000003': 3.0})
+    # 000001 真实加仓 2.5pp；000002/000003 只有漂移
+    src = _derived_source('2026-09-18 00:00:00', {'000001': 12.5, '000002': 5.1, '000003': 2.9})
+
+    _make_job(db, QIEMAN=src).run(full_sync=True, targets=['ZH0001623'])
+
+    rows = db.query(AdvisorAdjustHistory).filter_by(portfolio_id=p.id).all()
+    assert [r.fund_code for r in rows] == ['000001']
+    assert rows[0].op_name == '加仓'
+    assert float(rows[0].pre_ratio) == pytest.approx(10.0)
+    assert float(rows[0].after_ratio) == pytest.approx(12.5)
+    assert all(r.op_code != 5 for r in rows), '不得再写「持平」行'
+
+
+def test_qieman_sub_threshold_change_is_ignored(db):
+    """低于阈值的持仓变化**有意不记录**（宁缺勿噪）——阈值语义的显式钉住。"""
+    p = _seed_drift_snapshot(db, 'ZH0001624', date(2026, 9, 17), {'000001': 10.0})
+    # 新增一只但仓位只有 0.4pp（< 0.5pp 阈值）
+    src = _derived_source('2026-09-18 00:00:00', {'000001': 10.2, '000009': 0.4})
+
+    _make_job(db, QIEMAN=src).run(full_sync=True, targets=['ZH0001624'])
+
+    assert db.query(AdvisorAdjustHistory).filter_by(portfolio_id=p.id).count() == 0
+
+
+def test_qieman_clear_position_beyond_threshold_is_recorded(db):
+    """清仓超过阈值仍要记（回归：过滤逻辑不能把"清仓"这类真实事件也滤掉）。"""
+    p = _seed_drift_snapshot(db, 'ZH0001625', date(2026, 9, 17), {'000001': 6.0, '000002': 4.0})
+    src = _derived_source('2026-09-18 00:00:00', {'000001': 6.05})
+
+    _make_job(db, QIEMAN=src).run(full_sync=True, targets=['ZH0001625'])
+
+    rows = db.query(AdvisorAdjustHistory).filter_by(portfolio_id=p.id).all()
+    assert [r.fund_code for r in rows] == ['000002']
+    assert rows[0].op_name == '减仓'
+    assert float(rows[0].after_ratio) == pytest.approx(0.0)
+
+
 def test_job_rejects_single_platform_adapter(db):
     """#1392 起一任务多平台：把单平台适配器塞进 adapter 槽位应报错（否则审计口径会失真）。"""
     with pytest.raises(TypeError):

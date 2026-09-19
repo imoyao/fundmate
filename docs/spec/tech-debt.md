@@ -707,3 +707,30 @@ issue #1607 的处置策略是「先出决策 + 分批收敛」。**批次 1** =
 python scripts/guard_layer_direction.py
 cd backend && pdm run pytest tests/core/test_layer_direction.py tests/core/test_identity_wiring.py -p no:xdist -q
 ```
+
+## 2026-09-20 投顾调仓历史只记真实变化（#1622）
+
+### 已完成
+
+| 项 | 内容 | 证据 |
+|---|---|---|
+| 判定口径 | `_derive_adjust_from_snapshots` 只记 `|Δratio| > 0.5pp`（≈2×漂移 p99）的基金；不写 `op=5 持平`；过滤后为空不写任何行 | `ADVISOR_ADJUST_MIN_DELTA_PCT` 注释含 4880 个基金级差异的分位数标定 |
+| 回归网 | 新增 4 条用例：漂移不记 / 只记真变化且无持平行 / 低于阈值不记 / 超阈值清仓仍记 | `tests/services/sync/test_advisor_portfolio_job.py` 21 passed；**灵敏度反向验证**（阈值置 0 → 3 条转红） |
+| 数据修复 | 一次性脚本 `backend/scripts/repair_advisor_adjust_history.py`（幂等、默认 dry-run、只重建推导类行，官方行绝不触碰） | 开发库：**4907 行噪音 → 53 行真实调仓**；修复后 102 个且慢组合仅 8 个有调仓记录，`op=5` 行 0 条 |
+
+### 开口项
+
+| # | 事项 | 说明 |
+|---|---|---|
+| 1 | 且慢调仓历史只能从**首个持仓快照**起算 | 且慢 MCP 无历史调仓接口，无法回溯更早的真实调仓。若要历史回溯，只能换/补数据源（属另一决策） |
+| 2 | 阈值口径为「逐日比较 + 单日超阈」 | 若日后出现「一次调仓分多日、每天低于 0.5pp」的形态会漏记；届时改为累计口径并重标阈值 |
+| 3 | 生产库（Turso）需执行修复脚本 | 部署后在生产环境跑一次 `repair_advisor_adjust_history.py --apply`（先 dry-run 核对行数） |
+| 4 | 低于 0.5pp 的真实微调被有意忽略 | 宁缺勿噪；若用户反馈"小调仓看不到"，可下调阈值（需重新核对漂移 p99） |
+
+### 复跑
+
+```bash
+cd backend && pdm run pytest tests/services/sync/test_advisor_portfolio_job.py -p no:xdist -q
+cd backend && pdm run python scripts/repair_advisor_adjust_history.py            # dry-run
+cd backend && pdm run python scripts/repair_advisor_adjust_history.py --apply    # 落库
+```
