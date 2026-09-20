@@ -11,8 +11,10 @@
 #   必须配 branch protection；而 protection 仅在仓库为 public（或账户为付费计划）时可用，
 #   切回 private 后会失效（届时门禁退回「可见但不阻止」，须人工把关，见 AGENTS.md 项目概述）。
 #
-# 注意：后端依赖走阿里云镜像且含 gitee 上的 xalpha，海外 runner 安装可能偏慢；
-#       若 install 超时，可将 PDM 源改为官方 PyPI 提速（不影响本项目配置）。
+# 依赖源（#1628）：本地走阿里云镜像（backend/pyproject.toml 声明，国内快，勿动）；
+#   GitHub runner 在海外，拉阿里云 wheel 实测仅 0.08 MB/s（同一 runner 拉官方 PyPI 为
+#   81.99 MB/s，差约 1000 倍），冷启动会把「安装依赖」拖到 20+ 分钟并撞下方 30 分钟 job 上限。
+#   故 CI 在安装前显式切为官方 PyPI——本机不受影响。
 
 name: 质量门禁 CI
 
@@ -97,6 +99,31 @@ jobs:
           restore-keys: |
             pdm-${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-
             pdm-${{ runner.os }}-
+
+      # 依赖源按环境切换（#1628）：pyproject.toml 声明的阿里云镜像只适合国内本机；
+      # 海外 runner 必须走官方 PyPI（实测 81.99 MB/s vs 0.08 MB/s）。
+      # 已实测 PDM 2.26/2.29 下 [[tool.pdm.source]] 优先于 PDM_PYPI_URL 环境变量
+      # （项目源写成必败地址后仍报 ECONNREFUSED），故只能改写工作区文件，不能用 env 覆盖。
+      # 命中数 != 1 时直接失败——宁可红，也不要静默回退到慢源（此前正是这样拖到 24 分钟）。
+      - name: 切换依赖源为官方 PyPI（海外 runner）
+        run: |
+          python - <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          path = pathlib.Path('pyproject.toml')
+          text = path.read_text(encoding='utf-8')
+          text, hits = re.subn(
+              r'url = "https://mirrors\.aliyun\.com/pypi/simple/?"',
+              'url = "https://pypi.org/simple/"',
+              text,
+          )
+          if hits != 1:
+              sys.exit(f'[FAIL] 期望命中 1 处阿里云源声明，实际 {hits} 处——pyproject 源配置已变更，请同步本步骤（#1628）')
+          path.write_text(text, encoding='utf-8')
+          print('[OK] 依赖源已切换为 https://pypi.org/simple/')
+          PY
 
       # dev 组含 ruff / pytest / invoke 等
       - name: 安装依赖
