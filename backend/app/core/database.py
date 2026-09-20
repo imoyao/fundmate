@@ -98,6 +98,16 @@ def _get_routing_binds():
     return _ROUTING_BINDS
 
 
+def reset_routing_binds() -> None:
+    """使已缓存的域路由 binds 失效，下次 ``SessionLocal()`` 时按当前引擎重建。
+
+    测试替换引擎（conftest 重定向 ``engine`` / ``user_engine``）或运行时切换引擎后必须
+    调用，否则 ``_ROUTING_BINDS`` 仍指向旧引擎，导致会话偷偷连到旧库（#1608）。
+    """
+    global _ROUTING_BINDS
+    _ROUTING_BINDS = None
+
+
 class _RoutingSessionMaker(sessionmaker):
     """sessionmaker 子类：每次创建 session 时按表注入域路由 binds（懒构建一次）。
 

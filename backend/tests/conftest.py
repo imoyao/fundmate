@@ -36,7 +36,12 @@ def app(monkeypatch):
 
     monkeypatch.setattr('app.core.database.engine', test_engine)
     monkeypatch.setattr('app.core.database.user_engine', test_engine)
-    monkeypatch.setattr('app.core.database.SessionLocal', TestSessionLocal)
+    # 不再替换 SessionLocal maker：改为重定向引擎，使所有（含导入期早绑定的）SessionLocal()
+    # 调用经 _engine_for 解析到内存库，从而删除 conftest 的「模块名清单」式补丁（见 #1608）。
+    # 引擎重定向后必须让已缓存的域路由 binds 失效，否则 _ROUTING_BINDS 仍指向旧引擎。
+    import app.core.database as _db_mod
+
+    _db_mod.reset_routing_binds()
 
     # 双库架构支持：reconciliation 等 user 域表经 user_session 访问。
     # 测试需把 user_session 与 get_db(SessionLocal) 指向同一内存库，保证测试数据可见；
@@ -129,14 +134,26 @@ def _isolate_cache_file_dir(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def clean_db(app):
-    """每个测试结束后自动清空所有表，保证隔离"""
+    """每个测试结束后自动清空所有表，保证隔离。
+
+    只删当前会话引擎**实际存在**的表——#1608 后 SessionLocal 统一走路由 maker，clean_db
+    也可能落在被重定向到无表内存库的引擎上（部分 DB 内部单测），避免 NoSuchTableError；
+    若引擎被重定向为非连接对象（如单测用 sentinel），跳过清理。
+    """
     yield
+    from sqlalchemy import inspect
+
     from app.core.database import SessionLocal  # 延迟导入
 
     session = SessionLocal()
+    try:
+        existing = set(inspect(session.bind).get_table_names())
+    except Exception:
+        existing = set()
     # 按依赖逆序删除，避免外键错误
     for table in reversed(Base.metadata.sorted_tables):
-        session.execute(table.delete())
+        if table.name in existing:
+            session.execute(table.delete())
     session.commit()
     session.close()
 
