@@ -739,6 +739,70 @@ cd backend && pdm run pytest tests/core/test_layer_direction.py tests/core/test_
 cd backend && pdm run pytest tests/test_company_resolver.py tests/test_eastmoney_adapter.py -p no:xdist -q
 ```
 
+## 2026-09-19 错误响应统一信封（#1610，D27）：63 处已补齐 + 守卫上线
+
+### 已完成
+
+| 项 | 内容 | 证据 |
+|---|---|---|
+| 63 处补齐 `error_code` | AST 口径（`return jsonify({...}), status>=400` 的 dict 字面量）实测 63 处，按 HTTP 状态映射 `ErrorCode.code` 补齐；缺 `data` 的一并补 `None` | `python scripts/guard_error_envelope.py` → `OK`（扫描 229 文件）；diff 为 **63 行改动**、零附带损伤 |
+| 5 处 string 码归位 int | `ADVISOR_NOT_FOUND`→1002、`INVALID_PARAMS`→1001、`GHOST_DUPLICATES_SCAN_FAILED`→5004 | 统一后全仓 `error_code` 仅 int（复扫 0 处 string） |
+| 静态守卫 | 新增 `scripts/guard_error_envelope.py`（只读扫描 + `--fix` 幂等修复），接入 pre-commit 与 CI 的 backend job（**不新增 job、不动 `gate.needs`**） | `.pre-commit-config.yaml`、`.github/workflows/ci.yml` |
+| 规范与决策 | 条款写入冻结区 `conventions.md` §2.4；决策 + **事故记录**入 `decisions.md`（D27） | — |
+| 验证 | `tests/test_error_envelope.py` + `tests/test_auth.py` + `tests/domains` → **683 passed**；`ruff check/format` 全绿 | — |
+
+### 事故记录（防重蹈）
+
+首个未入库实现 `scripts/audit_error_envelope.py` 用 `ast.unparse` 重写 dict 文本，
+且按**字符偏移**拼接（`ast` 的 `col_offset` 实为 **UTF-8 字节偏移**）→ **8 个 views.py 被写坏**
+（dict 之后的源码被整段吃掉），而它把解析失败的**静默 `[SKIP]`**，于是自扫报 `OK`（**假绿**）。
+修正版：字节偏移 + 只插入 + 写盘前自校验 + 解析失败即红灯；旧脚本已删除。
+**教训**：任何「改源码」的脚本，落盘前必须**重新解析 + 复扫**，且**不得对解析失败静默跳过**。
+
+### 开口项
+
+| # | 事项 | 说明 |
+|---|---|---|
+| 1 | `summary/views.py` 6 处逐视图 `try/except Exception → 500` 未收敛 | 仍重复实现全局处理器职责、绕过 `logger.opt(exception=True)` 留痕。收敛会让 500 响应体由 `data: {空结构}` / `message: '服务器内部错误: <内部细节>'` 变为 `data: None` / 泛化 message（**对外可观察变化**），需单独拍板 |
+| 2 | 前端尚未消费 `error_code` | 契约已可用（三字段 + int），前端 `api/search.ts` 目前仅声明类型未分支处理；接入错误分类时可直接用 |
+
+
+### 复跑
+
+```bash
+python scripts/guard_layer_direction.py
+cd backend && pdm run pytest tests/core/test_layer_direction.py tests/core/test_identity_wiring.py -p no:xdist -q
+python scripts/guard_error_envelope.py
+cd backend && pdm run pytest tests/test_error_envelope.py tests/test_auth.py tests/domains -p no:xdist -q
+```
+
+## 2026-09-19 规范一致性批次（#1611，D28）：尾斜杠 / api.md / 日志三项收敛
+
+### 已完成
+
+| 项 | 内容 | 证据 |
+|---|---|---|
+| A. 尾斜杠 | 5 个端点写入**规范例外**（`/api/health` + 4 个探市接口）；其余 **13 个补齐**（auth×3 / importers×5 / ocr×2 / market / users / usage），前端 23 处调用同步；13 条带 `strict_slashes=False` **迁移期容忍旧的无斜杠写法** | 131 路由中无尾斜杠 **18 → 5**（全为豁免）；`tests/test_api_conventions.py` 钉住「双写法均 200」 |
+| B. api.md 滞后 | 保留人工「核心端点（带说明）」表 + 新增**全量端点自动段**（131 条，标记 `AUTO-ENDPOINTS`），由守卫 `--write` 生成，文档与实现逐条一致 | `python scripts/check_api_conventions.py` → `OK`（131 条一致） |
+| C. 日志例外 | `services/nav_service.py` 的 `import logging` + `getLogger` 收敛为 loguru（`%s` → `{}`） | 全仓 `import logging` 仅剩 `app/__init__.py`（已声明的合法例外） |
+| 守卫 | 新增 `scripts/check_api_conventions.py`（零依赖 AST）：尾斜杠 + 豁免清单 + api.md 自动段一致性；接入 pre-commit 与 CI 的 backend job | `backend/tests/test_api_conventions.py` 5 条（静态↔运行时 `url_map` 交叉校验 131/131 IDENTICAL、豁免无死条目、迁移容忍、文档不漂移） |
+
+### 开口项
+
+| # | 事项 | 说明 |
+|---|---|---|
+| 1 | `strict_slashes=False` 属迁移期兼容 | 待线上旧 bundle 过期、且确认无外部调用方使用无斜杠写法后移除（移除后无斜杠将 404）。移除前须先跑一遍访问日志或 E2E 确认 |
+| 2 | `/api/health` 与 4 个探市接口的无斜杠是**明文例外** | 若要统一，需改运维探活配置与前端调用，属独立决策（当前按 #1611 建议豁免并登记） |
+| 3 | api.md 的「核心端点」表仍需人工维护 | 自动段保证**全量一致**；人工表只承担"带功能说明的核心索引"角色，新增核心接口时手动补一行（无守卫，靠评审） |
+
+### 复跑
+
+```bash
+python scripts/check_api_conventions.py
+python scripts/check_api_conventions.py --write   # 改路由后重建自动段
+cd backend && pdm run pytest tests/test_api_conventions.py -p no:xdist -q
+
+```
 ## 2026-09-20 投顾调仓历史只记真实变化（#1622）
 
 ### 已完成

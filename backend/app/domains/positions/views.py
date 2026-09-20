@@ -243,13 +243,13 @@ def create_position():
                     raise
                 except Exception as e:
                     logger.exception('买入/加仓处理失败: %s', e)
-                    return jsonify({'message': str(e), 'data': None}), 400
+                    return jsonify({'message': str(e), 'data': None, 'error_code': 1001}), 400
             else:
                 abort(400, description=f'不支持的操作类型: {op_type}')
         except ValueError as e:
             logger.exception('持仓操作业务校验失败: %s', e)
             # 业务逻辑错误，返回明确提示
-            return jsonify({'message': str(e), 'data': None}), 400
+            return jsonify({'message': str(e), 'data': None, 'error_code': 1001}), 400
         except IntegrityError as e:
             # 唯一约束冲突：幂等键(import_hash)重复 → 视为「请勿重复提交 / 已迁移」。
             # 典型场景：
@@ -258,7 +258,7 @@ def create_position():
             # 用 409 Conflict 而非 400，便于调用方（迁移逻辑）按状态码识别「已存在」并跳过。
             db.rollback()
             logger.warning('持仓操作唯一约束冲突（疑似重复提交/重复迁移）: %s', e)
-            return jsonify({'message': '该笔交易已记录，请勿重复提交', 'data': None}), 409
+            return jsonify({'message': '该笔交易已记录，请勿重复提交', 'data': None, 'error_code': 1003}), 409
         except Exception:
             # ⭐ 捕获所有未预期的异常，打印完整堆栈
             logger.exception('持仓操作未预期异常')
@@ -368,6 +368,6 @@ def allocate_position_value():
             )
         except ValueError as e:
             logger.warning('按占比分摊失败: %s', e)
-            return jsonify({'message': str(e), 'data': None}), 400
+            return jsonify({'message': str(e), 'data': None, 'error_code': 1001}), 400
         db.commit()
         return jsonify({'data': result, 'message': 'ok'})

@@ -57,7 +57,7 @@ export interface OcrTxnRow {
   allocation?: string | null;
 }
 
-/** 持仓导入场景预览行（holding_import）：确认时走 /api/importers/holdings/confirm，不建流水 */
+/** 持仓导入场景预览行（holding_import）：确认时走 /api/importers/holdings/confirm/，不建流水 */
 export interface OcrHoldingRow {
   symbol: string;
   name: string;
@@ -88,7 +88,7 @@ type RecognizeResponse = {
 
 /** 查询某功能当日 AI 识别剩余次数 */
 export const getOcrUsage = (feature: string = "ocr_import") => {
-  return http.request<OcrUsageResult>("get", `/api/usage/${feature}`);
+  return http.request<OcrUsageResult>("get", `/api/usage/${feature}/`);
 };
 
 /** 图片（base64）→ 方案方舟识别 → 候选列表/预览行；消耗 1 次对应场景配额 */
@@ -100,7 +100,7 @@ export const recognizeImage = (
   const params = buildLedgerParams(ledgerId);
   return http.request<RecognizeResponse>(
     "post",
-    "/api/ocr/recognize",
+    "/api/ocr/recognize/",
     { data: { image_base64: imageBase64, scenario }, params },
     { timeout: OCR_REQUEST_TIMEOUT }
   );
@@ -115,7 +115,7 @@ export const parseImportText = (
   const params = buildLedgerParams(ledgerId);
   return http.request<RecognizeResponse>(
     "post",
-    "/api/ocr/parse",
+    "/api/ocr/parse/",
     { data: { text, scenario }, params },
     { timeout: OCR_REQUEST_TIMEOUT }
   );

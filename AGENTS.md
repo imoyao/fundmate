@@ -317,9 +317,10 @@
 
 ### API 契约
 
-- 错误统一信封：`{data, message, error_code}`。
+- 错误统一信封：`{data, message, error_code}`（**三字段**，`error_code` 取 `ErrorCode` 的 int，见 `conventions.md` §2.4；守卫 `scripts/guard_error_envelope.py`）。
 - API-First 契约冻结，禁止私改字段、状态码、分页结构。
-- 端点一律尾斜杠（**例外**：`/api/temperature/{overview,history,multi}` 无尾斜杠，前端按此调用，勿“修复”）。
+- 端点一律尾斜杠（**例外**：`/api/health` 与 `/api/temperature/{overview,history,multi,crowding-history}` 无尾斜杠，前端按此调用，勿“修复”；例外清单以 `scripts/check_api_conventions.py` 的 `NO_TRAILING_SLASH_ALLOWLIST` 为准）。
+- 全量端点清单见 `docs/spec/api.md` 的自动段（`scripts/check_api_conventions.py --write` 生成，改路由后须重跑）。
 
 ### 金额与精度
 

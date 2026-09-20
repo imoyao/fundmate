@@ -155,7 +155,7 @@ def create_tag():
             .first()
         )
         if existing:
-            return jsonify({'data': None, 'message': '标签名称已存在'}), 409
+            return jsonify({'data': None, 'message': '标签名称已存在', 'error_code': 1003}), 409
 
         tag = StrategyTag(name=json_data.name, family_id=get_family_id())
         db.add(tag)

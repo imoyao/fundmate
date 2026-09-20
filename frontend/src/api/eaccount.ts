@@ -85,7 +85,7 @@ export interface AttributionResult {
   details: AttributionDetail[];
 }
 
-/** E账户持仓快照解析行（POST /api/importers/holdings/parse rows 元素，字段可缺失容错） */
+/** E账户持仓快照解析行（POST /api/importers/holdings/parse/ rows 元素，字段可缺失容错） */
 export interface HoldingParseRow {
   symbol?: string;
   name?: string;
@@ -114,7 +114,7 @@ export function parseHoldings(file: File) {
   formData.append("file", file);
   return http.request<HoldingParseResponse>(
     "post",
-    "/api/importers/holdings/parse",
+    "/api/importers/holdings/parse/",
     {
       data: formData,
       headers: { "Content-Type": "multipart/form-data" },

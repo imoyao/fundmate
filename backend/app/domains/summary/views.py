@@ -36,7 +36,7 @@ def summary():
             data['account_groups'] = account_groups
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
-        return jsonify({'data': {}, 'message': f'服务器内部错误: {str(e)}'}), 500
+        return jsonify({'data': {}, 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500
 
 
 @bp.get('/summary/sankey/')
@@ -47,7 +47,9 @@ def sankey():
             data = get_sankey_data(db, get_family_id())
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
-        return jsonify({'data': {'nodes': [], 'links': []}, 'message': f'服务器内部错误: {str(e)}'}), 500
+        return jsonify(
+            {'data': {'nodes': [], 'links': []}, 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}
+        ), 500
 
 
 @bp.get('/summary/distributions/')
@@ -58,7 +60,7 @@ def distributions():
             data = get_distributions(db, get_family_id())
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
-        return jsonify({'data': {}, 'message': f'服务器内部错误: {str(e)}'}), 500
+        return jsonify({'data': {}, 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500
 
 
 @bp.get('/summary/groups/')
@@ -66,13 +68,13 @@ def position_groups():
     """返回持仓/资产按维度分组汇总（type/account/allocation，含 items 明细）"""
     dimension = request.args.get('dimension', 'type')
     if dimension not in ('type', 'account', 'allocation'):
-        return jsonify({'data': [], 'message': f'不支持的维度: {dimension}'}), 400
+        return jsonify({'data': [], 'message': f'不支持的维度: {dimension}', 'error_code': 1001}), 400
     try:
         with get_db() as db:
             data = get_position_groups(db, get_family_id(), dimension)
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
-        return jsonify({'data': [], 'message': f'服务器内部错误: {str(e)}'}), 500
+        return jsonify({'data': [], 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500
 
 
 @bp.post('/summary/snapshots/')
@@ -89,9 +91,9 @@ def create_snapshot():
             data = write_asset_snapshot(db, get_family_id(), snapshot_date)
         return jsonify({'data': data, 'message': 'ok'})
     except ValueError as e:
-        return jsonify({'data': None, 'message': str(e), 'error_code': 'INVALID_PARAMS'}), 400
+        return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400
     except Exception as e:
-        return jsonify({'data': None, 'message': f'服务器内部错误: {str(e)}'}), 500
+        return jsonify({'data': None, 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500
 
 
 @bp.get('/summary/snapshots/')
@@ -112,9 +114,9 @@ def list_snapshots():
             data = get_snapshots(db, get_family_id(), start_date, end_date, ledger_id)
         return jsonify({'data': data, 'message': 'ok'})
     except ValueError as e:
-        return jsonify({'data': [], 'message': str(e), 'error_code': 'INVALID_PARAMS'}), 400
+        return jsonify({'data': [], 'message': str(e), 'error_code': 1001}), 400
     except Exception as e:
-        return jsonify({'data': [], 'message': f'服务器内部错误: {str(e)}'}), 500
+        return jsonify({'data': [], 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500
 
 
 @bp.get('/summary/ghost-duplicates/')
@@ -134,6 +136,6 @@ def ghost_duplicates():
             {
                 'data': [],
                 'message': f'服务器内部错误: {str(e)}',
-                'error_code': 'GHOST_DUPLICATES_SCAN_FAILED',
+                'error_code': 5004,
             }
         ), 500

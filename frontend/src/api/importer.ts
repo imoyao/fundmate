@@ -26,7 +26,7 @@ export function parseFile(
   }
   return http.request<any>(
     "post",
-    `/api/importers/parse?${params.toString()}`,
+    `/api/importers/parse/?${params.toString()}`,
     {
       data: formData,
       headers: { "Content-Type": "multipart/form-data" },
@@ -37,14 +37,14 @@ export function parseFile(
 
 /** 确认导入选中的交易记录 */
 export function confirmImport(rows: any[]) {
-  return http.request<any>("post", "/api/importers/confirm", { data: rows });
+  return http.request<any>("post", "/api/importers/confirm/", { data: rows });
 }
 
 /** 确认导入持仓快照（holding_import）：SET 语义 upsert 至 positions，不建交易流水（#1018） */
 export function confirmHoldingImport(rows: OcrHoldingRow[]) {
   return http.request<HoldingImportResponse>(
     "post",
-    "/api/importers/holdings/confirm",
+    "/api/importers/holdings/confirm/",
     {
       data: rows
     }
