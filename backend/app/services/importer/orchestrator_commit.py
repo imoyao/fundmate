@@ -17,7 +17,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.money import Money
 from app.domains.ledgers.models import Ledger
 from app.domains.transactions.models import Transaction
-from app.services.async_backfill import trigger_backfill
+from app.services import async_backfill
 from app.services.import_records import StandardTransactionRecord
 from app.services.importer.mappings import BusinessType
 from app.services.position_service import PositionService
@@ -396,13 +396,13 @@ class CommitMixin:
 
         for code in fund_codes:
             try:
-                trigger_backfill('fund', code)
+                async_backfill.trigger_backfill('fund', code)
             except Exception as e:
                 logger.warning(f'元数据更新触发失败: fund {code}, error={e}')
 
         for symbol in stock_symbols:
             try:
-                trigger_backfill('stock', symbol)
+                async_backfill.trigger_backfill('stock', symbol)
             except Exception as e:
                 logger.warning(f'元数据更新触发失败: stock {symbol}, error={e}')
 

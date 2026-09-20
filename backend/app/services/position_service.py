@@ -31,7 +31,7 @@ from app.domains.funds.models import Fund
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, resolve_sales_institution_id
 from app.domains.transactions.models import Transaction
-from app.services.async_backfill import trigger_backfill
+from app.services import async_backfill
 from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_money_fund_symbol, normalize_fund_code
 from app.services.import_records import compute_position_hash
 from app.services.pnl_service import compute_sell_realized_cents
@@ -541,7 +541,7 @@ class PositionService:
             _reattach_orphan_flows(db, ledger_id, symbol, position.id, family_id)
 
         try:
-            trigger_backfill('fund', symbol)
+            async_backfill.trigger_backfill('fund', symbol)
         except Exception:
             pass
 
@@ -808,7 +808,7 @@ class PositionService:
             db.flush()
             db.refresh(position)
             try:
-                trigger_backfill(asset_type, symbol)
+                async_backfill.trigger_backfill(asset_type, symbol)
             except Exception:
                 pass
             # #1458 后续：买入即入自选（静默，失败不影响主链路）
