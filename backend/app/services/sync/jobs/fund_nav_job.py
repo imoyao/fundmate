@@ -15,7 +15,7 @@ from app.core.db_utils import bulk_insert_if_not_exists
 from app.core.time_utils import now_shanghai
 from app.domains.funds.models import DailyWorth, MoneyFundDailyWorth
 from app.models.sync_log import SyncLog
-from app.services.sync.jobs.base import IN_CHUNK_SIZE, SyncJob
+from app.services.job_base import IN_CHUNK_SIZE, SyncJob
 
 
 class FundNavSyncJob(SyncJob):

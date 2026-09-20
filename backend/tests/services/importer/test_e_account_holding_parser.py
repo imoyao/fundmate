@@ -130,7 +130,7 @@ def test_validate_rejects_invalid_records(parser):
     """validate：快照日期晚于今天 / 份额非正 → 过滤并报错。"""
     from datetime import timedelta
 
-    from app.services.importer.records import StandardHoldingRecord
+    from app.services.import_records import StandardHoldingRecord
 
     good = StandardHoldingRecord(
         symbol='012345', name='示例基金', shares=Decimal('100'), snapshot_date=date(2026, 8, 12)

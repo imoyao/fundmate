@@ -14,8 +14,8 @@ from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.fund_service import FundService
+from app.services.import_records import StandardTransactionRecord
 from app.services.importer.orchestrator import ImportOrchestrator
-from app.services.importer.records import StandardTransactionRecord
 from app.services.position_service import PositionService
 
 

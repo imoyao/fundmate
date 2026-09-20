@@ -44,7 +44,7 @@ def fetch_live_price_range(symbol: str, target: Optional[_date]) -> Optional[dic
     if os.environ.get('FUNDMATE_NO_LIVE_PRICE_FALLBACK'):
         return None
     try:
-        from app.services.sync.adapters.akshare_adapter import AkshareAdapter
+        from app.services.adapters.akshare_adapter import AkshareAdapter
 
         adapter = AkshareAdapter()
         end = target or _date.today()

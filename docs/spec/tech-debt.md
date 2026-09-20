@@ -660,11 +660,11 @@ EP 主按钮禁用态走 `--el-button-disabled-bg-color: var(--el-color-primary-
 `node scripts/audit_text_contrast.mjs --all`（文字色，非本卡主口径）；
 真机：`node scripts/axe_contrast_audit.mjs --routes /profile,/asset/ledgers`（亮）+ `--theme dark`（暗）——**当前环境受阻**。
 
-## 2026-09-19 后端依赖方向：core 切断 + 跨域 views 互引归零，剩余收敛登记（#1607 批次 1/2）
+## 2026-09-19 后端依赖方向：core 切断 + 跨域 views 归零 + 共享件上提（#1607 批次 1/2/3）
 
 issue #1607 的处置策略是「先出决策 + 分批收敛」。**批次 1** = 决策 + core 反向依赖切断；
-**批次 2** = 跨域 views 互引归零 + 守卫泛化 + services 内部方向定调。两批均未做「服务/适配器
-物理搬家」这类高 churn 改造（留批次 3）。
+**批次 2** = 跨域 views 互引归零 + 守卫泛化 + services 内部方向定调；
+**批次 3** = 跨家族共享件上提到 `services/` 顶层 + 守卫 R5 + 跨域模型引用逐对评估。
 
 ### 批次 1 已完成（PR 见 #1607 评论）
 
@@ -683,16 +683,42 @@ issue #1607 的处置策略是「先出决策 + 分批收敛」。**批次 1** =
 | services 内部方向定调 | **编排/注册类**（`sync/orchestrator`、`thermometer/jobs`、`importer/orchestrator*`）可依赖其它领域服务；**领域服务**（`fund_service`/`position_service` 等）不得反向依赖编排层；跨家族**共享件**（`SyncJob` 基类、数据源适配器、`importer.records`）不得被当作"某家族的服务"引用 | `architecture.md` §6、`decisions.md` D25；物理上提登记为批次 3 |
 | 模型位置条款（原「双轨」） | 业务模型 `domains/*/models.py`；**跨域 / 系统级模型**（现仅 `app/models/sync_log.py`）放 `app/models/`，属**被承认的第二类**而非"无规则的例外"；`db_factory` 注释同步 | `architecture.md` §6、`db_factory.py` 注释 |
 
-### 开口项（批次 3，仍挂 #1607）
+### 批次 3 已完成
+
+| 项 | 内容 | 证据 |
+|---|---|---|
+| 共享件上提（三次，纯机械搬家） | ① `services/sync/jobs/base.py` → `services/job_base.py`（`SyncJob`/`JobStatus`，24 处 import + 1 处变体写法）；② `services/importer/records.py` → `services/import_records.py`（16 处）；③ `services/sync/adapters/`（10 模块整包）→ `services/adapters/`（25 文件 51 处） | 全量 `pytest -p no:xdist -m "not slow"` 通过；导入冒烟；`ruff` 全绿 |
+| 修掉「方向反了」的真实缺陷（R5 上线即抓出） | `adapters/eastmoney_adapter.fetch_fund_company()` 原只转调 `sync/company_resolver.fetch_fund_company_list()`，而后者裸 `requests.get` 东财（违反 `architecture.md` §2）。现取数下沉进适配器，`company_resolver` 改为 import 复用并保持同名 re-export；测试 seam 由 `company_resolver.requests` 改为 patch 共享 `requests.get` | `tests/test_eastmoney_adapter.py` / `tests/test_company_resolver.py` / `tests/services/sync/test_fund_company_backfill_job.py` 全绿 |
+| 守卫 R5 | `services/{adapters,job_base,import_records}` → `services.{sync,importer,thermometer,bias,ai_recognizer}` 红灯；**1 条冻结基线**（`adapters/qieman_advisor_adapter → thermometer.fetchers`） | `tests/core/test_layer_direction.py` 参数化扩到 21 条（含冻结基线边界：已登记边放行、同源其它边仍红） |
+| services 内部 4 对双向 | 四对**全部消解或判定为合法边**：`sync↔thermometer`（只剩 `sync.orchestrator → thermometer.jobs` 注册）、`sync↔fund_service`（fund_service→sync 随③消失）、`importer↔position_service`（随②消失）、`bias↔thermometer`（注册 + job→领域服务，均合法；延迟导入已注明是 `thermometer/__init__` eager re-export 造成的导入期环，不是掩盖依赖） | `decisions.md` D26、`architecture.md` §6 |
+| 跨域模型引用评估 | 四条对（`assets↔ledgers` / `positions↔transactions` / `portfolios↔positions` / `users↔families`）实际边**全是 `domains.*.views → 对方 models`**（`users↔families` 另有种子/查询侧 models 引用），属允许的跨域引用且同在 user 数据域 → **判定合法、保留** | `decisions.md` D26 |
+| 包级双向对（观测值） | **20 → 17**（①消 `sync↔thermometer`、②消 `importer↔position_service`、③消 `sync↔fund_service`） | 主指标仍是「违规边 / 冻结基线之外 0」 |
+
+### 开口项（批次 4，仍挂 #1607）
 
 | # | 事项 | 当前事实 | 处置方向 |
 |---|---|---|---|
-| 1 | 跨家族**共享件寄生**在家族包内 | `services/sync/jobs/base.py`（`SyncJob` 基类）被 thermometer / bias 反过来 import；`services/sync/adapters/*` 被 `fund_service` / `async_backfill` / `price_range_service` 引用；`services/importer/records.py` 被 `position_service` / `ocr/views` 引用 | 上提为中立模块（如 `services/jobs_base.py`、`services/adapters/`、`services/records.py`），或明确「适配器属第三方数据层」的独立位置；改动面大（20+ 文件机械改 import），单独立批并全量回归 |
-| 2 | services 内部 4 对双向 | `sync ↔ thermometer`、`bias ↔ thermometer`、`sync ↔ fund_service`、`importer ↔ position_service` —— 逐边判定：**编排→服务**合法（`sync/orchestrator → thermometer.jobs`、`importer/orchestrator_holdings → PositionService`）；**服务→共享件**属上提项（第 1 条）；**`bias/job.py:106 → thermometer.service`** 为函数内延迟导入，待批次 3 复核是否可改为经注入获取 | 随第 1 条一起做；届时 R 规则可加「领域服务不得 import 编排模块」的机器判定 |
-| 3 | 跨域模型引用 | `assets↔ledgers`、`positions↔transactions`、`portfolios↔positions`、`users↔families`（末者由批次 1 种子引入） | 逐对评估是否可改注入 / 聚合层，**不预设必须清零**（跨域 models 引用是当前允许的边） |
-| 4 | 包级双向依赖对计数（观测值） | **23 → 20**（批次 1：-4 core 边 +1 `users→families.models`；批次 2：跨域 views 边归零但该边原本单向，对数不变） | 主指标看「违规边 0」；包级对数不会也不应清零（合法边叠加） |
+| 1 | 且慢 MCP 取数寄生在 thermometer 家族（R5 唯一冻结基线） | `QiemanFetcher`（约 255 行）+ 3 个归一化助手 + 基类 `SingleValueFetcher` 均在 `services/thermometer/fetchers.py`（900+ 行），`adapters/qieman_advisor_adapter` 复用之 | 把且慢取数抽到适配层（连带基类与 thermometer 常量的归属重定），做完可删该冻结基线 |
+| 2 | `thermometer/__init__.py` eager re-export | 其 `__init__` 直接 re-export `.jobs`，而 `jobs.py` import `bias.job` 注册 BiasJob → 形成导入期环，逼 `bias/job._save_data` 用函数内延迟导入 | 收敛 `__init__`（只留必要导出），环解开后延迟导入可转常规导入 |
+| 3 | R5 之外的服务内方向 | 「领域服务不得 import 编排模块」尚未机器化（当前靠人工 + 4 对判定表） | 视批次 4 后的实际形态再定是否加规则（避免过度工程） |
+
+### 范围外发现项（本次全量回归暴露，非本批改动引入）
+
+`tests/test_v8_guard.py::test_unguarded_concurrent_construct_repro_aborts` **偶发失败**：它是 #1566/#1574
+V8 守卫的**反向对照**——故意设 `V8_GUARD_ENABLED=0` 并**断言并发构造必须崩**（`'NO_CRASH' not in stdout`），
+本轮 19 分钟满载全量跑时 5 轮全部存活、断言失败。已做的事实核对：
+
+- 批次 3 树（本批改动）**单独连跑 3 轮** → 每轮 `8 passed`；
+- 批次 2 树（不含本批任何改动）单独跑 → `8 passed`；
+- 本批改动不涉及 `v8_guard` / `app/__init__` / 任何并发或 mini-racer 相关代码（三次上提为纯模块位置变更）。
+
+判断：**竞态型对照用例在系统高负载下窗口收窄**导致的 flaky，与依赖版本/机器负载相关，非本批回归。
+**待办**：由 `#1566`/`#1574`（V8 守卫）的归属方评估——可选处置：把「必须崩」的断言改成「多轮内至少一轮崩」
+或加重试/提高轮次，并在用例注释写明其概率性（避免下次被误判为本 PR 引入）。**本次不修**（属 V8 守卫线，
+与本批无关，且单独跑稳定通过）。
 
 ### 行为变化（对外 API 零变更，仅 CLI 侧）
+
 
 - **CLI 入口不再播种默认家庭/用户**：`sync_cli` / `scheduler` / `scheduler_daemon` / `sync_metadata`
   只建表，不再写入 family 1 / user 1（这些入口本就不需要身份行）。需要时调用
@@ -700,10 +726,15 @@ issue #1607 的处置策略是「先出决策 + 分批收敛」。**批次 1** =
 - `init_db()` 只建「**调用方已 import 的模型**」的表：新增域模型后，绕过应用工厂的 CLI 入口须自行导入该模型
   （此前 `init_db` 只代为导入过 `app.models.sync_log` 一个，`sync_cli` 已按其补上）。
 - 批次 2 的 `enrich_position_dict` 搬迁是**纯位置变更**：函数体逐字未改，HTTP 响应字段与数值口径不变。
+- 批次 3 的三次上提同为**纯位置变更**（模块内容随 import 路径同步更新）；唯一逻辑变更在
+  `adapters/eastmoney_adapter.py` ↔ `sync/company_resolver.py` 之间：**取数从 resolver 下沉到适配器**
+  （函数体逐字搬运），resolver 通过同名 re-export 保持既有调用点与 monkeypatch seam 有效；
+  测试侧 seam 由 `company_resolver.requests` 改为 patch 共享的 `requests.get`。
 
 ### 复跑
 
 ```bash
-python scripts/guard_layer_direction.py
+python scripts/guard_layer_direction.py        # R1~R5（含 1 条冻结基线）
 cd backend && pdm run pytest tests/core/test_layer_direction.py tests/core/test_identity_wiring.py -p no:xdist -q
+cd backend && pdm run pytest tests/test_company_resolver.py tests/test_eastmoney_adapter.py -p no:xdist -q
 ```

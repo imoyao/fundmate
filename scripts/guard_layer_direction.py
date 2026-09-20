@@ -14,10 +14,11 @@
 | R2 | `app.services.*` → `app.domains.<域>.views` | 服务层碰 HTTP 编排层 |
 | R3 | `app.domains.<域>.{models,schemas}` → `app.services.*` | 叶子层反向依赖服务层 |
 | R4 | `app.domains.A.views` → `app.domains.B.views`（A≠B） | 跨域引用对方视图（HTTP 细节外溢到另一域） |
+| R5 | `app.services.adapters.*` / `job_base` / `import_records` → `app.services.{sync,importer,thermometer,bias,ai_recognizer}.*` | services 顶层**共享件**反向依赖家族包（共享件必须是叶子，否则又长回「寄生」） |
 
 **不判的（刻意）**：`views → services`、`services → domains.models/schemas`、
-`domains.A.models ↔ domains.B.models` 等**合法边**；以及「包级双向依赖对」——
-它多数由 `views→services` 与 `services→models` 两条合法边叠加而成
+`domains.A.models ↔ domains.B.models`、`家族包 → 共享件` 等**合法边**；
+以及「包级双向依赖对」——它多数由 `views→services` 与 `services→models` 两条合法边叠加而成
 （如 `domains.positions` ↔ `services.position_service`），不构成违规。
 `services` 内部方向（编排层 vs 领域服务）见 `docs/spec/tech-debt.md` #1607 条目。
 
@@ -45,6 +46,34 @@ from pathlib import Path
 DYNAMIC_IMPORT_FUNCS = {'import_module', '__import__'}
 # R3 约束的叶子层目录名
 LEAF_LAYER_NAMES = ('models', 'schemas')
+# R5：services 顶层共享件（跨家族共用，必须是叶子）
+SHARED_SERVICE_MODULES = ('app.services.job_base', 'app.services.import_records')
+SHARED_SERVICE_PACKAGES = ('app.services.adapters',)
+# R5：services 下的家族包（各自拥有实现，可依赖共享件，但共享件不得反过来依赖它们）
+SERVICE_FAMILY_PACKAGES = (
+    'app.services.sync',
+    'app.services.importer',
+    'app.services.thermometer',
+    'app.services.bias',
+    'app.services.ai_recognizer',
+)
+
+
+def _matches(module: str, packages: tuple[str, ...]) -> bool:
+    """模块是否等于某包或位于其下（按包边界匹配，避免 `app.services.sync_x` 误判）。"""
+    return any(module == pkg or module.startswith(pkg + '.') for pkg in packages)
+
+
+# R5 冻结基线（只拦新增，与 `check_css_vars.mjs` / `guard_breakpoints.py` 同款手法）：
+# 既有且**已登记**的反向边，逐条说明理由与去向；新增任何其它反向边一律红灯。
+R5_ALLOWLIST = {
+    ('app.services.adapters.qieman_advisor_adapter', 'app.services.thermometer.fetchers'): (
+        '且慢 MCP 取数（QiemanFetcher：约 255 行的类 + 3 个归一化助手 + SingleValueFetcher 基类）'
+        '目前实现在 thermometer 家族内，投顾适配器复用它。彻底修法是把且慢取数上提到适配层，'
+        '但会连带搬动基类与 thermometer 常量（级联改动面大），已登记为 #1607 批次 4；'
+        '本批冻结这条既有边，只拦新增。'
+    ),
+}
 
 
 def _is_core_module(module: str) -> bool:
@@ -87,6 +116,15 @@ def _violation(module_name: str, target_module: str) -> str | None:
     if _is_services_module(module_name):
         if _is_views_module(target_module):
             return 'R2 services 不得依赖 domains.*.views（视图是 HTTP 编排层，应在 domains 侧调用服务）'
+        if _matches(module_name, SHARED_SERVICE_MODULES + SHARED_SERVICE_PACKAGES) and _matches(
+            target_module, SERVICE_FAMILY_PACKAGES
+        ):
+            if (module_name, target_module) in R5_ALLOWLIST:
+                return None
+            return (
+                'R5 services 顶层共享件不得反向依赖家族包（共享件必须是叶子：家族实现依赖共享件，'
+                '不能反过来；否则又长成「寄生」）'
+            )
         return None
 
     source_domain, source_tail = _split_domain(module_name)
@@ -196,7 +234,7 @@ def main() -> int:
         print('\n规则与修复方向见 docs/spec/decisions.md 2026-09-19 行 / docs/spec/architecture.md §6。', file=sys.stderr)
         return 1
 
-    print(f'OK: 分层依赖方向无违规（扫描 {len(list(app_dir.rglob("*.py")))} 个文件，R1~R4 全绿）')
+    print(f'OK: 分层依赖方向无违规（扫描 {len(list(app_dir.rglob("*.py")))} 个文件，R1~R5 全绿）')
     return 0
 
 

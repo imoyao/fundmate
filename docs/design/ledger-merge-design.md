@@ -38,7 +38,7 @@
 | --- | --- | --- |
 | 持仓预览（打 `is_duplicate`） | `app/services/importer/orchestrator.py::ImportOrchestrator.preview_holding_records` / `parse_and_preview_holdings` | 迁移预览阶段直接套用：只读、不写库、返回分类行 |
 | 提交（事务+回滚） | `ImportOrchestrator.commit_holdings(raw_rows)` | 复用其 `db.commit()` + 失败 `db.rollback()` 结构 |
-| 内容哈希 | `app/services/importer/records.py::compute_position_hash(source, ledger_id, symbol, snapshot_date, source_broker=None)` | 复用同一去重口径生成 `import_hash` |
+| 内容哈希 | `app/services/import_records.py::compute_position_hash(source, ledger_id, symbol, snapshot_date, source_broker=None)` | 复用同一去重口径生成 `import_hash` |
 | 持仓 upsert（SET 语义） | `app/services/position_service.py::PositionService.upsert_from_holding(db, data, ownership_status='active')` | 复用 `(ledger_id, symbol)` 业务键整条替换、写 `PositionImportMeta` |
 | 单位换算 | `app/core/money.py::Money.shares_to_min_unit` / `yuan_to_cents` | 比较/展示统一换算，避免单位误算 |
 

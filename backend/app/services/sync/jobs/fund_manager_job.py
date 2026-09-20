@@ -17,8 +17,8 @@ from loguru import logger
 
 from app.core.db_utils import bulk_insert_if_not_exists
 from app.domains.funds.models import Fund, FundManager, Manager
+from app.services.job_base import IN_CHUNK_SIZE, SyncJob
 from app.services.sync.company_resolver import get_or_create_fund_company
-from app.services.sync.jobs.base import IN_CHUNK_SIZE, SyncJob
 
 
 def _chunked(values, size: int = IN_CHUNK_SIZE):

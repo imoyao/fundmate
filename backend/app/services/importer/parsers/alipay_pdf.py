@@ -16,9 +16,9 @@ from typing import List, Optional, Tuple
 import pdfplumber
 
 from app.core.constants import PositionSource
+from app.services.import_records import SBImportError, StandardTransactionRecord
 from app.services.importer.base import BaseImportParser
 from app.services.importer.mappings import ALIPAY_PDF_OP_MAP, VALID_OP_TYPES
-from app.services.importer.records import SBImportError, StandardTransactionRecord
 
 
 class AlipayPDFParser(BaseImportParser):

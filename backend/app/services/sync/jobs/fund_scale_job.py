@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import Dict, Iterator, List
 
 from app.domains.funds.models import Fund
-from app.services.sync.jobs.base import IN_CHUNK_SIZE, SyncJob
+from app.services.job_base import IN_CHUNK_SIZE, SyncJob
 
 # 亿元换算：份额(份) × 单位净值(元) ÷ 1e8 = 亿元
 YI = Decimal('100000000')

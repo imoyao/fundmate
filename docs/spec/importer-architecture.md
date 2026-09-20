@@ -34,12 +34,12 @@ title: 导入系统可扩展架构与社区贡献规范
 
 ### 1.2 标准输出格式
 
-- `StandardTransactionRecord`（`backend/app/services/importer/records.py`）：所有解析器统一输出。
+- `StandardTransactionRecord`（`backend/app/services/import_records.py`）：所有解析器统一输出。
 - 关键字段：`confirm_date, asset_type, symbol, name, business_type, amount, account_name, shares, nav, fee, transaction_id, source, import_hash, batch_id, ...`
 
 ### 1.3 交易级去重（已落地）
 
-- `compute_record_hash(source, record)`（`records.py:20`）：
+- `compute_record_hash(source, record)`（`import_records.py:20`）：
   - 有平台流水号：`md5(f"{source}|{transaction_id}")`
   - 无流水号：`md5(f"{source}|{confirm_date}|{symbol}|{business_type}|{shares:.4f}|{nav:.4f}")`
   - **不含 amount**（不同平台金额四舍五入处理不同）。

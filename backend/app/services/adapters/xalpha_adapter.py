@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Optional
 import requests
 from loguru import logger
 
-from app.services.sync.adapters.base import DataSourceAdapter
+from app.services.adapters.base import DataSourceAdapter
 
 # 东财历史净值 JSON 接口：支持 pageIndex/pageSize 分页与 startDate/endDate 日期过滤
 _LSJZ_API_URL = 'https://api.fund.eastmoney.com/f10/lsjz'

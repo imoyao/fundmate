@@ -16,7 +16,7 @@ from typing import List, Optional, Tuple
 
 import pandas as pd
 
-from app.services.importer.records import (
+from app.services.import_records import (
     SBImportError,
     StandardHoldingRecord,
     StandardTransactionRecord,
