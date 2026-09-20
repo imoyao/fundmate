@@ -64,7 +64,10 @@ jobs:
     if: ${{ needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
     # 防 pytest 偶发 hang 卡满 GitHub 默认 6h 兜底：单进程后端测试正常 ~19min，给 30min 余量（#1596 排查 CI 卡死）
-    timeout-minutes: 30
+    # 2026-09-20 #1626：PDM 依赖缓存按 PR ref 隔离（仓库缓存均在 refs/pull/*，refs/heads/dev 无），
+    # PR 首跑必然冷装；重型依赖含 libsql-experimental/cryptography 等现场编译，偶发 >30min 被取消，
+    # 且取消后不落缓存 → 重跑仍冷装，形成死循环。放宽到 45min 让首跑装完并落缓存，后续重跑走缓存提速。
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: backend
