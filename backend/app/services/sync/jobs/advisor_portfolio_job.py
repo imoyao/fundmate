@@ -17,7 +17,10 @@
   `host`/`allocation`/`product_type` 是策展字段（`advisor_catalog` 注册表维护），永不被抓取覆盖；
 - 当前持仓/行业配置：同一 (portfolio, as_of_date) 先删后插；
 - 历史调仓：同一 (portfolio, adjust_date) 先删后插，调仓理由随行冗余；
-- 无官方调仓接口的平台（如且慢）：由相邻两次持仓快照的占比之差推导调仓明细。
+- 无官方调仓接口的平台（如且慢）：由持仓快照序列推导调仓明细，且**只记真实变化**——
+  仅 `|Δratio| > ADVISOR_ADJUST_MIN_DELTA_PCT` 的基金入账，**过滤后为空就不写任何行**。
+  （#1622 的教训：且慢的占比是**市值口径**、每天随净值自然漂移，原实现对所有基金逐行落库
+  ——没变的写 `op=5 持平`——且无阈值，于是每个交易日都生成一整组"调仓"，真实调仓被淹没。）
 
 ⚠️ 且慢组合代码命名空间不统一（ZHxxxx / LONG_WIN / J7 / WALLET / SIxxxx），
 **禁止按代码前缀判定平台归属**，一律以 AdvisorPortfolio.platform 为准。
@@ -50,6 +53,14 @@ from app.services.job_base import SyncJob
 #: 自动抓取统一取 ``platform.lower()``——tiantian / qieman，与 #1167/#1468 起已落库的数据同口径；
 #: 手动导入另用 :data:`SOURCE_QIEMAN_MANUAL` 与自动抓取的 ``qieman`` 区分，便于回溯数据来历。
 SOURCE_QIEMAN_MANUAL = 'qieman_manual'
+
+#: 判定「真调仓」的最小占比变化（百分点，市值口径）。低于此值视为净值漂移，**有意不记录**。
+#:
+#: 标定依据（#1622，开发库 102 个且慢组合 / 301 组相邻快照 / 4880 个基金级差异）：
+#: 漂移 |Δratio| 的 p50 = 0.01pp、p90 = 0.05pp、p99 = 0.23pp（最大 6.71pp 已是真实调仓）；
+#: 真实调仓单只基金的变化通常 ≥ 1pp，且快照对的 Σ|Δ| 呈**双峰**（漂移日 1~2pp vs 真调仓日 16~60pp）。
+#: 取 0.5pp ≈ 2×p99：既能滤掉漂移噪声，又不丢真实调仓。
+ADVISOR_ADJUST_MIN_DELTA_PCT = 0.5
 
 
 def _parse_date(v: Any) -> Optional[_dt.date]:
@@ -379,18 +390,24 @@ class AdvisorPortfolioSyncJob(SyncJob):
         return n
 
     def _derive_adjust_from_snapshots(self, portfolio: AdvisorPortfolio, as_of, source: str) -> int:
-        """由「本次快照 vs 上一快照」推导调仓明细，落 advisor_adjust_histories。
+        """由「本次快照 vs 上一快照」推导**真实**调仓明细，落 advisor_adjust_histories。
 
-        适用于**没有官方历史调仓接口**的平台（如且慢：MCP 只给当前持仓，以及每只
-        基金自带的调仓时间）。调仓历史由我们自己的快照序列推导：同一组合按
-        ``as_of_date`` 逐次快照，相邻两次占比之差即本次调仓的「调仓前 / 调仓后占比」
-        与方向（加仓 / 减仓 / 新增）。
+        适用于**没有官方历史调仓接口**的平台（如且慢：MCP 只给当前持仓）。历史由我们自己的
+        持仓快照序列推导，但判据是「**真的有变化**」而不是「快照日又推进了一天」（#1622）：
 
-        - 首次快照没有前值可对比，**跳过**（不编造 0 → X 的假建仓记录）；
-        - ``reason`` 记录推导来源（前一次快照日），便于回溯；
-        - 有官方调仓接口的平台走 :meth:`_apply_rebalances`，不进此路径。
+        1. **阈值**：只有 ``|Δratio| > ADVISOR_ADJUST_MIN_DELTA_PCT``（0.5pp）的基金入账，
+           新增 / 清仓同样按阈值过滤。且慢占比是**市值口径**，每天随净值自然漂移
+           （实测 p50=0.01pp / p99=0.23pp），不加阈值就会把漂移记成加仓/减仓。
+        2. **无真实变化 → 不写任何行**：过滤后为空直接返回 0，当日视为"没调仓"；
+           不再写 ``op=5 持平``——"没变"不是调仓，原实现正是靠它把每个交易日都填满。
+        3. **基准取「上一次快照」**（而非上次调仓状态）：漂移是**逐日**量级，逐日比较不会被
+           累积放大；实测真实调仓是**单日原子完成**（相邻快照对 Σ|Δ|：漂移日 1~2pp vs
+           真调仓日 16~60pp），因此逐日比较不会漏掉真调仓。
+           **已知代价**：若某次调仓分多日、每天变化都低于阈值，会漏记——实测数据里没有这种形态；
+           若日后出现，应改为「累计变化」口径并重标阈值。
 
-        返回写入行数。
+        首次快照没有前值可对比 → 跳过（不编造 0 → X 的假建仓记录）。
+        有官方调仓接口的平台走 :meth:`_apply_rebalances`，不进此路径。返回写入行数。
         """
         if not as_of:
             return 0
@@ -409,37 +426,42 @@ class AdvisorPortfolioSyncJob(SyncJob):
             }
 
         prev, cur = _snapshot(prev_date), _snapshot(as_of)
+        if not cur or not prev:
+            return 0
+
         rows = []
         for code in sorted(set(prev) | set(cur)):
             b, b_name = prev.get(code, (None, None))
             a, a_name = cur.get(code, (None, None))
-            if b is None and a is None:
+            before = float(b) if b is not None else 0.0
+            after = float(a) if a is not None else 0.0
+            if abs(after - before) <= ADVISOR_ADJUST_MIN_DELTA_PCT:
+                # 净值漂移 / 无实质变化：不是调仓，跳过（原实现这里写 op=5 持平行）
                 continue
             if b is None:
                 op = 4  # 新增
             elif a is None:
                 op = 3  # 减仓（清仓至 0）
-            elif a > b:
+            elif after > before:
                 op = 2  # 加仓
-            elif a < b:
-                op = 3  # 减仓
             else:
-                op = 5  # 持平
+                op = 3  # 减仓
             rows.append(
                 {
                     'portfolio_id': portfolio.id,
                     'adjust_date': as_of,
-                    'reason': f'由 {prev_date} 持仓快照推导'[:300],
+                    'reason': f'由 {prev_date} 持仓快照推导（变化>{ADVISOR_ADJUST_MIN_DELTA_PCT}pp）'[:300],
                     'fund_code': code,
                     'fund_name': a_name or b_name,
-                    'pre_ratio': b if b is not None else 0.0,
-                    'after_ratio': a if a is not None else 0.0,
+                    'pre_ratio': before,
+                    'after_ratio': after,
                     'op_code': op,
                     'op_name': ADVISOR_ADJUST_OP_NAME.get(op),
                     'source': source,
                 }
             )
         if not rows:
+            # 无真实变化：不写任何调仓记录（#1622 的核心修复）
             return 0
         # 同调仓日整体覆盖（与官方调仓同语义）
         self.db.query(AdvisorAdjustHistory).filter_by(portfolio_id=portfolio.id, adjust_date=as_of).delete()
