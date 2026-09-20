@@ -6,7 +6,14 @@ title: 核心 API 端点清单（api）
 
 本文件收录核心 API 完整端点清单（原 SPEC 第 8 章），属于**随代码演进**的事实标准。路由以 `backend/app/domains/*/views.py` 为准。
 
-## 1. 核心 API 完整端点清单（原 SPEC 第 8 章）
+> **文档分工（#1611 修订，2026-09-19）**：本文件分两部分——
+> ① **第 1 节「核心端点」**：人工维护，带功能说明，用于快速检索「这个能力由哪个接口提供」；
+> ② **文末「全量端点清单」自动生成段**：由 `scripts/check_api_conventions.py --write` 从
+> `app.url_map` **逐条生成**（131 条），是**全量且与实现一致**的权威清单。
+> 此前该文件只列 30/131 条却自称「事实标准」，被 #1611 判定为**已滞后**；现由守卫
+> （同名脚本，接入 CI + pre-commit）保证自动段与实现零漂移——改路由后重跑 `--write` 即可。
+
+## 1. 核心端点（人工维护，带功能说明）
 
 |方法|接口路径|功能说明|
 |---|---|---|
@@ -51,3 +58,145 @@ title: 核心 API 端点清单（api）
 |**GET**|**/api/temperature/overview**|**获取温度概览（含综合温度、单值指标、复合指标、多维列表数据如乖离率）** ✅ 已实现|
 
 > 注：`/api/portfolios/{id}/summary/` 组合概览端点计划在 P2 实现，当前不提供。
+
+<!-- AUTO-ENDPOINTS:START（由 scripts/check_api_conventions.py --write 生成，勿手改） -->
+
+全量端点清单（共 **131** 条）：由 `scripts/check_api_conventions.py --write` 从
+`backend/app/domains/**/views.py` 的 `@<bp>.<method>(...)` 装饰器静态生成，**禁止手改**——
+改路由后重跑该命令即可；CI 守卫会校验本段与实现逐条一致（不一致即红灯）。
+
+| 方法 | 路径 | 处理函数 |
+|---|---|---|
+| GET | `/api/assets/` | `list_assets` |
+| POST | `/api/assets/` | `create_asset` |
+| DELETE | `/api/assets/<int:id>/` | `delete_asset` |
+| PATCH | `/api/assets/<int:id>/` | `update_asset` |
+| GET | `/api/assets/summary/` | `get_assets_summary` |
+| POST | `/api/auth/logout/` | `logout` |
+| GET | `/api/auth/me/` | `me` |
+| POST | `/api/auth/resolve/` | `resolve_identifier` |
+| POST | `/api/e-account/attribution/` | `attribution` |
+| POST | `/api/e-account/reconcile/` | `reconcile` |
+| GET | `/api/e-account/reconciliation/` | `reconciliation` |
+| POST | `/api/families/` | `create_family` |
+| GET | `/api/families/<int:family_id>/members/` | `list_family_members` |
+| GET | `/api/funds/<string:fund_code>/fee-rates/` | `get_fund_fee_rates` |
+| POST | `/api/funds/<string:fund_code>/fee-sync/` | `sync_fund_fees` |
+| GET | `/api/funds/<string:fund_code>/nav/` | `get_fund_nav` |
+| GET | `/api/funds/advisors/<string:code>/adjusts/` | `get_advisor_adjusts` |
+| GET | `/api/funds/advisors/<string:code>/holdings/` | `get_advisor_holdings` |
+| GET | `/api/funds/managers/search/` | `search_managers` |
+| POST | `/api/funds/nav/` | `get_fund_nav_by_date` |
+| POST | `/api/funds/redeem-fee/estimate/` | `estimate_redeem_fee` |
+| GET | `/api/funds/search/` | `search_funds` |
+| GET | `/api/health` | `health_check` |
+| POST | `/api/importers/confirm/` | `confirm_import` |
+| POST | `/api/importers/holdings/confirm/` | `confirm_holding_import` |
+| POST | `/api/importers/holdings/parse/` | `parse_holding_file` |
+| POST | `/api/importers/parse/` | `parse_file` |
+| GET | `/api/importers/template/<template_type>/` | `download_import_template` |
+| GET | `/api/ledgers/` | `list_ledgers` |
+| POST | `/api/ledgers/` | `create_ledger` |
+| DELETE | `/api/ledgers/<int:ledger_id>/` | `delete_ledger` |
+| GET | `/api/ledgers/<int:ledger_id>/` | `get_ledger` |
+| PATCH | `/api/ledgers/<int:ledger_id>/` | `update_ledger` |
+| POST | `/api/ledgers/<int:ledger_id>/archive/` | `archive_ledger` |
+| POST | `/api/ledgers/<int:ledger_id>/migrations/commit/` | `commit_migration` |
+| POST | `/api/ledgers/<int:ledger_id>/migrations/preview/` | `preview_migration` |
+| GET | `/api/ledgers/<int:ledger_id>/pending-estimate/` | `get_ledger_pending_estimate` |
+| GET | `/api/ledgers/<int:ledger_id>/positions/` | `get_ledger_positions` |
+| DELETE | `/api/ledgers/<int:ledger_id>/positions/<int:position_id>/` | `delete_ledger_position` |
+| PATCH | `/api/ledgers/<int:ledger_id>/positions/<int:position_id>/` | `update_ledger_position` |
+| GET | `/api/ledgers/<int:ledger_id>/summary/` | `get_ledger_summary` |
+| GET | `/api/ledgers/<int:ledger_id>/transactions/` | `get_ledger_transactions` |
+| PATCH | `/api/ledgers/<int:ledger_id>/transactions/<int:transaction_id>/` | `update_ledger_transaction` |
+| POST | `/api/ledgers/<int:ledger_id>/unarchive/` | `unarchive_ledger` |
+| GET | `/api/ledgers/fund-aggregation/` | `get_fund_aggregation` |
+| DELETE | `/api/ledgers/orphan/` | `delete_orphan_data` |
+| GET | `/api/ledgers/orphan/detail/` | `get_orphan_detail` |
+| POST | `/api/ledgers/orphan/migrations/` | `migrate_orphan_data` |
+| GET | `/api/ledgers/overview/` | `get_ledgers_overview` |
+| PATCH | `/api/ledgers/reorder/` | `reorder_ledgers` |
+| GET | `/api/ledgers/sales-institutions/` | `list_sales_institutions` |
+| GET | `/api/ledgers/securities-aggregation/` | `get_securities_aggregation` |
+| GET | `/api/market/overview/` | `get_market_overview` |
+| POST | `/api/ocr/parse/` | `ocr_parse_text` |
+| POST | `/api/ocr/recognize/` | `ocr_recognize` |
+| GET | `/api/performance/money-fund-income/` | `get_money_fund_income` |
+| GET | `/api/performance/xirr/` | `get_xirr` |
+| GET | `/api/portfolios/` | `list_portfolios` |
+| POST | `/api/portfolios/` | `create_portfolio` |
+| DELETE | `/api/portfolios/<int:portfolio_id>/` | `delete_portfolio` |
+| GET | `/api/portfolios/<int:portfolio_id>/` | `get_portfolio` |
+| PATCH | `/api/portfolios/<int:portfolio_id>/` | `update_portfolio` |
+| GET | `/api/portfolios/<int:portfolio_id>/holdings/` | `get_portfolio_holdings` |
+| GET | `/api/positions/` | `list_positions` |
+| POST | `/api/positions/` | `create_position` |
+| DELETE | `/api/positions/<int:id>/` | `delete_position` |
+| PATCH | `/api/positions/<int:id>/` | `update_position` |
+| GET | `/api/positions/<int:id>/transactions/` | `get_position_transactions` |
+| POST | `/api/positions/allocate-value/` | `allocate_position_value` |
+| POST | `/api/positions/validate/` | `validate_trade_order` |
+| POST | `/api/reconciliation/adjustments/` | `apply_adjustment` |
+| GET | `/api/reconciliation/discrepancies/` | `list_discrepancies` |
+| POST | `/api/reconciliation/discrepancies/<int:discrepancy_id>/ignore/` | `ignore_discrepancy` |
+| GET | `/api/reconciliation/ledger-consistency/` | `ledger_consistency` |
+| POST | `/api/reconciliation/run/` | `run_reconciliation` |
+| GET | `/api/search/assets/` | `search_assets` |
+| GET | `/api/securities/<symbol>/price-range/` | `get_price_range` |
+| GET | `/api/securities/search/` | `search_securities` |
+| GET | `/api/strategy/` | `list_tags` |
+| POST | `/api/strategy/` | `create_tag` |
+| DELETE | `/api/strategy/<int:tag_id>/` | `delete_tag` |
+| DELETE | `/api/strategy/<int:tag_id>/positions/<int:position_id>/` | `unbind_position_tag` |
+| POST | `/api/strategy/<int:tag_id>/positions/<int:position_id>/` | `bind_position_tag` |
+| GET | `/api/strategy/overview/` | `get_strategy_overview` |
+| GET | `/api/strategy/relations/` | `get_all_position_tags` |
+| GET | `/api/summary/` | `summary` |
+| GET | `/api/summary/distributions/` | `distributions` |
+| GET | `/api/summary/ghost-duplicates/` | `ghost_duplicates` |
+| GET | `/api/summary/groups/` | `position_groups` |
+| GET | `/api/summary/sankey/` | `sankey` |
+| GET | `/api/summary/snapshots/` | `list_snapshots` |
+| POST | `/api/summary/snapshots/` | `create_snapshot` |
+| GET | `/api/temperature/crowding-history` | `get_crowding_history` |
+| GET | `/api/temperature/history` | `get_temperature_history` |
+| GET | `/api/temperature/multi` | `get_multi_items` |
+| GET | `/api/temperature/overview` | `get_temperature_overview` |
+| GET | `/api/transactions/` | `list_transactions` |
+| DELETE | `/api/transactions/<int:transaction_id>/` | `delete_transaction` |
+| GET | `/api/transactions/export/` | `export_transactions` |
+| GET | `/api/usage/<feature>/` | `get_usage` |
+| GET | `/api/users/` | `list_family_members` |
+| PATCH | `/api/users/me/` | `update_me` |
+| GET | `/api/users/record-stats/` | `record_stats` |
+| GET | `/api/utils/config/` | `get_platform_config` |
+| GET | `/api/utils/enums/` | `get_enums` |
+| GET | `/api/utils/fund-confirm-dates/` | `calc_fund_confirm_date` |
+| GET | `/api/utils/trading-days/<date>/` | `get_trading_day` |
+| GET | `/api/watchlist/favorites/` | `list_favorites` |
+| GET | `/api/watchlist/groups/` | `list_groups` |
+| POST | `/api/watchlist/groups/` | `create_group` |
+| DELETE | `/api/watchlist/groups/<int:group_id>/` | `delete_group` |
+| PATCH | `/api/watchlist/groups/<int:group_id>/` | `update_group` |
+| GET | `/api/watchlist/holding-gaps/` | `holding_gaps` |
+| GET | `/api/watchlist/home-summary/` | `home_summary` |
+| GET | `/api/watchlist/items/` | `list_items` |
+| POST | `/api/watchlist/items/` | `create_item` |
+| DELETE | `/api/watchlist/items/<int:item_id>/` | `delete_item` |
+| PATCH | `/api/watchlist/items/<int:item_id>/` | `update_item` |
+| POST | `/api/watchlist/items/<int:item_id>/favorite/` | `toggle_favorite` |
+| DELETE | `/api/watchlist/items/<int:item_id>/groups/<int:group_id>/` | `remove_item_from_group` |
+| POST | `/api/watchlist/items/<int:item_id>/groups/<int:group_id>/` | `add_item_to_group` |
+| GET | `/api/watchlist/items/<int:item_id>/smart-prompt-conditions/` | `get_smart_prompt_conditions` |
+| DELETE | `/api/watchlist/items/<int:item_id>/tags/<int:tag_id>/` | `remove_tag_from_item` |
+| POST | `/api/watchlist/items/<int:item_id>/tags/<int:tag_id>/` | `add_tag_to_item` |
+| GET | `/api/watchlist/items/export/` | `export_items` |
+| POST | `/api/watchlist/reconcile/` | `reconcile_watchlist` |
+| GET | `/api/watchlist/tags/` | `list_tags` |
+| POST | `/api/watchlist/tags/` | `create_tag` |
+| DELETE | `/api/watchlist/tags/<int:tag_id>/` | `delete_tag` |
+| PATCH | `/api/watchlist/tags/<int:tag_id>/` | `update_tag` |
+| GET | `/api/watchlist/trends/` | `list_trends` |
+
+<!-- AUTO-ENDPOINTS:END -->

@@ -928,10 +928,10 @@ export function useImportWizard() {
     if (!ledger) return;
     const key = getTemplateKeyForLedger(ledger);
     const urlMap: Record<string, string> = {
-      standard_fund: "/api/importers/template/fund",
-      standard_stock: "/api/importers/template/stock"
+      standard_fund: "/api/importers/template/fund/",
+      standard_stock: "/api/importers/template/stock/"
     };
-    const url = urlMap[key] || "/api/importers/template/standard";
+    const url = urlMap[key] || "/api/importers/template/standard/";
     downloadLoading.value = true;
     window.open(url);
     setTimeout(() => (downloadLoading.value = false), 1500);

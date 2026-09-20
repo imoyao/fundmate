@@ -12,7 +12,7 @@ from app.services.market_service import MarketOverviewService
 market_bp = APIBlueprint('market', __name__, url_prefix='/api/market')
 
 
-@market_bp.get('/overview')
+@market_bp.get('/overview/', strict_slashes=False)
 def get_market_overview():
     """
     获取探市大类资产观察（20 个大类资产当日涨跌 + 相对位置）

@@ -69,7 +69,7 @@ export const useUserStore = defineStore("pure-user", {
     SET_LOGINDAY(value: number) {
       this.loginDay = Number(value);
     },
-    /** 登出：统一走后端 /api/auth/logout，由后端负责服务端作废会话 */
+    /** 登出：统一走后端 /api/auth/logout/，由后端负责服务端作废会话 */
     async logOut() {
       try {
         const { data } = await supabase.auth.getSession();
