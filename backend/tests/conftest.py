@@ -40,6 +40,7 @@ def app(monkeypatch):
     # 调用经 _engine_for 解析到内存库，从而删除 conftest 的「模块名清单」式补丁（见 #1608）。
     # 引擎重定向后必须让已缓存的域路由 binds 失效，否则 _ROUTING_BINDS 仍指向旧引擎。
     import app.core.database as _db_mod
+
     _db_mod.reset_routing_binds()
 
     # 双库架构支持：reconciliation 等 user 域表经 user_session 访问。
