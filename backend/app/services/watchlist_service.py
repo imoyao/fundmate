@@ -20,7 +20,7 @@ from app.domains.indices.models import IndexCatalog
 from app.domains.positions.models import Position
 from app.domains.securities.models import ConvertibleBondTerm, Security
 from app.domains.watchlist.models import WatchlistGroup, WatchlistItem, WatchlistItemGroup, WatchlistItemTag
-from app.services.async_backfill import trigger_backfill
+from app.services import async_backfill
 
 GROUP_COLORS = {
     'all': '#999',
@@ -391,7 +391,7 @@ def create_watchlist_item(db: Session, data: Dict[str, Any], family_id: int) -> 
     # 异步回填
     try:
         backfill_type = 'fund' if (data['symbol'].isdigit() and len(data['symbol']) == 6) else 'stock'
-        trigger_backfill(backfill_type, data['symbol'])
+        async_backfill.trigger_backfill(backfill_type, data['symbol'])
     except Exception:
         pass
 
