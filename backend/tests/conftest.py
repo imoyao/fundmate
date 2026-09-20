@@ -36,7 +36,11 @@ def app(monkeypatch):
 
     monkeypatch.setattr('app.core.database.engine', test_engine)
     monkeypatch.setattr('app.core.database.user_engine', test_engine)
-    monkeypatch.setattr('app.core.database.SessionLocal', TestSessionLocal)
+    # 不再替换 SessionLocal maker：改为重定向引擎，使所有（含导入期早绑定的）SessionLocal()
+    # 调用经 _engine_for 解析到内存库，从而删除 conftest 的「模块名清单」式补丁（见 #1608）。
+    # 引擎重定向后必须让已缓存的域路由 binds 失效，否则 _ROUTING_BINDS 仍指向旧引擎。
+    import app.core.database as _db_mod
+    _db_mod.reset_routing_binds()
 
     # 双库架构支持：reconciliation 等 user 域表经 user_session 访问。
     # 测试需把 user_session 与 get_db(SessionLocal) 指向同一内存库，保证测试数据可见；
@@ -79,25 +83,6 @@ def db(app):
     session = SessionLocal()
     yield session
     session.close()
-
-
-@pytest.fixture(autouse=True)
-def _patch_thermo_session(app, monkeypatch):
-    # service 模块在 import 时早绑定了 app.core.database.SessionLocal，
-    # 而 app fixture 把 app.core.database.SessionLocal 重定向到内存引擎，
-    # monkeypatch 改模块属性只对 app.core.database 生效，对 service 模块的早绑定无效，
-    # 会导致 TemperatureService 连到真实库。此处把 service.SessionLocal 对齐到内存引擎，
-    # 修复测试隔离隐患（原本只有 test_thermometer_overview.py 局部处理）。
-    import app.services.thermometer.service as thermo_service
-    from app.core.database import SessionLocal as PatchedSessionLocal
-
-    monkeypatch.setattr(thermo_service, 'SessionLocal', PatchedSessionLocal)
-
-    # ocr_service 重构后（P1，ai_recognizer 分层）业务逻辑迁往 ai_recognizer.guards；
-    # guards 同样早绑定了 SessionLocal，对齐到内存引擎，避免连真实库
-    import app.services.ai_recognizer.guards as ai_guards
-
-    monkeypatch.setattr(ai_guards, 'SessionLocal', PatchedSessionLocal)
 
 
 @pytest.fixture(autouse=True)
@@ -148,14 +133,26 @@ def _isolate_cache_file_dir(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def clean_db(app):
-    """每个测试结束后自动清空所有表，保证隔离"""
+    """每个测试结束后自动清空所有表，保证隔离。
+
+    只删当前会话引擎**实际存在**的表——#1608 后 SessionLocal 统一走路由 maker，clean_db
+    也可能落在被重定向到无表内存库的引擎上（部分 DB 内部单测），避免 NoSuchTableError；
+    若引擎被重定向为非连接对象（如单测用 sentinel），跳过清理。
+    """
     yield
+    from sqlalchemy import inspect
+
     from app.core.database import SessionLocal  # 延迟导入
 
     session = SessionLocal()
+    try:
+        existing = set(inspect(session.bind).get_table_names())
+    except Exception:
+        existing = set()
     # 按依赖逆序删除，避免外键错误
     for table in reversed(Base.metadata.sorted_tables):
-        session.execute(table.delete())
+        if table.name in existing:
+            session.execute(table.delete())
     session.commit()
     session.close()
 
