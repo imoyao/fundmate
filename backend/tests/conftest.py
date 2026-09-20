@@ -82,25 +82,6 @@ def db(app):
 
 
 @pytest.fixture(autouse=True)
-def _patch_thermo_session(app, monkeypatch):
-    # service 模块在 import 时早绑定了 app.core.database.SessionLocal，
-    # 而 app fixture 把 app.core.database.SessionLocal 重定向到内存引擎，
-    # monkeypatch 改模块属性只对 app.core.database 生效，对 service 模块的早绑定无效，
-    # 会导致 TemperatureService 连到真实库。此处把 service.SessionLocal 对齐到内存引擎，
-    # 修复测试隔离隐患（原本只有 test_thermometer_overview.py 局部处理）。
-    import app.services.thermometer.service as thermo_service
-    from app.core.database import SessionLocal as PatchedSessionLocal
-
-    monkeypatch.setattr(thermo_service, 'SessionLocal', PatchedSessionLocal)
-
-    # ocr_service 重构后（P1，ai_recognizer 分层）业务逻辑迁往 ai_recognizer.guards；
-    # guards 同样早绑定了 SessionLocal，对齐到内存引擎，避免连真实库
-    import app.services.ai_recognizer.guards as ai_guards
-
-    monkeypatch.setattr(ai_guards, 'SessionLocal', PatchedSessionLocal)
-
-
-@pytest.fixture(autouse=True)
 def _disable_async_backfill(monkeypatch):
     """禁用创建自选/持仓时触发的异步回填后台线程（2026-09-09）。
 

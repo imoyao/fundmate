@@ -8,12 +8,12 @@
 import akshare as ak
 from loguru import logger
 
-from app.core.database import SessionLocal
+from app.core.database import get_session
 from app.domains.funds.models import Fund
 
 
 def sync_all_funds():
-    db = SessionLocal()
+    db = get_session()
     count = 0
     try:
         logger.info('开始同步全量基金基础信息...')

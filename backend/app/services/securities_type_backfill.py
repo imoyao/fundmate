@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from app.core.database import SessionLocal
+from app.core.database import get_session
 from app.core.symbol_utils import derive_security_type
 from app.domains.positions.models import Position
 from app.domains.securities.models import Security
@@ -71,7 +71,7 @@ def backfill_securities_asset_type(db=None, apply: bool = False) -> dict:
     """
     own = db is None
     if own:
-        db = SessionLocal()
+        db = get_session()
     _ensure_all_models()
     summary = {
         'positions_checked': 0,

@@ -226,9 +226,9 @@ def auth_before_request():
     if _is_public(request.path, request.method):
         return None
 
-    from app.core.database import SessionLocal  # 延迟导入，确保测试 monkeypatch 生效
+    from app.core.database import get_session  # 延迟导入，确保测试 monkeypatch 生效
 
-    db = SessionLocal()
+    db = get_session()
     try:
         user = _resolve_user(db)
         if user is None and not auth_enabled():

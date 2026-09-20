@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 from loguru import logger
 from sqlalchemy import func
 
-from app.core.database import SessionLocal
+from app.core.database import get_session
 from app.core.time_utils import today_shanghai
 from app.domains.temperature.models import MarketComposite, MarketMultiItem, MarketSingleValue
 from app.services.thermometer.constants import LINKS as THERMOMETER_LINKS
@@ -34,7 +34,7 @@ class TemperatureService:
     @classmethod
     def save_singles(cls, items: List[dict]) -> int:
         """保存单值指标到数据库（`market_single_values` / MarketSingleValue）"""
-        db = SessionLocal()
+        db = get_session()
         try:
             count = 0
             today = today_shanghai()
@@ -70,7 +70,7 @@ class TemperatureService:
     @classmethod
     def get_latest_single(cls, source: str) -> Optional[dict]:
         """获取某个单值指标的最新记录"""
-        db = SessionLocal()
+        db = get_session()
         try:
             record = (
                 db.query(MarketSingleValue)
@@ -96,7 +96,7 @@ class TemperatureService:
     @classmethod
     def get_all_latest_singles(cls, sources: Optional[List[str]] = None) -> List[dict]:
         """获取所有单值指标的最新记录"""
-        db = SessionLocal()
+        db = get_session()
         try:
             query = db.query(MarketSingleValue).filter(MarketSingleValue.stale.is_(False))
             if sources:
@@ -142,7 +142,7 @@ class TemperatureService:
     @classmethod
     def save_composites(cls, items: List[dict]) -> int:
         """保存复合指标到数据库（`market_composites` / MarketComposite）"""
-        db = SessionLocal()
+        db = get_session()
         try:
             count = 0
             today = today_shanghai()
@@ -174,7 +174,7 @@ class TemperatureService:
     @classmethod
     def get_latest_composite(cls, source: str) -> Optional[dict]:
         """获取某个复合指标的最新记录"""
-        db = SessionLocal()
+        db = get_session()
         try:
             record = (
                 db.query(MarketComposite)
@@ -209,7 +209,7 @@ class TemperatureService:
         每条子记录可携带 'stale' 标记（东财抓取失败时回退旧数据置 True），
         会原样写入 MarketMultiItem.stale，供前端提示数据滞后。
         """
-        db = SessionLocal()
+        db = get_session()
         try:
             from app.domains.temperature.models import MarketMultiItem
 
@@ -270,7 +270,7 @@ class TemperatureService:
     @classmethod
     def get_latest_multi_items(cls, source: str, item_type: Optional[str] = None) -> List[dict]:
         """获取某个多维列表的最新数据（按最新日期筛选）"""
-        db = SessionLocal()
+        db = get_session()
         try:
             # 不过滤 stale：乖离率在东财抓取失败时落库 stale=True 的滞后数据，
             # 前端据此提示「数据滞后」，故需一并返回（取最新日期即可，最新日期本身可能整体滞后）。
@@ -315,7 +315,7 @@ class TemperatureService:
         Returns:
             {'source': str, 'date': str|None, 'items': List[dict]}
         """
-        db = SessionLocal()
+        db = get_session()
         try:
             # 不过滤 stale：乖离率在东财抓取失败时落库 stale=True 的滞后数据，
             # 前端据此提示「数据滞后」，故需一并返回。最新日期本身可能整体滞后。
@@ -365,7 +365,7 @@ class TemperatureService:
         """
         if days > 365:
             days = 365
-        db = SessionLocal()
+        db = get_session()
         try:
             if source == 'composite_temperature':
                 records = (
@@ -406,7 +406,7 @@ class TemperatureService:
         获取市场温度概览（前端探市页面使用）
         从三张表聚合最新数据
         """
-        db = SessionLocal()
+        db = get_session()
         # 1. 获取所有单值的最新记录（按指定来源筛选）
         single_sources = [
             'eastmoney_volume',
@@ -631,7 +631,7 @@ class TemperatureService:
     @classmethod
     def cleanup_old_data(cls) -> None:
         """清理超过 1 年的复合指标和多维列表数据"""
-        db = SessionLocal()
+        db = get_session()
         try:
             from app.domains.temperature.models import MarketComposite
 
