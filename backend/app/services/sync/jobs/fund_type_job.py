@@ -16,8 +16,8 @@ from typing import List
 from loguru import logger
 
 from app.domains.funds.models import Fund
+from app.services.job_base import SyncJob
 from app.services.sync.fund_type_resolution import FundTypeResolver
-from app.services.sync.jobs.base import SyncJob
 
 
 class FundTypeSyncJob(SyncJob):

@@ -7,9 +7,9 @@ xalpha / company_resolver。因此测试重点是"委托关系正确"与"对外�
 网络相关一律 mock，不真发请求（遵循 AGENTS.md 测试纪律）。
 """
 
-from app.services.sync.adapters.akshare_adapter import AkshareAdapter
-from app.services.sync.adapters.eastmoney_adapter import EastmoneyAdapter
-from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
+from app.services.adapters.akshare_adapter import AkshareAdapter
+from app.services.adapters.eastmoney_adapter import EastmoneyAdapter
+from app.services.adapters.xalpha_adapter import XalphaAdapter
 
 
 def test_eastmoney_adapter_name_version():
@@ -43,7 +43,7 @@ def test_eastmoney_fetch_fund_company(monkeypatch):
     """
     fixed = [{'code': '80163340', 'name': '安信基金'}]
     monkeypatch.setattr(
-        'app.services.sync.adapters.eastmoney_adapter.fetch_fund_company_list',
+        'app.services.adapters.eastmoney_adapter.fetch_fund_company_list',
         lambda: fixed,
     )
     adapter = EastmoneyAdapter()

@@ -39,7 +39,9 @@ class FakeResponse:
 def test_parse_jjjz_gs(monkeypatch):
     """解析 jjjz_gs.js 的 op 数组，提取 [code, name]。"""
     html = 'var gs={op:[["80163340","安信基金"],["81608035","安联基金"]]}'
-    monkeypatch.setattr(company_resolver.requests, 'get', lambda *a, **k: FakeResponse(html))
+    # #1607 批次 3：取数已下沉到适配器层（`adapters.eastmoney_adapter`），
+    # 故 seam 从 `company_resolver.requests` 改为 patch 共享的 requests 模块属性。
+    monkeypatch.setattr('requests.get', lambda *a, **k: FakeResponse(html))
     result = fetch_fund_company_list()
     assert len(result) == 2
     assert result[0] == {'code': '80163340', 'name': '安信基金'}

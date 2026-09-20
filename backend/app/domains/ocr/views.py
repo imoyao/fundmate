@@ -29,9 +29,9 @@ from app.domains.ledgers.models import Ledger
 from app.domains.ocr.schemas import OCRParseTextRequest, OCRRecognizeRequest
 from app.services.ai_recognizer import guards
 from app.services.ai_recognizer.registry import get_recognizer
+from app.services.import_records import StandardHoldingRecord, StandardTransactionRecord
 from app.services.importer.mappings import OP_TYPE_LABEL
 from app.services.importer.orchestrator import ImportOrchestrator
-from app.services.importer.records import StandardHoldingRecord, StandardTransactionRecord
 
 ocr_bp = APIBlueprint('ocr', __name__, url_prefix='/api/ocr')
 

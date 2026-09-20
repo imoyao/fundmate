@@ -22,7 +22,7 @@ from app.domains.funds.models import (
     AdvisorIndustryAlloc,
     AdvisorPortfolio,
 )
-from app.services.sync.adapters.advisor_source import (
+from app.services.adapters.advisor_source import (
     _SOURCES,
     AdvisorPortfolioSource,
     AdvisorSourceRegistry,
@@ -30,8 +30,8 @@ from app.services.sync.adapters.advisor_source import (
     register_advisor_source,
     registered_platforms,
 )
-from app.services.sync.adapters.qieman_advisor_adapter import QiemanAdvisorAdapter
-from app.services.sync.adapters.tiantian_advisor_adapter import TiantianAdvisorAdapter
+from app.services.adapters.qieman_advisor_adapter import QiemanAdvisorAdapter
+from app.services.adapters.tiantian_advisor_adapter import TiantianAdvisorAdapter
 from app.services.sync.jobs.advisor_portfolio_job import (
     AdvisorPortfolioSyncJob,
     flatten_qieman_composition,

@@ -19,9 +19,9 @@ from loguru import logger
 
 from app.core.constants import CASH_SYMBOL, PositionSource
 from app.core.symbol_utils import get_normalizer
+from app.services.import_records import SBImportError, StandardTransactionRecord
 from app.services.importer.base import BaseImportParser
 from app.services.importer.mappings import THS_OP_MAP, VALID_OP_TYPES
-from app.services.importer.records import SBImportError, StandardTransactionRecord
 
 
 class THSStockParser(BaseImportParser):

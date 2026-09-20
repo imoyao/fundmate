@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.services.sync.adapters.akshare_adapter import AkshareAdapter
+from app.services.adapters.akshare_adapter import AkshareAdapter
 
 FIXTURES = Path(__file__).parent.parent.parent / 'fixtures'
 

@@ -19,8 +19,8 @@ import pytest
 
 from app.domains.funds.models import DailyWorth, Fund, MoneyFundDailyWorth
 from app.models.sync_log import SyncLog
-from app.services.sync.jobs import base as base_module
-from app.services.sync.jobs.base import JobStatus
+from app.services import job_base as base_module
+from app.services.job_base import JobStatus
 from app.services.sync.jobs.fund_nav_job import FundNavSyncJob
 
 

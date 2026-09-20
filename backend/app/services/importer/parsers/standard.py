@@ -7,13 +7,13 @@ from decimal import Decimal
 from typing import List, Optional, Tuple
 
 from app.core.constants import PositionSource
+from app.services.import_records import SBImportError, StandardTransactionRecord
 from app.services.importer.base import BaseImportParser
 from app.services.importer.mappings import (
     FUND_OP_MAP,
     STOCK_OP_MAP,
     VALID_OP_TYPES,
 )
-from app.services.importer.records import SBImportError, StandardTransactionRecord
 from app.services.importer.utils import (
     clean_amount,
     clean_nav,

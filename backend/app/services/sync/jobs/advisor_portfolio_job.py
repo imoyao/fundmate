@@ -3,7 +3,7 @@
 
 **平台无关**：本任务不认识任何具体平台，只按 ``AdvisorPortfolio.platform``
 从 :class:`AdvisorSourceRegistry` 取对应适配器（Port 契约见
-``app/services/sync/adapters/advisor_source.py``）。新增平台 = 加一个适配器，**不改本文件**。
+``app/services/adapters/advisor_source.py``）。新增平台 = 加一个适配器，**不改本文件**。
 
 平台能力差异与落库语义的分工：
 
@@ -37,7 +37,7 @@ from sqlalchemy import func
 from app.core.constants import ADVISOR_ADJUST_OP_NAME
 from app.domains.funds.advisor_catalog import get_qieman_strategy
 from app.domains.funds.models import AdvisorAdjustHistory, AdvisorHolding, AdvisorIndustryAlloc, AdvisorPortfolio
-from app.services.sync.adapters.advisor_source import (
+from app.services.adapters.advisor_source import (
     CANONICAL_OVERVIEW_COLUMNS,
     CURATED_OVERVIEW_KEYS,
     DEFAULT_ADVISOR_PLATFORM,
@@ -47,7 +47,7 @@ from app.services.sync.adapters.advisor_source import (
     AdvisorSourceRegistry,
     UnknownAdvisorPlatform,
 )
-from app.services.sync.jobs.base import SyncJob
+from app.services.job_base import SyncJob
 
 #: 数据来源标识（落 advisor_holdings / advisor_adjust_histories / advisor_industry_allocs 的 source 列）。
 #: 自动抓取统一取 ``platform.lower()``——tiantian / qieman，与 #1167/#1468 起已落库的数据同口径；
