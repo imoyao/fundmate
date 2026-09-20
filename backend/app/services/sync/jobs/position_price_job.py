@@ -43,9 +43,9 @@ from app.core.constants import ValuationMode
 from app.core.money import Money
 from app.core.time_utils import now_shanghai, today_shanghai
 from app.domains.positions.models import Position
+from app.services.adapters.null_adapter import NullAdapter
+from app.services.job_base import JobStatus, SyncJob
 from app.services.nav_service import NavService
-from app.services.sync.adapters.null_adapter import NullAdapter
-from app.services.sync.jobs.base import JobStatus, SyncJob
 
 # 净值新鲜度上限（天）：超过即不写（见模块 docstring 硬约束 2）
 MAX_STALENESS_DAYS = 7

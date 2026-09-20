@@ -13,7 +13,7 @@ from typing import List
 from loguru import logger
 
 from app.domains.indices.models import IndexConstituent
-from app.services.sync.jobs.base import SyncJob
+from app.services.job_base import SyncJob
 
 # 目标宽基 / 主流指数（plain code，不含交易所后缀）。
 # csindex 系列优先走 index_stock_cons_csindex，其余回退 sina。

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """天天基金「投顾组合」数据适配器（#1167，Port 契约见 #1392）。
 
-实现 :class:`~app.services.sync.adapters.advisor_source.AdvisorPortfolioSource`：
+实现 :class:`~app.services.adapters.advisor_source.AdvisorPortfolioSource`：
 把天天基金四个数据面翻译成 canonical，平台黑话（``SYL_*`` / ``tgCode``）不出本文件。
 
 数据源为公开接口（零鉴权，免登录/签名/浏览器），逆向结论与接口契约见
@@ -32,7 +32,7 @@ from loguru import logger
 
 from app.core.constants import ADVISOR_ADJUST_OP_NAME as ADJUST_OP_NAME
 from app.core.time_utils import now_shanghai
-from app.services.sync.adapters.advisor_source import EXTRA_KEY, AdvisorPortfolioSource, register_advisor_source
+from app.services.adapters.advisor_source import EXTRA_KEY, AdvisorPortfolioSource, register_advisor_source
 
 COMBINE_HOST = 'https://uni-fundts.1234567.com.cn'
 DATAPI_HOST = 'https://dataapi.1234567.com.cn'

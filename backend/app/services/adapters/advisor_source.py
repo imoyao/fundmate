@@ -175,7 +175,7 @@ def _ensure_builtin_sources() -> None:
         return
     _BUILTINS_LOADED = True
     # 导入即注册（isort 会按字母序排列，此处保留 noqa 以防 ruff 误判未使用）
-    from app.services.sync.adapters import qieman_advisor_adapter, tiantian_advisor_adapter  # noqa: F401
+    from app.services.adapters import qieman_advisor_adapter, tiantian_advisor_adapter  # noqa: F401
 
 
 def registered_platforms() -> tuple[str, ...]:

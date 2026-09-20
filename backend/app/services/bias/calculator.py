@@ -148,7 +148,7 @@ def _default_cache_dir() -> Path:
     ⚠️ **必须调用期解析**，不要退回模块级常量。
 
     关于原注释里的「遵循项目 data/ 约定（与 xalpha_cache 同级）」：本目录被 `.gitignore`
-    显式忽略，属**运行时产物**，搬走是有意为之。而 `sync/adapters/xalpha_adapter.py` 的
+    显式忽略，属**运行时产物**，搬走是有意为之。而 `adapters/xalpha_adapter.py` 的
     `data/xalpha_cache` 存的是 xalpha 的**基金净值历史**，换目录 = 全量重抓、代价完全不同，
     故本处**不动**它（已记在 #1540，另议）。
     """

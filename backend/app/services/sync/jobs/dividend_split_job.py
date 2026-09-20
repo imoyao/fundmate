@@ -20,9 +20,9 @@ from app.core.money import Money
 from app.core.symbol_utils import get_normalizer
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
+from app.services.import_records import StandardTransactionRecord, compute_record_hash
 from app.services.importer.orchestrator import ImportOrchestrator
-from app.services.importer.records import StandardTransactionRecord, compute_record_hash
-from app.services.sync.jobs.base import SyncJob
+from app.services.job_base import SyncJob
 
 
 class DividendSplitSyncJob(SyncJob):

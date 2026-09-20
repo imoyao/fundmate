@@ -17,7 +17,7 @@
 
 from typing import List, Optional
 
-from app.services.sync.jobs.base import JobStatus, SyncJob
+from app.services.job_base import JobStatus, SyncJob
 
 # 逐只抓取的硬上限：超过即截断并告警，防止一次同步变成数小时的外部请求风暴
 MAX_TARGETS = 500

@@ -16,9 +16,9 @@
 from typing import Any, Dict, List, Optional
 
 from app.core.time_utils import now_shanghai
+from app.services.adapters.null_adapter import NullAdapter
+from app.services.job_base import JobStatus, SyncJob
 from app.services.summary_service import write_asset_snapshot
-from app.services.sync.adapters.null_adapter import NullAdapter
-from app.services.sync.jobs.base import JobStatus, SyncJob
 
 
 class AssetSnapshotJob(SyncJob):

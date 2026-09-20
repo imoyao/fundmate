@@ -16,7 +16,7 @@ from loguru import logger
 
 from app.core.symbol_utils import get_normalizer
 from app.domains.securities.models import ConvertibleBondTerm
-from app.services.sync.jobs.base import SyncJob
+from app.services.job_base import SyncJob
 
 
 def _parse_date(value) -> Optional[date]:

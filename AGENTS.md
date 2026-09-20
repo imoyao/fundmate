@@ -138,7 +138,11 @@
   - `core/v8_guard.py`：`py_mini_racer` 并发构造守卫（进程级锁 + 启动预热），防止 akshare
     并发取数触发 V8 Fast Fail 硬杀后端（#1566；不要绕过它去「修」各调用点）。
 - **服务层**：
-  - `services/sync/`：双适配器（xalpha/akshare）+ 编排器。
+  - `services/sync/`：同步编排器 + 各 `SyncJob` 实现（编排/注册类）。
+  - `services/adapters/`：第三方数据适配层（xalpha / akshare / 东财直连 / 韭圈儿 / 各投顾平台）；
+    与 job 家族无关，跨家族共享（#1607 批次 3 从 `sync/adapters/` 上提）。
+  - `services/job_base.py`：任务基类 `SyncJob`（sync / thermometer / bias 共用，**不属任何家族**）。
+  - `services/import_records.py`：导入标准化记录（解析器 / `position_service` / OCR 共用）。
   - `services/thermometer/`：温度计（含全 A 中位 PB 历史基线）。
   - `services/bias/`、`importer/`、`performance/`（XIRR）。
   - `services/daily_scheduler.py`：本机常驻每日调度（进程内 APScheduler；自选/持仓净值 + 温度计，#1467）。

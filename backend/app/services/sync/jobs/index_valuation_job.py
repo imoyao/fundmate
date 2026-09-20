@@ -15,7 +15,7 @@ from typing import List
 from loguru import logger
 
 from app.domains.indices.models import IndexValuation
-from app.services.sync.jobs.base import SyncJob
+from app.services.job_base import SyncJob
 
 # 默认目标：中证系主流宽基 / 红利（这些指数官方提供估值文件）
 INDEX_VALUATION_TARGETS = [

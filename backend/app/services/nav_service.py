@@ -45,7 +45,7 @@
 ## 与其他模块的关系
 
 - **DailyWorth model** (`domains/funds/models.py`)：净值持久化层
-- **XalphaAdapter** (`services/sync/adapters/xalpha_adapter.py`)：远程数据源
+- **XalphaAdapter** (`services/adapters/xalpha_adapter.py`)：远程数据源
 - **FundService** (`services/fund_service.py`)：保留其 _fetch_one_nav / _persist_navs
   作为底层原语，NavService 在上层编排
 """

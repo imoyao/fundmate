@@ -12,7 +12,7 @@ from loguru import logger
 
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
-from app.services.sync.jobs.base import SyncJob
+from app.services.job_base import SyncJob
 
 
 class PriceHistorySyncJob(SyncJob):

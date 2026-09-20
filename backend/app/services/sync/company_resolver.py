@@ -5,7 +5,9 @@
 
 数据源：天天基金基金公司列表 http://fund.eastmoney.com/js/jjjz_gs.js
 实测返回：var gs={op:[["80163340","安信基金"],["81608035","安联基金"],...]}
-即 [code(8位), name(简称)] 数组。
+即 [code(8位), name(简称)] 数组。**取数在适配器层**（`adapters/eastmoney_adapter.py::
+fetch_fund_company_list`，本模块 import 复用）——按 `architecture.md` §2「业务层不裸调
+第三方、统一经 adapter 封装」，本模块只管名称→code 的匹配与主数据回填（#1607 批次 3）。
 
 为什么单独成模块：akshare 全链路只给公司"名"不给"code"，导致 fund_companies
 表大量 code==name 占位。本模块集中负责"名 →（真值 code, 东财简称）"的解析，
@@ -28,18 +30,16 @@ fund_companies 全称（"上海国泰海通证券资产管理有限公司"）无
 归一化匹配。已实测确认可映射的公司列入 _MANUAL_MAPPING。
 """
 
-import json
 import re
 from typing import Dict, List, Optional, Sequence
 
-import requests
 from loguru import logger
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.domains.funds.models import FundCompany
+from app.services.adapters.eastmoney_adapter import fetch_fund_company_list
 
-_EASTMONEY_COMPANY_URL = 'http://fund.eastmoney.com/js/jjjz_gs.js'
 # 归一化时剥除的常见法人主体后缀（只剥一层最长的匹配）
 _COMPANY_SUFFIXES = (
     '基金管理有限公司',
@@ -239,19 +239,6 @@ def match_fund_company(index: Dict[tuple, FundCompany], name: str) -> Optional[F
     if not name:
         return None
     return index.get(company_index_key(name))
-
-
-def fetch_fund_company_list() -> List[Dict[str, str]]:
-    """抓取并解析天天基金基金公司列表，返回 [{code, name}, ...]。"""
-    resp = requests.get(_EASTMONEY_COMPANY_URL, timeout=15)
-    resp.encoding = 'utf-8'
-    text = resp.text
-    m = re.search(r'op:(\[.*?\])\s*}', text, re.DOTALL)
-    if not m:
-        logger.warning('解析基金公司列表失败：未找到 op 数组')
-        return []
-    arr = json.loads(m.group(1))
-    return [{'code': str(row[0]), 'name': str(row[1])} for row in arr if len(row) >= 2]
 
 
 def reset_cache() -> None:

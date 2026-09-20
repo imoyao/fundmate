@@ -17,7 +17,7 @@ class TestOrchestratorIntegration:
     @pytest.fixture
     def mock_akshare(self):
         """Mock AkshareAdapter"""
-        with patch('app.services.sync.adapters.akshare_adapter.AkshareAdapter') as mock:
+        with patch('app.services.adapters.akshare_adapter.AkshareAdapter') as mock:
             instance = mock.return_value
             instance.get_name.return_value = 'akshare'
             instance.get_version.return_value = '1.0'
