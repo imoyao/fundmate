@@ -107,7 +107,7 @@ def create_asset():
         asset.user_id = 1
         asset.family_id = get_family_id()
         db.add(asset)
-        db.commit()
+        db.flush()
         db.refresh(asset)
         return jsonify({'data': _enrich_asset_dict(asset), 'message': 'ok'})
 
@@ -144,7 +144,7 @@ def update_asset(id):
             update_data['amount'] = Money.yuan_to_cents(update_data['amount'])
         for field, value in update_data.items():
             setattr(asset, field, value)
-        db.commit()
+        db.flush()
         db.refresh(asset)
         return jsonify({'data': _enrich_asset_dict(asset), 'message': 'ok'})
 
@@ -157,7 +157,7 @@ def delete_asset(id):
         if not asset:
             abort(404, description='资产不存在')
         db.delete(asset)
-        db.commit()
+        db.flush()
         return jsonify({'message': 'ok', 'data': None})
 
 

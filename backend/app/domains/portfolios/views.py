@@ -62,7 +62,7 @@ def create_portfolio():
                 family_id=get_family_id(),
             )
             db.add(portfolio)
-            db.commit()
+            db.flush()
             db.refresh(portfolio)
             return jsonify({'data': _portfolio_to_dict(portfolio), 'message': 'ok'})
         except Exception as e:
@@ -131,7 +131,7 @@ def update_portfolio(portfolio_id: int):
         if schema.benchmark is not None:
             portfolio.benchmark = schema.benchmark
 
-        db.commit()
+        db.flush()
         db.refresh(portfolio)
         return jsonify({'data': _portfolio_to_dict(portfolio), 'message': 'ok'})
 
@@ -153,7 +153,7 @@ def delete_portfolio(portfolio_id: int):
 
         # 软删除组合
         portfolio.is_deleted = True
-        db.commit()
+        db.flush()
 
         return jsonify({'data': {}, 'message': 'ok'})
 

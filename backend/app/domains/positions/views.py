@@ -266,10 +266,10 @@ def create_position():
             abort(500, description='服务器内部错误，请稍后重试')
 
         if position is None:
-            db.commit()  # 清仓时需要提交交易流水
+            db.flush()
             return jsonify({'message': '持仓已清空', 'data': None})
         wrap_position = enrich_position_dict(position)
-        db.commit()  # ⭐ 显式提交事务
+        db.flush()
         return jsonify({'data': wrap_position, 'message': 'ok'})
 
 
@@ -301,7 +301,7 @@ def update_position(id):
                 value = Money.shares_to_min_unit(value)
             setattr(position, field, value)
 
-        db.commit()
+        db.flush()
         db.refresh(position)
         return jsonify({'data': enrich_position_dict(position), 'message': 'ok'})
 
@@ -325,7 +325,7 @@ def delete_position(id):
                 ).delete()
 
         db.delete(position)
-        db.commit()
+        db.flush()
         return jsonify({'message': 'ok', 'data': None})
 
 
@@ -369,5 +369,5 @@ def allocate_position_value():
         except ValueError as e:
             logger.warning('按占比分摊失败: %s', e)
             return jsonify({'message': str(e), 'data': None, 'error_code': 1001}), 400
-        db.commit()
+        db.flush()
         return jsonify({'data': result, 'message': 'ok'})
