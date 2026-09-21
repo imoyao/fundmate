@@ -690,17 +690,27 @@ issue #1607 的处置策略是「先出决策 + 分批收敛」。**批次 1** =
 | 共享件上提（三次，纯机械搬家） | ① `services/sync/jobs/base.py` → `services/job_base.py`（`SyncJob`/`JobStatus`，24 处 import + 1 处变体写法）；② `services/importer/records.py` → `services/import_records.py`（16 处）；③ `services/sync/adapters/`（10 模块整包）→ `services/adapters/`（25 文件 51 处） | 全量 `pytest -p no:xdist -m "not slow"` 通过；导入冒烟；`ruff` 全绿 |
 | 修掉「方向反了」的真实缺陷（R5 上线即抓出） | `adapters/eastmoney_adapter.fetch_fund_company()` 原只转调 `sync/company_resolver.fetch_fund_company_list()`，而后者裸 `requests.get` 东财（违反 `architecture.md` §2）。现取数下沉进适配器，`company_resolver` 改为 import 复用并保持同名 re-export；测试 seam 由 `company_resolver.requests` 改为 patch 共享 `requests.get` | `tests/test_eastmoney_adapter.py` / `tests/test_company_resolver.py` / `tests/services/sync/test_fund_company_backfill_job.py` 全绿 |
 | 守卫 R5 | `services/{adapters,job_base,import_records}` → `services.{sync,importer,thermometer,bias,ai_recognizer}` 红灯；**0 条冻结基线**（#1607 批次 4 已消除唯一一条，见 D31） | `tests/core/test_layer_direction.py` 参数化 21 条（原「冻结基线放行」探针已改为**应报 R5**） |
-| services 内部 4 对双向 | 四对**全部消解或判定为合法边**：`sync↔thermometer`（只剩 `sync.orchestrator → thermometer.jobs` 注册）、`sync↔fund_service`（fund_service→sync 随③消失）、`importer↔position_service`（随②消失）、`bias↔thermometer`（注册 + job→领域服务，均合法；延迟导入已注明是 `thermometer/__init__` eager re-export 造成的导入期环，不是掩盖依赖） | `decisions.md` D26、`architecture.md` §6 |
+| services 内部 4 对双向 | 四对**全部消解或判定为合法边**：`sync↔thermometer`（只剩 `sync.orchestrator → thermometer.jobs` 注册）、`sync↔fund_service`（fund_service→sync 随③消失）、`importer↔position_service`（随②消失）、`bias↔thermometer`（注册 + job→领域服务，均合法；~~延迟导入已注明是 `thermometer/__init__` eager re-export 造成的导入期环，不是掩盖依赖~~ → **该说法经批次 5 复核失实**：`thermometer/__init__.py` 根本不存在，延迟导入已转常规导入，见下方开口项 2） | `decisions.md` D26、`architecture.md` §6 |
 | 跨域模型引用评估 | 四条对（`assets↔ledgers` / `positions↔transactions` / `portfolios↔positions` / `users↔families`）实际边**全是 `domains.*.views → 对方 models`**（`users↔families` 另有种子/查询侧 models 引用），属允许的跨域引用且同在 user 数据域 → **判定合法、保留** | `decisions.md` D26 |
 | 包级双向对（观测值） | **20 → 17**（①消 `sync↔thermometer`、②消 `importer↔position_service`、③消 `sync↔fund_service`） | 主指标仍是「违规边 / 冻结基线之外 0」 |
 
-### 开口项（#1607 剩余）
+### 批次 5 已完成（2026-09-21，#1607 收尾批，D32）
+
+| 项 | 内容 | 证据 |
+|---|---|---|
+| `bias/job` 延迟导入转常规导入 | 复核发现开口项 2 的**前提失实**（`thermometer/__init__.py` 不存在）→ 把 `from app.services.thermometer.service import TemperatureService` 提到模块级，删掉函数内延迟导入与失实注释（依赖方向合法：job → 领域服务，D25） | 两种导入顺序 + `import app.main` 冒烟通过；`tests/services/{bias,thermometer,sync}` **331 passed** |
+| 守卫新增 R6 | 「**领域服务不得反向依赖编排 / 注册层**」机器化：领域服务按命名约定识别（模块名末段 `*_service` / `service`），编排层 = `sync.orchestrator` / `thermometer.jobs` / `importer.orchestrator*` / `daily_scheduler` | `python scripts/guard_layer_direction.py` → **R1~R6 全绿（236 文件）**；`tests/core/test_layer_direction.py` 参数化新增 3 条 R6 灵敏度 + 5 条 R6 合法边保护 |
+| 文档同步 | `architecture.md` §6 services 内部方向段落写入 R6；`decisions.md` 新增 D32，并对 D29 / D31 中的失实表述加修订标注 | — |
+
+**对外零变更**：仅 1 处导入位置调整 + 守卫与文档，无行为变化。
+
+### 开口项（#1607 剩余）—— **已全部完成**（批次 5，2026-09-21，D32）
 
 | # | 事项 | 当前事实 | 处置方向 |
 |---|---|---|---|
 | 1 | ~~且慢 MCP 取数寄生在 thermometer 家族（R5 唯一冻结基线）~~ | ✅ **已完成**（#1607 批次 4，D31）：`QiemanFetcher` + 3 助手 + 基类 `BaseFetcher/SingleValueFetcher` + `QIEMAN_*` 常量已上提到 `services/adapters/qieman_fetcher.py` / `fetcher_base.py`；`_to_float` 上提到 `core/utils.py::to_float`；`thermometer/fetchers.py` 917 → 524 行；R5 冻结基线清空 | 无（已完成） |
-| 2 | `thermometer/__init__.py` eager re-export | 其 `__init__` 直接 re-export `.jobs`，而 `jobs.py` import `bias.job` 注册 BiasJob → 形成导入期环，逼 `bias/job._save_data` 用函数内延迟导入 | 收敛 `__init__`（只留必要导出），环解开后延迟导入可转常规导入 |
-| 3 | R5 之外的服务内方向 | 「领域服务不得 import 编排模块」尚未机器化（当前靠人工 + 4 对判定表） | 视批次 4 后的实际形态再定是否加规则（避免过度工程） |
+| 2 | ~~`thermometer/__init__.py` eager re-export~~ | ✅ **已完成 / 前提失实**（#1607 批次 5，D32）：**该文件根本不存在**——`backend/app/services/thermometer/` 下无 `__init__.py`（`git log --diff-filter=D` 为空 = 从无历史），全仓亦 **0 处**包级 `from app.services.thermometer import ...`；故原描述「`__init__` re-export `.jobs` 形成导入期环」**不成立**。实证：`thermometer.jobs` 先 / `bias.job` 先两种导入顺序 + `import app.main` 均可加载，`bias`+`thermometer`+`sync` 331 用例全绿 → 把 `bias/job._save_data` 的延迟导入**转为模块级常规导入** | 无（已完成） |
+| 3 | ~~R5 之外的服务内方向~~ | ✅ **已完成**（#1607 批次 5，D32）：`scripts/guard_layer_direction.py` 新增 **R6**——**领域服务**（命名约定：模块名末段 `*_service` 或恰为 `service`，即 D25 列举的 `fund_service` / `position_service` 类）→ `sync.orchestrator` / `thermometer.jobs` / `importer.orchestrator*` / `daily_scheduler` 红灯；**job / scheduler 属编排侧**（由 orchestrator 注册与调用）不受限。真实代码扫描 236 文件 **0 违规**——首次以「非编排即领域服务」口径试跑时唯一命中 `sync/jobs/dividend_split_job.py:24 → importer.orchestrator`，经判定属**编排侧内部依赖**（job 由编排器调用，D25 已把 `thermometer/jobs` 列入编排/注册类），故按 D25 原文改用命名约定界定「领域服务」 | 无（已完成） |
 
 ### 范围外发现项（本次全量回归暴露，非本批改动引入）
 

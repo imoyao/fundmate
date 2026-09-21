@@ -158,6 +158,10 @@ core  ←  domains.<域>.models / schemas  ←  services  ←  domains.<域>.vie
   （现为 `job_base.py`（`SyncJob` 基类）、`adapters/`（第三方数据适配层）、`import_records.py`（导入标准化
   记录）），家族包内只留该家族独有实现——共享件若是**叶子**（不得反向依赖家族包），否则又会"寄生"
   （守卫 R5 固定；**#1607 批次 4 后零例外**：且慢取数已上提到 `adapters/qieman_fetcher.py`，见 D31）。
+  **R6 已机器化**（#1607 批次 5，D32）：**领域服务**（模块名 `*_service` / `service`，即 `fund_service` /
+  `position_service` / `pnl_service` / `watchlist_service` 那一类）→ 编排 / 注册层
+  （`sync.orchestrator` / `thermometer.jobs` / `importer.orchestrator*` / `daily_scheduler`）一律红灯；
+  **job / scheduler 属编排侧**（由 orchestrator 注册与调用），可依赖编排层与其它领域的服务。
 - **domains.\*.views**：HTTP 编排层，依赖 services 与各域 models/schemas；**跨域不得引用对方 views**
   （共用逻辑下沉 services，先例：`services/position_presenter.py::enrich_position_dict`）。
 - **模型位置**：业务模型一律 `domains/*/models.py`；**跨域 / 系统级模型**（现仅 `app/models/sync_log.py`，
@@ -165,10 +169,10 @@ core  ←  domains.<域>.models / schemas  ←  services  ←  domains.<域>.vie
 - **建表 / 种子边界**：`core.database.init_db()` 只建「调用方已 import 的模型」的表，不代为导入顶层模型、
   不写业务数据；默认家庭 1 / 默认用户 1 的播种在 `domains/users/seed.py`，由组合根在建表后调用
   （绕过应用工厂的 CLI 入口需要身份行时自行调用）。
-- **守卫**：`scripts/guard_layer_direction.py`（pre-commit + CI 的 backend job）——五类非法边 R1 core→domains /
+- **守卫**：`scripts/guard_layer_direction.py`（pre-commit + CI 的 backend job）——六类非法边 R1 core→domains /
   R2 services→`domains.*.views` / R3 `domains.*.{models,schemas}`→services / R4 跨域 views 互引 /
-  R5 `services/` 顶层共享件→家族包（含 1 条冻结基线）；配套 `tests/core/test_layer_direction.py`
-  （逐规则灵敏度 + 合法边反向保护 + 冻结基线边界）。
+  R5 `services/` 顶层共享件→家族包（**冻结基线 0 条**，批次 4 清零）/ R6 领域服务→编排注册层（批次 5）；
+  配套 `tests/core/test_layer_direction.py`（逐规则灵敏度 + 合法边反向保护 + 冻结基线边界）。
   判据用「**边方向**」而不是「包级双向依赖对数量」——包级双向对多数由 `views→services` 与
   `services→models` 两条**合法边**叠加而成（如 `domains.positions` ↔ `services.position_service`），不构成违规。
 
