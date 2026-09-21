@@ -341,7 +341,11 @@ def normalize_and_infer_venue(
 
 
 def create_watchlist_item(db: Session, data: Dict[str, Any], family_id: int) -> WatchlistItem:
-    """创建自选资产并触发异步回填"""
+    """创建自选资产并触发异步回填。
+
+    事务（#1609 / §2.13）：本服务只 ``flush()``，**不 commit**——提交由请求边界
+    （``get_db`` 的 teardown）统一完成；调用方仅 `watchlist.views.create_item`（请求路径）。
+    """
     # 写入前归一为小写，与后端 asset_types 单一来源（stock/etf/fund/bond/index）及 positions 域一致，
     # 并修正历史大写（STOCK/ETF/...）导致 venue 推断（asset_type=='fund'）失效的问题（#1171）。
     raw_asset_type = (data.get('asset_type') or '').strip().lower() or None
@@ -385,7 +389,7 @@ def create_watchlist_item(db: Session, data: Dict[str, Any], family_id: int) -> 
         family_id=family_id,
     )
     db.add(item)
-    db.commit()
+    db.flush()
     db.refresh(item)
 
     # 异步回填
