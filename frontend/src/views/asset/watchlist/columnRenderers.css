@@ -298,7 +298,7 @@
 
 /* 官方链接：用品牌色表达「可跳转」，不用涨红跌绿语义色 */
 .el-table .advisor-source-link {
-  color: var(--el-color-primary);
+  color: var(--brand-ink);
   text-decoration: none;
   cursor: pointer;
 }

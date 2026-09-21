@@ -307,7 +307,7 @@ watch(allMatched, val => {
 
 .matched-icon {
   font-size: 16px;
-  color: var(--color-success);
+  color: var(--color-success-ink);
 }
 
 .matched-name {

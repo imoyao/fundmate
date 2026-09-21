@@ -91,13 +91,13 @@ function setFilter(key: string) {
 }
 
 .summary-tab:hover {
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
   border-color: var(--color-primary);
 }
 
 .summary-tab.active {
   font-weight: 600;
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
   background: var(--color-primary-10);
   border-color: var(--color-primary);
 }

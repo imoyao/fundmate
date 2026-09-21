@@ -977,7 +977,7 @@ onMounted(() => {
 .parse-done-bar__icon {
   flex-shrink: 0;
   font-size: 18px;
-  color: var(--color-success);
+  color: var(--color-success-ink);
 }
 
 .parse-done-bar__file {
@@ -998,7 +998,7 @@ onMounted(() => {
 
 .parse-done-bar__count {
   font-weight: 600;
-  color: var(--color-success);
+  color: var(--color-success-ink);
 }
 
 .parse-done-bar__reset {
@@ -1151,7 +1151,7 @@ onMounted(() => {
 
 .done-card__icon {
   font-size: 40px;
-  color: var(--color-success);
+  color: var(--color-success-ink);
 }
 
 .done-card__title {

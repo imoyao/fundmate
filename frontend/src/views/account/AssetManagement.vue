@@ -399,7 +399,7 @@ const handleAssetFormSubmit = () => {
     .action-link {
       margin-right: 10px;
       font-size: 14px;
-      color: var(--el-color-primary);
+      color: var(--brand-ink);
       cursor: pointer;
       background: none;
       border: none;

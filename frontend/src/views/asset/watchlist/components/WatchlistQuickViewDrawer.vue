@@ -513,7 +513,7 @@ function ratioText(it: AdvisorAdjustItem): string {
 }
 
 .wqv-link {
-  color: var(--el-color-primary);
+  color: var(--brand-ink);
   text-decoration: none;
 }
 

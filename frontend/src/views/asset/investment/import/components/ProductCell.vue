@@ -52,7 +52,7 @@ const { getFundTypeColor } = useImportWizardContext();
   padding: 0 6px;
   font-size: 11px;
   line-height: 20px;
-  color: var(--bg-card);
+  color: var(--text-inverse);
   border: none;
 }
 </style>

@@ -160,7 +160,7 @@ const {
   margin-left: 2px;
   font-size: 11px;
   line-height: 1;
-  color: var(--bg-card);
+  color: var(--text-primary);
   background: var(--color-warning);
   border-radius: 8px;
 }
