@@ -8,7 +8,10 @@
    放行（没有基线也不在新增上限内就什么都不查？不：新文件走上限校验，但基线虚胖
    会让「删除文件后基线残留」这类漂移无人发现）；
 2. **灵敏度**——守卫必须真的能报错（防「永远返回空 → 永远绿」的假绿，
-   同 `tests/core/test_core_layer_boundary.py` 的反向验证思路）。
+   同 `tests/core/test_core_layer_boundary.py` 的反向验证思路）；
+3. **基线虚胖**——基线宽于实测时，该维度的「只减不增」拦截会静默失效（实测 #1606 落地后
+   `commits` 维度空转了 41/44：41 处 `commit()` 已随 #1609 batch 2/3/4 改为 `flush()`，
+   基线却仍写着旧数字，于是「把 `flush` 改回 `commit`」不会被拦）。
 
 守卫逻辑按路径加载复用，不重复实现（判定规则只有一份）。
 """
@@ -95,3 +98,37 @@ def test_guard_flags_new_file_over_limits(tmp_path, monkeypatch, capsys):
     assert guard.main([]) == 1
     captured = capsys.readouterr()
     assert '新增上限' in captured.err
+
+
+def test_guard_hints_loose_baseline(tmp_path, monkeypatch, capsys):
+    """防基线虚胖：实测低于基线时必须提示回写，但**不报错**（正常收敛不该红掉校验）。"""
+    guard = _load_guard()
+    thin = tmp_path / 'views.py'
+    thin.write_text('def thin(db):\n    db.commit()\n', encoding='utf-8')
+
+    monkeypatch.setattr(guard, '_iter_views', lambda: [thin])
+    monkeypatch.setattr(guard, '_rel', lambda path: 'backend/app/domains/x/views.py')
+    monkeypatch.setattr(
+        guard,
+        'BASELINE',
+        {'backend/app/domains/x/views.py': {'lines': 50, 'orm_queries': 5, 'commits': 9, 'max_func': 60}},
+    )
+
+    assert guard.main([]) == 0
+    captured = capsys.readouterr()
+    assert '收紧 BASELINE' in captured.out
+    assert 'commits = 1' in captured.out
+    assert captured.err == ''
+
+
+def test_baseline_matches_current_metrics():
+    """基线与实测必须**贴合**（不是「不超过」）：`commits` 维度已在 #1609 batch 2/3/4 收敛
+    （44 → 3），基线若不回写，「只减不增」在这一维度就是空转（#1606 复核发现：把 `flush`
+    改回 `commit` 不会被拦）。收敛后请在同 PR 内 `python scripts/check_view_thickness.py
+    --report` 回写 BASELINE——基线**调大**仍会由本用例拦下（守卫生效的唯一方式）。"""
+    guard = _load_guard()
+    measured = {guard._rel(p): guard.collect_metrics(p) for p in guard._iter_views()}
+    for rel, m in measured.items():
+        for metric, budget in guard.BASELINE[rel].items():
+            assert m[metric] <= budget, f'{rel} 的 {metric} = {m[metric]} 超过基线 {budget}（变厚）'
+            assert m[metric] == budget, f'{rel} 的 {metric} = {m[metric]} 低于基线 {budget}，请用 --report 收紧基线'
