@@ -15,12 +15,13 @@
 | R3 | `app.domains.<域>.{models,schemas}` → `app.services.*` | 叶子层反向依赖服务层 |
 | R4 | `app.domains.A.views` → `app.domains.B.views`（A≠B） | 跨域引用对方视图（HTTP 细节外溢到另一域） |
 | R5 | `app.services.adapters.*` / `job_base` / `import_records` → `app.services.{sync,importer,thermometer,bias,ai_recognizer}.*` | services 顶层**共享件**反向依赖家族包（共享件必须是叶子，否则又长回「寄生」） |
+| R6 | **领域服务**（模块名 `*_service` / `service`）→ `app.services.{sync.orchestrator, thermometer.jobs, importer.orchestrator*, daily_scheduler}` | services 内部方向：**编排 / 注册类**（orchestrator / jobs / scheduler）可依赖其它领域的服务与 job，**领域服务不得反向依赖编排层**（批次 5 机器化，见 `decisions.md` D25 定调 / D32 落地） |
 
 **不判的（刻意）**：`views → services`、`services → domains.models/schemas`、
 `domains.A.models ↔ domains.B.models`、`家族包 → 共享件` 等**合法边**；
 以及「包级双向依赖对」——它多数由 `views→services` 与 `services→models` 两条合法边叠加而成
 （如 `domains.positions` ↔ `services.position_service`），不构成违规。
-`services` 内部方向（编排层 vs 领域服务）见 `docs/spec/tech-debt.md` #1607 条目。
+`services` 内部方向（编排层 vs 领域服务）由 **R6** 机器化（#1607 批次 5，`decisions.md` D25 定调 / D32 落地）。
 
 检测策略（AST，纯标准库）：import 语句 + 动态 import 字面量
 （`importlib.import_module('app.domains...')` / `__import__('app.models...')`）。
@@ -57,6 +58,22 @@ SERVICE_FAMILY_PACKAGES = (
     'app.services.bias',
     'app.services.ai_recognizer',
 )
+# R6：services 内的**编排 / 注册类**模块（`decisions.md` D25 定调、D32 机器化）。
+# 它们可依赖其它领域的服务与 job（job 模块同属编排侧：由 orchestrator 注册与调用）；
+# 反之，**领域服务**不得反向依赖编排层。
+#
+# 「领域服务」按命名约定识别（同 R2/R4 的 views 识别方式）：模块名末段为 `*_service`
+# 或恰为 `service`（如 `services/thermometer/service.py`）——即 `decisions.md` D25 列举的
+# `fund_service` / `position_service` / `pnl_service` / `watchlist_service` 那一类。
+ORCHESTRATION_MODULES = (
+    'app.services.sync.orchestrator',
+    'app.services.thermometer.jobs',
+    'app.services.importer.orchestrator',
+    'app.services.importer.orchestrator_parse',
+    'app.services.importer.orchestrator_commit',
+    'app.services.importer.orchestrator_holdings',
+    'app.services.daily_scheduler',
+)
 
 
 def _matches(module: str, packages: tuple[str, ...]) -> bool:
@@ -79,6 +96,12 @@ def _is_core_module(module: str) -> bool:
 
 def _is_services_module(module: str) -> bool:
     return module == 'app.services' or module.startswith('app.services.')
+
+
+def _is_domain_service_module(module: str) -> bool:
+    """目标是否是**领域服务**（R6 的约束对象）——按命名约定：末段为 `*_service` 或恰为 `service`。"""
+    tail = module.rsplit('.', 1)[-1]
+    return tail == 'service' or tail.endswith('_service')
 
 
 def _is_top_level_models(module: str) -> bool:
@@ -121,6 +144,11 @@ def _violation(module_name: str, target_module: str) -> str | None:
             return (
                 'R5 services 顶层共享件不得反向依赖家族包（共享件必须是叶子：家族实现依赖共享件，'
                 '不能反过来；否则又长成「寄生」）'
+            )
+        if _is_domain_service_module(module_name) and _matches(target_module, ORCHESTRATION_MODULES):
+            return (
+                'R6 领域服务不得反向依赖编排 / 注册层（编排层可依赖其它领域的服务与 job，'
+                '反之不行；见 decisions.md D25 / D32）'
             )
         return None
 
@@ -228,10 +256,12 @@ def main() -> int:
         print('ERROR: 发现违反分层依赖方向的 import（core ← domains ← services ← domains.views）：', file=sys.stderr)
         for violation in violations:
             print(f'  - {violation}', file=sys.stderr)
-        print('\n规则与修复方向见 docs/spec/decisions.md 2026-09-19 行 / docs/spec/architecture.md §6。', file=sys.stderr)
+        print(
+            '\n规则与修复方向见 docs/spec/decisions.md 2026-09-19 行 / docs/spec/architecture.md §6。', file=sys.stderr
+        )
         return 1
 
-    print(f'OK: 分层依赖方向无违规（扫描 {len(list(app_dir.rglob("*.py")))} 个文件，R1~R5 全绿）')
+    print(f'OK: 分层依赖方向无违规（扫描 {len(list(app_dir.rglob("*.py")))} 个文件，R1~R6 全绿）')
     return 0
 
 
