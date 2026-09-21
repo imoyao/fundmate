@@ -129,6 +129,7 @@ title: 数据策略（按需存、禁止全量堆砌）
 3. **`__full__` 使用有前提**：仅当该 job 单次调用**不产生逐条外部请求**时可用全量（如一次 HTTP 返回全市场列表）。**逐只抓取类 job 一律按目标池限量**，且必须设批量上限与节流。
 4. **docstring 必须与行为一致**：job 名称与 docstring 若声称「全量」，实现就不得是「只增不改」；反之若实现是增量，名称与注释必须如实描述。**契约谎报会误导后来人对数据状态的判断。**
 5. **请求路径禁止全表扫描**：接口 / 页面渲染路径中禁止 `for x in db.query(Model).all()` 这类无条件全量加载。跨域读取走 `services/cross_domain.py` 的「两步法」（先取 key，再 `in_` 批量查）。
+   **已有机器化守卫（#1643）**：`scripts/check_cross_domain_query.py` 静态拦截「跨域模型进同一 SQL 语句」——五类形态 A（单链 `join` / `outerjoin`）/ B（`subquery()` 变量耦合）/ C-eager / C-join / C-rel（跨域 `relationship()` 声明，须显式登记豁免），接入 pre-commit 与 CI 的 backend job。**为什么必须是静态层**：门禁与全部单测跑单库（`tests/conftest.py` 把 `engine` / `user_engine` 指向同一个内存引擎），跨域 join 在两域同库时不报错，**结构上测不出**；生产每日调度才跑真双库。判据见 `architecture.md` §6，决策见 `decisions.md` 2026-09-21 行（D34）。
 6. **失败必须可见**：job 抛出的异常不得被静默吞掉导致 `sync_logs` 无记录（当前 `orchestrator.py:341-358` 存在该盲区，见 `tech-debt.md`）。
 
 > 反面先例（**2026-09-11 已按本条收敛**）：`fund_meta_job.py:50,71-82`——`for code, fund in db.query(Fund).all(): fetch_fund_top_holdings(code)` 即**全库 26,938 次逐只外部请求**（实测 ≈1.8 s/只 ⇒ **≈13.5 小时**），而其 docstring 声称「本地只存用户核心池，不把全市场基金灌进库」。

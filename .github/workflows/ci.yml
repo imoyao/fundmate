@@ -164,6 +164,15 @@ jobs:
       - name: 守卫:视图层厚度
         run: python ../scripts/check_view_thickness.py
 
+      # 守卫：跨域模型同语句（#1643：双库「零外键、零 SQL join」）。
+      # **本 job 是这条约束唯一的机器化拦截层**：门禁与全部单测都跑单库
+      # （conftest 把 engine / user_engine patch 成同一个内存引擎），跨域 join 在两域
+      # 同库时不报错，结构上测不出；生产每日调度（daily-snapshot.yml）跑真双库，
+      # 缺陷只在无人值守的凌晨调度里炸（#1605 就是这么漏的）。
+      # 不新增 job：不新增 job 就不必改 gate.needs。
+      - name: 守卫:跨域模型同语句
+        run: python ../scripts/check_cross_domain_query.py
+
       # 单进程（避 OOM），排除需联网的 slow 测试
       - name: 运行测试
         run: pdm run python -m pytest -p no:xdist -m "not slow"

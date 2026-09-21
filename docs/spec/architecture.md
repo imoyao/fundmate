@@ -175,6 +175,20 @@ core  ←  domains.<域>.models / schemas  ←  services  ←  domains.<域>.vie
   配套 `tests/core/test_layer_direction.py`（逐规则灵敏度 + 合法边反向保护 + 冻结基线边界）。
   判据用「**边方向**」而不是「包级双向依赖对数量」——包级双向对多数由 `views→services` 与
   `services→models` 两条**合法边**叠加而成（如 `domains.positions` ↔ `services.position_service`），不构成违规。
+- **守卫（数据域约束）**：`scripts/check_cross_domain_query.py`（pre-commit + CI 的 backend job）——
+  双库「零外键、零 SQL join」（§1.2）的**静态拦截层**。**它是这条约束唯一的机器化拦截手段**：
+  门禁与全部单测跑**单库**（`tests/conftest.py` 把 `engine` / `user_engine` patch 成同一个内存引擎），
+  跨域 join 在两域同库时不报错，结构上测不出；而生产每日调度（`daily-snapshot.yml`）跑**真双库**
+  —— #1605 的跨域 join 就是这样长期存在、只在无人值守的凌晨调度里才可能炸。
+  覆盖五类：A 单链（`query` / `select` + `join` / `outerjoin`）、B 同函数内 `subquery()` 变量耦合、
+  C-eager（`joinedload` / `selectinload` 等 eager 选项）、C-join（`.join(<关系属性>)`，不传模型类，
+  按模型名扫不到）、C-rel（跨域 `relationship()` **声明**本身）。
+  **C-rel 的口径**：声明 ≠ 违规（`lazy='select'` 发单表 SELECT，由 `_RoutingSessionMaker` 按表路由到
+  market 引擎，双库安全），但声明处是「跨域引用」唯一的集中登记点 → **零容忍 + 显式豁免**；
+  存量唯一命中 `domains/ledgers/models.py` 的 `Ledger.linked_money_fund`（#1137，故意不声明 FK +
+  显式 `primaryjoin` + `lazy='select'`），已在脚本 `ALLOWLIST` 登记理由。
+  配套 `tests/test_guard_cross_domain.py`（正向 × 5 / 同域反向放行 / 豁免放行 / 空理由拒绝 /
+  防「豁免表空转」× 2）。判据与落地见 `decisions.md` 2026-09-21 行（D34）。
 
 ### 6.1 视图层判据（#1606 批次 1）
 
