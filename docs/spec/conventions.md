@@ -95,16 +95,18 @@ title: 全局强制设计规范（conventions · 🔒 冻结区）
 - 原因：`--brand-*` 为品牌基础色，`--color-rise`/`--color-fall` 为业务语义色。业务层应依赖语义层而非基础层，确保暗色模式等主题切换时无需修改业务代码。
 - 完整色彩变量定义与使用规范详见 [`../../frontend/design.md`](../../frontend/design.md)。
 
-### 2.13 事务边界规范（#1609，决策 D30 + D33，2026-09-21 修订）
+### 2.13 事务边界规范（#1609，决策 D30 + D33 + D34，2026-09-21 修订）
 
 - **单一事务范式（方案 A）**：仓库只保留**一种**事务边界——**由请求边界统一持有（一个请求一个事务）**；服务层（`services/**`）与 `BaseRepository` **只 `flush()` 不 `commit()`**。
 - **请求边界即提交点**（#1632 落地，D33）：请求上下文内 `get_db()`（`with_db` 亦经它）**复用同一 Session**（引用计数，顺序与嵌套皆然），由 `teardown_request_session` 在请求结束时统一 `commit()`（成功）/ `rollback()`（异常）。因此**经 `get_db()` 取会话的视图无需再显式 `commit()`**：`db.commit()` 一律改为 `db.flush()`——保留显式 `flush` 的两个理由：① 唯一约束等完整性错误仍在**原有位置**抛出（不被推迟到 teardown，错误响应与栈不变）；② 紧随其后的 `db.refresh()` / 序列化能读到最新值。
-- **不在请求边界内的会话上下文必须自行提交**（2026-09-21 实测结论，务必遵守）：`user_session()` / `market_session()` 只 `yield` + `finally: close()`，**既不提交也不回滚**——未提交的写入会随连接关闭被丢弃。故使用这两个上下文的视图（现为 `domains/reconciliation/views.py`，5 处 `with user_session()`）**必须保留显式 `commit()`**；把它们也改成 `flush()` 会**静默丢数据**（实测：`test_reconciliation.py` 6 个用例转红）。若日后要让「一个请求一个事务」覆盖 user 域，须先给 `user_session()` 也做请求级单会话（独立工作项，不在 #1632 范围）。
+- **所有会话上下文统一纳入请求边界**（#1640 落地，D34）：`user_session()` / `market_session()` 与 `get_db()` 的规则**完全一致**——请求上下文内顺序 / 嵌套进入都复用同一 Session，提交 / 回滚由 `teardown_request_session` 统一执行；三者各占一个独立槽位（应用 / user / market），**互不提交、互不回滚**。因此**视图层无需再显式 `commit()`**：全仓 `domains/*/views.py` 的 `commits` 已**归零**（守卫 `check_view_thickness.py` 该维度零容忍）。
+  - *必须记住的历史教训*：#1640 之前 `user_session()` 只 `yield` + `close()`、**既不提交也不回滚**，用它取会话的视图（`domains/reconciliation/views.py` 5 处）因此必须逐个显式 `commit()`，否则写入随连接关闭**静默丢失**（实测：把 3 处 `commit()` 改成 `flush()` 后 `test_reconciliation.py` 6 个用例转红）。已补**对照用例** `tests/test_user_session_boundary.py::test_user_session_write_persists_without_explicit_commit`——一旦请求边界不再收尾 user 域会话即转红。
+  - *新增会话上下文时*：必须经 `core/database.py::_scoped_session(slot, factory)` 创建并登记到 `_SESSION_SLOTS`，否则它不会被请求收尾 → 写入静默丢失。
 - **`BaseRepository.save()/delete()` 只 `flush()`**（#1631 落地），提交时机由请求边界统一决定。
 - **视图 / 用例层显式 `commit()` 仅限「必须提前提交」的场景**（例如提交后才触发不可回滚的外部副作用），且须在代码注释写明理由；此类例外仍受 §2.2「同一视图函数内最多一次显式 `commit()`」约束（不显式提交则自然满足）。
 - **非请求上下文（job / CLI / scheduler）**：各自持有会话与提交语义，不受请求边界影响（`get_db()` 无 `flask.g` 时每次独立会话、不自动提交）。
 - **前置依赖（均已落地）**：#1608（会话获取统一 `get_session()`）、#1632（请求级单会话 + teardown 统一提交）。**#1609 不与 #1606 合并执行**（先定范式、再拆视图）。
-- **分批收敛，不做一次性大改**：按域把视图层冗余 `db.commit()` 改为 `db.flush()`，**每批以 `pytest -p no:xdist -m "not slow"` 全量通过为界**。已完成：batch 2 = `domains/watchlist/views.py`（14 处）；batch 3 = `positions`(5) / `strategy`(4) / `portfolios`(3) / `assets`(3) / `transactions`(1) / `users`(1) / `families`(1) 共 7 文件 18 处；batch 4 = `domains/ledgers/views.py`（9 处）——**至此除下述 3 处外，视图层 `commit()` 已全部收敛**。**必须保留**：`reconciliation`（3 处，`user_session()` 不在请求边界内，见上条 + #1640）。注：`ledgers` 的 `commit_migration` **视图自身不提交**（手工守恒单事务在 `ledger_migration_service` 内，服务自持事务，按 D26 保留），故无「手工事务」风险。服务层的 `commit()` 大多属**合法事务边界持有者**（离线 job 自身边界、配额有意独立单元等），须逐处核实后保留，不搞一刀切。
+- **分批收敛，不做一次性大改**：按域把视图层冗余 `db.commit()` 改为 `db.flush()`，**每批以 `pytest -p no:xdist -m "not slow"` 全量通过为界**。已完成：batch 2 = `domains/watchlist/views.py`（14 处）；batch 3 = 7 文件 18 处（`positions`5 / `strategy`4 / `portfolios`3 / `assets`3 / `transactions`1 / `users`1 / `families`1）；batch 4 = `domains/ledgers/views.py`（9 处）；**#1640 = `domains/reconciliation/views.py`（3 处，随 `user_session()` 纳入请求边界而收敛）——至此视图层 44 处 `commit()` 全部归零**，守卫 `check_view_thickness.py` 的 `commits` 维度进入零容忍。注：`ledgers` 的 `commit_migration` **视图自身不提交**（手工守恒单事务在 `ledger_migration_service` 内，服务自持事务，按 D26 保留），故无「手工事务」风险。服务层的 `commit()` 大多属**合法事务边界持有者**（离线 job 自身边界、配额有意独立单元等），须逐处核实后保留，不搞一刀切。
 - **高价值多步写必须锁死回滚**：账户迁移、导入提交、分红再投资等必须有「中途注入异常 → 断言数据完全回滚、源数据不变」的反向用例（已全部落地）。
 - **对外零变更**：仅改变事务持有位置，HTTP 端点 / 请求响应字段 / 状态码 / 错误码 / 业务计算口径一律不变（§2.4）。
 

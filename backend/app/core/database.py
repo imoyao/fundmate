@@ -208,12 +208,43 @@ def _request_scope():
     return g if has_request_context() else None
 
 
+# 请求级会话槽位（挂在 ``flask.g`` 上，彼此独立）：应用会话（#1632）、user / market 域会话（#1640）
+_SESSION_SLOTS = ('_db_session', '_user_db_session', '_market_db_session')
+
+
+@contextmanager
+def _scoped_session(slot: str, factory):
+    """请求级单会话的通用实现（#1632 应用会话；#1640 扩展到 user / market 域会话）。
+
+    - **请求上下文**：按 ``slot`` 首次创建 Session，此后同一请求内**顺序或嵌套**进入都复用
+      同一个 Session；提交 / 回滚由 :func:`teardown_request_session` 在请求结束时统一执行
+      ——本函数不提交、不关闭。
+    - **非请求上下文**（job / CLI / scheduler）：每次独立会话，只关闭；提交时机由调用方决定。
+    - **槽位彼此独立**：``get_db()`` / ``user_session()`` / ``market_session()`` 在同一请求内
+      是互不干扰的 Session，不会互相提交或回滚（各自回到自己的引擎 / 路由）。
+    """
+    scope = _request_scope()
+    if scope is None:
+        db = factory()
+        try:
+            yield db
+        finally:
+            db.close()
+        return
+
+    session = getattr(scope, slot, None)
+    if session is None:
+        session = factory()
+        setattr(scope, slot, session)
+    yield session
+
+
 @contextmanager
 def get_db():
     """应用运行库会话上下文（请求级单会话，事务边界在请求 teardown，#1632）。
 
-    请求上下文：同一请求内**顺序或嵌套**的多次 ``get_db()`` 都复用同一个 Session
-    （引用计数），因此「一个请求一个事务」成立；提交 / 回滚由
+    请求上下文：同一请求内**顺序或嵌套**的多次 ``get_db()`` 都复用同一个 Session，
+    因此「一个请求一个事务」成立；提交 / 回滚由
     :func:`teardown_request_session` 在请求结束时统一执行，本函数不提交、不关闭。
 
     非请求上下文（job / CLI / scheduler）：保持原语义——每次独立会话、只关闭，
@@ -222,56 +253,52 @@ def get_db():
     服务方法 / ``BaseRepository`` 内不应再 ``commit()``：它们只 ``flush()``
     （conventions §2.13 方案 A）。
     """
-    scope = _request_scope()
-    if scope is None:
-        db = get_session()
-        try:
-            yield db
-        finally:
-            db.close()
-        return
-
-    session = getattr(scope, '_db_session', None)
-    if session is None:
-        session = get_session()
-        scope._db_session = session
-        scope._db_depth = 0
-
-    scope._db_depth += 1
-    try:
-        yield session
-    finally:
-        scope._db_depth -= 1
+    with _scoped_session('_db_session', get_session) as db:
+        yield db
 
 
 def teardown_request_session(exc=None):
-    """请求收尾：统一提交（成功）/ 回滚（异常）并关闭请求级会话（#1632）。
+    """请求收尾：统一提交（成功）/ 回滚（异常）并关闭**全部**请求级会话（#1632 / #1640）。
 
-    这是「一个请求一个事务」的**真正边界**：``get_db()`` 只复用并计数（不提交），
-    由本函数在请求结束时统一 commit / rollback，保证同一请求内顺序 / 嵌套的多次
-    会话获取都落在同一事务里（否则先后两个 ``with get_db()`` 块会在第一块退出时
-    提前提交，并令首块对象 detach+expire，触发 ``DetachedInstanceError``）。
+    这是「一个请求一个事务」的**真正边界**：``get_db()`` / ``user_session()`` /
+    ``market_session()`` 都只复用（不提交、不关闭），由本函数在请求结束时统一
+    commit / rollback，保证同一请求内顺序 / 嵌套的多次会话获取都落在同一事务里
+    （否则先后两个 ``with get_db()`` 块会在第一块退出时提前提交，并令首块对象
+    detach+expire，触发 ``DetachedInstanceError``）。
 
-    非请求上下文（未挂 ``flask.g``）为空操作；无会话亦为空操作（幂等）。
+    ``flask.g`` 上的三个槽位都会被收尾；任一会话提交失败都会被回滚并**在收尾完其余会话后**
+    上抛（保证不留未关闭的连接）。非请求上下文（未挂 ``flask.g``）为空操作；无会话亦为空操作（幂等）。
     """
     scope = _request_scope()
     if scope is None:
         return
-    session = getattr(scope, '_db_session', None)
-    if session is None:
+
+    pending: list[Session] = []
+    for slot in _SESSION_SLOTS:
+        session = getattr(scope, slot, None)
+        if session is not None:
+            setattr(scope, slot, None)
+            pending.append(session)
+    if not pending:
         return
-    try:
-        if exc is not None:
-            session.rollback()
-        else:
-            session.commit()
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
-        scope._db_session = None
-        scope._db_depth = 0
+
+    failure: Optional[BaseException] = None
+    for session in pending:
+        try:
+            if exc is not None:
+                session.rollback()
+            else:
+                session.commit()
+        except Exception as err:  # noqa: BLE001 - 提交失败需先回滚，收尾其余会话后再上抛
+            failure = failure or err
+            try:
+                session.rollback()
+            except Exception:  # pragma: no cover - 回滚都失败时无法再补救
+                pass
+        finally:
+            session.close()
+    if failure is not None:
+        raise failure
 
 
 def get_engine(domain: str = DOMAIN_APP) -> Optional[Engine]:
@@ -454,28 +481,50 @@ def init_db_split():
         migrate_watchlist_family_scoped_unique_key(user_eng)
 
 
-@contextmanager
-def market_session():
-    """market 域会话上下文（读取净值/行情/温度/基金资料等）。"""
+def _new_market_session() -> Session:
+    """market 域会话工厂（**晚绑定**：测试会 monkeypatch ``db_factory.market_session_factory``）。"""
     from app.core.db_factory import market_session_factory
 
-    db = market_session_factory()()
-    try:
+    return market_session_factory()()
+
+
+def _new_user_session() -> Session:
+    """user 域会话工厂（**晚绑定**：测试会 monkeypatch ``db_factory.user_session_factory``）。"""
+    from app.core.db_factory import user_session_factory
+
+    return user_session_factory()()
+
+
+@contextmanager
+def market_session():
+    """market 域会话上下文（读取净值 / 行情 / 温度 / 基金资料等；请求级单会话，#1640）。
+
+    规则与 :func:`get_db` 一致：请求内顺序 / 嵌套进入复用同一 Session，提交 / 回滚由
+    :func:`teardown_request_session` 统一执行（视图无需显式 ``commit()``）；
+    非请求上下文每次独立会话、只关闭。
+
+    注：当前仓库内**无调用方**（保留 API）；将来若在请求里经它写入，请依赖本请求级边界，
+    不要再逐视图显式 ``commit()``。
+    """
+    with _scoped_session('_market_db_session', _new_market_session) as db:
         yield db
-    finally:
-        db.close()
 
 
 @contextmanager
 def user_session():
-    """user 域会话上下文（读写账户/持仓/交易/自选/审计等）。"""
-    from app.core.db_factory import user_session_factory
+    """user 域会话上下文（读写账户 / 持仓 / 交易 / 自选 / 审计等；请求级单会话，#1640）。
 
-    db = user_session_factory()()
-    try:
+    规则与 :func:`get_db` 一致（即 #1632 的 user 域版本）：请求上下文内**顺序或嵌套**的多次
+    ``user_session()`` 复用同一 Session，提交 / 回滚由 :func:`teardown_request_session` 统一执行
+    —— 因此**视图层无需再显式 ``commit()``**；非请求上下文（job / CLI / scheduler）每次独立会话、
+    只关闭，提交时机由调用方决定。
+
+    历史教训（#1640）：本函数原先只 ``yield`` + ``close()``、**既不提交也不回滚**，导致使用它的视图
+    必须逐个显式 ``commit()``，否则写入随连接关闭**静默丢失**（实测：把
+    ``domains/reconciliation/views.py`` 的 commit 去掉后 6 个用例转红）。
+    """
+    with _scoped_session('_user_db_session', _new_user_session) as db:
         yield db
-    finally:
-        db.close()
 
 
 # 注：默认家庭 / 默认用户种子（原 `_seed_default_identity`）已移至
