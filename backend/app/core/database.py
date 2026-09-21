@@ -128,19 +128,23 @@ Base = declarative_base()
 
 
 class BaseRepository:
-    """为所有模型提供基础数据库操作的混入类."""
+    """为所有模型提供基础数据库操作的混入类（#1609：只 flush，不 commit）。
+
+    事务边界由调用方持有（视图 / 用例编排层 / ``with_db`` 请求级 unit-of-work）：
+    本类只把变更刷进当前事务（``flush()``），提交 / 回滚由边界统一决定（conventions §2.13 方案 A）。
+    """
 
     def save(self, db: Session):
-        """保存实例到数据库."""
+        """保存实例到当前事务（flush，不提交）."""
         db.add(self)
-        db.commit()
+        db.flush()
         db.refresh(self)
         return self
 
     def delete(self, db: Session):
-        """从数据库删除实例."""
+        """从当前事务删除实例（flush，不提交）."""
         db.delete(self)
-        db.commit()
+        db.flush()
 
 
 class PrimaryKeyMixin:

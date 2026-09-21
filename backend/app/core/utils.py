@@ -35,12 +35,27 @@ def api_response(data=None, message='ok', total=None):
 
 
 def with_db(func):
-    """装饰器：自动注入数据库会话并返回统一格式."""
+    """装饰器：注入数据库会话，并作为**请求级 unit-of-work** 持有事务边界（#1609）。
+
+    范式（conventions §2.13 方案 A，决策 D30）：事务由视图 / 用例层持有——
+    - 正常返回 → ``commit()``（服务层只 flush，提交由本边界完成）；
+    - 抛异常 → ``rollback()`` 后**原样抛出**（由全局错误处理器生成响应），
+      确保多步写入「整体成功或整体回滚」，不残留半截数据。
+
+    服务方法 / ``BaseRepository`` 内不应再 ``commit()``：它们只 ``flush()``，
+    提交时机交由本边界（或调用方）统一决定。
+    """
 
     @wraps(func)
     def wrapper(*args, **kwargs):
         with get_db() as db:
-            return func(db, *args, **kwargs)
+            try:
+                result = func(db, *args, **kwargs)
+            except Exception:
+                db.rollback()
+                raise
+            db.commit()
+            return result
 
     return wrapper
 
