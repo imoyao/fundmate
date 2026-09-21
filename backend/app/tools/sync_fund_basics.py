@@ -8,12 +8,12 @@
 import akshare as ak
 from loguru import logger
 
-from app.core.database import SessionLocal
+from app.core import database  # 晚绑定：属性在调用时解析，勿改成 from-import（#1608）
 from app.domains.funds.models import Fund
 
 
 def sync_all_funds():
-    db = SessionLocal()
+    db = database.get_session()
     count = 0
     try:
         logger.info('开始同步全量基金基础信息...')

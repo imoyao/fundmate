@@ -182,10 +182,20 @@ class TimestampMixin:
     )
 
 
+def get_session() -> Session:
+    """应用运行库会话（单一入口，#1608）。
+
+    业务层一律经本函数开会话，不要在模块里 ``from app.core.database import SessionLocal``
+    后直接 ``SessionLocal()``——统一入口便于测试重定向与未来会话生命周期治理（#1609）。
+    ``SessionLocal`` 仍是底层路由工厂，仅供本函数与测试夹具使用。
+    """
+    return SessionLocal()
+
+
 @contextmanager
 def get_db():
     """上下文管理器形式的数据库会话（应用运行库），自动关闭连接."""
-    db = SessionLocal()
+    db = get_session()
     try:
         yield db
     finally:

@@ -112,9 +112,9 @@ def _txn_candidates_to_rows(items: list, ledger_id) -> list:
             )
         )
 
-    from app.core.database import SessionLocal
+    from app.core.database import get_session
 
-    with SessionLocal() as db:
+    with get_session() as db:
         orch = ImportOrchestrator(db, get_family_id())
         result = orch.preview_records(records, _ledger_name(ledger_id), ledger_id, source=PositionSource.AI_TXN.value)
 
@@ -168,9 +168,9 @@ def _holding_candidates_to_rows(items: list, ledger_id) -> list:
             )
         )
 
-    from app.core.database import SessionLocal
+    from app.core.database import get_session
 
-    with SessionLocal() as db:
+    with get_session() as db:
         orch = ImportOrchestrator(db, get_family_id())
         result = orch.preview_holding_records(
             records, _ledger_name(ledger_id), ledger_id, source=PositionSource.AI_HOLDING.value

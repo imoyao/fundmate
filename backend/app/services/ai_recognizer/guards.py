@@ -17,7 +17,7 @@ from typing import Optional
 from dotenv import load_dotenv
 from loguru import logger
 
-from app.core.database import SessionLocal
+from app.core import database  # 晚绑定：属性在调用时解析，勿改成 from-import（#1608）
 from app.core.exceptions import ErrorCode, SBException
 from app.domains.usage.models import UserUsage
 
@@ -69,7 +69,7 @@ def _get_usage(db, user_id: int, feature: str, period: date) -> UserUsage:
 def check_usage(user_id: int, feature: str = 'ocr_import', period: Optional[date] = None) -> dict:
     """查询某用户某功能当日用量，返回 {used, quota, remaining, period_date}。"""
     period = period or date.today()
-    with SessionLocal() as db:
+    with database.get_session() as db:
         row = _get_usage(db, user_id, feature, period)
         return {
             'used': row.count,
@@ -82,7 +82,7 @@ def check_usage(user_id: int, feature: str = 'ocr_import', period: Optional[date
 def consume_usage(user_id: int, feature: str = 'ocr_import', period: Optional[date] = None) -> dict:
     """消费一次用量；超限抛 SBException（429 语义，错误码 3004）。"""
     period = period or date.today()
-    with SessionLocal() as db:
+    with database.get_session() as db:
         row = _get_usage(db, user_id, feature, period)
         if row.count >= row.quota:
             raise SBException(
@@ -110,7 +110,7 @@ def refund_usage(user_id: int, feature: str = 'ocr_import', period: Optional[dat
     防止 token 空耗由限流/连续失败熔断/全站预算三层防护承担（见 guards 设计）。
     """
     period = period or date.today()
-    with SessionLocal() as db:
+    with database.get_session() as db:
         row = _get_usage(db, user_id, feature, period)
         if row.count > 0:
             row.count -= 1

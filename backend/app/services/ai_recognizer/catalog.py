@@ -68,12 +68,12 @@ def enrich(items: List[dict]) -> List[dict]:
     结果行为与旧 ocr_service._enrich_items 完全一致；额外保留输入中的其他字段
     （持仓场景的 business_type/金额/份额等会透传，供下游入库管线使用）。
     """
-    from app.core.database import SessionLocal
+    from app.core.database import get_session
     from app.domains.funds.models import Fund
     from app.domains.securities.models import Security
 
     enriched: List[dict] = []
-    with SessionLocal() as db:
+    with get_session() as db:
         for it in items:
             code = it['code']
             name = it.get('name', '')
