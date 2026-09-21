@@ -72,6 +72,10 @@ NEW_FILE_LIMITS = {
 # `commits` 维度 44 的预算里只剩 `reconciliation` 3 处有效，**把 `flush` 改回 `commit` 不会被拦**，
 # 相当于守卫在这一维度空转。本次按 `--report` 实测回写（lines 亦随之 −1）。**教训**：做完「下沉 /
 # 去冗余」这类收敛动作必须回写基线，否则守卫形同虚设。
+# 2026-09-21 再收紧（#1640）：`reconciliation` 的 3 处 `commit()` 已随「`user_session()` 请求级单会话」
+# 改为 `flush()`（#1640 / `conventions.md` §2.13），基线 `commits` 3 → 0 —— **至此全仓视图层 `commits` 归零**
+# （#1609 batch 2/3/4 收敛 41 处 + #1640 收敛 3 处）。该维度自此进入**零容忍**：任何视图再出现 `commit()`
+# 都会被基线拦下（把 `flush` 改回 `commit` 亦然），不必再依赖「只减不增」的存量冻结。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/assets/views.py": {"lines": 208, "orm_queries": 4, "commits": 0, "max_func": 44},
     "backend/app/domains/auth/views.py": {"lines": 137, "orm_queries": 3, "commits": 0, "max_func": 45},
@@ -84,7 +88,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/performance/views.py": {"lines": 93, "orm_queries": 1, "commits": 0, "max_func": 36},
     "backend/app/domains/portfolios/views.py": {"lines": 266, "orm_queries": 5, "commits": 0, "max_func": 104},
     "backend/app/domains/positions/views.py": {"lines": 373, "orm_queries": 8, "commits": 0, "max_func": 81},
-    "backend/app/domains/reconciliation/views.py": {"lines": 225, "orm_queries": 2, "commits": 3, "max_func": 48},
+    "backend/app/domains/reconciliation/views.py": {"lines": 225, "orm_queries": 2, "commits": 0, "max_func": 48},
     "backend/app/domains/search/views.py": {"lines": 25, "orm_queries": 0, "commits": 0, "max_func": 7},
     "backend/app/domains/securities/views.py": {"lines": 72, "orm_queries": 1, "commits": 0, "max_func": 35},
     "backend/app/domains/strategy/views.py": {"lines": 239, "orm_queries": 9, "commits": 0, "max_func": 98},
