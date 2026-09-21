@@ -10,7 +10,10 @@
 
 from datetime import date
 
+import pytest
+
 from app.core.money import Money
+from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.position_service import PositionService
 
@@ -151,3 +154,34 @@ def test_reinvest_orphan_when_no_position(db):
     assert txn.entry_status == 'orphan'
     assert txn.quantity == 0
     assert '红利再投资' in (txn.notes or '')
+
+
+def test_reinvest_rolls_back_atomically_when_buy_step_fails(db, make_position, monkeypatch):
+    """中途异常 → 整体回滚（#1609）：双流水任一步失败，不得残留半截数据。
+
+    `_reinvest_dual_flow` 是「分红现金流水 → flush → 按净值申购」的多步写，且**中途不提交**；
+    任一步失败时，请求边界（`get_db` teardown）的 rollback 必须能整体撤销。
+
+    反向验证：若在该流程的分红流水后加 `db.commit()`（半提交），下面的
+    `Transaction.count() == 0` 会转红。
+    """
+    pos = _make_holding(make_position)
+    before_qty = Money.min_unit_to_shares(pos.quantity)
+    before_cost = Money.price_units_to_yuan(pos.avg_price)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError('模拟申购步骤失败')
+
+    monkeypatch.setattr(PositionService, 'process_buy_or_deposit', staticmethod(boom))
+
+    with pytest.raises(RuntimeError):
+        PositionService.process_orphan_dividend_reinvest(db, _base_data())
+
+    # 请求边界（get_db teardown）在此职责内 rollback；服务层不得在此前提交过半截数据
+    db.rollback()
+    db.expire_all()
+
+    assert db.query(Transaction).count() == 0  # 分红流水随回滚一起消失
+    refreshed = db.get(Position, pos.id)
+    assert Money.min_unit_to_shares(refreshed.quantity) == before_qty  # 份额未被改动
+    assert Money.price_units_to_yuan(refreshed.avg_price) == before_cost  # 成本均价未被改动
