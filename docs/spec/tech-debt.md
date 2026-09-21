@@ -689,16 +689,16 @@ issue #1607 的处置策略是「先出决策 + 分批收敛」。**批次 1** =
 |---|---|---|
 | 共享件上提（三次，纯机械搬家） | ① `services/sync/jobs/base.py` → `services/job_base.py`（`SyncJob`/`JobStatus`，24 处 import + 1 处变体写法）；② `services/importer/records.py` → `services/import_records.py`（16 处）；③ `services/sync/adapters/`（10 模块整包）→ `services/adapters/`（25 文件 51 处） | 全量 `pytest -p no:xdist -m "not slow"` 通过；导入冒烟；`ruff` 全绿 |
 | 修掉「方向反了」的真实缺陷（R5 上线即抓出） | `adapters/eastmoney_adapter.fetch_fund_company()` 原只转调 `sync/company_resolver.fetch_fund_company_list()`，而后者裸 `requests.get` 东财（违反 `architecture.md` §2）。现取数下沉进适配器，`company_resolver` 改为 import 复用并保持同名 re-export；测试 seam 由 `company_resolver.requests` 改为 patch 共享 `requests.get` | `tests/test_eastmoney_adapter.py` / `tests/test_company_resolver.py` / `tests/services/sync/test_fund_company_backfill_job.py` 全绿 |
-| 守卫 R5 | `services/{adapters,job_base,import_records}` → `services.{sync,importer,thermometer,bias,ai_recognizer}` 红灯；**1 条冻结基线**（`adapters/qieman_advisor_adapter → thermometer.fetchers`） | `tests/core/test_layer_direction.py` 参数化扩到 21 条（含冻结基线边界：已登记边放行、同源其它边仍红） |
+| 守卫 R5 | `services/{adapters,job_base,import_records}` → `services.{sync,importer,thermometer,bias,ai_recognizer}` 红灯；**0 条冻结基线**（#1607 批次 4 已消除唯一一条，见 D31） | `tests/core/test_layer_direction.py` 参数化 21 条（原「冻结基线放行」探针已改为**应报 R5**） |
 | services 内部 4 对双向 | 四对**全部消解或判定为合法边**：`sync↔thermometer`（只剩 `sync.orchestrator → thermometer.jobs` 注册）、`sync↔fund_service`（fund_service→sync 随③消失）、`importer↔position_service`（随②消失）、`bias↔thermometer`（注册 + job→领域服务，均合法；延迟导入已注明是 `thermometer/__init__` eager re-export 造成的导入期环，不是掩盖依赖） | `decisions.md` D26、`architecture.md` §6 |
 | 跨域模型引用评估 | 四条对（`assets↔ledgers` / `positions↔transactions` / `portfolios↔positions` / `users↔families`）实际边**全是 `domains.*.views → 对方 models`**（`users↔families` 另有种子/查询侧 models 引用），属允许的跨域引用且同在 user 数据域 → **判定合法、保留** | `decisions.md` D26 |
 | 包级双向对（观测值） | **20 → 17**（①消 `sync↔thermometer`、②消 `importer↔position_service`、③消 `sync↔fund_service`） | 主指标仍是「违规边 / 冻结基线之外 0」 |
 
-### 开口项（批次 4，仍挂 #1607）
+### 开口项（#1607 剩余）
 
 | # | 事项 | 当前事实 | 处置方向 |
 |---|---|---|---|
-| 1 | 且慢 MCP 取数寄生在 thermometer 家族（R5 唯一冻结基线） | `QiemanFetcher`（约 255 行）+ 3 个归一化助手 + 基类 `SingleValueFetcher` 均在 `services/thermometer/fetchers.py`（900+ 行），`adapters/qieman_advisor_adapter` 复用之 | 把且慢取数抽到适配层（连带基类与 thermometer 常量的归属重定），做完可删该冻结基线 |
+| 1 | ~~且慢 MCP 取数寄生在 thermometer 家族（R5 唯一冻结基线）~~ | ✅ **已完成**（#1607 批次 4，D31）：`QiemanFetcher` + 3 助手 + 基类 `BaseFetcher/SingleValueFetcher` + `QIEMAN_*` 常量已上提到 `services/adapters/qieman_fetcher.py` / `fetcher_base.py`；`_to_float` 上提到 `core/utils.py::to_float`；`thermometer/fetchers.py` 917 → 524 行；R5 冻结基线清空 | 无（已完成） |
 | 2 | `thermometer/__init__.py` eager re-export | 其 `__init__` 直接 re-export `.jobs`，而 `jobs.py` import `bias.job` 注册 BiasJob → 形成导入期环，逼 `bias/job._save_data` 用函数内延迟导入 | 收敛 `__init__`（只留必要导出），环解开后延迟导入可转常规导入 |
 | 3 | R5 之外的服务内方向 | 「领域服务不得 import 编排模块」尚未机器化（当前靠人工 + 4 对判定表） | 视批次 4 后的实际形态再定是否加规则（避免过度工程） |
 

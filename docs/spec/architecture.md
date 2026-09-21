@@ -157,8 +157,7 @@ core  ←  domains.<域>.models / schemas  ←  services  ←  domains.<域>.vie
   `pnl_service` / `watchlist_service` 等）**不得反向依赖编排层**。跨家族**共享件一律放 `services/` 顶层**
   （现为 `job_base.py`（`SyncJob` 基类）、`adapters/`（第三方数据适配层）、`import_records.py`（导入标准化
   记录）），家族包内只留该家族独有实现——共享件若是**叶子**（不得反向依赖家族包），否则又会"寄生"
-  （守卫 R5 固定）。**例外 1 条**（已登记、只拦新增）：`adapters/qieman_advisor_adapter` → 
-  `thermometer.fetchers`（且慢 MCP 取数仍在 thermometer 家族内，上提需连带搬基类与常量，见批次 4）。
+  （守卫 R5 固定；**#1607 批次 4 后零例外**：且慢取数已上提到 `adapters/qieman_fetcher.py`，见 D31）。
 - **domains.\*.views**：HTTP 编排层，依赖 services 与各域 models/schemas；**跨域不得引用对方 views**
   （共用逻辑下沉 services，先例：`services/position_presenter.py::enrich_position_dict`）。
 - **模型位置**：业务模型一律 `domains/*/models.py`；**跨域 / 系统级模型**（现仅 `app/models/sync_log.py`，
