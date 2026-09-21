@@ -103,7 +103,7 @@ def reconcile_watchlist():
         promoted = demoted = 0
         if demote:
             promoted, demoted = reconcile_watchlist_status(db, family_id)
-        db.commit()
+        db.flush()
     return jsonify(
         {
             'data': {'created': created, 'promoted': promoted, 'demoted': demoted},
@@ -309,7 +309,7 @@ def update_item(item_id):
         update_data = json_data.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(item, field, value)
-        db.commit()
+        db.flush()
         db.refresh(item)
         return jsonify({'data': display.enrich_item(item, db, get_family_id()), 'message': 'ok'})
 
@@ -322,7 +322,7 @@ def delete_item(item_id):
         if not item:
             abort(404, '自选记录不存在')
         db.delete(item)
-        db.commit()
+        db.flush()
         return jsonify({'message': 'ok', 'data': None})
 
 
@@ -353,7 +353,7 @@ def create_group():
         group = WatchlistGroup(**data, family_id=get_family_id())
         group.is_system = False
         db.add(group)
-        db.commit()
+        db.flush()
         db.refresh(group)
         return jsonify({'data': WatchlistGroupOut.model_validate(group).model_dump(), 'message': 'ok'})
 
@@ -384,7 +384,7 @@ def update_group(group_id):
         update_data = json_data.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(group, field, value)
-        db.commit()
+        db.flush()
         return jsonify({'data': WatchlistGroupOut.model_validate(group).model_dump(), 'message': 'ok'})
 
 
@@ -396,7 +396,7 @@ def delete_group(group_id):
         if not group:
             abort(404, '分组不存在')
         db.delete(group)
-        db.commit()
+        db.flush()
         return jsonify({'message': 'ok', 'data': None})
 
 
@@ -418,7 +418,7 @@ def add_item_to_group(item_id, group_id):
 
         link = WatchlistItemGroup(item_id=item_id, group_id=group_id)
         db.add(link)
-        db.commit()
+        db.flush()
         return jsonify({'message': 'ok'})
 
 
@@ -433,7 +433,7 @@ def remove_item_from_group(item_id, group_id):
         if not link:
             abort(404, '未找到关联')
         db.delete(link)
-        db.commit()
+        db.flush()
         return jsonify({'message': 'ok', 'data': None})
 
 
@@ -486,7 +486,7 @@ def create_tag():
 
         tag = WatchlistTagDef(name=name, color=json_data.color, family_id=get_family_id())
         db.add(tag)
-        db.commit()
+        db.flush()
         db.refresh(tag)
         return jsonify({'data': WatchlistTagDefOut.model_validate(tag).model_dump(), 'message': 'ok'})
 
@@ -504,7 +504,7 @@ def delete_tag(tag_id):
             abort(409, f'标签「{tag.name}」已被 {usage_count} 个资产使用，无法删除')
 
         db.delete(tag)
-        db.commit()
+        db.flush()
         return jsonify({'message': 'ok', 'data': None})
 
 
@@ -525,7 +525,7 @@ def add_tag_to_item(item_id, tag_id):
 
         link = WatchlistItemTag(item_id=item_id, tag_id=tag_id)
         db.add(link)
-        db.commit()
+        db.flush()
         return jsonify({'message': 'ok'})
 
 
@@ -539,7 +539,7 @@ def remove_tag_from_item(item_id, tag_id):
         if not link:
             abort(404, '未找到关联')
         db.delete(link)
-        db.commit()
+        db.flush()
         return jsonify({'message': 'ok', 'data': None})
 
 
@@ -580,7 +580,7 @@ def toggle_favorite(db, item_id):
     else:
         item.favorite = True
         item.favorite_at = date.today()
-    db.commit()
+    db.flush()
     db.refresh(item)
     data = display.enrich_item(item, db, get_family_id())
     return api_response(data=data)
@@ -636,7 +636,7 @@ def update_tag(tag_id):
         update_data = json_data.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(tag, field, value)
-        db.commit()
+        db.flush()
         db.refresh(tag)
         return jsonify({'data': WatchlistTagDefOut.model_validate(tag).model_dump(), 'message': 'ok'})
 
