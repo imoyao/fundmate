@@ -129,6 +129,34 @@ function supabaseCookie() {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// ---------------------------------------------------------------- 超时护栏（#1599）
+// 本脚本此前在「CDP 就绪之后的等待段」**完全没有超时**：浏览器/页面一旦不回应就
+// **长时间零输出**（实测 3 路由 × 2 主题跑 11 分钟、单路由 25 分钟，输出文件恒为 0 字节，
+// 无报错、不退出），排查时无法判断卡在哪一步。下面三处等待全部加超时，并在超时消息里
+// 附带现场诊断（CDP 往返轨迹 + Edge stderr 尾巴），慢机器可用环境变量放宽：
+//   AXE_WS_TIMEOUT_MS（默认 20000）/ AXE_CDP_TIMEOUT_MS（默认 30000）/ AXE_EVAL_TIMEOUT_MS（默认 60000）
+const envNum = (v, d) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
+const WS_TIMEOUT_MS = envNum(process.env.AXE_WS_TIMEOUT_MS, 20000);
+const CDP_TIMEOUT_MS = envNum(process.env.AXE_CDP_TIMEOUT_MS, 30000);
+const EVAL_TIMEOUT_MS = envNum(process.env.AXE_EVAL_TIMEOUT_MS, 60000);
+
+function withTimeout(promise, ms, label, onTimeout) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, rej) => {
+      timer = setTimeout(() => {
+        try {
+          onTimeout?.();
+        } catch {
+          /* 诊断自身出错不影响结论 */
+        }
+        rej(new Error(`⏱ 超时(${ms}ms)：${label}`));
+      }, ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 async function connectCDP(onLog = console.error) {
   const bin = EDGE_CANDIDATES.find(p => existsSync(p));
   if (!bin) throw new Error(`未找到浏览器可执行文件，试过：\n  ${EDGE_CANDIDATES.join('\n  ')}\n可用 AXE_BROWSER 指定`);
@@ -176,9 +204,30 @@ async function connectCDP(onLog = console.error) {
     throw new Error('没有可用的 page target');
   }
 
+  // 诊断现场（#1599）：CDP 往返轨迹 + Edge stderr 尾巴。
+  // stderr 原为 'pipe' 却**无人读取** —— 管道缓冲写满后浏览器会阻塞（经典死锁），
+  // 这里持续排空并只保留末尾若干行，超时/失败时随消息一起抛出。
+  const cdpTrail = [];
+  const stderrTail = [];
+  proc.stderr?.on('data', chunk => {
+    for (const line of String(chunk).split('\n')) {
+      if (line.trim()) stderrTail.push(line.trim());
+    }
+    if (stderrTail.length > 60) stderrTail.splice(0, stderrTail.length - 60);
+  });
+
   const ws = new WebSocket(page.webSocketDebuggerUrl);
   let seq = 0;
+  let wsOpen = false;
   const pending = new Map();
+  const diagnostics = () =>
+    [
+      `浏览器: ${bin}`,
+      `CDP 往返轨迹（最近 8 条）: ${cdpTrail.slice(-8).join(' | ') || '（无）'}`,
+      `WebSocket: ${wsOpen ? 'open' : '未触发 open'}`,
+      `Edge stderr 尾巴（最近 8 行）: ${stderrTail.slice(-8).join(' / ') || '（无）'}`,
+    ].join('\n    ');
+
   ws.addEventListener('message', ev => {
     const msg = JSON.parse(ev.data);
     if (msg.id && pending.has(msg.id)) {
@@ -186,19 +235,45 @@ async function connectCDP(onLog = console.error) {
       pending.delete(msg.id);
     }
   });
-  await new Promise((res, rej) => {
-    ws.addEventListener('open', res, { once: true });
-    ws.addEventListener('error', rej, { once: true });
-  });
-  const send = (method, params = {}) =>
-    new Promise(res => {
-      const id = ++seq;
-      pending.set(id, res);
-      ws.send(JSON.stringify({ id, method, params }));
+  await withTimeout(
+    new Promise((res, rej) => {
+      ws.addEventListener(
+        'open',
+        () => {
+          wsOpen = true;
+          res();
+        },
+        { once: true }
+      );
+      ws.addEventListener('error', rej, { once: true });
+    }),
+    WS_TIMEOUT_MS,
+    `WebSocket 未在 ${WS_TIMEOUT_MS}ms 内 open（CDP 就绪但不接受调试连接？）\n    ${diagnostics()}`
+  );
+
+  const send = (method, params = {}, timeoutMs = CDP_TIMEOUT_MS) => {
+    const id = ++seq;
+    cdpTrail.push(`${method}#${id}`);
+    if (cdpTrail.length > 60) cdpTrail.shift();
+    return withTimeout(
+      new Promise(res => pending.set(id, res)),
+      timeoutMs,
+      `CDP 命令无响应：${method}（页面是否卡在加载？）\n    ${diagnostics()}`,
+      () => pending.delete(id) // 超时后清理，避免悬挂条目
+    ).then(r => {
+      if (r?.error) throw new Error(`CDP 返回错误：${method} → ${r.error.message ?? JSON.stringify(r.error)}`);
+      return r;
     });
+  };
 
   const evaluate = async expression => {
-    const r = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
+    // awaitPromise=true 时 CDP 会一直等页面内的 Promise 结束 —— 页面卡住就永不返回，
+    // 故这一条单独放宽容忍（EVAL_TIMEOUT_MS，默认 60s）并保留现场诊断。
+    const r = await send(
+      'Runtime.evaluate',
+      { expression, returnByValue: true, awaitPromise: true },
+      EVAL_TIMEOUT_MS
+    );
     if (r.result?.exceptionDetails) {
       throw new Error(`页面内求值抛错：${r.result.exceptionDetails.text ?? ''} ${r.result.result?.description ?? ''}`);
     }
@@ -224,7 +299,7 @@ async function connectCDP(onLog = console.error) {
     }
   };
 
-  return { send, evaluate, close, bin };
+  return { send, evaluate, close, bin, diagnostics };
 }
 
 // ---------------------------------------------------------------- 主流程
