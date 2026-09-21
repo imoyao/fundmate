@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from app.core.database import get_session
+from app.core import database  # 晚绑定：属性在调用时解析，勿改成 from-import（#1608）
 from app.core.money import Money
 from app.domains.funds.models import (
     DailyWorth,
@@ -73,7 +73,7 @@ class FundService:
 
     @staticmethod
     def _persist_navs(nav_map: Dict[str, Decimal], target_date: date) -> None:
-        with get_session() as db:
+        with database.get_session() as db:
             try:
                 for code, nav_val in nav_map.items():
                     existing = (

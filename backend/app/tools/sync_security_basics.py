@@ -12,13 +12,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import akshare as ak
 from loguru import logger
 
-from app.core.database import get_session
+from app.core import database  # 晚绑定：属性在调用时解析，勿改成 from-import（#1608）
 from app.core.symbol_utils import derive_security_type
 from app.domains.securities.models import Security
 
 
 def sync_all_stocks():
-    db = get_session()
+    db = database.get_session()
     count = 0
     try:
         logger.info('开始同步全量A股基础信息...')
