@@ -29,13 +29,12 @@ def _parse_csv_filter(value: str) -> list[str]:
 
 
 def _enrich_asset_dict(asset: Asset) -> dict:
-    """为 Asset 对象附加计算字段，并将金额转为元返回"""
-    amount_yuan = Money.cents_to_yuan(asset.amount)
-    asset.signed_amount = amount_yuan if asset.major_category != 'liability' else -amount_yuan
+    """附加计算字段并转元返回；**不改写持久列 amount**（#1632：边界提交会写回库）。"""
+    yuan = Money.cents_to_yuan(asset.amount)
+    asset.signed_amount = yuan if asset.major_category != 'liability' else -yuan
     asset.allocation_label = ALLOCATION_LABELS.get(asset.allocation, asset.allocation or '未配置')
     asset.type_label = ASSET_CATEGORY_LABELS.get(asset.major_category, asset.major_category)
-    asset.amount = amount_yuan
-    return AssetOut.model_validate(asset).model_dump()
+    return {**AssetOut.model_validate(asset).model_dump(), 'amount': yuan}
 
 
 @bp.get('/')
