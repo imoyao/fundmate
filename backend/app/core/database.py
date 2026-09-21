@@ -128,19 +128,23 @@ Base = declarative_base()
 
 
 class BaseRepository:
-    """为所有模型提供基础数据库操作的混入类."""
+    """为所有模型提供基础数据库操作的混入类（#1609：只 flush，不 commit）。
+
+    事务边界由调用方持有（视图 / 用例编排层 / ``with_db`` 请求级 unit-of-work）：
+    本类只把变更刷进当前事务（``flush()``），提交 / 回滚由边界统一决定（conventions §2.13 方案 A）。
+    """
 
     def save(self, db: Session):
-        """保存实例到数据库."""
+        """保存实例到当前事务（flush，不提交）."""
         db.add(self)
-        db.commit()
+        db.flush()
         db.refresh(self)
         return self
 
     def delete(self, db: Session):
-        """从数据库删除实例."""
+        """从当前事务删除实例（flush，不提交）."""
         db.delete(self)
-        db.commit()
+        db.flush()
 
 
 class PrimaryKeyMixin:
@@ -192,14 +196,82 @@ def get_session() -> Session:
     return SessionLocal()
 
 
+def _request_scope():
+    """返回当前请求的 ``flask.g``（请求上下文）；非请求上下文返回 ``None``。
+
+    只有请求上下文才启用「请求级单会话」（#1632）；job / CLI / scheduler 走各自独立会话。
+    """
+    try:
+        from flask import g, has_request_context
+    except Exception:  # pragma: no cover - flask 缺失时按非请求上下文处理
+        return None
+    return g if has_request_context() else None
+
+
 @contextmanager
 def get_db():
-    """上下文管理器形式的数据库会话（应用运行库），自动关闭连接."""
-    db = get_session()
+    """应用运行库会话上下文（请求级单会话，事务边界在请求 teardown，#1632）。
+
+    请求上下文：同一请求内**顺序或嵌套**的多次 ``get_db()`` 都复用同一个 Session
+    （引用计数），因此「一个请求一个事务」成立；提交 / 回滚由
+    :func:`teardown_request_session` 在请求结束时统一执行，本函数不提交、不关闭。
+
+    非请求上下文（job / CLI / scheduler）：保持原语义——每次独立会话、只关闭，
+    提交时机由调用方自行决定。
+
+    服务方法 / ``BaseRepository`` 内不应再 ``commit()``：它们只 ``flush()``
+    （conventions §2.13 方案 A）。
+    """
+    scope = _request_scope()
+    if scope is None:
+        db = get_session()
+        try:
+            yield db
+        finally:
+            db.close()
+        return
+
+    session = getattr(scope, '_db_session', None)
+    if session is None:
+        session = get_session()
+        scope._db_session = session
+        scope._db_depth = 0
+
+    scope._db_depth += 1
     try:
-        yield db
+        yield session
     finally:
-        db.close()
+        scope._db_depth -= 1
+
+
+def teardown_request_session(exc=None):
+    """请求收尾：统一提交（成功）/ 回滚（异常）并关闭请求级会话（#1632）。
+
+    这是「一个请求一个事务」的**真正边界**：``get_db()`` 只复用并计数（不提交），
+    由本函数在请求结束时统一 commit / rollback，保证同一请求内顺序 / 嵌套的多次
+    会话获取都落在同一事务里（否则先后两个 ``with get_db()`` 块会在第一块退出时
+    提前提交，并令首块对象 detach+expire，触发 ``DetachedInstanceError``）。
+
+    非请求上下文（未挂 ``flask.g``）为空操作；无会话亦为空操作（幂等）。
+    """
+    scope = _request_scope()
+    if scope is None:
+        return
+    session = getattr(scope, '_db_session', None)
+    if session is None:
+        return
+    try:
+        if exc is not None:
+            session.rollback()
+        else:
+            session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        scope._db_session = None
+        scope._db_depth = 0
 
 
 def get_engine(domain: str = DOMAIN_APP) -> Optional[Engine]:

@@ -17,7 +17,7 @@ from loguru import logger  # noqa: E402
 from werkzeug.exceptions import HTTPException  # noqa: E402
 
 from app.core.auth import auth_before_request, register_user_identity  # noqa: E402
-from app.core.database import init_db  # noqa: E402
+from app.core.database import init_db, teardown_request_session  # noqa: E402
 from app.core.exceptions import ErrorCode, SBException  # noqa: E402
 from app.domains.assets.views import bp as assets_bp  # noqa: E402
 from app.domains.auth.views import auth_bp  # noqa: E402
@@ -102,6 +102,10 @@ def create_app() -> APIFlask:
 
     # 鉴权中间件（D2/D4）：白名单外的所有请求需登录，身份注入 g 上下文
     app.before_request(auth_before_request)
+
+    # 请求级会话收尾兜底（#1632）：`get_db()` 最外层通常已提交/关闭，
+    # 这里兜底清理异常路径残留的请求级会话，避免连接泄漏。
+    app.teardown_request(teardown_request_session)
 
     # 初始化数据库：core 只建表结构，默认家庭/用户属 user 域业务数据，由域侧播种（#1607）
     with app.app_context():
