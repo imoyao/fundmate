@@ -72,7 +72,7 @@ def update_me():
         if data.avatar is not None:
             user.avatar = data.avatar
 
-        db.commit()
+        db.flush()
         db.refresh(user)
         return jsonify({'data': _user_to_dict(user), 'message': 'ok'})
 

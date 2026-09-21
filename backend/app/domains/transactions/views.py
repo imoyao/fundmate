@@ -189,7 +189,7 @@ def delete_transaction(transaction_id: int):
         # 卖出与「整笔卖出清空后删除该卖出流水」两种情形（后者会重建持仓行）。
         if tid and ttype in ('buy', 'sell', 'deposit', 'withdraw', 'split'):
             PositionService.recompute_position_from_transactions(db, tid)
-        db.commit()
+        db.flush()
         return jsonify({'message': 'ok', 'data': None})
 
 

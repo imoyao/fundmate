@@ -159,7 +159,7 @@ def create_tag():
 
         tag = StrategyTag(name=json_data.name, family_id=get_family_id())
         db.add(tag)
-        db.commit()
+        db.flush()
         db.refresh(tag)
         return jsonify({'data': _tag_to_dict(tag), 'message': 'ok'})
 
@@ -172,7 +172,7 @@ def delete_tag(tag_id: int):
         if not tag:
             abort(404, '标签不存在')
         db.delete(tag)
-        db.commit()
+        db.flush()
         return jsonify({'data': {}, 'message': 'ok'})
 
 
@@ -197,7 +197,7 @@ def bind_position_tag(tag_id: int, position_id: int):
 
         bind = PositionStrategyTag(position_id=position_id, strategy_tag_id=tag_id)
         db.add(bind)
-        db.commit()
+        db.flush()
         return jsonify({'data': {}, 'message': 'ok'})
 
 
@@ -219,7 +219,7 @@ def unbind_position_tag(tag_id: int, position_id: int):
         if not bind:
             abort(404, '绑定关系不存在')
         db.delete(bind)
-        db.commit()
+        db.flush()
         return jsonify({'data': {}, 'message': 'ok'})
 
 
