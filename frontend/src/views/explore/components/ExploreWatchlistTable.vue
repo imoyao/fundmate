@@ -358,6 +358,7 @@ const getAvailableTools = (type: string) => {
   }
 
   .summary-divider {
+    /* audit-text-contrast: exempt 装饰性分隔符（「/」），不承载信息、无相邻文本语义，属 WCAG 1.4.3 的 incidental；若改为信息性分隔请用 --text-tertiary-ink。登记见 docs/spec/tech-debt.md（#1599 batch 3） */
     color: var(--border-default);
   }
 

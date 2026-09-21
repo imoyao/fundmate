@@ -43,7 +43,7 @@ const { formatGuides, selectedMode } = useImportWizardContext();
 
 .format-guide-icon {
   font-size: 18px;
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
 }
 
 .format-guide-list {
@@ -68,7 +68,7 @@ const { formatGuides, selectedMode } = useImportWizardContext();
   min-width: 18px;
   margin-right: 8px;
   font-weight: 600;
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
   content: counter(step-counter) ".";
 }
 </style>

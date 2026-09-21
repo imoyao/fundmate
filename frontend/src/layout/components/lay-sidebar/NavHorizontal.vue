@@ -166,7 +166,7 @@ onMounted(() => {
       font-size: 0.55rem;
       font-weight: 600;
       line-height: 1;
-      color: var(--el-color-primary);
+      color: var(--brand-ink);
       white-space: nowrap;
       background: rgb(242 163 142 / 14%);
       border: 1px solid var(--el-color-primary-light-5);

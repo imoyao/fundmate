@@ -609,6 +609,32 @@ static → `--color-neutral`（回退中性）；QDII → `--asset-cat-fund`；F
 - 结论：本批改动的证据链为**静态口径 + 30 条回归用例 + 双向反向验证 + 双实现对账**；
   **真机 axe 复跑仍待做**（脚本挂起需单独排查，不属本批改动范围，已在此登记）。
 
+## 2026-09-21 文字色收敛（二）批次 3：跨页面残留 61 处清零（新增 4 支 `-ink` 令牌）（#1599）
+
+批次 2 之后「跨页面残留」桶仍剩 **61 处**（主源是 `--el-color-*` 主题映射族与无 `-ink` 变体的语义色），本批清零。
+
+### 处置（61 处 → 0）
+
+| 处置 | 处数 | 说明 |
+|---|---|---|
+| **新增 4 支文字级 `-ink` 令牌** | 4 支 | `--brand-ink` / `--color-primary-ink` / `--color-success-ink` / `--color-info-ink`（亮 + 暗各一值）。值经 WCAG 公式实测（亮色端在 白 / 页 / hover / 柔 四档**全 ≥4.5**；暗色端 6.55~9.04:1），实测值写在定义处注释里 |
+| 主题映射改指 | **14** | `--pure-theme-sub-menu-active-text` 由 `var(--brand-700)` → `var(--brand-ink)`（`theme.scss` + `dark.scss`），一次消掉侧边栏激活文字 |
+| `color:` 声明按令牌迁移 | **41** | `--color-primary`(11) / `--color-success`(8) / `--color-info`(2) / `--palette-sage-green`(3) / `--palette-caramel`(1) / `--bg-card`(5) / `--el-color-primary`(13) / `--el-color-primary-light-9`(1)。由一次性迁移脚本执行（只匹配 `color:`，负向 lookbehind 排除 `background-color` / `border-color`），结果与审计器**交叉对账** |
+| 「底色 / 边框当文字色」按现场归位 | **5** | 4 处实底反色 → `--text-inverse`（含 `lay-tag` 的 `.tag-title` 在品牌实底上用品牌色 → 原文案**几乎不可见**，属真缺陷）；`TableControls` 计数徽标（`--color-warning` 实底）→ `--text-primary` |
+| 装饰性分隔符登记豁免 | **3** | `.page-footer__source-sep` / `.summary-divider` / `.privacy-separator`（「·」「/」），属 WCAG 1.4.3 的 incidental；代码内有 `audit-text-contrast: exempt` 指令 + 理由。**豁免总数 10 → 13** |
+| 顺带修 primitive 背景 | 3 | `reconcile-workbench` 的 `background: color-mix(... var(--palette-*))` → 语义令牌（§3.11 禁止业务层用 `--palette-*`） |
+
+### 验证（双口径交叉）
+- `node scripts/audit_text_contrast.mjs --all`：「底色级令牌当文字色」**0 处**、「无同名 `-ink`」**0 处**（原合计 61）
+- `node scripts/check_css_vars.mjs`：通过（364 定义 / 278 引用，无幽灵令牌）
+- 前端：`pnpm lint`（eslint + prettier + stylelint）/ `pnpm typecheck` / `pnpm build` **全绿**
+
+### 遗留（登记，交真机 axe）
+- 「静态不可判定（品牌 / 彩色实底）」桶 **27 → 34 处** —— 正是本批改为 `--text-inverse` 的那些实底位置，**只能真机判定**
+- 「内联样式不可静态解析」**15 处**（`:style` 绑运行时颜色）
+- `--brand-*` 当文字色 **112 处**（基准底口径下 95 处「不达标」）—— 属口径分歧（品牌实底上的浅色调可能是刻意的），须逐处真机判定
+- 真机 axe 工具**挂起**问题仍待排查（见上文本批次 2 的登记）
+
 ## 2026-09-19 品牌实底按钮白字达 AA：新增 --brand-solid 三态令牌（#1600）
 
 issue #1600 的现象是 `.el-button--primary > span` 白字 3.85:1（亮）/ 3.92:1（暗）。本卡按**方案 A** 处置，

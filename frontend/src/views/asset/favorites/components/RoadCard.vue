@@ -308,7 +308,7 @@ function onCardClick() {
 .road-chip--type {
   top: 10px;
   left: 10px;
-  color: var(--bg-card);
+  color: var(--text-inverse);
   background: var(--card-color);
 }
 

@@ -521,7 +521,7 @@ onMounted(() => {
 
 .amount-input :deep(.el-input-number__decrease:hover),
 .amount-input :deep(.el-input-number__increase:hover) {
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
   background-color: var(--bg-hover);
 }
 
@@ -559,7 +559,7 @@ onMounted(() => {
 }
 
 .add-ledger-btn:hover {
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
   background-color: var(--color-primary-20);
   border-color: var(--color-primary);
 }
@@ -602,7 +602,7 @@ onMounted(() => {
 }
 
 .reset-btn:hover {
-  color: var(--color-primary);
+  color: var(--color-primary-ink);
   background-color: var(--color-primary-20);
   border-color: var(--color-primary);
 }

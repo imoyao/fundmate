@@ -56,7 +56,7 @@
       justify-content: center;
       width: 18px;
       height: 18px;
-      color: var(--el-color-primary);
+      color: var(--brand-ink);
       cursor: pointer;
       border-radius: 4px;
       transform: translate(0, -50%);
@@ -142,7 +142,7 @@
       cursor: pointer;
 
       &:hover {
-        color: var(--el-color-primary);
+        color: var(--brand-ink);
       }
 
       svg {
@@ -199,15 +199,15 @@
   }
 
   .chrome-tab__bg {
-    color: var(--el-color-primary-light-9) !important;
+    color: var(--text-inverse) !important;
   }
 
   .tag-title {
-    color: var(--el-color-primary) !important;
+    color: var(--text-inverse) !important;
   }
 
   .chrome-close-btn {
-    color: var(--el-color-primary);
+    color: var(--text-inverse);
 
     &:hover {
       background-color: var(--el-color-primary);
@@ -255,10 +255,10 @@
 
 /* 卡片模式下鼠标移入显示蓝色边框 */
 .card-in {
-  color: var(--el-color-primary);
+  color: var(--brand-ink);
 
   .tag-title {
-    color: var(--el-color-primary);
+    color: var(--brand-ink);
   }
 }
 

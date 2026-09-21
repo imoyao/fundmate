@@ -269,6 +269,12 @@ html.dark {
   --temp-mid-ink: #e0c98a; /* 暗卡 9.81:1 */
   --temp-high-ink: #e87f7a; /* 暗卡 5.90:1 */
 
+  /* #1599 batch 3：文字级语义色在暗底需提亮同色系（沿用 #1545 的手法） */
+  --brand-ink: #f08a75; /* 暗卡 6.55 / 暗页 7.17 */
+  --color-primary-ink: #aab0d8; /* 暗卡 7.55 / 暗页 8.27 */
+  --color-success-ink: #7fc49a; /* 暗卡 7.82 / 暗页 8.56 */
+  --color-info-ink: #9ecad6; /* 暗卡 9.04 / 暗页 9.90 */
+
   /* ===== 文字色（暗色适配） ===== */
   --text-primary: rgb(237 234 229 / 92%);
   --text-secondary: rgb(237 234 229 / 65%);
@@ -336,7 +342,7 @@ html.dark {
 
   /* 菜单文字色 */
   --pure-theme-menu-text: var(--text-secondary);
-  --pure-theme-sub-menu-active-text: var(--brand-700);
+  --pure-theme-sub-menu-active-text: var(--brand-ink);
 
   /* 菜单交互色 */
   --pure-theme-menu-hover: var(--bg-hover);
