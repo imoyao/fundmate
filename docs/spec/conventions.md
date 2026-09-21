@@ -104,7 +104,7 @@ title: 全局强制设计规范（conventions · 🔒 冻结区）
 - **视图 / 用例层显式 `commit()` 仅限「必须提前提交」的场景**（例如提交后才触发不可回滚的外部副作用），且须在代码注释写明理由；此类例外仍受 §2.2「同一视图函数内最多一次显式 `commit()`」约束（不显式提交则自然满足）。
 - **非请求上下文（job / CLI / scheduler）**：各自持有会话与提交语义，不受请求边界影响（`get_db()` 无 `flask.g` 时每次独立会话、不自动提交）。
 - **前置依赖（均已落地）**：#1608（会话获取统一 `get_session()`）、#1632（请求级单会话 + teardown 统一提交）。**#1609 不与 #1606 合并执行**（先定范式、再拆视图）。
-- **分批收敛，不做一次性大改**：按域把视图层冗余 `db.commit()` 改为 `db.flush()`，**每批以 `pytest -p no:xdist -m "not slow"` 全量通过为界**。已完成：batch 2 = `domains/watchlist/views.py`（14 处）；batch 3 = `positions`(5) / `strategy`(4) / `portfolios`(3) / `assets`(3) / `transactions`(1) / `users`(1) / `families`(1) 共 7 文件 18 处。**必须保留**：`reconciliation`（3 处，`user_session()` 不在请求边界内，见上条）。**待评估**：`ledgers/views.py`（9 处，含 `commit_migration` 的手工守恒单事务）。服务层的 `commit()` 大多属**合法事务边界持有者**（离线 job 自身边界、配额有意独立单元等），须逐处核实后保留，不搞一刀切。
+- **分批收敛，不做一次性大改**：按域把视图层冗余 `db.commit()` 改为 `db.flush()`，**每批以 `pytest -p no:xdist -m "not slow"` 全量通过为界**。已完成：batch 2 = `domains/watchlist/views.py`（14 处）；batch 3 = `positions`(5) / `strategy`(4) / `portfolios`(3) / `assets`(3) / `transactions`(1) / `users`(1) / `families`(1) 共 7 文件 18 处；batch 4 = `domains/ledgers/views.py`（9 处）——**至此除下述 3 处外，视图层 `commit()` 已全部收敛**。**必须保留**：`reconciliation`（3 处，`user_session()` 不在请求边界内，见上条 + #1640）。注：`ledgers` 的 `commit_migration` **视图自身不提交**（手工守恒单事务在 `ledger_migration_service` 内，服务自持事务，按 D26 保留），故无「手工事务」风险。服务层的 `commit()` 大多属**合法事务边界持有者**（离线 job 自身边界、配额有意独立单元等），须逐处核实后保留，不搞一刀切。
 - **高价值多步写必须锁死回滚**：账户迁移、导入提交、分红再投资等必须有「中途注入异常 → 断言数据完全回滚、源数据不变」的反向用例（已全部落地）。
 - **对外零变更**：仅改变事务持有位置，HTTP 端点 / 请求响应字段 / 状态码 / 错误码 / 业务计算口径一律不变（§2.4）。
 

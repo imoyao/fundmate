@@ -445,7 +445,7 @@ def create_ledger():
                 abort(400, 'fee_config 格式无效')
 
         db.add(ledger)
-        db.commit()
+        db.flush()
         db.refresh(ledger)
         return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
 
@@ -553,7 +553,7 @@ def reorder_ledgers():
             matched = owned.get(lid)
             if matched is not None:
                 matched.display_order = idx + 1
-        db.commit()
+        db.flush()
     return jsonify({'data': None, 'message': 'ok'})
 
 
@@ -740,7 +740,7 @@ def update_ledger(ledger_id: int):
         if renamed_to:
             _sync_account_name_snapshots(db, ledger_id, renamed_to)
 
-        db.commit()
+        db.flush()
         db.refresh(ledger)
         return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
 
@@ -783,7 +783,7 @@ def delete_ledger(ledger_id: int):
                 ), 400
 
         db.delete(ledger)
-        db.commit()
+        db.flush()
         return jsonify({'data': {}, 'message': 'ok'})
 
 
@@ -799,7 +799,7 @@ def archive_ledger(ledger_id: int):
         if not ledger:
             abort(404, '账户不存在')
         ledger.is_active = False
-        db.commit()
+        db.flush()
         db.refresh(ledger)
         return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
 
@@ -812,7 +812,7 @@ def unarchive_ledger(ledger_id: int):
         if not ledger:
             abort(404, '账户不存在')
         ledger.is_active = True
-        db.commit()
+        db.flush()
         db.refresh(ledger)
         return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
 
@@ -1014,7 +1014,7 @@ def update_ledger_position(ledger_id: int, position_id: int):
             pos.current_price = Money.yuan_to_price_units(data['current_price'])
         if 'notes' in data:
             pos.notes = data['notes']
-        db.commit()
+        db.flush()
         db.refresh(pos)
         return jsonify({'data': enrich_position_dict(pos), 'message': 'ok'})
 
@@ -1044,7 +1044,7 @@ def delete_ledger_position(ledger_id: int, position_id: int):
                 Transaction.ledger_id == ledger.id,
             ).delete()
         db.delete(pos)
-        db.commit()
+        db.flush()
         return jsonify({'message': 'ok', 'data': None})
 
 
@@ -1128,7 +1128,7 @@ def update_ledger_transaction(ledger_id: int, transaction_id: int):
         if touched and txn.import_hash:
             txn.import_hash = None
 
-        db.commit()
+        db.flush()
 
         def _ymd(value):
             # trade_date 为 DateTime 列（读回为 datetime），confirm_date 为 Date 列（date）；
