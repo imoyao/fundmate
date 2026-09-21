@@ -17,7 +17,7 @@
           负债端
         </button>
       </div>
-      <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+      <span class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
         {{ balanceTab === "assets" ? "资产构成" : "负债明细" }}
       </span>
     </div>
@@ -26,7 +26,7 @@
       <thead
         class="text-left text-xs border-b"
         :style="{
-          color: 'var(--text-tertiary)',
+          color: 'var(--text-tertiary-ink)',
           borderColor: 'var(--border-light)'
         }"
       >
@@ -113,7 +113,7 @@
       <thead
         class="text-left text-xs border-b"
         :style="{
-          color: 'var(--text-tertiary)',
+          color: 'var(--text-tertiary-ink)',
           borderColor: 'var(--border-light)'
         }"
       >
@@ -216,10 +216,10 @@ const assetBalanceRows = computed(() => {
   const total = props.totalAssets;
   if (total === 0) return [];
   const labelMap: Record<string, { color: string; categoryKey: string }> = {
-    流动资金: { color: "var(--tag-mint-green)", categoryKey: "cash" },
-    固定资产: { color: "var(--tag-warm-taupe)", categoryKey: "fixed" },
-    投资理财: { color: "var(--tag-periwinkle)", categoryKey: "investment" },
-    应收款: { color: "var(--tag-stone-gray)", categoryKey: "receivable" },
+    流动资金: { color: "var(--palette-mint-green)", categoryKey: "cash" },
+    固定资产: { color: "var(--palette-warm-taupe)", categoryKey: "fixed" },
+    投资理财: { color: "var(--palette-periwinkle)", categoryKey: "investment" },
+    应收款: { color: "var(--palette-stone-gray)", categoryKey: "receivable" },
     保险项目: { color: "var(--color-accent)", categoryKey: "insurance" }
   };
   // 消费后端 category_distribution（后端唯一聚合出口，含汇率换算）
@@ -273,7 +273,7 @@ function goToInventory(categoryKey: string) {
   padding: 4px 14px;
   font-size: 14px;
   font-weight: 400;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   cursor: pointer;
   background: transparent;
   border: none;

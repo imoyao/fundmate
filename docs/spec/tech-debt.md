@@ -331,3 +331,511 @@ title: 技术债务与开口项明细（tech-debt）
 附：本文件 158–243 行的损坏段（见开头提示）与本轮治理无关，属既有残留，需专门清一次。建议修法二选一：① **机械剥离前缀**——每行去掉行首的「行号 + 冒号/竖线」，注意竖线场景下原行首的 `|` 要保留（否则表格列会丢）；② **从引入该段的提交重新取原文覆盖**（更稳，可避免剥离规则在边界行上出错）。**留待专门一次文档清理**，不与本轮治理混做。
 
 配套决策见 `docs/spec/decisions.md` 2026-09-11 行（D22）；授权变更见根 `LICENSE`、`README.md`「授权与使用限制」与 `AGENTS.md` 核心约束「授权与可见性」。
+
+## 2026-09-18 死媒体块覆盖：MetricGrid 已修，其余同类待逐个复核（#1576）
+
+触发：#1571 实测发现 `MetricGrid` 的两条 `@media`（`--metric-basis: 240px` / `100%`）排在基础声明
+`.metric-grid { --metric-basis: 200px }` **之前**——媒体查询不改变特异性，同特异性下后写的规则胜出，
+故两档**从未生效**（320~1920 全档实测恒为 `200px`）。与 #1557（暗色令牌被 `colors.css` 的 `:root`
+同特异性压掉）同属「**源序即语义**」这一类。
+
+| # | 事项 | 状态 |
+|---|------|------|
+| 1 | `MetricGrid` 两条响应式块移到基础声明之后，并改用 `bp.below("lg"/"sm")`（Tailwind 对齐） | ✅ 已修（#1576；边界随之外移 `960→1023`、`560→639`，9 档 before/after 实测） |
+| 2 | 全仓扫描「媒体块内声明被其后同选择器规则覆盖」的同类写法 | ✅ **已归零**（2026-09-18）：第 1 批 `MetricGrid`（#1580）、第 2 批探市页 3 处（#1583）、第 3 批组件级 3 处（#1588）、第 4 批 Aggregation/LedgerCard/login 13 处（#1590）、第 5 批 `profile` 7 处 + `element-plus.scss` 2 处（本批）均已移到基础声明之后。审计器残留的 1 处命中为**注释文本误报**（注释里写了选择器名），非真缺陷 |
+| 3 | 是否新增硬守卫（自动检测该类死代码） | ❌ **不做**（理由见 `decisions.md` 2026-09-18：静态近似信噪比不足；且 `stylelint --fix` 这个制造器已由 `order/order` 槽位修正堵住）。**可复活**：把本次一次性扫描器升级为「冻结基线 + 只拦新增」的 warn 模式守卫 |
+
+候选分布（文件 → 命中数，均为「媒体块内声明 + 其后同名规则」，需人工复核）：
+`Aggregation/AggregationDimensionTabs.vue` 2、`Aggregation/AggregationProductCard.vue` 3、
+`MetricCard/index.vue` 1、`TemperatureGaugeCard/index.vue` 1、`style/element-plus.scss` 2、
+`views/asset/favorites/components/RoadEmptyState.vue` 1、`views/asset/ledgers/components/LedgerCard.vue` 3、
+~~`views/explore/components/ExploreDetailPanel.vue` 2~~（已修）、~~`views/explore/components/ExploreTemperatureDashboard.vue` 1~~（已修）、
+`views/login/index.vue` 3、`views/login/reset-password.vue` 2、`views/profile/index.vue` 7。
+
+位置清单见 **#1576 评论**（含文件:行号与属性名；探市页 3 处已随 #1583 修复，不再列出）。
+完整 29 条位置清单见 **#1576 评论**（含文件:行号与属性名）。
+
+## 2026-09-18 公共 `SectionHeader` 操作槽在窄屏不换行（#1585 范围外发现）
+
+`frontend/src/components/SectionHeader/index.vue` 的 `.section-header__action` 是
+`inline-flex` + `flex-shrink: 0`，而 `.section-header` 是默认 `nowrap` 的 flex 行——
+操作槽内容较宽时**既不能换行也不能收缩**，会把卡片（进而把文档）撑出视口。
+
+- 探市详情面板（「行业 / 赛道排行」的操作槽 ≈414px）已在 **#1585** 用**页面内的 `:deep()` 覆盖**修掉
+  （320/375 文档溢出 155 / 100 → **0**；≥640 逐字不变），**未改公共组件**；
+- 其余带较宽操作槽、同样使用该组件的页面（`Aggregation/*`、`inventory` 等）**存在同样的风险**，
+  待逐个量测后决定走「就地覆盖」还是「公共组件放开换行 + `min-width: 0`」——
+  后者一动全体变版、需一次性肉眼验收，属独立决策。
+
+## 2026-09-18 文字色 WCAG 扫描：探市页已归零，保留项与跨页面残留登记（#1586）
+
+卡内交付：#1589（审计器 `scripts/audit_text_contrast.mjs`）、#1591（13 处底色级令牌换 `-ink` +
+`--color-fall-ink` 校准到 AA）、本轮（探市页 29 处 `--text-tertiary` + 3 处 `--text-disabled` 收敛）。
+
+### 已修（**探市页不达标项已归零**，可用审计器复核）
+
+| 类别 | 处数 | 处置 |
+|---|---|---|
+| 底色级令牌当文字色（全站） | 13 | ✅ 换同名 `-ink`（#1591） |
+| `--text-tertiary` 作正文（探市页） | 26 | ✅ 换 `--text-tertiary-ink`（3.57~3.69 → 5.78~5.98:1） |
+| `--text-disabled` 作可读信息（探市页） | 3 | ✅ 换 `--text-tertiary-ink`（1.71~1.77 → 5.78~5.98:1） |
+
+复核命令：`node scripts/audit_text_contrast.mjs --scope explore --all`
+→ 目标类 **0 处**、不达标 **0 处**、豁免 **3 处**。
+
+### 保留不改（**代码内有 `audit-text-contrast: exempt` 指令 + 理由**）
+
+判断依据：WCAG 1.4.11 对**非文本图形**只要求 3:1，而 `--text-tertiary` 实测 3.57~3.69:1 —— 达标；
+改用 `-ink`（5.78:1）会让图标与相邻正文同权，反而压平层级。
+
+| 位置 | 元素 | 说明 |
+|---|---|---|
+| `views/explore/components/detail/MetricDetailTable.vue` | `.info-icon` | `el-icon` 图标字形（tooltip 触发） |
+| `views/explore/components/ExploreAssetOverview.vue` | `.asof-bar__icon` | `ep:info-filled` 图标字形 |
+| `views/explore/index.vue` | `.auth-guide__close` | 28×28 图标按钮（`ep:close`） |
+
+**豁免是"有理由的保留"，不是白名单**：指令必须带理由文本；新增豁免会被审计器单列，不会被静默吸收。
+
+### 开口项（**未做，需拍板/另立卡**）
+
+| # | 事项 | 状态 |
+|---|------|------|
+| 1 | ~~`--text-tertiary-ink` 与 `--text-secondary` 层级倒挂~~（亮 5.98 vs 5.77、暗 7.55 vs 6.42） | ✅ **已实施**（2026-09-18 色阶归位，见下节） |
+| 2 | `--text-disabled`（亮 1.77:1）全站仍有 20 处 `color:` 用法，其中「真禁用控件」（如 `pure-segmented-item-disabled`）可豁免，其余需逐处分类 | ❌ 另立卡 |
+| 3 | **跨页面残留**：`--text-tertiary` 全站 253 处中探市页已清，其余（`Aggregation/*`、`ledgers`、`login`、`watchlist`，以及**共享组件 `PageFooter` / `PageHeaderBar`**）未逐处判定。**真机 axe 口径下探市页本身也仍有 13 处**（PageFooter 12 + PageHeaderBar 1）——即「静态口径已清零」≠「真机口径已清零」 | ❌ 另立卡（新卡已开） |
+| 4 | **品牌实底按钮白字不达标**：`#ffffff` on `--brand-700`（`#e34f38`）= **3.85:1**，暗端 `#d45a44` = **3.92:1**，均低于 AA 正文 4.5:1。design.md 现行规定「主按钮 = 品牌底 + 白字」，故属**设计系统级**问题；修补须下调按钮底色明度（色相锚定规则允许），会改变全站主按钮观感 —— 需拍板 | ❌ 另立卡（需拍板） |
+| 5 | `--color-fall-ink` 落在**带色底**（`#f5f1e4`）上仅 **4.48:1**，差 0.02 达标；静态脚本只按页底 / 卡底算，看不见带色底 | ❌ 另立卡 |
+| 6 | 把审计器接进 CI 门禁 | ❌ **不做**（静态器同上）；真机 axe 亦**不进 per-PR**（要起浏览器 + dev server，成本不划算），维持「手动跑、看报告」 |
+
+### 已实施：`--text-tertiary-ink` 色阶归位（2026-09-18，#1586）
+
+**规则来源**：`design.md` / `design.dark.md` —— 同族颜色**锚定色相与饱和度、只调明度**；
+品牌珊瑚（亮 `#E34F38` / 暗 `#D45A44`，同为 HSL 8°）是全局色相锚点，**不得改动其色相**。
+
+原值 `#6B6258` **三个维度都脱离了本族色阶**：H 31.6°（族 36.0°）、S 9.7%（族 8.0%）、L 38.2%（族 39.0%）
+→ 结果比 `--text-secondary` 还深（5.98 vs 5.77），**辅助文字反压次要文字**。
+
+| 端 | 旧 | 新 | 白 / 卡底 | 页底 | **最严底** |
+|---|---|---|---|---|---|
+| 亮 | `#6B6258` | `#716A60`（35.3°, 8.1%, 41.0%） | 5.98 → 5.34 | 5.78 → 5.17 | 5.28 → **4.59**（`--bg-hover`） |
+| 暗 | `72%` | `58%` | 7.55 → 5.40 | 8.12 → 5.70 | 6.49 → **4.79**（`--bg-hover`） |
+
+两端归位后均为严格单调：primary > secondary > **tertiary-ink** > tertiary > disabled。
+
+**为什么阶梯幅度只有 0.43 个对比度点**：AA 地板 4.5 + 最严底 `--bg-hover` 把可用区间夹得很窄
+—— 明度再抬一档（L=42%，白底 5.11:1）在最严底上只剩 **4.39:1** 不达标。故**优先保 AA、牺牲阶梯幅度**；
+要真正拉开三级视觉间距，须同时下调 `--text-secondary` 的明度（波及全站次要文字），属独立决策。
+
+### 附：真机 axe 对比度回归（`scripts/axe_contrast_audit.mjs`，2026-09-18）
+
+`design.md` 的 Focus & Accessibility 写着「所有 CSS 变量（颜色）变更**必须**通过 axe-core 或 Lighthouse
+进行对比度回归测试……禁止在无自动化验证的情况下修改 `--text-*`」——**该约束此前只有文档、没有实现**
+（全仓检索零命中）。本卡补上：零新依赖（CDP 驱动系统 Edge + 注入官方 axe-core，不下载 chromium、不动 lockfile）。
+
+```bash
+node scripts/axe_contrast_audit.mjs --routes /explore,/profile          # 亮色
+node scripts/axe_contrast_audit.mjs --theme dark --routes /explore      # 暗色
+```
+
+（须先有 dev server；`--no-cookie` 用于免登录路由。输出含**页面自证**：用 dev 构建的 `data-insp-path`
+回显真实源文件——实测踩过「落点悄悄变成别的页面」：本应用是 **hash 路由**，且登录态会让 `/explore` 改道，
+两者都曾让我量到 `welcome` 页的 DOM 却以为在测探市。）
+
+**它一次就抓到静态脚本看不见的两类：**
+
+1. **继承来的颜色**：静态器按 `color: var(--token)` 声明归属，axe 看的是**渲染后的元素** ——
+   祖先规则设色、后代文本继承时，静态器会把违规算在祖先上或直接漏掉；
+2. **有效背景 ≠ 页底/卡底**：如 `--color-fall-ink` 落在带色底 `#f5f1e4` 上只有 4.48:1。
+
+因此**「静态口径清零」不再等于「页面达标」**。两个口径的职责：静态器用于**施工清单**（快、可解释、可逐处定位），
+axe 用于**验收**（真、可回归）。本次 token 变更的前后对比：`/explore` 违规节点 **17 → 17，新增 0、消失 0、
+逐节点完全一致**（即该变更**未引入任何回归**），其 AA 安全性由上面的多底色矩阵保证。
+
+### 附：本轮修掉的**三个**取证工具缺陷（比逐处替换更要紧）
+
+1. **字号判定方向错**：原实现只在 `color:` 行**之后**找 `font-size`，而本仓绝大多数规则把
+   `font-size` 写在 `color:` **之前**（`.bias-updated { font-size: 12px; color: … }`），
+   于是全部退化成 `[字号?]`、一律按 4.5:1 判 —— 系统性把"大字达标"误报成"不达标"。
+   已改为沿「最内层规则 → 外层规则」逐级取（SCSS 嵌套把 `font-size` 写在祖先规则里也能取到）。
+2. **暗色端零覆盖**：暗色令牌是 `rgb(237 234 229 / N%)` 半透明写法，原 `parseHex` 直接返回 `null`
+   并 `continue` —— **所有暗色 `color:` 用法从未被计算过**。已加 alpha 合成（按各自背景合成后再算对比度）。
+3. **跨主题取值**（补回归测试时当场抓到）：暗色行的「换 `-ink` 后 X:1」建议原先一律拿**亮色** `-ink` 值算，
+   给出「换完仍是 2.67:1」的误导性建议；暗色 `-ink` 对暗卡实为 7.55:1。已改为与当前行同主题取值。
+
+同时更正 `design.md` / `design.dark.md` 中 8 个文字令牌里 **7 个失实的对比度数字**
+（亮端 `--text-tertiary` 记 4.8:1"✅"、实测 3.69:1；`--text-disabled` 记 3.1:1、实测 1.77:1；
+暗端 15.2/9.8/5.6/2.8:1 全部偏高）。**"4.8:1 ✅" 这个错数字正是 253 处不达标用法长期未被发现的原因。**
+
+## 2026-09-18 文字色收敛（二）批次 1：A/B 类全量 + `--brand-*` / `--text-inverse` 口径归位（#1599）
+
+承接 #1586 / #1598。**静态口径已零残留**，真机 axe 亦大幅下降；本批次同时补掉审计器的 3 个「静默漏洞」。
+
+### 已修（合计 205 处）
+
+| 类别 | 处数 | 处置 |
+|---|---|---|
+| A 类 `--text-tertiary` 作正文（全站 66 个文件） | 192 | → `--text-tertiary-ink`（其中 1 处行尾带注释、被施工脚本的严格断言漏掉，后补） |
+| B 类 `--text-disabled` 作**占位 / 待填 / 来源标记** | 7 | → `--text-tertiary-ink`：`.wqv-empty`「—」、`.cell-pending`（**可点击**待填单元格，非禁用）、`.bond-empty` / `.index-val-empty` / `.dd-empty` / `.link-empty`、`market-footer__source--dev` |
+| `color: var(--brand-*)`（真机实证 + 可静态配对） | 6 | → `--color-rise-ink`：`PageFooter` 链接 5 处、`GhostDuplicateBanner` 5 处。原 `--brand-700` 页底 3.73:1、品牌底 3.61:1，且违反 design.md「业务代码禁止直接调用 `--brand-*`」；`--color-rise-ink`（`#c0341f`）色相 8° 同族、页底 5.41:1 |
+
+### 已登记豁免（+7）
+
+真 `:disabled` / `.is-disabled` 控件 7 处（`.ocr-primary-btn:disabled`×2、`.pure-segmented-item-disabled`×2、
+`.batch-delete-btn:disabled`(+`:hover`)、`.field-block__save.is-disabled`、暗色 `dark.scss` 同款）→
+代码内 `audit-text-contrast: exempt <理由>`，理由写明「WCAG 1.4.3 inactive component 豁免」**并注明
+「无数据占位符不适用本豁免」**（那是信息，须用 `--text-tertiary-ink`）。豁免总数 3 → 10。
+
+### 真机 axe 前后（同路由 `/profile,/asset/ledgers,/`、同 axe-core 版本、亮暗各一遍）
+
+| 档 | 前 | 后 | 回归 | 修好 |
+|---|---|---|---|---|
+| 亮 | 34 | **23** | 0 | 11 |
+| 暗 | 23 | **12** | 0 | 11 |
+
+同时输出亮暗双档全页截图（`--shot <dir>`），供共享组件「一改全站变版」的肉眼复核。
+
+### 审计器再补 3 个「静默漏洞」（工具缺陷累计 5 个）
+
+1. `--text-inverse`（20 处）此前被判「不达标」—— 它按定义是**品牌 / 彩色实底上的反色白字**，
+   拿中性基准底算恒为 1.00:1。现单列「静态不可判定」，判定交 axe。
+2. **`color: var(--brand-*)` 两个分类桶都不收 → 被静默忽略**（既非「有同名 `-ink` 的底色级」，
+   也非 `--text-*`）。实测 92 处。现单列「品牌色当文字色」段（给规模 + 基准底对比度，
+   逐条位置加 `--brand-detail`），判定交 axe。
+3. 豁免理由含 Markdown 加粗（`**…**`）时被 `*` 截断成半句 → 改为按行取满再剥尾部记号。
+
+回归用例 18 → **21**（新增 inverse / brand 两条 + 一条「新增分类不得漏报 B 类」）。
+**反向验证**：把两个新分类禁用 → 3 条用例转红；恢复 → 全绿。
+
+### 开口项（批次 2 起，同一张卡）
+
+| # | 事项 | 依据 |
+|---|---|---|
+| 1 | **模板内联样式 163 处**：`style="color: var(--text-tertiary)"` 与 `:style="{ color: 'var(--text-tertiary)' }"` 两种写法。静态器**读不到**（盲区③，已写进脚本「已知局限」不再静默），真机 axe 会现形 | 计数 163，集中在 `QuickEntry/BuyForm·SellForm·DividendForm` 等 |
+| 2 | **`--brand-*` 当文字 92 处**：brand-100~600 对白底仅 1.5~3.0:1；但**判定依赖有效背景**（品牌实底上浅色调可能是刻意的）→ 须逐处真机判定。真机剩余 13 处含 `SidebarLogo` 6、`lay-tag` 2、`SidebarItem` 2、`profile` 2、`welcome` 1 —— 其中侧边栏 logo 属**品牌标识**，改色是设计取舍 | 静态段 + axe |
+| 3 | Element Plus 内置 `--el-color-danger`（`#f56c6c`）作文字 on `--bg-muted` = **2.70:1** | axe；上游默认色，需覆盖或改语义令牌 |
+| 4 | 盲区①「继承来的颜色」：静态器按 `color:` **声明**归属，祖先设色、后代继承时量不到（welcome / ledgers 各有命中） | axe 与静态器结果差 |
+
+复跑：`node scripts/audit_text_contrast.mjs --all`（静态）；
+`node scripts/axe_contrast_audit.mjs --routes /profile,/asset/ledgers,/ --shot <dir>`（真机 + 截图）。
+
+## 2026-09-19 设计令牌命名分层 + `--tag-*` 收敛为 `--palette-*`（#1602 收尾）
+
+卡 1（#1603 清 14 个自引用令牌）与卡 2/3（#1604 合并危险色双份定义 + 品种色板收敛）此前已合入。
+本卡收尾剩两项，并顺带查实 #1604 的一处漏改。
+
+### 已完成
+
+| 项 | 处置 |
+|---|---|
+| 非语义色名收敛 | `--tag-*` → `--palette-*`（12 色板定义 + 引用共 54 处机械改名，**值零变化**，以「改名前后定义值序列逐行 diff」验证） |
+| 死令牌 | 删 `--tag-muted-blue-20` / `--tag-thistle-20`（零引用；派生一律 `color-mix`，同本卡既有规则） |
+| 命名分层约定 | 三层（primitive / semantic / domain）+「新增令牌先判层」准入规则 + 三条禁止项 → `conventions.md` §3.11；决策见 `decisions.md` 2026-09-19 行 |
+| **#1604 漏改（本卡唯一可见颜色变更）** | `useImportWizard.ts` 的 `typeColorMap`(8 项) 与 `fundTypeColorMap` 的货币型 / QDII / FOF 由 `--palette-*` **装饰色**归位 `--asset-cat-*`。缺陷表现：「同一个股票」在导入向导是蓝灰、在自选 / 买卖表单是紫。依据：colors.css 中 `--asset-cat-*` 的注释**早已写明**「业务代码禁止再借用装饰色表达品种」→ 属**违反既有规则的漏改**，不需要新拍板 |
+
+**判定映射（cash / static 在 12 槽位里无同名槽位）**：cash → `--asset-cat-money-fund`（同属现金管理工具）；
+static → `--color-neutral`（回退中性）；QDII → `--asset-cat-fund`；FOF → `--asset-cat-portfolio`（语义最近的「组合」槽位）。
+映射集中在 `useImportWizard.ts` 一个函数内，若设计上要给 cash / static 独立槽位，改这一处即可。
+
+### 未做（本卡登记，需先定名且含可见颜色取舍）
+
+| # | 事项 | 为什么不在本卡做 |
+|---|---|---|
+| 1 | **桑基图「仓位分类」仍直接引用 primitive 层**：流动资金 → `palette-mint-green`、投资理财 → `palette-periwinkle`、固定资产 → `palette-warm-taupe`、应收款 → `palette-stone-gray`、活钱 → `palette-muted-blue`、稳健底仓 → `palette-thistle`（`SankeyChart.vue` / `CategoryBalanceTable.vue`） | 这是**另一条分类轴**（仓位分类，不是品种），12 个 `--asset-cat-*` 槽位中无对应物；应新增 domain 层令牌（如 `--inventory-cat-*`）并先定名 |
+| 2 | **对账工作台状态色**：`palette-sage-green`（差异正 / 已清 / 就绪）、`palette-caramel`（待处理） | 同属 domain 层缺失（宜命名为 `--status-*`）；且 `palette-sage-green` 当 `color:` 用对白底仅 **2.32:1**，与 #1599 文字色线交叉，处置须一并定 |
+| 3 | `docs/spec/temperature-architecture-plan.md` 里两处 `--tag-*` 提及 | **刻意保留**：该文件是 2026-08 的历史验收记录（原文含「颜色✅今日已修」），改它等于篡改历史结论 |
+
+复跑：`grep -rn -- '--tag-' frontend/src` 应为 0 命中（`docs/` 仅剩上表第 3 项那 2 处历史记录）。
+## 2026-09-19 文字色收敛（二）批次 2：模板内联 170 处 + 审计器再补 3 族静默盲区（#1599）
+
+承接 #1601（批次 1）。本批次先补**审计器的覆盖盲区**（否则「改完是否清零」不可复算），再修由此暴露的债务。
+
+### 已修（170 处，全部是「静态器此前读不到」的模板内联样式）
+
+| 类别 | 处数 | 处置 |
+|---|---|---|
+| `--text-tertiary` 作文字（`:style="{ color: 'var(--text-tertiary)' }"` / `style="color: …"`） | 166 | → `--text-tertiary-ink` |
+| `--text-disabled` 作「未上线功能」说明文字（`Watchlist/SettingsDrawer` 排序设置卡） | 3 | → `--text-tertiary-ink`。**不是 disabled 控件**（无 `disabled` 属性、文案是用户可读的信息）→ 按 #1597 口径**不适用** WCAG 1.4.3 豁免 |
+| `--color-rise` 作文字（`welcome` 页内联涨色） | 1 | → `--color-rise-ink`（页底 3.73 → 5.41:1） |
+| `--el-color-danger` 作文字（`LedgerCard` 删除操作 hover、`TransactionEditDialog` 表单校验错误） | 2 | → `--color-danger`：Element Plus 默认 `#f56c6c` 对白底 **2.90:1** → 本项目语义危险色 **4.74:1**，且语义与 #1602 定的「danger 只用于删除/错误/破坏性操作」一致 |
+
+替换范围由**两个独立实现交叉对账**（审计器解析 vs 替换脚本）：166 + 3 + 1 = 170，两处结果完全一致。
+
+### 审计器再补 3 族静默盲区（工具缺陷累计 8 个）
+
+1. **模板内联样式**（原「已知局限③」，实测内联命中 **284 处**）：`style="color: var(--x)"` 与
+   `:style="{ color: 'var(--x)' }"`（含跨行对象、数组写法）现已纳入。三处口径与样式块**刻意不同**并逐条标注：
+   字号只取「同一 style 属性内」的声明（取不到标 `字号?`，不猜 class 字号）、基准底**一律取亮色**（亮底对比度更低＝更严；暗色端交真机，混算会给错数字）、选择器回退为「标签名 + class」。
+   同时与样式块口径**去重**：多行 `style="` 里落在行首的 `color:` 归内联，不被两处各报一次。
+2. **Element Plus 主题映射族**（`--el-color-*`，实测 **81 处**）：`style/theme.scss` 把 `--el-color-primary`
+   写成 `var(--brand-700)`，而原实现只认字面量 → **该族根本不在令牌表里**，用它们当文字色的地方**全站漏扫**
+   （issue 里只登记了 1 处 axe 命中）。已加 `var()` 别名解引用。
+3. **「底色级当文字色且无同名 `-ink`」族**（实测 **65 处**）：前两个分类桶都不收（既非「有 `-ink` 的底色级」，
+   也非 `--text-*`）→ 被**静默丢弃**。现单列分段（`--all` 可见），并在汇总行给出总数。
+
+回归用例 21 → **30**（新增 8 条内联用例：静态属性 / 绑定对象 / 跨行属性 / 属性内字号 / `background-color` 防过度扫描 / 不可解析绑定必须登记 / 去重 / HTML 注释豁免）。
+**双向反向验证**：① 禁用内联扫描 → 7 条内联用例转红；② 去掉前缀 lookbehind（模拟过度扫描）→ 防过度扫描用例转红。恢复后 md5 一致、全绿。
+
+### 新暴露但**未修**的债务（已可见，不再静默）
+
+| # | 事项 | 规模 | 不在本批修的理由 |
+|---|---|---|---|
+| 1 | `--color-success`(2.32:1) / `--color-info`(2.90:1) / `--color-primary`(3.73:1) / `--palette-sage-green` / `--palette-caramel` 作**文字或图标** | 65 处 | 其中约 9 处是**实底上的反色字**（`--bg-card` 当文字色，静态按白底算必然误报）；真债务部分需逐个确认替换目标（`--color-success` / `--color-info` 都**没有** `-ink` 变体；图标虽只受 1.4.11 约束（3:1），但 2.32 同样不达标）。属「需补 `-ink` 变体或改值」的设计决策 |
+| 2 | 模板内联 `:style` 绑定的**运行时颜色**（涨跌色、类别色） | 15 处 | 不是令牌用法而是运行时代码，静态不可判定 → 交真机 axe |
+| 3 | Element Plus 组件**内部**用主色作文字（`el-tag--danger`、`el-alert` 等） | 待真机量化 | 静态看不到组件内部样式；修法是整体覆盖 `--el-color-danger` / `-error`（会连带改实底按钮底色＝观感变更）→ 与 #1600 同类，需拍板 |
+| 4 | `--brand-*` 当文字色（品牌实底上的浅色调可能是刻意的） | 102 处（真机残留 13） | 判定依赖**有效背景**，须逐处真机判定；其中侧边栏 logo 属**品牌标识**，改色是设计取舍 |
+
+### 静态器口径（重申，本文件即生效）
+
+**静态器只做「施工清单」，验收一律以真机 axe 为准**（采纳 #1599 验收标准第 4 项的低成本方案）。
+两类**已知不可静态判定**的场景须在引用任何「清零」结论时一并说明：
+① **继承来的颜色** —— 静态器按 `color:` **声明**归属，祖先设色、后代继承时量不到；
+② **有效背景非中性基准底** —— 实底反色、带色底、渐变均无法模拟。
+
+复跑：`node scripts/audit_text_contrast.mjs --all`（静态，含内联 / `--el-color-*` 族 / 无 `-ink` 族）；
+`node --test "scripts/tests/audit_text_contrast.test.js"`（回归 30 例）；
+`node scripts/axe_contrast_audit.mjs --base-url <url> --routes /profile,/explore,/asset/ledgers`（真机）。
+
+### 本批**未附**真机 axe 数字（环境受限，如实记录）
+
+`axe_contrast_audit.mjs` 在本次的执行环境（独立 worktree + 软链 `node_modules` + 本机 DevSidecar 代理）**跑不通**，
+现象与已排除项如下，避免下次重复踩：
+
+- 现象：**长时间零输出**（3 路由 × 2 主题跑 11 分钟、单路由跑 25 分钟，输出文件恒为 0 字节），无报错、不退出。
+- 已排除：dev server 正常（`curl --noproxy` 得 200，Vite ready 13.5s）、后端在跑（`:8000` LISTENING）、
+  axe-core 已缓存（`%TEMP%/axe-core-4.10.2.min.js` 存在，非网络问题）。
+- 已修一处**真缺陷**：脚本启动 Edge 时未加 `--no-proxy-server`，而本机 DevSidecar 会把 `127.0.0.1` 的请求
+  也代理掉（实测 `curl` 直连得 502、加 `--noproxy` 才 200）→ 已补该参数（`scripts/axe_contrast_audit.mjs`）。
+  **补后仍复现**，故挂起点在别处（疑在 CDP 就绪后的 `WebSocket` 等待段，脚本该段无超时）。
+- 结论：本批改动的证据链为**静态口径 + 30 条回归用例 + 双向反向验证 + 双实现对账**；
+  **真机 axe 复跑仍待做**（脚本挂起需单独排查，不属本批改动范围，已在此登记）。
+
+## 2026-09-19 品牌实底按钮白字达 AA：新增 --brand-solid 三态令牌（#1600）
+
+issue #1600 的现象是 `.el-button--primary > span` 白字 3.85:1（亮）/ 3.92:1（暗）。本卡按**方案 A** 处置，
+但落地形态是**语义令牌**而非全站替换 hex —— 因为「实底底色」在亮 / 暗两套主题下**不是同一映射**（见下）。
+
+### 决定：新增三态语义令牌，全站 11 处收敛
+
+| 令牌 | 亮色（`colors.css`） | 白字 | 暗色（`dark.scss`） | 白字 |
+|---|---|---|---|---|
+| `--brand-solid` | `var(--brand-800)` `#CC3D27` | 4.92:1 | `#c94a33` | 4.66:1 |
+| `--brand-solid-hover` | `var(--brand-900)` `#A52E1C` | 6.98:1 | `var(--brand-800)` `#BF4F3B` | 4.78:1 |
+| `--brand-solid-active` | `var(--brand-1000)` `#7A2010` | 10.29:1 | `var(--brand-500)` `#994438` | 6.48:1 |
+
+**为什么暗色不能复用亮色的「下移一档」**：暗色 brand 阶在 800 之后**反转** —— 900 `#E87A66` / 1000 `#FAD9D0`
+比 800 `#BF4F3B` **更浅**，白字仅 2.84 / 1.32:1。故 `dark.scss` 必须用 `:root.dark` 同名覆盖（#1557）。
+这正是「必须落成语义令牌」而非「全站把 700 换成 800」的原因：**换值解决不了暗色端**。
+
+收敛点（11 处）：`theme.scss` 的 `.el-button--primary`；`AssetManagement.vue` 的 `.action-button` / `.btn-primary`；
+`welcome/index.vue` 的 `.hover-card-btn:hover` / `.btn-welcome-cta`；`watchlist/index.vue` 的 `.icon-tool-btn.is-active`；
+`WatchlistFilterBar.vue` 两处计数徽标；`RoadCard.vue` 的 `.road-check.is-on`；
+`OcrImportModal.vue` / `RecognizerImportModal.vue` 的 `.ocr-primary-btn`。
+配套文字统一 `--text-inverse`（`colors.css` 定义、暗色**未覆盖** → 两套主题恒为 `#fff`）。
+
+### 顺带查实并修掉的 3 个连带缺陷
+
+| # | 缺陷 | 证据 | 处置 |
+|---|---|---|---|
+| 1 | `background-color: var(--el-color-primary-light-1)`（`AssetManagement` 两个主按钮的 hover）→ **hover 时按钮底色消失** | 该令牌在 EP `theme-chalk` 与本仓 `theme.scss` 映射里**都未定义**、且无 fallback → 自定义属性无效引用在**计算期**失效 → `background-color` 取 initial(`transparent`)。构建产物中 `--el-color-primary-light-1:` 定义数 **0**，而同族 `--el-color-primary-light-3:` 为 **5**（证明检索方法有效，非假阴性） | 改 `--brand-solid-hover` |
+| 2 | 4 处用 `--bg-card` 当实底按钮文字 | `design.dark.md` 明文禁止（「文字不引用背景色」红线）；暗色 `--bg-card` `#242120` 落在实底上仅 **3.43:1** | 改 `--text-inverse` |
+| 3 | `watchlist` 的 `.icon-tool-btn.is-active` 文字用 `--brand-100` | 该令牌暗色下翻成 `#2D1612`，落在实底上仅 **3.65:1**（亮色 4.60:1 尚可 → 典型的「亮色对、暗色错」） | 改 `--text-inverse` |
+
+### 禁用态（刻意不修，有据）
+
+EP 主按钮禁用态走 `--el-button-disabled-bg-color: var(--el-color-primary-light-5)`（= `--brand-400` `#FABDB0`）
++ `--el-button-disabled-text-color: var(--el-color-white)`，白字 **1.62:1**。
+按 **WCAG 1.4.3 对 inactive component 的豁免**（真禁用控件、有 `disabled` 属性）**不算缺陷**，
+口径与 #1599 一致（「无数据占位符」不适用本豁免，这里是真禁用 → 适用），故**不参与实底阶梯**。
+
+### 未做 / 残留
+
+| # | 事项 | 说明 |
+|---|---|---|
+| 1 | **真机 axe 复跑**（issue 验收第 1 项） | 本环境跑不通（见本文件 #1599 一节的登记：长时间零输出）。本卡证据链 = 令牌对比度**自算**（11 个值全部复核吻合）+ `check_css_vars` 令牌守卫 + `audit_text_contrast` 静态 |
+| 2 | `AssetManagement.vue` 的 `.action-link { color: var(--el-color-primary) }`（= `--brand-700` 作链接文字，白底 **3.86:1**） | 属 **#1599 文字色线**（`--brand-*` 作文字），非本卡「实底底色」范围；且 `design.md` 明确把 `--brand-700` 用于「链接 / 描边 / 文字高亮」→ 要改须先定「链接文字是否另立 `-ink`」，是设计取舍 |
+| 3 | 2 处 `--brand-700` 作**非文字**背景：`reset-password.vue` 的 `.login-bubble`（8px 气泡，`opacity .15`）、`CategoryBalanceTable.vue` 的 `::after` 2px 下划线 | **装饰性**，不承载信息 → WCAG 1.4.11 不适用，刻意保留 |
+
+复跑：
+`node scripts/check_css_vars.mjs`（令牌定义 / 引用一致）；
+`node scripts/audit_text_contrast.mjs --all`（文字色，非本卡主口径）；
+真机：`node scripts/axe_contrast_audit.mjs --routes /profile,/asset/ledgers`（亮）+ `--theme dark`（暗）——**当前环境受阻**。
+
+## 2026-09-19 后端依赖方向：core 切断 + 跨域 views 归零 + 共享件上提（#1607 批次 1/2/3）
+
+issue #1607 的处置策略是「先出决策 + 分批收敛」。**批次 1** = 决策 + core 反向依赖切断；
+**批次 2** = 跨域 views 互引归零 + 守卫泛化 + services 内部方向定调；
+**批次 3** = 跨家族共享件上提到 `services/` 顶层 + 守卫 R5 + 跨域模型引用逐对评估。
+
+### 批次 1 已完成（PR 见 #1607 评论）
+
+| 项 | 内容 | 证据 |
+|---|---|---|
+| 分层决策 | `core ← domains.{models,schemas} ← services ← domains.{views}`；**判据用「边方向」而非包级双向对数量**（包级双向对多由 `views→services` + `services→models` 两条合法边叠加而成） | `decisions.md` 2026-09-19 行（D24）、`architecture.md` §6 |
+| core 反向依赖切断 | `core/auth.py` 的 User 读写下沉为 `domains/users/identity.py::UserIdentity` 并注入（未注入显式报错）；默认家庭/用户种子移入 `domains/users/seed.py`；`init_db()` 不再代为 `import app.models.sync_log` | core→domains 边 **4 → 0** |
+| 守卫与回归网 | pre-commit + CI 的 backend job（**不新增 job、不动 `gate.needs`**）+ pytest 同源回归 | 批次 2 起统一到 `scripts/guard_layer_direction.py`（原名 `guard_core_imports.py`）与 `tests/core/test_layer_direction.py`（原 `test_core_layer_boundary.py`）；注入/种子用例拆到 `tests/core/test_identity_wiring.py` |
+
+### 批次 2 已完成
+
+| 项 | 内容 | 证据 |
+|---|---|---|
+| 跨域 views 互引归零 | `enrich_position_dict` 从 `domains/positions/views.py` 下沉到 `services/position_presenter.py`（该函数本就依赖 `position_valuation` 口径，且被 positions/ledgers 两域共用）；`ledgers/views.py` 改 import services，`positions/views.py` 从 services 取用并清掉随之无用的 import | 违规边 **1 → 0**；`guards` R4 覆盖 |
+| 守卫泛化为四类非法边 | `scripts/guard_layer_direction.py`：R1 core→domains/models、R2 services→`domains.*.views`、R3 `domains.*.{models,schemas}`→services、R4 跨域 views 互引；同时支持动态 import 字面量；**不判合法边与包级双向对** | `tests/core/test_layer_direction.py`：真实 app 全绿 + 15 条参数化（每规则灵敏度 + 合法边反向保护） |
+| services 内部方向定调 | **编排/注册类**（`sync/orchestrator`、`thermometer/jobs`、`importer/orchestrator*`）可依赖其它领域服务；**领域服务**（`fund_service`/`position_service` 等）不得反向依赖编排层；跨家族**共享件**（`SyncJob` 基类、数据源适配器、`importer.records`）不得被当作"某家族的服务"引用 | `architecture.md` §6、`decisions.md` D25；物理上提登记为批次 3 |
+| 模型位置条款（原「双轨」） | 业务模型 `domains/*/models.py`；**跨域 / 系统级模型**（现仅 `app/models/sync_log.py`）放 `app/models/`，属**被承认的第二类**而非"无规则的例外"；`db_factory` 注释同步 | `architecture.md` §6、`db_factory.py` 注释 |
+
+### 批次 3 已完成
+
+| 项 | 内容 | 证据 |
+|---|---|---|
+| 共享件上提（三次，纯机械搬家） | ① `services/sync/jobs/base.py` → `services/job_base.py`（`SyncJob`/`JobStatus`，24 处 import + 1 处变体写法）；② `services/importer/records.py` → `services/import_records.py`（16 处）；③ `services/sync/adapters/`（10 模块整包）→ `services/adapters/`（25 文件 51 处） | 全量 `pytest -p no:xdist -m "not slow"` 通过；导入冒烟；`ruff` 全绿 |
+| 修掉「方向反了」的真实缺陷（R5 上线即抓出） | `adapters/eastmoney_adapter.fetch_fund_company()` 原只转调 `sync/company_resolver.fetch_fund_company_list()`，而后者裸 `requests.get` 东财（违反 `architecture.md` §2）。现取数下沉进适配器，`company_resolver` 改为 import 复用并保持同名 re-export；测试 seam 由 `company_resolver.requests` 改为 patch 共享 `requests.get` | `tests/test_eastmoney_adapter.py` / `tests/test_company_resolver.py` / `tests/services/sync/test_fund_company_backfill_job.py` 全绿 |
+| 守卫 R5 | `services/{adapters,job_base,import_records}` → `services.{sync,importer,thermometer,bias,ai_recognizer}` 红灯；**0 条冻结基线**（#1607 批次 4 已消除唯一一条，见 D31） | `tests/core/test_layer_direction.py` 参数化 21 条（原「冻结基线放行」探针已改为**应报 R5**） |
+| services 内部 4 对双向 | 四对**全部消解或判定为合法边**：`sync↔thermometer`（只剩 `sync.orchestrator → thermometer.jobs` 注册）、`sync↔fund_service`（fund_service→sync 随③消失）、`importer↔position_service`（随②消失）、`bias↔thermometer`（注册 + job→领域服务，均合法；~~延迟导入已注明是 `thermometer/__init__` eager re-export 造成的导入期环，不是掩盖依赖~~ → **该说法经批次 5 复核失实**：`thermometer/__init__.py` 根本不存在，延迟导入已转常规导入，见下方开口项 2） | `decisions.md` D26、`architecture.md` §6 |
+| 跨域模型引用评估 | 四条对（`assets↔ledgers` / `positions↔transactions` / `portfolios↔positions` / `users↔families`）实际边**全是 `domains.*.views → 对方 models`**（`users↔families` 另有种子/查询侧 models 引用），属允许的跨域引用且同在 user 数据域 → **判定合法、保留** | `decisions.md` D26 |
+| 包级双向对（观测值） | **20 → 17**（①消 `sync↔thermometer`、②消 `importer↔position_service`、③消 `sync↔fund_service`） | 主指标仍是「违规边 / 冻结基线之外 0」 |
+
+### 批次 5 已完成（2026-09-21，#1607 收尾批，D32）
+
+| 项 | 内容 | 证据 |
+|---|---|---|
+| `bias/job` 延迟导入转常规导入 | 复核发现开口项 2 的**前提失实**（`thermometer/__init__.py` 不存在）→ 把 `from app.services.thermometer.service import TemperatureService` 提到模块级，删掉函数内延迟导入与失实注释（依赖方向合法：job → 领域服务，D25） | 两种导入顺序 + `import app.main` 冒烟通过；`tests/services/{bias,thermometer,sync}` **331 passed** |
+| 守卫新增 R6 | 「**领域服务不得反向依赖编排 / 注册层**」机器化：领域服务按命名约定识别（模块名末段 `*_service` / `service`），编排层 = `sync.orchestrator` / `thermometer.jobs` / `importer.orchestrator*` / `daily_scheduler` | `python scripts/guard_layer_direction.py` → **R1~R6 全绿（236 文件）**；`tests/core/test_layer_direction.py` 参数化新增 3 条 R6 灵敏度 + 5 条 R6 合法边保护 |
+| 文档同步 | `architecture.md` §6 services 内部方向段落写入 R6；`decisions.md` 新增 D32，并对 D29 / D31 中的失实表述加修订标注 | — |
+
+**对外零变更**：仅 1 处导入位置调整 + 守卫与文档，无行为变化。
+
+### 开口项（#1607 剩余）—— **已全部完成**（批次 5，2026-09-21，D32）
+
+| # | 事项 | 当前事实 | 处置方向 |
+|---|---|---|---|
+| 1 | ~~且慢 MCP 取数寄生在 thermometer 家族（R5 唯一冻结基线）~~ | ✅ **已完成**（#1607 批次 4，D31）：`QiemanFetcher` + 3 助手 + 基类 `BaseFetcher/SingleValueFetcher` + `QIEMAN_*` 常量已上提到 `services/adapters/qieman_fetcher.py` / `fetcher_base.py`；`_to_float` 上提到 `core/utils.py::to_float`；`thermometer/fetchers.py` 917 → 524 行；R5 冻结基线清空 | 无（已完成） |
+| 2 | ~~`thermometer/__init__.py` eager re-export~~ | ✅ **已完成 / 前提失实**（#1607 批次 5，D32）：**该文件根本不存在**——`backend/app/services/thermometer/` 下无 `__init__.py`（`git log --diff-filter=D` 为空 = 从无历史），全仓亦 **0 处**包级 `from app.services.thermometer import ...`；故原描述「`__init__` re-export `.jobs` 形成导入期环」**不成立**。实证：`thermometer.jobs` 先 / `bias.job` 先两种导入顺序 + `import app.main` 均可加载，`bias`+`thermometer`+`sync` 331 用例全绿 → 把 `bias/job._save_data` 的延迟导入**转为模块级常规导入** | 无（已完成） |
+| 3 | ~~R5 之外的服务内方向~~ | ✅ **已完成**（#1607 批次 5，D32）：`scripts/guard_layer_direction.py` 新增 **R6**——**领域服务**（命名约定：模块名末段 `*_service` 或恰为 `service`，即 D25 列举的 `fund_service` / `position_service` 类）→ `sync.orchestrator` / `thermometer.jobs` / `importer.orchestrator*` / `daily_scheduler` 红灯；**job / scheduler 属编排侧**（由 orchestrator 注册与调用）不受限。真实代码扫描 236 文件 **0 违规**——首次以「非编排即领域服务」口径试跑时唯一命中 `sync/jobs/dividend_split_job.py:24 → importer.orchestrator`，经判定属**编排侧内部依赖**（job 由编排器调用，D25 已把 `thermometer/jobs` 列入编排/注册类），故按 D25 原文改用命名约定界定「领域服务」 | 无（已完成） |
+
+### 范围外发现项（本次全量回归暴露，非本批改动引入）
+
+`tests/test_v8_guard.py::test_unguarded_concurrent_construct_repro_aborts` **偶发失败**：它是 #1566/#1574
+V8 守卫的**反向对照**——故意设 `V8_GUARD_ENABLED=0` 并**断言并发构造必须崩**（`'NO_CRASH' not in stdout`），
+本轮 19 分钟满载全量跑时 5 轮全部存活、断言失败。已做的事实核对：
+
+- 批次 3 树（本批改动）**单独连跑 3 轮** → 每轮 `8 passed`；
+- 批次 2 树（不含本批任何改动）单独跑 → `8 passed`；
+- 本批改动不涉及 `v8_guard` / `app/__init__` / 任何并发或 mini-racer 相关代码（三次上提为纯模块位置变更）。
+
+判断：**竞态型对照用例在系统高负载下窗口收窄**导致的 flaky，与依赖版本/机器负载相关，非本批回归。
+**待办**：由 `#1566`/`#1574`（V8 守卫）的归属方评估——可选处置：把「必须崩」的断言改成「多轮内至少一轮崩」
+或加重试/提高轮次，并在用例注释写明其概率性（避免下次被误判为本 PR 引入）。**本次不修**（属 V8 守卫线，
+与本批无关，且单独跑稳定通过）。
+
+### 行为变化（对外 API 零变更，仅 CLI 侧）
+
+
+- **CLI 入口不再播种默认家庭/用户**：`sync_cli` / `scheduler` / `scheduler_daemon` / `sync_metadata`
+  只建表，不再写入 family 1 / user 1（这些入口本就不需要身份行）。需要时调用
+  `app.domains.users.seed.seed_default_identity()`；`scripts/migrate_family_id.py` 已显式调用，行为与改前一致。
+- `init_db()` 只建「**调用方已 import 的模型**」的表：新增域模型后，绕过应用工厂的 CLI 入口须自行导入该模型
+  （此前 `init_db` 只代为导入过 `app.models.sync_log` 一个，`sync_cli` 已按其补上）。
+- 批次 2 的 `enrich_position_dict` 搬迁是**纯位置变更**：函数体逐字未改，HTTP 响应字段与数值口径不变。
+- 批次 3 的三次上提同为**纯位置变更**（模块内容随 import 路径同步更新）；唯一逻辑变更在
+  `adapters/eastmoney_adapter.py` ↔ `sync/company_resolver.py` 之间：**取数从 resolver 下沉到适配器**
+  （函数体逐字搬运），resolver 通过同名 re-export 保持既有调用点与 monkeypatch seam 有效；
+  测试侧 seam 由 `company_resolver.requests` 改为 patch 共享的 `requests.get`。
+
+### 复跑
+
+```bash
+python scripts/guard_layer_direction.py        # R1~R5（含 1 条冻结基线）
+cd backend && pdm run pytest tests/core/test_layer_direction.py tests/core/test_identity_wiring.py -p no:xdist -q
+cd backend && pdm run pytest tests/test_company_resolver.py tests/test_eastmoney_adapter.py -p no:xdist -q
+```
+
+## 2026-09-19 错误响应统一信封（#1610，D27）：63 处已补齐 + 守卫上线
+
+### 已完成
+
+| 项 | 内容 | 证据 |
+|---|---|---|
+| 63 处补齐 `error_code` | AST 口径（`return jsonify({...}), status>=400` 的 dict 字面量）实测 63 处，按 HTTP 状态映射 `ErrorCode.code` 补齐；缺 `data` 的一并补 `None` | `python scripts/guard_error_envelope.py` → `OK`（扫描 229 文件）；diff 为 **63 行改动**、零附带损伤 |
+| 5 处 string 码归位 int | `ADVISOR_NOT_FOUND`→1002、`INVALID_PARAMS`→1001、`GHOST_DUPLICATES_SCAN_FAILED`→5004 | 统一后全仓 `error_code` 仅 int（复扫 0 处 string） |
+| 静态守卫 | 新增 `scripts/guard_error_envelope.py`（只读扫描 + `--fix` 幂等修复），接入 pre-commit 与 CI 的 backend job（**不新增 job、不动 `gate.needs`**） | `.pre-commit-config.yaml`、`.github/workflows/ci.yml` |
+| 规范与决策 | 条款写入冻结区 `conventions.md` §2.4；决策 + **事故记录**入 `decisions.md`（D27） | — |
+| 验证 | `tests/test_error_envelope.py` + `tests/test_auth.py` + `tests/domains` → **683 passed**；`ruff check/format` 全绿 | — |
+
+### 事故记录（防重蹈）
+
+首个未入库实现 `scripts/audit_error_envelope.py` 用 `ast.unparse` 重写 dict 文本，
+且按**字符偏移**拼接（`ast` 的 `col_offset` 实为 **UTF-8 字节偏移**）→ **8 个 views.py 被写坏**
+（dict 之后的源码被整段吃掉），而它把解析失败的**静默 `[SKIP]`**，于是自扫报 `OK`（**假绿**）。
+修正版：字节偏移 + 只插入 + 写盘前自校验 + 解析失败即红灯；旧脚本已删除。
+**教训**：任何「改源码」的脚本，落盘前必须**重新解析 + 复扫**，且**不得对解析失败静默跳过**。
+
+### 开口项
+
+| # | 事项 | 说明 |
+|---|---|---|
+| 1 | `summary/views.py` 6 处逐视图 `try/except Exception → 500` 未收敛 | 仍重复实现全局处理器职责、绕过 `logger.opt(exception=True)` 留痕。收敛会让 500 响应体由 `data: {空结构}` / `message: '服务器内部错误: <内部细节>'` 变为 `data: None` / 泛化 message（**对外可观察变化**），需单独拍板 |
+| 2 | 前端尚未消费 `error_code` | 契约已可用（三字段 + int），前端 `api/search.ts` 目前仅声明类型未分支处理；接入错误分类时可直接用 |
+
+
+### 复跑
+
+```bash
+python scripts/guard_layer_direction.py
+cd backend && pdm run pytest tests/core/test_layer_direction.py tests/core/test_identity_wiring.py -p no:xdist -q
+python scripts/guard_error_envelope.py
+cd backend && pdm run pytest tests/test_error_envelope.py tests/test_auth.py tests/domains -p no:xdist -q
+```
+
+## 2026-09-19 规范一致性批次（#1611，D28）：尾斜杠 / api.md / 日志三项收敛
+
+### 已完成
+
+| 项 | 内容 | 证据 |
+|---|---|---|
+| A. 尾斜杠 | 5 个端点写入**规范例外**（`/api/health` + 4 个探市接口）；其余 **13 个补齐**（auth×3 / importers×5 / ocr×2 / market / users / usage），前端 23 处调用同步；13 条带 `strict_slashes=False` **迁移期容忍旧的无斜杠写法** | 131 路由中无尾斜杠 **18 → 5**（全为豁免）；`tests/test_api_conventions.py` 钉住「双写法均 200」 |
+| B. api.md 滞后 | 保留人工「核心端点（带说明）」表 + 新增**全量端点自动段**（131 条，标记 `AUTO-ENDPOINTS`），由守卫 `--write` 生成，文档与实现逐条一致 | `python scripts/check_api_conventions.py` → `OK`（131 条一致） |
+| C. 日志例外 | `services/nav_service.py` 的 `import logging` + `getLogger` 收敛为 loguru（`%s` → `{}`） | 全仓 `import logging` 仅剩 `app/__init__.py`（已声明的合法例外） |
+| 守卫 | 新增 `scripts/check_api_conventions.py`（零依赖 AST）：尾斜杠 + 豁免清单 + api.md 自动段一致性；接入 pre-commit 与 CI 的 backend job | `backend/tests/test_api_conventions.py` 5 条（静态↔运行时 `url_map` 交叉校验 131/131 IDENTICAL、豁免无死条目、迁移容忍、文档不漂移） |
+
+### 开口项
+
+| # | 事项 | 说明 |
+|---|---|---|
+| 1 | `strict_slashes=False` 属迁移期兼容 | 待线上旧 bundle 过期、且确认无外部调用方使用无斜杠写法后移除（移除后无斜杠将 404）。移除前须先跑一遍访问日志或 E2E 确认 |
+| 2 | `/api/health` 与 4 个探市接口的无斜杠是**明文例外** | 若要统一，需改运维探活配置与前端调用，属独立决策（当前按 #1611 建议豁免并登记） |
+| 3 | api.md 的「核心端点」表仍需人工维护 | 自动段保证**全量一致**；人工表只承担"带功能说明的核心索引"角色，新增核心接口时手动补一行（无守卫，靠评审） |
+
+### 复跑
+
+```bash
+python scripts/check_api_conventions.py
+python scripts/check_api_conventions.py --write   # 改路由后重建自动段
+cd backend && pdm run pytest tests/test_api_conventions.py -p no:xdist -q
+
+```
+## 2026-09-20 投顾调仓历史只记真实变化（#1622）
+
+### 已完成
+
+| 项 | 内容 | 证据 |
+|---|---|---|
+| 判定口径 | `_derive_adjust_from_snapshots` 只记 `|Δratio| > 0.5pp`（≈2×漂移 p99）的基金；不写 `op=5 持平`；过滤后为空不写任何行 | `ADVISOR_ADJUST_MIN_DELTA_PCT` 注释含 4880 个基金级差异的分位数标定 |
+| 回归网 | 新增 4 条用例：漂移不记 / 只记真变化且无持平行 / 低于阈值不记 / 超阈值清仓仍记 | `tests/services/sync/test_advisor_portfolio_job.py` 21 passed；**灵敏度反向验证**（阈值置 0 → 3 条转红） |
+| 数据修复 | 一次性脚本 `backend/scripts/repair_advisor_adjust_history.py`（幂等、默认 dry-run、只重建推导类行，官方行绝不触碰） | 开发库：**4907 行噪音 → 53 行真实调仓**；修复后 102 个且慢组合仅 8 个有调仓记录，`op=5` 行 0 条 |
+
+### 开口项
+
+| # | 事项 | 说明 |
+|---|---|---|
+| 1 | 且慢调仓历史只能从**首个持仓快照**起算 | 且慢 MCP 无历史调仓接口，无法回溯更早的真实调仓。若要历史回溯，只能换/补数据源（属另一决策） |
+| 2 | 阈值口径为「逐日比较 + 单日超阈」 | 若日后出现「一次调仓分多日、每天低于 0.5pp」的形态会漏记；届时改为累计口径并重标阈值 |
+| 3 | 生产库（Turso）需执行修复脚本 | 部署后在生产环境跑一次 `repair_advisor_adjust_history.py --apply`（先 dry-run 核对行数） |
+| 4 | 低于 0.5pp 的真实微调被有意忽略 | 宁缺勿噪；若用户反馈"小调仓看不到"，可下调阈值（需重新核对漂移 p99） |
+
+### 复跑
+
+```bash
+cd backend && pdm run pytest tests/services/sync/test_advisor_portfolio_job.py -p no:xdist -q
+cd backend && pdm run python scripts/repair_advisor_adjust_history.py            # dry-run
+cd backend && pdm run python scripts/repair_advisor_adjust_history.py --apply    # 落库
+```

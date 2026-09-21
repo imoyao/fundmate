@@ -691,8 +691,8 @@ watch(
   font-size: 11px;
   font-weight: 500;
   line-height: 1;
-  color: var(--bg-card);
-  background-color: var(--brand-700);
+  color: var(--text-inverse);
+  background-color: var(--brand-solid);
   border-radius: var(--radius-pill);
 }
 
@@ -791,7 +791,7 @@ watch(
 .group-tab-count {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .group-tab.is-active .group-tab-count {
@@ -805,7 +805,7 @@ watch(
   width: 28px;
   height: 28px;
   padding: 0;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background-color: transparent;
   border: 1px solid var(--border-default);
   border-radius: 50%;
@@ -827,7 +827,7 @@ watch(
   width: 28px;
   height: 28px;
   padding: 0;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background-color: transparent;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-pill);
@@ -849,7 +849,7 @@ watch(
   width: 28px;
   height: 28px;
   padding: 0;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background-color: transparent;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-pill);
@@ -989,8 +989,8 @@ watch(
   font-size: 11px;
   font-weight: 500;
   line-height: 1;
-  color: var(--bg-card);
-  background-color: var(--brand-700);
+  color: var(--text-inverse);
+  background-color: var(--brand-solid);
   border-radius: var(--radius-pill);
 }
 
@@ -1072,7 +1072,7 @@ watch(
 .filter-panel__empty {
   margin: 4px 0;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 底部固定操作栏：重置 / 已选计数 / 取消 / 确定 永远可见 */
@@ -1101,6 +1101,6 @@ watch(
 .filter-panel__hint {
   margin: 8px 0 0;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 </style>

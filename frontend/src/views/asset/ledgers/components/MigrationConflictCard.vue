@@ -102,7 +102,7 @@ const resolutionProxy = computed({
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: normal;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .mig-conflict__fields {
@@ -140,7 +140,7 @@ const resolutionProxy = computed({
 
 .mig-compare__label {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-soft);
 }
 
@@ -166,6 +166,6 @@ const resolutionProxy = computed({
   margin: 4px 0 0;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 </style>

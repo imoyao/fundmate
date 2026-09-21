@@ -16,15 +16,15 @@ from typing import Optional
 
 from loguru import logger
 
+from app.core import database  # 晚绑定：属性在调用时解析，勿改成 from-import（#1608）
 from app.core.constants import SOURCE_VERSION_V2_RECALC
-from app.core.database import SessionLocal
 from app.core.db_utils import bulk_insert_if_not_exists
 from app.core.time_utils import today_shanghai
 from app.domains.funds.models import DailyWorth, MoneyFundDailyWorth
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
-from app.services.sync.adapters.akshare_adapter import AkshareAdapter
-from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
+from app.services.adapters.akshare_adapter import AkshareAdapter
+from app.services.adapters.xalpha_adapter import XalphaAdapter
 
 
 def _as_date(value) -> Optional[date]:
@@ -54,7 +54,7 @@ def _drop_today(records: list, date_field: str) -> list:
 
 
 def _backfill_fund_nav(fund_code: str):
-    db = SessionLocal()
+    db = database.get_session()
     try:
         adapter = XalphaAdapter()
         records = adapter.fetch_fund_nav(fund_code)
@@ -114,7 +114,7 @@ def _backfill_fund_nav(fund_code: str):
 
 
 def _backfill_stock_price(symbol: str):
-    db = SessionLocal()
+    db = database.get_session()
     try:
         sec = db.query(Security).filter(Security.symbol == symbol).first()
         if not sec:

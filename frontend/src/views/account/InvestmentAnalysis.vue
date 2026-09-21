@@ -7,7 +7,7 @@
       <h2 class="text-2xl font-bold" :style="{ color: 'var(--text-primary)' }">
         投资分析
       </h2>
-      <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary)' }">
+      <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary-ink)' }">
         查看投资收益与风险指标
       </p>
     </div>
@@ -127,7 +127,10 @@
           class="text-center p-4 rounded-xl"
           :style="{ backgroundColor: 'var(--brand-100)' }"
         >
-          <p class="text-xs mb-1" :style="{ color: 'var(--text-tertiary)' }">
+          <p
+            class="text-xs mb-1"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
+          >
             总收益率
           </p>
           <RiseFallText :value="15.3" suffix="%" size="lg" />
@@ -136,7 +139,10 @@
           class="text-center p-4 rounded-xl"
           :style="{ backgroundColor: 'var(--brand-100)' }"
         >
-          <p class="text-xs mb-1" :style="{ color: 'var(--text-tertiary)' }">
+          <p
+            class="text-xs mb-1"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
+          >
             年化收益率
           </p>
           <RiseFallText :value="12.5" suffix="%" size="lg" />
@@ -147,7 +153,10 @@
           class="text-center p-4 rounded-xl"
           :style="{ backgroundColor: 'var(--color-warning-20)' }"
         >
-          <p class="text-xs mb-1" :style="{ color: 'var(--text-tertiary)' }">
+          <p
+            class="text-xs mb-1"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
+          >
             最大回撤
           </p>
           <RiseFallText
@@ -161,7 +170,10 @@
           class="text-center p-4 rounded-xl"
           :style="{ backgroundColor: 'var(--bg-soft)' }"
         >
-          <p class="text-xs mb-1" :style="{ color: 'var(--text-tertiary)' }">
+          <p
+            class="text-xs mb-1"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
+          >
             夏普比率
           </p>
           <p
@@ -177,10 +189,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from "vue";
+import { ref, computed, onMounted, nextTick, watch } from "vue";
 import echarts from "@/plugins/echarts";
 import RiseFallText from "@/components/RiseFallText/index.vue";
-import { getCssVar } from "@/composables/echarts/theme";
+import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
 
 defineOptions({
   name: "InvestmentAnalysis"
@@ -200,20 +212,26 @@ const getCSSColor = (varName: string): string => {
   return getCssVar(varName);
 };
 
+const themeTick = useThemeTick();
 // 图表配色：涨跌用 --color-rise/--color-fall，其余用图表色板 --chart-*
-const chartColors = {
-  rise: getCSSColor("--color-rise"),
-  fall: getCSSColor("--color-fall"),
-  neutral: getCSSColor("--color-neutral"),
-  chart01: getCSSColor("--chart-01"),
-  chart03: getCSSColor("--chart-03"),
-  chart05: getCSSColor("--chart-05"),
-  chart07: getCSSColor("--chart-07")
-};
+// computed 依赖 themeTick，主题切换时重读配色（#976）
+const chartColors = computed(() => {
+  void themeTick.value;
+  return {
+    rise: getCSSColor("--color-rise"),
+    fall: getCSSColor("--color-fall"),
+    neutral: getCSSColor("--color-neutral"),
+    chart01: getCSSColor("--chart-01"),
+    chart03: getCSSColor("--chart-03"),
+    chart05: getCSSColor("--chart-05"),
+    chart07: getCSSColor("--chart-07")
+  };
+});
 
 const initMonthlyProfitChart = () => {
   if (!monthlyProfitChartRef.value) return;
-  monthlyProfitChart = echarts.init(monthlyProfitChartRef.value);
+  monthlyProfitChart =
+    monthlyProfitChart ?? echarts.init(monthlyProfitChartRef.value);
   monthlyProfitChart.setOption({
     tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
     grid: { left: "3%", right: "4%", bottom: "8%", containLabel: true },
@@ -236,7 +254,7 @@ const initMonthlyProfitChart = () => {
         // 涨红跌绿：正收益=涨（红），负收益=跌（绿）
         itemStyle: {
           color: (params: { value: number }) =>
-            params.value >= 0 ? chartColors.rise : chartColors.fall
+            params.value >= 0 ? chartColors.value.rise : chartColors.value.fall
         },
         label: { show: true, fontSize: 10, position: "top" }
       }
@@ -246,7 +264,8 @@ const initMonthlyProfitChart = () => {
 
 const initAssetAllocationChart = () => {
   if (!assetAllocationChartRef.value) return;
-  assetAllocationChart = echarts.init(assetAllocationChartRef.value);
+  assetAllocationChart =
+    assetAllocationChart ?? echarts.init(assetAllocationChartRef.value);
   assetAllocationChart.setOption({
     tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
     legend: {
@@ -265,27 +284,27 @@ const initAssetAllocationChart = () => {
           {
             value: 600000,
             name: "股票",
-            itemStyle: { color: chartColors.chart01 }
+            itemStyle: { color: chartColors.value.chart01 }
           },
           {
             value: 300000,
             name: "基金",
-            itemStyle: { color: chartColors.chart03 }
+            itemStyle: { color: chartColors.value.chart03 }
           },
           {
             value: 200000,
             name: "理财",
-            itemStyle: { color: chartColors.chart05 }
+            itemStyle: { color: chartColors.value.chart05 }
           },
           {
             value: 100000,
             name: "REITs",
-            itemStyle: { color: chartColors.chart07 }
+            itemStyle: { color: chartColors.value.chart07 }
           },
           {
             value: 34567.89,
             name: "现金",
-            itemStyle: { color: chartColors.neutral }
+            itemStyle: { color: chartColors.value.neutral }
           }
         ]
       }
@@ -295,7 +314,8 @@ const initAssetAllocationChart = () => {
 
 const initReturnComparisonChart = () => {
   if (!returnComparisonChartRef.value) return;
-  returnComparisonChart = echarts.init(returnComparisonChartRef.value);
+  returnComparisonChart =
+    returnComparisonChart ?? echarts.init(returnComparisonChartRef.value);
   returnComparisonChart.setOption({
     tooltip: { trigger: "axis" },
     legend: {
@@ -321,7 +341,7 @@ const initReturnComparisonChart = () => {
         // 演示数据，待接入真实接口；主数据用品牌红（--chart-01）
         data: [5, 8, 12, 10, 15, 18],
         smooth: true,
-        itemStyle: { color: chartColors.chart01 },
+        itemStyle: { color: chartColors.value.chart01 },
         lineStyle: { width: 2 },
         symbol: "circle",
         symbolSize: 4
@@ -332,7 +352,7 @@ const initReturnComparisonChart = () => {
         // 演示数据，待接入真实接口；指数为中性对比数据，用灰蓝（--chart-07）
         data: [4, 7, 10, 8, 12, 15],
         smooth: true,
-        itemStyle: { color: chartColors.chart07 },
+        itemStyle: { color: chartColors.value.chart07 },
         lineStyle: { width: 2 },
         symbol: "circle",
         symbolSize: 4
@@ -343,7 +363,7 @@ const initReturnComparisonChart = () => {
         // 演示数据，待接入真实接口；指数为中性对比数据，用奶油棕（--chart-05）
         data: [3, 6, 9, 7, 11, 14],
         smooth: true,
-        itemStyle: { color: chartColors.chart05 },
+        itemStyle: { color: chartColors.value.chart05 },
         lineStyle: { width: 2 },
         symbol: "circle",
         symbolSize: 4
@@ -365,6 +385,13 @@ onMounted(() => {
     initReturnComparisonChart();
     window.addEventListener("resize", resizeCharts);
   });
+});
+
+// 主题切换（暗色）时重绘所有图表，重新读取语义色（#976）
+watch(themeTick, () => {
+  initMonthlyProfitChart();
+  initAssetAllocationChart();
+  initReturnComparisonChart();
 });
 </script>
 

@@ -334,16 +334,17 @@ function onCardClick() {
   justify-content: center;
   width: 22px;
   height: 22px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-card);
   border: 1px solid var(--border-default);
   border-radius: 50%;
 }
 
 .road-check.is-on {
-  color: var(--bg-card);
-  background: var(--brand-700);
-  border-color: var(--brand-700);
+  /* #1600：原 `--bg-card` 作文字（design.dark.md 明文红线），暗色下仅 3.43:1 → 改 --text-inverse */
+  color: var(--text-inverse);
+  background: var(--brand-solid);
+  border-color: var(--brand-solid);
 }
 
 .road-edit-entry {
@@ -386,7 +387,7 @@ function onCardClick() {
   margin-top: 2px;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .road-meta {
@@ -408,7 +409,7 @@ function onCardClick() {
 
 .road-note.is-empty {
   font-style: italic;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 对比数据条 */
@@ -420,7 +421,7 @@ function onCardClick() {
 
 .road-metrics--empty {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .road-metric {
@@ -431,7 +432,7 @@ function onCardClick() {
 
 .road-metric__label {
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .road-metric__value {
@@ -455,7 +456,7 @@ function onCardClick() {
   gap: 5px;
   align-items: center;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .road-review.is-due {
@@ -474,7 +475,7 @@ function onCardClick() {
   width: 26px;
   height: 26px;
   font-size: 14px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   border-radius: 50%;
   transition:
     color 0.15s ease,
@@ -491,7 +492,7 @@ function onCardClick() {
 }
 
 .road-op--danger:hover {
-  color: var(--color-danger-system);
+  color: var(--color-danger);
   background: var(--color-danger-20);
 }
 </style>

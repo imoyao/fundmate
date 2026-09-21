@@ -21,8 +21,10 @@
     <!-- 综合仪表盘 -->
     <section class="dashboard-section">
       <MetricGrid>
-        <!-- 综合温度仪表（大） -->
+        <!-- 综合温度仪表（大）——与概览档同源同貌；gaugeVisible 保证同一时刻
+             全页只有一份仪表盘在 DOM 中（#1549 T4.1，参数由 index.vue 按档位传入） -->
         <TemperatureGaugeCard
+          v-if="gaugeVisible"
           :value="compositeValue"
           title="综合市场温度"
           :level="compositeLevel"
@@ -57,11 +59,11 @@
         />
 
         <!-- 市场机会（来自 temperature store，由综合温度与股债性价比推导） -->
-        <div v-if="tempStore.opportunityList.length" class="opportunity-card">
+        <CardBlock v-if="opportunityList.length" class="opportunity-card">
           <SectionHeader title="市场机会" />
           <div class="opportunity-list">
             <div
-              v-for="op in tempStore.opportunityList"
+              v-for="op in opportunityList"
               :key="op.name"
               class="opportunity-item"
               :class="`opportunity-item--${op.tone}`"
@@ -79,7 +81,7 @@
               <p class="opportunity-desc">{{ op.desc }}</p>
             </div>
           </div>
-        </div>
+        </CardBlock>
       </div>
     </section>
 
@@ -192,7 +194,6 @@ import MetricGrid from "@/components/MetricGrid/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import TemperatureContextCard from "@/components/TemperatureContextCard/index.vue";
-import { useTemperatureStore } from "@/store/modules/temperature";
 import { useTemperatureOverview } from "@/composables/temperature/useTemperatureOverview";
 import { useCoreMetrics } from "@/composables/temperature/useCoreMetrics";
 import {
@@ -209,6 +210,19 @@ import MetricDetailTable from "./detail/MetricDetailTable.vue";
 defineOptions({
   name: "ExploreDetailPanel"
 });
+
+/**
+ * 是否渲染「综合温度」仪表盘（本组件其余区块不受影响）。
+ * 父页面按当前档位传入：深度档显示时 true、概览档 false ——
+ * 概览档已有一份同源同貌的温度计卡，两份同时留在 DOM 中属重复（#1549 T4.1）。
+ * 仪表卡自身不取数（数据来自单例 composable），卸载重挂不会多打接口。
+ */
+withDefaults(
+  defineProps<{
+    gaugeVisible?: boolean;
+  }>(),
+  { gaugeVisible: true }
+);
 
 // ================================================================
 // 市场温度总览：与概览档共享同一份数据实例（单例 + 并发去重，见该 composable 头注释）
@@ -358,7 +372,11 @@ const compositeValue = computed(
   () => compositeTemperature.value?.value ?? null
 );
 
-const compositeLevel = computed(() => compositeTemperature.value?.level || "");
+// 等级文案与概览档同源同文案（含「暂无」兜底）：缺数据时不能兜成 TemperatureLevelBadge
+// 的默认「适中」——那会在无数据时给出「市场平稳」的错误结论（#1549 T4.1）。
+const compositeLevel = computed(
+  () => compositeTemperature.value?.level || "暂无"
+);
 
 // 温度解读卡（TemperatureContextCard）所需数据，从 composable 的 fearData 推导
 const fearGreedValue = computed<number | null>(() => {
@@ -495,23 +513,36 @@ const fetchTrack = async () => {
   }
 };
 
-// 温度 store：承载综合温度、股债性价比与市场机会清单
-const tempStore = useTemperatureStore();
+// ================================================================
+// 市场机会清单（B3：后端 insights 归集，前端只映射 tone→样式）
+// #1546 T2.1：直接由总览响应派生，**不再经 temperature store 重复打一次**
+// /api/temperature/overview（原实现是 composable 与 store 各拉一遍同一接口）
+// ================================================================
+const opportunityList = computed(() =>
+  (overview.value?.insights ?? []).map(i => ({
+    name: i.name,
+    desc: i.desc,
+    tone: i.tone
+  }))
+);
 
 // ================================================================
 // 生命周期
 // ================================================================
-onMounted(async () => {
-  await fetchTemperature();
-  await fetchBias();
-  await fetchCrowding();
-  await fetchTrack();
-  // NOTE: 与 useTemperatureOverview 各自调用一次 getTemperatureOverview，后续可合并为单一数据源
-  await tempStore.fetchTemperature();
+onMounted(() => {
+  // #1546 T2.1：并发取数（原为串行 await，4 个请求首尾相接，最后一个才轮到温度）
+  void Promise.all([
+    fetchTemperature(),
+    fetchBias(),
+    fetchCrowding(),
+    fetchTrack()
+  ]);
 });
 </script>
 
 <style lang="scss" scoped>
+@use "@/style/breakpoints" as bp;
+
 /* 数据新鲜度守卫横幅（#1431）：沿用「数据滞后」pill 的警示色视觉语言 */
 .freshness-alert {
   display: flex;
@@ -521,7 +552,7 @@ onMounted(async () => {
   margin-bottom: 12px;
   font-size: 13px;
   line-height: 1.6;
-  color: var(--color-warning, #d97706);
+  color: var(--color-warning-ink);
   background: color-mix(
     in srgb,
     var(--color-warning, #d97706) 12%,
@@ -541,24 +572,20 @@ onMounted(async () => {
   flex: 1;
 }
 
-/* ===== 响应式 ===== */
-@media (width <= 960px) {
-  .context-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (width <= 768px) {
-  .detail-panel {
-    padding: 16px;
-  }
-}
-
 /* 深度档容器：与概览档共用同一套页面边距与最大宽度 */
 .detail-panel {
-  max-width: 1280px;
+  max-width: var(--layout-content-width);
   padding: var(--space-standard) 24px 16px;
   margin: 0 auto;
+
+  /* 窄屏收内边距。
+     ⚠️ 本块必须留在基础声明**之后**：`@include` 的编译产物就是媒体查询，而媒体查询不改变
+     特异性——写在 `padding` 之前会被它压掉。2026-09-18 之前本块正是排在前面
+     （条件是「768px 及以下」的裸查询），于是窄屏始终是 24px 侧边距，从未生效
+     （同族缺陷见 #1576 / #1557：源序即语义）。 */
+  @include bp.below("md") {
+    padding: 16px;
+  }
 }
 
 /* 仪表盘区域 */
@@ -578,21 +605,26 @@ onMounted(async () => {
   grid-template-columns: 1.6fr 1fr;
   gap: 16px;
   align-items: stretch;
+
+  /* 窄屏「温度解读 + 市场机会」由并排改单列。
+     同 `padding` 那条：必须留在基础声明之后，否则会被 `grid-template-columns: 1.6fr 1fr` 压掉
+     （2026-09-18 之前是「960px 及以下」的裸查询且排在前面，从未生效）。
+     断点按 Tailwind 单一来源取 `lg`（<1024px；原数值 960px 随断点对齐外移）。 */
+  @include bp.below("lg") {
+    grid-template-columns: 1fr;
+  }
 }
 
-.context-card,
-.opportunity-card {
+/* TemperatureContextCard 自带卡片外壳（--bg-card / --border-light / --radius-lg /
+   --shadow-raised），父级此处只补裁切，不再重复声明外壳（#1547 T3.1）。 */
+.context-card {
   overflow: hidden;
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-raised);
 }
 
+/* 区块外壳统一走 CardBlock（#1547 T3.1 收敛），此处只留内部排布 */
 .opportunity-card {
   display: flex;
   flex-direction: column;
-  padding: 16px;
 }
 
 .opportunity-card :deep(.section-header) {
@@ -652,12 +684,12 @@ onMounted(async () => {
 }
 
 .opportunity-item--safe .opportunity-tag {
-  color: var(--temp-low);
+  color: var(--temp-low-ink);
   background: color-mix(in srgb, var(--temp-low) 18%, transparent);
 }
 
 .opportunity-item--danger .opportunity-tag {
-  color: var(--temp-high);
+  color: var(--temp-high-ink);
   background: color-mix(in srgb, var(--temp-high) 18%, transparent);
 }
 
@@ -679,7 +711,7 @@ onMounted(async () => {
 
 .rank-updated {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .rank-stale-pill {
@@ -688,7 +720,7 @@ onMounted(async () => {
   font-size: 11px;
   font-weight: 500;
   line-height: 1.4;
-  color: var(--color-warning, #d97706);
+  color: var(--color-warning-ink);
   white-space: nowrap;
   cursor: help;
   background: color-mix(
@@ -708,10 +740,43 @@ onMounted(async () => {
   margin-right: 12px;
 }
 
+/* ============================================================
+   窄屏修溢出（#1585）：行业/赛道排行的区块标题行
+   ------------------------------------------------------------
+   WHY：操作槽里塞了「分类胶囊组 + 视图胶囊组 + 更新时间 + 滞后提示」，
+   自然宽度约 414px；而公共 `SectionHeader` 的 `.section-header__action` 是
+   `inline-flex; flex-shrink: 0`，`.section-header` 又是默认 `nowrap` 的 flex 行——
+   两者叠加后这一行**既不能换行也不能收缩**，320/375 视口下把卡片（进而把文档）撑破：
+   实测文档级横向溢出 155px（#1576 记录）→ #1583 修内边距后 147px → **本块清零**。
+
+   只在**本区块**放开（不动公共 `SectionHeader`）：改公共组件会让 Aggregation /
+   inventory 等所有带操作槽的页面一起变版，属另一条决策；那里的同类风险已登记。
+   ============================================================ */
+@include bp.below("sm") {
+  :deep(.section-header) {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  :deep(.section-header__action) {
+    /* 覆盖公共组件的 `flex-shrink: 0`：允许收缩到容器宽并**内部换行** */
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    row-gap: 8px;
+    min-width: 0;
+  }
+
+  .rank-switch {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    margin-right: 0; /* 独占一行时右侧不需要让位 */
+  }
+}
+
 .rank-switch__item {
   padding: 4px 14px;
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   cursor: pointer;
   background: transparent;
   border: 1px solid var(--border-default);
@@ -764,7 +829,7 @@ onMounted(async () => {
 }
 
 .rank-switch__item--active {
-  color: var(--brand-700);
+  color: var(--color-rise-ink);
   background: var(--brand-100);
   border-color: var(--brand-400);
   box-shadow: 0 1px 3px rgb(0 0 0 / 6%);
@@ -792,7 +857,7 @@ onMounted(async () => {
 }
 
 .rank-source-notice--warning {
-  color: var(--color-warning, #d97706);
+  color: var(--color-warning-ink);
   background: color-mix(
     in srgb,
     var(--color-warning, #d97706) 10%,
@@ -817,7 +882,7 @@ onMounted(async () => {
   gap: 14px;
   margin-bottom: 10px;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .rank-legend__item {

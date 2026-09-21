@@ -4,7 +4,11 @@
 设计约束（issue #892「Redis 预留」节）：
 - **框架无关**：不 import flask、不绑 Flask-Caching——Flask→FastAPI 迁移不受影响。
 - **默认后端 = 进程内 LRU + 文件**：LRU 抗高频重复读，文件层抗冷启动（进程重启后
-  首次访问免重算，复用 fetchers._cached 的 pickle 模式）。
+  首次访问免重算）。文件层目录由 :func:`resolve_cache_file_dir` **唯一**解析
+  （env `CACHE_FILE_DIR`，缺省系统临时目录），可经构造参数 `file_dir=` 覆盖——便于
+  按环境指定，也让测试能注入 `tmp_path` 做用例级隔离（#1531）。该解析入口是全仓
+  「文件缓存落哪儿」的单一真相源：温度计 fetchers 经它取目录（#1537），
+  行业拥挤度 / FOF 拥挤度的 parquet·JSON 缓存经 `resolve_cache_subdir()` 分目录（#1539）。
 - **Redis 为可选后端、默认关闭**：设 env `CACHE_BACKEND=redis` 且 redis 可导入时启用，
   其余情况静默回退本地后端，调用方零感知（多实例部署才有意义，单机勿开）。
 - **数据分级红线**：仅允许缓存自建分析结果与公开行情（温度计/拥挤度等）；
@@ -27,11 +31,60 @@ from loguru import logger
 
 # ─────────────────────────── 配置 ───────────────────────────
 # env 驱动，避免 import 时读 app config（core 模块互相依赖要克制）。
-_BACKEND = os.environ.get('CACHE_BACKEND', 'local').lower()
-_FILE_DIR = Path(os.environ.get('CACHE_FILE_DIR', Path(tempfile.gettempdir()) / 'fundmate_cache'))
+#
+# 注意：env 一律**构造期解析**，不要固化成模块级常量（#1531）。
+# 原先是 `_BACKEND = os.environ.get(...)` / `_FILE_DIR = Path(os.environ.get(...))`，
+# 导入之后再改 env 就完全无效：测试里写的 `os.environ['CACHE_FILE_DIR'] = tmp_path`
+# 成了假隔离（实际仍读写全局临时目录），`CACHE_BACKEND` 的 monkeypatch 也让
+# redis 回退用例退化为假阳性。
 _DEFAULT_TTL = 600  # 秒；调用方应显式传 ttl
 _LRU_MAX = 256  # 条；进程内热点上限
 _FILE_PREFIX = 'cache_'
+_FILE_DIR_NAME = 'fundmate_cache'
+
+
+def _env_backend() -> str:
+    """后端选择（构造期读 env，理由见上方注释）。"""
+    return os.environ.get('CACHE_BACKEND', 'local').lower()
+
+
+def resolve_cache_file_dir() -> Path:
+    """缓存文件层的**唯一**目录解析入口：env `CACHE_FILE_DIR` 优先，否则系统临时目录。
+
+    全仓「文件缓存落哪儿」的单一真相源（#1537）：`CacheService` 与温度计 fetchers
+    共用本函数，杜绝「同一个目录、两套实现、只有一套认 env」的部分生效——
+    按环境指定目录时只生效一半，比完全不生效更难排查。
+
+    **必须在调用期解析**，不要固化成模块级常量（#1531 / #1537 是同一个坑）：
+    常量在 import 那一刻就绑定了当时的环境，之后再设 `CACHE_FILE_DIR` 完全无效，
+    `tests/conftest.py::_isolate_cache_file_dir` 会静默失效。
+
+    回归背景（#1531）：该目录**跨进程存活**，残留的 pkl 会在 ttl 内让下一个进程
+    直接命中——测试结果因此取决于「上一轮跑过什么」，真失败与污染失败外观一致。
+    """
+    raw = os.environ.get('CACHE_FILE_DIR')
+    return Path(raw) if raw else Path(tempfile.gettempdir()) / _FILE_DIR_NAME
+
+
+def resolve_cache_subdir(name: str) -> Path:
+    """`resolve_cache_file_dir()` 下的命名子目录（#1539）。
+
+    供**非 pickle 值对象**的大型缓存分目录使用（parquet / CSV / JSON 等）：它们不便走
+    `CacheService` 的「pickle 一个值 + `expire_at` 写进文件」语义，但**目录**仍必须只有
+    一个真相源——否则又会回到「改 `CACHE_FILE_DIR` 只生效一半」的老问题
+    （#1531 → #1537 → #1539 已连犯三次）。
+
+    同样**必须调用期解析**，理由见 :func:`resolve_cache_file_dir`。
+
+    Raises:
+        ValueError: `name` 是绝对路径。``Path`` 的 `/` 语义下 `root / '/etc'` 会直接返回
+            ``'/etc'``——子目录就此跳出了缓存根目录，本函数「一切落盘都在同一个根之下」
+            的契约被静默打破（正是 #1531 / #1537 / #1539 要对付的「目录没有单一真相源」）。
+            调用方一律传相对名字，故这是**契约自检**而非容错分支。
+    """
+    if Path(name).is_absolute():
+        raise ValueError(f'resolve_cache_subdir 只接受相对子目录名，收到绝对路径：{name!r}')
+    return resolve_cache_file_dir() / name
 
 
 class CacheService:
@@ -41,15 +94,26 @@ class CacheService:
 
         cache = CacheService(namespace='crowding')
         val = cache.get_or_set('industry_crowding:20260910', ttl=3600, producer=fetch)
+
+    Args:
+        namespace: 命名空间，隔离不同业务的键。
+        default_ttl: 未显式传 ttl 时的默认过期秒数。
+        file_dir: 文件层目录。缺省取 env `CACHE_FILE_DIR`（未设则系统临时目录）；
+            显式传入优先于 env，测试用它注入 `tmp_path` 做用例级隔离（#1531）。
     """
 
-    def __init__(self, namespace: str = 'default', default_ttl: int = _DEFAULT_TTL):
+    def __init__(
+        self,
+        namespace: str = 'default',
+        default_ttl: int = _DEFAULT_TTL,
+        file_dir: Path | str | None = None,
+    ):
         self._ns = namespace.strip().replace('/', '_') or 'default'
         self._default_ttl = default_ttl
         self._lru: OrderedDict[str, tuple[float, Any]] = OrderedDict()
         self._lock = threading.Lock()
         self._backend = self._resolve_backend()
-        self._file_dir: Optional[Path] = _FILE_DIR
+        self._file_dir: Optional[Path] = Path(file_dir) if file_dir is not None else resolve_cache_file_dir()
         if self._file_dir is not None:
             try:
                 self._file_dir.mkdir(parents=True, exist_ok=True)
@@ -58,8 +122,12 @@ class CacheService:
 
     # ─────────────── 后端解析 ───────────────
     def _resolve_backend(self) -> str:
-        """redis 仅在 env 显式指定且 redis 可导入时启用，否则回退 local（默认关）。"""
-        if _BACKEND == 'redis':
+        """redis 仅在 env 显式指定且 redis 可导入时启用，否则回退 local（默认关）。
+
+        env 在构造期读取（#1531）：读模块级常量会让 monkeypatch `CACHE_BACKEND`
+        的用例测不到本分支（假阳性），本方法则保证「进程内改 env 后新建实例」生效。
+        """
+        if _env_backend() == 'redis':
             try:
                 import redis  # noqa: F401
 

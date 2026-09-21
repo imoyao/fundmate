@@ -51,6 +51,7 @@ from loguru import logger
 
 # 全局请求补丁：确保即使本模块被单独 import（如单测）也自动启用东财友好会话；
 # 正常由 app/__init__ 安装，此处为幂等兜底，避免遗漏调用点。
+from app.core.cache import resolve_cache_subdir
 from app.core.requests_patch import install_requests_patch
 from app.services.bias.constants import (
     BIAS_PERIOD,
@@ -135,8 +136,23 @@ def position_label(pos: float) -> str:
         return '低位区(红买)'
 
 
-# 价格持久化缓存目录：遵循项目 data/ 约定（与 xalpha_cache 同级）
-_DEFAULT_CACHE_DIR = Path(__file__).resolve().parents[3] / 'data' / 'bias_price_cache'
+def _default_cache_dir() -> Path:
+    """价格持久化缓存的默认目录（#1540）。
+
+    原先是**模块级常量** `Path(__file__).resolve().parents[3] / 'data' / 'bias_price_cache'`
+    （即 `backend/data/bias_price_cache`），与 #1531 / #1537 / #1539 是**同一个坑的第四次**：
+    常量在 import 那一刻就绑定了环境，不认 env `CACHE_FILE_DIR`——按环境指定缓存目录
+    （容器 / 只读文件系统 / CI / 测试隔离）时只生效一半。现经 `resolve_cache_subdir()`
+    与其它缓存同源。
+
+    ⚠️ **必须调用期解析**，不要退回模块级常量。
+
+    关于原注释里的「遵循项目 data/ 约定（与 xalpha_cache 同级）」：本目录被 `.gitignore`
+    显式忽略，属**运行时产物**，搬走是有意为之。而 `adapters/xalpha_adapter.py` 的
+    `data/xalpha_cache` 存的是 xalpha 的**基金净值历史**，换目录 = 全量重抓、代价完全不同，
+    故本处**不动**它（已记在 #1540，另议）。
+    """
+    return resolve_cache_subdir('bias_price_cache')
 
 
 class PriceFetcher:
@@ -146,7 +162,7 @@ class PriceFetcher:
 
     缓存策略（缓解东财限流 + 断网可降级）：
       - 进程内 dict 去重（同进程秒级复用）
-      - 文件缓存（backend/data/bias_price_cache/*.json）：按 (symbol, item_type) 存
+      - 文件缓存（`CACHE_FILE_DIR` 下的 `bias_price_cache/*.json`，#1540）：按 (symbol, item_type) 存
         最近 N 日收盘价序列 + 数据最后交易日；当日已抓过则直接复用，避免每天冷启动全量重抓。
       - 实时抓取失败且本地有旧缓存时，回退旧数据并标记 stale=True（前端可感知数据滞后）。
     """
@@ -162,7 +178,8 @@ class PriceFetcher:
         self.max_retries = max_retries
         self.retry_backoff = retry_backoff
         # 统一转为 pathlib.Path，避免传入 str/py.path.local 时 "/" 运算符抛 TypeError（被 _save_cache 吞掉，导致文件缓存永不写入）
-        self.cache_dir = Path(cache_dir) if cache_dir is not None else _DEFAULT_CACHE_DIR
+        # 默认目录经 _default_cache_dir() **调用期**解析（#1540），显式传入仍优先。
+        self.cache_dir = Path(cache_dir) if cache_dir is not None else _default_cache_dir()
         # 同一进程内去重缓存，避免重复请求同一品种
         self._cache: dict = {}
         # (symbol, item_type) -> 是否滞后（实时抓取失败回退旧数据时为 True）

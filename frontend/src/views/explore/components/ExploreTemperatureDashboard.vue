@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from "vue";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
+import CardBlock from "@/components/CardBlock/index.vue";
 import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
@@ -25,6 +26,18 @@ const emit = defineEmits<{
   /** 点击综合温度卡：切换到父页面的「深度」档 */
   "go-detail": [];
 }>();
+
+/**
+ * 是否渲染温度计卡。父页面按当前档位传入：概览档显示时=true、深度档=false。
+ * 目的只有一个 —— 同一时刻全页只留一份温度仪表盘在 DOM 中（#1549 T4.1）。
+ * 卡片本身不取数（数据来自单例 composable），卸载重挂不会产生额外请求。
+ */
+withDefaults(
+  defineProps<{
+    gaugeVisible?: boolean;
+  }>(),
+  { gaugeVisible: true }
+);
 
 // ================================================================
 // 市场温度数据（两页共用 composable，见 #980）
@@ -117,15 +130,17 @@ onMounted(() => {
     </div>
 
     <MetricGrid>
-      <!-- 综合温度 -->
-      <!-- 尺寸/外观与深度档对齐（同为 lg + featured，经 prop 表达）；
-           禁止再手拼 class="gauge-card--featured" 旁路 —— 概览与深度两档
-           的温度计卡必须是同一视觉，否则切档时卡片会跳变。 -->
+      <!-- 综合温度锚点 -->
+      <!-- 尺寸/外观（lg + featured）与标题/副标题/等级文案全部与深度档对齐，
+           禁止再手拼 class="gauge-card--featured" 旁路 —— 两档必须是逐字同一张卡，
+           否则切档时卡片会跳变（#1549 T4.1）。
+           gaugeVisible：只让当前档那份仪表盘留在 DOM 里，避免同一张英雄卡出现两份。 -->
       <TemperatureGaugeCard
+        v-if="gaugeVisible"
         :value="compositeTemperature?.value ?? null"
-        title="综合温度"
+        title="综合市场温度"
         :level="compositeTemperature?.level || '暂无'"
-        caption="综合6个市场指标"
+        caption="基于多源市场数据计算"
         size="lg"
         featured
         clickable
@@ -159,24 +174,32 @@ onMounted(() => {
       />
     </MetricGrid>
 
-    <!-- 指数快照（独立一行） -->
-    <div class="index-snapshot">
+    <!-- 指数快照（独立一行）：容器改走 CardBlock（#1549 T3.1），
+         内部改真表格（#1549 T4.2）——原裸 flex 下指数名长度不同，
+         三个数值不成列、换行后更错位。 -->
+    <CardBlock class="index-snapshot">
       <div class="snapshot-title">指数快照</div>
-      <div class="snapshot-items">
-        <div v-for="idx in indexData" :key="idx.code" class="snapshot-item">
-          <span class="snapshot-name">{{ idx.name }}</span>
-          <span v-if="idx.price === null" class="snapshot-price">--</span>
-          <MoneyDisplay v-else :value="idx.price" :precision="2" />
-          <span class="snapshot-change"
-            ><RiseFallText :value="idx.changePercent"
-          /></span>
-        </div>
-      </div>
-    </div>
+      <table class="snapshot-table">
+        <tbody>
+          <tr v-for="idx in indexData" :key="idx.code">
+            <th scope="row" class="snapshot-name">{{ idx.name }}</th>
+            <td class="snapshot-price">
+              <span v-if="idx.price === null">--</span>
+              <MoneyDisplay v-else :value="idx.price" :precision="2" />
+            </td>
+            <td class="snapshot-change">
+              <RiseFallText :value="idx.changePercent" />
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </CardBlock>
   </section>
 </template>
 
 <style lang="scss" scoped>
+@use "@/style/breakpoints" as bp;
+
 /* 数据新鲜度守卫横幅（#1431）：沿用「数据滞后」pill 的警示色视觉语言 */
 .freshness-alert {
   display: flex;
@@ -186,7 +209,7 @@ onMounted(() => {
   margin-bottom: 12px;
   font-size: 13px;
   line-height: 1.6;
-  color: var(--color-warning, #d97706);
+  color: var(--color-warning-ink);
   background: color-mix(
     in srgb,
     var(--color-warning, #d97706) 12%,
@@ -206,23 +229,19 @@ onMounted(() => {
   flex: 1;
 }
 
-@media (width <= 768px) {
-  .temperature-dashboard {
-    padding: 0 16px 12px;
-  }
-
-  .snapshot-items {
-    gap: 12px;
-  }
-}
-
 .temperature-dashboard {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-width: 1280px;
+  max-width: var(--layout-content-width);
   padding: var(--space-standard) 24px 16px;
   margin: 0 auto;
+
+  /* 窄屏收内边距（原为「768px 及以下」的裸查询，且排在基础声明**之前** → 被 `padding`
+     压掉、从未生效；2026-09-18 修复，断点对齐 Tailwind `md` = 768px）。 */
+  @include bp.below("md") {
+    padding: 0 16px 12px;
+  }
 }
 
 /* 「综合温度」卡内的进度条与跳转提示（来自 TemperatureGaugeCard 的 footer 插槽） */
@@ -245,53 +264,59 @@ onMounted(() => {
   display: inline-block;
   margin-top: 6px;
   font-size: 12px;
-  color: var(--el-color-primary);
+  color: var(--color-rise-ink);
   white-space: nowrap;
   cursor: pointer;
 }
 
-/* ---- 指数快照 ---- */
-.index-snapshot {
-  padding: 16px 20px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: 12px;
-  box-shadow: var(--shadow-raised);
-}
-
+/* ---- 指数快照 ----
+   卡片外观（bg-card / border-light / radius-lg / shadow-raised / padding）
+   统一由 CardBlock 承载，本类不再自定义外壳。 */
 .snapshot-title {
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary);
 }
 
-.snapshot-items {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 24px;
-}
+/* 真表格：三行共用同一组列宽 + 数值列右对齐 + 等宽数字
+   → 三个数值严格成列，修掉「指数名长度不同导致数值不对齐」（#1549 T4.2） */
+.snapshot-table {
+  width: 100%;
+  max-width: 420px;
+  border-collapse: collapse;
 
-.snapshot-item {
-  display: flex;
-  gap: 8px;
-  align-items: center;
+  th,
+  td {
+    padding: 5px 0;
+    font-size: 14px;
+    line-height: 1.5;
+    vertical-align: baseline;
+  }
 }
 
 .snapshot-name {
-  font-size: 13px;
+  font-weight: 400;
   color: var(--text-secondary);
+  text-align: left;
+}
+
+.snapshot-price,
+.snapshot-change {
+  text-align: right;
+  white-space: nowrap;
 }
 
 .snapshot-price {
+  width: 120px;
   font-family: var(--font-mono);
-  font-size: 16px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }
 
 .snapshot-change {
+  width: 88px;
   font-size: 13px;
 }
 </style>

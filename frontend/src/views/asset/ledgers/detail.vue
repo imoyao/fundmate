@@ -41,7 +41,7 @@
           </el-button>
           <IconifyIconOffline
             icon="ep:arrow-right"
-            :style="{ color: 'var(--text-tertiary)' }"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
           />
         </div>
       </div>
@@ -72,7 +72,7 @@
               <template v-if="summaryData?.portfolio_name">
                 <span
                   class="text-xs"
-                  :style="{ color: 'var(--text-tertiary)' }"
+                  :style="{ color: 'var(--text-tertiary-ink)' }"
                 >
                   · 组合: {{ summaryData.portfolio_name }}</span
                 >
@@ -129,7 +129,7 @@
               <div>
                 <p
                   class="text-sm mb-2"
-                  :style="{ color: 'var(--text-tertiary)' }"
+                  :style="{ color: 'var(--text-tertiary-ink)' }"
                 >
                   总资产
                 </p>
@@ -156,7 +156,7 @@
                 <div class="flex flex-col">
                   <span
                     class="text-xs mb-1"
-                    :style="{ color: 'var(--text-tertiary)' }"
+                    :style="{ color: 'var(--text-tertiary-ink)' }"
                     >持仓盈亏</span
                   >
                   <MoneyDisplay
@@ -168,7 +168,7 @@
                 <div class="flex flex-col">
                   <span
                     class="text-xs mb-1"
-                    :style="{ color: 'var(--text-tertiary)' }"
+                    :style="{ color: 'var(--text-tertiary-ink)' }"
                     >持仓数量</span
                   >
                   <span
@@ -181,7 +181,7 @@
                 <div class="flex flex-col">
                   <span
                     class="text-xs mb-1"
-                    :style="{ color: 'var(--text-tertiary)' }"
+                    :style="{ color: 'var(--text-tertiary-ink)' }"
                     >资金余额</span
                   >
                   <MoneyDisplay
@@ -194,7 +194,7 @@
                   <span
                     v-else
                     class="text-sm"
-                    :style="{ color: 'var(--text-tertiary)' }"
+                    :style="{ color: 'var(--text-tertiary-ink)' }"
                     >--</span
                   >
                 </div>
@@ -208,14 +208,14 @@
                 >
                   <span
                     class="text-xs mb-1"
-                    :style="{ color: 'var(--text-tertiary)' }"
+                    :style="{ color: 'var(--text-tertiary-ink)' }"
                     >关联负债</span
                   >
                   <MoneyDisplay
                     :value="-summaryData.linked_liability"
                     size="md"
                     :auto-color="false"
-                    custom-color="var(--color-danger-system)"
+                    custom-color="var(--color-danger)"
                   />
                 </div>
                 <!-- 货基收益（仅基金账户展示） -->
@@ -225,7 +225,7 @@
                 >
                   <span
                     class="text-xs mb-1"
-                    :style="{ color: 'var(--text-tertiary)' }"
+                    :style="{ color: 'var(--text-tertiary-ink)' }"
                     >货基今日收益</span
                   >
                   <MoneyDisplay
@@ -236,7 +236,7 @@
                   <span
                     v-else
                     class="text-sm"
-                    :style="{ color: 'var(--text-tertiary)' }"
+                    :style="{ color: 'var(--text-tertiary-ink)' }"
                     >--</span
                   >
                 </div>
@@ -271,7 +271,7 @@
             class="flex min-h-[160px] flex-1 items-center justify-center rounded-lg border border-dashed text-sm"
             :style="{
               borderColor: 'var(--border-subtle)',
-              color: 'var(--text-tertiary)'
+              color: 'var(--text-tertiary-ink)'
             }"
           >
             账户深度分析（持仓集中度 / 行业分布 / 收益日历等）规划中，敬请期待
@@ -599,7 +599,7 @@
                 <div
                   v-if="transactionsTotal === 0"
                   class="text-center py-8"
-                  :style="{ color: 'var(--text-tertiary)' }"
+                  :style="{ color: 'var(--text-tertiary-ink)' }"
                 >
                   暂无交易记录
                 </div>
@@ -852,7 +852,7 @@ onMounted(() => {
 .txn-asset-code {
   margin-left: 6px;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* Tab 工具栏（#982）：搜索框绝对定位到 Tab 头右侧，与标签同一行。
@@ -891,7 +891,7 @@ onMounted(() => {
 
 .mig-route__arrow {
   font-size: 14px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 总数右对齐：等宽数字保证跳动时不抖 */
@@ -905,7 +905,7 @@ onMounted(() => {
 .mig-note {
   margin-top: var(--space-1);
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 长列表限高滚动：底栏（状态 + 确认按钮）始终可见 */
@@ -946,7 +946,7 @@ onMounted(() => {
 .mig-section__hint {
   margin-left: auto;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* keep / duplicate 行：名称居左、数值摘要居右 */
@@ -979,7 +979,7 @@ onMounted(() => {
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: normal;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .mig-row__values {
@@ -1026,8 +1026,8 @@ onMounted(() => {
   display: flex;
   gap: 12px;
   align-items: flex-start;
-  padding: var(--space-3) var(--space-4);
-  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-compact);
+  margin-bottom: var(--space-compact);
   background: var(--bg-soft);
   border: 1px solid var(--border-subtle);
   border-left: 3px solid var(--el-color-info);
@@ -1056,7 +1056,7 @@ onMounted(() => {
 .soft-reconcile-banner__detail {
   margin: 4px 0 0;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .soft-reconcile-banner__actions {
@@ -1096,7 +1096,7 @@ onMounted(() => {
 
 .mig-compare__label {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-soft);
 }
 
@@ -1122,13 +1122,13 @@ onMounted(() => {
   margin: 4px 0 0;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .mig-empty {
   padding: var(--space-loose) 0;
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: center;
 }
 
@@ -1143,7 +1143,7 @@ onMounted(() => {
 
 .mig-footer__status {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* ===== 目标账户选择器：机构标注与未绑定提示 ===== */

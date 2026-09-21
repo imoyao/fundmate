@@ -1,7 +1,7 @@
 /* ============================================
    多多贝 设计令牌（Design Tokens）
    语义层 · 对接设计语言 v2.3.2
-   最后更新: 2026-06-27
+   最后更新: 2026-09-18（#1602：清除 14 个自引用令牌）
    用途：为组件提供语义化变量名，与具体色值解耦
    ============================================ */
 
@@ -11,15 +11,22 @@
   /* ============================================================
      所有设计令牌已定义在 colors.css 中
      本文件仅作为语义别名层，确保组件引用统一的变量名
-     如果组件直接引用以下变量，请确保 colors.css 已加载
      ============================================================ */
 
-  /* 注：以下为已定义变量的语义别名，供组件引用时统一语义 */
+  /* ⚠️ 本层红线（#1602）：只允许写「换名」的别名（等号左右不同名）。
+     禁止写 `--x: var(--x)` 这类自引用 —— 按 CSS 规范它是循环引用，
+     会让该变量在计算期变成 guaranteed-invalid，**覆盖掉** colors.css /
+     dark.scss 里的真实定义。
+     本文件曾有 14 个令牌被写成自引用（--bg-* / --text-* / --border-light /
+     --border-subtle / --shadow-modal / --radius-pill），仅仅因为 main.ts 在
+     index.scss 之后又导入了一次 colors.css 才侥幸生效；那行冗余导入已删，
+     本层也不再重复声明这些令牌（它们由 colors.css（亮）/ dark.scss（暗）定义）。
+     守卫：scripts/check_css_vars.mjs 的「自引用检测」。 */
 
   /* 品牌色（语义别名） */
   --brand: var(--brand-700);
   --brand-hover: var(--brand-800);
-  --brand-active: var(--brand-900);
+  --brand-active: var(--brand-1000);
   --brand-bg: var(--brand-100);
   --brand-border: var(--brand-400);
 
@@ -28,37 +35,27 @@
   --fall: var(--color-fall);
 
   /* 系统语义 */
-  --danger: var(--color-danger-system);
+  --danger: var(--color-danger);
 
-  /* 背景语义 */
-  --bg-page: var(--bg-page);
-  --bg-card: var(--bg-card);
-  --bg-warm: var(--bg-warm);
-  --bg-soft: var(--bg-soft);
-  --bg-hover: var(--bg-hover);
-  --bg-muted: var(--bg-muted);
+  /* 背景语义：--bg-page / --bg-card / --bg-warm / --bg-soft / --bg-hover /
+     --bg-muted 已由 colors.css（亮）与 dark.scss（暗）定义，本层不重复声明 */
 
-  /* 文字语义 */
-  --text-primary: var(--text-primary);
-  --text-secondary: var(--text-secondary);
-  --text-tertiary: var(--text-tertiary);
-  --text-disabled: var(--text-disabled);
+  /* 文字语义：--text-primary / --text-secondary / --text-tertiary /
+     --text-disabled 同上 */
 
-  /* 边框语义 */
+  /* 边框语义（--border 是对 --border-default 的换名别名；
+     --border-light / --border-subtle 已由 colors.css / dark.scss 定义） */
   --border: var(--border-default);
-  --border-light: var(--border-light);
-  --border-subtle: var(--border-subtle);
 
-  /* 阴影语义 */
+  /* 阴影语义（--shadow-card / --shadow-popover 是换名别名；
+     --shadow-modal 已由 colors.css / dark.scss 定义） */
   --shadow-card: var(--shadow-raised);
   --shadow-popover: var(--shadow-float);
-  --shadow-modal: var(--shadow-modal);
 
-  /* 圆角语义 */
+  /* 圆角语义（三个均为换名别名；--radius-pill 已由 colors.css 定义） */
   --radius-button: var(--radius-sm);
   --radius-card: var(--radius-md);
   --radius-modal: var(--radius-lg);
-  --radius-pill: var(--radius-pill);
 
   /* 字体语义 */
   --font-hero: var(--font-sans);

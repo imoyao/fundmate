@@ -35,6 +35,10 @@ sys.path.insert(0, str(BACKEND_DIR))
 from dotenv import load_dotenv  # noqa: E402
 from loguru import logger  # noqa: E402
 
+# 模型必须先于 init_db() 注册齐（#1607）：init_db 已不再代为导入顶层模型，
+# 缺 sync_log 会让新建库少建 sync_logs 表（跑到写同步审计时才炸）。其余域模型由
+# _build_orchestrator 的惰性导入带来，与改动前一致。
+import app.models.sync_log  # noqa: E402,F401
 from app.core.database import get_db, init_db  # noqa: E402
 
 # 加载 .env（backend/ 目录）

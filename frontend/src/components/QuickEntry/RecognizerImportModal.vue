@@ -520,7 +520,7 @@ onMounted(() => {
     display: inline-flex;
     align-self: center;
     font-size: 14px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   &__label {
@@ -544,7 +544,7 @@ onMounted(() => {
   &__hint {
     margin-left: auto;
     font-size: var(--text-label);
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   &.is-low .usage-banner__count strong {
@@ -648,7 +648,7 @@ onMounted(() => {
 .ocr-textarea__error {
   margin: var(--space-2) 0 0;
   font-size: var(--text-label);
-  color: var(--color-danger-system);
+  color: var(--color-danger);
 }
 
 .result-section {
@@ -686,14 +686,15 @@ onMounted(() => {
 
 .ocr-primary-btn {
   color: var(--text-inverse);
-  background-color: var(--brand-700);
+  background-color: var(--brand-solid);
 }
 
 .ocr-primary-btn:hover:not(:disabled) {
-  background-color: var(--brand-600);
+  background-color: var(--brand-solid-hover);
 }
 
 .ocr-primary-btn:disabled {
+  /* audit-text-contrast: exempt .ocr-primary-btn:disabled 为**真禁用**控件，按 WCAG 1.4.3 对 inactive component 的豁免；**「无数据占位符」不适用本豁免**（那是信息，须用 --text-tertiary-ink）。登记见 docs/spec/tech-debt.md（#1599） */
   color: var(--text-disabled);
   cursor: not allowed;
   background-color: var(--bg-muted);

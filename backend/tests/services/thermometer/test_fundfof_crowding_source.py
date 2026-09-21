@@ -5,6 +5,7 @@
 """
 
 import json
+import os
 
 import pytest
 
@@ -51,11 +52,15 @@ class _FakeResp:
 
 @pytest.fixture(autouse=True)
 def _cache_in_tmp(tmp_path, monkeypatch):
-    """缓存重定向到 tmp_path：不污染真实 cache 目录，用例互不干扰。"""
-    monkeypatch.setattr(fc, 'CACHE_DIR', str(tmp_path))
-    monkeypatch.setattr(fc, 'CACHE_FILE', str(tmp_path / 'latest.json'))
+    """缓存重定向到用例私有目录：不污染源码树、用例互不干扰。
+
+    #1539：目录不再由模块级常量指定，而是**调用期**解析 env `CACHE_FILE_DIR`
+    （`fc.fundfof_cache_dir()` → `<CACHE_FILE_DIR>/fundfof_crowding`），故这里只设 env。
+    """
+    monkeypatch.setenv('CACHE_FILE_DIR', str(tmp_path))
     monkeypatch.setenv('FUNDFOF_CROWDING_ENABLED', '1')
-    monkeypatch.setenv('FUNDFOF_CROWDING_MERGE_SW_BIAS', '0')  # 默认不触发申万源（另有用例覆盖）
+    # 显式关停申万补齐以隔离本类（开启态由 TestMergeSwBias 覆盖；默认值由守卫用例独立守住）
+    monkeypatch.setenv('FUNDFOF_CROWDING_MERGE_SW_BIAS', '0')
 
 
 class TestToggle:
@@ -74,6 +79,24 @@ class TestToggle:
     def test_on_values(self, monkeypatch, value):
         monkeypatch.setenv('FUNDFOF_CROWDING_ENABLED', value)
         assert fc.enabled() is True
+
+
+def test_merge_sw_bias_enabled_by_default(monkeypatch):
+    """`FUNDFOF_CROWDING_MERGE_SW_BIAS` 默认必须是**开启**（#1566 回滚 #1512 的误诊默认值）。
+
+    补齐路径调的是 `akshare.index_hist_sw`——其实现 `index_research_sw.py` 只有 `requests.get`，
+    **不 import py_mini_racer**，与 V8 原生崩溃没有因果关系。关掉它只会丢行业 BIASn 三列。
+    真正的 V8 并发风险由 `app/core/v8_guard.py` 在进程级覆盖。
+    """
+    monkeypatch.delenv('FUNDFOF_CROWDING_MERGE_SW_BIAS', raising=False)
+    assert fc._merge_sw_bias_enabled() is True
+
+
+@pytest.mark.parametrize('value', ['0', 'false', 'NO', 'off'])
+def test_merge_sw_bias_disabled_by_explicit_off(monkeypatch, value):
+    """显式 `0/false/no/off` 仍能关停（白名单语义保留，便于临时排查）。"""
+    monkeypatch.setenv('FUNDFOF_CROWDING_MERGE_SW_BIAS', value)
+    assert fc._merge_sw_bias_enabled() is False
 
 
 class TestMapping:
@@ -152,10 +175,11 @@ class TestCacheAndDegrade:
         fc.fetch_latest()
 
         # 令缓存"过期"（早于 TTL 窗口），再让接口不可达 → 应降级用旧缓存而非返回空
-        with open(fc.CACHE_FILE, encoding='utf-8') as fh:
+        cache_file = fc._cache_file('sw')
+        with open(cache_file, encoding='utf-8') as fh:
             payload = json.load(fh)
         payload['_cached_at'] = '2020-01-01T00:00:00'
-        with open(fc.CACHE_FILE, 'w', encoding='utf-8') as fh:
+        with open(cache_file, 'w', encoding='utf-8') as fh:
             json.dump(payload, fh, ensure_ascii=False)
 
         def _boom(*a, **k):
@@ -263,9 +287,13 @@ class TestTrackCategory:
         assert recs[0]['source'] == 'industry_crowding'
 
     def test_track_cache_file_derived(self):
-        assert fc._cache_file('sw') == fc.CACHE_FILE
-        assert fc._cache_file('track') != fc.CACHE_FILE
-        assert fc._cache_file('track').endswith('_track.json')
+        """sw 用 `latest.json`，赛道派生 `latest_track.json`；两者同目录（#1539）。"""
+        sw_path = fc._cache_file('sw')
+        track_path = fc._cache_file('track')
+        assert sw_path.endswith(fc.CACHE_FILE_NAME)
+        assert track_path.endswith('_track.json')
+        assert track_path != sw_path
+        assert os.path.dirname(track_path) == os.path.dirname(sw_path) == fc.fundfof_cache_dir()
 
     def test_latest_passes_category_param(self, monkeypatch):
         seen = {}

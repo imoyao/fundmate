@@ -61,7 +61,7 @@ def apply_adjustment():
             result = apply_decision(db, family_id, payload)
         except ValueError as e:
             abort(400, description=str(e))
-        db.commit()
+        db.flush()
         return jsonify({'data': result, 'message': 'ok'})
 
 
@@ -85,7 +85,7 @@ def run_reconciliation():
             run, created = run_reconciliation_service(db, family_id, domain=domain)
         except ValueError as e:
             abort(400, description=str(e))
-        db.commit()
+        db.flush()
         return jsonify(
             {
                 'data': {
@@ -196,7 +196,7 @@ def ignore_discrepancy(discrepancy_id: int):
                 operator=body.get('operator'),
             )
         )
-        db.commit()
+        db.flush()
         return jsonify({'data': {'id': d.id, 'status': d.status, 'is_permanent': d.is_permanent}, 'message': 'ok'})
 
 

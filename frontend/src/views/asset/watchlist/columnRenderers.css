@@ -75,7 +75,7 @@
   min-width: 0;
   max-width: none;
   padding: 0 2px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background-color: transparent;
   border-color: transparent;
   font-variant-numeric: tabular-nums;
@@ -92,7 +92,7 @@
   padding: 0 6px;
   font-size: 11px;
   line-height: 1;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   border: 1px dashed var(--border-default);
   border-radius: var(--radius-pill);
   cursor: pointer;
@@ -150,7 +150,7 @@
 
 .el-table .add-note-btn {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   cursor: pointer;
 }
 
@@ -167,7 +167,7 @@
   padding: 0 6px;
   font-size: 11px;
   line-height: 1;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   border: 1px dashed var(--border-default);
   border-radius: var(--radius-pill);
   opacity: 0;
@@ -222,7 +222,7 @@
 }
 
 .el-table .bond-empty {
-  color: var(--text-disabled);
+  color: var(--text-tertiary-ink);
 }
 
 .el-table .bond-rating {
@@ -242,7 +242,7 @@
 }
 
 .el-table .bond-redeem.is-urgent {
-  color: var(--color-rise);
+  color: var(--color-rise-ink);
   font-weight: 500;
 }
 
@@ -254,7 +254,7 @@
 }
 
 .el-table .index-val-empty {
-  color: var(--text-disabled);
+  color: var(--text-tertiary-ink);
 }
 
 /* ── 基金最大回撤列（#1285/§3.10）── */
@@ -266,7 +266,7 @@
 }
 
 .el-table .dd-empty {
-  color: var(--text-disabled);
+  color: var(--text-tertiary-ink);
 }
 
 /* ── 跨渠道关联列（#1285 §3.8）── */
@@ -276,13 +276,13 @@
   font-size: 12px;
   line-height: 18px;
   color: var(--brand-700);
-  background: var(--brand-50, var(--bg-soft));
+  background: var(--bg-soft);
   border-radius: 9px;
   cursor: default;
 }
 
 .el-table .link-empty {
-  color: var(--text-disabled);
+  color: var(--text-tertiary-ink);
 }
 
 /* ── 且慢组合补充列（#1468）── */

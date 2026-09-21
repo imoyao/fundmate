@@ -13,10 +13,9 @@ import Table from "@pureadmin/table";
 
 // 引入重置样式
 import "./style/reset.scss";
-// 导入公共样式
+// 导入公共样式（index.scss → @import design-tokens.css → @import colors.css，
+// 配色方案已随之加载，此处不再重复导入 colors.css：#1602）
 import "./style/index.scss";
-// 导入配色方案
-import "./style/colors.css";
 // 一定要在main.ts中导入tailwind.css，防止vite每次hmr都会请求src/style/index.scss整体css文件导致热更新慢的问题
 import "./style/tailwind.css";
 // Element Plus 样式已通过 unplugin-element-plus 按需引入，不再全量加载

@@ -42,16 +42,27 @@
 
 > 完整台账见 #1392。
 
-### 2.1 现状（已核实）
-- **天天（TIANTIAN）**：已自动适配；概览的 `SYL_*`（区间收益）与基准**已请求未落库**。
-- **且慢（QIEMAN）**：**MCP 客户端已存在**（`thermometer/fetchers.py` 的 `QiemanFetcher`，官方 MCP Streamable HTTP，`QIEMAN_API_KEY` 已在 `.env`），但只接了**温度计** `GetLatestQuotations`；**组合持仓 `BatchGetStrategiesComposition` 未接** → **复用既有 MCP 接上该工具即可**。
-- **蛋卷 / 雪球 / 盈米**：枚举已有，**未适配**。
+### 2.1 现状（2026-09-15 更新）
+- **天天（TIANTIAN）**：✅ 已自动适配；`SYL_*`（区间收益）已按 canonical 落库（`return_1w/1m/1y/ytd/since_incep`）。
+  ⚠️ **最大回撤 / 相对基准超额接口不提供**（实测），列已就绪但为空——需自算（要先有组合净值序列），
+  已拆为独立 issue 放后期，见 #1392 评论。
+- **且慢（QIEMAN）**：✅ 已自动适配（#1468/#1484）：概览 `GetStrategyDetails` + 持仓
+  `BatchGetStrategiesComposition` 均已接入，调仓由持仓快照序列推导。
+- **蛋卷 / 雪球**：⚠️ 枚举已有，**未适配**。调研结论（`advisor-platform-landscape-2026-09-08.md`）：
+  概览 `GET /djapi/plan/{code}` 可取（精简字段），**持仓需登录态**，不做。
 
 ### 2.2 canonical 组合模型
 `code/platform/name/category/host/host_org/risk_level(归一化刻度)/estab_date/stat_window_start/stat_window_end/running_days/cumulative_return/annualized_return/max_drawdown/excess_return/benchmark_name/benchmark_annualized/notes/source`；区间收益 `return_1m/3m/6m/1y/3y/ytd/since_inception`。
 
-### 2.3 架构（避免一次性代码）
-Port `AdvisorPortfolioSource`（`fetch_overview/returns/holdings/industries/rebalances`）+ 每平台一 Adapter（声明式映射）+ 平台特有字段进 `extra` JSON；**新增平台不改表、不改调用方**；缺失值派生计算或置 `null`+`source`；AI 补全（`source='ai'`）为扩展。
+### 2.3 架构（避免一次性代码）——**已落地（2026-09-15）**
+Port `AdvisorPortfolioSource`（`fetch_overview/holdings/industries/rebalances`）+ 每平台一 Adapter（声明式映射）
++ 平台特有字段进 `extra` JSON；**新增平台不改表、不改调用方**；缺失值派生计算或置 `null`+`source`；
+AI 补全（`source='ai'`）为扩展。
+
+实现落点（`adapters/advisor_source.py`）：canonical 概览键名**与 `advisor_portfolios` 列名逐字一致**
+（少一层映射表就少一处漂移）；`advisor_portfolios` 新增 `source`（写入来源）与 `extra`（平台特有字段）；
+`AdvisorPortfolioSyncJob` 内已无平台分支，按 `platform` 从注册表取适配器
+（回归测试 `test_new_platform_only_adds_adapter` 直接钉住这条验收）。权威说明见 `docs/dev/fund-portfolio.md` §4。
 
 ---
 

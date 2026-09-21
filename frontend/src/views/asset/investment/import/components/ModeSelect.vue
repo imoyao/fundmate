@@ -75,7 +75,7 @@ const {
 
 .mode-hint {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .download-template-btn {

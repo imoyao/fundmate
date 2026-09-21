@@ -10,7 +10,7 @@
         <div
           v-if="hasUnread"
           class="flex items-center gap-2 text-sm"
-          :style="{ color: 'var(--color-warning)' }"
+          :style="{ color: 'var(--color-warning-ink)' }"
         >
           <span>📬 你有 {{ unreadCount }} 条未读消息</span>
           <button
@@ -38,7 +38,7 @@
               <span
                 class="font-bold"
                 :style="{
-                  color: 'var(--color-rise)',
+                  color: 'var(--color-rise-ink)',
                   fontVariantNumeric: 'tabular-nums'
                 }"
                 >{{ recordDays }}</span
@@ -60,7 +60,7 @@
           <p
             :key="tickerIndex"
             class="flex items-center gap-2 text-sm"
-            :style="{ color: 'var(--text-tertiary)' }"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
           >
             <span
               class="shrink-0 font-medium"
@@ -94,7 +94,7 @@
               class="p-2 rounded-full transition-all shadow-sm hover-card-btn"
               :style="{
                 backgroundColor: 'var(--bg-soft)',
-                color: 'var(--text-tertiary)'
+                color: 'var(--text-tertiary-ink)'
               }"
               title="查看资产详情"
             >
@@ -110,7 +110,7 @@
               <div>
                 <p
                   class="text-sm mb-2"
-                  :style="{ color: 'var(--text-tertiary)' }"
+                  :style="{ color: 'var(--text-tertiary-ink)' }"
                 >
                   家庭总资产
                 </p>
@@ -131,7 +131,7 @@
                 <div class="flex flex-col">
                   <span
                     class="text-xs mb-1"
-                    :style="{ color: 'var(--text-tertiary)' }"
+                    :style="{ color: 'var(--text-tertiary-ink)' }"
                     >总盈亏（人民币）</span
                   >
                   <MoneyDisplay
@@ -147,36 +147,36 @@
                 <div class="flex flex-col">
                   <span
                     class="text-xs mb-1"
-                    :style="{ color: 'var(--text-tertiary)' }"
+                    :style="{ color: 'var(--text-tertiary-ink)' }"
                     >本月资产增加</span
                   >
                   <!-- 后端暂无此口径数据，不展示编造数值 -->
                   <span
                     class="text-lg font-semibold"
-                    :style="{ color: 'var(--text-tertiary)' }"
+                    :style="{ color: 'var(--text-tertiary-ink)' }"
                     >—</span
                   >
                   <span
                     class="text-[10px] mt-1"
-                    :style="{ color: 'var(--text-tertiary)' }"
+                    :style="{ color: 'var(--text-tertiary-ink)' }"
                     >即将上线</span
                   >
                 </div>
                 <div class="flex flex-col">
                   <span
                     class="text-xs mb-1"
-                    :style="{ color: 'var(--text-tertiary)' }"
+                    :style="{ color: 'var(--text-tertiary-ink)' }"
                     >本月负债减少</span
                   >
                   <!-- 后端暂无此口径数据，不展示编造数值 -->
                   <span
                     class="text-lg font-semibold"
-                    :style="{ color: 'var(--text-tertiary)' }"
+                    :style="{ color: 'var(--text-tertiary-ink)' }"
                     >—</span
                   >
                   <span
                     class="text-[10px] mt-1"
-                    :style="{ color: 'var(--text-tertiary)' }"
+                    :style="{ color: 'var(--text-tertiary-ink)' }"
                     >即将上线</span
                   >
                 </div>
@@ -212,7 +212,7 @@
           >
           <span
             class="text-[11px] max-w-xs"
-            :style="{ color: 'var(--text-tertiary)' }"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
           >
             接入收益历史后，在此展示累计收益与净资产随时间的走势，并支持月度 /
             季度切换。
@@ -229,7 +229,9 @@
         <CardBlock class="flex-1 flex flex-col justify-center gap-4">
           <div class="flex flex-col">
             <div class="flex items-center justify-between mb-1">
-              <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
+              <span
+                class="text-xs"
+                :style="{ color: 'var(--text-tertiary-ink)' }"
                 >年化收益率（XIRR）</span
               >
               <el-radio-group
@@ -248,7 +250,7 @@
             />
             <span
               class="text-[10px] mt-1"
-              :style="{ color: 'var(--text-tertiary)' }"
+              :style="{ color: 'var(--text-tertiary-ink)' }"
               >{{
                 includeCashEquivalents
                   ? "含货币基金/逆回购/现金，反映账户总收益"
@@ -263,7 +265,7 @@
             <div class="flex flex-col">
               <span
                 class="text-xs mb-1"
-                :style="{ color: 'var(--text-tertiary)' }"
+                :style="{ color: 'var(--text-tertiary-ink)' }"
                 >当前市值</span
               >
               <MoneyDisplay
@@ -275,7 +277,7 @@
             <div class="flex flex-col">
               <span
                 class="text-xs mb-1"
-                :style="{ color: 'var(--text-tertiary)' }"
+                :style="{ color: 'var(--text-tertiary-ink)' }"
                 >总投入</span
               >
               <MoneyDisplay
@@ -295,7 +297,7 @@
             <router-link
               to="/explore"
               class="text-sm font-medium transition-colors hover:opacity-80"
-              :style="{ color: 'var(--text-tertiary)' }"
+              :style="{ color: 'var(--text-tertiary-ink)' }"
               >探市 →</router-link
             >
           </template>
@@ -396,7 +398,7 @@
           >
           <span
             class="text-[11px] max-w-xs"
-            :style="{ color: 'var(--text-tertiary)' }"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
           >
             接入资产负债表与现金流测算后，在此展示资产负债率、预估储蓄率、财务自由度等指标。
           </span>
@@ -430,7 +432,7 @@
           <div
             v-else
             class="flex items-center justify-center py-6 text-xs"
-            :style="{ color: 'var(--text-tertiary)' }"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
           >
             数据加载中…
           </div>
@@ -623,9 +625,9 @@ const temperatureConclusion = ref("");
 
 // level → 温度语义色令牌（B3 边界：色令牌留前端，禁后端下发颜色码）
 const levelColorVar: Record<string, string> = {
-  偏低: "var(--temp-low)",
-  适中: "var(--temp-mid)",
-  偏高: "var(--temp-high)",
+  偏低: "var(--temp-low-ink)",
+  适中: "var(--temp-mid-ink)",
+  偏高: "var(--temp-high-ink)",
   未知: "var(--text-tertiary)"
 };
 const levelBgVar: Record<string, string> = {
@@ -729,7 +731,7 @@ const mentalAccounts = computed(() => {
   const toneColor: Record<string, string> = {
     safe: "var(--color-success)",
     neutral: "var(--brand-700)",
-    warning: "var(--color-warning)",
+    warning: "var(--color-warning-ink)",
     danger: "var(--color-danger)"
   };
   return parsed.map(a => ({
@@ -1015,8 +1017,10 @@ onUnmounted(() => {
 }
 
 .hover-card-btn:hover {
-  color: var(--bg-card) !important;
-  background-color: var(--brand-700) !important;
+  /* #1600：原 `--bg-card` 作文字——暗色下 --bg-card 为深色 #242120，在品牌实底上仅 3.43:1，
+     且违反 design.dark.md「禁止使用 --bg-card 作按钮文字」的编码红线；改用 --text-inverse。 */
+  color: var(--text-inverse) !important;
+  background-color: var(--brand-solid) !important;
   transform: scale(1.05);
 }
 
@@ -1039,7 +1043,7 @@ onUnmounted(() => {
   line-height: 1;
   color: var(--text-inverse);
   white-space: nowrap;
-  background-color: var(--brand-700);
+  background-color: var(--brand-solid);
   border-radius: var(--radius-pill);
   transition:
     background-color 0.2s ease,
@@ -1047,11 +1051,11 @@ onUnmounted(() => {
 }
 
 .btn-welcome-cta:hover {
-  background-color: var(--brand-800);
+  background-color: var(--brand-solid-hover);
 }
 
 .btn-welcome-cta:active {
-  background-color: var(--brand-900);
+  background-color: var(--brand-solid-active);
   transform: translateY(1px);
 }
 

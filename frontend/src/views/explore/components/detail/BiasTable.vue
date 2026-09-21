@@ -4,7 +4,9 @@
   内部复用 utils/temperatureFormat 的 biasColorClass / biasBarStyle / formatValue。
 -->
 <template>
-  <section
+  <!-- 非 embedded 时根节点换成 CardBlock：区块外壳统一由 CardBlock 提供（#1547 T3.1） -->
+  <component
+    :is="embedded ? 'section' : CardBlock"
     :class="embedded ? 'bias-section bias-section--embedded' : 'bias-section'"
   >
     <!-- embedded：由父级「行业排行」卡片统一承载标题、视图切换与更新时间 -->
@@ -124,10 +126,11 @@
     <div v-if="!items.length && !loading" class="empty-state">
       暂无乖离率数据
     </div>
-  </section>
+  </component>
 </template>
 
 <script setup lang="ts">
+import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import {
   biasBarStyle,
@@ -166,23 +169,18 @@ withDefaults(
   margin-bottom: 24px;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   box-shadow: var(--shadow-raised);
 }
 
 .bias-updated {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* embedded：外壳与标题交给父级卡片，本组件只出表格 */
 .bias-section--embedded {
-  padding: 0;
   margin: 0;
-  background: none;
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
 }
 
 .bias-stale-pill {
@@ -191,7 +189,7 @@ withDefaults(
   font-size: 11px;
   font-weight: 500;
   line-height: 1.4;
-  color: var(--color-warning, #d97706);
+  color: var(--color-warning-ink);
   white-space: nowrap;
   cursor: help;
   background: color-mix(
@@ -212,7 +210,7 @@ withDefaults(
 .empty-state {
   padding: 40px 0;
   font-size: 14px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: center;
 }
 
@@ -270,12 +268,12 @@ withDefaults(
   display: flex;
   justify-content: space-between;
   font-size: 10px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* ===== 乖离率数值颜色 ===== */
 .bias-extreme-high {
-  color: var(--temp-high);
+  color: var(--temp-high-ink);
 }
 
 .bias-high {
@@ -283,7 +281,7 @@ withDefaults(
 }
 
 .bias-extreme-low {
-  color: var(--temp-low);
+  color: var(--temp-low-ink);
 }
 
 .bias-low {

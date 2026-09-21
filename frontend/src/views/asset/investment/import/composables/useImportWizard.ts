@@ -80,26 +80,31 @@ export function useImportWizard() {
   }
 
   const fundTypeColorMap: Record<string, string> = {
-    股票型: "var(--invest-stock)",
-    混合型: "var(--invest-fund)",
-    债券型: "var(--invest-bond)",
-    货币型: "var(--tag-sage-green)",
-    指数型: "var(--invest-etf)",
-    QDII: "var(--tag-periwinkle)",
-    FOF: "var(--tag-thistle)"
+    股票型: "var(--asset-cat-stock)",
+    混合型: "var(--asset-cat-fund)",
+    债券型: "var(--asset-cat-bond)",
+    货币型: "var(--asset-cat-money-fund)",
+    指数型: "var(--asset-cat-etf)",
+    QDII: "var(--asset-cat-fund)",
+    FOF: "var(--asset-cat-portfolio)"
   };
 
   // 类型中文标签统一走后端唯一来源 frontend/src/constants/assetType（getTypeLabel），不再在此私藏副本（#1171 枚举一致性）。
 
+  // 品种 → 颜色：真相源是 `--asset-cat-*`（#1602）。此处曾用 `--palette-*` 装饰色表达品种
+  // （stock 用 muted-blue、fund 用 rose-taupe……），与 getLedgerColor 的 `--asset-cat-*` 并存，
+  // 导致「同一个股票」在导入向导是蓝灰、在自选 / 买卖表单是紫 —— 这正是 colors.css 里
+  // 「业务代码禁止再借用 --palette-* 装饰色表达品种」要拦的情形，本处属 #1604 漏改。
+  // cash / static 在 12 槽位里无同名槽位：现金取货币基金（同属现金管理工具）、static 回退中性色。
   const typeColorMap: Record<string, string> = {
-    stock: "var(--tag-muted-blue)",
-    fund: "var(--tag-rose-taupe)",
-    bond: "var(--tag-warm-sand)",
-    etf: "var(--tag-mint-green)",
-    crypto: "var(--tag-caramel)",
-    saving: "var(--tag-sage-green)",
-    cash: "var(--tag-periwinkle)",
-    static: "var(--tag-stone-gray)"
+    stock: "var(--asset-cat-stock)",
+    fund: "var(--asset-cat-fund)",
+    bond: "var(--asset-cat-bond)",
+    etf: "var(--asset-cat-etf)",
+    crypto: "var(--asset-cat-crypto)",
+    saving: "var(--asset-cat-saving)",
+    cash: "var(--asset-cat-money-fund)",
+    static: "var(--color-neutral)"
   };
 
   const ledgerTypeMap: Record<string, string> = {
@@ -848,11 +853,11 @@ export function useImportWizard() {
   }
 
   function getFundTypeColor(typeName: string): string {
-    return fundTypeColorMap[typeName] || "var(--tag-stone-gray)";
+    return fundTypeColorMap[typeName] || "var(--palette-stone-gray)";
   }
 
   function getTypeColor(type: string): string {
-    return typeColorMap[type] || "var(--tag-stone-gray)";
+    return typeColorMap[type] || "var(--palette-stone-gray)";
   }
 
   function addRowKeys(data: any[]) {
@@ -923,10 +928,10 @@ export function useImportWizard() {
     if (!ledger) return;
     const key = getTemplateKeyForLedger(ledger);
     const urlMap: Record<string, string> = {
-      standard_fund: "/api/importers/template/fund",
-      standard_stock: "/api/importers/template/stock"
+      standard_fund: "/api/importers/template/fund/",
+      standard_stock: "/api/importers/template/stock/"
     };
-    const url = urlMap[key] || "/api/importers/template/standard";
+    const url = urlMap[key] || "/api/importers/template/standard/";
     downloadLoading.value = true;
     window.open(url);
     setTimeout(() => (downloadLoading.value = false), 1500);

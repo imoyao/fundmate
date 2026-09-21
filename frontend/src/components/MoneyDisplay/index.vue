@@ -252,12 +252,12 @@ const currencySymbol = computed(() => {
 
 /* ===== 颜色语义 ===== */
 .money-display.is-rise {
-  color: var(--color-rise, #e34f38);
+  color: var(--color-rise-ink, #c0341f);
 }
 
 /* ===== 跌（绿） ===== */
 .money-display.is-fall {
-  color: var(--color-fall, #7bc49a);
+  color: var(--color-fall-ink, #287d51);
 }
 
 /* ===== 零值 ===== */
@@ -272,10 +272,10 @@ const currencySymbol = computed(() => {
 
 /* ===== 暗色模式适配 ===== */
 [data-theme="dark"] .money-display.is-rise {
-  color: var(--color-rise, #d45a44);
+  color: var(--color-rise-ink, #ef8a78);
 }
 
 [data-theme="dark"] .money-display.is-fall {
-  color: var(--color-fall, #5daf85);
+  color: var(--color-fall-ink, #8fd4ad);
 }
 </style>

@@ -250,17 +250,17 @@ const autoFixableCount = computed(() => {
 }
 
 .bf-hint--warn {
-  color: var(--color-warning);
+  color: var(--color-warning-ink);
 }
 
 .bf-hint--ok {
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .bf-empty {
   margin: 0;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .batch-fix-detail {
@@ -306,7 +306,7 @@ const autoFixableCount = computed(() => {
 
 .batch-fix-desc {
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .batch-fix-actions {

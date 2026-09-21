@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""测试 #1182 每日调度：AssetSnapshotJob 注册与落账。"""
+"""测试每日调度：AssetSnapshotJob（#1182）与 PositionPriceSyncJob（#1104）的注册与落账。"""
 
 from app.domains.ledgers.models import Ledger
 from app.domains.summary.models import AssetSnapshot
@@ -12,6 +12,19 @@ class TestDailyScheduler:
         orch = DataSyncOrchestrator(db)
         assert 'asset_snapshot' in orch.jobs
         assert orch.jobs['asset_snapshot'].get_name() == 'asset_snapshot'
+
+    def test_position_price_job_registered(self, db):
+        """#1104：持仓现价回写必须注册，且能经编排器统一入口被调度器/CLI 触发。"""
+        orch = DataSyncOrchestrator(db)
+        assert 'position_price' in orch.jobs
+        assert orch.jobs['position_price'].get_name() == 'position_price'
+
+    def test_run_position_price_success_on_empty_db(self, db):
+        """空库无持仓 → 幂等 no-op，返回 success（不报错、不抛异常）。"""
+        orch = DataSyncOrchestrator(db)
+        result = orch.run_job('position_price')
+        assert result['status'] == 'success'
+        assert result['stats']['total'] == 0
 
     def test_run_asset_snapshot_success_on_empty_db(self, db):
         """空库无 family → 幂等 no-op，仍返回 success（不报错、不抛异常）。"""

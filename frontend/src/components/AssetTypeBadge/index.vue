@@ -35,9 +35,17 @@ const displayLabel = computed(() => {
 
 const baseColor = computed(() => getLedgerColor(props.type));
 
+/** 同色相透明底。
+ *  ⚠️ #1602 修复：原实现是 `baseColor.value + "20"` 拼字符串 —— 当 getLedgerColor
+ *  改为返回 `var(--x)` 后，拼出的是 `var(--x)20`，**不是合法 CSS 值**，整条
+ *  backgroundColor 声明被浏览器静默丢弃（徽章背景一直是透明的，无人发现）。
+ *  改用 color-mix 表达透明度，对 `var()` 与字面色值都成立。 */
+const tint = (pct: number) =>
+  `color-mix(in srgb, ${baseColor.value} ${pct}%, transparent)`;
+
 // tag 模式：稍深一点的背景，更有存在感
 const tagStyle = computed(() => ({
-  backgroundColor: baseColor.value + "20", // 约 12.5% 透明度
+  backgroundColor: tint(12.5),
   color: baseColor.value,
   border: "none",
   lineHeight: "1.4"
@@ -45,7 +53,7 @@ const tagStyle = computed(() => ({
 
 // light 模式：极浅背景，轻盈通透
 const lightStyle = computed(() => ({
-  backgroundColor: baseColor.value + "18", // 约 9% 透明度
+  backgroundColor: tint(9),
   color: baseColor.value,
   border: "none",
   lineHeight: "1.4"

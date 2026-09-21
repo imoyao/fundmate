@@ -1,4 +1,5 @@
 // src/composables/echarts/theme.ts
+import { ref, type Ref } from "vue";
 /**
  * ECharts 取色工具。
  * 设计红线（见 frontend/design.md）：图表颜色一律走 CSS 语义变量，禁止硬编码 hex。
@@ -47,4 +48,35 @@ export function getChartPalette(): string[] {
     "--chart-07",
     "--chart-08"
   ].map(token => getCssVar(token));
+}
+
+/**
+ * 主题切换响应式信号（#976 ECharts 暗色重绘治本）。
+ *
+ * 问题：图表颜色经 getCssVar 命令式读取。vue-echarts 的 `chartOption`(computed) 与
+ * useEchartsLifecycle 的 setOption 都不建立 Vue 响应式依赖——切暗色后 CSS 变量已变，
+ * 但 computed 不重算、composable 不重绘，图表停留在旧主题配色。
+ *
+ * 解：模块级单例 MutationObserver 监听 documentElement 的 `class` / `data-theme` 变化，
+ * 变化时 themeTick +1；图表 computed / watch 读取 themeTick 即触发重绘。全站只注册一个 observer。
+ */
+export const themeTick = ref(0);
+
+let observerStarted = false;
+function startThemeObserver() {
+  if (observerStarted || typeof window === "undefined") return;
+  observerStarted = true;
+  const handler = () => {
+    themeTick.value++;
+  };
+  new MutationObserver(handler).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["class", "data-theme"]
+  });
+}
+
+/** 组件内调用：确保 observer 已启动，返回 themeTick 供 computed / watch 建立依赖。 */
+export function useThemeTick(): Ref<number> {
+  startThemeObserver();
+  return themeTick;
 }

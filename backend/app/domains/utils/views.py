@@ -102,6 +102,7 @@ def get_enums():
     from app.core.asset_types import (
         ASSET_CATEGORY_LABELS,
         ASSET_TYPE_LABELS,
+        ASSET_TYPE_VALUES,
         INVESTMENT_MINOR_CATEGORIES,
     )
     from app.core.constants import MARKET_LABELS, OP_TYPE_LABEL, POSITION_SOURCE_LABELS
@@ -111,6 +112,8 @@ def get_enums():
             'data': {
                 'position_source': POSITION_SOURCE_LABELS,
                 'asset_type': ASSET_TYPE_LABELS,
+                # #1527：合法取值集合（与标签映射同源），供前端共用、做运行时校验
+                'asset_type_values': sorted(ASSET_TYPE_VALUES),
                 'asset_category': ASSET_CATEGORY_LABELS,
                 # #1354：投资理财下的细分子类（写 minor_category），前端禁止再建平级大类
                 'investment_minor': INVESTMENT_MINOR_CATEGORIES,

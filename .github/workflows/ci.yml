@@ -11,8 +11,10 @@
 #   必须配 branch protection；而 protection 仅在仓库为 public（或账户为付费计划）时可用，
 #   切回 private 后会失效（届时门禁退回「可见但不阻止」，须人工把关，见 AGENTS.md 项目概述）。
 #
-# 注意：后端依赖走阿里云镜像且含 gitee 上的 xalpha，海外 runner 安装可能偏慢；
-#       若 install 超时，可将 PDM 源改为官方 PyPI 提速（不影响本项目配置）。
+# 依赖源（#1628）：本地走阿里云镜像（backend/pyproject.toml 声明，国内快，勿动）；
+#   GitHub runner 在海外，拉阿里云 wheel 实测仅 0.08 MB/s（同一 runner 拉官方 PyPI 为
+#   81.99 MB/s，差约 1000 倍），冷启动会把「安装依赖」拖到 20+ 分钟并撞下方 30 分钟 job 上限。
+#   故 CI 在安装前显式切为官方 PyPI——本机不受影响。
 
 name: 质量门禁 CI
 
@@ -63,6 +65,8 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
+    # 防 pytest 偶发 hang 卡满 GitHub 默认 6h 兜底：单进程后端测试正常 ~19min，给 30min 余量（#1596 排查 CI 卡死）
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: backend
@@ -93,6 +97,31 @@ jobs:
             pdm-${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-
             pdm-${{ runner.os }}-
 
+      # 依赖源按环境切换（#1628）：pyproject.toml 声明的阿里云镜像只适合国内本机；
+      # 海外 runner 必须走官方 PyPI（实测 81.99 MB/s vs 0.08 MB/s）。
+      # 已实测 PDM 2.26/2.29 下 [[tool.pdm.source]] 优先于 PDM_PYPI_URL 环境变量
+      # （项目源写成必败地址后仍报 ECONNREFUSED），故只能改写工作区文件，不能用 env 覆盖。
+      # 命中数 != 1 时直接失败——宁可红，也不要静默回退到慢源（此前正是这样拖到 24 分钟）。
+      - name: 切换依赖源为官方 PyPI（海外 runner）
+        run: |
+          python - <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          path = pathlib.Path('pyproject.toml')
+          text = path.read_text(encoding='utf-8')
+          text, hits = re.subn(
+              r'url = "https://mirrors\.aliyun\.com/pypi/simple/?"',
+              'url = "https://pypi.org/simple/"',
+              text,
+          )
+          if hits != 1:
+              sys.exit(f'[FAIL] 期望命中 1 处阿里云源声明，实际 {hits} 处——pyproject 源配置已变更，请同步本步骤（#1628）')
+          path.write_text(text, encoding='utf-8')
+          print('[OK] 依赖源已切换为 https://pypi.org/simple/')
+          PY
+
       # dev 组含 ruff / pytest / invoke 等
       - name: 安装依赖
         env:
@@ -114,9 +143,52 @@ jobs:
       - name: 守卫:禁止 @bp.input 自动范式
         run: python ../scripts/forbid_bp_input.py
 
+      # 守卫：错误响应三字段信封（#1610）——视图内自建错误响应必须带 error_code。
+      # 不新增 job（同 layout_guard 的教训）：不新增 job 就不必改 gate.needs
+      - name: 守卫:错误信封 error_code
+        run: python ../scripts/guard_error_envelope.py
+
+      # 守卫：API 约定（#1611）——尾斜杠（含明文豁免清单）+ api.md 全量端点段一致性。
+      # 零依赖 AST，可直接用裸 python 跑（不 import app）
+      - name: 守卫:API 约定（尾斜杠 + api.md）
+        run: python ../scripts/check_api_conventions.py
+
+      # 守卫：后端分层依赖方向（#1607：core ← domains ← services ← domains.views）。
+      # 不新增 job（同 layout_guard 的教训）：不新增 job 就不必改 gate.needs，
+      # 少动一次少一次「合并冲突把 needs 弄丢」的风险。
+      - name: 守卫:分层依赖方向
+        run: python ../scripts/guard_layer_direction.py
+
+      # 守卫：视图层厚度（#1606：视图只做 HTTP 编排，业务规则与事务下沉 services）。
+      # 同样并入本 job 而不新增 job——不新增 job 就不必改 gate.needs。
+      - name: 守卫:视图层厚度
+        run: python ../scripts/check_view_thickness.py
+
       # 单进程（避 OOM），排除需联网的 slow 测试
       - name: 运行测试
         run: pdm run python -m pytest -p no:xdist -m "not slow"
+
+  # 布局宽度守卫（#1506）：容器宽度曾有 1280px / 1400px 两套硬编码散落 13+ 个文件，
+  # 导致页头 / 页脚与内容区左右边缘错开。已收口为 --layout-* 令牌，本 job 防止再次写死。
+  # 断点守卫（#1571）并入本 job 而非另起 job：两者同属「布局宽度」一类，
+  # 且**不新增 job 就不必改动下面 gate 的 needs 列表**——#1559 / #1560 两次事故
+  # 都是合并冲突把 gate.needs 里的 job 弄丢，少动一次就少一次风险。
+  layout_guard:
+    name: 布局宽度守卫 (layout-width)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: 扫描容器宽度字面量
+        run: python scripts/guard_layout_widths.py
+
+      - name: 扫描裸断点媒体查询
+        run: python scripts/guard_breakpoints.py
 
   # 乱码守卫（mojibake）：防止任何绕过本地 pre-commit 钩子的提交（--no-verify、
   # 或经 gh api / MCP 直推导致本地钩子不执行）把 GBK 乱码合进 PR。
@@ -205,8 +277,10 @@ jobs:
       # 检查模式（不带 --fix），有问题即失败，确保门禁有效
       - name: Lint 检查
         run: |
-          pnpm exec eslint "{src,mock,build}/**/*.{vue,js,ts,tsx}" --max-warnings 0
-          pnpm exec prettier --check "src/**/*.{js,ts,json,tsx,css,scss,vue,html}"
+          # e2e / playwright.config.ts 也纳入（#1568）：E2E 用例不进 per-PR 门禁地跑，
+          # 但**静态检查必须进**——否则那批文件会成为唯一无人检查的角落。
+          pnpm exec eslint "{src,mock,build,e2e}/**/*.{vue,js,ts,tsx}" "playwright.config.ts" --max-warnings 0
+          pnpm exec prettier --check "src/**/*.{js,ts,json,tsx,css,scss,vue,html}" "e2e/**/*.ts" "playwright.config.ts"
           pnpm exec stylelint "**/*.{html,vue,css,scss}" --cache-location node_modules/.cache/stylelint/
 
       # 页面规模门禁（#980 治本项）：扫描 .vue 文件行数，超出阈值报告。
@@ -250,10 +324,68 @@ jobs:
       - name: 校验 4 条安全 override 在锁中真实生效
         run: node scripts/check_pnpm_overrides.mjs
 
+  # 缓存目录单一真相源守卫（#1540 治本项）：把「新增未经 resolve_cache_file_dir() /
+  # resolve_cache_subdir() 路由的硬编码缓存目录」变成显式红灯，杜绝 #1531 → #1537 → #1539 →
+  # #1540 连犯四次的回潮。纯 AST + 标准库扫描 backend/app，秒级、零依赖，故轻到可常开。
+  cache_dir_guard:
+    name: 守卫:缓存目录单一真相源
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: 校验无未经路由的硬编码缓存目录
+        run: python scripts/guard_cache_dir.py
+
+  # CSS 令牌守卫（#1545 T1.4）：把「被 var() 引用、源码里却没定义」的幽灵令牌
+  # 变成显式红灯。背景：--bg-subtle 曾被 6 处引用却全仓零定义，导致
+  # `color-mix(..., var(--bg-subtle))` 整条声明静默失效（市场机会卡只剩左边框有颜色），
+  # 而构建 / 类型检查 / lint 全绿——没有任何机制能发现。本守卫冻结存量基线、拦截新增。
+  # 纯 Node 静态扫描 frontend/src，零依赖、秒级，故轻到可常开。
+  css_token_guard:
+    name: 守卫:CSS 令牌引用定义一致
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: 设置 Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+
+      - name: 校验无幽灵令牌（引用但未定义）
+        run: node scripts/check_css_vars.mjs
+
+  # 守卫脚本单测（#1584）：`scripts/ai_review_verify_guard.js` 被 ai-review workflow **直接驱动**，
+  # 且它同时决定「本轮审查算不算真产出（否则 core.setFailed → job 红）」「要不要清理协议信封泄漏评论」
+  # 「生成标记幻觉计数」——写错就是把 job 带红或带绿（假红灯 / 假绿），故给它一份回归网。
+  # 零新依赖（只用 Node 内置 node:test / node:assert），纯离线 mock，无需 LLM 额度。
+  scripts_test:
+    name: 守卫:脚本单测 (scripts)
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: 设置 Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+
+      # 引号是必须的：bash 不展开双引号内的 glob，交给 Node 自己的测试发现（跨平台一致）
+      - name: 跑 scripts/ 下的守卫脚本单测
+        run: node --test "scripts/tests/*.test.js"
+
   gate:
     name: 质量门禁汇总
     if: ${{ always() && github.event_name == 'pull_request' }}
-    needs: [changes, backend, frontend, mojibake_guard, pnpm_overrides_guard]
+    needs: [changes, backend, frontend, mojibake_guard, pnpm_overrides_guard, cache_dir_guard, css_token_guard, layout_guard, scripts_test]
     runs-on: ubuntu-latest
     steps:
       - name: 汇总各 job 结论（失败 / 取消 → 不通过）

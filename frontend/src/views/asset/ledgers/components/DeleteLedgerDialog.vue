@@ -13,7 +13,7 @@
     <el-checkbox v-model="deletePositions" class="mb-2">
       同时删除该账户下的全部持仓（共 {{ positionCount }} 项）
     </el-checkbox>
-    <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+    <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
       不勾选时无法删除：账户仍持有持仓或资产时会被拒绝。请先迁移持仓/资产，或勾选上方「同时删除」（勾选后持仓与交易记录将一并删除，此操作不可恢复）。
     </p>
     <template #footer>

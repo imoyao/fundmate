@@ -10,7 +10,7 @@
     <div
       v-if="loading"
       class="text-center py-20"
-      style="color: var(--text-tertiary)"
+      style="color: var(--text-tertiary-ink)"
     >
       <p>加载中...</p>
     </div>
@@ -22,7 +22,7 @@
           <h2 class="text-2xl font-bold" style="color: var(--text-primary)">
             {{ portfolio.name }}
           </h2>
-          <p class="text-sm mt-1" style="color: var(--text-tertiary)">
+          <p class="text-sm mt-1" style="color: var(--text-tertiary-ink)">
             {{ portfolio.purpose || "未设定投资目的" }}
           </p>
         </div>
@@ -172,7 +172,7 @@
               >
                 {{ positionSourceLabel(row.source) }}
               </el-tag>
-              <span v-else style="color: var(--text-tertiary)">—</span>
+              <span v-else style="color: var(--text-tertiary-ink)">—</span>
             </template>
           </el-table-column>
           <el-table-column label="所属账户" width="120">
@@ -223,7 +223,7 @@
               >
                 {{ positionSourceLabel(row.source) }}
               </el-tag>
-              <span v-else style="color: var(--text-tertiary)">—</span>
+              <span v-else style="color: var(--text-tertiary-ink)">—</span>
             </template>
           </el-table-column>
           <el-table-column label="市值" width="130" align="right">
@@ -583,7 +583,7 @@ onMounted(async () => {
 
 .xirr-label {
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .xirr-value {
@@ -599,15 +599,15 @@ onMounted(async () => {
 }
 
 .xirr-empty {
-  padding: var(--space-4);
-  color: var(--text-tertiary);
+  padding: var(--space-compact);
+  color: var(--text-tertiary-ink);
   text-align: center;
 }
 
 /* 空状态 */
 .table-empty {
-  padding: var(--space-6);
-  color: var(--text-tertiary);
+  padding: var(--space-standard);
+  color: var(--text-tertiary-ink);
   text-align: center;
 }
 </style>

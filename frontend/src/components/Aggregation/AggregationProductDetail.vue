@@ -414,7 +414,7 @@ function fmtShort(d: string | null): string {
   margin-top: 4px;
   font-family: var(--font-mono);
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* ── 大数字锚点 ── */
@@ -455,7 +455,7 @@ function fmtShort(d: string | null): string {
   margin: 8px 0 0;
   font-size: 12px;
   line-height: 1.6;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .preview-block {
@@ -509,13 +509,13 @@ function fmtShort(d: string | null): string {
   font-family: var(--font-mono);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .edit-actions {
   display: flex;
   gap: 8px;
-  margin-top: var(--space-4, 16px);
+  margin-top: var(--space-compact);
 }
 
 /* ── 资金进出提示（#1217）── */
@@ -524,10 +524,10 @@ function fmtShort(d: string | null): string {
   gap: 8px;
   align-items: flex-start;
   padding: var(--space-3, 12px);
-  margin-top: var(--space-4, 16px);
+  margin-top: var(--space-compact);
   font-size: 12px;
   line-height: 1.7;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-soft, var(--bg-page));
   border-radius: var(--radius-md);
 }
@@ -548,7 +548,7 @@ function fmtShort(d: string | null): string {
 .info-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-4, 16px);
+  gap: var(--space-compact);
   padding: var(--space-5, 24px) 0;
   border-bottom: 1px solid var(--border-light);
 }
@@ -561,7 +561,7 @@ function fmtShort(d: string | null): string {
 
 .cell-label {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .cell-value {
@@ -604,7 +604,7 @@ function fmtShort(d: string | null): string {
 /* 机构别名：辅助提示，弱化显示 */
 .meta-alias {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .meta-link {
@@ -624,7 +624,7 @@ function fmtShort(d: string | null): string {
 
 /* ── 分渠道持仓详情 ── */
 .channel-section {
-  margin-top: var(--space-4, 16px);
+  margin-top: var(--space-compact);
 }
 
 .section-title {
@@ -696,7 +696,7 @@ function fmtShort(d: string | null): string {
   padding: 2px 8px;
   margin-left: auto;
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-card);
   border-radius: var(--radius-sm);
 }
@@ -720,7 +720,7 @@ function fmtShort(d: string | null): string {
   /* 不再加 border-top：上方 .info-grid 已有 border-bottom，
      重复加会呈现「两条分割线」的观感 */
   padding-top: var(--space-2, 8px);
-  margin-top: var(--space-4, 16px);
+  margin-top: var(--space-compact);
 }
 
 /* ── 免责声明 ── */
@@ -729,10 +729,10 @@ function fmtShort(d: string | null): string {
   gap: 6px;
   align-items: flex-start;
   padding: var(--space-3, 12px);
-  margin-top: var(--space-6, 28px);
+  margin-top: var(--space-6);
   font-size: 11px;
   line-height: 1.7;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-soft, var(--bg-page));
   border-radius: var(--radius-md);
 }

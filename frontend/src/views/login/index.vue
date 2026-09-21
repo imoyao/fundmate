@@ -218,7 +218,7 @@
 
           <!-- GitHub 登录（跨子域 SSO 共用同一 Supabase 项目） -->
           <el-divider v-if="!isRegisterMode" class="login-divider">
-            <span class="text-xs" style="color: var(--text-tertiary)"
+            <span class="text-xs" style="color: var(--text-tertiary-ink)"
               >其他登录方式</span
             >
           </el-divider>
@@ -247,7 +247,7 @@
 
           <!-- 登录提示 -->
           <div v-if="!isRegisterMode" class="login-hint mt-3">
-            <span class="text-xs" style="color: var(--text-tertiary)">
+            <span class="text-xs" style="color: var(--text-tertiary-ink)">
               使用邮箱或用户名登录
             </span>
           </div>
@@ -613,6 +613,8 @@ useEventListener(document, "keydown", ({ code }) => {
 </script>
 
 <style lang="scss" scoped>
+@use "@/style/breakpoints" as bp;
+
 /* 背景角度注册为可插值属性（Chrome/Safari 111+；不支持时渐变按 135deg 静态显示，安全降级） */
 @property --bg-angle {
   syntax: "<angle>";
@@ -687,48 +689,6 @@ useEventListener(document, "keydown", ({ code }) => {
   50% {
     opacity: var(--nautilus-opacity-max, 0.12);
     transform: translate(-50%, -50%) scale(1.03) rotate(2deg);
-  }
-}
-
-/* 移动端：品牌区仅剩 logo+名称，插画进一步压淡（防御性，<969px 时 aside 已隐藏） */
-@media (width <= 768px) {
-  .login-brand-bg {
-    opacity: 0.04;
-  }
-}
-
-/* ---------- 响应式 ---------- */
-@media (width <= 968px) {
-  /* 移动端表单卡片回归"页面本体"，去掉卡片化包装 */
-  .login-form {
-    padding: 0;
-    background: transparent;
-    border: none;
-    box-shadow: none;
-  }
-}
-
-@media (width <= 480px) {
-  .privacy-policy-wrapper {
-    align-items: flex-start;
-
-    .privacy-checkbox {
-      margin-top: 2px;
-    }
-
-    .privacy-text {
-      font-size: 13px;
-    }
-  }
-}
-
-/* 动效偏好：减弱动态 */
-@media (prefers-reduced-motion: reduce) {
-  .login-ripple,
-  .coral-curve,
-  .login-page,
-  .login-brand-bg {
-    animation: none;
   }
 }
 
@@ -825,7 +785,7 @@ useEventListener(document, "keydown", ({ code }) => {
 }
 
 .login-wordmark-sub {
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .login-slogan {
@@ -847,7 +807,7 @@ useEventListener(document, "keydown", ({ code }) => {
 }
 
 .login-tagline {
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   letter-spacing: 0.04em;
 }
 
@@ -971,7 +931,7 @@ useEventListener(document, "keydown", ({ code }) => {
      直接沿用会糊成一团；暗色下改用"深灰底 + 品牌色低透明度光晕"，
      品牌色饱和度已由 dark.scss 降 20%（--brand-700 → #d45a44）。
    - 低透明度光晕用 color-mix(in srgb, var(--brand-700) x%, transparent)
-     实现（等价于 rgba(var(--brand-700-rgb), x) 手法，项目无 -rgb 变量；
+     实现（等价于 rgba(品牌主色-rgb, x) 手法，项目无 -rgb 变量；
      需 Chrome 111+，与 design.dark.md 接受的 hsl(from) 现代语法同级）。
    - 发光仅用于静止/呼吸装饰，遵守 design.dark.md「禁止动画循环中发光」
      性能红线——涟漪/光环用低透明度边框与扩散环表达，不用 box-shadow 辉光。
@@ -1112,4 +1072,54 @@ useEventListener(document, "keydown", ({ code }) => {
    - 本块只负责视觉表现与微调；色值一律取自 design.md 既有令牌
      （--brand-* / --bg-* / --text-* / --border-* / --radius-* / --shadow-* 等）
    ===================================================================== */
+
+/* ============ 响应式 ============
+   ⚠️ 以下四块原先都排在各自的基础声明**之前**——媒体查询不改变特异性，覆盖被后面
+   同选择器的声明压掉、**从未生效**（2026-09-18 修复，见 #1576 同类台账）。 */
+
+/* 移动端：品牌区仅剩 logo+名称，插画进一步压淡（防御性，<969px 时 aside 已隐藏） */
+@include bp.below("md") {
+  .login-brand-bg {
+    opacity: 0.04;
+  }
+}
+
+/* 移动端表单卡片回归「页面本体」，去掉卡片化包装。
+   阈值保持 968px：它与模板里的 `max-[968px]:` / `min-[969px]:` 是**成对**的，
+   改走 Tailwind 档会让 SCSS 与 class 分叉（那正是 #1571 要避免的事）。 */
+@media (width <= 968px) /* breakpoint-allow: 与模板 max-[968px] 配对 */ {
+  /* 说明（已上移到 @media 同行）：与模板任意值断点 max-[968px] 配对 */
+  .login-form {
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+  }
+}
+
+/* 窄屏隐私区（内容级阈值，与页面布局断点不同轴） */
+@media (width <= 480px) /* breakpoint-allow: 隐私区内容级阈值 */ {
+  /* 说明（已上移到 @media 同行）：隐私文案的字号/对齐属内容级阈值 */
+  .privacy-policy-wrapper {
+    align-items: flex-start;
+
+    .privacy-checkbox {
+      margin-top: 2px;
+    }
+
+    .privacy-text {
+      font-size: 13px;
+    }
+  }
+}
+
+/* 动效偏好：减弱动态 */
+@media (prefers-reduced-motion: reduce) {
+  .login-ripple,
+  .coral-curve,
+  .login-page,
+  .login-brand-bg {
+    animation: none;
+  }
+}
 </style>

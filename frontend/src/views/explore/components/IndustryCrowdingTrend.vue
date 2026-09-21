@@ -51,7 +51,7 @@ import {
   getCrowdingHistory,
   type CrowdingHistoryResponse
 } from "@/api/temperature";
-import { getCssVar } from "@/composables/echarts/theme";
+import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
 
 defineOptions({ name: "IndustryCrowdingTrend" });
 
@@ -144,7 +144,9 @@ const LINE_TOKENS = [
   "--temp-mid"
 ];
 
+const themeTick = useThemeTick();
 const chartOption = computed(() => {
+  void themeTick.value; // 主题切换时重算 option，触发 vue-echarts 重绘（#976）
   const dates = history.value?.dates || [];
   const series = trendSeries.value;
   const lineColors = LINE_TOKENS.map(t => getCssVar(t, "#e34f38"));

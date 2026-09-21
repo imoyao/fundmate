@@ -38,7 +38,7 @@ def _current_user_id() -> int:
     return user.id
 
 
-@usage_bp.get('/<feature>')
+@usage_bp.get('/<feature>/', strict_slashes=False)
 def get_usage(feature: str):
     """查询某功能当日用量（used/quota/remaining/重置时间）.
 

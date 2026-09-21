@@ -1,6 +1,6 @@
 import { http } from "@/utils/http";
 
-/** 当前登录用户信息（含角色与所属家庭），与后端 `GET /api/auth/me` 契约 */
+/** 当前登录用户信息（含角色与所属家庭），与后端 `GET /api/auth/me/` 契约 */
 export type MeResult = {
   data: {
     id: number;
@@ -21,14 +21,14 @@ export type MeResult = {
 
 /** 获取当前登录用户信息 */
 export const getMe = () => {
-  return http.request<MeResult>("get", "/api/auth/me");
+  return http.request<MeResult>("get", "/api/auth/me/");
 };
 
 /** 退出登录：统一走后端接口，由后端服务端作废 Supabase 会话 */
 export const logoutApi = (supabaseToken?: string | null) => {
   return http.request<{ success: boolean }>(
     "post",
-    "/api/auth/logout",
+    "/api/auth/logout/",
     supabaseToken
       ? { headers: { Authorization: `Bearer ${supabaseToken}` } }
       : {}
@@ -42,12 +42,12 @@ export type ResolveResult = {
 };
 
 export const resolveIdentifier = (identifier: string) => {
-  return http.request<ResolveResult>("post", "/api/auth/resolve", {
+  return http.request<ResolveResult>("post", "/api/auth/resolve/", {
     data: { identifier }
   });
 };
 
-/** 个人中心资料更新（PATCH /api/users/me） */
+/** 个人中心资料更新（PATCH /api/users/me/） */
 export type ProfileUpdate = {
   username?: string;
   nickname?: string;
@@ -55,5 +55,5 @@ export type ProfileUpdate = {
 };
 
 export const updateMe = (payload: ProfileUpdate) => {
-  return http.request<MeResult>("patch", "/api/users/me", { data: payload });
+  return http.request<MeResult>("patch", "/api/users/me/", { data: payload });
 };

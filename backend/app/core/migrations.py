@@ -300,6 +300,44 @@ def migrate_advisor_portfolio_metadata(engine: Engine) -> str:
     return '[SKIP] advisor_portfolios 元数据列已存在'
 
 
+def migrate_advisor_portfolio_provenance(engine: Engine) -> str:
+    """advisor_portfolios 补「数据来历 + 平台特有字段」列（#1392 Ports & Adapters 收口）。
+
+    - ``source``：本行概览/指标最近一次写入来源（``tiantian`` / ``qieman`` / ``seed``），
+      与 ``advisor_holdings.source`` 同口径——「这行数据是谁写的」此前无处回答；
+    - ``extra``：canonical 概览覆盖不到的**平台特有字段**（JSON 原样保留），
+      新增平台不必为此加列，日后真要补列时可回填，无需重新抓取。
+
+    与 :func:`migrate_advisor_portfolio_metrics` 同源同法：SQLite / libsql 支持对「可空列」
+    直接 ALTER ADD COLUMN（无需整表重建）。幂等：列已存在则跳过。非 SQLite 引擎
+    （Supabase Postgres）由 ORM 模型 / 迁移工具负责，直接跳过，避免 init_db 误跑 SQLite 专属 SQL。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
+
+    # 空库（表还没建）直接 skip：create_all 会按新模型建表，此处不该替它兜底
+    if 'advisor_portfolios' not in inspect(engine).get_table_names():
+        return '[SKIP] advisor_portfolios 表不存在（空库，init_db 将按新模型建表）'
+
+    cols = [
+        ('source', 'VARCHAR(20)'),
+        ('extra', 'JSON'),
+    ]
+    with engine.connect() as conn:
+        existing = {c['name'] for c in inspect(engine).get_columns('advisor_portfolios')}
+        added = []
+        for name, typ in cols:
+            if name not in existing:
+                conn.execute(text(f'ALTER TABLE advisor_portfolios ADD COLUMN {name} {typ}'))
+                added.append(name)
+        conn.commit()
+    if added:
+        logger.info(f'[OK] advisor_portfolios 增加列: {added}')
+        return f'[OK] 增加列 {added}'
+    return '[SKIP] advisor_portfolios 来历列已存在'
+
+
 def migrate_channel_link_indexes(engine: Engine) -> str:
     """channel_links 补 to_symbol 索引（#1491 评审）。
 

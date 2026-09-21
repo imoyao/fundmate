@@ -14,7 +14,7 @@
           {{ positionData?.name || "--" }}
         </h3>
         <div class="flex items-center gap-2 mt-1">
-          <span class="text-sm" :style="{ color: 'var(--text-tertiary)' }"
+          <span class="text-sm" :style="{ color: 'var(--text-tertiary-ink)' }"
             ># {{ positionData?.symbol || "--" }}</span
           >
           <el-tag size="small" type="info" round>{{
@@ -31,7 +31,7 @@
         class="p-3 rounded-lg border"
         :style="{ borderColor: 'var(--border-default)' }"
       >
-        <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+        <div class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
           {{ isFund ? "持有份额" : "持有数量" }}
         </div>
         <div
@@ -41,7 +41,7 @@
           {{ Number(positionData?.quantity ?? 0).toLocaleString() }}
           <span
             class="text-sm font-normal"
-            :style="{ color: 'var(--text-tertiary)' }"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
           >
             {{ isFund ? "份" : "股/张" }}
           </span>
@@ -53,7 +53,7 @@
         class="p-3 rounded-lg border"
         :style="{ borderColor: 'var(--border-default)' }"
       >
-        <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+        <div class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
           持仓成本
         </div>
         <div
@@ -69,7 +69,7 @@
           />
           <span
             class="text-sm font-normal"
-            :style="{ color: 'var(--text-tertiary)' }"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
           >
             {{ isFund ? "元/份" : "元" }}
           </span>
@@ -81,7 +81,7 @@
         class="p-3 rounded-lg border"
         :style="{ borderColor: 'var(--border-default)' }"
       >
-        <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+        <div class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
           {{ isFund ? "最新净值" : "现价" }}
         </div>
         <div
@@ -97,7 +97,7 @@
           />
           <span
             class="text-sm font-normal"
-            :style="{ color: 'var(--text-tertiary)' }"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
           >
             {{ isFund ? "元/份" : "元" }}
           </span>
@@ -109,7 +109,7 @@
         class="p-3 rounded-lg border"
         :style="{ borderColor: 'var(--border-default)' }"
       >
-        <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+        <div class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
           市值
         </div>
         <div
@@ -130,7 +130,7 @@
         class="p-3 rounded-lg border"
         :style="{ borderColor: 'var(--border-default)' }"
       >
-        <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+        <div class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
           持仓盈亏
         </div>
         <div class="text-base font-semibold mt-1">
@@ -143,7 +143,7 @@
         class="p-3 rounded-lg border"
         :style="{ borderColor: 'var(--border-default)' }"
       >
-        <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+        <div class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
           盈亏率
         </div>
         <div
@@ -151,7 +151,7 @@
           :style="{
             color:
               (positionData?.pnl_rate ?? 0) >= 0
-                ? 'var(--color-danger)'
+                ? 'var(--color-rise)'
                 : 'var(--color-success)'
           }"
         >
@@ -170,7 +170,7 @@
         class="p-3 rounded-lg border"
         :style="{ borderColor: 'var(--border-default)' }"
       >
-        <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+        <div class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
           持有时长<span class="ml-1 opacity-60">(本轮)</span>
         </div>
         <div
@@ -184,7 +184,7 @@
         </div>
         <div
           class="text-[11px] mt-0.5"
-          :style="{ color: 'var(--text-tertiary)' }"
+          :style="{ color: 'var(--text-tertiary-ink)' }"
         >
           清仓后重新计起，不累计历史
         </div>
@@ -195,14 +195,14 @@
         class="p-3 rounded-lg border"
         :style="{ borderColor: 'var(--border-default)' }"
       >
-        <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+        <div class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
           年化收益率
         </div>
         <div class="text-base font-semibold mt-1" :style="{ color: xirrColor }">
           <span
             v-if="loadingXirr"
             class="text-sm font-normal"
-            :style="{ color: 'var(--text-tertiary)' }"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
             >计算中…</span
           >
           <span v-else-if="xirr != null">{{
@@ -220,7 +220,7 @@
     >
       <div
         class="text-xs text-center leading-relaxed"
-        :style="{ color: 'var(--text-tertiary)' }"
+        :style="{ color: 'var(--text-tertiary-ink)' }"
       >
         <IconifyIconOffline
           icon="ep:trend-charts"
@@ -239,7 +239,7 @@
           :style="{ color: 'var(--text-secondary)' }"
           >交易记录</span
         >
-        <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
+        <span class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }"
           >共 {{ transactionsTotal }} 条</span
         >
       </div>
@@ -248,7 +248,7 @@
       <div
         v-if="loadingTransactions"
         class="text-center py-8"
-        :style="{ color: 'var(--text-tertiary)' }"
+        :style="{ color: 'var(--text-tertiary-ink)' }"
       >
         <el-icon class="is-loading" :size="20"><Loading /></el-icon>
         <p class="mt-2 text-xs">加载交易记录中...</p>
@@ -272,7 +272,7 @@
               <span
                 :class="
                   row.txn_type === 'buy' || row.txn_type === 'deposit'
-                    ? 'text-[var(--color-danger)]'
+                    ? 'text-[var(--color-rise)]'
                     : 'text-[var(--color-success)]'
                 "
               >
@@ -341,7 +341,7 @@
         <div
           v-if="!loadingTransactions && transactionsList.length > 0"
           class="text-center text-xs mt-4 pb-2"
-          :style="{ color: 'var(--text-tertiary)' }"
+          :style="{ color: 'var(--text-tertiary-ink)' }"
         >
           已加载全部交易记录
         </div>
@@ -349,7 +349,7 @@
         <div
           v-if="transactionsList.length === 0"
           class="text-center py-6 text-xs"
-          :style="{ color: 'var(--text-tertiary)' }"
+          :style="{ color: 'var(--text-tertiary-ink)' }"
         >
           暂无交易记录
         </div>
@@ -410,7 +410,7 @@ const xirrColor = computed(() =>
   xirr.value == null
     ? "var(--text-primary)"
     : xirr.value >= 0
-      ? "var(--color-danger)"
+      ? "var(--color-rise)"
       : "var(--color-success)"
 );
 

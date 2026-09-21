@@ -95,12 +95,11 @@
 │   ├── .vitepress/
 │   ├── spec/               # 规范（conventions.md 冻结区）
 │   └── working-notes/      # 内部备忘（全局屏蔽，文件名须英文 kebab-case + 日期后缀）
-├── scripts/                # 根目录脚本（构建落地页、提交工具、守卫等）
+├── scripts/                # 根目录脚本（提交工具、守卫、文档/前端审计等）
 ├── site/                   # 主站共享资产（style.css, logo.svg 必须入库）
-├── landing.template.html   # 落地页模板
-├── landing.content.yml     # 落地页内容
-├── package.json            # 根目录：仅文档站与落地页依赖
-└── vercel.json             # Vercel 构建配置
+├── package.json            # 根目录：仅文档站依赖（落地页脚本已随移交移除）
+├── wrangler.toml           # Cloudflare Pages 配置（应用站备线，输出 frontend/dist）
+└── vercel.json             # Vercel 配置（应用站兜底：frontend/ 构建 + SPA 回退）
 ```
 
 **重要**：
@@ -118,7 +117,7 @@
 | 前端 | Vue 3 + TypeScript + Vite，Element Plus，pure-admin，pnpm |
 | 文档站 | VitePress（根目录 pnpm） |
 | 落地页 | 已移交主站 duoduobei-web（duoduobei.com），本仓不再构建；应用站部署目标为前端 SPA |
-| 测试 | pytest（**必须单进程**，因 xdist 多 worker 导致 OOM） |
+| 测试 | 后端 pytest（**必须单进程**，因 xdist 多 worker 导致 OOM）；前端 Playwright E2E（`pnpm test:e2e`，**不进 per-PR 门禁**，见 `docs/dev/frontend-e2e.md`） |
 | 代码检查 | Ruff（后端，120 行宽，单引号），ESLint + Prettier + Stylelint（前端） |
 | 提交钩子 | pre-commit（后端 ruff），husky + commitlint（前端，但因 `ignore-scripts=true` 未实际安装） |
 
@@ -136,8 +135,14 @@
   - `core/auth.py`：Supabase JWT 验签 + 白名单鉴权中间件。
   - `core/exceptions.py`：`SBException` + 统一错误信封。
   - `core/requests_patch.py`：东财 TLS 补丁（全局 `impersonate chrome`）。
+  - `core/v8_guard.py`：`py_mini_racer` 并发构造守卫（进程级锁 + 启动预热），防止 akshare
+    并发取数触发 V8 Fast Fail 硬杀后端（#1566；不要绕过它去「修」各调用点）。
 - **服务层**：
-  - `services/sync/`：双适配器（xalpha/akshare）+ 编排器。
+  - `services/sync/`：同步编排器 + 各 `SyncJob` 实现（编排/注册类）。
+  - `services/adapters/`：第三方数据适配层（xalpha / akshare / 东财直连 / 韭圈儿 / 各投顾平台）；
+    与 job 家族无关，跨家族共享（#1607 批次 3 从 `sync/adapters/` 上提）。
+  - `services/job_base.py`：任务基类 `SyncJob`（sync / thermometer / bias 共用，**不属任何家族**）。
+  - `services/import_records.py`：导入标准化记录（解析器 / `position_service` / OCR 共用）。
   - `services/thermometer/`：温度计（含全 A 中位 PB 历史基线）。
   - `services/bias/`、`importer/`、`performance/`（XIRR）。
   - `services/daily_scheduler.py`：本机常驻每日调度（进程内 APScheduler；自选/持仓净值 + 温度计，#1467）。
@@ -190,6 +195,7 @@
 | 类型检查 | `pnpm typecheck`（`tsc --noEmit && vue-tsc --noEmit --skipLibCheck`） |
 | Lint | `pnpm lint`（eslint + prettier + stylelint） |
 | 构建 | `pnpm build` |
+| E2E（前端） | `pnpm test:e2e`（Playwright；自带 dev server 端口 **8849**，不依赖后端与真实 Supabase，见 `docs/dev/frontend-e2e.md`） |
 | 提交 | husky + commitlint 强制 conventional commits（type 枚举见 `commitlint.config.js`） |
 
 > ⚠️ **升级/安装依赖后必须重启 dev server**（Issue #972）。
@@ -302,7 +308,7 @@
 
 - **文档站**：根目录执行 `pnpm run docs:dev` / `docs:build`。
 - **内部备忘**：一律放 `docs/working-notes/`（全局屏蔽），文件名必须英文 kebab-case + 日期后缀，如 `deployment-2026-08-04.md`，正文标题可用中文。新增备忘须同步登记进 `working-notes/README.md` 索引表。
-- **落地页**：`pnpm run build:landing` / `build:about` / `build:story` / `build:pages`。`vercel.json` 构建时会执行 `build:landing`。
+- **落地页**：已移交主站仓库 `duoduobei-web`（`duoduobei.com`），本仓**不再构建落地页**——四条 `build:landing/about/story/pages` 脚本与 `scripts/build-landing.mjs` 均已移除。根 `vercel.json` 现指向**应用站**（`frontend/` 构建 → `frontend/dist` + SPA 回退），Cloudflare Pages 侧见根 `wrangler.toml`，详见 `docs/ops/deployment.md` §3。
 - **Markdown lint**：`pnpm run docs:lint-md`（CI 用 `npx lint-md docs`，不带 `-f`）。
 
 ---
@@ -311,9 +317,10 @@
 
 ### API 契约
 
-- 错误统一信封：`{data, message, error_code}`。
+- 错误统一信封：`{data, message, error_code}`（**三字段**，`error_code` 取 `ErrorCode` 的 int，见 `conventions.md` §2.4；守卫 `scripts/guard_error_envelope.py`）。
 - API-First 契约冻结，禁止私改字段、状态码、分页结构。
-- 端点一律尾斜杠（**例外**：`/api/temperature/{overview,history,multi}` 无尾斜杠，前端按此调用，勿“修复”）。
+- 端点一律尾斜杠（**例外**：`/api/health` 与 `/api/temperature/{overview,history,multi,crowding-history}` 无尾斜杠，前端按此调用，勿“修复”；例外清单以 `scripts/check_api_conventions.py` 的 `NO_TRAILING_SLASH_ALLOWLIST` 为准）。
+- 全量端点清单见 `docs/spec/api.md` 的自动段（`scripts/check_api_conventions.py --write` 生成，改路由后须重跑）。
 
 ### 金额与精度
 
@@ -368,6 +375,8 @@
 
 - 后端：`pytest` 全量单进程通过。
 - 前端：`vue-tsc` 零错误（需手动运行，因 husky 未安装）。
+- 前端 E2E：**不是每次提交都要跑**，但改动**路由守卫 / 布局 / permission store / 侧边栏**时
+  必须跑 `pnpm test:e2e`（`ci.yml` 只做静态检查；E2E 由 `e2e.yml` 每夜或手动触发）。
 
 ---
 

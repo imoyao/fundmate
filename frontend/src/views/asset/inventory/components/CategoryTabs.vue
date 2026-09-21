@@ -18,7 +18,11 @@
             size="sm"
           />
         </template>
-        <span v-else class="text-sm" :style="{ color: 'var(--text-tertiary)' }">
+        <span
+          v-else
+          class="text-sm"
+          :style="{ color: 'var(--text-tertiary-ink)' }"
+        >
           无记录
         </span>
       </span>
@@ -112,6 +116,6 @@ function tabStyle(cat: InventoryCategory) {
   justify-content: center;
   margin-top: 2px;
   font-size: 16px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 </style>

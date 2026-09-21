@@ -35,12 +35,27 @@ def api_response(data=None, message='ok', total=None):
 
 
 def with_db(func):
-    """装饰器：自动注入数据库会话并返回统一格式."""
+    """装饰器：注入数据库会话，并作为**请求级 unit-of-work** 持有事务边界（#1609）。
+
+    范式（conventions §2.13 方案 A，决策 D30）：事务由视图 / 用例层持有——
+    - 正常返回 → ``commit()``（服务层只 flush，提交由本边界完成）；
+    - 抛异常 → ``rollback()`` 后**原样抛出**（由全局错误处理器生成响应），
+      确保多步写入「整体成功或整体回滚」，不残留半截数据。
+
+    服务方法 / ``BaseRepository`` 内不应再 ``commit()``：它们只 ``flush()``，
+    提交时机交由本边界（或调用方）统一决定。
+    """
 
     @wraps(func)
     def wrapper(*args, **kwargs):
         with get_db() as db:
-            return func(db, *args, **kwargs)
+            try:
+                result = func(db, *args, **kwargs)
+            except Exception:
+                db.rollback()
+                raise
+            db.commit()
+            return result
 
     return wrapper
 
@@ -99,6 +114,28 @@ def convert_readable_days(number_of_days: int) -> tuple:
 def is_sub_dict(subset_dict: dict, superset_dict: dict) -> bool:
     """判断 subset_dict 是否为 superset_dict 的子集。"""
     return all(item in superset_dict.items() for item in subset_dict.items())
+
+
+def to_float(value: object) -> Optional[float]:
+    """安全转 float；无法转换（'--' / 'N/A' / 空串 / None 等脏值）返回 ``None``。
+
+    数据源改版后数值字段常以字符串返回（如 '22.75'）或返回不可解析脏值，统一在此容错，
+    避免下游出现 ``str > int`` 之类运行时崩溃。原在 ``thermometer.constants``，
+    因 adapters 共享件与 thermometer 家族都要用而上提到 core（#1607 批次 4）。
+    """
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        s = value.strip()
+        if not s or s in ('--', 'N/A', 'NA', 'null', 'None'):
+            return None
+        try:
+            return float(s)
+        except ValueError:
+            return None
+    return None
 
 
 def show_time(func):

@@ -131,6 +131,23 @@
 
 /* 自定义菜单搜索样式 */
 .pure-search-dialog {
+  .el-dialog__header {
+    display: none;
+  }
+
+  .el-input__inner {
+    font-size: 1.2em;
+  }
+
+  /* stylelint-disable order/order --
+     本块**必须**排在下面的基础声明之后：媒体查询不改变特异性，写在前面会被 1.2em 压掉（这正是它
+     此前从未生效的原因，见 #1576 台账）。而本仓 order/order 要求 @media 排在嵌套规则之前，
+     两条规则在本处冲突，故按「级联正确优先」显式豁免，并用 enable 立即复位。 */
+
+  /* 搜索框在中等屏 / 窄屏收字号。
+     ⚠️ 这两块原先排在基础声明 `.el-input__inner { font-size: 1.2em }` **之前**——
+     媒体查询不改变特异性，12px 被 1.2em 压掉、**从未生效**（2026-09-18 修复，见 #1576 台账）。
+     阈值刻意保留（760/940/470 是本组件内的视口区间，非页面级断点）。 */
   @media screen and (width > 760px) and (width <= 940px) {
     .el-input__inner {
       font-size: 12px;
@@ -142,14 +159,7 @@
       font-size: 12px;
     }
   }
-
-  .el-dialog__header {
-    display: none;
-  }
-
-  .el-input__inner {
-    font-size: 1.2em;
-  }
+  /* stylelint-enable order/order */
 
   .el-dialog__footer {
     width: calc(100% + 32px);

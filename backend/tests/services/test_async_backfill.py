@@ -46,7 +46,7 @@ class TestBackfillStockPrice:
 
         with (
             patch('app.services.async_backfill.AkshareAdapter') as mock_adapter_class,
-            patch('app.services.async_backfill.SessionLocal') as mock_session,
+            patch('app.core.database.get_session') as mock_session,
         ):
             mock_adapter = mock_adapter_class.return_value
             mock_adapter.fetch_stock_price.return_value = mock_records
@@ -79,7 +79,7 @@ class TestBackfillStockPrice:
 
         with (
             patch('app.services.async_backfill.AkshareAdapter') as mock_adapter_class,
-            patch('app.services.async_backfill.SessionLocal') as mock_session,
+            patch('app.core.database.get_session') as mock_session,
         ):
             mock_adapter_class.return_value.fetch_stock_price.return_value = mock_records
             mock_session.return_value = db
@@ -94,7 +94,7 @@ class TestBackfillStockPrice:
         """证券不存在时静默返回，不抛异常"""
         with (
             patch('app.services.async_backfill.AkshareAdapter') as mock_adapter_class,
-            patch('app.services.async_backfill.SessionLocal') as mock_session,
+            patch('app.core.database.get_session') as mock_session,
         ):
             mock_session.return_value = db
 
@@ -110,7 +110,7 @@ class TestBackfillStockPrice:
 
         with (
             patch('app.services.async_backfill.AkshareAdapter') as mock_adapter_class,
-            patch('app.services.async_backfill.SessionLocal') as mock_session,
+            patch('app.core.database.get_session') as mock_session,
         ):
             mock_adapter_class.return_value.fetch_stock_price.return_value = []
             mock_session.return_value = db
@@ -143,7 +143,7 @@ class TestBackfillStockPrice:
 
         with (
             patch('app.services.async_backfill.AkshareAdapter') as mock_adapter_class,
-            patch('app.services.async_backfill.SessionLocal') as mock_session,
+            patch('app.core.database.get_session') as mock_session,
         ):
             mock_adapter_class.return_value.fetch_stock_price.return_value = mock_records
             mock_session.return_value = db

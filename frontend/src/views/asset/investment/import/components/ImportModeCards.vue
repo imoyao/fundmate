@@ -205,13 +205,13 @@ function onVendorLogoError(e: Event) {
   margin: 0;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .mode-cards-lock-hint {
   margin-top: 16px;
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: center;
 }
 
@@ -225,7 +225,7 @@ function onVendorLogoError(e: Event) {
 
 .vendor-label {
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .vendor-logos {

@@ -153,7 +153,7 @@ function close(): void {
 .gm-empty {
   margin: 0;
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: center;
 }
 </style>

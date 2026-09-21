@@ -16,8 +16,8 @@ from flask_cors import CORS  # noqa: E402
 from loguru import logger  # noqa: E402
 from werkzeug.exceptions import HTTPException  # noqa: E402
 
-from app.core.auth import auth_before_request  # noqa: E402
-from app.core.database import init_db  # noqa: E402
+from app.core.auth import auth_before_request, register_user_identity  # noqa: E402
+from app.core.database import init_db, teardown_request_session  # noqa: E402
 from app.core.exceptions import ErrorCode, SBException  # noqa: E402
 from app.domains.assets.views import bp as assets_bp  # noqa: E402
 from app.domains.auth.views import auth_bp  # noqa: E402
@@ -41,9 +41,12 @@ from app.domains.summary.views import bp as summary_bp  # noqa: E402
 from app.domains.temperature.views import thermometer_bp  # noqa: E402
 from app.domains.transactions.views import bp as transactions_bp  # noqa: E402
 from app.domains.usage.views import usage_bp  # noqa: E402
+from app.domains.users.identity import UserIdentity  # noqa: E402
+from app.domains.users.seed import seed_default_identity  # noqa: E402
 from app.domains.users.views import users_bp  # noqa: E402
 from app.domains.utils.views import utils_bp  # noqa: E402
 from app.domains.watchlist.views import watchlist_bp  # noqa: E402
+from app.models.sync_log import SyncLog  # noqa: F401, E402  # 确保 sync_logs 表随 init_db 建表
 from app.services.daily_scheduler import start_daily_scheduler  # noqa: E402
 
 
@@ -93,12 +96,21 @@ def create_app() -> APIFlask:
     app.register_blueprint(reconciliation_bp)
     app.register_blueprint(usage_bp)
 
+    # 依赖注入（#1607）：core 不 import 领域层，用户身份读写（查用户 / JIT 建号 / 邮箱回写）
+    # 实现在 domains.users.identity，由本组合根注入；漏注入时鉴权中间件会显式报错而非静默放行。
+    register_user_identity(UserIdentity)
+
     # 鉴权中间件（D2/D4）：白名单外的所有请求需登录，身份注入 g 上下文
     app.before_request(auth_before_request)
 
-    # 初始化数据库
+    # 请求级会话收尾兜底（#1632）：`get_db()` 最外层通常已提交/关闭，
+    # 这里兜底清理异常路径残留的请求级会话，避免连接泄漏。
+    app.teardown_request(teardown_request_session)
+
+    # 初始化数据库：core 只建表结构，默认家庭/用户属 user 域业务数据，由域侧播种（#1607）
     with app.app_context():
         init_db()
+        seed_default_identity()
 
     # 本机每日数据抓取（#1467）：自选/持仓净值 + 温度计，进程内按 cron 触发。
     # 仅在 SCHEDULER_ENABLED 打开、且当前不是测试/CI/重载父进程时启动；启动失败只记

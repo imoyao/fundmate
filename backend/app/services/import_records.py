@@ -1,10 +1,17 @@
 # -*- coding: utf-8 -*-
 # Author : imoyao
 # Date : 2026/5/31 23:30
-# File : records.py
+# File : import_records.py（原 services/importer/records.py，2026-09-19 上提，#1607 批次 3）
 # -*- coding: utf-8 -*-
 """
 导入系统的标准化数据模型。
+
+为什么在 services 顶层，而不是 `services/importer/`（#1607 批次 3）：
+`StandardTransactionRecord` / `compute_position_hash` 被**导入家族之外**的模块共用
+（`services/position_service`、`domains/ocr/views`、`services/sync/jobs/dividend_split_job`），
+原先放在 importer 包内，等于让这些调用方"反向依赖导入家族"（包级双向依赖的成因之一）。
+约定：**跨家族共享件放 `services/` 顶层，家族包内只留该家族独有实现**
+（决策见 `docs/spec/decisions.md` 2026-09-19 D26、`architecture.md` §6）。
 
 StandardTransactionRecord 是所有解析器的输出格式，
 ImportError 是标准化错误记录。

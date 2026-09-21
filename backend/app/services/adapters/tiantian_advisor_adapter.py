@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""天天基金「投顾组合」数据适配器（#1167）。
+"""天天基金「投顾组合」数据适配器（#1167，Port 契约见 #1392）。
+
+实现 :class:`~app.services.adapters.advisor_source.AdvisorPortfolioSource`：
+把天天基金四个数据面翻译成 canonical，平台黑话（``SYL_*`` / ``tgCode``）不出本文件。
 
 数据源为公开接口（零鉴权，免登录/签名/浏览器），逆向结论与接口契约见
 docs/working-notes/advisor-ttfund-holdings-api-2026-09-08.md：
@@ -29,6 +32,7 @@ from loguru import logger
 
 from app.core.constants import ADVISOR_ADJUST_OP_NAME as ADJUST_OP_NAME
 from app.core.time_utils import now_shanghai
+from app.services.adapters.advisor_source import EXTRA_KEY, AdvisorPortfolioSource, register_advisor_source
 
 COMBINE_HOST = 'https://uni-fundts.1234567.com.cn'
 DATAPI_HOST = 'https://dataapi.1234567.com.cn'
@@ -65,8 +69,13 @@ def _to_float(v: Any) -> Optional[float]:
         return None
 
 
-class TiantianAdvisorAdapter:
-    """天天基金投顾组合数据源。"""
+@register_advisor_source
+class TiantianAdvisorAdapter(AdvisorPortfolioSource):
+    """天天基金投顾组合数据源（公开接口，四个数据面齐全）。"""
+
+    platform = 'TIANTIAN'
+    #: 有官方历史调仓接口（getAdjustWarehouse tag=1），无需快照推导
+    has_official_rebalances = True
 
     def __init__(self) -> None:
         self.session = requests.Session()
@@ -129,10 +138,13 @@ class TiantianAdvisorAdapter:
     }
 
     def fetch_overview(self, tgcode: str) -> dict:
-        """投顾概览（dataapi FundIATGInfoAggr，GET，字段最全）。
+        """投顾概览（canonical，dataapi FundIATGInfoAggr，GET，字段最全）。
 
-        返回 {name, risk_level, strategy_desc, estab_date, returns:{区间列:值}, raw}。
-        returns 由 SYL_* 实测映射而来（见 SYL_TO_INTERVAL）。
+        区间收益由 SYL_* 实测映射而来（见 :data:`SYL_TO_INTERVAL`）；
+        **最大回撤 / 相对基准超额该接口不提供**（实测），故不返回这两个键——
+        宁可为空也不填 0（消费侧按「无数据」渲染，见 #1392 的后续计划）。
+        canonical 未覆盖的原始字段原样进 ``extra``（如 STATUS），
+        避免日后为拿单个字段再抓一遍。
         """
         params = {
             'FIELDS': ('TGNAME,RISKLEVEL,STRATEGY_RATE,STGCONCEPT,ESTABDATE,STATUS,SYL_Z,SYL_Y,SYL_1N,SYL_JN,SYL_LN'),
@@ -146,21 +158,21 @@ class TiantianAdvisorAdapter:
             data = j.get('data') if j.get('success') else None
             if isinstance(data, list) and data:
                 d = data[0]
-                returns = {col: _to_float(d.get(syl)) for syl, col in self.SYL_TO_INTERVAL.items()}
+                mapped_raw = {'TGNAME', 'RISKLEVEL', 'STGCONCEPT', 'ESTABDATE'} | set(self.SYL_TO_INTERVAL)
                 return {
                     'name': d.get('TGNAME'),
                     'risk_level': str(d.get('RISKLEVEL')) if d.get('RISKLEVEL') is not None else None,
                     'strategy_desc': d.get('STGCONCEPT'),
                     'estab_date': d.get('ESTABDATE'),
-                    'returns': returns,
-                    'raw': d,
+                    **{col: _to_float(d.get(syl)) for syl, col in self.SYL_TO_INTERVAL.items()},
+                    EXTRA_KEY: {k: v for k, v in d.items() if k not in mapped_raw},
                 }
         except (ValueError, TypeError) as e:
             self.logger.warning(f'概览解析失败 {tgcode}: {e}')
         return {}
 
-    def fetch_industry(self, tgcode: str) -> List[dict]:
-        """持仓行业配置 [{industry_name, ratio}]。"""
+    def fetch_industries(self, tgcode: str) -> List[dict]:
+        """持仓行业配置 ``[{industry_name, ratio}]``。"""
         form = dict(COMMON_FORM)
         form['tgCode'] = tgcode
         j = self._post_json(API_INDUSTRY, form)
@@ -173,21 +185,21 @@ class TiantianAdvisorAdapter:
                 out.append({'industry_name': name, 'ratio': _to_float(row.get('ratio'))})
         return out
 
-    def fetch_current_holdings(self, tgcode: str) -> dict:
+    def fetch_holdings(self, tgcode: str) -> dict:
         """当前基金级持仓（最新一次调仓后的占比快照）。
 
-        返回 {'adjust_date': date_str|None, 'funds': [{fund_code, fund_name,
-        pre_ratio, after_ratio, op_code, op_name}]}。
+        返回 ``{'as_of_date': date_str|None, 'funds': [{fund_code, fund_name,
+        pre_ratio, after_ratio, op_code, op_name}]}``。
         """
         adj = self._fetch_adjust(tgcode, tag=0)
         latest = (adj or {}).get('latestAdjust') or {}
         return {
-            'adjust_date': latest.get('dateStr'),
+            'as_of_date': latest.get('dateStr'),
             'funds': self._flatten_funds(latest),
         }
 
-    def fetch_adjust_history(self, tgcode: str) -> List[dict]:
-        """历史调仓列表 [{adjust_date, reason, funds: [...]}]。"""
+    def fetch_rebalances(self, tgcode: str) -> List[dict]:
+        """官方历史调仓列表 ``[{adjust_date, reason, funds: [...]}]``。"""
         adj = self._fetch_adjust(tgcode, tag=1)
         out = []
         for node in (adj or {}).get('adjustHistory') or []:
@@ -243,9 +255,9 @@ class TiantianAdvisorAdapter:
         form['tgCodeWithDateStr'] = f'{tgcode}_{today}'
         j = self._post_json(API_QUOTE, form)
         quote_ok = bool(j and j.get('Succeed') and j.get('Data'))
-        industry = self.fetch_industry(tgcode)
-        holdings = self.fetch_current_holdings(tgcode)
-        history = self.fetch_adjust_history(tgcode)
+        industry = self.fetch_industries(tgcode)
+        holdings = self.fetch_holdings(tgcode)
+        history = self.fetch_rebalances(tgcode)
         checks = {
             'quote': quote_ok,
             'industry': bool(industry),

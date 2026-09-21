@@ -206,6 +206,6 @@ const saveTagChanges = async () => {
 <style lang="scss" scoped>
 .tag-hint {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 </style>

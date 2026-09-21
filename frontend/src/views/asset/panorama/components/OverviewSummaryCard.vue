@@ -11,7 +11,10 @@
       >
         <div class="flex flex-col justify-between h-full">
           <div>
-            <p class="text-sm mb-2" :style="{ color: 'var(--text-tertiary)' }">
+            <p
+              class="text-sm mb-2"
+              :style="{ color: 'var(--text-tertiary-ink)' }"
+            >
               总资产（本月）
             </p>
             <MoneyDisplay
@@ -33,11 +36,15 @@
                 content="暂无上月同期数据，持续使用后自动积累"
                 placement="top"
               >
-                <span class="text-sm" :style="{ color: 'var(--text-tertiary)' }"
+                <span
+                  class="text-sm"
+                  :style="{ color: 'var(--text-tertiary-ink)' }"
                   >——</span
                 >
               </el-tooltip>
-              <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
+              <span
+                class="text-xs"
+                :style="{ color: 'var(--text-tertiary-ink)' }"
                 >较上月</span
               >
               <template v-if="latestSnapshot?.yearly_change_pct != null">
@@ -52,11 +59,15 @@
                 content="暂无去年同期数据，持续使用后自动积累"
                 placement="top"
               >
-                <span class="text-sm" :style="{ color: 'var(--text-tertiary)' }"
+                <span
+                  class="text-sm"
+                  :style="{ color: 'var(--text-tertiary-ink)' }"
                   >——</span
                 >
               </el-tooltip>
-              <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
+              <span
+                class="text-xs"
+                :style="{ color: 'var(--text-tertiary-ink)' }"
                 >较去年同期</span
               >
             </div>
@@ -69,7 +80,7 @@
             <div>
               <p
                 class="text-xs mb-1"
-                :style="{ color: 'var(--text-tertiary)' }"
+                :style="{ color: 'var(--text-tertiary-ink)' }"
               >
                 总负债
               </p>
@@ -83,7 +94,7 @@
             <div>
               <p
                 class="text-xs mb-1"
-                :style="{ color: 'var(--text-tertiary)' }"
+                :style="{ color: 'var(--text-tertiary-ink)' }"
               >
                 净资产
               </p>
@@ -97,7 +108,7 @@
             <div>
               <p
                 class="text-xs mb-1"
-                :style="{ color: 'var(--text-tertiary)' }"
+                :style="{ color: 'var(--text-tertiary-ink)' }"
               >
                 总盈亏
               </p>
@@ -140,7 +151,7 @@ import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import { type AssetSnapshotItem } from "@/api/summary";
 import echarts from "@/plugins/echarts";
-import { getCssVar } from "@/composables/echarts/theme";
+import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
 
 const props = defineProps<{
   totalAssets: number;
@@ -152,6 +163,7 @@ const props = defineProps<{
 
 const waterfallChartRef = ref<HTMLDivElement>();
 let waterfallChart: echarts.ECharts | null = null;
+const themeTick = useThemeTick();
 
 // 工具函数：安全读取 CSS 变量（无 fallback 硬编码）
 const getCSSColor = (varName: string): string => {
@@ -261,6 +273,9 @@ watch(
     initWaterfallChart();
   }
 );
+
+// 主题切换（暗色）时重绘瀑布图，重新读取语义色（#976）
+watch(themeTick, () => nextTick(initWaterfallChart));
 
 onMounted(() => {
   if (props.distributions) initWaterfallChart();

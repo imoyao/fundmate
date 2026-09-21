@@ -36,7 +36,7 @@ def list_family_members():
         return jsonify({'data': [_user_to_dict(m) for m in members], 'message': 'ok'})
 
 
-@users_bp.patch('/me')
+@users_bp.patch('/me/', strict_slashes=False)
 def update_me():
     """更新当前登录用户资料（昵称 / 用户名 / 头像）。
 
@@ -72,7 +72,7 @@ def update_me():
         if data.avatar is not None:
             user.avatar = data.avatar
 
-        db.commit()
+        db.flush()
         db.refresh(user)
         return jsonify({'data': _user_to_dict(user), 'message': 'ok'})
 

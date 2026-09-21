@@ -99,12 +99,12 @@ function toggle() {
 }
 
 .institution-card:hover {
-  box-shadow: var(--shadow-overlay, var(--shadow-raised));
+  box-shadow: var(--shadow-raised);
 }
 
 .card-head {
   display: flex;
-  gap: var(--space-4, 16px);
+  gap: var(--space-compact);
   align-items: center;
   justify-content: space-between;
   padding: var(--space-standard, 18px);
@@ -132,7 +132,7 @@ function toggle() {
 .institution-sub {
   margin-top: 4px;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .head-right {
@@ -144,7 +144,7 @@ function toggle() {
 
 .expand-icon {
   font-size: 14px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   transition: transform 0.2s ease;
 }
 
@@ -158,7 +158,7 @@ function toggle() {
 
 .item-row {
   display: flex;
-  gap: var(--space-4, 16px);
+  gap: var(--space-compact);
   align-items: center;
   justify-content: space-between;
   padding: 10px var(--space-standard, 18px);
@@ -188,7 +188,7 @@ function toggle() {
   flex: none;
   font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .item-metrics {

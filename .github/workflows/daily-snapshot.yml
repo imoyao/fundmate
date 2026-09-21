@@ -21,7 +21,8 @@
 #      secret 展开成**空串**注入 env，覆盖了代码里的默认值 → `create_engine('')` →
 #      `sqlalchemy.exc.ArgumentError`，启动即崩且真因不可见（连续 7 天全红无人知）。
 #   3) 失败告警：job 失败时自动开/更新一个 tracking issue（见 job 末尾），不再静默。
-
+#   4) 告警生命周期（2026-09-18 补）：**成功运行即自动关闭**仍开着的告警卡——
+#      「7 天全红无人知」的另一半是「恢复了也没人收口」，自愈型告警是通行做法。
 name: 每日定时调度
 
 on:
@@ -118,7 +119,7 @@ jobs:
               `- 时间（UTC）：${new Date().toISOString()}`,
               `- 运行日志：${runUrl}`,
               '',
-              '> 本 issue 由 workflow 自动创建/更新；调度恢复后请手动关闭。',
+              '> 本 issue 由 workflow 自动创建/更新；下次调度成功时会自动关闭（见末尾步骤）。',
             ].join('\n');
 
             const { data: openIssues } = await github.rest.issues.listForRepo({
@@ -138,3 +139,42 @@ jobs:
               });
               core.notice(`已创建告警 issue #${created.data.number}`);
             }
+
+      # 告警生命周期收口（#1434）：「7 天全红无人知」的另一半是「恢复了也没人收口」——
+      # 成功运行即自动关闭仍开着的告警卡，避免「已恢复但卡还开着」的假信号（自愈型告警的通行做法）。
+      - name: 调度成功则自动关闭告警 issue
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const title = '【自动告警】每日调度 daily-snapshot 失败';
+            const { data: openIssues } = await github.rest.issues.listForRepo({
+              owner, repo, state: 'open', per_page: 100,
+            });
+            const existing = openIssues.find(
+              (it) => it.title === title && !it.pull_request,
+            );
+            if (!existing) {
+              core.info('没有开着的告警 issue，无需关闭');
+              return;
+            }
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: existing.number,
+              body: [
+                '本次每日调度**已成功**，自动关闭本告警卡。',
+                '',
+                `- 时间（UTC）：${new Date().toISOString()}`,
+                `- 运行日志：${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+                '',
+                '> 若再次失败，workflow 会重新开/复用本卡（见 #1434）。',
+              ].join('\n'),
+            });
+            await github.rest.issues.update({
+              owner, repo, issue_number: existing.number,
+              state: 'closed', state_reason: 'completed',
+            });
+            core.notice(`已自动关闭告警 issue #${existing.number}`);

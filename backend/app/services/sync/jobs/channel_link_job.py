@@ -34,7 +34,7 @@ from loguru import logger
 
 from app.domains.funds.models import ChannelLink, Fund, FundCompany
 from app.domains.indices.models import IndexCatalog
-from app.services.sync.jobs.base import SyncJob
+from app.services.job_base import SyncJob
 from app.services.sync.name_match import ChannelNameMatcher, pick_manager
 
 # 联接基金识别：场外联接的产品名固定含「联接」（如「华夏沪深300ETF联接A」）。

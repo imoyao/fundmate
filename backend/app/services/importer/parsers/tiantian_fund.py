@@ -16,9 +16,9 @@ import io
 from typing import List, Optional, Tuple
 
 from app.core.constants import PositionSource
+from app.services.import_records import SBImportError, StandardTransactionRecord
 from app.services.importer.mappings import TIANTIAN_OP_MAP
 from app.services.importer.parsers.standard import FundStandardParser
-from app.services.importer.records import SBImportError, StandardTransactionRecord
 from app.services.importer.utils import normalize_fund_code
 
 

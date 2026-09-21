@@ -147,7 +147,9 @@ const emit = defineEmits<{
          避免大数字撑高整行把右侧指标挤到下方） -->
     <div class="ledger-metrics">
       <div class="metric metric--main">
-        <span class="metric-label" :style="{ color: 'var(--text-tertiary)' }"
+        <span
+          class="metric-label"
+          :style="{ color: 'var(--text-tertiary-ink)' }"
           >总资产</span
         >
         <span class="metric-value" :style="{ color: 'var(--text-primary)' }">
@@ -163,16 +165,23 @@ const emit = defineEmits<{
       <div class="metric-side">
         <!-- 当日盈亏：暂无当日行情数据，保留占位符 -->
         <div class="metric">
-          <span class="metric-label" :style="{ color: 'var(--text-tertiary)' }"
+          <span
+            class="metric-label"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
             >当日盈亏</span
           >
-          <span class="metric-value" :style="{ color: 'var(--text-tertiary)' }"
+          <span
+            class="metric-value"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
             >--</span
           >
         </div>
         <!-- 持仓盈亏：银行显示活期余额、实物显示估值项数 -->
         <div class="metric">
-          <span class="metric-label" :style="{ color: 'var(--text-tertiary)' }">
+          <span
+            class="metric-label"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
+          >
             {{
               ledger.ledger_type === "bank"
                 ? "活期余额"
@@ -221,7 +230,7 @@ const emit = defineEmits<{
       v-if="ledger.ledger_type === 'bank' && ledger.linked_liability > 0"
       class="ledger-liability"
     >
-      <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
+      <span class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }"
         >关联负债</span
       >
       <span
@@ -239,29 +248,6 @@ const emit = defineEmits<{
 </template>
 
 <style scoped>
-@media (hover: none) {
-  .ledger-row-action {
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ledger-card,
-  .ledger-row-action {
-    transition: none;
-  }
-
-  .ledger-card:hover {
-    transform: none;
-  }
-}
-
-@media (hover: none) {
-  .ledger-card.is-archived {
-    opacity: 0.7;
-  }
-}
-
 .ledger-card {
   padding: var(--space-compact);
   cursor: pointer;
@@ -355,7 +341,7 @@ const emit = defineEmits<{
   width: 22px;
   height: 22px;
   margin-right: 2px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   touch-action: none;
   cursor: grab;
   border-radius: var(--radius-sm);
@@ -392,7 +378,7 @@ const emit = defineEmits<{
 
 .ledger-row-action {
   /* text 图标按钮常显为中性灰图标，视觉权重统一 */
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   opacity: 0;
   transition:
     opacity 0.2s ease,
@@ -410,7 +396,7 @@ const emit = defineEmits<{
 
 .ledger-row-actions .ledger-row-action--danger:hover,
 .ledger-row-actions .ledger-row-action--danger:focus-visible {
-  color: var(--el-color-danger);
+  color: var(--color-danger);
   background-color: var(--el-color-danger-light-9);
 }
 
@@ -454,11 +440,36 @@ const emit = defineEmits<{
   margin-bottom: var(--space-2);
   font-size: 12px;
   line-height: 18px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-page);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-pill);
 }
 
 /* 触屏设备无 hover 态，直接常显，避免删除入口不可达 */
+
+/* ── 触屏 / 动效偏好适配 ──
+   ⚠️ 以下三块原先都排在基础声明**之前**，被同特异性、后写的规则压掉（2026-09-18 修复，见 #1576 台账）。 */
+@media (hover: none) {
+  .ledger-row-action {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ledger-card,
+  .ledger-row-action {
+    transition: none;
+  }
+
+  .ledger-card:hover {
+    transform: none;
+  }
+}
+
+@media (hover: none) {
+  .ledger-card.is-archived {
+    opacity: 0.7;
+  }
+}
 </style>

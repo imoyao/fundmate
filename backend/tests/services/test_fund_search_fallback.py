@@ -6,8 +6,8 @@
 """
 
 from app.domains.funds.models import Fund
+from app.services.adapters.akshare_adapter import AkshareAdapter
 from app.services.fund_service import FundService
-from app.services.sync.adapters.akshare_adapter import AkshareAdapter
 
 
 def test_external_fallback_hits_when_local_miss(monkeypatch, db):

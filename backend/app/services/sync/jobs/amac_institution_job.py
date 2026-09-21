@@ -33,8 +33,8 @@ import requests
 
 from app.domains.funds.models import FundCompany
 from app.domains.positions.models import SalesInstitution
+from app.services.job_base import SyncJob
 from app.services.sync.company_resolver import build_fund_company_index, match_fund_company
-from app.services.sync.jobs.base import SyncJob
 from app.services.sync.pinyin_utils import generate_pinyin_abbr
 
 AMAC_AGENCY_URL = 'https://www.amac.org.cn//portal/front/infopublic/fsAgencyAnno/findFsAgencyAnnos'

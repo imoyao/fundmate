@@ -13,7 +13,7 @@ from app.core.money import Money
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
-from app.services.importer.records import compute_position_hash
+from app.services.import_records import compute_position_hash
 from app.services.position_service import PositionService, _get_asset_type
 
 

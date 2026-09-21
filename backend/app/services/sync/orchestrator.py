@@ -33,12 +33,12 @@ from app.core.time_utils import now_shanghai
 from app.domains.positions.models import Position
 from app.domains.watchlist.models import WatchlistItem
 from app.models.sync_log import SyncLog
-from app.services.sync.adapters.akshare_adapter import AkshareAdapter
-from app.services.sync.adapters.eastmoney_adapter import EastmoneyAdapter
-from app.services.sync.adapters.jiucaishuo_adapter import JiucaishuoAdapter
-from app.services.sync.adapters.null_adapter import NullAdapter
-from app.services.sync.adapters.tiantian_advisor_adapter import TiantianAdvisorAdapter
-from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
+from app.services.adapters.advisor_source import AdvisorSourceRegistry
+from app.services.adapters.akshare_adapter import AkshareAdapter
+from app.services.adapters.eastmoney_adapter import EastmoneyAdapter
+from app.services.adapters.jiucaishuo_adapter import JiucaishuoAdapter
+from app.services.adapters.null_adapter import NullAdapter
+from app.services.adapters.xalpha_adapter import XalphaAdapter
 from app.services.sync.jobs.advisor_portfolio_job import AdvisorPortfolioSyncJob
 from app.services.sync.jobs.amac_institution_job import AmacInstitutionJob
 from app.services.sync.jobs.asset_snapshot_job import AssetSnapshotJob
@@ -57,6 +57,7 @@ from app.services.sync.jobs.index_catalog_job import IndexCatalogSyncJob
 from app.services.sync.jobs.index_constituent_job import INDEX_TARGETS, IndexConstituentSyncJob
 from app.services.sync.jobs.index_daily_job import IndexDailySyncJob
 from app.services.sync.jobs.index_valuation_job import IndexValuationSyncJob
+from app.services.sync.jobs.position_price_job import PositionPriceSyncJob
 from app.services.sync.jobs.price_history_job import PriceHistorySyncJob
 from app.services.sync.jobs.stock_list_job import StockListSyncJob
 from app.services.thermometer.jobs import TemperatureJob
@@ -115,8 +116,10 @@ class DataSyncOrchestrator:
         self.jobs['fund_scale'] = FundScaleSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['fund_position'] = FundPositionSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['fund_type'] = FundTypeSyncJob(self.data_sources['akshare'], self.db)
-        # 投顾组合数据源独立于 akshare/xalpha（天天基金公开接口，自带节流）
-        self.jobs['advisor_portfolio'] = AdvisorPortfolioSyncJob(TiantianAdvisorAdapter(), self.db)
+        # 投顾组合：一任务多平台（天天公开接口 + 且慢 MCP，Port 契约见 #1392）。
+        # job 不认识具体平台，按 AdvisorPortfolio.platform 从注册表取适配器；
+        # 注册表同时充当 SyncJob 的 adapter 槽位（sync_logs 审计读 get_name/get_version）。
+        self.jobs['advisor_portfolio'] = AdvisorPortfolioSyncJob(AdvisorSourceRegistry(), self.db)
         self.jobs['fund_nav'] = FundNavSyncJob(self.data_sources['xalpha'], self.db)
         self.jobs['price_history'] = PriceHistorySyncJob(self.data_sources['akshare'], self.db)
         self.jobs['index_constituents'] = IndexConstituentSyncJob(self.data_sources['akshare'], self.db)
@@ -138,6 +141,10 @@ class DataSyncOrchestrator:
         self.jobs['dividend_split'] = DividendSplitSyncJob(self.data_sources['akshare'], self.db)
         # #1182：资产快照每日落账（家庭/账户两级，含货基每日收益），无外部数据源
         self.jobs['asset_snapshot'] = AssetSnapshotJob(self.db)
+        # #1104：持仓现价回写（已确认净值 / 货基面值 → positions.current_price）。
+        # 只读库内已有净值、不联网，故 NullAdapter 占位；目标池自持仓表（user 域），
+        # 不吃 resolve_targets() 的 fund/stock 池，故入参 targets 被忽略。
+        self.jobs['position_price'] = PositionPriceSyncJob(self.db)
 
     # ── 目标代码解析 ──
 
@@ -320,8 +327,37 @@ class DataSyncOrchestrator:
 
         result = job.run(full_sync, targets=targets)
         result['duration'] = (now_shanghai() - job.snapshot_time).total_seconds()
-        self._save_sync_log(job_name, result, full_sync)
+        self._save_sync_log_with_fallback(job_name, result, full_sync)
         return result
+
+    def _save_sync_log_with_fallback(self, job_name: str, result: Dict[str, Any], full_sync: bool) -> None:
+        """审计落库必须「无论 job 结果如何都留下痕迹」（#1550）。
+
+        `job.run()` 正常返回**不代表 Session 健康**：批量写入在 flush 阶段失败
+        （如 UNIQUE 冲突）会把 Session 留在必须先 rollback 的状态，此时
+        `_save_sync_log` 的 `commit()` 直接抛 PendingRollbackError。
+
+        旧行为下这个异常会冒泡出 `run_job`，而 `daily_scheduler.run_sync_job`
+        只做 `logger.exception` 吞掉——`sync_logs` 里连一行都没有。后果实测：
+        fund_nav 自 2026-08-14（id=128）起静默失败整整一个月，只能在 CMD 里看见，
+        且因为 `SyncLog.get_last_sync_time` 只认 status='success'，增量起点被永久
+        钉死在同一天，永远无法自愈。
+
+        因此：先 rollback 重写一次；仍失败则降级为最小字段的 error 记录，
+        宁可丢字段也不能丢「这个 job 跑过且失败了」这件事。
+        """
+        try:
+            self._save_sync_log(job_name, result, full_sync)
+            return
+        except Exception as exc:  # noqa: BLE001 - 审计失败不得冒泡
+            logger.warning(f'{job_name} 审计落库失败（{exc}），rollback 后重试一次')
+            self.db.rollback()
+
+        try:
+            self._save_sync_log(job_name, result, full_sync)
+        except Exception as exc:  # noqa: BLE001 - 同上
+            logger.exception(f'{job_name} 审计落库二次失败，降级为最小记录（原始错误: {exc}）')
+            self._save_error_sync_log(job_name, full_sync, exc, status=str(result.get('status', 'error')))
 
     def _execute_job(self, job_name: str, full_sync: bool, targets: Optional[List[str]] = None) -> Dict[str, Any]:
         """
@@ -390,6 +426,10 @@ class DataSyncOrchestrator:
                 ('index_daily', ['__full__']),  # 指数日线（万得全A 全量 10 年，#275）
                 ('dividend_split', stock_targets + fund_targets),  # 分红/送股抓取（#1179）
                 ('advisor_portfolio', ['__full__']),  # 投顾组合持仓/调仓回填（#1167，组合数少且自带节流）
+                # #1104：持仓现价回写——必须排在净值/行情之后、资产快照之前：
+                # 快照的市值/盈亏读的正是 positions.current_price，顺序错了快照就还是旧价。
+                # 不联网（只读库内已确认净值），故无请求风暴风险；目标池自持仓表，targets 传空。
+                ('position_price', []),
                 # #1182：资产快照落账放最后，确保前面的净值/行情已刷新，快照取到最新值
                 ('asset_snapshot', []),
             ]
@@ -424,7 +464,7 @@ class DataSyncOrchestrator:
         self.db.add(log_entry)
         self.db.commit()
 
-    def _save_error_sync_log(self, job_name: str, full_sync: bool, error: Exception) -> None:
+    def _save_error_sync_log(self, job_name: str, full_sync: bool, error: Exception, status: str = 'error') -> None:
         """异常路径的审计落库（#1402）。
 
         与 `_save_sync_log` 的关键差别：本方法必须在「job 没跑完」时也安全，因此
@@ -436,6 +476,10 @@ class DataSyncOrchestrator:
           用下标访问会把原始异常替换成 KeyError；
         - 审计写入本身失败绝不能向上抛——本方法存在的意义是「让失败可见」，
           若它自己炸掉，调用方正在冒泡的原始异常就被掩盖了。
+
+        `status` 默认 `'error'`（调用方是「job 抛异常」）；`run_job` 的审计降级路径
+        会传入 job 真实终态（如 `manual_intervention`），避免把「跑完了但失败」
+        误记成「没跑完」。
         """
         job = self.jobs.get(job_name)
         now = now_shanghai()
@@ -443,7 +487,7 @@ class DataSyncOrchestrator:
         try:
             log_entry = SyncLog(
                 job_name=job_name,
-                status='error',
+                status=status,
                 full_sync=full_sync,
                 stats=None,
                 error_detail=str(error),

@@ -14,7 +14,7 @@
         >
           账户管理
         </h2>
-        <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary)' }">
+        <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary-ink)' }">
           管理您的银行账户、证券账户、基金和实物资产
         </p>
       </div>
@@ -56,7 +56,7 @@
     <div
       v-if="loading"
       class="text-center py-20"
-      :style="{ color: 'var(--text-tertiary)' }"
+      :style="{ color: 'var(--text-tertiary-ink)' }"
     >
       <p class="mt-2">加载中...</p>
     </div>
@@ -64,7 +64,7 @@
     <div
       v-else-if="allLedgers.length === 0"
       class="text-center py-20"
-      :style="{ color: 'var(--text-tertiary)' }"
+      :style="{ color: 'var(--text-tertiary-ink)' }"
     >
       <IconifyIconOffline icon="ep:wallet" class="text-5xl mb-3 opacity-30" />
       <p class="text-lg">暂无账户，点击上方按钮新增</p>
@@ -77,7 +77,7 @@
         <div class="overview-card net-worth-card">
           <div class="flex justify-between gap-6 flex-1 items-center">
             <div class="min-w-0">
-              <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">
+              <p class="text-sm" :style="{ color: 'var(--text-tertiary-ink)' }">
                 净资产
               </p>
               <p class="mt-1">
@@ -122,7 +122,7 @@
           </div>
           <!-- 更新时间：右上角 -->
           <div class="hidden md:block text-right mt-4">
-            <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+            <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
               更新于 {{ lastUpdate }}
             </p>
           </div>
@@ -146,7 +146,7 @@
         >
           <div class="flex justify-between items-center gap-4 flex-wrap">
             <div class="min-w-0">
-              <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">
+              <p class="text-sm" :style="{ color: 'var(--text-tertiary-ink)' }">
                 基金
               </p>
               <div class="mt-1">
@@ -174,7 +174,7 @@
         >
           <div class="flex justify-between items-center gap-4 flex-wrap">
             <div class="min-w-0">
-              <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">
+              <p class="text-sm" :style="{ color: 'var(--text-tertiary-ink)' }">
                 股票
               </p>
               <div class="mt-1">
@@ -250,7 +250,7 @@
                 {{ group.label }}
                 <span
                   class="text-sm font-normal ml-2"
-                  :style="{ color: 'var(--text-tertiary)' }"
+                  :style="{ color: 'var(--text-tertiary-ink)' }"
                 >
                   (
                   {{ group.count }} 个账户 ·
@@ -794,7 +794,7 @@ onMounted(() => {
   justify-content: center;
   width: 22px;
   height: 22px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   touch-action: none;
   cursor: grab;
   border-radius: var(--radius-sm);
@@ -828,8 +828,8 @@ onMounted(() => {
 
 /* 分组拖拽中：整段高亮，强化「正在重排整段分组」的反馈（与卡片拖拽态分层） */
 .ledger-group--dragging {
-  background: var(--brand-50);
-  border-radius: var(--radius-xl);
+  background: var(--brand-100);
+  border-radius: var(--radius-lg);
   box-shadow: 0 0 0 2px var(--brand-300);
 }
 
@@ -917,8 +917,8 @@ onMounted(() => {
   padding: 2px 8px;
   font-size: 12px;
   line-height: 18px;
-  color: var(--color-danger);
-  background: var(--color-danger-20);
+  color: var(--color-warning-ink);
+  background: var(--color-warning-20);
   border-radius: var(--radius-pill);
 }
 
@@ -956,7 +956,7 @@ onMounted(() => {
 .overview-metrics .metric-label {
   font-size: var(--text-label, 13px);
   line-height: 18px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 负债率胶囊：--bg-soft 底 + --radius-pill + --text-tertiary 字，弱化中性信息。
@@ -969,7 +969,7 @@ onMounted(() => {
   padding: 1px 10px;
   font-size: var(--text-label, 13px);
   line-height: 20px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-soft);
   border-radius: var(--radius-pill);
 }

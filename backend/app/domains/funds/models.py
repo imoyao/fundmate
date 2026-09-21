@@ -5,6 +5,7 @@
 """场外基金元数据模型"""
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     Column,
     Date,
@@ -298,6 +299,16 @@ class AdvisorPortfolio(Base, PrimaryKeyMixin, TimestampMixin):
     estab_date = Column(Date, comment='组合成立日期')
     strategy_desc = Column(String(500), comment='策略说明（STGCONCEPT）')
 
+    # ── #1392 数据来历与平台特有字段（Ports & Adapters 收口）──
+    # source：本行概览/指标**最近一次写入**的来源（tiantian / qieman / seed），
+    #   与 advisor_holdings.source 同口径，用于回答「这行数据是谁写的」；
+    #   抓取失败（空概览）时**不改写**，保留上一次成功来源。
+    # extra：canonical 概览（见 adapters/advisor_source.CANONICAL_OVERVIEW_COLUMNS）
+    #   覆盖不到的**平台特有字段**原样 JSON 保留 —— 新增平台不必为此加列，
+    #   日后真要补列时可从这里回填，无需重新抓取。当前消费侧不读它。
+    source = Column(String(20), comment='概览/指标最近一次写入来源: tiantian/qieman/seed')
+    extra = Column(JSON, nullable=True, comment='平台特有字段（canonical 未覆盖的原始键值）')
+
     # ── #1392 投顾品类差异化指标（区间收益 / 回撤 / 超额，落库供自选投顾列展示）──
     # 数据源：天天基金 FundIATGInfoAggr 的 SYL_*，映射已实测核对（见 tiantian_advisor_adapter）。
     # 回撤/超额 API 不直接提供（实测结论），暂留空、待补算；列已就绪不影响主链路。
@@ -351,7 +362,7 @@ class AdvisorHolding(Base, PrimaryKeyMixin, TimestampMixin):
     after_ratio = Column(SafeNumeric(5, 2), comment='调仓后/当前占比(%)')
     op_code = Column(Integer, comment='操作类型: 1建仓/2加仓/3减仓/4新增/5持平')
     op_name = Column(String(10), comment='操作名称')
-    source = Column(String(20), nullable=False, comment='数据来源: tiantian/qieman_manual')
+    source = Column(String(20), nullable=False, comment='数据来源: tiantian/qieman(自动)/qieman_manual(手动导入)')
 
     __table_args__ = (UniqueConstraint('portfolio_id', 'fund_code', 'as_of_date', name='uq_advisor_holding_p_f_d'),)
 
@@ -367,7 +378,7 @@ class AdvisorIndustryAlloc(Base, PrimaryKeyMixin, TimestampMixin):
     as_of_date = Column(Date, nullable=False, index=True, comment='快照日期')
     industry_name = Column(String(50), nullable=False, comment='行业名称')
     ratio = Column(SafeNumeric(5, 2), comment='行业占比(%)')
-    source = Column(String(20), nullable=False, comment='数据来源: tiantian')
+    source = Column(String(20), nullable=False, comment='数据来源: tiantian（当前仅天天提供行业配置）')
 
     __table_args__ = (
         UniqueConstraint('portfolio_id', 'industry_name', 'as_of_date', name='uq_advisor_industry_p_i_d'),
@@ -394,6 +405,6 @@ class AdvisorAdjustHistory(Base, PrimaryKeyMixin, TimestampMixin):
     after_ratio = Column(SafeNumeric(5, 2), comment='调仓后占比(%)')
     op_code = Column(Integer, comment='操作类型: 1建仓/2加仓/3减仓/4新增/5持平')
     op_name = Column(String(10), comment='操作名称')
-    source = Column(String(20), nullable=False, comment='数据来源: tiantian')
+    source = Column(String(20), nullable=False, comment='数据来源: tiantian(官方接口)/qieman(快照推导)')
 
     __table_args__ = (UniqueConstraint('portfolio_id', 'adjust_date', 'fund_code', name='uq_advisor_adjust_p_d_f'),)

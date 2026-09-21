@@ -2,7 +2,7 @@
   AssetAllocationDonut · 资产配置环形图（强制复用，见 docs/design/components.md）
   - 统一「环形 + 底部图例（分类名 + 占比）」的资产分布图，替代各页手写 pie option。
   - 基于 useEchartsLifecycle：自动 render / window resize / 卸载 dispose / keepAlive 重绘。
-  - 颜色必须走 CSS 语义变量：colorMap 的值为变量名（如 "--invest-stock"）；不传或缺失时
+  - 颜色必须走 CSS 语义变量：colorMap 的值为变量名（如 "--asset-cat-stock"）；不传或缺失时
     用 --chart-01~08 循环取色（design.md「Data Visualization」红线：禁止硬编码 hex）。
 -->
 <template>

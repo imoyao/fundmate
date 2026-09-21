@@ -226,7 +226,7 @@ const getAvailableTools = (type: string) => {
           <el-button
             link
             size="small"
-            style="color: var(--text-tertiary)"
+            style="color: var(--text-tertiary-ink)"
             @click="handleRemoveConfirm(row.id)"
             >删除</el-button
           >
@@ -258,7 +258,7 @@ const getAvailableTools = (type: string) => {
             <el-button
               link
               size="small"
-              style="color: var(--text-tertiary)"
+              style="color: var(--text-tertiary-ink)"
               @click="handleRemoveConfirm(row.id)"
               >删除</el-button
             >
@@ -331,7 +331,7 @@ const getAvailableTools = (type: string) => {
    观察列表样式（自 index.vue 随组件迁移，#984）
    ============================================================ */
 .watchlist-section {
-  max-width: 1280px;
+  max-width: var(--layout-content-width);
   padding: 0 24px 24px;
   margin: 0 auto;
 }
@@ -372,7 +372,7 @@ const getAvailableTools = (type: string) => {
 
   .summary-hint {
     font-size: 13px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   .summary-right {
@@ -380,7 +380,7 @@ const getAvailableTools = (type: string) => {
     gap: 12px;
     align-items: center;
     font-size: 13px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   .refresh-interval-select {
@@ -409,7 +409,7 @@ const getAvailableTools = (type: string) => {
     }
 
     &.status-error {
-      background: var(--color-danger-system);
+      background: var(--color-danger);
       animation: pulse 1s infinite;
     }
 
@@ -428,21 +428,22 @@ const getAvailableTools = (type: string) => {
   gap: 12px;
 }
 
+/* 移动端列表项卡片（非区块卡，故不走 CardBlock）：外观 token 化，禁字面量圆角（#1547 T3.1） */
 .cards-empty {
   padding: 32px 16px;
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: center;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
-  border-radius: 12px;
+  border-radius: var(--radius-card);
 }
 
 .holding-card {
   padding: 14px 16px;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   box-shadow: var(--shadow-raised);
 }
 
@@ -476,7 +477,7 @@ const getAvailableTools = (type: string) => {
 
   .metric-label {
     font-size: 12px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 }
 

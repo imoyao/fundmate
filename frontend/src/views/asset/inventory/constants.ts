@@ -113,37 +113,37 @@ export const ASSET_TYPE_MAP: Record<string, AssetTypeOption[]> = {
       key: "stock",
       icon: "ep:trend-charts",
       label: "股票",
-      color: "var(--invest-stock)"
+      color: "var(--asset-cat-stock)"
     },
     {
       key: "fund",
       icon: "ep:money",
       label: "基金",
-      color: "var(--invest-fund)"
+      color: "var(--asset-cat-fund)"
     },
     {
       key: "bond",
       icon: "ep:document",
       label: "可转债",
-      color: "var(--invest-bond)"
+      color: "var(--asset-cat-bond)"
     },
     {
       key: "etf",
       icon: "ep:pie-chart",
       label: "ETF",
-      color: "var(--invest-etf)"
+      color: "var(--asset-cat-etf)"
     },
     {
       key: "crypto",
       icon: "ep:coin",
       label: "虚拟货币",
-      color: "var(--invest-crypto)"
+      color: "var(--asset-cat-crypto)"
     },
     {
       key: "saving",
       icon: "ep:bank",
       label: "定期/理财",
-      color: "var(--invest-saving)"
+      color: "var(--asset-cat-saving)"
     }
   ],
   fixed: [

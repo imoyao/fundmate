@@ -16,7 +16,7 @@ from loguru import logger
 
 from app.core.time_utils import now_shanghai
 from app.services.bias.job import BiasJob
-from app.services.sync.jobs.base import SyncJob
+from app.services.job_base import SyncJob
 from app.services.thermometer.fetchers import (
     COMPOSITE_FETCHERS,
     SINGLE_FETCHERS,

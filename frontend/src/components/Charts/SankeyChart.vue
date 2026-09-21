@@ -4,9 +4,9 @@
       <IconifyIconOffline
         icon="ep:folder-opened"
         class="text-4xl mb-2"
-        :style="{ color: 'var(--text-tertiary)' }"
+        :style="{ color: 'var(--text-tertiary-ink)' }"
       />
-      <p :style="{ color: 'var(--text-tertiary)' }">暂无资产构成数据</p>
+      <p :style="{ color: 'var(--text-tertiary-ink)' }">暂无资产构成数据</p>
     </div>
     <div
       ref="chartRef"
@@ -20,7 +20,7 @@
 import { ref, computed, onBeforeUnmount, watch, nextTick } from "vue";
 import echarts from "@/plugins/echarts";
 import { IconifyIconOffline } from "@/components/ReIcon";
-import { getCssVar } from "@/composables/echarts/theme";
+import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
 
 const props = defineProps<{
   data: { nodes: any[]; links: any[] };
@@ -29,6 +29,7 @@ const props = defineProps<{
 
 const chartRef = ref<HTMLDivElement>();
 let chart: echarts.ECharts | null = null;
+const themeTick = useThemeTick();
 const isEmpty = ref(true);
 const totalValue = ref(0);
 const containerHeight = ref(400);
@@ -60,23 +61,23 @@ const NODE_COLOR_VARS: Record<string, string> = {
   总资产: "--brand-700",
   净资产: "--color-fall",
   总负债: "--color-neutral",
-  流动资金: "--tag-mint-green",
-  投资理财: "--tag-periwinkle",
-  固定资产: "--tag-warm-taupe",
-  应收款: "--tag-stone-gray",
+  流动资金: "--palette-mint-green",
+  投资理财: "--palette-periwinkle",
+  固定资产: "--palette-warm-taupe",
+  应收款: "--palette-stone-gray",
   保险项目: "--color-accent",
-  活钱: "--tag-muted-blue",
-  稳健底仓: "--tag-thistle",
+  活钱: "--palette-muted-blue",
+  稳健底仓: "--palette-thistle",
   长期增值: "--brand-700",
-  高风险博弈: "--color-danger",
+  高风险博弈: "--sankey-speculative",
   保险保障: "--color-accent",
   未配置资产: "--color-neutral",
-  股票: "--asset-stock",
-  基金: "--asset-fund",
-  可转债: "--asset-bond",
-  ETF: "--asset-etf",
-  虚拟货币: "--asset-crypto",
-  银行存款: "--asset-saving"
+  股票: "--asset-cat-stock",
+  基金: "--asset-cat-fund",
+  可转债: "--asset-cat-bond",
+  ETF: "--asset-cat-etf",
+  虚拟货币: "--asset-cat-crypto",
+  银行存款: "--asset-cat-saving"
 };
 
 function getNodeColor(name: string): string {
@@ -379,6 +380,9 @@ watch(
   () => nextTick(renderChart),
   { deep: true, immediate: true }
 );
+
+// 主题切换（暗色）时重绘桑基图，重新读取语义色（#976）
+watch(themeTick, () => nextTick(renderChart));
 
 const resizeHandler = () => chart?.resize();
 window.addEventListener("resize", resizeHandler);

@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core import database  # 晚绑定：属性在调用时解析，勿改成 from-import（#1608）
 from app.core.money import Money
 from app.domains.funds.models import (
     DailyWorth,
@@ -24,7 +24,7 @@ from app.domains.funds.models import (
 )
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
-from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
+from app.services.adapters.xalpha_adapter import XalphaAdapter
 
 
 class FundService:
@@ -73,7 +73,7 @@ class FundService:
 
     @staticmethod
     def _persist_navs(nav_map: Dict[str, Decimal], target_date: date) -> None:
-        with SessionLocal() as db:
+        with database.get_session() as db:
             try:
                 for code, nav_val in nav_map.items():
                     existing = (
@@ -266,7 +266,7 @@ class FundService:
                 if cache['data'] is None or now - cache['ts'] > FundService._FUND_NAME_EM_TTL:
                     # #1363 修复：此前误拼 AKShareAdapter → ImportError 被下方 except 静默吞掉，
                     # 外部兜底自引入起从未生效。类名以 orchestrator 注册处（AkshareAdapter）为准。
-                    from app.services.sync.adapters.akshare_adapter import AkshareAdapter
+                    from app.services.adapters.akshare_adapter import AkshareAdapter
 
                     cache['data'] = AkshareAdapter().fetch_fund_list()
                     cache['ts'] = now

@@ -17,39 +17,15 @@ from app.core.utils import paginate
 from app.core.validation import parse_body
 from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
-from app.domains.positions.schemas import PositionCreate, PositionOut, PositionUpdate
+from app.domains.positions.schemas import PositionCreate, PositionUpdate
 from app.domains.transactions.models import Transaction
+from app.services.position_presenter import enrich_position_dict
 from app.services.position_service import PositionService
-from app.services.position_valuation import allocate_value, market_value_cents
+from app.services.position_valuation import allocate_value
 from app.services.price_range_service import resolve_security_price_range
 from app.services.trading import TradeService
 
 bp = APIBlueprint('positions', __name__, url_prefix='/api/positions/')
-
-
-def enrich_position_dict(p: Position) -> dict:
-    if not p.market:
-        p.market = 'UNKNOWN'
-    d = PositionOut.model_validate(p).model_dump()
-    d['type_label'] = TYPE_LABELS.get(p.asset_type, p.asset_type)
-    d['market_label'] = MARKET_LABELS.get(p.market, p.market)
-    d['allocation_label'] = ALLOCATION_LABELS.get(p.allocation, p.allocation or '未分类')
-    # 转换内部单位到展示单位
-    d['quantity'] = Money.min_unit_to_shares(p.quantity)
-    d['avg_price'] = Money.price_units_to_yuan(p.avg_price)
-    d['current_price'] = Money.price_units_to_yuan(p.current_price)
-    d['market_value_override'] = (
-        Money.cents_to_yuan(p.market_value_override) if p.market_value_override is not None else None
-    )
-    # 市值/盈亏（#1174 收口）：委托唯一口径 position_valuation.market_value_cents。
-    # 本币直算——汇率折算仅存在于 summary 聚合口径（total_*_cny）；单条明细与 current_price 保持本币一致。
-    d['market_value'] = Money.cents_to_yuan(market_value_cents(p))
-    d['pnl'] = (
-        Money.cents_to_yuan(Money.multiply_price_quantity(p.current_price - p.avg_price, p.quantity))
-        if p.avg_price
-        else 0.0
-    )
-    return d
 
 
 @bp.get('/')
@@ -267,13 +243,13 @@ def create_position():
                     raise
                 except Exception as e:
                     logger.exception('买入/加仓处理失败: %s', e)
-                    return jsonify({'message': str(e), 'data': None}), 400
+                    return jsonify({'message': str(e), 'data': None, 'error_code': 1001}), 400
             else:
                 abort(400, description=f'不支持的操作类型: {op_type}')
         except ValueError as e:
             logger.exception('持仓操作业务校验失败: %s', e)
             # 业务逻辑错误，返回明确提示
-            return jsonify({'message': str(e), 'data': None}), 400
+            return jsonify({'message': str(e), 'data': None, 'error_code': 1001}), 400
         except IntegrityError as e:
             # 唯一约束冲突：幂等键(import_hash)重复 → 视为「请勿重复提交 / 已迁移」。
             # 典型场景：
@@ -282,7 +258,7 @@ def create_position():
             # 用 409 Conflict 而非 400，便于调用方（迁移逻辑）按状态码识别「已存在」并跳过。
             db.rollback()
             logger.warning('持仓操作唯一约束冲突（疑似重复提交/重复迁移）: %s', e)
-            return jsonify({'message': '该笔交易已记录，请勿重复提交', 'data': None}), 409
+            return jsonify({'message': '该笔交易已记录，请勿重复提交', 'data': None, 'error_code': 1003}), 409
         except Exception:
             # ⭐ 捕获所有未预期的异常，打印完整堆栈
             logger.exception('持仓操作未预期异常')
@@ -290,10 +266,10 @@ def create_position():
             abort(500, description='服务器内部错误，请稍后重试')
 
         if position is None:
-            db.commit()  # 清仓时需要提交交易流水
+            db.flush()
             return jsonify({'message': '持仓已清空', 'data': None})
         wrap_position = enrich_position_dict(position)
-        db.commit()  # ⭐ 显式提交事务
+        db.flush()
         return jsonify({'data': wrap_position, 'message': 'ok'})
 
 
@@ -325,7 +301,7 @@ def update_position(id):
                 value = Money.shares_to_min_unit(value)
             setattr(position, field, value)
 
-        db.commit()
+        db.flush()
         db.refresh(position)
         return jsonify({'data': enrich_position_dict(position), 'message': 'ok'})
 
@@ -349,7 +325,7 @@ def delete_position(id):
                 ).delete()
 
         db.delete(position)
-        db.commit()
+        db.flush()
         return jsonify({'message': 'ok', 'data': None})
 
 
@@ -392,6 +368,6 @@ def allocate_position_value():
             )
         except ValueError as e:
             logger.warning('按占比分摊失败: %s', e)
-            return jsonify({'message': str(e), 'data': None}), 400
-        db.commit()
+            return jsonify({'message': str(e), 'data': None, 'error_code': 1001}), 400
+        db.flush()
         return jsonify({'data': result, 'message': 'ok'})

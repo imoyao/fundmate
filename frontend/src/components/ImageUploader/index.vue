@@ -195,7 +195,7 @@ const handlePaste = (e: ClipboardEvent) => {
   &-line {
     margin: 0;
     font-size: var(--text-label);
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   &-hint {
@@ -243,7 +243,7 @@ const handlePaste = (e: ClipboardEvent) => {
 
   &-size {
     font-size: var(--text-label);
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 }
 

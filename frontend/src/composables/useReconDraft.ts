@@ -31,7 +31,7 @@ export type RecognizerCandidateKind = "txn" | "holding";
 /**
  * 识别候选行（#1250）。直接复用 OCR 预览行结构（OcrTxnRow / OcrHoldingRow），
  * 仅附加 `kind` 标记以便工作台路由到对应域。提交入库时剥离 `kind` 即可原样回传
- * `/api/importers/confirm`（txn）或 `/api/importers/holdings/confirm`（holding）。
+ * `/api/importers/confirm/`（txn）或 `/api/importers/holdings/confirm/`（holding）。
  */
 export type RecognizerCandidate =
   (OcrTxnRow & { kind: "txn" }) | (OcrHoldingRow & { kind: "holding" });

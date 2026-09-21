@@ -800,57 +800,6 @@ onMounted(async () => {
   }
 }
 
-/* ===== 响应式 ===== */
-@media (width <= 640px) {
-  .avatar-zone {
-    align-items: flex-start;
-  }
-
-  .avatar-top-row {
-    width: 100%;
-  }
-
-  .setting-row {
-    flex-direction: column;
-    gap: var(--space-2);
-    align-items: flex-start;
-  }
-
-  .setting-row__label {
-    flex-basis: auto;
-    min-width: 0;
-  }
-
-  .setting-row__main {
-    justify-content: flex-start;
-    width: 100%;
-  }
-
-  .style-card-group {
-    justify-content: flex-start;
-  }
-
-  .danger-zone {
-    align-items: flex-start;
-  }
-
-  .field-block__input-row {
-    flex-direction: column;
-    gap: var(--space-2);
-    align-items: stretch;
-  }
-
-  .field-input {
-    width: 100%;
-    max-width: 100%;
-  }
-
-  .field-block__save {
-    align-self: flex-end;
-    margin-left: 0;
-  }
-}
-
 /* ===== 概览页统一卡片与悬停交互 ===== */
 .profile-card {
   padding: var(--space-standard);
@@ -894,7 +843,7 @@ onMounted(async () => {
   }
 
   :deep(.page-header__subtitle) {
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 }
 
@@ -1038,7 +987,7 @@ onMounted(async () => {
   gap: 6px;
   align-items: center;
   padding: 6px 6px 4px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   cursor: pointer;
   background: var(--bg-card);
   border: 1px solid var(--border-default);
@@ -1159,7 +1108,7 @@ onMounted(async () => {
 .field-block__desc {
   font-size: 13px;
   line-height: 1.4;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .field-block__input-row {
@@ -1189,6 +1138,7 @@ onMounted(async () => {
 
 /* 🔥 禁用态优化：去除灰底，变为幽灵按钮，视觉轻量不抢戏 */
 .field-block__save.is-disabled {
+  /* audit-text-contrast: exempt .field-block__save.is-disabled 为**真禁用**控件，按 WCAG 1.4.3 对 inactive component 的豁免；**「无数据占位符」不适用本豁免**（那是信息，须用 --text-tertiary-ink）。登记见 docs/spec/tech-debt.md（#1599） */
   color: var(--text-disabled) !important;
   cursor: not-allowed !important;
   background: transparent !important;
@@ -1201,7 +1151,7 @@ onMounted(async () => {
 .field-count {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* ===== 敏感词提示 ===== */
@@ -1212,7 +1162,7 @@ onMounted(async () => {
 }
 
 .field-hint--warn {
-  color: var(--color-danger);
+  color: var(--color-warning-ink);
 }
 
 /* ===== 账号安全行 ===== */
@@ -1252,7 +1202,7 @@ onMounted(async () => {
 .setting-row__desc {
   font-size: 12px;
   line-height: 1.4;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .setting-row__main {
@@ -1328,13 +1278,13 @@ onMounted(async () => {
 .danger-zone__desc {
   font-size: 12px;
   line-height: 1.4;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* ===== 危险幽灵按钮 ===== */
 
-/* 危险色走语义别名 --danger（= --color-danger-system #d4364a，design.md 危险按钮规范），
-   勿用旧 token --color-danger（#c83e66 历史遗留值） */
+/* 危险色走语义别名 --danger（= --color-danger #d4364a，design.md 危险按钮规范）。
+   #1602：原 -system 后缀已去除，全站唯一危险色就是 --color-danger */
 .danger-btn {
   flex-shrink: 0;
   height: 40px;
@@ -1373,7 +1323,7 @@ onMounted(async () => {
 .dialog-hint {
   margin: 0;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* ===== 退出确认弹窗内容 ===== */
@@ -1388,5 +1338,60 @@ onMounted(async () => {
   display: flex;
   gap: var(--space-2);
   justify-content: flex-end;
+}
+
+/* ===== 响应式 ===== */
+
+/* 窄屏（<640px）：设置页的行式布局改竖排。
+   ⚠️ 本块原先排在各自的基础声明**之前**——媒体查询不改变特异性，覆盖被后面同选择器的声明压掉、**从未生效**（2026-09-18 修复，见 #1576 同类台账）。 */
+@media (width <= 640px) {
+  /* breakpoint-allow: 本文件 style 块是纯 CSS（无 lang="scss"），无法用 bp mixin */
+  .avatar-zone {
+    align-items: flex-start;
+  }
+
+  .avatar-top-row {
+    width: 100%;
+  }
+
+  .setting-row {
+    flex-direction: column;
+    gap: var(--space-2);
+    align-items: flex-start;
+  }
+
+  .setting-row__label {
+    flex-basis: auto;
+    min-width: 0;
+  }
+
+  .setting-row__main {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .style-card-group {
+    justify-content: flex-start;
+  }
+
+  .danger-zone {
+    align-items: flex-start;
+  }
+
+  .field-block__input-row {
+    flex-direction: column;
+    gap: var(--space-2);
+    align-items: stretch;
+  }
+
+  .field-input {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .field-block__save {
+    align-self: flex-end;
+    margin-left: 0;
+  }
 }
 </style>

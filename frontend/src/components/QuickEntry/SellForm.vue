@@ -71,7 +71,7 @@
               >
               <span
                 class="text-xs whitespace-nowrap"
-                :style="{ color: 'var(--text-tertiary)' }"
+                :style="{ color: 'var(--text-tertiary-ink)' }"
               >
                 可用 {{ Number(pos.quantity).toFixed(2) }} 份
               </span>
@@ -81,7 +81,7 @@
         <div
           v-if="accountPositions.length === 0"
           class="text-xs mt-1"
-          style="color: var(--text-tertiary)"
+          style="color: var(--text-tertiary-ink)"
         >
           当前账户无可用持仓，无法执行卖出/赎回操作。
         </div>
@@ -109,7 +109,7 @@
               <el-radio-button :value="true">15:00后</el-radio-button>
             </el-radio-group>
           </div>
-          <div class="text-xs mt-1" style="color: var(--text-tertiary)">
+          <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
             <span v-if="form.isAfter15 && selectedPosition?.type === 'fund'">
               15:00后赎回，按下一交易日（T+1）净值计算
             </span>
@@ -152,7 +152,7 @@
             <div
               v-if="showQtyHint"
               class="text-xs"
-              style="color: var(--color-danger-system)"
+              style="color: var(--color-danger)"
             >
               <template v-if="form.type === 'fund'"
                 >每笔最少 0.0001 份</template
@@ -162,7 +162,7 @@
             <div
               v-else-if="isOddLot && form.type !== 'fund'"
               class="text-xs"
-              style="color: var(--color-warning)"
+              style="color: var(--color-warning-ink)"
             >
               （含碎股，可全部卖出）
             </div>
@@ -202,7 +202,7 @@
                 <el-button @click="openFeeRateDialog">查询费率</el-button>
               </div>
             </div>
-            <div class="text-xs mt-1" style="color: var(--text-tertiary)">
+            <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
               按持仓天数自动匹配费率，可手动修改
             </div>
           </el-form-item>
@@ -212,7 +212,7 @@
         <div
           v-if="form.type === 'fund'"
           class="text-xs flex items-center gap-1 mt-1 pl-[90px]"
-          style="color: var(--text-tertiary)"
+          style="color: var(--text-tertiary-ink)"
         >
           <span>对应净值：</span>
           <span class="font-medium" style="color: var(--text-secondary)">
@@ -305,13 +305,13 @@
         <div
           v-if="maxQuantity > totalCalculatedHold"
           class="text-xs mt-2"
-          style="color: var(--color-warning)"
+          style="color: var(--color-warning-ink)"
         >
           注：当前持有 {{ maxQuantity.toFixed(4) }} 份，其中
           {{ totalCalculatedHold.toFixed(4) }}
           份有买入记录，可用于费率计算，其余份额未纳入分布。
         </div>
-        <div class="mt-4 text-xs" style="color: var(--text-tertiary)">
+        <div class="mt-4 text-xs" style="color: var(--text-tertiary-ink)">
           注：卖出份额按先进先出（FIFO）规则，从最早买入份额开始扣减。
         </div>
       </template>
@@ -339,7 +339,7 @@ import { validateTradeOrder } from "@/api/positions";
 import type { Position } from "@/api/types";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { LEDGER_TYPE_SHORT } from "@/constants";
-import { getLedgerColor, bgFromColor } from "@/utils/ledger";
+import { getLedgerColor } from "@/utils/ledger";
 import {
   getStep,
   SELL_QUICK_RATIOS,

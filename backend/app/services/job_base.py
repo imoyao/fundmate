@@ -1,6 +1,12 @@
-# app/services/sync/jobs/base.py
+# app/services/job_base.py
 """
-同步任务基类 —— 重构版 v2.0
+跨家族共享的同步任务基类 —— 重构版 v2.0
+
+为什么在 services 顶层，而不是 `services/sync/jobs/`（#1607 批次 3）：
+`SyncJob` / `JobStatus` 被 sync、thermometer、bias 三个 job 家族共用，原先"寄生"在 sync
+家族包内，导致 thermometer / bias 反向 import `services.sync`——这是包级双向依赖的成因之一
+（决策见 `docs/spec/decisions.md` 2026-09-19 D25；`architecture.md` §6「services 内部方向」）。
+约定：**跨家族共享件放 `services/` 顶层，家族包内只留该家族独有实现**。
 
 职责：
 - 提供统一的 run() 流程（不再区分子类覆盖）
@@ -129,6 +135,22 @@ class SyncJob(ABC):
 
     # ── 分批执行核心 ──
 
+    def _safe_rollback(self) -> None:
+        """把 Session 从「flush 失败后的 DEACTIVE」状态拉回来（#1550）。
+
+        SQLAlchemy 在 flush 抛异常（如 UNIQUE 冲突）后会把 Session 标成必须先
+        rollback，此后任何操作——包括重试、包括 orchestrator 写 sync_logs——
+        都直接抛 PendingRollbackError。旧实现重试分支不 rollback，于是第二次、
+        第三次尝试全部以 PendingRollbackError 收场：真实错误被掩盖、重试形同虚设，
+        最终异常还会冒泡出去把审计落库一起带崩（sync_logs 全链路无痕）。
+
+        本方法自身绝不向上抛：它出现的场合正是「已有异常待处理」。
+        """
+        try:
+            self.db.rollback()
+        except Exception as exc:  # noqa: BLE001 - rollback 失败不得取代原始异常
+            self.logger.warning(f'Session rollback 失败（已忽略）: {exc}')
+
     def _execute_batches(self, targets: List[str]) -> int:
         """
         分批抓取、校验、去重、写入，返回成功写入的总记录数。
@@ -220,6 +242,10 @@ class SyncJob(ABC):
 
             except Exception as e:
                 self.retry_count += 1
+                # #1550：必须先 rollback 再重试。否则 Session 停在 DEACTIVE，
+                # 第 2/3 次尝试一定以 PendingRollbackError 失败（真实错误被掩盖），
+                # 且这枚「中毒会话」会被 run_all_jobs 里后续 job 继续复用。
+                self._safe_rollback()
                 if self.retry_count < MAX_RETRIES:
                     self.status = JobStatus.RETRYING
                     wait = 2**self.retry_count
@@ -230,6 +256,11 @@ class SyncJob(ABC):
                     self.stats['error'] = str(e)
                     self.logger.error('超过最大重试次数，需人工介入')
                     break
+
+        if self.status is not JobStatus.SUCCESS:
+            # 终态非成功：把 Session 交还给编排器时必须是干净的，
+            # 否则 run_job 的审计落库与 run_all_jobs 的后续 job 会连带受害
+            self._safe_rollback()
 
         return self._build_result()
 

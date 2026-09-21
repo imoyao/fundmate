@@ -123,7 +123,7 @@ const {
   margin: -4px 0 8px;
   font-size: 11px;
   line-height: 1.5;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .legend-item {

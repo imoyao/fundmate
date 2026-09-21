@@ -45,7 +45,7 @@
         <div
           v-if="selectableLedgers.length === 0 && !showQuickAdd"
           class="text-xs mt-1"
-          style="color: var(--text-tertiary)"
+          style="color: var(--text-tertiary-ink)"
         >
           暂无账户，点击右侧 + 按钮快速创建
         </div>
@@ -116,7 +116,7 @@
         <template #empty>
           <div
             class="text-center py-4 text-sm"
-            style="color: var(--text-tertiary)"
+            style="color: var(--text-tertiary-ink)"
           >
             <template v-if="!searchLoading">{{ emptyHint }}</template>
           </div>
@@ -145,8 +145,10 @@
           <el-radio-button :value="true">15:00后</el-radio-button>
         </el-radio-group>
       </div>
-      <div class="text-xs mt-1" style="color: var(--text-tertiary)">
-        <span v-if="isTradingDay === false" style="color: var(--color-warning)"
+      <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
+        <span
+          v-if="isTradingDay === false"
+          style="color: var(--color-warning-ink)"
           >所选日期非交易日，请确认 ·
         </span>
         <span v-if="form.isAfter15 && selectedSecurityOption?.type === 'fund'">
@@ -169,7 +171,7 @@
           :min="0"
           placeholder="输入买入金额"
         />
-        <div class="text-xs mt-1" style="color: var(--text-tertiary)">
+        <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
           买入金额将包含手续费，系统自动计算份额
         </div>
       </div>
@@ -202,7 +204,10 @@
             :min="0"
             :placeholder="feeMode === 'amount' ? '输入手续费金额' : '0.0000'"
           />
-          <span class="text-sm shrink-0" style="color: var(--text-tertiary)">
+          <span
+            class="text-sm shrink-0"
+            style="color: var(--text-tertiary-ink)"
+          >
             {{ feeMode === "amount" ? "元" : "%" }}
           </span>
         </div>
@@ -263,7 +268,7 @@
         </div>
       </div>
 
-      <div class="text-xs mt-1" style="color: var(--text-tertiary)">
+      <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
         费率已根据账户预设填充，可手动修改
       </div>
     </el-form-item>
@@ -283,7 +288,7 @@
             : '买入数量'
         "
       />
-      <div class="text-xs mt-1" style="color: var(--text-tertiary)">
+      <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
         买入金额扣除手续费后的确认份额，可手动微调
       </div>
     </el-form-item>
@@ -293,7 +298,7 @@
     <div
       v-if="selectedSecurityOption?.type === 'fund'"
       class="text-xs flex items-center gap-1 mt-1 pl-[90px]"
-      style="color: var(--text-tertiary)"
+      style="color: var(--text-tertiary-ink)"
     >
       <span>对应净值：</span>
       <span class="font-medium" style="color: var(--text-secondary)">
@@ -358,7 +363,7 @@ import {
   LEDGER_TYPE_SHORT,
   LEDGER_TYPE_OPTIONS
 } from "@/constants";
-import { getLedgerColor, bgFromColor } from "@/utils/ledger";
+import { getLedgerColor } from "@/utils/ledger";
 import { DEFAULT_SUB_RATE } from "@/utils/trading";
 
 interface SecurityOption {

@@ -82,14 +82,28 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 
 ## 12 列栅格与容器层级（设计草案 · 未落地）
 
-> ⚠️ **状态：设计草案，尚未在代码中实现。** 本节描述的 `.block-shell` / `.grid-12` /
-> `.col-4` / `.col-8` 以及 `MetricGrid :columns="12"` 目前**全仓零实现**（issue #1506 跟踪）。
-> 在补齐实现之前，本节只是布局意图的参考，**不是**「单一来源 / 必须」约束，也不应被
-> 当作现状去核对代码。
+> ⚠️ **状态：布局意图，从未实现，短期内也不打算实现（#1506 核实，2026-09-16 复核）。**
+> 本节提到的 `.block-shell` / `.grid-12` / `.col-4` / `.col-8` **全仓零实现**，
+> 也不应当被当作待办清单去照做。
 >
-> 当前页面的**事实标准**是：内容宽度 1280px（`PageHeaderBar` / `PageFooter` / 盘点页
-> `.inventory-shell` 同宽同内边距）；区块标题用 `SectionHeader`；卡片容器用 `CardBlock`；
-> 列排布用 Tailwind 响应式栅格（`grid` + `gap-*`）。新页面请先对齐这套事实标准。
+> 补充说明两处旧文稿的错误，勿再引用：
+>
+> 1. 旧版写「每层 `MetricGrid` 内部必须 `:columns="12"`」——**该 prop 根本不存在**。
+>    `MetricGrid` 曾声明 `columns`，但 template 与 style 从未读取它（纯死 prop），
+>    已于 2026-09-16 删除；该组件走 flex 自均分，本来也不接受列数控制。
+> 2. 旧版把「内容宽度 1280px」写成事实标准——**只对内容列成立**，外壳另有 1400px 一档，
+>    详见下方「实际生效的容器约定」。
+
+**实际生效的容器约定（写代码照这条，不要照本节上方的草案）**：
+
+- **内容列宽度**：`--layout-content-width`（当前 1400px，**#1548 起与外壳同宽**）+ 横向 `--space-standard`(24px) + `margin: 0 auto`。
+  唯一来源是 `frontend/src/style/colors.css`，页面里**禁止**写死 `1280px` / `1400px`（CI 守卫拦截）。
+- **外层壳宽度**：`--layout-shell-width`（当前 1400px），用于 `.main-content` / `AppFooter` / `MarketHeader`。
+  两档已由 #1548 **收敛为一档 1400px**——原先 1280 / 1400 并存导致的「探市页页头与内容区左右边缘错开 60px」随之消失。
+- **区块**：`SectionHeader` + `CardBlock`；两者间距由外层容器 `display:flex; flex-direction:column; gap: var(--space-section)` 控制（见 `.inventory-shell`）。
+- **栅格**：直接用 Tailwind 响应式栅格（`grid` + `grid-cols-*` + `gap-*`）。**不再计划**引入第二套 `.grid-12` 栅格工具类。
+
+下列内容仅保留为布局意图，供未来若做整体重构时参考：
 
 页面区块建议采用「区块卡外套 + 卡内指标块」两级容器的布局意图，列宽仅允许以下组合：
 
@@ -101,7 +115,7 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 
 - 页面外层用 `.block-shell` 包裹 `SectionHeader` + 内容区；块与块之间 `gap: var(--space-5)`（24px，注意：原文档曾误写为 `--space-7`，该 token 在 Spacing 章节未定义，已统一为 `--space-5`）。
 - 内容区用 `.grid-12`（`display:grid; grid-template-columns: repeat(12, 1fr); gap: var(--space-5)`），子项用 `.col-4` / `.col-8`（`grid-column: span N`）。
-- 每层 `MetricGrid` 内部 **计划 `:columns="12"`**，由父级 `.col-4/.col-8` 决定其实际占宽（禁止在 `.col-*` 内写 `:columns="4"`）。
+  （已废弃：旧稿要求给内层 `MetricGrid` 传 `:columns="12"` —— 该 prop 已于 2026-09-16 删除，见本节开头说明。）
 - 响应式：≤960px 时所有 `.col-4 / .col-8` 退化为 `grid-column: span 12`。
 - **心理账户**等次级区块应补充「区块卡外套」（`SectionHeader` + 卡片容器），与「财务晴雨表」等主区块视觉对齐，禁止裸列表直接铺在页面上。
 
@@ -132,6 +146,9 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - 用途：区块卡（`SectionHeader` + 内容区）的统一容器，**禁止各页面手写 `bg-white rounded-2xl p-6 shadow-sm border` 等重复样式**。
 - 结构：纯容器 `<section class="card-block">` + 默认插槽；与 `SectionHeader`、`MetricCard` 卡片视觉一致（`--bg-card` + `--radius-lg` + `--border-light` + `--shadow-raised` + `--space-standard` 内边距）。
 - 间距由使用方通过 class 控制（如 `class="mb-6"`），组件不预设外边距。
+- **判定「区块卡」**（#1547 T3.1）：元素自身承载 `SectionHeader`（或等价标题行）且属页面级区块 → 必须走 `CardBlock`。
+  以下属**卡内元素**，**不走** `CardBlock`，但仍须 token 化、禁字面量圆角：栅格内的列表项卡（`.holding-card` / `.asset-card`）、
+  状态提示条（`.state-hint`）、面板内信息条（`.asof-bar` / `.bond-yield`）、引导横幅（`.auth-guide__inner`）。
 
 ## PortfolioEditDialog · 组合编辑对话框（强制复用）
 
@@ -301,9 +318,11 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 
 - 供「探市 / 温度计 / 达报」使用，纯 SVG 圆环（与现有温度计页一致，不引入 echarts）。
 - 标题默认「综合市场温度」，可转债温度等通过 `title` prop 覆盖（如 `title="可转债温度"`）。
-- 颜色语义分两类，单一来源见 `src/style/colors.css` 的 `--temp-*` token：
-  - **综合市场温度**（`title === "综合市场温度"`）：取档位语义色 `<40 → --temp-low`，`40–60 → --temp-mid`，`>60 → --temp-high`。
-  - **其它温度（如可转债）**：按数值取温度带色，与档位阈值对齐：`≤15 → --temp-cold`，`≤35 → --temp-cool`，`≤65 → --temp-neutral`，`≤85 → --temp-warm`，`>85 → --temp-hot`。保证颜色语义与数值区间严格对应，避免与涨跌红绿混淆。
+- 颜色语义分两类，单一来源见 `src/style/colors.css` 的 `--temp-*` token，由 `scale` prop 选择：
+  - **`scale="level"`（默认）· 综合市场温度**：取档位语义色 `<40 → --temp-low`，`40–60 → --temp-mid`，`>60 → --temp-high`。
+  - **`scale="band"` · 其它温度（如可转债）**：按数值取温度带色，与档位阈值逐条对齐：`≤15 → --temp-cold`，`≤35 → --temp-cool`，`≤65 → --temp-neutral`，`≤85 → --temp-warm`，`>85 → --temp-hot`。保证颜色语义与数值区间严格对应，避免与涨跌红绿混淆。
+  - 显式覆盖：`tone="low" | "mid" | "high"` 优先级最高，用于不必按数值推断的场合。
+  - **现状（2026-09-16 核对）**：两个调用方（探市概览档 / 深度档）均为综合市场温度，走 `level` 三档；`band` 五档已实现（#1549 T3.4），供后续非综合温度环形使用。**阈值与取色表只允许有一份口径**：改本表须同步 `frontend/src/components/TemperatureGaugeCard/index.vue` 的 `BAND_THRESHOLDS` / `BAND_COLOR`。
 - 档位文案：偏低·偏冷 / 正常·温和 / 偏高·偏热（由 `level` prop 透传，对应温度档位文案）。
 - **职责单一**：本组件只渲染圆环与标题、caption，不再内嵌恐惧贪婪或短中长期。相关上下文由 `TemperatureContextCard` 承载。
 
@@ -323,6 +342,19 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 | 更新时间胶囊 | 12px | —— | `--text-tertiary`，`--bg-soft` 底 + `--border-light` |
 
 > 副标题风格：专业、客观，避免过度口语化。
+
+**响应式（#1571 实测定稿）**
+
+| 档位 | 布局 |
+|------|------|
+| ≥ `md`（768px） | 横排：左侧标题 + 副标题，右侧更新时间胶囊；横向内边距 `--space-standard`(24px) |
+| < `md`（768px） | 纵排：标题 → 副标题 → 更新时间胶囊，文字块撑满整行；横向内边距收窄到 `--space-compact`(16px) |
+
+- **文字块必须 `min-width: 0`**：flex 项默认 `min-width: auto`（不低于 min-content），
+  不显式允许收缩时，标题块下限会和右侧 `nowrap` 的更新时间胶囊一起顶破容器——
+  375 视口下副标题曾被挤到仅 129.8px 宽、折成 4 行。
+- **不给副标题加截断 / tooltip**：纵排后副标题本就拿满整行，截断反而丢信息。
+- 断点取值见 `frontend/design.md` §Viewport「断点单一来源」，勿在此另写 px。
 
 ## PageFooter / MarketFooter · 探市 / 温度计页脚（复用）
 

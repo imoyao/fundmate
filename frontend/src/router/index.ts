@@ -236,6 +236,14 @@ router.beforeEach(async (to: ToRouteType, _from, next) => {
         openLink(to?.name as string);
         NProgress.done();
       } else {
+        // 菜单兜底（#1565）：静态菜单只与登录态有关，与目标路由无关，故此处按需补齐。
+        // _from.name 有值说明是客户端跳转，不会走下方「首次访问」分支；若首屏落在全屏页
+        // （/explore 等，守卫在上方提前 return，从不组装菜单），wholeMenus 会一直为空，
+        // 侧边栏「消失/没挂载出来」（NavVertical 的 v-loading 常驻且菜单项为 0），
+        // 刷新后因为变成首屏直达才恢复正常。
+        if (usePermissionStoreHook().wholeMenus.length === 0) {
+          usePermissionStoreHook().handleWholeMenus([]);
+        }
         toCorrectRoute();
       }
     } else {
@@ -272,16 +280,8 @@ router.beforeEach(async (to: ToRouteType, _from, next) => {
         whiteList.indexOf(to.path) !== -1 ||
         to.meta?.requiresAuth === false
       ) {
-        // 兜底：已通过 Supabase 认证（isAuthenticated 为真），但因 multipleTabsKey
-        // cookie 缺失未进入上方「首次访问」分支，导致 wholeMenus 始终为空、
-        // 侧边栏 v-loading（依赖 wholeMenus.length === 0）一直转。
-        // 此处用静态菜单填充，确保放行进入的页面侧边栏能正常渲染。
-        if (
-          isAuthenticated &&
-          usePermissionStoreHook().wholeMenus.length === 0
-        ) {
-          usePermissionStoreHook().handleWholeMenus([]);
-        }
+        // #1565：此处原有的 `isAuthenticated && wholeMenus.length === 0` 兜底是死代码
+        // （本分支 isAuthenticated 恒为 false），菜单兜底已移到上方已登录分支。
         next();
       } else {
         // 清理残留数据

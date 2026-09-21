@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import VChart from "vue-echarts";
-import { getCssVar } from "@/composables/echarts/theme";
+import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 
@@ -44,7 +44,9 @@ const allocationGroups = computed(() =>
 const hasAllocationData = computed(() => allocationGroups.value.length > 0);
 
 // 环形图 option：环形 + 底部 legend（分类名 + 占比），中心由 HTML 覆盖层显示总资产
+const themeTick = useThemeTick();
 const allocationOption = computed(() => {
+  void themeTick.value; // 主题切换时重算 option，触发 vue-echarts 重绘（#976）
   const groups = allocationGroups.value;
   const total = groups.reduce((sum: number, g: any) => sum + (g.total || 0), 0);
   const legendTextColor = getChartColor("--text-secondary") || "#6b655c";
@@ -113,7 +115,7 @@ const allocationOption = computed(() => {
 
 <template>
   <div class="overview-card allocation-card">
-    <p class="text-sm mb-2" :style="{ color: 'var(--text-tertiary)' }">
+    <p class="text-sm mb-2" :style="{ color: 'var(--text-tertiary-ink)' }">
       资产配置
     </p>
     <div v-if="hasAllocationData" class="allocation-chart-wrap">
@@ -121,7 +123,7 @@ const allocationOption = computed(() => {
       <div class="allocation-center">
         <span
           class="allocation-center-label"
-          :style="{ color: 'var(--text-tertiary)' }"
+          :style="{ color: 'var(--text-tertiary-ink)' }"
           >总资产</span
         >
         <MoneyDisplay
@@ -142,7 +144,7 @@ const allocationOption = computed(() => {
         icon="ep:pie-chart"
         class="text-4xl mb-2 opacity-30"
       />
-      <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">
+      <p class="text-sm" :style="{ color: 'var(--text-tertiary-ink)' }">
         暂无资产配置数据
       </p>
     </div>
@@ -199,6 +201,6 @@ const allocationOption = computed(() => {
   align-items: center;
   justify-content: center;
   min-height: 220px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 </style>

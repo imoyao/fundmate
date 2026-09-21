@@ -29,13 +29,12 @@ def _parse_csv_filter(value: str) -> list[str]:
 
 
 def _enrich_asset_dict(asset: Asset) -> dict:
-    """为 Asset 对象附加计算字段，并将金额转为元返回"""
-    amount_yuan = Money.cents_to_yuan(asset.amount)
-    asset.signed_amount = amount_yuan if asset.major_category != 'liability' else -amount_yuan
+    """附加计算字段并转元返回；**不改写持久列 amount**（#1632：边界提交会写回库）。"""
+    yuan = Money.cents_to_yuan(asset.amount)
+    asset.signed_amount = yuan if asset.major_category != 'liability' else -yuan
     asset.allocation_label = ALLOCATION_LABELS.get(asset.allocation, asset.allocation or '未配置')
     asset.type_label = ASSET_CATEGORY_LABELS.get(asset.major_category, asset.major_category)
-    asset.amount = amount_yuan
-    return AssetOut.model_validate(asset).model_dump()
+    return {**AssetOut.model_validate(asset).model_dump(), 'amount': yuan}
 
 
 @bp.get('/')
@@ -97,6 +96,7 @@ def create_asset():
                         {
                             'data': None,
                             'message': '错误：固定资产（房产/车辆/固定设备）不能绑定到银行账户下，请选择「实物资产」账户',
+                            'error_code': 1001,
                         }
                     ), 400
 
@@ -107,7 +107,7 @@ def create_asset():
         asset.user_id = 1
         asset.family_id = get_family_id()
         db.add(asset)
-        db.commit()
+        db.flush()
         db.refresh(asset)
         return jsonify({'data': _enrich_asset_dict(asset), 'message': 'ok'})
 
@@ -133,14 +133,18 @@ def update_asset(id):
 
             if new_ledger.ledger_type == 'bank' and target_major in ('fixed', 'real_estate', 'vehicle'):
                 return jsonify(
-                    {'data': None, 'message': '错误：固定资产不能迁移到银行账户下，请选择「实物资产」账户'}
+                    {
+                        'data': None,
+                        'message': '错误：固定资产不能迁移到银行账户下，请选择「实物资产」账户',
+                        'error_code': 1001,
+                    }
                 ), 400
 
         if 'amount' in update_data:
             update_data['amount'] = Money.yuan_to_cents(update_data['amount'])
         for field, value in update_data.items():
             setattr(asset, field, value)
-        db.commit()
+        db.flush()
         db.refresh(asset)
         return jsonify({'data': _enrich_asset_dict(asset), 'message': 'ok'})
 
@@ -153,7 +157,7 @@ def delete_asset(id):
         if not asset:
             abort(404, description='资产不存在')
         db.delete(asset)
-        db.commit()
+        db.flush()
         return jsonify({'message': 'ok', 'data': None})
 
 

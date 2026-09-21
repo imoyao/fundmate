@@ -4,7 +4,9 @@
   内部复用 utils/temperatureFormat 的 crowdingColorClass / crowdingBarStyle。
 -->
 <template>
-  <section
+  <!-- 非 embedded 时根节点换成 CardBlock：区块外壳统一由 CardBlock 提供（#1547 T3.1） -->
+  <component
+    :is="embedded ? 'section' : CardBlock"
     :class="
       embedded
         ? 'crowding-section crowding-section--embedded'
@@ -339,10 +341,11 @@
     <div v-if="!items.length && !loading" class="empty-state">
       暂无数据：数据源当前不可用（外部临时源或申万宏源官网），稍后自动恢复；不影响页面其它部分。
     </div>
-  </section>
+  </component>
 </template>
 
 <script setup lang="ts">
+import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import {
   biasColorClass,
@@ -398,23 +401,18 @@ withDefaults(
   margin-bottom: 24px;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   box-shadow: var(--shadow-raised);
 }
 
 .bias-updated {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* embedded：外壳与标题交给父级卡片，本组件只出表格 */
 .crowding-section--embedded {
-  padding: 0;
   margin: 0;
-  background: none;
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
 }
 
 .bias-stale-pill {
@@ -423,7 +421,7 @@ withDefaults(
   font-size: 11px;
   font-weight: 500;
   line-height: 1.4;
-  color: var(--color-warning, #d97706);
+  color: var(--color-warning-ink);
   white-space: nowrap;
   cursor: help;
   background: color-mix(
@@ -444,7 +442,7 @@ withDefaults(
 .empty-state {
   padding: 40px 0;
   font-size: 14px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: center;
 }
 
@@ -500,14 +498,14 @@ withDefaults(
 .crowding-note-tag {
   padding: 2px 8px;
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-soft);
   border-radius: 6px;
 }
 
 .crowding-note {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* ===== 外部源维度单元格（当期值 + 历史分位，分位沿用 val-* 档位配色） ===== */
@@ -531,35 +529,35 @@ withDefaults(
 }
 
 .dim-rank.val-low {
-  color: var(--temp-low);
+  color: var(--temp-low-ink);
 }
 
 .dim-rank.val-mid {
-  color: var(--temp-mid);
+  color: var(--temp-mid-ink);
 }
 
 .dim-rank.val-high {
-  color: var(--temp-high);
+  color: var(--temp-high-ink);
 }
 
 /* 百万大单：净买入（红）/ 净卖出（绿），沿用涨跌配色语义 */
 .big-order--in {
   font-variant-numeric: tabular-nums;
-  color: var(--temp-high);
+  color: var(--temp-high-ink);
 }
 
 .big-order--out {
   font-variant-numeric: tabular-nums;
-  color: var(--temp-low);
+  color: var(--temp-low-ink);
 }
 
 /* ===== 拥挤度数值颜色（val-* 令牌） ===== */
 .val-high {
-  color: var(--temp-high);
+  color: var(--temp-high-ink);
 }
 
 .val-low {
-  color: var(--temp-low);
+  color: var(--temp-low-ink);
 }
 
 .val-mid {

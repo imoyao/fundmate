@@ -10,7 +10,7 @@
       <!-- 分组小标题：资产管理（组一：管理分组 / 管理标签 / 批量管理 / 导入探市） -->
       <p
         class="settings-group-title text-xs pt-2"
-        :style="{ color: 'var(--text-tertiary)' }"
+        :style="{ color: 'var(--text-tertiary-ink)' }"
       >
         资产管理
       </p>
@@ -43,14 +43,14 @@
             >
               管理分组
             </h4>
-            <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+            <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
               创建、重命名或删除自定义分组
             </p>
           </div>
           <IconifyIconOffline
             icon="ep:arrow-right"
             class="text-sm"
-            :style="{ color: 'var(--text-tertiary)' }"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
           />
         </div>
       </div>
@@ -83,14 +83,14 @@
             >
               管理标签
             </h4>
-            <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+            <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
               编辑、新建或删除资产标签
             </p>
           </div>
           <IconifyIconOffline
             icon="ep:arrow-right"
             class="text-sm"
-            :style="{ color: 'var(--text-tertiary)' }"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
           />
         </div>
       </div>
@@ -113,7 +113,7 @@
             <IconifyIconOffline
               icon="ep:operation"
               class="text-lg"
-              :style="{ color: 'var(--color-warning)' }"
+              :style="{ color: 'var(--color-warning-ink)' }"
             />
           </div>
           <div class="flex-1">
@@ -123,14 +123,14 @@
             >
               批量管理自选
             </h4>
-            <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+            <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
               批量移动、删除自选资产
             </p>
           </div>
           <IconifyIconOffline
             icon="ep:arrow-right"
             class="text-sm"
-            :style="{ color: 'var(--text-tertiary)' }"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
           />
         </div>
       </div>
@@ -165,14 +165,14 @@
               导入探市数据
               <el-badge :value="'!'" type="danger" class="ml-1" />
             </h4>
-            <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+            <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
               将「探市」中的观察资产迁移到自选列表
             </p>
           </div>
           <IconifyIconOffline
             icon="ep:arrow-right"
             class="text-sm"
-            :style="{ color: 'var(--text-tertiary)' }"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
           />
         </div>
       </div>
@@ -180,7 +180,7 @@
       <!-- 分组小标题：系统设置（组二：排序设置 / 刷新频率） -->
       <p
         class="settings-group-title text-xs pt-2"
-        :style="{ color: 'var(--text-tertiary)' }"
+        :style="{ color: 'var(--text-tertiary-ink)' }"
       >
         系统设置
       </p>
@@ -213,14 +213,14 @@
             >
               表格列显示
             </h4>
-            <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+            <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
               按品类分组设置展示列（本机自动保存）
             </p>
           </div>
           <IconifyIconOffline
             icon="ep:arrow-right"
             class="text-sm"
-            :style="{ color: 'var(--text-tertiary)' }"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
           />
         </div>
       </div>
@@ -247,17 +247,17 @@
             <IconifyIconOffline
               icon="ep:sort"
               class="text-lg"
-              :style="{ color: 'var(--text-disabled)' }"
+              :style="{ color: 'var(--text-tertiary-ink)' }"
             />
           </div>
           <div class="flex-1">
             <h4
               class="text-sm font-medium mb-1"
-              :style="{ color: 'var(--text-disabled)' }"
+              :style="{ color: 'var(--text-tertiary-ink)' }"
             >
               排序设置
             </h4>
-            <p class="text-xs" :style="{ color: 'var(--text-disabled)' }">
+            <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
               自定义列表排序规则（开发中）
             </p>
           </div>
@@ -265,7 +265,7 @@
             class="px-2 py-0.5 text-[10px] rounded-full"
             :style="{
               backgroundColor: 'var(--bg-soft)',
-              color: 'var(--text-tertiary)'
+              color: 'var(--text-tertiary-ink)'
             }"
           >
             即将推出
@@ -303,7 +303,7 @@
             >
               实时估值刷新频率
             </h4>
-            <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+            <p class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
               轮询间隔时长（休市自动暂停）
             </p>
           </div>

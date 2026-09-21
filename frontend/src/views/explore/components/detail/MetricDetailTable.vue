@@ -12,7 +12,7 @@
   内部复用 utils/temperatureFormat 的 displaySource / formatValue / valueColorClass。
 -->
 <template>
-  <section class="cards-section">
+  <CardBlock class="cards-section">
     <SectionHeader title="全部市场温度指标" />
     <el-table
       :data="items"
@@ -61,10 +61,11 @@
         <div class="empty-state">暂无更多指标</div>
       </template>
     </el-table>
-  </section>
+  </CardBlock>
 </template>
 
 <script setup lang="ts">
+import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import TemperatureLevelBadge from "@/components/TemperatureLevelBadge/index.vue";
 import { InfoFilled } from "@element-plus/icons-vue";
@@ -92,14 +93,11 @@ const rowClassName = ({ row }: { row: any }) => (row?.stale ? "is-stale" : "");
 </script>
 
 <style lang="scss" scoped>
-/* 区块容器与 BiasTable / CrowdingTable 保持同一卡片规范 */
+/* 区块外壳统一走 CardBlock（#1547 T3.1 收敛），此处只留区块间距。
+   外壳由 CardBlock 提供：--bg-card + --border-light + --radius-lg + --shadow-raised
+   + --space-standard（24px）内边距，与 BiasTable / CrowdingTable 同规范。 */
 .cards-section {
-  padding: 20px 24px;
   margin-bottom: 24px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-raised);
 }
 
 .metric-name-cell {
@@ -118,6 +116,9 @@ const rowClassName = ({ row }: { row: any }) => (row?.stale ? "is-stale" : "");
 
 .info-icon {
   flex-shrink: 0;
+
+  /* audit-text-contrast: exempt 非文本图形（图标字形），按 WCAG 1.4.11 需 3:1，本令牌在页底 / 卡片底实测 3.57~3.69:1，达标；
+     若改用 -ink 会与相邻正文同权，反而压平层级。登记见 docs/spec/tech-debt.md（#1586） */
   color: var(--text-tertiary);
   cursor: help;
 }
@@ -140,11 +141,11 @@ const rowClassName = ({ row }: { row: any }) => (row?.stale ? "is-stale" : "");
 
 /* ===== 指标数值颜色（val-* 令牌） ===== */
 .val-high {
-  color: var(--temp-high);
+  color: var(--temp-high-ink);
 }
 
 .val-low {
-  color: var(--temp-low);
+  color: var(--temp-low-ink);
 }
 
 .val-mid {
@@ -163,7 +164,7 @@ const rowClassName = ({ row }: { row: any }) => (row?.stale ? "is-stale" : "");
 .empty-state {
   padding: 40px 0;
   font-size: 14px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: center;
 }
 </style>

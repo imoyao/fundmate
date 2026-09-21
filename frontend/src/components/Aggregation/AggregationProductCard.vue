@@ -229,23 +229,6 @@ function handleClick() {
 </template>
 
 <style scoped>
-/* ── 响应式：小屏保持一致 ── */
-@media (width <= 520px) {
-  .primary-amount :deep(.money-display) {
-    font-size: 17px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .product-card {
-    transition: none;
-  }
-
-  .product-card:hover {
-    transform: none;
-  }
-}
-
 .product-card {
   display: flex;
   flex-direction: column;
@@ -265,7 +248,7 @@ function handleClick() {
 
 .product-card:hover {
   border-color: var(--border-default);
-  box-shadow: var(--shadow-overlay, var(--shadow-raised));
+  box-shadow: var(--shadow-raised);
   transform: translateY(-2px);
 }
 
@@ -294,7 +277,7 @@ function handleClick() {
   align-items: center;
   margin-top: 3px;
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .product-code {
@@ -353,7 +336,7 @@ function handleClick() {
 }
 
 .return-badge--positive {
-  color: var(--color-rise);
+  color: var(--color-rise-ink);
   background: var(--brand-100);
 }
 
@@ -363,7 +346,7 @@ function handleClick() {
 }
 
 .return-badge--flat {
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-soft);
 }
 
@@ -374,7 +357,7 @@ function handleClick() {
   align-items: baseline;
   justify-content: space-between;
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .secondary-item {
@@ -393,7 +376,7 @@ function handleClick() {
 .secondary-label {
   flex: none;
   font-size: 10px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   white-space: nowrap;
 }
 
@@ -402,7 +385,7 @@ function handleClick() {
   text-overflow: ellipsis;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   white-space: nowrap;
 }
 
@@ -417,7 +400,7 @@ function handleClick() {
   align-items: center;
   padding-top: var(--space-2, 8px);
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   border-top: 1px solid var(--border-subtle, var(--border-light));
 }
 
@@ -438,5 +421,25 @@ function handleClick() {
 
 .foot-channel {
   cursor: help;
+}
+
+/* ── 响应式：小屏保持一致 ──
+   ⚠️ 以下两块原先都排在基础声明**之前**，被同特异性、后写的规则压掉（2026-09-18 修复）。 */
+@media (width <= 520px) /* breakpoint-allow: 卡片内金额字号（内容级） */ {
+  /* 说明（已上移到 @media 同行）：这是**卡片内金额字号**（内容级阈值），不是页面布局断点 */
+  .primary-amount :deep(.money-display) {
+    font-size: 17px;
+  }
+}
+
+/* 尊重系统「减弱动态效果」 */
+@media (prefers-reduced-motion: reduce) {
+  .product-card {
+    transition: none;
+  }
+
+  .product-card:hover {
+    transform: none;
+  }
 }
 </style>

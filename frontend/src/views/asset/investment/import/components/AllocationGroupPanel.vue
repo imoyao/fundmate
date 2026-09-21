@@ -135,7 +135,7 @@ const hasContent = computed(
 .allocation-group-empty {
   padding: 6px 0;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: center;
 }
 </style>

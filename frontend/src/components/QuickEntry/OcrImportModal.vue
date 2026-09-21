@@ -164,7 +164,7 @@ const imageFile = ref<File | null>(null);
 const textContent = ref("");
 const recognizing = ref(false);
 const importing = ref(false);
-// 文本域行内错误（design.md：错误提示走行内小字 + --color-danger-system，不用全局弹红）
+// 文本域行内错误（design.md：错误提示走行内小字 + --color-danger，不用全局弹红）
 const textError = ref("");
 
 const remaining = ref(0);
@@ -504,15 +504,17 @@ onMounted(() => {
 }
 
 .ocr-primary-btn {
-  background-color: var(--brand-700);
+  color: var(--text-inverse);
+  background-color: var(--brand-solid);
 }
 
 .ocr-primary-btn:hover:not(:disabled) {
-  background-color: var(--brand-600);
+  background-color: var(--brand-solid-hover);
 }
 
 /* 禁用态：无内容/无图片时变浅灰，明确不可点击 */
 .ocr-primary-btn:disabled {
+  /* audit-text-contrast: exempt .ocr-primary-btn:disabled 为**真禁用**控件，按 WCAG 1.4.3 对 inactive component 的豁免；**「无数据占位符」不适用本豁免**（那是信息，须用 --text-tertiary-ink）。登记见 docs/spec/tech-debt.md（#1599） */
   color: var(--text-disabled);
   cursor: not-allowed;
   background-color: var(--bg-muted);
@@ -548,7 +550,7 @@ onMounted(() => {
     flex-shrink: 0;
     align-self: center;
     font-size: 14px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   &__label {
@@ -575,7 +577,7 @@ onMounted(() => {
     flex-shrink: 0;
     margin-left: auto;
     font-size: var(--text-label);
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   /* 额度紧张：仅数字/图标变色，不新增背景块 */
@@ -667,11 +669,11 @@ onMounted(() => {
     margin-bottom: var(--space-2);
     font-size: var(--text-label);
     font-weight: 500;
-    color: var(--text-tertiary); /* 标题弱化为浅灰，突出正文 */
+    color: var(--text-tertiary-ink); /* 标题弱化为浅灰，突出正文 */
 
     /* 线性浅色小图标（--text-tertiary），弱化「通知」属性 */
     :deep(svg) {
-      color: var(--text-tertiary);
+      color: var(--text-tertiary-ink);
     }
   }
 
@@ -715,7 +717,7 @@ onMounted(() => {
 .ocr-textarea__error {
   margin: var(--space-2) 0 0;
   font-size: var(--text-label);
-  color: var(--color-danger-system);
+  color: var(--color-danger);
 }
 
 /* ============================================

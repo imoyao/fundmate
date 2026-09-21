@@ -1,8 +1,7 @@
 {
-    "version": 2,
-    "build": "pnpm run build:landing",
-    "routes": [
-      { "handle": "filesystem" },
-      { "src": "/(.*)", "status": 404, "dest": "/404.html" }
-    ]
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "pnpm --dir frontend install --frozen-lockfile",
+  "buildCommand": "pnpm --dir frontend build",
+  "outputDirectory": "frontend/dist",
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }

@@ -42,7 +42,7 @@ def create_family():
 
         user.family_id = family.id
         user.role = ROLE_ADMIN
-        db.commit()
+        db.flush()
         db.refresh(family)
         return jsonify({'data': _family_to_dict(family), 'message': 'ok'})
 

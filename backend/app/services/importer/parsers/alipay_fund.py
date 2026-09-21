@@ -30,9 +30,9 @@ from typing import List, Optional, Tuple
 from loguru import logger
 
 from app.core.constants import PositionSource
+from app.services.import_records import SBImportError, StandardTransactionRecord
 from app.services.importer.base import BaseImportParser
 from app.services.importer.mappings import ALIPAY_OP_MAP
-from app.services.importer.records import SBImportError, StandardTransactionRecord
 from app.services.importer.utils import clean_amount, parse_date
 
 # 预编译正则（性能优化）

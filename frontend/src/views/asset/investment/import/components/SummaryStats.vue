@@ -111,9 +111,9 @@ function setFilter(key: string) {
   padding: 0 6px;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: center;
-  background: var(--bg-secondary);
+  background: var(--bg-subtle);
   border-radius: 999px;
 }
 

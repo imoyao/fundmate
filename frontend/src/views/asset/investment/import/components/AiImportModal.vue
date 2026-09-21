@@ -270,7 +270,7 @@ watch(
 
   &__label {
     font-size: var(--text-label);
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   &__count {
@@ -285,7 +285,7 @@ watch(
 
   &__hint {
     font-size: var(--text-label);
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   &.is-low {
@@ -294,11 +294,11 @@ watch(
 
     .usage-banner__icon,
     .usage-banner__count strong {
-      color: var(--color-warning);
+      color: var(--color-warning-ink);
     }
 
     .usage-banner__hint {
-      color: var(--color-warning);
+      color: var(--color-warning-ink);
     }
   }
 

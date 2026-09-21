@@ -30,15 +30,49 @@ withDefaults(
 </script>
 
 <style lang="scss" scoped>
+@use "@/style/breakpoints" as bp;
+
 /* 单一来源：frontend/design.md · 页头规范 */
 .page-header {
   display: flex;
-  gap: 16px;
+  gap: var(--space-compact);
   align-items: flex-start;
   justify-content: space-between;
-  max-width: 1280px;
-  padding: 0 24px;
+  max-width: var(--layout-content-width);
+  padding: 0 var(--space-standard);
   margin: 0 auto var(--space-section);
+
+  /* 窄屏（< 768px）：文字块与更新时间胶囊改为上下排。
+     横排时胶囊固定 181px 宽、文字块只能分到剩余空间（375 视口实测仅 129.8px，
+     副标题被迫折 4 行）；改列向后副标题拿满整行宽度，同时保住信息优先级
+     标题 > 副标题 > 时间戳，也无需给副标题加截断 / tooltip（那会丢信息）。
+     横向内边距同步从 --space-standard(24px) 收到 --space-compact(16px)。
+
+     ⚠️ 本块必须留在**基础声明之后**：@include 编译成 @media，而媒体查询不改变
+     特异性——挪到 `display: flex` 等声明之前，下面的 gap / padding 覆盖会被
+     基础声明压掉（`stylelint --fix` 曾自动这么挪，见 stylelint.config.js 的
+     order/order 注解）。 */
+  @include bp.below("md") {
+    flex-direction: column;
+    gap: var(--space-2);
+    align-items: flex-start;
+    padding: 0 var(--space-compact);
+
+    /* 列向下文字块自身撑满整行（align-items:flex-start 会让它退化成 fit-content，
+       短副标题的页面就会出现「盒子只有一行字宽」的抖动） */
+    .page-header__text {
+      align-self: stretch;
+    }
+  }
+
+  /* 文字块必须显式允许收缩（flex 项默认 min-width:auto，即不低于 min-content）：
+     否则标题块的下限 + 右侧 nowrap 的更新时间胶囊会一起撑破容器，
+     把副标题挤成 4 行并让文档横向溢出。
+     只加 min-width，不改 flex 简写——桌面档文字块维持 fit-content，
+     像素与改动前逐字相同。 */
+  &__text {
+    min-width: 0;
+  }
 
   &__title {
     margin: 0;
@@ -61,11 +95,12 @@ withDefaults(
 
   &__updated {
     display: inline-flex;
+    flex: 0 0 auto;
     gap: 6px;
     align-items: center;
     padding: 4px 10px;
     font-size: 12px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
     white-space: nowrap;
     background: var(--bg-soft);
     border: 1px solid var(--border-light);
@@ -75,7 +110,7 @@ withDefaults(
   &__dot {
     width: 6px;
     height: 6px;
-    background: var(--c-success);
+    background: var(--color-success);
     border-radius: 50%;
   }
 }

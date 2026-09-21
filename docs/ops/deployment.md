@@ -97,12 +97,27 @@ v1（2026-08）基于两项已推翻的假设，本版据实修订：
 
 ### 应用站（`app.duoduobei.com`，Vue SPA）
 
-- **构建**：`frontend/` 下 `vite build` → `dist/`。
-- **EdgeOne**：静态资源 + SPA 回退（`/index.html` 兜底路由）；绑定 `app.duoduobei.com`，SSL 自动。
-- **Cloudflare**：Pages 或 Workers 静态托管 `dist/`；本域由 Cloudflare 代理即天然承接备线。
-- **Vercel**：导入 `fundmate` 仓库，`root=frontend`，build `vite build`，output `dist`；自定义域 `app.duoduobei.com` 仅作为 LB 的 Priority 3 源（日常不解析到它）。
-- SPA 路由回退（`history` 模式）三平台均需配置「未知路径 → index.html」。
-- 上线 `<meta name="robots" content="noindex, nofollow">`（应用站不参与收录）。
+- **构建**：`frontend/` 下 `vite build` → `frontend/dist`（生产构建读 `frontend/.env.production`）。
+- **仓库内已落的配置**（2026-09-18，#1430）：
+
+  | 平台 | 仓库内文件 | 关键项 |
+  |:---|:---|:---|
+  | Vercel（兜底） | 根 `vercel.json` | `installCommand` / `buildCommand` 走 `pnpm --dir frontend …`；`outputDirectory=frontend/dist`；`rewrites` 全量回退 `/index.html` |
+  | Cloudflare（备） | 根 `wrangler.toml` | `pages_build_output_dir=frontend/dist`；**构建命令与 Root directory 只能填在 Dashboard**（Pages 的 wrangler 配置没有 `[build]` 段） |
+  | EdgeOne（主） | 无（纯控制台） | 见下方清单 |
+
+- **SPA 回退**：`frontend/public/_redirects`（`/* /index.html 200`）随构建拷进 `dist/`，Cloudflare Pages 直接消费；Vercel 用 `rewrites`；EdgeOne 在控制台配。
+- ⚠️ **`vercel.json` 不支持 `rootDirectory`**（2026-09-18 对官方 schema `https://openapi.vercel.sh/vercel.json` 实测：无该字段）——它是 **Dashboard 项目设置**项，不是配置文件字段。因此本仓采用「项目根 = 仓库根 + 显式 `pnpm --dir frontend`」的写法，**不依赖 Dashboard 设置**；若你更愿意把 Project Root Directory 设为 `frontend`，则根 `vercel.json` 不再被读取，需把等价配置填进 Vercel 项目设置（两种方式**二选一，勿混用**）。
+- **路由模式**：生产为 `VITE_ROUTER_HISTORY="hash"`（`frontend/.env.production`）——hash 深链 `/#/explore` 本不触发 404；上面的回退配置是为**切 history 模式**预留的兜底。
+- **收录**：应用站不参与收录——`frontend/index.html` 已写 `<meta name="robots" content="noindex, nofollow">`。
+
+**EdgeOne 控制台清单（可复现）**：
+
+1. 项目类型「静态站点」，仓库 `fundmate`，生产分支 `main`（`dev` 作预览环境）；
+2. 构建命令 `pnpm --dir frontend install --frozen-lockfile && pnpm --dir frontend build`，输出目录 `frontend/dist`；
+3. 路由规则 `/*` → `/index.html`（SPA 回退，状态码 200）；
+4. 绑定 `app.duoduobei.com`（SSL 自动），并把该主机名作为 Cloudflare LB 的 Priority 1 源（§2）；
+5. 构建期环境变量已由 `frontend/.env.production` 提供（`VITE_APP_ENV=production` 等）；若平台侧另配同名变量，须与之一致（见 #1028）。
 
 ### 文档站（`docs.duoduobei.com`，VitePress）
 
@@ -113,7 +128,7 @@ v1（2026-08）基于两项已推翻的假设，本版据实修订：
 
 ### 主站（`duoduobei.com`，静态）
 
-- 仓库 `duoduobei-web`，落地页源 `landing.html`/`about.html`/`story.html` 由 `build-landing.mjs` 生成。
+- 仓库 `duoduobei-web`，落地页源（静态 HTML/CSS + YML 文案源）与构建脚本均在主站仓维护；本仓曾有的 `scripts/build-landing.mjs` 已随移交删除（#1430）。
 - **EdgeOne（主）** 静态托管；**Cloudflare（备）** Pages/Workers 托管。
 - 主站不参与三平台 LB 的 Vercel 兜底（Vercel 额度留给应用站），备线仅 Cloudflare。
 
@@ -130,9 +145,10 @@ v1（2026-08）基于两项已推翻的假设，本版据实修订：
 
 - [ ] 三站点各自配置 EdgeOne / Cloudflare / Vercel 部署（应用站三平台全配，其余按上表）
 - [ ] 为每个子域建 Cloudflare Load Balancer，按 §2 优先级 + Health Check 串联源站
-- [ ] 应用站 `vercel.json` 的 `build:landing` 重定：应用站不再构建落地页，build 改为 `vite build`（落地页已移交主站）
-- [ ] 各平台 SPA / VitePress 路由回退配置核对
-- [ ] 应用站上线 `noindex`
+- [x] 应用站 `vercel.json` 的 `build:landing` 重定：应用站不再构建落地页，build 改为 `vite build`（落地页已移交主站）——**2026-09-18 #1430 落库**：根 `vercel.json` 改为 `pnpm --dir frontend` 构建 + SPA 回退；孤儿 `scripts/build-landing.mjs` 删除
+- [x] 应用站 SPA 路由回退：`frontend/public/_redirects` + `vercel.json` rewrites（EdgeOne 侧见 §3 清单）——**2026-09-18 #1430**
+- [x] 应用站上线 `noindex`：`frontend/index.html` 已写 `<meta name="robots" content="noindex, nofollow">`——**2026-09-18 #1430**
+- [ ] 各平台 SPA / VitePress 路由回退配置核对（文档站 VitePress 侧待各平台绑定后复验）
 - [ ] 反馈中心 `feedback.duoduobei.com`：dbb-feedback 仓库部署到 Cloudflare Workers，Neon Postgres 连接串填入 `DATABASE_URL`，并同步到 fundmate 仓 `FEEDLOG_DATABASE_URL` secret（桥接 workflow 复用，见 §3.1）
 
 ## 5. SEO 要点（延续 v1）

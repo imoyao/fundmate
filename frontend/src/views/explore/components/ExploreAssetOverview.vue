@@ -31,25 +31,34 @@ const unavailableCount = computed(() => overview.value?.unavailable_count ?? 0);
 const bondYield = computed(() => overview.value?.bond_yield ?? null);
 const updatedAt = computed(() => overview.value?.updated_at ?? "");
 
-// 分类 → 资产类别色 token（复用项目既有 --asset-* 族，无商品专属 token，商品映射到 etf 薄荷绿）
+// 分类 → 品种色 token（唯一真相源 --asset-cat-*；无商品专属 token，商品映射到 etf 绿）
 const CATEGORY_TOKEN: Record<string, string> = {
-  A股: "var(--asset-stock)",
-  港股: "var(--asset-stock)",
-  海外: "var(--asset-stock)",
-  债券: "var(--asset-bond)",
-  商品: "var(--asset-etf)",
-  汇率: "var(--asset-saving)"
+  A股: "var(--asset-cat-stock)",
+  港股: "var(--asset-cat-stock)",
+  海外: "var(--asset-cat-stock)",
+  债券: "var(--asset-cat-bond)",
+  商品: "var(--asset-cat-etf)",
+  汇率: "var(--asset-cat-saving)"
 };
 
 const categoryColor = (category: string) =>
   CATEGORY_TOKEN[category] || "var(--text-secondary)";
 
 // 相对位置分位 → 温度三色（偏低绿 / 适中沙 / 偏高红）
+// #1545 拆两族：游标等「图形 / 实色」用 --temp-*；
+// 标签文字必须用 --temp-*-ink（实色作文字对比度不足，白底仅 1.68–3.96:1）。
 const positionColor = (asset: MarketAsset): string => {
   const label = asset.position?.label;
   if (label === "偏低") return "var(--temp-low)";
   if (label === "偏高") return "var(--temp-high)";
   return "var(--temp-mid)";
+};
+
+const positionLabelColor = (asset: MarketAsset): string => {
+  const label = asset.position?.label;
+  if (label === "偏低") return "var(--temp-low-ink)";
+  if (label === "偏高") return "var(--temp-high-ink)";
+  return "var(--temp-mid-ink)";
 };
 
 // 收益率变动(bp) 用中性色，不套用涨红跌绿（§3.4 纪律）
@@ -152,7 +161,7 @@ onMounted(() => {
                   <span class="pos-bar__basis">{{ asset.position.basis }}</span>
                   <span
                     class="pos-bar__label"
-                    :style="{ color: positionColor(asset) }"
+                    :style="{ color: positionLabelColor(asset) }"
                     >{{ asset.position.label }}</span
                   >
                 </div>
@@ -246,7 +255,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-width: 1280px;
+  max-width: var(--layout-content-width);
   padding: var(--space-standard) 24px 16px;
   margin: 0 auto;
 }
@@ -265,6 +274,9 @@ onMounted(() => {
     flex-shrink: 0;
     margin-top: 2px;
     font-size: 15px;
+
+    /* audit-text-contrast: exempt 非文本图形（图标字形），按 WCAG 1.4.11 需 3:1，本令牌在页底 / 卡片底实测 3.57~3.69:1，达标；
+       若改用 -ink 会与相邻正文同权，反而压平层级。登记见 docs/spec/tech-debt.md（#1586） */
     color: var(--text-tertiary);
   }
 
@@ -315,7 +327,7 @@ onMounted(() => {
 
   &__count {
     font-size: 13px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 }
 
@@ -330,6 +342,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0; /* 允许在窄轨道内收窄，防「内容 min-content 顶宽 → 横向溢出」（#1549 T4.3） */
   padding: 14px 16px;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
@@ -350,6 +363,7 @@ onMounted(() => {
   }
 
   &__name {
+    min-width: 0; /* 长名称换行而非顶宽（禁截断，故不加 ellipsis） */
     font-size: 14px;
     font-weight: 600;
     color: var(--text-primary);
@@ -384,30 +398,35 @@ onMounted(() => {
   &__change {
     font-variant-numeric: tabular-nums;
 
+    /* 无数据占位「—」：原文案用 --text-disabled（1.67:1）在卡底近乎不可见，
+       用户无法区分「无数据」与「渲染坏了」。占位符是信息，不是禁用控件，
+       不适用 WCAG 对 inactive component 的豁免，故改用文字级令牌（5.78:1）。 */
     &--na {
       font-family: var(--font-mono);
       font-size: 28px;
       font-weight: 700;
-      color: var(--text-disabled);
+      color: var(--text-tertiary-ink);
     }
   }
 
+  /* 不可用原因说明：真实可读文案，13px 正文级 → 必须 ≥ 4.5:1 */
   &__reason {
     font-size: 13px;
     line-height: 1.5;
-    color: var(--text-disabled);
+    color: var(--text-tertiary-ink);
   }
 
+  /* 同 &--na：占位「—」 */
   &__nopin {
     font-family: var(--font-mono);
     font-size: 18px;
-    color: var(--text-disabled);
+    color: var(--text-tertiary-ink);
   }
 
   &__caliber-text {
     font-size: 13px;
     line-height: 1.5;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 }
 
@@ -449,7 +468,7 @@ onMounted(() => {
 
   &__basis {
     font-size: 13px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   &__label {
@@ -483,7 +502,7 @@ onMounted(() => {
   &__count {
     font-size: 13px;
     font-weight: 400;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   &__list {
@@ -500,7 +519,7 @@ onMounted(() => {
     margin-top: 10px;
     font-size: 12px;
     line-height: 1.6;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
     border-top: 1px solid var(--color-warning);
   }
 }
@@ -579,7 +598,7 @@ onMounted(() => {
   &__hint {
     margin-left: auto;
     font-size: 13px;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 }
 
@@ -590,25 +609,36 @@ onMounted(() => {
   align-items: center;
   justify-content: flex-end;
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 
   &__time {
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 }
 
-/* 响应式 */
+/* 响应式（#1549 T4.3）
+   原实现 ≤768px 把栅格底线压到 140px：375px 视口下 auto-fill 会塞 2 列、每列仅
+   ~165px，「指数名 + 口径标 + 相对位置条」挤在一起。改为显式列数，并把轨道写成
+   minmax(0, 1fr) —— 允许轨道收窄到内容 min-content 以下，杜绝资产卡顶宽容器后横向溢出。 */
 @media (width <= 768px) {
   .asset-overview {
     padding: 0 16px 12px;
   }
 
+  /* 481–768px：两列（每列 218–368px），横向留白充足 */
   .asset-grid {
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .bond-yield__hint {
     margin-left: 0;
+  }
+}
+
+@media (width <= 480px) {
+  /* 375px 档：可用宽度 343px，两列仅 ~165px 过挤 → 单列满宽 */
+  .asset-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

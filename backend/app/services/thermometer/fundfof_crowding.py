@@ -18,9 +18,11 @@
   · 仅用于个人自用验证，**不应对外发布**；对外形态必须换成自有或授权数据源。
 
 开关：环境变量 `FUNDFOF_CROWDING_ENABLED`（默认开启；置 `0/false/no/off` 即关停 → 回落原三路径）。
-      环境变量 `FUNDFOF_CROWDING_MERGE_SW_BIAS`（**默认关闭**）：已知 akshare 在部分 Windows 环境会触发
-      `py_mini_racer` 内嵌 V8 的原生 FATAL 崩溃（进程直接死、Python 层无法捕获，见 #1511）；
-      故 BIASn 补齐默认关闭。确需申万行业乖离率时手动开启 `=1` 并自担环境风险。
+      环境变量 `FUNDFOF_CROWDING_MERGE_SW_BIAS`（默认开启；置 `0/false/no/off` 即关停）：BIASn 补齐会调
+      akshare `index_hist_sw`，已按 #1566 验收标准 4 恢复默认开启；关掉可省掉每次温度任务的这次额外请求。
+      ⚠️ 归因更正（#1566）：原注释称该路径会触发 `py_mini_racer` 内嵌 V8 的原生 FATAL 崩溃
+      （引用 #1511），**不成立**——`index_hist_sw` 全程只有 `requests.get`，不碰 V8。
+      真因是并发构造 `MiniRacer`（#1566），已由 `app/core/v8_guard.py` 进程级修复。
 
 维度（category）：
   · `sw`    → 申万一级 31 行业，落 `source='industry_crowding'` / `item_type='industry'`
@@ -53,6 +55,8 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
+from app.core.cache import resolve_cache_subdir
+
 try:
     import requests
 
@@ -69,9 +73,20 @@ except Exception:  # noqa: BLE001
         return datetime.datetime.now()
 
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-CACHE_DIR = os.path.join(HERE, 'cache', 'fundfof_crowding')  # 运行时缓存，不入库
-CACHE_FILE = os.path.join(CACHE_DIR, 'latest.json')  # 行业（sw）缓存；赛道缓存由它派生
+def fundfof_cache_dir() -> str:
+    """fundfof 拥挤度的本地缓存目录（#1539）。
+
+    原先硬编码为 `HERE/cache/fundfof_crowding`（**源码树内**），不认 env `CACHE_FILE_DIR`：
+    按环境指定缓存目录（容器 / 只读文件系统 / CI）时只生效一半。现经
+    `resolve_cache_subdir()` 与其它缓存同源。
+
+    ⚠️ **必须调用期解析**，不要退回模块级常量——常量在 import 那一刻就绑定了环境，
+    之后再设 `CACHE_FILE_DIR` 完全无效（#1531 / #1537 / #1539 同一个坑，已连犯三次）。
+    """
+    return str(resolve_cache_subdir('fundfof_crowding'))
+
+
+CACHE_FILE_NAME = 'latest.json'  # 行业（sw）缓存文件名；赛道缓存由它派生（纯字符串，不绑环境）
 
 BASE = 'https://www.fundfof.com'
 LATEST_PATH = '/api/market/crowding/latest'
@@ -112,7 +127,6 @@ CATEGORY_SPECS: Dict[str, Dict[str, str]] = {
 _UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
 
 _TRUTHY_OFF = {'0', 'false', 'no', 'off'}
-_TRUTHY_ON = {'1', 'true', 'yes', 'on'}
 
 
 def enabled() -> bool:
@@ -123,13 +137,17 @@ def enabled() -> bool:
 def _merge_sw_bias_enabled() -> bool:
     """是否用申万官网源补行业 BIASn（该接口无乖离率字段）。
 
-    默认关闭：补齐路径会调用 akshare `index_hist_sw`，而 akshare 在部分 Windows 环境会触发
-    `py_mini_racer`（内嵌 V8）的原生 FATAL 崩溃，直接杀死后端进程（#1511）。关掉它即可避免
-    每次温度任务都调 akshare；fundfof 自身已提供拥挤度 / 换手率 / 60日线上 / 新高 / 融资 / 大单
-    等维度，BIASn 仅作补充。仅当 `FUNDFOF_CROWDING_MERGE_SW_BIAS` 明确为开启语义（1/true/yes/on）
-    时才启用；空值 / 任意其它值一律按默认关闭处理，避免误设触发原生崩溃。
+    默认开启，显式置 `0/false/no/off` 才关停（白名单逻辑保留：空值 / 乱值不改变默认，
+    避免误设空串意外关掉补齐路径）。
+
+    ⚠️ 归因更正（#1566）：本开关原注释称「akshare 在部分 Windows 环境会触发 `py_mini_racer`
+    （内嵌 V8）的原生 FATAL 崩溃」（#1512 / commit 73d052e05 据此默认关闭），**该归因不成立**——
+    `index_hist_sw` 实现在 `akshare/index/index_research_sw.py`，全程只有 `requests.get` +
+    `r.json()`，既不 import 也不调用 `py_mini_racer`。关掉它只丢功能、对崩溃零作用
+    （这正是 9/17 照崩的原因）。真因见 #1566，已由 `app/core/v8_guard.py` 进程级修复；
+    故本开关已按 #1566 验收标准 4 恢复默认开启（申万源可用性与数据质量仍按该标准另行核验）。
     """
-    return os.getenv('FUNDFOF_CROWDING_MERGE_SW_BIAS', '0').strip().lower() in _TRUTHY_ON
+    return os.getenv('FUNDFOF_CROWDING_MERGE_SW_BIAS', '1').strip().lower() not in _TRUTHY_OFF
 
 
 def _log(*a):
@@ -146,10 +164,13 @@ def _spec(category: str) -> Dict[str, str]:
 
 
 def _cache_file(category: str) -> str:
-    """缓存路径：sw 用模块级 CACHE_FILE（便于测试 monkeypatch），其余按后缀派生。"""
-    if category == 'sw':
-        return CACHE_FILE
-    return CACHE_FILE.replace('.json', f'_{category}.json')
+    """缓存路径：sw 用 `CACHE_FILE_NAME`，其余按后缀派生。
+
+    目录经 `fundfof_cache_dir()` **调用期**解析（#1539）——测试要隔离只需设 env
+    `CACHE_FILE_DIR`（见 `tests/conftest.py::_isolate_cache_file_dir`），不必再 patch 模块常量。
+    """
+    name = CACHE_FILE_NAME if category == 'sw' else CACHE_FILE_NAME.replace('.json', f'_{category}.json')
+    return os.path.join(fundfof_cache_dir(), name)
 
 
 # ───────────────── 磁盘缓存 ─────────────────
@@ -188,7 +209,7 @@ def _read_cache_any_age(category: str = 'sw') -> Optional[Dict[str, Any]]:
 def _write_cache(payload: Dict[str, Any], category: str = 'sw') -> None:
     """写缓存：失败仅记日志，绝不抛异常（缓存不可写不应影响主链路）。"""
     try:
-        os.makedirs(CACHE_DIR, exist_ok=True)
+        os.makedirs(fundfof_cache_dir(), exist_ok=True)
         body = dict(payload)
         body['_cached_at'] = datetime.datetime.now().isoformat()
         with open(_cache_file(category), 'w', encoding='utf-8') as fh:
@@ -325,13 +346,12 @@ def to_records(payload: Dict[str, Any], category: str = 'sw') -> List[dict]:
 def _merge_sw_bias(records: List[dict]) -> None:
     """用申万官网源补 BIASn（就地修改；失败静默，不影响主数据）。
 
-    ⚠️ 该路径调用 akshare `index_hist_sw`，已知在部分 Windows 环境触发 `py_mini_racer` 内嵌 V8
-    的原生 FATAL 崩溃（进程直接死、Python 层无法 try/except 捕获，见 #1511）。故默认由
-    `_merge_sw_bias_enabled()` 关闭；开启即表示已知并接受该风险（需要时手动设
-    `FUNDFOF_CROWDING_MERGE_SW_BIAS=1`）。
-
     该接口无乖离率字段，而我方表有「乖离 6/20/60 日」列，故复用 `sw_industry_source`
     的简单 MA 口径补齐；申万源不可达时该三列留空（不阻塞）。仅对行业维度适用。
+
+    ⚠️ 归因更正（#1566）：本路径调的是 akshare `index_hist_sw`，**不经过 py_mini_racer**，
+    与 V8 原生崩溃无关（该崩溃由并发构造 MiniRacer 引起，现由 `app/core/v8_guard.py` 兜住）；
+    故不再默认关闭——需要省掉这次额外请求时显式置 `FUNDFOF_CROWDING_MERGE_SW_BIAS=0`。
     """
     try:
         from app.services.thermometer.sw_industry_source import (
@@ -422,7 +442,7 @@ HISTORY_CACHE_TTL_HOURS = 6
 
 
 def _history_cache_file(category: str, indicator: str, freq: str, mode: str) -> str:
-    return os.path.join(CACHE_DIR, f'history_{category}_{indicator}_{freq}_{mode}.json')
+    return os.path.join(fundfof_cache_dir(), f'history_{category}_{indicator}_{freq}_{mode}.json')
 
 
 def fetch_history(
@@ -498,7 +518,7 @@ def fetch_history(
         'note': NOTE,
     }
     try:
-        os.makedirs(CACHE_DIR, exist_ok=True)
+        os.makedirs(fundfof_cache_dir(), exist_ok=True)
         disk = dict(body)
         disk['_cached_at'] = datetime.datetime.now().isoformat()
         with open(cache_path, 'w', encoding='utf-8') as fh:

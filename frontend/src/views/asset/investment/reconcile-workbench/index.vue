@@ -927,7 +927,7 @@ onMounted(() => {
 .workbench-head__subtitle {
   margin: 0;
   font-size: var(--text-small);
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .workbench-head__actions {
@@ -1025,15 +1025,15 @@ onMounted(() => {
 }
 
 .disc-diff-zero {
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .disc-diff-pos {
-  color: var(--tag-sage-green);
+  color: var(--palette-sage-green);
 }
 
 .disc-diff-neg {
-  color: var(--color-danger-system);
+  color: var(--color-danger);
 }
 
 .disc-status {
@@ -1043,23 +1043,23 @@ onMounted(() => {
 }
 
 .disc-status--pending {
-  color: var(--tag-caramel);
-  background: color-mix(in srgb, var(--tag-caramel) 12%, transparent);
+  color: var(--palette-caramel);
+  background: color-mix(in srgb, var(--palette-caramel) 12%, transparent);
 }
 
 .disc-status--cleared {
-  color: var(--tag-sage-green);
-  background: color-mix(in srgb, var(--tag-sage-green) 12%, transparent);
+  color: var(--palette-sage-green);
+  background: color-mix(in srgb, var(--palette-sage-green) 12%, transparent);
 }
 
 .disc-status--ignored {
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-soft);
 }
 
 .disc-muted {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 域 A/C 占位 */
@@ -1082,18 +1082,18 @@ onMounted(() => {
 }
 
 .domain-status-tag--ready {
-  color: var(--tag-sage-green);
-  background: color-mix(in srgb, var(--tag-sage-green) 12%, transparent);
+  color: var(--palette-sage-green);
+  background: color-mix(in srgb, var(--palette-sage-green) 12%, transparent);
 }
 
 .domain-status-tag--planned {
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background: var(--bg-soft);
 }
 
 .domain-placeholder__hint {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .domain-placeholder__desc {

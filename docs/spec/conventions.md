@@ -22,6 +22,7 @@ title: 全局强制设计规范（conventions · 🔒 冻结区）
 - **assets（非交易资产/负债）**：无法实时交易、静态盘点类资产/负债（现金、房产、理财、保险、应收、信用卡负债、房贷）
 - API-First 严格契约：前后端接口字段、参数、状态码、分页结构一经定型，禁止私自修改
 - 渐进式交付：优先保障核心数据正确、流程闭环，再迭代体验与美化
+- **视图层职责边界（2026-09-19 增补，#1606 / D26；判据原文见 `decisions.md`）**：`domains/*/views.py` **只做 HTTP 编排**——解析入参 / 归属校验 / 调用 services / 组织 `{data, message}` 响应 / 常量级展示映射。**禁止**在视图内实现业务规则（多步校验链、状态机、去重合并策略、守恒校验、跨资源编排），**禁止**用 `db.query` 做聚合统计计算，**禁止**跨域 import 其它域的 views（见 `architecture.md` §6）。同一视图函数内最多一次显式 `commit()`（多步写入必须整体成功或整体回滚，不得半提交），单函数 **≤ 60 行**；视图文件行数与 DB 调用数**只减不增**，由 `scripts/check_view_thickness.py` 冻结基线拦截新增（存量超标按批次收敛，新代码不得再增）。
 
 ### 2.3 用户体验通用原则
 
@@ -32,16 +33,24 @@ title: 全局强制设计规范（conventions · 🔒 冻结区）
 
 - 任何后端重构、服务层抽取、代码优化，**对外 API 必须完全兼容**，请求参数、响应字段、嵌套结构、状态码不可变动
 - 前端筛选参数、分页参数、类型枚举参数属于全局契约，变更必须同步更新前端、测试、文档并记录 Breaking Change
+- **错误响应统一信封（#1610，2026-09-19 决策 D27）**：错误路径一律返回 `{data, message, error_code}` **三字段**（成功响应保持 `{data, message}` 不变）；`error_code` 取 `app/core/exceptions.py::ErrorCode` 的 **int** 值（与 `main.py` 全局处理器 / `SBException` 一致），**禁止**新增 string 码或两字段错误体。静态守卫 `scripts/guard_error_envelope.py`（pre-commit + CI），新增错误响应无需手写 `data`/`error_code` 之外的判断逻辑。
 
 ### 2.5 测试强制规范
 
 - 新增接口、重构接口必须覆盖：正常增删改查、边界值、空数据、异常报错、权限/状态分支
 - 业务逻辑变更必须同步更新测试用例，提交前 pytest 全量通过方可合并
 - **单一代码库测试（v4.5.6 定调）**：V1（`backend/fundmate/`）已于 2026-08-01 退役清除，测试目录单轨化——`backend/tests/` 仅保留指向 V2 `app` 的激活套件（由 `tests/conftest.py` 驱动）。提交前 `pytest` 全量须通过；**禁止新增任何 `backend.fundmate` 引用**（CI 守卫见 `scripts/forbid_v1_refs.sh`）。金融核心须持续有测试锁死：`tests/core/test_money.py`、`tests/domains/test_{positions,portfolios,ledgers,summary,watchlist}.py`、`tests/services/performance/test_xirr_engine.py`、`tests/test_exceptions.py`。
+- **覆盖率门槛**：本仓暂**不设全局覆盖率门槛**，策略与理由见 §2.14（#1612，决策 D31）。
 
 ### 2.6 RESTful 与 URL 统一规范
 
 - 所有 API 端点强制尾部斜杠，杜绝 308 重定向导致的前端异常
+- **例外（#1611，2026-09-19 决策 D28）**：`/api/health`（运维探活端点，探活工具普遍按 `/health` 调用）与
+  `/api/temperature/{overview,history,multi,crowding-history}`（探市免登录接口，前端按无斜杠调用）**保持无尾斜杠**；
+  例外清单以 `scripts/check_api_conventions.py` 的 `NO_TRAILING_SLASH_ALLOWLIST` 为**唯一执行口径**，新增例外必须先在此登记。
+- **迁移兼容（同上）**：2026-09-19 补齐尾斜杠的 13 个端点带 `strict_slashes=False`，**同时接受旧的无斜杠写法**——
+  避免线上旧 bundle / 未覆盖的外部调用方在切换瞬间拿到 404（`strict_slashes=True` 时无斜杠会 404，不是 308）。
+  待确认无旧写法调用方后可移除该参数（登记于 `tech-debt.md`）。
 - 资源名词复数化，URL 不包含动词，动作语义由 HTTP Method 表达
 - 嵌套资源严格遵循层级语义，保证接口可读性与统一性
 
@@ -85,6 +94,33 @@ title: 全局强制设计规范（conventions · 🔒 冻结区）
 - **禁止直接调用 `--brand-*` 系列变量**。所有涨跌颜色必须通过 `--color-rise` / `--color-fall` 间接引用，确保暗色模式切换时全站自动同步。
 - 原因：`--brand-*` 为品牌基础色，`--color-rise`/`--color-fall` 为业务语义色。业务层应依赖语义层而非基础层，确保暗色模式等主题切换时无需修改业务代码。
 - 完整色彩变量定义与使用规范详见 [`../../frontend/design.md`](../../frontend/design.md)。
+
+### 2.13 事务边界规范（#1609，决策 D30 + D33 + D34，2026-09-21 修订）
+
+- **单一事务范式（方案 A）**：仓库只保留**一种**事务边界——**由请求边界统一持有（一个请求一个事务）**；服务层（`services/**`）与 `BaseRepository` **只 `flush()` 不 `commit()`**。
+- **请求边界即提交点**（#1632 落地，D33）：请求上下文内 `get_db()`（`with_db` 亦经它）**复用同一 Session**（引用计数，顺序与嵌套皆然），由 `teardown_request_session` 在请求结束时统一 `commit()`（成功）/ `rollback()`（异常）。因此**经 `get_db()` 取会话的视图无需再显式 `commit()`**：`db.commit()` 一律改为 `db.flush()`——保留显式 `flush` 的两个理由：① 唯一约束等完整性错误仍在**原有位置**抛出（不被推迟到 teardown，错误响应与栈不变）；② 紧随其后的 `db.refresh()` / 序列化能读到最新值。
+- **所有会话上下文统一纳入请求边界**（#1640 落地，D34）：`user_session()` / `market_session()` 与 `get_db()` 的规则**完全一致**——请求上下文内顺序 / 嵌套进入都复用同一 Session，提交 / 回滚由 `teardown_request_session` 统一执行；三者各占一个独立槽位（应用 / user / market），**互不提交、互不回滚**。因此**视图层无需再显式 `commit()`**：全仓 `domains/*/views.py` 的 `commits` 已**归零**（守卫 `check_view_thickness.py` 该维度零容忍）。
+  - *必须记住的历史教训*：#1640 之前 `user_session()` 只 `yield` + `close()`、**既不提交也不回滚**，用它取会话的视图（`domains/reconciliation/views.py` 5 处）因此必须逐个显式 `commit()`，否则写入随连接关闭**静默丢失**（实测：把 3 处 `commit()` 改成 `flush()` 后 `test_reconciliation.py` 6 个用例转红）。已补**对照用例** `tests/test_user_session_boundary.py::test_user_session_write_persists_without_explicit_commit`——一旦请求边界不再收尾 user 域会话即转红。
+  - *新增会话上下文时*：必须经 `core/database.py::_scoped_session(slot, factory)` 创建并登记到 `_SESSION_SLOTS`，否则它不会被请求收尾 → 写入静默丢失。
+- **`BaseRepository.save()/delete()` 只 `flush()`**（#1631 落地），提交时机由请求边界统一决定。
+- **视图 / 用例层显式 `commit()` 仅限「必须提前提交」的场景**（例如提交后才触发不可回滚的外部副作用），且须在代码注释写明理由；此类例外仍受 §2.2「同一视图函数内最多一次显式 `commit()`」约束（不显式提交则自然满足）。
+- **非请求上下文（job / CLI / scheduler）**：各自持有会话与提交语义，不受请求边界影响（`get_db()` 无 `flask.g` 时每次独立会话、不自动提交）。
+- **前置依赖（均已落地）**：#1608（会话获取统一 `get_session()`）、#1632（请求级单会话 + teardown 统一提交）。**#1609 不与 #1606 合并执行**（先定范式、再拆视图）。
+- **分批收敛，不做一次性大改**：按域把视图层冗余 `db.commit()` 改为 `db.flush()`，**每批以 `pytest -p no:xdist -m "not slow"` 全量通过为界**。已完成：batch 2 = `domains/watchlist/views.py`（14 处）；batch 3 = 7 文件 18 处（`positions`5 / `strategy`4 / `portfolios`3 / `assets`3 / `transactions`1 / `users`1 / `families`1）；batch 4 = `domains/ledgers/views.py`（9 处）；**#1640 = `domains/reconciliation/views.py`（3 处，随 `user_session()` 纳入请求边界而收敛）——至此视图层 44 处 `commit()` 全部归零**，守卫 `check_view_thickness.py` 的 `commits` 维度进入零容忍。注：`ledgers` 的 `commit_migration` **视图自身不提交**（手工守恒单事务在 `ledger_migration_service` 内，服务自持事务，按 D26 保留），故无「手工事务」风险。服务层的 `commit()` 大多属**合法事务边界持有者**（离线 job 自身边界、配额有意独立单元等），须逐处核实后保留，不搞一刀切。
+- **高价值多步写必须锁死回滚**：账户迁移、导入提交、分红再投资等必须有「中途注入异常 → 断言数据完全回滚、源数据不变」的反向用例（已全部落地）。
+- **对外零变更**：仅改变事务持有位置，HTTP 端点 / 请求响应字段 / 状态码 / 错误码 / 业务计算口径一律不变（§2.4）。
+
+### 2.14 测试覆盖率策略（#1612，决策 D31，2026-09-21）
+
+- **结论：暂不设全局覆盖率门槛**（不引入 `pytest-cov`、不给 `ci.yml` 加 `--cov`）。理由：
+  1. **无区分度**：真问题是「长尾模块缺测」，而全局行覆盖率对「已被间接覆盖的行」与「真正无直测的模块」不作区分，达标反而给出虚假安全感（#1612 即因按「测试文件名对应模块」粗判而误报——`orchestrator_holdings.py` 早已被 `test_e_account_reconcile.py` 等直测覆盖）；
+  2. **成本高**：单进程全量 pytest 已约 19min（CI 上限 30min，见 `.github/workflows/ci.yml`），叠加逐行 trace 与报告上传会进一步拉长 CI，而本机重型依赖（akshare / playwright / pypinyin）在测试期已偏重；
+  3. **催生凑数测试**：阈值压力易诱导「只求覆盖行数、不求边界与反向验证」的低质用例，与 §2.5「必须覆盖边界值 / 异常报错 / 权限状态分支」的精神相悖。
+- **替代治理（本仓口径）**：
+  1. 以「按模块的**直测缺失清单** + **反向验证**（故意破坏实现 → 用例必须转红）」代替覆盖率阈值；清单随架构审查（`docs/working-notes/backend-architecture-audit-*.md`）分批维护与销账。
+  2. 覆盖率仅作**审计手段**（本地临时运行、不入 CI、不设阈值）。
+- **重估触发条件**：出现「同一模块反复缺测回潮」≥ 2 次，或 #1609 请求级 unit-of-work 落地、写路径收敛到少量编排层后，再评估对 `services/importer/**` 等**关键路径**设「路径级 + 仅新增/改动文件」的轻量门禁（仍不设仓库级高阈值）。
+- **与 §2.5 的关系**：§2.5 的强制条款（新增/重构接口必须带边界 / 异常 / 权限分支用例、变更同步更新用例）**不变**；本节仅回答「是否设全局覆盖率门槛」——答案是**否**，理由如上。
 
 ## 2. 前端 UI 全局强制统一规范（原 SPEC 第 3 章 · 根治样式杂乱、长期可维护）
 
@@ -163,6 +199,24 @@ title: 全局强制设计规范（conventions · 🔒 冻结区）
 - **软按钮（Soft Button）**：`:active` 状态下**不进行位移**，通过背景色加深（如 `--brand-100` → `--brand-200`）或边框消失来反馈，保持轻量感
 - 原因：软按钮背景通透，位移会破坏其"轻量、辅助"的视觉定位
 - 完整按钮变体与状态定义参见 [`../../frontend/design.md`](../../frontend/design.md)
+
+### 3.11 设计令牌命名分层（#1602 收尾）
+
+令牌一律**先判层再命名**，层决定它能否被业务代码直接引用：
+
+| 层 | 命名形态 | 规则 | 例 |
+|---|---|---|---|
+| 1. 原始色板 primitive | `--palette-<色名>` | 只有色值、不含语义。**业务代码优先不用**；确实要引用须说明理由——同一色常被复用于多个语义，按用途命名会自相矛盾（`--palette-thistle` 既是桑基图「稳健底仓」又是导入向导「FOF」） | `--palette-thistle` / `--palette-sage-green` |
+| 2. 语义 semantic | `--color-rise/fall/danger/warning/success/info`、`--bg-*`、`--text-*-ink`、`--border-*` | 表意，可被业务直接引用；**文字一律走 `-ink` 变体**（WCAG AA，见 `tech-debt.md` 文字色线） | `--color-rise-ink` / `--text-tertiary-ink` |
+| 3. 域 domain | `--chart-*` / `--asset-cat-*` / `--sankey-*` / `--category-*` / `--add-type-*` | 按域归属，**禁止跨域复用**——跨维度耦合会让「改一个色」静默改掉另一处语义 | `--asset-cat-stock`（品种）、`--sankey-speculative`（风险档位） |
+
+**准入规则**：新增令牌先判层——能落到 semantic / domain 就不新增 primitive；确实只需要「一个颜色」时才进 primitive 层。
+
+**禁止**：① 用语义色表达品种或分类（历史债「股票=信息色」「债券=警告色」「储蓄=成功色」）；
+② 域色跨域复用；③ 在 JS/TS 里用字符串拼接派生令牌（`baseColor + "20"` 会生成非法 CSS 被浏览器静默丢弃，
+构建与 lint 全绿），派生一律用 `color-mix(in srgb, var(--x) N%, transparent)`。
+
+> 决策背景与实测见 `decisions.md`；存量跨层引用与未收敛项登记在 `tech-debt.md`。
 
 ## 3. 开发踩坑准则（原 SPEC 第 4 章 · 长期维护避坑、细节追溯）
 

@@ -8,6 +8,9 @@
       name="viewport"
       content="width=device-width,initial-scale=1.0,minimum-scale=1.0,maximum-scale=1.0,user-scalable=0"
     />
+    <!-- 应用站不参与搜索引擎收录（noindex）：收录交给主站 duoduobei.com（docs/ops/deployment.md §5）。
+         放在 head 靠前处，确保任何爬虫（含只读前 N KB 的）都能看到。 -->
+    <meta name="robots" content="noindex, nofollow" />
     <title>多多贝 · 投资账本</title>
     <link rel="icon" href="/favicon.ico" />
     <!-- 首屏字体预加载（自托管 /fonts/，规范 font-design.md §5.3）：

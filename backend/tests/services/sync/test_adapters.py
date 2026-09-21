@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from app.services.sync.adapters.akshare_adapter import AkshareAdapter
-from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
+from app.services.adapters.akshare_adapter import AkshareAdapter
+from app.services.adapters.xalpha_adapter import XalphaAdapter
 
 
 class TestXalphaAdapter:
@@ -23,7 +23,7 @@ class TestXalphaAdapter:
         with pytest.raises(NotImplementedError):
             adapter.fetch_fund_list()
 
-    @patch('app.services.sync.adapters.xalpha_adapter.requests.get')
+    @patch('app.services.adapters.xalpha_adapter.requests.get')
     def test_fetch_fund_nav_returns_records(self, mock_get, adapter):
         mock_get.return_value = MagicMock(
             status_code=200,
@@ -47,7 +47,7 @@ class TestXalphaAdapter:
         assert records[0]['fund_code'] == '000001'
         assert records[0]['is_money_fund'] is False
 
-    @patch('app.services.sync.adapters.xalpha_adapter.requests.get')
+    @patch('app.services.adapters.xalpha_adapter.requests.get')
     def test_fetch_fund_nav_empty(self, mock_get, adapter):
         mock_get.return_value = MagicMock(
             status_code=200,
@@ -56,7 +56,7 @@ class TestXalphaAdapter:
         records = adapter.fetch_fund_nav('000001', start_date=date(2025, 1, 1))
         assert records == []
 
-    @patch('app.services.sync.adapters.xalpha_adapter.requests.get')
+    @patch('app.services.adapters.xalpha_adapter.requests.get')
     def test_fetch_fund_nav_money_fund_uses_pingzhong(self, mock_get, adapter):
         """货币基金：lsjz 增量返回每万份收益（SYType），应回退 pingzhongdata 解析"""
         pz_text = 'var Data_millionCopiesIncome = [[1735689600000, 0.5], [1735776000000, 0.4]];'
@@ -75,7 +75,7 @@ class TestXalphaAdapter:
         assert records[0]['fund_code'] == '000198'
 
     def test_fetch_fund_nav_by_date(self, adapter):
-        with patch('app.services.sync.adapters.xalpha_adapter.requests.get') as mock_get:
+        with patch('app.services.adapters.xalpha_adapter.requests.get') as mock_get:
             mock_get.return_value = MagicMock(
                 status_code=200,
                 json=MagicMock(return_value={'Data': {'LSJZList': [{'FSRQ': '2025-01-01', 'DWJZ': '1.5000'}]}}),
@@ -85,7 +85,7 @@ class TestXalphaAdapter:
 
     def test_fetch_fund_nav_by_date_money_fund(self, adapter):
         """货币基金净值恒为 1.0，lsjz 返回的 DWJZ 是万份收益而非单位净值"""
-        with patch('app.services.sync.adapters.xalpha_adapter.requests.get') as mock_get:
+        with patch('app.services.adapters.xalpha_adapter.requests.get') as mock_get:
             mock_get.return_value = MagicMock(
                 status_code=200,
                 json=MagicMock(
@@ -98,7 +98,7 @@ class TestXalphaAdapter:
             assert nav == 1.0
 
     def test_fetch_fund_nav_by_date_no_data(self, adapter):
-        with patch('app.services.sync.adapters.xalpha_adapter.requests.get') as mock_get:
+        with patch('app.services.adapters.xalpha_adapter.requests.get') as mock_get:
             mock_get.return_value = MagicMock(
                 status_code=200,
                 json=MagicMock(return_value={'Data': {'LSJZList': []}}),
@@ -150,7 +150,7 @@ class TestAkshareAdapter:
         assert records[0]['fund_code'] == '000001'
 
     @patch('app.core.akshare_lazy._AKSHARE')
-    @patch('app.services.sync.adapters.akshare_adapter.get_normalizer')
+    @patch('app.services.adapters.akshare_adapter.get_normalizer')
     def test_fetch_stock_list(self, mock_norm, mock_ak, adapter):
         df = pd.DataFrame({'code': ['600519', '000001'], 'name': ['茅台', '平安']})
         mock_ak.stock_info_a_code_name.return_value = df
@@ -165,7 +165,7 @@ class TestAkshareAdapter:
         assert records[0]['symbol'] == 'SH600519'
 
     @patch('app.core.akshare_lazy._AKSHARE')
-    @patch('app.services.sync.adapters.akshare_adapter.get_normalizer')
+    @patch('app.services.adapters.akshare_adapter.get_normalizer')
     def test_fetch_stock_price(self, mock_norm, mock_ak, adapter):
         normalizer_mock = MagicMock()
         normalizer_mock.to_sina_code.return_value = 'sh600519'

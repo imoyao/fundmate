@@ -29,7 +29,7 @@
     历史（2011-08 起，15 年，满足分位窗口）；东财受突发配额限流，故配长退避（见下）。
 
  请求规范（东财 WAF 敏感，防封禁，见 core/requests_patch.py 文件头）：
-  · 本地缓存优先（cache/em_industry_hist/，运行时缓存不入库）：缓存新鲜直接复用，0 请求；
+  · 本地缓存优先（`CACHE_FILE_DIR` 下的 em_industry_hist/，运行时缓存不入库）：缓存新鲜直接复用，0 请求；
   · 缓存过期只拉增量（beg=缓存最新日期），不重复全量拉取；
   · 请求间隔克制：行业循环 1.5s，请求前 1.0s，失败退避 8s 后最多重试 1 次（#1431 拉长）；
   · 完整浏览器请求头伪装（UA/Referer/Accept/Accept-Language）。
@@ -53,6 +53,8 @@ import time
 from typing import List, Optional
 
 from loguru import logger
+
+from app.core.cache import resolve_cache_subdir
 
 try:
     import pandas as pd
@@ -82,10 +84,23 @@ except Exception as e:  # noqa: BLE001
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CACHE_DIR = os.path.join(HERE, 'cache', 'baostock_pb')  # baostock 路径的本地 PB 缓存
 ALLPB_CACHE = os.path.join(
     HERE, 'data', 'all_pb.csv'
 )  # 全A中位PB历史基线(跨源复用分母)；是基线数据非运行时缓存，禁止删除(见 data/README.md)
+
+
+def baostock_cache_dir() -> str:
+    """baostock 路径的本地 PB 缓存目录（#1539）。
+
+    原先硬编码为 `HERE/cache/baostock_pb`（**源码树内**），不认 env `CACHE_FILE_DIR`：
+    按环境指定缓存目录（容器 / 只读文件系统 / CI）时只生效一半。现经
+    `resolve_cache_subdir()` 与其它缓存同源。
+
+    ⚠️ **必须调用期解析**，不要退回模块级常量——常量在 import 那一刻就绑定了环境，
+    之后再设 `CACHE_FILE_DIR` 完全无效（#1531 / #1537 / #1539 同一个坑，已连犯三次）。
+    """
+    return str(resolve_cache_subdir('baostock_pb'))
+
 
 UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
 
@@ -365,14 +380,23 @@ def industry_pb_legulegu(code):
 # 改用东财 push2his K线接口拉行业指数历史（2011-08 起，15 年，满足分位窗口）。
 #
 # 请求规范（东财 WAF 敏感，防封禁，见 core/requests_patch.py 文件头）：
-#   · 本地缓存优先（cache/em_industry_hist/，运行时缓存不入库）：新鲜直接复用，0 请求；
+#   · 本地缓存优先（`CACHE_FILE_DIR` 下的 em_industry_hist/，运行时缓存不入库）：新鲜直接复用，0 请求；
 #   · 缓存过期只拉增量（beg=缓存最新日期），不重复全量拉取；
 #   · 请求间隔克制：行业循环 1.5s，请求前 0.5s，失败退避 2s 后最多重试 1 次；
 #   · 完整浏览器请求头伪装（UA/Referer/Accept/Accept-Language）。
 #   教训：连续 9 次全量请求会触发东财 IP 级 RemoteDisconnected 封禁（限流窗口 5+ 分钟），
 #         请求必须克制、伪装、带缓存，绝不能一上来就打流量。
 
-EM_HIST_CACHE_DIR = os.path.join(HERE, 'cache', 'em_industry_hist')  # 东财行业指数历史缓存（运行时缓存，不入库）
+
+def em_hist_cache_dir() -> str:
+    """东财行业指数历史缓存目录（#1539）。
+
+    原先硬编码为 `HERE/cache/em_industry_hist`（源码树内），与 `baostock_cache_dir()`
+    同因改造：经 `resolve_cache_subdir()` 解析，随 env `CACHE_FILE_DIR` 一起生效。
+    同样**必须调用期解析**。
+    """
+    return str(resolve_cache_subdir('em_industry_hist'))
+
 
 # 东财浏览器化请求头（与 requests_patch._EM_HEADERS 一致；requests_patch 会合并东财头，调用方头覆盖）
 _EM_HEADERS = {
@@ -394,7 +418,7 @@ def _em_secid(code: str) -> str:
 
 def _em_cache_path(code: str) -> str:
     """东财历史缓存文件路径：code 中的点替换为下划线（如 000985_SH.parquet）。"""
-    return os.path.join(EM_HIST_CACHE_DIR, code.replace('.', '_') + '.parquet')
+    return os.path.join(em_hist_cache_dir(), code.replace('.', '_') + '.parquet')
 
 
 def _em_cache_load(code: str) -> Optional[pd.DataFrame]:
@@ -418,7 +442,7 @@ def _em_cache_load(code: str) -> Optional[pd.DataFrame]:
 def _em_cache_save(code: str, df: pd.DataFrame) -> None:
     """写东财历史缓存（date 列落盘）；优先 parquet，无引擎环境回退 CSV；失败仅记日志，绝不抛异常。"""
     try:
-        os.makedirs(EM_HIST_CACHE_DIR, exist_ok=True)
+        os.makedirs(em_hist_cache_dir(), exist_ok=True)
         out = df.reset_index()
         out.columns = ['date', 'amount', 'turnover']
         path = _em_cache_path(code)
@@ -671,10 +695,11 @@ def bao_industry_map():
     行数据须用 `rs.get_row_data()` 取。原实现 `while r := rs.next(): r[0]` 会抛
     `TypeError: 'bool' object is not subscriptable`，即该函数自加入起从未成功执行。
     """
-    path = os.path.join(CACHE_DIR, 'industry_map.json')
+    cache_dir = baostock_cache_dir()
+    path = os.path.join(cache_dir, 'industry_map.json')
     if os.path.exists(path):
         return json.load(open(path, encoding='utf-8'))
-    os.makedirs(CACHE_DIR, exist_ok=True)
+    os.makedirs(cache_dir, exist_ok=True)
     bs.login()
     try:
         rs = bs.query_stock_industry()  # 无 code => 返回全市场
@@ -697,7 +722,8 @@ def bao_backfill_pb(start='2010-06-01', end=None):
     原实现 `iter(rs.next, None)` 会在首轮把 `False` 当作行数据 → `TypeError`（从未成功执行）。
     """
     end = end or datetime.date.today().isoformat()
-    os.makedirs(CACHE_DIR, exist_ok=True)
+    cache_dir = baostock_cache_dir()
+    os.makedirs(cache_dir, exist_ok=True)
     bs.login()
     try:
         rs = bs.query_all_stock(day=datetime.date.today().isoformat())
@@ -709,7 +735,7 @@ def bao_backfill_pb(start='2010-06-01', end=None):
                 codes.append(code)
         _log(f'共 {len(codes)} 支股票，开始回补 pbMRQ({start}~{end})…')
         for code in codes:
-            f = os.path.join(CACHE_DIR, code.replace('.', '_') + '.parquet')
+            f = os.path.join(cache_dir, code.replace('.', '_') + '.parquet')
             if os.path.exists(f):
                 continue
             r2 = bs.query_history_k_data_plus(code, 'date,pbMRQ', start_date=start, end_date=end, frequency='d')
@@ -740,8 +766,9 @@ def industry_pb_baostock(industry_name):
     if not codes:
         return None
     frames = []
+    cache_dir = baostock_cache_dir()
     for code in codes:
-        f = os.path.join(CACHE_DIR, code.replace('.', '_') + '.parquet')
+        f = os.path.join(cache_dir, code.replace('.', '_') + '.parquet')
         if not os.path.exists(f):
             continue
         d = pd.read_parquet(f).copy()
@@ -837,23 +864,28 @@ def _placeholder(note: str = '行业拥挤度数据暂不可用') -> dict:
 def _sw_share_records() -> List[dict]:
     """申万官网单源路径（#1431 兜底）：产出 31 行「成交额占比分位 + BIASn」。
 
-    ⚠️ #1511：该路径依赖 akshare `index_hist_sw`，而 akshare 在部分 Windows 环境会触发
-    `py_mini_racer` 内嵌 V8 的**原生 FATAL 崩溃**（进程直接死、Python 层 try/except 都捕获不到，
-    会拖垮整个后端）。故**默认禁用** akshare 调用：fungfof 不可达时直接由 legulegu 兜底
-    （8 个中证行业，非 akshare、不崩），不再走会崩的申万官网自算。仅当
-    `SW_FALLBACK_AKSHARE_ENABLED` 明确为开启语义（`1/true/yes/on`）且环境 `py_mini_racer`
-    已修复时才启用（启用即自担原生崩溃风险）；空值 / 任意其它值一律按默认禁用处理。
+    默认**启用**（#1566 验收标准 4 起）；显式置 `SW_FALLBACK_AKSHARE_ENABLED=0/false/no/off` 才停用
+    （白名单逻辑保留——空值 / 乱值不改变默认，避免误设空串意外改变取数路径）。不需要这一路时显式关闭可
+    省掉温度任务的这次额外请求，此时 fundfof 不可达改由 legulegu 兜底（8 个中证行业）。
+
+    ⚠️ 归因更正（#1566）：本函数原注释把「`py_mini_racer` 内嵌 V8 的原生 FATAL 崩溃」归给这条路径
+    （引用 #1511；#1512 / commit 73d052e05 据此默认关闭了本开关），**该归因不成立**——
+    `index_hist_sw` 实现在 `akshare/index/index_research_sw.py`，全程只有 `requests.get` + `r.json()`，
+    既不 import 也不调用 `py_mini_racer`，不可能触发 V8 崩溃。关掉它只丢这 31 个行业的
+    成交额占比分位与 BIASn，对崩溃零作用（这正是 9/17 照崩的原因）。
+
+    真因是**多线程并发构造 `MiniRacer`**（#1566），已由 `app/core/v8_guard.py` 做进程级修复。
+    因此本开关的默认值不再是「防崩溃措施」，**已恢复默认开启**（#1566 验收标准 4）；申万源的
+    可用性与数据质量仍按该标准另行核验，异常时用上面的显式关闭兜底。
 
     PB 分位（估值视角，`crowding_pct`）需行业 PB 源，本路径下为 None 并在 note 说明；
     指标口径见 `sw_industry_source`（占比分位 = 250 日滚动窗口；BIASn = 简单 MA 6/20/60）。
     """
-    # 默认禁用：仅当 env 明确为开启语义（1/true/yes/on）才放行，空值 / 任意其它值一律禁用，
-    # 避免误设空串或乱值意外触发会崩的 akshare 路径（#1511，review 意见）。
-    if os.getenv('SW_FALLBACK_AKSHARE_ENABLED', '0').strip().lower() not in (
-        '1',
-        'true',
-        'yes',
-        'on',
+    if os.getenv('SW_FALLBACK_AKSHARE_ENABLED', '1').strip().lower() in (
+        '0',
+        'false',
+        'no',
+        'off',
     ):
         return []
     try:
@@ -1002,7 +1034,7 @@ def fetch_industry_crowding() -> List[dict]:
         if os.getenv('TUSHARE_TOKEN'):
             mode, src, fetcher = 'tushare', SW_INDUSTRY, industry_pb_tushare
             _log('路径: Tushare(申万一级 31 行业全覆盖)')
-        elif BAO_OK and os.path.exists(os.path.join(CACHE_DIR, 'industry_map.json')):
+        elif BAO_OK and os.path.exists(os.path.join(baostock_cache_dir(), 'industry_map.json')):
             return _fetch_baostock_all(mkt, meta)
         else:
             sw_records = _sw_share_records()

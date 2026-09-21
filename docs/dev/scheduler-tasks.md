@@ -33,8 +33,14 @@ daily-snapshot 因 secrets 缺失连续 7 天全红，本地库净值止于 2026
 |-----|-----------------|------|
 | `temperature` | 20:00 | 温度计：集思录中位 PB / 韭圈儿 / 行业拥挤度 / 乖离率，即**温度计页面**的数据 |
 | `fund_nav` | 21:30 | **自选 + 持仓**的基金净值当日增量（目标池由 `orchestrator.resolve_targets()` 现取） |
+| `position_price` | 22:15 | **持仓现价回写**（#1104）：把已确认净值写回 `positions.current_price`，否则导入时「成本 = 现价」会让盈亏恒为 0；纯本地（不联网），目标池 = 持仓表本身 |
 | `advisor_portfolio` | 22:00 | 投顾组合持仓 / 调仓快照（且慢 + 天天，目标池 = 库内全部在售组合） |
 
+> `position_price` 必须排在 `fund_nav` **之后**：它读的就是后者刚落库的 `daily_worth`，
+> 早了会写到昨天的口径。它是「持仓盈亏非零」的唯一自动修复路径（导入路径只会把成本价
+> 复制成现价）。场内（股票/ETF/可转债）与 `balance` 计价持仓**不在其列**（口径未定，
+> 见 job docstring 与 #1104）；货基按面值 1.0000 元写。
+>
 > `advisor_portfolio` 排在建净值之后是刻意的：且慢调仓快照带的是当日占比口径。
 > 它还是**且慢调仓历史的唯一来源**——且慢没有历史调仓接口，明细靠相邻两次快照对比推导
 > （见 `_derive_qieman_adjust`），不每天留一份快照就永远推不出调仓。
@@ -55,12 +61,14 @@ SCHEDULER_ENABLED=1                    # 总开关（模板 .env.example 已默�
 # SCHEDULER_TIMEZONE=Asia/Shanghai
 # SCHEDULER_TEMPERATURE_CRON=0 20 * * *
 # SCHEDULER_NAV_CRON=30 21 * * *
+# SCHEDULER_POSITION_PRICE_CRON=15 22 * * *
 # SCHEDULER_ADVISOR_CRON=0 22 * * *
 # SCHEDULER_SKIP_NON_TRADING_DAY=true  # 休市不抓
 # SCHEDULER_RUN_ON_START=true          # 启动补跑
 # SCHEDULER_STARTUP_DELAY_SECONDS=180
 # SCHEDULER_TEMPERATURE_ENABLED=true
 # SCHEDULER_NAV_ENABLED=true
+# SCHEDULER_POSITION_PRICE_ENABLED=true
 # SCHEDULER_ADVISOR_ENABLED=true
 ```
 
@@ -82,6 +90,43 @@ pdm run invoke sched.status     # 或 pdm run scheduler --status（只读）
 
 输出包含：开关、时区、各任务 cron 与今日触发时刻、**上次成功时间**、单实例锁是否被占用。
 日志检索关键字：`[每日调度]`。
+
+### 出问题去哪看日志（文件日志，#1551）
+
+两套材料互补，缺一不可：
+
+| 材料 | 位置 | 回答的问题 |
+|------|------|-----------|
+| 任务审计 | `sync_logs` 表（`pdm run invoke sched.status` 里的「上次成功时间」） | **跑没跑过、成没成**（`success` / `failed` / `manual_intervention`） |
+| 过程日志 | `backend/logs/fundmate_YYYY-MM-DD.log` | **哪一步炸的**：完整异常栈、HTTP 请求、重试次数与原始错误 |
+
+文件日志由 `app/core/logging_config.py` 统一配置，`app/__init__.py` 调用一次即对
+全部入口生效（Flask dev server / `pdm run sync` / `scheduler-daemon` / `invoke grab.*`）。
+
+- **路径**：`backend/logs/fundmate_YYYY-MM-DD.log`（与 CMD 输出**逐字同格式**，不必换算）
+- **轮转**：每日 00:00；**保留 7 天**，旧文件自动压成 `.zip`
+- **级别**：默认 `DEBUG`（批跑排查要看到 HTTP 状态码与重试细节）
+- **排查起手式**：
+
+  ```bash
+  grep -n "每日调度" backend/logs/fundmate_2026-09-16.log      # 当天各任务的起止与结论
+  grep -n "manual_intervention\|IntegrityError" backend/logs/fundmate_*.log
+  ```
+
+- **可调项**（`backend/.env`，默认值即可用）：`LOG_DIR` / `LOG_LEVEL` /
+  `LOG_RETENTION_DAYS` / `LOG_ENABLED=0`（关闭）。详见 `.env.example`「文件日志」段。
+- **pytest 进程默认不落盘**：否则跑一遍测试就把 DEBUG 噪音写进 `backend/logs/` 并霸占
+  7 天保留窗口；需要在测试里验证落盘时显式 `LOG_ENABLED=1`。
+
+> **多进程已知限制**：`dev server` 与 `scheduler-daemon` 若同时运行，两个进程会写同一份
+> 日志（单实例锁只保证**调度**不重复，不保证**进程**唯一）。文件名带进程号可以让两者各写
+> 各的，但 loguru 的保留策略是按文件名里的时间占位符生成清理 glob 的，多一个占位符就清不掉
+> 旧文件——两者只能取一，此处选**保留策略可用**。代价是跨零点轮转存在竞态（最坏情况是某次
+> `rename` 失败并打一行错误日志）。
+>
+> **教训来源（#1550）**：货基净值去重查错表的缺陷从 2026-08-14 起每天让 `fund_nav` 失败一次，
+> 而失败现场只存在于 CMD 窗口——窗口一关，证据全无；叠加当时「审计写入跟着一起崩」，
+> `sync_logs` 里也查不到任何记录，于是静默了整整一个月。这就是本节的由来。
 
 ### 实现位置
 
@@ -110,12 +155,15 @@ pdm run invoke sched.status     # 或 pdm run scheduler --status（只读）
   - 备选：SCF 定时器 / 系统 cron 在部署服务器执行 `pdm run scheduler`（详见 workflow 注释）。
 
 > 注意：本通道跑的是**全量增量同步**（含 `asset_snapshot` 资产快照落账）；
-> 上节的本机通道只跑用户最关心的三项（`temperature` / `fund_nav` / `advisor_portfolio`），
-> 不含资产快照——资产快照只在 CI 侧做，本机不做落账。
+> 上节的本机通道只跑用户最关心的四项（`temperature` / `fund_nav` / `position_price` /
+> `advisor_portfolio`），不含资产快照——资产快照只在 CI 侧做，本机不做落账。
+> （`position_price` 是 #1104 新增的持仓现价回写，本机与 CI 两条通道都会跑到。）
 
 ### 每日更新的信息
 
 - [x] 基金最新净值（`fund_nav` job，增量同步最近 N 天）
+- [x] **持仓现价回写**（`position_price` job，#1104）：把已确认净值写进
+      `positions.current_price`，这是「持仓盈亏非零」的前提；只读库内净值，不联网
 - [x] 基金组合配置 / 类型 / 经理等元数据（`fund_list` / `fund_detail_enrich` / `fund_type` / `fund_manager`）
 - [x] 每日账户更新（盈利情况）：`asset_snapshot` job 落 `asset_snapshots` 表
       （家庭/账户两级，含货基每日收益 `money_fund_income_cents`，#863 P1-5）

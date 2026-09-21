@@ -230,7 +230,7 @@ const hasSupplements = computed(
 /* ── 容器 ── */
 .import-result {
   max-width: 520px;
-  padding: var(--space-8) var(--space-standard) var(--space-loose);
+  padding: var(--space-loose) var(--space-standard) var(--space-loose);
   margin: 0 auto;
 }
 
@@ -299,7 +299,7 @@ const hasSupplements = computed(
   margin: 0;
   font-size: var(--text-small);
   line-height: 1.6;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 全部通过时的「干净」状态：稍亮一点表示正向反馈 */
@@ -350,7 +350,7 @@ const hasSupplements = computed(
 }
 
 .warning-icon {
-  color: var(--color-warning);
+  color: var(--color-warning-ink);
 }
 
 .info-icon {

@@ -20,7 +20,8 @@ from app.services.bias.calculator import BiasCalculator, PriceFetcher
 from app.services.bias.constants import SOURCE_BIAS
 from app.services.bias.provider import ProductProvider
 from app.services.bias.schemas import BiasResult
-from app.services.sync.jobs.base import SyncJob
+from app.services.job_base import SyncJob
+from app.services.thermometer.service import TemperatureService
 
 
 class BiasJob(SyncJob):
@@ -102,9 +103,12 @@ class BiasJob(SyncJob):
         if not new_data:
             return
 
-        # 使用 TemperatureService 的 save_multi_items 方法
-        from app.services.thermometer.service import TemperatureService
-
+        # 使用 TemperatureService 的 save_multi_items 方法（模块级常规导入）。
+        # #1607 开口项 2 复核（2026-09-21）：原注释称「`thermometer/__init__.py` 会 eager
+        # import `.jobs`，与 `jobs.py → bias.job` 构成导入期环」——**该文件不存在**（无
+        # `__init__.py`，全仓 0 处包级 `from app.services.thermometer import ...`），环的成因
+        # 不成立；已实证两种导入顺序与应用工厂均可正常加载，故转为常规模块级导入。
+        # 依赖方向合法：job（编排类）→ 领域服务，见 decisions.md D25「services 内部方向」。
         service = TemperatureService()
         count = service.save_multi_items(new_data)
         logger.info(f'保存乖离率数据: {count} 条')

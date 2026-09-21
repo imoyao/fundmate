@@ -62,15 +62,7 @@ const displayValue = computed(() => {
 </script>
 
 <style lang="scss" scoped>
-@media (width <= 480px) {
-  .metric-card__value {
-    font-size: 26px;
-  }
-
-  .metric-card--featured .metric-card__value {
-    font-size: 34px;
-  }
-}
+@use "@/style/breakpoints" as bp;
 
 .metric-card {
   display: flex;
@@ -127,7 +119,7 @@ const displayValue = computed(() => {
   &__unit {
     font-size: 15px;
     font-weight: 500;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   &__badge {
@@ -137,7 +129,7 @@ const displayValue = computed(() => {
   &__caption {
     font-size: 12px;
     line-height: 1.4;
-    color: var(--text-tertiary);
+    color: var(--text-tertiary-ink);
   }
 
   /* featured：核心指标放大 */
@@ -161,4 +153,21 @@ const displayValue = computed(() => {
    结构：标题行(标题 + 等级标签) → 大数字 + 小单位 → 副文案
    数字：30px(默认) / 40px(featured)，单位 15px
    ============================================================ */
+
+/* 窄屏缩小数字字号（原块**排在基础声明之前**，被后面同选择器的 30px / 40px 压掉、
+   **从未生效**；2026-09-18 修复，见 #1576 同类登记）。
+
+   ⚠️ 阈值**刻意保留 480px**（不给 Tailwind 档）：这是**卡片内数字字号**的阈值，与页面布局
+   断点不同轴；而本页网格在窄视口下常常变成**单列**（卡片反而更宽），此时把数字缩到 26px
+   与「窄屏收紧」的直觉相反。故按内容级阈值处理，用 `（阈值说明）` 显式豁免。 */
+@media (width <= 480px) /* breakpoint-allow: 卡片内字号阈值（内容级） */ {
+  /* 说明（已上移到 @media 同行）：卡片内字号阈值（内容级），非页面布局断点 */
+  .metric-card__value {
+    font-size: 26px;
+  }
+
+  .metric-card--featured .metric-card__value {
+    font-size: 34px;
+  }
+}
 </style>

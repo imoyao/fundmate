@@ -23,7 +23,7 @@ class ResolveRequest(BaseModel):
     identifier: str
 
 
-@auth_bp.post('/resolve')
+@auth_bp.post('/resolve/', strict_slashes=False)
 def resolve_identifier():
     """登录标识解析（D10）：把"邮箱 或 用户名"收敛为规范邮箱，供前端二次登录。
 
@@ -59,7 +59,7 @@ def resolve_identifier():
         return {'data': {'email': user.email}, 'message': 'ok'}
 
 
-@auth_bp.get('/me')
+@auth_bp.get('/me/', strict_slashes=False)
 def me():
     """返回当前登录用户信息（含角色与所属家庭）。
 
@@ -89,7 +89,7 @@ def me():
     }
 
 
-@auth_bp.post('/logout')
+@auth_bp.post('/logout/', strict_slashes=False)
 def logout():
     """退出登录。
 

@@ -162,7 +162,7 @@ function tempColor(v: number | null) {
   display: block;
   margin-bottom: 6px;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .context-item__value-row {
@@ -182,7 +182,7 @@ function tempColor(v: number | null) {
 .context-item__unit {
   font-size: 14px;
   font-weight: 500;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .context-item__hint {
@@ -229,6 +229,6 @@ function tempColor(v: number | null) {
   margin-top: 14px;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 </style>

@@ -31,7 +31,10 @@
           >
             {{ group.label }}
           </p>
-          <p class="text-xs mt-1" :style="{ color: 'var(--text-tertiary)' }">
+          <p
+            class="text-xs mt-1"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
+          >
             {{ group.count }} 项 ·<MoneyDisplay
               :value="group.total"
               :show-sign="false"

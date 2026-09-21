@@ -108,7 +108,7 @@
                 <IconifyIconOffline
                   icon="ep:info-filled"
                   class="search-hint text-sm cursor-help transition-opacity"
-                  :style="{ color: 'var(--text-tertiary)' }"
+                  :style="{ color: 'var(--text-tertiary-ink)' }"
                 />
               </el-tooltip>
             </div>
@@ -1457,7 +1457,7 @@ const renderCtx = computed<RenderCtx>(() => ({
   width: 28px;
   height: 28px;
   padding: 0;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   background-color: transparent;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-pill);
@@ -1474,14 +1474,16 @@ const renderCtx = computed<RenderCtx>(() => ({
 
 /* 实时开启态：品牌色实底高亮——开关在图标组里是否可见/是否已开，一眼可辨 */
 .icon-tool-btn.is-active {
-  color: var(--brand-100);
-  background-color: var(--brand-700);
-  border-color: var(--brand-700);
+  /* #1600：文字原用 --brand-100，但该令牌在暗色下翻成深色 #2D1612 → 在实底上仅 3.65:1；
+     改用 --text-inverse（两套主题恒为 #fff），亮 4.92:1 / 暗 4.66:1 均达 AA。 */
+  color: var(--text-inverse);
+  background-color: var(--brand-solid);
+  border-color: var(--brand-solid);
 }
 
 .icon-tool-btn.is-active:hover {
-  background-color: var(--brand-800);
-  border-color: var(--brand-800);
+  background-color: var(--brand-solid-hover);
+  border-color: var(--brand-solid-hover);
 }
 
 /* 批量模式：移动到分组下拉 */
@@ -1528,6 +1530,7 @@ const renderCtx = computed<RenderCtx>(() => ({
 }
 
 .batch-delete-btn:disabled {
+  /* audit-text-contrast: exempt .batch-delete-btn:disabled 为**真禁用**控件，按 WCAG 1.4.3 对 inactive component 的豁免；**「无数据占位符」不适用本豁免**（那是信息，须用 --text-tertiary-ink）。登记见 docs/spec/tech-debt.md（#1599） */
   color: var(--text-disabled);
   cursor: not-allowed;
   border-color: var(--text-disabled);
@@ -1535,6 +1538,7 @@ const renderCtx = computed<RenderCtx>(() => ({
 }
 
 .batch-delete-btn:disabled:hover {
+  /* audit-text-contrast: exempt .batch-delete-btn:disabled:hover 为**真禁用**控件，按 WCAG 1.4.3 对 inactive component 的豁免；**「无数据占位符」不适用本豁免**（那是信息，须用 --text-tertiary-ink）。登记见 docs/spec/tech-debt.md（#1599） */
   color: var(--text-disabled);
   background-color: transparent;
 }
@@ -1578,7 +1582,7 @@ const renderCtx = computed<RenderCtx>(() => ({
 
 .page-size-select__label {
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   white-space: nowrap;
 }
 
@@ -1682,7 +1686,7 @@ const renderCtx = computed<RenderCtx>(() => ({
 .watchlist-empty__hint {
   margin: 0;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* 空白自定义分组的虚线「+ 从全部自选添加」入口（issue #987）。

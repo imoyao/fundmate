@@ -7,7 +7,7 @@
       <h2 class="text-2xl font-bold" :style="{ color: 'var(--text-primary)' }">
         录入通用资产
       </h2>
-      <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary)' }">
+      <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary-ink)' }">
         记录房产、现金、信用卡、贷款等非交易类资产，完善你的资产负债表
       </p>
     </div>

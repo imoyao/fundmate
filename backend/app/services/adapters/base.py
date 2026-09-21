@@ -3,7 +3,7 @@
 # Date : 2026/5/30 11:23
 # File : base.py
 # -*- coding: utf-8 -*-
-# app/services/sync/adapters/base.py
+# app/services/adapters/base.py
 
 from abc import ABC, abstractmethod
 from datetime import date

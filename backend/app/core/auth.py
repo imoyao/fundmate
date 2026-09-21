@@ -8,6 +8,10 @@
 - 开发/测试模式（`AUTH_ENABLED` 未启用）：允许无 token 回退默认用户，
   支持 `X-User-Id` 头旁路指定身份（仅测试用）。
 - viewer（只读）角色对写方法统一 403（单一拦截点，避免逐端点装饰遗漏）。
+- 用户身份读写经**注入**获得（#1607）：本模块属业务无关的基础设施层，按 `decisions.md`
+  的依赖方向（core ← domains ← services）不得 import 领域模型，查用户 / 建号 / 回写邮箱
+  下沉在 `app.domains.users.identity`，由组合根 `create_app()` 调用 `register_user_identity()`
+  注入；未注入即报错，不静默降级（否则鉴权会悄悄失效）。
 """
 
 import os
@@ -17,7 +21,6 @@ from functools import wraps
 
 from flask import abort, g, request
 from loguru import logger
-from sqlalchemy.exc import IntegrityError
 
 # 免登录前缀（_is_public 用 startswith 匹配，故前缀须精确到「子路由」层级，
 # 不能只到 /api/funds 这种蓝图级，否则会误放行同蓝图下的写接口，如 /api/funds/nav）。
@@ -70,6 +73,33 @@ def _is_public(path: str, method: str) -> bool:
 def auth_enabled() -> bool:
     """是否强制启用登录门禁（生产开、开发/测试默认关）。"""
     return os.getenv('AUTH_ENABLED', '').strip().lower() in ('1', 'true', 'yes')
+
+
+# 用户身份读写实现（#1607）：core 不 import 领域模型，由组合根注入。
+# 实现须提供 get_by_id / get_by_supabase_id / provision / sync_email 四个接口，
+# 见 `app/domains/users/identity.py` 的模块 docstring。
+_user_identity = None
+
+
+def register_user_identity(identity) -> None:
+    """注入用户身份读写实现（由 `app/main.py` 的 `create_app()` 调用）。
+
+    为什么是注入而不是直接 import：`User` 是领域模型，core 依赖 domains 会让基础设施层
+    无法脱离领域层导入与测试（#1607）。这里只持有实现对象，签名与语义由注入方保证。
+    """
+    global _user_identity
+    _user_identity = identity
+
+
+def _identity():
+    """取已注入的身份实现；未注入即报错。
+
+    刻意不返回 None 后静默跳过：鉴权链路上任何「静默降级」都会变成安全缺口
+    （如误判为未登录而放行，或误判为已登录而越权），宁可 500 暴露配置错误。
+    """
+    if _user_identity is None:
+        raise RuntimeError('用户身份实现未注入：请在 create_app() 中调用 register_user_identity()（#1607）')
+    return _user_identity
 
 
 def _fetch_jwks(supabase_url: str) -> dict:
@@ -155,69 +185,19 @@ def decode_supabase_token(token: str) -> dict | None:
         return None
 
 
-def _provision_user(db, claims: dict):
-    """首次登录自动创建本地用户（JIT provisioning）。
-
-    Supabase 是云端权威（D3），但本地 `users` 表是 SQLite 侧的映射：
-    新用户在 Supabase 注册后，本地并无对应记录。这里在 JWT 验签成功、
-    且 `claims.sub` 查无此人时，用 claims 中的身份信息自动建号，
-    否则新用户将永远 401，无法使用任何受保护功能。
-
-    角色默认 member（普通成员），归属默认家庭 1，后续可经家庭管理调整。
-    """
-    from app.domains.users.models import ROLE_MEMBER, User
-
-    sub = claims.get('sub')
-    email = claims.get('email') or ''
-    user_metadata = claims.get('user_metadata') or {}
-    username = user_metadata.get('username') or email.split('@')[0] or f'user_{sub[:8]}'
-
-    user = User(
-        supabase_id=sub,
-        family_id=1,
-        username=username,
-        nickname=username,
-        email=email,
-        role=ROLE_MEMBER,
-        is_active=1,
-    )
-    db.add(user)
-    try:
-        db.commit()
-    except IntegrityError:
-        # 并发首次登录：另一请求已抢建，回查即可
-        db.rollback()
-        user = db.query(User).filter_by(supabase_id=sub).first()
-        if user is None:
-            raise
-    db.refresh(user)
-    logger.info('首次登录自动创建本地用户 sub={} username={}', sub, username)
-    return user
-
-
-def _sync_claims_email(db, user, claims: dict):
-    """把 Supabase 侧最新的邮箱回写本地 `users.email`。
-
-    用户改绑邮箱（D10，前端经 `supabase.auth.updateUser({email})` 触发二次验证）
-    后，Supabase 是新邮箱的权威，而本地 `users` 只是映射。若这里的
-    `claims.email` 与本地不一致，则同步，避免"个人中心仍显示旧邮箱"的陈旧数据。
-    """
-    claims_email = (claims.get('email') or '').strip()
-    if claims_email and user.email != claims_email:
-        user.email = claims_email
-        db.commit()
-        logger.info('同步 Supabase 最新邮箱到本地 sub={}', claims.get('sub'))
-
-
 def _resolve_user(db):
-    """从请求上下文解析本地用户（优先测试旁路头，其次 JWT 验签）。"""
+    """从请求上下文解析本地用户（优先测试旁路头，其次 JWT 验签）。
+
+    查用户 / 首次登录建号 / 邮箱回写均委托注入的身份实现（#1607），
+    本模块不持有 `User` 模型。
+    """
+    identity = _identity()
+
     # 测试/开发旁路：X-User-Id 头直接指定本地用户 id
     xid = request.headers.get('X-User-Id')
     if xid:
         try:
-            from app.domains.users.models import User
-
-            return db.query(User).filter_by(id=int(xid)).first()
+            return identity.get_by_id(db, int(xid))
         except ValueError:
             return None
 
@@ -232,13 +212,12 @@ def _resolve_user(db):
     sub = claims.get('sub')
     if not sub:
         return None
-    from app.domains.users.models import User
 
-    user = db.query(User).filter_by(supabase_id=sub).first()
+    user = identity.get_by_supabase_id(db, sub)
     if user is None:
-        user = _provision_user(db, claims)
+        user = identity.provision(db, claims)
     else:
-        _sync_claims_email(db, user, claims)
+        identity.sync_email(db, user, claims)
     return user
 
 
@@ -247,16 +226,14 @@ def auth_before_request():
     if _is_public(request.path, request.method):
         return None
 
-    from app.core.database import SessionLocal  # 延迟导入，确保测试 monkeypatch 生效
+    from app.core.database import get_session  # 延迟导入，确保测试 monkeypatch 生效
 
-    db = SessionLocal()
+    db = get_session()
     try:
         user = _resolve_user(db)
         if user is None and not auth_enabled():
-            # 开发/未启用模式：回退默认用户，保持本地单用户可用
-            from app.domains.users.models import User
-
-            user = db.query(User).filter_by(id=1).first()
+            # 开发/未启用模式：回退默认用户 1（由 domains.users.seed 播种），保持本地单用户可用
+            user = _identity().get_by_id(db, 1)
 
         if user is None:
             abort(401, description='未授权，请先登录')

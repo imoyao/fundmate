@@ -77,9 +77,62 @@ repos:
         language: python
         stages: [push]
         pass_filenames: false
+      - id: guard-layout-widths
+        name: guard hardcoded layout container widths
+        entry: python scripts/guard_layout_widths.py
+        language: python
+        # 容器宽度必须以 --layout-* 令牌引用（#1506）：
+        # 此前 1280px / 1400px 两套硬编码散落 13+ 个文件，导致页头/页脚与内容区错边
+        files: ^frontend/src/.*\.(vue|ts|tsx|js|jsx|css|scss|sass)$
+        exclude: ^frontend/src/style/colors\.css$
+        pass_filenames: true
+      - id: guard-breakpoints
+        name: guard raw breakpoint media queries
+        entry: python scripts/guard_breakpoints.py
+        language: python
+        # 断点必须走 @use "@/style/breakpoints" 的 bp.below()/bp.above()（#1571）：
+        # 此前 design.md 断点表零实现、业务文件手写 470~1180 十余个互不相同的阈值，
+        # 与 Tailwind 的 md:/lg: 前缀并存成三套词汇
+        files: ^frontend/src/.*\.(vue|css|scss|sass)$
+        exclude: ^frontend/src/style/_breakpoints\.scss$
+        pass_filenames: true
       - id: forbid-bp-input
         name: forbid APIFlask @bp.input() auto-paradigm
         entry: python scripts/forbid_bp_input.py
         language: python
         files: ^backend/app/.*\.py$
+        pass_filenames: false
+      - id: guard-error-envelope
+        name: guard error envelope (error_code present)
+        entry: python scripts/guard_error_envelope.py
+        language: python
+        # 错误响应三字段信封（#1610）：视图内自建错误响应必须带 error_code。
+        # 此前 63 处只有 {data, message}，temperature 3 处连 data 都缺
+        files: ^backend/app/.*\.py$
+        pass_filenames: false
+      - id: check-api-conventions
+        name: check API conventions (trailing slash + api.md coverage)
+        entry: python scripts/check_api_conventions.py
+        language: python
+        # 尾斜杠（#1611，conventions §2.6 冻结区，含明文豁免清单）与 api.md 全量端点段一致性
+        # 此前 18 个端点无尾斜杠、api.md 只列 30/131 条
+        files: ^(backend/app/domains/.*\.py|docs/spec/api\.md)$
+        pass_filenames: false
+      - id: guard-layer-direction
+        name: guard backend layer dependency direction
+        entry: python scripts/guard_layer_direction.py
+        language: python
+        # 分层依赖方向（#1607）：R1 core→domains/models、R2 services→domains.views、
+        # R3 domains.models|schemas→services、R4 跨域 views 互引。
+        # 此前 core.auth 直接持有 User、core.database 把种子写在基础设施层，
+        # 且 ledgers.views 直接引用 positions.views，全靠函数内 import 掩盖
+        files: ^backend/app/(core|services|domains)/.*\.py$
+        pass_filenames: false
+      - id: check-view-thickness
+        name: guard view layer thickness
+        entry: python scripts/check_view_thickness.py
+        language: python
+        # 视图层只做 HTTP 编排（#1606）：业务规则（校验链/状态机/守恒校验/合并策略）与
+        # 事务必须落在 services；视图文件行数、query/commit 次数、单函数行数只减不增
+        files: ^backend/app/domains/.*/views\.py$
         pass_filenames: false

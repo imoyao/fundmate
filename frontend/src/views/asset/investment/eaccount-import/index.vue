@@ -913,20 +913,20 @@ onMounted(() => {
 .upload-hint {
   margin: 12px 0 0;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .upload-format-info {
   margin-top: 6px;
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .upload-error {
   padding: 12px 16px;
   margin-top: var(--space-compact);
   font-size: var(--text-small);
-  color: var(--color-danger-system);
+  color: var(--color-danger);
   text-align: center;
   background: var(--color-danger-20);
   border: 1px solid var(--color-danger);
@@ -1068,7 +1068,7 @@ onMounted(() => {
 
 .fund-cell__symbol {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .ellipsis-text {
@@ -1086,7 +1086,7 @@ onMounted(() => {
 
 .preview-empty {
   padding: 24px 0;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
   text-align: center;
 }
 
@@ -1105,7 +1105,7 @@ onMounted(() => {
 
 .preview-footer__count {
   font-size: var(--text-label);
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 /* ===== 结果区 ===== */
@@ -1204,7 +1204,7 @@ onMounted(() => {
 
 .conflict-list__symbol {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .conflict-list__detail {
@@ -1215,7 +1215,7 @@ onMounted(() => {
 
 .conflict-list__diff {
   font-weight: 500;
-  color: var(--color-rise);
+  color: var(--color-rise-ink);
 }
 
 /* 失败行：中性弱化，不喧宾夺主 */
@@ -1235,7 +1235,7 @@ onMounted(() => {
 
 .failed-list__line {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .failed-list__symbol {
@@ -1277,7 +1277,7 @@ onMounted(() => {
 }
 
 .import-mode-switch__item.is-active {
-  color: var(--text-on-brand, var(--text-inverse));
+  color: var(--text-inverse);
   background: var(--brand-600);
   box-shadow: var(--shadow-raised);
 }
@@ -1333,14 +1333,14 @@ onMounted(() => {
 }
 
 .ocr-segmented__item.is-active {
-  color: var(--text-on-brand, var(--text-inverse));
+  color: var(--text-inverse);
   background: var(--brand-600);
 }
 
 .ai-format-hint {
   margin-bottom: var(--space-2);
   font-size: var(--text-small);
-  color: var(--text-tertiary);
+  color: var(--text-tertiary-ink);
 }
 
 .ai-format-hint__example {
