@@ -78,11 +78,11 @@ _PROBES = [
     ('services/sync/jobs/probe.py', 'from app.services.job_base import SyncJob\n', None),
     ('services/adapters/probe.py', 'from app.services.adapters.base import DataSourceAdapter\n', None),
     ('services/adapters/probe.py', 'from app.domains.funds.models import FundCompany\n', None),
-    # R5 冻结基线：已登记的那条既有反向边放行（改 R5_ALLOWLIST 会让本用例失败，强制知情）
+    # 批次 4 后：adapters 反向依赖 thermometer 已消除 → 该写法现在应报 R5（冻结基线已清空）
     (
         'services/adapters/qieman_advisor_adapter.py',
         'from app.services.thermometer.fetchers import QiemanFetcher\n',
-        None,
+        'R5',
     ),
     # 但同一源的**其它**反向边仍须报错（冻结基线不构成"该文件豁免"）
     (

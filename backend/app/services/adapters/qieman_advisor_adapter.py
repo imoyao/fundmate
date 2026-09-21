@@ -27,7 +27,7 @@ from app.services.adapters.advisor_source import (
     AdvisorPortfolioSource,
     register_advisor_source,
 )
-from app.services.thermometer.fetchers import QiemanFetcher
+from app.services.adapters.qieman_fetcher import QiemanFetcher
 
 
 @register_advisor_source

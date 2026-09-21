@@ -66,14 +66,11 @@ def _matches(module: str, packages: tuple[str, ...]) -> bool:
 
 # R5 冻结基线（只拦新增，与 `check_css_vars.mjs` / `guard_breakpoints.py` 同款手法）：
 # 既有且**已登记**的反向边，逐条说明理由与去向；新增任何其它反向边一律红灯。
-R5_ALLOWLIST = {
-    ('app.services.adapters.qieman_advisor_adapter', 'app.services.thermometer.fetchers'): (
-        '且慢 MCP 取数（QiemanFetcher：约 255 行的类 + 3 个归一化助手 + SingleValueFetcher 基类）'
-        '目前实现在 thermometer 家族内，投顾适配器复用它。彻底修法是把且慢取数上提到适配层，'
-        '但会连带搬动基类与 thermometer 常量（级联改动面大），已登记为 #1607 批次 4；'
-        '本批冻结这条既有边，只拦新增。'
-    ),
-}
+# 当前为空——批次 4 已消除唯一一条（`adapters → thermometer`）。
+R5_ALLOWLIST: dict = {}
+# 空：#1607 批次 4 已把且慢取数（QiemanFetcher + 归一化助手 + 基类 + QIEMAN_* 常量）
+# 上提到 adapters（`adapters/qieman_fetcher.py` / `adapters/fetcher_base.py`），
+# `adapters → thermometer` 这条既有反向边已**消除**，冻结基线随之清空。
 
 
 def _is_core_module(module: str) -> bool:

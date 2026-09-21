@@ -116,6 +116,28 @@ def is_sub_dict(subset_dict: dict, superset_dict: dict) -> bool:
     return all(item in superset_dict.items() for item in subset_dict.items())
 
 
+def to_float(value: object) -> Optional[float]:
+    """安全转 float；无法转换（'--' / 'N/A' / 空串 / None 等脏值）返回 ``None``。
+
+    数据源改版后数值字段常以字符串返回（如 '22.75'）或返回不可解析脏值，统一在此容错，
+    避免下游出现 ``str > int`` 之类运行时崩溃。原在 ``thermometer.constants``，
+    因 adapters 共享件与 thermometer 家族都要用而上提到 core（#1607 批次 4）。
+    """
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        s = value.strip()
+        if not s or s in ('--', 'N/A', 'NA', 'null', 'None'):
+            return None
+        try:
+            return float(s)
+        except ValueError:
+            return None
+    return None
+
+
 def show_time(func):
     """装饰器：打印函数执行耗时。"""
 

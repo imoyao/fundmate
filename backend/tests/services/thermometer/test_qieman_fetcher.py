@@ -16,7 +16,7 @@ import json
 
 import pytest
 
-from app.services.thermometer.fetchers import QiemanFetcher
+from app.services.adapters.qieman_fetcher import QiemanFetcher
 
 # 归一化后每条记录的字段集合，用于校验 schema 稳定（新增字段时此处会先失败）
 SCHEMA_KEYS = {'code', 'name', 'ratio', 'category', 'nav', 'nav_date', 'adj_time', 'fund_type'}
