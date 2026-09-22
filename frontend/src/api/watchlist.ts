@@ -37,6 +37,11 @@ export interface WatchlistItem {
   tag_ids: number[];
   current_price?: number;
   change_pct?: number;
+  /**
+   * 最新价 / 涨跌幅的数据日期（YYYY-MM-DD，后端 enrich，#1104）。
+   * 有值 = 该价格来自「最近交易日收盘价 / 确认净值」；null = 无行情、回退持仓快照。
+   */
+  price_as_of?: string | null;
   position_market_value?: number;
   /** 真实持仓统计（后端 enrich，positions 表汇总；区别于迁移透传的 cost_price/quantity） */
   holding_quantity?: number | null; // 真实持仓数量（份/股）

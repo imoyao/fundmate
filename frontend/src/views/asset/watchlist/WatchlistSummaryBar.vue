@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { ArrowDown, ArrowUp, Refresh } from "@element-plus/icons-vue";
 import type { RealtimeQuotesReturn } from "@/composables/useRealtimeQuotes";
+import type { ValuationSummary } from "@/utils/valuationEngine";
 
 /**
  * 自选实时估值汇总条（状态指示 + 刷新档位 + 估值数据组），从 index.vue 抽出（2026-08-20）。
@@ -13,6 +14,14 @@ import type { RealtimeQuotesReturn } from "@/composables/useRealtimeQuotes";
 const props = defineProps<{
   realtime: RealtimeQuotesReturn;
   refreshing: boolean;
+  /**
+   * 未开启实时时的静态价汇总（页面注入；null 表示确实没有可展示的数据）。
+   *
+   * 为什么需要它：本条常驻展示（不再 `v-if` 实时开关），而静态价
+   * （最近交易日收盘价 / 确认净值）在后端已是权威口径，不该因为没开实时
+   * 就把「总市值 / 总成本 / 总盈亏」整块抹掉（2026-09-22 用户反馈）。
+   */
+  fallbackSummary?: ValuationSummary | null;
 }>();
 
 const emit = defineEmits<{
@@ -20,7 +29,18 @@ const emit = defineEmits<{
   (e: "manual-refresh"): void;
 }>();
 
-const summary = computed(() => props.realtime.summary.value);
+/** 实时汇总优先；未开实时（summary 为空）时用注入的静态汇总兜底 */
+const summary = computed(
+  () => props.realtime.summary.value ?? props.fallbackSummary ?? null
+);
+
+/** 状态文案：idle 专指「未开启实时」，与休市/收盘区分开 */
+const statusText = computed(() => {
+  const status = props.realtime.status.value;
+  if (status === "trading") return "实时行情";
+  if (status === "idle") return "静态价（未开启实时）";
+  return "休市/收盘";
+});
 const hasValid = computed(
   () => !!summary.value && (summary.value.totalMarketValue ?? 0) > 0
 );
@@ -47,42 +67,44 @@ const intervalOptions = [
       <!-- 左段：状态指示 + 刷新档位（固定） -->
       <div class="summary-row__status">
         <span class="status-dot" :class="`status-${realtime.status.value}`" />
-        <span class="status-text">
-          {{ realtime.status.value === "trading" ? "实时行情" : "休市/收盘" }}
-        </span>
+        <span class="status-text">{{ statusText }}</span>
         <span v-if="realtime.lastUpdateTime.value" class="update-time">
           更新于 {{ realtime.lastUpdateTime.value }}
         </span>
-        <!-- 刷新档位：手写分段控制器（弃用 el-segmented：其 JS 绝对定位选中滑块与
-             自定义 item 尺寸错位，曾出现选中块偏高/hover 半截/文字偏上，见 OcrImportModal 同款决策）。
-             选中态仅浅红底 + 深红字；轨道用 --bg-soft 暖米色衬托 --brand-100（近白）选中底 -->
-        <div class="refresh-segmented" role="tablist" aria-label="刷新频率">
-          <button
-            v-for="opt in intervalOptions"
-            :key="opt.value"
-            type="button"
-            role="tab"
-            class="refresh-segmented__item"
-            :class="{
-              'is-active': realtime.refreshInterval.value === opt.value
-            }"
-            :aria-selected="realtime.refreshInterval.value === opt.value"
-            @click="emit('interval-change', opt.value)"
+        <!-- 刷新档位与手动刷新都只对实时轮询有意义：未开启实时时整体不渲染，
+             避免点了没反应（manualRefresh 在 enabled=false 时直接 return） -->
+        <template v-if="realtime.enabled.value">
+          <!-- 刷新档位：手写分段控制器（弃用 el-segmented：其 JS 绝对定位选中滑块与
+               自定义 item 尺寸错位，曾出现选中块偏高/hover 半截/文字偏上，见 OcrImportModal 同款决策）。
+               选中态仅浅红底 + 深红字；轨道用 --bg-soft 暖米色衬托 --brand-100（近白）选中底 -->
+          <div class="refresh-segmented" role="tablist" aria-label="刷新频率">
+            <button
+              v-for="opt in intervalOptions"
+              :key="opt.value"
+              type="button"
+              role="tab"
+              class="refresh-segmented__item"
+              :class="{
+                'is-active': realtime.refreshInterval.value === opt.value
+              }"
+              :aria-selected="realtime.refreshInterval.value === opt.value"
+              @click="emit('interval-change', opt.value)"
+            >
+              {{ opt.label }}
+            </button>
+          </div>
+          <el-button
+            text
+            circle
+            :loading="refreshing"
+            aria-label="手动刷新行情"
+            class="refresh-icon-btn"
+            :style="{ color: 'var(--text-secondary)' }"
+            @click="emit('manual-refresh')"
           >
-            {{ opt.label }}
-          </button>
-        </div>
-        <el-button
-          text
-          circle
-          :loading="refreshing"
-          aria-label="手动刷新行情"
-          class="refresh-icon-btn"
-          :style="{ color: 'var(--text-secondary)' }"
-          @click="emit('manual-refresh')"
-        >
-          <el-icon v-if="!refreshing"><Refresh /></el-icon>
-        </el-button>
+            <el-icon v-if="!refreshing"><Refresh /></el-icon>
+          </el-button>
+        </template>
       </div>
 
       <!-- 右段：汇总指标紧凑数据组（无卡片背景，label + value + 细分隔线） -->

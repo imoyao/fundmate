@@ -33,13 +33,21 @@ daily-snapshot 因 secrets 缺失连续 7 天全红，本地库净值止于 2026
 |-----|-----------------|------|
 | `temperature` | 20:00 | 温度计：集思录中位 PB / 韭圈儿 / 行业拥挤度 / 乖离率，即**温度计页面**的数据 |
 | `fund_nav` | 21:30 | **自选 + 持仓**的基金净值当日增量（目标池由 `orchestrator.resolve_targets()` 现取） |
-| `position_price` | 22:15 | **持仓现价回写**（#1104）：把已确认净值写回 `positions.current_price`，否则导入时「成本 = 现价」会让盈亏恒为 0；纯本地（不联网），目标池 = 持仓表本身 |
+| `price_history` | 17:30 | **场内日线**（股票 / ETF / 可转债；目标池 = 持仓 + 自选的场内代码）：每日 OHLC 落 `price_history`，增量按「库内最新交易日的次日」**缺口回补**（漏跑可自愈） |
+| `position_price` | 22:15 | **持仓现价回写**（#1104）：场外基金写已确认净值、场内写最近交易日收盘价 → `positions.current_price`；纯本地（不联网），目标池 = 持仓表本身 |
 | `advisor_portfolio` | 22:00 | 投顾组合持仓 / 调仓快照（且慢 + 天天，目标池 = 库内全部在售组合） |
 
-> `position_price` 必须排在 `fund_nav` **之后**：它读的就是后者刚落库的 `daily_worth`，
-> 早了会写到昨天的口径。它是「持仓盈亏非零」的唯一自动修复路径（导入路径只会把成本价
-> 复制成现价）。场内（股票/ETF/可转债）与 `balance` 计价持仓**不在其列**（口径未定，
-> 见 job docstring 与 #1104）；货基按面值 1.0000 元写。
+> `position_price` 必须排在 `fund_nav` 与 `price_history` **之后**：它读的就是前者刚落库的
+> `daily_worth`、后者刚落库的 `price_history.close`，早了会写到旧口径。它是「持仓盈亏非零」
+> 的唯一自动修复路径（导入路径只会把成本价复制成现价）。`balance` 计价持仓不在其列
+> （无份额可乘）；货基按面值 1.0000 元写。
+>
+> `price_history` 之所以要进本机任务（#1104）：原先只靠 CI 每天跑一次，增量又写死
+> 「昨天→今天」，没有任何自愈能力——实测持仓股票的最后行情停在 8/28，自选页「最新价」
+> 只能回落到导入当天的快照（与实时价偏差 -63%）。注意 ETF 两源（东财 / 新浪）的**当日**
+> K 线常要次日才齐，缺口回补会在下一次运行时补齐，因此盘中看到的静态价就是上一交易日
+> 收盘价，前端用 `price_as_of` 标注数据日期。
+
 >
 > `advisor_portfolio` 排在建净值之后是刻意的：且慢调仓快照带的是当日占比口径。
 > 它还是**且慢调仓历史的唯一来源**——且慢没有历史调仓接口，明细靠相邻两次快照对比推导
@@ -61,6 +69,7 @@ SCHEDULER_ENABLED=1                    # 总开关（模板 .env.example 已默�
 # SCHEDULER_TIMEZONE=Asia/Shanghai
 # SCHEDULER_TEMPERATURE_CRON=0 20 * * *
 # SCHEDULER_NAV_CRON=30 21 * * *
+# SCHEDULER_PRICE_HISTORY_CRON=30 17 * * *   # 场内日线（股票/ETF/可转债）
 # SCHEDULER_POSITION_PRICE_CRON=15 22 * * *
 # SCHEDULER_ADVISOR_CRON=0 22 * * *
 # SCHEDULER_SKIP_NON_TRADING_DAY=true  # 休市不抓
@@ -155,15 +164,18 @@ pdm run invoke sched.status     # 或 pdm run scheduler --status（只读）
   - 备选：SCF 定时器 / 系统 cron 在部署服务器执行 `pdm run scheduler`（详见 workflow 注释）。
 
 > 注意：本通道跑的是**全量增量同步**（含 `asset_snapshot` 资产快照落账）；
-> 上节的本机通道只跑用户最关心的四项（`temperature` / `fund_nav` / `position_price` /
-> `advisor_portfolio`），不含资产快照——资产快照只在 CI 侧做，本机不做落账。
-> （`position_price` 是 #1104 新增的持仓现价回写，本机与 CI 两条通道都会跑到。）
+> 上节的本机通道跑用户最关心的五项（`temperature` / `fund_nav` / `price_history` /
+> `position_price` / `advisor_portfolio`），不含资产快照——资产快照只在 CI 侧做，
+> 本机不做落账。（`price_history` 自 #1104 起进本机任务：它是场内「最新价 / 持仓盈亏 /
+> 每日收益日历」的数据底座，只靠 CI 一次/天不足以自愈断档。）
 
 ### 每日更新的信息
 
 - [x] 基金最新净值（`fund_nav` job，增量同步最近 N 天）
-- [x] **持仓现价回写**（`position_price` job，#1104）：把已确认净值写进
-      `positions.current_price`，这是「持仓盈亏非零」的前提；只读库内净值，不联网
+- [x] **场内日线**（`price_history` job，#1104）：股票 / ETF / 可转债每日 OHLC 落
+      `price_history`（`close` 未复权、`adj_close` 前复权），增量按缺口回补
+- [x] **持仓现价回写**（`position_price` job，#1104）：把已确认净值（场外）与最近交易日
+      收盘价（场内）写进 `positions.current_price`，这是「持仓盈亏非零」的前提；只读库内数据，不联网
 - [x] 基金组合配置 / 类型 / 经理等元数据（`fund_list` / `fund_detail_enrich` / `fund_type` / `fund_manager`）
 - [x] 每日账户更新（盈利情况）：`asset_snapshot` job 落 `asset_snapshots` 表
       （家庭/账户两级，含货基每日收益 `money_fund_income_cents`，#863 P1-5）

@@ -209,18 +209,19 @@
           </template>
         </el-alert>
 
-        <!-- 估值横幅与状态 -->
-        <!-- ✅ 核心修复：用 template 包裹，加上 v-if 物理移除整个模块 -->
-        <template v-if="realtimeEnabled">
-          <RealtimeWarningBanner />
-          <!-- 实时状态指示 + 刷新档位 + 汇总指标数据条（已抽离到 WatchlistSummaryBar） -->
-          <WatchlistSummaryBar
-            :realtime="realtime"
-            :refreshing="refreshing"
-            @interval-change="onRefreshIntervalChange"
-            @manual-refresh="handleManualRefresh"
-          />
-        </template>
+        <!-- 合规横幅：仅在开启实时时出现（未开启实时时它没有意义） -->
+        <RealtimeWarningBanner v-if="realtimeEnabled" />
+        <!-- 状态 + 汇总数据条：**常驻**（不再 v-if realtimeEnabled）。
+             未开实时时用静态价（最近交易日收盘价 / 确认净值）汇总兜底，否则
+             「总市值 / 总成本 / 总盈亏」会随开关整块消失（2026-09-22 用户反馈）。
+             已抽离到 WatchlistSummaryBar，本组件只注入数据与事件。 -->
+        <WatchlistSummaryBar
+          :realtime="realtime"
+          :refreshing="refreshing"
+          :fallback-summary="staticSummary"
+          @interval-change="onRefreshIntervalChange"
+          @manual-refresh="handleManualRefresh"
+        />
 
         <!-- 批量操作的「删除选中」已并入头部行 #actions（#1281 第四轮），
            不再单独占一行，避免批量模式下顶部又多出一块 -->
@@ -539,7 +540,7 @@ import WatchlistSummaryBar from "@/views/asset/watchlist/WatchlistSummaryBar.vue
 import RealtimeWarningBanner, {
   REALTIME_BANNER_DISMISS_KEY
 } from "@/components/RealtimeWarningBanner/index.vue";
-import type { Holding } from "@/utils/valuationEngine";
+import type { Holding, ValuationSummary } from "@/utils/valuationEngine";
 import { formatDateTime } from "@/utils/date";
 // 列定义不再直接消费：dataColumns 经 useWatchlistColumnVisibility 的
 // visibleColumns 过滤取得（#993），本页只保留 renderer 注册表依赖
@@ -793,11 +794,62 @@ function addedReturnAmount(row: {
   return (cur - (row.price_at_added as number)) * row.holding_quantity;
 }
 
-/** 持仓市值占总市值的比例（%）；无总市值或无市值时返回 null（组件仅显示金额） */
+/** 全量标的的持仓市值合计（静态价口径），作为占比分母的兜底 */
+const staticTotalMarketValue = computed(() =>
+  allItems.value.reduce(
+    (sum, item) => sum + Number(item.position_market_value ?? 0),
+    0
+  )
+);
+
+/**
+ * 静态价汇总（未开实时时的展示口径，2026-09-22 用户反馈修复）。
+ *
+ * 口径与实时汇总（utils/valuationEngine）严格对齐：只统计**真实持仓行**
+ * （有持仓数量与成本价），总市值取后端 position_market_value
+ * （= 数量 × 最近交易日收盘价 / 确认净值），总成本 = Σ 成本价 × 数量。
+ *
+ * 为什么需要它：汇总条原先整块挂在 `v-if="realtimeEnabled"` 上，未开实时时
+ * 「总市值 / 总成本 / 总盈亏」直接消失——而这三项在后端已有权威的静态口径数据，
+ * 不该依赖实时通道是否开启。
+ */
+const staticSummary = computed<ValuationSummary | null>(() => {
+  let totalMarketValue = 0;
+  let totalCost = 0;
+  for (const item of allItems.value) {
+    const quantity = Number(item.holding_quantity ?? 0);
+    if (!(quantity > 0)) continue;
+    totalMarketValue += Number(item.position_market_value ?? 0);
+    totalCost += Number(item.holding_cost_price ?? 0) * quantity;
+  }
+  if (totalMarketValue <= 0 && totalCost <= 0) return null;
+  const totalPnl = totalMarketValue - totalCost;
+  return {
+    totalMarketValue,
+    totalCost,
+    totalPnl,
+    totalPnlPercent: totalCost > 0 ? (totalPnl / totalCost) * 100 : 0,
+    updateTime: "",
+    source: "static"
+  };
+});
+
+/**
+ * 持仓市值占总市值的比例（%）。
+ *
+ * 分母优先取实时汇总（实时开启时是「盘中最新价」口径的总市值），未开实时 /
+ * 汇总未产出时回退静态价合计——两者都是**全量标的**口径（不是当前页合计，
+ * 翻页不会跳变，#1245）。
+ *
+ * 仍算不出（无持仓 / 无市值）返回 null，由 MoneyWithRatio 隐藏比例行：
+ * 原先调用处兜底成 0，把「没有数据」显示成了「占比 0.00%」。
+ */
 function marketValueRatio(row: {
   position_market_value?: number | null;
 }): number | null {
-  const total = realtime.summary.value?.totalMarketValue;
+  const realtimeTotal = realtime.summary.value?.totalMarketValue ?? 0;
+  const total =
+    realtimeTotal > 0 ? realtimeTotal : staticTotalMarketValue.value;
   if (!total || total <= 0 || row.position_market_value == null) return null;
   return (row.position_market_value / total) * 100;
 }
@@ -1199,15 +1251,17 @@ const renderCtx = computed<RenderCtx>(() => ({
   ) as Record<string, string>,
   derived: (kind, row) => {
     if (kind === "addedReturn") {
+      // 无数据一律给 null：由 MoneyWithRatio 显示占位符 / 隐藏比例行，
+      // 不再兜底 0（0 会被读成「收益 0」或「涨幅 0%」）
       return {
-        value: addedReturnAmount(row as WatchlistItem) ?? 0,
-        ratio: addedReturnPct(row as WatchlistItem) ?? 0
+        value: addedReturnAmount(row as WatchlistItem),
+        ratio: addedReturnPct(row as WatchlistItem)
       };
     }
     // marketValue
     return {
-      value: (row.position_market_value as number) ?? 0,
-      ratio: marketValueRatio(row as WatchlistItem) ?? 0
+      value: (row.position_market_value as number | null) ?? null,
+      ratio: marketValueRatio(row as WatchlistItem)
     };
   },
   openTagEditor,

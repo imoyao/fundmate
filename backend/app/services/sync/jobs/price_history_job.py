@@ -1,18 +1,41 @@
 # -*- coding: utf-8 -*-
-"""
-证券历史行情同步任务。
-增量模式接收 Orchestrator 传入的 targets 列表。
-全量模式拉取所有证券的全部历史（分批写入）。
+"""证券历史行情同步任务（场内日线：股票 / ETF / 可转债）。
+
+## 增量口径 = 缺口回补（#1104）
+
+增量模式的起点是**每个 symbol 库内最新交易日的次日**，而不是固定的「昨天→今天」。
+原写法（写死昨天→今天）没有任何自愈能力：任何一天没跑成功，那天就永久缺失且
+再也不会被补。实测后果是各标的最后日期散落成满天星——SH601899 停在 8/14、
+SZ000568 停在 7/20、SZ000001 停在 7/03、SZ000008 停在 5/29。本机调度不含本 job
+（只靠 CI 每天 17:00 UTC 跑一次）时，这种断档尤其常见。
+
+## 覆盖范围
+
+目标池由 Orchestrator 传入（持仓 + 自选，`resolve_targets()` 的 stock 池）。
+取数与复权口径见 `AkshareAdapter.fetch_stock_price`：`close` 未复权（展示 / 盈亏）、
+`adj_close` 前复权（区间收益 / 回撤）。
+
+## 注意
+
+- ETF 两个数据源（东财 / 新浪）的**当日** K 线都要到次日才齐，故当天盘后跑往往
+  只拿到 T-1；缺口回补会在下一次运行时把缺的那天补上，这正是本口径的价值。
+- 依赖 securities 表存在对应 symbol（`_get_security_map`），查不到即静默跳过——
+  名录缺失是历史坑，见 StockListSyncJob.fetch_security_catalog。
 """
 
-from datetime import date, timedelta
-from typing import List
+from datetime import date, datetime, timedelta
+from typing import List, Optional
 
 from loguru import logger
+from sqlalchemy import func
 
+from app.core.time_utils import today_shanghai
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
-from app.services.job_base import SyncJob
+from app.services.job_base import IN_CHUNK_SIZE, SyncJob
+
+# 库内无任何历史时的首次回补窗口（天）。更长的历史走全量同步（full_sync=True）
+DEFAULT_BACKFILL_DAYS = 365
 
 
 class PriceHistorySyncJob(SyncJob):
@@ -37,28 +60,23 @@ class PriceHistorySyncJob(SyncJob):
     # ── 数据获取 ──
 
     def _fetch_data(self, full_sync: bool, targets: List[str]) -> List[dict]:
-        """
-        全量同步：遍历所有目标证券，拉取全部历史行情。
-        增量同步：只拉取最近一天的行情。
-        """
+        """全量：拉取所有历史；增量：按各 symbol 的库内最新交易日做缺口回补。"""
         sec_map = self._get_security_map(targets)
         if not sec_map:
             return []
 
-        if full_sync:
-            # 全量：不限日期，拉取所有历史
-            start_date = None
-            end_date = None
-        else:
-            # 增量：只拉取昨天到今天的数据
-            today = date.today()
-            start_date = today - timedelta(days=1)
-            end_date = today
+        today = today_shanghai()
+        last_map = {} if full_sync else self._load_last_trade_dates(list(sec_map.keys()))
 
         records = list()
         for symbol in targets:
             sec = sec_map.get(symbol)
             if not sec:
+                continue
+
+            start_date, end_date = self._resolve_window(symbol, last_map, today, full_sync)
+            if start_date is not None and start_date > end_date:
+                # 已是最新：多见于「当日 K 线尚未发布」，留给下一次运行补
                 continue
 
             try:
@@ -76,6 +94,50 @@ class PriceHistorySyncJob(SyncJob):
             records.extend(price_list)
 
         return records
+
+    @staticmethod
+    def _resolve_window(symbol: str, last_map: dict, today: date, full_sync: bool):
+        """本次抓取窗口 (start, end)：全量不限；增量从「库内最新交易日的次日」起。
+
+        `start > end` 表示无需抓取（库内已到最新），由调用方跳过。
+        """
+        if full_sync:
+            return None, None
+        last = PriceHistorySyncJob._as_date(last_map.get(symbol))
+        if last is None:
+            # 首次同步该标的：回补近一年，更长的历史走 full_sync
+            return today - timedelta(days=DEFAULT_BACKFILL_DAYS), today
+        return last + timedelta(days=1), today
+
+    def _load_last_trade_dates(self, symbols: List[str]) -> dict:
+        """批量取 {symbol: 库内最新交易日}；分批 in_ 防 SQLite 变量上限。"""
+        out: dict = {}
+        for i in range(0, len(symbols), IN_CHUNK_SIZE):
+            chunk = symbols[i : i + IN_CHUNK_SIZE]
+            rows = (
+                self.db.query(PriceHistory.symbol, func.max(PriceHistory.trade_date))
+                .filter(PriceHistory.symbol.in_(chunk))
+                .group_by(PriceHistory.symbol)
+                .all()
+            )
+            for symbol, last in rows:
+                if last is not None:
+                    out[symbol] = last
+        return out
+
+    @staticmethod
+    def _as_date(value) -> Optional[date]:
+        """宽松转 date：SQLite 的 max() 在个别驱动下会回传字符串而非 date。"""
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        try:
+            return date.fromisoformat(str(value)[:10])
+        except ValueError:
+            return None
 
     # ── 数据校验 ──
 

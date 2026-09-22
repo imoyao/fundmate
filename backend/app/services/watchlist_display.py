@@ -38,6 +38,7 @@ from app.domains.watchlist.models import WatchlistItem
 from app.domains.watchlist.schemas import WatchlistItemOut
 from app.services.fund_metrics import compute_max_drawdown, load_nav_points
 from app.services.watchlist_service import (
+    compute_latest_quote,
     get_filtered_items_query,
     lookup_manager,
     resolve_display_name,
@@ -317,11 +318,22 @@ def enrich_item(item: WatchlistItem, db, family_id: int, defer_display: bool = F
     if not defer_display:
         apply_deferred_display_fields(out, item.symbol, item.asset_type, db)
 
-    # 补充价格与市值信息（从持仓表计算静态值）
+    # 最新价 / 涨跌幅（#1104）：优先「最近交易日收盘价（场内）/ 确认净值（场外基金）」，
+    # 二者都没有才兜底到持仓快照 positions.current_price。
+    # 为什么不直接用持仓快照：它只覆盖**有持仓**的标的，且场内长期不刷新
+    # （导入那天的快照，实测与实时价偏差 -63%）——未持仓的自选行则完全没有价。
     position_value = _compute_position_market_value(item.symbol, db, family_id)
-    current_price = _compute_avg_current_price(item.symbol, db, family_id)
-    out['current_price'] = round(current_price, 2) if current_price else None
-    out['change_pct'] = None  # 暂不提供，后续可通过元数据同步填充
+    quote = compute_latest_quote(db, item.symbol)
+    if quote:
+        out['current_price'] = round(quote['close'], 4)
+        out['change_pct'] = quote['change_pct']
+        # 数据日期：前端据此判断新鲜度（旧值不得冒充最新价），无行情时为 None
+        out['price_as_of'] = quote['trade_date'].isoformat() if quote['trade_date'] else None
+    else:
+        current_price = _compute_avg_current_price(item.symbol, db, family_id)
+        out['current_price'] = round(current_price, 2) if current_price else None
+        out['change_pct'] = None
+        out['price_as_of'] = None
     out['position_market_value'] = round(position_value, 2)
 
     # 真实持仓统计（自选页信息密度扩充，watchlist-table-redesign-2026-08-13.md P0/P1）
