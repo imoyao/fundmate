@@ -8,10 +8,13 @@ from datetime import datetime
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Column, DateTime, Engine, Integer, func
+from sqlalchemy import Column, DateTime, Engine, Integer, func, inspect
+from sqlalchemy import exc as sa_exc
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
+from sqlalchemy.sql import visitors
 
 from app.core.db_factory import (
+    DATA_DOMAIN_REGISTRY,
     DOMAIN_APP,
     DOMAIN_USER,
     DatabaseFactory,
@@ -76,53 +79,75 @@ def __getattr__(name: str):
 
 
 # 按表路由的会话：单一 session 即可跨域查询（如持仓页同时读 positions + daily_worth），
-# 每张表按需落到其数据域引擎（user 表→user_engine，market 表→engine）。
+# 每张表落到其数据域引擎（user 表→user_engine，market 表→engine）。
 # 这是 #1085 的核心：业务层无需改动调用点，user 域数据自动路由到 user 引擎。
-def _build_routing_binds():
-    from app.core.db_factory import DATA_DOMAIN_REGISTRY, DOMAIN_USER
+#
+# **解析时机（#1608，对齐 D-2026-09-15 的「binds 下沉到首次路由时解析」）**：
+# 不用 ``Session(binds=...)``，改为**查询期按语句解析**。原因是 SQLAlchemy 在
+# ``Session.__init__`` 里就 ``for key, bind in binds.items()`` 把「表 → 引擎」**全量
+# 物化**（2.0.52 源码实证）——注入 binds 的那一刻必然构造两个域的引擎，于是 #1513 为
+# 「不限域入口不因缺驱动崩溃」做的惰性构造，会在**第一次 ``SessionLocal()``** 时被抵消
+# （实测：user 域驱动缺 pg8000 时，只调一次 ``SessionLocal()`` 即 ModuleNotFoundError，
+# 且被请求的域恰是 user）。改为查询期解析后，只有语句真正涉及 user 域表时才碰 user 引擎。
+def _domain_for_statement(mapper, clause) -> Optional[str]:
+    """判定语句涉及哪个数据域；无法判定时返回 ``None``（调用方按应用域兜底）。
 
-    binds = {}
-    for table in Base.metadata.tables.values():
-        domain = DATA_DOMAIN_REGISTRY.get(table.name)
-        binds[table] = _engine_for(DOMAIN_USER if domain == DOMAIN_USER else DOMAIN_APP)
-    return binds
-
-
-_ROUTING_BINDS = None
-
-
-def _get_routing_binds():
-    global _ROUTING_BINDS
-    if _ROUTING_BINDS is None:
-        _ROUTING_BINDS = _build_routing_binds()
-    return _ROUTING_BINDS
-
-
-def reset_routing_binds() -> None:
-    """使已缓存的域路由 binds 失效，下次 ``SessionLocal()`` 时按当前引擎重建。
-
-    测试替换引擎（conftest 重定向 ``engine`` / ``user_engine``）或运行时切换引擎后必须
-    调用，否则 ``_ROUTING_BINDS`` 仍指向旧引擎，导致会话偷偷连到旧库（#1608）。
+    **查找顺序与 SQLAlchemy 2.0 ``Session.get_bind`` 对 ``binds`` 的查找逐条对齐**：
+    先由 mapper 落到 ``persist_selectable``，再遍历 clause 里的表；命中的第一张
+    **已登记模型表**决定域。只认 identity 属于 ``Base.metadata`` 的表——与旧实现
+    「binds 以 Table 对象为键命中」等价，别的 MetaData 上的同名表不参与路由。
     """
-    global _ROUTING_BINDS
-    _ROUTING_BINDS = None
+    if mapper is not None:
+        try:
+            inspected = inspect(mapper)
+        except sa_exc.NoInspectionAvailable as err:
+            # 与 SQLAlchemy 一致：不可映射的类显式报错，不静默回落默认 bind
+            if isinstance(mapper, type):
+                raise sa_exc.UnmappedClassError(mapper) from err
+            raise
+        if clause is None:
+            clause = inspected.persist_selectable
+
+    if clause is None:
+        return None
+
+    for obj in visitors.iterate(clause):
+        name = getattr(obj, 'name', None)
+        if not isinstance(name, str) or Base.metadata.tables.get(name) is not obj:
+            continue
+        domain = DATA_DOMAIN_REGISTRY.get(name)
+        if domain is not None:
+            return DOMAIN_USER if domain == DOMAIN_USER else DOMAIN_APP
+    return None
+
+
+class _RoutingSession(Session):
+    """域路由 Session：bind 在**查询期**解析（见 :func:`_domain_for_statement`）。
+
+    未命中任何已登记表（裸 ``text()`` 语句、ad-hoc 表）与无法判定时回落**应用域**，
+    与旧实现「默认 bind = 应用引擎」一致。
+    """
+
+    def get_bind(self, mapper=None, *, clause=None, bind=None, **kw):
+        if bind is None:
+            bind = _engine_for(_domain_for_statement(mapper, clause) or DOMAIN_APP)
+        return super().get_bind(mapper, clause=clause, bind=bind, **kw)
 
 
 class _RoutingSessionMaker(sessionmaker):
-    """sessionmaker 子类：每次创建 session 时按表注入域路由 binds（懒构建一次）。
+    """sessionmaker 子类：**不注入 binds**（那会在开会话时全量构造两域引擎，见上文）。
 
-    bind 同样惰性注入（#1513）：构造时不传 bind，避免 `SessionLocal = ...(bind=engine)`
-    在导入期就把引擎造出来；默认 bind 推迟到首次开 session 时才解析。
+    ``bind`` 仍惰性注入（#1513）：构造时不写死 bind，避免
+    `SessionLocal = ...(bind=engine)` 在导入期就把引擎造出来；默认 bind 首次开 session
+    时才解析，具体语句属于哪个域由 :class:`_RoutingSession` 逐句判定。
     """
 
     def __call__(self, **kw):
-        if 'binds' not in kw:
-            kw['binds'] = _get_routing_binds()
         kw.setdefault('bind', _engine_for(DOMAIN_APP))
         return super().__call__(**kw)
 
 
-SessionLocal = _RoutingSessionMaker(autocommit=False, autoflush=False)
+SessionLocal = _RoutingSessionMaker(class_=_RoutingSession, autocommit=False, autoflush=False)
 
 Base = declarative_base()
 
