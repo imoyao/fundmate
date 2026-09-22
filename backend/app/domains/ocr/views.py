@@ -29,9 +29,9 @@ from app.domains.ledgers.models import Ledger
 from app.domains.ocr.schemas import OCRParseTextRequest, OCRRecognizeRequest
 from app.services.ai_recognizer import guards
 from app.services.ai_recognizer.registry import get_recognizer
-from app.services.import_records import StandardHoldingRecord, StandardTransactionRecord
-from app.services.importer.mappings import OP_TYPE_LABEL
+from app.services.import_records import StandardHoldingRecord
 from app.services.importer.orchestrator import ImportOrchestrator
+from app.services.ocr_service import txn_candidates_to_rows as svc_txn_candidates_to_rows
 
 ocr_bp = APIBlueprint('ocr', __name__, url_prefix='/api/ocr')
 
@@ -56,77 +56,6 @@ def _ledger_name(ledger_id) -> str:
     with get_db() as db:
         ledger = db.query(Ledger).filter(Ledger.id == ledger_id, Ledger.family_id == get_family_id()).first()
         return ledger.name if ledger else ''
-
-
-def _txn_candidates_to_rows(items: list, ledger_id) -> list:
-    """交易候选行 → importer 预览行（enrich/哈希/去重走 ImportOrchestrator.preview_records）。
-
-    候选行字段（TxnRecognizer 输出）：
-        code / name / business_type(buy|sell|dividend_*) / trade_date / confirm_date /
-        amount / shares / nav / fee / symbol / type / market / venue
-    映射为 StandardTransactionRecord 后复用既有管线；提交阶段由前端 POST
-    /api/importers/confirm（commit_from_preview）处理。
-    """
-    from datetime import date
-    from decimal import Decimal
-
-    if not items:
-        return []
-    records = []
-    for it in items:
-        op_code = it.get('business_type', '')
-        if op_code not in SUPPORTED_OP_TYPES:
-            continue
-        # 入账日期：优先确认日；截图通常只有申请日 → 用申请日（前端预览可改）
-        row_date = it.get('confirm_date') or it.get('trade_date') or ''
-        try:
-            confirm_date = date.fromisoformat(row_date) if row_date else date.today()
-        except ValueError:
-            confirm_date = date.today()
-        trade_date_str = it.get('trade_date') or ''
-        try:
-            trade_date = date.fromisoformat(trade_date_str) if trade_date_str else None
-        except ValueError:
-            trade_date = None
-
-        amount = it.get('amount') or 0
-        # 金额缺失但份额+净值齐 → 推算金额（净值*份额），保证 amount>0 可通过校验
-        if amount <= 0 and it.get('shares') and it.get('nav'):
-            amount = float(it['shares']) * float(it['nav'])
-
-        records.append(
-            StandardTransactionRecord(
-                confirm_date=confirm_date,
-                trade_date=trade_date,
-                asset_type=it.get('type') or 'fund',
-                symbol=it.get('symbol') or it['code'],
-                name=it.get('name') or '',
-                business_type=op_code,
-                amount=Decimal(str(round(amount, 2))),
-                account_name='',
-                shares=Decimal(str(it['shares'])) if it.get('shares') else None,
-                nav=Decimal(str(it['nav'])) if it.get('nav') else None,
-                fee=Decimal(str(it.get('fee') or 0)),
-                raw_op_type=it.get('business_type', ''),
-                source=PositionSource.AI_TXN.value,
-            )
-        )
-
-    from app.core.database import get_session
-
-    with get_session() as db:
-        orch = ImportOrchestrator(db, get_family_id())
-        result = orch.preview_records(records, _ledger_name(ledger_id), ledger_id, source=PositionSource.AI_TXN.value)
-
-    # 回填前端表格所需展示字段（与 parse_and_preview 行结构一致）
-    rows = []
-    warnings_by_code = {it['code']: it.get('warnings') or [] for it in items}
-    for row in result['rows']:
-        row['op_type_label'] = OP_TYPE_LABEL.get(row.get('op_type', ''), '')
-        row['warnings'] = warnings_by_code.get(row.get('symbol', ''), []) or warnings_by_code.get(row.get('name'), [])
-        row['trade_date'] = row.get('trade_date') or ''
-        rows.append(row)
-    return rows
 
 
 def _holding_candidates_to_rows(items: list, ledger_id) -> list:
@@ -208,7 +137,7 @@ def ocr_recognize():
     guards.record_success(user_id)
     logger.info('AI 图片识别完成 user={} scenario={} items={}', user_id, recognizer.key, len(items))
     if recognizer.key == 'txn_import':
-        rows = _txn_candidates_to_rows(items, request.args.get('ledger_id', type=int))
+        rows = svc_txn_candidates_to_rows(items, request.args.get('ledger_id', type=int))
         return jsonify(
             {
                 'data': {'scenario': recognizer.key, 'rows': rows[:OCR_MAX_ITEMS], 'usage': usage},
@@ -244,7 +173,7 @@ def ocr_parse_text():
     guards.record_success(user_id)
     logger.info('AI 文本识别完成 user={} scenario={} items={}', user_id, recognizer.key, len(items))
     if recognizer.key == 'txn_import':
-        rows = _txn_candidates_to_rows(items, request.args.get('ledger_id', type=int))
+        rows = svc_txn_candidates_to_rows(items, request.args.get('ledger_id', type=int))
         return jsonify(
             {
                 'data': {'scenario': recognizer.key, 'rows': rows[:OCR_MAX_ITEMS], 'usage': usage},

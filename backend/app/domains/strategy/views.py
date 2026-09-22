@@ -11,14 +11,12 @@ from apiflask import APIBlueprint
 from flask import abort, jsonify
 
 from app.core.auth import get_family_id, get_owned_or_404
-from app.core.constants import ASSET_CATEGORY_LABELS, TYPE_LABELS
 from app.core.database import get_db
-from app.core.money import Money
 from app.core.validation import parse_body
-from app.domains.assets.models import Asset
 from app.domains.positions.models import Position
 from app.domains.strategy.models import PositionStrategyTag, StrategyTag
 from app.domains.strategy.schemas import StrategyTagCreate
+from app.services.strategy_service import build_strategy_overview
 
 strategy_bp = APIBlueprint('strategy', __name__, url_prefix='/api/strategy')
 
@@ -35,101 +33,8 @@ def _tag_to_dict(tag: StrategyTag) -> dict:
 def get_strategy_overview():
     """返回策略视图全部数据：持仓、资产、标签、关联（一个请求）"""
     with get_db() as db:
-        # 1. 所有持仓（只取必要列），按家庭隔离
-        positions = (
-            db.query(
-                Position.id,
-                Position.symbol,
-                Position.name,
-                Position.asset_type,
-                Position.quantity,
-                Position.current_price,
-                Position.avg_price,
-                Position.account_name,
-            )
-            .filter(Position.family_id == get_family_id(), Position.quantity > 0)
-            .all()
-        )
-
-        # 2. 所有资产（排除负债）
-        assets = (
-            db.query(
-                Asset.id,
-                Asset.major_category,
-                Asset.name,
-                Asset.amount,
-                Asset.account_name,
-            )
-            .filter(
-                Asset.family_id == get_family_id(),
-                Asset.major_category != 'liability',
-                Asset.amount > 0,
-            )
-            .all()
-        )
-
-        # 3. 所有策略标签（家庭隔离）
-        tags = (
-            db.query(StrategyTag)
-            .filter(StrategyTag.family_id == get_family_id())
-            .order_by(StrategyTag.created_at.asc())
-            .all()
-        )
-
-        # 4. 所有持仓-标签关联，构建映射
-        rows = (
-            db.query(PositionStrategyTag.position_id, StrategyTag.name)
-            .join(StrategyTag, PositionStrategyTag.strategy_tag_id == StrategyTag.id)
-            .filter(StrategyTag.family_id == get_family_id())
-            .all()
-        )
-        relations: dict[int, list[str]] = {}
-        for pos_id, tag_name in rows:
-            relations.setdefault(pos_id, []).append(tag_name)
-
-    # 5. 构造 holdings 列表
-    holdings = []
-    for p in positions:
-        holdings.append(
-            {
-                'id': p.id,
-                'symbol': p.symbol,
-                'name': p.name,
-                'type': p.asset_type or p.type,
-                'type_label': TYPE_LABELS.get(p.asset_type or p.type, p.asset_type or p.type),
-                'quantity': Money.min_unit_to_shares(p.quantity),
-                'current_price': Money.price_units_to_yuan(p.current_price),
-                'avg_price': Money.price_units_to_yuan(p.avg_price),
-                'account_name': p.account_name,
-            }
-        )
-    for a in assets:
-        holdings.append(
-            {
-                'id': a.id + 100000,  # 资产 ID 偏移避免冲突
-                'symbol': a.major_category or 'asset',
-                'name': a.name or a.major_category,
-                'type': a.major_category,
-                'type_label': ASSET_CATEGORY_LABELS.get(a.major_category, a.major_category or '其他'),
-                'quantity': 1,
-                'current_price': a.amount,
-                'avg_price': a.amount,
-                'account_name': a.account_name,
-            }
-        )
-
-    tag_list = [{'id': t.id, 'name': t.name} for t in tags]
-
-    return jsonify(
-        {
-            'data': {
-                'holdings': holdings,
-                'tags': tag_list,
-                'relations': relations,
-            },
-            'message': 'ok',
-        }
-    )
+        data = build_strategy_overview(db, get_family_id())
+        return jsonify({'data': data, 'message': 'ok'})
 
 
 @strategy_bp.get('/')

@@ -1,99 +1,104 @@
 # -*- coding: utf-8 -*-
-# Author : imoyao
-# Date : 2026/8/12
-# File : ocr_service.py
-"""OCR 截图导入 / AI 批量导入服务 —— 兼容外观层（thin facade）。
+"""OCR/AI 识别域的交易候选行转换服务（#1642 B 块，从 views 下沉，承 #1606）。
 
-P1 重构（ai-recognizer-architecture-2026-08-13.md）后，业务逻辑已全部迁入
-`app/services/ai_recognizer/` 分层包：
+WHY 下沉
+    ``_txn_candidates_to_rows`` 长在视图模块（69 行）：候选行字段映射 + 日期/金额推算 +
+    enrich/哈希/去重（委托 ImportOrchestrator.preview_records）+ 展示字段回填，属纯转换，
+    却挂在视图模块下。本模块收口，视图只做「调服务 + 组响应」。
 
-    guards.py    用量 / 限流 / 连续失败熔断 / token 预算（按 feature 独立限次）
-    llm.py       火山方舟调用（便宜模型 doubao mini + 超时/重试/token 记账）
-    catalog.py   类型/名称反查（证券/基金表消歧、场内基金优先）
-    recognizers/watchlist_recognizer.py   自选场景（本文件对外接口的默认实现）
-    recognizers/txn_recognizer.py         持仓场景
-
-本模块保留旧接口（供 `domains/ocr/views.py` 与既有测试引用），行为与重构前完全一致；
-新增场景请走 `get_recognizer(scenario)`，不要在本文件继续堆业务逻辑。
+边界
+    - 内部仍按原口径开 ``get_session``（preview_records）与 ``get_db``（ledger 名回填）；
+      family_id 经 ``get_family_id()`` 取当前请求上下文，无请求上下文时不可单测；
+    - 只读解析/预览：不写库、不提交事务（落库走 /api/importers/confirm）；
+    - 对外 API 契约零变更（``conventions.md`` §2.4）：返回行结构与下沉前逐字一致。
 """
 
-from app.services.ai_recognizer.catalog import (
-    _enrich_items,
-    _is_listed_fund_code,
-    _name_hits,
-    is_listed_fund_code,
-    name_hits,
-)
-from app.services.ai_recognizer.catalog import (
-    enrich as enrich_items,
-)
-from app.services.ai_recognizer.guards import (
-    ARK_DAILY_TOKEN_BUDGET,
-    OCR_DAILY_QUOTA,
-    OCR_MELTDOWN_COOLDOWN,
-    OCR_MELTDOWN_THRESHOLD,
-    OCR_RATE_LIMIT_MAX,
-    assert_available,
-    check_usage,
-    consume_usage,
-    record_failure,
-    record_success,
-    refund_usage,
-)
-from app.services.ai_recognizer.llm import (
-    ARK_API_KEY,
-    ARK_ENDPOINT,
-    ARK_MODEL,
-    ARK_RETRIES,
-    ARK_TIMEOUT,
-)
-from app.services.ai_recognizer.llm import (
-    call_llm as _call_ark,
-)
-from app.services.ai_recognizer.recognizers.watchlist_recognizer import WatchlistRecognizer
+from datetime import date
+from decimal import Decimal
 
-# 默认场景识别器（watchlist_import = 旧 /api/ocr/* 行为）
-_RECOGNIZER = WatchlistRecognizer()
+from app.core.constants import PositionSource
+from app.core.database import get_session
+from app.domains.ledgers.models import Ledger
+from app.services.import_records import StandardTransactionRecord
+from app.services.importer.mappings import OP_TYPE_LABEL
+from app.services.importer.orchestrator import ImportOrchestrator
 
 
-# ── 兼容入口（委托默认场景识别器）──
-def recognize(image_bytes: bytes) -> list:
-    """图片 → 火山方舟 vision（默认 mini 便宜模型）→ 基金/股票代码列表。"""
-    return _RECOGNIZER.recognize_image(image_bytes)
+def _ledger_name(ledger_id) -> str:
+    """按 ledger_id 取账户名（解析阶段用于回填 account_name，与 importers/parse 口径一致）。"""
+    if not ledger_id:
+        return ''
+    from app.core.auth import get_family_id
+    from app.core.database import get_db
+
+    with get_db() as db:
+        ledger = db.query(Ledger).filter(Ledger.id == ledger_id, Ledger.family_id == get_family_id()).first()
+        return ledger.name if ledger else ''
 
 
-def parse_text(text: str) -> list:
-    """纯文本 → 基金/股票代码列表（AI 批量导入，无需图片）。
+def txn_candidates_to_rows(items: list, ledger_id) -> list:
+    """交易候选行 → importer 预览行（enrich/哈希/去重走 ImportOrchestrator.preview_records）。
 
-    分层策略：1. 正则层（简单排版「代码 名称」零成本）；2. LLM 层（复杂排版 mini 兜底）。
+    与下沉前逐字段一致：候选行 business_type 仅保留 SUPPORTED_OP_TYPES；确认日优先、
+    缺失回退申请日、再回退今日；金额缺失但份额+净值齐 → 推算（净值*份额）；映射为
+    StandardTransactionRecord 后复用既有管线；提交阶段由前端 POST /api/importers/confirm
+    处理。返回行回填 op_type_label / warnings / trade_date 展示字段。
     """
-    return _RECOGNIZER.recognize_text(text)
+    SUPPORTED_OP_TYPES = {'buy', 'sell', 'dividend_cash', 'dividend_reinvest'}
+    if not items:
+        return []
+    records = []
+    for it in items:
+        op_code = it.get('business_type', '')
+        if op_code not in SUPPORTED_OP_TYPES:
+            continue
+        # 入账日期：优先确认日；截图通常只有申请日 → 用申请日（前端预览可改）
+        row_date = it.get('confirm_date') or it.get('trade_date') or ''
+        try:
+            confirm_date = date.fromisoformat(row_date) if row_date else date.today()
+        except ValueError:
+            confirm_date = date.today()
+        trade_date_str = it.get('trade_date') or ''
+        try:
+            trade_date = date.fromisoformat(trade_date_str) if trade_date_str else None
+        except ValueError:
+            trade_date = None
 
+        amount = it.get('amount') or 0
+        # 金额缺失但份额+净值齐 → 推算金额（净值*份额），保证 amount>0 可通过校验
+        if amount <= 0 and it.get('shares') and it.get('nav'):
+            amount = float(it['shares']) * float(it['nav'])
 
-__all__ = [
-    'ARK_API_KEY',
-    'ARK_DAILY_TOKEN_BUDGET',
-    'ARK_ENDPOINT',
-    'ARK_MODEL',
-    'ARK_RETRIES',
-    'ARK_TIMEOUT',
-    'OCR_DAILY_QUOTA',
-    'OCR_MELTDOWN_COOLDOWN',
-    'OCR_MELTDOWN_THRESHOLD',
-    'OCR_RATE_LIMIT_MAX',
-    '_call_ark',
-    '_enrich_items',
-    '_is_listed_fund_code',
-    '_name_hits',
-    'assert_available',
-    'check_usage',
-    'consume_usage',
-    'enrich_items',
-    'is_listed_fund_code',
-    'name_hits',
-    'parse_text',
-    'recognize',
-    'record_failure',
-    'record_success',
-    'refund_usage',
-]
+        records.append(
+            StandardTransactionRecord(
+                confirm_date=confirm_date,
+                trade_date=trade_date,
+                asset_type=it.get('type') or 'fund',
+                symbol=it.get('symbol') or it['code'],
+                name=it.get('name') or '',
+                business_type=op_code,
+                amount=Decimal(str(round(amount, 2))),
+                account_name='',
+                shares=Decimal(str(it['shares'])) if it.get('shares') else None,
+                nav=Decimal(str(it['nav'])) if it.get('nav') else None,
+                fee=Decimal(str(it.get('fee') or 0)),
+                raw_op_type=it.get('business_type', ''),
+                source=PositionSource.AI_TXN.value,
+            )
+        )
+
+    from app.core.auth import get_family_id
+
+    with get_session() as db:
+        orch = ImportOrchestrator(db, get_family_id())
+        result = orch.preview_records(records, _ledger_name(ledger_id), ledger_id, source=PositionSource.AI_TXN.value)
+
+    # 回填前端表格所需展示字段（与 parse_and_preview 行结构一致）
+    rows = []
+    warnings_by_code = {it['code']: it.get('warnings') or [] for it in items}
+    for row in result['rows']:
+        row['op_type_label'] = OP_TYPE_LABEL.get(row.get('op_type', ''), '')
+        row['warnings'] = warnings_by_code.get(row.get('symbol', ''), []) or warnings_by_code.get(row.get('name'), [])
+        row['trade_date'] = row.get('trade_date') or ''
+        rows.append(row)
+    return rows

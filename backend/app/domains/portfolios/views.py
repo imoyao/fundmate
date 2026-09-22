@@ -10,18 +10,14 @@
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 from loguru import logger
-from sqlalchemy import and_, or_, update
+from sqlalchemy import update
 
 from app.core.auth import get_family_id, get_owned_or_404
-from app.core.constants import ASSET_CATEGORY_LABELS, TYPE_LABELS
 from app.core.database import get_db
-from app.core.money import Money
-from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
 from app.domains.portfolios.models import Portfolio
 from app.domains.portfolios.schemas import PortfolioCreate, PortfolioUpdate
-from app.domains.positions.models import Position
-from app.services.fund_utils import should_exclude_from_investment
+from app.services.portfolio_service import build_portfolio_holdings
 
 portfolios_bp = APIBlueprint('portfolios', __name__, url_prefix='/api/portfolios')
 
@@ -163,104 +159,8 @@ def delete_portfolio(portfolio_id: int):
 def get_portfolio_holdings(portfolio_id: int):
     """获取组合下所有关联账户的持仓明细"""
     with get_db() as db:
-        # 1. 验证组合存在且未删除（家庭维度）
-        portfolio = (
-            db.query(Portfolio)
-            .filter(
-                Portfolio.id == portfolio_id,
-                Portfolio.is_deleted.is_(False),
-                Portfolio.family_id == get_family_id(),
-            )
-            .first()
-        )
-        if not portfolio:
-            abort(404, '投资组合不存在')
-
-        # 2. 获取关联账户 ID 列表（组合 = 默认组合指向本组合的账户集合）
-        ledger_ids = [
-            row[0]
-            for row in db.query(Ledger.id)
-            .filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == get_family_id())
-            .all()
-        ]
-        if not ledger_ids:
-            return jsonify({'data': [], 'message': 'ok'})
-
-        # 3. 查询持仓（仅用 portfolio_id / ledger_id 关联，杜绝 account_name 字符串匹配）
-        #    - 主路径：持仓显式归属本组合（positions.portfolio_id == P）
-        #    - 继承路径：仅当持仓未显式指定组合时，继承其账户(ledger)的默认组合
-        #    注意：显式 portfolio_id 必须覆盖 ledger 继承，否则改派后会同时出现在账户默认组合
-        pos_conds = [
-            Position.portfolio_id == portfolio_id,
-            and_(
-                Position.portfolio_id.is_(None),
-                Position.ledger_id.in_(ledger_ids),
-            ),
-        ]
-        positions = (
-            db.query(Position)
-            .filter(
-                or_(*pos_conds),
-                Position.quantity > 0,
-            )
-            .all()
-        )
-        # 类现金排除改由统一函数判定（决策 #7：尊重 count_as_investment 覆盖 + 逆回购到期自动转现金）
-        positions = [p for p in positions if not should_exclude_from_investment(p)]
-
-        # 4. 账户级资产仍按 ledger_id 关联（现金不进持仓级组合，沿用账户归属）
-        assets = (
-            db.query(Asset)
-            .filter(
-                Asset.ledger_id.in_(ledger_ids),
-                # 排除负债
-                Asset.major_category != 'liability',
-            )
-            .all()
-        )
-
-        # 5. 构造持仓列表（包含市值和盈亏）
-        holdings = []
-        for pos in positions:
-            market_value = Money.multiply_price_quantity(pos.current_price, pos.quantity)
-            pnl = Money.multiply_price_quantity(pos.current_price - pos.avg_price, pos.quantity) if pos.avg_price else 0
-
-            holdings.append(
-                {
-                    'id': pos.id,
-                    'symbol': pos.symbol,
-                    'name': pos.name,
-                    'type': pos.asset_type,
-                    'type_label': TYPE_LABELS.get(pos.asset_type, pos.asset_type),
-                    'account_name': pos.account_name,
-                    'quantity': Money.min_unit_to_shares(pos.quantity),
-                    'current_price': Money.price_units_to_yuan(pos.current_price),
-                    'avg_price': Money.price_units_to_yuan(pos.avg_price),
-                    'market_value': Money.cents_to_yuan(market_value),
-                    'pnl': Money.cents_to_yuan(pnl),
-                    'pnl_rate': round((pos.current_price - pos.avg_price) / pos.avg_price * 100, 2)
-                    if pos.avg_price
-                    else 0.0,
-                }
-            )
-
-        for asset in assets:
-            holdings.append(
-                {
-                    'id': asset.id + 100000,
-                    'symbol': asset.major_category or 'asset',
-                    'name': asset.name or asset.major_category,  # 使用 name 字段
-                    'type': asset.major_category,
-                    'type_label': ASSET_CATEGORY_LABELS.get(asset.major_category, asset.major_category or '其他'),
-                    'account_name': asset.account_name,
-                    'ledger_id': asset.ledger_id,
-                    'quantity': 1,
-                    'current_price': Money.cents_to_yuan(asset.amount),
-                    'avg_price': Money.cents_to_yuan(asset.amount),
-                    'market_value': Money.cents_to_yuan(asset.amount),
-                    'pnl': 0.0,
-                    'pnl_rate': 0.0,
-                }
-            )
-
+        try:
+            holdings = build_portfolio_holdings(db, get_family_id(), portfolio_id)
+        except ValueError as e:
+            abort(404, str(e))
         return jsonify({'data': holdings, 'message': 'ok'})

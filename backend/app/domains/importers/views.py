@@ -14,6 +14,8 @@ from app.core.exceptions import SBException
 from app.domains.ledgers.models import Ledger
 from app.services.importer.orchestrator import ImportOrchestrator
 from app.services.importer.template_config import get_template_filepath, get_template_info
+from app.services.importer_service import parse_holding_file as svc_parse_holding
+from app.services.importer_service import parse_transaction_file as svc_parse_transaction
 
 # 蓝图定义
 importers_bp = APIBlueprint('importers', __name__, url_prefix='/api/importers')
@@ -43,6 +45,45 @@ class ConfirmImportRowSchema(Schema):
 
 class ConfirmImportRequest(Schema):
     rows = fields.List(fields.Nested(ConfirmImportRowSchema), required=True)
+
+
+def _txn_parse_error(msg: str, status: int):
+    """交易文件解析错误信封（1001=业务/校验，5004=服务内部）；与下沉前逐字段一致。"""
+    code = 1001 if status == 400 else 5004
+    return (
+        jsonify(
+            {
+                'data': [],
+                'total': 0,
+                'error_count': 1,
+                'duplicate_count': 0,
+                'cash_transfer_count': 0,
+                'message': msg,
+                'error_code': code,
+            }
+        ),
+        status,
+    )
+
+
+def _holding_parse_error(msg: str, status: int):
+    """持仓文件解析错误信封（1001=业务/校验，5004=服务内部）；与下沉前逐字段一致。"""
+    code = 1001 if status == 400 else 5004
+    return (
+        jsonify(
+            {
+                'data': [],
+                'total': 0,
+                'error_count': 1,
+                'duplicate_count': 0,
+                'ledger_id': None,
+                'ledger_name': '',
+                'message': msg,
+                'error_code': code,
+            }
+        ),
+        status,
+    )
 
 
 # ── 模板下载 ──
@@ -99,10 +140,9 @@ def parse_file():
 
     try:
         with get_db() as db:
-            orch = ImportOrchestrator(db, get_family_id())
             # ledger_id 必须透传：预览行携带 ledger_id 回传后，confirm 才能定位账户
             # （否则落库 ledger_id=None，且 (ledger_id, import_hash) 去重永久失效，见 #1010 排查）
-            result = orch.parse_and_preview(raw_bytes, template_key, frontend_account, ledger_id)
+            result = svc_parse_transaction(db, get_family_id(), raw_bytes, template_key, frontend_account, ledger_id)
             # 记录日志
             logger.info(
                 f'文件解析完成: 文件={file.filename}, 模板={template_key}, '
@@ -119,31 +159,10 @@ def parse_file():
                 }
             )
     except (SBException, ValueError) as e:
-        msg = getattr(e, 'message', str(e))
-        return jsonify(
-            {
-                'data': [],
-                'total': 0,
-                'error_count': 1,
-                'duplicate_count': 0,
-                'cash_transfer_count': 0,
-                'message': msg,
-                'error_code': 1001,
-            }
-        ), 400
+        return _txn_parse_error(getattr(e, 'message', str(e)), 400)
     except Exception as e:
         logger.exception(f'文件解析未知异常: {e}')
-        return jsonify(
-            {
-                'data': [],
-                'total': 0,
-                'error_count': 1,
-                'duplicate_count': 0,
-                'cash_transfer_count': 0,
-                'message': f'服务器内部错误: {str(e)}',
-                'error_code': 5004,
-            }
-        ), 500  # 注意返回 500，前端能识别
+        return _txn_parse_error(f'服务器内部错误: {str(e)}', 500)
 
 
 # ── 确认导入 ──
@@ -190,8 +209,7 @@ def parse_holding_file():
 
     try:
         with get_db() as db:
-            orch = ImportOrchestrator(db, get_family_id())
-            result = orch.parse_and_preview_holdings(raw_bytes, source, ledger_id=ledger_id)
+            result = svc_parse_holding(db, get_family_id(), raw_bytes, source, ledger_id)
             logger.info(
                 f'持仓文件解析完成: 文件={file.filename}, source={source}, '
                 f'总记录={result["total"]}, 错误={result["error_count"]}, 重复={result["duplicate_count"]}'
@@ -208,33 +226,10 @@ def parse_holding_file():
                 }
             )
     except (SBException, ValueError) as e:
-        msg = getattr(e, 'message', str(e))
-        return jsonify(
-            {
-                'data': [],
-                'total': 0,
-                'error_count': 1,
-                'duplicate_count': 0,
-                'ledger_id': None,
-                'ledger_name': '',
-                'message': msg,
-                'error_code': 1001,
-            }
-        ), 400
+        return _holding_parse_error(getattr(e, 'message', str(e)), 400)
     except Exception as e:
         logger.exception(f'持仓文件解析未知异常: {e}')
-        return jsonify(
-            {
-                'data': [],
-                'total': 0,
-                'error_count': 1,
-                'duplicate_count': 0,
-                'ledger_id': None,
-                'ledger_name': '',
-                'message': f'服务器内部错误: {str(e)}',
-                'error_code': 5004,
-            }
-        ), 500
+        return _holding_parse_error(f'服务器内部错误: {str(e)}', 500)
 
 
 @importers_bp.post('/holdings/confirm/', strict_slashes=False)
