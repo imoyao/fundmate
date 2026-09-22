@@ -19,14 +19,15 @@ from datetime import date, datetime
 from typing import Optional
 
 from loguru import logger
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.constants import PositionSource, ValuationMode
+from app.core.constants import ALLOCATION_LABELS, MARKET_LABELS, TYPE_LABELS, PositionSource, ValuationMode
 from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
 from app.core.symbol_utils import derive_security_type, get_normalizer, split_symbol
-from app.core.utils import get_confirm_date
+from app.core.utils import get_confirm_date, paginate
 from app.domains.funds.models import Fund
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, resolve_sales_institution_id
@@ -35,6 +36,7 @@ from app.services import async_backfill
 from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_money_fund_symbol, normalize_fund_code
 from app.services.import_records import compute_position_hash
 from app.services.pnl_service import compute_sell_realized_cents
+from app.services.position_presenter import enrich_position_dict
 from app.services.trading import TransactionService, validate_buy, validate_sell
 from app.services.watchlist_service import (
     ensure_watchlist_for_positions,
@@ -1293,3 +1295,99 @@ class PositionService:
         )
         db.flush()
         return PositionService.recompute_position_from_transactions(db, existing.id)
+
+    @staticmethod
+    def build_position_list(db, family_id: int, group_by: str, page: int, per_page: int, ledger_id_raw: str) -> dict:
+        """list_positions 的核心：过滤 + 按账户分组 / 分页组装（#1642 B 块，从 views 下沉）。
+
+        与下沉前逐字段一致：``ledger_id='null'`` 仅取未归档持仓；``group_by='account'`` 按
+        account_name 分组并补首次买入确认日（优先交易流水，回退 position.confirm_date）；否则分页
+        + enrich_position_dict。返回原 jsonify 的「内层 data 字典」（视图负责补 message）。
+        """
+        query = db.query(Position).filter(Position.family_id == family_id)
+        # 未归档过滤：ledger_id 显式传 'null' 时仅返回未绑定账户的持仓
+        if ledger_id_raw == 'null':
+            query = query.filter(Position.ledger_id.is_(None))
+        elif ledger_id_raw:
+            query = query.filter(Position.ledger_id == int(ledger_id_raw))
+        query = query.order_by(Position.updated_at.desc())
+
+        if group_by == 'account':
+            positions = query.all()
+            result: dict = {}
+
+            # 一次性查询所有持仓的首次买入确认日（性能优化）
+            pos_ids = [p.id for p in positions]
+            first_buy_dates: dict = {}
+            if pos_ids:
+                buy_dates_query = (
+                    db.query(Transaction.position_id, func.min(Transaction.confirm_date).label('confirm_date'))
+                    .filter(
+                        Transaction.position_id.in_(pos_ids),
+                        Transaction.txn_type.in_(['buy', 'deposit']),
+                    )
+                    .group_by(Transaction.position_id)
+                    .all()
+                )
+                first_buy_dates = {row.position_id: row.confirm_date for row in buy_dates_query}
+
+            for p in positions:
+                account = p.account_name
+                if account not in result:
+                    result[account] = []
+
+                # 获取首次买入确认日
+                buy_confirm = first_buy_dates.get(p.id)
+                if buy_confirm is None:
+                    buy_confirm = p.confirm_date  # 兼容无交易记录的回退
+
+                result[account].append(
+                    {
+                        'id': p.id,
+                        'symbol': p.symbol,
+                        'name': p.name,
+                        'type': p.asset_type,
+                        'type_label': TYPE_LABELS.get(p.asset_type, p.asset_type),
+                        'market': p.market,
+                        'market_label': MARKET_LABELS.get(p.market, p.market),
+                        'allocation': p.allocation,
+                        'allocation_label': ALLOCATION_LABELS.get(p.allocation, p.allocation or '未分类'),
+                        'quantity': Money.min_unit_to_shares(p.quantity),
+                        'avg_price': Money.price_units_to_yuan(p.avg_price),
+                        'currency': p.currency,
+                        'current_price': Money.price_units_to_yuan(p.current_price),
+                        'confirm_date': buy_confirm.isoformat() if buy_confirm else None,
+                        'ledger_id': p.ledger_id,
+                    }
+                )
+            return {'data': result}
+
+        # 分页模式保持不变
+        items, total = paginate(query, page=page, per_page=per_page)
+        data = [enrich_position_dict(p) for p in items]
+        return {'data': data, 'total': total, 'page': page, 'per_page': per_page}
+
+    @staticmethod
+    def dispatch_position_op(db, data: dict, op_type: str) -> Optional['Position']:
+        """create_position 的操作分派（#1642 B 块，从 views 下沉）。
+
+        与下沉前逐字段一致：sell/withdraw → process_sell_or_withdraw；dividend → process_dividend；
+        dividend_reinvest → process_dividend_reinvest；split → process_orphan_split；buy/deposit →
+        process_buy_or_deposit(force_create_position=True)。返回持仓或 None（已清空）。业务校验失败
+        透传 ValueError（视图转 400/1001）；唯一约束冲突透传 IntegrityError（视图转 409 幂等拦截）。
+        不支持的操作类型由视图在调本方法前 abort(400)，此处不兜底。
+        """
+        if op_type in ('sell', 'withdraw'):
+            return PositionService.process_sell_or_withdraw(db, data)
+        if op_type == 'dividend':
+            data['dividend_amount'] = data.get('avg_price', 0)
+            return PositionService.process_dividend(db, data)
+        if op_type == 'dividend_reinvest':
+            data['dividend_amount'] = data.get('dividend_amount', data.get('amount', data.get('avg_price', 0)))
+            data['nav'] = data.get('nav', data.get('avg_price', 0))
+            return PositionService.process_dividend_reinvest(db, data)
+        if op_type == 'split':
+            return PositionService.process_orphan_split(db, data)
+        if op_type in ('buy', 'deposit'):
+            return PositionService.process_buy_or_deposit(db, data, force_create_position=True)
+        raise ValueError(f'不支持的操作类型: {op_type}')

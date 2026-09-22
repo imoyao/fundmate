@@ -45,6 +45,45 @@ class ConfirmImportRequest(Schema):
     rows = fields.List(fields.Nested(ConfirmImportRowSchema), required=True)
 
 
+def _txn_parse_error(msg: str, status: int):
+    """交易文件解析错误信封（1001=业务/校验，5004=服务内部）；与下沉前逐字段一致。"""
+    code = 1001 if status == 400 else 5004
+    return (
+        jsonify(
+            {
+                'data': [],
+                'total': 0,
+                'error_count': 1,
+                'duplicate_count': 0,
+                'cash_transfer_count': 0,
+                'message': msg,
+                'error_code': code,
+            }
+        ),
+        status,
+    )
+
+
+def _holding_parse_error(msg: str, status: int):
+    """持仓文件解析错误信封（1001=业务/校验，5004=服务内部）；与下沉前逐字段一致。"""
+    code = 1001 if status == 400 else 5004
+    return (
+        jsonify(
+            {
+                'data': [],
+                'total': 0,
+                'error_count': 1,
+                'duplicate_count': 0,
+                'ledger_id': None,
+                'ledger_name': '',
+                'message': msg,
+                'error_code': code,
+            }
+        ),
+        status,
+    )
+
+
 # ── 模板下载 ──
 
 
@@ -119,31 +158,10 @@ def parse_file():
                 }
             )
     except (SBException, ValueError) as e:
-        msg = getattr(e, 'message', str(e))
-        return jsonify(
-            {
-                'data': [],
-                'total': 0,
-                'error_count': 1,
-                'duplicate_count': 0,
-                'cash_transfer_count': 0,
-                'message': msg,
-                'error_code': 1001,
-            }
-        ), 400
+        return _txn_parse_error(getattr(e, 'message', str(e)), 400)
     except Exception as e:
         logger.exception(f'文件解析未知异常: {e}')
-        return jsonify(
-            {
-                'data': [],
-                'total': 0,
-                'error_count': 1,
-                'duplicate_count': 0,
-                'cash_transfer_count': 0,
-                'message': f'服务器内部错误: {str(e)}',
-                'error_code': 5004,
-            }
-        ), 500  # 注意返回 500，前端能识别
+        return _txn_parse_error(f'服务器内部错误: {str(e)}', 500)
 
 
 # ── 确认导入 ──
@@ -208,33 +226,10 @@ def parse_holding_file():
                 }
             )
     except (SBException, ValueError) as e:
-        msg = getattr(e, 'message', str(e))
-        return jsonify(
-            {
-                'data': [],
-                'total': 0,
-                'error_count': 1,
-                'duplicate_count': 0,
-                'ledger_id': None,
-                'ledger_name': '',
-                'message': msg,
-                'error_code': 1001,
-            }
-        ), 400
+        return _holding_parse_error(getattr(e, 'message', str(e)), 400)
     except Exception as e:
         logger.exception(f'持仓文件解析未知异常: {e}')
-        return jsonify(
-            {
-                'data': [],
-                'total': 0,
-                'error_count': 1,
-                'duplicate_count': 0,
-                'ledger_id': None,
-                'ledger_name': '',
-                'message': f'服务器内部错误: {str(e)}',
-                'error_code': 5004,
-            }
-        ), 500
+        return _holding_parse_error(f'服务器内部错误: {str(e)}', 500)
 
 
 @importers_bp.post('/holdings/confirm/', strict_slashes=False)
