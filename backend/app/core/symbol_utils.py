@@ -288,20 +288,51 @@ def get_normalizer() -> StockCodeNormalizer:
 
 
 def split_symbol(symbol: str) -> tuple[Optional[str], Optional[str]]:
-    """SH/SZ/BJ 前缀代码 → (market, code)；纯 6 位数字按首位推断市场；否则 (None, symbol)。
+    """SH/SZ/BJ 前缀代码 → (market, code)；纯 6 位数字按「A 股代码段」推断市场；否则 (None, symbol)。
 
-    例如 'SH510050' → ('SH', '510050')、'159915' → ('SZ', '159915')、'110011' → (None, '110011')。
+    例如 'SH510050' → ('SH', '510050')、'159915' → ('SZ', '159915')、'110011' → ('SH', '110011')。
     供录入阶段按代码前缀推断证券细类（ETF/可转债）时拆分市场与代码。
+
+    纯数字部分统一走 `market_of_cn_a_code`（与 securities 名录同步同一口径）——
+    原先只认「6/9 → SH、0/2/3 → SZ」，导致 5xxxxx（沪 ETF）、15xxxx/16xxxx（深 ETF）、
+    11xxxx（沪转债）一律判不出市场，进而 `derive_security_type` 也定不了类（#1104）。
     """
     s = symbol or ''
     if s[:2] in ('SH', 'SZ', 'BJ'):
         return s[:2], s[2:]
     if len(s) == 6 and s.isdigit():
-        if s[0] in '69':
-            return 'SH', s
-        if s[0] in '023':
-            return 'SZ', s
+        return market_of_cn_a_code(s), s
     return None, s
+
+
+def market_of_cn_a_code(code: str) -> Optional[str]:
+    """A 股 6 位代码 → 交易所（SH / SZ / BJ）；非 A 股 6 位代码返回 None。
+
+    为什么必须单独有它（#1104）：品种细类的判定离不开市场——11xxxx 在沪市是**可转债**、
+    在深市是**货币基金**，只看代码前缀无从区分（见 `derive_security_type` 的 market 参数）。
+    securities 名录补齐时，ETF（5xxxxx / 15xxxx / 16xxxx）与可转债（11xxxx / 12xxxx）
+    全靠本函数先定市场，否则持仓/自选里的 `SZ159857` 永远对不上证券名录，
+    price_history 任务会在 `_get_security_map` 一步静默跳过。
+    """
+    if not code or len(code) != 6 or not code.isdigit():
+        return None
+    if code[:2] == '11':  # 沪市可转债 110xxx~119xxx
+        return 'SH'
+    if code[:2] == '12':  # 深市可转债 123xxx/127xxx/128xxx
+        return 'SZ'
+    if code[:2] in ('15', '16'):  # 深市 ETF / LOF
+        return 'SZ'
+    if code[0] == '5':  # 沪市 ETF / LOF：51xxxx / 56xxxx / 58xxxx
+        return 'SH'
+    if code[:3] == '920':  # 北交所新号段（920xxx），须先于「9 开头 → 沪市」判定
+        return 'BJ'
+    if code[0] in '69':
+        return 'SH'
+    if code[0] in '023':
+        return 'SZ'
+    if code[0] == '8':
+        return 'BJ'
+    return None
 
 
 def derive_security_type(code: str, market: str | None = None) -> Optional[str]:

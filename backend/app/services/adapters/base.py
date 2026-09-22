@@ -56,6 +56,14 @@ class DataSourceAdapter(ABC):
         """获取指定市场的股票/ETF/可转债列表"""
         pass
 
+    def fetch_security_catalog(self) -> List[dict]:
+        """场内证券名录（个股 + ETF + 可转债），用于 securities 表登记（#1104）。
+
+        默认实现退化为 `fetch_stock_list()`：不支持多品种名录的数据源仍可正常工作，
+        由支持者（AkshareAdapter）覆盖为三源合并。返回 [{symbol, name, market, type, currency}]。
+        """
+        return self.fetch_stock_list()
+
     @abstractmethod
     def fetch_stock_price(
         self,

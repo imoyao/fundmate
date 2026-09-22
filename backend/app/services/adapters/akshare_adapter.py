@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
-from app.core.symbol_utils import get_normalizer
+from app.core.symbol_utils import get_normalizer, market_of_cn_a_code
 from app.services.adapters.base import DataSourceAdapter
 
 # 基金经理全量接口（东财 fund_manager_em）偶发抖动，首次拉取的有限重试策略
@@ -182,6 +182,81 @@ class AkshareAdapter(DataSourceAdapter):
         except Exception as e:
             logger.error(f'获取股票列表失败: {e}')
             return []
+
+    def fetch_security_catalog(self) -> List[dict]:
+        """场内证券名录：A 股个股 + ETF + 可转债，三源合并（#1104）。
+
+        为什么需要它：securities 表原先只登记 A 股个股（实测 5525 条全是 type='stock'），
+        而 `PriceHistorySyncJob._get_security_map` 按 symbol 查该表，查不到直接 continue
+        —— 持仓里的 8 只 ETF、8 只可转债因此**永远拿不到日线**（实测 price_history 0 行），
+        自选页「最新价」只能回落到导入当天的快照。本方法是整条场内日线链路的前置。
+
+        symbol 一律归一为「交易所前缀 + 6 位代码」，与持仓/自选的存储规范一致
+        （`SZ159857` 而非 `159857`）——否则名录登记了也对不上目标池。
+        单个子源失败只告警不抛错，不影响其余两源（名录属于可重建的元数据）。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        records: List[dict] = []
+        seen = set()
+
+        def _add(raw_code, raw_name, sec_type: str) -> None:
+            code = str(raw_code or '').strip()
+            market = market_of_cn_a_code(code)
+            if not code or not market:
+                return
+            symbol = f'{market}{code}'
+            if symbol in seen:
+                return
+            seen.add(symbol)
+            records.append(
+                {
+                    'symbol': symbol,
+                    'name': (str(raw_name or '').strip() or symbol)[:100],
+                    'market': 'CN_A',
+                    'type': sec_type,
+                    'currency': 'CNY',
+                }
+            )
+
+        # 1) A 股个股：沿用既有 normalizer 链路，保证与存量 symbol 规范完全一致
+        for item in self.fetch_stock_list():
+            sym = item.get('symbol')
+            if sym and sym not in seen:
+                seen.add(sym)
+                records.append(item)
+
+        # 2) ETF 名录：东财 spot 优先，失败回退同花顺 ETF 名录（两源都给裸 6 位代码）。
+        # 为什么必须带回退：2026-09-22 实测 fund_etf_spot_em 的 push2delay 域名
+        # 直接 RemoteDisconnected，单源会让 8 只 ETF 持仓继续留在名录之外。
+        etf_rows: List[tuple] = []
+        try:
+            df = ak.fund_etf_spot_em()
+            if df is not None and not df.empty:
+                etf_rows = [(self._cell(row, '代码'), self._cell(row, '名称')) for _, row in df.iterrows()]
+        except Exception as e:
+            self.logger.warning(f'东财 ETF 名录失败，回退同花顺: {e}')
+        if not etf_rows:
+            etf_rows = [(item.get('code'), item.get('name')) for item in self.fetch_etf_list_ths()]
+        for raw_code, raw_name in etf_rows:
+            _add(raw_code, raw_name, 'etf')
+
+        # 3) 可转债名录（bond_zh_cov，代码为裸 6 位）
+        try:
+            df = ak.bond_zh_cov()
+            if df is not None and not df.empty:
+                for _, row in df.iterrows():
+                    _add(
+                        self._cell(row, '债券代码', '转债代码', '代码'),
+                        self._cell(row, '债券简称', '转债简称', '名称'),
+                        'bond',
+                    )
+        except Exception as e:
+            self.logger.warning(f'获取可转债名录失败（不影响个股/ETF）: {e}')
+
+        self.logger.info(f'场内证券名录合并完成：{len(records)} 条（个股 + ETF + 可转债）')
+        return records
 
     def fetch_daily_spot_all(self) -> List[dict]:
         """获取全市场 A 股当日实时行情（作为日线数据），仅用于增量同步"""
