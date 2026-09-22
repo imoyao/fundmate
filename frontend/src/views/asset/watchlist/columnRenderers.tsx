@@ -47,8 +47,10 @@ export interface ValuationItem {
 
 /** 派生值结果（组合计算列，由 index.vue 注入计算函数） */
 export interface DerivedValue {
-  value: number;
-  ratio: number;
+  /** 主数值（金额 / 收益），null 表示无数据 → 组件显示占位符（--） */
+  value: number | null;
+  /** 辅比例（%），null 表示不展示比例行（而非显示 0.00%） */
+  ratio: number | null;
 }
 
 /** 渲染上下文：承载页面级状态与方法（避免 renderer 直接耦合大组件） */
