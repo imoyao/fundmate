@@ -29,17 +29,14 @@ from app.domains.ledgers.models import Ledger
 from app.domains.ocr.schemas import OCRParseTextRequest, OCRRecognizeRequest
 from app.services.ai_recognizer import guards
 from app.services.ai_recognizer.registry import get_recognizer
-from app.services.import_records import StandardHoldingRecord, StandardTransactionRecord
-from app.services.importer.mappings import OP_TYPE_LABEL
+from app.services.import_records import StandardHoldingRecord
+from app.services.importer.candidates import apply_row_display_fields, txn_candidates_to_records
 from app.services.importer.orchestrator import ImportOrchestrator
 
 ocr_bp = APIBlueprint('ocr', __name__, url_prefix='/api/ocr')
 
 # 单次最多返回多少条（防单次调用爆量）
 OCR_MAX_ITEMS = 30
-
-# 支持的业务类型（AI 识别范围：基金申赎为主，股票买卖；与 TxnRecognizer 对齐）
-SUPPORTED_OP_TYPES = {'buy', 'sell', 'dividend_cash', 'dividend_reinvest'}
 
 
 def _current_user_id() -> int:
@@ -61,56 +58,19 @@ def _ledger_name(ledger_id) -> str:
 def _txn_candidates_to_rows(items: list, ledger_id) -> list:
     """交易候选行 → importer 预览行（enrich/哈希/去重走 ImportOrchestrator.preview_records）。
 
-    候选行字段（TxnRecognizer 输出）：
-        code / name / business_type(buy|sell|dividend_*) / trade_date / confirm_date /
-        amount / shares / nav / fee / symbol / type / market / venue
-    映射为 StandardTransactionRecord 后复用既有管线；提交阶段由前端 POST
-    /api/importers/confirm（commit_from_preview）处理。
-    """
-    from datetime import date
-    from decimal import Decimal
+    与下沉前逐字段一致：候选行 business_type 仅保留 SUPPORTED_OP_TYPES；确认日优先、
+    缺失回退申请日、再回退今日；金额缺失但份额+净值齐 → 推算（净值*份额）；映射为
+    StandardTransactionRecord 后复用既有管线；提交阶段由前端 POST /api/importers/confirm
+    处理。返回行回填 op_type_label / warnings / trade_date 展示字段。
 
+    分层：纯转换（候选 dict → 标准记录 / 展示字段回填）在
+    ``services/importer/candidates.py``；「开会话 + 调 orchestrator」属**视图层编排**
+    （D26：视图只做入参解析 / 调服务 / 组响应），故留在此处——与 ``_holding_candidates_to_rows`` 对称。
+    """
     if not items:
         return []
-    records = []
-    for it in items:
-        op_code = it.get('business_type', '')
-        if op_code not in SUPPORTED_OP_TYPES:
-            continue
-        # 入账日期：优先确认日；截图通常只有申请日 → 用申请日（前端预览可改）
-        row_date = it.get('confirm_date') or it.get('trade_date') or ''
-        try:
-            confirm_date = date.fromisoformat(row_date) if row_date else date.today()
-        except ValueError:
-            confirm_date = date.today()
-        trade_date_str = it.get('trade_date') or ''
-        try:
-            trade_date = date.fromisoformat(trade_date_str) if trade_date_str else None
-        except ValueError:
-            trade_date = None
 
-        amount = it.get('amount') or 0
-        # 金额缺失但份额+净值齐 → 推算金额（净值*份额），保证 amount>0 可通过校验
-        if amount <= 0 and it.get('shares') and it.get('nav'):
-            amount = float(it['shares']) * float(it['nav'])
-
-        records.append(
-            StandardTransactionRecord(
-                confirm_date=confirm_date,
-                trade_date=trade_date,
-                asset_type=it.get('type') or 'fund',
-                symbol=it.get('symbol') or it['code'],
-                name=it.get('name') or '',
-                business_type=op_code,
-                amount=Decimal(str(round(amount, 2))),
-                account_name='',
-                shares=Decimal(str(it['shares'])) if it.get('shares') else None,
-                nav=Decimal(str(it['nav'])) if it.get('nav') else None,
-                fee=Decimal(str(it.get('fee') or 0)),
-                raw_op_type=it.get('business_type', ''),
-                source=PositionSource.AI_TXN.value,
-            )
-        )
+    records = txn_candidates_to_records(items)
 
     from app.core.database import get_session
 
@@ -118,15 +78,7 @@ def _txn_candidates_to_rows(items: list, ledger_id) -> list:
         orch = ImportOrchestrator(db, get_family_id())
         result = orch.preview_records(records, _ledger_name(ledger_id), ledger_id, source=PositionSource.AI_TXN.value)
 
-    # 回填前端表格所需展示字段（与 parse_and_preview 行结构一致）
-    rows = []
-    warnings_by_code = {it['code']: it.get('warnings') or [] for it in items}
-    for row in result['rows']:
-        row['op_type_label'] = OP_TYPE_LABEL.get(row.get('op_type', ''), '')
-        row['warnings'] = warnings_by_code.get(row.get('symbol', ''), []) or warnings_by_code.get(row.get('name'), [])
-        row['trade_date'] = row.get('trade_date') or ''
-        rows.append(row)
-    return rows
+    return apply_row_display_fields(result['rows'], items)
 
 
 def _holding_candidates_to_rows(items: list, ledger_id) -> list:

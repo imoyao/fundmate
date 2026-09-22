@@ -204,5 +204,20 @@ core  ←  domains.<域>.models / schemas  ←  services  ←  domains.<域>.vie
 存量超标**按批次收敛**（不一次性推平：131 个端点批量改写风险大于收益），先立边界、堵新增。
 批次 1 已落地：`ledgers` 账户迁移域 → `services/ledger_migration_service.py`；
 `watchlist` 展示增强 → `services/watchlist_display.py`（与 `watchlist_service` 的查询/写入/状态机分层）。
-后续批次候选：`ledgers` 余下视图内业务规则（活期+ 绑定换绑、改名快照刷新、类型变更校验）、
-`positions` / `funds` 等同类文件。
+批次 2（#1642）：A 块 `ledgers` 余下视图内业务规则（活期+ 绑定换绑、改名快照刷新、类型变更校验）
+→ `services/ledger_write_service.py`（1210/30/150 → 723/16/60）；B 块其余 8 个视图的超长函数
+（`portfolios` / `strategy` / `funds` / `positions` / `transactions` / `importers` / `ocr` / `watchlist`
+的展示增强、行组装、分页前置）→ 各自 domain 服务，全部 max_func ≤ 60（基线见 `check_view_thickness.py`）。
+
+**批次 2 定下的判据（后续下沉照此办理）——能下沉的是「业务规则」，不是「服务调用」**：
+
+- 纯转换 / 映射 / 校验链 / 状态机 / 展示组装 → 落 `services/`；**归属按「谁拥有产出的数据结构」定**，
+  不按「谁调用它」定（先例：AI 交易候选行转换产出的是 importer 的预览行，故落
+  `services/importer/candidates.py`，而非 ocr 域或 `ocr_service.py`）。
+- **「开会话 + 构造 orchestrator + 调它」属视图职责，留在视图**——这正是 D26 的「调用 services」，
+  `views → services` 是合法边（`importers/views.py` 的 `/confirm`、`e_account_views.py`、
+  `ocr/views.py` 的持仓路径历来如此）。**不要**为省两行把它包成 `services/*_service.py` 转发壳：
+  那是零逻辑的间接层，且正面撞 R6（领域服务不得反向依赖编排层，D25 / D32）。#1642 B 块初稿即
+  因此吃 CI 红灯（`importer_service.py` 纯转发壳 + 把转换塞进 `ocr_service.py`——后者还违反该
+  facade 自身「本文件勿再堆业务逻辑」的约定）；现前者删除、后者改落 `importer/candidates.py`，
+  代价是 `importers` max_func +1（52 → 53）、`ocr` 视图 +23 行（191 → 214），两者仍远在 60 行判据之内。
