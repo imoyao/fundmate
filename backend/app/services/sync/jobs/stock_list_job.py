@@ -85,9 +85,7 @@ class StockListSyncJob(SyncJob):
                 continue
             market = item.get('market') or row.market
             if row.type != item['type'] or row.name != item['name'] or row.market != market:
-                updates.append(
-                    {'id': row.id, 'name': item['name'], 'market': market, 'type': item['type']}
-                )
+                updates.append({'id': row.id, 'name': item['name'], 'market': market, 'type': item['type']})
 
         if inserts:
             self.db.bulk_insert_mappings(Security, inserts)

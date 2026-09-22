@@ -23,6 +23,10 @@ from app.services.adapters.base import DataSourceAdapter
 _FUND_MANAGER_RETRY = 3
 _FUND_MANAGER_RETRY_SLEEP = 3  # 秒
 
+# 日线取数中**不接受日期区间参数**的品类：可转债（bond_zh_hs_cov_daily）与 ETF 的
+# 新浪回退源（fund_etf_hist_sina）都会返回全部历史，必须由调用侧本地裁剪（#1104）
+_NO_WINDOW_SEC_TYPES = ('bond', 'etf')
+
 
 class AkshareAdapter(DataSourceAdapter):
     def __init__(self):
@@ -111,6 +115,8 @@ class AkshareAdapter(DataSourceAdapter):
             logger.warning(f'无法解析场内代码: {symbol}')
             return []
 
+        # 调用方显式给出窗口时才一律本地裁剪；未给出时沿用「数据源返回即结果」的原契约
+        explicit_window = start_date is not None or end_date is not None
         if start_date is None:
             start_date = date.today() - timedelta(days=365)
         if end_date is None:
@@ -131,9 +137,12 @@ class AkshareAdapter(DataSourceAdapter):
                 close = self._num(row.get('close'))
                 if trade_date is None or close is None:
                     continue
-                # 本地再筛一次区间：可转债接口（bond_zh_hs_cov_daily）不接受 start/end
-                # 参数、一次吐回全部历史（实测 1231 行），不复筛会把无关历史整段搬去写库
-                if trade_date < start_date or trade_date > end_date:
+                # 本地区间裁剪：可转债接口（bond_zh_hs_cov_daily）与 ETF 的新浪回退
+                # **不接受日期参数**，会一次吐回全部历史（实测 1231 行），不裁就会把
+                # 无关历史整段搬去写库；股票与 ETF 东财已由接口按参数过滤。
+                if (explicit_window or sec_type in _NO_WINDOW_SEC_TYPES) and (
+                    trade_date < start_date or trade_date > end_date
+                ):
                     continue
                 records.append(
                     {
@@ -167,7 +176,9 @@ class AkshareAdapter(DataSourceAdapter):
         '成交量': 'volume',
     }
 
-    def _fetch_daily_frame(self, ak, sec_type: str, market: str, code: str, start_date: date, end_date: date, adjust: str):
+    def _fetch_daily_frame(
+        self, ak, sec_type: str, market: str, code: str, start_date: date, end_date: date, adjust: str
+    ):
         """按品类取日线 DataFrame，列名统一为 date/open/high/low/close/volume（#1104）。"""
         if sec_type == 'etf':
             df = self._fetch_etf_frame(ak, market, code, start_date, end_date, adjust)

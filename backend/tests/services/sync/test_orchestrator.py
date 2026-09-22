@@ -21,7 +21,9 @@ class TestOrchestratorIntegration:
             instance = mock.return_value
             instance.get_name.return_value = 'akshare'
             instance.get_version.return_value = '1.0'
-            instance.fetch_stock_list.return_value = [
+            # #1104：StockListSyncJob 改取「场内证券名录」（个股 + ETF + 可转债），
+            # adapter 对应方法为 fetch_security_catalog（原 fetch_stock_list 只含个股）
+            instance.fetch_security_catalog.return_value = [
                 {'symbol': 'SH600519', 'name': '茅台', 'market': 'CN_A', 'type': 'stock', 'currency': 'CNY'},
                 {'symbol': 'SZ000001', 'name': '平安', 'market': 'CN_A', 'type': 'stock', 'currency': 'CNY'},
             ]
