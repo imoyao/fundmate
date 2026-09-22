@@ -58,12 +58,7 @@ def build_strategy_overview(db, family_id: int) -> dict:
     )
 
     # 3. 所有策略标签（家庭隔离）
-    tags = (
-        db.query(StrategyTag)
-        .filter(StrategyTag.family_id == family_id)
-        .order_by(StrategyTag.created_at.asc())
-        .all()
-    )
+    tags = db.query(StrategyTag).filter(StrategyTag.family_id == family_id).order_by(StrategyTag.created_at.asc()).all()
 
     # 4. 所有持仓-标签关联，构建映射
     rows = (

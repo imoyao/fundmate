@@ -61,9 +61,7 @@ def build_transaction_list(db, family_id: int, page: int, per_page: int, filters
     asset_type = filters.get('asset_type')
     if asset_type:
         position_ids = (
-            db.query(Position.id)
-            .filter(Position.asset_type == asset_type, Position.family_id == family_id)
-            .all()
+            db.query(Position.id).filter(Position.asset_type == asset_type, Position.family_id == family_id).all()
         )
         pids = [p.id for p in position_ids]
         query = query.filter(Transaction.position_id.in_(pids))

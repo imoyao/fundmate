@@ -50,14 +50,14 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-VIEWS_GLOB = "backend/app/domains/*/views.py"
+VIEWS_GLOB = 'backend/app/domains/*/views.py'
 
 # 新增 / 改名视图文件的上限（判据本体）
 NEW_FILE_LIMITS = {
-    "lines": 400,
-    "orm_queries": 10,
-    "commits": 5,
-    "max_func": 60,
+    'lines': 400,
+    'orm_queries': 10,
+    'commits': 5,
+    'max_func': 60,
 }
 
 # 存量基线（2026-09-19 冻结，#1606 批次 1 下沉后重取）。
@@ -84,28 +84,28 @@ NEW_FILE_LIMITS = {
 #   positions 373/8/81 → 288/6/57、transactions 198/4/76 → 136/2/60、importers 254/1/74 → 249/1/52、
 #   ocr 262/1/69 → 191/1/48；全部 max_func 已 ≤ 60。基线只减不增，例行回写。
 BASELINE: dict[str, dict[str, int]] = {
-    "backend/app/domains/assets/views.py": {"lines": 208, "orm_queries": 4, "commits": 0, "max_func": 44},
-    "backend/app/domains/auth/views.py": {"lines": 137, "orm_queries": 3, "commits": 0, "max_func": 45},
-    "backend/app/domains/families/views.py": {"lines": 72, "orm_queries": 2, "commits": 0, "max_func": 22},
-    "backend/app/domains/funds/views.py": {"lines": 197, "orm_queries": 2, "commits": 0, "max_func": 39},
-    "backend/app/domains/importers/views.py": {"lines": 249, "orm_queries": 1, "commits": 0, "max_func": 52},
-    "backend/app/domains/ledgers/views.py": {"lines": 1210, "orm_queries": 30, "commits": 0, "max_func": 150},
-    "backend/app/domains/market/views.py": {"lines": 50, "orm_queries": 0, "commits": 0, "max_func": 35},
-    "backend/app/domains/ocr/views.py": {"lines": 191, "orm_queries": 1, "commits": 0, "max_func": 48},
-    "backend/app/domains/performance/views.py": {"lines": 93, "orm_queries": 1, "commits": 0, "max_func": 36},
-    "backend/app/domains/portfolios/views.py": {"lines": 166, "orm_queries": 1, "commits": 0, "max_func": 29},
-    "backend/app/domains/positions/views.py": {"lines": 288, "orm_queries": 6, "commits": 0, "max_func": 57},
-    "backend/app/domains/reconciliation/views.py": {"lines": 225, "orm_queries": 2, "commits": 0, "max_func": 48},
-    "backend/app/domains/search/views.py": {"lines": 25, "orm_queries": 0, "commits": 0, "max_func": 7},
-    "backend/app/domains/securities/views.py": {"lines": 72, "orm_queries": 1, "commits": 0, "max_func": 35},
-    "backend/app/domains/strategy/views.py": {"lines": 144, "orm_queries": 5, "commits": 0, "max_func": 22},
-    "backend/app/domains/summary/views.py": {"lines": 141, "orm_queries": 0, "commits": 0, "max_func": 20},
-    "backend/app/domains/temperature/views.py": {"lines": 140, "orm_queries": 0, "commits": 0, "max_func": 38},
-    "backend/app/domains/transactions/views.py": {"lines": 136, "orm_queries": 2, "commits": 0, "max_func": 60},
-    "backend/app/domains/usage/views.py": {"lines": 68, "orm_queries": 0, "commits": 0, "max_func": 27},
-    "backend/app/domains/users/views.py": {"lines": 115, "orm_queries": 4, "commits": 0, "max_func": 38},
-    "backend/app/domains/utils/views.py": {"lines": 126, "orm_queries": 0, "commits": 0, "max_func": 38},
-    "backend/app/domains/watchlist/views.py": {"lines": 622, "orm_queries": 14, "commits": 0, "max_func": 53},
+    'backend/app/domains/assets/views.py': {'lines': 208, 'orm_queries': 4, 'commits': 0, 'max_func': 44},
+    'backend/app/domains/auth/views.py': {'lines': 137, 'orm_queries': 3, 'commits': 0, 'max_func': 45},
+    'backend/app/domains/families/views.py': {'lines': 72, 'orm_queries': 2, 'commits': 0, 'max_func': 22},
+    'backend/app/domains/funds/views.py': {'lines': 197, 'orm_queries': 2, 'commits': 0, 'max_func': 39},
+    'backend/app/domains/importers/views.py': {'lines': 249, 'orm_queries': 1, 'commits': 0, 'max_func': 52},
+    'backend/app/domains/ledgers/views.py': {'lines': 1210, 'orm_queries': 30, 'commits': 0, 'max_func': 150},
+    'backend/app/domains/market/views.py': {'lines': 50, 'orm_queries': 0, 'commits': 0, 'max_func': 35},
+    'backend/app/domains/ocr/views.py': {'lines': 191, 'orm_queries': 1, 'commits': 0, 'max_func': 48},
+    'backend/app/domains/performance/views.py': {'lines': 93, 'orm_queries': 1, 'commits': 0, 'max_func': 36},
+    'backend/app/domains/portfolios/views.py': {'lines': 166, 'orm_queries': 1, 'commits': 0, 'max_func': 29},
+    'backend/app/domains/positions/views.py': {'lines': 288, 'orm_queries': 6, 'commits': 0, 'max_func': 57},
+    'backend/app/domains/reconciliation/views.py': {'lines': 225, 'orm_queries': 2, 'commits': 0, 'max_func': 48},
+    'backend/app/domains/search/views.py': {'lines': 25, 'orm_queries': 0, 'commits': 0, 'max_func': 7},
+    'backend/app/domains/securities/views.py': {'lines': 72, 'orm_queries': 1, 'commits': 0, 'max_func': 35},
+    'backend/app/domains/strategy/views.py': {'lines': 144, 'orm_queries': 5, 'commits': 0, 'max_func': 22},
+    'backend/app/domains/summary/views.py': {'lines': 141, 'orm_queries': 0, 'commits': 0, 'max_func': 20},
+    'backend/app/domains/temperature/views.py': {'lines': 140, 'orm_queries': 0, 'commits': 0, 'max_func': 38},
+    'backend/app/domains/transactions/views.py': {'lines': 136, 'orm_queries': 2, 'commits': 0, 'max_func': 60},
+    'backend/app/domains/usage/views.py': {'lines': 68, 'orm_queries': 0, 'commits': 0, 'max_func': 27},
+    'backend/app/domains/users/views.py': {'lines': 115, 'orm_queries': 4, 'commits': 0, 'max_func': 38},
+    'backend/app/domains/utils/views.py': {'lines': 126, 'orm_queries': 0, 'commits': 0, 'max_func': 38},
+    'backend/app/domains/watchlist/views.py': {'lines': 622, 'orm_queries': 14, 'commits': 0, 'max_func': 53},
 }
 
 
@@ -115,7 +115,7 @@ def _rel(path: Path) -> str:
 
 def collect_metrics(path: Path) -> dict[str, int]:
     """AST 统计单个视图文件的四项指标（不用正则，避免注释 / 字符串误命中）。"""
-    source = path.read_text(encoding="utf-8")
+    source = path.read_text(encoding='utf-8')
     tree = ast.parse(source)
 
     orm_queries = 0
@@ -123,19 +123,19 @@ def collect_metrics(path: Path) -> dict[str, int]:
     max_func = 0
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            if node.func.attr == "query":
+            if node.func.attr == 'query':
                 orm_queries += 1
-            elif node.func.attr == "commit":
+            elif node.func.attr == 'commit':
                 commits += 1
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             span = (node.end_lineno or node.lineno) - node.lineno + 1
             max_func = max(max_func, span)
 
     return {
-        "lines": source.count("\n") + (0 if source.endswith("\n") else 1),
-        "orm_queries": orm_queries,
-        "commits": commits,
-        "max_func": max_func,
+        'lines': source.count('\n') + (0 if source.endswith('\n') else 1),
+        'orm_queries': orm_queries,
+        'commits': commits,
+        'max_func': max_func,
     }
 
 
@@ -144,27 +144,27 @@ def _iter_views() -> list[Path]:
 
 
 def _fmt(metrics: dict[str, int]) -> str:
-    return " ".join(f"{k}={metrics[k]}" for k in ("lines", "orm_queries", "commits", "max_func"))
+    return ' '.join(f'{k}={metrics[k]}' for k in ('lines', 'orm_queries', 'commits', 'max_func'))
 
 
 def _report(views: list[Path]) -> int:
-    print("# 当前指标（可直接粘贴为 BASELINE；键按路径字典序）")
-    print("BASELINE: dict[str, dict[str, int]] = {")
+    print('# 当前指标（可直接粘贴为 BASELINE；键按路径字典序）')
+    print('BASELINE: dict[str, dict[str, int]] = {')
     for path in views:
         print(f'    "{_rel(path)}": {collect_metrics(path)!r},')
-    print("}")
+    print('}')
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="视图层厚度守卫（#1606）")
-    parser.add_argument("--report", action="store_true", help="打印当前指标与可直接粘贴的基线")
-    parser.add_argument("-v", "--verbose", action="store_true", help="打印每个文件的指标")
+    parser = argparse.ArgumentParser(description='视图层厚度守卫（#1606）')
+    parser.add_argument('--report', action='store_true', help='打印当前指标与可直接粘贴的基线')
+    parser.add_argument('-v', '--verbose', action='store_true', help='打印每个文件的指标')
     args = parser.parse_args(argv)
 
     views = _iter_views()
     if not views:
-        print(f"OK: 未找到待扫描的视图文件（{VIEWS_GLOB}）")
+        print(f'OK: 未找到待扫描的视图文件（{VIEWS_GLOB}）')
         return 0
 
     if args.report:
@@ -182,8 +182,8 @@ def main(argv: list[str] | None = None) -> int:
         baseline = BASELINE.get(rel)
 
         if args.verbose:
-            mark = "基线" if baseline else "新增"
-            print(f"  [{mark}] {rel}  {_fmt(metrics)}")
+            mark = '基线' if baseline else '新增'
+            print(f'  [{mark}] {rel}  {_fmt(metrics)}')
 
         if baseline is None:
             for metric, limit in NEW_FILE_LIMITS.items():
@@ -209,41 +209,41 @@ def main(argv: list[str] | None = None) -> int:
 
     if not violations:
         remaining = {
-            "lines": sum(m["lines"] for m in BASELINE.values()),
-            "orm_queries": sum(m["orm_queries"] for m in BASELINE.values()),
-            "commits": sum(m["commits"] for m in BASELINE.values()),
+            'lines': sum(m['lines'] for m in BASELINE.values()),
+            'orm_queries': sum(m['orm_queries'] for m in BASELINE.values()),
+            'commits': sum(m['commits'] for m in BASELINE.values()),
         }
         print(
-            "OK: 视图层厚度无新增（基线存量："
-            f"{len(BASELINE) - len(stale)} 个文件 / {remaining['lines']} 行 / "
-            f"{remaining['orm_queries']} 次 query / {remaining['commits']} 次 commit；只减不增）"
+            'OK: 视图层厚度无新增（基线存量：'
+            f'{len(BASELINE) - len(stale)} 个文件 / {remaining["lines"]} 行 / '
+            f'{remaining["orm_queries"]} 次 query / {remaining["commits"]} 次 commit；只减不增）'
         )
         if stale:
-            print("提示：以下文件已不在基线中，请从 BASELINE 删除对应条目：")
+            print('提示：以下文件已不在基线中，请从 BASELINE 删除对应条目：')
             for rel in stale:
-                print(f"  - {rel}")
+                print(f'  - {rel}')
         if loose:
-            print("提示：以下指标已低于基线，请用 `--report` 收紧 BASELINE（只减不增；不收紧该维度会静默失效）：")
+            print('提示：以下指标已低于基线，请用 `--report` 收紧 BASELINE（只减不增；不收紧该维度会静默失效）：')
             for rel, metric, current, budget in loose:
-                print(f"  - {rel}: {metric} = {current}（基线 {budget}）")
+                print(f'  - {rel}: {metric} = {current}（基线 {budget}）')
         return 0
 
     print(
-        "ERROR: 视图层变厚了——业务规则请下沉 `app/services/`，视图只做 HTTP 编排\n"
-        "       判据：docs/spec/decisions.md（2026-09-19 视图层职责边界，#1606）\n"
-        "       上限：单函数 ≤ 60 行；新增视图文件 lines ≤ 400 / query ≤ 10 / commit ≤ 5",
+        'ERROR: 视图层变厚了——业务规则请下沉 `app/services/`，视图只做 HTTP 编排\n'
+        '       判据：docs/spec/decisions.md（2026-09-19 视图层职责边界，#1606）\n'
+        '       上限：单函数 ≤ 60 行；新增视图文件 lines ≤ 400 / query ≤ 10 / commit ≤ 5',
         file=sys.stderr,
     )
     for rel, metric, current, limit, is_baseline in violations:
-        scope = "基线冻结（只减不增）" if is_baseline else f"新增上限 {limit}"
-        print(f"  {rel}: {metric} = {current}（{scope}）", file=sys.stderr)
+        scope = '基线冻结（只减不增）' if is_baseline else f'新增上限 {limit}'
+        print(f'  {rel}: {metric} = {current}（{scope}）', file=sys.stderr)
     print(
-        "\n      缩小体积的正解是把业务规则搬到 services（视图只留入参解析 / 归属校验 / 调服务 / 组响应）；\n"
-        "      确因合并需要重取基线：python scripts/check_view_thickness.py --report 并说明理由。",
+        '\n      缩小体积的正解是把业务规则搬到 services（视图只留入参解析 / 归属校验 / 调服务 / 组响应）；\n'
+        '      确因合并需要重取基线：python scripts/check_view_thickness.py --report 并说明理由。',
         file=sys.stderr,
     )
     return 1
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     sys.exit(main())

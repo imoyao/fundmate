@@ -11,10 +11,13 @@ WHY 下沉
     - 不碰 ``request``：raw_bytes / template_key / frontend_account / ledger_id 等由调用方传入；
     - 只读解析：不写库、不提交事务（落库走 /confirm）。
 """
+
 from app.services.importer.orchestrator import ImportOrchestrator
 
 
-def parse_transaction_file(db, family_id: int, raw_bytes: bytes, template_key: str, frontend_account: str, ledger_id) -> dict:
+def parse_transaction_file(
+    db, family_id: int, raw_bytes: bytes, template_key: str, frontend_account: str, ledger_id
+) -> dict:
     """交易文件解析与预览（#1642 B 块，从视图层下沉）。
 
     与下沉前逐字段一致：委托 ``ImportOrchestrator.parse_and_preview``，返回其 result 字典

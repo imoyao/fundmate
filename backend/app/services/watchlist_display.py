@@ -785,27 +785,42 @@ def list_items_paginated(db, family_id: int, params: dict) -> tuple[list, int]:
     offset = (page - 1) * per_page
     if params['status'] == 'HOLDING':
         data = list_holding_items(
-            db, family_id, venue=params['venue'], search=params['search'],
-            asset_types=params['asset_types'], defer_display=True,
+            db,
+            family_id,
+            venue=params['venue'],
+            search=params['search'],
+            asset_types=params['asset_types'],
+            defer_display=True,
         )
         data = apply_user_sort(data, params['sort_by'], params['sort_order'])
         total = len(data)
         return fill_page_display_fields(data[offset : offset + per_page], db, lite), total
-    if not params['status'] and not (
-        params['symbol'] or params['market'] or params['tag_id'] or params['asset_types']
-    ):
+    if not params['status'] and not (params['symbol'] or params['market'] or params['tag_id'] or params['asset_types']):
         data = build_all_items(
-            db, family_id, venue=params['venue'], search=params['search'],
-            tag_ids_str=params['tag_ids_str'], favorite=params['favorite'],
-            group_id=params['group_id'], defer_display=True,
+            db,
+            family_id,
+            venue=params['venue'],
+            search=params['search'],
+            tag_ids_str=params['tag_ids_str'],
+            favorite=params['favorite'],
+            group_id=params['group_id'],
+            defer_display=True,
         )
         data = apply_user_sort(data, params['sort_by'], params['sort_order'])
         total = len(data)
         return fill_page_display_fields(data[offset : offset + per_page], db, lite), total
     query, _total = get_filtered_items_query(
-        db, family_id, status=params['status'], venue=params['venue'], market=params['market'],
-        group_id=params['group_id'], search=params['search'], favorite=params['favorite'],
-        symbol=params['symbol'], tag_ids_str=params['tag_ids_str'], tag_id=params['tag_id'],
+        db,
+        family_id,
+        status=params['status'],
+        venue=params['venue'],
+        market=params['market'],
+        group_id=params['group_id'],
+        search=params['search'],
+        favorite=params['favorite'],
+        symbol=params['symbol'],
+        tag_ids_str=params['tag_ids_str'],
+        tag_id=params['tag_id'],
         asset_types=params['asset_types'],
     )
     items = query.order_by(WatchlistItem.is_pinned.desc(), WatchlistItem.updated_at.desc()).all()
@@ -825,18 +840,28 @@ def export_items_rows(db, family_id: int, params: dict) -> list:
     """
     if params['status'] == 'HOLDING':
         return list_holding_items(db, family_id, venue=params['venue'], search=params['search'])
-    if not params['status'] and not (
-        params['symbol'] or params['market'] or params['tag_id'] or params['asset_types']
-    ):
+    if not params['status'] and not (params['symbol'] or params['market'] or params['tag_id'] or params['asset_types']):
         return build_all_items(
-            db, family_id, venue=params['venue'], search=params['search'],
-            tag_ids_str=params['tag_ids_str'], favorite=params['favorite'],
+            db,
+            family_id,
+            venue=params['venue'],
+            search=params['search'],
+            tag_ids_str=params['tag_ids_str'],
+            favorite=params['favorite'],
             group_id=params['group_id'],
         )
     query, _total = get_filtered_items_query(
-        db, family_id, status=params['status'], venue=params['venue'], market=params['market'],
-        group_id=params['group_id'], search=params['search'], favorite=params['favorite'],
-        symbol=params['symbol'], tag_ids_str=params['tag_ids_str'], tag_id=params['tag_id'],
+        db,
+        family_id,
+        status=params['status'],
+        venue=params['venue'],
+        market=params['market'],
+        group_id=params['group_id'],
+        search=params['search'],
+        favorite=params['favorite'],
+        symbol=params['symbol'],
+        tag_ids_str=params['tag_ids_str'],
+        tag_id=params['tag_id'],
         asset_types=params['asset_types'],
     )
     return [enrich_item(item, db, family_id) for item in query.all()]

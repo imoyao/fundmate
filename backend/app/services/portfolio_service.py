@@ -48,9 +48,7 @@ def build_portfolio_holdings(db, family_id: int, portfolio_id: int) -> list[dict
     # 关联账户 ID 列表（组合 = 默认组合指向本组合的账户集合）
     ledger_ids = [
         row[0]
-        for row in db.query(Ledger.id)
-        .filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == family_id)
-        .all()
+        for row in db.query(Ledger.id).filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == family_id).all()
     ]
     if not ledger_ids:
         return []
