@@ -30,16 +30,13 @@ from app.domains.ocr.schemas import OCRParseTextRequest, OCRRecognizeRequest
 from app.services.ai_recognizer import guards
 from app.services.ai_recognizer.registry import get_recognizer
 from app.services.import_records import StandardHoldingRecord
+from app.services.importer.candidates import apply_row_display_fields, txn_candidates_to_records
 from app.services.importer.orchestrator import ImportOrchestrator
-from app.services.ocr_service import txn_candidates_to_rows as svc_txn_candidates_to_rows
 
 ocr_bp = APIBlueprint('ocr', __name__, url_prefix='/api/ocr')
 
 # 单次最多返回多少条（防单次调用爆量）
 OCR_MAX_ITEMS = 30
-
-# 支持的业务类型（AI 识别范围：基金申赎为主，股票买卖；与 TxnRecognizer 对齐）
-SUPPORTED_OP_TYPES = {'buy', 'sell', 'dividend_cash', 'dividend_reinvest'}
 
 
 def _current_user_id() -> int:
@@ -56,6 +53,32 @@ def _ledger_name(ledger_id) -> str:
     with get_db() as db:
         ledger = db.query(Ledger).filter(Ledger.id == ledger_id, Ledger.family_id == get_family_id()).first()
         return ledger.name if ledger else ''
+
+
+def _txn_candidates_to_rows(items: list, ledger_id) -> list:
+    """交易候选行 → importer 预览行（enrich/哈希/去重走 ImportOrchestrator.preview_records）。
+
+    与下沉前逐字段一致：候选行 business_type 仅保留 SUPPORTED_OP_TYPES；确认日优先、
+    缺失回退申请日、再回退今日；金额缺失但份额+净值齐 → 推算（净值*份额）；映射为
+    StandardTransactionRecord 后复用既有管线；提交阶段由前端 POST /api/importers/confirm
+    处理。返回行回填 op_type_label / warnings / trade_date 展示字段。
+
+    分层：纯转换（候选 dict → 标准记录 / 展示字段回填）在
+    ``services/importer/candidates.py``；「开会话 + 调 orchestrator」属**视图层编排**
+    （D26：视图只做入参解析 / 调服务 / 组响应），故留在此处——与 ``_holding_candidates_to_rows`` 对称。
+    """
+    if not items:
+        return []
+
+    records = txn_candidates_to_records(items)
+
+    from app.core.database import get_session
+
+    with get_session() as db:
+        orch = ImportOrchestrator(db, get_family_id())
+        result = orch.preview_records(records, _ledger_name(ledger_id), ledger_id, source=PositionSource.AI_TXN.value)
+
+    return apply_row_display_fields(result['rows'], items)
 
 
 def _holding_candidates_to_rows(items: list, ledger_id) -> list:
@@ -137,7 +160,7 @@ def ocr_recognize():
     guards.record_success(user_id)
     logger.info('AI 图片识别完成 user={} scenario={} items={}', user_id, recognizer.key, len(items))
     if recognizer.key == 'txn_import':
-        rows = svc_txn_candidates_to_rows(items, request.args.get('ledger_id', type=int))
+        rows = _txn_candidates_to_rows(items, request.args.get('ledger_id', type=int))
         return jsonify(
             {
                 'data': {'scenario': recognizer.key, 'rows': rows[:OCR_MAX_ITEMS], 'usage': usage},
@@ -173,7 +196,7 @@ def ocr_parse_text():
     guards.record_success(user_id)
     logger.info('AI 文本识别完成 user={} scenario={} items={}', user_id, recognizer.key, len(items))
     if recognizer.key == 'txn_import':
-        rows = svc_txn_candidates_to_rows(items, request.args.get('ledger_id', type=int))
+        rows = _txn_candidates_to_rows(items, request.args.get('ledger_id', type=int))
         return jsonify(
             {
                 'data': {'scenario': recognizer.key, 'rows': rows[:OCR_MAX_ITEMS], 'usage': usage},

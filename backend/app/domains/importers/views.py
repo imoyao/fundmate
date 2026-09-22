@@ -14,8 +14,6 @@ from app.core.exceptions import SBException
 from app.domains.ledgers.models import Ledger
 from app.services.importer.orchestrator import ImportOrchestrator
 from app.services.importer.template_config import get_template_filepath, get_template_info
-from app.services.importer_service import parse_holding_file as svc_parse_holding
-from app.services.importer_service import parse_transaction_file as svc_parse_transaction
 
 # 蓝图定义
 importers_bp = APIBlueprint('importers', __name__, url_prefix='/api/importers')
@@ -140,9 +138,10 @@ def parse_file():
 
     try:
         with get_db() as db:
+            orch = ImportOrchestrator(db, get_family_id())
             # ledger_id 必须透传：预览行携带 ledger_id 回传后，confirm 才能定位账户
             # （否则落库 ledger_id=None，且 (ledger_id, import_hash) 去重永久失效，见 #1010 排查）
-            result = svc_parse_transaction(db, get_family_id(), raw_bytes, template_key, frontend_account, ledger_id)
+            result = orch.parse_and_preview(raw_bytes, template_key, frontend_account, ledger_id)
             # 记录日志
             logger.info(
                 f'文件解析完成: 文件={file.filename}, 模板={template_key}, '
@@ -209,7 +208,8 @@ def parse_holding_file():
 
     try:
         with get_db() as db:
-            result = svc_parse_holding(db, get_family_id(), raw_bytes, source, ledger_id)
+            orch = ImportOrchestrator(db, get_family_id())
+            result = orch.parse_and_preview_holdings(raw_bytes, source, ledger_id=ledger_id)
             logger.info(
                 f'持仓文件解析完成: 文件={file.filename}, source={source}, '
                 f'总记录={result["total"]}, 错误={result["error_count"]}, 重复={result["duplicate_count"]}'

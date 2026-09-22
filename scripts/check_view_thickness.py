@@ -76,29 +76,43 @@ NEW_FILE_LIMITS = {
 # 改为 `flush()`（#1640 / `conventions.md` §2.13），基线 `commits` 3 → 0 —— **至此全仓视图层 `commits` 归零**
 # （#1609 batch 2/3/4 收敛 41 处 + #1640 收敛 3 处）。该维度自此进入**零容忍**：任何视图再出现 `commit()`
 # 都会被基线拦下（把 `flush` 改回 `commit` 亦然），不必再依赖「只减不增」的存量冻结。
+# 2026-09-22 收紧（#1642 B 块）：把 portfolios / strategy / funds / positions / transactions /
+# importers / ocr / watchlist 共 8 个视图的超长函数（原 max_func 最高 150）下沉到 `app/services/`，
+# 视图只留「入参解析 + 调服务 + 组响应信封」；业务语义逐字段不变、对外 API 契约零变更。
+# 按 `--report` 实测回写：funds 324/9/94 → 197/2/39、strategy 239/9/98 → 144/5/22、
+# portfolios 266/5/104 → 166/1/29、positions 373/8/81 → 288/6/57、transactions 198/4/76 → 136/2/60、
+# importers 254/1/74 → 249/1/53、ocr 262/1/69 → 214/1/48、watchlist 712/14/104 → 622/14/53；
+# 全部 max_func 已 ≤ 60。`ledgers` 沿用合入前 dev 的 #1651 A 块数字（723/16/60），未回退。
+# **两处比「只减不增」更松，是刻意的**：初稿把「构造 orchestrator → 调 parse_and_preview」抽成
+# `services/importer_service.py`（零逻辑的转发壳），并给 `services/ocr_service.py` 塞入转换逻辑 ——
+# 后者触发 R6（领域服务不得反向依赖编排层，`decisions.md` D25/D32），且违反该模块自身
+# 「本文件勿再堆业务逻辑」的 facade 约定。现改为：纯转换落 `services/importer/candidates.py`，
+# 「开会话 + 调 orchestrator」留在视图（`views → services` 是合法边，D26 视图职责即「调服务」）。
+# 代价是 importers max_func +1（52 → 53）、ocr lines +23（191 → 214），两者仍 ≤ 60 / 远低于基线；
+# 用 +1 行换掉一条违规边与一个空壳模块，账是划算的。基线只减不增。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/assets/views.py": {"lines": 208, "orm_queries": 4, "commits": 0, "max_func": 44},
     "backend/app/domains/auth/views.py": {"lines": 137, "orm_queries": 3, "commits": 0, "max_func": 45},
     "backend/app/domains/families/views.py": {"lines": 72, "orm_queries": 2, "commits": 0, "max_func": 22},
-    "backend/app/domains/funds/views.py": {"lines": 324, "orm_queries": 9, "commits": 0, "max_func": 94},
-    "backend/app/domains/importers/views.py": {"lines": 254, "orm_queries": 1, "commits": 0, "max_func": 74},
+    "backend/app/domains/funds/views.py": {"lines": 197, "orm_queries": 2, "commits": 0, "max_func": 39},
+    "backend/app/domains/importers/views.py": {"lines": 249, "orm_queries": 1, "commits": 0, "max_func": 53},
     "backend/app/domains/ledgers/views.py": {"lines": 723, "orm_queries": 16, "commits": 0, "max_func": 60},
     "backend/app/domains/market/views.py": {"lines": 50, "orm_queries": 0, "commits": 0, "max_func": 35},
-    "backend/app/domains/ocr/views.py": {"lines": 262, "orm_queries": 1, "commits": 0, "max_func": 69},
+    "backend/app/domains/ocr/views.py": {"lines": 214, "orm_queries": 1, "commits": 0, "max_func": 48},
     "backend/app/domains/performance/views.py": {"lines": 93, "orm_queries": 1, "commits": 0, "max_func": 36},
-    "backend/app/domains/portfolios/views.py": {"lines": 266, "orm_queries": 5, "commits": 0, "max_func": 104},
-    "backend/app/domains/positions/views.py": {"lines": 373, "orm_queries": 8, "commits": 0, "max_func": 81},
+    "backend/app/domains/portfolios/views.py": {"lines": 166, "orm_queries": 1, "commits": 0, "max_func": 29},
+    "backend/app/domains/positions/views.py": {"lines": 288, "orm_queries": 6, "commits": 0, "max_func": 57},
     "backend/app/domains/reconciliation/views.py": {"lines": 225, "orm_queries": 2, "commits": 0, "max_func": 48},
     "backend/app/domains/search/views.py": {"lines": 25, "orm_queries": 0, "commits": 0, "max_func": 7},
     "backend/app/domains/securities/views.py": {"lines": 72, "orm_queries": 1, "commits": 0, "max_func": 35},
-    "backend/app/domains/strategy/views.py": {"lines": 239, "orm_queries": 9, "commits": 0, "max_func": 98},
+    "backend/app/domains/strategy/views.py": {"lines": 144, "orm_queries": 5, "commits": 0, "max_func": 22},
     "backend/app/domains/summary/views.py": {"lines": 141, "orm_queries": 0, "commits": 0, "max_func": 20},
     "backend/app/domains/temperature/views.py": {"lines": 140, "orm_queries": 0, "commits": 0, "max_func": 38},
-    "backend/app/domains/transactions/views.py": {"lines": 198, "orm_queries": 4, "commits": 0, "max_func": 76},
+    "backend/app/domains/transactions/views.py": {"lines": 136, "orm_queries": 2, "commits": 0, "max_func": 60},
     "backend/app/domains/usage/views.py": {"lines": 68, "orm_queries": 0, "commits": 0, "max_func": 27},
     "backend/app/domains/users/views.py": {"lines": 115, "orm_queries": 4, "commits": 0, "max_func": 38},
     "backend/app/domains/utils/views.py": {"lines": 126, "orm_queries": 0, "commits": 0, "max_func": 38},
-    "backend/app/domains/watchlist/views.py": {"lines": 712, "orm_queries": 14, "commits": 0, "max_func": 104},
+    "backend/app/domains/watchlist/views.py": {"lines": 622, "orm_queries": 14, "commits": 0, "max_func": 53},
 }
 
 # 冻结的 legacy 视图集（#1606 批次 1 下沉后、2026-09-19 冻结时存在的 22 个路径）。
