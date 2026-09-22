@@ -11,7 +11,12 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
-from app.core.symbol_utils import get_normalizer, market_of_cn_a_code
+from app.core.symbol_utils import (
+    derive_security_type,
+    get_normalizer,
+    market_of_cn_a_code,
+    split_symbol,
+)
 from app.services.adapters.base import DataSourceAdapter
 
 # 基金经理全量接口（东财 fund_manager_em）偶发抖动，首次拉取的有限重试策略
@@ -82,13 +87,18 @@ class AkshareAdapter(DataSourceAdapter):
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
     ) -> List[dict]:
-        """
-        获取 A 股股票历史行情（使用新浪财经接口 ak.stock_zh_a_daily）
+        """获取场内证券历史日线（按品类分派数据源：股票 / ETF / 可转债）。
 
-        Args:
-            symbol: 标准化代码，如 SH600519, SZ000001
-            start_date: 起始日期，默认一年前
-            end_date: 结束日期，默认今天
+        口径（#1104 场内拍板）：`close` 存**未复权**收盘价——最新价展示、持仓盈亏、
+        每日收益日历都用它；`adj_close` 存**前复权**收盘价——区间收益 / 回撤 /
+        收益率曲线用它。两者不可混用：前复权价在分红除权时会整体重算，若拿它当
+        「当日收盘价」写进 `positions.current_price`，历史值与盈亏会随之漂移
+        （原实现 `adjust='qfq'` 且 `adj_close` 直接等于 `close`，等于没有区分口径）。
+
+        数据源：
+        - 股票：新浪 `stock_zh_a_daily`（沪 `sh600519` / 深 `sz000001`）
+        - ETF：东财 `fund_etf_hist_em`（裸 6 位码，中文列名统一映射）
+        - 可转债：新浪 `bond_zh_hs_cov_daily`，不做复权（转股 / 强赎不改变历史成交价）
 
         Returns:
             包含字段: symbol, trade_date, open, high, low, close, volume, adj_close, source
@@ -96,61 +106,146 @@ class AkshareAdapter(DataSourceAdapter):
         from app.core.akshare_lazy import get_akshare
 
         ak = get_akshare()
+        market, code = split_symbol(symbol)
+        if not market or not code:
+            logger.warning(f'无法解析场内代码: {symbol}')
+            return []
 
+        if start_date is None:
+            start_date = date.today() - timedelta(days=365)
+        if end_date is None:
+            end_date = date.today()
+
+        sec_type = derive_security_type(code, market) or 'stock'
         try:
-            normalizer = get_normalizer()
-            # 直接使用已有的 to_sina_code 方法
-            sina_symbol = normalizer.to_sina_code(symbol)
-            if not sina_symbol:
-                logger.warning(f'无法转换为新浪代码: {symbol}')
+            raw = self._fetch_daily_frame(ak, sec_type, market, code, start_date, end_date, adjust='')
+            if raw is None or raw.empty:
+                logger.info(f'{symbol} 在 {start_date} ~ {end_date} 无行情数据')
                 return []
 
-            # 默认日期范围：最近一年
-            if start_date is None:
-                start_date = date.today() - timedelta(days=365)
-            if end_date is None:
-                end_date = date.today()
-
-            start_str = start_date.strftime('%Y-%m-%d')
-            end_str = end_date.strftime('%Y-%m-%d')
-
-            logger.debug(f'请求新浪日线: {sina_symbol} {start_str} -> {end_str}')
-
-            # 调用新浪接口
-            df = ak.stock_zh_a_daily(symbol=sina_symbol, start_date=start_str, end_date=end_str, adjust='qfq')
-
-            if df is None or df.empty:
-                logger.info(f'{symbol} 在 {start_str} ~ {end_str} 无行情数据')
-                return []
+            adj_map = self._fetch_adj_close_map(ak, sec_type, market, code, start_date, end_date)
 
             records = []
-            for _, row in df.iterrows():
-                trade_date_raw = row['date']
-                if isinstance(trade_date_raw, str):
-                    trade_date = datetime.strptime(trade_date_raw, '%Y-%m-%d').date()
-                else:
-                    trade_date = trade_date_raw.date() if hasattr(trade_date_raw, 'date') else trade_date_raw
-
+            for _, row in raw.iterrows():
+                trade_date = self._to_date(row.get('date'))
+                close = self._num(row.get('close'))
+                if trade_date is None or close is None:
+                    continue
+                # 本地再筛一次区间：可转债接口（bond_zh_hs_cov_daily）不接受 start/end
+                # 参数、一次吐回全部历史（实测 1231 行），不复筛会把无关历史整段搬去写库
+                if trade_date < start_date or trade_date > end_date:
+                    continue
                 records.append(
                     {
                         'symbol': symbol,
                         'trade_date': trade_date,
-                        'open': float(row['open']),
-                        'high': float(row['high']),
-                        'low': float(row['low']),
-                        'close': float(row['close']),
-                        'volume': float(row['volume']),
-                        'adj_close': float(row['close']),
-                        'source': 'akshare_sina',
+                        'open': self._num(row.get('open')),
+                        'high': self._num(row.get('high')),
+                        'low': self._num(row.get('low')),
+                        'close': close,
+                        'volume': self._num(row.get('volume')),
+                        # 前复权价缺失时回退未复权价，宁可口径降级也不留空
+                        'adj_close': adj_map.get(trade_date, close),
+                        'source': 'akshare_em' if sec_type == 'etf' else 'akshare_sina',
                     }
                 )
 
-            logger.debug(f'{symbol} 获取到 {len(records)} 条行情')
+            logger.debug(f'{symbol}({sec_type}) 获取到 {len(records)} 条行情')
             return records
 
         except Exception as e:
-            logger.error(f'获取股票 {symbol} 历史行情失败: {e}')
+            logger.error(f'获取 {symbol} 历史行情失败: {e}')
             return []
+
+    # 东财日线中文列 → 统一英文列（新浪两个接口本身已是英文列）
+    _EM_DAILY_COLUMN_MAP = {
+        '日期': 'date',
+        '开盘': 'open',
+        '收盘': 'close',
+        '最高': 'high',
+        '最低': 'low',
+        '成交量': 'volume',
+    }
+
+    def _fetch_daily_frame(self, ak, sec_type: str, market: str, code: str, start_date: date, end_date: date, adjust: str):
+        """按品类取日线 DataFrame，列名统一为 date/open/high/low/close/volume（#1104）。"""
+        if sec_type == 'etf':
+            df = self._fetch_etf_frame(ak, market, code, start_date, end_date, adjust)
+        elif sec_type == 'bond':
+            # 可转债接口无复权参数
+            df = ak.bond_zh_hs_cov_daily(symbol=f'{market.lower()}{code}')
+        else:
+            df = ak.stock_zh_a_daily(
+                symbol=f'{market.lower()}{code}',
+                start_date=start_date.strftime('%Y-%m-%d'),
+                end_date=end_date.strftime('%Y-%m-%d'),
+                adjust=adjust,
+            )
+        # rename 对不存在的列无副作用：新浪两接口本身是英文列，东财是中文列
+        return None if df is None else df.rename(columns=self._EM_DAILY_COLUMN_MAP)
+
+    def _fetch_etf_frame(self, ak, market: str, code: str, start_date: date, end_date: date, adjust: str):
+        """ETF 日线：东财优先（支持复权），失败回退新浪（无复权）。
+
+        为什么必须带回退：2026-09-22 实测 push2his.eastmoney.com 对本机直接
+        `RemoteDisconnected`（时通时断），单源会让 8 只 ETF 持仓的日线整体 0 行。
+        新浪源不支持复权参数，故只在取**未复权**数据（adjust=''）时回退；
+        复权请求失败返回 None，由 `_fetch_adj_close_map` 让 adj_close 回退 close。
+        新浪源返回全历史且无日期参数，区间裁剪由 `fetch_stock_price` 统一完成。
+        """
+        try:
+            df = ak.fund_etf_hist_em(
+                symbol=code,
+                period='daily',
+                start_date=start_date.strftime('%Y%m%d'),
+                end_date=end_date.strftime('%Y%m%d'),
+                adjust=adjust,
+            )
+            if df is not None and not df.empty:
+                return df
+        except Exception as e:
+            self.logger.warning(f'东财 ETF 日线失败（{code} adjust={adjust!r}）: {e}')
+        if adjust:
+            return None
+        return ak.fund_etf_hist_sina(symbol=f'{market.lower()}{code}')
+
+    def _fetch_adj_close_map(self, ak, sec_type: str, market: str, code: str, start_date: date, end_date: date) -> dict:
+        """前复权收盘价 {trade_date: close}；取不到返回空 dict，由调用方回退 close。"""
+        if sec_type == 'bond':
+            return {}
+        try:
+            df = self._fetch_daily_frame(ak, sec_type, market, code, start_date, end_date, adjust='qfq')
+            if df is None or df.empty:
+                return {}
+            out = {}
+            for _, row in df.iterrows():
+                d = self._to_date(row.get('date'))
+                c = self._num(row.get('close'))
+                if d is not None and c is not None:
+                    out[d] = c
+            return out
+        except Exception as e:
+            self.logger.warning(f'{code} 前复权价获取失败，adj_close 回退 close: {e}')
+            return {}
+
+    @staticmethod
+    def _to_date(value) -> Optional[date]:
+        """宽松转 date：兼容 datetime / date / 'YYYY-MM-DD' / 'YYYYMMDD'。"""
+        if value is None:
+            return None
+        if isinstance(value, datetime):  # datetime 是 date 的子类，须先判
+            return value.date()
+        if isinstance(value, date):
+            return value
+        s = str(value).strip()
+        if not s:
+            return None
+        for fmt in ('%Y-%m-%d', '%Y%m%d'):
+            try:
+                return datetime.strptime(s[:10], fmt).date()
+            except ValueError:
+                continue
+        return None
 
     def fetch_stock_list(self, market: Optional[str] = None) -> List[dict]:
         """获取 A 股股票（含沪深北）"""
