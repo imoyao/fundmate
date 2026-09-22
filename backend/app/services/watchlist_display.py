@@ -317,11 +317,22 @@ def enrich_item(item: WatchlistItem, db, family_id: int, defer_display: bool = F
     if not defer_display:
         apply_deferred_display_fields(out, item.symbol, item.asset_type, db)
 
-    # 补充价格与市值信息（从持仓表计算静态值）
+    # 最新价 / 涨跌幅（#1104）：优先「最近交易日收盘价（场内）/ 确认净值（场外基金）」，
+    # 二者都没有才兜底到持仓快照 positions.current_price。
+    # 为什么不直接用持仓快照：它只覆盖**有持仓**的标的，且场内长期不刷新
+    # （导入那天的快照，实测与实时价偏差 -63%）——未持仓的自选行则完全没有价。
     position_value = _compute_position_market_value(item.symbol, db, family_id)
-    current_price = _compute_avg_current_price(item.symbol, db, family_id)
-    out['current_price'] = round(current_price, 2) if current_price else None
-    out['change_pct'] = None  # 暂不提供，后续可通过元数据同步填充
+    quote = _compute_latest_quote(item.symbol, db)
+    if quote:
+        out['current_price'] = round(quote['close'], 4)
+        out['change_pct'] = quote['change_pct']
+        # 数据日期：前端据此判断新鲜度（旧值不得冒充最新价），无行情时为 None
+        out['price_as_of'] = quote['trade_date'].isoformat() if quote['trade_date'] else None
+    else:
+        current_price = _compute_avg_current_price(item.symbol, db, family_id)
+        out['current_price'] = round(current_price, 2) if current_price else None
+        out['change_pct'] = None
+        out['price_as_of'] = None
     out['position_market_value'] = round(position_value, 2)
 
     # 真实持仓统计（自选页信息密度扩充，watchlist-table-redesign-2026-08-13.md P0/P1）
@@ -418,6 +429,56 @@ def _compute_avg_current_price(symbol, db, family_id: int):
         .scalar()
     )
     return Money.price_units_to_yuan(avg_price_units) if avg_price_units else 0.0
+
+
+def _compute_latest_quote(symbol, db) -> dict | None:
+    """最近交易日的静态行情项：收盘价（场内）/ 确认净值（场外基金）+ 涨跌幅（#1104）。
+
+    取数优先级与「当前价」口径：
+    - 场内（股票 / ETF / 可转债）→ `price_history.close`，**未复权**。刻意不用
+      `adj_close`：那是前复权价，会随分红除权重算，不能当「当前价」展示 / 算盈亏；
+    - 场外基金 → `daily_worth.unit_nav`（6 位纯数字代码）；
+    - 都没有（组合 / 经理行、或行情未回补）→ None，由调用方回退持仓快照。
+
+    为什么要它：`positions.current_price` 只覆盖**有持仓**的标的，未持仓的自选行
+    完全没有价；且场内那份长期不被刷新（导入快照）。有了本函数，自选页「最新价」
+    对任何已回补行情的标的都有值（含只观察不持有的标的）。
+    """
+    rows = (
+        db.query(PriceHistory.trade_date, PriceHistory.close)
+        .filter(PriceHistory.symbol == symbol, PriceHistory.close.isnot(None))
+        .order_by(PriceHistory.trade_date.desc())
+        .limit(2)
+        .all()
+    )
+    if rows:
+        quote = _build_quote(rows[0][0], rows[0][1], rows[1][1] if len(rows) > 1 else None)
+        if quote:
+            return quote
+
+    if symbol and len(symbol) == 6 and symbol.isdigit():
+        nav_rows = (
+            db.query(DailyWorth.date, DailyWorth.unit_nav)
+            .filter(DailyWorth.fund_code == symbol, DailyWorth.unit_nav.isnot(None))
+            .order_by(DailyWorth.date.desc())
+            .limit(2)
+            .all()
+        )
+        if nav_rows:
+            return _build_quote(nav_rows[0][0], nav_rows[0][1], nav_rows[1][1] if len(nav_rows) > 1 else None)
+    return None
+
+
+def _build_quote(trade_date, close, prev_close) -> dict | None:
+    """组装行情项：价格无效返回 None；涨跌幅样本不足（只有一根）时为 None。"""
+    close_value = _to_float(close)
+    if close_value is None or close_value <= 0:
+        return None
+    change_pct = None
+    prev_value = _to_float(prev_close)
+    if prev_value:
+        change_pct = round((close_value - prev_value) / prev_value * 100, 2)
+    return {'trade_date': trade_date, 'close': close_value, 'change_pct': change_pct}
 
 
 def list_holding_items(db, family_id, venue=None, search=None, asset_types=None, defer_display=False):
