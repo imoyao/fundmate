@@ -86,6 +86,8 @@ ENV_TEMPERATURE_ENABLED = 'SCHEDULER_TEMPERATURE_ENABLED'
 ENV_TEMPERATURE_CRON = 'SCHEDULER_TEMPERATURE_CRON'
 ENV_NAV_ENABLED = 'SCHEDULER_NAV_ENABLED'
 ENV_NAV_CRON = 'SCHEDULER_NAV_CRON'
+ENV_PRICE_HISTORY_ENABLED = 'SCHEDULER_PRICE_HISTORY_ENABLED'
+ENV_PRICE_HISTORY_CRON = 'SCHEDULER_PRICE_HISTORY_CRON'
 ENV_POSITION_PRICE_ENABLED = 'SCHEDULER_POSITION_PRICE_ENABLED'
 ENV_POSITION_PRICE_CRON = 'SCHEDULER_POSITION_PRICE_CRON'
 ENV_ADVISOR_ENABLED = 'SCHEDULER_ADVISOR_ENABLED'
@@ -96,7 +98,10 @@ DEFAULT_TIMEZONE = 'Asia/Shanghai'
 DEFAULT_TEMPERATURE_CRON = '0 20 * * *'
 # 基金净值：场外净值 19:00~24:00 陆续公布
 DEFAULT_NAV_CRON = '30 21 * * *'
-# 持仓现价回写（#1104）：**必须晚于净值同步**——它读的就是 daily_worth 刚落库的确认净值。
+# 场内日线（#1104）：A 股 15:00 收盘，日线数据盘后发布（ETF 两源当日 K 线常要次日才齐，
+# 由缺口回补在下一次运行时补齐）。**必须早于持仓现价回写**——后者读的就是这里落库的收盘价。
+DEFAULT_PRICE_HISTORY_CRON = '30 17 * * *'
+# 持仓现价回写（#1104）：净值走 daily_worth、场内走 price_history，故**必须晚于两者**。
 # 与投顾组合（22:00）错开 15 分钟，避免两个 job 同时抢同一个 DB 会话与磁盘。
 DEFAULT_POSITION_PRICE_CRON = '15 22 * * *'
 # 投顾组合：排在净值之后——且慢调仓快照带当日净值占比，且调仓多发生在盘后，
@@ -172,6 +177,19 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[str], str], ...] = (
         '自选 + 持仓的基金净值（当日增量）',
     ),
     (
+        # 场内日线（#1104）：本机调度原先**不含**本 job，股票行情只靠 CI 每天跑一次，
+        # 且增量写死「昨天→今天」没有任何自愈能力——结果持仓股票的最后行情停在 8/28，
+        # 自选页最新价只能回落到导入快照。现增量已改为缺口回补（见 PriceHistorySyncJob）。
+        # target_kind='stock'：目标池由 resolve_targets() 现取（持仓 + 自选的场内代码），
+        # 空 targets 时 job 自己跳过，不会退化为全库。
+        'price_history',
+        ENV_PRICE_HISTORY_ENABLED,
+        ENV_PRICE_HISTORY_CRON,
+        DEFAULT_PRICE_HISTORY_CRON,
+        'stock',
+        '场内日线（股票 / ETF / 可转债，按缺口回补）',
+    ),
+    (
         # 持仓现价回写（#1104）：把 daily_worth 的确认净值写回 positions.current_price，
         # 否则「导入时 avg_price == current_price」会让盈亏恒为 0。
         # target_kind=None：目标池是**持仓表本身**（user 域），不是 fund/stock 代码池；
@@ -181,7 +199,7 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[str], str], ...] = (
         ENV_POSITION_PRICE_CRON,
         DEFAULT_POSITION_PRICE_CRON,
         None,
-        '持仓现价回写（T-1 确认净值 → 盈亏非零，#1104）',
+        '持仓现价回写（确认净值 / 场内收盘价 → 盈亏非零，#1104）',
     ),
     (
         # 投顾组合持仓/调仓快照（#1468）。target_kind 留 None 是刻意的：

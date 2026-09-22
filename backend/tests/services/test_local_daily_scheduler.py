@@ -51,11 +51,17 @@ def _reset_singleton():
 
 
 class TestLoadConfig:
-    def test_default_is_disabled_with_four_jobs(self):
+    def test_default_is_disabled_with_five_jobs(self):
         cfg = ds.load_config({})
         # 必须显式打开：否则 conftest 每个用例都会 create_app()，测试里就会真的起抓取线程
         assert cfg.enabled is False
-        assert cfg.job_names() == ['temperature', 'fund_nav', 'position_price', 'advisor_portfolio']
+        assert cfg.job_names() == [
+            'temperature',
+            'fund_nav',
+            'price_history',
+            'position_price',
+            'advisor_portfolio',
+        ]
         assert cfg.timezone == ds.DEFAULT_TIMEZONE
         assert cfg.skip_non_trading_day is True
         assert cfg.run_on_start is True
@@ -63,11 +69,14 @@ class TestLoadConfig:
         crons = {spec.job_name: spec.cron for spec in cfg.jobs}
         assert crons['temperature'] == ds.DEFAULT_TEMPERATURE_CRON
         assert crons['fund_nav'] == ds.DEFAULT_NAV_CRON
+        assert crons['price_history'] == ds.DEFAULT_PRICE_HISTORY_CRON
         assert crons['position_price'] == ds.DEFAULT_POSITION_PRICE_CRON
         assert crons['advisor_portfolio'] == ds.DEFAULT_ADVISOR_CRON
-        # 顺序即依赖（#1104）：现价回写读的是净值 job 刚落库的 daily_worth，
-        # 早于净值会写到昨天的口径——故这里显式钉住「净值在前、回写在后」。
-        assert cfg.job_names().index('fund_nav') < cfg.job_names().index('position_price')
+        # 顺序即依赖（#1104）：现价回写读的是净值 job 刚落库的 daily_worth、
+        # 以及场内日线 job 刚落库的 price_history.close，早于两者会写到旧口径。
+        names = cfg.job_names()
+        assert names.index('fund_nav') < names.index('position_price')
+        assert names.index('price_history') < names.index('position_price')
 
     def test_position_price_job_has_no_target_kind(self):
         """现价回写的目标池是**持仓表本身**（user 域），不是 fund/stock 代码池。
@@ -92,7 +101,13 @@ class TestLoadConfig:
 
     def test_advisor_job_can_be_disabled_alone(self):
         cfg = ds.load_config({ds.ENV_ENABLED: 'true', ds.ENV_ADVISOR_ENABLED: '0'})
-        assert cfg.job_names() == ['temperature', 'fund_nav', 'position_price']
+        assert cfg.job_names() == ['temperature', 'fund_nav', 'price_history', 'position_price']
+
+    def test_price_history_job_targets_stock_pool(self):
+        """场内日线（#1104）必须带 'stock' 目标池：丢了 target_kind 会拿空池「成功」空跑。"""
+        cfg = ds.load_config({})
+        spec = next(s for s in cfg.jobs if s.job_name == 'price_history')
+        assert spec.target_kind == 'stock'
 
     @pytest.mark.parametrize('raw,expected', [('1', True), ('true', True), ('on', True), ('0', False), ('no', False)])
     def test_enabled_switch_parsing(self, raw, expected):
@@ -105,6 +120,7 @@ class TestLoadConfig:
                 ds.ENV_TEMPERATURE_ENABLED: '0',
                 ds.ENV_ADVISOR_ENABLED: '0',
                 ds.ENV_POSITION_PRICE_ENABLED: '0',
+                ds.ENV_PRICE_HISTORY_ENABLED: '0',
                 ds.ENV_NAV_CRON: '5 22 * * 1-5',
             }
         )
