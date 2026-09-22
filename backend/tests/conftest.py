@@ -38,10 +38,9 @@ def app(monkeypatch):
     monkeypatch.setattr('app.core.database.user_engine', test_engine)
     # 不再替换 SessionLocal maker：改为重定向引擎，使所有（含导入期早绑定的）SessionLocal()
     # 调用经 _engine_for 解析到内存库，从而删除 conftest 的「模块名清单」式补丁（见 #1608）。
-    # 引擎重定向后必须让已缓存的域路由 binds 失效，否则 _ROUTING_BINDS 仍指向旧引擎。
-    import app.core.database as _db_mod
-
-    _db_mod.reset_routing_binds()
+    # 域路由在**查询期**经 _engine_for 取当前引擎（#1608：不再缓存引擎），
+    # 故上面重定向即生效，不需要任何「让缓存失效」的调用（旧实现的
+    # reset_routing_binds() 已随引擎缓存一并删除）。
 
     # 双库架构支持：reconciliation 等 user 域表经 user_session 访问。
     # 测试需把 user_session 与 get_db(SessionLocal) 指向同一内存库，保证测试数据可见；

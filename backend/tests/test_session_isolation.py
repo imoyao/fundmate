@@ -4,14 +4,14 @@
 核心修复：conftest 不再替换 ``SessionLocal`` maker，而是重定向 ``engine`` / ``user_engine``；
 ``SessionLocal``（路由 maker）在调用时经 ``_engine_for`` 解析到当前引擎，因此消费方**不需要**
 被逐个打补丁，引擎重定向一处即自动落到内存库。本文件锁定这一行为，以及
-``reset_routing_binds()`` 的失效路径。
+「引擎被替换后，路由**自动**跟随当前引擎」（#1608 起改为查询期解析，已无引擎缓存）。
 
 与 #1626 的关系：本文件原先还顺带锁定了「服务在导入期早绑定的 ``SessionLocal`` 仍能解析到
 重定向引擎」。``thermometer.service`` 现已改为经 ``database.get_session()`` 晚绑定访问（不再
 在模块级持有会话工厂名字），该断言改落在单一入口本身；语义等价，见下方用例 docstring。
 """
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.pool import StaticPool
 
 
@@ -38,32 +38,33 @@ def test_single_entry_session_resolves_to_redirected_engine(app):
         session.close()
 
 
-def test_reset_routing_binds_rebuilds_with_current_engine(monkeypatch):
-    """``reset_routing_binds()`` 必须让已缓存的域路由 binds 失效，下次 ``SessionLocal()``
-    按当前引擎重建（#1608：引擎被替换后旧 binds 不应残留）。"""
+def test_routing_follows_current_engine_without_any_reset(app, monkeypatch):
+    """引擎被替换后，路由**自动**跟随当前引擎 —— 不需要任何「让缓存失效」的调用（#1608）。
+
+    演进说明：旧实现的域路由 binds 在首次开会话时把「表 → 引擎」缓存了下来，故必须显式
+    ``reset_routing_binds()``，否则残留旧引擎（原用例断言的就是这条失效路径）。现改为
+    **查询期解析**（``database._domain_for_statement`` + ``_RoutingSession.get_bind``），
+    已无引擎缓存可残留 ⇒ 断言升级为「**不调用任何 reset** 即跟随当前引擎」——
+    比「reset 之后能重建」更强：把旧实现换回来、删掉 reset，本用例即红。
+    """
     import app.core.database as db
     from app.core.database import Base
 
     eng_a = create_engine('sqlite:///:memory:', connect_args={'check_same_thread': False}, poolclass=StaticPool)
     eng_b = create_engine('sqlite:///:memory:', connect_args={'check_same_thread': False}, poolclass=StaticPool)
+    user_table = Base.metadata.tables['users']  # user 域表：必须落 user 引擎
 
-    # 同时重定向两个域引擎，避免 _build_routing_binds 触发真实引擎构造
     monkeypatch.setattr(db, 'engine', eng_a)
     monkeypatch.setattr(db, 'user_engine', eng_a)
-    db.reset_routing_binds()
-    Base.metadata.create_all(bind=eng_a)
     session_a = db.SessionLocal()
     assert session_a.bind is eng_a
+    assert session_a.get_bind(clause=select(user_table)) is eng_a
     session_a.close()
 
-    # 切换引擎并失效缓存后，新会话必须解析到新引擎
+    # 切换两个域的引擎：**不**调用任何失效函数
     monkeypatch.setattr(db, 'engine', eng_b)
     monkeypatch.setattr(db, 'user_engine', eng_b)
-    db.reset_routing_binds()
-    Base.metadata.create_all(bind=eng_b)
     session_b = db.SessionLocal()
     assert session_b.bind is eng_b
+    assert session_b.get_bind(clause=select(user_table)) is eng_b
     session_b.close()
-
-    # 清空缓存，避免陈旧 binds 泄漏到后续用例
-    db.reset_routing_binds()
