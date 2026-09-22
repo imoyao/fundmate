@@ -101,6 +101,38 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/watchlist/views.py": {"lines": 712, "orm_queries": 14, "commits": 0, "max_func": 104},
 }
 
+# 冻结的 legacy 视图集（#1606 批次 1 下沉后、2026-09-19 冻结时存在的 22 个路径）。
+# 这是「存量 / 新增」的分水岭：
+#   - 在集内的走上面 BASELINE 冻结（只减不增）；
+#   - 不在集内的（新增 / 改名后的文件）一律走 NEW_FILE_LIMITS，且**无视任何 BASELINE 条目**
+#     —— 防有人给新文件塞 fat 基线（如 500 行）绕过 400 行上限（见 #1642 C 块）。
+# 本集合必须与 BASELINE 的键**完全一致**，`test_baseline_covers_every_views_file` 强制校验，
+# 故想给新文件开后门必须同时改这里 + BASELINE + 过评审，无法静默 gaming。
+LEGACY_VIEWS: frozenset[str] = frozenset({
+    "backend/app/domains/assets/views.py",
+    "backend/app/domains/auth/views.py",
+    "backend/app/domains/families/views.py",
+    "backend/app/domains/funds/views.py",
+    "backend/app/domains/importers/views.py",
+    "backend/app/domains/ledgers/views.py",
+    "backend/app/domains/market/views.py",
+    "backend/app/domains/ocr/views.py",
+    "backend/app/domains/performance/views.py",
+    "backend/app/domains/portfolios/views.py",
+    "backend/app/domains/positions/views.py",
+    "backend/app/domains/reconciliation/views.py",
+    "backend/app/domains/search/views.py",
+    "backend/app/domains/securities/views.py",
+    "backend/app/domains/strategy/views.py",
+    "backend/app/domains/summary/views.py",
+    "backend/app/domains/temperature/views.py",
+    "backend/app/domains/transactions/views.py",
+    "backend/app/domains/usage/views.py",
+    "backend/app/domains/users/views.py",
+    "backend/app/domains/utils/views.py",
+    "backend/app/domains/watchlist/views.py",
+})
+
 
 def _rel(path: Path) -> str:
     return path.relative_to(REPO_ROOT).as_posix()
@@ -172,21 +204,27 @@ def main(argv: list[str] | None = None) -> int:
         seen.add(rel)
         metrics = collect_metrics(path)
         measured[rel] = metrics
-        baseline = BASELINE.get(rel)
+        is_legacy = rel in LEGACY_VIEWS
+        baseline = BASELINE.get(rel) if is_legacy else None
 
         if args.verbose:
-            mark = "基线" if baseline else "新增"
+            mark = "基线(legacy)" if is_legacy else "新增"
             print(f"  [{mark}] {rel}  {_fmt(metrics)}")
 
-        if baseline is None:
+        if is_legacy:
+            # legacy 走冻结基线（只减不增）；缺失基线条目按配置错误上报
+            if baseline is None:
+                violations.append((rel, "missing_baseline", 0, 0, True))
+                continue
+            for metric, budget in baseline.items():
+                if metrics[metric] > budget:
+                    violations.append((rel, metric, metrics[metric], budget, True))
+        else:
+            # 非 legacy（新增 / 改名）一律走 NEW_FILE_LIMITS；即便有人往 BASELINE 塞了
+            # fat 条目也忽略（防 gaming：给新文件塞 500 行基线绕过 400 行上限，见 #1642 C 块）。
             for metric, limit in NEW_FILE_LIMITS.items():
                 if metrics[metric] > limit:
                     violations.append((rel, metric, metrics[metric], limit, False))
-            continue
-
-        for metric, budget in baseline.items():
-            if metrics[metric] > budget:
-                violations.append((rel, metric, metrics[metric], budget, True))
 
     stale = sorted(set(BASELINE) - seen)
 

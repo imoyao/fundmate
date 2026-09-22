@@ -37,13 +37,26 @@ def test_guard_passes_on_current_repo(capsys):
 
 
 def test_baseline_covers_every_views_file():
-    """每个 `domains/*/views.py` 都要有基线条目（防「新增视图文件漏登记」）。"""
+    """BASELINE 必须恰好等于冻结的 legacy 集（防漏登记 / 防给新文件塞 fat 基线 gaming），
+    且每个真实视图要么是 legacy（在 BASELINE 中），要么作为新文件压在 NEW_FILE_LIMITS 内。"""
     guard = _load_guard()
-    actual = {guard._rel(p) for p in guard._iter_views()}
-    assert actual, '未扫描到任何视图文件，守卫的 glob 可能失效'
-    assert actual == set(guard.BASELINE), (
-        f'基线缺条目：{sorted(actual - set(guard.BASELINE))}；基线多余条目：{sorted(set(guard.BASELINE) - actual)}'
+    views = guard._iter_views()
+    assert views, '未扫描到任何视图文件，守卫的 glob 可能失效'
+    actual = {guard._rel(p) for p in views}
+    # 冻结集是分水岭：BASELINE 的键必须恰好等于 legacy 集——多一条=疑似 gaming，少一条=漏守卫
+    assert set(guard.BASELINE) == set(guard.LEGACY_VIEWS), (
+        f'BASELINE 与冻结 legacy 集不一致：缺 {sorted(set(guard.LEGACY_VIEWS) - set(guard.BASELINE))}；'
+        f'多 {sorted(set(guard.BASELINE) - set(guard.LEGACY_VIEWS))}'
     )
+    for path in views:
+        rel = guard._rel(path)
+        if rel in guard.LEGACY_VIEWS:
+            continue
+        # 新文件：不得有 BASELINE 条目（否则会被 gaming 成 fat 基线），且必须压在新增上限内
+        assert rel not in guard.BASELINE, f'新文件 {rel} 不应有 BASELINE 条目，应走 NEW_FILE_LIMITS'
+        m = guard.collect_metrics(path)
+        for metric, limit in guard.NEW_FILE_LIMITS.items():
+            assert m[metric] <= limit, f'新文件 {rel} 的 {metric} = {m[metric]} 超过新增上限 {limit}'
 
 
 def test_metrics_count_db_calls_and_longest_function(tmp_path):
@@ -75,6 +88,7 @@ def test_guard_flags_regression_against_baseline(tmp_path, monkeypatch, capsys):
         'BASELINE',
         {'backend/app/domains/x/views.py': {'lines': 5, 'orm_queries': 1, 'commits': 0, 'max_func': 5}},
     )
+    monkeypatch.setattr(guard, 'LEGACY_VIEWS', {'backend/app/domains/x/views.py'})
 
     assert guard.main([]) == 1
     captured = capsys.readouterr()
@@ -113,6 +127,7 @@ def test_guard_hints_loose_baseline(tmp_path, monkeypatch, capsys):
         'BASELINE',
         {'backend/app/domains/x/views.py': {'lines': 50, 'orm_queries': 5, 'commits': 9, 'max_func': 60}},
     )
+    monkeypatch.setattr(guard, 'LEGACY_VIEWS', {'backend/app/domains/x/views.py'})
 
     assert guard.main([]) == 0
     captured = capsys.readouterr()
@@ -129,6 +144,49 @@ def test_baseline_matches_current_metrics():
     guard = _load_guard()
     measured = {guard._rel(p): guard.collect_metrics(p) for p in guard._iter_views()}
     for rel, m in measured.items():
+        if rel not in guard.BASELINE:
+            continue  # 新文件不在基线内，已由 NEW_FILE_LIMITS 覆盖
         for metric, budget in guard.BASELINE[rel].items():
             assert m[metric] <= budget, f'{rel} 的 {metric} = {m[metric]} 超过基线 {budget}（变厚）'
             assert m[metric] == budget, f'{rel} 的 {metric} = {m[metric]} 低于基线 {budget}，请用 --report 收紧基线'
+
+
+def test_guard_blocks_new_file_with_fat_baseline_entry(tmp_path, monkeypatch, capsys):
+    """灵敏度（防 gaming / 反例）：新文件即便在 BASELINE 塞了 fat 条目（如 500 行），
+    也必须被 NEW_FILE_LIMITS 拦下——证明「给新文件开后门」这条路被堵死。"""
+    guard = _load_guard()
+    fat = tmp_path / 'views.py'
+    fat.write_text(
+        'def thick(db):\n' + '\n'.join(f'    x{i} = db.query({i})' for i in range(20)) + '\n',
+        encoding='utf-8',
+    )
+
+    monkeypatch.setattr(guard, '_iter_views', lambda: [fat])
+    monkeypatch.setattr(guard, '_rel', lambda path: 'backend/app/domains/brandnew/views.py')
+    monkeypatch.setattr(guard, 'LEGACY_VIEWS', frozenset())  # 不在冻结集 → 视为新文件
+    monkeypatch.setattr(
+        guard,
+        'BASELINE',
+        {'backend/app/domains/brandnew/views.py': {'lines': 500, 'orm_queries': 20, 'commits': 0, 'max_func': 200}},
+    )
+
+    assert guard.main([]) == 1
+    captured = capsys.readouterr()
+    assert '新增上限' in captured.err  # 被 NEW_FILE_LIMITS 拦，而非被（fat）基线放过
+    assert '500' not in captured.err  # fat 基线条目未生效
+
+
+def test_guard_allows_new_file_under_limits(tmp_path, monkeypatch, capsys):
+    """灵敏度（防过度抑制 / 正例）：压在 NEW_FILE_LIMITS 内的新文件必须放行。"""
+    guard = _load_guard()
+    ok = tmp_path / 'views.py'
+    ok.write_text('def thin(db):\n    return db.query(1)\n', encoding='utf-8')
+
+    monkeypatch.setattr(guard, '_iter_views', lambda: [ok])
+    monkeypatch.setattr(guard, '_rel', lambda path: 'backend/app/domains/brandnew/views.py')
+    monkeypatch.setattr(guard, 'LEGACY_VIEWS', frozenset())
+    monkeypatch.setattr(guard, 'BASELINE', {})
+
+    assert guard.main([]) == 0
+    captured = capsys.readouterr()
+    assert captured.err == ''
