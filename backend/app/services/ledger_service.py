@@ -379,6 +379,49 @@ class LedgerService:
         }
 
     @staticmethod
+    def attach_ledger_summary(db: Session, ledger: Ledger, item: dict) -> dict:
+        """为账户列表项附加按类型计算的摘要统计（#1642 A 块，从视图层下沉）。
+
+        入参 ``item`` 为 ``_ledger_to_dict`` 返回并已初始化的字典（total_market_value/
+        pnl/position_count/cash_balance 已置 0.0）；本方法按 ``ledger.ledger_type`` 覆写
+        对应字段，**字段名 / 口径（Money 分→元）/ 取值来源与下沉前 list_ledgers 逐字一致**
+        （见 conventions.md §2.4 对外契约零变更）。
+
+        约定：
+        - stock/fund/e_account → get_portfolio_stats；stock 额外取 get_cash_balance
+          （可能为 None，表示未关联现金账户，沿用原逻辑不强制 0.0）；
+        - bank → get_bank_stats + get_money_fund_stats（含 linked_liability / 货基占比）；
+        - property → get_property_stats（asset_count）。
+        """
+        if ledger.ledger_type in ('stock', 'fund', 'e_account'):
+            stats = LedgerService.get_portfolio_stats(db, ledger.id)
+            item['total_market_value'] = stats['total_market_value']
+            item['pnl'] = stats['position_pnl']
+            item['position_count'] = stats['position_count']
+            if ledger.ledger_type == 'stock':
+                item['cash_balance'] = LedgerService.get_cash_balance(db, ledger)
+        elif ledger.ledger_type == 'bank':
+            stats = LedgerService.get_bank_stats(db, ledger.id)
+            item['total_market_value'] = stats['total_market_value']
+            item['pnl'] = 0.0  # bank 不直接显示盈亏
+            item['position_count'] = stats.get('position_count', 0)
+            item['cash_balance'] = stats['current_balance']
+            # 🔥 负债必须从 stats 拿，视图层不做 SQL 聚合
+            item['linked_liability'] = stats.get('linked_liability', 0.0)
+
+            # 🔥 货基统计必须在这里写上
+            money_fund_stats = LedgerService.get_money_fund_stats(db, ledger.id)
+            item['money_fund_amount'] = money_fund_stats.get('money_fund_amount', 0.0)
+            item['money_fund_ratio'] = money_fund_stats.get('money_fund_ratio', 0.0)
+        elif ledger.ledger_type == 'property':
+            stats = LedgerService.get_property_stats(db, ledger.id)
+            item['total_market_value'] = stats['total_market_value']
+            item['position_count'] = stats['asset_count']
+            item['asset_count'] = stats['asset_count']
+            item['cash_balance'] = 0.0
+        return item
+
+    @staticmethod
     def get_positions_paginated(
         db: Session, ledger_id: int, page: int, per_page: int, search: str | None = None
     ) -> tuple[list[dict], int]:

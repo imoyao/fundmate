@@ -82,7 +82,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/families/views.py": {"lines": 72, "orm_queries": 2, "commits": 0, "max_func": 22},
     "backend/app/domains/funds/views.py": {"lines": 324, "orm_queries": 9, "commits": 0, "max_func": 94},
     "backend/app/domains/importers/views.py": {"lines": 254, "orm_queries": 1, "commits": 0, "max_func": 74},
-    "backend/app/domains/ledgers/views.py": {"lines": 1210, "orm_queries": 30, "commits": 0, "max_func": 150},
+    "backend/app/domains/ledgers/views.py": {"lines": 723, "orm_queries": 16, "commits": 0, "max_func": 60},
     "backend/app/domains/market/views.py": {"lines": 50, "orm_queries": 0, "commits": 0, "max_func": 35},
     "backend/app/domains/ocr/views.py": {"lines": 262, "orm_queries": 1, "commits": 0, "max_func": 69},
     "backend/app/domains/performance/views.py": {"lines": 93, "orm_queries": 1, "commits": 0, "max_func": 36},
