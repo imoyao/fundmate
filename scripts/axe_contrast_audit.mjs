@@ -255,7 +255,7 @@ async function connectCDP(onLog = console.error) {
     const id = ++seq;
     cdpTrail.push(`${method}#${id}`);
     if (cdpTrail.length > 60) cdpTrail.shift();
-    return withTimeout(
+    const reply = withTimeout(
       new Promise(res => pending.set(id, res)),
       timeoutMs,
       `CDP 命令无响应：${method}（页面是否卡在加载？）\n    ${diagnostics()}`,
@@ -264,6 +264,15 @@ async function connectCDP(onLog = console.error) {
       if (r?.error) throw new Error(`CDP 返回错误：${method} → ${r.error.message ?? JSON.stringify(r.error)}`);
       return r;
     });
+    // #1599 根因修复：这里**必须把命令真正写进 WebSocket**。此前只登记了 pending 与轨迹、
+    // 却漏了 `ws.send`，表现为「WS 正常 open、readyState=1 挂满超时、零回帧」——而且没有任何
+    // 报错、输出恒 0 字节（超时护栏正是把它从「静默挂死」变成「30 秒报错」的那层）。
+    // 顺序上先注册 pending 再发送，回包不可能先于登记到达。
+    if (ws.readyState !== 1) {
+      throw new Error(`CDP 连接不可用（readyState=${ws.readyState}），无法发送 ${method}`);
+    }
+    ws.send(JSON.stringify({ id, method, params }));
+    return reply;
   };
 
   const evaluate = async expression => {
