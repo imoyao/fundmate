@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from app.core.venues import EXCHANGE, OTC
 from app.services.importer.parsers.ths_stock import THSStockParser
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
@@ -139,6 +140,85 @@ class TestTHSStockParserRowLogic:
         assert record is not None
         assert record.asset_type == 'reverse_repo', f'期望 reverse_repo，实际 {record.asset_type}'
         assert record.symbol == 'SH204001'
+
+    # ── venue（#1662）────────────────────────────────
+    def test_open_fund_subscription_is_otc_with_bare_code(self, parser):
+        """场外开放式基金申购 → venue=OTC，代码落**裸 6 位**（不得加交易所前缀）。"""
+        row = self._make_series(
+            证券代码='004369',
+            证券名称='前海开源聚财宝B',
+            操作='开放基金申购',
+            成交数量='0',
+            成交均价='0',
+            成交金额='0',
+            发生金额='-10000',
+            佣金='0',
+            印花税='0',
+            过户费='0',
+            其他杂费='0',
+            fee='0',
+        )
+        record = parser._parse_row(row, line_num=2)
+        assert record is not None
+        assert record.venue == OTC, f'期望 OTC，实际 {record.venue!r}'
+        assert record.symbol == '004369', f'场外必须落裸码，实际 {record.symbol}'
+        assert record.asset_type == 'fund'
+
+    def test_otc_fund_code_never_gets_exchange_prefix(self, parser):
+        """反向：场外申购的 1xxxxx 码不得被推成 SH 前缀（沪市转债段）。
+
+        误判链示例（#1662）：场外货基 `121011` 曾被推成 `SZ121011` → 当成深市可转债。
+        """
+        row = self._make_series(
+            证券代码='110081',
+            证券名称='某场外基金',
+            操作='开放基金申购',
+            成交数量='0',
+            成交均价='0',
+            成交金额='0',
+            发生金额='-10000',
+            佣金='0',
+            印花税='0',
+            过户费='0',
+            其他杂费='0',
+            fee='0',
+        )
+        record = parser._parse_row(row, line_num=2)
+        assert record is not None
+        assert record.symbol == '110081', f'场外禁猜交易所，实际 {record.symbol}'
+        assert not record.symbol.startswith(('SH', 'SZ', 'BJ'))
+
+    def test_security_buy_is_exchange(self, parser):
+        """正向：证券买入属场内 → venue=EXCHANGE。"""
+        record = parser._parse_row(self._make_series(), line_num=2)
+        assert record is not None
+        assert record.venue == EXCHANGE
+
+    def test_exchange_money_fund_keeps_prefix_and_venue(self, parser):
+        r"""防过度抑制：`基金申购拨出` 的 970164 属 SH 场内货基段，**不得**当场外处理。
+
+        970164 命中 `^97\d{4}$`（SH 场内货基），当场外会剥掉 SH 前缀 → 场内货基误判。
+        这也是 THS_OTC_OPS 刻意只收 `开放基金申购` 的原因。
+        """
+        row = self._make_series(
+            证券代码='970164',
+            证券名称='银河水星现金添利',
+            操作='基金申购拨出',
+            成交数量='0',
+            成交均价='0',
+            成交金额='0',
+            发生金额='-10000',
+            佣金='0',
+            印花税='0',
+            过户费='0',
+            其他杂费='0',
+            fee='0',
+        )
+        record = parser._parse_row(row, line_num=2)
+        assert record is not None
+        assert record.venue == EXCHANGE, f'970164 属场内货基，实际 {record.venue!r}'
+        assert record.symbol == 'SH970164'
+        assert record.asset_type == 'money_fund'
 
 
 class TestTHSStockParserIntegration:

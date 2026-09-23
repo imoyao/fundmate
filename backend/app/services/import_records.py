@@ -109,6 +109,7 @@ class StandardTransactionRecord:
     source: str = ''  # 数据来源标识
     link_group_id: Optional[str] = None  # 关联交易组ID
     display_type: str = ''  # 产品细分类型，如“混合型”、“货币型”，前端展示用
+    venue: str = ''  # 交易场所（EXCHANGE/OTC，见 core/venues；#1662）。空串=解析器未能判定
     error: str = ''  # 解析失败时存放错误信息
     raw_op_type: str = ''  # 新增：原始中文操作类型，用于关联交易配对
     is_calculated: bool = False  # 份额和净值是否为系统自动推算
@@ -144,6 +145,7 @@ class StandardHoldingRecord:
     market_value: Optional[Decimal] = None  # 资产市值（元）
     currency: str = 'CNY'  # 结算币种
     account_name: str = ''  # 账户名称（冗余展示）
+    venue: str = ''  # 交易场所（EXCHANGE/OTC；#1662）：基金E账户等渠道天然场外
 
     # ── 溯源字段（落 position_import_meta）──
     source: str = ''  # 数据来源标识（e_account_holding / ai_holding）

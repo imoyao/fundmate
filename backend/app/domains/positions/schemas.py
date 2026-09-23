@@ -9,6 +9,11 @@ class PositionCreate(BaseModel):
     name: Optional[str] = Field(None, description='名称')
     market: str = Field('CN_A', description='市场')
     asset_type: str = Field('stock', validation_alias='type', description='产品类型')
+    venue: Optional[str] = Field(
+        None,
+        description='交易场所 EXCHANGE/OTC（#1662）：场内代码带 SH/SZ/BJ 前缀、场外为 6 位裸码。'
+        '缺省时按 asset_type 推断（股票/ETF/债券/逆回购→EXCHANGE，基金/货基→OTC）。',
+    )
     account_name: Optional[str] = Field(None, description='所属账户')
     ledger_id: Optional[int] = Field(None, description='所属账户ID')  # 新增
     portfolio_id: Optional[int] = Field(None, description='所属组合ID(持仓级组合,可空)')

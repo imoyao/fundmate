@@ -11,12 +11,36 @@
   - 北交所: BJ920185, 920185.BJ, 920185
   - 美股: AAPL, AAPL.US, US:AAPL, BRK.B, BRK.B.US
   - 加密货币: BTC (需要 market_hint='CRYPTO')
-数据库存储统一格式: {MARKET}{CODE} 或 {MARKET}:{CODE}
+数据库存储约定（按 venue 分述，唯一权威定义见 core/venues.py，禁止各模块自行拼/剥前缀）：
+  - 场内 EXCHANGE: {MARKET}{CODE}（如 SH600519）或 {MARKET}:{CODE}（如美股 US:AAPL）；
+  - 场外基金 OTC : 裸 6 位码（如 004369），**不带交易所前缀**（#1662）。
+    场外基金代码与交易所代码段共用同一数字空间，带前缀即误判市场。
 """
 
 import re
 from functools import lru_cache
 from typing import Dict, Optional, Tuple
+
+from loguru import logger
+
+# 交易场所唯一权威定义（#1662）：归一化器不得猜 venue，必须由调用方显式传入。
+from app.core.venues import OTC, normalize_venue
+
+
+def strip_exchange_prefix(symbol: str) -> str:
+    """剥掉**已存在**的交易所前缀 / 后缀（`SZ004369` → `004369`、`510300.SH` → `510300`）。
+
+    只做「去前缀」，**不做任何交易所推断**（那是 `market_of_cn_a_code` 的职责）。
+    场外（OTC）的存储约定是裸码，故 OTC 归一化必须调用它 —— 否则已经带前缀的脏输入
+    （如历史库里误存的 `SZ004369`）会被原样写回去，永远清不掉。
+    """
+    s = (symbol or '').strip().upper()
+    if len(s) > 6 and s[:2] in ('SH', 'SZ', 'BJ'):
+        s = s[2:]
+    elif len(s) > 7 and s[-3] == '.':
+        s = s[:-3]
+    # 分隔符表达：SH.004369 / SH:004369 / 004369.SH
+    return s.strip('.:')
 
 
 class StockCodeNormalizer:
@@ -145,7 +169,7 @@ class StockCodeNormalizer:
 
     @lru_cache(maxsize=512)
     def normalize(
-        self, code: str, hint_market: Optional[str] = None
+        self, code: str, hint_market: Optional[str] = None, venue: Optional[str] = None
     ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """
         标准化证券代码
@@ -153,6 +177,12 @@ class StockCodeNormalizer:
         Args:
             code: 原始证券代码
             hint_market: 可选的市场提示，优先使用该市场的规则匹配
+            venue: 可选交易场所（`core/venues.EXCHANGE` / `OTC`）。**#1662 显式化**：
+                传 `OTC` 时**不做任何交易所推断**，只去空白 / 转大写 / 剥掉可能已存在的
+                交易所前缀（场外约定为裸码），返回结果与输入是否带前缀无关（幂等）；
+                场外基金代码与交易所代码段共用同一数字空间（`004369` 会被推成
+                `SZ004369` → 深市股票、`121011` → 深市可转债），推断必然误判。
+                只有 `EXCHANGE` 才走下方的市场推断。
 
         Returns:
             Tuple[标准化代码, 市场代码, 资产类型]
@@ -161,6 +191,13 @@ class StockCodeNormalizer:
         """
         if not isinstance(code, str) or not (code := code.strip().upper()):
             return None, None, None
+
+        # 0. 场外（OTC）：原样返回，**禁止**推断交易所（#1662）。
+        #    此处短路在全部模式匹配之前 —— 一旦落到下方主模式，`004369` 会被
+        #    `^([0-3]\d{5})$` 判成 SZ、`121011` 会被 SPECIAL_CODES 判成深市可转债。
+        #    market 固定 "CN_A"（场外基金有市场归属、无交易所归属，与 watchlist 同口径）。
+        if venue == OTC:
+            return strip_exchange_prefix(code), 'CN_A', None
 
         # 1. 加密货币特殊处理（避免被 US 模式捕获）
         if hint_market == 'CRYPTO' and re.match(r'^[A-Z]{2,6}$', code):
@@ -242,9 +279,9 @@ class StockCodeNormalizer:
             return f'{market}{code.zfill(6)}'
 
     def normalize_batch(
-        self, codes: list, hint_market: Optional[str] = None
+        self, codes: list, hint_market: Optional[str] = None, venue: Optional[str] = None
     ) -> Dict[str, Tuple[Optional[str], Optional[str], Optional[str]]]:
-        return {code: self.normalize(code, hint_market) for code in codes}
+        return {code: self.normalize(code, hint_market, venue) for code in codes}
 
     def to_xalpha_code(self, normalized_code: str) -> Optional[str]:
         if not normalized_code:
@@ -285,6 +322,31 @@ _normalizer = StockCodeNormalizer()
 
 def get_normalizer() -> StockCodeNormalizer:
     return _normalizer
+
+
+def normalize_by_venue(symbol: str, venue: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """按**交易场所**归一 symbol —— 落库前唯一应走的入口（#1662）。
+
+    - `EXCHANGE`：交给归一化器推断交易所并加前缀（`600519` → `SH600519`、`159915` → `SZ159915`）；
+    - `OTC`     ：剥掉可能已存在的交易所前缀后返回（场外约定为裸码，故 `SZ004369` 与
+      `004369` 归一到同一个 `004369`），**绝不推断交易所**（见 `core/venues` 的说明）；
+    - 推断失败（EXCHANGE 下无法解析）时不猜也不丢：保留原值 + 告警，
+      由 `scripts/audit_symbol_venue_conformance.py` 暴露出来人工确认。
+
+    返回 `(归一后的 symbol, market, asset_type)`；空输入返回 `('', None, None)`。
+    venue 非法时抛 `ValueError`（宁可报错，也不要落一个错形态的 symbol）。
+    """
+    s = (symbol or '').strip()
+    if not s:
+        return '', None, None
+    resolved = normalize_venue(venue)
+    if resolved == OTC:
+        return strip_exchange_prefix(s), 'CN_A', None
+    normalized, market, asset_type = _normalizer.normalize(s, venue=resolved)
+    if not normalized:
+        logger.warning(f'EXCHANGE 归一失败，保留原值待人工确认: {s!r}')
+        return s.upper(), None, None
+    return normalized, market, asset_type
 
 
 def split_symbol(symbol: str) -> tuple[Optional[str], Optional[str]]:

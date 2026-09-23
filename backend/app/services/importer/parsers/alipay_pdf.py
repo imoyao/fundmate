@@ -16,6 +16,7 @@ from typing import List, Optional, Tuple
 import pdfplumber
 
 from app.core.constants import PositionSource
+from app.core.venues import OTC
 from app.services.import_records import SBImportError, StandardTransactionRecord
 from app.services.importer.base import BaseImportParser
 from app.services.importer.mappings import ALIPAY_PDF_OP_MAP, VALID_OP_TYPES
@@ -25,6 +26,7 @@ class AlipayPDFParser(BaseImportParser):
     """支付宝基金交易确认单 PDF 解析器"""
 
     source = PositionSource.BROKER_ALIPAY_PDF.value
+    venue = OTC  # 支付宝基金确认单 PDF：场外申赎（#1662）
 
     def parse(self, file_bytes: bytes) -> Tuple[List[StandardTransactionRecord], List[SBImportError]]:
         records = []
