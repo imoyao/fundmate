@@ -92,6 +92,8 @@ export interface PositionCreate {
   name?: string;
   market: string;
   type: string;
+  /** 交易场所 EXCHANGE/OTC（#1662）：缺省时后端按 type 推断（见 constants/market.ts） */
+  venue?: string;
   account_name?: string;
   ledger_id?: number | null;
   quantity: number;
