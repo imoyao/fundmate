@@ -84,7 +84,7 @@ onBeforeUnmount(() => {
           }"
           type="danger"
           text
-          bg
+          style="--el-color-danger: var(--color-danger-ink)"
           @click="onReset"
         >
           清空缓存

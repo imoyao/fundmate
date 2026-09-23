@@ -940,7 +940,7 @@ onMounted(async () => {
   align-items: center;
   padding: 4px 0;
   font-size: var(--text-small);
-  color: var(--brand-700);
+  color: var(--brand-ink);
   cursor: pointer;
   background: none;
   border: none;
@@ -953,7 +953,7 @@ onMounted(async () => {
 }
 
 .link-btn:hover {
-  color: var(--brand-800);
+  color: var(--brand-ink);
 }
 
 .link-btn--muted:hover {
@@ -1018,14 +1018,14 @@ onMounted(async () => {
 }
 
 .style-card--active {
-  color: var(--brand-700);
+  color: var(--brand-ink);
   border-color: var(--brand-400);
   box-shadow: 0 1px 3px rgb(0 0 0 / 6%);
   animation: style-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .style-card--active:hover {
-  color: var(--brand-700);
+  color: var(--brand-ink);
 }
 
 .style-card--animated .style-card__name::after {
@@ -1033,7 +1033,7 @@ onMounted(async () => {
   margin-left: 3px;
   font-size: 8px;
   vertical-align: super;
-  color: var(--brand-600);
+  color: var(--brand-ink);
   content: "●";
   animation: card-dot-breathe 2.4s ease-in-out infinite;
 }
