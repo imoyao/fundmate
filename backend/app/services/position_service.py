@@ -368,17 +368,26 @@ def _resolve_money_fund_flag(symbol: str, asset_type: str | None, hint=None) -> 
     return is_money_fund_symbol(symbol)
 
 
-def _reattach_orphan_flows(db: Session, ledger_id, symbol: str, position_id: int, family_id: int) -> None:
-    """#863 口径 A 写入层互斥：把同 (ledger_id, symbol) 的孤儿货基流水挂回持仓。
+def find_orphan_cash_flows(db: Session, ledger_id, symbol: str, family_id: int) -> list[Transaction]:
+    """#863 口径 A：同 (ledger_id, family_id, symbol) 的**未挂回**货基 / 逆回购流水（非收益行）。
 
-    互斥语义：同一资金同一 (ledger_id, symbol) 只能有一种表达——持仓 或 孤儿净额。
-    建仓后把历史孤儿流水（position_id IS NULL、非收益行）置 position_id，使其不再
-    计入孤儿净额桶；金额由持仓市值承接（净值恒 1，市值≈本金），不双计、不漏计。
-    is_income 收益行不挂回（收益桶独立于本金，见 #863 D1）。
+    匹配口径的**唯一入口**——写入层挂回（`_reattach_orphan_flows`）与一次性修复脚本
+    （`scripts/fix_orphan_money_fund_reattach.py`）都必须经本函数，避免两处口径漂移。
+    #1657 复审即栽在这：脚本曾用 `symbol` 精确相等，`SZ001937` ↔ `001937` 这类跨形态
+    组合被静默漏挂，而本机 3 个成功案例恰好都是裸码对裸码，把缺陷掩盖了。
+
+    口径说明：`normalize_fund_code` 会剥掉 `SZ/SH/BJ` 前缀与分隔符，故原候选集
+    `{code, 'SZ'+code, 'SH'+code}` 恒等价于 `{code}`——判定即两侧归一化后相等。
+
+    `symbol` 归一化不出 6 位数字时（非标准基金代码，如测试里的 `MF001`、手工建的
+    非基金标的）**退回精确相等**：原实现此时退化为候选集 `{''}`，会让「同样归一化
+    失败的流水」互相匹配、把不相干的孤儿流水一并吸走；但直接短路成空又会破坏
+    非标准代码的正常挂回（`MF001` ↔ `MF001` 应当命中）。
     """
     from sqlalchemy import or_
 
-    candidate = {normalize_fund_code(symbol)} | {p + normalize_fund_code(symbol) for p in ('SZ', 'SH')}
+    code = normalize_fund_code(symbol)
+
     rows = (
         db.query(Transaction)
         .filter(
@@ -390,7 +399,25 @@ def _reattach_orphan_flows(db: Session, ledger_id, symbol: str, position_id: int
         )
         .all()
     )
-    matched = [t for t in rows if t.symbol and normalize_fund_code(t.symbol) in candidate]
+    if code:
+        return [t for t in rows if t.symbol and normalize_fund_code(t.symbol) == code]
+    return [t for t in rows if t.symbol == symbol]
+
+
+def _reattach_orphan_flows(db: Session, ledger_id, symbol: str, position_id: int, family_id: int) -> None:
+    """#863 口径 A 写入层互斥：把同 (ledger_id, symbol) 的孤儿货基流水挂回持仓。
+
+    互斥语义：同一资金同一 (ledger_id, symbol) 只能有一种表达——持仓 或 孤儿净额。
+    建仓后把历史孤儿流水（position_id IS NULL、非收益行）置 position_id，使其不再
+    计入孤儿净额桶；金额由持仓市值承接（净值恒 1，市值≈本金），不双计、不漏计。
+    is_income 收益行不挂回（收益桶独立于本金，见 #863 D1）。
+
+    筛选范围由 `find_orphan_cash_flows` 收口（只认现金等价物类型 + 同 ledger/family +
+    归一化符号相等）。**调用方不要再拿 `position.is_money_fund` 当闸门**：该列存在历史
+    未回填 / 快照判定不一致（本机 pos[445]/pos[26] 为货基却为 0），以它为准会漏挂回
+    导致资金双计（#1657）；对非现金等价物持仓本函数天然无操作（幂等）。
+    """
+    matched = find_orphan_cash_flows(db, ledger_id, symbol, family_id)
     if matched:
         for txn in matched:
             txn.position_id = position_id
@@ -537,10 +564,10 @@ class PositionService:
         meta_row.sales_institution_id = resolve_sales_institution_id(db, data.get('source_broker'))
         db.flush()
 
-        # #863 口径 A 写入层互斥：快照持有货基持仓时，把同 (ledger, symbol) 孤儿流水挂回
-        # （金额以持仓表达承接，避免与孤儿净额桶双计）
-        if position.is_money_fund:
-            _reattach_orphan_flows(db, ledger_id, symbol, position.id, family_id)
+        # #863 口径 A 写入层互斥 + #1657 修复：无论 is_money_fund 快照判定如何，都尝试挂回
+        # 同 (ledger, symbol) 孤儿货基/逆回购流水（幂等；非货基持仓无对应孤儿流水则无操作），
+        # 避免快照 is_money_fund 判定不一致时漏挂回导致资金双计。
+        _reattach_orphan_flows(db, ledger_id, symbol, position.id, family_id)
 
         try:
             async_backfill.trigger_backfill('fund', symbol)
@@ -759,12 +786,12 @@ class PositionService:
                     position = existing
                 is_new = True
 
-            # #863 口径 A：写路径货基冗余判定 + 互斥挂回（孤儿流水并入持仓表达，
-            # 使同 (ledger, symbol) 资金只以持仓市值计入总资产，不双计、不漏计）
+            # #863 口径 A + #1657 修复：写路径货基冗余判定 + 互斥挂回（孤儿流水并入持仓表达，
+            # 使同 (ledger, symbol) 资金只以持仓市值计入总资产，不双计、不漏计）。
+            # 无论 is_money_fund 判定如何都尝试挂回（幂等），避免判定不一致时漏挂回。
             position.is_money_fund = _resolve_money_fund_flag(symbol, asset_type, data.get('is_money_fund'))
-            if position.is_money_fund:
-                db.flush()  # 确保新建持仓已落库拿到 id，避免挂回孤儿流水时 position_id 为 None
-                _reattach_orphan_flows(db, ledger_id, symbol, position.id, family_id)
+            db.flush()  # 确保新建持仓已落库拿到 id，避免挂回孤儿流水时 position_id 为 None
+            _reattach_orphan_flows(db, ledger_id, symbol, position.id, family_id)
 
             # 创建交易流水
             txn_type = op_type if op_type in ('buy', 'deposit') else 'buy'
