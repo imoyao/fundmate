@@ -864,4 +864,50 @@ cd backend && pdm run pytest tests/test_api_conventions.py -p no:xdist -q
 cd backend && pdm run pytest tests/services/sync/test_advisor_portfolio_job.py -p no:xdist -q
 cd backend && pdm run python scripts/repair_advisor_adjust_history.py            # dry-run
 cd backend && pdm run python scripts/repair_advisor_adjust_history.py --apply    # 落库
+
+## 2026-09-23 文字色收敛（二）收尾：真机亮暗六路由全 0 + 盲区处置落库（#1599）
+
+承接批次 1/2/3 与真机工具修复 #1648/#1649。本卡四项验收标准（AC1–AC4）全部达成，issue 关闭。
+
+### 真机 axe 验收（2026-09-23，axe-core 4.10.2 + 系统 Edge，亮/暗各一遍）
+| 主题 | 路由 | 结果 |
+|---|---|---|
+| light | /explore | ✅ AA 0 违规 |
+| light | /profile | ✅ AA 0 违规 |
+| light | /asset/watchlist | ✅ AA 0 违规 |
+| dark | /explore | ✅ AA 0 违规 |
+| dark | /profile | ✅ AA 0 违规 |
+| dark | /asset/watchlist | ✅ AA 0 违规 |
+
+截图证据：`axe_shots/light/*.png`、`axe_shots/dark/*.png`（共享组件一改全站变版，已亮暗双档肉眼复核）。
+
+### 本批次修掉的残留（真机口径，静态器读不到/估不准）
+1. `.link-btn` / `.style-card--active` 品牌原色（`--color-rise`/`--brand-700`）当文字 → `--brand-ink`（亮 5.86 / 暗 6.55:1）。`views/profile/index.vue`。
+2. 侧边栏品牌字标 `.sidebar-title` 亮色实际渲染 `--color-rise`(#e34f38, 3.85:1) → `--brand-ink`。根因：项目自定义主题变量 `--pure-theme-sub-menu-active-text` 亮色未对齐到 `-ink`（暗色已是 `--brand-ink`）。`layout/components/lay-sidebar/components/SidebarLogo.vue`。
+3. `anomaly-panel__count/__foot` 带色底（`--color-warning-20` 合成暖底）用 `--text-tertiary-ink`(58%) 仅 4.32:1 → `--text-secondary`。`views/explore/components/ExploreAssetOverview.vue`。
+4. 顶栏清空缓存按钮（`lay-panel`，全站常驻）：EP 默认 `--el-color-danger`(#f56c6c, 2.70:1) → 本仓语义危险色。覆盖为 `--color-danger`(#d4364a) 后纯文字落白底 4.74 达标，但 `text bg` 浅红实底压到 4.42；故**去 `bg`**（纯文字危险色落白底）+ 新增 `--color-danger-ink`（亮=本仓红 / 暗=#e8718a 提亮，暗底 4.9:1）。`layout/components/lay-panel/index.vue`、`style/colors.css`、`style/dark.scss`。
+5. `--color-fall-ink` 落带色底（#f5f1e4 暖米，RiseFallText）仅 4.48:1（卡面盲区⑤，差 0.02）→ 加深到 `#1f6b43`（白底 ~5.7 / 带色底 ~4.84:1）。`style/colors.css`。
+
+### 静态审计器复跑（`node scripts/audit_text_contrast.mjs --all`）
+- 「不达标（建议换 -ink）」段**空**；「底色级令牌当文字色」不达标 0 处；「无同名 -ink」不达标 0 处 → **AC2 达成**。
+- 余「大字/装饰场景」段：多处 `--color-danger` 作文字实测页底 4.59 / 卡底 4.74:1，**已 ≥4.5 达标**（脚本误归「不足」），换 `--color-danger-ink` 仅余量优化，非必须。
+
+### AC4：静态器盲区处置结论（落库）
+采纳卡内倾向：**静态器只做施工清单，验收一律以 axe 为准**。补记三类盲区：
+- 盲区①继承来的颜色：静态器按 `color:` 声明归属，祖先设色后代继承量不到 → 交真机。
+- 盲区②有效背景 ≠ 页底/卡底：静态器只按 `--bg-page`/`--bg-card` 估，看不见带色底（如 `--color-warning-20`、#f5f1e4）→ 交真机；本次 `--color-fall-ink` 带色底 4.48 即此类，已修。
+- 盲区③ Element Plus 默认色不在本仓令牌体系：`--el-color-danger`(#f56c6c) 等 EP 原生色静态器扫不到、真机才现形 → 本仓统一用 `--color-danger-ink`（见上第 4 项）；注意覆盖 `--el-color-danger` 会连带改 EP 实底危险按钮底色（观感变更），与 #1600 同源，**不在本卡范围**。
+
+### 验收标准
+- [x] AC1 真机 axe 亮+暗、覆盖 /explore /profile /asset/watchlist，违规降到 0
+- [x] AC2 静态器 A 类清零、B 类逐处有结论
+- [x] AC3 共享组件亮暗双档真机截图证据
+- [x] AC4 静态器盲区处置落 tech-debt.md
+
+### 复跑
+```bash
+node scripts/audit_text_contrast.mjs --all
+node scripts/axe_contrast_audit.mjs --routes /explore,/profile,/asset/watchlist --shot axe_shots/light
+node scripts/axe_contrast_audit.mjs --theme dark --routes /explore,/profile,/asset/watchlist --shot axe_shots/dark
+```
 ```

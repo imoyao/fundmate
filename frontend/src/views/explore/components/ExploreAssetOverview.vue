@@ -502,7 +502,7 @@ onMounted(() => {
   &__count {
     font-size: 13px;
     font-weight: 400;
-    color: var(--text-tertiary-ink);
+    color: var(--text-secondary);
   }
 
   &__list {
@@ -519,7 +519,7 @@ onMounted(() => {
     margin-top: 10px;
     font-size: 12px;
     line-height: 1.6;
-    color: var(--text-tertiary-ink);
+    color: var(--text-secondary);
     border-top: 1px solid var(--color-warning);
   }
 }
