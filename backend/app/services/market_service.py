@@ -528,6 +528,21 @@ def _calc_anomaly(change_pct: Optional[float], closes: List[float]) -> Optional[
     }
 
 
+# ── overview 的固定文案 ──
+# 实时取数路径与「读库组装」路径（market_snapshot_store）共用，避免两处维护导致文案漂移。
+AS_OF_NOTE = (
+    '各市场数据截止：A股 15:00 / 港股 16:00 / 美股 05:00（北京）；'
+    '商品·加密按北京 08:00 快照（国内口径·含夜盘）。软占位项表示当前无可靠源。'
+)
+OVERVIEW_NOTES = [
+    '商品（黄金/白银/原油）采用国内主力连续口径，与海外 ETF 代理口径可能方向相反，仅供参考。',
+    '离岸人民币 USDCNH 取不到离岸口径，以在岸中行牌价替代并标注；与离岸价有点差。',
+    '比特币无稳定日频源，按决策软占位。',
+    '⚡ 异动按「双线规则」判定（|当日涨跌| > 2.5σ(近250日) 或 >= 3% 绝对值），'
+    '解读行是规则自述；原文要求的「当日新闻事实解释」需新闻源，尚未接入。',
+]
+
+
 class MarketOverviewService:
     """探市大类资产观察聚合服务（薄视图可直接调用）。"""
 
@@ -592,21 +607,12 @@ class MarketOverviewService:
 
         return {
             'updated_at': now_shanghai().strftime('%Y-%m-%d %H:%M:%S'),
-            'as_of_note': (
-                '各市场数据截止：A股 15:00 / 港股 16:00 / 美股 05:00（北京）；'
-                '商品·加密按北京 08:00 快照（国内口径·含夜盘）。软占位项表示当前无可靠源。'
-            ),
+            'as_of_note': AS_OF_NOTE,
             'groups': groups,
             'unavailable_count': unavailable_count,
             'anomaly_count': anomaly_count,
             'bond_yield': bond_yield,
-            'notes': [
-                '商品（黄金/白银/原油）采用国内主力连续口径，与海外 ETF 代理口径可能方向相反，仅供参考。',
-                '离岸人民币 USDCNH 取不到离岸口径，以在岸中行牌价替代并标注；与离岸价有点差。',
-                '比特币无稳定日频源，按决策软占位。',
-                '⚡ 异动按「双线规则」判定（|当日涨跌| > 2.5σ(近250日) 或 >= 3% 绝对值），'
-                '解读行是规则自述；原文要求的「当日新闻事实解释」需新闻源，尚未接入。',
-            ],
+            'notes': list(OVERVIEW_NOTES),
         }
 
     @staticmethod
