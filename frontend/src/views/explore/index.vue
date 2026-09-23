@@ -68,11 +68,6 @@
         @go-detail="switchPanel('detail')"
       />
 
-      <!-- ============================================================ -->
-      <!-- 大类资产观察（#1436 / #1444 收口实现：新增区块，紧跟温度仪表盘） -->
-      <!-- ============================================================ -->
-      <ExploreAssetOverview />
-
       <!-- 添加/观察栏（仅未登录渲染） -->
       <ExploreAddSection
         v-if="!isAuthenticated"
@@ -81,7 +76,25 @@
         :quotes-map="quotesMap"
       />
 
+      <ExploreWatchlistTable
+        :rows="tableData"
+        :loading="loading"
+        :total-count="totalCount"
+        :is-pure-observation-mode="isPureObservationMode"
+        :summary="summary"
+        :status-class="statusClass"
+        :status-text="statusText"
+        :refresh-interval="refreshInterval"
+        :last-update-time="lastUpdateTime"
+        @remove="handleRemove"
+        @jump="handleJump"
+        @favorite="handleFavorite"
+        @refresh="manualRefresh"
+        @interval-change="setRefreshInterval"
+      />
+
       <!-- 匿名用户转化区（#822 todo1）：注册 CTA / 损失厌恶文案 -->
+      <!-- #1546 T2.2：位置从「观察列表之前」移到之后——访客先看目的内容，再看注册转化 -->
       <section v-if="!isAuthenticated" class="conv-banner">
         <div class="conv-banner__inner">
           <div class="conv-banner__text">
@@ -127,22 +140,12 @@
         </div>
       </section>
 
-      <ExploreWatchlistTable
-        :rows="tableData"
-        :loading="loading"
-        :total-count="totalCount"
-        :is-pure-observation-mode="isPureObservationMode"
-        :summary="summary"
-        :status-class="statusClass"
-        :status-text="statusText"
-        :refresh-interval="refreshInterval"
-        :last-update-time="lastUpdateTime"
-        @remove="handleRemove"
-        @jump="handleJump"
-        @favorite="handleFavorite"
-        @refresh="manualRefresh"
-        @interval-change="setRefreshInterval"
-      />
+      <!-- ============================================================ -->
+      <!-- 大类资产观察（#1436 / #1444）                                  -->
+      <!-- #1546 T2.2：默认折叠为 6 条分组摘要，展开才请求 / 渲染 20 张卡； -->
+      <!-- 位置从「温度锚点之后」移到漏斗主体（观察列表 + 转化区）之后      -->
+      <!-- ============================================================ -->
+      <ExploreAssetOverview />
     </div>
 
     <!-- ============================================================ -->

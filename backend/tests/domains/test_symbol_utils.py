@@ -6,7 +6,12 @@
 
 import pytest
 
-from app.core.symbol_utils import StockCodeNormalizer, get_normalizer
+from app.core.symbol_utils import (
+    StockCodeNormalizer,
+    derive_security_type,
+    get_normalizer,
+    market_of_cn_a_code,
+)
 
 
 @pytest.fixture
@@ -356,10 +361,35 @@ class TestSpecialCodeRecognition:
         assert market == 'SH'
         assert stype == 'money_fund'
 
-    def test_fund_11xxxx(self, normalizer):
-        """119931 应识别为深市基金"""
-        norm, market, stype = normalizer.normalize('119931')
+    def test_fund_11xxxx_with_market_prefix(self, normalizer):
+        """带 `SZ` 前缀的 11xxxx 才是深市货基（#1661：裸码不许再猜深市）。"""
+        norm, market, stype = normalizer.normalize('SZ119931')
         assert norm == 'SZ119931'
+        assert market == 'SZ'
+        assert stype == 'money_fund'
+
+    @pytest.mark.parametrize(
+        'code',
+        ['110067', '110081', '111000', '113050', '113052', '118000', '119931'],
+    )
+    def test_bare_11xxxx_is_shanghai_convertible_bond(self, normalizer, code):
+        """#1661 反向用例：裸 11xxxx 必须归**沪市可转债**，不得发成深市货基。
+
+        原 `SPECIAL_CODES` 的 `^11[1-9]\\d{3}$ → SZ/money_fund` 抢在主模式之前，
+        把沪市 111xxx/113xxx/118xxx/119xxx 段转债判成深市货币基金（实测 10 只样本误判 7 只），
+        与同文件的 `market_of_cn_a_code()` / `derive_security_type()` 自相矛盾，
+        且公司债/转债导入后拿错交易所前缀（`SZ113050` 南银转债）→ 价格链路取不到行情。
+        """
+        norm, market, stype = normalizer.normalize(code)
+        assert (norm, market, stype) == (f'SH{code}', 'SH', 'bond')
+        # 与同文件的市场消歧口径保持一致（防止两条规则再次分叉）
+        assert market_of_cn_a_code(code) == 'SH'
+        assert derive_security_type(code, 'SH') == 'bond'
+
+    def test_sz_10xxxx_still_money_fund(self, normalizer):
+        """防过度抑制：带 `SZ` 前缀的 10xxxx 仍是深市货基，未被上面的收紧误伤。"""
+        norm, market, stype = normalizer.normalize('SZ100016')
+        assert norm == 'SZ100016'
         assert market == 'SZ'
         assert stype == 'money_fund'
 
