@@ -11,6 +11,7 @@
 注意：_reattach_orphan_flows 只改内存、由调用方提交；测试内断言前需 db.flush() 再重新查询，
 否则 db.refresh 会从库里读回未 flush 的旧值。
 """
+
 from datetime import date
 
 import pytest
@@ -96,9 +97,7 @@ def test_upsert_reattaches_even_when_is_money_fund_flag_false(db, fund_ledger):
     """#1657 堵源：快照 is_money_fund 判定为 False 时（本机 pos[445]/pos[26] 同类），
     仍应挂回孤儿货基流水，不能因判定不一致而漏挂回导致双计。"""
     txn = _orphan_money_fund_txn(db, fund_ledger)
-    pos = PositionService.upsert_from_holding(
-        db, _holding_data(fund_ledger, is_money_fund=False)
-    )
+    pos = PositionService.upsert_from_holding(db, _holding_data(fund_ledger, is_money_fund=False))
     assert pos.is_money_fund is False  # 模拟快照判定不一致
 
     db.flush()
@@ -148,3 +147,32 @@ def test_no_double_count_after_reattach(db, fund_ledger):
         .count()
     )
     assert double_count == 0
+
+
+def test_upsert_reattaches_across_symbol_forms(db, fund_ledger):
+    """#1657 复审：孤儿流水带交易所前缀（`SZ001937`）、持仓是裸码（`001937`）时也必须挂回。
+
+    一次性修复脚本最初用 `symbol` **精确相等**匹配，这类跨形态组合被静默漏挂；本机 3 个
+    成功案例恰好都是裸码对裸码，把缺陷掩盖了。运行时（归一化匹配）本就正确，此处钉死防漂移。
+    """
+    txn = _orphan_money_fund_txn(db, fund_ledger, symbol='SZ001937', amount_yuan=10.88)
+
+    pos = PositionService.upsert_from_holding(db, _holding_data(fund_ledger, symbol='001937'))
+    db.flush()
+
+    assert db.query(Transaction).filter_by(id=txn.id).first().position_id == pos.id
+
+
+def test_find_orphan_cash_flows_empty_code_matches_nothing(db, fund_ledger):
+    """归一化不出 6 位数字的 symbol 不得互相匹配。
+
+    否则空串会与同样归一化失败的流水互为候选，把不相干的孤儿流水一起吸走——原实现
+    `candidate = {normalize_fund_code(symbol)}` 在 symbol 不可解析时退化为 `{''}`，
+    正好会命中 `'ABCDEF'`（同样归一化为空）这类流水。
+    """
+    from app.services.position_service import find_orphan_cash_flows
+
+    _orphan_money_fund_txn(db, fund_ledger, symbol='ABCDEF')
+
+    assert find_orphan_cash_flows(db, fund_ledger.id, 'CASH', 1) == []
+    assert find_orphan_cash_flows(db, fund_ledger.id, '', 1) == []
