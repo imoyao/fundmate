@@ -153,26 +153,45 @@ def test_scan_ignores_non_candidates(db_file, txn, why):
     assert result.targets == [], f'{why} 不应成为候选'
 
 
-def test_scan_ignores_symbols_without_six_digit_code(db_file):
-    """归一化不出 6 位数字的 symbol 不参与：否则空串会与同样归一化失败的流水互相匹配。"""
+def test_scan_handles_symbols_without_six_digit_code(db_file):
+    """归一化不出 6 位数字的 symbol：同码精确相等仍要挂回，但不得与其它不可解析的 symbol 互相匹配。
+
+    原实现把候选集退化为 `{''}`，于是 `CASH` 与 `ABCDEF` 会互为候选、把不相干的孤儿流水吸走；
+    而直接短路成空又会破坏 `MF001` 这类非标准代码的正常挂回——
+    既有用例 `tests/services/test_summary_money_fund.py::TestOrphanFlowReattach` 正是该场景。
+    """
     _seed(
         db_file,
         positions=[(1, 'CASH', 20, 1)],
-        txns=[(11, 'CASH', 'money_fund', 'buy', 20, 1, 0, None, 100)],
+        txns=[
+            (11, 'CASH', 'money_fund', 'buy', 20, 1, 0, None, 100),
+            (12, 'ABCDEF', 'money_fund', 'buy', 20, 1, 0, None, 200),
+        ],
     )
 
     with m.open_session(db_file) as db:
         result = m.scan(db)
 
-    assert result.targets == []
+    assert len(result.targets) == 1
+    assert [row[0] for row in result.targets[0].orphan_txns] == [11]
 
 
-def test_find_orphan_cash_flows_returns_empty_for_unparsable_symbol():
-    """直接对运行时同一函数断言空码短路（脚本与写入层共用此函数）。"""
+def test_find_orphan_cash_flows_falls_back_to_exact_match(db_file):
+    """运行时同一函数的兜底口径（脚本与写入层共用，必须一致）。"""
     from app.services.position_service import find_orphan_cash_flows
 
-    assert find_orphan_cash_flows(object(), 20, 'CASH', 1) == []
-    assert find_orphan_cash_flows(object(), 20, '', 1) == []
+    _seed(
+        db_file,
+        positions=[],
+        txns=[
+            (11, 'MF001', 'money_fund', 'buy', 20, 1, 0, None, 100),
+            (12, 'ABCDEF', 'money_fund', 'buy', 20, 1, 0, None, 200),
+        ],
+    )
+
+    with m.open_session(db_file) as db:
+        assert [t.id for t in find_orphan_cash_flows(db, 20, 'MF001', 1)] == [11]
+        assert find_orphan_cash_flows(db, 20, '', 1) == []
 
 
 # ── 多持仓歧义 ──────────────────────────────────────────────────────

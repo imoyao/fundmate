@@ -378,14 +378,15 @@ def find_orphan_cash_flows(db: Session, ledger_id, symbol: str, family_id: int) 
 
     口径说明：`normalize_fund_code` 会剥掉 `SZ/SH/BJ` 前缀与分隔符，故原候选集
     `{code, 'SZ'+code, 'SH'+code}` 恒等价于 `{code}`——判定即两侧归一化后相等。
-    `symbol` 归一化不出 6 位数字时返回空列表：否则空串会与同样归一化失败的流水互相
-    匹配，把不相干的孤儿流水一并吸走。
+
+    `symbol` 归一化不出 6 位数字时（非标准基金代码，如测试里的 `MF001`、手工建的
+    非基金标的）**退回精确相等**：原实现此时退化为候选集 `{''}`，会让「同样归一化
+    失败的流水」互相匹配、把不相干的孤儿流水一并吸走；但直接短路成空又会破坏
+    非标准代码的正常挂回（`MF001` ↔ `MF001` 应当命中）。
     """
     from sqlalchemy import or_
 
     code = normalize_fund_code(symbol)
-    if not code:
-        return []
 
     rows = (
         db.query(Transaction)
@@ -398,7 +399,9 @@ def find_orphan_cash_flows(db: Session, ledger_id, symbol: str, family_id: int) 
         )
         .all()
     )
-    return [t for t in rows if t.symbol and normalize_fund_code(t.symbol) == code]
+    if code:
+        return [t for t in rows if t.symbol and normalize_fund_code(t.symbol) == code]
+    return [t for t in rows if t.symbol == symbol]
 
 
 def _reattach_orphan_flows(db: Session, ledger_id, symbol: str, position_id: int, family_id: int) -> None:

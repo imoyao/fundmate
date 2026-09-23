@@ -82,11 +82,20 @@ def open_session(db_path: Path) -> Session:
     return sessionmaker(bind=engine, future=True)()
 
 
+def _match_key(symbol: str | None) -> str:
+    """分组键：能归一化成 6 位代码就用代码，否则退回原文。
+
+    与 `find_orphan_cash_flows` 的兜底保持一致——非标准代码（`MF001` 之类）走精确相等，
+    仍要参与扫描，不能因为「归一化不出代码」就整行跳过。
+    """
+    code = normalize_fund_code(symbol or '')
+    return code or 'raw:' + (symbol or '').strip().upper()
+
+
 def scan(db: Session) -> ScanResult:
     """扫描全部持仓，按运行时同一函数找出各自名下待挂回的孤儿现金等价物流水。
 
-    归一化后拿不到 6 位数字的 symbol（非基金代码）不参与——`find_orphan_cash_flows`
-    对这类返回空，天然无候选。同一 (ledger, family, 代码) 命中多个持仓时不猜，
+    同一分组键（ledger, family, 归一化代码 / 原文）命中多个持仓时不猜，
     进 `skipped_ambiguous` 交人工判定。
     """
     result = ScanResult()
@@ -95,10 +104,7 @@ def scan(db: Session) -> ScanResult:
         if pos.ledger_id is None:
             result.skipped_no_ledger += 1
             continue
-        code = normalize_fund_code(pos.symbol or '')
-        if not code:
-            continue
-        groups.setdefault((pos.ledger_id, pos.family_id, code), []).append(pos)
+        groups.setdefault((pos.ledger_id, pos.family_id, _match_key(pos.symbol)), []).append(pos)
 
     for (_ledger_id, _family_id, code), positions in sorted(groups.items()):
         if len(positions) > 1:

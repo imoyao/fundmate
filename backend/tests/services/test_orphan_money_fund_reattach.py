@@ -163,16 +163,19 @@ def test_upsert_reattaches_across_symbol_forms(db, fund_ledger):
     assert db.query(Transaction).filter_by(id=txn.id).first().position_id == pos.id
 
 
-def test_find_orphan_cash_flows_empty_code_matches_nothing(db, fund_ledger):
-    """归一化不出 6 位数字的 symbol 不得互相匹配。
+def test_find_orphan_cash_flows_fallback_for_unparsable_symbol(db, fund_ledger):
+    """非标准代码（归一化不出 6 位数字）退回**精确相等**匹配。
 
-    否则空串会与同样归一化失败的流水互为候选，把不相干的孤儿流水一起吸走——原实现
-    `candidate = {normalize_fund_code(symbol)}` 在 symbol 不可解析时退化为 `{''}`，
-    正好会命中 `'ABCDEF'`（同样归一化为空）这类流水。
+    原实现在此时把候选集退化为 `{''}`，于是 `MF001` 与 `ABCDEF` 会互相命中；既有用例
+    `test_summary_money_fund.py::TestOrphanFlowReattach` 用 `MF001` 造数，正是靠这条退化行为
+    「碰巧通过」。但直接把它短路成空又会破坏该用例，故正解是退回精确相等。
     """
     from app.services.position_service import find_orphan_cash_flows
 
-    _orphan_money_fund_txn(db, fund_ledger, symbol='ABCDEF')
+    nonstandard = _orphan_money_fund_txn(db, fund_ledger, symbol='MF001')
+    other = _orphan_money_fund_txn(db, fund_ledger, symbol='ABCDEF')
 
-    assert find_orphan_cash_flows(db, fund_ledger.id, 'CASH', 1) == []
+    matched = [t.id for t in find_orphan_cash_flows(db, fund_ledger.id, 'MF001', 1)]
+    assert matched == [nonstandard.id]
+    assert other.id not in matched
     assert find_orphan_cash_flows(db, fund_ledger.id, '', 1) == []
