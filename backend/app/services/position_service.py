@@ -363,15 +363,26 @@ def _build_reinvest_buy_data(data: dict, position: Optional[Position], link_grou
 
 
 def _resolve_money_fund_flag(symbol: str, asset_type: str | None, hint=None) -> bool:
-    """写路径货基判定（#863）：显式 hint > money_fund 类型 > 名录/代码段解析。
+    """写路径货基判定（#863 / #1661）：显式 hint > money_fund > 显式非基金类型 > 名录/代码段。
 
     reverse_repo 不是货基（即使与货基同属现金等价物聚合桶），不落 is_money_fund。
+
+    **#1661**：显式 `stock` / `etf` / `bond` 等非基金类型一律 **False**，绝不落回
+    名录/代码段解析。原因是场内证券与场外基金**共用同一 6 位数字空间**：
+    `000651` 既是格力电器（深市股票）也是某只货基、`000725` 京东方Ａ 与大成添利宝
+    货币B 同号、`110081` 既是闻泰转债也在 `1[01]xxxx` 段内。原实现把 `asset_type`
+    丢掉后交给「只看数字」的 `is_money_fund_symbol`，等于让基金段反推证券品种，
+    于是股票/可转债持仓被标记为货基 → `sync/jobs/position_price_job.py:293` 见到该
+    标记即按面值 1.0000 回写 `current_price`，**持仓市值塌成「份额数」**。
     """
     if hint is not None:
         return bool(hint)
     if asset_type == 'money_fund':
         return True
     if asset_type == 'reverse_repo':
+        return False
+    if asset_type and asset_type != 'fund':
+        # 显式非基金类型：名录/代码段只对「基金」有意义
         return False
     return is_money_fund_symbol(symbol)
 
