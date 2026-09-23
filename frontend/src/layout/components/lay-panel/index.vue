@@ -82,9 +82,9 @@ onBeforeUnmount(() => {
             placement: 'left-start',
             zIndex: 41000
           }"
+          class="reset-cache-btn"
           type="danger"
           text
-          bg
           @click="onReset"
         >
           清空缓存
@@ -141,5 +141,10 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   padding: 14px 20px;
+}
+
+/* #1599：EP 默认 --el-color-danger(#f56c6c) 对浅底仅 2.70:1，改用本仓危险色文字级令牌（亮 4.74:1 / 暗 4.9:1） */
+.reset-cache-btn {
+  --el-color-danger: var(--color-danger-ink);
 }
 </style>
