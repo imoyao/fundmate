@@ -537,10 +537,10 @@ class PositionService:
         meta_row.sales_institution_id = resolve_sales_institution_id(db, data.get('source_broker'))
         db.flush()
 
-        # #863 口径 A 写入层互斥：快照持有货基持仓时，把同 (ledger, symbol) 孤儿流水挂回
-        # （金额以持仓表达承接，避免与孤儿净额桶双计）
-        if position.is_money_fund:
-            _reattach_orphan_flows(db, ledger_id, symbol, position.id, family_id)
+        # #863 口径 A 写入层互斥 + #1657 修复：无论 is_money_fund 快照判定如何，都尝试挂回
+        # 同 (ledger, symbol) 孤儿货基/逆回购流水（幂等；非货基持仓无对应孤儿流水则无操作），
+        # 避免快照 is_money_fund 判定不一致时漏挂回导致资金双计。
+        _reattach_orphan_flows(db, ledger_id, symbol, position.id, family_id)
 
         try:
             async_backfill.trigger_backfill('fund', symbol)
@@ -759,12 +759,12 @@ class PositionService:
                     position = existing
                 is_new = True
 
-            # #863 口径 A：写路径货基冗余判定 + 互斥挂回（孤儿流水并入持仓表达，
-            # 使同 (ledger, symbol) 资金只以持仓市值计入总资产，不双计、不漏计）
+            # #863 口径 A + #1657 修复：写路径货基冗余判定 + 互斥挂回（孤儿流水并入持仓表达，
+            # 使同 (ledger, symbol) 资金只以持仓市值计入总资产，不双计、不漏计）。
+            # 无论 is_money_fund 判定如何都尝试挂回（幂等），避免判定不一致时漏挂回。
             position.is_money_fund = _resolve_money_fund_flag(symbol, asset_type, data.get('is_money_fund'))
-            if position.is_money_fund:
-                db.flush()  # 确保新建持仓已落库拿到 id，避免挂回孤儿流水时 position_id 为 None
-                _reattach_orphan_flows(db, ledger_id, symbol, position.id, family_id)
+            db.flush()  # 确保新建持仓已落库拿到 id，避免挂回孤儿流水时 position_id 为 None
+            _reattach_orphan_flows(db, ledger_id, symbol, position.id, family_id)
 
             # 创建交易流水
             txn_type = op_type if op_type in ('buy', 'deposit') else 'buy'
