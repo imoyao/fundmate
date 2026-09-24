@@ -11,7 +11,9 @@ from app.core.symbol_utils import (
     derive_security_type,
     get_normalizer,
     market_of_cn_a_code,
+    symbol_identity,
 )
+from app.core.venues import EXCHANGE, NO_VENUE, OTC, get_venue_label, venue_of_row
 
 
 @pytest.fixture
@@ -401,3 +403,99 @@ class TestSingleton:
         norm1 = get_normalizer()
         norm2 = get_normalizer()
         assert norm1 is norm2
+
+
+class TestVenueOfRow:
+    """`venue_of_row`（#1662 后续）：存量行的 venue 解析 —— 显式 > 场内货基特例 > asset_type。"""
+
+    def test_declared_venue_wins(self):
+        assert venue_of_row('004369', 'fund', OTC) == OTC
+        assert venue_of_row('SZ004369', 'fund', EXCHANGE) == EXCHANGE
+
+    def test_declared_venue_is_case_insensitive(self):
+        assert venue_of_row('004369', 'fund', 'otc') == OTC
+
+    def test_illegal_declared_venue_degrades_instead_of_raising(self):
+        """存量脏值只降级不抛错 —— 审计脚本要能把它们报出来，不能在审计途中崩掉。"""
+        assert venue_of_row('004369', 'fund', 'BROKER') == OTC
+
+    def test_asset_type_inference(self):
+        assert venue_of_row('004369', 'fund') == OTC
+        assert venue_of_row('SZ159915', 'etf') == EXCHANGE
+
+    def test_sh_exchange_money_fund_beats_asset_type_default(self):
+        """场内货基是 `asset_type → venue` 唯一一处缺省必然判错的例外，须显式纠偏。"""
+        assert venue_of_row('SH970164', 'money_fund') == EXCHANGE
+        # 同码段的场外货基仍走缺省（裸码即场外）
+        assert venue_of_row('970164', 'money_fund') == OTC
+
+    def test_unknown_asset_type_yields_no_venue(self):
+        assert venue_of_row('004369', None) == NO_VENUE
+        assert venue_of_row('MGR_001', 'manager') == NO_VENUE
+
+    def test_get_venue_label_is_case_insensitive(self):
+        assert get_venue_label('otc') == '场外'
+        assert get_venue_label(EXCHANGE) == '场内'
+        assert get_venue_label('') == ''
+        assert get_venue_label('BROKER') == 'BROKER'
+
+
+class TestSymbolIdentity:
+    """`symbol_identity`（#1662 后续）：归一身份键 —— `positions.symbol_norm` 的构造。
+
+    本类**最重要的一组断言是「同一只基金的多种写法必须收敛到同一个身份」**：
+    那正是 #1662「同一基金两行」的根因（字面量唯一约束挡不住写法变体）。
+    """
+
+    @pytest.mark.parametrize(
+        'raw',
+        ['004369', 'SZ004369', 'sz004369', ' SZ004369 ', 'SH.004369', '004369.SZ'],
+    )
+    def test_otc_fund_writing_variants_converge_to_one_identity(self, raw):
+        """场外基金的写法变体（前缀 / 大小写 / 空白 / 分隔符）全部收敛到同一身份。"""
+        assert symbol_identity(raw, 'fund') == 'OTC:004369'
+
+    def test_otc_bare_code_has_no_prefix(self):
+        assert symbol_identity('004369', 'fund') == 'OTC:004369'
+
+    def test_exchange_gets_market_prefix(self):
+        assert symbol_identity('SZ159915', 'etf') == 'EXCHANGE:SZ159915'
+        assert symbol_identity('600519', 'stock') == 'EXCHANGE:SH600519'
+        assert symbol_identity('sh600519', 'stock') == 'EXCHANGE:SH600519'
+
+    def test_exchange_writing_variants_converge(self):
+        """场内：大小写 / 空白 / 缺前缀（asset_type 已定为场内）也收敛。"""
+        assert symbol_identity(' sz159915 ', 'etf') == symbol_identity('SZ159915', 'etf') == 'EXCHANGE:SZ159915'
+        assert symbol_identity('159915', 'etf') == 'EXCHANGE:SZ159915'
+
+    def test_money_fund_venue_depends_on_asset_type_not_code(self):
+        """`asset_type` 是**必需**入参：`SH970164`（场内货基）与 `970164`（场外货基）
+        代码段相同、场所不同，只看 symbol 无法区分 —— 必须给出不同身份。"""
+        assert symbol_identity('SH970164', 'money_fund') == 'EXCHANGE:SH970164'
+        assert symbol_identity('970164', 'money_fund') == 'OTC:970164'
+        assert symbol_identity('SH970164', 'money_fund') != symbol_identity('970164', 'money_fund')
+
+    def test_no_venue_entities_keep_their_own_namespace(self):
+        assert symbol_identity('MGR_001', 'manager') == 'NO_VENUE:MGR_001'
+        assert symbol_identity('CSI000300', 'index') == 'NO_VENUE:CSI000300'
+        assert symbol_identity('ZH012345', 'portfolio') == 'NO_VENUE:ZH012345'
+
+    def test_explicit_venue_overrides_asset_type(self):
+        """显式 venue 优先（写入侧本来就知道场所，不该被 asset_type 缺省覆盖）。"""
+        assert symbol_identity('SZ004369', 'fund', venue=EXCHANGE) == 'EXCHANGE:SZ004369'
+
+    def test_unknown_asset_type_does_not_guess_venue(self):
+        """判不出场所时进 `NO_VENUE` 命名空间，**绝不**猜成场外（不猜是本模块的红线）。"""
+        assert symbol_identity('004369', None) == 'NO_VENUE:004369'
+        assert symbol_identity('SZ004369', None) == 'NO_VENUE:SZ004369'
+
+    def test_empty_symbol_yields_empty_identity(self):
+        """空 symbol 返回空串，而不是 `NO_VENUE:` —— 否则一堆空行会互撞唯一约束。"""
+        assert symbol_identity('', 'fund') == ''
+        assert symbol_identity('   ', 'fund') == ''
+        assert symbol_identity(None, 'fund') == ''
+
+    def test_pure_function_is_stable(self):
+        """纯函数（只读 symbol + asset_type）：重复调用结果一致，`before_update` 重算才幂等。"""
+        first = symbol_identity('SZ004369', 'fund')
+        assert all(symbol_identity('SZ004369', 'fund') == first for _ in range(5))

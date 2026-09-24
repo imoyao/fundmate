@@ -24,7 +24,7 @@ from typing import Dict, Optional, Tuple
 from loguru import logger
 
 # 交易场所唯一权威定义（#1662）：归一化器不得猜 venue，必须由调用方显式传入。
-from app.core.venues import OTC, normalize_venue
+from app.core.venues import NO_VENUE, OTC, normalize_venue, venue_of_row
 
 
 def strip_exchange_prefix(symbol: str) -> str:
@@ -352,6 +352,47 @@ def normalize_by_venue(symbol: str, venue: str) -> tuple[Optional[str], Optional
         logger.warning(f'EXCHANGE 归一失败，保留原值待人工确认: {s!r}')
         return s.upper(), None, None
     return normalized, market, asset_type
+
+
+def symbol_identity(symbol: str, asset_type: str | None = None, venue: str | None = None) -> str:
+    """归一**身份键**（落 `positions.symbol_norm`）：`{VENUE}:{venue 规范形态的代码}`（#1662 后续）。
+
+    为什么要有它：`positions` 的唯一约束过去是**字面量** `UNIQUE(ledger_id, symbol)`，
+    挡不住「同一标的的写法变体」—— `SZ004369` / `sz004369` / ` SZ004369 ` / `SH.004369`
+    在 SQLite 里是四个不同字符串，同一只基金就能长出四行（#1662 本机实测 2 组）。
+    本函数把一行数据映射到它的**身份**，唯一约束改挂身份而非字面量。
+
+    形态：
+
+        EXCHANGE → `EXCHANGE:SZ159915`（场内，规范化后的 {MARKET}{CODE}）
+        OTC      → `OTC:004369`（场外，裸 6 位码）
+        NO_VENUE → `NO_VENUE:MGR_xxx`（无交易场所实体：经理 / 投顾组合 / 指数）
+
+    venue 来源（优先级，与 `scripts/audit_symbol_venue_conformance.py` 同口径，
+    两者共用 `core.venues.venue_of_row`）：显式 `venue` 参数 > `asset_type` 推断
+    （含场内货基 `SH97xxxx` 特例）。**这里不做任何市场推断**，`EXCHANGE` 下的
+    `{MARKET}` 前缀由 `normalize_by_venue` 负责（那是它的职责，见 core/venues）。
+
+    `asset_type` 是必需的第二入参而不是可选项：`SH970164`（场内货基）与 `970164`
+    （场外货基）**代码段相同、场所不同**，只看 symbol 无法区分 —— 而 #1665 起
+    写入侧已强制按 venue 落形态，故库内形态与 asset_type 的组合能唯一确定身份。
+
+    空 symbol 返回空串（不落 `NO_VENUE:`，避免一堆空行撞唯一约束）。
+    """
+    s = (symbol or '').strip().upper()
+    if not s:
+        return ''
+    resolved = venue_of_row(s, asset_type, venue)
+    code = strip_exchange_prefix(s) if resolved == OTC else s
+    if resolved == OTC:
+        # 场外形态即裸码，剥前缀后无需再过归一化器（OTC 下 market 恒 CN_A）
+        return f'{OTC}:{code}'
+    if resolved == NO_VENUE:
+        return f'NO_VENUE:{code}'
+    # 场内：走一次归一化拿到规范 {MARKET}{CODE}（`600519` → `SH600519`、`sh600519` → `SH600519`），
+    # 失败则保留原值（与 normalize_by_venue 的「不猜也不丢」同策略）
+    normalized, _market, _asset_type = normalize_by_venue(s, resolved)
+    return f'{resolved}:{normalized or code}'
 
 
 def split_symbol(symbol: str) -> tuple[Optional[str], Optional[str]]:
