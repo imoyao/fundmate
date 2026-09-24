@@ -427,6 +427,8 @@ onMounted(startRealtime);
 </script>
 
 <style lang="scss" scoped>
+@use "@/style/breakpoints" as bp;
+
 .explore-page {
   min-height: 100vh;
   background: var(--bg-page);
@@ -683,7 +685,7 @@ onMounted(startRealtime);
   }
 }
 
-@media (width <= 768px) {
+@include bp.below("md") {
   .asset-entry {
     padding: 0 16px 16px;
 
