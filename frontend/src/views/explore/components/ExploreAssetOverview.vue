@@ -415,8 +415,8 @@ const toggleExpand = () => {
     display: inline-flex;
     gap: 4px;
     align-items: center;
-    margin-left: 10px;
     padding: 4px 12px;
+    margin-left: 10px;
     font-family: inherit;
     font-size: 13px;
     color: var(--brand-700);
