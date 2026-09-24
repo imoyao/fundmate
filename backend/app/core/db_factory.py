@@ -163,6 +163,8 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'index_catalog': DOMAIN_MARKET,  # 指数名录（#1286 聚合搜索可搜索的指数条目）
     'index_daily': DOMAIN_MARKET,  # 指数日线点位（#275 基准对比底座，万得全A 经韭圈儿公开接口）
     'index_valuations': DOMAIN_MARKET,  # 指数估值（#1285/#1394：市盈率/股息率，中证官方）
+    'market_asset_daily': DOMAIN_MARKET,  # 探市大类资产日频快照（#1460 P1：20 资产，供读库组装）
+    'market_bond_yield_daily': DOMAIN_MARKET,  # 探市债券 10Y 收益率日频快照（#1460 P1）
     'channel_links': DOMAIN_MARKET,  # 跨渠道关联（#1285 §3.8：指数↔ETF / ETF↔联接）
     'advisor_holdings': DOMAIN_MARKET,  # 投顾组合当前基金级持仓（#1167）
     'advisor_industry_allocs': DOMAIN_MARKET,  # 投顾组合行业配置（#1167）
