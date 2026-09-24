@@ -57,3 +57,22 @@ export function venueOfAssetType(assetType?: string | null): string {
     return VENUE_EXCHANGE;
   return "";
 }
+
+/**
+ * 探市「大类资产观察」：分组 → 品种色 token（#1671）。
+ *
+ * 唯一真相源是 CSS 语义变量 `--asset-cat-*`；无商品专属 token，商品映射到 etf 绿。
+ * 收口自 `ExploreAssetOverview.vue` 的局部常量——#1671 方案 b 把该区块移入深度档后，
+ * 概览档入口也要展示这 6 个分类，两处共用同一份，避免各写一份导致漂移。
+ */
+export const ASSET_CATEGORY_TOKEN: Record<string, string> = {
+  A股: "var(--asset-cat-stock)",
+  港股: "var(--asset-cat-stock)",
+  海外: "var(--asset-cat-stock)",
+  债券: "var(--asset-cat-bond)",
+  商品: "var(--asset-cat-etf)",
+  汇率: "var(--asset-cat-saving)"
+};
+
+/** 6 大分类（顺序即展示顺序；前端已知，无需请求接口） */
+export const ASSET_CATEGORIES = Object.keys(ASSET_CATEGORY_TOKEN);
