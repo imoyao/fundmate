@@ -7,10 +7,12 @@ import { computed, ref } from "vue";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
+import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import { useMarketOverview } from "@/composables/market/useMarketOverview";
 import type { MarketAnomaly, MarketAsset, MarketGroup } from "@/api/market";
 
-const { loading, error, overview, fetchOverview } = useMarketOverview();
+const { loading, error, overview, fetchOverview, showSkeleton } =
+  useMarketOverview();
 
 const groups = computed<MarketGroup[]>(() => overview.value?.groups ?? []);
 
@@ -154,11 +156,16 @@ const toggleExpand = () => {
         <span class="asof-bar__text">{{ asOfNote }}</span>
       </div>
 
-      <!-- 加载 / 错误态 -->
-      <div v-if="loading" class="state-hint">数据加载中…</div>
-      <div v-else-if="error" class="state-hint state-hint--error">
+      <!-- 错误态优先 -->
+      <div v-if="error" class="state-hint state-hint--error">
         资产观察数据加载失败：{{ error }}
       </div>
+      <!-- 加载态：200ms 后才显示骨架屏，快速返回跳过骨架（#1546 T2.3，阈值逻辑在 composable） -->
+      <PageSkeleton
+        v-else-if="loading && showSkeleton"
+        :cards="6"
+        :table-rows="6"
+      />
 
       <!-- 6 组资产 -->
       <template v-for="group in groups" :key="group.category">
