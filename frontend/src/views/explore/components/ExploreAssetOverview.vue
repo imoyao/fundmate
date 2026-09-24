@@ -11,7 +11,7 @@ import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import { useMarketOverview } from "@/composables/market/useMarketOverview";
 import type { MarketAnomaly, MarketAsset, MarketGroup } from "@/api/market";
 
-const { loading, error, overview, fetchOverview, showSkeleton } =
+const { loading, error, overview, fetchOverview, showSkeleton, slow } =
   useMarketOverview();
 
 const groups = computed<MarketGroup[]>(() => overview.value?.groups ?? []);
@@ -156,16 +156,26 @@ const toggleExpand = () => {
         <span class="asof-bar__text">{{ asOfNote }}</span>
       </div>
 
-      <!-- 错误态优先 -->
+      <!-- 错误态优先（含重试，见 #1546 T2.5） -->
       <div v-if="error" class="state-hint state-hint--error">
         资产观察数据加载失败：{{ error }}
+        <button type="button" class="state-hint__retry" @click="() => fetchOverview()">
+          重试
+        </button>
       </div>
       <!-- 加载态：200ms 后才显示骨架屏，快速返回跳过骨架（#1546 T2.3，阈值逻辑在 composable） -->
       <PageSkeleton
-        v-else-if="loading && showSkeleton"
+        v-else-if="loading && showSkeleton && !slow"
         :cards="6"
         :table-rows="6"
       />
+      <!-- 慢加载降级：>8s 仍未返回，提示可先浏览下方 + 重试（#1546 T2.5，请求不中断） -->
+      <div v-else-if="loading && slow" class="state-hint state-hint--slow">
+        数据加载较慢，可先浏览下方观察列表
+        <button type="button" class="state-hint__retry" @click="() => fetchOverview()">
+          重试
+        </button>
+      </div>
 
       <!-- 6 组资产 -->
       <template v-for="group in groups" :key="group.category">
@@ -386,6 +396,36 @@ const toggleExpand = () => {
 
   &--error {
     color: var(--color-danger);
+  }
+
+  &--slow {
+    color: var(--text-secondary);
+    background: var(--bg-soft);
+  }
+
+  &__retry {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+    margin-left: 10px;
+    padding: 4px 12px;
+    font-family: inherit;
+    font-size: 13px;
+    color: var(--brand-700);
+    cursor: pointer;
+    background: var(--brand-100);
+    border: 1px solid var(--brand-400);
+    border-radius: var(--radius-pill);
+    transition: background-color 150ms ease;
+
+    &:hover {
+      background: var(--brand-200);
+    }
+
+    &:focus-visible {
+      outline: none;
+      box-shadow: var(--focus-ring);
+    }
   }
 }
 

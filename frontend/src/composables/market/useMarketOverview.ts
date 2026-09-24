@@ -13,14 +13,24 @@ export function useMarketOverview() {
   // 骨架屏阈值控制：请求 ≤200ms 返回时直接渲染内容、跳过骨架屏，避免“闪屏”（见 #1546 T2.3）
   const showSkeleton = ref(false);
   let skeletonTimer: ReturnType<typeof setTimeout> | null = null;
+  // 慢加载提示：请求 >8s 仍未返回时置 true，展示「数据加载较慢」降级提示。
+  // 注意：不 abort 请求——/api/market/overview 冷缓存实测约 12s（见 api/market.ts 的 25s 超时），
+  // 若在此中断会误杀冷缓存正常场景；请求继续到后端 25s 超时，slow 仅作体验降级（见 #1546 T2.5）。
+  const slow = ref(false);
+  let slowTimer: ReturnType<typeof setTimeout> | null = null;
 
   const fetchOverview = async (force = false) => {
     loading.value = true;
     error.value = null;
+    slow.value = false;
     // 200ms 后才显示骨架屏：快速请求（<200ms）不显示，避免骨架刚出现就消失的闪屏
     skeletonTimer = setTimeout(() => {
       showSkeleton.value = true;
     }, 200);
+    // 8s 仍未返回 → 慢加载提示（请求继续，不中断）
+    slowTimer = setTimeout(() => {
+      slow.value = true;
+    }, 8000);
     try {
       const res = await getMarketOverview(force);
       const data = res.data;
@@ -34,7 +44,12 @@ export function useMarketOverview() {
         clearTimeout(skeletonTimer);
         skeletonTimer = null;
       }
+      if (slowTimer) {
+        clearTimeout(slowTimer);
+        slowTimer = null;
+      }
       showSkeleton.value = false;
+      slow.value = false;
       loading.value = false;
     }
   };
@@ -44,6 +59,7 @@ export function useMarketOverview() {
     error,
     overview,
     fetchOverview,
-    showSkeleton
+    showSkeleton,
+    slow
   };
 }
