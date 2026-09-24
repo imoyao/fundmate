@@ -135,20 +135,6 @@
         </template>
       </SectionHeader>
 
-      <!-- 数据来源提示（外部临时源 / 已自动降级）：只提示、不报错（#1431 决策） -->
-      <div
-        v-if="sourceNotice"
-        class="rank-source-notice"
-        :class="`rank-source-notice--${sourceNotice.tone}`"
-        role="status"
-      >
-        <IconifyIconOffline
-          :icon="sourceNotice.icon"
-          class="rank-source-notice__icon"
-        />
-        <span class="rank-source-notice__text">{{ sourceNotice.text }}</span>
-      </div>
-
       <!-- 分位色标图例：提升表格可读性（配色仍用本站温度语义色，不引入外部色板） -->
       <div class="rank-legend">
         <span
@@ -288,12 +274,12 @@ const RANK_VIEWS = [
     key: "crowding",
     label: "拥挤度",
     info: {
-      sw: "申万一级 31 个行业的历史分位：综合拥挤度、成交额占全A比例、换手率、60 日线上占比、60 日新高占比、融资买入占比、百万大单。越高越拥挤。数据来自外部临时源；PB 分位需行业 PB 源，当前留空。",
+      sw: "申万一级 31 个行业的历史分位：综合拥挤度、成交额占全A比例、换手率、60 日线上占比、60 日新高占比、融资买入占比、百万大单。越高越拥挤。",
       track:
-        "18 个热门赛道（概念指数 + 申万细分，如 AI芯片 / 半导体设备 / 光通信）的历史分位，维度同行业视图；赛道维度无行业乖离率。数据来自外部临时源。"
+        "18 个热门赛道（概念指数 + 申万细分，如 AI芯片 / 半导体设备 / 光通信）的历史分位，维度同行业视图；赛道维度无行业乖离率。"
     },
     staleTip:
-      "数据源（外部临时源 / 申万宏源官网）暂不可用，当前为最近一次成功计算的结果或占位提示，非实时数据，仅供参考。"
+      "数据暂未更新，当前为最近一次成功计算的结果或占位提示，非实时数据，仅供参考。"
   },
   {
     key: "bias",
@@ -303,7 +289,7 @@ const RANK_VIEWS = [
       track: "赛道维度不提供行业乖离率（该口径仅申万一级行业适用）。"
     },
     staleTip:
-      "行情源（申万宏源官网 / 腾讯）暂不可用，当前乖离率基于最近一次成功抓取的价格计算，非实时数据，仅供参考。"
+      "行情数据暂未更新，当前乖离率基于最近一次成功抓取的价格计算，非实时数据，仅供参考。"
   }
 ] as const;
 
@@ -340,20 +326,6 @@ const RANK_LEGEND = [
     dotClass: "rank-legend__dot--high"
   }
 ];
-
-/** 外部临时源提示（#1431 决策：先用它补维度，但如实告知来源与限制） */
-const EXTERNAL_SOURCE_NOTICE = {
-  tone: "info",
-  icon: "ep:info-filled",
-  text: "当前为外部临时源数据（fundfof.com 公开接口），含换手率 / 60日线上占比 / 新高占比 / 融资买入占比 / 百万大单等维度。该源未授权、可能随时失效，仅供自用参考；我方自有数据源就位后将替换。"
-};
-
-/** 降级提示：外部源不可用 → 已回落申万官网自算，维度变少（提示而非报错） */
-const DEGRADED_SOURCE_NOTICE = {
-  tone: "warning",
-  icon: "ep:warning",
-  text: "外部源当前不可用，已自动降级为申万宏源官网自算：仅提供成交额占比分位与乖离率；换手率 / 60日线上占比 / 新高占比 / 融资买入占比 / 百万大单 暂不可用。"
-};
 
 // ================================================================
 // 计算属性
@@ -436,19 +408,6 @@ const activeCrowdingItems = computed(() =>
 const activeCrowdingLoading = computed(() =>
   rankCategory.value === "track" ? trackLoading.value : crowdingLoading.value
 );
-
-/**
- * 数据来源提示（#1431）：按当前展示的数据判定，只提示、不报错。
- * 外部临时源 → 蓝色说明；已降级为申万自算（维度缺项）→ 黄色提醒；无数据时不提示（由表格空态负责）。
- */
-const sourceNotice = computed(() => {
-  const items = activeCrowdingItems.value;
-  if (!items.length) return null;
-  const isExternal = items.some(
-    (i: any) => i.data?.source_kind === "external_temp"
-  );
-  return isExternal ? EXTERNAL_SOURCE_NOTICE : DEGRADED_SOURCE_NOTICE;
-});
 
 // ================================================================
 // 方法
@@ -855,45 +814,8 @@ onMounted(() => {
 }
 
 /* ============================================================
-   数据来源提示条 + 分位色标图例（#1431）
+   分位色标图例（#1431）
    ============================================================ */
-.rank-source-notice {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  padding: 10px 12px;
-  margin: 0 0 12px;
-  font-size: 12px;
-  line-height: 1.6;
-  border-radius: 8px;
-}
-
-.rank-source-notice--info {
-  color: var(--text-secondary);
-  background: color-mix(in srgb, var(--brand-400) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--brand-400) 30%, transparent);
-}
-
-.rank-source-notice--warning {
-  color: var(--color-warning-ink);
-  background: color-mix(
-    in srgb,
-    var(--color-warning, #d97706) 10%,
-    transparent
-  );
-  border: 1px solid
-    color-mix(in srgb, var(--color-warning, #d97706) 32%, transparent);
-}
-
-.rank-source-notice__icon {
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
-.rank-source-notice__text {
-  flex: 1;
-}
-
 .rank-legend {
   display: flex;
   flex-wrap: wrap;
