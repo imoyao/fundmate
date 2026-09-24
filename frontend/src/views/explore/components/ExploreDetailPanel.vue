@@ -7,7 +7,7 @@
   趋势图抽为 TemperatureTrendChart，本文件只做区域编排。
 -->
 <template>
-  <div v-loading="loading" class="detail-panel">
+  <div class="detail-panel">
     <!-- 数据新鲜度守卫（#1431）：最新数据超阈值未更新时显式提示，不静默展示旧值 -->
     <div v-if="freshness?.stale" class="freshness-alert" role="alert">
       <IconifyIconOffline icon="ep:warning" class="freshness-alert__icon" />
@@ -19,7 +19,7 @@
     </div>
 
     <!-- 综合仪表盘 -->
-    <section class="dashboard-section">
+    <section class="dashboard-section" v-loading="loading">
       <MetricGrid>
         <!-- 综合温度仪表（大）——与概览档同源同貌；gaugeVisible 保证同一时刻
              全页只有一份仪表盘在 DOM 中（#1549 T4.1，参数由 index.vue 按档位传入） -->
