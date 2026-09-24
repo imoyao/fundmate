@@ -16,6 +16,9 @@
 | transactions | `asset_type`；为空时回退到 `position_id` 指向持仓的 `type`     |
 | watchlist    | **已有 `venue` 列**（写入侧早已携带），为空才回退 asset_type     |
 
+venue 解析**不再在本脚本内重复实现**：统一走 `app/core/venues.py::venue_of_row`
+（显式声明 > 场内货基特例 > asset_type 缺省推断），与写入侧 / 迁移同一口径。
+
 **场内货基例外**：`SH` 前缀 + 代码段 `^97\\d{4}$`（如 `SH970164` 银河水星现金添利）
 资产类型是货基却属交易所，故显式判为 EXCHANGE、**不剥前缀**。与
 `app/services/fund_utils._CODE_FALLBACK_RE` 那条「沪市现金管理 97xxxx」同源。
@@ -50,47 +53,47 @@ import argparse
 import datetime as dt
 import json
 import pathlib
-import re
 import sqlite3
 import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / 'backend'))
 
-from app.core.symbol_utils import normalize_by_venue, strip_exchange_prefix  # noqa: E402
-from app.core.venues import EXCHANGE, OTC, venue_of_asset_type  # noqa: E402
+from app.core.symbol_utils import normalize_by_venue, strip_exchange_prefix, symbol_identity  # noqa: E402
+from app.core.venues import EXCHANGE, OTC, venue_of_row  # noqa: E402
 
 DEFAULT_DB = REPO_ROOT / 'backend' / 'invest.db'
-
-# 场内货基（沪市现金管理）：资产类型是货基，场所却是交易所
-SH_EXCHANGE_MONEY_FUND_RE = re.compile(r'^SH97\d{4}$')
 
 # 逐表配置：symbol / asset_type / venue 列名 + 判定重复的业务作用域 + 引用列名
 TABLES = {
     'positions': dict(
-        pk='id', symbol='symbol', asset_type='type', venue=None,
-        scope=('family_id', 'ledger_id'), ref_col='position_id', merge=True,
+        pk='id',
+        symbol='symbol',
+        asset_type='type',
+        venue=None,
+        scope=('family_id', 'ledger_id'),
+        ref_col='position_id',
+        merge=True,
     ),
     'transactions': dict(
-        pk='id', symbol='symbol', asset_type='asset_type', venue=None,
-        scope=None, ref_col=None, merge=False,   # 同一 symbol 多笔流水正常，永不合并
+        pk='id',
+        symbol='symbol',
+        asset_type='asset_type',
+        venue=None,
+        scope=None,
+        ref_col=None,
+        merge=False,  # 同一 symbol 多笔流水正常，永不合并
     ),
     'watchlist': dict(
-        pk='id', symbol='symbol', asset_type='asset_type', venue='venue',
-        scope=('family_id', 'market'), ref_col='item_id', merge=True,
+        pk='id',
+        symbol='symbol',
+        asset_type='asset_type',
+        venue='venue',
+        scope=('family_id', 'market'),
+        ref_col='item_id',
+        merge=True,
     ),
 }
-
-
-def venue_of(symbol: str, asset_type: str | None, declared_venue: str | None = None) -> str:
-    """一行数据的 venue：显式声明 > 场内货基特例 > asset_type 缺省推断。"""
-    if declared_venue:
-        v = str(declared_venue).strip().upper()
-        if v in (EXCHANGE, OTC):
-            return v
-    if SH_EXCHANGE_MONEY_FUND_RE.match((symbol or '').strip().upper()):
-        return EXCHANGE
-    return venue_of_asset_type(asset_type)
 
 
 def expected_symbol(symbol: str, venue: str) -> str:
@@ -159,15 +162,63 @@ def audit(con: sqlite3.Connection) -> list[dict]:
             # 流水自身没标类型时，回退到它挂的持仓（口径与写入侧一致）
             if table == 'transactions' and not asset_type and rec['position_id'] in pos_type:
                 asset_type = pos_type[rec['position_id']]
-            venue = venue_of(symbol, asset_type, declared)
+            venue = venue_of_row(symbol, asset_type, declared)
             want = expected_symbol(symbol, venue)
             if want != symbol:
                 scope = tuple(rec[c] for c in cfg['scope']) if cfg['scope'] else ()
                 findings.append(
-                    dict(table=table, pk=pk, symbol=symbol, expected=want,
-                         venue=venue, asset_type=asset_type, scope=scope)
+                    dict(
+                        table=table,
+                        pk=pk,
+                        symbol=symbol,
+                        expected=want,
+                        venue=venue,
+                        asset_type=asset_type,
+                        scope=scope,
+                    )
                 )
     return findings
+
+
+def audit_symbol_norm(con: sqlite3.Connection) -> list[dict]:
+    """`positions.symbol_norm` 与「由 symbol + asset_type 重算的身份」不一致的行（#1662 后续）。
+
+    `symbol_norm` 是**派生列**（构造见 `core/symbol_utils.symbol_identity`），判据即
+    「重算值 == 库里存的值」。不一致只有两种成因：
+
+    ① 列不存在 —— 迁移没跑（`core/migrations.py::migrate_positions_symbol_norm`）；
+    ② 有人绕过 ORM 事件写库（`bulk_update_mappings` / 裸 SQL）—— 那正是唯一约束
+       `uq_positions_ledger_symbol_norm` 会**静默失效**的形态，必须报出来。
+
+    与 `audit()`（形态审计）分开：形态审计要改写 `symbol`，本审计只需按派生规则重算覆盖，
+    修复动作不同、风险等级也不同，混在一起会让 `--apply` 的语义变模糊。
+    """
+    cols = [r[1] for r in con.execute('PRAGMA table_info("positions")')]
+    if 'symbol_norm' not in cols:
+        return [dict(pk=None, symbol='', expected='', actual='', why='symbol_norm 列不存在（迁移未跑）')]
+
+    findings: list[dict] = []
+    for rid, symbol, asset_type, actual in con.execute('SELECT id, symbol, type, symbol_norm FROM positions'):
+        if not symbol:
+            continue
+        want = symbol_identity(symbol, asset_type)
+        if (actual or '') != want:
+            findings.append(dict(pk=rid, symbol=symbol, expected=want, actual=actual or '', why='与派生身份不一致'))
+    return findings
+
+
+def repair_symbol_norm(con: sqlite3.Connection) -> int:
+    """按派生规则重算并覆盖 `positions.symbol_norm`（幂等）。返回受影响行数。"""
+    n = 0
+    for rid, symbol, asset_type in con.execute('SELECT id, symbol, type FROM positions').fetchall():
+        if not symbol:
+            continue
+        con.execute(
+            'UPDATE positions SET symbol_norm = ? WHERE id = ?',
+            (symbol_identity(symbol, asset_type), rid),
+        )
+        n += 1
+    return n
 
 
 def duplicates(con: sqlite3.Connection, findings: list[dict]) -> list[dict]:
@@ -199,8 +250,7 @@ def merge_rows(con: sqlite3.Connection, table: str, pks: list[int], canonical: s
     cfg = TABLES[table]
     colnames = columns(con, table)
     rows = con.execute(
-        f'SELECT {", ".join(colnames)} FROM {table} WHERE '
-        f'{cfg["pk"]} IN ({",".join("?" * len(pks))})',
+        f'SELECT {", ".join(colnames)} FROM {table} WHERE {cfg["pk"]} IN ({",".join("?" * len(pks))})',
         pks,
     ).fetchall()
     dicts = [dict(zip(colnames, r)) for r in rows]
@@ -228,8 +278,17 @@ def merge_rows(con: sqlite3.Connection, table: str, pks: list[int], canonical: s
             updates['confirm_date'] = max(dates)
     else:
         # watchlist：规范行缺失的字段用被并行补齐（收藏 / 置顶 / 成本 等用户状态）
-        for field in ('favorite', 'is_pinned', 'favorite_at', 'pinned_at',
-                      'cost_price', 'quantity', 'notes', 'add_reason', 'name'):
+        for field in (
+            'favorite',
+            'is_pinned',
+            'favorite_at',
+            'pinned_at',
+            'cost_price',
+            'quantity',
+            'notes',
+            'add_reason',
+            'name',
+        ):
             if field in colnames and not keep[field]:
                 for d in drops:
                     if d[field]:
@@ -249,8 +308,7 @@ def merge_rows(con: sqlite3.Connection, table: str, pks: list[int], canonical: s
             )
     for d in drops:
         con.execute(f'DELETE FROM {table} WHERE {cfg["pk"]} = ?', (d[cfg['pk']],))
-    return dict(kept=keep[cfg['pk']], dropped=[d[cfg['pk']] for d in drops],
-                symbol=canonical, updates=updates)
+    return dict(kept=keep[cfg['pk']], dropped=[d[cfg['pk']] for d in drops], symbol=canonical, updates=updates)
 
 
 def main() -> int:
@@ -269,28 +327,42 @@ def main() -> int:
     con = sqlite3.connect(f'file:{db_path.as_posix()}?mode=rw', uri=True)
     try:
         findings = audit(con)
+        norm_findings = audit_symbol_norm(con)
         dups = duplicates(con, findings)
         dup_pks = {(d['table'], pk) for d in dups for pk in d['pks']}
 
         if args.json:
-            print(json.dumps(dict(db=str(db_path), findings=findings, duplicates=dups),
-                             ensure_ascii=False, indent=2))
+            print(
+                json.dumps(
+                    dict(db=str(db_path), findings=findings, duplicates=dups, norm_findings=norm_findings),
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
         else:
             print(f'库: {db_path}')
             print(f'不合规行: {len(findings)}')
             for f in findings:
                 mark = '重复' if (f['table'], f['pk']) in dup_pks else '改写'
-                print(f"  [{f['table']}] id={f['pk']:>6}  {f['symbol']:<12} → {f['expected']:<12}"
-                      f" venue={f['venue'] or '(无)':<9} type={str(f['asset_type']):<10}"
-                      f" scope={f['scope']}  ({mark})")
+                print(
+                    f'  [{f["table"]}] id={f["pk"]:>6}  {f["symbol"]:<12} → {f["expected"]:<12}'
+                    f' venue={f["venue"] or "(无)":<9} type={str(f["asset_type"]):<10}'
+                    f' scope={f["scope"]}  ({mark})'
+                )
             for d in dups:
-                print(f"  重复组 [{d['table']}] scope={d['scope']} {d['expected']}: ids={d['pks']}")
+                print(f'  重复组 [{d["table"]}] scope={d["scope"]} {d["expected"]}: ids={d["pks"]}')
+            print(f'symbol_norm 不一致: {len(norm_findings)} 行')
+            for n in norm_findings:
+                print(
+                    f'  [positions] id={n["pk"]}  symbol={n["symbol"]}  '
+                    f'库里={n["actual"] or "(空)"} 应为={n["expected"] or "(空)"}  ({n["why"]})'
+                )
 
         if not args.apply:
             print('\n（只读审计：未改动任何数据。加 --apply 执行修复）')
-            return 1 if findings else 0
+            return 1 if (findings or norm_findings) else 0
 
-        if not findings:
+        if not findings and not norm_findings:
             print('\n无需修复。')
             return 0
 
@@ -306,8 +378,7 @@ def main() -> int:
         # 1) 先处理「同作用域归一后同码」的重复组（每组只处理一次）
         for (table, scope, want), grp in groups.items():
             if not args.merge:
-                skipped.append((table, want, tuple(scope),
-                                f'重复组（{len(grp["pks"])} 行）：需 --merge 才合并'))
+                skipped.append((table, want, tuple(scope), f'重复组（{len(grp["pks"])} 行）：需 --merge 才合并'))
                 continue
             merged.append(merge_rows(con, table, grp['pks'], want))
             handled.update(grp['pks'])
@@ -319,8 +390,7 @@ def main() -> int:
             if (f['table'], tuple(f['scope']), f['expected']) in groups:
                 continue
             con.execute(
-                f'UPDATE {f["table"]} SET {TABLES[f["table"]]["symbol"]} = ? WHERE '
-                f'{TABLES[f["table"]]["pk"]} = ?',
+                f'UPDATE {f["table"]} SET {TABLES[f["table"]]["symbol"]} = ? WHERE {TABLES[f["table"]]["pk"]} = ?',
                 (f['expected'], f['pk']),
             )
             rewritten.append(f)
@@ -328,19 +398,28 @@ def main() -> int:
         con.commit()
         print(f'合并重复: {len(merged)} 组')
         for m in merged:
-            print(f"  {m['symbol']}: 保留 id={m['kept']} 删 {m['dropped']} | {m['updates']}")
+            print(f'  {m["symbol"]}: 保留 id={m["kept"]} 删 {m["dropped"]} | {m["updates"]}')
         print(f'改写 symbol: {len(rewritten)} 行')
         for f in rewritten:
-            print(f"  [{f['table']}] id={f['pk']} {f['symbol']} → {f['expected']}")
+            print(f'  [{f["table"]}] id={f["pk"]} {f["symbol"]} → {f["expected"]}')
         if skipped:
             print(f'跳过（需人工）: {len(skipped)} 组')
             for table, want, scope, why in skipped:
                 print(f'  [{table}] {want} scope={scope}：{why}')
 
+        # 3) symbol_norm 是派生列：重算覆盖即可（幂等、无歧义，不涉及金额口径）
+        if norm_findings:
+            fixed = repair_symbol_norm(con)
+            con.commit()
+            print(f'symbol_norm 重算覆盖: {fixed} 行')
+
         remaining = audit(con)
-        print(f'\n复检：剩余不合规行 {len(remaining)}'
-              + (f' → {[(r["table"], r["symbol"], r["expected"]) for r in remaining]}' if remaining else ' ✅'))
-        return 1 if remaining else 0
+        remaining_norm = audit_symbol_norm(con)
+        print(
+            f'\n复检：剩余形态不合规 {len(remaining)} 行 / symbol_norm 不一致 {len(remaining_norm)} 行'
+            + (' ✅' if not remaining and not remaining_norm else '')
+        )
+        return 1 if (remaining or remaining_norm) else 0
     finally:
         con.close()
 

@@ -10,9 +10,20 @@ title: 核心数据模型完整规范（data-model）
 
 ### 5.1 positions 可交易持仓资产
 
-核心存储用户股票、基金、ETF 持仓，记录成本、数量、配置目标、归属账户，是收益计算、配置分析的核心数据源。关键字段：symbol、name、market、asset_type、account_name、quantity、avg_price、current_price、confirm_date、allocation、snapshot 相关审计字段。
+核心存储用户股票、基金、ETF 持仓，记录成本、数量、配置目标、归属账户，是收益计算、配置分析的核心数据源。关键字段：symbol、symbol_norm、name、market、asset_type、account_name、quantity、avg_price、current_price、confirm_date、allocation、snapshot 相关审计字段。
 
 **精度规范**（v4.4）：`quantity` 为 Integer，存储最小份额单位（份×10000）；`avg_price` 和 `current_price` 为 Integer，存储分（元×100）。所有读写通过 `Money` 工具类转换。
+
+**symbol 形态与身份（#1662 / 决策 D35 + D36）**：
+
+| 字段 | 角色 | 形态 | 例 |
+|---|---|---|---|
+| `symbol` | **对外展示**形态 | 按 venue 分述：场内 `{MARKET}{CODE6}`、场外**裸 6 位码** | `SH600519` / `004369` |
+| `symbol_norm` | **身份**形态（唯一约束挂它） | `{VENUE}:{venue 规范形态代码}` | `EXCHANGE:SZ159915` / `OTC:004369` / `NO_VENUE:MGR_xxx` |
+
+- 两者都由 `backend/app/core/venues.py` 唯一决定（禁止各模块自行拼 / 剥前缀）；身份构造见 `core/symbol_utils.symbol_identity(symbol, asset_type, venue=None)`，落库前由 ORM `before_insert` / `before_update` 事件自动填充。
+- 唯一约束：`uq_positions_ledger_symbol`（**字面量** `(ledger_id, symbol)`，历史遗留、保留）+ `uq_positions_ledger_symbol_norm`（**身份** `(ledger_id, symbol_norm)`，`#1677` 新增）。后者挡住 `SZ004369` / `sz004369` / ` SZ004369 ` 这类写法变体 —— 字面量约束挡不住，那是「同一基金两行」的根因。
+- 完整形态约定见 [`conventions.md`](./conventions.md) §2.7；一致性由 `scripts/audit_symbol_venue_conformance.py` 守卫。
 
 ### 5.2 transactions 交易流水
 

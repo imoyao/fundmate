@@ -13,17 +13,33 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     and_,
+    event,
 )
 from sqlalchemy.orm import validates
 
 from app.core.constants import POSITION_SOURCE_LABELS, VALUATION_MODE_LABELS, PositionSource, ValuationMode
 from app.core.database import Base, FamilyScopedMixin, PrimaryKeyMixin, TimestampMixin
+from app.core.symbol_utils import symbol_identity
 
 
 class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     __tablename__ = 'positions'
 
     symbol = Column(String(30), nullable=False)
+    # ── 归一身份键（#1662 后续）──
+    # symbol 是**对外展示**形态（场内带前缀 / 场外裸码，见 core/venues），symbol_norm 是**身份**形态：
+    # `EXCHANGE:SZ159915` / `OTC:004369` / `NO_VENUE:MGR_xxx`（构造见 core/symbol_utils.symbol_identity）。
+    # 唯一约束挂在**身份**而非**字面量**上：`SZ004369` / `sz004369` / ` SZ004369 ` / `SH.004369`
+    # 是四个不同字符串却同一只基金，字面量唯一约束（uq_positions_ledger_symbol）挡不住，
+    # 这正是 #1662「同一基金两行」的根因。
+    # 由 `_fill_position_symbol_norm` 在落库前自动填充 —— 不依赖各写入路径自觉传参，
+    # 否则任何一条漏填的路径都会让约束静默失效（复发形态）。
+    symbol_norm = Column(
+        String(64),
+        nullable=False,
+        default='',
+        comment='#1662 归一身份键 {VENUE}:{规范形态代码}(EXCHANGE:SZ159915/OTC:004369)，唯一约束作用于此列',
+    )
     name = Column(String(100))
     market = Column(String(20))
     asset_type = Column('type', String(20))
@@ -136,6 +152,12 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     __table_args__ = (
         # 核心业务约束：同一账户下 symbol 唯一
         UniqueConstraint('ledger_id', 'symbol', name='uq_positions_ledger_symbol'),
+        # 身份唯一约束（#1662 后续）：同一账户下「归一身份」唯一。
+        # 与上面那条**并存**：字面量那条更严（同字符串必然同身份），不冲突；这条额外覆盖
+        # 写法变体（大小写 / 空白 / 分隔符 / 前缀形态），把 #1662 的根因堵在约束层。
+        # 用 Index(unique=True) 而非 UniqueConstraint：存量库由 migrations 建**同名索引**补齐，
+        # 两种声明落在 sqlite_master 里的名字一致，create_all 与迁移不会各建一个。
+        Index('uq_positions_ledger_symbol_norm', 'ledger_id', 'symbol_norm', unique=True),
         # 去重约束：持仓内容哈希唯一，撞 key 由 service 层转 upsert（更新数量/成本,保留溯源）。
         # 去重作用域降为 ledger 级（#1020 / #1065）：import_hash 已含 ledger_id，复合约束与代码语义对齐。
         UniqueConstraint('ledger_id', 'import_hash', name='uq_positions_import_hash'),
@@ -146,6 +168,26 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         Index('idx_positions_account_name', 'account_name'),
         Index('idx_positions_ledger_asset_type', 'ledger_id', 'type'),
     )
+
+
+@event.listens_for(Position, 'before_insert')
+@event.listens_for(Position, 'before_update')
+def _fill_position_symbol_norm(mapper, connection, target: Position) -> None:
+    """落库前把 `symbol_norm` 算出来（#1662 后续）—— 唯一约束「永不静默失效」的保证。
+
+    为什么用 mapper 事件而不是在各写入路径里手动赋值：本仓写持仓的入口有 6 处
+    （`position_service.process_buy_or_deposit` / `upsert_from_holding` /
+    `importer.orchestrator_holdings` ×2 / 其余两处直接构造），漏掉任何一处，
+    `symbol_norm` 就会落成空串，唯一约束对那行**静默失效** —— 那正是 #1662 的复发形态。
+    事件挂在这里，写入路径无论怎么绕都会经过。
+
+    计算是**纯函数**（`symbol_identity` 只读 `symbol` + `asset_type`），故
+    `before_update` 重算幂等：只要 symbol / asset_type 没变，结果与库里一致。
+
+    不做 `bulk_update_mappings` 兜底 —— 本仓 `Position` 无任何 bulk 写路径
+    （全仓 grep 确认），若日后新增需一并处理（`bulk_*` 不触发 mapper 事件）。
+    """
+    target.symbol_norm = symbol_identity(target.symbol, target.asset_type)
 
 
 class PositionImportMeta(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):

@@ -29,8 +29,9 @@ r"""交易场所（venue）的单一权威定义（#1662）。
 
 ## asset_type → venue 的映射
 
-本仓当前 `asset_type` 与 venue 是**全函数关系**（每个 asset_type 只可能属于一个场所），
-故未显式传 venue 时可据此推断，作为**兼容缺省**：
+本仓当前 `asset_type` 与 venue **不是全函数关系**（同一个 asset_type 可能落在不同场所，
+已证例外见下），故下表只作**兼容缺省**：未显式传 venue 时按它推断，凡与缺省不一致的场景
+（场内货基、场内 LOF）调用方**必须显式传 venue**，不能让本模块猜。
 
     fund       → OTC                 （场外公募申购；场内 LOF 走 etf）
     money_fund → OTC                 （**缺省取场外**：场外货基是主流；场内货基见下）
@@ -52,6 +53,8 @@ r"""交易场所（venue）的单一权威定义（#1662）。
 
 from __future__ import annotations
 
+import re
+
 # ── venue 取值（唯一权威字符串，禁止在业务代码里手写 'OTC' / 'EXCHANGE'）──
 EXCHANGE = 'EXCHANGE'
 OTC = 'OTC'
@@ -64,6 +67,12 @@ VENUE_LABELS: dict[str, str] = {
 }
 
 VENUE_VALUES: tuple[str, ...] = (EXCHANGE, OTC)
+
+# 场内货基（沪市现金管理）：`SH970164` 银河水星现金添利 —— asset_type 是货基、场所却是交易所。
+# 这是 `asset_type → venue` 唯一一处「缺省必然判错」的例外，故给一条**显式代码段规则**兜底
+# （不是「猜」：97xxxx 段由交易所分配，判据确定）。与 `services/fund_utils._CODE_FALLBACK_RE`
+# 的「沪市现金管理 97xxxx」同源；`scripts/audit_symbol_venue_conformance.py` 亦以此为准。
+SH_EXCHANGE_MONEY_FUND_RE = re.compile(r'^SH97\d{4}$')
 
 # asset_type → venue 的**缺省**推断表（非全函数，见模块 docstring）
 _OTC_ASSET_TYPES: tuple[str, ...] = ('fund', 'money_fund')
@@ -131,8 +140,31 @@ def asset_types_of_venue(venue: str | None) -> tuple[str, ...]:
     return VENUE_ASSET_TYPES.get(normalize_venue(venue) if is_valid_venue(venue) else NO_VENUE, ())
 
 
+def venue_of_row(symbol: str | None, asset_type: str | None, declared_venue: str | None = None) -> str:
+    """**一行存量数据**的 venue：显式声明 > 场内货基特例 > asset_type 缺省推断（#1662 后续）。
+
+    与 `resolve_venue`（写侧）的分工：`resolve_venue` 服务**新写入**，调用方明确知道场所；
+    本函数服务**已在库里的行**（回填 / 审计 / 读侧反查），此时唯一的信号是行上已有的字段。
+    两者共用同一张 `asset_type → venue` 表与同一条场内货基特例，口径不会分叉。
+
+    `declared_venue` 非空且合法时**优先**（watchlist 有 venue 列，写入侧早已携带）；
+    非法显式值不抛错而是**降级**到推断 —— 存量数据里可能有脏值，审计脚本要能把它们报出来，
+    而不是在审计途中直接崩掉。
+
+    判不出场所时返回空串 `NO_VENUE`（不猜）。
+    """
+    if declared_venue:
+        normalized = str(declared_venue).strip().upper()
+        if normalized in VENUE_VALUES:
+            return normalized
+    if SH_EXCHANGE_MONEY_FUND_RE.match((symbol or '').strip().upper()):
+        return EXCHANGE
+    return venue_of_asset_type(asset_type)
+
+
 def get_venue_label(venue: str | None) -> str:
-    """venue → 中文标签；空值返回空串，未知值原样返回。"""
+    """venue → 中文标签；空值返回空串，未知值原样返回。大小写不敏感（与 normalize_venue 同语义）。"""
     if not venue:
         return ''
-    return VENUE_LABELS.get(venue, venue)
+    normalized = venue.strip().upper()
+    return VENUE_LABELS.get(normalized, venue)

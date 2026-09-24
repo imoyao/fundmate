@@ -24,6 +24,7 @@ from app.core.migrations import (
     migrate_advisor_portfolio_metrics,
     migrate_advisor_portfolio_provenance,
     migrate_channel_link_indexes,
+    migrate_positions_symbol_norm,
     migrate_watchlist_family_scoped_unique_key,
     migrate_watchlist_name_snapshot,
     migrate_watchlist_unique_key,
@@ -434,6 +435,8 @@ def init_db():
     # watchlist.name 名称快照列（#1508）：create_all 不替存量表加列，迁移须先于结构校验，
     # 否则 _validate_schema 会因模型列多于库表而报错阻断启动（与下方投顾列同因）。
     migrate_watchlist_name_snapshot(user_eng)
+    # positions.symbol_norm 归一身份列 + 唯一索引（#1662 后续）：同上须先于结构校验
+    migrate_positions_symbol_norm(user_eng)
     _validate_schema(user_eng, user_meta, label='user')
     # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键 (symbol, venue)
     # → (symbol, market, venue) 防跨市场同码冲突。create_all 只增表不改表，旧库
@@ -498,6 +501,9 @@ def init_db_split():
         user_meta.create_all(bind=user_eng)
         # watchlist.name 名称快照列（#1508）：同上，须先于结构校验
         migrate_watchlist_name_snapshot(user_eng)
+        # positions.symbol_norm 归一身份列 + 唯一索引（#1662 后续）：create_all 不替存量表加列，
+        # 迁移须先于结构校验（否则「模型有列、库没列」直接拒绝启动）
+        migrate_positions_symbol_norm(user_eng)
         _validate_schema(user_eng, user_meta, label='user')
         # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键回归基线，
         # 双库模式同样按 user 域引擎自动执行，幂等。
