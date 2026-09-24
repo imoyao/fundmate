@@ -15,9 +15,11 @@ from datetime import date as date_cls
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from loguru import logger
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.database import market_session
 from app.core.time_utils import now_shanghai
 from app.domains.market.models import MarketAssetDaily, MarketBondYieldDaily
 from app.services.market_service import (
@@ -54,6 +56,33 @@ def _f(v: Any) -> Optional[float]:
 
 
 # ── 读 ──
+
+
+def resolve_overview(force: bool) -> Dict[str, Any]:
+    """读库优先组装 overview；库里无完整当日数据时实时取数并回写（#1460）。
+
+    编排逻辑集中在 store 层，视图只调本函数（视图层职责边界 #1606）。
+    读库 / 回写失败一律静默降级到实时路径：快照是加速手段，不应成为新故障点。
+    """
+    if not force:
+        try:
+            with market_session() as db:
+                snapshot = load_overview_from_db(db)
+            if snapshot:
+                return snapshot
+        except Exception as e:  # noqa: BLE001 - 快照缺失/异常时降级实时取数，不抛 500
+            logger.warning('读大类资产快照失败，降级为实时取数: {}', e)
+
+    # 走到这里说明库里没完整当日快照 → 实时取数（含软占位降级，不整体 500）
+    overview = MarketOverviewService.get_overview(force_refresh=force)
+
+    # 兜底回写：本次实时结果存下来，下次请求即可读库（毫秒级命中）。
+    try:
+        with market_session() as db:
+            save_overview_to_db(db, overview)
+    except Exception as e:  # noqa: BLE001 - 回写失败不影响本次响应
+        logger.warning('大类资产快照回写失败（不影响本次响应）: {}', e)
+    return overview
 
 
 def load_overview_from_db(db: Session) -> Optional[Dict[str, Any]]:
