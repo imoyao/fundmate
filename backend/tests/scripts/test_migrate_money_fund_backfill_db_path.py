@@ -42,6 +42,42 @@ def test_windows_drive_url() -> None:
     assert m._sqlite_path_from_url('sqlite:///C:/x/y/invest.db') == 'C:/x/y/invest.db'
 
 
+def test_windows_drive_url_survives_posix_semantics(monkeypatch) -> None:
+    """在 Windows 上**模拟 POSIX 的 os.path 语义**，让「Linux CI 上会不会被拼 cwd」本机可判。
+
+    本卡第一版在 Linux CI 上的实测失败形态：
+
+        '/home/runner/work/fundmate/fundmate/backend/C:/x/y/invest.db'
+
+    把 `isabs` / `abspath` 换成 POSIX 语义后，修复前后在这个用例上会分叉：
+    - 旧实现（`os.path.isabs` + `os.path.abspath`）→ 被拼上 cwd → **断言失败**
+    - 现实现（`_is_absolute_path`，不看 `os.path`）   → 原样返回 → 通过
+
+    否则这条用例只在 Linux 上才有判别力，本机永远是「怎么都绿」。
+    """
+    import posixpath
+
+    monkeypatch.setattr(m.os.path, 'isabs', posixpath.isabs)
+    monkeypatch.setattr(m.os.path, 'abspath', lambda p: posixpath.join('/home/runner/work', p))
+    assert m._sqlite_path_from_url('sqlite:///C:/x/y/invest.db') == 'C:/x/y/invest.db'
+
+
+def test_absolute_path_detection_is_platform_independent() -> None:
+    """`_is_absolute_path()` 必须**不依赖运行平台** —— 本卡第一版用 `os.path.isabs`
+    在 Linux CI 上翻红：`C:/x/y/invest.db` 在 POSIX 上没有前导 `/`，被判成相对路径后
+    `abspath()` 拼成了 `<cwd>/C:/x/y/invest.db`。
+
+    这个判定函数只做字符串运算（不碰 `os.path`），所以**在 Windows 上断言的结果
+    与 Linux 上完全一致** —— 本地就能证明 CI 上的行为，不用等 13 分钟的远端跑。
+    """
+    assert m._is_absolute_path('C:/x/y/invest.db') is True
+    assert m._is_absolute_path('D:\\x\\y\\invest.db') is True
+    assert m._is_absolute_path('/abs/p.db') is True
+    assert m._is_absolute_path('\\\\server\\share\\p.db') is True  # UNC
+    assert m._is_absolute_path('./invest.db') is False
+    assert m._is_absolute_path('invest.db') is False
+
+
 def test_absolute_four_slash_url() -> None:
     assert m._sqlite_path_from_url('sqlite:////abs/p.db') == '/abs/p.db'
 

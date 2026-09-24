@@ -18,10 +18,30 @@
 
 import argparse
 import os
+import re
 import sqlite3
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+_DRIVE_RE = re.compile(r'^[A-Za-z]:[\\/]')
+
+
+def _is_absolute_path(path: str) -> bool:
+    """跨平台判定「这已经是绝对路径，别再用 cwd 去拼」。
+
+    WHY 不能只靠 `os.path.isabs`（#1687，Linux CI 上翻红的正是这一条）：
+    Windows 盘符路径 `C:/x/y.db` 在 POSIX 上**没有**前导 `/`，会被判成相对路径，
+    再 `os.path.abspath()` 就拼成 `<cwd>/C:/x/y.db` —— 任何平台上的结果都是错的。
+    这里显式认三种形态，与运行平台无关：
+
+    - POSIX 根：`/abs/p.db`
+    - UNC：`\\\\server\\share\\p.db`
+    - Windows 盘符：`C:/x/y.db`、`D:\\x\\y.db`
+    """
+    if path.startswith('/') or path.startswith('\\\\'):
+        return True
+    return bool(_DRIVE_RE.match(path))
 
 
 def _sqlite_path_from_url(db_url: str) -> str:
@@ -45,6 +65,9 @@ def _sqlite_path_from_url(db_url: str) -> str:
     路径（`sqlite:////abs/p.db`）、`sqlite+pysqlite://`、以及查询参数
     （`?mode=ro`，会被放进 `.query` 而**不**污染路径）全都解析正确。
 
+    是否要 `abspath()` 走 `_is_absolute_path()`，不用 `os.path.isabs` —— 后者在
+    Linux 上会把 Windows 盘符路径当作相对路径（CI 跑在 ubuntu，见 `test_windows_drive_url`）。
+
     @raise ValueError: URL 里没有数据库名（如 `sqlite://`）或不是 sqlite 方言。
     """
     from sqlalchemy.engine import make_url
@@ -53,7 +76,7 @@ def _sqlite_path_from_url(db_url: str) -> str:
     path = parsed.database
     if not path:
         raise ValueError(f'URL 中没有数据库文件路径：{db_url}')
-    return path if os.path.isabs(path) else os.path.abspath(path)
+    return path if _is_absolute_path(path) else os.path.abspath(path)
 
 
 def _resolve_db_paths() -> list[str]:
