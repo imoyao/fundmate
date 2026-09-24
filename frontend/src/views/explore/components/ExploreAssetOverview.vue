@@ -159,7 +159,11 @@ const toggleExpand = () => {
       <!-- 错误态优先（含重试，见 #1546 T2.5） -->
       <div v-if="error" class="state-hint state-hint--error">
         资产观察数据加载失败：{{ error }}
-        <button type="button" class="state-hint__retry" @click="() => fetchOverview()">
+        <button
+          type="button"
+          class="state-hint__retry"
+          @click="() => fetchOverview()"
+        >
           重试
         </button>
       </div>
@@ -172,7 +176,11 @@ const toggleExpand = () => {
       <!-- 慢加载降级：>8s 仍未返回，提示可先浏览下方 + 重试（#1546 T2.5，请求不中断） -->
       <div v-else-if="loading && slow" class="state-hint state-hint--slow">
         数据加载较慢，可先浏览下方观察列表
-        <button type="button" class="state-hint__retry" @click="() => fetchOverview()">
+        <button
+          type="button"
+          class="state-hint__retry"
+          @click="() => fetchOverview()"
+        >
           重试
         </button>
       </div>
