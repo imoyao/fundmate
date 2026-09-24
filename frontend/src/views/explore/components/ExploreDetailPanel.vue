@@ -19,7 +19,7 @@
     </div>
 
     <!-- 综合仪表盘 -->
-    <section class="dashboard-section" v-loading="loading">
+    <section v-loading="loading" class="dashboard-section">
       <MetricGrid>
         <!-- 综合温度仪表（大）——与概览档同源同貌；gaugeVisible 保证同一时刻
              全页只有一份仪表盘在 DOM 中（#1549 T4.1，参数由 index.vue 按档位传入） -->
