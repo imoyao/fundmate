@@ -80,6 +80,11 @@ _US_10Y_RE = re.compile(r'^美国国债收益率\s*10\s*年$')
 # position_basis：相对位置口径（价格分位 / 收益率分位）
 # caliber：口径提示（商品含夜盘 / 汇率非 DXY 等），前端 tooltip 展示
 # available=False：软占位资产（缺源或用户决策占位），reason 说明原因
+#
+# ⚠️ reason / caliber / notes 是**直接展示给用户**的文案（探市资产卡下的小字、口径提示、
+# 全局口径备注），这里只能写人话：不出现通道名、akshare 函数名、异常原文（如
+# list index out of range）、「软占位」「降级」「无稳定日频源」「按决策」等内部黑话，
+# 也不承诺排期。技术细节（哪个源不通、抛了什么异常）一律留在条目上方的注释里给开发看。
 ASSET_CONFIG: List[Dict[str, Any]] = [
     # ───────── A股 ─────────
     {
@@ -110,11 +115,12 @@ ASSET_CONFIG: List[Dict[str, Any]] = [
         'position_window': 500,
     },
     {
+        # 不可得（内部留档，勿写进 reason 给用户）：交易所不披露成分股行情，无可靠日频源。
         'key': 'sh932000',
         'name': '中证2000',
         'category': 'A股',
         'available': False,
-        'reason': '交易所不披露成分股行情，暂无可靠日频源（降级）',
+        'reason': '这个指数的数据不公开，暂时取不到',
     },
     # ───────── 港股 ─────────
     {
@@ -156,32 +162,37 @@ ASSET_CONFIG: List[Dict[str, Any]] = [
         'caliber': '纳指综合（.IXIC）',
     },
     {
+        # 不可得（内部留档）：index_us_stock_sina('.N225') 抛 list index out of range，
+        # 该海外指数通道不覆盖日股。
         'key': '.N225',
         'name': '日经225',
         'category': '海外',
         'available': False,
-        'reason': '新浪通道不覆盖日股（list index out of range）',
+        'reason': '暂时取不到行情，先留个位置',
     },
     {
+        # 不可得（内部留档）：index_us_stock_sina('.FTSE') 同上，通道不覆盖英股。
         'key': '.FTSE',
         'name': '富时100',
         'category': '海外',
         'available': False,
-        'reason': '新浪通道不覆盖英股（list index out of range）',
+        'reason': '暂时取不到行情，先留个位置',
     },
     {
+        # 不可得（内部留档）：index_us_stock_sina('.GDAXI') 同上，通道不覆盖德股。
         'key': '.GDAXI',
         'name': '德国DAX',
         'category': '海外',
         'available': False,
-        'reason': '新浪通道不覆盖德股（list index out of range）',
+        'reason': '暂时取不到行情，先留个位置',
     },
     {
+        # 不可得（内部留档）：法国CAC40 在该通道无对应代码。
         'key': '.FCHI',
         'name': '法国CAC40',
         'category': '海外',
         'available': False,
-        'reason': '新浪通道不覆盖法股（无对应代码）',
+        'reason': '暂时取不到行情，先留个位置',
     },
     # ───────── 债券（价格轨：ETF；收益率轨单独取 bond_zh_us_rate）─────────
     {
@@ -236,11 +247,13 @@ ASSET_CONFIG: List[Dict[str, Any]] = [
         'position_window': 500,
     },
     {
+        # 不可得（内部留档）：akshare 无稳定日频源，仅 crypto_js_spot 实时快照可用，
+        # 按 #1436 决策软占位。
         'key': 'BTC',
         'name': '比特币',
         'category': '商品',
         'available': False,
-        'reason': 'akshare 无稳定日频源（仅 crypto_js_spot 实时快照），按决策软占位',
+        'reason': '暂时取不到行情，先留个位置',
     },
     # ───────── 汇率 ─────────
     {
@@ -249,7 +262,7 @@ ASSET_CONFIG: List[Dict[str, Any]] = [
         'category': '汇率',
         'source': 'currency_boc_sina',
         'args': ('美元',),
-        'caliber': '口径：中行牌价（非 DXY）',
+        'caliber': '中行牌价，不是标准美元指数',
         'position_basis': '价格分位',
         'position_window': 500,
     },
@@ -259,7 +272,7 @@ ASSET_CONFIG: List[Dict[str, Any]] = [
         'category': '汇率',
         'source': 'currency_boc_sina',
         'args': ('美元',),
-        'caliber': '口径：在岸中行牌价（替代离岸 CNH）',
+        'caliber': '离岸价取不到，展示的是中行在岸牌价',
         'position_basis': '价格分位',
         'position_window': 500,
     },
@@ -530,16 +543,13 @@ def _calc_anomaly(change_pct: Optional[float], closes: List[float]) -> Optional[
 
 # ── overview 的固定文案 ──
 # 实时取数路径与「读库组装」路径（market_snapshot_store）共用，避免两处维护导致文案漂移。
-AS_OF_NOTE = (
-    '各市场数据截止：A股 15:00 / 港股 16:00 / 美股 05:00（北京）；'
-    '商品·加密按北京 08:00 快照（国内口径·含夜盘）。软占位项表示当前无可靠源。'
-)
+AS_OF_NOTE = '数据截止：A股 15:00 / 港股 16:00 / 美股 05:00，商品 08:00（均为北京时间）'
 OVERVIEW_NOTES = [
-    '商品（黄金/白银/原油）采用国内主力连续口径，与海外 ETF 代理口径可能方向相反，仅供参考。',
-    '离岸人民币 USDCNH 取不到离岸口径，以在岸中行牌价替代并标注；与离岸价有点差。',
-    '比特币无稳定日频源，按决策软占位。',
-    '⚡ 异动按「双线规则」判定（|当日涨跌| > 2.5σ(近250日) 或 >= 3% 绝对值），'
-    '解读行是规则自述；原文要求的「当日新闻事实解释」需新闻源，尚未接入。',
+    '黄金、白银、原油看的是国内口径，和海外同类产品的涨跌偶尔会不一致。',
+    '离岸人民币暂时取不到，先用中行在岸牌价代替，和离岸价会有一点差价。',
+    # 比特币那条的「无稳定日频源/按决策软占位」是内部黑话，且已由资产卡上的 reason
+    # 说明（同一份文案不重复两遍），故不再列入全局备注。
+    '⚡ 标了闪电的是当日波动偏大的资产：涨跌明显超出近期常态，或单日超过 3%。这只是提醒你多看一眼，不构成买卖建议。',
 ]
 
 
