@@ -456,11 +456,22 @@
 
 ### CI 守卫（拦住新建漏挂）
 
-- 工作流 `.github/workflows/issue-milestone-guard.yml` 在 issue 被 `opened / edited / reopened` 时检查其 `milestone` 字段：
+- 工作流 `.github/workflows/issue-milestone-guard.yml` 在 issue 被 `opened / edited / reopened / milestoned / demilestoned` 时检查其 `milestone` 字段（后两个为 #1515 补充：**补挂里程碑时 GitHub 发出的事件是 `milestoned` 而非 `edited`**，旧版只订阅前三个会「补挂后不自愈」——整改完成了 run 仍是红的，红灯可信度随之崩塌；`demilestoned` 用于反向校验「已挂又被摘掉」）：
   - 有里程碑 → 通过；
   - 无里程碑 → 在 issue 下**评论提醒责任人补挂**，并使该 workflow run **失败（红）**作为止损信号（issue 本身无法被 Action 自动关闭/拦截，故以失败 run + 评论提醒）。
 - 该守卫只针对 issue（`pull_request` 事件不触发），不影响正常 PR 流程。
-- 维护者补挂里程碑（edit 触发 `edited`）后守卫会自动复检通过，自愈。
+- 维护者补挂里程碑后守卫会自动复检通过、自愈：**补挂**发的是 `milestoned`（不是 `edited`，见上），**摘掉**发的是 `demilestoned`。
+
+### 自动关闭关联 issue（dev 合入即关）
+
+- 工作流 `.github/workflows/close-linked-issues.yml` 在 **PR 合入 `dev`** 时解析 PR 正文里的 closing keyword（`Closes` / `Fixes` / `Resolves #N`），关闭对应 issue。
+- **为什么需要它**：GitHub **只在 PR 目标为仓库默认分支时**解释 closing keyword；本仓默认分支是 `main`，而功能 PR 一律 base=`dev` ⇒ 关键字**被完全忽略（连 link 都不建）**。实测（2026-09-24）最近 100 个已关闭 PR 里 **15 个**正文写了 `Closes #NNNN`，**全部无效**，issue 每次靠人肉关。
+- **发版 PR（`dev → main`）不需要它**：那个方向的目标就是默认分支，GitHub 原生就会关；本 workflow 显式只处理 `base.ref == 'dev'`。
+- 解析器**单一来源** `scripts/close_linked_issues.js`（不内联进 YAML），纯函数部分由 `scripts/tests/close_linked_issues.test.js` 钉住，随「守卫:脚本单测 (scripts)」job 跑。
+- **边界**：围栏代码块 / 行内代码内的关键字**不匹配**（正文里讲解该机制时不误伤）；跨仓 `owner/repo#N` **不操作**；引用 PR 自身编号不关；已关闭的跳过（幂等）；引用的是 PR 而非 issue 时跳过。
+- **红绿语义**：单个目标失败只告警；**全部**目标失败才红 —— 避免「本该关却没关」以绿灯静默溜过。
+- 手动复检：`workflow_dispatch` 传 `pr_number`；`dry_run=true` 只报告不实际关闭。
+- ⚠️ 由此推论：**不要依赖 PR 正文的 `Closes #` 判断卡是否已关**，去 issue 时间线看（`closed` 距 merge 约 1 秒 = 自动关；分钟/小时级 = 人肉关）。
 
 ### 失实信息修正纪律
 

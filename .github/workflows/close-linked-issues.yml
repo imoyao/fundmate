@@ -1,0 +1,88 @@
+# 自动关闭关联 issue（PR 合入 dev 时按 closing keyword 关闭）
+#
+# ## 为什么需要它（源 #1683，2026-09-24 查证）
+#
+# GitHub 只在 PR 目标为**仓库默认分支**时解释 `Closes` / `Fixes` / `Resolves #N`。官方文档原文：
+#
+#   The special keywords in a pull request description are interpreted only when the pull request
+#   targets the repository's default branch. If the pull request targets any other branch, then these
+#   keywords are ignored, no links are created, and merging the PR has no effect on the issues.
+#
+# 本仓默认分支是 `main`，而功能 PR 一律 base=`dev` ⇒ 关键字**被完全忽略**（连 link 都不建）。
+# 实测：最近 100 个已关闭 PR 里 **15 个**正文写了 `Closes #NNNN`，**全部无效**，issue 每次靠人肉关。
+# 阳性/阴性对照（判据：issue 时间线里 `closed` 距 PR merge 约 1 秒 = 自动关；分钟/小时级 = 人肉关）：
+#
+#   - 阳性（base=main）PR #1295 merged 11:50:17 → #822 closed 11:50:18（1 秒，自动）
+#   - 阴性（base=dev） PR #1679 merged 12:51:00 → #1678 先被人 commented、12:51:18 才 closed（人肉）
+#
+# 本 workflow 补上这一步：**dev 合入即关**，语义与既有实践一致（dev 合入 = 该卡完成），
+# 只是把「每次合并后记着去手动关卡」这个动作机器化。
+#
+# ## 为什么发版 PR（dev → main）不需要它
+#
+# 那个方向的 PR 目标就是默认分支，GitHub **原生**就会关，不需要我们插手。
+# 故本 workflow 显式只处理 `base.ref == 'dev'`，其余一律跳过。
+#
+# ## 触发条件的写法说明
+#
+# **刻意不用 `on.pull_request.branches: [dev]` 过滤**：那依赖「`branches` 过滤的是 base 还是 head」
+# 这一容易记错的语义，一旦记反就是「workflow 永不触发」的静默失效。改用 payload 里**显式**的
+# `pull_request.base.ref == 'dev'` 做判据——判据写在 job 的 `if` 上，job 被跳过时**不消耗 runner**，
+# 比路径过滤更省且不会错。
+#
+# `closed` 事件包含「关闭但未合并」，故必须同时判 `merged == true`。
+#
+# ## 安全
+#
+# `actions/checkout` 显式取 **base 分支**（`dev`）而非 PR 合并结果 —— 保证执行的是**受信版本**的
+# `scripts/close_linked_issues.js`，而不是某个 PR 改过的版本。本 workflow 带 `issues: write`，
+# 这一步不能省。
+#
+# ## 手动入口
+#
+# `workflow_dispatch` 可按 PR 编号复检（失败后不必靠「再合一次」来重跑）；
+# `dry_run=true` 只报告不实际关闭，便于先看清单。
+
+name: 自动关闭关联 issue（dev 合入）
+
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 要复检的 PR 编号
+        required: true
+        type: string
+      dry_run:
+        description: 只报告不实际关闭（true / false）
+        required: false
+        default: 'false'
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  close-linked:
+    name: 按 closing keyword 关闭 issue
+    # 事件路径：必须「真合并」且目标为 dev（发版方向交给 GitHub 原生）
+    # 手动路径：无条件进入，由脚本按 pr.merged 自行判定并给出 notice
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'dev')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 取受信版本脚本（base 分支，而非 PR 改动后的版本）
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.ref || 'dev' }}
+
+      - name: 解析关键字并关闭关联 issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await require(`${process.env.GITHUB_WORKSPACE}/scripts/close_linked_issues.js`)({ github, context, core });
