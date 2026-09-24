@@ -109,6 +109,9 @@ class BaseImportParser(FileParsingMixin, ABC):
 
     source: str = 'unknown'
     target: str = 'transaction'  # 注册表判别：交易解析器
+    # 交易场所（core/venues.EXCHANGE / OTC，#1662）：**该解析器覆盖的文件天然属于哪个场所**。
+    # 券商交割单（同花顺）一文件内既有场内证券也有场外申赎，故其为空串、逐行判定。
+    venue: str = ''
 
     # ── 子类必须实现 ──
 
@@ -172,6 +175,7 @@ class BaseHoldingParser(FileParsingMixin, ABC):
 
     source: str = 'unknown'
     target: str = 'holding'  # 注册表判别：持仓解析器
+    venue: str = ''  # 交易场所（见 core/venues；#1662），含义同 BaseImportParser.venue
 
     # ── 子类必须实现 ──
 

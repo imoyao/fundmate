@@ -19,15 +19,16 @@ from datetime import date, datetime
 from typing import Optional
 
 from loguru import logger
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.constants import ALLOCATION_LABELS, MARKET_LABELS, TYPE_LABELS, PositionSource, ValuationMode
 from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
-from app.core.symbol_utils import derive_security_type, get_normalizer, split_symbol
+from app.core.symbol_utils import derive_security_type, normalize_by_venue, split_symbol
 from app.core.utils import get_confirm_date, paginate
+from app.core.venues import asset_types_of_venue, resolve_venue
 from app.domains.funds.models import Fund
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, resolve_sales_institution_id
@@ -329,11 +330,18 @@ def _build_reinvest_buy_data(data: dict, position: Optional[Position], link_grou
     # 申购流水使用独立幂等键，避免与分红流水撞 UNIQUE(ledger_id, import_hash)；
     # 分红流水保留原始 import_hash 承担记录级去重（导入路径同键重导整体跳过）。
     buy_hash = None if not base_hash else f'{base_hash}#reinvest'
+    # 资产类型 / 场所**必须取自目标持仓**（#1662 修正）：本笔是「对既有持仓的红利再投资」，
+    # 品种与场所由持仓决定。原实现取 _get_asset_type(data)，而再投资请求体里没有 symbol /
+    # type，推断结果恒为默认 'stock' —— 于是这笔申购被当场内标的归一到 EXCHANGE，
+    # 与持仓（场外基金，OTC）场所不符 → _find_existing_position 查不到既有持仓 →
+    # 另建一条重复持仓，份额也不再增加。
+    asset_type = position.asset_type if position and position.asset_type else _get_asset_type(data)
     return {
         'symbol': position.symbol if position else data.get('symbol'),
         'name': position.name if position else data.get('name'),
         'market': data.get('market', 'CN_A'),
-        'asset_type': _get_asset_type(data),
+        'asset_type': asset_type,
+        'venue': resolve_venue(None, asset_type),  # 持仓场所即本笔场所（#1662）
         'account_name': position.account_name if position else data.get('account_name', ''),
         'ledger_id': position.ledger_id if position else data.get('ledger_id'),
         'quantity': shares,
@@ -377,6 +385,49 @@ def _resolve_money_fund_flag(symbol: str, asset_type: str | None, hint=None) -> 
         # 显式非基金类型：名录/代码段只对「基金」有意义
         return False
     return is_money_fund_symbol(symbol)
+
+
+def _find_existing_position(
+    db: Session,
+    ledger_id,
+    family_id: int,
+    symbol: str,
+    venue: str,
+    *,
+    active_only: bool = False,
+) -> Optional[Position]:
+    """按「venue 感知的归一身份」定位既有持仓（#1662）—— 写入层查重的唯一入口。
+
+    为什么不能只用 `filter_by(symbol=...)`：`positions` 的唯一约束是**字面量**
+    `UNIQUE(ledger_id, symbol)`，历史上同一只基金可能并存两种写法（`SZ004369` 与
+    `004369`）→ 同一只基金两行（#1662 本机实测 2 组）。本函数把候选按 6 位码展开成
+    各前缀写法，再按 **venue** 约束过滤（`asset_type → venue`），只允许**同一交易场所**
+    的行被复用：
+
+    - 场外（OTC，裸码约定）→ 只匹配 `fund` / `money_fund` 行；
+    - 场内（EXCHANGE）→ 只匹配 `stock` / `etf` / `bond` / `reverse_repo` 行。
+
+    `asset_type` 为 NULL 的历史行一并纳入：无法判场所时宁可复用，也不要再生成重复行
+    （审计脚本 `scripts/audit_symbol_venue_conformance.py` 会把这类行暴露出来人工确认）。
+    venue 为空（判定不出场所）时不做场所过滤，退回「同归一码即同标的」。
+    """
+    code = normalize_fund_code(symbol)
+    forms = {symbol} if not code else {symbol, code, *(f'{m}{code}' for m in ('SH', 'SZ', 'BJ'))}
+    query = db.query(Position).filter(
+        Position.ledger_id == ledger_id,
+        Position.family_id == family_id,
+        Position.symbol.in_(forms),
+    )
+    # 只有明确判定出场所时才按场所过滤；venue 为空（判不出）→ 退回「同归一码即同标的」。
+    # 不能直接写 asset_types_of_venue(venue)：它对空串返回的是「无场所实体」集合
+    # (manager/portfolio/index)，非空 → 会误触发下方过滤，把真实持仓全滤掉。
+    allowed = asset_types_of_venue(venue) if venue else ()
+    if allowed:
+        query = query.filter(or_(Position.asset_type.in_(allowed), Position.asset_type.is_(None)))
+    if active_only:
+        query = query.filter(Position.ownership_status == 'active')
+    # 取最新一条（id 降序），确保命中最近建仓的持仓
+    return query.order_by(Position.id.desc()).first()
 
 
 def find_orphan_cash_flows(db: Session, ledger_id, symbol: str, family_id: int) -> list[Transaction]:
@@ -487,6 +538,14 @@ class PositionService:
         if not symbol or not ledger_id:
             raise ValueError('持仓快照导入必须提供 symbol 与 ledger_id')
 
+        # venue（#1662）：显式入参优先，缺失按 asset_type 推断（持仓快照本无场所维度，只能兜底）。
+        # 落库前把 symbol 收敛到该场所的唯一形态，避免同一标的并存 `SZ004369` / `004369`
+        # 两种写法——positions 的唯一约束是字面量 UNIQUE(ledger_id, symbol)，拦不住。
+        venue = resolve_venue(data.get('venue'), data.get('asset_type'))
+        if venue:
+            symbol, _venue_market, _ = normalize_by_venue(symbol, venue)
+            data['symbol'] = symbol
+
         qty = data.get('quantity', 0) or 0
         if qty <= 0:
             raise ValueError('数量必须大于 0')
@@ -506,8 +565,8 @@ class PositionService:
         src = data.get('source', PositionSource.E_ACCOUNT.value)
         import_hash = data.get('import_hash') or compute_position_hash(src, ledger_id, symbol, snapshot_date)
 
-        # 查找现有持仓（业务键 ledger_id + symbol，SET 语义定位）
-        existing = db.query(Position).filter_by(symbol=symbol, ledger_id=ledger_id, family_id=family_id).first()
+        # 查找现有持仓（venue 感知归一去重，SET 语义定位；#1662）
+        existing = _find_existing_position(db, ledger_id=ledger_id, family_id=family_id, symbol=symbol, venue=venue)
 
         if existing:
             # SET 语义：整条替换快照字段（数量/成本/市价/快照日/溯源）
@@ -606,6 +665,17 @@ class PositionService:
         op_type = data.get('op_type', 'buy')
         asset_type = _get_asset_type(data)
 
+        # ── symbol 按 venue 归一（#1662，落库前唯一形态入口）──
+        # 场内 → {MARKET}{CODE}（如 SZ159915）、场外 → 裸 6 位码（如 004369）。
+        # 归一放在函数入口：持仓落库、流水落库、现金划转分支全部共享同一形态，
+        # 避免「持仓带前缀 / 流水裸码」这类不一致再次出现。
+        # venue 由调用方显式传入（建仓 API / 导入解析器本就知道场内/场外），
+        # 缺失时按 asset_type 推断（兼容缺省，见 core/venues.venue_of_asset_type）。
+        venue = resolve_venue(data.get('venue'), asset_type)
+        if venue:
+            symbol, _symbol_market, _ = normalize_by_venue(symbol, venue)
+            data['symbol'] = symbol  # 下游（流水 / 划转）统一取 data，必须同步回写
+
         # 现金管理类产品：只记录流水，不创建持仓（交易导入既有行为；
         # 记一笔 force_create_position=True 时跳过此分支，走正常建仓逻辑）
         if asset_type in ('money_fund', 'reverse_repo') and not force_create_position:
@@ -613,22 +683,18 @@ class PositionService:
             # 持仓表达（走下方正常建仓合并），不产生孤儿流水——同一资金不得双表达双计。
             _lid = data.get('ledger_id')
             _family_id = data.get('family_id', 1)
-            _sym = normalize_fund_code(symbol)
-            _codes = {_sym} | {f'{p}{_sym}' for p in ('SZ', 'SH')}
             existing_pos = None
             if _lid:
-                existing_pos = (
-                    db.query(Position)
-                    .filter(
-                        Position.ledger_id == _lid,
-                        Position.family_id == _family_id,
-                        Position.symbol.in_(_codes),
-                        # 仅匹配 active 持仓，避免把已平仓 / NULL 状态旧持仓误判为可复用
-                        Position.ownership_status == 'active',
-                    )
-                    # 取最新一条（id 降序），确保命中最近建仓的持仓
-                    .order_by(Position.id.desc())
-                    .first()
+                # venue 感知查重（#1662）：原实现手拼 {code, SZ+code, SH+code} 候选集，
+                # 只覆盖「前缀变体」且不区分场所；改用统一辅助函数。active_only 保持
+                # 原语义（仅匹配 active 持仓，避免复用已平仓 / NULL 状态旧持仓）。
+                existing_pos = _find_existing_position(
+                    db,
+                    ledger_id=_lid,
+                    family_id=_family_id,
+                    symbol=symbol,
+                    venue=venue,
+                    active_only=True,
                 )
             if existing_pos is not None:
                 force_create_position = True  # 复用下方正常建仓逻辑（含孤儿流水挂回）
@@ -636,24 +702,18 @@ class PositionService:
                 _create_cash_transfer_transaction(db, data, 'buy')
                 return None
 
-        # 标准化 symbol
+        # symbol 已在函数入口按 venue 归一（#1662）。原实现按 asset_type 白名单
+        # 「跳过归一化」（fund / money_fund / reverse_repo / bond 一律不归一），导致场外基金
+        # 一旦带了误前缀就永远清不掉（`SZ004369` 与 `004369` 长期并存）。
+        # 现在形态由 venue 决定，不再按品种打补丁。
         search_symbol = symbol
-        if asset_type not in ('fund', 'money_fund', 'reverse_repo', 'bond'):
-            try:
-                normalizer = get_normalizer()
-                normalized, _, _ = normalizer.normalize(symbol)
-                if normalized:
-                    symbol = normalized
-                    search_symbol = normalized
-            except Exception:
-                logger.warning(f'无法标准化符号: {symbol}，保留原值')
 
         # 查找现有持仓（家庭维度）——统一身份键 (symbol, ledger_id, family_id)（#911 M3）。
         # 历史实现还按 (symbol, account_name) 二次匹配，与 ledger 键可能指向不同记录，
         # 存在「同一标的建出重复持仓」隐患；且标准化后 search_symbol 恒等于 symbol，该分支为死代码。
         ledger_id = data.get('ledger_id')
         family_id = data.get('family_id', 1)
-        same = db.query(Position).filter_by(symbol=search_symbol, ledger_id=ledger_id, family_id=family_id).first()
+        same = _find_existing_position(db, ledger_id=ledger_id, family_id=family_id, symbol=search_symbol, venue=venue)
         final_symbol = search_symbol
 
         # ── 计价模式（#1174 / 决策 D2）──

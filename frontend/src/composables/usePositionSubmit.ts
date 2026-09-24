@@ -2,6 +2,7 @@ import { ref } from "vue";
 import { ElMessage } from "element-plus";
 import { createPosition } from "@/api/positions";
 import type { PositionCreate } from "@/api/types";
+import { venueOfAssetType } from "@/constants/market";
 import { emitter } from "@/utils/mitt";
 
 /**
@@ -73,7 +74,14 @@ export function usePositionSubmit() {
       if (!idempotencyKey.value) {
         idempotencyKey.value = genIdempotencyKey();
       }
-      await createPosition({ ...body, import_hash: idempotencyKey.value });
+      // venue 显式入参（#1662）：本层是全部持仓写入口的唯一通道，在此统一补齐。
+      // 后端据此把 symbol 归一到该场所的唯一形态（场内带 SH/SZ 前缀 / 场外裸 6 位码），
+      // 避免「同一只场外基金并存 SZ004369 与 004369 两行」（positions 唯一约束是字面量，拦不住）。
+      await createPosition({
+        ...body,
+        venue: body.venue || venueOfAssetType(body.type),
+        import_hash: idempotencyKey.value
+      });
       ElMessage.success("记账成功");
       emitter.emit("refresh-ledger-data");
       idempotencyKey.value = "";

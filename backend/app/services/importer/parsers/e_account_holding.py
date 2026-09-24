@@ -24,6 +24,7 @@ from typing import List, Optional, Tuple
 import pandas as pd
 
 from app.core.constants import PositionSource
+from app.core.venues import OTC
 from app.services.import_records import SBImportError, StandardHoldingRecord
 from app.services.importer.base import BaseHoldingParser
 from app.services.importer.utils import clean_amount, clean_nav, clean_shares, normalize_fund_code, parse_date
@@ -68,6 +69,7 @@ class EAccountHoldingParser(BaseHoldingParser):
     """基金E账户导出持仓解析器：只实现文件列映射，落库走持仓汇点。"""
 
     source = PositionSource.E_ACCOUNT.value
+    venue = OTC  # 基金E账户 = 中结算的公募基金持仓，天然场外（#1662）
 
     # ── 表头定位 ──
 

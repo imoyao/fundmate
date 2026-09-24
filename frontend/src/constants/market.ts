@@ -35,3 +35,25 @@ export const VENUE_LABELS: Record<string, string> = {
 export function getVenueLabel(venue: string): string {
   return VENUE_LABELS[venue] || venue;
 }
+
+/** 交易场所取值（与后端 app/core/venues.py 的 VENUE_VALUES 对齐，#1662） */
+export const VENUE_EXCHANGE = "EXCHANGE";
+export const VENUE_OTC = "OTC";
+
+/**
+ * 资产类型 → 交易场所的**缺省**推断（#1662）。
+ *
+ * 与后端 core/venues.venue_of_asset_type 同一张表：股票 / ETF / 债券 / 逆回购 → 场内，
+ * 基金 / 货基 → 场外，经理 / 组合 / 指数等无场所实体 → 空串。
+ *
+ * ⚠️ 这张表**不是全函数**：场内货基（代码段 ^97\d{4}$，如 970164）与场内 LOF 的场所
+ * 与缺省相反，必须由调用方显式传 venue。前端只把它当作手动记账的缺省值，
+ * 最终形态仍以后端归一结果为准。
+ */
+export function venueOfAssetType(assetType?: string | null): string {
+  const t = (assetType || "").trim().toLowerCase();
+  if (t === "fund" || t === "money_fund") return VENUE_OTC;
+  if (t === "stock" || t === "etf" || t === "bond" || t === "reverse_repo")
+    return VENUE_EXCHANGE;
+  return "";
+}
