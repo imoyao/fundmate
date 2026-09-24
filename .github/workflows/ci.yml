@@ -375,6 +375,9 @@ jobs:
   # 且它同时决定「本轮审查算不算真产出（否则 core.setFailed → job 红）」「要不要清理协议信封泄漏评论」
   # 「生成标记幻觉计数」——写错就是把 job 带红或带绿（假红灯 / 假绿），故给它一份回归网。
   # 零新依赖（只用 Node 内置 node:test / node:assert），纯离线 mock，无需 LLM 额度。
+  # 2026-09-24（#1683）起本 job 同时跑 `scripts/close_linked_issues.js` 的单测：它被
+  # close-linked-issues workflow 直接驱动，且带**外部副作用**（关闭 issue）——解析错一次
+  # 就是误关别人的卡，比假红灯更贵，同样必须有回归网。
   scripts_test:
     name: 守卫:脚本单测 (scripts)
     if: ${{ github.event_name == 'pull_request' }}
