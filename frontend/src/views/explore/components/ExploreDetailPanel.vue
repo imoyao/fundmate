@@ -181,6 +181,12 @@
 
     <!-- 全部市场温度指标：紧凑表格 -->
     <MetricDetailTable :items="detailMetrics" />
+
+    <!-- 大类资产观察（#1671 方案 b：由概览档迁入本档）
+         外层锚点供概览档入口滚动定位；scroll-margin-top 让定位后不被顶部压住 -->
+    <div id="asset-overview-anchor" class="asset-overview-anchor">
+      <ExploreAssetOverview :default-expanded="assetExpanded" />
+    </div>
   </div>
 </template>
 
@@ -203,6 +209,7 @@ import {
 } from "@/constants/temperature";
 import TemperatureTrendChart from "./TemperatureTrendChart.vue";
 import IndustryCrowdingTrend from "./IndustryCrowdingTrend.vue";
+import ExploreAssetOverview from "./ExploreAssetOverview.vue";
 import BiasTable from "./detail/BiasTable.vue";
 import CrowdingTable from "./detail/CrowdingTable.vue";
 import MetricDetailTable from "./detail/MetricDetailTable.vue";
@@ -220,8 +227,14 @@ defineOptions({
 withDefaults(
   defineProps<{
     gaugeVisible?: boolean;
+    /**
+     * 大类资产观察是否默认展开（#1671 方案 b）。
+     * 用户从概览档入口跳来时为 true —— 直接展示数据，避免「跳过来还得再点一次展开」；
+     * 自然逛进深度档时保持 false，不白白触发那个冷缓存很慢的接口。
+     */
+    assetExpanded?: boolean;
   }>(),
-  { gaugeVisible: true }
+  { gaugeVisible: true, assetExpanded: false }
 );
 
 // ================================================================
@@ -586,6 +599,11 @@ onMounted(() => {
   @include bp.below("md") {
     padding: 16px;
   }
+}
+
+/* 大类资产观察锚点（#1671 方案 b）：概览档入口跳转后的滚动定位目标 */
+.asset-overview-anchor {
+  scroll-margin-top: 16px;
 }
 
 /* 仪表盘区域 */

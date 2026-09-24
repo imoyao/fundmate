@@ -3,13 +3,14 @@
 // 落在既有探市页（views/explore/）内，紧接温度仪表盘之后。
 // 数据驱动渲染 6 组 × 资产卡片，复用 RiseFallText（涨红跌绿）、SectionHeader，
 // 相对位置条复用温度三色 token（--temp-low/mid/high）。不可得资产软占位（置灰 + — + 原因）。
-import { computed, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import { useMarketOverview } from "@/composables/market/useMarketOverview";
 import type { MarketAnomaly, MarketAsset, MarketGroup } from "@/api/market";
+import { ASSET_CATEGORIES, ASSET_CATEGORY_TOKEN } from "@/constants/market";
 
 const { loading, error, overview, fetchOverview, showSkeleton, slow } =
   useMarketOverview();
@@ -33,18 +34,8 @@ const unavailableCount = computed(() => overview.value?.unavailable_count ?? 0);
 const bondYield = computed(() => overview.value?.bond_yield ?? null);
 const updatedAt = computed(() => overview.value?.updated_at ?? "");
 
-// 分类 → 品种色 token（唯一真相源 --asset-cat-*；无商品专属 token，商品映射到 etf 绿）
-const CATEGORY_TOKEN: Record<string, string> = {
-  A股: "var(--asset-cat-stock)",
-  港股: "var(--asset-cat-stock)",
-  海外: "var(--asset-cat-stock)",
-  债券: "var(--asset-cat-bond)",
-  商品: "var(--asset-cat-etf)",
-  汇率: "var(--asset-cat-saving)"
-};
-
 const categoryColor = (category: string) =>
-  CATEGORY_TOKEN[category] || "var(--text-secondary)";
+  ASSET_CATEGORY_TOKEN[category] || "var(--text-secondary)";
 
 // 相对位置分位 → 温度三色（偏低绿 / 适中沙 / 偏高红）
 // #1545 拆两族：游标等「图形 / 实色」用 --temp-*；
@@ -70,12 +61,24 @@ const yieldTone = (_bp?: number) => "var(--text-secondary)";
 // #1546 T2.2：折叠容器——默认折叠为 6 条分组摘要，展开才请求 / 渲染 20 张卡
 //
 // 目的：把冷启动耗时长的 /api/market/overview 从首屏关键路径上摘掉。
-// 折叠态一个请求都不发，首屏可交互时间不再依赖该接口（治本仍在 #1460 落库）。
+// 折叠态一个请求都不发（治本仍在 #1460 落库）。
+//
+// #1671 方案 b：本区块已由概览档移入**深度档**，概览档只留一个入口。用户点入口跳来时
+// 父级会传 defaultExpanded=true，此处直接以展开态渲染并取数——避免「按入口跳过来
+// 还得再点一次展开」；自然逛进深度档的用户仍是折叠态，不白白触发这个慢接口。
 // ================================================================
-const expanded = ref(false);
+const props = withDefaults(
+  defineProps<{
+    /** 是否默认展开（概览档入口跳转时传 true） */
+    defaultExpanded?: boolean;
+  }>(),
+  { defaultExpanded: false }
+);
 
-/** 折叠态的分组摘要来源：前端已知的 6 大分类（与 CATEGORY_TOKEN 同源，无需请求接口） */
-const collapsedCategories = Object.keys(CATEGORY_TOKEN);
+const expanded = ref(props.defaultExpanded);
+
+/** 折叠态的分组摘要来源：前端已知的 6 大分类（静态常量，无需请求接口） */
+const collapsedCategories = ASSET_CATEGORIES;
 
 /** 已加载数据时的分组标的数；未加载返回 null（折叠态就不显示数字，避免编造） */
 const groupCount = (category: string): number | null => {
@@ -89,13 +92,33 @@ const loadedAssetCount = computed(() => {
   return total > 0 ? total : 20;
 });
 
-const toggleExpand = () => {
-  expanded.value = !expanded.value;
-  // 仅首次展开才取数：展开过之后直接复用已加载的数据，不会每次展开都重打接口
-  if (expanded.value && overview.value === null && !loading.value) {
+/** 仅在「还没数据且没在取」时取数：展开过之后直接复用已加载的数据，不会每次展开都重打接口 */
+const ensureLoaded = () => {
+  if (overview.value === null && !loading.value) {
     void fetchOverview();
   }
 };
+
+const toggleExpand = () => {
+  expanded.value = !expanded.value;
+  if (expanded.value) ensureLoaded();
+};
+
+// 概览档入口跳来时（本组件可能早已挂载）切到展开态
+watch(
+  () => props.defaultExpanded,
+  v => {
+    if (v && !expanded.value) {
+      expanded.value = true;
+      ensureLoaded();
+    }
+  }
+);
+
+// 挂载即为展开态时补一次取数（此时既不会走 toggleExpand，也不会触发上面的 watch）
+onMounted(() => {
+  if (expanded.value) ensureLoaded();
+});
 </script>
 
 <template>
