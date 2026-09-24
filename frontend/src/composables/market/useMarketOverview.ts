@@ -23,6 +23,19 @@ export function useMarketOverview() {
     loading.value = true;
     error.value = null;
     slow.value = false;
+    // 重新调用前先回收上一轮尚未触发的定时器（#1546 T2.5 复查）：
+    // 上一次请求仍在飞行中就被重试（重试按钮 / 重新展开）时，两个句柄会被本轮覆盖，于是
+    //   ① 旧定时器变成「孤儿」仍会触发，把「数据加载较慢」/ 骨架屏误点亮；
+    //   ② 上一轮的 finally 反而会清掉本轮的句柄，导致本轮的降级提示永远不出现。
+    // 故在赋值前统一回收，保证同一时刻只存在一组骨架 / 慢加载定时器。
+    if (skeletonTimer) {
+      clearTimeout(skeletonTimer);
+      skeletonTimer = null;
+    }
+    if (slowTimer) {
+      clearTimeout(slowTimer);
+      slowTimer = null;
+    }
     // 200ms 后才显示骨架屏：快速请求（<200ms）不显示，避免骨架刚出现就消失的闪屏
     skeletonTimer = setTimeout(() => {
       showSkeleton.value = true;
