@@ -77,6 +77,11 @@ class PositionOut(BaseModel):
     name: Optional[str] = None
     market: str
     type: str = Field(validation_alias='asset_type', serialization_alias='type')
+    # #1305 #11：三态冗余判定（True=货基 / False=非货基 / None=未判定）。
+    # 列在 `positions.is_money_fund`（#863 引入）。**必须在 Out Schema 里声明**，
+    # 否则 `model_validate` 后该字段被静默丢掉，前端拿不到；而 None 是合法值，
+    # 不能被当成 False 用（判货基一律 `is_money_fund.is_(True)`）。
+    is_money_fund: Optional[bool] = None
     account_name: Optional[str] = None
     ledger_id: Optional[int] = None  # 新增
     portfolio_id: Optional[int] = None  # 持仓所属组合ID(D20)
