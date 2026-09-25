@@ -39,7 +39,7 @@ def call_llm(
     content: List[dict],
     system_prompt: str,
     temperature: float = 0.1,
-    timeout: int = None,
+    timeout: Optional[int] = None,
     response_format: Optional[dict] = None,
 ) -> str:
     """调用火山方舟 OpenAI 兼容端点，返回 choices[0].message.content。
