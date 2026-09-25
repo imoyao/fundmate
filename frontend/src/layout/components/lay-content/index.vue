@@ -88,6 +88,15 @@ const transitionMain = defineComponent({
     }
   },
   render() {
+    // 后台（隐藏）标签页跳过路由视图过渡：Chrome 对 hidden 页面暂停 rAF，
+    // 而 Vue 过渡依赖 rAF 推进 enter/leave 状态——后台导航时 out-in 过渡会
+    // 永远等不到下一帧而卡死，表现为「路由已切换、视图停在旧页」：页面组件
+    // 不重挂载，setup 及 onActivated 均不执行，页签登记等一次性初始化逻辑
+    // 全部丢失（个人中心 hidden 路由靠 setup 自登记页签，最先暴露此问题）。
+    // 用户看不见后台页的动画，直接渲染即可；可见时过渡照常。
+    if (typeof document !== "undefined" && document.hidden) {
+      return this.$slots.default();
+    }
     const transitionName =
       transitions.value(this.route)?.name || "fade-transform";
     const enterTransition = transitions.value(this.route)?.enterTransition;
