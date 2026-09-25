@@ -79,7 +79,8 @@ export function useEaccountImport() {
   const aiImageFile = ref<File | null>(null);
   const aiRecognizing = ref(false);
   const aiUsage = ref({ used: 0, limit: 10 });
-  const aiQuota = computed(() => aiUsage.value.limit || 10);
+  // #1695：用 ?? 而非 ||——limit=0（配额耗尽）是合法值，|| 会吞成 10 使展示失真
+  const aiQuota = computed(() => aiUsage.value.limit ?? 10);
   const aiRemaining = computed(() =>
     Math.max(0, aiQuota.value - aiUsage.value.used)
   );
@@ -94,7 +95,8 @@ export function useEaccountImport() {
     try {
       const res = await getOcrUsage("holding_import");
       const d = res.data;
-      aiUsage.value = { used: d.count, limit: d.quota };
+      // #1695：后端字段是 used（读 count 会得到 undefined → aiRemaining 恒 NaN）
+      aiUsage.value = { used: d.used, limit: d.quota };
     } catch {
       /* 额度查询失败不阻断识别 */
     }
