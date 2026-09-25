@@ -30,6 +30,8 @@ import time
 from collections.abc import Iterable
 from datetime import date
 
+from loguru import logger
+
 # 市场消歧唯一入口（#1661）：代码段兜底必须先拿到交易所，不能只看裸 6 位数字。
 from app.core.symbol_utils import split_symbol
 
@@ -176,6 +178,41 @@ def resolve_money_fund_flags(symbols: Iterable[str]) -> dict[str, bool]:
 
     _trim_cache(now)
     return result
+
+
+def resolve_money_fund_flags_strict(symbols: Iterable[str]) -> dict[str, bool | None]:
+    """存量回填专用（#1661）：只认 market 名录的**明确结论**，不做代码段兜底、不猜。
+
+    返回 `{归一化代码: True/False/None}`：
+
+    - `True` / `False`：名录**有**该代码且类型已知（`货币型` → True，其余 → False）；
+    - `None`：名录**无**该代码、名录有代码但 `fund_type_id` 为空、或 market 域不可达
+      → **无法判定**，调用方应保持原值，不得写入。
+
+    与写路径 `resolve_money_fund_flags` 的差别就在这里：写路径允许「名录查不到 → 代码段
+    兜底」，因为新录入没有历史标记可依；存量回填若照抄该逻辑，会把「market 域不可达」
+    误当成「名录说它不是货基」，**把已正确的 True 清成 False**（货基被踢出「现金等价物」
+    聚合桶）。故本函数显式区分「名录说不是」与「名录没说话」，后者一律返回 None。
+
+    不写缓存、不读缓存：一次性迁移不应污染写路径的 5 分钟缓存。
+    """
+    codes = {normalize_fund_code(s) for s in symbols if s}
+    codes.discard('')
+    if not codes:
+        return {}
+    try:
+        names = _lookup_market_type_names(sorted(codes))
+    except Exception as exc:  # market 域不可达（名录未初始化 / 跨域读异常）
+        logger.warning(f'[fund_utils] 名录不可达，存量货基回填跳过（不改动任何行）: {exc}')
+        return {c: None for c in codes}
+    out: dict[str, bool | None] = {}
+    for c in codes:
+        name = names.get(c)
+        if name is None or name in (_NOT_IN_MARKET, _TYPE_UNKNOWN):
+            out[c] = None
+        else:
+            out[c] = name == _MONEY_FUND_TYPE_NAME
+    return out
 
 
 def _trim_cache(now: float) -> None:

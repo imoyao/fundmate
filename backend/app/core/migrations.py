@@ -462,3 +462,92 @@ def migrate_channel_link_indexes(engine: Engine) -> str:
         logger.info('[OK] channel_links.to_symbol 索引已就绪')
         return '[OK] channel_links.to_symbol 索引已就绪'
     raise RuntimeError('channel_links.to_symbol 索引创建后校验失败')
+
+
+# 写路径（#1661）已强制「显式非基金类型 → False」；存量若仍为 True 属历史污染，本迁移清零。
+_NON_FUND_ASSET_TYPES: tuple[str, ...] = ('stock', 'etf', 'bond', 'reverse_repo', 'crypto', 'index')
+# 只有这两类才可能真为货基（与 `core/venues._OTC_ASSET_TYPES` 同族）
+_FUND_ASSET_TYPES: tuple[str, ...] = ('fund', 'money_fund')
+
+
+def migrate_positions_money_fund_flag(engine: Engine) -> str:
+    """#1661 存量回填：按「基金名录 + 品种」新口径重算 `positions.is_money_fund`。
+
+    ## 为什么需要
+
+    PR #1663 修的是**读写路径**：`_resolve_money_fund_flag` 不再丢 `asset_type`，代码段兜底
+    也补上了交易所维度。但**已经落库的历史标记不会自己变**——本机实测 11 行真货基里
+    仍有 8 行 `is_money_fund = 0`（#863 的回填脚本是手动脚本，从未挂进启动链路，修完
+    判定口径后也没重跑）。标记错了就有两个方向的金融口径错误：
+
+    - 真货基标 0 → 被排除出「现金等价物」聚合桶，饼图把货基算成「基金投资」；
+    - 非货基标 1 → `sync/jobs/position_price_job.py` 见到标记即按**面值 1.0000** 回写
+      `current_price`，持仓市值塌成「份额数」（P0 数据损坏）。
+
+    ## 判定口径（与写路径同源，但**只信名录**）
+
+    - 显式 `type = 'money_fund'` → True；显式非基金类型（`stock`/`etf`/`bond`/…）→ 清零；
+    - `type = 'fund'` → 查 market 域 `funds` 名录的 `fund_types.name`：
+      `货币型` → True，其它明确类型 → False；
+    - 名录**没有**该代码 / 类型未知 / market 域不可达 → **保持原值不动**（见
+      `fund_utils.resolve_money_fund_flags_strict` 返回 `None` 的语义）。
+
+    最后这条是硬边界：迁移每次启动都跑，若把「名录不可达」当成「不是货基」，一次
+    market 域抖动就会把全库货基标记清空。宁漏不误（#1661 取舍）。
+
+    幂等：结论与库中值一致就不写；非 SQLite 引擎（Supabase Postgres）跳过，由 ORM /
+    迁移工具负责。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，货基标记由 ORM 模型/迁移工具负责'
+
+    if 'positions' not in inspect(engine).get_table_names():
+        return '[SKIP] positions 表不存在（空库，init_db 将按新模型建表）'
+    if 'is_money_fund' not in {c['name'] for c in inspect(engine).get_columns('positions')}:
+        return '[SKIP] positions 无 is_money_fund 列（空库，新录入由写路径直接落正确值）'
+
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text('SELECT id, symbol, type, is_money_fund FROM positions WHERE symbol IS NOT NULL')
+        ).fetchall()
+    if not rows:
+        return '[SKIP] positions 无持仓行'
+
+    updates: list[tuple[int, int]] = []
+    # 一、显式非基金类型仍标 True → 清零（历史污染，方向 2）
+    for rid, _sym, atype, flag in rows:
+        if atype in _NON_FUND_ASSET_TYPES and flag:
+            updates.append((rid, 0))
+
+    # 二、基金类按名录重算（方向 1）
+    fund_rows = [(rid, sym, atype, flag) for rid, sym, atype, flag in rows if atype in _FUND_ASSET_TYPES]
+    recomputed = 0
+    undecidable = 0
+    if fund_rows:
+        # 延迟导入：core 层不在导入期依赖 services，且避免与 domains 模型形成环
+        from app.services.fund_utils import normalize_fund_code, resolve_money_fund_flags_strict
+
+        flags = resolve_money_fund_flags_strict([sym for _rid, sym, _t, _f in fund_rows])
+        for rid, sym, atype, flag in fund_rows:
+            resolved: bool | None = True if atype == 'money_fund' else flags.get(normalize_fund_code(sym))
+            if resolved is None:
+                undecidable += 1
+                continue
+            if (1 if resolved else 0) != (1 if flag else 0):
+                updates.append((rid, 1 if resolved else 0))
+                recomputed += 1
+
+    if not updates:
+        return '[SKIP] positions.is_money_fund 已与新口径一致（无需回填）'
+
+    with engine.connect() as conn:
+        for rid, val in updates:
+            conn.execute(text('UPDATE positions SET is_money_fund = :v WHERE id = :i'), {'v': val, 'i': rid})
+        conn.commit()
+
+    msg = f'回填 {recomputed} 行 + 清除非基金误标 {len(updates) - recomputed} 行'
+    if undecidable:
+        msg += f'；{undecidable} 行名录无记录/类型未知，保持原值'
+    logger.info(f'[OK] positions.is_money_fund 存量重算：{msg}')
+    return f'[OK] {msg}'
