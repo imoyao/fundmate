@@ -27,7 +27,7 @@ from loguru import logger
 
 from app.core.exceptions import ErrorCode, SBException
 from app.services.ai_recognizer import guards, llm
-from app.services.ai_recognizer.tools import ToolExecutor
+from app.services.ai_recognizer.tools import TOOLS_METADATA, ToolExecutor
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 会话状态管理（前端持有模式，后端无状态）
@@ -102,6 +102,21 @@ AGENT_SYSTEM_PROMPT = """你是多多贝账本精灵（投顾助手）。
 """
 
 
+def _decision_system_prompt() -> str:
+    """决策轮 system prompt：附可用工具清单。
+
+    模型必须据此选择 tool_name 与参数——此前从未把 TOOLS_METADATA 给模型，
+    真实调用时模型是在盲猜工具名（测试 mock 掩盖了这一点，2026-09-26 修复）。
+    清单每轮都占 context，这是无状态 FC 循环的固有成本（工具规模上来后由 S5 MCP 分担）。
+    """
+    return (
+        AGENT_SYSTEM_PROMPT
+        + '\n可用工具清单（tool_name 必须取自 name，tool_params 必须符合 parameters 约束；'
+        + 'description 标注「服务端自动注入」的参数不要由你提供）：\n'
+        + json.dumps(TOOLS_METADATA, ensure_ascii=False)
+    )
+
+
 def parse_agent_action(response_str: str) -> dict:
     """容错解析模型输出的 agent action（复用 extract_json_array 的兜底思路，针对单对象）。
 
@@ -139,10 +154,14 @@ def run_agent(
     user_id: int,
     session_id: str,
     goal: str = '分析账户收益',
+    server_ctx: Optional[dict] = None,
 ) -> dict:
     """单次对话决策：返回 clarify / result / error。
 
     多轮追问由前端驱动（前端持有 session_state 并每轮回传）；本函数内对工具失败做最多 1 次重试。
+
+    server_ctx：服务端权威上下文（HTTP 路径由 views 传 {'family_id': ...}），
+    P1——工具执行时权威值覆盖前端候选值，缺省 None 仅用于离线直调（回退口径见 tools.py）。
     """
     # G3：前端回传状态只做白名单校验，不执行任何 DB
     state: SessionState = validate_session_state(session_state or {})
@@ -171,7 +190,7 @@ def run_agent(
     for attempt in range(2):
         raw = llm.call_llm(
             content=[{'type': 'text', 'text': prompt}],
-            system_prompt=AGENT_SYSTEM_PROMPT,
+            system_prompt=_decision_system_prompt(),
             response_format={'type': 'json_object'},
             temperature=0.1,
         )
@@ -190,8 +209,10 @@ def run_agent(
         # execute_tool：校验 + 执行工具
         tool_name = action.get('tool_name')
         tool_params = action.get('tool_params') or {}
+        # 候选值合并：前端 collected_params + 模型本轮 tool_params；
+        # 权威值（server_ctx）在 ToolExecutor.run 内覆盖同名候选（P1 越权修复）
         merged_params = {**state.get('collected_params', {}), **tool_params}
-        result = ToolExecutor.run(tool_name, merged_params)
+        result = ToolExecutor.run(tool_name, merged_params, server_ctx=server_ctx)
         if result['status'] == 'success':
             break
         # 工具失败：拼错误反馈，进入下一次循环（最多 1 次重试）；不再额外计轮次

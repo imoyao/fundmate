@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""账本精灵 AgentLoop / ToolExecutor 离线单测（不触网、不触 DB）。
+"""账本精灵 AgentLoop / ToolExecutor 离线单测（不触网；DB 为 conftest 内存库）。
 
 验证三件最易碎的事：
 1. parse_agent_action 的容错（围栏 / 无 JSON / 数组 / 非法 action 都降级为澄清）；
-2. ToolExecutor 的 schema 校验（缺参 / 未知参 / 非法值 -> error）；
+2. ToolExecutor 的 schema 校验（缺参 / 未知参 / 类型或格式非法 -> error）；
 3. run_agent 在 monkeypatch 掉 call_llm 后能跑通 execute_tool 路径，且 G4 超限抛异常。
 """
 
@@ -45,24 +45,26 @@ def test_parse_invalid_action():
     assert out['error'] == 'invalid_action'
 
 
-# ── ToolExecutor 校验 ──
+# ── ToolExecutor 校验（S1-A 换真实工具后的四例） ──
 def test_tool_success():
-    r = ToolExecutor.run('get_portfolio_performance', {'scope': 'all', 'period': '90d'})
+    # 空内存库：资产总览返回全零指标，链路真实跑通
+    r = ToolExecutor.run('get_assets_overview', {})
     assert r['status'] == 'success'
+    assert r['data']['total_assets_cny'] == 0
 
 
 def test_tool_missing_required():
-    r = ToolExecutor.run('get_portfolio_performance', {'scope': 'all'})  # 缺 period
+    r = ToolExecutor.run('get_fund_nav', {})  # 缺 fund_codes
     assert r['status'] == 'error'
 
 
 def test_tool_unknown_param():
-    r = ToolExecutor.run('get_portfolio_performance', {'scope': 'all', 'period': '90d', 'bad': 1})
+    r = ToolExecutor.run('get_assets_overview', {'scope': 'all'})
     assert r['status'] == 'error'
 
 
-def test_tool_bad_enum():
-    r = ToolExecutor.run('get_portfolio_performance', {'scope': 'galaxy', 'period': '90d'})
+def test_tool_bad_pattern():
+    r = ToolExecutor.run('get_fund_nav', {'fund_codes': ['not-a-code']})  # 数组元素不匹配 ^\d{6}$
     assert r['status'] == 'error'
 
 
@@ -84,8 +86,8 @@ def test_run_agent_execute(monkeypatch):
     def fake(content, system_prompt, **kwargs):
         calls['n'] += 1
         if kwargs.get('response_format'):
-            return '{"action":"execute_tool","tool_name":"get_portfolio_performance","tool_params":{"scope":"all","period":"90d"}}'
-        return '您的年化收益约为 X%。'  # 叙事
+            return '{"action":"execute_tool","tool_name":"get_assets_overview","tool_params":{}}'
+        return '您的净资产约为 X 元。'  # 叙事
 
     monkeypatch.setattr(llm_mod, 'call_llm', fake)
     out = agent_loop.run_agent('分析我的收益', {}, user_id=1, session_id='s1')
