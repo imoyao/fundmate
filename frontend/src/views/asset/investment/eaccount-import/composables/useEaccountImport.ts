@@ -23,7 +23,8 @@ import { useReconDraft, type ReconDomain } from "@/composables/useReconDraft";
  * onMounted 在此注册，挂载到调用方（index.vue）组件实例，与拆分前时序一致。
  */
 export function useEaccountImport() {
-  // #1239 草稿层：E账户导入 = 域 A；恢复至预览/对账步骤（currentStep=1）
+  // #1239 草稿层：E账户导入 = 域 A；恢复落回步骤 0「上传与预览」——
+  // result 不随草稿保存，落步骤 1 会因 v-else-if="result" 不成立而内容区空白（#1694）
   const draftDomain: ReconDomain = "A";
   const { saveDraft, getDraftWithSet, discardDraft } = useReconDraft();
   const draftBannerVisible = ref(false);
@@ -159,6 +160,8 @@ export function useEaccountImport() {
         aiTab.value === "text"
           ? "AI 识别文本(持仓)"
           : (aiImageFile.value?.name ?? "AI 识别图片(持仓)");
+      // AI 识别同样是「解析成功」，与文件路径一致落草稿（#1694）
+      await persistDraft();
       importMode.value = "ai";
       ElMessage.success(`识别成功，共 ${rows.length} 条持仓`);
       await fetchAiUsage();
@@ -213,6 +216,8 @@ export function useEaccountImport() {
         error_count: res.error_count ?? 0
       };
       fileName.value = file.name;
+      // #1694：文件解析成功即存草稿（与 useImportWizard L1069 同一时机），刷新可恢复
+      await persistDraft();
       options.onSuccess(res);
     } catch (e) {
       uploadError.value = errMsg(e, "文件解析失败");
@@ -265,6 +270,8 @@ export function useEaccountImport() {
     uploadError.value = "";
     fileName.value = "";
     previewPage.value = 1;
+    // #1694：主动重置即丢弃草稿（对账成功路径已在 handleReconcile 丢过，此处为兜底幂等）
+    discardCurrentDraft();
   }
 
   /** 重新上传：清空解析结果，恢复大上传卡片 */
@@ -274,18 +281,25 @@ export function useEaccountImport() {
     parseMeta.value = { total: 0, error_count: 0 };
     fileName.value = "";
     previewPage.value = 1;
+    // #1694：用户放弃当前解析 → 草稿一并丢弃，防止下次进页 Banner 复活已重置的行
+    discardCurrentDraft();
   }
 
-  // ── #1239 草稿层：保存 / 恢复 / 丢弃（E账户导入=域 A）──
-  /** 把当前预览状态持久化为草稿 */
+  // ── #1239 草稿层：保存 / 恢复 / 丢弃（E账户导入=域 A，#1694 接线）──
+  /** 把当前预览状态持久化为草稿（解析成功后调用；空行不存，恢复无意义） */
   async function persistDraft(): Promise<void> {
+    if (previewRows.value.length === 0) return;
     try {
       await saveDraft({
         domain: draftDomain,
         ledgerId: null, // E账户导入无显式账户选择，对账结果按快照域聚合
-        currentStep: 1, // 恢复至预览/对账结果步骤
+        // 恢复落步骤 0 上传与预览：result 不随草稿保存，写 1 会让恢复后的内容区空白（#1694）
+        currentStep: 0,
         rows: previewRows.value
       });
+      // 新解析已覆盖存储中的草稿，挂载时留下的旧 Banner 语义失效（其内容就是当前预览），收起
+      draftBannerVisible.value = false;
+      pendingDraftMeta.value = null;
     } catch (e) {
       console.warn("保存草稿失败", e);
     }
@@ -307,7 +321,8 @@ export function useEaccountImport() {
     }
   }
 
-  /** 恢复草稿：回填 previewRows */
+  /** 恢复草稿：回填 previewRows 并落回步骤 0 预览（#1694：result 不随草稿保存，
+   *  落步骤 1 会因模板 v-else-if="result" 不成立而只剩页头与步骤条） */
   async function restoreDraft(): Promise<void> {
     try {
       const draft = await getDraftWithSet();
@@ -317,7 +332,9 @@ export function useEaccountImport() {
         total: draft.rows.length,
         error_count: draft.rows.filter(r => !!r.error).length
       };
-      currentStep.value = 1;
+      currentStep.value = 0;
+      previewPage.value = 1; // 分页回首页，防止沿用恢复前的页码
+      fileName.value = "恢复的草稿"; // 草稿不存文件名，给状态条一个可读占位（#1694）
       draftBannerVisible.value = false;
       pendingDraftMeta.value = null;
       ElMessage.success("已恢复未完成的 E账户导入草稿");
@@ -377,7 +394,7 @@ export function useEaccountImport() {
     pendingDraftMeta,
     restoreDraft,
     discardCurrentDraft,
-    // 尚无调用点的草稿持久化入口，随 #1239 草稿层原样保留（返回以免成为死代码告警）
+    // #1694 接线：解析成功（文件 / AI 识别两条路径）后持久化草稿
     persistDraft
   };
 }
