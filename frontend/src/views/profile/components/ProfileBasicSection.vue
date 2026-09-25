@@ -368,8 +368,7 @@ const p = reactive(props.page);
 
 /* 窄屏（<640px）：设置页的行式布局改竖排。
    ⚠️ 本块原先排在各自的基础声明**之前**——媒体查询不改变特异性，覆盖被后面同选择器的声明压掉、**从未生效**（2026-09-18 修复，见 #1576 同类台账）。 */
-@media (width <= 640px) {
-  /* breakpoint-allow: 本文件 style 块是纯 CSS（无 lang="scss"），无法用 bp mixin */
+@media (width <= 640px) /* breakpoint-allow: 本文件 style 块是纯 CSS（无 lang="scss"），无法用 bp mixin */ {
   .avatar-zone {
     align-items: flex-start;
   }
