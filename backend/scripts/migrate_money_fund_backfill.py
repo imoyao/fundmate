@@ -124,6 +124,25 @@ def plan_for(path: str, money_fund_codes: dict[str, bool]):
                     print(f'  [跳过] symbol {symbol} 未解析，保持原值')
                     continue
             flag_updates.append((pid, resolved))
+        # #1305 #26：孤儿口径**必须与运行时同源** —— 直接取 `fund_utils` 的常量，
+        # 不在脚本里再抄一份字面量（#1657 就是这么栽的：脚本与运行时各写一套，
+        # 运行时改了脚本没改，缺陷被「本机恰好都命中」掩盖）。
+        #
+        # ⚠️ 同时修一个**让整个挂回功能一直失效**的列错（#1305 #26 实测）：
+        # `transactions.type` 是**交易方向**（buy/sell/deposit/dividend/tax…），
+        # 资产类型在**另一个列 `asset_type`** 上（ORM: `Transaction.txn_type = Column('type')`
+        # 与 `Transaction.asset_type` 两列并存，见 domains/transactions/models.py）。
+        # 原写法 `type IN ('money_fund','reverse_repo')` 恒不成立 → 命中**永远 0 行**，
+        # 且因为是「查不到」而不是「报错」，静默到没人发现（本机实测：改前 0 行，改后 853 行）。
+        # 注意 **positions 表相反**：那里 `type` 就是资产类型（ORM 属性名 `asset_type`），
+        # 所以上面 positions 的查询照旧用 `type`，不要跟着一起改。
+        from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES
+
+        orphan_types = tuple(CASH_EQUIVALENT_ASSET_TYPES)
+        type_placeholders = ','.join('?' * len(orphan_types))
+        # #1305 #25：同一条孤儿流水只能挂到**一个**持仓。同 (ledger_id, symbol) 存在多个
+        # 持仓时，原实现会让它被逐个 UPDATE 覆盖，最终归属取决于遍历顺序（不确定）。
+        assigned: set[int] = set()
         reattach_candidates = []
         for pid, flag in flag_updates:
             if not flag:
@@ -136,11 +155,19 @@ def plan_for(path: str, money_fund_codes: dict[str, bool]):
             placeholders = ','.join('?' * len(cand))
             orphans = conn.execute(
                 'SELECT id FROM transactions WHERE ledger_id=? AND position_id IS NULL '
-                "AND type IN ('money_fund','reverse_repo') AND COALESCE(is_income,0)=0 "
+                f'AND asset_type IN ({type_placeholders}) AND COALESCE(is_income,0)=0 '
                 f'AND symbol IN ({placeholders})',
-                (lid, *sorted(cand)),
+                (lid, *orphan_types, *sorted(cand)),
             ).fetchall()
-            reattach_candidates.append((pid, [o[0] for o in orphans]))
+            picked = []
+            for (tid,) in orphans:
+                if tid in assigned:
+                    print(f'  [去重] 孤儿流水 {tid} 已挂到更早的持仓，pos {pid} 不再重复挂')
+                    continue
+                assigned.add(tid)
+                picked.append(tid)
+            if picked:
+                reattach_candidates.append((pid, picked))
         return flag_updates, reattach_candidates
     finally:
         conn.close()

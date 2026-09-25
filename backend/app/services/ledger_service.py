@@ -18,10 +18,7 @@ from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.fund_utils import should_exclude_from_investment
 from app.services.nav_service import NavService
-from app.services.summary_service import (
-    orphan_money_fund_income_by_ledger,
-    orphan_money_fund_net_by_ledger,
-)
+from app.services.summary_service import orphan_money_fund_totals_by_ledger
 
 
 class LedgerService:
@@ -102,8 +99,7 @@ class LedgerService:
         # 与 positions/assets 的游离聚合统一按同一 key 合并（并入 deleted 分组），
         # 避免重复计数、口径一致（悬空数据语义等同「已删除账户」）。
         # #863 D1：本金净额 + 渠道收益桶一并并入（收益只进一次总资产，不膨胀本金）。
-        orphan_map = orphan_money_fund_net_by_ledger(db, family_id)
-        income_map = orphan_money_fund_income_by_ledger(db, family_id)
+        orphan_map, income_map = orphan_money_fund_totals_by_ledger(db, family_id)
         for _k, _v in income_map.items():
             _k = _k if _k is not None else 0
             orphan_map[_k] = orphan_map.get(_k, 0) + _v
@@ -321,7 +317,7 @@ class LedgerService:
         """
         money_fund_amount = LedgerService.get_money_fund_stats(db, ledger_id).get('money_fund_amount', 0.0)
         # 孤儿流水净额（分）→ 元
-        orphan_net_cents = orphan_money_fund_net_by_ledger(db, family_id).get(ledger_id, 0)
+        orphan_net_cents = orphan_money_fund_totals_by_ledger(db, family_id)[0].get(ledger_id, 0)
         orphan_amount = Money.cents_to_yuan(orphan_net_cents)
         # 账户内现金（current 类资产，分）→ 元
         cash_cents = (

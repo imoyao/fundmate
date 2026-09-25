@@ -150,7 +150,7 @@ def swap_linked_money_fund(db, ledger: Ledger, old_fund: Fund, new_fund: Fund, f
     申购 B），资产中性、不影响其他账户；失败仅记录告警不抛出，避免阻断换绑主流程。
     """
     family_id = family_id
-    # 货基以孤儿流水记账（不建持仓），净额口径与 summary_service.orphan_money_fund_net_by_ledger
+    # 货基以孤儿流水记账（不建持仓），净额口径与 summary_service.orphan_money_fund_totals_by_ledger
     # 一致：buy/deposit 加、sell/withdraw 减，且仅计 position_id IS NULL 的孤儿流水，全程整数分。
     positive = (
         db.query(func.coalesce(func.sum(Transaction.amount), 0))
