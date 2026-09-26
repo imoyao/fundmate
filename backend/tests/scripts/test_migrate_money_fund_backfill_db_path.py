@@ -34,6 +34,24 @@ import migrate_money_fund_backfill as m  # noqa: E402
 _SCRIPT = os.path.join(_SCRIPTS_DIR, 'migrate_money_fund_backfill.py')
 
 
+def _run_script(*args: str) -> subprocess.CompletedProcess:
+    """以固定 UTF-8 子进程环境跑脚本，不依赖调用方 shell 的编码变量（#1701）。
+
+    Windows 子进程往管道写的默认是本地代码页（GBK / cp936），而本文件按
+    `encoding='utf-8'` 解码 → reader 线程崩溃 → `stdout` 变 `None` →
+    `TypeError: argument of type 'NoneType' is not iterable`。
+    测试结果是否通过竟取决于调用方 shell 是否设了 PYTHONUTF8 /
+    PYTHONIOENCODING —— 这本身就是脆弱点，故在子进程 env 里钉死 UTF-8。
+    """
+    return subprocess.run(
+        [sys.executable, _SCRIPT, *args],
+        capture_output=True,
+        text=True,
+        encoding='utf-8',
+        env={**os.environ, 'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8'},
+    )
+
+
 def test_relative_three_slash_url() -> None:
     assert m._sqlite_path_from_url('sqlite:///./invest.db') == os.path.abspath('./invest.db')
 
@@ -149,7 +167,7 @@ def _make_empty_db(path: str) -> None:
 def test_script_dryrun_on_existing_db_exits_zero(tmp_path) -> None:
     db = str(tmp_path / 'invest.db')
     _make_empty_db(db)
-    r = subprocess.run([sys.executable, _SCRIPT, db], capture_output=True, text=True, encoding='utf-8')
+    r = _run_script(db)
     assert r.returncode == 0, r.stderr
     assert '目标库' in r.stdout
 
@@ -157,7 +175,7 @@ def test_script_dryrun_on_existing_db_exits_zero(tmp_path) -> None:
 def test_script_exits_nonzero_when_no_db_found(tmp_path) -> None:
     """一个库都没找到 → 必须非 0 退出，否则「静默跳过」会被误读成「没什么要改」。"""
     missing = str(tmp_path / 'nope.db')
-    r = subprocess.run([sys.executable, _SCRIPT, missing], capture_output=True, text=True, encoding='utf-8')
+    r = _run_script(missing)
     assert r.returncode == 1
     assert '迁移未执行' in (r.stdout + r.stderr)
 
@@ -166,6 +184,6 @@ def test_script_dryrun_writes_nothing(tmp_path) -> None:
     db = str(tmp_path / 'invest.db')
     _make_empty_db(db)
     before = open(db, 'rb').read()
-    r = subprocess.run([sys.executable, _SCRIPT, db], capture_output=True, text=True, encoding='utf-8')
+    r = _run_script(db)
     assert r.returncode == 0, r.stderr
     assert open(db, 'rb').read() == before

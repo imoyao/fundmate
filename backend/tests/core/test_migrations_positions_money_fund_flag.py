@@ -182,4 +182,16 @@ def test_skips_when_table_or_column_missing(tmp_path):
     conn.close()
     assert migrate_positions_money_fund_flag(_engine_for(db)).startswith('[SKIP]')
 
+
+def test_skips_on_non_sqlite_engine():
+    """非 SQLite 引擎（postgres）→ SKIP，不抛错、不阻断启动。
+
+    构造 postgres engine 需要 psycopg2 驱动，而 pyproject 对
+    psycopg2-binary 设了 `sys_platform != "win32"` 平台标记（#1434/#1514：
+    Windows 本机只用 SQLite 不装）——平台标记与测试互相矛盾，全新
+    Windows venv 必挂 ModuleNotFoundError（#1701）。主仓旧 venv 恰好
+    装过 psycopg2 才侥幸通过，掩盖了矛盾。故缺驱动时跳过；Linux CI
+    （标记允许安装）照常真跑。
+    """
+    pytest.importorskip('psycopg2')
     assert migrate_positions_money_fund_flag(create_engine('postgresql://u:p@h/db')).startswith('[SKIP]')
