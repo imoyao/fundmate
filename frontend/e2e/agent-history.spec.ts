@@ -44,8 +44,14 @@ const detailEnvelope = {
     created_at: "2026-09-26T10:00:00+08:00",
     updated_at: "2026-09-26T10:05:00+08:00",
     messages: [
-      { user: "核对白酒持仓成本与浮亏", assistant: "持仓成本 15200.00 元，当前浮亏 8.4%。" },
-      { user: "那要是按半年算呢？", assistant: "近半年该标的回撤 11.2%，跑输基准。" }
+      {
+        user: "核对白酒持仓成本与浮亏",
+        assistant: "持仓成本 15200.00 元，当前浮亏 8.4%。"
+      },
+      {
+        user: "那要是按半年算呢？",
+        assistant: "近半年该标的回撤 11.2%，跑输基准。"
+      }
     ]
   },
   message: "ok"
@@ -89,8 +95,12 @@ test.describe("历史会话栏（#1719 方案 A 页内折叠）", () => {
 
     // 点击条目：拉详情回放（用户 + 助手原文都上屏），面板收起
     await page.getByTitle("核对白酒持仓成本与浮亏").click();
-    await expect(page.getByText("持仓成本 15200.00 元，当前浮亏 8.4%。")).toBeVisible();
-    await expect(page.getByText("近半年该标的回撤 11.2%，跑输基准。")).toBeVisible();
+    await expect(
+      page.getByText("持仓成本 15200.00 元，当前浮亏 8.4%。")
+    ).toBeVisible();
+    await expect(
+      page.getByText("近半年该标的回撤 11.2%，跑输基准。")
+    ).toBeVisible();
     await expect(page.getByText("历史会话", { exact: true })).toHaveCount(0);
 
     // 新对话：清空回空态（会话 id 与消息列表一起复位）
