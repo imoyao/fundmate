@@ -910,3 +910,10 @@ node scripts/audit_text_contrast.mjs --all
 node scripts/axe_contrast_audit.mjs --routes /explore,/profile,/asset/watchlist --shot axe_shots/light
 node scripts/axe_contrast_audit.mjs --theme dark --routes /explore,/profile,/asset/watchlist --shot axe_shots/dark
 ```
+
+## 2026-09-26 docs:lint-md 存量遗留：守卫硬拦自证文件 + fixer 非幂等追加（PR #1706）
+
+背景：`pnpm run docs:lint-md` 实为 `lint-md docs -f`（自带 fix 模式），2026-09-26 全量执行一次改写 99 个文档，规范化落地见 PR #1706（收 98 个，排除下述第 1 项文件）。落地过程确认两处存量遗留，**均非该次执行引入**，仅登记、不擅自修（处置方式待拍板）：
+
+1. **`docs/working-notes/amac-encoding-incident-2026-08-17.md` 含 3 行 5 处字面 U+FFFD（替换符）**：该文件是乱码事件复盘，示例串与「名称含 U+FFFD 即丢弃」的规则表述本身就需要真实替换符，属有意保留；但 `scripts/guard_mojibake.py` 对 U+FFFD 是**无白名单硬拦截**（`check_text` 第 1 条），CI 乱码守卫又扫 PR 变更的**整文件**（`ci.yml` `mojibake_guard` job，pathspec 含 `*.md`） ⇒ **未来任何 PR 只要触碰该文件即红灯**（存量陷阱，与具体 PR 无关）。处置二选一待拍板：① 守卫给该文件加显式豁免清单；② 文件内示例改用转义写法（字面 `\uFFFD`）去掉真实替换符。
+2. **lint-md 0.2.0 `no-empty-code-lang` fixer 对本文件 `94:`/`98:` 编号行非幂等**：fixer 取 AST 节点起始行整行 `trimEnd + "plain"` 后回写（`lib/fix-rules/no-empty-code-lang.js`），而这两行是存量编号摘录残迹（4 空格缩进被解析为无语言代码块），每次执行都被追加 `plain`（历史 ×9→×29→×40，2026-09-26 又 +3）。根因是该行内容本身损坏、fixer 不收敛。处置二选一：① 修复编号行使之不再落入「无语言代码块」；② 向 lint-md 上游提非幂等 issue。
