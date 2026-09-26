@@ -2,7 +2,8 @@
   账本精灵对话页（#1121 S1-B，2026-09-26 参考竞品截图二次打磨）
   三态渲染：clarify（追问）/ result（结果 + 指标 chips）/ error（服务提示）；
   S2 服务端权威会话：只回带后端下发的 session_id，状态由后端持有（不落地前端）。
-  不做：历史会话列表（随后续卡，见 docs/working-notes/agent-dev-progress-2026-09-26.md）。
+  历史会话栏（#1719，方案 A 页内折叠）：见 components/SessionHistory.vue，
+  点击历史条目 → 拉 GET /api/agent/sessions/{id}/ 回放并续聊。
 -->
 <template>
   <div class="agent-page">
@@ -13,7 +14,19 @@
 
     <section class="chat-card">
       <div class="chat-card__toolbar">
-        <span class="chat-card__hint">{{ statusText }}</span>
+        <div class="chat-card__toolbar-left">
+          <el-button
+            text
+            size="small"
+            class="chat-card__history"
+            :disabled="pending"
+            @click="historyOpen = !historyOpen"
+          >
+            <el-icon><Clock /></el-icon>
+            历史
+          </el-button>
+          <span class="chat-card__hint">{{ statusText }}</span>
+        </div>
         <el-button
           text
           size="small"
@@ -23,6 +36,14 @@
           新对话
         </el-button>
       </div>
+
+      <SessionHistory
+        v-if="historyOpen"
+        :active-session-id="sessionId"
+        :refresh-token="historyRefreshToken"
+        @select="switchSession"
+        @new-chat="resetSession"
+      />
 
       <div ref="listRef" class="chat-card__list">
         <!-- 空态：欢迎 hero + 示例问题直达（功能型空态，插画资产就绪前的过渡方案，已同步 design.md） -->
@@ -132,6 +153,7 @@
 import { computed, nextTick, ref } from "vue";
 import {
   ArrowUp,
+  Clock,
   MagicStick,
   Sunny,
   TrendCharts,
@@ -139,7 +161,8 @@ import {
   Wallet
 } from "@element-plus/icons-vue";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
-import { agentChat } from "@/api/agent";
+import SessionHistory from "./components/SessionHistory.vue";
+import { agentChat, getAgentSession } from "@/api/agent";
 import type { AgentTurn } from "@/api/agent";
 
 defineOptions({ name: "AgentChat" });
@@ -166,6 +189,8 @@ const pending = ref(false);
 const listRef = ref<HTMLElement>();
 const taRef = ref<{ focus: () => void } | null>(null);
 const sessionId = ref<string | null>(null); // 服务端权威（S2）：首轮 null，后端下发后续带
+const historyOpen = ref(false); // 历史栏默认折叠（#1719）：未展开时不发任何列表请求
+const historyRefreshToken = ref(0); // 每完成一轮 / 新对话 +1，通知历史栏重拉列表
 
 /**
  * 工具栏提示只说用户视角：快捷键说明在 placeholder、只读保证在页头副标题，
@@ -275,12 +300,45 @@ async function send(preset?: string): Promise<void> {
   } finally {
     pending.value = false;
     taRef.value?.focus();
+    historyRefreshToken.value += 1; // 会话有了新轮次，历史栏重拉（面板关闭时也只是白拉一次）
+  }
+}
+
+/**
+ * 点击历史条目：拉详情回放并切换续聊（#1719）。
+ * 回放只还原文本轮次——指标 chips 属当轮工具返回，未持久化到 messages，不伪造。
+ */
+async function switchSession(id: string): Promise<void> {
+  if (pending.value || id === sessionId.value) return;
+  pending.value = true;
+  try {
+    const res = await getAgentSession(id);
+    const detail = res.data;
+    sessionId.value = detail.session_id;
+    messages.value = detail.messages.flatMap(t => {
+      const out: ChatMessage[] = [];
+      if (t.user?.trim())
+        out.push({ role: "user", content: stripEmoji(t.user) });
+      if (t.assistant?.trim()) {
+        out.push({ role: "assistant", content: stripEmoji(t.assistant) });
+      }
+      return out;
+    });
+    historyOpen.value = false;
+    scrollChat();
+  } catch (e: unknown) {
+    const msg = describeError(e);
+    if (msg) pushMessage({ role: "error", content: msg });
+  } finally {
+    pending.value = false;
   }
 }
 
 function resetSession(): void {
   messages.value = [];
   sessionId.value = null; // 下一条消息由服务端开新会话
+  historyOpen.value = false; // 新对话即收起历史栏（工具栏与面板内按钮同路径）
+  historyRefreshToken.value += 1;
 }
 </script>
 
@@ -317,6 +375,19 @@ function resetSession(): void {
 
 .chat-card__hint {
   font-size: var(--text-small);
+  color: var(--text-secondary);
+}
+
+.chat-card__toolbar-left {
+  display: flex;
+  gap: var(--space-compact);
+  align-items: center;
+  min-width: 0; // 提示文案过长时允许压缩，不让工具栏换行
+}
+
+.chat-card__history {
+  gap: var(--space-compact);
+  padding: 0 var(--space-3);
   color: var(--text-secondary);
 }
 

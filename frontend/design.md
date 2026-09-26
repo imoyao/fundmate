@@ -641,6 +641,7 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 - 全部语义令牌，暗色自动生效（`design.dark.md` 无专属规则）；实现细节（头像行 / 尾角收小 / 空态 hero / 底部 dock）见 `docs/design/components.md` §ChatBubble。
 - 指标数值不染涨跌色（汇总值非涨跌语义）；等待态动画省略号不用 Emoji。
 - 空态 hero 的「账本精灵」用品牌渐变词（`--brand-700 → --brand-900`，`background-clip: text`，`@supports` 回退实色）；底部能力快捷 chips 只列后端已有工具支撑的能力，禁止放未实现能力当摆设。
+- 历史会话栏（#1719，方案 A **页内折叠**，非抽屉非新路由）：工具栏左侧「历史」开关展开面板；面板底 `--bg-muted`，条目 hover `--bg-card` + `--border-light`，**当前续聊会话**高亮 `--border-color: --color-primary`；条目标题 `--text-primary`、时间 · 轮次元信息 `--text-label` + `--text-tertiary`，新对话入口 `--color-primary`。面板自身 `max-height: 40vh` 内部滚动（不把聊天气泡挤出视口），**默认折叠**——未展开不发任何列表请求。全部语义令牌，暗色自动生效。
 
 ## Data Visualization
 
