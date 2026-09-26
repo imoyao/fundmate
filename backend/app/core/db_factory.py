@@ -207,6 +207,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'position_strategy_tags': DOMAIN_USER,
     'asset_snapshots': DOMAIN_USER,
     'user_usage': DOMAIN_USER,
+    'agent_session': DOMAIN_USER,  # 账本精灵会话（#1121 S2：状态/原文/轮次，含 user_id）
     # ── 统一对账框架三表（#1232 §8.1 / P1）──
     'discrepancies': DOMAIN_USER,  # 活跃对账差异（含 family_id）
     'reconciliation_runs': DOMAIN_USER,  # 对账运行记录
