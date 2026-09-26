@@ -155,7 +155,7 @@ title: 技术债务与开口项明细（tech-debt）
 | **文档站构建技术未定**：当前 `docs/README.md` 为 docsify 风格（`home:true`/`heroText`），钱迹参考站为 GitBook | 低 | 评估 docsify→VitePress/GitBook 迁移；用户手册结构按钱迹"产品模块 + 疑问式标题"组织 |
 | **落地页视频/动效场景待补充**（参考 WorkBuddy） | 低 | WorkBuddy 在 Hero 区嵌入了产品截图/视频展示应用场景，多多贝当前为纯静态 HTML。后期可补充：(a) 工具实际使用录屏（Lottie/MP4 嵌入 Hero 或功能区）；(b) 产品界面截图轮播；(c) 数据可视化动态演示（XIRR 曲线绘制过程）。需先录制素材再编码嵌入，属于视觉打磨阶段 |
 | **用户手册与开发文档物理隔离**：当前混在 `docs/` 同名目录，未来需明确发布范围（`/docs` 仅发布用户向，内部放 `/docs-internal` 或私有） | 低 | 待用户手册成形后再规划发布边界 |
-    94:plainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplain
+    94:plainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplain
     95:---
     96:
     97:## 16. 首页「支持导入」Logo 混排素材缺口（技术债务 · 中）
@@ -252,7 +252,7 @@ title: 技术债务与开口项明细（tech-debt）
 
 ## 2026-08-04 OOM 修复记录
 
-    98:plainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplain
+    98:plainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplain
     99:### 问题
    100:前端 `pnpm run build` 因 JavaScript heap OOM 失败，`--max-old-space-size=8192`（8GB）仍不足，阻塞生产部署。
    101:
@@ -910,4 +910,10 @@ node scripts/audit_text_contrast.mjs --all
 node scripts/axe_contrast_audit.mjs --routes /explore,/profile,/asset/watchlist --shot axe_shots/light
 node scripts/axe_contrast_audit.mjs --theme dark --routes /explore,/profile,/asset/watchlist --shot axe_shots/dark
 ```
-```
+
+## 2026-09-26 docs:lint-md 存量遗留：守卫硬拦自证文件 + fixer 非幂等追加（PR #1706）
+
+背景：`pnpm run docs:lint-md` 实为 `lint-md docs -f`（自带 fix 模式），2026-09-26 全量执行一次改写 99 个文档，规范化落地见 PR #1706（收 98 个，排除下述第 1 项文件）。落地过程确认两处存量遗留，**均非该次执行引入**，仅登记、不擅自修（处置方式待拍板）：
+
+1. **`docs/working-notes/amac-encoding-incident-2026-08-17.md` 含 3 行 5 处字面 U+FFFD（替换符）**：该文件是乱码事件复盘，示例串与「名称含 U+FFFD 即丢弃」的规则表述本身就需要真实替换符，属有意保留；但 `scripts/guard_mojibake.py` 对 U+FFFD 是**无白名单硬拦截**（`check_text` 第 1 条），CI 乱码守卫又扫 PR 变更的**整文件**（`ci.yml` `mojibake_guard` job，pathspec 含 `*.md`） ⇒ **未来任何 PR 只要触碰该文件即红灯**（存量陷阱，与具体 PR 无关）。处置二选一待拍板：① 守卫给该文件加显式豁免清单；② 文件内示例改用转义写法（字面 `\uFFFD`）去掉真实替换符。
+2. **lint-md 0.2.0 `no-empty-code-lang` fixer 对本文件 `94:`/`98:` 编号行非幂等**：fixer 取 AST 节点起始行整行 `trimEnd + "plain"` 后回写（`lib/fix-rules/no-empty-code-lang.js`），而这两行是存量编号摘录残迹（4 空格缩进被解析为无语言代码块），每次执行都被追加 `plain`（历史 ×9→×29→×40，2026-09-26 又 +3）。根因是该行内容本身损坏、fixer 不收敛。处置二选一：① 修复编号行使之不再落入「无语言代码块」；② 向 lint-md 上游提非幂等 issue。

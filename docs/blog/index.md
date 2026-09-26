@@ -1,6 +1,6 @@
 ---
 title: 博客
-description: 多多贝博客 —— 经授权转载自 16Traders 的交易心理与策略文章，结合我们的主题重新排版。
+description: 多多贝博客 —— 经授权转载自 16Traders 的交易心理与策略文章，结合我们的主题重新排版
 ---
 
 # 博客
@@ -13,7 +13,7 @@ description: 多多贝博客 —— 经授权转载自 16Traders 的交易心理
 
 ## 文章列表
 
-- [A股10年模拟实验：5种散户的最终命运（10000人数据）](./a-share-simulation-10-years) — 用 10 年 A 股真实数据，模拟 10000 个散户，对比 5 种交易风格的收益。
+- [A 股 10 年模拟实验：5 种散户的最终命运（10000 人数据）](./a-share-simulation-10-years) — 用 10 年 A 股真实数据，模拟 10000 个散户，对比 5 种交易风格的收益。
 - [交易心理学必读书单：不同人格的最佳阅读顺序](./trading-psychology-books) — 精选 10 本交易心理经典，按 TPI 人格类型给出阅读顺序。
-- [FOMO交易心理：为什么你总是追高被套？](./fomo-trading-psychology) — 拆解 FOMO 的成因、四种表现与对抗策略。
+- [FOMO 交易心理：为什么你总是追高被套？](./fomo-trading-psychology) — 拆解 FOMO 的成因、四种表现与对抗策略。
 - [什么是复仇交易？如何停止这种自杀式行为](./revenge-trading-how-to-stop) — 识别复仇交易的危险信号，建立熔断与冷却机制。

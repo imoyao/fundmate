@@ -12,7 +12,7 @@
 
 ### 1.1 交易导入向导（`investment/import/`）— 最厚重
 
-```
+```plain
 investment/import/index.vue
 ├─ ImportModeCards.vue              // 入口卡片（上传/AI/手动/模板）
 ├─ components/LedgerSelectStep.vue  // 第1步 选账户（含 ledgerId 状态）
@@ -27,7 +27,7 @@ investment/import/index.vue
 
 ### 1.2 持仓导入（`investment/eaccount-import/index.vue`）— #1018 已加 AI 入口
 
-```
+```plain
 eaccount-import/index.vue
 ├─ 上传文件（param+净额双模式） → parseHoldings → reconcileEaccount（reconcile_holdings，无流水）
 ├─ ★ AI 识别持仓（本期新增）：holding_import → previewRows → 同一条 reconcile 流程
@@ -36,7 +36,7 @@ eaccount-import/index.vue
 
 ### 1.3 自选导入（`components/QuickEntry/OcrImportModal.vue`）— 轻量
 
-```
+```plain
 OcrImportModal.vue
 ├─ watchlist_import（默认） → 候选勾选 → createWatchlistItem
 └─ 文本/图片两种识别，独立 usage 三态展示

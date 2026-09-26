@@ -47,7 +47,7 @@ jigu 把基金估值源抽象为 4 个数字 ID，存于 `fund.dataSource`（单
 
 ### 2.2 `fetchFundValuationBySource(code, dataSource)` 分发
 
-```
+```plain
 switch (dataSource) {
   case 2: return fetchSinaEstimateNetworthResponse(code)
   case 3: return fetchSinaEstimateNetworthResponse(code)   // 新浪备选
@@ -60,7 +60,7 @@ switch (dataSource) {
 
 核心：`fetchFundBestSource(code)` 先发 RPC 探测「最佳源是哪类」，再分支：
 
-```
+```plain
 bestSource = await fetchFundBestSource(code)   // 返回 'ttjj' | 'sinaEstimateNetworth' | 'supabase_qdii'
 if (bestSource === 'supabase_qdii') return fetchSupabaseQdiiValuation(code)
 if (bestSource === 'sinaEstimateNetworth') {
@@ -85,7 +85,7 @@ return fetchFundValuationLast(code)
 
 ### 3.1 天天基金批量估值 `FundValuationLast` ★核心
 
-```
+```plain
 GET https://fundcomapi.tiantianfunds.com/mm/newCore/FundValuationLast
     ?FCODES=110022,000001,161725   // 逗号拼多个，单次最多 50 个
     &FIELDS=FCODE,SHORTNAME,GSZZL,GZTIME,GSZ,NAV,PDATE
@@ -98,7 +98,7 @@ GET https://fundcomapi.tiantianfunds.com/mm/newCore/FundValuationLast
 
 ### 3.2 新浪基金估值 `FundInfoService.getEstimateNetworthPic`
 
-```
+```plain
 GET https://stock.finance.sina.com.cn/fundInfo/api/openapi.php/FdFundService.getEstimateNetworthPic
     ?symbol={code}&callback={jsonp_callback}
 ```
@@ -109,7 +109,7 @@ GET https://stock.finance.sina.com.cn/fundInfo/api/openapi.php/FdFundService.get
 
 ### 3.3 历史净值走势（Sparkline 数据源，统一历史接口）★
 
-```
+```plain
 GET https://fundgz.1234567.com.cn/pingzhongdata/{code}.js   // 东方财富底层
 ```
 
@@ -122,7 +122,7 @@ GET https://fundgz.1234567.com.cn/pingzhongdata/{code}.js   // 东方财富底�
 
 ### 3.4 腾讯行情多 code 批量（股票/指数实时）
 
-```
+```plain
 GET https://qt.gtimg.cn/q=sh600519,sz000001,jj000001   // 逗号拼多个
 ```
 
@@ -132,7 +132,7 @@ GET https://qt.gtimg.cn/q=sh600519,sz000001,jj000001   // 逗号拼多个
 
 ### 3.5 基金持仓（次要，暂不需）
 
-```
+```plain
 GET https://fundmobapi.eastmoney.com/FundMNewApi/FundMNInverstPosition
     ?FCODE={code}&deviceid=Wap&plat=WAP&product=EFund&version=2.0.0
 ```

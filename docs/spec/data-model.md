@@ -22,7 +22,7 @@ title: 核心数据模型完整规范（data-model）
 | `symbol_norm` | **身份**形态（唯一约束挂它） | `{VENUE}:{venue 规范形态代码}` | `EXCHANGE:SZ159915` / `OTC:004369` / `NO_VENUE:MGR_xxx` |
 
 - 两者都由 `backend/app/core/venues.py` 唯一决定（禁止各模块自行拼 / 剥前缀）；身份构造见 `core/symbol_utils.symbol_identity(symbol, asset_type, venue=None)`，落库前由 ORM `before_insert` / `before_update` 事件自动填充。
-- 唯一约束：`uq_positions_ledger_symbol`（**字面量** `(ledger_id, symbol)`，历史遗留、保留）+ `uq_positions_ledger_symbol_norm`（**身份** `(ledger_id, symbol_norm)`，`#1677` 新增）。后者挡住 `SZ004369` / `sz004369` / ` SZ004369 ` 这类写法变体 —— 字面量约束挡不住，那是「同一基金两行」的根因。
+- 唯一约束：`uq_positions_ledger_symbol`（**字面量** `(ledger_id, symbol)`，历史遗留、保留）+ `uq_positions_ledger_symbol_norm`（**身份** `(ledger_id, symbol_norm)`，`#1677` 新增）。后者挡住 `SZ004369` / `sz004369` / `SZ004369` 这类写法变体 —— 字面量约束挡不住，那是「同一基金两行」的根因。
 - 完整形态约定见 [`conventions.md`](./conventions.md) §2.7；一致性由 `scripts/audit_symbol_venue_conformance.py` 守卫。
 
 ### 5.2 transactions 交易流水
@@ -91,7 +91,7 @@ securities、funds、fund_companies、managers、fund_managers、daily_worth 全
 - `position_import_meta.fund_manager` **全为 NULL 属设计使然**（影子记录的唯一匹配键 + 部分索引；归因到渠道后按设计置 NULL）。原值不可回溯（已扫遍 16 个库与备份）→ **「补 fund_manager FK」一项应取消**。
 - `fund_list_job` 对 `company_id` 的贡献**恒为 0**：`ak.fund_name_em()` 不返回公司名，其公司处理分支为死代码，且该 job 只增不改（docstring 谎报，见 #1402）。这是公司覆盖率仅 11% 的成因。
 - #1386 遗留：`中科沃土基金管理有限公司` 占位行**已拍板保留**；`国联证券资产管理` / `众盈基金` 无 AMAC 全称可用。
-- **直销 vs 代销**：基金管理人直销自家产品无需另行取得销售牌照（证监会令第175号第八条）→ **直销 = 基金公司本体**；独立成行的是基金公司设立的销售子公司（9 家）。当前**不建**「销售机构 ↔ 基金公司」关联表。
+- **直销 vs 代销**：基金管理人直销自家产品无需另行取得销售牌照（证监会令第 175 号第八条）→ **直销 = 基金公司本体**；独立成行的是基金公司设立的销售子公司（9 家）。当前**不建**「销售机构 ↔ 基金公司」关联表。
 
 **相关符号命名空间**：基金经理 `MGR_<mgr_code>`，投顾组合为平台原生码（`ZHxxxx` / `CSIxxxx`）。回查须**大小写不敏感**——实测 `managers.mgr_code` 存小写，等值匹配必漏查。
 

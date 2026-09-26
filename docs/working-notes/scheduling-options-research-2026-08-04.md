@@ -79,13 +79,13 @@
 
 > 2026-08-04 复核：上轮把后端放 SCF 主要因为「原生 cron」。但复核发现 **EdgeOne Makers 的 Cloud Functions 原生支持 Python / Flask（APIFlask 为子类直接可用）、可选上海 / 香港区、代码包 128MB、单请求最长 120s**——是比此前认知更强的 Python 宿主。唯一缺口：Cloud Functions 由 HTTP 请求触发，**官方未提供原生 cron/timer 触发器**（「定时任务」仅列为适用场景，无 timer 触发器类型）。结论因此调整为：**EdgeOne 可当后端，调度仍需外部触发**（与 §一 解耦原则一致）。
 
-### 7.1 直接回答：EdgeOne 上用什么替 APScheduler？
+### 7.1 直接回答：EdgeOne 上用什么替 APScheduler
 
 **外部调度器「喊一声」→ EdgeOne Cloud Function 的 `/api/cron/*` 端点跑活。** serverless 下没有常驻进程，APScheduler 本就不能用；也没有原生 cron。调度与计算继续解耦（§一）。
 
 ### 7.2 框架长这样
 
-```
+```plain
 [外部调度器] --HTTPS POST(cron, 带 X-Cron-Secret)--> [EdgeOne Cloud Function /api/cron/*]
                                                   │
                                                   ├─ 校验 secret → 401

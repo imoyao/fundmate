@@ -264,7 +264,7 @@
 | 一键自动源 | 付费候选 | 特色功能（基估宝「一键自动源 (Pro)」实证） |
 
 - 每日收益日历为免费功能（用户明确，不得收费）。
-- **通用用量表**（拒绝每功能建表）：`user_usage(user_id, feature, period_date, count, quota, updated_at)`；feature 枚举（`ocr_import`、`scheduled_sync`、…）；通用接口 `GET /api/usage/{feature}`；配额可配置（env/表）。
+- **通用用量表**（拒绝每功能建表）：`user_usage(user_id, feature, period_date, count, quota, updated_at)`；feature 枚举（`ocr_import`、`scheduled_sync`、……）；通用接口 `GET /api/usage/{feature}`；配额可配置（env/表）。
 - OCR 费用评估（Ark，doubao vision，seed 档 0.8/8 元每百万 tokens）：单次 ≈ 0.0037 元（600 in + 400 out）；1000 用户 × 5 次/天上限 ≈ 15 万次/月 ≈ **555 元/月顶格**；现实 20% 活跃 ≈ 74 元/月——**可承受**。免费 50 万 tokens 一次性额度 ≈ 仅 500 次，不够生产，只是试用。缓存命中 1.2 元/M 可省 80%（图省事可不用）。
 
 ### 9.7 基估宝 PRO 调研结论（2026-08-09，gh api 实证）

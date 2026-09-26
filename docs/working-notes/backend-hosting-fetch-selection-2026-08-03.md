@@ -82,7 +82,7 @@
 
 > 真实工作量 ≈ 「加入口文件 ＋ 把 N 个 job 包成 handler ＋ 调依赖 / 超时配置」，不是重写业务逻辑。最大隐患是 **akshare 打包体积**——而它恰是我们在削减的。
 
-### 5.2 Cloudflare Containers 能跑我们的 Docker / APIFlask 吗？
+### 5.2 Cloudflare Containers 能跑我们的 Docker / APIFlask 吗
 
 **能，但不适合本项目的免费 ＋ 对华目标。**
 

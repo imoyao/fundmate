@@ -17,7 +17,7 @@
 
 ### 1.2 硬编码假数据（1 处在用 + 1 处死文件，用户可见）
 
-- **AssetPanorama 瀑布图**：`initWaterfallChart`（L691-780）硬编码（上期末 280 万 → 流动资金 -233251 → … → 本期末），`allPositions.length === 0` 时直接不画。
+- **AssetPanorama 瀑布图**：`initWaterfallChart`（L691-780）硬编码（上期末 280 万 → 流动资金 -233251 → …… → 本期末），`allPositions.length === 0` 时直接不画。
 - Overview 瀑布图（L687-700）同源硬编码，但所在文件为死文件，无用户可见影响。
 - 性质等同 P0-2「热门卡片假盈亏」，属数据正确性问题。
 

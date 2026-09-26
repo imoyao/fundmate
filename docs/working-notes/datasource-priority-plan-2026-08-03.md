@@ -87,7 +87,7 @@ A 股数据的**真实上游只有几家**：东财 / 腾讯 / 新浪 / 天天�
 
 | wrapper | 包装的上游 | 与谁「假冗余」 |
 |---|---|---|
-| akshare | 东财 / 腾讯 / 新浪 / 天天基金 / 韭圈儿…（最全，最易腐） | efinance（同东财）、xalpha 部分（同天天基金） |
+| akshare | 东财 / 腾讯 / 新浪 / 天天基金 / 韭圈儿……（最全，最易腐） | efinance（同东财）、xalpha 部分（同天天基金） |
 | efinance | 东财 push2his | akshare 东财类 |
 | xalpha | 天天基金 / 基金业协会 / 雪球 | akshare 基金类 |
 | pytdx | 通达信（本地） | baostock（均为本地历史） |

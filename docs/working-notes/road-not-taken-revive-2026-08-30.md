@@ -37,7 +37,7 @@
 
 ## 4. 前端实现清单
 
-```
+```plain
 views/asset/favorites/
 ├── index.vue                      页面骨架：诗句卡 + 筛选 + 瀑布流 + 分页
 ├── constants.ts                   两级胶囊配置、类型色/标签映射、示例卡

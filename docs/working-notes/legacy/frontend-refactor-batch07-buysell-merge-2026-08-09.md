@@ -1,10 +1,10 @@
-﻿# 鎵规 7 鈥?鍚堝苟 BuyForm / SellForm锛堣法鏂囦欢鍘婚噸锛?
+﻿# 鎵规 7 鈥?鍚堝苟 BuyForm / SellForm 锛堣法鏂囦欢鍘婚噸锛
 >
 > 鎶?`frontend/src/components/QuickEntry/BuyForm.vue` 涓?`SellForm.vue` 閲嶅鐨勭害 60% 閫昏緫
-> 鎶藉埌鍏变韩 `useTradeForm` composable + 閫氱敤 `TradeForm.vue`锛岃涔板叆/鍗栧嚭閫氳繃 `mode` 鍙傛暟澶嶇敤銆?> 鍘?`BuyForm.vue` / `SellForm.vue` 鏀逛负**钖勫３**锛堜繚鎸佸師 props / emits / `defineExpose`锛夛紝
+> 鎶藉埌鍏变韩 `useTradeForm` composable + 閫氱敤 `TradeForm.vue`锛岃涔板叆/鍗栧嚭閫氳繃 `mode` 鍙傛暟澶嶇敤銆?> 鍘?`BuyForm.vue` / `SellForm.vue` 鏀逛负**钖勫 3**锛堜繚鎸佸師 props / emits / `defineExpose`锛夛紝
 > 鍥犳璋冪敤鏂?`frontend/src/views/asset/investment/manual/index.vue` **闆舵敼鍔?*鍗冲彲鍙楃泭銆?
 >
-## 閲嶅鐐瑰垎鏋愶紙鏉ヨ嚜婧愮爜 1:1 鎻愬彇锛?
+## 閲嶅鐐瑰垎鏋愶紙鏉ヨ嚜婧愮爜 1:1 鎻愬彇锛
 
 | 鍧?| BuyForm | SellForm | 澶勭悊 |
 |---|---|---|---|
@@ -14,15 +14,15 @@
 | 鍩洪噾鍑€鍊兼棩鏈?| `confirmDate/actualNavDate` + `fetchConfirmDate` | 鍚屽乏锛? `fetchTradingDay`锛?| 鈫?`useTradeForm` |
 | `disabledDate` | 鏈?| 鏈?| 鈫?`useTradeForm` |
 | `formRef / handleSubmit / resetForm` | 鏍￠獙 + `createPosition` | 鏍￠獙 + `createPosition`(+`getPositions`/`validateTradeOrder`) | 鈫?`useTradeForm` |
-| `defineExpose({handleSubmit,resetForm})` | 鏈?| 鏈?| 钖勫３閫忎紶 |
+| `defineExpose({handleSubmit,resetForm})` | 鏈?| 鏈?| 钖勫 3 閫忎紶 |
 | 琛ㄥ崟瀛楁 | `ledger_id/symbol/name/market/type/price/trade_date/isAfter15/notes/currency/fee` + `buyAmount/shares/allocation` | 鍚屽熀纭€瀛楁 + `positionId/quantity` | 鍚堝苟涓?`TradeFormModel`锛堝苟闆嗭級 |
-| **宸紓** | 璇佸埜鎼滅储(`searchSecurities/searchFunds`)銆侀噾棰濃啋浠介銆乣allocation`銆佽垂鐜囨姌鎵?| 鎸佷粨鏌ヨ(`getPositions`)銆乣quantity`(鑷畾涔夋牎楠?銆佽祹鍥炶垂鐜?`estimateRedeemFee/syncFundFees`)銆乣SELL_QUICK_RATIOS` | 鐣欏湪 `TradeForm.vue` 鐨?`mode` 鏉′欢鍧?|
+| **宸紓** | 璇佸埜鎼滅储(`searchSecurities/searchFunds`)銆侀噾棰濃啋浠介銆乣allocation`銆佽垂鐜囨姌鎵?| 鎸佷粨鏌ヨ(`getPositions`)銆乣quantity`(鑷畾涔夋牎楠?銆佽祹鍥炶垂鐜?`estimateRedeemFee/syncFundFees`)銆乣 SELL_QUICK_RATIOS`| 鐣欏湪`TradeForm.vue`鐨?`mode` 鏉′欢鍧?|
 
 鎻愪氦锛氫袱鑰呮渶缁堥兘璋冪敤 `createPosition`锛堜拱鍏ュ缓浠撱€佸崠鍑哄钩浠擄級锛屾晠鍏变韩 `handleSubmit` 缁熶竴 `validate 鈫?createPosition(buildPayload()) 鈫?emit('submit-success')`锛宍buildPayload`鎸?`mode` 鎷艰銆?
 
 ## 鏂囦欢娓呭崟锛堟湰鐩綍 7 涓枃浠讹級
 
-```
+```plain
 batch7/
 鈹溾攢鈹€ composables/trade/
 鈹?  鈹溾攢鈹€ types.ts          # TradeMode / TradeFormModel锛堝瓧娈靛苟闆嗭級/ TradeFormProps

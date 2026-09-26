@@ -71,7 +71,7 @@ watch_fund = (
 
 复刻真实场景（market 库只有 `funds`，user 库只有 `positions`，与 Supabase 不含 `funds` 表的事实一致），并给引擎挂 `before_cursor_execute` 观察 SQL 落库：
 
-```
+```plain
 === query(Fund.fund_code).join(Position, Position.symbol == Fund.fund_code).first() ===
     -> 发往 [USER] 库: SELECT funds.fund_code AS funds_fund_code
        FROM funds JOIN positions ON positions.symbol = funds.fund_code
@@ -229,7 +229,7 @@ for mod_name in (...):
 
 ## 附录 A：包级双向依赖清单（23 对）
 
-```
+```plain
 app.core.auth                     <-> app.domains.users
 app.core.database                 <-> app.domains.families
 app.core.database                 <-> app.domains.users

@@ -142,7 +142,7 @@ BiasJob._fetch_data()
 
 > 决策原文见 [`decisions.md`](./decisions.md) 2026-09-19 行（D24）；本节只记**应然状态**，改动须先动决策。
 
-```
+```plain
 core  ←  domains.<域>.models / schemas  ←  services  ←  domains.<域>.views
 ```
 

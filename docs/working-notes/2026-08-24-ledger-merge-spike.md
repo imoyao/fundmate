@@ -8,7 +8,7 @@
 ## 1. Bug 现场
 迁移持仓撞 `UNIQUE(ledger_id, symbol)`：
 
-```
+```plain
 sqlalchemy.exc.IntegrityError: UNIQUE constraint failed: positions.ledger_id, positions.symbol
 [SQL: UPDATE positions SET ledger_id=?, account_name=?, updated_at=? WHERE positions.ledger_id = ?]
 ```
@@ -20,7 +20,7 @@ sqlalchemy.exc.IntegrityError: UNIQUE constraint failed: positions.ledger_id, po
 - `backend/app/domains/ledgers/views.py:414` `migrate_positions`：原盲 UPDATE，无 `db.rollback()`。
 - `backend/app/domains/positions/models.py:20` `Position`：
   - `UniqueConstraint('ledger_id','symbol')`（崩溃根因）；
-  - 字段：`quantity`(0.0001份) / `avg_price`(分) / `current_price`(分) / `confirm_date` /
+  - 字段：`quantity`(0.0001 份) / `avg_price`(分) / `current_price`(分) / `confirm_date` /
     `allocation` / `ownership_status` / `source` / `source_import_id` / `source_broker` /
     `notes` / `import_hash`；外键 `uq_positions_import_hash`；
   - `PositionImportMeta` 子表 FK `ondelete='CASCADE'`。
