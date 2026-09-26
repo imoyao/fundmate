@@ -348,16 +348,20 @@ function resetSession(): void {
   color: var(--text-primary);
 }
 
-// 品牌渐变词：不支持 background-clip:text 时回退实色（避免文字被 transparent 藏掉）
+// 品牌渐变词：@supports 条件与块内声明**同写法**，只用不带前缀的
+// background-clip:text——stylelint 的 property-no-vendor-prefix（standard 预设）
+// 会把 -webkit-background-clip 剥成 background-clip，既制造重复声明（CI 红灯），
+// 又会让「条件认 -webkit-、声明只认标准属性」的老浏览器进块拿到
+// transparent 却裁不了背景，文字直接消失。不支持的浏览器整块不生效，
+// 落回上面的 --brand-700 实色。
 .chat-hero__brand {
   color: var(--brand-700);
 }
 
-@supports (background-clip: text) or (-webkit-background-clip: text) {
+@supports (background-clip: text) {
   .chat-hero__brand {
     color: transparent;
     background: linear-gradient(135deg, var(--brand-700), var(--brand-900));
-    background-clip: text;
     background-clip: text;
   }
 }
