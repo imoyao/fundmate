@@ -248,7 +248,10 @@ TOOLS_METADATA = [
     },
     {
         'name': 'get_market_temperature',
-        'description': '获取市场温度计概览：综合温度、短/中/长期档位、结论副文案与数据新鲜度',
+        'description': '获取市场温度计概览：综合温度、短/中/长期档位、结论副文案与数据新鲜度'
+        '（数据最新日期 / 距今天数 / 是否过期）。短期档 temperature_bands.short 即韭圈儿恐惧贪婪指数'
+        '（贪恐指数）：0-100，高=贪婪、低=恐惧，返回里名称显示为「短期情绪」；'
+        '问市场情绪、贪恐 / 恐惧贪婪指数、数据是否已更新到最新日期时使用',
         'parameters': {'type': 'object', 'properties': {}},
     },
     {
