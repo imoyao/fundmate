@@ -630,6 +630,17 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 - OSS 兼容：老 9.x URL 解析不报错，重建时自动升级到 10.x。
 
 
+### 对话气泡（账本精灵，2026-09-26 #1121 S1-B）
+
+| 角色 | 底色 | 文字 | 描边 |
+|------|------|------|------|
+| 用户（右） | `--brand-solid` | `--text-inverse` | 透明 |
+| 助手 / 等待（左） | `--bg-soft` | `--text-primary` / 等待态 `--text-tertiary` | `--border-light` |
+| 服务提示（左） | `--bg-soft` | 标签 `--color-danger` | `--color-danger` |
+
+- 全部语义令牌，暗色自动生效（`design.dark.md` 无专属规则）；实现细节（形态 / 指标 chips / 空态）见 `docs/design/components.md` §ChatBubble。
+- 指标数值不染涨跌色（汇总值非涨跌语义）；等待态动画省略号不用 Emoji。
+
 ## Data Visualization
 
 ### 图表配色板
