@@ -87,7 +87,7 @@
 ├── frontend/               # Vue3 + TS + Element Plus + pure-admin（pnpm）
 │   ├── src/
 │   │   ├── api/            # 接口定义（按域）
-│   │   ├── views/          # 页面组件（自动路由，需 defineOptions.name 与路由名一致）
+│   │   ├── views/          # 页面组件（路由须在 router/modules 手工注册，name 与路由名一致）
 │   │   └── ...
 │   ├── package.json        # 前端依赖（pnpm 强制）
 │   └── pnpm-lock.yaml
@@ -181,10 +181,10 @@
 
 ### 架构概览
 
-- **路由**：`src/router/utils.ts` 通过 `import.meta.glob("/src/views/**/*")` 自动生成路由。新建页面须保证 `defineOptions.name` 与路由 name 一致（否则 keep-alive 失效）。
+- **路由**：由 `src/router/modules/*.ts` **手工注册**（每页一个模块文件）；`src/router/utils.ts` 的 `import.meta.glob("/src/views/**/*")` 仅用于按路径反查组件，**不自动生成路由**（`handleAsyncRoutes([])`，glob 结果未注入，#1703 实证）。新建页面须保证 `defineOptions.name` 与路由 name 一致（否则 keep-alive 失效）。
 - **接口**：集中在 `src/api/`，按域划分，组件内**禁止**裸 axios。
 - **登录**：Supabase Auth（`@supabase/supabase-js`），后端校验 JWT；登录/登出/路由守卫已配置。
-- **动态路由**：`src/views/` 下的组件自动成路由，无需手动注册。
+- **新增页面路由**：`src/views/` 下的组件**不会**自动成路由，须在 `src/router/modules/` 新建模块文件注册（参考 `modules/agent.ts`，含 `meta.requiresAuth` 等）。
 - **设计语言**：亮色 `frontend/design.md`，暗色 `design.dark.md`，**禁止硬编码 hex 色值**，必须使用 CSS 变量（`--color-rise`/`--color-fall` 等）。
 
 ### 常用前端命令（`cd frontend`）
