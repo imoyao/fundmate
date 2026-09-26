@@ -27,8 +27,11 @@ from typing import Any, Callable, Dict, List, Optional
 from loguru import logger
 
 from app.core import database  # 模块级引用，禁止 from-import get_session（#1608 晚绑定守卫）
+from app.core.money import Money
+from app.domains.positions.models import Position
 from app.services.nav_service import NavService
 from app.services.performance.calculators import calculate_portfolio_xirr
+from app.services.position_valuation import market_value_cents
 from app.services.summary_service import get_summary_data
 from app.services.thermometer.service import TemperatureService
 from app.services.watchlist_service import build_home_summary
@@ -98,6 +101,46 @@ def _tool_get_portfolio_performance(params: dict) -> dict:
         )
 
 
+def _tool_list_position_pnl(params: dict) -> dict:
+    """逐持仓盈亏明细（#1711）：成本 / 市值 / 盈亏额 / 盈亏率，按盈亏率降序。
+
+    口径同源持仓页（position_presenter.enrich_position_dict）：
+    - 市值走唯一口径 position_valuation.market_value_cents（本币直算，不查库不出网）；
+    - 盈亏 = (现价 − 成本均价) × 份额（整数分，Money.multiply_price_quantity），
+      无成本均价（avg_price=0）时盈亏记 0——与持仓页盈亏列逐字同口径；
+    - 成本 = 成本均价 × 份额（与 position_aggregation._position_cost_cents 同式）；
+    - 盈亏率 = 盈亏 / 成本（整数分相除后转百分比，2 位小数），成本为 0 时 None
+      （聚合页对应显示 "--"，不参与排序、沉底）。
+    """
+    with database.get_session() as db:
+        positions = db.query(Position).filter(Position.family_id == _server_family_id(params)).all()
+
+    items = []
+    for p in positions:
+        mv_cents = market_value_cents(p)
+        cost_cents = Money.multiply_price_quantity(p.avg_price, p.quantity) if p.avg_price else 0
+        pnl_cents = Money.multiply_price_quantity(p.current_price - p.avg_price, p.quantity) if p.avg_price else 0
+        pnl_rate = round(pnl_cents / cost_cents * 100, 2) if cost_cents > 0 else None
+        items.append(
+            {
+                'symbol': p.symbol,
+                'name': p.name,
+                'type': p.asset_type,
+                'account_name': p.account_name,
+                'quantity': Money.min_unit_to_shares(p.quantity),
+                'avg_price': Money.price_units_to_yuan(p.avg_price),
+                'current_price': Money.price_units_to_yuan(p.current_price),
+                'cost': Money.cents_to_yuan(cost_cents),
+                'market_value': Money.cents_to_yuan(mv_cents),
+                'pnl': Money.cents_to_yuan(pnl_cents),
+                'pnl_rate': pnl_rate,
+            }
+        )
+    # 盈亏率降序（赚在前、亏在后）；无成本价的 None 沉底，不参与排序
+    items.sort(key=lambda r: (r['pnl_rate'] is not None, r['pnl_rate'] or 0), reverse=True)
+    return {'items': items, 'count': len(items)}
+
+
 def _tool_get_fund_nav(params: dict) -> dict:
     """基金最新净值（只读本地已同步净值；allow_remote=False，工具自身不出网）。"""
     fund_codes: List[str] = params.get('fund_codes') or []
@@ -133,6 +176,7 @@ def _tool_get_watchlist_overview(params: dict) -> dict:
 
 register_tool('get_assets_overview', _tool_get_assets_overview)
 register_tool('get_portfolio_performance', _tool_get_portfolio_performance)
+register_tool('list_position_pnl', _tool_list_position_pnl)
 register_tool('get_fund_nav', _tool_get_fund_nav)
 register_tool('get_market_temperature', _tool_get_market_temperature)
 register_tool('get_watchlist_overview', _tool_get_watchlist_overview)
@@ -168,6 +212,21 @@ TOOLS_METADATA = [
                 'include_cash_equivalents': {
                     'type': 'boolean',
                     'description': '是否把现金/货基/逆回购并入分母，默认 false（仅投资类资产）',
+                },
+            },
+        },
+    },
+    {
+        'name': 'list_position_pnl',
+        'description': '逐持仓盈亏明细：列出当前每个持仓的成本/市值/盈亏额（元）与盈亏率（%），'
+        '按盈亏率从高到低排序。当用户问「我哪些持仓在亏钱」「亏得最多的是哪只」「逐个持仓的盈亏」'
+        '等需要逐持仓（而非组合汇总）盈亏的问题时使用',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'family_id': {
+                    'type': 'integer',
+                    'description': '家庭 id（服务端自动注入，调用方无需提供）',
                 },
             },
         },

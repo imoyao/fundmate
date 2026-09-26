@@ -64,6 +64,103 @@ def test_portfolio_performance_with_seed(db, make_position, make_transaction):
     assert r['data']['current_value'] == 110.0
 
 
+# ── list_position_pnl（#1711 逐持仓盈亏明细） ──
+def test_position_pnl_empty_db():
+    r = ToolExecutor.run('list_position_pnl', {})
+    assert r['status'] == 'success', r.get('msg')
+    assert r['data']['items'] == []
+    assert r['data']['count'] == 0
+
+
+def test_position_pnl_multi_position_sorted(db, make_position):
+    """多持仓：盈亏额/盈亏率数值正确，且按盈亏率降序（无成本价 None 沉底）。"""
+    make_position(
+        symbol='110011',
+        name='赚的基金',
+        asset_type='fund',
+        quantity=100,
+        avg_price=1.0,
+        current_price=1.1,
+        account_name='测试账户',
+    )
+    make_position(
+        symbol='600000',
+        name='亏的股票',
+        asset_type='stock',
+        quantity=50,
+        avg_price=2.0,
+        current_price=1.8,
+        account_name='测试账户',
+    )
+    make_position(
+        symbol='000001',
+        name='无成本价',
+        asset_type='stock',
+        quantity=10,
+        current_price=3.0,
+        account_name='测试账户',
+    )
+
+    r = ToolExecutor.run('list_position_pnl', {})
+    assert r['status'] == 'success', r.get('msg')
+    items = r['data']['items']
+    assert r['data']['count'] == 3
+    # 排序：+10% 在前、-10% 在后、无成本价（None）沉底
+    assert [it['pnl_rate'] for it in items] == [10.0, -10.0, None]
+
+    top = items[0]
+    assert top['symbol'] == '110011'
+    assert top['cost'] == 100.0  # 1.0 元 × 100 份
+    assert top['market_value'] == 110.0
+    assert top['pnl'] == 10.0  # (1.1 − 1.0) × 100
+    assert top['pnl_rate'] == 10.0
+
+    loser = items[1]
+    assert loser['symbol'] == '600000'
+    assert loser['pnl'] == -10.0
+    assert loser['pnl_rate'] == -10.0
+
+    no_cost = items[2]
+    assert no_cost['symbol'] == '000001'
+    assert no_cost['pnl'] == 0.0
+    assert no_cost['pnl_rate'] is None
+
+
+def test_position_pnl_single_position(db, make_position):
+    """单持仓：打平（现价 == 成本价）时盈亏与盈亏率均为 0，不是 None。"""
+    make_position(
+        symbol='510300',
+        name='打平ETF',
+        asset_type='etf',
+        quantity=200,
+        avg_price=4.0,
+        current_price=4.0,
+        account_name='测试账户',
+    )
+    r = ToolExecutor.run('list_position_pnl', {})
+    assert r['status'] == 'success', r.get('msg')
+    items = r['data']['items']
+    assert len(items) == 1
+    assert items[0]['pnl'] == 0.0
+    assert items[0]['pnl_rate'] == 0.0
+
+
+def test_position_pnl_family_isolated(db, make_position):
+    """user 隔离：server_ctx 注入 family_id=1 时，他人（family_id=2）持仓不可见。"""
+    make_position(
+        symbol='110022',
+        name='别人家的',
+        family_id=2,
+        quantity=100,
+        avg_price=1.0,
+        current_price=2.0,
+    )
+    r = ToolExecutor.run('list_position_pnl', {}, server_ctx={'family_id': 1})
+    assert r['status'] == 'success', r.get('msg')
+    assert r['data']['items'] == []
+    assert r['data']['count'] == 0
+
+
 # ── P1：服务端权威值覆盖候选值 ──
 def test_server_ctx_overrides_frontend_candidate(monkeypatch):
     captured = {}
