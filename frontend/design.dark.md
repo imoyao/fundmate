@@ -390,6 +390,7 @@
 
 - 气泡全部使用语义令牌（`--brand-solid` / `--bg-soft` / `--text-*` / `--color-danger`），暗色由 HSL 动态计算自动适配，**无专属覆写规则**。
 - 等待态动画为 CSS 宽度关键帧，不依赖颜色对比，暗色下无需调整。
+- 结果态结构化块（#1712）暗色规则与亮色同构：行级盈亏染色用暗色文字级 token `--color-rise-ink` / `--color-fall-ink`（`dark.scss` 专调对比度），其余块色全部走语义令牌自动适配，无额外覆写。
 
 ## Data Visualization
 

@@ -87,12 +87,33 @@ def test_run_agent_execute(monkeypatch):
         calls['n'] += 1
         if kwargs.get('response_format'):
             return '{"action":"execute_tool","tool_name":"get_assets_overview","tool_params":{}}'
-        return '您的净资产约为 X 元。'  # 叙事
+        # 叙事：按 #1712 小节契约输出（决策轮 / 叙事轮以 response_format 区分）
+        return '【结论】净资产约 X 元。\n【明细】详情如下。\n【风险提示】暂无。'
 
     monkeypatch.setattr(llm_mod, 'call_llm', fake)
     out = agent_loop.run_agent('分析我的收益', {}, user_id=1, session_id='s1')
     assert out['type'] == 'result'
     assert calls['n'] == 2  # 1 次决策 + 1 次叙事
+    # 契约分块（#1712）：blocks 解析成功，结构可被前端直接渲染
+    assert out['blocks'] is not None
+    assert [b['type'] for b in out['blocks']] == ['summary', 'text', 'risk']
+    # 兜底字段保留：content 原文仍在，前端可回退纯文本渲染
+    assert out['content'].startswith('【结论】')
+
+
+def test_run_agent_narrative_drift_falls_back(monkeypatch):
+    """叙事模型漂移（不按小节输出）→ blocks=None，前端降级纯文本，不崩。"""
+
+    def fake(content, system_prompt, **kwargs):
+        if kwargs.get('response_format'):
+            return '{"action":"execute_tool","tool_name":"get_assets_overview","tool_params":{}}'
+        return '就是一段没有小节标记的普通总结。'
+
+    monkeypatch.setattr(llm_mod, 'call_llm', fake)
+    out = agent_loop.run_agent('分析我的收益', {}, user_id=1, session_id='s1_drift')
+    assert out['type'] == 'result'
+    assert out['blocks'] is None
+    assert out['content'] == '就是一段没有小节标记的普通总结。'
 
 
 def test_run_agent_clarify(monkeypatch):

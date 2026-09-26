@@ -55,6 +55,41 @@ const turnLimitEnvelope = {
   error_code: 4001
 };
 
+/** 结构化块实出样本（#1712）：后端 parse_narrative_blocks 的块形状（含行级盈亏表） */
+const structuredTurn = {
+  data: {
+    type: "result",
+    content: "【结论】组合整体盈利。【明细】持仓盈亏如下。【风险提示】市场波动可能使收益回撤。",
+    blocks: [
+      { type: "summary", text: "组合整体盈利。" },
+      { type: "text", text: "持仓盈亏如下。" },
+      {
+        type: "table",
+        columns: [
+          { key: "name", label: "名称", kind: "plain" },
+          { key: "pnl", label: "盈亏", kind: "pnl" },
+          { key: "pnl_rate", label: "盈亏率(%)", kind: "pnl" }
+        ],
+        rows: [
+          { name: "赚的基金", pnl: 1000.5, pnl_rate: 10.25 },
+          { name: "亏的股票", pnl: -200.25, pnl_rate: -5.5 },
+          { name: "平的债券", pnl: 0, pnl_rate: 0 }
+        ],
+        truncated: false
+      },
+      { type: "risk", text: "市场波动可能使收益回撤。" }
+    ],
+    data: {},
+    session_state: {
+      goal: "分析账户收益",
+      missing_params: [],
+      collected_params: {},
+      history: []
+    }
+  },
+  message: "ok"
+};
+
 test.describe("账本精灵对话页（#1121 S1-B）", () => {
   test("三态渲染：澄清追问 → 结果指标 chips → 错误提示；新对话可清空", async ({
     page,
@@ -116,5 +151,50 @@ test.describe("账本精灵对话页（#1121 S1-B）", () => {
     await page.getByRole("button", { name: "新对话" }).click();
     await expect(page.getByText("试着问一句")).toBeVisible();
     await expect(page.getByText("已超出分析轮次")).toHaveCount(0);
+  });
+
+  test("结构化块渲染（#1712）：结论加粗 / 行级盈亏涨红跌绿 / 风险提示弱化", async ({
+    page,
+    context,
+    baseURL
+  }) => {
+    await injectSupabaseSession(context, baseURL!);
+    await page.route(/\/api\/agent\/chat\/?$/, async route => {
+      await route.fulfill({ json: structuredTurn });
+    });
+
+    await page.goto("/#/agent/chat");
+    await page.getByPlaceholder(/Enter 发送/).fill("我的持仓盈亏怎么样？");
+    await page.getByRole("button", { name: "发送" }).click();
+
+    // 三类文本块按类渲染（结论 / 明细文本 / 风险提示）
+    const summary = page.locator(".msg__block--summary");
+    await expect(summary).toHaveText("组合整体盈利。");
+    await expect(page.locator(".msg__block--text")).toHaveText("持仓盈亏如下。");
+    const risk = page.locator(".msg__block--risk");
+    await expect(risk).toHaveText("市场波动可能使收益回撤。");
+
+    // 表格：列头 + 千分位数值
+    const table = page.locator(".msg__table");
+    await expect(table.locator("thead th")).toHaveText([
+      "名称",
+      "盈亏",
+      "盈亏率(%)"
+    ]);
+    // 涨红跌绿：正数染 --color-rise-ink，负数染 --color-fall-ink，0 / 名称列不染
+    const riseCell = table.locator("td.msg__cell--rise");
+    await expect(riseCell).toHaveText(["1,000.50", "10.25"]);
+    const fallCell = table.locator("td.msg__cell--fall");
+    await expect(fallCell).toHaveText(["-200.25", "-5.50"]);
+    // 名称列与 0 值单元格不染涨跌色（定位到第三行盈亏列，避免 0.00 命中两个同值单元格）
+    await expect(
+      table.locator("tbody tr").first().locator("td").first()
+    ).not.toHaveClass(/msg__cell/);
+    const zeroPnl = table.locator("tbody tr").nth(2).locator("td").nth(1);
+    await expect(zeroPnl).toHaveText("0.00");
+    await expect(zeroPnl).not.toHaveClass(/msg__cell/);
+
+    // 原始 content 里的契约标记不外显（结构化态只渲染块，不再整段回显文本）
+    await expect(page.getByText(/【结论】/)).toHaveCount(0);
   });
 });
