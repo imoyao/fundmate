@@ -1,22 +1,29 @@
 # -*- coding: utf-8 -*-
 """账本精灵对话循环（AgentLoop）：多轮追问收敛 + 工具调用。
 
-设计（2026-08-18 与用户确认）：
+设计（2026-08-18 与用户确认；2026-09-26 S2 演进为服务端权威会话，#1121 步骤卡 #4）：
 - 不引 LangGraph；用轻量循环做状态路由（ask_clarification / execute_tool）；
-- 多轮收敛上限复用 guards.repeat_tracker（G4），超限抛 AGENT_TURN_LIMIT_EXCEEDED；
 - 强制结构化输出兜底：call_llm 传 response_format json_object；但 doubao-mini 仍可能漂移，
   故 parse_agent_action 复用 extract_json_array 的容错思路解析单对象，解析失败一律当澄清；
 - 所有数值只在 ToolExecutor 执行后注入 prompt，追问阶段模型只聊逻辑，属防幻觉安全区；
-- 「3~10 轮追问」由**前端驱动**（前端持有 session_state，每轮回传），repeat_tracker 跨请求计总轮次；
-  本函数内只做「单次决策 + 工具失败最多 1 次重试」（共 2 次模型调用上限）。
+- 本函数内只做「单次决策 + 工具失败最多 1 次重试」（共 2 次模型调用上限）。
+
+S2 记忆层（2026-09-26）：
+- 会话状态 / 原文 / 轮次由**服务端持有**（agent_session 行，session_store 加载后传入），
+  前端只回传 session_id——修 P2（前端持有导致丢最早信息）与 P4（状态可篡改）；
+- prompt 分层组装：goal → 关键信息卡（永不压缩）→ 滚动摘要 → 最近 3 轮原文 →
+  已收集参数 → 本轮指令，**每层硬截断**，单轮 prompt 与轮次无关
+  （旧实现整段 json.dumps(全部 history)，无上界）；
+- 轮次过阈（>6）且原文超窗时，把最旧轮次用便宜模型压进摘要层；压缩失败降级为
+  硬截断并打 [agent.memory] 日志——**有界性优先于完整性**，完整性由摘要层
+  在下次成功压缩时补回。
 
 后期接 DeepSeek：只需改 ARK_MODEL / base_url（OpenAI 兼容协议不变），架构零改动。
 
-合并说明（2026-09-09）：原 ``session_manager.py``（64 行，仅本文件一个生产调用方）
-已并入本模块——多轮会话的「状态校验」与「循环收敛」是同一职责的两面，拆开后
-调用方必须同时 import 两个模块才能跑一轮对话。对外符号
-``SessionState`` / ``validate_session_state`` / ``init_session`` / ``merge_user_input``
-全部保留（现从 ``agent_loop`` 导出），行为不变。
+历史说明（2026-09-09 合并 session_manager.py）：对外符号 SessionState /
+validate_session_state 保留（S2 起用作**加载路径防线**：DB 内容同样过白名单）；
+init_session / merge_user_input 随 S2 移除——历史改存 agent_session.messages 列，
+「把原文塞进 state.history」的旧模式不复存在（步骤卡 #4 已记录该决策）。
 """
 
 import json
@@ -26,18 +33,27 @@ from typing import List, Optional, TypedDict
 from loguru import logger
 
 from app.core.exceptions import ErrorCode, SBException
+from app.domains.agent.models import AgentSession
 from app.services.ai_recognizer import guards, llm
 from app.services.ai_recognizer.tools import TOOLS_METADATA, ToolExecutor
 
+# ── 分层记忆参数（#1121 S2，步骤卡 #4）────────────────────────────────────
+# 每层各有硬上限 → 单轮 prompt 字符数与轮次无关（验收「收敛有上界」由此保证）
+RECENT_KEEP = 3  # prompt 保留的最近原文轮数
+COMPRESS_MIN_TURNS = 6  # turn_count > 6 才允许压缩（学习计划 S2 阈值）
+COMPRESS_WINDOW = 8  # 原文条数超过该窗口才触发一次压缩（摊薄压缩调用成本）
+HARD_RAW_CAP = 12  # 压缩失败降级时的原文硬上限（最后一道有界防线）
+TURN_SIDE_CAP = 800  # 单侧原文截断（user / assistant 各自）
+SUMMARY_CAP = 3000  # 滚动摘要总长上限
+KEY_FACTS_CAP = 800  # 关键信息卡 JSON 序列化上限
+COMPRESS_DIGEST_CAP = 500  # 单次压缩产出的摘要增量上限
+
 # ─────────────────────────────────────────────────────────────────────────────
-# 会话状态管理（前端持有模式，后端无状态）
+# 会话状态（S2 起为服务端持有的「追问工作内存」）
 #
-# 设计（2026-08-18 与用户确认）：
-# - 会话状态由**前端持有**（选项 c）：后端不存储、不持久化，每轮由前端回传 session_state；
-# - 后端在接收时仅做**字段格式校验**（G3 防篡改）：只认白名单字段，不执行任何 DB/SQL；
-# - 收敛轮次上限由 guards.repeat_tracker（G4）统一管控，不在本模块另起一套。
-#
-# 后期如需 (a) Supabase / (b) SQLite 持久化，只替换存储层，本段白名单校验不变。
+# - 状态存 agent_session.state 列，由 session_store 加载后传入 run_agent；
+# - G3 白名单校验保留：DB 内容 / 历史遗留状态同样只认白名单字段，不执行任何 DB/SQL
+#   （前端已无法直接注入状态，注入面从「每轮可注入」收敛为「改库才能注入」）。
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -49,17 +65,12 @@ class SessionState(TypedDict, total=False):
     history: List[dict]
 
 
-# G3 白名单：前端回传的 session_state 只能含这些字段，否则视为篡改拒绝
+# G3 白名单：状态只允许这些字段，否则视为篡改拒绝（加载路径防线）
 ALLOWED_KEYS = {'goal', 'missing_params', 'collected_params', 'history'}
 
 
-def init_session(goal: str) -> SessionState:
-    """前端开启新会话时初始化状态（也可由前端自行构造）。"""
-    return SessionState(goal=goal, missing_params=[], collected_params={}, history=[])
-
-
 def validate_session_state(state) -> SessionState:
-    """白名单校验前端回传的 session_state（G3 防篡改）。
+    """白名单校验会话状态（G3 防篡改，S2 起作用于加载路径）。
 
     只认 ALLOWED_KEYS，字段类型不符即拒绝；不碰 DB、不执行任何危险逻辑。
     """
@@ -68,7 +79,7 @@ def validate_session_state(state) -> SessionState:
     cleaned: SessionState = SessionState()
     for k, v in state.items():
         if k not in ALLOWED_KEYS:
-            # 未知字段：拒绝，防止前端被篡改后注入非法状态
+            # 未知字段：拒绝，防止被篡改后注入非法状态
             raise SBException(ErrorCode.INVALID_PARAMS.code, f'session_state 含未授权字段: {k}', 400)
         if k == 'goal' and not isinstance(v, str):
             raise SBException(ErrorCode.INVALID_PARAMS.code, 'goal 必须为字符串', 400)
@@ -82,13 +93,102 @@ def validate_session_state(state) -> SessionState:
     return cleaned
 
 
-def merge_user_input(state: SessionState, user_input: str) -> SessionState:
-    """把本轮用户输入追加进 history（当前保存完整原文，未做截断/摘要）。"""
-    history = list(state.get('history', []))
-    history.append({'role': 'user', 'content': user_input})
-    updated = SessionState(**state)
-    updated['history'] = history
-    return updated
+# ─────────────────────────────────────────────────────────────────────────────
+# 分层记忆（S2）：截断 → 压缩 → 组装
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _truncate(text, cap: int) -> str:
+    """硬截断（超长截到 cap 并带省略号）；所有进 prompt / 落库的自由文本必经。"""
+    if not isinstance(text, str):
+        text = str(text)
+    return text if len(text) <= cap else text[: cap - 1] + '…'
+
+
+def _dumps(obj, cap: int) -> str:
+    """JSON 序列化 + 总长硬截断（结构化层的有界防线）。"""
+    text = json.dumps(obj, ensure_ascii=False)
+    return text if len(text) <= cap else text[:cap] + '…'
+
+
+def _extract_first_json_object(text):
+    """从模型输出容错抠出第一个 JSON 对象（去围栏、截首 { 到末 }），失败返回 None。"""
+    if not text or not isinstance(text, str):
+        return None
+    fence = re.search(r'```(?:json)?\s*(.*?)```', text, re.S)
+    if fence:
+        text = fence.group(1)
+    start, end = text.find('{'), text.rfind('}')
+    if start == -1 or end == -1 or end <= start:
+        return None
+    try:
+        obj = json.loads(text[start : end + 1])
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def _summarize(old_turns: list, goal: Optional[str]) -> tuple:
+    """最旧轮次 → (摘要增量, 关键信息卡)。失败上抛，由 _maybe_compress 降级。
+
+    模型走 call_llm 默认档（ARK_MODEL 缺省即 doubao-seed-2-0-mini 便宜模型，
+    学习计划 S2 指定的压缩用档）。
+    """
+    payload = json.dumps(old_turns, ensure_ascii=False)
+    prompt = (
+        f'分析目标：{goal or ""}\n'
+        f'需要压缩的更早对话轮次：{payload}\n'
+        '只输出单个 JSON 对象（不要解释文字、不要 markdown 围栏）：'
+        '{"digest": "不超过 200 字的摘要，保留标的 / 账户 / 时间范围 / 关键结论", '
+        '"key_facts": {"标的": "", "账户": "", "时间范围": ""}}'
+    )
+    raw = llm.call_llm(
+        content=[{'type': 'text', 'text': prompt}],
+        system_prompt='你是会话记忆压缩器，只输出单个 JSON 对象。',
+        response_format={'type': 'json_object'},
+        temperature=0.1,
+    )
+    obj = _extract_first_json_object(raw)
+    if obj is None:
+        raise ValueError(f'压缩输出不可解析：{str(raw)[:120]}')
+    digest = _truncate(str(obj.get('digest') or ''), COMPRESS_DIGEST_CAP)
+    facts = obj.get('key_facts')
+    return digest, facts if isinstance(facts, dict) else {}
+
+
+def _maybe_compress(session: AgentSession) -> None:
+    """轮次过阈且原文超窗 → 最旧轮次压进摘要层 + 关键信息卡（替换式，当前焦点优先）。
+
+    失败降级：**有界性优先**——保留最近 HARD_RAW_CAP 条原文并打日志，下轮再试；
+    完整性损失靠成功时的摘要层补回（步骤卡 #4 关键决策）。
+    """
+    msgs = list(session.messages or [])
+    turns = session.turn_count or 0
+    if turns > COMPRESS_MIN_TURNS and len(msgs) > COMPRESS_WINDOW:
+        old, recent = msgs[:-RECENT_KEEP], msgs[-RECENT_KEEP:]
+        try:
+            digest, facts = _summarize(old, session.goal)
+        except Exception as exc:  # noqa: BLE001 — 压缩属旁路优化，任何异常都不得中断对话
+            logger.warning('[agent.memory] 压缩失败，降级硬截断保留最近 {} 条：{}', HARD_RAW_CAP, exc)
+            session.messages = msgs[-HARD_RAW_CAP:]
+            return
+        summary = (session.summary or '').strip()
+        summary = f'{summary}\n{digest}'.strip() if summary else digest
+        session.summary = summary[:SUMMARY_CAP]
+        if facts:
+            session.key_facts = facts  # 关键卡 = 当前焦点，整体替换（永不压进摘要）
+        session.messages = recent
+        logger.info(
+            '[agent.memory] 压缩完成：{} 条原文并入摘要，保留 {} 条，摘要 {} 字',
+            len(old),
+            len(recent),
+            len(session.summary),
+        )
+        return
+    # 防御：未触发压缩（轮次未到 / 上次压缩失败后原文继续增长）也要保证有界
+    if len(msgs) > HARD_RAW_CAP:
+        logger.warning('[agent.memory] 原文超 {} 条且未压缩，截断最旧 {} 条', HARD_RAW_CAP, len(msgs) - HARD_RAW_CAP)
+        session.messages = msgs[-HARD_RAW_CAP:]
 
 
 AGENT_SYSTEM_PROMPT = """你是多多贝账本精灵（投顾助手）。
@@ -150,42 +250,65 @@ def parse_agent_action(response_str: str) -> dict:
 
 def run_agent(
     user_input: str,
-    session_state: Optional[dict],
-    user_id: int,
-    session_id: str,
-    goal: str = '分析账户收益',
+    session: AgentSession,
     server_ctx: Optional[dict] = None,
 ) -> dict:
-    """单次对话决策：返回 clarify / result / error。
+    """单次对话决策：返回 clarify / result / error（三态均携带 session_id）。
 
-    多轮追问由前端驱动（前端持有 session_state 并每轮回传）；本函数内对工具失败做最多 1 次重试。
+    S2（#1121）：会话状态 / 原文 / 轮次服务端持有——本函数只操作传入的 session 行，
+    不自己开会话、不 commit（conventions §2.13：HTTP 路径由 teardown_request_session
+    统一提交，直调方自行决定，见 session_store）。
 
-    server_ctx：服务端权威上下文（HTTP 路径由 views 传 {'family_id': ...}），
-    P1——工具执行时权威值覆盖前端候选值，缺省 None 仅用于离线直调（回退口径见 tools.py）。
+    server_ctx：服务端权威上下文（HTTP 路径传 {'family_id': ...}），
+    P1——工具执行时权威值覆盖候选值，缺省 None 仅用于离线直调（回退口径见 tools.py）。
     """
-    # G3：前端回传状态只做白名单校验，不执行任何 DB
-    state: SessionState = validate_session_state(session_state or {})
-    state = merge_user_input(state, user_input)
+    # G3（S2 起为加载路径防线）：DB 内容同样过白名单——防脏数据，不执行任何 DB
+    state: SessionState = validate_session_state(session.state or {})
+    goal = session.goal or '分析账户收益'
 
-    # G4：跨请求收敛上限（总轮次由 repeat_tracker 统计）
-    if guards.agent_turns_exceeded(user_id, session_id):
+    # G4 轮次闸：S2 起落库（agent_session.turn_count）——重启不丢、多实例一致
+    turns = session.turn_count or 0
+    if turns >= guards.get_agent_max_turns():
         raise SBException(
             ErrorCode.AGENT_TURN_LIMIT_EXCEEDED.code,
             '已超出分析轮次，请使用图表查看详细数据',
             ErrorCode.AGENT_TURN_LIMIT_EXCEEDED.http_status,
         )
-    guards.record_agent_turn(user_id, session_id)
+    session.turn_count = turns + 1
+
+    # 记忆写入：本轮原文先占位（assistant 收尾时回填），两侧硬截断
+    session.messages = list(session.messages or []) + [{'user': _truncate(user_input, TURN_SIDE_CAP), 'assistant': ''}]
+
+    # 分层记忆：过阈把最旧轮次压进摘要层（失败自动降级截断，不中断对话）
+    _maybe_compress(session)
 
     def build_prompt() -> str:
-        return (
-            f'当前分析目标：{state.get("goal") or goal}\n'
-            f'已收集参数：{json.dumps(state.get("collected_params", {}), ensure_ascii=False)}\n'
-            f'对话历史摘要：{json.dumps(state.get("history", []), ensure_ascii=False)}\n'
+        """分层组装（S2）：goal → 关键卡 → 摘要 → 最近原文 → 工作参数 → 指令。"""
+        recent = (session.messages or [])[-RECENT_KEEP:]
+        lines = [f'当前分析目标：{goal}']
+        key_facts = session.key_facts or {}
+        if key_facts:
+            lines.append(f'关键信息卡（当前焦点，永不压缩，优先遵守）：{_dumps(key_facts, KEY_FACTS_CAP)}')
+        if session.summary:
+            lines.append(f'会话滚动摘要（更早轮次已压缩于此）：{session.summary}')
+        lines.append(f'最近对话原文（最近 {len(recent)} 轮）：{json.dumps(recent, ensure_ascii=False)}')
+        lines.append(f'已收集参数：{json.dumps(state.get("collected_params", {}), ensure_ascii=False)}')
+        lines.append(
             '请判断：信息是否齐全？齐全则 action=execute_tool，否则 action=ask_clarification 并列出 missing_params。'
         )
+        return '\n'.join(lines)
+
+    def persist(reply: str) -> None:
+        """收尾落库：回填本轮助手原文 + 整体重赋状态（JSON 列就地改不触发脏跟踪）。"""
+        msgs = list(session.messages or [])
+        if msgs:
+            msgs[-1] = {**msgs[-1], 'assistant': _truncate(reply, TURN_SIDE_CAP)}
+            session.messages = msgs
+        session.state = dict(state)
 
     prompt = build_prompt()
     result: dict = {}
+    tool_name: Optional[str] = None
     # 工具执行失败的最多重试：最多 2 次模型调用（带错误反馈 1 次）
     for attempt in range(2):
         raw = llm.call_llm(
@@ -199,21 +322,26 @@ def run_agent(
         if action['action'] == 'ask_clarification':
             missing = action.get('missing_params') or []
             state['missing_params'] = missing
+            content = action.get('content', '')
+            persist(content)
             return {
                 'type': 'clarify',
-                'content': action.get('content', ''),
-                'session_state': state,
+                'content': content,
                 'missing_params': missing,
+                'session_id': session.session_id,
             }
 
         # execute_tool：校验 + 执行工具
         tool_name = action.get('tool_name')
         tool_params = action.get('tool_params') or {}
-        # 候选值合并：前端 collected_params + 模型本轮 tool_params；
+        # 候选值合并：服务端已收集参数 + 模型本轮 tool_params；
         # 权威值（server_ctx）在 ToolExecutor.run 内覆盖同名候选（P1 越权修复）
         merged_params = {**state.get('collected_params', {}), **tool_params}
         result = ToolExecutor.run(tool_name, merged_params, server_ctx=server_ctx)
         if result['status'] == 'success':
+            # 模型给出的候选参数回写工作内存：下轮起服务端直接续用（P2 消除前端持有）
+            state['collected_params'] = {**state.get('collected_params', {}), **tool_params}
+            state['missing_params'] = []
             break
         # 工具失败：拼错误反馈，进入下一次循环（最多 1 次重试）；不再额外计轮次
         logger.warning('工具执行失败（第 {} 次），name={}：{}', attempt + 1, tool_name, result.get('msg'))
@@ -225,7 +353,9 @@ def run_agent(
     else:
         # 两次都失败（for 循环未被 break）
         logger.warning('工具执行最终失败（已重试 2 次），name={}', tool_name)
-        return {'type': 'error', 'content': f'分析失败：{result.get("msg")}', 'session_state': state}
+        err = f'分析失败：{result.get("msg")}'
+        persist(err)
+        return {'type': 'error', 'content': err, 'session_id': session.session_id}
 
     # 叙事：再调一次纯逻辑模型，仅把指标喂入（防幻觉安全区：模型不接触账本、只转述）
     # 防御：① 非 JSON 可序列化对象回退字符串表示（不崩）；② 工具数据为空/None 时用占位符，
@@ -248,4 +378,5 @@ def run_agent(
         content=[{'type': 'text', 'text': narrative_prompt}],
         system_prompt='你是多多贝账本精灵，负责把指标转成通俗总结，不编造数据。',
     )
-    return {'type': 'result', 'content': narrative, 'data': result['data'], 'session_state': state}
+    persist(narrative)
+    return {'type': 'result', 'content': narrative, 'data': result['data'], 'session_id': session.session_id}

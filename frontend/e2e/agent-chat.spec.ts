@@ -17,12 +17,7 @@ const clarifyTurn = {
     content:
       "请提供您要查询的招商中证白酒对应的6位基金代码，以便我为您查询其最新单位净值。",
     missing_params: ["fund_codes"],
-    session_state: {
-      goal: "分析账户收益",
-      missing_params: ["fund_codes"],
-      collected_params: {},
-      history: []
-    }
+    session_id: "sess-e2e-1"
   },
   message: "ok"
 };
@@ -38,12 +33,7 @@ const resultTurn = {
       total_return: "449900.00",
       xirr: "54.63%"
     },
-    session_state: {
-      goal: "分析账户收益",
-      missing_params: [],
-      collected_params: {},
-      history: []
-    }
+    session_id: "sess-e2e-1"
   },
   message: "ok"
 };
