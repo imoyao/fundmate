@@ -35,13 +35,21 @@ ARK_TIMEOUT = int(os.getenv('ARK_TIMEOUT', '60'))
 ARK_RETRIES = int(os.getenv('ARK_RETRIES', '1'))
 
 
-def call_llm(content: List[dict], system_prompt: str, temperature: float = 0.1, timeout: int = None) -> str:
+def call_llm(
+    content: List[dict],
+    system_prompt: str,
+    temperature: float = 0.1,
+    timeout: Optional[int] = None,
+    response_format: Optional[dict] = None,
+) -> str:
     """调用火山方舟 OpenAI 兼容端点，返回 choices[0].message.content。
 
     Args:
         content: 用户消息（文本 / 图片 base64 构成的 OpenAI content 数组）。
         system_prompt: 场景化系统指令（约束输出 JSON schema）。
         temperature / timeout: 覆盖默认值；timeout 缺省用 ARK_TIMEOUT。
+        response_format: OpenAI 兼容的响应格式约束（如 {'type': 'json_object'}），
+            缺省不传——部分模型/端点不支持该参数，由调用方按需开启。
 
     兜底设计（用户反馈 503 直报问题）：
     - 超时放宽到 ARK_TIMEOUT（默认 60s，图片/长文本识别慢，30s 易 ReadTimeout）；
@@ -63,6 +71,8 @@ def call_llm(content: List[dict], system_prompt: str, temperature: float = 0.1, 
         ],
         'temperature': temperature,
     }
+    if response_format:
+        payload['response_format'] = response_format
 
     last_err: Optional[Exception] = None
     for attempt in range(ARK_RETRIES + 1):
