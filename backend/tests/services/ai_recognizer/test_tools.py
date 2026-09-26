@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
-"""真实工具只读测试（#1121 S1-A）。
+"""真实工具只读测试（#1121 S1-A + S1-C 日志留痕）。
 
 五工具各自跑通真实 service（conftest 内存 SQLite；get_fund_nav 强制
-allow_remote=False 不出网），另覆盖 schema 校验与 P1 服务端覆盖断言。
+allow_remote=False 不出网），另覆盖 schema 校验、P1 服务端覆盖断言，
+以及 ToolExecutor.run 成功/失败必留 [agent.tool] 痕（S1-C）。
 """
 
 from datetime import date
+
+from loguru import logger
 
 from app.services.ai_recognizer import tools as tools_mod
 from app.services.ai_recognizer.tools import ToolExecutor
@@ -115,3 +118,28 @@ def test_enum_branch_via_probe(monkeypatch):
     r = ToolExecutor.run('_enum_probe', {'mode': 'z'})
     assert r['status'] == 'error'
     assert '不在允许值' in r['msg']
+
+
+# ── S1-C：[agent.tool] 必留痕（成功 ok / 失败 fail 都要能按 tag 捞出来） ──
+def _capture_run(name, params):
+    captured = []
+    hid = logger.add(lambda m: captured.append(str(m)), level='INFO')
+    try:
+        result = ToolExecutor.run(name, params)
+    finally:
+        logger.remove(hid)
+    return result, ''.join(captured)
+
+
+def test_run_leaves_log_trace_on_success():
+    r, joined = _capture_run('get_assets_overview', {})
+    assert r['status'] == 'success'
+    assert '[agent.tool] ok name=get_assets_overview' in joined
+    assert 'elapsed=' in joined
+
+
+def test_run_leaves_log_trace_on_failure():
+    r, joined = _capture_run('get_fund_nav', {'fund_codes': ['bad']})
+    assert r['status'] == 'error'
+    assert '[agent.tool] fail name=get_fund_nav' in joined
+    assert 'err=' in joined

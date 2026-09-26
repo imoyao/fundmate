@@ -6,7 +6,9 @@
 
 - TOOLS_METADATA：工具元信息（name / description / parameters），同时给模型看 + 给代码做 schema 校验；
 - ToolExecutor.run：服务端上下文覆盖（P1）→ schema 校验 → 派发 → {status, data|msg}；
-- 出错时上层 AgentLoop 负责「最多 1 次重试」（error-as-observation），本层不重试、不崩。
+- 出错时上层 AgentLoop 负责「最多 1 次重试」（error-as-observation），本层不重试、不崩；
+- 每次执行必留 `[agent.tool]` 结构化日志（成功 ok / 失败 fail，含耗时），
+  线上排障按 tag 过滤（#1121 S1-C）。
 
 P1 越权防护（2026-09-26，#1121 S1-A）：
 前端回传的 collected_params 与模型生成的 tool_params 都只是**候选值**；
@@ -18,6 +20,7 @@ HTTP 路径由 views 层必传，不存在「前端可指定」的入口。
 """
 
 import re
+import time
 from datetime import date, datetime
 from typing import Any, Callable, Dict, List, Optional
 
@@ -259,17 +262,30 @@ class ToolExecutor:
         server_ctx：服务端权威上下文（如 {'family_id': int}），在 schema 校验前
         覆盖同名候选值——保证「进工具的 scope 字段只可能是服务端给的值」。
         """
+        started = time.monotonic()
         try:
             candidate: Any = params if isinstance(params, dict) else (params or {})
             merged = apply_server_context(name, candidate, server_ctx or {})
             _validate_params(name, merged)
             func = _FUNCTION_MAP.get(name)
             if not func:
+                logger.warning(
+                    '[agent.tool] fail name={} reason=未注册 elapsed={:.2f}s',
+                    name,
+                    time.monotonic() - started,
+                )
                 return {'status': 'error', 'msg': f'未注册工具: {name}'}
             data = func(merged)
+            logger.info('[agent.tool] ok name={} elapsed={:.2f}s', name, time.monotonic() - started)
             return {'status': 'success', 'data': data}
         except Exception as e:  # noqa: BLE001  兜底：工具内部异常不让 AgentLoop 崩
-            logger.warning('工具执行失败 name={} params={}: {}', name, params, e)
+            logger.warning(
+                '[agent.tool] fail name={} params={} elapsed={:.2f}s err={}',
+                name,
+                params,
+                time.monotonic() - started,
+                e,
+            )
             return {'status': 'error', 'msg': str(e)}
 
 
