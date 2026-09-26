@@ -99,6 +99,16 @@
   - **error**：污染 `collected_params` 注入 schema 外参数 → 未知参数双败 → `分析失败：未知参数: __probe_unknown__`，**零编造**（确定性触发：候选值两轮都摘不掉模型自己没发过的键）。
 - [x] 截图留档：`frontend/test-results/agent-chat-s1b-three-states.png`（三态同屏 + 侧边栏入口；产物目录已 gitignore）
 
+### UI 二次打磨（2026-09-26 追加，随 PR #1704）
+
+用户提供竞品截图作方向参考，同分支追加一轮视觉打磨（**能力清单不照抄**——竞品的「行为解读」等后端没有的工具一律不放）：
+
+- **空态 hero**：两行大标题 + 「账本精灵」品牌渐变词（`@supports` 回退实色）+ 示例问题块列表（图标 + hover 描边）。
+- **消息头像行**：24px 圆形头像（助手 `MagicStick` / 服务提示 `WarningFilled` 危险色）+ 角色标签；气泡**尾角收小**（助手左下 / 用户右下）。
+- **底部 dock**：能力快捷 chips 横滚（投资表现 / 持仓价值 / 市场温度，与示例问题同源于 `QUICK_ACTIONS`）+ 胶囊输入（`focus-within` 走 focus ring）+ 44px 圆形发送按钮（`aria-label="发送"`）。
+- 门禁复跑全绿：typecheck / lint / E2E **8/8**（五个 E2E 锚点文案「试着问一句 / Enter 发送 / 发送 / 服务提示 / 新对话」全部保留）；截图 `agent-chat-polish-hero.png` / `agent-chat-polish-dialog.png`。
+- 设计同步：`docs/design/components.md` §ChatBubble、`frontend/design.md` 对话气泡表（描边 `--border-light` → `--border-subtle`，新增 hero / dock 规则）。
+
 ### 你学什么（≤0.5h，读一处 + 答三问）
 
 - 读：`views/agent/index.vue` 的 `send()` 与 `describeError()`。
