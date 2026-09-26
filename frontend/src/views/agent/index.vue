@@ -168,10 +168,14 @@ const taRef = ref<{ focus: () => void } | null>(null);
 const sessionId = ref(newSessionId());
 const sessionState = ref<AgentSessionState | undefined>(undefined);
 
+/**
+ * 工具栏提示只说用户视角：快捷键说明在 placeholder、只读保证在页头副标题，
+ * 内部机制（两轮模型 / 工具）不外显（#1311 讨论期确认的文案口径）
+ */
 const statusText = computed(() =>
   pending.value
-    ? "分析中：决策与总结要过两轮模型，约 10~60 秒"
-    : "回车发送 · 缺参数会自动追问 · 工具全部只读"
+    ? "正在整理分析结果，约 10~60 秒"
+    : "回车发送 · 信息不全会先确认"
 );
 
 /** 会话 id 前端生成：后端轮次闸按 user_id + session_id 计数（G2） */
@@ -490,7 +494,8 @@ function resetSession(): void {
 .msg__bubble--pending {
   color: var(--text-tertiary);
 
-  // 三个动态省略号点，不用 Emoji
+  // 三个动态省略号点，不用 Emoji；宽度恒定 1.5em（动画只改 clip-path 不触发布局），
+  // 否则 width 动画每步 reflow，气泡在思考期间反复变宽变窄（#1311 讨论期发现的抖动）
   &::after {
     display: inline-block;
     width: 1.5em;
@@ -618,11 +623,11 @@ function resetSession(): void {
 
 @keyframes chat-ellipsis {
   0% {
-    width: 0;
+    clip-path: inset(0 100% 0 0);
   }
 
   100% {
-    width: 1.5em;
+    clip-path: inset(0 0 0 0);
   }
 }
 
