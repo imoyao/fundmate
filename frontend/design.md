@@ -641,6 +641,7 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 - 全部语义令牌，暗色自动生效（`design.dark.md` 无专属规则）；实现细节（头像行 / 尾角收小 / 空态 hero / 底部 dock）见 `docs/design/components.md` §ChatBubble。
 - 指标数值不染涨跌色（汇总值非涨跌语义）；等待态动画省略号不用 Emoji。
 - 空态 hero 的「账本精灵」用品牌渐变词（`--brand-700 → --brand-900`，`background-clip: text`，`@supports` 回退实色）；底部能力快捷 chips 只列后端已有工具支撑的能力，禁止放未实现能力当摆设。
+- 结果态结构化块（#1712）：后端把【结论】/【明细】/【风险提示】三小节解析为 blocks（行级工具数据组装成表格块），`blocks` 缺失即回退纯文本气泡。结论块加粗置顶；风险提示块弱化（小字号 + `--text-tertiary`）；明细表格**行级**盈亏 / 盈亏率列按正负染 `--color-rise-ink` / `--color-fall-ink`（涨红跌绿，0 与非数值不染），汇总值 / 指标 chips 仍一律不染；表格数字千分位 2 位小数、空值显示 `—`，超 50 行截断并标注「仅展示前 50 行」。渲染一律文本插值（Vue 自动转义），禁 v-html。
 
 ## Data Visualization
 

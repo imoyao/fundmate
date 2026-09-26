@@ -62,7 +62,42 @@
             </span>
             <span class="msg__role">{{ roleLabel(m.role) }}</span>
           </div>
-          <div class="msg__bubble">{{ m.content }}</div>
+          <!-- 结构化块（#1712）：结论加粗置顶 / 明细文本 / 行级盈亏表（涨红跌绿）/ 风险提示弱化；
+               blocks 缺失（后端契约漂移降级）回退纯文本气泡，两态互斥 -->
+          <div
+            v-if="m.blocks?.length"
+            class="msg__bubble msg__bubble--structured"
+          >
+            <template v-for="(b, bi) in m.blocks" :key="bi">
+              <div v-if="b.type === 'table'" class="msg__table-wrap">
+                <table class="msg__table">
+                  <thead>
+                    <tr>
+                      <th v-for="col in b.columns" :key="col.key">
+                        {{ col.label }}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(row, ri) in b.rows" :key="ri">
+                      <td
+                        v-for="col in b.columns"
+                        :key="col.key"
+                        :class="cellClass(row[col.key], col.kind)"
+                      >
+                        {{ formatCell(row[col.key]) }}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p v-if="b.truncated" class="msg__table-note">仅展示前 50 行</p>
+              </div>
+              <p v-else class="msg__block" :class="`msg__block--${b.type}`">
+                {{ b.text }}
+              </p>
+            </template>
+          </div>
+          <div v-else class="msg__bubble">{{ m.content }}</div>
           <div v-if="m.data" class="msg__metrics">
             <div v-for="(val, key) in m.data" :key="key" class="msg__metric">
               <span class="msg__metric-key">{{ key }}</span>
@@ -140,7 +175,8 @@ import {
 } from "@element-plus/icons-vue";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import { agentChat } from "@/api/agent";
-import type { AgentTurn } from "@/api/agent";
+import type { AgentBlock, AgentTableColumnKind, AgentTurn } from "@/api/agent";
+import { formatAmount } from "@/utils/currency";
 
 defineOptions({ name: "AgentChat" });
 
@@ -149,6 +185,7 @@ type ChatMessage = {
   role: "user" | "assistant" | "error";
   content: string;
   data?: Record<string, unknown>;
+  blocks?: AgentBlock[];
 };
 
 /** 能力快捷 chips：短标签 + 图标；ask 与空态示例同源，只列后端工具已支撑的能力 */
@@ -185,6 +222,25 @@ function stripEmoji(text: string): string {
   );
 }
 
+/** blocks 双保险：后端已剔 Emoji，文本块与表格字符串单元格在此再兜底一次 */
+function sanitizeBlocks(blocks: AgentBlock[]): AgentBlock[] {
+  return blocks.map(b => {
+    if (b.type === "table") {
+      return {
+        ...b,
+        rows: b.rows.map(row => {
+          const clean: Record<string, string | number | boolean | null> = {};
+          for (const [k, v] of Object.entries(row)) {
+            clean[k] = typeof v === "string" ? stripEmoji(v) : v;
+          }
+          return clean;
+        })
+      };
+    }
+    return { ...b, text: stripEmoji(b.text) };
+  });
+}
+
 function roleLabel(role: ChatMessage["role"]): string {
   if (role === "user") return "";
   return role === "error" ? "服务提示" : "账本精灵";
@@ -212,8 +268,27 @@ function isScalarRecord(
   );
 }
 
-/** 错误信封 → 可读文案；401/403 由全局拦截器统一提示，这里返回空串表示不入聊天气泡 */
-function describeError(e: unknown): string {
+/** 表格单元格展示：数值千分位 2 位小数（数字格式规范），字符串原样，空值统一 — */
+function formatCell(v: string | number | boolean | null | undefined): string {
+  if (v === null || v === undefined || v === "") return "—";
+  if (typeof v === "number") return formatAmount(v);
+  return String(v);
+}
+
+/** 行级盈亏语义色（#1712）：kind='pnl' 列按正负染涨红跌绿，0 / 非数值 / 汇总值不染 */
+function cellClass(
+  v: string | number | boolean | null | undefined,
+  kind: AgentTableColumnKind
+): string {
+  if (kind !== "pnl") return "";
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n) || n === 0) return "";
+  return n > 0 ? "msg__cell--rise" : "msg__cell--fall";
+}
+
+/** 错误信封 → 可读文案；401/403 由全局拦截器统一提示，这里返回空串表示不入聊天气泡 */ function describeError(
+  e: unknown
+): string {
   const err = e as {
     code?: string;
     message?: string;
@@ -260,7 +335,11 @@ async function send(preset?: string): Promise<void> {
       pushMessage({
         role: "assistant",
         content: stripEmoji(turn.content),
-        data: isScalarRecord(turn.data) ? turn.data : undefined
+        data: isScalarRecord(turn.data) ? turn.data : undefined,
+        blocks:
+          Array.isArray(turn.blocks) && turn.blocks.length
+            ? sanitizeBlocks(turn.blocks)
+            : undefined
       });
     } else {
       pushMessage({ role: "assistant", content: stripEmoji(turn.content) });
@@ -498,6 +577,81 @@ function resetSession(): void {
     content: "...";
     animation: chat-ellipsis 1.2s steps(4, end) infinite;
   }
+}
+
+// —— 结构化块（#1712）：结论加粗 / 明细文本 / 行级盈亏表 / 风险提示弱化 ——
+.msg__bubble--structured {
+  min-width: 320px;
+
+  // 块间间距（文本块 / 表格任意相邻组合），首块不加顶部外边距
+  .msg__block + .msg__block,
+  .msg__block + .msg__table-wrap,
+  .msg__table-wrap + .msg__block {
+    margin-top: var(--space-2);
+  }
+}
+
+.msg__block {
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.msg__block--summary {
+  font-weight: 600;
+}
+
+.msg__block--risk {
+  font-size: var(--text-small);
+  color: var(--text-tertiary);
+}
+
+.msg__table-wrap {
+  overflow-x: auto;
+}
+
+.msg__table {
+  width: 100%;
+  font-size: var(--text-small);
+  border-collapse: collapse;
+
+  th,
+  td {
+    padding: 4px 10px;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  th {
+    font-weight: 500;
+    color: var(--text-tertiary);
+    border-bottom: 1px solid var(--border-default);
+  }
+
+  td {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  th:first-child,
+  td:first-child {
+    text-align: left;
+  }
+}
+
+// 涨红跌绿：文字级 token（浅 / 暗色各自保证对比度），仅行级 pnl 列使用
+.msg__cell--rise {
+  color: var(--color-rise-ink);
+}
+
+.msg__cell--fall {
+  color: var(--color-fall-ink);
+}
+
+.msg__table-note {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-label);
+  color: var(--text-tertiary);
 }
 
 .msg__metrics {

@@ -13,11 +13,37 @@ export type AgentClarifyTurn = {
   session_id: string;
 };
 
+/** 表格列语义 kind（#1712）：'pnl' 列前端按正负染涨跌色（行级语义），'plain' 不染 */
+export type AgentTableColumnKind = "plain" | "pnl";
+
+/**
+ * 结构化叙事块（#1712）：后端 parse_narrative_blocks 把【结论】/【明细】/【风险提示】
+ * 三小节解析为块，行级工具数据组装成表格块；blocks 缺失 / 为 null / 空数组时
+ * 前端回退纯文本气泡（契约漂移降级，见后端 narrative_blocks.py 模块注释）。
+ */
+export type AgentBlock =
+  | { type: "summary"; text: string }
+  | { type: "text"; text: string }
+  | { type: "risk"; text: string }
+  | {
+      type: "table";
+      columns: Array<{
+        key: string;
+        label: string;
+        kind: AgentTableColumnKind;
+      }>;
+      rows: Array<Record<string, string | number | boolean | null>>;
+      truncated: boolean;
+    };
+
 /** 结果态：content 为自然语言总结，data 为工具返回的标量指标 */
 export type AgentResultTurn = {
   type: "result";
   content: string;
   data: Record<string, unknown>;
+  /** 结构化块（可缺省：后端解析失败降级时不带，见 narrative_blocks.py） */
+  blocks?: AgentBlock[] | null;
+  /** 服务端权威会话 id（S2）：前端只回带 id，状态由后端持有 */
   session_id: string;
 };
 
