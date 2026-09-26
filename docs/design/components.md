@@ -356,21 +356,23 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - **不给副标题加截断 / tooltip**：纵排后副标题本就拿满整行，截断反而丢信息。
 - 断点取值见 `frontend/design.md` §Viewport「断点单一来源」，勿在此另写 px。
 
-## ChatBubble · 对话气泡（账本精灵 `views/agent/index.vue`，#1121 S1-B）
+## ChatBubble · 对话气泡（账本精灵 `views/agent/index.vue`，#1121 S1-B，2026-09-26 参考竞品截图二次打磨）
 
 三态渲染：`clarify` / `result` → 助手气泡；`error` 与网络层错误 → 服务提示气泡；用户消息右对齐。全部走语义令牌，暗色自动生效（`design.dark.md` 无额外规则）。
 
 | 角色 | 底色 | 文字 | 描边 |
 |------|------|------|------|
-| 用户（右侧） | `--brand-solid` | `--text-inverse` | `transparent` |
-| 助手（左侧） | `--bg-soft` | `--text-primary` | `--border-light` 1px |
+| 用户（右侧） | `--brand-solid` | `--text-inverse` | 透明 |
+| 助手（左侧） | `--bg-soft` | `--text-primary` | `--border-subtle` 1px |
 | 服务提示（左侧） | `--bg-soft` | `--text-primary`（角色标签 `--color-danger`） | `--color-danger` 1px |
 | 等待态 | 同助手 | `--text-tertiary` + CSS 动画省略号（`steps` 关键帧，不用 Emoji） | 同助手 |
 
-- 形态：`--radius-lg`；内边距 `--space-3` × `--space-compact`；最大宽度 78%（`< md` 92%）；`white-space: pre-wrap`。
-- 角色标签：`--text-label`（13px）+ `--text-tertiary`；用户消息不显示标签。
-- **指标 chips（result 态）**：仅当 `data` 为扁平标量记录时渲染（嵌套结构只走自然语言，避免 `[object Object]`）；`--bg-soft` 底 + `--border-light` + `--radius-sm`，key `--text-tertiary`、value `--text-primary` + `tabular-nums`。**不给指标染涨跌色**——汇总值不是涨跌语义，涨红跌绿只留给行级行情数据。
-- 空态：示例问题胶囊直达（`--brand-100` 底 `--brand-700` 字，沿用分段胶囊规范）；鹦鹉螺插画资产就绪后替换。
+- 形态：`--radius-lg` + **尾角收小**（助手左下 / 用户右下为 `--radius-sm`，经典聊天气泡指向）；内边距 `--space-3` × `--space-compact`；最大宽度 78%（`< md` 92%）；`white-space: pre-wrap`。
+- **头像行**：助手 / 服务提示 / 等待态气泡上方一行 `msg__head`——24px 圆形头像（助手 & 等待 `--brand-100` 底 `--brand-700` 图标 `MagicStick`；服务提示 `--color-danger-10` 底 `--color-danger-ink` 图标 `WarningFilled`）+ 角色标签（`--text-label` + `--text-tertiary`，error 为 `--color-danger`）；用户消息不显示。
+- **指标 chips（result 态）**：仅当 `data` 为扁平标量记录时渲染（嵌套结构只走自然语言，避免 `[object Object]`）；`--bg-subtle` 底 + `--border-subtle` + `--radius-pill` 胶囊，key `--text-tertiary`、value `--text-primary` 500 字重 + `tabular-nums`。**不给指标染涨跌色**——汇总值不是涨跌语义，涨红跌绿只留给行级行情数据。
+- **空态 hero**（替代旧居中 chips 版）：两行大标题（`--text-title` 600 字重，`< md` 降为 `--text-heading`），其中「账本精灵」为**品牌渐变词**（`linear-gradient(135deg, --brand-700, --brand-900)` + `background-clip: text`；不支持时 `@supports` 回退 `--brand-700` 实色，防文字被 `transparent` 藏掉）；「试着问一句」小标签（`--text-label` + `--text-tertiary`，E2E 锚点文案不得改）；下方示例问题**块列表**（`--bg-soft` 底 + `--radius-md`，左侧 `MagicStick` 图标 `--brand-700`，hover 转 `--bg-hover` + `--border-default`）。
+- **底部 dock**：上边框 `--border-subtle`；上层**能力快捷 chips**横滚（`scrollbar-width: none`，胶囊 `--bg-soft` 底 + 图标 + 短标签，hover `--brand-ink` 字，`pending` 时禁用）——只列后端已有工具支撑的能力（投资表现 / 持仓价值 / 市场温度），**不放后端没有的能力**（如行为解读）；下层**胶囊输入**（`--radius-pill` 容器 + `--border-default`，`focus-within` 走 `--brand-700` + `--focus-ring`，内层 textarea 去边框透明）+ **圆形发送按钮**（44px `circle` `type=primary`，`ArrowUp` 图标，`aria-label="发送"` 供 E2E/读屏定位，`loading` 时转圈）。
+- 空态 / 输入区的示例问题与能力 chips **同源**（`QUICK_ACTIONS` → `EXAMPLES`），改文案只改一处。
 - 模型输出渲染前剔除 Emoji：全站禁 Emoji 只有约定没有 lint 兜底，页面内就是那道兜底。
 
 ## PageFooter / MarketFooter · 探市 / 温度计页脚（复用）

@@ -630,16 +630,17 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 - OSS 兼容：老 9.x URL 解析不报错，重建时自动升级到 10.x。
 
 
-### 对话气泡（账本精灵，2026-09-26 #1121 S1-B）
+### 对话气泡（账本精灵，2026-09-26 #1121 S1-B，同日参考竞品截图二次打磨）
 
 | 角色 | 底色 | 文字 | 描边 |
 |------|------|------|------|
 | 用户（右） | `--brand-solid` | `--text-inverse` | 透明 |
-| 助手 / 等待（左） | `--bg-soft` | `--text-primary` / 等待态 `--text-tertiary` | `--border-light` |
+| 助手 / 等待（左） | `--bg-soft` | `--text-primary` / 等待态 `--text-tertiary` | `--border-subtle` |
 | 服务提示（左） | `--bg-soft` | 标签 `--color-danger` | `--color-danger` |
 
-- 全部语义令牌，暗色自动生效（`design.dark.md` 无专属规则）；实现细节（形态 / 指标 chips / 空态）见 `docs/design/components.md` §ChatBubble。
+- 全部语义令牌，暗色自动生效（`design.dark.md` 无专属规则）；实现细节（头像行 / 尾角收小 / 空态 hero / 底部 dock）见 `docs/design/components.md` §ChatBubble。
 - 指标数值不染涨跌色（汇总值非涨跌语义）；等待态动画省略号不用 Emoji。
+- 空态 hero 的「账本精灵」用品牌渐变词（`--brand-700 → --brand-900`，`background-clip: text`，`@supports` 回退实色）；底部能力快捷 chips 只列后端已有工具支撑的能力，禁止放未实现能力当摆设。
 
 ## Data Visualization
 
