@@ -32,11 +32,11 @@
 | 4 | 腾讯 web.ifzq.gtimg.cn | 乖离度修复 `fetch_close_tencent` | 股票/ETF/宽基日 K | 免 | **本会话实跑通过** | ✅ 适用（新验证） |
 | 5 | xalpha（gitee fork） | `xalpha_adapter` + `DailyWorth` | 基金净值 / 费率 / 货币基金 | 免 | 代码在用 | ✅ 适用（基金主源） |
 | 6 | akshare 基金元数据 | `akshare_adapter` | 基金列表/详情/经理 | 免 | 代码在用 | ⚠️ 适用但有 akshare 断更风险 |
-| 7 | 集思录 jisilu.cn | `JisiluCBFetcher` / `JisiluIndicatorFetcher` | 可转债温度 + 估值指标(PB/PE温度) | **需登录 Cookie** (`JISILU_COOKIE`) | 代码在用 | ✅ 适用（需 Cookie） |
-| 8 | 且慢 MCP stargate.yingmi.com | `QiemanFetcher` | 市场温度计(中证全A) | **需 `QIEMAN_API_KEY`** | 代码在用 | ✅ 适用（需 key） |
+| 7 | 集思录 jisilu.cn | `JisiluCBFetcher` / `JisiluIndicatorFetcher` | 可转债温度 + 估值指标(PB/PE 温度) | **需登录 Cookie** (`JISILU_COOKIE`) | 代码在用 | ✅ 适用（需 Cookie） |
+| 8 | 且慢 MCP stargate.yingmi.com | `QiemanFetcher` | 市场温度计(中证全 A) | **需 `QIEMAN_API_KEY`** | 代码在用 | ✅ 适用（需 key） |
 | 9 | 有知有行 youzhiyouxing.cn | `YouzhiyouxingFetcher` | 全市场温度(SSR 解析) | 免 | 代码在用 | ✅ 适用 |
 | 10 | 韭圈儿 jiucaishuo.com | `JiucaishuoFetcher` | 恐贪指数 + 中长期温度 | 免(API+Playwright) | 代码在用 | ✅ 适用（含浏览器降级） |
-| 11 | akshare 宏观/估值 | `SelfCalcFetcher` | 沪深300 PE / 10Y 国债 / CPI | 免 | 代码在用(走缓存) | ⚠️ 适用但有 akshare 风险 |
+| 11 | akshare 宏观/估值 | `SelfCalcFetcher` | 沪深 300 PE / 10Y 国债 / CPI | 免 | 代码在用(走缓存) | ⚠️ 适用但有 akshare 风险 |
 | 12 | Supabase Auth | 全站登录 | 用户认证 / user 表 | 项目自带 | 已接入 | ✅ 适用（基础设施） |
 | 13 | Playwright | 韭圈儿降级渲染 | 无头浏览器取数 | 免(本地工具) | 已装(pyproject) | ✅ 适用（降级手段） |
 
@@ -66,13 +66,13 @@
 - 端点：`https://push2his.eastmoney.com/api/qt/stock/kline/get`
 - 参数：`secid`(1.x 沪宽基 / 0.x 深宽基 / 90.x 申万行业)、`fields1=f1,f2,f3`、`fields2=f51,f53`、`klt=101`(日)、`fqt=1`(qfq)、`beg=0&end=20500101`
 - **关键：不带 Referer 会被服务端直接断连接（`RemoteDisconnected`）**；带 `Referer: https://quote.eastmoney.com/` 后稳定。
-- 本会话实测：沪深300(1.000300)=5242行、上证(1.000001)=8696行、创业板(0.399006)=3928行、申万农林(90.801010)=1180行，均成功。偶发连接中断，建议 2s 退避重试（≤4 次）。
+- 本会话实测：沪深 300(1.000300)=5242 行、上证(1.000001)=8696 行、创业板(0.399006)=3928 行、申万农林(90.801010)=1180 行，均成功。偶发连接中断，建议 2s 退避重试（≤4 次）。
 
 **④ 腾讯日 K `web.ifzq.gtimg.cn`（乖离度修复，本会话新验证）**
 
 - 端点：`https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={sh/sz/bj}{code},day,{start},{end},800,qfq`
 - 免 token、免 Referer、极稳。
-- 本会话实测：沪深300/上证/茅台/300ETF/创业板指 全部 OK（81–82 行）；**申万行业 `sh801010` 返回 0 行（腾讯不覆盖）**——申万必须走东财 ③。
+- 本会话实测：沪深 300/上证/茅台/300ETF/创业板指 全部 OK（81–82 行）；**申万行业 `sh801010` 返回 0 行（腾讯不覆盖）**——申万必须走东财 ③。
 
 ### B. 基金
 
@@ -100,13 +100,13 @@
 
 - 端点：`https://stargate.yingmi.com/mcp/v2`，`protocolVersion=2024-11-05`，工具 `GetLatestQuotations`。
 - 鉴权：`x-api-key: <QIEMAN_API_KEY>`（环境变量），并维护 `Mcp-Session-Id`。
-- 支持 SSE 与 JSON 两种返回；取 `temperatureList` 里 `temperatureIndexCode=='000985'`(中证全A) 的温度。
+- 支持 SSE 与 JSON 两种返回；取 `temperatureList` 里 `temperatureIndexCode=='000985'`(中证全 A) 的温度。
 - 未配 key 则优雅跳过。
 
 **⑨ 有知有行**
 
 - 端点：`https://youzhiyouxing.cn/thermometer`（SSR 网页）。
-- 解析：`tw-text-[40px]` 后的 `(\d+)°` 取温度，匹配 `tw-leading-normal` 得标签；并抓沪深300/中证500/上证50 分指数温度。
+- 解析：`tw-text-[40px]` 后的 `(\d+)°` 取温度，匹配 `tw-leading-normal` 得标签；并抓沪深 300/中证 500/上证 50 分指数温度。
 - 免 token。
 
 **⑩ 韭圈儿**
@@ -136,13 +136,13 @@
 1. **行情三件套已闭环**：股票/ETF/宽基用腾讯直连（稳），申万用东财 push2his+Referer（本会话验证），基金净值用 xalpha——乖离度阻塞点已解（详见 [bias-datasource-replacement-2026-08-03](./bias-datasource-replacement-2026-08-03.md)）。
 2. **市场温度矩阵完整且分层**：稳定层（东财成交额/韭圈儿/集思录）＋ 脆弱层（且慢/有知有行）＋ 自算层（股债利差），单源失败不影响整体。
 3. **AKShare 是全局脆弱点**：行情日线、基金元数据、自算估值的若干函数都经 akshare 包装。乖离度已因 akshare 断更被迫直连上游；**同理建议**：对行情日线、基金元数据、宏观估值的关键函数，逐个评估"直连上游/加重试/加熔断"的必要性，避免重蹈乖离度覆辙。
-4. **需授权/Cookie 的源**：集思录(登录Cookie)、且慢(API key) 属"配置即有、缺失即跳过"，不影响主链路——保持现状即可。
+4. **需授权/Cookie 的源**：集思录(登录 Cookie)、且慢(API key) 属"配置即有、缺失即跳过"，不影响主链路——保持现状即可。
 
 ---
 
 ## 四、借鉴 daily_stock_analysis 的工程经验
 
-- 它 15+ 抓取器（akshare/yfinance/tushare/longbridge/tencent/efinance/pytdx/baostock/finnhub/alphavantage/tickflow…）本质是**对同一批上游（东财/腾讯/新浪/雅虎…）的多实现**，用**策略模式 + 优先级有序链 + 异常降级 + 熔断**兜底。
+- 它 15+ 抓取器（akshare/yfinance/tushare/longbridge/tencent/efinance/pytdx/baostock/finnhub/alphavantage/tickflow……）本质是**对同一批上游（东财/腾讯/新浪/雅虎……）的多实现**，用**策略模式 + 优先级有序链 + 异常降级 + 熔断**兜底。
 - **数据链路零 AI**：LLM(LiteLLM/Gemini) 只在 `analyzer.py` 生成报告/评分/决策，且代码可 `stabilize_decision_with_structure` 覆盖模型——所以它的数据不"依赖 AI"。
 - 对多多贝的启示：把"取数"与"分析/生成"解耦；关键取数做多源 + 重试 + 熔断，正是乖离度修复已落地的方向。
 

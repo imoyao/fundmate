@@ -80,7 +80,7 @@ title: 全局强制设计规范（conventions · 🔒 冻结区）
   - **身份与形态分离**：`positions.symbol` 是**对外展示**形态，`positions.symbol_norm`
     （`EXCHANGE:SZ159915` / `OTC:004369`，构造见 `symbol_utils.symbol_identity`）是**身份**形态，
     唯一约束挂在身份上（`uq_positions_ledger_symbol_norm`）—— 字面量唯一挡不住
-    `SZ004369` / `sz004369` / ` SZ004369 ` 这类写法变体（#1662 的根因）。
+    `SZ004369` / `sz004369` / `SZ004369` 这类写法变体（#1662 的根因）。
   - 一致性由 `scripts/audit_symbol_venue_conformance.py` 守卫（不合规即退出码 1，可当门禁）。
 - **前端命名规范（补充）**：Vue 组件 PascalCase、工具/API 文件 camelCase、组合式函数 `useXxx`、内置封装沿用 Pure Admin `Re` 前缀（业务组件禁用）；变量/函数 camelCase、常量 UPPER_SNAKE、类型 PascalCase 禁 I 前缀；**禁止 `any`/`Record<string, any>`/`object` 作 API 入参响应，须对齐后端契约**；类型集中管理。完整条款与不规范点清单见 [`frontend-naming.md`](./frontend-naming.md) / [`frontend-naming-audit.md`](./frontend-naming-audit.md)（2026-08-03 决策）。
 
@@ -109,7 +109,7 @@ title: 全局强制设计规范（conventions · 🔒 冻结区）
 
 ### 2.11 金融数据精度强制规范
 
-> 所有直接关联用户资金的字段，必须使用整数存储、禁止使用 float/double，单位换算统一经 `Money` 工具类，禁止业务代码直接乘除。具体单位：**金额类（amount/fee/market_value/tax）存储为「分」(×100)**；**价格类（positions.avg_price / positions.current_price / transactions.price）存储为「0.0001元」(price_units, ×10000)**，以支持 4 位小数价格精度（issue #1099）；份额存储为最小单位(×10000)。非资金类字段（如基金净值）使用 DECIMAL 精确存储。
+> 所有直接关联用户资金的字段，必须使用整数存储、禁止使用 float/double，单位换算统一经 `Money` 工具类，禁止业务代码直接乘除。具体单位：**金额类（amount/fee/market_value/tax）存储为「分」(×100)**；**价格类（positions.avg_price / positions.current_price / transactions.price）存储为「0.0001 元」(price_units, ×10000)**，以支持 4 位小数价格精度（issue #1099）；份额存储为最小单位(×10000)。非资金类字段（如基金净值）使用 DECIMAL 精确存储。
 
 ### 2.12 前端色彩变量编码红线（新增）
 

@@ -53,9 +53,9 @@
 | `watchlist_item_group` | item_id/group_id | 同上 |
 | `watchlist_tag_defs` | name/color | 同上 |
 | `watchlist_item_tags` | item_id/tag_id | 同上 |
-| `positions` | symbol/name/market/asset_type/ledger_id/account_name/quantity(**0.0001份**)/avg_price(**分**)/currency/current_price/confirm_date | `backend/app/domains/positions/models.py` |
+| `positions` | symbol/name/market/asset_type/ledger_id/account_name/quantity(**0.0001 份**)/avg_price(**分**)/currency/current_price/confirm_date | `backend/app/domains/positions/models.py` |
 | `ledgers` | name/ledger_type('fund')/default_allocation/fee_config | `backend/app/domains/ledgers/models.py` |
-| `transactions` | symbol/txn_type/trade_date/quantity(**0.0001份**)/price(**分**)/fee/amount(**分**)/status/import_hash | `backend/app/domains/transactions/models.py` |
+| `transactions` | symbol/txn_type/trade_date/quantity(**0.0001 份**)/price(**分**)/fee/amount(**分**)/status/import_hash | `backend/app/domains/transactions/models.py` |
 
 **精度铁律**：所有金额整数分（×100）、份额×10000，必须走 `app/core/money.py` 的 `Money`。基估宝存的是元/份浮点，迁移脚本必须经 `Money` 换算。
 
@@ -73,7 +73,7 @@
 
 ### 4.1 持仓 → `positions` + `ledgers`
 
-```
+```plain
 ledgers: name="基金持仓"  ledger_type="fund"  default_allocation="longterm"
 positions: symbol=基金代码  name=基估宝 name（若无则 fundmate funds 表补）
            market="CN_A"  asset_type="fund"  venue→ledger_id
@@ -91,7 +91,7 @@ positions: symbol=基金代码  name=基估宝 name（若无则 fundmate funds �
 
 ### 4.3 自选 → `watchlist`
 
-```
+```plain
 favorites 全部 → watchlist: status='WATCHING'（未持有）/ 'HOLDING'（已持有）
        asset_type='fund'  venue='OTC'  market='CN_A'
        cost_price=holdings[code].cost/share（若有）  quantity=share
@@ -112,7 +112,7 @@ favorite=true（基估宝 favorites 本身即"自选"语义）
 
 1. **拉数据**：Supabase REST `select * from user_configs`（用服务端 key 或用户 token），落 `backend/scripts/jigu_migration/` 临时 JSON（gitignore）。
 2. **清洗**：去重（holdings 为权威）、字段规范化、code 标准化（6 位数字校验）。
-3. **换算**：经 `Money` 转分/0.0001份。
+3. **换算**：经 `Money` 转分/0.0001 份。
 4. **入库**：直接写 SQLite（事务包裹，先建 ledger → 再 positions → transactions → watchlist → groups → tags）。
 5. **校验**：① 迁入后持仓总数==22；② 每只成本=基估宝 cost 误差<1 分；③ watchlist==favorites 全集；④ 分组归属与 `groupHoldings` 一致；⑤ 校验报告输出。
 6. **幂等**：脚本可重复跑（按 import_hash / 唯一约束去重），失败回滚事务。

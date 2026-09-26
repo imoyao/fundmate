@@ -81,7 +81,7 @@ status: 评审意见（供讨论）
 
 结论：**字体要自托管到 `frontend/public/fonts/`（或 `dist`），由 EdgeOne/Cloudflare/Vercel 边缘分发。不引入 Google Fonts / jsDelivr 等第三方字体 CDN。** 这既满足「想用 CDN 加速」，又满足「自托管可控」，两者通过「自家平台即 CDN」统一起来。
 
-### 问题 2：Mi Sans 用你给的 `D:\MiSans\MiSans` 自托管，还是 CDN？
+### 问题 2：Mi Sans 用你给的 `D:\MiSans\MiSans` 自托管，还是 CDN
 
 先说结论：**自托管（把子集化后的文件放进 `frontend/public/fonts/`）。不要再纠结「要不要用 CDN」——你三平台部署后，自托管文件天然就被 CDN 边缘分发，二者不冲突。** 需要讨论的不是「自托管 or CDN」，而是**「自托管的话，这份本地文件要怎么处理」**，这才是有决策价值的点。
 

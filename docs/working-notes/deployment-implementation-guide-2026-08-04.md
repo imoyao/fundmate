@@ -10,7 +10,7 @@
 
 ## 一、架构一览
 
-```
+```plain
 [用户/前端] --HTTPS--> [EdgeOne Pages：Vue SPA，免费全球 CDN]
                            |
                            v  调用 API
@@ -59,7 +59,7 @@
 
 ### 4.1 仓库结构（只新增部署文件，不动业务代码）
 
-```
+```plain
 showbuy/                     # 现有后端仓库
 ├── app.py                   # APIFlask app（已有，原样）
 ├── jobs/  fetchers/  calculator/  router/   # 业务代码，原样
@@ -121,7 +121,7 @@ curl https://<你的API网关地址>/api/health     # 应返回 200
 
 ### 5.1 jobs-runner 函数（事件函数，只跑 job，不对外）
 
-```
+```plain
 showbuy/jobs_runner/
 ├── index.py                # main_handler：被定时器调用
 ├── requirements.txt        # 同后端（或只含 job 所需依赖）

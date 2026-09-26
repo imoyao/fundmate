@@ -2,18 +2,18 @@
 
 > 状态：**已定稿**（2026-08-31，小组讨论收敛，可作为开发任务书）
 > 关联 issue：#1232（总括设计与决策清单）、#1233（决策 10「记一笔写流水」改造 · 前置依赖）、#1133（域 B 源头）
-> 沿用设计：E账户对账 `e-account-reconciliation-design-2026-08-16.md`、账本渠道分类 `ledger-channel-category-redesign-2026-08-28.md`、`docs/design/components.md`
+> 沿用设计：E 账户对账 `e-account-reconciliation-design-2026-08-16.md`、账本渠道分类 `ledger-channel-category-redesign-2026-08-28.md`、`docs/design/components.md`
 > 设计哲学：**从「自动修正」到「透明对账 + 手动裁决」；从「分散入口」到「统一工作台」；从「导入即落库」到「草稿承接头寸、不中断操作」**
 
 ---
 
 ## 0. 摘要
 
-手动导入是投资记账的核心场景，数据源头在用户手里，系统永远无法 100% 自动正确。现有三套流程各自独立、形态不一：同花顺交割单导入「导入即落库、无对账」、E账户导入「只能 cover/ignore、不能就地补录」、"记一笔"手动记账「跳离上下文是中断操作、无对账补充能力」；而「草稿承接头寸」所需的 Local Storage 草稿层完全空白。
+手动导入是投资记账的核心场景，数据源头在用户手里，系统永远无法 100% 自动正确。现有三套流程各自独立、形态不一：同花顺交割单导入「导入即落库、无对账」、E 账户导入「只能 cover/ignore、不能就地补录」、"记一笔"手动记账「跳离上下文是中断操作、无对账补充能力」；而「草稿承接头寸」所需的 Local Storage 草稿层完全空白。
 
 > ⚠️ **2026-08-31 实施修正（#1233 落地后）**：早前文档将"记一笔"描述为「只建持仓不建流水」，经代码核实**有误**——`create_position` 自 2026-05-11（`817f3496b`）起已复用 `process_*` 汇点族，buy/sell/dividend/dividend_reinvest/split 均「写 Transaction + 更新 Position」双写（见 §4.1）。#1233 实际只补齐唯一缺口：**货基/逆回购手动记账建持仓**（`force_create_position` 参数）。"记一笔"真正的缺口是**无对账补充能力、跳离上下文即中断**，而非不写流水。
 
-本设计把现有 E账户对账抽象为通用「对账域」，提出**统一对账工作台（Workbench）**：草稿层承接头寸、统一入口收敛三套流程、就地补充替代跳"记一笔"。**不推翻 E账户现有实现，而是纳入框架复用其范式与字段。**
+本设计把现有 E 账户对账抽象为通用「对账域」，提出**统一对账工作台（Workbench）**：草稿层承接头寸、统一入口收敛三套流程、就地补充替代跳"记一笔"。**不推翻 E 账户现有实现，而是纳入框架复用其范式与字段。**
 
 ---
 
@@ -23,14 +23,14 @@
 
 | 域 | 基准源（expected） | 目标源（actual） | 现状 |
 | :-- | :-- | :-- | :-- |
-| **A · E账户对账** | E账户官方持仓快照 | 渠道持仓（流水推导） | ✅ 已上线（专用） |
+| **A · E 账户对账** | E 账户官方持仓快照 | 渠道持仓（流水推导） | ✅ 已上线（专用） |
 | **B · 持仓快照一致性** | 期初快照 + 期后流水推演的理论持仓 | 当前实际持仓 | ❌ 空白（#1133 P2，本框架定为 P1） |
 | **C · 对账单/交割单导入** | 导入的券商/基金对账单 | 系统现有持仓 | ❌ 无对账（导入即落库） |
 
 ### 1.2 三套孤立流程现状（2026-08-31 代码调研）
 
 - **同花顺交割单导入**：`parsers/ths_stock.py` + 前端 `useImportWizard.ts` 四步向导（选账户→上传→预览修正→导入完成）。管线 `parse→enrich→commit`。**缺口**：止于「导入完成」，解析失败/对不上的行直接跳过，无对账补录环节。
-- **E账户导入**：唯一成型对账链路（`/investment/reconcile` + `/api/e-account/{reconcile,attribution,reconciliation}` + 四态归因）。**缺口**：只能 cover/ignore，不能就地补录。
+- **E 账户导入**：唯一成型对账链路（`/investment/reconcile` + `/api/e-account/{reconcile,attribution,reconciliation}` + 四态归因）。**缺口**：只能 cover/ignore，不能就地补录。
 - **"记一笔"手动记账**：`/investment/manual` → `usePositionSubmit.submitPosition` → `createPosition` → `POST /api/positions/`。**已通过 `process_*` 汇点族双写**（写 Transaction + 更新 Position），支持 buy/sell/dividend/dividend_reinvest/split（#1233 后货基/逆回购也建持仓）。**真正缺口**：无对账补充能力，跳离上下文即中断。
   > **实施修正（#1233）**：早前误写"只建 Position 不建 Transaction"——实际自 2026-05-11（`817f3496b`）已双写；#1233 仅补齐货基/逆回购建持仓缺口（`force_create_position=True`）。
 - **Local Storage 草稿**：**完全空白**。导入态纯内存（`useImportWizard.ts` 约 1968 行，`ref`/`reactive`），刷新即丢；全仓搜 `pendingImport/tempImport/importDraft` **0 命中**。
@@ -138,8 +138,8 @@
 ### 5.8 草稿恢复的域路由（关键交互）
 | 场景 | 交互 |
 | :-- | :-- |
-| **同域**草稿 | Banner：「发现 6月1日的未完成草稿，恢复 / 丢弃」（无跳转） |
-| **跨域**草稿 | **弹窗**（不直接跳转）：「你有一份【E账户导入】的草稿（6月1日 14:30，共 23 行）。E账户草稿需要在 E账户导入页继续。」→ 主按钮「前往继续」（确认后跳转）/ 次按钮「放弃这份草稿」 |
+| **同域**草稿 | Banner：「发现 6 月 1 日的未完成草稿，恢复 / 丢弃」（无跳转） |
+| **跨域**草稿 | **弹窗**（不直接跳转）：「你有一份【E 账户导入】的草稿（6 月 1 日 14:30，共 23 行）。E 账户草稿需要在 E 账户导入页继续。」→ 主按钮「前往继续」（确认后跳转）/ 次按钮「放弃这份草稿」 |
 
 > 直接跳转会让用户被"传送"走且丢失当前页状态，违背柔性原则，故跨域必须弹窗确认。
 
@@ -148,7 +148,7 @@
 - **交易 / 交割单导入**（`useImportWizard`）：恢复至 **Step 2 预览修正**（`currentStep = 2`），回填 `previewData` / `selectedKeys` / **`selectedLedgerId`**。
   - **必须一并恢复 `selectedLedgerId`**（Step 0 的产出），否则预览页丢失账本上下文。
   - 因草稿不存文件，**不可**恢复到 Step 1（上传）——该步依赖用户重新选择文件。
-- **E账户导入**（`eaccount-import`）：恢复至预览 / 对账结果步骤（`currentStep = 1`，回填 `previewRows`）。
+- **E 账户导入**（`eaccount-import`）：恢复至预览 / 对账结果步骤（`currentStep = 1`，回填 `previewRows`）。
 
 ---
 
@@ -158,7 +158,7 @@
 
 **算法口径（已修正 #1133 原文的矛盾）**：
 
-```
+```plain
 理论持仓 = 期初余额（快照份额）+ 期后流水净变化（confirm_date > snapshot_date）
 差异     = 实际持仓（positions.quantity）- 理论持仓
 ```
@@ -166,7 +166,7 @@
 > **⚠️ #1133 原文写的是 `confirm_date <= snapshot_date`，存在内在矛盾**：它描述的典型场景是「6 月导入快照 → 8 月又导入新买入流水」，但按原文算法 8 月流水被排除在窗口外，而它已增量进 `positions.quantity` → **必然误报**。必须改为 `> snapshot_date`。
 
 **边界（硬约束推论）**：
-- **无流水则 skip**：`upsert_from_holding` 是 SET 语义（覆盖而非累加，**不会"数量翻倍"**）且**绝不调 `TransactionService.create`**。纯快照/E账户模式无流水可推 → **跳过对账，禁止误报**。
+- **无流水则 skip**：`upsert_from_holding` 是 SET 语义（覆盖而非累加，**不会"数量翻倍"**）且**绝不调 `TransactionService.create`**。纯快照/E 账户模式无流水可推 → **跳过对账，禁止误报**。
 - **孤儿检测限定**：仅当该 `(ledger_id, symbol)` **在 transactions 表存在至少 1 条记录**时才检测；无流水 → skip。
 - **匹配键用 `ledger_id + symbol`**：`Transaction.position_id` 可能为 `None`（孤立流水，`summary_service.py:64`），不能用 position_id 匹配。
 - **孤儿两方向**：① 持仓无流水（**无流水即 skip，不报**）；② 流水无持仓（理论持仓 > 0 但系统无该持仓）——后者才是真孤儿，对齐既有 `entry_status='orphan'` 语义。
@@ -177,9 +177,9 @@
 >
 > 因此「有流水、且推演结果与持仓一致」的标的**会被检测，但不会告警**——这是正确行为，不是误报。
 >
-> **不可用 `position.source` 判断"是否为纯快照"**：`source` 是**末次来源**语义而非首次来源——`upsert_from_holding` 会 SET 覆盖 `source`（`position_service.py:371/387/408`），且 #928 明确「交割单覆盖手动录」（540-548 行 `if 'source' in data: same.source = data['source']`）。故一个 `source='e_account_holding'` 的持仓**完全可能同时持有流水**（先由交割单导入建仓，后被 E账户快照覆盖）。若用 source 做 skip 判断，会错误放过本应对账的标的。
+> **不可用 `position.source` 判断"是否为纯快照"**：`source` 是**末次来源**语义而非首次来源——`upsert_from_holding` 会 SET 覆盖 `source`（`position_service.py:371/387/408`），且 #928 明确「交割单覆盖手动录」（540-548 行 `if 'source' in data: same.source = data['source']`）。故一个 `source='e_account_holding'` 的持仓**完全可能同时持有流水**（先由交割单导入建仓，后被 E 账户快照覆盖）。若用 source 做 skip 判断，会错误放过本应对账的标的。
 
-**成本处理**：**P1 只做数量差异**。理由不是"算法复杂"，而是**口径不可比**——`upsert_from_holding` SET 覆盖 `avg_price`，而 `process_buy_or_deposit` 是加权摊薄，E账户归因成本更是净值近似（设计文档 P3）。对比必然假阳性。
+**成本处理**：**P1 只做数量差异**。理由不是"算法复杂"，而是**口径不可比**——`upsert_from_holding` SET 覆盖 `avg_price`，而 `process_buy_or_deposit` 是加权摊薄，E 账户归因成本更是净值近似（设计文档 P3）。对比必然假阳性。
 - 差异详情**只展示当前成本**（`positions.avg_price`）+ 标注「来自最近一次导入/快照（SET 覆盖），非流水推导，本期不参与对账」。
 - **技术债**：未来成本可比需在 `position_import_meta` 增加 `cost_source` 标记。
 
@@ -190,7 +190,7 @@
 → **采用前端交互层异步**：fire-and-forget 调对账接口，结果回来更新全局 Banner 差异计数。零基础设施，达成"不阻塞"体验。
 
 ### 6.3 统一对账工作台（Workbench Shell）
-单一路由，三域 Tab + 顶部状态栏（数据日期 / 待裁决计数）+ 柔性 Warning Banner。取代分散的 E账户对账中心页 + 交易导入无对账 + 手动记账孤岛。
+单一路由，三域 Tab + 顶部状态栏（数据日期 / 待裁决计数）+ 柔性 Warning Banner。取代分散的 E 账户对账中心页 + 交易导入无对账 + 手动记账孤岛。
 
 ### 6.4 就地补充（In-context Supplement）
 工作台内直接编辑补充，生成调整凭证（分派见 §5.4），**绝不强跳"记一笔"**。
@@ -199,7 +199,7 @@
 
 | 域 | 后台实现 | 语义 |
 | :-- | :-- | :-- |
-| **A（E账户）** | `position_import_meta.is_ignored = True`（现状，不动） | **永久忽略**（对实体记录的裁决） |
+| **A（E 账户）** | `position_import_meta.is_ignored = True`（现状，不动） | **永久忽略**（对实体记录的裁决） |
 | **B/C** | `discrepancies.status='ignored'` + `is_permanent` | 默认**本期忽略**（新 run 重置 pending）；可选**永久忽略** |
 
 **按钮交互（分组 + 节奏，Gmail「归档 vs 删除」模式）**：
@@ -292,7 +292,7 @@ CREATE TABLE adjustment_logs (
 
 `app/core/constants.py:144` **已存在** `PositionSource` 枚举（12 值）+ `POSITION_SOURCE_LABELS` 中文标签：
 
-```
+```plain
 manual / e_account_holding / tiantian_fund / ths_stock / standard_fund /
 standard_stock / alipay_fund / alipay_pdf / standard_template /
 ai_txn / ai_holding / explore
@@ -317,7 +317,7 @@ ai_txn / ai_holding / explore
 
 | 现有资产 | 处理 |
 | :-- | :-- |
-| E账户 `reconcile`/`attribution`/`reconciliation` API 与范式 | **复用**为域 A，不动 |
+| E 账户 `reconcile`/`attribution`/`reconciliation` API 与范式 | **复用**为域 A，不动 |
 | `positions.ownership_status`、`position_import_meta` 字段 | **复用** |
 | `recompute_position_from_transactions` / `process_*` 汇点族 / `entry_status='orphan'` | **复用**（域 B 与补充动作的核心基础设施） |
 | `PositionSource` 枚举 | **扩展**（追加 reconciliation_adjustment） |
@@ -335,7 +335,7 @@ ai_txn / ai_holding / explore
 | **P0 前置** | **#1233**「记一笔写流水」改造（复用 `process_*` 汇点） | ✅ **已完成（PR #1236，2026-08-31）**——双写早已存在，本次补齐货基/逆回购建持仓（`force_create_position`）。为域 B 前置依赖 | 中 |
 | **P1** | 三表落地 + 域 B 计算 + 柔性提醒 | 纯计算层 + 组件演进 | 低 |
 | **P1** | 域 C 导入后接对账（前端交互层异步） | 导入完成页引导进工作台 | 中 |
-| **P2** | E账户对账迁入工作台 + 就地补充替代跳"记一笔" | 统一入口，复用 API | 中 |
+| **P2** | E 账户对账迁入工作台 + 就地补充替代跳"记一笔" | 统一入口，复用 API | 中 |
 | **P3** | 识别层（#823/#921/#929/#934/#935）接草稿与对账 | AI 识图/Excel/PDF 落草稿 → 工作台 | 高 |
 
 > 原则：**P0 先打底座**，后续域接入都建立在草稿层 + 统一入口之上，避免各自为政留下 bug。
@@ -396,7 +396,7 @@ ai_txn / ai_holding / explore
 | 1 | 快照后无交易 | 理论 = 快照份额；与实际一致 → **无差异** |
 | 2 | 快照后有买入（合法增量） | 理论 = 快照 + 买入；实际同步增量 → **无差异**（不误报） |
 | 3 | 导入旧快照回退持仓 | 理论 = 快照 + 期后流水；实际被 SET 回退 → **报差异**（真实问题） |
-| 4 | 纯快照/E账户（无流水） | **skip，不检测、不告警** |
+| 4 | 纯快照/E 账户（无流水） | **skip，不检测、不告警** |
 | 5 | 有流水但持仓缺失 | 理论持仓 > 0 而系统无持仓 → **报孤儿**（对齐 `entry_status='orphan'`） |
 | 6 | 持仓存在但完全无流水 | 若为快照导入 → **skip**；否则报孤儿 |
 
@@ -408,7 +408,7 @@ ai_txn / ai_holding / explore
 - **#1233** 「记一笔」只写 positions 不写 transactions（**P0 前置依赖**）
 - #1133 聚合视图视觉优化（域 B 的 P2 快照对账源头）
 - #1132 场内证券聚合卡片 / #1101 场外基金聚合
-- #1012 基金E账户持仓解析器（域 A 基础）
+- #1012 基金 E 账户持仓解析器（域 A 基础）
 - #1018 AI 持仓识别误走交易管线（holding_recognizer）
 - #929 持仓导入功能（含截图/OCR 复用）/ #921 AI 识别导入分层架构（BaseRecognizer）
 - #823 OCR 截图导入 + 用量表 / #934 资产简记托盘截图导入入口 / #935 MinerU 支付宝截图识别

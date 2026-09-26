@@ -25,7 +25,7 @@ cp -r fundmate-optimization/batch2/composables/import frontend/src/composables/
 cp     fundmate-optimization/batch2/constants/importFormats.ts frontend/src/constants/
 ```
 
-### 2. 鍦?`index.vue` 閲屾帴绾匡紙椤堕儴 `<script setup>`锛?```ts
+### 2. 鍦?`index.vue` 閲屾帴绾匡紙椤堕儴 `<script setup>`锛?`ts
 
 import { useImportWizard, usePreviewData, useRowSelection, useRowEditing,
          useBatchFix, useAllocation, useDuplicateHandling, useFileParser } from "@/composables/import";
@@ -36,7 +36,7 @@ const { previewData, addRowKeys, filteredPagedData, filteredTotal, /*...*/ } = u
 // 琛岄€夋嫨渚濊禆 previewData
 const { selectedKeys, isAllSelected, isIndeterminate, /*...*/ } = useRowSelection(previewData);
 
-// 缂栬緫 / 鎵归噺淇 / 鍒嗛厤 / 閲嶅 閮戒緷璧?previewData锛堟壒閲忎慨澶嶄笌閲嶅杩橀渶 selectedKeys锛?const { startEdit, finishEdit, smartFill, /*... */ } = useRowEditing(previewData);
+// 缂栬緫 / 鎵归噺淇 / 鍒嗛厤 / 閲嶅 閮戒緷璧?previewData 锛堟壒閲忎慨澶嶄笌閲嶅杩橀渶 selectedKeys 锛?const { startEdit, finishEdit, smartFill, /*... */ } = useRowEditing(previewData);
 const { problemCategories, batchFixAmount, fetchAndFillFundNav, /* ... */ } = useBatchFix(previewData, selectedKeys);
 const { allocationGroupsByType, batchSetAllocation, /* ...*/ } = useAllocation(previewData);
 const { duplicateCount, deselectAllDuplicates } = useDuplicateHandling(previewData, selectedKeys);
@@ -51,7 +51,7 @@ const { parsing, uploadError, beforeUpload, handleUpload, /*...*/ } = useFilePar
   onParsed: (rows) => addRowKeys(rows),
 });
 
-```
+```plain
 
 ### 3. 妯℃澘鏀?`v-if` 鍥涘甯冨眬 鈫?4 涓楠ょ粍浠?鎶?4 濂?`v-if/v-else-if` 椤甸潰甯冨眬鍒嗗埆鎶藉埌锛?```
 views/asset/investment/import/components/
@@ -76,26 +76,26 @@ views/asset/investment/import/components/
 ```
 
 frontend/src/views/asset/investment/import/
-鈹溾攢鈹€ ImportWizard.vue              # 鈽?鐖跺３锛堟浛鎹㈠師 index.vue锛夛細缁勮涓婁笅鏂?+ 鎸夋楠ゅ垏鎹?鈹斺攢鈹€ components/
-    鈹溾攢鈹€ AccountSelectionStep.vue  # 姝ラ0锛氳处鎴烽€夋嫨 + 鏂板缓璐︽埛锛堝唴宓?CreateLedgerDialog锛?    鈹溾攢鈹€ FileUploadStep.vue        # 姝ラ1锛氭牸寮忛€夋嫨 + 涓婁紶 + 妯℃澘涓嬭浇
-    鈹溾攢鈹€ PreviewTable.vue          # 姝ラ2锛氳〃鏍?+ 绛涢€夊垎椤?+ 鍐呰仈缂栬緫锛堝唴宓屼笅闈?涓級
-    鈹溾攢鈹€ ImportResult.vue          # 姝ラ3锛氱粨鏋滄眹鎬?+ 璺宠浆
-    鈹溾攢鈹€ SummaryCards.vue          # 姝ラ2 椤堕儴姹囨€诲崱鐗囷紙宸查€?寰呬慨澶?閲嶅锛?    鈹溾攢鈹€ BatchFixPanel.vue         # 姝ラ2 渚ф爮锛氫笁绫婚棶棰樻壒閲忎慨澶?+ 鍑€鍊煎洖濉?    鈹溾攢鈹€ AllocationPanel.vue       # 姝ラ2 渚ф爮锛氬垎閰嶇洰鏍囩鐞?    鈹斺攢鈹€ CreateLedgerDialog.vue    # 鏂板缓璐︽埛瀵硅瘽妗?```
+鈹溾攢鈹€ ImportWizard.vue              # 鈽?鐖跺 3 锛堟浛鎹㈠師 index.vue 锛夛細缁勮涓婁笅鏂?+ 鎸夋楠ゅ垏鎹?鈹斺攢鈹€ components/
+    鈹溾攢鈹€ AccountSelectionStep.vue  # 姝ラ0 锛氳处鎴烽€夋嫨 + 鏂板缓璐︽埛锛堝唴宓?CreateLedgerDialog 锛?    鈹溾攢鈹€ FileUploadStep.vue        # 姝ラ1 锛氭牸寮忛€夋嫨 + 涓婁紶 + 妯℃澘涓嬭浇
+    鈹溾攢鈹€ PreviewTable.vue          # 姝ラ2 锛氳〃鏍?+ 绛涢€夊垎椤?+ 鍐呰仈缂栬緫锛堝唴宓屼笅闈?涓級
+    鈹溾攢鈹€ ImportResult.vue          # 姝ラ3 锛氱粨鏋滄眹鎬?+ 璺宠浆
+    鈹溾攢鈹€ SummaryCards.vue          # 姝ラ2 椤堕儴姹囨€诲崱鐗囷紙宸查€?寰呬慨澶?閲嶅锛?    鈹溾攢鈹€ BatchFixPanel.vue         # 姝ラ2 渚ф爮锛氫笁绫婚棶棰樻壒閲忎慨澶?+ 鍑€鍊煎洖濉?    鈹溾攢鈹€ AllocationPanel.vue       # 姝ラ2 渚ф爮锛氬垎閰嶇洰鏍囩鐞?    鈹斺攢鈹€ CreateLedgerDialog.vue    # 鏂板缓璐︽埛瀵硅瘽妗?`
 
 ### 鐘舵€佸叡浜満鍒讹細provide / inject
 
 8 涓?composable 鐨勫疄渚嬪繀椤诲湪**鍚屼竴涓粍浠跺疄渚?*閲屽垱寤烘墠鑳藉叡浜姸鎬併€傚洜姝わ細
 
-- **鐖跺３ `ImportWizard.vue`** 瀹炰緥鍖栧叏閮?composable锛岀粍瑁呮垚 `ImportContext` 骞堕泦锛岀敤 `provide(importContextKey, ctx)` 娉ㄥ叆銆?- **鍚勬楠ょ粍浠?* 鐢?`inject(importContextKey)` 鍙栫敤锛岀洿鎺ヨ `ctx.xxx.value`銆佽皟 `ctx.yyy()`锛?*鏃犻渶 prop 閫忎紶銆佷笉浼氬悇鑷疄渚嬪寲**銆?
+- **鐖跺 3 `ImportWizard.vue`** 瀹炰緥鍖栧叏閮?composable锛岀粍瑁呮垚 `ImportContext` 骞堕泦锛岀敤 `provide(importContextKey, ctx)` 娉ㄥ叆銆?- **鍚勬楠ょ粍浠?* 鐢?`inject(importContextKey)` 鍙栫敤锛岀洿鎺ヨ `ctx.xxx.value`銆佽皟 `ctx.yyy()`锛?*鏃犻渶 prop 閫忎紶銆佷笉浼氬悇鑷疄渚嬪寲**銆?
 
-### 钀藉湴姝ラ锛堢画涓婃枃锛?4. 澶嶅埗鐖跺３涓庢楠ょ粍浠跺埌浠撳簱锛?   ```bash
+### 钀藉湴姝ラ锛堢画涓婃枃锛?4. 澶嶅埗鐖跺 3 涓庢楠ょ粍浠跺埌浠撳簱锛?   ```bash
 
    cp fundmate-optimization/batch2/views/investment/import/ImportWizard.vue \
       frontend/src/views/asset/investment/import/IndexWizard.vue   # 鎴栬鐩?index.vue
    cp -r fundmate-optimization/batch2/views/investment/import/components \
         frontend/src/views/asset/investment/import/
 
-   ```
+   ```plain
 5. 璺敱琛?`asset.ts` 閲?`InvestmentImport` 鐨?component 鏀逛负鎸囧悜鏂扮埗澹筹紙鑻ユ枃浠跺悕鏀逛负 IndexWizard.vue锛夈€?6. 鍘?`import/index.vue` 鍒犻櫎鎴栭噸鍛藉悕涓虹埗澹筹紱鍏?`<script setup>` 閲屽凡琚娊璧扮殑閫昏緫鏁存鍒犻櫎銆?
 ### 妯℃澘閲屽 ctx 鐨勫紩鐢ㄧ害瀹?- 鎵€鏈夊搷搴斿紡鍊肩敤 `ctx.xxx.value`锛堝湪妯℃澘涓?`ctx` 鏄敞鍏ュ璞★紝鍏跺睘鎬ф槸 ref锛夈€?  渚嬶細`ctx.selectedLedgerId.value`銆乣ctx.filteredPagedData.value`銆乣ctx.showBatchFix.value`銆?- 鎵€鏈夋柟娉曠洿鎺ヨ皟锛歚ctx.onAccountSelected(...)`銆乣ctx.confirmImport()`銆乣ctx.startEdit(row,'quantity')`銆?- 浜嬩欢鍚戜笂鐢?`defineEmits`锛堟湰楠ㄦ灦鐢?`@next`/`@prev` 椹卞姩鐖跺３姝ラ鍒囨崲锛夈€?
 ### 宸茬煡鍗犱綅 / TODO锛堜笌 composable 鍚屾簮锛?- `el-upload` 鐨?`http-request` 瀵规帴 `ctx.handleUpload`锛屽叾鍏ュ弬 `{ file }` 宸插榻?Element Plus銆?- `handleDownloadTemplate` 浠呮墦鍗版ā鏉垮悕锛屽疄闄呬笅杞藉湴鍧€/鎺ュ彛闇€瀵归綈銆?- 鍚堝苟琛岋紙绾㈠埄+绋?`is_merged`/`children`锛夊睍绀哄尯涓哄崰浣嶏紝鎸夊師缁勪欢閫昏緫琛ュ叏銆?- `ImportContext` 绫诲瀷鐢?8 涓?composable 杩斿洖鍊?`&` 骞堕泦鐢熸垚锛屾柊澧炲瓧娈佃嚜鍔ㄧ撼鍏ャ€?

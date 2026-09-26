@@ -11,7 +11,7 @@
 | `batch1/constants/exchangeRates.ts` | 姹囩巼鍗曚竴鏁版嵁婧愶紙鏇夸唬 inventory / AssetPanorama 鍚勫唴鑱斾竴浠斤級 |
 | `batch1/utils/currency.ts` | `toCNY` / `fromCNY` / `formatCurrency` 璐у竵鎹㈢畻 |
 | `batch1/extract-inventory-config.py` | 浠?`inventory/index.vue` 鑷姩鎶藉彇 `categories`/`assetTypeMap` 鍒?`constants/` |
-| `batch1/usePageRefresh.fixed.ts` | 淇 `usePageRefresh` 骞跺彂闃叉姈 bug锛堝叏灞€ timeoutId 鈫?灞€閮級 |
+| `batch1/usePageRefresh.fixed.ts` | 淇 `usePageRefresh` 骞跺彂闃叉姈 bug 锛堝叏灞€ timeoutId 鈫?灞€閮級 |
 | `batch1/move-layout-hooks.sh` | `layout/hooks/*` 鈫?`composables/layout/*` 鏈烘杩佺Щ + import 鏀瑰啓 |
 
 ## 钀藉湴鏂瑰紡
@@ -31,4 +31,4 @@ cd frontend && pnpm type-check && pnpm build
 
 ## 璇存槑
 
-- `useEchartsLifecycle` 鏄湰鏂规鐨勬牳蹇冨熀寤猴細缁熶竴澶勭悊 `onMounted` / `onActivated` 閲嶇粯銆乣resize`鐩戝惉銆乣onBeforeUnmount` dispose锛屼粠鏍逛笂娑堥櫎鍚勯〉鎵嬪啓鍥捐〃鐨勫洓绫绘牱鏉?bug銆?- 鍚浘琛ㄧ殑椤甸潰锛坵elcome / ledgers / panorama锛夊湪鎵规 4 / 6 / 8 涓垎鍒帴鍏ワ紱inventory 涓?portfolio/detail 缁忛獙璇?*鏃?ECharts**锛屼粎鍋氱粍浠舵媶鍒嗐€?
+- `useEchartsLifecycle` 鏄湰鏂规鐨勬牳蹇冨熀寤猴細缁熶竴澶勭悊 `onMounted` / `onActivated` 閲嶇粯銆乣 resize`鐩戝惉銆乣onBeforeUnmount` dispose 锛屼粠鏍逛笂娑堥櫎鍚勯〉鎵嬪啓鍥捐〃鐨勫洓绫绘牱鏉?bug 銆?- 鍚浘琛ㄧ殑椤甸潰锛坵 elcome / ledgers / panorama 锛夊湪鎵规 4 / 6 / 8 涓垎鍒帴鍏ワ紱 inventory 涓?portfolio/detail 缁忛獙璇?*鏃?ECharts**锛屼粎鍋氱粍浠舵媶鍒嗐€?

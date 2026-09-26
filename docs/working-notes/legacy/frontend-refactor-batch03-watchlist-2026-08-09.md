@@ -1,16 +1,16 @@
-﻿# 鎵规 3 鈥?watchlist/index.vue锛?2.6KB锛夌殑銆屼笂甯濈粍浠躲€嶆媶鍒?
+﻿# 鎵规 3 鈥?watchlist/index.vue 锛?2.6KB 锛夌殑銆屼笂甯濈粍浠躲€嶆媶鍒
 >
-> 鎶婇」鐩噷**鏈€澶х殑鍗曟枃浠剁粍浠?* `frontend/src/views/asset/watchlist/index.vue`锛堝師 62.6KB锛?> 閲嶆瀯涓恒€? 涓叡浜牳 composable + 5 涓姛鑳?composable + 5 涓睍绀?寮瑰眰瀛愮粍浠?+ 1 涓３缁勪欢銆嶃€?> 鎵€鏈夌姸鎬佸悕/鍑芥暟鍚嶅潎鏉ヨ嚜瀵规簮鏂囦欢鐨勭粨鏋勫寲鍒嗘瀽锛堣涓嬫柟銆屽搴斿叧绯汇€嶏級锛屼究浜?*鏈烘鎼繍**銆?>
-> 涓庢壒娆?2 鐨?import 鍚戝閲囩敤**鍚屼竴濂楁満鍒?*锛坈omposable + provide/inject + 鍗曚竴鍒锋柊 watcher锛夛紝
+> 鎶婇」鐩噷**鏈€澶х殑鍗曟枃浠剁粍浠?* `frontend/src/views/asset/watchlist/index.vue`锛堝師 62.6KB 锛?> 閲嶆瀯涓恒€? 涓叡浜牳 composable + 5 涓姛鑳?composable + 5 涓睍绀?寮瑰眰瀛愮粍浠?+ 1 涓3 缁勪欢銆嶃€?> 鎵€鏈夌姸鎬佸悕/鍑芥暟鍚嶅潎鏉ヨ嚜瀵规簮鏂囦欢鐨勭粨鏋勫寲鍒嗘瀽锛堣涓嬫柟銆屽搴斿叧绯汇€嶏級锛屼究浜?*鏈烘鎼繍**銆?>
+> 涓庢壒娆?2 鐨?import 鍚戝閲囩敤**鍚屼竴濂楁満鍒?*锛坈 omposable + provide/inject + 鍗曚竴鍒锋柊 watcher 锛夛紝
 > 淇濇寔鏋舵瀯涓€鑷淬€?
 >
 ## 涓轰粈涔堝厛鎷嗗畠
 
-- 瀹冩槸鍏ㄩ」鐩?*浣撶Н鏈€澶?*鐨勬枃浠讹紙62.6KB锛夛紝ROI 鏈€楂樸€?- 缁撴瀯宸茶緝娓呮櫚锛堟棤 ECharts銆? 涓瓙缁勪欢宸插缃級锛屾娊绂?*椋庨櫓浣庛€佹敹鐩婄洿瑙?*銆?- 涓昏鐥涚偣涓嶆槸鍥捐〃娉勬紡锛岃€屾槸**閫昏緫鍐呰仛搴︿綆**锛氬垎缁?CRUD銆佹爣绛剧鐞嗐€佹壒閲忔搷浣溿€佽繃婊ゃ€佸疄鏃朵及鍊?  鍏ㄩ儴鍫嗗湪涓€涓?`<script setup>` 閲岋紝瀵艰嚧鍗曟枃浠惰噧鑲裤€侀毦浠ュ崟娴嬨€佹槗鍥炲綊銆?
+- 瀹冩槸鍏ㄩ」鐩?*浣撶Н鏈€澶?*鐨勬枃浠讹紙 62.6KB 锛夛紝 ROI 鏈€楂樸€?- 缁撴瀯宸茶緝娓呮櫚锛堟棤 ECharts 銆? 涓瓙缁勪欢宸插缃級锛屾娊绂?*椋庨櫓浣庛€佹敹鐩婄洿瑙?*銆?- 涓昏鐥涚偣涓嶆槸鍥捐〃娉勬紡锛岃€屾槸**閫昏緫鍐呰仛搴︿綆**锛氬垎缁?CRUD銆佹爣绛剧鐞嗐€佹壒閲忔搷浣溿€佽繃婊ゃ€佸疄鏃朵及鍊?  鍏ㄩ儴鍫嗗湪涓€涓?`<script setup>` 閲岋紝瀵艰嚧鍗曟枃浠惰噧鑲裤€侀毦浠ュ崟娴嬨€佹槗鍥炲綊銆?
 
 ## 鏂囦欢娓呭崟锛堟湰鐩綍 16 涓枃浠讹級
 
-```
+```plain
 batch3/
 鈹溾攢鈹€ composables/watchlist/
 鈹?  鈹溾攢鈹€ types.ts                # 鍏变韩绫诲瀷锛歐atchlistItem / Group / Tag / FetchParams / Realtime...
@@ -57,7 +57,7 @@ cp -r fundmate-optimization/batch3/views/asset/watchlist/components \
       frontend/src/views/asset/watchlist/
 ```
 
-### 2. 鐢ㄥ３缁勪欢鏇挎崲鍘?index.vue
+### 2. 鐢ㄥ3缁勪欢鏇挎崲鍘?index.vue
 
 ```bash
 # 寤鸿鍏堟敼鍚嶅浠斤紝鍐嶈鐩?mv frontend/src/views/asset/watchlist/index.vue \
@@ -70,7 +70,7 @@ cp fundmate-optimization/batch3/views/asset/watchlist/WatchlistIndex.vue \
 >
 ### 3. 鏈烘鎼繍鍘熼€昏緫
 
-鎶婂師 `index.vue` `<script setup>` 涓悇鍧?*鎸変笅鏂瑰搴斿叧绯?*鎼繘瀵瑰簲 composable锛?妯℃澘鎷嗗垎涓哄３ + 5 涓瓙缁勪欢锛堟ā鏉跨粨鏋勫凡鍦ㄦ湰鐩綍缁欏嚭锛屽熀鏈槸 1:1 杩樺師锛夈€?
+鎶婂師 `index.vue` `<script setup>` 涓悇鍧?*鎸変笅鏂瑰搴斿叧绯?*鎼繘瀵瑰簲 composable 锛?妯℃澘鎷嗗垎涓哄3 + 5 涓瓙缁勪欢锛堟ā鏉跨粨鏋勫凡鍦ㄦ湰鐩綍缁欏嚭锛屽熀鏈槸 1:1 杩樺師锛夈€?
 
 ## 鍘熸枃浠?鈫?鏈洰褰?瀵瑰簲鍏崇郴锛堟惉杩愭竻鍗曪級
 
@@ -94,13 +94,13 @@ cp fundmate-optimization/batch3/views/asset/watchlist/WatchlistIndex.vue \
 | 妯℃澘锛氳鏍囩缂栬緫寮圭獥 | `RowTagEditorDialog.vue` |
 | 妯℃澘锛氬墿浣欙紙椤舵爮/琛ㄦ牸/鍒嗛〉/绉婚櫎纭锛?| `WatchlistIndex.vue` 澹冲唴 |
 
-## 鈿?闇€浣犳湰鍦板榻愮殑 TODO锛堜唬鐮佸唴宸叉爣娉級
+## 鈿?闇€浣犳湰鍦板榻愮殑 TODO 锛堜唬鐮佸唴宸叉爣娉級
 
-1. **`useRealtimeQuotes` 瀵煎叆璺緞**锛氭湰楠ㄦ灦鍐欑殑鏄?   `@/composables/realtime/useRealtimeQuotes`锛岃鎸夐」鐩疄闄呬綅缃皟鏁淬€?2. **瀹炴椂瀹炰緥瀛楁**锛歚realtime.enabled / status / lastUpdateTime / items / summary / toggle()`
-   涓烘寜鍘熸枃鎺ㄦ柇鐨勫舰鐘讹紝闇€瀵圭収鐪熷疄 composable 鏍″噯锛沗getValuationItem` 绛夌殑鍙栧€奸€昏緫浠ョ湡瀹炰负鍑嗐€?3. **`@/api/watchlist` 杩斿洖缁撴瀯**锛歚getWatchlistItems`宸插仛澶?shape 鍏煎
-   锛坄items/data/list/results` + `total`锛夛紝鍏朵綑鎺ュ彛鍏ュ弬/鍑哄弬浠ョ湡瀹?`api/watchlist.ts` 涓哄噯銆?4. **宸叉湁瀛愮粍浠惰矾寰?*锛歚AssetTypeBadge / MoneyDisplay / RiseFallText / ProductDisplay /
+1. **`useRealtimeQuotes` 瀵煎叆璺緞**锛氭湰楠ㄦ灦鍐欑殑鏄?   `@/composables/realtime/useRealtimeQuotes`锛岃鎸夐」鐩疄闄呬綅缃皟鏁淬€?2. **瀹炴椂瀹炰緥瀛楁**锛歚 realtime.enabled / status / lastUpdateTime / items / summary / toggle()`
+   涓烘寜鍘熸枃鎺ㄦ柇鐨勫舰鐘讹紝闇€瀵圭収鐪熷疄 composable 鏍″噯锛沗getValuationItem` 绛夌殑鍙栧€奸€昏緫浠ョ湡瀹炰负鍑嗐€?3. **`@/api/watchlist` 杩斿洖缁撴瀯**锛歚 getWatchlistItems`宸插仛澶?shape 鍏煎
+   锛坄items/data/list/results` + `total`锛夛紝鍏朵綑鎺ュ彛鍏ュ弬/鍑哄弬浠ョ湡瀹?`api/watchlist.ts` 涓哄噯銆?4. **宸叉湁瀛愮粍浠惰矾寰?*锛歚 AssetTypeBadge / MoneyDisplay / RiseFallText / ProductDisplay /
    AddToWatchlistModal / SettingsDrawer / RealtimeWarningBanner / RealtimeStatusIndicator`
-   娌跨敤鍘?`@/components/...` 璺緞锛岃纭杩欎簺缁勪欢纭疄瀛樺湪涓?props 涓€鑷淬€?5. **鍒嗙粍銆屽満澶?鍦哄唴銆嶄笌 `currentView`鐨勮仈鍔ㄨ涔?*锛歚handleViewChange` 灏?`activeGroup`
+   娌跨敤鍘?`@/components/...` 璺緞锛岃纭杩欎簺缁勪欢纭疄瀛樺湪涓?props 涓€鑷淬€?5.**鍒嗙粍銆屽満澶?鍦哄唴銆嶄笌 `currentView`鐨勮仈鍔ㄨ涔?*锛歚 handleViewChange`灏?`activeGroup`
    鍚屾涓?`all/exchange/otc`锛岃嫢鍘熶笟鍔¤涔変笉鍚岃璋冩暣銆?
 
 ## 楠岃瘉娓呭崟
@@ -109,8 +109,8 @@ cp fundmate-optimization/batch3/views/asset/watchlist/WatchlistIndex.vue \
 - [ ] 鍒囧垎缁?/ 鍒囧満棣?/ 鎼滅储 / 鏍囩杩囨护锛氬垪琛ㄦ纭埛鏂帮紝涓?Network 涓瘡绉嶆搷浣?*浠?1 娆¤姹?*
 - [ ] 鍒嗙粍鍐呰仈閲嶅懡鍚嶃€佹柊寤恒€佸垹闄ゅ悗宸︿晶鍒楄〃鍗虫椂鏇存柊
 - [ ] 鏍囩绠＄悊寮圭獥锛氭柊寤?鏀瑰悕/鏀硅壊/鍒犻櫎鐢熸晥锛屼笖琛屾爣绛剧紪杈戦噷鐨勫彲閫夋爣绛惧悓姝?- [ ] 鎵归噺妯″紡锛氬閫?鈫?鎵归噺鍒犻櫎 / 鎵归噺绉荤粍姝ｅ父
-- [ ] 瀹炴椂浼板€煎紑鍏炽€佹眹鎬绘暟鍊兼樉绀烘甯?- [ ] 鍗曟祴鍙拡瀵?`useTableFilters` / `useBatchActions` 绛夌函閫昏緫 composable 鐙珛缂栧啓锛堝凡瑙ｈ€?API锛?- [ ] 鏋勫缓浣撶Н锛氬師 `index.vue` 62.6KB 琚媶鏁ｏ紝鏃犻€昏緫涓㈠け
+- [ ] 瀹炴椂浼板€煎紑鍏炽€佹眹鎬绘暟鍊兼樉绀烘甯?- [ ] 鍗曟祴鍙拡瀵?`useTableFilters` / `useBatchActions` 绛夌函閫昏緫 composable 鐙珛缂栧啓锛堝凡瑙ｈ€?API 锛?- [ ] 鏋勫缓浣撶Н锛氬師 `index.vue` 62.6KB 琚媶鏁ｏ紝鏃犻€昏緫涓㈠け
 
 ## 鏀剁泭鎬荤粨
 
-- **鍗曟枃浠?62.6KB 鈫?澹崇害 6KB + 10 涓?.ts锛堝叡 ~1.4KB 绾э級 + 5 涓槮缁勪欢**锛屽彲缁存姢鎬т笌鍙祴璇曟€ф樉钁楁彁鍗囥€?- 鍔熻兘閫昏緫锛堝垎缁?鏍囩/鎵归噺/杩囨护/瀹炴椂锛夊彲鐙珛鍗曟祴锛屼笉鍐嶈 1500 琛岀粍浠剁粦鏋躲€?- 鏂板銆屽鍑恒€嶃€屾壒閲忕Щ缁勩€嶇瓑鍔熻兘鏃讹紝鏀瑰姩琚檺鍒跺湪瀵瑰簲 composable锛屼笉鍐嶇壍涓€鍙戝姩鍏ㄨ韩銆?
+- **鍗曟枃浠?62.6KB 鈫?澹崇害 6KB + 10 涓?.ts 锛堝叡 ~1.4KB 绾э級 + 5 涓槮缁勪欢**锛屽彲缁存姢鎬т笌鍙祴璇曟€ф樉钁楁彁鍗囥€?- 鍔熻兘閫昏緫锛堝垎缁?鏍囩/鎵归噺/杩囨护/瀹炴椂锛夊彲鐙珛鍗曟祴锛屼笉鍐嶈 1500 琛岀粍浠剁粦鏋躲€?- 鏂板銆屽鍑恒€嶃€屾壒閲忕Щ缁勩€嶇瓑鍔熻兘鏃讹紝鏀瑰姩琚檺鍒跺湪瀵瑰簲 composable 锛屼笉鍐嶇壍涓€鍙戝姩鍏ㄨ韩銆?

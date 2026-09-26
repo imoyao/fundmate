@@ -185,7 +185,7 @@ import RiseFallText from '@/components/RiseFallText/index.vue';
 
 ### 3.3 目录结构（页面级目录统一为）
 
-```
+```plain
 <page>/
   index.vue          # 编排入口（≤400 行）
   components/        # 页面级子组件

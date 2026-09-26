@@ -66,7 +66,7 @@
 
 | 级别 | 债 | 说明 / 修复路径 |
 |---|---|---|
-| 高 | 两个分析页为硬编码 mock（InvestmentAnalysis / IntelligentAnalysis） | 数字全写死（回撤-8.2%、夏普1.2、收益¥2,580,000），未接 API；易误导演示与进度判断。路径：先接真实数据（见 fundfof-borrowing-analysis P0）或先标注"示例数据" |
+| 高 | 两个分析页为硬编码 mock（InvestmentAnalysis / IntelligentAnalysis） | 数字全写死（回撤-8.2%、夏普 1.2、收益¥2,580,000），未接 API；易误导演示与进度判断。路径：先接真实数据（见 fundfof-borrowing-analysis P0）或先标注"示例数据" |
 | 高 | 回撤/波动/Sharpe/相关性未实现 | performance 服务只有 XIRR；全仓 grep 仅测试 fixture/README 命中。路径：新增 analytics 服务（基于 price_history.adj_close + transactions） |
 | 高 | 多用户隔离未落实 | `Asset.user_id = Column(Integer, default=1)`，无 users 表外键、未见 row 级隔离；若接真实多用户存在跨用户泄露风险。路径：确认 Supabase RLS / 应用层隔离兜底 |
 | 中 | 市场温度是空模型 | temperature 三表已建但缺定时采集+入库；前端无数据可展示。路径：补 jobs+调度（scheduling-options-research §三） |
