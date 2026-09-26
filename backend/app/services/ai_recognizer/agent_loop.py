@@ -18,6 +18,16 @@ S2 记忆层（2026-09-26）：
   硬截断并打 [agent.memory] 日志——**有界性优先于完整性**，完整性由摘要层
   在下次成功压缩时补回。
 
+S3 护栏（2026-09-27，#1121 步骤卡 #5，设计 agent-guardrail-layer-design-2026-08-17.md）：
+- **输入侧前置拦截**（`safety.check_input`）：命中越界句式（预测/建议/收益承诺）
+  直接回标准话术，**不进模型**——顺序即成本（设计 §6），且这类回答由确定性话术给出，
+  模型没有机会在「用户反复追问」下松口；
+- **重复追问**（`safety.repeat_tracker`）：同一问法连续 N 次 → 强制标准话术；
+- **输出侧兜底**（`safety.filter_output`）：最终回复逐句扫描，命中句替换为免责声明
+  （设计 §7.3，不整篇拒答）；情绪复合（D）则给回复加风险提示前缀。
+- 前置拦截与重复追问**不消耗轮次闸、不产生模型调用**（零 token 成本）；
+  三者均为纯函数/规则，可确定性单测，不依赖 mock LLM。
+
 后期接 DeepSeek：只需改 ARK_MODEL / base_url（OpenAI 兼容协议不变），架构零改动。
 
 历史说明（2026-09-09 合并 session_manager.py）：对外符号 SessionState /
@@ -34,7 +44,7 @@ from loguru import logger
 
 from app.core.exceptions import ErrorCode, SBException
 from app.domains.agent.models import AgentSession
-from app.services.ai_recognizer import guards, llm
+from app.services.ai_recognizer import guards, llm, safety
 from app.services.ai_recognizer.tools import TOOLS_METADATA, ToolExecutor
 
 # ── 分层记忆参数（#1121 S2，步骤卡 #4）────────────────────────────────────
@@ -191,6 +201,21 @@ def _maybe_compress(session: AgentSession) -> None:
         session.messages = msgs[-HARD_RAW_CAP:]
 
 
+def _record_blocked_turn(session: AgentSession, state: SessionState, user_input: str, reply: str) -> dict:
+    """护栏拦截回合的统一收尾（S3）：原文照常落库，但不消耗轮次闸、不调模型。
+
+    为什么要落库：用户的提问与我们给出的标准话术都真实发生过，历史会话回放
+    （#1719）必须能看到；否则刷新后这段对话凭空消失，与「服务端权威上下文」相悖。
+    为什么不计轮次：轮次闸（G4）约束的是**模型调用成本**，拦截回合零模型调用，
+    不该占用用户的分析轮次预算。
+    """
+    session.messages = list(session.messages or []) + [
+        {'user': _truncate(user_input, TURN_SIDE_CAP), 'assistant': _truncate(reply, TURN_SIDE_CAP)}
+    ]
+    session.state = dict(state)
+    return {'type': 'result', 'content': reply, 'data': {}, 'session_id': session.session_id}
+
+
 AGENT_SYSTEM_PROMPT = """你是多多贝账本精灵（投顾助手）。
 你的输出**必须**是单个 JSON 对象，不要包含任何解释文字或 markdown 围栏。
 字段：
@@ -266,6 +291,32 @@ def run_agent(
     state: SessionState = validate_session_state(session.state or {})
     goal = session.goal or '分析账户收益'
 
+    # ── S3 输入侧护栏（设计 §6）：进模型之前，顺序刻意在轮次闸之前 ────────
+    # 命中越界句式（预测 / 建议 / 收益承诺）→ 直接回标准话术，不进模型：
+    # ① 零 token 成本（顺序即成本，设计 §6）；② 拦截回合不占用用户的分析轮次预算。
+    guard_verdict = safety.check_input(user_input)
+    if guard_verdict.blocked:
+        logger.info(
+            '[agent.safety] 输入侧拦截 rule={} category={}：{}',
+            guard_verdict.rule,
+            guard_verdict.category,
+            user_input[:40],
+        )
+        return _record_blocked_turn(session, state, user_input, guard_verdict.reply)
+    # D 情绪 + 建议复合：不拦，但本轮回复须带风险提示（防模型顺情绪给安慰式建议）
+    risk_notice = guard_verdict.risk_notice
+
+    # 重复追问（设计 §6-C）：同一问法（归一化后）连续 N 次 → 强制标准话术，
+    # 不让模型在「反复追问」下自由发挥（防软化式越界）
+    if safety.repeat_tracker.record(session.session_id, user_input):
+        repeat_count = safety.repeat_tracker.count(session.session_id)
+        logger.info(
+            '[agent.safety] 同一问法连续第 {} 次，回标准话术，session={}',
+            repeat_count,
+            session.session_id,
+        )
+        return _record_blocked_turn(session, state, user_input, safety.STANDARD_REPLY.format(repeat_count))
+
     # G4 轮次闸：S2 起落库（agent_session.turn_count）——重启不丢、多实例一致
     turns = session.turn_count or 0
     if turns >= guards.get_agent_max_turns():
@@ -323,6 +374,14 @@ def run_agent(
             missing = action.get('missing_params') or []
             state['missing_params'] = missing
             content = action.get('content', '')
+            # S3 输出侧兜底（设计 §7）：追问尚未调用工具，故 used_tools=False 启用 E1
+            # （「未查数却谈市场判断」是拿训练知识补用户数据的信号，设计 §6-E）
+            filtered = safety.filter_output(content, used_tools=False)
+            if filtered.blocked:
+                logger.warning('[agent.safety] 追问命中规则 {}，已替换为免责声明', filtered.hit_rules)
+                content = filtered.sanitized
+            if risk_notice:
+                content = f'{safety.RISK_NOTICE}\n{content}'
             persist(content)
             return {
                 'type': 'clarify',
@@ -378,5 +437,13 @@ def run_agent(
         content=[{'type': 'text', 'text': narrative_prompt}],
         system_prompt='你是多多贝账本精灵，负责把指标转成通俗总结，不编造数据。',
     )
+    # S3 输出侧兜底（设计 §7，最后一道防线）：逐句扫描，命中句替换为免责声明，
+    # 其余合规内容保留（§7.3 不整篇拒答）——即便 L1 prompt 失效仍能兜住。
+    filtered = safety.filter_output(narrative, used_tools=True)
+    if filtered.blocked:
+        logger.warning('[agent.safety] 叙事命中规则 {}，已替换对应句', filtered.hit_rules)
+        narrative = filtered.sanitized
+    if risk_notice:
+        narrative = f'{safety.RISK_NOTICE}\n{narrative}'
     persist(narrative)
     return {'type': 'result', 'content': narrative, 'data': result['data'], 'session_id': session.session_id}
