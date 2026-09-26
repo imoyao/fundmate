@@ -14,7 +14,7 @@
 | S1-A | 通电最小闭环（后端） | 做：`POST /api/agent/chat/` 端点 + P1 服务端上下文注入 + `call_llm` 的 `response_format` 接线修复 + 5 个真实只读工具 + 单测；**不做**：前端页、传输退避、trace 落库 | ✅ 已完成（PR #1702 → dev；另发现并修复第三处接线缺陷「工具清单未注入 prompt」，见卡 #1） |
 | S1-B | 前端最小对话页 | 做：`views/agent/` 页面 + `api/agent.ts`，三态（澄清/结果/错误）渲染；**不做**：流式输出、历史会话列表 | ✅ 已完成（**PR #1704**；三态验收全绿，见卡 #2） |
 | S1-C | 退避与调用 trace | 做：`llm.py` 指数退避（429/5xx/超时可重试、4xx 不重试）+ 工具调用结构化日志；**不做**：trace 落库（归 S4） | ✅ 已完成（**PR #1708**，见卡 #3） |
-| S2 | 记忆层 | 做：`agent_session` 表（先过数据准入四问）+ 后端权威会话 + 分层 prompt + 压缩；**不做**：跨会话长期记忆 | 🚧 进行中（分支 `feat/1121-agent-s2`，见卡 #4） |
+| S2 | 记忆层 | 做：`agent_session` 表（先过数据准入四问）+ 后端权威会话 + 分层 prompt + 压缩；**不做**：跨会话长期记忆 | ✅ 已完成（**PR #1716**，见卡 #4） |
 | S3 | 护栏与成本 | 做：`safety/` 三件套 + L1 铁律 + per-user 配额迁出内存（#1294） | 待做 |
 | S4 | 可观测与评估 | 做：`agent_trace` 表 + 30 条评估集 + `scripts/agent_eval.py` | 待做 |
 | S5 | 协议层 | 做：MCP server（stdio）；Skill 目录、多模型 failover 可裁 | 待做 |
@@ -210,6 +210,7 @@ trace 落库（归 S4 `agent_trace` 表）、重试耗时/成功率 metrics 上�
   - 全量：**2147 passed**（36m01s，exit 0，0 失败）——较 S1-C 基线 2142 净 +5（S2 新增续接/越权 404/轮次闸/20 轮记忆/上界/压缩降级，同时契约演化删掉 `init_session` / `merge_user_input` 旧用例，增删相抵）。
   - 已过：`ruff check` 零告警；定向 79 例（agent 三文件 + 数据域 + 晚绑定 + ai_recognizer 全目录）全绿；`typecheck` 0；`lint`（eslint/prettier/stylelint）0；`check_api_conventions.py --write` 132 端点无 diff；E2E `agent-chat.spec.ts` 1 passed。
   - 时长口径（防误读）：全量基线本就是 16~31 分钟档（S1-A 16m / S1-C 31m17s），慢在**单进程强制**（xdist 多 worker 会 OOM，AGENTS 硬规定）+ 我并行跑 typecheck/lint/E2E 抢 CPU，不是某个用例变慢。
+- [x] 产物：commit `95f3a6aa8`（`feat/1121-agent-s2`，15 文件 +584/-198）→ **PR #1716 → dev**（数据准入四问已在 PR 正文留痕；待维护者合并）
   - 开发中踩坑一枚（值得进面试故事）：`test_chat_result_carries_tools_metadata` 曾报 `StaleDataError: UPDATE agent_session 匹配 0 行`——测试库 StaticPool 单连接下，请求中途工具链 `with get_session() as db:` 退出时 `close()` 的连接复位会把**同一连接上未提交的 INSERT 回滚掉**（最小复现证实：`b.close()` 后行数归零）。生产各 Session 走独立连接只回滚自己的事务，不受影响；测试侧规避 = 会话行先经 `db` fixture 提交（用例内有注释）。
 
 ### 你学什么（≤0.5h，读两处 + 答三问）
