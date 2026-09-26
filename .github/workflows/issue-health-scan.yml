@@ -1,0 +1,85 @@
+# Issue 体检周报扫描（每周一 08:30 北京时间）
+#
+# ## 为什么需要它（2026-09-26 全库排查结论）
+#
+# 全库 113 张开放卡排查发现 5 张「交付 PR 全部合入、卡还开着」（#1101 拖 24 天、#921/#934/#821/#827 同类），
+# 以及 closer 关键字误标反例（PR #1349 标题带 #1133 实为对账功能——纯规则若直接自动关会误伤 10 张）。
+# close-linked-issues.yml 只管 9-24 之后的增量；本 workflow 负责存量与优先级信号。
+#
+# ## 设计决策
+#
+# 1. **纯机械规则**：closer keyword 合入 / 关联 PR 全合入 / checkbox 全勾 / Q1-RED 停滞 / 僵尸卡。
+#    不引入 AI——规则把候选缩到个位数后，语义复核交给人工或 agent 会话（贵、慢、结论应可复核）。
+# 2. **只报告不自动关**：每次运行向固定跟踪卡追加一条评论（历史保留，模式同 #1525 分层记录）。
+#    自动关已被 #1349 误标证伪。
+# 3. **schedule 只读默认分支**（main）上的 workflow 定义，但 checkout 显式取 dev（见 daily-snapshot.yml
+#    #1434 同款处理）：实际执行的是 dev 上的扫描脚本，避免 main 落后导致规则过期。
+# 4. 脚本对 `gh` 的调用全部只读（list issues / timeline / pulls），永不写仓库状态。
+
+name: Issue 体检周报扫描
+
+on:
+  schedule:
+    # 每周一 UTC 00:30（北京时间 08:30）
+    - cron: '30 0 * * 1'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 只打印报告不评论（true / false）
+        required: false
+        default: 'false'
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  # 实际执行代码的分支（main 只承载 workflow 定义）——见 daily-snapshot.yml #1434 说明
+  SCAN_REF: dev
+  TRACKER_MARKER: 'Issue 体检周报（固定跟踪卡）'
+
+jobs:
+  scan:
+    name: 扫描并追加周报
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 检出代码（ref=dev）
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SCAN_REF }}
+
+      - name: 运行规则扫描
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/issue_health_scan.py --repo "$GITHUB_REPOSITORY" --out report.md
+
+      - name: dry_run 时打印并跳过评论
+        if: inputs.dry_run == 'true'
+        run: cat report.md
+
+      - name: 找到或创建固定跟踪卡
+        if: inputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NUM=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search \
+            "in:title \"${TRACKER_MARKER}\"" --json number -q '.[0].number // ""')
+          if [ -z "$NUM" ]; then
+            # gh issue create 不支持 -q，输出的是 issue URL，取末段编号
+            URL=$(gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "${TRACKER_MARKER}" \
+              --body-file .github/issue-health-tracker-body.md \
+              --label "Q2-YELLOW" \
+              --milestone "M6 待办积压 Backlog")
+            NUM="${URL##*/}"
+            echo "已创建跟踪卡 #$NUM"
+          fi
+          echo "TRACKER=$NUM" >> "$GITHUB_ENV"
+
+      - name: 追加本周报告
+        if: inputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh issue comment "$TRACKER" --repo "$GITHUB_REPOSITORY" --body-file report.md
