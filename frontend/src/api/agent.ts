@@ -54,3 +54,58 @@ export function agentChat(payload: AgentChatRequest) {
     { timeout: CHAT_TIMEOUT }
   );
 }
+
+// —— 历史会话（#1719 历史栏读路径）——
+
+/** 历史栏列表项：**不含 messages**，preview 为末条用户输入截断（60 字），行体积与会话长度无关 */
+export type AgentSessionItem = {
+  session_id: string;
+  /** 会话标题（后端缺省值统一为默认目标，故前端以 preview 辨认会话） */
+  goal: string;
+  preview: string;
+  turn_count: number;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+/** GET /api/agent/sessions/ 成功信封（分页家规 {data,total,page,per_page}） */
+export type AgentSessionListResponse = {
+  data: AgentSessionItem[];
+  total: number;
+  page: number;
+  per_page: number;
+  message: string;
+};
+
+/** 单会话详情：messages 为原文轮次 [{user, assistant}]，供历史栏点击后回放 */
+export type AgentSessionDetail = {
+  session_id: string;
+  goal: string;
+  turn_count: number;
+  created_at: string | null;
+  updated_at: string | null;
+  messages: Array<{ user: string; assistant: string }>;
+};
+
+export type AgentSessionDetailResponse = {
+  data: AgentSessionDetail;
+  message: string;
+};
+
+/** 本人历史会话列表（按更新时间倒序；他人会话在服务端即不可见） */
+export function listAgentSessions(params?: {
+  page?: number;
+  per_page?: number;
+}) {
+  return http.request<AgentSessionListResponse>("get", "/api/agent/sessions/", {
+    params
+  });
+}
+
+/** 单会话详情（越权 / 不存在统一 404，全局拦截器提示） */
+export function getAgentSession(sessionId: string) {
+  return http.request<AgentSessionDetailResponse>(
+    "get",
+    `/api/agent/sessions/${sessionId}/`
+  );
+}

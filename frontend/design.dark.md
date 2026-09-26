@@ -390,6 +390,7 @@
 
 - 气泡全部使用语义令牌（`--brand-solid` / `--bg-soft` / `--text-*` / `--color-danger`），暗色由 HSL 动态计算自动适配，**无专属覆写规则**。
 - 等待态动画为 CSS 宽度关键帧，不依赖颜色对比，暗色下无需调整。
+- 历史会话栏（#1719）同样只用语义令牌（`--bg-muted` / `--bg-card` / `--border-light` / `--color-primary` / `--text-*`），**无专属覆写规则**；当前会话高亮描边在暗色下随 `--color-primary` 自动适配。
 
 ## Data Visualization
 
