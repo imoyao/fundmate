@@ -14,7 +14,7 @@
 | S1-A | 通电最小闭环（后端） | 做：`POST /api/agent/chat/` 端点 + P1 服务端上下文注入 + `call_llm` 的 `response_format` 接线修复 + 5 个真实只读工具 + 单测；**不做**：前端页、传输退避、trace 落库 | ✅ 已完成（PR #1702 → dev；另发现并修复第三处接线缺陷「工具清单未注入 prompt」，见卡 #1） |
 | S1-B | 前端最小对话页 | 做：`views/agent/` 页面 + `api/agent.ts`，三态（澄清/结果/错误）渲染；**不做**：流式输出、历史会话列表 | ✅ 已完成（**PR #1704**；三态验收全绿，见卡 #2） |
 | S1-C | 退避与调用 trace | 做：`llm.py` 指数退避（429/5xx/超时可重试、4xx 不重试）+ 工具调用结构化日志；**不做**：trace 落库（归 S4） | ✅ 已完成（**PR #1708**，见卡 #3） |
-| S2 | 记忆层 | 做：`agent_session` 表（先过数据准入四问）+ 后端权威会话 + 分层 prompt + 压缩；**不做**：跨会话长期记忆 | 待做 |
+| S2 | 记忆层 | 做：`agent_session` 表（先过数据准入四问）+ 后端权威会话 + 分层 prompt + 压缩；**不做**：跨会话长期记忆 | ✅ 已完成（**PR #1716**，见卡 #4） |
 | S3 | 护栏与成本 | 做：`safety/` 三件套 + L1 铁律 + per-user 配额迁出内存（#1294） | 待做 |
 | S4 | 可观测与评估 | 做：`agent_trace` 表 + 30 条评估集 + `scripts/agent_eval.py` | 待做 |
 | S5 | 协议层 | 做：MCP server（stdio）；Skill 目录、多模型 failover 可裁 | 待做 |
@@ -162,4 +162,65 @@ trace 落库（归 S4 `agent_trace` 表）、重试耗时/成功率 metrics 上�
 
 ---
 
-*后续步骤卡（#4 = S2 记忆层……）完成时追加。*
+---
+
+## 步骤卡 #4：S2 记忆层——后端权威会话 + 分层记忆
+
+**分支**：`feat/1121-agent-s2`（worktree `D:\codes\fundmate-1121`，基于 `origin/dev` `ee7c388d2` = #1708/#1713 合并后）
+**目标**：把「前端持有会话」翻转为「后端权威 + 分层记忆」——20 轮后仍记得第 1 轮说过的标的，单轮 prompt 有上界，前端篡改 `session_id` 读不到别人的会话。
+
+### 数据准入四问（新表 `agent_session`，`conventions.md` / `data-strategy.md` 强制）
+
+1. **谁在用**：`POST /api/agent/chat/` 每轮读写（会话续接 / 分层 prompt 组装 / G4 轮次闸）；后续读路径：#1714 取消标志、方案 A 历史栏（另卡）。
+2. **什么场景**：用户发首轮建会话 → 续聊 / 刷新恢复；>6 轮触发压缩；超 10 轮轮次闸。
+3. **缺了会怎样**：P2（前端持有 → 丢最早信息）、P4（状态可篡改）、轮次闸重启即失效——这是缺陷修复的必需载体，无降级空间。
+4. **成本**：每会话 1 行；JSON 列全部硬截断（单轮原文两侧各 ≤800 字、摘要 ≤3000 字、关键卡 ≤800 字）→ 单行有界；行数随「用户数 × 日会话数」线性；零新增外部请求（压缩复用既有 LLM 调用与四道闸）。
+
+**列 → 当场指定读者**：`session_id`（API 往返 + 归属校验）、`user_id`（越权校验 / 查询）、`goal`（prompt + 未来历史栏标题）、`summary` / `key_facts` / `messages`（prompt 组装三料：摘要 + 关键卡 + 最近 3 轮原文）、`state`（追问延续：missing/collected 参数）、`turn_count`（G4 闸 + 压缩触发）、`created_at/updated_at`（TimestampMixin，历史栏排序）。
+
+### 进（改动面）
+
+1. **`domains/agent/models.py` 新表**（user 域）+ `DATA_DOMAIN_REGISTRY` 登记 + `docs/dev/db-data-domain.md` user 域清单同步（硬规则 §1 双登记）。
+2. **`session_store.load_or_create`**：`session_id` 缺省 → **服务端生成 uuid**；提供但不存在 / 不属于当前用户 → 一律 404（`RESOURCE_NOT_FOUND`，不泄露存在性）——修 P2/P4。
+3. **请求契约演化（计划内，本卡文档化）**：请求去掉 `session_state`、`session_id` 改可选；响应三态统一携带 `session_id`。前端只回传 id，状态与历史全部服务端持有；G3 白名单保留为**加载路径的防线**（DB 内容过白名单），注入面从「每轮可注入」收敛为「不可注入」。
+4. **G4 轮次闸入库**：`agent_session.turn_count` 取代 `_AGENT_TURN_COUNTER` 内存字典（重启不丢、多实例一致）；`guards` 只留 `AGENT_MAX_TURNS` 常量与读取器。
+5. **分层 prompt**：`[L1 system] + [goal] + [关键信息卡] + [滚动摘要] + [最近 3 轮原文] + [已收集参数]`，替换整段 `json.dumps(全部 history)`；所有层硬截断 → **单轮 prompt 有界**。
+6. **滚动压缩**：`turn_count > 6` 且原文超窗 → 把最旧轮次用 `doubao-seed-2-0-mini` 压成摘要（追加进 `summary`）+ 抽关键信息卡（替换式，当前焦点优先）；压缩失败降级为硬截断并打 `[agent.memory]` 日志——**有界性优先于完整性，完整性由摘要层兜底**。
+7. **前端**：`api/agent.ts` / `index.vue` 改为「首轮不带 id、回传后回带」；404（会话失效）自动落回新开会话；E2E fixture 同步契约形状。
+
+### 不做（防蔓延）
+
+- 跨会话用户画像（理由：写入价值未验证 + 隐私面扩大，学习计划已明确标注可选且不做）。
+- 历史会话列表 UI（方案 A 页内栏，另卡）；SSE 流式；#1714 取消标志（依赖本卡合并后开工）。
+- 消息向量检索 / RAG（分层文本记忆已覆盖验收，向量属过度工程）。
+
+### 关键决策
+
+- **状态存哪**：`state`（追问参数）与 `messages`（原文）分列——参数是**结构化工作内存**（白名单校验），原文是**记忆素材**（截断 + 压缩），生命周期与校验规则都不同，混在一列会把 G3 白名单逼成对原文的校验器。
+- **压缩失败降级方向**：宁可硬截断丢最早（有日志可观测），也不放任 prompt 无界（炸 token 预算）；完整性靠摘要层在下次成功压缩时补回。
+- **越权一律 404 不 403**：403 泄露「这个 id 存在」，404 不泄露；与 `get_owned_or_404` 的既有口径一致。
+
+### 验收（2026-09-26 完成记录）
+
+- [x] 20 轮后仍能回答第 1 轮提到的标的 → `test_agent_memory.py::test_twenty_turns_retain_first_turn_and_prompt_bounded`：压缩 mock 做「完美回灌」，断言第 20 轮 prompt 含 `110011`，且压缩确实发生（`session.summary` 非空、原文层压回 ≤8 条）。
+- [x] 单轮 prompt 收敛有上界 → 同用例断言 20 轮 prompt 全部 ≤ `PROMPT_BOUND`（由层常量推导：硬截断原文层 + 摘要 ≤3000 + 关键卡 ≤800 + 固定开销）；压缩失败降级用例 `test_compress_failure_degrades_to_hard_cap` 证明断链时上界仍成立（原文层截到 ≤12 条）。
+- [x] 伪造 / 越权 `session_id` → 404 → `test_chat_session_forged_or_unknown_id_404`：存在但不属于自己 404、根本不存在也 404（不泄露存在性）。
+- [x] 刷新续聊仅凭 `session_id` 恢复 → `test_chat_session_server_side_continuity`：客户端两次请求均不带任何状态，第 2 轮决策 prompt 含第 1 轮原文（服务端回放），响应 `session_id` 同值。
+- [x] 全量 `pytest -p no:xdist` 单进程绿 + `ruff` 零告警；前端 `typecheck` / `lint` 双 0。
+  - 全量：**2147 passed**（36m01s，exit 0，0 失败）——较 S1-C 基线 2142 净 +5（S2 新增续接/越权 404/轮次闸/20 轮记忆/上界/压缩降级，同时契约演化删掉 `init_session` / `merge_user_input` 旧用例，增删相抵）。
+  - 已过：`ruff check` 零告警；定向 79 例（agent 三文件 + 数据域 + 晚绑定 + ai_recognizer 全目录）全绿；`typecheck` 0；`lint`（eslint/prettier/stylelint）0；`check_api_conventions.py --write` 132 端点无 diff；E2E `agent-chat.spec.ts` 1 passed。
+  - 时长口径（防误读）：全量基线本就是 16~31 分钟档（S1-A 16m / S1-C 31m17s），慢在**单进程强制**（xdist 多 worker 会 OOM，AGENTS 硬规定）+ 我并行跑 typecheck/lint/E2E 抢 CPU，不是某个用例变慢。
+- [x] 产物：commit `95f3a6aa8`（`feat/1121-agent-s2`，15 文件 +584/-198）→ **PR #1716 → dev**（数据准入四问已在 PR 正文留痕；待维护者合并）
+  - 开发中踩坑一枚（值得进面试故事）：`test_chat_result_carries_tools_metadata` 曾报 `StaleDataError: UPDATE agent_session 匹配 0 行`——测试库 StaticPool 单连接下，请求中途工具链 `with get_session() as db:` 退出时 `close()` 的连接复位会把**同一连接上未提交的 INSERT 回滚掉**（最小复现证实：`b.close()` 后行数归零）。生产各 Session 走独立连接只回滚自己的事务，不受影响；测试侧规避 = 会话行先经 `db` fixture 提交（用例内有注释）。
+
+### 你学什么（≤0.5h，读两处 + 答三问）
+
+- 读：`agent_loop.run_agent` 的 prompt 组装段 + `session_store.load_or_create`。
+- 答：
+  1. 「关键信息卡 / 滚动摘要 / 最近 N 轮原文」三层各解决什么丢失模式？为什么关键卡必须永不压缩？
+  2. 轮次闸从内存挪进表，除了「重启不丢」还顺带修了什么一致性问题？
+  3. 为什么压缩失败要选「截断」而不是「不压缩」？两种失败各长什么样？
+
+---
+
+*后续步骤卡（#5 = S3 护栏与成本……）完成时追加。*

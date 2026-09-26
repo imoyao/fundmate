@@ -4,24 +4,13 @@ import { http } from "@/utils/http";
 // 全局 axios 超时 10s 不够，同 ocr.ts 单独放宽
 const CHAT_TIMEOUT = 120000;
 
-/**
- * 会话状态白名单（对齐后端 agent_loop.ALLOWED_KEYS：
- * goal / missing_params / collected_params / history，
- * 多余键会被 G3 白名单校验以 400 拒绝，前端只做原样回传）
- */
-export type AgentSessionState = {
-  goal?: string;
-  missing_params?: string[];
-  collected_params?: Record<string, unknown>;
-  history?: Array<{ role: string; content: string }>;
-};
-
 /** 澄清态：模型信息不足，content 即追问文本 */
 export type AgentClarifyTurn = {
   type: "clarify";
   content: string;
   missing_params: string[];
-  session_state: AgentSessionState;
+  /** 服务端权威会话 id（S2）：前端只回带 id，状态由后端持有 */
+  session_id: string;
 };
 
 /** 结果态：content 为自然语言总结，data 为工具返回的标量指标 */
@@ -29,14 +18,14 @@ export type AgentResultTurn = {
   type: "result";
   content: string;
   data: Record<string, unknown>;
-  session_state: AgentSessionState;
+  session_id: string;
 };
 
 /** 错误态：工具两轮失败等，content 为可读错误说明 */
 export type AgentErrorTurn = {
   type: "error";
   content: string;
-  session_state: AgentSessionState;
+  session_id: string;
 };
 
 export type AgentTurn = AgentClarifyTurn | AgentResultTurn | AgentErrorTurn;
@@ -50,11 +39,9 @@ export type AgentChatResponse = {
 export type AgentChatRequest = {
   /** 本轮用户输入 */
   message: string;
-  /** 会话 id（前端生成；后端轮次闸按 user_id + session_id 计数） */
-  session_id: string;
-  /** 上一轮回传的会话状态，首轮不传 */
-  session_state?: AgentSessionState;
-  /** 分析目标，缺省后端用默认值 */
+  /** 会话 id（服务端生成；首轮不传，之后回带响应里的 session_id） */
+  session_id?: string;
+  /** 分析目标（仅新建会话时生效），缺省后端用默认值 */
   goal?: string;
 };
 

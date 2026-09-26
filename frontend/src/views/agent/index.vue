@@ -1,8 +1,8 @@
 <!--
   账本精灵对话页（#1121 S1-B，2026-09-26 参考竞品截图二次打磨）
   三态渲染：clarify（追问）/ result（结果 + 指标 chips）/ error（服务提示）；
-  session_state 每轮原样回传（G3 白名单，后端只认 4 个键）。
-  不做：流式输出、历史会话列表（S1 边界，见 docs/working-notes/agent-dev-progress-2026-09-26.md）。
+  S2 服务端权威会话：只回带后端下发的 session_id，状态由后端持有（不落地前端）。
+  不做：历史会话列表（随后续卡，见 docs/working-notes/agent-dev-progress-2026-09-26.md）。
 -->
 <template>
   <div class="agent-page">
@@ -140,7 +140,7 @@ import {
 } from "@element-plus/icons-vue";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import { agentChat } from "@/api/agent";
-import type { AgentSessionState, AgentTurn } from "@/api/agent";
+import type { AgentTurn } from "@/api/agent";
 
 defineOptions({ name: "AgentChat" });
 
@@ -165,8 +165,7 @@ const input = ref("");
 const pending = ref(false);
 const listRef = ref<HTMLElement>();
 const taRef = ref<{ focus: () => void } | null>(null);
-const sessionId = ref(newSessionId());
-const sessionState = ref<AgentSessionState | undefined>(undefined);
+const sessionId = ref<string | null>(null); // 服务端权威（S2）：首轮 null，后端下发后续带
 
 /**
  * 工具栏提示只说用户视角：快捷键说明在 placeholder、只读保证在页头副标题，
@@ -177,13 +176,6 @@ const statusText = computed(() =>
     ? "正在整理分析结果，约 10~60 秒"
     : "回车发送 · 信息不全会先确认"
 );
-
-/** 会话 id 前端生成：后端轮次闸按 user_id + session_id 计数（G2） */
-function newSessionId(): string {
-  return typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `s-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
 
 /** 全站禁 Emoji 是硬约定但没有 lint 兜底，模型输出在这里剔除（AGENTS.md 前端约束） */
 function stripEmoji(text: string): string {
@@ -257,12 +249,11 @@ async function send(preset?: string): Promise<void> {
   try {
     const res = await agentChat({
       message: text,
-      session_id: sessionId.value,
-      session_state: sessionState.value
+      // S2 服务端权威会话：首轮不带 id，之后回带后端下发的 session_id，状态不落地前端
+      session_id: sessionId.value ?? undefined
     });
     const turn: AgentTurn = res.data;
-    // 服务端权威状态原样回传：下一轮缺省带上，白名单外的键后端会 400 拒绝（G3）
-    sessionState.value = turn.session_state;
+    sessionId.value = turn.session_id;
     if (turn.type === "error") {
       pushMessage({ role: "error", content: stripEmoji(turn.content) });
     } else if (turn.type === "result") {
@@ -275,6 +266,10 @@ async function send(preset?: string): Promise<void> {
       pushMessage({ role: "assistant", content: stripEmoji(turn.content) });
     }
   } catch (e: unknown) {
+    // 会话失效（404：被清理 / 换端）→ 落回新开会话，下一条消息自动重建
+    if ((e as { response?: { status?: number } })?.response?.status === 404) {
+      sessionId.value = null;
+    }
     const msg = describeError(e);
     if (msg) pushMessage({ role: "error", content: msg });
   } finally {
@@ -285,8 +280,7 @@ async function send(preset?: string): Promise<void> {
 
 function resetSession(): void {
   messages.value = [];
-  sessionState.value = undefined;
-  sessionId.value = newSessionId();
+  sessionId.value = null; // 下一条消息由服务端开新会话
 }
 </script>
 

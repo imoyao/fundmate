@@ -10,6 +10,7 @@
 import pytest
 
 from app.core.exceptions import ErrorCode, SBException
+from app.domains.agent.models import AgentSession
 from app.services.ai_recognizer import agent_loop, guards
 from app.services.ai_recognizer import llm as llm_mod
 from app.services.ai_recognizer.agent_loop import validate_session_state
@@ -90,7 +91,7 @@ def test_run_agent_execute(monkeypatch):
         return '您的净资产约为 X 元。'  # 叙事
 
     monkeypatch.setattr(llm_mod, 'call_llm', fake)
-    out = agent_loop.run_agent('分析我的收益', {}, user_id=1, session_id='s1')
+    out = agent_loop.run_agent('分析我的收益', AgentSession(session_id='s1', user_id=1))
     assert out['type'] == 'result'
     assert calls['n'] == 2  # 1 次决策 + 1 次叙事
 
@@ -100,19 +101,23 @@ def test_run_agent_clarify(monkeypatch):
         return '{"action":"ask_clarification","missing_params":["period"],"content":"想分析多久？"}'
 
     monkeypatch.setattr(llm_mod, 'call_llm', fake)
-    out = agent_loop.run_agent('分析我的收益', {}, user_id=1, session_id='s2')
+    out = agent_loop.run_agent('分析我的收益', AgentSession(session_id='s2', user_id=1))
     assert out['type'] == 'clarify'
     assert out['missing_params'] == ['period']
 
 
 def test_run_agent_turn_limit(monkeypatch):
+    """G4（S2 起落库）：turn_count 打满的会话行再进对话 → AGENT_TURN_LIMIT_EXCEEDED。"""
+
     def fake(content, system_prompt, **kwargs):
         return '{"action":"ask_clarification","missing_params":["period"]}'
 
     monkeypatch.setattr(llm_mod, 'call_llm', fake)
-    for _ in range(guards.get_agent_max_turns()):
-        guards.record_agent_turn(1, 'sess_limit')
+    session = AgentSession(
+        session_id='sess_limit',
+        user_id=1,
+        turn_count=guards.get_agent_max_turns(),
+    )
     with pytest.raises(SBException) as exc:
-        agent_loop.run_agent('hi', {}, user_id=1, session_id='sess_limit')
+        agent_loop.run_agent('hi', session)
     assert exc.value.code == ErrorCode.AGENT_TURN_LIMIT_EXCEEDED.code
-    guards.reset_agent_session(1, 'sess_limit')  # 清理，避免影响其他用例
