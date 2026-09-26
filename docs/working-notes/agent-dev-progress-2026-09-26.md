@@ -13,7 +13,7 @@
 |---|---|---|---|
 | S1-A | 通电最小闭环（后端） | 做：`POST /api/agent/chat/` 端点 + P1 服务端上下文注入 + `call_llm` 的 `response_format` 接线修复 + 5 个真实只读工具 + 单测；**不做**：前端页、传输退避、trace 落库 | ✅ 已完成（PR #1702 → dev；另发现并修复第三处接线缺陷「工具清单未注入 prompt」，见卡 #1） |
 | S1-B | 前端最小对话页 | 做：`views/agent/` 页面 + `api/agent.ts`，三态（澄清/结果/错误）渲染；**不做**：流式输出、历史会话列表 | ✅ 已完成（**PR #1704**；三态验收全绿，见卡 #2） |
-| S1-C | 退避与调用 trace | 做：`llm.py` 指数退避（429/5xx/超时可重试、4xx 不重试）+ 工具调用结构化日志；**不做**：trace 落库（归 S4） | 待做 |
+| S1-C | 退避与调用 trace | 做：`llm.py` 指数退避（429/5xx/超时可重试、4xx 不重试）+ 工具调用结构化日志；**不做**：trace 落库（归 S4） | ✅ 已完成（见卡 #3） |
 | S2 | 记忆层 | 做：`agent_session` 表（先过数据准入四问）+ 后端权威会话 + 分层 prompt + 压缩；**不做**：跨会话长期记忆 | 待做 |
 | S3 | 护栏与成本 | 做：`safety/` 三件套 + L1 铁律 + per-user 配额迁出内存（#1294） | 待做 |
 | S4 | 可观测与评估 | 做：`agent_trace` 表 + 30 条评估集 + `scripts/agent_eval.py` | 待做 |
@@ -119,4 +119,47 @@
 
 ---
 
-*后续步骤卡（#3 = S1-C……）完成时追加。*
+## 步骤卡 #3：S1-C 退避与调用 trace
+
+**分支**：`feat/1121-agent-s1c`（worktree `D:\codes\fundmate-1121`，快进到 `origin/dev` `eb5493cd0` = #1705 合并后）
+**目标**：LLM 调用失败不再「所有异常一锅端傻重试」，工具执行必留痕——线上排障按 `[llm.call]` / `[agent.tool]` 两个 tag 就能捞出全链路。
+
+### 进（改动面）
+
+1. **`llm.py` 分类退避**：
+   - `_classify_failure()`：**429 / 5xx / 超时 / 连接失败 / 响应体异常 → 可重试；其余 4xx 立即终止**（401 key 错、400 参数错，退避 N 次也照样 503，重试只是白拉长失败路径）。分类顺序敏感：HTTPError 也是 RequestException、requests 的 JSONDecodeError 也是 ValueError，先特后泛才贴得对标签。
+   - `_backoff_seconds()`：指数退避 `base × 2ⁿ`（base=1.5 → 1.5/3/6s）；429 带**数值型** `Retry-After` 头时听服务端的（封顶 30s，防回超大值挂死工作线程）；HTTP-date 形式不解析，回落指数退避。
+   - `[llm.call]` 结构化行：成功 `ok attempt=… tokens=… elapsed=…`、重试 `retry attempt=1/2 reason=http=502 backoff=1.50s`、立即终止 `fail-fast attempt=1 reason=http=401`、耗尽 `fail attempts=… last_err=…`。
+   - **对外契约不变**：耗尽/终止都抛 `OCR_SERVICE_UNAVAILABLE` 503（API-First 冻结，前端 S1-B 分层错误处理不受影响）。
+2. **`tools.py` 必留痕**：`ToolExecutor.run` 成功打 `[agent.tool] ok name=… elapsed=…`，失败/未注册打 `fail … err=…`——**每次执行必有痕迹**，不依赖上层是否再记。
+3. **单测**：新文件 `test_llm_backoff.py` **10 例**（假 `requests.post` 剧本驱动；睡眠、`_record_tokens`、`ARK_API_KEY`、`ARK_RETRIES=2` 全换桩：401 快败、5xx 指数 [1.5,3.0]、429 认头、429 无头回落、超时耗尽→503、坏 JSON/空 choices 重试、首试成功不 sleep 且 `[llm.call] ok` 留痕、payload 带 `response_format`）+ `test_tools.py` 追加 **2 例**（loguru sink 断言成功/失败都留 `[agent.tool]` 痕）。
+
+### 不做（防蔓延）
+
+trace 落库（归 S4 `agent_trace` 表）、重试耗时/成功率 metrics 上报、HTTP-date 形式 `Retry-After` 解析、上游限流并发信号量（与 S3 配额一起看）。
+
+### 关键决策
+
+- **为什么 4xx 不重试**：4xx 是「请求本身错了」，不是「服务暂时不行」——退避重试的语义前提（瞬态故障）不成立；fail-fast 让坏请求立刻变成可诊断的 503。
+- **为什么耗尽后仍抛 503**：错误码与信封已冻结，换码会破坏前端按 429/503/超时分层入泡的处理（S1-B 卡「错误分层」）。
+- **bare except + 分类表**：服务边界收全再分类，任何意外异常都收敛成干净 503 信封而非 500 裸栈；分类表兜底 `unexpected` 一律不重试。
+
+### 验收（2026-09-26 完成记录）
+
+- [x] 目标测试 `tests/services/ai_recognizer/`：**35 passed**（含新增 12 例，15.6s）
+- [x] `ruff check` / `ruff format --check` 零告警
+- [x] 全量 `pytest -p no:xdist`（单进程）：**2142 passed**（31m17s，exit 0）——较 S1-A 基线 2130 恰 +12（新增用例数吻合），既有零回归
+- [x] `lint-md` 只读检查本步进度文档：0 警告 0 错误；无前端/路由改动（E2E 与 `api.md` 自动段不涉及）
+- [x] 产物：PR 创建后回填步骤总表与本行
+
+### 你学什么（≤0.5h，读两处 + 答三问）
+
+- 读：`llm.py` 的 `_classify_failure` / `_backoff_seconds` / `call_llm` 主循环。
+- 答：
+  1. 指数退避的「指数」解决什么问题？固定间隔的缺陷在哪？什么情况下该加抖动（jitter），本步为什么没加？
+  2. 429 的 `Retry-After` 为什么必须封顶？不封顶时服务端（或中间层）能怎么伤害你的 worker？
+  3. `[llm.call]` 为什么成功也要打日志？只有失败才打会漏掉什么排障场景（提示：慢成功 / token 突增）？
+
+---
+
+*后续步骤卡（#4 = S2 记忆层……）完成时追加。*
