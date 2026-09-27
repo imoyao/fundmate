@@ -16,7 +16,7 @@
 | S1-C | 退避与调用 trace | 做：`llm.py` 指数退避（429/5xx/超时可重试、4xx 不重试）+ 工具调用结构化日志；**不做**：trace 落库（归 S4） | ✅ 已完成（**PR #1708**，见卡 #3） |
 | S2 | 记忆层 | 做：`agent_session` 表（先过数据准入四问）+ 后端权威会话 + 分层 prompt + 压缩；**不做**：跨会话长期记忆 | ✅ 已完成（**PR #1716**，见卡 #4） |
 | S3 | 护栏与成本 | 做：`safety/` 三件套 + L1 铁律 + per-user 配额迁出内存（#1294） | 🚧 进行中：G1~G4 三件套 + 接线 ✅ **PR #1729**、**G7 L1 铁律** ✅ **PR #1730**（见卡 #5 与 G7 收尾段）；剩 G5 配额迁表 / G6 意图路由 |
-| S4 | 可观测与评估 | 做：`agent_trace` 表 + 30 条评估集 + `scripts/agent_eval.py` | 待做 |
+| S4 | 可观测与评估 | 做：`agent_trace` 表 + 30 条评估集 + `scripts/agent_eval.py` + 时间轴回放；**不做**：OpenTelemetry、CI 跑真链路 | ✅ 已完成（2026-09-27，见卡 #7；PR 编号随后回填） |
 | S5 | 协议层 | 做：MCP server（stdio）；Skill 目录、多模型 failover 可裁 | 待做 |
 | S6 | 面试收口 | 做：12 条追问口述 + 30 秒自介 + 简历定稿（证据逐条回填） | 待做 |
 
@@ -35,7 +35,7 @@
 | 2 | **答非所问 / 意图跟随** `#1718` | 必须在 S2 后：改的 `agent_loop.py` 与 S2 同文件，先动必冲突 | ✅ **已合并 dev**（PR #1725，2026-09-27；issue 已由 dev 合入自动关闭） |
 | 3 | **历史会话栏** `#1719` | 必须在 S2 后：读 `agent_session` 表 + 改 `api/agent.ts`/`index.vue` 同文件 | ✅ **已合并 dev**（PR #1726，2026-09-27） |
 | 4 | **S3 护栏与成本** | 与 2/3 **可并行**（动 `safety/` + 配额，不同文件）；`#1294` 配额迁出内存归此 | ✅ 三件套 + 接线（**PR #1729**）、G7 L1 铁律（**PR #1730**）均已合并（见卡 #5）；剩 G5 配额迁表（需新表先过四问留痕）、G6 意图路由 |
-| 5 | **S4 可观测与评估** | 内含 `#1718` 的**回归位**（30 条评估集把「答得对」变成可验证，防止改完又悄悄坏） | 待做 |
+| 5 | **S4 可观测与评估** | 内含 `#1718` 的**回归位**（30 条评估集把「答得对」变成可验证，防止改完又悄悄坏） | ✅ **2026-09-27 实现完成**（issue `#1736`，四问留痕于其正文；真链路首跑 28/30 → 用例闭环后 30/30，见卡 #7）；PR 编号随后回填 |
 | 6 | `#1714` 可中断（停止按钮） | 依赖 S2 的服务端会话（取消标志要挂在会话上） | OPEN |
 | 7 | `#1712` 结构化叙事渲染 | 与 2~5 **可并行**（纯前端渲染，不动记忆层） | ✅ **已合并 dev**（**PR #1724**，2026-09-27；issue 已关闭） |
 | 8 | **S5 协议层 → S6 面试收口** | — | 待做 |
@@ -412,5 +412,52 @@ S3 的最后一块拼图（L1 软约束）：铁律 + 自查三问 + can/cannot 
 
 ---
 
-*后续步骤卡（#7 = S4 可观测与评估……）完成时追加。*
+## 步骤卡 #7：S4 可观测与评估——把「稳」变成可自证（#1736）
+
+> 一张卡四件产出：`agent_trace` 表 / 30 条评估集 / 评估跑批 / 时间轴回放。
+> issue = `#1736`（M6 + 象阵 Q1:RED），**数据准入四问答案留痕于 issue 正文**（此处不重复，PR 描述同步引用）。
+
+### 进（改动面）
+
+1. `app/domains/agent/models.py`：`AgentTrace`——每轮一行 11 列（`session_id / turn / intent / tool_name / tool_params / latency_ms / tokens / status / blocked / guard_hits` + `created_at`）。
+2. `core/db_factory.py`：`'agent_trace': DOMAIN_USER` 登记；`docs/dev/db-data-domain.md` 同步一行（与 `agent_session` 同族）。
+3. `agent_loop.py`：`_write_trace`（**旁路写入**：写失败只 `logger.exception` 绝不打断对话；会话行未挂 Session 直接跳过）+ 五个出口埋点（输入侧拦截 / 重复追问 / clarify / error / result）+ `_redact_params`（敏感键置 `***` + 字符串值 100 字符截断）。
+4. `llm.py`：`call_llm(..., usage_sink)` 可选 token 汇出槽——每次成功调用累加，重试不累加（与 `_record_tokens` 同口径）；`latency_ms` 由 `agent_loop` 按调用墙钟累加（决策 + 叙事，含重试）。
+5. 评估集 `tests/agent_eval/cases.yaml` **30 条**：basic 20 / multi 2 / 对抗 8（越界 4 + 参数缺失 2 + 幻觉诱导 1 + 恶意注入 1）。
+6. `scripts/agent_eval.py`：真链路跑批 → 四指标报告（通过率 / 平均轮次 / 平均 token / 被拦截数），`--tag / --id / --limit / --keep / --json`；`scripts/agent_replay.py`：`--list` 找会话 → `session_id` 时间轴回放 + `--messages` 原文。
+7. 判据两层：`test_agent_trace.py` 7 例（四出口 + 跨轮序列 + 脱敏 + 旁路容错）；`tests/agent_eval/test_cases.py` 4 例（恰好 30 / 对抗 8 子类配比 / 状态与工具名枚举合法 / **期望与护栏现状一致**）。
+8. 依赖：dev 组新增 `pyyaml`（读 cases.yaml 的唯一新依赖，锁文件随之变更）。
+
+### 关键决策
+
+- **不做 OpenTelemetry**：个人量级引依赖 + 接后端，收益与规模不匹配；Agent 可观测的重点不在性能监控，在**决策链路可回放**——把这个取舍讲清楚本身就是面试加分项。
+- **评估分层**：CI 只钉**静态结构**（不花钱、不靠模型、零随机性）；通过率靠**本地跑批**看（有成本、有随机性、bad case 是信号不是红灯，退出码恒 0）。合一会要么 CI 天天红、要么评估形同虚设。
+- **turn 口径**：正常轮记自增后的轮号；拦截轮不计轮次（G4 口径）记当时值，靠 `status=blocked` 区分。
+- **越界 4 条用护栏确定性句式**（B1~B4 原句，tests 恒绿）：断言的是「输入侧零模型调用」这条确定链路，不赌模型发挥。
+
+### 验收（2026-09-27 完成记录）
+
+- [x] `agent_trace` 登记 registry（user 域）+ `db-data-domain.md` 行；无 API 面（脚本直读库）故不触发 §4.3 关联 Schema；
+- [x] **真链路全量首跑 28/30 = 93.3%**（doubao-mini：avg_turns 1.07 / avg_tokens 2382.7 / 被拦截 4 / 142.9s）；
+- [x] **Bad Case 闭环**：2 条归因均为「用例输入歧义」（`分析我的收益` 盈亏 vs 组合收益两可；`我的基金今天更新净值了吗` 缺代码、模型正确追问）→ 改用例 → `--id` 单条复跑 **2/2 PASS**（口径 30/30）；
+- [x] 重放演示：`--list` → 时间轴（intent / tool / latency / tokens / params / hits）+ `--messages` 原文；演示会话已清理，dev 库零残留；
+- [x] 判据：trace 7 例 + 集结构 4 例全绿；全量单进程见下方执行记录；
+- [x] 评估会话默认跑完即删（`--keep` 才保留）。
+
+### 踩坑（面试可讲的两枚）
+
+1. **loguru 没有 `exc_info=True`**：`logger.warning('{}', exc_info=True)` 会被 `message.format` 当占位参数 → `IndexError` **抛在 except 块里**，把「旁路容错」整个击穿——本要防的「trace 故障反杀对话」被自己亲手制造。正解 `logger.exception()`；判据 `test_trace_write_failure_is_sideline` 当场抓到。
+2. **`--keep` 差点等于没 keep**：`user_session()` 非请求上下文「只关闭不提交」（#1640 口径），不显式 `db.commit()` 的写入在 close 时静默丢弃——而报告靠**同事务 flush 查询**照常输出，症状只在复跑 `--list` 时才暴露。教训：写入型脚本必须显式提交，**「查询可见」不等于「事务会提交」**。
+
+### 你学什么（0.5h，读三处 + 答三问）
+
+- 读：`agent_loop.py` 的 `_write_trace` 与五个出口、`tests/agent_eval/cases.yaml`、`scripts/agent_eval.py` 的报告段。
+- 答：
+  1. trace 记哪些字段，为什么参数要脱敏截断？`guard_hits` 与 `blocked` 的分工是什么？
+  2. 静态判据（CI）与真链路跑批（本地）为什么必须分层？合一会出什么问题？
+  3. 首跑 28/30 的两条 bad case，归因链怎么走？为什么改的是用例而不是 prompt？
+
+---
+
+*后续步骤卡（#8 = G5 配额迁表（先过四问留痕）→ G6 → #1714 → S5 协议层……）完成时追加。*
 
