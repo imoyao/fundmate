@@ -7,7 +7,7 @@ from datetime import date, datetime
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import QueuePool
 
 import app.domains.assets.models  # noqa: F401
 import app.domains.families.models  # noqa: F401
@@ -30,9 +30,44 @@ from app.domains.transactions.models import Transaction
 from app.main import create_app
 
 
+def _make_file_engine(db_path):
+    """测试库引擎：**临时文件库**，连接与事务模型与生产同构（#1721）。
+
+    为什么不用 StaticPool（全进程单连接，原实现）：B 会话 ``close()`` 归还连接时的
+    reset（rollback）会把 A **未提交**的事务连带回滚——生产各 Session 走池中独立
+    连接、只回滚自己的事务，此现象不可能发生。S2（PR #1716）实测假阳性：
+    ``StaleDataError: UPDATE agent_session matched 0 row(s)``。
+
+    三步探索（实测踩过，勿回退）：
+    1. shared-cache 内存 URI（``?mode=memory&cache=shared``）：连接独立了，但
+       shared-cache 是**表级锁**——A 未提交写持表锁时，B 读同表立即
+       ``OperationalError: database table is locked``（不排队等；测试里
+       "A 持未提交写 + B 读" 是常态）→ 弃用；
+    2. 裸 ``file:`` URL 过不了 SQLAlchemy ``make_url`` 解析；
+    3. URL 含 ``mode=memory`` 时方言判为内存库、默认 SingletonThreadPool（同线程
+       复用同一连接，等于没改）；文件库方言默认 QueuePool，此处**显式**写出防漂移。
+
+    故最终形态 = 每测试一个临时文件（``tmp_path``，天然隔离、用完即删）+ 显式
+    QueuePool（每 Session 独立连接、独立事务）。
+
+    为什么不设 WAL（对齐生产的第 4 个坑，实测）：引擎创建后立刻
+    ``PRAGMA journal_mode=WAL`` 会给**每个用例 ×2 引擎**多出一次文件打开（全量
+    3800+ 次），47 分钟全量实测偶发 2 例 ``unable to open database file`` 直接
+    ERROR at setup；而本测试单进程串行，DELETE journal 与 WAL 的锁并发差异为零，
+    **连接/事务模型才是本卡要对齐的核心**——不值得为 WAL 买失败面。
+
+    判据：``tests/core/test_session_connection_model.py`` 两个用例是本模型的回归保护，
+    「他处 close 不得回滚我的未提交写」恒绿。
+    """
+    url = f'sqlite:///{db_path.as_posix()}'
+    # 注意不在这里做任何额外文件操作（如 PRAGMA WAL）——见 docstring 第 4 坑：
+    # 引擎创建保持惰性，首次查询才开文件，避免 setup 阶段偶发打开失败。
+    return create_engine(url, connect_args={'check_same_thread': False, 'timeout': 5}, poolclass=QueuePool)
+
+
 @pytest.fixture
-def app(monkeypatch):
-    test_engine = create_engine('sqlite:///:memory:', connect_args={'check_same_thread': False}, poolclass=StaticPool)
+def app(monkeypatch, tmp_path):
+    test_engine = _make_file_engine(tmp_path / '_fixture_app.db')
     TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
     monkeypatch.setattr('app.core.database.engine', test_engine)
@@ -46,7 +81,7 @@ def app(monkeypatch):
     # 双库架构支持：reconciliation 等 user 域表经 user_session 访问。
     # 测试需把 user_session 与 get_db(SessionLocal) 指向同一内存库，保证测试数据可见；
     # market 域会话保持独立内存库，满足「user/market 分库」断言（test_db_data_domain）。
-    market_engine = create_engine('sqlite:///:memory:', connect_args={'check_same_thread': False}, poolclass=StaticPool)
+    market_engine = _make_file_engine(tmp_path / '_fixture_market.db')
     TestMarketSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=market_engine)
     import app.core.db_factory as _db_factory
 
@@ -59,6 +94,10 @@ def app(monkeypatch):
     app = create_app()
     app.config['TESTING'] = True
     yield app
+    # #1721：归还文件库全部连接（文件由 tmp_path 统一清理；不 dispose 会在进程内
+    # 累积每测试 2 个引擎 × 池连接数的句柄）。
+    test_engine.dispose()
+    market_engine.dispose()
 
 
 @pytest.fixture

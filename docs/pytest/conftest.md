@@ -25,6 +25,45 @@ conftest.py 配置 fixture 注意事项
 * 不同目录可以有自己的 conftest.py，一个项目中可以有多个 conftest.py
 * 测试用例文件中不需要手动 import conftest.py，pytest 会自动查找
 
+## 测试库连接模型（#1721，本仓特有）
+
+本仓 `backend/tests/conftest.py` 的 `app` fixture 用**临时文件库**（`tmp_path/_fixture_*.db`）
++ 显式 `QueuePool`，使每个 Session 走独立连接、独立事务——连接/事务模型与生产（文件
+SQLite + QueuePool）同构。
+
+**为什么不用 `StaticPool`（原实现，全进程单连接）**：B 会话 `close()` 归还连接时的
+reset（rollback）会把 A **未提交**的事务连带回滚；生产各 Session 各持连接、只回滚自己的
+事务，此现象不可能发生。S2（PR #1716）实测假阳性：`StaleDataError: UPDATE agent_session
+matched 0 row(s)`——根因是"未提交的行被他处 close 连带回滚"，后续 UPDATE 匹配 0 行。
+
+**四个踩过的坑（勿回退，实测记录）**：
+
+1. shared-cache 内存 URI（`?mode=memory&cache=shared`）：连接独立了，但 shared-cache 是
+   **表级锁**——A 未提交写持表锁时，B 读同表立即 `OperationalError: database table is
+   locked`（不排队等待），而"A 持未提交写 + B 读"在测试里是常态；
+2. 裸 `file:` 开头的 URL 过不了 SQLAlchemy `make_url` 解析（须写 `sqlite:///file:...`
+   形式）；
+3. URL 含 `mode=memory` 时方言判为内存库、默认给 `SingletonThreadPool`（同线程复用同一
+   连接，等于没改）——文件库方言默认才是 `QueuePool`，此处显式写出防漂移；
+4. 引擎创建后跑 `PRAGMA journal_mode=WAL`（想对齐生产的 WAL）会给每个用例 ×2 引擎多一次
+   文件打开（全量 3800+ 次），47 分钟全量实测偶发 2 例 `unable to open database file`
+   直接 ERROR at setup——单进程串行测试下 DELETE journal 与 WAL 的锁差异为零，不值得为
+   对齐买失败面，故引擎保持惰性（首次查询才开文件）。
+
+**另一个坑**：fixture 建的文件名必须带 `_fixture_` 前缀（`_fixture_app.db` /
+`_fixture_market.db`）——`clean_db(app)` 是 **autouse**（每个用例都会创建这两个文件），
+而部分用例在**同一个 `tmp_path`** 下自建 `market.db` / `user.db`（如
+`tests/core/test_db_data_domain.py`），同名同路径会让 fixture 落盘的表污染用例自建库，
+表现为 `get_table_names()` 比预期集合多出一批表。
+
+**判据（回归保护，恒绿才算此模型成立）**：`backend/tests/core/test_session_connection_model.py`
+的两个用例——"他处 close 不得回滚我的未提交写"。新写涉及会话行的用例时**不需要**再逐个
+手工"先提交会话行"。
+
+**本地磁盘提示**：`tmp_path` 默认落在系统盘 TEMP。系统盘空间耗尽时症状是
+`OperationalError: database or disk is full`（大量用例集体 ERROR）——此时把临时根指到大盘：
+`PYTEST_DEBUG_TEMPROOT=<大盘>:\pytest_tmp`（CI/Linux 无需此步）。
+
 ## 参考文档
 
 1. [Pytest 系列(2-3)-conftest 详解 - 我是小菜鸡丫丫 - 博客园](https://www.cnblogs.com/kxtomato/p/16600613.html)
