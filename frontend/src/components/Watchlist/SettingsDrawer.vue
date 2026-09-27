@@ -308,11 +308,14 @@
             </p>
           </div>
         </div>
-        <el-segmented
-          :model-value="refreshInterval"
-          size="small"
+        <!-- 刷新频率：SegmentedControl small + block 档（design.md「Segmented」唯一实现，
+             见 docs/design/components.md）；block 让 4 档均分铺满抽屉宽度 -->
+        <SegmentedControl
+          :model-value="refreshInterval ?? DEFAULT_REFRESH_INTERVAL"
           :options="intervalOptions"
-          class="refresh-segmented w-full"
+          size="small"
+          block
+          aria-label="实时估值刷新频率"
           @change="onRefreshIntervalChange"
         />
       </div>
@@ -326,11 +329,13 @@ import { ElMessage } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { useSupabaseAuth } from "@/composables/useSupabaseAuth";
 import {
+  DEFAULT_REFRESH_INTERVAL,
   REFRESH_INTERVAL_OPTIONS,
   type RefreshInterval
 } from "@/composables/useRealtimeQuotes";
 import type { WatchlistColumnVisibility } from "@/composables/useWatchlistColumnVisibility";
 import ColumnSettingsModal from "@/components/Watchlist/ColumnSettingsModal.vue";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 
 const { hasPendingExploreData, manualMigrate } = useSupabaseAuth();
 
@@ -409,69 +414,5 @@ const onRefreshIntervalChange = (value: string | number | boolean) => {
 :deep(.el-button--primary:active) {
   box-shadow: none !important;
   transform: translateY(1px) scale(0.96);
-}
-
-/* ======================================
-   刷新频率 segmented：与 watchlist 页 refresh-segmented 统一胶囊语言
-   （design.md：分段控制器胶囊化，选中态软按钮 --brand-100/--brand-700）
-   注意：class 挂在 el-segmented 根元素上，根样式必须直接写 .refresh-segmented，
-   不能用后代选择器（曾因 .refresh-segmented :deep(.el-segmented) 匹配不到
-   根元素导致轨道样式静默失效，见 WatchlistSummaryBar 同款修复）
-   ====================================== */
-.refresh-segmented {
-  height: 24px;
-  padding: 2px;
-  background-color: var(--bg-soft);
-  border-radius: var(--radius-pill);
-  box-shadow: none;
-}
-
-/* item 均分铺满整行（方案 B）：EP 默认 group/item 不拉伸，需显式声明
-   group 100% 宽 + item flex:1，4 档均分、文字居中 */
-.refresh-segmented :deep(.el-segmented__group) {
-  display: flex;
-  width: 100%;
-}
-
-.refresh-segmented :deep(.el-segmented__item) {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  justify-content: center;
-  height: 20px;
-  padding: 0 10px;
-  font-size: 12px;
-  line-height: 20px;
-  color: var(--text-secondary);
-  border-radius: var(--radius-pill);
-  transition:
-    background-color 150ms ease,
-    color 150ms ease;
-}
-
-.refresh-segmented :deep(.el-segmented__item:hover) {
-  color: var(--text-primary);
-}
-
-.refresh-segmented :deep(.el-segmented__item.is-selected) {
-  color: var(--brand-700);
-  background-color: var(--brand-100);
-  box-shadow: none;
-}
-
-.refresh-segmented :deep(.el-segmented__item.is-selected:hover) {
-  background-color: var(--brand-200);
-}
-
-/* EP 选中态背景是独立子元素（默认白底+阴影），一并覆盖为品牌软按钮色 */
-.refresh-segmented :deep(.el-segmented__item-selected) {
-  background-color: var(--brand-100);
-  border-radius: var(--radius-pill);
-  box-shadow: none;
-}
-
-.refresh-segmented
-  :deep(.el-segmented__item.is-selected:hover .el-segmented__item-selected) {
-  background-color: var(--brand-200);
 }
 </style>

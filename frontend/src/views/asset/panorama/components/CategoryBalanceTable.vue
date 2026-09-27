@@ -265,7 +265,7 @@ function goToInventory(categoryKey: string) {
   gap: 4px;
 }
 
-/* 资产端/负债端切换按钮：胶囊形（与下方 el-tag/el-segmented 的胶囊风格统一）。
+/* 资产端/负债端切换按钮：胶囊形（与下方 el-tag/分段控制器的胶囊风格统一）。
    原 4px 圆角已提升为 9999px；下方独立的 .balance-btn 重复块已合并到此处，
    见 design.md 胶囊规范。 */
 .balance-btn {

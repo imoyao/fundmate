@@ -25,6 +25,7 @@ title: 组件使用规范（设计语言实现层）
 - `TemperatureGaugeCard` — 温度环形卡（探市 / 温度计 / 达报三页复用）
 - `TemperatureContextCard` — 温度上下文解读卡
 - `PageHeaderBar` — 页面统一页头
+- `SegmentedControl` — 分段控制器（多选一、选项少 2–6 的视图 / 维度 / 档位切换，`default` / `small` 两档 + `block` 铺满；#1717 收敛，禁再用 `el-segmented` 或页面自写 `.xxx-segmented` 样式块，见 `frontend/design.md`「Segmented（分段控制器）」）
 - `PageFooter` / `MarketFooter` — 探市 / 温度计页脚
 - `Superellipse` — 品牌 n=3 超椭圆容器（logo / 头像 / 卡片普适轮廓，禁各处手写圆角或 polygon 轮廓）
 - 全站页脚：`frontend/src/layout/components/lay-footer/index.vue`

@@ -551,7 +551,7 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 > **核心原则**：投资列表数据通常需要多维交叉筛选，为降低认知负荷，筛选逻辑统一**强制降维到两级**。
 
 1. **两级筛选架构**：
-   - **一级筛选（主维度）**：如"资产类型（全部/场内/场外）"或"资产类别（全部/股票/基金）"。使用 **胶囊分段控制器** 平铺在顶部栏（圆角 `--radius-pill`，字体 `--text-label`，选中态实心 `--brand-700`）。
+   - **一级筛选（主维度）**：如"资产类型（全部/场内/场外）"或"资产类别（全部/股票/基金）"。使用 `SegmentedControl` 的 **`default` 档** 平铺在顶部栏（胶囊 `--radius-pill`，字体 `--text-label`，选中态为软按钮 `--brand-100` 底 + `--brand-700` 字，见下节「Segmented（分段控制器）」）。
    - **二级筛选（状态/子维度）**：如"持有状态（全部/持仓/观察中/已清仓）"或"自定义分组"。**严禁将此维度放在左侧边栏**。必须将其转化为 **`水平滑动胶囊栏 (Horizontal Scroll Capsules)`**，紧贴在一级筛选栏下方。超出容器宽度时支持触控/鼠标滚轮横向滑动，严禁强制换行挤压表格空间。
 
 2. **去冗余原则**：明确各筛选维度的交集逻辑，**禁止在列表上方同时出现"全部/股票/基金"与"场内/场外"等语义重叠的筛选层**，统一整合进两级筛选架构中。
@@ -573,18 +573,34 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 
 > **编码红线**：tab 选中态属「软按钮」语义（已选中/候补操作），允许引用 `--brand-*`；涨跌数字仍必须走 `--color-rise` / `--color-fall`。分组/标签色为用户数据（非设计令牌），缺失回退中性 token（`--text-tertiary`）并注释「数据色例外」。
 
-### Segmented（分段控制器，小尺寸）
+### Segmented（分段控制器）
 
-刷新频率（15s/30s/60s/90s）等工具型选项使用 `size="small"` 的 el-segmented，统一 `refresh-segmented` 胶囊样式（2026-08-15 落地，watchlist 页与设置抽屉 SettingsDrawer 双处一致）：
+「多选一、选项少（2–6）」的视图 / 维度 / 档位切换统一走 `SegmentedControl`
+（`frontend/src/components/SegmentedControl/index.vue`，#1717 收敛，2026-09-27 落地；已登记进
+`docs/design/components.md` 强制复用清单）：
 
 | 属性 | 值 |
 |------|-----|
-| 形态 | 胶囊（`--radius-pill`），高度 24px，`padding: 2px`，轨道底 `--bg-muted` |
-| 选项项 | 高 20px，`padding: 0 10px`，字号 12px，未选中 `--text-secondary`（hover `--text-primary`） |
-| 选中态 | `--brand-100` 底 + `--brand-700` 字（软按钮规范），hover 底 `--brand-200`；EP 独立子元素 `.el-segmented__item-selected` 一并覆盖，`box-shadow: none` |
+| 形态 | 胶囊（`--radius-pill`），轨道底 `--bg-soft`，`gap: 2px` |
+| `default` 档 | 轨道 32px / `padding: 3px` / 1px `--border-default` 描边；选项 26px、`padding: 0 14px`、字号 `--text-label` |
+| `small` 档 | 轨道 24px / `padding: 2px` / 无描边；选项 20px、`padding: 0 10px`、字号 12px |
+| `block` | 轨道撑满父容器 + 选项 `flex: 1` 等分（如设置抽屉的 4 档刷新频率） |
+| 未选中 | `--text-secondary` 字；hover 提到 `--text-primary` + `--bg-hover` |
+| 选中态 | `--brand-100` 底 + `--brand-700` 字 + `font-weight: 600`（软按钮规范），无边框 |
+| 禁用 | 整组 `disabled`：`--text-disabled` 字 + `not-allowed`，hover 不给底色 |
 | 过渡 | `background-color` / `color` 150ms ease |
 
-> **编码红线**：与一级筛选（design.md「Filter & Selection」）同属分段控制器语言，选中态为软按钮（允许 `--brand-*`）；仅此二处（watchlist 页内联 + SettingsDrawer）使用 `refresh-segmented` class，其余页面如需复用须先在此登记，禁止各页面自行手写分段控制器样式。
+> **轨道为何用 `--bg-soft` 而不是 `--bg-muted`**：选中底 `--brand-100`（#fff5f3）接近白色，
+> 落在冷灰轨道（`--bg-muted` #f5f7fa）上几乎不可见；暖米色轨道才能衬托出选中胶囊。
+
+> **编码红线（#1717 收紧）**：分段控制器**只有 `SegmentedControl` 一个实现**。
+> ① 禁止页面使用 `el-segmented`——其选中滑块是 JS 绝对定位的独立子元素
+> `.el-segmented__item-selected`，圆角取自 `calc(var(--el-border-radius-base) - 2px)`，与轨道 / 选项项
+> 各算各的，只覆盖其中一两个选择器就会出现「选中方块 + hover 胶囊」（#1717 实测）；且滑块初始几何是
+> 硬编码的 `left: 0; width: 10px`、真实几何由 JS 在挂载与 `modelValue` 变化后写回，配上 EP 自带的
+> `transition: all .3s`，**每次点击**都会「从上一项滑到并缩放到本项」，观感就是「点一下就闪一下」。
+> ② 禁止页面自写 `.xxx-segmented` 样式块（#1717 前已漂移出 6 种形态）。
+> 两类回潮都由静态守卫 `scripts/guard_segmented.py` 在 CI 拦截。
 
 ### Avatar（生成式头像）
 

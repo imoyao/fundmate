@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { ArrowDown, ArrowUp, Refresh } from "@element-plus/icons-vue";
 import type { RealtimeQuotesReturn } from "@/composables/useRealtimeQuotes";
 import type { ValuationSummary } from "@/utils/valuationEngine";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 
 /**
  * 自选实时估值汇总条（状态指示 + 刷新档位 + 估值数据组），从 index.vue 抽出（2026-08-20）。
@@ -74,25 +75,16 @@ const intervalOptions = [
         <!-- 刷新档位与手动刷新都只对实时轮询有意义：未开启实时时整体不渲染，
              避免点了没反应（manualRefresh 在 enabled=false 时直接 return） -->
         <template v-if="realtime.enabled.value">
-          <!-- 刷新档位：手写分段控制器（弃用 el-segmented：其 JS 绝对定位选中滑块与
-               自定义 item 尺寸错位，曾出现选中块偏高/hover 半截/文字偏上，见 OcrImportModal 同款决策）。
-               选中态仅浅红底 + 深红字；轨道用 --bg-soft 暖米色衬托 --brand-100（近白）选中底 -->
-          <div class="refresh-segmented" role="tablist" aria-label="刷新频率">
-            <button
-              v-for="opt in intervalOptions"
-              :key="opt.value"
-              type="button"
-              role="tab"
-              class="refresh-segmented__item"
-              :class="{
-                'is-active': realtime.refreshInterval.value === opt.value
-              }"
-              :aria-selected="realtime.refreshInterval.value === opt.value"
-              @click="emit('interval-change', opt.value)"
-            >
-              {{ opt.label }}
-            </button>
-          </div>
+          <!-- 刷新档位：SegmentedControl small 档（design.md「Segmented」唯一实现，
+               见 docs/design/components.md）。轨道用 --bg-soft 暖米色衬托 --brand-100
+               （近白）选中底，否则近白选中胶囊在灰轨道上不可见 -->
+          <SegmentedControl
+            :model-value="realtime.refreshInterval.value"
+            :options="intervalOptions"
+            size="small"
+            aria-label="刷新频率"
+            @change="emit('interval-change', $event)"
+          />
           <el-button
             text
             circle
@@ -239,58 +231,6 @@ const intervalOptions = [
   width: 1px;
   height: 16px;
   background-color: var(--border-subtle);
-}
-
-/* ===== 刷新档位分段控制器（手写，弃用 el-segmented） =====
-   轨道 --bg-soft 暖米色：--brand-100（#fff5f3 近白）选中底在灰轨道上不可见，
-   暖米色轨道才能衬托出选中胶囊；item 统一高度，hover/选中同一几何尺寸，
-   文字用 flex 居中（不用 line-height 撑高），杜绝「选中偏高/hover 半截/文字偏上」 */
-.refresh-segmented {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  background-color: var(--bg-soft);
-  border-radius: var(--radius-pill);
-}
-
-.refresh-segmented__item {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 20px;
-  padding: 0 10px;
-  font-size: 12px;
-  line-height: 1;
-  color: var(--text-secondary);
-  cursor: pointer;
-  background-color: transparent;
-  border: none;
-  border-radius: var(--radius-pill);
-  transition:
-    background-color 150ms ease,
-    color 150ms ease;
-}
-
-/* 原生 button 点击后收掉浏览器默认 focus 外框；键盘导航保留细描边兜底 */
-.refresh-segmented__item:focus {
-  outline: none;
-}
-
-.refresh-segmented__item:focus-visible {
-  outline: 1px solid var(--brand-400);
-  outline-offset: 1px;
-}
-
-/* hover 与选中同尺寸、同层级：仅底色深浅递进（透明 → --bg-hover → --brand-100），不再互相打架 */
-.refresh-segmented__item:hover {
-  color: var(--text-primary);
-  background-color: var(--bg-hover);
-}
-
-.refresh-segmented__item.is-active {
-  font-weight: 600;
-  color: var(--brand-700);
-  background-color: var(--brand-100);
 }
 
 /* 刷新图标按钮：无文字，loading 时由 EP 自带 loading 图标替代 */
