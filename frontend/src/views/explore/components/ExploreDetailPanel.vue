@@ -94,34 +94,26 @@
     <CardBlock class="industry-rank-section">
       <SectionHeader title="行业 / 赛道排行" :info="activeRankView.info">
         <template #action>
-          <div class="rank-switch" role="tablist" aria-label="排行分类切换">
-            <button
-              v-for="cat in RANK_CATEGORIES"
-              :key="cat.key"
-              type="button"
-              role="tab"
-              class="rank-switch__item"
-              :class="{ 'rank-switch__item--active': rankCategory === cat.key }"
-              :aria-selected="rankCategory === cat.key"
-              @click="switchCategory(cat.key)"
-            >
-              {{ cat.label }}
-            </button>
-          </div>
-          <div class="rank-switch" role="tablist" aria-label="排行视图切换">
-            <button
-              v-for="view in availableRankViews"
-              :key="view.key"
-              type="button"
-              role="tab"
-              class="rank-switch__item"
-              :class="{ 'rank-switch__item--active': rankView === view.key }"
-              :aria-selected="rankView === view.key"
-              @click="rankView = view.key"
-            >
-              {{ view.label }}
-            </button>
-          </div>
+          <!-- 排行分类 / 视图切换（#1731 收敛）：原手写 `.rank-switch` 是「D13 果冻胶囊」外观
+               （透明底 + 1px 边框 + `style-pop` 回弹），与 SegmentedControl 语义完全重叠
+               （都是「多选一、选项少」），按 #1731 裁决收编到唯一实现。
+               布局钩子改名 `.rank-switch-slot`——旧名会让人以为控件实现还在本文件里。 -->
+          <SegmentedControl
+            class="rank-switch-slot"
+            :model-value="rankCategory"
+            :options="rankCategoryOptions"
+            size="small"
+            aria-label="排行分类切换"
+            @change="switchCategory"
+          />
+          <SegmentedControl
+            class="rank-switch-slot"
+            :model-value="rankView"
+            :options="rankViewOptions"
+            size="small"
+            aria-label="排行视图切换"
+            @change="onRankViewChange"
+          />
           <span class="rank-updated"
             >更新：{{ activeRankView.date || "暂无" }}</span
           >
@@ -185,6 +177,7 @@ import MetricCard from "@/components/MetricCard/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import TemperatureContextCard from "@/components/TemperatureContextCard/index.vue";
 import { useTemperatureOverview } from "@/composables/temperature/useTemperatureOverview";
 import { useCoreMetrics } from "@/composables/temperature/useCoreMetrics";
@@ -304,11 +297,30 @@ const switchCategory = (key: RankCategoryKey) => {
   if (key === "track") rankView.value = "crowding";
 };
 
+/** 切换排行视图（原为模板内联 `rankView = view.key`，抽成具名函数以便类型收窄） */
+const onRankViewChange = (key: RankViewKey) => {
+  rankView.value = key;
+};
+
 /** 当前分类下可用的视图（赛道仅拥挤度） */
 const availableRankViews = computed(() =>
   rankCategory.value === "track"
     ? RANK_VIEWS.filter(v => v.key === "crowding")
     : RANK_VIEWS
+);
+
+/**
+ * 排行分类 / 视图的分段选项（#1731 收敛）。
+ * 两个源常量都带额外字段（`source` / `info` / `staleTip`），只取 SegmentedControl 要的
+ * `label` + `value`，避免把业务字段漏进展示层。
+ */
+const rankCategoryOptions = RANK_CATEGORIES.map(c => ({
+  label: c.label,
+  value: c.key
+}));
+
+const rankViewOptions = computed(() =>
+  availableRankViews.value.map(v => ({ label: v.label, value: v.key }))
 );
 
 /** 分位色标图例：阈值与 crowdingColorClass 同源，避免文案与实现不一致 */
@@ -710,10 +722,11 @@ onMounted(() => {
   border-radius: 6px 6px 6px 0;
 }
 
-/* 果冻胶囊按钮组（docs/design/components.md「果冻胶囊按钮组（D13）」） */
-.rank-switch {
-  display: inline-flex;
-  gap: 6px;
+/* 排行分类 / 视图分段控制（#1731 收敛）：外观全部由 SegmentedControl `small` 档负责，
+   此处**只保留操作槽布局**（与右侧更新时间之间留 12px）。
+   原「D13 果冻胶囊」手写块（透明底 + 1px 边框 + `style-pop` 回弹 + `:active` 缩放）已删除——
+   它与 SegmentedControl 语义完全重叠，按 #1731 裁决收编。 */
+.rank-switch-slot {
   margin-right: 12px;
 }
 
@@ -743,75 +756,13 @@ onMounted(() => {
     min-width: 0;
   }
 
-  .rank-switch {
-    flex-wrap: wrap;
-    row-gap: 6px;
+  .rank-switch-slot {
     margin-right: 0; /* 独占一行时右侧不需要让位 */
   }
 }
 
-.rank-switch__item {
-  padding: 4px 14px;
-  font-size: 13px;
-  color: var(--text-tertiary-ink);
-  cursor: pointer;
-  background: transparent;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-pill);
-  transform: translateZ(0);
-  transform-origin: center;
-  transition:
-    color 0.18s ease,
-    background-color 0.18s ease,
-    border-color 0.18s ease,
-    transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
-  will-change: transform;
-}
-
-.rank-switch__item:hover {
-  color: var(--text-primary);
-  border-color: var(--brand-400);
-}
-
-.rank-switch__item:active {
-  transform: translateZ(0) scale(0.92);
-}
-
-/* 果冻回弹关键帧（docs/design/components.md「果冻胶囊按钮组（D13）」） */
-@keyframes style-pop {
-  0% {
-    transform: translateZ(0) scale(1);
-  }
-
-  30% {
-    transform: translateZ(0) scale(0.92);
-  }
-
-  60% {
-    transform: translateZ(0) scale(1.05);
-  }
-
-  80% {
-    transform: translateZ(0) scale(0.97);
-  }
-
-  100% {
-    transform: translateZ(0) scale(1);
-  }
-}
-
-.rank-switch__item:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.rank-switch__item--active {
-  color: var(--color-rise-ink);
-  background: var(--brand-100);
-  border-color: var(--brand-400);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 6%);
-  animation: style-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
+/* 排行分类 / 视图的胶囊外观与 style-pop 回弹关键帧已随 #1731 收敛删除：
+   它们与 SegmentedControl 的软按钮规范语义重叠，保留任一份都会让两套外观并存。 */
 
 /* ============================================================
    分位色标图例（#1431）
