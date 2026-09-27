@@ -49,7 +49,8 @@ const turnLimitEnvelope = {
 const structuredTurn = {
   data: {
     type: "result",
-    content: "【结论】组合整体盈利。【明细】持仓盈亏如下。【风险提示】市场波动可能使收益回撤。",
+    content:
+      "【结论】组合整体盈利。【明细】持仓盈亏如下。【风险提示】市场波动可能使收益回撤。",
     blocks: [
       { type: "summary", text: "组合整体盈利。" },
       { type: "text", text: "持仓盈亏如下。" },
@@ -156,7 +157,9 @@ test.describe("账本精灵对话页（#1121 S1-B）", () => {
     // 三类文本块按类渲染（结论 / 明细文本 / 风险提示）
     const summary = page.locator(".msg__block--summary");
     await expect(summary).toHaveText("组合整体盈利。");
-    await expect(page.locator(".msg__block--text")).toHaveText("持仓盈亏如下。");
+    await expect(page.locator(".msg__block--text")).toHaveText(
+      "持仓盈亏如下。"
+    );
     const risk = page.locator(".msg__block--risk");
     await expect(risk).toHaveText("市场波动可能使收益回撤。");
 
