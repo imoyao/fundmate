@@ -202,7 +202,9 @@ test.describe("账本精灵对话页（#1121 S1-B）", () => {
       await route.fulfill({ json: clarifyTurn });
     });
     await page.route(/\/api\/agent\/chat\/cancel\/?$/, async route => {
-      await route.fulfill({ json: { data: { session_id: "x" }, message: "ok" } });
+      await route.fulfill({
+        json: { data: { session_id: "x" }, message: "ok" }
+      });
     });
 
     await page.goto("/#/agent/chat");
