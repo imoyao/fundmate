@@ -65,8 +65,72 @@ def _make_file_engine(db_path):
     return create_engine(url, connect_args={'check_same_thread': False, 'timeout': 5}, poolclass=QueuePool)
 
 
+# ---- #1722 模板库机制（均匀慢根治：每测试省全套 DDL + init_db 重活）----
+# 首个进 app fixture 的测试走完整路径建「完成态模板」（schema + migrations + seed、
+# 零业务数据）；后续测试 shutil.copyfile 秒级落地并跳过 init_db。
+# 模板按源码指纹分目录存放（app/**.py + 本文件内容 hash），schema/迁移逻辑一变
+# 指纹即变、自动重建，杜绝「模板过期 -> 缺表假红」。
+_FINGERPRINT_CACHE = None
+
+
+def _schema_fingerprint():
+    """进程内只算一次的源码指纹——任何 app 源码或 conftest 变更都使旧模板失效。"""
+    global _FINGERPRINT_CACHE
+    if _FINGERPRINT_CACHE is None:
+        import hashlib
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1] / 'app'
+        h = hashlib.sha256()
+        for p in sorted(root.rglob('*.py')):
+            h.update(str(p.relative_to(root)).encode('utf-8'))
+            h.update(p.read_bytes())
+        h.update(Path(__file__).read_bytes())
+        _FINGERPRINT_CACHE = h.hexdigest()[:16]
+    return _FINGERPRINT_CACHE
+
+
+def _template_dir():
+    from pathlib import Path
+
+    d = Path(__file__).resolve().parents[1] / '.pytest_cache' / 'fixture_tpl' / _schema_fingerprint()
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _copy_template_into(tmp_path):
+    """模板 -> 本测试 tmp_path；无模板（首测试）返回 False。"""
+    import shutil
+
+    d = _template_dir()
+    src_app, src_market = d / 'app.db', d / 'market.db'
+    if src_app.exists() and src_market.exists():
+        shutil.copyfile(src_app, tmp_path / '_fixture_app.db')
+        shutil.copyfile(src_market, tmp_path / '_fixture_market.db')
+        return True
+    return False
+
+
+def _save_template(tmp_path):
+    """首测试完成态 -> 模板，并清理其它指纹目录（只保留当前）。
+
+    调用点必须在 create_app（init_db 完成）之后、测试体执行**之前**，且先
+    dispose 断开全部连接（回滚未提交页、确保主文件完整）——否则首测试写入的
+    业务数据会随模板污染后续所有测试。
+    """
+    import shutil
+
+    d = _template_dir()
+    shutil.copyfile(tmp_path / '_fixture_app.db', d / 'app.db')
+    shutil.copyfile(tmp_path / '_fixture_market.db', d / 'market.db')
+    for old in d.parent.iterdir():
+        if old != d and old.is_dir():
+            shutil.rmtree(old, ignore_errors=True)
+
+
 @pytest.fixture
 def app(monkeypatch, tmp_path):
+    from_template = _copy_template_into(tmp_path)
     test_engine = _make_file_engine(tmp_path / '_fixture_app.db')
     TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
@@ -88,11 +152,23 @@ def app(monkeypatch, tmp_path):
     monkeypatch.setattr(_db_factory, 'user_session_factory', lambda: TestSessionLocal)
     monkeypatch.setattr(_db_factory, 'market_session_factory', lambda: TestMarketSessionLocal)
 
-    Base.metadata.create_all(bind=test_engine)
-    Base.metadata.create_all(bind=market_engine)
+    if from_template:
+        # #1722：模板已是 create_all + init_db（10+ migrations x2 引擎 + seed）完成态，
+        # 跳过 init_db 重活（#1608 引擎为查询期解析，patch 此名即可；app 每测试仍新建，
+        # 不存在 config/路由状态跨测试泄漏）。
+        monkeypatch.setattr('app.main.init_db', lambda: None)
+    else:
+        Base.metadata.create_all(bind=test_engine)
+        Base.metadata.create_all(bind=market_engine)
 
     app = create_app()
     app.config['TESTING'] = True
+    if not from_template:
+        # 首测试：完成态即模板——必须在测试体写入任何业务数据之前，
+        # 且先 dispose 断开连接（回滚未提交页）再复制，否则脏数据污染全部后续测试。
+        test_engine.dispose()
+        market_engine.dispose()
+        _save_template(tmp_path)
     yield app
     # #1721：归还文件库全部连接（文件由 tmp_path 统一清理；不 dispose 会在进程内
     # 累积每测试 2 个引擎 × 池连接数的句柄）。
