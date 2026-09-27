@@ -2,9 +2,15 @@
 
 import warnings
 
+import pytest
+
 warnings.filterwarnings('ignore')  # 暂时忽略 SyntaxWarning 等
 
 import xalpha as xa  # noqa: E402
+
+# #1722：整文件为联网冒烟（xalpha 直连基金/指数数据源，无断言），默认快集
+# `-m "not slow"` 排除（本地日常 / CI 同口径）；提交前全量或单独跑时不受影响。
+pytestmark = pytest.mark.slow
 
 
 def test_fund_info():
