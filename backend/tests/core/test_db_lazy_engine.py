@@ -31,17 +31,37 @@ print('LAZY-OK')
 """
 
 
-def test_import_does_not_build_engines():
-    """核心验收：user 域驱动缺失时，导入 + market 域入口仍可用（旧实现在此崩溃）。"""
-    backend_dir = Path(__file__).resolve().parents[2]
-    env = {
+def _probe_env(backend_dir: Path, *, app_db_url: str) -> dict:
+    """构造子进程探针的环境变量：**必须显式**把 TURSO_DATABASE_URL 指向本地 SQLite（#1727）。
+
+    为什么不能「从 env 里删掉它」：探针把 ``os.environ`` 整份交给子进程，而子进程
+    ``import app.main`` 时会再跑一次 ``load_dotenv()``，把 ``backend/.env`` 里的真实
+    ``turso://…`` **回填**回来——所以删除在中和这件事上无效，必须显式给值。
+
+    不中和的后果（#1727 实测）：本机 ``.env`` 带 ``TURSO_DATABASE_URL`` 时，
+    ``APP_ENV=production`` 让 market 域路由到 turso（``_normalize_db_url`` 归一为
+    ``sqlite+libsql://``），而 Windows 装不了 ``sqlalchemy-libsql``（``pyproject`` 的
+    ``sys_platform != "win32"`` 平台标记）→ 探针在 ``create_engine`` 处抛
+    ``NoSuchModuleError``，与它真正要验证的「引擎惰性构造」毫无关系。
+
+    把两个 URL 都指向同一个本地 SQLite 文件：探针只需一个可用的 market 域引擎，
+    并不想验证「缺 turso 时回退 DATABASE_URL」（那是 test_db_factory 的职责）。
+    """
+    return {
         **os.environ,
         'APP_ENV': 'production',
-        'DATABASE_URL': 'sqlite:///./_lazy_probe.db',
+        'DATABASE_URL': app_db_url,
+        'TURSO_DATABASE_URL': app_db_url,  # #1727 显式中和，理由见本函数 docstring
         # 故意指向本环境必然未安装的 DBAPI：改造前 import 即 ModuleNotFoundError
         'SUPABASE_DATABASE_URL': 'postgresql+pg8000://user:pwd@host/db',
         'PYTHONPATH': str(backend_dir),
     }
+
+
+def test_import_does_not_build_engines():
+    """核心验收：user 域驱动缺失时，导入 + market 域入口仍可用（旧实现在此崩溃）。"""
+    backend_dir = Path(__file__).resolve().parents[2]
+    env = _probe_env(backend_dir, app_db_url='sqlite:///./_lazy_probe.db')
     proc = subprocess.run(
         [sys.executable, '-c', _LAZY_PROBE],
         cwd=backend_dir,
@@ -126,14 +146,8 @@ def test_missing_user_driver_survives_session_and_market_query(tmp_path):
     且被请求的域恰是 user）。故本用例在旧实现上**必红**，是本卡的核心回归。
     """
     backend_dir = Path(__file__).resolve().parents[2]
-    env = {
-        **os.environ,
-        'APP_ENV': 'production',
-        # tmp_path 是绝对路径，避免相对路径在不同 cwd 下落错位置
-        'DATABASE_URL': f'sqlite:///{(tmp_path / "session_probe.db").as_posix()}',
-        'SUPABASE_DATABASE_URL': 'postgresql+pg8000://user:pwd@host/db',
-        'PYTHONPATH': str(backend_dir),
-    }
+    # tmp_path 是绝对路径，避免相对路径在不同 cwd 下落错位置
+    env = _probe_env(backend_dir, app_db_url=f'sqlite:///{(tmp_path / "session_probe.db").as_posix()}')
     proc = subprocess.run(
         [sys.executable, '-c', _SESSION_LAZY_PROBE],
         cwd=backend_dir,
