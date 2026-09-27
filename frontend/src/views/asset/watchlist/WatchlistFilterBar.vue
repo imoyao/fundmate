@@ -8,6 +8,7 @@ import type { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import type { useWatchlistTags } from "@/composables/useWatchlistTags";
 import type { WatchlistToolbarState } from "@/composables/useWatchlistData";
 import { assetTypeLabel } from "@/composables/useEnumLabels";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import FilterGroupTabs from "@/views/asset/watchlist/components/FilterGroupTabs.vue";
 import FilterPanelPopover from "@/views/asset/watchlist/components/FilterPanelPopover.vue";
 
@@ -167,23 +168,14 @@ const addDialogVisible = ref(false);
         <div class="right-divider" />
 
         <!-- 类型快捷 segmented：全部 / 股票 / 基金 / ETF / 可转债（单选覆盖式）。
-             手写分段控制器（弃用 el-segmented：JS 绝对定位滑块与自定义尺寸错位，
-             见 OcrImportModal 同款决策）；选中态仅浅红底 + 深红字。
+             收敛到 SegmentedControl（design.md「Segmented」唯一实现，见 docs/design/components.md）。
              与「筛选」Popover 多选正交：此处单维度快速切换，组合仍走 Popover。 -->
-        <div class="type-segmented" role="tablist" aria-label="类型快捷筛选">
-          <button
-            v-for="opt in TYPE_SEGMENTED_OPTIONS"
-            :key="opt.value"
-            type="button"
-            role="tab"
-            class="type-segmented__item"
-            :class="{ 'is-active': quickActive === opt.value }"
-            :aria-selected="quickActive === opt.value"
-            @click="selectQuickType(opt.value)"
-          >
-            {{ opt.label }}
-          </button>
-        </div>
+        <SegmentedControl
+          :model-value="quickActive"
+          :options="TYPE_SEGMENTED_OPTIONS"
+          aria-label="类型快捷筛选"
+          @change="selectQuickType"
+        />
 
         <!-- 复杂筛选入口 + 弹层（拆分见 FilterPanelPopover） -->
         <FilterPanelPopover
@@ -314,61 +306,5 @@ const addDialogVisible = ref(false);
   color: var(--brand-700);
   background-color: var(--bg-hover);
   border-color: var(--brand-400);
-}
-
-/* ===== 类型快捷分段控制器（全部/股票/基金/ETF/可转债）：手写，弃用 el-segmented =====
-   与分组 tab 同高（轨道 32px）；item 统一几何尺寸，hover/选中仅底色深浅递进，
-   文字 flex 居中；选中态仅浅红底 + 深红字，无边框 */
-.type-segmented {
-  display: flex;
-  gap: 2px;
-  height: 32px;
-  padding: 3px;
-  background-color: var(--bg-soft);
-
-  /* 轨道补 1px 描边：与筛选入口按钮、面板内胶囊统一「构件边界」语言，
-     避免一整条筛选带里只有分段控制器没有边界、显得糊在卡片底色上（2026-09-11）。
-     注意：只在**轨道**上加描边；选中项仍保持「浅红软底 + 深红字、无边框」不变。 */
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-pill);
-}
-
-.type-segmented__item {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 26px;
-  padding: 0 14px;
-  font-size: var(--text-label);
-  line-height: 1;
-  color: var(--text-secondary);
-  cursor: pointer;
-  background-color: transparent;
-  border: none;
-  border-radius: var(--radius-pill);
-  transition:
-    background-color 150ms ease,
-    color 150ms ease;
-}
-
-/* 原生 button 点击后收掉浏览器默认 focus 外框；键盘导航保留细描边兜底 */
-.type-segmented__item:focus {
-  outline: none;
-}
-
-.type-segmented__item:focus-visible {
-  outline: 1px solid var(--brand-400);
-  outline-offset: 1px;
-}
-
-.type-segmented__item:hover {
-  color: var(--text-primary);
-  background-color: var(--bg-hover);
-}
-
-.type-segmented__item.is-active {
-  font-weight: 600;
-  color: var(--brand-700);
-  background-color: var(--brand-100);
 }
 </style>

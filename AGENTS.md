@@ -186,6 +186,7 @@
 - **登录**：Supabase Auth（`@supabase/supabase-js`），后端校验 JWT；登录/登出/路由守卫已配置。
 - **新增页面路由**：`src/views/` 下的组件**不会**自动成路由，须在 `src/router/modules/` 新建模块文件注册（参考 `modules/agent.ts`，含 `meta.requiresAuth` 等）。
 - **设计语言**：亮色 `frontend/design.md`，暗色 `design.dark.md`，**禁止硬编码 hex 色值**，必须使用 CSS 变量（`--color-rise`/`--color-fall` 等）。
+- **强制复用组件**：清单在 `docs/design/components.md`（`SectionHeader` / `CardBlock` / `MetricCard` / `SegmentedControl` / `PageHeaderBar` 等），**禁止各页面重写同类结构**。其中**分段控制器只有 `SegmentedControl` 一个实现**：禁止页面再用 `el-segmented`（其选中滑块是 JS 绝对定位的独立子元素，几何与轨道各算各的，且带 `transition: all .3s`，每次点击都滑动/缩放一次——#1717 的根因），也禁止页面自写 `.xxx-segmented` 样式块。静态守卫 `scripts/guard_segmented.py`（并入 `layout_guard` job）拦截这两类回潮；其边界是**只拦 `-segmented` 命名**，`role="tablist"` 但另起名字的手写按钮组不在其内。
 
 ### 常用前端命令（`cd frontend`）
 

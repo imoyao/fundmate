@@ -199,6 +199,11 @@ jobs:
       - name: 扫描裸断点媒体查询
         run: python scripts/guard_breakpoints.py
 
+      # 分段控制器守卫（#1717）：禁止再挂 el-segmented / 页面自写 .xxx-segmented 样式块。
+      # 与上两条同属「前端设计语言回潮」一类，故并入本 job 而不另起 job（不新增 job 就不必改 gate.needs）。
+      - name: 扫描分段控制器回潮
+        run: python scripts/guard_segmented.py
+
   # 乱码守卫（mojibake）：防止任何绕过本地 pre-commit 钩子的提交（--no-verify、
   # 或经 gh api / MCP 直推导致本地钩子不执行）把 GBK 乱码合进 PR。
   # 扫描 PR 变更的全部文本类型文件 + 逐提交校验中文提交信息（两层兜底）。
