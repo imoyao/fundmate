@@ -135,7 +135,7 @@ ai_recognizer/
 | G4 | `repeat_tracker.py` C 会话内重复检测 | 归一化问答 + N 次阈值 + 标准话术 | 已实施（PR #1729：进程内 dict + 锁 + 会话数上限，多实例迁移随 #1294） |
 | G5 | `guards.py` 扩展 per-user token 配额（I1） | 配额表 + 网关拦截，解决多实例击穿 | 待实施（需新表，须过数据准入四问留痕后另开卡） |
 | G6 | `registry.py` 引入意图路由 | A 前置分类驱动对话精灵路由 | 待实施 |
-| G7 | system prompt 注入 L1 数据真实性铁律 + can/cannot 清单 | 复用同花顺原文 | 待实施（排 #1725 合并后做，避开 `agent_loop.py` prompt 区冲突） |
+| G7 | system prompt 注入 L1 数据真实性铁律 + can/cannot 清单 | 复用同花顺原文 | 已实施（PR #1730，2026-09-27：常量 `_L1_DATA_TRUTH` 注入决策轮 + 叙事轮两处；清单符号改纯文本「能 / 不能」防 Emoji 诱导，语义逐条对齐 §4） |
 
 > 待用户拍板的前置项（见备忘 Open Questions）：Q1 实时行情收口（前端 JSONP vs 后端代理）影响持仓查询工具的数据可得性；Q3 四个功能优先级；Q4 是否引入 LangGraph（倾向扩展现有架构）。本护栏层设计与上述决策正交，可先独立落地。
 
