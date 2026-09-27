@@ -21,3 +21,13 @@ class AgentChatRequest(BaseModel):
     message: str = Field(..., description='本轮用户输入')
     session_id: Optional[str] = Field(default=None, description='会话 id（服务端生成；首轮不传，之后回带响应值）')
     goal: Optional[str] = Field(default=None, description='分析目标（仅新建会话时生效），缺省用默认目标')
+
+
+class AgentCancelRequest(BaseModel):
+    """POST /api/agent/chat/cancel/ 请求体（#1714 协作式取消）.
+
+    标志为一次性：由 run_agent 入口 / finally 清理；无在跑轮次时设置的标志
+    由下一次对话入口清掉（见 ai_recognizer/cancellation.py 生命周期说明）。
+    """
+
+    session_id: str = Field(..., description='要取消的会话 id')
