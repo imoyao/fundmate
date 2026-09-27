@@ -186,4 +186,44 @@ test.describe("账本精灵对话页（#1121 S1-B）", () => {
     // 原始 content 里的契约标记不外显（结构化态只渲染块，不再整段回显文本）
     await expect(page.getByText(/【结论】/)).toHaveCount(0);
   });
+
+  test("停止按钮（#1714 L1）：abort 后 UI 即刻回空闲，无错误气泡，可立即再发", async ({
+    page,
+    context,
+    baseURL
+  }) => {
+    await injectSupabaseSession(context, baseURL!);
+
+    // 第一轮 chat 请求挂起不响应（abort 后 playwright 连接即弃）；之后正常应答
+    let calls = 0;
+    await page.route(/\/api\/agent\/chat\/?$/, async route => {
+      calls += 1;
+      if (calls === 1) return;
+      await route.fulfill({ json: clarifyTurn });
+    });
+    await page.route(/\/api\/agent\/chat\/cancel\/?$/, async route => {
+      await route.fulfill({
+        json: { data: { session_id: "x" }, message: "ok" }
+      });
+    });
+
+    await page.goto("/#/agent/chat");
+    await page.getByPlaceholder(/Enter 发送/).fill("第一轮会挂起的提问");
+    await page.getByRole("button", { name: "发送" }).click();
+
+    // 思考态出现停止按钮 → 点停止 → UI 即刻回空闲（输入框恢复可用）
+    const stopBtn = page.getByRole("button", { name: "停止" });
+    await expect(stopBtn).toBeVisible();
+    await stopBtn.click();
+    await expect(stopBtn).toHaveCount(0);
+    await expect(page.getByPlaceholder(/Enter 发送/)).toBeEnabled();
+    // 不弹错误气泡（CanceledError 与超时 / 失败分流；超时文案同为 0 条）
+    await expect(page.getByText("请求失败")).toHaveCount(0);
+    await expect(page.getByText(/请求超时/)).toHaveCount(0);
+
+    // 幂等：停止后立即正常发送下一轮（服务端该轮从未发生，session 状态干净）
+    await page.getByPlaceholder(/Enter 发送/).fill("帮我看下近30天的收益");
+    await page.getByRole("button", { name: "发送" }).click();
+    await expect(page.getByText(/6位基金代码/)).toBeVisible();
+  });
 });

@@ -20,13 +20,14 @@ S2 契约演化（#1121 步骤卡 #4 文档化，同 PR 已同步前端 / 测试
 
 from apiflask import APIBlueprint
 from flask import g, jsonify, request
+from loguru import logger
 
 from app.core import database  # 晚绑定：属性在调用时解析（#1608）
 from app.core.auth import get_family_id
 from app.core.exceptions import SBException
 from app.core.validation import parse_body
-from app.domains.agent.schemas import AgentChatRequest
-from app.services.ai_recognizer import guards, session_store
+from app.domains.agent.schemas import AgentCancelRequest, AgentChatRequest
+from app.services.ai_recognizer import cancellation, guards, session_store
 from app.services.ai_recognizer.agent_loop import run_agent
 
 agent_bp = APIBlueprint('agent', __name__, url_prefix='/api/agent')
@@ -64,6 +65,26 @@ def agent_chat():
             server_ctx={'family_id': get_family_id()},
         )
     return jsonify({'data': out, 'message': 'ok'})
+
+
+@agent_bp.post('/chat/cancel/', strict_slashes=False)
+def agent_chat_cancel():
+    """标记会话取消（#1714 L2）：正在跑的 run_agent 在下一检查点提前收尾.
+
+    协作式取消的语义边界：单次模型 HTTP 调用发出即不可中断，能停的是
+    「下一步要不要继续」——本端点只置位，检查点在 run_agent 的轮与轮 /
+    工具与工具之间（见 ai_recognizer/cancellation.py 与 agent_loop）。
+
+    零成本端点：不进限流 / 熔断 / 预算闸（不发模型调用），但登录与归属校验
+    （get_owned，404 口径与 chat 同源，防越权探测）一个不少。
+    """
+    user_id = _current_user_id()
+    payload = parse_body(AgentCancelRequest)
+    with database.user_session() as db:
+        session_store.get_owned(db, session_id=payload.session_id, user_id=user_id)
+    cancellation.request_cancel(payload.session_id)
+    logger.info('[agent.cancel] 收到取消请求，session={}', payload.session_id)
+    return jsonify({'data': {'session_id': payload.session_id}, 'message': 'ok'})
 
 
 @agent_bp.get('/sessions/', strict_slashes=False)

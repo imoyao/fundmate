@@ -134,7 +134,19 @@
             </span>
             <span class="msg__role">账本精灵</span>
           </div>
-          <div class="msg__bubble msg__bubble--pending">分析中</div>
+          <!-- 停止按钮（#1714 L1）：abort 断请求 + fire-and-forget 通知服务端检查点收尾 -->
+          <div class="msg__pending-row">
+            <div class="msg__bubble msg__bubble--pending">分析中</div>
+            <button
+              type="button"
+              class="msg__stop"
+              :disabled="stopping"
+              @click="stopPending"
+            >
+              <el-icon><VideoPause /></el-icon>
+              停止
+            </button>
+          </div>
         </div>
       </div>
 
@@ -192,12 +204,13 @@ import {
   MagicStick,
   Sunny,
   TrendCharts,
+  VideoPause,
   WarningFilled,
   Wallet
 } from "@element-plus/icons-vue";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import SessionHistory from "./components/SessionHistory.vue";
-import { agentChat, getAgentSession } from "@/api/agent";
+import { agentCancel, agentChat, getAgentSession } from "@/api/agent";
 import type { AgentBlock, AgentTableColumnKind, AgentTurn } from "@/api/agent";
 import { formatAmount } from "@/utils/currency";
 
@@ -223,8 +236,10 @@ const EXAMPLES = QUICK_ACTIONS.map(a => a.ask);
 const messages = ref<ChatMessage[]>([]);
 const input = ref("");
 const pending = ref(false);
+const stopping = ref(false); // 停止按钮防抖（#1714）：abort 已发出、等 catch 收尾的间隙
 const listRef = ref<HTMLElement>();
 const taRef = ref<{ focus: () => void } | null>(null);
+let abortRef: AbortController | null = null; // 本轮请求的控制器（无需响应式）
 const sessionId = ref<string | null>(null); // 服务端权威（S2）：首轮 null，后端下发后续带
 const historyOpen = ref(false); // 历史栏默认折叠（#1719）：未展开时不发任何列表请求
 const historyRefreshToken = ref(0); // 每完成一轮 / 新对话 +1，通知历史栏重拉列表
@@ -338,6 +353,19 @@ function onKeydown(e: KeyboardEvent): void {
   void send();
 }
 
+/** 停止当前分析（#1714 L1+L2）：abort 管体验（请求断开、UI 即刻回空闲），
+ * cancel 端点管服务端（检查点收尾，不再烧后续模型调用）——两层解耦，缺一不可 */
+function stopPending(): void {
+  if (!abortRef || stopping.value) return;
+  stopping.value = true;
+  if (sessionId.value) {
+    agentCancel(sessionId.value).catch(() => {
+      // fire-and-forget：取消置位失败不打扰用户（abort 已保证本地体验）
+    });
+  }
+  abortRef.abort();
+}
+
 async function send(preset?: string): Promise<void> {
   const text = (preset ?? input.value).trim();
   if (!text || pending.value) return;
@@ -345,16 +373,25 @@ async function send(preset?: string): Promise<void> {
   pushMessage({ role: "user", content: text });
 
   pending.value = true;
+  stopping.value = false;
+  const controller = new AbortController();
+  abortRef = controller;
   scrollChat();
   try {
-    const res = await agentChat({
-      message: text,
-      // S2 服务端权威会话：首轮不带 id，之后回带后端下发的 session_id，状态不落地前端
-      session_id: sessionId.value ?? undefined
-    });
+    const res = await agentChat(
+      {
+        message: text,
+        // S2 服务端权威会话：首轮不带 id，之后回带后端下发的 session_id，状态不落地前端
+        session_id: sessionId.value ?? undefined
+      },
+      controller.signal
+    );
     const turn: AgentTurn = res.data;
     sessionId.value = turn.session_id;
-    if (turn.type === "error") {
+    if (turn.type === "cancelled") {
+      // 服务端检查点收尾的取消态：该轮从未发生（不落库），无需提示气泡
+      pushMessage({ role: "assistant", content: stripEmoji(turn.content) });
+    } else if (turn.type === "error") {
       pushMessage({ role: "error", content: stripEmoji(turn.content) });
     } else if (turn.type === "result") {
       pushMessage({
@@ -370,6 +407,11 @@ async function send(preset?: string): Promise<void> {
       pushMessage({ role: "assistant", content: stripEmoji(turn.content) });
     }
   } catch (e: unknown) {
+    const err = e as { code?: string; message?: string };
+    // 用户主动停止（L1 abort）：UI 即刻回空闲，不弹错误气泡（验收 1）
+    if (err?.code === "ERR_CANCELED" || /cancel/i.test(err?.message ?? "")) {
+      return; // finally 仍执行（pending 复位等）
+    }
     // 会话失效（404：被清理 / 换端）→ 落回新开会话，下一条消息自动重建
     if ((e as { response?: { status?: number } })?.response?.status === 404) {
       sessionId.value = null;
@@ -378,6 +420,8 @@ async function send(preset?: string): Promise<void> {
     if (msg) pushMessage({ role: "error", content: msg });
   } finally {
     pending.value = false;
+    stopping.value = false;
+    abortRef = null;
     taRef.value?.focus();
     historyRefreshToken.value += 1; // 会话有了新轮次，历史栏重拉（面板关闭时也只是白拉一次）
   }
@@ -723,6 +767,39 @@ function resetSession(): void {
   margin: var(--space-2) 0 0;
   font-size: var(--text-label);
   color: var(--text-tertiary);
+}
+
+// 思考态行：气泡 + 停止按钮（#1714）并排，按钮贴气泡右侧
+.msg__pending-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.msg__stop {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 5px 12px;
+  font-size: var(--text-small);
+  color: var(--text-secondary);
+  cursor: pointer;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+
+  &:hover:not(:disabled) {
+    color: var(--color-danger);
+    border-color: var(--color-danger);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
 }
 
 .msg__metrics {

@@ -46,7 +46,7 @@ from sqlalchemy.orm import object_session
 
 from app.core.exceptions import ErrorCode, SBException
 from app.domains.agent.models import AgentSession, AgentTrace
-from app.services.ai_recognizer import guards, llm, safety, session_store
+from app.services.ai_recognizer import cancellation, guards, llm, safety, session_store
 from app.services.ai_recognizer.narrative_blocks import parse_narrative_blocks
 from app.services.ai_recognizer.tools import TOOLS_METADATA, ToolExecutor
 
@@ -394,7 +394,12 @@ def run_agent(
     session: AgentSession,
     server_ctx: Optional[dict] = None,
 ) -> dict:
-    """单次对话决策：返回 clarify / result / error（三态均携带 session_id）。
+    """单次对话决策：返回 clarify / result / error / cancelled（各态均携带 session_id）。
+
+    #1714 协作式取消：本层只管取消标志的生命周期（记录本轮开始时刻 +
+    finally 回收标志），检查点与幽灵轮次语义在 _run_agent_impl 内。
+    时间戳口径见 cancellation.is_cancelled_since——旧轮残留标志对新轮不可见，
+    故不做入口 clear（那会误清「请求刚发出、用户极快点停止」的合法置位）。
 
     S2（#1121）：会话状态 / 原文 / 轮次服务端持有——本函数只操作传入的 session 行，
     不自己开会话、不 commit（conventions §2.13：HTTP 路径由 teardown_request_session
@@ -403,6 +408,20 @@ def run_agent(
     server_ctx：服务端权威上下文（HTTP 路径传 {'family_id': ...}），
     P1——工具执行时权威值覆盖候选值，缺省 None 仅用于离线直调（回退口径见 tools.py）。
     """
+    started_at = time.perf_counter()
+    try:
+        return _run_agent_impl(user_input, session, server_ctx, cancel_since=started_at)
+    finally:
+        cancellation.clear(session.session_id)  # 回收本轮消费的标志，防残留误伤后续轮
+
+
+def _run_agent_impl(
+    user_input: str,
+    session: AgentSession,
+    server_ctx: Optional[dict] = None,
+    cancel_since: float = 0.0,
+) -> dict:
+    """run_agent 主体（单轮决策 + 工具 + 叙事）；取消语义见内 _cancel_checkpoint."""
     # G3（S2 起为加载路径防线）：DB 内容同样过白名单——防脏数据，不执行任何 DB
     state: SessionState = validate_session_state(session.state or {})
     # 缺省 goal（session_store.DEFAULT_GOAL）只是**会话展示用标题**，不是分析约束。
@@ -442,6 +461,28 @@ def run_agent(
         return _record_blocked_turn(
             session, state, user_input, safety.STANDARD_REPLY.format(repeat_count), guard_hits=['repeat_tracker']
         )
+
+    # ── #1714 幽灵轮次快照：取消时恢复到「本轮从未发生」────────────────────
+    # 位置刻意在 G4 之前：护栏拦截回合同步完成且完整提交（无检查点），其前无状态修改；
+    # 快照取原引用，恢复时原样赋回 → SQLAlchemy 无净脏变化 → teardown commit 落空。
+    snap_turns = session.turn_count
+    snap_msgs = session.messages
+    snap_state = session.state
+
+    def _cancel_checkpoint() -> Optional[dict]:
+        """协作式取消检查点（#1714）：命中即恢复快照并返回 cancelled 态。
+
+        检查点只放在耗时操作之间（决策 LLM 返回后 / 工具执行后），且全部在
+        persist() 之前——单次模型 HTTP 调用发出即不可中断，能停的是「下一步
+        要不要继续」；被取消的轮次要么完整提交、要么完整不提交。
+        """
+        if not cancellation.is_cancelled_since(session.session_id, cancel_since):
+            return None
+        logger.info('[agent.cancel] 检查点命中取消，session={}', session.session_id)
+        session.turn_count = snap_turns
+        session.messages = snap_msgs
+        session.state = snap_state
+        return {'type': 'cancelled', 'content': '已停止分析。', 'session_id': session.session_id}
 
     # G4 轮次闸：S2 起落库（agent_session.turn_count）——重启不丢、多实例一致
     turns = session.turn_count or 0
@@ -499,6 +540,10 @@ def run_agent(
     llm_ms = 0.0
     # 工具执行失败的最多重试：最多 2 次模型调用（带错误反馈 1 次）
     for attempt in range(2):
+        # 检查点①：循环开头（对首次迭代无意义但无害；重试迭代是真实取消窗口）
+        cancelled = _cancel_checkpoint()
+        if cancelled:
+            return cancelled
         _t0 = time.monotonic()
         raw = llm.call_llm(
             content=[{'type': 'text', 'text': prompt}],
@@ -572,6 +617,11 @@ def run_agent(
             tokens=usage['tokens'],
         )
         return {'type': 'error', 'content': err, 'session_id': session.session_id}
+
+    # 检查点②：工具执行完成后、叙事 LLM 前——工具可能耗时数秒到数十秒，这是主取消窗口
+    cancelled = _cancel_checkpoint()
+    if cancelled:
+        return cancelled
 
     # 叙事：再调一次纯逻辑模型，仅把指标喂入（防幻觉安全区：模型不接触账本、只转述）
     # 防御：① 非 JSON 可序列化对象回退字符串表示（不崩）；② 工具数据为空/None 时用占位符，

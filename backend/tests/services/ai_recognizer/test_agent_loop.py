@@ -147,6 +147,85 @@ def test_run_agent_turn_limit(monkeypatch):
     assert exc.value.code == ErrorCode.AGENT_TURN_LIMIT_EXCEEDED.code
 
 
+# ── #1714 协作式取消 ──
+def test_run_agent_cancelled_after_tool(monkeypatch):
+    """检查点②（工具后、叙事前）：命中取消 → cancelled 态 + 幽灵轮次归零。
+
+    幽灵语义 = 「该轮从未发生」：turn_count / messages / state 恢复本轮前快照，
+    teardown commit 落空——被取消轮次不扣轮次预算、回放无悬空轮。
+    """
+    from app.services.ai_recognizer import cancellation
+
+    def fake_tool(name, params, server_ctx=None):
+        cancellation.request_cancel('cancel_tool')  # 请求进行中置位 → 时间窗成立
+        return {'status': 'success', 'data': {'k': 1}}
+
+    monkeypatch.setattr(agent_loop.ToolExecutor, 'run', staticmethod(fake_tool))
+
+    def fake(content, system_prompt, **kwargs):
+        if kwargs.get('response_format'):
+            return '{"action":"execute_tool","tool_name":"get_assets_overview","tool_params":{}}'
+        raise AssertionError('取消命中后不得再发起叙事调用')
+
+    monkeypatch.setattr(llm_mod, 'call_llm', fake)
+    session = AgentSession(
+        session_id='cancel_tool',
+        user_id=1,
+        turn_count=2,
+        state={},
+        messages=[{'user': '旧轮', 'assistant': '旧答'}],
+    )
+    out = agent_loop.run_agent('分析我的收益', session)
+    assert out['type'] == 'cancelled'
+    assert out['session_id'] == 'cancel_tool'
+    # 幽灵轮次归零：本轮的 turn_count+1 / messages 占位全部回滚
+    assert session.turn_count == 2
+    assert session.messages == [{'user': '旧轮', 'assistant': '旧答'}]
+    assert session.state == {}
+    # finally 回收：标志不残留
+    assert not cancellation.is_cancelled_since('cancel_tool', 0.0)
+
+
+def test_run_agent_cancelled_before_retry(monkeypatch):
+    """检查点①（重试迭代开头）：工具首败 + 取消置位 → 不发起第二次决策调用。"""
+    from app.services.ai_recognizer import cancellation
+
+    calls = {'n': 0}
+
+    def fake(content, system_prompt, **kwargs):
+        calls['n'] += 1
+        return '{"action":"execute_tool","tool_name":"get_assets_overview","tool_params":{}}'
+
+    monkeypatch.setattr(llm_mod, 'call_llm', fake)
+
+    def fake_tool(name, params, server_ctx=None):
+        cancellation.request_cancel('cancel_retry')
+        return {'status': 'error', 'msg': '模拟失败'}
+
+    monkeypatch.setattr(agent_loop.ToolExecutor, 'run', staticmethod(fake_tool))
+    session = AgentSession(session_id='cancel_retry', user_id=1, turn_count=0)
+    out = agent_loop.run_agent('分析我的收益', session)
+    assert out['type'] == 'cancelled'
+    assert calls['n'] == 1  # 首次决策后即取消，重试的第二次决策调用被拦下
+    assert session.turn_count == 0  # 该轮从未发生
+
+
+def test_run_agent_ignores_flag_before_turn_started(monkeypatch):
+    """时间戳口径：本轮开始之前的置位（上一轮残留）不得误取消本轮。"""
+    from app.services.ai_recognizer import cancellation
+
+    cancellation.request_cancel('stale_flag')  # 置位早于本轮 started → 检查点不可见
+
+    def fake(content, system_prompt, **kwargs):
+        return '{"action":"ask_clarification","missing_params":["period"],"content":"想分析多久？"}'
+
+    monkeypatch.setattr(llm_mod, 'call_llm', fake)
+    session = AgentSession(session_id='stale_flag', user_id=1)
+    out = agent_loop.run_agent('分析我的收益', session)
+    assert out['type'] == 'clarify'  # 未被上一轮残留标志误取消
+    assert not cancellation.is_cancelled_since('stale_flag', 0.0)  # finally 回收了僵尸标志
+
+
 # ── #1718 决策轮对齐：prompt 组装断言（不触网，mock call_llm 抓真实入参）──
 def _capture_decision(monkeypatch, session, user_input='现在市场温度是多少？'):
     """跑一轮 run_agent，抓决策轮的真实 prompt 与 system prompt（首轮即 clarify 收尾）。"""
