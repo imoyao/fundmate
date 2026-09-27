@@ -53,7 +53,7 @@ ALLOWED_FILES = {
     Path(
         "frontend/src/views/asset/investment/eaccount-import/components/EaccountAiPanel.vue"
     ): "eaccount-import 页的实心圆角变体（--brand-600 实底 + 圆角矩形），与同页 import-mode-switch 同构，"
-    "属另一套语言；已另立跟进卡，不在 #1717 收敛范围",
+    "属另一套语言；已另立跟进卡 #1731，不在 #1717 收敛范围",
 }
 
 # pure-admin 模板命名空间（ReSegmented 等模板自带组件，非本仓设计语言；本仓未使用）
