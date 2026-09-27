@@ -55,6 +55,9 @@ COLUMN_CONTRACT = [
 
 _SCALAR_TYPES = (str, int, float, bool)
 
+# 契约键集合（模块级预构建，避免在列收集循环里反复重建）
+_CONTRACT_KEYS = {k for k, _, _ in COLUMN_CONTRACT}
+
 
 def _strip_emoji(text: str) -> str:
     return _EMOJI_RE.sub('', text)
@@ -93,14 +96,11 @@ def _extract_table(tool_data: Any) -> Optional[dict]:
     if not flat_rows:
         return None
 
-    # 列序：契约优先（按 COLUMN_CONTRACT 顺序），其余键按首现顺序补尾；列数硬上限
-    seen: List[str] = []
-    for r in flat_rows:
-        for k in r:
-            if k not in seen:
-                seen.append(k)
+    # 列序：契约优先（按 COLUMN_CONTRACT 顺序），其余键按首现顺序补尾；列数硬上限。
+    # dict.fromkeys 保序去重一次收齐（上限 50 行 × ~11 键，微秒级，不值得更复杂的结构）
+    seen = dict.fromkeys(k for r in flat_rows for k in r)
     ordered = [k for k, _, _ in COLUMN_CONTRACT if k in seen]
-    ordered += [k for k in seen if k not in {c[0] for c in COLUMN_CONTRACT}]
+    ordered += [k for k in seen if k not in _CONTRACT_KEYS]
     cols = ordered[:MAX_TABLE_COLS]
     if not cols:
         return None
