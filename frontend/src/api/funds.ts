@@ -72,7 +72,7 @@ export interface FundFeeRates {
 
 // 1. 获取基金单日净值（响应为 { data: [...], message } 信封）
 export function calcFundNav(symbols: string[], date: string) {
-  return http.request<{ data: NavResponseItem[]; message: string }>(
+  return http.request<ApiResponse<NavResponseItem[]>>(
     "post",
     "/api/funds/nav/",
     {

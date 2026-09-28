@@ -109,19 +109,19 @@ export function createAsset(data: AssetCreateInput) {
 }
 
 export function updateAsset(id: number, data: AssetUpdateInput) {
-  return http.request<ApiResponse<AssetRecord>>("patch", `${BASE_URL}/${id}/`, {
+  return http.request<ApiResponse<AssetRecord>>("patch", `${BASE_URL}${id}/`, {
     data
   });
 }
 
 export function deleteAsset(id: number) {
-  return http.request<DeleteResponse>("delete", `${BASE_URL}/${id}/`);
+  return http.request<DeleteResponse>("delete", `${BASE_URL}${id}/`);
 }
 
 /** 获取各大类金额汇总（后端按业务顺序排列，负值即负债） */
 export function getAssetsSummary() {
   return http.request<ApiResponse<AssetSummaryItem[]>>(
     "get",
-    `${BASE_URL}/summary/`
+    `${BASE_URL}summary/`
   );
 }
