@@ -140,6 +140,12 @@
 |---|---|
 | `win-local-pytest-env-prereqs-2026-09-27.md` | **Windows 本机 pytest 环境前提收拢**：把散在各处的三类「测试依赖调用方环境」环境性失败并到一处——① 需 `PYTHONUTF8=1`（子进程 GBK 输出）；② 新 venv 需手装 `psycopg2-binary`（平台标记在 win32 剔除，但迁移测试要建 postgres 引擎）；③ `.env` 带 `TURSO_DATABASE_URL` 时 `test_db_factory` / `test_db_lazy_engine` 3 例必红（`sqlite.libsql` 方言在 Windows 装不了，#1727）。含「CI 绿而本机红」的机制、修复口径（**测试侧中和，不碰生产路由 / 不动平台标记**）、复现与验证命令、以及「基础设施级不变量必须自己有用例钉住」的要求 |
 
+## 火山方舟模型可用性（2026-09-28）
+
+| 文件 | 内容 |
+|---|---|
+| `ark-model-availability-2026-09-28.md` | **可用模型列表（快照 + 维护规则）**：三层判读（注册面 status / 账号限额 429 / 实测为最终答案）+ 2026-09-28 十模型实测快照（2.0 Pro Retiring→404、2.1 Pro 账号限额 429、deepseek-ga 系已恢复）+ 仓内三消费点（`llm.py` `ARK_MODEL` / `llm_health_probe` 池 / `ai-review.yml` 注释）+ 过时注释留痕 + 维护规则三条；配套复跑脚本 `scripts/ark_model_probe.py`（纯标准库） |
+
 ## 子目录归档
 
 | 目录 | 内容 |
