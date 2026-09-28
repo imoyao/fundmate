@@ -16,9 +16,9 @@
 | `formRef / handleSubmit / resetForm` | 鏍￠獙 + `createPosition` | 鏍￠獙 + `createPosition`(+`getPositions`/`validateTradeOrder`) | 鈫?`useTradeForm` |
 | `defineExpose({handleSubmit,resetForm})` | 鏈?| 鏈?| 钖勫 3 閫忎紶 |
 | 琛ㄥ崟瀛楁 | `ledger_id/symbol/name/market/type/price/trade_date/isAfter15/notes/currency/fee` + `buyAmount/shares/allocation` | 鍚屽熀纭€瀛楁 + `positionId/quantity` | 鍚堝苟涓?`TradeFormModel`锛堝苟闆嗭級 |
-| **宸紓** | 璇佸埜鎼滅储(`searchSecurities/searchFunds`)銆侀噾棰濃啋浠介銆乣allocation`銆佽垂鐜囨姌鎵?| 鎸佷粨鏌ヨ(`getPositions`)銆乣quantity`(鑷畾涔夋牎楠?銆佽祹鍥炶垂鐜?`estimateRedeemFee/syncFundFees`)銆乣 SELL_QUICK_RATIOS`| 鐣欏湪`TradeForm.vue`鐨?`mode` 鏉′欢鍧?|
+| **宸紓** | 璇佸埜鎼滅储(`searchSecurities/searchFunds`)銆侀噾棰濃啋浠介銆乣 allocation`銆佽垂鐜囨姌鎵?| 鎸佷粨鏌ヨ(`getPositions`)銆乣quantity`(鑷畾涔夋牎楠?銆佽祹鍥炶垂鐜?`estimateRedeemFee/syncFundFees`)銆乣 SELL_QUICK_RATIOS`| 鐣欏湪`TradeForm.vue`鐨?`mode` 鏉′欢鍧?|
 
-鎻愪氦锛氫袱鑰呮渶缁堥兘璋冪敤 `createPosition`锛堜拱鍏ュ缓浠撱€佸崠鍑哄钩浠擄級锛屾晠鍏变韩 `handleSubmit` 缁熶竴 `validate 鈫?createPosition(buildPayload()) 鈫?emit('submit-success')`锛宍buildPayload`鎸?`mode` 鎷艰銆?
+鎻愪氦锛氫袱鑰呮渶缁堥兘璋冪敤 `createPosition`锛堜拱鍏ュ缓浠撱€佸崠鍑哄钩浠擄級锛屾晠鍏变韩 `handleSubmit` 缁熶竴 `validate 鈫?createPosition(buildPayload()) 鈫?emit('submit-success')`锛宍 buildPayload`鎸?`mode` 鎷艰銆?
 
 ## 鏂囦欢娓呭崟锛堟湰鐩綍 7 涓枃浠讹級
 

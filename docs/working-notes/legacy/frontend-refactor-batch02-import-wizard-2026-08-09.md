@@ -1,11 +1,11 @@
-﻿# 鎵规 2.1 鈥?import/index.vue 鐨?8 涓?composable锛堝彲钀藉湴鐨勬娊绂婚鏋讹級
+﻿# 鎵规 2.1 鈥?import/index.vue 鐨?8 涓?composable 锛堝彲钀藉湴鐨勬娊绂婚鏋讹級
 
 > 鏈洰褰曟妸 95KB 鐨?`import/index.vue` 鎷嗘垚 8 涓?composable + 鍏变韩绫诲瀷 + 鏍煎紡閰嶇疆甯搁噺銆?> 鎵€鏈夌姸鎬佸悕/鍑芥暟鍚?瀛楁鍚?*1:1 瀵瑰簲鍘熺粍浠?*锛堝熀浜庢簮鐮佺粨鏋勫垎鏋愭姄鍙栫殑鐪熷疄鍚嶇О锛夛紝
 > 浣犲湪鏈湴鎶婂師 `<script setup>` 閲岀殑瀵瑰簲鍧?*鏈烘鎼繍**杩涘搴?composable 鍗冲彲锛屽嚑涔庢棤闇€鏀瑰悕銆?
 >
 ## 鏂囦欢娓呭崟
 
-```
+```plain
 composables/import/
 鈹溾攢鈹€ types.ts                    # 鍏变韩绫诲瀷锛歅reviewRow / ImportFormat / ProblemCategoryKey / AllocationGroup / ImportResult
 鈹溾攢鈹€ index.ts                    # barrel 鍑哄彛
@@ -44,7 +44,7 @@ const { duplicateCount, deselectAllDuplicates } = useDuplicateHandling(previewDa
 // 鍚戝缂栨帓渚濊禆 previewData + selectedKeys
 const wizard = useImportWizard({ previewData, selectedKeys });
 
-// 鏂囦欢瑙ｆ瀽锛氳В鏋愮粨鏋滃洖璋冩帴 addRowKeys锛涙牸寮?璐︽埛鏉ヨ嚜 wizard
+// 鏂囦欢瑙ｆ瀽锛氳В鏋愮粨鏋滃洖璋冩帴 addRowKeys 锛涙牸寮?璐︽埛鏉ヨ嚜 wizard
 const { parsing, uploadError, beforeUpload, handleUpload, /*...*/ } = useFileParser({
   getFormat: () => wizard.selectedFormat.value,
   getLedgerId: () => wizard.selectedLedgerId.value,
@@ -82,13 +82,13 @@ frontend/src/views/asset/investment/import/
     鈹溾攢鈹€ ImportResult.vue          # 姝ラ3 锛氱粨鏋滄眹鎬?+ 璺宠浆
     鈹溾攢鈹€ SummaryCards.vue          # 姝ラ2 椤堕儴姹囨€诲崱鐗囷紙宸查€?寰呬慨澶?閲嶅锛?    鈹溾攢鈹€ BatchFixPanel.vue         # 姝ラ2 渚ф爮锛氫笁绫婚棶棰樻壒閲忎慨澶?+ 鍑€鍊煎洖濉?    鈹溾攢鈹€ AllocationPanel.vue       # 姝ラ2 渚ф爮锛氬垎閰嶇洰鏍囩鐞?    鈹斺攢鈹€ CreateLedgerDialog.vue    # 鏂板缓璐︽埛瀵硅瘽妗?`
 
-### 鐘舵€佸叡浜満鍒讹細provide / inject
+### 鐘舵€佸叡浜満鍒讹細 provide / inject
 
 8 涓?composable 鐨勫疄渚嬪繀椤诲湪**鍚屼竴涓粍浠跺疄渚?*閲屽垱寤烘墠鑳藉叡浜姸鎬併€傚洜姝わ細
 
-- **鐖跺 3 `ImportWizard.vue`** 瀹炰緥鍖栧叏閮?composable锛岀粍瑁呮垚 `ImportContext` 骞堕泦锛岀敤 `provide(importContextKey, ctx)` 娉ㄥ叆銆?- **鍚勬楠ょ粍浠?* 鐢?`inject(importContextKey)` 鍙栫敤锛岀洿鎺ヨ `ctx.xxx.value`銆佽皟 `ctx.yyy()`锛?*鏃犻渶 prop 閫忎紶銆佷笉浼氬悇鑷疄渚嬪寲**銆?
+- **鐖跺 3 `ImportWizard.vue`** 瀹炰緥鍖栧叏閮?composable 锛岀粍瑁呮垚 `ImportContext` 骞堕泦锛岀敤 `provide(importContextKey, ctx)` 娉ㄥ叆銆?- **鍚勬楠ょ粍浠?* 鐢?`inject(importContextKey)` 鍙栫敤锛岀洿鎺ヨ `ctx.xxx.value`銆佽皟 `ctx.yyy()`锛?*鏃犻渶 prop 閫忎紶銆佷笉浼氬悇鑷疄渚嬪寲**銆?
 
-### 钀藉湴姝ラ锛堢画涓婃枃锛?4. 澶嶅埗鐖跺 3 涓庢楠ょ粍浠跺埌浠撳簱锛?   ```bash
+### 钀藉湴姝ラ锛堢画涓婃枃锛?4. 澶嶅埗鐖跺 3 涓庢楠ょ粍浠跺埌浠撳簱锛?   `bash
 
    cp fundmate-optimization/batch2/views/investment/import/ImportWizard.vue \
       frontend/src/views/asset/investment/import/IndexWizard.vue   # 鎴栬鐩?index.vue
