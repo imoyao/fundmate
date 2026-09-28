@@ -185,3 +185,21 @@ def test_route_without_reply_falls_back_to_tool_chain(monkeypatch):
 
     assert calls['n'] > 0, '缺话术时不该拦截，应回退工具链'
     assert out['content'], '任何路径都不允许返回空白回复'
+
+
+def test_capability_question_answered_without_model(monkeypatch):
+    """#1756：「你能做什么」类元问题零模型调用直回能力清单，不再答「不支持」。
+
+    此前该问法归 knowledge 进工具链，模型按决策规则③（无工具可答 → 说明不支持）
+    输出「当前不支持回答这类问题」——G6 收口时预留的触发条件（步骤卡 #8）。
+    """
+    calls = _fake_llm(monkeypatch)
+    session = AgentSession(session_id='route-cap-1', user_id=1, turn_count=0)
+    out = agent_loop.run_agent('你可以帮我做什么', session)
+
+    assert out['type'] == 'result'
+    assert calls['n'] == 0, '能力自述不该进模型（零 token）'
+    assert session.turn_count == 0, '不消耗轮次预算'
+    assert '资产总览' in out['content'] and '市场温度' in out['content'], '应回能力清单'
+    assert '不支持' not in out['content']
+    assert out['data'] == {}  # 无指标 chips（防前端渲染假数据）

@@ -3,7 +3,7 @@
 
 registry.py 里两个注册表并存：scenario → recognizer（OCR 场景）与 category → route
 （对话精灵意图路由）。本文件证明：
-① 五类意图按设计分发，未知类别回退工具链（宁走默认路径，不误拦）；
+① 各类意图按设计分发（五类基础 + #1756 能力自述），未知类别回退工具链（宁走默认路径，不误拦）；
 ② register_intent_route 校验非法输入，且注册不影响 scenario 注册表；
 ③ 路由到「拦截」的类别都取得到非空标准话术（与 intent_guard 的映射一致性——
    两模块各自维护，接线处靠这份一致性才敢直接拦截）。
@@ -16,6 +16,7 @@ from app.services.ai_recognizer import registry
 from app.services.ai_recognizer.safety import intent_guard
 from app.services.ai_recognizer.safety.intent_guard import (
     CATEGORY_ADVICE,
+    CATEGORY_CAPABILITY,
     CATEGORY_EMOTION,
     CATEGORY_KNOWLEDGE,
     CATEGORY_PREDICTION,
@@ -36,6 +37,12 @@ def test_unknown_category_falls_back_to_tool_chain():
     """classify 之外的类别回退工具链：宁可交给模型裁决，也不能误拦成空白回复。"""
     assert registry.route_intent('nonsense') == registry.ROUTE_TOOL_CHAIN
     assert registry.route_intent('') == registry.ROUTE_TOOL_CHAIN
+
+
+def test_capability_category_routes_to_standard_reply():
+    """#1756：能力自述（「你能做什么」）→ 标准话术——零 token、不占轮次、有非空话术。"""
+    assert registry.route_intent(CATEGORY_CAPABILITY) == registry.ROUTE_STANDARD_REPLY
+    assert intent_guard.standard_reply(CATEGORY_CAPABILITY)
 
 
 def test_register_intent_route_validates_and_overrides():

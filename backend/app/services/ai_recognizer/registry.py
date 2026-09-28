@@ -16,6 +16,7 @@ from typing import Optional
 from app.services.ai_recognizer.base import BaseRecognizer
 from app.services.ai_recognizer.safety.intent_guard import (
     CATEGORY_ADVICE,
+    CATEGORY_CAPABILITY,
     CATEGORY_EMOTION,
     CATEGORY_KNOWLEDGE,
     CATEGORY_PREDICTION,
@@ -63,7 +64,7 @@ ROUTE_TOOL_CHAIN = 'tool_chain'  # 进模型 → 决策 → 查询工具链
 ROUTE_STANDARD_REPLY = 'standard_reply'  # 不进模型，直接回标准话术（零 token、不占轮次）
 _VALID_ROUTES = frozenset({ROUTE_TOOL_CHAIN, ROUTE_STANDARD_REPLY})
 
-# 五类意图的路由。未知类别（classify 返回值之外）回退工具链：
+# 六类意图的路由。未知类别（classify 返回值之外）回退工具链：
 # 宁可把裁决交给模型，也不能把没设计过话术的输入误拦成空白回复。
 _INTENT_ROUTES: dict[str, str] = {
     CATEGORY_QUERY: ROUTE_TOOL_CHAIN,  # 数据查询：正常进模型
@@ -71,6 +72,7 @@ _INTENT_ROUTES: dict[str, str] = {
     CATEGORY_EMOTION: ROUTE_TOOL_CHAIN,  # D 情绪复合：不拦，risk_notice 由接线处加前缀
     CATEGORY_PREDICTION: ROUTE_STANDARD_REPLY,  # 预测：拦
     CATEGORY_ADVICE: ROUTE_STANDARD_REPLY,  # 建议：拦
+    CATEGORY_CAPABILITY: ROUTE_STANDARD_REPLY,  # 能力自述：回能力清单话术（#1756），零 token 不占轮次
 }
 
 

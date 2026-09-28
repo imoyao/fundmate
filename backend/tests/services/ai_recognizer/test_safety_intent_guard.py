@@ -7,6 +7,7 @@
 
 from app.services.ai_recognizer.safety.intent_guard import (
     CATEGORY_ADVICE,
+    CATEGORY_CAPABILITY,
     CATEGORY_KNOWLEDGE,
     CATEGORY_PREDICTION,
     CATEGORY_QUERY,
@@ -74,6 +75,40 @@ def test_classify_categories():
     assert classify('什么是复利') == CATEGORY_KNOWLEDGE
     assert classify('该不该卖') == CATEGORY_ADVICE
     assert classify('会涨吗') == CATEGORY_PREDICTION
+
+
+# ── #1756 能力自述：元问题直回能力清单（此前按决策规则③答「不支持」）──
+CAPABILITY_CASES = [
+    '你都可以做什么',  # 用户真机实测原句 #1
+    '你可以帮我做什么',  # 用户真机实测原句 #2
+    '你能做什么',
+    '你会干什么',
+    '能帮我做什么',
+    '有什么功能',
+    '怎么用你',
+    '你是干什么的',
+]
+
+
+def test_capability_questions_classified_as_capability():
+    for text in CAPABILITY_CASES:
+        assert classify(text) == CATEGORY_CAPABILITY, f'能力自述未归类：{text}'
+
+
+def test_capability_cue_does_not_steal_data_queries():
+    """窄 cue：相邻问法不误抢——误伤真实查询比漏答元问题更伤产品。"""
+    for text in ALLOWED_CASES:
+        assert classify(text) != CATEGORY_CAPABILITY, f'数据查询被当能力自述：{text}'
+    # 与 #1756 问法形近但实为数据 / 建议的句子
+    assert classify('你能帮我看看持仓吗') == CATEGORY_QUERY
+    assert classify('这个月怎么操作') != CATEGORY_CAPABILITY
+
+
+def test_capability_cue_does_not_override_safety_categories():
+    """分类顺序即优先级：能力句式里混进越界意图时，安全类仍先赢。"""
+    assert classify('你能预测明天走势吗') == CATEGORY_PREDICTION
+    assert classify('你会不会推荐一只基金') == CATEGORY_ADVICE
+    assert check_input('你能预测明天走势吗').blocked  # B 规则先于一切 cue
 
 
 def test_query_cue_cannot_override_prediction():
