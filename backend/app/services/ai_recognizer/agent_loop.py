@@ -46,7 +46,7 @@ from sqlalchemy.orm import object_session
 
 from app.core.exceptions import ErrorCode, SBException
 from app.domains.agent.models import AgentSession, AgentTrace
-from app.services.ai_recognizer import cancellation, guards, llm, safety, session_store
+from app.services.ai_recognizer import cancellation, guards, llm, registry, safety, session_store
 from app.services.ai_recognizer.narrative_blocks import parse_narrative_blocks
 from app.services.ai_recognizer.tools import TOOLS_METADATA, ToolExecutor
 
@@ -446,6 +446,20 @@ def _run_agent_impl(
         return _record_blocked_turn(
             session, state, user_input, guard_verdict.reply, guard_hits=[str(guard_verdict.rule)]
         )
+    # G6（#1742）意图路由，设计 §8：B 规则**窄**命中已在上方返回，这里接住比 B 宽的
+    # 预测 / 建议句式（_PREDICTION_CUE / _ADVICE_CUE）——预测/建议类不进入查询链路，
+    # 同样零 token、不占轮次（仍在轮次闸之前：顺序即成本）。查询 / 知识 / 情绪照旧进工具链。
+    if registry.route_intent(guard_verdict.category) == registry.ROUTE_STANDARD_REPLY:
+        reply = safety.standard_reply(guard_verdict.category)
+        if reply:
+            logger.info(
+                '[agent.route] category={} 路由至标准话术：{}',
+                guard_verdict.category,
+                user_input[:40],
+            )
+            return _record_blocked_turn(session, state, user_input, reply, guard_hits=[f'A:{guard_verdict.category}'])
+        # 防御：路由表与话术映射分属两模块，缺话术时不拦截（宁可进链，不给空白回复）
+        logger.warning('[agent.route] category={} 路由至标准话术但缺话术，回退工具链', guard_verdict.category)
     # D 情绪 + 建议复合：不拦，但本轮回复须带风险提示（防模型顺情绪给安慰式建议）
     risk_notice = guard_verdict.risk_notice
 

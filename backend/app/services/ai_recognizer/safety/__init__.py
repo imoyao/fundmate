@@ -18,6 +18,7 @@
 公开 API（调用方只从包根导入，不深入子模块——便于日后换实现不改调用点）：
     from app.services.ai_recognizer import safety
     safety.check_input(text)          -> InputVerdict
+    safety.standard_reply(category)   -> str      # G6 路由到拦截时的标准话术
     safety.filter_output(text, ...)   -> OutputVerdict
     safety.repeat_tracker             -> RepeatTracker 实例
 """
@@ -26,6 +27,7 @@ from app.services.ai_recognizer.safety.intent_guard import (
     RISK_NOTICE,
     InputVerdict,
     check_input,
+    standard_reply,
 )
 from app.services.ai_recognizer.safety.output_filter import (
     OutputVerdict,
@@ -46,4 +48,5 @@ __all__ = [
     'check_input',
     'filter_output',
     'repeat_tracker',
+    'standard_reply',
 ]
