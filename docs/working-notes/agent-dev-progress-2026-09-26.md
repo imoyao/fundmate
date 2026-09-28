@@ -15,9 +15,9 @@
 | S1-B | 前端最小对话页 | 做：`views/agent/` 页面 + `api/agent.ts`，三态（澄清/结果/错误）渲染；**不做**：流式输出、历史会话列表 | ✅ 已完成（**PR #1704**；三态验收全绿，见卡 #2） |
 | S1-C | 退避与调用 trace | 做：`llm.py` 指数退避（429/5xx/超时可重试、4xx 不重试）+ 工具调用结构化日志；**不做**：trace 落库（归 S4） | ✅ 已完成（**PR #1708**，见卡 #3） |
 | S2 | 记忆层 | 做：`agent_session` 表（先过数据准入四问）+ 后端权威会话 + 分层 prompt + 压缩；**不做**：跨会话长期记忆 | ✅ 已完成（**PR #1716**，见卡 #4） |
-| S3 | 护栏与成本 | 做：`safety/` 三件套 + L1 铁律 + per-user 配额迁出内存（#1294） | ✅ 已完成：G1~G4 三件套 + 接线（**PR #1729**）、G7 L1 铁律（**PR #1730**）、G6 意图路由（**PR #1743 → dev 待合并**，见卡 #8）；G5 四问判定暂缓（**#1739** 跟踪，含触发条件，不占排期） |
+| S3 | 护栏与成本 | 做：`safety/` 三件套 + L1 铁律 + per-user 配额迁出内存（#1294） | ✅ 已完成：G1~G4 三件套 + 接线（**PR #1729**）、G7 L1 铁律（**PR #1730**）、G6 意图路由（**PR #1743 已合并 dev**，见卡 #8）；G5 四问判定暂缓（**#1739** 跟踪，含触发条件，不占排期） |
 | S4 | 可观测与评估 | 做：`agent_trace` 表 + 30 条评估集 + `scripts/agent_eval.py` + 时间轴回放；**不做**：OpenTelemetry、CI 跑真链路 | ✅ 已完成（2026-09-27，见卡 #7；**PR #1740 已合并 dev**，issue 已自动关闭） |
-| S5 | 协议层 | 做：MCP server（stdio）；Skill 目录、多模型 failover 可裁 | 待做 |
+| S5 | 协议层 | 做：MCP server（stdio）；Skill 目录、多模型 failover 可裁 | ✅ 已完成（2026-09-28，见卡 #9；**PR #1753 → dev**，`Closes #1751` 在正文） |
 | S6 | 面试收口 | 做：12 条追问口述 + 30 秒自介 + 简历定稿（证据逐条回填） | 待做 |
 
 ---
@@ -34,11 +34,11 @@
 | 1 | **S2 记忆层** `#1716` | — | ✅ **已合并 dev**（`40cc67778`，2026-09-26）→ 主线解锁，下一张 = `#1718` |
 | 2 | **答非所问 / 意图跟随** `#1718` | 必须在 S2 后：改的 `agent_loop.py` 与 S2 同文件，先动必冲突 | ✅ **已合并 dev**（PR #1725，2026-09-27；issue 已由 dev 合入自动关闭） |
 | 3 | **历史会话栏** `#1719` | 必须在 S2 后：读 `agent_session` 表 + 改 `api/agent.ts`/`index.vue` 同文件 | ✅ **已合并 dev**（PR #1726，2026-09-27） |
-| 4 | **S3 护栏与成本** | 与 2/3 **可并行**（动 `safety/` + 配额，不同文件）；`#1294` 配额迁出内存归此 | ✅ 三件套 + 接线（**PR #1729**）、G7 L1 铁律（**PR #1730**）、G6 意图路由（**PR #1743** → dev 待合并，见卡 #8）均已落地；G5 四问判定暂缓（**#1739** 跟踪，含触发条件）——S3 收口 |
+| 4 | **S3 护栏与成本** | 与 2/3 **可并行**（动 `safety/` + 配额，不同文件）；`#1294` 配额迁出内存归此 | ✅ 三件套 + 接线（**PR #1729**）、G7 L1 铁律（**PR #1730**）、G6 意图路由（**PR #1743 已合并**，见卡 #8）均已落地；G5 四问判定暂缓（**#1739** 跟踪，含触发条件）——S3 收口 |
 | 5 | **S4 可观测与评估** | 内含 `#1718` 的**回归位**（30 条评估集把「答得对」变成可验证，防止改完又悄悄坏） | ✅ **2026-09-27 实现完成**（issue `#1736`，四问留痕于其正文；真链路首跑 28/30 → 用例闭环后 30/30，见卡 #7）；**PR #1740 已合并**（issue 自动关闭） |
-| 6 | `#1714` 可中断（停止按钮） | 依赖 S2 的服务端会话（取消标志要挂在会话上） | ✅ **已合并 dev**（**PR #1741**，2026-09-27：L1 停止按钮 + L2 协作式服务端取消，另一线完成；issue 已关闭） |
+| 6 | `#1714` 可中断（停止按钮） | 依赖 S2 的服务端会话（取消标志要挂在会话上） | ✅ **已合并 dev**（**PR #1741**，2026-09-27：L1 停止按钮 + L2 协作式服务端取消，另一线完成；issue **仍 OPEN**——#1741 正文无 closing 关键字，待验收后关，2026-09-28 核实并更正本文此前「已关闭」的失实记载） |
 | 7 | `#1712` 结构化叙事渲染 | 与 2~5 **可并行**（纯前端渲染，不动记忆层） | ✅ **已合并 dev**（**PR #1724**，2026-09-27；issue 已关闭） |
-| 8 | **S5 协议层 → S6 面试收口** | — | 待做 |
+| 8 | **S5 协议层 → S6 面试收口** | — | S5 ✅ **实现完成**（`#1751` / **PR #1753 → dev 待合并**，见卡 #9）；S6 待做 |
 
 ### B 档 · 择机插入（不占主线序位，靠触发条件，到点必须回头做）
 
@@ -465,7 +465,7 @@ S3 的最后一块拼图（L1 软约束）：铁律 + 自查三问 + can/cannot 
 
 > S3 护栏与成本的收尾项（G 系列最后一个未实施项；G5 已暂缓，见 #1739）。
 > issue = `#1742`（M6 + 象阵 Q2:YELLOW + 看板，**四问「不适用」结论留痕于 issue 正文**：不新增表 / 列 / job / 抓取目标池）。
-> 产物：commit `6a993c2aa`（`feat/1742-intent-route`，6 文件 +202/-4）→ **PR #1743 → dev**（`Closes #1742` 在正文，待合并）。
+> 产物：commit `6a993c2aa`（`feat/1742-intent-route`，6 文件 +202/-4）→ **PR #1743 已合并 dev**（`Closes #1742` 在正文，#1742 已自动关闭；merge `24406bfce`，2026-09-28）。
 > 全量单进程 pytest：**2253 passed / 0 failed（16m44s）**——#1735 中和 `TURSO_DATABASE_URL` 后环境基线归零，本仓首次全绿。
 
 ### 进（改动面）
@@ -502,5 +502,64 @@ S3 的最后一块拼图（L1 软约束）：铁律 + 自查三问 + can/cannot 
 
 ---
 
-*后续步骤卡（#9 = S5 协议层 → S6 面试收口……）完成时追加。G5 已按流程走完四问并开 #1739 留痕，判定暂缓、不占排期；`#1714` 已由另一线完成（PR #1741）。*
+## 步骤卡 #9：S5 协议层——MCP server（stdio），同一份 schema 双协议暴露（#1751）
+
+> issue = **#1751**（M6 + 象阵 Q1:RED + 看板；数据准入四问「不适用」留痕于正文——零新增表/列/job）。
+> 产物：分支 `feat/1751-mcp-server`，commit `2e74bc9bc`（5 文件 +321：适配层 + server + pdm 脚本 + 测试 2 文件）→ **PR #1753 → dev**（`Closes #1751` 在正文，待合并）。
+> 依赖：`mcp>=2.0.0`（**既有声明依赖、零新增**——pyproject 里「声明未用」状态就此消化）；pdm 脚本 `agent-mcp`。
+
+### 进（改动面，4 处）
+
+1. `services/ai_recognizer/mcp_adapter.py`（新）：纯适配层两函数——`iter_mcp_tools()`（`TOOLS_METADATA → types.Tool`，parameters **原样透传**为 `input_schema`，不重写不裁剪）+ `execute_tool()`（`ToolExecutor` 信封 → `CallToolResult`：success = JSON 文本 + `structured_content`，error = `is_error` + msg 入 content——与 FC 路径 error-as-observation 同哲学：失败是给调用方看的观测值）。
+2. `services/ai_recognizer/mcp_server.py`（新）：`mcp 2.0.0` 低层 `Server` 构造器回调（2.0 **已移除装饰器与内置 FastMCP**）+ `stdio_server()`；`_server_ctx()` 的 `family_id` **只认环境变量** `FUNDMATE_MCP_FAMILY_ID`（缺省 1，与 `core.auth.get_family_id` 单用户口径一致）；`main()` 先 `chdir` 锚回 backend 再进服务循环。
+3. `pyproject.toml`：`[tool.pdm.scripts]` 新增 `agent-mcp = "python -m app.services.ai_recognizer.mcp_server"`。
+4. 测试 **11 例**（`test_mcp_server.py` + `mcp_smoke_child.py` 子进程引导）：schema 保真 2 + 调用路由 6 + env ctx 1 + capabilities 1 + **stdio 端到端冒烟 1**（子进程 `create_app` 建临时库 → initialize → list_tools → call_tool 真 JSON-RPC 往返）。
+
+### 不做（防蔓延，按学习计划 §9 裁剪顺序）
+
+多模型 failover（裁剪第一位）、Skill 目录（「Tool vs Skill」区分先以口头材料承载）、trace 落库（MCP 调用不在对话轮次语境）、护栏/轮次闸/配额（HTTP 对话协议专属）、SSE/HTTP transport。
+
+### 关键决策（面试考点的工程落点）
+
+- **为什么低层 Server 而不是 FastMCP**：mcp 2.0 已把 FastMCP 移出 SDK；且「只加一层协议适配」的字面实现就是 `list_tools`/`call_tool` 直连适配层——不做签名内省，schema 原样透传（判据 = `test_iter_mcp_tools_schema_identical_to_tools_metadata`）。
+- **chdir 锚 backend**：默认库 `sqlite:///./invest.db` 相对 cwd，而 stdio server 由 Cursor/Claude 以**任意 cwd** 拉起——不锚回会连到「另一个凭空出现的空库」，症状是**数据隐身式假空**（最难排的那类）。相对路径 connect 期才解析，故启动期 chdir 即可生效。
+- **护栏不进协议层**：B 规则/轮次闸/配额是**对话协议**的闸门，MCP 客户端自带模型宿主。本层安全边界 = 工具只读 + server_ctx 权威覆盖（stdio = 本机进程，family_id 由服务端 env 决定，客户端传真值覆盖不掉；判据 = `test_client_family_id_overridden_by_server_ctx` 真数据：family 1 有仓、客户端传 999 仍 `count>=1`）。
+- **冒烟子进程 stdout 改道**：stdout 是 JSON-RPC 通道，`create_app` 引导期任何 print 都会污染协议流 → 引导期 stdout→stderr、服务前恢复（见 `mcp_smoke_child.py` 注释）。
+
+### 验收（2026-09-28 完成记录）
+
+- [x] `list_tools` ≡ `TOOLS_METADATA` 逐一相等（单测钉死——「同一份 schema」的字面判据）；
+- [x] 客户端传 `family_id=999` 被服务端 env 值覆盖（真数据判据见上）；
+- [x] stdio 冒烟：子进程真起 server → initialize → list_tools（6 个）→ call_tool `get_fund_nav` 真往返（`is_error=false`）；
+- [x] 目标集 **133 passed**（122 既有 + 11 新）；`ruff check` / `format --check` 零告警；
+- [x] 全量单进程 pytest **2264 passed / 0 failed**（15m01s，恰 = 2253 + 11，零回归）；
+- [x] 连接配置见下；真机截图归 S6 面试材料。
+
+### 连接配置（Cursor / Claude Desktop）
+
+```json
+{
+  "mcpServers": {
+    "fundmate": {
+      "command": "<backend>\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "app.services.ai_recognizer.mcp_server"],
+      "env": { "PYTHONPATH": "<backend>", "FUNDMATE_MCP_FAMILY_ID": "1" }
+    }
+  }
+}
+```
+
+或在 backend 目录手动验证：`pdm run agent-mcp`（server 启动即锚回 backend，cwd 无关；Ctrl+C 退出）。
+
+### 你学什么（0.5h，读三处 + 答三问）
+
+- 读：`mcp_adapter.py` 全文、`mcp_server.py` 的 `_server_ctx` 与 `main`、`test_mcp_server.py` 的冒烟段。
+- 答：
+  1. FC 与 MCP 的工程本质差异是什么？「同一份 schema」的字面判据在哪个函数？
+  2. stdio server 为什么必须 chdir 锚回 backend？不锚的症状为什么特别隐蔽（提示：相对 URL 的解析时机）？
+  3. MCP 路径为什么不接对话护栏？它的安全边界靠哪两条事实闭合？
+
+---
+
+*后续步骤卡（#10 = S6 面试收口）完成时追加。G5 已按流程走完四问并开 #1739 留痕，判定暂缓、不占排期；`#1714` 已由另一线合并（PR #1741，issue 仍 OPEN 待验收——详见 A 档第 6 行更正）。*
 
