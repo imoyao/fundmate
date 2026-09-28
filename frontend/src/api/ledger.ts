@@ -1,5 +1,9 @@
 import { http } from "@/utils/http";
-import type { ApiResponse } from "@/api/types";
+import type {
+  ApiResponse,
+  DeleteResponse,
+  Position
+} from "@/api/types";
 
 export interface LedgerItem {
   id: number;
@@ -103,7 +107,9 @@ export function createLedger(data: {
   /** 卖出/赎回回款是否自动申购该类现金产品（需先绑定，否则后端 400） */
   auto_purchase_money_fund?: boolean;
 }) {
-  return http.request<any>("post", "/api/ledgers/", { data });
+  return http.request<ApiResponse<LedgerItem>>("post", "/api/ledgers/", {
+    data
+  });
 }
 
 export function updateLedger(
@@ -148,7 +154,7 @@ export function deleteLedgerWithOptions(
   id: number,
   deletePositions: boolean = false
 ) {
-  return http.request<any>("delete", `/api/ledgers/${id}/`, {
+  return http.request<DeleteResponse>("delete", `/api/ledgers/${id}/`, {
     params: { delete_positions: deletePositions }
   });
 }
@@ -389,6 +395,44 @@ export function getOrphanDetail() {
 
 // ── 账户详情页专用 ──
 
+/** 持仓编辑入参：后端 PATCH /api/ledgers/<lid>/positions/<pid>/ 仅接受这三个字段，
+ *  其余字段会被静默丢弃（迁移持仓归属请改调 PATCH /api/positions/<id>/ 传 ledger_id） */
+export interface LedgerPositionUpdateInput {
+  /** 配置目标（原样存储，不做解析） */
+  allocation?: string | null;
+  /** 现价（元），后端经 Money.yuan_to_price_units 换算入库 */
+  current_price?: number;
+  notes?: string | null;
+}
+
+/** 交易编辑入参（PATCH /api/ledgers/<lid>/transactions/<tid>/，#1112）。
+ *  归属类字段（ledger_id/symbol/account 等）后端直接 400 拒绝，禁止出现在此类型。
+ *  金额/价格字段均为元，quantity 为份，日期为 YYYY-MM-DD；quantity/price 变更
+ *  且未显式给 amount 时，后端按 价格×数量 重算毛额。 */
+export interface LedgerTransactionUpdateInput {
+  quantity?: number;
+  price?: number;
+  fee?: number;
+  amount?: number;
+  /** 后端对 None 安全跳过（不更新该字段） */
+  trade_date?: string | null;
+  confirm_date?: string | null;
+  notes?: string | null;
+}
+
+/** 交易编辑响应 data（后端组装的 Money 反算字段） */
+export interface LedgerTransactionUpdateResult {
+  id: number;
+  quantity: number;
+  price: number;
+  amount: number;
+  fee: number;
+  trade_date: string | null;
+  confirm_date: string | null;
+  notes: string | null;
+  import_hash: string | null;
+}
+
 /** 获取账户概览卡片数据 */
 export function getLedgerSummary(ledgerId: number) {
   return http.request("get", `/api/ledgers/${ledgerId}/summary/`);
@@ -416,9 +460,9 @@ export function getLedgerTransactions(
 export function updateLedgerPosition(
   ledgerId: number,
   positionId: number,
-  data: Record<string, any>
+  data: LedgerPositionUpdateInput
 ) {
-  return http.request(
+  return http.request<ApiResponse<Position>>(
     "patch",
     `/api/ledgers/${ledgerId}/positions/${positionId}/`,
     { data }
@@ -444,9 +488,9 @@ export function deleteLedgerPosition(
 export function updateLedgerTransaction(
   ledgerId: number,
   transactionId: number,
-  data: Record<string, any>
+  data: LedgerTransactionUpdateInput
 ) {
-  return http.request(
+  return http.request<ApiResponse<LedgerTransactionUpdateResult>>(
     "patch",
     `/api/ledgers/${ledgerId}/transactions/${transactionId}/`,
     { data }

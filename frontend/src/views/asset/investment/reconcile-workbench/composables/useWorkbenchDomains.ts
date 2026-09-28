@@ -12,7 +12,7 @@ import {
   type ReconciliationItem
 } from "@/api/eaccount";
 import { confirmImport, confirmHoldingImport } from "@/api/importer";
-import type { OcrHoldingRow } from "@/api/ocr";
+import type { OcrHoldingRow, OcrTxnRow } from "@/api/ocr";
 import {
   useReconDraft,
   type RecognizerCandidate
@@ -100,18 +100,25 @@ export function useWorkbenchDomains() {
     if (list.length === 0) return;
     committing.value = true;
     try {
-      // 候选行即 OCR 预览行，剥离 kind 后原样回传确认端点（txn/hodling 各自落库管线）
-      const rows = list.map(c => {
-        const { kind: _k, ...row } = c;
-        return row;
-      });
+      // 候选行即 OCR 预览行，剥离 kind 后原样回传确认端点（txn/holding 各自落库管线）。
+      // 分支内用类型守卫收窄 discriminated union：`c.kind === kind`（变量比较）TS 推不动
+      // 收窄，不收窄会把 OcrHoldingRow（quantity/price 为 string|number）混进 txn 分支。
       if (kind === "txn") {
+        const rows: OcrTxnRow[] = list
+          .filter((c): c is OcrTxnRow & { kind: "txn" } => c.kind === "txn")
+          .map(({ kind: _k, ...row }) => row);
         const res = await confirmImport(rows);
         ElMessage.success(
           `已入库 ${res?.data?.imported ?? rows.length} 条交易，已触发域 C 对账`
         );
       } else {
-        const res = await confirmHoldingImport(rows as OcrHoldingRow[]);
+        const rows: OcrHoldingRow[] = list
+          .filter(
+            (c): c is OcrHoldingRow & { kind: "holding" } =>
+              c.kind === "holding"
+          )
+          .map(({ kind: _k, ...row }) => row);
+        const res = await confirmHoldingImport(rows);
         ElMessage.success(
           `已入库 ${res?.data?.imported ?? rows.length} 条持仓，已刷新域 A 对账`
         );

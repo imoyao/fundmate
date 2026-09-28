@@ -2,6 +2,7 @@
 import { http } from "@/utils/http";
 import type { ApiResponse } from "@/api/types";
 
+/** 后端 /api/funds/nav/ 返回的净值项 */
 interface NavResponseItem {
   fund_code: string;
   unit_nav: number;
@@ -47,14 +48,40 @@ interface RedeemFeeEstimateResponse {
   details: RedeemFeeRuleItem[];
 }
 
-// 1. 获取基金单日净值（你已有的接口）
-export function calcFundNav(symbols: string[], date: string) {
-  return http.request<NavResponseItem[]>("post", "/api/funds/nav/", {
-    data: { symbols, date }
-  });
+/** 申购费率阶梯（对齐 FundService.get_fund_fee_rates；金额为元） */
+export interface FundPurchaseRateItem {
+  start_quota: number;
+  end_quota: number | null;
+  rate: number;
 }
 
-// 2. 🔥 新增：预估基金卖出费率与手续费
+/** 赎回费率阶梯（对齐 FundService.get_fund_fee_rates；end_day 为 null 表示正无穷） */
+export interface FundRedeemRateItem {
+  start_day: number;
+  end_day: number | null;
+  rate: number;
+}
+
+/** 基金费率结构（对齐 /api/funds/<code>/fee-rates/ 的 data） */
+export interface FundFeeRates {
+  fund_code: string;
+  currency: string;
+  purchase: FundPurchaseRateItem[];
+  redeem: FundRedeemRateItem[];
+}
+
+// 1. 获取基金单日净值（响应为 { data: [...], message } 信封）
+export function calcFundNav(symbols: string[], date: string) {
+  return http.request<{ data: NavResponseItem[]; message: string }>(
+    "post",
+    "/api/funds/nav/",
+    {
+      data: { symbols, date }
+    }
+  );
+}
+
+// 2. 预估基金卖出费率与手续费
 export function estimateRedeemFee(params: RedeemFeeEstimateParams) {
   return http.request<RedeemFeeEstimateResponse>(
     "post",
@@ -65,7 +92,7 @@ export function estimateRedeemFee(params: RedeemFeeEstimateParams) {
   );
 }
 
-// 在 openFeeRateDialog 附近添加函数
+// 3. 同步基金费率
 export function syncFundFees(fundCode: string) {
   return http.post(`/api/funds/${fundCode}/fee-sync/`);
 }
@@ -80,8 +107,12 @@ export function searchFunds(query: string) {
   );
 }
 
+/** 获取基金费率结构（基金代码不存在时后端返回 404） */
 export function getFundFeeRates(fundCode: string) {
-  return http.request<any>("get", `/api/funds/${fundCode}/fee-rates/`);
+  return http.request<ApiResponse<FundFeeRates>>(
+    "get",
+    `/api/funds/${fundCode}/fee-rates/`
+  );
 }
 
 // ── 投顾组合明细只读接口（#1468）──
