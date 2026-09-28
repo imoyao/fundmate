@@ -163,7 +163,7 @@ title: 项目路线图与进度表（roadmap）
 | （已实施 PR #1729）账本精灵护栏子包骨架 + L3 输出词法过滤 | G1+G2 | 新建 `ai_recognizer/safety/`（intent_guard/output_filter/repeat_tracker 纯函数骨架）+ `output_filter.py` R1–R10 规则 + 白名单豁免 + 免责模板常量 |
 | （已实施 PR #1729）输入侧意图护栏 + 会话内重复追问检测 | G3+G4 | `intent_guard.py` A/B/D + E 协同（意图分类 + 正则模式 + 情绪复合）+ `repeat_tracker.py` 归一化问答 N 次阈值 + 标准话术 |
 | （暂缓，#1739 四问留痕）per-user token 配额 + Serverless 限流 | G5 | `guards.py` 加 per-user 配额表 + 网关层拦截；**限流计数禁用 SCF 实例内存字典**（多实例击穿），须走 API 网关或 Redis |
-| （G7 已实施 PR #1730；G6 待做）registry 意图路由 + system prompt 注入 L1 铁律 | G6+G7 | `registry.py` 引入 A 前置分类驱动对话精灵路由；精灵 system prompt 注入 L1 数据真实性铁律 + can/cannot 清单（复用同花顺原文） |
+| （G6+G7 均已实施：PR #1743 / PR #1730）registry 意图路由 + system prompt 注入 L1 铁律 | G6+G7 | `registry.py` 引入 A 前置分类驱动对话精灵路由；精灵 system prompt 注入 L1 数据真实性铁律 + can/cannot 清单（复用同花顺原文） |
 
 ### 2.7.3 隐蔽坑登记（落地前必读）
 
@@ -230,7 +230,7 @@ title: 项目路线图与进度表（roadmap）
 | 账本精灵护栏子包骨架 + L3 输出词法过滤（G1+G2） | Q2 | `agent-guardrail-layer-design-2026-08-17.md` §7/§8；`ai_recognizer/safety/` | 已实施（PR #1729） |
 | 输入侧意图护栏 + 会话内重复追问检测（G3+G4） | Q2 | 同上 §6；`intent_guard.py`/`repeat_tracker.py` | 已实施（PR #1729） |
 | per-user token 配额 + Serverless 限流（G5） | Q2 | 同上 §8；`guards.py` | 暂缓（#1739 四问判定，触发条件见卡） |
-| registry 意图路由 + system prompt 注入 L1 铁律（G6+G7） | Q2 | 同上 §8；`registry.py` | G7 已实施（PR #1730）；G6 待做 |
+| registry 意图路由 + system prompt 注入 L1 铁律（G6+G7） | Q2 | 同上 §8；`registry.py` | G7 已实施（PR #1730）；G6 已实施（PR #1743，2026-09-28） |
 | 快速记账对话入口（NLP→importer + 前端逐行确认） | Q2 | `ai_recognizer`；前端精灵输入框 | 待建（Q2 早赢） |
 | 持仓/表现自然语言查询层（NL→工具链） | Q2 | `summary_service`/`performance` | 待建（Q2 早赢） |
 | 持仓行为解读 / 诊断叙事 | Q2 | 拉数据→拼 prompt→llm 叙事 | 待建（排后） |
