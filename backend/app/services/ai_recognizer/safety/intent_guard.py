@@ -39,6 +39,14 @@ REPLY_PROMISE = '我不能给出任何收益承诺（稳赚 / 保本 / 保证年
 # D：情绪 + 建议复合时，由调用方插到回复前的强制风险提示
 RISK_NOTICE = '（市场有波动是常态，下面只是数据梳理，不构成任何投资建议，也不构成对你的操作建议。）'
 
+# ── G6（#1742）：类别 → 标准话术的唯一映射 ────────────────────────────
+# 路由到 ROUTE_STANDARD_REPLY 的类别必须在此取到非空话术，否则接线处会回退工具链
+# （两模块各自维护，一致性由 test_registry_intent_route 钉住）。
+_STANDARD_REPLIES = {
+    CATEGORY_PREDICTION: REPLY_PREDICTION,
+    CATEGORY_ADVICE: REPLY_ADVICE,
+}
+
 # ── B 模式命中：越界句式（命中即拦，不进模型）──
 # 每条 = (规则号, 意图类别, 正则, 标准话术)。
 # 注意用「会涨/会跌/该不该/如果我是你」这类**意图句式**，而非字面「涨/跌」——
@@ -85,7 +93,8 @@ _BLOCK_RULES = (
     ),
 )
 
-# A 意图分类用的越界句式（比 _BLOCK_RULES 略宽，用于归类而不一定拦截）
+# A 意图分类用的越界句式（比 _BLOCK_RULES 略宽，供归类与 G6 路由——拦不拦由
+# registry.route_intent 的路由表决定，本模块只负责「归到哪类」）
 _PREDICTION_CUE = re.compile(r'(涨|跌|走势|点位|牛市|熊市|抄底|逃顶|反弹|反转).{0,4}(吗|么|呢|会|能|该)')
 _ADVICE_CUE = re.compile(r'(该不该|要不要|买不买|卖不卖|换不换|加不加|减不减|值不值得|如何操作|怎么办)')
 # D 情绪 + 建议复合（§6-D）：两个条件**都**满足才打 risk_notice，故拆成两个 pattern。
@@ -153,3 +162,11 @@ def check_input(text: str) -> InputVerdict:
     if category == CATEGORY_EMOTION:
         return InputVerdict(category=category, blocked=False, risk_notice=True, rule='D', reply='')
     return InputVerdict(category=category, blocked=False, risk_notice=False, rule='', reply='')
+
+
+def standard_reply(category: str) -> str:
+    """G6（#1742）：类别 → 标准话术。调用方只应在 `route_intent` 返回 `ROUTE_STANDARD_REPLY` 后调用。
+
+    非拦截类别（查询 / 知识 / 情绪）返回空串——接线处据此回退工具链，避免空白回复。
+    """
+    return _STANDARD_REPLIES.get(category, '')

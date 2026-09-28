@@ -136,3 +136,52 @@ def test_blocked_turn_does_not_consume_turn_budget(monkeypatch):
         assert out['type'] == 'result'
     assert session.turn_count == guards.get_agent_max_turns() - 1
     assert calls['n'] == 0
+
+
+# ── G6 意图路由（#1742）：A 分类驱动的二级拦截 ─────────────────────────
+
+
+def test_prediction_cue_broader_than_b_rules_blocked_by_route(monkeypatch):
+    """B 窄规则未命中的预测句式由意图路由接住：不进模型、不占轮次、标准话术可回放。
+
+    「大盘走势会如何」——B1 的「会涨吗 / 你觉得…涨跌」都匹配不上，但 classify
+    归为 prediction；G6 之前它会照常进查询工具链（违反「预测/建议类不进入查询链路」）。
+    """
+    calls = _fake_llm(monkeypatch)
+    session = AgentSession(session_id='route-pred-1', user_id=1, turn_count=0)
+    out = agent_loop.run_agent('大盘走势会如何', session)
+
+    assert out['type'] == 'result'
+    assert calls['n'] == 0, '预测类不该进入查询链路'
+    assert session.turn_count == 0, '路由拦截同样不消耗轮次预算'
+    assert '无法预测涨跌' in out['content']  # REPLY_PREDICTION
+    assert session.messages[-1]['assistant'] == out['content']
+    assert out['data'] == {}
+
+
+def test_advice_cue_broader_than_b_rules_blocked_by_route(monkeypatch):
+    """「基金亏了怎么办」：B2/B3 的对象型句式匹配不上，classify 归为 advice → 路由拦截。"""
+    calls = _fake_llm(monkeypatch)
+    session = AgentSession(session_id='route-advice-1', user_id=1)
+    out = agent_loop.run_agent('基金亏了怎么办', session)
+
+    assert calls['n'] == 0, '建议类不该进入查询链路'
+    assert out['type'] == 'result'
+    assert '不能替你做决定' in out['content']  # REPLY_ADVICE，且带数据出口
+
+
+def test_route_without_reply_falls_back_to_tool_chain(monkeypatch):
+    """防御分支：类别被路由到「拦截」却缺话术 → 不回空白，回退工具链。"""
+    from app.services.ai_recognizer import registry
+    from app.services.ai_recognizer.safety.intent_guard import CATEGORY_KNOWLEDGE
+
+    calls = _fake_llm(monkeypatch)
+    # 通用知识类没有标准话术，把它临时改道为拦截，正好触发缺话术防御
+    registry.register_intent_route(CATEGORY_KNOWLEDGE, registry.ROUTE_STANDARD_REPLY)
+    try:
+        out = agent_loop.run_agent('什么是市盈率', AgentSession(session_id='route-fallback-1', user_id=1))
+    finally:
+        registry.register_intent_route(CATEGORY_KNOWLEDGE, registry.ROUTE_TOOL_CHAIN)  # 还原
+
+    assert calls['n'] > 0, '缺话术时不该拦截，应回退工具链'
+    assert out['content'], '任何路径都不允许返回空白回复'
