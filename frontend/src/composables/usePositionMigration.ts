@@ -1,5 +1,5 @@
 import { ElMessage } from "element-plus";
-import { updateLedgerPosition } from "@/api/ledger";
+import { updatePosition } from "@/api/positions";
 import { updateAsset } from "@/api/assets";
 import type { LedgerDetailApi } from "./useLedgerDetail";
 
@@ -26,7 +26,10 @@ export function usePositionMigration(
       if (itemId > 100000) {
         await updateAsset(itemId - 100000, { account_name: ledger.name });
       } else {
-        await updateLedgerPosition(Number(detail.ledgerId.value), itemId, {
+        // 归属迁移走 positions 域端点（PATCH /api/positions/<id>/ 接受 ledger_id）；
+        // 原调 ledgers 域 updateLedgerPosition 传 account_name 会被后端静默丢弃（#965 修复）。
+        await updatePosition(itemId, {
+          ledger_id: targetLedgerId,
           account_name: ledger.name
         });
       }
