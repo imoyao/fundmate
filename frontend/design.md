@@ -551,8 +551,8 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 > **核心原则**：投资列表数据通常需要多维交叉筛选，为降低认知负荷，筛选逻辑统一**强制降维到两级**。
 
 1. **两级筛选架构**：
-   - **一级筛选（主维度）**：如"资产类型（全部/场内/场外）"或"资产类别（全部/股票/基金）"。使用 `SegmentedControl` 的 **`default` 档** 平铺在顶部栏（胶囊 `--radius-pill`，字体 `--text-label`，选中态为软按钮 `--brand-100` 底 + `--brand-700` 字，见下节「Segmented（分段控制器）」）。
-   - **二级筛选（状态/子维度）**：如"持有状态（全部/持仓/观察中/已清仓）"或"自定义分组"。**严禁将此维度放在左侧边栏**。必须将其转化为 **`水平滑动胶囊栏 (Horizontal Scroll Capsules)`**，紧贴在一级筛选栏下方。超出容器宽度时支持触控/鼠标滚轮横向滑动，严禁强制换行挤压表格空间。
+   - **一级筛选（主维度）**：如"资产类型（全部/场内/场外）"或"资产类别（全部/股票/基金）"。使用 `SegmentedControl` 的 **`default` 档** 平铺在顶部栏（胶囊 `--radius-pill`，字体 `--text-label`，选中态为软按钮 `--brand-100` 底 + `--brand-700` 字，见下节「Segmented（分段控制器）」）；带计数时用其可选 `count` 徽章。**一级筛选不横向滚动**——选项多到需要滚动就说明该维度该降级为二级（#1731）。
+   - **二级筛选（状态/子维度）**：如"持有状态（全部/持仓/观察中/已清仓）"或"自定义分组"。**严禁将此维度放在左侧边栏**。必须将其转化为 **`水平滑动胶囊栏 (Horizontal Scroll Capsules)`**，紧贴在一级筛选栏下方。超出容器宽度时支持触控/鼠标滚轮横向滑动，严禁强制换行挤压表格空间。**它是与 `SegmentedControl` 并列的独立语言**（分水岭：需横向滚动 ⇒ 胶囊栏，平铺 ⇒ 分段控制器），不属守卫第 ③ 条的回潮，参考实现 `views/asset/favorites/components/RoadFilterBar.vue` 的 `.road-pills--scroll`。
 
 2. **去冗余原则**：明确各筛选维度的交集逻辑，**禁止在列表上方同时出现"全部/股票/基金"与"场内/场外"等语义重叠的筛选层**，统一整合进两级筛选架构中。
 
@@ -566,7 +566,7 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 | 选中态 | `--brand-100` 底 + `--brand-700` 字 + `--brand-400` 边框（软按钮规范），hover 底 `--brand-200` |
 | 未选中 | `--text-secondary` 字，hover 底 `--bg-hover` |
 | 名称截断 | `max-width: 8em` + ellipsis + `title` 全名提示（展示截断 8 汉字；后端管存储、前端管展示） |
-| 数量徽章 | `--text-tertiary` 等宽数字（`tabular-nums`），选中态 `--brand-700` |
+| 数量徽章 | `--text-tertiary-ink` + `tabular-nums`（继承正文字族，**不**切 `--font-mono`），选中态 `--brand-700`；`count > 0` 才渲染（空分组不占位） |
 | 编辑/删除 | 自定义分组项 hover 浮现（opacity 0→1，150ms ease，与表格操作列同一机制） |
 | 横向滚动 | 分组多时 `overflow-x-auto`，滚动条细化为 `--border-light` 色 |
 | 布局 | tab 左对齐 + 右侧（新建 / segmented）右对齐（`justify-between`）；与筛选行、表格用 `--border-subtle` 分割线分区 |
@@ -587,11 +587,39 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 | `block` | 轨道撑满父容器 + 选项 `flex: 1` 等分（如设置抽屉的 4 档刷新频率） |
 | 未选中 | `--text-secondary` 字；hover 提到 `--text-primary` + `--bg-hover` |
 | 选中态 | `--brand-100` 底 + `--brand-700` 字 + `font-weight: 600`（软按钮规范），无边框 |
-| 禁用 | 整组 `disabled`：`--text-disabled` 字 + `not-allowed`，hover 不给底色 |
+| 数量徽章 | 可选（`SegmentedOption.count`）：`--text-tertiary-ink` + `tabular-nums`，选中态 `--brand-700`；字号 = 同级标签 −1px（`default` 12px / `small` 11px）。**传 `0` 照渲染**——筛选场景里「某类别 0 条」本身就是结论 |
+| 禁用 | 整组 `disabled`：`--text-disabled` 字 + `not-allowed`，hover 不给底色（徽章同步退化中性色） |
 | 过渡 | `background-color` / `color` 150ms ease |
 
 > **轨道为何用 `--bg-soft` 而不是 `--bg-muted`**：选中底 `--brand-100`（#fff5f3）接近白色，
 > 落在冷灰轨道（`--bg-muted` #f5f7fa）上几乎不可见；暖米色轨道才能衬托出选中胶囊。
+
+> **为什么选中态是软按钮，而不是实心品牌底（#1731 裁决）**：本仓曾漂出 3 处「实心品牌底」
+> 选中态（eaccount-import 的导入方式 / AI 识别方式、聚合维度切换）。统一裁掉的理由有两条，
+> 第二条是硬伤：
+>
+> 1. **对比度不达标**：实心态当时用的 `--brand-600`(#F06B57) 配 `--text-inverse`(白) 实测
+>    **3.02:1**，连 WCAG AA 的**大字档 3:1** 都不到；`design.md` 也明文把 `--brand-600` 定义为
+>    「激活边框」而非填充色。
+> 2. **与真实主按钮撞脸**：改用它**本应**用的合规实底 `--brand-solid`（=`--brand-800`，白字 4.92:1）
+>    同样不行——`.el-button--primary` 的底色就是 `--brand-solid`，于是同屏会出现两个「主按钮」，
+>    分段控制器抢走页面唯一的供能焦点。
+>
+> 故裁决：**`SegmentedControl` 不提供 `variant="solid"`**，全站分段控制器一律软按钮。
+> 品牌实底（`--brand-solid` / `-hover` / `-active`）只属于真正的行动按钮。
+
+> **语言边界：哪些「多选一」不归本组件（#1731 定稿）**：`role="tablist"` 的「多选一、选项少（2–6）」
+> 一律走 `SegmentedControl`；只有下面两类**不**收编，各有独立登记语言：
+>
+> | 语言 | 判别特征 | 规范位置 | 参考实现 |
+> |------|----------|----------|----------|
+> | **分组胶囊 Tab** | 横向滚动的**分组导航**；选中态多一道 `--brand-400` 边框、hover 加深到 `--brand-200`；配 `--border-subtle` 分割线；可带数量徽章 | 本节上方的「分组胶囊 Tab（Group Tab）」 | `views/asset/watchlist/components/FilterGroupTabs.vue`、`views/explore/index.vue` 的 `.panel-switch` |
+> | **水平滑动胶囊栏** | **二级筛选**（状态 / 子维度），`overflow-x: auto` **严禁换行**；语义上属筛选维度而非「切换视图」 | 「Filter & Selection」第 2 条 | `views/asset/favorites/components/RoadFilterBar.vue` 的 `.road-pills--scroll` |
+>
+> 两者的共同点是「**选项数量可能很多、需要横向滚动**」——这正是它们与分段控制器（选项少、平铺）
+> 的分水岭。**不属以上两类**的手写「多选一」按钮组，一律视为回潮，由守卫拦截。
+> 同页的一级 / 二级分工示例见 `RoadFilterBar.vue`：一级标的类别是 `SegmentedControl`（带数量徽章），
+> 二级状态筛选是水平滑动胶囊栏。
 
 > **编码红线（#1717 收紧）**：分段控制器**只有 `SegmentedControl` 一个实现**。
 > ① 禁止页面使用 `el-segmented`——其选中滑块是 JS 绝对定位的独立子元素
@@ -600,7 +628,12 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 > 硬编码的 `left: 0; width: 10px`、真实几何由 JS 在挂载与 `modelValue` 变化后写回，配上 EP 自带的
 > `transition: all .3s`，**每次点击**都会「从上一项滑到并缩放到本项」，观感就是「点一下就闪一下」。
 > ② 禁止页面自写 `.xxx-segmented` 样式块（#1717 前已漂移出 6 种形态）。
-> 两类回潮都由静态守卫 `scripts/guard_segmented.py` 在 CI 拦截。
+> ③ **禁止页面手写 `role="tablist"` 的「多选一」按钮组**（#1731 收紧）——语言边界见上；
+> 仅两类登记例外（分组胶囊 Tab / 水平滑动胶囊栏，按类名白名单放行）。
+> 三类回潮都由静态守卫 `scripts/guard_segmented.py` 在 CI 拦截。
+>
+> ⚠️ **守卫的已知边界**：`role="tablist"` 是第 ③ 条的栅栏，因此**不带 `role` 的手写切换控件**
+> （如「透明底 + 选中态下划线」的 tab）与**品牌中间阶作实底填充**都拦不住，属刻意留白。
 
 ### Avatar（生成式头像）
 

@@ -22,8 +22,28 @@
  * 本仓在 #1717 前有 10 处各写各的分段控制器（5 处直接挂 `el-segmented` 实例 + 5 处手写分段分组，
  * 分布在 8 个文件里），语言漂移出 6 种形态；本组件是收敛后的**唯一**实现，
  * 静态守卫 `scripts/guard_segmented.py` 拦截回潮（新增 `el-segmented` 或页面级手写样式块即 CI 变红）。
- * 例外：eaccount-import 页的实心圆角变体（`import-mode-switch` / `EaccountAiPanel`）是另一套
- * 设计语言，已在守卫白名单登记并另立跟进卡 #1731，不在本次收敛范围。
+ *
+ * ## 语言边界（#1731 收编后定稿）
+ *
+ * `role="tablist"` 的「多选一、选项少」控件**一律**走本组件——筛选（`全部/股票/基金`）、
+ * 档位（`市值/份额/收益率`）、视图（`资产端/负债端`）、维度（`按产品/按渠道`）、排序皆然。
+ * #1731 把剩余 8 处手写按钮组收编进来，含此前登记在白名单里的 eaccount-import 实心变体。
+ *
+ * **不属本组件**的两类（各有独立登记语言，勿混）：
+ *
+ * - **分组胶囊 Tab**（`design.md` 专节）：带数量徽章 + 横向滚动的**分组导航**，选中态多一道
+ *   `--brand-400` 边框、hover 加深到 `--brand-200`，与 `--border-subtle` 分割线配套
+ *   （参考 `views/explore/index.vue` 的 `.panel-switch`）。
+ * - **水平滑动胶囊栏**（`design.md`「Filter & Selection」的二级筛选）：一级筛选下方的
+ *   **状态 / 子维度**筛选，`overflow-x: auto` 严禁换行（参考 `RoadFilterBar.vue` 的 `.road-pills--scroll`）。
+ *
+ * ## 为什么选中态是软按钮而不是实心品牌底（#1731 裁决）
+ *
+ * 实心选中态（`--brand-600` 底 + `--text-inverse` 白字）在本仓实测仅 **3.02:1**，连 WCAG AA 的
+ * 大字档（3:1）都不到；且 `--brand-600` 在 `design.md` 里是「激活边框」而非填充色。
+ * 改用合规的 `--brand-solid`（=`--brand-800`，白字 4.92:1）同样不行——那会让选中项与同页的
+ * 真实主按钮（同为 `--brand-solid`）**外观撞脸**，同屏出现两个「主按钮」= 供能歧义。
+ * 故裁决：**不加 `variant="solid"`**，全站统一软按钮。
  *
  * 实现刻意为**纯 DOM + CSS**：没有 JS 定位、没有绝对定位滑块，选中态就是选项项自身的底色，
  * 因此几何永远自洽，点击时只做 `background-color` / `color` 过渡，不会位移或缩放。
@@ -33,6 +53,14 @@ interface SegmentedOption<V extends string | number = string> {
   label: string;
   /** 选项值；调用方保证同一组内唯一（字符串维度名或数字档位） */
   value: V;
+  /**
+   * 可选数量徽章（#1731）。用于「带计数的一级筛选」（如自选页 `全部 12 / 股票 5 / 基金 7`）。
+   * 传 `undefined` 即不渲染徽章；传 `0` 会渲染 `0`（不做 falsy 吞并——计数为 0 是有信息量的）。
+   * 与「分组胶囊 Tab」的数量徽章同语言：`tabular-nums` + 未选中 `--text-tertiary-ink` /
+   * 选中 `--brand-700`。**唯一的语义差异**：分组胶囊 Tab 用 `v-if="count > 0"` 隐藏 0
+   * （用户自建分组为空时不值得占位），而筛选场景下「某类别 0 条」本身就是结论，故此处照渲染。
+   */
+  count?: number;
 }
 
 defineOptions({ name: "SegmentedControl" });
@@ -88,6 +116,11 @@ function select(value: T) {
       @click="select(opt.value)"
     >
       {{ opt.label }}
+      <!-- 数量徽章（#1731）：只在传了 count 时渲染。注意判 `!== undefined`——
+           计数为 0 是有信息量的，用 `v-if="opt.count"` 会把 0 静默吞掉。 -->
+      <span v-if="opt.count !== undefined" class="segmented-control__count">{{
+        opt.count
+      }}</span>
     </button>
   </div>
 </template>
@@ -110,6 +143,7 @@ function select(value: T) {
 
 .segmented-control__item {
   display: flex;
+  gap: 5px;
   align-items: center;
   justify-content: center;
   height: 26px;
@@ -148,6 +182,27 @@ function select(value: T) {
   font-weight: 600;
   color: var(--brand-700);
   background-color: var(--brand-100);
+}
+
+/* 数量徽章（#1731）：与「分组胶囊 Tab」的数量徽章同语言（`design.md`「分组胶囊 Tab」）——
+   继承正文字族 + `tabular-nums`（**不**切 `--font-mono`：那里「等宽」指的是数字对齐，
+   参考实现 `FilterGroupTabs.vue` 的 `.group-tab-count` 也是继承字族），
+   未选中 `--text-tertiary-ink`、选中 `--brand-700`。
+   字号取「同级标签 −1px」：`default` 档标签 13px → 徽章 12px（与分组胶囊 Tab 的 12px 对齐），
+   `small` 档标签 12px → 徽章 11px。 */
+.segmented-control__count {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary-ink);
+}
+
+.segmented-control__item.is-active .segmented-control__count {
+  color: var(--brand-700);
+}
+
+/* 禁用时徽章同步退化为中性色（否则选中项整体变灰、徽章仍是品牌红） */
+.segmented-control__item:disabled .segmented-control__count {
+  color: var(--text-disabled);
 }
 
 /* 禁用：整组只读（hover / 选中都退化为中性色，不再给点击暗示） */
@@ -191,5 +246,10 @@ function select(value: T) {
   height: 20px;
   padding: 0 10px;
   font-size: 12px;
+}
+
+/* small 档标签降到 12px，徽章同步降一档（见上方 `.segmented-control__count` 字号规则） */
+.segmented-control--small .segmented-control__count {
+  font-size: 11px;
 }
 </style>

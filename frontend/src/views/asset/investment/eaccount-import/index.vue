@@ -38,27 +38,19 @@
 
     <!-- ── 步骤一：上传与预览 ── -->
     <template v-if="currentStep === 0">
-      <!-- 导入方式分段控制：文件上传 / AI 识别（仅解析成功前置入口，解析后让位预览） -->
-      <div v-if="!parsedOk" class="import-mode-switch" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          class="import-mode-switch__item"
-          :class="{ 'is-active': importMode === 'file' }"
-          @click="switchMode('file')"
-        >
-          上传文件
-        </button>
-        <button
-          type="button"
-          role="tab"
-          class="import-mode-switch__item"
-          :class="{ 'is-active': importMode === 'ai' }"
-          @click="switchMode('ai')"
-        >
-          AI 识别持仓
-        </button>
-      </div>
+      <!-- 导入方式分段控制：文件上传 / AI 识别（仅解析成功前置入口，解析后让位预览）。
+           #1731 收敛：原手写实心圆角变体（--brand-600 实底 + --text-inverse 白字，实测 3.02:1
+           不达 AA）已改为 SegmentedControl 的软按钮规范。
+           用 `:model-value` + `@change` 而非 `v-model`——switchMode 内含 parsedOk 守卫与
+           fetchAiUsage 副作用，必须由它统一处理，不能让 v-model 直接改 importMode。 -->
+      <SegmentedControl
+        v-if="!parsedOk"
+        class="import-mode-switch"
+        :model-value="importMode"
+        :options="IMPORT_MODE_OPTIONS"
+        aria-label="导入方式"
+        @change="switchMode"
+      />
 
       <!-- AI 识别模式入口：文本 / 图片 → holding_import → 持仓预览行（逻辑见 components/EaccountAiPanel） -->
       <EaccountAiPanel v-if="!parsedOk && importMode === 'ai'" :page="imp" />
@@ -77,6 +69,7 @@
 
 <script setup lang="ts">
 import { IconifyIconOffline } from "@/components/ReIcon";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import EaccountDraftBanner from "./components/EaccountDraftBanner.vue";
 import EaccountAiPanel from "./components/EaccountAiPanel.vue";
 import EaccountUploadCard from "./components/EaccountUploadCard.vue";
@@ -85,6 +78,12 @@ import EaccountReconcileResult from "./components/EaccountReconcileResult.vue";
 import { useEaccountImport } from "./composables/useEaccountImport";
 
 defineOptions({ name: "InvestmentEaccountImport" });
+
+/** 导入方式分段选项（#1731）：`as const` 让 value 保持字面量类型，供 SegmentedControl 泛型推断 */
+const IMPORT_MODE_OPTIONS = [
+  { label: "上传文件", value: "file" },
+  { label: "AI 识别持仓", value: "ai" }
+] as const;
 
 // #980 P1-B 结构拆分：状态与动作收敛在 composables/useEaccountImport.ts，
 // 五个子组件经 page prop 注入同一实例；index 只保留编排用的少量状态
@@ -138,36 +137,11 @@ const {
   margin-bottom: var(--space-loose);
 }
 
-/* ===== 导入方式分段控制（上传文件 / AI 识别） ===== */
+/* ===== 导入方式分段控制（上传文件 / AI 识别） =====
+   #1731：外观全部由 SegmentedControl 负责（软按钮规范），此处**只补与下方上传卡的间距**。
+   勿再往这个类里加视觉属性——手写分段控制器样式正是 #1717 / #1731 反复回潮的起点，
+   守卫 `scripts/guard_segmented.py` 会在 CI 拦下。 */
 .import-mode-switch {
-  display: inline-flex;
-  gap: 4px;
-  padding: 4px;
   margin-bottom: var(--space-standard);
-  background: var(--bg-subtle);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-}
-
-.import-mode-switch__item {
-  padding: 6px 16px;
-  font-size: var(--text-small);
-  font-weight: 500;
-  color: var(--text-secondary);
-  cursor: pointer;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-md);
-  transition: all 0.15s ease;
-}
-
-.import-mode-switch__item:hover {
-  color: var(--text-primary);
-}
-
-.import-mode-switch__item.is-active {
-  color: var(--text-inverse);
-  background: var(--brand-600);
-  box-shadow: var(--shadow-raised);
 }
 </style>

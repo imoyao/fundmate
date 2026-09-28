@@ -11,26 +11,18 @@
       / {{ p.aiQuota }} 次
     </div>
 
-    <div class="ocr-segmented" role="tablist" aria-label="AI 识别方式">
-      <button
-        type="button"
-        role="tab"
-        class="ocr-segmented__item"
-        :class="{ 'is-active': p.aiTab === 'text' }"
-        @click="p.aiTab = 'text'"
-      >
-        粘贴文本
-      </button>
-      <button
-        type="button"
-        role="tab"
-        class="ocr-segmented__item"
-        :class="{ 'is-active': p.aiTab === 'image' }"
-        @click="p.aiTab = 'image'"
-      >
-        上传图片
-      </button>
-    </div>
+    <!-- AI 识别方式分段（粘贴文本 / 上传图片）
+         #1731 收敛：原手写 `.ocr-segmented`（--brand-600 实底，白字实测 3.02:1 不达 AA）
+         已改为 SegmentedControl 的 small 档（软按钮规范）。
+         布局钩子改名为 `.ai-tab-switch`：旧名以 `-segmented` 结尾，会被守卫
+         `scripts/guard_segmented.py` 判为回潮（见 frontend/design.md「Segmented」编码红线）。 -->
+    <SegmentedControl
+      v-model="p.aiTab"
+      class="ai-tab-switch"
+      :options="AI_TAB_OPTIONS"
+      size="small"
+      aria-label="AI 识别方式"
+    />
 
     <div v-if="p.aiTab === 'text'" class="ai-import-panel__text">
       <div class="ai-format-hint">
@@ -72,9 +64,16 @@
 import { reactive } from "vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import ImageUploader from "@/components/ImageUploader/index.vue";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import type { useEaccountImport } from "../composables/useEaccountImport";
 
 defineOptions({ name: "EaccountAiPanel" });
+
+/** AI 识别方式分段选项（#1731）：`as const` 保留字面量类型，供 SegmentedControl 泛型推断 */
+const AI_TAB_OPTIONS = [
+  { label: "粘贴文本", value: "text" },
+  { label: "上传图片", value: "image" }
+] as const;
 
 const props = defineProps<{ page: ReturnType<typeof useEaccountImport> }>();
 
@@ -115,31 +114,10 @@ const p = reactive(props.page);
   color: var(--text-primary);
 }
 
-/* 识别方式分段（文本 / 图片），与上面 import-mode-switch 同构但更小 */
-.ocr-segmented {
-  display: inline-flex;
-  gap: 4px;
-  padding: 4px;
+/* 识别方式分段（文本 / 图片）：外观全部由 SegmentedControl `small` 档负责，
+   此处**只补与下方输入区 / 上传区的间距**（#1731）。 */
+.ai-tab-switch {
   margin-bottom: var(--space-compact);
-  background: var(--bg-subtle);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
-}
-
-.ocr-segmented__item {
-  padding: 4px 14px;
-  font-size: var(--text-small);
-  color: var(--text-secondary);
-  cursor: pointer;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  transition: all 0.15s ease;
-}
-
-.ocr-segmented__item.is-active {
-  color: var(--text-inverse);
-  background: var(--brand-600);
 }
 
 .ai-format-hint {

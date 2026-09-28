@@ -1,29 +1,29 @@
 <!--
-  RoadFilterBar · 两级筛选胶囊（design.md「Filter & Selection」硬规范）
+  RoadFilterBar · 两级筛选（design.md「Filter & Selection」硬规范）
 
-  - 一级（主维度）：全部 / 股票 / 基金 / 经理 / 指数——分段控制器式胶囊，实心选中态
-  - 二级（子维度）：全部状态 / 待复盘 / 持仓中 / 观察中 / 已清仓——水平滑动胶囊，
-    超宽横向滚动不换行（严禁塞进左侧边栏）
+  - 一级（主维度）：全部 / 股票 / 基金 / 经理 / 指数 → **`SegmentedControl`**（#1731 收敛，
+    逐项数量走 `count` 徽章）。它属「多选一、选项少」的分段控制器语义，不是筛选胶囊栏。
+  - 二级（子维度）：全部状态 / 待复盘 / 持仓中 / 观察中 / 已清仓——**水平滑动胶囊栏**
+    （design.md 的二级筛选语言，本组件保留手写），超宽横向滚动不换行（严禁塞进左侧边栏）
   - 右侧工具：搜索、排序、管理模式、设计预览开关
+
+  语言边界见 `components/SegmentedControl/index.vue` 头注释与
+  `docs/design/components.md`「分段控制器 vs 相邻「多选一」语言」。
 -->
 <template>
   <div class="road-filter">
     <div class="road-filter__row">
-      <div class="road-pills road-pills--primary" role="tablist">
-        <button
-          v-for="tab in ENTITY_TABS"
-          :key="tab.key"
-          type="button"
-          role="tab"
-          class="road-pill"
-          :class="{ 'is-active': entityFilter === tab.key }"
-          :aria-selected="entityFilter === tab.key"
-          @click="$emit('update:entityFilter', tab.key)"
-        >
-          {{ tab.label }}
-          <span class="road-pill__count">{{ entityCounts[tab.key] ?? 0 }}</span>
-        </button>
-      </div>
+      <!-- 一级筛选（主维度）→ SegmentedControl（#1731 收敛）。
+           原手写 `.road-pills--primary` / `.road-pill` 的注释自称「分段控制器式胶囊，实心选中态」，
+           但实现其实是软按钮（--brand-100 底 + --brand-700 字 + --brand-400 边框）——注释与实现不符；
+           且它本就是 design.md「Filter & Selection」点名要交给 SegmentedControl 的一级筛选。
+           逐项数量改走 `count` 徽章，UX 1:1 保留。 -->
+      <SegmentedControl
+        :model-value="entityFilter"
+        :options="entityOptions"
+        aria-label="标的类别筛选"
+        @change="onEntityFilterChange"
+      />
 
       <div class="road-filter__tools">
         <el-input
@@ -87,13 +87,15 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from "vue";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import { ENTITY_TABS, SORT_OPTIONS, STATUS_TABS } from "../constants";
 import type { RoadEntityType, RoadStatusFilter } from "@/types/favorites";
 
 // 示例预览开关仅开发模式可见（生产构建 import.meta.env.DEV 为 false 时隐藏）
 const devMode = import.meta.env.DEV;
 
-defineProps<{
+const props = defineProps<{
   entityFilter: RoadEntityType | "all";
   statusFilter: RoadStatusFilter;
   entityCounts: Record<string, number>;
@@ -104,7 +106,7 @@ defineProps<{
   previewMode: boolean;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   (e: "update:entityFilter", value: RoadEntityType | "all"): void;
   (e: "update:statusFilter", value: RoadStatusFilter): void;
   (e: "update:keyword", value: string): void;
@@ -112,6 +114,23 @@ defineEmits<{
   (e: "update:previewMode", value: boolean): void;
   (e: "toggle-manage"): void;
 }>();
+
+/**
+ * 一级筛选选项（#1731 收敛）：把逐项数量拼成 `SegmentedControl` 的 `count` 徽章，
+ * 迁移前后 UX 1:1。`?? 0` 与原模板逐字一致——计数缺失时显示 0，而非隐藏徽章。
+ */
+const entityOptions = computed(() =>
+  ENTITY_TABS.map(tab => ({
+    label: tab.label,
+    value: tab.key,
+    count: props.entityCounts[tab.key] ?? 0
+  }))
+);
+
+/** 一级筛选变更：`SegmentedControl` 的 `change` 只回传值，转成原有的 update: 事件语义 */
+function onEntityFilterChange(value: RoadEntityType | "all") {
+  emit("update:entityFilter", value);
+}
 </script>
 
 <style scoped>
@@ -144,7 +163,8 @@ defineEmits<{
   width: 104px;
 }
 
-/* 胶囊：一级（分段控制器式，实心选中） */
+/* 二级筛选胶囊（水平滑动栏，design.md「Filter & Selection」）：
+   一级筛选已迁到 SegmentedControl（#1731），下面这套只服务 `.road-pills--scroll`。 */
 .road-pills {
   display: flex;
   gap: 6px;

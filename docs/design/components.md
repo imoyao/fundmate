@@ -25,7 +25,7 @@ title: 组件使用规范（设计语言实现层）
 - `TemperatureGaugeCard` — 温度环形卡（探市 / 温度计 / 达报三页复用）
 - `TemperatureContextCard` — 温度上下文解读卡
 - `PageHeaderBar` — 页面统一页头
-- `SegmentedControl` — 分段控制器（多选一、选项少 2–6 的视图 / 维度 / 档位切换，`default` / `small` 两档 + `block` 铺满；#1717 收敛，禁再用 `el-segmented` 或页面自写 `.xxx-segmented` 样式块，见 `frontend/design.md`「Segmented（分段控制器）」）
+- `SegmentedControl` — 分段控制器（`role="tablist"` 的「多选一、选项少 2–6」**一律**走此组件：视图 / 维度 / 档位 / 筛选 / 排序；`default` / `small` 两档 + `block` 铺满 + 可选 `count` 数量徽章；#1717 收敛、#1731 扩边到「全部手写 tablist 按钮组」，禁再用 `el-segmented`、页面自写 `.xxx-segmented` 样式块、或手写 `role="tablist"` 按钮组——**仅两类登记例外**：「分组胶囊 Tab」与「水平滑动胶囊栏」，判别见 `frontend/design.md`「Segmented（分段控制器）」的「语言边界」）
 - `PageFooter` / `MarketFooter` — 探市 / 温度计页脚
 - `Superellipse` — 品牌 n=3 超椭圆容器（logo / 头像 / 卡片普适轮廓，禁各处手写圆角或 polygon 轮廓）
 - 全站页脚：`frontend/src/layout/components/lay-footer/index.vue`
@@ -68,7 +68,40 @@ title: 组件使用规范（设计语言实现层）
 - 选中：`color: var(--brand-700)` + `background: var(--brand-100)` + 边框 `--brand-400` + `box-shadow: 0 1px 3px rgb(0 0 0 / 6%)`。
 - **弹性动画**：选中态触发 `style-pop` 关键帧（`scale 1→0.92→1.05→0.97→1`），`:active` 收缩 `scale(0.92)`；缓动统一 `cubic-bezier(0.34, 1.56, 0.64, 1)`；`transform-origin:center` + `will-change:transform`，加 `transform: translateZ(0)` 避免模糊。
 - `:focus-visible` 必须有 `--focus-ring`。
-- 参考实现：`frontend/src/views/profile/index.vue` 的 `.style-capsule`、`frontend/src/views/asset/investment/manual/index.vue` 的 `:deep(.el-radio-button__inner)`。
+- 参考实现：`frontend/src/views/profile/components/ProfileAvatarStyleGrid.vue`（`.style-card--active` + `@keyframes style-pop`，`role="radiogroup"` / `role="radio"`）、`frontend/src/views/asset/investment/manual/index.vue` 的 `:deep(.el-radio-button__inner)`。
+
+### 与 `SegmentedControl` 的边界（#1731 定稿）
+
+两者都是「多选一、选项少」，**按「切换看什么」还是「填写是什么」分工**，不可互替：
+
+| | `SegmentedControl` | D13 果冻胶囊 |
+|---|---|---|
+| 语义 | `role="tablist"` / `role="tab"` —— **切换视图**（同一份数据的另一种切法：维度 / 档位 / 筛选 / 排序 / 面板） | `role="radiogroup"` / `role="radio"` —— **表单取值**（买/卖、头像画风，是提交内容的一部分） |
+| 选中态 | 软按钮：`--brand-100` 底 + `--brand-700` 字，**无边框** | 软按钮 + 1px `--brand-400` 边框 + `style-pop` 弹性回弹 |
+| 形态 | 胶囊项（`--radius-pill`）平铺，固定选项表、不横向滚动 | 胶囊项，或卡片网格（头像画风为 `style-card` 网格） |
+| 落点 | `frontend/src/components/SegmentedControl/index.vue`（唯一实现） | 各表单页内联（无独立组件；**不属**守卫第 ③ 条的回潮） |
+
+> **#1731 收敛记录**：`views/explore/components/ExploreDetailPanel.vue` 原有两个手写 `.rank-switch`
+> 「D13 果冻胶囊」块，实为**切换看什么**（排行分类 / 排行视图），已按本边界迁到 `SegmentedControl`。
+>
+> ⚠️ **本节旧稿的两处失效引用（2026-09-27 修正）**：① `views/profile/index.vue` 的 `.style-capsule`
+> **全仓已无**（头像画风已拆为 `ProfileAvatarStyleGrid.vue` 的卡片网格）；② 旧稿把
+> `manual/index.vue` 写作独立参考，其实它是 `el-radio-button` 的 `:deep` 覆盖，**不是**手写胶囊。
+
+## 分段控制器 vs 相邻「多选一」语言（#1731 登记）
+
+仓库里「多选一」的控件有三套**合法**语言 + 一套被禁的回潮。判定顺序：
+
+| # | 语言 | 判别特征 | 归谁 |
+|---|------|----------|------|
+| 1 | **分段控制器** | `role="tablist"`；选项少（2–6）、固定、**平铺不滚动**；「切换看什么」 | `SegmentedControl`（唯一实现，强制复用） |
+| 2 | **分组胶囊 Tab** | 横向滚动的**分组导航**；选中态多一道 `--brand-400` 边框、hover 加深到 `--brand-200`；配 `--border-subtle` 分割线；可带数量徽章 | 保留手写，规范见 `frontend/design.md`「分组胶囊 Tab」；参考 `views/asset/watchlist/components/FilterGroupTabs.vue`、`views/explore/index.vue` 的 `.panel-switch` |
+| 3 | **水平滑动胶囊栏** | **二级筛选**（状态 / 子维度）；`overflow-x: auto` **严禁换行** | 保留手写，规范见 `frontend/design.md`「Filter & Selection」第 2 条；参考 `views/asset/favorites/components/RoadFilterBar.vue` 的 `.road-pills--scroll` |
+| 4 | **D13 果冻胶囊** | `role="radiogroup"` / `role="radio"`；「填写是什么」的表单取值 | 保留手写，见上节「果冻胶囊按钮组（D13）」 |
+| ❌ | 手写 `role="tablist"` 按钮组 | 不属 #2 / #3 的任意形态 | **回潮**，由 `scripts/guard_segmented.py` 拦截（按类名白名单放行 #2 / #3） |
+
+> **分水岭一句话**：**选项多到需要横向滚动 ⇒ 胶囊栏（#2 / #3）；能平铺 ⇒ 分段控制器（#1）。**
+> 语义上 #1 / #2 / #3 都是「切换看什么」，#4 是「填写是什么」。
 
 ## Superellipse · 品牌超椭圆容器（D15，强制复用）
 
