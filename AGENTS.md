@@ -310,7 +310,7 @@
 - **文档站**：根目录执行 `pnpm run docs:dev` / `docs:build`。
 - **内部备忘**：一律放 `docs/working-notes/`（全局屏蔽），文件名必须英文 kebab-case + 日期后缀，如 `deployment-2026-08-04.md`，正文标题可用中文。新增备忘须同步登记进 `working-notes/README.md` 索引表。
 - **落地页**：已移交主站仓库 `duoduobei-web`（`duoduobei.com`），本仓**不再构建落地页**——四条 `build:landing/about/story/pages` 脚本与 `scripts/build-landing.mjs` 均已移除。根 `vercel.json` 现指向**应用站**（`frontend/` 构建 → `frontend/dist` + SPA 回退），Cloudflare Pages 侧见根 `wrangler.toml`，详见 `docs/ops/deployment.md` §3。
-- **Markdown lint**：`pnpm run docs:lint-md`（CI 用 `npx lint-md docs`，不带 `-f`）。
+- **Markdown lint**：`pnpm run docs:lint-md`（**只读报告**，不改文件）。确实需要自动修复时显式跑 `pnpm run docs:lint-md:fix`（带 `-f`），但必须先看 `git diff` 再提交——`lint-md@0.2.0` 的 fixer 对**缩进代码块**有非幂等 bug：它把缩进代码块首行当成围栏行，每跑一轮就往行尾追加一个 `plain`，与内容无关（`npm install foo` 这类普通行同样中招），永不收敛。另注：CI workflows 目前**未接入** markdown lint，仅本地执行（此前文档里「CI 用 npx lint-md docs」的说法已不准确）。
 
 ---
 
