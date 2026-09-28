@@ -54,7 +54,15 @@ export type AgentErrorTurn = {
   session_id: string;
 };
 
-export type AgentTurn = AgentClarifyTurn | AgentResultTurn | AgentErrorTurn;
+/** 取消态（#1714 L2）：服务端在检查点提前收尾，该轮不落库（从未发生语义） */
+export type AgentCancelledTurn = {
+  type: "cancelled";
+  content: string;
+  session_id: string;
+};
+
+export type AgentTurn =
+  AgentClarifyTurn | AgentResultTurn | AgentErrorTurn | AgentCancelledTurn;
 
 /** POST /api/agent/chat/ 成功信封（错误信封为 {data, message, error_code}） */
 export type AgentChatResponse = {
@@ -71,13 +79,25 @@ export type AgentChatRequest = {
   goal?: string;
 };
 
-/** 单轮对话（尾斜杠端点，需登录；限流/熔断/预算/轮次四道闸都在服务端） */
-export function agentChat(payload: AgentChatRequest) {
+/** 单轮对话（尾斜杠端点，需登录；限流/熔断/预算/轮次四道闸都在服务端）。
+ * signal（#1714 L1）：停止按钮 abort 后请求立即断开，UI 即刻回空闲；
+ * 服务端是否提前收尾由 cancel 端点的标志决定（协作式取消，两层解耦） */
+export function agentChat(payload: AgentChatRequest, signal?: AbortSignal) {
   return http.request<AgentChatResponse>(
     "post",
     "/api/agent/chat/",
-    { data: payload },
+    { data: payload, signal },
     { timeout: CHAT_TIMEOUT }
+  );
+}
+
+/** 标记会话取消（#1714 L2）：正在跑的轮次在服务端下一检查点收尾，不再烧后续模型调用。
+ * 前端 fire-and-forget 调用（abort 已保证本地体验，此调用失败静默） */
+export function agentCancel(sessionId: string) {
+  return http.request<{ data: { session_id: string }; message: string }>(
+    "post",
+    "/api/agent/chat/cancel/",
+    { data: { session_id: sessionId } }
   );
 }
 

@@ -93,6 +93,7 @@ def call_llm(
     temperature: float = 0.1,
     timeout: Optional[int] = None,
     response_format: Optional[dict] = None,
+    usage_sink: Optional[dict] = None,
 ) -> str:
     """调用火山方舟 OpenAI 兼容端点，返回 choices[0].message.content。
 
@@ -102,6 +103,9 @@ def call_llm(
         temperature / timeout: 覆盖默认值；timeout 缺省用 ARK_TIMEOUT。
         response_format: OpenAI 兼容的响应格式约束（如 {'type': 'json_object'}），
             缺省不传——部分模型/端点不支持该参数，由调用方按需开启。
+        usage_sink: 可选 token 汇出槽（#1736 S4 trace）——传 dict 则每次成功调用
+            累加 {'tokens': int}，供调用方按轮汇总；缺省 None 零影响。
+            重试路径不累加（失败响应无 usage），与 _record_tokens 口径一致。
 
     兜底设计（用户反馈 503 直报问题）：
     - 超时放宽到 ARK_TIMEOUT（默认 60s，图片/长文本识别慢，30s 易 ReadTimeout）；
@@ -148,6 +152,8 @@ def call_llm(
             usage = data.get('usage') or {}
             tokens = int(usage.get('total_tokens') or 0)
             _record_tokens(tokens)
+            if usage_sink is not None:
+                usage_sink['tokens'] = usage_sink.get('tokens', 0) + tokens
             text = data['choices'][0]['message']['content']
             logger.info(
                 '[llm.call] ok attempt={} model={} tokens={} elapsed={:.2f}s',

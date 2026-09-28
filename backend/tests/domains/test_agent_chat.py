@@ -170,3 +170,66 @@ def test_chat_session_forged_or_unknown_id_404(client, db):
     resp2 = _post(client, 'hi', session_id='sess-never-existed')
     assert resp2.status_code == 404
     assert resp2.get_json()['error_code'] == ErrorCode.RESOURCE_NOT_FOUND.code
+
+
+# ── #1714 协作式取消端点 ──
+def test_chat_cancel_sets_flag(client, db):
+    """取消端点：归属校验通过后置位注册表（run_agent 检查点消费）。"""
+    from app.services.ai_recognizer import cancellation
+
+    db.add(AgentSession(session_id='sess-to-cancel', user_id=1))
+    db.commit()
+    resp = client.post('/api/agent/chat/cancel/', json={'session_id': 'sess-to-cancel'})
+    assert resp.status_code == 200
+    assert resp.get_json()['data'] == {'session_id': 'sess-to-cancel'}
+    assert cancellation.is_cancelled_since('sess-to-cancel', 0.0)  # 起点 0：任何置位可见
+    # 幂等清理，不污染后续用例
+    cancellation.clear('sess-to-cancel')
+
+
+def test_chat_cancel_forged_or_unknown_id_404(client, db):
+    """取消端点同源 404 口径：越权 / 不存在不泄露存在性，且不得置位。"""
+    from app.services.ai_recognizer import cancellation
+
+    db.add(AgentSession(session_id='sess-cancel-owned-by-others', user_id=999))
+    db.commit()
+    resp = client.post('/api/agent/chat/cancel/', json={'session_id': 'sess-cancel-owned-by-others'})
+    assert resp.status_code == 404
+    resp2 = client.post('/api/agent/chat/cancel/', json={'session_id': 'sess-cancel-never'})
+    assert resp2.status_code == 404
+    assert not cancellation.is_cancelled_since('sess-cancel-owned-by-others', 0.0)
+    assert not cancellation.is_cancelled_since('sess-cancel-never', 0.0)
+
+
+def test_chat_cancelled_turn_envelope(client, monkeypatch, db):
+    """HTTP 全链路：请求进行中置位 → chat 在检查点返回 cancelled 业务态（200 信封）。
+
+    置位时机必须在**请求进行中**（mock 决策调用时置位），复刻真实并发时序——
+    时间戳口径下，请求开始前置位的标志对本轮不可见（is_cancelled_since）。
+    """
+    from app.services.ai_recognizer import cancellation
+
+    db.add(AgentSession(session_id='sess-cancel-flow', user_id=1, turn_count=3))
+    db.commit()
+
+    def fake(content, system_prompt, **kwargs):
+        if kwargs.get('response_format'):
+            cancellation.request_cancel('sess-cancel-flow')  # 决策调用时（本轮已开始）置位
+            return '{"action":"execute_tool","tool_name":"get_assets_overview","tool_params":{}}'
+        raise AssertionError('取消命中后不得再发起叙事调用')
+
+    monkeypatch.setattr(llm_module, 'call_llm', fake)
+    monkeypatch.setattr(
+        tools_mod.ToolExecutor,
+        'run',
+        staticmethod(lambda name, params, server_ctx=None: {'status': 'success', 'data': {}}),
+    )
+    resp = _post(client, '帮我分析一下', session_id='sess-cancel-flow')
+    assert resp.status_code == 200  # 业务态不是错误
+    data = resp.get_json()['data']
+    assert data['type'] == 'cancelled'
+    assert data['session_id'] == 'sess-cancel-flow'
+    # 幽灵轮次归零：turn_count 未被本轮 +1（仍为 3），标志已被 finally 回收
+    assert not cancellation.is_cancelled_since('sess-cancel-flow', 0.0)
+    row = db.query(AgentSession).filter_by(session_id='sess-cancel-flow').first()
+    assert row.turn_count == 3
