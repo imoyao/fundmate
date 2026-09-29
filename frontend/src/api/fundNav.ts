@@ -36,7 +36,7 @@ export async function fetchFundNav(
   // 1. 尝试后端 API
   try {
     const res = await calcFundNav([fundCode], targetDate);
-    const list = (res as any)?.data ?? res;
+    const list = res.data;
     if (Array.isArray(list) && list.length > 0) {
       const item = list[0];
       if (item.unit_nav && item.unit_nav > 0) {
@@ -88,9 +88,9 @@ export async function fetchFundNavBatch(
   const backendFound = new Set<string>();
   try {
     const res = await calcFundNav(fundCodes, targetDate);
-    const list = (res as any)?.data ?? res;
+    const list = res.data;
     if (Array.isArray(list)) {
-      list.forEach((item: any) => {
+      list.forEach(item => {
         if (item.unit_nav && item.unit_nav > 0 && item.fund_code) {
           navMap[item.fund_code] = Number(item.unit_nav);
           backendFound.add(item.fund_code);
@@ -123,6 +123,23 @@ export async function fetchFundNavBatch(
 }
 
 /* ─────────────── 天天基金 JSONP ─────────────── */
+
+/** 天天基金 lsjz 历史净值单条记录（仅取用到的字段） */
+interface EastmoneyLsjzItem {
+  /** 净值日期 YYYY-MM-DD */
+  FSRQ?: string;
+  /** 单位净值（字符串数字） */
+  DWJZ?: string;
+  /** 累计净值（字符串数字） */
+  LJJZ?: string;
+}
+
+/** 天天基金 lsjz JSONP 响应形状 */
+interface EastmoneyLsjzResponse {
+  Data?: {
+    LSJZList?: EastmoneyLsjzItem[];
+  };
+}
 
 /**
  * 批量经 JSONP 获取多只基金在指定日期的单位净值（#1133）。
@@ -165,6 +182,12 @@ export async function fetchNavBatchFromEastmoney(
   return result;
 }
 
+/** JSONP 回调挂载点：window 上按回调名临时挂载，收尾即删（替代 as any） */
+type JsonpCallbackHost = Record<
+  string,
+  ((data: EastmoneyLsjzResponse) => void) | undefined
+>;
+
 /**
  * JSONP 调用天天基金历史净值接口。
  *
@@ -187,13 +210,14 @@ export function fetchNavFromEastmoney(
 
     const script = document.createElement("script");
     let settled = false;
+    const jsonpHost = window as unknown as JsonpCallbackHost;
 
     const cleanup = () => {
-      delete (window as any)[callbackName];
+      delete jsonpHost[callbackName];
       if (script.parentNode) script.parentNode.removeChild(script);
     };
 
-    (window as any)[callbackName] = (data: any) => {
+    jsonpHost[callbackName] = (data: EastmoneyLsjzResponse) => {
       if (settled) return;
       settled = true;
       cleanup();
@@ -201,7 +225,7 @@ export function fetchNavFromEastmoney(
       const list = data?.Data?.LSJZList;
       if (Array.isArray(list) && list.length > 0) {
         const item = list[0];
-        const nav = parseFloat(item.DWJZ);
+        const nav = parseFloat(item.DWJZ ?? "");
         if (nav && nav > 0) {
           resolve({
             unit_nav: nav,

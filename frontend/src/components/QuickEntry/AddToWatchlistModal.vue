@@ -506,7 +506,8 @@ const handleSubmit = async () => {
     });
     const newItem: WatchlistItem = itemRes.data;
 
-    const promises: Promise<void>[] = [];
+    // 关联端点成功仅返回 { message }，无 data，故收集为 Promise<unknown>
+    const promises: Promise<unknown>[] = [];
     for (const gid of selectedGroupIds.value) {
       promises.push(addItemToGroup(newItem.id, gid));
     }

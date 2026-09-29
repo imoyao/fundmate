@@ -145,8 +145,21 @@ const save = async () => {
       ElMessage.success("分组已更新");
     } else {
       const res = await createWatchlistGroup({ name, color: form.color });
-      const newGroup = (res as { data?: WatchlistGroup })?.data;
-      if (newGroup) emit("created", newGroup);
+      const created = res.data;
+      if (created) {
+        // WatchlistGroupOut（写操作返回）→ WatchlistGroup（列表项形状）：
+        // 新建分组补 count=0；nullable 字段按列表项可选语义兜底
+        emit("created", {
+          id: created.id,
+          name: created.name,
+          color: created.color,
+          sort_order: created.sort_order ?? undefined,
+          is_system: created.is_system ?? false,
+          is_visible: created.is_visible ?? undefined,
+          entity_type: created.entity_type ?? undefined,
+          count: 0
+        });
+      }
       ElMessage.success("分组已创建");
     }
     emit("saved");

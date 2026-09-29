@@ -134,3 +134,9 @@ export interface SummaryData {
   net_assets_cny: number;
   market_distribution: Record<string, number>;
 }
+
+/** 删除/解绑类端点的通用响应（data 为 null 或空对象，调用方通常只关心 message） */
+export interface DeleteResponse {
+  data: null | Record<string, never>;
+  message: string;
+}
