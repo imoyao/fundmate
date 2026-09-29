@@ -1,8 +1,8 @@
 import { ref, onUnmounted, computed } from "vue";
 import { getSummary } from "@/api/summary";
 import { getPortfolioXirr, type XirrData } from "@/api/performance";
-import { getTemperatureOverview } from "@/api/temperature";
 import { getRecordStats } from "@/api/users";
+import { useTemperatureOverview } from "@/composables/temperature/useTemperatureOverview";
 import type { SummaryData } from "@/api/types";
 import { useOverviewStore } from "@/store/modules/overview";
 import { useUserStoreHook } from "@/store/modules/user";
@@ -132,14 +132,20 @@ export function useWelcomeData() {
     }
   });
 
-  // 综合市场温度（第二排右卡）
-  const compositeTemperature = ref<CompositeTemperature | null>(null);
-
-  // B1/P3: 短/中/长期温度分解（概览页行内三连）。仅消费后端 value/level，颜色令牌留前端。
-  const temperatureBands = ref<TemperatureBands | null>(null);
-
-  // B3: 综合温度环下方结论副文案（后端 conclusion 归集，前端不写死）
-  const temperatureConclusion = ref("");
+  // 市场温度总览：复用探市页同一单例 composable（#1776 B10），消除与 explore
+  // 对同一接口 /api/temperature/overview 的重复解析（原实现另写一遍
+  // composite/bands/conclusion 的提取）。三字段改为 computed 透传单例状态，
+  // 名称与类型保持不变，下游 WelcomeXirrTemperature / homeFeed / ticker 无需改动。
+  const tempOverview = useTemperatureOverview();
+  const compositeTemperature = computed<CompositeTemperature | null>(
+    () => tempOverview.compositeTemperature.value
+  );
+  const temperatureBands = computed<TemperatureBands | null>(
+    () => tempOverview.temperatureBands.value
+  );
+  const temperatureConclusion = computed<string>(
+    () => tempOverview.conclusion.value
+  );
 
   // level → 温度语义色令牌（B3 边界：色令牌留前端，禁后端下发颜色码）
   const levelColorVar: Record<string, string> = {
@@ -270,51 +276,10 @@ export function useWelcomeData() {
     }
   };
 
-  // 综合市场温度（首页概览级，只取综合值，轻量）
-  const fetchTemperature = async () => {
-    try {
-      const res = await getTemperatureOverview();
-      const data = res.data;
-      if (!data) return;
-      const composite = data.composites?.composite_temperature;
-      if (composite) {
-        compositeTemperature.value = {
-          value: composite.value,
-          level: composite.level || ""
-        };
-      }
-      const bands = data.composites?.temperature_bands;
-      if (bands) {
-        temperatureBands.value = {
-          short: bands.short
-            ? {
-                name: bands.short.name,
-                value: bands.short.value,
-                level: bands.short.level || ""
-              }
-            : undefined,
-          medium: bands.medium
-            ? {
-                name: bands.medium.name,
-                value: bands.medium.value,
-                level: bands.medium.level || ""
-              }
-            : undefined,
-          long: bands.long
-            ? {
-                name: bands.long.name,
-                value: bands.long.value,
-                level: bands.long.level || ""
-              }
-            : undefined
-        };
-      }
-      temperatureConclusion.value = data.conclusion || "";
-    } catch (e) {
-      console.error("获取市场温度失败:", e);
-    } finally {
-      buildHomeMessages();
-    }
+  // 综合市场温度（首页概览级，复用单例，仅触发拉取并刷新播报）
+  const fetchTemperature = async (force = false) => {
+    await tempOverview.fetchTemperature(force);
+    buildHomeMessages();
   };
 
   return {

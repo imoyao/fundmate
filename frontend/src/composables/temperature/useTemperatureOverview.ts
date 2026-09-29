@@ -13,7 +13,8 @@
 import { ref } from "vue";
 import {
   getTemperatureOverview,
-  type TemperatureOverviewResponse
+  type TemperatureOverviewResponse,
+  type TemperatureBand
 } from "@/api/temperature";
 
 /** 集思录估值指标（与后端 composites.jisilu_indicator 对齐，仅取页面所需字段） */
@@ -65,6 +66,16 @@ function createTemperatureOverview() {
   const cbTemperature = ref<number | null>(null);
   const cbLabel = ref<string>("");
   const jisiluIndicator = ref<JisiluIndicator | null>(null);
+
+  // #1776 B10：短/中/长期温度分解（暴露给欢迎页复用，消除重复解析）
+  const temperatureBands = ref<{
+    short?: TemperatureBand;
+    medium?: TemperatureBand;
+    long?: TemperatureBand;
+  } | null>(null);
+
+  // #1776 B10：综合温度环下方结论副文案（暴露给欢迎页复用）
+  const conclusion = ref<string>("");
 
   /** 真正执行请求（并发去重由外层 fetchTemperature 负责） */
   const doFetch = async () => {
@@ -149,6 +160,10 @@ function createTemperatureOverview() {
       if (selfCalcLevel.value === "数据暂缺") {
         console.warn("自算股债利差数据暂缺，显示占位");
       }
+
+      // #1776 B10：温度分解 + 结论，暴露给欢迎页，避免 welcome 再解析一遍 overview
+      temperatureBands.value = data.composites?.temperature_bands ?? null;
+      conclusion.value = data.conclusion ?? "";
     } catch (error) {
       console.warn("获取市场温度失败:", error);
       selfCalcLevel.value = "数据暂缺";
@@ -193,6 +208,8 @@ function createTemperatureOverview() {
     cbTemperature,
     cbLabel,
     jisiluIndicator,
+    temperatureBands,
+    conclusion,
     fetchTemperature
   };
 }
