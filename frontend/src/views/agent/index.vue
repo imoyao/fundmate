@@ -10,23 +10,21 @@
     <PageHeaderBar
       title="账本精灵"
       subtitle="一句话问账户：查表现、看持仓、问温度。只读分析，不改任何数据。"
-    />
-
-    <section class="chat-card">
-      <div class="chat-card__toolbar">
-        <div class="chat-card__toolbar-left">
-          <el-button
-            text
-            size="small"
-            class="chat-card__history"
-            :disabled="pending"
-            @click="historyOpen = !historyOpen"
-          >
-            <el-icon><Clock /></el-icon>
-            历史
-          </el-button>
-          <span class="chat-card__hint">{{ statusText }}</span>
-        </div>
+    >
+      <!-- 页面操作收口到页头（#1714 UI 复核）：此前长在对话卡片顶上，
+           形成「页头 + 卡片工具栏」双层头部，且「历史」开关离它控制的历史栏很远 -->
+      <template #action>
+        <el-button
+          text
+          size="small"
+          class="agent-page__history"
+          :aria-expanded="historyOpen ? 'true' : 'false'"
+          :disabled="pending"
+          @click="historyOpen = !historyOpen"
+        >
+          <el-icon><Clock /></el-icon>
+          历史
+        </el-button>
         <el-button
           text
           size="small"
@@ -35,162 +33,182 @@
         >
           新对话
         </el-button>
-      </div>
+      </template>
+    </PageHeaderBar>
 
+    <!-- 页头之下就是对话本身：历史栏（左）+ 会话区（右）。
+         不再有「页面里嵌一个聊天卡片」的外壳（#1714 UI 复核） -->
+    <div class="chat-shell">
+      <!-- 历史栏：页内左栏（#1719 方案 A 的落地形态）。默认折叠时 v-if 不渲染 → 零请求；
+           展开时占左列，消息列不会被挤下去（旧实现是插在卡片顶部的折叠块） -->
       <SessionHistory
         v-if="historyOpen"
         :active-session-id="sessionId"
         :refresh-token="historyRefreshToken"
         @select="switchSession"
-        @new-chat="resetSession"
       />
 
-      <div ref="listRef" class="chat-card__list">
-        <!-- 空态：欢迎 hero + 示例问题直达（功能型空态，插画资产就绪前的过渡方案，已同步 design.md） -->
-        <div v-if="messages.length === 0 && !pending" class="chat-hero">
-          <h2 class="chat-hero__title">
-            你未曾留意的账<br />
-            <span class="chat-hero__brand">账本精灵</span>全部记清
-          </h2>
-          <p class="chat-hero__label">试着问一句</p>
-          <div class="chat-hero__questions">
-            <button
-              v-for="ex in EXAMPLES"
-              :key="ex"
-              type="button"
-              class="chat-hero__q"
-              @click="send(ex)"
-            >
-              <el-icon class="chat-hero__q-icon"><MagicStick /></el-icon>
-              <span>{{ ex }}</span>
-            </button>
-          </div>
-        </div>
-
-        <div
-          v-for="(m, index) in messages"
-          :key="index"
-          class="msg"
-          :class="`msg--${m.role}`"
-        >
-          <div v-if="roleLabel(m.role)" class="msg__head">
-            <span class="msg__avatar" :class="`msg__avatar--${m.role}`">
-              <el-icon>
-                <component
-                  :is="m.role === 'error' ? WarningFilled : MagicStick"
-                />
-              </el-icon>
-            </span>
-            <span class="msg__role">{{ roleLabel(m.role) }}</span>
-          </div>
-          <!-- 结构化块（#1712）：结论加粗置顶 / 明细文本 / 行级盈亏表（涨红跌绿）/ 风险提示弱化；
-               blocks 缺失（后端契约漂移降级）回退纯文本气泡，两态互斥 -->
-          <div
-            v-if="m.blocks?.length"
-            class="msg__bubble msg__bubble--structured"
-          >
-            <template v-for="(b, bi) in m.blocks" :key="bi">
-              <div v-if="b.type === 'table'" class="msg__table-wrap">
-                <table class="msg__table">
-                  <thead>
-                    <tr>
-                      <th v-for="col in b.columns" :key="col.key">
-                        {{ col.label }}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="(row, ri) in b.rows" :key="ri">
-                      <td
-                        v-for="col in b.columns"
-                        :key="col.key"
-                        :class="cellClass(row[col.key], col.kind)"
-                      >
-                        {{ formatCell(row[col.key]) }}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-                <p v-if="b.truncated" class="msg__table-note">仅展示前 50 行</p>
+      <section class="chat-main">
+        <div ref="listRef" class="chat-list">
+          <div class="chat-stream">
+            <!-- 空态：欢迎 hero + 示例问题直达（功能型空态，插画资产就绪前的过渡方案，已同步 design.md） -->
+            <div v-if="messages.length === 0 && !pending" class="chat-hero">
+              <h2 class="chat-hero__title">
+                你未曾留意的账<br />
+                <span class="chat-hero__brand">账本精灵</span>全部记清
+              </h2>
+              <p class="chat-hero__label">试着问一句</p>
+              <div class="chat-hero__questions">
+                <button
+                  v-for="ex in EXAMPLES"
+                  :key="ex"
+                  type="button"
+                  class="chat-hero__q"
+                  @click="send(ex)"
+                >
+                  <el-icon class="chat-hero__q-icon"><MagicStick /></el-icon>
+                  <span>{{ ex }}</span>
+                </button>
               </div>
-              <p v-else class="msg__block" :class="`msg__block--${b.type}`">
-                {{ b.text }}
-              </p>
-            </template>
-          </div>
-          <div v-else class="msg__bubble">{{ m.content }}</div>
-          <div v-if="m.data" class="msg__metrics">
-            <div v-for="(val, key) in m.data" :key="key" class="msg__metric">
-              <span class="msg__metric-key">{{ key }}</span>
-              <span class="msg__metric-val">{{ String(val) }}</span>
+            </div>
+
+            <div
+              v-for="(m, index) in messages"
+              :key="index"
+              class="msg"
+              :class="`msg--${m.role}`"
+            >
+              <div v-if="roleLabel(m.role)" class="msg__head">
+                <span class="msg__avatar" :class="`msg__avatar--${m.role}`">
+                  <el-icon>
+                    <component
+                      :is="m.role === 'error' ? WarningFilled : MagicStick"
+                    />
+                  </el-icon>
+                </span>
+                <span class="msg__role">{{ roleLabel(m.role) }}</span>
+              </div>
+              <!-- 结构化块（#1712）：结论加粗置顶 / 明细文本 / 行级盈亏表（涨红跌绿）/ 风险提示弱化；
+               blocks 缺失（后端契约漂移降级）回退纯文本气泡，两态互斥 -->
+              <div
+                v-if="m.blocks?.length"
+                class="msg__bubble msg__bubble--structured"
+              >
+                <template v-for="(b, bi) in m.blocks" :key="bi">
+                  <div v-if="b.type === 'table'" class="msg__table-wrap">
+                    <table class="msg__table">
+                      <thead>
+                        <tr>
+                          <th v-for="col in b.columns" :key="col.key">
+                            {{ col.label }}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="(row, ri) in b.rows" :key="ri">
+                          <td
+                            v-for="col in b.columns"
+                            :key="col.key"
+                            :class="cellClass(row[col.key], col.kind)"
+                          >
+                            {{ formatCell(row[col.key]) }}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <p v-if="b.truncated" class="msg__table-note">
+                      仅展示前 50 行
+                    </p>
+                  </div>
+                  <p v-else class="msg__block" :class="`msg__block--${b.type}`">
+                    {{ b.text }}
+                  </p>
+                </template>
+              </div>
+              <div v-else class="msg__bubble">{{ m.content }}</div>
+              <div v-if="m.data" class="msg__metrics">
+                <div
+                  v-for="(val, key) in m.data"
+                  :key="key"
+                  class="msg__metric"
+                >
+                  <span class="msg__metric-key">{{ key }}</span>
+                  <span class="msg__metric-val">{{ String(val) }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="pending" class="msg msg--pending">
+              <div class="msg__head">
+                <span class="msg__avatar">
+                  <el-icon><MagicStick /></el-icon>
+                </span>
+                <span class="msg__role">账本精灵</span>
+              </div>
+              <!-- 思考态只有气泡：停止动作收口到输入区复合按钮（#1714 UI 复核：
+               停止键不是独立按钮，而是发送键就地切换的形态） -->
+              <div class="msg__bubble msg__bubble--pending">分析中</div>
             </div>
           </div>
         </div>
 
-        <div v-if="pending" class="msg msg--pending">
-          <div class="msg__head">
-            <span class="msg__avatar">
-              <el-icon><MagicStick /></el-icon>
-            </span>
-            <span class="msg__role">账本精灵</span>
+        <div class="chat-dock">
+          <!-- 状态文案与能力 chips 同行：贴近输入区，不再在页面顶部另起一条「工具栏」。
+               chips 只列后端已有工具支撑的能力（对话中也可点） -->
+          <div class="chat-dock__bar">
+            <!-- 状态文案靠左：右下角有全局「记一笔」FAB 常驻，文案放右侧会被压住 -->
+            <span class="chat-dock__status">{{ statusText }}</span>
+            <div class="chat-quick">
+              <button
+                v-for="q in QUICK_ACTIONS"
+                :key="q.label"
+                type="button"
+                class="chat-quick__chip"
+                :disabled="pending"
+                @click="send(q.ask)"
+              >
+                <el-icon><component :is="q.icon" /></el-icon>
+                <span>{{ q.label }}</span>
+              </button>
+            </div>
           </div>
-          <!-- 思考态只有气泡：停止动作收口到输入区复合按钮（#1714 UI 复核：
-               停止键不是独立按钮，而是发送键就地切换的形态） -->
-          <div class="msg__bubble msg__bubble--pending">分析中</div>
-        </div>
-      </div>
 
-      <div class="chat-dock">
-        <!-- 能力快捷 chips：贴输入区常驻（对话中也可点），只列后端已有工具支撑的能力 -->
-        <div class="chat-quick">
-          <button
-            v-for="q in QUICK_ACTIONS"
-            :key="q.label"
-            type="button"
-            class="chat-quick__chip"
-            :disabled="pending"
-            @click="send(q.ask)"
-          >
-            <el-icon><component :is="q.icon" /></el-icon>
-            <span>{{ q.label }}</span>
-          </button>
-        </div>
-
-        <div class="chat-card__input">
-          <div class="chat-input-pill">
-            <!-- 思考中不锁输入框（#1714 UI 复核）：可以先把下一句打好，停止 / 本轮结束后
-                 立刻就能发；锁住输入框等于强迫用户在等待里干等 -->
-            <el-input
-              ref="taRef"
-              v-model="input"
-              type="textarea"
-              :rows="1"
-              :autosize="{ minRows: 1, maxRows: 4 }"
-              placeholder="例如：我最近半年表现怎么样？（Enter 发送，Shift+Enter 换行）"
-              @keydown="onKeydown"
-            />
+          <div class="chat-input-row">
+            <div class="chat-input-pill">
+              <!-- 思考中不锁输入框（#1714 UI 复核）：可以先把下一句打好，停止 / 本轮结束后
+                   立刻就能发；锁住输入框等于强迫用户在等待里干等 -->
+              <el-input
+                ref="taRef"
+                v-model="input"
+                type="textarea"
+                :rows="1"
+                :autosize="{ minRows: 1, maxRows: 4 }"
+                placeholder="例如：我最近半年表现怎么样？（Enter 发送，Shift+Enter 换行）"
+                @keydown="onKeydown"
+              />
+            </div>
+            <!-- 发送 / 停止复合按钮（#1714 UI 复核）：同一个按钮切换两态，不并排两个按钮。
+                 思考中不禁用（点即停止），图标由 ↑ 就地换成方块，aria-label / title 同步 -->
+            <el-button
+              type="primary"
+              circle
+              class="chat-send"
+              :aria-label="pending ? '停止' : '发送'"
+              :title="pending ? '停止分析（Esc）' : '发送（Enter）'"
+              :disabled="sendDisabled"
+              @click="onSendClick"
+            >
+              <span
+                v-if="pending"
+                class="chat-send__stop-glyph"
+                aria-hidden="true"
+              />
+              <el-icon v-else><ArrowUp /></el-icon>
+            </el-button>
           </div>
-          <!-- 发送 / 停止复合按钮（#1714 UI 复核）：同一个按钮切换两态，不并排两个按钮。
-               思考中不禁用（点即停止），图标由 ↑ 就地换成方块，aria-label / title 同步 -->
-          <el-button
-            type="primary"
-            circle
-            class="chat-send"
-            :aria-label="pending ? '停止' : '发送'"
-            :title="pending ? '停止分析（Esc）' : '发送（Enter）'"
-            :disabled="sendDisabled"
-            @click="onSendClick"
-          >
-            <span
-              v-if="pending"
-              class="chat-send__stop-glyph"
-              aria-hidden="true"
-            />
-            <el-icon v-else><ArrowUp /></el-icon>
-          </el-button>
         </div>
-      </div>
-    </section>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -499,63 +517,65 @@ function resetSession(): void {
   display: flex;
   flex-direction: column;
   max-width: var(--layout-content-width);
-  height: calc(100vh - 85px);
+
+  /* 整屏高：顶栏偏移走令牌（--layout-topbar-height，与 lay-content 的 padding-top /
+     min-height 同源），不再写 85px 这类 vh 魔法数字（#1714 UI 复核） */
+  height: calc(100vh - var(--layout-topbar-height));
   padding: 0 var(--space-standard) var(--space-standard);
   margin: 0 auto;
 }
 
-.chat-card {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 320px;
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-raised);
-}
-
-.chat-card__toolbar {
-  display: flex;
-  gap: var(--space-compact);
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-3) var(--space-standard) 0;
-}
-
-.chat-card__hint {
-  font-size: var(--text-small);
-  color: var(--text-secondary);
-}
-
-.chat-card__toolbar-left {
-  display: flex;
-  gap: var(--space-compact);
-  align-items: center;
-  min-width: 0; // 提示文案过长时允许压缩，不让工具栏换行
-}
-
-.chat-card__history {
+/* 页头操作槽里的「历史」开关：文本按钮的轻量观感，与「新对话」同排 */
+.agent-page__history {
   gap: var(--space-compact);
   padding: 0 var(--space-3);
   color: var(--text-secondary);
 }
 
-.chat-card__list {
+/* 页头之下：历史栏（左）+ 会话区（右）。不再有「页面里嵌一个聊天卡片」的外壳——
+   去掉卡片的直接收益是页头只剩一层（操作已收进页面头部），聊天区不再像「窗口」 */
+.chat-shell {
+  display: flex;
+  flex: 1;
+  gap: var(--space-standard);
+  min-height: 0; // 允许收缩，会话区才能内部滚动
+}
+
+.chat-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.chat-list {
   flex: 1;
   min-height: 0; // 允许收缩才会有内部滚动，否则整页被撑高
-  padding: var(--space-compact) var(--space-standard);
+  padding: var(--space-compact) 0;
   overflow-y: auto;
+}
+
+/* 消息列限宽居中（阅读行宽约 820px），输入 dock 仍与页面同宽贴底——
+   「消息窄、输入宽」是聊天界面的通行比例，整屏铺满的长句难读（#1714 UI 复核） */
+.chat-stream {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 820px;
+  min-height: 100%;
+  margin: 0 auto;
 }
 
 // —— 空态 hero（参考竞品：两行大标题 + 品牌渐变词 + 示例问题块）——
 .chat-hero {
   box-sizing: border-box;
   display: flex;
+  flex: 1; // 空态在消息流内撑满（限宽流已有 min-height:100%），不需要再算高度
   flex-direction: column;
   gap: var(--space-5);
   align-items: flex-start;
-  min-height: 100%;
+  justify-content: center; // 垂直居中：去卡片壳后整屏变高，顶部对齐会让空态全挤在上半屏
   padding: var(--space-6) var(--space-2) var(--space-standard);
 }
 
@@ -829,13 +849,31 @@ function resetSession(): void {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-standard) var(--space-standard);
+  padding-top: var(--space-2);
   border-top: 1px solid var(--border-subtle);
+}
+
+/* 状态文案与 chips 同行（#1714 UI 复核）：原来这条文案长在卡片顶部的工具栏里，
+   既是「页头 + 工具栏」双层头部的一半，也离它描述的操作很远 */
+.chat-dock__bar {
+  display: flex;
+  gap: var(--space-compact);
+  align-items: center;
+  min-width: 0;
+}
+
+.chat-dock__status {
+  flex: 0 0 auto;
+  font-size: var(--text-small);
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .chat-quick {
   display: flex;
+  flex: 1;
   gap: var(--space-2);
+  min-width: 0; // 与状态文案同行：chips 让位收缩，靠横向滚动兜住溢出
   padding-bottom: 2px;
   overflow-x: auto;
   scrollbar-width: none;
@@ -874,7 +912,7 @@ function resetSession(): void {
   }
 }
 
-.chat-card__input {
+.chat-input-row {
   display: flex;
   gap: var(--space-2);
   align-items: flex-end;

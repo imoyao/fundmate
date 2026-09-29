@@ -377,7 +377,7 @@
 | `MetricGrid` | `components/MetricGrid` | 指标网格容器（flex 自均分，禁止右侧大片空白） |
 | `TemperatureGaugeCard` | `components/TemperatureGaugeCard` | 温度环形卡（探市 / 温度计 / 达报三页复用，纯 SVG） |
 | `TemperatureContextCard` | `components/TemperatureContextCard` | 温度上下文解读卡（等级 + 恐惧贪婪 + 短中长期） |
-| `PageHeaderBar` | `components/PageHeaderBar` | 页面统一页头（标题 / 副标题 / 更新时间胶囊） |
+| `PageHeaderBar` | `components/PageHeaderBar` | 页面统一页头（标题 / 副标题 / 更新时间胶囊 + 可选右侧操作槽 `#action`） |
 | `PageFooter` / `MarketFooter` | `components/PageFooter` / `components/MarketFooter` | 探市 / 温度计页脚（复盘引导 + 公众号） |
 | `AppFooter`（全站页脚） | `layout/components/lay-footer` | 三栏品牌/导航/公众号 + 风险免责 + 版权 |
 
@@ -386,6 +386,26 @@
 其余 `200px`。**这三条覆盖必须写在基础声明之后**——媒体查询不改变特异性，写在前面会被
 `.metric-grid { --metric-basis: 200px }` 压掉（2026-09-17 之前正是这样静默失效的，全档实测恒为
 `200px`，详见 #1576）。同族先例见 #1557（暗色令牌被 `:root` 压掉）：**源序即语义**。
+
+### 页头操作槽与「一层页头」原则（#1714）
+
+`PageHeaderBar` 提供可选具名插槽 `#action`（右侧），页面级操作（历史 / 新对话 / 新建等）放进去，**不要在页头下方另起一条工具栏**——「页头 + 工具条」是双层头部，视觉上变成「页面里开了个窗口」，也是 #1714 复核时判定的主要违和来源。
+
+- ✅ `<PageHeaderBar …><template #action>…</template></PageHeaderBar>`：操作槽与 `updatedAt` 胶囊同行靠右，窄屏随容器换行左对齐
+- ❌ 禁止：页头之下再放 `.xxx-toolbar` 承载同类操作
+- 页面需要「整屏高」（对话 / 工作台式）时写 `calc(100vh - var(--layout-topbar-height))`，**不要写 85px 这类 vh 魔法数字**（令牌与 `lay-content` 的 `padding-top` / `min-height` 同源）
+
+### 对话类页面骨架（#1714，参考实现 `views/agent/index.vue`）
+
+聊天不是仪表盘，**不套卡片外壳**：页头之下直接就是对话本身。
+
+| 元素 | 约定 |
+|------|------|
+| 页头 | 只有一层：`PageHeaderBar` + `#action`（历史开关 / 新对话） |
+| 历史栏 | **页内左栏**（定宽 260px + 自身滚动），折叠时 `v-if` 不渲染 → 零请求；展开不挤动消息列（旧实现是插在卡片顶部的折叠块，观感像下拉面板） |
+| 消息列 | 限宽居中（约 820px）保阅读行宽；**输入 dock 与页面同宽贴底**（「消息窄、输入宽」是聊天界面通行比例） |
+| 空态 | 在消息流内垂直居中，不套卡片 |
+| 状态提示 | 贴输入区上方**左对齐**：右下角有全局「记一笔」FAB 常驻，文案放右侧会被压住 |
 
 ### 资产代码（symbol）展示契约（venue，2026-09-24 #1662 / D35 + D36）
 

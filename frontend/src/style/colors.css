@@ -347,6 +347,12 @@
      （CI 守卫 scripts/guard_layout_widths.py 拦截）。 */
   --layout-content-width: 1400px; /* 内容列：页头 / 内容区 / 页脚的内层最大宽度（#1548 起与外壳同宽） */
   --layout-shell-width: 1400px; /* 外壳：布局容器 / 全站页脚 / 探市顶栏的外层最大宽度 */
+  /* 顶栏 + 内容区上内边距的合成偏移（#1714 UI 复核新增）：页面要「整屏高」时
+     写 calc(100vh - var(--layout-topbar-height))，别各自写 85px 这类 vh 魔法数字。
+     取值与 lay-content 的 padding-top（81/85，随顶栏 showModel）及
+     min-height: calc(100vh - 86px) 同源；那边是 JS 内联字符串、暂未引用本令牌，
+     收敛属独立小改，不在本次范围。 */
+  --layout-topbar-height: 85px;
 
   /* ===== 圆角 ===== */
   --radius-sm: 6px;
