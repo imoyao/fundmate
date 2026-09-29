@@ -859,9 +859,10 @@ function resetSession(): void {
   flex-direction: column;
   gap: var(--space-2);
 
-  /* 右侧预留 FAB 安全区：右下角常驻「记一笔」FAB 与发送按钮同处一条水平带，
-     不避让就会被压住（#1714 复核实测）。令牌与 FAB 定位同源，见 colors.css */
-  padding: var(--space-2) var(--layout-fab-safe) var(--space-standard) 0;
+  /* 本页已在 FAB 隐藏清单内（constants/fab.ts 的 /agent），故**不再**预留安全区——
+     预留会让输入区白白短掉 88px。⚠️ 若将来把它从清单摘掉，必须同时恢复
+     `padding-right: var(--layout-fab-safe)`，否则发送按钮会被 FAB 压住（#1773 实测） */
+  padding: var(--space-2) 0 var(--space-standard);
   background-color: var(--bg-page);
   border-top: 1px solid var(--border-subtle);
 }
