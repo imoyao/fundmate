@@ -91,6 +91,17 @@ const HomeRouteConfig = {
         icon: "ep:list",
         rank: 5
       }
+    },
+    {
+      path: "/dividends",
+      name: "Dividends",
+      component: () => import("@/views/asset/dividends/index.vue"),
+      meta: {
+        title: "分红与股息",
+        icon: "ep:coin",
+        rank: 6,
+        keepAlive: true
+      }
     }
   ]
 };
