@@ -100,6 +100,9 @@ test.describe("账本精灵对话页（#1121 S1-B）", () => {
     await page.goto("/#/agent/chat");
     await expect(page).toHaveURL(/#\/agent\/chat/);
 
+    // FAB 隐藏清单生效（#1775）：/agent 命中 constants/fab.ts 的清单 ⇒ 右下角悬浮控件不可见
+    await expect(page.locator(".global-fab")).toBeHidden();
+
     // 静态路由注册生效：侧边栏菜单出现「账本精灵」（#1703 记录的注册方式）
     await expect(
       page.locator(".sidebar-container").getByText("账本精灵", { exact: true })

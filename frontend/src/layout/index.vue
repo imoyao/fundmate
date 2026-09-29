@@ -139,6 +139,7 @@ import NavHorizontal from "./components/lay-sidebar/NavHorizontal.vue";
 import BackTopIcon from "@/assets/svg/back_top.svg?component";
 
 import { QuickFab, TransactionDrawer } from "@/components/QuickEntry";
+import { isQuickEntryHidden } from "@/constants/fab";
 
 const appWrapperRef = ref();
 const { isDark } = useDark();
@@ -149,8 +150,11 @@ const route = useRoute();
 
 // 全局记账抽屉
 const showTransactionDrawer = ref(false);
-// 记账/录入类页面隐藏右下角全局悬浮控件（路由 meta.hideQuickEntry 标记）
-const isGlobalFabHidden = computed(() => route.meta?.hideQuickEntry === true);
+// 隐藏右下角全局悬浮控件（FAB + 回到顶部）：路由 meta.hideQuickEntry 就近声明优先，
+// 其次看集中清单 constants/fab.ts（#1775：新增屏蔽目标只改清单一行即可）
+const isGlobalFabHidden = computed(() =>
+  isQuickEntryHidden(route.path, route.meta?.hideQuickEntry)
+);
 const onTransactionSubmitted = () => {
   // 记账成功后，可以在这里触发全局的资产刷新
   // 例如调用 store 中的 action 来更新仪表盘数据

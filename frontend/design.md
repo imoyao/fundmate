@@ -438,6 +438,19 @@ Element Plus 给 `.el-textarea__inner:focus` 自带
 **`--layout-fab-safe`** 预留横向空间，否则会和 FAB 压在一起——对话页的发送按钮就这样被压过
 （用户截图实测：FAB 把发送按钮盖成半个圆）。
 
+**但先问一句：这页真的需要 FAB 吗？** 隐藏控制有两个入口，**就近优先**（#1775）：
+
+| 方式 | 落点 | 适用 |
+|---|---|---|
+| 路由 meta | `meta: { hideQuickEntry: true }` | 单个页面，且希望在路由定义处一眼看到（现有 8 个记账 / 录入类页面用它） |
+| **集中清单** | `frontend/src/constants/fab.ts` 的 `QUICK_ENTRY_HIDDEN_ROUTES` | 一整类 / 前缀级目标（如 `/agent` 覆盖其全部对话页）——**新增屏蔽目标只改一行** |
+
+两者都作用于「FAB + 回到顶部」两枚浮标（实现：`layout/index.vue` 的 `isGlobalFabHidden`
+→ `.hide-global-fab` → `style/index.scss`）。
+
+**隐藏与预留是一对**：命中隐藏的页面**不要**再预留 `--layout-fab-safe`（白掉一截宽度）；
+从清单 / meta 摘掉时**必须恢复预留**，否则又会被压。
+
 ### 输入框视觉目前**没有**单一真相源（#1772 收敛中）
 
 `el-input` / `el-textarea` 的内部视觉在全站**各自为政**：17 个业务文件用 `:deep()` 覆盖
