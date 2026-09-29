@@ -1,5 +1,6 @@
 // frontend/src/composables/useLocalHoldings.ts
 import { ref, computed } from "vue";
+import { useAuthState } from "@/composables/useAuthState";
 
 const STORAGE_KEY = "showbuy_explore_v1";
 const MAX_HOLDINGS = 50;
@@ -35,8 +36,26 @@ function writeStorage(data: LocalHolding[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
 
+// 模块级单例持仓：跨组件 / 跨调用共享同一份响应式状态，是 B11 跨 tab 同步的基础
+const holdings = ref<LocalHolding[]>(readStorage());
+let storageSyncAttached = false;
+
+// 跨 tab 同步（B11）：其他 tab 写入 localStorage 时，本 tab 重新读入并刷新 UI。
+// storage 事件只在同一 key 被「其他文档」改写时触发，本 tab 自身改写不会触发，符合预期。
+function attachCrossTabSync(): void {
+  if (storageSyncAttached) return;
+  storageSyncAttached = true;
+  if (typeof window === "undefined" || !window.addEventListener) return;
+  window.addEventListener("storage", (e: StorageEvent) => {
+    if (e.key === STORAGE_KEY || e.key === null) {
+      holdings.value = readStorage();
+    }
+  });
+}
+
 export function useLocalHoldings() {
-  const holdings = ref<LocalHolding[]>(readStorage());
+  attachCrossTabSync();
+  const { isAuthenticated } = useAuthState();
 
   const addHolding = (
     data: Omit<LocalHolding, "id" | "addedAt">
@@ -47,7 +66,9 @@ export function useLocalHoldings() {
       return { success: false, message: `「${data.symbol}」已在观察列表中` };
     }
 
-    if (holdings.value.length >= MAX_HOLDINGS) {
+    // B12：本地 50 上限只约束未注册游客；注册用户数据可迁移到后端自选，
+    // 不再受本地上限限制，故不再提示「注册后可解锁更多」（注册后自动解除）。
+    if (!isAuthenticated.value && holdings.value.length >= MAX_HOLDINGS) {
       return {
         success: false,
         message: `观察列表已达上限（${MAX_HOLDINGS}个），注册后可解锁更多`
