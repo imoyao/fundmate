@@ -202,7 +202,12 @@ export function createWatchlistGroup(data: { name: string; color?: string }) {
 /** 更新自定义分组（名称/颜色/排序/可见性） */
 export function updateWatchlistGroup(
   id: number,
-  data: { name?: string; color?: string; sort_order?: number; is_visible?: boolean }
+  data: {
+    name?: string;
+    color?: string;
+    sort_order?: number;
+    is_visible?: boolean;
+  }
 ) {
   return http.request<ApiResponse<WatchlistGroupMutationResult>>(
     "patch",

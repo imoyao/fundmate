@@ -139,11 +139,9 @@ export function parseFile(
 
 /** 确认导入选中的交易记录（预览行原样回传，后端按 is_duplicate/error 分流） */
 export function confirmImport(rows: ImportConfirmRow[]) {
-  return http.request<ImportCommitResponse>(
-    "post",
-    "/api/importers/confirm/",
-    { data: rows }
-  );
+  return http.request<ImportCommitResponse>("post", "/api/importers/confirm/", {
+    data: rows
+  });
 }
 
 /** 确认导入持仓快照（holding_import）：SET 语义 upsert 至 positions，不建交易流水（#1018） */

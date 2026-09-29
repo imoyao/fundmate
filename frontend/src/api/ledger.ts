@@ -1,9 +1,5 @@
 import { http } from "@/utils/http";
-import type {
-  ApiResponse,
-  DeleteResponse,
-  Position
-} from "@/api/types";
+import type { ApiResponse, DeleteResponse, Position } from "@/api/types";
 
 export interface LedgerItem {
   id: number;
