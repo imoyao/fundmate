@@ -134,19 +134,9 @@
             </span>
             <span class="msg__role">账本精灵</span>
           </div>
-          <!-- 停止按钮（#1714 L1）：abort 断请求 + fire-and-forget 通知服务端检查点收尾 -->
-          <div class="msg__pending-row">
-            <div class="msg__bubble msg__bubble--pending">分析中</div>
-            <button
-              type="button"
-              class="msg__stop"
-              :disabled="stopping"
-              @click="stopPending"
-            >
-              <el-icon><VideoPause /></el-icon>
-              停止
-            </button>
-          </div>
+          <!-- 思考态只有气泡：停止动作收口到输入区复合按钮（#1714 UI 复核：
+               停止键不是独立按钮，而是发送键就地切换的形态） -->
+          <div class="msg__bubble msg__bubble--pending">分析中</div>
         </div>
       </div>
 
@@ -168,6 +158,8 @@
 
         <div class="chat-card__input">
           <div class="chat-input-pill">
+            <!-- 思考中不锁输入框（#1714 UI 复核）：可以先把下一句打好，停止 / 本轮结束后
+                 立刻就能发；锁住输入框等于强迫用户在等待里干等 -->
             <el-input
               ref="taRef"
               v-model="input"
@@ -175,20 +167,26 @@
               :rows="1"
               :autosize="{ minRows: 1, maxRows: 4 }"
               placeholder="例如：我最近半年表现怎么样？（Enter 发送，Shift+Enter 换行）"
-              :disabled="pending"
               @keydown="onKeydown"
             />
           </div>
+          <!-- 发送 / 停止复合按钮（#1714 UI 复核）：同一个按钮切换两态，不并排两个按钮。
+               思考中不禁用（点即停止），图标由 ↑ 就地换成方块，aria-label / title 同步 -->
           <el-button
             type="primary"
             circle
             class="chat-send"
-            aria-label="发送"
-            :loading="pending"
-            :disabled="input.trim().length === 0"
-            @click="send()"
+            :aria-label="pending ? '停止' : '发送'"
+            :title="pending ? '停止分析（Esc）' : '发送（Enter）'"
+            :disabled="sendDisabled"
+            @click="onSendClick"
           >
-            <el-icon v-if="!pending"><ArrowUp /></el-icon>
+            <span
+              v-if="pending"
+              class="chat-send__stop-glyph"
+              aria-hidden="true"
+            />
+            <el-icon v-else><ArrowUp /></el-icon>
           </el-button>
         </div>
       </div>
@@ -204,7 +202,6 @@ import {
   MagicStick,
   Sunny,
   TrendCharts,
-  VideoPause,
   WarningFilled,
   Wallet
 } from "@element-plus/icons-vue";
@@ -236,23 +233,34 @@ const EXAMPLES = QUICK_ACTIONS.map(a => a.ask);
 const messages = ref<ChatMessage[]>([]);
 const input = ref("");
 const pending = ref(false);
-const stopping = ref(false); // 停止按钮防抖（#1714）：abort 已发出、等 catch 收尾的间隙
+const stopping = ref(false); // 复合按钮防抖（#1714）：abort 已发出、等 catch 收尾的间隙
 const listRef = ref<HTMLElement>();
 const taRef = ref<{ focus: () => void } | null>(null);
 let abortRef: AbortController | null = null; // 本轮请求的控制器（无需响应式）
 const sessionId = ref<string | null>(null); // 服务端权威（S2）：首轮 null，后端下发后续带
 const historyOpen = ref(false); // 历史栏默认折叠（#1719）：未展开时不发任何列表请求
 const historyRefreshToken = ref(0); // 每完成一轮 / 新对话 +1，通知历史栏重拉列表
+// 本轮被用户停止（#1714 UI 复核）：停止后气泡消失、该轮不留痕迹，若不说话会像「点了没反应」，
+// 故在页头 hint 给一句明确反馈（不是错误气泡，验收 1 的「不弹错误气泡」仍成立）
+const stopped = ref(false);
+
+/**
+ * 复合按钮可用性（#1714 UI 复核）：空闲按输入内容判断；思考中只有 abort 已发出、
+ * 等 catch 收尾的瞬间（stopping）不可点，用于防连点——其余时候必须可点（点了就是停止）
+ */
+const sendDisabled = computed(() =>
+  pending.value ? stopping.value : input.value.trim().length === 0
+);
 
 /**
  * 工具栏提示只说用户视角：快捷键说明在 placeholder、只读保证在页头副标题，
  * 内部机制（两轮模型 / 工具）不外显（#1311 讨论期确认的文案口径）
  */
-const statusText = computed(() =>
-  pending.value
-    ? "正在整理分析结果，约 10~60 秒"
-    : "回车发送 · 信息不全会先确认"
-);
+const statusText = computed(() => {
+  if (pending.value) return "正在整理分析结果，约 10~60 秒";
+  if (stopped.value) return "已停止本轮分析，可直接再问";
+  return "回车发送 · 信息不全会先确认";
+});
 
 /** 全站禁 Emoji 是硬约定但没有 lint 兜底，模型输出在这里剔除（AGENTS.md 前端约束） */
 function stripEmoji(text: string): string {
@@ -346,6 +354,12 @@ function cellClass(
 }
 
 function onKeydown(e: KeyboardEvent): void {
+  // 思考中 Esc = 停止（与按钮 title 提示一致）：textarea 里 Esc 无默认行为，不抢任何输入
+  if (e.key === "Escape" && pending.value) {
+    e.preventDefault();
+    stopPending();
+    return;
+  }
   if (e.key !== "Enter" || e.shiftKey) return;
   // 中文输入法组词期间的 Enter 是确认候选词，不能当发送
   if (e.isComposing) return;
@@ -354,16 +368,27 @@ function onKeydown(e: KeyboardEvent): void {
 }
 
 /** 停止当前分析（#1714 L1+L2）：abort 管体验（请求断开、UI 即刻回空闲），
- * cancel 端点管服务端（检查点收尾，不再烧后续模型调用）——两层解耦，缺一不可 */
+ * cancel 端点管服务端（检查点收尾，不再烧后续模型调用）——两层解耦，缺一不可。
+ * 入口是输入区的复合按钮（空闲=发送、思考中=停止）与思考中的 Esc，不另设独立按钮 */
 function stopPending(): void {
   if (!abortRef || stopping.value) return;
   stopping.value = true;
+  stopped.value = true;
   if (sessionId.value) {
     agentCancel(sessionId.value).catch(() => {
       // fire-and-forget：取消置位失败不打扰用户（abort 已保证本地体验）
     });
   }
   abortRef.abort();
+}
+
+/** 复合按钮点击（#1714 UI 复核）：一按钮两态——思考中点是停止，空闲才是发送 */
+function onSendClick(): void {
+  if (pending.value) {
+    stopPending();
+    return;
+  }
+  void send();
 }
 
 async function send(preset?: string): Promise<void> {
@@ -374,6 +399,7 @@ async function send(preset?: string): Promise<void> {
 
   pending.value = true;
   stopping.value = false;
+  stopped.value = false; // 新一轮开始，清掉上一轮的「已停止」提示
   const controller = new AbortController();
   abortRef = controller;
   scrollChat();
@@ -460,6 +486,7 @@ async function switchSession(id: string): Promise<void> {
 function resetSession(): void {
   messages.value = [];
   sessionId.value = null; // 下一条消息由服务端开新会话
+  stopped.value = false; // 新对话不留上一轮的「已停止」提示
   historyOpen.value = false; // 新对话即收起历史栏（工具栏与面板内按钮同路径）
   historyRefreshToken.value += 1;
 }
@@ -769,39 +796,6 @@ function resetSession(): void {
   color: var(--text-tertiary);
 }
 
-// 思考态行：气泡 + 停止按钮（#1714）并排，按钮贴气泡右侧
-.msg__pending-row {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-}
-
-.msg__stop {
-  display: inline-flex;
-  gap: 4px;
-  align-items: center;
-  padding: 5px 12px;
-  font-size: var(--text-small);
-  color: var(--text-secondary);
-  cursor: pointer;
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-pill);
-  transition:
-    color 0.15s ease,
-    border-color 0.15s ease;
-
-  &:hover:not(:disabled) {
-    color: var(--color-danger);
-    border-color: var(--color-danger);
-  }
-
-  &:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
-  }
-}
-
 .msg__metrics {
   display: flex;
   flex-wrap: wrap;
@@ -915,6 +909,23 @@ function resetSession(): void {
   flex: 0 0 auto;
   width: 44px;
   height: 44px;
+
+  // 主按钮物理反馈（design.md「按钮物理反馈」）：按下有「被吸进去」的手感。
+  // 发送 / 停止两态共用同一按钮：只换图标，不换底色、不换尺寸、不换位置（#1714 UI 复核）——
+  // 一旦变色或换位，用户会以为「冒出了另一个按钮」，与「发送键就地变停止」的直觉相反
+  &:active {
+    transform: translateY(1px);
+  }
+}
+
+// 停止方块：12px 圆角方块 + currentColor（跟随按钮文字色 --text-inverse，两主题恒为白，
+// 落在 --brand-solid 实底 4.92:1，达 WCAG AA 图形 3:1）。不复用图标库的 VideoPause——
+// 双竖线是「暂停」语义，方块才是「停止」
+.chat-send__stop-glyph {
+  width: 12px;
+  height: 12px;
+  background-color: currentColor;
+  border-radius: 2px;
 }
 
 @keyframes chat-ellipsis {
