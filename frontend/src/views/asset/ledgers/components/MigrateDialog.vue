@@ -41,7 +41,8 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { ElMessage } from "element-plus";
-import { updateLedgerPosition, type LedgerItem } from "@/api/ledger";
+import { type LedgerItem } from "@/api/ledger";
+import { updatePosition } from "@/api/positions";
 import { updateAsset } from "@/api/assets";
 
 interface LedgerHoldingRow {
@@ -92,11 +93,12 @@ async function handleMigrate() {
         account_name: ledger.name
       });
     } else {
-      await updateLedgerPosition(
-        Number(props.ledgerId),
-        migratingItem.value.id,
-        { account_name: ledger.name }
-      );
+      // 归属迁移走 positions 域端点（PATCH /api/positions/<id>/ 接受 ledger_id）；
+      // 原调 ledgers 域 updateLedgerPosition 传 account_name 会被后端静默丢弃（#965 修复）。
+      await updatePosition(migratingItem.value.id, {
+        ledger_id: ledger.id,
+        account_name: ledger.name
+      });
     }
     ElMessage.success(`已迁移至「${ledger.name}」`);
     migrateDialogVisible.value = false;

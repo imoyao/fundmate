@@ -124,7 +124,8 @@ export interface MultiItemsResponse {
       item_type: string;
       item_code: string;
       item_name: string;
-      data: any;
+      /** 各数据源自定义结构（bias/crowding/sector_flow 形状互不相同），消费侧自行收窄 */
+      data: unknown;
       /** 该记录是否为滞后数据（非实时） */
       stale?: boolean;
     }>;

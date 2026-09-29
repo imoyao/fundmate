@@ -1,5 +1,5 @@
 import { http } from "@/utils/http";
-import type { ApiResponse } from "./types";
+import type { ApiResponse, DeleteResponse } from "@/api/types";
 
 /** 自选资产分页响应（对齐后端信封：{ data, total, ... }，不同于标准 ApiResponse） */
 export interface WatchlistPageResponse<T> {
@@ -133,8 +133,22 @@ export interface WatchlistGroup {
   count: number; // 新增：资产数量
 }
 
-/** 创建自选资产 */
-export function createWatchlistItem(data: {
+/**
+ * 分组创建/更新的返回项（对齐后端 WatchlistGroupOut）。
+ * 与列表项 WatchlistGroup 的区别：不含 count/key/label（列表 enrich 专属）。
+ */
+export interface WatchlistGroupMutationResult {
+  id: number;
+  name: string;
+  color: string | null;
+  sort_order: number | null;
+  is_system: boolean | null;
+  is_visible: boolean | null;
+  entity_type: string | null;
+}
+
+/** 创建自选资产入参（对齐后端 WatchlistItemCreate） */
+export interface WatchlistItemCreateInput {
   symbol: string;
   market?: string;
   asset_type?: string;
@@ -146,8 +160,27 @@ export function createWatchlistItem(data: {
   is_pinned?: boolean;
   cost_price?: number;
   quantity?: number;
-}) {
-  return http.request<any>("post", "/api/watchlist/items/", { data });
+}
+
+/** 更新自选资产入参（PATCH，对齐后端 WatchlistItemUpdate，所有字段可选） */
+export interface WatchlistItemUpdateInput {
+  is_pinned?: boolean;
+  status?: string;
+  venue?: string;
+  favorite?: boolean;
+  notes?: string | null;
+  add_reason?: string | null;
+  /** 下次复盘提醒日期（YYYY-MM-DD） */
+  next_review_date?: string | null;
+}
+
+/** 创建自选资产（重复添加时后端返回 409） */
+export function createWatchlistItem(data: WatchlistItemCreateInput) {
+  return http.request<ApiResponse<WatchlistItem>>(
+    "post",
+    "/api/watchlist/items/",
+    { data }
+  );
 }
 
 export function getWatchlistGroups() {
@@ -157,56 +190,77 @@ export function getWatchlistGroups() {
   );
 }
 
+/** 创建自定义分组（重名时后端返回 409） */
 export function createWatchlistGroup(data: { name: string; color?: string }) {
-  return http.request<any>("post", "/api/watchlist/groups/", { data });
+  return http.request<ApiResponse<WatchlistGroupMutationResult>>(
+    "post",
+    "/api/watchlist/groups/",
+    { data }
+  );
 }
 
-/** 更新自定义分组名称或颜色 */
+/** 更新自定义分组（名称/颜色/排序/可见性） */
 export function updateWatchlistGroup(
   id: number,
-  data: { name?: string; color?: string }
+  data: {
+    name?: string;
+    color?: string;
+    sort_order?: number;
+    is_visible?: boolean;
+  }
 ) {
-  return http.request<any>("patch", `/api/watchlist/groups/${id}/`, { data });
+  return http.request<ApiResponse<WatchlistGroupMutationResult>>(
+    "patch",
+    `/api/watchlist/groups/${id}/`,
+    { data }
+  );
 }
 
 export function deleteWatchlistGroup(id: number) {
-  return http.request<any>("delete", `/api/watchlist/groups/${id}/`);
+  return http.request<DeleteResponse>("delete", `/api/watchlist/groups/${id}/`);
 }
 
 // 资产更新 / 删除 / 置顶 / 特别关注
-export function updateWatchlistItem(id: number, data: Record<string, any>) {
-  return http.request<any>("patch", `/api/watchlist/items/${id}/`, { data });
+export function updateWatchlistItem(
+  id: number,
+  data: WatchlistItemUpdateInput
+) {
+  return http.request<ApiResponse<WatchlistItem>>(
+    "patch",
+    `/api/watchlist/items/${id}/`,
+    { data }
+  );
 }
 
 export function deleteWatchlistItem(id: number) {
-  return http.request<any>("delete", `/api/watchlist/items/${id}/`);
+  return http.request<DeleteResponse>("delete", `/api/watchlist/items/${id}/`);
 }
 
-// 分组关联
+// 分组关联（加入成功后端仅返回 { message }，无 data）
 export function addItemToGroup(itemId: number, groupId: number) {
-  return http.request<any>(
+  return http.request<{ message: string }>(
     "post",
     `/api/watchlist/items/${itemId}/groups/${groupId}/`
   );
 }
 
 export function removeItemFromGroup(itemId: number, groupId: number) {
-  return http.request<any>(
+  return http.request<DeleteResponse>(
     "delete",
     `/api/watchlist/items/${itemId}/groups/${groupId}/`
   );
 }
 
-// 标签关联
+// 标签关联（绑定成功后端仅返回 { message }，无 data）
 export function addTagToItem(itemId: number, tagId: number) {
-  return http.request<any>(
+  return http.request<{ message: string }>(
     "post",
     `/api/watchlist/items/${itemId}/tags/${tagId}/`
   );
 }
 
 export function removeTagFromItem(itemId: number, tagId: number) {
-  return http.request<any>(
+  return http.request<DeleteResponse>(
     "delete",
     `/api/watchlist/items/${itemId}/tags/${tagId}/`
   );
@@ -283,21 +337,29 @@ export function getWatchlistTags(
   );
 }
 
-/** 创建标签 */
+/** 创建标签（重名时后端返回 409） */
 export function createWatchlistTag(data: { name: string; color?: string }) {
-  return http.request<any>("post", "/api/watchlist/tags/", { data });
+  return http.request<ApiResponse<WatchlistTag>>(
+    "post",
+    "/api/watchlist/tags/",
+    { data }
+  );
 }
 
-/** 删除标签 */
+/** 删除标签（已被资产使用的标签后端返回 409 拒绝） */
 export function deleteWatchlistTag(id: number) {
-  return http.request<any>("delete", `/api/watchlist/tags/${id}/`);
+  return http.request<DeleteResponse>("delete", `/api/watchlist/tags/${id}/`);
 }
 
 export function updateWatchlistTag(
   id: number,
   data: { name?: string; color?: string }
 ) {
-  return http.request<any>("patch", `/api/watchlist/tags/${id}/`, { data });
+  return http.request<ApiResponse<WatchlistTag>>(
+    "patch",
+    `/api/watchlist/tags/${id}/`,
+    { data }
+  );
 }
 
 /** 特别关注（未竟之蹊）列表：后端已 enrich（display_name/持仓统计/notes_summary） */
