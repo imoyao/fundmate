@@ -180,7 +180,7 @@
 | B5 | 🟡 中 | 探市页无任何登录态分支与注册 CTA（#808 转化区未实现） | grep 证据，`explore/index.vue:235` | Phase A-2 |
 | B6 | 🟡 中 | logo 点击无跳转 | `MarketHeader/index.vue:12-16` | Phase A-3 |
 | B7 | 🟡 中 | `/explore` 白名单 vs `/temperature` meta 两种免登录写法 | `remaining.ts:33-53`、`router/index.ts:122` | 统一 |
-| B8 | 🟡 中 | localStorage key 沿用 V1 品牌 `showbuy_explore_v1` | `useLocalHoldings.ts:4` | 更名 + 兼容迁移 |
+| B8 | 🟡 中 | localStorage key 沿用 V1 品牌 `showbuy_explore_v1` | `useLocalHoldings.ts:5` | ✅ 已更名 `duoduobei_explore_v1`（开发阶段，无兼容迁移，#1776→PR） |
 | B9 | 🟢 低 | 探市表格盈亏计算 `(price-cost)*qty` 直接 float 乘除，未走 Money 口径（前端展示域规范待确认） | `explore/index.vue:888-889` | 确认口径 |
 | B10 | 🟢 低 | 探市与温度计同接口两套取数（explore 本地 ref vs temperature store） | `store/modules/temperature.ts` vs `explore/index.vue:545-695` | 合并到 store |
 | B11 | 🟢 低 | `useLocalHoldings` 无跨 tab 同步（双 tab 互相覆盖） | `useLocalHoldings.ts:21-36` | storage 事件监听 |
