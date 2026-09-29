@@ -65,6 +65,12 @@ def _git(*args):
     )
 
 
+def _is_shallow_clone() -> bool:
+    """是否为浅克隆（CI 的 backend job 用 actions/checkout 默认 fetch-depth=1）。"""
+    r = _git('rev-parse', '--is-shallow-repository')
+    return r.returncode == 0 and r.stdout.strip() == 'true'
+
+
 # —— 1. 正向：真乱码必须被拦 ——
 
 
@@ -139,7 +145,14 @@ def test_non_exempt_real_commit_still_checked(guard):
 
 
 def test_exempt_entries_exist_in_repo(guard):
-    """每条豁免 sha 必须在真实仓里存在——否则就是匹配不到命中的僵尸条目。"""
+    """每条豁免 sha 必须在真实仓里存在——否则就是匹配不到命中的僵尸条目。
+
+    **浅克隆必须跳过**：CI 的 backend job 用 `actions/checkout` 默认 `fetch-depth=1`，
+    看不到历史对象（`git cat-file -e` 返回 128）。这条不变式的价值在**完整克隆**上兑现
+    ——本地开发仓与乱码守卫 job（`fetch-depth: 0`）都是完整的，故仍有真实约束力。
+    """
+    if _is_shallow_clone():
+        pytest.skip('浅克隆：历史对象不可见，跳过存在性断言（完整克隆会真跑）')
     for sha in guard.EXEMPT_COMMIT_MESSAGES:
         r = _git('cat-file', '-e', f'{sha}^{{commit}}')
         assert r.returncode == 0, f'豁免条目 {sha} 在仓内不存在（僵尸条目）'
