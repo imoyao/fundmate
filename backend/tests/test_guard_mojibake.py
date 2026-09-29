@@ -199,3 +199,105 @@ def test_cli_is_exempt_exit_codes():
     assert hit.returncode == 0, '命中豁免应返回 0'
     assert miss.returncode == 1, '未命中应返回 1'
     assert missing_arg.returncode == 2, '缺参应返回 2'
+
+
+# —— 5. push 事件的范围解析（#1767）——
+#
+# push 的 `before` 有若干畸形形态（全零 / 对象不可达 / 跨分支非祖先）。最坏情形是
+# **静默放行**（范围算错、什么都没扫却 exit 0）。这组用例钉死三件事：
+# ① 全零与不可达 → 降级为单提交并给 NOTE；② **非祖先不降级**（发版 PR 的正解是仍全量扫描）；
+# ③ 范围不可确定 → 显式报错，绝不静默通过。
+
+
+def _head_and_parent():
+    """返回 (HEAD, HEAD^)；浅克隆等历史不可见的情形返回 (None, None)。"""
+    head = _git('rev-parse', 'HEAD').stdout.strip()
+    parent = _git('rev-parse', 'HEAD^').stdout.strip()
+    if not head or _git('cat-file', '-e', f'{parent}^{{commit}}').returncode != 0:
+        return None, None
+    return head, parent
+
+
+def test_resolve_range_zero_before_degrades(guard):
+    """before 全零（首次推送 / 新建分支）→ 降级为只校验 head 单提交，并给出 NOTE。"""
+    head = _git('rev-parse', 'HEAD').stdout.strip()
+    revs, note, ok = guard._resolve_range('0' * 40, head)
+    assert ok is True
+    assert revs == [head]
+    assert '首次推送' in note
+
+
+def test_resolve_range_empty_head(guard):
+    """head 为空 → ok=False（调用方据此报错，绝不静默放行）。"""
+    revs, note, ok = guard._resolve_range('0' * 40, '')
+    assert ok is False
+    assert revs == []
+    assert note
+
+
+def test_resolve_range_missing_head(guard):
+    """head 对象不在仓库 → ok=False。"""
+    revs, note, ok = guard._resolve_range('0' * 40, 'deadbeef' * 5)
+    assert ok is False
+    assert revs == []
+    assert 'head' in note
+
+
+def test_resolve_range_normal(guard):
+    """正常范围（base 是 head 的祖先）→ 返回区间提交且无 NOTE。"""
+    head, parent = _head_and_parent()
+    if head is None:
+        pytest.skip('浅克隆：历史对象不可见')
+    revs, note, ok = guard._resolve_range(parent, head)
+    assert ok is True
+    assert revs == [head]
+    assert note == ''
+
+
+def test_resolve_range_non_ancestor_is_still_scanned(guard):
+    """base 不是 head 的祖先（force push / 发版 PR 跨分支）→ **仍按 rev-list 全量扫描**。
+
+    用 `git commit-tree` 造一个游离提交充当「重写后的新 head」：它可达而 base 不可达，
+    正是 force push 的形态；对象只落在本地对象库、不挂任何分支（测试后自然悬空）。
+
+    这条用例守着初版被真实场景证伪的设计错误：曾把「非祖先」当降级信号，
+    会让**发版 PR**（base=main，而 main 独有的发版合并提交 dev 并不包含）的扫描
+    从 210 个提交退化成 1 个 —— 即「看起来通过、其实没扫」。
+    """
+    head, _ = _head_and_parent()
+    if head is None:
+        pytest.skip('浅克隆：历史对象不可见')
+    tree = _git('rev-parse', 'HEAD^{tree}').stdout.strip()
+    probe = _git('commit-tree', tree, '-m', 'test probe (orphan commit)')
+    orphan = probe.stdout.strip()
+    if probe.returncode != 0 or not orphan:
+        pytest.skip('无法构造游离提交（commit-tree 不可用）')
+    revs, note, ok = guard._resolve_range(head, orphan)
+    assert ok is True
+    assert revs == [orphan]
+    assert note == ''
+
+
+def test_scan_range_ok_on_real_range(guard, monkeypatch):
+    """真实范围扫描通过：范围 diff（文件）+ 逐提交信息都干净。"""
+    head, parent = _head_and_parent()
+    if head is None:
+        pytest.skip('浅克隆：历史对象不可见')
+    monkeypatch.chdir(_REPO_ROOT)
+    assert guard._scan_range(parent, head) == 0
+
+
+def test_scan_range_unresolvable_head_is_error(guard, monkeypatch):
+    """范围无法确定 → 退出码 2（本层的关键不变量：不静默放行）。"""
+    monkeypatch.chdir(_REPO_ROOT)
+    assert guard._scan_range('', 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef') == 2
+
+
+def test_cli_scan_range_missing_args():
+    """CLI：--scan-range 缺参 → 退出码 2。"""
+    r = subprocess.run(
+        [sys.executable, str(_GUARD_PATH), '--scan-range'],
+        cwd=str(_REPO_ROOT),
+        capture_output=True,
+    )
+    assert r.returncode == 2
