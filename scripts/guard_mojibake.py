@@ -59,6 +59,42 @@ COMMON_HAN = set(
 # 日文假名：含假名的文本按日文处理，不套中文乱码启发式（避免误报合法日文）
 JAPANESE_KANA_RE = re.compile(r"[\u3040-\u30ff]")
 
+# —— 历史豁免（仅「提交信息」，**不含文件内容**）——
+#
+# 背景：本守卫在 CI 里只在 `pull_request` 事件运行（`ci.yml` 的 mojibake_guard job），
+# 直接 push 到 dev（含 gh api / MCP 直推，本地 pre-push 钩子不参与）的提交**不会**被检查。
+# 于是历史乱码提交信息会一直躺在 dev 里，直到某次**发布 PR（dev → main）**做全量
+# `base..head` 提交扫描时才暴露——2026-09-29 的发布 PR 正是这样被拦住的。
+#
+# 处置：对**已验证内容干净**的历史提交做精确豁免（完整 sha，逐条写理由），
+# 而不是改写 dev 历史（改写需 rebase + force push 整个 dev，风险远高于
+# 「一条不可读的历史提交信息」本身）。新增条目必须附来源与理由——
+# 空理由即配置错误（同 guard_segmented 白名单 / check_cross_domain_query 豁免的约定）。
+EXEMPT_COMMIT_MESSAGES: dict[str, str] = {
+    # PR #1664（2026-09-23 合并，feat/1546-t2.2-collapse）：**PR 标题本身即乱码**，
+    # 随 merge commit 的正文写入 dev。文件内容层无乱码——2026-09-29 发布 PR 全量扫描
+    # 该批 386 个变更文本文件，0 命中（仅此提交信息一条命中）。
+    "8e3a935fac008159f485d16bf06626f6cf54525a": (
+        "PR #1664 合并提交信息乱码（2026-09-23，PR 标题即乱码随 merge 写入）；"
+        "内容层无乱码，改写 dev 历史风险高于收益。根治：让守卫覆盖 push 事件（另立卡）"
+    ),
+}
+
+
+def is_exempt_commit_message(sha: str) -> bool:
+    """该提交是否命中「历史乱码提交信息」豁免。
+
+    只豁免**提交信息**：文件内容检查照旧零容忍（豁免的是「消息不可读」，不是「内容损坏」）。
+    支持完整 sha 与 >=8 位前缀（本地手输短 sha 也友好）。
+    """
+    needle = sha.strip().lower()
+    if not needle:
+        return False
+    for key in EXEMPT_COMMIT_MESSAGES:
+        if needle == key or (len(needle) >= 8 and key.startswith(needle)):
+            return True
+    return False
+
 
 # ftfy 仅作可选提示，不作为拦截信号——实测 ftfy 会把正常中文（如"修复了...问题"）
 # 误判为 mojibake，对中文仓库会直接红，故只保留 U+FFFD + 常用汉字启发式作主判定。
@@ -142,7 +178,14 @@ def _iter_commit_files(sha: str):
 
 
 def _check_commit(sha: str) -> bool:
-    """检查单个提交的中文提交信息是否疑似乱码。返回 True 表示发现问题。"""
+    """检查单个提交的中文提交信息是否疑似乱码。返回 True 表示发现问题。
+
+    命中 EXEMPT_COMMIT_MESSAGES 的历史豁免提交直接放行——**只豁免提交信息**，
+    文件内容由调用方（`_pre_push` / CI）另行检查，不受本豁免影响。
+    """
+    if is_exempt_commit_message(sha):
+        print(f"SKIP: commit {sha[:8]} 命中历史乱码提交信息豁免（见 EXEMPT_COMMIT_MESSAGES）")
+        return False
     msg = subprocess.run(
         ["git", "show", "-s", "--format=%B", sha],
         capture_output=True,
@@ -263,6 +306,16 @@ def main() -> int:
             )
             else 0
         )
+    if args and args[0] == "--is-exempt":
+        # 供 CI 在「逐提交查信息」的循环里先问一句：命中即跳过该提交的信息检查，
+        # 避免按 sha 硬编码在 workflow 里（清单单一来源原则，同 close_linked_issues.js）
+        if len(args) < 2:
+            print("ERROR: --is-exempt 需要一个提交 sha", file=sys.stderr)
+            return 2
+        if is_exempt_commit_message(args[1]):
+            print(f"EXEMPT: {args[1][:8]} 命中历史乱码提交信息豁免")
+            return 0
+        return 1
     if args and args[0] == "--check-commit":
         if len(args) < 2:
             print("ERROR: --check-commit 需要一个提交 sha", file=sys.stderr)
