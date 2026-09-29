@@ -3,9 +3,9 @@ import { computed, onMounted, ref } from "vue";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import AggregationHero from "@/components/Aggregation/AggregationHero.vue";
-import AggregationDimensionTabs from "@/components/Aggregation/AggregationDimensionTabs.vue";
 import AggregationProductCard from "@/components/Aggregation/AggregationProductCard.vue";
 import AggregationProductDetail from "@/components/Aggregation/AggregationProductDetail.vue";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import {
   type AggregationDimension,
@@ -220,10 +220,14 @@ onMounted(() => load());
     <!-- 检索区：第一行 = 维度切换 + 搜索；第二行 = 类型 Tab + 排序快捷按钮 -->
     <div class="control-bar mb-5">
       <div class="control-row">
-        <AggregationDimensionTabs
+        <!-- 维度切换（#1731 收敛）：原 `AggregationDimensionTabs` 包装组件自称「D13 果冻胶囊」，
+             实现却是 --brand-600 实底 + --text-inverse 白字（实测 3.02:1 不达 AA）。该包装只此一处
+             调用，其 select 去重守卫与 SegmentedControl 完全重复，故直接删除、改用唯一实现。 -->
+        <SegmentedControl
           :model-value="dimension"
           :options="DIMENSION_OPTIONS"
-          @update:model-value="setDimension"
+          aria-label="聚合维度"
+          @change="setDimension"
         />
         <el-input
           :model-value="keyword"
@@ -238,40 +242,25 @@ onMounted(() => load());
         </el-input>
       </div>
       <div class="control-row control-row--sub">
-        <div
+        <!-- 类型筛选（#1731 收敛）：原手写 `.type-pill`（白卡底 + 1px 边框）→ SegmentedControl。
+             与自选页 `WatchlistFilterBar` 的「类型快捷筛选」是同一语义（单维度快速切换），
+             两处现用同一实现。 -->
+        <SegmentedControl
           v-if="showTypeTab"
-          class="type-tabs"
-          role="tablist"
+          :model-value="fundType"
+          :options="typeOptions"
           :aria-label="`${typeTabLabel}筛选`"
-        >
-          <button
-            v-for="opt in typeOptions"
-            :key="opt.value"
-            type="button"
-            role="tab"
-            class="type-pill"
-            :class="{ active: fundType === opt.value }"
-            :aria-selected="fundType === opt.value"
-            @click="setFundType(opt.value)"
-          >
-            {{ opt.label }}
-          </button>
-        </div>
+          @change="setFundType"
+        />
         <div class="sort-control">
-          <div class="sort-pills" role="tablist" aria-label="排序方式">
-            <button
-              v-for="opt in SORT_OPTIONS"
-              :key="opt.value"
-              type="button"
-              role="tab"
-              class="sort-pill"
-              :class="{ active: sort === opt.value }"
-              :aria-selected="sort === opt.value"
-              @click="setSort(opt.value)"
-            >
-              {{ opt.label }}
-            </button>
-          </div>
+          <!-- 排序档位（#1731 收敛）：原手写 `.sort-pill` 与类型筛选共用一份 CSS 块，
+               迁移时一并改掉——否则同一控制行里会出现两种外观。 -->
+          <SegmentedControl
+            :model-value="sort"
+            :options="SORT_OPTIONS"
+            aria-label="排序方式"
+            @change="setSort"
+          />
           <el-button class="order-btn" text @click="toggleOrder">
             <IconifyIconOffline
               :icon="order === 'desc' ? 'ep:sort-down' : 'ep:sort-up'"
@@ -396,43 +385,10 @@ onMounted(() => load());
   color: var(--text-tertiary-ink);
 }
 
-.type-tabs,
-.sort-pills {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-/* 类型/排序胶囊：选中态走软按钮规范（brand-100 底 + brand-700 字） */
-.type-pill,
-.sort-pill {
-  padding: 5px 14px;
-  font-family: var(--font-ui);
-  font-size: 13px;
-  line-height: 1.2;
-  color: var(--text-secondary);
-  cursor: pointer;
-  background: var(--bg-card);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-pill);
-  transition:
-    color 0.15s ease,
-    background-color 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.type-pill:hover,
-.sort-pill:hover {
-  color: var(--text-primary);
-  border-color: var(--brand-400);
-}
-
-.type-pill.active,
-.sort-pill.active {
-  color: var(--brand-700);
-  background: var(--brand-100);
-  border-color: var(--brand-400);
-}
+/* 类型筛选 / 排序档位的外观已全部移交 SegmentedControl（#1731 收敛）：
+   原先这里有两份手写胶囊样式块（`.type-tabs`/`.type-pill` 与重复的 `.sort-pills`/`.sort-pill`，
+   白卡底 + 1px 边框 + 选中 `--brand-100`/`--brand-700`/`--brand-400`）。现不再保留任何视觉声明——
+   手写分段控制器样式是 #1717 / #1731 反复回潮的起点，守卫 `scripts/guard_segmented.py` 会在 CI 拦下。 */
 
 .sort-control {
   display: flex;

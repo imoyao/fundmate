@@ -68,11 +68,6 @@
         @go-detail="switchPanel('detail')"
       />
 
-      <!-- ============================================================ -->
-      <!-- 大类资产观察（#1436 / #1444 收口实现：新增区块，紧跟温度仪表盘） -->
-      <!-- ============================================================ -->
-      <ExploreAssetOverview />
-
       <!-- 添加/观察栏（仅未登录渲染） -->
       <ExploreAddSection
         v-if="!isAuthenticated"
@@ -81,7 +76,25 @@
         :quotes-map="quotesMap"
       />
 
+      <ExploreWatchlistTable
+        :rows="tableData"
+        :loading="loading"
+        :total-count="totalCount"
+        :is-pure-observation-mode="isPureObservationMode"
+        :summary="summary"
+        :status-class="statusClass"
+        :status-text="statusText"
+        :refresh-interval="refreshInterval"
+        :last-update-time="lastUpdateTime"
+        @remove="handleRemove"
+        @jump="handleJump"
+        @favorite="handleFavorite"
+        @refresh="manualRefresh"
+        @interval-change="setRefreshInterval"
+      />
+
       <!-- 匿名用户转化区（#822 todo1）：注册 CTA / 损失厌恶文案 -->
+      <!-- #1546 T2.2：位置从「观察列表之前」移到之后——访客先看目的内容，再看注册转化 -->
       <section v-if="!isAuthenticated" class="conv-banner">
         <div class="conv-banner__inner">
           <div class="conv-banner__text">
@@ -127,22 +140,39 @@
         </div>
       </section>
 
-      <ExploreWatchlistTable
-        :rows="tableData"
-        :loading="loading"
-        :total-count="totalCount"
-        :is-pure-observation-mode="isPureObservationMode"
-        :summary="summary"
-        :status-class="statusClass"
-        :status-text="statusText"
-        :refresh-interval="refreshInterval"
-        :last-update-time="lastUpdateTime"
-        @remove="handleRemove"
-        @jump="handleJump"
-        @favorite="handleFavorite"
-        @refresh="manualRefresh"
-        @interval-change="setRefreshInterval"
-      />
+      <!-- ============================================================ -->
+      <!-- 大类资产观察入口（#1671 方案 b，决策见该 issue）                -->
+      <!-- 区块本体已移入「深度」档，概览档只留这一行轻量入口：            -->
+      <!-- 既让概览档聚焦（温度锚点 + 观察列表），又不丢这个能力的发现性。 -->
+      <!-- 点击后切到深度档、滚动定位到该区块，并直接以展开态渲染。        -->
+      <!-- ============================================================ -->
+      <section class="asset-entry">
+        <div class="asset-entry__inner">
+          <div class="asset-entry__text">
+            <div class="asset-entry__title">大类资产观察</div>
+            <div class="asset-entry__cats">
+              <span
+                v-for="cat in ASSET_CATEGORIES"
+                :key="cat"
+                class="asset-entry__cat"
+              >
+                <i
+                  class="asset-entry__dot"
+                  :style="{ background: ASSET_CATEGORY_TOKEN[cat] }"
+                />{{ cat }}
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="asset-entry__btn"
+            @click="goAssetOverview"
+          >
+            去深度档查看
+            <IconifyIconOffline icon="ep:arrow-right" />
+          </button>
+        </div>
+      </section>
     </div>
 
     <!-- ============================================================ -->
@@ -156,6 +186,7 @@
       role="tabpanel"
       aria-labelledby="panel-tab-detail"
       :gauge-visible="activePanel === 'detail'"
+      :asset-expanded="assetAutoExpand"
     />
 
     <!-- ============================================================ -->
@@ -190,7 +221,7 @@ import { buildMarketFooterSources } from "@/components/MarketFooter/config";
 import { useAuthState } from "@/composables/useAuthState";
 import { useTemperatureOverview } from "@/composables/temperature/useTemperatureOverview";
 import ExploreTemperatureDashboard from "./components/ExploreTemperatureDashboard.vue";
-import ExploreAssetOverview from "./components/ExploreAssetOverview.vue";
+import { ASSET_CATEGORIES, ASSET_CATEGORY_TOKEN } from "@/constants/market";
 import ExploreDetailPanel from "./components/ExploreDetailPanel.vue";
 import { useExploreWatchlist } from "./composables/useExploreWatchlist";
 
@@ -359,6 +390,30 @@ const goToLogin = () => {
   router.push("/login");
 };
 
+/**
+ * 概览档「大类资产观察」入口（#1671 方案 b）：切到深度档并滚动定位到该区块。
+ *
+ * 深度档是「首次进入才挂载」（detailMounted），挂载可能晚一帧——所以先 nextTick
+ * 再补一个 requestAnimationFrame，两次都调幂等的 scrollIntoView，避免首次点击时
+ * 因 DOM 尚未挂载而定位落空。assetAutoExpand 让区块直接以展开态渲染，省掉
+ * 「跳过来还得再点一次展开」。
+ */
+const assetAutoExpand = ref(false);
+const goAssetOverview = () => {
+  assetAutoExpand.value = true;
+  switchPanel("detail");
+  const scrollToAsset = () => {
+    document.getElementById("asset-overview-anchor")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start"
+    });
+  };
+  nextTick(() => {
+    scrollToAsset();
+    requestAnimationFrame(scrollToAsset);
+  });
+};
+
 // logo 点击：登录态感知路由（#822 todo3）
 // 已登录 → 工作台 /welcome；未登录 → 探市首页 /explore
 const onLogoClick = () => {
@@ -372,6 +427,8 @@ onMounted(startRealtime);
 </script>
 
 <style lang="scss" scoped>
+@use "@/style/breakpoints" as bp;
+
 .explore-page {
   min-height: 100vh;
   background: var(--bg-page);
@@ -548,6 +605,94 @@ onMounted(startRealtime);
     &:hover {
       color: var(--text-primary);
       background: var(--bg-soft);
+    }
+  }
+}
+
+/* ============================================================
+   大类资产观察入口（#1671 方案 b）
+   区块本体已移入深度档，此处只做一行轻量引导；样式对齐转化区的卡片，
+   分类圆点直接复用 --asset-cat-* 令牌，与深度档区块同貌。
+   ============================================================ */
+.asset-entry {
+  max-width: var(--layout-content-width);
+  padding: 0 24px 16px;
+  margin: 0 auto;
+
+  &__inner {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 24px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-raised);
+  }
+
+  &__title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  &__cats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 6px;
+  }
+
+  &__cat {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  &__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  &__btn {
+    display: inline-flex;
+    flex-shrink: 0;
+    gap: 4px;
+    align-items: center;
+    height: 32px;
+    padding: 0 14px;
+    font-family: inherit;
+    font-size: 13px;
+    color: var(--brand-700);
+    cursor: pointer;
+    background: var(--brand-100);
+    border: 1px solid var(--brand-400);
+    border-radius: var(--radius-pill);
+    transition: background-color 150ms ease;
+
+    &:hover {
+      background: var(--brand-200);
+    }
+
+    &:focus-visible {
+      outline: none;
+      box-shadow: var(--focus-ring);
+    }
+  }
+}
+
+@include bp.below("md") {
+  .asset-entry {
+    padding: 0 16px 16px;
+
+    &__inner {
+      flex-direction: column;
+      gap: 12px;
+      align-items: stretch;
     }
   }
 }

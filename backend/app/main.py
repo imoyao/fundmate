@@ -19,6 +19,7 @@ from werkzeug.exceptions import HTTPException  # noqa: E402
 from app.core.auth import auth_before_request, register_user_identity  # noqa: E402
 from app.core.database import init_db, teardown_request_session  # noqa: E402
 from app.core.exceptions import ErrorCode, SBException  # noqa: E402
+from app.domains.agent.views import agent_bp  # noqa: E402
 from app.domains.assets.views import bp as assets_bp  # noqa: E402
 from app.domains.auth.views import auth_bp  # noqa: E402
 from app.domains.families.views import families_bp  # noqa: E402
@@ -94,6 +95,7 @@ def create_app() -> APIFlask:
     app.register_blueprint(users_bp)
     app.register_blueprint(families_bp)
     app.register_blueprint(reconciliation_bp)
+    app.register_blueprint(agent_bp)
     app.register_blueprint(usage_bp)
 
     # 依赖注入（#1607）：core 不 import 领域层，用户身份读写（查用户 / JIT 建号 / 邮箱回写）

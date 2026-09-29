@@ -7,12 +7,13 @@ from datetime import date, datetime
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import QueuePool
 
 import app.domains.assets.models  # noqa: F401
 import app.domains.families.models  # noqa: F401
 import app.domains.funds.models  # noqa: F401
 import app.domains.indices.models  # noqa: F401
+import app.domains.market.models  # noqa: F401
 import app.domains.positions.models  # noqa: F401
 import app.domains.price_history.models  # noqa: F401
 import app.domains.securities.models  # noqa: F401
@@ -29,36 +30,150 @@ from app.domains.transactions.models import Transaction
 from app.main import create_app
 
 
+def _make_file_engine(db_path):
+    """测试库引擎：**临时文件库**，连接与事务模型与生产同构（#1721）。
+
+    为什么不用 StaticPool（全进程单连接，原实现）：B 会话 ``close()`` 归还连接时的
+    reset（rollback）会把 A **未提交**的事务连带回滚——生产各 Session 走池中独立
+    连接、只回滚自己的事务，此现象不可能发生。S2（PR #1716）实测假阳性：
+    ``StaleDataError: UPDATE agent_session matched 0 row(s)``。
+
+    三步探索（实测踩过，勿回退）：
+    1. shared-cache 内存 URI（``?mode=memory&cache=shared``）：连接独立了，但
+       shared-cache 是**表级锁**——A 未提交写持表锁时，B 读同表立即
+       ``OperationalError: database table is locked``（不排队等；测试里
+       "A 持未提交写 + B 读" 是常态）→ 弃用；
+    2. 裸 ``file:`` URL 过不了 SQLAlchemy ``make_url`` 解析；
+    3. URL 含 ``mode=memory`` 时方言判为内存库、默认 SingletonThreadPool（同线程
+       复用同一连接，等于没改）；文件库方言默认 QueuePool，此处**显式**写出防漂移。
+
+    故最终形态 = 每测试一个临时文件（``tmp_path``，天然隔离、用完即删）+ 显式
+    QueuePool（每 Session 独立连接、独立事务）。
+
+    为什么不设 WAL（对齐生产的第 4 个坑，实测）：引擎创建后立刻
+    ``PRAGMA journal_mode=WAL`` 会给**每个用例 ×2 引擎**多出一次文件打开（全量
+    3800+ 次），47 分钟全量实测偶发 2 例 ``unable to open database file`` 直接
+    ERROR at setup；而本测试单进程串行，DELETE journal 与 WAL 的锁并发差异为零，
+    **连接/事务模型才是本卡要对齐的核心**——不值得为 WAL 买失败面。
+
+    判据：``tests/core/test_session_connection_model.py`` 两个用例是本模型的回归保护，
+    「他处 close 不得回滚我的未提交写」恒绿。
+    """
+    url = f'sqlite:///{db_path.as_posix()}'
+    # 注意不在这里做任何额外文件操作（如 PRAGMA WAL）——见 docstring 第 4 坑：
+    # 引擎创建保持惰性，首次查询才开文件，避免 setup 阶段偶发打开失败。
+    return create_engine(url, connect_args={'check_same_thread': False, 'timeout': 5}, poolclass=QueuePool)
+
+
+# ---- #1722 模板库机制（均匀慢根治：每测试省全套 DDL + init_db 重活）----
+# 首个进 app fixture 的测试走完整路径建「完成态模板」（schema + migrations + seed、
+# 零业务数据）；后续测试 shutil.copyfile 秒级落地并跳过 init_db。
+# 模板按源码指纹分目录存放（app/**.py + 本文件内容 hash），schema/迁移逻辑一变
+# 指纹即变、自动重建，杜绝「模板过期 -> 缺表假红」。
+_FINGERPRINT_CACHE = None
+
+
+def _schema_fingerprint():
+    """进程内只算一次的源码指纹——任何 app 源码或 conftest 变更都使旧模板失效。"""
+    global _FINGERPRINT_CACHE
+    if _FINGERPRINT_CACHE is None:
+        import hashlib
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1] / 'app'
+        h = hashlib.sha256()
+        for p in sorted(root.rglob('*.py')):
+            h.update(str(p.relative_to(root)).encode('utf-8'))
+            h.update(p.read_bytes())
+        h.update(Path(__file__).read_bytes())
+        _FINGERPRINT_CACHE = h.hexdigest()[:16]
+    return _FINGERPRINT_CACHE
+
+
+def _template_dir():
+    from pathlib import Path
+
+    d = Path(__file__).resolve().parents[1] / '.pytest_cache' / 'fixture_tpl' / _schema_fingerprint()
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _copy_template_into(tmp_path):
+    """模板 -> 本测试 tmp_path；无模板（首测试）返回 False。"""
+    import shutil
+
+    d = _template_dir()
+    src_app, src_market = d / 'app.db', d / 'market.db'
+    if src_app.exists() and src_market.exists():
+        shutil.copyfile(src_app, tmp_path / '_fixture_app.db')
+        shutil.copyfile(src_market, tmp_path / '_fixture_market.db')
+        return True
+    return False
+
+
+def _save_template(tmp_path):
+    """首测试完成态 -> 模板，并清理其它指纹目录（只保留当前）。
+
+    调用点必须在 create_app（init_db 完成）之后、测试体执行**之前**，且先
+    dispose 断开全部连接（回滚未提交页、确保主文件完整）——否则首测试写入的
+    业务数据会随模板污染后续所有测试。
+    """
+    import shutil
+
+    d = _template_dir()
+    shutil.copyfile(tmp_path / '_fixture_app.db', d / 'app.db')
+    shutil.copyfile(tmp_path / '_fixture_market.db', d / 'market.db')
+    for old in d.parent.iterdir():
+        if old != d and old.is_dir():
+            shutil.rmtree(old, ignore_errors=True)
+
+
 @pytest.fixture
-def app(monkeypatch):
-    test_engine = create_engine('sqlite:///:memory:', connect_args={'check_same_thread': False}, poolclass=StaticPool)
+def app(monkeypatch, tmp_path):
+    from_template = _copy_template_into(tmp_path)
+    test_engine = _make_file_engine(tmp_path / '_fixture_app.db')
     TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
     monkeypatch.setattr('app.core.database.engine', test_engine)
     monkeypatch.setattr('app.core.database.user_engine', test_engine)
     # 不再替换 SessionLocal maker：改为重定向引擎，使所有（含导入期早绑定的）SessionLocal()
     # 调用经 _engine_for 解析到内存库，从而删除 conftest 的「模块名清单」式补丁（见 #1608）。
-    # 引擎重定向后必须让已缓存的域路由 binds 失效，否则 _ROUTING_BINDS 仍指向旧引擎。
-    import app.core.database as _db_mod
-
-    _db_mod.reset_routing_binds()
+    # 域路由在**查询期**经 _engine_for 取当前引擎（#1608：不再缓存引擎），
+    # 故上面重定向即生效，不需要任何「让缓存失效」的调用（旧实现的
+    # reset_routing_binds() 已随引擎缓存一并删除）。
 
     # 双库架构支持：reconciliation 等 user 域表经 user_session 访问。
     # 测试需把 user_session 与 get_db(SessionLocal) 指向同一内存库，保证测试数据可见；
     # market 域会话保持独立内存库，满足「user/market 分库」断言（test_db_data_domain）。
-    market_engine = create_engine('sqlite:///:memory:', connect_args={'check_same_thread': False}, poolclass=StaticPool)
+    market_engine = _make_file_engine(tmp_path / '_fixture_market.db')
     TestMarketSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=market_engine)
     import app.core.db_factory as _db_factory
 
     monkeypatch.setattr(_db_factory, 'user_session_factory', lambda: TestSessionLocal)
     monkeypatch.setattr(_db_factory, 'market_session_factory', lambda: TestMarketSessionLocal)
 
-    Base.metadata.create_all(bind=test_engine)
-    Base.metadata.create_all(bind=market_engine)
+    if from_template:
+        # #1722：模板已是 create_all + init_db（10+ migrations x2 引擎 + seed）完成态，
+        # 跳过 init_db 重活（#1608 引擎为查询期解析，patch 此名即可；app 每测试仍新建，
+        # 不存在 config/路由状态跨测试泄漏）。
+        monkeypatch.setattr('app.main.init_db', lambda: None)
+    else:
+        Base.metadata.create_all(bind=test_engine)
+        Base.metadata.create_all(bind=market_engine)
 
     app = create_app()
     app.config['TESTING'] = True
+    if not from_template:
+        # 首测试：完成态即模板——必须在测试体写入任何业务数据之前，
+        # 且先 dispose 断开连接（回滚未提交页）再复制，否则脏数据污染全部后续测试。
+        test_engine.dispose()
+        market_engine.dispose()
+        _save_template(tmp_path)
     yield app
+    # #1721：归还文件库全部连接（文件由 tmp_path 统一清理；不 dispose 会在进程内
+    # 累积每测试 2 个引擎 × 池连接数的句柄）。
+    test_engine.dispose()
+    market_engine.dispose()
 
 
 @pytest.fixture

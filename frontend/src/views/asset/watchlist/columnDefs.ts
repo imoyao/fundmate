@@ -247,7 +247,11 @@ export const watchlistColumnDefs: ColumnDef[] = [
     realtimeField: "currentPrice",
     scope: "mixed",
     hideable: true,
-    draggable: true
+    draggable: true,
+    // #1104：无行情且未命中实时通道时没有价（如组合 / 经理行、行情未回补的标的），
+    // 必须渲染 -- 而不是 0.00——0.00 会被误读成「跌到底」。
+    // 静态价来自最近交易日收盘价 / 确认净值时，renderer 用 price_as_of 标注数据日期。
+    props: { nullable: true }
   },
   {
     key: "change_pct",
@@ -260,7 +264,9 @@ export const watchlistColumnDefs: ColumnDef[] = [
     realtimeField: "changePct",
     scope: "mixed",
     hideable: true,
-    draggable: true
+    draggable: true,
+    // 同「最新价」：后端只在能算出前后两根收盘价（或净值）时才下发，否则为 null
+    props: { nullable: true }
   },
   // ── 可转债品类专属列（#1285 消费侧 / #1393）──
   // 决策核心是「条款博弈」：强赎状态优先于行情，故紧随涨跌幅之后。

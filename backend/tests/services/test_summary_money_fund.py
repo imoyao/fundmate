@@ -214,18 +214,39 @@ class TestIncomeBucketIsolation:
         )
 
     def test_income_row_excluded_from_principal_net(self, db, make_transaction):
-        from app.services.summary_service import (
-            orphan_money_fund_income_by_ledger,
-            orphan_money_fund_net_by_ledger,
-        )
+        from app.services.summary_service import orphan_money_fund_totals_by_ledger
 
         _make_orphan_txn(make_transaction, None, 'buy', 100)  # 本金 100
         self._income_orphan_txn(make_transaction, None, 5)  # 收益 5
-        net = orphan_money_fund_net_by_ledger(db, 1)
-        income = orphan_money_fund_income_by_ledger(db, 1)
+        net, income = orphan_money_fund_totals_by_ledger(db, 1)
         # 本金桶不含收益行；收益只进收益桶
         assert net == {0: 10000}
         assert income == {0: 500}
+
+    def test_tristate_is_income_split_is_exact(self, db, make_transaction):
+        """#1305 #16：合并后靠 `bool(is_income)` 做三态切分，必须与原两条 SQL 完全等价。
+
+        `is_income` 是三态：NULL（未标记）/ False（显式非收益）/ True（收益）。
+        NULL 与 False 都进本金桶、True 进收益桶 —— 三态里切错任意一条都会在这里被抓到
+        （比如写成 `is_income is not None` 就把 False 错分进收益桶）。
+        """
+        from app.services.summary_service import orphan_money_fund_totals_by_ledger
+
+        _make_orphan_txn(make_transaction, None, 'buy', 100)  # is_income=NULL → 本金
+        make_transaction(  # is_income=False → 仍然是本金
+            None,
+            None,
+            txn_type='buy',
+            amount=20,
+            asset_type='money_fund',
+            entry_status='orphan',
+            is_income=False,
+        )
+        self._income_orphan_txn(make_transaction, None, 5)  # is_income=True → 收益
+
+        net, income = orphan_money_fund_totals_by_ledger(db, 1)
+        assert net == {0: 12000}  # (100 + 20) 元
+        assert income == {0: 500}  # 5 元
 
     def test_total_assets_includes_income_once(self, db, make_transaction):
         """总资产 = 本金 + 收益（只加一次）：漏加或重复加都会被断言捕捉。"""

@@ -260,6 +260,7 @@ html.dark {
 
   /* ===== 系统语义色 ===== */
   --color-danger: #d4364a;
+  --color-danger-ink: #e8718a; /* 暗底（#242120）4.9:1（#1599：危险文字级暗色需提亮，否则 #d4364a on 暗底仅 3.36:1） */
 
   /* ===== 文字级告警 / 温度色（暗色适配 · #1545） =====
      亮色对应的深色版本在深底不可读，故暗色改用提亮同色系；
@@ -268,6 +269,12 @@ html.dark {
   --temp-low-ink: #7fc49a; /* 暗卡 7.82:1 */
   --temp-mid-ink: #e0c98a; /* 暗卡 9.81:1 */
   --temp-high-ink: #e87f7a; /* 暗卡 5.90:1 */
+
+  /* #1599 batch 3：文字级语义色在暗底需提亮同色系（沿用 #1545 的手法） */
+  --brand-ink: #f08a75; /* 暗卡 6.55 / 暗页 7.17 */
+  --color-primary-ink: #aab0d8; /* 暗卡 7.55 / 暗页 8.27 */
+  --color-success-ink: #7fc49a; /* 暗卡 7.82 / 暗页 8.56 */
+  --color-info-ink: #9ecad6; /* 暗卡 9.04 / 暗页 9.90 */
 
   /* ===== 文字色（暗色适配） ===== */
   --text-primary: rgb(237 234 229 / 92%);
@@ -336,7 +343,7 @@ html.dark {
 
   /* 菜单文字色 */
   --pure-theme-menu-text: var(--text-secondary);
-  --pure-theme-sub-menu-active-text: var(--brand-700);
+  --pure-theme-sub-menu-active-text: var(--brand-ink);
 
   /* 菜单交互色 */
   --pure-theme-menu-hover: var(--bg-hover);

@@ -3,14 +3,17 @@
 // 落在既有探市页（views/explore/）内，紧接温度仪表盘之后。
 // 数据驱动渲染 6 组 × 资产卡片，复用 RiseFallText（涨红跌绿）、SectionHeader，
 // 相对位置条复用温度三色 token（--temp-low/mid/high）。不可得资产软占位（置灰 + — + 原因）。
-import { computed, onMounted } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
+import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import { useMarketOverview } from "@/composables/market/useMarketOverview";
 import type { MarketAnomaly, MarketAsset, MarketGroup } from "@/api/market";
+import { ASSET_CATEGORIES, ASSET_CATEGORY_TOKEN } from "@/constants/market";
 
-const { loading, error, overview, fetchOverview } = useMarketOverview();
+const { loading, error, overview, fetchOverview, showSkeleton, slow } =
+  useMarketOverview();
 
 const groups = computed<MarketGroup[]>(() => overview.value?.groups ?? []);
 
@@ -31,18 +34,8 @@ const unavailableCount = computed(() => overview.value?.unavailable_count ?? 0);
 const bondYield = computed(() => overview.value?.bond_yield ?? null);
 const updatedAt = computed(() => overview.value?.updated_at ?? "");
 
-// 分类 → 品种色 token（唯一真相源 --asset-cat-*；无商品专属 token，商品映射到 etf 绿）
-const CATEGORY_TOKEN: Record<string, string> = {
-  A股: "var(--asset-cat-stock)",
-  港股: "var(--asset-cat-stock)",
-  海外: "var(--asset-cat-stock)",
-  债券: "var(--asset-cat-bond)",
-  商品: "var(--asset-cat-etf)",
-  汇率: "var(--asset-cat-saving)"
-};
-
 const categoryColor = (category: string) =>
-  CATEGORY_TOKEN[category] || "var(--text-secondary)";
+  ASSET_CATEGORY_TOKEN[category] || "var(--text-secondary)";
 
 // 相对位置分位 → 温度三色（偏低绿 / 适中沙 / 偏高红）
 // #1545 拆两族：游标等「图形 / 实色」用 --temp-*；
@@ -64,188 +57,324 @@ const positionLabelColor = (asset: MarketAsset): string => {
 // 收益率变动(bp) 用中性色，不套用涨红跌绿（§3.4 纪律）
 const yieldTone = (_bp?: number) => "var(--text-secondary)";
 
+// ================================================================
+// #1546 T2.2：折叠容器——默认折叠为 6 条分组摘要，展开才请求 / 渲染 20 张卡
+//
+// 目的：把冷启动耗时长的 /api/market/overview 从首屏关键路径上摘掉。
+// 折叠态一个请求都不发（治本仍在 #1460 落库）。
+//
+// #1671 方案 b：本区块已由概览档移入**深度档**，概览档只留一个入口。用户点入口跳来时
+// 父级会传 defaultExpanded=true，此处直接以展开态渲染并取数——避免「按入口跳过来
+// 还得再点一次展开」；自然逛进深度档的用户仍是折叠态，不白白触发这个慢接口。
+// ================================================================
+const props = withDefaults(
+  defineProps<{
+    /** 是否默认展开（概览档入口跳转时传 true） */
+    defaultExpanded?: boolean;
+  }>(),
+  { defaultExpanded: false }
+);
+
+const expanded = ref(props.defaultExpanded);
+
+/** 折叠态的分组摘要来源：前端已知的 6 大分类（静态常量，无需请求接口） */
+const collapsedCategories = ASSET_CATEGORIES;
+
+/** 已加载数据时的分组标的数；未加载返回 null（折叠态就不显示数字，避免编造） */
+const groupCount = (category: string): number | null => {
+  const group = groups.value.find(g => g.category === category);
+  return group ? group.assets.length : null;
+};
+
+/** 已加载的标的总数；尚未加载时回退到区块标称的 20 个，仅用于按钮文案 */
+const loadedAssetCount = computed(() => {
+  const total = groups.value.reduce((n, g) => n + g.assets.length, 0);
+  return total > 0 ? total : 20;
+});
+
+/** 仅在「还没数据且没在取」时取数：展开过之后直接复用已加载的数据，不会每次展开都重打接口 */
+const ensureLoaded = () => {
+  if (overview.value === null && !loading.value) {
+    void fetchOverview();
+  }
+};
+
+const toggleExpand = () => {
+  expanded.value = !expanded.value;
+  if (expanded.value) ensureLoaded();
+};
+
+// 概览档入口跳来时（本组件可能早已挂载）切到展开态
+watch(
+  () => props.defaultExpanded,
+  v => {
+    if (v && !expanded.value) {
+      expanded.value = true;
+      ensureLoaded();
+    }
+  }
+);
+
+// 挂载即为展开态时补一次取数（此时既不会走 toggleExpand，也不会触发上面的 watch）
 onMounted(() => {
-  fetchOverview();
+  if (expanded.value) ensureLoaded();
 });
 </script>
 
 <template>
   <section class="asset-overview">
-    <!-- 区块标题 -->
-    <SectionHeader title="大类资产观察" />
+    <!-- 区块标题 + 展开/收起（复用 SectionHeader 的 #action 槽，不另造标题行） -->
+    <SectionHeader title="大类资产观察">
+      <template #action>
+        <button
+          type="button"
+          class="asset-overview__toggle"
+          :aria-expanded="expanded ? 'true' : 'false'"
+          aria-controls="asset-overview-body"
+          @click="toggleExpand"
+        >
+          {{ expanded ? "收起" : "展开" }}
+          <IconifyIconOffline
+            :icon="expanded ? 'ep:arrow-up' : 'ep:arrow-down'"
+          />
+        </button>
+      </template>
+    </SectionHeader>
 
-    <!-- 市场状态条：各市场数据截止口径 -->
-    <div v-if="asOfNote" class="asof-bar">
-      <IconifyIconOffline icon="ep:info-filled" class="asof-bar__icon" />
-      <span class="asof-bar__text">{{ asOfNote }}</span>
-    </div>
-
-    <!-- 加载 / 错误态 -->
-    <div v-if="loading" class="state-hint">数据加载中…</div>
-    <div v-else-if="error" class="state-hint state-hint--error">
-      资产观察数据加载失败：{{ error }}
-    </div>
-
-    <!-- 6 组资产 -->
-    <template v-for="group in groups" :key="group.category">
-      <div class="asset-group">
-        <div class="asset-group__head">
+    <!-- 折叠态：6 条分组摘要（静态分类，不请求接口 → 首屏不再依赖 /api/market/overview） -->
+    <div v-if="!expanded" class="collapse-summary">
+      <ul class="collapse-summary__list">
+        <li
+          v-for="cat in collapsedCategories"
+          :key="cat"
+          class="collapse-summary__item"
+        >
           <span
             class="asset-group__dot"
-            :style="{ background: categoryColor(group.category) }"
+            :style="{ background: categoryColor(cat) }"
           />
-          <span class="asset-group__title">{{ group.category }}</span>
-          <span class="asset-group__count">{{ group.assets.length }}</span>
-        </div>
-
-        <div class="asset-grid">
-          <!-- 单资产卡片（数据驱动，不写 20 份模板） -->
-          <div
-            v-for="asset in group.assets"
-            :key="asset.key"
-            class="asset-card"
-            :class="{ 'asset-card--disabled': !asset.available }"
-          >
-            <div class="asset-card__top">
-              <span class="asset-card__name">
-                {{ asset.name }}
-                <!-- ⚡ 异动标记（§5.5 双线规则），命中才渲染；用图标而非 emoji（AGENTS.md 禁 emoji） -->
-                <span
-                  v-if="asset.anomaly"
-                  class="asset-card__anomaly"
-                  :title="`异动：${asset.anomaly.basis_note}`"
-                >
-                  <IconifyIconOffline icon="ep:lightning" />
-                </span>
-              </span>
-              <span
-                v-if="asset.caliber"
-                class="asset-card__caliber"
-                :title="asset.caliber"
-                >口径</span
-              >
-            </div>
-
-            <!-- 软占位：置灰 + — + 原因 -->
-            <template v-if="!asset.available">
-              <div class="asset-card__change asset-card__change--na">—</div>
-              <div class="asset-card__reason">{{ asset.reason }}</div>
-            </template>
-
-            <!-- 可取数 -->
-            <template v-else>
-              <div class="asset-card__change">
-                <RiseFallText
-                  :value="asset.change_pct ?? 0"
-                  :precision="2"
-                  size="lg"
-                />
-              </div>
-
-              <!-- 相对位置条（温度三色 + 游标） -->
-              <div
-                v-if="asset.position"
-                class="pos-bar"
-                :title="`${asset.position.basis} · 近${asset.position.window}日分位 ${asset.position.percentile}%`"
-              >
-                <div class="pos-bar__track">
-                  <div
-                    class="pos-bar__cursor"
-                    :style="{
-                      left: asset.position.percentile + '%',
-                      background: positionColor(asset)
-                    }"
-                  />
-                </div>
-                <div class="pos-bar__meta">
-                  <span class="pos-bar__basis">{{ asset.position.basis }}</span>
-                  <span
-                    class="pos-bar__label"
-                    :style="{ color: positionLabelColor(asset) }"
-                    >{{ asset.position.label }}</span
-                  >
-                </div>
-              </div>
-              <div v-else class="asset-card__nopin">—</div>
-
-              <div v-if="asset.caliber" class="asset-card__caliber-text">
-                {{ asset.caliber }}
-              </div>
-            </template>
-          </div>
-        </div>
-      </div>
-    </template>
-
-    <!-- ⚡ 异动解读（§6.1 区块底部）：列出当日命中双线规则的资产 + 规则自述 -->
-    <div v-if="anomalyAssets.length" class="anomaly-panel">
-      <div class="anomaly-panel__head">
-        <IconifyIconOffline icon="ep:lightning" class="anomaly-panel__icon" />
-        <span>异动解读</span>
-        <span class="anomaly-panel__count">{{ anomalyAssets.length }} 项</span>
-      </div>
-      <ul class="anomaly-panel__list">
-        <li
-          v-for="item in anomalyAssets"
-          :key="item.asset.key"
-          class="anomaly-item"
-        >
-          <span class="anomaly-item__name">{{ item.asset.name }}</span>
-          <span class="anomaly-item__change">
-            <RiseFallText
-              :value="item.anomaly.today_pct"
-              :precision="2"
-              size="sm"
-            />
+          <span class="asset-group__title">{{ cat }}</span>
+          <span v-if="groupCount(cat) !== null" class="asset-group__count">
+            {{ groupCount(cat) }} 个标的
           </span>
-          <span class="anomaly-item__note">{{ item.anomaly.basis_note }}</span>
         </li>
       </ul>
-      <div class="anomaly-panel__foot">
-        判定用「双线规则」：单日涨跌超过自身近
-        {{ anomalyAssets[0].anomaly.sigma_window }} 个交易日波动（σ）的
-        {{ anomalyAssets[0].anomaly.sigma_multiple }} 倍，或超过
-        {{ anomalyAssets[0].anomaly.abs_threshold }}%
-        绝对阈值。此处为规则自述，暂未接入新闻源。
-      </div>
+      <button
+        type="button"
+        class="collapse-summary__btn"
+        :aria-expanded="expanded ? 'true' : 'false'"
+        aria-controls="asset-overview-body"
+        @click="toggleExpand"
+      >
+        展开查看 {{ loadedAssetCount }} 个标的
+        <IconifyIconOffline icon="ep:arrow-down" />
+      </button>
     </div>
 
-    <!-- 债券收益率轨（双轨：价格轨在卡片，收益率轨在此单独展示，不套涨红跌绿） -->
-    <div v-if="bondYield" class="bond-yield">
-      <div class="bond-yield__head">债券收益率轨（双轨对照）</div>
-      <div class="bond-yield__items">
-        <div class="bond-yield__item">
-          <span class="bond-yield__label">中债 10Y</span>
-          <span class="bond-yield__val">{{ bondYield.cn_10y }}%</span>
-          <span
-            class="bond-yield__bp"
-            :style="{ color: yieldTone(bondYield.cn_10y_change_bp) }"
-            >{{ (bondYield.cn_10y_change_bp ?? 0) >= 0 ? "+" : ""
-            }}{{ bondYield.cn_10y_change_bp ?? 0 }} bp</span
+    <!-- 展开态：首次展开才取数，随后渲染 20 张卡 -->
+    <div v-else id="asset-overview-body">
+      <!-- 市场状态条：各市场数据截止口径 -->
+      <div v-if="asOfNote" class="asof-bar">
+        <IconifyIconOffline icon="ep:info-filled" class="asof-bar__icon" />
+        <span class="asof-bar__text">{{ asOfNote }}</span>
+      </div>
+
+      <!-- 错误态优先（含重试，见 #1546 T2.5） -->
+      <div v-if="error" class="state-hint state-hint--error">
+        资产观察数据加载失败：{{ error }}
+        <button
+          type="button"
+          class="state-hint__retry"
+          @click="() => fetchOverview()"
+        >
+          重试
+        </button>
+      </div>
+      <!-- 加载态：200ms 后才显示骨架屏，快速返回跳过骨架（#1546 T2.3，阈值逻辑在 composable） -->
+      <PageSkeleton
+        v-else-if="loading && showSkeleton && !slow"
+        :cards="6"
+        :table-rows="6"
+      />
+      <!-- 慢加载降级：>8s 仍未返回，提示可先浏览下方 + 重试（#1546 T2.5，请求不中断） -->
+      <div v-else-if="loading && slow" class="state-hint state-hint--slow">
+        数据加载较慢，可先浏览下方观察列表
+        <button
+          type="button"
+          class="state-hint__retry"
+          @click="() => fetchOverview()"
+        >
+          重试
+        </button>
+      </div>
+
+      <!-- 6 组资产 -->
+      <template v-for="group in groups" :key="group.category">
+        <div class="asset-group">
+          <div class="asset-group__head">
+            <span
+              class="asset-group__dot"
+              :style="{ background: categoryColor(group.category) }"
+            />
+            <span class="asset-group__title">{{ group.category }}</span>
+            <span class="asset-group__count">{{ group.assets.length }}</span>
+          </div>
+
+          <div class="asset-grid">
+            <!-- 单资产卡片（数据驱动，不写 20 份模板） -->
+            <div
+              v-for="asset in group.assets"
+              :key="asset.key"
+              class="asset-card"
+              :class="{ 'asset-card--disabled': !asset.available }"
+            >
+              <div class="asset-card__top">
+                <span class="asset-card__name">
+                  {{ asset.name }}
+                  <!-- ⚡ 异动标记（§5.5 双线规则），命中才渲染；用图标而非 emoji（AGENTS.md 禁 emoji） -->
+                  <span
+                    v-if="asset.anomaly"
+                    class="asset-card__anomaly"
+                    :title="`异动：${asset.anomaly.basis_note}`"
+                  >
+                    <IconifyIconOffline icon="ep:lightning" />
+                  </span>
+                </span>
+                <span
+                  v-if="asset.caliber"
+                  class="asset-card__caliber"
+                  :title="asset.caliber"
+                  >口径</span
+                >
+              </div>
+
+              <!-- 软占位：置灰 + — + 原因 -->
+              <template v-if="!asset.available">
+                <div class="asset-card__change asset-card__change--na">—</div>
+                <div class="asset-card__reason">{{ asset.reason }}</div>
+              </template>
+
+              <!-- 可取数 -->
+              <template v-else>
+                <div class="asset-card__change">
+                  <RiseFallText
+                    :value="asset.change_pct ?? 0"
+                    :precision="2"
+                    size="lg"
+                  />
+                </div>
+
+                <!-- 相对位置条（温度三色 + 游标） -->
+                <div
+                  v-if="asset.position"
+                  class="pos-bar"
+                  :title="`${asset.position.basis} · 近${asset.position.window}日分位 ${asset.position.percentile}%`"
+                >
+                  <div class="pos-bar__track">
+                    <div
+                      class="pos-bar__cursor"
+                      :style="{
+                        left: asset.position.percentile + '%',
+                        background: positionColor(asset)
+                      }"
+                    />
+                  </div>
+                  <div class="pos-bar__meta">
+                    <span class="pos-bar__basis">{{
+                      asset.position.basis
+                    }}</span>
+                    <span
+                      class="pos-bar__label"
+                      :style="{ color: positionLabelColor(asset) }"
+                      >{{ asset.position.label }}</span
+                    >
+                  </div>
+                </div>
+                <div v-else class="asset-card__nopin">—</div>
+
+                <div v-if="asset.caliber" class="asset-card__caliber-text">
+                  {{ asset.caliber }}
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ⚡ 异动解读（§6.1 区块底部）：列出当日命中双线规则的资产 + 规则自述 -->
+      <div v-if="anomalyAssets.length" class="anomaly-panel">
+        <div class="anomaly-panel__head">
+          <IconifyIconOffline icon="ep:lightning" class="anomaly-panel__icon" />
+          <span>异动解读</span>
+          <span class="anomaly-panel__count"
+            >{{ anomalyAssets.length }} 项</span
           >
         </div>
-        <div v-if="bondYield.us_10y != null" class="bond-yield__item">
-          <span class="bond-yield__label">美债 10Y</span>
-          <span class="bond-yield__val">{{ bondYield.us_10y }}%</span>
-          <span
-            class="bond-yield__bp"
-            :style="{ color: yieldTone(bondYield.us_10y_change_bp) }"
-            >{{ (bondYield.us_10y_change_bp ?? 0) >= 0 ? "+" : ""
-            }}{{ bondYield.us_10y_change_bp ?? 0 }} bp</span
+        <ul class="anomaly-panel__list">
+          <li
+            v-for="item in anomalyAssets"
+            :key="item.asset.key"
+            class="anomaly-item"
+          >
+            <span class="anomaly-item__name">{{ item.asset.name }}</span>
+            <span class="anomaly-item__change">
+              <RiseFallText
+                :value="item.anomaly.today_pct"
+                :precision="2"
+                size="sm"
+              />
+            </span>
+            <span class="anomaly-item__note">{{
+              item.anomaly.basis_note
+            }}</span>
+          </li>
+        </ul>
+        <div class="anomaly-panel__foot">
+          判定用「双线规则」：单日涨跌超过自身近
+          {{ anomalyAssets[0].anomaly.sigma_window }} 个交易日波动（σ）的
+          {{ anomalyAssets[0].anomaly.sigma_multiple }} 倍，或超过
+          {{ anomalyAssets[0].anomaly.abs_threshold }}%
+          绝对阈值。此处为规则自述，暂未接入新闻源。
+        </div>
+      </div>
+
+      <!-- 债券收益率轨（双轨：价格轨在卡片，收益率轨在此单独展示，不套涨红跌绿） -->
+      <div v-if="bondYield" class="bond-yield">
+        <div class="bond-yield__head">债券收益率轨（双轨对照）</div>
+        <div class="bond-yield__items">
+          <div class="bond-yield__item">
+            <span class="bond-yield__label">中债 10Y</span>
+            <span class="bond-yield__val">{{ bondYield.cn_10y }}%</span>
+            <span
+              class="bond-yield__bp"
+              :style="{ color: yieldTone(bondYield.cn_10y_change_bp) }"
+              >{{ (bondYield.cn_10y_change_bp ?? 0) >= 0 ? "+" : ""
+              }}{{ bondYield.cn_10y_change_bp ?? 0 }} bp</span
+            >
+          </div>
+          <div v-if="bondYield.us_10y != null" class="bond-yield__item">
+            <span class="bond-yield__label">美债 10Y</span>
+            <span class="bond-yield__val">{{ bondYield.us_10y }}%</span>
+            <span
+              class="bond-yield__bp"
+              :style="{ color: yieldTone(bondYield.us_10y_change_bp) }"
+              >{{ (bondYield.us_10y_change_bp ?? 0) >= 0 ? "+" : ""
+              }}{{ bondYield.us_10y_change_bp ?? 0 }} bp</span
+            >
+          </div>
+          <span class="bond-yield__hint"
+            >收益率上行 ≠ 利好，与价格轨涨跌语义相反</span
           >
         </div>
-        <span class="bond-yield__hint"
-          >收益率上行 ≠ 利好，与价格轨涨跌语义相反</span
+      </div>
+
+      <!-- 页脚统计：软占位数量 + 更新时刻 -->
+      <div v-if="overview" class="overview-footer">
+        <span>软占位 {{ unavailableCount }} 项（缺源 / 决策占位）</span>
+        <span v-if="updatedAt" class="overview-footer__time"
+          >更新于 {{ updatedAt }}</span
         >
       </div>
-    </div>
-
-    <!-- 页脚统计：软占位数量 + 更新时刻 -->
-    <div v-if="overview" class="overview-footer">
-      <span>软占位 {{ unavailableCount }} 项（缺源 / 决策占位）</span>
-      <span v-if="updatedAt" class="overview-footer__time"
-        >更新于 {{ updatedAt }}</span
-      >
     </div>
   </section>
 </template>
@@ -299,6 +428,36 @@ onMounted(() => {
   &--error {
     color: var(--color-danger);
   }
+
+  &--slow {
+    color: var(--text-secondary);
+    background: var(--bg-soft);
+  }
+
+  &__retry {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+    padding: 4px 12px;
+    margin-left: 10px;
+    font-family: inherit;
+    font-size: 13px;
+    color: var(--brand-700);
+    cursor: pointer;
+    background: var(--brand-100);
+    border: 1px solid var(--brand-400);
+    border-radius: var(--radius-pill);
+    transition: background-color 150ms ease;
+
+    &:hover {
+      background: var(--brand-200);
+    }
+
+    &:focus-visible {
+      outline: none;
+      box-shadow: var(--focus-ring);
+    }
+  }
 }
 
 /* 分组 */
@@ -328,6 +487,89 @@ onMounted(() => {
   &__count {
     font-size: 13px;
     color: var(--text-tertiary-ink);
+  }
+}
+
+/* ============================================================
+   #1546 T2.2：折叠容器
+   - 折叠态只渲染 6 条分组摘要（静态分类，不请求接口）
+   - 展开/收起按钮复用 SectionHeader 的 #action 槽，不另造标题行
+   ============================================================ */
+.collapse-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+
+  &__list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+  }
+
+  &__item {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  &__btn {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    align-self: flex-start;
+    padding: 6px 14px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--brand-700);
+    cursor: pointer;
+    background: var(--brand-100);
+    border: 1px solid var(--brand-400);
+    border-radius: var(--radius-pill);
+    transition: background-color 150ms ease;
+
+    &:hover {
+      background: var(--brand-200);
+    }
+
+    &:focus-visible {
+      outline: none;
+      box-shadow: var(--focus-ring);
+    }
+  }
+}
+
+.asset-overview__toggle {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 4px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-pill);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+
+  &:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
   }
 }
 
@@ -502,7 +744,7 @@ onMounted(() => {
   &__count {
     font-size: 13px;
     font-weight: 400;
-    color: var(--text-tertiary-ink);
+    color: var(--text-secondary);
   }
 
   &__list {
@@ -519,7 +761,7 @@ onMounted(() => {
     margin-top: 10px;
     font-size: 12px;
     line-height: 1.6;
-    color: var(--text-tertiary-ink);
+    color: var(--text-secondary);
     border-top: 1px solid var(--color-warning);
   }
 }

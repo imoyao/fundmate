@@ -20,28 +20,18 @@
       }}</span>
     </div>
 
-    <!-- 两个互斥选项 → 手写分段控制器（24px 胶囊，design.md「Segmented」）。
-         弃用 el-segmented：其绝对定位滑块与原生默认层级难以彻底掌控，原生 button 完全可控最干净 -->
-    <div class="ocr-segmented" role="tablist" aria-label="导入方式">
-      <button
-        type="button"
-        role="tab"
-        class="ocr-segmented__item"
-        :class="{ 'is-active': activeTab === 'image' }"
-        @click="switchTab('image')"
-      >
-        上传图片
-      </button>
-      <button
-        type="button"
-        role="tab"
-        class="ocr-segmented__item"
-        :class="{ 'is-active': activeTab === 'text' }"
-        @click="switchTab('text')"
-      >
-        粘贴文本
-      </button>
-    </div>
+    <!-- 两个互斥选项 → SegmentedControl small 档（design.md「Segmented」唯一实现，
+         见 docs/design/components.md）；轨道用 --bg-soft 暖米色：--bg-muted 是淡灰蓝
+         #f5f7fa，在暖白弹窗上几乎不可见，会呈现「孤立文字」观感 -->
+    <SegmentedControl
+      :model-value="activeTab"
+      :options="IMPORT_TAB_OPTIONS"
+      size="small"
+      block
+      aria-label="导入方式"
+      class="ocr-import-tabs"
+      @change="switchTab"
+    />
 
     <!-- ── 图片识别 ── -->
     <div v-if="activeTab === 'image'" class="ocr-tab-panel">
@@ -142,6 +132,7 @@ import { ref, computed, watch, onMounted, nextTick } from "vue";
 import { ElInput, ElMessage } from "element-plus";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import ImageUploader from "@/components/ImageUploader/index.vue";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import { parseImportText, recognizeImage, getOcrUsage } from "@/api/ocr";
 import { createWatchlistItem, getWatchlistItems } from "@/api/watchlist";
 import type { OcrImportItem } from "@/api/ocr";
@@ -160,6 +151,11 @@ const visible = computed({
 });
 
 const activeTab = ref<"image" | "text">("image");
+/** 导入方式分段选项：显式标注取值类型，供 SegmentedControl 泛型推断 */
+const IMPORT_TAB_OPTIONS: { label: string; value: "image" | "text" }[] = [
+  { label: "上传图片", value: "image" },
+  { label: "粘贴文本", value: "text" }
+];
 const imageFile = ref<File | null>(null);
 const textContent = ref("");
 const recognizing = ref(false);
@@ -207,7 +203,7 @@ const handleTabChange = () => {
   candidates.value = [];
 };
 
-// 手写分段控制器：切换激活项并清空上一次识别结果；切到文本 tab 自动聚焦输入框
+// 分段控制器切档：切换激活项并清空上一次识别结果；切到文本 tab 自动聚焦输入框
 const switchTab = (tab: "image" | "text") => {
   activeTab.value = tab;
   handleTabChange();
@@ -595,59 +591,10 @@ onMounted(() => {
 }
 
 /* ============================================
-   手写分段控制器（充满生命感）
-   - 轨道：--bg-soft 暖米色（--bg-muted 是淡灰蓝 #f5f7fa，在暖白弹窗上几乎不可见，
-     会呈现"孤立文字"观感；暖米色轨道才有明显容器感）
-   - 选中态：软按钮仅 --brand-100 底 + --brand-700 字（不加边框/inset，避免多红线视觉过载）
-   - 切换：果冻回弹 cubic-bezier(0.34, 1.56, 0.64, 1)
+   分段控制器（SegmentedControl）：只补与下方面板的间距，外观全部由组件负责
    ============================================ */
-.ocr-segmented {
-  display: flex;
-  gap: 4px;
-  width: 100%;
-  padding: 4px;
+.ocr-import-tabs {
   margin-bottom: var(--space-standard);
-  background: var(--bg-soft);
-  border-radius: var(--radius-pill);
-
-  &__item {
-    display: flex;
-    flex: 1;
-    align-items: center;
-    justify-content: center;
-    height: 24px;
-    padding: 0 12px;
-    font-size: 13px;
-    line-height: 1;
-    color: var(--text-secondary);
-    cursor: pointer;
-    background: transparent;
-    border: none;
-    border-radius: var(--radius-pill);
-    transition: all 300ms cubic-bezier(0.34, 1.56, 0.64, 1); /* 果冻回弹 */
-
-    /* 原生 button 点击后残留浏览器默认 focus 外框（粗红线观感的来源），鼠标点击不画框 */
-    &:focus {
-      outline: none;
-    }
-
-    /* 键盘导航仍保留细描边（无障碍兜底，仅 Tab 聚焦时出现） */
-    &:focus-visible {
-      outline: 1px solid var(--brand-400);
-      outline-offset: 2px;
-    }
-
-    &:hover {
-      color: var(--text-primary);
-      background: rgb(0 0 0 / 3%);
-    }
-
-    /* 选中态只靠浅红底 + 深红字区分，不加任何边框（避免多红线视觉过载） */
-    &.is-active {
-      color: var(--brand-700);
-      background: var(--brand-100);
-    }
-  }
 }
 
 .ocr-tab-panel {

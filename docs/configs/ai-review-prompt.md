@@ -113,8 +113,10 @@
 - 双库约束（权威来源 = `backend/app/core/db_factory.py` 的 `DATA_DOMAIN_REGISTRY`）：
   - **不要**在 ORM 模型上加 `__data_domain__` 类属性——当前实现只用注册表（`validate_domain_labels` 校验注册表完整性），没有任何模型声明该属性；建议「给模型加 `__data_domain__`」是过时约定。
   - **`get_db()` / `SessionLocal` 不是「user 域 session」，不存在跨域违规**（2026-09-14 更正，原文误称其为「已知遗留」，已致 #1491 误报）：它返回的是
-    `app/core/database.py` 的 `_RoutingSessionMaker` **按表域自动路由** session——`_get_routing_binds()` 按注册表把
-    user 域表绑到 user 引擎、market 域表绑到 app 引擎。这正是 #1085「双库模式就绪」的成果（**2026-09-02 已关闭**），
+    `app/core/database.py` 的 `_RoutingSessionMaker` **按表域自动路由** session——`_RoutingSession.get_bind()` 经
+    `_domain_for_statement()` 在**查询期**按注册表判定域：user 域表落 user 引擎、market 域表落 app 引擎
+    （2026-09-22 / #1608 起：不再有全表引擎缓存，`_get_routing_binds()` / `reset_routing_binds()` 已删除；
+    见到引用这两个符号的旧说法一律按过时处理）。这正是 #1085「双库模式就绪」的成果（**2026-09-02 已关闭**），
     调用点零改动即正确。因此**不得**以「market 域表用了 `get_db()`，应改 `market_session()`」为由提任何级别意见。
   - `user_session()` / `market_session()` 是**显式指定域**的入口，用于需要绕开路由的少数场景；与 `get_db()` 并存，**两种写法都正确**，不要互相改写。
   - `DATA_DOMAIN_REGISTRY`（`backend/app/core/db_factory.py`）是「表 → 域」归属的唯一权威：新增表必须登记，未登记会被启动校验拦截。

@@ -420,7 +420,7 @@ onUnmounted(() => removeMatchMedia);
           <div
             class="flex-bc transition-all duration-300"
             :class="[settings.stretch ? 'w-[24%]' : 'w-[50%]']"
-            style="color: var(--el-color-primary)"
+            style="color: var(--brand-ink)"
           >
             <IconifyIconOffline
               :icon="settings.stretch ? RightArrow : LeftArrow"

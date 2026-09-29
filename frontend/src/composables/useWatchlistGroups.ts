@@ -11,7 +11,7 @@ export interface GroupTab {
   filter: Record<string, string | number | boolean>;
 }
 
-/** 系统分组过滤映射（方案 B：场内/场外已由顶部 el-segmented 承担，不在分组 tab 内）。 */
+/** 系统分组过滤映射（方案 B：场内/场外已由顶部类型快捷分段承担，不在分组 tab 内）。 */
 function getSystemFilter(key: string): Record<string, string | boolean> {
   const map: Record<string, Record<string, string | boolean>> = {
     all: {},
@@ -62,7 +62,7 @@ export function useWatchlistGroups() {
       const custom: WatchlistGroup[] = [];
       const manager: WatchlistGroup[] = [];
       data.forEach(g => {
-        // 方案 B：后端仍返回 exchange/otc 系统分组，但「场内/场外」已由顶部 el-segmented 承担，此处过滤不展示
+        // 方案 B：后端仍返回 exchange/otc 系统分组，但「场内/场外」已由顶部类型快捷分段承担，此处过滤不展示
         if (g.is_system && (g.key === "exchange" || g.key === "otc")) return;
         if (g.is_system) {
           // 系统默认组无数据不展示（「全部」始终展示）；自定义组 count=0 保持现状

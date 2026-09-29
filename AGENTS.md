@@ -87,7 +87,7 @@
 ├── frontend/               # Vue3 + TS + Element Plus + pure-admin（pnpm）
 │   ├── src/
 │   │   ├── api/            # 接口定义（按域）
-│   │   ├── views/          # 页面组件（自动路由，需 defineOptions.name 与路由名一致）
+│   │   ├── views/          # 页面组件（路由须在 router/modules 手工注册，name 与路由名一致）
 │   │   └── ...
 │   ├── package.json        # 前端依赖（pnpm 强制）
 │   └── pnpm-lock.yaml
@@ -181,11 +181,12 @@
 
 ### 架构概览
 
-- **路由**：`src/router/utils.ts` 通过 `import.meta.glob("/src/views/**/*")` 自动生成路由。新建页面须保证 `defineOptions.name` 与路由 name 一致（否则 keep-alive 失效）。
+- **路由**：由 `src/router/modules/*.ts` **手工注册**（每页一个模块文件）；`src/router/utils.ts` 的 `import.meta.glob("/src/views/**/*")` 仅用于按路径反查组件，**不自动生成路由**（`handleAsyncRoutes([])`，glob 结果未注入，#1703 实证）。新建页面须保证 `defineOptions.name` 与路由 name 一致（否则 keep-alive 失效）。
 - **接口**：集中在 `src/api/`，按域划分，组件内**禁止**裸 axios。
 - **登录**：Supabase Auth（`@supabase/supabase-js`），后端校验 JWT；登录/登出/路由守卫已配置。
-- **动态路由**：`src/views/` 下的组件自动成路由，无需手动注册。
+- **新增页面路由**：`src/views/` 下的组件**不会**自动成路由，须在 `src/router/modules/` 新建模块文件注册（参考 `modules/agent.ts`，含 `meta.requiresAuth` 等）。
 - **设计语言**：亮色 `frontend/design.md`，暗色 `design.dark.md`，**禁止硬编码 hex 色值**，必须使用 CSS 变量（`--color-rise`/`--color-fall` 等）。
+- **强制复用组件**：清单在 `docs/design/components.md`（`SectionHeader` / `CardBlock` / `MetricCard` / `SegmentedControl` / `PageHeaderBar` 等），**禁止各页面重写同类结构**。其中**分段控制器只有 `SegmentedControl` 一个实现**：禁止页面再用 `el-segmented`（其选中滑块是 JS 绝对定位的独立子元素，几何与轨道各算各的，且带 `transition: all .3s`，每次点击都滑动/缩放一次——#1717 的根因），也禁止页面自写 `.xxx-segmented` 样式块。静态守卫 `scripts/guard_segmented.py`（并入 `layout_guard` job）拦截这两类回潮；其边界是**只拦 `-segmented` 命名**，`role="tablist"` 但另起名字的手写按钮组不在其内。
 
 ### 常用前端命令（`cd frontend`）
 
@@ -309,7 +310,7 @@
 - **文档站**：根目录执行 `pnpm run docs:dev` / `docs:build`。
 - **内部备忘**：一律放 `docs/working-notes/`（全局屏蔽），文件名必须英文 kebab-case + 日期后缀，如 `deployment-2026-08-04.md`，正文标题可用中文。新增备忘须同步登记进 `working-notes/README.md` 索引表。
 - **落地页**：已移交主站仓库 `duoduobei-web`（`duoduobei.com`），本仓**不再构建落地页**——四条 `build:landing/about/story/pages` 脚本与 `scripts/build-landing.mjs` 均已移除。根 `vercel.json` 现指向**应用站**（`frontend/` 构建 → `frontend/dist` + SPA 回退），Cloudflare Pages 侧见根 `wrangler.toml`，详见 `docs/ops/deployment.md` §3。
-- **Markdown lint**：`pnpm run docs:lint-md`（CI 用 `npx lint-md docs`，不带 `-f`）。
+- **Markdown lint**：`pnpm run docs:lint-md`（**只读报告**，不改文件）。确实需要自动修复时显式跑 `pnpm run docs:lint-md:fix`（带 `-f`），但必须先看 `git diff` 再提交——`lint-md@0.2.0` 的 fixer 对**缩进代码块**有非幂等 bug：它把缩进代码块首行当成围栏行，每跑一轮就往行尾追加一个 `plain`，与内容无关（`npm install foo` 这类普通行同样中招），永不收敛。另注：CI workflows 目前**未接入** markdown lint，仅本地执行（此前文档里「CI 用 npx lint-md docs」的说法已不准确）。
 
 ---
 
@@ -456,11 +457,31 @@
 
 ### CI 守卫（拦住新建漏挂）
 
-- 工作流 `.github/workflows/issue-milestone-guard.yml` 在 issue 被 `opened / edited / reopened` 时检查其 `milestone` 字段：
+- 工作流 `.github/workflows/issue-milestone-guard.yml` 在 issue 被 `opened / edited / reopened / milestoned / demilestoned` 时检查其 `milestone` 字段（后两个为 #1515 补充：**补挂里程碑时 GitHub 发出的事件是 `milestoned` 而非 `edited`**，旧版只订阅前三个会「补挂后不自愈」——整改完成了 run 仍是红的，红灯可信度随之崩塌；`demilestoned` 用于反向校验「已挂又被摘掉」）：
   - 有里程碑 → 通过；
   - 无里程碑 → 在 issue 下**评论提醒责任人补挂**，并使该 workflow run **失败（红）**作为止损信号（issue 本身无法被 Action 自动关闭/拦截，故以失败 run + 评论提醒）。
 - 该守卫只针对 issue（`pull_request` 事件不触发），不影响正常 PR 流程。
-- 维护者补挂里程碑（edit 触发 `edited`）后守卫会自动复检通过，自愈。
+- 维护者补挂里程碑后守卫会自动复检通过、自愈：**补挂**发的是 `milestoned`（不是 `edited`，见上），**摘掉**发的是 `demilestoned`。
+
+### 自动关闭关联 issue（dev 合入即关）
+
+- 工作流 `.github/workflows/close-linked-issues.yml` 在 **PR 合入 `dev`** 时解析 PR 正文里的 closing keyword（`Closes` / `Fixes` / `Resolves #N`），关闭对应 issue。
+- **为什么需要它**：GitHub **只在 PR 目标为仓库默认分支时**解释 closing keyword；本仓默认分支是 `main`，而功能 PR 一律 base=`dev` ⇒ 关键字**被完全忽略（连 link 都不建）**。实测（2026-09-24）最近 100 个已关闭 PR 里 **15 个**正文写了 `Closes #NNNN`，**全部无效**，issue 每次靠人肉关。
+- **发版 PR（`dev → main`）不需要它**：那个方向的目标就是默认分支，GitHub 原生就会关；本 workflow 显式只处理 `base.ref == 'dev'`。
+- 解析器**单一来源** `scripts/close_linked_issues.js`（不内联进 YAML），纯函数部分由 `scripts/tests/close_linked_issues.test.js` 钉住，随「守卫:脚本单测 (scripts)」job 跑。
+- **边界**：围栏代码块 / 行内代码内的关键字**不匹配**（正文里讲解该机制时不误伤）；跨仓 `owner/repo#N` **不操作**；引用 PR 自身编号不关；已关闭的跳过（幂等）；引用的是 PR 而非 issue 时跳过。
+- **红绿语义**：单个目标失败只告警；**全部**目标失败才红 —— 避免「本该关却没关」以绿灯静默溜过。
+- 手动复检：`workflow_dispatch` 传 `pr_number`；`dry_run=true` 只报告不实际关闭。
+- ⚠️ **判断卡是否「被自动关」看 actor，别再看时间差**：issue 时间线里 `closed` 的 `actor` 是 **`github-actions[bot]`** ⇒ 本 workflow 关的；是**人** ⇒ 人肉关。
+  （旧的「`closed` 距 merge ≈ 1 秒 = 自动关」判据**只适用于 GitHub 原生路径**，即 base=`main` 的合并；base=`dev` 现在走本 workflow，多了 job 排队与执行时间，几秒到几十秒都正常。）
+  推论不变：**不要依赖 PR 正文的 `Closes #` 判断卡是否已关**，去 issue 时间线看。
+- ✅ **已端到端验证**（2026-09-24，PR #1684）：自动路径 run `36013544058` 在合并后 **3 秒**起跑、job 未被跳过；
+  手动路径 run `36013935960`（`workflow_dispatch` + `pr_number=1684`）成功关闭 #1683 —— 日志为
+  `已关闭 #1683「…」—— 由 #1684 合入 dev 触发。`，issue 时间线里 `closed` 的 actor 即 `github-actions[bot]`。
+- ⚠️ **两种「静默空跑」形态**（run 变绿但什么都没关，**只有看日志里的 `##[notice]` 才发现**）：
+  ① 正文**只在行内代码 / 代码块里**提到关键字（讲解本机制时举 `` `Closes #123` `` 为例）—— `stripCode` 会剔除，这是**有意**的；
+  ② 正文**只是用文字描述**「本 PR 带关键字」而**没有真的写下那一行** —— 实测踩过（#1684 的第一次自动运行正是此因）。
+  ⇒ 作者自查：`grep -nE '\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b *:? *#[0-9]+'` 有命中、且**不在代码里**，才算真写了。
 
 ### 失实信息修正纪律
 

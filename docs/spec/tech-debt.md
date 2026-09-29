@@ -155,8 +155,7 @@ title: 技术债务与开口项明细（tech-debt）
 | **文档站构建技术未定**：当前 `docs/README.md` 为 docsify 风格（`home:true`/`heroText`），钱迹参考站为 GitBook | 低 | 评估 docsify→VitePress/GitBook 迁移；用户手册结构按钱迹"产品模块 + 疑问式标题"组织 |
 | **落地页视频/动效场景待补充**（参考 WorkBuddy） | 低 | WorkBuddy 在 Hero 区嵌入了产品截图/视频展示应用场景，多多贝当前为纯静态 HTML。后期可补充：(a) 工具实际使用录屏（Lottie/MP4 嵌入 Hero 或功能区）；(b) 产品界面截图轮播；(c) 数据可视化动态演示（XIRR 曲线绘制过程）。需先录制素材再编码嵌入，属于视觉打磨阶段 |
 | **用户手册与开发文档物理隔离**：当前混在 `docs/` 同名目录，未来需明确发布范围（`/docs` 仅发布用户向，内部放 `/docs-internal` 或私有） | 低 | 待用户手册成形后再规划发布边界 |
-    94:plainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplain
-    95:---
+    95:---plainplainplainplainplainplain
     96:
     97:## 16. 首页「支持导入」Logo 混排素材缺口（技术债务 · 中）
 
@@ -252,8 +251,7 @@ title: 技术债务与开口项明细（tech-debt）
 
 ## 2026-08-04 OOM 修复记录
 
-    98:plainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplain
-    99:### 问题
+    99:### 问题plainplainplainplainplain
    100:前端 `pnpm run build` 因 JavaScript heap OOM 失败，`--max-old-space-size=8192`（8GB）仍不足，阻塞生产部署。
    101:
    102:### 根因分析（不调内存，直接排查）
@@ -609,6 +607,32 @@ static → `--color-neutral`（回退中性）；QDII → `--asset-cat-fund`；F
 - 结论：本批改动的证据链为**静态口径 + 30 条回归用例 + 双向反向验证 + 双实现对账**；
   **真机 axe 复跑仍待做**（脚本挂起需单独排查，不属本批改动范围，已在此登记）。
 
+## 2026-09-21 文字色收敛（二）批次 3：跨页面残留 61 处清零（新增 4 支 `-ink` 令牌）（#1599）
+
+批次 2 之后「跨页面残留」桶仍剩 **61 处**（主源是 `--el-color-*` 主题映射族与无 `-ink` 变体的语义色），本批清零。
+
+### 处置（61 处 → 0）
+
+| 处置 | 处数 | 说明 |
+|---|---|---|
+| **新增 4 支文字级 `-ink` 令牌** | 4 支 | `--brand-ink` / `--color-primary-ink` / `--color-success-ink` / `--color-info-ink`（亮 + 暗各一值）。值经 WCAG 公式实测（亮色端在 白 / 页 / hover / 柔 四档**全 ≥4.5**；暗色端 6.55~9.04:1），实测值写在定义处注释里 |
+| 主题映射改指 | **14** | `--pure-theme-sub-menu-active-text` 由 `var(--brand-700)` → `var(--brand-ink)`（`theme.scss` + `dark.scss`），一次消掉侧边栏激活文字 |
+| `color:` 声明按令牌迁移 | **41** | `--color-primary`(11) / `--color-success`(8) / `--color-info`(2) / `--palette-sage-green`(3) / `--palette-caramel`(1) / `--bg-card`(5) / `--el-color-primary`(13) / `--el-color-primary-light-9`(1)。由一次性迁移脚本执行（只匹配 `color:`，负向 lookbehind 排除 `background-color` / `border-color`），结果与审计器**交叉对账** |
+| 「底色 / 边框当文字色」按现场归位 | **5** | 4 处实底反色 → `--text-inverse`（含 `lay-tag` 的 `.tag-title` 在品牌实底上用品牌色 → 原文案**几乎不可见**，属真缺陷）；`TableControls` 计数徽标（`--color-warning` 实底）→ `--text-primary` |
+| 装饰性分隔符登记豁免 | **3** | `.page-footer__source-sep` / `.summary-divider` / `.privacy-separator`（「·」「/」），属 WCAG 1.4.3 的 incidental；代码内有 `audit-text-contrast: exempt` 指令 + 理由。**豁免总数 10 → 13** |
+| 顺带修 primitive 背景 | 3 | `reconcile-workbench` 的 `background: color-mix(... var(--palette-*))` → 语义令牌（§3.11 禁止业务层用 `--palette-*`） |
+
+### 验证（双口径交叉）
+- `node scripts/audit_text_contrast.mjs --all`：「底色级令牌当文字色」**0 处**、「无同名 `-ink`」**0 处**（原合计 61）
+- `node scripts/check_css_vars.mjs`：通过（364 定义 / 278 引用，无幽灵令牌）
+- 前端：`pnpm lint`（eslint + prettier + stylelint）/ `pnpm typecheck` / `pnpm build` **全绿**
+
+### 遗留（登记，交真机 axe）
+- 「静态不可判定（品牌 / 彩色实底）」桶 **27 → 34 处** —— 正是本批改为 `--text-inverse` 的那些实底位置，**只能真机判定**
+- 「内联样式不可静态解析」**15 处**（`:style` 绑运行时颜色）
+- `--brand-*` 当文字色 **112 处**（基准底口径下 95 处「不达标」）—— 属口径分歧（品牌实底上的浅色调可能是刻意的），须逐处真机判定
+- 真机 axe 工具**挂起**问题仍待排查（见上文本批次 2 的登记）
+
 ## 2026-09-19 品牌实底按钮白字达 AA：新增 --brand-solid 三态令牌（#1600）
 
 issue #1600 的现象是 `.el-button--primary > span` 白字 3.85:1（亮）/ 3.92:1（暗）。本卡按**方案 A** 处置，
@@ -838,4 +862,56 @@ cd backend && pdm run pytest tests/test_api_conventions.py -p no:xdist -q
 cd backend && pdm run pytest tests/services/sync/test_advisor_portfolio_job.py -p no:xdist -q
 cd backend && pdm run python scripts/repair_advisor_adjust_history.py            # dry-run
 cd backend && pdm run python scripts/repair_advisor_adjust_history.py --apply    # 落库
+
+## 2026-09-23 文字色收敛（二）收尾：真机亮暗六路由全 0 + 盲区处置落库（#1599）
+
+承接批次 1/2/3 与真机工具修复 #1648/#1649。本卡四项验收标准（AC1–AC4）全部达成，issue 关闭。
+
+### 真机 axe 验收（2026-09-23，axe-core 4.10.2 + 系统 Edge，亮/暗各一遍）
+| 主题 | 路由 | 结果 |
+|---|---|---|
+| light | /explore | ✅ AA 0 违规 |
+| light | /profile | ✅ AA 0 违规 |
+| light | /asset/watchlist | ✅ AA 0 违规 |
+| dark | /explore | ✅ AA 0 违规 |
+| dark | /profile | ✅ AA 0 违规 |
+| dark | /asset/watchlist | ✅ AA 0 违规 |
+
+截图证据：`axe_shots/light/*.png`、`axe_shots/dark/*.png`（共享组件一改全站变版，已亮暗双档肉眼复核）。
+
+### 本批次修掉的残留（真机口径，静态器读不到/估不准）
+1. `.link-btn` / `.style-card--active` 品牌原色（`--color-rise`/`--brand-700`）当文字 → `--brand-ink`（亮 5.86 / 暗 6.55:1）。`views/profile/index.vue`。
+2. 侧边栏品牌字标 `.sidebar-title` 亮色实际渲染 `--color-rise`(#e34f38, 3.85:1) → `--brand-ink`。根因：项目自定义主题变量 `--pure-theme-sub-menu-active-text` 亮色未对齐到 `-ink`（暗色已是 `--brand-ink`）。`layout/components/lay-sidebar/components/SidebarLogo.vue`。
+3. `anomaly-panel__count/__foot` 带色底（`--color-warning-20` 合成暖底）用 `--text-tertiary-ink`(58%) 仅 4.32:1 → `--text-secondary`。`views/explore/components/ExploreAssetOverview.vue`。
+4. 顶栏清空缓存按钮（`lay-panel`，全站常驻）：EP 默认 `--el-color-danger`(#f56c6c, 2.70:1) → 本仓语义危险色。覆盖为 `--color-danger`(#d4364a) 后纯文字落白底 4.74 达标，但 `text bg` 浅红实底压到 4.42；故**去 `bg`**（纯文字危险色落白底）+ 新增 `--color-danger-ink`（亮=本仓红 / 暗=#e8718a 提亮，暗底 4.9:1）。`layout/components/lay-panel/index.vue`、`style/colors.css`、`style/dark.scss`。
+5. `--color-fall-ink` 落带色底（#f5f1e4 暖米，RiseFallText）仅 4.48:1（卡面盲区⑤，差 0.02）→ 加深到 `#1f6b43`（白底 ~5.7 / 带色底 ~4.84:1）。`style/colors.css`。
+
+### 静态审计器复跑（`node scripts/audit_text_contrast.mjs --all`）
+- 「不达标（建议换 -ink）」段**空**；「底色级令牌当文字色」不达标 0 处；「无同名 -ink」不达标 0 处 → **AC2 达成**。
+- 余「大字/装饰场景」段：多处 `--color-danger` 作文字实测页底 4.59 / 卡底 4.74:1，**已 ≥4.5 达标**（脚本误归「不足」），换 `--color-danger-ink` 仅余量优化，非必须。
+
+### AC4：静态器盲区处置结论（落库）
+采纳卡内倾向：**静态器只做施工清单，验收一律以 axe 为准**。补记三类盲区：
+- 盲区①继承来的颜色：静态器按 `color:` 声明归属，祖先设色后代继承量不到 → 交真机。
+- 盲区②有效背景 ≠ 页底/卡底：静态器只按 `--bg-page`/`--bg-card` 估，看不见带色底（如 `--color-warning-20`、#f5f1e4）→ 交真机；本次 `--color-fall-ink` 带色底 4.48 即此类，已修。
+- 盲区③ Element Plus 默认色不在本仓令牌体系：`--el-color-danger`(#f56c6c) 等 EP 原生色静态器扫不到、真机才现形 → 本仓统一用 `--color-danger-ink`（见上第 4 项）；注意覆盖 `--el-color-danger` 会连带改 EP 实底危险按钮底色（观感变更），与 #1600 同源，**不在本卡范围**。
+
+### 验收标准
+- [x] AC1 真机 axe 亮+暗、覆盖 /explore /profile /asset/watchlist，违规降到 0
+- [x] AC2 静态器 A 类清零、B 类逐处有结论
+- [x] AC3 共享组件亮暗双档真机截图证据
+- [x] AC4 静态器盲区处置落 tech-debt.md
+
+### 复跑
+```bash
+node scripts/audit_text_contrast.mjs --all
+node scripts/axe_contrast_audit.mjs --routes /explore,/profile,/asset/watchlist --shot axe_shots/light
+node scripts/axe_contrast_audit.mjs --theme dark --routes /explore,/profile,/asset/watchlist --shot axe_shots/dark
 ```
+
+## 2026-09-26 docs:lint-md 存量遗留：守卫硬拦自证文件 + fixer 非幂等追加（PR #1706）
+
+背景：`pnpm run docs:lint-md` 实为 `lint-md docs -f`（自带 fix 模式），2026-09-26 全量执行一次改写 99 个文档，规范化落地见 PR #1706（收 98 个，排除下述第 1 项文件）。落地过程确认两处存量遗留，**均非该次执行引入**，仅登记、不擅自修（处置方式待拍板）：
+
+1. **`docs/working-notes/amac-encoding-incident-2026-08-17.md` 含 3 行 5 处字面 U+FFFD（替换符）**：该文件是乱码事件复盘，示例串与「名称含 U+FFFD 即丢弃」的规则表述本身就需要真实替换符，属有意保留；但 `scripts/guard_mojibake.py` 对 U+FFFD 是**无白名单硬拦截**（`check_text` 第 1 条），CI 乱码守卫又扫 PR 变更的**整文件**（`ci.yml` `mojibake_guard` job，pathspec 含 `*.md`） ⇒ **未来任何 PR 只要触碰该文件即红灯**（存量陷阱，与具体 PR 无关）。处置二选一待拍板：① 守卫给该文件加显式豁免清单；② 文件内示例改用转义写法（字面 `\uFFFD`）去掉真实替换符。
+2. **lint-md 0.2.0 `no-empty-code-lang` fixer 对本文件 `94:`/`98:` 编号行非幂等**：fixer 取 AST 节点起始行整行 `trimEnd + "plain"` 后回写（`lib/fix-rules/no-empty-code-lang.js`），而这两行是存量编号摘录残迹（4 空格缩进被解析为无语言代码块），每次执行都被追加 `plain`（历史 ×9→×29→×40，2026-09-26 又 +3）。根因是该行内容本身损坏、fixer 不收敛。处置二选一：① 修复编号行使之不再落入「无语言代码块」；② 向 lint-md 上游提非幂等 issue。

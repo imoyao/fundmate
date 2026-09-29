@@ -48,7 +48,7 @@ export function createPosition(data: PositionCreate) {
 
 /** 更新一条持仓记录 (PATCH) */
 export function updatePosition(id: number, data: PositionUpdate) {
-  return http.request<ApiResponse<Position>>("patch", `${BASE_URL}/${id}/`, {
+  return http.request<ApiResponse<Position>>("patch", `${BASE_URL}${id}/`, {
     data
   });
 }
@@ -58,7 +58,7 @@ export function deletePosition(
   id: number,
   deleteTransactions: boolean = false
 ) {
-  return http.request<ApiResponse<null>>("delete", `${BASE_URL}/${id}/`, {
+  return http.request<ApiResponse<null>>("delete", `${BASE_URL}${id}/`, {
     params: { delete_transactions: deleteTransactions }
   });
 }
@@ -67,7 +67,7 @@ export function deletePosition(
 export function getPositionTransactions(id: number) {
   return http.request<ApiResponse<PositionTransaction[]>>(
     "get",
-    `${BASE_URL}/${id}/transactions/`
+    `${BASE_URL}${id}/transactions/`
   );
 }
 
@@ -138,7 +138,7 @@ export function validateTradeOrder(data: {
   order_qty: number;
   op_type: "buy" | "sell";
 }) {
-  return http.request<TradeValidationResult>("post", `${BASE_URL}/validate/`, {
+  return http.request<TradeValidationResult>("post", `${BASE_URL}validate/`, {
     data
   });
 }

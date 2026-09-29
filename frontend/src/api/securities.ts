@@ -1,7 +1,11 @@
 import { http } from "@/utils/http";
+import type { ApiResponse } from "@/api/types";
 
+/** 证券搜索结果项（对齐后端 /api/securities/search/） */
 export interface SecurityOption {
   symbol: string;
+  /** 展示用代码（如 sh600519 → 600519 的友好形态，由后端 normalizer 派生） */
+  display_symbol: string;
   name: string;
   market: string;
   type: string;
@@ -25,10 +29,15 @@ export interface FundNavPoint {
   acc_nav?: number | null;
 }
 
+/** 证券搜索（代码/名称模糊匹配，精确代码优先；最多 20 条） */
 export function searchSecurities(keyword: string) {
-  return http.request<any>("get", "/api/securities/search/", {
-    params: { q: keyword }
-  });
+  return http.request<ApiResponse<SecurityOption[]>>(
+    "get",
+    "/api/securities/search/",
+    {
+      params: { q: keyword }
+    }
+  );
 }
 
 /** 股票指定日价格区间；无行情返回 data=null（保持手输不阻塞） */

@@ -338,6 +338,104 @@ def migrate_advisor_portfolio_provenance(engine: Engine) -> str:
     return '[SKIP] advisor_portfolios 来历列已存在'
 
 
+def migrate_positions_symbol_norm(engine: Engine) -> str:
+    """positions 补归一身份列 `symbol_norm` + 唯一索引（#1662 后续）。
+
+    ## 为什么
+
+    #1662 的根因是 `positions` 的唯一约束是**字面量** `UNIQUE(ledger_id, symbol)`：
+    `SZ004369` / `sz004369` / ` SZ004369 ` / `SH.004369` 在 SQLite 里是四个不同字符串，
+    却是同一只基金 ⇒ 同一账户下同一持仓长出多行。PR #1665 修的是**读写路径**
+    （写入侧显式传 venue、读侧按候选集查重），**约束层没动** —— 只要有一条写入路径
+    漏传 venue / 拼错形态，重复行依然能落库。本迁移把约束补上。
+
+    身份键构造见 `core/symbol_utils.symbol_identity`（`EXCHANGE:SZ159915` / `OTC:004369`），
+    与审计脚本 `scripts/audit_symbol_venue_conformance.py` 共用 `core.venues.venue_of_row`，
+    口径不分叉。
+
+    ## 为什么不重建表
+
+    SQLite 加列可直接 `ALTER TABLE ADD COLUMN`（可空列或带常量默认值的 NOT NULL 列），
+    加索引可直接 `CREATE UNIQUE INDEX` —— 都不需要「建新表→拷贝→删旧→改名」。
+    `invest.db` 已 1.2 GB 且带未 checkpoint 的 WAL，整表重建风险远高于收益。
+    旧的 `uq_positions_ledger_symbol` **保留**（它更严，与新约束不冲突）。
+
+    ## 存量有重复行时会怎样
+
+    **显式抛错并给出修复命令**，不静默跳过、也不自动合并（合并持仓涉及份额与均价口径，
+    必须由 `scripts/audit_symbol_venue_conformance.py --apply --merge` 在备份后执行）。
+    与本模块「失败显式抛错，避免带病启动」的约定一致。
+
+    幂等：列已存在则跳过加列、无空值则跳过回填、索引已存在则跳过创建。
+    非 SQLite 引擎（Supabase Postgres）由 ORM 模型 / 迁移工具负责，直接跳过。
+
+    重复检测**排除 `ledger_id IS NULL` 的行**：SQLite 的唯一索引把 NULL 视为互不相等，
+    这类行本就不参与约束（与旧的字面量约束同语义），`GROUP BY` 却会把它们归到一组 ——
+    不排除就会误报、进而无谓地阻断启动。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，列与索引由 ORM 模型/迁移工具负责'
+
+    if 'positions' not in inspect(engine).get_table_names():
+        return '[SKIP] positions 表不存在（空库，init_db 将按新模型建表）'
+
+    from app.core.symbol_utils import symbol_identity
+
+    actions: list[str] = []
+    with engine.connect() as conn:
+        existing = {c['name'] for c in inspect(engine).get_columns('positions')}
+        if 'symbol_norm' not in existing:
+            # NOT NULL 必须带常量默认值，SQLite 才允许 ADD COLUMN；随后立即回填真实身份，
+            # 空串只是过渡态（空串行会被下面的重复检测当成同一身份报出来，不会静默放过）。
+            conn.execute(text("ALTER TABLE positions ADD COLUMN symbol_norm VARCHAR(64) NOT NULL DEFAULT ''"))
+            actions.append('加列 symbol_norm')
+
+        rows = conn.execute(text('SELECT id, symbol, type, symbol_norm FROM positions')).fetchall()
+        pending = [(r[0], r[1], r[2]) for r in rows if not r[3]]
+        for rid, sym, atype in pending:
+            conn.execute(
+                text('UPDATE positions SET symbol_norm = :n WHERE id = :i'),
+                {'n': symbol_identity(sym, atype), 'i': rid},
+            )
+        if pending:
+            actions.append(f'回填 {len(pending)} 行')
+
+        dupes = conn.execute(
+            text(
+                'SELECT ledger_id, symbol_norm, COUNT(*) AS n, GROUP_CONCAT(symbol) AS syms '
+                'FROM positions WHERE ledger_id IS NOT NULL '
+                'GROUP BY ledger_id, symbol_norm HAVING n > 1'
+            )
+        ).fetchall()
+        if dupes:
+            detail = '\n'.join(
+                f'  - ledger_id={d[0]} symbol_norm={d[1]!r} 共 {d[2]} 行（symbol: {d[3]}）' for d in dupes
+            )
+            raise RuntimeError(
+                f'positions 存在 {len(dupes)} 组「同账户同归一身份」的重复行，唯一索引无法建立：\n{detail}\n'
+                '修复路径（会先自动备份）：\n'
+                '  python scripts/audit_symbol_venue_conformance.py --apply --merge\n'
+                '合并口径：份额相加、成交均价按份额加权重算，跨账户同码**不合并**（那是正常业务）。'
+            )
+
+        conn.execute(
+            text(
+                'CREATE UNIQUE INDEX IF NOT EXISTS uq_positions_ledger_symbol_norm '
+                'ON positions (ledger_id, symbol_norm)'
+            )
+        )
+        conn.commit()
+
+    idx = [i['name'] for i in inspect(engine).get_indexes('positions') if i.get('unique')]
+    if 'uq_positions_ledger_symbol_norm' not in idx:
+        raise RuntimeError(f'positions.symbol_norm 唯一索引创建后校验失败，当前唯一索引: {idx}')
+    if actions:
+        logger.info(f'[OK] positions.symbol_norm 迁移完成：{"、".join(actions)}')
+        return f'[OK] {"、".join(actions)}；唯一索引: uq_positions_ledger_symbol_norm'
+    return '[SKIP] positions.symbol_norm 列与唯一索引均已就绪'
+
+
 def migrate_channel_link_indexes(engine: Engine) -> str:
     """channel_links 补 to_symbol 索引（#1491 评审）。
 
@@ -364,3 +462,92 @@ def migrate_channel_link_indexes(engine: Engine) -> str:
         logger.info('[OK] channel_links.to_symbol 索引已就绪')
         return '[OK] channel_links.to_symbol 索引已就绪'
     raise RuntimeError('channel_links.to_symbol 索引创建后校验失败')
+
+
+# 写路径（#1661）已强制「显式非基金类型 → False」；存量若仍为 True 属历史污染，本迁移清零。
+_NON_FUND_ASSET_TYPES: tuple[str, ...] = ('stock', 'etf', 'bond', 'reverse_repo', 'crypto', 'index')
+# 只有这两类才可能真为货基（与 `core/venues._OTC_ASSET_TYPES` 同族）
+_FUND_ASSET_TYPES: tuple[str, ...] = ('fund', 'money_fund')
+
+
+def migrate_positions_money_fund_flag(engine: Engine) -> str:
+    """#1661 存量回填：按「基金名录 + 品种」新口径重算 `positions.is_money_fund`。
+
+    ## 为什么需要
+
+    PR #1663 修的是**读写路径**：`_resolve_money_fund_flag` 不再丢 `asset_type`，代码段兜底
+    也补上了交易所维度。但**已经落库的历史标记不会自己变**——本机实测 11 行真货基里
+    仍有 8 行 `is_money_fund = 0`（#863 的回填脚本是手动脚本，从未挂进启动链路，修完
+    判定口径后也没重跑）。标记错了就有两个方向的金融口径错误：
+
+    - 真货基标 0 → 被排除出「现金等价物」聚合桶，饼图把货基算成「基金投资」；
+    - 非货基标 1 → `sync/jobs/position_price_job.py` 见到标记即按**面值 1.0000** 回写
+      `current_price`，持仓市值塌成「份额数」（P0 数据损坏）。
+
+    ## 判定口径（与写路径同源，但**只信名录**）
+
+    - 显式 `type = 'money_fund'` → True；显式非基金类型（`stock`/`etf`/`bond`/…）→ 清零；
+    - `type = 'fund'` → 查 market 域 `funds` 名录的 `fund_types.name`：
+      `货币型` → True，其它明确类型 → False；
+    - 名录**没有**该代码 / 类型未知 / market 域不可达 → **保持原值不动**（见
+      `fund_utils.resolve_money_fund_flags_strict` 返回 `None` 的语义）。
+
+    最后这条是硬边界：迁移每次启动都跑，若把「名录不可达」当成「不是货基」，一次
+    market 域抖动就会把全库货基标记清空。宁漏不误（#1661 取舍）。
+
+    幂等：结论与库中值一致就不写；非 SQLite 引擎（Supabase Postgres）跳过，由 ORM /
+    迁移工具负责。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，货基标记由 ORM 模型/迁移工具负责'
+
+    if 'positions' not in inspect(engine).get_table_names():
+        return '[SKIP] positions 表不存在（空库，init_db 将按新模型建表）'
+    if 'is_money_fund' not in {c['name'] for c in inspect(engine).get_columns('positions')}:
+        return '[SKIP] positions 无 is_money_fund 列（空库，新录入由写路径直接落正确值）'
+
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text('SELECT id, symbol, type, is_money_fund FROM positions WHERE symbol IS NOT NULL')
+        ).fetchall()
+    if not rows:
+        return '[SKIP] positions 无持仓行'
+
+    updates: list[tuple[int, int]] = []
+    # 一、显式非基金类型仍标 True → 清零（历史污染，方向 2）
+    for rid, _sym, atype, flag in rows:
+        if atype in _NON_FUND_ASSET_TYPES and flag:
+            updates.append((rid, 0))
+
+    # 二、基金类按名录重算（方向 1）
+    fund_rows = [(rid, sym, atype, flag) for rid, sym, atype, flag in rows if atype in _FUND_ASSET_TYPES]
+    recomputed = 0
+    undecidable = 0
+    if fund_rows:
+        # 延迟导入：core 层不在导入期依赖 services，且避免与 domains 模型形成环
+        from app.services.fund_utils import normalize_fund_code, resolve_money_fund_flags_strict
+
+        flags = resolve_money_fund_flags_strict([sym for _rid, sym, _t, _f in fund_rows])
+        for rid, sym, atype, flag in fund_rows:
+            resolved: bool | None = True if atype == 'money_fund' else flags.get(normalize_fund_code(sym))
+            if resolved is None:
+                undecidable += 1
+                continue
+            if (1 if resolved else 0) != (1 if flag else 0):
+                updates.append((rid, 1 if resolved else 0))
+                recomputed += 1
+
+    if not updates:
+        return '[SKIP] positions.is_money_fund 已与新口径一致（无需回填）'
+
+    with engine.connect() as conn:
+        for rid, val in updates:
+            conn.execute(text('UPDATE positions SET is_money_fund = :v WHERE id = :i'), {'v': val, 'i': rid})
+        conn.commit()
+
+    msg = f'回填 {recomputed} 行 + 清除非基金误标 {len(updates) - recomputed} 行'
+    if undecidable:
+        msg += f'；{undecidable} 行名录无记录/类型未知，保持原值'
+    logger.info(f'[OK] positions.is_money_fund 存量重算：{msg}')
+    return f'[OK] {msg}'

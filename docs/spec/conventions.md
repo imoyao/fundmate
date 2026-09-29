@@ -60,6 +60,28 @@ title: 全局强制设计规范（conventions · 🔒 冻结区）
 - 所有变量、参数禁止单字母缩写，语义自解释
 - Pydantic Schema 严格对齐模型字段，后缀区分 Create / Update / Out
 - 蓝图变量名绑定业务领域，清晰可维护
+- **资产代码（symbol）存储形态按交易场所（venue）分述（#1662，2026-09-24 决策 D35 + D36）**：
+  唯一权威是 `backend/app/core/venues.py`，**禁止各模块自行拼 / 剥前缀**，落库前一律经
+  `normalize_by_venue()` / `normalize()`（带 `venue` 入参）。
+
+  | venue | 落库形态 | 例 | 适用 |
+  |---|---|---|---|
+  | `EXCHANGE`（场内） | `{MARKET}{CODE6}` | `SH600519` / `SZ159915` | 股票 / ETF / 可转债 / 逆回购 / 场内货基（`SH97xxxx`）/ 场内 LOF |
+  | `OTC`（场外） | **裸 6 位码**（永不带交易所前缀） | `004369` | 场外公募申购 / 场外货基 |
+  | 无交易场所（`''`） | 原样 | `MGR_*` / `ZH*` / `CSI*` / `CNI*` | 经理 / 投顾组合 / 指数 |
+
+  - **场外为何必须裸码**：场外基金代码由证监会独立分配，与交易所代码段**共用同一数字空间**
+    （`000651` 既是格力电器也是某只货基，本机名录中同码证券 111 条），带前缀即被误判市场，
+    后续取数按错误市场要行情、**静默落空**。故**归一化器不许猜 venue**，场所由调用方显式传入。
+  - **`asset_type → venue` 不是全函数**（场内货基 / 场内 LOF 是已证例外），它只作**兼容缺省**；
+    凡场所与缺省不一致，调用方必须显式传 venue。
+  - 存量行的 venue 解析走 `venues.venue_of_row(symbol, asset_type, declared_venue)`，
+    **审计脚本 / 迁移 / 读侧共用同一函数**，口径不得分叉。
+  - **身份与形态分离**：`positions.symbol` 是**对外展示**形态，`positions.symbol_norm`
+    （`EXCHANGE:SZ159915` / `OTC:004369`，构造见 `symbol_utils.symbol_identity`）是**身份**形态，
+    唯一约束挂在身份上（`uq_positions_ledger_symbol_norm`）—— 字面量唯一挡不住
+    `SZ004369` / `sz004369` / `SZ004369` 这类写法变体（#1662 的根因）。
+  - 一致性由 `scripts/audit_symbol_venue_conformance.py` 守卫（不合规即退出码 1，可当门禁）。
 - **前端命名规范（补充）**：Vue 组件 PascalCase、工具/API 文件 camelCase、组合式函数 `useXxx`、内置封装沿用 Pure Admin `Re` 前缀（业务组件禁用）；变量/函数 camelCase、常量 UPPER_SNAKE、类型 PascalCase 禁 I 前缀；**禁止 `any`/`Record<string, any>`/`object` 作 API 入参响应，须对齐后端契约**；类型集中管理。完整条款与不规范点清单见 [`frontend-naming.md`](./frontend-naming.md) / [`frontend-naming-audit.md`](./frontend-naming-audit.md)（2026-08-03 决策）。
 
 ### 2.8 第三方库与工具类开发规范
@@ -87,7 +109,7 @@ title: 全局强制设计规范（conventions · 🔒 冻结区）
 
 ### 2.11 金融数据精度强制规范
 
-> 所有直接关联用户资金的字段，必须使用整数存储、禁止使用 float/double，单位换算统一经 `Money` 工具类，禁止业务代码直接乘除。具体单位：**金额类（amount/fee/market_value/tax）存储为「分」(×100)**；**价格类（positions.avg_price / positions.current_price / transactions.price）存储为「0.0001元」(price_units, ×10000)**，以支持 4 位小数价格精度（issue #1099）；份额存储为最小单位(×10000)。非资金类字段（如基金净值）使用 DECIMAL 精确存储。
+> 所有直接关联用户资金的字段，必须使用整数存储、禁止使用 float/double，单位换算统一经 `Money` 工具类，禁止业务代码直接乘除。具体单位：**金额类（amount/fee/market_value/tax）存储为「分」(×100)**；**价格类（positions.avg_price / positions.current_price / transactions.price）存储为「0.0001 元」(price_units, ×10000)**，以支持 4 位小数价格精度（issue #1099）；份额存储为最小单位(×10000)。非资金类字段（如基金净值）使用 DECIMAL 精确存储。
 
 ### 2.12 前端色彩变量编码红线（新增）
 

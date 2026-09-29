@@ -6,13 +6,16 @@
 
 从旧 `ocr_service.py` 的 `_call_ark` 迁出并泛化（P1 抽象）：
 - 系统 prompt 改为按场景传入（自选 / 持仓识别各不相同）；
-- 超时/重试/token 记账逻辑原样保留；
+- 超时/token 记账逻辑原样保留；重试升级为**分类退避**（#1121 S1-C）：
+  429/5xx/超时/响应体异常才重试，其余 4xx（401 key 错、400 参数错、
+  422 schema 错…）立即终止——重试不可能让坏请求变好，只白白拖长失败路径；
+- 成功与失败都打 `[llm.call]` 结构化日志行，排障按 tag 过滤；
 - 技术决策见 explore-watchlist-enhancement-2026-08-12.md §6。
 """
 
 import os
 import time
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import requests
 from dotenv import load_dotenv
@@ -31,22 +34,85 @@ ARK_API_KEY = os.getenv('ARK_API_KEY', '')
 ARK_MODEL = os.getenv('ARK_MODEL', 'doubao-seed-2-0-mini-260428')
 # LLM 单次请求超时（秒）：图片/长文本识别较慢，30s 在数据量大时易 ReadTimeout → 503
 ARK_TIMEOUT = int(os.getenv('ARK_TIMEOUT', '60'))
-# 网络异常/超时/5xx 时的重试次数（0 = 不重试）；重试间隔 1.5s
+# 可重试类失败（429/5xx/超时/响应体异常）的最大重试次数（0 = 不重试）
 ARK_RETRIES = int(os.getenv('ARK_RETRIES', '1'))
+# 指数退避基数（秒）：第 n 次失败（n 从 0 计）后睡 base * 2**n → 1.5 / 3 / 6 …
+BACKOFF_BASE_SECONDS = 1.5
+# 429 的 Retry-After 头封顶（秒）：防服务端回超大值把工作线程挂死
+RETRY_AFTER_CAP_SECONDS = 30.0
 
 
-def call_llm(content: List[dict], system_prompt: str, temperature: float = 0.1, timeout: int = None) -> str:
+def _classify_failure(err: Exception) -> Tuple[bool, str]:
+    """把失败分为「可重试」与「立即终止」，返回 (是否可重试, 原因标签)。
+
+    - 429 / 5xx / 超时 / 连接失败 / 响应体异常 → 可重试（瞬态，等一等可能变好）；
+    - 其余 4xx → 立即终止（客户端错误，重试不可能让坏请求变好）。
+
+    顺序敏感：HTTPError 也是 RequestException，requests 的 JSONDecodeError 也是
+    ValueError，先特后泛才能贴对标签（否则坏 JSON 会被误标成 network）。
+    """
+    if isinstance(err, requests.HTTPError):
+        status = getattr(err.response, 'status_code', None)
+        if status is None:
+            return True, 'http-unknown'  # 理论上 raise_for_status 必带 response，兜底按瞬态处理
+        if status == 429 or status >= 500:
+            return True, f'http={status}'
+        return False, f'http={status}'  # 其余 4xx/3xx：立即终止
+    if isinstance(err, (requests.Timeout, requests.ConnectionError)):
+        return True, 'network'
+    if isinstance(err, (ValueError, KeyError, IndexError, TypeError)):
+        return True, 'bad-body'  # 坏 JSON / choices 缺失等响应体异常
+    if isinstance(err, requests.RequestException):
+        return True, 'network'
+    return False, 'unexpected'
+
+
+def _backoff_seconds(attempt: int, resp: Optional[requests.Response] = None) -> float:
+    """第 attempt 次（从 0 计）失败后的睡眠秒数。
+
+    429 带合法**数值型** Retry-After 头时听服务端的（封顶 RETRY_AFTER_CAP_SECONDS），
+    否则回落指数退避 base * 2**attempt → 1.5 / 3 / 6 …。
+    HTTP-date 形式的 Retry-After 不解析（少见且解析依赖额外依赖），回落指数退避。
+    """
+    headers = getattr(resp, 'headers', None)
+    if headers:
+        raw = headers.get('Retry-After')
+        if raw not in (None, ''):
+            try:
+                seconds = float(raw)
+            except (TypeError, ValueError):
+                seconds = -1.0
+            if seconds >= 0:
+                return min(seconds, RETRY_AFTER_CAP_SECONDS)
+    return BACKOFF_BASE_SECONDS * (2**attempt)
+
+
+def call_llm(
+    content: List[dict],
+    system_prompt: str,
+    temperature: float = 0.1,
+    timeout: Optional[int] = None,
+    response_format: Optional[dict] = None,
+    usage_sink: Optional[dict] = None,
+) -> str:
     """调用火山方舟 OpenAI 兼容端点，返回 choices[0].message.content。
 
     Args:
         content: 用户消息（文本 / 图片 base64 构成的 OpenAI content 数组）。
         system_prompt: 场景化系统指令（约束输出 JSON schema）。
         temperature / timeout: 覆盖默认值；timeout 缺省用 ARK_TIMEOUT。
+        response_format: OpenAI 兼容的响应格式约束（如 {'type': 'json_object'}），
+            缺省不传——部分模型/端点不支持该参数，由调用方按需开启。
+        usage_sink: 可选 token 汇出槽（#1736 S4 trace）——传 dict 则每次成功调用
+            累加 {'tokens': int}，供调用方按轮汇总；缺省 None 零影响。
+            重试路径不累加（失败响应无 usage），与 _record_tokens 口径一致。
 
     兜底设计（用户反馈 503 直报问题）：
     - 超时放宽到 ARK_TIMEOUT（默认 60s，图片/长文本识别慢，30s 易 ReadTimeout）；
-    - 网络异常/超时/5xx 自动重试 ARK_RETRIES 次（默认 1 次，间隔 1.5s）；
-    - 重试耗尽才抛 503（OCR_SERVICE_UNAVAILABLE），由 views 层返还配额。
+    - 可重试失败按 _classify_failure 分类，指数退避重试 ARK_RETRIES 次
+      （429 认 Retry-After，见 _backoff_seconds）；其余 4xx 立即终止不重试；
+    - 重试耗尽 / 立即终止都抛 503（OCR_SERVICE_UNAVAILABLE），由 views 层返还配额；
+    - 每次成功打一行 [llm.call] ok …，失败打 retry / fail-fast / fail 行。
     """
     if not ARK_API_KEY:
         raise SBException(
@@ -63,9 +129,16 @@ def call_llm(content: List[dict], system_prompt: str, temperature: float = 0.1, 
         ],
         'temperature': temperature,
     }
+    if response_format:
+        payload['response_format'] = response_format
 
+    attempts = ARK_RETRIES + 1
     last_err: Optional[Exception] = None
-    for attempt in range(ARK_RETRIES + 1):
+    made = 0  # 实际发出的请求数（fail-fast 时可能 < attempts，日志别报虚数）
+    for attempt in range(attempts):
+        resp: Optional[requests.Response] = None
+        made = attempt + 1
+        started = time.monotonic()
         try:
             resp = requests.post(
                 ARK_ENDPOINT,
@@ -77,14 +150,37 @@ def call_llm(content: List[dict], system_prompt: str, temperature: float = 0.1, 
             data = resp.json()
             # 费用护栏：累计本次调用 token 消耗（图片输入按 token 计费，见 issue #823）
             usage = data.get('usage') or {}
-            _record_tokens(int(usage.get('total_tokens') or 0))
-            return data['choices'][0]['message']['content']
-        except (requests.RequestException, KeyError, ValueError) as e:
+            tokens = int(usage.get('total_tokens') or 0)
+            _record_tokens(tokens)
+            if usage_sink is not None:
+                usage_sink['tokens'] = usage_sink.get('tokens', 0) + tokens
+            text = data['choices'][0]['message']['content']
+            logger.info(
+                '[llm.call] ok attempt={} model={} tokens={} elapsed={:.2f}s',
+                attempt + 1,
+                ARK_MODEL,
+                tokens,
+                time.monotonic() - started,
+            )
+            return text
+        except Exception as e:  # noqa: BLE001  收全再分类：分类表见 _classify_failure
             last_err = e
-            logger.warning('火山方舟调用失败（第 {} 次）: {}', attempt + 1, e)
+            retryable, reason = _classify_failure(e)
+            if not retryable:
+                logger.error('[llm.call] fail-fast attempt={} reason={} err={}', attempt + 1, reason, e)
+                break
             if attempt < ARK_RETRIES:
-                time.sleep(1.5)
-    logger.error('火山方舟调用重试 {} 次后仍失败: {}', ARK_RETRIES, last_err)
+                delay = _backoff_seconds(attempt, resp)
+                logger.warning(
+                    '[llm.call] retry attempt={}/{} reason={} backoff={:.2f}s err={}',
+                    attempt + 1,
+                    ARK_RETRIES,
+                    reason,
+                    delay,
+                    e,
+                )
+                time.sleep(delay)
+    logger.error('[llm.call] fail attempts={} last_err={}', made, last_err)
     raise SBException(
         code=ErrorCode.OCR_SERVICE_UNAVAILABLE.code,
         message='AI 识别服务暂时不可用，请稍后重试',

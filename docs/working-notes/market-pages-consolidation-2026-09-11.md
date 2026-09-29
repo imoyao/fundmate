@@ -24,7 +24,7 @@
 | 区块 | 内容 | 组件 |
 |---|---|---|
 | Header | `MarketHeader` badge="探市"，navs = 探市 / 温度计 / 自选 | `MarketHeader` |
-| 温度仪表盘 | L1：综合温度（hero，2 份宽）/ 恐惧贪婪 / 股债性价比<br>L2：市场情绪（且慢 / 有知有行 / 韭圈儿中长期）+ 估值指标（中位PB / 中位PE / 可转债）<br>L3：流动性（今成交额）+「行业拥挤度 →」「板块资金流 →」<br>指数快照：沪深300 / 中证500 / 创业板指 | `ExploreTemperatureDashboard.vue` |
+| 温度仪表盘 | L1：综合温度（hero，2 份宽）/ 恐惧贪婪 / 股债性价比<br>L2：市场情绪（且慢 / 有知有行 / 韭圈儿中长期）+ 估值指标（中位 PB / 中位 PE / 可转债）<br>L3：流动性（今成交额）+「行业拥挤度 →」「板块资金流 →」<br>指数快照：沪深 300 / 中证 500 / 创业板指 | `ExploreTemperatureDashboard.vue` |
 | 添加/观察栏 | 仅未登录渲染 | `ExploreAddSection.vue` |
 | 观察列表 | localStorage 本地存续 | `ExploreWatchlistTable.vue` |
 | 转化区 | 未登录 → 注册 CTA；已登录 → 引导去自选页 | `index.vue:33-64` |
@@ -125,7 +125,7 @@
 
 ### 3.1 数据层：本地库温度数据停更 40 天，行业拥挤度零行
 
-```
+```plain
 $ python -c "sqlite3 只读打开 backend/invest.db"
 market_single_values : 54 行，max(collected_at) = 2026-08-02
 market_composites    : 16 行，max(collected_at) = 2026-08-01
@@ -139,7 +139,7 @@ market_multi_items   :  1 行，max(collected_at) = 2026-08-02
 
 ### 3.2 调度层：每日调度 workflow 自部署起连续失败
 
-```
+```plain
 $ gh run list --workflow=daily-snapshot.yml
 2026-09-10T19:19:43Z  completed/failure  main
 2026-09-09T19:33:03Z  completed/failure  main
@@ -153,7 +153,7 @@ $ gh run list --workflow=daily-snapshot.yml
 
 失败日志根因（run 34519744964）：
 
-```
+```plain
 env:
   DATABASE_URL:                 ← 空
   SUPABASE_DATABASE_URL:        ← 空
@@ -199,7 +199,7 @@ sqlalchemy.exc.ArgumentError: Could not parse SQLAlchemy URL from given URL stri
 
 | 块 | 内容 | 状态 | 证据 |
 |---|---|---|---|
-| 块 1 | 应用站落地页构建链退役 | 🟡 基本完成，**留了一个断裂** | 根 `package.json` 已无 `build:landing` / `build:about` / `build:story` / `build:pages` 四条脚本（PR #1326）；根 `landing.html` 已删；`AGENTS.md` / `tech-debt.md` 引用已更新。**但**：<br>① `vercel.json:3` 仍是 `"build": "pnpm run build:landing"` —— 该脚本已不存在 → **Vercel 构建必失败**（比清理前更坏：以前脚本在、只是 `readFileSync` ENOENT；现在脚本都没了）；<br>② `scripts/build-landing.mjs`（14,371 B）仍在仓库，成为孤儿；<br>③ `AGENTS.md:286` 仍写着「落地页：`pnpm run build:landing` / …」（已过期）。 |
+| 块 1 | 应用站落地页构建链退役 | 🟡 基本完成，**留了一个断裂** | 根 `package.json` 已无 `build:landing` / `build:about` / `build:story` / `build:pages` 四条脚本（PR #1326）；根 `landing.html` 已删；`AGENTS.md` / `tech-debt.md` 引用已更新。**但**：<br>① `vercel.json:3` 仍是 `"build": "pnpm run build:landing"` —— 该脚本已不存在 → **Vercel 构建必失败**（比清理前更坏：以前脚本在、只是 `readFileSync` ENOENT；现在脚本都没了）；<br>② `scripts/build-landing.mjs`（14,371 B）仍在仓库，成为孤儿；<br>③ `AGENTS.md:286` 仍写着「落地页：`pnpm run build:landing` / ……」（已过期）。 |
 | 块 2 | 导入页平台 logo 卡片 | ✅ **完成** | PR #1325 merged 2026-09-05 16:55（`feat(import): 导入页新增「支持导入来源」平台 logo 卡片区`）；`frontend/public/logos/` 7 个 SVG 在位。 |
 | 块 3 | 三平台部署配置（EdgeOne / Cloudflare / Vercel） | ❌ **零进展** | `vercel.json` 无 `rootDirectory` / `outputDirectory`，`routes` 是 `404.html` 兜底（**不是 SPA 的 `index.html` 回退**）→ history 模式深链必 404；无 `wrangler.toml`；无 `netlify.toml`；应用站无 `<meta name="robots" content="noindex">`。 |
 
@@ -219,7 +219,7 @@ sqlalchemy.exc.ArgumentError: Could not parse SQLAlchemy URL from given URL stri
 ### 6.1 可借鉴（形态层）
 
 1. **顶部「汇总卡」给出可行动结论**：平均拥挤度 8.4 / 拥挤（≥80）0 个 / 变化活跃 17 个 / 领涨赛道 光通信 20.3%。→ 我们首屏只有「值 + 档位」，缺「这一堆数字说明了什么」。
-2. **表头按维度分组配色 + 每列独立百分位条**：拥挤度组 / 成交额组 / 换手率组… → 我们 `CrowdingTable.vue` 已是「数值 + 进度条」结构，但列少、无分组语义。
+2. **表头按维度分组配色 + 每列独立百分位条**：拥挤度组 / 成交额组 / 换手率组…… → 我们 `CrowdingTable.vue` 已是「数值 + 进度条」结构，但列少、无分组语义。
 3. **表尾常驻「指标说明 + 百分位口径说明」**：→ 我们已有 footer 来源条，可扩出「指标说明」一块。
 4. **ETF 趋势信号页的信号卡片网格**（每标的一卡 + 信号标签 + 关键指标）→ 可用于未来「行业/ETF 信号」视图，但**不是本期收束范围**。
 
@@ -264,7 +264,7 @@ sqlalchemy.exc.ArgumentError: Could not parse SQLAlchemy URL from given URL stri
 
 ### 8.1 排序（重要）
 
-```
+```plain
 P0  修数据链路（§3）── 阻塞一切展示，与页面形态无关
 P1  页面收束（§2，推荐方案 D / 兜底 C）
 P2  #918 处置（§5）
@@ -278,7 +278,7 @@ P4  维度扩展（拥挤度补 60线上 / 60日新高 / 融资 / 大单 —— 
 
 页面：
 
-```
+```plain
 /explore
 ├── MarketHeader（navs 收敛：行情 / 自选；去掉「探市 vs 温度计」二选一）
 ├── Tab「概览」（= 现探市）
@@ -294,7 +294,7 @@ P4  维度扩展（拥挤度补 60线上 / 60日新高 / 融资 / 大单 —— 
     └── PageFooter（统一一份文案，去掉两页互指）
 ```
 
-共用底部：`PageFooter` 单份，`revisitText` 不再出现「可前往探市页查看…」这类互相指路。
+共用底部：`PageFooter` 单份，`revisitText` 不再出现「可前往探市页查看……」这类互相指路。
 
 ### 8.3 P1 兜底方案 C 实施草图（约 1 人天）
 

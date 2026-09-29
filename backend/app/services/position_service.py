@@ -18,15 +18,18 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
+from flask import has_app_context
 from loguru import logger
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.constants import PositionSource, ValuationMode
+from app.core.constants import ALLOCATION_LABELS, MARKET_LABELS, TYPE_LABELS, PositionSource, ValuationMode
 from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
-from app.core.symbol_utils import derive_security_type, get_normalizer, split_symbol
-from app.core.utils import get_confirm_date
+from app.core.symbol_utils import derive_security_type, normalize_by_venue, split_symbol
+from app.core.utils import get_confirm_date, paginate
+from app.core.venues import asset_types_of_venue, resolve_venue
 from app.domains.funds.models import Fund
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, resolve_sales_institution_id
@@ -35,11 +38,40 @@ from app.services import async_backfill
 from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_money_fund_symbol, normalize_fund_code
 from app.services.import_records import compute_position_hash
 from app.services.pnl_service import compute_sell_realized_cents
+from app.services.position_presenter import enrich_position_dict
 from app.services.trading import TransactionService, validate_buy, validate_sell
 from app.services.watchlist_service import (
     ensure_watchlist_for_positions,
     reconcile_watchlist_status,
 )
+
+# 单用户遗留口径：离线脚本（无请求上下文）且入参也没给 family_id 时的唯一退路。
+_LEGACY_SINGLE_FAMILY_ID = 1
+
+
+def _resolve_family_id(data: dict) -> int:
+    """解析本次写入归属的家庭 ID（#1305 #22）。
+
+    WHY 不能继续用「取不到就填 1」的兜底写法：缺字段时会把流水/持仓**静默挂到
+    family 1**。多家庭场景下这不是「默认值不好看」，而是**数据越权**——别人家里
+    凭空长出一笔资产，而原主人按 family 过滤后反而看不到自己的数据。
+
+    优先级：
+    1. 显式入参（视图层 `data['family_id'] = get_family_id()` 已注入，见 positions/views.py）；
+    2. 请求上下文 `g.family_id`（鉴权中间件注入）；
+    3. 单用户遗留口径 1 —— **仅当没有请求上下文时**。离线脚本（`backend/scripts/*.py`
+       直接调本服务）此时 `g` 不可用，`getattr(g, ...)` 会抛 RuntimeError，
+       所以必须先用 `has_app_context()` 判一下，不能无条件取上下文。
+    """
+    fid = data.get('family_id')
+    if fid:
+        return fid
+    if has_app_context():
+        # 延迟导入：本模块被离线脚本导入时 Flask 上下文尚未建立
+        from app.core.auth import get_family_id
+
+        return get_family_id()
+    return _LEGACY_SINGLE_FAMILY_ID
 
 
 def _silent_ensure_watchlist(db: Session, family_id: int, symbol: str) -> None:
@@ -98,7 +130,7 @@ def auto_purchase_money_fund(
     amount_cents: int,
     trade_date=None,
     confirm_date=None,
-    family_id: int = 1,
+    family_id: Optional[int] = None,
 ) -> None:
     """#1137 卖出/赎回回款自动申购账户绑定的类现金产品（「余额宝」）。
 
@@ -113,6 +145,8 @@ def auto_purchase_money_fund(
 
     失败（绑定产品缺失等）仅告警不抛出：自动申购是增值行为，不应阻断卖出主流程。
     """
+    # #1305 #22：缺省不再硬编码 1，走与写入链路一致的解析（入参 → 上下文 → 遗留口径）
+    family_id = family_id or _resolve_family_id({})
     if not ledger_id or amount_cents <= 0:
         return
     ledger = db.query(Ledger).filter_by(id=ledger_id, family_id=family_id).first()
@@ -204,7 +238,7 @@ def _create_cash_transfer_transaction(db: Session, data: dict, txn_type: str) ->
         notes=data.get('notes') or ('现金管理产品申赎' if txn_type == 'buy' else '现金管理产品赎回'),
         import_hash=data.get('import_hash'),
         entry_status='orphan',
-        family_id=data.get('family_id', 1),
+        family_id=_resolve_family_id(data),
         # #1232 决策 11：孤儿/现金转移流水来源透传
         source=data.get('source'),
     )
@@ -248,7 +282,7 @@ def _create_orphan_transaction(
         notes=notes,
         import_hash=data.get('import_hash'),
         entry_status='orphan',
-        family_id=data.get('family_id', 1),
+        family_id=_resolve_family_id(data),
         # #1232 决策 11：孤儿流水来源透传
         source=data.get('source'),
     )
@@ -311,7 +345,7 @@ def _create_dividend_cash_txn(
         notes=data.get('notes') or '红利再投资（分红入账）',
         import_hash=base_hash,
         entry_status=entry_status,
-        family_id=data.get('family_id', 1),
+        family_id=_resolve_family_id(data),
         # #1232 决策 11：红利再投资分红流水来源透传
         source=data.get('source'),
     )
@@ -327,11 +361,18 @@ def _build_reinvest_buy_data(data: dict, position: Optional[Position], link_grou
     # 申购流水使用独立幂等键，避免与分红流水撞 UNIQUE(ledger_id, import_hash)；
     # 分红流水保留原始 import_hash 承担记录级去重（导入路径同键重导整体跳过）。
     buy_hash = None if not base_hash else f'{base_hash}#reinvest'
+    # 资产类型 / 场所**必须取自目标持仓**（#1662 修正）：本笔是「对既有持仓的红利再投资」，
+    # 品种与场所由持仓决定。原实现取 _get_asset_type(data)，而再投资请求体里没有 symbol /
+    # type，推断结果恒为默认 'stock' —— 于是这笔申购被当场内标的归一到 EXCHANGE，
+    # 与持仓（场外基金，OTC）场所不符 → _find_existing_position 查不到既有持仓 →
+    # 另建一条重复持仓，份额也不再增加。
+    asset_type = position.asset_type if position and position.asset_type else _get_asset_type(data)
     return {
         'symbol': position.symbol if position else data.get('symbol'),
         'name': position.name if position else data.get('name'),
         'market': data.get('market', 'CN_A'),
-        'asset_type': _get_asset_type(data),
+        'asset_type': asset_type,
+        'venue': resolve_venue(None, asset_type),  # 持仓场所即本笔场所（#1662）
         'account_name': position.account_name if position else data.get('account_name', ''),
         'ledger_id': position.ledger_id if position else data.get('ledger_id'),
         'quantity': shares,
@@ -344,7 +385,7 @@ def _build_reinvest_buy_data(data: dict, position: Optional[Position], link_grou
         'op_type': 'buy',
         'link_group_id': link_group_id,
         'import_hash': buy_hash,
-        'family_id': data.get('family_id', 1),
+        'family_id': _resolve_family_id(data),
         'position_id': position.id if position else None,
         # #1232 决策 11：红利再投资申购流水来源透传（走 process_buy_or_deposit 落库）。
         # 缺失时兜底 manual——Position.source 非空校验拒绝 None，而流水 source 缺省可空。
@@ -353,9 +394,17 @@ def _build_reinvest_buy_data(data: dict, position: Optional[Position], link_grou
 
 
 def _resolve_money_fund_flag(symbol: str, asset_type: str | None, hint=None) -> bool:
-    """写路径货基判定（#863）：显式 hint > money_fund 类型 > 名录/代码段解析。
+    """写路径货基判定（#863 / #1661）：显式 hint > money_fund > 显式非基金类型 > 名录/代码段。
 
     reverse_repo 不是货基（即使与货基同属现金等价物聚合桶），不落 is_money_fund。
+
+    **#1661**：显式 `stock` / `etf` / `bond` 等非基金类型一律 **False**，绝不落回
+    名录/代码段解析。原因是场内证券与场外基金**共用同一 6 位数字空间**：
+    `000651` 既是格力电器（深市股票）也是某只货基、`000725` 京东方Ａ 与大成添利宝
+    货币B 同号、`110081` 既是闻泰转债也在 `1[01]xxxx` 段内。原实现把 `asset_type`
+    丢掉后交给「只看数字」的 `is_money_fund_symbol`，等于让基金段反推证券品种，
+    于是股票/可转债持仓被标记为货基 → `sync/jobs/position_price_job.py:293` 见到该
+    标记即按面值 1.0000 回写 `current_price`，**持仓市值塌成「份额数」**。
     """
     if hint is not None:
         return bool(hint)
@@ -363,20 +412,74 @@ def _resolve_money_fund_flag(symbol: str, asset_type: str | None, hint=None) -> 
         return True
     if asset_type == 'reverse_repo':
         return False
+    if asset_type and asset_type != 'fund':
+        # 显式非基金类型：名录/代码段只对「基金」有意义
+        return False
     return is_money_fund_symbol(symbol)
 
 
-def _reattach_orphan_flows(db: Session, ledger_id, symbol: str, position_id: int, family_id: int) -> None:
-    """#863 口径 A 写入层互斥：把同 (ledger_id, symbol) 的孤儿货基流水挂回持仓。
+def _find_existing_position(
+    db: Session,
+    ledger_id,
+    family_id: int,
+    symbol: str,
+    venue: str,
+    *,
+    active_only: bool = False,
+) -> Optional[Position]:
+    """按「venue 感知的归一身份」定位既有持仓（#1662）—— 写入层查重的唯一入口。
 
-    互斥语义：同一资金同一 (ledger_id, symbol) 只能有一种表达——持仓 或 孤儿净额。
-    建仓后把历史孤儿流水（position_id IS NULL、非收益行）置 position_id，使其不再
-    计入孤儿净额桶；金额由持仓市值承接（净值恒 1，市值≈本金），不双计、不漏计。
-    is_income 收益行不挂回（收益桶独立于本金，见 #863 D1）。
+    为什么不能只用 `filter_by(symbol=...)`：`positions` 的唯一约束是**字面量**
+    `UNIQUE(ledger_id, symbol)`，历史上同一只基金可能并存两种写法（`SZ004369` 与
+    `004369`）→ 同一只基金两行（#1662 本机实测 2 组）。本函数把候选按 6 位码展开成
+    各前缀写法，再按 **venue** 约束过滤（`asset_type → venue`），只允许**同一交易场所**
+    的行被复用：
+
+    - 场外（OTC，裸码约定）→ 只匹配 `fund` / `money_fund` 行；
+    - 场内（EXCHANGE）→ 只匹配 `stock` / `etf` / `bond` / `reverse_repo` 行。
+
+    `asset_type` 为 NULL 的历史行一并纳入：无法判场所时宁可复用，也不要再生成重复行
+    （审计脚本 `scripts/audit_symbol_venue_conformance.py` 会把这类行暴露出来人工确认）。
+    venue 为空（判定不出场所）时不做场所过滤，退回「同归一码即同标的」。
     """
-    from sqlalchemy import or_
+    code = normalize_fund_code(symbol)
+    forms = {symbol} if not code else {symbol, code, *(f'{m}{code}' for m in ('SH', 'SZ', 'BJ'))}
+    query = db.query(Position).filter(
+        Position.ledger_id == ledger_id,
+        Position.family_id == family_id,
+        Position.symbol.in_(forms),
+    )
+    # 只有明确判定出场所时才按场所过滤；venue 为空（判不出）→ 退回「同归一码即同标的」。
+    # 不能直接写 asset_types_of_venue(venue)：它对空串返回的是「无场所实体」集合
+    # (manager/portfolio/index)，非空 → 会误触发下方过滤，把真实持仓全滤掉。
+    allowed = asset_types_of_venue(venue) if venue else ()
+    if allowed:
+        query = query.filter(or_(Position.asset_type.in_(allowed), Position.asset_type.is_(None)))
+    if active_only:
+        query = query.filter(Position.ownership_status == 'active')
+    # 取最新一条（id 降序），确保命中最近建仓的持仓
+    return query.order_by(Position.id.desc()).first()
 
-    candidate = {normalize_fund_code(symbol)} | {p + normalize_fund_code(symbol) for p in ('SZ', 'SH')}
+
+def find_orphan_cash_flows(db: Session, ledger_id, symbol: str, family_id: int) -> list[Transaction]:
+    """#863 口径 A：同 (ledger_id, family_id, symbol) 的**未挂回**货基 / 逆回购流水（非收益行）。
+
+    匹配口径的**唯一入口**——写入层挂回（`_reattach_orphan_flows`）与一次性修复脚本
+    （`scripts/fix_orphan_money_fund_reattach.py`）都必须经本函数，避免两处口径漂移。
+    #1657 复审即栽在这：脚本曾用 `symbol` 精确相等，`SZ001937` ↔ `001937` 这类跨形态
+    组合被静默漏挂，而本机 3 个成功案例恰好都是裸码对裸码，把缺陷掩盖了。
+
+    口径说明：`normalize_fund_code` 会剥掉 `SZ/SH/BJ` 前缀与分隔符，故原候选集
+    `{code, 'SZ'+code, 'SH'+code}` 恒等价于 `{code}`——判定即两侧归一化后相等。
+
+    `symbol` 归一化不出 6 位数字时（非标准基金代码，如测试里的 `MF001`、手工建的
+    非基金标的）**退回精确相等**：原实现此时退化为候选集 `{''}`，会让「同样归一化
+    失败的流水」互相匹配、把不相干的孤儿流水一并吸走；但直接短路成空又会破坏
+    非标准代码的正常挂回（`MF001` ↔ `MF001` 应当命中）。
+    """
+    # #1305 #17：`or_` 已在模块顶部导入，函数内不再重复 import（原为每次调用重复导入）
+    code = normalize_fund_code(symbol)
+
     rows = (
         db.query(Transaction)
         .filter(
@@ -388,7 +491,25 @@ def _reattach_orphan_flows(db: Session, ledger_id, symbol: str, position_id: int
         )
         .all()
     )
-    matched = [t for t in rows if t.symbol and normalize_fund_code(t.symbol) in candidate]
+    if code:
+        return [t for t in rows if t.symbol and normalize_fund_code(t.symbol) == code]
+    return [t for t in rows if t.symbol == symbol]
+
+
+def _reattach_orphan_flows(db: Session, ledger_id, symbol: str, position_id: int, family_id: int) -> None:
+    """#863 口径 A 写入层互斥：把同 (ledger_id, symbol) 的孤儿货基流水挂回持仓。
+
+    互斥语义：同一资金同一 (ledger_id, symbol) 只能有一种表达——持仓 或 孤儿净额。
+    建仓后把历史孤儿流水（position_id IS NULL、非收益行）置 position_id，使其不再
+    计入孤儿净额桶；金额由持仓市值承接（净值恒 1，市值≈本金），不双计、不漏计。
+    is_income 收益行不挂回（收益桶独立于本金，见 #863 D1）。
+
+    筛选范围由 `find_orphan_cash_flows` 收口（只认现金等价物类型 + 同 ledger/family +
+    归一化符号相等）。**调用方不要再拿 `position.is_money_fund` 当闸门**：该列存在历史
+    未回填 / 快照判定不一致（本机 pos[445]/pos[26] 为货基却为 0），以它为准会漏挂回
+    导致资金双计（#1657）；对非现金等价物持仓本函数天然无操作（幂等）。
+    """
+    matched = find_orphan_cash_flows(db, ledger_id, symbol, family_id)
     if matched:
         for txn in matched:
             txn.position_id = position_id
@@ -443,9 +564,17 @@ class PositionService:
         """
         symbol = data.get('symbol', '')
         ledger_id = data.get('ledger_id')
-        family_id = data.get('family_id', 1)
+        family_id = _resolve_family_id(data)
         if not symbol or not ledger_id:
             raise ValueError('持仓快照导入必须提供 symbol 与 ledger_id')
+
+        # venue（#1662）：显式入参优先，缺失按 asset_type 推断（持仓快照本无场所维度，只能兜底）。
+        # 落库前把 symbol 收敛到该场所的唯一形态，避免同一标的并存 `SZ004369` / `004369`
+        # 两种写法——positions 的唯一约束是字面量 UNIQUE(ledger_id, symbol)，拦不住。
+        venue = resolve_venue(data.get('venue'), data.get('asset_type'))
+        if venue:
+            symbol, _venue_market, _ = normalize_by_venue(symbol, venue)
+            data['symbol'] = symbol
 
         qty = data.get('quantity', 0) or 0
         if qty <= 0:
@@ -466,8 +595,8 @@ class PositionService:
         src = data.get('source', PositionSource.E_ACCOUNT.value)
         import_hash = data.get('import_hash') or compute_position_hash(src, ledger_id, symbol, snapshot_date)
 
-        # 查找现有持仓（业务键 ledger_id + symbol，SET 语义定位）
-        existing = db.query(Position).filter_by(symbol=symbol, ledger_id=ledger_id, family_id=family_id).first()
+        # 查找现有持仓（venue 感知归一去重，SET 语义定位；#1662）
+        existing = _find_existing_position(db, ledger_id=ledger_id, family_id=family_id, symbol=symbol, venue=venue)
 
         if existing:
             # SET 语义：整条替换快照字段（数量/成本/市价/快照日/溯源）
@@ -535,10 +664,10 @@ class PositionService:
         meta_row.sales_institution_id = resolve_sales_institution_id(db, data.get('source_broker'))
         db.flush()
 
-        # #863 口径 A 写入层互斥：快照持有货基持仓时，把同 (ledger, symbol) 孤儿流水挂回
-        # （金额以持仓表达承接，避免与孤儿净额桶双计）
-        if position.is_money_fund:
-            _reattach_orphan_flows(db, ledger_id, symbol, position.id, family_id)
+        # #863 口径 A 写入层互斥 + #1657 修复：无论 is_money_fund 快照判定如何，都尝试挂回
+        # 同 (ledger, symbol) 孤儿货基/逆回购流水（幂等；非货基持仓无对应孤儿流水则无操作），
+        # 避免快照 is_money_fund 判定不一致时漏挂回导致资金双计。
+        _reattach_orphan_flows(db, ledger_id, symbol, position.id, family_id)
 
         try:
             async_backfill.trigger_backfill('fund', symbol)
@@ -556,7 +685,7 @@ class PositionService:
 
         force_create_position（#1233 决策 5「货基/逆回购保持建持仓」）：
         - 默认 False（交易导入）：money_fund / reverse_repo 只记孤儿资金流水、不建持仓（既有行为，
-          市值由 `orphan_money_fund_net_by_ledger` 按流水净额计入总资产）；
+          市值由 `orphan_money_fund_totals_by_ledger` 按流水净额计入总资产）；
         - True（记一笔手动记账）：跳过现金转移分支，照常建持仓，流水关联持仓（position_id 非空），
           不再计入孤儿净额口径（与 summary 不重复计数，见 test_summary_money_fund 的持仓用例）。
         """
@@ -566,29 +695,36 @@ class PositionService:
         op_type = data.get('op_type', 'buy')
         asset_type = _get_asset_type(data)
 
+        # ── symbol 按 venue 归一（#1662，落库前唯一形态入口）──
+        # 场内 → {MARKET}{CODE}（如 SZ159915）、场外 → 裸 6 位码（如 004369）。
+        # 归一放在函数入口：持仓落库、流水落库、现金划转分支全部共享同一形态，
+        # 避免「持仓带前缀 / 流水裸码」这类不一致再次出现。
+        # venue 由调用方显式传入（建仓 API / 导入解析器本就知道场内/场外），
+        # 缺失时按 asset_type 推断（兼容缺省，见 core/venues.venue_of_asset_type）。
+        venue = resolve_venue(data.get('venue'), asset_type)
+        if venue:
+            symbol, _symbol_market, _ = normalize_by_venue(symbol, venue)
+            data['symbol'] = symbol  # 下游（流水 / 划转）统一取 data，必须同步回写
+
         # 现金管理类产品：只记录流水，不创建持仓（交易导入既有行为；
         # 记一笔 force_create_position=True 时跳过此分支，走正常建仓逻辑）
         if asset_type in ('money_fund', 'reverse_repo') and not force_create_position:
             # #863 口径 A 写入层互斥：若该 (ledger, symbol) 已有 active 持仓，本笔买入并入
             # 持仓表达（走下方正常建仓合并），不产生孤儿流水——同一资金不得双表达双计。
             _lid = data.get('ledger_id')
-            _family_id = data.get('family_id', 1)
-            _sym = normalize_fund_code(symbol)
-            _codes = {_sym} | {f'{p}{_sym}' for p in ('SZ', 'SH')}
+            _family_id = _resolve_family_id(data)
             existing_pos = None
             if _lid:
-                existing_pos = (
-                    db.query(Position)
-                    .filter(
-                        Position.ledger_id == _lid,
-                        Position.family_id == _family_id,
-                        Position.symbol.in_(_codes),
-                        # 仅匹配 active 持仓，避免把已平仓 / NULL 状态旧持仓误判为可复用
-                        Position.ownership_status == 'active',
-                    )
-                    # 取最新一条（id 降序），确保命中最近建仓的持仓
-                    .order_by(Position.id.desc())
-                    .first()
+                # venue 感知查重（#1662）：原实现手拼 {code, SZ+code, SH+code} 候选集，
+                # 只覆盖「前缀变体」且不区分场所；改用统一辅助函数。active_only 保持
+                # 原语义（仅匹配 active 持仓，避免复用已平仓 / NULL 状态旧持仓）。
+                existing_pos = _find_existing_position(
+                    db,
+                    ledger_id=_lid,
+                    family_id=_family_id,
+                    symbol=symbol,
+                    venue=venue,
+                    active_only=True,
                 )
             if existing_pos is not None:
                 force_create_position = True  # 复用下方正常建仓逻辑（含孤儿流水挂回）
@@ -596,24 +732,18 @@ class PositionService:
                 _create_cash_transfer_transaction(db, data, 'buy')
                 return None
 
-        # 标准化 symbol
+        # symbol 已在函数入口按 venue 归一（#1662）。原实现按 asset_type 白名单
+        # 「跳过归一化」（fund / money_fund / reverse_repo / bond 一律不归一），导致场外基金
+        # 一旦带了误前缀就永远清不掉（`SZ004369` 与 `004369` 长期并存）。
+        # 现在形态由 venue 决定，不再按品种打补丁。
         search_symbol = symbol
-        if asset_type not in ('fund', 'money_fund', 'reverse_repo', 'bond'):
-            try:
-                normalizer = get_normalizer()
-                normalized, _, _ = normalizer.normalize(symbol)
-                if normalized:
-                    symbol = normalized
-                    search_symbol = normalized
-            except Exception:
-                logger.warning(f'无法标准化符号: {symbol}，保留原值')
 
         # 查找现有持仓（家庭维度）——统一身份键 (symbol, ledger_id, family_id)（#911 M3）。
         # 历史实现还按 (symbol, account_name) 二次匹配，与 ledger 键可能指向不同记录，
         # 存在「同一标的建出重复持仓」隐患；且标准化后 search_symbol 恒等于 symbol，该分支为死代码。
         ledger_id = data.get('ledger_id')
-        family_id = data.get('family_id', 1)
-        same = db.query(Position).filter_by(symbol=search_symbol, ledger_id=ledger_id, family_id=family_id).first()
+        family_id = _resolve_family_id(data)
+        same = _find_existing_position(db, ledger_id=ledger_id, family_id=family_id, symbol=search_symbol, venue=venue)
         final_symbol = search_symbol
 
         # ── 计价模式（#1174 / 决策 D2）──
@@ -757,12 +887,12 @@ class PositionService:
                     position = existing
                 is_new = True
 
-            # #863 口径 A：写路径货基冗余判定 + 互斥挂回（孤儿流水并入持仓表达，
-            # 使同 (ledger, symbol) 资金只以持仓市值计入总资产，不双计、不漏计）
+            # #863 口径 A + #1657 修复：写路径货基冗余判定 + 互斥挂回（孤儿流水并入持仓表达，
+            # 使同 (ledger, symbol) 资金只以持仓市值计入总资产，不双计、不漏计）。
+            # 无论 is_money_fund 判定如何都尝试挂回（幂等），避免判定不一致时漏挂回。
             position.is_money_fund = _resolve_money_fund_flag(symbol, asset_type, data.get('is_money_fund'))
-            if position.is_money_fund:
-                db.flush()  # 确保新建持仓已落库拿到 id，避免挂回孤儿流水时 position_id 为 None
-                _reattach_orphan_flows(db, ledger_id, symbol, position.id, family_id)
+            db.flush()  # 确保新建持仓已落库拿到 id，避免挂回孤儿流水时 position_id 为 None
+            _reattach_orphan_flows(db, ledger_id, symbol, position.id, family_id)
 
             # 创建交易流水
             txn_type = op_type if op_type in ('buy', 'deposit') else 'buy'
@@ -812,7 +942,7 @@ class PositionService:
             except Exception:
                 pass
             # #1458 后续：买入即入自选（静默，失败不影响主链路）
-            _silent_ensure_watchlist(db, data.get('family_id', 1), symbol)
+            _silent_ensure_watchlist(db, _resolve_family_id(data), symbol)
             return position
 
         except Exception:
@@ -833,7 +963,7 @@ class PositionService:
         qty_units = Money.shares_to_min_unit(qty_shares)
         price_units = Money.yuan_to_price_units(price_yuan)
 
-        existing = db.query(Position).filter_by(id=position_id, family_id=data.get('family_id', 1)).first()
+        existing = db.query(Position).filter_by(id=position_id, family_id=_resolve_family_id(data)).first()
         if not existing:
             raise ValueError('指定的持仓不存在')
         if qty_units <= 0:
@@ -902,7 +1032,7 @@ class PositionService:
                 account_name=account_name,
                 notes=data.get('notes') or ('卖出' if op_type == 'sell' else '取出'),
                 import_hash=data.get('import_hash'),
-                family_id=data.get('family_id', 1),
+                family_id=_resolve_family_id(data),
                 # #1232 决策 11：流水来源透传（记一笔默认 manual）
                 source=data.get('source') or PositionSource.MANUAL.value,
             )
@@ -917,12 +1047,12 @@ class PositionService:
                     amount_cents=gross_cents - fee_cents,
                     trade_date=data.get('trade_date'),
                     confirm_date=data.get('confirm_date'),
-                    family_id=data.get('family_id', 1),
+                    family_id=_resolve_family_id(data),
                 )
 
             db.flush()
             # #1458 后续：卖出/清仓后对齐自选状态（静默，失败不影响主链路）
-            _silent_reconcile_watchlist(db, data.get('family_id', 1), existing.symbol)
+            _silent_reconcile_watchlist(db, _resolve_family_id(data), existing.symbol)
             if is_cleared:
                 return None
             db.refresh(existing)
@@ -1026,7 +1156,7 @@ class PositionService:
         position_id = data['position_id']
         dividend_amount = data.get('dividend_amount', data.get('avg_price', 0))
 
-        existing = db.query(Position).filter_by(id=position_id, family_id=data.get('family_id', 1)).first()
+        existing = db.query(Position).filter_by(id=position_id, family_id=_resolve_family_id(data)).first()
         if not existing:
             logger.error(f'持仓不存在: position_id={position_id}')
             raise ValueError('指定的持仓不存在')
@@ -1054,7 +1184,7 @@ class PositionService:
                 ledger_id=existing.ledger_id,
                 notes=data.get('notes') or '现金分红',
                 import_hash=data.get('import_hash'),
-                family_id=data.get('family_id', 1),
+                family_id=_resolve_family_id(data),
                 # #1232 决策 11：流水来源透传（记一笔默认 manual）
                 source=data.get('source') or PositionSource.MANUAL.value,
             )
@@ -1085,7 +1215,7 @@ class PositionService:
         position_id = data.get('position_id')
         if not position_id:
             raise ValueError('红利再投资必须指定关联持仓（position_id）')
-        family_id = data.get('family_id', 1)
+        family_id = _resolve_family_id(data)
         existing = db.query(Position).filter_by(id=position_id, family_id=family_id).first()
         if not existing:
             raise ValueError('指定的持仓不存在')
@@ -1111,7 +1241,7 @@ class PositionService:
         # 尝试查找现有持仓（家庭维度）
         existing = (
             db.query(Position)
-            .filter_by(symbol=symbol, account_name=account, family_id=data.get('family_id', 1))
+            .filter_by(symbol=symbol, account_name=account, family_id=_resolve_family_id(data))
             .first()
         )
 
@@ -1129,7 +1259,7 @@ class PositionService:
                         'fee': data.get('fee', 0.0),
                         'notes': data.get('notes', ''),
                         'import_hash': data.get('import_hash'),
-                        'family_id': data.get('family_id', 1),
+                        'family_id': _resolve_family_id(data),
                     },
                     skip_lot_check=True,
                 )
@@ -1166,7 +1296,7 @@ class PositionService:
 
         existing = (
             db.query(Position)
-            .filter_by(symbol=symbol, account_name=account, family_id=data.get('family_id', 1))
+            .filter_by(symbol=symbol, account_name=account, family_id=_resolve_family_id(data))
             .first()
         )
 
@@ -1177,7 +1307,7 @@ class PositionService:
             'notes': data.get('notes', ''),
             'import_hash': data.get('import_hash'),
             'link_group_id': data.get('link_group_id'),
-            'family_id': data.get('family_id', 1),
+            'family_id': _resolve_family_id(data),
         }
 
         if existing:
@@ -1204,7 +1334,7 @@ class PositionService:
         - 有持仓但缺份额：降级为现金分红（单笔），不阻断整批导入。
         - 无关联持仓：记孤儿现金分红流水（notes 标明红利再投资），返回 None。
         """
-        family_id = data.get('family_id', 1)
+        family_id = _resolve_family_id(data)
         symbol = data.get('symbol', '')
         account = data.get('account_name', '')
         existing = db.query(Position).filter_by(symbol=symbol, account_name=account, family_id=family_id).first()
@@ -1228,7 +1358,7 @@ class PositionService:
         recompute_position_from_transactions 自动稀释（与买入/卖出回滚同一口径，避免再添分支）。
         手动记账传 position_id 直接定位；导入路径按 (symbol, account_name, family_id) 匹配。
         """
-        family_id = data.get('family_id', 1)
+        family_id = _resolve_family_id(data)
         qty = data.get('quantity') or 0
 
         if qty <= 0:
@@ -1293,3 +1423,99 @@ class PositionService:
         )
         db.flush()
         return PositionService.recompute_position_from_transactions(db, existing.id)
+
+    @staticmethod
+    def build_position_list(db, family_id: int, group_by: str, page: int, per_page: int, ledger_id_raw: str) -> dict:
+        """list_positions 的核心：过滤 + 按账户分组 / 分页组装（#1642 B 块，从 views 下沉）。
+
+        与下沉前逐字段一致：``ledger_id='null'`` 仅取未归档持仓；``group_by='account'`` 按
+        account_name 分组并补首次买入确认日（优先交易流水，回退 position.confirm_date）；否则分页
+        + enrich_position_dict。返回原 jsonify 的「内层 data 字典」（视图负责补 message）。
+        """
+        query = db.query(Position).filter(Position.family_id == family_id)
+        # 未归档过滤：ledger_id 显式传 'null' 时仅返回未绑定账户的持仓
+        if ledger_id_raw == 'null':
+            query = query.filter(Position.ledger_id.is_(None))
+        elif ledger_id_raw:
+            query = query.filter(Position.ledger_id == int(ledger_id_raw))
+        query = query.order_by(Position.updated_at.desc())
+
+        if group_by == 'account':
+            positions = query.all()
+            result: dict = {}
+
+            # 一次性查询所有持仓的首次买入确认日（性能优化）
+            pos_ids = [p.id for p in positions]
+            first_buy_dates: dict = {}
+            if pos_ids:
+                buy_dates_query = (
+                    db.query(Transaction.position_id, func.min(Transaction.confirm_date).label('confirm_date'))
+                    .filter(
+                        Transaction.position_id.in_(pos_ids),
+                        Transaction.txn_type.in_(['buy', 'deposit']),
+                    )
+                    .group_by(Transaction.position_id)
+                    .all()
+                )
+                first_buy_dates = {row.position_id: row.confirm_date for row in buy_dates_query}
+
+            for p in positions:
+                account = p.account_name
+                if account not in result:
+                    result[account] = []
+
+                # 获取首次买入确认日
+                buy_confirm = first_buy_dates.get(p.id)
+                if buy_confirm is None:
+                    buy_confirm = p.confirm_date  # 兼容无交易记录的回退
+
+                result[account].append(
+                    {
+                        'id': p.id,
+                        'symbol': p.symbol,
+                        'name': p.name,
+                        'type': p.asset_type,
+                        'type_label': TYPE_LABELS.get(p.asset_type, p.asset_type),
+                        'market': p.market,
+                        'market_label': MARKET_LABELS.get(p.market, p.market),
+                        'allocation': p.allocation,
+                        'allocation_label': ALLOCATION_LABELS.get(p.allocation, p.allocation or '未分类'),
+                        'quantity': Money.min_unit_to_shares(p.quantity),
+                        'avg_price': Money.price_units_to_yuan(p.avg_price),
+                        'currency': p.currency,
+                        'current_price': Money.price_units_to_yuan(p.current_price),
+                        'confirm_date': buy_confirm.isoformat() if buy_confirm else None,
+                        'ledger_id': p.ledger_id,
+                    }
+                )
+            return {'data': result}
+
+        # 分页模式保持不变
+        items, total = paginate(query, page=page, per_page=per_page)
+        data = [enrich_position_dict(p) for p in items]
+        return {'data': data, 'total': total, 'page': page, 'per_page': per_page}
+
+    @staticmethod
+    def dispatch_position_op(db, data: dict, op_type: str) -> Optional['Position']:
+        """create_position 的操作分派（#1642 B 块，从 views 下沉）。
+
+        与下沉前逐字段一致：sell/withdraw → process_sell_or_withdraw；dividend → process_dividend；
+        dividend_reinvest → process_dividend_reinvest；split → process_orphan_split；buy/deposit →
+        process_buy_or_deposit(force_create_position=True)。返回持仓或 None（已清空）。业务校验失败
+        透传 ValueError（视图转 400/1001）；唯一约束冲突透传 IntegrityError（视图转 409 幂等拦截）。
+        不支持的操作类型由视图在调本方法前 abort(400)，此处不兜底。
+        """
+        if op_type in ('sell', 'withdraw'):
+            return PositionService.process_sell_or_withdraw(db, data)
+        if op_type == 'dividend':
+            data['dividend_amount'] = data.get('avg_price', 0)
+            return PositionService.process_dividend(db, data)
+        if op_type == 'dividend_reinvest':
+            data['dividend_amount'] = data.get('dividend_amount', data.get('amount', data.get('avg_price', 0)))
+            data['nav'] = data.get('nav', data.get('avg_price', 0))
+            return PositionService.process_dividend_reinvest(db, data)
+        if op_type == 'split':
+            return PositionService.process_orphan_split(db, data)
+        if op_type in ('buy', 'deposit'):
+            return PositionService.process_buy_or_deposit(db, data, force_create_position=True)
+        raise ValueError(f'不支持的操作类型: {op_type}')

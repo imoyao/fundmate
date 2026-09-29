@@ -248,7 +248,7 @@ const hasSupplements = computed(
   width: 56px;
   height: 56px;
   margin-bottom: var(--space-compact);
-  color: var(--color-success);
+  color: var(--color-success-ink);
 }
 
 .result-icon svg {
@@ -258,7 +258,7 @@ const hasSupplements = computed(
 
 /* 信息态图标（无新增数据时） */
 .result-icon.info-tone {
-  color: var(--color-info);
+  color: var(--color-info-ink);
 }
 
 /* 标题 */
@@ -283,7 +283,7 @@ const hasSupplements = computed(
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   line-height: 1;
-  color: var(--color-success);
+  color: var(--color-success-ink);
   letter-spacing: -0.02em;
 }
 
@@ -304,7 +304,7 @@ const hasSupplements = computed(
 
 /* 全部通过时的「干净」状态：稍亮一点表示正向反馈 */
 .result-caption.clean {
-  color: var(--color-success);
+  color: var(--color-success-ink);
   opacity: 0.85;
 }
 
@@ -346,7 +346,7 @@ const hasSupplements = computed(
 }
 
 .success-icon {
-  color: var(--color-success);
+  color: var(--color-success-ink);
 }
 
 .warning-icon {
@@ -354,7 +354,7 @@ const hasSupplements = computed(
 }
 
 .info-icon {
-  color: var(--color-info);
+  color: var(--color-info-ink);
 }
 
 /* 文字区 */

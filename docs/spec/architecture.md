@@ -142,7 +142,7 @@ BiasJob._fetch_data()
 
 > 决策原文见 [`decisions.md`](./decisions.md) 2026-09-19 行（D24）；本节只记**应然状态**，改动须先动决策。
 
-```
+```plain
 core  ←  domains.<域>.models / schemas  ←  services  ←  domains.<域>.views
 ```
 
@@ -175,6 +175,20 @@ core  ←  domains.<域>.models / schemas  ←  services  ←  domains.<域>.vie
   配套 `tests/core/test_layer_direction.py`（逐规则灵敏度 + 合法边反向保护 + 冻结基线边界）。
   判据用「**边方向**」而不是「包级双向依赖对数量」——包级双向对多数由 `views→services` 与
   `services→models` 两条**合法边**叠加而成（如 `domains.positions` ↔ `services.position_service`），不构成违规。
+- **守卫（数据域约束）**：`scripts/check_cross_domain_query.py`（pre-commit + CI 的 backend job）——
+  双库「零外键、零 SQL join」（§1.2）的**静态拦截层**。**它是这条约束唯一的机器化拦截手段**：
+  门禁与全部单测跑**单库**（`tests/conftest.py` 把 `engine` / `user_engine` patch 成同一个内存引擎），
+  跨域 join 在两域同库时不报错，结构上测不出；而生产每日调度（`daily-snapshot.yml`）跑**真双库**
+  —— #1605 的跨域 join 就是这样长期存在、只在无人值守的凌晨调度里才可能炸。
+  覆盖五类：A 单链（`query` / `select` + `join` / `outerjoin`）、B 同函数内 `subquery()` 变量耦合、
+  C-eager（`joinedload` / `selectinload` 等 eager 选项）、C-join（`.join(<关系属性>)`，不传模型类，
+  按模型名扫不到）、C-rel（跨域 `relationship()` **声明**本身）。
+  **C-rel 的口径**：声明 ≠ 违规（`lazy='select'` 发单表 SELECT，由 `_RoutingSessionMaker` 按表路由到
+  market 引擎，双库安全），但声明处是「跨域引用」唯一的集中登记点 → **零容忍 + 显式豁免**；
+  存量唯一命中 `domains/ledgers/models.py` 的 `Ledger.linked_money_fund`（#1137，故意不声明 FK +
+  显式 `primaryjoin` + `lazy='select'`），已在脚本 `ALLOWLIST` 登记理由。
+  配套 `tests/test_guard_cross_domain.py`（正向 × 5 / 同域反向放行 / 豁免放行 / 空理由拒绝 /
+  防「豁免表空转」× 2）。判据与落地见 `decisions.md` 2026-09-21 行（D34）。
 
 ### 6.1 视图层判据（#1606 批次 1）
 
@@ -190,5 +204,20 @@ core  ←  domains.<域>.models / schemas  ←  services  ←  domains.<域>.vie
 存量超标**按批次收敛**（不一次性推平：131 个端点批量改写风险大于收益），先立边界、堵新增。
 批次 1 已落地：`ledgers` 账户迁移域 → `services/ledger_migration_service.py`；
 `watchlist` 展示增强 → `services/watchlist_display.py`（与 `watchlist_service` 的查询/写入/状态机分层）。
-后续批次候选：`ledgers` 余下视图内业务规则（活期+ 绑定换绑、改名快照刷新、类型变更校验）、
-`positions` / `funds` 等同类文件。
+批次 2（#1642）：A 块 `ledgers` 余下视图内业务规则（活期+ 绑定换绑、改名快照刷新、类型变更校验）
+→ `services/ledger_write_service.py`（1210/30/150 → 723/16/60）；B 块其余 8 个视图的超长函数
+（`portfolios` / `strategy` / `funds` / `positions` / `transactions` / `importers` / `ocr` / `watchlist`
+的展示增强、行组装、分页前置）→ 各自 domain 服务，全部 max_func ≤ 60（基线见 `check_view_thickness.py`）。
+
+**批次 2 定下的判据（后续下沉照此办理）——能下沉的是「业务规则」，不是「服务调用」**：
+
+- 纯转换 / 映射 / 校验链 / 状态机 / 展示组装 → 落 `services/`；**归属按「谁拥有产出的数据结构」定**，
+  不按「谁调用它」定（先例：AI 交易候选行转换产出的是 importer 的预览行，故落
+  `services/importer/candidates.py`，而非 ocr 域或 `ocr_service.py`）。
+- **「开会话 + 构造 orchestrator + 调它」属视图职责，留在视图**——这正是 D26 的「调用 services」，
+  `views → services` 是合法边（`importers/views.py` 的 `/confirm`、`e_account_views.py`、
+  `ocr/views.py` 的持仓路径历来如此）。**不要**为省两行把它包成 `services/*_service.py` 转发壳：
+  那是零逻辑的间接层，且正面撞 R6（领域服务不得反向依赖编排层，D25 / D32）。#1642 B 块初稿即
+  因此吃 CI 红灯（`importer_service.py` 纯转发壳 + 把转换塞进 `ocr_service.py`——后者还违反该
+  facade 自身「本文件勿再堆业务逻辑」的约定）；现前者删除、后者改落 `importer/candidates.py`，
+  代价是 `importers` max_func +1（52 → 53）、`ocr` 视图 +23 行（191 → 214），两者仍远在 60 行判据之内。

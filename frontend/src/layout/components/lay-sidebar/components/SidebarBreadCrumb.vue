@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { useRoute, useRouter } from "vue-router";
-import { ref, watch, onMounted } from "vue";
+import {
+  ref,
+  watch,
+  onMounted,
+  TransitionGroup,
+  type Component,
+  type FunctionalComponent
+} from "vue";
 
 const route = useRoute();
 const levelList = ref([]);
@@ -52,6 +59,25 @@ const handleLink = item => {
   }
 };
 
+/**
+ * 后台（隐藏）标签页改用无动画渲染：Chrome 对 hidden 页面暂停 rAF，而 Vue 过渡
+ * 的 enter/leave 依赖 nextFrame（双 rAF）推进——后台导航会把 transition-group
+ * 卡死在半程（面包屑残留旧页面标题，如「总览/资产总览/个人中心/」叠在一起，
+ * 且恢复可见前不会清理）。隐藏时用户本就看不到动画，直接渲染子项即可；
+ * 恢复可见后的下一次导航自动切回 transition-group，动画照常。
+ * 注意：仅把 name 置空无效——卡点在 rAF 而非 CSS，Vue 仍会等 nextFrame。
+ * 用方法而非 computed——visibility 无响应式依赖，computed 会缓存首次求值；
+ * 方法在每次渲染时执行，取到导航发生时的实时 visibility。
+ * （同类修复见 lay-content 的 transitionMain。）
+ */
+const PlainGroup: FunctionalComponent = (_props, { slots }) =>
+  slots.default ? slots.default() : [];
+
+const getBreadcrumbTransition = (): Component =>
+  typeof document !== "undefined" && document.hidden
+    ? PlainGroup
+    : TransitionGroup;
+
 onMounted(() => {
   getBreadcrumb();
 });
@@ -69,7 +95,7 @@ watch(
 
 <template>
   <el-breadcrumb class="leading-[50px]! select-none" separator="/">
-    <transition-group name="breadcrumb">
+    <component :is="getBreadcrumbTransition()" name="breadcrumb">
       <el-breadcrumb-item
         v-for="(item, index) in levelList"
         :key="item.path"
@@ -83,6 +109,6 @@ watch(
         </a>
         <span v-else>{{ item.meta.title }}</span>
       </el-breadcrumb-item>
-    </transition-group>
+    </component>
   </el-breadcrumb>
 </template>

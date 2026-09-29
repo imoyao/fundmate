@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import List, Optional, Tuple
 
 from app.core.constants import PositionSource
+from app.core.venues import EXCHANGE, OTC
 from app.services.import_records import SBImportError, StandardTransactionRecord
 from app.services.importer.base import BaseImportParser
 from app.services.importer.mappings import (
@@ -199,6 +200,8 @@ class StandardTemplateParser(BaseImportParser):
 
 class FundStandardParser(StandardTemplateParser):
     source = PositionSource.BROKER_STD_FUND.value
+    # 基金模板 = 场外申赎：代码为证监会分配的 6 位裸码（#1662）
+    venue = OTC
 
     @property
     def _column_map(self) -> dict:
@@ -233,6 +236,8 @@ class FundStandardParser(StandardTemplateParser):
 
 class StockStandardParser(StandardTemplateParser):
     source = PositionSource.BROKER_STD_STOCK.value
+    # 股票模板 = 交易所撮合：代码带 SH/SZ/BJ 前缀（#1662）
+    venue = EXCHANGE
 
     @property
     def _column_map(self) -> dict:

@@ -73,7 +73,7 @@ const { title } = useNav();
     font-size: 18px;
     font-weight: 600;
     line-height: 32px;
-    color: var(--pure-theme-sub-menu-active-text);
+    color: var(--brand-ink);
     white-space: nowrap;
   }
 
@@ -83,7 +83,7 @@ const { title } = useNav();
       margin-left: 0.25em;
       font-size: 0.6em;
       font-weight: 400;
-      color: var(--pure-theme-sub-menu-active-text);
+      color: var(--text-tertiary-ink);
       opacity: 0.72;
 
       &::before {
@@ -103,7 +103,7 @@ const { title } = useNav();
       font-size: 0.55rem;
       font-weight: 600;
       line-height: 1;
-      color: var(--el-color-primary);
+      color: var(--brand-ink);
       white-space: nowrap;
       background: rgb(242 163 142 / 14%);
       border: 1px solid var(--el-color-primary-light-5);

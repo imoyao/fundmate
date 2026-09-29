@@ -42,7 +42,7 @@
 | 温度组成 | 历史可得性 | 补齐方式 |
 |----------|-----------|---------|
 | 且慢 / 有知有行 / 韭圈儿（官方合成温度） | ❌ 无公开历史 API | **不能**补齐到存储起始日之前；只能从首次入库日起 |
-| 自算估值分位（股债利差：沪深300 PE + 10Y 国债 + CPI） | ✅ akshare 有完整历史 | **可**重算历史 |
+| 自算估值分位（股债利差：沪深 300 PE + 10Y 国债 + CPI） | ✅ akshare 有完整历史 | **可**重算历史 |
 | 东财两市成交额 | ✅ 指数日线含成交量历史 | **可**重算历史 |
 | 乖离率（31 行业 + 6 宽基） | ✅ 价格历史可得 | **可**重算历史 |
 | 行业拥挤度 | ✅ 行情历史可得 | **可**重算历史 |
@@ -140,7 +140,7 @@ watchlist = self.db.query(WatchlistItem.symbol).distinct().all()  # 全库自选
 
 `gh run view 34712414320 --log-failed` 末尾：
 
-```
+```plain
 sqlalchemy.exc.NoSuchModuleError: Can't load plugin: sqlalchemy.dialects:turso
 ```
 

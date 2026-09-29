@@ -392,3 +392,9 @@ docs/design/archive/site-exploration/
 
 # 运行期日志（#1551）：backend/logs/ 按天轮转；压缩产物是 .zip，上方的 *.log 盖不住
 backend/logs/
+
+# git 元数据的事故备份/残骸（#1737 家族事件产物：commit msg 草稿、旧 objects/config、
+# worktrees.*.bak 等，约 144 MB / 3400 个文件）。主仓对象图已核对完整（fsck 无 missing），
+# 该目录不再承载唯一数据，但仍可能因 `git add -A` 被误入库，故显式忽略。
+# 恢复姿势见 docs/ops/worktree-gitdir-recovery.md §3。
+.git.corrupt.safe/

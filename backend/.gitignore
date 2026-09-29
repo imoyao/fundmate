@@ -61,6 +61,10 @@ env/
 *.db
 *.db-shm
 *.db-wal
+# 迁移前的安全备份（形如 invest.db.backup-venue-<时间戳>）：
+# 体积常达 GB 级，且名字以 .backup<...> 结尾、**不被上面的 *.db 命中**，必须显式忽略——
+# 否则 git add -A 会把上 GB 的备份直接塞进仓库（#1661 venue 迁移实测 1.2GB）
+*.db.backup*
 # 乖离率价格缓存安全网（自 #1540 起缓存改落 $CACHE_FILE_DIR，本目录已不再是落点）
 data/bias_price_cache/
 # 温度计运行时缓存安全网（自 #1539 起缓存改落 $CACHE_FILE_DIR，本目录已不再是落点，见 cache/README.md）

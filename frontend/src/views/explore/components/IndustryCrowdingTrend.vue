@@ -1,9 +1,9 @@
 <!-- frontend/src/views/explore/components/IndustryCrowdingTrend.vue -->
 <!--
   行业 / 赛道拥挤度趋势（#1431）：CardBlock + SectionHeader + ECharts 折线。
-  · 数据来自外部临时源的历史接口（**不落库**，后端代理 + 缓存；源见 #1502）；
-  · 图表颜色一律读全局 token（design.md 红线：图表颜色禁止硬编码），多序列取品牌色阶；
-  · 外部源不可用 → 显示提示（role="status"），不报错、不影响其它区块。
+  · 历史序列由后端代理 + 缓存提供（**不落库**，源见 #1502，不对外暴露来源）；
+  · 图表颜色一律读全局 token（design.md 红线：图表颜色禁止硬编码），多序列取 --chart-* 分类色板；
+  · 接口不可用 → 显示提示（role="status"），不报错、不影响其它区块。
 -->
 <template>
   <CardBlock class="crowding-trend">
@@ -24,7 +24,7 @@
       </template>
     </SectionHeader>
 
-    <!-- 外部源不可用 / 无数据：提示而非报错 -->
+    <!-- 接口不可用 / 无数据：提示而非报错 -->
     <div v-if="!loading && !hasData" class="trend-empty" role="status">
       <IconifyIconOffline icon="ep:info-filled" class="trend-empty__icon" />
       <span>{{ notice }}</span>
@@ -59,8 +59,8 @@ const props = withDefaults(defineProps<{ category?: "sw" | "track" }>(), {
   category: "sw"
 });
 
-/** 多序列折线可读性上限：只画最新值前 N 项（31 条线会糊成一团） */
-const TREND_TOP_N = 6;
+/** 图例默认勾选的序列数（31 条线全开会糊成一团）；其余序列保留在图例中，用户可随时点选 */
+const TREND_DEFAULT_N = 8;
 
 const INDICATOR_OPTIONS = [
   { value: "crowding", label: "综合拥挤度" },
@@ -85,8 +85,7 @@ const infoText = computed(
   () =>
     `按${
       props.category === "track" ? "热门赛道" : "申万一级行业"
-    }展示所选指标的历史序列（周度 / 月度），为保证可读性只绘制最新值前 ${TREND_TOP_N} 项。` +
-    "数据来自外部临时源（未授权、可能随时失效），仅供参考。"
+    }展示所选指标的历史序列（周度 / 月度）。为保证可读性，默认展示最新值前 ${TREND_DEFAULT_N} 项，其余序列可在图例中点选。`
 );
 
 /** 取数组末尾第一个非空值（用于排序挑选 Top N） */
@@ -97,7 +96,7 @@ function lastNumber(values: (number | null)[]): number | null {
   return null;
 }
 
-/** Top N 序列（按最新值降序） */
+/** 全部序列（按最新值降序）；不截断——默认可见性交给 legendSelected 控制 */
 const trendSeries = computed(() => {
   const items = history.value?.items || [];
   return items
@@ -105,8 +104,16 @@ const trendSeries = computed(() => {
     .map(i => ({ name: i.name, values: i.values, last: lastNumber(i.values) }))
     .filter(i => i.last != null)
     .sort((a, b) => (b.last as number) - (a.last as number))
-    .slice(0, TREND_TOP_N)
     .map(({ name, values }) => ({ name, values }));
+});
+
+/** 图例默认勾选：仅最新值前 N 条可见，其余由用户按需开启 */
+const legendSelected = computed(() => {
+  const selected: Record<string, boolean> = {};
+  trendSeries.value.forEach((s, i) => {
+    selected[s.name] = i < TREND_DEFAULT_N;
+  });
+  return selected;
 });
 
 const fetchTrend = async () => {
@@ -123,25 +130,33 @@ const fetchTrend = async () => {
       notice.value = "";
     } else {
       history.value = null;
-      notice.value = res.message || "拥挤度趋势暂不可用（外部源关停或不可达）";
+      notice.value = "拥挤度趋势暂不可用，稍后自动恢复";
     }
   } catch (e) {
     console.error("获取拥挤度趋势失败:", e);
     history.value = null;
-    notice.value = "拥挤度趋势暂不可用（网络或服务异常）";
+    notice.value = "拥挤度趋势暂不可用，请稍后重试";
   } finally {
     loading.value = false;
   }
 };
 
-/** 折线配色：全部读全局 token（越靠前越高热度 → 品牌色阶由深到浅） */
-const LINE_TOKENS = [
-  "--brand-700",
-  "--brand-600",
-  "--brand-500",
-  "--brand-400",
-  "--brand-300",
-  "--temp-mid"
+/**
+ * 折线配色：取全局图表分类色板（`--chart-01`…`--chart-08`，见 colors.css）。
+ *
+ * WHY 不用品牌色阶：品牌色是**单一珊瑚红色相**的深浅档，多条线叠在一起色相相同、
+ * 只靠明度区分，辨识度极低；`--chart-*` 是现成的分类色板，色相各异，多序列对比更清晰。
+ * （design.md 红线：图表颜色不得硬编码，必须读全局 token。）
+ */
+const CHART_TOKENS = [
+  "--chart-01",
+  "--chart-02",
+  "--chart-03",
+  "--chart-04",
+  "--chart-05",
+  "--chart-06",
+  "--chart-07",
+  "--chart-08"
 ];
 
 const themeTick = useThemeTick();
@@ -149,7 +164,7 @@ const chartOption = computed(() => {
   void themeTick.value; // 主题切换时重算 option，触发 vue-echarts 重绘（#976）
   const dates = history.value?.dates || [];
   const series = trendSeries.value;
-  const lineColors = LINE_TOKENS.map(t => getCssVar(t, "#e34f38"));
+  const lineColors = CHART_TOKENS.map(t => getCssVar(t, "#9aa4b2"));
   const axisLabelColor = getCssVar("--text-tertiary", "#999");
   const splitLineColor = getCssVar("--border-subtle", "#f0f0f0");
   const legendColor = getCssVar("--text-secondary", "#666");
@@ -166,6 +181,7 @@ const chartOption = computed(() => {
       icon: "roundRect",
       itemWidth: 10,
       itemHeight: 10,
+      selected: legendSelected.value,
       textStyle: { fontSize: 11, color: legendColor }
     },
     grid: { top: 16, left: 8, right: 16, bottom: 46, containLabel: true },

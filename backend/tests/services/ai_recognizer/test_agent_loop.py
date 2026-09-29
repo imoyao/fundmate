@@ -1,16 +1,20 @@
 # -*- coding: utf-8 -*-
-"""账本精灵 AgentLoop / ToolExecutor 离线单测（不触网、不触 DB）。
+"""账本精灵 AgentLoop / ToolExecutor 离线单测（不触网；DB 为 conftest 内存库）。
 
-验证三件最易碎的事：
+验证四件最易碎的事：
 1. parse_agent_action 的容错（围栏 / 无 JSON / 数组 / 非法 action 都降级为澄清）；
-2. ToolExecutor 的 schema 校验（缺参 / 未知参 / 非法值 -> error）；
-3. run_agent 在 monkeypatch 掉 call_llm 后能跑通 execute_tool 路径，且 G4 超限抛异常。
+2. ToolExecutor 的 schema 校验（缺参 / 未知参 / 类型或格式非法 -> error）；
+3. run_agent 在 monkeypatch 掉 call_llm 后能跑通 execute_tool 路径，且 G4 超限抛异常；
+4. #1718 决策轮对齐：缺省 goal 不得虚构进 prompt、指令为三选一、工具术语点名贪恐指数。
 """
+
+import json
 
 import pytest
 
 from app.core.exceptions import ErrorCode, SBException
-from app.services.ai_recognizer import agent_loop, guards
+from app.domains.agent.models import AgentSession
+from app.services.ai_recognizer import agent_loop, guards, session_store
 from app.services.ai_recognizer import llm as llm_mod
 from app.services.ai_recognizer.agent_loop import validate_session_state
 from app.services.ai_recognizer.tools import ToolExecutor
@@ -45,24 +49,26 @@ def test_parse_invalid_action():
     assert out['error'] == 'invalid_action'
 
 
-# ── ToolExecutor 校验 ──
+# ── ToolExecutor 校验（S1-A 换真实工具后的四例） ──
 def test_tool_success():
-    r = ToolExecutor.run('get_portfolio_performance', {'scope': 'all', 'period': '90d'})
+    # 空内存库：资产总览返回全零指标，链路真实跑通
+    r = ToolExecutor.run('get_assets_overview', {})
     assert r['status'] == 'success'
+    assert r['data']['total_assets_cny'] == 0
 
 
 def test_tool_missing_required():
-    r = ToolExecutor.run('get_portfolio_performance', {'scope': 'all'})  # 缺 period
+    r = ToolExecutor.run('get_fund_nav', {})  # 缺 fund_codes
     assert r['status'] == 'error'
 
 
 def test_tool_unknown_param():
-    r = ToolExecutor.run('get_portfolio_performance', {'scope': 'all', 'period': '90d', 'bad': 1})
+    r = ToolExecutor.run('get_assets_overview', {'scope': 'all'})
     assert r['status'] == 'error'
 
 
-def test_tool_bad_enum():
-    r = ToolExecutor.run('get_portfolio_performance', {'scope': 'galaxy', 'period': '90d'})
+def test_tool_bad_pattern():
+    r = ToolExecutor.run('get_fund_nav', {'fund_codes': ['not-a-code']})  # 数组元素不匹配 ^\d{6}$
     assert r['status'] == 'error'
 
 
@@ -84,13 +90,34 @@ def test_run_agent_execute(monkeypatch):
     def fake(content, system_prompt, **kwargs):
         calls['n'] += 1
         if kwargs.get('response_format'):
-            return '{"action":"execute_tool","tool_name":"get_portfolio_performance","tool_params":{"scope":"all","period":"90d"}}'
-        return '您的年化收益约为 X%。'  # 叙事
+            return '{"action":"execute_tool","tool_name":"get_assets_overview","tool_params":{}}'
+        # 叙事：按 #1712 小节契约输出（决策轮 / 叙事轮以 response_format 区分）
+        return '【结论】净资产约 X 元。\n【明细】详情如下。\n【风险提示】暂无。'
 
     monkeypatch.setattr(llm_mod, 'call_llm', fake)
-    out = agent_loop.run_agent('分析我的收益', {}, user_id=1, session_id='s1')
+    out = agent_loop.run_agent('分析我的收益', AgentSession(session_id='s1', user_id=1))
     assert out['type'] == 'result'
     assert calls['n'] == 2  # 1 次决策 + 1 次叙事
+    # 契约分块（#1712）：blocks 解析成功，结构可被前端直接渲染
+    assert out['blocks'] is not None
+    assert [b['type'] for b in out['blocks']] == ['summary', 'text', 'risk']
+    # 兜底字段保留：content 原文仍在，前端可回退纯文本渲染
+    assert out['content'].startswith('【结论】')
+
+
+def test_run_agent_narrative_drift_falls_back(monkeypatch):
+    """叙事模型漂移（不按小节输出）→ blocks=None，前端降级纯文本，不崩。"""
+
+    def fake(content, system_prompt, **kwargs):
+        if kwargs.get('response_format'):
+            return '{"action":"execute_tool","tool_name":"get_assets_overview","tool_params":{}}'
+        return '就是一段没有小节标记的普通总结。'
+
+    monkeypatch.setattr(llm_mod, 'call_llm', fake)
+    out = agent_loop.run_agent('分析我的收益', AgentSession(session_id='s1_drift', user_id=1))
+    assert out['type'] == 'result'
+    assert out['blocks'] is None
+    assert out['content'] == '就是一段没有小节标记的普通总结。'
 
 
 def test_run_agent_clarify(monkeypatch):
@@ -98,19 +125,244 @@ def test_run_agent_clarify(monkeypatch):
         return '{"action":"ask_clarification","missing_params":["period"],"content":"想分析多久？"}'
 
     monkeypatch.setattr(llm_mod, 'call_llm', fake)
-    out = agent_loop.run_agent('分析我的收益', {}, user_id=1, session_id='s2')
+    out = agent_loop.run_agent('分析我的收益', AgentSession(session_id='s2', user_id=1))
     assert out['type'] == 'clarify'
     assert out['missing_params'] == ['period']
 
 
 def test_run_agent_turn_limit(monkeypatch):
+    """G4（S2 起落库）：turn_count 打满的会话行再进对话 → AGENT_TURN_LIMIT_EXCEEDED。"""
+
     def fake(content, system_prompt, **kwargs):
         return '{"action":"ask_clarification","missing_params":["period"]}'
 
     monkeypatch.setattr(llm_mod, 'call_llm', fake)
-    for _ in range(guards.get_agent_max_turns()):
-        guards.record_agent_turn(1, 'sess_limit')
+    session = AgentSession(
+        session_id='sess_limit',
+        user_id=1,
+        turn_count=guards.get_agent_max_turns(),
+    )
     with pytest.raises(SBException) as exc:
-        agent_loop.run_agent('hi', {}, user_id=1, session_id='sess_limit')
+        agent_loop.run_agent('hi', session)
     assert exc.value.code == ErrorCode.AGENT_TURN_LIMIT_EXCEEDED.code
-    guards.reset_agent_session(1, 'sess_limit')  # 清理，避免影响其他用例
+
+
+# ── #1714 协作式取消 ──
+def test_run_agent_cancelled_after_tool(monkeypatch):
+    """检查点②（工具后、叙事前）：命中取消 → cancelled 态 + 幽灵轮次归零。
+
+    幽灵语义 = 「该轮从未发生」：turn_count / messages / state 恢复本轮前快照，
+    teardown commit 落空——被取消轮次不扣轮次预算、回放无悬空轮。
+    """
+    from app.services.ai_recognizer import cancellation
+
+    def fake_tool(name, params, server_ctx=None):
+        cancellation.request_cancel('cancel_tool')  # 请求进行中置位 → 时间窗成立
+        return {'status': 'success', 'data': {'k': 1}}
+
+    monkeypatch.setattr(agent_loop.ToolExecutor, 'run', staticmethod(fake_tool))
+
+    def fake(content, system_prompt, **kwargs):
+        if kwargs.get('response_format'):
+            return '{"action":"execute_tool","tool_name":"get_assets_overview","tool_params":{}}'
+        raise AssertionError('取消命中后不得再发起叙事调用')
+
+    monkeypatch.setattr(llm_mod, 'call_llm', fake)
+    session = AgentSession(
+        session_id='cancel_tool',
+        user_id=1,
+        turn_count=2,
+        state={},
+        messages=[{'user': '旧轮', 'assistant': '旧答'}],
+    )
+    out = agent_loop.run_agent('分析我的收益', session)
+    assert out['type'] == 'cancelled'
+    assert out['session_id'] == 'cancel_tool'
+    # 幽灵轮次归零：本轮的 turn_count+1 / messages 占位全部回滚
+    assert session.turn_count == 2
+    assert session.messages == [{'user': '旧轮', 'assistant': '旧答'}]
+    assert session.state == {}
+    # finally 回收：标志不残留
+    assert not cancellation.is_cancelled_since('cancel_tool', 0.0)
+
+
+def test_run_agent_cancelled_before_retry(monkeypatch):
+    """检查点①（重试迭代开头）：工具首败 + 取消置位 → 不发起第二次决策调用。"""
+    from app.services.ai_recognizer import cancellation
+
+    calls = {'n': 0}
+
+    def fake(content, system_prompt, **kwargs):
+        calls['n'] += 1
+        return '{"action":"execute_tool","tool_name":"get_assets_overview","tool_params":{}}'
+
+    monkeypatch.setattr(llm_mod, 'call_llm', fake)
+
+    def fake_tool(name, params, server_ctx=None):
+        cancellation.request_cancel('cancel_retry')
+        return {'status': 'error', 'msg': '模拟失败'}
+
+    monkeypatch.setattr(agent_loop.ToolExecutor, 'run', staticmethod(fake_tool))
+    session = AgentSession(session_id='cancel_retry', user_id=1, turn_count=0)
+    out = agent_loop.run_agent('分析我的收益', session)
+    assert out['type'] == 'cancelled'
+    assert calls['n'] == 1  # 首次决策后即取消，重试的第二次决策调用被拦下
+    assert session.turn_count == 0  # 该轮从未发生
+
+
+def test_run_agent_ignores_flag_before_turn_started(monkeypatch):
+    """时间戳口径：本轮开始之前的置位（上一轮残留）不得误取消本轮。"""
+    from app.services.ai_recognizer import cancellation
+
+    cancellation.request_cancel('stale_flag')  # 置位早于本轮 started → 检查点不可见
+
+    def fake(content, system_prompt, **kwargs):
+        return '{"action":"ask_clarification","missing_params":["period"],"content":"想分析多久？"}'
+
+    monkeypatch.setattr(llm_mod, 'call_llm', fake)
+    session = AgentSession(session_id='stale_flag', user_id=1)
+    out = agent_loop.run_agent('分析我的收益', session)
+    assert out['type'] == 'clarify'  # 未被上一轮残留标志误取消
+    assert not cancellation.is_cancelled_since('stale_flag', 0.0)  # finally 回收了僵尸标志
+
+
+# ── #1718 决策轮对齐：prompt 组装断言（不触网，mock call_llm 抓真实入参）──
+def _capture_decision(monkeypatch, session, user_input='现在市场温度是多少？'):
+    """跑一轮 run_agent，抓决策轮的真实 prompt 与 system prompt（首轮即 clarify 收尾）。"""
+    seen: dict = {}
+
+    def fake(content, system_prompt, **kwargs):
+        if not seen:
+            seen['prompt'] = content[0]['text']
+            seen['system'] = system_prompt
+        return '{"action":"ask_clarification","missing_params":[],"content":"好的"}'
+
+    monkeypatch.setattr(llm_mod, 'call_llm', fake)
+    agent_loop.run_agent(user_input, session)
+    return seen
+
+
+def test_prompt_without_goal_not_fabricated(monkeypatch):
+    """会话没设过目标 → prompt 不得虚构「分析账户收益」（#1718 根因①）。"""
+    seen = _capture_decision(monkeypatch, AgentSession(session_id='g1', user_id=1))
+    assert '分析账户收益' not in seen['prompt']
+    assert '当前分析目标：无' in seen['prompt']
+    assert '以用户最新一轮提问为准' in seen['prompt']
+
+
+def test_prompt_default_goal_treated_as_unset(monkeypatch):
+    """session_store.DEFAULT_GOAL 是展示用缺省标题，进 prompt 一律按「未设目标」处理。
+
+    线上每个新建会话行都会被 load_or_create 写入该缺省值，历史存量行同样如此，
+    所以只改回退值不够，必须把缺省值本身过滤掉。
+    """
+    from app.services.ai_recognizer import session_store
+
+    session = AgentSession(session_id='g2', user_id=1, goal=session_store.DEFAULT_GOAL)
+    seen = _capture_decision(monkeypatch, session)
+    assert '分析账户收益' not in seen['prompt']
+    assert '当前分析目标：无' in seen['prompt']
+
+
+def test_prompt_user_goal_kept_but_demoted(monkeypatch):
+    """用户显式设过的目标保留，但必须降级为背景、让位于最新提问。"""
+    session = AgentSession(session_id='g3', user_id=1, goal='分析未来三年开销')
+    seen = _capture_decision(monkeypatch, session)
+    assert '分析未来三年开销' in seen['prompt']
+    assert '仅作背景，仍以用户最新一轮提问为准' in seen['prompt']
+
+
+def test_prompt_decision_rule_is_three_way(monkeypatch):
+    """指令不再是「信息齐不齐」二元判断，且 system prompt 含对齐铁律。"""
+    seen = _capture_decision(monkeypatch, AgentSession(session_id='g4', user_id=1))
+    assert '判断顺序' in seen['prompt']
+    assert '没有工具能回答' in seen['prompt']
+    assert '请判断：信息是否齐全' not in seen['prompt']
+    assert '以用户最新一轮提问为准' in seen['system']
+    assert '禁止反问用户「是否继续原目标」' in seen['system']
+
+
+def test_temperature_tool_description_names_fear_greed():
+    """术语加固：工具清单里必须点名「贪恐 / 恐惧贪婪指数」，否则模型无从建立术语映射。"""
+    from app.services.ai_recognizer.tools import TOOLS_METADATA
+
+    meta = next(t for t in TOOLS_METADATA if t['name'] == 'get_market_temperature')
+    assert '贪恐' in meta['description']
+    assert '恐惧贪婪' in meta['description']
+
+
+def test_narrative_prompt_carries_user_question(monkeypatch):
+    """叙事轮必须带上用户本轮提问 + 工具语义说明（#1718 第二处根因）。
+
+    修复前叙事 prompt 只有「基于以下数据…总结给用户」，模型不知道用户问了什么，
+    产出通用的「市场温度总结」，三个子问题一个都不覆盖。
+    """
+    seen: dict = {}
+
+    def fake(content, system_prompt, **kwargs):
+        if kwargs.get('response_format'):  # 决策轮
+            return '{"action":"execute_tool","tool_name":"get_market_temperature","tool_params":{}}'
+        seen['narrative'] = content[0]['text']
+        return '短期档即贪恐指数 21，数据来源见页面清单。'
+
+    monkeypatch.setattr(llm_mod, 'call_llm', fake)
+    out = agent_loop.run_agent('贪恐指数是多少？', AgentSession(session_id='n1', user_id=1))
+    assert out['type'] == 'result'
+    text = seen['narrative']
+    assert '贪恐指数是多少' in text  # 用户本轮提问进了叙事 prompt
+    assert '恐惧贪婪' in text  # 工具语义说明（短期档=贪恐指数）进了叙事 prompt
+    assert '逐个覆盖' in text  # 覆盖子问题 + 缺数据要明说的硬要求
+
+
+def test_multi_turn_intent_follows_latest_question(monkeypatch):
+    """主验收（#1718）：第 1 轮问温度、第 2 轮问来源/频率/贪恐 → 不得再被执行收益工具。
+
+    决策用**探针伪模型**：只要 prompt 里还残留编造的缺省 goal 就照旧选收益工具，
+    否则按最新提问选温度工具——把「模型被 goal 牵引」这一机制变成确定性断言，
+    修复失效（缺省 goal 冒头）时本用例立刻变红。
+    """
+    decision_prompts: list[str] = []
+
+    def fake(content, system_prompt, **kwargs):
+        if kwargs.get('response_format'):  # 决策轮
+            text = content[0]['text']
+            decision_prompts.append(text)
+            tool = 'get_portfolio_performance' if '分析账户收益' in text else 'get_market_temperature'
+            return json.dumps(
+                {'action': 'execute_tool', 'tool_name': tool, 'tool_params': {}},
+                ensure_ascii=False,
+            )
+        return '短期档即韭圈儿恐惧贪婪指数 21.0；数据最新 2026-09-24、距今 2 天未过期。'
+
+    monkeypatch.setattr(llm_mod, 'call_llm', fake)
+    session = AgentSession(
+        session_id='intent-1',
+        user_id=1,
+        goal=session_store.DEFAULT_GOAL,  # 生产口径：新建会话行都被写入该缺省值
+    )
+    r1 = agent_loop.run_agent('现在市场温度是多少？', session)
+    r2 = agent_loop.run_agent('为什么数据没有更新？数据来源是什么？贪恐指数是多少？', session)
+    assert r1['type'] == 'result'
+    assert r2['type'] == 'result'
+    assert len(decision_prompts) == 2
+    # 第 2 轮决策 prompt 里既不得再冒出缺省 goal，也不得因此被拽去收益工具
+    assert '分析账户收益' not in decision_prompts[1]
+    assert 'get_portfolio_performance' not in str(r2.get('data') or '')
+
+
+def test_unanswerable_question_clarifies(monkeypatch):
+    """无匹配工具时必须 ask_clarification（不硬凑、不硬执行），且 prompt 带该条规则。"""
+    seen: dict = {}
+
+    def fake(content, system_prompt, **kwargs):
+        if kwargs.get('response_format'):
+            seen['prompt'] = content[0]['text']
+            return '{"action":"ask_clarification","missing_params":[],"content":"当前暂不支持生成研究报告类请求。"}'
+        raise AssertionError('澄清路径不应触发叙事调用')
+
+    monkeypatch.setattr(llm_mod, 'call_llm', fake)
+    out = agent_loop.run_agent('帮我写一篇基金投资研究报告', AgentSession(session_id='n2', user_id=1))
+    assert out['type'] == 'clarify'
+    assert out['missing_params'] == []
+    assert '不支持' in out['content']
+    assert '没有工具能回答' in seen['prompt']

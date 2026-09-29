@@ -1,22 +1,22 @@
-# E账户对账与归因设计（2026-08-16）
+# E 账户对账与归因设计（2026-08-16）
 
 > 状态：**已确认**（2026-08-16 讨论定稿，待编码）
 > 版本：v1.0（最终编码版）
-> 关联：PR #1021（E账户持仓导入后端已合入 main-v2）；前端设计 `./frontend-holding-import-plan-2026-08-16.md`；设计依据 `./e-account-import-data-decentralization-plan-2026-08-16.md`；权威规范 `docs/spec/`。
+> 关联：PR #1021（E 账户持仓导入后端已合入 main-v2）；前端设计 `./frontend-holding-import-plan-2026-08-16.md`；设计依据 `./e-account-import-data-decentralization-plan-2026-08-16.md`；权威规范 `docs/spec/`。
 
 ## 1. 背景与设计原则
 
 ### 1.1 背景
 
-PR #1021 已合入 E账户持仓快照导入：解析 → 预览 → 确认 → 落 `e_account` 聚合账户（`upsert_from_holding`，`(ledger_id, symbol)` 业务键，SET 语义整条替换，**不产生交易流水**）。
+PR #1021 已合入 E 账户持仓快照导入：解析 → 预览 → 确认 → 落 `e_account` 聚合账户（`upsert_from_holding`，`(ledger_id, symbol)` 业务键，SET 语义整条替换，**不产生交易流水**）。
 
-E账户（中国结算）数据特征（真实样本 2026-08-12 核实，解析器 `COLUMN_MAP` 已含）：基金代码/名称/持有份额/份额日期/基金净值/资产市值/结算币种/**销售机构**/**基金管理人**/份额类别/基金账户/交易账户/分红方式。**包含销售机构与基金管理人双重维度，但不含交易流水与持仓成本。**
+E 账户（中国结算）数据特征（真实样本 2026-08-12 核实，解析器 `COLUMN_MAP` 已含）：基金代码/名称/持有份额/份额日期/基金净值/资产市值/结算币种/**销售机构**/**基金管理人**/份额类别/基金账户/交易账户/分红方式。**包含销售机构与基金管理人双重维度，但不含交易流水与持仓成本。**
 
 本设计在 PR #1021 基础上扩展「**对账与归因**」能力，解决三个核心问题：
 
-1. **快照 SET 与流水推导同 Ledger 互踩**：E账户快照（全量 SET）与渠道流水（增量累积）若写同一 `(ledger_id, symbol)` 会互相覆盖；
-2. **E账户重复导入复活已归因持仓**：E账户快照是全量 SET，归因后再次导入会把已归因持仓拉回暂存区；
-3. **E账户数据无成本字段**：`avg_price` 缺失时降级为净值近似，盈亏/XIRR 失真。
+1. **快照 SET 与流水推导同 Ledger 互踩**：E 账户快照（全量 SET）与渠道流水（增量累积）若写同一 `(ledger_id, symbol)` 会互相覆盖；
+2. **E 账户重复导入复活已归因持仓**：E 账户快照是全量 SET，归因后再次导入会把已归因持仓拉回暂存区；
+3. **E 账户数据无成本字段**：`avg_price` 缺失时降级为净值近似，盈亏/XIRR 失真。
 
 ### 1.2 核心设计原则
 
@@ -32,10 +32,10 @@ E账户（中国结算）数据特征（真实样本 2026-08-12 核实，解析�
 | **Ledger 语义** | 销售平台/交易入口（天天基金、支付宝、直销），**用户心智第一** |
 | **Position 合并规则** | 同 Ledger 同 symbol 合并；**跨 Ledger 绝不合并**（即使同基金，各自成本基础、各自平台卖出） |
 | **物理溯源** | `position_import_meta`（fund_manager / fund_account / trade_account），不新增 Position 溯源字段 |
-| **E账户 vs 流水互踩** | **融合方案**：渠道 Ledger 无该 symbol 持仓 → 自动归因；有且份额一致 → 已核对静默跳过；有且份额不一致 → 冲突落暂存区，覆盖权交用户 |
-| **归因持久性** | `is_attributed=True` 防复活：已归因记录后续 E账户导入自动跳过（不覆盖、不重建冲突） |
+| **E 账户 vs 流水互踩** | **融合方案**：渠道 Ledger 无该 symbol 持仓 → 自动归因；有且份额一致 → 已核对静默跳过；有且份额不一致 → 冲突落暂存区，覆盖权交用户 |
+| **归因持久性** | `is_attributed=True` 防复活：已归因记录后续 E 账户导入自动跳过（不覆盖、不重建冲突） |
 | **渠道视图** | **不需要**——渠道 = Ledger，天然 `WHERE ledger_id = X` |
-| **E账户视图** | 对账中心查询 `e_account` Ledger 下的影子记录（`ownership_status='shadow'`）；跨渠道聚合展示由前端按 `fund_manager` 分组 |
+| **E 账户视图** | 对账中心查询 `e_account` Ledger 下的影子记录（`ownership_status='shadow'`）；跨渠道聚合展示由前端按 `fund_manager` 分组 |
 | **存量迁移** | **零迁移**——现有「天天基金」等 Ledger 语义正确，保留不动 |
 | **Transaction** | 保持 `position_id=None`（孤立流水，不改架构），仅用于 XIRR 与历史明细追溯；持仓聚合以 Position 为准 |
 | **API 模式** | **无状态**：parse 返回 rows（前端持有）→ reconcile 传 rows 落库，与现有 parse/confirm 模式一致，不引入 job 缓存 |
@@ -53,7 +53,7 @@ ALTER TABLE positions ADD COLUMN ownership_status VARCHAR(20) DEFAULT 'active';
 
 ### 3.2 `position_import_meta` 表变更（核心）
 
-`(symbol, source_broker, fund_manager)` 是 E账户记录的**自然主键**，放 JSON 会导致对账/导入高频查询全表扫描，抽成独立列：
+`(symbol, source_broker, fund_manager)` 是 E 账户记录的**自然主键**，放 JSON 会导致对账/导入高频查询全表扫描，抽成独立列：
 
 ```sql
 ALTER TABLE position_import_meta ADD COLUMN source_broker VARCHAR(200);
@@ -78,8 +78,8 @@ CREATE INDEX idx_import_meta_ignored ON position_import_meta (is_ignored);
 
 | 列 | 说明 |
 | :--- | :--- |
-| `source_broker` / `fund_manager` | E账户记录自然主键；**仅影子记录填充，渠道 meta 必须为 NULL**（防唯一索引冲突） |
-| `is_attributed` | 防复活标记：已归因/已核对记录 E账户导入跳过；**只标记影子记录** |
+| `source_broker` / `fund_manager` | E 账户记录自然主键；**仅影子记录填充，渠道 meta 必须为 NULL**（防唯一索引冲突） |
+| `is_attributed` | 防复活标记：已归因/已核对记录 E 账户导入跳过；**只标记影子记录** |
 | `is_ignored` | 用户忽略标记：导入跳过，可手动重置 |
 | `attributed_at` / `attributed_to_ledger_id` | 归因追溯（时间戳 + 目标 Ledger） |
 | `import_error` | 导入失败行标记（无净值/无成本且无净值时） |
@@ -114,15 +114,15 @@ CREATE TABLE sales_institutions (
 
 ### 3.4 影子记录规则（硬伤 2 修正）
 
-**E账户导入的每一条记录，无论最终走向哪个分支，都必须先在 `e_account` Ledger 下创建/更新一条 `ownership_status='shadow'` 的影子 Position（含 meta，记 symbol+source_broker+fund_manager）。**
+**E 账户导入的每一条记录，无论最终走向哪个分支，都必须先在 `e_account` Ledger 下创建/更新一条 `ownership_status='shadow'` 的影子 Position（含 meta，记 symbol+source_broker+fund_manager）。**
 
 | 场景 | 渠道 Position（active） | 影子记录（shadow，e_account Ledger） |
 | :--- | :--- | :--- |
-| 渠道无该 symbol 持仓 → 自动归因 | **新建** active（E账户数据） | **新建/更新** shadow + `is_attributed=True` |
+| 渠道无该 symbol 持仓 → 自动归因 | **新建** active（E 账户数据） | **新建/更新** shadow + `is_attributed=True` |
 | 渠道有持仓且份额一致 → 已核对 | **不动**（保持原有） | **新建/更新** shadow + `is_attributed=True`（防复活） |
 | 渠道有持仓且份额不一致 → 冲突 | **不动**（保持原有） | **新建/更新** shadow + `is_attributed=False`（等待用户决策） |
 
-对账中心永远查询 `e_account` Ledger 下的所有影子记录（含已归因和未归因），**E账户侧数据永不缺失**。
+对账中心永远查询 `e_account` Ledger 下的所有影子记录（含已归因和未归因），**E 账户侧数据永不缺失**。
 
 ## 4. 核心流程逻辑
 
@@ -307,7 +307,7 @@ def execute_attribution_cover(record_id, target_ledger_id, avg_price=None, famil
 | `is_ignored=True` | 影子 meta | 用户选择忽略 | ❌ 否 | ✅ 是（导入自动跳过） |
 | `is_attributed=False` + `shadow` | 影子 meta | 未归因冲突记录 | ❌ 否 | ❌ 否（每次导入触发冲突） |
 
-**影子记录生命周期（P6 锁定）**：**永不删除**。用户清仓后（渠道 Position 删除），影子记录仍在，对账中心显示「E账户有 X，系统无」——这是**预期行为**（清仓差异提示是特性，非 bug）。
+**影子记录生命周期（P6 锁定）**：**永不删除**。用户清仓后（渠道 Position 删除），影子记录仍在，对账中心显示「E 账户有 X，系统无」——这是**预期行为**（清仓差异提示是特性，非 bug）。
 
 ## 7. 错误处理与边缘场景
 
@@ -316,18 +316,18 @@ def execute_attribution_cover(record_id, target_ledger_id, avg_price=None, famil
 3. **映射表缺失**：`source_broker` 不在映射表 → 自动创建名为原始名称的 Ledger，摘要提示「已自动创建新账户：[名称]」。
 4. **归因目标 Ledger 不存在**：返回 `400 Bad Request`，提示「目标账户不存在，请重新选择」。
 5. **attribution 幂等**：重复归因/忽略返回当前状态（HTTP 200），不报错、不重复执行。
-6. **并发**：E账户导入与归因操作互斥（同一 family 加锁或串行化），防止竞态。
+6. **并发**：E 账户导入与归因操作互斥（同一 family 加锁或串行化），防止竞态。
 
 ## 8. 语义细节锁定（P1-P6）
 
 | 编号 | 细节点 | 最终决策 |
 | :--- | :--- | :--- |
 | **P1** | 已核对 vs 已归因区分 | `is_attributed=True` + `attributed_to_ledger_id IS NOT NULL` → `attributed`；`is_attributed=True` + `attributed_to_ledger_id IS NULL` → `verified` |
-| **P2** | 防复活 vs 数据新鲜度 | 对账中心顶部显示 `data_date`（影子记录 max(updated_at)），标注「E账户数据为最近一次导入 [日期]，如需更新请重新导入」 |
-| **P3** | 归因覆盖后流水增量成本误差 | 归因成本是净值近似，后续流水增量（`process_buy_or_deposit` 在归因 Position 上增量）继承近似误差；归因覆盖完成时 UI 提示「E账户成本为净值近似，建议手动补充真实成本」 |
+| **P2** | 防复活 vs 数据新鲜度 | 对账中心顶部显示 `data_date`（影子记录 max(updated_at)），标注「E 账户数据为最近一次导入 [日期]，如需更新请重新导入」 |
+| **P3** | 归因覆盖后流水增量成本误差 | 归因成本是净值近似，后续流水增量（`process_buy_or_deposit` 在归因 Position 上增量）继承近似误差；归因覆盖完成时 UI 提示「E 账户成本为净值近似，建议手动补充真实成本」 |
 | **P4** | attribution 幂等性 | 重复归因/忽略幂等：第二次调用返回当前状态（HTTP 200），不报错、不重复执行 |
 | **P5** | family_id 多用户隔离 | **所有查询/写入**（影子记录、渠道 Position、meta）必须带 `family_id`，与 `upsert_from_holding` 现有行为一致 |
-| **P6** | 影子记录生命周期 | **永久保留**；清仓后渠道 Position 删除、影子记录仍在，对账中心显示「E账户有 X，系统无」——预期行为（特性非 bug） |
+| **P6** | 影子记录生命周期 | **永久保留**；清仓后渠道 Position 删除、影子记录仍在，对账中心显示「E 账户有 X，系统无」——预期行为（特性非 bug） |
 
 ## 9. 与现有代码衔接
 
@@ -335,28 +335,28 @@ def execute_attribution_cover(record_id, target_ledger_id, avg_price=None, famil
 | :--- | :--- |
 | `commit_holdings`（`POST /api/importers/holdings/confirm`） | **接口契约冻结**（请求/响应格式不变），内部逻辑增加 `is_attributed`/`is_ignored` 过滤（防旧调用方复活已归因记录） |
 | `upsert_from_holding` | 合并键 `(ledger_id, symbol)` 不变；新增 `ownership_status` 支持（active/shadow） |
-| E账户解析器 `e_account_holding.py` | **不改**——`COLUMN_MAP` 已含销售机构/基金管理人/基金账户/交易账户/分红方式 |
+| E 账户解析器 `e_account_holding.py` | **不改**——`COLUMN_MAP` 已含销售机构/基金管理人/基金账户/交易账户/分红方式 |
 | `get_or_create_e_account_ledger` | 保留（暂存区 Ledger 仍需要） |
 
 ## 10. PR #1021 返工范围
 
-PR #1021 已合入的 E账户导入代码需要返工，范围如下：
+PR #1021 已合入的 E 账户导入代码需要返工，范围如下：
 
 | 原代码 | 原行为 | 新行为 |
 | :--- | :--- | :--- |
-| `commit_holdings`（`POST /api/importers/holdings/confirm`） | E账户快照全量 SET 到 `e_account` 聚合账户 | **接口契约冻结**（请求/响应格式不变），内部仅增加 `is_attributed`/`is_ignored` 过滤（防旧调用方复活已归因记录）；**不承担**自动归因/冲突检测——新流程落库入口是 `reconcile`（§5.2） |
+| `commit_holdings`（`POST /api/importers/holdings/confirm`） | E 账户快照全量 SET 到 `e_account` 聚合账户 | **接口契约冻结**（请求/响应格式不变），内部仅增加 `is_attributed`/`is_ignored` 过滤（防旧调用方复活已归因记录）；**不承担**自动归因/冲突检测——新流程落库入口是 `reconcile`（§5.2） |
 | `get_or_create_e_account_ledger` | 创建/复用 `e_account` 聚合账户（`ledger_type='e_account'`，orchestrator.py:734） | **保留**，作为影子记录的暂存区 Ledger |
 | `upsert_from_holding` | `(ledger_id, symbol)` 业务键，SET 语义 | **新增** `ownership_status` 支持；调用方显式传 `'active'` 或 `'shadow'` |
 
 **关键差异**：
 
-- 旧行为：E账户导入 = 全量覆盖 `e_account` 聚合账户；
-- 新行为：E账户导入 = `reconcile` 逐条处理（先建影子记录 → 匹配渠道 → 自动归因/冲突/已核对），影子记录永久保留，渠道 Position 按分支落库。
+- 旧行为：E 账户导入 = 全量覆盖 `e_account` 聚合账户；
+- 新行为：E 账户导入 = `reconcile` 逐条处理（先建影子记录 → 匹配渠道 → 自动归因/冲突/已核对），影子记录永久保留，渠道 Position 按分支落库。
 
 ## 11. 变更记录
 
 - 2026-08-16：创建（讨论定稿 v1.0，待编码）。
-- 2026-08-16：v1.1 补充 PR #1021 返工范围（§10）；修正「E账户视图」措辞（对账中心查影子记录，跨渠道聚合由前端按 fund_manager 分组）。
+- 2026-08-16：v1.1 补充 PR #1021 返工范围（§10）；修正「E 账户视图」措辞（对账中心查影子记录，跨渠道聚合由前端按 fund_manager 分组）。
 - 2026-08-16：v1.1.1 实施前代码核验，发现 §3.4/§4.1 影子记录方案与现有 DB 约束冲突，经用户确认修正（见 §12）。
 - 2026-08-17：v1.1.2 实施后审查修正（见 §13）：对账中心 diff 语义、ignore 事务性、无价格行 import_error、交割单导入 4 处 bug。
 
@@ -364,14 +364,14 @@ PR #1021 已合入的 E账户导入代码需要返工，范围如下：
 
 **本节修正优先于前文冲突处。** 编码完成后的代码审查发现以下实现偏差/bug，已修复并补测试。
 
-### 13.1 E账户对账修正
+### 13.1 E 账户对账修正
 
 | 项 | 问题 | 修正 |
 | :--- | :--- | :--- |
 | E1 | `attribute_holdings` 的 ignore 分支只 flush 不 commit；后续 cover 失败 rollback 会把 ignore 标记一起回滚 | ignore 分支改为单条事务（立即 commit，失败 rollback + 计 failed） |
-| E2 | `get_reconciliation` 的 diff 用单条影子记录份额对比 symbol 级系统汇总——多渠道场景（E账户 1000+500 份 vs 系统 1500 份）每条 diff 恒为偏差，误导用户 | diff 改为 **symbol 级汇总对比**：`diff = eaccount_total - system_total`；每条记录保留自身 `eaccount_quantity`，新增 `eaccount_total` 字段 |
+| E2 | `get_reconciliation` 的 diff 用单条影子记录份额对比 symbol 级系统汇总——多渠道场景（E 账户 1000+500 份 vs 系统 1500 份）每条 diff 恒为偏差，误导用户 | diff 改为 **symbol 级汇总对比**：`diff = eaccount_total - system_total`；每条记录保留自身 `eaccount_quantity`，新增 `eaccount_total` 字段 |
 | E3 | `_parse_snapshot_date` 只接受字符串，date/datetime 对象输入抛 TypeError 降级为今天（数据错误） | 先判 `datetime`/`date` 对象直接取 date，字符串才 strptime |
-| E4 | 无净值/无成本行直接抛错进 failed_rows，不落影子记录（「E账户侧数据永不缺失」不成立）；`import_error` 列从未置位 | 无价格行**照常落影子记录**（`avg_price=0` 占位——列不可空）+ `meta.import_error=True`，计入 failed_rows 提示但不中断渠道匹配 |
+| E4 | 无净值/无成本行直接抛错进 failed_rows，不落影子记录（「E 账户侧数据永不缺失」不成立）；`import_error` 列从未置位 | 无价格行**照常落影子记录**（`avg_price=0` 占位——列不可空）+ `meta.import_error=True`，计入 failed_rows 提示但不中断渠道匹配 |
 | E5 | `_upsert_shadow_holding` 返回 Position，reconcile 里重复查 meta | 返回 `(position, meta)` 二元组，删重复查询 |
 | E6 | `reconcile_holdings` 单条异常不 rollback，部分写入随最终 commit 提交 | 单行处理包进 `begin_nested()` savepoint，失败回滚该行中间写入 |
 
@@ -397,7 +397,7 @@ PR #1021 已合入的 E账户导入代码需要返工，范围如下：
 
 ### 12.1 发现的问题（根因证据）
 
-E账户记录粒度是「基金 + 销售机构」——同一基金经不同销售机构购买（多渠道）是常见场景。而现有模型有三处约束与 §3.4「影子记录挂 e_account Ledger」方案冲突：
+E 账户记录粒度是「基金 + 销售机构」——同一基金经不同销售机构购买（多渠道）是常见场景。而现有模型有三处约束与 §3.4「影子记录挂 e_account Ledger」方案冲突：
 
 1. `positions` 表唯一约束 `uq_positions_ledger_symbol`（`ledger_id + symbol` 唯一，positions/models.py）→ 同 symbol 多渠道的两条影子记录在同一 Ledger 下必冲突；
 2. `position_import_meta.import_hash` 唯一 + `compute_position_hash`（importer/records.py）维度为 `source|ledger_id|symbol|snapshot_date`，不含 source_broker → 多渠道同 symbol 同日期 hash 相同；
@@ -425,4 +425,4 @@ E账户记录粒度是「基金 + 销售机构」——同一基金经不同销�
 ### 12.4 附带收益
 
 - 修复现有 e_account_holding 导入多渠道数据丢失的预存 bug（同一基金多渠道各自成记录）；
-- 影子记录与渠道 Position 彻底解耦（渠道删改不影响 E账户侧数据），「E账户侧数据永不缺失」约束天然成立。
+- 影子记录与渠道 Position 彻底解耦（渠道删改不影响 E 账户侧数据），「E 账户侧数据永不缺失」约束天然成立。

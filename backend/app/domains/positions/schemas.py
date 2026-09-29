@@ -9,6 +9,11 @@ class PositionCreate(BaseModel):
     name: Optional[str] = Field(None, description='名称')
     market: str = Field('CN_A', description='市场')
     asset_type: str = Field('stock', validation_alias='type', description='产品类型')
+    venue: Optional[str] = Field(
+        None,
+        description='交易场所 EXCHANGE/OTC（#1662）：场内代码带 SH/SZ/BJ 前缀、场外为 6 位裸码。'
+        '缺省时按 asset_type 推断（股票/ETF/债券/逆回购→EXCHANGE，基金/货基→OTC）。',
+    )
     account_name: Optional[str] = Field(None, description='所属账户')
     ledger_id: Optional[int] = Field(None, description='所属账户ID')  # 新增
     portfolio_id: Optional[int] = Field(None, description='所属组合ID(持仓级组合,可空)')
@@ -72,6 +77,11 @@ class PositionOut(BaseModel):
     name: Optional[str] = None
     market: str
     type: str = Field(validation_alias='asset_type', serialization_alias='type')
+    # #1305 #11：三态冗余判定（True=货基 / False=非货基 / None=未判定）。
+    # 列在 `positions.is_money_fund`（#863 引入）。**必须在 Out Schema 里声明**，
+    # 否则 `model_validate` 后该字段被静默丢掉，前端拿不到；而 None 是合法值，
+    # 不能被当成 False 用（判货基一律 `is_money_fund.is_(True)`）。
+    is_money_fund: Optional[bool] = None
     account_name: Optional[str] = None
     ledger_id: Optional[int] = None  # 新增
     portfolio_id: Optional[int] = None  # 持仓所属组合ID(D20)

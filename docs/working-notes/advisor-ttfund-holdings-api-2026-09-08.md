@@ -1,7 +1,7 @@
 # 投顾持仓接口 · 技术方案与待决问题（决策记录）
 
 > 更新时间：2026-07-22（续）
-> 关联文档：[天天基金投顾ID与持仓接口_调研结论.md](./天天基金投顾ID与持仓接口_调研结论.md)
+> 关联文档：[天天基金投顾 ID 与持仓接口_调研结论.md](./天天基金投顾ID与持仓接口_调研结论.md)
 > 背景：为「越海」等天天基金投顾组合做*组合持仓*自动化抓取，并接入「组合持仓」独立看板；同时推进"市场温度计"多源情绪聚合。
 
 ---
@@ -47,7 +47,7 @@
 
 | 接口 | 方法 | 必填参数 | 返回 |
 |------|------|----------|------|
-| `POST /combine/investAdviserInfo/getTGQuoteByFavor` | 业绩/净值 | `tgCodeWithDateStr=TGCODE_YYYY-MM-DD`（缺则 `Data:null`） | TGNAME、管理人、各区间收益(SYL_1N/2N/3N…)、净值日期 JZRQ |
+| `POST /combine/investAdviserInfo/getTGQuoteByFavor` | 业绩/净值 | `tgCodeWithDateStr=TGCODE_YYYY-MM-DD`（缺则 `Data:null`） | TGNAME、管理人、各区间收益(SYL_1N/2N/3N……)、净值日期 JZRQ |
 | `POST /combine/investAdviserInfo/getHoldWarehouseIndustryRatio` | 持仓行业配置 | `tgCode` | 行业名 + 占比(ratio)，如 电子 9.16% / 基础化工 4.69% |
 | `POST /combine/investAdviserInfo/getAdjustWarehouse` | 调仓/持仓明细 | `tgCode` + `tag`（0=最新调仓/当前持仓；1=历史调仓列表）+ `useNewFundType=true` | `tag=0`→`latestAdjust.adjustList[].fundList`（基金代码/名称/前占比/后占比/操作类型）；`tag=1`→`adjustHistory[]`（历次调仓，数量随组合而定，实测越海 6 条、万家非凡新质驱动 20 条、省心投步步盈 14 条） |
 
@@ -55,7 +55,7 @@
 
 | 接口 | 方法 | 必填参数 | 返回 |
 |------|------|----------|------|
-| `GET /dataapi/IAAGGR/FundIATGInfoAggr` | 投顾信息概览 | `FIELDS=逗号字段列表` + `TGCODE` | TGNAME/LOGO_NAME/RISKLEVEL/STRATEGY_RATE/SYL_*/BENCHSYL_*/STGCONCEPT/ESTABDATE/STATUS…（响应用小写 `data`+`errorCode`/`success`，**不是** `Data`/`ErrCode`） |
+| `GET /dataapi/IAAGGR/FundIATGInfoAggr` | 投顾信息概览 | `FIELDS=逗号字段列表` + `TGCODE` | TGNAME/LOGO_NAME/RISKLEVEL/STRATEGY_RATE/SYL_*/BENCHSYL_*/STGCONCEPT/ESTABDATE/STATUS……（响应用小写 `data`+`errorCode`/`success`，**不是** `Data`/`ErrCode`） |
 
 > 通用表单参数（来自 App 抓包）：`product=EFund`、`mobileKey=123`、`version=6.5.9`、`plat=Android`。
 > `getAdjustWarehouse` 的 `operationInt` 映射：1=建仓、2=加仓、3=减仓、4=新增、5=持平（后占比 `afterRatio` 即当前持仓占比）。
@@ -77,7 +77,7 @@
 
 ### 2.1 请求组装链路
 
-```
+```plain
 Request()                         // 组装 commonConfig
   ├─ getCommonParams(_||v)  -> D  // 通用参数（deviceid/version/plat…）
   ├─ getCommonHeaders(_||v) -> C  // 通用头
@@ -116,7 +116,7 @@ getValidMark = function(){
 
 ### 2.4 实测：combine-gold 直连全部 404
 
-```
+```plain
 GET https://combine-gold.tiantianfunds.com/combine/investAdviserInfo/getHoldWarehouseIndustryRatio
     ?tgCode=XCOVSEX&deviceid=...&version=6.5.5&plat=Iphone&appVersion=6.5.5
     &product=EFund&validmark={"uid":"","deviceid":"","passportid":"","force":true}
@@ -160,7 +160,7 @@ GET https://combine-gold.tiantianfunds.com/combine/investAdviserInfo/getHoldWare
 
 ## 4. 用户明确要求记录的点：包/路径不稳定 → 必须做 health 接口
 
-> 用户原话：*"这个包总是不是每次它都会变呀…每一次这个 APP 更新之后我们这个路径相当于要每一次去变化…我们的接口好像并不是很稳定所以我们要在系统的 health 接口里面去验证这个接口是不是正常，这也是一个需要记录的一个点。"*
+> 用户原话：*"这个包总是不是每次它都会变呀……每一次这个 APP 更新之后我们这个路径相当于要每一次去变化…我们的接口好像并不是很稳定所以我们要在系统的 health 接口里面去验证这个接口是不是正常，这也是一个需要记录的一个点。"*
 
 ### 4.1 不稳定的来源（已证实）
 
@@ -227,7 +227,7 @@ GET https://combine-gold.tiantianfunds.com/combine/investAdviserInfo/getHoldWare
 
 ### 附：本次实测关键证据（curl）
 
-```
+```plain
 # 投顾真实后端 host（App.js 模块 62221）
 combine-gold.tiantianfunds.com  (release)
 combine-gold-gc.tiantianfunds.com (beta)

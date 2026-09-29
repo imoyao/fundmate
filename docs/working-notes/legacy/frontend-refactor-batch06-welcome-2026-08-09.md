@@ -1,12 +1,12 @@
-﻿# 鎵规 6 鈥?welcome/index.vue锛?9KB锛夋媶鍒?+ 鎺?useEchartsLifecycle
+﻿# 鎵规 6 鈥?welcome/index.vue 锛?9KB 锛夋媶鍒?+ 鎺?useEchartsLifecycle
 
-> 鎶?`frontend/src/views/welcome/index.vue`锛堝師 29KB锛夐噸鏋勪负
+> 鎶?`frontend/src/views/welcome/index.vue`锛堝師 29KB 锛夐噸鏋勪负
 > 銆? 鍏变韩鏍?data) + 1 浜や簰灞?widget) + 4 鍥捐〃鍔╂墜 + 澹?+ 7 鍗＄墖缁勪欢銆嶃€?> 鏈壒娆?*涓庢壒娆?1 寮鸿仈鍔?*锛氬師椤甸潰鎵嬪啓 `echarts.init` 脳 4 + 鎵嬪啓 `window.resize` + `onUnmounted` dispose
 > 鍏ㄩ儴鏀逛负鎵规 1 鐨?`useEchartsLifecycle`锛屽苟琛ヤ笂 keepAlive 椤靛師鍏堢己澶辩殑 `onActivated` 閲嶇粯銆?
 >
 ## 鏂囦欢娓呭崟锛堟湰鐩綍 14 涓枃浠讹級
 
-```
+```plain
 batch6/
 鈹溾攢鈹€ composables/welcome/
 鈹?  鈹溾攢鈹€ types.ts              # WelcomeData / WelcomeWidget / WelcomeContext / ChartHandle
@@ -67,7 +67,7 @@ const { chartRef } = useDistributionChart(data);
 
 ## 鏋舵瀯瑕佺偣
 
-- 澹?`WelcomeIndex` `provide(welcomeContextKey, { data, widget })`锛涘崱鐗囩粍浠?`useWelcomeContext()` 娉ㄥ叆銆?- **鍥捐〃 ref 涓嶈繘涓婁笅鏂?*锛氭瘡涓浘琛ㄥ崱鐗囧湪鑷繁鐨?setup 鍐呰皟鐢?`useXxxChart(data)` 鎷垮埌 `chartRef`锛?  鐢?`<div ref="chartRef">`锛堝瓧绗︿覆 ref锛夌粦瀹氣€斺€旇閬裤€岃法缁勪欢浼?Ref 琚ā鏉胯В鍖呫€嶇殑鍧戙€?- 鍔熻兘灞傞€氳繃鍙傛暟娉ㄥ叆 `data`锛堟牳锛夛紝鏃犲惊鐜緷璧栥€?
+- 澹?`WelcomeIndex` `provide(welcomeContextKey, { data, widget })`锛涘崱鐗囩粍浠?`useWelcomeContext()` 娉ㄥ叆銆?- **鍥捐〃 ref 涓嶈繘涓婁笅鏂?*锛氭瘡涓浘琛ㄥ崱鐗囧湪鑷繁鐨?setup 鍐呰皟鐢?`useXxxChart(data)` 鎷垮埌 `chartRef`锛?  鐢?`<div ref="chartRef">`锛堝瓧绗︿覆 ref 锛夌粦瀹氣€斺€旇閬裤€岃法缁勪欢浼?Ref 琚ā鏉胯В鍖呫€嶇殑鍧戙€?- 鍔熻兘灞傞€氳繃鍙傛暟娉ㄥ叆 `data`锛堟牳锛夛紝鏃犲惊鐜緷璧栥€?
 
 ## 钀藉湴姝ラ
 

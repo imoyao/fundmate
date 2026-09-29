@@ -18,10 +18,65 @@
 
 import argparse
 import os
+import re
 import sqlite3
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+_DRIVE_RE = re.compile(r'^[A-Za-z]:[\\/]')
+
+
+def _is_absolute_path(path: str) -> bool:
+    """跨平台判定「这已经是绝对路径，别再用 cwd 去拼」。
+
+    WHY 不能只靠 `os.path.isabs`（#1687，Linux CI 上翻红的正是这一条）：
+    Windows 盘符路径 `C:/x/y.db` 在 POSIX 上**没有**前导 `/`，会被判成相对路径，
+    再 `os.path.abspath()` 就拼成 `<cwd>/C:/x/y.db` —— 任何平台上的结果都是错的。
+    这里显式认三种形态，与运行平台无关：
+
+    - POSIX 根：`/abs/p.db`
+    - UNC：`\\\\server\\share\\p.db`
+    - Windows 盘符：`C:/x/y.db`、`D:\\x\\y.db`
+    """
+    if path.startswith('/') or path.startswith('\\\\'):
+        return True
+    return bool(_DRIVE_RE.match(path))
+
+
+def _sqlite_path_from_url(db_url: str) -> str:
+    """从 SQLAlchemy 风格的 sqlite URL 里取出数据库文件路径（绝对路径）。
+
+    WHY 不能再自己用 `urlsplit` / `urlunsplit` 往返（#1687）：
+    `urlunsplit` 只在 scheme 属于 `urllib.parse.uses_netloc` 时才补 `//`，而 **`sqlite`
+    不在那张表里**（表里是 http / https / ftp 之类）。于是：
+
+        urlsplit('sqlite:///./invest.db')        → ('sqlite', '', '/./invest.db')
+        urlunsplit(('sqlite','','/./invest.db')) → 'sqlite:/./invest.db'   # 少了一个 '/'
+        ...replace('sqlite:///', '')             → 不匹配，原样保留
+
+    得到的路径是 `sqlite:/./invest.db`，再 `os.path.abspath()` 就成了
+    `<cwd>/sqlite:/invest.db` —— **默认调用永远「文件不存在，跳过」，且以 0 退出**。
+    这个坑是当初为了修「路径含 ? 时被字符串截断」的 AI review 意见引入的，
+    修法本身比原问题更隐蔽（不报错、只静默不做任何事）。
+
+    改复用 SQLAlchemy 自带的 `make_url`：它对 sqlite 有专门处理，相对路径
+    （`sqlite:///./invest.db`）、Windows 盘符（`sqlite:///C:/x/y.db`）、四斜杠绝对
+    路径（`sqlite:////abs/p.db`）、`sqlite+pysqlite://`、以及查询参数
+    （`?mode=ro`，会被放进 `.query` 而**不**污染路径）全都解析正确。
+
+    是否要 `abspath()` 走 `_is_absolute_path()`，不用 `os.path.isabs` —— 后者在
+    Linux 上会把 Windows 盘符路径当作相对路径（CI 跑在 ubuntu，见 `test_windows_drive_url`）。
+
+    @raise ValueError: URL 里没有数据库名（如 `sqlite://`）或不是 sqlite 方言。
+    """
+    from sqlalchemy.engine import make_url
+
+    parsed = make_url(db_url)
+    path = parsed.database
+    if not path:
+        raise ValueError(f'URL 中没有数据库文件路径：{db_url}')
+    return path if _is_absolute_path(path) else os.path.abspath(path)
 
 
 def _resolve_db_paths() -> list[str]:
@@ -29,13 +84,12 @@ def _resolve_db_paths() -> list[str]:
     if not db_url.startswith('sqlite'):
         print(f'仅支持 SQLite，DATABASE_URL={db_url}')
         sys.exit(1)
-    # 用 urlsplit 丢弃查询参数（而非字符串截断），避免数据库路径本身含 '?' 时被误截（AI review）
-    from urllib.parse import urlsplit, urlunsplit
-
-    stripped = urlunsplit(urlsplit(db_url)[:3] + ('', ''))
-    path = stripped.replace('sqlite:///', '', 1)
-    if not os.path.isabs(path):
-        path = os.path.abspath(path)
+    try:
+        path = _sqlite_path_from_url(db_url)
+    except Exception as exc:  # noqa: BLE001 - 解析失败必须显式退出，不能静默降级
+        print(f'无法从 DATABASE_URL 解析数据库路径：{db_url}\n  原因：{exc}', file=sys.stderr)
+        print('  期望形如 sqlite:///./invest.db 或 sqlite:////abs/path/invest.db', file=sys.stderr)
+        sys.exit(1)
     paths = [path]
     alt = os.path.join(os.path.dirname(path), 'invest.user.dev.db')
     if os.path.exists(alt) and os.path.abspath(alt) != os.path.abspath(path):
@@ -70,6 +124,25 @@ def plan_for(path: str, money_fund_codes: dict[str, bool]):
                     print(f'  [跳过] symbol {symbol} 未解析，保持原值')
                     continue
             flag_updates.append((pid, resolved))
+        # #1305 #26：孤儿口径**必须与运行时同源** —— 直接取 `fund_utils` 的常量，
+        # 不在脚本里再抄一份字面量（#1657 就是这么栽的：脚本与运行时各写一套，
+        # 运行时改了脚本没改，缺陷被「本机恰好都命中」掩盖）。
+        #
+        # ⚠️ 同时修一个**让整个挂回功能一直失效**的列错（#1305 #26 实测）：
+        # `transactions.type` 是**交易方向**（buy/sell/deposit/dividend/tax…），
+        # 资产类型在**另一个列 `asset_type`** 上（ORM: `Transaction.txn_type = Column('type')`
+        # 与 `Transaction.asset_type` 两列并存，见 domains/transactions/models.py）。
+        # 原写法 `type IN ('money_fund','reverse_repo')` 恒不成立 → 命中**永远 0 行**，
+        # 且因为是「查不到」而不是「报错」，静默到没人发现（本机实测：改前 0 行，改后 853 行）。
+        # 注意 **positions 表相反**：那里 `type` 就是资产类型（ORM 属性名 `asset_type`），
+        # 所以上面 positions 的查询照旧用 `type`，不要跟着一起改。
+        from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES
+
+        orphan_types = tuple(CASH_EQUIVALENT_ASSET_TYPES)
+        type_placeholders = ','.join('?' * len(orphan_types))
+        # #1305 #25：同一条孤儿流水只能挂到**一个**持仓。同 (ledger_id, symbol) 存在多个
+        # 持仓时，原实现会让它被逐个 UPDATE 覆盖，最终归属取决于遍历顺序（不确定）。
+        assigned: set[int] = set()
         reattach_candidates = []
         for pid, flag in flag_updates:
             if not flag:
@@ -82,11 +155,19 @@ def plan_for(path: str, money_fund_codes: dict[str, bool]):
             placeholders = ','.join('?' * len(cand))
             orphans = conn.execute(
                 'SELECT id FROM transactions WHERE ledger_id=? AND position_id IS NULL '
-                "AND type IN ('money_fund','reverse_repo') AND COALESCE(is_income,0)=0 "
+                f'AND asset_type IN ({type_placeholders}) AND COALESCE(is_income,0)=0 '
                 f'AND symbol IN ({placeholders})',
-                (lid, *sorted(cand)),
+                (lid, *orphan_types, *sorted(cand)),
             ).fetchall()
-            reattach_candidates.append((pid, [o[0] for o in orphans]))
+            picked = []
+            for (tid,) in orphans:
+                if tid in assigned:
+                    print(f'  [去重] 孤儿流水 {tid} 已挂到更早的持仓，pos {pid} 不再重复挂')
+                    continue
+                assigned.add(tid)
+                picked.append(tid)
+            if picked:
+                reattach_candidates.append((pid, picked))
         return flag_updates, reattach_candidates
     finally:
         conn.close()
@@ -131,17 +212,21 @@ def main() -> None:
     paths = args.db or _resolve_db_paths()
     codes = resolve_money_fund_flags(_collect_symbols(paths))
 
+    handled = 0
     for p in paths:
         print(f'==== 目标库: {p}')
         if not os.path.exists(p):
             print('  文件不存在，跳过')
             continue
+        handled += 1
         flag_updates, reattach_candidates = plan_for(p, codes)
         flag_true = sum(1 for _, f in flag_updates if f)
         flag_false = sum(1 for _, f in flag_updates if not f)
         orphan_total = sum(len(o) for _, o in reattach_candidates)
         print(f'  is_money_fund 待回填: {len(flag_updates)} 条（True={flag_true}, False={flag_false}）')
         print(f'  孤儿流水待挂回: {orphan_total} 条')
+        if not flag_updates:
+            print('  无可回填持仓：该库里没有 type IN (fund, money_fund) 的持仓，或尚未建表。')
         if not args.apply:
             for pid, flag in flag_updates:
                 print(f'    [pos {pid}] is_money_fund -> {bool(flag)}')
@@ -151,6 +236,16 @@ def main() -> None:
             continue
         apply_for(p, flag_updates, reattach_candidates)
         print('  [OK] 已执行写库')
+
+    if handled == 0:
+        # 一个库都没找到必须非 0 退出 —— 这正是 #1687 的失效形态：路径解析错了，
+        # 却只打印「文件不存在，跳过」再以 0 退出，调用方会误读成「没有东西要改」，
+        # 于是存量迁移被静默跳过（#1661 的存量修复就这么漏掉的）。
+        print('没有任何目标库存在 —— 迁移未执行。', file=sys.stderr)
+        print('提示：DATABASE_URL 期望形如 sqlite:///./invest.db；', file=sys.stderr)
+        print('      也可以直接把数据库文件路径作为位置参数传入：', file=sys.stderr)
+        print('      python scripts/migrate_money_fund_backfill.py /path/to/invest.db', file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == '__main__':

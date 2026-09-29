@@ -71,7 +71,7 @@ watch_fund = (
 
 复刻真实场景（market 库只有 `funds`，user 库只有 `positions`，与 Supabase 不含 `funds` 表的事实一致），并给引擎挂 `before_cursor_execute` 观察 SQL 落库：
 
-```
+```plain
 === query(Fund.fund_code).join(Position, Position.symbol == Fund.fund_code).first() ===
     -> 发往 [USER] 库: SELECT funds.fund_code AS funds_fund_code
        FROM funds JOIN positions ON positions.symbol = funds.fund_code
@@ -183,6 +183,8 @@ for mod_name in (...):
 
 **另一处同源脆弱点**：`core/database.py:91-98` 的 `_ROUTING_BINDS` 是**全局缓存**，首次建 session 时构建后永久持有 engine 引用；且 `_build_routing_binds()` 会遍历全部表并 `_engine_for()` 两个域 —— 抵消了 #1513 为"不限域入口不因缺驱动崩溃"所做的惰性构造（首次 `SessionLocal()` 即触发两个域引擎构造）。
 
+> **已修复（2026-09-22，#1608）**：本段结论经探针复核**成立**（缺 user 域驱动时首次 `SessionLocal()` 即 `ModuleNotFoundError: pg8000`，被请求的域恰是 user）。修法＝域路由改**查询期按语句解析**（`_domain_for_statement` + `_RoutingSession.get_bind`），`_ROUTING_BINDS` 全局缓存与 `reset_routing_binds()` 一并删除（无引擎缓存即无需失效路径）；第一次 `SessionLocal()` 不再构造非必需域的引擎。本段原文保留以留痕。
+
 ### 5.2 事务范式两极并存（#5）
 
 | 范式 | 位置 | 行为 |
@@ -227,7 +229,7 @@ for mod_name in (...):
 
 ## 附录 A：包级双向依赖清单（23 对）
 
-```
+```plain
 app.core.auth                     <-> app.domains.users
 app.core.database                 <-> app.domains.families
 app.core.database                 <-> app.domains.users

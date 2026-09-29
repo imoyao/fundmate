@@ -38,6 +38,7 @@ from app.domains.watchlist.models import WatchlistItem
 from app.domains.watchlist.schemas import WatchlistItemOut
 from app.services.fund_metrics import compute_max_drawdown, load_nav_points
 from app.services.watchlist_service import (
+    compute_latest_quote,
     get_filtered_items_query,
     lookup_manager,
     resolve_display_name,
@@ -317,11 +318,22 @@ def enrich_item(item: WatchlistItem, db, family_id: int, defer_display: bool = F
     if not defer_display:
         apply_deferred_display_fields(out, item.symbol, item.asset_type, db)
 
-    # 补充价格与市值信息（从持仓表计算静态值）
+    # 最新价 / 涨跌幅（#1104）：优先「最近交易日收盘价（场内）/ 确认净值（场外基金）」，
+    # 二者都没有才兜底到持仓快照 positions.current_price。
+    # 为什么不直接用持仓快照：它只覆盖**有持仓**的标的，且场内长期不刷新
+    # （导入那天的快照，实测与实时价偏差 -63%）——未持仓的自选行则完全没有价。
     position_value = _compute_position_market_value(item.symbol, db, family_id)
-    current_price = _compute_avg_current_price(item.symbol, db, family_id)
-    out['current_price'] = round(current_price, 2) if current_price else None
-    out['change_pct'] = None  # 暂不提供，后续可通过元数据同步填充
+    quote = compute_latest_quote(db, item.symbol)
+    if quote:
+        out['current_price'] = round(quote['close'], 4)
+        out['change_pct'] = quote['change_pct']
+        # 数据日期：前端据此判断新鲜度（旧值不得冒充最新价），无行情时为 None
+        out['price_as_of'] = quote['trade_date'].isoformat() if quote['trade_date'] else None
+    else:
+        current_price = _compute_avg_current_price(item.symbol, db, family_id)
+        out['current_price'] = round(current_price, 2) if current_price else None
+        out['change_pct'] = None
+        out['price_as_of'] = None
     out['position_market_value'] = round(position_value, 2)
 
     # 真实持仓统计（自选页信息密度扩充，watchlist-table-redesign-2026-08-13.md P0/P1）
@@ -764,3 +776,104 @@ def fill_page_display_fields(page_data: list, db, lite: bool) -> list:
             continue
         apply_deferred_display_fields(row, symbol, row.get('asset_type') or '', db)
     return page_data
+
+
+def list_items_paginated(db, family_id: int, params: dict) -> tuple[list, int]:
+    """`list_items` 接口的核心编排（#1642 B 块，从视图层下沉）。
+
+    入参 ``params`` 为视图已解析的查询参数 dict（与下沉前逐字段一致）；本函数按
+    ``status`` 分支取数、用户排序、分页并补展示字段，**分支语义与下沉前逐字一致**：
+
+    - ``HOLDING``：全部真实持仓虚拟行（不走 ``watchlist.status`` 快照），``defer_display=True``；
+    - 无 status 且无查找型参数：自选 ∪ 持仓补集（``build_all_items``），``defer_display=True``；
+    - 其余：``get_filtered_items_query`` 筛选 → 按置顶/更新时间排序 → enrich。
+
+    ``build_all_items`` / ``get_filtered_items_query`` 抛 ``ValueError`` 时透传，由视图转 400。
+    返回 ``(page_data, total)``：已分页并补完展示字段的行列表 + 总数。
+    """
+    lite = params['fields'] == 'lite'
+    page = max(params['page'] or 1, 1)
+    per_page = max(min(params['per_page'] or 20, 200), 1)
+    offset = (page - 1) * per_page
+    if params['status'] == 'HOLDING':
+        data = list_holding_items(
+            db,
+            family_id,
+            venue=params['venue'],
+            search=params['search'],
+            asset_types=params['asset_types'],
+            defer_display=True,
+        )
+        data = apply_user_sort(data, params['sort_by'], params['sort_order'])
+        total = len(data)
+        return fill_page_display_fields(data[offset : offset + per_page], db, lite), total
+    if not params['status'] and not (params['symbol'] or params['market'] or params['tag_id'] or params['asset_types']):
+        data = build_all_items(
+            db,
+            family_id,
+            venue=params['venue'],
+            search=params['search'],
+            tag_ids_str=params['tag_ids_str'],
+            favorite=params['favorite'],
+            group_id=params['group_id'],
+            defer_display=True,
+        )
+        data = apply_user_sort(data, params['sort_by'], params['sort_order'])
+        total = len(data)
+        return fill_page_display_fields(data[offset : offset + per_page], db, lite), total
+    query, _total = get_filtered_items_query(
+        db,
+        family_id,
+        status=params['status'],
+        venue=params['venue'],
+        market=params['market'],
+        group_id=params['group_id'],
+        search=params['search'],
+        favorite=params['favorite'],
+        symbol=params['symbol'],
+        tag_ids_str=params['tag_ids_str'],
+        tag_id=params['tag_id'],
+        asset_types=params['asset_types'],
+    )
+    items = query.order_by(WatchlistItem.is_pinned.desc(), WatchlistItem.updated_at.desc()).all()
+    data = [enrich_item(item, db, family_id, defer_display=True) for item in items]
+    data = apply_user_sort(data, params['sort_by'], params['sort_order'])
+    total = len(data)
+    return fill_page_display_fields(data[offset : offset + per_page], db, lite), total
+
+
+def export_items_rows(db, family_id: int, params: dict) -> list:
+    """`export_items` 接口的数据取数（#1642 B 块，从视图层下沉）。
+
+    与 ``list_items`` 同口径（HOLDING / 全部 / 筛选）取**全量**行（导出不分页），返回已
+    enrich 的行列表供视图组装 CSV。**分支语义与下沉前逐字一致**：HOLDING 与「全部」分支
+    不带 ``defer_display``（导出走完整 enrich）；筛选分支透传 ``**params`` 给
+    ``get_filtered_items_query``（与下沉前 ``**params`` 一致）。``ValueError`` 透传由视图转 400。
+    """
+    if params['status'] == 'HOLDING':
+        return list_holding_items(db, family_id, venue=params['venue'], search=params['search'])
+    if not params['status'] and not (params['symbol'] or params['market'] or params['tag_id'] or params['asset_types']):
+        return build_all_items(
+            db,
+            family_id,
+            venue=params['venue'],
+            search=params['search'],
+            tag_ids_str=params['tag_ids_str'],
+            favorite=params['favorite'],
+            group_id=params['group_id'],
+        )
+    query, _total = get_filtered_items_query(
+        db,
+        family_id,
+        status=params['status'],
+        venue=params['venue'],
+        market=params['market'],
+        group_id=params['group_id'],
+        search=params['search'],
+        favorite=params['favorite'],
+        symbol=params['symbol'],
+        tag_ids_str=params['tag_ids_str'],
+        tag_id=params['tag_id'],
+        asset_types=params['asset_types'],
+    )
+    return [enrich_item(item, db, family_id) for item in query.all()]

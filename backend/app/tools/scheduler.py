@@ -47,6 +47,7 @@ import app.domains.families.models  # noqa: E402,F401
 import app.domains.funds.models  # noqa: E402,F401
 import app.domains.indices.models  # noqa: E402,F401
 import app.domains.ledgers.models  # noqa: E402,F401
+import app.domains.market.models  # noqa: E402,F401
 import app.domains.portfolios.models  # noqa: E402,F401
 import app.domains.positions.models  # noqa: E402,F401
 import app.domains.price_history.models  # noqa: E402,F401

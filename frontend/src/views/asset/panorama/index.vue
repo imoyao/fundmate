@@ -44,10 +44,11 @@
         <h3 class="font-semibold" :style="{ color: 'var(--text-primary)' }">
           资产构成流向
         </h3>
-        <el-segmented
+        <SegmentedControl
           v-model="sankeyDisplayMode"
           :options="sankeyDisplayOptions"
           size="small"
+          aria-label="资产构成流向展示口径"
         />
       </div>
       <SankeyChart :data="sankeyData" :display-mode="sankeyDisplayMode" />
@@ -66,7 +67,11 @@
       }"
     >
       <div class="flex items-center justify-between mb-5">
-        <el-segmented v-model="detailView" :options="detailViewOptions" />
+        <SegmentedControl
+          v-model="detailView"
+          :options="detailViewOptions"
+          aria-label="多维视图切换"
+        />
         <el-button
           v-if="detailView === 'account'"
           text
@@ -96,6 +101,7 @@
 import { ref, onMounted } from "vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import SankeyChart from "@/components/Charts/SankeyChart.vue";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import OverviewSummaryCard from "./components/OverviewSummaryCard.vue";
 import CategoryBalanceTable from "./components/CategoryBalanceTable.vue";
 import DetailGroupList from "./components/DetailGroupList.vue";
@@ -124,10 +130,13 @@ const loading = ref(false);
 // 最新资产快照（惰性记录 + 同比展示）；积累期无历史时相关字段为 null
 const latestSnapshot = ref<AssetSnapshotItem | null>(null);
 
-const sankeyDisplayMode = ref<"amount" | "percent" | "hidden">("amount");
+/** 桑基图展示口径；选项数组显式标注取值类型，供 SegmentedControl 泛型推断（否则数组字面量会把 value 拓宽成 string） */
+type SankeyDisplayMode = "amount" | "percent" | "hidden";
+
+const sankeyDisplayMode = ref<SankeyDisplayMode>("amount");
 const detailView = ref("category");
 
-const sankeyDisplayOptions = [
+const sankeyDisplayOptions: { label: string; value: SankeyDisplayMode }[] = [
   { label: "金额", value: "amount" },
   { label: "比例", value: "percent" },
   { label: "隐藏金额", value: "hidden" }
@@ -204,14 +213,3 @@ onMounted(() => {
   }
 });
 </script>
-
-<style scoped>
-/* 胶囊形状：el-segmented（资产构成流向 / 多维视图切换） */
-:deep(.el-segmented) {
-  border-radius: 9999px;
-}
-
-:deep(.el-segmented .el-segmented__item) {
-  border-radius: 9999px;
-}
-</style>

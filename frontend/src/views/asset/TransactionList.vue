@@ -9,7 +9,12 @@
     <!-- 视图切换 + 筛选栏 -->
     <el-card shadow="never" class="mb-4">
       <div class="flex items-center justify-between mb-4">
-        <el-segmented v-model="viewMode" :options="viewOptions" size="small" />
+        <SegmentedControl
+          v-model="viewMode"
+          :options="viewOptions"
+          size="small"
+          aria-label="流水视图切换"
+        />
         <div class="flex items-center gap-3">
           <span class="text-gray-400 text-sm">共 {{ totalCount }} 条记录</span>
           <el-button
@@ -345,6 +350,7 @@ import { getTransactions, exportTransactions } from "@/api/transactions";
 import type { TransactionRecord } from "@/api/transactions";
 import { ElMessage } from "element-plus";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import TransactionEditDialog from "./ledgers/components/TransactionEditDialog.vue";
 import { txnTypeLabel } from "@/constants";
 

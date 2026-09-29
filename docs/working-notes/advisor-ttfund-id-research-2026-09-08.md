@@ -21,17 +21,17 @@
 
 ---
 
-## 二、Q1：App 首页搜索能否返回投顾 id？
+## 二、Q1：App 首页搜索能否返回投顾 id
 
 ### 2.1 网页版搜索 —— 明确不含投顾
 
 天天基金网页搜索端点（来自开源仓库 `kouchao` 的真实实现）：
 
-```
+```plain
 https://fundsuggest.eastmoney.com/FundSearch/api/FundSearchAPI.ashx?m=1&key=越海
 ```
 
-实测返回的是**股票/上市公司**（越秀资本、越剑智能、越疆…），`m` 取值 `1/3/7/8` 分别对应 基金/按字母搜公司/基金经理/基金公司，**没有任何投顾分类**。
+实测返回的是**股票/上市公司**（越秀资本、越剑智能、越疆……），`m` 取值 `1/3/7/8` 分别对应 基金/按字母搜公司/基金经理/基金公司，**没有任何投顾分类**。
 
 > 结论：网页搜索这条路对"投顾 id"无效。
 
@@ -56,7 +56,7 @@ App 搜索走 `fundmobapi.eastmoney.com/FundMNewApi/`。带上正确的 `validma
 
 克隆并全文 grep 了最相关的两个仓库：
 
-- **`kouchao/TiantianFundApi`** —— 天天基金 Node.js API 服务，含 50+ 模块，但**全部是单只基金**（详情/净值/排行/经理/持仓股…），grep `投顾/TGCode/strategyDetail/combination/getCompositeInfoNew/portfolio` **零命中**。
+- **`kouchao/TiantianFundApi`** —— 天天基金 Node.js API 服务，含 50+ 模块，但**全部是单只基金**（详情/净值/排行/经理/持仓股……），grep `投顾/TGCode/strategyDetail/combination/getCompositeInfoNew/portfolio` **零命中**。
 - **`tianguzhe/tiantian-fund-api`**（2026-05 新仓库，带 API 文档）—— 同样是**单只基金**分析向（F10/评分/对比），无投顾组合。
 
 **GitHub 上没有针对「天天基金投顾组合持仓」的逆向仓库。** 投顾持仓这条线在开源社区是空白。
@@ -86,7 +86,7 @@ const baseData = {
 
 开源仓库 `pages-customoption-index` chunk 暴露了组合类 API 命名规律（`getCompositeInfoNew`、`getCustomComboList`、`getComboData`、`getHoldFundList`）与 host 体系。据此定位到真实后端：
 
-```
+```plain
 https://uni-fundts.1234567.com.cn/combine/portfolioInfo/getCompositeInfoNew
 ```
 
@@ -96,9 +96,9 @@ https://uni-fundts.1234567.com.cn/combine/portfolioInfo/getCompositeInfoNew
 
 > 本节为早期结论。后续对 bundle 的完整反编译定位到真实方法名（`getAdjustWarehouse` 等），见勘误框与权威文档——方法名**可知、可直连**，无需运行时 chunk。
 
-在正确 host 下继续试探投顾候选方法名（`getAdvisorInfo` / `getStrategyInfo` / `getPortfolioInfo` / `getAdvisorPortfolio` / `getCombineInfo` / `queryAdvisorInfo` …）：
+在正确 host 下继续试探投顾候选方法名（`getAdvisorInfo` / `getStrategyInfo` / `getPortfolioInfo` / `getAdvisorPortfolio` / `getCombineInfo` / `queryAdvisorInfo` ……）：
 
-```
+```plain
 {"timestamp":"2026-07-22 ...","status":404,"error":"Not Found","path":"/combine/portfolioInfo/getAdvisorInfo"}
 ```
 
@@ -125,7 +125,7 @@ https://uni-fundts.1234567.com.cn/combine/portfolioInfo/getCompositeInfoNew
 ### 路径 A（推荐，一次性，零开发）
 在天天基金 App 打开「越海」→ 右上角「分享」→「复制链接」，得到形如：
 
-```
+```plain
 https://tradeh5.tiantianfunds.cn/tradeh5/funda91a99886abf7e/detailindex?tgCode=XXXX
 ```
 
@@ -158,7 +158,7 @@ python fund_advisor_holdings.py --url "https://tradeh5.tiantianfunds.cn/tradeh5/
 ## 七、下一步行动清单
 
 1. **你**：在天天基金 App 打开越海 → 分享 → 复制链接 → 把链接发我（路径 A）。
-2. **我**：用 `fund_advisor_holdings.py --url <链接>` 在本机跑通越海持仓抽取，校验正则对"基金名+6位代码+占比%"的覆盖。
+2. **我**：用 `fund_advisor_holdings.py --url <链接>` 在本机跑通越海持仓抽取，校验正则对"基金名+6 位代码+占比%"的覆盖。
 3. **我**：将越海持仓 JSON 与且慢（远足/成长五剑）合并，落成「组合持仓」独立看板的数据源。
 4. （可选）**我**：补一个 Playwright 搜索自动解析 TGCode 的变体，彻底去掉手动粘贴（需你在本机运行）。
 5. （可选）用 `validmark` 头继续探测其他 App 端点（如估值、收益走势），扩充看板指标——投顾持仓已走公开 API，无需浏览器渲染。
@@ -167,7 +167,7 @@ python fund_advisor_holdings.py --url "https://tradeh5.tiantianfunds.cn/tradeh5/
 
 ### 附：本次实测关键证据（curl）
 
-```
+```plain
 # 网页搜索：只返回股票，无投顾
 fundsuggest.eastmoney.com/FundSearch/api/FundSearchAPI.ashx?m=1&key=越海
 → 越秀资本 / 越剑智能 / 越疆 ...

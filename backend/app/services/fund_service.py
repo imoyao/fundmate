@@ -10,11 +10,15 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core import database  # 晚绑定：属性在调用时解析，勿改成 from-import（#1608）
 from app.core.money import Money
 from app.domains.funds.models import (
+    AdvisorAdjustHistory,
+    AdvisorHolding,
+    AdvisorPortfolio,
     DailyWorth,
     FeeRatio,
     Fund,
@@ -584,3 +588,132 @@ class FundService:
             db.rollback()
             logger.exception(f'同步基金 {fund_code} 费率失败')
             return False
+
+    @staticmethod
+    def build_advisor_holdings(db, code: str) -> dict:
+        """投顾组合当前持仓（只读）组装（#1642 B 块，从 views 下沉）。
+
+        与下沉前逐字段一致：返回最新快照日的成分基金与占比，每只带 ``in_local_db``
+        （是否已收录进本地 funds 表）。组合不存在 → 抛 ``ValueError``，由视图转 404/1002；
+        无快照日 → 返回 as_of_date=None 的空持仓。
+        """
+        portfolio = db.query(AdvisorPortfolio).filter_by(code=code).first()
+        if portfolio is None:
+            raise ValueError('投顾组合不存在')
+
+        as_of = db.query(func.max(AdvisorHolding.as_of_date)).filter_by(portfolio_id=portfolio.id).scalar()
+        if as_of is None:
+            return {
+                'code': portfolio.code,
+                'name': portfolio.name,
+                'platform': portfolio.platform,
+                'as_of_date': None,
+                'holdings': [],
+            }
+
+        rows = (
+            db.query(AdvisorHolding)
+            .filter_by(portfolio_id=portfolio.id, as_of_date=as_of)
+            .order_by(AdvisorHolding.after_ratio.desc())
+            .all()
+        )
+        codes = [r.fund_code for r in rows]
+        # 两步法关联（模型注释：组合成分不建硬外键，避免暂缺基金阻塞写入）
+        known = {c for (c,) in db.query(Fund.fund_code).filter(Fund.fund_code.in_(codes)).all() if c}
+
+        holdings = [
+            {
+                'fund_code': r.fund_code,
+                'fund_name': r.fund_name,
+                'pre_ratio': _safe_float(r.pre_ratio),
+                'after_ratio': _safe_float(r.after_ratio),
+                'op_name': r.op_name,
+                'in_local_db': r.fund_code in known,
+            }
+            for r in rows
+        ]
+        return {
+            'code': portfolio.code,
+            'name': portfolio.name,
+            'platform': portfolio.platform,
+            'as_of_date': as_of.isoformat(),
+            'holdings': holdings,
+        }
+
+    @staticmethod
+    def build_advisor_adjusts(db, code: str, limit: int, only_date: Optional[str]) -> dict:
+        """投顾组合调仓明细（只读）组装（#1642 B 块，从 views 下沉）。
+
+        与下沉前逐字段一致：按调仓日倒序分组；reason 同日冗余存储取首条；source 标记来源
+        （qieman/tiantian）。参数：``limit`` 最近 N 个调仓日（已在视图层 clamp[1,50]）；
+        ``only_date`` 指定调仓日（None 表示取最新）。组合不存在 → 抛 ``ValueError``，由视图转
+        404/1002；无调仓日 → 返回 adjusts=[]。
+        """
+        portfolio = db.query(AdvisorPortfolio).filter_by(code=code).first()
+        if portfolio is None:
+            raise ValueError('投顾组合不存在')
+
+        q = db.query(AdvisorAdjustHistory.adjust_date).filter_by(portfolio_id=portfolio.id)
+        if only_date:
+            # 在 SQL 层过滤指定日期（#1491 评审）：原实现取全量 distinct 再内存比对；
+            # 非法日期解析失败 → 空结果（与原来 isoformat 永不相等的行为一致）
+            try:
+                wanted_date = date.fromisoformat(only_date)
+            except ValueError:
+                wanted_date = None
+            dates = (
+                [d for (d,) in q.filter(AdvisorAdjustHistory.adjust_date == wanted_date).distinct().all()]
+                if wanted_date is not None
+                else []
+            )
+        else:
+            dates = [d for (d,) in q.distinct().order_by(AdvisorAdjustHistory.adjust_date.desc()).limit(limit).all()]
+        if not dates:
+            return {
+                'code': portfolio.code,
+                'name': portfolio.name,
+                'platform': portfolio.platform,
+                'adjusts': [],
+            }
+
+        rows = (
+            db.query(AdvisorAdjustHistory)
+            .filter(
+                AdvisorAdjustHistory.portfolio_id == portfolio.id,
+                AdvisorAdjustHistory.adjust_date.in_(dates),
+            )
+            .order_by(
+                AdvisorAdjustHistory.adjust_date.desc(),
+                AdvisorAdjustHistory.after_ratio.desc(),
+            )
+            .all()
+        )
+
+        # 按调仓日分组；reason 同日冗余存储，取首条即可
+        grouped: Dict[str, dict] = {}
+        for r in rows:
+            d = r.adjust_date.isoformat()
+            bucket = grouped.setdefault(d, {'adjust_date': d, 'reason': r.reason, 'source': r.source, 'items': []})
+            if not bucket['reason'] and r.reason:
+                bucket['reason'] = r.reason
+            bucket['items'].append(
+                {
+                    'fund_code': r.fund_code,
+                    'fund_name': r.fund_name,
+                    'op_name': r.op_name,
+                    'pre_ratio': _safe_float(r.pre_ratio),
+                    'after_ratio': _safe_float(r.after_ratio),
+                }
+            )
+        adjusts = [grouped[d.isoformat()] for d in sorted(dates, reverse=True) if d.isoformat() in grouped]
+        return {
+            'code': portfolio.code,
+            'name': portfolio.name,
+            'platform': portfolio.platform,
+            'adjusts': adjusts,
+        }
+
+
+def _safe_float(v) -> Optional[float]:
+    """SafeNumeric 读回是 Decimal，Flask jsonify 会把它序列化成字符串，必须显式转 float。"""
+    return float(v) if v is not None else None

@@ -19,9 +19,10 @@ from loguru import logger
 
 from app.core.constants import CASH_SYMBOL, PositionSource
 from app.core.symbol_utils import get_normalizer
+from app.core.venues import EXCHANGE, OTC
 from app.services.import_records import SBImportError, StandardTransactionRecord
 from app.services.importer.base import BaseImportParser
-from app.services.importer.mappings import THS_OP_MAP, VALID_OP_TYPES
+from app.services.importer.mappings import THS_OP_MAP, THS_OTC_OPS, VALID_OP_TYPES
 
 
 class THSStockParser(BaseImportParser):
@@ -254,16 +255,25 @@ class THSStockParser(BaseImportParser):
         if business_type not in VALID_OP_TYPES:
             raise ValueError(f'不支持的同花顺操作类型: {op_type_cn}')
 
-        # 代码标准化（同时获取 suggested_type）
+        # venue（#1662）：同花顺交割单里既有场内证券、也有场外开放式基金申赎。场所由
+        # **操作类型**决定（THS_OTC_OPS，见 mappings.py 的证据链）—— 这是「入场时本来就
+        # 已知」的信息，不需要（也不允许）靠代码数字猜。
+        venue = OTC if op_type_cn in THS_OTC_OPS else EXCHANGE
+
+        # 代码标准化（同时获取 suggested_type）：venue 传给归一化器，
+        # 场外路径**不做交易所推断**（否则 004369 → SZ004369）。
         symbol_raw = self._safe_str(raw, '证券代码')
         try:
-            normalized, _, suggested_type = self.normalizer.normalize(symbol_raw)
+            normalized, _, suggested_type = self.normalizer.normalize(symbol_raw, venue=venue)
         except Exception:
             normalized, suggested_type = None, None
         symbol = normalized if normalized else symbol_raw
 
-        # 根据 suggested_type 确定资产类型
-        if suggested_type:
+        # 根据 venue / suggested_type 确定资产类型
+        if venue == OTC:
+            # 场外基金 / 资管计划：裸码 + 基金语义（是否货基由写入层的名录判定落 is_money_fund）
+            asset_type = 'fund'
+        elif suggested_type:
             asset_type = suggested_type  # 可能为 'money_fund', 'reverse_repo' 等
         elif business_type == 'dividend_cash' and op_type_cn == '利息归本':
             asset_type = 'cash'
@@ -298,6 +308,7 @@ class THSStockParser(BaseImportParser):
             transaction_id=contract_id,
             source=self.source,
             raw_op_type=op_type_cn,  # 保留原始中文操作类型
+            venue=venue,
             trade_amount=trade_amount,
             net_amount=net_amount_abs,
         )

@@ -52,7 +52,7 @@ title: 付费 / 免费分层规范（pricing-tier）
 拒绝每功能建表，统一用量表设计（§9.6 定稿）：
 
 - 表：`user_usage(user_id, feature, period_date, count, quota, updated_at)`
-- feature 枚举：`ocr_import`、`scheduled_sync`、…（按需扩展）
+- feature 枚举：`ocr_import`、`scheduled_sync`、……（按需扩展）
 - 通用接口：`GET /api/usage/{feature}`
 - 配额可配置（env / 表）
 

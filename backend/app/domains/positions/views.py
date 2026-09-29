@@ -10,10 +10,8 @@ from loguru import logger
 from sqlalchemy.exc import IntegrityError
 
 from app.core.auth import get_family_id, get_owned_or_404
-from app.core.constants import ALLOCATION_LABELS, MARKET_LABELS, TYPE_LABELS
 from app.core.database import get_db
 from app.core.money import Money
-from app.core.utils import paginate
 from app.core.validation import parse_body
 from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
@@ -41,70 +39,8 @@ def list_positions():
     ledger_id_raw = request.args.get('ledger_id', '')
 
     with get_db() as db:
-        query = db.query(Position).filter(Position.family_id == get_family_id())
-        # 未归档过滤：ledger_id 显式传 'null' 时仅返回未绑定账户的持仓
-        if ledger_id_raw == 'null':
-            query = query.filter(Position.ledger_id.is_(None))
-        elif ledger_id_raw:
-            query = query.filter(Position.ledger_id == int(ledger_id_raw))
-        query = query.order_by(Position.updated_at.desc())
-
-        if group_by == 'account':
-            positions = query.all()
-            result = {}
-
-            # 一次性查询所有持仓的首次买入确认日（性能优化）
-            pos_ids = [p.id for p in positions]
-            first_buy_dates = {}
-            if pos_ids:
-                from sqlalchemy import func
-
-                buy_dates_query = (
-                    db.query(Transaction.position_id, func.min(Transaction.confirm_date).label('confirm_date'))
-                    .filter(
-                        Transaction.position_id.in_(pos_ids),
-                        Transaction.txn_type.in_(['buy', 'deposit']),
-                    )
-                    .group_by(Transaction.position_id)
-                    .all()
-                )
-                first_buy_dates = {row.position_id: row.confirm_date for row in buy_dates_query}
-
-            for p in positions:
-                account = p.account_name
-                if account not in result:
-                    result[account] = []
-
-                # 获取首次买入确认日
-                buy_confirm = first_buy_dates.get(p.id)
-                if buy_confirm is None:
-                    buy_confirm = p.confirm_date  # 兼容无交易记录的回退
-
-                result[account].append(
-                    {
-                        'id': p.id,
-                        'symbol': p.symbol,
-                        'name': p.name,
-                        'type': p.asset_type,
-                        'type_label': TYPE_LABELS.get(p.asset_type, p.asset_type),
-                        'market': p.market,
-                        'market_label': MARKET_LABELS.get(p.market, p.market),
-                        'allocation': p.allocation,
-                        'allocation_label': ALLOCATION_LABELS.get(p.allocation, p.allocation or '未分类'),
-                        'quantity': Money.min_unit_to_shares(p.quantity),
-                        'avg_price': Money.price_units_to_yuan(p.avg_price),
-                        'currency': p.currency,
-                        'current_price': Money.price_units_to_yuan(p.current_price),
-                        'confirm_date': buy_confirm.isoformat() if buy_confirm else None,
-                        'ledger_id': p.ledger_id,
-                    }
-                )
-            return jsonify({'data': result, 'message': 'ok'})
-
-        # 分页模式保持不变
-        items, total = paginate(query, page=page, per_page=per_page)
-        data = [enrich_position_dict(p) for p in items]
-        return jsonify({'data': data, 'total': total, 'page': page, 'per_page': per_page, 'message': 'ok'})
+        payload = PositionService.build_position_list(db, get_family_id(), group_by, page, per_page, ledger_id_raw)
+        return jsonify({**payload, 'message': 'ok'})
 
 
 @bp.get('/<int:id>/transactions/')
@@ -164,6 +100,9 @@ def get_position_transactions(id: int):
 
 _PRICE_RANGE_OP_TYPES = {'buy', 'sell', 'deposit', 'withdraw'}
 
+# create_position 支持的操作类型（视图层在调服务前据此 abort，避免被 except Exception 兜底成 500）
+_KNOWN_OP_TYPES = {'buy', 'deposit', 'sell', 'withdraw', 'dividend', 'dividend_reinvest', 'split'}
+
 
 def _validate_price_within_range(data: dict) -> None:
     """后端成交价区间拦截（#948 续）：证券类成交价须落在交易日 [low, high] 内。
@@ -217,35 +156,11 @@ def create_position():
                 data['asset_type'] = 'money_fund'
         except Exception:
             logger.warning('货基 type 归一查询失败（market 名录不可达），保留原类型', exc_info=True)
+    if op_type not in _KNOWN_OP_TYPES:
+        abort(400, description=f'不支持的操作类型: {op_type}')
     with get_db() as db:
         try:
-            if op_type in ('sell', 'withdraw'):
-                position = PositionService.process_sell_or_withdraw(db, data)
-            elif op_type == 'dividend':
-                data['dividend_amount'] = data.get('avg_price', 0)
-                position = PositionService.process_dividend(db, data)
-            elif op_type == 'dividend_reinvest':
-                data['dividend_amount'] = data.get('dividend_amount', data.get('amount', data.get('avg_price', 0)))
-                data['nav'] = data.get('nav', data.get('avg_price', 0))
-                position = PositionService.process_dividend_reinvest(db, data)
-            elif op_type == 'split':
-                position = PositionService.process_orphan_split(db, data)
-            elif op_type in ('buy', 'deposit'):
-                try:
-                    # #1233 决策 5：记一笔（手动记账）对货基/逆回购也建持仓，流水关联持仓；
-                    # 交易导入路径不传该参数，保持「只记孤儿资金流水」的既有行为。
-                    # 与 #863 §6「统一流水式」的关系：设计文档 §6 针对导入口径与历史持仓清理(L3)，
-                    # 主张货基只记孤儿流水；手动路径经 #1233 有意保留为建持仓。两者经 position_id
-                    # 互斥（导入=NULL、手动=非空），summary 孤儿净额与持仓聚合不重叠、不双计，口径已收口。
-                    position = PositionService.process_buy_or_deposit(db, data, force_create_position=True)
-                except IntegrityError:
-                    # 唯一约束冲突（幂等键重复）→ 上抛给外层 except IntegrityError → 409 幂等拦截
-                    raise
-                except Exception as e:
-                    logger.exception('买入/加仓处理失败: %s', e)
-                    return jsonify({'message': str(e), 'data': None, 'error_code': 1001}), 400
-            else:
-                abort(400, description=f'不支持的操作类型: {op_type}')
+            position = PositionService.dispatch_position_op(db, data, op_type)
         except ValueError as e:
             logger.exception('持仓操作业务校验失败: %s', e)
             # 业务逻辑错误，返回明确提示

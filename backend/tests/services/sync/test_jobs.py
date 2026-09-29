@@ -46,7 +46,12 @@ class TestStockListSyncJob:
         assert len(new) == 2
 
     def test_deduplicate_existing(self, job, db):
-        """已存在的 symbol 应被去重"""
+        """存量 symbol **保留**在结果里，交给 `_save_data` 做 upsert 更新（#1104）。
+
+        原先此处会过滤掉已存在的 symbol（`_deduplicate_by_unique_key`），于是
+        「ETF / 可转债被硬编码成 type='stock'」这类存量记录永远修不回来——
+        名录补齐后日线取数仍按错误 type 分派接口。去重现在只负责**本次抓取内部**的重复。
+        """
         sec = Security(symbol='SH600519', name='茅台', market='CN_A', type='stock')
         db.add(sec)
         db.commit()
@@ -56,8 +61,38 @@ class TestStockListSyncJob:
             {'symbol': 'SZ000001', 'name': '平安'},
         ]
         new = job._deduplicate(data)
-        assert len(new) == 1
-        assert new[0]['symbol'] == 'SZ000001'
+        assert [item['symbol'] for item in new] == ['SH600519', 'SZ000001']
+
+    def test_deduplicate_within_batch(self, job, db):
+        """本次抓取内部的重复 symbol 仍要去掉（否则 bulk_insert 会撞唯一键）"""
+        data = [
+            {'symbol': 'SH600519', 'name': '茅台'},
+            {'symbol': 'SH600519', 'name': '茅台'},
+            {'symbol': 'SZ000001', 'name': '平安'},
+        ]
+        new = job._deduplicate(data)
+        assert [item['symbol'] for item in new] == ['SH600519', 'SZ000001']
+
+    def test_save_data_updates_existing_type(self, job, db):
+        """存量记录的 type / name 被 upsert 更新——ETF / 可转债 type 修正的关键路径（#1104）。"""
+        db.add(Security(symbol='SZ159857', name='旧名', market='CN_A', type='stock'))
+        db.commit()
+
+        job._save_data(
+            [
+                {
+                    'symbol': 'SZ159857',
+                    'name': '通信ETF',
+                    'market': 'CN_A',
+                    'type': 'etf',
+                    'currency': 'CNY',
+                }
+            ]
+        )
+
+        row = db.query(Security).filter(Security.symbol == 'SZ159857').one()
+        assert row.type == 'etf'
+        assert row.name == '通信ETF'
 
 
 class TestFundListSyncJob:

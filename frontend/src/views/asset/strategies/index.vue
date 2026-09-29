@@ -45,7 +45,7 @@
             </p>
             <p
               class="text-xl font-bold"
-              :style="{ color: 'var(--color-primary)' }"
+              :style="{ color: 'var(--color-primary-ink)' }"
             >
               {{ totalHoldings }} 项
             </p>
@@ -56,7 +56,7 @@
             </p>
             <p
               class="text-xl font-bold"
-              :style="{ color: 'var(--color-primary)' }"
+              :style="{ color: 'var(--color-primary-ink)' }"
             >
               {{ allTags.length }} 个
             </p>
@@ -67,7 +67,7 @@
             </p>
             <p
               class="text-xl font-bold"
-              :style="{ color: 'var(--color-primary)' }"
+              :style="{ color: 'var(--color-primary-ink)' }"
             >
               <MoneyDisplay
                 :value="totalMarketValue"

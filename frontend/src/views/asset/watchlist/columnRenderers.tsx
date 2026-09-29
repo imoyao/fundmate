@@ -47,8 +47,10 @@ export interface ValuationItem {
 
 /** 派生值结果（组合计算列，由 index.vue 注入计算函数） */
 export interface DerivedValue {
-  value: number;
-  ratio: number;
+  /** 主数值（金额 / 收益），null 表示无数据 → 组件显示占位符（--） */
+  value: number | null;
+  /** 辅比例（%），null 表示不展示比例行（而非显示 0.00%） */
+  ratio: number | null;
 }
 
 /** 渲染上下文：承载页面级状态与方法（避免 renderer 直接耦合大组件） */
@@ -246,11 +248,20 @@ const renderMoney: FunctionalComponent<{
     props.def,
     props.ctx
   );
-  return h(MoneyDisplay, {
+  const node = h(MoneyDisplay, {
     value: useRealtime ? realtimeVal! : staticVal,
     precision: pricePrecision(props.row.asset_type),
     size: "sm"
   });
+  // 未命中实时通道时，静态价是「最近交易日收盘价 / 确认净值」（#1104）——
+  // 盘中看到的就是上一交易日价格，用 title 标注数据日期，避免被当成盘中最新价。
+  const asOf = useRealtime ? "" : String(field(props.row, "price_as_of") || "");
+  if (!asOf) return node;
+  return h(
+    "span",
+    { title: `数据日期 ${asOf}（最近交易日收盘价 / 确认净值）` },
+    [node]
+  );
 };
 
 const renderRiseFall: FunctionalComponent<{
@@ -258,6 +269,14 @@ const renderRiseFall: FunctionalComponent<{
   def: ColumnDef;
   ctx: RenderCtx;
 }> = props => {
+  const raw = field(props.row, props.def.key);
+  if (props.def.props?.nullable && (raw === null || raw === undefined)) {
+    return h(
+      "span",
+      { class: "text-sm", style: { color: "var(--text-tertiary)" } },
+      "--"
+    );
+  }
   const { staticVal, realtimeVal, useRealtime } = resolveValue(
     props.row,
     props.def,

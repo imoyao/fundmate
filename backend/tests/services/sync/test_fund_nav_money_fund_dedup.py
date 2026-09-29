@@ -129,6 +129,53 @@ class TestMoneyFundDeduplicate:
         assert rows == {date(2026, 8, 13), date(2026, 8, 14), date(2026, 8, 16)}
 
 
+class TestWriteSideRoutingGuard:
+    """#1554 第 3 条：写入侧必须分表——货基记录绝不落 `daily_worth`。
+
+    #1554 的错表残留来自「一律写 daily_worth」的旧路径。去重已按表分流（#1550），
+    但没有任何断言把「分流」本身钉死。这里补上：一旦保存逻辑回退成单表写入，
+    用例必须变红。
+    """
+
+    @pytest.fixture
+    def job(self, db):
+        return FundNavSyncJob(adapter=object(), db=db)
+
+    def test_money_fund_record_never_lands_in_daily_worth(self, job, db):
+        _ensure_fund(db, '000379', '平安日增利货币A')
+        job._save_data(
+            [
+                {'fund_code': '000379', 'date': date(2026, 8, 29), 'unit_nav': 0.6, 'is_money_fund': True},
+            ]
+        )
+
+        assert db.query(DailyWorth).filter_by(fund_code='000379').count() == 0, '货基落进了 daily_worth → #1554 会复发'
+        rows = db.query(MoneyFundDailyWorth).filter_by(fund_code='000379').all()
+        assert len(rows) == 1
+        assert rows[0].date == date(2026, 8, 29)
+
+    def test_mixed_batch_splits_by_table(self, job, db):
+        """混批必须各归各表：普通基金进 daily_worth，货基进 money_fund_daily_worth。"""
+        _ensure_fund(db, '000379', '平安日增利货币A')
+        _ensure_fund(db, '110011', '易方达中小盘')
+        job._save_data(
+            [
+                {'fund_code': '000379', 'date': date(2026, 8, 29), 'unit_nav': 0.6, 'is_money_fund': True},
+                {
+                    'fund_code': '110011',
+                    'date': date(2026, 8, 29),
+                    'unit_nav': 3.5,
+                    'acc_nav': 4.2,
+                    'is_money_fund': False,
+                },
+            ]
+        )
+
+        assert db.query(DailyWorth).filter_by(fund_code='000379').count() == 0
+        assert db.query(DailyWorth).filter_by(fund_code='110011').count() == 1
+        assert db.query(MoneyFundDailyWorth).filter_by(fund_code='110011').count() == 0
+
+
 class TestRetryRollsBackSession:
     """#1550 第 2 环：重试前必须 rollback，否则重试必然连挂三次"""
 

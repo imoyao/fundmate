@@ -55,7 +55,7 @@
 | `BatchGetFundsHolding` | 批量获取基金十大重仓股/债及占比 |
 | `GetFundAssetClassAnalysis` | 基金大类资产分布（穿透底层） |
 | `GetFundIndustryAllocation` | 基金各行业配置比例 |
-| `GetFundIndustryConcentration` | 基金行业集中度（前5大行业占比） |
+| `GetFundIndustryConcentration` | 基金行业集中度（前 5 大行业占比） |
 
 **调用方式**（与你已有的 Key 对应）：
 
@@ -76,13 +76,13 @@ mcporter call qieman-mcp.BatchGetFundsHolding \
 
 **旧版网页爬虫接口（备用，需 x-sign）**：`https://qieman.com/pmdj/v1/pomodels/{poCode}`
 - 返回 JSON 含 `composition` 数组，每个元素为 `fundCode / fundName / percent`（持仓比例），如 `519736 交银新成长混合 | 0.1343`。
-- 鉴权：请求头 `x-sign`（13位时间戳+32位加密串，**每日失效**，需用 Selenium 模拟浏览器捕获）。**稳定性差，仅作兜底，不建议生产依赖。**
+- 鉴权：请求头 `x-sign`（13 位时间戳+32 位加密串，**每日失效**，需用 Selenium 模拟浏览器捕获）。**稳定性差，仅作兜底，不建议生产依赖。**
 
 ### 3.2 蛋卷基金（雪球）
 
 **基本信息接口（实测 2026-07-22 可用）**
 
-```
+```plain
 GET https://danjuanapp.com/djapi/plan/{plan_code}     # 例：CSI1033
 GET https://danjuanfunds.com/djapi/plan/{plan_code}   # 同上，双域名均 200
 ```
@@ -98,14 +98,14 @@ GET https://danjuanfunds.com/djapi/plan/{plan_code}   # 同上，双域名均 20
 
 **单只基金持仓（实测 2026-07-22 可用）**
 
-```
+```plain
 GET https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc&code={6位基金代码}&topline=10
 # 例：code=005827 → 返回易方达蓝筹精选混合前十大重仓股及占比（HTML 格式，HTTP 200）
 ```
 
 **投顾组合（⚠️ 勘误：已打通免登录公开接口，2026-07-22 实测）**：组合持仓比例**无需前端抓取或登录态**，经逆向 App bundle 已定位真实后端：
 
-```
+```plain
 # 业绩/净值 + 行业配置 + 当前/历史基金级持仓（uni-fundts，POST，免登录/免签名）
 POST https://uni-fundts.1234567.com.cn/combine/investAdviserInfo/getTGQuoteByFavor
 POST https://uni-fundts.1234567.com.cn/combine/investAdviserInfo/getHoldWarehouseIndustryRatio
@@ -132,7 +132,7 @@ GET  https://dataapi.1234567.com.cn/dataapi/IAAGGR/FundIATGInfoAggr?FIELDS=...&T
 | **fund-holdings** | github.com/Lson-L/fund-holdings | 获取基金最新重仓股及比例 | ⚠️ 单只基金重仓 | Python |
 | **akshare** | github.com/akfamily/akshare | 综合金融数据接口库 | ⚠️ 含蛋卷 `fund_individual_detail_info_xq` | Python |
 
-**重点推荐 `realqiyan/fund-advisor`**：它本质是把“基金E账户导出的全平台持仓 CSV”导入本地 SQLite，再**调用且慢 MCP（`qieman-mcp.BatchGetFundsDetail` / `BatchGetFundsHolding`）做数据增强**——正好验证了“且慢 MCP 是投顾/基金持仓最可靠源”的判断，且与你已有的 API Key 可直接复用。
+**重点推荐 `realqiyan/fund-advisor`**：它本质是把“基金 E 账户导出的全平台持仓 CSV”导入本地 SQLite，再**调用且慢 MCP（`qieman-mcp.BatchGetFundsDetail` / `BatchGetFundsHolding`）做数据增强**——正好验证了“且慢 MCP 是投顾/基金持仓最可靠源”的判断，且与你已有的 API Key 可直接复用。
 
 ---
 

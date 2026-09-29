@@ -19,7 +19,7 @@
         <span class="bias-updated">更新：{{ date || "暂无" }}</span>
         <el-tooltip
           v-if="stale"
-          content="数据源（申万宏源官网 / legulegu）暂不可用，当前为最近一次成功计算的结果或占位提示，非实时数据，仅供参考。"
+          content="数据暂未更新，当前为最近一次成功计算的结果或占位提示，非实时数据，仅供参考。"
           placement="top"
         >
           <span class="bias-stale-pill">数据滞后</span>
@@ -35,11 +35,11 @@
       :default-sort="{ prop: 'data.crowding_pct', order: 'ascending' }"
     >
       <!-- 榜单序号：一眼看出排名（表现力优化，参考外部站的榜单感） -->
-      <el-table-column type="index" label="#" width="56" align="center" />
+      <el-table-column type="index" label="#" width="48" align="center" />
       <el-table-column
         prop="item_name"
         :label="nameColumnLabel"
-        min-width="140"
+        min-width="110"
         sortable
       >
         <template #default="{ row }">
@@ -56,7 +56,7 @@
       </el-table-column>
       <el-table-column
         prop="data.crowding_pct"
-        width="220"
+        width="140"
         align="right"
         sortable
       >
@@ -95,7 +95,7 @@
       <!-- 成交额占比（历史百分位）：复用拥挤度配色与进度条语义，数据源降级为 null 时显示 -- -->
       <el-table-column
         prop="data.amount_pct_rank"
-        width="220"
+        width="140"
         align="right"
         sortable
       >
@@ -135,7 +135,7 @@
       <el-table-column
         prop="data.turnover_rank"
         label="换手率"
-        width="220"
+        width="140"
         align="right"
         sortable
       >
@@ -163,16 +163,16 @@
           </div>
         </template>
       </el-table-column>
-      <!-- 以下四列来自外部临时源（fundfof 公开接口，非我方自算）：左侧为当期值、右侧为历史分位 -->
+      <!-- 以下四列：左侧为当期值、右侧为历史分位 -->
       <el-table-column
         prop="data.ma60_ratio"
-        width="150"
+        width="120"
         align="right"
         sortable
       >
         <template #header>
           <el-tooltip
-            content="60 日均线上方个股占比（该行业成分股中收盘价在 MA60 之上的比例）。右侧为该值的历史分位。数据来自外部临时源，非我方自算。"
+            content="60 日均线上方个股占比（该行业成分股中收盘价在 MA60 之上的比例）。右侧为该值的历史分位。"
             placement="top"
           >
             <span>60线上占比</span>
@@ -192,13 +192,13 @@
       </el-table-column>
       <el-table-column
         prop="data.high60_ratio"
-        width="150"
+        width="120"
         align="right"
         sortable
       >
         <template #header>
           <el-tooltip
-            content="60 日新高个股占比（该行业成分股中创 60 日新高的比例）。右侧为该值的历史分位。数据来自外部临时源，非我方自算。"
+            content="60 日新高个股占比（该行业成分股中创 60 日新高的比例）。右侧为该值的历史分位。"
             placement="top"
           >
             <span>新高占比</span>
@@ -218,13 +218,13 @@
       </el-table-column>
       <el-table-column
         prop="data.margin_ratio"
-        width="150"
+        width="130"
         align="right"
         sortable
       >
         <template #header>
           <el-tooltip
-            content="融资买入额占该行业成交额比例。右侧为该值的历史分位（融资余额是相对慢变量）。数据来自外部临时源，非我方自算。"
+            content="融资买入额占该行业成交额比例。右侧为该值的历史分位（融资余额是相对慢变量）。"
             placement="top"
           >
             <span>融资买入占比</span>
@@ -242,10 +242,10 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column prop="data.big_order" width="150" align="right" sortable>
+      <el-table-column prop="data.big_order" width="120" align="right" sortable>
         <template #header>
           <el-tooltip
-            content="百万大单净买入额（亿元，正=净买入）。数据来自外部临时源，非我方自算。"
+            content="百万大单净买入额（亿元，正=净买入）。"
             placement="top"
           >
             <span>百万大单</span>
@@ -270,7 +270,7 @@
         :key="`bias${n}`"
         :prop="`data.bias${n}`"
         :label="`乖离${n}日`"
-        width="96"
+        width="76"
         align="right"
         sortable
       >
@@ -284,62 +284,9 @@
           </span>
         </template>
       </el-table-column>
-      <el-table-column prop="data.multiple" width="110" align="right" sortable>
-        <template #header>
-          <el-tooltip
-            content="行业 PB ÷ 全A 中位 PB 的当前倍数（估值口径）。需行业 PB 源（legulegu / baostock / tushare），当前无可用免费源，故该列留空——不是故障。"
-            placement="top"
-          >
-            <span>PB倍数</span>
-          </el-tooltip>
-        </template>
-        <template #default="{ row }">
-          <span>{{
-            row.data?.multiple != null ? row.data.multiple.toFixed(2) : "--"
-          }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column prop="data.ind_pb" width="110" align="right" sortable>
-        <template #header>
-          <el-tooltip
-            content="该行业成分股 PB 中位数。需行业 PB 源（legulegu / baostock / tushare），当前无可用免费源，故该列留空。"
-            placement="top"
-          >
-            <span>行业PB</span>
-          </el-tooltip>
-        </template>
-        <template #default="{ row }">
-          <span>{{
-            row.data?.ind_pb != null ? row.data.ind_pb.toFixed(2) : "--"
-          }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column prop="data.mkt_pb" width="120" align="right" sortable>
-        <template #header>
-          <el-tooltip
-            content="全 A 股 PB 中位数（估值分位的分母）。需行情/估值源，当前无可用免费源，故该列留空。"
-            placement="top"
-          >
-            <span>全A中位PB</span>
-          </el-tooltip>
-        </template>
-        <template #default="{ row }">
-          <span>{{
-            row.data?.mkt_pb != null ? row.data.mkt_pb.toFixed(2) : "--"
-          }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="说明" min-width="140">
-        <template #default="{ row }">
-          <span v-if="!row.data?.hist_ok" class="crowding-note-tag"
-            >分位待历史积累</span
-          >
-          <span v-else class="crowding-note">{{ row.data?.note || "" }}</span>
-        </template>
-      </el-table-column>
     </el-table>
     <div v-if="!items.length && !loading" class="empty-state">
-      暂无数据：数据源当前不可用（外部临时源或申万宏源官网），稍后自动恢复；不影响页面其它部分。
+      暂无数据，稍后自动恢复；不影响页面其它部分。
     </div>
   </component>
 </template>
@@ -463,7 +410,7 @@ withDefaults(
 
 .crowding-cell-bar {
   flex: 1;
-  max-width: 120px;
+  max-width: 96px;
 }
 
 .crowding-cell-track {
@@ -493,19 +440,6 @@ withDefaults(
 
 .crowding-cell-fill.val-high {
   background: var(--temp-high);
-}
-
-.crowding-note-tag {
-  padding: 2px 8px;
-  font-size: 11px;
-  color: var(--text-tertiary-ink);
-  background: var(--bg-soft);
-  border-radius: 6px;
-}
-
-.crowding-note {
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
 }
 
 /* ===== 外部源维度单元格（当期值 + 历史分位，分位沿用 val-* 档位配色） ===== */

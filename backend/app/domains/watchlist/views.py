@@ -43,7 +43,6 @@ from app.services.watchlist_service import (
     build_home_summary,
     create_watchlist_item,
     ensure_watchlist_for_positions,
-    get_filtered_items_query,
     get_holding_gaps,
     reconcile_watchlist_status,
 )
@@ -204,77 +203,10 @@ def list_items():
     }
 
     with get_db() as db:
-        lite = params['fields'] == 'lite'
-        # 分页参数：page 从 1 开始；per_page 限幅 [1, 200] 避免一次性拉取全量
-        page = max(params['page'] or 1, 1)
-        per_page = max(min(params['per_page'] or 20, 200), 1)
-        offset = (page - 1) * per_page
-        if params['status'] == 'HOLDING':
-            # 持仓分组 = 全部真实持仓（positions 表 active，按 symbol 聚合），
-            # 不走 watchlist.status 快照查询；返回虚拟行（id=None，前端据此禁用行操作）
-            data = display.list_holding_items(
-                db,
-                get_family_id(),
-                venue=params['venue'],
-                search=params['search'],
-                asset_types=params['asset_types'],
-                defer_display=True,  # 展示专用字段延后到分页之后（见 fill_page_display_fields）
-            )
-            data = display.apply_user_sort(data, params['sort_by'], params['sort_order'])
-            total = len(data)
-            page_data = display.fill_page_display_fields(data[offset : offset + per_page], db, lite)
-            return jsonify({'data': page_data, 'total': total, 'message': 'ok'})
-
-        if not params['status'] and not (
-            params['symbol'] or params['market'] or params['tag_id'] or params['asset_types']
-        ):
-            # 「全部」分组 = 自选清单 ∪ 真实持仓补集（同一 symbol 自选优先），
-            # 前端「全部」分组不传 status 走此分支，解决「全部 < 持仓」口径矛盾。
-            # 仅无查找型参数（symbol/market/tag_id/asset_types）时合并——
-            # AddToWatchlistModal/OcrImportModal 的「symbol 查重」与「类型筛选」
-            # 等调用依赖原过滤语义，不得在此被稀释。
-            try:
-                data = display.build_all_items(
-                    db,
-                    get_family_id(),
-                    venue=params['venue'],
-                    search=params['search'],
-                    tag_ids_str=params['tag_ids_str'],
-                    favorite=params['favorite'],
-                    group_id=params['group_id'],
-                    defer_display=True,  # 同上：分页后再补展示专用字段
-                )
-            except ValueError as e:
-                abort(400, str(e))
-            data = display.apply_user_sort(data, params['sort_by'], params['sort_order'])
-            total = len(data)
-            page_data = display.fill_page_display_fields(data[offset : offset + per_page], db, lite)
-            return jsonify({'data': page_data, 'total': total, 'message': 'ok'})
-
         try:
-            query, total = get_filtered_items_query(
-                db,
-                get_family_id(),
-                status=params['status'],
-                venue=params['venue'],
-                market=params['market'],
-                group_id=params['group_id'],
-                search=params['search'],
-                favorite=params['favorite'],
-                symbol=params['symbol'],
-                tag_ids_str=params['tag_ids_str'],
-                tag_id=params['tag_id'],
-                asset_types=params['asset_types'],
-            )
+            page_data, total = display.list_items_paginated(db, get_family_id(), params)
         except ValueError as e:
             abort(400, str(e))
-
-        items = query.order_by(WatchlistItem.is_pinned.desc(), WatchlistItem.updated_at.desc()).all()
-        data = [display.enrich_item(item, db, get_family_id(), defer_display=True) for item in items]
-        data = display.apply_user_sort(data, params['sort_by'], params['sort_order'])
-
-        total = len(data)
-        page_data = display.fill_page_display_fields(data[offset : offset + per_page], db, lite)
         return jsonify({'data': page_data, 'total': total, 'message': 'ok'})
 
 
@@ -658,32 +590,10 @@ def export_items():
     }
 
     with get_db() as db:
-        if params['status'] == 'HOLDING':
-            # 持仓分组导出：与列表一致，导出全部真实持仓（虚拟行，id=None）
-            rows = display.list_holding_items(db, get_family_id(), venue=params['venue'], search=params['search'])
-        elif not params['status'] and not (
-            params['symbol'] or params['market'] or params['tag_id'] or params['asset_types']
-        ):
-            # 「全部」导出与列表口径一致：自选 ∪ 持仓补集（复用同一合并逻辑；
-            # 带 symbol/market/tag_id 查找参数时仍走原过滤语义，与列表分支对齐）
-            try:
-                rows = display.build_all_items(
-                    db,
-                    get_family_id(),
-                    venue=params['venue'],
-                    search=params['search'],
-                    tag_ids_str=params['tag_ids_str'],
-                    favorite=params['favorite'],
-                    group_id=params['group_id'],
-                )
-            except ValueError as e:
-                abort(400, str(e))
-        else:
-            try:
-                query, _ = get_filtered_items_query(db, get_family_id(), **params)
-            except ValueError as e:
-                abort(400, str(e))
-            rows = [display.enrich_item(item, db, get_family_id()) for item in query.all()]  # 导出不分页
+        try:
+            rows = display.export_items_rows(db, get_family_id(), params)
+        except ValueError as e:
+            abort(400, str(e))
 
         output = io.StringIO()
         # UTF-8 BOM：Excel 打开 CSV 时按 BOM 识别 UTF-8，否则中文乱码

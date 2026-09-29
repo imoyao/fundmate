@@ -64,7 +64,7 @@ title: 用户凭证与第三方集成规划（integrations-plan）
 | id | PK | |
 | family_id / user_id | FK | **归属维度，见 §3.2 待裁决** |
 | provider | str | 标识来源（如 `qieman` / `custom_mcp` / `some_skill`） |
-| name | str | 用户自定义别名（"我的且慢key"） |
+| name | str | 用户自定义别名（"我的且慢 key"） |
 | ciphertext | blob/text | AES-256-GCM 密文（**不存明文**） |
 | iv | blob | 随机向量 |
 | created_by_user_id | FK | 操作人（审计用） |

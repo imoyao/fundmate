@@ -23,7 +23,7 @@ title: 站点架构与导流方案
 
 ## 二、三层结构
 
-```
+```plain
                      duoduobei.com  ── 营销层（主站 + 人格测试 H5）
                           │ 导流入口
                           ▼
@@ -42,7 +42,7 @@ title: 站点架构与导流方案
 
 ## 三、导流顺序
 
-```
+```plain
 外部流量 → 主站(landing)
    ├─→ 人格测试 H5(/personality) ──→「使用产品」→ app.duoduobei.com
    └─→ 探市入口(未来主站挂 /explore 链接) → app.duoduobei.com/explore

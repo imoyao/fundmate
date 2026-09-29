@@ -334,7 +334,7 @@ const autoFixableCount = computed(() => {
 }
 
 .batch-fix-btn--primary {
-  color: var(--bg-card);
+  color: var(--text-inverse);
   background-color: var(--color-primary);
   border-color: var(--color-primary);
 }

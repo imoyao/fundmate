@@ -43,7 +43,7 @@
 
 编号清单见同目录 `dependabot-dismiss-ids.yml` 的 `npm.root.alert_ids` / `npm.frontend.alert_ids`（下方为带包名的可读明细）。
 
-根 `pnpm-lock.yaml`：825/824/823 image-size、822 nanoid、821 js-yaml、820/819 vite(6.x CVE,5.x不受影响)、818 vite、817 postcss、816/812 brace-expansion、732 esbuild、709 trim
+根 `pnpm-lock.yaml`：825/824/823 image-size、822 nanoid、821 js-yaml、820/819 vite(6.x CVE,5.x 不受影响)、818 vite、817 postcss、816/812 brace-expansion、732 esbuild、709 trim
 frontend `pnpm-lock.yaml`：815 esbuild、627 esbuild、822 nanoid（已在根列，frontend 实例同号）
 
 ### 3.3 更新（2026-08-16）：nanoid #826 已修复

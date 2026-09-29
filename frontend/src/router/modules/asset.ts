@@ -54,12 +54,13 @@ const AssetRouteConfig = {
     },
     // ── 投资管理（可折叠）──
     {
-      // 目录型父路由：保留相对写法，因其 redirect 依赖「/asset/investment/favorites」，
-      // 且其 children 已统一为绝对 path，拍平后父级自身注册为「/investment」，行为不变。
+      // 目录型父路由：保留相对写法，拍平后父级自身注册为「/investment」，children 已统一为绝对 path。
+      // redirect 指向当前唯一可见子级（对账工作台，#1699）：旧值 /asset/investment/favorites 已随
+      // favorites 迁移至 /the-road-not-taken 而悬空，单子级合并菜单点击父级 href 时会跳空白页。
       path: "investment",
       name: "InvestmentManage",
       component: EmptyLayout,
-      redirect: "/asset/investment/favorites",
+      redirect: "/investment/reconcile-workbench",
       meta: { title: "投资管理", icon: "ep:folder-opened", rank: 2 },
       children: [
         {

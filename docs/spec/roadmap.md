@@ -62,7 +62,7 @@ title: 项目路线图与进度表（roadmap）
 | P2-21 | 个人中心 | **✅ 已落地（2026-08-08）**：资料编辑（昵称/用户名/头像，D9 生成式头像 + 果冻胶囊画风选择）、改邮箱/改密码、退出登录；单栏居中设置页风格（D13 定 680 → D15 覆写 960 → **D17 回覆写 680px 定稿**），入口收敛到头像下拉；成功反馈语义隔离 + 头像 n=3 超椭圆（D15）。偏好设置（对接 `user_preferences`、修复主题双 key）与真实姓名/家人称呼（D11→P2-22）待后续 | — |
 | P2-22 | 家庭成员管理 | admin 邀请/改角色（member/viewer）/移除成员，成员列表展示；含每家庭显示名/家人称呼（D11） | — |
 | P2-23 | 云端同步引擎 | 本地 SQLite 缓存 ↔ Supabase Postgres 权威的增量双向同步 + 冲突处理（LWW）+ Supabase RLS 兜底；多设备验证 | — |
-| P2-24 | 销售机构/基金管理人主数据表 | E账户对账当前以字符串三元组 `(symbol, source_broker, fund_manager)` 为自然主键（`position_import_meta`，§3.2 设计决策）；远期建 `fund_companies`/`fund_sales_orgs` 主数据表 + 外键关联替换字符串字段，与 edgeone 双库重构（市场域 Turso，`backend-restructure-edgeone-dualengine.md`）重叠。**2026-08-17 部分落地**：销售机构侧已建 `sales_institutions`（AMAC 名录，`amac_institution` job 全量刷新）+ `Ledger.sales_institution_id` 可选外键（渠道匹配/账户关联），旧 `sales_broker_mappings` 已 DROP；**2026-09-10 基金管理人侧收束**：`fund_management_companies`（user 域死表，实测零读者/零外键/零接口）已删除，AMAC 公示信息（全称/注册地址/办公地址/官网/客服电话）enrich 进公司主数据表 `fund_companies`（新增 `register_addr`/`office_addr`/`website`/`phone`/`is_active` 列，全称入 `full_name`）；配套 `company_resolver.get_or_create_fund_company` 收口公司行写入（修 8 组「简称行 + 全称行」重复实体）、迁移脚本 `scripts/migrate_fund_company_merge.py`。**仍待后续**：`position_import_meta.fund_manager` / `source_broker` 字符串字段替换为外键；公司名中含「资管/证券」的券商资管系（东方红/中泰/华泰等）与 AMAC 全称无法归一化匹配（实测 4 条），需补 `company_resolver._MANUAL_MAPPING` 或数据源 | — |
+| P2-24 | 销售机构/基金管理人主数据表 | E 账户对账当前以字符串三元组 `(symbol, source_broker, fund_manager)` 为自然主键（`position_import_meta`，§3.2 设计决策）；远期建 `fund_companies`/`fund_sales_orgs` 主数据表 + 外键关联替换字符串字段，与 edgeone 双库重构（市场域 Turso，`backend-restructure-edgeone-dualengine.md`）重叠。**2026-08-17 部分落地**：销售机构侧已建 `sales_institutions`（AMAC 名录，`amac_institution` job 全量刷新）+ `Ledger.sales_institution_id` 可选外键（渠道匹配/账户关联），旧 `sales_broker_mappings` 已 DROP；**2026-09-10 基金管理人侧收束**：`fund_management_companies`（user 域死表，实测零读者/零外键/零接口）已删除，AMAC 公示信息（全称/注册地址/办公地址/官网/客服电话）enrich 进公司主数据表 `fund_companies`（新增 `register_addr`/`office_addr`/`website`/`phone`/`is_active` 列，全称入 `full_name`）；配套 `company_resolver.get_or_create_fund_company` 收口公司行写入（修 8 组「简称行 + 全称行」重复实体）、迁移脚本 `scripts/migrate_fund_company_merge.py`。**仍待后续**：`position_import_meta.fund_manager` / `source_broker` 字符串字段替换为外键；公司名中含「资管/证券」的券商资管系（东方红/中泰/华泰等）与 AMAC 全称无法归一化匹配（实测 4 条），需补 `company_resolver._MANUAL_MAPPING` 或数据源 | — |
 
 ### 1.4 当前进度总览
 
@@ -160,10 +160,10 @@ title: 项目路线图与进度表（roadmap）
 
 | Issue | 覆盖阶段 | 内容 |
 |------|---------|------|
-| （待建）账本精灵护栏子包骨架 + L3 输出词法过滤 | G1+G2 | 新建 `ai_recognizer/safety/`（intent_guard/output_filter/repeat_tracker 纯函数骨架）+ `output_filter.py` R1–R10 规则 + 白名单豁免 + 免责模板常量 |
-| （待建）输入侧意图护栏 + 会话内重复追问检测 | G3+G4 | `intent_guard.py` A/B/D + E 协同（意图分类 + 正则模式 + 情绪复合）+ `repeat_tracker.py` 归一化问答 N 次阈值 + 标准话术 |
-| （待建）per-user token 配额 + Serverless 限流 | G5 | `guards.py` 加 per-user 配额表 + 网关层拦截；**限流计数禁用 SCF 实例内存字典**（多实例击穿），须走 API 网关或 Redis |
-| （待建）registry 意图路由 + system prompt 注入 L1 铁律 | G6+G7 | `registry.py` 引入 A 前置分类驱动对话精灵路由；精灵 system prompt 注入 L1 数据真实性铁律 + can/cannot 清单（复用同花顺原文） |
+| （已实施 PR #1729）账本精灵护栏子包骨架 + L3 输出词法过滤 | G1+G2 | 新建 `ai_recognizer/safety/`（intent_guard/output_filter/repeat_tracker 纯函数骨架）+ `output_filter.py` R1–R10 规则 + 白名单豁免 + 免责模板常量 |
+| （已实施 PR #1729）输入侧意图护栏 + 会话内重复追问检测 | G3+G4 | `intent_guard.py` A/B/D + E 协同（意图分类 + 正则模式 + 情绪复合）+ `repeat_tracker.py` 归一化问答 N 次阈值 + 标准话术 |
+| （暂缓，#1739 四问留痕）per-user token 配额 + Serverless 限流 | G5 | `guards.py` 加 per-user 配额表 + 网关层拦截；**限流计数禁用 SCF 实例内存字典**（多实例击穿），须走 API 网关或 Redis |
+| （G6+G7 均已实施：PR #1743 / PR #1730）registry 意图路由 + system prompt 注入 L1 铁律 | G6+G7 | `registry.py` 引入 A 前置分类驱动对话精灵路由；精灵 system prompt 注入 L1 数据真实性铁律 + can/cannot 清单（复用同花顺原文） |
 
 ### 2.7.3 隐蔽坑登记（落地前必读）
 
@@ -227,10 +227,10 @@ title: 项目路线图与进度表（roadmap）
 
 | 拟标题 | 象限 | 对应文档 / 代码 | 状态 |
 |:---|:---|:---|:---|
-| 账本精灵护栏子包骨架 + L3 输出词法过滤（G1+G2） | Q2 | `agent-guardrail-layer-design-2026-08-17.md` §7/§8；`ai_recognizer/safety/` | 待建 |
-| 输入侧意图护栏 + 会话内重复追问检测（G3+G4） | Q2 | 同上 §6；`intent_guard.py`/`repeat_tracker.py` | 待建 |
-| per-user token 配额 + Serverless 限流（G5） | Q2 | 同上 §8；`guards.py` | 待建 |
-| registry 意图路由 + system prompt 注入 L1 铁律（G6+G7） | Q2 | 同上 §8；`registry.py` | 待建 |
+| 账本精灵护栏子包骨架 + L3 输出词法过滤（G1+G2） | Q2 | `agent-guardrail-layer-design-2026-08-17.md` §7/§8；`ai_recognizer/safety/` | 已实施（PR #1729） |
+| 输入侧意图护栏 + 会话内重复追问检测（G3+G4） | Q2 | 同上 §6；`intent_guard.py`/`repeat_tracker.py` | 已实施（PR #1729） |
+| per-user token 配额 + Serverless 限流（G5） | Q2 | 同上 §8；`guards.py` | 暂缓（#1739 四问判定，触发条件见卡） |
+| registry 意图路由 + system prompt 注入 L1 铁律（G6+G7） | Q2 | 同上 §8；`registry.py` | G7 已实施（PR #1730）；G6 已实施（PR #1743，2026-09-28） |
 | 快速记账对话入口（NLP→importer + 前端逐行确认） | Q2 | `ai_recognizer`；前端精灵输入框 | 待建（Q2 早赢） |
 | 持仓/表现自然语言查询层（NL→工具链） | Q2 | `summary_service`/`performance` | 待建（Q2 早赢） |
 | 持仓行为解读 / 诊断叙事 | Q2 | 拉数据→拼 prompt→llm 叙事 | 待建（排后） |

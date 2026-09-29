@@ -55,6 +55,7 @@ dev = [
     "rich>=13.0.0",
     "pip-audit>=2.10.1",
     "brotli>=1.2.0",
+    "pyyaml>=6.0.3",
 ]
 
 [tool.ruff]
@@ -122,3 +123,5 @@ scheduler = "python app/tools/scheduler.py"
 # 自选/持仓净值 + 温度计；与「应用内调度」（SCHEDULER_ENABLED=1）二选一，
 # 单实例锁保证同机只有一个生效。
 scheduler-daemon = "python app/tools/scheduler_daemon.py"
+# 账本精灵 MCP server（stdio，#1751 S5）：供 Cursor / Claude Desktop 等标准客户端连接
+agent-mcp = "python -m app.services.ai_recognizer.mcp_server"

@@ -18,6 +18,7 @@ from sqlalchemy import func
 from app.core.constants import PositionSource
 from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
+from app.core.venues import resolve_venue
 from app.domains.ledgers.constants import map_org_type_to_channel_category
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import (
@@ -141,6 +142,9 @@ class HoldingsMixin:
                     'import_hash': rec.import_hash,
                     'is_duplicate': False,
                     'source': rec.source,
+                    # venue（#1662）：解析器声明优先于记录自带。前端原样回传即可；
+                    # 万一往返丢失也不影响落库（_build_holding_data 会按 asset_type 兜底）。
+                    'venue': rec.venue or (getattr(parser, 'venue', '') if parser else ''),
                 }
             )
 
@@ -258,10 +262,15 @@ class HoldingsMixin:
 
         # 金融口径收口（#1375）：前端 row 的数值经 Decimal(str(x)) 收口，禁止 float 域中转
         price = Decimal(str(row.get('price', 0) or 0))
+        asset_type = row.get('type', 'fund')
+        # venue（#1662）：预览行透传的 venue 优先（解析器声明 / 逐行判定），前端往返丢失时按
+        # asset_type 兜底 —— E账户 / AI 持仓覆盖的都是场外公募基金，兜底即 OTC。
+        venue = resolve_venue(row.get('venue'), asset_type)
         return {
             'symbol': row['symbol'],
             'name': row.get('name', ''),
-            'asset_type': row.get('type', 'fund'),
+            'asset_type': asset_type,
+            'venue': venue,
             'ledger_id': row.get('ledger_id'),
             'account_name': row.get('account_name', ''),
             'quantity': Decimal(str(row.get('quantity', 0) or 0)),

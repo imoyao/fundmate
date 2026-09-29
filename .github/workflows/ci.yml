@@ -164,6 +164,15 @@ jobs:
       - name: 守卫:视图层厚度
         run: python ../scripts/check_view_thickness.py
 
+      # 守卫：跨域模型同语句（#1643：双库「零外键、零 SQL join」）。
+      # **本 job 是这条约束唯一的机器化拦截层**：门禁与全部单测都跑单库
+      # （conftest 把 engine / user_engine patch 成同一个内存引擎），跨域 join 在两域
+      # 同库时不报错，结构上测不出；生产每日调度（daily-snapshot.yml）跑真双库，
+      # 缺陷只在无人值守的凌晨调度里炸（#1605 就是这么漏的）。
+      # 不新增 job：不新增 job 就不必改 gate.needs。
+      - name: 守卫:跨域模型同语句
+        run: python ../scripts/check_cross_domain_query.py
+
       # 单进程（避 OOM），排除需联网的 slow 测试
       - name: 运行测试
         run: pdm run python -m pytest -p no:xdist -m "not slow"
@@ -189,6 +198,11 @@ jobs:
 
       - name: 扫描裸断点媒体查询
         run: python scripts/guard_breakpoints.py
+
+      # 分段控制器守卫（#1717）：禁止再挂 el-segmented / 页面自写 .xxx-segmented 样式块。
+      # 与上两条同属「前端设计语言回潮」一类，故并入本 job 而不另起 job（不新增 job 就不必改 gate.needs）。
+      - name: 扫描分段控制器回潮
+        run: python scripts/guard_segmented.py
 
   # 乱码守卫（mojibake）：防止任何绕过本地 pre-commit 钩子的提交（--no-verify、
   # 或经 gh api / MCP 直推导致本地钩子不执行）把 GBK 乱码合进 PR。
@@ -227,6 +241,11 @@ jobs:
           head="${{ github.event.pull_request.head.sha }}"
           pip install ftfy >/dev/null
           for sha in $(git rev-list "$base..$head"); do
+            # 历史豁免（清单在 scripts/guard_mojibake.py 的 EXEMPT_COMMIT_MESSAGES，单一来源）：
+            # 仅豁免「已验证内容干净但提交信息乱码」的历史提交，别处照旧零容忍
+            if python scripts/guard_mojibake.py --is-exempt "$sha"; then
+              continue
+            fi
             git log -1 --format=%B "$sha" > /tmp/msg_$$.txt
             if ! python scripts/guard_mojibake.py --check-message /tmp/msg_$$.txt; then
               echo "  -> 提交 ${sha:0:8} 的中文提交信息疑似乱码"
@@ -366,6 +385,9 @@ jobs:
   # 且它同时决定「本轮审查算不算真产出（否则 core.setFailed → job 红）」「要不要清理协议信封泄漏评论」
   # 「生成标记幻觉计数」——写错就是把 job 带红或带绿（假红灯 / 假绿），故给它一份回归网。
   # 零新依赖（只用 Node 内置 node:test / node:assert），纯离线 mock，无需 LLM 额度。
+  # 2026-09-24（#1683）起本 job 同时跑 `scripts/close_linked_issues.js` 的单测：它被
+  # close-linked-issues workflow 直接驱动，且带**外部副作用**（关闭 issue）——解析错一次
+  # 就是误关别人的卡，比假红灯更贵，同样必须有回归网。
   scripts_test:
     name: 守卫:脚本单测 (scripts)
     if: ${{ github.event_name == 'pull_request' }}

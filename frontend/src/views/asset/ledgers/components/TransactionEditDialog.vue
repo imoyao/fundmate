@@ -156,7 +156,10 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from "vue";
-import { updateLedgerTransaction } from "@/api/ledger";
+import {
+  updateLedgerTransaction,
+  type LedgerTransactionUpdateInput
+} from "@/api/ledger";
 import { useFundTradeDate } from "@/composables/useFundTradeDate";
 import {
   useSecurityPriceRange,
@@ -350,7 +353,7 @@ async function handleSave() {
   }
   saving.value = true;
   try {
-    const payload: any = {
+    const payload: LedgerTransactionUpdateInput = {
       quantity: form.value.quantity,
       price: form.value.price,
       amount: form.value.amount,
@@ -359,8 +362,8 @@ async function handleSave() {
       confirm_date: form.value.confirm_date || null,
       notes: form.value.notes
     };
-    const res: any = await updateLedgerTransaction(t.ledger_id, t.id, payload);
-    const data = res?.data ?? res;
+    const res = await updateLedgerTransaction(t.ledger_id, t.id, payload);
+    const data = res.data;
     emit("saved", data);
     emit("update:modelValue", false);
     ElMessage.success("保存成功");

@@ -53,13 +53,13 @@
       />
     </MetricGrid>
 
-    <!-- 状态筛选：一级胶囊分段（design.md「Filter & Selection」，
-         胶囊语言与 watchlist view-segmented 一致，选中态软按钮） -->
+    <!-- 状态筛选：一级胶囊分段（design.md「Filter & Selection」；收敛到 SegmentedControl，
+         见 docs/design/components.md，选中态软按钮） -->
     <div class="filter-bar">
-      <el-segmented
+      <SegmentedControl
         v-model="statusFilter"
         :options="STATUS_OPTIONS"
-        class="status-segmented"
+        aria-label="对账状态筛选"
       />
       <span class="filter-bar__count">共 {{ filteredItems.length }} 条</span>
     </div>
@@ -226,6 +226,7 @@ import {
 } from "@/api/eaccount";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import { formatDate } from "@/utils/date";
 import { formatQuantity } from "@/utils/format";
 
@@ -493,53 +494,6 @@ onMounted(fetchData);
 .filter-bar__count {
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
-}
-
-/* 一级筛选分段控制器：胶囊语言与 watchlist view-segmented 一致
-   （design.md「Filter & Selection」一级胶囊分段，选中态软按钮） */
-.status-segmented :deep(.el-segmented) {
-  height: 32px;
-  padding: 2px;
-  background-color: var(--bg-muted);
-  border-radius: var(--radius-pill);
-  box-shadow: none;
-}
-
-.status-segmented :deep(.el-segmented__item) {
-  height: 28px;
-  padding: 0 14px;
-  font-size: var(--text-label);
-  line-height: 28px;
-  color: var(--text-secondary);
-  border-radius: var(--radius-pill);
-  transition:
-    background-color 150ms ease,
-    color 150ms ease;
-}
-
-.status-segmented :deep(.el-segmented__item:hover) {
-  color: var(--text-primary);
-}
-
-.status-segmented :deep(.el-segmented__item.is-selected) {
-  color: var(--brand-700);
-  background-color: var(--brand-100);
-  box-shadow: none;
-}
-
-.status-segmented :deep(.el-segmented__item.is-selected:hover) {
-  background-color: var(--brand-200);
-}
-
-.status-segmented :deep(.el-segmented__item-selected) {
-  background-color: var(--brand-100);
-  border-radius: var(--radius-pill);
-  box-shadow: none;
-}
-
-.status-segmented
-  :deep(.el-segmented__item.is-selected:hover .el-segmented__item-selected) {
-  background-color: var(--brand-200);
 }
 
 /* ===== 表格卡片 ===== */

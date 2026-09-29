@@ -7,6 +7,7 @@
 并对 create_engine 打桩，避免尝试真实建连。
 """
 
+import os
 from unittest import mock
 
 from app.core import db_factory
@@ -18,10 +19,22 @@ from app.core.db_factory import (
     get_app_env,
 )
 
+# #1727：本机 backend/.env 常带真实的 TURSO_DATABASE_URL，且它在 import 期就经
+# load_dotenv() 进入 os.environ。用例一旦把 APP_ENV 设为 production，market 域就会路由到
+# turso（_normalize_db_url 归一为 sqlite+libsql://），而 Windows 装不了 sqlalchemy-libsql
+# （pyproject 的 `sys_platform != "win32"` 平台标记）→ 真实 create_engine 抛
+# NoSuchModuleError，且报错点离真因很远。故测试自带中和值，不依赖调用方环境。
+_NEUTRAL_TURSO_URL = 'sqlite:///./test.turso-neutralized.db'
+
 
 def _reset_and_set(monkeypatch, env_vars: dict):
-    """设置环境变量并清空工厂缓存。"""
-    for k, v in env_vars.items():
+    """设置环境变量并清空工厂缓存。
+
+    默认把 TURSO_DATABASE_URL 中和成本地 SQLite（#1727）：见上方 _NEUTRAL_TURSO_URL。
+    显式传入 TURSO_DATABASE_URL 的用例（要验证 turso 归一化的那几条）以传入值为准；
+    传 None 表示确实要删掉它（验证「缺 turso 时回退 DATABASE_URL」）。
+    """
+    for k, v in {'TURSO_DATABASE_URL': _NEUTRAL_TURSO_URL, **env_vars}.items():
         if v is None:
             monkeypatch.delenv(k, raising=False)
         else:
@@ -75,6 +88,27 @@ def test_config_for_app_prod_fallback_to_database_url(monkeypatch):
     )
     cfg = DatabaseConfig.for_app('production')
     assert 'prod.db' in str(cfg.url)
+
+
+def test_reset_and_set_neutralizes_ambient_turso(monkeypatch):
+    """#1727：_reset_and_set 必须中和掉**环境里**的 TURSO_DATABASE_URL（而不仅是不设它）。
+
+    本机 ``backend/.env`` 常带真实 ``turso://``，它在 import 期就进了 ``os.environ``。
+    若不中和，凡把 ``APP_ENV`` 设为 production 又真建引擎的用例都会在 Windows 上因缺
+    ``sqlalchemy-libsql`` 方言而红，且红在离真因很远的方言加载点——这正是 #1727 的形态。
+
+    为什么这条不变量值得自己可观测：它由测试基础设施承担，而「基础设施级的修复」最容易
+    退化成没人能发现、也没人能回归的摆设。这里同时钉住两个方向——默认中和、显式值优先。
+    """
+    monkeypatch.setenv('TURSO_DATABASE_URL', 'turso://real@example.turso.io/db?authToken=t')
+    _reset_and_set(monkeypatch, {'APP_ENV': 'production'})
+    assert db_factory._is_local_sqlite(os.environ['TURSO_DATABASE_URL']), (
+        f'production 下应中和为本地 SQLite，实际 {os.environ["TURSO_DATABASE_URL"]}'
+    )
+
+    # 显式传入者以传入值为准——验证 turso 归一化的那几条用例依赖这条
+    _reset_and_set(monkeypatch, {'APP_ENV': 'production', 'TURSO_DATABASE_URL': 'turso://x@y.turso.io/db'})
+    assert not db_factory._is_local_sqlite(os.environ['TURSO_DATABASE_URL'])
 
 
 def test_config_for_user_falls_back_to_local_when_unconfigured(monkeypatch):
@@ -198,16 +232,30 @@ def test_factory_create_user_mock_engine(monkeypatch):
             'SUPABASE_DATABASE_URL': 'postgresql://u:p@db.supabase.co:5432/postgres',
         },
     )
-    fake_engine = object()
-    with mock.patch.object(db_factory, 'create_engine', return_value=fake_engine) as m:
+    # 两个域各给一个**不同**的哨兵：既钉「按域分别缓存」，又不依赖真实引擎。
+    # 用 side_effect 列表还有个附带好处——create_engine 若被调用第三次会直接报错。
+    user_engine, app_engine = object(), object()
+    # 两次建引擎都必须落在 mock 内（#1727）：原实现把 app 域那次留在 with 之外，靠
+    # 「环境里恰好没有 turso」这一隐含前提才成立；本机 .env 带真实 TURSO_DATABASE_URL 时，
+    # 那次真实 create_engine 会因缺 libsql 方言直接 NoSuchModuleError——即测试假设了调用方环境。
+    # 一并 stub _apply_sqlite_pragmas：中和后的 app 域 URL 是本地 SQLite，build() 会对它接
+    # PRAGMA，而哨兵不是真 Engine（event.listens_for 会抛 InvalidRequestError）。
+    # 本用例只钉「工厂按域分别缓存」，PRAGMA 接线由
+    # test_factory_build_dev_sqlite_pragmas_skips_libsql 覆盖。
+    with (
+        mock.patch.object(db_factory, 'create_engine', side_effect=[user_engine, app_engine]) as m,
+        mock.patch.object(db_factory, '_apply_sqlite_pragmas'),
+    ):
         eng = DatabaseFactory.create(DOMAIN_USER)
-    assert eng is fake_engine
-    # 确认 create_engine 收到的是 supabase 的 postgres URL
-    called_url = m.call_args.args[0]
-    assert str(called_url).startswith('postgresql://')
-    # 与应用库（此处未配 turso，回退 sqlite）应为不同实例
-    app_eng = DatabaseFactory.create(DOMAIN_APP)
-    assert app_eng is not eng
+        assert eng is user_engine
+        # 确认 create_engine 收到的是 supabase 的 postgres URL。须在第二次建引擎**之前**取，
+        # 否则 m.call_args 记录的是后一次调用。
+        called_url = m.call_args.args[0]
+        assert str(called_url).startswith('postgresql://')
+        # 应用库必须**另建**一个实例（不串用 user 域那个）
+        app_eng = DatabaseFactory.create(DOMAIN_APP)
+        assert app_eng is app_engine
+        assert app_eng is not eng
     DatabaseFactory.reset()
 
 

@@ -62,7 +62,7 @@
 | 分红与股息管理 | 🟡 | import 时解析分红（`importer`）；无专门分红模型/追踪/目标 |
 | 投资组合健康度评分 | 🟡 | #253（open）基金评分，未落地 |
 | 详细交易历史与流水 | ✅ | `domains/ledgers`、`domains/transactions`；#783 记账检查单 |
-| 投资组合对标分析（沪深300 等） | 🟡 | `watchlist/models.py` 有 benchmark 字段；#275（open）补基准指数 |
+| 投资组合对标分析（沪深 300 等） | 🟡 | `watchlist/models.py` 有 benchmark 字段；#275（open）补基准指数 |
 | 税费与成本分析 | 🟡 | #460（closed）费率；#820 FeeRatio |
 | 资产负债全景图 | ✅ | `domains/assets` 负债自动转负（AGENTS.md） |
 | 贡献度分析 | 🟡 | #861（open）个人持仓透视含贡献度 |

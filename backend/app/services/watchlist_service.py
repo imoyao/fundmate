@@ -15,9 +15,10 @@ from sqlalchemy.orm import Query, Session
 from app.core.constants import MANAGER_SYMBOL_PREFIX
 from app.core.money import Money
 from app.core.symbol_utils import get_normalizer
-from app.domains.funds.models import AdvisorPortfolio, Fund, Manager
+from app.domains.funds.models import AdvisorPortfolio, DailyWorth, Fund, Manager
 from app.domains.indices.models import IndexCatalog
 from app.domains.positions.models import Position
+from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import ConvertibleBondTerm, Security
 from app.domains.watchlist.models import WatchlistGroup, WatchlistItem, WatchlistItemGroup, WatchlistItemTag
 from app.services import async_backfill
@@ -31,6 +32,71 @@ GROUP_COLORS = {
     'otc': '#722ed1',
     'favorite': '#a6a6d2',
 }
+
+
+def compute_latest_quote(db: Session, symbol: str) -> Optional[dict]:
+    """最近交易日的静态行情：收盘价（场内）/ 确认净值（场外基金）+ 涨跌幅（#1104）。
+
+    取数口径：
+    - 场内（股票 / ETF / 可转债）→ `price_history.close`，**未复权**。刻意不用
+      `adj_close`：那是前复权价，会随分红除权重算，不能当「当前价」展示 / 算盈亏；
+    - 场外基金 → `daily_worth.unit_nav`（6 位纯数字代码）；
+    - 都没有（组合 / 经理行、或行情未回补）→ None，由调用方回退持仓快照。
+
+    为什么要有它：`positions.current_price` 只覆盖**有持仓**的标的，未持仓的自选行
+    完全没有价；且场内那份长期不被刷新（导入当天的快照）。本函数让「最新价」对任何
+    已回补行情的标的都有值，并附带数据日期供前端判断新鲜度。
+
+    返回 {'trade_date': date, 'close': float, 'change_pct': float | None}。
+    """
+    rows = (
+        db.query(PriceHistory.trade_date, PriceHistory.close)
+        .filter(PriceHistory.symbol == symbol, PriceHistory.close.isnot(None))
+        .order_by(PriceHistory.trade_date.desc())
+        .limit(2)
+        .all()
+    )
+    if rows:
+        quote = _build_quote(rows[0][0], rows[0][1], rows[1][1] if len(rows) > 1 else None)
+        if quote:
+            return quote
+
+    if symbol and len(symbol) == 6 and symbol.isdigit():
+        nav_rows = (
+            db.query(DailyWorth.date, DailyWorth.unit_nav)
+            .filter(DailyWorth.fund_code == symbol, DailyWorth.unit_nav.isnot(None))
+            .order_by(DailyWorth.date.desc())
+            .limit(2)
+            .all()
+        )
+        if nav_rows:
+            return _build_quote(nav_rows[0][0], nav_rows[0][1], nav_rows[1][1] if len(nav_rows) > 1 else None)
+    return None
+
+
+def _build_quote(trade_date, close, prev_close) -> Optional[dict]:
+    """组装行情项：价格无效返回 None；涨跌幅样本不足（只有一根 K 线）时为 None。"""
+    close_value = _to_float(close)
+    if close_value is None or close_value <= 0:
+        return None
+    change_pct = None
+    prev_value = _to_float(prev_close)
+    if prev_value:
+        change_pct = round((close_value - prev_value) / prev_value * 100, 2)
+    return {'trade_date': trade_date, 'close': close_value, 'change_pct': change_pct}
+
+
+def _to_float(value) -> Optional[float]:
+    """Decimal / 数值 → float（None 与非法值安全）。
+
+    SafeNumeric 落库为 Decimal，直接塞进响应 dict 会让 Flask 编码器报错（同 display 层约定）。
+    """
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def build_groups_data(db: Session, family_id: int) -> list[dict]:
@@ -614,15 +680,24 @@ def build_home_summary(db: Session, family_id: int) -> List[Dict[str, Any]]:
             .filter(Position.symbol == item.symbol, Position.family_id == family_id)
             .scalar()
         )
-        current_price = Money.price_units_to_yuan(avg_price_units) if avg_price_units else None
+        # 最新价 / 涨跌幅（#1104）：与自选列表同源——优先最近交易日收盘价 / 确认净值，
+        # 没有行情才回退持仓快照。原先只读 positions.current_price，场内标的一直是
+        # 导入当天的旧价，与自选页显示不一致（首页摘要同样是用户可见的入口）。
+        quote = compute_latest_quote(db, item.symbol)
+        if quote:
+            price_value = round(quote['close'], 4)
+            change_pct = quote['change_pct']
+        else:
+            price_value = Money.price_units_to_yuan(avg_price_units) if avg_price_units else None
+            change_pct = None
         data.append(
             {
                 'id': item.id,
                 'symbol': item.symbol,
                 'display_name': display_name,
                 'is_pinned': item.is_pinned,
-                'current_price': round(current_price, 4) if current_price else None,
-                'change_pct': None,
+                'current_price': price_value,
+                'change_pct': change_pct,
                 'position_market_value': round(position_value, 2),
                 'status': item.status,
                 'asset_type': item.asset_type,

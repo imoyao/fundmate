@@ -19,34 +19,19 @@
       }}</span>
     </div>
 
-    <!-- 场景切换：交易识别 / 持仓识别（决定落入域 C / 域 A）；scenarioLock 时隐藏 -->
-    <div
+    <!-- 场景切换：交易识别 / 持仓识别（决定落入域 C / 域 A）；scenarioLock 时隐藏。
+         收敛到 SegmentedControl（design.md「Segmented」唯一实现，见 docs/design/components.md）；
+         识别在途时整组禁用（disabled），与原先逐按钮 :disabled 等价 -->
+    <SegmentedControl
       v-if="!scenarioLock"
-      class="ocr-segmented"
-      role="tablist"
+      :model-value="scenario"
+      :options="SCENARIO_OPTIONS"
+      :disabled="recognizing"
+      block
       aria-label="识别场景"
-    >
-      <button
-        type="button"
-        role="tab"
-        class="ocr-segmented__item"
-        :class="{ 'is-active': scenario === 'txn_import' }"
-        :disabled="recognizing"
-        @click="switchScenario('txn_import')"
-      >
-        交易识别
-      </button>
-      <button
-        type="button"
-        role="tab"
-        class="ocr-segmented__item"
-        :class="{ 'is-active': scenario === 'holding_import' }"
-        :disabled="recognizing"
-        @click="switchScenario('holding_import')"
-      >
-        持仓识别
-      </button>
-    </div>
+      class="recognizer-tabs"
+      @change="switchScenario"
+    />
 
     <!-- 交易识别需选择关联账户（域 C 对账按账本隔离） -->
     <div v-if="scenario === 'txn_import'" class="ledger-select">
@@ -67,26 +52,14 @@
     </div>
 
     <!-- 输入方式：上传图片 / 粘贴文本 -->
-    <div class="ocr-segmented ocr-segmented--sub" role="tablist">
-      <button
-        type="button"
-        role="tab"
-        class="ocr-segmented__item"
-        :class="{ 'is-active': activeTab === 'image' }"
-        @click="switchTab('image')"
-      >
-        上传图片
-      </button>
-      <button
-        type="button"
-        role="tab"
-        class="ocr-segmented__item"
-        :class="{ 'is-active': activeTab === 'text' }"
-        @click="switchTab('text')"
-      >
-        粘贴文本
-      </button>
-    </div>
+    <SegmentedControl
+      :model-value="activeTab"
+      :options="IMPORT_TAB_OPTIONS"
+      block
+      aria-label="输入方式"
+      class="recognizer-tabs recognizer-tabs--sub"
+      @change="switchTab"
+    />
 
     <div v-if="activeTab === 'image'" class="ocr-tab-panel">
       <ImageUploader
@@ -212,6 +185,7 @@ import { ref, computed, watch, onMounted, nextTick } from "vue";
 import { ElInput, ElMessage } from "element-plus";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import ImageUploader from "@/components/ImageUploader/index.vue";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import {
   recognizeImage,
   parseImportText,
@@ -252,6 +226,18 @@ watch(
   }
 );
 const activeTab = ref<"image" | "text">("image");
+/** 分段选项：显式标注取值类型，供 SegmentedControl 泛型推断（数组字面量会把 value 拓宽成 string） */
+const SCENARIO_OPTIONS: {
+  label: string;
+  value: Extract<OcrScenario, "txn_import" | "holding_import">;
+}[] = [
+  { label: "交易识别", value: "txn_import" },
+  { label: "持仓识别", value: "holding_import" }
+];
+const IMPORT_TAB_OPTIONS: { label: string; value: "image" | "text" }[] = [
+  { label: "上传图片", value: "image" },
+  { label: "粘贴文本", value: "text" }
+];
 const imageFile = ref<File | null>(null);
 const textContent = ref("");
 const recognizing = ref(false);
@@ -559,53 +545,12 @@ onMounted(() => {
   }
 }
 
-.ocr-segmented {
-  display: flex;
-  gap: 4px;
-  width: 100%;
-  padding: 4px;
+.recognizer-tabs {
   margin-bottom: var(--space-standard);
-  background: var(--bg-soft);
-  border-radius: var(--radius-pill);
 
+  /* 输入方式组：与上方场景组之间留出间隔（外观全部由 SegmentedControl 负责） */
   &--sub {
     margin-top: var(--space-standard);
-  }
-
-  &__item {
-    display: flex;
-    flex: 1;
-    align-items: center;
-    justify-content: center;
-    height: 28px;
-    padding: 0 12px;
-    font-size: 13px;
-    line-height: 1;
-    color: var(--text-secondary);
-    cursor: pointer;
-    background: transparent;
-    border: none;
-    border-radius: var(--radius-pill);
-    transition: all 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
-
-    &:focus {
-      outline: none;
-    }
-
-    &:focus-visible {
-      outline: 1px solid var(--brand-400);
-      outline-offset: 2px;
-    }
-
-    &:hover {
-      color: var(--text-primary);
-      background: var(--bg-hover);
-    }
-
-    &.is-active {
-      color: var(--brand-700);
-      background: var(--brand-100);
-    }
   }
 }
 

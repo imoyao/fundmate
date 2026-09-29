@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta
 
 import pytest
 from sqlalchemy import exists
+from sqlalchemy.exc import IntegrityError
 
 from app.core.constants import ValuationMode
 from app.core.money import Money
@@ -1551,3 +1552,50 @@ class TestBalanceModeBuild:
         assert p2.id == p1.id
         assert p2.quantity == 0
         assert p2.market_value_override == Money.yuan_to_cents(50000.0)
+
+
+class TestSymbolNormAutoFill:
+    """#1662 后续（#1677）：`symbol_norm` 由 ORM 事件自动填充 —— 唯一约束「永不静默失效」的保证。
+
+    本类**刻意绕过 `PositionService`**、直接用 `Position(**kwargs)` 落库：本仓写持仓的入口有 6 处，
+    靠「各写入路径自觉赋值」必然漏，漏掉的那行 `symbol_norm` 落空串 → 唯一约束对那行静默失效
+    （正是 #1662 的复发形态）。事件挂在 mapper 上，任何 ORM 写路径都会经过。
+    """
+
+    def test_direct_orm_insert_fills_symbol_norm(self, db, make_position):
+        """直接构造 Position 也必须被填充（含场外前缀变体的归一）。"""
+        pos = make_position(symbol='SZ004369', name='前海开源聚财宝B', asset_type='fund', account_name='自动填充账户')
+        assert pos.symbol_norm == 'OTC:004369'
+
+    def test_otc_and_exchange_get_distinct_identities(self, db, make_position):
+        """场外基金与场内 ETF 的身份必须不同（身份不是 symbol 的字面拷贝）。"""
+        otc = make_position(symbol='004369', name='场外货基', asset_type='fund', account_name='双身份账户')
+        etf = make_position(symbol='SZ159915', name='深市 ETF', asset_type='etf', account_name='双身份账户')
+        assert otc.symbol_norm == 'OTC:004369'
+        assert etf.symbol_norm == 'EXCHANGE:SZ159915'
+
+    def test_update_recomputes_identity(self, db, make_position):
+        """`before_update` 重算：symbol / asset_type 变了身份必须跟着变（否则约束指向旧身份）。"""
+        pos = make_position(symbol='SZ159915', name='深市 ETF', asset_type='etf', account_name='重算账户')
+        pos.symbol = '600519'
+        pos.asset_type = 'stock'
+        db.commit()
+        assert pos.symbol_norm == 'EXCHANGE:SH600519'
+
+    def test_same_identity_in_same_ledger_rejected_by_db(self, db, make_position):
+        """约束层真的生效：同账户、同归一身份的第二行被 **DB** 拒绝。
+
+        两行 symbol **字面不同**（`004369` vs `SZ004369`），旧的 `uq_positions_ledger_symbol`
+        拦不住 —— 本用例证明新索引 `uq_positions_ledger_symbol_norm` 才是拦截者。
+        """
+        make_position(symbol='004369', name='前海开源聚财宝B', asset_type='fund', account_name='去重账户')
+        with pytest.raises(IntegrityError):
+            make_position(symbol='SZ004369', name='前海开源聚财宝B', asset_type='fund', account_name='去重账户')
+        db.rollback()
+
+    def test_same_symbol_in_different_ledgers_allowed(self, db, make_position):
+        """跨账户同码是**正常业务**（同一只基金在多个账户各持一份），不得被误拦。"""
+        a = make_position(symbol='004369', name='前海开源聚财宝B', asset_type='fund', account_name='账户甲')
+        b = make_position(symbol='004369', name='前海开源聚财宝B', asset_type='fund', account_name='账户乙')
+        assert a.symbol_norm == b.symbol_norm == 'OTC:004369'
+        assert a.ledger_id != b.ledger_id

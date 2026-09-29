@@ -136,3 +136,15 @@ repos:
         # 事务必须落在 services；视图文件行数、query/commit 次数、单函数行数只减不增
         files: ^backend/app/domains/.*/views\.py$
         pass_filenames: false
+      - id: check-cross-domain-query
+        name: guard cross-domain models in one SQL statement
+        entry: python scripts/check_cross_domain_query.py
+        language: python
+        # 双库「零外键、零 SQL join」（#1643）：跨域模型进同一语句，在单库门禁下
+        # **结构上测不出**（conftest 把 engine/user_engine 指向同一内存引擎），
+        # 只有生产每日调度跑真双库 —— 故必须在静态层拦。零依赖 AST，不 import app。
+        # 覆盖面 A（单链 join/outerjoin）/ B（subquery 耦合）/ C-eager / C-join，
+        # 以及 C-rel（跨域 relationship **声明**，须在 ALLOWLIST 显式登记理由）。
+        # 编辑守卫自身（含 ALLOWLIST）也要重跑，否则豁免表漂移无人发现。
+        files: ^(backend/app/.*\.py|scripts/check_cross_domain_query\.py)$
+        pass_filenames: false

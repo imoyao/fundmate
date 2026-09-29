@@ -377,7 +377,7 @@
 | `MetricGrid` | `components/MetricGrid` | 指标网格容器（flex 自均分，禁止右侧大片空白） |
 | `TemperatureGaugeCard` | `components/TemperatureGaugeCard` | 温度环形卡（探市 / 温度计 / 达报三页复用，纯 SVG） |
 | `TemperatureContextCard` | `components/TemperatureContextCard` | 温度上下文解读卡（等级 + 恐惧贪婪 + 短中长期） |
-| `PageHeaderBar` | `components/PageHeaderBar` | 页面统一页头（标题 / 副标题 / 更新时间胶囊） |
+| `PageHeaderBar` | `components/PageHeaderBar` | 页面统一页头（标题 / 副标题 / 更新时间胶囊 + 可选右侧操作槽 `#action`） |
 | `PageFooter` / `MarketFooter` | `components/PageFooter` / `components/MarketFooter` | 探市 / 温度计页脚（复盘引导 + 公众号） |
 | `AppFooter`（全站页脚） | `layout/components/lay-footer` | 三栏品牌/导航/公众号 + 风险免责 + 版权 |
 
@@ -386,6 +386,40 @@
 其余 `200px`。**这三条覆盖必须写在基础声明之后**——媒体查询不改变特异性，写在前面会被
 `.metric-grid { --metric-basis: 200px }` 压掉（2026-09-17 之前正是这样静默失效的，全档实测恒为
 `200px`，详见 #1576）。同族先例见 #1557（暗色令牌被 `:root` 压掉）：**源序即语义**。
+
+### 页头操作槽与「一层页头」原则（#1714）
+
+`PageHeaderBar` 提供可选具名插槽 `#action`（右侧），页面级操作（历史 / 新对话 / 新建等）放进去，**不要在页头下方另起一条工具栏**——「页头 + 工具条」是双层头部，视觉上变成「页面里开了个窗口」，也是 #1714 复核时判定的主要违和来源。
+
+- ✅ `<PageHeaderBar …><template #action>…</template></PageHeaderBar>`：操作槽与 `updatedAt` 胶囊同行靠右，窄屏随容器换行左对齐
+- ❌ 禁止：页头之下再放 `.xxx-toolbar` 承载同类操作
+- 页面需要「整屏高」（对话 / 工作台式）时写 `calc(100vh - var(--layout-topbar-height))`，**不要写 85px 这类 vh 魔法数字**（令牌与 `lay-content` 的 `padding-top` / `min-height` 同源）
+
+### 对话类页面骨架（#1714，参考实现 `views/agent/index.vue`）
+
+聊天不是仪表盘，**不套卡片外壳**：页头之下直接就是对话本身。
+
+| 元素 | 约定 |
+|------|------|
+| 页头 | 只有一层：`PageHeaderBar` + `#action`（历史开关 / 新对话） |
+| 历史栏 | **页内左栏**（定宽 260px + 自身滚动），折叠时 `v-if` 不渲染 → 零请求；展开不挤动消息列（旧实现是插在卡片顶部的折叠块，观感像下拉面板） |
+| 消息列 | 限宽居中（约 820px）保阅读行宽；**输入 dock 与页面同宽贴底**（「消息窄、输入宽」是聊天界面通行比例） |
+| 空态 | 在消息流内垂直居中，不套卡片 |
+| 状态提示 | 贴输入区上方**左对齐**：右下角有全局「记一笔」FAB 常驻，文案放右侧会被压住 |
+
+### 资产代码（symbol）展示契约（venue，2026-09-24 #1662 / D35 + D36）
+
+资产代码列 / 标签**直接展示后端返回的 `symbol`，前端不得自行拼前缀或剥前缀**。后端已按**交易场所（venue）** 落定形态，前端任何「补 `SZ` / 去掉 `SZ`」的动作都会与库内身份不一致（历史上 `SZ004369` 与 `004369` 并存导致同一基金两行，就是这条被绕过的后果）。
+
+| venue | 后端返回形态 | 展示 | 例 |
+|---|---|---|---|
+| 场内 `EXCHANGE` | `{MARKET}{CODE6}` | 原样 | `SH600519` / `SZ159915` |
+| 场外 `OTC` | **裸 6 位码**（永不带前缀） | 原样 | `004369` |
+| 无交易场所 | 原样 | 原样 | `MGR_*` / `ZH*` / `CSI*` |
+
+- **写入侧**：新增 / 编辑持仓时 `venue` 字段由 `src/constants/market.ts` 的 `venueOfAssetType()` 推导，经 `usePositionSubmit.ts` **单点**携带（组件内不得再手写 `'OTC'` / `'EXCHANGE'` 字面量）。
+- **展示侧**：不要把 symbol 当作「固定格式」去截断 / 补零 / 大写化——形态由后端负责，前端只渲染。
+- 完整约定见 `docs/spec/conventions.md` §2.7；一致性由 `scripts/audit_symbol_venue_conformance.py` 守卫。
 
 ### 交互状态映射（通用规则）
 
@@ -436,6 +470,22 @@
   box-shadow: none;
 }
 ```
+
+#### 复合按钮 · 发送 / 停止（#1714）
+
+对话输入区的「发送」与「停止」是**同一个按钮的两个态**，不是两个按钮：
+
+| 态 | 图标 | `aria-label` | 可用性 | 底色 |
+|------|------|--------------|--------|------|
+| 空闲 | ↑（`ArrowUp`） | `发送` | 输入为空时禁用 | `--brand-solid`（`--brand-800`，白 4.92:1 ✅） |
+| 思考中 | ■ 12px 圆角方块 | `停止` | 可点（仅 abort 已发出的瞬间禁用防连点） | 同上，**不换色、不换位、不换尺寸** |
+
+- **位置与尺寸恒定**：换底色（如借 `--color-danger`）或挪位置会让用户以为「冒出了另一个按钮」，与「发送键就地变停止」的直觉相反；停止不是破坏性操作，主操作焦点保持唯一。
+- 方块用 `currentColor` 填充（跟随 `--text-inverse`，两主题恒白，实底 4.92:1 达 AA），**不复用**图标库的 `VideoPause`——双竖线是「暂停」语义，方块才是「停止」。
+- 思考中**不锁输入框**：允许先打下一句，停止 / 本轮结束后直接发；锁输入框等于强迫用户干等。
+- 快捷键：`Enter` 发送 · `Shift+Enter` 换行 · 思考中 `Esc` 停止（与按钮 `title` 提示一致）。
+- 参考实现：`frontend/src/views/agent/index.vue` 的 `.chat-send` / `.chat-send__stop-glyph`。
+- **禁止回潮**：不得在消息气泡旁另起独立「停止」按钮（#1714 初版即如此，UI 复核后收敛）。
 
 ### Input
 
@@ -537,8 +587,8 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 > **核心原则**：投资列表数据通常需要多维交叉筛选，为降低认知负荷，筛选逻辑统一**强制降维到两级**。
 
 1. **两级筛选架构**：
-   - **一级筛选（主维度）**：如"资产类型（全部/场内/场外）"或"资产类别（全部/股票/基金）"。使用 **胶囊分段控制器** 平铺在顶部栏（圆角 `--radius-pill`，字体 `--text-label`，选中态实心 `--brand-700`）。
-   - **二级筛选（状态/子维度）**：如"持有状态（全部/持仓/观察中/已清仓）"或"自定义分组"。**严禁将此维度放在左侧边栏**。必须将其转化为 **`水平滑动胶囊栏 (Horizontal Scroll Capsules)`**，紧贴在一级筛选栏下方。超出容器宽度时支持触控/鼠标滚轮横向滑动，严禁强制换行挤压表格空间。
+   - **一级筛选（主维度）**：如"资产类型（全部/场内/场外）"或"资产类别（全部/股票/基金）"。使用 `SegmentedControl` 的 **`default` 档** 平铺在顶部栏（胶囊 `--radius-pill`，字体 `--text-label`，选中态为软按钮 `--brand-100` 底 + `--brand-700` 字，见下节「Segmented（分段控制器）」）；带计数时用其可选 `count` 徽章。**一级筛选不横向滚动**——选项多到需要滚动就说明该维度该降级为二级（#1731）。
+   - **二级筛选（状态/子维度）**：如"持有状态（全部/持仓/观察中/已清仓）"或"自定义分组"。**严禁将此维度放在左侧边栏**。必须将其转化为 **`水平滑动胶囊栏 (Horizontal Scroll Capsules)`**，紧贴在一级筛选栏下方。超出容器宽度时支持触控/鼠标滚轮横向滑动，严禁强制换行挤压表格空间。**它是与 `SegmentedControl` 并列的独立语言**（分水岭：需横向滚动 ⇒ 胶囊栏，平铺 ⇒ 分段控制器），不属守卫第 ③ 条的回潮，参考实现 `views/asset/favorites/components/RoadFilterBar.vue` 的 `.road-pills--scroll`。
 
 2. **去冗余原则**：明确各筛选维度的交集逻辑，**禁止在列表上方同时出现"全部/股票/基金"与"场内/场外"等语义重叠的筛选层**，统一整合进两级筛选架构中。
 
@@ -552,25 +602,74 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 | 选中态 | `--brand-100` 底 + `--brand-700` 字 + `--brand-400` 边框（软按钮规范），hover 底 `--brand-200` |
 | 未选中 | `--text-secondary` 字，hover 底 `--bg-hover` |
 | 名称截断 | `max-width: 8em` + ellipsis + `title` 全名提示（展示截断 8 汉字；后端管存储、前端管展示） |
-| 数量徽章 | `--text-tertiary` 等宽数字（`tabular-nums`），选中态 `--brand-700` |
+| 数量徽章 | `--text-tertiary-ink` + `tabular-nums`（继承正文字族，**不**切 `--font-mono`），选中态 `--brand-700`；`count > 0` 才渲染（空分组不占位） |
 | 编辑/删除 | 自定义分组项 hover 浮现（opacity 0→1，150ms ease，与表格操作列同一机制） |
 | 横向滚动 | 分组多时 `overflow-x-auto`，滚动条细化为 `--border-light` 色 |
 | 布局 | tab 左对齐 + 右侧（新建 / segmented）右对齐（`justify-between`）；与筛选行、表格用 `--border-subtle` 分割线分区 |
 
 > **编码红线**：tab 选中态属「软按钮」语义（已选中/候补操作），允许引用 `--brand-*`；涨跌数字仍必须走 `--color-rise` / `--color-fall`。分组/标签色为用户数据（非设计令牌），缺失回退中性 token（`--text-tertiary`）并注释「数据色例外」。
 
-### Segmented（分段控制器，小尺寸）
+### Segmented（分段控制器）
 
-刷新频率（15s/30s/60s/90s）等工具型选项使用 `size="small"` 的 el-segmented，统一 `refresh-segmented` 胶囊样式（2026-08-15 落地，watchlist 页与设置抽屉 SettingsDrawer 双处一致）：
+「多选一、选项少（2–6）」的视图 / 维度 / 档位切换统一走 `SegmentedControl`
+（`frontend/src/components/SegmentedControl/index.vue`，#1717 收敛，2026-09-27 落地；已登记进
+`docs/design/components.md` 强制复用清单）：
 
 | 属性 | 值 |
 |------|-----|
-| 形态 | 胶囊（`--radius-pill`），高度 24px，`padding: 2px`，轨道底 `--bg-muted` |
-| 选项项 | 高 20px，`padding: 0 10px`，字号 12px，未选中 `--text-secondary`（hover `--text-primary`） |
-| 选中态 | `--brand-100` 底 + `--brand-700` 字（软按钮规范），hover 底 `--brand-200`；EP 独立子元素 `.el-segmented__item-selected` 一并覆盖，`box-shadow: none` |
+| 形态 | 胶囊（`--radius-pill`），轨道底 `--bg-soft`，`gap: 2px` |
+| `default` 档 | 轨道 32px / `padding: 3px` / 1px `--border-default` 描边；选项 26px、`padding: 0 14px`、字号 `--text-label` |
+| `small` 档 | 轨道 24px / `padding: 2px` / 无描边；选项 20px、`padding: 0 10px`、字号 12px |
+| `block` | 轨道撑满父容器 + 选项 `flex: 1` 等分（如设置抽屉的 4 档刷新频率） |
+| 未选中 | `--text-secondary` 字；hover 提到 `--text-primary` + `--bg-hover` |
+| 选中态 | `--brand-100` 底 + `--brand-700` 字 + `font-weight: 600`（软按钮规范），无边框 |
+| 数量徽章 | 可选（`SegmentedOption.count`）：`--text-tertiary-ink` + `tabular-nums`，选中态 `--brand-700`；字号 = 同级标签 −1px（`default` 12px / `small` 11px）。**传 `0` 照渲染**——筛选场景里「某类别 0 条」本身就是结论 |
+| 禁用 | 整组 `disabled`：`--text-disabled` 字 + `not-allowed`，hover 不给底色（徽章同步退化中性色） |
 | 过渡 | `background-color` / `color` 150ms ease |
 
-> **编码红线**：与一级筛选（design.md「Filter & Selection」）同属分段控制器语言，选中态为软按钮（允许 `--brand-*`）；仅此二处（watchlist 页内联 + SettingsDrawer）使用 `refresh-segmented` class，其余页面如需复用须先在此登记，禁止各页面自行手写分段控制器样式。
+> **轨道为何用 `--bg-soft` 而不是 `--bg-muted`**：选中底 `--brand-100`（#fff5f3）接近白色，
+> 落在冷灰轨道（`--bg-muted` #f5f7fa）上几乎不可见；暖米色轨道才能衬托出选中胶囊。
+
+> **为什么选中态是软按钮，而不是实心品牌底（#1731 裁决）**：本仓曾漂出 3 处「实心品牌底」
+> 选中态（eaccount-import 的导入方式 / AI 识别方式、聚合维度切换）。统一裁掉的理由有两条，
+> 第二条是硬伤：
+>
+> 1. **对比度不达标**：实心态当时用的 `--brand-600`(#F06B57) 配 `--text-inverse`(白) 实测
+>    **3.02:1**，连 WCAG AA 的**大字档 3:1** 都不到；`design.md` 也明文把 `--brand-600` 定义为
+>    「激活边框」而非填充色。
+> 2. **与真实主按钮撞脸**：改用它**本应**用的合规实底 `--brand-solid`（=`--brand-800`，白字 4.92:1）
+>    同样不行——`.el-button--primary` 的底色就是 `--brand-solid`，于是同屏会出现两个「主按钮」，
+>    分段控制器抢走页面唯一的供能焦点。
+>
+> 故裁决：**`SegmentedControl` 不提供 `variant="solid"`**，全站分段控制器一律软按钮。
+> 品牌实底（`--brand-solid` / `-hover` / `-active`）只属于真正的行动按钮。
+
+> **语言边界：哪些「多选一」不归本组件（#1731 定稿）**：`role="tablist"` 的「多选一、选项少（2–6）」
+> 一律走 `SegmentedControl`；只有下面两类**不**收编，各有独立登记语言：
+>
+> | 语言 | 判别特征 | 规范位置 | 参考实现 |
+> |------|----------|----------|----------|
+> | **分组胶囊 Tab** | 横向滚动的**分组导航**；选中态多一道 `--brand-400` 边框、hover 加深到 `--brand-200`；配 `--border-subtle` 分割线；可带数量徽章 | 本节上方的「分组胶囊 Tab（Group Tab）」 | `views/asset/watchlist/components/FilterGroupTabs.vue`、`views/explore/index.vue` 的 `.panel-switch` |
+> | **水平滑动胶囊栏** | **二级筛选**（状态 / 子维度），`overflow-x: auto` **严禁换行**；语义上属筛选维度而非「切换视图」 | 「Filter & Selection」第 2 条 | `views/asset/favorites/components/RoadFilterBar.vue` 的 `.road-pills--scroll` |
+>
+> 两者的共同点是「**选项数量可能很多、需要横向滚动**」——这正是它们与分段控制器（选项少、平铺）
+> 的分水岭。**不属以上两类**的手写「多选一」按钮组，一律视为回潮，由守卫拦截。
+> 同页的一级 / 二级分工示例见 `RoadFilterBar.vue`：一级标的类别是 `SegmentedControl`（带数量徽章），
+> 二级状态筛选是水平滑动胶囊栏。
+
+> **编码红线（#1717 收紧）**：分段控制器**只有 `SegmentedControl` 一个实现**。
+> ① 禁止页面使用 `el-segmented`——其选中滑块是 JS 绝对定位的独立子元素
+> `.el-segmented__item-selected`，圆角取自 `calc(var(--el-border-radius-base) - 2px)`，与轨道 / 选项项
+> 各算各的，只覆盖其中一两个选择器就会出现「选中方块 + hover 胶囊」（#1717 实测）；且滑块初始几何是
+> 硬编码的 `left: 0; width: 10px`、真实几何由 JS 在挂载与 `modelValue` 变化后写回，配上 EP 自带的
+> `transition: all .3s`，**每次点击**都会「从上一项滑到并缩放到本项」，观感就是「点一下就闪一下」。
+> ② 禁止页面自写 `.xxx-segmented` 样式块（#1717 前已漂移出 6 种形态）。
+> ③ **禁止页面手写 `role="tablist"` 的「多选一」按钮组**（#1731 收紧）——语言边界见上；
+> 仅两类登记例外（分组胶囊 Tab / 水平滑动胶囊栏，按类名白名单放行）。
+> 三类回潮都由静态守卫 `scripts/guard_segmented.py` 在 CI 拦截。
+>
+> ⚠️ **守卫的已知边界**：`role="tablist"` 是第 ③ 条的栅栏，因此**不带 `role` 的手写切换控件**
+> （如「透明底 + 选中态下划线」的 tab）与**品牌中间阶作实底填充**都拦不住，属刻意留白。
 
 ### Avatar（生成式头像）
 
@@ -615,6 +714,20 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 - 缩略图卡片预览一律使用 `animated: false`（静态），避免网格内多图同时动画造成视觉噪点。
 - OSS 兼容：老 9.x URL 解析不报错，重建时自动升级到 10.x。
 
+
+### 对话气泡（账本精灵，2026-09-26 #1121 S1-B，同日参考竞品截图二次打磨）
+
+| 角色 | 底色 | 文字 | 描边 |
+|------|------|------|------|
+| 用户（右） | `--brand-solid` | `--text-inverse` | 透明 |
+| 助手 / 等待（左） | `--bg-soft` | `--text-primary` / 等待态 `--text-tertiary` | `--border-subtle` |
+| 服务提示（左） | `--bg-soft` | 标签 `--color-danger` | `--color-danger` |
+
+- 全部语义令牌，暗色自动生效（`design.dark.md` 无专属规则）；实现细节（头像行 / 尾角收小 / 空态 hero / 底部 dock）见 `docs/design/components.md` §ChatBubble。
+- 指标数值不染涨跌色（汇总值非涨跌语义）；等待态动画省略号不用 Emoji。
+- 空态 hero 的「账本精灵」用品牌渐变词（`--brand-700 → --brand-900`，`background-clip: text`，`@supports` 回退实色）；底部能力快捷 chips 只列后端已有工具支撑的能力，禁止放未实现能力当摆设。
+- 结果态结构化块（#1712）：后端把【结论】/【明细】/【风险提示】三小节解析为 blocks（行级工具数据组装成表格块），`blocks` 缺失即回退纯文本气泡。结论块加粗置顶；风险提示块弱化（小字号 + `--text-tertiary`）；明细表格**行级**盈亏 / 盈亏率列按正负染 `--color-rise-ink` / `--color-fall-ink`（涨红跌绿，0 与非数值不染），汇总值 / 指标 chips 仍一律不染；表格数字千分位 2 位小数、空值显示 `—`，超 50 行截断并标注「仅展示前 50 行」。渲染一律文本插值（Vue 自动转义），禁 v-html。
+- 历史会话栏（#1719，方案 A **页内折叠**，非抽屉非新路由）：工具栏左侧「历史」开关展开面板；面板底 `--bg-muted`，条目 hover `--bg-card` + `--border-light`，**当前续聊会话**高亮 `--border-color: --color-primary`；条目标题 `--text-primary`、时间 · 轮次元信息 `--text-label` + `--text-tertiary`，新对话入口 `--color-primary`。面板自身 `max-height: 40vh` 内部滚动（不把聊天气泡挤出视口），**默认折叠**——未展开不发任何列表请求。全部语义令牌，暗色自动生效。
 
 ## Data Visualization
 

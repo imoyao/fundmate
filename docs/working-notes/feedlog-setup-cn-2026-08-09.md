@@ -114,7 +114,7 @@ gh secret set FEEDLOG_DATABASE_URL --repo imoyao/fundmate
 
 ## 常见问题
 
-### Q: Hyperdrive 连接不上？
+### Q: Hyperdrive 连接不上
 
 确认 PostgreSQL 端已开启 `vector` 扩展：
 
@@ -122,7 +122,7 @@ gh secret set FEEDLOG_DATABASE_URL --repo imoyao/fundmate
 CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
-### Q: 首次访问 500 错误？
+### Q: 首次访问 500 错误
 
 检查 Cloudflare Workers Logs（`wrangler tail`），常见原因：
 
@@ -130,11 +130,11 @@ CREATE EXTENSION IF NOT EXISTS vector;
 - `pgvector` 扩展未安装
 - Secret 未设置（`BETTER_AUTH_SECRET` 为空）
 
-### Q: 用户无法提交反馈？
+### Q: 用户无法提交反馈
 
 检查看板设置中「公开发布」是否开启。FeedLog 默认需要登录才能提交，需手动改为公开模式。
 
-### Q: 如何从 SaaS 版迁移数据？
+### Q: 如何从 SaaS 版迁移数据
 
 自部署版没有 SaaS 数据导入功能。如果之前用了 feedlog.ai 的免费版，需要手动导出后通过 SQL 导入 PostgreSQL。官方目前未提供导出工具。
 

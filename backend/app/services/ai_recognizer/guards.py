@@ -36,8 +36,8 @@ OCR_MELTDOWN_COOLDOWN = int(os.getenv('OCR_MELTDOWN_COOLDOWN', '1800'))
 # ③ 全站 token 预算（费用护栏，issue #823）：当日全站累计 token 上限，超限全站熔断
 #    单次识别约 1~2k token，300k token/日 ≈ 数百次调用，测试期够用；正式上线按预算调整
 ARK_DAILY_TOKEN_BUDGET = int(os.getenv('ARK_DAILY_TOKEN_BUDGET', '300000'))
-# ④ 多轮收敛上限（G4，账本精灵 AgentLoop）：「前端持有 session_state 每轮回传」模式下跨请求计总轮次；
-#    每次 run_agent 调用计 1 轮，工具失败重试不额外计（见 agent_loop.py 设计）。
+# ④ 多轮收敛上限（G4，账本精灵 AgentLoop）：S2 起计数落库（agent_session.turn_count，
+#    重启不丢、多实例一致），本处只保留上限配置；工具失败重试不额外计（见 agent_loop.py 设计）。
 AGENT_MAX_TURNS = int(os.getenv('AGENT_MAX_TURNS', '10'))
 
 _RATE_LIMIT_BUCKETS: dict = {}  # {(user_id, 分钟桶): 窗口内调用次数}
@@ -46,8 +46,6 @@ _MELTDOWN_STATE: dict = {}  # {user_id: {'fail_count': int, 'meltdown_until': fl
 _MELTDOWN_LOCK = threading.Lock()
 _token_used_today = 0
 _TOKEN_LOCK = threading.Lock()
-_AGENT_TURN_COUNTER: dict = {}  # {(user_id, session_id): 已用轮次}（G4 多轮收敛）
-_AGENT_TURN_LOCK = threading.Lock()
 
 
 # ── 用量（user_usage）──
@@ -209,27 +207,7 @@ def assert_available(user_id: int) -> None:
 
 
 # ── 多轮收敛上限（G4，账本精灵 AgentLoop）──
-def record_agent_turn(user_id: int, session_id: str) -> None:
-    """记录一次 AgentLoop 回合（每次 run_agent 调用计 1 轮；工具失败重试不额外计）。"""
-    key = (user_id, session_id)
-    with _AGENT_TURN_LOCK:
-        _AGENT_TURN_COUNTER[key] = _AGENT_TURN_COUNTER.get(key, 0) + 1
-
-
-def agent_turns_exceeded(user_id: int, session_id: str) -> bool:
-    """跨请求总轮次已达上限时返回 True（调用方据此抛 AGENT_TURN_LIMIT_EXCEEDED）。"""
-    key = (user_id, session_id)
-    with _AGENT_TURN_LOCK:
-        return _AGENT_TURN_COUNTER.get(key, 0) >= AGENT_MAX_TURNS
-
-
+# 计数本身在 agent_session.turn_count（S2 起落库，#1121）；这里只留上限读取器。
 def get_agent_max_turns() -> int:
-    """返回多轮收敛上限（测试用：构造超限场景）。"""
+    """返回多轮收敛上限（run_agent 闸门与测试构造超限场景共用）。"""
     return AGENT_MAX_TURNS
-
-
-def reset_agent_session(user_id: int, session_id: str) -> None:
-    """清理某会话的轮次计数（测试隔离 / 用户主动重置会话时使用）。"""
-    key = (user_id, session_id)
-    with _AGENT_TURN_LOCK:
-        _AGENT_TURN_COUNTER.pop(key, None)

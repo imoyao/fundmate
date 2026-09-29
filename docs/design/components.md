@@ -25,6 +25,7 @@ title: 组件使用规范（设计语言实现层）
 - `TemperatureGaugeCard` — 温度环形卡（探市 / 温度计 / 达报三页复用）
 - `TemperatureContextCard` — 温度上下文解读卡
 - `PageHeaderBar` — 页面统一页头
+- `SegmentedControl` — 分段控制器（`role="tablist"` 的「多选一、选项少 2–6」**一律**走此组件：视图 / 维度 / 档位 / 筛选 / 排序；`default` / `small` 两档 + `block` 铺满 + 可选 `count` 数量徽章；#1717 收敛、#1731 扩边到「全部手写 tablist 按钮组」，禁再用 `el-segmented`、页面自写 `.xxx-segmented` 样式块、或手写 `role="tablist"` 按钮组——**仅两类登记例外**：「分组胶囊 Tab」与「水平滑动胶囊栏」，判别见 `frontend/design.md`「Segmented（分段控制器）」的「语言边界」）
 - `PageFooter` / `MarketFooter` — 探市 / 温度计页脚
 - `Superellipse` — 品牌 n=3 超椭圆容器（logo / 头像 / 卡片普适轮廓，禁各处手写圆角或 polygon 轮廓）
 - 全站页脚：`frontend/src/layout/components/lay-footer/index.vue`
@@ -67,7 +68,40 @@ title: 组件使用规范（设计语言实现层）
 - 选中：`color: var(--brand-700)` + `background: var(--brand-100)` + 边框 `--brand-400` + `box-shadow: 0 1px 3px rgb(0 0 0 / 6%)`。
 - **弹性动画**：选中态触发 `style-pop` 关键帧（`scale 1→0.92→1.05→0.97→1`），`:active` 收缩 `scale(0.92)`；缓动统一 `cubic-bezier(0.34, 1.56, 0.64, 1)`；`transform-origin:center` + `will-change:transform`，加 `transform: translateZ(0)` 避免模糊。
 - `:focus-visible` 必须有 `--focus-ring`。
-- 参考实现：`frontend/src/views/profile/index.vue` 的 `.style-capsule`、`frontend/src/views/asset/investment/manual/index.vue` 的 `:deep(.el-radio-button__inner)`。
+- 参考实现：`frontend/src/views/profile/components/ProfileAvatarStyleGrid.vue`（`.style-card--active` + `@keyframes style-pop`，`role="radiogroup"` / `role="radio"`）、`frontend/src/views/asset/investment/manual/index.vue` 的 `:deep(.el-radio-button__inner)`。
+
+### 与 `SegmentedControl` 的边界（#1731 定稿）
+
+两者都是「多选一、选项少」，**按「切换看什么」还是「填写是什么」分工**，不可互替：
+
+| | `SegmentedControl` | D13 果冻胶囊 |
+|---|---|---|
+| 语义 | `role="tablist"` / `role="tab"` —— **切换视图**（同一份数据的另一种切法：维度 / 档位 / 筛选 / 排序 / 面板） | `role="radiogroup"` / `role="radio"` —— **表单取值**（买/卖、头像画风，是提交内容的一部分） |
+| 选中态 | 软按钮：`--brand-100` 底 + `--brand-700` 字，**无边框** | 软按钮 + 1px `--brand-400` 边框 + `style-pop` 弹性回弹 |
+| 形态 | 胶囊项（`--radius-pill`）平铺，固定选项表、不横向滚动 | 胶囊项，或卡片网格（头像画风为 `style-card` 网格） |
+| 落点 | `frontend/src/components/SegmentedControl/index.vue`（唯一实现） | 各表单页内联（无独立组件；**不属**守卫第 ③ 条的回潮） |
+
+> **#1731 收敛记录**：`views/explore/components/ExploreDetailPanel.vue` 原有两个手写 `.rank-switch`
+> 「D13 果冻胶囊」块，实为**切换看什么**（排行分类 / 排行视图），已按本边界迁到 `SegmentedControl`。
+>
+> ⚠️ **本节旧稿的两处失效引用（2026-09-27 修正）**：① `views/profile/index.vue` 的 `.style-capsule`
+> **全仓已无**（头像画风已拆为 `ProfileAvatarStyleGrid.vue` 的卡片网格）；② 旧稿把
+> `manual/index.vue` 写作独立参考，其实它是 `el-radio-button` 的 `:deep` 覆盖，**不是**手写胶囊。
+
+## 分段控制器 vs 相邻「多选一」语言（#1731 登记）
+
+仓库里「多选一」的控件有三套**合法**语言 + 一套被禁的回潮。判定顺序：
+
+| # | 语言 | 判别特征 | 归谁 |
+|---|------|----------|------|
+| 1 | **分段控制器** | `role="tablist"`；选项少（2–6）、固定、**平铺不滚动**；「切换看什么」 | `SegmentedControl`（唯一实现，强制复用） |
+| 2 | **分组胶囊 Tab** | 横向滚动的**分组导航**；选中态多一道 `--brand-400` 边框、hover 加深到 `--brand-200`；配 `--border-subtle` 分割线；可带数量徽章 | 保留手写，规范见 `frontend/design.md`「分组胶囊 Tab」；参考 `views/asset/watchlist/components/FilterGroupTabs.vue`、`views/explore/index.vue` 的 `.panel-switch` |
+| 3 | **水平滑动胶囊栏** | **二级筛选**（状态 / 子维度）；`overflow-x: auto` **严禁换行** | 保留手写，规范见 `frontend/design.md`「Filter & Selection」第 2 条；参考 `views/asset/favorites/components/RoadFilterBar.vue` 的 `.road-pills--scroll` |
+| 4 | **D13 果冻胶囊** | `role="radiogroup"` / `role="radio"`；「填写是什么」的表单取值 | 保留手写，见上节「果冻胶囊按钮组（D13）」 |
+| ❌ | 手写 `role="tablist"` 按钮组 | 不属 #2 / #3 的任意形态 | **回潮**，由 `scripts/guard_segmented.py` 拦截（按类名白名单放行 #2 / #3） |
+
+> **分水岭一句话**：**选项多到需要横向滚动 ⇒ 胶囊栏（#2 / #3）；能平铺 ⇒ 分段控制器（#1）。**
+> 语义上 #1 / #2 / #3 都是「切换看什么」，#4 是「填写是什么」。
 
 ## Superellipse · 品牌超椭圆容器（D15，强制复用）
 
@@ -341,6 +375,8 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 | 副标题 | 14px | —— | `--text-secondary` |
 | 更新时间胶囊 | 12px | —— | `--text-tertiary`，`--bg-soft` 底 + `--border-light` |
 
+- props：`title` / `subtitle` / `updatedAt`；**可选具名插槽 `#action`**（右侧页面级操作槽，与更新时间胶囊同行、窄屏换行左对齐）。页面级操作（历史 / 新对话 / 新建）应放这里，而不是在页头下方另起一条工具栏——「页头 + 工具条」双层头部是 #1714 复核判定的主要违和来源，约定见 `frontend/design.md`「页头操作槽与『一层页头』原则」。
+
 > 副标题风格：专业、客观，避免过度口语化。
 
 **响应式（#1571 实测定稿）**
@@ -355,6 +391,25 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
   375 视口下副标题曾被挤到仅 129.8px 宽、折成 4 行。
 - **不给副标题加截断 / tooltip**：纵排后副标题本就拿满整行，截断反而丢信息。
 - 断点取值见 `frontend/design.md` §Viewport「断点单一来源」，勿在此另写 px。
+
+## ChatBubble · 对话气泡（账本精灵 `views/agent/index.vue`，#1121 S1-B，2026-09-26 参考竞品截图二次打磨）
+
+三态渲染：`clarify` / `result` → 助手气泡；`error` 与网络层错误 → 服务提示气泡；用户消息右对齐。全部走语义令牌，暗色自动生效（`design.dark.md` 无额外规则）。
+
+| 角色 | 底色 | 文字 | 描边 |
+|------|------|------|------|
+| 用户（右侧） | `--brand-solid` | `--text-inverse` | 透明 |
+| 助手（左侧） | `--bg-soft` | `--text-primary` | `--border-subtle` 1px |
+| 服务提示（左侧） | `--bg-soft` | `--text-primary`（角色标签 `--color-danger`） | `--color-danger` 1px |
+| 等待态 | 同助手 | `--text-tertiary` + CSS 动画省略号（`steps` 关键帧，不用 Emoji） | 同助手 |
+
+- 形态：`--radius-lg` + **尾角收小**（助手左下 / 用户右下为 `--radius-sm`，经典聊天气泡指向）；内边距 `--space-3` × `--space-compact`；最大宽度 78%（`< md` 92%）；`white-space: pre-wrap`。
+- **头像行**：助手 / 服务提示 / 等待态气泡上方一行 `msg__head`——24px 圆形头像（助手 & 等待 `--brand-100` 底 `--brand-700` 图标 `MagicStick`；服务提示 `--color-danger-10` 底 `--color-danger-ink` 图标 `WarningFilled`）+ 角色标签（`--text-label` + `--text-tertiary`，error 为 `--color-danger`）；用户消息不显示。
+- **指标 chips（result 态）**：仅当 `data` 为扁平标量记录时渲染（嵌套结构只走自然语言，避免 `[object Object]`）；`--bg-subtle` 底 + `--border-subtle` + `--radius-pill` 胶囊，key `--text-tertiary`、value `--text-primary` 500 字重 + `tabular-nums`。**不给指标染涨跌色**——汇总值不是涨跌语义，涨红跌绿只留给行级行情数据。
+- **空态 hero**（替代旧居中 chips 版）：两行大标题（`--text-title` 600 字重，`< md` 降为 `--text-heading`），其中「账本精灵」为**品牌渐变词**（`linear-gradient(135deg, --brand-700, --brand-900)` + `background-clip: text`；不支持时 `@supports` 回退 `--brand-700` 实色，防文字被 `transparent` 藏掉）；「试着问一句」小标签（`--text-label` + `--text-tertiary`，E2E 锚点文案不得改）；下方示例问题**块列表**（`--bg-soft` 底 + `--radius-md`，左侧 `MagicStick` 图标 `--brand-700`，hover 转 `--bg-hover` + `--border-default`）。
+- **底部 dock**：上边框 `--border-subtle`；上层**能力快捷 chips**横滚（`scrollbar-width: none`，胶囊 `--bg-soft` 底 + 图标 + 短标签，hover `--brand-ink` 字，`pending` 时禁用）——只列后端已有工具支撑的能力（投资表现 / 持仓价值 / 市场温度），**不放后端没有的能力**（如行为解读）；下层**胶囊输入**（`--radius-pill` 容器 + `--border-default`，`focus-within` 走 `--brand-700` + `--focus-ring`，内层 textarea 去边框透明）+ **圆形发送按钮**（44px `circle` `type=primary`，`ArrowUp` 图标，`aria-label="发送"` 供 E2E/读屏定位，`loading` 时转圈）。
+- 空态 / 输入区的示例问题与能力 chips **同源**（`QUICK_ACTIONS` → `EXAMPLES`），改文案只改一处。
+- 模型输出渲染前剔除 Emoji：全站禁 Emoji 只有约定没有 lint 兜底，页面内就是那道兜底。
 
 ## PageFooter / MarketFooter · 探市 / 温度计页脚（复用）
 

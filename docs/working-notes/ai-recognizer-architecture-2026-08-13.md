@@ -36,7 +36,7 @@
 - **模型降级**：`ARK_MODEL` 默认 `doubao-seed-2-0-mini-260428`（识别代码+名称这类简单结构化任务，mini 成本约为旗舰 pro 的 1/10，实测图片/文本均胜任）；
 - **正则优先分层**：`parse_text` 先正则提取（`代码 名称` 简单排版零成本），复杂排版才调便宜模型兜底；
 - **名称消歧**：证券与基金共用 6 位数字代码段（如 002910 = 股票「庄园牧场」or 基金「易方达供给侧改革混合」），`_name_hits` 结合 OCR 名称消歧，两表都命中默认基金；
-- **场内基金优先于 Funds 表**：基金主表会收录 ETF（510300 沪深300ETF华泰柏瑞也在 funds 表），场内代码段（5/159/16x）优先判 EXCHANGE；
+- **场内基金优先于 Funds 表**：基金主表会收录 ETF（510300 沪深 300ETF 华泰柏瑞也在 funds 表），场内代码段（5/159/16x）优先判 EXCHANGE；
 - **三层防滥用防护**：接口限流（`OCR_RATE_LIMIT_MAX`）、连续失败熔断（`OCR_MELTDOWN_*`）、全站 token 预算（`ARK_DAILY_TOKEN_BUDGET`）——按 `feature` 复用给 txn_import；
 - **用量表**：`user_usage(user_id, feature, period_date, count, quota)` 已支持按 feature 独立限次，`txn_import` 为预留 feature 名；
 - **前端组件化**：`ImageUploader`（点击/拖拽/剪贴板粘贴三入口，v-model 绑定 File）已从 OCR 弹窗抽出，持仓导入直接复用。
@@ -45,7 +45,7 @@
 
 `backend/app/services/importer/` 已是最佳范式，AI 识别域对称复刻：
 
-```
+```plain
 importer/
 ├── base.py          BaseImportParser（parse/validate 抽象 + 文件读取工具）
 ├── parsers/         平台解析器子类（standard/ths_stock/tiantian_fund/alipay_*），source 标识
@@ -60,7 +60,7 @@ API：`POST /api/importers/parse`（上传解析预览）→ `POST /api/importer
 
 ## 3. 目标架构
 
-```
+```plain
 backend/app/services/
 ├── importer/                      # 模板导入（已有，不动）
 └── ai_recognizer/                 # ★ AI 识别域（新增，对称 importer 设计）
@@ -155,7 +155,7 @@ class BaseRecognizer(ABC):
 
 现有 `/api/ocr/*` 语义泛化，`scenario` 参数驱动 registry：
 
-```
+```plain
 POST /api/ocr/recognize?scenario=watchlist_import   # 图片识别（默认，兼容现状）
 POST /api/ocr/parse?scenario=watchlist_import       # 文本识别（默认，兼容现状）
 POST /api/ocr/recognize?scenario=txn_import         # 持仓图片识别

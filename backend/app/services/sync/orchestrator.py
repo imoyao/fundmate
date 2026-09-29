@@ -57,6 +57,7 @@ from app.services.sync.jobs.index_catalog_job import IndexCatalogSyncJob
 from app.services.sync.jobs.index_constituent_job import INDEX_TARGETS, IndexConstituentSyncJob
 from app.services.sync.jobs.index_daily_job import IndexDailySyncJob
 from app.services.sync.jobs.index_valuation_job import IndexValuationSyncJob
+from app.services.sync.jobs.market_asset_daily_job import MarketAssetDailySyncJob
 from app.services.sync.jobs.position_price_job import PositionPriceSyncJob
 from app.services.sync.jobs.price_history_job import PriceHistorySyncJob
 from app.services.sync.jobs.stock_list_job import StockListSyncJob
@@ -133,6 +134,9 @@ class DataSyncOrchestrator:
         self.jobs['index_catalog'] = IndexCatalogSyncJob(self.data_sources['akshare'], self.db)
         # #275：指数日线点位（万得全A 经韭圈儿公开接口，独立数据源）
         self.jobs['index_daily'] = IndexDailySyncJob(JiucaishuoAdapter(), self.db)
+        # #1460：探市大类资产日频快照（数据经 market_service 直连 akshare，不经过 adapter，
+        # 故 NullAdapter 占位；落库后 /api/market/overview 由实时现算改为读库组装）
+        self.jobs['market_asset_daily'] = MarketAssetDailySyncJob(NullAdapter(), self.db)
         self.jobs['temperature'] = TemperatureJob(NullAdapter(), self.db)
         # AMAC 名录为 HTTP JSON 直抓（非 akshare/xalpha 数据源），NullAdapter 占位；
         # 此前仅 invoke grab.* 通道可达，注册后 pdm run sync --job 亦可直达（#1081 策展应用入口）
@@ -424,6 +428,9 @@ class DataSyncOrchestrator:
                 ('index_constituents', INDEX_TARGETS),  # 指数成分回填（#1286 数据底座）
                 ('index_catalog', ['__full__']),  # 指数名录重建（#1286 聚合搜索底座）
                 ('index_daily', ['__full__']),  # 指数日线（万得全A 全量 10 年，#275）
+                # #1460：探市大类资产日频快照（20 资产 + 债券收益率轨）—— 每日落库一次，
+                # 让 /api/market/overview 读库即回（毫秒级）；无外部目标池依赖，targets 传空。
+                ('market_asset_daily', []),
                 ('dividend_split', stock_targets + fund_targets),  # 分红/送股抓取（#1179）
                 ('advisor_portfolio', ['__full__']),  # 投顾组合持仓/调仓回填（#1167，组合数少且自带节流）
                 # #1104：持仓现价回写——必须排在净值/行情之后、资产快照之前：

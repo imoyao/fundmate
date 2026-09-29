@@ -105,6 +105,7 @@ def main():
     import app.domains.funds.models  # noqa: F401
     import app.domains.indices.models  # noqa: F401
     import app.domains.ledgers.models  # noqa: F401
+    import app.domains.market.models  # noqa: F401
     import app.domains.portfolios.models  # noqa: F401
     import app.domains.positions.models  # noqa: F401
     import app.domains.price_history.models  # noqa: F401

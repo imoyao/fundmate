@@ -45,7 +45,7 @@ fundmate 实际上是两套并行的记账模型，而用户的痛点正好卡�
 
 ### 需求②：多账户与家庭成员归属
 
-多账户本身是支持的，而且没有数量上限：`ledgers/views.py:437` 用 `db.query(Ledger).filter(Ledger.family_id == get_family_id())` 拉取，账户模型还带了 `ledger_type`、`channel_category`、`sales_institution_id`、`linked_cash_ledger_id`、`is_aggregation`（E账户隐藏）、`display_order`、`is_active`（归档）等相当完整的字段设计。
+多账户本身是支持的，而且没有数量上限：`ledgers/views.py:437` 用 `db.query(Ledger).filter(Ledger.family_id == get_family_id())` 拉取，账户模型还带了 `ledger_type`、`channel_category`、`sales_institution_id`、`linked_cash_ledger_id`、`is_aggregation`（E 账户隐藏）、`display_order`、`is_active`（归档）等相当完整的字段设计。
 
 **缺口在成员归属。** `Ledger` 继承 `FamilyScopedMixin`（`backend/app/core/database.py:54-68`），只有 `family_id` 一列；类定义（`ledgers/models.py:14`）混入 `PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin`，没有 `owner` / `member` / `user_id`。在 `domains/ledgers/views.py` 检索 `owner|member_id|user_id|current_user.id` 是 0 命中。`positions`（`positions/models.py:20-52`）同样如此；`assets` 有个 `user_id`（`assets/models.py:27`）但 `default=1`，形同摆设。
 
@@ -71,7 +71,7 @@ fundmate 实际上是两套并行的记账模型，而用户的痛点正好卡�
 
 盈亏口径上，全系统只有一种算法：`(current_price − avg_price) × quantity`（`summary_service.py:113-119`、`ledger_service.py:157-172`），**没有已实现 / 未实现 / 浮动盈亏的拆分**。唯一的 `realized_pnl` 字段在自选股表（`watchlist/models.py:122`），与持仓无关。成本法是移动加权平均（`position_service.py:394-402`），明确不是 FIFO（FIFO 只用于赎回费预估，`fund_service.py:351,372`）。XIRR 倒是实现了且比较扎实：`services/performance/xirr_engine.py:111-149`，优先 `pyxirr`、失败降级为多初值牛顿-拉夫逊（`:45-82`，初值序列 `[0.1, -0.1, 0.5, -0.5, 1.0, -1.0]`），ACT/365，分红按 `DIVIDEND_CASH` 正现金流 / `DIVIDEND_REINVEST` 负现金流计入（`:180-188`）。
 
-最后是一个必须立刻处理的问题。前端三处图表是假数据：`AssetOverview.vue:391-395`（分布饼图硬编码股票36.5/基金28.9）、`:410-422`（累计收益数组 `[120,190,170,220,280,250,310]`）、`:446-453`（风险热力图）；`ProfitTrendChart.vue:23-27`（`[65,59,80,81,56,55]`，X 轴是"一月"到"六月"）；`AssetDistributionChart.vue:22-36`。而 `:468` 的"切换收益周期"回调只有一句 `console.log("切换收益周期:", period)`。真实的图表只有 `Charts/SankeyChart.vue`、`AssetAllocationDonut.vue`（接 `/summary/sankey/`、`/summary/distributions/`）和 `panorama/index.vue`。用户一旦发现有数据的地方是假的，信任成本远高于"这功能还没做"。
+最后是一个必须立刻处理的问题。前端三处图表是假数据：`AssetOverview.vue:391-395`（分布饼图硬编码股票 36.5/基金 28.9）、`:410-422`（累计收益数组 `[120,190,170,220,280,250,310]`）、`:446-453`（风险热力图）；`ProfitTrendChart.vue:23-27`（`[65,59,80,81,56,55]`，X 轴是"一月"到"六月"）；`AssetDistributionChart.vue:22-36`。而 `:468` 的"切换收益周期"回调只有一句 `console.log("切换收益周期:", period)`。真实的图表只有 `Charts/SankeyChart.vue`、`AssetAllocationDonut.vue`（接 `/summary/sankey/`、`/summary/distributions/`）和 `panorama/index.vue`。用户一旦发现有数据的地方是假的，信任成本远高于"这功能还没做"。
 
 ### 需求⑤：分红送股自动化与再投资选择
 

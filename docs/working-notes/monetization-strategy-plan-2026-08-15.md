@@ -133,7 +133,7 @@
 - 权威规范：`docs/spec/pricing-tier.md`（分层定稿、判定准则、功能归属、通用用量表与成本测算）
 - 同系列评审：`docs/working-notes/import-page-ux-and-monetization-review-2026-08-15.md`（导入页 UX 与商业化判断、I-1~I-5）
 - 既有 issues（已跟踪的 Pro 边界与付费候选）：
-  - [#1000 自选设置上限（免费100个），上限突破作为 Pro 附赠](https://github.com/imoyao/fundmate/issues/1000)
+  - [#1000 自选设置上限（免费 100 个），上限突破作为 Pro 附赠](https://github.com/imoyao/fundmate/issues/1000)
   - [#994 持仓详情页高级洞察 Pro 面板（归因/风险/配置 + 付费墙）](https://github.com/imoyao/fundmate/issues/994)
   - [#823 OCR 截图导入 + 通用用量表（免费 5 次/天）](https://github.com/imoyao/fundmate/issues/823)
   - [#826 付费/免费分层定稿落地](https://github.com/imoyao/fundmate/issues/826)（已 CLOSED）

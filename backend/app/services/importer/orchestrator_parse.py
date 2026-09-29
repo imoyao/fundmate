@@ -17,7 +17,9 @@ from loguru import logger
 
 from app.core.constants import PositionSource
 from app.core.exceptions import ErrorCode, SBException
+from app.core.symbol_utils import normalize_by_venue
 from app.core.utils import show_time
+from app.core.venues import venue_of_asset_type
 from app.domains.funds.models import Fund, FundVariety
 from app.domains.positions.models import Position
 from app.domains.securities.models import Security
@@ -421,11 +423,19 @@ class ParsingMixin:
         fee_val = record.fee
         net_amount_val = record.net_amount if record.net_amount else record.amount
 
+        # venue（#1662）：解析器声明 / 逐行判定优先，缺失时按 asset_type 推断；
+        # 落库前把 symbol 收敛到该场所的唯一形态（场内带前缀 / 场外裸码）。
+        venue = record.venue or venue_of_asset_type(record.asset_type)
+        symbol = record.symbol
+        if venue and symbol:
+            symbol, _, _ = normalize_by_venue(symbol, venue)
+
         return {
-            'symbol': record.symbol,
+            'symbol': symbol,
             'name': record.name,
             'market': 'CN_A',
             'type': record.asset_type,
+            'venue': venue,
             'ledger_id': record.ledger_id,
             'account_name': record.account_name,
             'quantity': qty,  # 原始份额

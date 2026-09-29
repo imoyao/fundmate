@@ -1,19 +1,23 @@
 # -*- coding: utf-8 -*-
-"""持仓现价回写任务（T-1 确认净值口径，#1104）。
+"""持仓现价回写任务（场外＝确认净值，场内＝最近交易日收盘价，#1104）。
 
 ## 为什么需要它
 
 E 账户导入用**同一个快照值**同时填 `avg_price` 与 `current_price`（如 023887 两处均 0.83 元），
-此后没有任何任务刷新 `current_price`，于是 `(现价 − 成本) × 份额 ≡ 0`——持仓盈亏恒为 0。
-盈亏公式本身无责，缺的是这条链路：**已确认净值 → `positions.current_price`**（P1-20 接线）。
+此后如果没有任务刷新 `current_price`，`(现价 − 成本) × 份额 ≡ 0`——持仓盈亏恒为 0；
+而自选页「最新价」列读的也正是这个字段，不刷新就只能显示导入当天的快照
+（#1104 用户反馈：股票价停在 8/29 的导入值，与实时价偏差 -63%）。
 
-## 口径（三条硬约束）
+## 口径
 
-1. **只写已确认净值，不写估值**：数据源是 market 域 `daily_worth`（基金公司公布的确认净值），
-   不是盘中估值。预估口径属前端实时链路（`useRealtimeQuotes` / `valuationEngine`），
-   后端不维护、不落库——两条口径混写会让「确认价」与「估值价」不可区分，盈亏随之失去权威性。
-2. **新鲜度闸门**：净值日期早于 `MAX_STALENESS_DAYS` 的**不写**。同步链路断掉时宁可保持原值
-   （页面本就有「数据滞后」提示），也不要把一个更旧的净值覆盖进来，制造「刚更新过」的假象。
+1. **只写已确认值，不写盘中估值**：
+   - 场外基金 → market 域 `daily_worth` 的**已确认净值**（基金公司公布，通常 T-1）；
+   - 场内（股票 / ETF / 可转债）→ market 域 `price_history.close` 的**最近交易日收盘价**（未复权）。
+   盘中实时价属前端展示链路（`useRealtimeQuotes` / `valuationEngine`），后端不维护、不落库：
+   确认价与估值价混写会让两者不可区分，盈亏 / XIRR / 资产快照随之失去权威性。
+2. **新鲜度闸门**：净值日期早于 `MAX_STALENESS_DAYS`(7 天)、场内收盘价早于
+   `MAX_INTRADAY_STALENESS_DAYS`(10 天) 的**不写**。同步链路断掉时宁可保持原值
+   （页面本就有「数据滞后」提示），也不要把更旧的数据覆盖进来，制造「刚更新过」的假象。
 3. **价格单位走 `Money.yuan_to_price_units`**（0.0001 元 / 4 位小数，见 #1099）：禁止裸乘除 float。
 
 ## 目标池与数据域
@@ -31,11 +35,12 @@ E 账户导入用**同一个快照值**同时填 `avg_price` 与 `current_price`
 | 类型 | 处理 | 原因 |
 |---|---|---|
 | 货基（`asset_type='money_fund'` / `is_money_fund=True`） | 按**面值 1.0000 元**回写 | 货基每份净值恒为 1 元，收益体现在 `money_fund_daily_worth` 的万份收益（`money_fund_income` 链路）；**绝不读** `daily_worth`（错表残留见 #1554） |
-| 场内（股票 / ETF / 可转债） | 跳过 | 现价来源是行情（`price_history`）且收盘价 / 实时价口径与场外不同，#1104 待拍板，不落未定口径 |
+| 场内（股票 / ETF / 可转债） | 按**最近交易日收盘价**（`price_history.close`，未复权）回写 | #1104 场内口径已拍板：已确认收盘价与估值不混；盘中实时价仍只走前端展示链路，不落库 |
 | `valuation_mode='balance'` | 跳过 | 无份额可乘，市值靠 `market_value_override` 人工录入 |
 | `asset_type` 缺失 / 未知 | 跳过 | 6 位数字代码在场外基金与场内 ETF 上**重叠**（如 510300），无显式类型时不敢猜 |
 """
 
+from datetime import timedelta
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
@@ -43,25 +48,35 @@ from app.core.constants import ValuationMode
 from app.core.money import Money
 from app.core.time_utils import now_shanghai, today_shanghai
 from app.domains.positions.models import Position
+from app.domains.price_history.models import PriceHistory
 from app.services.adapters.null_adapter import NullAdapter
-from app.services.job_base import JobStatus, SyncJob
+from app.services.job_base import IN_CHUNK_SIZE, JobStatus, SyncJob
 from app.services.nav_service import NavService
 
-# 净值新鲜度上限（天）：超过即不写（见模块 docstring 硬约束 2）
+# 净值新鲜度上限（天）：超过即不写（见模块 docstring 口径 2）
 MAX_STALENESS_DAYS = 7
+
+# 场内收盘价新鲜度上限（天）：比净值宽——覆盖春节等长假停市
+MAX_INTRADAY_STALENESS_DAYS = 10
+
+# 场内收盘价回看窗口（天）：一次查出各标的近期收盘价，本地取最新那根
+INTRADAY_LOOKBACK_DAYS = 21
 
 # 货基面值（元）：货基单位净值恒为 1.0000（收益走万份收益）
 MONEY_FUND_FACE_VALUE = Decimal('1.0000')
 
 # 本 job 关心的显式类型
 _FUND_ASSET_TYPE = 'fund'
+_INTRADAY_ASSET_TYPES = ('stock', 'etf', 'bond')
 
 # 跳过原因（写进 stats，便于「为什么没更新」这类提问自证）
-SKIP_INTRADAY = 'intraday_not_supported'
 SKIP_UNKNOWN_TYPE = 'unknown_asset_type'
 SKIP_BALANCE_MODE = 'balance_valuation_mode'
 SKIP_NO_NAV = 'no_nav_in_market_db'
 SKIP_STALE_NAV = 'nav_stale'
+SKIP_NO_CLOSE = 'no_close_in_price_history'
+SKIP_STALE_CLOSE = 'close_stale'
+SKIP_OTHER_TYPE = 'unsupported_asset_type'
 
 
 class PositionPriceSyncJob(SyncJob):
@@ -109,10 +124,12 @@ class PositionPriceSyncJob(SyncJob):
         positions = self._load_positions()
         total = len(positions)
 
-        # ── 第一步：按类型分桶，确定哪些持仓需要净值（场外基金） ──
+        # ── 第一步：按类型分桶 ──
         money_fund_writes: List[tuple] = []  # (position, 面值 Decimal)
         fund_positions: List[Position] = []
         fund_codes: List[str] = []
+        intraday_positions: List[Position] = []  # 股票 / ETF / 可转债
+        intraday_symbols: List[str] = []
         for pos in positions:
             bucket = self._classify(pos)
             if bucket == 'money_fund':
@@ -122,6 +139,11 @@ class PositionPriceSyncJob(SyncJob):
                 code = self._fund_code(pos)
                 if code and code not in fund_codes:
                     fund_codes.append(code)
+            elif bucket == 'intraday':
+                intraday_positions.append(pos)
+                symbol = (pos.symbol or '').strip()
+                if symbol and symbol not in intraday_symbols:
+                    intraday_symbols.append(symbol)
             else:
                 _skip(bucket)
 
@@ -134,6 +156,15 @@ class PositionPriceSyncJob(SyncJob):
             except Exception as e:  # noqa: BLE001 - 读取失败不得让整批同步挂掉
                 self.logger.exception(f'读取基金净值失败：{e}')
                 errors.append(f'nav_read: {e}')
+
+        # 场内收盘价同样批量取（price_history，未复权；不联网）
+        close_map: Dict[str, tuple] = {}
+        if intraday_symbols:
+            try:
+                close_map = self._load_latest_closes(intraday_symbols)
+            except Exception as e:  # noqa: BLE001
+                self.logger.exception(f'读取场内收盘价失败：{e}')
+                errors.append(f'close_read: {e}')
 
         # ── 第三步：写回 ──
         updated = 0
@@ -160,6 +191,25 @@ class PositionPriceSyncJob(SyncJob):
                 _skip(SKIP_STALE_NAV)
                 continue
             if self._write_price(pos, Decimal(str(nav))):
+                updated += 1
+            else:
+                unchanged += 1
+
+        # 场内（股票 / ETF / 可转债）：最近交易日收盘价 → current_price（#1104）
+        for pos in intraday_positions:
+            entry = close_map.get((pos.symbol or '').strip())
+            if not entry:
+                _skip(SKIP_NO_CLOSE)
+                continue
+            close_date, close = entry  # entry = (trade_date, close)
+            if close <= 0:
+                _skip(SKIP_NO_CLOSE)
+                continue
+            if close_date is None or (today - close_date).days > MAX_INTRADAY_STALENESS_DAYS:
+                # 行情链路断掉时保持原值，不把更旧的收盘价覆盖进来
+                _skip(SKIP_STALE_CLOSE)
+                continue
+            if self._write_price(pos, Decimal(str(close))):
                 updated += 1
             else:
                 unchanged += 1
@@ -203,6 +253,30 @@ class PositionPriceSyncJob(SyncJob):
             .all()
         )
 
+    def _load_latest_closes(self, symbols: List[str]) -> Dict[str, tuple]:
+        """批量取 {symbol: (trade_date, close)}——`price_history` 内最近交易日的**未复权**收盘价。
+
+        一次拉回近 `INTRADAY_LOOKBACK_DAYS` 天的行再本地取最新（不做 per-symbol 子查询：
+        28 条持仓逐个查 max(trade_date) 就是 N+1）。`adj_close` 刻意不用——它是前复权价，
+        会随分红除权重算，不能当「当前价」写进 positions（见 adapter 的口径说明）。
+        """
+        out: Dict[str, tuple] = {}
+        cutoff = today_shanghai() - timedelta(days=INTRADAY_LOOKBACK_DAYS)
+        for i in range(0, len(symbols), IN_CHUNK_SIZE):
+            chunk = symbols[i : i + IN_CHUNK_SIZE]
+            rows = (
+                self.db.query(PriceHistory.symbol, PriceHistory.trade_date, PriceHistory.close)
+                .filter(PriceHistory.symbol.in_(chunk), PriceHistory.trade_date >= cutoff)
+                .order_by(PriceHistory.symbol, PriceHistory.trade_date.desc())
+                .all()
+            )
+            for symbol, trade_date, close in rows:
+                # 已按 (symbol, trade_date desc) 排序：第一次出现即该 symbol 的最新一根
+                if symbol in out or close is None:
+                    continue
+                out[symbol] = (trade_date, float(close))
+        return out
+
     @staticmethod
     def _fund_code(pos: Position) -> str:
         code = (pos.symbol or '').strip()
@@ -220,9 +294,12 @@ class PositionPriceSyncJob(SyncJob):
             return 'money_fund'
         if asset_type == _FUND_ASSET_TYPE:
             return 'fund'
+        if asset_type in _INTRADAY_ASSET_TYPES:
+            # 场内：收盘价来自 price_history（见 run() 的场内回写分支）
+            return 'intraday'
         if asset_type:
-            # 显式类型但非场外基金（etf/stock/bond/index/crypto/…）→ 场内口径未定，不写
-            return SKIP_INTRADAY
+            # 其余显式类型（index / crypto / future…）暂无本地收盘价来源 → 跳过
+            return SKIP_OTHER_TYPE
         # 无显式类型：6 位数字代码在场外基金与场内 ETF 上重叠，猜不得 → 跳过并计数
         return SKIP_UNKNOWN_TYPE
 

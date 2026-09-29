@@ -16,7 +16,8 @@ export type OcrUsageResult = {
   data: {
     feature: string;
     period_date: string;
-    count: number;
+    /** 已用次数：后端 guards.check_usage 返回的字段名是 used（历史类型误标为 count，#1695） */
+    used: number;
     quota: number;
     remaining: number;
   };

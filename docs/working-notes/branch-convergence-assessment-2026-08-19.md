@@ -23,7 +23,7 @@
 | feature/sso-cross-subdomain | 1 个（649b41a OAuth 修复，但误删 1630 行核心文件） | +173/-1630 | ⚠️ 危险 | **整体禁止合入**；仅可 cherry-pick 11 行 login 修复，误删的 11 个核心文件（双库测试/文档）必须先在目标分支恢复 |
 
 ### 关于 feature/sso-cross-subdomain（初判为"事故"，经核实为误判，已更正）
-- 实际修复（649b41a）：login/index.vue 11 行，`onGithubLogin` 的 redirectTo 由 `/welcome` 改根路径（hash 模式编码异常）。修复本身有价值，**main-v2 当前 login 仍存在该 bug（第327/357行）**，故修复仍需合入。
+- 实际修复（649b41a）：login/index.vue 11 行，`onGithubLogin` 的 redirectTo 由 `/welcome` 改根路径（hash 模式编码异常）。修复本身有价值，**main-v2 当前 login 仍存在该 bug（第 327/357 行）**，故修复仍需合入。
 - 初判"误删 1630 行核心文件"是**误判**：`git diff main-v2..sso` 显示的大量"删除"是因为 **sso 分支基点很旧**（早于 main-v2 上那些文件的新增），并非 sso 主动删文件。sso 分支本身没有破坏代码。
 - 正确处置（2026-08-19 已执行）：**不 merge 整个 sso 分支**（会带入大量旧基点差异造成倒退）；改为 `git cherry-pick 649b41a` 单独把 OAuth 修复取到 main-v2（提交 `972b6d7`，干净无冲突）。sso 分支保持原状、不做任何"恢复"操作（恢复反而会把 main-v2 新代码灌入，才是真破坏）。
 

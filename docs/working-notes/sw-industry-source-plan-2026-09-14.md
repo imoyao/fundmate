@@ -27,7 +27,7 @@
    `_extra_dims()`（合并两维）。即「成交额维依赖东财」这一缺口**已经部分闭环**，剩余缺口比正文描述更聚焦。
 2. **温度计页已收敛进探市页**：前端实际路径为 `frontend/src/views/explore/`（`components/detail/CrowdingTable.vue`、
    `BiasTable.vue`、`MetricDetailTable.vue`），**不存在** `views/temperature/`。
-3. **行业清单 31 vs 32**：`bias/constants.py` 实际 **32** 条（注释却写「31个行业」），比申万现行清单多出过时的 `801020`「采掘」。
+3. **行业清单 31 vs 32**：`bias/constants.py` 实际 **32** 条（注释却写「31 个行业」），比申万现行清单多出过时的 `801020`「采掘」。
 
 ---
 
@@ -82,7 +82,7 @@
 
 本机 `pdm run scheduler --job temperature --no-jitter` 实跑后核对三表：
 
-```
+```plain
 market_single_values / market_composites / market_multi_items
   └─ market_multi_items: source='industry_crowding' 应有 31 行（现为 0 行）
 ```
