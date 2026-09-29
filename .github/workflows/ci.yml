@@ -26,7 +26,12 @@ on:
       - dev
       - main
   # 防直推卡点：直接 push 到受保护分支 main 时，下方 guard-direct-push job 会拦截。
-  # 通过 PR 合并的 push 属于 pull_request 事件，不会触发本 push 卡点。
+  # 重要事实修正（#1771）：GitHub 合并 PR 到 main 时【同时】发出 push 事件
+  #   （github.event.push），故本工作流在 push 到 main 时【也会触发】；
+  #   guard-direct-push 已用「是否关联已合并 PR」区分：PR 合并产生的 push 放行，
+  #   真正的本地直推（无关联 PR）才拦截。
+  #   质量门禁类 job（changes / backend / frontend / layout_guard）已限定仅
+  #   pull_request 事件运行，故 push 场景只跑 guard-direct-push，不会误跑全量门禁。
   push:
     branches:
       - main
@@ -44,6 +49,7 @@ permissions:
 jobs:
   # 计算哪些目录有改动，决定下方 job 是否运行
   changes:
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
@@ -63,7 +69,7 @@ jobs:
   backend:
     name: 后端测试 + Lint
     needs: changes
-    if: ${{ needs.changes.outputs.backend == 'true' }}
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
     # 防 pytest 偶发 hang 卡满 GitHub 默认 6h 兜底：单进程后端测试正常 ~19min，给 30min 余量（#1596 排查 CI 卡死）
     timeout-minutes: 30
@@ -184,6 +190,7 @@ jobs:
   # 都是合并冲突把 gate.needs 里的 job 弄丢，少动一次就少一次风险。
   layout_guard:
     name: 布局宽度守卫 (layout-width)
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -259,7 +266,7 @@ jobs:
   frontend:
     name: 前端类型检查 + Lint + 构建
     needs: changes
-    if: ${{ needs.changes.outputs.frontend == 'true' }}
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -434,8 +441,16 @@ jobs:
 
   # 防直推卡点（替代 GitHub Pro 才有的 branch protection）
   # 用此 job 拦截「直接 push 到 main」的行为：
-  # 正常流程是 分支 → PR → merge，merge 产生的 push 属 pull_request 事件不触发本 job；
-  # 只有「本地直接 git push origin main」才会触发并失败。
+  # 正常流程是 分支 → PR → merge，merge 产生的 push 也会触发本 push 事件（#1771 修正：
+  #   旧注释称「merge 不触发」是错误的），故此处用 GitHub API 反查本 commit 是否关联
+  #   「已合并的 PR」来区分：
+  #     - 关联已合并 PR（即 PR 合并产生的 push）→ 放行，不再误红；
+  #     - 未关联任何 PR（真正的本地直推）→ 失败红灯，提示走 PR 流程。
+  #   覆盖 GitHub 三种合并方式（create a merge commit / squash / rebase）。
+  #
+  # 重要边界：本 job 不是 required status check（required 是 pull_request 事件的 gate），
+  #   它只能「标红提示」，不能硬拦；真正的强制拦截仍靠 branch protection + PR 必经。
+  #   故 API 调用异常（限流/网络）时按「放行」处理，宁可漏拦也不误红（符合 #1771 验收）。
   #
   # 历史坑（2026-09-11 修正）：此 job 原写作 branches: [M] / refs/heads/M —— `M` 早已
   # 随分支清理删除，导致守卫**从未真正运行过**，main 长期处于无保护状态。
@@ -444,8 +459,22 @@ jobs:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     steps:
-      - name: 拦截直推
+      - name: 判断本次 push 是否来自 PR 合并
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "::error::检测到直接向主分支 main 推送。请改用 PR 流程：从 dev 切出分支 → 提交 → 开 PR → review 后合并。"
+          sha="${{ github.sha }}"
+          # GitHub 合并 PR 到 main 时会在 push 事件里带上 merge commit；
+          # 用 commits/{sha}/pulls 反查是否由已合并 PR 产生（覆盖 merge / squash / rebase）。
+          prs_json=$(gh api "repos/${{ github.repository }}/commits/${sha}/pulls" 2>/dev/null) || {
+            echo "::warning::无法调用 GitHub API 反查 PR 关联（可能限流/网络），按放行处理，避免误拦 PR 合并。"
+            exit 0
+          }
+          pr_count=$(printf '%s' "$prs_json" | jq 'length')
+          if [ "${pr_count:-0}" -gt 0 ]; then
+            echo "本次 push 来自 PR 合并（关联已合并 PR 数=${pr_count}），放行。"
+            exit 0
+          fi
+          echo "::error::检测到直接向主分支 main 推送（未关联任何已合并 PR）。请改用 PR 流程：从 dev 切出分支 → 提交 → 开 PR → review 后合并。"
           echo "::error::Direct push to main is blocked. Use a PR instead."
           exit 1
