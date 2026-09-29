@@ -187,7 +187,7 @@ test.describe("账本精灵对话页（#1121 S1-B）", () => {
     await expect(page.getByText(/【结论】/)).toHaveCount(0);
   });
 
-  test("停止按钮（#1714 L1）：abort 后 UI 即刻回空闲，无错误气泡，可立即再发", async ({
+  test("发送/停止复合按钮（#1714）：abort 后 UI 即刻回空闲，无错误气泡，可立即再发", async ({
     page,
     context,
     baseURL
@@ -211,12 +211,22 @@ test.describe("账本精灵对话页（#1121 S1-B）", () => {
     await page.getByPlaceholder(/Enter 发送/).fill("第一轮会挂起的提问");
     await page.getByRole("button", { name: "发送" }).click();
 
-    // 思考态出现停止按钮 → 点停止 → UI 即刻回空闲（输入框恢复可用）
+    // 复合按钮（#1714 UI 复核）：发送与停止是**同一个**按钮——思考中就地换 aria-label，
+    // 页面任何时刻都只有一个「发送 / 停止」按钮，不并排也不换位
     const stopBtn = page.getByRole("button", { name: "停止" });
     await expect(stopBtn).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /^(发送|停止)$/ })
+    ).toHaveCount(1);
+    // 思考中不锁输入框：可以先把下一句打好（停止 / 本轮结束后直接发）
+    await expect(page.getByPlaceholder(/Enter 发送/)).toBeEnabled();
+
+    // 点停止 → UI 即刻回空闲（同一按钮就地变回「发送」）
     await stopBtn.click();
     await expect(stopBtn).toHaveCount(0);
-    await expect(page.getByPlaceholder(/Enter 发送/)).toBeEnabled();
+    await expect(page.getByRole("button", { name: "发送" })).toBeVisible();
+    // 停止后有明确反馈（页头 hint）：该轮不留痕迹，不说话会像「点了没反应」
+    await expect(page.getByText(/已停止本轮分析/)).toBeVisible();
     // 不弹错误气泡（CanceledError 与超时 / 失败分流；超时文案同为 0 条）
     await expect(page.getByText("请求失败")).toHaveCount(0);
     await expect(page.getByText(/请求超时/)).toHaveCount(0);
