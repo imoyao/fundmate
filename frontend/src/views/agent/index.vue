@@ -518,9 +518,14 @@ function resetSession(): void {
   flex-direction: column;
   max-width: var(--layout-content-width);
 
-  /* 整屏高：顶栏偏移走令牌（--layout-topbar-height，与 lay-content 的 padding-top /
-     min-height 同源），不再写 85px 这类 vh 魔法数字（#1714 UI 复核） */
-  height: calc(100vh - var(--layout-topbar-height));
+  /* 单一滚动条（#1714 复核）：**不再**自算 `height: calc(100vh - 顶栏)` ——
+     那种写法把页面高度钉死在视口高，再叠加 Layout（lay-content 的 el-scrollbar）
+     自己的滚动容器，右侧就长出两条滚动条（外层 + 聊天区各一条）。
+     改为「页面级滚动 + 输入区 sticky 贴底」：min-height 只保证内容少时也占满一屏，
+     超出则交给外层那唯一一条滚动条。
+     sticky 可用性：el-scrollbar__view 是 `overflow: clip`（不建立滚动容器），
+     真正的滚动祖先是 .el-scrollbar__wrap —— 见 lay-content/index.vue 的注释（#1528 同因）。 */
+  min-height: calc(100vh - var(--layout-topbar-height));
   padding: 0 var(--space-standard) var(--space-standard);
   margin: 0 auto;
 }
@@ -538,7 +543,6 @@ function resetSession(): void {
   display: flex;
   flex: 1;
   gap: var(--space-standard);
-  min-height: 0; // 允许收缩，会话区才能内部滚动
 }
 
 .chat-main {
@@ -546,14 +550,11 @@ function resetSession(): void {
   flex: 1;
   flex-direction: column;
   min-width: 0;
-  min-height: 0;
 }
 
+/* 消息区不再自己滚动（滚动交给外层唯一那条），故去掉 flex:1 + overflow-y:auto */
 .chat-list {
-  flex: 1;
-  min-height: 0; // 允许收缩才会有内部滚动，否则整页被撑高
   padding: var(--space-compact) 0;
-  overflow-y: auto;
 }
 
 /* 消息列限宽居中（阅读行宽约 820px），输入 dock 仍与页面同宽贴底——
@@ -563,7 +564,6 @@ function resetSession(): void {
   flex-direction: column;
   width: 100%;
   max-width: 820px;
-  min-height: 100%;
   margin: 0 auto;
 }
 
@@ -571,11 +571,15 @@ function resetSession(): void {
 .chat-hero {
   box-sizing: border-box;
   display: flex;
-  flex: 1; // 空态在消息流内撑满（限宽流已有 min-height:100%），不需要再算高度
   flex-direction: column;
   gap: var(--space-5);
   align-items: flex-start;
-  justify-content: center; // 垂直居中：去卡片壳后整屏变高，顶部对齐会让空态全挤在上半屏
+  justify-content: center;
+
+  /* 空态垂直居中：页面改为「外层滚动」后，这里没有可撑开的确定高度参照，
+     故用一个视口高估算（顶栏 + 页头 + 输入 dock ≈ 260px）。
+     它只影响空态留白，不参与滚动行为（真正的滚动在外层，见 .agent-page 注释） */
+  min-height: calc(100vh - var(--layout-topbar-height) - 260px);
   padding: var(--space-6) var(--space-2) var(--space-standard);
 }
 
@@ -845,11 +849,19 @@ function resetSession(): void {
 }
 
 // —— 底部 dock：能力快捷 chips + 胶囊输入 + 圆形发送 ——
+// 「页面级滚动 + 本块 sticky 贴底」（#1714 复核）：既保住输入区常驻底部，
+// 又只留一条滚动条。必须给不透明底色——否则消息会从 dock 下面透出来
 .chat-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding-top: var(--space-2);
+  /* 右侧预留 FAB 安全区：右下角常驻「记一笔」FAB 与发送按钮同处一条水平带，
+     不避让就会被压住（#1714 复核实测）。令牌与 FAB 定位同源，见 colors.css */
+  padding: var(--space-2) var(--layout-fab-safe) var(--space-standard) 0;
+  background-color: var(--bg-page);
   border-top: 1px solid var(--border-subtle);
 }
 
@@ -928,8 +940,11 @@ function resetSession(): void {
     border-color 0.15s ease,
     box-shadow 0.15s ease;
 
+  /* 焦点样式**只画一次**（#1714 复核）：此前是「border 变红 + --focus-ring 双段阴影」叠加，
+     视觉上就是内外好几圈线。这里让 border 让位给焦点环（透明），只留干净的一环。
+     gap 色取 --bg-card 与胶囊底色同色，实际观感是一条 4px 品牌色环。 */
   &:focus-within {
-    border-color: var(--brand-700);
+    border-color: transparent;
     box-shadow: var(--focus-ring);
   }
 
@@ -940,6 +955,15 @@ function resetSession(): void {
     border: none;
     border-radius: var(--radius-pill);
     box-shadow: none;
+
+    /* ⚠️ 关键（就是那个「很奇怪的外圈」的根因）：EP 给 textarea 的**聚焦态**自带
+       `box-shadow: 0 0 0 1px var(--el-input-focus-border-color) inset`（用内描边当边框）。
+       只清静态 box-shadow 时它照旧生效 —— 于是「容器焦点环 + 内部红边」叠成双线。
+       必须连 :focus 一并清掉，焦点表达完全交给外层容器。 */
+    &:focus {
+      outline: none;
+      box-shadow: none;
+    }
   }
 }
 

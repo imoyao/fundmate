@@ -407,6 +407,44 @@
 | 空态 | 在消息流内垂直居中，不套卡片 |
 | 状态提示 | 贴输入区上方**左对齐**：右下角有全局「记一笔」FAB 常驻，文案放右侧会被压住 |
 
+### 三条硬约定：输入框焦点环 / 整屏页面滚动 / 右下角 FAB 安全区（#1714 复核）
+
+**① 焦点环只画一次。**
+
+Element Plus 给 `.el-textarea__inner:focus` 自带
+`box-shadow: 0 0 0 1px var(--el-input-focus-border-color) inset`（用**内描边**当边框）——
+只清静态 `box-shadow` 时它照旧生效，于是「容器焦点环 + 内部红边」叠成双线，
+观感就是「输入框一聚焦，外面多出一圈很奇怪的线」。规则：
+
+- 由容器表达焦点时，必须**连 `:focus` 一起清掉**（`:deep(.el-textarea__inner:focus) { box-shadow: none }`）；
+- 容器自身不要在聚焦时同时留 `border` 与 `--focus-ring`：让 `border-color: transparent`，只留一环。
+
+**② 整屏高的页面用「单一滚动 + sticky 贴底」，不要自算视口高。**
+
+`height: calc(100vh - 顶栏)` 会把页面高度钉死在视口高，与 Layout（`lay-content` 的
+`el-scrollbar`）自己的滚动容器**叠加**，右侧就长出两条滚动条。正确写法：
+
+- 容器 `min-height: calc(100vh - var(--layout-topbar-height))`（内容少也占满一屏，多则交给外层唯一那条滚动条）；
+- 内容区**不滚动**（`overflow: visible`）；
+- 底部操作区（输入区 / 页脚动作）`position: sticky; bottom: 0` + **不透明底色**（否则内容从下面透出）；
+- sticky 可用性依赖 `el-scrollbar__view` 的 `overflow: clip`（不建立滚动容器，真正的滚动祖先是 `.el-scrollbar__wrap`，见 `lay-content/index.vue` 注释，#1528 同因）。
+
+参考实现：`frontend/src/views/agent/index.vue`。
+
+**③ 贴底 / 右下角固定元素必须避让「记一笔」FAB。**
+
+全局 FAB 固定在 `bottom-24 right-8`（距底 96px、距右 32px，直径 48px）⇒ 占据右侧
+`[32, 80]px` 这条竖带。任何贴在右下角的操作区（对话页输入行、贴底工具栏等）都要用
+**`--layout-fab-safe`** 预留横向空间，否则会和 FAB 压在一起——对话页的发送按钮就这样被压过
+（用户截图实测：FAB 把发送按钮盖成半个圆）。
+
+### 输入框视觉目前**没有**单一真相源（#1772 收敛中）
+
+`el-input` / `el-textarea` 的内部视觉在全站**各自为政**：17 个业务文件用 `:deep()` 覆盖
+`.el-input__wrapper` / `.el-textarea__inner`，同一件事至少三种写法；且**暗色侧有焦点基线**
+（`dark.scss` 的 `.el-input__wrapper.is-focus`），**亮色侧为零**。新增页面**不要**再复制一套
+`:deep` 覆盖：等 #1772 落地统一基线（或 `AppInput` 组件）后复用，届时本节改写为该基线的契约。
+
 ### 资产代码（symbol）展示契约（venue，2026-09-24 #1662 / D35 + D36）
 
 资产代码列 / 标签**直接展示后端返回的 `symbol`，前端不得自行拼前缀或剥前缀**。后端已按**交易场所（venue）** 落定形态，前端任何「补 `SZ` / 去掉 `SZ`」的动作都会与库内身份不一致（历史上 `SZ004369` 与 `004369` 并存导致同一基金两行，就是这条被绕过的后果）。
