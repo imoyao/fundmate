@@ -11,9 +11,16 @@
       <h1 class="page-header__title">{{ title }}</h1>
       <p v-if="subtitle" class="page-header__subtitle">{{ subtitle }}</p>
     </div>
-    <div v-if="updatedAt" class="page-header__updated">
-      <span class="page-header__dot" />
-      <span>{{ updatedAt }}</span>
+    <div class="page-header__aside">
+      <div v-if="updatedAt" class="page-header__updated">
+        <span class="page-header__dot" />
+        <span>{{ updatedAt }}</span>
+      </div>
+      <!-- 页面级操作槽（#1714 UI 复核引入）：页头右侧放「历史 / 新对话」这类页面操作，
+           消掉「页头 + 页内第二条工具栏」的双层头部。不传该插槽时 DOM 与既有完全一致。 -->
+      <div v-if="$slots.action" class="page-header__action">
+        <slot name="action" />
+      </div>
     </div>
   </header>
 </template>
@@ -58,6 +65,12 @@ withDefaults(
     align-items: flex-start;
     padding: 0 var(--space-compact);
 
+    /* 窄屏右侧容器（更新时间 + 操作槽）撑满整行并左对齐，与文字块同起点 */
+    .page-header__aside {
+      align-self: stretch;
+      justify-content: flex-start;
+    }
+
     /* 列向下文字块自身撑满整行（align-items:flex-start 会让它退化成 fit-content，
        短副标题的页面就会出现「盒子只有一行字宽」的抖动） */
     .page-header__text {
@@ -91,6 +104,21 @@ withDefaults(
     font-size: 14px;
     line-height: 1.5;
     color: var(--text-secondary);
+  }
+
+  &__aside {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    gap: var(--space-compact);
+    align-items: center;
+  }
+
+  /* 页面级操作槽（#1714 UI 复核）：右对齐、与更新时间胶囊同一行；窄屏随 aside 换行 */
+  &__action {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
   }
 
   &__updated {

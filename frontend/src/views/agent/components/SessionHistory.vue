@@ -6,16 +6,11 @@
 -->
 <template>
   <div class="session-history">
+    <!-- 头部只保留标题与条数：「新对话」常驻页头操作槽（#1714 UI 复核），
+         左栏内再放一个就是重复入口 -->
     <div class="session-history__head">
       <span class="session-history__title">历史会话</span>
       <span class="session-history__total">{{ total }} 条</span>
-      <button
-        type="button"
-        class="session-history__new"
-        @click="emit('newChat')"
-      >
-        新对话
-      </button>
     </div>
 
     <div v-if="loading && items.length === 0" class="session-history__empty">
@@ -63,7 +58,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "select", sessionId: string): void;
-  (e: "newChat"): void;
 }>();
 
 const items = ref<AgentSessionItem[]>([]);
@@ -108,13 +102,18 @@ function formatTime(iso: string | null): string {
 </script>
 
 <style lang="scss" scoped>
+/* 页内左栏（#1714 UI 复核）：定宽 + 自身滚动。旧形态是插在卡片顶部的折叠块
+   （max-height: 40vh），展开时把消息区整体挤下去，观感像下拉面板而非侧栏 */
 .session-history {
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
-  max-height: 40vh; // 页内折叠：历史栏自身滚动，不把聊天气泡挤出视口
-  padding: var(--space-compact) var(--space-standard);
+  width: 260px;
+  min-height: 0;
+  padding: var(--space-compact);
   background-color: var(--bg-muted);
-  border-bottom: 1px solid var(--border-light);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
 }
 
 .session-history__head {
@@ -135,17 +134,9 @@ function formatTime(iso: string | null): string {
   color: var(--text-tertiary);
 }
 
-.session-history__new {
-  padding: 0;
-  margin-left: auto;
-  font-size: var(--text-small);
-  color: var(--color-primary);
-  cursor: pointer;
-  background: none;
-  border: none;
-}
-
 .session-history__list {
+  flex: 1;
+  min-height: 0; // 列表自身滚动（栏高度 = 会话区高度）
   padding: 0;
   margin: 0;
   overflow-y: auto;
