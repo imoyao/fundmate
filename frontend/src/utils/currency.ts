@@ -46,3 +46,14 @@ export function formatAmount(value: number, precision = 2): string {
     maximumFractionDigits: precision
   });
 }
+
+/**
+ * 金额收口到「分」（CNY 基准币种精度），消除浮点乘加漂移。
+ * 与 utils/valuationEngine.ts 汇总层口径一致（Math.round(x*100)/100）。
+ * 用于**计算层**（非展示层）；展示层仍走 MoneyDisplay。
+ * 非有限值（NaN/Infinity）按 0 处理，避免污染求和。
+ */
+export function roundToCents(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(value * 100) / 100;
+}
