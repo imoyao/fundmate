@@ -34,6 +34,17 @@ export function getCurrencySymbol(currency: string = BASE_CURRENCY): string {
 }
 
 /**
+ * 分 → 元（后端金额字段的唯一单位约定是**整数分**，见各 services 的 `*_cents`）。
+ *
+ * 展示层一律经此换算，禁止各处散写 `/ 100`：`/ 100` 与「万元」「份额最小单位」
+ * 混在一起读不出单位，也无法在漏乘时被 grep 出来。空值（null / undefined）按 0，
+ * 与后端「分母非正返回 null」的口径配合由 `MoneyDisplay` 的 `emptyText` 展示。
+ */
+export function centsToYuan(cents: number | null | undefined): number {
+  return (cents ?? 0) / 100;
+}
+
+/**
  * 格式化金额（千分位 + 可控小数位），不附带涨跌着色（着色请用 MoneyDisplay）。
  * 用于图表 label / tooltip 等非 DOM 字符串场景。
  * @param value 数值

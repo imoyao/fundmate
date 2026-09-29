@@ -205,6 +205,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'cleared_positions': DOMAIN_USER,
     'strategy_tags': DOMAIN_USER,
     'position_strategy_tags': DOMAIN_USER,
+    'dividend_targets': DOMAIN_USER,  # 家庭股息目标（#872）：用户私有配置，一家庭一条
     'asset_snapshots': DOMAIN_USER,
     'user_usage': DOMAIN_USER,
     'agent_session': DOMAIN_USER,  # 账本精灵会话（#1121 S2：状态/原文/轮次，含 user_id）

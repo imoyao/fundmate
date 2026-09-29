@@ -311,3 +311,30 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | `market_single_values` | 单值指标（综合温度、恐贪指数、股债性价比、成交额等） | **永久** |
 | `market_composites` | 复合指标（集思录估值指标、自算估值分位、二鸟说手抄报） | **1 年** |
 | `market_multi_items` | 多维列表数据（乖离率、行业拥挤度、板块资金流） | **1 年** |
+
+### 5.15 分红与股息（新增，源 #872 / 决策 D41）
+
+**分红事件本身没有独立表**——这是本期刻意的取舍：现金分红 / 红利再投资 / 送股 / 红利税的事实来源已经是
+`transactions`（列名 `type`，属性名 `txn_type`），再建一张事件表等于同一事实存两遍，必然出现
+「流水有、事件表没有」的漂移。统计口径的唯一出口是 `services/dividend_service.py`。
+
+| `transactions.type` | 含义 | 金额落点 |
+|---|---|---|
+| `dividend`（无配对 `buy`） | 现金分红 | `amount` = 分红金额（分） |
+| `dividend`（同 `link_group_id` 有 `buy`） | 红利再投资的分红入账 | `amount` = 分红金额；份额在同组 `buy` 流水 |
+| `dividend_tax` | 红利税 | `amount` 为**负值**（展示取正） |
+| `split` | 送股 / 拆分 | `amount = 0`，只增份额、只计事件数 |
+
+> 判据注意：红利再投靠「同 `link_group_id` 存在 `buy` 流水」识别，**不是**靠
+> `link_group_id` 非空（那是通用配对列）；`txn_type='dividend_reinvest'` 从不落库。
+> 债券兑付 `bond_redeem` 不计入分红统计（还本付息不是股息收入）。
+
+本期新增的**唯一**一张表是本域的用户私有配置：
+
+| 表名 | 归属域 | 字段 | 不变式 |
+|------|--------|------|--------|
+| `dividend_targets` | user | `id / family_id / target_yield_pct(Numeric(6,2)) / notes / created_at / updated_at` | 一家庭一条（`uq_dividend_target_family`）；逐持仓的**实际**股息率实时从流水算、**不落库** |
+
+口径（详见 `decisions.md` D41）：股息率 =（现金分红 + 红利再投 − 红利税）/ 当前持仓成本；
+`totals` / `by_year` 走**全量流水**口径（含已清仓与孤儿分红），`portfolio` / `holdings` 走**在管持仓**口径；
+分母非正返回 `null` 而非 0。API 见 `api.md`（`GET /api/dividends/summary/`、`PUT|DELETE /api/dividends/target/`）。
