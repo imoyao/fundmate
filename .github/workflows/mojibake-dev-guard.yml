@@ -1,0 +1,69 @@
+# 乱码守卫 · dev push 补充层（#1767）
+#
+# 背景：#1765 发布 PR 被一条 2026-09-23 的**历史乱码提交信息**拦住，而它在 dev 上躺了
+# 6 天无人发现——因为 `ci.yml` 的 `on.push` 只配了 `main`，push 到 dev 根本不触发 CI；
+# 而 `mojibake_guard` job 又在 `ci.yml` 里带 `if: pull_request`。于是唯一的全量扫描场景
+# 是**发布 PR**（6~8 天一次），等它发现时只能走豁免（改写 dev 历史的风险高于收益，见 #1766）。
+#
+# 为什么不直接把 `dev` 加进 `ci.yml` 的 `on.push`：那会让**每次 push dev 都跑全量
+# 后端（~6 分钟）+ 前端（~2 分钟）**，与仓库「路径过滤省 Actions 分钟数」的既定取舍冲突
+# （见 ci.yml 头部注释）。故另起这个只做一件事的轻量 workflow：checkout + 单次脚本调用。
+#
+# 语义：本 workflow **不是** required check（required 是 ci.yml 的「质量门禁汇总」），
+# 只负责「当场提醒」——让乱码在推送当次暴露，而不是攒到发布 PR 才炸。
+#
+# 范围解析（含三种畸形 before 的降级）收在 `scripts/guard_mojibake.py --scan-range`，
+# 由 `backend/tests/test_guard_mojibake.py` 单测覆盖；本 YAML 只做事件到参数的搬运。
+
+name: 乱码守卫（dev push）
+
+on:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "范围起点 sha（留空或全零 = 只校验 head 单提交）"
+        required: false
+        default: ""
+      head:
+        description: "范围终点 sha（留空 = 当前 HEAD）"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: 乱码守卫 (dev push)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # 必须全量历史：范围解析（merge-base --is-ancestor）与逐提交校验都依赖对象可见
+          fetch-depth: 0
+
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: 安装 ftfy（可选依赖，仅用于提示）
+        run: pip install ftfy >/dev/null
+
+      - name: 扫描本次推送范围（变更文件 + 提交信息）
+        run: |
+          # push 事件：before / after；手动触发：inputs
+          base="${{ github.event.before }}"
+          head="${{ github.event.after }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            base="${{ inputs.base }}"
+            head="${{ inputs.head }}"
+          fi
+          if [ -z "$head" ]; then
+            head="$(git rev-parse HEAD)"
+          fi
+          echo "扫描范围：${base:-<空>}..$head"
+          python scripts/guard_mojibake.py --scan-range "$base" "$head"
