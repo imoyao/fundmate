@@ -1,5 +1,6 @@
-// 系统健康检查（#1720）：展示后端 GET /api/health 返回的组件健康。
-// 该接口免登录（监控/探活用），前端管理页据此向维护者呈现运维状态。
+// 健康检查接口客户端（#1720）：展示后端 GET /api/health 返回的组件健康。
+// 该接口免登录（监控/探活用），前端「系统状态」页（/system/status，#1795 命名收敛）据此呈现运维状态。
+// 文件按**接口**命名（health），页面按**展示语义**命名（status）——两者刻意不同，勿强行统一。
 import { http } from "@/utils/http";
 import type { ApiResponse } from "@/api/types";
 

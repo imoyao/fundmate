@@ -1,12 +1,23 @@
 <script setup lang="ts">
-// 系统健康检查页（#1720）：向维护者展示后端 /api/health 的组件健康，
-// 不对终端用户暴露运维故障措辞（普通探市页仅保留数据延迟提示）。
+// 系统状态页（#1720；命名与错误态收敛见 #1795）：
+// 向维护者 / 访客展示后端 GET /api/health 的组件健康。
+//
+// 命名口径：**页面叫「系统状态」（status page）**，这是业界惯例（GitHub / Cloudflare 等的
+// status page）；「健康检查 / health」是**接口**语义，后端 `/api/health` 保持不变——探活工具
+// 普遍按 `/health` 调用，且该路径已写入 `conventions.md` 的尾斜杠规范例外（D28），改名会破坏
+// 监控契约。故本页只收敛展示层名称，不动接口。
 import { ref, onMounted } from "vue";
 import { ElNotification } from "element-plus";
 import { getHealth, type ComponentStatus, type HealthData } from "@/api/health";
 
+defineOptions({
+  name: "SystemStatus"
+});
+
 const health = ref<HealthData | null>(null);
 const loading = ref(false);
+// 失败原因：非空即代表本次拉取失败，页面必须退出骨架屏（见 fetchHealth 注释）
+const errorMessage = ref("");
 
 function statusTagType(
   status: ComponentStatus
@@ -38,13 +49,19 @@ function statusText(status: ComponentStatus): string {
 
 async function fetchHealth() {
   loading.value = true;
+  errorMessage.value = "";
   try {
     const res = await getHealth();
     health.value = res.data;
   } catch (e) {
+    // 关键：失败必须落到错误态，而不是让 health 保持 null → 骨架屏一直转
+    // （#1793 现象：/api/health 500 时本页看起来「一直在加载」，实际是接口挂了）
+    health.value = null;
+    errorMessage.value =
+      (e as Error)?.message || "无法连接后端服务，请确认后端已启动";
     ElNotification({
-      title: "获取健康状态失败",
-      message: (e as Error)?.message || "请检查后端服务是否运行",
+      title: "获取系统状态失败",
+      message: errorMessage.value,
       type: "error"
     });
   } finally {
@@ -74,11 +91,11 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="health-page p-4">
+  <div class="status-page p-4">
     <el-card shadow="never" class="mb-4">
       <template #header>
         <div class="flex items-center justify-between">
-          <span class="text-lg font-medium">系统健康检查</span>
+          <span class="text-lg font-medium">系统状态</span>
           <el-button :loading="loading" size="small" @click="fetchHealth">
             刷新
           </el-button>
@@ -92,6 +109,18 @@ onMounted(() => {
         show-icon
         :closable="false"
       />
+      <template v-else-if="errorMessage">
+        <el-alert
+          title="暂时拿不到系统状态"
+          type="error"
+          :description="errorMessage"
+          show-icon
+          :closable="false"
+        />
+        <el-button class="mt-3" size="small" @click="fetchHealth"
+          >重试</el-button
+        >
+      </template>
       <el-skeleton v-else :rows="4" animated />
     </el-card>
 
