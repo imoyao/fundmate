@@ -149,6 +149,15 @@
 - **同步入口**：两套 CLI（`pdm run invoke grab.*` 和 `pdm run sync --job`），共用 `DataSyncOrchestrator`。
   **本机常驻**另有两条路：`.env` 置 `SCHEDULER_ENABLED=1` 随应用启动，或 `pdm run scheduler-daemon`
   独立守护（同机靠单实例锁只跑一份）；详见 `docs/dev/scheduler-tasks.md`。
+  - **`--full-sync` 必须带范围（#824 / #1776 ④）**：逐标的回填型 job（`fund_nav` / `price_history` /
+    `fund_detail_enrich` / `fund_manager` / `fund_type` / `fund_company_backfill` / `fund_position` /
+    `position_price` / `dividend_split`）裸 `--full-sync` 由 CLI 直接拒绝（`sync/orchestrator.py` 的
+    `SYMBOL_BACKFILL_JOBS` + `require_full_sync_scope`，接入 `sync_metadata.py` / `sync_cli.py`），
+    必须配 `--targets <code>[,<code>...]` 或 `--target-file <csv>`（全市场逐标的全量回填会触发数据源封禁
+    且耗时以小时计）；`--all --full-sync` 同样必须带 `--target-file`。列表型（`fund_list` / `stock_list`）/
+    指数型（`index_*`）/ 温度计型 job 单次调用换全市场，裸 `--full-sync` 为其正常模式，不受限。
+  - **基金净值止于 T-1（#824）**：`fund_nav_job._validate_data` 丢弃 `date >= today` 的记录——净值发布有
+    滞后，T 日 / 未来净值尚未成立，不得入库。
 
 ### 日志（2026-08-09 统一）
 
@@ -171,6 +180,7 @@
 | 运行 API | `pdm run flask --app app.main:app run --debug --host 0.0.0.0 --port 8000` |
 | 测试 | `pdm run pytest -p no:xdist`（或 `pdm run invoke test`） |
 | 同步任务 | `pdm run invoke grab.temperature` / `grab.all` / `grab.job <name>`<br>或 `pdm run sync --job temperature` |
+| 全量回填 | `pdm run sync --job <name> --full-sync --targets <code>[,<code>...]`（或 `--target-file <csv>`）——逐标的回填型 job（`fund_nav` / `price_history` 等）**禁止裸 `--full-sync`** |
 | 本机每日调度 | `pdm run invoke sched.status`（状态，只读）<br>`pdm run scheduler-daemon`（常驻守护，Ctrl+C 退出） |
 | Lint & Format | `pdm run ruff check .` / `pdm run ruff format .` |
 | 诊断东财抓取 | `pdm run python scripts/diag_em.py` |
