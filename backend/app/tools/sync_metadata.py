@@ -18,7 +18,16 @@
     python app/tools/sync_metadata.py --job fund_detail_enrich --target-file codes.csv
 
     # 强制全量同步（拉取全部历史数据，耗时长，仅首次或需要修复时使用）
-    python app/tools/sync_metadata.py --all --full-sync
+    # 注意：--full-sync 必须带范围，禁止裸调用（见下方「同步入口职责」）
+    python app/tools/sync_metadata.py --all --full-sync --target-file codes.csv
+    python app/tools/sync_metadata.py --job fund_nav --full-sync --targets 000001,000002
+
+同步入口职责:
+    --all            日常增量（默认）；--all --full-sync 必须配合 --target-file 限定范围
+    --job <name>     单 Job；逐标的回填型 Job（fund_nav / price_history 等）--full-sync 必须带 --targets / --target-file
+    --full-sync      全量；仅限初始化 / 修复场景，且必须带范围，裸调用将被拒绝（#824 / #1776 ④）
+    --targets        直接指定代码（逗号分隔），或
+    --target-file    CSV 指定代码范围
 
 任务说明:
     stock_list         - 刷新 A 股股票列表（全量，约 5000 只）
@@ -46,7 +55,7 @@ from dotenv import load_dotenv  # noqa: E402
 from loguru import logger  # noqa: E402
 
 from app.core.database import get_db, init_db  # noqa: E402
-from app.services.sync.orchestrator import DataSyncOrchestrator  # noqa: E402
+from app.services.sync.orchestrator import DataSyncOrchestrator, require_full_sync_scope  # noqa: E402
 
 # ✅ 在入口文件顶部加载 .env（相对于 backend/ 目录）
 env_path = BACKEND_DIR / '.env'
@@ -126,6 +135,14 @@ def main():
 
         try:
             if args.all:
+                # --all --full-sync 必须带 --target-file 范围，否则全市场逐标的全量回填
+                # 会触发数据源封禁且耗时极长（#824 / #1776 ④）
+                if args.full_sync and not args.target_file:
+                    print(
+                        '错误：--all --full-sync 必须配合 --target-file <csv> 限定范围，'
+                        '禁止裸调用（全市场逐标的全量回填会触发数据源封禁）。'
+                    )
+                    sys.exit(2)
                 start = time.time()
                 results = orchestrator.run_all_jobs(full_sync=args.full_sync, target_file=args.target_file)
                 elapsed = time.time() - start
@@ -147,6 +164,13 @@ def main():
                         targets = all_targets.get('fund', [])
                     elif args.job == 'price_history':
                         targets = all_targets.get('stock', [])
+
+                # 逐标的回填型 Job 走 --full-sync 必须带 --targets / --target-file（#824 / #1776 ④）
+                try:
+                    require_full_sync_scope(args.job, args.full_sync, bool(targets) or bool(args.target_file))
+                except ValueError as e:
+                    print(f'错误：{e}')
+                    sys.exit(2)
 
                 result = orchestrator.run_job(args.job, full_sync=args.full_sync, targets=targets)
                 logger.info(f'任务 {args.job} 执行完成: {result}')
