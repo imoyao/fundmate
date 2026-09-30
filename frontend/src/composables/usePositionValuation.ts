@@ -169,7 +169,17 @@ export function usePositionValuation(positions: Ref<ValuatedPosition[]>) {
     realtime,
     toggleText,
     estimatedPnl,
-    estimateHint
+    estimateHint,
+    /**
+     * 模板友好别名（#1104 接线三页时加的，此前只有 inventory 一个消费方，用不到）：
+     * `enabled` / `status` / `lastUpdateTime` 嵌在 `realtime` 里，而**模板不会解包嵌套 ref**——
+     * `:enabled="valuation.realtime.enabled"` 传过去的是 Ref 对象（恒为真），是个静默错误。
+     * 消费页要么写三个 computed 包装、要么在模板里手写 `.value`；这里是顶层键，
+     * setup 里解构后即可直接绑定（`:enabled="estimateEnabled"`）。
+     */
+    estimateEnabled: realtime.enabled,
+    estimateStatus: realtime.status,
+    estimateUpdatedAt: realtime.lastUpdateTime
   };
 }
 

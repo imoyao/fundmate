@@ -130,7 +130,7 @@ import CategoryDescBar from "./components/CategoryDescBar.vue";
 import InvestmentDistribution from "./components/InvestmentDistribution.vue";
 import QuickActionGrid from "./components/QuickActionGrid.vue";
 import InvestmentPositionTable from "./components/InvestmentPositionTable.vue";
-import RealtimeEstimateToggle from "./components/RealtimeEstimateToggle.vue";
+import RealtimeEstimateToggle from "@/components/RealtimeEstimateToggle/index.vue";
 import OtherInvestmentTable from "./components/OtherInvestmentTable.vue";
 import CategoryAssetTable from "./components/CategoryAssetTable.vue";
 import AssetEditDialog from "./components/AssetEditDialog.vue";

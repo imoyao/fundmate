@@ -26,14 +26,15 @@
 
 <script setup lang="ts">
 /**
- * 持仓明细 · 「当日预估」开关（#1104）。
+ * 「当日预估」开关 + 轮询状态（#1104，自 `views/asset/inventory/components/` 上提复用）。
  *
- * 预估口径完全由前端实时链路提供，默认关闭（`useRealtimeQuotes` 的用户级偏好存
- * localStorage，与自选页共用同一个 key）——因此这里必须给一个显式入口，
- * 否则持仓页的预估那一行永远停在「未开启」提示上，功能等于没接线。
+ * 预估口径完全由前端实时链路提供，且用户级偏好默认关闭（`useRealtimeQuotes` 的
+ * localStorage，各页共用同一个 key）——所以**每个展示预估值的地方都必须给出显式入口**，
+ * 否则副行永远停在「未开启实时估值」提示上，功能等于没接线。
  *
- * 纯展示 + 事件转发：`enabled` / `status` / `text` 全由页面从估值实例读出，
- * 本组件不持有状态、不发请求。
+ * 纯展示 + 事件转发：`enabled` / `status` / `text` 全由调用方从估值实例读出，
+ * 本组件不持有状态、不发请求。页面把区块标题行的「开关 + 状态」都交给它，
+ * 避免每页各写一遍（自选页那套内联状态灯不在此列，它是汇总条的一部分）。
  */
 import RealtimeStatusIndicator from "@/components/RealtimeStatusIndicator/index.vue";
 
@@ -44,7 +45,7 @@ defineProps<{
   status: string;
   /** 最近一次行情时间（原样透传给状态指示器格式化） */
   lastUpdateTime: string;
-  /** 按钮文案（开启 / 关闭，由 usePositionValuation.toggleText 给出） */
+  /** 按钮文案（开启 / 关闭，由 `usePositionValuation.toggleText` 或自选页同类 computed 给出） */
   text: string;
 }>();
 
