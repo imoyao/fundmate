@@ -114,7 +114,7 @@ title: 数据策略（按需存、禁止全量堆砌）
 > | 成因 | 列 | 为什么是 0 | 处置 |
 > |------|----|-----------|------|
 > | **源不提供** | `risk_level` | 映射与写入代码均在位（`akshare_adapter.py:385-397`、`fund_detail_enrich_job.py:162`），但实测 `ak.fund_info_ths`（18 字段）与 `ak.fund_individual_basic_info_xq`（14 字段）**均无「风险等级」** | **修**：换源或按投资类型估算 |
-> | **回填链路未跑通** | `scale` / `recent_shares` / `equity_position` | 是 #1285 明确要展示的「基金：规模 / 股票仓位」正式字段，底座由 #1286 定义、#1358 落地模型，回填 job 从未跑通 | **修**：见 §4.3 收敛方式 |
+> | **回填链路未跑通** | `scale` / `recent_shares` / `equity_position` | 是 #1285 明确要展示的「基金：规模 / 股票仓位」正式字段，底座由 #1286 定义、#1358 落地模型，回填 job 从未跑通 | **修**：见 §4.3 收敛方式。`equity_position` 已随 #870 修复（2026-09-30）：口径改为「行业配置合计」，落 `fund_holdings` / `fund_industry_allocs` 两表并派生；调度为**每周一次**（季报数据日变更量为 0），见 `data-model.md` §5.16 |
 > | **v1 迁移遗留** | `symbol_prefix` / `is_fe_charge` | v1 备份 `.backup-v1-2026-08-01/fundmate/data/` 内有真实取数逻辑，v2 换 akshare 后未接 | 可删（须先确认信息由谁替代） |
 > | **功能未启用** | `pinyin_full` | `fund_service.py:216` 搜索只用 `pinyin_abbr` | 保留待用 |
 >

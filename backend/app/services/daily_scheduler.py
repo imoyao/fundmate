@@ -93,6 +93,8 @@ ENV_POSITION_PRICE_ENABLED = 'SCHEDULER_POSITION_PRICE_ENABLED'
 ENV_POSITION_PRICE_CRON = 'SCHEDULER_POSITION_PRICE_CRON'
 ENV_ADVISOR_ENABLED = 'SCHEDULER_ADVISOR_ENABLED'
 ENV_ADVISOR_CRON = 'SCHEDULER_ADVISOR_CRON'
+ENV_FUND_HOLDING_ENABLED = 'SCHEDULER_FUND_HOLDING_ENABLED'
+ENV_FUND_HOLDING_CRON = 'SCHEDULER_FUND_HOLDING_CRON'
 
 DEFAULT_TIMEZONE = 'Asia/Shanghai'
 # 温度计：集思录中位 PB / 韭圈儿 / 行业拥挤度盘后即出
@@ -108,6 +110,13 @@ DEFAULT_POSITION_PRICE_CRON = '15 22 * * *'
 # 投顾组合：排在净值之后——且慢调仓快照带当日净值占比，且调仓多发生在盘后，
 # 排在净值前会用到前一日口径。这也是且慢调仓历史的**唯一**来源（无官方历史接口）。
 DEFAULT_ADVISOR_CRON = '0 22 * * *'
+# 基金持仓明细 + 行业配置（#870）：**每周一次，不进每日**。
+# 持仓是季报数据，日变更量恒为 0——每日跑 133 只 × 2 次请求纯属浪费外部请求，
+# 还叠加东财限流风险（#1403 的原始形态）。选周一 23:00：排在净值（21:30）与投顾
+# （22:00）、持仓现价（22:15）之后，避开同一时段抢 DB 会话。
+# ⚠️ 星期必须写 `mon` 而不是数字：APScheduler 的 `day_of_week` 是 **0 = 周一**，
+# 与 crontab 的 0 = 周日**相反**——实测写 `* * 1` 排出来的是周二。
+DEFAULT_FUND_HOLDING_CRON = '0 23 * * mon'
 
 # backend/ 目录（app/services/daily_scheduler.py → parents[2]）
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -213,6 +222,17 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[str], str], ...] = (
         DEFAULT_ADVISOR_CRON,
         None,
         '投顾组合持仓 / 调仓快照（且慢 + 天天；且慢无历史调仓接口，快照序列是唯一来源）',
+    ),
+    (
+        # 基金持仓明细 + 行业配置（#870）。target_kind='fund'：目标池取持仓 + 自选（133 只），
+        # job 侧另有 MAX_TARGETS=500 硬上限与 `__full__` 显式跳过（data-strategy.md §4.3.3）。
+        # **本项默认 cron 是每周一次，不是每日**——见 DEFAULT_FUND_HOLDING_CRON 注释。
+        'fund_position',
+        ENV_FUND_HOLDING_ENABLED,
+        ENV_FUND_HOLDING_CRON,
+        DEFAULT_FUND_HOLDING_CRON,
+        'fund',
+        '基金持仓明细 + 行业配置（季报口径，每周一次；#870）',
     ),
 )
 

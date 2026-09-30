@@ -51,7 +51,7 @@ def _reset_singleton():
 
 
 class TestLoadConfig:
-    def test_default_is_disabled_with_five_jobs(self):
+    def test_default_is_disabled_with_six_jobs(self):
         cfg = ds.load_config({})
         # 必须显式打开：否则 conftest 每个用例都会 create_app()，测试里就会真的起抓取线程
         assert cfg.enabled is False
@@ -61,6 +61,7 @@ class TestLoadConfig:
             'price_history',
             'position_price',
             'advisor_portfolio',
+            'fund_position',
         ]
         assert cfg.timezone == ds.DEFAULT_TIMEZONE
         assert cfg.skip_non_trading_day is True
@@ -72,11 +73,33 @@ class TestLoadConfig:
         assert crons['price_history'] == ds.DEFAULT_PRICE_HISTORY_CRON
         assert crons['position_price'] == ds.DEFAULT_POSITION_PRICE_CRON
         assert crons['advisor_portfolio'] == ds.DEFAULT_ADVISOR_CRON
+        assert crons['fund_position'] == ds.DEFAULT_FUND_HOLDING_CRON
         # 顺序即依赖（#1104）：现价回写读的是净值 job 刚落库的 daily_worth、
         # 以及场内日线 job 刚落库的 price_history.close，早于两者会写到旧口径。
         names = cfg.job_names()
         assert names.index('fund_nav') < names.index('position_price')
         assert names.index('price_history') < names.index('position_price')
+
+    def test_fund_position_is_weekly_not_daily(self):
+        """回归（#870）：持仓是季报数据，日变更量为 0——必须是每周，不能是每日。
+
+        每日跑 133 只 × 2 次外部请求既无新数据，又叠加东财限流风险（#1403 的原始形态）。
+        同时锁死「星期用英文缩写」这一点：APScheduler 的 day_of_week 是 0=周一，
+        与 crontab 的 0=周日相反，写成数字会静默排到错的那一天。
+        """
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        from apscheduler.triggers.cron import CronTrigger
+
+        cfg = ds.load_config({})
+        spec = next(s for s in cfg.jobs if s.job_name == 'fund_position')
+        tz = ZoneInfo(cfg.timezone)
+        trigger = CronTrigger.from_crontab(spec.cron, timezone=tz)
+        # 2026-09-30 是周三 → 下一次触发应落在下周一（10-05）23:00
+        fire = trigger.get_next_fire_time(None, datetime(2026, 9, 30, 23, 30, tzinfo=tz))
+        assert fire.strftime('%a') == 'Mon'
+        assert (fire.hour, fire.minute) == (23, 0)
 
     def test_position_price_job_has_no_target_kind(self):
         """现价回写的目标池是**持仓表本身**（user 域），不是 fund/stock 代码池。
@@ -101,7 +124,13 @@ class TestLoadConfig:
 
     def test_advisor_job_can_be_disabled_alone(self):
         cfg = ds.load_config({ds.ENV_ENABLED: 'true', ds.ENV_ADVISOR_ENABLED: '0'})
-        assert cfg.job_names() == ['temperature', 'fund_nav', 'price_history', 'position_price']
+        assert cfg.job_names() == [
+            'temperature',
+            'fund_nav',
+            'price_history',
+            'position_price',
+            'fund_position',
+        ]
 
     def test_price_history_job_targets_stock_pool(self):
         """场内日线（#1104）必须带 'stock' 目标池：丢了 target_kind 会拿空池「成功」空跑。"""
@@ -121,6 +150,7 @@ class TestLoadConfig:
                 ds.ENV_ADVISOR_ENABLED: '0',
                 ds.ENV_POSITION_PRICE_ENABLED: '0',
                 ds.ENV_PRICE_HISTORY_ENABLED: '0',
+                ds.ENV_FUND_HOLDING_ENABLED: '0',
                 ds.ENV_NAV_CRON: '5 22 * * 1-5',
             }
         )

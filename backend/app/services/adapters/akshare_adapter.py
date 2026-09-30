@@ -4,6 +4,8 @@
 # File : akshare_adapter.py
 # -*- coding: utf-8 -*-
 # app/services/adapters/akshare_adapter.py
+import json
+import math
 import re
 import time
 from datetime import date, datetime, timedelta
@@ -26,6 +28,74 @@ _FUND_MANAGER_RETRY_SLEEP = 3  # 秒
 # 日线取数中**不接受日期区间参数**的品类：可转债（bond_zh_hs_cov_daily）与 ETF 的
 # 新浪回退源（fund_etf_hist_sina）都会返回全部历史，必须由调用侧本地裁剪（#1104）
 _NO_WINDOW_SEC_TYPES = ('bond', 'etf')
+
+# ── 基金持仓明细 / 行业配置（#870）─────────────────────────────────────────────
+# 东财基金档案-投资组合有两个端点，取数语义都是「**报告年份**」，不是日期：
+#   · 持仓明细：fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc（HTML 片段）
+#   · 行业配置：api.fund.eastmoney.com/f10/HYPZ/（``callback({...})`` 包裹的标准 JSON）
+# 两者的 year 默认值在上游分别是硬编码的 "2024" / "2023"（长期未更新），**必须显式传当年**，
+# 否则静默拿到两年前的旧数据（本仓实测：不传参 → 返回全为 2024 年四个季度）。
+_EM_HYPZ_URL = 'https://api.fund.eastmoney.com/f10/HYPZ/'
+
+# 行业分类体系。东财同一端点**混用两套体系且不做任何标记**：
+#   · 证监会门类：单字母 A~S（境内股票）
+#   · GICS 板块：两位数字 10/15/20/…（港股等）
+# 两套体系语义不重叠（GICS 的「非必需消费品」在证监会门类里并入「制造业」），
+# **不可合并聚合**，必须分区存储与分区展示。判定靠代码形态而非名称字符串猜测。
+_HY_SCHEME_CSRC = 'csrc'
+_HY_SCHEME_GICS = 'gics'
+_HY_SCHEME_UNKNOWN = 'unknown'
+
+# 披露口径：季报（Q1/Q3）只披露前十大；半年报/年报（Q2/Q4）披露全量（东财服务端上限 100 条）
+_BASIS_TOP10 = 'top10'
+_BASIS_FULL = 'full'
+
+_QUARTER_END_MONTH_DAY = {1: '-03-31', 2: '-06-30', 3: '-09-30', 4: '-12-31'}
+# 实测季度标签形如 '2026年2季度股票投资明细'（前后还有基金简称、来源、截止日等噪声）
+_REPORT_PERIOD_RE = re.compile(r'(\d{4})\s*年\s*(\d)\s*季度')
+
+
+def _to_float(value) -> float:
+    """宽松转 float：容忍东财字段里的 ``%``、千分位与 NaN（NaN 归 0，避免污染数值列）。"""
+    try:
+        num = float(str(value).replace('%', '').replace(',', '').strip())
+    except (TypeError, ValueError):
+        return 0.0
+    return 0.0 if math.isnan(num) else num
+
+
+def parse_report_period(label) -> Optional[tuple]:
+    """从东财季度标签解析 ``(year, quarter)``；解析不出返回 ``None``（调用方丢弃该行）。"""
+    match = _REPORT_PERIOD_RE.search(str(label or ''))
+    if not match:
+        return None
+    year, quarter = int(match.group(1)), int(match.group(2))
+    return (year, quarter) if 1 <= quarter <= 4 else None
+
+
+def format_report_period(period: tuple) -> str:
+    """``(2026, 2)`` → ``'2026Q2'``（报告期即版本键）。"""
+    return f'{period[0]}Q{period[1]}'
+
+
+def report_period_date(period: tuple) -> date:
+    """``(2026, 2)`` → ``date(2026, 6, 30)``（报告期截止日）。"""
+    return date.fromisoformat(f'{period[0]}{_QUARTER_END_MONTH_DAY[period[1]]}')
+
+
+def holding_basis_of(quarter: int) -> str:
+    """报告期 → 披露口径：Q2/Q4 全量，Q1/Q3 仅前十大。"""
+    return _BASIS_FULL if quarter in (2, 4) else _BASIS_TOP10
+
+
+def industry_scheme_of(industry_code) -> str:
+    """行业代码 → 分类体系（单字母 A~S = 证监会门类；纯数字 = GICS 板块）。"""
+    code = str(industry_code or '').strip().upper()
+    if len(code) == 1 and 'A' <= code <= 'S':
+        return _HY_SCHEME_CSRC
+    if code.isdigit():
+        return _HY_SCHEME_GICS
+    return _HY_SCHEME_UNKNOWN
 
 
 class AkshareAdapter(DataSourceAdapter):
@@ -717,32 +787,205 @@ class AkshareAdapter(DataSourceAdapter):
             self.logger.error(f'获取基金规模失败: {e}')
             return []
 
-    def fetch_fund_top_holdings(self, fund_code: str) -> List[dict]:
-        """单只基金前十大重仓（ak.fund_portfolio_hold_em）。
+    def fetch_fund_top_holdings(self, fund_code: str, year: Optional[int] = None) -> Dict[str, Any]:
+        """单只基金**最近一期**的持仓明细（ak.fund_portfolio_hold_em / 东财基金档案）。
 
-        返回 [{stock_code, stock_name, ratio(占净值比例)}]；调用方累加 top10 作为近似股票仓位。
-        单基金抓取，失败静默返回空，由 Job 控制重试/跳过。
+        返回::
+
+            {
+                'fund_code': '110022',
+                'report_period': '2026Q2',      # 报告期（版本键）
+                'report_date': date(2026, 6, 30),
+                'holding_basis': 'full',        # 'full'（半年报/年报）| 'top10'（季报）
+                'holdings': [
+                    {'stock_code', 'stock_name', 'ratio'（占净值比例 %）,
+                     'shares'（万股）, 'market_value'（万元）, 'rank'},
+                    ...
+                ],
+            }
+
+        抓不到（无持仓数据 / 解析失败）返回 ``{}`` —— **不是空列表**，语义是「无源数据」，
+        调用方据此跳过并保留原值，避免用 0 覆盖掉已有数据。
+
+        两处必须显式处理的坑（#870 打点实测，akshare 1.18.91）：
+
+        1. **``date`` 参数在上游被硬编码为 ``"2024"``**（akshare 源码
+           ``fund_portfolio_hold_em(symbol, date: str = "2024")``，两年未更新）。不传参就
+           静默拿到两年前的旧数据。且接口按**报告年份**查询，1 月时当年报告尚未披露，
+           故当年取空时回退上一年。
+        2. **返回的 DataFrame 是按报告期升序拼接的多期明细**（akshare 内部
+           ``pd.concat([temp_df, big_df])`` 逐期前插，把每期都挤到已累积数据之前），
+           因此 ``df.head(10)`` 命中的是**最老一期**而非最新。此处按 ``季度`` 列显式分组
+           取 ``max()``，不依赖行序。
         """
         from app.core.akshare_lazy import get_akshare
 
         ak = get_akshare()
+        current_year = year or datetime.now().year
+        for probe_year in (current_year, current_year - 1):
+            try:
+                df = ak.fund_portfolio_hold_em(symbol=fund_code, date=str(probe_year))
+            except Exception as e:  # noqa: BLE001
+                self.logger.warning(f'基金 {fund_code} 持仓抓取失败（{probe_year}）: {e}')
+                continue
+            parsed = self._parse_fund_holdings_df(df, fund_code)
+            if parsed:
+                return parsed
+        return {}
+
+    @staticmethod
+    def _parse_fund_holdings_df(df, fund_code: str) -> Dict[str, Any]:
+        """把 akshare 的多期持仓 DataFrame 收敛为「最近一期」明细（见上方法说明第 2 点）。"""
+        if df is None or getattr(df, 'empty', True) or '季度' not in df.columns:
+            return {}
+
+        grouped: Dict[tuple, List[Any]] = {}
+        for _, row in df.iterrows():
+            period = parse_report_period(row.get('季度'))
+            if period is None:
+                continue
+            grouped.setdefault(period, []).append(row)
+        if not grouped:
+            return {}
+
+        latest = max(grouped)  # (year, quarter) 元组比较即「最近一期」
+        holdings = []
+        for rank, row in enumerate(grouped[latest], start=1):
+            stock_code = str(row.get('股票代码', '') or '').strip()
+            if not stock_code:
+                continue
+            holdings.append(
+                {
+                    # 港股代码是 5 位（如 '00700'）、A 股 6 位，统一原样保留，不做补零
+                    'stock_code': stock_code,
+                    'stock_name': str(row.get('股票名称', '') or '').strip(),
+                    'ratio': _to_float(row.get('占净值比例')),
+                    'shares': _to_float(row.get('持股数')),
+                    'market_value': _to_float(row.get('持仓市值')),
+                    'rank': rank,
+                }
+            )
+        if not holdings:
+            return {}
+        return {
+            'fund_code': fund_code,
+            'report_period': format_report_period(latest),
+            'report_date': report_period_date(latest),
+            'holding_basis': holding_basis_of(latest[1]),
+            'holdings': holdings,
+        }
+
+    def fetch_fund_industry_allocation(self, fund_code: str, year: Optional[int] = None) -> Dict[str, Any]:
+        """单只基金**最近一期**的行业配置（东财 api.fund.eastmoney.com/f10/HYPZ/）。
+
+        返回::
+
+            {
+                'fund_code': '110022',
+                'report_period': '2026Q2',
+                'report_date': date(2026, 6, 30),
+                'items': [{'industry_code', 'industry_name', 'scheme', 'ratio'}, ...],
+            }
+
+        抓不到返回 ``{}``。与持仓明细一样，当年取空时回退上一年。
+
+        **为什么不用 akshare 的 ``fund_portfolio_industry_allocation_em``**：该封装把列名
+        硬编码成固定 17 项，遇到无数据的基金（QDII 实测 ``QuarterInfos`` 恒为空）会在
+        ``pd.DataFrame([])`` 上抛 ``Length mismatch: Expected axis has 1 elements, new values
+        have 17``——**空数据被当成异常抛掉**。此处直读 JSON，空数据即空结果。
+
+        *对行业穿透的意义*：证监会要求季报**也**披露行业分类比例（个股只要求前十大），
+        实测 Q1 亦有完整行业行，故**行业层在任何报告期都不失真**，只有个股层受季报限制。
+
+        另注：响应里的 ``市值`` 字段单位不统一（实测同库并存 1e9 与 1e5 两个量级），
+        因此**只取 ``占净值比例``**，不落市值。
+        """
+        current_year = year or datetime.now().year
+        for probe_year in (current_year, current_year - 1):
+            payload = self._fetch_em_industry_payload(fund_code, probe_year)
+            parsed = self._parse_em_industry_payload(payload, fund_code)
+            if parsed:
+                return parsed
+        return {}
+
+    def _fetch_em_industry_payload(self, fund_code: str, year: int) -> Optional[dict]:
+        """请求东财行业配置端点。响应是 ``callback({...})``，剥壳后即为标准 JSON。"""
+        import requests
+
         try:
-            df = ak.fund_portfolio_hold_em(symbol=fund_code)
-            if df is None or df.empty:
-                return []
-            out = []
-            for _, row in df.iterrows():
-                out.append(
-                    {
-                        'stock_code': str(row.get('股票代码', '')).strip(),
-                        'stock_name': str(row.get('股票名称', '')),
-                        'ratio': self._to_ratio(row.get('占净值比例')),
-                    }
-                )
-            return out
-        except Exception as e:
-            self.logger.warning(f'获取基金 {fund_code} 重仓失败: {e}')
-            return []
+            resp = requests.get(
+                _EM_HYPZ_URL,
+                params={'fundCode': fund_code, 'year': str(year), 'callback': 'callback'},
+                # 进程内 core/requests_patch 已全局注入东财浏览器头 + nid cookie + 重试，故只补 Referer
+                headers={'Referer': 'https://fundf10.eastmoney.com/'},
+                timeout=20,
+            )
+            resp.raise_for_status()
+        except Exception as e:  # noqa: BLE001
+            self.logger.warning(f'基金 {fund_code} 行业配置请求失败（{year}）: {e}')
+            return None
+
+        text = resp.text or ''
+        start, end = text.find('('), text.rfind(')')
+        body = text[start + 1 : end] if 0 <= start < end else text
+        try:
+            return json.loads(body)
+        except (TypeError, ValueError) as e:
+            self.logger.warning(f'基金 {fund_code} 行业配置 JSON 解析失败（{year}）: {e}')
+            return None
+
+    @staticmethod
+    def _parse_em_industry_payload(payload, fund_code: str) -> Dict[str, Any]:
+        """把 HYPZ 响应收敛为「最近一期」行业条目（按 ``Quarter`` + ``JZRQ`` 定版本）。"""
+        if not isinstance(payload, dict):
+            return {}
+        data = payload.get('Data') or {}
+        quarters = data.get('QuarterInfos') or []
+
+        grouped: Dict[tuple, dict] = {}
+        for quarter in quarters:
+            if not isinstance(quarter, dict):
+                continue
+            jzrq = str(quarter.get('JZRQ') or '').strip()
+            try:
+                quarter_num = int(str(quarter.get('Quarter') or '').strip())
+            except (TypeError, ValueError):
+                continue
+            if len(jzrq) >= 4 and jzrq[:4].isdigit() and 1 <= quarter_num <= 4:
+                grouped[(int(jzrq[:4]), quarter_num)] = quarter
+        if not grouped:
+            return {}
+
+        latest = max(grouped)
+        quarter = grouped[latest]
+        items = []
+        for info in quarter.get('HYPZInfo') or []:
+            if not isinstance(info, dict):
+                continue
+            industry_code = str(info.get('HYDM') or '').strip()
+            industry_name = str(info.get('HYMC') or '').strip()
+            if not industry_code and not industry_name:
+                continue
+            items.append(
+                {
+                    'industry_code': industry_code,
+                    'industry_name': industry_name,
+                    'scheme': industry_scheme_of(industry_code),
+                    'ratio': _to_float(info.get('ZJZBL')),
+                }
+            )
+        if not items:
+            return {}
+        try:
+            report_date = date.fromisoformat(str(quarter.get('JZRQ') or '').strip())
+        except ValueError:
+            report_date = report_period_date(latest)
+        return {
+            'fund_code': fund_code,
+            'report_period': format_report_period(latest),
+            'report_date': report_date,
+            'items': items,
+        }
 
     def fetch_index_constituents_csindex(self, index_code: str) -> List[dict]:
         """中证系指数成分（ak.index_stock_cons_csindex）。

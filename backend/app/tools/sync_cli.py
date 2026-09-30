@@ -35,9 +35,31 @@ sys.path.insert(0, str(BACKEND_DIR))
 from dotenv import load_dotenv  # noqa: E402
 from loguru import logger  # noqa: E402
 
-# 模型必须先于 init_db() 注册齐（#1607）：init_db 已不再代为导入顶层模型，
-# 缺 sync_log 会让新建库少建 sync_logs 表（跑到写同步审计时才炸）。其余域模型由
-# _build_orchestrator 的惰性导入带来，与改动前一致。
+# 必须先导入全部域模型再 init_db()（#1607 约定，与 app/tools/scheduler.py、
+# app/tools/sync_metadata.py、tests/conftest.py 一致）：init_db 的 create_all 只建
+# 「已被 import 的模型」，漏掉哪个域，新建库就少建那个域的表，直到 job 跑起来写数据时才炸。
+#
+# ⚠️ 原注释写的「其余域模型由 _build_orchestrator 的惰性导入带来」**不成立**（2026-09-30 实证）：
+#   orchestrator 顶层只导入 positions / watchlist 两域，而 fund_position_job 是在
+#   `_save_data` 里才 `from app.domains.funds.models import ...` —— 那时 init_db() 早已跑完，
+#   新增的 fund_holdings / fund_industry_allocs 根本没建，job 直接报 `no such table: fund_holdings`；
+#   更糟的是该异常被基类当成「临时失败」重试 3 次，每次都**整批重抓**（117 只 × 2 请求/次）。
+# 全量导入的启动开销可忽略（只是 SQLAlchemy 声明，不加载 akshare）。
+import app.domains.assets.models  # noqa: E402,F401
+import app.domains.families.models  # noqa: E402,F401
+import app.domains.funds.models  # noqa: E402,F401
+import app.domains.indices.models  # noqa: E402,F401
+import app.domains.ledgers.models  # noqa: E402,F401
+import app.domains.market.models  # noqa: E402,F401
+import app.domains.portfolios.models  # noqa: E402,F401
+import app.domains.positions.models  # noqa: E402,F401
+import app.domains.price_history.models  # noqa: E402,F401
+import app.domains.securities.models  # noqa: E402,F401
+import app.domains.strategy.models  # noqa: E402,F401
+import app.domains.summary.models  # noqa: E402,F401
+import app.domains.transactions.models  # noqa: E402,F401
+import app.domains.users.models  # noqa: E402,F401
+import app.domains.watchlist.models  # noqa: E402,F401
 import app.models.sync_log  # noqa: E402,F401
 from app.core.database import get_db, init_db  # noqa: E402
 
