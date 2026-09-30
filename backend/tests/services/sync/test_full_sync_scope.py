@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """测试 --full-sync 范围强制校验与 T 日净值护栏（#824 / #1776 ④）"""
-import pytest
 from datetime import date, timedelta
+
+import pytest
 
 from app.services.sync.jobs.fund_nav_job import FundNavSyncJob
 from app.services.sync.orchestrator import SYMBOL_BACKFILL_JOBS, require_full_sync_scope

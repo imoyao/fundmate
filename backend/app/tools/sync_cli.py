@@ -49,7 +49,7 @@ load_dotenv(dotenv_path=env_path)
 def _build_orchestrator(db):
     # 惰性导入：orchestrator → akshare_adapter → akshare → pandas/numpy 的 C 扩展加载开销极大，
     # 仅在真正需要抓取的命令（temperature/all/job）才导入；只读诊断命令（verify-jisilu）不触碰此链路。
-    from app.services.sync.orchestrator import DataSyncOrchestrator, require_full_sync_scope
+    from app.services.sync.orchestrator import DataSyncOrchestrator
 
     return DataSyncOrchestrator(db)
 
@@ -91,6 +91,8 @@ def cmd_all(args):
 def cmd_job(args):
     """透传跑单个 Job。"""
     # 逐标的回填型 Job 走 --full-sync 必须带 --targets / --target-file（#824 / #1776 ④）
+    from app.services.sync.orchestrator import require_full_sync_scope
+
     targets = None
     if args.targets:
         targets = [code.strip() for code in args.targets.split(',') if code.strip()]
