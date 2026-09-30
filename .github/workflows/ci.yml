@@ -297,6 +297,14 @@ jobs:
       - name: 守卫:lock 与 package.json 一致性
         run: node ../scripts/check_lock_consistency.mjs
 
+      # 守卫：路由死链（#936）—— `to="/x"` / `router.push("/x")` / `{ name: "X" }` 指向
+      # 未登记路由。这类缺陷**完全静默**：点击无反应、控制台不报错、构建与类型检查全绿，
+      # `/asset/entry` 因此从 v1.2 活到 #936 近 7 周才被人肉点出。纯 Node 静态扫描
+      # frontend/src，零依赖秒级；与上一条 node 守卫同属「前端静态检查」，故并入本 job
+      # 而不新增 job（不新增 job 就不必改 gate.needs）。
+      - name: 守卫:路由死链
+        run: node ../scripts/check_router_links.mjs
+
       - name: 类型检查
         run: pnpm typecheck
 

@@ -29,7 +29,7 @@
           <SectionHeader title="快捷操作" />
           <QuickActionGrid
             :items="INVESTMENT_QUICK_ACTIONS"
-            :columns="3"
+            :columns="4"
             @select="onInvestmentQuickAction"
           />
         </section>
@@ -153,6 +153,11 @@ const activeAssetTypes = computed(
  *
  * #1354：银行理财/投顾/信托/私募/理财型保险 收敛为投资理财的细分，
  * 统一走「记录其他投资」这一个入口，不再各占一个大类标签。
+ *
+ * #936：导入入口按「持仓 / 流水」显式分层，两张导入卡并列相邻——
+ * 「导入持仓快照」按平台导出的持仓建仓（只落持仓，不生成流水），
+ * 「导入交易流水」按交割单回放交易（生成持仓 + 流水）。
+ * 两者是并列的两条路，不是同一个入口的不同说法，故不合并且文案互不重叠。
  */
 const INVESTMENT_QUICK_ACTIONS: QuickActionItem[] = [
   {
@@ -163,9 +168,18 @@ const INVESTMENT_QUICK_ACTIONS: QuickActionItem[] = [
     color: "var(--brand-700)"
   },
   {
-    key: "import",
+    // 文案与「导入投资记账」向导页内的同名卡片保持一致（ImportModeCards.vue），
+    // 让用户在两处看到同一个词、同一句解释，降低认知成本
+    key: "import_holding",
+    icon: "ep:document",
+    label: "导入持仓快照",
+    desc: "上传平台导出的持仓文件，自动归入对应账户",
+    color: "var(--brand-700)"
+  },
+  {
+    key: "import_txn",
     icon: "ep:upload",
-    label: "导入投资记账",
+    label: "导入交易流水",
     desc: "批量导入基金/股票交割单",
     color: "var(--brand-700)"
   },
@@ -184,7 +198,13 @@ function onInvestmentQuickAction(key: string) {
     router.push("/investment/manual");
     return;
   }
-  if (key === "import") {
+  if (key === "import_holding") {
+    // 持仓快照导入跳过选账户步骤（后端按文件自动归因），用 name 跳转最稳妥：
+    // 该路由经 formatTwoStageRoutes 拍平后注册为 /investment/eaccount-import
+    router.push({ name: "InvestmentEaccountImport" });
+    return;
+  }
+  if (key === "import_txn") {
     router.push("/inventory/investment/import");
     return;
   }

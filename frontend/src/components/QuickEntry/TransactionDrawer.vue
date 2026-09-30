@@ -10,14 +10,17 @@
     <template #header>
       <div class="flex items-center justify-between w-full">
         <span>记录交易</span>
-        <el-tooltip content="导入交割单或手动录入持仓" placement="bottom">
+        <el-tooltip
+          content="导入持仓快照/交易流水、查看全部持仓"
+          placement="bottom"
+        >
           <el-button
             link
             size="small"
             class="text-gray-400 hover:text-primary"
             @click="goToInventory"
           >
-            导入持仓 >
+            去全面盘点 >
           </el-button>
         </el-tooltip>
         <el-tooltip
@@ -77,6 +80,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
+import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import BuyForm from "./BuyForm.vue";
 import SellForm from "./SellForm.vue";
@@ -86,7 +90,10 @@ import {
   useQuickEntrySubmit
 } from "@/composables/useQuickEntry";
 
+const router = useRouter();
+
 const props = defineProps<{ modelValue: boolean }>();
+
 const emit = defineEmits<{
   (e: "update:modelValue", value: boolean): void;
   (e: "submitted"): void;
@@ -128,7 +135,10 @@ function resetForm() {
 }
 
 function goToInventory() {
+  // #936：此前只关抽屉、不跳转，按钮点了没反应。全面盘点是导入与持仓的集中入口
+  // （导入持仓快照 / 导入交易流水 / 持仓明细），故关抽屉后跳过去。
   visible.value = false;
+  router.push("/inventory");
 }
 
 // 截图导入（#934）：打开 AI 识别模态（锁定 txn_import），候选落 recon-draft 后由工作台确认入库

@@ -1,5 +1,5 @@
 <template>
-  <!-- 顶部欢迎语（规范：docs/design/welcome-greeting-spec.md v1.2） -->
+  <!-- 顶部欢迎语（规范：docs/design/welcome-greeting-spec.md v1.3） -->
   <div class="flex justify-between items-center mb-6" aria-live="polite">
     <div class="flex flex-col gap-2">
       <!-- 状态三：未读站内信提示条（叠加在顶部，可选迭代功能） -->
@@ -68,14 +68,19 @@
       </Transition>
     </div>
 
-    <!-- 右侧按钮：仅空状态（含未读）显示「开始记账」 -->
+    <!-- 右侧按钮：仅空状态（含未读）显示「导入持仓，看清每日涨跌」。
+         #936：原指向 `/asset/entry` 是死链（全仓无此路由，点击无反应），且「先记账」与
+         「先有持仓才能算涨跌」的真实上手顺序相反。改为直达持仓快照导入（eaccount-import）——
+         该页跳过选账户步骤、由后端按文件自动归因，是零持仓用户门槛最低的第一步。
+         用 name 而非字面 path：名称写错时 vue-router 会直接告警，不会像死链那样静默存活
+         （静态兜底见 scripts/check_router_links.mjs）。 -->
     <router-link
       v-if="welcomeState === 'empty'"
-      to="/asset/entry"
+      :to="{ name: 'InvestmentEaccountImport' }"
       class="btn-welcome-cta"
-      aria-label="开始记账，进入持仓录入"
+      aria-label="导入持仓，看清每日涨跌"
     >
-      开始记账
+      导入持仓，看清每日涨跌
     </router-link>
   </div>
 </template>
