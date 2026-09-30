@@ -97,9 +97,15 @@ def _create_user(db, supabase_id=None, family_id=1, role='member', username=None
 
 
 def test_health_public(client, auth_enabled):
-    """health 免登录。"""
+    """health 免登录，且返回调度组件健康（#1720）。"""
     resp = client.get('/api/health')
     assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['status'] in ('ok', 'degraded')
+    sched = data['components']['scheduler']
+    assert isinstance(sched['enabled'], bool)
+    assert sched['status'] in ('disabled', 'healthy', 'unhealthy')
+    assert 'last_success_run' in sched
 
 
 def test_logout_public_without_token(client, auth_enabled):
