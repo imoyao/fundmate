@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """测试 --full-sync 范围强制校验与 T 日净值护栏（#824 / #1776 ④）"""
+
 from datetime import date, timedelta
 
 import pytest
