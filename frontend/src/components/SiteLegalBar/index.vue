@@ -52,8 +52,8 @@ const DISCLAIMER =
   "市场有风险，投资需谨慎。本平台内容仅供参考，不构成任何投资建议。";
 // 单一来源：版权主体（年份跨年只需改此处）
 const COPYRIGHT_BASE = "© 2026 多多贝";
-// 单一来源：系统状态页入口（#1795 起路径为 /system/status；API 仍是 /api/health）
-const SYSTEM_STATUS_TO = "/system/status";
+// 单一来源：系统状态页入口（#1802 起路径为 /status；API 仍是 /api/health）
+const SYSTEM_STATUS_TO = "/status";
 </script>
 
 <style lang="scss" scoped>

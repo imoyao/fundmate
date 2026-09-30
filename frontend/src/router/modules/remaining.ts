@@ -67,25 +67,37 @@ export default [
       requiresAuth: false // 探市免登录（D4），与后端 /api/temperature/* 白名单一致
     }
   },
-  // 系统状态（#1720 建页；#1795 命名收敛 health→status；#1799 起为全屏公开页）。
-  // 与探市同族：**不经 Layout**（无侧边栏）。页脚入口在探市等全屏公开页也存在，
-  // 若落到带侧边栏的后台布局，对匿名访客是观感割裂的跳变；且本页免登录
-  // （与后端 /api/health 白名单口径一致），自带 MarketHeader + SiteLegalBar 外壳。
+  // 系统状态（#1720 建页；#1795 health→status 命名收敛；#1799 全屏公开页；#1802 归位一级路径）。
+  // 路径就是 `/status`：status page 属站点根下的短路径（GitHub 即 /status），
+  // 再套一层 /system 既无第二个兄弟页可挂，也让「系统」与「状态」语义重复。
+  // 与探市同族：不经 Layout（无侧边栏），自带 MarketHeader + SiteLegalBar 外壳，免登录
+  // （与后端 /api/health 白名单口径一致）。
   {
-    path: "/system/status",
-    name: "SystemStatus",
-    component: () => import("@/views/system/status.vue"),
+    path: "/status",
+    name: "Status",
+    component: () => import("@/views/status/index.vue"),
     meta: {
       title: "系统状态",
       showLink: false,
       requiresAuth: false
     }
   },
-  // 旧路径归位（#1795）：/system/status 前身为 /system/health，保留重定向承接历史书签与旧页脚链接
+  // 旧路径归位（承接历史书签与外链，勿删）：/system/health 为原始路径，
+  // /system/status 为 #1795 的中间态。
+  {
+    path: "/system/status",
+    name: "SystemStatusLegacy",
+    redirect: "/status",
+    meta: {
+      title: "系统状态",
+      showLink: false,
+      requiresAuth: false
+    }
+  },
   {
     path: "/system/health",
     name: "SystemHealthLegacy",
-    redirect: "/system/status",
+    redirect: "/status",
     meta: {
       title: "系统状态",
       showLink: false,
