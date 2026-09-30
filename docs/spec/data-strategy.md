@@ -4,8 +4,8 @@ title: 数据策略（按需存、禁止全量堆砌）
 
 # 数据策略（按需存、禁止全量堆砌）
 
-**版本**: v1.0
-**最后更新**: 2026-09-10
+**版本**: v1.1
+**最后更新**: 2026-09-30
 **状态**: 事实标准。**约束级别等同硬约束**——新增表 / 列 / job 不通过本文的准入检查不得合入。
 **决策依据**: [`decisions.md`](./decisions.md) D21（2026-09-10）。
 **上位规范**: [`conventions.md`](./conventions.md) §16.2「简洁优先规则（禁止过度工程、禁止臃肿冗余）」——本文是该节在**数据维度**的展开。
@@ -131,6 +131,9 @@ title: 数据策略（按需存、禁止全量堆砌）
 5. **请求路径禁止全表扫描**：接口 / 页面渲染路径中禁止 `for x in db.query(Model).all()` 这类无条件全量加载。跨域读取走 `services/cross_domain.py` 的「两步法」（先取 key，再 `in_` 批量查）。
    **已有机器化守卫（#1643）**：`scripts/check_cross_domain_query.py` 静态拦截「跨域模型进同一 SQL 语句」——五类形态 A（单链 `join` / `outerjoin`）/ B（`subquery()` 变量耦合）/ C-eager / C-join / C-rel（跨域 `relationship()` 声明，须显式登记豁免），接入 pre-commit 与 CI 的 backend job。**为什么必须是静态层**：门禁与全部单测跑单库（`tests/conftest.py` 把 `engine` / `user_engine` 指向同一个内存引擎），跨域 join 在两域同库时不报错，**结构上测不出**；生产每日调度才跑真双库。判据见 `architecture.md` §6，决策见 `decisions.md` 2026-09-21 行（D34）。
 6. **失败必须可见**：job 抛出的异常不得被静默吞掉导致 `sync_logs` 无记录（当前 `orchestrator.py:341-358` 存在该盲区，见 `tech-debt.md`）。
+7. **`--full-sync` 必须带范围，且基金净值 T 日不回填（#824 / #1776 ④）**：
+   - **范围强制**：逐标的回填型 job（`fund_nav` / `price_history` / `fund_detail_enrich` / `fund_manager` / `fund_type` / `fund_company_backfill` / `fund_position` / `position_price` / `dividend_split`）裸 `--full-sync`（无 `--targets` / `--target-file`）由 CLI **直接拒绝执行**（`sync/orchestrator.py` 的 `SYMBOL_BACKFILL_JOBS` + `require_full_sync_scope`，接入 `sync_metadata.py` / `sync_cli.py`）。理由同本条第 3 点：逐标的全市场全量回填是数万次外部请求，触发数据源封禁且耗时以小时计。列表型 / 指数型 / 温度计型 job 单次调用换全市场，裸 `--full-sync` 属正常模式，不受限。
+   - **T 日不回填**：`fund_nav_job` 写入前丢弃 `date >= today` 的记录——净值发布有滞后，当日（含未来）净值尚未成立，入库等于伪造数据。
 
 > 反面先例（**2026-09-11 已按本条收敛**）：`fund_meta_job.py:50,71-82`——`for code, fund in db.query(Fund).all(): fetch_fund_top_holdings(code)` 即**全库 26,938 次逐只外部请求**（实测 ≈1.8 s/只 ⇒ **≈13.5 小时**），而其 docstring 声称「本地只存用户核心池，不把全市场基金灌进库」。
 >
@@ -179,5 +182,6 @@ title: 数据策略（按需存、禁止全量堆砌）
 | 空 targets 退化为全库 | `fund_manager_job.py:37` |
 | 请求路径全表扫描 | `cross_domain.py:95-104` 无条件加载全部 26,938 个 ORM 实体（**注**：全仓核实该模块当前**零生产调用方**，故属「零消费者的潜在炸弹」而非在跑的缺陷；接入前必须先改为两步法） |
 | 全史存储 | `fund_nav_job` 在 `full_sync=True` 时对每只基金写全部历史（≈2,200 天/只） |
+| 裸 `--full-sync` 全市场回填 | 逐标的回填型 job 曾可裸 `--full-sync` 触发全市场逐只抓取（**2026-09-30 已收敛**：CLI 层 `require_full_sync_scope` 强制范围，见 §4.3 第 7 条） |
 | 验收口径错配 | `#1396` 原定「全库 `company_id` ≥90%」——无产品场景支撑 |
 | 静默失败 | `orchestrator` 吞异常导致 7 个 job 在 `sync_logs` 中完全不可见 |
