@@ -59,11 +59,11 @@ import app.domains.transactions.models  # noqa: E402,F401
 import app.domains.users.models  # noqa: E402,F401
 import app.domains.watchlist.models  # noqa: E402,F401
 from app.core.database import get_db, init_db  # noqa: E402
-from app.core import db_factory  # noqa: E402
 from app.core.db_factory import (  # noqa: E402
     DOMAIN_APP,
     DOMAIN_USER,
     DatabaseConfig,
+    DatabaseFactory,
     get_app_env,
 )
 from app.core.jitter import (  # noqa: E402
@@ -122,7 +122,7 @@ def _diagnose_db() -> None:
     # 仅对走 Hrana(HTTP) 的 market 域做轻量连接探测（本地 SQLite 无需、也避免开文件锁）
     if not is_app_turso:
         return
-    engine = db_factory.DatabaseFactory.create(DOMAIN_APP)
+    engine = DatabaseFactory.create(DOMAIN_APP)
     try:
         with engine.connect() as conn:
             conn.execute(text('SELECT 1'))
