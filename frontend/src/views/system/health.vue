@@ -3,11 +3,7 @@
 // 不对终端用户暴露运维故障措辞（普通探市页仅保留数据延迟提示）。
 import { ref, onMounted } from "vue";
 import { ElNotification } from "element-plus";
-import {
-  getHealth,
-  type ComponentStatus,
-  type HealthData
-} from "@/api/health";
+import { getHealth, type ComponentStatus, type HealthData } from "@/api/health";
 
 const health = ref<HealthData | null>(null);
 const loading = ref(false);
@@ -104,7 +100,10 @@ onMounted(() => {
         <template #header>数据库</template>
         <el-descriptions :column="1" border>
           <el-descriptions-item label="状态">
-            <el-tag :type="statusTagType(health.components.database.status)" size="small">
+            <el-tag
+              :type="statusTagType(health.components.database.status)"
+              size="small"
+            >
               {{ statusText(health.components.database.status) }}
             </el-tag>
           </el-descriptions-item>
@@ -121,7 +120,10 @@ onMounted(() => {
         <template #header>数据调度</template>
         <el-descriptions :column="1" border>
           <el-descriptions-item label="状态">
-            <el-tag :type="statusTagType(health.components.scheduler.status)" size="small">
+            <el-tag
+              :type="statusTagType(health.components.scheduler.status)"
+              size="small"
+            >
               {{ statusText(health.components.scheduler.status) }}
             </el-tag>
           </el-descriptions-item>
@@ -141,7 +143,10 @@ onMounted(() => {
         <template #header>AI 识别（LLM）</template>
         <el-descriptions :column="1" border>
           <el-descriptions-item label="状态">
-            <el-tag :type="statusTagType(health.components.llm.status)" size="small">
+            <el-tag
+              :type="statusTagType(health.components.llm.status)"
+              size="small"
+            >
               {{ statusText(health.components.llm.status) }}
             </el-tag>
           </el-descriptions-item>

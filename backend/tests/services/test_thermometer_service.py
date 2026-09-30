@@ -197,9 +197,7 @@ def test_get_overview_freshness_stale_when_old(db, monkeypatch):
 
     固定「今天为交易日」以保证确定性（周末跑 CI 时自然日口径会漂移）。
     """
-    monkeypatch.setattr(
-        'app.services.thermometer.service.is_trading_day', lambda d: True
-    )
+    monkeypatch.setattr('app.services.thermometer.service.is_trading_day', lambda d: True)
     old = today_shanghai() - timedelta(days=30)
     db.add(
         MarketSingleValue(
@@ -252,9 +250,7 @@ def test_get_overview_freshness_empty_db_not_stale(db):
 
 def test_get_overview_freshness_non_trading_day_not_stale(db, monkeypatch):
     """今天非交易日时，数据停留上一交易日属正常，不得误报 stale（#1720）。"""
-    monkeypatch.setattr(
-        'app.services.thermometer.service.is_trading_day', lambda d: False
-    )
+    monkeypatch.setattr('app.services.thermometer.service.is_trading_day', lambda d: False)
     db.add(
         MarketSingleValue(
             source='eastmoney_volume',

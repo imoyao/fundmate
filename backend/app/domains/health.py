@@ -66,26 +66,20 @@ def health_check():
     last_success = None
     try:
         with get_db() as db:
-            last_success = db.query(func.max(SyncLog.started_at)).filter(
-                SyncLog.status == 'success'
-            ).scalar()
+            last_success = db.query(func.max(SyncLog.started_at)).filter(SyncLog.status == 'success').scalar()
     except Exception as exc:  # 健康端点本身绝不应因 DB 抖动而 500
         logger.warning(f'health: 查询 sync_logs 失败：{exc}')
 
     if not scheduler_enabled:
         sched_status = 'disabled'
-        sched_message = (
-            '本机每日调度未开启（默认），温度/净值等不会自动更新；'
-            '需手动抓取或开启 SCHEDULER_ENABLED'
-        )
+        sched_message = '本机每日调度未开启（默认），温度/净值等不会自动更新；需手动抓取或开启 SCHEDULER_ENABLED'
     elif last_success is None:
         sched_status = 'unhealthy'
         sched_message = '调度已开启但无任何成功运行记录，请检查调度进程是否启动'
     elif (now_shanghai() - last_success).days > _SCHEDULER_STALE_DAYS:
         sched_status = 'unhealthy'
         sched_message = (
-            f'调度已开启但最近一次成功运行在 {last_success.date()}'
-            f'（超过 {_SCHEDULER_STALE_DAYS} 天），可能已停止'
+            f'调度已开启但最近一次成功运行在 {last_success.date()}（超过 {_SCHEDULER_STALE_DAYS} 天），可能已停止'
         )
     else:
         sched_status = 'healthy'
@@ -114,10 +108,7 @@ def health_check():
         # 仅配置就绪：免登录端点不发起实时 LLM 请求（防止匿名请求刷额度/SSRF），
         # 连通性由实际调用链路与监控告警覆盖。
         llm_status = 'healthy'
-        llm_message = (
-            f'已配置火山方舟 LLM（model={ARK_MODEL}）；'
-            '连通性由实际调用与监控告警覆盖，本端点不做实时探测'
-        )
+        llm_message = f'已配置火山方舟 LLM（model={ARK_MODEL}）；连通性由实际调用与监控告警覆盖，本端点不做实时探测'
     components['llm'] = {
         'status': llm_status,
         'configured': llm_configured,

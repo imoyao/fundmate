@@ -4,12 +4,7 @@ import { http } from "@/utils/http";
 import type { ApiResponse } from "@/api/types";
 
 export type ComponentStatus =
-  | "ok"
-  | "healthy"
-  | "degraded"
-  | "unhealthy"
-  | "disabled"
-  | string;
+  "ok" | "healthy" | "degraded" | "unhealthy" | "disabled" | string;
 
 export interface ComponentHealth {
   status: ComponentStatus;
