@@ -24,6 +24,7 @@ from app.core.migrations import (
     migrate_advisor_portfolio_metrics,
     migrate_advisor_portfolio_provenance,
     migrate_channel_link_indexes,
+    migrate_fund_equity_position_period,
     migrate_positions_money_fund_flag,
     migrate_positions_symbol_norm,
     migrate_watchlist_family_scoped_unique_key,
@@ -427,6 +428,8 @@ def init_db():
     migrate_advisor_portfolio_provenance(app_eng)
     # channel_links.to_symbol 索引（#1491 评审）：create_all 只建新表、不给存量表加索引
     migrate_channel_link_indexes(app_eng)
+    # funds.equity_position_period 列（#870）：create_all 不替存量表加列，同上须先于结构校验
+    migrate_fund_equity_position_period(app_eng)
     _validate_schema(app_eng, market_meta, label='market')
     # user 域表 → 用户引擎
     user_meta = MetaData()
@@ -496,6 +499,8 @@ def init_db_split():
     migrate_advisor_portfolio_provenance(app_eng)
     # channel_links.to_symbol 索引（#1491 评审）
     migrate_channel_link_indexes(app_eng)
+    # funds.equity_position_period 列（#870）：create_all 不替存量表加列，同上须先于结构校验
+    migrate_fund_equity_position_period(app_eng)
     _validate_schema(app_eng, market_meta, label='market')
     # user 域表 → 用户引擎（若已配置）
     if user_eng is not None:

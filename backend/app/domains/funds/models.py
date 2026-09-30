@@ -117,10 +117,17 @@ class Fund(Base, PrimaryKeyMixin, TimestampMixin):
     # 仍按份额/金额精度规范用 SafeNumeric，避免 Float 精度漂移。
     scale = Column(SafeNumeric(20, 6), comment='基金规模估算(亿元)=最近总份额×单位净值，来源 fund_scale_open_sina')
     recent_shares = Column(SafeNumeric(20, 4), comment='最近总份额(份)，来源 fund_scale_open_sina')
+    # 口径（#870 修正）：改取**行业配置合计**（由 fund_industry_allocs 派生），不再取「前十大重仓之和」。
+    # 为什么改：前十大只是季报/半年报里的前 10 名求和，对分散型基金系统性低估——实测
+    # 005827 前十大 38.95% vs 全量 76.43%（偏差 −37.5pp）、000001 −36.2pp；且季报期只有
+    # 前十大，与半年报口径不可比。而证监会要求季报**也**披露行业分类比例，故行业配置合计
+    # 在任何报告期都是全量口径，且与持仓全量合计交叉吻合到小数点后两位
+    # （110022: 87.18% vs 87.19%；005827: 76.42% vs 76.43%）。
+    # 无源数据时**不覆盖**原值（明细是源、标量是派生，无源即不派生）。
     equity_position = Column(
-        SafeNumeric(5, 2),
-        comment='近似股票仓位(%)=前十大重仓占净值比合计，来源 fund_portfolio_hold_em（仅近似，非全口径资产配置）',
+        SafeNumeric(5, 2), comment='近似股票仓位(%)=行业配置合计，来源 fund_portfolio_industry_allocs（全量口径）'
     )
+    equity_position_period = Column(String(8), comment='上述仓位对应的报告期，如 2026Q2（口径与版本留痕）')
     risk_level = Column(Integer, comment='风险等级 1-5')
     is_fe_charge = Column(Boolean, default=False, comment='前端收费')
     benchmark = Column(String(200), comment='业绩比较基准')
@@ -408,3 +415,66 @@ class AdvisorAdjustHistory(Base, PrimaryKeyMixin, TimestampMixin):
     source = Column(String(20), nullable=False, comment='数据来源: tiantian(官方接口)/qieman(快照推导)')
 
     __table_args__ = (UniqueConstraint('portfolio_id', 'adjust_date', 'fund_code', name='uq_advisor_adjust_p_d_f'),)
+
+
+# ── 基金持仓明细 / 行业配置（#870 基金持仓穿透）─────────────────────────────────
+# 语义是**报告期快照**，不是日期序列：东财只提供报告期粒度（`季度`），无任意日期查询。
+# 版本键统一用 `report_period`（如 '2026Q2'），不用日期。
+#
+# 两表都用 `fund_code` 业务键、**不建硬外键**（与 AdvisorHolding 同因：成分标的有可能
+# 暂缺于本地 funds 表，硬外键会阻塞写入；关联查询走应用层两步法）。
+
+
+class FundHolding(Base, PrimaryKeyMixin, TimestampMixin):
+    """基金持仓明细（#870，来源：东财基金档案-投资组合 / ccmx）。"""
+
+    __tablename__ = 'fund_holdings'
+
+    fund_code = Column(String(6), nullable=False, index=True, comment='基金代码（业务键）')
+    report_period = Column(String(8), nullable=False, index=True, comment='报告期，如 2026Q2（版本键）')
+    report_date = Column(Date, comment='报告期截止日')
+    holding_basis = Column(String(8), nullable=False, comment='披露口径: full(半年报/年报全量) / top10(季报前十大)')
+    stock_code = Column(String(10), nullable=False, comment='股票代码（A 股 6 位 / 港股 5 位，不做补零）')
+    stock_name = Column(String(50), comment='股票名称')
+    ratio = Column(SafeNumeric(5, 2), comment='占净值比例(%)')
+    shares = Column(SafeNumeric(20, 4), comment='持股数(万股)')
+    market_value = Column(SafeNumeric(20, 4), comment='持仓市值(万元)')
+    rank = Column(Integer, comment='期内序号（1 起，按披露顺序）')
+    source = Column(String(20), nullable=False, comment='数据来源: eastmoney(东财基金档案)')
+
+    __table_args__ = (
+        # 前十大与全量**并存**、不做单值覆盖：季报只有前十大，若与半年报合并成一个口径，
+        # 季报期数据会莫名其妙"缩水"，被误读成大幅减仓。
+        UniqueConstraint(
+            'fund_code', 'report_period', 'holding_basis', 'stock_code', name='uq_fund_holding_code_period_basis_stock'
+        ),
+        Index('ix_fund_holding_period_basis', 'report_period', 'holding_basis'),
+    )
+
+
+class FundIndustryAlloc(Base, PrimaryKeyMixin, TimestampMixin):
+    """基金行业配置（#870，来源：东财 f10/HYPZ）。
+
+    **独立成表而非并入 `fund_holdings`**：值是「占净值比例」而非持仓数量，分类体系也不同。
+
+    `scheme` 标记分类体系——东财同一端点**混用两套且不做标记**：境内股票走证监会门类
+    （`csrc`，单字母 A~S），港股等走 GICS 板块（`gics`，两位数字）。两套体系语义不重叠
+    （GICS 的「非必需消费品」在证监会门类里并入「制造业」），**聚合时按 `scheme` 分区
+    各自求和，禁止跨体系相加**，否则会得出「制造业与非必需消费品同级并列」的荒谬结论。
+    """
+
+    __tablename__ = 'fund_industry_allocs'
+
+    fund_code = Column(String(6), nullable=False, index=True, comment='基金代码（业务键）')
+    report_period = Column(String(8), nullable=False, index=True, comment='报告期，如 2026Q2（版本键）')
+    report_date = Column(Date, comment='报告期截止日')
+    industry_code = Column(String(10), nullable=False, comment='行业代码（csrc 单字母 / gics 两位数字）')
+    industry_name = Column(String(50), comment='行业名称')
+    scheme = Column(String(10), nullable=False, comment='分类体系: csrc(证监会门类) / gics(GICS 板块)')
+    ratio = Column(SafeNumeric(5, 2), comment='行业占净值比例(%)')
+    source = Column(String(20), nullable=False, comment='数据来源: eastmoney(f10/HYPZ)')
+
+    __table_args__ = (
+        UniqueConstraint('fund_code', 'report_period', 'industry_code', name='uq_fund_industry_code_period'),
+        Index('ix_fund_industry_period_scheme', 'report_period', 'scheme'),
+    )

@@ -551,3 +551,37 @@ def migrate_positions_money_fund_flag(engine: Engine) -> str:
         msg += f'；{undecidable} 行名录无记录/类型未知，保持原值'
     logger.info(f'[OK] positions.is_money_fund 存量重算：{msg}')
     return f'[OK] {msg}'
+
+
+def migrate_fund_equity_position_period(engine: Engine) -> str:
+    """funds 补 equity_position_period 列（#870）。
+
+    `equity_position` 的口径由「前十大重仓之和」改为「行业配置合计」（详见 Fund 模型注释），
+    需要一并记录该值对应的报告期：Q1 与 Q2 都是全量口径但数值会随季报变化，没有报告期
+    就无法判断差异是「真的调仓」还是「口径/版本混淆」。
+
+    存量行**故意留 NULL**——旧值来自已废弃口径，其报告期无从得知，不假装知道。
+
+    SQLite / libsql 支持对可空列直接 ALTER ADD COLUMN（无需整表重建）；非 SQLite 引擎
+    由 ORM 模型 / 迁移工具负责，直接跳过。新表 fund_holdings / fund_industry_allocs
+    由 create_all 建，无需迁移。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
+
+    if 'funds' not in inspect(engine).get_table_names():
+        return '[SKIP] funds 表不存在（空库，init_db 将按新模型建表）'
+
+    existing = {c['name'] for c in inspect(engine).get_columns('funds')}
+    if 'equity_position_period' in existing:
+        return '[SKIP] funds.equity_position_period 已存在'
+
+    with engine.connect() as conn:
+        conn.execute(text('ALTER TABLE funds ADD COLUMN equity_position_period VARCHAR(8)'))
+        conn.commit()
+
+    if 'equity_position_period' not in {c['name'] for c in inspect(engine).get_columns('funds')}:
+        raise RuntimeError('funds.equity_position_period 增加后校验失败')
+    logger.info('[OK] funds.equity_position_period 已就绪（#870 仓位口径版本留痕）')
+    return '[OK] funds.equity_position_period 已就绪'
