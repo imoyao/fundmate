@@ -27,7 +27,8 @@ export default [
         meta: {
           title: "健康检查",
           icon: "ep:connection",
-          rank: BASE_RANK + 1
+          rank: BASE_RANK + 1,
+          requiresAuth: false // 状态页匿名可见（#1720）：与后端 /api/health 免登录一致，便于访客查看服务状态
         }
       }
     ]
