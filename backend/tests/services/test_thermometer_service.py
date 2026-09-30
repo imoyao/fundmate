@@ -192,8 +192,12 @@ def test_get_overview_multi_branch(db):
 # ─────────────────── #1431 数据新鲜度守卫 ───────────────────
 
 
-def test_get_overview_freshness_stale_when_old(db):
-    """最新数据超阈值未更新时，overview 须带 freshness.stale=True（显式提示，不静默展示旧值）。"""
+def test_get_overview_freshness_stale_when_old(db, monkeypatch):
+    """最新数据跨交易日未更新时，overview 须带 freshness.stale=True（显式提示，不静默展示旧值）。
+
+    固定「今天为交易日」以保证确定性（周末跑 CI 时自然日口径会漂移）。
+    """
+    monkeypatch.setattr('app.services.thermometer.service.is_trading_day', lambda d: True)
     old = today_shanghai() - timedelta(days=30)
     db.add(
         MarketSingleValue(
@@ -241,4 +245,23 @@ def test_get_overview_freshness_empty_db_not_stale(db):
     fr = TemperatureService.get_overview()['freshness']
     assert fr['latest'] is None
     assert fr['age_days'] is None
+    assert fr['stale'] is False
+
+
+def test_get_overview_freshness_non_trading_day_not_stale(db, monkeypatch):
+    """今天非交易日时，数据停留上一交易日属正常，不得误报 stale（#1720）。"""
+    monkeypatch.setattr('app.services.thermometer.service.is_trading_day', lambda d: False)
+    db.add(
+        MarketSingleValue(
+            source='eastmoney_volume',
+            name='全市场成交额',
+            value=10000.0,
+            label='温和',
+            unit='亿',
+            collected_at=today_shanghai() - timedelta(days=1),
+            stale=False,
+        )
+    )
+    db.commit()
+    fr = TemperatureService.get_overview()['freshness']
     assert fr['stale'] is False
