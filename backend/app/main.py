@@ -121,6 +121,23 @@ def create_app() -> APIFlask:
     # 日志（调度是增强项，不是可用性前提，绝不能因此让应用起不来）。
     start_daily_scheduler(debug=app.debug)
 
+    # 首次启动一次性提醒（#1720）：数据调度默认关闭，部署后首次启动显式提示运维，
+    # 用标记文件保证「仅提示一次」（清理该文件即可重新提示，避免重载/重启刷屏）。
+    if os.getenv('SCHEDULER_ENABLED', '').lower() not in ('1', 'true', 'yes', 'on'):
+        _tip_flag = os.path.join(app.root_path, '..', 'data', '.first_launch_tip_done')
+        try:
+            if not os.path.exists(_tip_flag):
+                app.logger.warning(
+                    '[首启提醒] 数据调度(SCHEDULER_ENABLED)默认关闭，自选/持仓净值与温度计不会自动更新；'
+                    '如需自动更新，请在 .env 设置 SCHEDULER_ENABLED=1 并常驻调度进程'
+                    '（pdm run scheduler-daemon 或应用内启动）。详见 /api/health 状态页。'
+                )
+                os.makedirs(os.path.dirname(_tip_flag), exist_ok=True)
+                with open(_tip_flag, 'w', encoding='utf-8') as _f:
+                    _f.write('1')
+        except Exception:  # 标记文件写入失败绝不应阻断启动
+            pass
+
     # 注册全局异常处理器（统一 {data, message, error_code} 信封）。
     # 必须在 create_app() 内部注册，否则测试 fixture 直接调用 create_app()
     # 得到的 app 不会挂载处理器，导致错误契约在测试环境失效。
