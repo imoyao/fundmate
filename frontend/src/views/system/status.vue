@@ -1,23 +1,52 @@
+<!-- frontend/src/views/system/status.vue -->
+<!--
+  系统状态页（#1720 建页；#1795 命名收敛；#1799 改为全屏公开页）
+
+  定位：与探市（/explore）同族的**全屏公开页**，不经 Layout（无侧边栏）。
+  出口页脚带「系统状态」入口，探市/主站页脚点进来若落到带侧边栏的后台布局，
+  对匿名访客是观感割裂的跳变，故状态页自带 —— 共用 MarketHeader / PageHeaderBar /
+  SiteLegalBar，与探市页保持同一套品牌外壳。
+
+  命名口径：页面叫 status（业界 status page 惯例），后端接口仍是 /api/health
+  （运维探活端点，探活工具普遍按 /health 调用，且属 conventions.md 尾斜杠规范例外 D28）。
+-->
 <script setup lang="ts">
-// 系统状态页（#1720；命名与错误态收敛见 #1795）：
-// 向维护者 / 访客展示后端 GET /api/health 的组件健康。
-//
-// 命名口径：**页面叫「系统状态」（status page）**，这是业界惯例（GitHub / Cloudflare 等的
-// status page）；「健康检查 / health」是**接口**语义，后端 `/api/health` 保持不变——探活工具
-// 普遍按 `/health` 调用，且该路径已写入 `conventions.md` 的尾斜杠规范例外（D28），改名会破坏
-// 监控契约。故本页只收敛展示层名称，不动接口。
-import { ref, onMounted } from "vue";
+import { computed, onMounted, ref } from "vue";
+import dayjs from "dayjs";
+import { useRouter } from "vue-router";
 import { ElNotification } from "element-plus";
+import MarketHeader from "@/components/MarketHeader/index.vue";
+import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
+import SiteLegalBar from "@/components/SiteLegalBar/index.vue";
+import {
+  MARKET_LOGO,
+  useMarketHeaderNavs
+} from "@/components/MarketHeader/config";
+import { useAuthState } from "@/composables/useAuthState";
 import { getHealth, type ComponentStatus, type HealthData } from "@/api/health";
 
 defineOptions({
   name: "SystemStatus"
 });
 
+const router = useRouter();
+const headerNavs = useMarketHeaderNavs();
+const { isAuthenticated } = useAuthState();
+
 const health = ref<HealthData | null>(null);
 const loading = ref(false);
 // 失败原因：非空即代表本次拉取失败，页面必须退出骨架屏（见 fetchHealth 注释）
 const errorMessage = ref("");
+// 本次查询时刻（页头胶囊）：状态页没有「业务数据更新时间」概念，展示查询时刻最诚实
+const queriedAt = ref("");
+const headerUpdatedAt = computed(() =>
+  queriedAt.value ? `${queriedAt.value} 查询` : ""
+);
+
+// logo 点击：登录态感知路由，与探市页一致（已登录 → 工作台；未登录 → 探市首页）
+const onLogoClick = () => {
+  router.push(isAuthenticated.value ? "/welcome" : "/explore");
+};
 
 function statusTagType(
   status: ComponentStatus
@@ -65,6 +94,7 @@ async function fetchHealth() {
       type: "error"
     });
   } finally {
+    queriedAt.value = dayjs().format("HH:mm:ss");
     loading.value = false;
   }
 }
@@ -91,111 +121,162 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="status-page p-4">
-    <el-card shadow="never" class="mb-4">
-      <template #header>
-        <div class="flex items-center justify-between">
-          <span class="text-lg font-medium">系统状态</span>
-          <el-button :loading="loading" size="small" @click="fetchHealth">
-            刷新
-          </el-button>
-        </div>
+  <div class="status-page">
+    <MarketHeader
+      :logo="MARKET_LOGO"
+      badge="系统状态"
+      :navs="headerNavs"
+      @logo-click="onLogoClick"
+    />
+
+    <PageHeaderBar
+      title="系统状态"
+      subtitle="展示服务进程、数据库、数据调度与 AI 识别的运行状况，供访客与维护者查看（本页免登录）"
+      :updated-at="headerUpdatedAt"
+    >
+      <template #action>
+        <el-button :loading="loading" size="small" @click="fetchHealth">
+          刷新
+        </el-button>
       </template>
-      <el-alert
-        v-if="health"
-        :title="`整体状态：${health.status === 'ok' ? '正常' : '需关注'}`"
-        :type="health.status === 'ok' ? 'success' : 'warning'"
-        :description="health.message"
-        show-icon
-        :closable="false"
-      />
-      <template v-else-if="errorMessage">
+    </PageHeaderBar>
+
+    <main class="status-page__body">
+      <el-card shadow="never">
+        <template #header>整体状态</template>
         <el-alert
-          title="暂时拿不到系统状态"
-          type="error"
-          :description="errorMessage"
+          v-if="health"
+          :title="`整体状态：${health.status === 'ok' ? '正常' : '需关注'}`"
+          :type="health.status === 'ok' ? 'success' : 'warning'"
+          :description="health.message"
           show-icon
           :closable="false"
         />
-        <el-button class="mt-3" size="small" @click="fetchHealth"
-          >重试</el-button
-        >
+        <template v-else-if="errorMessage">
+          <el-alert
+            title="暂时拿不到系统状态"
+            type="error"
+            :description="errorMessage"
+            show-icon
+            :closable="false"
+          />
+          <el-button class="mt-3" size="small" @click="fetchHealth">
+            重试
+          </el-button>
+        </template>
+        <el-skeleton v-else :rows="4" animated />
+      </el-card>
+
+      <template v-if="health">
+        <el-card shadow="never">
+          <template #header>数据库</template>
+          <el-descriptions :column="1" border>
+            <el-descriptions-item label="状态">
+              <el-tag
+                :type="statusTagType(health.components.database.status)"
+                size="small"
+              >
+                {{ statusText(health.components.database.status) }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="方言">
+              {{ health.components.database.dialect ?? "—" }}
+            </el-descriptions-item>
+            <el-descriptions-item label="说明">
+              {{ health.components.database.message }}
+            </el-descriptions-item>
+          </el-descriptions>
+        </el-card>
+
+        <el-card shadow="never">
+          <template #header>数据调度</template>
+          <el-descriptions :column="1" border>
+            <el-descriptions-item label="状态">
+              <el-tag
+                :type="statusTagType(health.components.scheduler.status)"
+                size="small"
+              >
+                {{ statusText(health.components.scheduler.status) }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="是否开启">
+              {{ health.components.scheduler.enabled ? "已开启" : "未开启" }}
+            </el-descriptions-item>
+            <el-descriptions-item label="最近成功运行">
+              {{ health.components.scheduler.last_success_run ?? "无记录" }}
+            </el-descriptions-item>
+            <el-descriptions-item label="说明">
+              {{ health.components.scheduler.message }}
+            </el-descriptions-item>
+          </el-descriptions>
+        </el-card>
+
+        <el-card shadow="never">
+          <template #header>AI 识别（LLM）</template>
+          <el-descriptions :column="1" border>
+            <el-descriptions-item label="状态">
+              <el-tag
+                :type="statusTagType(health.components.llm.status)"
+                size="small"
+              >
+                {{ statusText(health.components.llm.status) }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="是否已配置">
+              {{ health.components.llm.configured ? "已配置" : "未配置" }}
+            </el-descriptions-item>
+            <el-descriptions-item label="提供商">
+              {{ health.components.llm.provider ?? "—" }}
+            </el-descriptions-item>
+            <el-descriptions-item label="模型">
+              {{ health.components.llm.model ?? "—" }}
+            </el-descriptions-item>
+            <el-descriptions-item label="端点">
+              {{ health.components.llm.endpoint ?? "—" }}
+            </el-descriptions-item>
+            <el-descriptions-item label="说明">
+              {{ health.components.llm.message }}
+            </el-descriptions-item>
+          </el-descriptions>
+        </el-card>
       </template>
-      <el-skeleton v-else :rows="4" animated />
-    </el-card>
+    </main>
 
-    <template v-if="health">
-      <el-card shadow="never" class="mb-4">
-        <template #header>数据库</template>
-        <el-descriptions :column="1" border>
-          <el-descriptions-item label="状态">
-            <el-tag
-              :type="statusTagType(health.components.database.status)"
-              size="small"
-            >
-              {{ statusText(health.components.database.status) }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="方言">
-            {{ health.components.database.dialect ?? "—" }}
-          </el-descriptions-item>
-          <el-descriptions-item label="说明">
-            {{ health.components.database.message }}
-          </el-descriptions-item>
-        </el-descriptions>
-      </el-card>
-
-      <el-card shadow="never" class="mb-4">
-        <template #header>数据调度</template>
-        <el-descriptions :column="1" border>
-          <el-descriptions-item label="状态">
-            <el-tag
-              :type="statusTagType(health.components.scheduler.status)"
-              size="small"
-            >
-              {{ statusText(health.components.scheduler.status) }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="是否开启">
-            {{ health.components.scheduler.enabled ? "已开启" : "未开启" }}
-          </el-descriptions-item>
-          <el-descriptions-item label="最近成功运行">
-            {{ health.components.scheduler.last_success_run ?? "无记录" }}
-          </el-descriptions-item>
-          <el-descriptions-item label="说明">
-            {{ health.components.scheduler.message }}
-          </el-descriptions-item>
-        </el-descriptions>
-      </el-card>
-
-      <el-card shadow="never" class="mb-4">
-        <template #header>AI 识别（LLM）</template>
-        <el-descriptions :column="1" border>
-          <el-descriptions-item label="状态">
-            <el-tag
-              :type="statusTagType(health.components.llm.status)"
-              size="small"
-            >
-              {{ statusText(health.components.llm.status) }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="是否已配置">
-            {{ health.components.llm.configured ? "已配置" : "未配置" }}
-          </el-descriptions-item>
-          <el-descriptions-item label="提供商">
-            {{ health.components.llm.provider ?? "—" }}
-          </el-descriptions-item>
-          <el-descriptions-item label="模型">
-            {{ health.components.llm.model ?? "—" }}
-          </el-descriptions-item>
-          <el-descriptions-item label="端点">
-            {{ health.components.llm.endpoint ?? "—" }}
-          </el-descriptions-item>
-          <el-descriptions-item label="说明">
-            {{ health.components.llm.message }}
-          </el-descriptions-item>
-        </el-descriptions>
-      </el-card>
-    </template>
+    <footer class="status-page__footer">
+      <SiteLegalBar />
+    </footer>
   </div>
 </template>
+
+<style lang="scss" scoped>
+@use "@/style/breakpoints" as bp;
+
+/* 全屏公开页外壳：与探市页同一套结构（页头 + 页头栏 + 内容列 + 法律底栏） */
+.status-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--bg-page);
+
+  &__body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: var(--space-section);
+    width: 100%;
+    max-width: var(--layout-content-width);
+    padding: var(--space-standard) var(--space-standard) 0;
+    margin: 0 auto;
+
+    @include bp.below("md") {
+      padding: var(--space-standard) var(--space-compact) 0;
+    }
+  }
+
+  &__footer {
+    padding: var(--space-section) var(--space-standard) var(--space-standard);
+    margin-top: var(--space-section);
+    border-top: 1px solid var(--border-light);
+  }
+}
+</style>
