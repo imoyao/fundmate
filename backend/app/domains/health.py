@@ -19,7 +19,7 @@ from loguru import logger
 from sqlalchemy import func, text
 
 from app.core.database import get_db, get_engine
-from app.core.time_utils import now_shanghai
+from app.core.time_utils import as_shanghai, now_shanghai
 from app.models.sync_log import SyncLog
 
 bp = APIBlueprint('health', __name__, url_prefix='/api')
@@ -66,7 +66,11 @@ def health_check():
     last_success = None
     try:
         with get_db() as db:
-            last_success = db.query(func.max(SyncLog.started_at)).filter(SyncLog.status == 'success').scalar()
+            # SQLite 不保留时区偏移，读回的 started_at 是 naive 的东八区墙钟时间，
+            # 必须归一为 aware 后才能与 now_shanghai() 相减（否则 TypeError → 端点 500，见 #1793）
+            last_success = as_shanghai(
+                db.query(func.max(SyncLog.started_at)).filter(SyncLog.status == 'success').scalar()
+            )
     except Exception as exc:  # 健康端点本身绝不应因 DB 抖动而 500
         logger.warning(f'health: 查询 sync_logs 失败：{exc}')
 
