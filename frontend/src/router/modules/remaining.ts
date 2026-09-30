@@ -24,6 +24,10 @@ export default [
   // 全屏403（无权访问）页面
   {
     path: "/access-denied",
+    // router-orphan-allow: 与 /error/403 同指 views/error/403.vue，属重复实现且站内零入链
+    // （router/index.ts:123 的 whiteList 是鉴权白名单，不是导航）。
+    // 保留而非本次删除：#1787 的范围是「batch 死路由 + 孤儿守卫」，合并两套异常页
+    // 属另一件事，已立 #1797 承接；那里会连 whiteList 一起处理。
     name: "AccessDenied",
     component: () => import("@/views/error/403.vue"),
     meta: {
@@ -34,6 +38,8 @@ export default [
   // 全屏500（服务器出错）页面
   {
     path: "/server-error",
+    // router-orphan-allow: 与 /error/500 同指 views/error/500.vue，站内零入链（同上）。
+    // 合并两套异常页见 #1797；标记随该卡一起摘。
     name: "ServerError",
     component: () => import("@/views/error/500.vue"),
     meta: {
@@ -58,6 +64,9 @@ export default [
   // views/explore/components/ExploreDetailPanel.vue）。
   {
     path: "/temperature",
+    // router-orphan-allow: 这条路由**天生就是孤儿**，零站内入链是设计使然 ——
+    // 它存在的唯一目的就是承接外部已分享链接与历史书签（见上方注释），
+    // 站内早已不再指向它。删掉它等于让所有旧书签落到 404。
     name: "Temperature",
     // 字符串形式：本数组是字面量，函数式 redirect 会被 TS 统一推断成 string（TS2322）
     redirect: "/explore?view=detail",

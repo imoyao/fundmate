@@ -237,3 +237,175 @@ test("兜底：无路由表时不判失败", () => {
   assert.equal(code, 0, `空路由表应跳过，实际 exit=${code}\n${out}`);
   assert.match(out, /skip|跳过/);
 });
+
+/* ═══ #1787 孤儿路由规则（死链的镜像：存在却没人指）══════════════ */
+
+/**
+ * 一条「隐藏 + 零入链」的典型孤儿路由夹具。
+ * meta 必须写成多行 —— 与 `asset.ts` 实况一致；`showLink: false` 那行单独成行，
+ * 否则 `SHOW_LINK_FALSE_RE` 匹配不到（单行 meta 另有防误报用例覆盖）。
+ */
+const ORPHAN_ROUTES = {
+  "legacy.ts": [
+    "export default [",
+    "  {",
+    '    path: "/legacy-import",',
+    '    name: "LegacyImport",',
+    '    component: () => import("@/views/legacy.vue"),',
+    "    meta: {",
+    '      title: "批量导入",',
+    "      showLink: false",
+    "    }",
+    "  },",
+    "];",
+    ""
+  ].join("\n")
+};
+
+/* ── 孤儿①：隐藏 + 零入链 = 红灯 ─────────────────────────────── */
+test("孤儿①：showLink:false 且全仓零入链必须红灯并给出行号", () => {
+  const root = makeRepo({
+    routes: ORPHAN_ROUTES,
+    files: { "views/home.vue": "<template><div/></template>\n" }
+  });
+  const { code, out } = run(root);
+  assert.equal(code, 1, `应红灯，实际 exit=${code}\n${out}`);
+  assert.match(out, /检测到孤儿路由/);
+  assert.match(out, /\[orphan\]/);
+  assert.match(out, /\/legacy-import/);
+  assert.match(out, /legacy\.ts:3/, "应给出 path 声明行号");
+});
+
+/* ── 孤儿与死链可同时命中（两条规则互不吞掉对方的输出）────────── */
+test("孤儿②：死链与孤儿同时存在时，两类都要报出", () => {
+  const root = makeRepo({
+    routes: ORPHAN_ROUTES,
+    files: {
+      "views/h.vue": [
+        "<template>",
+        '  <router-link to="/does/not/exist">死链</router-link>',
+        "</template>",
+        ""
+      ].join("\n")
+    }
+  });
+  const { code, out } = run(root);
+  assert.equal(code, 1, `应红灯，实际 exit=${code}\n${out}`);
+  assert.match(out, /检测到路由死链/, "死链不能被孤儿吞掉");
+  assert.match(out, /检测到孤儿路由/, "孤儿不能被死链吞掉");
+});
+
+/* ── 防误报①：showLink 缺省 = 侧边栏可见，不可能是孤儿 ────────── */
+test("孤儿防误报①：showLink 缺省（侧边栏可见）不判孤儿", () => {
+  const root = makeRepo({
+    routes: { "legacy.ts": ORPHAN_ROUTES["legacy.ts"].replace("      showLink: false", "      rank: 1") },
+    files: { "views/h.vue": "<template><div/></template>\n" }
+  });
+  const { code, out } = run(root);
+  assert.equal(code, 0, `侧边栏可见的路由不应判孤儿，实际 exit=${code}\n${out}`);
+  assert.ok(!/检测到孤儿路由/.test(out), `不应出现孤儿告警：\n${out}`);
+});
+
+/* ── 防误报②：单行 meta 写法必须同样被识别为隐藏 ─────────────── */
+test("孤儿防误报②：`meta: { rank: 4, showLink: false }` 单行写法照样识别", () => {
+  const root = makeRepo({
+    routes: {
+      "one.ts": [
+        "export default {",
+        '  path: "/realestate",',
+        '  name: "AssetRealEstate",',
+        '  meta: { title: "房产", icon: "ep:house", rank: 4, showLink: false }',
+        "};",
+        ""
+      ].join("\n")
+    },
+    files: { "views/h.vue": "<template><div/></template>\n" }
+  });
+  const { code, out } = run(root);
+  // 带 `^` 锚点的老写法会漏掉它 —— 这条用例就是钉住这个回归
+  assert.equal(code, 1, `单行 meta 的隐藏路由应被判孤儿，实际 exit=${code}\n${out}`);
+  assert.match(out, /\/realestate/);
+});
+
+/* ── 防误报③：结构父路由靠 children 被访问，自身无需入链 ──────── */
+test("孤儿防误报③：带 children 的结构父路由不判孤儿", () => {
+  const root = makeRepo({
+    routes: {
+      "grp.ts": [
+        "export default {",
+        '  path: "/grp",',
+        "  meta: { showLink: false },",
+        "  children: [",
+        "    {",
+        '      path: "/grp/child",',
+        '      name: "GrpChild"',
+        "    }",
+        "  ]",
+        "};",
+        ""
+      ].join("\n")
+    },
+    files: { "views/h.vue": "<template><div/></template>\n" }
+  });
+  const { code, out } = run(root);
+  assert.equal(code, 0, `结构父路由不应判孤儿，实际 exit=${code}\n${out}`);
+  assert.ok(!/检测到孤儿路由/.test(out), `不应出现孤儿告警：\n${out}`);
+});
+
+/* ── 防误报④：三类合法入链都必须让路由脱离孤儿判定 ───────────── */
+test("孤儿防误报④：to= 入链 / redirect 入链 / 对象式 path 入链 均算引用", () => {
+  // ① 字面量 to=
+  const viaTo = makeRepo({
+    routes: ORPHAN_ROUTES,
+    files: {
+      "views/a.vue": "<template>\n" + '  <router-link to="/legacy-import">旧入口</router-link>\n' + "</template>\n"
+    }
+  });
+  assert.equal(run(viaTo).code, 0, `to= 入链应脱孤：\n${run(viaTo).out}`);
+
+  // ② 另一条路由的 redirect 指向它
+  const viaRedirect = makeRepo({
+    routes: {
+      ...ORPHAN_ROUTES,
+      "alias.ts": [
+        "export default {",
+        '  path: "/old-import",',
+        '  redirect: "/legacy-import"',
+        "};",
+        ""
+      ].join("\n")
+    },
+    files: { "views/h.vue": "<template><div/></template>\n" }
+  });
+  const r2 = run(viaRedirect);
+  assert.equal(r2.code, 0, `redirect 入链应脱孤：\n${r2.out}`);
+
+  // ③ 非路由模块里的对象式导航 `next({ path: "/x" })` / `router.push({ path: "/x" })`
+  const viaObjectPath = makeRepo({
+    routes: ORPHAN_ROUTES,
+    files: { "views/permission.ts": 'export const go = () => next({ path: "/legacy-import" });\n' }
+  });
+  const r3 = run(viaObjectPath);
+  assert.equal(r3.code, 0, `对象式 path 应算入链：\n${r3.out}`);
+  assert.ok(!/检测到孤儿路由/.test(r3.out), `不应出现孤儿告警：\n${r3.out}`);
+});
+
+/* ── 豁免：`router-orphan-allow` 放行该路由（理由须写在块内）──── */
+test("孤儿豁免：路由块内的 `router-orphan-allow` 放行，无标记照报", () => {
+  const allowRoutes = {
+    "legacy.ts": ORPHAN_ROUTES["legacy.ts"].replace(
+      "      showLink: false",
+      '      showLink: false,\n      // router-orphan-allow: 外部深链，站内不引用\n      rank: 1'
+    )
+  };
+  const withAllow = makeRepo({
+    routes: allowRoutes,
+    files: { "views/h.vue": "<template><div/></template>\n" }
+  });
+  const ok = run(withAllow);
+  assert.equal(ok.code, 0, `带豁免标记应放行，实际 exit=${ok.code}\n${ok.out}`);
+  assert.ok(!/检测到孤儿路由/.test(ok.out), `不应出现孤儿告警：\n${ok.out}`);
+
+  const without = makeRepo({ routes: ORPHAN_ROUTES, files: { "views/h.vue": "<template><div/></template>\n" } });
+  assert.equal(run(without).code, 1, "无标记的同一条路由必须照报 —— 豁免不是全局开关");
+});
