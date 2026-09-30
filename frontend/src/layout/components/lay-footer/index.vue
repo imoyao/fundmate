@@ -21,6 +21,10 @@
           class="app-footer__link"
           >开源致谢</a
         >
+        ·
+        <router-link to="/system/health" class="app-footer__link"
+          >系统状态</router-link
+        >
       </p>
     </div>
   </footer>

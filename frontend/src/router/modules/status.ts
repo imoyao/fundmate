@@ -15,7 +15,8 @@ export default [
       title: "系统状态",
       icon: "ep:monitor",
       rank: 3,
-      showLink: false // 父级作为目录，不直接显示链接（同 home.ts / agent.ts）
+      hidden: true, // 不进侧边栏菜单，仅作为 footer 引导链接的可访问路由（#1720）
+      showLink: false
     },
     children: [
       {
