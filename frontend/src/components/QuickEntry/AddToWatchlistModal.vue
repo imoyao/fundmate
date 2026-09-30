@@ -841,15 +841,10 @@ onMounted(async () => {
 }
 
 .reason-input {
-  margin-top: 10px;
-}
+  /* 比基线默认（5px 11px）更松的文本域内边距：只覆盖令牌，不再 :deep（#1772） */
+  --input-textarea-padding: 8px 12px;
 
-.reason-input :deep(.el-textarea__inner) {
-  box-sizing: border-box;
-  width: 100%;
-  padding: 8px 12px;
-  font-size: 14px;
-  border-radius: 4px;
+  margin-top: 10px;
 }
 
 .reason-input :deep(.el-input__count) {
@@ -911,10 +906,10 @@ onMounted(async () => {
   background-color: var(--bg-hover);
 }
 
-/* 全局焦点环（确保所有可交互元素有键盘反馈） */
+/* 全局焦点环（确保所有可交互元素有键盘反馈）。
+   输入框 / 下拉不在此列：它们的焦点环由 #1772 输入基线统一画，
+   再叠一层就成双环了。 */
 :deep(.el-button:focus-visible),
-:deep(.el-input__wrapper:focus-within),
-:deep(.el-select .el-input__wrapper:focus-within),
 :deep(.el-switch:focus-visible .el-switch__core) {
   box-shadow: var(--focus-ring) !important;
 }

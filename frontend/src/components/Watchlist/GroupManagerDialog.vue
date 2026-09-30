@@ -176,12 +176,11 @@ const deleteGroup = async (groupId: number) => {
 }
 
 .group-search {
+  /* 胶囊搜索框：只覆盖 #1772 输入基线的圆角令牌，不再 :deep */
+  --input-radius: var(--radius-pill);
+
   flex: 1;
   min-width: 0;
-}
-
-.group-search :deep(.el-input__wrapper) {
-  border-radius: var(--radius-pill);
 }
 
 /* 列表末尾「新建分组」行：与分组行同高、紧挨列表，hover 提亮为品牌色 */

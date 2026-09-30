@@ -472,7 +472,16 @@ onMounted(() => {
   color: var(--color-danger);
 }
 
-/* 统一输入框圆角和内边距 */
+/* 本表单的输入框圆角是 8px（比基线 --radius-sm 6px 更圆，与卡片区一致）：
+   走 #1772 输入基线的圆角令牌，一次性覆盖单行 / 文本域 / 下拉三种控件。
+   —— 原先写在 `.el-input__inner` 上的 `border-radius: 8px` 其实是死代码
+   （EP 的 .el-input__inner 是 `border:none; background:none`，圆角画不出来），
+   真正一直生效的只有文本域那条，单行输入其实一直是 4px。 */
+.entry-form {
+  --input-radius: 8px;
+}
+
+/* 统一输入框字号与内边距（几何差异，走 :deep 是本 issue 允许的例外之一） */
 .entry-form :deep(.el-input__inner) {
   padding-right: 14px;
   padding-left: 14px;
@@ -480,7 +489,6 @@ onMounted(() => {
   color: var(--text-primary);
   background-color: var(--bg-card);
   border-color: var(--border-default);
-  border-radius: 8px;
 }
 
 .entry-form :deep(.el-textarea__inner) {
@@ -490,17 +498,6 @@ onMounted(() => {
   resize: vertical;
   background-color: var(--bg-card);
   border-color: var(--border-default);
-  border-radius: 8px;
-}
-
-.entry-form :deep(.el-select .el-input__inner) {
-  padding-right: 36px;
-}
-
-/* 输入框聚焦状态 */
-.entry-form :deep(.el-input__inner:focus) {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px var(--color-primary-20);
 }
 
 /* 金额输入框全面优化 */
@@ -528,7 +525,6 @@ onMounted(() => {
 .amount-input :deep(.el-input__inner) {
   padding-right: 16px;
   text-align: right;
-  border-radius: 8px;
 }
 
 /* 提示文字样式优化：提升可读性 */

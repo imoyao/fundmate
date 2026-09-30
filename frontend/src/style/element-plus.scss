@@ -171,6 +171,110 @@
   }
 }
 
+/* ============================================================================
+   输入基线（#1772）· el-input / el-textarea / el-select 的唯一视觉真相源
+   ----------------------------------------------------------------------------
+   收敛前：17 个业务文件各自用 `:deep` 覆盖 `.el-input__wrapper` /
+   `.el-textarea__inner` / `.el-input__inner`（同一件事至少三种写法），亮色侧
+   **没有**焦点基线、暗色侧 `dark.scss` 另有一套 `!important` 规则，两端表达
+   不一致，还常与 EP 自带的 `:focus` 内描边叠成双环。
+
+   收敛后：底色 / 边框 / hover / focus / 圆角 / 高度 / 文本域几何收敛成一组
+   `--input-*` 令牌；页面**只允许在容器上覆盖令牌**，禁止再 `:deep` 这三个
+   选择器（例外仅 AssetEntry、BatchFixPanel 两个文件，清单见
+   `frontend/design.md`「输入框基线契约」）。
+
+   为什么接线写在「读取者」身上：EP 把 `--el-input-*` 声明在组件根
+   （`.el-input` / `.el-textarea`）。自定义属性按元素计算、再向下继承，
+   **元素自身**的声明永远优先于从祖先继承来的值 —— 所以只要把令牌映射写在真正
+   读它们的 `.el-input__wrapper` / `.el-textarea__inner` / `.el-select__wrapper`
+   上，就必然压过 EP 的组件根声明，既不依赖 CSS 加载顺序，也不需要 `!important`。
+   （本仓 EP 样式由 unplugin-element-plus 按 SFC 注入：App.vue 先于 index.scss
+   加载、懒加载路由更在其后 —— 加载顺序不可靠，只能靠特异性说话。）
+
+   特异性档位（改动前先对表，勿随手加选择器）：
+     · EP 静态 / hover                (0,1,0) / (0,2,0) ← 接线在读取者身上即够
+     · EP 焦点 `.el-input__wrapper.is-focus`  (0,2,0) ← 基线焦点 (0,4,0) 赢
+     · EP 禁用 / `is-exceed`          (0,3,0)          ← 基线用 `:not(.is-exceed)` 让位
+     · EP 表单校验 `.el-form-item.is-error …` (0,4,0) / (0,5,0) ← 红边永远优先
+   ============================================================================ */
+
+:root {
+  /* 底色 / 边框三态（design.md「Input」表：bg-card + border-default + 品牌色） */
+  --input-bg: var(--bg-card);
+  --input-border-color: var(--border-default);
+  --input-hover-border-color: var(--brand-500);
+  --input-focus-border-color: var(--brand-700);
+
+  /* 几何：圆角走设计令牌；高度默认交给 EP 自身尺寸（= 不显式指定） */
+  --input-radius: var(--radius-sm);
+  --input-height: auto;
+  --input-textarea-padding: 5px 11px;
+  --input-textarea-resize: vertical;
+
+  /* 过渡：默认沿用 EP 的 box-shadow 过渡，页面要「呼吸感」时覆盖本令牌 */
+  --input-transition: var(--el-transition-box-shadow);
+
+  /* 焦点 = 1px 内描边 + 唯一的一圈 --focus-ring，亮 / 暗同一条表达式。
+     ⚠️ 自定义属性在**声明处**完成 var() 替换，故页面要改焦点观感时必须覆盖
+     本令牌本身；只覆盖 --input-focus-border-color 不会传导进来。 */
+  --input-focus-shadow:
+    0 0 0 1px var(--input-focus-border-color) inset, var(--focus-ring);
+}
+
+/* 令牌 → EP 源变量的接线：写在读取者身上（见上方「为什么」段） */
+.el-input__wrapper,
+.el-textarea__inner {
+  --el-input-bg-color: var(--input-bg);
+  --el-input-border-radius: var(--input-radius);
+  --el-input-border-color: var(--input-border-color);
+  --el-input-hover-border-color: var(--input-hover-border-color);
+  --el-input-focus-border-color: var(--input-focus-border-color);
+}
+
+/* el-select 不经过 .el-input__wrapper，EP 直接读 --el-* 源变量，故同名接线 */
+.el-select__wrapper {
+  --el-fill-color-blank: var(--input-bg);
+  --el-border-radius-base: var(--input-radius);
+  --el-border-color: var(--input-border-color);
+  --el-border-color-hover: var(--input-hover-border-color);
+}
+
+/* 高度：默认 auto（= EP 原生表现），页面在容器上写 --input-height 即可改高度，
+   不必再 `:deep`。注意只作用于单行输入，文本域高度仍由 rows 控制。 */
+.el-input__wrapper {
+  height: var(--input-height);
+}
+
+/* 文本域几何：EP 原生 5px 11px / resize: vertical，改由令牌驱动 */
+.el-textarea .el-textarea__inner:not(.is-clearable) {
+  padding: var(--input-textarea-padding);
+  resize: var(--input-textarea-resize);
+}
+
+/* 过渡：EP 原生只过渡 box-shadow，这里统一交给 --input-transition */
+.el-input .el-input__wrapper,
+.el-textarea .el-textarea__inner,
+.el-select .el-select__wrapper {
+  transition: var(--input-transition);
+}
+
+/* 焦点：亮 / 暗只有这一条规则、只有一个环。
+   `:not(.is-exceed)` 是给超长红边让位；禁用态原生 input 拿不到焦点、
+   EP 不会加 .is-focus，故无需再排 .is-disabled。
+   error 态由 EP 的 (0,5,0) 规则接管，红边优先，不依赖加载顺序。 */
+.el-input:not(.is-exceed) .el-input__wrapper.is-focus {
+  box-shadow: var(--input-focus-shadow);
+}
+
+.el-textarea:not(.is-exceed) .el-textarea__inner:focus {
+  box-shadow: var(--input-focus-shadow);
+}
+
+.el-select__wrapper.is-focused:not(.is-disabled) {
+  box-shadow: var(--input-focus-shadow);
+}
+
 /* 仿 el-scrollbar 滚动条样式，支持大多数浏览器，如Chrome、Edge、Firefox、Safari等。整体暗色风格在 src/style/dark.scss 文件进行了适配 */
 .pure-scrollbar {
   scrollbar-color: rgb(221 222 224) transparent; /* 滑块颜色、轨道颜色 */

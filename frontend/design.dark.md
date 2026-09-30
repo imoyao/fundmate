@@ -354,6 +354,10 @@
 | Focus | 边框 `--brand-700` + `--focus-ring`（**继承全局 Focus Ring 样式**，显式引用 `var(--focus-ring)`） |
 
 > **注意**：Input 的 Focus 态必须使用全局 `--focus-ring` 双层环（Gap + Outer），禁止使用 `outline: 2px solid` 等简写方式，以确保聚焦环在深色背景下的可见性。
+>
+> **#1772 输入框基线**：亮 / 暗两侧的输入框视觉（含上表背景 `--bg-card`）由 `src/style/element-plus.scss` 的
+> 「输入基线」块**同一条规则**表达，`dark.scss` 不再单独覆盖输入控件；令牌与例外清单见 `design.md`
+> 「输入框基线契约」。暗色下**不要**再为输入控件新增 `!important` 规则。
 
 ### Card
 

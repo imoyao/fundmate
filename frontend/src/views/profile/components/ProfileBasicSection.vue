@@ -323,10 +323,6 @@ const p = reactive(props.page);
   max-width: 100%;
 }
 
-.field-input :deep(.el-input__wrapper) {
-  border-radius: var(--radius-sm);
-}
-
 .field-block__save {
   flex-shrink: 0;
   width: 72px;
