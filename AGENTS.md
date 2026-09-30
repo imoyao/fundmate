@@ -137,6 +137,11 @@
   - `core/requests_patch.py`：东财 TLS 补丁（全局 `impersonate chrome`）。
   - `core/v8_guard.py`：`py_mini_racer` 并发构造守卫（进程级锁 + 启动预热），防止 akshare
     并发取数触发 V8 Fast Fail 硬杀后端（#1566；不要绕过它去「修」各调用点）。
+  - `core/instance_guard.py`：**同一 DB 的 web 单实例守门**（`data/app_instance.lock`，排在
+    `init_db()`/迁移之前）。SQLite 只允许一个写者，多实例共享同一库会让写请求等满
+    `busy_timeout` 后报 `database is locked`；Windows 的 `SO_REUSEADDR` 还会让第二个
+    `flask run` **不报端口占用**、静默多起一个实例（#1809）。冲突实例以退出码 3 退出，
+    持有者 PID 记在 `data/app_instance.owner`；`APP_INSTANCE_GUARD=0` 可显式关闭。
 - **服务层**：
   - `services/sync/`：同步编排器 + 各 `SyncJob` 实现（编排/注册类）。
   - `services/adapters/`：第三方数据适配层（xalpha / akshare / 东财直连 / 韭圈儿 / 各投顾平台）；
