@@ -292,28 +292,13 @@ const batchMoveGroupId = computed({
   transition: opacity 150ms ease;
 }
 
-/* 批量模式：移动到分组下拉 */
+/* 批量模式：移动到分组下拉。
+   视觉走 #1772 输入基线（底 / 边 / hover / focus / 圆角全由 --input-* 驱动）。
+   原先那三条以 `.el-input__wrapper` 为目标的 :deep 规则全是死规则 ——
+   el-select 渲染的是 .el-select__wrapper，树里根本没有 .el-input__wrapper，
+   故删除零影响。 */
 .batch-move-select {
   width: 160px;
-}
-
-.batch-move-select :deep(.el-input__wrapper) {
-  padding-top: 0;
-  padding-bottom: 0;
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  box-shadow: none;
-  transition: all 0.2s ease;
-}
-
-.batch-move-select :deep(.el-input__wrapper:hover) {
-  border-color: var(--brand-500);
-}
-
-.batch-move-select :deep(.el-input__wrapper.is-focus) {
-  border-color: var(--brand-700);
-  box-shadow: var(--focus-ring);
 }
 
 /* 批量模式：删除选中（幽灵危险按钮） */

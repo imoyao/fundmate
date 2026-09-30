@@ -356,29 +356,11 @@ onMounted(async () => {
 }
 
 /* ======================================
-   基础输入框/下拉框样式（作用于本页树内全部子组件的控件）
+   输入框 / 下拉框的视觉已收敛到 element-plus.scss 的「输入基线（#1772）」：
+   底色、边框、hover、focus、圆角由 --input-* 令牌统一驱动，本页不再
+   自己写一套（原两条 :deep 块即因此删除 —— 它们设的 --el-input-focus-shadow
+   EP 根本不读，一直是个死令牌）。需要局部差异时只在容器上覆盖令牌。
    ====================================== */
-:deep(.el-input__wrapper) {
-  --el-input-border-color: var(--border-default);
-  --el-input-hover-border-color: var(--brand-500);
-  --el-input-focus-border-color: var(--brand-700);
-  --el-input-focus-shadow:
-    inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
-    0 0 0 4px var(--brand-700);
-
-  border-radius: var(--radius-sm);
-}
-
-:deep(.el-select .el-input__wrapper) {
-  --el-input-border-color: var(--border-default);
-  --el-input-hover-border-color: var(--brand-500);
-  --el-input-focus-border-color: var(--brand-700);
-  --el-input-focus-shadow:
-    inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
-    0 0 0 4px var(--brand-700);
-
-  border-radius: var(--radius-sm);
-}
 
 /* ======================================
    按钮物理反馈（去除缩放，仅保留符合规范的 translateY）

@@ -933,6 +933,16 @@ function resetSession(): void {
 }
 
 .chat-input-pill {
+  /* 胶囊即焦点容器：输入框自身的底色 / 边框全部让位（透明），
+     焦点表达完全交给下面的 &:focus-within —— 这样整块只有一个环（#1714 / #1772）。
+     视觉参数走 element-plus.scss「输入基线」的 --input-* 令牌，不再 :deep。 */
+  --input-bg: transparent;
+  --input-border-color: transparent;
+  --input-focus-shadow: none;
+  --input-radius: var(--radius-pill);
+  --input-textarea-padding: 4px 8px;
+  --input-textarea-resize: none;
+
   flex: 1;
   padding: 5px 8px 5px 18px;
   background-color: var(--bg-card);
@@ -944,28 +954,12 @@ function resetSession(): void {
 
   /* 焦点样式**只画一次**（#1714 复核）：此前是「border 变红 + --focus-ring 双段阴影」叠加，
      视觉上就是内外好几圈线。这里让 border 让位给焦点环（透明），只留干净的一环。
-     gap 色取 --bg-card 与胶囊底色同色，实际观感是一条 4px 品牌色环。 */
+     gap 色取 --bg-card 与胶囊底色同色，实际观感是一条 4px 品牌色环。
+     内部 textarea 的静态描边 / :focus 描边由上面的令牌清空，
+     否则 EP 的 `0 0 0 1px … inset` 会在胶囊里再描一圈（「很奇怪的外圈」根因）。 */
   &:focus-within {
     border-color: transparent;
     box-shadow: var(--focus-ring);
-  }
-
-  :deep(.el-textarea__inner) {
-    padding: 4px 8px;
-    resize: none;
-    background-color: transparent;
-    border: none;
-    border-radius: var(--radius-pill);
-    box-shadow: none;
-
-    /* ⚠️ 关键（就是那个「很奇怪的外圈」的根因）：EP 给 textarea 的**聚焦态**自带
-       `box-shadow: 0 0 0 1px var(--el-input-focus-border-color) inset`（用内描边当边框）。
-       只清静态 box-shadow 时它照旧生效 —— 于是「容器焦点环 + 内部红边」叠成双线。
-       必须连 :focus 一并清掉，焦点表达完全交给外层容器。 */
-    &:focus {
-      outline: none;
-      box-shadow: none;
-    }
   }
 }
 

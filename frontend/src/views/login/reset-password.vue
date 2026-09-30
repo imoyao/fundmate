@@ -504,15 +504,15 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
   }
 }
 
-/* 输入框聚焦呼吸 */
-:deep(.el-input__wrapper) {
-  transition:
-    box-shadow 0.4s ease,
-    border-color 0.4s ease;
-
-  &.is-focus {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-700) 12%, transparent);
-  }
+/* 输入框聚焦呼吸：走 element-plus.scss「输入基线（#1772）」的令牌。
+   只覆盖焦点令牌本身（1px 品牌内描边 + 12% 柔光），亮 / 暗同一条表达式 ——
+   原先暗色会被 dark.scss 的 !important 焦点环抢走，基线统一后已无对手。
+   过渡改用 0.4s 呼吸节奏（EP 默认 0.2s）。 */
+.el-form {
+  --input-focus-shadow:
+    0 0 0 1px var(--input-focus-border-color) inset,
+    0 0 0 3px color-mix(in srgb, var(--brand-700) 12%, transparent);
+  --input-transition: box-shadow 0.4s ease;
 }
 
 /* 浏览器自动填充背景覆盖（与登录页同一处理）。

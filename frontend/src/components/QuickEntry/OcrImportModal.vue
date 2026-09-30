@@ -642,22 +642,19 @@ onMounted(() => {
   }
 }
 
+/* 文本域走 #1772 输入基线令牌：等宽字体直接写在容器上（EP 内部
+   `font-family: inherit` 会继承下来），圆角 / 静态描边 / 过渡 / 焦点光晕
+   全部由令牌表达，不再 :deep。
+   ⚠️ 焦点刻意**不用**全局 --focus-ring（2px 间隙圈 + 4px 实红双环）——
+   本输入区因自动聚焦常驻显示，重环会呈现「报错红框」观感；
+   改用 brand-40% 柔光，聚焦感清晰但不施压。 */
 .ocr-textarea {
-  :deep(.el-textarea__inner) {
-    font-family: var(--font-mono); /* 代码等宽，数字纵向对齐 */
-    border-radius: var(--radius-sm);
-    box-shadow: 0 0 0 1px var(--border-default) inset;
-    transition: box-shadow 0.2s ease;
+  --input-focus-shadow:
+    0 0 0 1px var(--brand-700) inset,
+    0 0 0 3px color-mix(in srgb, var(--brand-400) 40%, transparent);
+  --input-transition: box-shadow 0.2s ease;
 
-    &:focus {
-      /* 轻聚焦：仅 1px 品牌红内边 + 浅色光晕。
-         不用全局 --focus-ring（它是 2px 白圈+4px 实红双环，本输入区因自动聚焦常驻显示，
-         重环会呈现「报错红框」观感），改用 brand-40% 柔光，聚焦感清晰但不施压 */
-      box-shadow:
-        0 0 0 1px var(--brand-700) inset,
-        0 0 0 3px color-mix(in srgb, var(--brand-400) 40%, transparent);
-    }
-  }
+  font-family: var(--font-mono); /* 代码等宽，数字纵向对齐 */
 }
 
 /* 行内错误提示：危险色小字，不弹全局红提示 */

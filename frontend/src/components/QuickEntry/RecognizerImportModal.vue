@@ -575,19 +575,17 @@ onMounted(() => {
   min-height: 160px;
 }
 
+/* 文本域走 #1772 输入基线令牌：等宽字体直接写在容器上（EP 内部
+   `font-family: inherit` 会继承下来），圆角 / 静态描边 / 过渡 / 焦点光晕
+   全部由令牌表达，不再 :deep。焦点用 brand-40% 柔光而非全局 --focus-ring，
+   与 OcrImportModal 保持同一套「轻聚焦」观感（见 design.md 输入框基线契约）。 */
 .ocr-textarea {
-  :deep(.el-textarea__inner) {
-    font-family: var(--font-mono);
-    border-radius: var(--radius-sm);
-    box-shadow: 0 0 0 1px var(--border-default) inset;
-    transition: box-shadow 0.2s ease;
+  --input-focus-shadow:
+    0 0 0 1px var(--brand-700) inset,
+    0 0 0 3px color-mix(in srgb, var(--brand-400) 40%, transparent);
+  --input-transition: box-shadow 0.2s ease;
 
-    &:focus {
-      box-shadow:
-        0 0 0 1px var(--brand-700) inset,
-        0 0 0 3px color-mix(in srgb, var(--brand-400) 40%, transparent);
-    }
-  }
+  font-family: var(--font-mono);
 }
 
 .ocr-textarea__error {

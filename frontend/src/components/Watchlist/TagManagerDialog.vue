@@ -176,12 +176,11 @@ const deleteTag = async (tagId: number) => {
 }
 
 .tag-search {
+  /* 胶囊搜索框：只覆盖 #1772 输入基线的圆角令牌，不再 :deep */
+  --input-radius: var(--radius-pill);
+
   flex: 1;
   min-width: 0;
-}
-
-.tag-search :deep(.el-input__wrapper) {
-  border-radius: var(--radius-pill);
 }
 
 /* 列表末尾「新建标签」行：与标签行同高、紧挨列表，hover 提亮为品牌色 */

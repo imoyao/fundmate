@@ -346,28 +346,11 @@ defineExpose({ handleSubmit, resetForm });
   font-size: 0.75rem;
 }
 
-/* 输入框通用样式（与 BuyForm/SellForm 保持一致） */
-:deep(.el-input__wrapper) {
-  --el-input-border-color: var(--border-default);
-  --el-input-hover-border-color: var(--brand-500);
-  --el-input-focus-border-color: var(--brand-700);
-  --el-input-focus-shadow:
-    inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
-    0 0 0 4px var(--brand-700);
-
-  height: 40px;
-  border-radius: var(--radius-sm);
-}
-
-:deep(.el-select .el-input__wrapper) {
-  --el-input-border-color: var(--border-default);
-  --el-input-hover-border-color: var(--brand-500);
-  --el-input-focus-border-color: var(--brand-700);
-  --el-input-focus-shadow:
-    inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
-    0 0 0 4px var(--brand-700);
-
-  height: 40px;
-  border-radius: var(--radius-sm);
+/* 输入框高度：走 #1772 输入基线的高度令牌（与 BuyForm/SellForm 一致，
+   本表单是 40px 视觉高度）。底色 / 边框 / hover / focus / 圆角已由基线统一，
+   原先两条以 `.el-input__wrapper` 为目标的 :deep 块（含一条 `.el-select .el-input__wrapper`
+   死规则 —— el-select 树里没有 .el-input__wrapper）即因此删除。 */
+.el-form {
+  --input-height: 40px;
 }
 </style>

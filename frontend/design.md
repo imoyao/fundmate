@@ -413,10 +413,15 @@
 
 Element Plus 给 `.el-textarea__inner:focus` 自带
 `box-shadow: 0 0 0 1px var(--el-input-focus-border-color) inset`（用**内描边**当边框）——
-只清静态 `box-shadow` 时它照旧生效，于是「容器焦点环 + 内部红边」叠成双线，
-观感就是「输入框一聚焦，外面多出一圈很奇怪的线」。规则：
+只清静态 `box-shadow` 时它照旧生效，于是「容器焦点环 + 内部描边」叠成双线，
+观感就是「输入框一聚焦，外面多出一圈很奇怪的线」。
 
-- 由容器表达焦点时，必须**连 `:focus` 一起清掉**（`:deep(.el-textarea__inner:focus) { box-shadow: none }`）；
+**#1772 起这件事由「输入框基线契约」（见下文）单点负责**：亮 / 暗同一条焦点规则、
+只有一个环，页面**不再**手写「连 `:focus` 一起清掉」这类 `:deep` 对抗规则。页面侧只需：
+
+- 让控件自己聚焦：什么都不用做，基线已画好唯一那一环；
+- 让**容器**聚焦（如 agent 输入药丸）：用 `--input-focus-shadow: none` 关掉控件自身的焦点阴影，
+  再由容器 `:focus-within` 画 `--focus-ring`；
 - 容器自身不要在聚焦时同时留 `border` 与 `--focus-ring`：让 `border-color: transparent`，只留一环。
 
 **② 整屏高的页面用「单一滚动 + sticky 贴底」，不要自算视口高。**
@@ -451,12 +456,52 @@ Element Plus 给 `.el-textarea__inner:focus` 自带
 **隐藏与预留是一对**：命中隐藏的页面**不要**再预留 `--layout-fab-safe`（白掉一截宽度）；
 从清单 / meta 摘掉时**必须恢复预留**，否则又会被压。
 
-### 输入框视觉目前**没有**单一真相源（#1772 收敛中）
+### 输入框基线契约（#1772：el-input / el-textarea / el-select 唯一真相源）
 
-`el-input` / `el-textarea` 的内部视觉在全站**各自为政**：17 个业务文件用 `:deep()` 覆盖
-`.el-input__wrapper` / `.el-textarea__inner`，同一件事至少三种写法；且**暗色侧有焦点基线**
-（`dark.scss` 的 `.el-input__wrapper.is-focus`），**亮色侧为零**。新增页面**不要**再复制一套
-`:deep` 覆盖：等 #1772 落地统一基线（或 `AppInput` 组件）后复用，届时本节改写为该基线的契约。
+`el-input` / `el-textarea` / `el-select` 的内部视觉**只有一个真相源**：`frontend/src/style/element-plus.scss`
+的「输入基线」块。底色、边框三态、圆角、高度、文本域几何、焦点环全部由**令牌**表达，
+亮 / 暗两侧是同一条规则（`dark.scss` 的旧输入块已删除），**聚焦时只画一个环**。
+
+**页面侧只允许两件事：在容器上覆盖令牌、或写纯几何的 `:deep`。禁止再复制一套视觉覆盖。**
+
+#### 1. 令牌（声明在页面容器上，`element-plus.scss` 的 `:root` 是默认值）
+
+| 令牌 | 默认值 | 覆盖场景（真实读者） |
+|------|--------|----------------------|
+| `--input-bg` | `var(--bg-card)` | agent 输入药丸设 `transparent`（药丸自带底色） |
+| `--input-border-color` | `var(--border-default)` | agent 设 `transparent` |
+| `--input-hover-border-color` | `var(--brand-500)` | —— |
+| `--input-focus-border-color` | `var(--brand-700)` | 改焦点色时**必须与 `--input-focus-shadow` 同时覆盖** |
+| `--input-focus-shadow` | `inset 1px 品牌色 + var(--focus-ring)` | 登录 / 找回密码柔光、OCR / 识别导入柔环、agent `none` |
+| `--input-radius` | `var(--radius-sm)` | 标签搜索框 `--radius-pill`、AssetEntry 录入表单 `8px` |
+| `--input-height` | `auto`（= EP 原生 32px） | QuickEntry 三表单 / 流水编辑弹窗 `40px` |
+| `--input-textarea-padding` | `5px 11px` | 添加自选弹窗 `8px 12px`、agent `4px 8px` |
+| `--input-textarea-resize` | `vertical` | agent `none` |
+| `--input-transition` | `var(--el-transition-box-shadow)` | 柔光类用 `box-shadow 0.4s ease` 等放慢呼吸 |
+
+> **坑**：CSS 自定义属性的 `var()` 在**声明处**替换 —— 页面只改 `--input-focus-border-color`
+> 不会传导进默认的 `--input-focus-shadow`，要改焦点观感请直接覆盖 `--input-focus-shadow` 本身。
+
+#### 2. 焦点表达（亮 / 暗完全一致，只有一环）
+
+三条规则，无 `!important`，特异性都压在 EP 焦点态之上、表单校验红边之下：
+
+- input：`.el-input:not(.is-exceed) .el-input__wrapper.is-focus`
+- textarea：`.el-textarea:not(.is-exceed) .el-textarea__inner:focus`
+- select：`.el-select__wrapper.is-focused:not(.is-disabled)`
+
+`:not(.is-exceed)` 给超长红边让位；禁用态原生 input 拿不到焦点，无需再排 `.is-disabled`。
+
+#### 3. 允许的 `:deep` 例外（纯几何，现存 2 个文件，验收阈值 ≤2）
+
+| 文件 | 保留内容 |
+|------|----------|
+| `views/asset/AssetEntry.vue` | 录入表单的 padding / 字号 / 文本对齐（几何），圆角走 `--input-radius: 8px` |
+| `views/asset/investment/import/components/BatchFixPanel.vue` | 两条内边距微调 |
+
+`rg -l -e ':deep\([^)]*(el-input__wrapper|el-textarea__inner|el-input__inner)' frontend/src`
+**应恒等于这 2 个文件**（注释里写这个正则同样计数，别在注释中复述）。新增页面既不要成第 3 个，
+也不要另起一套 `:deep` 视觉覆盖 —— 需要差异就改令牌。
 
 ### 资产代码（symbol）展示契约（venue，2026-09-24 #1662 / D35 + D36）
 

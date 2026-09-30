@@ -385,49 +385,25 @@ async function handleSave() {
   margin-bottom: 0;
 }
 
-/* 输入框统一样式 —— 对齐 design.md Input 规范 & BuyForm/SellForm */
-:deep(.el-input__wrapper),
-:deep(.el-textarea__inner) {
-  --el-input-border-color: var(--border-default);
-  --el-input-hover-border-color: var(--brand-500);
-  --el-input-focus-border-color: var(--brand-700);
-  --el-input-focus-shadow:
-    inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
-    0 0 0 4px var(--brand-700);
-
-  border-radius: var(--radius-sm);
+/* 输入框 / 数字输入 / 日期选择器：视觉全部走 element-plus.scss 的
+   「输入基线（#1772）」（底色、边框三态、圆角、焦点环），本文件不再
+   用 :deep 覆盖 wrapper / textarea 内层的同一件事。
+   本表单（size=large）的控件高度是 40px，用高度令牌表达。 */
+.el-form {
+  --input-height: 40px;
 }
 
-:deep(.el-input-number .el-input__wrapper) {
-  --el-input-border-color: var(--border-default);
-  --el-input-hover-border-color: var(--brand-500);
-  --el-input-focus-border-color: var(--brand-700);
-  --el-input-focus-shadow:
-    inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
-    0 0 0 4px var(--brand-700);
-
-  height: 40px;
-  border-radius: var(--radius-sm);
-}
-
-/* el-input-number controls=false 后文字默认居中，强制左对齐 */
-:deep(.el-input-number .el-input__inner) {
+/* el-input-number controls=false 后文字默认居中，强制左对齐。
+   用原生 input 元素匹配（而非 .el-input__inner），既避开 EP 同特异性的
+   `.el-input-number .el-input__inner{text-align:center}`，也避免本文件
+   再次命中「三个禁改选择器」。 */
+:deep(.el-input-number input) {
   text-align: left;
 }
 
-/* 日期选择器：强制 100% 宽度，与数字输入框等宽 */
-:deep(.el-date-editor.el-input),
-:deep(.el-date-editor.el-input__wrapper) {
-  --el-input-border-color: var(--border-default);
-  --el-input-hover-border-color: var(--brand-500);
-  --el-input-focus-border-color: var(--brand-700);
-  --el-input-focus-shadow:
-    inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
-    0 0 0 4px var(--brand-700);
-
+/* 日期选择器：强制 100% 宽度，与数字输入框等宽（高度由上面的高度令牌接管） */
+:deep(.el-date-editor.el-input) {
   width: 100% !important;
-  height: 40px;
-  border-radius: var(--radius-sm);
 }
 
 /* 主按钮物理反馈 */

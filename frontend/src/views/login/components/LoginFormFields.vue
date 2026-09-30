@@ -204,28 +204,17 @@ const forgotFormRef = props.page.forgotFormRef;
   width: 100%;
 }
 
-/* 输入框聚焦呼吸：保留 EP 的 1px inset 描边（默认 --el-input-focus-border-color，
-   即品牌色 --brand-700），再叠加柔和外发光。
-   注意不能整体替换 box-shadow：EP 用 box-shadow inset 画边框，整体替换会导致
-   聚焦瞬间输入框自身描边消失、只剩突兀外扩光晕（回归根因）。
-   error 态由 EP 的 .el-form-item.is-error 规则（特异性更高）覆盖，红边优先，不受本规则影响。 */
-:deep(.el-input__wrapper) {
-  transition:
-    box-shadow 0.4s ease,
-    border-color 0.4s ease;
-
-  /* hover：1px 描边微亮 + 若有若无的光晕，为聚焦呼吸做铺垫 */
-  &:hover {
-    box-shadow:
-      0 0 0 1px var(--el-input-hover-border-color) inset,
-      0 0 0 3px color-mix(in srgb, var(--brand-700) 6%, transparent);
-  }
-
-  &.is-focus {
-    box-shadow:
-      0 0 0 1px var(--el-input-focus-border-color) inset,
-      0 0 0 3px color-mix(in srgb, var(--brand-700) 12%, transparent);
-  }
+/* 输入框聚焦呼吸：走 element-plus.scss「输入基线（#1772）」的令牌。
+   保留 1px 品牌内描边 + 柔和外发光（「呼吸感」），只覆盖焦点令牌本身；
+   hover 只留基线的描边微亮，不再另加光晕（叠加会与焦点态混淆）。
+   亮 / 暗共用这一条表达式：原来暗色要另写两条 `:global(.dark …)!important`
+   去对抗 dark.scss 的暗色焦点基线，基线统一后已无对手，故一并删除。
+   error 态由 EP 的 .el-form-item.is-error 规则（特异性更高）覆盖，红边优先。 */
+.el-form {
+  --input-focus-shadow:
+    0 0 0 1px var(--input-focus-border-color) inset,
+    0 0 0 3px color-mix(in srgb, var(--brand-700) 12%, transparent);
+  --input-transition: box-shadow 0.4s ease;
 }
 
 /* 浏览器自动填充背景覆盖：清除 Chrome 默认浅蓝底色，
@@ -243,22 +232,6 @@ const forgotFormRef = props.page.forgotFormRef;
   background-clip: content-box !important;
   box-shadow: 0 0 0 1000px var(--bg-card) inset !important;
   -webkit-text-fill-color: var(--text-primary) !important;
-}
-
-/* 暗色聚焦协调：全局 dark.scss 用 --focus-ring 双层硬环（!important）覆盖输入框聚焦，
-   登录页品牌面改用与亮色一致的内描边 + 低透明度光晕（同 index.vue 样式区「暗色模式独立
-   视觉适配」段注释的降饱和 color-mix 手法，暗色品牌色已降 20% 饱和度，故光晕透明度略高于亮色）。
-   两条规则都以 !important 对抗全局；error 规则特异性更高，红边优先。
-   注：Vue scoped 编译器不支持 :global(X) :deep(Y) 组合（deep 部分会丢失），
-   故整条选择器放入 :global，用 .login-page 锚定本页。 */
-:global(.dark .login-page .el-input__wrapper.is-focus) {
-  box-shadow:
-    0 0 0 1px var(--el-input-focus-border-color) inset,
-    0 0 0 3px color-mix(in srgb, var(--brand-700) 14%, transparent) !important;
-}
-
-:global(.dark .login-page .el-form-item.is-error .el-input__wrapper.is-focus) {
-  box-shadow: 0 0 0 1px var(--el-color-danger) inset !important;
 }
 
 /* ---------- 表单内辅助样式 ---------- */
