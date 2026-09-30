@@ -109,6 +109,11 @@
     </div>
 
     <p v-if="copyright" class="page-footer__copyright">{{ copyright }}</p>
+    <p class="page-footer__status">
+      <router-link to="/system/health" class="page-footer__source"
+        >系统状态</router-link
+      >
+    </p>
   </footer>
 </template>
 
@@ -263,6 +268,14 @@ withDefaults(
     margin: 16px auto 0;
     font-size: 12px;
     color: var(--text-tertiary-ink);
+    text-align: center;
+  }
+
+  &__status {
+    max-width: var(--layout-content-width);
+    padding: 0 24px;
+    margin: 4px auto 0;
+    font-size: 12px;
     text-align: center;
   }
 }
