@@ -49,7 +49,7 @@ load_dotenv(dotenv_path=env_path)
 def _build_orchestrator(db):
     # 惰性导入：orchestrator → akshare_adapter → akshare → pandas/numpy 的 C 扩展加载开销极大，
     # 仅在真正需要抓取的命令（temperature/all/job）才导入；只读诊断命令（verify-jisilu）不触碰此链路。
-    from app.services.sync.orchestrator import DataSyncOrchestrator
+    from app.services.sync.orchestrator import DataSyncOrchestrator, require_full_sync_scope
 
     return DataSyncOrchestrator(db)
 
@@ -66,10 +66,18 @@ def cmd_temperature(args):
 
 def cmd_all(args):
     """跑全部同步任务。"""
+    # --all --full-sync 必须带 --target-file 范围，否则全市场逐标的全量回填
+    # 会触发数据源封禁且耗时极长（#824 / #1776 ④）
+    if args.full_sync and not args.target_file:
+        logger.error(
+            '--all --full-sync 必须配合 --target-file <csv> 限定范围，'
+            '禁止裸调用（全市场逐标的全量回填会触发数据源封禁）。'
+        )
+        return 2
     init_db()
     with get_db() as db:
         orch = _build_orchestrator(db)
-        results = orch.run_all_jobs(full_sync=args.full_sync)
+        results = orch.run_all_jobs(full_sync=args.full_sync, target_file=args.target_file)
         failed = [k for k, v in results.items() if v.get('status') != 'success']
         for name, res in results.items():
             logger.info(f'  {name}: {res.get("status")}')
@@ -82,10 +90,19 @@ def cmd_all(args):
 
 def cmd_job(args):
     """透传跑单个 Job。"""
+    # 逐标的回填型 Job 走 --full-sync 必须带 --targets / --target-file（#824 / #1776 ④）
+    targets = None
+    if args.targets:
+        targets = [code.strip() for code in args.targets.split(',') if code.strip()]
+    try:
+        require_full_sync_scope(args.job, args.full_sync, bool(targets) or bool(args.target_file))
+    except ValueError as e:
+        logger.error(str(e))
+        return 2
     init_db()
     with get_db() as db:
         orch = _build_orchestrator(db)
-        result = orch.run_job(args.job, full_sync=args.full_sync)
+        result = orch.run_job(args.job, full_sync=args.full_sync, targets=targets)
         logger.info(f'{args.job} 执行完成: {result.get("status")}')
         return 0 if result.get('status') == 'success' else 1
 
@@ -113,12 +130,15 @@ def main():
     p_temp.set_defaults(func=cmd_temperature)
 
     p_all = sub.add_parser('all', help='跑全部同步任务')
-    p_all.add_argument('--full-sync', action='store_true', help='全量同步')
+    p_all.add_argument('--full-sync', action='store_true', help='全量同步（须配合 --target-file）')
+    p_all.add_argument('--target-file', type=str, help='通过 CSV 文件指定待同步的代码列表（--full-sync 必须）')
     p_all.set_defaults(func=cmd_all)
 
     p_job = sub.add_parser('job', help='透传跑单个 Job')
     p_job.add_argument('job', type=str, help='Job 名称，如 fund_nav / temperature')
     p_job.add_argument('--full-sync', action='store_true', help='全量同步')
+    p_job.add_argument('--targets', type=str, help='直接指定基金/股票代码列表，逗号分隔（--full-sync 必须）')
+    p_job.add_argument('--target-file', type=str, help='通过 CSV 文件指定待同步的代码列表（--full-sync 必须）')
     p_job.set_defaults(func=cmd_job)
 
     p_verify = sub.add_parser('verify-jisilu', help='验证 jisilu_indicator 是否已含 level 字段')

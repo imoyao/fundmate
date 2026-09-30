@@ -67,6 +67,51 @@ BASE_DIR = Path(app.__path__[0]).parent
 
 
 # ============================================================
+# --full-sync 范围强制校验（#824 / #1776 ④）
+# ============================================================
+
+# 这些 Job 属于「逐标的全市场历史回填」型：--full-sync 会触发逐标的全网抓取，
+# 数据量大（净值表 868MB 量级）且东财对出口 IP 限流封禁（eastmoney-antiscrape）。
+# 它们走 --full-sync 时**必须**带 --targets / --target-file 限定范围，禁止裸 --full-sync。
+# 列表型 / 指数型 Job（fund_list / stock_list / index_* / temperature 等）本身是「全市场刷新」，
+# 不依赖用户目标池，裸 --full-sync 是其正常模式，不在此限。
+SYMBOL_BACKFILL_JOBS = frozenset(
+    {
+        'fund_nav',
+        'price_history',
+        'fund_detail_enrich',
+        'fund_manager',
+        'fund_type',
+        'fund_company_backfill',
+        'fund_position',
+        'position_price',
+        'dividend_split',
+    }
+)
+
+
+def require_full_sync_scope(job_name: str, full_sync: bool, has_targets: bool) -> None:
+    """校验 --full-sync 是否带了范围。
+
+    Args:
+        job_name: 目标 Job 名。
+        full_sync: 是否全量同步。
+        has_targets: 是否提供了 --targets 或 --target-file 范围。
+
+    Raises:
+        ValueError: 当 full_sync 且 job 属于 SYMBOL_BACKFILL_JOBS 但无范围时。
+    """
+    if not full_sync:
+        return
+    if job_name in SYMBOL_BACKFILL_JOBS and not has_targets:
+        raise ValueError(
+            f'--full-sync 必须指定范围：用 --targets <code> 或 --target-file <csv> 限定 '
+            f"'{job_name}' 的回填标的；禁止裸 --full-sync"
+            '（逐标的全市场全量回填会触发数据源封禁且耗时极长）。'
+        )
+
+
+# ============================================================
 # 调度器主体
 # ============================================================
 

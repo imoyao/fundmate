@@ -54,6 +54,7 @@ class FundNavSyncJob(SyncJob):
 
     def _validate_data(self, raw_data: List[dict]) -> List[dict]:
         validated = []
+        today = date.today()
         for item in raw_data:
             if not item.get('fund_code') or not item.get('date') or item.get('unit_nav') is None:
                 continue
@@ -62,6 +63,10 @@ class FundNavSyncJob(SyncJob):
                     item['date'] = date.fromisoformat(item['date'])
                 except ValueError:
                     continue
+            # T 日不回填（#824 / #1776 ④）：当日净值盘中未定、心理打鼓，且用户看不到，
+            # 故止于 T-1；今日及未来日期一律丢弃，作为硬护栏防止误插。
+            if item['date'] >= today:
+                continue
             item.setdefault('created_at', now_shanghai())
             item.setdefault('updated_at', now_shanghai())
             validated.append(item)
