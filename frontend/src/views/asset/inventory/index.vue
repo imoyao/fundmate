@@ -34,14 +34,27 @@
           />
         </section>
 
-        <!-- 3. 持仓明细 -->
+        <!-- 3. 持仓明细（#1104：盈亏双线 —— 已确认 / 当日预估） -->
         <section class="inventory-section">
-          <SectionHeader title="持仓明细" />
+          <SectionHeader title="持仓明细" :info="PNL_DUAL_SCOPE_TIP">
+            <template #action>
+              <RealtimeEstimateToggle
+                :enabled="investmentValuation.realtime.enabled.value"
+                :status="investmentValuation.realtime.status.value"
+                :last-update-time="
+                  investmentValuation.realtime.lastUpdateTime.value
+                "
+                :text="investmentValuation.toggleText.value"
+                @toggle="investmentValuation.realtime.toggle"
+              />
+            </template>
+          </SectionHeader>
           <InvestmentPositionTable
             v-model:page="investmentPage"
             :positions="investmentPositions"
             :total="investmentTotal"
             :loading="investmentLoading"
+            :valuation="investmentValuation"
           />
         </section>
 
@@ -108,11 +121,16 @@ import {
   type QuickActionItem
 } from "./constants";
 import { useInventoryData } from "./useInventoryData";
+import {
+  PNL_DUAL_SCOPE_TIP,
+  usePositionValuation
+} from "@/composables/usePositionValuation";
 import CategoryTabs from "./components/CategoryTabs.vue";
 import CategoryDescBar from "./components/CategoryDescBar.vue";
 import InvestmentDistribution from "./components/InvestmentDistribution.vue";
 import QuickActionGrid from "./components/QuickActionGrid.vue";
 import InvestmentPositionTable from "./components/InvestmentPositionTable.vue";
+import RealtimeEstimateToggle from "./components/RealtimeEstimateToggle.vue";
 import OtherInvestmentTable from "./components/OtherInvestmentTable.vue";
 import CategoryAssetTable from "./components/CategoryAssetTable.vue";
 import AssetEditDialog from "./components/AssetEditDialog.vue";
@@ -136,6 +154,16 @@ const {
   fetchData,
   removeAsset
 } = useInventoryData(activeCategory);
+
+/**
+ * 持仓明细的盈亏双线估值接线（#1104）。
+ *
+ * 必须在页面 setup 顶层同步调用：`usePositionValuation` 内部注册了
+ * `watch(positions)` 与 `onBeforeUnmount`，晚于 await 调用会脱离组件实例。
+ * 传入当前页持仓 —— 预估只覆盖当前页，这与表格「后端分页、逐行展示」的口径一致；
+ * 页面不做任何跨页汇总，避免出现「本页预估合计」这种会被误读成全仓的数字。
+ */
+const investmentValuation = usePositionValuation(investmentPositions);
 
 /** 当前大类的说明文案 */
 const activeCategoryDesc = computed(

@@ -19,6 +19,7 @@ title: 组件使用规范（设计语言实现层）
   - `RiseFallText` — 涨跌幅文本（正负号 + 涨红跌绿 + 等宽数字）
   - `ProductDisplay` — 产品信息单元格（名称 + 代码 + 类型标签，表格产品列统一）
   - `AssetTypeBadge` — 资产 / 账本类型胶囊（统一账本配色）
+  - `PnlDualLine` — 盈亏双线（已确认 / 预估两行同显，「估」标记 + 免责 tooltip，#1104）
 - `CardBlock` — 区块卡片容器（统一 token 卡片，禁各页手写 `bg-white rounded-2xl` 等重复样式）
 - `PortfolioEditDialog` — 组合编辑对话框（编辑组合 + 关联账户，自 portfolio 详情页拆出）
 - `TagManagerDialog` / `TagFormDialog` / `TagEditorDialog` — 自选标签管理（GitHub Labels 风格列表）/ 标签新建编辑轻量弹窗 / 行内标签编辑弹窗（自 watchlist 页拆出，见「自选标签弹窗」章节）
@@ -174,6 +175,20 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - 子项默认 `flex: 1 1 200px`，featured 子项 `flex: 2 1 400px`。
 - 行内剩余空间由 flex 自动均分，避免出现右侧大片空白。
 - 响应式：≤960px → 最小宽度 160px；≤520px → 1 列。
+
+## PnlDualLine · 盈亏双线（#1104）
+
+两条口径**两行同显**，不合并、不互相覆盖：
+
+| 行 | 口径 | 数据源 | 展示 |
+|---|---|---|---|
+| 主行「已确认」 | T-1 确认净值 / 最近交易日收盘价 | 后端 `positions.current_price`（`position_price` job 回写） | `MoneyDisplay` + 口径标签 |
+| 副行「预估」 | 盘中实时行情估算 | 前端 `useRealtimeQuotes`（天天基金估值 / 腾讯行情） | 「估」徽章 + `MoneyDisplay`，或不可用提示 |
+
+- props：`confirmed` / `estimated`（`null` 即无值）/ `hint`（预估不可用时的提示文案）/ `size`（`sm` \| `md`）。
+- **拿不到真实行情时不显示数字**：引擎降级到后端静态价时 `source === "static"`，那等于确认口径本身，同显会出现两行一模一样的数——由 `usePositionValuation.estimatedPnl` 拦掉。
+- 「估」徽章是唯一视觉锚点（`--brand-100` 底 + `--brand-700` 字），**必须**带免责 tooltip（文案 `ESTIMATE_DISCLAIMER`）；调用方同时应在区块标题的 `info` 里给出 `PNL_DUAL_SCOPE_TIP`。
+- 预估覆盖范围 = 调用方传入的持仓集合（当前页），**禁止**在分页表格上做跨页预估汇总。
 
 ## CardBlock · 区块卡片容器（强制复用）
 
@@ -440,6 +455,7 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 | 货币工具 | `src/utils/currency.ts` | `toBaseCurrency` / `fromBaseCurrency` / `getCurrencySymbol` / `formatAmount` |
 | `usePageRefresh` | `src/composables/usePageRefresh.ts` | 全局刷新事件订阅（防抖计时器每实例私有） |
 | `useFundTradeDate` | `src/composables/useFundTradeDate.ts` | 基金交易日期联动（calcFundConfirmDate + fetchFundNav），BuyForm / SellForm / TransactionEditDialog 三处共用 |
+| `usePositionValuation` | `src/composables/usePositionValuation.ts` | 持仓盈亏双线接线（已确认 `confirmedPnl` + 预估 `estimatedPnl` / `estimateHint`），#1104 |
 
 ### useEchartsLifecycle · 图表生命周期
 
