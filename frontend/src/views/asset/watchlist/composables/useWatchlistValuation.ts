@@ -154,8 +154,11 @@ export function useWatchlistValuation(data: WatchlistData) {
   });
 
   // ✅ 2. 修复：原 watch 导致的死循环/卡顿，重构为更稳定的版本
+  // ⚠️ 必须同时监听 allItems（#1104）：getHoldings 读的是**全量** allItems，而它在
+  // fetchData 里晚于 items 一拍才填充——只监听 items 时，冷启动首轮 manualRefresh
+  // 会拿到空 holdings 空跑一次，实时估值得等下一个 30s 轮询 tick 才出现（实测）。
   watch(
-    () => items.value,
+    () => [items.value, allItems.value],
     () => {
       if (realtime.enabled.value) {
         try {
