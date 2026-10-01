@@ -10,6 +10,8 @@
   （盘中估值相对确认净值的偏移）。切换器由调用方按需另行提供。
 
   纯展示组件：不取数、不推断口径，两个值由调用方（`usePositionValuation`）传入。
+  副行抽成 `PnlEstimateLine`（#1104）：自选页的主行是 `MoneyWithRatio`，
+  套不进本组件，但副行口径必须与这里一致，故不能各写一份。
 -->
 <template>
   <div class="pnl-dual-line" :class="`pnl-dual-line--${size}`">
@@ -25,39 +27,15 @@
     </div>
 
     <!-- 副行：当日预估（估值口径）。拿到真实行情才显示数字 -->
-    <div class="pnl-dual-line__row">
-      <el-tooltip
-        v-if="hasEstimated"
-        :content="ESTIMATE_DISCLAIMER"
-        placement="top"
-      >
-        <span
-          class="pnl-dual-line__badge"
-          tabindex="0"
-          role="note"
-          :aria-label="ESTIMATE_DISCLAIMER"
-          >估</span
-        >
-      </el-tooltip>
-      <span v-else class="pnl-dual-line__tag">预估</span>
-
-      <MoneyDisplay
-        v-if="hasEstimated"
-        :value="estimated"
-        :show-sign="true"
-        size="xs"
-      />
-      <span v-else class="pnl-dual-line__hint">{{ hint }}</span>
-    </div>
+    <PnlEstimateLine :estimated="estimated" :hint="hint" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
-import { ESTIMATE_DISCLAIMER } from "@/composables/usePositionValuation";
+import PnlEstimateLine from "@/components/PnlEstimateLine/index.vue";
 
-const props = withDefaults(
+withDefaults(
   defineProps<{
     /** 已确认盈亏（T-1 口径）；null / undefined 渲染为 `--` */
     confirmed?: number | null;
@@ -69,10 +47,6 @@ const props = withDefaults(
     size?: "sm" | "md";
   }>(),
   { confirmed: null, estimated: null, hint: "", size: "sm" }
-);
-
-const hasEstimated = computed(
-  () => props.estimated != null && !Number.isNaN(props.estimated)
 );
 </script>
 
@@ -102,36 +76,5 @@ const hasEstimated = computed(
 
 .pnl-dual-line--md .pnl-dual-line__tag {
   font-size: 12px;
-}
-
-/* 「估」徽章：与 SegmentedControl 选中态同一「软按钮」语言（--brand-100 底 + --brand-700 字）。
-   它是「这个数字不是确认值」的唯一视觉锚点，因此比旁边的口径标签更重。 */
-.pnl-dual-line__badge {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-  color: var(--brand-700);
-  cursor: help;
-  background-color: var(--brand-100);
-  border-radius: var(--radius-pill);
-}
-
-.pnl-dual-line__badge:focus-visible {
-  outline: 1px solid var(--brand-400);
-  outline-offset: 1px;
-}
-
-/* 预估不可用时的提示：比口径标签更弱，避免在表格里抢注意力 */
-.pnl-dual-line__hint {
-  font-size: 11px;
-  color: var(--text-tertiary-ink);
-  white-space: nowrap;
 }
 </style>
