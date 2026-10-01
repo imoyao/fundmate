@@ -1,32 +1,43 @@
 <template>
-  <!-- 解析预览：只读展示，error 行标红禁提交 -->
+  <!-- 预览：只读展示，error 行标红禁提交。三种导入模式共用这一张表，
+       标题 / 计数 / 按钮按模式措辞（解析=文件与 AI，录入=手动） -->
   <div class="preview-card">
     <SectionHeader
-      title="解析预览"
+      :title="p.importMode === 'manual' ? '录入预览' : '解析预览'"
       :info="
-        '共识别 ' +
+        (p.importMode === 'manual' ? '共录入 ' : '共识别 ') +
         p.parseMeta.total +
         ' 条记录' +
         (p.errorCount > 0 ? '，其中 ' + p.errorCount + ' 条解析失败' : '')
       "
     >
       <template #action>
+        <!-- 手动录入（#1788）没有「对账」语义：提交走 holdings/confirm 直接落持仓，
+             按钮与计数文案随之切换，避免用户以为会进对账中心。 -->
         <el-button
           type="primary"
           :disabled="p.errorCount > 0 || p.previewRows.length === 0"
           :loading="p.reconciling"
           @click="p.handleReconcile"
         >
-          <IconifyIconOffline icon="ep:connection" class="mr-1" />
-          开始对账
+          <IconifyIconOffline
+            :icon="p.importMode === 'manual' ? 'ep:download' : 'ep:connection'"
+            class="mr-1"
+          />
+          {{ p.importMode === "manual" ? "确认导入" : "开始对账" }}
         </el-button>
       </template>
     </SectionHeader>
 
     <div v-if="p.errorCount > 0" class="parse-warning">
       <IconifyIconOffline icon="ep:warning-filled" class="mr-1" />
-      存在 {{ p.errorCount }} 条解析失败记录（红底行），请更换文件后重试，
-      有误数据不会参与对账
+      <template v-if="p.importMode === 'manual'">
+        存在 {{ p.errorCount }} 条无效记录（红底行），请修正后重试
+      </template>
+      <template v-else>
+        存在 {{ p.errorCount }} 条解析失败记录（红底行），请更换文件后重试，
+        有误数据不会参与对账
+      </template>
     </div>
 
     <!-- 表格视觉基线走 src/style/el-table.css（row-blocked 为基线内置类） -->
@@ -65,14 +76,24 @@
           <span class="num-cell">{{ formatDate(row.snapshot_date) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="销售机构" min-width="170">
+      <!-- 销售机构 / 基金管理人是 E账户快照的溯源列（来自文件里的销售渠道与管理人字段）。
+           手动录入没有这些来源，留着只会是两列恒为「--」，反而让人以为漏填，故按模式隐藏。 -->
+      <el-table-column
+        v-if="p.importMode !== 'manual'"
+        label="销售机构"
+        min-width="170"
+      >
         <template #default="{ row }">
           <span class="ellipsis-text" :title="row.source_broker || ''">
             {{ row.source_broker || "--" }}
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="基金管理人" min-width="170">
+      <el-table-column
+        v-if="p.importMode !== 'manual'"
+        label="基金管理人"
+        min-width="170"
+      >
         <template #default="{ row }">
           <span class="ellipsis-text" :title="row.fund_manager || ''">
             {{ row.fund_manager || "--" }}
@@ -96,7 +117,9 @@
 
     <div class="preview-footer">
       <span class="preview-footer__count">
-        共 {{ p.parseMeta.total }} 条，可对账
+        共 {{ p.parseMeta.total }} 条，{{
+          p.importMode === "manual" ? "可导入" : "可对账"
+        }}
         {{ p.previewRows.length - p.errorCount }} 条
       </span>
     </div>

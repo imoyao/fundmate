@@ -167,14 +167,15 @@ const AssetRouteConfig = {
             hideQuickEntry: true
           }
         },
-        // E账户导入（持仓快照，落 positions 不建流水）
+        // 持仓快照导入（落 positions 不建流水；#1788 由「E账户导入」改名对齐三处入口文案。
+        // 目录名仍为 eaccount-import/ —— 卡片只约定 path，且 api/eaccount.ts 等同族标识沿用，避免无谓 churn）
         {
-          path: "/investment/eaccount-import",
-          name: "InvestmentEaccountImport",
+          path: "/investment/holding-import",
+          name: "InvestmentHoldingImport",
           component: () =>
             import("@/views/asset/investment/eaccount-import/index.vue"),
           meta: {
-            title: "E账户导入",
+            title: "导入持仓快照",
             icon: "ep:upload",
             rank: 11,
             showLink: false,

@@ -67,11 +67,12 @@ function onLiability() {
   goToLiabilityForm();
 }
 
-// 持仓快照导入：跳过选账户步骤，后端自动归因决定账户归属
-// 注意：路由经 formatTwoStageRoutes 拍平后注册为 /investment/eaccount-import，
-// 用 name 跳转最稳妥（不依赖 path 层级，与 eaccount-import 内 goToReconcileCenter 同惯例）
+// 持仓快照导入：文件 / AI 两档跳过选账户步骤，后端自动归因决定账户归属
+//（#1788 的「手动录入」分段才要求先选归属账户）
+// 注意：路由经 formatTwoStageRoutes 拍平后注册为 /investment/holding-import，
+// 用 name 跳转最稳妥（不依赖 path 层级，与 eaccount-import/ 内 goToReconcileCenter 同惯例）
 function goToHoldingImport() {
-  router.push({ name: "InvestmentEaccountImport" });
+  router.push({ name: "InvestmentHoldingImport" });
 }
 
 // 平台 logo 加载失败兜底：隐藏裂图，仅保留文字名

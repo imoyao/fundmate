@@ -3,9 +3,13 @@
     <!-- 页头 -->
     <header class="import-head">
       <div class="import-head__text">
-        <h1 class="import-head__title">导入 E账户快照</h1>
+        <!-- 标题必须与三处入口文案（全面盘点卡 / 向导卡④ / 首页 CTA）同词，
+             否则用户「入口写导入持仓快照、点进来变 E账户专用页」会有认知断层（#1788）。
+             「不生成交易流水」是三条路径的共同契约：holdings/confirm 与 reconcile 都只写 positions。 -->
+        <h1 class="import-head__title">导入持仓快照</h1>
         <p class="import-head__subtitle">
-          上传 E账户（中国结算）导出的持仓文件，解析后自动与各销售渠道对账归因
+          上传持仓文件、AI
+          识别或手动录入，逐行核对后写入对应账户，不生成交易流水
         </p>
       </div>
       <el-button
@@ -19,7 +23,7 @@
       </el-button>
     </header>
 
-    <!-- #1239 草稿层：同域（A）E账户导入草稿恢复 Banner，不弹窗打断 -->
+    <!-- #1239 草稿层：同域（A）导入持仓快照的草稿恢复 Banner，不弹窗打断 -->
     <EaccountDraftBanner :page="imp" />
 
     <!-- 两步流程指示（与交易导入向导同语言） -->
@@ -55,6 +59,13 @@
       <!-- AI 识别模式入口：文本 / 图片 → holding_import → 持仓预览行（逻辑见 components/EaccountAiPanel） -->
       <EaccountAiPanel v-if="!parsedOk && importMode === 'ai'" :page="imp" />
 
+      <!-- 手动录入模式入口（#1788 第三分段）：先选归属账户、再逐行填持仓 → 转成与
+           文件 / AI 同一种 OcrHoldingRow 预览行，复用下方同一张预览表与同一个确认动作 -->
+      <EaccountManualPanel
+        v-if="!parsedOk && importMode === 'manual'"
+        :page="imp"
+      />
+
       <!-- 大上传卡片 + 解析完成状态条（显隐条件在组件内，与拆分前逐字一致） -->
       <EaccountUploadCard :page="imp" />
 
@@ -72,17 +83,21 @@ import { IconifyIconOffline } from "@/components/ReIcon";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import EaccountDraftBanner from "./components/EaccountDraftBanner.vue";
 import EaccountAiPanel from "./components/EaccountAiPanel.vue";
+import EaccountManualPanel from "./components/EaccountManualPanel.vue";
 import EaccountUploadCard from "./components/EaccountUploadCard.vue";
 import EaccountParsePreview from "./components/EaccountParsePreview.vue";
 import EaccountReconcileResult from "./components/EaccountReconcileResult.vue";
 import { useEaccountImport } from "./composables/useEaccountImport";
 
-defineOptions({ name: "InvestmentEaccountImport" });
+// 名字必须与 asset.ts 路由 name 逐字一致（否则 keep-alive 失效，AGENTS「新增页面路由」约束）。
+// 原名以 Eaccount 结词、与三处入口文案「导入持仓快照」对不上，#1788 随页面改名（旧名见该卡变更记录）。
+defineOptions({ name: "InvestmentHoldingImport" });
 
-/** 导入方式分段选项（#1731）：`as const` 让 value 保持字面量类型，供 SegmentedControl 泛型推断 */
+/** 导入方式分段选项（#1731 软按钮规范；#1788 加第三段「手动录入」）：`as const` 让 value 保持字面量类型，供 SegmentedControl 泛型推断 */
 const IMPORT_MODE_OPTIONS = [
   { label: "上传文件", value: "file" },
-  { label: "AI 识别持仓", value: "ai" }
+  { label: "AI 识别持仓", value: "ai" },
+  { label: "手动录入", value: "manual" }
 ] as const;
 
 // #980 P1-B 结构拆分：状态与动作收敛在 composables/useEaccountImport.ts，
