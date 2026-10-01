@@ -134,6 +134,10 @@ title: 数据策略（按需存、禁止全量堆砌）
 7. **`--full-sync` 必须带范围，且基金净值 T 日不回填（#824 / #1776 ④）**：
    - **范围强制**：逐标的回填型 job（`fund_nav` / `price_history` / `fund_detail_enrich` / `fund_manager` / `fund_type` / `fund_company_backfill` / `fund_position` / `position_price` / `dividend_split`）裸 `--full-sync`（无 `--targets` / `--target-file`）由 CLI **直接拒绝执行**（`sync/orchestrator.py` 的 `SYMBOL_BACKFILL_JOBS` + `require_full_sync_scope`，接入 `sync_metadata.py` / `sync_cli.py`）。理由同本条第 3 点：逐标的全市场全量回填是数万次外部请求，触发数据源封禁且耗时以小时计。列表型 / 指数型 / 温度计型 job 单次调用换全市场，裸 `--full-sync` 属正常模式，不受限。
    - **T 日不回填**：`fund_nav_job` 写入前丢弃 `date >= today` 的记录——净值发布有滞后，当日（含未来）净值尚未成立，入库等于伪造数据。
+8. **全市场数据的初始化/重建走 DB 快照，不走云端全量拉取（#1776 ⑤）**：
+   `pdm run sync --snapshot <path>` 导出市场域只读快照（31 张市场域表 + `snapshot_meta`，**不含用户私有数据**、排除 `sync_logs`），
+   `pdm run sync --import-snapshot <file>` 校验（SQLite magic / meta / 表白名单，含用户域表即拒绝）后按**本地唯一约束**幂等导入（`INSERT OR IGNORE`，不覆盖本地记录）。
+   实现见 `services/sync/snapshot.py`。日常增量仍走 `--all`；单只/CSV 范围回填走本条第 7 点的 `--full-sync --targets`。
 
 > 反面先例（**2026-09-11 已按本条收敛**）：`fund_meta_job.py:50,71-82`——`for code, fund in db.query(Fund).all(): fetch_fund_top_holdings(code)` 即**全库 26,938 次逐只外部请求**（实测 ≈1.8 s/只 ⇒ **≈13.5 小时**），而其 docstring 声称「本地只存用户核心池，不把全市场基金灌进库」。
 >

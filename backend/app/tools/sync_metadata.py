@@ -28,6 +28,11 @@
     --full-sync      全量；仅限初始化 / 修复场景，且必须带范围，裸调用将被拒绝（#824 / #1776 ④）
     --targets        直接指定代码（逗号分隔），或
     --target-file    CSV 指定代码范围
+    --snapshot       导出市场域只读快照到 PATH（#1776 ⑤ DB 下载导入层）：
+                     初始化/重建本地库不再全市场拉取，改为「下载快照文件 → 本地导入」
+    --import-snapshot
+                     导入已下载的快照文件（校验 + 按本地唯一约束幂等去重，不覆盖本地记录）；
+                     导入完成即回到 --all 日常增量。二者与同步参数互斥、彼此也互斥
 
 任务说明:
     stock_list         - 刷新 A 股股票列表（全量，约 5000 只）
@@ -40,6 +45,7 @@
 """
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -150,7 +156,30 @@ def main():
     parser.add_argument('--full-sync', action='store_true', help='全量同步（默认增量）')
     parser.add_argument('--target-file', type=str, help='通过CSV文件指定待同步的代码列表')
     parser.add_argument('--targets', type=str, help='直接指定基金/股票代码列表，逗号分隔')
+    parser.add_argument(
+        '--snapshot',
+        type=str,
+        metavar='PATH',
+        help='导出市场域只读快照到 PATH（#1776 ⑤ DB 下载导入层；只含市场域表，不含用户数据）',
+    )
+    parser.add_argument(
+        '--import-snapshot',
+        type=str,
+        metavar='FILE',
+        help='导入已下载的快照文件（校验 + 按本地唯一约束幂等去重，不覆盖本地记录）',
+    )
     args = parser.parse_args()
+
+    # 快照导出 / 导入（#1776 ⑤）：文件通道，与同步互斥（设计：初始化/重建不再全市场拉取）
+    if args.snapshot or args.import_snapshot:
+        if args.snapshot and args.import_snapshot:
+            print('错误：--snapshot 与 --import-snapshot 只能二选一')
+            sys.exit(2)
+        if args.all or args.job or args.full_sync or args.targets or args.target_file:
+            print('错误：--snapshot / --import-snapshot 不能与 --all/--job/--full-sync/--targets/--target-file 同用')
+            sys.exit(2)
+        _run_snapshot_command(args)
+        return
 
     if not args.all and not args.job:
         parser.print_help()
@@ -226,6 +255,47 @@ def main():
         except Exception as e:
             logger.error(f'同步失败: {e}')
             sys.exit(1)
+
+
+def _run_snapshot_command(args) -> None:
+    """快照导出 / 导入（#1776 ⑤）：文件通道，不走 API 全量拉取。
+
+    校验失败（非 SQLite / 缺 meta / 含白名单外表 / 版本不符）以退出码 2 表达，
+    信息直接给运维；RuntimeError（如市场域是远端库）以退出码 1 表达。
+    """
+    from app.services.sync import snapshot as snapshot_service
+
+    try:
+        if args.snapshot:
+            meta = snapshot_service.export_snapshot(args.snapshot)
+            counts = json.loads(meta['counts'])
+            missing = json.loads(meta['missing_tables'])
+            print('=' * 60)
+            print(f'  快照已导出: {meta["path"]}')
+            print(f'  表数量: {len(counts)}（共 {sum(counts.values())} 行）')
+            if missing:
+                print(f'  本地缺失、未包含的表: {", ".join(missing)}')
+            print('=' * 60)
+            print(
+                '  下一步：把该文件分发给用户（静态托管/内部下载），'
+                '或本地执行 `pdm run sync --import-snapshot <file>` 完成初始化'
+            )
+            return
+
+        result = snapshot_service.import_snapshot(args.import_snapshot)
+        print('=' * 60)
+        print(f'  快照导入完成: {result["snapshot"]}（快照生成时间 {result["created_at"]}）')
+        print(f'  新增 {result["total_inserted"]} 行（{len(result["inserted"])} 张表）')
+        if result['skipped']:
+            print(f'  跳过的表（本地缺表 / 无唯一约束且非空）: {", ".join(result["skipped"])}')
+        print('  后续：日常增量请运行 `pdm run sync --all`')
+        print('=' * 60)
+    except ValueError as e:
+        print(f'错误：{e}')
+        sys.exit(2)
+    except RuntimeError as e:
+        print(f'错误：{e}')
+        sys.exit(1)
 
 
 def format_summary(results: dict, elapsed: float) -> str:

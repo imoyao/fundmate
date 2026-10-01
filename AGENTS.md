@@ -168,6 +168,11 @@
     指数型（`index_*`）/ 温度计型 job 单次调用换全市场，裸 `--full-sync` 为其正常模式，不受限。
   - **基金净值止于 T-1（#824）**：`fund_nav_job._validate_data` 丢弃 `date >= today` 的记录——净值发布有
     滞后，T 日 / 未来净值尚未成立，不得入库。
+  - **初始化/重建走 DB 快照，不走全市场拉取（#1776 ⑤）**：`pdm run sync --snapshot <path>` 导出市场域
+    只读快照（31 张市场域表 + `snapshot_meta`，**不含用户私有数据**、排除 `sync_logs`），文件分发给用户后
+    `pdm run sync --import-snapshot <file>` 本地导入（校验 magic / meta / 表白名单，按本地唯一约束
+    `INSERT OR IGNORE` 幂等去重，不覆盖本地记录）。实现见 `services/sync/snapshot.py`，设计见
+    `docs/working-notes/db-download-import-2026-08-09.md`。
 
 ### 日志（2026-08-09 统一）
 
