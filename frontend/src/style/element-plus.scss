@@ -215,11 +215,19 @@
   /* 过渡：默认沿用 EP 的 box-shadow 过渡，页面要「呼吸感」时覆盖本令牌 */
   --input-transition: var(--el-transition-box-shadow);
 
-  /* 焦点 = 1px 内描边 + 唯一的一圈 --focus-ring，亮 / 暗同一条表达式。
+  /* 焦点 = 1px 品牌内描边 + 3px 12% 柔光：**轻聚焦，只有一层环**（#1815）。
      ⚠️ 自定义属性在**声明处**完成 var() 替换，故页面要改焦点观感时必须覆盖
-     本令牌本身；只覆盖 --input-focus-border-color 不会传导进来。 */
+     本令牌本身；只覆盖 --input-focus-border-color 不会传导进来。
+
+     ⚠️ 这里**刻意不用 `--focus-ring`**：它是无障碍用的双环指示器
+     （`0 0 0 2px 间隙 + 0 0 0 4px 品牌实环`，见 frontend/design.md「Focus &
+     Accessibility」），叠在输入框上会变成「1px 内描边 + 2px 间隙 + 4px 实环」
+     **三层描边**——观感就是用户反馈的「输入框一聚焦，描边好几层」。
+     `--focus-ring` 只用于**非输入类**的键盘焦点（按钮 / 链接 / 自定义控件 /
+     容器 `:focus-within`）；输入类控件一律用本令牌的柔光单环。 */
   --input-focus-shadow:
-    0 0 0 1px var(--input-focus-border-color) inset, var(--focus-ring);
+    0 0 0 1px var(--input-focus-border-color) inset,
+    0 0 0 3px color-mix(in srgb, var(--brand-700) 12%, transparent);
 }
 
 /* 令牌 → EP 源变量的接线：写在读取者身上（见上方「为什么」段） */
@@ -261,8 +269,7 @@
 
 /* 焦点：亮 / 暗只有这一条规则、只有一个环。
    `:not(.is-exceed)` 是给超长红边让位；禁用态原生 input 拿不到焦点、
-   EP 不会加 .is-focus，故无需再排 .is-disabled。
-   error 态由 EP 的 (0,5,0) 规则接管，红边优先，不依赖加载顺序。 */
+   EP 不会加 .is-focus，故无需再排 .is-disabled。 */
 .el-input:not(.is-exceed) .el-input__wrapper.is-focus {
   box-shadow: var(--input-focus-shadow);
 }
@@ -273,6 +280,19 @@
 
 .el-select__wrapper.is-focused:not(.is-disabled) {
   box-shadow: var(--input-focus-shadow);
+}
+
+/* 校验错误态：红边**取代**焦点环，而不是叠在它上面（#1815）。
+   叠着出现时「红框 + 品牌柔光」同框，又回到「描边好几层」。
+   刻意写在焦点规则**之后**：错误 + 聚焦这两条特异性同为 (0,4,0)，靠顺序取胜，
+   不依赖 EP 内部规则的档位（历史注释曾假定 EP 的 (0,5,0) 必赢，实测不稳）。 */
+.el-form-item.is-error .el-input__wrapper,
+.el-form-item.is-error .el-input__wrapper.is-focus,
+.el-form-item.is-error .el-textarea__inner,
+.el-form-item.is-error .el-textarea__inner:focus,
+.el-form-item.is-error .el-select__wrapper,
+.el-form-item.is-error .el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--color-danger) inset;
 }
 
 /* 仿 el-scrollbar 滚动条样式，支持大多数浏览器，如Chrome、Edge、Firefox、Safari等。整体暗色风格在 src/style/dark.scss 文件进行了适配 */

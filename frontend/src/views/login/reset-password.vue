@@ -504,14 +504,10 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
   }
 }
 
-/* 输入框聚焦呼吸：走 element-plus.scss「输入基线（#1772）」的令牌。
-   只覆盖焦点令牌本身（1px 品牌内描边 + 12% 柔光），亮 / 暗同一条表达式 ——
-   原先暗色会被 dark.scss 的 !important 焦点环抢走，基线统一后已无对手。
-   过渡改用 0.4s 呼吸节奏（EP 默认 0.2s）。 */
+/* 输入框聚焦呼吸：**只放慢过渡**（0.4s），焦点表达式本身用 element-plus.scss
+   「输入基线」的默认值。#1815 起基线默认即「1px 品牌内描边 + 3px 12% 柔光」的
+   轻聚焦单环，本文件原先复制了同一份表达式，属重复维护，已删除。 */
 .el-form {
-  --input-focus-shadow:
-    0 0 0 1px var(--input-focus-border-color) inset,
-    0 0 0 3px color-mix(in srgb, var(--brand-700) 12%, transparent);
   --input-transition: box-shadow 0.4s ease;
 }
 

@@ -347,6 +347,12 @@
 - 内层环（2px）：与卡片背景色一致，制造干净间隙
 - 外层环（4px）：品牌色，指示焦点位置
 
+> **边界（#1815）**：`--focus-ring` 是**双环**，只用于**非输入类**的键盘焦点
+> （按钮 / 链接 / 自定义控件 / 容器 `:focus-within`）。输入类控件
+> （`el-input` / `el-textarea` / `el-select`）一律用「输入框基线契约」的
+> `--input-focus-shadow` 柔光**单环**——把 `--focus-ring` 叠进输入框会得到三层描边，
+> 守卫 `scripts/guard_input_focus.py` 会拦。
+
 > 禁止移除 `outline` 而不提供替代视觉指示。所有交互元素需附带 `aria` 标签。
 
 > **自动化测试约束**：所有 CSS 变量（颜色）变更必须通过 axe-core 或 Lighthouse 进行对比度回归测试，确保 WCAG AA 合规。禁止在无自动化验证的情况下修改 `--text-*` 或颜色相关变量。
@@ -472,7 +478,7 @@ Element Plus 给 `.el-textarea__inner:focus` 自带
 | `--input-border-color` | `var(--border-default)` | agent 设 `transparent` |
 | `--input-hover-border-color` | `var(--brand-500)` | —— |
 | `--input-focus-border-color` | `var(--brand-700)` | 改焦点色时**必须与 `--input-focus-shadow` 同时覆盖** |
-| `--input-focus-shadow` | `inset 1px 品牌色 + var(--focus-ring)` | 登录 / 找回密码柔光、OCR / 识别导入柔环、agent `none` |
+| `--input-focus-shadow` | `inset 1px 品牌色 + 3px 12% 品牌柔光`（**单环**） | OCR / 识别导入柔环（40% 品牌 400）、agent `none` |
 | `--input-radius` | `var(--radius-sm)` | 标签搜索框 `--radius-pill`、AssetEntry 录入表单 `8px` |
 | `--input-height` | `auto`（= EP 原生 32px） | QuickEntry 三表单 / 流水编辑弹窗 `40px` |
 | `--input-textarea-padding` | `5px 11px` | 添加自选弹窗 `8px 12px`、agent `4px 8px` |
@@ -482,15 +488,32 @@ Element Plus 给 `.el-textarea__inner:focus` 自带
 > **坑**：CSS 自定义属性的 `var()` 在**声明处**替换 —— 页面只改 `--input-focus-border-color`
 > 不会传导进默认的 `--input-focus-shadow`，要改焦点观感请直接覆盖 `--input-focus-shadow` 本身。
 
-#### 2. 焦点表达（亮 / 暗完全一致，只有一环）
+#### 2. 焦点表达（亮 / 暗完全一致，**只有一环**）
 
-三条规则，无 `!important`，特异性都压在 EP 焦点态之上、表单校验红边之下：
+三条规则，无 `!important`：
 
 - input：`.el-input:not(.is-exceed) .el-input__wrapper.is-focus`
 - textarea：`.el-textarea:not(.is-exceed) .el-textarea__inner:focus`
 - select：`.el-select__wrapper.is-focused:not(.is-disabled)`
 
 `:not(.is-exceed)` 给超长红边让位；禁用态原生 input 拿不到焦点，无需再排 `.is-disabled`。
+
+表达式 = `--input-focus-shadow` 默认值：**1px 品牌内描边 + 3px 12% 品牌柔光**。
+
+> **`--focus-ring` 不属于输入类控件**（#1815）。它是无障碍的**双环**指示器
+> （`0 0 0 2px 间隙 + 0 0 0 4px 品牌实环`，见「Focus & Accessibility」），
+> 早先输入基线把它拼进 `--input-focus-shadow`，于是一个聚焦输入框叠出
+> 「1px 内描边 + 2px 间隙 + 4px 实环」**三层描边**——正是「输入框一聚焦，
+> 描边好几层」的成因。`--focus-ring` 只用于**非输入类**的键盘焦点
+> （按钮 / 链接 / 自定义控件 / 容器 `:focus-within`）。
+> 守卫 `scripts/guard_input_focus.py` 会拦住「把 `--focus-ring` 写回输入基线」。
+
+#### 2.1 校验错误态：红边取代焦点环，不叠加
+
+`.el-form-item.is-error` 下的 input / textarea / select（含其 `.is-focus` / `:focus`
+变体）统一为 `box-shadow: 0 0 0 1px var(--color-danger) inset`——**错误优先、且只有一层**；
+否则「红框 + 品牌柔光」同框又是多层描边。该规则写在焦点规则之后：两者特异性同为
+`(0,4,0)`，靠顺序取胜，不依赖 EP 内部规则的档位。
 
 #### 3. 允许的 `:deep` 例外（纯几何，现存 2 个文件，验收阈值 ≤2）
 
@@ -592,7 +615,7 @@ Element Plus 给 `.el-textarea__inner:focus` 自带
 | 边框 | `--border-default` |
 | 圆角 | `--radius-sm` |
 | 高度 | 40px |
-| Focus | 边框 `--brand-700` + `--focus-ring` |
+| Focus | 边框 `--brand-700` + 输入基线柔光单环（`--input-focus-shadow`） |
 
 ### Card
 
