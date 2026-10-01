@@ -51,7 +51,7 @@ def _reset_singleton():
 
 
 class TestLoadConfig:
-    def test_default_is_disabled_with_six_jobs(self):
+    def test_default_is_disabled_with_seven_jobs(self):
         cfg = ds.load_config({})
         # 必须显式打开：否则 conftest 每个用例都会 create_app()，测试里就会真的起抓取线程
         assert cfg.enabled is False
@@ -59,6 +59,7 @@ class TestLoadConfig:
             'temperature',
             'fund_nav',
             'price_history',
+            'index_daily',
             'position_price',
             'advisor_portfolio',
             'fund_position',
@@ -71,6 +72,7 @@ class TestLoadConfig:
         assert crons['temperature'] == ds.DEFAULT_TEMPERATURE_CRON
         assert crons['fund_nav'] == ds.DEFAULT_NAV_CRON
         assert crons['price_history'] == ds.DEFAULT_PRICE_HISTORY_CRON
+        assert crons['index_daily'] == ds.DEFAULT_INDEX_DAILY_CRON
         assert crons['position_price'] == ds.DEFAULT_POSITION_PRICE_CRON
         assert crons['advisor_portfolio'] == ds.DEFAULT_ADVISOR_CRON
         assert crons['fund_position'] == ds.DEFAULT_FUND_HOLDING_CRON
@@ -128,6 +130,7 @@ class TestLoadConfig:
             'temperature',
             'fund_nav',
             'price_history',
+            'index_daily',
             'position_price',
             'fund_position',
         ]
@@ -150,6 +153,7 @@ class TestLoadConfig:
                 ds.ENV_ADVISOR_ENABLED: '0',
                 ds.ENV_POSITION_PRICE_ENABLED: '0',
                 ds.ENV_PRICE_HISTORY_ENABLED: '0',
+                ds.ENV_INDEX_DAILY_ENABLED: '0',
                 ds.ENV_FUND_HOLDING_ENABLED: '0',
                 ds.ENV_NAV_CRON: '5 22 * * 1-5',
             }

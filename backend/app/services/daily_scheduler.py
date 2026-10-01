@@ -91,6 +91,8 @@ ENV_PRICE_HISTORY_ENABLED = 'SCHEDULER_PRICE_HISTORY_ENABLED'
 ENV_PRICE_HISTORY_CRON = 'SCHEDULER_PRICE_HISTORY_CRON'
 ENV_POSITION_PRICE_ENABLED = 'SCHEDULER_POSITION_PRICE_ENABLED'
 ENV_POSITION_PRICE_CRON = 'SCHEDULER_POSITION_PRICE_CRON'
+ENV_INDEX_DAILY_ENABLED = 'SCHEDULER_INDEX_DAILY_ENABLED'
+ENV_INDEX_DAILY_CRON = 'SCHEDULER_INDEX_DAILY_CRON'
 ENV_ADVISOR_ENABLED = 'SCHEDULER_ADVISOR_ENABLED'
 ENV_ADVISOR_CRON = 'SCHEDULER_ADVISOR_CRON'
 ENV_FUND_HOLDING_ENABLED = 'SCHEDULER_FUND_HOLDING_ENABLED'
@@ -107,6 +109,11 @@ DEFAULT_PRICE_HISTORY_CRON = '30 17 * * *'
 # 持仓现价回写（#1104）：净值走 daily_worth、场内走 price_history，故**必须晚于两者**。
 # 与投顾组合（22:00）错开 15 分钟，避免两个 job 同时抢同一个 DB 会话与磁盘。
 DEFAULT_POSITION_PRICE_CRON = '15 22 * * *'
+# 指数日线（#275 / #861）：本机调度原先**不含**本任务，index_daily 只在 CI / 手工
+# `grab.*` 时更新——实测数据停在 2026-09-08（陈旧 23 天）。
+# A 股 15:00 收盘、腾讯日线盘后即出，排在 17:30 场内日线之后、20:00 温度计之前：
+# 与两者都无依赖关系，只是错开 DB 会话与外部请求窗口（同一出口同时打两路易成突发指纹）。
+DEFAULT_INDEX_DAILY_CRON = '0 18 * * *'
 # 投顾组合：排在净值之后——且慢调仓快照带当日净值占比，且调仓多发生在盘后，
 # 排在净值前会用到前一日口径。这也是且慢调仓历史的**唯一**来源（无官方历史接口）。
 DEFAULT_ADVISOR_CRON = '0 22 * * *'
@@ -198,6 +205,19 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[str], str], ...] = (
         DEFAULT_PRICE_HISTORY_CRON,
         'stock',
         '场内日线（股票 / ETF / 可转债，按缺口回补）',
+    ),
+    (
+        # 指数日线（#275 基准对比 / #861 绩效分析底座）：双源——万得系走韭圈儿、
+        # 交易所宽基（沪深300 等）走腾讯直连，见 sync/jobs/index_daily_job.py。
+        # target_kind=None：目标池是**固定清单**（WIND/TENCENT_INDEX_TARGETS），
+        # 与用户持仓/自选无关，套 resolve_targets() 只会拿到不相干的 fund/stock 代码。
+        # job 是 best-effort（_allow_empty_data=True），非交易日/源失败静默跳过不阻断。
+        'index_daily',
+        ENV_INDEX_DAILY_ENABLED,
+        ENV_INDEX_DAILY_CRON,
+        DEFAULT_INDEX_DAILY_CRON,
+        None,
+        '指数日线（万得系 + 交易所宽基，增量自愈；#275 / #861）',
     ),
     (
         # 持仓现价回写（#1104）：把 daily_worth 的确认净值写回 positions.current_price，

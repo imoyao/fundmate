@@ -1,26 +1,36 @@
 # -*- coding: utf-8 -*-
 """指数日线点位同步任务（#275 基准对比 / #861 绩效分析底座）。
 
-数据源：韭圈儿公开接口（JiucaishuoAdapter，免登录 best-effort）。点位口径双模式：
-- anchored：有真实收盘锚（股票/宽基指数如 881001 万得全A），反推派生、锚随最新收盘平移；
-- normalized：无估值锚的指数（885 系基金指数，及 2026-09-09 实测无收盘价的
-  889033 可转债等权 / 8841431 微盘股）起点归一化 1000，逐日确定不漂移。
-口径与风险细节见 jiucaishuo_adapter.py 模块注释。
+两路数据源（按代码后缀分流，同一个 Job 内）：
+- **万得系**（`.WI` 后缀）→ 韭圈儿公开接口（JiucaishuoAdapter，免登录 best-effort）。
+  点位口径双模式：
+  - anchored：有真实收盘锚（如 881001 万得全A），反推派生、锚随最新收盘平移；
+  - normalized：无估值锚的指数（885 系基金指数等）起点归一化 1000，逐日确定不漂移。
+  口径与风险细节见 jiucaishuo_adapter.py 模块注释。
+- **交易所指数**（`.SH` / `.SZ` 后缀）→ 腾讯日线直连（`adapters/direct_feeds.py`，
+  2026-10-01 引入）。点位为**真实收盘价**，口径 `price_mode='raw'`。
+  为什么必须补这一路：韭圈儿只覆盖万得系，而绩效对比最常用的基准（沪深300 / 中证500
+  / 创业板指…）是交易所指数——它们在 `index_daily` 里原先**一行都没有**，只能靠
+  `market_service` 每次向 akshare 现拉（不落库、无历史序列，无法做跨年对比）。
+  东财 push2his 不做备选：2026-10-01 实测**首次 200、第二次起即 RemoteDisconnected**
+  （突发配额后限流），12 个目标根本跑不完。
 
 写入语义：按 (index_code, trade_date) **upsert**（覆盖同日），非名录那种整体
 重建——日线序列应只增不改（反推锚点平移会导致全序列微小漂移，重跑全量
 以最新锚点为准，属预期行为）。
 
-目标与增量策略（#275 定稿的万得系全家桶，见 WIND_INDEX_TARGETS）：
-全量（--full-sync / grab.all）取成立来（date='all'，万得全A 6464 条）；
-常规增量（每日调度）拉近 12 月（2 个 HTTP 请求/目标，自愈缺口）。
+目标与增量策略：
+- 万得系（WIND_INDEX_TARGETS）：全量取成立来（date='all'，万得全A 6464 条）；增量近 12 月。
+- 交易所指数（TENCENT_INDEX_TARGETS）：全量分页翻到源侧耗尽（沪深300 约 7 页）；增量近 12 月。
 """
 
-from typing import List
+from datetime import date, timedelta
+from typing import List, Optional
 
 from loguru import logger
 
 from app.domains.indices.models import IndexDaily
+from app.services.adapters.direct_feeds import fetch_daily_tencent
 from app.services.job_base import SyncJob
 
 # 万得系指数目标清单（#275 定稿）：韭圈儿 gu_code 原生形态（.WI 后缀）。
@@ -49,7 +59,32 @@ WIND_INDEX_TARGETS: List[tuple] = [
     ('885074.WI', '万得平衡混合型FOF指数'),  # ⏳ 未收录
     ('885075.WI', '万得偏债混合型FOF指数'),  # ⏳ 未收录
 ]
-DEFAULT_TARGETS = [gu for gu, _name in WIND_INDEX_TARGETS]
+
+# ── 交易所指数目标清单（腾讯源，2026-10-01 实测 12/12 可取）────────────────────
+# 前 6 项与 `services/bias/constants.py::BENCHMARK_INDICES`（乖离率侧的宽基基准）**逐字对齐**，
+# 由 tests 锁定一致性。**刻意不 import 那个常量**：那会让 sync 家族反向依赖 bias 家族，
+# 与 `architecture.md` §6「家族包内只留该家族独有实现」相悖（守卫 R5 的立法意图）。
+# 名称用「申万/交易所通称」而非公示全称；代码↔名称已用新浪 hq 快照逐只交叉核对
+# （2026-10-01：12/12 名称与收盘价均可对上，无错配）。
+# 债券基准用 000012.SH（上证国债指数）+ 399481.SZ（企债指数）两段近似：
+# 常用的中证全债 **H11001 无公开行情通道**（腾讯 sh11001/sz11001 空、新浪返回空），
+# 缺口单列，不用假数据顶替（data-strategy「参考展示类」口径，宁缺勿错）。
+TENCENT_INDEX_TARGETS: List[tuple] = [
+    ('000001.SH', '上证指数'),
+    ('000016.SH', '上证50'),
+    ('000300.SH', '沪深300'),
+    ('000905.SH', '中证500'),
+    ('000906.SH', '中证800'),
+    ('000852.SH', '中证1000'),
+    ('000688.SH', '科创50'),
+    ('399001.SZ', '深证成指'),
+    ('399005.SZ', '中小100'),
+    ('399006.SZ', '创业板指'),
+    ('399481.SZ', '企债指数'),
+    ('000012.SH', '上证国债指数'),
+]
+
+DEFAULT_TARGETS = [code for code, _name in WIND_INDEX_TARGETS + TENCENT_INDEX_TARGETS]
 
 
 class IndexDailySyncJob(SyncJob):
@@ -66,22 +101,54 @@ class IndexDailySyncJob(SyncJob):
     # ── 抓取 ──
 
     def _fetch_data(self, full_sync: bool, targets: List[str]) -> List[dict]:
-        # '__full__' 是编排器的全量占位符，不是真实 gu_code
-        gu_codes = [t for t in targets if t != '__full__'] or DEFAULT_TARGETS
-        # 全量取成立来（接口 date='all'）；增量拉近 12 月（自愈缺口，2 请求/目标）
-        months = 'all' if full_sync else 12
-        names = dict(WIND_INDEX_TARGETS)
+        # '__full__' 是编排器的全量占位符，不是真实代码
+        codes = [t for t in targets if t != '__full__'] or DEFAULT_TARGETS
+        names = dict(WIND_INDEX_TARGETS + TENCENT_INDEX_TARGETS)
         out = []
-        for gu in gu_codes:
-            gu = gu.strip()
-            if not gu:
+        for code in codes:
+            code = code.strip()
+            if not code:
                 continue
-            try:
-                out.append({'gu_code': gu, 'gu_name': names.get(gu, gu), **self.adapter.fetch_index_daily(gu, months)})
-            except Exception as e:
-                # 单目标失败不阻断其他目标（best-effort 数据源，fallback 见 #275）
-                self.logger.warning(f'指数日线 {gu} 获取失败: {e}')
+            if code.upper().endswith('.WI'):
+                # 万得系：全量取成立来（date='all'）；增量拉近 12 月（自愈缺口，2 请求/目标）
+                months = 'all' if full_sync else 12
+                try:
+                    out.append(
+                        {
+                            'gu_code': code,
+                            'gu_name': names.get(code, code),
+                            'source': 'jiucaishuo',
+                            **self.adapter.fetch_index_daily(code, months),
+                        }
+                    )
+                except Exception as e:
+                    # 单目标失败不阻断其他目标（best-effort 数据源，fallback 见 #275）
+                    self.logger.warning(f'指数日线 {code} 获取失败: {e}')
+            else:
+                item = self._fetch_tencent_target(code, names.get(code, code), full_sync)
+                if item:
+                    out.append(item)
         return out
+
+    def _fetch_tencent_target(self, code: str, name: Optional[str], full_sync: bool) -> Optional[dict]:
+        """交易所指数（腾讯源）：取到**带交易日**的日线，可直接落 index_daily。
+
+        全量翻到成立以来（分页），增量取近 12 月——与万得系的口径对齐，便于两路混跑。
+        """
+        start_date = None if full_sync else date.today() - timedelta(days=365)
+        rows = fetch_daily_tencent(code, start_date=start_date)
+        if not rows:
+            self.logger.warning(f'指数日线 {code}({name or code}) 腾讯源无数据，跳过')
+            return None
+        return {
+            'gu_code': code,
+            'gu_name': name or code,
+            'source': 'tencent',
+            # 腾讯给的是指数真实收盘价：既非韭圈儿的「反推派生锚」，也非「归一化 1000」，
+            # 故单列 raw 口径，避免下游把三种口径混为一谈
+            'price_mode': 'raw',
+            'rows': [{'trade_date': date.fromisoformat(d), 'close': close} for d, close in rows],
+        }
 
     # ── 校验 / 去重 ──
 
@@ -114,6 +181,8 @@ class IndexDailySyncJob(SyncJob):
         for item in new_data:
             index_code = item['gu_code']
             price_mode = item.get('price_mode', 'anchored')
+            # 2026-10-01 起本 job 是双源（韭圈儿 / 腾讯），source 不能再写死成 jiucaishuo
+            source = item.get('source', 'jiucaishuo')
             rows = item['rows']
             existing = {
                 r.trade_date: r
@@ -134,7 +203,7 @@ class IndexDailySyncJob(SyncJob):
                             trade_date=r['trade_date'],
                             close=r['close'],
                             ret_pct=r.get('ret_pct'),
-                            source='jiucaishuo',
+                            source=source,
                             price_mode=price_mode,
                         )
                     )
@@ -143,6 +212,7 @@ class IndexDailySyncJob(SyncJob):
                     row.close = r['close']
                     row.ret_pct = r.get('ret_pct')
                     row.price_mode = price_mode
+                    row.source = source
                     updated += 1
             self.db.commit()
             logger.info(f'指数日线 {index_code}({price_mode}): 新增 {inserted} / 更新 {updated}（共 {len(rows)} 条）')
