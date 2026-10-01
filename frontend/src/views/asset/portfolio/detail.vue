@@ -105,9 +105,19 @@
         <div v-else class="xirr-empty">计算中...</div>
       </CardBlock>
 
-      <!-- 持仓明细 -->
+      <!-- 持仓明细（#1104：盈亏双线 —— 已确认 / 当日预估） -->
       <CardBlock class="mb-6">
-        <SectionHeader title="持仓明细" />
+        <SectionHeader title="持仓明细" :info="PNL_DUAL_SCOPE_TIP">
+          <template #action>
+            <RealtimeEstimateToggle
+              :enabled="estimateEnabled"
+              :status="estimateStatus"
+              :last-update-time="estimateUpdatedAt"
+              :text="estimateToggleText"
+              @toggle="estimateQuotes.toggle"
+            />
+          </template>
+        </SectionHeader>
         <el-table
           v-if="holdings.length"
           :data="pagedHoldings"
@@ -141,15 +151,21 @@
               />
             </template>
           </el-table-column>
+          <!-- 盈亏双线（#1104）：主行＝已确认（后端 current_price 口径），副行＝当日预估。
+               排序仍按后端 `pnl`（与已确认同一公式）——资产行无份额 / 现价，两行都显示 `--`。 -->
           <el-table-column
             label="盈亏"
-            width="120"
+            width="170"
             align="right"
             sortable
             prop="pnl"
           >
             <template #default="{ row }">
-              <MoneyDisplay :value="row.pnl || 0" />
+              <PnlDualLine
+                :confirmed="confirmedPnl(row as PortfolioHolding)"
+                :estimated="estimatedPnl(row as PortfolioHolding)"
+                :hint="estimateHint(row as PortfolioHolding)"
+              />
             </template>
           </el-table-column>
           <el-table-column
@@ -338,8 +354,15 @@ import MetricCard from "@/components/MetricCard/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
+import PnlDualLine from "@/components/PnlDualLine/index.vue";
+import RealtimeEstimateToggle from "@/components/RealtimeEstimateToggle/index.vue";
 import PortfolioEditDialog from "@/components/PortfolioEditDialog/index.vue";
 import { useEnumLabels } from "@/composables/useEnumLabels";
+import {
+  confirmedPnl,
+  PNL_DUAL_SCOPE_TIP,
+  usePositionValuation
+} from "@/composables/usePositionValuation";
 
 defineOptions({ name: "PortfolioDetail" });
 
@@ -353,6 +376,17 @@ interface PortfolioHolding {
   pnl_rate?: number;
   account_name?: string;
   source?: string | null;
+  /**
+   * #1104：盈亏双线要用到的最小字段集（后端本就下发，此前页面类型没声明）。
+   *
+   * 注意 `type` 与 `quantity` 对**资产行**（`api/portfolio.ts` 注释：资产行 id = asset.id
+   * + 100000）是空的——`confirmedPnl` 会返回 `null` 显示 `--`，这是正确行为：
+   * 那些行没有「份额 × 现价」的口径，不该硬凑一个 0 出来。
+   */
+  type?: string | null;
+  quantity?: number | null;
+  current_price?: number | null;
+  avg_price?: number | null;
 }
 
 /** 关联账户：账户 + 组合关联字段 */
@@ -382,6 +416,27 @@ const { ensure: ensureEnums, positionSourceLabel } = useEnumLabels();
 const holdings = ref<PortfolioHolding[]>([]);
 const holdingsPage = ref(1);
 const holdingsPageSize = 20;
+
+/**
+ * 盈亏双线（#1104）：估值接线。
+ *
+ * 传**全量** `holdings` 而非当前页 `pagedHoldings`——本页分页是前端 slice，传当前页会让
+ * 每次翻页都重取一轮行情（`usePositionValuation` 的 `watch` 会触发）；而估值引擎是
+ * 一次批量请求（基金一批 / 场内一批），全量代价一样。页面也没有「预估合计」这类
+ * 跨页汇总，不存在被误读成全仓的口径风险。
+ *
+ * 三个 `estimate*` 是 `usePositionValuation` 提供的顶层别名：模板不会解包嵌套 ref，
+ * 用它才能直接绑定（详见该组合式函数返回值处的注释）。
+ */
+const {
+  estimatedPnl,
+  estimateHint,
+  estimateEnabled,
+  estimateStatus,
+  estimateUpdatedAt,
+  toggleText: estimateToggleText,
+  realtime: estimateQuotes
+} = usePositionValuation(holdings);
 
 // 未归档持仓（ledger_id=null，如探市录入）：就地归档到本组合下某账户
 const unarchived = ref<PortfolioHolding[]>([]);

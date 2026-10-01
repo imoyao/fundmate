@@ -1,7 +1,11 @@
-// 系统健康检查（#1720）：展示后端 GET /api/health 返回的组件健康。
-// 该接口免登录（监控/探活用），前端管理页据此向维护者呈现运维状态。
+// 健康检查接口客户端（#1720）：`GET /api/health` 的响应体。
+//
+// ⚠️ 本接口**不使用** `{data, message}` 信封（与 assets/positions 等业务接口不同）：
+// 它是运维探活端点（探活工具普遍按 `/health` 调用、只认顶层 `status`），
+// 与尾斜杠一样属 `conventions.md` 的明文例外（D28）。故这里直接以 `HealthData`
+// 标注响应体——**写成 `ApiResponse<HealthData>` 会让人以为要读 `res.data`，
+// 而实际 `res.data` 恒为 undefined，页面永远停在骨架屏（#1802 的根因）**。
 import { http } from "@/utils/http";
-import type { ApiResponse } from "@/api/types";
 
 export type ComponentStatus =
   "ok" | "healthy" | "degraded" | "unhealthy" | "disabled" | string;
@@ -38,8 +42,6 @@ export interface HealthData {
   };
 }
 
-export type HealthResult = ApiResponse<HealthData>;
-
 export const getHealth = () => {
-  return http.request<HealthResult>("get", "/api/health");
+  return http.request<HealthData>("get", "/api/health");
 };

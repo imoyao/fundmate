@@ -4,7 +4,7 @@
   收敛到一处，消除双重维护与文案不一致：
     - 合规免责文案：单一常量
     - 版权主体「© 2026 多多贝」：单一常量（年份跨年只需改此处）
-    - 系统状态入口：单一路由常量（/system/health）
+    - 系统状态入口：单一路由常量（/system/status）
     - 开源致谢：可选外链（仅全局布局页展示）
   props:
     - brandSuffix:        版权尾缀（如「· 让投资更从容」），可选
@@ -52,8 +52,8 @@ const DISCLAIMER =
   "市场有风险，投资需谨慎。本平台内容仅供参考，不构成任何投资建议。";
 // 单一来源：版权主体（年份跨年只需改此处）
 const COPYRIGHT_BASE = "© 2026 多多贝";
-// 单一来源：系统状态页入口
-const SYSTEM_STATUS_TO = "/system/health";
+// 单一来源：系统状态页入口（#1802 起路径为 /status；API 仍是 /api/health）
+const SYSTEM_STATUS_TO = "/status";
 </script>
 
 <style lang="scss" scoped>

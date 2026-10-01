@@ -76,6 +76,43 @@ export default [
       requiresAuth: false // 探市免登录（D4），与后端 /api/temperature/* 白名单一致
     }
   },
+  // 系统状态（#1720 建页；#1795 health→status 命名收敛；#1799 全屏公开页；#1802 归位一级路径）。
+  // 路径就是 `/status`：status page 属站点根下的短路径（GitHub 即 /status），
+  // 再套一层 /system 既无第二个兄弟页可挂，也让「系统」与「状态」语义重复。
+  // 与探市同族：不经 Layout（无侧边栏），自带 MarketHeader + SiteLegalBar 外壳，免登录
+  // （与后端 /api/health 白名单口径一致）。
+  {
+    path: "/status",
+    name: "Status",
+    component: () => import("@/views/status/index.vue"),
+    meta: {
+      title: "系统状态",
+      showLink: false,
+      requiresAuth: false
+    }
+  },
+  // 旧路径归位（承接历史书签与外链，勿删）：/system/health 为原始路径，
+  // /system/status 为 #1795 的中间态。
+  {
+    path: "/system/status",
+    name: "SystemStatusLegacy",
+    redirect: "/status",
+    meta: {
+      title: "系统状态",
+      showLink: false,
+      requiresAuth: false
+    }
+  },
+  {
+    path: "/system/health",
+    name: "SystemHealthLegacy",
+    redirect: "/status",
+    meta: {
+      title: "系统状态",
+      showLink: false,
+      requiresAuth: false
+    }
+  },
   // 个人中心 —— 应用内页面，挂在 Layout 下（不走全屏）
   {
     path: "/profile",

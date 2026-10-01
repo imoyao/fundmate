@@ -446,7 +446,11 @@ export const watchlistColumnDefs: ColumnDef[] = [
     hideable: true,
     draggable: true,
     // value=holding_pnl, ratio=holding_pnl_percent（renderer 内对持仓量为 0 时置 null）
-    props: { ratioKey: "holding_pnl_percent" }
+    // estimatePnl（#1104）：实时估值开启**且拿到真实行情**时，本列追加第三行「估」副行
+    // （引擎按实时价与成本价算出的盈亏，口径与「持仓收益」同源）。
+    // 列宽**不加**：副行是「16px 徽章 + 金额」，128px 内放得下；而默认列集本就卡着
+    // 1040px 预算（#1425），加宽会触发横向滚动。
+    props: { ratioKey: "holding_pnl_percent", estimatePnl: true }
   },
 
   // ── #993(a) 新增候选列 ──

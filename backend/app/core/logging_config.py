@@ -27,10 +27,13 @@ rename 失败并打一行错误日志）。详见 `docs/dev/scheduler-tasks.md`�
 import os
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from loguru import logger
+
+from app.core.time_utils import now_shanghai
 
 # backend/ 目录：app/core/logging_config.py -> app/core -> app -> backend
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -49,6 +52,32 @@ LOG_FORMAT = '{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{
 # 进程本地时区对齐目标：loguru 的文件名 / 轮转 / 行内时间都取**进程本地时区**，
 # 而项目约定「时间一律上海」（见 app/core/time_utils.py），故把本地时区钉到上海。
 SHANGHAI_TZ_NAME = 'Asia/Shanghai'
+# Windows 的 MSVCRT 只认 POSIX 形式的时区串（`std offset`，符号是反的：CST-8 = UTC+8），
+# **不认 IANA 名**；喂它 IANA 名会解析失败并静默回退 UTC（#1805 实测：22:38 → 14:38）。
+SHANGHAI_TZ_POSIX = 'CST-8'
+
+# 启动自检阈值：进程本地时间与上海时间偏差超过它就告警（#1805）。
+# 本地时间的偏差从来不是「差几十秒的抖动」，而是整小时级（时区没对齐），60s 足够区分。
+TIME_SKEW_TOLERANCE_SECONDS = 60
+
+
+def resolve_tz_name() -> str:
+    """当前平台应当写进 `TZ` 的时区串（#1805）。
+
+    POSIX：IANA 名（配合 `time.tzset()` 生效）；
+    Windows：MSVCRT 只认 POSIX 形式，写 IANA 名会被解析失败并回退 UTC。
+    """
+    return SHANGHAI_TZ_NAME if hasattr(time, 'tzset') else SHANGHAI_TZ_POSIX
+
+
+def local_time_drift_seconds() -> float:
+    """进程**本地时间**与上海时间的偏差（秒，恒为正，取绝对值）。
+
+    本地时间是 `datetime.now()` / `time.localtime()` / loguru 的口径，
+    上海时间是项目约定口径（`now_shanghai()`）。两者本应一致，偏差即故障信号。
+    """
+    local = datetime.now()
+    return abs((local - now_shanghai().replace(tzinfo=None)).total_seconds())
 
 
 def _align_process_timezone_to_shanghai() -> None:
@@ -64,11 +93,19 @@ def _align_process_timezone_to_shanghai() -> None:
     这里把进程 TZ 钉到上海，让「文件名 / 轮转边界 / 行内时间」三者与 time_utils 一致。
     只影响依赖本地时区的调用（`datetime.now()` / `time.localtime()` / loguru），
     不影响显式时区（`now_shanghai()` / `datetime.now(timezone.utc)`）。
-    Windows 无 `time.tzset`：跳过（本机 OS 时区即上海，无需处理）。
+
+    ⚠️ 两平台写法必须分开（#1805，Windows 实测）：POSIX 走 IANA 名 + `tzset()`；
+    Windows 没有 `time.tzset`，且 MSVCRT **不认 IANA 名**——写成 `Asia/Shanghai` 会让
+    本地时间**静默变成 UTC**（实测同一时刻 22:38 → 14:38），于是日志时间戳 / 文件名 /
+    轮转边界、以及后端所有 `datetime.now()`、`date.today()` 一律偏 8 小时，且 CRT 缓存
+    之后无法纠正。故 Windows 只能给 POSIX 形式 `CST-8`。
     """
-    os.environ['TZ'] = SHANGHAI_TZ_NAME
     if hasattr(time, 'tzset'):
+        os.environ['TZ'] = SHANGHAI_TZ_NAME
         time.tzset()
+        return
+    # Windows：MSVCRT 读 TZ，但只认 POSIX 形式（'CST-8' = UTC+8，无夏令时）
+    os.environ['TZ'] = SHANGHAI_TZ_POSIX
 
 
 _TRUTHY = {'0', 'false', 'no', 'off'}
@@ -132,6 +169,17 @@ def setup_file_logging() -> Optional[int]:
 
     # 对齐进程时区到上海：loguru 文件名 / 轮转 / 行内时间都取本地时区（#1551）
     _align_process_timezone_to_shanghai()
+
+    # 启动自检（#1805）：对齐后本地时间仍与上海差整小时级 → TZ 没生效（Windows 无
+    # tzset、或启动环境的 TZ 被设成了别的时区）。此时日志时间戳/文件名/轮转边界整体
+    # 错位，后端 `datetime.now()` / `date.today()` 也不可信，必须让它在日志里显形。
+    drift = local_time_drift_seconds()
+    if drift > TIME_SKEW_TOLERANCE_SECONDS:
+        logger.warning(
+            f'进程本地时间与上海时间相差 {drift / 3600:.1f} 小时：'
+            f'日志时间戳 / 文件名 / 轮转边界都会错位，datetime.now()、date.today() 亦不可信。'
+            f'请检查启动环境的 TZ（本平台应写 {resolve_tz_name()}，见 #1805）'
+        )
 
     explicit = os.getenv('LOG_ENABLED', '').strip().lower()
     if explicit in _TRUTHY:

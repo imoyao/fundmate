@@ -19,6 +19,7 @@ from werkzeug.exceptions import HTTPException  # noqa: E402
 from app.core.auth import auth_before_request, register_user_identity  # noqa: E402
 from app.core.database import init_db, teardown_request_session  # noqa: E402
 from app.core.exceptions import ErrorCode, SBException  # noqa: E402
+from app.core.instance_guard import enforce_web_instance_or_exit  # noqa: E402
 from app.domains.agent.views import agent_bp  # noqa: E402
 from app.domains.assets.views import bp as assets_bp  # noqa: E402
 from app.domains.auth.views import auth_bp  # noqa: E402
@@ -110,6 +111,11 @@ def create_app() -> APIFlask:
     # 请求级会话收尾兜底（#1632）：`get_db()` 最外层通常已提交/关闭，
     # 这里兜底清理异常路径残留的请求级会话，避免连接泄漏。
     app.teardown_request(teardown_request_session)
+
+    # 单实例守门（#1809）：同一 DB 只允许一个 web 实例，且**必须排在 init_db()/迁移之前**——
+    # 否则第二个实例的启动迁移会在这个 SQLite 上长时间持写锁，把正常请求拖成
+    # `database is locked`（2026-09-30「编辑账户保存失败」的成因）。
+    enforce_web_instance_or_exit()
 
     # 初始化数据库：core 只建表结构，默认家庭/用户属 user 域业务数据，由域侧播种（#1607）
     with app.app_context():
