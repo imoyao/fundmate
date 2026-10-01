@@ -375,7 +375,12 @@ class DataSyncOrchestrator:
             job.target_file_codes = targets
 
         result = job.run(full_sync, targets=targets)
-        result['duration'] = (now_shanghai() - job.snapshot_time).total_seconds()
+        # `snapshot_time` 可能仍是 None：覆写 `run()` 的子类若在早退路径漏赋值，
+        # 这里会 `datetime - None` 抛 TypeError，把「显式跳过」变成 CLI 非零退出
+        # （#870 实测）。与 `_save_error_sync_log` 同口径降级为 now——
+        # 「跳过」的 duration 记 0 秒是准确的，不该让审计链路把 job 结果吃掉。
+        now = now_shanghai()
+        result['duration'] = (now - (job.snapshot_time or now)).total_seconds()
         self._save_sync_log_with_fallback(job_name, result, full_sync)
         return result
 
@@ -501,6 +506,7 @@ class DataSyncOrchestrator:
     def _save_sync_log(self, job_name: str, result: Dict[str, Any], full_sync: bool) -> None:
         """将同步结果写入 sync_logs 表"""
         job = self.jobs[job_name]
+        now = now_shanghai()
         log_entry = SyncLog(
             job_name=job_name,
             status=result.get('status', 'unknown'),
@@ -509,8 +515,11 @@ class DataSyncOrchestrator:
             error_detail=str(result.get('stats', {}).get('errors', [])),
             data_source=job.adapter.get_name(),
             data_source_version=job.adapter.get_version(),
-            started_at=job.snapshot_time,
-            finished_at=now_shanghai(),
+            # started_at 是 NOT NULL：子类覆写 run() 时漏赋 snapshot_time 会让这里
+            # 抛 IntegrityError，随之触发 run_job 的「审计降级重写」，多打一轮 warning
+            # 并可能把正常的 success 行降级成 error 行。与 _save_error_sync_log 同口径。
+            started_at=job.snapshot_time or now,
+            finished_at=now,
             duration_seconds=result.get('duration', 0),
         )
         self.db.add(log_entry)

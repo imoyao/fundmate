@@ -126,6 +126,24 @@ def test_none_targets_are_skipped(job, db):
     job.adapter.fetch_fund_top_holdings.assert_not_called()
 
 
+@pytest.mark.parametrize('targets', [[], None, ['__full__']], ids=['empty', 'none', 'full'])
+def test_skip_path_always_sets_snapshot_time(job, db, targets):
+    """回归（2026-10-01 生产实测）：早退路径必须自己打 `snapshot_time`。
+
+    本 job 覆写了 `run()`，因此**不进**基类开头那句 ``self.snapshot_time = now_shanghai()``。
+    漏赋值时，`orchestrator.run_job` 的 ``now_shanghai() - job.snapshot_time`` 会抛
+    ``TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'NoneType'``，
+    把一次干净的「显式跳过」变成 `pdm run sync --job fund_position` 非零退出。
+    """
+    db.add(Fund(fund_code='000001', name='测试基金A'))
+    db.commit()
+
+    job.run(full_sync=True, targets=targets)
+
+    assert job.snapshot_time is not None
+    job.adapter.fetch_fund_top_holdings.assert_not_called()
+
+
 def test_pool_is_deduped_and_capped(job, monkeypatch):
     monkeypatch.setattr('app.services.sync.jobs.fund_position_job.MAX_TARGETS', 3)
     pool = job.resolve_pool(['a', 'b', 'a', '__full__', '', 'c', 'd'])
