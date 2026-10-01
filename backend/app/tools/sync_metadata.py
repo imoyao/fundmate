@@ -61,6 +61,24 @@ from app.services.sync.orchestrator import DataSyncOrchestrator, require_full_sy
 env_path = BACKEND_DIR / '.env'
 load_dotenv(dotenv_path=env_path)
 
+# `--target-file` 时按 job 决定从 CSV 里取哪一类代码。
+# ⚠️ 漏掉某个 job 的后果不是报错，而是 targets 保持 None → 静默跑成「0 只处理」。
+FUND_TARGET_JOBS = ('fund_nav', 'fund_detail_enrich', 'fund_manager', 'fund_position')
+
+# 受限目标池 job：**未给任何显式目标时，从库内核心池（持仓 + 自选）现取**。
+#
+# 为什么必须单独列：`targets=None` 在 `job_base.SyncJob.run()` 里的语义是
+# 「子类自取全部数据」（第 195 行分支），而对这类 job 是「目标池为空 → 显式跳过」
+# （`data-strategy.md` §4.3.3 红线）。`daily_scheduler` 走
+# `spec.target_kind` + `resolve_targets()`，所以周任务正常；CLI 没有这条路，
+# 于是 `pdm run sync --job fund_position` 会静默跑成「0 只、status=success」，
+# 比报错更危险——手工回填的人会以为成了（2026-10-01 实测踩到）。
+#
+# ⚠️ 不要顺手把 fund_nav / fund_detail_enrich / fund_manager 一并放进这里：
+# 它们的 `targets=None` 是「子类自取核心池」的既有语义，赋成显式列表会把执行
+# 切成 `_execute_batches` 分批路径，属行为变更，需单独评估。
+DB_POOL_JOBS = {'fund_position': 'fund'}
+
 
 def ensure_fund_sync_fields(db_session):
     """
@@ -90,6 +108,39 @@ def ensure_fund_sync_fields(db_session):
             logger.info(f'已添加字段 {col_name} 到 funds 表')
 
     db_session.commit()
+
+
+def resolve_job_targets(
+    orchestrator,
+    job_name: str,
+    targets_arg,
+    target_file,
+):
+    """解析单 job（`--job`）的目标池，供 `main()` 与单测共用。
+
+    优先级：`--targets` > `--target-file` > 库内核心池（仅 `DB_POOL_JOBS` 里的 job）。
+
+    返回值语义：`None` = 「不限目标，交给子类自取」（`job_base.SyncJob.run()` 第 195 行
+    分支）。**对 `DB_POOL_JOBS` 里的 job，`None` 是必须避免的取值**——那个分支对它
+    等于「目标池为空 → 显式跳过」，会静默跑成 0 只，故对它一定会解析出列表
+    （哪怕解析结果为空列表，也是「明确告知没目标」，而不是「忘了传」）。
+    """
+    if targets_arg:
+        # 直接指定代码列表（逗号分隔）
+        return [code.strip() for code in targets_arg.split(',') if code.strip()]
+
+    if target_file:
+        all_targets = orchestrator.resolve_targets(target_file=target_file)
+        if job_name in FUND_TARGET_JOBS:
+            return all_targets.get('fund', [])
+        if job_name == 'price_history':
+            return all_targets.get('stock', [])
+        return None
+
+    if job_name in DB_POOL_JOBS:
+        return orchestrator.resolve_targets().get(DB_POOL_JOBS[job_name], [])
+
+    return None
 
 
 def main():
@@ -154,16 +205,7 @@ def main():
                 # 同时保留 JSON 日志供调试
                 logger.debug(f'详细结果: {results}')
             elif args.job:
-                targets = None
-                if args.targets:
-                    # 直接指定代码列表（逗号分隔）
-                    targets = [code.strip() for code in args.targets.split(',') if code.strip()]
-                elif args.target_file:
-                    all_targets = orchestrator.resolve_targets(target_file=args.target_file)
-                    if args.job in ('fund_nav', 'fund_detail_enrich', 'fund_manager'):
-                        targets = all_targets.get('fund', [])
-                    elif args.job == 'price_history':
-                        targets = all_targets.get('stock', [])
+                targets = resolve_job_targets(orchestrator, args.job, args.targets, args.target_file)
 
                 # 逐标的回填型 Job 走 --full-sync 必须带 --targets / --target-file（#824 / #1776 ④）
                 try:

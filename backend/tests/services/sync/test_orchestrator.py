@@ -190,3 +190,77 @@ def _seed_daily_worth_row(db) -> None:
         db.add(Fund(fund_code='000001', name='测试基金'))
     db.add(DailyWorth(fund_code='000001', date=date(2025, 1, 1), unit_nav=1.0))
     db.commit()
+
+
+class TestRunJobToleratesMissingSnapshotTime:
+    """#870 回归（2026-10-01 生产实测）：job 显式跳过时 `run_job` 不得崩。
+
+    `run_job` 用 ``now_shanghai() - job.snapshot_time`` 算 duration，而覆写 `run()`
+    的子类若在早退路径不进基类、漏赋 `snapshot_time`，这里就抛
+    ``TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'NoneType'``。
+    案发形态：`pdm run sync --job fund_position`（目标池为空 → 显式跳过）打出一行
+    「目标池为空……显式跳过」的 warning，紧接着 `ERROR 同步失败` 并以 exit 1 收尾——
+    一次**成功的跳过**被报成了失败，且 `sync_logs` 里没留下审计行（连带
+    `_save_sync_log` 的 `started_at` 是 NOT NULL，None 会再抛 IntegrityError）。
+    """
+
+    @staticmethod
+    def _skipping_job():
+        """模拟「覆写 run() 且早退时漏赋 snapshot_time」的违规子类。"""
+
+        class _SkippingJob:
+            def __init__(self):
+                self.adapter = MagicMock()
+                self.adapter.get_name.return_value = 'skipping-src'
+                self.adapter.get_version.return_value = '0.1'
+                self.snapshot_time = None  # ← 案发形态
+
+            def run(self, *args, **kwargs):
+                # 早退：不进入基类 SyncJob.run()，因此不赋 snapshot_time
+                return {'status': 'success', 'stats': {'total': 0, 'success': 0}}
+
+        return _SkippingJob()
+
+    def test_duration_computed_without_typeerror(self, db):
+        orch = DataSyncOrchestrator(db)
+        orch.jobs['skipping'] = self._skipping_job()
+
+        result = orch.run_job('skipping', full_sync=False, targets=[])
+
+        assert result['status'] == 'success'
+        assert isinstance(result['duration'], float)
+        assert result['duration'] >= 0
+
+    def test_sync_log_started_at_stays_not_null(self, db):
+        """`sync_logs.started_at` 是 NOT NULL，None 会触发 IntegrityError 并降级审计。"""
+        orch = DataSyncOrchestrator(db)
+        orch.jobs['skipping'] = self._skipping_job()
+
+        orch.run_job('skipping', full_sync=False, targets=[])
+
+        db.expire_all()
+        rows = db.query(SyncLog).filter_by(job_name='skipping').all()
+        assert len(rows) == 1, '跳过同样要留审计行'
+        assert rows[0].status == 'success'
+        assert rows[0].started_at is not None
+
+    def test_real_fund_position_skip_does_not_crash_run_job(self, db):
+        """端到端复现生产案发路径：真实 job + 空目标池。"""
+        from app.services.sync.jobs.fund_position_job import FundPositionSyncJob
+
+        adapter = MagicMock()
+        adapter.get_name.return_value = 'eastmoney'
+        adapter.get_version.return_value = '1'
+        orch = DataSyncOrchestrator(db)
+        orch.jobs['fund_position'] = FundPositionSyncJob(adapter, db)
+
+        result = orch.run_job('fund_position', targets=[])
+
+        assert result['status'] == 'success'
+        assert result['duration'] >= 0
+        adapter.fetch_fund_top_holdings.assert_not_called()
+
+        db.expire_all()
+        rows = db.query(SyncLog).filter_by(job_name='fund_position').all()
+        assert len(rows) == 1
+        assert rows[0].started_at is not None

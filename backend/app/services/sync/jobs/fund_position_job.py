@@ -26,8 +26,9 @@
 并叠加限流风险；按 `daily_scheduler` 的周任务触发。
 """
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
+from app.core.time_utils import now_shanghai
 from app.services.job_base import JobStatus, SyncJob
 
 # 逐只抓取的硬上限：超过即截断并告警，防止一次同步变成数小时的外部请求风暴
@@ -81,7 +82,22 @@ class FundPositionSyncJob(SyncJob):
             pool = pool[:MAX_TARGETS]
         return pool
 
-    def run(self, full_sync: bool = False, targets: Optional[List[str]] = None):
+    def run(self, full_sync: bool = False, targets: Optional[List[str]] = None) -> Dict[str, Any]:
+        """覆写 `run()` 时**必须自己打 `snapshot_time`**。
+
+        基类 `SyncJob.run()` 开头是 ``self.snapshot_time = now_shanghai()``，而本方法
+        可能早退（目标池为空）根本不进基类。漏赋值的后果不是「跳过」，而是
+        `orchestrator.run_job` 的 ``now_shanghai() - job.snapshot_time`` 抛
+        ``TypeError: unsupported operand type(s) for -: 'datetime.datetime' and 'NoneType'``
+        ——把一次干净的显式跳过变成 CLI 非零退出（2026-10-01 生产实测，
+        `pdm run sync --job fund_position` 复现）。
+
+        其余 4 个覆写 `run()` 的 job（position_price / fund_detail_enrich /
+        fund_company_backfill / asset_snapshot）同样在开头显式赋值，属既有约定。
+        """
+        self._full_sync_flag = full_sync
+        self.snapshot_time = now_shanghai()
+
         pool = self.resolve_pool(targets)
         if not pool:
             # 显式跳过：空 targets 的正确语义是「无需处理」，不是「处理全部记录」
