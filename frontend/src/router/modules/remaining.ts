@@ -97,6 +97,8 @@ export default [
     path: "/system/status",
     name: "SystemStatusLegacy",
     redirect: "/status",
+    // router-orphan-allow: 纯 redirect 历史别名，站内零入链是设计使然 —— 只承接
+    // 旧书签 / 外链（#1795 中间态），用户从站内任何地方都不该走到它，跳转后落在 /status。
     meta: {
       title: "系统状态",
       showLink: false,
@@ -107,6 +109,8 @@ export default [
     path: "/system/health",
     name: "SystemHealthLegacy",
     redirect: "/status",
+    // router-orphan-allow: 同上 —— /system/health 是 #1720 原始路径，纯 redirect
+    // 别名承接历史书签与外链，站内零入链、跳转后落 /status，保留勿删。
     meta: {
       title: "系统状态",
       showLink: false,
