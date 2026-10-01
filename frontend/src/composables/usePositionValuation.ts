@@ -131,9 +131,14 @@ export function usePositionValuation(positions: Ref<ValuatedPosition[]>) {
     if (!item || item.source !== "realtime" || !(item.currentPrice > 0)) {
       return null;
     }
-    return (
-      (item.currentPrice - Number(p.avg_price ?? 0)) * Number(p.quantity ?? 0)
-    );
+    // 成本价缺失 / 为 0 时**必须**返回 null：否则公式退化成「估值 × 数量」，
+    // 等于把整个市值报成盈亏——而 `source === "realtime"` 的判定照样通过，
+    // 不报错、静默出巨值（与 `confirmedPnl` 同款守卫）。
+    // 已知会踩到的消费方：`/api/summary/groups/` 的 `GroupItem` 没有 `avg_price`
+    // 字段（只有后端算好的 pnl），见 #1813；自选页非持仓行同理。
+    const avg = Number(p.avg_price ?? 0);
+    if (!(avg > 0)) return null;
+    return (item.currentPrice - avg) * Number(p.quantity ?? 0);
   }
 
   /**

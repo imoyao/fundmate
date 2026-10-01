@@ -29,6 +29,7 @@ import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import MoneyWithRatio from "@/components/MoneyWithRatio/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
+import PnlEstimateLine from "@/components/PnlEstimateLine/index.vue";
 import {
   getAdvisorPlatformLabel,
   isCompositeAssetType
@@ -39,10 +40,20 @@ import type { ColumnDef, ColumnRenderer, WatchlistRow } from "./columnDefs";
 // renderer DOM 不携带页面 scoped 属性，配套样式必须随渲染器走（见 css 文件头注释）
 import "./columnRenderers.css";
 
-/** 实时估值项（与 useRealtimeQuotes.getValuationItem 返回结构一致） */
+/** 实时估值项（`useRealtimeQuotes.getValuationItem` 返回结构的子集） */
 export interface ValuationItem {
   currentPrice?: number;
   changePct?: number;
+  /**
+   * 引擎按 `costPrice × quantity` 算出的盈亏（#1104「预估」副行直接用，不在此重算）。
+   *
+   * 引擎已把它取整到分位（`valuationEngine.ts` 收尾的 Math.round），
+   * 且 `costPrice` / `quantity` 由 `useWatchlistValuation.getHoldings` 从
+   * `holding_cost_price` / `holding_quantity` 注入 —— 与「持仓收益」列同源。
+   */
+  pnl?: number;
+  /** realtime＝真实行情；static＝引擎回退到后端静态价（那就是「已确认」口径本身） */
+  source?: "realtime" | "static";
 }
 
 /** 派生值结果（组合计算列，由 index.vue 注入计算函数） */
@@ -342,6 +353,29 @@ const renderText: FunctionalComponent<{
   );
 };
 
+/**
+ * 取某行的「当日预估盈亏」（元）。拿不到真实行情时返回 `null`。
+ *
+ * 三个门槛缺一不可（#1104）：
+ * 1. 实时估值已开启（`ctx.realtimeEnabled`）；
+ * 2. 引擎**真的**拿到了实时行情（`source === "realtime"`）—— 引擎在行情不可达时会回退到
+ *    后端静态价，那个值就是「已确认」口径本身，照原样显示会出现两行一模一样的数字；
+ * 3. 有持仓、且成本价有效（`holding_cost_price > 0`）—— 成本价缺失时引擎算出的 `pnl`
+ *    会退化成「市值全额」，是个看着很合理的巨值（与 `confirmedPnl` 的守卫同理）。
+ *
+ * 数值直接取引擎产出的 `item.pnl`，**不在此重算**：引擎的 costPrice / quantity 由
+ * `useWatchlistValuation.getHoldings` 从 `holding_cost_price` / `holding_quantity` 注入，
+ * 与「持仓收益」列同源；重算就是养第二份口径。
+ */
+function estimatePnlOfRow(row: WatchlistRow, ctx: RenderCtx): number | null {
+  if (!ctx.realtimeEnabled) return null;
+  if ((Number(field(row, "holding_quantity")) || 0) <= 0) return null;
+  if ((Number(field(row, "holding_cost_price")) || 0) <= 0) return null;
+  const item = ctx.getValuationItem(row.symbol);
+  if (!item || item.source !== "realtime") return null;
+  return typeof item.pnl === "number" ? item.pnl : null;
+}
+
 const renderMoneyRatio: FunctionalComponent<{
   row: WatchlistRow;
   def: ColumnDef;
@@ -376,13 +410,27 @@ const renderMoneyRatio: FunctionalComponent<{
   const ratioKey = (def.props?.ratioKey as string) || "change_pct";
   const ratio = Number(field(row, ratioKey)) || 0;
   const hasPosition = (Number(field(row, "holding_quantity")) || 0) > 0;
-  return h(MoneyWithRatio, {
+  const money = h(MoneyWithRatio, {
     value: hasPosition ? value : null,
     ratio: hasPosition ? ratio : null,
     moneySize: "sm",
     showSign: true,
     showCurrency: false
   });
+
+  // #1104：追加「估」副行。用列定义上的声明式开关（`props.estimatePnl`）而不是硬编码
+  // `def.key === "holding_pnl"`，与 `realtimeField` / `derived` 同一手法：列能力写进列定义。
+  if (!def.props?.estimatePnl) return money;
+
+  const estimated = estimatePnlOfRow(row, ctx);
+  // 拿不到真实行情 → 保持原样，**不复述提示**：自选页是高密度表格，逐行写
+  // 「未开启实时估值」等于整列复读机；开关与状态在汇总条（WatchlistSummaryBar）上本来就有。
+  if (estimated == null) return money;
+
+  return h("div", { class: "watchlist-pnl-dual" }, [
+    money,
+    h(PnlEstimateLine, { estimated })
+  ]);
 };
 
 const renderProduct: FunctionalComponent<{

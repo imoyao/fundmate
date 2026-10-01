@@ -20,6 +20,7 @@ title: 组件使用规范（设计语言实现层）
   - `ProductDisplay` — 产品信息单元格（名称 + 代码 + 类型标签，表格产品列统一）
   - `AssetTypeBadge` — 资产 / 账本类型胶囊（统一账本配色）
   - `PnlDualLine` — 盈亏双线（已确认 / 预估两行同显，「估」标记 + 免责 tooltip，#1104）
+  - `PnlEstimateLine` — 「预估」副行（`PnlDualLine` 的组成件；主行不是 `PnlDualLine` 的列——如自选页「持仓收益」——单独复用它，#1104）
   - `RealtimeEstimateToggle` — 当日预估开关 + 轮询状态（`PnlDualLine` 的必备搭档，四页复用，#1104）
 - `CardBlock` — 区块卡片容器（统一 token 卡片，禁各页手写 `bg-white rounded-2xl` 等重复样式）
 - `PortfolioEditDialog` — 组合编辑对话框（编辑组合 + 关联账户，自 portfolio 详情页拆出）
@@ -203,7 +204,22 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 | 4 | 口径说明 | 区块 `SectionHeader` 的 `info` 或开关旁的小字 tooltip，文案统一 `PNL_DUAL_SCOPE_TIP` |
 
 - **模板不会解包嵌套 ref**：`:enabled="valuation.realtime.enabled"` 传过去的是 Ref 对象（恒为真）。用 `usePositionValuation` 返回的顶层别名（`estimateEnabled` / `estimateStatus` / `estimateUpdatedAt`）解构后直接绑定即可。
-- 已接线：全面盘点「持仓明细」、账户详情「持仓明细」Tab、组合详情「持仓明细」、策略分析（分组表）。
+- 已接线（`PnlDualLine` 形态）：全面盘点「持仓明细」、账户详情「持仓明细」Tab、组合详情「持仓明细」、策略分析（分组表）。
+
+#### 例外形态：主行不是 `PnlDualLine` 的列（自选页「持仓收益」）
+
+自选页的主行是 `MoneyWithRatio`（金额 + 百分比二合一），塞不进 `PnlDualLine`，于是**只复用副行**
+`PnlEstimateLine`，且**不新建轮询实例**——该页已有实时链路（`useWatchlistValuation`），
+在 renderer 里读 `ctx.getValuationItem(symbol).pnl` 即可（引擎按注入的 `costPrice × quantity`
+算好的值，重算就是养第二份口径）。要点：
+
+- 开关声明式写在列定义上（`columnDefs` 的 `props.estimatePnl`），不在 renderer 里硬编码列 key；
+- 三个门槛缺一不可：实时已开启、`source === "realtime"`（引擎会把行情不可达回退成静态价，
+  那就是「已确认」口径本身）、`holding_cost_price > 0`（成本价缺失时引擎的 `pnl` 会退化成「市值全额」）；
+- **不复述提示**：高密度表格不逐行写「未开启实时估值」（该页汇总条上本就有开关与状态）；
+  拿不到预估就只渲染原来的两行；
+- 该列会因此变成**三行**，行高 +约 13px（`.el-table__row` 的 height 是最小高度语义）。
+  这是「开启实时估值」这一 opt-in 模式的代价，默认态不受影响。
 
 ## CardBlock · 区块卡片容器（强制复用）
 
