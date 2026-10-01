@@ -244,11 +244,23 @@ def test_resolve_range_missing_head(guard):
 
 
 def test_resolve_range_normal(guard):
-    """正常范围（base 是 head 的祖先）→ 返回区间提交且无 NOTE。"""
-    head, parent = _head_and_parent()
-    if head is None:
-        pytest.skip('浅克隆：历史对象不可见')
-    revs, note, ok = guard._resolve_range(parent, head)
+    """正常范围（base 是 head 的直接祖先）→ 返回区间提交且无 NOTE。
+
+    刻意**不用真实 `HEAD^..HEAD`**：HEAD 恰为 merge 提交时（`git merge` 后很常见），
+    第一父区间会带上被并入的分支提交（revs 两个元素），断言 `== [head]` 即假红——
+    此测试曾据此在 merge HEAD 上翻车。改用 `commit-tree` 造严格单亲的两段游离提交链，
+    区间与仓库当前 HEAD 形态解耦；`HEAD^{tree}` 连浅克隆里也存在，不必 skip。
+    """
+    tree = _git('rev-parse', 'HEAD^{tree}').stdout.strip()
+    base_rev = _git('commit-tree', tree, '-m', 'test range base (dangling)')
+    if base_rev.returncode != 0 or not base_rev.stdout.strip():
+        pytest.skip('无法构造游离提交（commit-tree 不可用）')
+    base = base_rev.stdout.strip()
+    head_rev = _git('commit-tree', tree, '-p', base, '-m', 'test range head (dangling)')
+    if head_rev.returncode != 0 or not head_rev.stdout.strip():
+        pytest.skip('无法构造游离提交（commit-tree 不可用）')
+    head = head_rev.stdout.strip()
+    revs, note, ok = guard._resolve_range(base, head)
     assert ok is True
     assert revs == [head]
     assert note == ''

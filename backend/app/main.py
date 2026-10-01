@@ -15,6 +15,7 @@ from flask import jsonify  # noqa: E402
 from flask_cors import CORS  # noqa: E402
 from loguru import logger  # noqa: E402
 from werkzeug.exceptions import HTTPException  # noqa: E402
+from werkzeug.serving import BaseWSGIServer  # noqa: E402
 
 from app.core.auth import auth_before_request, register_user_identity  # noqa: E402
 from app.core.database import init_db, teardown_request_session  # noqa: E402
@@ -51,6 +52,23 @@ from app.domains.utils.views import utils_bp  # noqa: E402
 from app.domains.watchlist.views import watchlist_bp  # noqa: E402
 from app.models.sync_log import SyncLog  # noqa: F401, E402  # 确保 sync_logs 表随 init_db 建表
 from app.services.daily_scheduler import start_daily_scheduler  # noqa: E402
+
+# —— 关掉 werkzeug 开发服务器的地址复用（#1816，配合 #1809 单实例守门）——
+# WHY：Windows 的 `SO_REUSEADDR` 语义与 POSIX 不同，**两个都带该选项的 socket 可以
+# 同时监听同一 host:port**（本机实测：第二方 bind 成功、无任何报错）。而 werkzeug 的
+# `BaseWSGIServer.allow_reuse_address = True` 是类属性硬编码——`run_simple()` 的签名里
+# 早已没有这个参数，命令行也关不掉。后果是「重启后端」会静默变成「又多起一个实例」，
+# 正是 #1809 里多个实例共享 SQLite 的入口。
+#
+# 置 False 后，第二个实例会在**重载父进程**的 `run_simple → server_bind` 拿到
+# EADDRINUSE，由 werkzeug 打印 `Port <n> is in use by another program.` 并以退出码 1
+# 终止（`werkzeug/serving.py` 的 `except OSError ... sys.exit(1)`）——**不 spawn 重载
+# 子进程、不进守门、不进重载循环**，一次说清楚，不会再出现 `Restarting with stat` 刷屏。
+#
+# 安全性（本机 Python 3.12 / Windows 实测）：`reuse=False` 重绑刚释放的端口成功，
+# 即便该端口上存在 TIME_WAIT 连接（`0.0.0.0` 监听与 `127.0.0.1` 上的 TIME_WAIT 不冲突），
+# 故开发期反复重启不受影响；重载子进程走继承的 `WERKZEUG_SERVER_FD`，本来就不重新 bind。
+BaseWSGIServer.allow_reuse_address = False
 
 
 def create_app() -> APIFlask:
@@ -117,7 +135,11 @@ def create_app() -> APIFlask:
     # `database is locked`（2026-09-30「编辑账户保存失败」的成因）。
     enforce_web_instance_or_exit()
 
-    # 初始化数据库：core 只建表结构，默认家庭/用户属 user 域业务数据，由域侧播种（#1607）
+    # 初始化数据库：core 只建表结构，默认家庭/用户属 user 域业务数据，由域侧播种（#1607）。
+    # 这里**刻意不按「是否重载父进程」跳过**：守门判据一旦误判（例如 `uvicorn --reload`
+    # 的 argv 里同样有 `--reload`），库就会被永远跳过不建——代价远大于重复执行一次。
+    # 父进程会不会绕过守门写库，由 `instance_guard` 的**探查**负责（见 #1816）：
+    # 探不到锁就直接退出，根本走不到这里。
     with app.app_context():
         init_db()
         seed_default_identity()
