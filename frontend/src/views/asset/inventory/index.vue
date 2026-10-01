@@ -227,9 +227,10 @@ function onInvestmentQuickAction(key: string) {
     return;
   }
   if (key === "import_holding") {
-    // 持仓快照导入跳过选账户步骤（后端按文件自动归因），用 name 跳转最稳妥：
-    // 该路由经 formatTwoStageRoutes 拍平后注册为 /investment/eaccount-import
-    router.push({ name: "InvestmentEaccountImport" });
+    // 持仓快照导入：默认的文件 / AI 两档由后端按文件自动归因、无需先选账户
+    //（#1788 新增的「手动录入」分段才要求先选归属账户）；用 name 跳转最稳妥：
+    // 该路由经 formatTwoStageRoutes 拍平后注册为 /investment/holding-import
+    router.push({ name: "InvestmentHoldingImport" });
     return;
   }
   if (key === "import_txn") {
