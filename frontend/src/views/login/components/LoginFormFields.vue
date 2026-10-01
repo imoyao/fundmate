@@ -204,16 +204,11 @@ const forgotFormRef = props.page.forgotFormRef;
   width: 100%;
 }
 
-/* 输入框聚焦呼吸：走 element-plus.scss「输入基线（#1772）」的令牌。
-   保留 1px 品牌内描边 + 柔和外发光（「呼吸感」），只覆盖焦点令牌本身；
-   hover 只留基线的描边微亮，不再另加光晕（叠加会与焦点态混淆）。
-   亮 / 暗共用这一条表达式：原来暗色要另写两条 `:global(.dark …)!important`
-   去对抗 dark.scss 的暗色焦点基线，基线统一后已无对手，故一并删除。
-   error 态由 EP 的 .el-form-item.is-error 规则（特异性更高）覆盖，红边优先。 */
+/* 输入框聚焦呼吸：**只放慢过渡**（0.4s），焦点表达式本身用 element-plus.scss
+   「输入基线」的默认值。#1815 起基线默认就是这条「1px 品牌内描边 + 3px 12% 柔光」
+   的轻聚焦单环，本文件原先复制了同一份表达式，属重复维护，已删除。
+   hover 只留基线的描边微亮，不再另加光晕（叠加会与焦点态混淆）。 */
 .el-form {
-  --input-focus-shadow:
-    0 0 0 1px var(--input-focus-border-color) inset,
-    0 0 0 3px color-mix(in srgb, var(--brand-700) 12%, transparent);
   --input-transition: box-shadow 0.4s ease;
 }
 

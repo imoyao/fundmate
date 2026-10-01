@@ -211,6 +211,11 @@ jobs:
       - name: 扫描分段控制器回潮
         run: python scripts/guard_segmented.py
 
+      # 输入焦点守卫（#1815）：禁止把 --focus-ring（无障碍双环）拼进输入框焦点表达式——
+      # 那会让一个聚焦输入框叠出三层描边（用户反馈的「描边好几层」）。同属本 job 的「回潮」范畴。
+      - name: 扫描输入焦点回潮
+        run: python scripts/guard_input_focus.py
+
   # 乱码守卫（mojibake）：防止任何绕过本地 pre-commit 钩子的提交（--no-verify、
   # 或经 gh api / MCP 直推导致本地钩子不执行）把 GBK 乱码合进 PR。
   # 扫描 PR 变更的全部文本类型文件 + 逐提交校验中文提交信息（两层兜底）。
