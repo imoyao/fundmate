@@ -140,8 +140,13 @@
   - `core/instance_guard.py`：**同一 DB 的 web 单实例守门**（`data/app_instance.lock`，排在
     `init_db()`/迁移之前）。SQLite 只允许一个写者，多实例共享同一库会让写请求等满
     `busy_timeout` 后报 `database is locked`；Windows 的 `SO_REUSEADDR` 还会让第二个
-    `flask run` **不报端口占用**、静默多起一个实例（#1809）。冲突实例以退出码 3 退出，
+    `flask run` **不报端口占用**、静默多起一个实例（#1809）。冲突实例以**退出码 4** 退出，
     持有者 PID 记在 `data/app_instance.owner`；`APP_INSTANCE_GUARD=0` 可显式关闭。
+    **退出码不能用 3**：3 是 werkzeug 重载器「请重载」的哨兵，冲突退 3 会让父进程无限
+    拉子进程刷屏（#1810 初版即踩中，#1816 修正）。配套两道防线：重载父进程**只探查不持锁**，
+    锁被占即在 `init_db()` 之前退出；`main.py` 导入期置
+    `BaseWSGIServer.allow_reuse_address = False`，让第二个实例直接死在绑端口
+    （打印 `Port <n> is in use by another program.`），同样见 #1816。
 - **服务层**：
   - `services/sync/`：同步编排器 + 各 `SyncJob` 实现（编排/注册类）。
   - `services/adapters/`：第三方数据适配层（xalpha / akshare / 东财直连 / 韭圈儿 / 各投顾平台）；

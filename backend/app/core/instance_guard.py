@@ -26,9 +26,18 @@ POSIX `flock`，**非阻塞**、进程退出（含崩溃）由内核释放、无
 
 - 只管 **web 应用进程**（`create_app()`）：`sync` / `scheduler-daemon` 等 CLI 与
   `pytest` 都不经此路，可以照常跑（它们与 web 实例并存是既有用法）；
-- 跳过 **werkzeug 重载父进程**：`flask run --debug` 下父进程也会执行 `create_app()`，
+- 重载父进程**探查但不持锁**：`flask run --debug` 下父进程也会执行 `create_app()`，
   若父进程持锁，真正服务的子进程（`WERKZEUG_RUN_MAIN=true`）就拿不到锁，开发热重载会废；
+  但完全放行又会让它带着 `init_db()` 绕过守门写库，故改为「探不到锁即退出」（#1816）；
 - `APP_INSTANCE_GUARD=0` 可显式关闭（多实例是刻意行为的场景，如本地压测）。
+
+**#1816 修掉的三处坑**（#1810 上线当天即被实测打回，记在这里避免后人照抄旧写法）：
+
+1. 退出码从 3 改 4——3 是 werkzeug 重载器的「请重载」哨兵，冲突退 3 会让父进程
+   无限拉子进程刷屏（见 `EXIT_CODE_CONFLICT` 注释）；
+2. 重载父进程从「整段放行」改为「探查不持锁」——放行会让它在守门覆盖之外跑 `init_db()`；
+3. `main.py` 导入期把 `BaseWSGIServer.allow_reuse_address` 置 `False`——Windows 的
+   `SO_REUSEADDR` 会让第二个实例**静默绑上同一端口**，把「又起一个」伪装成「重启成功」。
 """
 
 from __future__ import annotations
@@ -40,7 +49,7 @@ from typing import Optional, Tuple
 
 from loguru import logger
 
-from app.core.file_lock import acquire_lock
+from app.core.file_lock import acquire_lock, release_lock
 from app.core.logging_config import BACKEND_DIR
 
 # 锁文件（默认）：与调度单实例锁同目录，便于运维一眼看到
@@ -50,8 +59,13 @@ DEFAULT_INSTANCE_LOCK = BACKEND_DIR / 'data' / 'app_instance.lock'
 ENV_DISABLE = 'APP_INSTANCE_GUARD'
 _FALSY = {'0', 'false', 'no', 'off'}
 
-# 冲突退出码：与 argparse 的 2 区分开，便于脚本判断「是实例冲突而不是参数错」
-EXIT_CODE_CONFLICT = 3
+# 冲突退出码：与 argparse 的 2 区分开，便于脚本判断「是实例冲突而不是参数错」。
+#
+# **绝不能用 3**：werkzeug 把 3 保留给重载器——`_reloader.py` 里 `trigger_reload()`
+# 就是 `sys.exit(3)`，而 `restart_with_reloader()` 的循环条件是 `if exit_code != 3:
+# return`，即「子进程退 3 = 请再拉一个」。#1810 曾取 3，于是守门冲突被父进程当成
+# reload 信号 → 无限 `Restarting with stat` 刷屏，第二个实例永远起不来也停不下来（#1816）。
+EXIT_CODE_CONFLICT = 4
 
 # 本进程持有的锁 fd。模块级而非实例级：锁要活到进程结束（file_lock 的 fd 一旦 close 即释放）
 _held_fd: Optional[int] = None
@@ -79,8 +93,15 @@ def is_reloader_parent() -> bool:
     判据：`WERKZEUG_RUN_MAIN` 未被设置（该变量只由重载器注入**子进程**），
     且命令行带着重载开关（`--debug` / `--reload`）。两者同时成立才判定为父进程——
     宁可漏判（退回「不跳过」，让父进程也去抢锁）也不误判成非服务进程而放宽守门。
+
+    `--no-reload` 必须**优先于** `--debug`：它是 Click 成对布尔的关断位，
+    `flask run --debug --no-reload` 下根本不产生子进程，**当前进程就是服务进程**——
+    此时若仍判成父进程，`main.py` 的 `init_db()` 会被整个跳过、库永远不建（#1816）。
+    同理 `--reload --no-reload`（后写者胜）也算关断。
     """
     if os.environ.get('WERKZEUG_RUN_MAIN'):
+        return False
+    if '--no-reload' in sys.argv:
         return False
     return '--debug' in sys.argv or '--reload' in sys.argv
 
@@ -119,6 +140,17 @@ def read_owner_info(lock_file: Optional[Path] = None) -> str:
         return ''
 
 
+def _conflict_message(path: Path, owner: str) -> str:
+    """抢不到锁时给后来者的说明（谁占着、为什么致命、怎么清理）。"""
+    return (
+        f'另一个后端实例正在使用同一个数据库（实例锁 {path} 已被占用'
+        + (f'，持有者：{owner}' if owner else '')
+        + '）。多个实例共享 SQLite 会互相锁死（写入报 database is locked），'
+        '请先停掉旧实例——Windows 下 `Get-Process python` 找到多余进程后结束它，'
+        '再重启本实例。'
+    )
+
+
 def acquire_web_instance_lock(lock_file: Optional[Path] = None) -> Tuple[bool, str]:
     """尝试成为「本机唯一 web 实例」。
 
@@ -129,7 +161,7 @@ def acquire_web_instance_lock(lock_file: Optional[Path] = None) -> Tuple[bool, s
         1. 本进程已持有 → 通过（幂等，`create_app()` 可能被调多次）；
         2. `APP_INSTANCE_GUARD=0` → 跳过；
         3. pytest 进程 → 跳过；
-        4. 重载父进程 → 跳过（真正服务的是它拉起的子进程）；
+        4. 重载父进程 → **探查一次但不持锁**（详见下方注释）；
         5. 否则取 OS 级排他锁：拿到即持有到进程结束；拿不到即冲突。
     """
     global _held_fd, _held_path
@@ -140,20 +172,29 @@ def acquire_web_instance_lock(lock_file: Optional[Path] = None) -> Tuple[bool, s
         return True, f'{ENV_DISABLE}=0，已显式关闭单实例守门'
     if _in_test_process():
         return True, '测试进程，跳过单实例守门'
-    if is_reloader_parent():
-        return True, '重载父进程，跳过单实例守门（由服务子进程持锁）'
 
     path = Path(lock_file or DEFAULT_INSTANCE_LOCK)
+
+    if is_reloader_parent():
+        # 重载父进程**不能持锁**（否则真正服务的子进程 `WERKZEUG_RUN_MAIN=true` 拿不到锁，
+        # 开发热重载直接报废）；但它绝不能因此整段放行——`create_app()` 里紧跟着就是
+        # `init_db()` / 迁移 DDL，放行等于让第二个实例**绕过守门**往同一个 SQLite 下
+        # 启动期写操作，正是 #1809 的成因，#1810「第二个实例根本不会碰这个库」也就在
+        # 这条路径上落空（#1816 实测：第二个 `flask run` 的父进程确实跑到了 init_db）。
+        #
+        # 故改为**非阻塞探查一次**：探不到锁 → 立即以冲突退出（排在 init_db 之前）；
+        # 探得到 → 立刻释放，父进程自身不持有。残留的空锁文件无害（见 file_lock 文档）。
+        # 残留竞态：释放到服务子进程真正拿锁之间有一个极短窗口，另一个实例可趁虚而入，
+        # 此时由子进程侧的正式守门兜底（冲突即退出），不会退化成「两边都在写」。
+        locked, fd = acquire_lock(path)
+        if not locked:
+            return False, _conflict_message(path, read_owner_info(path))
+        release_lock(fd)
+        return True, '重载父进程：探查通过（不持锁，由服务子进程持锁）'
+
     locked, fd = acquire_lock(path)
     if not locked:
-        owner = read_owner_info(path)
-        return False, (
-            f'另一个后端实例正在使用同一个数据库（实例锁 {path} 已被占用'
-            + (f'，持有者：{owner}' if owner else '')
-            + '）。多个实例共享 SQLite 会互相锁死（写入报 database is locked），'
-            '请先停掉旧实例——Windows 下 `Get-Process python` 找到多余进程后结束它，'
-            '再重启本实例。'
-        )
+        return False, _conflict_message(path, read_owner_info(path))
 
     _held_fd = fd
     _held_path = path
