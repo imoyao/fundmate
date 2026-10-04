@@ -331,6 +331,9 @@
           <template #default="{ row }">
             <el-popconfirm
               title="删除后相关持仓将解绑此标签"
+              confirm-button-text="删除"
+              cancel-button-text="取消"
+              popper-class="danger-popconfirm"
               @confirm="deleteGlobalTag(row.id)"
             >
               <template #reference>

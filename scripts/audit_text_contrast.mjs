@@ -37,7 +37,9 @@
  * ------------------------------------------------
  *   1. 背景只按 `--bg-page` / `--bg-card` 两个基准算，渐变 / 图片 / 多层叠加不模拟
  *      （半透明令牌会先与该基准合成）；
- *   2. 只认 `color: var(--token)` 形式；`color-mix()` / 字面量不拆，通过变量间接赋值
+ *   2. 认 `color: var(--token)` 与 `color: color-mix(in srgb, var(--token) N%, …)`
+ *      两种形式（#1837：只认前者时，把底色级令牌掺 15% 文字色即可绕过整条规则，
+ *      `BiasTable.vue` 的乖离率配色就是这么活下来的）；字面量不拆，通过变量间接赋值
  *      （`:style="expr"`）也不拆 —— 但这类会**显式计数并单列分段**，不留静默；
  *   3. **模板内联样式已纳入扫描**（#1599 批次 2）：`style="color: var(--x)"` 与
  *      `:style="{ color: 'var(--x)' }"`（含跨行、数组写法）都能读到。三处口径与样式块**刻意不同**，
@@ -270,7 +272,10 @@ function collectInlineColorUses(rawText, path) {
 
   // `:style=` / `v-bind:style=` 是一支，裸 `style=` 是另一支（后面的 lookbehind 防止把 `:style` 再吃一次）
   const attrRe = /(?:(?::|v-bind:)style|(?<![:\w-])style)\s*=\s*"([^"]*)"/g;
-  const cssColorRe = /(?<![-a-z])color\s*:\s*var\(\s*(--[A-Za-z0-9_-]+)\s*\)/g;
+  // `color-mix(in srgb, var(--x) NN%, …)` 同样要认（#1837）：只认 `color: var(--x)` 时，
+  // 把底色级令牌掺一点文字色就能绕过整条规则——BiasTable 就是这么躲过去的
+  const cssColorRe =
+    /(?<![-a-z])color\s*:\s*(?:color-mix\(\s*in\s+srgb\s*,\s*)?var\(\s*(--[A-Za-z0-9_-]+)\s*\)/g;
   const cssSizeRe = /(?<![-a-z])font-size\s*:\s*([^;"'`]+)/;
   const cssWeightRe = /(?<![-a-z])font-weight\s*:\s*([^;"'`]+)/;
   const jsColorRe = /(?<![-a-zA-Z])(?:['"]color['"]|color)\s*:\s*['"`]\s*var\(\s*(--[A-Za-z0-9_-]+)\s*\)/g;
@@ -335,7 +340,8 @@ function collectInlineColorUses(rawText, path) {
 function collectColorUses(rawText, path, covered = []) {
   const uses = [];
   const lines = rawText.split('\n');
-  const declRe = /^\s*color:\s*var\(\s*(--[A-Za-z0-9_-]+)/;
+  const declRe =
+    /^\s*color:\s*(?:color-mix\(\s*in\s+srgb\s*,\s*)?var\(\s*(--[A-Za-z0-9_-]+)/;
   const sizeRe = /^\s*(font-size|font-weight)\s*:\s*([^;]+);/;
   const rules = buildRules(rawText);
   const offsets = lineOffsets(rawText);

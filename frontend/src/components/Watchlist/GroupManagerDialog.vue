@@ -19,6 +19,7 @@
       <el-input
         v-model="keyword"
         placeholder="搜索分组..."
+        aria-label="搜索分组"
         size="large"
         class="group-search"
         clearable
@@ -62,6 +63,9 @@
             <el-popconfirm
               title="确定删除该分组？"
               :disabled="group.is_system"
+              confirm-button-text="删除"
+              cancel-button-text="取消"
+              popper-class="danger-popconfirm"
               @confirm="deleteGroup(group.id)"
             >
               <template #reference>

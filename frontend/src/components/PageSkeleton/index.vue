@@ -71,6 +71,10 @@ withDefaults(
 </script>
 
 <style lang="scss" scoped>
+/* 断点走 bp mixin（#1838）：原先这里是手写的裸宽度媒体查询，会被 guard_breakpoints
+   记进存量基线，阈值一旦与 _breakpoints.scss 分叉就没人知道。 */
+@use "@/style/breakpoints" as bp;
+
 .page-skeleton {
   display: flex;
   flex-direction: column;
@@ -92,7 +96,7 @@ withDefaults(
     grid-template-columns: repeat(3, 1fr);
     gap: var(--space-compact);
 
-    @media (width <= 640px) {
+    @include bp.below("sm") {
       grid-template-columns: 1fr;
     }
   }
@@ -102,7 +106,7 @@ withDefaults(
     grid-template-columns: 1fr 1fr;
     gap: var(--space-compact);
 
-    @media (width <= 640px) {
+    @include bp.below("sm") {
       grid-template-columns: 1fr;
     }
   }
