@@ -96,6 +96,12 @@ filterwarnings = [
 markers = [
     "slow: 慢速测试，需要联网或耗时较长",
 ]
+# #1821：全量单次向 TEMP 写 ~3.3GB 文件型 SQLite（上万小文件），pytest 默认
+# 「保留全部 × 3 个会话」使残留稳态达 9.8GB，C:/D: 被依次吃满后测试批量假红
+# （OSError: [Errno 28]）。改为只保留失败现场（排障仍可用），绿跑当场清理；
+# 会话数收到 1，失败时残留也不超过单次全量。
+tmp_path_retention_policy = "failed"
+tmp_path_retention_count = 1
 
 [tool.pdm]
 [[tool.pdm.source]]
