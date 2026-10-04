@@ -175,6 +175,7 @@ import { getPositionsGroupedByAccount } from "@/api/positions";
 import { usePositionSubmit } from "@/composables/usePositionSubmit";
 import { useFundTradeDate } from "@/composables/useFundTradeDate";
 import type { Position } from "@/api/types";
+import { disabledTradeDate } from "@/utils/date";
 
 const props = defineProps<{
   ledgers: any[];
@@ -223,8 +224,8 @@ const computedShares = computed(() => {
   return amt > 0 && nav > 0 ? (amt / nav).toFixed(4) : "--";
 });
 
-const disabledDate = (time: Date) =>
-  time.getTime() > new Date().setHours(0, 0, 0, 0);
+// 交易日期禁用规则收敛到 utils/date（#1835）
+const disabledDate = disabledTradeDate;
 
 const rules = computed<FormRules>(() => {
   const base: FormRules = {
