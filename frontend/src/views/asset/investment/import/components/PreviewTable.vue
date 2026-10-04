@@ -176,7 +176,16 @@ function missingField(row: any): "quantity" | "price" | null {
 }
 
 .el-table__row:hover .row-actions,
-.el-table__row.row-blocked .row-actions {
+.el-table__row.row-blocked .row-actions,
+/* 触屏 / 键盘也要能看到行操作（#1834） */
+.el-table__row:focus-within .row-actions,
+.row-actions:focus-visible {
   opacity: 1;
+}
+
+@media (hover: none) {
+  .row-actions {
+    opacity: 1;
+  }
 }
 </style>

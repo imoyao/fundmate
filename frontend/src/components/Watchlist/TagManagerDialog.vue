@@ -271,7 +271,16 @@ const deleteTag = async (tagId: number) => {
   transition: opacity 0.2s;
 }
 
-.tag-row:hover .tag-row__actions {
+.tag-row:hover .tag-row__actions,
+/* 触屏 / 键盘也要能看到行操作（#1834） */
+.tag-row:focus-within .tag-row__actions,
+.tag-row__actions:focus-visible {
   opacity: 1;
+}
+
+@media (hover: none) {
+  .tag-row__actions {
+    opacity: 1;
+  }
 }
 </style>

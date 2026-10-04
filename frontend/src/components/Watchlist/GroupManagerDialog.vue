@@ -277,7 +277,16 @@ const deleteGroup = async (groupId: number) => {
   transition: opacity 0.2s;
 }
 
-.group-row:hover .group-row__actions {
+.group-row:hover .group-row__actions,
+/* 触屏 / 键盘也要能看到行操作（#1834） */
+.group-row:focus-within .group-row__actions,
+.group-row__actions:focus-visible {
   opacity: 1;
+}
+
+@media (hover: none) {
+  .group-row__actions {
+    opacity: 1;
+  }
 }
 </style>
