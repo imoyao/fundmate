@@ -298,6 +298,59 @@ export function useLedgerList() {
     });
   }
 
+  /**
+   * 键盘重排分组（#1841）：拖拽的键盘等价物。
+   *
+   * 抓手此前是 `tabindex="-1"`（刻意不可聚焦），键盘用户完全无法调整分组顺序 → WCAG 2.1.1 失败。
+   * 现在 ↑/↓ 移动一位、Home/End 移到首尾，与拖拽**共用 groupOrder + saveGroupOrder**，
+   * 两条路径产出同一份数据、同一份持久化。
+   *
+   * @param to 目标下标；传 ±Infinity 表示移到首/尾（由 clamp 收敛）
+   * @returns 是否真的移动了（没动时调用方跳过播报，避免屏幕阅读器白念一遍）
+   */
+  function moveGroupByKeyboard(type: string, to: number): boolean {
+    const order = [...groupOrder.value];
+    const from = order.indexOf(type);
+    if (from < 0) return false;
+    const target = Math.max(0, Math.min(order.length - 1, to));
+    if (target === from) return false;
+    order.splice(from, 1);
+    order.splice(target, 0, type);
+    groupOrder.value = order;
+    saveGroupOrder(order);
+    return true;
+  }
+
+  /**
+   * 键盘重排组内账户（#1841）：与 onLedgerDragEnd 落同一接口（reorderLedgers），
+   * 失败同样回填重拉，保证最终一致。
+   */
+  async function moveLedgerByKeyboard(
+    groupType: string,
+    ledgerId: number,
+    to: number
+  ): Promise<boolean> {
+    const group = displayedGroups.value.find(g => g.type === groupType);
+    if (!group) return false;
+    const arr = group.ledgers;
+    const from = arr.findIndex((l: any) => l.id === ledgerId);
+    if (from < 0) return false;
+    const target = Math.max(0, Math.min(arr.length - 1, to));
+    if (target === from) return false;
+    const [moved] = arr.splice(from, 1);
+    arr.splice(target, 0, moved);
+    const orderedIds = arr.map((l: any) => l.id);
+    const ledgerType = group.ledgers[0]?.ledger_type ?? groupType;
+    try {
+      await reorderLedgers(ledgerType, orderedIds);
+      return true;
+    } catch {
+      ElMessage.error("排序保存失败，已恢复");
+      fetchData();
+      return false;
+    }
+  }
+
   function openCreateDialog(channelCategory?: string) {
     // 显式传 undefined 时回退默认 bank，避免点击事件对象被误当类型参数
     initialCreateType.value =
@@ -468,6 +521,8 @@ export function useLedgerList() {
     orphanGroup,
     displayedGroups,
     groupsContainer,
+    moveGroupByKeyboard,
+    moveLedgerByKeyboard,
     draggingGroupType,
     getChannelCategoryLabel,
     openCreateDialog,
