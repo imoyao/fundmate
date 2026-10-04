@@ -29,22 +29,54 @@
       <div
         v-for="group in currentDetailGroups"
         :key="group.name"
-        class="border rounded-xl overflow-hidden cursor-pointer transition-shadow hover:shadow-sm"
+        class="border rounded-xl overflow-hidden transition-shadow hover:shadow-sm"
         :style="{ borderColor: 'var(--border-default)' }"
-        @click="handleGroupClick(group)"
       >
+        <!-- 头部行：点击 = 展开/收起逐持仓明细（#1813）；原「跳转到品种页/账户页」
+             收进右侧「进入 ›」入口（点它不触发展开）。
+             allocation 维度没有可跳的页面，不渲染入口。 -->
         <div
-          class="px-5 py-3 flex justify-between items-center font-medium"
+          class="px-5 py-3 flex justify-between items-center font-medium cursor-pointer"
           :style="{ backgroundColor: 'var(--bg-soft)' }"
+          role="button"
+          tabindex="0"
+          :aria-expanded="expandedName === group.name"
+          @click="toggleExpand(group.name)"
+          @keydown.enter="toggleExpand(group.name)"
         >
-          <span :style="{ color: 'var(--text-primary)' }">{{
-            group.name
-          }}</span>
-          <span class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
+          <span
+            class="flex items-center gap-1"
+            :style="{ color: 'var(--text-primary)' }"
+          >
+            {{ group.name }}
+            <IconifyIconOffline
+              v-if="group.items.length > 0"
+              icon="ep:arrow-down"
+              class="group-card__chevron text-sm"
+              :class="{ 'is-open': expandedName === group.name }"
+            />
+          </span>
+          <span
+            class="flex items-center gap-2 text-xs"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
+          >
             {{ group.items.length }} 项
+            <el-button
+              v-if="navTargetOf(group)"
+              text
+              size="small"
+              class="group-card__nav"
+              @click.stop="goGroup(group)"
+            >
+              进入 ›
+            </el-button>
           </span>
         </div>
-        <div class="px-5 py-3 flex justify-between items-center text-sm">
+
+        <div
+          class="px-5 py-3 flex justify-between items-center text-sm cursor-pointer"
+          @click="toggleExpand(group.name)"
+        >
           <div>
             <MoneyDisplay
               :value="group.total"
@@ -57,7 +89,12 @@
               :style="{ color: 'var(--text-tertiary-ink)' }"
             >
               占
-              {{ ((Math.abs(group.total) / totalAssets) * 100).toFixed(1) }}%
+              {{
+                totalAssets > 0
+                  ? ((Math.abs(group.total) / totalAssets) * 100).toFixed(1) +
+                    "%"
+                  : "--"
+              }}
             </span>
           </div>
           <MoneyDisplay
@@ -65,6 +102,43 @@
             size="sm"
             :show-currency="true"
           />
+        </div>
+
+        <!-- 逐持仓明细（#1813）：items 接口一直在下发，此前只是没渲染。
+             单线（后端 pnl 口径）：本页无实时链路，且 GroupItem 无 avg_price，
+             预估副行接不了（见 usePositionValuation.estimatedPnl 的守卫说明）。 -->
+        <div v-if="expandedName === group.name" class="group-detail">
+          <div
+            v-for="item in group.items"
+            :key="item.id ?? item.symbol"
+            class="group-detail__row"
+          >
+            <div class="group-detail__product">
+              <ProductDisplay
+                :name="item.name"
+                :symbol="item.symbol"
+                :type-label="item.type_label"
+              />
+            </div>
+            <div class="group-detail__value">
+              <MoneyDisplay
+                :value="item.market_value"
+                size="sm"
+                :show-sign="false"
+                :auto-color="false"
+              />
+            </div>
+            <div class="group-detail__value">
+              <MoneyDisplay :value="item.pnl" size="sm" />
+            </div>
+          </div>
+          <p
+            v-if="group.items.length === 0"
+            class="text-xs text-center py-2"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
+          >
+            该分组暂无明细
+          </p>
         </div>
       </div>
     </template>
@@ -75,6 +149,7 @@
 import { ref, computed, watch, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import { getPositionGroups, type GroupDimension } from "@/api/summary";
 import { ElMessage } from "element-plus";
 
@@ -92,6 +167,9 @@ const SKELETON_ROWS = 4;
 
 /** 竞态令牌：连点分段控制器时先发的请求可能后到，只接受最后一次请求的结果 */
 let loadToken = 0;
+
+/** 当前展开的分组（手风琴：同时只展开一个，避免长列表越拉越长） */
+const expandedName = ref<string | null>(null);
 
 // 后端分组数据（detailView 切换时按需拉取，字段后端为 snake_case）
 const currentDetailGroups = computed(() =>
@@ -116,20 +194,33 @@ function getTypeRoute(typeName: string): string {
   return routes[typeName] || "AssetStocks";
 }
 
-function handleGroupClick(group: any) {
-  if (props.detailView === "type") {
-    router.push({ name: getTypeRoute(group.name) });
-  } else if (props.detailView === "account") {
-    router.push("/asset/ledgers");
-  }
+/** 分组的跳转目标（#1813）：type → 品种页；account → 账户列表；allocation 无 → null */
+function navTargetOf(group: {
+  name: string;
+}): string | { name: string } | null {
+  if (props.detailView === "type") return { name: getTypeRoute(group.name) };
+  if (props.detailView === "account") return "/asset/ledgers";
+  return null;
+}
+
+function goGroup(group: { name: string }) {
+  const target = navTargetOf(group);
+  if (!target) return;
+  router.push(target as never);
+}
+
+function toggleExpand(name: string) {
+  expandedName.value = expandedName.value === name ? null : name;
 }
 
 async function loadDetailGroups() {
   const token = ++loadToken;
   const dim = props.detailView;
   // 先清空上一维度的数据（#1717）：否则会先把上一维度的分组展示出来、再被新数据替换，
-  // 视觉上就是「闪一下」；同时避免切回 category 时残留旧列表
+  // 视觉上就是「闪一下」；同时避免切回 category 时残留旧列表。
+  // 展开态一并重置：切维度后分组名都变了，保留展开 key 会落到错误的分组上。
   detailGroups.value = [];
+  expandedName.value = null;
   if (dim === "category") {
     loading.value = false;
     return;
@@ -154,28 +245,47 @@ onMounted(loadDetailGroups);
 </script>
 
 <style scoped>
-/* 占位条：与 PageSkeleton 同一「纯 CSS 流光」语言（background-size 动画，GPU 合成，不占主线程） */
-.detail-group-skeleton__bar {
-  height: 14px;
-  background-color: var(--bg-soft);
-  background-image: linear-gradient(
-    90deg,
-    var(--bg-soft) 25%,
-    var(--bg-hover) 37%,
-    var(--bg-soft) 63%
-  );
-  background-size: 400% 100%;
-  border-radius: var(--radius-sm);
-  animation: detail-group-skeleton-wave 1.8s ease-in-out infinite;
+/* 展开指示箭头：旋转表达开合，避免再加一套「展开/收起」文案 */
+.group-card__chevron {
+  transition: transform 0.2s ease;
 }
 
-@keyframes detail-group-skeleton-wave {
-  0% {
-    background-position: 100% 50%;
-  }
+.group-card__chevron.is-open {
+  transform: rotate(180deg);
+}
 
-  100% {
-    background-position: 0 50%;
-  }
+/* 「进入 ›」：与「N 项」同排，弱化为次级文字，避免和展开操作抢主次 */
+.group-card__nav {
+  height: auto;
+  padding: 0;
+  font-size: 12px;
+}
+
+/* 逐持仓明细区：市值 / 盈亏 两列右对齐定宽，与上方合计行的右缘对齐 */
+.group-detail {
+  padding: 2px 20px 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.group-detail__row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 7px 0;
+}
+
+.group-detail__row + .group-detail__row {
+  border-top: 1px dashed var(--border-subtle);
+}
+
+.group-detail__product {
+  flex: 1;
+  min-width: 0;
+}
+
+.group-detail__value {
+  flex-shrink: 0;
+  width: 108px;
+  text-align: right;
 }
 </style>

@@ -13,7 +13,14 @@ import pytest
 from app.core.db_factory import DATA_DOMAIN_REGISTRY
 from app.domains.indices.models import IndexDaily
 from app.services.adapters.jiucaishuo_adapter import JiucaishuoAdapter
-from app.services.sync.jobs.index_daily_job import DEFAULT_TARGETS, WIND_INDEX_TARGETS, IndexDailySyncJob
+from app.services.bias.constants import BENCHMARK_INDICES
+from app.services.sync.jobs import index_daily_job as index_daily_job_module
+from app.services.sync.jobs.index_daily_job import (
+    DEFAULT_TARGETS,
+    TENCENT_INDEX_TARGETS,
+    WIND_INDEX_TARGETS,
+    IndexDailySyncJob,
+)
 
 
 def test_index_daily_registered_as_market():
@@ -161,9 +168,92 @@ class TestIndexDailySyncJob:
         # 2026-09-09 复核补齐：用户在韭圈儿可见、此前漏抓的 5 只（实测均可取）
         for gu in ('881003.WI', '881007.WI', '8841425.WI', '8841431.WI', '889033.WI'):
             assert gu in DEFAULT_TARGETS
-        assert DEFAULT_TARGETS == [gu for gu, _ in WIND_INDEX_TARGETS]
+        # 2026-10-01：默认清单 = 万得系（韭圈儿）+ 交易所指数（腾讯）
+        assert DEFAULT_TARGETS == [c for c, _ in WIND_INDEX_TARGETS] + [c for c, _ in TENCENT_INDEX_TARGETS]
 
     def test_incremental_uses_12_months(self, job, db):
         """非全量跑 12 月增量；全量跑成立来（'all'）。"""
         job.run(full_sync=False, targets=['881001.WI'])
         assert job.adapter.fetch_index_daily.call_args[0][1] == 12
+
+
+class TestBenchmarkAlignment:
+    """交易所清单必须覆盖乖离率侧的全部宽基基准（同一批「常用基准」的两处登记）。
+
+    刻意用**测试**而非 import 锁一致性：`index_daily_job`（sync 家族）反向 import
+    `bias.constants`（bias 家族）会违反 `architecture.md` §6 的家族边界。
+    """
+
+    def test_covers_all_bias_benchmarks(self):
+        tencent_codes = {code for code, _ in TENCENT_INDEX_TARGETS}
+        missing = set(BENCHMARK_INDICES) - tencent_codes
+        assert not missing, f'交易所清单缺基准：{sorted(missing)}'
+
+    def test_names_match_bias_benchmarks(self):
+        mapping = dict(TENCENT_INDEX_TARGETS)
+        for code, name in BENCHMARK_INDICES.items():
+            assert mapping[code] == name, f'{code} 名称两侧不一致：{mapping[code]} != {name}'
+
+
+class TestTencentRouting:
+    """`.SH` / `.SZ` 走腾讯直连；`.WI` 仍走韭圈儿（分流按后缀，不靠清单查表）。"""
+
+    @pytest.fixture
+    def job(self, db):
+        return IndexDailySyncJob(MagicMock(), db)
+
+    def test_exchange_code_routes_to_tencent(self, job, db, monkeypatch):
+        calls = []
+
+        def fake_fetch(symbol, start_date=None, **kwargs):
+            calls.append((symbol, start_date))
+            return [('2026-09-29', 4300.0), ('2026-09-30', 4357.62)]
+
+        monkeypatch.setattr(index_daily_job_module, 'fetch_daily_tencent', fake_fetch)
+        result = job.run(full_sync=False, targets=['000300.SH'])
+
+        assert result['status'] == 'success'
+        assert calls[0][0] == '000300.SH'
+        # 增量（非全量）必须传 12 月起点，不能退化成「成立以来」全量翻页
+        assert calls[0][1] is not None
+        rows = db.query(IndexDaily).filter_by(index_code='000300.SH').order_by(IndexDaily.trade_date).all()
+        assert [r.source for r in rows] == ['tencent', 'tencent']
+        assert [r.price_mode for r in rows] == ['raw', 'raw']
+        assert float(rows[-1].close) == 4357.62
+        # 韭圈儿通道一次都不该被碰
+        job.adapter.fetch_index_daily.assert_not_called()
+
+    def test_full_sync_asks_tencent_for_all_history(self, job, db, monkeypatch):
+        seen = {}
+
+        def fake_fetch(symbol, start_date=None, **kwargs):
+            seen['start_date'] = start_date
+            return [('2026-09-30', 4357.62)]
+
+        monkeypatch.setattr(index_daily_job_module, 'fetch_daily_tencent', fake_fetch)
+        job.run(full_sync=True, targets=['000300.SH'])
+        assert seen['start_date'] is None, '全量应翻到源侧耗尽（start_date=None）'
+
+    def test_wind_code_still_uses_jiucaishuo(self, job, db, monkeypatch):
+        job.adapter.fetch_index_daily.return_value = {
+            'gu_code': '881001.WI',
+            'gu_name': '万得全A',
+            'price_mode': 'anchored',
+            'rows': [{'trade_date': date(2026, 9, 30), 'close': 6457.3, 'ret_pct': 48.32}],
+        }
+
+        def boom(*args, **kwargs):
+            raise AssertionError('万得系不该走腾讯通道')
+
+        monkeypatch.setattr(index_daily_job_module, 'fetch_daily_tencent', boom)
+        job.run(full_sync=False, targets=['881001.WI'])
+        row = db.query(IndexDaily).one()
+        assert row.source == 'jiucaishuo'
+        assert row.price_mode == 'anchored'
+
+    def test_tencent_empty_is_tolerated(self, job, db, monkeypatch):
+        """腾讯取空（通道异常 / 非交易日）不得让整个 job 失败。"""
+        monkeypatch.setattr(index_daily_job_module, 'fetch_daily_tencent', lambda *a, **k: [])
+        result = job.run(full_sync=False, targets=['000300.SH'])
+        assert result['status'] == 'success'
+        assert db.query(IndexDaily).count() == 0
