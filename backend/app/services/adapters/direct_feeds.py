@@ -4,7 +4,11 @@
 # File : direct_feeds.py
 # -*- coding: utf-8 -*-
 """
-乖离率直连行情（绕开 akshare / 东财限流）
+直连行情适配（腾讯 / 东财 / 申万，绕开 akshare 限流与 V8 风险）
+
+**归属（2026-10-01）**：本模块原在 `services/bias/`，因 index_daily job（sync 家族）也要
+用同一路腾讯行情，跨家族共享件按 `architecture.md` §6「跨家族共享件一律放 services/ 顶层」
+上提到 `services/adapters/`（家族包内只留该家族独有实现）。依赖方向仍是叶子：仅 core / 标准库 / requests。
 
 优先级：
   - 申万行业        : 申万宏源研究官网（akshare index_hist_sw，非东财） > 东财 push2his 兜底；
@@ -24,7 +28,7 @@ symbol 约定（与 bias/constants.py 一致）：
 
 import time
 from datetime import date, timedelta
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import requests
 from loguru import logger
@@ -45,6 +49,14 @@ _SUFFIX_EM_INDEX = {'SH': '1', 'SZ': '0', 'BJ': '0'}
 # 避免持续冲击同一出口加重封禁；配合重试次数下调为 2。
 _EM_BACKOFF_BASE = 8.0
 _EM_RETRIES = 2
+
+# 腾讯单页覆盖的自然日跨度（2026-10-01 实测：接口 count 上限 800 条交易日，
+# 1200 自然日返回 798 条；取 1400 天留冗余，满页即约 800 条）。
+_TENCENT_PAGE_SPAN_DAYS = 1400
+# 分页之间的礼貌间隔（秒）：同一出口连续翻页，别打成突发请求
+_TENCENT_PAGE_INTERVAL = 0.5
+# 分页页数上限（防御）：16 页 × 800 条 ≈ 12800 个交易日，足够覆盖任何指数的成立以来
+_TENCENT_MAX_PAGES = 16
 
 
 def _split_code(symbol: str) -> Tuple[str, str]:
@@ -95,6 +107,90 @@ def fetch_close_tencent(symbol: str, days: int = 90, timeout: int = 8) -> Option
     except Exception as e:  # noqa: BLE001
         logger.debug(f'腾讯行情失败 {symbol}: {e}')
     return None
+
+
+def fetch_kline_tencent(
+    symbol: str,
+    start: date,
+    end: date,
+    count: int = 800,
+    timeout: int = 12,
+) -> List[Tuple[str, float]]:
+    """腾讯日线 K 线（**含交易日**——这是与 `fetch_close_tencent` 的唯一差别）。
+
+    返回 `[(trade_date, close), ...]` **升序**；无数据 / 失败返回 `[]`（best-effort）。
+
+    字段形态（2026-10-01 实测）：每行 `[日期, 开, 收, 高, 低, 量]`，故 `x[2]` 是**收盘**。
+    已与东财 push2his 逐值核对（沪深300 2026-09-30 两源同为 4357.62）。宽基指数不复权、
+    源侧落在 `day` 键（ETF/股票可能在 `qfqday`），故两者都取，顺序不影响语义。
+    """
+    sym = _tencent_symbol(symbol)
+    param = f'{sym},day,{start:%Y-%m-%d},{end:%Y-%m-%d},{count},qfq'
+    try:
+        r = requests.get(_TENCENT, params={'param': param}, headers=_HEAD_T, timeout=timeout)
+        r.raise_for_status()
+        item = r.json().get('data', {}).get(sym) or {}
+        rows = item.get('qfqday') or item.get('day') or []
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f'腾讯日线失败 {symbol}: {e}')
+        return []
+    out: List[Tuple[str, float]] = []
+    for x in rows:
+        if not (isinstance(x, list) and len(x) >= 3):
+            continue
+        try:
+            out.append((str(x[0])[:10], float(x[2])))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def fetch_daily_tencent(
+    symbol: str,
+    start_date: Optional[date] = None,
+    timeout: int = 12,
+    max_pages: int = _TENCENT_MAX_PAGES,
+) -> List[Tuple[str, float]]:
+    """腾讯日线**分页回补**：返回 `[(trade_date, close), ...]` 升序、已去重。
+
+    腾讯单次最多 800 个交易日，长历史靠「以本页首日为新的区间终点」往前翻页实现
+    （`start_date=None` 翻到源侧耗尽＝成立以来；给定日期则覆盖到该日即止）。
+
+    去重口径：同日多页重叠（实测相邻页会在边界日重叠一天）取**先出现**的那条——
+    先出现的是更靠近今天的那一页，与「最新数据优先」一致；两页同值，实际无差异。
+
+    成本：每页 1 个 HTTP 请求 + 页间 0.5s 礼貌间隔。沪深300 成立以来约 7 页。
+    任何一页取空即停（视作源侧耗尽或通道异常），已取到的数据照常返回。
+    """
+    collected: Dict[str, float] = {}
+    end = date.today()
+    start_iso = start_date.isoformat() if start_date else None
+
+    for page in range(max_pages):
+        # 首页区间两种定界，别混（2026-10-01 真机实测踩坑）：
+        # - 给了 start_date（增量）：**首页就按它定界**，一页取完即止。若沿用「固定跨
+        #   page_span」，增量会一次拉回 800 条≈3.2 年（实测），与韭圈儿侧的 12 月口径
+        #   不一致，且每次都白写数百行无用 upsert。
+        # - 未给（全量）：从今天往前跨 page_span，再由后续页继续往前翻到成立以来。
+        page_start = start_date if (page == 0 and start_date) else end - timedelta(days=_TENCENT_PAGE_SPAN_DAYS)
+        rows = fetch_kline_tencent(symbol, page_start, end, timeout=timeout)
+        if not rows:
+            break
+        for trade_date, close in rows:
+            collected.setdefault(trade_date, close)
+        if start_iso and page_start.isoformat() <= start_iso:
+            break  # 首页已按 start_date 定界（或分页翻到了该日），覆盖完整区间
+        # 本页最旧交易日：源侧实测升序（rows[0] 最旧），但取 min 以免依赖返回顺序——
+        # 顺序假设一旦被源侧改掉，翻页会静默退化成「原地打转」。
+        first = min(trade_date for trade_date, _ in rows)
+        next_end = date.fromisoformat(first) - timedelta(days=1)
+        if next_end >= end:  # 无进展保护：源侧首日不变时立即收手，避免空转翻页
+            break
+        end = next_end
+        if page < max_pages - 1:
+            time.sleep(_TENCENT_PAGE_INTERVAL)
+
+    return sorted(collected.items())
 
 
 def fetch_close_eastmoney(secid: str, days: int = 90, timeout: int = 8) -> Optional[Tuple[List[float], str]]:

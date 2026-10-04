@@ -34,6 +34,7 @@ daily-snapshot 因 secrets 缺失连续 7 天全红，本地库净值止于 2026
 | `temperature` | 20:00 | 温度计：集思录中位 PB / 韭圈儿 / 行业拥挤度 / 乖离率，即**温度计页面**的数据 |
 | `fund_nav` | 21:30 | **自选 + 持仓**的基金净值当日增量（目标池由 `orchestrator.resolve_targets()` 现取） |
 | `price_history` | 17:30 | **场内日线**（股票 / ETF / 可转债；目标池 = 持仓 + 自选的场内代码）：每日 OHLC 落 `price_history`，增量按「库内最新交易日的次日」**缺口回补**（漏跑可自愈） |
+| `index_daily` | 18:00 | **指数日线**（#275 / #861）：万得系（韭圈儿）+ 交易所宽基（沪深300 / 中证500 / 创业板指…共 12 只，腾讯直连）落 `index_daily`；目标池是固定清单，与持仓/自选无关 |
 | `position_price` | 22:15 | **持仓现价回写**（#1104）：场外基金写已确认净值、场内写最近交易日收盘价 → `positions.current_price`；纯本地（不联网），目标池 = 持仓表本身 |
 | `advisor_portfolio` | 22:00 | 投顾组合持仓 / 调仓快照（且慢 + 天天，目标池 = 库内全部在售组合） |
 
@@ -70,6 +71,7 @@ SCHEDULER_ENABLED=1                    # 总开关（模板 .env.example 已默�
 # SCHEDULER_TEMPERATURE_CRON=0 20 * * *
 # SCHEDULER_NAV_CRON=30 21 * * *
 # SCHEDULER_PRICE_HISTORY_CRON=30 17 * * *   # 场内日线（股票/ETF/可转债）
+# SCHEDULER_INDEX_DAILY_CRON=0 18 * * *      # 指数日线（万得系 + 交易所宽基）
 # SCHEDULER_POSITION_PRICE_CRON=15 22 * * *
 # SCHEDULER_ADVISOR_CRON=0 22 * * *
 # SCHEDULER_SKIP_NON_TRADING_DAY=true  # 休市不抓
