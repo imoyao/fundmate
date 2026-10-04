@@ -16,7 +16,12 @@
     />
 
     <!-- ===== 第一排：核心资产看板 + 收益趋势（饼图在子组件内，数据就绪后由本页触发首绘） ===== -->
-    <WelcomeAssetBoard ref="assetBoardRef" :summary="summary" />
+    <WelcomeAssetBoard
+      ref="assetBoardRef"
+      :summary="summary"
+      :error="summaryError"
+      @retry="onRetryAsset"
+    />
 
     <!-- ===== 第二排：年化收益追踪 + 市场温度（同一层级） ===== -->
     <WelcomeXirrTemperature
@@ -26,7 +31,9 @@
       :temperature-bands="temperatureBands"
       :temperature-conclusion="temperatureConclusion"
       :band-pill-style="bandPillStyle"
+      :error="xirrError"
       @change="fetchXirr"
+      @retry="onRetryAsset"
     />
 
     <!-- ===== 第三排：持仓市值最大资产 ===== -->
@@ -122,7 +129,10 @@ const {
   fetchSummary,
   fetchXirr,
   fetchTemperature,
-  fetchRecordStats
+  fetchRecordStats,
+  summaryError,
+  xirrError,
+  retryAssetLoad
 } = useWelcomeData();
 
 // 资产分布饼图：echarts 实例在 WelcomeAssetBoard 内，汇总数据就绪后经其 expose 的 render 首绘
@@ -148,6 +158,13 @@ const onWatchlistSelect = (item: HomeSummaryItem) => {
 
 const onWatchlistChanged = () => {
   watchlistWidgetKey.value++;
+};
+
+// 资产关键数据重试（#1832）：重拉汇总 + 年化，成功后重绘饼图
+const onRetryAsset = async () => {
+  await retryAssetLoad();
+  await nextTick();
+  assetBoardRef.value?.render();
 };
 
 // ===== 生命周期（顺序与拆分前一致：汇总 → 其余并行；ticker 清理在 composable 内） =====

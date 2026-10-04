@@ -19,7 +19,26 @@
         </template>
       </SectionHeader>
       <CardBlock class="flex-1">
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center h-full">
+        <!-- 失败态（#1832）：汇总请求失败时**不显示 ¥0**。
+             「0」在资产语境里是结论（我确实没资产），不是「不知道」——
+             过去 `summary?.total_assets_cny ?? 0` 把两者混为一谈，首屏看着像数据被清空了。 -->
+        <div
+          v-if="error"
+          class="flex flex-col items-center justify-center gap-3 py-10"
+          role="alert"
+        >
+          <p class="text-sm" :style="{ color: 'var(--text-secondary)' }">
+            家庭总资产加载失败，请检查网络后重试
+          </p>
+          <el-button size="small" type="primary" @click="emit('retry')">
+            重新加载
+          </el-button>
+        </div>
+
+        <div
+          v-else
+          class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center h-full"
+        >
           <div class="lg:col-span-7 flex flex-col gap-6">
             <div>
               <p
@@ -145,7 +164,13 @@ import { useEchartsLifecycle } from "@/composables/echarts/useEchartsLifecycle";
 
 defineOptions({ name: "WelcomeAssetBoard" });
 
-const props = defineProps<{ summary: SummaryData | null }>();
+const props = defineProps<{
+  summary: SummaryData | null;
+  /** 汇总请求失败（#1832）：为 true 时渲染「加载失败 + 重试」，不显示 ¥0 */
+  error?: boolean;
+}>();
+
+const emit = defineEmits<{ retry: [] }>();
 
 const distributionChartRef = ref<HTMLDivElement | null>(null);
 

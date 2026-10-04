@@ -1,6 +1,7 @@
 import {
   ref,
   computed,
+  reactive,
   onMounted,
   shallowRef,
   type Ref,
@@ -124,7 +125,19 @@ export interface LedgerDetailApi {
   openPositionDrawer: (row: LedgerHoldingRow) => void;
   openEditDialog: () => Promise<void>;
   toggleArchiveDetail: (ledger: LedgerItem) => Promise<void>;
-  confirmDeletePosition: (row: LedgerHoldingRow) => Promise<void>;
+  /** 打开删除持仓确认对话框（#1830：删除分支收进对话框，取消位归位） */
+  openDeletePositionDialog: (row: LedgerHoldingRow) => void;
+  closeDeletePositionDialog: () => void;
+  handleDeletePosition: (payload: {
+    keepTransactions: boolean;
+  }) => Promise<void>;
+  /** 删除持仓对话框状态（visible / loading / 目标持仓） */
+  deletePositionDialog: {
+    visible: boolean;
+    loading: boolean;
+    positionId: number | null;
+    positionName: string;
+  };
   openDeleteDialog: (account: LedgerItem) => void;
   onAccountUpdated: () => Promise<void>;
   onMigrationCommitted: () => void;
@@ -423,44 +436,59 @@ export function useLedgerDetail(): LedgerDetailApi {
     }
   }
 
-  async function confirmDeletePosition(row: LedgerHoldingRow) {
-    const positionId = row.id;
+  /**
+   * 删除持仓确认（#1830）。
+   *
+   * 旧实现用 `ElMessageBox.confirm` 并把 `cancelButtonText` 写成「仅删除持仓」——
+   * 「取消」这个中止位被劫持成一次真实删除，想反悔的用户点下去持仓真被删。
+   * 现在改为对话框（`DeletePositionDialog`），三个动作各自自解释：
+   * 取消 / 仅删除持仓（保留交易）/ 删除持仓及交易（danger）。
+   */
+  const deletePositionDialog = reactive({
+    visible: false,
+    loading: false,
+    positionId: null as number | null,
+    positionName: ""
+  });
+
+  function openDeletePositionDialog(row: LedgerHoldingRow) {
+    deletePositionDialog.positionId = row.id;
+    deletePositionDialog.positionName = row.name || row.symbol || "";
+    deletePositionDialog.visible = true;
+  }
+
+  function closeDeletePositionDialog() {
+    if (deletePositionDialog.loading) return;
+    deletePositionDialog.visible = false;
+  }
+
+  async function handleDeletePosition({
+    keepTransactions
+  }: {
+    keepTransactions: boolean;
+  }) {
+    const positionId = deletePositionDialog.positionId;
+    if (positionId == null) return;
+    deletePositionDialog.loading = true;
     try {
-      await ElMessageBox.confirm(
-        `确定删除持仓「${row.name || row.symbol}」吗？可选择同时删除关联交易记录。`,
-        "删除持仓",
-        {
-          confirmButtonText: "删除持仓及交易",
-          cancelButtonText: "仅删除持仓",
-          distinguishCancelAndClose: true,
-          type: "warning"
-        }
+      // keepTransactions=true → 只删持仓、保留交易（对应旧实现的「仅删除持仓」分支）
+      await deleteLedgerPosition(
+        Number(ledgerId.value),
+        positionId,
+        keepTransactions
       );
-
-      // ✅ 用户点击了【删除持仓及交易】
-      await deleteLedgerPosition(Number(ledgerId.value), positionId, true);
-      ElMessage.success("持仓及关联交易已删除");
-
-      // 刷新持仓列表
+      ElMessage.success(
+        keepTransactions ? "持仓已删除，交易记录保留" : "持仓及关联交易已删除"
+      );
+      deletePositionDialog.visible = false;
       loadHoldings();
-      // 🔥 核心修复：清除交易列表缓存，保证用户切换 Tab 后会自动拉取最新数据
+      // 交易列表引用的是内存缓存，必须置空才会重新拉取
       transactionsApi.value?.resetCache();
-    } catch (action: unknown) {
-      // ✅ 用户点击了【仅删除持仓】（ElMessageBox 取消分支返回 "cancel"）
-      if (action === "cancel") {
-        try {
-          await deleteLedgerPosition(Number(ledgerId.value), positionId, false);
-          ElMessage.success("持仓已删除，交易记录保留");
-
-          // 刷新持仓列表
-          loadHoldings();
-          // 🔥 核心修复：虽然保留了交易记录，但交易列表引用的是内存缓存，强制置空以触发刷新
-          transactionsApi.value?.resetCache();
-        } catch (e) {
-          const err = e as { response?: { data?: { message?: string } } };
-          ElMessage.error(err?.response?.data?.message || "删除失败");
-        }
-      }
+    } catch (e) {
+      const err = e as { response?: { data?: { message?: string } } };
+      ElMessage.error(err?.response?.data?.message || "删除失败");
+    } finally {
+      deletePositionDialog.loading = false;
     }
   }
 
@@ -571,7 +599,10 @@ export function useLedgerDetail(): LedgerDetailApi {
     openPositionDrawer,
     openEditDialog,
     toggleArchiveDetail,
-    confirmDeletePosition,
+    openDeletePositionDialog,
+    closeDeletePositionDialog,
+    handleDeletePosition,
+    deletePositionDialog,
     openDeleteDialog,
     onAccountUpdated,
     onMigrationCommitted,

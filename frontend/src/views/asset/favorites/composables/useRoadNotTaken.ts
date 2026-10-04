@@ -10,7 +10,7 @@
 // 设计预览（DEMO_ITEMS）仅在 previewMode 打开时追加，卡片带 isDemo 标记且禁止保存。
 
 import { computed, ref } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import {
   addTagToItem,
   getFavorites,
@@ -281,10 +281,24 @@ export function useRoadNotTaken() {
     }
   }
 
-  /** 批量移出特别关注（回到普通自选） */
+  /** 批量移出特别关注（回到普通自选）——破坏面是单条的一个数量级，必须二次确认（#1831） */
   async function batchRemove() {
     const targets = selectedItems.value.filter(i => i.id != null && !i.isDemo);
     if (!targets.length) return;
+    // 确认放在执行之前，且 catch 里区分「用户取消」与「请求失败」——取消不应报红
+    try {
+      await ElMessageBox.confirm(
+        `确定将选中的 ${targets.length} 项移出特别关注吗？移出后可在「我的自选」里重新关注。`,
+        "批量移出特别关注",
+        {
+          confirmButtonText: `移出 ${targets.length} 项`,
+          cancelButtonText: "保留",
+          type: "warning"
+        }
+      );
+    } catch {
+      return; // 用户点「保留」或关闭弹窗 → 中止
+    }
     try {
       for (const item of targets) {
         await updateWatchlistItem(item.id as number, { favorite: false });
@@ -311,7 +325,12 @@ export function useRoadNotTaken() {
     }
   }
 
-  /** 单卡移出特别关注（回到普通自选） */
+  /**
+   * 单卡移出特别关注（回到普通自选）。
+   *
+   * 确认**不在这里**：页面 `favorites/index.vue` 的 `confirmRemove` 已经用
+   * ElMessageBox 问过（「移出」/「再想想」）。若这里再问一次会变成两次弹窗。
+   */
   async function removeFavorite(item: RoadItem) {
     if (item.id == null || item.isDemo) return;
     try {

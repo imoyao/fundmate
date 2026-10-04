@@ -250,12 +250,23 @@ export function useWelcomeData() {
     }
   };
 
+  // ===== 资产关键数据的加载失败状态（#1832）=====
+  // 过去 `summary` / `portfolioXirr` 失败后仍是 null，而展示层写的是
+  // `summary?.total_assets_cny ?? 0` → 把「后端挂了」显示成「家庭总资产 ¥0」。
+  // 资产类首屏出现 0 会直接引发恐慌，且用户无法区分「服务器挂了」与「我资产真的没了」——
+  // http 拦截器只处理 401/403，5xx / 超时全落到这些 catch 里。显式区分三态：
+  // 加载中 / 失败（可重试）/ 真的为 0。
+  const summaryError = ref(false);
+  const xirrError = ref(false);
+
   const fetchSummary = async () => {
     try {
       const res = await getSummary();
       summary.value = res.data;
+      summaryError.value = false;
     } catch (e) {
       console.error("Failed to fetch summary:", e);
+      summaryError.value = true;
     } finally {
       buildHomeMessages();
     }
@@ -269,8 +280,10 @@ export function useWelcomeData() {
         includeCashEquivalents.value
       );
       portfolioXirr.value = res.data;
+      xirrError.value = false;
     } catch (e) {
       console.error("获取年化收益率失败", e);
+      xirrError.value = true;
     } finally {
       buildHomeMessages();
     }
@@ -285,6 +298,13 @@ export function useWelcomeData() {
   return {
     // 欢迎语
     recordDays,
+    // 资产数据加载失败态（#1832）：展示层据此渲染「加载失败 + 重试」而不是 ¥0
+    summaryError,
+    xirrError,
+    /** 资产关键数据重试（汇总 + 年化），供页面「重试」按钮调用 */
+    retryAssetLoad: async () => {
+      await Promise.all([fetchSummary(), fetchXirr()]);
+    },
     welcomeState,
     greetingText,
     userTitle,

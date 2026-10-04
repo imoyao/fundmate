@@ -167,7 +167,7 @@
               text
               size="small"
               type="danger"
-              @click.stop="p.confirmDeletePosition(row as LedgerHoldingRow)"
+              @click.stop="p.openDeletePositionDialog(row as LedgerHoldingRow)"
               >删除</el-button
             >
           </div>
@@ -202,6 +202,15 @@
         @current-change="p.loadHoldings"
       />
     </div>
+
+    <!-- 删除持仓确认（#1830）：「取消」归位为中止，两个删除分支各自自解释 -->
+    <DeletePositionDialog
+      :visible="p.deletePositionDialog.visible"
+      :position-name="p.deletePositionDialog.positionName"
+      :loading="p.deletePositionDialog.loading"
+      @update:visible="p.closeDeletePositionDialog"
+      @confirm="p.handleDeletePosition"
+    />
   </el-tab-pane>
 </template>
 
@@ -209,6 +218,7 @@
 import { reactive } from "vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import DeletePositionDialog from "./DeletePositionDialog.vue";
 import PnlDualLine from "@/components/PnlDualLine/index.vue";
 import RealtimeEstimateToggle from "@/components/RealtimeEstimateToggle/index.vue";
 import { pricePrecision } from "@/utils/pricePrecision";
