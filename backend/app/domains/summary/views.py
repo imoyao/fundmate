@@ -11,6 +11,7 @@ from flask import jsonify, request
 
 from app.core.auth import get_family_id
 from app.core.database import get_db
+from app.services.penetration import SCHEME_LABELS, build_penetration
 from app.services.summary_service import (
     get_account_groups,
     get_distributions,
@@ -60,6 +61,40 @@ def distributions():
             data = get_distributions(db, get_family_id())
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
+        return jsonify({'data': {}, 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500
+
+
+@bp.get('/summary/penetration/')
+def penetration():
+    """返回基金持仓穿透（行业 / 个股真实暴露，#870 Step 2）。
+
+    查询参数：
+    - `scheme`：主聚合口径，`csrc`（默认，证监会门类）/ `gics`（GICS 板块）。
+      两套体系**不可相加**，非主口径的结果在 `other_schemes` 单列返回。
+    - `top_n`：个股分布截断条数，默认 20；`<=0` 表示不截断（超出部分合并为「其他」）。
+
+    覆盖率有硬上限（本机实测约 53%）：直持股票无「个股→行业」映射、场内 ETF 无
+    底层持仓数据、货基债基本身无股票敞口。`unpenetrated` 逐条带 `reason`，区分
+    「真缺口」与「本质无敞口」，前端不得把两者混为一谈。
+    """
+    scheme = (request.args.get('scheme') or 'csrc').strip().lower()
+    if scheme not in SCHEME_LABELS:
+        return jsonify(
+            {'data': {}, 'message': f'scheme 仅支持 {"/".join(sorted(SCHEME_LABELS))}', 'error_code': 1001}
+        ), 400
+
+    raw_top_n = request.args.get('top_n')
+    try:
+        top_n = int(raw_top_n) if raw_top_n not in (None, '') else 20
+    except (TypeError, ValueError):
+        return jsonify({'data': {}, 'message': f'top_n 必须为整数: {raw_top_n!r}', 'error_code': 1001}), 400
+
+    try:
+        with get_db() as db:
+            data = build_penetration(db, get_family_id(), scheme=scheme, top_n=top_n)
+        return jsonify({'data': data, 'message': 'ok'})
+    except Exception as e:
+        # 标准错误信封 {data, message, error_code}（AGENTS.md 接口契约）
         return jsonify({'data': {}, 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500
 
 
