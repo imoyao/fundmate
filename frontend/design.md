@@ -868,7 +868,7 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 | 元素 | 涨（红） | 跌（绿） |
 |------|----------|----------|
 | 盈亏数字 | `--color-rise` | `--color-fall` |
-| 收益率标签 | `--brand-100` 底 + `--brand-700` 字 | `#F0F9F2` 底 + `#38A354` 字 |
+| 收益率标签 | `--brand-100` 底 + `--color-rise-ink` 字 | `#F0F9F2` 底 + `--color-fall-ink` 字 |
 | 走势图 | 红色渐变区域 | 绿色渐变区域 |
 
 > 所有图表颜色通过 `getComputedStyle` 动态读取 CSS 变量，禁止硬编码色值。

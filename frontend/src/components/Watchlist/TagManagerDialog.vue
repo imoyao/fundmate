@@ -20,6 +20,7 @@
       <el-input
         v-model="keyword"
         placeholder="搜索标签..."
+        aria-label="搜索标签"
         size="large"
         class="tag-search"
         clearable
@@ -58,6 +59,9 @@
             <el-popconfirm
               title="确定删除该标签？"
               :disabled="usageOf(tag.id) > 0"
+              confirm-button-text="删除"
+              cancel-button-text="取消"
+              popper-class="danger-popconfirm"
               @confirm="deleteTag(tag.id)"
             >
               <template #reference>

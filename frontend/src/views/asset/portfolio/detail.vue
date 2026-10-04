@@ -30,6 +30,9 @@
           <el-button @click="editVisible = true">编辑</el-button>
           <el-popconfirm
             title="确定删除此组合？关联账户将自动解绑。"
+            confirm-button-text="删除"
+            cancel-button-text="取消"
+            popper-class="danger-popconfirm"
             @confirm="handleDelete"
           >
             <template #reference>

@@ -135,7 +135,11 @@ withDefaults(
 </script>
 
 <style lang="scss" scoped>
-@media (width <= 640px) {
+/* 断点走 bp mixin（#1838）：原先这里是手写的裸宽度媒体查询，会被 guard_breakpoints
+   记进存量基线，阈值一旦与 _breakpoints.scss 分叉就没人知道。 */
+@use "@/style/breakpoints" as bp;
+
+@include bp.below("sm") {
   .page-footer .footer-card {
     flex-basis: 100%;
   }

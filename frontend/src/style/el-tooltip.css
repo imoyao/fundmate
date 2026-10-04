@@ -17,3 +17,15 @@
   background-color: var(--el-popper-bg-color);
   border-color: var(--el-popper-border-color);
 }
+
+/* 破坏性确认气泡（#1836）：el-popconfirm 默认用 primary 蓝确认按钮，用户无法从按钮
+   看出这是删除类操作。给这类气泡挂 popper-class="danger-popconfirm" 即可转 danger 色。
+   popper 传送到 body，scoped 样式够不着，必须走全局。 */
+.danger-popconfirm .el-button--primary {
+  --el-button-bg-color: var(--el-color-danger);
+  --el-button-border-color: var(--el-color-danger);
+  --el-button-hover-bg-color: var(--el-color-danger-light-3);
+  --el-button-hover-border-color: var(--el-color-danger-light-3);
+  --el-button-active-bg-color: var(--el-color-danger-dark-2);
+  --el-button-active-border-color: var(--el-color-danger-dark-2);
+}
