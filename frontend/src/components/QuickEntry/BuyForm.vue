@@ -364,6 +364,7 @@ import {
   LEDGER_TYPE_OPTIONS
 } from "@/constants";
 import { getLedgerColor } from "@/utils/ledger";
+import { disabledTradeDate } from "@/utils/date";
 import { DEFAULT_SUB_RATE } from "@/utils/trading";
 
 interface SecurityOption {
@@ -489,8 +490,8 @@ const showIsAfter15 = computed(() => {
   return false;
 });
 
-const disabledDate = (time: Date) =>
-  time.getTime() > new Date().setHours(0, 0, 0, 0);
+// 交易日期禁用规则收敛到 utils/date（#1835：同一规则曾散落三处、编辑弹窗漏了第四处）
+const disabledDate = disabledTradeDate;
 
 const rules: FormRules = {
   ledger_id: [{ required: true, message: "请选择账户", trigger: "change" }],

@@ -340,6 +340,7 @@ import type { Position } from "@/api/types";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { LEDGER_TYPE_SHORT } from "@/constants";
 import { getLedgerColor } from "@/utils/ledger";
+import { disabledTradeDate } from "@/utils/date";
 import {
   getStep,
   SELL_QUICK_RATIOS,
@@ -449,8 +450,8 @@ const sellEstimate = computed(() => {
   const amount = q * p - f;
   return amount > 0 ? amount.toFixed(2) : "-";
 });
-const disabledDate = (time: Date) =>
-  time.getTime() > new Date().setHours(0, 0, 0, 0);
+// 交易日期禁用规则收敛到 utils/date（#1835）
+const disabledDate = disabledTradeDate;
 const showIsAfter15 = computed(() => {
   const type = currentLedger.value?.ledger_type;
   if (type === "fund" || type === "bank") return true;

@@ -3,6 +3,7 @@
     :model-value="modelValue"
     title="编辑交易"
     width="520px"
+    :before-close="onBeforeClose"
     @update:model-value="val => emit('update:modelValue', val)"
     @open="initForm"
   >
@@ -116,6 +117,7 @@
             value-format="YYYY-MM-DD"
             placeholder="选择日期"
             clearable
+            :disabled-date="disabledDate"
           />
           <el-radio-group v-if="isFund" v-model="isAfter15" size="small">
             <el-radio-button :value="false">15:00前</el-radio-button>
@@ -144,9 +146,8 @@
     </el-form>
 
     <template #footer>
-      <el-button :disabled="saving" @click="emit('update:modelValue', false)"
-        >取消</el-button
-      >
+      <!-- 取消也走守卫：`before-close` 只拦关闭按钮 / ESC / 点遮罩，程序化 close 走不到它（#1835） -->
+      <el-button :disabled="saving" @click="requestClose">取消</el-button>
       <el-button type="primary" :loading="saving" @click="handleSave"
         >保存</el-button
       >
@@ -165,7 +166,8 @@ import {
   useSecurityPriceRange,
   createStockPriceValidator
 } from "@/composables/useSecurityPrice";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
+import { disabledTradeDate } from "@/utils/date";
 
 const props = defineProps<{
   modelValue: boolean;
@@ -186,6 +188,10 @@ const form = ref<any>({});
 
 // 初始化标记：防止 initForm 赋值时触发 watch 覆盖原始金额
 const isInitializing = ref(false);
+
+// 交易日期不允许选未来（#1835）：此前只有新增交易的三张表单禁用了，编辑已入账交易的这张漏了——
+// 同一规则散落三处、漏一处，故规则收在 utils/date，这里只留别名保持模板可读
+const disabledDate = disabledTradeDate;
 
 // 15:00 后下单（影响确认日计算）
 const isAfter15 = ref(false);
@@ -268,9 +274,51 @@ function initForm() {
   };
   // 展示已有确认日期（若交易记录里有）
   confirmDateDisplay.value = t.confirm_date || "";
+  // 未保存离开保护（#1835）的基线：弹窗打开时的表单快照
+  initialSnapshot.value = JSON.stringify(form.value);
   nextTick(() => {
     isInitializing.value = false;
   });
+}
+
+// ── 未保存离开保护（#1835）──
+// 关闭按钮 / ESC / 点遮罩走 el-dialog 的 before-close；底部「取消」是程序化 close，
+// 走不到 before-close，必须各自接一道，否则那条路仍然静默丢数据。
+
+/** 弹窗打开时的表单快照（initForm 写入，保存成功后重置） */
+const initialSnapshot = ref("");
+
+const isDirty = computed(
+  () => JSON.stringify(form.value) !== initialSnapshot.value
+);
+
+/** 有未保存修改时问一次；true 表示可以关闭 */
+async function confirmDiscard(): Promise<boolean> {
+  if (!isDirty.value) return true;
+  try {
+    await ElMessageBox.confirm(
+      "当前修改尚未保存，确定放弃吗？",
+      "未保存的修改",
+      {
+        confirmButtonText: "放弃修改",
+        cancelButtonText: "继续编辑",
+        type: "warning"
+      }
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function onBeforeClose(done: () => void) {
+  void confirmDiscard().then(ok => {
+    if (ok) done();
+  });
+}
+
+async function requestClose() {
+  if (await confirmDiscard()) emit("update:modelValue", false);
 }
 
 // 金额为权威数据：
@@ -364,6 +412,8 @@ async function handleSave() {
     };
     const res = await updateLedgerTransaction(t.ledger_id, t.id, payload);
     const data = res.data;
+    // 保存成功后重置脏基线：否则紧接着的关闭会弹「放弃修改？」，问得毫无意义（#1835）
+    initialSnapshot.value = JSON.stringify(form.value);
     emit("saved", data);
     emit("update:modelValue", false);
     ElMessage.success("保存成功");

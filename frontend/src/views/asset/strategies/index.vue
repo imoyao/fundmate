@@ -526,12 +526,18 @@ async function updateTags(row: EnrichedHolding | any, selected: string[]) {
   const toAdd = selected.filter(t => !current.includes(t));
   const toRemove = current.filter(t => !selected.includes(t));
 
+  // 逐项收集失败而不是空 catch（#1833）：过去绑定失败也被吞掉，最后无条件弹「标签已更新」——
+  // 用户看到成功、刷新后标签消失。乐观更新 + 静默失败比直接报错更伤信任。
+  const failed: string[] = [];
+
   for (const tagName of toAdd) {
     const tag = allTags.value.find(t => t.name === tagName);
     if (tag) {
       try {
         await bindPositionTag(tag.id, r.id);
-      } catch (e) {}
+      } catch {
+        failed.push(tagName);
+      }
     }
   }
   for (const tagName of toRemove) {
@@ -539,12 +545,19 @@ async function updateTags(row: EnrichedHolding | any, selected: string[]) {
     if (tag) {
       try {
         await unbindPositionTag(tag.id, r.id);
-      } catch (e) {}
+      } catch {
+        failed.push(tagName);
+      }
     }
   }
 
-  positionTagMap.value[r.id] = selected;
-  ElMessage.success("标签已更新");
+  // 本地映射只提交真正生效的部分，别把失败的写进去
+  positionTagMap.value[r.id] = selected.filter(t => !failed.includes(t));
+  if (failed.length) {
+    ElMessage.warning(`部分标签未生效：${failed.join("、")}`);
+  } else {
+    ElMessage.success("标签已更新");
+  }
 }
 
 async function createTagForRow(row: EnrichedHolding | any) {
