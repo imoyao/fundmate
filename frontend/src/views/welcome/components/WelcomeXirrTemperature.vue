@@ -20,7 +20,15 @@
               <el-radio-button :value="true">含现金</el-radio-button>
             </el-radio-group>
           </div>
+          <!-- 失败态（#1832）：年化请求失败时不显示 0.00% 与 ¥0 —— 与资产看板同一原则 -->
+          <div v-if="error" class="flex items-center gap-2" role="alert">
+            <span class="text-sm" :style="{ color: 'var(--text-secondary)' }">
+              年化数据加载失败
+            </span>
+            <el-button text size="small" @click="emit('retry')">重试</el-button>
+          </div>
           <RiseFallText
+            v-else
             :value="(portfolioXirr?.xirr ?? 0) * 100"
             size="lg"
             :precision="2"
@@ -138,6 +146,8 @@ defineProps<{
   compositeTemperature: CompositeTemperature | null;
   temperatureBands: TemperatureBands | null;
   temperatureConclusion: string;
+  /** 年化请求失败（#1832）：为 true 时显示「加载失败 + 重试」，不显示 0.00% / ¥0 */
+  error?: boolean;
   bandPillStyle: (level: string) => {
     color: string;
     backgroundColor: string;
@@ -147,6 +157,7 @@ defineProps<{
 const emit = defineEmits<{
   "update:includeCashEquivalents": [value: boolean];
   change: [];
+  retry: [];
 }>();
 
 // el-radio-group 的 modelValue 类型为宽联合（bool | string | number），
