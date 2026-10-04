@@ -124,13 +124,23 @@ const batchMoveGroupId = computed({
              刷新 / 导出 / AI 导入 / 实时估值开关。实时开启态品牌色高亮见 .icon-tool-btn.is-active -->
         <div v-if="!toolbar.batchMode.value" class="header-actions">
           <el-tooltip content="刷新" placement="bottom">
-            <el-button circle class="icon-tool-btn" @click="data.fetchData()">
+            <el-button
+              circle
+              class="icon-tool-btn"
+              aria-label="刷新"
+              @click="data.fetchData()"
+            >
               <IconifyIconOffline icon="ep:refresh" />
             </el-button>
           </el-tooltip>
 
           <el-tooltip content="导出" placement="bottom">
-            <el-button circle class="icon-tool-btn" @click="data.exportData">
+            <el-button
+              circle
+              class="icon-tool-btn"
+              aria-label="导出"
+              @click="data.exportData"
+            >
               <IconifyIconOffline icon="ep:download" />
             </el-button>
           </el-tooltip>
@@ -139,6 +149,7 @@ const batchMoveGroupId = computed({
             <el-button
               circle
               class="icon-tool-btn"
+              aria-label="AI 导入"
               @click="toolbar.openOcrDialog"
             >
               <IconifyIconOffline icon="ep:magic-stick" />
@@ -150,6 +161,7 @@ const batchMoveGroupId = computed({
             <el-button
               circle
               class="icon-tool-btn"
+              :aria-label="toggleBtnText"
               :class="{ 'is-active': toggleBtnText.includes('关闭') }"
               @click="emit('toggle-realtime')"
             >
@@ -252,11 +264,15 @@ const batchMoveGroupId = computed({
 
 /* 轻量图标操作按钮（刷新/导出/AI导入/实时估值）
    尺寸规范：纯图标按钮统一 28×28（与主按钮 36、次级按钮 32 形成三级梯度）；
-   默认中性弱化线框，hover 提亮；实时开关开启态填品牌实底 */
+   默认中性弱化线框，hover 提亮；实时开关开启态填品牌实底
+
+   热区补偿（#1834）：28×28 的可点区域低于 44×44 的可及性下限。视觉尺寸保持 28，
+   靠 padding 把命中区扩到 40×40（元素本身是 inline-flex，多余空间不占布局、不推动相邻元素） */
 .icon-tool-btn {
+  box-sizing: content-box;
   width: 28px;
   height: 28px;
-  padding: 0;
+  padding: 6px;
   color: var(--text-tertiary-ink);
   background-color: transparent;
   border: 1px solid var(--border-default);

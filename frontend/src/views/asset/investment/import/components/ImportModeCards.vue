@@ -86,7 +86,11 @@ function onVendorLogoError(e: Event) {
 <template>
   <div class="import-mode-wrapper">
     <div class="import-mode-cards" :class="{ 'is-locked': !accountSelected }">
-      <div
+      <!-- 这四张卡曾是 div @click：纯键盘用户无法进入导入流程（功能级阻断，#1834）。
+           改用真 button —— 自带可聚焦、可访问名称与 Enter/Space 触发，
+           比补 role + tabindex + @keydown 更彻底。样式重置见下方 .mode-card。 -->
+      <button
+        type="button"
         class="mode-card"
         :class="{ 'is-disabled': !accountSelected }"
         @click="onManualEntry"
@@ -94,9 +98,10 @@ function onVendorLogoError(e: Event) {
         <IconifyIconOffline icon="ep:edit" class="mode-icon" />
         <h4 class="mode-title">{{ manualPreset.title }}</h4>
         <p class="mode-desc">{{ manualPreset.desc }}</p>
-      </div>
+      </button>
 
-      <div
+      <button
+        type="button"
         class="mode-card"
         :class="{ 'is-disabled': !accountSelected }"
         @click="onAiImport"
@@ -104,9 +109,10 @@ function onVendorLogoError(e: Event) {
         <IconifyIconOffline icon="ep:magic-stick" class="mode-icon" />
         <h4 class="mode-title">AI 截图/文本识别</h4>
         <p class="mode-desc">{{ aiPreset }}</p>
-      </div>
+      </button>
 
-      <div
+      <button
+        type="button"
         class="mode-card"
         :class="{ 'is-disabled': !accountSelected }"
         @click="onLiability"
@@ -114,14 +120,14 @@ function onVendorLogoError(e: Event) {
         <IconifyIconOffline icon="ep:document-add" class="mode-icon" />
         <h4 class="mode-title">录入负债 / 应收款</h4>
         <p class="mode-desc">记录信用卡、房贷等非交易类资产</p>
-      </div>
+      </button>
 
       <!-- 持仓快照导入：跳过选账户步骤，后端自动归因决定账户归属，故不受 accountSelected 锁定 -->
-      <div class="mode-card" @click="goToHoldingImport">
+      <button type="button" class="mode-card" @click="goToHoldingImport">
         <IconifyIconOffline icon="ep:document" class="mode-icon" />
         <h4 class="mode-title">导入持仓快照</h4>
         <p class="mode-desc">上传平台导出的持仓文件，自动归入对应账户</p>
-      </div>
+      </button>
     </div>
 
     <!-- 支持导入来源：复用 useImportWizard.availableModes 的平台 logo，体现专业性 -->
@@ -166,15 +172,28 @@ function onVendorLogoError(e: Event) {
 }
 
 .mode-card {
+  display: block;
   width: 240px;
   max-width: 100%;
   padding: 32px 24px;
+
+  /* 按钮元素重置（#1834）：div → button 后 UA 默认样式会继承进来，
+     font/color 不继承会让卡片里的 h4 / p 与周围文案不同字号同色 */
+  font: inherit;
+  color: inherit;
   text-align: center;
   cursor: pointer;
   background: var(--bg-card);
   border: 2px solid var(--border-default);
   border-radius: var(--radius-lg);
   transition: all 0.3s ease;
+}
+
+/* 键盘焦点要与 hover 等价可辨（#1834）：原来只有 hover 态，键盘用户看不到焦点在哪 */
+.mode-card:not(.is-disabled):focus-visible {
+  border-color: var(--brand-700);
+  box-shadow: var(--shadow-float);
+  transform: translateY(-2px);
 }
 
 .mode-card:not(.is-disabled):hover {
