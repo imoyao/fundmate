@@ -54,7 +54,14 @@ onMounted(() => {
     class="horizontal-header"
     :style="{ backgroundColor: 'var(--bg-card)' }"
   >
-    <div v-if="showLogo" class="horizontal-header-left" @click="backTopMenu">
+    <div
+      v-if="showLogo"
+      class="horizontal-header-left"
+      role="button"
+      tabindex="0"
+      @keydown.enter="backTopMenu"
+      @click="backTopMenu"
+    >
       <BrandLogo :size="34" />
       <span class="navbar-brand-name">
         {{ title }}
@@ -107,6 +114,9 @@ onMounted(() => {
       <span
         class="set-icon navbar-bg-hover"
         title="打开外观设置"
+        role="button"
+        tabindex="0"
+        @keydown.enter="onPanel"
         @click="onPanel"
       >
         <IconifyIconOffline :icon="Palette" />

@@ -218,11 +218,13 @@ jobs:
 
       # 交互可达性守卫（#1842）：纯图标按钮无可访问名称 / div@click 当按钮 /
       # hover 显隐无 focus-within 与 hover:none 兜底——前端交互排查里 P1 的主体三类。
-      # 先以 --warn 接入：存量 109 处（规则一 62 + 规则二 47，规则三实测已清零）
-      # 需逐个清，清零后再去掉 --warn 转为阻断
-      # （与 check_view_thickness 同样的「先立边界、堵新增」路子）。
-      - name: 扫描交互可达性回潮（暂不阻断）
-        run: python scripts/guard_a11y_interaction.py --warn
+      # 2026-10-05 起**阻断**：存量已清零（初报 109 处，其中规则一有 53 处是守卫
+      # 自身误报——`_has_text` 先剥标签再要求 `>…<` 两步互斥；规则三早期把
+      # `@keyframes` 的 from、`.is-folded` 折叠态误当 hover 显隐，4 处命中零真问题）。
+      # 六个判据 bug 修完 + 24 条回归样本 + 逐条反向验证后，守卫精度才可信到
+      # 拿来阻断。**新增违规一律挂 PR**，要豁免就在元素上方写 a11y-allow 并注理由。
+      - name: 扫描交互可达性回潮（阻断）
+        run: python scripts/guard_a11y_interaction.py
 
   # 乱码守卫（mojibake）：防止任何绕过本地 pre-commit 钩子的提交（--no-verify、
   # 或经 gh api / MCP 直推导致本地钩子不执行）把 GBK 乱码合进 PR。

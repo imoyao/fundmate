@@ -12,6 +12,10 @@ function handleSearch() {
   <div>
     <div
       class="search-container w-[40px] h-[48px] flex-c cursor-pointer navbar-bg-hover"
+      role="button"
+      tabindex="0"
+      aria-label="打开搜索"
+      @keydown.enter="handleSearch"
       @click="handleSearch"
     >
       <IconifyIconOffline icon="ri/search-line" />

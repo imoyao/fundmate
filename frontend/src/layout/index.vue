@@ -17,6 +17,10 @@
         layout.includes('vertical')
       "
       class="app-mask"
+      role="button"
+      tabindex="0"
+      aria-label="关闭侧栏菜单"
+      @keydown.enter="useAppStoreHook().toggleSideBar()"
       @click="useAppStoreHook().toggleSideBar()"
     />
     <NavVertical

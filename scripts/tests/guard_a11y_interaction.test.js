@@ -144,6 +144,48 @@ test("@keyup.enter 也是键盘激活 → 放行（补 @keydown 会造成回车�
   assert.doesNotMatch(out, /发现 \d+ 处/);
 });
 
+/* ---------- 规则四：图标类组件上的 @click（#1866） ---------- */
+
+test("IconifyIconOffline @click 缺键盘等价物 → 命中", () => {
+  const out = guard([
+    `<template><IconifyIconOffline icon="ep:close" @click="close" /></template>`
+  ]);
+  assert.match(out, /图标组件需自带/);
+});
+
+test("IconifyIconOffline @click + 三件套齐 → 放行", () => {
+  const out = guard([
+    `<template><IconifyIconOffline icon="ep:close" role="button" tabindex="0" aria-label="关闭" @keydown.enter="close" @click="close" /></template>`
+  ]);
+  assert.doesNotMatch(out, /发现 \d+ 处/);
+});
+
+test("element-plus 图标组件裸用 @click → 命中", () => {
+  const out = guard([`<template><Plus @click="add" /></template>`]);
+  assert.match(out, /图标组件需自带/);
+});
+
+test("负样本：组件间自定义事件 @click → 放行（父组件监听子组件 emit，非可点击元素）", () => {
+  const out = guard([
+    `<template><SearchHistory :options="opts" @click="handleEnter" @delete="handleDelete" /></template>`
+  ]);
+  assert.doesNotMatch(out, /发现 \d+ 处/);
+});
+
+test("负样本：组件内部已自带键盘处理的 @click → 放行（TemperatureGaugeCard 根元素写死三件套）", () => {
+  const out = guard([
+    `<template><TemperatureGaugeCard clickable size="lg" @click="emit('go-detail')" /></template>`
+  ]);
+  assert.doesNotMatch(out, /发现 \d+ 处/);
+});
+
+test("图标组件 a11y-allow 豁免 → 放行", () => {
+  const out = guard([
+    `<template>\n  <!-- a11y-allow 纯装饰图标，父级 span 已承担点击 -->\n  <IconifyIconOffline icon="ep:star" @click="pick" />\n</template>`
+  ]);
+  assert.doesNotMatch(out, /发现 \d+ 处/);
+});
+
 test("同行 a11y-allow 豁免 → 放行", () => {
   const out = guard([
     `<template><div class="c" @click="go" a11y-allow><!-- 装饰性容器，交互在子按钮上 --></div></template>`

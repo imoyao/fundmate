@@ -95,6 +95,15 @@ EP_ICON_NAMES = frozenset(
 _EP_ICON_RE = re.compile(r"<(" + "|".join(sorted(EP_ICON_NAMES)) + r")\b")
 _KNOWN_ICON_RE = re.compile(r"<(IconifyIconOffline|iconify-icon-online|el-icon|svg|i)\b", re.I)
 
+# 规则四（#1866）：图标类组件上的 @click。名单 = Iconify 组件 + SvgIcon + element-plus 图标。
+# 与规则二的 `CLICK_TAG_RE` 分工：那条管原生可点击元素，这条管渲染成 <svg> 的图标组件
+# ——后者不可能自带键盘处理，所以调用点必须给。
+ICON_COMPONENT_TAGS = ("IconifyIconOffline", "IconifyIconOnline", "SvgIcon")
+_ICON_CLICK_RE = re.compile(
+    r"<(" + "|".join(ICON_COMPONENT_TAGS) + r"|" + "|".join(sorted(EP_ICON_NAMES)) + r")\b(?P<attrs>[^>]*?)(?P<self>/?)>",
+    re.S,
+)
+
 # --- 规则 3：CSS 块解析 -------------------------------------------------
 VISIBLE_IN_HOVER_RE = re.compile(r"(?:opacity\s*:\s*(?!0(?:\D|$))\s*[1-9]|opacity\s*:\s*1\b"
                                  r"|visibility\s*:\s*visible)")
@@ -182,6 +191,38 @@ def check_click_tags(text: str, rel: str, lines: list[str]) -> list[str]:
         if _exempt(lines, lineno):
             continue
         hits.append(f"{rel}:{lineno}  <{m.group(1)} @click> 缺 role / tabindex / @keydown")
+    return hits
+
+
+def check_icon_clicks(text: str, rel: str, lines: list[str]) -> list[str]:
+    """图标类组件上的 @click 必须自带键盘等价物（#1866）。
+
+    规则二只覆盖 div/span/li，组件标签是盲区。但**不能**改成「组件标签带 @click 就报」
+    —— 那样会带进两类结构性误报，静态判不出来：
+
+    · 组件间自定义事件：``<SearchHistory @click="handleEnter">`` 是父组件监听子组件
+      ``emit('click')``，不是「给这个组件加点击行为」；
+    · 组件内部已处理：``<TemperatureGaugeCard clickable @click=...>`` 的根元素
+      **已写死** role/tabindex/@keydown（``TemperatureGaugeCard/index.vue:21-24``），
+      调用点看不到，只能靠白名单，而白名单会随依赖升级失效。
+
+    只覆盖**图标类组件**，因为它们有个可静态判定的硬性质：渲染成 ``<svg>``，
+    组件内部不会自带 role/tabindex/@keydown ⇒ 键盘等价物只能由调用点给。
+    实证：全仓 grep「图标组件后 2 行内出现 tabindex/role/@keydown/@keyup」= **零命中**。
+    """
+    hits = []
+    for m in _ICON_CLICK_RE.finditer(text):
+        attrs = m.group("attrs")
+        if not HAS_CLICK_RE.search(attrs):
+            continue
+        if HAS_ROLE_RE.search(attrs) and HAS_TABINDEX_RE.search(attrs) and HAS_KEYBOARD_RE.search(attrs):
+            continue
+        lineno = _line_of(text, m.start())
+        if _exempt(lines, lineno):
+            continue
+        hits.append(
+            f"{rel}:{lineno}  <{m.group(1)} @click> 图标组件需自带 role / tabindex / @keydown"
+        )
     return hits
 
 
@@ -350,6 +391,7 @@ def main() -> int:
         rel, lines = _rel(f), text.splitlines()
         hits += check_buttons(text, rel, lines)
         hits += check_click_tags(text, rel, lines)
+        hits += check_icon_clicks(text, rel, lines)
         hits += check_hover_fallback(text, rel, lines)
 
     if not hits:

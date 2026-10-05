@@ -107,7 +107,14 @@ test.describe("实时轮询生命周期（#1104 公共层回归）", () => {
       route.fulfill({ contentType: "application/javascript", body: "" })
     );
     await page.route("**/fundgz.1234567.com.cn/**", route =>
-      route.fulfill({ contentType: "application/javascript", body: "" })
+      route.fulfill({
+        contentType: "application/javascript",
+        // 必须真的回调全局 jsonpgz（`fetchTiantian` 只认它）：空体会让 JSONP 干等
+        // 5s 超时再降级腾讯（又 5s），在途链被拉长到 ~10s，切页瞬间尚未走完的链腿
+        // 会越过 SETTLE_MS 落进零请求窗口——#1860 的测试侧根源（本注释上方「必须
+        // 真的响应」的原则此前只对 fundcomapi 桩成立）。
+        body: `jsonpgz({"fundcode":"023887","name":"某某混合A","jzrq":"2026-10-04","dwjz":"0.95","gsz":"0.95","gszzl":"1.05","gztime":"2026-10-05 10:00"});`
+      })
     );
 
     // ── 桩：后端。只需三条精确响应，其余给空信封（本用例不依赖后端）──

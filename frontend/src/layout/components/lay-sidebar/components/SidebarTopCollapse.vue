@@ -23,6 +23,9 @@ const toggleClick = () => {
   <div
     class="px-3 mr-1 navbar-bg-hover"
     :title="isActive ? '点击折叠' : '点击展开'"
+    role="button"
+    tabindex="0"
+    @keydown.enter="toggleClick"
     @click="toggleClick"
   >
     <IconifyIconOffline
