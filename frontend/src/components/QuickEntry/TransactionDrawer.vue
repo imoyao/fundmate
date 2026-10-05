@@ -82,6 +82,7 @@
 import { ref, computed, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
+import { useUnsavedChangesGuard } from "@/composables/useUnsavedChangesGuard";
 import BuyForm from "./BuyForm.vue";
 import SellForm from "./SellForm.vue";
 import RecognizerImportModal from "./RecognizerImportModal.vue";
@@ -99,9 +100,37 @@ const emit = defineEmits<{
   (e: "submitted"): void;
 }>();
 
+// ── 未保存离开保护（#1853）──
+// 脏状态住在 BuyForm / SellForm 内部（两者各自 expose isDirty），父组件只能间接读。
+// 注意：**el-drawer 没有 before-close**（那是 el-dialog 的 prop），且本抽屉已
+// `:close-on-click-modal="false"` 禁用点遮罩——所以拦截点放在 v-model 的 setter 上，
+// 它同时覆盖关闭按钮 / ESC / 底部「取消」三条路。
+const isDirty = computed(() => {
+  const form = opType.value === "buy" ? buyFormRef.value : sellFormRef.value;
+  return form?.isDirty === true;
+});
+
+const { confirmDiscard } = useUnsavedChangesGuard(() => isDirty.value, {
+  message: "交易表单已填写，确定放弃吗？"
+});
+
+/** 确认通过后的放行标志：只对本次 emit 生效，避免后续关闭被误拦 */
+const allowClose = ref(false);
+
 const visible = computed({
   get: () => props.modelValue,
-  set: val => emit("update:modelValue", val)
+  set: val => {
+    if (!val && !allowClose.value && isDirty.value) {
+      void confirmDiscard().then(ok => {
+        if (!ok) return;
+        allowClose.value = true;
+        emit("update:modelValue", false);
+        allowClose.value = false;
+      });
+      return;
+    }
+    emit("update:modelValue", val);
+  }
 });
 
 const opType = ref<"buy" | "sell">("buy");
@@ -124,6 +153,9 @@ watch(visible, val => {
 function onTabChange() {} // v-if 自动重置
 
 function onSubmitSuccess() {
+  // 先清脏再关：保存成功后表单仍是脏的，而关闭走的是 v-model setter——
+  // 不先清就会弹「确定放弃吗？」（`resetForm` 挂在 @closed 上，跑在关闭之后）。
+  resetForms();
   visible.value = false;
   emit("submitted");
   emitRefresh();
