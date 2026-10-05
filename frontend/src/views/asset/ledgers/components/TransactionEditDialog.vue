@@ -167,7 +167,10 @@ import {
   createStockPriceValidator
 } from "@/composables/useSecurityPrice";
 import { ElMessage } from "element-plus";
-import { useUnsavedChangesGuard } from "@/composables/useUnsavedChangesGuard";
+import {
+  useUnsavedChangesGuard,
+  useFormDirty
+} from "@/composables/useUnsavedChangesGuard";
 import { disabledTradeDate } from "@/utils/date";
 
 const props = defineProps<{
@@ -276,7 +279,7 @@ function initForm() {
   // 展示已有确认日期（若交易记录里有）
   confirmDateDisplay.value = t.confirm_date || "";
   // 未保存离开保护（#1835）的基线：弹窗打开时的表单快照
-  initialSnapshot.value = JSON.stringify(form.value);
+  markClean();
   nextTick(() => {
     isInitializing.value = false;
   });
@@ -287,12 +290,10 @@ function initForm() {
 // 走不到 before-close，必须各自接一道，否则那条路仍然静默丢数据。
 // 路由离开由 `useUnsavedChangesGuard` 内部注册（第 4 路，#1853）。
 
-/** 弹窗打开时的表单快照（initForm 写入，保存成功后重置） */
-const initialSnapshot = ref("");
-
-const isDirty = computed(
-  () => JSON.stringify(form.value) !== initialSnapshot.value
-);
+// 脏状态交给共用的 useFormDirty：原先这里的 `initialSnapshot = ref("")` 与表单初值 `{}`
+// 比永不相等，**弹窗没打开就算“有未保存修改”**；叠上 onBeforeRouteLeave 后，
+// 用户在账户列表点卡片进详情都会被问「确定放弃吗？」（#1845 回归）。
+const { isDirty, markClean } = useFormDirty(() => form.value);
 
 const { onBeforeClose, requestClose: confirmThenClose } =
   useUnsavedChangesGuard(() => isDirty.value);
@@ -393,7 +394,7 @@ async function handleSave() {
     const res = await updateLedgerTransaction(t.ledger_id, t.id, payload);
     const data = res.data;
     // 保存成功后重置脏基线：否则紧接着的关闭会弹「放弃修改？」，问得毫无意义（#1835）
-    initialSnapshot.value = JSON.stringify(form.value);
+    markClean();
     emit("saved", data);
     emit("update:modelValue", false);
     ElMessage.success("保存成功");

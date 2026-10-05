@@ -5,7 +5,7 @@
   >
     <!-- 顶部操作栏 -->
     <div class="mb-4 flex justify-between items-center">
-      <el-button text @click="$router.back()">
+      <el-button text @click="goBack">
         <IconifyIconOffline icon="ep:arrow-left" class="mr-1" /> 返回
       </el-button>
       <div v-if="!isUnclassified && accountInfo" class="flex gap-2">
@@ -194,6 +194,25 @@ const {
   selectedPosition,
   migrateDialogRef
 } = page;
+
+/**
+ * 返回（#1845 回归修复）。
+ *
+ * 原先直接 `@click="$router.back()"`。用 hash 路由 + **直接输 URL / 刷新进来**时，
+ * 浏览器历史栈里没有上一条记录，`router.back()` 是**静默 no-op** ——
+ * 按钮点了没反应，用户只会以为页面坏了。
+ *
+ * 现在：有历史就 back（保留「从哪来回哪去」），没有就回账户列表这个明确的去处。
+ * 判空用 `history.state?.back`：vue-router 在历史记录里放 `{ back: <上一条> }`，
+ * 直接打开页面时它是 null。
+ */
+function goBack() {
+  if (window.history.state?.back) {
+    router.back();
+    return;
+  }
+  router.push({ name: "AssetLedgers" });
+}
 </script>
 
 <style scoped>
