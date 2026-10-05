@@ -37,7 +37,7 @@
           :key="item.name"
           class="border-b cursor-pointer transition-colors"
           :style="{ borderColor: 'var(--border-light)' }"
-          @click="goToInventory(item.categoryKey)"
+          @click="onAssetRowClick(item)"
         >
           <td class="py-3 pl-4 flex items-center gap-3">
             <span
@@ -217,12 +217,27 @@ const BALANCE_TAB_OPTIONS = [
 const assetBalanceRows = computed(() => {
   const total = props.totalAssets;
   if (total === 0) return [];
-  const labelMap: Record<string, { color: string; categoryKey: string }> = {
+  const labelMap: Record<
+    string,
+    { color: string; categoryKey: string; detailRoute?: string }
+  > = {
     流动资金: { color: "var(--palette-mint-green)", categoryKey: "cash" },
     固定资产: { color: "var(--palette-warm-taupe)", categoryKey: "fixed" },
     投资理财: { color: "var(--palette-periwinkle)", categoryKey: "investment" },
     应收款: { color: "var(--palette-stone-gray)", categoryKey: "receivable" },
-    保险项目: { color: "var(--color-accent)", categoryKey: "insurance" }
+    保险项目: { color: "var(--color-accent)", categoryKey: "insurance" },
+    // #1798：房产 / 贵金属是独立大类，盘点页没有对应 tab（原实现 categoryKey=中文名
+    // 会拼出不存在的 tab 参数），直跳各自的详情页
+    房产: {
+      color: "var(--chart-05)",
+      categoryKey: "fixed",
+      detailRoute: "/realestate"
+    },
+    贵金属: {
+      color: "var(--chart-06)",
+      categoryKey: "fixed",
+      detailRoute: "/precious"
+    }
   };
   // 消费后端 category_distribution（后端唯一聚合出口，含汇率换算）
   const categoryMap: Record<string, any> = {};
@@ -257,7 +272,18 @@ const liabilityBalanceRows = computed(() => {
 });
 
 function goToInventory(categoryKey: string) {
-  router.push(`/asset/inventory?tab=${categoryKey}`);
+  // 修正既有死链（#1798 守卫复检时暴露）：盘点页真实路由是 /inventory（home.ts），
+  // 旧值 /asset/inventory 不存在；此前是模板字符串，恰好逃过了死链守卫
+  router.push(`/inventory?tab=${categoryKey}`);
+}
+
+/** 资产行点击：配置了详情路由的大类（房产/贵金属，#1798）直跳详情页，其余去盘点页 */
+function onAssetRowClick(item: { categoryKey: string; detailRoute?: string }) {
+  if (item.detailRoute) {
+    router.push(item.detailRoute);
+    return;
+  }
+  goToInventory(item.categoryKey);
 }
 </script>
 

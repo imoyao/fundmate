@@ -43,6 +43,26 @@
           </el-select>
         </el-form-item>
 
+        <!-- 固定资产子类（#1798）：写入 minor_category。
+             此前盘点页快捷录入的 ?type=house/car/gold 在此被静默丢弃，
+             导致房产 / 汽车 / 黄金在数据上无法区分（详情页无法按子类过滤） -->
+        <el-form-item v-if="form.major_category === 'fixed'" label="资产子类">
+          <el-select
+            v-model="form.minor_category"
+            class="w-full"
+            clearable
+            placeholder="可不选，如房产、汽车、黄金"
+            @clear="onMinorCleared"
+          >
+            <el-option
+              v-for="opt in FIXED_SUBTYPE_OPTIONS"
+              :key="opt.key"
+              :label="opt.label"
+              :value="opt.key"
+            />
+          </el-select>
+        </el-form-item>
+
         <!-- #1354：银行理财/投顾/信托/私募/理财型保险 不再是平级大类，
              作为「投资理财」的细分子类记录在 minor_category -->
         <el-form-item
@@ -231,8 +251,13 @@ import {
   LEDGER_TYPE_OPTIONS,
   MAJOR_CATEGORY_OPTIONS
 } from "@/constants";
+// 固定资产子类目录复用盘点页快捷录入的单一来源（house/car/gold），避免双维护
+import { ASSET_TYPE_MAP } from "./inventory/constants";
 
 const route = useRoute();
+
+/** 固定资产子类候选（写入 minor_category，房产/贵金属详情页按此过滤，#1798） */
+const FIXED_SUBTYPE_OPTIONS = ASSET_TYPE_MAP.fixed ?? [];
 
 defineOptions({ name: "AssetEntry" });
 
@@ -271,7 +296,7 @@ function filterInstitution(query: string) {
 const form = reactive({
   name: "",
   major_category: "cash",
-  minor_category: null as string | null, // 投资理财细分（#1354）
+  minor_category: null as string | null, // 细分：投资理财（#1354）/ 固定资产子类（#1798）
   amount: 0,
   allocation: null,
   ledger_id: null as number | null, // 新增
@@ -279,9 +304,14 @@ const form = reactive({
   notes: ""
 });
 
-/** 大类切换时清掉不适用的细分，避免给非投资理财大类写入投资细分类 */
+/** 大类切换时清掉不适用的细分，避免把投资细分写到别的大类、或把固定资产子类写到投资理财 */
 function onMajorCategoryChanged(value: string) {
-  if (value !== "investment") form.minor_category = null;
+  const applicable =
+    (value === "investment" &&
+      isValidMinorCategory(form.minor_category ?? undefined)) ||
+    (value === "fixed" &&
+      isValidFixedSubtype(form.minor_category ?? undefined));
+  if (!applicable) form.minor_category = null;
 }
 
 /** 投资细分子类清空时显式重置为 null，与字段类型 string | null 保持一致（#1355 AI review） */
@@ -294,6 +324,11 @@ function isValidMinorCategory(value: string | undefined): value is string {
   return (
     !!value && INVESTMENT_MINOR_CATEGORIES.some(opt => opt.value === value)
   );
+}
+
+/** 校验值是否属于固定资产子类（house/car/gold），拦截 URL / 篡改传入的非法值（#1798） */
+function isValidFixedSubtype(value: string | undefined): value is string {
+  return !!value && FIXED_SUBTYPE_OPTIONS.some(opt => opt.key === value);
 }
 
 // 选择账户后自动填充 account_name（快照用）
@@ -340,7 +375,8 @@ async function handleSubmit() {
       account_name: form.account_name || undefined,
       notes: form.notes || undefined
     };
-    if (form.major_category === "investment" && form.minor_category) {
+    // minor_category 只会由投资理财 / 固定资产两个子类选择器写入（切换大类时即清空）
+    if (form.minor_category) {
       payload.minor_category = form.minor_category;
     }
     if (form.major_category !== "liability" && form.allocation) {
@@ -440,6 +476,15 @@ onMounted(() => {
     .trim();
   if (form.major_category === "investment" && isValidMinorCategory(minorVal)) {
     form.minor_category = minorVal;
+  }
+  // 盘点页快捷录入推的是 ?type=house/car/gold —— 此前该参数被静默丢弃（#1798 修复）：
+  // 房产 / 贵金属详情页按 minor_category 过滤，子类必须落库才可区分
+  const rawType = route.query.type;
+  const typeVal = (Array.isArray(rawType) ? rawType[0] : rawType)
+    ?.toString()
+    .trim();
+  if (form.major_category === "fixed" && isValidFixedSubtype(typeVal)) {
+    form.minor_category = typeVal;
   }
 });
 </script>

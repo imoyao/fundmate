@@ -16,9 +16,15 @@
           多维度审视你的财富版图
         </p>
       </div>
-      <el-button :loading="loading" @click="fetchData">
-        <IconifyIconOffline icon="ep:refresh" class="mr-1" /> 刷新
-      </el-button>
+      <div class="flex items-center gap-2">
+        <!-- #1798：/analysis 的静态入口（路由名跳转，拍平后最稳妥） -->
+        <el-button @click="$router.push({ name: 'AssetAnalysis' })">
+          <IconifyIconOffline icon="ep:data-analysis" class="mr-1" /> 智能分析
+        </el-button>
+        <el-button :loading="loading" @click="fetchData">
+          <IconifyIconOffline icon="ep:refresh" class="mr-1" /> 刷新
+        </el-button>
+      </div>
     </div>
 
     <!-- 总览大卡片（含总资产构成瀑布图） -->
