@@ -237,13 +237,14 @@ test.describe("导入问题摘要三卡片（#1791）", () => {
     await expect(chips).toContainText("数据不一致 1");
     await expect(page.locator(".summary-panel")).toBeVisible();
 
-    // 【批量修正】入口打开抽屉（#1791 要做的事 3）。
-    // 页面上有多个常驻 drawer（FundMatchDrawer / 导入抽屉等），按 aria-label 定位。
-    const fixDrawer = page.getByRole("dialog", { name: "智能修正" });
+    // 【批量修正】入口打开内联修正面板（#1791 要做的事 3 的入口 + #1792 抽屉改内联）：
+    // 摘要与修正面板同屏互不覆盖，点【收起批量修正】收起。
+    const fixPanel = page.locator("[data-fix-panel]");
     await card(page, "fix").getByRole("button", { name: "批量修正" }).click();
-    await expect(fixDrawer).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(fixDrawer).toBeHidden();
+    await expect(fixPanel).toBeVisible();
+    await expect(page.locator(".summary-panel")).toBeVisible();
+    await fixPanel.getByRole("button", { name: "收起批量修正" }).click();
+    await expect(fixPanel).toBeHidden();
 
     // ── 【展开全部数据】清空过滤回完整表格，面板仍在 ──
     await expandAll.click();

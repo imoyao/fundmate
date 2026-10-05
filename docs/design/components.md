@@ -494,6 +494,28 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - **复选框作用域**：卡片全选只作用于该类「可勾行」（解析错误 / 数量价格缺失 / 资金划转 / 已忽略行不可勾；**疑似重复行可勾**，#1791 验收④——后端落库边界见该 issue 评论）。
 - **令牌**：面板 `--bg-card`、卡片 `--bg-subtle`、边框 `--border-default`、圆角 `--radius-sm`；细分 chip `--color-danger-10` 底 + `--color-danger-30` 边 + **`--color-danger-ink` 字**（文字级必须 `-ink`，直接用 `--color-danger` 暗色仅 3.36:1）。无硬编码 hex，暗色自动适配（见 `design.dark.md` 注记）。
 
+## 批量修正面板（#1792，导入向导页面级形态）
+
+> 位置：`src/views/asset/investment/import/components/BatchFixPanel.vue`，由 `PreviewStep.vue` 在摘要面板下方**内联展开**（`v-if="showFixPanel"`，布局 class `.step3-fixpanel`）。源设计 #783 §4~§5。**禁止改回右侧抽屉 / 覆盖层**——摘要、面板、表格同屏不覆盖是验收硬项（`rg -e 'el-drawer' …/PreviewStep.vue` 须 0 命中）。
+
+- **结构**（自上而下）：
+  1. 顶部动作行：形态标签（`[data-fix-mode]`，文案「分类批量修正模式 / 逐条修正模式 / 请到完整表格处理」）+【自动修复可处理项】+【撤销上一步】（`canUndo` 控制禁用）。
+  2. 错误提示条（`batch` 形态含解析错误时，§4-4）：「另有 N 条解析错误不支持批量修正」+【跳过这 N 条】+【去完整表格】；`table` 形态另有同构提示条（含【跳过】【去完整表格】）。
+  3. 四分区 grid（`repeat(auto-fit, minmax(300px, 1fr))`；分区头点击 = 过滤表格，动作区 `@click.stop` 不冒泡）：
+
+     | 分区 | `data-section` | 动作 |
+     |------|----------------|------|
+     | 代码未匹配 | `missingCode` | 【匹配基金代码（基金行数多于一只时显示）】+ 代码输入 +【应用到全部】+【全部跳过】 |
+     | 单价/数量缺失 | `missingQtyPrice` | 「可自动填充 N 条」+【自动填充】【查看已填充数据】【撤销】【逐条修正】【全部跳过】 |
+     | 数据不一致 | `mismatch` | 【自动修正金额】【逐条修正】【全部跳过】 |
+     | 逆回购识别（信息型） | `reverse_repo` | 【查看转换结果】(el-dialog：识别依据 + 配置目标) /【撤销】（liquid→longterm，`repoRevertable` 为空即禁用） |
+
+  4. `single` 形态：`[data-fix-card]` 卡片式单条表单（按分区渲染对应表单 +【跳过此条】；`fixModeOverride === 'single'` 时另有【返回分类批量】）。
+  5. 底部【收起批量修正】+ 两个 `el-dialog`（已填充数据 / 逆回购转换结果）。
+- **形态判定**：纯函数 `classifyFixMode`（`composables/batchFixLogic.ts`）——无问题 `none` / 单一可批量分区固定 `batch` / >10 `batch` / ≤10 混合 `single` / ≤10 纯错误 `table`；与撤销快照 `snapshotRows / restoreRows` 同受 vitest 单测覆盖（`pnpm test:unit`）。
+- **撤销栈**：`fixUndoStack` 上限 20 层；分区【撤销】按 `undoTopScope` 与本分区作用域匹配才可点，顶部【撤销上一步】逐层回滚；`autoFix` 组合操作合成为单条入栈。
+- **令牌**：面板 `--bg-card`、分区 / 卡片 `--bg-subtle`、边框 `--border-default`、圆角 8px；计数警示 `--color-warning-ink`、错误 `--color-danger-ink`、形态标签 `--text-secondary`。无硬编码 hex（暗色见 `design.dark.md` 注记）。
+
 ## 共享基建（composables / utils 层，强制复用）
 
 > 本层为**非 UI 的共享逻辑**（图表生命周期 / 图表取色 / 币种换算），与页面级 UI 组件同属「强制复用」范围。

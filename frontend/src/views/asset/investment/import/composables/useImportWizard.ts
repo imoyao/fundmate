@@ -24,6 +24,16 @@ import type { OcrTxnRow } from "@/api/ocr";
 import { ALLOCATION_OPTIONS } from "@/constants";
 import { getTypeLabel } from "@/constants/assetType";
 import { useReconDraft, type ReconDomain } from "@/composables/useReconDraft";
+import {
+  classifyFixMode,
+  snapshotRows,
+  restoreRows,
+  UNDO_STACK_LIMIT,
+  type FixSectionKey,
+  type FixMode,
+  type FixUndoEntry,
+  type SectionCounts
+} from "./batchFixLogic";
 
 /**
  * 问题摘要面板的三卡片分类（#1791）。
@@ -254,8 +264,7 @@ export function useImportWizard() {
   const tableTypeFilter = ref<string[]>([]);
   const tableStatusFilter = ref("");
   const showFullTable = ref(true);
-  const showBatchFix = ref(false);
-  /** 智能修正面板（原独立卡片 → 筛选栏右侧胶囊按钮控制展开） */
+  /** 批量修正面板（#1792 起为摘要下方内联展开，由摘要卡【批量修正】/筛选栏按钮切换） */
   const showFixPanel = ref(false);
   const batchCodeInput = ref("");
   const importErrors = ref<any[]>([]);
@@ -491,43 +500,6 @@ export function useImportWizard() {
 
   const currentAllocationGroups = computed(() => allocationGroupsByType.value);
 
-  const problemCategories = computed(() => {
-    const cats = [
-      { key: "missingCode", label: "代码未匹配", count: 0, rows: [] as any[] },
-      {
-        key: "missingQtyPrice",
-        label: "数量或价格缺失",
-        count: 0,
-        rows: [] as any[]
-      },
-      { key: "mismatch", label: "数据不一致", count: 0, rows: [] as any[] }
-    ];
-    previewData.value.forEach(row => {
-      if (row.is_duplicate || row.error || row.is_cash_transfer) return;
-      const qty = Number(row.quantity),
-        prc = Number(row.price),
-        amt = Number(row.amount);
-      if (!row.symbol || row.symbol === "UNKNOWN") {
-        cats[0].rows.push(row);
-        cats[0].count++;
-      } else if (isRowBlocked(row)) {
-        cats[1].rows.push(row);
-        cats[1].count++;
-      } else if (
-        !isNaN(qty) &&
-        qty > 0 &&
-        !isNaN(prc) &&
-        prc > 0 &&
-        !isNaN(amt) &&
-        Math.abs(qty * prc - amt) > 0.01
-      ) {
-        cats[2].rows.push(row);
-        cats[2].count++;
-      }
-    });
-    return cats.filter(c => c.count > 0);
-  });
-
   const errorSummary = computed(() => {
     const groups: Record<string, { count: number; items: string[] }> = {};
     importErrors.value.forEach(err => {
@@ -545,12 +517,12 @@ export function useImportWizard() {
 
   // ── 三卡片分类（#1791）：互斥完备，卡片计数 / fix 细分 / 表格状态过滤共用同一谓词 ──
 
-  /** 代码未匹配（与 problemCategories 的 missingCode 同口径） */
+  /** 代码未匹配（fixSectionRows 的 missingCode 分区谓词） */
   function isMissingCode(row: any): boolean {
     return !row.symbol || row.symbol === "UNKNOWN";
   }
 
-  /** 金额不一致（与 problemCategories 的 mismatch 同口径）：有份额有价格但乘积与金额对不上 */
+  /** 金额不一致（fixSectionRows 的 mismatch 分区谓词）：有份额有价格但乘积与金额对不上 */
   function isAmountMismatch(row: any): boolean {
     const qty = Number(row.quantity),
       prc = Number(row.price),
@@ -570,7 +542,7 @@ export function useImportWizard() {
    * 「卡片条数 = 展开后表格条数」靠共用谓词结构性成立，而不是两处各数一遍对数）。
    *
    * - duplicate：解析期已判重（(ledger_id, import_hash) 已在库）
-   * - fix：解析错误 → 代码未匹配 → 数量/价格缺失 → 金额不一致（顺序对齐 problemCategories）
+   * - fix：解析错误 → 代码未匹配 → 数量/价格缺失 → 金额不一致（顺序对齐 fixSectionRows 分区）
    * - complete：其余——含资金划转行（数据完整，是否入库由后端统一裁决 #1010）、
    *   含 _ignored 行（数据完整是质量口径，勾没勾是选择口径，二者分开）
    */
@@ -591,23 +563,101 @@ export function useImportWizard() {
     return counts;
   });
 
-  /** 「需要修正」卡的细分统计：同一谓词分桶，四桶之和恒等于 fix 条数 */
-  const fixBreakdown = computed(() => {
-    const buckets = {
-      error: 0,
-      missingCode: 0,
-      missingQtyPrice: 0,
-      mismatch: 0
+  /**
+   * 四分区行源（#1792）：修正面板与 fixBreakdown 共用的唯一分桶。
+   * 不变量：某行进入且仅进入一个分区 ⟺ categorizeRow(row) === "fix"——
+   * 摘要卡「需要修正」条数 = 四分区行数之和，结构性成立（沿 #1791 验收② 的共谓词纪律）。
+   */
+  const fixSectionRows = computed<Record<FixSectionKey, any[]>>(() => {
+    const rows: Record<FixSectionKey, any[]> = {
+      error: [],
+      missingCode: [],
+      missingQtyPrice: [],
+      mismatch: []
     };
     previewData.value.forEach(row => {
-      if (categorizeRow(row) !== "fix") return;
-      if (row.error) buckets.error++;
-      else if (isMissingCode(row)) buckets.missingCode++;
-      else if (isRowBlocked(row)) buckets.missingQtyPrice++;
-      else buckets.mismatch++; // categorizeRow 已保证此处金额不一致
+      if (row.is_duplicate || row.is_cash_transfer) return;
+      if (row.error) rows.error.push(row);
+      else if (isMissingCode(row)) rows.missingCode.push(row);
+      else if (isRowBlocked(row)) rows.missingQtyPrice.push(row);
+      else if (isAmountMismatch(row)) rows.mismatch.push(row);
     });
-    return buckets;
+    return rows;
   });
+
+  /** 「需要修正」卡的细分统计：四分区行数直取，四桶之和恒等于 fix 条数 */
+  const fixBreakdown = computed(() => ({
+    error: fixSectionRows.value.error.length,
+    missingCode: fixSectionRows.value.missingCode.length,
+    missingQtyPrice: fixSectionRows.value.missingQtyPrice.length,
+    mismatch: fixSectionRows.value.mismatch.length
+  }));
+
+  // ── #1792 修正形态（#783 §4 阈值）与逐条卡片数据源 ──
+
+  const fixSectionCounts = computed<SectionCounts>(() => ({
+    error: fixSectionRows.value.error.length,
+    missingCode: fixSectionRows.value.missingCode.length,
+    missingQtyPrice: fixSectionRows.value.missingQtyPrice.length,
+    mismatch: fixSectionRows.value.mismatch.length
+  }));
+
+  /** §4 阈值判定（纯函数 classifyFixMode，单测覆盖 ≤10 / >10 切换） */
+  const fixMode = computed<FixMode>(() =>
+    classifyFixMode(fixSectionCounts.value)
+  );
+
+  /**
+   * 手动覆盖：批量面板内【逐条修正】→ "single"（配 singleFixScope 圈定分区），
+   * 卡片内【返回分类批量】→ null 回到阈值判定；null = 始终跟随 §4。
+   */
+  const fixModeOverride = ref<"single" | "batch" | null>(null);
+  /** 逐条卡片范围：all = 全部问题行（阈值触发）；分区键 = 从该分区点入 */
+  const singleFixScope = ref<FixSectionKey | "all">("all");
+
+  const activeFixMode = computed<FixMode>(
+    () => fixModeOverride.value ?? fixMode.value
+  );
+
+  /** 逐条修正卡片数据源：section 决定卡片内表单形态 */
+  const singleFixRows = computed<Array<{ row: any; section: FixSectionKey }>>(
+    () => {
+      const keys: FixSectionKey[] =
+        singleFixScope.value === "all"
+          ? ["error", "missingCode", "missingQtyPrice", "mismatch"]
+          : [singleFixScope.value];
+      const out: Array<{ row: any; section: FixSectionKey }> = [];
+      keys.forEach(key =>
+        fixSectionRows.value[key].forEach(row =>
+          out.push({ row, section: key })
+        )
+      );
+      return out;
+    }
+  );
+
+  /** 逆回购行：解析期由后端按代码模式识别（沪 204xxx / 深 1318xx），非问题分区——信息型 */
+  const reverseRepoRows = computed(() =>
+    previewData.value.filter(row => row.type === "reverse_repo")
+  );
+
+  /** 自动填充可推算行：只缺一个（数量或价格）且金额在——缺的那个 = 金额 ÷ 另一个 */
+  const autoFillableRows = computed(() =>
+    fixSectionRows.value.missingQtyPrice.filter(row => {
+      const qty = Number(row.quantity),
+        prc = Number(row.price),
+        amt = Number(row.amount);
+      const qtyMissing = isNaN(qty) || qty <= 0;
+      const prcMissing = isNaN(prc) || prc <= 0;
+      if (isNaN(amt) || amt <= 0) return false;
+      return (qtyMissing && !prcMissing) || (!qtyMissing && prcMissing);
+    })
+  );
+
+  /** 已自动填充过的行（_autoFilled 记录字段名）——【查看已填充数据】的数据源 */
+  const filledRows = computed(() =>
+    previewData.value.filter(row => row._autoFilled?.length > 0)
+  );
 
   /**
    * 表格行过滤（状态 + 子分类 + 问题开关 + 关键词 + 类型）。
@@ -648,6 +698,10 @@ export function useImportWizard() {
         if (row.is_duplicate || row.error || row.is_cash_transfer) return false;
         return isAmountMismatch(row);
       });
+    else if (activeCategoryFilter.value === "error")
+      list = list.filter(
+        row => !!row.error && !row.is_duplicate && !row.is_cash_transfer
+      );
 
     if (showProblemOnly.value)
       list = list.filter(row => {
@@ -910,8 +964,10 @@ export function useImportWizard() {
     importErrors.value = [];
     validRowsCount.value = 0;
     showFullTable.value = true;
-    showBatchFix.value = false;
     showFixPanel.value = false;
+    fixModeOverride.value = null;
+    singleFixScope.value = "all";
+    fixUndoStack.value = [];
     tableFilterKeyword.value = "";
     tableTypeFilter.value = [];
     tableStatusFilter.value = "";
@@ -1359,9 +1415,65 @@ export function useImportWizard() {
     previewData.value = [...previewData.value];
   }
 
+  // ── 撤销栈（#1792 要做的事 3：批量修正操作栈，至少支持撤销一层）──
+
+  const fixUndoStack = ref<FixUndoEntry[]>([]);
+  /** autoFix 组合操作期间挂起逐项入栈，完成后整组入一条（一步撤净） */
+  let undoSuppressed = false;
+
+  const canUndo = computed(() => fixUndoStack.value.length > 0);
+  /** 栈顶操作的分区归属——分区级【撤销】按此决定是否可用，防止撤错对象 */
+  const undoTopScope = computed<FixUndoEntry["scope"] | null>(
+    () => fixUndoStack.value[fixUndoStack.value.length - 1]?.scope ?? null
+  );
+
+  /** 变更前拍照（行字段）+ 记录选择集（跳过类操作只动选择） */
+  function makeUndoEntry(
+    scope: FixUndoEntry["scope"],
+    label: string,
+    rows: any[]
+  ): FixUndoEntry {
+    return {
+      scope,
+      label,
+      rows: snapshotRows(rows),
+      beforeSelection: [...selectedKeys.value]
+    };
+  }
+
+  function pushUndoEntry(entry: FixUndoEntry) {
+    fixUndoStack.value.push(entry);
+    if (fixUndoStack.value.length > UNDO_STACK_LIMIT)
+      fixUndoStack.value.shift();
+  }
+
+  function pushUndo(scope: FixUndoEntry["scope"], label: string, rows: any[]) {
+    if (undoSuppressed) return;
+    pushUndoEntry(makeUndoEntry(scope, label, rows));
+  }
+
+  /**
+   * 撤销上一次批量修正：弹栈 → 行字段快照写回 → 选择集写回 → 重算统计。
+   * expected 传分区归属时仅当栈顶匹配才撤销（分区级【撤销】按钮语义）。
+   */
+  function undoLastFix(expected?: FixUndoEntry["scope"]): boolean {
+    const stack = fixUndoStack.value;
+    const top = stack[stack.length - 1];
+    if (!top || (expected && top.scope !== expected)) return false;
+    stack.pop();
+    restoreRows(previewData.value, top.rows);
+    selectedKeys.value = new Set(top.beforeSelection);
+    recalcValidRowsCount();
+    updateSelectAllState();
+    previewData.value = [...previewData.value];
+    ElMessage.success(`已撤销：${top.label}`);
+    return true;
+  }
+
   // ── 批量修正 ──
   async function batchFillCode(rows: any[], code: string) {
     if (!code.trim()) return ElMessage.warning("请输入有效的证券代码");
+    pushUndo("code", `填充证券代码 ${code.trim()}`, rows);
     rows.forEach(r => (r.symbol = code.trim()));
     recalcValidRowsCount();
     updateSelectAllState();
@@ -1375,11 +1487,10 @@ export function useImportWizard() {
   }
 
   async function batchFixAmount(rows?: any[]) {
-    const target =
-      rows ||
-      previewData.value.filter(
-        (r: any) => r.problems && r.problems.includes("mismatch")
-      );
+    // 默认目标 = mismatch 分区（旧实现读 row.problems，但全仓无写者，回退恒为空数组）
+    const target = rows || fixSectionRows.value.mismatch;
+    if (!target.length) return;
+    pushUndo("amount", `修正 ${target.length} 条记录的金额`, target);
     target.forEach(r => {
       const qty = Number(r.quantity),
         prc = Number(r.price);
@@ -1390,16 +1501,120 @@ export function useImportWizard() {
     updateSelectAllState();
     await nextTick();
     previewData.value = [...previewData.value];
-    ElMessage.success(`已修正 ${rows.length} 条记录的金额`);
+    ElMessage.success(`已修正 ${target.length} 条记录的金额`);
   }
 
   async function skipCategory(rows: any[]) {
+    if (!rows.length) return;
+    pushUndo("skip", `跳过 ${rows.length} 条记录`, rows);
     rows.forEach(row => selectedKeys.value.delete(row._rowKey));
     selectedKeys.value = new Set(selectedKeys.value);
     updateSelectAllState();
     await nextTick();
     previewData.value = [...previewData.value];
     ElMessage.success(`已跳过 ${rows.length} 条记录`);
+  }
+
+  /**
+   * 自动填充缺失数量/价格（四分区之二）：可推算行的缺项 = 金额 ÷ 另一项；
+   * 填充后解除阻塞的行自动勾选（对齐 finishEdit 的既有行为）。
+   */
+  async function autoFillMissing() {
+    const targets = autoFillableRows.value;
+    if (!targets.length) {
+      ElMessage.info(
+        "没有可自动填充的行（数量与价格同时缺失的行无法推算，请逐条补录）"
+      );
+      return;
+    }
+    pushUndo("fill", `自动填充 ${targets.length} 条缺失数量/价格`, targets);
+    targets.forEach(row => {
+      const qty = Number(row.quantity),
+        prc = Number(row.price),
+        amt = Number(row.amount);
+      const qtyMissing = isNaN(qty) || qty <= 0;
+      if (qtyMissing) row.quantity = parseFloat((amt / prc).toFixed(4));
+      else row.price = parseFloat((amt / qty).toFixed(4));
+      const filled = qtyMissing ? "quantity" : "price";
+      row._autoFilled = [...new Set([...(row._autoFilled || []), filled])];
+    });
+    targets.forEach(row => {
+      if (!isRowBlocked(row)) selectedKeys.value.add(row._rowKey);
+    });
+    selectedKeys.value = new Set(selectedKeys.value);
+    recalcValidRowsCount();
+    updateSelectAllState();
+    await nextTick();
+    previewData.value = [...previewData.value];
+    ElMessage.success(`已自动填充 ${targets.length} 条记录的缺失项`);
+  }
+
+  /** 逐条卡片的「应用」：写入草稿值，对侧仍缺失时按金额推算（smartFill 既有语义） */
+  async function applyManualFill(
+    row: any,
+    draft: { quantity?: string; price?: string }
+  ) {
+    const qty = parseFloat(draft.quantity ?? ""),
+      prc = parseFloat(draft.price ?? "");
+    const setQty = !isNaN(qty) && qty > 0,
+      setPrc = !isNaN(prc) && prc > 0;
+    if (!setQty && !setPrc) return ElMessage.warning("请输入有效的数量或单价");
+    // 先拍照再写（顺序颠倒会让撤销恢复成已改的值，等于没撤）
+    pushUndo(
+      "fill",
+      `逐条填充「${row.name || row.symbol || row.trade_date}」`,
+      [row]
+    );
+    if (setQty) row.quantity = qty;
+    if (setPrc) row.price = prc;
+    smartFill(row, setQty ? "price" : "quantity");
+    const gotQty = Number(row.quantity) > 0,
+      gotPrc = Number(row.price) > 0;
+    const touched = [
+      ...(setQty ? ["quantity"] : []),
+      ...(setPrc ? ["price"] : []),
+      ...(!setQty && gotQty ? ["quantity"] : []),
+      ...(!setPrc && gotPrc ? ["price"] : [])
+    ];
+    if (touched.length)
+      row._autoFilled = [...new Set([...(row._autoFilled || []), ...touched])];
+    if (!isRowBlocked(row)) selectedKeys.value.add(row._rowKey);
+    selectedKeys.value = new Set(selectedKeys.value);
+    recalcValidRowsCount();
+    updateSelectAllState();
+    previewData.value = [...previewData.value];
+    ElMessage.success(`已填充「${row.name || row.symbol}」的缺失项`);
+  }
+
+  /**
+   * 逆回购分区【撤销】（四分区之四）：撤的是解析期自动置的配置目标（活钱 → 长期增值）。
+   * 类型识别本身是按代码模式（沪 204xxx / 深 1318xx）得出的解析事实，不提供撤销；
+   * 用户手动改过的行（_allocationManual）不在撤销范围。
+   */
+  function revertRepoAllocation() {
+    const targets = reverseRepoRows.value.filter(
+      row => row.allocation === "liquid" && !row._allocationManual
+    );
+    if (!targets.length) {
+      ElMessage.info("没有可撤销的逆回购配置目标转换（手动设置过的不受影响）");
+      return;
+    }
+    pushUndo(
+      "repo",
+      `撤销逆回购配置目标自动转换（${targets.length} 条）`,
+      targets
+    );
+    targets.forEach(row => (row.allocation = "longterm"));
+    previewData.value = [...previewData.value];
+    ElMessage.success(`已撤销 ${targets.length} 条逆回购的配置目标转换`);
+  }
+
+  /** 识别依据（【查看转换结果】展示用）：按代码前缀回溯解析期规则 */
+  function repoDetectBasis(row: any): string {
+    const code = String(row.symbol || "");
+    if (/^204\d{3}$/.test(code)) return "沪市 204 模式";
+    if (/^1318\d{2}$/.test(code)) return "深市 1318 模式";
+    return "解析器识别";
   }
 
   function deselectAllDuplicates() {
@@ -1443,6 +1658,7 @@ export function useImportWizard() {
     if (key === "missingCode") activeCategoryFilter.value = "missingCode";
     else if (key === "missingQtyPrice") tableStatusFilter.value = "blocked";
     else if (key === "mismatch") activeCategoryFilter.value = "mismatch";
+    else if (key === "error") activeCategoryFilter.value = "error";
   }
 
   // ── #1791 三卡片：展开/收起类别过滤 + 卡片复选框 ──
@@ -1519,7 +1735,6 @@ export function useImportWizard() {
     recalcValidRowsCount();
     selectAllValid();
     updateSelectAllState();
-    showBatchFix.value = false;
     showFixPanel.value = false;
     tableStatusFilter.value = "";
     activeCategoryFilter.value = "";
@@ -1573,18 +1788,19 @@ export function useImportWizard() {
 
   function toggleAllocationPanel() {
     showAllocationGroupPanel.value = !showAllocationGroupPanel.value;
-    showBatchFix.value = false;
   }
 
-  function toggleBatchFix() {
-    showBatchFix.value = !showBatchFix.value;
-    showAllocationGroupPanel.value = false;
-  }
-
-  /** 展开/收起智能修正面板（顶部筛选栏胶囊按钮） */
+  /**
+   * 展开/收起批量修正面板（#1792 起为摘要下方内联面板，不再是右侧抽屉）。
+   * 每次打开时重置手动覆盖，回到 §4 阈值判定的形态。
+   */
   function toggleFixPanel() {
     showFixPanel.value = !showFixPanel.value;
     showAllocationGroupPanel.value = false;
+    if (showFixPanel.value) {
+      fixModeOverride.value = null;
+      singleFixScope.value = "all";
+    }
   }
 
   /**
@@ -1595,11 +1811,27 @@ export function useImportWizard() {
    * missingCode / missingQtyPrice 结构性无法自动补全，如实留在表中等待用户手动处理。
    */
   async function autoFix(): Promise<void> {
-    batchFixAmount();
-    if (hasFundRecordsForNav.value) {
-      await fetchAndFillFundNav();
+    // 组合操作合成一条撤销记录：先拍照（含操作前选择集），执行期间挂起逐项入栈，
+    // 结束后整组入一条——撤销一步即可回到 autoFix 之前（要做的事 3 的「至少一层」）。
+    const touched = [
+      ...new Set([
+        ...fixSectionRows.value.mismatch,
+        ...fundRecordsForNav.value,
+        ...previewData.value.filter(r => r.is_calculated)
+      ])
+    ];
+    const entry = makeUndoEntry("batch", "自动修复可处理项", touched);
+    undoSuppressed = true;
+    try {
+      batchFixAmount();
+      if (hasFundRecordsForNav.value) {
+        await fetchAndFillFundNav();
+      }
+      confirmAllCalculated();
+    } finally {
+      undoSuppressed = false;
     }
-    confirmAllCalculated();
+    pushUndoEntry(entry);
   }
 
   // ── 行编辑 ──
@@ -1717,6 +1949,7 @@ export function useImportWizard() {
 
   function getCategoryDesc(key: string): string {
     const map: Record<string, string> = {
+      error: "解析错误，无法在面板内修正",
       missingCode: "系统无法识别以下证券代码",
       missingQtyPrice: "数量或价格缺失",
       mismatch: "金额与数量×价格不符"
@@ -1739,6 +1972,7 @@ export function useImportWizard() {
       return activeCategoryFilter.value === "missingCode";
     if (key === "missingQtyPrice") return tableStatusFilter.value === "blocked";
     if (key === "mismatch") return activeCategoryFilter.value === "mismatch";
+    if (key === "error") return activeCategoryFilter.value === "error";
     return false;
   }
 
@@ -2110,7 +2344,6 @@ export function useImportWizard() {
     isRowSelectable,
     categoryCheckState,
     toggleCategorySelection,
-    showBatchFix,
     showFixPanel,
     batchCodeInput,
     importErrors,
@@ -2136,7 +2369,24 @@ export function useImportWizard() {
     showPriceUpdateTip,
     allocationGroupsByType,
     currentAllocationGroups,
-    problemCategories,
+    // ── #1792 四分区 / 修正形态 / 撤销栈 ──
+    fixSectionRows,
+    fixSectionCounts,
+    fixMode,
+    fixModeOverride,
+    activeFixMode,
+    singleFixScope,
+    singleFixRows,
+    reverseRepoRows,
+    repoDetectBasis,
+    autoFillableRows,
+    filledRows,
+    canUndo,
+    undoTopScope,
+    undoLastFix,
+    autoFillMissing,
+    applyManualFill,
+    revertRepoAllocation,
     errorSummary,
     filteredPagedData,
     calculatedCount,
@@ -2189,7 +2439,6 @@ export function useImportWizard() {
     applyAllocationGroupSetting,
     onRowAllocationChange,
     toggleAllocationPanel,
-    toggleBatchFix,
     toggleFixPanel,
     autoFix,
     startEdit,
