@@ -2,7 +2,15 @@ import { parseFile, confirmImport as confirmImportApi } from "@/api/importer";
 import { runReconciliation } from "@/api/reconciliation";
 import { navCache } from "@/composables/useNavCache";
 import type { UploadRequestOptions } from "element-plus";
-import { ref, onMounted, computed, reactive, nextTick } from "vue";
+import {
+  ref,
+  onMounted,
+  onUnmounted,
+  watch,
+  computed,
+  reactive,
+  nextTick
+} from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
@@ -30,6 +38,18 @@ export function useImportWizard() {
     rowCount: number;
     ledgerId: number | null;
   } | null>(null);
+
+  // ── #1789 草稿自动保存与离开提示 ──
+  /** 脏标：预览关键状态自上次成功落盘后是否有未保存修改（仅保存成功才清，失败留待下轮重试） */
+  const draftDirty = ref(false);
+  /**
+   * 是否存在值得提示「未保存」的导入工作——离开提示与 30s 自动保存的共同判据：
+   * 有未保存修改 + 有已解析的行（只选了个账户不值得打断用户）+ 未到结果步骤（导入已完成无物可存）。
+   */
+  const hasUnsavedDraftWork = computed(
+    () =>
+      draftDirty.value && currentStep.value < 3 && previewData.value.length > 0
+  );
 
   const showMatchDrawer = ref(false);
 
@@ -1121,6 +1141,8 @@ export function useImportWizard() {
       triggerDomainCReconciliation();
       // #1239 草稿层：导入完成即丢弃草稿，避免残留
       await discardDraft().catch(() => {});
+      // #1789：导入已完成、无物可存——清脏标，避免结果页离开时误提示「未保存」
+      draftDirty.value = false;
     } catch (e: any) {
       ElMessage.error(e?.response?.data?.message || "导入失败");
     } finally {
@@ -1153,6 +1175,9 @@ export function useImportWizard() {
         selectedLedgerId: selectedLedgerId.value,
         selectedMode: selectedMode.value
       });
+      // 落盘成功才清脏标。await 会让出执行权，期间变更监听（flush 'pre'）先置脏、
+      // 此处后清标——顺序天然正确；失败则不清，30s 周期自动重试。
+      draftDirty.value = false;
     } catch (e) {
       console.warn("保存草稿失败", e);
     }
@@ -1204,6 +1229,10 @@ export function useImportWizard() {
       draftBannerVisible.value = false;
       pendingDraftMeta.value = null;
       ElMessage.success("已恢复未完成的导入草稿");
+      // 恢复出的状态与盘上草稿一致：等变更监听刷完（flush 'pre' 是微任务）再清脏标，
+      // 否则「先清标、后置脏」顺序反了，离开时会误提示未保存。
+      await nextTick();
+      draftDirty.value = false;
     } catch {
       ElMessage.error("恢复草稿失败，请重新导入");
     }
@@ -1914,10 +1943,52 @@ export function useImportWizard() {
     currentStep.value = targetStep;
   }
 
+  // ── #1789：脏标监听 + 30s 自动保存 ──
+  // 深层监听预览关键状态：行内编辑 / 勾选（Set 的 add·delete）/ 账户 / 步骤 / 模板
+  // 任一变化即视为未保存。deep 对 ref 内 Set 同样生效（Vue 3 把 ref 值转为响应式代理）。
+  watch(
+    [previewData, selectedKeys, selectedLedgerId, currentStep, selectedMode],
+    () => {
+      draftDirty.value = true;
+    },
+    { deep: true }
+  );
+
+  const AUTOSAVE_INTERVAL_MS = 30_000;
+  let autosaveTimer: ReturnType<typeof setInterval> | null = null;
+
+  /**
+   * 30s 自动保存（#1789）：脏标为真且有可保存内容时落盘，成功即清标。
+   * 「停留 >30 分钟静默保存」由此覆盖——保存永远静默、无弹窗，状态最长滞后一个周期。
+   * 失败不打断用户：留脏标，下个周期自动重试（离开提示与 beforeunload 仍是兜底）。
+   */
+  function startAutosave() {
+    if (autosaveTimer) return;
+    autosaveTimer = setInterval(() => {
+      if (!hasUnsavedDraftWork.value || importing.value || parsing.value)
+        return;
+      void persistDraft();
+    }, AUTOSAVE_INTERVAL_MS);
+  }
+
+  function stopAutosave() {
+    if (autosaveTimer) {
+      clearInterval(autosaveTimer);
+      autosaveTimer = null;
+    }
+  }
+
   onMounted(async () => {
     await fetchLedgers();
     // #1239 草稿层：页面加载后检查是否有同域草稿可恢复
     await checkDraft();
+    // #1789：30s 自动保存随页面挂载启动（真实卸载时由 onUnmounted 停止；
+    // keep-alive 激活态下继续跑也无害——脏标为假时每 tick 只读三个 ref）
+    startAutosave();
+  });
+
+  onUnmounted(() => {
+    stopAutosave();
   });
 
   return {
@@ -2081,6 +2152,10 @@ export function useImportWizard() {
     devJump,
     draftBannerVisible,
     pendingDraftMeta,
+    // #1789：离开提示与自动保存的接线点（useImportLeaveGuard 消费）
+    draftDirty,
+    hasUnsavedDraftWork,
+    persistDraft,
     checkDraft,
     restoreDraft,
     discardCurrentDraft
