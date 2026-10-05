@@ -25,6 +25,9 @@
           borderColor: 'var(--border-light)',
           color: 'var(--text-tertiary-ink)'
         }"
+        role="button"
+        tabindex="0"
+        @keydown.enter="emit('add')"
         @click="emit('add')"
       >
         <IconifyIconOffline
