@@ -28,6 +28,7 @@ const {
       />
       <el-input
         v-model="tableFilterKeyword"
+        aria-label="搜索代码或名称"
         placeholder="搜索代码或名称"
         size="small"
         style="width: 200px"

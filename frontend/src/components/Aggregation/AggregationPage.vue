@@ -232,6 +232,7 @@ onMounted(() => load());
         <el-input
           :model-value="keyword"
           class="search-input"
+          aria-label="搜索名称或代码"
           placeholder="搜索名称 / 代码"
           clearable
           @update:model-value="setKeyword"

@@ -74,6 +74,7 @@
             <!-- 搜索框与 Tab 同行：按当前 Tab 绑定各自搜索词（#982） -->
             <el-input
               v-model="activeSearch"
+              aria-label="搜索产品名称或代码"
               placeholder="搜索产品名称 / 代码"
               clearable
               class="tab-search-input"

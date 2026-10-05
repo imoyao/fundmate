@@ -30,6 +30,7 @@
     <div v-loading="loading" class="group-items">
       <el-input
         v-model="keyword"
+        aria-label="搜索代码或名称"
         placeholder="搜索代码或名称（同时过滤左右两栏）..."
         clearable
         class="gi-search"
