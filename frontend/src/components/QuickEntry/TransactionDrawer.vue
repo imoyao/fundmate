@@ -5,6 +5,7 @@
     direction="rtl"
     destroy-on-close
     :close-on-click-modal="false"
+    :before-close="onBeforeClose"
     @closed="resetForm"
   >
     <template #header>
@@ -102,17 +103,26 @@ const emit = defineEmits<{
 
 // ── 未保存离开保护（#1853）──
 // 脏状态住在 BuyForm / SellForm 内部（两者各自 expose isDirty），父组件只能间接读。
-// 注意：**el-drawer 没有 before-close**（那是 el-dialog 的 prop），且本抽屉已
-// `:close-on-click-modal="false"` 禁用点遮罩——所以拦截点放在 v-model 的 setter 上，
-// 它同时覆盖关闭按钮 / ESC / 底部「取消」三条路。
+//
+// **更正**（#1853 关档后经真实浏览器走查发现）：`el-drawer` **是有** `before-close` 的
+// ——`drawer.d.ts:47` 声明了 `beforeClose: DialogBeforeCloseFn`，Drawer 直接复用了 Dialog
+// 的 API。之前写的「el-drawer 没有 before-close」是错的，代价是 ESC / 关闭按钮
+// 绕过 `v-model` setter 直接把抽屉关掉（实测：弹了确认框，点「继续编辑」抽屉仍被关）。
+//
+// 现在两条都挂：
+//   · `before-close` —— 拦 Element Plus 自己触发的关闭（关闭按钮 / ESC / 点遮罩）
+//   · `v-model` setter —— 兜住**程序化** close（底部「取消」走不到 before-close）
 const isDirty = computed(() => {
   const form = opType.value === "buy" ? buyFormRef.value : sellFormRef.value;
   return form?.isDirty === true;
 });
 
-const { confirmDiscard } = useUnsavedChangesGuard(() => isDirty.value, {
-  message: "交易表单已填写，确定放弃吗？"
-});
+const { confirmDiscard, onBeforeClose } = useUnsavedChangesGuard(
+  () => isDirty.value,
+  {
+    message: "交易表单已填写，确定放弃吗？"
+  }
+);
 
 /** 确认通过后的放行标志：只对本次 emit 生效，避免后续关闭被误拦 */
 const allowClose = ref(false);
