@@ -598,9 +598,12 @@ onBeforeUnmount(() => {
             showModel === 'chrome' && 'chrome-item',
             isFixedTag(item) && 'fixed-tag'
           ]"
+          role="button"
+          tabindex="0"
           @contextmenu.prevent="openMenu(item, $event)"
           @mouseenter.prevent="onMouseenter(index)"
           @mouseleave.prevent="onMouseleave(index)"
+          @keydown.enter="tagOnClick(item)"
           @click="tagOnClick(item)"
         >
           <template v-if="showModel !== 'chrome'">
@@ -617,6 +620,10 @@ onBeforeUnmount(() => {
                     (index === activeIndex && index !== 0)
               "
               class="el-icon-close"
+              role="button"
+              tabindex="0"
+              aria-label="关闭标签"
+              @keydown.enter.stop="deleteMenu(item)"
               @click.stop="deleteMenu(item)"
             >
               <IconifyIconOffline :icon="Close" />
@@ -637,6 +644,10 @@ onBeforeUnmount(() => {
             <span
               v-if="isFixedTag(item) ? false : index !== 0"
               class="chrome-close-btn"
+              role="button"
+              tabindex="0"
+              aria-label="关闭标签"
+              @keydown.enter.stop="deleteMenu(item)"
               @click.stop="deleteMenu(item)"
             >
               <IconifyIconOffline :icon="Close" />
@@ -663,7 +674,13 @@ onBeforeUnmount(() => {
           :key="key"
           style="display: flex; align-items: center"
         >
-          <li v-if="item.show" @click="selectTag(key, item)">
+          <li
+            v-if="item.show"
+            role="button"
+            tabindex="0"
+            @keydown.enter="selectTag(key, item)"
+            @click="selectTag(key, item)"
+          >
             <IconifyIconOffline :icon="item.icon" />
             {{ item.text }}
           </li>

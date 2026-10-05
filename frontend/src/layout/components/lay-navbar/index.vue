@@ -58,6 +58,9 @@ const router = useRouter();
       <span
         class="navbar-bg-hover cursor-pointer px-2 text-base flex items-center"
         :title="isDarkMode ? '切换到亮色模式' : '切换到暗色模式'"
+        role="button"
+        tabindex="0"
+        @keydown.enter="toggleThemeMode"
         @click="toggleThemeMode"
       >
         <IconifyIconOffline :icon="isDarkMode ? 'ep:sunny' : 'ep:moon'" />
@@ -95,6 +98,9 @@ const router = useRouter();
       <span
         class="set-icon navbar-bg-hover"
         title="打开外观设置"
+        role="button"
+        tabindex="0"
+        @keydown.enter="onPanel"
         @click="onPanel"
       >
         <IconifyIconOffline :icon="Palette" />

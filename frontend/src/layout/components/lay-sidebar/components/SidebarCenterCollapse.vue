@@ -40,6 +40,10 @@ const toggleClick = () => {
       placement: 'right'
     }"
     class="center-collapse"
+    role="button"
+    tabindex="0"
+    aria-label="isActive ? '折叠侧边栏' : '展开侧边栏'"
+    @keydown.enter="toggleClick"
     @click="toggleClick"
   >
     <IconifyIconOffline
