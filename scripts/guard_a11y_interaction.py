@@ -307,6 +307,12 @@ def check_hover_fallback(text: str, rel: str, lines: list[str]) -> list[str]:
 
 
 def main() -> int:
+    # 输出恒为 UTF-8：不设的话，Windows 上按控制台代码页（GBK）输出，调用方
+    # （Node 测试、CI 日志）按 UTF-8 解码就是一团乱码——曾导致断言「不匹配中文」
+    # 而**空过**（假通过），比守卫本身失效更隐蔽。
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
     argv = sys.argv[1:]
     warn_only = "--warn" in argv
     paths = [a for a in argv if not a.startswith("-")]

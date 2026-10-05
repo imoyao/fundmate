@@ -1,4 +1,4 @@
-﻿/**
+/**
  * guard_a11y_interaction 回归样本（#1842）。
  *
  * 三组样本各司其职，缺一不可：
@@ -54,14 +54,14 @@ test("纯图标按钮加了 aria-label → 放行", () => {
   const out = guard([
     `<template><el-button aria-label="刷新"><IconifyIconOffline icon="ep:refresh" /></el-button></template>`
   ]);
-  assert.doesNotMatch(out, /aria-label\/title/);
+  assert.doesNotMatch(out, /发现 \d+ 处/);
 });
 
 test("图标 + 文字的按钮有可访问名称 → 放行（不得误报）", () => {
   const out = guard([
     `<template><el-button><IconifyIconOffline icon="ep:lightning" />{{ text }}</el-button></template>`
   ]);
-  assert.doesNotMatch(out, /aria-label\/title/);
+  assert.doesNotMatch(out, /发现 \d+ 处/);
 });
 
 test("element-plus 图标直用（裸 <Plus />）→ 命中", () => {
@@ -76,7 +76,7 @@ test("el-icon 容器包裹 element-plus 图标 → 命中", () => {
 
 test("PascalCase 业务组件不是图标 → 放行（不得误报）", () => {
   const out = guard([`<template><el-button class="x"><TransactionTable /></el-button></template>`]);
-  assert.doesNotMatch(out, /aria-label\/title/);
+  assert.doesNotMatch(out, /发现 \d+ 处/);
 });
 
 test("element-plus 图标名单非空且含常用图标（防名单被清空后静默失效）", () => {
@@ -95,7 +95,7 @@ test("div @click 三件套齐全 → 放行", () => {
   const out = guard([
     `<template><div role="button" tabindex="0" @click="go" @keydown.enter="go">x</div></template>`
   ]);
-  assert.doesNotMatch(out, /role \/ tabindex/);
+  assert.doesNotMatch(out, /发现 \d+ 处/);
 });
 
 test("有 role+tabindex 但无键盘激活 → 仍命中（半吊子状态）", () => {
@@ -109,7 +109,7 @@ test("同行 a11y-allow 豁免 → 放行", () => {
   const out = guard([
     `<template><div class="c" @click="go" a11y-allow><!-- 装饰性容器，交互在子按钮上 --></div></template>`
   ]);
-  assert.doesNotMatch(out, /role \/ tabindex/);
+  assert.doesNotMatch(out, /发现 \d+ 处/);
 });
 
 /* ---------- 规则 3：hover 显隐缺兜底（判据最容易被改宽的一类） ---------- */
@@ -133,7 +133,7 @@ test("hover 显隐 + :focus-within 兜底 → 放行", () => {
      .act { opacity: 0; }
      </style>`
   ]);
-  assert.doesNotMatch(out, /靠 :hover 才显现/);
+  assert.doesNotMatch(out, /发现 \d+ 处/);
 });
 
 test("hover 显隐 + @media (hover: none) 静态可见兜底 → 放行", () => {
@@ -145,7 +145,7 @@ test("hover 显隐 + @media (hover: none) 静态可见兜底 → 放行", () => 
      @media (hover: none) { .act { opacity: 1; } }
      </style>`
   ]);
-  assert.doesNotMatch(out, /靠 :hover 才显现/);
+  assert.doesNotMatch(out, /发现 \d+ 处/);
 });
 
 test("@keyframes 的 from { opacity: 0 } 是动画起点 → 放行（早期误报源）", () => {
@@ -155,7 +155,7 @@ test("@keyframes 的 from { opacity: 0 } 是动画起点 → 放行（早期误�
      @keyframes fade-up { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; } }
      </style>`
   ]);
-  assert.doesNotMatch(out, /靠 :hover 才显现/);
+  assert.doesNotMatch(out, /发现 \d+ 处/);
 });
 
 test(".is-folded 折叠态 opacity:0 不是 hover 显隐 → 放行（早期误报源）", () => {
@@ -165,7 +165,7 @@ test(".is-folded 折叠态 opacity:0 不是 hover 显隐 → 放行（早期误�
      .panel.is-folded { opacity: 0; grid-template-rows: 0fr; }
      </style>`
   ]);
-  assert.doesNotMatch(out, /靠 :hover 才显现/);
+  assert.doesNotMatch(out, /发现 \d+ 处/);
 });
 
 test("基态 opacity:0.5 常驻半透明 + hover 提亮 → 放行（本来就看得见，早期误报源）", () => {
@@ -176,7 +176,7 @@ test("基态 opacity:0.5 常驻半透明 + hover 提亮 → 放行（本来就�
      .row:hover .grab, .grab:hover { opacity: 1; }
      </style>`
   ]);
-  assert.doesNotMatch(out, /靠 :hover 才显现/);
+  assert.doesNotMatch(out, /发现 \d+ 处/);
 });
 
 test("同类两个元素只有一个补了兜底 → 只报没兜底的那个（类级粒度，非文件级）", () => {

@@ -218,7 +218,8 @@ jobs:
 
       # 交互可达性守卫（#1842）：纯图标按钮无可访问名称 / div@click 当按钮 /
       # hover 显隐无 focus-within 与 hover:none 兜底——前端交互排查里 P1 的主体三类。
-      # 先以 --warn 接入：存量 115 处需逐个清，清零后再去掉 --warn 转为阻断
+      # 先以 --warn 接入：存量 109 处（规则一 62 + 规则二 47，规则三实测已清零）
+      # 需逐个清，清零后再去掉 --warn 转为阻断
       # （与 check_view_thickness 同样的「先立边界、堵新增」路子）。
       - name: 扫描交互可达性回潮（暂不阻断）
         run: python scripts/guard_a11y_interaction.py --warn
