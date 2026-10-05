@@ -231,12 +231,12 @@ const assetBalanceRows = computed(() => {
     房产: {
       color: "var(--chart-05)",
       categoryKey: "fixed",
-      detailRoute: "/realestate"
+      detailRoute: "/asset/realestate"
     },
     贵金属: {
       color: "var(--chart-06)",
       categoryKey: "fixed",
-      detailRoute: "/precious"
+      detailRoute: "/asset/precious"
     }
   };
   // 消费后端 category_distribution（后端唯一聚合出口，含汇率换算）

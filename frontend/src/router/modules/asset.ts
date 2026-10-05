@@ -81,7 +81,11 @@ const AssetRouteConfig = {
           meta: { title: "基金", icon: "ep:box", rank: 2, showLink: false }
         },
         {
-          path: "/precious",
+          // 路径带 /asset 前缀，与同层兄弟（/asset/ledgers 等）一致。
+          // 原为 "/precious"：vue-router 4 里子路由 path 以 / 开头即**绝对路径**、不拼父级前缀，
+          // 于是它注册在根下、真实 URL 是 /precious——功能上能用，但同一 children 数组里
+          // 5 个带前缀、2 个不带，两套写法并存最容易让人误以为「拼了父级」（#1849 路径统一）。
+          path: "/asset/precious",
           // #1798 入口：侧边栏 showLink + 全景页「资产构成」贵金属行直跳（CategoryBalanceTable）；
           // 此前的 router-orphan-allow 盲区标记已摘（页面接真实数据后转正）
           name: "AssetPrecious",
@@ -89,7 +93,8 @@ const AssetRouteConfig = {
           meta: { title: "贵金属", icon: "ep:medal", rank: 3, showLink: true }
         },
         {
-          path: "/realestate",
+          // 同上：原为 "/realestate"（绝对路径 ⇒ 注册在根下），现与兄弟路由统一带 /asset 前缀
+          path: "/asset/realestate",
           // #1798 入口：侧边栏 showLink + 全景页「资产构成」房产行直跳（CategoryBalanceTable）；
           // 此前的 router-orphan-allow 标记已摘（页面接真实数据后转正）
           name: "AssetRealEstate",
