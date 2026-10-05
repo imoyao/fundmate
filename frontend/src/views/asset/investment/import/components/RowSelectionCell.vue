@@ -18,7 +18,7 @@ const { isRowSelected, isRowBlocked, handleRowCheckboxChange } =
   <el-checkbox
     v-else
     :model-value="isRowSelected(row)"
-    :disabled="row.is_duplicate || row.error || isRowBlocked(row)"
+    :disabled="row.error || isRowBlocked(row)"
     @change="(val: boolean) => handleRowCheckboxChange(row, val)"
   />
 
