@@ -7,6 +7,27 @@
     :before-close="onBeforeClose"
   >
     <el-form :model="form" label-width="80px">
+      <!--
+        子类选择（#1849）：此前编辑弹窗只有「金额 / 备注」，而房产页与贵金属页的
+        「去补分类」按钮恰恰指向这里 —— 提示说「未选择子类」，点进来却改不了，
+        入口与能力对不上（半成品功能）。
+        选项复用盘点页录入的同一份枚举（house / car / gold），不另造一套。
+      -->
+      <el-form-item v-if="isFixedCategory" label="子类">
+        <el-select
+          v-model="form.minorCategory"
+          class="w-full"
+          placeholder="请选择子类（房产 / 汽车 / 黄金）"
+          clearable
+        >
+          <el-option
+            v-for="opt in fixedSubtypeOptions"
+            :key="opt.key"
+            :label="opt.label"
+            :value="opt.key"
+          />
+        </el-select>
+      </el-form-item>
       <el-form-item label="金额">
         <el-input-number
           v-model="form.amount"
@@ -47,6 +68,7 @@ import {
   useFormDirty
 } from "@/composables/useUnsavedChangesGuard";
 import { getErrorMessage } from "../helpers";
+import { ASSET_TYPE_MAP } from "../constants";
 
 const props = defineProps<{
   /** 弹窗显隐（v-model） */
@@ -67,10 +89,27 @@ const visible = computed({
 });
 
 const saving = ref(false);
-const form = ref<{ id: number | null; amount: number; notes: string }>({
+
+/**
+ * 子类选项（#1849）：复用盘点页录入用的同一份枚举，不另造一套
+ * （`views/asset/inventory/constants.ts` 的 `ASSET_TYPE_MAP.fixed`）。
+ */
+const fixedSubtypeOptions = ASSET_TYPE_MAP.fixed;
+
+/** 固定资产大类才补子类：其余大类的 minor_category 语义不同（investment 下是基金细分等） */
+const isFixedCategory = computed(() => props.asset?.major_category === "fixed");
+
+const form = ref<{
+  id: number | null;
+  amount: number;
+  notes: string;
+  /** 子类键（minor_category）：#1849 补分类入口所需 */
+  minorCategory: string | null;
+}>({
   id: null,
   amount: 0,
-  notes: ""
+  notes: "",
+  minorCategory: null
 });
 
 /**
@@ -90,7 +129,8 @@ watch(
     form.value = {
       id: props.asset?.id ?? null,
       amount: props.asset?.amount || 0,
-      notes: props.asset?.notes || ""
+      notes: props.asset?.notes || "",
+      minorCategory: props.asset?.minor_category ?? null
     };
     // 快照要在回填**之后**记，否则会把「打开即脏」当成真改动
     markClean();
@@ -111,7 +151,12 @@ async function save() {
   try {
     await updateAsset(form.value.id, {
       amount: form.value.amount,
-      notes: form.value.notes
+      notes: form.value.notes,
+      // 只在固定资产大类下提交子类：其余大类的 minor_category 有各自的语义
+      // （investment 下是基金细分等），这里不越界替用户改（#1849）
+      ...(isFixedCategory.value
+        ? { minor_category: form.value.minorCategory || null }
+        : {})
     });
     ElMessage.success("资产已更新");
     visible.value = false;
