@@ -388,12 +388,16 @@ const handleAssetFormSubmit = () => {
       border-bottom: none;
     }
 
+    /* 涨跌语义走 --color-rise-ink / --color-fall-ink（#1840）。
+       此前写的是 --el-color-success / --el-color-error，即「涨绿跌红」——
+       与全站「涨红跌绿」相反，同一行里盈亏额与收益率还会自相矛盾。
+       Element Plus 的 success/error 表达的是「操作成功/失败」，不是涨跌语义。 */
     .profit {
-      color: var(--el-color-success);
+      color: var(--color-rise-ink);
     }
 
     .loss {
-      color: var(--el-color-error);
+      color: var(--color-fall-ink);
     }
 
     .action-link {
