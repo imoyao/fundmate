@@ -49,6 +49,9 @@ const { startEdit, finishEdit, cancelEdit } = useImportWizardContext();
       <span
         v-if="row.price !== null && row.price !== undefined && row.price !== ''"
         class="cursor-pointer hover:text-blue-500 select-none"
+        role="button"
+        tabindex="0"
+        @keydown.enter.stop="startEdit(row, 'price')"
         @click.stop="startEdit(row, 'price')"
         @mousedown.prevent
       >
@@ -61,7 +64,13 @@ const { startEdit, finishEdit, cancelEdit } = useImportWizardContext();
           >待确认</el-tag
         >
       </span>
-      <span v-else class="cell-pending" @click.stop="startEdit(row, 'price')"
+      <span
+        v-else
+        class="cell-pending"
+        role="button"
+        tabindex="0"
+        @keydown.enter.stop="startEdit(row, 'price')"
+        @click.stop="startEdit(row, 'price')"
         >待补全</span
       >
     </template>

@@ -75,6 +75,9 @@
 
         <div
           class="px-5 py-3 flex justify-between items-center text-sm cursor-pointer"
+          role="button"
+          tabindex="0"
+          @keydown.enter="toggleExpand(group.name)"
           @click="toggleExpand(group.name)"
         >
           <div>

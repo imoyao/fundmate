@@ -30,6 +30,8 @@
       v-if="hasPending"
       class="workbench-banner workbench-banner--clickable"
       role="alert"
+      tabindex="0"
+      @keydown.enter="focusFirstPendingDomain"
       @click="focusFirstPendingDomain"
     >
       <IconifyIconOffline icon="ep:warning" class="workbench-banner__icon" />

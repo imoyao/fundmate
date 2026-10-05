@@ -43,7 +43,11 @@ HAS_SLOT_RE = re.compile(r"\bslot\s*=")
 CLICK_TAG_RE = re.compile(r"<(div|span|li)\b(?P<attrs>[^>]*)>", re.I)
 HAS_ROLE_RE = re.compile(r"\brole\s*=")
 HAS_TABINDEX_RE = re.compile(r"\btabindex\s*=")
-HAS_KEYBOARD_RE = re.compile(r"@keydown|v-on:keydown", re.I)
+# `@keyup.enter` 与 `@keydown.enter` 同样是合法的键盘激活方式，必须一并认。
+# 早期只认 `@keydown`，把「已用 @keyup 完整实现键盘支持」的元素判成缺键盘路径——
+# 而照单补 `@keydown.enter` 会让回车**同时触发 keydown 与 keyup 两次**（双触发），
+# 比不判更糟。判据宁可漏报也不制造这种坑。
+HAS_KEYBOARD_RE = re.compile(r"@key(?:down|up)|v-on:key(?:down|up)", re.I)
 # 必须带**非空表达式**才算「可点击」。`@click.stop`（不带表达式）只是 stopPropagation 的
 # 空防护——卡片 footer / 编辑容器常用它阻止点击冒泡到外层可点卡片，那种元素本身
 # 不可点击，判成「div 当按钮」是纯误报（早期版本只搜 `@click` 字面，3 处全中）。

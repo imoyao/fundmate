@@ -6,6 +6,9 @@
       class="category-tab"
       :class="{ active: active === cat.key }"
       :style="tabStyle(cat)"
+      role="button"
+      tabindex="0"
+      @keydown.enter="emit('update:active', cat.key)"
       @click="emit('update:active', cat.key)"
     >
       <span class="category-tab-label">{{ cat.label }}</span>

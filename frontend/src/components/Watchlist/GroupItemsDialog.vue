@@ -108,7 +108,13 @@
                 >
                   <el-icon><Plus /></el-icon>
                 </el-button>
-                <div class="gi-row__main" @click="addItem(item)">
+                <div
+                  class="gi-row__main"
+                  role="button"
+                  tabindex="0"
+                  @keydown.enter="addItem(item)"
+                  @click="addItem(item)"
+                >
                   <span class="gi-name">{{ item.display_name }}</span>
                   <span v-if="showCode(item)" class="gi-code">{{
                     item.symbol

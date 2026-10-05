@@ -137,6 +137,13 @@ test("a11y-allow 写在标签**上方**（自然写法）→ 豁免（早期只�
   assert.doesNotMatch(out, /发现 \d+ 处/);
 });
 
+test("@keyup.enter 也是键盘激活 → 放行（补 @keydown 会造成回车双触发）", () => {
+  const out = guard([
+    `<template><div role="button" tabindex="0" @click="go" @keyup.enter="go">触发</div></template>`
+  ]);
+  assert.doesNotMatch(out, /发现 \d+ 处/);
+});
+
 test("同行 a11y-allow 豁免 → 放行", () => {
   const out = guard([
     `<template><div class="c" @click="go" a11y-allow><!-- 装饰性容器，交互在子按钮上 --></div></template>`
