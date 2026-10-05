@@ -6,6 +6,7 @@
     :before-close="onBeforeClose"
     @update:model-value="val => emit('update:modelValue', val)"
     @open="initForm"
+    @close="resetAfterClose"
   >
     <el-form
       ref="formRef"
@@ -294,6 +295,29 @@ function initForm() {
 // 比永不相等，**弹窗没打开就算“有未保存修改”**；叠上 onBeforeRouteLeave 后，
 // 用户在账户列表点卡片进详情都会被问「确定放弃吗？」（#1845 回归）。
 const { isDirty, markClean } = useFormDirty(() => form.value);
+
+/**
+ * 关闭后把表单与基线一起清空（#1880，与 AssetEditDialog / CreateAccountDialog 同源）。
+ *
+ * `@open="initForm"` 只覆盖打开这一侧。关闭侧以前完全没处理，于是「保存」与「放弃修改」
+ * 都只是 `modelValue → false`，表单里留着改后的值而基线还是打开时的值 → `isDirty` 为 true，
+ * 叠上 `onBeforeRouteLeave` 就是「关掉弹窗后点侧边栏仍弹未保存修改、导航被拦死」。
+ *
+ * 挂 `@close` 而非 `before-close`：后者是**询问**是否关闭，用户点「继续编辑」时不能复位。
+ */
+function resetAfterClose() {
+  form.value = {
+    quantity: null,
+    price: null,
+    amount: null,
+    fee: null,
+    trade_date: null,
+    confirm_date: null,
+    notes: ""
+  };
+  confirmDateDisplay.value = "";
+  markClean();
+}
 
 const { onBeforeClose, requestClose: confirmThenClose } =
   useUnsavedChangesGuard(() => isDirty.value);

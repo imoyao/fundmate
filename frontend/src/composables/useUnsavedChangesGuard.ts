@@ -1,6 +1,7 @@
 import { ElMessageBox } from "element-plus";
 import { onBeforeRouteLeave } from "vue-router";
 import { computed, onBeforeUnmount, ref } from "vue";
+import type { Ref } from "vue";
 
 /**
  * 未保存离开保护（#1853 / #1835）。
@@ -136,4 +137,52 @@ export function useFormDirty<T>(getValue: () => T) {
   }
 
   return { isDirty, markClean };
+}
+
+/**
+ * 弹窗表单的「打开时重填 + 脏基线同步」两件事绑在一起（#1880）。
+ *
+ * ## 为什么要绑
+ *
+ * 关闭态复位若只做一半，就会复现 #1845 那个 bug 的**变种**：
+ * - 只 `markClean()` → 基线清了，但表单里还留着改后的值；下次打开时 `markClean()`
+ *   把这个残留值记成基线，用户看到的是「上次的输入」，且一旦有 watcher 改写表单
+ *   就又变脏；
+ * - 只重置表单不碰基线 → 基线还是打开时的值，`isDirty` 立刻为 true：
+ *   **保存成功后点侧边栏仍弹「未保存的修改」，导航被拦死**（本卡实测复现）。
+ *
+ * 两件事必须同一个入口，否则调用方总会只写一半。
+ *
+ * ## 用法
+ *
+ *     const { isDirty, fillOnOpen } = useDialogForm(form, () => ({ id: null, amount: 0 }));
+ *     watch(() => props.modelValue, open => fillOnOpen(open, () => ({
+ *       id: props.row?.id ?? null,
+ *       amount: props.row?.amount || 0
+ *     })));
+ *     // save() 成功后：markClean()  或  markSaved()
+ */
+export function useDialogForm<S extends object>(
+  form: Ref<S>,
+  emptyValue: () => S
+) {
+  const { isDirty, markClean } = useFormDirty(() => form.value);
+
+  /**
+   * @param open  弹窗是否打开
+   * @param fill  打开时的填充值；不传则用 `emptyValue()`
+   */
+  function fillOnOpen(open: boolean, fill?: () => S) {
+    const next = open ? (fill ? fill() : emptyValue()) : emptyValue();
+    form.value = next;
+    // 基线同步：打开时 = 刚填的值（不脏），关闭时 = 空表单（不脏）
+    markClean();
+  }
+
+  /** 保存成功：当前值即新基线 */
+  function markSaved() {
+    markClean();
+  }
+
+  return { isDirty, fillOnOpen, markSaved, markClean };
 }

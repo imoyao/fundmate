@@ -4,7 +4,7 @@ import { ElMessage } from "element-plus";
 import AccountFormFields from "./AccountFormFields.vue";
 import {
   useUnsavedChangesGuard,
-  useFormDirty
+  useDialogForm
 } from "@/composables/useUnsavedChangesGuard";
 import {
   createLedger,
@@ -54,26 +54,33 @@ const createForm = ref({
 //
 // 快照声明**必须在 watch 之前**：`immediate: true` 会同步执行回调回填它，
 // 声明在后面就是 TDZ ReferenceError（vue-tsc 报 TS2304）。#1853
-const { isDirty, markClean } = useFormDirty(() => createForm.value);
+const EMPTY_FORM = {
+  name: "",
+  ledger_type: "bank",
+  notes: "",
+  linked_cash_ledger_id: null,
+  linked_money_fund_code: null,
+  auto_purchase_money_fund: false,
+  portfolio_id: null,
+  fee_config: null,
+  sales_institution_id: null
+};
+
+/**
+ * 打开时填初值、关闭时复位，**两种态都同步脏基线**（#1880，与 AssetEditDialog 同源）。
+ *
+ * 关闭分支以前是 `if (val) {…}` 什么都不做：创建成功后虽然显式 `markClean()` 了一次，
+ * 但「创建失败后关闭」「ESC 直接关」等路径仍留着改后的表单值，
+ * 下次点侧边栏会弹一次莫名其妙的「账户信息已填写，确定放弃吗？」。
+ */
+const { isDirty, fillOnOpen, markSaved } = useDialogForm(createForm, () => ({
+  ...EMPTY_FORM,
+  ledger_type: props.initialLedgerType || "bank"
+}));
+
 watch(
   () => props.visible,
-  val => {
-    if (val) {
-      createForm.value = {
-        name: "",
-        ledger_type: props.initialLedgerType || "bank",
-        notes: "",
-        linked_cash_ledger_id: null,
-        linked_money_fund_code: null,
-        auto_purchase_money_fund: false,
-        portfolio_id: null,
-        fee_config: null,
-        sales_institution_id: null
-      };
-      // 快照在重置**之后**记，否则会把「刚打开」当成真改动
-      markClean();
-    }
-  }
+  val => fillOnOpen(val)
 );
 
 // ── 未保存离开保护（#1853）──
@@ -104,6 +111,8 @@ async function handleCreate() {
       sales_institution_id: createForm.value.sales_institution_id
     });
     ElMessage.success("账户创建成功");
+    // 已落库，当前值即新基线（关闭分支也会复位，两处都做是为了时序上不依赖单一路径）
+    markSaved();
     emit("update:visible", false);
     emit("created");
   } catch (e: any) {
