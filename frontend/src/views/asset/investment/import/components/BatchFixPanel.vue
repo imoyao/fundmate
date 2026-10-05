@@ -83,6 +83,8 @@ const autoFixableCount = computed(() => {
         v-if="showBatchFix && problemCategories.length > 0"
         class="batch-fix-detail"
       >
+        <!-- a11y-allow 分组筛选卡，内部含逐条修复按钮；补 role=button 会把整张卡
+             读成一个按钮、盖住内部按钮的 tab 序列 -->
         <div
           v-for="cat in problemCategories"
           :key="cat.key"

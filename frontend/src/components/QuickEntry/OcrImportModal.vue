@@ -72,6 +72,8 @@
         识别到 {{ candidates.length }} 条，可勾选导入
       </div>
       <div class="candidate-list">
+        <!-- a11y-allow 容器内首行就是 el-checkbox，整行点击只是它的热区扩展；
+             补 role=button 会把整行读成一个按钮、盖住 checkbox 的语义 -->
         <div
           v-for="item in candidates"
           :key="item.code"
