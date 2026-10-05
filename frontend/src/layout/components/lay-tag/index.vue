@@ -579,7 +579,14 @@ onBeforeUnmount(() => {
 <template>
   <div v-if="!showTags" ref="containerDom" class="tags-view">
     <span v-show="isShowArrow" class="arrow-left">
-      <IconifyIconOffline :icon="ArrowLeftSLine" @click="handleScroll(200)" />
+      <IconifyIconOffline
+        :icon="ArrowLeftSLine"
+        role="button"
+        tabindex="0"
+        aria-label="向左滚动标签"
+        @keydown.enter="handleScroll(200)"
+        @click="handleScroll(200)"
+      />
     </span>
     <div
       ref="scrollbarDom"
@@ -658,7 +665,14 @@ onBeforeUnmount(() => {
       </div>
     </div>
     <span v-show="isShowArrow" class="arrow-right">
-      <IconifyIconOffline :icon="ArrowRightSLine" @click="handleScroll(-200)" />
+      <IconifyIconOffline
+        :icon="ArrowRightSLine"
+        role="button"
+        tabindex="0"
+        aria-label="向右滚动标签"
+        @keydown.enter="handleScroll(-200)"
+        @click="handleScroll(-200)"
+      />
     </span>
     <!-- 右键菜单按钮 -->
     <transition name="el-zoom-in-top">
