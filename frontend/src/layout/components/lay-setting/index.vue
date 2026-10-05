@@ -340,6 +340,9 @@ onUnmounted(() => removeMatchMedia);
           v-show="showThemeColors(item.themeColor)"
           :key="index"
           :style="getThemeColorStyle(item.color)"
+          role="button"
+          tabindex="0"
+          @keydown.enter="setLayoutThemeColor(item.themeColor)"
           @click="setLayoutThemeColor(item.themeColor)"
         >
           <el-icon
@@ -361,6 +364,9 @@ onUnmounted(() => removeMatchMedia);
             zIndex: 41000
           }"
           :class="layoutTheme.layout === 'vertical' ? 'is-select' : ''"
+          role="button"
+          tabindex="0"
+          @keydown.enter="setLayoutModel('vertical')"
           @click="setLayoutModel('vertical')"
         >
           <div />
@@ -374,6 +380,9 @@ onUnmounted(() => removeMatchMedia);
             zIndex: 41000
           }"
           :class="layoutTheme.layout === 'horizontal' ? 'is-select' : ''"
+          role="button"
+          tabindex="0"
+          @keydown.enter="setLayoutModel('horizontal')"
           @click="setLayoutModel('horizontal')"
         >
           <div />
