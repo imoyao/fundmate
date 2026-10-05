@@ -82,37 +82,31 @@ const AssetRouteConfig = {
         },
         {
           path: "/precious",
-          // router-orphan-allow: **不是孤儿**，是本守卫的已知盲区 ——
-          // 全景页点「虚拟货币」分组时经 DetailGroupList.vue 的 getTypeRoute()
-          // 从 Record 映射取出 name 再 router.push({ name: 变量 })，字面量不在跳转处。
-          // 该函数注释原话：「路由经 formatTwoStageRoutes 拍平后 path 层级失效，用 name 跳转最稳妥」。
+          // #1798 入口：侧边栏 showLink + 全景页「资产构成」贵金属行直跳（CategoryBalanceTable）；
+          // 此前的 router-orphan-allow 盲区标记已摘（页面接真实数据后转正）
           name: "AssetPrecious",
           component: () => import("@/views/asset/precious/index.vue"),
-          meta: { title: "贵金属", icon: "ep:medal", rank: 3, showLink: false }
+          meta: { title: "贵金属", icon: "ep:medal", rank: 3, showLink: true }
         },
         {
           path: "/realestate",
-          // router-orphan-allow: 房产详情页已实现（views/asset/realestate/index.vue，130+ 行）
-          // 但全仓零入口：侧边栏 showLink:false、无 router.push / to=，
-          // 且 getTypeRoute() 的类型→路由映射表里**没有「房产」项**（点到会 fallback 到 AssetStocks）。
-          // 处置二选一（接入入口 / 下线）与 /analysis 同批，见 #1798。
+          // #1798 入口：侧边栏 showLink + 全景页「资产构成」房产行直跳（CategoryBalanceTable）；
+          // 此前的 router-orphan-allow 标记已摘（页面接真实数据后转正）
           name: "AssetRealEstate",
           component: () => import("@/views/asset/realestate/index.vue"),
-          meta: { title: "房产", icon: "ep:house", rank: 4, showLink: false }
+          meta: { title: "房产", icon: "ep:house", rank: 4, showLink: true }
         },
         {
           path: "/analysis",
-          // router-orphan-allow: 智能分析页已实现（IntelligentAnalysis.vue 356 行）但全仓零入口，
-          // 侧边栏 / FAB 托盘 / router.push 均无引用，只能手敲 URL 到达。
-          // 保留而非删除：页面不是空壳，删了会毁掉已完成的功能。
-          // 处置二选一（接入入口 / 下线页面）见 #1798；**结论出来前不得摘掉本标记**。
+          // #1798 入口：侧边栏 showLink + 全景页头「智能分析」按钮（panorama/index.vue）；
+          // 原假数据页已与 AssetOverview.vue（#1195 真实数据版，原为无路由死文件）合体
           name: "AssetAnalysis",
           component: () => import("@/views/asset/IntelligentAnalysis.vue"),
           meta: {
             title: "智能分析",
             icon: "ep:data-analysis",
             rank: 5,
-            showLink: false
+            showLink: true
           }
         },
         {
