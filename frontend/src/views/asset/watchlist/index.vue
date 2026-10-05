@@ -130,6 +130,13 @@
       :actions="actions"
       :column-settings="columnSettings"
     />
+
+    <!-- 表头列排序的键盘等价物（#1852）：操作提示与结果播报。
+         role=status + aria-live=polite：只在文本变化时读一次，顺序变了但视觉上
+         只是表头换位，不播报则屏幕阅读器用户完全感知不到。
+         提示元素是表头 th 的 aria-describedby 目标，屏幕阅读器聚焦列头时会读它。 -->
+    <span id="watchlist-col-hint" class="a11y-live">{{ COL_HINT }}</span>
+    <p class="a11y-live" role="status" aria-live="polite">{{ announce }}</p>
   </div>
 </template>
 
@@ -192,7 +199,14 @@ const sticky = useWatchlistStickyLayout({
   dataColumns,
   realtimeEnabled: valuation.realtimeEnabled
 });
-const { pageRef, onTableReady, initHeaderDrag, bindStickyObserver } = sticky;
+const {
+  pageRef,
+  onTableReady,
+  initHeaderDrag,
+  bindStickyObserver,
+  announce,
+  COL_HINT
+} = sticky;
 
 // 表格渲染域（renderCtx 组装 / 行 hover / 排序分发），见 useWatchlistTable
 const table = useWatchlistTable({
@@ -281,6 +295,21 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* 视觉隐藏但保留给屏幕阅读器（#1852）。与 LedgerGroupsList 的 .a11y-live 同款——
+   那套是 #1841 定的，这里直接沿用，不另立写法。 */
+.a11y-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  white-space: nowrap;
+  border: 0;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+}
+
 /* #1458 后续：持仓未入自选的引导 banner（warning 级） */
 .holding-gap-banner {
   margin: 12px 0;
