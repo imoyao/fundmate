@@ -65,6 +65,10 @@ onBeforeUnmount(() => {
             width="18px"
             height="18px"
             :icon="CloseIcon"
+            role="button"
+            tabindex="0"
+            aria-label="展开／收起内容"
+            @keydown.enter="show = !show"
             @click="show = !show"
           />
         </span>
