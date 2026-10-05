@@ -67,7 +67,13 @@
             @click.stop
           >
             <template #reference>
-              <el-button type="danger" size="small" circle @click.stop>
+              <el-button
+                type="danger"
+                size="small"
+                circle
+                aria-label="删除此组合"
+                @click.stop
+              >
                 <IconifyIconOffline icon="ep:delete" />
               </el-button>
             </template>

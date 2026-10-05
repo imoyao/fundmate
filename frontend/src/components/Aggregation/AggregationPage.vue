@@ -261,7 +261,16 @@ onMounted(() => load());
             aria-label="排序方式"
             @change="setSort"
           />
-          <el-button class="order-btn" text @click="toggleOrder">
+          <el-button
+            class="order-btn"
+            text
+            :aria-label="
+              order === 'desc'
+                ? '当前降序，点击切换为升序'
+                : '当前升序，点击切换为降序'
+            "
+            @click="toggleOrder"
+          >
             <IconifyIconOffline
               :icon="order === 'desc' ? 'ep:sort-down' : 'ep:sort-up'"
             />
