@@ -146,6 +146,7 @@
               </el-option>
             </el-select>
             <el-button
+              aria-label="新建分组"
               size="small"
               class="inline-add-btn"
               @click="groupFormVisible = true"
@@ -192,6 +193,7 @@
               </el-option>
             </el-select>
             <el-button
+              aria-label="新建标签"
               size="small"
               class="inline-add-btn"
               @click="tagFormVisible = true"

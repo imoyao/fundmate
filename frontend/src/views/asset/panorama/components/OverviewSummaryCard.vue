@@ -133,7 +133,7 @@
             总资产构成
           </h3>
           <el-tooltip content="资产月历（后续版本推出）" placement="top">
-            <el-button text size="small">
+            <el-button text size="small" aria-label="资产月历（后续版本推出）">
               <IconifyIconOffline icon="ep:calendar" class="text-base" />
             </el-button>
           </el-tooltip>

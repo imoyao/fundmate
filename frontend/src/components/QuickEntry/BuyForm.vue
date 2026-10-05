@@ -34,6 +34,7 @@
           </el-select>
           <el-button
             v-if="!showQuickAdd"
+            aria-label="新建账户"
             type="primary"
             text
             @click="showQuickAdd = true"
