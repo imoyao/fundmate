@@ -111,3 +111,107 @@ test("把 null 误当空串基线就是 #1845 那个 bug（此用例即回归本
   assert.equal(isFormDirtyJson(null, current), false); // 正确
   assert.equal("" !== current, true); // 旧实现：永远脏 → 用户什么都没填也被拦
 });
+/**
+ * 成功路径必须清脏基线（#1884 补漏）。
+ *
+ * ## 为什么要有这条
+ *
+ * #1883 把三个弹窗的脏基线收口进 `useDialogForm` / `useFormDirty`，但只在 watch 的
+ * 「打开」分支同步了基线——**成功路径漏了**。缺这一句的后果不是报错，而是
+ * `isDirty` 在操作成功后仍为 true；叠上守卫里的 `onBeforeRouteLeave`（它在 setup 里
+ * 无条件注册、不随弹窗开关注销），用户就带着一件「已经做完的事」被问
+ * 「确定放弃吗？」。
+ *
+ * `MigrateDialog` 是同一问题的另一种形态：它的脏状态不是表单快照，而是一个选中的
+ * id（`migrateTargetLedgerId !== null`），所以压根不进 `useFormDirty` /
+ * `useDialogForm` 那套机制，只能手动复位——也最容易漏。
+ */
+
+/**
+ * 按花括号配对提取 async 函数体，**不靠缩进猜**。
+ *
+ * `CreateAccountDialog.handleCreate` 就是反例：函数从 94 行开始，第 98 行的
+ * `\n  }` 闭的是 `if (!name.trim())` 而非函数本身——按缩进截断会把 115 行的
+ * `markSaved()` 判成「不在函数体内」，得到一个假失败。
+ */
+function extractAsyncFunctionBody(src, name) {
+  const start = src.search(new RegExp(`async function ${name}\\s*\\(`));
+  if (start === -1) return null;
+  const open = src.indexOf("{", start);
+  if (open === -1) return null;
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}") {
+      depth--;
+      if (depth === 0) return src.slice(open, i + 1);
+    }
+  }
+  return null;
+}
+
+test("#1884：成功路径内必须复位脏基线（打开时复位不算）", () => {
+  const cases = [
+    {
+      f: "frontend/src/views/asset/inventory/components/AssetEditDialog.vue",
+      fn: "save",
+      reset: /markSaved\(\)|markClean\(\)/
+    },
+    {
+      f: "frontend/src/views/asset/ledgers/components/CreateAccountDialog.vue",
+      fn: "handleCreate",
+      reset: /markSaved\(\)|markClean\(\)/
+    },
+    {
+      f: "frontend/src/views/asset/ledgers/components/TransactionEditDialog.vue",
+      fn: "handleSave",
+      reset: /markClean\(\)/
+    },
+    {
+      // 非表单型脏状态：复位的是被选中的 id 本身
+      f: "frontend/src/views/asset/ledgers/components/MigrateDialog.vue",
+      fn: "handleMigrate",
+      reset: /migrateTargetLedgerId\.value = null/
+    }
+  ];
+
+  for (const c of cases) {
+    const t = stripComments(readFileSync(join(process.cwd(), c.f), "utf8"));
+    const body = extractAsyncFunctionBody(t, c.fn);
+    assert.ok(body, `${c.f} 应能提取 async function ${c.fn} 的函数体`);
+    assert.match(
+      body,
+      c.reset,
+      `${c.f} 的 ${c.fn}() 成功后必须复位脏基线，否则「保存完离开页面」会被问「确定放弃」`
+    );
+  }
+});
+
+/**
+ * 已声明脏基线的快速录入表单，挂载时必须先复位一次。
+ *
+ * `BuyForm` / `SellForm` 目前是**安全的**——各自声明了 `initialSnapshot` 且挂载即
+ * `markFormClean()`，不会复现 #1845 那个「弹窗没打开就算脏」的回归。但这份安全靠
+ * 「每个作者都记得写初始化那一行」维持：少写一次就是一个用户可见的拦截。
+ *
+ * 判据按「已声明脏基线」触发，而不是要求所有表单都接入——未接入的表单不归这条管，
+ * 否则这条守门会变成「暗中逼所有表单加守卫」的隐藏规范。
+ */
+test("已声明脏基线的快速录入表单，挂载时必须先复位一次", () => {
+  let checked = 0;
+  for (const f of [
+    "frontend/src/components/QuickEntry/BuyForm.vue",
+    "frontend/src/components/QuickEntry/SellForm.vue",
+    "frontend/src/components/QuickEntry/DividendForm.vue"
+  ]) {
+    const t = stripComments(readFileSync(join(process.cwd(), f), "utf8"));
+    if (!/initialSnapshot = ref\(|useFormDirty|useDialogForm/.test(t)) continue;
+    checked++;
+    assert.match(
+      t,
+      /markFormClean\(\)|markClean\(\)|fillOnOpen\(/,
+      `${f} 声明脏基线后必须在挂载时复位一次，否则未打开即判定为「有未保存修改」`
+    );
+  }
+  assert.ok(checked > 0, "至少应检查到一个表单，否则本条守门是空转");
+});
