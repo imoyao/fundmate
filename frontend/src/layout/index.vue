@@ -10,6 +10,7 @@
     ]"
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
+    <!-- a11y-allow：移动端侧栏遮罩，点空白关闭。它只是点击捕获层，给它 tabindex 会让键盘用户 Tab 到一整块空白区域，焦点落点毫无意义（Esc 已能关闭侧栏） -->
     <div
       v-show="
         set.device === 'mobile' &&

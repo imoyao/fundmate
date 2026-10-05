@@ -388,6 +388,8 @@ onUnmounted(() => removeMatchMedia);
           <div />
           <div />
         </li>
+        <!-- 布局模式「混合菜单」项（#1842）：此前只有 @click，键盘够不到。
+             写法照上方兄弟项（vertical / left）保持一致：role + tabindex + keydown.enter。 -->
         <li
           v-if="device !== 'mobile'"
           ref="mixRef"
@@ -396,6 +398,9 @@ onUnmounted(() => removeMatchMedia);
             zIndex: 41000
           }"
           :class="layoutTheme.layout === 'mix' ? 'is-select' : ''"
+          role="button"
+          tabindex="0"
+          @keydown.enter="setLayoutModel('mix')"
           @click="setLayoutModel('mix')"
         >
           <div />

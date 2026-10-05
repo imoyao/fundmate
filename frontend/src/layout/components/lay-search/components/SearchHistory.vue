@@ -141,6 +141,7 @@ defineExpose({ handleScroll });
 <template>
   <div ref="historyRef" class="history">
     <template v-if="historyList.length">
+      <!-- a11y-allow：同 SearchResult，搜索面板由 onKeyStroke 上下方向键 + Enter 整体驱动，历史项加 tabindex 会打乱方向键模型 -->
       <div :style="titleStyle">搜索历史</div>
       <div
         v-for="(item, index) in historyList"
@@ -163,6 +164,7 @@ defineExpose({ handleScroll });
         {{ `收藏${collectList.length > 1 ? "（可拖拽排序）" : ""}` }}
       </div>
       <div class="collect-container">
+        <!-- a11y-allow：同 SearchResult，收藏项同理 -->
         <div
           v-for="(item, index) in collectList"
           :key="item.path"

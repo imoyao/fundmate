@@ -70,6 +70,7 @@ defineExpose({ handleScroll });
 
 <template>
   <div ref="resultRef" class="result">
+    <!-- a11y-allow：搜索面板是复合控件，由 onKeyStroke 上下方向键 + Enter 整体驱动（面板底部也印着这组提示）；结果项加 tabindex 会打乱方向键模型 -->
     <div
       v-for="(item, index) in options"
       :key="item.path"

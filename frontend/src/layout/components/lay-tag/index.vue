@@ -588,6 +588,7 @@ onBeforeUnmount(() => {
       @wheel.prevent="handleWheel"
     >
       <div ref="tabDom" class="tab select-none" :style="getTabStyle">
+        <!-- a11y-allow：标签页项保持 div @click。它本质是 tablist 的 tab，补 tabindex 而不做 tablist/tab 角色 + 方向键模型只会得到半吊子状态；完整方案见 #1852 -->
         <div
           v-for="(item, index) in multiTags"
           :ref="'dynamic' + index"
@@ -609,18 +610,23 @@ onBeforeUnmount(() => {
             >
               {{ item.meta.title }}
             </span>
-            <span
+            <!-- 关闭当前标签（#1842 规则二 A 类）：span @click → 真 button。
+                 @click.stop 必须保留：冒泡到外层会触发 tagOnClick 切换路由，
+                 「关掉当前页」不该顺带跳走。 -->
+            <button
               v-if="
                 isFixedTag(item)
                   ? false
                   : iconIsActive(item, index) ||
                     (index === activeIndex && index !== 0)
               "
-              class="el-icon-close"
+              type="button"
+              class="icon-plain-btn el-icon-close"
+              :aria-label="`关闭标签 ${item.meta.title}`"
               @click.stop="deleteMenu(item)"
             >
               <IconifyIconOffline :icon="Close" />
-            </span>
+            </button>
             <span
               v-if="showModel !== 'card'"
               :ref="'schedule' + index"
@@ -634,13 +640,16 @@ onBeforeUnmount(() => {
             <span class="tag-title">
               {{ item.meta.title }}
             </span>
-            <span
+            <!-- chrome 模式的关闭按钮（#1842 规则二 A 类）：同上，@click.stop 保留 -->
+            <button
               v-if="isFixedTag(item) ? false : index !== 0"
-              class="chrome-close-btn"
+              type="button"
+              class="icon-plain-btn chrome-close-btn"
+              :aria-label="`关闭标签 ${item.meta.title}`"
               @click.stop="deleteMenu(item)"
             >
               <IconifyIconOffline :icon="Close" />
-            </span>
+            </button>
             <span class="chrome-tab-divider" />
           </div>
         </div>
@@ -663,7 +672,17 @@ onBeforeUnmount(() => {
           :key="key"
           style="display: flex; align-items: center"
         >
-          <li v-if="item.show" @click="selectTag(key, item)">
+          <!-- 标签视图选项（#1842 规则二 A 类）：li @click → 补 role/tabindex/@keydown。
+               这里保留 li 而不改 button：外层是 ul > div > li 的既有结构（HTML 嵌套本就不规范，
+               改结构会牵动这一块的样式与滚动布局）。补三件套是当前结构下键盘可达的正解。 -->
+          <li
+            v-if="item.show"
+            role="button"
+            tabindex="0"
+            @click="selectTag(key, item)"
+            @keydown.enter.prevent="selectTag(key, item)"
+            @keydown.space.prevent="selectTag(key, item)"
+          >
             <IconifyIconOffline :icon="item.icon" />
             {{ item.text }}
           </li>
