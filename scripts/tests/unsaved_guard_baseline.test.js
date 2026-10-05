@@ -35,16 +35,60 @@ test("源码里确实有「基线为 null 视为不脏」这行（防实现与�
   assert.match(SRC, /if \(baseline === null\) return false;/);
   // 旧写法（拿空串当基线）不得复活
   assert.doesNotMatch(SRC, /initialSnapshot = ref\(""\)/);
-  // 三个弹窗都必须用共享 helper，不允许各自再写一份快照比较
+  // 三个弹窗都必须用共享 helper，不允许各自再写一份快照比较。
+  // #1880 起新增 useDialogForm（内部转调 useFormDirty），两者都算「共享 helper」。
   for (const f of [
     "frontend/src/views/asset/ledgers/components/TransactionEditDialog.vue",
     "frontend/src/views/asset/inventory/components/AssetEditDialog.vue",
     "frontend/src/views/asset/ledgers/components/CreateAccountDialog.vue"
   ]) {
     const t = readFileSync(join(process.cwd(), f), "utf8");
-    assert.match(t, /useFormDirty/, `${f} 应改用 useFormDirty`);
+    assert.match(t, /useFormDirty|useDialogForm/, `${f} 应改用 useFormDirty/useDialogForm`);
     assert.doesNotMatch(t, /JSON\.stringify\([^)]*\) !== initialSnapshot/);
   }
+});
+
+test("#1880：弹窗关闭侧也必须复位基线（否则「保存后」仍弹未保存修改）", () => {
+  // 关闭只有两条路：保存成功、放弃修改——两者都只把 modelValue 置 false。
+  // 若 watch / 事件处理器只处理打开分支，表单留着改后的值而基线还是打开时的值，
+  // isDirty 仍为 true，叠上 onBeforeRouteLeave 就是「关掉弹窗后点侧边栏仍被拦」。
+  const cases = [
+    {
+      f: "frontend/src/views/asset/inventory/components/AssetEditDialog.vue",
+      // 关闭分支不能是早退
+      mustNotMatch: /if \(!open\) \{\s*return;/,
+      mustMatch: /fillOnOpen\(open/
+    },
+    {
+      f: "frontend/src/views/asset/ledgers/components/CreateAccountDialog.vue",
+      mustNotMatch: /if \(val\) \{\s*markClean\(\);?\s*\}\s*\);/,
+      mustMatch: /fillOnOpen\(val/
+    },
+    {
+      f: "frontend/src/views/asset/ledgers/components/TransactionEditDialog.vue",
+      // 挂 @close（关闭后复位）而不是 before-close（那是「询问是否关闭」）
+      mustMatch: /@close="resetAfterClose"/
+    }
+  ];
+  for (const c of cases) {
+    const t = readFileSync(join(process.cwd(), c.f), "utf8");
+    assert.match(t, c.mustMatch, `${c.f} 应有 ${c.mustMatch}`);
+    if (c.mustNotMatch) {
+      assert.doesNotMatch(t, c.mustNotMatch, `${c.f} 不应有关闭分支早退`);
+    }
+  }
+});
+
+test("#1880：useDialogForm 打开与关闭两种态都同步基线", () => {
+  const guard = readFileSync(
+    join(process.cwd(), "frontend/src/composables/useUnsavedChangesGuard.ts"),
+    "utf8"
+  );
+  // 填值与 markClean 必须在同一个函数体内——只做一半会复现 #1845 的变种
+  const m = guard.match(/function fillOnOpen[\s\S]*?\n  }/);
+  assert.ok(m, "应有 fillOnOpen");
+  assert.match(m[0], /form\.value = next;/, "fillOnOpen 应写回表单");
+  assert.match(m[0], /markClean\(\)/, "fillOnOpen 应同步基线");
 });
 
 test("弹窗未打开（基线 null）→ 不算脏，即使表单初值是对象", () => {
