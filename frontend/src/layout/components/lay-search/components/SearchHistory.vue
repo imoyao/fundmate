@@ -153,6 +153,7 @@ defineExpose({ handleScroll });
         @keydown.enter="handleTo"
         @click="handleTo"
         @mouseenter="handleMouse(item)"
+        @focus="handleMouse(item)"
       >
         <SearchHistoryItem
           :item="item"
@@ -177,6 +178,7 @@ defineExpose({ handleScroll });
           @keydown.enter="handleTo"
           @click="handleTo"
           @mouseenter="handleMouse(item)"
+          @focus="handleMouse(item)"
         >
           <SearchHistoryItem :item="item" @delete-item="handleDelete" />
         </div>
