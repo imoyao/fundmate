@@ -43,7 +43,22 @@
             }}</span
           >
         </div>
+        <!-- 市值 / 总投入两行同样要进失败态（#1832 复核发现）：只把年化百分比挪进错误分支时，
+             这两行仍在渲染空值兜底的 0，于是错误态里并排出现「年化数据加载失败」与两个零值。
+             注：本注释刻意不写那个金额字面量——E2E 用 getByText 断言「页面不出现该金额」，
+             而 getByText 会匹配 DOM 注释里的文本，注释里写一次就等于凭空多出一处命中。 -->
         <div
+          v-if="error"
+          class="flex gap-8 pt-4"
+          :style="{ borderTop: '1px solid var(--border-light)' }"
+          role="alert"
+        >
+          <span class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
+            当前市值与总投入同样取不到——它们与年化出自同一次请求。
+          </span>
+        </div>
+        <div
+          v-else
           class="flex gap-8 pt-4"
           :style="{ borderTop: '1px solid var(--border-light)' }"
         >
