@@ -13,6 +13,8 @@ import type { OcrTxnRow, OcrHoldingRow } from "@/api/ocr";
  * - **payload 必须带 domain 标记**（A/E账户、B/快照一致性、C/对账单交割单导入），
  *   避免跨域恢复时类型错乱（§5.8）。
  * - **TTL 7 天**（localforage 单位为分钟，7×24×60=10080）；过期仅影响未提交编辑态。
+ *   另以 payload 自带的 `savedAt` 做第二道过期判定（#1789）：存储层 expires 依赖写入时钟
+ *   与驱动实现，savedAt 是数据自带的权威时间戳，任一判定过期即不提示恢复。
  * - **不存文件二进制**：只存解析结果——恢复后无法重新解析，行内编辑是刚需。
  *
  * Set 序列化：`selectedKeys` 是 `Set`（不可 JSON 序列化），写入转数组、读取转回 Set。
@@ -74,6 +76,17 @@ export interface ReconDraftPayload {
 
 const KEY_PREFIX = "recon-draft";
 const TTL_MINUTES = 7 * 24 * 60; // 7 天
+const DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 天（#1789，与 TTL 同口径的第二道防线）
+
+/**
+ * 草稿是否已超过 7 天有效期（#1789）。
+ * savedAt 缺失或不可解析视同过期——宁可不提示恢复，也不把来路不明的旧数据塞回向导。
+ */
+export function isDraftExpired(savedAt: string | null | undefined): boolean {
+  const t = savedAt ? Date.parse(savedAt) : NaN;
+  if (Number.isNaN(t)) return true;
+  return Date.now() - t > DRAFT_MAX_AGE_MS;
+}
 
 /** 导入草稿 key（全局单槽，与识别候选草稿按 key 隔离，互不覆盖） */
 const draftKey = (): string => `${KEY_PREFIX}`;
@@ -147,10 +160,16 @@ export function useReconDraft() {
     );
   }
 
-  /** 读取草稿；不存在或已过期返回 null */
+  /** 读取草稿；不存在或已过期（存储层 expires 或 savedAt>7 天，#1789）返回 null */
   async function getDraft(): Promise<ReconDraftPayload | null> {
     const draft = await localForage().getItem<ReconDraftPayload>(draftKey());
-    return draft ?? null;
+    if (!draft) return null;
+    if (isDraftExpired(draft.savedAt)) {
+      // 懒 GC：过期即清，避免残留草稿反复参与判定
+      await localForage().removeItem(draftKey());
+      return null;
+    }
+    return draft;
   }
 
   /** 丢弃草稿（「丢弃草稿」入口） */

@@ -6,8 +6,10 @@ import UploadStep from "./components/UploadStep.vue";
 import PreviewStep from "./components/PreviewStep.vue";
 import ResultStep from "./components/ResultStep.vue";
 import CreateLedgerDialog from "./components/CreateLedgerDialog.vue";
+import LeaveGuardDialog from "./components/LeaveGuardDialog.vue";
 import { ref } from "vue";
 import { useImportWizard } from "./composables/useImportWizard";
+import { useImportLeaveGuard } from "./composables/useImportLeaveGuard";
 import { provideWizard } from "./composables/useImportWizardContext";
 import { Edit } from "@element-plus/icons-vue";
 
@@ -31,6 +33,15 @@ const {
   restoreDraft,
   discardCurrentDraft
 } = wizard;
+
+// #1789：离开守卫——有未保存修改时才弹三选（保存后离开 / 丢弃 / 取消）
+const {
+  leaveDialogVisible,
+  onLeaveSave,
+  onLeaveDiscard,
+  onLeaveCancel,
+  onLeaveDialogVisibleChange
+} = useImportLeaveGuard(wizard);
 
 // 调试快进面板：仅开发环境可见；勾选后跳到预览/结果时注入模拟数据
 const withMock = ref(false);
@@ -123,6 +134,15 @@ const withMock = ref(false);
     />
 
     <CreateLedgerDialog />
+
+    <!-- #1789 离开确认：仅在有未保存修改时出现；X / ESC 关闭等价于取消 -->
+    <LeaveGuardDialog
+      :visible="leaveDialogVisible"
+      @update:visible="onLeaveDialogVisibleChange"
+      @save="onLeaveSave"
+      @discard="onLeaveDiscard"
+      @cancel="onLeaveCancel"
+    />
   </div>
 </template>
 
