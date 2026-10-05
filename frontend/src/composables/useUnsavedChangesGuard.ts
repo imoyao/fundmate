@@ -1,6 +1,6 @@
 import { ElMessageBox } from "element-plus";
 import { onBeforeRouteLeave } from "vue-router";
-import { onBeforeUnmount } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 
 /**
  * 未保存离开保护（#1853 / #1835）。
@@ -89,4 +89,51 @@ export function useUnsavedChangesGuard(
   }
 
   return { confirmDiscard, onBeforeClose, requestClose };
+}
+/**
+ * 表单脏状态：拿「打开时的快照」和「当前值」比。
+ *
+ * ## 为什么不各写各的
+ *
+ * 三个弹窗（TransactionEditDialog / AssetEditDialog / CreateAccountDialog）原本各自
+ * 写了一份 `initialSnapshot = ref("")` + `JSON.stringify(form.value) !== initialSnapshot`，
+ * **三处同一个 bug**：初值是 `""` 而表单初值是 `{}`，于是 `JSON.stringify({})`（`"{}"`）
+ * 永远不等于 `""` —— **弹窗还没打开就被判定为「有未保存修改」**。
+ * 叠上 `onBeforeRouteLeave` 后后果是：用户什么都没填，只要离开这个页面
+ * （例如在账户列表点一张卡片进详情）就被问「当前修改尚未保存，确定放弃吗？」。
+ *
+ * ## 用法
+ *
+ *     const { isDirty, markClean } = useFormDirty(() => form.value);
+ *     // 打开 / 保存成功后：markClean();
+ *     const { onBeforeClose, requestClose } = useUnsavedChangesGuard(() => isDirty.value);
+ *
+ * `baseline` 为 null 表示「还没打开过」→ 不算脏。这比拿空串当基线稳：
+ * 空串基线要求「初值必须恰好是空串」，而表单初值是对象。
+ */
+export function isFormDirtyJson(
+  baseline: string | null,
+  currentJson: string
+): boolean {
+  // baseline 为 null = 弹窗没打开过 → 不算脏。
+  // 这一条是 #1845 回归的全部根因：原实现拿空串当基线，而表单初值是对象，
+  // `JSON.stringify({})`（"{}"）永不等于 ""，于是「未打开」被判定成「有未保存修改」，
+  // 叠上 onBeforeRouteLeave 后用户离开页面就被问「确定放弃吗？」。
+  if (baseline === null) return false;
+  return currentJson !== baseline;
+}
+
+export function useFormDirty<T>(getValue: () => T) {
+  const baseline = ref<string | null>(null);
+
+  const isDirty = computed(() =>
+    isFormDirtyJson(baseline.value, JSON.stringify(getValue()))
+  );
+
+  /** 记下「当前值即干净」——打开弹窗时与保存成功后各调一次 */
+  function markClean() {
+    baseline.value = JSON.stringify(getValue());
+  }
+
+  return { isDirty, markClean };
 }

@@ -318,6 +318,10 @@ export function useLedgerList() {
     order.splice(target, 0, type);
     groupOrder.value = order;
     saveGroupOrder(order);
+    // 必须重算展示顺序：`displayedGroups` 是命令式 ref，排序只在 buildGroups 里应用
+    // （load 时赋值一次）。原先只改 groupOrder，页面顺序不动，但播报却说「已移到第 N 位」
+    // —— 键盘按了没反应、播报却说成功，比不做更让人困惑（#1845 回归）。
+    displayedGroups.value = buildGroups(allLedgers.value);
     return true;
   }
 

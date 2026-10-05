@@ -42,7 +42,10 @@
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { updateAsset, type AssetRecord } from "@/api/assets";
-import { useUnsavedChangesGuard } from "@/composables/useUnsavedChangesGuard";
+import {
+  useUnsavedChangesGuard,
+  useFormDirty
+} from "@/composables/useUnsavedChangesGuard";
 import { getErrorMessage } from "../helpers";
 
 const props = defineProps<{
@@ -77,7 +80,7 @@ const form = ref<{ id: number | null; amount: number; notes: string }>({
  * 执行回调回填本快照，声明在后面就是 TDZ ReferenceError（`vue-tsc` 会报
  * `TS2304: Cannot find name 'initialSnapshot'`）。
  */
-const initialSnapshot = ref("");
+const { isDirty, markClean } = useFormDirty(() => form.value);
 
 // 每次打开都按传入行回填，避免复用同一弹窗时残留上一次的输入
 watch(
@@ -90,13 +93,9 @@ watch(
       notes: props.asset?.notes || ""
     };
     // 快照要在回填**之后**记，否则会把「打开即脏」当成真改动
-    initialSnapshot.value = JSON.stringify(form.value);
+    markClean();
   },
   { immediate: true }
-);
-
-const isDirty = computed(
-  () => JSON.stringify(form.value) !== initialSnapshot.value
 );
 
 const { onBeforeClose, requestClose } = useUnsavedChangesGuard(

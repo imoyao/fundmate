@@ -2,7 +2,10 @@
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import AccountFormFields from "./AccountFormFields.vue";
-import { useUnsavedChangesGuard } from "@/composables/useUnsavedChangesGuard";
+import {
+  useUnsavedChangesGuard,
+  useFormDirty
+} from "@/composables/useUnsavedChangesGuard";
 import {
   createLedger,
   type SalesInstitution,
@@ -51,7 +54,7 @@ const createForm = ref({
 //
 // 快照声明**必须在 watch 之前**：`immediate: true` 会同步执行回调回填它，
 // 声明在后面就是 TDZ ReferenceError（vue-tsc 报 TS2304）。#1853
-const initialSnapshot = ref("");
+const { isDirty, markClean } = useFormDirty(() => createForm.value);
 watch(
   () => props.visible,
   val => {
@@ -68,16 +71,12 @@ watch(
         sales_institution_id: null
       };
       // 快照在重置**之后**记，否则会把「刚打开」当成真改动
-      initialSnapshot.value = JSON.stringify(createForm.value);
+      markClean();
     }
   }
 );
 
 // ── 未保存离开保护（#1853）──
-const isDirty = computed(
-  () => JSON.stringify(createForm.value) !== initialSnapshot.value
-);
-
 const { onBeforeClose, requestClose } = useUnsavedChangesGuard(
   () => isDirty.value,
   {
