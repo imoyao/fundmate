@@ -84,7 +84,13 @@
           </div>
         </li>
         <!-- 新建分组：置于列表末尾，紧挨分组名（GitHub Labels 风格），替代顶部按钮 -->
-        <li class="group-row group-row--create" @click="openCreate">
+        <li
+          class="group-row group-row--create"
+          role="button"
+          tabindex="0"
+          @keydown.enter="openCreate"
+          @click="openCreate"
+        >
           <el-icon class="mr-1"><Plus /></el-icon>
           新建分组
         </li>

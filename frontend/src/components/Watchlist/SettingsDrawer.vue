@@ -23,6 +23,9 @@
           border: '1px solid var(--border-light)',
           boxShadow: 'var(--shadow-raised)'
         }"
+        role="button"
+        tabindex="0"
+        @keydown.enter="emit('manage-groups')"
         @click="emit('manage-groups')"
       >
         <div class="flex items-center gap-3">
@@ -63,6 +66,9 @@
           border: '1px solid var(--border-light)',
           boxShadow: 'var(--shadow-raised)'
         }"
+        role="button"
+        tabindex="0"
+        @keydown.enter="emit('manage-tags')"
         @click="emit('manage-tags')"
       >
         <div class="flex items-center gap-3">
@@ -103,6 +109,9 @@
           border: '1px solid var(--border-light)',
           boxShadow: 'var(--shadow-raised)'
         }"
+        role="button"
+        tabindex="0"
+        @keydown.enter="emit('manage-batch')"
         @click="emit('manage-batch')"
       >
         <div class="flex items-center gap-3">
@@ -144,6 +153,9 @@
           border: '1px solid var(--brand-400)',
           boxShadow: 'var(--shadow-raised)'
         }"
+        role="button"
+        tabindex="0"
+        @keydown.enter="handleImportExploreData"
         @click="handleImportExploreData"
       >
         <div class="flex items-center gap-3">
@@ -193,6 +205,9 @@
           border: '1px solid var(--border-light)',
           boxShadow: 'var(--shadow-raised)'
         }"
+        role="button"
+        tabindex="0"
+        @keydown.enter="columnDialogVisible = true"
         @click="columnDialogVisible = true"
       >
         <div class="flex items-center gap-3">

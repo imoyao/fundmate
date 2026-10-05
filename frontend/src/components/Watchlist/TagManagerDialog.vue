@@ -80,7 +80,13 @@
           </div>
         </li>
         <!-- 新建标签：置于列表末尾，紧挨标签名（GitHub Labels 风格），替代顶部按钮 -->
-        <li class="tag-row tag-row--create" @click="openCreate">
+        <li
+          class="tag-row tag-row--create"
+          role="button"
+          tabindex="0"
+          @keydown.enter="openCreate"
+          @click="openCreate"
+        >
           <el-icon class="mr-1"><Plus /></el-icon>
           新建标签
         </li>
