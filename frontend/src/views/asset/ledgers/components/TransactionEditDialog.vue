@@ -166,7 +166,8 @@ import {
   useSecurityPriceRange,
   createStockPriceValidator
 } from "@/composables/useSecurityPrice";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { ElMessage } from "element-plus";
+import { useUnsavedChangesGuard } from "@/composables/useUnsavedChangesGuard";
 import { disabledTradeDate } from "@/utils/date";
 
 const props = defineProps<{
@@ -284,6 +285,7 @@ function initForm() {
 // ── 未保存离开保护（#1835）──
 // 关闭按钮 / ESC / 点遮罩走 el-dialog 的 before-close；底部「取消」是程序化 close，
 // 走不到 before-close，必须各自接一道，否则那条路仍然静默丢数据。
+// 路由离开由 `useUnsavedChangesGuard` 内部注册（第 4 路，#1853）。
 
 /** 弹窗打开时的表单快照（initForm 写入，保存成功后重置） */
 const initialSnapshot = ref("");
@@ -292,33 +294,11 @@ const isDirty = computed(
   () => JSON.stringify(form.value) !== initialSnapshot.value
 );
 
-/** 有未保存修改时问一次；true 表示可以关闭 */
-async function confirmDiscard(): Promise<boolean> {
-  if (!isDirty.value) return true;
-  try {
-    await ElMessageBox.confirm(
-      "当前修改尚未保存，确定放弃吗？",
-      "未保存的修改",
-      {
-        confirmButtonText: "放弃修改",
-        cancelButtonText: "继续编辑",
-        type: "warning"
-      }
-    );
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function onBeforeClose(done: () => void) {
-  void confirmDiscard().then(ok => {
-    if (ok) done();
-  });
-}
+const { onBeforeClose, requestClose: confirmThenClose } =
+  useUnsavedChangesGuard(() => isDirty.value);
 
 async function requestClose() {
-  if (await confirmDiscard()) emit("update:modelValue", false);
+  await confirmThenClose(() => emit("update:modelValue", false));
 }
 
 // 金额为权威数据：

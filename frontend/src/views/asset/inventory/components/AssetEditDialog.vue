@@ -1,5 +1,11 @@
 <template>
-  <el-dialog v-model="visible" title="编辑资产" width="420px" destroy-on-close>
+  <el-dialog
+    v-model="visible"
+    title="编辑资产"
+    width="420px"
+    destroy-on-close
+    :before-close="onBeforeClose"
+  >
     <el-form :model="form" label-width="80px">
       <el-form-item label="金额">
         <el-input-number
@@ -19,7 +25,8 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="visible = false">取消</el-button>
+      <!-- 取消走 requestClose：before-close 只拦关闭按钮 / ESC / 点遮罩，程序化 close 走不到它 -->
+      <el-button @click="requestClose(() => (visible = false))">取消</el-button>
       <el-button type="primary" :loading="saving" @click="save">保存</el-button>
     </template>
   </el-dialog>
@@ -35,6 +42,7 @@
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { updateAsset, type AssetRecord } from "@/api/assets";
+import { useUnsavedChangesGuard } from "@/composables/useUnsavedChangesGuard";
 import { getErrorMessage } from "../helpers";
 
 const props = defineProps<{
@@ -62,6 +70,15 @@ const form = ref<{ id: number | null; amount: number; notes: string }>({
   notes: ""
 });
 
+/**
+ * 弹窗打开时的表单快照（未保存离开保护用，#1853）。
+ *
+ * 声明**必须在下面那个 `watch(..., { immediate: true })` 之前**——immediate 会同步
+ * 执行回调回填本快照，声明在后面就是 TDZ ReferenceError（`vue-tsc` 会报
+ * `TS2304: Cannot find name 'initialSnapshot'`）。
+ */
+const initialSnapshot = ref("");
+
 // 每次打开都按传入行回填，避免复用同一弹窗时残留上一次的输入
 watch(
   () => props.modelValue,
@@ -72,8 +89,21 @@ watch(
       amount: props.asset?.amount || 0,
       notes: props.asset?.notes || ""
     };
+    // 快照要在回填**之后**记，否则会把「打开即脏」当成真改动
+    initialSnapshot.value = JSON.stringify(form.value);
   },
   { immediate: true }
+);
+
+const isDirty = computed(
+  () => JSON.stringify(form.value) !== initialSnapshot.value
+);
+
+const { onBeforeClose, requestClose } = useUnsavedChangesGuard(
+  () => isDirty.value,
+  {
+    message: "资产金额／备注已改动，确定放弃吗？"
+  }
 );
 
 async function save() {
