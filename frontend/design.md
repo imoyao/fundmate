@@ -515,16 +515,16 @@ Element Plus 给 `.el-textarea__inner:focus` 自带
 否则「红框 + 品牌柔光」同框又是多层描边。该规则写在焦点规则之后：两者特异性同为
 `(0,4,0)`，靠顺序取胜，不依赖 EP 内部规则的档位。
 
-#### 3. 允许的 `:deep` 例外（纯几何，现存 2 个文件，验收阈值 ≤2）
+#### 3. 允许的 `:deep` 例外（纯几何，现存 1 个文件，验收阈值 ≤2）
 
 | 文件 | 保留内容 |
 |------|----------|
 | `views/asset/AssetEntry.vue` | 录入表单的 padding / 字号 / 文本对齐（几何），圆角走 `--input-radius: 8px` |
-| `views/asset/investment/import/components/BatchFixPanel.vue` | 两条内边距微调 |
 
 `rg -l -e ':deep\([^)]*(el-input__wrapper|el-textarea__inner|el-input__inner)' frontend/src`
-**应恒等于这 2 个文件**（注释里写这个正则同样计数，别在注释中复述）。新增页面既不要成第 3 个，
-也不要另起一套 `:deep` 视觉覆盖 —— 需要差异就改令牌。
+**应恒等于这 1 个文件**（注释里写这个正则同样计数，别在注释中复述）。原表中
+`BatchFixPanel.vue` 的「两条内边距微调」已随 #1792 面板重写移除——纯 class 选择器即可达成，
+不再需要 `:deep`。新增页面既不要成第 2 个，也不要另起一套 `:deep` 视觉覆盖 —— 需要差异就改令牌。
 
 ### 资产代码（symbol）展示契约（venue，2026-09-24 #1662 / D35 + D36）
 
@@ -725,6 +725,27 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 - **卡即过滤器**：【展开查看】过滤下方表格、再点【收起】复原；无论展开哪一类，摘要面板**常驻**（表格是唯一滚动容器）。
 - 面板底部恒显「已选择 N 条」+【展开全部数据（总条数）】。
 - 组件级结构与实现细节见 `docs/design/components.md`「导入预览问题摘要三卡片」。
+
+### 批量修正面板（内联展开，#1792）
+
+> 导入向导第 3 步的修正面板（`views/asset/investment/import/components/BatchFixPanel.vue`），源设计 #783 §4~§5。**由摘要面板下方内联展开（`.step3-fixpanel`），禁止改回右侧抽屉 / 覆盖层**——摘要、修正面板、表格三者同屏互不覆盖是验收硬项（`rg -e 'el-drawer' …/PreviewStep.vue` 须 0 命中）。
+
+- **形态随阈值切换**（判定纯函数 `classifyFixMode`，`composables/batchFixLogic.ts`，边界由 vitest 单测钉住）：
+
+  | 条件 | 形态 | 说明 |
+  |------|------|------|
+  | 无问题行 | `none` | 「本批数据校验通过」空态 |
+  | 单一可批量分区（任意条数） | `batch` | §4-3：同类型固定走分类批量，≤10 也不进逐条 |
+  | >10 条且含可批量分区 | `batch` | 纯解析错误则 `table` |
+  | ≤10 条混合 | `single` | 卡片式单条表单 |
+  | ≤10 条纯解析错误 | `table` | 引导去完整表格 +【跳过】 |
+
+- **四分区**（`batch` 形态，分区头点击即过滤表格）：代码未匹配（【应用到全部】【全部跳过】）、单价/数量缺失（【自动填充】【查看已填充数据】【撤销】【逐条修正】【全部跳过】）、数据不一致（【自动修正金额】【逐条修正】【全部跳过】）、**逆回购识别**（信息型，非问题分区：【查看转换结果】【撤销】）。
+- **撤销栈**：分区级【撤销】仅在栈顶作用域匹配时可点（`undoTopScope`），顶部【撤销上一步】逐层回滚任意最近操作，上限 20 层；回滚统一走 `UNDO_FIELDS` 快照（`snapshotRows/restoreRows`，单测覆盖）。
+- **逆回购**：解析期按代码模式识别（沪 204xxx / 深 1318xx → `reverse_repo` + 配置目标「活钱」）；**类型识别是解析事实不可撤**，配置目标可撤（回「长期增值」）。
+- **有界内滚**：面板 `flex: 0 1 auto; max-height: 42%; overflow-y: auto`——面板内部滚动，表格仍是主滚动区。
+- **测试锚点**（E2E 断言用，勿删）：`[data-fix-panel]` / `[data-fix-mode]` / `[data-section]` / `[data-fix-card]`。
+- 无硬编码 hex，全部走语义令牌；暗色适配见 `design.dark.md` 注记，组件结构见 `docs/design/components.md`「批量修正面板」。
 
 ### 分组胶囊 Tab（Group Tab）
 
