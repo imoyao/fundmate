@@ -148,6 +148,9 @@ defineExpose({ handleScroll });
         :ref="'historyItemRef' + index"
         class="history-item dark:bg-[#1d1d1d]"
         :style="itemStyle(item)"
+        role="button"
+        tabindex="0"
+        @keydown.enter="handleTo"
         @click="handleTo"
         @mouseenter="handleMouse(item)"
       >
@@ -169,6 +172,9 @@ defineExpose({ handleScroll });
           :ref="'historyItemRef' + (index + historyList.length)"
           class="history-item dark:bg-[#1d1d1d]"
           :style="itemStyle(item)"
+          role="button"
+          tabindex="0"
+          @keydown.enter="handleTo"
           @click="handleTo"
           @mouseenter="handleMouse(item)"
         >

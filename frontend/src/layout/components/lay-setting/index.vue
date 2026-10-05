@@ -396,6 +396,10 @@ onUnmounted(() => removeMatchMedia);
             zIndex: 41000
           }"
           :class="layoutTheme.layout === 'mix' ? 'is-select' : ''"
+          role="button"
+          tabindex="0"
+          aria-label="混合菜单"
+          @keydown.enter="setLayoutModel('mix')"
           @click="setLayoutModel('mix')"
         >
           <div />

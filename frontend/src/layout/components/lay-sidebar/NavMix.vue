@@ -123,6 +123,9 @@ watch(
       <span
         class="set-icon navbar-bg-hover"
         title="打开外观设置"
+        role="button"
+        tabindex="0"
+        @keydown.enter="onPanel"
         @click="onPanel"
       >
         <IconifyIconOffline :icon="Palette" />

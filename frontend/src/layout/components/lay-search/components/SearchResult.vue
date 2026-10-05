@@ -76,6 +76,9 @@ defineExpose({ handleScroll });
       :ref="'resultItemRef' + index"
       class="result-item dark:bg-[#1d1d1d]"
       :style="itemStyle(item)"
+      role="button"
+      tabindex="0"
+      @keydown.enter="handleTo"
       @click="handleTo"
       @mouseenter="handleMouse(item)"
     >
