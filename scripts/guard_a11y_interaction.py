@@ -44,7 +44,10 @@ CLICK_TAG_RE = re.compile(r"<(div|span|li)\b(?P<attrs>[^>]*)>", re.I)
 HAS_ROLE_RE = re.compile(r"\brole\s*=")
 HAS_TABINDEX_RE = re.compile(r"\btabindex\s*=")
 HAS_KEYBOARD_RE = re.compile(r"@keydown|v-on:keydown", re.I)
-HAS_CLICK_RE = re.compile(r"@click|v-on:click")
+# 必须带**非空表达式**才算「可点击」。`@click.stop`（不带表达式）只是 stopPropagation 的
+# 空防护——卡片 footer / 编辑容器常用它阻止点击冒泡到外层可点卡片，那种元素本身
+# 不可点击，判成「div 当按钮」是纯误报（早期版本只搜 `@click` 字面，3 处全中）。
+HAS_CLICK_RE = re.compile(r'@(?:v-on:)?click(?:\.[\w.]+)?="(?=[^"]*[^\s"])[^"]*"')
 
 # 图标识别：本地/在线图标组件 + Element Plus 的 el-icon 容器 + 内联 svg + <i> 图标字体，
 # 再加 Element Plus 图标组件的**直用**（<el-button><Plus /></el-button> 这种裸写法）。
@@ -109,8 +112,14 @@ def _line_of(text: str, index: int) -> int:
 
 
 def _exempt(lines: list[str], lineno: int) -> bool:
-    """同行（或其后两行，覆盖跨行属性续写）出现 a11y-allow 即豁免。"""
-    return "a11y-allow" in " ".join(lines[lineno - 1 : lineno + 2])
+    """开标签行前后各 2 行内出现 a11y-allow 即豁免。
+
+    向前 2 行是必需的：豁免理由的自然写法是写在标签**上方**（标签内塞注释会挤在
+    属性区中间、紧跟 ``@click`` 之后反而看不清豁免的是哪个元素）。只向后看的话，
+    写在标签上方的理由一律不生效——实测 3 处豁免全部落空。
+    """
+    start = max(0, lineno - 3)
+    return "a11y-allow" in " ".join(lines[start : lineno + 2])
 
 
 def _has_icon(inner: str) -> bool:

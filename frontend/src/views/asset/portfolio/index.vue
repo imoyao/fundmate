@@ -45,6 +45,8 @@
 
     <!-- 卡片列表 -->
     <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+      <!-- a11y-allow 组合卡：卡片本身是跳转热区，但右上角有 el-popconfirm 删除按钮；
+           补 role=button 会让删除按钮被整卡的 button 语义吞掉 -->
       <div
         v-for="item in portfolios"
         :key="item.id"

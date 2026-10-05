@@ -119,6 +119,24 @@ test("有 role+tabindex 但无键盘激活 → 仍命中（半吊子状态）", 
   assert.match(out, /role \/ tabindex \/ @keydown/);
 });
 
+test("@click.stop 无表达式的空防护（只 stopPropagation）→ 放行（早期误报源）", () => {
+  // 标签必须是 div/span/li —— 守卫只覆盖这三类，用 <footer> 会绕开判据、样本反证不了任何东西
+  const out = guard([`<template><div class="road-form" @click.stop>操作区</div></template>`]);
+  assert.doesNotMatch(out, /发现 \d+ 处/);
+});
+
+test("@click 带表达式仍是可点击 → 命中（防「空防护修复」顺手把真命中也放过）", () => {
+  const out = guard([`<template><div class="row" @click="pick(row)">行</div></template>`]);
+  assert.match(out, /role \/ tabindex \/ @keydown/);
+});
+
+test("a11y-allow 写在标签**上方**（自然写法）→ 豁免（早期只向后看窗口，3 处豁免全落空）", () => {
+  const out = guard([
+    `<template>\n  <!-- a11y-allow 容器内含 el-checkbox -->\n  <div class="row" @click="pick(row)">行</div>\n</template>`
+  ]);
+  assert.doesNotMatch(out, /发现 \d+ 处/);
+});
+
 test("同行 a11y-allow 豁免 → 放行", () => {
   const out = guard([
     `<template><div class="c" @click="go" a11y-allow><!-- 装饰性容器，交互在子按钮上 --></div></template>`
