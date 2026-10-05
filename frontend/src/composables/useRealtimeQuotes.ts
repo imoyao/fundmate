@@ -189,20 +189,39 @@ export function useRealtimeQuotes(
     }
   };
 
-  const fetchAndUpdate = async () => {
-    const holdings = getHoldings();
-    if (holdings.length === 0) return;
-    const result = await calculateHoldingsValuation(holdings, getStaticPrice);
-    items.value = result.items;
-    summary.value = result.summary;
-    if (result.summary?.updateTime) {
-      lastUpdateTime.value = result.summary.updateTime;
-    }
-    if (result.summary?.source === "realtime") {
-      status.value = "trading";
-    } else {
-      const trading = await isTradingDay();
-      status.value = trading ? "error" : "closed";
+  /**
+   * 单飞闸（#1860）：一轮取数在途时，后来的触发只并入这一轮，不开第二条链。
+   *
+   * 双触发源实证：`useWatchlistValuation` 同时监听 items 与 allItems，而 fetchData
+   * 里 allItems 晚一拍才填——一次数据刷新会连开两次 manualRefresh，两条兜底链并发
+   * 打外部行情源（E2E 实测 fundcomapi 60ms 内连发两枪）。双倍行情 API 只是表症，
+   * 更隐蔽的是它让 E2E「切走后不再打行情接口」的正向对照在同一轮内秒过，点击落在
+   * 链飞行中，空桩 JSONP 每腿 5s 的超时尾巴（fundcomapi→fundgz→qt ≈ 10s）越过
+   * 3s settle 落进零请求窗口——本闸让链数回到设计值 1。
+   */
+  let inflightFetch: Promise<void> | null = null;
+  const fetchAndUpdate = async (): Promise<void> => {
+    if (inflightFetch) return inflightFetch;
+    inflightFetch = (async () => {
+      const holdings = getHoldings();
+      if (holdings.length === 0) return;
+      const result = await calculateHoldingsValuation(holdings, getStaticPrice);
+      items.value = result.items;
+      summary.value = result.summary;
+      if (result.summary?.updateTime) {
+        lastUpdateTime.value = result.summary.updateTime;
+      }
+      if (result.summary?.source === "realtime") {
+        status.value = "trading";
+      } else {
+        const trading = await isTradingDay();
+        status.value = trading ? "error" : "closed";
+      }
+    })();
+    try {
+      await inflightFetch;
+    } finally {
+      inflightFetch = null;
     }
   };
 
