@@ -101,6 +101,7 @@ const batchMoveGroupId = computed({
       <div class="head-primary__search">
         <el-input
           v-model="searchKeyword"
+          aria-label="搜索自选"
           placeholder="搜索自选..."
           clearable
           :prefix-icon="Search"
