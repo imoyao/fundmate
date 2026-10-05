@@ -252,12 +252,52 @@
   之类都无所谓），但只要要**改文件**，就换到 worktree。
 - **禁止在主仓库执行会改写工作区的命令**：`git checkout <分支>` / `git switch` / `git stash pop|apply` /
   `git reset --hard` / 有本地改动时的 `git pull` 等。确需切换分支时**先停掉 dev server**。
+  **同样禁止**（2026-10-05 补充，见下节）：`git add` / `git commit` / `git checkout -- <file>` /
+  `git restore` / `git rebase` / `git reset --soft` / `Remove-Item` / `rm`。
+  判据不是命令名，而是**是否改写主仓库工作区或 `.git` 状态**——`git add` 只是写 index，
+  但它让主仓库进入「有本地改动」状态，从此 `git checkout dev` 开始报
+  "local changes would be overwritten"，把主仓库锁死。
 - **为什么**（#1421 事故复盘，2026-09-11 实测）：主仓库跑着 Vite 时切分支，git 是**逐个文件**改写工作区的——
   它先 unlink 了 `frontend/build/dep-drift-guard.ts`，而仍然 import 它的 `frontend/build/plugins.ts`
   尚未被改写；Vite 监听着「配置依赖」的变化，立刻重载配置 bundle，重新读到的仍是新版 `plugins.ts`，于是报
   `Could not resolve "./dep-drift-guard"` → `server restart failed`。dev server 与磁盘状态随即错位，
   而报错指向一个「明明存在」的文件，极易被误判成代码缺陷。**这是工作流问题，不是代码缺陷。**
 - 同理：跑着 dev server 的工作区不要被 `git worktree remove`、外部脚本或编辑器插件批量改写文件。
+
+### 抢救主仓库里的未提交改动（强制，2026-10-05）
+
+> 上一节的条文假设主仓库工作区是**干净**的。现实是主仓库里常会躺着别的人 / 前序会话的
+> 未提交工作——可能是 detached HEAD 上做了一半的活，也可能是「dev 分支切不过去」的原因。
+> **这类场景最容易让人在主仓库里「顺手救一下」，那正是上一条禁止的事。**
+
+- **正确姿势（三步，主仓库零改动）**：
+
+  ```powershell
+  # ① 只读导出，把「未提交改动」变成一个文件
+  git diff > D:\codes\_bk\work.patch
+
+  # ② git worktree add 是**唯一**允许在主仓库执行的命令（纯元数据，不碰工作区）
+  git worktree add D:\codes\fm-<issue#> -b <type>/<issue#>-<slug> origin/dev
+
+  # ③ 在新 worktree 里重放并验证
+  cd D:\codes\fm-<issue#>
+  git apply D:\codes\_bk\work.patch
+  ```
+
+- **禁止在主仓库「救」**：不建分支、不 `add`、不 `commit`、不 `checkout --`、不 `rebase`。
+  哪怕「只是导出一下」「只是建个分支」也不行——主仓库一旦进入有本地改动的状态，
+  就同时挡住了别人和后续的 `checkout dev`。
+- **为什么要开新 worktree 而不是原地救**（2026-10-05 实测复盘）：
+  - 原地救会**改写主仓库 HEAD**（detached → 自分支），并发会话一旦同时操作同一个 `.git`，
+    双方互相覆盖，`.git/refs/remotes/` 被清空、reflog 归零这类元数据损坏随之而来；
+  - 原地救**必然 rebase**，而 rebase 撞上 dev 已前进的同名改动就会冲突，
+    逼你逐处重新核对——本该 10 分钟的抢救拖成两轮返工，还差点把工作判成冗余而丢弃；
+  - 抢救时最危险的判断是「这份改动 dev 上已经有了，丢掉吧」。
+    在 worktree 里对着最新 `origin/dev` 核对，判错的后果只是**不提交**；
+    在主仓库原地判错，删掉就**不可逆**。
+- **抢救前先备份**：动任何文件之前，把 `git diff` 与工作区里那些**未跟踪**文件
+  （`git status --porcelain` 里的 `??`）一并复制到仓库外。
+  未跟踪文件在 diff 里不存在，而它们往往是这次工作的**主体**。
 
 ### 原理（为什么不能"直接复用主仓库依赖"）
 
