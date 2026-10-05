@@ -120,6 +120,10 @@ async function handleMigrate() {
     }
     ElMessage.success(`已迁移至「${ledger.name}」`);
     migrateDialogVisible.value = false;
+    // 复位目标账户选择：isDirty 就是 `migrateTargetLedgerId !== null`，不复位则它恒为 true，
+    // onBeforeRouteLeave 会在离开页面时误弹「已选了目标账户，确定放弃本次迁移吗？」。
+    // `openMigrateDialog` 里的重置只覆盖「下次打开」，覆盖不了「关掉就走」这条路。
+    migrateTargetLedgerId.value = null;
     emit("migrated");
   } catch (e) {
     const err = e as { response?: { data?: { message?: string } } };
