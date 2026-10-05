@@ -23,28 +23,40 @@ test.describe("交互修复的运行时行为", () => {
     page.on("pageerror", e => failures.push(e.message));
 
     await page.route("**/api/summary/**", r =>
-      r.fulfill({ status: 500, json: { data: {}, message: "boom", error_code: 5004 } })
+      r.fulfill({
+        status: 500,
+        json: { data: {}, message: "boom", error_code: 5004 }
+      })
     );
     await page.route("**/api/**/xirr/**", r =>
-      r.fulfill({ status: 500, json: { data: {}, message: "boom", error_code: 5004 } })
+      r.fulfill({
+        status: 500,
+        json: { data: {}, message: "boom", error_code: 5004 }
+      })
     );
 
     await page.goto("/#/welcome");
     // 「0」在资产语境里是结论（我确实没资产），不是「不知道」——
     // 后端挂了却显示「家庭总资产 ¥0」，用户会以为数据被清空了。
-    await expect(page.getByText("家庭总资产加载失败")).toBeVisible({ timeout: 90_000 });
+    await expect(page.getByText("家庭总资产加载失败")).toBeVisible({
+      timeout: 90_000
+    });
     await expect(page.getByRole("button", { name: "重新加载" })).toBeVisible();
     // 断言**限定在这两张卡**内：先前写成页面级 `toHaveCount(0)`，结果把邻张卡片
     // 加载途中的临时 0 也算进来——页面稳定后实测残留为 0（HITS=0），
     // 但「别的组件还没加载完」不是本用例该管的事。限定范围后断言才稳定可复现。
     const board = page.locator(".card-block").filter({ hasText: "家庭总资产" });
     await expect(board.getByText("¥0.00")).toHaveCount(0);
-    const xirrCard = page.locator(".card-block").filter({ hasText: "年化收益追踪" });
+    const xirrCard = page
+      .locator(".card-block")
+      .filter({ hasText: "年化收益追踪" });
     await expect(xirrCard.getByText("¥0.00")).toHaveCount(0);
     expect(failures).toEqual([]);
   });
 
-  test("#1839/#1798 贵金属页已接真实数据，页面上不再有硬编码假金额", async ({ page }) => {
+  test("#1839/#1798 贵金属页已接真实数据，页面上不再有硬编码假金额", async ({
+    page
+  }) => {
     // 该页原为纯模板假数据（¥58,000 / 「Au99.99 · 100克」全部硬编码、按钮无事件），
     // #1839 先降级为空态，#1798 再接入真实接口。此处断言的是**不变式**而非某个版本的文案：
     // 无论它将来是空态还是真实数据页，页面上都不该出现那组写死的示例金额。
@@ -65,7 +77,9 @@ test.describe("交互修复的运行时行为", () => {
     expect(focusedIsCard).toBe(true);
   });
 
-  test("#1842 守门覆盖到的三类模式在页面上确实存在（守门不是空转）", async ({ page }) => {
+  test("#1842 守门覆盖到的三类模式在页面上确实存在（守门不是空转）", async ({
+    page
+  }) => {
     await page.goto("/#/inventory");
     // 至少能取到一批「纯图标按钮」元素——证明守门规则 1 命中的是真实页面形态
     const iconOnly = await page.evaluate(() => {
@@ -73,7 +87,8 @@ test.describe("交互修复的运行时行为", () => {
       return btns.filter(b => {
         const hasText = (b.textContent ?? "").trim().length > 0;
         const hasIcon = !!b.querySelector("svg, .iconify, i");
-        const noName = !b.getAttribute("aria-label") && !b.getAttribute("title");
+        const noName =
+          !b.getAttribute("aria-label") && !b.getAttribute("title");
         return hasIcon && !hasText && noName;
       }).length;
     });
