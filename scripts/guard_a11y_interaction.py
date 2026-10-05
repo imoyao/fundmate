@@ -36,9 +36,6 @@ SRC = ROOT / "frontend" / "src"
 TEMPLATE_RE = re.compile(r"<template>(.*?)</template>", re.S)
 STYLE_RE = re.compile(r"<style[^>]*>(.*?)</style>", re.S)
 
-TEXT_RE = re.compile(r">[^<>{}]*\S[^<>{}]*<|\{\{[^}]*\}\}")  # 元素间文本或插值
-TAG_RE = re.compile(r"</?[A-Za-z][^>]*>|<!--.*?-->", re.S)
-
 BUTTON_OPEN_RE = re.compile(r"<(el-button|button)\b(?P<attrs>[^>]*?)(?P<self>/?)>", re.S)
 HAS_NAME_RE = re.compile(r"(aria-label|:aria-label|title)\s*=")
 HAS_SLOT_RE = re.compile(r"\bslot\s*=")
@@ -121,9 +118,20 @@ def _has_icon(inner: str) -> bool:
 
 
 def _has_text(inner: str) -> bool:
-    """按钮内是否有可读文字（含插值）。有则按钮已有可访问名称。"""
-    stripped = TAG_RE.sub(" ", inner)
-    return TEXT_RE.search(stripped) is not None or "{{" in inner
+    """按钮内是否有可读文字（含插值）。有则按钮已有可访问名称。
+
+    判据是「标签之间的纯文本」——先把注释去掉，再按标签切开取各段文本。
+    早期版本先用 ``TAG_RE`` 把标签替换成空格、再用要求 ``>…<`` 的 ``TEXT_RE`` 去匹配，
+    两步自相矛盾：标签被换成空格后 ``>`` / ``<`` 早已不存在，``TEXT_RE`` 永不命中，
+    实际只剩插值判断生效。于是 ``<el-icon/><Edit/>编辑`` 这种「图标 + 可见文字」的按钮
+    被判成「纯图标无名称」——会给已有可见文字的按钮加上多余的 aria-label，
+    而 aria-label 会**覆盖**可见文字，文案一旦对不上反而比不加更糟。
+    实测这一条误报 53 处（修前规则一报 62 处，修后真问题仅 9 处）。
+    """
+    if "{{" in inner:
+        return True  # 插值渲染出的文本也算可访问名称
+    no_comment = re.sub(r"<!--.*?-->", " ", inner, flags=re.S)
+    return any(part.strip() for part in re.split(r"<[^>]*>", no_comment))
 
 
 def check_buttons(text: str, rel: str, lines: list[str]) -> list[str]:
