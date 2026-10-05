@@ -4,6 +4,7 @@
     title="迁移资产到其他账户"
     width="400px"
     destroy-on-close
+    :before-close="onBeforeClose"
   >
     <el-form label-width="80px">
       <el-form-item label="资产名称"
@@ -27,7 +28,10 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="migrateDialogVisible = false">取消</el-button>
+      <!-- 取消走 requestClose：before-close 只拦关闭按钮 / ESC / 点遮罩，程序化 close 走不到它 -->
+      <el-button @click="requestClose(() => (migrateDialogVisible = false))"
+        >取消</el-button
+      >
       <el-button
         type="primary"
         :disabled="!migrateTargetLedgerId"
@@ -39,11 +43,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { type LedgerItem } from "@/api/ledger";
 import { updatePosition } from "@/api/positions";
 import { updateAsset } from "@/api/assets";
+import { useUnsavedChangesGuard } from "@/composables/useUnsavedChangesGuard";
 
 interface LedgerHoldingRow {
   id: number;
@@ -74,6 +79,19 @@ const emit = defineEmits<{
 const migrateDialogVisible = ref(false);
 const migratingItem = ref<LedgerHoldingRow | null>(null);
 const migrateTargetLedgerId = ref<number | null>(null);
+
+// ── 未保存离开保护（#1853）──
+// 本弹窗只有一个可编辑字段（目标账户），且 `openMigrateDialog` 每次都把它重置为 null，
+// 所以「非 null」就等价于「用户改过」——不需要 JSON 快照。
+// 迁移成功走的是程序化 `migrateDialogVisible = false`，不经 before-close，不会误弹。
+const isDirty = computed(() => migrateTargetLedgerId.value !== null);
+
+const { onBeforeClose, requestClose } = useUnsavedChangesGuard(
+  () => isDirty.value,
+  {
+    message: "已选了目标账户，确定放弃本次迁移吗？"
+  }
+);
 
 function openMigrateDialog(row: LedgerHoldingRow) {
   migratingItem.value = row;

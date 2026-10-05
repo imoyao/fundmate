@@ -794,6 +794,8 @@ async function handleSubmit() {
 }
 
 function resetForm() {
+  // 未保存离开保护的快照（#1853）：重置后必须重新记，否则上一轮的输入会被当成脏
+  markFormClean();
   Object.assign(form, defaultForm());
   selectedPosition.value = null;
   positionsByAccount.value = {};
@@ -857,7 +859,21 @@ onMounted(() => {
   fetchPositionsByAccount();
 });
 
-defineExpose({ handleSubmit, resetForm });
+// ── 未保存离开保护（#1853）──
+// 脏状态住在本子组件里（父组件 TransactionDrawer 拿不到），故 expose 出去。
+// 快照声明必须在 resetForm 之前——它被 resetForm 调用。
+const initialSnapshot = ref("");
+
+function markFormClean() {
+  initialSnapshot.value = JSON.stringify(form);
+}
+
+const isDirty = computed(() => JSON.stringify(form) !== initialSnapshot.value);
+
+// 初次挂载即视为干净（父组件可能用 v-if 只挂其中一个 tab）
+markFormClean();
+
+defineExpose({ handleSubmit, resetForm, isDirty });
 </script>
 
 <style scoped>
