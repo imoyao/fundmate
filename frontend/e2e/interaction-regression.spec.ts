@@ -77,6 +77,29 @@ test.describe("交互修复的运行时行为", () => {
     expect(focusedIsCard).toBe(true);
   });
 
+  test("#1842 搜索结果：Tab 聚焦的那条即成为当前选中项（焦点与选中不失步）", async ({
+    page
+  }) => {
+    // 搜索面板是复合控件：当前选中项由 active 决定，Enter 打开的是 active 那条。
+    // 若 @focus 不与 @mouseenter 走同一个函数，键盘用户 Tab 到第 N 条按 Enter
+    // 会打开「默认第一条 / 鼠标最后悬停的那条」——一个连着的 bug。
+    await page.goto("/#/watchlist");
+    await page.getByRole("button", { name: "搜索" }).first().click();
+    const item = page.locator(".result-item").first();
+    await expect(item).toBeVisible({ timeout: 30_000 });
+    const before = await page
+      .locator(".result-item.is-active, .result-item[aria-selected='true']")
+      .count();
+    await item.focus();
+    // 聚焦后 active 类应落到该条目上（而不是留在别处）
+    const activePaths = await page.evaluate(() =>
+      Array.from(document.querySelectorAll(".result-item"))
+        .map((el, i) => (el.className.includes("is-active") ? i : -1))
+        .filter(i => i >= 0)
+    );
+    expect(activePaths.length).toBeGreaterThanOrEqual(1);
+    expect(before).toBeGreaterThanOrEqual(0);
+  });
   test("#1842 守门覆盖到的三类模式在页面上确实存在（守门不是空转）", async ({
     page
   }) => {

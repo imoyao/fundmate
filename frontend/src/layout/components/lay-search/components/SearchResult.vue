@@ -70,6 +70,13 @@ defineExpose({ handleScroll });
 
 <template>
   <div ref="resultRef" class="result">
+    <!--
+      @focus 与 @mouseenter 走同一个函数，不是冗余：搜索面板是**一个复合控件**，
+      「当前选中项」由 active 决定，而 active 只在鼠标移入 / 上下方向键移动时更新。
+      若只有 mouseenter，键盘用户 Tab 到第 N 条再按 Enter，打开的仍是 active 那条
+      （默认第一条，或鼠标最后悬停的那条）——焦点与选中项失步。
+      加上 @focus 后，Tab 与方向键走同一条激活路径，两者行为一致。
+    -->
     <div
       v-for="(item, index) in options"
       :key="item.path"
@@ -81,6 +88,7 @@ defineExpose({ handleScroll });
       @keydown.enter="handleTo"
       @click="handleTo"
       @mouseenter="handleMouse(item)"
+      @focus="handleMouse(item)"
     >
       <component :is="useRenderIcon(item.meta?.icon)" />
       <span class="result-item-title">
