@@ -85,3 +85,23 @@
     padding: var(--space-5);
   }
 }
+/* ============================================
+   纯图标按钮样式重置（#1842 规则二 A 类）
+   ============================================
+   应用外壳（顶栏 / 侧栏 / 标签栏）里有一批「只有图标 + @click」的控件。
+   把它们从 span/div 改成真 <button> 后，UA 默认样式会带进来边框、背景、
+   内边距与字体 —— 于是同一个图标按钮在页面上出现「两种样子」。
+
+   这里只重置 button 特有的默认值；**尺寸与配色仍由各自的工具类决定**
+   （set-icon / fullscreen-icon / chrome-close-btn / navbar-bg-hover …），
+   不新造设计语言。之所以放全局而不是各组件 scoped：这一批控件跨 5 个文件，
+   复制 5 份重置就是 5 处会各自漂移的重复代码。
+*/
+.icon-plain-btn {
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}

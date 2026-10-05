@@ -54,14 +54,19 @@ const router = useRouter();
       <!-- 菜单搜索 -->
       <LaySearch id="header-search" />
 
-      <!-- 🆕 主题切换快捷按钮 -->
-      <span
-        class="navbar-bg-hover cursor-pointer px-2 text-base flex items-center"
+      <!-- 主题切换快捷按钮（#1842 规则二 A 类）。
+           原为 span @click：键盘用户完全用不到主题切换。改真 button 后自带
+           可聚焦 / Enter+Space 激活；按钮样式重置用全局工具类 .icon-plain-btn
+           （见 style/index.scss），尺寸与配色仍由原有工具类决定。 -->
+      <button
+        type="button"
+        class="icon-plain-btn navbar-bg-hover cursor-pointer px-2 text-base flex items-center"
         :title="isDarkMode ? '切换到亮色模式' : '切换到暗色模式'"
+        :aria-label="isDarkMode ? '切换到亮色模式' : '切换到暗色模式'"
         @click="toggleThemeMode"
       >
         <IconifyIconOffline :icon="isDarkMode ? 'ep:sunny' : 'ep:moon'" />
-      </span>
+      </button>
 
       <!-- 全屏 -->
       <LaySidebarFullScreen id="full-screen" />
@@ -92,13 +97,16 @@ const router = useRouter();
           </el-dropdown-menu>
         </template>
       </el-dropdown>
-      <span
-        class="set-icon navbar-bg-hover"
+      <!-- 外观设置入口（#1842 规则二 A 类）：同上方，span @click → 真 button -->
+      <button
+        type="button"
+        class="icon-plain-btn set-icon navbar-bg-hover"
         title="打开外观设置"
+        aria-label="打开外观设置"
         @click="onPanel"
       >
         <IconifyIconOffline :icon="Palette" />
-      </span>
+      </button>
     </div>
   </div>
 </template>
