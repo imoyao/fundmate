@@ -74,6 +74,20 @@ test("el-icon 容器包裹 element-plus 图标 → 命中", () => {
   assert.match(out, /aria-label\/title/);
 });
 
+test("图标 + 紧跟标签的可见文字 → 放行（早期误报源，报了会加多余 aria-label 覆盖可见文字）", () => {
+  const out = guard([
+    `<template><el-button size="small" text bg @click="openEdit(tag)"><el-icon class="mr-1"><Edit /></el-icon>编辑</el-button></template>`
+  ]);
+  assert.doesNotMatch(out, /发现 \d+ 处/);
+});
+
+test("按钮内文字被 HTML 注释分隔，仍算有可见文字 → 放行", () => {
+  const out = guard([
+    `<template><el-button><el-icon><Delete /></el-icon><!-- 分隔 -->删除</el-button></template>`
+  ]);
+  assert.doesNotMatch(out, /发现 \d+ 处/);
+});
+
 test("PascalCase 业务组件不是图标 → 放行（不得误报）", () => {
   const out = guard([`<template><el-button class="x"><TransactionTable /></el-button></template>`]);
   assert.doesNotMatch(out, /发现 \d+ 处/);
