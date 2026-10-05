@@ -107,12 +107,87 @@ export function useWatchlistStickyLayout(options: StickyLayoutOptions) {
   }
 
   /** 给可拖拽中段列提交新顺序（固定列/内置列不参与，见 columnDefs.draggable） */
+  /** 键盘重排结果播报（#1852）：列顺序变了但视觉上只是表头换位，
+   *  不播报则屏幕阅读器用户完全感知不到。role=status + aria-live=polite。 */
+  const announce = ref("");
+
+  /** 表头列序（th 序列 → 持久化 key），与 onEnd 的算法保持一致。 */
+  function headerKeys(): string[] {
+    return [
+      ...(toolbar.batchMode.value ? ["_selection"] : []),
+      ...dataColumns.value.map(d => d.key)
+    ];
+  }
+
+  /** 目标位置是否落在固定列上——键盘路径必须复刻 Sortable 的 onMove 约束，
+   *  否则会出现「键盘能排出一个拖拽排不出的顺序」，那比不做更糟。 */
+  function isFixedAt(headerRow: HTMLElement, index: number): boolean {
+    const th = headerRow.children[index] as HTMLElement | undefined;
+    return th?.classList.contains("col-no-drag") ?? true;
+  }
+
+  /** 给表头列挂键盘等价物（#1852）。 */
+  function bindHeaderKeyboard(headerRow: HTMLElement) {
+    const ths = Array.from(headerRow.children) as HTMLElement[];
+    ths.forEach((th, i) => {
+      // 只加 tabindex，**不加 role="button"**——th 的 columnheader 语义要留住，
+      // 改成 button 会破坏表格语义（读表头会当成一排按钮）。
+      th.tabIndex = 0;
+      th.dataset.colIndex = String(i);
+      th.setAttribute("aria-describedby", "watchlist-col-hint");
+      // 焦点跟随：移动后焦点必须跟到新位置的列上，否则键盘用户会「丢失」当前列。
+      th.addEventListener("keydown", e => onHeaderKeydown(e, headerRow, i));
+    });
+  }
+
+  function onHeaderKeydown(
+    e: KeyboardEvent,
+    headerRow: HTMLElement,
+    index: number
+  ) {
+    // Ctrl+←/→ 移动列。用 Ctrl 而非 Alt：Alt 在部分浏览器/系统是全局快捷键。
+    if (!e.ctrlKey) return;
+    const dir = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0;
+    if (dir === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const keys = headerKeys();
+    const to = index + dir;
+    if (to < 0 || to >= keys.length) return;
+    // 复刻 onMove：目标落在固定列上就拒绝
+    if (isFixedAt(headerRow, to)) {
+      announce.value = "该方向相邻列是固定列，不能移过去";
+      return;
+    }
+    // 起点本身是固定列也不该移动
+    if (isFixedAt(headerRow, index)) {
+      announce.value = "固定列不能移动";
+      return;
+    }
+
+    const moved = keys.splice(index, 1)[0];
+    keys.splice(to, 0, moved);
+    columnSettings.applyOrder(keys.filter(k => !k.startsWith("_")));
+
+    // 落库后 DOM 会重渲染，等下一帧再把焦点跟过去
+    void nextTick(() => {
+      const fresh = headerRow.children[to] as HTMLElement | undefined;
+      fresh?.focus();
+      announce.value = `「${moved}」移到第 ${to + 1} 列，共 ${keys.length} 列`;
+    });
+  }
+
+  // 键盘操作提示，配合表头的 aria-describedby
+  const COL_HINT = "可用 Ctrl 加左右方向键调整该列顺序";
+
   function initHeaderDrag() {
     const el = (tableRef.value?.$el ?? null) as HTMLElement | null;
     const headerRow = el?.querySelector<HTMLElement>(
       ".el-table__header-wrapper tr"
     );
     if (!headerRow) return;
+    bindHeaderKeyboard(headerRow);
     Sortable.create(headerRow, {
       animation: 300,
       filter: ".col-no-drag",
@@ -164,6 +239,9 @@ export function useWatchlistStickyLayout(options: StickyLayoutOptions) {
     onTableReady,
     initHeaderDrag,
     bindStickyObserver,
-    bindPageMinHObserver
+    bindPageMinHObserver,
+    // 键盘重排的播报文本与操作提示，供页面渲染 aria-live 与 aria-describedby 目标
+    announce,
+    COL_HINT
   };
 }
