@@ -389,6 +389,8 @@
 
 > **分组胶囊 Tab（Group Tab）暗色适配**：与亮色共用同一套类名与结构，选中态软按钮（`--brand-100` 底 / `--brand-700` 字 / `--brand-400` 边框）与未选中态（`--text-secondary` / hover `--bg-hover`）均由暗色 token 自动适配（暗色 `--brand-100` 为极暗红灰 `#2D1612`，作为选中底色成立），**无需单独覆盖**。行内图标 / hover 浮现机制同理，全部走语义 token。
 
+> **导入预览问题摘要三卡片（#1791）暗色适配**：面板底 `--bg-card`、卡片底 `--bg-subtle`、边框 `--border-default` 均为暗色专调 token；三类语义色直接用文字级 `-ink` 族（`--color-success-ink` / `--color-warning-ink` / `--color-danger-ink`，暗色下由 `dark.scss` 提亮保对比），细分 chips 底 / 边用 `--color-danger-10` / `--color-danger-30` 半透明叠加、字用 `--color-danger-ink`，**无需单独覆盖**。
+
 
 ### 对话气泡（账本精灵，2026-09-26 #1121 S1-B）
 

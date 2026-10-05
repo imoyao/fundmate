@@ -473,6 +473,27 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - 接入 `layout/index.vue`，登录 / 注册页通过 `route.meta.hiddenFooter` 隐藏。
 - 免责声明固定文案：「市场有风险，投资需谨慎。本平台内容仅供参考，不构成任何投资建议。」
 
+## 导入预览问题摘要三卡片（#1791，导入向导页面级形态）
+
+> 位置：`src/views/asset/investment/import/components/SummaryPanel.vue`（第 3 步「预览与修正」，表格上方常驻）。源设计 #783 §3 原型。**三卡片是数据分诊的唯一分类法**，已吞并并删除原 `SummaryStats.vue` 胶囊 Tab（全部 / 已校验 / 重复项 / 待确认），禁止两套口径并存。
+
+- **结构**（自上而下）：
+  1. 标题：`数据预览 — 系统已自动分析`；存在疑似重复或需修正时追加 `，发现以下问题`。
+  2. 三卡片（grid `repeat(auto-fit, minmax(240px, 1fr))`，图标用 Iconify `ep:*`、**禁 emoji**）：
+
+     | 卡 | 图标 / 语义色 | 附加内容 |
+     |----|----------------|----------|
+     | 数据完整 `complete` | `ep:circle-check-filled` / `--color-success-ink` | 三态全选复选框 +【展开查看】 |
+     | 疑似重复 `duplicate` | `ep:warning-filled` / `--color-warning-ink` | 复选框 + 说明「已自动跳过，如需保留请手动勾选」+【展开查看】 |
+     | 需要修正 `fix` | `ep:circle-close-filled` / `--color-danger-ink` | 细分错误 chips（解析错误 / 代码未匹配 / 数量或价格缺失 / 数据不一致）+【批量修正】+【展开查看】 |
+
+  3. 底部行：`已选择 N 条` +【展开全部数据（总条数）】。
+- **和式不变量（硬规则）**：`complete / duplicate / fix` 互斥完备（谓词 `categorizeRow`，`useImportWizard.ts`），卡片计数、fix 细分 chips、表格状态过滤**共用同一谓词**——「卡片条数 = 展开后表格条数 = 底部总条数」是结构性成立，不是各数一遍再对数；**禁止**再引入并行分类口径。
+- **卡即过滤器**：【展开查看】把 `tableStatusFilter` 置为该卡键、再点【收起】复位；展开时同时清掉子分类与「只看问题」开关（叠加会破坏上面的等式），关键词 / 类型搜索保留（正交收窄）。
+- **常驻不滚动**：面板位于 `.step3-body`（flex 列 + `overflow: hidden`）内且 `flex-shrink: 0`，表格 `.step3-right` 是唯一滚动容器——展开任一类别时摘要面板不得消失。
+- **复选框作用域**：卡片全选只作用于该类「可勾行」（解析错误 / 数量价格缺失 / 资金划转 / 已忽略行不可勾；**疑似重复行可勾**，#1791 验收④——后端落库边界见该 issue 评论）。
+- **令牌**：面板 `--bg-card`、卡片 `--bg-subtle`、边框 `--border-default`、圆角 `--radius-sm`；细分 chip `--color-danger-10` 底 + `--color-danger-30` 边 + **`--color-danger-ink` 字**（文字级必须 `-ink`，直接用 `--color-danger` 暗色仅 3.36:1）。无硬编码 hex，暗色自动适配（见 `design.dark.md` 注记）。
+
 ## 共享基建（composables / utils 层，强制复用）
 
 > 本层为**非 UI 的共享逻辑**（图表生命周期 / 图表取色 / 币种换算），与页面级 UI 组件同属「强制复用」范围。

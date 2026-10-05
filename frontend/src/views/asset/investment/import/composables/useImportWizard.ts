@@ -25,6 +25,12 @@ import { ALLOCATION_OPTIONS } from "@/constants";
 import { getTypeLabel } from "@/constants/assetType";
 import { useReconDraft, type ReconDomain } from "@/composables/useReconDraft";
 
+/**
+ * 问题摘要面板的三卡片分类（#1791）。
+ * 三类**互斥完备**：每行恰属一类，卡片条数之和恒等于总行数（验收②的和式不变量）。
+ */
+export type SummaryCategory = "complete" | "duplicate" | "fix";
+
 export function useImportWizard() {
   const router = useRouter();
   // #1239 草稿层：交易/交割单导入 = 域 C
@@ -537,9 +543,83 @@ export function useImportWizard() {
     }));
   });
 
-  const filteredPagedData = computed(() => {
-    let list = previewData.value;
-    if (tableStatusFilter.value === "blocked")
+  // ── 三卡片分类（#1791）：互斥完备，卡片计数 / fix 细分 / 表格状态过滤共用同一谓词 ──
+
+  /** 代码未匹配（与 problemCategories 的 missingCode 同口径） */
+  function isMissingCode(row: any): boolean {
+    return !row.symbol || row.symbol === "UNKNOWN";
+  }
+
+  /** 金额不一致（与 problemCategories 的 mismatch 同口径）：有份额有价格但乘积与金额对不上 */
+  function isAmountMismatch(row: any): boolean {
+    const qty = Number(row.quantity),
+      prc = Number(row.price),
+      amt = Number(row.amount);
+    return (
+      !isNaN(qty) &&
+      qty > 0 &&
+      !isNaN(prc) &&
+      prc > 0 &&
+      !isNaN(amt) &&
+      Math.abs(qty * prc - amt) > 0.01
+    );
+  }
+
+  /**
+   * 三卡片分类谓词——卡片条数、fix 细分统计、表格状态过滤三处共用（#1791 验收②：
+   * 「卡片条数 = 展开后表格条数」靠共用谓词结构性成立，而不是两处各数一遍对数）。
+   *
+   * - duplicate：解析期已判重（(ledger_id, import_hash) 已在库）
+   * - fix：解析错误 → 代码未匹配 → 数量/价格缺失 → 金额不一致（顺序对齐 problemCategories）
+   * - complete：其余——含资金划转行（数据完整，是否入库由后端统一裁决 #1010）、
+   *   含 _ignored 行（数据完整是质量口径，勾没勾是选择口径，二者分开）
+   */
+  function categorizeRow(row: any): SummaryCategory {
+    if (row.is_duplicate) return "duplicate";
+    if (row.error) return "fix";
+    if (row.is_cash_transfer) return "complete";
+    if (isMissingCode(row)) return "fix";
+    if (isRowBlocked(row)) return "fix";
+    if (isAmountMismatch(row)) return "fix";
+    return "complete";
+  }
+
+  /** 三卡片条数：遍历原始行分区计数，故 sum === totalRows（和式不变量） */
+  const summaryCounts = computed(() => {
+    const counts = { complete: 0, duplicate: 0, fix: 0 };
+    previewData.value.forEach(row => counts[categorizeRow(row)]++);
+    return counts;
+  });
+
+  /** 「需要修正」卡的细分统计：同一谓词分桶，四桶之和恒等于 fix 条数 */
+  const fixBreakdown = computed(() => {
+    const buckets = {
+      error: 0,
+      missingCode: 0,
+      missingQtyPrice: 0,
+      mismatch: 0
+    };
+    previewData.value.forEach(row => {
+      if (categorizeRow(row) !== "fix") return;
+      if (row.error) buckets.error++;
+      else if (isMissingCode(row)) buckets.missingCode++;
+      else if (isRowBlocked(row)) buckets.missingQtyPrice++;
+      else buckets.mismatch++; // categorizeRow 已保证此处金额不一致
+    });
+    return buckets;
+  });
+
+  /**
+   * 表格行过滤（状态 + 子分类 + 问题开关 + 关键词 + 类型）。
+   * #1791 起分页数据与总条数共用本函数——此前是两处 90 行近重复实现，新增过滤键
+   * 只改一边就会出现「分页显示与底部总条数对不上」的漂移。
+   * 旧键 normal / problem / error 是 SummaryStats 胶囊 Tab 的写入值，胶囊已随本卡
+   * 删除（#1791 要做的事 7：两套分类法合并），死分支一并移除。
+   */
+  function applyRowFilters(base: any[]): any[] {
+    let list = base;
+    const status = tableStatusFilter.value;
+    if (status === "blocked")
       list = list.filter(
         row =>
           isRowBlocked(row) &&
@@ -547,36 +627,18 @@ export function useImportWizard() {
           !row.error &&
           !row.is_cash_transfer
       );
-    else if (tableStatusFilter.value === "duplicate")
-      list = list.filter(row => row.is_duplicate);
-    else if (tableStatusFilter.value === "error")
-      list = list.filter(row => row.error);
-    else if (tableStatusFilter.value === "problem")
-      // 待确认：所有需要人工处理（待补全 / 错误 / 未处理重复）的行
-      list = list.filter(row => {
-        if (row.is_duplicate && row._duplicateHandled) return false;
-        return (
-          isRowBlocked(row) ||
-          row.error ||
-          row.is_duplicate ||
-          row.isEditingQty ||
-          row.isEditingPrice
-        );
-      });
-    else if (tableStatusFilter.value === "normal")
-      list = list.filter(
-        row =>
-          !row.is_duplicate &&
-          !row.error &&
-          !isRowBlocked(row) &&
-          !row.is_cash_transfer &&
-          !row._ignored
-      );
+    else if (
+      status === "complete" ||
+      status === "duplicate" ||
+      status === "fix"
+    )
+      // 三卡片状态键：与卡片计数同谓词（categorizeRow）
+      list = list.filter(row => categorizeRow(row) === status);
 
     if (activeCategoryFilter.value === "missingCode")
       list = list.filter(
         row =>
-          (!row.symbol || row.symbol === "UNKNOWN") &&
+          isMissingCode(row) &&
           !row.is_duplicate &&
           !row.error &&
           !row.is_cash_transfer
@@ -584,17 +646,7 @@ export function useImportWizard() {
     else if (activeCategoryFilter.value === "mismatch")
       list = list.filter(row => {
         if (row.is_duplicate || row.error || row.is_cash_transfer) return false;
-        const qty = Number(row.quantity),
-          prc = Number(row.price),
-          amt = Number(row.amount);
-        return (
-          !isNaN(qty) &&
-          qty > 0 &&
-          !isNaN(prc) &&
-          prc > 0 &&
-          !isNaN(amt) &&
-          Math.abs(qty * prc - amt) > 0.01
-        );
+        return isAmountMismatch(row);
       });
 
     if (showProblemOnly.value)
@@ -618,7 +670,11 @@ export function useImportWizard() {
     }
     if (tableTypeFilter.value.length > 0)
       list = list.filter(row => tableTypeFilter.value.includes(row.type));
+    return list;
+  }
 
+  /** link_group 合并（分红 + 税折叠为一条净额行）——分页与计数共用，保证两者一致 */
+  function mergeLinkGroups(list: any[]): any[] {
     const mergedList: any[] = [];
     const processedGroupIds = new Set<string>();
     for (const row of list) {
@@ -650,8 +706,17 @@ export function useImportWizard() {
         }
       } else if (!groupId) mergedList.push(row);
     }
+    return mergedList;
+  }
+
+  /** 过滤 + 合并后的完整列表——分页切片与总条数的唯一来源 */
+  const filteredMergedData = computed(() =>
+    mergeLinkGroups(applyRowFilters(previewData.value))
+  );
+
+  const filteredPagedData = computed(() => {
     const start = (currentPage.value - 1) * pageSize.value;
-    return mergedList.slice(start, start + pageSize.value);
+    return filteredMergedData.value.slice(start, start + pageSize.value);
   });
 
   const calculatedCount = computed(() => {
@@ -732,103 +797,9 @@ export function useImportWizard() {
     ElMessage.success("所有推算数据已确认");
   }
 
-  const filteredTotal = computed(() => {
-    let list = previewData.value;
-    if (tableStatusFilter.value === "blocked")
-      list = list.filter(
-        row =>
-          isRowBlocked(row) &&
-          !row.is_duplicate &&
-          !row.error &&
-          !row.is_cash_transfer
-      );
-    else if (tableStatusFilter.value === "duplicate")
-      list = list.filter(row => row.is_duplicate);
-    else if (tableStatusFilter.value === "error")
-      list = list.filter(row => row.error);
-    else if (tableStatusFilter.value === "problem")
-      list = list.filter(row => {
-        if (row.is_duplicate && row._duplicateHandled) return false;
-        return (
-          isRowBlocked(row) ||
-          row.error ||
-          row.is_duplicate ||
-          row.isEditingQty ||
-          row.isEditingPrice
-        );
-      });
-    else if (tableStatusFilter.value === "normal")
-      list = list.filter(
-        row =>
-          !row.is_duplicate &&
-          !row.error &&
-          !isRowBlocked(row) &&
-          !row.is_cash_transfer &&
-          !row._ignored
-      );
-
-    if (activeCategoryFilter.value === "missingCode")
-      list = list.filter(
-        row =>
-          (!row.symbol || row.symbol === "UNKNOWN") &&
-          !row.is_duplicate &&
-          !row.error &&
-          !row.is_cash_transfer
-      );
-    else if (activeCategoryFilter.value === "mismatch")
-      list = list.filter(row => {
-        if (row.is_duplicate || row.error || row.is_cash_transfer) return false;
-        const qty = Number(row.quantity),
-          prc = Number(row.price),
-          amt = Number(row.amount);
-        return (
-          !isNaN(qty) &&
-          qty > 0 &&
-          !isNaN(prc) &&
-          prc > 0 &&
-          !isNaN(amt) &&
-          Math.abs(qty * prc - amt) > 0.01
-        );
-      });
-    if (showProblemOnly.value)
-      list = list.filter(row => {
-        if (row.is_duplicate && row._duplicateHandled) return false;
-        return (
-          isRowBlocked(row) ||
-          row.error ||
-          row.is_duplicate ||
-          row.isEditingQty ||
-          row.isEditingPrice
-        );
-      });
-    if (tableFilterKeyword.value) {
-      const kw = tableFilterKeyword.value.toLowerCase();
-      list = list.filter(
-        row =>
-          String(row.symbol).toLowerCase().includes(kw) ||
-          String(row.name).toLowerCase().includes(kw)
-      );
-    }
-    if (tableTypeFilter.value.length > 0)
-      list = list.filter(row => tableTypeFilter.value.includes(row.type));
-
-    const mergedList: any[] = [];
-    const processedGroupIds = new Set<string>();
-    for (const row of list) {
-      const groupId = row.link_group_id;
-      if (groupId && !processedGroupIds.has(groupId)) {
-        const groupRows = list.filter(r => r.link_group_id === groupId);
-        if (groupRows.length === 2) {
-          mergedList.push(groupRows[0]);
-          processedGroupIds.add(groupId);
-        } else {
-          groupRows.forEach(r => mergedList.push(r));
-          processedGroupIds.add(groupId);
-        }
-      } else if (!groupId) mergedList.push(row);
-    }
-    return mergedList.length;
-  });
+  // 与分页共用同一管线（applyRowFilters + mergeLinkGroups）：总条数就是完整列表长度，
+  // 与「共 N 条」的分页行数天然一致（#1791 验收②）
+  const filteredTotal = computed(() => filteredMergedData.value.length);
 
   // ── 辅助函数 ──
   function getTemplateKeyForLedger(ledger: LedgerItem | null): string {
@@ -899,17 +870,32 @@ export function useImportWizard() {
   }
 
   function updateSelectAllState() {
-    const totalValid = validRowsCount.value;
-    const current = selectedKeys.value.size;
-    if (current === 0) {
-      isAllSelected.value = false;
-      isIndeterminate.value = false;
-    } else if (current >= totalValid) {
+    // 按成员判定，不用尺寸比较：#1791 放开疑似重复行的勾选后 selectedKeys.size
+    // 会因多选重复行而超出有效行数——「漏选 1 条有效行 + 多选 1 条重复行」尺寸恰好
+    // 相等，会被误判为全选（表头复选框说谎）。eligible 口径与 selectAllValid 一致。
+    let eligible = 0;
+    let picked = 0;
+    previewData.value.forEach(row => {
+      if (
+        !row.is_duplicate &&
+        !row.error &&
+        !isRowBlocked(row) &&
+        !row.is_cash_transfer &&
+        !row._ignored
+      ) {
+        eligible++;
+        if (selectedKeys.value.has(row._rowKey)) picked++;
+      }
+    });
+    if (eligible > 0 && picked >= eligible) {
       isAllSelected.value = true;
       isIndeterminate.value = false;
-    } else {
+    } else if (picked > 0) {
       isAllSelected.value = false;
       isIndeterminate.value = true;
+    } else {
+      isAllSelected.value = false;
+      isIndeterminate.value = false;
     }
   }
 
@@ -1115,10 +1101,13 @@ export function useImportWizard() {
     });
 
     // #1010：转账行不再前端剔除，交由后端统一裁决（已关联现金账户时生成现金侧记录）
+    // #1791（验收④）：疑似重复行不再无条件剔除——默认就没被勾中（selectAllValid 排除），
+    // 用户显式勾选保留的随集合提交；解析错误 / 已忽略 / 数量价格缺失行仍剔除。
+    // ⚠️ 后端边界：commit_from_preview 仍无条件跳过 is_duplicate 行，且 import_hash
+    // 唯一约束会二次拦截——「勾选保留」目前只到导入集合层面，落库由后续 issue 承接。
     const rowsToImport = previewData.value.filter(
       row =>
         selectedKeys.value.has(row._rowKey) &&
-        !row.is_duplicate &&
         !row.error &&
         !row._ignored &&
         !isRowBlocked(row)
@@ -1454,6 +1443,74 @@ export function useImportWizard() {
     if (key === "missingCode") activeCategoryFilter.value = "missingCode";
     else if (key === "missingQtyPrice") tableStatusFilter.value = "blocked";
     else if (key === "mismatch") activeCategoryFilter.value = "mismatch";
+  }
+
+  // ── #1791 三卡片：展开/收起类别过滤 + 卡片复选框 ──
+
+  /** 该类别当前是否展开（tableStatusFilter 就是展开状态：一套状态，两处读） */
+  function isCategoryExpanded(key: SummaryCategory): boolean {
+    return tableStatusFilter.value === key;
+  }
+
+  /**
+   * 【展开查看】/【收起】（#1791 要做的事 2）：tableStatusFilter 在 key↔"" 间切换。
+   * 展开时清掉子分类与「只看问题」开关——它们与三卡片是两套互斥的过滤视角，叠加会
+   * 令「卡片条数 ≠ 表格条数」（验收②）；关键词/类型搜索是正交收窄，予以保留。
+   */
+  function toggleCategoryFilter(key: SummaryCategory) {
+    if (tableStatusFilter.value === key) {
+      tableStatusFilter.value = "";
+      return;
+    }
+    tableStatusFilter.value = key;
+    activeCategoryFilter.value = "";
+    showProblemOnly.value = false;
+    showFullTable.value = true;
+    currentPage.value = 1;
+  }
+
+  /** 【展开全部数据】：清空全部过滤回完整表格；摘要面板不在过滤作用域内，始终可见（验收③） */
+  function expandAllData() {
+    tableStatusFilter.value = "";
+    activeCategoryFilter.value = "";
+    showProblemOnly.value = false;
+    showFullTable.value = true;
+    currentPage.value = 1;
+  }
+
+  /**
+   * 卡片复选框的作用域 = 该类中「行复选框可勾」的行：
+   * 解析错误 / 数量价格缺失（isRowBlocked）/ 资金划转行不可勾（表格行复选框同样禁用），
+   * _ignored 是用户显式忽略、不参与卡片批量勾选；**疑似重复行可勾**（#1791 验收④）。
+   */
+  function isRowSelectable(row: any): boolean {
+    return (
+      !row.error && !row.is_cash_transfer && !row._ignored && !isRowBlocked(row)
+    );
+  }
+
+  /** 卡片复选框三态：该类可勾行全选 / 部分选 / 未选 */
+  function categoryCheckState(key: SummaryCategory): "all" | "some" | "none" {
+    let total = 0;
+    let picked = 0;
+    for (const row of previewData.value) {
+      if (categorizeRow(row) !== key || !isRowSelectable(row)) continue;
+      total++;
+      if (selectedKeys.value.has(row._rowKey)) picked++;
+    }
+    if (picked === 0) return "none";
+    return picked === total ? "all" : "some";
+  }
+
+  /** 卡片复选框切换：勾选=选中该类全部可选行，取消=仅取消该类（不动其它类别） */
+  function toggleCategorySelection(key: SummaryCategory, checked: boolean) {
+    previewData.value.forEach(row => {
+      if (categorizeRow(row) !== key || !isRowSelectable(row)) return;
+      if (checked) selectedKeys.value.add(row._rowKey);
+      else selectedKeys.value.delete(row._rowKey);
+    });
+    selectedKeys.value = new Set(selectedKeys.value);
+    updateSelectAllState();
   }
 
   function onMatchComplete() {
@@ -2044,6 +2101,15 @@ export function useImportWizard() {
     tableTypeFilter,
     tableStatusFilter,
     showFullTable,
+    // #1791 问题摘要三卡片
+    summaryCounts,
+    fixBreakdown,
+    isCategoryExpanded,
+    toggleCategoryFilter,
+    expandAllData,
+    isRowSelectable,
+    categoryCheckState,
+    toggleCategorySelection,
     showBatchFix,
     showFixPanel,
     batchCodeInput,
