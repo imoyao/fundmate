@@ -332,6 +332,12 @@ jobs:
           pnpm exec prettier --check "src/**/*.{js,ts,json,tsx,css,scss,vue,html}" "e2e/**/*.ts" "playwright.config.ts"
           pnpm exec stylelint "**/*.{html,vue,css,scss}" --cache-location node_modules/.cache/stylelint/
 
+      # 单测（#1792 引入 vitest，首批覆盖导入形态判定 / 撤销快照等纯逻辑）。
+      # 不进 CI 就等于把「有测试」降级为「本地曾经跑过」——重构会静默弄坏测试契约
+      # 而无人察觉；纯逻辑用例秒级，进本 job 不新增 job、不必改 gate.needs。
+      - name: 单元测试
+        run: pnpm test:unit
+
       # 页面规模门禁（#980 治本项）：扫描 .vue 文件行数，超出阈值报告。
       # 当前为 warn 模式（不阻断 CI），仅让存量大页面趋势可见；
       # 待存量大页面拆分完成后再切 --mode fail 冻结增量（避免误伤既有 PR）。
