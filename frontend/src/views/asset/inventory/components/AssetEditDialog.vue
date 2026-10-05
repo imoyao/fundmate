@@ -65,7 +65,7 @@ import { ElMessage } from "element-plus";
 import { updateAsset, type AssetRecord } from "@/api/assets";
 import {
   useUnsavedChangesGuard,
-  useFormDirty
+  useDialogForm
 } from "@/composables/useUnsavedChangesGuard";
 import { getErrorMessage } from "../helpers";
 import { ASSET_TYPE_MAP } from "../constants";
@@ -119,21 +119,34 @@ const form = ref<{
  * 执行回调回填本快照，声明在后面就是 TDZ ReferenceError（`vue-tsc` 会报
  * `TS2304: Cannot find name 'initialSnapshot'`）。
  */
-const { isDirty, markClean } = useFormDirty(() => form.value);
+const EMPTY_FORM = {
+  id: null,
+  amount: 0,
+  notes: "",
+  minorCategory: null
+};
 
-// 每次打开都按传入行回填，避免复用同一弹窗时残留上一次的输入
+/**
+ * 打开时按传入行回填，关闭时复位为空表单，**两种态都同步脏基线**（#1880）。
+ *
+ * 关闭态复位不是可有可无：只处理打开分支时，「保存」与「放弃修改」都只把
+ * `modelValue` 置 false，表单仍留着改后的值而基线还是打开时的值 → `isDirty` 为 true。
+ * 叠上 `onBeforeRouteLeave` 的后果是**保存成功后点侧边栏照样弹「未保存的修改」，
+ * 且导航被拦死**（真机实测：hash 停在 `/inventory` 不变）。
+ */
+const { isDirty, fillOnOpen, markSaved } = useDialogForm(form, () => ({
+  ...EMPTY_FORM
+}));
+
 watch(
   () => props.modelValue,
   open => {
-    if (!open) return;
-    form.value = {
+    fillOnOpen(open, () => ({
       id: props.asset?.id ?? null,
       amount: props.asset?.amount || 0,
       notes: props.asset?.notes || "",
       minorCategory: props.asset?.minor_category ?? null
-    };
-    // 快照要在回填**之后**记，否则会把「打开即脏」当成真改动
-    markClean();
+    }));
   },
   { immediate: true }
 );
@@ -159,6 +172,8 @@ async function save() {
         : {})
     });
     ElMessage.success("资产已更新");
+    // 显式清脏：即便 modelValue→false 分支因时序未跑到，也保证基线与当前值一致
+    markSaved();
     visible.value = false;
     emit("saved");
   } catch (e) {
