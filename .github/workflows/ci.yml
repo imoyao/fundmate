@@ -216,6 +216,13 @@ jobs:
       - name: 扫描输入焦点回潮
         run: python scripts/guard_input_focus.py
 
+      # 交互可达性守卫（#1842）：纯图标按钮无可访问名称 / div@click 当按钮 /
+      # hover 显隐无 focus-within 与 hover:none 兜底——前端交互排查里 P1 的主体三类。
+      # 先以 --warn 接入：存量 115 处需逐个清，清零后再去掉 --warn 转为阻断
+      # （与 check_view_thickness 同样的「先立边界、堵新增」路子）。
+      - name: 扫描交互可达性回潮（暂不阻断）
+        run: python scripts/guard_a11y_interaction.py --warn
+
   # 乱码守卫（mojibake）：防止任何绕过本地 pre-commit 钩子的提交（--no-verify、
   # 或经 gh api / MCP 直推导致本地钩子不执行）把 GBK 乱码合进 PR。
   # 扫描 PR 变更的全部文本类型文件 + 逐提交校验中文提交信息（两层兜底）。
