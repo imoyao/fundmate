@@ -32,14 +32,19 @@ const toggleClick = () => {
 </script>
 
 <template>
-  <div
+  <!-- 侧栏折叠（#1842 规则二 A 类）：div @click → 真 button。
+       折叠是高频操作，键盘此前完全够不到；aria-label 与 tippy 文案同源，
+       避免「 tooltip 说点击、屏幕阅读器念别的」这种两套说辞。 -->
+  <button
     v-tippy="{
       content: isActive ? '点击折叠' : '点击展开',
       theme: tooltipEffect,
       hideOnClick: 'toggle',
       placement: 'right'
     }"
-    class="center-collapse"
+    type="button"
+    class="icon-plain-btn center-collapse"
+    :aria-label="isActive ? '折叠侧栏' : '展开侧栏'"
     @click="toggleClick"
   >
     <IconifyIconOffline
@@ -47,7 +52,7 @@ const toggleClick = () => {
       :class="[iconClass, themeColor === 'light' ? '' : 'text-primary']"
       :style="{ transform: isActive ? 'none' : 'rotateY(180deg)' }"
     />
-  </div>
+  </button>
 </template>
 
 <style lang="scss" scoped>

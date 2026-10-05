@@ -120,13 +120,16 @@ watch(
           </el-dropdown-menu>
         </template>
       </el-dropdown>
-      <span
-        class="set-icon navbar-bg-hover"
+      <!-- 外观设置入口（#1842 规则二 A 类）：span @click → 真 button，同顶栏 -->
+      <button
+        type="button"
+        class="icon-plain-btn set-icon navbar-bg-hover"
         title="打开外观设置"
+        aria-label="打开外观设置"
         @click="onPanel"
       >
         <IconifyIconOffline :icon="Palette" />
-      </span>
+      </button>
     </div>
   </div>
 </template>

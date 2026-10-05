@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { emitter } from "@/utils/mitt";
 import { useNav } from "@/layout/hooks/useNav";
+import { getTopMenu } from "@/router/utils";
 import LaySearch from "../lay-search/index.vue";
 import LayNotice from "../lay-notice/index.vue";
 import { responsiveStorageNameSpace } from "@/config";
@@ -22,16 +23,15 @@ const showLogo = ref(
   )?.showLogo ?? true
 );
 
-const {
-  route,
-  title,
-  logout,
-  onPanel,
-  username,
-  userAvatar,
-  backTopMenu,
-  avatarsStyle
-} = useNav();
+const { route, title, logout, onPanel, username, userAvatar, avatarsStyle } =
+  useNav();
+
+/**
+ * Logo 的跳转目标（#1842）：取 `getTopMenu()?.path` —— 与原先 `useNav().backTopMenu()`
+ * 内部用的是同一个值（顶层菜单首项，随配置变化），所以跳转结果与改前完全一致。
+ * 跳转本身交给 router-link，不再叠加 @click，否则一次点击会走两遍导航。
+ */
+const homePath = getTopMenu()?.path ?? "/";
 
 const defaultActive = computed(() =>
   !isAllEmpty(route.meta?.activePath) ? route.meta.activePath : route.path
@@ -54,14 +54,24 @@ onMounted(() => {
     class="horizontal-header"
     :style="{ backgroundColor: 'var(--bg-card)' }"
   >
-    <div v-if="showLogo" class="horizontal-header-left" @click="backTopMenu">
+    <!-- Logo 点击回首页（#1842 规则二 A 类）：div @click → router-link。
+         语义上是「去首页」而不是「按一下按钮」——用链接才能被中键/新标签打开、
+         被读屏识别为导航；改成 button 只会把一个导航动作伪装成动作按钮。
+         目标取自 getTopMenu()（与原 backTopMenu 同一路径），跳转交给 router-link，
+         不再叠加 @click，否则一次点击会走两遍导航。 -->
+    <router-link
+      v-if="showLogo"
+      class="horizontal-header-left"
+      :to="homePath"
+      :aria-label="`${title}，回到首页`"
+    >
       <BrandLogo :size="34" />
       <span class="navbar-brand-name">
         {{ title }}
         <span class="brand-sub">投资账本</span>
         <span class="brand-beta">Beta</span>
       </span>
-    </div>
+    </router-link>
     <el-menu
       ref="menuRef"
       mode="horizontal"
@@ -104,13 +114,16 @@ onMounted(() => {
           </el-dropdown-menu>
         </template>
       </el-dropdown>
-      <span
-        class="set-icon navbar-bg-hover"
+      <!-- 外观设置入口（#1842 规则二 A 类）：span @click → 真 button，同顶栏 -->
+      <button
+        type="button"
+        class="icon-plain-btn set-icon navbar-bg-hover"
         title="打开外观设置"
+        aria-label="打开外观设置"
         @click="onPanel"
       >
         <IconifyIconOffline :icon="Palette" />
-      </span>
+      </button>
     </div>
   </div>
 </template>
