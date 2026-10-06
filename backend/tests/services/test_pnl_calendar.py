@@ -145,8 +145,45 @@ def test_零收益与无数据可区分(db, make_position, make_transaction):
 
     assert _state_of(result, d2) == STATE_ZERO
     assert _pnl_of(result, d2) == 0
-    assert _state_of(result, d3) == STATE_CLOSED
-    assert _pnl_of(result, d3) is None
+    # d3：全市场（此例仅 1 笔）都没有新鲜报价 ⇒ 判为休市/未出净值，
+    # 按「价格未变」回填 ⇒ 0 收益。这与「部分有价部分没价」要分开处理，
+    # 见test_部分标的断档时不出数。
+    assert _state_of(result, d3) == STATE_ZERO
+    assert _pnl_of(result, d3) == 0
+
+
+def test_部分标的断档时不出数(db, make_position, make_transaction):
+    """回归 #1812：一部分标的有当日价、一部分断档 ⇒ 日总额不完整，差分是错的。
+
+    实测（真实库 2026-09-30）：只有 13/57 笔有价，若照常出数，
+    缺失标的的市值被当成 0，日净资产凭空少 20.8 万。
+    按 design.md「缺数据不可画成 0」，这类日子标closed（数据不全）而不是给出错数。
+    """
+    d1 = dt.date(2026, 1, 5)
+    d2 = dt.date(2026, 1, 6)
+
+    a = make_position(symbol='000041', name='有价标的', quantity=1000, avg_price=1.0, asset_type='fund')
+    b = make_position(symbol='000042', name='断档标的', quantity=1000, avg_price=1.0, asset_type='fund')
+    for pos, sym in ((a, '000041'), (b, '000042')):
+        make_transaction(
+            position_id=pos.id,
+            ledger_id=pos.ledger_id,
+            txn_type='buy',
+            quantity=1000,
+            price=1.0,
+            confirm_date=dt.date(2025, 12, 1),
+            symbol=sym,
+        )
+    # d1 两只都有；d2 只有 A 出净值（模拟 B 断档）
+    _add_nav(db, '000041', d1, 1.0)
+    _add_nav(db, '000042', d1, 1.0)
+    _add_nav(db, '000041', d2, 1.1)
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-07')
+
+    # d2 覆盖不全 ⇒ 不出数（而不是把B 的市值当成 0 算出个假盈亏）
+    assert _state_of(result, d2) == STATE_CLOSED, '部分标的断档时应标数据不全'
+    assert _pnl_of(result, d2) is None
 
 
 def test_月合计等于区间内日序列求和(db, make_position, make_transaction):
@@ -261,7 +298,7 @@ def test_窗口前建仓的持仓必须计入份额(db, make_position, make_tran
 
     本例显式在**窗口之前**建仓，断言区间内必须有真实盈亏。
     """
-    buy_day = dt.date(2025, 12, 20)   # 远早于查询窗口
+    buy_day = dt.date(2025, 12, 20)  # 远早于查询窗口
     d1 = dt.date(2026, 1, 5)
     d2 = dt.date(2026, 1, 6)
 

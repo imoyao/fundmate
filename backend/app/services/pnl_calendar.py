@@ -80,6 +80,11 @@ STATE_ZERO = 'zero'
 STATE_NO_PRICE = 'no_price'
 STATE_CLOSED = 'closed'
 
+# 某标的当天没价格时，最多向前沿用最近多少天的价格（#1812）。
+# 太大：一个月没更新的标的会被当成「价格不变」而画出 0 收益，掩盖数据缺失；
+# 太小：单日数据抖动就会让市值归零、差分出现假跳空。7 天覆盖周末与节假日。
+_STALE_CARRY_DAYS = 7
+
 
 def _to_price_units(value) -> int:
     """元（Decimal/float/str）→ 0.0001 元整数单位，与 Position.current_price 同尺度。"""
@@ -186,15 +191,55 @@ def _price_for(
     fund_nav: Dict[str, Dict[dt.date, int]],
     exchange_prices: Dict[str, Dict[dt.date, int]],
 ) -> Optional[int]:
-    """该持仓在 day 的 0.0001 元单价；**None = 无价格序列**（区别于「有价但当日休市」）。"""
+    """该持仓在 day 的 0.0001 元单价。
+
+    **None = 该标的整段无价格序列**（区别于「有序列但当日无价」——后者会向前回填）。
+
+    前值回填（#1812 修复）：某只基金当天没发布净值时，若直接跳过它，
+    等价于「市值归零」，日差分会出现巨额假跳空——实测 2026-09-30 只有
+    13/57 笔有价，ΔW 假跌 20.8 万。回填让日总额在标的集合不变时可比。
+    周末/全市场无数据时所有标的都回填不出 ⇒ 仍判`closed`，不会被填成「0 收益」。
+    """
     symbol = (pos.symbol or '').strip()
     venue = venue_of_row(symbol, pos.asset_type)
     if venue == OTC:
-        return fund_nav.get(symbol, {}).get(day)
-    if venue == EXCHANGE:
-        return exchange_prices.get(symbol, {}).get(day)
-    # 场所判不出（NO_VENUE）：投顾组合 / 基金经理等无价序列标的
+        series = fund_nav.get(symbol)
+    elif venue == EXCHANGE:
+        series = exchange_prices.get(symbol)
+    else:
+        # 场所判不出（NO_VENUE）：投顾组合 / 基金经理等无价序列标的
+        return None
+    if not series:
+        return None
+    price = series.get(day)
+    if price is not None:
+        return price
+    # 当日无价 → 沿用最近一次已知价格（最多回溯 _STALE_CARRY_DAYS 天）
+    for back in range(1, _STALE_CARRY_DAYS + 1):
+        prev = series.get(day - dt.timedelta(days=back))
+        if prev is not None:
+            return prev
     return None
+
+
+def _has_fresh_price(
+    pos: Position,
+    day: dt.date,
+    fund_nav: Dict[str, Dict[dt.date, int]],
+    exchange_prices: Dict[str, Dict[dt.date, int]],
+) -> bool:
+    """该标的在 day **当天**是否真有报价（不含前值回填）。
+
+    用于区分两种「都拿不到价」：
+    - 全市场都没有 ⇒ 周末 / 节假日，回填后按「价格未变」算 0 是诚实的；
+    - 一部分有、一部分没有 ⇒ 真实的**数据断档**，此时出数会把缺失标的的市值
+      当成 0，差分是错的（实测某基金断档一天，日总额凭空少 1.5 万）。
+      按 design.md「缺数据不可画成 0」，宁可标「数据不全」也不出錯数。
+    """
+    symbol = (pos.symbol or '').strip()
+    venue = venue_of_row(symbol, pos.asset_type)
+    series = fund_nav.get(symbol) if venue == OTC else exchange_prices.get(symbol) if venue == EXCHANGE else None
+    return bool(series) and day in series
 
 
 def _has_price_series(pos: Position, fund_nav, exchange_prices) -> bool:
@@ -339,12 +384,28 @@ def build_daily_pnl_series(
         day_unpriced_count = 0
         day_opening = False
         opening_pnl = 0
+        # 有份额、且当天**没有新鲜报价**的标的数（回填来的不算新鲜）。
+        # 全为 0 → 周末/节假日，回填后按「价格未变」算 0 是诚实的；
+        # 一部分有一部分没有 → 真实**数据断档**，出数会把缺失标的市值当成 0。
+        day_stale_count = 0
+        # 本日总额是否完整可用于差分基准（覆盖不全时不可用）
+        day_complete = True
+        # 当天有「新鲜报价」的标的数（不含回填）
+        day_fresh_count = 0
 
         for state in per_pos.values():
             pos: Position = state['pos']
+            held = state['shares'] > 0
+            # 「当日新鲜价」= 该标的这一天真的有报价；回填来的价不算。
+            fresh = _has_fresh_price(pos, day, fund_nav, exchange_prices)
+            if held and pos.id not in no_price_ids:
+                if fresh:
+                    day_fresh_count += 1
+                else:
+                    day_stale_count += 1
+
             price = price_of(pos, day)
             if price is None:
-                # 区分两种「无价」：整段无价格序列（no_price_ids）vs 当日休市/未同步
                 if pos.id in no_price_ids:
                     day_unpriced_count += 1
                 continue
@@ -398,6 +459,12 @@ def build_daily_pnl_series(
         elif not day_has_price:
             state_code = STATE_CLOSED
             daily_pnl = None
+        elif day_fresh_count > 0 and day_stale_count > 0:
+            # 有价格但**覆盖不全**（某标的本日断档且超出回填窗）——此时日总额少了
+            # 那几笔的市值，差分是错的。宁可标「数据不全」也不出错数。
+            state_code = STATE_CLOSED
+            daily_pnl = None
+            day_complete = False
         elif daily_pnl is None:
             state_code = STATE_CLOSED
         elif daily_pnl > 0 or daily_pnl < 0:
@@ -420,8 +487,10 @@ def build_daily_pnl_series(
                 }
             )
 
-        prev_total_pnl = day_total_pnl
-        prev_net_worth = day_net_worth
+        # 覆盖不全的日子不写入基准：错值会污染次日的差分
+        if day_complete:
+            prev_total_pnl = day_total_pnl
+            prev_net_worth = day_net_worth
         day += dt.timedelta(days=1)
 
     total_cents = sum(int(Decimal(str(d['daily_pnl'])) * 100) for d in days if d['daily_pnl'] is not None)
