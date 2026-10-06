@@ -17,9 +17,9 @@ import { injectSupabaseSession } from "./support/session";
  * 在全仓 rg 层面 0 命中（防残留引用），而回归测试又要真的打这两条路径——
  * 拼接/替换是同时满足两者的唯一写法，勿「顺手改回」字面量（会直接踩验收红线）。
  *
- * 未知路径首屏白屏（catch-all 的 addPathMatch 只在动态路由注册后生效、首屏
- * 未匹配时 router-view 为空）是全站既有行为，对随机路径同样成立，并非本卡
- * 引入——见 #1915。
+ * 未知路径首屏白屏是全站既有行为（#1797 执行期分诊，非该卡引入），已由本文件
+ * 「未知路径首屏直访」两条用例承接修复（#1915）：catch-all 此前只在登录流程里
+ * 挂载，首屏直访未匹配路径时 router-view 为空。
  */
 /** 已删除的旧路径（用 `_` 占位：原因见文件头注释） */
 const LEGACY_403_PATH = "/#/access_denied".replace("_", "-");
@@ -64,5 +64,24 @@ test.describe("异常页直访（#1797 合并后仅剩 error.ts 一套）", () =
     // 对照：同一会话里保留路径照常渲染，证明上面的 0 计数不是「页面没加载」的空转
     await page.goto("/#/error/403");
     await expect(page.getByText("抱歉，你无权访问该页面")).toBeVisible();
+  });
+});
+
+test.describe("未知路径首屏直访（#1915）", () => {
+  test("登录态：未知路径渲染全屏 404 而非白屏", async ({
+    context,
+    page,
+    baseURL
+  }) => {
+    await injectSupabaseSession(context, baseURL!);
+    await page.goto("/#/definitely-not-a-route-xyz");
+    // 修复前 #app 为 <!---->（空渲染树、body.innerText 为空）——文案可见即排除白屏
+    await expect(page.getByText("抱歉，你访问的页面不存在")).toBeVisible();
+  });
+
+  test("游客态：未知路径渲染全屏 404 而非跳登录", async ({ page }) => {
+    // 不注入会话 = 游客；修复前守卫会把未在白名单的路径一律弹回 /login
+    await page.goto("/#/definitely-not-a-route-xyz");
+    await expect(page.getByText("抱歉，你访问的页面不存在")).toBeVisible();
   });
 });

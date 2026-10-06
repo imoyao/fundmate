@@ -14,6 +14,7 @@ import {
   storageLocal
 } from "@pureadmin/utils";
 import {
+  addPathMatch,
   ascending,
   getTopMenu,
   isOneOfArray,
@@ -98,6 +99,10 @@ export const router: Router = createRouter({
   }
 });
 
+// #1915：catch-all 随 createRouter 立即挂载——此前它只在登录流程（useLogin → initRouter）
+// 里挂上，首屏直访未知路径（会话已存在、不经登录）时 router-view 为空 → 白屏。
+addPathMatch();
+
 /** 记录已经加载的页面路径 */
 const loadedPaths = new Set<string>();
 
@@ -112,6 +117,8 @@ export function resetRouter() {
   for (const route of initConstantRoutes.concat(...(remainingRouter as any))) {
     router.addRoute(route);
   }
+  // clearRoutes 把 catch-all 一并清掉了，补挂回去（#1915）
+  addPathMatch();
   router.options.routes = formatTwoStageRoutes(
     formatFlatteningRoutes(buildHierarchyTree(ascending(routes.flat(Infinity))))
   );
@@ -203,6 +210,19 @@ router.beforeEach(async (to: ToRouteType, _from, next) => {
       if (Title) document.title = `${item.meta.title} | ${Title}`;
       else document.title = item.meta.title as string;
     });
+  }
+
+  // ============================================
+  // 未知路径 → 全屏 404（#1915）
+  // ============================================
+  // 未知路径命中 catch-all（PageNotFound）时，登录 / 游客两态一致直接放行渲染全屏 404。
+  // 必须在下方菜单装配与登录分支之前短路：
+  // 1. 404 非业务页，不该进标签/菜单装配（否则会给用户塞一个并不在看的标签）；
+  // 2. 游客态若落进 whiteList 判断会被弹回 /login，把「页面不存在」藏掉
+  //    （验收要求两态首屏直访未知路径都渲染 404）。
+  if (to.name === "PageNotFound") {
+    next();
+    return;
   }
 
   function toCorrectRoute() {
