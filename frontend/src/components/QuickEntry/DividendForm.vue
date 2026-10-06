@@ -315,6 +315,23 @@ async function handleSubmit() {
   if (ok) emit("submit-success");
 }
 
+// ── 未保存离开保护（#1891）──
+// 抄 BuyForm / SellForm 的写法：脏状态住在子组件内，父组件只能间接读，故 expose 出去。
+// 手动记账页（investment/manual）此前完全没有守卫，填一半切走会静默丢数据。
+//
+// 声明必须在 resetForm() 之前——它被 resetForm 调用（晚于声明即安全，
+// 反之则是 TDZ ReferenceError，vue-tsc 会报 TS2304）。
+const initialSnapshot = ref("");
+
+function markFormClean() {
+  initialSnapshot.value = JSON.stringify(form);
+}
+
+const isDirty = computed(() => JSON.stringify(form) !== initialSnapshot.value);
+
+// 初次挂载即视为干净（父组件用 v-if 只挂其中一个分支）
+markFormClean();
+
 function resetForm() {
   Object.assign(form, defaultForm());
   selectedPosition.value = null;
@@ -322,6 +339,8 @@ function resetForm() {
   resetTradeDate();
   formRef.value?.resetFields();
   positionSelectKey.value++;
+  // 复位后同步脏基线，否则 isDirty 仍为 true（#1891）
+  markFormClean();
 }
 
 watch(
@@ -339,7 +358,7 @@ watch(
 
 onMounted(fetchPositionsByAccount);
 
-defineExpose({ handleSubmit, resetForm });
+defineExpose({ handleSubmit, resetForm, isDirty });
 </script>
 
 <style scoped>

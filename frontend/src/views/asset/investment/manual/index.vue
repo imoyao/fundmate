@@ -284,6 +284,7 @@ import {
   useQuickEntry,
   useQuickEntrySubmit
 } from "@/composables/useQuickEntry";
+import { useUnsavedChangesGuard } from "@/composables/useUnsavedChangesGuard";
 import { LEDGER_TYPE_OPTIONS } from "@/constants";
 
 defineOptions({ name: "ManualEntry" });
@@ -333,6 +334,27 @@ const fundOpType = ref<
 const buyFormRef = ref<InstanceType<typeof BuyForm>>();
 const sellFormRef = ref<InstanceType<typeof SellForm>>();
 const dividendFormRef = ref<InstanceType<typeof DividendForm>>();
+
+// ── 未保存离开保护（#1891）──
+// 本页三个表单各自填到一半时切走，数据会静默丢失且无任何提示。
+// BuyForm / SellForm 自带 isDirty，但此前**只有 TransactionDrawer 在读**——
+// 浮动快速录入那条路有保护，而手动记账页（更常填、更容易丢）整块漏掉了。
+// DividendForm 连 isDirty 都没有，本次一并补上（见该组件内注释）。
+//
+// 三个表单是 v-if / v-else-if / v-else-if 互斥渲染，同时最多挂一个，
+// 所以 || 组合是安全的：未挂载的那两个 ref 为 undefined，判定落到 false。
+const isFormDirty = computed(
+  () =>
+    buyFormRef.value?.isDirty === true ||
+    sellFormRef.value?.isDirty === true ||
+    dividendFormRef.value?.isDirty === true
+);
+
+// 只需调用、不需解构：守卫内部自己注册 onBeforeRouteLeave，调用方无需接线。
+// 解构出 confirmDiscard 反而会 unused —— eslint 按 --max-warnings 0 卡。
+useUnsavedChangesGuard(() => isFormDirty.value, {
+  message: "记账表单已填写，确定放弃吗？"
+});
 
 // 分红/红利再投：复用同一表单，按操作类型切换子模式
 const isDividendLike = computed(() => {
