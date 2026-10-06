@@ -284,3 +284,44 @@ test("#1891：切换操作类型前必须确认（v-if 销毁表单，路由守�
   // 切换在途锁：没有它，连点会弹多个确认框
   assert.match(t, /opTypeSwitching/, "应有切换在途锁，防止连点弹多个确认框");
 });
+
+/**
+ * 复用同一份字段组件的弹窗，守卫必须都接上（#1896）。
+ *
+ * `AccountFormFields`（13 个字段）被三个弹窗复用，而守卫是**逐个文件各写各的**，
+ * 于是覆盖不齐：`CreateAccountDialog` 早有了（#1892），`EditAccountDialog` 却没有——
+ * 它甚至自己写了一份 `editFormSnapshot` + `JSON.stringify` 比较，但**只用来禁用保存
+ * 按钮**，没有任何人读它，于是「改了费率配置点关闭 / ESC / 点遮罩」全程静默丢弃。
+ *
+ * 这类漏点组件层守门抓不到：出问题的不是字段组件，是**宿主有没有接线**。
+ * 第三个宿主 `CreateLedgerDialog` 同样无守卫，但它在导入向导里、关闭要走向导自身的
+ * 步骤流转，已另开 #1897，不在本条的覆盖面内（列在这里是为了让下一个来补 #1897 的人
+ * 知道要把这条扩上去）。
+ */
+test("#1896：复用 AccountFormFields 的弹窗必须接上未保存守卫", () => {
+  for (const f of [
+    "frontend/src/views/asset/ledgers/components/CreateAccountDialog.vue",
+    "frontend/src/views/asset/ledgers/components/EditAccountDialog.vue"
+  ]) {
+    const t = stripComments(readFileSync(join(process.cwd(), f), "utf8"));
+    // 脏基线必须走共享 helper，不允许各自再写一份 JSON.stringify 比较
+    assert.match(
+      t,
+      /useDialogForm|useFormDirty/,
+      `${f} 应改用 useDialogForm/useFormDirty，而不是自己写快照比较`
+    );
+    assert.doesNotMatch(
+      t,
+      /JSON\.stringify\([^)]*\)\s*!==\s*\w*[Ss]napshot/,
+      `${f} 不应保留手写的快照比较`
+    );
+    // 守卫必须真的调了（注册 onBeforeRouteLeave），不是只 import
+    assert.match(
+      t,
+      /useUnsavedChangesGuard\s*\(/,
+      `${f} 必须调 useUnsavedChangesGuard，否则改完关闭静默丢弃`
+    );
+    // 成功后必须复位，否则「存完账离开页面」又被问「确定放弃」
+    assert.match(t, /markSaved\(\)|markClean\(\)/, `${f} 保存成功后应复位脏基线`);
+  }
+});
