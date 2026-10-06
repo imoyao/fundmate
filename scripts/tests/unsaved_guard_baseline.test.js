@@ -323,5 +323,18 @@ test("#1896：复用 AccountFormFields 的弹窗必须接上未保存守卫", ()
     );
     // 成功后必须复位，否则「存完账离开页面」又被问「确定放弃」
     assert.match(t, /markSaved\(\)|markClean\(\)/, `${f} 保存成功后应复位脏基线`);
+    // 关闭四路里的前两路必须**真的接上返回值**——只调 useUnsavedChangesGuard
+    // 不解构，路由离开会拦而点关闭 / ESC / 点遮罩照样静默丢弃。
+    // PR #1898 首版即此形态，当时判据只断言「调了」，跑绿却没修到核心诉求。
+    assert.match(
+      t,
+      /:before-close="onBeforeClose"/,
+      `${f} 的 el-dialog 应挂 :before-close，否则关闭按钮 / ESC / 点遮罩静默丢弃`
+    );
+    assert.match(
+      t,
+      /requestClose\s*\(/,
+      `${f} 的取消按钮应走 requestClose，否则底部取消静默丢弃（程序化 close 走不到 before-close）`
+    );
   }
 });

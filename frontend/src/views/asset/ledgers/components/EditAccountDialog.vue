@@ -4,6 +4,7 @@
     title="编辑账户"
     width="420px"
     destroy-on-close
+    :before-close="onBeforeClose"
     @update:model-value="emit('update:visible', $event)"
   >
     <el-form :model="editForm" label-width="100px">
@@ -42,7 +43,11 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="emit('update:visible', false)">取消</el-button>
+      <!-- 取消走 requestClose：before-close 只拦关闭按钮 / ESC / 点遮罩，
+           程序化 close 走不到它（#1835 同坑，CreateAccountDialog 同形） -->
+      <el-button @click="requestClose(() => emit('update:visible', false))"
+        >取消</el-button
+      >
       <el-button
         type="primary"
         :loading="saving"
@@ -151,10 +156,16 @@ watch(
   }
 );
 
-// 拦路由离开（#1896）。守卫内部自己注册 onBeforeRouteLeave，调用方无需接线。
-useUnsavedChangesGuard(() => isDirty.value, {
-  message: "账户信息已改动，确定放弃吗？"
-});
+// 未保存离开保护（#1896）。守卫内部自己注册 onBeforeRouteLeave（路由离开一路，
+// 调用方无需接线），但关闭按钮 / ESC / 点遮罩（onBeforeClose，挂 :before-close）
+// 与底部「取消」（requestClose，程序化 close 走不到 before-close）这两路必须
+// 由宿主显式接上——PR #1898 首版只调用不解构，核心诉求「点关闭要弹确认」未达成。
+const { onBeforeClose, requestClose } = useUnsavedChangesGuard(
+  () => isDirty.value,
+  {
+    message: "账户信息已改动，确定放弃吗？"
+  }
+);
 
 async function handleUpdate() {
   if (!editForm.value.name.trim()) {
