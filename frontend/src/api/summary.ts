@@ -167,6 +167,19 @@ export type PnlCalendarSeries = {
   month_total: number;
   /** 区间内是否存在可计价持仓（false = 整段无价格序列，前端应显示空态而非零收益） */
   has_any_price: boolean;
+  /**
+   * 覆盖率诊断 —— 前端据此区分两种「空」：
+   * - `priced_positions === 0` 且 `latest_price_date` 为空 ⇒ **数据缺口**（该月没跑快照）
+   * - `priced_positions === 0` 但有价格数据 ⇒ 持仓按日无估值序列（理财/实物等）
+   * 混成一句话会把前者说成「你的持仓有问题」。
+   */
+  coverage: {
+    total_positions: number;
+    priced_positions: number;
+    unpriced_positions: number;
+  };
+  /** 区间内可用的最新价格日（ISO）；空 = 该区间一条价格数据都没有 */
+  latest_price_date: string | null;
   days: PnlCalendarDay[];
 };
 

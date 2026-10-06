@@ -53,8 +53,10 @@ def test_收益日历接口返回契约信封(client, db, make_position, make_tr
     assert data['scope'] == 'family'
     assert data['ledger_id'] is None
     assert len(data['days']) == 3
-    # 首日无前一日基准 ⇒ daily_pnl 必须是 None（不是 0）
-    assert data['days'][0]['daily_pnl'] is None
+    # 首日不再是无基准的 None：实现会多取前一天建立差分基准（#1812 修复），
+    # 所以首日就能给出真实盈亏。这里建仓日盈亏按定义记 0。
+    assert data['days'][0]['daily_pnl'] == 0.0
+    assert data['days'][0]['state'] == 'zero'
     # 次日净值 1.0→1.1，1000 份 ⇒ +100
     assert data['days'][1]['daily_pnl'] == 100.0
     assert data['days'][1]['state'] == 'updown'

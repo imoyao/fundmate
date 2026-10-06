@@ -80,6 +80,11 @@ STATE_ZERO = 'zero'
 STATE_NO_PRICE = 'no_price'
 STATE_CLOSED = 'closed'
 
+# 某标的当天没价格时，最多向前沿用最近多少天的价格（#1812）。
+# 太大：一个月没更新的标的会被当成「价格不变」而画出 0 收益，掩盖数据缺失；
+# 太小：单日数据抖动就会让市值归零、差分出现假跳空。7 天覆盖周末与节假日。
+_STALE_CARRY_DAYS = 7
+
 
 def _to_price_units(value) -> int:
     """元（Decimal/float/str）→ 0.0001 元整数单位，与 Position.current_price 同尺度。"""
@@ -186,15 +191,55 @@ def _price_for(
     fund_nav: Dict[str, Dict[dt.date, int]],
     exchange_prices: Dict[str, Dict[dt.date, int]],
 ) -> Optional[int]:
-    """该持仓在 day 的 0.0001 元单价；**None = 无价格序列**（区别于「有价但当日休市」）。"""
+    """该持仓在 day 的 0.0001 元单价。
+
+    **None = 该标的整段无价格序列**（区别于「有序列但当日无价」——后者会向前回填）。
+
+    前值回填（#1812 修复）：某只基金当天没发布净值时，若直接跳过它，
+    等价于「市值归零」，日差分会出现巨额假跳空——实测 2026-09-30 只有
+    13/57 笔有价，ΔW 假跌 20.8 万。回填让日总额在标的集合不变时可比。
+    周末/全市场无数据时所有标的都回填不出 ⇒ 仍判`closed`，不会被填成「0 收益」。
+    """
     symbol = (pos.symbol or '').strip()
     venue = venue_of_row(symbol, pos.asset_type)
     if venue == OTC:
-        return fund_nav.get(symbol, {}).get(day)
-    if venue == EXCHANGE:
-        return exchange_prices.get(symbol, {}).get(day)
-    # 场所判不出（NO_VENUE）：投顾组合 / 基金经理等无价序列标的
+        series = fund_nav.get(symbol)
+    elif venue == EXCHANGE:
+        series = exchange_prices.get(symbol)
+    else:
+        # 场所判不出（NO_VENUE）：投顾组合 / 基金经理等无价序列标的
+        return None
+    if not series:
+        return None
+    price = series.get(day)
+    if price is not None:
+        return price
+    # 当日无价 → 沿用最近一次已知价格（最多回溯 _STALE_CARRY_DAYS 天）
+    for back in range(1, _STALE_CARRY_DAYS + 1):
+        prev = series.get(day - dt.timedelta(days=back))
+        if prev is not None:
+            return prev
     return None
+
+
+def _has_fresh_price(
+    pos: Position,
+    day: dt.date,
+    fund_nav: Dict[str, Dict[dt.date, int]],
+    exchange_prices: Dict[str, Dict[dt.date, int]],
+) -> bool:
+    """该标的在 day **当天**是否真有报价（不含前值回填）。
+
+    用于区分两种「都拿不到价」：
+    - 全市场都没有 ⇒ 周末 / 节假日，回填后按「价格未变」算 0 是诚实的；
+    - 一部分有、一部分没有 ⇒ 真实的**数据断档**，此时出数会把缺失标的的市值
+      当成 0，差分是错的（实测某基金断档一天，日总额凭空少 1.5 万）。
+      按 design.md「缺数据不可画成 0」，宁可标「数据不全」也不出錯数。
+    """
+    symbol = (pos.symbol or '').strip()
+    venue = venue_of_row(symbol, pos.asset_type)
+    series = fund_nav.get(symbol) if venue == OTC else exchange_prices.get(symbol) if venue == EXCHANGE else None
+    return bool(series) and day in series
 
 
 def _has_price_series(pos: Position, fund_nav, exchange_prices) -> bool:
@@ -249,6 +294,11 @@ def build_daily_pnl_series(
     if start > end:
         return _empty_payload(ledger_id, start, end)
 
+    # 往前多取一天，**只为给区间首日建立差分基准**。
+    # 否则每月 1 号都因「无前一日」被判 closed，看着像休市，其实是基准缺失。
+    # 该日不进入输出（见下方 emit 条件）。
+    scan_start = start - dt.timedelta(days=1)
+
     positions = _positions(db, family_id, ledger_id)
     if not positions:
         return _empty_payload(ledger_id, start, end)
@@ -264,11 +314,14 @@ def build_daily_pnl_series(
         for p in positions
         if venue_of_row((p.symbol or '').strip(), p.asset_type) == EXCHANGE and (p.symbol or '').strip()
     }
-    fund_nav = _collect_fund_nav(db, start, end)
-    exchange_prices = _collect_price_history(db, ex_symbols, start, end)
+    fund_nav = _collect_fund_nav(db, scan_start, end)
+    exchange_prices = _collect_price_history(db, ex_symbols, scan_start, end)
 
     # ── as-of 份额 / 成本 / 已实现盈亏 ──
-    shares, txns = _as_of_shares(db, family_id, start, ledger_id)
+    # 传 end 而非 scan_start：`_as_of_shares` 内部按 `eff > <参数>` 截断，
+    # 传 scan_start 会把「建仓当天正好落在 scan_start 之后」的流水整条丢掉
+    # （实测：买在窗口第 1 天 ⇒ 份额恒为 0 ⇒ 整月 closed）。
+    shares, txns = _as_of_shares(db, family_id, end, ledger_id)
     realized_map = realized_pnl_by_position(db, family_id)
     price_cache: Dict[Tuple[int, str], Optional[int]] = {}
 
@@ -285,29 +338,42 @@ def build_daily_pnl_series(
     per_pos: Dict[int, dict] = {}
     for pos in positions:
         rate = EXCHANGE_RATES.get(pos.currency or 'CNY', 1.0)
+        day_deltas = shares.get(pos.id, {})
+        # **起点之前的累计份额/已实现必须先注入**（#1812 实测缺陷）：
+        # `day_deltas` 是「按日的增量」，而下方循环只推进 [start, end]，
+        # 若不预置，2026-01 建的仓位在 9 月的循环里永远累加不到任何份额
+        # ⇒ shares 恒为 0 ⇒ 整月判成 no_price/closed，日历永远空白。
+        # 单测买在窗口第 1 天，测不到这条路径；必须显式回归「窗口前建仓」。
+        initial_shares = sum(v for d, v in day_deltas.items() if d < scan_start)
         per_pos[pos.id] = {
             'pos': pos,
             'rate': rate,
-            'shares': 0,
+            'shares': initial_shares,
             'realized': 0,
-            'share_days': shares.get(pos.id, {}),
+            'share_days': day_deltas,
             'txn_days': defaultdict(int),
         }
         for txn in txns.get(pos.id, []):
             eff = _effective_date(txn)
-            if eff is not None:
+            if eff is not None and eff < scan_start:
+                per_pos[pos.id]['realized'] += txn.realized_pnl or 0
+            elif eff is not None:
                 per_pos[pos.id]['txn_days'][eff] += txn.realized_pnl or 0
 
     days: List[dict] = []
-    day = start
+    day = scan_start
     prev_net_worth: Optional[int] = None
     prev_total_pnl: Optional[int] = None
 
     while day <= end:
         for state in per_pos.values():
-            eff = day
-            state['shares'] += state['share_days'].get(eff, 0)
-            state['realized'] += state['txn_days'].get(eff, 0)
+            # 建仓日标记：份额由 0 变正的那一天。前一日基准是「未持有」，
+            # 若当日就计入市值，差额会把整笔成本算成当日盈利（实测 1/5 建仓
+            # 当天冒出等于全部市值−成本的假盈亏）。建仓当日不计盈亏。
+            prev = state['shares']
+            state['shares'] += state['share_days'].get(day, 0)
+            state['is_opening'] = prev <= 0 < state['shares']
+            state['realized'] += state['txn_days'].get(day, 0)
 
         day_total_pnl = 0
         day_net_worth = 0
@@ -316,12 +382,30 @@ def build_daily_pnl_series(
         # 当日参与计算的可计价持仓（balance 模式 / 无场所判定的一律不算）
         day_priced_count = 0
         day_unpriced_count = 0
+        day_opening = False
+        opening_pnl = 0
+        # 有份额、且当天**没有新鲜报价**的标的数（回填来的不算新鲜）。
+        # 全为 0 → 周末/节假日，回填后按「价格未变」算 0 是诚实的；
+        # 一部分有一部分没有 → 真实**数据断档**，出数会把缺失标的市值当成 0。
+        day_stale_count = 0
+        # 本日总额是否完整可用于差分基准（覆盖不全时不可用）
+        day_complete = True
+        # 当天有「新鲜报价」的标的数（不含回填）
+        day_fresh_count = 0
 
         for state in per_pos.values():
             pos: Position = state['pos']
+            held = state['shares'] > 0
+            # 「当日新鲜价」= 该标的这一天真的有报价；回填来的价不算。
+            fresh = _has_fresh_price(pos, day, fund_nav, exchange_prices)
+            if held and pos.id not in no_price_ids:
+                if fresh:
+                    day_fresh_count += 1
+                else:
+                    day_stale_count += 1
+
             price = price_of(pos, day)
             if price is None:
-                # 区分两种「无价」：整段无价格序列（no_price_ids）vs 当日休市/未同步
                 if pos.id in no_price_ids:
                     day_unpriced_count += 1
                 continue
@@ -330,7 +414,12 @@ def build_daily_pnl_series(
             if shares <= 0:
                 continue
             day_has_position = True
-            day_priced_count += 1
+            if state['is_opening']:
+                # 建仓当日：仍要计入**水平值**（否则次日差分失去基准，
+                # 次日会把「建仓日没算的涨跌」一次性算进去），但当日盈亏记 0。
+                day_opening = True
+            else:
+                day_priced_count += 1
             market_value = Money.multiply_price_quantity(price, shares)
             # 成本基数与 pnl_service.cost_basis_cents 同口径：nav 模式用成本均价×份额。
             # as-of 份额变了，故成本也必须按当日份额重算，不能用当下的 avg_price。
@@ -341,10 +430,14 @@ def build_daily_pnl_series(
                 cost = int(Decimal(cost) * Decimal(str(rate)))
             day_total_pnl += market_value - cost + state['realized']
             day_net_worth += market_value + state['realized']
+            if state['is_opening']:
+                # 建仓持仓的浮盈是「今天新出现的」，不是「今天赚的」。
+                # 记进水平值（次日差分的基准要用），但从当日差分里剔掉。
+                opening_pnl += market_value - cost + state['realized']
 
         daily_pnl = None
         if prev_total_pnl is not None:
-            daily_pnl = day_total_pnl - prev_total_pnl
+            daily_pnl = day_total_pnl - prev_total_pnl - opening_pnl
 
         # 状态判定（顺序即优先级）：
         #  1. 全部持仓都无价格序列 → no_price（balance 模式账户的整月空白，必须与「0收益」区分）
@@ -354,13 +447,24 @@ def build_daily_pnl_series(
         if day_priced_count == 0 and day_unpriced_count > 0:
             state_code = STATE_NO_PRICE
             daily_pnl = None
-        elif day_priced_count == 0 and day_unpriced_count == 0:
+        elif day_priced_count == 0 and day_unpriced_count == 0 and not day_opening:
             # 当日无任何持仓（尚未建仓/ 已清仓）⇒ 无从计算盈亏
             state_code = STATE_CLOSED
             daily_pnl = None
+        elif day_priced_count == 0 and day_opening:
+            # 当日全部是建仓日：水平值已计入，但当日盈亏强制为 0
+            # （建仓那一刻浮盈本来就是 0，不是「没数据」）。
+            state_code = STATE_ZERO
+            daily_pnl = 0
         elif not day_has_price:
             state_code = STATE_CLOSED
             daily_pnl = None
+        elif day_fresh_count > 0 and day_stale_count > 0:
+            # 有价格但**覆盖不全**（某标的本日断档且超出回填窗）——此时日总额少了
+            # 那几笔的市值，差分是错的。宁可标「数据不全」也不出错数。
+            state_code = STATE_CLOSED
+            daily_pnl = None
+            day_complete = False
         elif daily_pnl is None:
             state_code = STATE_CLOSED
         elif daily_pnl > 0 or daily_pnl < 0:
@@ -372,18 +476,21 @@ def build_daily_pnl_series(
         if daily_pnl is not None and prev_net_worth not in (None, 0):
             rate_pct = round(daily_pnl / abs(prev_net_worth) * 100, 2)
 
-        days.append(
-            {
-                'date': day.isoformat(),
-                'daily_pnl': None if daily_pnl is None else round(Money.cents_to_yuan(daily_pnl), 2),
-                'net_worth': round(Money.cents_to_yuan(day_net_worth), 2),
-                'rate': rate_pct,
-                'state': state_code,
-            }
-        )
+        if day >= start:
+            days.append(
+                {
+                    'date': day.isoformat(),
+                    'daily_pnl': None if daily_pnl is None else round(Money.cents_to_yuan(daily_pnl), 2),
+                    'net_worth': round(Money.cents_to_yuan(day_net_worth), 2),
+                    'rate': rate_pct,
+                    'state': state_code,
+                }
+            )
 
-        prev_total_pnl = day_total_pnl
-        prev_net_worth = day_net_worth
+        # 覆盖不全的日子不写入基准：错值会污染次日的差分
+        if day_complete:
+            prev_total_pnl = day_total_pnl
+            prev_net_worth = day_net_worth
         day += dt.timedelta(days=1)
 
     total_cents = sum(int(Decimal(str(d['daily_pnl'])) * 100) for d in days if d['daily_pnl'] is not None)
@@ -396,6 +503,9 @@ def build_daily_pnl_series(
         round(Money.cents_to_yuan(total_cents), 2),
     )
 
+    priced_total = len(positions) - len(no_price_ids)
+    latest_price_date = _latest_price_date(fund_nav, exchange_prices)
+
     return {
         'ledger_id': ledger_id,
         'scope': 'ledger' if ledger_id is not None else 'family',
@@ -403,8 +513,32 @@ def build_daily_pnl_series(
         'end_date': end.isoformat(),
         'month_total': round(Money.cents_to_yuan(total_cents), 2),
         'has_any_price': any(d['state'] in (STATE_UPDOWN, STATE_ZERO) for d in days),
+        # ── 覆盖率诊断（前端据此区分「你的标的无估值」与「这个月没数据」）──
+        # 这两件事对用户完全不同的处置：前者是持仓属性（本来就不该有日估值），
+        # 后者是数据缺口（该有却没有，多半是每日快照任务没跑）。
+        # 不区分就会像 #1812 上线首日那样，一律显示「无历史价格序列」——
+        # 而真实原因是当月一条价格数据都没有。
+        'coverage': {
+            'total_positions': len(positions),
+            'priced_positions': priced_total,
+            'unpriced_positions': len(no_price_ids),
+        },
+        'latest_price_date': latest_price_date,
         'days': days,
     }
+
+
+def _latest_price_date(
+    fund_nav: Dict[str, Dict[dt.date, int]],
+    exchange_prices: Dict[str, Dict[dt.date, int]],
+) -> Optional[str]:
+    """区间内可用的最新价格日（ISO）。前端用它提示「有数据的最后一天」。"""
+    latest: Optional[dt.date] = None
+    for series in (*fund_nav.values(), *exchange_prices.values()):
+        for d in series:
+            if latest is None or d > latest:
+                latest = d
+    return latest.isoformat() if latest else None
 
 
 def _empty_payload(ledger_id: Optional[int], start: dt.date, end: dt.date) -> dict:
@@ -415,5 +549,7 @@ def _empty_payload(ledger_id: Optional[int], start: dt.date, end: dt.date) -> di
         'end_date': end.isoformat(),
         'month_total': 0.0,
         'has_any_price': False,
+        'coverage': {'total_positions': 0, 'priced_positions': 0, 'unpriced_positions': 0},
+        'latest_price_date': None,
         'days': [],
     }
