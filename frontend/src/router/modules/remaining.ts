@@ -21,33 +21,8 @@ export default [
       requiresAuth: false
     }
   },
-  // 全屏403（无权访问）页面
-  {
-    path: "/access-denied",
-    // router-orphan-allow: 与 /error/403 同指 views/error/403.vue，属重复实现且站内零入链
-    // （router/index.ts:123 的 whiteList 是鉴权白名单，不是导航）。
-    // 保留而非本次删除：#1787 的范围是「batch 死路由 + 孤儿守卫」，合并两套异常页
-    // 属另一件事，已立 #1797 承接；那里会连 whiteList 一起处理。
-    name: "AccessDenied",
-    component: () => import("@/views/error/403.vue"),
-    meta: {
-      title: "403",
-      showLink: false
-    }
-  },
-  // 全屏500（服务器出错）页面
-  {
-    path: "/server-error",
-    // router-orphan-allow: 与 /error/500 同指 views/error/500.vue，站内零入链（同上）。
-    // 合并两套异常页见 #1797；标记随该卡一起摘。
-    name: "ServerError",
-    component: () => import("@/views/error/500.vue"),
-    meta: {
-      title: "500",
-      showLink: false
-    }
-  },
   // 🔥 探市·研究 —— 独立全屏页面，不经过 Layout
+  // （原两条全屏异常页路由是 error.ts 的零入链重复实现，已随 #1797 删除，统一走 /error/*。）
   {
     path: "/explore",
     name: "Explore",

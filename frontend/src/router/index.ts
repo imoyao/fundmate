@@ -120,7 +120,7 @@ export function resetRouter() {
 }
 
 /** 路由白名单（不需要登录即可访问） */
-const whiteList = ["/login", "/explore", "/access-denied"];
+const whiteList = ["/login", "/explore"];
 
 const { VITE_HIDE_HOME } = import.meta.env;
 
