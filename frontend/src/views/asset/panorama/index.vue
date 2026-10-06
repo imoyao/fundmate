@@ -60,7 +60,7 @@
       <SankeyChart :data="sankeyData" :display-mode="sankeyDisplayMode" />
     </div>
 
-    <!-- 资产透视：资产分布 + 基金类型分布环形图（#1014） -->
+    <!-- 资产透视：资产分布 + 基金类型分布环形图 -->
     <AssetInsightPanel class="mb-4" />
 
     <!-- 多维视图表格 -->
