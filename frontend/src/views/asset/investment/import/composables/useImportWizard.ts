@@ -34,6 +34,7 @@ import {
   type FixUndoEntry,
   type SectionCounts
 } from "./batchFixLogic";
+import { isMissingAmount, recalcAfterEdit, smartFill } from "./cellEditLogic";
 
 /**
  * 问题摘要面板的三卡片分类（#1791）。
@@ -385,63 +386,102 @@ export function useImportWizard() {
       selectedMode.value === "tiantian_fund"
   );
 
+  /**
+   * 表格列（#1790 → #783 §6.1 口径）：数据列 9 + 勾选 + 操作 = **11 列**，
+   * 最小宽合计（含勾选 50 / 操作 120）1060px，1200px 视口内无横向滚动。
+   *
+   * 数据列一律 `minWidth`——design.md「冻结列与横向滚动规范」第 4 条：只有冻结列
+   * 才用固定 `width`（否则 EP 不把该列纳入余量分配，宽屏右侧留白，#1421 根因 2）；
+   * §6.1 的 px 值即各列最小宽。
+   *
+   * 列收敛取舍（写明理由、不静默超宽，见 #1790 取舍说明）：
+   * - 手续费（两模式）/ 合同编号 / 发生金额（股票模式）从表格退场——行数据仍完整
+   *   携带、导入载荷不受影响，仅不再占列；
+   * - 金额列 120→90 并接入行内编辑；勾选 80→50、状态 70→60、配置目标 120→110、
+   *   备注 120→80 对齐 §6.1 明示宽度。
+   */
   const tableColumns = computed(() => {
     if (isFundMode.value) {
       return [
         {
           prop: "status",
           label: "状态",
-          width: 70,
+          minWidth: 60,
           slot: "status",
           align: "center"
         },
-        { prop: "product", label: "产品信息", width: 160, slot: "product" },
-        { prop: "opType", label: "操作类型", width: 110, slot: "opType" },
-        { prop: "trade_date", label: "日期", width: 100 },
-        { prop: "quantity", label: "份额", width: 90, align: "right" },
-        { prop: "price", label: "确认净值", width: 90, align: "right" },
-        { prop: "amount", label: "金额", width: 120, align: "right" },
-        { prop: "fee", label: "手续费", width: 90, align: "right" },
+        { prop: "product", label: "产品信息", minWidth: 160, slot: "product" },
+        { prop: "opType", label: "操作类型", minWidth: 110, slot: "opType" },
+        { prop: "trade_date", label: "日期", minWidth: 100 },
+        {
+          prop: "quantity",
+          label: "份额",
+          minWidth: 90,
+          slot: "quantity",
+          align: "right"
+        },
+        {
+          prop: "price",
+          label: "确认净值",
+          minWidth: 90,
+          slot: "price",
+          align: "right"
+        },
+        {
+          prop: "amount",
+          label: "金额",
+          minWidth: 90,
+          slot: "amount",
+          align: "right"
+        },
         {
           prop: "allocation",
           label: "配置目标",
-          width: 120,
+          minWidth: 110,
           slot: "allocation"
         },
-        { prop: "notes", label: "备注", minWidth: 120 }
+        { prop: "notes", label: "备注", minWidth: 80 }
       ];
     }
     return [
       {
         prop: "status",
         label: "状态",
-        width: 70,
+        minWidth: 60,
         slot: "status",
         align: "center"
       },
-      { prop: "product", label: "产品信息", width: 160, slot: "product" },
-      { prop: "opType", label: "操作类型", width: 110, slot: "opType" },
-      { prop: "trade_date", label: "日期", width: 100 },
+      { prop: "product", label: "产品信息", minWidth: 160, slot: "product" },
+      { prop: "opType", label: "操作类型", minWidth: 110, slot: "opType" },
+      { prop: "trade_date", label: "日期", minWidth: 100 },
       {
         prop: "quantity",
         label: "数量",
-        width: 90,
+        minWidth: 90,
         slot: "quantity",
         align: "right"
       },
       {
         prop: "price",
         label: "单价",
-        width: 90,
+        minWidth: 90,
         slot: "price",
         align: "right"
       },
-      { prop: "amount", label: "交易金额", width: 120, align: "right" },
-      { prop: "fee", label: "手续费", width: 90, align: "right" },
-      { prop: "contract_id", label: "合同编号", width: 110 },
-      { prop: "net_amount", label: "发生金额", width: 120, align: "right" },
-      { prop: "allocation", label: "配置目标", width: 120, slot: "allocation" },
-      { prop: "notes", label: "备注", minWidth: 120 }
+      {
+        prop: "amount",
+        label: "交易金额",
+        minWidth: 90,
+        slot: "amount",
+        align: "right"
+      },
+      {
+        prop: "allocation",
+        label: "配置目标",
+        minWidth: 110,
+        slot: "allocation"
+      },
+      { prop: "notes", label: "备注", minWidth: 80 }
     ];
   });
 
@@ -711,7 +751,8 @@ export function useImportWizard() {
           row.error ||
           row.is_duplicate ||
           row.isEditingQty ||
-          row.isEditingPrice
+          row.isEditingPrice ||
+          row.isEditingAmount
         );
       });
     if (tableFilterKeyword.value) {
@@ -1568,6 +1609,7 @@ export function useImportWizard() {
     if (setQty) row.quantity = qty;
     if (setPrc) row.price = prc;
     smartFill(row, setQty ? "price" : "quantity");
+    recalcAfterEdit(row, setQty ? "quantity" : "price"); // §6.2：填数后金额同步
     const gotQty = Number(row.quantity) > 0,
       gotPrc = Number(row.price) > 0;
     const touched = [
@@ -1839,15 +1881,16 @@ export function useImportWizard() {
     if (editingRowKey.value && editingRowKey.value !== row._rowKey) {
       saveAllEditingRows();
       closeAllEditing();
+    } else if (editingRowKey.value === row._rowKey) {
+      // 同行切格兜底：上一格按提交收尾（Tab 路径已自行 finishEdit），保住已改值
+      if (row.isEditingQty) finishEdit(row, "quantity", true);
+      else if (row.isEditingPrice) finishEdit(row, "price", true);
+      else if (row.isEditingAmount) finishEdit(row, "amount", true);
     }
     row._oldValue = row[field];
-    if (field === "quantity") {
-      row.isEditingQty = true;
-      row.isEditingPrice = false;
-    } else if (field === "price") {
-      row.isEditingPrice = true;
-      row.isEditingQty = false;
-    }
+    row.isEditingQty = field === "quantity";
+    row.isEditingPrice = field === "price";
+    row.isEditingAmount = field === "amount";
     editingRowKey.value = row._rowKey;
     previewData.value = [...previewData.value]; // 新增
   }
@@ -1855,10 +1898,14 @@ export function useImportWizard() {
   function finishEdit(row: any, field: string, save: boolean = true) {
     const wasBlocked = isRowBlocked(row);
     if (!save) row[field] = row._oldValue;
-    else smartFill(row, field);
+    else {
+      smartFill(row, field);
+      recalcAfterEdit(row, field); // §6.2：改数量单价→重算金额；改金额→反算
+    }
     delete row._oldValue;
     if (field === "quantity") row.isEditingQty = false;
-    else row.isEditingPrice = false;
+    else if (field === "price") row.isEditingPrice = false;
+    else row.isEditingAmount = false;
     editingRowKey.value = null;
 
     const nowBlocked = isRowBlocked(row);
@@ -1882,23 +1929,11 @@ export function useImportWizard() {
     finishEdit(row, field, false);
   }
 
-  function smartFill(row: any, field: string) {
-    const qty = parseFloat(row.quantity),
-      prc = parseFloat(row.price),
-      amt = parseFloat(row.amount);
-    if (field === "quantity" && isNaN(qty) && !isNaN(prc) && !isNaN(amt)) {
-      row.quantity = parseFloat((amt / prc).toFixed(4));
-      row.smartFilled = true;
-    } else if (field === "price" && isNaN(prc) && !isNaN(qty) && !isNaN(amt)) {
-      row.price = parseFloat((amt / qty).toFixed(4));
-      row.smartFilled = true;
-    }
-  }
-
   function saveAllEditingRows() {
     previewData.value.forEach(row => {
       if (row.isEditingQty) finishEdit(row, "quantity", true);
       if (row.isEditingPrice) finishEdit(row, "price", true);
+      if (row.isEditingAmount) finishEdit(row, "amount", true);
     });
   }
 
@@ -1910,6 +1945,10 @@ export function useImportWizard() {
       }
       if (row.isEditingPrice) {
         row.isEditingPrice = false;
+        delete row._oldValue;
+      }
+      if (row.isEditingAmount) {
+        row.isEditingAmount = false;
         delete row._oldValue;
       }
     });
@@ -1939,11 +1978,8 @@ export function useImportWizard() {
       !row.error
     )
       return "cell-blocked";
-    if (
-      prop === "fee" &&
-      (isNaN(parseFloat(row.fee)) || row.fee === null || row.fee === undefined)
-    )
-      return "cell-missing";
+    // cell-missing 随手续费列退场改挂金额列（#1790 列收敛，理由见 #1790 取舍说明）
+    if (prop === "amount" && isMissingAmount(row)) return "cell-missing";
     return "";
   }
 
