@@ -14,6 +14,7 @@
 - [技术栈与开发环境](#技术栈与开发环境)
 - [后端开发](#后端开发)
 - [前端开发](#前端开发)
+- [前端交互修复：判据与验证](#前端交互修复判据与验证强制2026-10-06)
 - [文档站与落地页](#文档站与落地页)
 - [核心约束](#核心约束)
 - [数据域架构（双引擎硬规则）](#数据域架构双引擎硬规则)
@@ -237,6 +238,85 @@
 - **禁止 `any` / `Record<string, any>`** 作为 API 入参/响应类型。
 - 列表增删改成功后**必须主动清空列表缓存**。
 - 禁止 Emoji，涨红跌绿必须使用语义变量。
+
+---
+
+## 前端交互修复：判据与验证（强制，2026-10-06）
+
+> 本节来自 #1830–#1842 排查、#1845 / #1883 / #1890 / #1891 / #1892 / #1896 六轮修复的复盘。
+> 那一批问题里，**同一类形态反复出现三次**（`initialSnapshot = ref("")` 拿空串当基线、
+> 成功路径不复位、宿主没接线），每一次的发现方式都相同：**先扫全仓，再逐处核实**。
+
+### 一、加「未保存离开保护」前先答三问
+
+扫描出「有录入 UI 但无守卫」的组件后，**不要直接加守卫**。按顺序核实这三问，任一命中就**不要加**：
+
+| 问法 | 命中则 | 为什么 |
+|---|---|---|
+| **1 数据归谁管？** | 数据在别的 composable / context 里 → 不加 | 数据不在自己手里，守卫拦不住也不该拦。`CreateLedgerDialog`（#1897）字段全来自 `useImportWizardContext()`，纯展示组件 |
+| **2 有草稿 / 自动保存吗？** | 有 `persist` / localStorage / draft → 不加 | 丢了能恢复，守卫是多余的打断。`EaccountManualPanel` 的 `useEaccountImport` 有 `draft` ×21 / `persist` ×5 |
+| **3 关闭路径是显式的吗？** | 只有显式「取消 / 保存」→ 不加 | 静默丢失才需要拦。`RoadCardEditor` 无「点外部收起」，用户点的是有字的按钮，天然知道会丢 |
+
+**反过来，三问都不命中就必须加**——`EditAccountDialog`（#1896）就是这样：数据自己管、
+无草稿、13 个字段且弹窗可点遮罩关闭。更糟的是它**自己写了一份 `editFormSnapshot` 比较却只用来
+禁用保存按钮**，没有任何人读它，于是「改了费率配置点关闭」全程静默丢弃。
+
+> **判据是「数据归谁管」，不是「有没有守卫」。** 同一份 `AccountFormFields` 的三个宿主，
+> 两个需要守卫、一个不需要——差别在数据归属，不在代码长相。
+
+### 二、守门要分两层，组件层抓不到「宿主没接线」
+
+`#1891` 那一页整块漏了守卫，但三个表单组件**本身都没问题**——问题是**没人读它们的 `isDirty`**。
+组件层守门（断言 `isFormDirtyJson` 语义、断言组件用了共享 helper）**对此完全无能为力**，
+因为出问题的不是组件，是宿主有没有把 `isDirty` 接进守卫。
+
+所以新增「未保存」类守门时，**必须同时覆盖两层**：
+
+- **组件层**：脏基线语义（`baseline === null` 视为不脏）、用共享 helper 不手写快照比较；
+- **接线层**：宿主必须调 `useUnsavedChangesGuard`，且脏状态要真的读到了子组件的 `isDirty`
+  （只断言 `isDirty` 存在不够——它可能像 `EditAccountDialog` 那样只被用来禁用按钮）。
+
+接线层的断言要按**复用关系**枚举，而不是按文件：`AccountFormFields` 的三个宿主、
+快速录入的三个表单，都要在名单里；名单扩到新成员时守门要一起扩。
+
+### 三、守门通过 ≠ 守门有效：必须用探针自检
+
+新写/改判据后，**跑一次绿不算数**。要临时注入一次回退，确认守门真的会红：
+
+```powershell
+# 临时把修复删掉 → 确认该条用例 not ok → 还原 → 确认恢复全绿
+python - <<'PY'
+import pathlib, subprocess
+F = "frontend/src/views/asset/ledgers/components/EditAccountDialog.vue"
+orig = pathlib.Path(F).read_text(encoding="utf-8")
+pathlib.Path(F).write_text(orig.replace("markSaved();", "", 1), encoding="utf-8", newline="")
+r = subprocess.run(["node", "--test", "scripts/tests/unsaved_guard_baseline.test.js"],
+                   capture_output=True, text=True, encoding="utf-8", errors="replace")
+print("CAUGHT" if any(l.startswith("not ok") for l in r.stdout.splitlines()) else "MISSED（守门失效）")
+pathlib.Path(F).write_text(orig, encoding="utf-8", newline="")
+PY
+```
+
+今天的两次真实拦截：#1891 那一版判据按**缩进**截取函数体，被 `CreateAccountDialog.handleCreate`
+里第 98 行闭的是 `if (!name.trim())` 假失败；另一版用 `/set\s*\(/` 匹配不到对象方法的
+`set: (v) => {}`（`set` 与 `(` 之间有冒号）。**判据自己先崩了两次**——所以判据写好后
+必须在**真实代码**上跑，且要有一次回退验证。
+
+### 四、正则/字符串类判据的两个常见错
+
+- **按缩进截取函数体会截错**：`async function f() { if (x) { … } … }` 里第一个 `\n  }` 闭的是
+  `if` 不是函数。要**数花括号配对**（`extractAsyncFunctionBody` 那段）。
+- **先 `stripComments` 再匹配**：文档里写「旧写法是 `ref("")`」会被当成代码，仓库里
+  `unsaved_guard_baseline.test.js` 的注释已经明说「今天已被咬第三次」。
+
+### 五、扫描优先于抽查
+
+一轮扫 18 个候选，最后只有 1 个是真问题（#1896）。**抽查会漏掉同型漏点**——
+#1845 / #1883 / #1884 三轮都在修组件内部语义，而 #1891 那一页始终漏着，因为三轮都没扫过宿主。
+机械化扫一遍的成本是几分钟，漏一个的代价是一整轮返工。
+
+判定「不需要修」时，**把三问的答案写进卡或守门注释**，否则下一个人看到「没守卫」就会去补。
+`#1897` 就是反面教材：建卡时只看到「在向导内、没守卫」，没查数据归属，卡建错了又关掉。
 
 ---
 
