@@ -368,3 +368,103 @@ def test_空态能区分数据缺口与持仓无估值(db, make_position, make_t
     assert result['coverage']['total_positions'] == 1
     assert result['coverage']['priced_positions'] == 0
     assert result['latest_price_date'] is None, '取不到任何价格 ⇒ 应报缺口，让前端说「本月无数据」'
+
+
+def test_家庭级覆盖不全时账户级丢同一批天(db, make_position, make_transaction):
+    """#1916 回归：家庭级因某账户断档丢天时，账户级不得各自出数。
+
+    场景：账户甲的基金 1/5~1/7 都有净值；账户乙的基金仅 1/5 有、1/6 起断档。
+    家庭级 1/6、1/7 触发「覆盖不全不出数」⇒ closed/None（#1812 既有行为）。
+    若账户级按各自持仓判定：账户甲 1/6 会照常算出 +50 ⇒ Σ账户级 ≠ 家庭级。
+    真实库实测：份额口径修正后该缺口放大到 3502.91，根因即丢天集合不一致。
+
+    修法：状态判定集恒为家庭级全量——各作用域丢同一批天、同步推进差分基准；
+    而 day_total 按持仓可加（份额/已实现均按持仓归集），故恒等式成立。
+    """
+    d1 = dt.date(2026, 1, 5)
+    d2 = dt.date(2026, 1, 6)
+    d3 = dt.date(2026, 1, 7)
+
+    a = make_position(
+        symbol='000051', name='甲基金', account_name='甲账户', quantity=1000, avg_price=1.0, asset_type='fund'
+    )
+    b = make_position(
+        symbol='000052', name='乙基金', account_name='乙账户', quantity=1000, avg_price=2.0, asset_type='fund'
+    )
+    for pos, sym, px in ((a, '000051', 1.0), (b, '000052', 2.0)):
+        make_transaction(
+            position_id=pos.id,
+            ledger_id=pos.ledger_id,
+            txn_type='buy',
+            quantity=1000,
+            price=px,
+            confirm_date=dt.date(2025, 12, 1),
+            symbol=sym,
+        )
+    # 甲：三天都有净值；乙：仅 d1 有，d2/d3 断档（超出回填窗）
+    _add_nav(db, '000051', d1, 1.0)
+    _add_nav(db, '000051', d2, 1.05)
+    _add_nav(db, '000051', d3, 1.05)
+    _add_nav(db, '000052', d1, 2.0)
+
+    family = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-07')
+    led_a = build_daily_pnl_series(
+        db, family_id=1, start_date='2026-01-05', end_date='2026-01-07', ledger_id=a.ledger_id
+    )
+    led_b = build_daily_pnl_series(
+        db, family_id=1, start_date='2026-01-05', end_date='2026-01-07', ledger_id=b.ledger_id
+    )
+
+    # 家庭级：d2/d3 覆盖不全 ⇒ 不出数（#1812 既有行为，不得回归）
+    for day in (d2, d3):
+        assert _state_of(family, day) == STATE_CLOSED
+        assert _pnl_of(family, day) is None
+
+    # #1916：账户级必须丢同一批天——不能因为自己那笔有价就照常出数
+    for led in (led_a, led_b):
+        for day in (d2, d3):
+            assert _state_of(led, day) == STATE_CLOSED, f'{day} 账户级应与家庭级同为 closed'
+            assert _pnl_of(led, day) is None
+
+    assert family['month_total'] == pytest.approx(led_a['month_total'] + led_b['month_total'], abs=0.02)
+
+
+def test_流水与持仓账户不一致时按持仓归集(db, make_position, make_transaction):
+    """#1916：流水记在账户乙、持仓在账户甲 ⇒ 账户甲视图必须算进份额。
+
+    真实库 42 笔流水的 ledger_id 与其持仓不一致（账户迁移遗留：持仓搬走了、
+    流水没搬）。口径按权威先例 `get_ledger_pnl`（#1220）「按持仓归集」：
+    份额来自全家庭流水、按 position_id 归组，与流水记在哪个账户无关。
+    若仍按 Transaction.ledger_id 过滤：账户甲视图 shares=0 ⇒ 整月 closed。
+    """
+    d1 = dt.date(2026, 1, 5)
+    d2 = dt.date(2026, 1, 6)
+
+    # 乙账户仅放一笔零份额占位持仓，用来产生一个真实 ledger_id
+    donor = make_position(
+        symbol='000062', name='乙账户占位', account_name='乙账户', quantity=0, avg_price=0, asset_type='fund'
+    )
+    pos = make_position(
+        symbol='000061', name='甲账户基金', account_name='甲账户', quantity=1000, avg_price=1.0, asset_type='fund'
+    )
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=donor.ledger_id,  # ← 流水归属乙账户，持仓在甲账户（复现 42 笔错位）
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=dt.date(2025, 12, 1),
+        symbol='000061',
+    )
+    _add_nav(db, '000061', d1, 1.0)
+    _add_nav(db, '000061', d2, 1.1)
+
+    family = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-06')
+    led = build_daily_pnl_series(
+        db, family_id=1, start_date='2026-01-05', end_date='2026-01-06', ledger_id=pos.ledger_id
+    )
+
+    # 甲账户视图：份额必须来自这笔（归属错位的）流水，d2 净值 1.0→1.1 ⇒ +100
+    assert _state_of(led, d2) == STATE_UPDOWN
+    assert _pnl_of(led, d2) == pytest.approx(100.0, abs=0.01)
+    assert led['month_total'] == pytest.approx(family['month_total'], abs=0.02)

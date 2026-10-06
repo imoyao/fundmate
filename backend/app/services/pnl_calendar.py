@@ -64,7 +64,6 @@ from app.domains.transactions.models import Transaction
 from app.services.pnl_service import (
     _DIVEST_TXN_TYPES,
     _INVEST_TXN_TYPES,
-    realized_pnl_by_position,
 )
 
 # 单价精度：场内 adj_close 为「元」浮点，需放大到 0.0001 元整数再喂 Money.multiply_price_quantity
@@ -109,17 +108,24 @@ def _as_of_shares(
     start: dt.date,
     ledger_id: Optional[int] = None,
 ) -> Tuple[Dict[int, Dict[dt.date, int]], Dict[int, List[Transaction]]]:
-    """as-of 份额与原始流水：{position_id: {date: 累计份额}} + {position_id: [txn...]}。
+    """as-of 份额与原始流水：{position_id: {date: 增量份额}} + {position_id: [txn...]}。
 
     份额取 `transactions.quantity`（0.0001 份/单位，与 Position.quantity 同尺度）。
-    只需要 start 及之前的一小段前缀即可覆盖整段区间，故按 start 截断。
+
+    **口径：按持仓归集，流水不按 `ledger_id` 过滤**（#1916）。
+    既有权威口径 `get_ledger_pnl`（#1220）就是 `key = p.ledger_id or 0` 按持仓分组，
+    而 `realized_pnl_by_position` / `net_invested_by_position` 只按 `family_id` 过滤、
+    **不按 ledger 过滤**。本函数曾多此一举按 `Transaction.ledger_id` 过滤，导致：
+    持仓在账户 13、流水记在账户 2 时，账户 13 视图「持仓进来、份额没进来」，
+    破坏「家庭级 = Σ 账户级」恒等式（真实库实测差 529.90）。
+
+    `ledger_id` 参数**仅用于缩小查询范围做性能优化时也必须保持口径一致**，
+    因此这里刻意不使用它过滤——保持与既有 service 完全一致。
     """
     query = db.query(Transaction).filter(
         Transaction.family_id == family_id,
         Transaction.position_id.isnot(None),
     )
-    if ledger_id is not None:
-        query = query.filter(Transaction.ledger_id == ledger_id)
 
     shares: Dict[int, Dict[dt.date, int]] = defaultdict(dict)
     txns: Dict[int, List[Transaction]] = defaultdict(list)
@@ -268,79 +274,23 @@ def _positions(
     return query.all()
 
 
-def build_daily_pnl_series(
-    db: Session,
-    family_id: int = 1,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    ledger_id: Optional[int] = None,
-) -> dict:
-    """逐日盈亏日历序列（家庭级 / 账户级共用同一路径）。
+def _build_per_pos(
+    positions: List[Position],
+    shares: Dict[int, Dict[dt.date, int]],
+    txns: Dict[int, List[Transaction]],
+    scan_start: dt.date,
+) -> Dict[int, dict]:
+    """每笔持仓的运行态（份额 / 已实现 / 建仓标记），家庭级与账户级共用同一构造。
 
-    Args:
-        start_date / end_date: YYYY-MM-DD（含）。end 缺省取上海时区当日。
-        ledger_id: 传则返回该账户级序列，不传返回家庭级（与 `get_snapshots` 语义一致）。
-
-    Returns:
-        {'ledger_id': int|None, 'scope': 'family'|'ledger', 'start_date': ..., 'end_date': ...,
-         'month_total': float, 'has_any_price': bool, 'days': [{'date','daily_pnl','rate','state'}, ...]}
-
-    `rate` = 当日盈亏 / 前一日总资产。**前端禁止二次计算**，一切数值出口在此。
+    `shares` / `txns` 均为全家庭口径（按 position_id 归组，见 `_as_of_shares`），
+    传入哪一组持仓就得到哪一组的运行态——这是「家庭级 = Σ 账户级」可加性的前提。
     """
-    from app.core.time_utils import now_shanghai
-
-    end = dt.datetime.strptime(end_date, '%Y-%m-%d').date() if end_date else now_shanghai().date()
-    start = dt.datetime.strptime(start_date, '%Y-%m-%d').date() if start_date else end - dt.timedelta(days=29)
-    if start > end:
-        return _empty_payload(ledger_id, start, end)
-
-    # 往前多取一天，**只为给区间首日建立差分基准**。
-    # 否则每月 1 号都因「无前一日」被判 closed，看着像休市，其实是基准缺失。
-    # 该日不进入输出（见下方 emit 条件）。
-    scan_start = start - dt.timedelta(days=1)
-
-    positions = _positions(db, family_id, ledger_id)
-    if not positions:
-        return _empty_payload(ledger_id, start, end)
-
-    # ── 价格批量取回（跨域两步法：先按键分组，再 in_ 一次取回）──
-    otc_codes = {
-        (p.symbol or '').strip()
-        for p in positions
-        if venue_of_row((p.symbol or '').strip(), p.asset_type) == OTC and (p.symbol or '').strip()
-    }
-    ex_symbols = {
-        (p.symbol or '').strip()
-        for p in positions
-        if venue_of_row((p.symbol or '').strip(), p.asset_type) == EXCHANGE and (p.symbol or '').strip()
-    }
-    fund_nav = _collect_fund_nav(db, scan_start, end)
-    exchange_prices = _collect_price_history(db, ex_symbols, scan_start, end)
-
-    # ── as-of 份额 / 成本 / 已实现盈亏 ──
-    # 传 end 而非 scan_start：`_as_of_shares` 内部按 `eff > <参数>` 截断，
-    # 传 scan_start 会把「建仓当天正好落在 scan_start 之后」的流水整条丢掉
-    # （实测：买在窗口第 1 天 ⇒ 份额恒为 0 ⇒ 整月 closed）。
-    shares, txns = _as_of_shares(db, family_id, end, ledger_id)
-    realized_map = realized_pnl_by_position(db, family_id)
-    price_cache: Dict[Tuple[int, str], Optional[int]] = {}
-
-    def price_of(pos: Position, day: dt.date) -> Optional[int]:
-        key = (pos.id, day.isoformat())
-        if key not in price_cache:
-            price_cache[key] = _price_for(pos, day, fund_nav, exchange_prices)
-        return price_cache[key]
-
-    # 预标记无价格序列的持仓（balance 模式 / 无场所判定）——整段区间都不可能有日收益
-    no_price_ids = {p.id for p in positions if not _has_price_series(p, fund_nav, exchange_prices)}
-
-    # ── 逐日推进：维护每笔持仓的 as-of 份额与累计已实现 ──
     per_pos: Dict[int, dict] = {}
     for pos in positions:
         rate = EXCHANGE_RATES.get(pos.currency or 'CNY', 1.0)
         day_deltas = shares.get(pos.id, {})
         # **起点之前的累计份额/已实现必须先注入**（#1812 实测缺陷）：
-        # `day_deltas` 是「按日的增量」，而下方循环只推进 [start, end]，
+        # `day_deltas` 是「按日的增量」，而日循环只推进 [scan_start, end]，
         # 若不预置，2026-01 建的仓位在 9 月的循环里永远累加不到任何份额
         # ⇒ shares 恒为 0 ⇒ 整月判成 no_price/closed，日历永远空白。
         # 单测买在窗口第 1 天，测不到这条路径；必须显式回归「窗口前建仓」。
@@ -359,31 +309,153 @@ def build_daily_pnl_series(
                 per_pos[pos.id]['realized'] += txn.realized_pnl or 0
             elif eff is not None:
                 per_pos[pos.id]['txn_days'][eff] += txn.realized_pnl or 0
+    return per_pos
+
+
+def build_daily_pnl_series(
+    db: Session,
+    family_id: int = 1,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    ledger_id: Optional[int] = None,
+) -> dict:
+    """逐日盈亏日历序列（家庭级 / 账户级共用同一路径）。
+
+     Args:
+         start_date / end_date: YYYY-MM-DD（含）。end 缺省取上海时区当日。
+         ledger_id: 传则返回该账户级序列，不传返回家庭级（与 `get_snapshots` 语义一致）。
+
+     Returns:
+         {'ledger_id': int|None, 'scope': 'family'|'ledger', 'start_date': ..., 'end_date': ...,
+          'month_total': float, 'has_any_price': bool, 'days': [{'date','daily_pnl','rate','state'}, ...]}
+
+     `rate` = 当日盈亏 / 前一日总资产。**前端禁止二次计算**，一切数值出口在此。
+
+     恒等式（#1916）：**家庭级 month_total ≡ Σ 各账户级 month_total**，成立条件有三，
+    缺一不可：
+     1. 份额/已实现按**持仓**归集、流水不按 ledger 过滤（口径先例 `get_ledger_pnl` #1220）；
+     2. 状态判定（丢天/覆盖不全/无持仓）恒用**家庭级全量决策集**——各作用域丢同一批天、
+        同步推进差分基准，否则 month_total 的差分链错位、不可加（实测差 3502.91）；
+     3. day_total 按持仓可加（每笔持仓恰属一个账户）。
+    """
+    from app.core.time_utils import now_shanghai
+
+    end = dt.datetime.strptime(end_date, '%Y-%m-%d').date() if end_date else now_shanghai().date()
+    start = dt.datetime.strptime(start_date, '%Y-%m-%d').date() if start_date else end - dt.timedelta(days=29)
+    if start > end:
+        return _empty_payload(ledger_id, start, end)
+
+    # 往前多取一天，**只为给区间首日建立差分基准**。
+    # 否则每月 1 号都因「无前一日」被判 closed，看着像休市，其实是基准缺失。
+    # 该日不进入输出（见下方 emit 条件）。
+    scan_start = start - dt.timedelta(days=1)
+
+    positions = _positions(db, family_id, ledger_id)
+    if not positions:
+        return _empty_payload(ledger_id, start, end)
+
+    # ── 状态判定集恒为家庭级全量（#1916）──
+    # 丢天判定（覆盖不全 / 全无价 / 无持仓）若按账户各自计算，家庭级与各账户丢的
+    # 天数不同 ⇒ 差分基准（prev_total_pnl）错位 ⇒ month_total 不可加：
+    # 真实库实测「家庭级 -11561.76 vs Σ账户 -12091.66，差 529.90」，份额口径修正后
+    # 缺口放大到 3502.91。判定集统一取家庭级全量后，各作用域丢同一批天、同步推进
+    # 基准；而 day_total 按持仓可加（份额/已实现均按持仓归集），故
+    # Σ账户级 month_total ≡ 家庭级 month_total。家庭级调用时两者为同一集合。
+    decision_positions = positions if ledger_id is None else _positions(db, family_id, None)
+
+    # ── 价格批量取回（跨域两步法：先按键分组，再 in_ 一次取回）──
+    # 判定集是家庭级全量，价格按全量取（账户级调用也一样）。
+    otc_codes = {
+        (p.symbol or '').strip()
+        for p in decision_positions
+        if venue_of_row((p.symbol or '').strip(), p.asset_type) == OTC and (p.symbol or '').strip()
+    }
+    ex_symbols = {
+        (p.symbol or '').strip()
+        for p in decision_positions
+        if venue_of_row((p.symbol or '').strip(), p.asset_type) == EXCHANGE and (p.symbol or '').strip()
+    }
+    fund_nav = _collect_fund_nav(db, scan_start, end)
+    exchange_prices = _collect_price_history(db, ex_symbols, scan_start, end)
+
+    # ── as-of 份额 / 成本 / 已实现盈亏 ──
+    # 传 end 而非 scan_start：`_as_of_shares` 内部按 `eff > <参数>` 截断，
+    # 传 scan_start 会把「建仓当天正好落在 scan_start 之后」的流水整条丢掉
+    # （实测：买在窗口第 1 天 ⇒ 份额恒为 0 ⇒ 整月 closed）。
+    shares, txns = _as_of_shares(db, family_id, end)
+    price_cache: Dict[Tuple[int, str], Optional[int]] = {}
+
+    def price_of(pos: Position, day: dt.date) -> Optional[int]:
+        key = (pos.id, day.isoformat())
+        if key not in price_cache:
+            price_cache[key] = _price_for(pos, day, fund_nav, exchange_prices)
+        return price_cache[key]
+
+    # 预标记无价格序列的持仓（balance 模式 / 无场所判定）——整段区间都不可能有日收益。
+    # 判定用家庭级全集；coverage 诊断按本作用域自己的持仓报。
+    no_price_ids = {p.id for p in decision_positions if not _has_price_series(p, fund_nav, exchange_prices)}
+
+    # ── 逐日推进：维护每笔持仓的 as-of 份额与累计已实现 ──
+    decision_per_pos = _build_per_pos(decision_positions, shares, txns, scan_start)
+    value_per_pos = decision_per_pos if ledger_id is None else _build_per_pos(positions, shares, txns, scan_start)
 
     days: List[dict] = []
     day = scan_start
     prev_net_worth: Optional[int] = None
     prev_total_pnl: Optional[int] = None
 
-    while day <= end:
-        for state in per_pos.values():
-            # 建仓日标记：份额由 0 变正的那一天。前一日基准是「未持有」，
-            # 若当日就计入市值，差额会把整笔成本算成当日盈利（实测 1/5 建仓
-            # 当天冒出等于全部市值−成本的假盈亏）。建仓当日不计盈亏。
-            prev = state['shares']
-            state['shares'] += state['share_days'].get(day, 0)
-            state['is_opening'] = prev <= 0 < state['shares']
-            state['realized'] += state['txn_days'].get(day, 0)
+    # 账户级调用时决策集（家庭全集）与值集（本账户）是两套；家庭级调用时同一套。
+    per_pos_sets = (value_per_pos,) if value_per_pos is decision_per_pos else (decision_per_pos, value_per_pos)
 
+    while day <= end:
+        for per_pos in per_pos_sets:
+            for state in per_pos.values():
+                # 建仓日标记：份额由 0 变正的那一天。前一日基准是「未持有」，
+                # 若当日就计入市值，差额会把整笔成本算成当日盈利（实测 1/5 建仓
+                # 当天冒出等于全部市值−成本的假盈亏）。建仓当日不计盈亏。
+                prev = state['shares']
+                state['shares'] += state['share_days'].get(day, 0)
+                state['is_opening'] = prev <= 0 < state['shares']
+                state['realized'] += state['txn_days'].get(day, 0)
+
+        # ── 值计算（仅本作用域持仓；家庭级调用时与决策集同一套）──
         day_total_pnl = 0
         day_net_worth = 0
+        opening_pnl = 0
+
+        for state in value_per_pos.values():
+            pos: Position = state['pos']
+            price = price_of(pos, day)
+            if price is None:
+                continue
+            held_shares = state['shares']
+            if held_shares <= 0:
+                continue
+            market_value = Money.multiply_price_quantity(price, held_shares)
+            # 成本基数与 pnl_service.cost_basis_cents 同口径：nav 模式用成本均价×份额。
+            # as-of 份额变了，故成本也必须按当日份额重算，不能用当下的 avg_price。
+            cost = Money.multiply_price_quantity(pos.avg_price or 0, held_shares)
+            rate = state['rate']
+            if rate != 1.0:
+                market_value = int(Decimal(market_value) * Decimal(str(rate)))
+                cost = int(Decimal(cost) * Decimal(str(rate)))
+            day_total_pnl += market_value - cost + state['realized']
+            day_net_worth += market_value + state['realized']
+            if state['is_opening']:
+                # 建仓持仓的浮盈是「今天新出现的」，不是「今天赚的」。
+                # 记进水平值（次日差分的基准要用），但从当日差分里剔掉。
+                opening_pnl += market_value - cost + state['realized']
+
+        daily_pnl = None
+        if prev_total_pnl is not None:
+            daily_pnl = day_total_pnl - prev_total_pnl - opening_pnl
+
+        # ── 状态判定（家庭级决策集，#1916：各作用域丢同一批天、同步推进基准）──
         day_has_price = False
-        day_has_position = False
-        # 当日参与计算的可计价持仓（balance 模式 / 无场所判定的一律不算）
+        # 当日参与判定的可计价持仓（balance 模式 / 无场所判定的一律不算）
         day_priced_count = 0
         day_unpriced_count = 0
         day_opening = False
-        opening_pnl = 0
         # 有份额、且当天**没有新鲜报价**的标的数（回填来的不算新鲜）。
         # 全为 0 → 周末/节假日，回填后按「价格未变」算 0 是诚实的；
         # 一部分有一部分没有 → 真实**数据断档**，出数会把缺失标的市值当成 0。
@@ -393,7 +465,7 @@ def build_daily_pnl_series(
         # 当天有「新鲜报价」的标的数（不含回填）
         day_fresh_count = 0
 
-        for state in per_pos.values():
+        for state in decision_per_pos.values():
             pos: Position = state['pos']
             held = state['shares'] > 0
             # 「当日新鲜价」= 该标的这一天真的有报价；回填来的价不算。
@@ -410,34 +482,14 @@ def build_daily_pnl_series(
                     day_unpriced_count += 1
                 continue
             day_has_price = True
-            shares = state['shares']
-            if shares <= 0:
+            if state['shares'] <= 0:
                 continue
-            day_has_position = True
             if state['is_opening']:
                 # 建仓当日：仍要计入**水平值**（否则次日差分失去基准，
                 # 次日会把「建仓日没算的涨跌」一次性算进去），但当日盈亏记 0。
                 day_opening = True
             else:
                 day_priced_count += 1
-            market_value = Money.multiply_price_quantity(price, shares)
-            # 成本基数与 pnl_service.cost_basis_cents 同口径：nav 模式用成本均价×份额。
-            # as-of 份额变了，故成本也必须按当日份额重算，不能用当下的 avg_price。
-            cost = Money.multiply_price_quantity(pos.avg_price or 0, shares)
-            rate = state['rate']
-            if rate != 1.0:
-                market_value = int(Decimal(market_value) * Decimal(str(rate)))
-                cost = int(Decimal(cost) * Decimal(str(rate)))
-            day_total_pnl += market_value - cost + state['realized']
-            day_net_worth += market_value + state['realized']
-            if state['is_opening']:
-                # 建仓持仓的浮盈是「今天新出现的」，不是「今天赚的」。
-                # 记进水平值（次日差分的基准要用），但从当日差分里剔掉。
-                opening_pnl += market_value - cost + state['realized']
-
-        daily_pnl = None
-        if prev_total_pnl is not None:
-            daily_pnl = day_total_pnl - prev_total_pnl - opening_pnl
 
         # 状态判定（顺序即优先级）：
         #  1. 全部持仓都无价格序列 → no_price（balance 模式账户的整月空白，必须与「0收益」区分）
@@ -503,7 +555,9 @@ def build_daily_pnl_series(
         round(Money.cents_to_yuan(total_cents), 2),
     )
 
-    priced_total = len(positions) - len(no_price_ids)
+    # coverage 按本作用域自己的持仓报（no_price_ids 是家庭级全集，须按持仓过滤）
+    scope_unpriced = sum(1 for p in positions if p.id in no_price_ids)
+    priced_total = len(positions) - scope_unpriced
     latest_price_date = _latest_price_date(fund_nav, exchange_prices)
 
     return {
@@ -521,7 +575,7 @@ def build_daily_pnl_series(
         'coverage': {
             'total_positions': len(positions),
             'priced_positions': priced_total,
-            'unpriced_positions': len(no_price_ids),
+            'unpriced_positions': scope_unpriced,
         },
         'latest_price_date': latest_price_date,
         'days': days,
