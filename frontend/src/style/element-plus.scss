@@ -148,13 +148,13 @@
      ⚠️ 这两块原先排在基础声明 `.el-input__inner { font-size: 1.2em }` **之前**——
      媒体查询不改变特异性，12px 被 1.2em 压掉、**从未生效**（2026-09-18 修复，见 #1576 台账）。
      阈值刻意保留（760/940/470 是本组件内的视口区间，非页面级断点）。 */
-  @media screen and (width > 760px) and (width <= 940px) {
+  @media screen and (width > 760px) and (width <= 940px) /* breakpoint-allow: 双向区间，bp mixin 无法表达 */ {
     .el-input__inner {
       font-size: 12px;
     }
   }
 
-  @media screen and (width <= 470px) {
+  @media screen and (width <= 470px) /* breakpoint-allow: 470px 不在断点表，且与上方块共同覆盖窄屏+中屏两档 */ {
     .el-input__inner {
       font-size: 12px;
     }
