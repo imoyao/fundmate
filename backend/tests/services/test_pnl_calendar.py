@@ -249,3 +249,85 @@ def test_改持仓后历史自动重算(db, make_position, make_transaction):
 
     assert after['has_any_price'] is True
     assert _pnl_of(after, d2) == pytest.approx(100.0, abs=0.01)
+
+
+def test_窗口前建仓的持仓必须计入份额(db, make_position, make_transaction):
+    """回归 #1812 上线首日的真实缺陷：整月空白。
+
+    背景：`_as_of_shares` 返回的是「按日增量」，而日循环原本只推进 [start, end]。
+    2026-01 建的仓位，其 1 月增量永远不会被应用 ⇒ shares 恒为 0 ⇒ 整月 no_price。
+    原有用例全部「买在窗口第 1 天」，测不到这条路径 —— 真实库有 151 个持仓、
+    绝大多数早于查询窗口，测试却全绿。
+
+    本例显式在**窗口之前**建仓，断言区间内必须有真实盈亏。
+    """
+    buy_day = dt.date(2025, 12, 20)   # 远早于查询窗口
+    d1 = dt.date(2026, 1, 5)
+    d2 = dt.date(2026, 1, 6)
+
+    pos = make_position(symbol='000777', name='窗口前建仓', quantity=1000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=buy_day,
+        symbol='000777',
+    )
+    _add_nav(db, '000777', buy_day, 1.0)
+    _add_nav(db, '000777', d1, 1.0)
+    _add_nav(db, '000777', d2, 1.1)
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-07')
+
+    assert result['has_any_price'] is True, '窗口前建仓的持仓必须计入，否则整月空白'
+    # 1/6 净值 1.0→1.1，1000 份 ⇒ +100
+    assert _pnl_of(result, d2) == pytest.approx(100.0, abs=0.01)
+    assert _state_of(result, d2) == STATE_UPDOWN
+
+
+def test_区间首日不应因缺基准而显示为休市(db, make_position, make_transaction):
+    """区间首日要有前一日基准（实现多取一天），否则每月 1 号都被误判成休市。"""
+    d0 = dt.date(2026, 1, 4)
+    d1 = dt.date(2026, 1, 5)
+
+    pos = make_position(symbol='000888', name='首日基准', quantity=1000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=dt.date(2025, 12, 1),
+        symbol='000888',
+    )
+    _add_nav(db, '000888', d0, 1.0)
+    _add_nav(db, '000888', d1, 1.05)
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-06')
+
+    # 首日即应给出真实盈亏，而不是 None/closed
+    assert _pnl_of(result, d1) == pytest.approx(50.0, abs=0.01), f'首日应可算，实得 {_pnl_of(result, d1)}'
+    assert _state_of(result, d1) == STATE_UPDOWN
+
+
+def test_空态能区分数据缺口与持仓无估值(db, make_position, make_transaction):
+    """无价格数据时，coverage/latest_price_date 要能让人区分成因。"""
+    pos = make_position(symbol='000999', name='无价账户', quantity=1000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=dt.date(2025, 12, 1),
+        symbol='000999',
+    )
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-06')
+
+    assert result['has_any_price'] is False
+    assert result['coverage']['total_positions'] == 1
+    assert result['coverage']['priced_positions'] == 0
+    assert result['latest_price_date'] is None, '取不到任何价格 ⇒ 应报缺口，让前端说「本月无数据」'

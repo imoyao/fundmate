@@ -84,8 +84,19 @@
         :style="{ color: 'var(--text-tertiary-ink)' }"
       />
       <span class="text-sm" :style="{ color: 'var(--text-secondary)' }">
-        {{ NO_PRICE_HINT }}
+        {{ emptyHint }}
       </span>
+      <!-- 数据缺口要给出口：用户能一键跳到有数据的那个月，
+           否则只能自己一次次翻月份试。 -->
+      <el-button
+        v-if="emptyIsDataGap && latestPriceMonth"
+        size="small"
+        text
+        type="primary"
+        @click="jumpToLatestPriceMonth"
+      >
+        查看 {{ latestPriceMonth }} 有数据的月份
+      </el-button>
     </div>
 
     <!-- ===== 主体：日历图 / 柱状图 ===== -->
@@ -194,23 +205,41 @@ const VIEW_OPTIONS = [
 const STATE_TAG: Record<PnlCalendarState, string> = {
   updown: "",
   zero: "0.00",
-  no_price: "无价",
+  // 用户明确要求：不要说「无历史价格序列」——那是实现语言，用户看不懂，
+  // 且会被误解成「我的理财出问题了」。产品语言是「暂无每日估值」。
+  no_price: "暂无估值",
   closed: "休市"
 };
 
+/**
+ * 口径说明挂在标题旁的 (i) 图标上，**不占正文空间**。
+ * 首句用人话，后面才是口径细节。
+ */
 const CALIBER_NOTE =
-  "本日历为账户级/家庭级快照口径，非逐持仓逐日收益。" +
-  "数值为「总盈亏」的日差分——建仓当日未实现盈亏为 0、追加投入不改变盈亏总额，" +
-  "因此该口径对存取款免疫，不会因入金而虚增收益。" +
-  "斜线格表示该标的没有历史价格序列（如银行理财、实物资产），并非收益为零。";
+  "今日收益 = 总盈亏的变化，充值、提现不计入。" +
+  "例：先有 1 万浮盈，再充 5 万，总盈亏仍是 1 万——今天显示的不会是 6 万。" +
+  "｜口径：按「总盈亏」逐日差分，非逐笔持仓的当日涨跌（基金按净值日切、" +
+  "股票按交易日切，两者在同一天未必同价，故与「总资产日环比」有出入是正常的）。" +
+  "建仓当日不记盈亏，显示「—」——建仓那一刻浮盈本来就是 0。" +
+  "斜线格「暂无每日估值」= 该产品按日无估值序列（银行理财、投顾组合、实物资产等），不是收益为零。";
 
 /**
  * 空态文案。**不要**命名为 `emptyText`——那是 `MoneyDisplay` 的 prop 名，
  * 同名会让模板里的 `{{ emptyText }}` 被解析到组件实例上（TS2339）。
+ *
+ * 必须区分两种「空」（#1812 上线首日的教训）：
+ * · `data_gap`      该月一条价格数据都没有 → 多半是每日快照任务没跑，
+ *                   要告诉用户「上个月有」，并给个可点的跳转；
+ * · `unpriced_only` 持仓确实按日无估值序列 → 属产品属性，说清即可。
+ * 混成一句「没有历史价格序列」会把上一种说成用户的持仓有问题。
  */
-const NO_PRICE_HINT =
-  "当前账户的标的没有历史价格序列（如银行理财、投顾组合、实物资产），" +
-  "无法生成收益日历。";
+const EMPTY_DATA_GAP = (lastDate: string) =>
+  `本月还没有每日估值数据。最近一次估值：${lastDate}。` +
+  "通常是每日快照任务未运行所致，并非账户异常。";
+
+const EMPTY_NO_VALUATION =
+  "账户里的产品按日没有估值序列（银行理财、投顾组合、实物资产等），" +
+  "因此没有每日收益。";
 
 const series = ref<PnlCalendarSeries | null>(null);
 const loading = ref(false);
@@ -235,6 +264,38 @@ const monthLabel = computed(
 );
 
 const hasAnyPrice = computed(() => series.value?.has_any_price === true);
+
+/**
+ * 空态归因（#1812 上线首日的教训）。
+ * `latest_price_date` 为空 ⇒ 该区间一条价格数据都没取到 ⇒ **数据缺口**；
+ * 否则说明价格有、只是持仓按日无估值序列 ⇒ 属产品属性。
+ */
+const emptyIsDataGap = computed(() => {
+  const cov = series.value?.coverage;
+  if (!cov) return false;
+  // 完全没有覆盖 ⇒ 缺口；有覆盖但 priced=0 ⇒ 持仓本身无估值序列
+  return cov.priced_positions === 0 && !series.value?.latest_price_date;
+});
+
+const latestPriceMonth = computed(() => {
+  const d = series.value?.latest_price_date;
+  if (!d) return "";
+  const m = d.slice(0, 7);
+  return m === monthLabel.value ? "" : m.replace("-", " 年 ") + " 月";
+});
+
+const emptyHint = computed(() =>
+  emptyIsDataGap.value
+    ? EMPTY_DATA_GAP(series.value?.latest_price_date ?? "—")
+    : EMPTY_NO_VALUATION
+);
+
+function jumpToLatestPriceMonth() {
+  const d = series.value?.latest_price_date;
+  if (!d) return;
+  const [y, m] = d.split("-").map(Number);
+  cursor.value = new Date(y, m - 1, 1);
+}
 
 const dayMap = computed(() => {
   const map = new Map<string, PnlCalendarDay>();
