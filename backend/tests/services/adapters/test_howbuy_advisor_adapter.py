@@ -389,6 +389,13 @@ def test_howbuy_sync_end_to_end(howbuy_job, db):
     hist = db.query(AdvisorAdjustHistory).filter_by(portfolio_id=p.id).all()
     assert len(hist) == 543
     assert len({str(h.adjust_date) for h in hist}) == 33
+    # **三张明细表的 source 列也要与既有口径一致** —— #1910 验收项点名的就是这半句
+    # （「调仓明细入 advisor_adjust_histories」），只验 advisor_portfolios.source 不够。
+    # 生产库实测既有口径为 qieman / tiantian / qieman_manual（= platform.lower()），
+    # 本适配器经 job 应统一写 'howbuy'。
+    assert {h.source for h in hs} == {'howbuy'}
+    assert {r.source for r in ind} == {'howbuy'}
+    assert {h.source for h in hist} == {'howbuy'}
     # 操作名由占比推导（好买不给 operationInt），四类都该出现
     ops = {h.op_name for h in hist}
     assert {'加仓', '减仓', '新增', '持平'} <= ops
