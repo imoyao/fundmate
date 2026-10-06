@@ -338,3 +338,32 @@ test("#1896：复用 AccountFormFields 的弹窗必须接上未保存守卫", ()
     );
   }
 });
+
+/**
+ * 资产分布图不许出现「手写 pie option」（#1902）。
+ *
+ * design.md「Data Visualization」把「禁止硬编码 hex、`--chart-01~08` 循环取色」列为**红线**。
+ * 红线靠自觉执行时，有两个执行点就会漂移——有人给某一处单独调了色，下次改规范就漏掉它。
+ * 首页资产看板此前就是这么长出第二套的（自己维护了 4 个色值，**超 4 分类时颜色重复**）。
+ *
+ * 判据只看业务组件（Charts/ 下那个实现本身当然要有 pie option）。
+ */
+test("#1902：业务组件不得手写 pie option，统一走 AssetAllocationDonut", () => {
+  for (const f of [
+    "frontend/src/views/welcome/components/WelcomeAssetBoard.vue",
+    "frontend/src/views/asset/panorama/components/CategoryBalanceTable.vue",
+    "frontend/src/views/asset/ledgers/components/LedgerDetailOverview.vue"
+  ]) {
+    const t = stripComments(readFileSync(join(process.cwd(), f), "utf8"));
+    assert.doesNotMatch(
+      t,
+      /type: "pie"/,
+      `${f} 不应手写 pie option，请用 AssetAllocationDonut（design.md 配色红线只有它一个执行点）`
+    );
+    assert.doesNotMatch(
+      t,
+      /chartColors|--chart-01"\s*,\s*$/m,
+      `${f} 不应自己维护配色数组，红线要求走 --chart-01~08 循环`
+    );
+  }
+});

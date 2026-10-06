@@ -123,7 +123,12 @@
                 >资产构成分布</span
               >
             </div>
-            <div ref="distributionChartRef" class="h-[220px] w-full" />
+            <AssetAllocationDonut
+              :data="distributionData"
+              class="h-[220px]"
+              :legend-font-size="10"
+              :show-legend-percent="false"
+            />
           </div>
         </div>
       </CardBlock>
@@ -153,14 +158,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
-import echarts from "@/plugins/echarts";
+import { computed } from "vue";
 import type { SummaryData } from "@/api/types";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
-import { getCssVar } from "@/composables/echarts/theme";
-import { useEchartsLifecycle } from "@/composables/echarts/useEchartsLifecycle";
+import AssetAllocationDonut from "@/components/Charts/AssetAllocationDonut.vue";
 
 defineOptions({ name: "WelcomeAssetBoard" });
 
@@ -172,81 +175,11 @@ const props = defineProps<{
 
 const emit = defineEmits<{ retry: [] }>();
 
-const distributionChartRef = ref<HTMLDivElement | null>(null);
-
-// 资产分布饼图：统一走 useEchartsLifecycle（异步数据页，autoRenderOnMount: false，
-// 数据就绪后由页面级 onMounted 经 fetchSummary().then → nextTick 调用 expose 的 render 首绘）
-const { render: renderDistributionChart } = useEchartsLifecycle(
-  [
-    {
-      ref: distributionChartRef,
-      build: el => {
-        const chart = echarts.init(el);
-        const chartColors = [
-          getCssVar("--chart-01"),
-          getCssVar("--chart-02"),
-          getCssVar("--chart-03"),
-          getCssVar("--chart-04")
-        ];
-        const hasData =
-          !!props.summary?.market_distribution &&
-          Object.keys(props.summary.market_distribution).length > 0;
-        chart.setOption({
-          tooltip: { trigger: "item" },
-          title: hasData
-            ? undefined
-            : {
-                text: "暂无资产数据",
-                left: "center",
-                top: "middle",
-                textStyle: {
-                  color: getCssVar("--text-tertiary"),
-                  fontSize: 12,
-                  fontWeight: "normal"
-                }
-              },
-          legend: {
-            bottom: "0%",
-            left: "center",
-            icon: "circle",
-            itemWidth: 8,
-            textStyle: {
-              fontSize: 10,
-              color: getCssVar("--text-tertiary")
-            }
-          },
-          series: [
-            {
-              type: "pie",
-              radius: ["45%", "70%"],
-              avoidLabelOverlap: false,
-              itemStyle: {
-                borderRadius: 6,
-                borderColor: getCssVar("--bg-card"),
-                borderWidth: 2
-              },
-              label: { show: false },
-              animationDuration: 1000,
-              data: hasData
-                ? Object.entries(props.summary.market_distribution!).map(
-                    ([name, value], index) => ({
-                      name,
-                      value,
-                      itemStyle: {
-                        color: chartColors[index % chartColors.length]
-                      }
-                    })
-                  )
-                : []
-            }
-          ]
-        });
-        return chart;
-      }
-    }
-  ],
-  { autoRenderOnMount: false }
+/** 资产分布：后端给的是 Record<string, number>，组件要的是 [{ name, value }]
+ *  （#1902 收敛到 AssetAllocationDonut 后，这里不再自己维护 echarts option） */
+const distributionData = computed(() =>
+  Object.entries(props.summary?.market_distribution ?? {}).map(
+    ([name, value]) => ({ name, value })
+  )
 );
-
-defineExpose({ render: renderDistributionChart });
 </script>
