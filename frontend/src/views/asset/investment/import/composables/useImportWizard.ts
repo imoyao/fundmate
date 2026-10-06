@@ -228,6 +228,9 @@ export function useImportWizard() {
   const skippedCount = ref(0);
   // #1010：银证转账在关联现金账户侧生成的反向记录数（后端独立计数，不混入 imported/skipped）
   const cashTransfersCreated = ref(0);
+  // #1882：勾选保留的疑似重复行——入库 / 去重拦截计数（回执如实展示）
+  const keptCount = ref(0);
+  const keptBlockedCount = ref(0);
   const orphanCount = ref(0);
   const importing = ref(false);
   const parsing = ref(false);
@@ -1200,15 +1203,17 @@ export function useImportWizard() {
     // #1010：转账行不再前端剔除，交由后端统一裁决（已关联现金账户时生成现金侧记录）
     // #1791（验收④）：疑似重复行不再无条件剔除——默认就没被勾中（selectAllValid 排除），
     // 用户显式勾选保留的随集合提交；解析错误 / 已忽略 / 数量价格缺失行仍剔除。
-    // ⚠️ 后端边界：commit_from_preview 仍无条件跳过 is_duplicate 行，且 import_hash
-    // 唯一约束会二次拦截——「勾选保留」目前只到导入集合层面，落库由后续 issue 承接。
-    const rowsToImport = previewData.value.filter(
-      row =>
-        selectedKeys.value.has(row._rowKey) &&
-        !row.error &&
-        !row._ignored &&
-        !isRowBlocked(row)
-    );
+    // #1882（决策 (a)）：勾选保留行随行携带 keep_duplicate 标记，后端真插入
+    // （import_hash 加 :keep 后缀绕开唯一约束），回执按 kept_duplicates 如实计数。
+    const rowsToImport = previewData.value
+      .filter(
+        row =>
+          selectedKeys.value.has(row._rowKey) &&
+          !row.error &&
+          !row._ignored &&
+          !isRowBlocked(row)
+      )
+      .map(row => (row.is_duplicate ? { ...row, keep_duplicate: true } : row));
     if (rowsToImport.length === 0)
       return ElMessage.warning("没有可导入的有效记录");
 
@@ -1219,6 +1224,8 @@ export function useImportWizard() {
       importedCount.value = result.imported ?? 0;
       skippedCount.value = result.skipped ?? 0;
       cashTransfersCreated.value = result.cash_transfers_created ?? 0;
+      keptCount.value = result.kept_duplicates ?? 0;
+      keptBlockedCount.value = result.kept_duplicates_blocked ?? 0;
       orphanCount.value = result.orphan_count ?? 0;
       importErrors.value = result.errors ?? [];
       currentStep.value = 3;
@@ -2266,6 +2273,8 @@ export function useImportWizard() {
       importedCount.value = previewData.value.length;
       skippedCount.value = 0;
       orphanCount.value = 0;
+      keptCount.value = 0;
+      keptBlockedCount.value = 0;
     }
     currentStep.value = targetStep;
   }
@@ -2332,6 +2341,8 @@ export function useImportWizard() {
     importedCount,
     skippedCount,
     cashTransfersCreated,
+    keptCount,
+    keptBlockedCount,
     orphanCount,
     importing,
     parsing,

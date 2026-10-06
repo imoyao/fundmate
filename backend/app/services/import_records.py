@@ -113,6 +113,9 @@ class StandardTransactionRecord:
     error: str = ''  # 解析失败时存放错误信息
     raw_op_type: str = ''  # 新增：原始中文操作类型，用于关联交易配对
     is_calculated: bool = False  # 份额和净值是否为系统自动推算
+    # #1882（决策 (a)）：「疑似重复·勾选保留」行——真插入语义，commit 内以 :keep
+    # 后缀绕开 (ledger_id, import_hash) 唯一约束；仅 is_duplicate 行有意义
+    keep_duplicate: bool = False
 
 
 @dataclass

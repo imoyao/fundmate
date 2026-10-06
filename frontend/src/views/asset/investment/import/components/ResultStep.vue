@@ -12,6 +12,9 @@ const ctx = useImportWizardContext();
 const nothingImported = computed(() => ctx.nothingImported.value);
 const importedCount = computed(() => ctx.importedCount.value);
 const skippedCount = computed(() => ctx.skippedCount.value);
+// #1882：勾选保留的疑似重复行——入库 / 拦截计数
+const keptCount = computed(() => ctx.keptCount.value);
+const keptBlockedCount = computed(() => ctx.keptBlockedCount.value);
 const duplicateCount = computed(() => ctx.duplicateCount.value);
 const errorCount = computed(() => ctx.errorCount.value);
 const orphanCount = computed(() => ctx.orphanCount.value);
@@ -30,13 +33,16 @@ const hasAnomalies = computed(
     skippedCount.value > 0 ||
     duplicateCount.value > 0 ||
     errorCount.value > 0 ||
-    orphanCount.value > 0
+    orphanCount.value > 0 ||
+    keptBlockedCount.value > 0
 );
 
-/** 是否有补充信息区块（转账 / 孤儿 / 错误 / 价格提示任一存在） */
+/** 是否有补充信息区块（转账 / 保留 / 孤儿 / 错误 / 价格提示任一存在） */
 const hasSupplements = computed(
   () =>
     cashTransfersCreated.value > 0 ||
+    keptCount.value > 0 ||
+    keptBlockedCount.value > 0 ||
     orphanCount.value > 0 ||
     importErrors.value.length > 0 ||
     showPriceUpdateTip.value
@@ -114,6 +120,36 @@ const hasSupplements = computed(
               已为
               {{ cashTransfersCreated }}
               笔转账生成现金侧记录，可在交易流水中查看资金流向。
+            </p>
+          </div>
+        </div>
+
+        <!-- 疑似重复·勾选保留（#1882） -->
+        <div
+          v-if="keptCount > 0 || keptBlockedCount > 0"
+          class="supplement-card success"
+        >
+          <div class="supplement-icon success-icon">
+            <svg viewBox="0 0 20 20" fill="none">
+              <path
+                d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 10.586l7.293-7.293a1 1 0 011.414 0z"
+                fill="currentColor"
+              />
+            </svg>
+          </div>
+          <div class="supplement-body">
+            <p class="supplement-title">重复行已按勾选保留</p>
+            <p class="supplement-desc">
+              <template v-if="keptCount > 0">
+                {{ keptCount }} 笔疑似重复交易已按你的勾选保留入库
+              </template>
+              <template v-if="keptCount > 0 && keptBlockedCount > 0">
+                ；
+              </template>
+              <template v-if="keptBlockedCount > 0">
+                {{ keptBlockedCount }} 笔此前已保留过，自动跳过避免重复叠加
+              </template>
+              。
             </p>
           </div>
         </div>
@@ -211,6 +247,9 @@ const hasSupplements = computed(
         <h2 class="result-title">处理完成</h2>
         <p class="result-caption">
           本次无新增交易，共跳过 {{ skippedCount }} 条记录
+        </p>
+        <p v-if="keptBlockedCount > 0" class="result-caption">
+          勾选保留的 {{ keptBlockedCount }} 条此前已入库，本次未重复叠加
         </p>
       </div>
 

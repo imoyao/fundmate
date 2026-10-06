@@ -23,6 +23,11 @@ from app.services.importer.mappings import BusinessType
 from app.services.position_service import PositionService
 from app.services.trading import TransactionService
 
+# #1882 决策 (a)：勾选保留行绕开 (ledger_id, import_hash) 复合唯一约束的确定性后缀。
+# 确定性（不带随机数）即自幂等——同一行再次「勾选保留」导入时命中已存在的 suffixed hash，
+# 走去重拦截计数，不会叠出第三份记录。
+KEEP_HASH_SUFFIX = ':keep'
+
 
 class CommitMixin:
     """交易落库：commit_from_preview → commit → trigger_metadata_update。"""
@@ -31,15 +36,19 @@ class CommitMixin:
         """
         接收前端提交的原始行，过滤并转换为记录，然后提交。
         返回与原有 commit 一致的统计字典；#1010 起额外携带 cash_transfers_created
-        （银证转账在关联现金账户侧生成的反向记录数，独立计数，不混入 imported/skipped 口径）。
+        （银证转账在关联现金账户侧生成的反向记录数，独立计数，不混入 imported/skipped 口径）；
+        #1882 起携带 kept_duplicates / kept_duplicates_blocked（勾选保留行的入库 /
+        去重拦截计数，回执据此如实展示，杜绝「前端放后端拦」的静默丢弃）。
         """
         cash_transfers_created = 0
 
-        # 行分流：错误/重复行一律跳过；转账行走 #1010 闭环分支；其余为投资交易行
+        # 行分流：错误行一律跳过；疑似重复行仅在用户勾选保留（keep_duplicate）时放行
+        # （#1882 决策 (a)，见 issue 评论留痕）；转账行走 #1010 闭环分支；其余为投资交易行
         invest_rows = []
         transfer_rows = []
         for r in raw_rows:
-            if r.get('is_duplicate') or r.get('error'):
+            keep = bool(r.get('keep_duplicate')) and bool(r.get('is_duplicate'))
+            if r.get('error') or (r.get('is_duplicate') and not keep):
                 continue
             if r.get('is_cash_transfer'):
                 transfer_rows.append(r)
@@ -64,6 +73,9 @@ class CommitMixin:
                 'orphan_count': 0,
                 'errors': [],
                 'cash_transfers_created': cash_transfers_created,
+                # #1882：无投资行批次同样回执这两个键，前端契约恒定
+                'kept_duplicates': 0,
+                'kept_duplicates_blocked': 0,
             }
 
         # 转换为 StandardTransactionRecord
@@ -90,6 +102,8 @@ class CommitMixin:
                     # B2 修复：透传净发生金额（同花顺专用），现金/扣税/兑付分支按净额入账；
                     # 前端 row 为 JSON 浮点，经 str 桥接收口为 Decimal（#1375 阶段二）
                     net_amount=Decimal(str(row.get('net_amount') or 0)),
+                    # #1882：疑似重复且勾选保留的行标记真插入（commit 内换 :keep 后缀）
+                    keep_duplicate=bool(row.get('keep_duplicate')) and bool(row.get('is_duplicate')),
                 )
             )
 
@@ -198,6 +212,9 @@ class CommitMixin:
         skipped = 0
         orphan_count = 0
         commit_errors = []
+        # #1882 回执口径：勾选保留行的入库 / 规则拦截独立计数，不混入 imported/skipped
+        kept_duplicates = 0
+        kept_duplicates_blocked = 0
 
         for record in records:
             try:
@@ -205,6 +222,20 @@ class CommitMixin:
                 # 已 flush 的部分写入后继续（与 E6 对账侧口径一致）；SQLAlchemyError 仍保持
                 # 整体失败语义（数据库级错误，回滚全部并 raise，见下方 except 分支）。
                 with self.db.begin_nested():
+                    if record.keep_duplicate and record.import_hash:
+                        # #1882 决策 (a) 真插入：原件仍在 → 换确定性后缀绕开复合唯一约束；
+                        # 原件已被删 → 它已非重复，保持原 hash 走正常去重（保持再导入语义）。
+                        original_exists = (
+                            self.db.query(Transaction)
+                            .filter_by(
+                                import_hash=record.import_hash,
+                                ledger_id=record.ledger_id,
+                                family_id=self.family_id,
+                            )
+                            .first()
+                        )
+                        if original_exists:
+                            record.import_hash = record.import_hash + KEEP_HASH_SUFFIX
                     if record.import_hash:
                         existing = (
                             self.db.query(Transaction)
@@ -216,7 +247,11 @@ class CommitMixin:
                             .first()
                         )
                         if existing:
-                            skipped += 1
+                            if record.keep_duplicate:
+                                # 保留行命中去重 = 此前已勾选保留过（后缀自幂等，不叠第三份）
+                                kept_duplicates_blocked += 1
+                            else:
+                                skipped += 1
                             continue
 
                     # ---- 现金管理类产品 ----
@@ -263,6 +298,8 @@ class CommitMixin:
                             family_id=self.family_id,
                         )
                         imported += 1
+                        if record.keep_duplicate:  # #1882：勾选保留行入库单独计数
+                            kept_duplicates += 1
                         orphan_count += 1
                         continue
 
@@ -314,6 +351,8 @@ class CommitMixin:
                         )
                         orphan_count += 1
                         imported += 1
+                        if record.keep_duplicate:  # #1882：勾选保留行入库单独计数
+                            kept_duplicates += 1
                         continue
 
                     # 特殊操作：债券兑付
@@ -344,6 +383,8 @@ class CommitMixin:
                         )
                         orphan_count += 1
                         imported += 1
+                        if record.keep_duplicate:  # #1882：勾选保留行入库单独计数
+                            kept_duplicates += 1
                         continue
 
                     # 常规操作 (BUY/DEPOSIT, SELL/WITHDRAW, DIVIDEND)
@@ -364,6 +405,8 @@ class CommitMixin:
                     if result is None:
                         orphan_count += 1
                     imported += 1
+                    if record.keep_duplicate:  # #1882：勾选保留行入库单独计数
+                        kept_duplicates += 1
 
             except SQLAlchemyError as e:
                 # 数据库级错误：保持整体失败语义（savepoint 已随 with 退出回滚，此处再全量回滚兜底）
@@ -377,8 +420,18 @@ class CommitMixin:
 
         self._safe_commit()
 
-        logger.info(f'入库完成: 导入={imported}, 跳过={skipped}, 孤立={orphan_count}, 错误={len(commit_errors)}')
-        return {'imported': imported, 'skipped': skipped, 'orphan_count': orphan_count, 'errors': commit_errors}
+        logger.info(
+            f'入库完成: 导入={imported}, 跳过={skipped}, 孤立={orphan_count}, '
+            f'错误={len(commit_errors)}, 保留入库={kept_duplicates}, 保留拦截={kept_duplicates_blocked}'
+        )
+        return {
+            'imported': imported,
+            'skipped': skipped,
+            'orphan_count': orphan_count,
+            'errors': commit_errors,
+            'kept_duplicates': kept_duplicates,
+            'kept_duplicates_blocked': kept_duplicates_blocked,
+        }
 
     # ── 元数据更新 ──
 
