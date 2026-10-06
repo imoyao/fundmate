@@ -197,6 +197,7 @@ test("#1884：成功路径内必须复位脏基线（打开时复位不算）", 
  * 判据按「已声明脏基线」触发，而不是要求所有表单都接入——未接入的表单不归这条管，
  * 否则这条守门会变成「暗中逼所有表单加守卫」的隐藏规范。
  */
+
 test("已声明脏基线的快速录入表单，挂载时必须先复位一次", () => {
   let checked = 0;
   for (const f of [
@@ -214,4 +215,72 @@ test("已声明脏基线的快速录入表单，挂载时必须先复位一次",
     );
   }
   assert.ok(checked > 0, "至少应检查到一个表单，否则本条守门是空转");
+});
+
+test("#1891：挂了快速录入表单的页面必须接上未保存守卫", () => {
+  const page =
+    "frontend/src/views/asset/investment/manual/index.vue";
+  const t = stripComments(readFileSync(join(process.cwd(), page), "utf8"));
+
+  // 页面挂了三个表单
+  for (const form of ["BuyForm", "SellForm", "DividendForm"]) {
+    assert.match(t, new RegExp(`<${form}`), `页面应挂载 ${form}`);
+  }
+  // 守卫必须真的调了，而不是只 import
+  assert.match(
+    t,
+    /useUnsavedChangesGuard\s*\(/,
+    "页面必须调 useUnsavedChangesGuard，否则填一半切走会静默丢数据"
+  );
+  // 且脏状态要真的读到了三个表单（只看 isDirty 存在不够）
+  for (const form of ["buyFormRef", "sellFormRef", "dividendFormRef"]) {
+    assert.match(t, new RegExp(`${form}\\.value\\?\\.isDirty`), `守卫应读 ${form}.isDirty`);
+  }
+});
+
+/**
+ * 三个快速录入表单都必须 expose isDirty —— 页面级守卫只能通过它读脏状态。
+ *
+ * 此前 DividendForm 只 expose 了 handleSubmit / resetForm，页面想拦也拦不了。
+ */
+
+test("#1891：三个快速录入表单都必须 expose isDirty", () => {
+  for (const f of [
+    "frontend/src/components/QuickEntry/BuyForm.vue",
+    "frontend/src/components/QuickEntry/SellForm.vue",
+    "frontend/src/components/QuickEntry/DividendForm.vue"
+  ]) {
+    const t = stripComments(readFileSync(join(process.cwd(), f), "utf8"));
+    const m = t.match(/defineExpose\(\{([^}]*)\}\)/);
+    assert.ok(m, `${f} 应有 defineExpose`);
+    assert.match(m[1], /\bisDirty\b/, `${f} 必须 expose isDirty，否则父组件无法拦路由离开`);
+  }
+});
+
+/**
+ * 切换操作类型也必须问一次（#1891 第二步）。
+ *
+ * 三个表单靠 v-if / v-else-if 互斥渲染，切 opType 会**直接销毁**已填的那个——
+ * 这不是路由离开，onBeforeRouteLeave 拦不住。上一轮只补了页面守卫，
+ * 结果「点一下卖出标签想看看怎么填」会丢掉填好的买入表单。
+ *
+ * 判据盯两件事，缺任一就复发：
+ *   1. opType 必须是 computed setter（直接改 ref 绕过守卫）；
+ *   2. setter 里必须有异步确认，不能是同步赋值。
+ */
+
+test("#1891：切换操作类型前必须确认（v-if 销毁表单，路由守卫拦不住）", () => {
+  const page = "frontend/src/views/asset/investment/manual/index.vue";
+  const t = stripComments(readFileSync(join(process.cwd(), page), "utf8"));
+
+  for (const name of ["stockOpType", "fundOpType"]) {
+    const m = t.match(new RegExp(`const ${name} = computed\\(\\{[\\s\\S]*?\\n\\}\\);`));
+    assert.ok(m, `${name} 应是 computed（setter 才能拦切换），当前是 ref 就会绕过守卫`);
+    // 注意 `set` 与 `(` 之间还有冒号：对象方法写法是 `set: (v) => {}`
+    assert.match(m[0], /set\s*:\s*\(/, `${name} 的 computed 应有 setter`);
+    assert.match(m[0], /switchOpType|confirmDiscard/, `${name} 的 setter 应先确认再写值`);
+  }
+
+  // 切换在途锁：没有它，连点会弹多个确认框
+  assert.match(t, /opTypeSwitching/, "应有切换在途锁，防止连点弹多个确认框");
 });
