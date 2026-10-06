@@ -5,8 +5,7 @@ import RowSelectionCell from "./RowSelectionCell.vue";
 import StatusCell from "./StatusCell.vue";
 import ProductCell from "./ProductCell.vue";
 import OpTypeCell from "./OpTypeCell.vue";
-import QuantityEditCell from "./QuantityEditCell.vue";
-import PriceEditCell from "./PriceEditCell.vue";
+import EditableCell from "./EditableCell.vue";
 import AllocationSelect from "./AllocationSelect.vue";
 
 const {
@@ -30,7 +29,7 @@ const {
   isFundMode
 } = useImportWizardContext();
 
-/** 缺数量或价格时返回对应字段名，供操作列「补全」一键定位编辑（基金模式无行内编辑弹层，不提供） */
+/** 缺数量或价格时返回对应字段名，供操作列「补全」一键定位编辑（基金模式暂不提供该捷径，修正走智能修正面板） */
 function missingField(row: any): "quantity" | "price" | null {
   if (isFundMode.value) return null;
   const qtyEmpty =
@@ -63,7 +62,7 @@ function missingField(row: any): "quantity" | "price" | null {
         :cell-class-name="getCellClassName"
         @selection-change="handleSelectionChange"
       >
-        <el-table-column width="80" fixed="left">
+        <el-table-column width="50" fixed="left">
           <template #header>
             <el-checkbox
               v-model="isAllSelected"
@@ -90,10 +89,13 @@ function missingField(row: any): "quantity" | "price" | null {
             <OpTypeCell :row="row" />
           </template>
           <template v-else-if="col.slot === 'quantity'" #default="{ row }">
-            <QuantityEditCell :row="row" />
+            <EditableCell :row="row" field="quantity" />
           </template>
           <template v-else-if="col.slot === 'price'" #default="{ row }">
-            <PriceEditCell :row="row" />
+            <EditableCell :row="row" field="price" />
+          </template>
+          <template v-else-if="col.slot === 'amount'" #default="{ row }">
+            <EditableCell :row="row" field="amount" />
           </template>
           <template v-else-if="col.slot === 'allocation'" #default="{ row }">
             <AllocationSelect :row="row" />

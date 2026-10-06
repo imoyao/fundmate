@@ -516,6 +516,21 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - **撤销栈**：`fixUndoStack` 上限 20 层；分区【撤销】按 `undoTopScope` 与本分区作用域匹配才可点，顶部【撤销上一步】逐层回滚；`autoFix` 组合操作合成为单条入栈。
 - **令牌**：面板 `--bg-card`、分区 / 卡片 `--bg-subtle`、边框 `--border-default`、圆角 8px；计数警示 `--color-warning-ink`、错误 `--color-danger-ink`、形态标签 `--text-secondary`。无硬编码 hex（暗色见 `design.dark.md` 注记）。
 
+## 行内就地编辑（#1790，导入预览表格三列）
+
+> 位置：`src/views/asset/investment/import/components/EditableCell.vue`（数量 / 单价 / 金额三列通用），编辑状态由 `composables/useImportWizard.ts` 驱动，纯逻辑在 `composables/cellEditLogic.ts`（vitest 单测钉住）。源设计 #783 §6.2「编辑就地转为输入框」——**禁止改回 `el-popover` 浮层**（`rg -e 'el-popover'` 于 `import/` 目录须 0 命中，E2E 另断言页面 `.el-popover` 为 0）。
+
+- **进入**：**单击** / Enter / Space 点击展示态即就地进入编辑并自动聚焦（§6.2 原文为「点击」；#1790 正文写「双击」系误引，已在 issue 评论留痕）。同一时刻仅单行单格处于编辑态（`editingRowKey`）：跨行切格走 `saveAllEditingRows + closeAllEditing`，同行切格由 `startEdit` 兜底按提交收尾上一格，已改值不丢。
+- **键盘**（展示态与输入框焦点均绑定；页面有 `.edit-hint` 交互说明，见 TableControls）：
+  - `Enter` = 提交并**停留当前格**（焦点回展示态，可再按 Enter 继续编辑）；
+  - `Esc` = 取消还原（`_oldValue` 还原，与弹层时代【取消】语义一致）；
+  - `Tab` = 提交并跳**下一可编辑格**（DOM 顺序即列序：数量→单价→金额→下一行……；末格提交并停留）。
+- **金额自动重算**（#783 §6.2；纯函数 `cellEditLogic.recalcAfterEdit`）：改数量 / 单价 → `金额 = 数量 × 单价`（2 位）；改金额 → 有数量则反算单价（4 位）、数量缺失但单价在则反推数量，**两者均缺失不计算**（§6.2 明文）；编辑字段自身为空时仍走 `smartFill` 互推。重算后的金额与数量×单价恒等，只会消解「数据不一致」、不会制造新不符。
+- **草稿与还原**：输入框绑定本地 `draft`（`-` / `abc` 这类非纯数字中间态只留草稿、不污染行值与分类判定），行值随输入实时写回，保证 `saveAllEditingRows` / 点击切格兜底不丢改动；Esc 统一由 `finishEdit` 从 `_oldValue` 还原。
+- **列收敛**：数据列 9 + 勾选 50 + 操作 120 = **11 列**（§6.1），数据列一律 `minWidth`（design.md「冻结列与横向滚动规范」第 4 条：仅冻结列用固定 `width`）；手续费（两模式）/ 合同编号 / 发生金额（股票模式）列**退场但数据仍完整携带**（导入载荷不受影响，仅不再占列）；`cell-missing` 高亮由手续费列改挂**金额列**。
+- **补全入口**：操作列【补全】（缺数量 / 价格时）直接就地打开对应格；`missingField` 基金模式仍返回 `null`（该捷径暂不提供，修正走批量面板）。
+- **令牌**：`.edit-hint` 提示 `--text-tertiary-ink`；展示态悬停 `--el-color-primary`。无硬编码 hex（暗色自动适配）。
+
 ## 共享基建（composables / utils 层，强制复用）
 
 > 本层为**非 UI 的共享逻辑**（图表生命周期 / 图表取色 / 币种换算），与页面级 UI 组件同属「强制复用」范围。

@@ -14,7 +14,8 @@ const {
   blockedCount,
   errorCount,
   showFixPanel,
-  toggleFixPanel
+  toggleFixPanel,
+  isFundMode
 } = useImportWizardContext();
 </script>
 
@@ -90,6 +91,14 @@ const {
     </div>
   </div>
 
+  <!-- 行内编辑交互说明（#1790 验收②「页面有交互说明」） -->
+  <p v-if="showFullTable" class="edit-hint">
+    点击{{
+      isFundMode ? "份额 / 确认净值 / 金额" : "数量 / 单价 / 金额"
+    }}单元格可就地修改：Enter 提交并停留、Esc 取消还原、Tab
+    跳到下一格；修改数量或单价会自动重算金额
+  </p>
+
   <p
     v-if="showFullTable && (duplicateCount > 0 || blockedCount > 0)"
     class="highlight-legend"
@@ -114,6 +123,13 @@ const {
 
 .table-controls > div:last-child {
   flex-shrink: 0;
+}
+
+.edit-hint {
+  margin: -4px 0 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-tertiary-ink);
 }
 
 .highlight-legend {
