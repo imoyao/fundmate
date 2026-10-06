@@ -13,6 +13,7 @@
 3. **操作码由占比推导**：好买不给 ``operationInt``（天天给），推错等于调仓方向全反。
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -20,6 +21,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
+from app.domains.funds.models import (  # noqa: E402
+    AdvisorAdjustHistory,
+    AdvisorHolding,
+    AdvisorIndustryAlloc,
+    AdvisorPortfolio,
+)
 from app.services.adapters.advisor_source import (  # noqa: E402
     get_advisor_source,
     registered_platforms,
@@ -28,6 +35,10 @@ from app.services.adapters.howbuy_advisor_adapter import (  # noqa: E402
     METRIC_RANGE,
     HowbuyAdvisorAdapter,
     _to_float,
+    _to_iso_date,
+)
+from app.services.sync.jobs.advisor_portfolio_job import (  # noqa: E402
+    AdvisorPortfolioSyncJob,
 )
 
 # ── 平台注册 ──
@@ -167,9 +178,9 @@ def test_fetch_overview_maps_canonical(monkeypatch):
     ov = src.fetch_overview('zozh002')
 
     assert ov['name'] == '超级股票全明星'  # 名称来自指标端点的 title1
-    assert ov['estab_date'] == '20170905'
+    assert ov['estab_date'] == '2017-09-05'
     assert ov['nav'] == 1.9816
-    assert ov['nav_date'] == '20260929'
+    assert ov['nav_date'] == '2026-09-29'
     assert ov['cum_return'] == 98.16
     assert ov['annual_return'] == 7.83  # 成立以来年化
     assert ov['return_1d'] == 0.37
@@ -214,7 +225,7 @@ def test_fetch_overview_without_indicator_still_returns_day(monkeypatch):
     """指标面失败不该连基本信息一起丢。"""
     src = _adapter_with(monkeypatch, day=DAY_BODY, ind=None)
     ov = src.fetch_overview('zozh002')
-    assert ov['estab_date'] == '20170905'
+    assert ov['estab_date'] == '2017-09-05'
     assert 'name' not in ov  # 名称在指标端点，拿不到就不返回（不编造）
 
 
@@ -234,7 +245,7 @@ def test_fetch_holdings(monkeypatch):
     src = _adapter_with(monkeypatch, day=day)
     h = src.fetch_holdings('zozh002')
 
-    assert h['as_of_date'] == '20260918'
+    assert h['as_of_date'] == '2026-09-18'
     assert len(h['funds']) == 2
     f = h['funds'][0]
     # 快照没有前后对比 → pre/op 一律 None，不猜
@@ -274,7 +285,7 @@ def test_fetch_rebalances(monkeypatch):
 
     assert len(out) == 1
     node = out[0]
-    assert node['adjust_date'] == '20260918'
+    assert node['adjust_date'] == '2026-09-18'
     assert node['reason'] is None  # 空字符串归一为 None
     ops = {f['fund_code']: f['op_name'] for f in node['funds']}
     assert ops == {'002980': '持平', '001892': '加仓'}
@@ -286,3 +297,110 @@ def test_empty_data_surfaces_return_empty_not_raise(monkeypatch):
     assert src.fetch_holdings('zozh002') == {'as_of_date': None, 'funds': []}
     assert src.fetch_industries('zozh002') == []
     assert src.fetch_rebalances('zozh002') == []
+
+
+# ── 日期格式规整（端到端抓到的契约不匹配）──
+
+
+def test_compact_dates_normalized_to_iso():
+    """howbuy 用 ``YYYYMMDD``，而落库层 ``_parse_date`` 只认 ``%Y-%m-%d``。
+
+    不规整的后果是**静默落成 NULL**：端到端用例里 `estab_date` 一开始就是 None，
+    单测却全过（因为单测只验适配器返回了字符串，没验落库层能否解析）。
+    """
+    assert _to_iso_date('20170905') == '2017-09-05'
+    assert _to_iso_date('20260929') == '2026-09-29'
+    assert _to_iso_date('') is None
+    assert _to_iso_date(None) is None
+    # 已经是 ISO 的原样返回（幂等，防重复格式化）
+    assert _to_iso_date('2017-09-05') == '2017-09-05'
+
+
+# ── 端到端：经 AdvisorPortfolioSyncJob 全自动入库（#1910 验收项）──
+#
+# 与上面的单测互补：单测验「适配器自己返回什么」，这里验「job 拿到适配器后落库成什么」。
+# 用**真实适配器**（不是 _FakeSource）只 mock 掉 HTTP 层，让 canonical 映射真跑一遍——
+# 假数据源只能验证 job 的平台无关性，验证不了「我这个适配器的输出能否被 job 正确消化」。
+#
+# 样本来自 tests/fixtures/howbuy_zozh002_sample.json（2026-10-06 抓的真实响应），
+# 沿用 qieman_holdings_sample.json 的做法：端到端不依赖外网，CI 才稳定。
+
+FIXTURE = Path(__file__).resolve().parents[2] / 'fixtures' / 'howbuy_zozh002_sample.json'
+
+
+@pytest.fixture
+def howbuy_job(db, monkeypatch):
+    """真实适配器 + mock HTTP。db 是 conftest 的临时库 fixture，不碰 invest.db。
+
+    **必须先在建档表里插一条 platform=HOWBUY 的档案**：``AdvisorPortfolioSyncJob._resolve_targets``
+    是「按 code 回查库内 platform」，查不到才用 ``_infer_platform`` 兜底，而兜底对
+    ``zozh002`` 会给出 ``DEFAULT_ADVISOR_PLATFORM``（TIANTIAN）——于是 job 会去调天天接口、
+    与 howbuy 无关。job 文件里也写明了「**禁止按代码前缀判定平台归属**，一律以
+    ``AdvisorPortfolio.platform`` 为准」。测试若不铺这条前置，验的就不是本适配器。
+    """
+    sample = json.loads(FIXTURE.read_text(encoding='utf-8'))
+    src = HowbuyAdvisorAdapter()
+
+    def fake_get(url, params):
+        if 'clcphbzst' in url:
+            return sample['indicator']
+        if 'clcplsgd' in url:
+            return sample['rebalance']
+        return sample['overview']
+
+    monkeypatch.setattr(src, '_get_json', fake_get)
+
+    db.add(AdvisorPortfolio(platform='HOWBUY', code='zozh002', name='zozh002'))
+    db.commit()
+    return AdvisorPortfolioSyncJob(db=db, sources={'HOWBUY': src})
+
+
+def test_howbuy_sync_end_to_end(howbuy_job, db):
+    """四类数据面一次落库 + source 口径（卡片验收项）。"""
+    result = howbuy_job.run(full_sync=True, targets=['zozh002'])
+    assert result['status'] == 'success', result
+
+    p = db.query(AdvisorPortfolio).filter_by(platform='HOWBUY', code='zozh002').one()
+    # 概览（含从指标端点取的 name 与风险指标）
+    assert p.name == '超级股票全明星'
+    assert p.org_name == '中欧财富投顾'
+    assert str(p.estab_date) == '2017-09-05'
+    assert float(p.annual_return) == pytest.approx(7.83)
+    assert float(p.max_drawdown) == pytest.approx(-46.91)
+    assert float(p.volatility) == pytest.approx(19.25)
+    assert float(p.sharpe_ratio) == pytest.approx(0.33)
+    # return_1y 取区间收益，与 annual_return 不是同一个口径（前者 -0.41、后者 7.83）
+    assert float(p.return_1y) == pytest.approx(-0.41)
+    # **source 列与既有口径一致**（天天是 'tiantian'、且慢是 'qieman'，本适配器 'howbuy'）
+    assert p.source == 'howbuy'
+
+    # 持仓快照（实测 21 条，与网页版一致）
+    hs = db.query(AdvisorHolding).filter_by(portfolio_id=p.id).all()
+    assert len(hs) == 21
+    assert '002980' in {h.fund_code for h in hs}
+
+    # 资产类别（好买给的是 zcfl1List，非行业）
+    ind = db.query(AdvisorIndustryAlloc).filter_by(portfolio_id=p.id).all()
+    assert {r.industry_name for r in ind} == {'股票型', '混合型', '货币型', '指数型'}
+
+    # 调仓明细入库：**这是基金级明细表，不是「每次调仓一行」**——
+    # 源数据 33 次调仓，每次含多只基金，落到 543 行（33 次 × 平均约 16 只）。
+    # 断言按「不同调仓日期数」表示次数，避免把明细行数误读成次数。
+    hist = db.query(AdvisorAdjustHistory).filter_by(portfolio_id=p.id).all()
+    assert len(hist) == 543
+    assert len({str(h.adjust_date) for h in hist}) == 33
+    # 操作名由占比推导（好买不给 operationInt），四类都该出现
+    ops = {h.op_name for h in hist}
+    assert {'加仓', '减仓', '新增', '持平'} <= ops
+
+
+def test_howbuy_rebalance_dates_landed(howbuy_job, db):
+    """调仓日期必须落进 adjust_date——它是快照覆盖的键，错一天就会重复插行。"""
+    howbuy_job.run(full_sync=True, targets=['zozh002'])
+    p = db.query(AdvisorPortfolio).filter_by(platform='HOWBUY', code='zozh002').one()
+    hist = db.query(AdvisorAdjustHistory).filter_by(portfolio_id=p.id).all()
+    dates = sorted({str(h.adjust_date) for h in hist})
+    # 源数据最早那次调仓就在成立日（20170905，建仓），不是第二个日期
+    assert dates[0] == '2017-09-05'
+    assert dates[-1] == '2026-09-18'
+    assert len(dates) == 33

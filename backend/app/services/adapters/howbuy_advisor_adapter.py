@@ -96,6 +96,27 @@ METRIC_TO_FIELD = {
 METRIC_RANGE = 'CL'
 
 
+def _to_iso_date(v: Any) -> Optional[str]:
+    """把 howbuy 的紧凑日期 ``YYYYMMDD`` 规整成 ISO 字符串 ``YYYY-MM-DD``。
+
+    为什么适配器要管这个（而不是留给落库层）：job 的 ``_parse_date`` 用
+    ``strptime(s, '%Y-%m-%d')``，**只认 ISO 格式**；好买概览的 ``cjrq`` / ``jzrq``
+    与持仓的 ``gdqsrq`` 都是 ``20170905`` 这种紧凑写法，直接下发会解析失败、
+    静默落成 NULL（端到端用例抓到的第一个真问题）。
+
+    注意这**不是**在适配器里做类型转换——返回值仍是字符串，符合
+    ``advisor_source.OVERVIEW_DATE_KEYS`` 的约定（「字符串 → date 由落库层统一处理」）。
+    适配器只负责「平台格式 → ISO 格式」，落库层负责「ISO 字符串 → date」。
+    解析不了的返回 None，不猜。
+    """
+    if v in (None, ''):
+        return None
+    s = str(v).strip()
+    if len(s) == 8 and s.isdigit():
+        return f'{s[0:4]}-{s[4:6]}-{s[6:8]}'
+    return s or None
+
+
 def _to_float(v: Any) -> Optional[float]:
     """平台用空字符串表示「无数据」（持仓的 ``sccczb`` 常见），必须转成 None 而不是 0。"""
     try:
@@ -190,9 +211,9 @@ class HowbuyAdvisorAdapter(AdvisorPortfolioSource):
         sy = day.get('syxx') or {}
         out.update(
             {
-                'estab_date': sy.get('cjrq') or None,
+                'estab_date': _to_iso_date(sy.get('cjrq')),
                 'nav': _to_float(sy.get('zhjz')),
-                'nav_date': sy.get('jzrq') or None,
+                'nav_date': _to_iso_date(sy.get('jzrq')),
                 'cum_return': _to_float(sy.get('hbcl')),
                 'annual_return': _to_float(sy.get('nhhbcl')),
                 'return_1d': _to_float(sy.get('hbdr')),
@@ -259,7 +280,7 @@ class HowbuyAdvisorAdapter(AdvisorPortfolioSource):
                     'op_name': None,
                 }
             )
-        return {'as_of_date': node.get('gdqsrq') or None, 'funds': funds}
+        return {'as_of_date': _to_iso_date(node.get('gdqsrq')), 'funds': funds}
 
     def fetch_industries(self, code: str) -> List[Dict[str, Any]]:
         """资产类别配置 ``[{industry_name, ratio}]``。
@@ -292,7 +313,7 @@ class HowbuyAdvisorAdapter(AdvisorPortfolioSource):
         for node in body.get('dataList') or []:
             out.append(
                 {
-                    'adjust_date': node.get('gdqsrq') or None,
+                    'adjust_date': _to_iso_date(node.get('gdqsrq')),
                     'reason': (node.get('ms1') or '').strip() or None,
                     'funds': self._flatten_funds(node.get('fundList') or []),
                 }
