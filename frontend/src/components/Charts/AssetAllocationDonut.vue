@@ -30,8 +30,24 @@ const props = withDefaults(
     emptyText?: string;
     /** 是否显示底部图例，默认 true */
     showLegend?: boolean;
+    /**
+     * 图例是否显示占比（`名称 xx.x%`），默认 true。
+     * 首页资产看板传 false——它的图例区本来就窄，且 tooltip 已格式化显示占比。
+     */
+    showLegendPercent?: boolean;
+    /**
+     * 图例字号，默认 12。
+     * 空间紧凑的容器（首页资产看板）传 10——图例条目多时 12 会换行。
+     */
+    legendFontSize?: number;
   }>(),
-  { colorMap: () => ({}), emptyText: "暂无数据", showLegend: true }
+  {
+    colorMap: () => ({}),
+    emptyText: "暂无数据",
+    showLegend: true,
+    showLegendPercent: true,
+    legendFontSize: 12
+  }
 );
 
 const chartRef = ref<HTMLElement | null>(null);
@@ -97,9 +113,12 @@ function buildOption() {
           itemWidth: 8,
           itemHeight: 8,
           itemGap: 12,
-          textStyle: { color: legendTextColor, fontSize: 12 },
-          // 分类名 + 占比（%），占比按 total 实时计算
+          textStyle: { color: legendTextColor, fontSize: props.legendFontSize },
+          // 分类名 + 占比（%），占比按 total 实时计算。
+          // showLegendPercent=false 时只显示分类名（首页资产看板的图例条目已含
+          // 分类名 + 金额，再加百分比会挤换行）。
           formatter: (name: string) => {
+            if (!props.showLegendPercent) return name;
             const d = props.data.find(x => x.name === name);
             const pct =
               total > 0 ? (((d?.value || 0) / total) * 100).toFixed(1) : "0";

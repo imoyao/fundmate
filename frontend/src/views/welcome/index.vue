@@ -160,16 +160,16 @@ const onWatchlistChanged = () => {
   watchlistWidgetKey.value++;
 };
 
-// 资产关键数据重试（#1832）：重拉汇总 + 年化，成功后重绘饼图
+// 资产关键数据重试（#1832）：重拉汇总 + 年化。
+// 饼图重绘不再需要显式调用——图表收敛到 AssetAllocationDonut 后（#1902），
+// 组件自己 watch data 重绘，props 变化即触发。
 const onRetryAsset = async () => {
   await retryAssetLoad();
-  await nextTick();
-  assetBoardRef.value?.render();
 };
 
 // ===== 生命周期（顺序与拆分前一致：汇总 → 其余并行；ticker 清理在 composable 内） =====
 onMounted(() => {
-  fetchSummary().then(() => nextTick(() => assetBoardRef.value?.render()));
+  fetchSummary();
   fetchXirr();
   fetchTemperature();
   fetchRecordStats();
