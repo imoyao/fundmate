@@ -114,40 +114,41 @@ const ariaLabel = computed(
 <style lang="scss" scoped>
 .pnl-calendar-bars {
   display: flex;
-  align-items: stretch;
   gap: 2px;
+  align-items: stretch;
   height: 160px;
   padding-top: 4px;
 }
 
 .pnl-calendar-bars__slot {
-  flex: 1;
-  min-width: 0;
   display: flex;
+  flex: 1;
   flex-direction: column;
-  align-items: center;
   gap: 4px;
+  align-items: center;
+  min-width: 0;
 }
 
 .pnl-calendar-bars__track {
-  flex: 1;
-  width: 100%;
   display: flex;
+  flex: 1;
   flex-direction: column;
   justify-content: center;
+  width: 100%;
 }
 
 .pnl-calendar-bars__bar {
   width: 100%;
-  border-radius: 2px;
+
   /* 有数据但幅度极小时也要留一根可见的线，否则与"无数据"不可辨 */
   min-height: 2px;
+  border-radius: 2px;
   transition: height 0.2s ease;
 }
 
 .pnl-calendar-bars__label {
   font-size: 9px;
-  color: var(--text-tertiary-ink);
   line-height: 1;
+  color: var(--text-tertiary-ink);
 }
 </style>

@@ -402,10 +402,11 @@ defineExpose({ reload: load });
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 6px;
+
   span {
-    text-align: center;
     font-size: 11px;
     color: var(--text-tertiary-ink);
+    text-align: center;
   }
 }
 
@@ -418,16 +419,17 @@ defineExpose({ reload: load });
 .pnl-calendar__cell {
   display: flex;
   flex-direction: column;
+  gap: 2px;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+
   /* aspect-ratio 保证格子近正方；min-height 兜底窄屏 */
   min-height: 62px;
   padding: 6px 2px;
+  cursor: default;
+  background: var(--bg-card);
   border: 1px solid var(--border-light);
   border-radius: 8px;
-  background: var(--bg-card);
-  cursor: default;
   transition:
     transform 0.15s ease,
     box-shadow 0.15s ease;
@@ -435,8 +437,8 @@ defineExpose({ reload: load });
 
 .pnl-calendar__day {
   font-size: 11px;
-  color: var(--text-tertiary-ink);
   line-height: 1;
+  color: var(--text-tertiary-ink);
 }
 
 /* ── 四态视觉 ──
@@ -453,18 +455,22 @@ defineExpose({ reload: load });
 .is-updown {
   border-color: var(--border-subtle);
 }
+
 .is-updown.lv-1 {
   background: color-mix(in srgb, var(--color-rise) 7%, var(--bg-card));
   border-color: color-mix(in srgb, var(--color-rise) 18%, var(--border-light));
 }
+
 .is-updown.lv-2 {
   background: color-mix(in srgb, var(--color-rise) 12%, var(--bg-card));
   border-color: color-mix(in srgb, var(--color-rise) 28%, var(--border-light));
 }
+
 .is-updown.is-fall.lv-1 {
   background: color-mix(in srgb, var(--color-fall) 7%, var(--bg-card));
   border-color: color-mix(in srgb, var(--color-fall) 18%, var(--border-light));
 }
+
 .is-updown.is-fall.lv-2 {
   background: color-mix(in srgb, var(--color-fall) 12%, var(--bg-card));
   border-color: color-mix(in srgb, var(--color-fall) 28%, var(--border-light));
@@ -490,8 +496,8 @@ defineExpose({ reload: load });
 
 .pnl-calendar__tag {
   font-size: 10px;
-  color: var(--text-tertiary-ink);
   line-height: 1;
+  color: var(--text-tertiary-ink);
 }
 
 /* 休市 / 首日：留白，不画任何数字（避免"看起来是 0"） */
@@ -507,18 +513,18 @@ defineExpose({ reload: load });
 }
 
 .is-void {
-  border-color: transparent;
   background: transparent;
+  border-color: transparent;
 }
 
 /* 合计行：一行小字 */
 .pnl-calendar__summary {
   display: flex;
-  align-items: baseline;
   gap: 10px;
+  align-items: baseline;
   padding-top: 10px;
-  border-top: 1px solid var(--border-light);
   font-size: 12px;
+  border-top: 1px solid var(--border-light);
 }
 
 .pnl-calendar__summary-label {
@@ -534,12 +540,12 @@ defineExpose({ reload: load });
 .pnl-calendar__placeholder {
   display: flex;
   flex-direction: column;
+  gap: 8px;
   align-items: center;
   justify-content: center;
-  gap: 8px;
   min-height: 140px;
-  text-align: center;
   padding: 16px;
+  text-align: center;
 }
 
 /* 响应式：窄屏压缩格子但保字号下限（design.md 可读性要求）。
@@ -550,15 +556,18 @@ defineExpose({ reload: load });
     min-height: 52px;
     padding: 4px 1px;
   }
+
   .pnl-calendar__day {
     font-size: 10px;
   }
+
   .pnl-calendar__summary {
     flex-wrap: wrap;
   }
+
   .pnl-calendar__summary-note {
-    margin-left: 0;
     width: 100%;
+    margin-left: 0;
   }
 }
 </style>
