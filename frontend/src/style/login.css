@@ -54,7 +54,7 @@
     monospace;
 }
 
-@media screen and (max-width: 1180px) {
+@media screen and (max-width: 1180px) /* breakpoint-allow: 纯 .css 文件，bp mixin 属 SCSS 语法无法使用；且 1180px 不在断点表 */ {
   .login-container {
     grid-gap: 9rem;
   }
@@ -73,7 +73,7 @@
   }
 }
 
-@media screen and (max-width: 968px) {
+@media screen and (max-width: 968px) /* breakpoint-allow: 同上（纯 .css + 968px 不在断点表） */ {
   .wave {
     display: none;
   }

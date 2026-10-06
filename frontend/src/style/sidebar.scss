@@ -1,12 +1,16 @@
 /* $sideBarWidth: vertical 模式下主体内容距离网页文档左侧的距离 */
 @mixin merge-style($sideBarWidth) {
-  @media screen and (width >= 150px) and (width <= 420px) {
+  /* breakpoint-allow: 双向区间 150–420px。bp mixin 只有 below()/above() 两个单点比较，
+     无法表达「下限 AND 上限」；且与下方 >=420px 块构成一对互补分支，拆开会改语义。 */
+  @media screen and (width >= 150px) and (width <= 420px) /* breakpoint-allow */ {
     .app-main-nofixed-header {
       overflow-y: hidden;
     }
   }
 
-  @media screen and (width >= 420px) {
+  /* breakpoint-allow: 单边区间 >=420px。同上，bp mixin 只能给单点上界/下界，
+     且此块与上方 <420px 块互补，分界点 420 也不在断点表内。 */
+  @media screen and (width >= 420px) /* breakpoint-allow */ {
     .app-main-nofixed-header {
       overflow: hidden;
     }
