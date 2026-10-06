@@ -10,7 +10,9 @@
 - GET ``v717z/clcpday.json``       概览：基本信息 + 最新持仓 + 资产分类 + 区间收益
 - GET ``v717z/clcphbzst.json``     风险指标（年化/波动率/夏普/最大回撤）
 - GET ``v731z/clcplsgd.json``      历次调仓（含前后占比）
-- GET ``v717z/clcplshb.json``      净值序列
+- GET ``v717z/clcplshb.json``      净值序列（实测可用，但 **Ports 接口没有净值位**，
+  天天/且慢/好买三个适配器均未接入该面；故本文件不保留该端点的常量，
+  免得留一行没人调的死代码、让后来者以为「净值接了其实没接」）
 
 **端点版本号不统一是实测结论，不是笔误**：概览/指标/净值在 ``v717z``，调仓在 ``v731z``；
 把指标写成 ``v731z/clcphbzst.json`` 会 404（#1910 正文原先就是这么写的，已更正）。
@@ -48,7 +50,6 @@ BASE_URL = 'https://data.howbuy.com/cgi/fund/'
 API_OVERVIEW = BASE_URL + 'v717z/clcpday.json'
 API_INDICATOR = BASE_URL + 'v717z/clcphbzst.json'
 API_REBALANCE = BASE_URL + 'v731z/clcplsgd.json'
-API_NAV = BASE_URL + 'v717z/clcplshb.json'
 
 # 实测：不带 UA 也能通；带上 App 端 UA 更贴近真实流量，顺带避开未声明的风控
 HEADERS = {'User-Agent': 'okhttp/3.12.0'}
