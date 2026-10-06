@@ -197,16 +197,26 @@
     </div>
   </CardBlock>
 
-  <!-- 账户深度分析（规划中，敬请期待，详见内部工作记录 ledger-detail-info-redesign-plan-2026-08-27） -->
+  <!-- #1812：收益日历已落地（账户级，传 ledgerId 走该账户的 as-of 派生序列）。
+       与 welcome 第三排 / panorama 弹窗是**同一组件的三处容器**，口径唯一。 -->
+  <div class="mb-6">
+    <PnlCalendar
+      :ledger-id="p.ledgerId ? Number(p.ledgerId) : undefined"
+      variant="dialog"
+    />
+  </div>
+
+  <!-- 账户深度分析其余项（持仓集中度 / 行业分布）仍规划中，
+       详见内部工作记录 ledger-detail-info-redesign-plan-2026-08-27 -->
   <CardBlock class="mb-6">
     <div
-      class="flex min-h-[160px] flex-1 items-center justify-center rounded-lg border border-dashed text-sm"
+      class="flex min-h-[120px] flex-1 items-center justify-center rounded-lg border border-dashed text-sm"
       :style="{
         borderColor: 'var(--border-subtle)',
         color: 'var(--text-tertiary-ink)'
       }"
     >
-      账户深度分析（持仓集中度 / 行业分布 / 收益日历等）规划中，敬请期待
+      持仓集中度 / 行业分布规划中，敬请期待
     </div>
   </CardBlock>
 </template>
@@ -216,6 +226,7 @@ import { reactive } from "vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import PnlCalendar from "@/components/PnlCalendar/index.vue";
 import AssetAllocationDonut from "@/components/Charts/AssetAllocationDonut.vue";
 import type { useLedgerDetailPage } from "../composables/useLedgerDetailPage";
 

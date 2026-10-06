@@ -132,8 +132,16 @@
           <h3 class="font-semibold" :style="{ color: 'var(--text-primary)' }">
             总资产构成
           </h3>
-          <el-tooltip content="资产月历（后续版本推出）" placement="top">
-            <el-button text size="small" aria-label="资产月历（后续版本推出）">
+          <!-- #1812：这个日历图标自设计起就是「资产月历」的预留入口
+               （tooltip 曾写「后续版本推出」），现已接上PnlCalendar 弹窗形态。
+               与 welcome 第三排的嵌入卡是**同一组件的两种容器**，口径唯一。 -->
+          <el-tooltip content="收益日历" placement="top">
+            <el-button
+              text
+              size="small"
+              aria-label="打开收益日历"
+              @click="calendarVisible = true"
+            >
               <IconifyIconOffline icon="ep:calendar" class="text-base" />
             </el-button>
           </el-tooltip>
@@ -141,6 +149,16 @@
         <div ref="waterfallChartRef" class="h-[280px]" />
       </div>
     </el-col>
+
+    <!-- L2 容器：收益日历弹窗（结构切片页不常驻日频图表，改为按需唤起） -->
+    <el-dialog
+      v-model="calendarVisible"
+      title="收益日历"
+      width="min(880px, 92vw)"
+      align-center
+    >
+      <PnlCalendar variant="dialog" />
+    </el-dialog>
   </el-row>
 </template>
 
@@ -150,6 +168,7 @@ import { IconifyIconOffline } from "@/components/ReIcon";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import { type AssetSnapshotItem } from "@/api/summary";
+import PnlCalendar from "@/components/PnlCalendar/index.vue";
 import echarts from "@/plugins/echarts";
 import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
 
@@ -164,6 +183,8 @@ const props = defineProps<{
 const waterfallChartRef = ref<HTMLDivElement>();
 let waterfallChart: echarts.ECharts | null = null;
 const themeTick = useThemeTick();
+/** #1812：收益日历弹窗开关（点「总资产构成」右上角日历图标唤起） */
+const calendarVisible = ref(false);
 
 // 工具函数：安全读取 CSS 变量（无 fallback 硬编码）
 const getCSSColor = (varName: string): string => {
