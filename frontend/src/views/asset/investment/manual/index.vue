@@ -326,8 +326,9 @@ const isSellLike = computed(() => {
   return false;
 });
 
-const stockOpType = ref<"buy" | "sell" | "dividend" | "split">("buy");
-const fundOpType = ref<
+// 原始值。真正的 opType 是下面两个 computed——直接改 ref 会绕过守卫。
+const stockOpTypeRaw = ref<"buy" | "sell" | "dividend" | "split">("buy");
+const fundOpTypeRaw = ref<
   "subscribe" | "redeem" | "dividend_reinvest" | "convert" | "drip" | "split"
 >("subscribe");
 
@@ -350,10 +351,59 @@ const isFormDirty = computed(
     dividendFormRef.value?.isDirty === true
 );
 
-// 只需调用、不需解构：守卫内部自己注册 onBeforeRouteLeave，调用方无需接线。
-// 解构出 confirmDiscard 反而会 unused —— eslint 按 --max-warnings 0 卡。
-useUnsavedChangesGuard(() => isFormDirty.value, {
+// 守卫内部自己注册 onBeforeRouteLeave，调用方无需接线；
+// `confirmDiscard` 要解构出来给「切换操作类型」用（第二步）——它不是路由离开，
+// onBeforeRouteLeave 拦不住 v-if 销毁表单。
+const { confirmDiscard } = useUnsavedChangesGuard(() => isFormDirty.value, {
   message: "记账表单已填写，确定放弃吗？"
+});
+
+// ── 切换操作类型也要问一次（#1891 第二步）──
+// 三个表单靠 v-if / v-else-if 互斥渲染，切 opType 会**直接销毁**已填的那个。
+// 这不是路由离开，onBeforeRouteLeave 拦不住——上一轮只补了页面守卫，
+// 用户「点一下卖出标签想看看怎么填」就会丢掉填好的买入表单。
+//
+// 改法：opType 由 computed setter 转发，setter 里先问一次，放弃才真正写值。
+// 模板的 v-model 不用改，computed setter 对它是透明的。
+//
+// UI 回弹：el-radio-group 完全受控于 v-model，setter 拒绝时值没变，选中态自动回到
+// 原项。**这一条没做浏览器复核**，若 Element Plus 版本行为不同，需要在 radio-group
+// 上加 :key 强制重渲染。
+/** 确认框在途：防止连点弹多个框，也防止两次切换交叉写值 */
+const opTypeSwitching = ref(false);
+
+async function switchOpType(next: string, apply: () => void) {
+  if (opTypeSwitching.value) return;
+  if (!isFormDirty.value) {
+    apply();
+    return;
+  }
+  opTypeSwitching.value = true;
+  try {
+    if (await confirmDiscard()) apply();
+  } finally {
+    opTypeSwitching.value = false;
+  }
+}
+
+const stockOpType = computed({
+  get: () => stockOpTypeRaw.value,
+  set: (v: typeof stockOpTypeRaw.value) => {
+    if (v === stockOpTypeRaw.value) return;
+    void switchOpType(v, () => {
+      stockOpTypeRaw.value = v;
+    });
+  }
+});
+
+const fundOpType = computed({
+  get: () => fundOpTypeRaw.value,
+  set: (v: typeof fundOpTypeRaw.value) => {
+    if (v === fundOpTypeRaw.value) return;
+    void switchOpType(v, () => {
+      fundOpTypeRaw.value = v;
+    });
+  }
 });
 
 // 分红/红利再投：复用同一表单，按操作类型切换子模式
@@ -403,8 +453,10 @@ const getFundOpLabel = (type: string) => {
 
 watch(selectedLedgerId, (newVal, oldVal) => {
   if (oldVal == null && newVal != null) {
-    stockOpType.value = "buy";
-    fundOpType.value = "subscribe";
+    // 走 raw 而非 computed：这是首次选定账户后的**初始化**，不是用户主动切换操作类型。
+    // 走 computed 会在极端时序下（表单刚挂载就被判脏）弹一个莫名其妙的确认框。
+    stockOpTypeRaw.value = "buy";
+    fundOpTypeRaw.value = "subscribe";
   }
 });
 
