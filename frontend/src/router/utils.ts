@@ -160,9 +160,18 @@ function findRouteByPath(path: string, routes: RouteRecordRaw[]) {
   }
 }
 
-/** 动态路由注册完成后，再添加全屏404（页面不存在）页面，避免刷新动态路由页面时误跳转到404页面 */
+/**
+ * 全屏 404 catch-all（#1915）。
+ *
+ * 挂载时机已从「动态路由注册完成后」提前到「createRouter 之后立即挂」：本项目业务路由
+ * 全部为静态声明（initRouter 不再下发动态路由），不存在「先匹配、后注册」的误跳 404
+ * 场景；反过来若首屏直访未匹配路径时本记录缺失，router-view 为空 → 白屏。
+ * vue-router 按路径具体度排序，通配记录不会遮蔽具体路由；resetRouter 会 clearRoutes，
+ * 故清空后需由 index.ts 重新补挂。
+ */
 function addPathMatch() {
-  if (!router.hasRoute("pathMatch")) {
+  // 按路由 name 判存在（原写法查 "pathMatch"，与实际 name "PageNotFound" 不符，恒为 false）
+  if (!router.hasRoute("PageNotFound")) {
     router.addRoute({
       path: "/:pathMatch(.*)*",
       name: "PageNotFound",
