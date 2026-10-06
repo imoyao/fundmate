@@ -1,8 +1,8 @@
 <template>
-  <!-- ===== 第一排：核心资产看板 + 收益趋势 ===== -->
+  <!-- ===== 第一排：核心资产看板（#1812 后扩为满宽 12） ===== -->
   <div class="grid grid-cols-1 xl:grid-cols-12 gap-8 mb-8">
     <!-- 左侧：家庭资产看板 -->
-    <div class="xl:col-span-8 flex flex-col gap-3 card-hover card-enter">
+    <div class="xl:col-span-12 flex flex-col gap-3 card-hover card-enter">
       <SectionHeader title="家庭资产看板">
         <template #action>
           <router-link
@@ -134,26 +134,14 @@
       </CardBlock>
     </div>
 
-    <!-- 右侧：收益趋势 -->
-    <div class="xl:col-span-4 flex flex-col gap-3 card-hover card-enter">
-      <SectionHeader title="收益趋势" info="累计收益 / 净资产随时间走势" />
-      <CardBlock
-        class="flex-1 flex flex-col items-center justify-center text-center gap-2"
-      >
-        <span
-          class="text-sm font-medium"
-          :style="{ color: 'var(--text-secondary)' }"
-          >收益趋势 · 即将上线</span
-        >
-        <span
-          class="text-[11px] max-w-xs"
-          :style="{ color: 'var(--text-tertiary-ink)' }"
-        >
-          接入收益历史后，在此展示累计收益与净资产随时间的走势，并支持月度 /
-          季度切换。
-        </span>
-      </CardBlock>
-    </div>
+    <!-- #1812：原「收益趋势」空占位已移除。
+         该栏自 2026-08 起一直是「即将上线」文字占位（无 ECharts 实例、无数据请求），
+         而它的承诺口径（累计收益 / 净资产随时间走势）是**净值曲线**，
+         与 #1812 的「逐日盈亏日历」不是同一形态，硬塞进日历组件属口径混淆。
+         逐日盈亏已由welcome 第三排的 PnlCalendar 承担；净值曲线归复盘页
+         （docs/features/asset-review.md 组件 3）规划。
+         左栏因此从 xl:col-span-8 扩为满宽 12，避免右侧留 4 列空洞
+         （design.md MetricGrid 条：禁止右侧大片空白）。 -->
   </div>
 </template>
 

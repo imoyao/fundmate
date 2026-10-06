@@ -36,7 +36,13 @@
       @retry="onRetryAsset"
     />
 
-    <!-- ===== 第三排：持仓市值最大资产 ===== -->
+    <!-- ===== 第三排：收益日历（#1812，满宽 12 列）=====
+         日频派生洞察按分层原则放首页看板；满宽是硬约束（7 列月历 + 格内双信息）。 -->
+    <div class="mb-8">
+      <PnlCalendar />
+    </div>
+
+    <!-- ===== 第四排：持仓市值最大资产 ===== -->
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-8">
       <!-- 持仓市值最大资产（风险预警改由顶部消息播报承载，本页不再保留静态风险热力图） -->
       <div
@@ -96,6 +102,7 @@ import { type HomeSummaryItem } from "@/api/watchlist";
 import WatchlistWidget from "@/components/WatchlistWidget.vue";
 import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
+import PnlCalendar from "@/components/PnlCalendar/index.vue";
 import WelcomeGreeting from "./components/WelcomeGreeting.vue";
 import WelcomeAssetBoard from "./components/WelcomeAssetBoard.vue";
 import WelcomeXirrTemperature from "./components/WelcomeXirrTemperature.vue";

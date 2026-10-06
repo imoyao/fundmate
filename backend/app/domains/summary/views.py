@@ -12,6 +12,7 @@ from flask import jsonify, request
 from app.core.auth import get_family_id
 from app.core.database import get_db
 from app.services.penetration import SCHEME_LABELS, build_penetration
+from app.services.pnl_calendar import build_daily_pnl_series
 from app.services.summary_service import (
     get_account_groups,
     get_distributions,
@@ -152,6 +153,27 @@ def list_snapshots():
         return jsonify({'data': [], 'message': str(e), 'error_code': 1001}), 400
     except Exception as e:
         return jsonify({'data': [], 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500
+
+
+@bp.get('/summary/pnl-calendar/')
+def pnl_calendar():
+    """#1812 每日收益日历（as-of 派生逐日盈亏；口径与四态定义见 services/pnl_calendar.py）。
+
+    与 `GET /summary/snapshots/` 的关键区别：快照表记的是「落库当日那一刻的当前状态」，
+    改持仓后历史不会更新、回填还会把今天的值贴到历史日期上；本接口现算，改持仓后
+    历史自动跟着变。`ledger_id` 语义与 snapshots 一致（不传=家庭级）。
+    """
+    try:
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        ledger_id = request.args.get('ledger_id', type=int)
+        with get_db() as db:
+            data = build_daily_pnl_series(db, get_family_id(), start_date, end_date, ledger_id)
+        return jsonify({'data': data, 'message': 'ok'})
+    except ValueError as e:
+        return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400
+    except Exception as e:
+        return jsonify({'data': None, 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500
 
 
 @bp.get('/summary/ghost-duplicates/')
