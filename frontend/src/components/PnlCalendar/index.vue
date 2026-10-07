@@ -25,8 +25,13 @@
 
 <template>
   <div class="pnl-calendar">
-    <!-- ===== 标题行：口径说明 + 粒度切换 + 形态切换 + 区间导航 ===== -->
-    <SectionHeader title="收益日历" :info="CALIBER_NOTE">
+    <!-- ===== 标题行：口径说明 + 粒度切换 + 形态切换 + 区间导航 =====
+         口径说明走 `#info` 富内容插槽（#1942 ③）：原先是一条 500 字的字符串直接塞进
+         tooltip，悬停出来就是一堵墙。现在拆成「口径 3 条 + 七态图例」，宽度也有约束。 -->
+    <SectionHeader title="收益日历" info-label="收益日历的口径与图例说明">
+      <template #info>
+        <PnlCalendarCaliberTip />
+      </template>
       <template #action>
         <div class="flex flex-wrap items-center justify-end gap-2">
           <!-- 粒度：日 / 月 / 年。SegmentedControl 是全站唯一实现（#1717；静态守卫
@@ -46,6 +51,15 @@
             :options="VIEW_OPTIONS"
             size="small"
             ariaLabel="切换呈现形态"
+          />
+          <!-- 口径：金额 / 收益率（#1942 第二轮②）。三视图共用同一个开关，
+               切换**不重新请求**——`rate` 随每次响应一并下发，前端只换显示口径。
+               合计行不跟随它：金额与收益率同时显示（一个数不该因为开关而消失）。 -->
+          <SegmentedControl
+            v-model="valueMode"
+            :options="VALUE_MODE_OPTIONS"
+            size="small"
+            ariaLabel="切换金额或收益率"
           />
           <!-- 区间导航。`role="group"` + `aria-label` 是按钮组的正确 a11y 语义：
                组本身不是按钮，但需一个可访问名来把三枚按钮归为一组。顺带说明：守卫
@@ -130,6 +144,7 @@
         :days="series?.days ?? []"
         :year="cursor.getFullYear()"
         :month-index="cursor.getMonth()"
+        :mode="valueMode"
       />
 
       <!-- 月 / 年视图的方格图（#1942）：一格一个期间，点击下钻 -->
@@ -137,6 +152,7 @@
         v-else-if="granularity !== 'day' && view === 'calendar'"
         :periods="series?.periods ?? []"
         :granularity="granularity"
+        :mode="valueMode"
         @select="selectPeriod"
       />
 
@@ -148,6 +164,8 @@
         :periods="series?.periods ?? []"
         :range-label="rangeLabel"
         :total="series?.month_total ?? 0"
+        :range-rate="series?.range_rate ?? null"
+        :mode="valueMode"
       />
 
       <!-- ===== 合计行：一行小字，不占纵向空间（Voice & Content规范） ===== -->
@@ -158,6 +176,16 @@
           size="sm"
           :show-currency="true"
         />
+        <!-- 区间收益率与金额**同时**显示（#1942 ②）：切换口径是针对格子里那 30 个
+             小数字的，合计行只有一个数，没必要让它随开关时隐时现。
+             `null` = 算不出来（区间前一天没有基准）⇒ 显示 —，绝不显示 0.00%。 -->
+        <span class="pnl-calendar__summary-sep" aria-hidden="true">·</span>
+        <RiseFallText
+          v-if="series?.range_rate != null"
+          :value="series.range_rate"
+          size="sm"
+        />
+        <span v-else class="pnl-calendar__summary-none">收益率 —</span>
         <span class="pnl-calendar__summary-note">
           口径：总盈亏日差分，对存取款免疫
         </span>
@@ -172,10 +200,18 @@ import { Icon as IconifyIconOffline } from "@iconify/vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import RiseFallText from "@/components/RiseFallText/index.vue";
 import PnlCalendarGrid from "./PnlCalendarGrid.vue";
 import PnlCalendarPeriodGrid from "./PnlCalendarPeriodGrid.vue";
 import PnlCalendarBars from "./PnlCalendarBars.vue";
-import { firstOfMonth, rangeFor, rangeLabelFor } from "./helpers";
+import PnlCalendarCaliberTip from "./PnlCalendarCaliberTip.vue";
+import {
+  VALUE_MODE_OPTIONS,
+  firstOfMonth,
+  rangeFor,
+  rangeLabelFor,
+  type PnlCalendarValueMode
+} from "./helpers";
 import {
   getPnlCalendar,
   type PnlCalendarDay,
@@ -209,6 +245,16 @@ const loading = ref(false);
 const error = ref("");
 const view = ref<"calendar" | "bar">("calendar");
 const granularity = ref<PnlCalendarGranularity>("day");
+
+/**
+ * 数字口径（#1942 ②）：金额 / 收益率。
+ *
+ * 纯前端开关——两个口径的数都已随响应下发（`days[].rate` / `periods[].rate`），
+ * 切换时**不发请求、不做计算**，故不需要进 `watch([...], load)` 的触发源。
+ * 不做持久化：这是「现在想看哪个」的临时视角，不是需要记住的偏好
+ * （与粒度 / 形态同档，刷新即回默认的金额）。
+ */
+const valueMode = ref<PnlCalendarValueMode>("amount");
 
 /**
  * 形态选项随粒度改名：日粒度是**日历**（一屏一个月，看「哪几天」），
@@ -245,21 +291,6 @@ const firstTxnDate = ref<string | null>(null);
  * 在粒度之间来回切时不会丢失「你原本在看哪个月」（`shift` 也刻意保留月序号）。
  */
 const cursor = ref<Date>(firstOfMonth(new Date()));
-
-/**
- * 口径说明挂在标题旁的 (i) 图标上，**不占正文空间**。
- * 首句用人话，后面才是口径细节。
- */
-const CALIBER_NOTE =
-  "今日收益 = 总盈亏的变化，充值、提现不计入。" +
-  "例：先有 1 万浮盈，再充 5 万，总盈亏仍是 1 万——今天显示的不会是 6 万。" +
-  "｜口径：按「总盈亏」逐日差分，非逐笔持仓的当日涨跌（基金按净值日切、" +
-  "股票按交易日切，两者在同一天未必同价，故与「总资产日环比」有出入是正常的）。" +
-  "建仓当日不记盈亏，显示「—」——建仓那一刻浮盈本来就是 0。" +
-  "斜线格「暂无每日估值」= 该产品按日无估值序列（银行理财、投顾组合、实物资产等），不是收益为零。" +
-  "虚框「未同步」= 那天是交易日，但还没取到当天的估值（净值未发布、或每日同步任务没跑）——" +
-  "与「休市」（周末、法定节假日）不是一回事：一个要等同步，一个只能等开盘。" +
-  "月 / 年视图是同一份日盈亏的合计，不另算；点某一格可下钻看更细的一级。";
 
 /**
  * 空态文案。**不要**命名为 `emptyText`——那是 `MoneyDisplay` 的 prop 名，
@@ -464,6 +495,17 @@ defineExpose({ reload: load });
 
 .pnl-calendar__summary-label {
   color: var(--text-secondary);
+}
+
+/* 金额与收益率之间的分隔点：只做视觉断句，不承载信息（aria-hidden） */
+.pnl-calendar__summary-sep {
+  color: var(--border-default);
+}
+
+/* 「收益率 —」：不可算（缺区间前一天基准）时的占位，与 0.00% 严格区分 */
+.pnl-calendar__summary-none {
+  font-size: 12px;
+  color: var(--text-tertiary-ink);
 }
 
 .pnl-calendar__summary-note {

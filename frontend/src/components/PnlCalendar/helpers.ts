@@ -8,6 +8,37 @@
 
 import type { PnlCalendarGranularity, PnlCalendarState } from "@/api/summary";
 
+/**
+ * 数字口径（#1942 ②）：看金额还是看收益率。
+ *
+ * 三视图（日历图 / 方格图 / 柱状图）共用同一个开关，切换时**不重新请求**——
+ * `days[].rate` / `periods[].rate` 与 `range_rate` 后端早就一并下发了，
+ * 前端只换显示口径，不做任何二次计算（这是本组件一贯的硬约束）。
+ */
+export type PnlCalendarValueMode = "amount" | "rate";
+
+/** 口径选项（SegmentedControl 的入参；两个口径都要有中文名，别只放「元 / %」） */
+export const VALUE_MODE_OPTIONS = [
+  { label: "金额", value: "amount" },
+  { label: "收益率", value: "rate" }
+] as const;
+
+/**
+ * 取该单元在当前口径下的数值。
+ *
+ * 缺数据（`pnl == null`）时两个口径都回 `null`——**不许回 0**：
+ * 「休市 / 未同步 / 无持仓」在收益率口径下同样不是 0.00%。
+ * 收益率另有自己的 `null`（无前一日基准），故要按口径分别取。
+ */
+export function valueIn(
+  mode: PnlCalendarValueMode,
+  pnl: number | null,
+  rate: number | null
+): number | null {
+  if (pnl == null) return null;
+  return mode === "rate" ? rate : pnl;
+}
+
 /** 取该月首日（存 1 号，避免时区漂移） */
 export function firstOfMonth(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -18,6 +49,25 @@ export function ymd(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${d.getFullYear()}-${m}-${day}`;
+}
+
+/**
+ * ISO 日期的星期（`Date.getDay()` 值：0=周日，1=周一 … 6=周六）。
+ *
+ * **必须按本地时区构造**：`new Date("2026-09-05")` 会被解析成 UTC 午夜，
+ * 在东八区之外的时区取 `getDay()` 会错位一天（西半球直接退到前一天）。
+ * 日历图的列归属全靠它，错一天就是整月错位。
+ */
+export function weekdayOf(iso: string): number {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).getDay();
+}
+
+/** `Date.getDay()` 值 → 中文单字列头 */
+const WEEKDAY_LABELS = ["日", "一", "二", "三", "四", "五", "六"] as const;
+
+export function weekdayLabel(weekday: number): string {
+  return WEEKDAY_LABELS[weekday] ?? "";
 }
 
 /**
@@ -50,6 +100,17 @@ export function stateTag(state: PnlCalendarState): string {
 }
 
 /**
+ * 该态是否**携带真实数值**（可显示金额 / 收益率）。
+ *
+ * `partial` 算有值：数字可信，只是不全（#1917 的 C 方案）。其余五态只出态标签，
+ * **绝不补 0**。格子（`PnlCalendarTile`）与悬浮卡片（`PnlCalendarUnitTip`）共用这一份判据，
+ * 否则会出现「格子里是 ※、卡片里是 0.00 元」这种自相矛盾。
+ */
+export function hasValueState(state: PnlCalendarState): boolean {
+  return state === "updown" || state === "zero" || state === "partial";
+}
+
+/**
  * 单元的可读名：日粒度传 `2026-01-05`，月粒度传 `2026-01`，年粒度传 `2026`。
  *
  * **键长即粒度**是后端定下的契约（见 `services/pnl_calendar._period_key`），
@@ -63,9 +124,38 @@ export function readableName(name: string): string {
 }
 
 /**
- * 单元的完整描述（tooltip 与 `aria-label` 共用同一份文字）。
+ * 态本身的解释（**不含**日期与数值），悬浮卡片的注释行与 `aria-label` 共用同一句。
  *
- * 两处共用一份，是为了避免「鼠标悬停说是未同步、读屏说是休市」这类分叉。
+ * #1917 起「数值可信但不全」与「没有数据」必须说清区别：`partial` 是前者
+ * （金额照给，只是可能漏了几只未更新的标的），`no_data` 是后者（开盘日却一个价都没有）。
+ */
+export function stateNote(state: PnlCalendarState): string {
+  if (state === "partial") {
+    return "部分标的未更新估值：数字可信，但不完整";
+  }
+  if (state === "no_price") {
+    return "该产品按日没有估值序列（银行理财、投顾组合、实物资产等），不参与收益计算";
+  }
+  if (state === "no_data") {
+    return "开盘日，但一个当天估值都没取到（净值未发布，或每日同步任务没跑）";
+  }
+  if (state === "no_position") {
+    return "当天没有持仓（建仓前 / 清仓后）";
+  }
+  if (state === "closed") {
+    return "非 A 股开盘日（周末 / 法定节假日 / 调休补班的周末）";
+  }
+  if (state === "zero") {
+    return "当天收益为 0（真零，不是缺数据）";
+  }
+  return "";
+}
+
+/**
+ * 单元的完整描述（`aria-label` 用，一行读完）。
+ *
+ * 与悬浮卡片共用 `stateNote` / `readableName`，避免「悬停说是未同步、读屏说是休市」
+ * 这类分叉；卡片另有排版层级，但文字同源。
  */
 export function stateDescription(
   name: string,
@@ -73,24 +163,17 @@ export function stateDescription(
   pnl: number | null
 ): string {
   const label = readableName(name);
-  // #1917：数值可信但该日有标的数据不全，必须说清「不全」而非「无」
-  if (state === "partial") {
-    return `${label}：收益 ${pnl ?? 0} 元（该日部分标的未更新估值，数据不完整）`;
-  }
-  if (state === "no_price") {
-    return `${label}：该产品按日没有估值序列，不参与收益计算`;
-  }
-  if (state === "no_data") {
-    return `${label}：交易日但一个当天估值都没取到（净值未发布或每日同步未跑）`;
-  }
-  if (state === "no_position") {
-    return `${label}：当天没有持仓`;
-  }
-  if (state === "closed") {
-    return `${label}：非交易日（休市）`;
-  }
-  if (state === "zero") return `${label}：收益 0.00 元`;
-  return `${label}：收益 ${pnl ?? 0} 元`;
+  const note = stateNote(state);
+  const value = pnl == null ? "" : `盈亏 ${pnl} 元；`;
+  return note
+    ? `${label}：${value}${note}`
+    : `${label}：${value}盈亏 ${pnl ?? 0} 元`;
+}
+
+/** 星期几（`周三`）——日粒度的悬浮卡片用；非日期键回空串 */
+export function weekdayName(name: string): string {
+  if (name.length !== 10) return "";
+  return `周${WEEKDAY_LABELS[weekdayOf(name)] ?? ""}`;
 }
 
 /** 区间内最大绝对盈亏（色深与柱高共用的分母；0 表示全是零收益 / 无数据） */

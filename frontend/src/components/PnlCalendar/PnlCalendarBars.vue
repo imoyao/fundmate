@@ -28,18 +28,31 @@
       <!-- 零轴：没有它，正负柱分居上下两半却看不出「零在哪」 -->
       <span class="pnl-calendar-bars__axis" aria-hidden="true" />
       <div class="pnl-calendar-bars__slots">
-        <div
+        <!-- 悬浮卡片取代浏览器原生 `title`（#1942 ③），内容与日历图共用同一个组件 -->
+        <el-tooltip
           v-for="bar in bars"
           :key="bar.key"
-          class="pnl-calendar-bars__slot"
-          :title="bar.title"
+          placement="top"
+          :show-after="120"
+          :hide-after="0"
+          popper-class="rich-tip"
         >
-          <span
-            v-if="bar.hasBar"
-            class="pnl-calendar-bars__bar"
-            :style="bar.style"
-          />
-        </div>
+          <div class="pnl-calendar-bars__slot">
+            <span
+              v-if="bar.hasBar"
+              class="pnl-calendar-bars__bar"
+              :style="bar.style"
+            />
+          </div>
+          <template #content>
+            <PnlCalendarUnitTip
+              :name="bar.name"
+              :state="bar.state"
+              :pnl="bar.pnl"
+              :rate="bar.rate"
+            />
+          </template>
+        </el-tooltip>
       </div>
     </div>
     <div class="pnl-calendar-bars__labels" aria-hidden="true">
@@ -60,23 +73,31 @@ import type {
   PnlCalendarPeriod,
   PnlCalendarState
 } from "@/api/summary";
-import { maxAbsPnl, stateDescription } from "./helpers";
+import PnlCalendarUnitTip from "./PnlCalendarUnitTip.vue";
+import { maxAbsPnl, valueIn, type PnlCalendarValueMode } from "./helpers";
 
 defineOptions({ name: "PnlCalendarBars" });
 
 // 四个 prop 都由父组件必传（`days` / `periods` 二选一传空数组），故不给
 // withDefaults 默认值——eslint `vue/no-required-prop-with-default` 会把
 // 「required + default」判为冗余（CI 用 --max-warnings 0，warning 也算红）。
-const props = defineProps<{
-  /** 日粒度：当月逐日序列（月 / 年粒度下后端回空数组） */
-  days?: PnlCalendarDay[];
-  /** 月 / 年粒度：期间聚合序列（日粒度下后端回空数组） */
-  periods?: PnlCalendarPeriod[];
-  /** 展示用区间标签，如 "2026 年 9 月" / "2026 年" / "2024–2026 年" */
-  rangeLabel: string;
-  /** 区间盈亏合计（元），仅用于 aria 描述 */
-  total: number;
-}>();
+const props = withDefaults(
+  defineProps<{
+    /** 日粒度：当月逐日序列（月 / 年粒度下后端回空数组） */
+    days?: PnlCalendarDay[];
+    /** 月 / 年粒度：期间聚合序列（日粒度下后端回空数组） */
+    periods?: PnlCalendarPeriod[];
+    /** 展示用区间标签，如 "2026 年 9 月" / "2026 年" / "2024–2026 年" */
+    rangeLabel: string;
+    /** 区间盈亏合计（元），仅用于 aria 描述 */
+    total: number;
+    /** 区间收益率（%），仅用于 aria 描述；`null` = 不可算 */
+    rangeRate?: number | null;
+    /** 数字口径（#1942 ②）：柱高与 aria 都按它取数 */
+    mode?: PnlCalendarValueMode;
+  }>(),
+  { rangeRate: null, mode: "amount" }
+);
 
 interface Normalized {
   key: string;
@@ -85,6 +106,7 @@ interface Normalized {
   name: string;
   state: PnlCalendarState;
   pnl: number | null;
+  rate: number | null;
 }
 
 /** 把两种输入整形为同一份柱序列（后端保证 `days` / `periods` 只有一侧非空） */
@@ -97,7 +119,8 @@ const items = computed<Normalized[]>(() => {
         p.period.length === 7 ? String(Number(p.period.slice(5))) : p.period,
       name: p.period,
       state: p.state,
-      pnl: p.pnl
+      pnl: p.pnl,
+      rate: p.rate
     }));
   }
   return (props.days ?? []).map(d => ({
@@ -105,38 +128,48 @@ const items = computed<Normalized[]>(() => {
     label: String(Number(d.date.slice(8, 10))),
     name: d.date,
     state: d.state,
-    pnl: d.daily_pnl
+    pnl: d.daily_pnl,
+    rate: d.rate
   }));
 });
 
 interface BarItem {
   key: string;
   label: string;
-  title: string;
-  /** 有真实数值才画柱；`null`（未同步 / 休市 / 无持仓）整根不画 */
+  /** 悬浮卡片要的原始信息（`PnlCalendarUnitTip` 的入参），不再自己拼一行字符串 */
+  name: string;
+  state: PnlCalendarState;
+  pnl: number | null;
+  rate: number | null;
+  /** 有真实数值才画柱；`null`（未同步 / 休市 / 无持仓 / 收益率不可算）整根不画 */
   hasBar: boolean;
   style: Record<string, string>;
 }
 
 const bars = computed<BarItem[]>(() => {
-  // 以实际返回的柱数为准（区间可能不足整月 / 整年），不假设 31 或 12
-  const denom = maxAbsPnl(items.value.map(it => it.pnl)) || 1;
+  // 分母按**当前口径**取数：金额与收益率的量纲不同，不能共用一套高度映射
+  const denom =
+    maxAbsPnl(items.value.map(it => valueIn(props.mode, it.pnl, it.rate))) || 1;
 
   return items.value.map(it => {
     // 柱高占半区（0~50%），零轴居中：正数向上撑、负数向下撑。
     // `height` / `top` / `bottom` 的百分比都按**绘图区高度**解析，
     // 不会像垂直 margin 那样按宽度算（#1942 的根因）。
+    const value = valueIn(props.mode, it.pnl, it.rate);
     const height =
-      it.pnl == null ? 0 : Math.min(Math.abs(it.pnl) / denom, 1) * 50;
+      value == null ? 0 : Math.min(Math.abs(value) / denom, 1) * 50;
     const style: Record<string, string> = {};
-    if (it.pnl == null) {
+    if (value == null) {
       // 无数据：不画。画一根 0 高度的灰线会被读成「幅度极小」，正是「缺数据
       // 不能画成 0」的反面（日历图用空白格表达同一件事）。
-    } else if (it.pnl > 0) {
+      //
+      // 收益率口径下还有第二种 `null`：有金额但没有「前一日基准」⇒ 收益率不可算。
+      // 同样不画——把不可算画成零轴短横会与「真实为零」混淆。
+    } else if (value > 0) {
       style.height = `${height}%`;
       style.bottom = "50%";
       style.backgroundColor = "var(--color-rise)";
-    } else if (it.pnl < 0) {
+    } else if (value < 0) {
       style.height = `${height}%`;
       style.top = "50%";
       style.backgroundColor = "var(--color-fall)";
@@ -149,8 +182,11 @@ const bars = computed<BarItem[]>(() => {
     return {
       key: it.key,
       label: it.label,
-      title: stateDescription(it.name, it.state, it.pnl),
-      hasBar: it.pnl != null,
+      name: it.name,
+      state: it.state,
+      pnl: it.pnl,
+      rate: it.rate,
+      hasBar: value != null,
       style
     };
   });
@@ -158,7 +194,14 @@ const bars = computed<BarItem[]>(() => {
 
 const ariaLabel = computed(() => {
   const unit = props.periods?.length ? "期间" : "逐日";
-  return `${props.rangeLabel}${unit}收益柱状图，合计 ${props.total} 元`;
+  // 合计也随口径说话：切换后读屏拿到的单位必须与屏幕上的数字一致
+  const totalText =
+    props.mode === "rate"
+      ? props.rangeRate == null
+        ? "区间收益率不可算"
+        : `合计 ${props.rangeRate}%`
+      : `合计 ${props.total} 元`;
+  return `${props.rangeLabel}${unit}收益柱状图，${totalText}`;
 });
 </script>
 

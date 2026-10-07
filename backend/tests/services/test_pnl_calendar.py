@@ -871,3 +871,62 @@ def test_同一日在不同区间下必须得到相同结果(db, make_position, 
         assert _pnl_of(wide, day) == _pnl_of(narrow, day), (
             f'{day} 盈亏随区间变化：整月={_pnl_of(wide, day)} 小区间={_pnl_of(narrow, day)}'
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# #1942 ②：区间收益率（前端「金额 / 收益率」切换的合计行数据源）
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_区间收益率的分母是区间前一天净资产(db, make_position, make_transaction):
+    """#1942 ②：`range_rate` = 区间盈亏 ÷ **区间前一天**净资产，日 / 月两条路径同值。
+
+    区间取 1/30~2/9（跨月）：基准日前一天 1/29 净资产 = 1000 份 × 1.1 = 1100 元，
+    区间盈亏 = 1/30 的 +100 与 2/2 的 +100 ⇒ 200/1100 = 18.18%。
+    日粒度的 `days` 与月粒度的 `periods` 必须给出同一个数——否则
+    「金额 / 收益率」一切换就随粒度变形。
+
+    **前提：基准日（区间前一天）必须取得到价格**。少了它，首个区间日会把
+    累计浮盈当成当日盈亏（真实库实测 2026-06 单月合计虚增 8115.71，见 #1953），
+    那是另一个缺陷，不在本用例的表达范围内。
+    """
+    _seed_跨月收益(db, make_position, make_transaction)
+
+    day = build_daily_pnl_series(db, 1, '2026-01-30', '2026-02-09')
+    month = build_pnl_series(db, 1, '2026-01-30', '2026-02-09', granularity=GRANULARITY_MONTH)
+
+    assert day['range_rate'] == pytest.approx(18.18, abs=0.01)
+    assert month['range_rate'] == pytest.approx(18.18, abs=0.01)
+    # 首期间（1/30~1/31，+100）的 `rate` 与区间收益率同分母 ⇒ 也必须一致
+    assert month['periods'][0]['rate'] == pytest.approx(9.09, abs=0.01)
+
+
+def test_无持仓时区间收益率为None(db):
+    """空载荷的 `range_rate` 必须是 None——前端据此显示「—」，不能显示 0.00%。"""
+    res = build_daily_pnl_series(db, family_id=1, start_date='2026-01-01', end_date='2026-01-31')
+
+    assert res['range_rate'] is None
+    assert res['month_total'] == 0.0
+
+
+def test_整段无可算日时区间收益率为None而非零(db, make_position):
+    """#1942 ②：「不可算」与「零收益」必须分开（「缺数据绝不画成 0」的红线）。
+
+    balance 模式持仓有市值、无日估值序列 ⇒ 整段无可算日。此时 `month_total` 本就是
+    0 元（无可算日），若再顺手报一个 0.00% 的区间收益率，会被读成
+    「这段时间没涨没跌」——而真相是「这段时间算不出来」。
+    """
+    make_position(
+        symbol='ZH0003',
+        name='银行理财',
+        quantity=0,
+        avg_price=0,
+        asset_type='portfolio',
+        valuation_mode='balance',
+        market_value_override=Money.yuan_to_cents(50000),
+    )
+
+    res = build_pnl_series(db, 1, '2026-01-01', '2026-01-31', granularity=GRANULARITY_MONTH)
+
+    assert res['periods'][0]['state'] == STATE_NO_PRICE
+    assert res['range_rate'] is None
