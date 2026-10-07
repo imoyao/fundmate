@@ -70,6 +70,10 @@ from app.services.pnl_service import (
 _PRICE_SCALE = Decimal('10000')
 _PRICE_QUANTITY_DIVISOR = Decimal('1000000')
 
+# quantize 的目标常量：热路径里每调一次就 `Decimal('1')` 一次实测要 1.8µs，
+# 全市场 9.3 万行净值就是 0.16 秒白花，故提到模块级只构造一次。
+_PRICE_UNITS_ONE = Decimal('1')
+
 # DailyWorth.unit_nav 是 SafeNumeric(18,6)（元），转 0.0001 元整数单位
 _NAV_SCALE = Decimal('10000')
 
@@ -84,13 +88,25 @@ STATE_CLOSED = 'closed'
 # 太小：单日数据抖动就会让市值归零、差分出现假跳空。7 天覆盖周末与节假日。
 _STALE_CARRY_DAYS = 7
 
+# 聚合粒度（#1925 三视图）：day=逐日明细回 `days`；month/year=期间聚合回 `periods`。
+# 口径唯一出口仍是后端——前端只做呈现，禁止二次盈亏计算（见本文件顶部口径说明）。
+GRANULARITY_DAY = 'day'
+GRANULARITY_MONTH = 'month'
+GRANULARITY_YEAR = 'year'
+GRANULARITIES = (GRANULARITY_DAY, GRANULARITY_MONTH, GRANULARITY_YEAR)
+
 
 def _to_price_units(value) -> int:
-    """元（Decimal/float/str）→ 0.0001 元整数单位，与 Position.current_price 同尺度。"""
+    """元（Decimal/float/str）→ 0.0001 元整数单位，与 Position.current_price 同尺度。
+
+    `DailyWorth.unit_nav` 是 `DECIMAL(18,6)`，读出来**已经是 Decimal**——先 `str()`
+    再 `Decimal()` 纯属往返（实测 10.19µs → 3.40µs/次），9.3 万行净值差出 6 秒。
+    只有 `PriceHistory.adj_close` 那种真 float 才必须走字符串规避二进制误差。
+    """
     if value is None:
         return 0
-    scaled = Decimal(str(value)) * _PRICE_SCALE
-    return int(scaled.quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+    scaled = value * _PRICE_SCALE if isinstance(value, Decimal) else Decimal(str(value)) * _PRICE_SCALE
+    return int(scaled.quantize(_PRICE_UNITS_ONE, rounding=ROUND_HALF_UP))
 
 
 def _effective_date(txn) -> Optional[dt.date]:
@@ -152,12 +168,36 @@ def _collect_fund_nav(
     db: Session,
     start: dt.date,
     end: dt.date,
+    fund_codes: Iterable[str],
 ) -> Dict[str, Dict[dt.date, int]]:
-    """基金单位净值：{fund_code: {date: 0.0001元}}（market 域，一次全量取回本地分组）。"""
-    rows = db.query(DailyWorth).filter(DailyWorth.date >= start, DailyWorth.date <= end).all()
+    """基金单位净值：{fund_code: {date: 0.0001元}}（market 域，按持有代码一次取回本地分组）。
+
+    **必须按 `fund_code` 过滤**（#1925）：`daily_worth` 是全市场表（真实库 7,543,415 行 /
+    26,938 只基金），只按日期 `.all()` 等于把全市场当期净值捞进内存再在 Python 里挑，
+    现成唯一索引 `idx_daily_worth_code_date_unique (fund_code, date)` 因此完全用不上。
+    实测 31 天窗口：**无过滤 13,693 ms → 有过滤 317 ms（43×）**，而家庭持仓只有 114 只 OTC。
+    窗口拉到 365 天时差距更致命（无过滤 54.4s，年视图直接不可用）。
+
+    代码集合为空时**直接返回 `{}`，不退化成查全库**——空 targets 的正确语义是「跳过」，
+    静默退化是 AGENTS.md 数据策略硬约束 §3 明令禁止的形态（反例 `fund_manager_job.py`）。
+    """
+    codes = sorted({(c or '').strip() for c in fund_codes if (c or '').strip()})
+    if not codes:
+        return {}
+    # 列投影而非整实体：ORM 把 9.3 万行 DailyWorth 逐个构造 + 塞进 identity map
+    # 实测 9,025 ms，投影成元组只要 1,452 ms（6.2×）。热路径上不值得为此建对象。
+    rows = (
+        db.query(DailyWorth.fund_code, DailyWorth.date, DailyWorth.unit_nav)
+        .filter(
+            DailyWorth.fund_code.in_(codes),
+            DailyWorth.date >= start,
+            DailyWorth.date <= end,
+        )
+        .all()
+    )
     nav: Dict[str, Dict[dt.date, int]] = {}
-    for row in rows:
-        nav.setdefault(row.fund_code, {})[row.date] = _to_price_units(row.unit_nav)
+    for code, date, unit_nav in rows:
+        nav.setdefault(code, {})[date] = _to_price_units(unit_nav)
     return nav
 
 
@@ -175,8 +215,14 @@ def _collect_price_history(
     symbol_list = sorted({s for s in symbols if s})
     if not symbol_list:
         return {}
+    # 同 `_collect_fund_nav`：列投影，不为热路径构造 ORM 实体
     rows = (
-        db.query(PriceHistory)
+        db.query(
+            PriceHistory.symbol,
+            PriceHistory.trade_date,
+            PriceHistory.adj_close,
+            PriceHistory.close,
+        )
         .filter(
             PriceHistory.symbol.in_(symbol_list),
             PriceHistory.trade_date >= start,
@@ -185,36 +231,42 @@ def _collect_price_history(
         .all()
     )
     prices: Dict[str, Dict[dt.date, int]] = {}
-    for row in rows:
-        price = row.adj_close if row.adj_close else row.close
-        prices.setdefault(row.symbol, {})[row.trade_date] = _to_price_units(price)
+    for symbol, trade_date, adj_close, close in rows:
+        price = adj_close if adj_close else close
+        prices.setdefault(symbol, {})[trade_date] = _to_price_units(price)
     return prices
 
 
-def _price_for(
+def _price_series_of(
     pos: Position,
-    day: dt.date,
     fund_nav: Dict[str, Dict[dt.date, int]],
     exchange_prices: Dict[str, Dict[dt.date, int]],
-) -> Optional[int]:
-    """该持仓在 day 的 0.0001 元单价。
+) -> Optional[Dict[dt.date, int]]:
+    """该持仓的价格序列；`None` = **整段无价格序列**（区别于「有序列但当日无价」）。
 
-    **None = 该标的整段无价格序列**（区别于「有序列但当日无价」——后者会向前回填）。
+    **必须按持仓解析一次、日循环里复用**（#1925）：`venue_of_row` 要跑正则 +
+    `strip().upper()`（实测 3.23µs），而日循环里每笔持仓每天要问两次
+    （值循环问取价、判定循环问新鲜价），5 年窗口就是 55 万次 ≈ 1.8 秒纯浪费。
+    持仓集合在整个区间内不变，故解析结果天然是不变量。
+    """
+    symbol = (pos.symbol or '').strip()
+    venue = venue_of_row(symbol, pos.asset_type)
+    if venue == OTC:
+        return fund_nav.get(symbol) or None
+    if venue == EXCHANGE:
+        return exchange_prices.get(symbol) or None
+    # 场所判不出（NO_VENUE）：投顾组合 / 基金经理等无价序列标的
+    return None
+
+
+def _price_for(day: dt.date, series: Optional[Dict[dt.date, int]]) -> Optional[int]:
+    """该标在 day 的 0.0001 元单价；`series` 为 None/空表示整段无价格序列。
 
     前值回填（#1812 修复）：某只基金当天没发布净值时，若直接跳过它，
     等价于「市值归零」，日差分会出现巨额假跳空——实测 2026-09-30 只有
     13/57 笔有价，ΔW 假跌 20.8 万。回填让日总额在标的集合不变时可比。
     周末/全市场无数据时所有标的都回填不出 ⇒ 仍判`closed`，不会被填成「0 收益」。
     """
-    symbol = (pos.symbol or '').strip()
-    venue = venue_of_row(symbol, pos.asset_type)
-    if venue == OTC:
-        series = fund_nav.get(symbol)
-    elif venue == EXCHANGE:
-        series = exchange_prices.get(symbol)
-    else:
-        # 场所判不出（NO_VENUE）：投顾组合 / 基金经理等无价序列标的
-        return None
     if not series:
         return None
     price = series.get(day)
@@ -226,37 +278,6 @@ def _price_for(
         if prev is not None:
             return prev
     return None
-
-
-def _has_fresh_price(
-    pos: Position,
-    day: dt.date,
-    fund_nav: Dict[str, Dict[dt.date, int]],
-    exchange_prices: Dict[str, Dict[dt.date, int]],
-) -> bool:
-    """该标的在 day **当天**是否真有报价（不含前值回填）。
-
-    用于区分两种「都拿不到价」：
-    - 全市场都没有 ⇒ 周末 / 节假日，回填后按「价格未变」算 0 是诚实的；
-    - 一部分有、一部分没有 ⇒ 真实的**数据断档**，此时出数会把缺失标的的市值
-      当成 0，差分是错的（实测某基金断档一天，日总额凭空少 1.5 万）。
-      按 design.md「缺数据不可画成 0」，宁可标「数据不全」也不出錯数。
-    """
-    symbol = (pos.symbol or '').strip()
-    venue = venue_of_row(symbol, pos.asset_type)
-    series = fund_nav.get(symbol) if venue == OTC else exchange_prices.get(symbol) if venue == EXCHANGE else None
-    return bool(series) and day in series
-
-
-def _has_price_series(pos: Position, fund_nav, exchange_prices) -> bool:
-    """该持仓是否存在历史价格序列（决定 no_price 态，与「某天恰好休市」区分）。"""
-    symbol = (pos.symbol or '').strip()
-    venue = venue_of_row(symbol, pos.asset_type)
-    if venue == OTC:
-        return bool(fund_nav.get(symbol))
-    if venue == EXCHANGE:
-        return bool(exchange_prices.get(symbol))
-    return False
 
 
 def _positions(
@@ -312,6 +333,19 @@ def _build_per_pos(
     return per_pos
 
 
+def _resolve_range(start_date: Optional[str], end_date: Optional[str]) -> Tuple[dt.date, dt.date]:
+    """把 `start_date` / `end_date` 解析成闭区间；end 缺省取上海时区当日，start 缺省为 end−29 天。
+
+    抽出来是因为月/年粒度要在**同一套缺省规则**上把起点再往前挪一天做基线，
+    两处各写一份解析就是口径分叉的开始。
+    """
+    from app.core.time_utils import now_shanghai
+
+    end = dt.datetime.strptime(end_date, '%Y-%m-%d').date() if end_date else now_shanghai().date()
+    start = dt.datetime.strptime(start_date, '%Y-%m-%d').date() if start_date else end - dt.timedelta(days=29)
+    return start, end
+
+
 def build_daily_pnl_series(
     db: Session,
     family_id: int = 1,
@@ -338,16 +372,12 @@ def build_daily_pnl_series(
         同步推进差分基准，否则 month_total 的差分链错位、不可加（实测差 3502.91）；
      3. day_total 按持仓可加（每笔持仓恰属一个账户）。
     """
-    from app.core.time_utils import now_shanghai
-
-    end = dt.datetime.strptime(end_date, '%Y-%m-%d').date() if end_date else now_shanghai().date()
-    start = dt.datetime.strptime(start_date, '%Y-%m-%d').date() if start_date else end - dt.timedelta(days=29)
-    if start > end:
-        return _empty_payload(ledger_id, start, end)
-
     # 往前多取一天，**只为给区间首日建立差分基准**。
     # 否则每月 1 号都因「无前一日」被判 closed，看着像休市，其实是基准缺失。
     # 该日不进入输出（见下方 emit 条件）。
+    start, end = _resolve_range(start_date, end_date)
+    if start > end:
+        return _empty_payload(ledger_id, start, end)
     scan_start = start - dt.timedelta(days=1)
 
     positions = _positions(db, family_id, ledger_id)
@@ -375,7 +405,7 @@ def build_daily_pnl_series(
         for p in decision_positions
         if venue_of_row((p.symbol or '').strip(), p.asset_type) == EXCHANGE and (p.symbol or '').strip()
     }
-    fund_nav = _collect_fund_nav(db, scan_start, end)
+    fund_nav = _collect_fund_nav(db, scan_start, end, otc_codes)
     exchange_prices = _collect_price_history(db, ex_symbols, scan_start, end)
 
     # ── as-of 份额 / 成本 / 已实现盈亏 ──
@@ -383,17 +413,26 @@ def build_daily_pnl_series(
     # 传 scan_start 会把「建仓当天正好落在 scan_start 之后」的流水整条丢掉
     # （实测：买在窗口第 1 天 ⇒ 份额恒为 0 ⇒ 整月 closed）。
     shares, txns = _as_of_shares(db, family_id, end)
-    price_cache: Dict[Tuple[int, str], Optional[int]] = {}
+
+    # ── 价格序列按持仓解析一次（#1925 性能）──
+    # 日循环里每笔持仓每天要问两次「你属于哪个场所 / 你有哪条序列」，每次
+    # `venue_of_row` 都要跑正则（实测 3.23µs），5 年窗口 55 万次 ≈ 1.8 秒纯浪费。
+    # 持仓集合在整个区间内不变 ⇒ 结果是不变量。判定用家庭级全集
+    # （账户级的价值集是它的子集）；coverage 诊断按本作用域报。
+    price_series = {p.id: _price_series_of(p, fund_nav, exchange_prices) for p in decision_positions}
+    # 整段无价格序列的持仓（balance 模式 / 无场所判定）——整段区间都不可能有日收益。
+    no_price_ids = {pid for pid, series in price_series.items() if not series}
+
+    # 当日价缓存：只在**同一天内**复用（值循环与判定循环各查一次），故每天清空。
+    # 键取 `pos.id` 而非 `(id, iso日期)`：热路径上每次省掉 2.31µs 的字符串构造，
+    # 也不会随区间长度累积出百万级条目（5 年窗口 = 55 万次查价）。
+    price_cache: Dict[int, Optional[int]] = {}
 
     def price_of(pos: Position, day: dt.date) -> Optional[int]:
-        key = (pos.id, day.isoformat())
+        key = pos.id
         if key not in price_cache:
-            price_cache[key] = _price_for(pos, day, fund_nav, exchange_prices)
+            price_cache[key] = _price_for(day, price_series.get(pos.id))
         return price_cache[key]
-
-    # 预标记无价格序列的持仓（balance 模式 / 无场所判定）——整段区间都不可能有日收益。
-    # 判定用家庭级全集；coverage 诊断按本作用域自己的持仓报。
-    no_price_ids = {p.id for p in decision_positions if not _has_price_series(p, fund_nav, exchange_prices)}
 
     # ── 逐日推进：维护每笔持仓的 as-of 份额与累计已实现 ──
     decision_per_pos = _build_per_pos(decision_positions, shares, txns, scan_start)
@@ -408,6 +447,7 @@ def build_daily_pnl_series(
     per_pos_sets = (value_per_pos,) if value_per_pos is decision_per_pos else (decision_per_pos, value_per_pos)
 
     while day <= end:
+        price_cache.clear()
         for per_pos in per_pos_sets:
             for state in per_pos.values():
                 # 建仓日标记：份额由 0 变正的那一天。前一日基准是「未持有」，
@@ -467,18 +507,19 @@ def build_daily_pnl_series(
 
         for state in decision_per_pos.values():
             pos: Position = state['pos']
+            series = price_series.get(pos.id)
             held = state['shares'] > 0
-            # 「当日新鲜价」= 该标的这一天真的有报价；回填来的价不算。
-            fresh = _has_fresh_price(pos, day, fund_nav, exchange_prices)
-            if held and pos.id not in no_price_ids:
-                if fresh:
+            # `series` 为空 ⇒ 整段无价格序列（no_price_ids），与「某天恰好休市」区分
+            if held and series:
+                # 「当日新鲜价」= 该标的这一天真的有报价；回填来的价不算。
+                if day in series:
                     day_fresh_count += 1
                 else:
                     day_stale_count += 1
 
             price = price_of(pos, day)
             if price is None:
-                if pos.id in no_price_ids:
+                if not series:
                     day_unpriced_count += 1
                 continue
             day_has_price = True
@@ -580,6 +621,146 @@ def build_daily_pnl_series(
         'latest_price_date': latest_price_date,
         'days': days,
     }
+
+
+def _period_key(date_iso: str, granularity: str) -> str:
+    """期间键：`month` → `YYYY-MM`，`year` → `YYYY`。
+
+    **键长即粒度**（7=月，4=年），前端据此决定柱标签，不必再传一个可能与数据
+    不一致的展示字段。
+    """
+    if granularity == GRANULARITY_MONTH:
+        return date_iso[:7]
+    if granularity == GRANULARITY_YEAR:
+        return date_iso[:4]
+    return date_iso
+
+
+def _aggregate_periods(
+    days: List[dict],
+    granularity: str,
+    baseline_net_worth: Optional[float] = None,
+) -> List[dict]:
+    """把逐日序列聚合成期间序列（月收益 / 年收益视图的唯一数据出口，#1925）。
+
+    汇总规则：
+
+    - `pnl` = 该期间内**非 null** 日盈亏之和 ⇒ 单月的期间值恒等于日粒度下该月的
+      `month_total`，某年的期间值恒等于其 12 个月之和——**同一条日序列的两种切法**，
+      两种视图不可能对不上；
+    - 期间内一天都算不出来 ⇒ `pnl=None`（**缺数据绝不画成 0**，与日粒度同一红线）；
+    - `state` 由期间盈亏派生，措辞与日粒度同一套：整天不可算时 `no_price` / `closed`，
+      否则 `zero` / `updown`。周末休日本来就是 `closed`，不参与判定，
+      故一个正常的月份不会因为有周末就被判成「数据不全」；
+    - `rate` 分母取**上一期间末净资产**，首期间取调用方多取的基线日。
+
+    注意 `pnl` 可能只覆盖该期间的一部分日子——日粒度的 `month_total` 本来就是
+    「非 null 日盈亏之和」（数据断档日不进和），这里保持同一口径，不另起算法。
+    """
+    if granularity == GRANULARITY_DAY:
+        # 日粒度没有「期间」概念：逐日明细已在 `days` 里，再聚一份是同义反复
+        return []
+
+    grouped: Dict[str, List[dict]] = {}
+    for day in days:
+        grouped.setdefault(_period_key(day['date'], granularity), []).append(day)
+
+    periods: List[dict] = []
+    prev_net_worth = baseline_net_worth
+    for key, rows in grouped.items():
+        computable = [r for r in rows if r['daily_pnl'] is not None]
+        no_price_count = sum(1 for r in rows if r['state'] == STATE_NO_PRICE)
+
+        if computable:
+            pnl_cents = sum(int(Decimal(str(r['daily_pnl'])) * 100) for r in computable)
+            pnl: Optional[float] = round(Money.cents_to_yuan(pnl_cents), 2)
+            state = STATE_ZERO if pnl_cents == 0 else STATE_UPDOWN
+        else:
+            pnl = None
+            state = STATE_NO_PRICE if no_price_count else STATE_CLOSED
+
+        # 期间末净资产：取最后一日。周末 / 无持仓日会是 0，向前回溯最近一个非零值，
+        # 否则下一个期间的收益率分母会莫名变成 0、rate 恒 null。
+        net_worth = next(
+            (r['net_worth'] for r in reversed(rows) if r['net_worth'] > 0),
+            rows[-1]['net_worth'],
+        )
+
+        rate = None
+        if pnl is not None and prev_net_worth not in (None, 0):
+            rate = round(pnl / abs(prev_net_worth) * 100, 2)
+
+        periods.append(
+            {
+                'period': key,
+                'pnl': pnl,
+                'net_worth': net_worth,
+                'rate': rate,
+                'state': state,
+            }
+        )
+        prev_net_worth = net_worth
+    return periods
+
+
+def build_pnl_series(
+    db: Session,
+    family_id: int = 1,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    ledger_id: Optional[int] = None,
+    granularity: str = GRANULARITY_DAY,
+) -> dict:
+    """按粒度取收益序列 —— 日 / 月 / 年三视图的唯一出口（#1925）。
+
+    Args:
+        granularity: `day` 逐日明细回 `days`；`month` / `year` 期间聚合回 `periods`。
+            非法值抛 `ValueError`，视图层据此回 400（error_code 1001）。
+
+    **为什么月 / 年视图也要走 `build_daily_pnl_series`**：口径唯一。另起一条
+    「按月算」的算法就等于两条口径并存，迟早对不上；正确做法是同一条日序列、
+    两种切法（见 `_aggregate_periods`）。性能靠 `_collect_fund_nav` 按持有代码过滤
+    与**聚合下推**（年视图只回 5 行期间数据，不回 1800+ 条日明细）解决。
+
+    月 / 年粒度会把起点**再往前挪一天**，只为给首个期间算出收益率分母；
+    该日不计入 `days` / `month_total`，与日粒度 `scan_start` 的处理完全一致。
+    """
+    if granularity not in GRANULARITIES:
+        raise ValueError(f'不支持的粒度: {granularity}')
+
+    if granularity == GRANULARITY_DAY:
+        payload = build_daily_pnl_series(db, family_id, start_date, end_date, ledger_id)
+        payload['granularity'] = GRANULARITY_DAY
+        payload['periods'] = []
+        return payload
+
+    base_start, base_end = _resolve_range(start_date, end_date)
+    scan_start = base_start - dt.timedelta(days=1)
+    payload = build_daily_pnl_series(
+        db,
+        family_id,
+        scan_start.isoformat(),
+        base_end.isoformat(),
+        ledger_id,
+    )
+
+    # 基线日的净资产 = 首个期间的收益率分母（该日不在输出区间内，先取出再过滤）
+    baseline = next(
+        (d['net_worth'] for d in payload['days'] if d['date'] == scan_start.isoformat()),
+        None,
+    )
+    in_range = [d for d in payload['days'] if d['date'] >= base_start.isoformat()]
+    total_cents = sum(int(Decimal(str(d['daily_pnl'])) * 100) for d in in_range if d['daily_pnl'] is not None)
+
+    payload['granularity'] = granularity
+    payload['start_date'] = base_start.isoformat()
+    payload['end_date'] = base_end.isoformat()
+    # `month_total` 是历史字段名，语义一直是**区间合计**（前端类型注释亦如此写）
+    payload['month_total'] = round(Money.cents_to_yuan(total_cents), 2)
+    payload['has_any_price'] = any(d['state'] in (STATE_UPDOWN, STATE_ZERO) for d in in_range)
+    payload['periods'] = _aggregate_periods(in_range, granularity, baseline)
+    payload['days'] = []  # 聚合下推：期间视图不再回日明细
+    return payload
 
 
 def _latest_price_date(
