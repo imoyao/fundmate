@@ -97,6 +97,15 @@ ENV_ADVISOR_ENABLED = 'SCHEDULER_ADVISOR_ENABLED'
 ENV_ADVISOR_CRON = 'SCHEDULER_ADVISOR_CRON'
 ENV_FUND_HOLDING_ENABLED = 'SCHEDULER_FUND_HOLDING_ENABLED'
 ENV_FUND_HOLDING_CRON = 'SCHEDULER_FUND_HOLDING_CRON'
+# --- #1934：以下四个 job 早已注册进编排器与全量执行计划，却从未进本机每日调度 ---
+ENV_INDEX_VALUATION_ENABLED = 'SCHEDULER_INDEX_VALUATION_ENABLED'
+ENV_INDEX_VALUATION_CRON = 'SCHEDULER_INDEX_VALUATION_CRON'
+ENV_CONVERTIBLE_BOND_ENABLED = 'SCHEDULER_CONVERTIBLE_BOND_ENABLED'
+ENV_CONVERTIBLE_BOND_CRON = 'SCHEDULER_CONVERTIBLE_BOND_CRON'
+ENV_MARKET_ASSET_DAILY_ENABLED = 'SCHEDULER_MARKET_ASSET_DAILY_ENABLED'
+ENV_MARKET_ASSET_DAILY_CRON = 'SCHEDULER_MARKET_ASSET_DAILY_CRON'
+ENV_DIVIDEND_SPLIT_ENABLED = 'SCHEDULER_DIVIDEND_SPLIT_ENABLED'
+ENV_DIVIDEND_SPLIT_CRON = 'SCHEDULER_DIVIDEND_SPLIT_CRON'
 
 DEFAULT_TIMEZONE = 'Asia/Shanghai'
 # 温度计：集思录中位 PB / 韭圈儿 / 行业拥挤度盘后即出
@@ -124,6 +133,27 @@ DEFAULT_ADVISOR_CRON = '0 22 * * *'
 # ⚠️ 星期必须写 `mon` 而不是数字：APScheduler 的 `day_of_week` 是 **0 = 周一**，
 # 与 crontab 的 0 = 周日**相反**——实测写 `* * 1` 排出来的是周二。
 DEFAULT_FUND_HOLDING_CRON = '0 23 * * mon'
+
+# --- #1934：四个「已注册却从未被调度」的 job 的默认 cron ---
+#
+# 为什么现在才排期：它们都在编排器与全量执行计划里，却不在本机调度清单，
+# 于是「看起来做了」但真库从未执行过（#1397 / #1400 / #1460 / #1179 的实证）。
+# 时点全部**错开**现有 7 项（17:30 price_history / 18:00 index_daily / 20:00
+# temperature / 21:30 fund_nav / 22:00 advisor / 22:15 position_price / 周一23:00
+# fund_position），避免同时抢 DB 会话与上游限流。
+#
+# 17:10 探市快照：场内收盘后（15:00）尽早落库，让 overview 读库优先生效；
+# 不联网（NullAdapter，只读已落库的指数/基金数据），无请求风暴风险。
+DEFAULT_MARKET_ASSET_DAILY_CRON = '10 17 * * *'
+# 18:20 指数估值：中证官方收盘后约 1 小时下发，排在 index_daily(18:00) 之后
+# 拉当日日线，再取同日估值，避免拿到「昨日日线 + 今日估值」的错配口径。
+DEFAULT_INDEX_VALUATION_CRON = '20 18 * * *'
+# 21:00 可转债条款：集思录收盘后更新，排在 fund_nav(21:30) 之前，
+# 让「强赎计数」与当日净值同晚就绪（#1393 的列依赖它）。
+DEFAULT_CONVERTIBLE_BOND_CRON = '0 21 * * *'
+# 21:45 分红送股：公告类，增量为主（按 import_hash 幂等去重），
+# 排在 fund_nav 之后错峰。
+DEFAULT_DIVIDEND_SPLIT_CRON = '45 21 * * *'
 
 # backend/ 目录（app/services/daily_scheduler.py → parents[2]）
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -254,7 +284,75 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[str], str], ...] = (
         'fund',
         '基金持仓明细 + 行业配置（季报口径，每周一次；#870）',
     ),
+    # --- #1934：以下四条是「已注册进编排器与全量执行计划、却从未进本机调度」的 job ---
+    # 探市快照（#1460）：target_kind=None，因其目标池就是「要落快照的大类资产」，
+    # 不是 fund/stock 代码池，套resolve_targets() 只会拿到不相干的代码。
+    # 落了它，overview 的「读库优先」才真的有库可读（否则每天重复实时抓）。
+    (
+        'market_asset_daily',
+        ENV_MARKET_ASSET_DAILY_ENABLED,
+        ENV_MARKET_ASSET_DAILY_CRON,
+        DEFAULT_MARKET_ASSET_DAILY_CRON,
+        None,
+        '探市大类资产日频快照（overview 读库优先的库源；#1460）',
+    ),
+    # 指数估值（#1397）：target_kind=None —— 目标池是固定指数清单
+    # （INDEX_VALUATION_TARGETS），与用户持仓/自选无关。中证官方约收盘后 1 小时下发。
+    (
+        'index_valuation',
+        ENV_INDEX_VALUATION_ENABLED,
+        ENV_INDEX_VALUATION_CRON,
+        DEFAULT_INDEX_VALUATION_CRON,
+        None,
+        '指数估值 PE / 股息率（中证官方；历史分位本期仍不提供；#1397）',
+    ),
+    # 可转债条款（#1400 / #1393）：target_kind=None —— 目标池是「在库的可转债」，
+    # 按 symbol 覆盖式 upsert，不是持仓+自选池（只抓持仓会漏掉自选里的转债）。
+    (
+        'convertible_bond',
+        ENV_CONVERTIBLE_BOND_ENABLED,
+        ENV_CONVERTIBLE_BOND_CRON,
+        DEFAULT_CONVERTIBLE_BOND_CRON,
+        None,
+        '可转债条款 + 集思录强赎计数（#1393 的列依赖它；#1400）',
+    ),
+    # 分红送股（#1179）：target_kind=None —— 事件型数据（分红/送股公告），
+    # 按 import_hash 幂等去重，重跑不产生重复行。
+    (
+        'dividend_split',
+        ENV_DIVIDEND_SPLIT_ENABLED,
+        ENV_DIVIDEND_SPLIT_CRON,
+        DEFAULT_DIVIDEND_SPLIT_CRON,
+        None,
+        '分红 / 送股事件（akshare 公告口径，按 import_hash 幂等；#1179）',
+    ),
 )
+
+# 编排器已注册、但**明确不进每日调度**的 job（#1934）。
+#
+# 这张表与 `_JOB_TEMPLATES` 共同构成「编排器注册过的 job 的完整去向」，
+# `scripts/guard_job_schedule_coverage.py` 断言两者覆盖全集——
+# 加job 的人若只改 `orchestrator._register_jobs` 而忘了这两张表之一，守门即红。
+#
+# ⚠️ 往这张表加条目前先问一句：**这个 job 的数据日变化吗、用户直接看得见吗？**
+# 两个都是才该进每日调度（判据见 #1934 卡）。只满足「有用」不满足「日变+可见」，
+# 就该留在本表里，并写清真实频率与依据 —— 否则等于把季报级/全库型 job 变成
+# 每天打上游，风险远大于收益。
+_NOT_SCHEDULED: Dict[str, Tuple[str, str]] = {
+    # job 名 → (为什么不进每日调度, 建议的真实频率)
+    'stock_list': ('全库列表型：单次调用即换全市场股票列表，日变更量极小', '月度 / 手动'),
+    'fund_list': ('全库列表型：同上；且东财/天天源对全库频抓敏感（限流）', '月度 / 手动'),
+    'fund_detail_enrich': ('逐只详情（基金经理/费率/持仓等），成本高、日变更量小', '月度'),
+    'fund_manager': ('基金经理任期变更，季报级披露', '季度 / 事件驱动'),
+    'fund_company_backfill': ('基金公司主数据回填；覆盖率演进慢，且与 #1386 遗留同源', '月度'),
+    'fund_scale': ('全库规模单次换全市场（__full__）；逐只抓是限流炸弹（#1403）', '季度 / 手动'),
+    'fund_type': ('基金分类映射，日变更量极小', '月度'),
+    'index_constituents': ('指数成分股，季报级调整', '季度'),
+    'index_catalog': ('指数名录（基准/跟踪映射），准静态', '月度 / 手动'),
+    'channel_link': ('跨渠道关联：随基金列表与指数名录变化，重跑需前置已更新', '周（依赖上游先更新）'),
+    'amac_institution': ('公募机构持仓，季报级披露', '季度'),
+    'asset_snapshot': ('D21 明确把 asset_snapshot 排除在本机通道之外（资产快照按用户手动触发）', '手动'),
+}
 
 
 def _truthy(raw: Optional[str], default: bool) -> bool:

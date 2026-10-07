@@ -51,10 +51,11 @@ def _reset_singleton():
 
 
 class TestLoadConfig:
-    def test_default_is_disabled_with_seven_jobs(self):
+    def test_default_is_disabled_with_eleven_jobs(self):
         cfg = ds.load_config({})
         # 必须显式打开：否则 conftest 每个用例都会 create_app()，测试里就会真的起抓取线程
         assert cfg.enabled is False
+        # 末四项是 #1934 补进本机调度的（此前它们只注册在编排器里，从未自动跑过）
         assert cfg.job_names() == [
             'temperature',
             'fund_nav',
@@ -63,6 +64,10 @@ class TestLoadConfig:
             'position_price',
             'advisor_portfolio',
             'fund_position',
+            'market_asset_daily',
+            'index_valuation',
+            'convertible_bond',
+            'dividend_split',
         ]
         assert cfg.timezone == ds.DEFAULT_TIMEZONE
         assert cfg.skip_non_trading_day is True
@@ -76,6 +81,10 @@ class TestLoadConfig:
         assert crons['position_price'] == ds.DEFAULT_POSITION_PRICE_CRON
         assert crons['advisor_portfolio'] == ds.DEFAULT_ADVISOR_CRON
         assert crons['fund_position'] == ds.DEFAULT_FUND_HOLDING_CRON
+        assert crons['market_asset_daily'] == ds.DEFAULT_MARKET_ASSET_DAILY_CRON
+        assert crons['index_valuation'] == ds.DEFAULT_INDEX_VALUATION_CRON
+        assert crons['convertible_bond'] == ds.DEFAULT_CONVERTIBLE_BOND_CRON
+        assert crons['dividend_split'] == ds.DEFAULT_DIVIDEND_SPLIT_CRON
         # 顺序即依赖（#1104）：现价回写读的是净值 job 刚落库的 daily_worth、
         # 以及场内日线 job 刚落库的 price_history.close，早于两者会写到旧口径。
         names = cfg.job_names()
@@ -133,6 +142,10 @@ class TestLoadConfig:
             'index_daily',
             'position_price',
             'fund_position',
+            'market_asset_daily',
+            'index_valuation',
+            'convertible_bond',
+            'dividend_split',
         ]
 
     def test_price_history_job_targets_stock_pool(self):
@@ -158,10 +171,30 @@ class TestLoadConfig:
                 ds.ENV_NAV_CRON: '5 22 * * 1-5',
             }
         )
-        assert cfg.job_names() == ['fund_nav']
+        # #1934 补进调度的四项没被上面的开关关掉，故仍在列表里（fund_nav 排最前）
+        assert cfg.job_names() == [
+            'fund_nav',
+            'market_asset_daily',
+            'index_valuation',
+            'convertible_bond',
+            'dividend_split',
+        ]
         assert cfg.jobs[0].cron == '5 22 * * 1-5'
         # target_kind 必须留着：丢了它净值 job 会拿到空目标池并「成功」空跑
         assert cfg.jobs[0].target_kind == 'fund'
+
+    def test_new_jobs_have_no_target_kind(self):
+        """#1934 补进的四项目标池都不是「持仓+自选」，target_kind 必须为 None。
+
+        套成 'fund' / 'stock' 会拿到不相干的代码池：market_asset_daily 的对象是
+        「要落快照的大类资产」、index_valuation 是固定指数清单、convertible_bond
+        按在库 symbol 全量 upsert、dividend_split 是事件型数据。套错的结果是
+        「每天记一条 success 但什么都没同步」的静默空跑。
+        """
+        cfg = ds.load_config({})
+        for name in ('market_asset_daily', 'index_valuation', 'convertible_bond', 'dividend_split'):
+            spec = next(s for s in cfg.jobs if s.job_name == name)
+            assert spec.target_kind is None, f'{name} 的 target_kind 应为 None'
 
     def test_timezone_override(self):
         assert ds.load_config({ds.ENV_TIMEZONE: 'UTC'}).timezone == 'UTC'
