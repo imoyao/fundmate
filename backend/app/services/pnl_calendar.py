@@ -30,14 +30,22 @@
 盈亏总额 ⇒ 它的日差分**天然免疫资金流**。反之 `net_worth` 日环比会被存取款污染
 （存入 ¥10,000 当天凭空「赚」10,000）。此约束须写进 UI 口径说明，否则用户看到假盈利。
 
-四态（缺数据绝不能画成 0，见设计文档 §2.3）
------------------------------------------
-    updown  真实盈亏（有价格序列且 shares>0）
-    zero    有价格序列但当日盈亏恰为 0
-    no_price 无价格序列 —— `valuation_mode='balance'`（银行理财/投顾/实物），
-            其市值来自 `market_value_override` **单值非序列**，天然无历史；
-            切到这类账户若不区分，用户会以为功能坏了
-    closed  非交易日 / 区间外
+六态（缺数据绝不能画成 0，见设计文档 §2.3；#1942 把「休市」与「没数据」拆开）
+--------------------------------------------------------------------------
+    updown       真实盈亏（有价格序列且 shares>0）
+    zero         有价格序列但当日盈亏恰为 0
+    no_price     无价格序列 —— `valuation_mode='balance'`（银行理财/投顾/实物），
+                 其市值来自 `market_value_override` **单值非序列**，天然无历史；
+                 切到这类账户若不区分，用户会以为功能坏了
+    no_data      **A 股开盘日**却取不到可用价格（净值未出 / 快照任务没跑 / 部分标的断档）
+    no_position  当天没有持仓（建仓前 / 清仓后），与「休市」「没数据」都无关
+    closed       **非 A 股开盘日**（周末 / 法定节假日 / 调休补班的周末）
+
+`closed` 的判据是 `core/trading_calendar.is_trading_day()`（唯一权威出口，#1217），
+**不是**「当天取不到价格」。#1942 之前两件事被压成同一种 `closed`，于是 2026-09 里
+凡净值没同步到的交易日一律显示成「休市」，用户看到「9 月一半都是休市」，
+与真实开盘日历不符；更糟的是把「数据没同步」（用户该去跑同步任务）误报成
+「市场关门」（用户只能干等），无从处置。现在两者必须可辨。
 
 跨域说明
 --------
@@ -56,6 +64,7 @@ from sqlalchemy.orm import Session
 
 from app.core.constants import EXCHANGE_RATES
 from app.core.money import Money
+from app.core.trading_calendar import is_trading_day
 from app.core.venues import EXCHANGE, OTC, venue_of_row
 from app.domains.funds.models import DailyWorth
 from app.domains.positions.models import Position
@@ -82,6 +91,11 @@ STATE_UPDOWN = 'updown'
 STATE_ZERO = 'zero'
 STATE_NO_PRICE = 'no_price'
 STATE_CLOSED = 'closed'
+# #1942 起与 `STATE_CLOSED` 分家：开盘日取不到价 = 数据没同步（no_data），
+# 非开盘日 = 休市（closed）。混用会让「同步任务没跑」伪装成「市场关门」。
+STATE_NO_DATA = 'no_data'
+# 当天没有持仓（建仓前 / 清仓后）。既不是休市，也不是缺数据。
+STATE_NO_POSITION = 'no_position'
 
 # 某标的当天没价格时，最多向前沿用最近多少天的价格（#1812）。
 # 太大：一个月没更新的标的会被当成「价格不变」而画出 0 收益，掩盖数据缺失；
@@ -265,7 +279,9 @@ def _price_for(day: dt.date, series: Optional[Dict[dt.date, int]]) -> Optional[i
     前值回填（#1812 修复）：某只基金当天没发布净值时，若直接跳过它，
     等价于「市值归零」，日差分会出现巨额假跳空——实测 2026-09-30 只有
     13/57 笔有价，ΔW 假跌 20.8 万。回填让日总额在标的集合不变时可比。
-    周末/全市场无数据时所有标的都回填不出 ⇒ 仍判`closed`，不会被填成「0 收益」。
+    回填**只保证市值不跳空**，不代表「价格没变」这个事实：周末 / 全市场没同步时
+    所有标的都回填不出，差分虽恰为 0，也不出数（状态由 `is_trading_day` 分派成
+    `closed` 休市 / `no_data` 没同步，见下方状态判定），不会被填成「0 收益」。
     """
     if not series:
         return None
@@ -373,8 +389,8 @@ def build_daily_pnl_series(
      3. day_total 按持仓可加（每笔持仓恰属一个账户）。
     """
     # 往前多取一天，**只为给区间首日建立差分基准**。
-    # 否则每月 1 号都因「无前一日」被判 closed，看着像休市，其实是基准缺失。
-    # 该日不进入输出（见下方 emit 条件）。
+    # 否则每月 1 号都因「无前一日」而不可算（#1942 起报 no_data，而不是「休市」，
+    # 因为成因是基准缺失而非市场关门）。该日不进入输出（见下方 emit 条件）。
     start, end = _resolve_range(start_date, end_date)
     if start > end:
         return _empty_payload(ledger_id, start, end)
@@ -511,11 +527,18 @@ def build_daily_pnl_series(
         # 「值按各作用域持仓算」正交——谁缺席是全局事实，不该随作用域变化。
         day_missing_ids: set = set()
         # 当天**有**真报价的在场标的数。与 day_missing_ids 合起来区分两种「都没价」：
-        #   present==0 ⇒ 全体休市/未同步，回填后所有标的价格都未变，差分恰为 0，
-        #     这是诚实的，照常出数（zero）；
+        #   present==0 ⇒ 全体标的当天都没出价：可能是非开盘日（回填后价格未变，
+        #     差分恰为 0），也可能是开盘日但净值/快照没同步。**两者必须分开**——
+        #     前者是「休市」，后者是「没数据」（#1942）。区分靠
+        #     `core/trading_calendar.is_trading_day()`，不靠「有没有价格」。
         #   present>0 且 missing>0 ⇒ **部分断档**，总额缺了那几笔的市值，
-        #     任何单日差分都不可信 ⇒ 判数据不全，且不写入差分基准。
+        #     任何单日差分都不可信 ⇒ 不出数，且不写入差分基准。
         day_present_count = 0
+        # 当天**持有中**的标的数（含 balance 模式等无价序列的持仓）。
+        # 恒为 0 只有一种解释：当天没有持仓（建仓前 / 清仓后）⇒ 与「休市」「缺数据」
+        # 都无关，是一种独立状态（no_position）。不单独判的话，建仓前的一个月
+        # 会整月显示「休市」，同样是把「不是交易日」错报成「当天没有仓位」。
+        day_held_count = 0
         # 本日总额是否完整可用于差分基准（部分断档时不可用）
         day_complete = True
 
@@ -531,6 +554,8 @@ def build_daily_pnl_series(
             # 故 `pos.id not in no_price_ids` ≡ `series` 非空；`day in series`
             # 与旧 `_has_fresh_price` 末尾的 `bool(series) and day in series`
             # 同义，免去每笔每天的 `venue_of_row` 正则解析（5 年窗口 55 万次 ≈1.8s）。
+            if held:
+                day_held_count += 1
             if held and pos.id not in no_price_ids:
                 if day in series:
                     day_present_count += 1
@@ -553,24 +578,42 @@ def build_daily_pnl_series(
                 day_priced_count += 1
 
         # 状态判定（顺序即优先级）：
-        #  1. 全部持仓都无价格序列 → no_price（balance 模式账户的整月空白，必须与「0收益」区分）
-        #  2. 有可计价持仓但当日无价（休市/未同步）→ closed
-        #  3. 区间首日无前一日基准 → closed（盈亏不可算，不画成 0）
-        #  4. 其余按盈亏正负分 updown / zero
+        #  1. 全部可计价持仓当天都无价、且存在无价格序列的持仓 → no_price
+        #     （balance 模式账户的整月空白，必须与「0 收益」区分）
+        #  2. 当天没有持仓（建仓前 / 清仓后）→ no_position
+        #  3. 当日全部是建仓日 → zero（建仓那一刻浮盈本就是 0）
+        #  4. 有持仓却拿不到可用当日价 → 看**开盘日历**：开盘日 no_data / 非开盘日 closed
+        #  5. 部分标的断档 → no_data（总额不可信，且不写入差分基准）
+        #  6. 区间首日无前一日基准 → no_data（基准日数据不全，盈亏不可算，不画成 0）
+        #  7. 其余按盈亏正负分 updown / zero
         if day_priced_count == 0 and day_unpriced_count > 0:
             state_code = STATE_NO_PRICE
             daily_pnl = None
-        elif day_priced_count == 0 and day_unpriced_count == 0 and not day_opening:
-            # 当日无任何持仓（尚未建仓/ 已清仓）⇒ 无从计算盈亏
-            state_code = STATE_CLOSED
+        elif day_held_count == 0 and not day_opening:
+            # 当日无任何持仓（尚未建仓 / 已清仓）⇒ 无从计算盈亏。
+            # 这里**不能**报「休市」：那天市场可能正常开盘，只是你没有仓位。
+            state_code = STATE_NO_POSITION
             daily_pnl = None
         elif day_priced_count == 0 and day_opening:
             # 当日全部是建仓日：水平值已计入，但当日盈亏强制为 0
             # （建仓那一刻浮盈本来就是 0，不是「没数据」）。
             state_code = STATE_ZERO
             daily_pnl = 0
-        elif not day_has_price:
-            state_code = STATE_CLOSED
+        elif not day_has_price or (day_present_count == 0 and day_missing_ids):
+            # 「当天一个可用价都没有」的两种情形（全部标的都取不到价 / 全体标的
+            # 当天都没出真报价，全靠前值回填）在这里合流，一律按 **A 股开盘日历**分派：
+            #   开盘日   → no_data（净值未发布 / 快照任务没跑 / 断档超出回填窗）
+            #   非开盘日 → closed（周末 / 法定节假日 / 调休补班的周末）
+            #
+            # #1942 的根因就在这一步之前：休市判据原本是「当天取不到价格」，
+            # 于是净值同步滞后与市场关门被压成同一种 `closed`，UI 上一律显示
+            # 「休市」。用户的直接观感是「9 月一半都是休市，与实际不符」——
+            # 日历没错，是判据把「数据没同步」说成了「市场关门」。
+            # 判据必须走 `core/trading_calendar.is_trading_day()`（#1217 唯一出口）：
+            # 它含「调休补班的周末照常休市」这条修正，绕过它直接调 chinese_calendar
+            # 会把 2026-09-20 这类补班日算成开盘日。
+            # 成本：只在「拿不到价」的日子调用，正常出数的日子一次都不调。
+            state_code = STATE_NO_DATA if is_trading_day(day) else STATE_CLOSED
             daily_pnl = None
         elif day_missing_ids and day_present_count > 0:
             # **部分断档**（当天有标的有真报价、也有标的没有）⇒ 当日总额缺了缺席
@@ -580,14 +623,16 @@ def build_daily_pnl_series(
             # （真实库某基金整周未出净值），集合稳定 ≠ 数据完整。
             # 若按「集合是否变化」判，第二、三天就会照常出数，
             # 而那几笔的市值一直靠前值沿用——与断档日根本不是同一口径。
-            #
-            # 与 `day_present_count == 0`（全体休市/未同步）区分：那种情况回填后
-            # 所有标的价格都未变，差分恰为 0，是诚实的，不该判成数据不全。
-            state_code = STATE_CLOSED
+            # 本分支必须在「daily_pnl is None」之前：基线日若就断档，
+            # day_complete 必须置 False，否则残缺的总额会被当成基准污染次日差分。
+            state_code = STATE_NO_DATA if is_trading_day(day) else STATE_CLOSED
             daily_pnl = None
             day_complete = False
         elif daily_pnl is None:
-            state_code = STATE_CLOSED
+            # 区间首日且基线日没写出基准（基线日数据不全）⇒ 当天盈亏不可算。
+            # 属「数据不全导致」，报 no_data（开盘日）而不是「休市」。
+            state_code = STATE_NO_DATA if is_trading_day(day) else STATE_CLOSED
+            daily_pnl = None
         elif daily_pnl > 0 or daily_pnl < 0:
             state_code = STATE_UPDOWN
         else:
@@ -629,6 +674,18 @@ def build_daily_pnl_series(
     priced_total = len(positions) - scope_unpriced
     latest_price_date = _latest_price_date(fund_nav, exchange_prices)
 
+    # ── 「投资以来」的起点（#1942 年视图）──
+    # 最早一笔**改变份额**的流水（买 / 卖 / 转入 / 转出）的生效日，按本作用域持仓过滤。
+    # 年视图要「投资以来每一年占一格」，前端必须知道起点；旧实现写死 3 年窗口
+    # （`YEAR_WINDOW`），窗口边界与真实建仓年份无关，年份一多就既看不全也对不上。
+    # `shares` 已按 position_id 归组且只含 `eff <= end` 的流水，故取键的最小值即得，
+    # 不需要再查一次库。
+    scope_position_ids = {p.id for p in positions}
+    first_txn = min(
+        (day for pid in scope_position_ids for day in shares.get(pid, {})),
+        default=None,
+    )
+
     return {
         'ledger_id': ledger_id,
         'scope': 'ledger' if ledger_id is not None else 'family',
@@ -647,6 +704,8 @@ def build_daily_pnl_series(
             'unpriced_positions': scope_unpriced,
         },
         'latest_price_date': latest_price_date,
+        # 「投资以来」起点：最早一笔改变份额的流水生效日；无持仓 / 无流水时 None
+        'first_txn_date': first_txn.isoformat() if first_txn else None,
         'days': days,
     }
 
@@ -677,9 +736,10 @@ def _aggregate_periods(
       `month_total`，某年的期间值恒等于其 12 个月之和——**同一条日序列的两种切法**，
       两种视图不可能对不上；
     - 期间内一天都算不出来 ⇒ `pnl=None`（**缺数据绝不画成 0**，与日粒度同一红线）；
-    - `state` 由期间盈亏派生，措辞与日粒度同一套：整天不可算时 `no_price` / `closed`，
-      否则 `zero` / `updown`。周末休日本来就是 `closed`，不参与判定，
-      故一个正常的月份不会因为有周末就被判成「数据不全」；
+    - `state` 由期间盈亏派生，措辞与日粒度同一套（六态）：整天不可算时按**信息量**
+      取成因——`no_price`（产品本无日估值）> `no_data`（没同步）> `no_position`
+      （当时没仓位）> `closed`（整期非开盘日）。周末休日本来就是 `closed`，
+      不参与判定，故一个正常的月份不会因为有周末就被判成「数据不全」；
     - `rate` 分母取**上一期间末净资产**，首期间取调用方多取的基线日。
 
     注意 `pnl` 可能只覆盖该期间的一部分日子——日粒度的 `month_total` 本来就是
@@ -697,7 +757,7 @@ def _aggregate_periods(
     prev_net_worth = baseline_net_worth
     for key, rows in grouped.items():
         computable = [r for r in rows if r['daily_pnl'] is not None]
-        no_price_count = sum(1 for r in rows if r['state'] == STATE_NO_PRICE)
+        day_states = {r['state'] for r in rows}
 
         if computable:
             pnl_cents = sum(int(Decimal(str(r['daily_pnl'])) * 100) for r in computable)
@@ -705,7 +765,18 @@ def _aggregate_periods(
             state = STATE_ZERO if pnl_cents == 0 else STATE_UPDOWN
         else:
             pnl = None
-            state = STATE_NO_PRICE if no_price_count else STATE_CLOSED
+            # 整期一天都算不出来时，按**信息量从大到小**挑成因：先报「产品本无日估值」
+            # （用户改不了），再报「没同步」（用户能处置），最后才是「当时没仓位」与
+            # 「整期非开盘日」。顺序写死而不用集合去重，是为了让同一份数据永远得到
+            # 同一个标签——前端与测试都按这个优先级断言。
+            if STATE_NO_PRICE in day_states:
+                state = STATE_NO_PRICE
+            elif STATE_NO_DATA in day_states:
+                state = STATE_NO_DATA
+            elif STATE_NO_POSITION in day_states:
+                state = STATE_NO_POSITION
+            else:
+                state = STATE_CLOSED
 
         # 期间末净资产：取最后一日。周末 / 无持仓日会是 0，向前回溯最近一个非零值，
         # 否则下一个期间的收益率分母会莫名变成 0、rate 恒 null。
@@ -814,5 +885,6 @@ def _empty_payload(ledger_id: Optional[int], start: dt.date, end: dt.date) -> di
         'has_any_price': False,
         'coverage': {'total_positions': 0, 'priced_positions': 0, 'unpriced_positions': 0},
         'latest_price_date': None,
+        'first_txn_date': None,
         'days': [],
     }

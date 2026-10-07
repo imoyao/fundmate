@@ -157,7 +157,7 @@ def list_snapshots():
 
 @bp.get('/summary/pnl-calendar/')
 def pnl_calendar():
-    """#1812 每日收益日历（as-of 派生逐日盈亏；口径与四态定义见 services/pnl_calendar.py）。
+    """#1812 每日收益日历（as-of 派生逐日盈亏；口径与六态定义见 services/pnl_calendar.py）。
     与 snapshots 的区别：快照记的是落库当时的状态，改持仓后历史不更新、回填还会把今天
     的值贴到历史日期上；本接口现算。`ledger_id` 同 snapshots（不传=家庭级）；#1925 加
     `granularity`（day 缺省回 `days`，month/year 回 `periods`，聚合下推），非法值回 400。
