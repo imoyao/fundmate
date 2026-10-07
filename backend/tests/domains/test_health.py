@@ -7,10 +7,13 @@
 `TypeError: can't subtract offset-naive and offset-aware datetimes` → 免登录端点 500，
 前端「系统状态」页与监控探活同时失效。
 
-本文件的用例专门锁定「naive 落库值 + now_shanghai() 比较」这条路径。
+本文件的用例专门锁定「naive 落库值 + now_shanghai() 比较」这条路径，
+以及「关闭态必须显式可见、且不被历史成功记录掩盖」（#1720）。
 """
 
 from datetime import datetime, timedelta, timezone
+
+import pytest
 
 from app.core.time_utils import SHANGHAI_TZ, as_shanghai, now_shanghai
 from app.models.sync_log import SyncLog
@@ -86,3 +89,54 @@ def test_health_scheduler_unhealthy_without_any_success(client, monkeypatch):
 
     assert sched['status'] == 'unhealthy'
     assert sched['last_success_run'] is None
+
+
+# ---------------------------------------------------------------------------
+# 调度「未开启」这一状态的可见性（#1720）
+#
+# 本机每日调度默认关闭（SCHEDULER_ENABLED 未置），此时温度/净值不会自动更新。
+# #1720 的定性是「不是抓取失败，而是关闭态对用户不可见」—— 唯一能证明这件事发生了
+# 的地方就是 /api/health：它必须显式说 status=disabled，而不是在没有成功记录时
+# 报 unhealthy（那是「开了但没跑」的意思，两者混同就会把排查引向错误方向）。
+# ---------------------------------------------------------------------------
+
+
+def _health_scheduler(client, monkeypatch) -> dict:
+    resp = client.get('/api/health')
+    assert resp.status_code == 200, f'health 不应 500：{resp.get_data(as_text=True)}'
+    return resp.get_json()['components']['scheduler']
+
+
+@pytest.mark.parametrize(
+    'env_value',
+    [None, '', '0', 'false', 'no', 'off'],
+    ids=['unset', 'empty', '0', 'false', 'no', 'off'],
+)
+def test_health_marks_scheduler_disabled_when_switch_off(client, monkeypatch, env_value):
+    """开关未打开 → status=disabled，且 enabled=False。"""
+    if env_value is None:
+        monkeypatch.delenv('SCHEDULER_ENABLED', raising=False)
+    else:
+        monkeypatch.setenv('SCHEDULER_ENABLED', env_value)
+
+    sched = _health_scheduler(client, monkeypatch)
+
+    assert sched['enabled'] is False
+    assert sched['status'] == 'disabled'
+    # message 必须点出「怎么开」，否则维护者看到 disabled 仍不知道要改哪个开关
+    assert 'SCHEDULER_ENABLED' in sched['message']
+
+
+def test_health_keeps_disabled_even_with_recent_success_log(client, db, monkeypatch):
+    """**关键回归**：有过成功运行记录也不许把 disabled 判成 healthy。
+
+    判反了会出现最坏组合：用户以为自己在跑调度（页面显示一切正常），
+    而实际上抓取早已停止——这正是 #1720 记录的「静默陈旧」形态。
+    """
+    _insert_success_log(db, _naive_now())
+    monkeypatch.setenv('SCHEDULER_ENABLED', '0')
+
+    sched = _health_scheduler(client, monkeypatch)
+
+    assert sched['last_success_run'] is not None, '前提：有近期成功记录'
+    assert sched['status'] == 'disabled', '开关关闭时不得因有历史成功记录就显示 healthy'
