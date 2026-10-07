@@ -21,6 +21,25 @@ export function ymd(d: Date): string {
 }
 
 /**
+ * ISO 日期的星期（`Date.getDay()` 值：0=周日，1=周一 … 6=周六）。
+ *
+ * **必须按本地时区构造**：`new Date("2026-09-05")` 会被解析成 UTC 午夜，
+ * 在东八区之外的时区取 `getDay()` 会错位一天（西半球直接退到前一天）。
+ * 日历图的列归属全靠它，错一天就是整月错位。
+ */
+export function weekdayOf(iso: string): number {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).getDay();
+}
+
+/** `Date.getDay()` 值 → 中文单字列头 */
+const WEEKDAY_LABELS = ["日", "一", "二", "三", "四", "五", "六"] as const;
+
+export function weekdayLabel(weekday: number): string {
+  return WEEKDAY_LABELS[weekday] ?? "";
+}
+
+/**
  * 六态的**格内小标签**（#1942 从四态扩为六态）。
  *
  * 格子空间只放得下 3–4 个字，完整解释在 tooltip / aria（见 `stateDescription`）。
