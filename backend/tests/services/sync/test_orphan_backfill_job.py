@@ -254,3 +254,75 @@ def test_empty_library_succeeds(db):
     assert result['status'] == 'success'
     assert result['stats']['scanned'] == 0
     assert result['stats']['attached'] == 0
+
+
+# ── 字面量回退（身份路径未命中时）──
+
+
+def test_null_asset_type_orphan_attaches_by_literal_fallback(db):
+    """孤儿 `asset_type` 为 NULL 时仍能按字面量挂回同 (family, ledger) 下的持仓。
+
+    `symbol_identity` 在 `asset_type` 缺失时算不出 venue，身份键会落 `NO_VENUE:...`，
+    与持仓的 `EXCHANGE:/OTC:` 身份键错位 → 身份路径未命中。回退用持仓自身 `asset_type`
+    反算孤儿身份键并校验通过后挂回（真实库实测：大量 legacy 流水 asset_type 为 NULL）。
+    """
+    pos = _position(db, '001167', asset_type='fund')
+    txn = _orphan(db, '001167', asset_type=None)
+
+    result = _job(db).run()
+
+    db.refresh(txn)
+    assert txn.position_id == pos.id
+    assert result['stats']['attached'] == 1
+    assert result['stats']['no_position'] == 0
+
+
+def test_dirty_prefix_with_null_asset_type_attaches_to_position_venue(db):
+    """脏前缀 `SZ011341`（实际是 OTC 基金）配 `asset_type=NULL`：venue 只能由持仓侧定。
+
+    身份路径因 `SZ` 前缀 + 缺 asset_type 算成 `NO_VENUE:SZ011341`，与持仓
+    `OTC:011341` 错位；回退按去前缀字面量 `011341` 找到持仓，且 `symbol_identity(
+    'SZ011341', 'fund') == 'OTC:011341'` 校验通过 → 挂回（不凭前缀瞎猜 venue）。
+    """
+    pos = _position(db, '011341', asset_type='fund')
+    txn = _orphan(db, 'SZ011341', asset_type=None)
+
+    result = _job(db).run()
+
+    db.refresh(txn)
+    assert txn.position_id == pos.id
+    assert result['stats']['attached'] == 1
+
+
+def test_literal_fallback_skips_ambiguous_venues(db):
+    """同一去前缀字面量映射出两个不同 venue 的持仓（stock + fund）→ 歧义，跳过而非随机挂。
+
+    `positions` 上有 `UNIQUE(ledger_id, symbol)` 字面量唯一约束，故两条持仓必须用**不同字面量**
+    存储（`159915` vs `SZ159915`）；但它们剥前缀后都落到 `159915`，且各自 `asset_type` 都能让孤儿
+    `symbol_identity('159915', pos.asset_type)` 复算出自己的 `symbol_norm`（stock→`EXCHANGE:SZ159915`、
+    fund→`OTC:159915`）→ 校验都通过。身份路径未命中后走字面量回退，两候选都有效 → 视为歧义，
+    不挂（与身份路径的歧义处理口径一致：宁可不挂，也不挂错）。
+    """
+    _position(db, '159915', asset_type='stock')  # 字面量 159915 → EXCHANGE:SZ159915
+    _position(db, 'SZ159915', asset_type='fund')  # 字面量 SZ159915 → 剥前缀 159915 → OTC:159915
+    txn = _orphan(db, '159915', asset_type=None)
+
+    result = _job(db).run()
+
+    db.refresh(txn)
+    assert txn.position_id is None, '歧义时必须不挂'
+    assert result['stats']['ambiguous'] == 1
+    assert result['stats']['attached'] == 0
+
+
+def test_literal_fallback_no_position_when_no_matching_holder(db):
+    """回退路径也没有同字面量持仓 → 计入 no_position，绝不挂到无关持仓。"""
+    _position(db, '159915', asset_type='stock')
+    txn = _orphan(db, '999999', asset_type=None)  # 无任何持仓匹配
+
+    result = _job(db).run()
+
+    db.refresh(txn)
+    assert txn.position_id is None
+    assert result['stats']['no_position'] == 1
+    assert result['stats']['attached'] == 0
