@@ -42,7 +42,7 @@
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.core.symbol_utils import symbol_identity
+from app.core.symbol_utils import strip_exchange_prefix, symbol_identity
 from app.core.time_utils import now_shanghai
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
@@ -144,10 +144,14 @@ class OrphanBackfillJob(SyncJob):
                 continue
             pending.append((txn, identity))
 
-        # 第二步：一次性取出候选持仓，按 (family_id, ledger_id, 身份) 建索引。
+        # 第二步：一次性取出候选持仓，建两类索引（同一批数据，避免重复查库）：
+        #   index     —— (family_id, ledger_id, symbol_norm)：身份路径，精确匹配
+        #   lit_index —— (family_id, ledger_id, 去前缀symbol)：字面量路径，身份未命中时回退
         # 不用 SQL JOIN：孤儿可能上千行，JOIN 会把整表拉进内存；分批 in_ 只取需要的身份。
         families = {txn.family_id for txn, _identity in pending}
-        index = self._load_position_index({identity for _txn, identity in pending}, families)
+        identities = {identity for _txn, identity in pending}
+        index = self._load_position_index(identities, families)
+        lit_index = self._load_literal_index(identities, families)
 
         # 第三步：逐条挂回，只写 position_id
         for txn, identity in pending:
@@ -157,15 +161,16 @@ class OrphanBackfillJob(SyncJob):
                 identity,
             )
             candidates = index.get(key, ())
-            if not candidates:
-                self.stats['no_position'] += 1
+            if len(candidates) == 1:
+                txn.position_id = candidates[0]
+                self.stats['attached'] += 1
                 continue
             if len(candidates) > 1:
                 # 同一身份命中多个持仓：无法判断该挂哪一个，跳过而不是随机取第一条
                 self.stats['ambiguous'] += 1
                 continue
-            txn.position_id = candidates[0]
-            self.stats['attached'] += 1
+            # 身份路径未命中 → 字面量回退（见 _try_attach_by_literal）
+            self._try_attach_by_literal(txn, lit_index)
 
         self.db.commit()
 
@@ -191,3 +196,54 @@ class OrphanBackfillJob(SyncJob):
                 )
                 index.setdefault(key, []).append(pos.id)
         return {k: tuple(v) for k, v in index.items()}
+
+    def _load_literal_index(
+        self, identities: set, families: set
+    ) -> Dict[tuple, Tuple[Tuple[int, Optional[str], str], ...]]:
+        """按字面量批量取持仓，建 `(family_id, ledger_id, 去前缀symbol) ->
+        (position_id, asset_type, symbol_norm)` 索引。
+
+        用于身份路径未命中时的回退匹配。**不按 `symbol_norm` 过滤**——因为回退要兜的正是
+        「孤儿 `asset_type` 缺失 / 与持仓不一致、导致身份键错位」的那类：此时候选持仓的
+        `symbol_norm` 并不在孤儿身份集合里，若按 `symbol_norm.in_(identities)` 过滤会直接漏掉它。
+        改为按 `family_id` 取该 family 全部持仓（持仓量级远小于流水，可接受），再在内存里按字面量建键。
+        """
+        index: Dict[tuple, List[tuple]] = {}
+        for pos in self.db.query(Position).filter(Position.family_id.in_(families)).all():
+            key = (
+                pos.family_id,
+                pos.ledger_id if pos.ledger_id is not None else _NULL_LEDGER,
+                strip_exchange_prefix(pos.symbol or ''),
+            )
+            index.setdefault(key, []).append((pos.id, pos.asset_type, pos.symbol_norm))
+        return {k: tuple(v) for k, v in index.items()}
+
+    def _try_attach_by_literal(
+        self, txn: Transaction, lit_index: Dict[tuple, Tuple[Tuple[int, Optional[str], str], ...]]
+    ) -> None:
+        """身份路径未命中时的回退：按去前缀字面量在同一 (family, ledger) 下找持仓。
+
+        只挂「持仓自身 `asset_type` 能让孤儿 `symbol` 复算出该持仓 `symbol_norm`」的那一条——
+        用持仓身份反推孤儿身份，校验 `symbol_identity(txn.symbol, pos.asset_type) == pos.symbol_norm`
+        通过才挂。这样既不凭空发明身份键，也不会因孤儿 `asset_type` 缺失而漏挂本可挂的持仓
+        （真实库实测：大量 legacy 流水 `asset_type` 为 NULL，但同 (family, ledger) 下确有字面量
+        相同的持仓；而 `SZ011341` 这类带错前缀的脏 symbol，其真实 venue 只能由持仓侧定）。
+        """
+        lk = (
+            txn.family_id,
+            txn.ledger_id if txn.ledger_id is not None else _NULL_LEDGER,
+            strip_exchange_prefix(txn.symbol or ''),
+        )
+        cands = lit_index.get(lk, ())
+        valid = [
+            pos_id
+            for (pos_id, pos_asset_type, pos_symbol_norm) in cands
+            if symbol_identity(txn.symbol, pos_asset_type) == pos_symbol_norm
+        ]
+        if len(valid) == 1:
+            txn.position_id = valid[0]
+            self.stats['attached'] += 1
+        elif len(valid) > 1:
+            self.stats['ambiguous'] += 1
+        else:
+            self.stats['no_position'] += 1
