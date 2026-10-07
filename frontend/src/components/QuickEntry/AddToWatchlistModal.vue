@@ -6,6 +6,7 @@
     width="520px"
     destroy-on-close
     :close-on-click-modal="false"
+    :before-close="onBeforeClose"
     @closed="resetForm"
   >
     <!-- 搜索框。结果项统一为「名称(主) · 次要锚点(灰) · 类型(最右配色)」一行三列：
@@ -219,7 +220,7 @@
     </el-form>
 
     <template #footer>
-      <el-button @click="visible = false">取消</el-button>
+      <el-button @click="requestClose">取消</el-button>
       <el-button
         v-if="!assetAlreadyExists"
         type="primary"
@@ -254,6 +255,7 @@
 import {
   ref,
   computed,
+  watch,
   onMounted,
   nextTick,
   type ComponentPublicInstance
@@ -261,6 +263,10 @@ import {
 import { ElMessage } from "element-plus";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import { useAssetSearch } from "@/composables/useAssetSearch";
+import {
+  useFormDirty,
+  useUnsavedChangesGuard
+} from "@/composables/useUnsavedChangesGuard";
 import {
   getWatchlistGroups,
   getWatchlistTags,
@@ -519,6 +525,9 @@ const handleSubmit = async () => {
     await Promise.all(promises);
 
     ElMessage.success("资产已成功添加到自选！");
+    // 先清脏再关：提交成功后表单仍是脏的，而关闭走的是 v-model setter，
+    // 不先清就会弹「确定放弃吗？」（与 TransactionDrawer.onSubmitSuccess 同源）。
+    markClean();
     visible.value = false;
     emit("submitted");
   } catch (e) {
@@ -597,9 +606,45 @@ const selectedMetaRows = computed<{ label: string; value: string }[]>(() => {
   return market ? [{ label: "市场", value: market }] : [];
 });
 
+// ── 未保存离开保护（#1835）──
+// 关闭按钮 / ESC 走 el-dialog 的 before-close；底部「取消」是程序化 close，走不到它，
+// 必须各自接一道，否则那条路仍然静默丢数据（选了资产 + 填了备注 + 勾了标签/分组，
+// 一路 Esc 关掉，用户什么都不知道）。路由离开由 useUnsavedChangesGuard 内部注册。
+//
+// 脏基线只取「用户真正填过的字段」：搜索过程（searchResults）不算改动，
+// 否则搜了两下没选中也弹「确定放弃吗」，那是纯粹的噪音。
+const { isDirty, markClean } = useFormDirty(() => ({
+  asset: selectedAsset.value?.symbol ?? null,
+  reason: addReason.value,
+  pinToTop: pinToTop.value,
+  groupIds: [...selectedGroupIds.value].sort(),
+  tagIds: [...selectedTagIds.value].sort()
+}));
+
+const { onBeforeClose, requestClose: confirmThenClose } =
+  useUnsavedChangesGuard(() => isDirty.value, {
+    message: "已填写自选信息，确定放弃吗？"
+  });
+
+/** 底部「取消」：程序化 close 走不到 before-close，必须自己问一遍 */
+async function requestClose() {
+  await confirmThenClose(() => (visible.value = false));
+}
+
+// 打开时记基线。放在 watch 而不是 @open：@open 只在动画结束后触发，
+// 期间的 watch 会被判成「已修改」（与 #1845 同源的坑）。
+watch(
+  () => props.modelValue,
+  open => {
+    if (open) markClean();
+  },
+  { immediate: true }
+);
+
 const resetForm = () => {
   selectedAsset.value = null;
   searchResults.value = [];
+  markClean();
   addReason.value = "";
   pinToTop.value = false;
   selectedGroupIds.value = [];
