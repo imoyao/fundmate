@@ -29,7 +29,7 @@ title: 组件使用规范（设计语言实现层）
 - `TemperatureContextCard` — 温度上下文解读卡
 - `PageHeaderBar` — 页面统一页头
 - `SegmentedControl` — 分段控制器（`role="tablist"` 的「多选一、选项少 2–6」**一律**走此组件：视图 / 维度 / 档位 / 筛选 / 排序；`default` / `small` 两档 + `block` 铺满 + 可选 `count` 数量徽章；#1717 收敛、#1731 扩边到「全部手写 tablist 按钮组」，禁再用 `el-segmented`、页面自写 `.xxx-segmented` 样式块、或手写 `role="tablist"` 按钮组——**仅两类登记例外**：「分组胶囊 Tab」与「水平滑动胶囊栏」，判别见 `frontend/design.md`「Segmented（分段控制器）」的「语言边界」）
-- `PnlCalendar` — 收益日历卡（**唯一**实现，welcome 嵌入卡 / 账户详情 / panorama「总资产构成」三处容器共用；#1925 起带日 / 月 / 年三粒度，其中日粒度再分日历图 `PnlCalendarGrid` 与柱状图 `PnlCalendarBars` 两形态——月 / 年视图**复用同一份柱状几何**，不得另建组件；禁止各页重写日历格子或柱状结构）
+- `PnlCalendar` — 收益日历卡（**唯一**实现，welcome 嵌入卡 / 账户详情 / panorama「总资产构成」三处容器共用；#1925 起带日 / 月 / 年三粒度；#1942 起**三粒度各有两形态**：`PnlCalendarGrid`（日·日历图）/ `PnlCalendarPeriodGrid`（月·12 格 / 年·投资以来每年一格，可点击下钻）与 `PnlCalendarBars`（三粒度共用的柱状几何）。格子的六态视觉与文案只有 `PnlCalendarTile` 一处实现，区间 / 文案 / 色深规则在 `helpers.ts`——禁止各页重写格子、柱或另起一套配色）
 - `PageFooter` / `MarketFooter` — 探市 / 温度计页脚
 - `Superellipse` — 品牌 n=3 超椭圆容器（logo / 头像 / 卡片普适轮廓，禁各处手写圆角或 polygon 轮廓）
 - 全站页脚：`frontend/src/layout/components/lay-footer/index.vue`

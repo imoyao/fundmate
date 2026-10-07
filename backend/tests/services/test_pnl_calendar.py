@@ -18,6 +18,9 @@ from app.services.pnl_calendar import (
     GRANULARITY_DAY,
     GRANULARITY_MONTH,
     GRANULARITY_YEAR,
+    STATE_CLOSED,
+    STATE_NO_DATA,
+    STATE_NO_POSITION,
     STATE_NO_PRICE,
     STATE_PARTIAL,
     STATE_UPDOWN,
@@ -127,7 +130,15 @@ def test_无价格序列标记为no_price而非零收益(db, make_position, make
 
 
 def test_零收益与无数据可区分(db, make_position, make_transaction):
-    """净值持平 ⇒ zero 态且盈亏 0；无净值记录 ⇒ closed 态且盈亏 None。"""
+    """净值持平 ⇒ zero 态且盈亏 0；**开盘日却一条新鲜报价都没有** ⇒ no_data 且盈亏 None。
+
+    #1942 细化：#1917 的 C 方案把这种「全体都没出真报价」的日子按前值回填后
+    照常出 0.00。但 0.00 是一句关于收益的断言，而当天的事实是**根本没取到估值**
+    ——2026-01-07 是周三（开盘日），把「净值没同步」说成「今天没赚没亏」，
+    与把「没同步」说成「休市」是同一类错。故按开盘日历分派：
+    开盘日 → `no_data`（用户可去跑同步）/ 非开盘日 → `closed`（只能等开盘）。
+    差分恰为 0，不出数不会丢钱；基准仍无条件推进（#1917 的 A 方案不变）。
+    """
     d1 = dt.date(2026, 1, 5)
     d2 = dt.date(2026, 1, 6)
     d3 = dt.date(2026, 1, 7)
@@ -144,17 +155,17 @@ def test_零收益与无数据可区分(db, make_position, make_transaction):
     )
     _add_nav(db, '000003', d1, 1.0)
     _add_nav(db, '000003', d2, 1.0)
-    # d3 故意不写净值 ⇒ 模拟未同步/休市
+    # d3 故意不写净值 ⇒ 模拟未同步
 
     result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-07')
 
     assert _state_of(result, d2) == STATE_ZERO
     assert _pnl_of(result, d2) == 0
-    # d3：全市场（此例仅 1 笔）都没有新鲜报价 ⇒ 判为休市/未出净值，
-    # 按「价格未变」回填 ⇒ 0 收益。这与「部分有价部分没价」要分开处理，
-    # 见test_部分标的断档时不出数。
-    assert _state_of(result, d3) == STATE_ZERO
-    assert _pnl_of(result, d3) == 0
+    # d3（周三，A 股开盘日）没有任何新鲜报价 ⇒ 是「没同步」，不是「0 收益」，
+    # 更不是「休市」。这与「部分有价部分没价」（partial，见
+    # test_部分标的断档时标partial且仍出数）分开处理。
+    assert _state_of(result, d3) == STATE_NO_DATA
+    assert _pnl_of(result, d3) is None
 
 
 def test_部分标的断档时标partial且仍出数(db, make_position, make_transaction):
@@ -478,6 +489,159 @@ def test_流水与持仓账户不一致时按持仓归集(db, make_position, mak
 
 # ─────────────────────────────────────────────────────────────────────────────
 # #1925 日 / 月 / 年三视图
+# ─────────────────────────────────────────────────────────────────────────────
+# #1942：休市必须来自交易日历，不能拿「当天取不到价格」当判据
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_非开盘日报道休市_开盘日缺数据报未同步(db, make_position, make_transaction):
+    """#1942 核心回归：2026-01-10/11 是周末（休市），01-13 是周二（没同步）。
+
+    旧实现把「当天取不到价」当成休市判据，于是这两天都报同一个「非交易日」态、
+    UI 一律显示「休市」。用户的直接观感是「9 月一半都是休市，与实际不符」——
+    市场没关门，是每日净值没同步。两者处置方式相反：一个等开盘，一个要去跑同步。
+    """
+    from app.core.trading_calendar import is_trading_day
+
+    thu = dt.date(2026, 1, 8)
+    fri = dt.date(2026, 1, 9)
+    sat = dt.date(2026, 1, 10)
+    sun = dt.date(2026, 1, 11)
+    mon = dt.date(2026, 1, 12)
+    tue = dt.date(2026, 1, 13)
+
+    # 前提钉：这三个日期的开闭状态由交易日历给定（本用例的判据基准）
+    assert is_trading_day(sat) is False and is_trading_day(sun) is False
+    assert is_trading_day(tue) is True, '2026-01-13 是周二，A 股开盘'
+
+    pos = make_position(symbol='000071', name='交易日历基金', quantity=1000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=dt.date(2025, 12, 1),
+        symbol='000071',
+    )
+    _add_nav(db, '000071', thu, 1.0)
+    _add_nav(db, '000071', fri, 1.0)
+    _add_nav(db, '000071', mon, 1.05)
+    # tue 故意不写净值：开盘日但没同步
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-09', end_date='2026-01-13')
+
+    assert _state_of(result, fri) == STATE_ZERO, '有真净值且持平 ⇒ 真实零收益'
+    assert _pnl_of(result, fri) == 0
+
+    for day in (sat, sun):
+        assert _state_of(result, day) == STATE_CLOSED, f'{day} 是周末 ⇒ 休市'
+        assert _pnl_of(result, day) is None
+
+    assert _state_of(result, mon) == STATE_UPDOWN
+    assert _pnl_of(result, mon) == pytest.approx(50.0, abs=0.01)
+
+    assert _state_of(result, tue) == STATE_NO_DATA, '开盘日一条估值都没有 ⇒ 未同步，不是休市'
+    assert _pnl_of(result, tue) is None
+
+
+def test_建仓前的日子报无持仓而不是休市(db, make_position, make_transaction):
+    """没有持仓 ≠ 休市，也 ≠ 没数据（#1942）。建仓前的一整段应能自证原因。"""
+    buy = dt.date(2026, 1, 8)
+
+    pos = make_position(symbol='000072', name='尚未建仓', quantity=1000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=buy,
+        symbol='000072',
+    )
+    _add_nav(db, '000072', buy, 1.0)
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-06', end_date='2026-01-08')
+
+    for day in (dt.date(2026, 1, 6), dt.date(2026, 1, 7)):
+        assert _state_of(result, day) == STATE_NO_POSITION, f'{day} 尚无仓位 ⇒ 报无持仓'
+        assert _pnl_of(result, day) is None
+
+
+def test_回报投资以来起点_供年视图取全区间(db, make_position, make_transaction):
+    """#1942：年视图要「投资以来每一年占一格」，起点必须来自数据而不是固定年数窗口。
+
+    起点 = 最早一笔**改变份额**的流水生效日（买 / 卖 / 转入 / 转出）；
+    无持仓（空态）时为 None，前端据此回落到「今年」。
+    """
+    buy = dt.date(2024, 3, 15)
+    pos = make_position(symbol='000073', name='投资以来', quantity=1000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=buy,
+        symbol='000073',
+    )
+    _add_nav(db, '000073', dt.date(2026, 1, 5), 1.0)
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-06')
+
+    assert result['first_txn_date'] == buy.isoformat()
+
+    # 空态（该家庭没有任何持仓）同样要给字段，保持响应形状一致
+    empty = build_daily_pnl_series(db, family_id=99, start_date='2026-01-05', end_date='2026-01-06')
+    assert empty['first_txn_date'] is None
+
+
+def test_整月未同步的期间状态是no_data(db, make_position, make_transaction):
+    """整月一条净值都没有 ⇒ 期间报「未同步」，不是「休市」（#1942 聚合层）。"""
+    pos = make_position(symbol='000074', name='整月没同步', quantity=1000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=dt.date(2025, 12, 1),
+        symbol='000074',
+    )
+    # 只在窗口第一天（scan_start，1/31 前一天=12/31）有净值，1 月整月全无
+    _add_nav(db, '000074', dt.date(2025, 12, 31), 1.0)
+
+    res = build_pnl_series(db, 1, '2026-01-01', '2026-01-31', granularity=GRANULARITY_MONTH)
+    period = res['periods'][0]
+
+    assert period['period'] == '2026-01'
+    assert period['state'] == STATE_NO_DATA
+    assert period['pnl'] is None
+
+
+def test_建仓前整月的期间状态是无持仓(db, make_position, make_transaction):
+    """整月没有仓位 ⇒ 期间报「无持仓」，而不是被周末的 `closed` 盖过去。"""
+    pos = make_position(symbol='000075', name='下月才建仓', quantity=1000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=dt.date(2026, 2, 2),
+        symbol='000075',
+    )
+    # 该基金 1 月有净值（用户在看它），但 2 月才建仓
+    _add_nav(db, '000075', dt.date(2026, 1, 15), 1.0)
+
+    res = build_pnl_series(db, 1, '2026-01-01', '2026-01-31', granularity=GRANULARITY_MONTH)
+    period = res['periods'][0]
+
+    assert period['period'] == '2026-01'
+    assert period['state'] == STATE_NO_POSITION
+    assert period['pnl'] is None
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 
 
