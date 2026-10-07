@@ -38,8 +38,12 @@ def _make_worth(db, fund_code, day, nav_per_10k):
     db.flush()
 
 
-def _make_orphan_flow(db, ledger, fund_code, day, txn_type, amount_yuan, family_id=1):
-    """构造孤儿流水（position_id IS NULL、asset_type='money_fund'）。"""
+def _make_orphan_flow(db, ledger, fund_code, day, txn_type, amount_yuan, family_id=1, asset_type='money_fund'):
+    """构造孤儿流水（position_id IS NULL）。
+
+    asset_type 默认 'money_fund'；传 'reverse_repo' 可验证逆回购并入货基口径
+    （#947 验收项：逆回购属现金管理类，与货基合并计算）。
+    """
     txn = Transaction(
         position_id=None,
         ledger_id=ledger.id,
@@ -48,7 +52,7 @@ def _make_orphan_flow(db, ledger, fund_code, day, txn_type, amount_yuan, family_
         amount=Money.yuan_to_cents(amount_yuan),
         confirm_date=day,
         trade_date=dt.datetime.combine(day, dt.time(10, 0)),
-        asset_type='money_fund',
+        asset_type=asset_type,
         family_id=family_id,
         status='success',
     )
@@ -181,6 +185,52 @@ class TestDailyIncome:
         # 孤儿: 50000×0.35/10000=1.75→2分；持仓: 100000×0.40/10000=4分；合计 6 分 = 0.06 元
         assert result['daily_series'] == [{'date': '2026-08-01', 'income': 0.06}]
         assert result['total_income'] == 0.06
+
+    def test_reverse_repo_orphan_flow_counted(self, db):
+        """逆回购（reverse_repo）并入货基口径（#947 验收项3）。
+
+        逆回购是现金管理类、同样按万份收益计息，故与货基合并计算；
+        若哪天 `_ORPHAN_ASSET_TYPES` 被收窄回仅 money_fund，本用例会红。
+        """
+        ledger = _make_ledger(db)
+        day = dt.date(2026, 8, 1)
+        # 逆回购与货基各一笔，symbol 不同、万份收益不同，便于分辨求和是否正确
+        _make_worth(db, '511880', day, 0.35)  # 货基
+        _make_worth(db, '131810', day, 0.10)  # 逆回购
+        _make_orphan_flow(db, ledger, '511880', day, 'buy', 500.0, asset_type='money_fund')
+        _make_orphan_flow(db, ledger, '131810', day, 'buy', 1000.0, asset_type='reverse_repo')
+
+        result = calculate_money_fund_income(db, start_date=day, end_date=day, scope='family', family_id=1)
+
+        # 货基 50000×0.35/10000 = 1.75 → 2 分；逆回购 100000×0.10/10000 = 1 分；合计 3 分
+        assert result['daily_series'] == [{'date': '2026-08-01', 'income': 0.03}]
+        assert result['total_income'] == 0.03
+
+    def test_reverse_repo_withdraw_reduces_holding(self, db):
+        """逆回购的卖出/赎回同样冲减持有金额（方向口径与货基一致）。"""
+        ledger = _make_ledger(db)
+        day = dt.date(2026, 8, 1)
+        _make_worth(db, '131810', day, 0.10)
+        _make_orphan_flow(db, ledger, '131810', day, 'buy', 1000.0, asset_type='reverse_repo')
+        _make_orphan_flow(db, ledger, '131810', day, 'sell', 400.0, asset_type='reverse_repo')
+
+        result = calculate_money_fund_income(db, start_date=day, end_date=day, scope='family', family_id=1)
+
+        # 净持有 600 元 = 60000 分 → 60000×0.10/10000 = 0.6 分 → round half-up 到 1 分
+        assert result['daily_series'] == [{'date': '2026-08-01', 'income': 0.01}]
+        assert result['total_income'] == 0.01
+
+    def test_stock_asset_type_not_counted(self, db):
+        """对照组：非现金管理类（股票）不进货基口径——防 `_ORPHAN_ASSET_TYPES` 收窄过头。"""
+        ledger = _make_ledger(db)
+        day = dt.date(2026, 8, 1)
+        _make_worth(db, '600519', day, 0.35)
+        _make_orphan_flow(db, ledger, '600519', day, 'buy', 500.0, asset_type='stock')
+
+        result = calculate_money_fund_income(db, start_date=day, end_date=day, scope='family', family_id=1)
+
+        assert result['daily_series'] == [{'date': '2026-08-01', 'income': 0.0}]
+        assert result['total_income'] == 0.0
 
     def test_position_baseline_applies_all_days(self, db):
         """迁移前兼容：positions 货基市值作为恒定基线，覆盖整个区间。"""
