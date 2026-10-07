@@ -315,7 +315,7 @@ function ariaFor(
   border-color: color-mix(
     in srgb,
     var(--text-tertiary) 30%,
-    var(--border-light),
+    var(--border-light)
   );
 }
 
@@ -330,7 +330,7 @@ function ariaFor(
     transparent,
     transparent 5px,
     color-mix(in srgb, var(--text-tertiary) 10%, transparent) 5px,
-    color-mix(in srgb, var(--text-tertiary) 10%, transparent) 8px,
+    color-mix(in srgb, var(--text-tertiary) 10%, transparent) 8px
   );
 
   /* 格子有 8px 圆角，叠加层需跟着裁切，否则四角会溢出 */
