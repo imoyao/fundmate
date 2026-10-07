@@ -1,4 +1,0 @@
-chore: 移除误纳入的临时 commit message 文件
-
-上一个提交用 git add -A 把它一并带了（作为本地写入的提交消息文件）。
-不用 amend 是因为本仓库本地 ref 不时会被清除，force push 的风险过大；改用一个普通提交补。
