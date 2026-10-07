@@ -169,9 +169,7 @@ class OrphanBackfillJob(SyncJob):
 
         self.db.commit()
 
-    def _load_position_index(
-        self, identities: set, families: set
-    ) -> Dict[tuple, Tuple[int, ...]]:
+    def _load_position_index(self, identities: set, families: set) -> Dict[tuple, Tuple[int, ...]]:
         """按身份批量取持仓，建 `(family_id, ledger_id, symbol_norm) -> (position_id, ...)` 索引。
 
         值用元组而非单个 id：同一身份理论上被 `uq_positions_ledger_symbol_norm` 唯一
@@ -181,11 +179,9 @@ class OrphanBackfillJob(SyncJob):
         index: Dict[tuple, List[int]] = {}
         identity_list = list(identities)
         for start in range(0, len(identity_list), IN_CHUNK_SIZE):
-            chunk = identity_list[start:start + IN_CHUNK_SIZE]
+            chunk = identity_list[start : start + IN_CHUNK_SIZE]
             rows = (
-                self.db.query(Position)
-                .filter(Position.symbol_norm.in_(chunk), Position.family_id.in_(families))
-                .all()
+                self.db.query(Position).filter(Position.symbol_norm.in_(chunk), Position.family_id.in_(families)).all()
             )
             for pos in rows:
                 key = (
