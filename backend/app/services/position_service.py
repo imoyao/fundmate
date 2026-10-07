@@ -1237,13 +1237,36 @@ class PositionService:
         account = data.get('account_name', '')
         qty = data.get('quantity', 0)
         price = data.get('avg_price', 0)
+        name = (data.get('name') or data.get('position_name') or '').strip()
 
         # 尝试查找现有持仓（家庭维度）
-        existing = (
-            db.query(Position)
-            .filter_by(symbol=symbol, account_name=account, family_id=_resolve_family_id(data))
-            .first()
-        )
+        existing = None
+        if symbol:
+            existing = (
+                db.query(Position)
+                .filter_by(symbol=symbol, account_name=account, family_id=_resolve_family_id(data))
+                .first()
+            )
+        if existing is None and name:
+            # **symbol 缺失时的兜底关联**（#1920）
+            # 券商交割单里「证券名称」常有而「证券代码」为空（实测真实库 1348/2051 笔
+            # 无 symbol）。此前只按 symbol 匹配 ⇒ 必然查不到持仓 ⇒ 卖出退化成孤儿流水
+            # ⇒ `realized_pnl` 无从计算而**静默丢 0**（真实库 649 笔卖出如此）。
+            # 名称 + 账户在单个账户内足以唯一定位持仓，退化风险远低于丢成本基准。
+            existing = (
+                db.query(Position)
+                .filter_by(name=name, account_name=account, family_id=_resolve_family_id(data))
+                .filter(Position.ownership_status == 'active')
+                .first()
+            )
+            if existing is not None:
+                logger.info(
+                    '卖出/取出按名称兜底关联到持仓：symbol=%r name=%r account=%r → position_id=%s',
+                    symbol,
+                    name,
+                    account,
+                    existing.id,
+                )
 
         if existing:
             try:
