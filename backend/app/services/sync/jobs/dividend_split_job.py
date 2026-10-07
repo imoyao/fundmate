@@ -43,13 +43,22 @@ class DividendSplitSyncJob(SyncJob):
             return mkt in ('CN_A', 'CN_B', 'CN_A_SH', 'CN_A_SZ', 'CN_B_SH', 'CN_B_SZ')
         return str(code).upper().startswith(('SH', 'SZ', 'BJ'))
 
-    def _holding_shares(self, symbol: str) -> Decimal:
+    def _holding_shares(self, symbol: str) -> Optional[Decimal]:
+        """返回该标的的持有份额；**查询失败返回 None**（#1833）。
+
+        早先这里 `except Exception: return Decimal('0')`，于是持仓查询一失败就被当成
+        「持有 0 股」，直接把 amount=0 / quantity=0 的分红流水写进库——而 `_deduplicate`
+        靠 import_hash 去重，下一轮同步会把这条 0 金额记录当重复跳过，**永久不可自愈**。
+        「查不到」与「确实是 0」必须区分：前者跳过该事件并记账，后者才落库。
+        """
         try:
             rows = self.db.query(Position).filter_by(symbol=symbol, family_id=1).all()
             total = sum(Money.min_unit_to_shares(p.quantity) for p in rows)
             return Decimal(str(total))
-        except Exception:
-            return Decimal('0')
+        except Exception as e:
+            self.logger.warning(f'{symbol} 持仓查询失败，跳过其分红/送股事件：{e}')
+            self.stats.setdefault('errors', []).append({'symbol': symbol, 'stage': 'holding_query', 'error': str(e)})
+            return None
 
     # ── 抓取 ──
 
@@ -79,6 +88,9 @@ class DividendSplitSyncJob(SyncJob):
         is_split = bonus > 0 or transfer > 0
         business_type = 'split' if is_split else 'dividend'
         held = self._holding_shares(symbol)
+        if held is None:
+            # 持仓查询失败 ≠ 持有 0 股：写 0 金额流水会被 import_hash 去重锁死（#1833）
+            return None
         if is_split:
             quantity = held * (bonus + transfer) / Decimal('10')
             amount = Decimal('0')

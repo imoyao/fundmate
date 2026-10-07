@@ -83,6 +83,10 @@ class PriceHistorySyncJob(SyncJob):
                 price_list = self.adapter.fetch_stock_price(symbol, start_date=start_date, end_date=end_date)
             except Exception as e:
                 logger.warning(f'获取 {symbol} 行情失败: {e}')
+                # #1833：异常必须进 errors —— 否则「全部标的失败」与「今天没行情」
+                # 在sync_logs 里长得一模一样（records=[] + status=success + error_detail 空），
+                # 而下游 position_price 会据此把持仓全记为无收盘价、快照拿旧价落账。
+                self.stats.setdefault('errors', []).append({'symbol': symbol, 'stage': 'fetch_price', 'error': str(e)})
                 continue
 
             if not isinstance(price_list, list):

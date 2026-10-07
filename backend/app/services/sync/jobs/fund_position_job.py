@@ -117,10 +117,18 @@ class FundPositionSyncJob(SyncJob):
                 holdings = self.adapter.fetch_fund_top_holdings(code) or {}
             except Exception as e:  # noqa: BLE001
                 self.logger.warning(f'基金 {code} 持仓抓取失败: {e}')
+                # #1833：记 errors，否则「抓失败」与「本期无披露」同为 0 记录，
+                # 页面继续展示上一期数据而无人知道它已停更。
+                self.stats.setdefault('errors', []).append(
+                    {'fund_code': code, 'stage': 'fetch_holdings', 'error': str(e)}
+                )
             try:
                 industry = self.adapter.fetch_fund_industry_allocation(code) or {}
             except Exception as e:  # noqa: BLE001
                 self.logger.warning(f'基金 {code} 行业配置抓取失败: {e}')
+                self.stats.setdefault('errors', []).append(
+                    {'fund_code': code, 'stage': 'fetch_industry', 'error': str(e)}
+                )
             if not holdings and not industry:
                 # 无源数据：不产出记录，从而不覆盖该基金已有的标量值
                 continue
