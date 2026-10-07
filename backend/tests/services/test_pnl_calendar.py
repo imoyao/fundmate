@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 """每日收益日历派生口径测试（#1812）。
 
-重点验证三件事：
+重点验证四件事：
 1. **资金流免疫**——存取款当日不产生虚假日盈亏（这是选用 `total_pnl` 日差分
    而非 `net_worth` 日环比的根本理由）；
 2. **四态可区分**——「无价格序列」不画成 0（balance 模式账户的关键诉求）；
-3. **恒等式**——家庭级日盈亏 = Σ 各账户级日盈亏。
+3. **恒等式**——家庭级日盈亏 = Σ 各账户级日盈亏；
+4. **区间无关**——同一天的取值与查询区间无关（#1917）。
 """
 
 import datetime as dt
@@ -147,43 +148,87 @@ def test_零收益与无数据可区分(db, make_position, make_transaction):
     assert _pnl_of(result, d2) == 0
     # d3：全市场（此例仅 1 笔）都没有新鲜报价 ⇒ 判为休市/未出净值，
     # 按「价格未变」回填 ⇒ 0 收益。这与「部分有价部分没价」要分开处理，
-    # 见test_部分标的断档时不出数。
+    # 见 test_断档超出回填窗时该日不出数（#1917 判据：缺席集合相对前一日变化才关）。
     assert _state_of(result, d3) == STATE_ZERO
     assert _pnl_of(result, d3) == 0
 
 
-def test_部分标的断档时不出数(db, make_position, make_transaction):
-    """回归 #1812：一部分标的有当日价、一部分断档 ⇒ 日总额不完整，差分是错的。
+def test_回填窗内的部分断档按前值出数(db, make_position, make_transaction):
+    """#1917：回填窗内的隔日缺价按前值出数，不整天判「数据不全」。
 
-    实测（真实库 2026-09-30）：只有 13/57 笔有价，若照常出数，
-    缺失标的的市值被当成 0，日净资产凭空少 20.8 万。
-    按 design.md「缺数据不可画成 0」，这类日子标closed（数据不全）而不是给出错数。
+    旧判据「当日有价与断档并存 ⇒ 整日不出数」让 `_STALE_CARRY_DAYS` 的回填在
+    工作日形同虚设（一只标的晚公布净值就整天 closed），且这些日子不写差分基准
+    ⇒ 基准停留更早、次日拿跨多天差分当单日值 ⇒ 同一天在不同查询区间得出不同
+    结果（#1917 根因之一）。
+    「缺数据不画成 0」由回填保证：断档标的按最近已知净值冻结、不归零——
+    真实库 2026-09-30「缺失标的市值被当成 0、日净资产凭空少 20.8 万」是
+    回填机制修复前的旧行为，与本判据无关。
     """
     d1 = dt.date(2026, 1, 5)
     d2 = dt.date(2026, 1, 6)
+    d3 = dt.date(2026, 1, 7)
 
     a = make_position(symbol='000041', name='有价标的', quantity=1000, avg_price=1.0, asset_type='fund')
-    b = make_position(symbol='000042', name='断档标的', quantity=1000, avg_price=1.0, asset_type='fund')
-    for pos, sym in ((a, '000041'), (b, '000042')):
+    b = make_position(symbol='000042', name='隔日断档标的', quantity=1000, avg_price=2.0, asset_type='fund')
+    for pos, sym, px in ((a, '000041', 1.0), (b, '000042', 2.0)):
         make_transaction(
             position_id=pos.id,
             ledger_id=pos.ledger_id,
             txn_type='buy',
             quantity=1000,
-            price=1.0,
+            price=px,
             confirm_date=dt.date(2025, 12, 1),
             symbol=sym,
         )
-    # d1 两只都有；d2 只有 A 出净值（模拟 B 断档）
+    # A 三天都有净值；B 仅 d1 有 ⇒ d2/d3 在回填窗内按 d1 净值冻结
     _add_nav(db, '000041', d1, 1.0)
-    _add_nav(db, '000042', d1, 1.0)
     _add_nav(db, '000041', d2, 1.1)
+    _add_nav(db, '000041', d3, 1.1)
+    _add_nav(db, '000042', d1, 2.0)
 
     result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-07')
 
-    # d2 覆盖不全 ⇒ 不出数（而不是把B 的市值当成 0 算出个假盈亏）
-    assert _state_of(result, d2) == STATE_CLOSED, '部分标的断档时应标数据不全'
-    assert _pnl_of(result, d2) is None
+    # d2：A 1.0→1.1 = +100；B 冻结贡献 0 ⇒ 出数，而不是整天 closed
+    assert _state_of(result, d2) == STATE_UPDOWN, '回填窗内的断档应按前值出数'
+    assert _pnl_of(result, d2) == pytest.approx(100.0, abs=0.01)
+    # d3：A 持平、B 冻结 ⇒ zero 态 0 —— 与 no_price / closed 可区分
+    assert _state_of(result, d3) == STATE_ZERO
+    assert _pnl_of(result, d3) == 0
+
+
+def test_断档超出回填窗时该日不出数(db, make_position, make_transaction):
+    """#1917：缺席集合（超出回填窗取不到价）变化日不出数，集合稳定后恢复出数。
+
+    变化日的差分里混入「某标的从出席变缺席（或反之）」的一次性跳变——那不是
+    真实盈亏：既不许显示，也不进差分基准。集合稳定后，缺席标的从差分两侧
+    同时剔除，日值对已观测子集是正确的，恢复出数。
+    """
+    base = dt.date(2026, 1, 5)
+    days = [base + dt.timedelta(days=i) for i in range(10)]  # 1/5 ~ 1/14
+
+    a = make_position(symbol='000071', name='全程有价', quantity=1000, avg_price=1.0, asset_type='fund')
+    b = make_position(symbol='000072', name='出窗断档', quantity=1000, avg_price=2.0, asset_type='fund')
+    for pos, sym, px in ((a, '000071', 1.0), (b, '000072', 2.0)):
+        make_transaction(
+            position_id=pos.id,
+            ledger_id=pos.ledger_id,
+            txn_type='buy',
+            quantity=1000,
+            price=px,
+            confirm_date=dt.date(2025, 12, 1),
+            symbol=sym,
+        )
+    for i, d in enumerate(days):
+        _add_nav(db, '000071', d, 1.0 + i * 0.01)  # A 每天 +0.01
+    _add_nav(db, '000072', days[0], 2.0)  # B 仅首日：回填覆盖至 1/12，1/13 起彻底缺席
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-14')
+
+    d_shift = base + dt.timedelta(days=8)  # 1/13：缺席集 ∅ → {B}
+    d_after = base + dt.timedelta(days=9)  # 1/14：{B} → {B} 稳定
+    assert _state_of(result, d_shift) == STATE_CLOSED, '缺席集合变化日应标数据不全'
+    assert _pnl_of(result, d_shift) is None
+    assert _pnl_of(result, d_after) is not None, '集合稳定后应恢复出数（B 从差分两侧同时剔除）'
 
 
 def test_月合计等于区间内日序列求和(db, make_position, make_transaction):
@@ -371,19 +416,24 @@ def test_空态能区分数据缺口与持仓无估值(db, make_position, make_t
 
 
 def test_家庭级覆盖不全时账户级丢同一批天(db, make_position, make_transaction):
-    """#1916 回归：家庭级因某账户断档丢天时，账户级不得各自出数。
+    """#1916 回归（按 #1917 新判据改写）：缺席集变化日各作用域丢同一批天。
 
-    场景：账户甲的基金 1/5~1/7 都有净值；账户乙的基金仅 1/5 有、1/6 起断档。
-    家庭级 1/6、1/7 触发「覆盖不全不出数」⇒ closed/None（#1812 既有行为）。
-    若账户级按各自持仓判定：账户甲 1/6 会照常算出 +50 ⇒ Σ账户级 ≠ 家庭级。
-    真实库实测：份额口径修正后该缺口放大到 3502.91，根因即丢天集合不一致。
+    场景：账户甲的基金全程有净值；账户乙的基金仅首日有、此后断档。
+    - 回填窗内（首日起 7 天）：乙按前值冻结 ⇒ 家庭级照常出数（#1917 新语义；
+      旧判据在这里整天 closed，正是「基准不推进 ⇒ 跨天差分 ⇒ 区间相关」的来源）；
+    - 第 9 天（1/13）：乙超出回填窗彻底缺席 ⇒ 缺席集合 ∅→{乙} 变化 ⇒ closed；
+      账户级必须**同日同判**——若按各自持仓判定，账户甲该日照常出数 ⇒
+      Σ账户级 ≠ 家庭级（真实库实测该缺口放大到 3502.91，根因即丢天集合不一致）；
+    - 此后集合稳定 ⇒ 恢复出数，恒等式贯穿全窗口。
 
-    修法：状态判定集恒为家庭级全量——各作用域丢同一批天、同步推进差分基准；
+    修法不变：状态判定集恒为家庭级全量——各作用域丢同一批天、同步推进差分基准；
     而 day_total 按持仓可加（份额/已实现均按持仓归集），故恒等式成立。
     """
-    d1 = dt.date(2026, 1, 5)
-    d2 = dt.date(2026, 1, 6)
-    d3 = dt.date(2026, 1, 7)
+    base = dt.date(2026, 1, 5)
+    days = [base + dt.timedelta(days=i) for i in range(10)]  # 1/5 ~ 1/14
+    d_emit = base + dt.timedelta(days=2)  # 1/7：回填窗内，应出数
+    d_shift = base + dt.timedelta(days=8)  # 1/13：乙超出回填窗，缺席集变化
+    d_after = base + dt.timedelta(days=9)  # 1/14：集合稳定，恢复出数
 
     a = make_position(
         symbol='000051', name='甲基金', account_name='甲账户', quantity=1000, avg_price=1.0, asset_type='fund'
@@ -401,30 +451,28 @@ def test_家庭级覆盖不全时账户级丢同一批天(db, make_position, mak
             confirm_date=dt.date(2025, 12, 1),
             symbol=sym,
         )
-    # 甲：三天都有净值；乙：仅 d1 有，d2/d3 断档（超出回填窗）
-    _add_nav(db, '000051', d1, 1.0)
-    _add_nav(db, '000051', d2, 1.05)
-    _add_nav(db, '000051', d3, 1.05)
-    _add_nav(db, '000052', d1, 2.0)
+    for i, d in enumerate(days):
+        _add_nav(db, '000051', d, 1.0 + i * 0.01)  # 甲全程有净值
+    _add_nav(db, '000052', base, 2.0)  # 乙仅首日有
 
-    family = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-07')
+    family = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-14')
     led_a = build_daily_pnl_series(
-        db, family_id=1, start_date='2026-01-05', end_date='2026-01-07', ledger_id=a.ledger_id
+        db, family_id=1, start_date='2026-01-05', end_date='2026-01-14', ledger_id=a.ledger_id
     )
     led_b = build_daily_pnl_series(
-        db, family_id=1, start_date='2026-01-05', end_date='2026-01-07', ledger_id=b.ledger_id
+        db, family_id=1, start_date='2026-01-05', end_date='2026-01-14', ledger_id=b.ledger_id
     )
 
-    # 家庭级：d2/d3 覆盖不全 ⇒ 不出数（#1812 既有行为，不得回归）
-    for day in (d2, d3):
-        assert _state_of(family, day) == STATE_CLOSED
-        assert _pnl_of(family, day) is None
+    # 回填窗内：家庭级出数（乙按前值冻结，不整天 closed）
+    assert _state_of(family, d_emit) == STATE_UPDOWN, '回填窗内家庭级应照常出数'
 
-    # #1916：账户级必须丢同一批天——不能因为自己那笔有价就照常出数
-    for led in (led_a, led_b):
-        for day in (d2, d3):
-            assert _state_of(led, day) == STATE_CLOSED, f'{day} 账户级应与家庭级同为 closed'
-            assert _pnl_of(led, day) is None
+    # #1916：缺席集变化日三级同为 closed/None——不能因为自己那笔有价就照常出数
+    for res in (family, led_a, led_b):
+        assert _state_of(res, d_shift) == STATE_CLOSED, f'{d_shift} 三级应同为 closed'
+        assert _pnl_of(res, d_shift) is None
+
+    # 集合稳定后恢复出数（乙从差分两侧同时剔除）
+    assert _pnl_of(family, d_after) is not None
 
     assert family['month_total'] == pytest.approx(led_a['month_total'] + led_b['month_total'], abs=0.02)
 
@@ -468,3 +516,81 @@ def test_流水与持仓账户不一致时按持仓归集(db, make_position, mak
     assert _state_of(led, d2) == STATE_UPDOWN
     assert _pnl_of(led, d2) == pytest.approx(100.0, abs=0.01)
     assert led['month_total'] == pytest.approx(family['month_total'], abs=0.02)
+
+
+def test_同一日跨查询区间取值一致(db, make_position, make_transaction):
+    """#1917 核心验收：同一天的 daily_pnl / state 与查询区间无关。
+
+    旧实现的差分基准只在「覆盖不全」日跳过，而覆盖不全的判定又与区间头相关
+    ⇒ 基准链随区间错位。真实库 2026-09 实测 10 个观测日里 8 天区间相关：
+    9/19 出现 4756.40 / 0.00 / closed 三种取值，9/21 出现 -32841.81 /
+    8717.73 / closed 三种取值（start=9/20 时基准日恰逢周六、无价，基准为 0）。
+
+    场景：A 全程有价；B 在 1/6 断档一天（回填窗内冻结、不缺席）——
+    三个区间都必须给出同一个 1/7 值（A 1.1→1.15 = +50，B 2.0→2.2 = +200）。
+    """
+    d1 = dt.date(2026, 1, 5)
+    d2 = dt.date(2026, 1, 6)
+    d3 = dt.date(2026, 1, 7)
+
+    a = make_position(symbol='000161', name='区间一致A', quantity=1000, avg_price=1.0, asset_type='fund')
+    b = make_position(symbol='000162', name='区间一致B', quantity=1000, avg_price=2.0, asset_type='fund')
+    for pos, sym, px in ((a, '000161', 1.0), (b, '000162', 2.0)):
+        make_transaction(
+            position_id=pos.id,
+            ledger_id=pos.ledger_id,
+            txn_type='buy',
+            quantity=1000,
+            price=px,
+            confirm_date=dt.date(2025, 12, 1),
+            symbol=sym,
+        )
+    _add_nav(db, '000161', d1, 1.0)
+    _add_nav(db, '000161', d2, 1.1)
+    _add_nav(db, '000161', d3, 1.15)
+    _add_nav(db, '000162', d1, 2.0)
+    _add_nav(db, '000162', d3, 2.2)  # d2 断档一天
+
+    observed = []
+    for s, e in (('2026-01-05', '2026-01-07'), ('2026-01-06', '2026-01-07'), ('2026-01-07', '2026-01-07')):
+        r = build_daily_pnl_series(db, family_id=1, start_date=s, end_date=e)
+        observed.append((s, _state_of(r, d3), _pnl_of(r, d3)))
+
+    for s, state, v in observed:
+        assert state == STATE_UPDOWN, f'区间 {s} 起：1/7 应为 updown，实得 {state}'
+        assert v == pytest.approx(250.0, abs=0.01), f'区间 {s} 起：1/7 应为 250.0，实得 {v}'
+
+
+def test_区间边界价格回看缓冲保证基准一致(db, make_position, make_transaction):
+    """#1917：价格加载须向前多取 `_STALE_CARRY_DAYS` 天，否则区间头回填被截断。
+
+    场景：净值 1/4 有、1/5 断、1/6 恢复。区间 [1/6 起] 的基准日是 1/5，
+    若价格加载从 scan_start 起算，1/5 的回填找不到未加载的 1/4 ⇒ 基准 T=0 ⇒
+    1/6 的差分把整段浮盈算成当日（旧实测 300 vs 真值 100），且随区间而变。
+    """
+    d0 = dt.date(2026, 1, 4)
+    d1 = dt.date(2026, 1, 5)
+    d2 = dt.date(2026, 1, 6)
+
+    pos = make_position(symbol='000171', name='回看缓冲', quantity=1000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=dt.date(2025, 12, 1),
+        symbol='000171',
+    )
+    _add_nav(db, '000171', d0, 1.2)
+    _add_nav(db, '000171', d2, 1.3)  # d1 断一天
+
+    r_long = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-07')
+    r_short = build_daily_pnl_series(db, family_id=1, start_date='2026-01-06', end_date='2026-01-07')
+
+    # 1/5（长区间）：价格按 1/4 冻结 ⇒ 价格未变 ⇒ 0 收益，与 1/4 基准 1.2 对齐
+    assert _pnl_of(r_long, d1) == 0
+    # 1/6：1.2 → 1.3 × 1000 份 ⇒ +100，与区间无关
+    assert _pnl_of(r_long, d2) == pytest.approx(100.0, abs=0.01)
+    assert _pnl_of(r_short, d2) == pytest.approx(100.0, abs=0.01)
+    assert _state_of(r_short, d2) == STATE_UPDOWN
