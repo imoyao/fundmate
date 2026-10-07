@@ -99,7 +99,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted } from "vue";
 import { type HomeSummaryItem } from "@/api/watchlist";
-import WatchlistWidget from "@/components/WatchlistWidget.vue";
+import WatchlistWidget from "@/components/WatchlistWidget/index.vue";
 import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import PnlCalendar from "@/components/PnlCalendar/index.vue";

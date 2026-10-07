@@ -1,0 +1,57 @@
+refactor(frontend): 清掉 #965 P1 三项命名遗留（API 命名 / 类型集中 / 目录组件）
+
+## 背景
+
+`tech-debt.md` §「前端命名规范整理」登记的 P1 三项（审计清单 `docs/spec/
+frontend-naming-audit.md` 第二/ 三 / 四节）。开工前逐条复核 dev，**审计文档本身
+已过时**，实际残留比记录少：
+
+- 审计点名的 `src/api/user.ts` 里 `getLogin` / `refreshTokenApi` 早已随重构消失，
+  全仓 `Api` 后缀函数实测**只剩 1 处**（`api/auth.ts` 的 `logoutApi`）；
+- P0（清 `any`）已清零，`api/` 层 0 命中（`tech-debt.md` 记为待做，实际已做）；
+- 文档第三节点名的 `OrphanCleanupDialogs.vue` 早已目录化（现位于
+  `views/asset/ledgers/components/`），文件内也无 `any` —— 本次不动它。
+
+## 三项改动
+
+**① API 命名统一**：`logoutApi` → `logout`（`api/auth.ts:28`）。全仓只此一处，
+调用方仅 `store/modules/user.ts`（import + 1 处调用）。store 的 action 叫
+`logOut`，与新的 `logout` 不同名，无冲突。
+
+**② 类型集中**：`WatchlistItem` / `HomeSummaryItem` / `WatchlistGroup` /
+`HoldingGap` / `WatchlistTag` 五个**跨模块复用实体**从 `api/watchlist.ts` 迁入
+`api/types.d.ts`（+146 行），该文件自此只留请求函数与请求/响应契约类型
+（`WatchlistPageResponse` / `*Input` / `*MutationResult` 仍留原处——它们是接口
+契约的一部分，与请求函数同住合理）。
+
+搬运用脚本剪切而非人工复制：`WatchlistItem` 有 95 行，人工搬运必然漏行；脚本按
+原文件行尾风格写回（CRLF 工作区若被写成 LF 会造成整文件 diff）。
+
+`api/watchlist.ts` 侧保留 `export type { ... } from "@/api/types"`，使既有 **31 个**
+`from "@/api/watchlist"` 的引用方**零改动**即可继续工作——改 31 个文件的 import
+拆分是纯机械改动，风险收益比不划算（若要彻底拆分应作为独立低风险改动）。
+
+> 落地时踩了一个坑并已修正：`export type { X } from "..."` 只做对外 re-export、
+> **不在本地引入绑定**，本文件内用到这些名字时 `tsc` 报 TS2304
+> `Cannot find name`。故顶部另有 `import type { ... } from "@/api/types"` 供
+> 本文件函数签名使用，两行并存（注释里已写明原因，防止后人「cleanup」掉其中一行）。
+
+**③ components 目录组件**：`WatchlistWidget.vue`（256 行）用 `git mv` 迁入
+`WatchlistWidget/index.vue`（保留文件历史）。`components/` 下自此**全部 44 个
+组件均为目录形态，平铺 0**（迁移前实测：44 个目录 + 1 个平铺）。
+
+引用方 `views/welcome/index.vue` 的 import 改为 `@/components/WatchlistWidget/index.vue`
+—— 与其余 41 个 `.vue` 目录组件的既有写法一致（`ReDialog` 能省略 `/index.vue`
+是因为它额外有 `index.ts`；我先写成不带扩展名的形式，typecheck 报 TS2307，已按
+既有惯例改回）。
+
+## 验收
+
+- `pnpm typecheck`（`tsc --noEmit && vue-tsc --noEmit --skipLibCheck`）→ **零错误**；
+  这一步是本卡的主要守门：类型迁移牵动 31 个引用方，只有它能证明 re-export 兼容。
+- `pnpm lint:eslint`（`--max-warnings 0`）→ 通过
+- `pnpm lint:prettier` / `pnpm lint:stylelint` → 通过
+- `tech-debt.md` 该条已更新为「P0 + P1 已闭环，P2（utils/constants/config 边界）
+  仍未做」，并写明 P2 是本条剩余的全部工作。
+
+Closes #965
