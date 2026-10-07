@@ -5,7 +5,7 @@
   差别只在格内小标签叫什么、以及能不能点击下钻。抽出来的理由不是「省几行」：
 
   · #1925 的柱状图已经拆过一次，日历图还与父组件混在一起；
-  · #1942 要把四态扩成六态（补 `no_data` 未同步 / `no_position` 无持仓），
+  · #1942 要在四态之外补 `partial`（#1917）/ `no_data` 未同步 / `no_position` 无持仓，
     若日 / 月 / 年三套格子各写一份配色与文案，扩一次状态就要改三处，
     且必然出现「同一个状态在日历图叫未同步、在方格图叫没数据」的分叉。
 
@@ -14,11 +14,12 @@
   可点击的年 / 月格子则由调用方在外面套一个 `<button>`。这样既不用在 `<span>` 上挂
   `@click`（守卫 `guard_a11y_interaction.py` 会拦），也不会把 `<div>` 塞进 `<button>`。
 
-  六态视觉（**缺数据绝不能画成 0**，这是本组件存在的核心理由之一）：
+  七态视觉（**缺数据绝不能画成 0**，这是本组件存在的核心理由之一）：
     updown       涨红跌绿柔和填充，色深 ∝ |收益|
     zero         灰底 + 0.00（真实为零）
+    partial      中性底 + 斜纹 + 「※」（#1917：值照给，只是该日数据不完整）
     no_price     斜线纹理（balance 模式无历史价格序列，如银行理财/投顾/实物）
-    no_data      虚线边框 + 「未同步」（开盘日却没取到当天估值，#1942）
+    no_data      虚线边框 + 「未同步」（开盘日却一个可用价都没有，#1942）
     no_position  空白 + 「无持仓」（建仓前 / 清仓后，#1942；无问题可处置，故不用虚线）
     closed       空白 + 「休市」（非 A 股开盘日）
 
@@ -36,7 +37,8 @@
       {
         'is-today': isToday,
         'is-void': voidCell,
-        // 色深档位：仅加在有真实盈亏的格子上，零收益/无价/未同步/休市不参与映射
+        // 色深档位：只加在普通过涨跌格上。零收益 / partial / 无价 / 未同步 / 休市
+        // 都不参与映射——partial 另有中性底 + 斜纹，叠涨跌 tint 会跌破 AA（见样式注释）。
         [`lv-${level}`]: state === 'updown',
         'is-fall': isFall
       }
@@ -81,19 +83,25 @@ const props = withDefaults(
   { voidCell: false, isToday: false }
 );
 
-/** 有真实数值才画金额；`updown` / `zero` 之外一律出态标签 */
+/** 有真实数值才画金额；`partial` 也照画（值可信，只是不全），其余一律出态标签 */
 const hasValue = computed(
-  () => props.state === "updown" || props.state === "zero"
+  () =>
+    props.state === "updown" ||
+    props.state === "zero" ||
+    props.state === "partial"
 );
 
 const isFall = computed(() => props.pnl != null && props.pnl < 0);
 
 /**
  * 文字色用 -ink 级（AA 达标），底色用柔和填充 —— 二者分工见 design.md 涨跌色应用。
+ *
+ * `partial` 与 `updown` 同用 -ink 级文字：涨跌方向必须可读，区别靠中性底 + 斜纹
+ * + 「※」承载，**不能靠降级文字色**（降级后跌破 AA，见 `.is-partial` 注释）。
  * 非盈亏态（未同步 / 无持仓 / 休市）用辅助文字色，与「暂无估值」同一档。
  */
 const textColor = computed(() =>
-  props.state === "updown" && props.pnl != null
+  (props.state === "updown" || props.state === "partial") && props.pnl != null
     ? props.pnl > 0
       ? "var(--color-rise-ink)"
       : "var(--color-fall-ink)"
@@ -105,6 +113,8 @@ const textColor = computed(() =>
 @use "@/style/breakpoints" as bp;
 
 .pnl-calendar__cell {
+  /* `.is-partial::after` 的斜纹叠加层需要相对定位的父元素（#1917） */
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -129,7 +139,7 @@ const textColor = computed(() =>
   color: var(--text-tertiary-ink);
 }
 
-/* ── 六态视觉 ──
+/* ── 七态视觉 ──
    updown 用柔和填充 + 涨红跌绿（**绿跌**，非参考图的蓝跌）。
 
    **色深上限 12% 是算出来的，不是随手填的**（实测 2026-10-06，WCAG AA 4.5:1）：
@@ -170,6 +180,43 @@ const textColor = computed(() =>
   border-color: var(--border-light);
 }
 
+/* 部分断档（#1917）：中性底 + 斜纹。
+   ⚠️ 为什么不用涨跌底色：实测（WCAG AA，tint 12% 最深档）涨色叠斜纹后
+   盈亏字 4.26 / 日期数字 4.07，双双跌破 4.5；压到 3% 仍不合格——
+   涨色 tint 12% 本身已接近上限（纯底 4.81 / 日期 4.59 刚好压线），没有余量。
+   「数据不全」本就与涨跌无关，中性底语义更准，对比度余量充足（3~12% 全通过）。
+   涨跌方向改由 `-ink` 文字色 + 正负号承载，见 textColor。
+   与 `zero` 同为灰底、与 `no_price` 同为斜纹，靠**组合**区分三者（灰底+斜纹+「※」）。 */
+.is-partial {
+  background-color: var(--bg-hover);
+  border-color: color-mix(
+    in srgb,
+    var(--text-tertiary) 30%,
+    var(--border-light)
+  );
+}
+
+/* 用 `::after` 叠加层而不是 `background-image`：`.pnl-calendar__cell` 用了
+   `background` 简写，会把 `background-image` 一并重置（同 specificity 下按源码
+   顺序输赢，不可靠）。 */
+.is-partial::after {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  content: "";
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 5px,
+    color-mix(in srgb, var(--text-tertiary) 10%, transparent) 5px,
+    color-mix(in srgb, var(--text-tertiary) 10%, transparent) 8px
+  );
+
+  /* 格子有 8px 圆角，叠加层需跟着裁切，否则四角会溢出 */
+  border-radius: inherit;
+}
+
 /* 无价格序列：斜线纹理，与「零收益」「休市」三者可辨 */
 .is-no_price {
   background: repeating-linear-gradient(
@@ -204,6 +251,15 @@ const textColor = computed(() =>
   font-size: 10px;
   line-height: 1;
   color: var(--text-tertiary-ink);
+}
+
+/* partial 的斜纹叠加层是 `z-index: 0`，文字层（日期数字 / 金额 / 态标签）必须抬到
+   它之上，否则金额与日期被斜纹盖住。 */
+.pnl-calendar__day,
+.pnl-calendar__tag,
+:deep(.money-display) {
+  position: relative;
+  z-index: 1;
 }
 
 /* 休市：留白，不画任何数字（避免"看起来是 0"） */

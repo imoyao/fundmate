@@ -31,10 +31,13 @@ export function ymd(d: Date): string {
 const STATE_TAG: Record<PnlCalendarState, string> = {
   updown: "",
   zero: "0.00",
+  // #1917：部分断档。数值照常显示，只是可信度低——用「※」标记，
+  // 用户扫一眼就知道「这天有东西没更新到」，aria/tooltip 有完整说明。
+  partial: "※",
   // 用户明确要求：不要说「无历史价格序列」——那是实现语言，用户看不懂，
   // 且会被误解成「我的理财出问题了」。产品语言是「暂无每日估值」。
   no_price: "暂无估值",
-  // 开盘日却没有当天估值：净值还没发布，或每日同步任务没跑。用户能处置。
+  // 开盘日却一个可用价都没有：净值还没发布，或每日同步任务没跑。用户能处置。
   no_data: "未同步",
   // 当天没有仓位（建仓前 / 清仓后）：与休市、缺数据都无关
   no_position: "无持仓",
@@ -70,11 +73,15 @@ export function stateDescription(
   pnl: number | null
 ): string {
   const label = readableName(name);
+  // #1917：数值可信但该日有标的数据不全，必须说清「不全」而非「无」
+  if (state === "partial") {
+    return `${label}：收益 ${pnl ?? 0} 元（该日部分标的未更新估值，数据不完整）`;
+  }
   if (state === "no_price") {
     return `${label}：该产品按日没有估值序列，不参与收益计算`;
   }
   if (state === "no_data") {
-    return `${label}：交易日但没有当天估值（净值未发布或每日同步未跑）`;
+    return `${label}：交易日但一个当天估值都没取到（净值未发布或每日同步未跑）`;
   }
   if (state === "no_position") {
     return `${label}：当天没有持仓`;
