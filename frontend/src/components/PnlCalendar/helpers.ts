@@ -130,6 +130,13 @@ export function currentYear(): number {
  * `load()` 拿到第一次响应后会用真实起点重取一次。
  * **不要**改成写死的年数窗口（#1925 的 `YEAR_WINDOW = 3` 就是这么做的）：
  * 窗口边界与真实建仓年份无关，用户会看到「投资以来」缺了最早的几年。
+ *
+ * ⚠️ 代价要知情（真实库只读探针，2026-10-07，家庭 154 笔持仓 / 151 笔在用）：
+ * 起点从此固定为**最早一笔流水**（实测 2023-03-13）⇒ 区间 1391 天，
+ * `granularity=year` 单次 **6.08s**（同年 366 天的 month 视图 1.66s、整月 0.75s）。
+ * 区间长度与耗时近似线性，故年份逐年增加会继续变慢。这是「投资以来每一年一格」
+ * 的直接代价，不是回归；根治要给日序列做物化快照（#1926，读时计算 → 写时计算）。
+ * 在那之前**不要再往后拉区间**（例如把起点再提前），否则会变成明显的卡顿。
  */
 export function firstInvestmentYear(firstTxnDate: string | null): number {
   return firstTxnDate ? Number(firstTxnDate.slice(0, 4)) : currentYear();
