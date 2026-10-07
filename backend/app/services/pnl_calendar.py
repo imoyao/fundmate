@@ -82,6 +82,11 @@ STATE_UPDOWN = 'updown'
 STATE_ZERO = 'zero'
 STATE_NO_PRICE = 'no_price'
 STATE_CLOSED = 'closed'
+# 部分断档（#1917 的 C 方案）：当天确有标的有真报价，另有标的当日无报价。
+# **照常给出数值**（断档那几笔对 Σmv 与 Σcost 的影响在基准与当日之间对称抵消），
+# 但用独立状态告知用户「该日数据不全」。不可与 `closed` 合并——那是「无数据」，
+# 与「有数据但不完整」对用户是完全不同的含义。
+STATE_PARTIAL = 'partial'
 
 # 某标的当天没价格时，最多向前沿用最近多少天的价格（#1812）。
 # 太大：一个月没更新的标的会被当成「价格不变」而画出 0 收益，掩盖数据缺失；
@@ -516,8 +521,6 @@ def build_daily_pnl_series(
         #   present>0 且 missing>0 ⇒ **部分断档**，总额缺了那几笔的市值，
         #     任何单日差分都不可信 ⇒ 判数据不全，且不写入差分基准。
         day_present_count = 0
-        # 本日总额是否完整可用于差分基准（部分断档时不可用）
-        day_complete = True
 
         for state in decision_per_pos.values():
             pos: Position = state['pos']
@@ -574,18 +577,19 @@ def build_daily_pnl_series(
             daily_pnl = None
         elif day_missing_ids and day_present_count > 0:
             # **部分断档**（当天有标的有真报价、也有标的没有）⇒ 当日总额缺了缺席
-            # 那几笔的市值（回填只能沿用前值），任何单日差分都不可信。
+            # 那几笔的当日市值（回填只能沿用前值）。
             #
             # 这里刻意**不要求缺席集合相对前一日发生变化**：断档可能连续持续多日
             # （真实库某基金整周未出净值），集合稳定 ≠ 数据完整。
-            # 若按「集合是否变化」判，第二、三天就会照常出数，
-            # 而那几笔的市值一直靠前值沿用——与断档日根本不是同一口径。
             #
             # 与 `day_present_count == 0`（全体休市/未同步）区分：那种情况回填后
-            # 所有标的价格都未变，差分恰为 0，是诚实的，不该判成数据不全。
-            state_code = STATE_CLOSED
-            daily_pnl = None
-            day_complete = False
+            # 所有标的价格都未变，差分恰为 0，是诚实的。
+            #
+            # #1917 的 C 方案：**照常给出数值**，另用 `partial` 标明完整性。
+            # 此前判 `closed`（不出数）会让真实盈亏凭空消失，并被下一个可算日
+            # 一次性错位吸收——实测真实库 09-18 的真实盈利 +5,744.06 就这样丢失，
+            # 09-19 反而报出一个跨 4 天的假值 4756.40。
+            state_code = STATE_PARTIAL
         elif daily_pnl is None:
             state_code = STATE_CLOSED
         elif daily_pnl > 0 or daily_pnl < 0:
@@ -608,10 +612,20 @@ def build_daily_pnl_series(
                 }
             )
 
-        # 覆盖不全的日子不写入基准：错值会污染次日的差分
-        if day_complete:
-            prev_total_pnl = day_total_pnl
-            prev_net_worth = day_net_worth
+        # 基准**无条件推进**（#1917 的 A 方案）。
+        #
+        # 旧行为「数据不全就不写基准」造成**差分基准漂移**：基准冻结在更早的日子，
+        # 释放那天的差分就跨越了不连续的多天，把那几天的涨跌一次性算成单日值。
+        # 实测（真实库 2026-09，整月区间）：09-15~09-18 等 11 天判数据不全 ⇒ 基准
+        # 停在 09-17 ⇒ 09-19（周六，全市场休市）报出 4756.40，而它真实值是 0.00；
+        # 同一日在小区间里因起点不同、基准推进次数不同，答案是 0.00。
+        # **同一笔数据两个答案，且取决于查询区间** —— 这就是 #1917 要消灭的缺陷。
+        #
+        # 断档日推进基准不会让后续差分出错：断档那几笔始终缺席，
+        # 它们对 Σmv 与 Σcost 的影响在基准与当日之间**对称抵消**，
+        # 差分依然只反映「在场标的的市值变动」。
+        prev_total_pnl = day_total_pnl
+        prev_net_worth = day_net_worth
         day += dt.timedelta(days=1)
 
     total_cents = sum(int(Decimal(str(d['daily_pnl'])) * 100) for d in days if d['daily_pnl'] is not None)

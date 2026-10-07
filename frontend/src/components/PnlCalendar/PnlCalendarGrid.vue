@@ -87,7 +87,10 @@ const STATE_TAG: Record<PnlCalendarState, string> = {
   // 用户明确要求：不要说「无历史价格序列」——那是实现语言，用户看不懂，
   // 且会被误解成「我的理财出问题了」。产品语言是「暂无每日估值」。
   no_price: "暂无估值",
-  closed: "休市"
+  closed: "休市",
+  // #1917：部分断档。数值照常显示，只是可信度低——用「※」标记，
+  // 用户扫一眼就知道「这天有东西没更新到」，aria/tooltip 有完整说明。
+  partial: "※"
 };
 
 const dayMap = computed(() => {
@@ -179,7 +182,9 @@ const calendarCells = computed<CalendarCell[]>(() => {
 
 /** 文字色用 -ink 级（AA 达标），底色用柔和填充 —— 二者分工见 design.md 涨跌色应用 */
 function textColorFor(state: PnlCalendarState, pnl: number | null): string {
-  if (state === "updown" && pnl != null) {
+  // partial 与 updown 同用 -ink 级文字（AA 达标）：涨跌方向必须可读，
+  // 区别靠底色 + 「※」承载，不能靠降级文字色。
+  if ((state === "updown" || state === "partial") && pnl != null) {
     return pnl > 0 ? "var(--color-rise-ink)" : "var(--color-fall-ink)";
   }
   return "var(--text-tertiary-ink)";
@@ -192,6 +197,9 @@ function ariaFor(
 ): string {
   if (state === "no_price") return `${date}：无价格序列，不参与收益计算`;
   if (state === "closed") return `${date}：非交易日或数据未同步`;
+  // #1917：数值可信但该日有标的数据不全，必须说清「不全」而非「无」
+  if (state === "partial")
+    return `${date}：收益 ${pnl ?? 0} 元（该日部分标的未更新估值，数据不完整）`;
   if (state === "zero") return `${date}：收益 0.00 元`;
   return `${date}：收益 ${pnl ?? 0} 元`;
 }
@@ -238,6 +246,8 @@ function ariaFor(
   cursor: default;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
+  /* `.is-partial::after` 的斜纹叠加层需要相对定位的父元素（#1917） */
+  position: relative;
   border-radius: 8px;
   transition:
     transform 0.15s ease,
@@ -289,6 +299,44 @@ function ariaFor(
 .is-zero {
   background: var(--bg-hover);
   border-color: var(--border-light);
+}
+
+/* 部分断档（#1917）：中性底 + 斜纹。
+   ⚠️ 为什么不用涨跌底色：实测（WCAG AA，tint 12% 最深档）涨色叠斜纹后
+   盈亏字 4.26 / 日期数字 4.07，双双跌破 4.5；压到 3% 仍不合格——
+   涨色 tint 12% 本身已接近上限（纯底 4.81 / 日期 4.59 刚好压线），没有余量。
+   「数据不全」本就与涨跌无关，中性底语义更准，对比度余量充足（3~12% 全通过）。
+   涨跌方向改由 `-ink` 文字色 + 正负号承载，见 textColorFor()。
+
+   用 `::after` 叠加层：`.pnl-calendar__cell` 用了 `background` 简写，
+   会把 `background-image` 一并重置（同 specificity 下按源码顺序输赢，不可靠）。 */
+.is-partial {
+  background-color: var(--bg-hover);
+  border-color: color-mix(in srgb, var(--text-tertiary) 30%, var(--border-light));
+}
+
+.is-partial::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  /* 格子有 8px 圆角，叠加层需跟着裁切，否则四角会溢出 */
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 5px,
+    color-mix(in srgb, var(--text-tertiary) 10%, transparent) 5px,
+    color-mix(in srgb, var(--text-tertiary) 10%, transparent) 8px
+  );
+}
+
+/* 文字层须在斜纹之上，否则金额与日期数字会被盖住 */
+.pnl-calendar__day,
+.pnl-calendar__amount {
+  position: relative;
+  z-index: 1;
 }
 
 /* 无价格序列：斜线纹理，与「零收益」「休市」三者可辨 */

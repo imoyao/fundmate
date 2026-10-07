@@ -137,7 +137,7 @@ export function getSnapshots(params?: {
  *   投顾/实物等，市值来自 `market_value_override` 单值非序列）
  * - `closed`   非交易日 / 未同步 / 区间首日（无前一日基准，盈亏不可算）
  */
-export type PnlCalendarState = "updown" | "zero" | "no_price" | "closed";
+export type PnlCalendarState = "updown" | "zero" | "no_price" | "closed" | "partial";
 
 /** 收益日历单日 */
 export type PnlCalendarDay = {
