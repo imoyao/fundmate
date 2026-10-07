@@ -234,6 +234,8 @@ function ariaFor(
 }
 
 .pnl-calendar__cell {
+  /* `.is-partial::after` 的斜纹叠加层需要相对定位的父元素（#1917） */
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -246,8 +248,6 @@ function ariaFor(
   cursor: default;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
-  /* `.is-partial::after` 的斜纹叠加层需要相对定位的父元素（#1917） */
-  position: relative;
   border-radius: 8px;
   transition:
     transform 0.15s ease,
@@ -312,24 +312,29 @@ function ariaFor(
    会把 `background-image` 一并重置（同 specificity 下按源码顺序输赢，不可靠）。 */
 .is-partial {
   background-color: var(--bg-hover);
-  border-color: color-mix(in srgb, var(--text-tertiary) 30%, var(--border-light));
+  border-color: color-mix(
+    in srgb,
+    var(--text-tertiary) 30%,
+    var(--border-light),
+  );
 }
 
 .is-partial::after {
-  content: "";
   position: absolute;
   inset: 0;
-  /* 格子有 8px 圆角，叠加层需跟着裁切，否则四角会溢出 */
-  border-radius: inherit;
-  pointer-events: none;
   z-index: 0;
+  pointer-events: none;
+  content: "";
   background-image: repeating-linear-gradient(
     45deg,
     transparent,
     transparent 5px,
     color-mix(in srgb, var(--text-tertiary) 10%, transparent) 5px,
-    color-mix(in srgb, var(--text-tertiary) 10%, transparent) 8px
+    color-mix(in srgb, var(--text-tertiary) 10%, transparent) 8px,
   );
+
+  /* 格子有 8px 圆角，叠加层需跟着裁切，否则四角会溢出 */
+  border-radius: inherit;
 }
 
 /* 文字层须在斜纹之上，否则金额与日期数字会被盖住 */
