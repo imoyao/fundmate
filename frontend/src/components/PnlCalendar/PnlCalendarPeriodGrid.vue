@@ -27,24 +27,41 @@
     role="group"
     :aria-label="groupLabel"
   >
-    <button
+    <!-- 悬浮卡片取代浏览器原生 `title`（#1942 ③）：原生提示延迟约 1 秒、样式不可控。
+         触发元素仍是那个透明 `<button>`（键盘可达 + `aria-label` 在按钮上），
+         el-tooltip 不渲染任何包装 DOM，故不影响这里的 grid 排版。 -->
+    <el-tooltip
       v-for="tile in tiles"
       :key="tile.period"
-      type="button"
-      class="pnl-calendar-period-grid__slot"
-      :aria-label="tile.title"
-      :title="tile.title"
-      @click="emit('select', tile.period)"
+      placement="top"
+      :show-after="120"
+      :hide-after="0"
+      popper-class="rich-tip"
     >
-      <PnlCalendarTile
-        :label="tile.label"
-        :state="tile.state"
-        :pnl="tile.pnl"
-        :rate="tile.rate"
-        :mode="mode"
-        :level="tile.level"
-      />
-    </button>
+      <button
+        type="button"
+        class="pnl-calendar-period-grid__slot"
+        :aria-label="tile.title"
+        @click="emit('select', tile.period)"
+      >
+        <PnlCalendarTile
+          :label="tile.label"
+          :state="tile.state"
+          :pnl="tile.pnl"
+          :rate="tile.rate"
+          :mode="mode"
+          :level="tile.level"
+        />
+      </button>
+      <template #content>
+        <PnlCalendarUnitTip
+          :name="tile.period"
+          :state="tile.state"
+          :pnl="tile.pnl"
+          :rate="tile.rate"
+        />
+      </template>
+    </el-tooltip>
   </div>
 </template>
 
@@ -52,6 +69,7 @@
 import { computed } from "vue";
 import type { PnlCalendarPeriod, PnlCalendarState } from "@/api/summary";
 import PnlCalendarTile from "./PnlCalendarTile.vue";
+import PnlCalendarUnitTip from "./PnlCalendarUnitTip.vue";
 import {
   intensity,
   maxAbsPnl,

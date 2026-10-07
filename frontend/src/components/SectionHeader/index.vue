@@ -3,23 +3,40 @@
   - 标题 + 可选信息图标（hover/焦点显示 tooltip）+ 右侧操作槽（具名插槽 #action）
   - 禁止各页面再手写 <h2>/<h3> + 分散的图标/操作按钮，统一收口到本组件
   props:
-    - title:   区块标题
-    - info:    信息图标 tooltip 文案（可选；不传则不显示图标）
-    - icon:    信息图标名（可选，默认 ep:info-filled）
+    - title:     区块标题
+    - info:      信息图标 tooltip 文案（可选；不传则不显示图标）
+    - infoLabel: 信息图标的可访问名（可选，默认取 `info`）。
+                 **富内容（`#info` 插槽）必须传**：插槽内容读屏读不到「这是什么」，
+                 靠它给图标一个说得清的名字。
+    - icon:      信息图标名（可选，默认 ep:info-filled）
+  slots:
+    - info:  信息图标的**富内容**（可选）。给了就用插槽、忽略 `info` 字符串，
+             并自动挂 `rich-tip` 气泡样式（宽度与排版见 style/el-tooltip.css）。
+             用途：口径 + 图例这类「多行结构化」说明——一行字符串塞进去只会变成一堵墙
+             （#1942 第三轮反馈：收益日历的口径说明正是这样被吐槽的）。
+    - action: 右侧操作槽
 -->
 <template>
   <div class="section-header">
     <div class="section-header__title-group">
       <h2 class="section-header__title">{{ title }}</h2>
-      <el-tooltip v-if="info" :content="info" placement="top">
+      <el-tooltip
+        v-if="info || $slots.info"
+        :content="info"
+        placement="top"
+        :popper-class="$slots.info ? 'rich-tip' : ''"
+      >
         <span
           class="section-header__info"
           tabindex="0"
           role="img"
-          :aria-label="info"
+          :aria-label="infoLabel || info || title"
         >
           <IconifyIconOffline :icon="icon" />
         </span>
+        <template v-if="$slots.info" #content>
+          <slot name="info" />
+        </template>
       </el-tooltip>
     </div>
     <div v-if="$slots.action" class="section-header__action">
@@ -35,11 +52,13 @@ withDefaults(
   defineProps<{
     title?: string;
     info?: string;
+    infoLabel?: string;
     icon?: string;
   }>(),
   {
     title: "",
     info: "",
+    infoLabel: "",
     icon: "ep:info-filled"
   }
 );

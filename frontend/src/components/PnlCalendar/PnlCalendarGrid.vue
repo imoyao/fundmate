@@ -34,21 +34,46 @@
       :class="`is-cols-${visibleColumns.length}`"
       role="grid"
     >
-      <PnlCalendarTile
-        v-for="cell in calendarCells"
-        :key="cell.key"
-        :role="cell.voidCell ? undefined : 'gridcell'"
-        :label="cell.label"
-        :state="cell.state"
-        :pnl="cell.pnl"
-        :rate="cell.rate"
-        :mode="mode"
-        :level="cell.level"
-        :void-cell="cell.voidCell"
-        :is-today="cell.isToday"
-        :title="cell.voidCell ? undefined : cell.title"
-        :aria-label="cell.voidCell ? undefined : cell.title"
-      />
+      <template v-for="cell in calendarCells" :key="cell.key">
+        <PnlCalendarTile
+          v-if="cell.voidCell"
+          label=""
+          state="closed"
+          :pnl="null"
+          :level="0"
+          void-cell
+        />
+        <!-- 悬浮卡片取代原先的浏览器原生 `title`（#1942 ③）：原生提示延迟约 1 秒、
+             样式不可控、窄屏直接截断，且塞不下结构。卡片内容与读屏文案同源
+             （`stateDescription` / `PnlCalendarUnitTip`），不会两处说法不一致。 -->
+        <el-tooltip
+          v-else
+          placement="top"
+          :show-after="120"
+          :hide-after="0"
+          popper-class="rich-tip"
+        >
+          <PnlCalendarTile
+            role="gridcell"
+            :label="cell.label"
+            :state="cell.state"
+            :pnl="cell.pnl"
+            :rate="cell.rate"
+            :mode="mode"
+            :level="cell.level"
+            :is-today="cell.isToday"
+            :aria-label="cell.title"
+          />
+          <template #content>
+            <PnlCalendarUnitTip
+              :name="cell.key"
+              :state="cell.state"
+              :pnl="cell.pnl"
+              :rate="cell.rate"
+            />
+          </template>
+        </el-tooltip>
+      </template>
     </div>
   </div>
 </template>
@@ -57,6 +82,7 @@
 import { computed } from "vue";
 import type { PnlCalendarDay, PnlCalendarState } from "@/api/summary";
 import PnlCalendarTile from "./PnlCalendarTile.vue";
+import PnlCalendarUnitTip from "./PnlCalendarUnitTip.vue";
 import {
   intensity,
   maxAbsPnl,
@@ -216,9 +242,10 @@ const calendarCells = computed<CalendarCell[]>(() => {
   gap: 6px;
 }
 
-/* 列数只有两种（5 = 工作日 / 7 = 含周末兜底，见文件头）。写死两条而不是
-   用 CSS 变量拼 `repeat(var(--n), …)`：`--n` 属组件内局部自定义属性，
-   check_css_vars.mjs 只认全局令牌表，会把它判成未定义令牌。 */
+/* 列数只有两种（5 = 工作日 / 7 = 含周末兜底，见文件头）。写死两条，而不是把列数
+   做成组件内的局部自定义属性再拼 repeat：局部属性不在全站令牌表里，
+   `check_css_vars.mjs` 只认全站令牌，会把它判成「未定义令牌」。
+   （这条注释里也不要写出该属性的 var() 写法，守卫读的是文本、不区分注释。） */
 .pnl-calendar__weekdays.is-cols-5,
 .pnl-calendar__grid.is-cols-5 {
   grid-template-columns: repeat(5, minmax(0, 1fr));

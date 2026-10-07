@@ -84,7 +84,7 @@ import { computed } from "vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import type { PnlCalendarState } from "@/api/summary";
-import { stateTag, type PnlCalendarValueMode } from "./helpers";
+import { hasValueState, stateTag, type PnlCalendarValueMode } from "./helpers";
 
 defineOptions({ name: "PnlCalendarTile" });
 
@@ -109,12 +109,7 @@ const props = withDefaults(
 );
 
 /** 有真实数值才画金额 / 收益率；`partial` 也照画（值可信，只是不全），其余一律出态标签 */
-const hasValue = computed(
-  () =>
-    props.state === "updown" ||
-    props.state === "zero" ||
-    props.state === "partial"
-);
+const hasValue = computed(() => hasValueState(props.state));
 
 /**
  * 涨跌方向按**当前口径**的数取值判：两个口径在正常数据下同号（`rate = pnl / 净资产`），
@@ -135,7 +130,8 @@ const isFall = computed(() => signed.value != null && signed.value < 0);
  * 非盈亏态（未同步 / 无持仓 / 休市）用辅助文字色，与「暂无估值」同一档。
  */
 const textColor = computed(() =>
-  (props.state === "updown" || props.state === "partial") && signed.value != null
+  (props.state === "updown" || props.state === "partial") &&
+  signed.value != null
     ? signed.value > 0
       ? "var(--color-rise-ink)"
       : "var(--color-fall-ink)"

@@ -28,18 +28,31 @@
       <!-- 零轴：没有它，正负柱分居上下两半却看不出「零在哪」 -->
       <span class="pnl-calendar-bars__axis" aria-hidden="true" />
       <div class="pnl-calendar-bars__slots">
-        <div
+        <!-- 悬浮卡片取代浏览器原生 `title`（#1942 ③），内容与日历图共用同一个组件 -->
+        <el-tooltip
           v-for="bar in bars"
           :key="bar.key"
-          class="pnl-calendar-bars__slot"
-          :title="bar.title"
+          placement="top"
+          :show-after="120"
+          :hide-after="0"
+          popper-class="rich-tip"
         >
-          <span
-            v-if="bar.hasBar"
-            class="pnl-calendar-bars__bar"
-            :style="bar.style"
-          />
-        </div>
+          <div class="pnl-calendar-bars__slot">
+            <span
+              v-if="bar.hasBar"
+              class="pnl-calendar-bars__bar"
+              :style="bar.style"
+            />
+          </div>
+          <template #content>
+            <PnlCalendarUnitTip
+              :name="bar.name"
+              :state="bar.state"
+              :pnl="bar.pnl"
+              :rate="bar.rate"
+            />
+          </template>
+        </el-tooltip>
       </div>
     </div>
     <div class="pnl-calendar-bars__labels" aria-hidden="true">
@@ -60,7 +73,8 @@ import type {
   PnlCalendarPeriod,
   PnlCalendarState
 } from "@/api/summary";
-import { maxAbsPnl, stateDescription, valueIn, type PnlCalendarValueMode } from "./helpers";
+import PnlCalendarUnitTip from "./PnlCalendarUnitTip.vue";
+import { maxAbsPnl, valueIn, type PnlCalendarValueMode } from "./helpers";
 
 defineOptions({ name: "PnlCalendarBars" });
 
@@ -122,8 +136,12 @@ const items = computed<Normalized[]>(() => {
 interface BarItem {
   key: string;
   label: string;
-  title: string;
-  /** 有真实数值才画柱；`null`（未同步 / 休市 / 无持仓）整根不画 */
+  /** 悬浮卡片要的原始信息（`PnlCalendarUnitTip` 的入参），不再自己拼一行字符串 */
+  name: string;
+  state: PnlCalendarState;
+  pnl: number | null;
+  rate: number | null;
+  /** 有真实数值才画柱；`null`（未同步 / 休市 / 无持仓 / 收益率不可算）整根不画 */
   hasBar: boolean;
   style: Record<string, string>;
 }
@@ -131,15 +149,15 @@ interface BarItem {
 const bars = computed<BarItem[]>(() => {
   // 分母按**当前口径**取数：金额与收益率的量纲不同，不能共用一套高度映射
   const denom =
-    maxAbsPnl(items.value.map(it => valueIn(props.mode, it.pnl, it.rate))) ||
-    1;
+    maxAbsPnl(items.value.map(it => valueIn(props.mode, it.pnl, it.rate))) || 1;
 
   return items.value.map(it => {
     // 柱高占半区（0~50%），零轴居中：正数向上撑、负数向下撑。
     // `height` / `top` / `bottom` 的百分比都按**绘图区高度**解析，
     // 不会像垂直 margin 那样按宽度算（#1942 的根因）。
     const value = valueIn(props.mode, it.pnl, it.rate);
-    const height = value == null ? 0 : Math.min(Math.abs(value) / denom, 1) * 50;
+    const height =
+      value == null ? 0 : Math.min(Math.abs(value) / denom, 1) * 50;
     const style: Record<string, string> = {};
     if (value == null) {
       // 无数据：不画。画一根 0 高度的灰线会被读成「幅度极小」，正是「缺数据
@@ -164,7 +182,10 @@ const bars = computed<BarItem[]>(() => {
     return {
       key: it.key,
       label: it.label,
-      title: stateDescription(it.name, it.state, it.pnl),
+      name: it.name,
+      state: it.state,
+      pnl: it.pnl,
+      rate: it.rate,
       hasBar: value != null,
       style
     };

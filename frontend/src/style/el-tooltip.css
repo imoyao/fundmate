@@ -29,3 +29,36 @@
   --el-button-active-bg-color: var(--el-color-danger-dark-2);
   --el-button-active-border-color: var(--el-color-danger-dark-2);
 }
+
+/* 富内容气泡（#1942 第三轮）：口径 + 图例这类**多行结构化**说明。
+   默认气泡（深底 / 窄宽 / 居中 / 单段）适合一个短语，塞进一段说明就成一堵墙——
+   这正是收益日历那条 500 字口径说明被吐槽「没有设计感」的原因。
+   这里覆写成浅色卡片：柔和表面 + 描边 + 浮动阴影 + 左对齐 + 宽度上限，
+   与 design.md 的悬浮层规范一致（`--shadow-float`）。
+   用法：挂 `popper-class="rich-tip"`（`SectionHeader` 的 `#info` 插槽会自动挂）。
+
+   ⚠️ 选择器必须写成 `.el-popper.is-dark.rich-tip`（三级）：EP 的深色气泡是
+   `.el-popper.is-dark`（两级）直接写 `background`，同为两级时**靠引入顺序决胜**——
+   实测（2026-10-07，vite dev）顺序并不站在我们这边：`max-width` / `padding` 生效、
+   背景色却被 EP 覆盖，于是深底 + 深色文字（`--color-rise-ink`）几乎读不出来。
+   多一级把背景与文字色拿稳，别再依赖顺序。 */
+.el-popper.is-dark.rich-tip,
+.el-popper.rich-tip {
+  --el-popper-bg-color: var(--bg-soft);
+  --el-popper-border-color: var(--border-default);
+  --el-popper-text-color: var(--text-primary);
+  max-width: 380px;
+  padding: 12px 14px;
+  line-height: 1.6;
+  text-align: left;
+  background-color: var(--el-popper-bg-color);
+  border: 1px solid var(--el-popper-border-color);
+  color: var(--el-popper-text-color);
+  box-shadow: var(--shadow-float);
+}
+
+.el-popper.is-dark.rich-tip .el-popper__arrow::before,
+.el-popper.rich-tip .el-popper__arrow::before {
+  background-color: var(--el-popper-bg-color);
+  border-color: var(--el-popper-border-color);
+}
