@@ -216,6 +216,13 @@ jobs:
       - name: 扫描输入焦点回潮
         run: python scripts/guard_input_focus.py
 
+      # job 调度覆盖守门（#1934）：编排器注册的 job 必须出现在「每日调度」或
+      # 「明确不调度」两张表之一。加 job 的人只改 orchestrator 而忘了调度表时，
+      # 数据会静默永不更新（index_valuation / convertible_bond / market_asset_daily /
+      # dividend_split 都曾如此，真库从未执行过）。故用静态 ast 解析交叉校验两张清单。
+      - name: 校验 job 调度覆盖
+        run: python scripts/guard_job_schedule_coverage.py
+
       # 交互可达性守卫（#1842）：纯图标按钮无可访问名称 / div@click 当按钮 /
       # hover 显隐无 focus-within 与 hover:none 兜底——前端交互排查里 P1 的主体三类。
       # 2026-10-05 起**阻断**：存量已清零（初报 109 处，其中规则一有 53 处是守卫
