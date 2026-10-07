@@ -37,7 +37,7 @@
     no_price 无价格序列 —— `valuation_mode='balance'`（银行理财/投顾/实物），
             其市值来自 `market_value_override` **单值非序列**，天然无历史；
             切到这类账户若不区分，用户会以为功能坏了
-    closed  非交易日 / 区间外 / 数据不全（缺席集相对前一日变化，#1917）
+    closed  非交易日 / 区间外
 
 跨域说明
 --------
@@ -228,6 +228,26 @@ def _price_for(
     return None
 
 
+def _has_fresh_price(
+    pos: Position,
+    day: dt.date,
+    fund_nav: Dict[str, Dict[dt.date, int]],
+    exchange_prices: Dict[str, Dict[dt.date, int]],
+) -> bool:
+    """该标的在 day **当天**是否真有报价（不含前值回填）。
+
+    用于区分两种「都拿不到价」：
+    - 全市场都没有 ⇒ 周末 / 节假日，回填后按「价格未变」算 0 是诚实的；
+    - 一部分有、一部分没有 ⇒ 真实的**数据断档**，此时出数会把缺失标的的市值
+      当成 0，差分是错的（实测某基金断档一天，日总额凭空少 1.5 万）。
+      按 design.md「缺数据不可画成 0」，宁可标「数据不全」也不出錯数。
+    """
+    symbol = (pos.symbol or '').strip()
+    venue = venue_of_row(symbol, pos.asset_type)
+    series = fund_nav.get(symbol) if venue == OTC else exchange_prices.get(symbol) if venue == EXCHANGE else None
+    return bool(series) and day in series
+
+
 def _has_price_series(pos: Position, fund_nav, exchange_prices) -> bool:
     """该持仓是否存在历史价格序列（决定 no_price 态，与「某天恰好休市」区分）。"""
     symbol = (pos.symbol or '').strip()
@@ -314,13 +334,9 @@ def build_daily_pnl_series(
      恒等式（#1916）：**家庭级 month_total ≡ Σ 各账户级 month_total**，成立条件有三，
     缺一不可：
      1. 份额/已实现按**持仓**归集、流水不按 ledger 过滤（口径先例 `get_ledger_pnl` #1220）；
-     2. 状态判定（丢天/缺席集变化/无持仓）恒用**家庭级全量决策集**——各作用域丢同一批天、
+     2. 状态判定（丢天/覆盖不全/无持仓）恒用**家庭级全量决策集**——各作用域丢同一批天、
         同步推进差分基准，否则 month_total 的差分链错位、不可加（实测差 3502.91）；
      3. day_total 按持仓可加（每笔持仓恰属一个账户）。
-
-     区间无关（#1917）：**同一日的 daily_pnl/state 与查询区间无关**——价格加载带
-    `_STALE_CARRY_DAYS` 回看缓冲（区间头的前值回填不被截断）、差分基准逐日无条件
-    推进（缺席集变化日只关显示、不改差分链）。判据见日循环内 `day_missing_ids` 注释。
     """
     from app.core.time_utils import now_shanghai
 
@@ -359,12 +375,8 @@ def build_daily_pnl_series(
         for p in decision_positions
         if venue_of_row((p.symbol or '').strip(), p.asset_type) == EXCHANGE and (p.symbol or '').strip()
     }
-    # 价格窗口向前多取 _STALE_CARRY_DAYS 天（#1917）：`_price_for` 的前值回填要往
-    # 前看 7 天，若加载从 scan_start 才开始，区间头几天的回填会因「序列里没有更早的
-    # 数据」而失败 ⇒ 同一持仓在不同区间的缺席集合不同 ⇒ 基准与取值随区间漂移。
-    price_load_from = scan_start - dt.timedelta(days=_STALE_CARRY_DAYS)
-    fund_nav = _collect_fund_nav(db, price_load_from, end)
-    exchange_prices = _collect_price_history(db, ex_symbols, price_load_from, end)
+    fund_nav = _collect_fund_nav(db, scan_start, end)
+    exchange_prices = _collect_price_history(db, ex_symbols, scan_start, end)
 
     # ── as-of 份额 / 成本 / 已实现盈亏 ──
     # 传 end 而非 scan_start：`_as_of_shares` 内部按 `eff > <参数>` 截断，
@@ -391,9 +403,6 @@ def build_daily_pnl_series(
     day = scan_start
     prev_net_worth: Optional[int] = None
     prev_total_pnl: Optional[int] = None
-    # 前一日的缺席集合（#1917，见下方日循环的判据注释）；区间首日无前值视为空集，
-    # 首日按「相对空集变化」判定，与被 suppress 的首日行为一致（prev None → closed）。
-    prev_missing_ids: set = set()
 
     # 账户级调用时决策集（家庭全集）与值集（本账户）是两套；家庭级调用时同一套。
     per_pos_sets = (value_per_pos,) if value_per_pos is decision_per_pos else (decision_per_pos, value_per_pos)
@@ -447,32 +456,44 @@ def build_daily_pnl_series(
         day_priced_count = 0
         day_unpriced_count = 0
         day_opening = False
-        # 当天**彻底缺席**（连前值回填都取不到价）的有份额标的集合（#1917）。
-        # 判据从旧的「当日有价与断档并存 ⇒ 整日不出数」改为「缺席集合相对前一日
-        # 发生变化 ⇒ 当日不出数」：
-        #   - 同一批标的连续缺席时，它们对 Σmv/Σcost 的影响在差分两侧相同而对消，
-        #     日值对已观测子集是正确的；回填窗内的短缺口按前值冻结（不归零），
-        #     两者都不画成 0；
-        #   - 只有集合变了——某标的从缺席变出席（或反之）——差分才混入一次性
-        #     跳变，判 closed 把跳变挡在显示之外（但仍逐日推进差分基准，见下）。
-        # 旧判据把「回填窗内的正常隔日缺价」也算覆盖不全、且那些日子不写差分基准
-        # ⇒ 基准停留更早、次日拿跨多天差分当单日值 ⇒ 同一天在不同查询区间得出
-        # 不同结果（真实库 2026-09 实测 8/10 天区间相关，9/19 出现
-        # 4756.40 / 0.00 / closed 三种取值）。
+        # 当天**彻底缺席**（连前值回填都取不到价）的标的 id 集合（#1917）。
+        #
+        # 判据从「当天有无断档」改为「缺席集合相对前一日是否变化」。原因：
+        # 同一批标的连续两天都缺席时，它们对 Σmv 与 Σcost 的影响**相互抵消**，
+        # 差分仍然正确；只有集合**变了**（某标的从缺席转为出席或反之），
+        # 差分里才混入一次性跳变。
+        #
+        # 旧判据的实测危害：判为数据不全的日子不写入差分基准，基准因而停留在
+        # 更早的日子，次日拿跨多天的差分当单日值 ⇒ 同一日的结果取决于查询
+        # 区间（实测 2026-09-19 在整月区间得 4756.40、在小区间得 0.00）。
+        #
+        # 缺席身份在 `decision_per_pos`（家庭级全量，#1922）上统计，与
+        # 「值按各作用域持仓算」正交——谁缺席是全局事实，不该随作用域变化。
         day_missing_ids: set = set()
+        # 当天**有**真报价的在场标的数。与 day_missing_ids 合起来区分两种「都没价」：
+        #   present==0 ⇒ 全体休市/未同步，回填后所有标的价格都未变，差分恰为 0，
+        #     这是诚实的，照常出数（zero）；
+        #   present>0 且 missing>0 ⇒ **部分断档**，总额缺了那几笔的市值，
+        #     任何单日差分都不可信 ⇒ 判数据不全，且不写入差分基准。
+        day_present_count = 0
+        # 本日总额是否完整可用于差分基准（部分断档时不可用）
+        day_complete = True
 
         for state in decision_per_pos.values():
             pos: Position = state['pos']
             held = state['shares'] > 0
+            # 「当日缺席」= 该标的这一天**没有真报价**（即使回填成功也不算数）。
+            # 沿用前值只是让市值不跳空，并不代表「价格没变」这个事实。
+            if held and pos.id not in no_price_ids:
+                if _has_fresh_price(pos, day, fund_nav, exchange_prices):
+                    day_present_count += 1
+                else:
+                    day_missing_ids.add(pos.id)
 
             price = price_of(pos, day)
             if price is None:
                 if pos.id in no_price_ids:
                     day_unpriced_count += 1
-                elif held:
-                    # 有份额、有序列却取不到价（超出回填窗）⇒ 当日彻底缺席。
-                    # 日总额里是**剔除**它，不是把市值画成 0。
-                    day_missing_ids.add(pos.id)
                 continue
             day_has_price = True
             if state['shares'] <= 0:
@@ -488,8 +509,7 @@ def build_daily_pnl_series(
         #  1. 全部持仓都无价格序列 → no_price（balance 模式账户的整月空白，必须与「0收益」区分）
         #  2. 有可计价持仓但当日无价（休市/未同步）→ closed
         #  3. 区间首日无前一日基准 → closed（盈亏不可算，不画成 0）
-        #  4. 缺席集合相对前一日变化 → closed（总额构成变了，差分含一次性跳变，#1917）
-        #  5. 其余按盈亏正负分 updown / zero
+        #  4. 其余按盈亏正负分 updown / zero
         if day_priced_count == 0 and day_unpriced_count > 0:
             state_code = STATE_NO_PRICE
             daily_pnl = None
@@ -505,12 +525,20 @@ def build_daily_pnl_series(
         elif not day_has_price:
             state_code = STATE_CLOSED
             daily_pnl = None
-        elif day_missing_ids != prev_missing_ids:
-            # 缺席集合相对前一日变化 ⇒ 当日总额的**构成**变了，差分里混入
-            # 「某标的从缺席变出席（或反之）」的一次性跳变——那不是真实盈亏。
-            # 判数据不全、不出数（#1917）。
+        elif day_missing_ids and day_present_count > 0:
+            # **部分断档**（当天有标的有真报价、也有标的没有）⇒ 当日总额缺了缺席
+            # 那几笔的市值（回填只能沿用前值），任何单日差分都不可信。
+            #
+            # 这里刻意**不要求缺席集合相对前一日发生变化**：断档可能连续持续多日
+            # （真实库某基金整周未出净值），集合稳定 ≠ 数据完整。
+            # 若按「集合是否变化」判，第二、三天就会照常出数，
+            # 而那几笔的市值一直靠前值沿用——与断档日根本不是同一口径。
+            #
+            # 与 `day_present_count == 0`（全体休市/未同步）区分：那种情况回填后
+            # 所有标的价格都未变，差分恰为 0，是诚实的，不该判成数据不全。
             state_code = STATE_CLOSED
             daily_pnl = None
+            day_complete = False
         elif daily_pnl is None:
             state_code = STATE_CLOSED
         elif daily_pnl > 0 or daily_pnl < 0:
@@ -533,17 +561,10 @@ def build_daily_pnl_series(
                 }
             )
 
-        # 缺席集合逐日推进（无论当日是否出数）：它描述「当日总额里缺了谁」，
-        # 只在出数日推进会让同一缺席状态被反复判成「集合变化」（#1917）。
-        prev_missing_ids = day_missing_ids
-        # 差分基准**逐日无条件推进**（#1917 根因修复）：旧实现只在「覆盖不全」的
-        # 日子跳过基准，而是否覆盖不全又依赖查询区间（区间头回填截断、判据本身与
-        # 区间相关），于是基准链随区间错位——同一天在长区间是跨多天差分、在短区间
-        # 是 None 或更早的基准。T(d) 在缺席集稳定时构成相同、加载缓冲保证回填跨区间
-        # 一致，故基准逐日推进后 daily(d) ≡ T(d) − T(d−1)，与查询区间无关；
-        # 被判数据不全的日子只影响「显不显示」，不再影响差分链。
-        prev_total_pnl = day_total_pnl
-        prev_net_worth = day_net_worth
+        # 覆盖不全的日子不写入基准：错值会污染次日的差分
+        if day_complete:
+            prev_total_pnl = day_total_pnl
+            prev_net_worth = day_net_worth
         day += dt.timedelta(days=1)
 
     total_cents = sum(int(Decimal(str(d['daily_pnl'])) * 100) for d in days if d['daily_pnl'] is not None)
@@ -559,7 +580,7 @@ def build_daily_pnl_series(
     # coverage 按本作用域自己的持仓报（no_price_ids 是家庭级全集，须按持仓过滤）
     scope_unpriced = sum(1 for p in positions if p.id in no_price_ids)
     priced_total = len(positions) - scope_unpriced
-    latest_price_date = _latest_price_date(fund_nav, exchange_prices, start)
+    latest_price_date = _latest_price_date(fund_nav, exchange_prices)
 
     return {
         'ledger_id': ledger_id,
@@ -586,18 +607,11 @@ def build_daily_pnl_series(
 def _latest_price_date(
     fund_nav: Dict[str, Dict[dt.date, int]],
     exchange_prices: Dict[str, Dict[dt.date, int]],
-    start: Optional[dt.date] = None,
 ) -> Optional[str]:
-    """区间内可用的最新价格日（ISO）。前端用它提示「有数据的最后一天」。
-
-    `start` 过滤：价格加载含 `_STALE_CARRY_DAYS` 回看缓冲（#1917），
-    缓冲段的旧价不得越界报告成「区间内的最新价」。
-    """
+    """区间内可用的最新价格日（ISO）。前端用它提示「有数据的最后一天」。"""
     latest: Optional[dt.date] = None
     for series in (*fund_nav.values(), *exchange_prices.values()):
         for d in series:
-            if start is not None and d < start:
-                continue
             if latest is None or d > latest:
                 latest = d
     return latest.isoformat() if latest else None
