@@ -15,6 +15,7 @@ import { useLocalHoldings } from "@/composables/useLocalHoldings";
 import { useRealtimeQuotes } from "@/composables/useRealtimeQuotes";
 import { useAuthState } from "@/composables/useAuthState";
 import { createWatchlistItem } from "@/api/watchlist";
+import { roundToCents } from "@/utils/currency";
 import {
   buildExternalQuoteUrl,
   type ExternalLinkCommand
@@ -142,10 +143,12 @@ export function useExploreWatchlist(router: Router) {
         const cost = h.costPrice ?? 0;
         const qty = h.quantity ?? 0;
         const prevClose = quote?.prevClose ?? price;
-        const pnl = (price - prevClose) * qty;
+        // 走 Money 口径：盈亏计算收口到「分」，与 valuationEngine 汇总层一致，
+        // 避免裸 float 乘加漂移（#1776 B9）。展示层仍由 MoneyDisplay 负责格式化。
+        const pnl = roundToCents((price - prevClose) * qty);
         // 行情缺失时不能把 price 当 0 代入持仓收益：否则 (0 - cost) * qty
         // 会显示成巨额虚假亏损；无行情应视为「无盈亏」。
-        const positionPnl = quote ? (price - cost) * qty : 0;
+        const positionPnl = quote ? roundToCents((price - cost) * qty) : 0;
         return {
           ...h,
           quote,

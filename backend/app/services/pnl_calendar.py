@@ -496,26 +496,46 @@ def build_daily_pnl_series(
         day_priced_count = 0
         day_unpriced_count = 0
         day_opening = False
-        # 有份额、且当天**没有新鲜报价**的标的数（回填来的不算新鲜）。
-        # 全为 0 → 周末/节假日，回填后按「价格未变」算 0 是诚实的；
-        # 一部分有一部分没有 → 真实**数据断档**，出数会把缺失标的市值当成 0。
-        day_stale_count = 0
-        # 本日总额是否完整可用于差分基准（覆盖不全时不可用）
+        # 当天**彻底缺席**（连前值回填都取不到价）的标的 id 集合（#1917）。
+        #
+        # 判据从「当天有无断档」改为「缺席集合相对前一日是否变化」。原因：
+        # 同一批标的连续两天都缺席时，它们对 Σmv 与 Σcost 的影响**相互抵消**，
+        # 差分仍然正确；只有集合**变了**（某标的从缺席转为出席或反之），
+        # 差分里才混入一次性跳变。
+        #
+        # 旧判据的实测危害：判为数据不全的日子不写入差分基准，基准因而停留在
+        # 更早的日子，次日拿跨多天的差分当单日值 ⇒ 同一日的结果取决于查询
+        # 区间（实测 2026-09-19 在整月区间得 4756.40、在小区间得 0.00）。
+        #
+        # 缺席身份在 `decision_per_pos`（家庭级全量，#1922）上统计，与
+        # 「值按各作用域持仓算」正交——谁缺席是全局事实，不该随作用域变化。
+        day_missing_ids: set = set()
+        # 当天**有**真报价的在场标的数。与 day_missing_ids 合起来区分两种「都没价」：
+        #   present==0 ⇒ 全体休市/未同步，回填后所有标的价格都未变，差分恰为 0，
+        #     这是诚实的，照常出数（zero）；
+        #   present>0 且 missing>0 ⇒ **部分断档**，总额缺了那几笔的市值，
+        #     任何单日差分都不可信 ⇒ 判数据不全，且不写入差分基准。
+        day_present_count = 0
+        # 本日总额是否完整可用于差分基准（部分断档时不可用）
         day_complete = True
-        # 当天有「新鲜报价」的标的数（不含回填）
-        day_fresh_count = 0
 
         for state in decision_per_pos.values():
             pos: Position = state['pos']
             series = price_series.get(pos.id)
             held = state['shares'] > 0
-            # `series` 为空 ⇒ 整段无价格序列（no_price_ids），与「某天恰好休市」区分
-            if held and series:
-                # 「当日新鲜价」= 该标的这一天真的有报价；回填来的价不算。
+            # 「当日缺席」= 该标的这一天**没有真报价**（即使回填成功也不算数）。
+            # 沿用前值只是让市值不跳空，并不代表「价格没变」这个事实。
+            #
+            # 新鲜度判定改用预解析的价格序列（#1925）：`no_price_ids` 本就由
+            # `price_series` 推导（见上方 `no_price_ids = {... if not series}`），
+            # 故 `pos.id not in no_price_ids` ≡ `series` 非空；`day in series`
+            # 与旧 `_has_fresh_price` 末尾的 `bool(series) and day in series`
+            # 同义，免去每笔每天的 `venue_of_row` 正则解析（5 年窗口 55 万次 ≈1.8s）。
+            if held and pos.id not in no_price_ids:
                 if day in series:
-                    day_fresh_count += 1
+                    day_present_count += 1
                 else:
-                    day_stale_count += 1
+                    day_missing_ids.add(pos.id)
 
             price = price_of(pos, day)
             if price is None:
@@ -552,9 +572,17 @@ def build_daily_pnl_series(
         elif not day_has_price:
             state_code = STATE_CLOSED
             daily_pnl = None
-        elif day_fresh_count > 0 and day_stale_count > 0:
-            # 有价格但**覆盖不全**（某标的本日断档且超出回填窗）——此时日总额少了
-            # 那几笔的市值，差分是错的。宁可标「数据不全」也不出错数。
+        elif day_missing_ids and day_present_count > 0:
+            # **部分断档**（当天有标的有真报价、也有标的没有）⇒ 当日总额缺了缺席
+            # 那几笔的市值（回填只能沿用前值），任何单日差分都不可信。
+            #
+            # 这里刻意**不要求缺席集合相对前一日发生变化**：断档可能连续持续多日
+            # （真实库某基金整周未出净值），集合稳定 ≠ 数据完整。
+            # 若按「集合是否变化」判，第二、三天就会照常出数，
+            # 而那几笔的市值一直靠前值沿用——与断档日根本不是同一口径。
+            #
+            # 与 `day_present_count == 0`（全体休市/未同步）区分：那种情况回填后
+            # 所有标的价格都未变，差分恰为 0，是诚实的，不该判成数据不全。
             state_code = STATE_CLOSED
             daily_pnl = None
             day_complete = False

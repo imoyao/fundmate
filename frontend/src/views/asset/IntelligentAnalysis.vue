@@ -70,6 +70,27 @@
           </MetricGrid>
         </section>
 
+        <!-- 货币基金收益（#947：万份收益口径，独立于 XIRR） -->
+        <section v-if="moneyFundIncome">
+          <SectionHeader
+            title="货币基金收益"
+            info="按「万份收益 × 持有份额」估算，与上方 XIRR 口径不同（XIRR 衡量交易现金流的时间价值），两者不可相加；本项已计入总资产"
+          />
+          <MetricGrid>
+            <MetricCard
+              title="今日收益"
+              :value="mfTodayLabel"
+              :caption="mfTodayCaption"
+              featured
+            />
+            <MetricCard
+              title="累计收益"
+              :value="mfTotalLabel"
+              caption="持有期累计（万份收益 × 份额）"
+            />
+          </MetricGrid>
+        </section>
+
         <!-- 家庭资产汇总（/summary/distributions/ + /summary/snapshots/） -->
         <section>
           <SectionHeader
@@ -353,7 +374,12 @@ import {
   type AssetSnapshotItem,
   type GroupItem
 } from "@/api/summary";
-import { getPortfolioXirr, type XirrData } from "@/api/performance";
+import {
+  getMoneyFundIncome,
+  getPortfolioXirr,
+  type MoneyFundIncomeData,
+  type XirrData
+} from "@/api/performance";
 import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
 import { formatAmount } from "@/utils/currency";
 
@@ -378,6 +404,7 @@ const distributions = ref<DistributionsData | null>(null);
 const latestSnapshot = ref<AssetSnapshotItem | null>(null);
 const positionItems = ref<GroupItem[]>([]);
 const xirr = ref<XirrData | null>(null);
+const moneyFundIncome = ref<MoneyFundIncomeData | null>(null);
 
 const initialLoading = ref(true);
 const loading = ref(false);
@@ -437,6 +464,25 @@ const xirrCaption = computed(() => {
 const formatYuan = (n: number, p = 0) => `¥${formatAmount(n || 0, p)}`;
 const formatSignedYuan = (n: number) =>
   `${n >= 0 ? "+" : "-"}${formatYuan(Math.abs(n || 0))}`;
+
+// ── 货币基金收益（#947）────────────────────────────
+// 口径：万份收益 nav_per_10k × 持有份额，整数分算完后转元，由后端算好；
+// 前端只做展示，**不做二次运算**（正负号也用后端给的 today_income 语义）。
+// 无货基时接口返回 null → 不渲染该 section，而不是显示「¥0」误导成「没赚到钱」。
+const mfTodayLabel = computed(() => {
+  const d = moneyFundIncome.value;
+  return d ? formatSignedYuan(d.today_income) : null;
+});
+const mfTotalLabel = computed(() => {
+  const d = moneyFundIncome.value;
+  return d ? formatSignedYuan(d.total_income) : null;
+});
+const mfTodayCaption = computed(() => {
+  const d = moneyFundIncome.value;
+  if (!d) return "";
+  const days = d.daily_series?.length ?? 0;
+  return days > 0 ? `近${days}天有收益记录` : "暂无收益记录";
+});
 const pnlPct = (item: GroupItem) => {
   const cost = item.market_value - item.pnl;
   return cost ? (item.pnl / cost) * 100 : 0;
@@ -615,12 +661,23 @@ const loadXirr = async () => {
   }
 };
 
+/** 货币基金收益（#947）：接口异常时置 null，页面隐藏该区块而不是显示 0 */
+const loadMoneyFundIncome = async () => {
+  try {
+    const res = await getMoneyFundIncome({ scope: "family" });
+    moneyFundIncome.value = res?.data ?? null;
+  } catch {
+    moneyFundIncome.value = null;
+  }
+};
+
 const loadAll = () =>
   Promise.all([
     loadDistribution(),
     loadProfitTrend(),
     loadPositions(),
-    loadXirr()
+    loadXirr(),
+    loadMoneyFundIncome()
   ]);
 
 /** 页头「刷新数据」：真刷新，不摆样子 */
