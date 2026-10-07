@@ -15,11 +15,16 @@ import pytest
 from app.core.money import Money
 from app.domains.funds.models import DailyWorth
 from app.services.pnl_calendar import (
+    GRANULARITY_DAY,
+    GRANULARITY_MONTH,
+    GRANULARITY_YEAR,
     STATE_CLOSED,
     STATE_NO_PRICE,
     STATE_UPDOWN,
     STATE_ZERO,
+    _collect_fund_nav,
     build_daily_pnl_series,
+    build_pnl_series,
 )
 
 
@@ -468,3 +473,144 @@ def test_流水与持仓账户不一致时按持仓归集(db, make_position, mak
     assert _state_of(led, d2) == STATE_UPDOWN
     assert _pnl_of(led, d2) == pytest.approx(100.0, abs=0.01)
     assert led['month_total'] == pytest.approx(family['month_total'], abs=0.02)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# #1925 日 / 月 / 年三视图
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _seed_跨月收益(db, make_position, make_transaction):
+    """1/28 建仓 → 1/29、1/30 各 +100 → 2/2 再 +100（中间靠前值回填）。
+
+    末次净值 2/2，故只查到 2/9（≤ _STALE_CARRY_DAYS），避免测到「回填窗口耗尽」的
+    另一回事上。
+    """
+    pos = make_position(symbol='000031', name='跨月基金', quantity=1000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=dt.date(2026, 1, 28),
+        symbol='000031',
+    )
+    _add_nav(db, '000031', dt.date(2026, 1, 28), 1.0)
+    _add_nav(db, '000031', dt.date(2026, 1, 29), 1.1)
+    _add_nav(db, '000031', dt.date(2026, 1, 30), 1.2)
+    _add_nav(db, '000031', dt.date(2026, 2, 2), 1.3)
+    return pos
+
+
+def test_月年粒度是同一条日序列的切法_单月恒等式(db, make_position, make_transaction):
+    """月/年视图不得另起算法：其期间值必须与日视图同区间合计完全相等。
+
+    这是三视图「口径唯一」的可执行化——只要这条在，日视图改成什么样都
+    不会让月/年视图对不上。
+    """
+    _seed_跨月收益(db, make_position, make_transaction)
+    day = build_daily_pnl_series(db, 1, '2026-01-28', '2026-02-03')
+    year = build_pnl_series(db, 1, '2026-01-28', '2026-02-03', granularity=GRANULARITY_YEAR)
+
+    assert [p['period'] for p in year['periods']] == ['2026']
+    assert year['periods'][0]['pnl'] == pytest.approx(day['month_total'], abs=0.01)
+    assert year['month_total'] == pytest.approx(day['month_total'], abs=0.01)
+    # 聚合下推：期间视图不回日明细（否则一次年视图要回 1800+ 行）
+    assert year['days'] == []
+    assert year['granularity'] == GRANULARITY_YEAR
+
+
+def test_年粒度等于其各月期间之和(db, make_position, make_transaction):
+    """同一份日序列按月切、按年切，加起来必须一致（200 + 100 = 300）。"""
+    _seed_跨月收益(db, make_position, make_transaction)
+    jan = build_pnl_series(db, 1, '2026-01-28', '2026-01-31', granularity=GRANULARITY_MONTH)
+    feb = build_pnl_series(db, 1, '2026-02-01', '2026-02-03', granularity=GRANULARITY_MONTH)
+    year = build_pnl_series(db, 1, '2026-01-28', '2026-02-03', granularity=GRANULARITY_YEAR)
+
+    assert [p['period'] for p in jan['periods']] == ['2026-01']
+    assert [p['period'] for p in feb['periods']] == ['2026-02']
+    assert jan['periods'][0]['pnl'] == pytest.approx(200.0, abs=0.01)
+    assert feb['periods'][0]['pnl'] == pytest.approx(100.0, abs=0.01)
+    assert year['periods'][0]['pnl'] == pytest.approx(jan['periods'][0]['pnl'] + feb['periods'][0]['pnl'], abs=0.01)
+
+
+def test_期间收益率分母取上一期间末净资产(db, make_position, make_transaction):
+    """首期间的分基线是「区间前一天」，由 build_pnl_series 多取的那一天提供。"""
+    _seed_跨月收益(db, make_position, make_transaction)
+    feb = build_pnl_series(db, 1, '2026-02-01', '2026-02-09', granularity=GRANULARITY_MONTH)
+    period = feb['periods'][0]
+
+    # 基线日 1/31：1000 份 × 1.2 元 = 1200 元；2 月盈亏 +100 ⇒ 100/1200 = 8.33%
+    assert period['rate'] == pytest.approx(8.33, abs=0.01)
+    assert period['net_worth'] == pytest.approx(1300.0, abs=0.01)
+    # 多取的基线日不计入区间合计，也不出现在输出里
+    assert feb['start_date'] == '2026-02-01'
+    assert feb['month_total'] == pytest.approx(100.0, abs=0.01)
+
+
+def test_无价格序列的期间pnl为None而非零(db, make_position):
+    """「缺数据绝不可画成 0」这条红线在聚合层同样成立。"""
+    make_position(
+        symbol='ZH0001',
+        name='银行理财',
+        quantity=0,
+        avg_price=0,
+        asset_type='portfolio',
+        valuation_mode='balance',
+        market_value_override=Money.yuan_to_cents(50000),
+    )
+    res = build_pnl_series(db, 1, '2026-01-01', '2026-01-31', granularity=GRANULARITY_MONTH)
+    period = res['periods'][0]
+
+    assert period['state'] == STATE_NO_PRICE
+    assert period['pnl'] is None
+    assert period['rate'] is None
+    assert res['has_any_price'] is False
+
+
+def test_周末为主的整月不会被聚合判成数据不全(db, make_position, make_transaction):
+    """周末本来就是 closed，聚合时不应把它算作「数据断档」的证据。"""
+    _seed_跨月收益(db, make_position, make_transaction)
+    jan = build_pnl_series(db, 1, '2026-01-28', '2026-01-31', granularity=GRANULARITY_MONTH)
+    # 1/31 是周六，state=closed，但整个期间仍有可算日 ⇒ 期间必须出数
+    assert jan['periods'][0]['state'] == STATE_UPDOWN
+    assert jan['periods'][0]['pnl'] == pytest.approx(200.0, abs=0.01)
+
+
+def test_日粒度不产出期间列表(db, make_position, make_transaction):
+    """day 粒度的逐日明细即 `days`，再聚一份期间是同义反复。"""
+    _seed_跨月收益(db, make_position, make_transaction)
+    res = build_pnl_series(db, 1, '2026-01-28', '2026-01-31', granularity=GRANULARITY_DAY)
+
+    assert res['granularity'] == GRANULARITY_DAY
+    assert res['periods'] == []
+    assert len(res['days']) == 4  # 日粒度仍然回逐日明细
+
+
+def test_非法粒度抛值错误(db):
+    with pytest.raises(ValueError):
+        build_pnl_series(db, 1, '2026-01-01', '2026-01-31', granularity='week')
+
+
+# ── 净值查询必须按持有代码过滤（#1925 性能根因的防回潮锚点）─────────────────
+
+
+def test_空代码集合直接返回空_不退化成查全库(db):
+    """空 targets 的语义是「跳过」，不是「全表」（AGENTS.md 数据策略硬约束 §3）。"""
+    db.add(DailyWorth(fund_code='999999', date=dt.date(2026, 1, 5), unit_nav=1.0))
+    db.commit()
+    assert _collect_fund_nav(db, dt.date(2026, 1, 1), dt.date(2026, 1, 31), set()) == {}
+
+
+def test_净值查询只取指定代码(db):
+    """回潮成「只按日期查」= 把全市场 754 万行捞进内存（实测 13.7s）。"""
+    db.add(DailyWorth(fund_code='000001', date=dt.date(2026, 1, 5), unit_nav=1.0))
+    db.add(DailyWorth(fund_code='110011', date=dt.date(2026, 1, 5), unit_nav=2.0))
+    db.commit()
+
+    got = _collect_fund_nav(db, dt.date(2026, 1, 1), dt.date(2026, 1, 31), {'000001'})
+
+    assert set(got) == {'000001'}
+    assert '110011' not in got
+    assert got['000001'][dt.date(2026, 1, 5)] == Money.yuan_to_price_units(1.0)

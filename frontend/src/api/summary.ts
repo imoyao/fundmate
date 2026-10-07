@@ -152,6 +152,35 @@ export type PnlCalendarDay = {
 };
 
 /**
+ * 收益序列粒度（#1925 日 / 月 / 年三视图）
+ *
+ * - `day`    逐日明细回 `days`
+ * - `month`  按自然月聚合成 `periods`，**不回日明细**
+ * - `year`   按自然年聚合成 `periods`，**不回日明细**
+ *
+ * 月 / 年不是另算的一条口径，而是同一条日序列的两种切法——聚合在后端做，
+ * 前端只负责呈现，禁止二次盈亏计算。
+ */
+export type PnlCalendarGranularity = "day" | "month" | "year";
+
+/**
+ * 收益日历期间（月 / 年粒度）
+ *
+ * `period` 的**键长即粒度**：`YYYY-MM`（月）/ `YYYY`（年），
+ * 柱状标签据此推导，不必另传一个可能与数据对不上的展示字段。
+ */
+export type PnlCalendarPeriod = {
+  period: string;
+  /** 期间盈亏（元）；`null` = 该期间一天都算不出来（无价 / 休市），**不是 0** */
+  pnl: number | null;
+  /** 期间末净资产（元） */
+  net_worth: number;
+  /** 期间收益率（%）；分母为**上一期间末**净资产，`null` = 无基线或基线为 0 */
+  rate: number | null;
+  state: PnlCalendarState;
+};
+
+/**
  * 收益日历序列（后端 as-of 派生，**前端不做二次盈亏计算**）
  *
  * 口径：`daily_pnl` = `total_pnl` 的日差分，**不是** `net_worth` 日环比。
@@ -161,10 +190,17 @@ export type PnlCalendarDay = {
 export type PnlCalendarSeries = {
   ledger_id: number | null;
   scope: "family" | "ledger";
+  /** 请求区间（月 / 年粒度下，后端为取首期间收益率基线多算的一天**不在**此列 */
   start_date: string;
   end_date: string;
-  /** 区间内日盈亏合计（元） */
+  /**
+   * 区间内日盈亏合计（元）。
+   * 字段名 `month_total` 是 #1812 留下的历史名，语义一直是**区间合计**；
+   * 月 / 年粒度下同样是该区间合计，不是「某一个月」。
+   */
   month_total: number;
+  /** 本次请求的粒度（#1925）；不传时后端缺省回 `day` */
+  granularity: PnlCalendarGranularity;
   /** 区间内是否存在可计价持仓（false = 整段无价格序列，前端应显示空态而非零收益） */
   has_any_price: boolean;
   /**
@@ -180,22 +216,27 @@ export type PnlCalendarSeries = {
   };
   /** 区间内可用的最新价格日（ISO）；空 = 该区间一条价格数据都没有 */
   latest_price_date: string | null;
+  /** 逐日明细；`month` / `year` 粒度恒为空数组（聚合下推，不回日明细） */
   days: PnlCalendarDay[];
+  /** 期间聚合；`day` 粒度恒为空数组 */
+  periods: PnlCalendarPeriod[];
 };
 
 /**
- * 查询收益日历（#1812）
+ * 查询收益日历（#1812 / #1925）
  *
  * 与 `getSnapshots` 的区别：快照表记的是「落库当日那一刻的当前状态」，
  * 改持仓后历史**不会**更新，回填还会把今天的值贴到历史日期上；
  * 本接口从流水 + 历史价格现算，改持仓后历史自动跟着变。
  *
  * 传 `ledger_id` 返回该账户级序列；不传返回家庭级。
+ * 传 `granularity` 决定回 `days` 还是 `periods`（见 `PnlCalendarGranularity`）。
  */
 export function getPnlCalendar(params?: {
   start_date?: string;
   end_date?: string;
   ledger_id?: number;
+  granularity?: PnlCalendarGranularity;
 }) {
   return http.request<ApiResponse<PnlCalendarSeries>>(
     "get",

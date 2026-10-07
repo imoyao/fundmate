@@ -9,6 +9,8 @@
 
 import datetime as dt
 
+import pytest
+
 from app.domains.funds.models import DailyWorth
 
 
@@ -98,3 +100,55 @@ def test_收益日历接口_非法日期返回400(client):
     payload = resp.get_json()
     assert payload['error_code'] == 1001
     assert payload['data'] is None
+
+
+def test_收益日历接口_缺省粒度为day(client, db, make_position, make_transaction):
+    """不带 granularity 的老调用行为不变（welcome / 账户详情两处容器共用）。"""
+    _seed(db, make_position, make_transaction)
+    data = client.get('/api/summary/pnl-calendar/?start_date=2026-01-05&end_date=2026-01-07').get_json()['data']
+
+    assert data['granularity'] == 'day'
+    assert data['periods'] == []
+    assert len(data['days']) == 3
+
+
+def test_收益日历接口_月粒度聚合下推(client, db, make_position, make_transaction):
+    """月/年粒度回 `periods`、`days` 为空——聚合在后端做，不回日明细。"""
+    _seed(db, make_position, make_transaction)
+    resp = client.get('/api/summary/pnl-calendar/?start_date=2026-01-05&end_date=2026-01-07&granularity=month')
+
+    assert resp.status_code == 200
+    data = resp.get_json()['data']
+    assert data['granularity'] == 'month'
+    assert data['days'] == []
+    assert [p['period'] for p in data['periods']] == ['2026-01']
+    # 期间值与同区间日粒度合计必须相等（口径唯一）
+    assert data['periods'][0]['pnl'] == pytest.approx(data['month_total'], abs=0.01)
+
+
+def test_收益日历接口_非法粒度返回400(client):
+    resp = client.get('/api/summary/pnl-calendar/?start_date=2026-01-05&granularity=week')
+
+    assert resp.status_code == 400
+    payload = resp.get_json()
+    assert payload['error_code'] == 1001
+    assert payload['data'] is None
+
+
+def test_收益日历接口_账户级三视图与日粒度口径一致(client, db, make_position, make_transaction):
+    """验收 5：同一个 `ledger_id` 下，月粒度的期间值必须等于同区间日粒度合计。
+
+    聚合不按 scope 分叉，这条钉住「换了粒度不换口径、换了账户也不换口径」。
+    """
+    pos = _seed(db, make_position, make_transaction)
+    base = f'/api/summary/pnl-calendar/?start_date=2026-01-05&end_date=2026-01-07&ledger_id={pos.ledger_id}'
+
+    day = client.get(base).get_json()['data']
+    month = client.get(f'{base}&granularity=month').get_json()['data']
+
+    assert day['scope'] == 'ledger' and month['scope'] == 'ledger'
+    assert month['granularity'] == 'month'
+    assert month['days'] == []
+    assert [p['period'] for p in month['periods']] == ['2026-01']
+    assert month['periods'][0]['pnl'] == pytest.approx(month['month_total'], abs=0.01)
+    assert month['month_total'] == pytest.approx(day['month_total'], abs=0.01)
