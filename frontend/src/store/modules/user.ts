@@ -7,7 +7,7 @@ import {
   routerArrays,
   storageLocal
 } from "../utils";
-import { logoutApi } from "@/api/auth";
+import { logout } from "@/api/auth";
 import { useMultiTagsStoreHook } from "./multiTags";
 import { type DataInfo, removeToken, userKey } from "@/utils/auth";
 import { supabase } from "@/utils/supabase";
@@ -74,7 +74,7 @@ export const useUserStore = defineStore("pure-user", {
       try {
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token ?? null;
-        await logoutApi(token);
+        await logout(token);
       } catch (e) {
         // 后端登出失败也不阻塞前端退出
         console.warn("后端退出接口调用失败，仍继续前端清理：", e);
