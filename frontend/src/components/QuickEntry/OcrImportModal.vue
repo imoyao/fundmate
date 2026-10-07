@@ -6,6 +6,7 @@
     width="640px"
     destroy-on-close
     :close-on-click-modal="false"
+    :before-close="onBeforeClose"
   >
     <!-- 顶部：剩余次数提示（三态：正常 / 紧张 / 用尽）。极简通栏，弱化存在感，聚焦「粘贴区」与「开始识别」 -->
     <div class="usage-banner" :class="usageStateClass">
@@ -100,7 +101,7 @@
     </div>
 
     <template #footer>
-      <el-button class="ocr-cancel-btn" size="large" @click="visible = false"
+      <el-button class="ocr-cancel-btn" size="large" @click="requestClose"
         >取消</el-button
       >
       <el-button
@@ -136,6 +137,10 @@ import { Icon as IconifyIconOffline } from "@iconify/vue";
 import ImageUploader from "@/components/ImageUploader/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import { parseImportText, recognizeImage, getOcrUsage } from "@/api/ocr";
+import {
+  useFormDirty,
+  useUnsavedChangesGuard
+} from "@/composables/useUnsavedChangesGuard";
 import { createWatchlistItem, getWatchlistItems } from "@/api/watchlist";
 import type { OcrImportItem } from "@/api/ocr";
 
@@ -399,11 +404,44 @@ const fetchUsage = async () => {
   }
 };
 
+// ── 未保存离开保护（#1835）──
+//关闭按钮 / ESC 走 before-close；底部「取消」是程序化 close，走不到它。
+// 脏基线只取「用户真正输入过的东西」：识别**结果**不算改动（candidates 是派生出来的，
+// 识别完不给钱的是它，但用户重开一次识别不贵；而要求用户先导入才让关，反而误伤）。
+const { isDirty, markClean } = useFormDirty(() => ({
+  tab: activeTab.value,
+  file: imageFile.value?.name ?? null,
+  fileSize: imageFile.value?.size ?? 0,
+  text: textContent.value
+}));
+
+const { onBeforeClose, requestClose: confirmThenClose } =
+  useUnsavedChangesGuard(() => isDirty.value, {
+    message: "已输入内容，确定放弃吗？"
+  });
+
+/** 底部「取消」：程序化 close 走不到 before-close，必须自己问一遍 */
+async function requestClose() {
+  await confirmThenClose(() => (visible.value = false));
+}
+
+// 打开时记基线（不用 @open：它在动画结束后才触发，期间的改动会被误判）
+watch(
+  () => props.modelValue,
+  open => {
+    if (open) markClean();
+  },
+  { immediate: true }
+);
+
 const reset = () => {
   candidates.value = [];
   textContent.value = "";
   imageFile.value = null;
   textError.value = "";
+  // 与表单一起清基线：reset 跑在「导入成功」与「放弃后关闭」两条路上，
+  // 只清表单不清基线的话，关闭后再开弹窗会直接是脏的（#1845 同源）。
+  markClean();
 };
 
 // 🔥 修复：组件挂载时弹窗处于关闭态（visible=false），onMounted 不会触发
