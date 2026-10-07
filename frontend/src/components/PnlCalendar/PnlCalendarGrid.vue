@@ -41,6 +41,8 @@
         :label="cell.label"
         :state="cell.state"
         :pnl="cell.pnl"
+        :rate="cell.rate"
+        :mode="mode"
         :level="cell.level"
         :void-cell="cell.voidCell"
         :is-today="cell.isToday"
@@ -59,21 +61,28 @@ import {
   intensity,
   maxAbsPnl,
   stateDescription,
+  valueIn,
   weekdayLabel,
   weekdayOf,
-  ymd
+  ymd,
+  type PnlCalendarValueMode
 } from "./helpers";
 
 defineOptions({ name: "PnlCalendarGrid" });
 
-const props = defineProps<{
-  /** 逐日序列（父组件保证仅日粒度下渲染本组件） */
-  days: PnlCalendarDay[];
-  /** 展示年份 */
-  year: number;
-  /** 月份下标（0 = 1 月，与 `Date.getMonth()` 一致） */
-  monthIndex: number;
-}>();
+const props = withDefaults(
+  defineProps<{
+    /** 逐日序列（父组件保证仅日粒度下渲染本组件） */
+    days: PnlCalendarDay[];
+    /** 展示年份 */
+    year: number;
+    /** 月份下标（0 = 1 月，与 `Date.getMonth()` 一致） */
+    monthIndex: number;
+    /** 数字口径（#1942 ②）：金额 / 收益率。色深也按同一口径算，换口径要重算档位 */
+    mode?: PnlCalendarValueMode;
+  }>(),
+  { mode: "amount" }
+);
 
 /** 周一~周五：默认列集（周末不占格，见文件头） */
 const WEEKDAY_COLUMNS = [1, 2, 3, 4, 5] as const;
@@ -86,8 +95,10 @@ const dayMap = computed(() => {
   return map;
 });
 
-/** 当月最大绝对盈亏，用于色深映射（避免除零） */
-const maxAbs = computed(() => maxAbsPnl(props.days.map(d => d.daily_pnl)));
+/** 当月最大绝对值（按**当前口径**取数），用于色深映射（避免除零） */
+const maxAbs = computed(() =>
+  maxAbsPnl(props.days.map(d => valueIn(props.mode, d.daily_pnl, d.rate)))
+);
 
 /**
  * 该月是否存在「周末却有数据」的日子。
@@ -116,8 +127,9 @@ interface CalendarCell {
   label: string;
   state: PnlCalendarState;
   pnl: number | null;
+  rate: number | null;
   isToday: boolean;
-  /** 色深档位 0/1/2，由 |收益| / 月内最大绝对值 决定 */
+  /** 色深档位 0/1/2，由 |当前口径数值| / 区间内最大绝对值 决定 */
   level: 0 | 1 | 2;
   /** tooltip 与 `aria-label` 共用的一份文案（不写死两处，避免读屏与悬停分叉） */
   title: string;
@@ -148,6 +160,7 @@ const calendarCells = computed<CalendarCell[]>(() => {
       label: "",
       state: "closed",
       pnl: null,
+      rate: null,
       isToday: false,
       level: 0,
       title: ""
@@ -162,14 +175,17 @@ const calendarCells = computed<CalendarCell[]>(() => {
     // 区间内没有这一天（例如后端区间边界）按休市处理：不画数字，也不说「0 收益」
     const state: PnlCalendarState = day?.state ?? "closed";
     const pnl = day?.daily_pnl ?? null;
+    const rate = day?.rate ?? null;
     cells.push({
       key: date,
       voidCell: false,
       label: String(d),
       state,
       pnl,
+      rate,
       isToday: date === todayStr,
-      level: intensity(pnl, maxAbs.value),
+      // 色深按当前口径的比例算：金额大不等于收益率高，两个口径的档位必须各算各的
+      level: intensity(valueIn(props.mode, pnl, rate), maxAbs.value),
       title: stateDescription(date, state, pnl)
     });
   }

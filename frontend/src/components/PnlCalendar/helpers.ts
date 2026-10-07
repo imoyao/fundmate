@@ -8,6 +8,37 @@
 
 import type { PnlCalendarGranularity, PnlCalendarState } from "@/api/summary";
 
+/**
+ * 数字口径（#1942 ②）：看金额还是看收益率。
+ *
+ * 三视图（日历图 / 方格图 / 柱状图）共用同一个开关，切换时**不重新请求**——
+ * `days[].rate` / `periods[].rate` 与 `range_rate` 后端早就一并下发了，
+ * 前端只换显示口径，不做任何二次计算（这是本组件一贯的硬约束）。
+ */
+export type PnlCalendarValueMode = "amount" | "rate";
+
+/** 口径选项（SegmentedControl 的入参；两个口径都要有中文名，别只放「元 / %」） */
+export const VALUE_MODE_OPTIONS = [
+  { label: "金额", value: "amount" },
+  { label: "收益率", value: "rate" }
+] as const;
+
+/**
+ * 取该单元在当前口径下的数值。
+ *
+ * 缺数据（`pnl == null`）时两个口径都回 `null`——**不许回 0**：
+ * 「休市 / 未同步 / 无持仓」在收益率口径下同样不是 0.00%。
+ * 收益率另有自己的 `null`（无前一日基准），故要按口径分别取。
+ */
+export function valueIn(
+  mode: PnlCalendarValueMode,
+  pnl: number | null,
+  rate: number | null
+): number | null {
+  if (pnl == null) return null;
+  return mode === "rate" ? rate : pnl;
+}
+
 /** 取该月首日（存 1 号，避免时区漂移） */
 export function firstOfMonth(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), 1);

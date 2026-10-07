@@ -388,9 +388,11 @@ def build_daily_pnl_series(
 
      Returns:
          {'ledger_id': int|None, 'scope': 'family'|'ledger', 'start_date': ..., 'end_date': ...,
-          'month_total': float, 'has_any_price': bool, 'days': [{'date','daily_pnl','rate','state'}, ...]}
+          'month_total': float, 'range_rate': float|None, 'has_any_price': bool,
+          'days': [{'date','daily_pnl','rate','state'}, ...]}
 
-     `rate` = 当日盈亏 / 前一日总资产。**前端禁止二次计算**，一切数值出口在此。
+         `rate` = 当日盈亏 / 前一日总资产；`range_rate` = 区间盈亏 / **区间前一天**总资产
+         （两者同分母口径，单位均为 %）。**前端禁止二次计算**，一切数值出口在此。
 
      恒等式（#1916）：**家庭级 month_total ≡ Σ 各账户级 month_total**，成立条件有三，
     缺一不可：
@@ -469,6 +471,10 @@ def build_daily_pnl_series(
     day = scan_start
     prev_net_worth: Optional[int] = None
     prev_total_pnl: Optional[int] = None
+    # 区间收益率（`range_rate`）的分母：**区间前一天**的净资产。
+    # 与首个期间的 `rate` 同分母口径（不是把日收益率相加——那会算错复利）。
+    # 只在首个区间日捕获一次；该日的前一日恰好是 `scan_start`（= start − 1 天）。
+    range_baseline: Optional[int] = None
 
     # 账户级调用时决策集（家庭全集）与值集（本账户）是两套；家庭级调用时同一套。
     per_pos_sets = (value_per_pos,) if value_per_pos is decision_per_pos else (decision_per_pos, value_per_pos)
@@ -667,6 +673,9 @@ def build_daily_pnl_series(
             rate_pct = round(daily_pnl / abs(prev_net_worth) * 100, 2)
 
         if day >= start:
+            if range_baseline is None:
+                # 首个区间日：此刻的 `prev_net_worth` 就是区间前一天（scan_start）的净资产
+                range_baseline = prev_net_worth
             days.append(
                 {
                     'date': day.isoformat(),
@@ -694,6 +703,20 @@ def build_daily_pnl_series(
         day += dt.timedelta(days=1)
 
     total_cents = sum(int(Decimal(str(d['daily_pnl'])) * 100) for d in days if d['daily_pnl'] is not None)
+    # 区间收益率：分母是区间前一天净资产（`range_baseline` 与 `total_cents` 同为分，
+    # 比值与单位无关）。
+    #
+    # 三个「不可算」都要回 None，**不能借 0.0 兜底**（「缺数据绝不画成 0」这条红线
+    # 在区间层同样成立）：
+    #   · 无基准 / 基准为 0（区间首日就无前值）
+    #   · 区间内**没有任何可算日**（整段 no_price / no_data / closed），
+    #     此时 total_cents 恒为 0，若报 0.00% 会被读成「这段时间没涨没跌」。
+    has_computable = any(d['daily_pnl'] is not None for d in days)
+    range_rate = (
+        round(total_cents / abs(range_baseline) * 100, 2)
+        if has_computable and range_baseline not in (None, 0)
+        else None
+    )
     logger.info(
         '收益日历派生完成 scope={} 区间={}~{} 天数={} 合计={}',
         'ledger' if ledger_id is not None else 'family',
@@ -740,6 +763,9 @@ def build_daily_pnl_series(
         'latest_price_date': latest_price_date,
         # 「投资以来」起点：最早一笔改变份额的流水生效日；无持仓 / 无流水时 None
         'first_txn_date': first_txn.isoformat() if first_txn else None,
+        # 区间收益率（%，分母 = 区间前一天净资产）。前端「金额 / 收益率」切换
+        # 的合计行用它；`month_total` 仍是元。#1942 第二轮。
+        'range_rate': range_rate,
         'days': days,
     }
 
@@ -890,6 +916,15 @@ def build_pnl_series(
     payload['end_date'] = base_end.isoformat()
     # `month_total` 是历史字段名，语义一直是**区间合计**（前端类型注释亦如此写）
     payload['month_total'] = round(Money.cents_to_yuan(total_cents), 2)
+    # 区间收益率改用**本区间前一天**（scan_start）的净资产做分母。
+    # `build_daily_pnl_series` 自己也算了 `range_rate`，但它内部还会再往前挪一天
+    # 给首个**日**算差分（= base_start − 2），口径与「期间」不一致，故这里覆盖。
+    # 与日粒度同规矩：没有可算日 ⇒ None，不借 0.0 兜底。
+    payload['range_rate'] = (
+        round(Money.cents_to_yuan(total_cents) / abs(baseline) * 100, 2)
+        if baseline not in (None, 0) and any(d['daily_pnl'] is not None for d in in_range)
+        else None
+    )
     payload['has_any_price'] = any(d['state'] in (STATE_UPDOWN, STATE_ZERO) for d in in_range)
     payload['periods'] = _aggregate_periods(in_range, granularity, baseline)
     payload['days'] = []  # 聚合下推：期间视图不再回日明细
@@ -916,6 +951,8 @@ def _empty_payload(ledger_id: Optional[int], start: dt.date, end: dt.date) -> di
         'start_date': start.isoformat(),
         'end_date': end.isoformat(),
         'month_total': 0.0,
+        # 无持仓 / 区间不合法时没有基准可言 ⇒ None（不是 0%，见 build_daily_pnl_series）
+        'range_rate': None,
         'has_any_price': False,
         'coverage': {'total_positions': 0, 'priced_positions': 0, 'unpriced_positions': 0},
         'latest_price_date': None,

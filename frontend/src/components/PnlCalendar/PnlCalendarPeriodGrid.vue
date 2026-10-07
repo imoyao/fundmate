@@ -40,6 +40,8 @@
         :label="tile.label"
         :state="tile.state"
         :pnl="tile.pnl"
+        :rate="tile.rate"
+        :mode="mode"
         :level="tile.level"
       />
     </button>
@@ -50,16 +52,27 @@
 import { computed } from "vue";
 import type { PnlCalendarPeriod, PnlCalendarState } from "@/api/summary";
 import PnlCalendarTile from "./PnlCalendarTile.vue";
-import { intensity, maxAbsPnl, stateDescription } from "./helpers";
+import {
+  intensity,
+  maxAbsPnl,
+  stateDescription,
+  valueIn,
+  type PnlCalendarValueMode
+} from "./helpers";
 
 defineOptions({ name: "PnlCalendarPeriodGrid" });
 
-const props = defineProps<{
-  /** 期间聚合序列（后端 `granularity=month|year` 的输出） */
-  periods: PnlCalendarPeriod[];
-  /** 期间粒度：`month` = 一格一月，`year` = 一格一年 */
-  granularity: "month" | "year";
-}>();
+const props = withDefaults(
+  defineProps<{
+    /** 期间聚合序列（后端 `granularity=month|year` 的输出） */
+    periods: PnlCalendarPeriod[];
+    /** 期间粒度：`month` = 一格一月，`year` = 一格一年 */
+    granularity: "month" | "year";
+    /** 数字口径（#1942 ②）：金额 / 收益率 */
+    mode?: PnlCalendarValueMode;
+  }>(),
+  { mode: "amount" }
+);
 
 const emit = defineEmits<{
   /** 点击某格：父组件据此下钻（年→月→日） */
@@ -71,6 +84,7 @@ interface Tile {
   label: string;
   state: PnlCalendarState;
   pnl: number | null;
+  rate: number | null;
   level: 0 | 1 | 2;
   title: string;
 }
@@ -86,13 +100,16 @@ function labelOf(period: string): string {
 }
 
 const tiles = computed<Tile[]>(() => {
-  const maxAbs = maxAbsPnl(props.periods.map(p => p.pnl));
+  const maxAbs = maxAbsPnl(
+    props.periods.map(p => valueIn(props.mode, p.pnl, p.rate))
+  );
   return props.periods.map(p => ({
     period: p.period,
     label: labelOf(p.period),
     state: p.state,
     pnl: p.pnl,
-    level: intensity(p.pnl, maxAbs),
+    rate: p.rate,
+    level: intensity(valueIn(props.mode, p.pnl, p.rate), maxAbs),
     title: stateDescription(p.period, p.state, p.pnl)
   }));
 });

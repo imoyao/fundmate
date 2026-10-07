@@ -23,6 +23,12 @@
     no_position  空白 + 「无持仓」（建仓前 / 清仓后，#1942；无问题可处置，故不用虚线）
     closed       空白 + 「休市」（非 A 股开盘日）
 
+  格内数字有**两种口径**（#1942 ②，`mode` prop）：
+    金额（`amount`，默认）`MoneyDisplay` xs（13px）
+    收益率（`rate`）      `RiseFallText` sm（13px）——两者字号同为 `--text-label`，
+                          切换口径不会让格子里的文字跳动
+  两个口径都遵循同一条纪律：**不可算就给态标签或「—」，绝不补 0**。
+
   色彩纪律（design.md 硬约束）：
     - 只走 --color-rise / --color-fall（**绿跌**，不用参考图的蓝跌）；
     - 禁硬编码色值，全部 CSS 变量，var() 引用的令牌必须真实存在（check_css_vars.mjs 守卫）；
@@ -46,14 +52,28 @@
   >
     <template v-if="!voidCell">
       <span class="pnl-calendar__day">{{ label }}</span>
+      <!-- 金额口径 -->
       <MoneyDisplay
-        v-if="hasValue"
+        v-if="hasValue && mode === 'amount'"
         :value="pnl"
         size="xs"
         :show-currency="false"
         :auto-color="false"
         :custom-color="textColor"
       />
+      <!-- 收益率口径（#1942 ②）：`RiseFallText` 的 sm 与 `MoneyDisplay` 的 xs 同为
+           13px（`--text-label`），故切换口径时格子里的字号与行高不变、不会跳动。 -->
+      <RiseFallText
+        v-else-if="hasValue && mode === 'rate' && rate !== null"
+        class="pnl-calendar__rate"
+        :value="rate"
+        :auto-color="false"
+        :custom-color="textColor"
+        size="sm"
+      />
+      <!-- 有值、但该口径算不出来（收益率缺「前一日基准」）：给占位，
+           **绝不补 0.00%**——那是把「算不出来」说成「没涨没跌」。 -->
+      <span v-else-if="hasValue" class="pnl-calendar__tag">—</span>
       <span v-else class="pnl-calendar__tag">{{ stateTag(state) }}</span>
     </template>
   </span>
@@ -62,8 +82,9 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import RiseFallText from "@/components/RiseFallText/index.vue";
 import type { PnlCalendarState } from "@/api/summary";
-import { stateTag } from "./helpers";
+import { stateTag, type PnlCalendarValueMode } from "./helpers";
 
 defineOptions({ name: "PnlCalendarTile" });
 
@@ -74,16 +95,20 @@ const props = withDefaults(
     state: PnlCalendarState;
     /** 该单元的盈亏（元）；`null` = 不可算（缺数据 / 休市 / 无持仓），**不是 0** */
     pnl: number | null;
-    /** 色深档位 0/1/2，由 |收益| / 区间内最大值决定（仅 updown 生效） */
+    /** 该单元的收益率（%）；`null` = 无前一日基准（**不是 0%**） */
+    rate?: number | null;
+    /** 数字口径（#1942 ②）：金额 / 收益率。三视图共用一个开关 */
+    mode?: PnlCalendarValueMode;
+    /** 色深档位 0/1/2，由 |当前口径数值| / 区间内最大值决定（仅 updown 生效） */
     level: 0 | 1 | 2;
     /** 占位空格（日历图首行与周一之前的那几格）：只占位、不画内容 */
     voidCell?: boolean;
     isToday?: boolean;
   }>(),
-  { voidCell: false, isToday: false }
+  { rate: null, mode: "amount", voidCell: false, isToday: false }
 );
 
-/** 有真实数值才画金额；`partial` 也照画（值可信，只是不全），其余一律出态标签 */
+/** 有真实数值才画金额 / 收益率；`partial` 也照画（值可信，只是不全），其余一律出态标签 */
 const hasValue = computed(
   () =>
     props.state === "updown" ||
@@ -91,7 +116,16 @@ const hasValue = computed(
     props.state === "partial"
 );
 
-const isFall = computed(() => props.pnl != null && props.pnl < 0);
+/**
+ * 涨跌方向按**当前口径**的数取值判：两个口径在正常数据下同号（`rate = pnl / 净资产`），
+ * 但收益率可能是 `null` 而金额有值（缺前一日基准），此时颜色应跟随金额——
+ * 若一律读 `pnl`，收益率口径下万一出现符号分歧就会染色与数字不一致。
+ */
+const signed = computed(() =>
+  props.mode === "rate" && props.rate !== null ? props.rate : props.pnl
+);
+
+const isFall = computed(() => signed.value != null && signed.value < 0);
 
 /**
  * 文字色用 -ink 级（AA 达标），底色用柔和填充 —— 二者分工见 design.md 涨跌色应用。
@@ -101,8 +135,8 @@ const isFall = computed(() => props.pnl != null && props.pnl < 0);
  * 非盈亏态（未同步 / 无持仓 / 休市）用辅助文字色，与「暂无估值」同一档。
  */
 const textColor = computed(() =>
-  (props.state === "updown" || props.state === "partial") && props.pnl != null
-    ? props.pnl > 0
+  (props.state === "updown" || props.state === "partial") && signed.value != null
+    ? signed.value > 0
       ? "var(--color-rise-ink)"
       : "var(--color-fall-ink)"
     : "var(--text-tertiary-ink)"
@@ -253,10 +287,13 @@ const textColor = computed(() =>
   color: var(--text-tertiary-ink);
 }
 
-/* partial 的斜纹叠加层是 `z-index: 0`，文字层（日期数字 / 金额 / 态标签）必须抬到
-   它之上，否则金额与日期被斜纹盖住。 */
+/* partial 的斜纹叠加层是 `z-index: 0`，文字层（日期数字 / 金额 / 收益率 / 态标签）
+   必须抬到它之上，否则数字被斜纹盖住。
+   `RiseFallText` 的根元素是 `<span class="rise-fall-text">`，组件上挂的
+   `.pnl-calendar__rate` 会落到同一元素上，故直接写类名即可（无需 :deep）。 */
 .pnl-calendar__day,
 .pnl-calendar__tag,
+.pnl-calendar__rate,
 :deep(.money-display) {
   position: relative;
   z-index: 1;
