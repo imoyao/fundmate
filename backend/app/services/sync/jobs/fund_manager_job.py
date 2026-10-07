@@ -65,6 +65,11 @@ class FundManagerSyncJob(SyncJob):
                 all_managers.extend(managers)
             except Exception as e:
                 logger.warning(f'获取基金 {code} 经理信息失败: {e}')
+                # #1833：记 errors —— 本 job _allow_empty_data=True，全部失败时
+                # 基类会记 success，基金经理关联静默不更新而无任何痕迹。
+                self.stats.setdefault('errors', []).append(
+                    {'fund_code': code, 'stage': 'fetch_manager', 'error': str(e)}
+                )
         return all_managers
 
     # ── 数据校验 ──

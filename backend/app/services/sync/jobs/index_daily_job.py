@@ -124,6 +124,11 @@ class IndexDailySyncJob(SyncJob):
                 except Exception as e:
                     # 单目标失败不阻断其他目标（best-effort 数据源，fallback 见 #275）
                     self.logger.warning(f'指数日线 {code} 获取失败: {e}')
+                    # #1833：记 errors —— 否则 targets 非空时基类一律记 success，
+                    # 「全部目标失败」与「今天没数据」在 sync_logs 里完全同形。
+                    self.stats.setdefault('errors', []).append(
+                        {'gu_code': code, 'stage': 'fetch_daily', 'error': str(e)}
+                    )
             else:
                 item = self._fetch_tencent_target(code, names.get(code, code), full_sync)
                 if item:
