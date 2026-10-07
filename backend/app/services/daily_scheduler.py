@@ -106,6 +106,8 @@ ENV_MARKET_ASSET_DAILY_ENABLED = 'SCHEDULER_MARKET_ASSET_DAILY_ENABLED'
 ENV_MARKET_ASSET_DAILY_CRON = 'SCHEDULER_MARKET_ASSET_DAILY_CRON'
 ENV_DIVIDEND_SPLIT_ENABLED = 'SCHEDULER_DIVIDEND_SPLIT_ENABLED'
 ENV_DIVIDEND_SPLIT_CRON = 'SCHEDULER_DIVIDEND_SPLIT_CRON'
+ENV_ORPHAN_BACKFILL_ENABLED = 'SCHEDULER_ORPHAN_BACKFILL_ENABLED'
+ENV_ORPHAN_BACKFILL_CRON = 'SCHEDULER_ORPHAN_BACKFILL_CRON'
 
 DEFAULT_TIMEZONE = 'Asia/Shanghai'
 # 温度计：集思录中位 PB / 韭圈儿 / 行业拥挤度盘后即出
@@ -154,6 +156,11 @@ DEFAULT_CONVERTIBLE_BOND_CRON = '0 21 * * *'
 # 21:45 分红送股：公告类，增量为主（按 import_hash 幂等去重），
 # 排在 fund_nav 之后错峰。
 DEFAULT_DIVIDEND_SPLIT_CRON = '45 21 * * *'
+# 23:30 孤儿交易回填（#950）：纯本地查库、不联网，排在当日**最后一个**落库类 job
+# （周一 23:00 fund_position）之后跑最保险——那时刻持仓与分红拆分行都已就位，
+# 回填看到的是当天最终状态，不会因「持仓尚未建好」把本可挂上的流水留在孤儿态。
+# 错开 30 分钟同样是为了不与fund_position 抢 DB 会话（与 position_price 的错峰同理）。
+DEFAULT_ORPHAN_BACKFILL_CRON = '30 23 * * *'
 
 # backend/ 目录（app/services/daily_scheduler.py → parents[2]）
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -325,6 +332,17 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[str], str], ...] = (
         DEFAULT_DIVIDEND_SPLIT_CRON,
         None,
         '分红 / 送股事件（akshare 公告口径，按 import_hash 幂等；#1179）',
+    ),
+    (
+        # 孤儿交易回填（#950）：target_kind=None —— 与目标池无关，纯本地扫描
+        # `position_id IS NULL` 的交易，按 symbol 身份挂回既有持仓。
+        # 不联网；幂等（挂过即离开候选集）；只补 position_id，不改金额/确认日。
+        'orphan_backfill',
+        ENV_ORPHAN_BACKFILL_ENABLED,
+        ENV_ORPHAN_BACKFILL_CRON,
+        DEFAULT_ORPHAN_BACKFILL_CRON,
+        None,
+        '孤儿交易回填（position_id IS NULL → 按 symbol 身份挂回持仓；不联网、幂等；#950）',
     ),
 )
 

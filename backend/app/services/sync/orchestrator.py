@@ -58,6 +58,7 @@ from app.services.sync.jobs.index_constituent_job import INDEX_TARGETS, IndexCon
 from app.services.sync.jobs.index_daily_job import IndexDailySyncJob
 from app.services.sync.jobs.index_valuation_job import IndexValuationSyncJob
 from app.services.sync.jobs.market_asset_daily_job import MarketAssetDailySyncJob
+from app.services.sync.jobs.orphan_backfill_job import OrphanBackfillJob
 from app.services.sync.jobs.position_price_job import PositionPriceSyncJob
 from app.services.sync.jobs.price_history_job import PriceHistorySyncJob
 from app.services.sync.jobs.stock_list_job import StockListSyncJob
@@ -159,6 +160,10 @@ class DataSyncOrchestrator:
         # 消费导入侧观察值（user 域 fund_company_observations）补 funds.company_id：
         # 纯本地解析、不联网，故 NullAdapter 占位（同 amac_institution 的处理）。
         self.jobs['fund_company_backfill'] = FundCompanyBackfillJob(NullAdapter(), self.db)
+        # 孤儿交易回填（#950）：把 position_id IS NULL 的流水按 symbol 身份挂回既有持仓。
+        # 纯本地、不联网，NullAdapter 占位；与写入层的货基挂回互补——写入层只在**建仓那一刻**
+        # 挂回货基/逆回购，其余标的建仓时不管，孤儿会永久滞留（tech-debt.md §1）。
+        self.jobs['orphan_backfill'] = OrphanBackfillJob(NullAdapter(), self.db)
         self.jobs['fund_scale'] = FundScaleSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['fund_position'] = FundPositionSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['fund_type'] = FundTypeSyncJob(self.data_sources['akshare'], self.db)
@@ -482,6 +487,9 @@ class DataSyncOrchestrator:
                 # 让 /api/market/overview 读库即回（毫秒级）；无外部目标池依赖，targets 传空。
                 ('market_asset_daily', []),
                 ('dividend_split', stock_targets + fund_targets),  # 分红/送股抓取（#1179）
+                # 孤儿交易回填（#950）：只补 position_id，不碰金额/确认日，故与外部数据源无关，
+                # 排在分红拆分之后即可（它自己查库，不依赖任何 target池）。
+                ('orphan_backfill', []),
                 ('advisor_portfolio', ['__full__']),  # 投顾组合持仓/调仓回填（#1167，组合数少且自带节流）
                 # #1104：持仓现价回写——必须排在净值/行情之后、资产快照之前：
                 # 快照的市值/盈亏读的正是 positions.current_price，顺序错了快照就还是旧价。
