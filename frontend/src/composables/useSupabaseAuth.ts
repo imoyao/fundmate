@@ -9,8 +9,8 @@ import type { LocalHolding } from "@/composables/useLocalHoldings";
 import type { User, Session } from "@supabase/supabase-js";
 
 // 探市观察数据本地键（useLocalHoldings.ts 同源）
-const EXPLORE_STORAGE_KEY = "showbuy_explore_v1";
-const EXPLORE_MIGRATED_KEY = "showbuy_explore_migrated";
+const EXPLORE_STORAGE_KEY = "duoduobei_explore_v1";
+const EXPLORE_MIGRATED_KEY = "duoduobei_explore_migrated";
 
 export function useSupabaseAuth() {
   const router = useRouter();

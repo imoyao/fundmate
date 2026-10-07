@@ -14,8 +14,8 @@ import {
 import { http } from "@/utils/http";
 import { formatDate } from "@/utils/date";
 
-const STORAGE_KEY = "showbuy_realtime_quotes_enabled";
-const REFRESH_INTERVAL_KEY = "showbuy_realtime_quotes_interval";
+const STORAGE_KEY = "duoduobei_realtime_quotes_enabled";
+const REFRESH_INTERVAL_KEY = "duoduobei_realtime_quotes_interval";
 
 /**
  * 平台级总闸（issue #826：双层估值开关的平台级部分）。

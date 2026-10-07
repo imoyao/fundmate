@@ -26,7 +26,7 @@
 |---|---|---|
 | watchlist 后端 CRUD + 分组/标签/持仓 | `backend/app/domains/watchlist/views.py`：`GET /`、`POST ''`、`POST /batch`、`POST /import/explore`、`POST /{id}/position`、`PUT /item/tags`、`PUT /item/groups`、groups/tags CRUD、batch-move/copy/delete、`GET /positions` | ✅ 已实现 |
 | 探市→自选迁移桥 | `POST /api/watchlist/import/explore` + `useSupabaseAuth.ts` | ✅ 已实现 |
-| 探市本地观察 | `useLocalHoldings.ts`（`showbuy_explore_v1`）+ `useAssetSearch.ts` | ✅ 已实现 |
+| 探市本地观察 | `useLocalHoldings.ts`（`duoduobei_explore_v1`）+ `useAssetSearch.ts` | ✅ 已实现 |
 | 自选页 | `frontend/src/views/asset/watchlist/index.vue`（三视图：自选/持仓/分组；批量操作；实时估值） | ✅ 已实现 |
 | 添加自选弹窗 | `frontend/src/components/QuickEntry/AddToWatchlistModal.vue` | ✅ 已实现 |
 | 后端 ARK Key | `backend/.env`：`ARK_API_KEY`（已配 46 位）+ `ARK_MODEL=doubao-seed-2-1-pro-260628` | ✅ 已配置但零引用 |

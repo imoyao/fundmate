@@ -2,7 +2,7 @@
 import { ref, computed } from "vue";
 import { useAuthState } from "@/composables/useAuthState";
 
-const STORAGE_KEY = "showbuy_explore_v1";
+const STORAGE_KEY = "duoduobei_explore_v1";
 const MAX_HOLDINGS = 50;
 
 export interface LocalHolding {
