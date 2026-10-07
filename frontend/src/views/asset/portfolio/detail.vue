@@ -108,6 +108,11 @@
         <div v-else class="xirr-empty">计算中...</div>
       </CardBlock>
 
+      <!-- 持仓穿透（#870 B2：钱最终压在哪些行业/个股） -->
+      <div class="mb-6">
+        <PenetrationPanel />
+      </div>
+
       <!-- 持仓明细（#1104：盈亏双线 —— 已确认 / 当日预估） -->
       <CardBlock class="mb-6">
         <SectionHeader title="持仓明细" :info="PNL_DUAL_SCOPE_TIP">
@@ -360,6 +365,7 @@ import CardBlock from "@/components/CardBlock/index.vue";
 import PnlDualLine from "@/components/PnlDualLine/index.vue";
 import RealtimeEstimateToggle from "@/components/RealtimeEstimateToggle/index.vue";
 import PortfolioEditDialog from "@/components/PortfolioEditDialog/index.vue";
+import PenetrationPanel from "./PenetrationPanel.vue";
 import { useEnumLabels } from "@/composables/useEnumLabels";
 import {
   confirmedPnl,

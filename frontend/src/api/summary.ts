@@ -265,3 +265,103 @@ export function getGhostDuplicates() {
     BASE_URL + "ghost-duplicates/"
   );
 }
+
+/* ──────────────────────────────持仓穿透（#870 B2）──────────────────────────────
+ * 后端 services/penetration.py 的出参**逐字段照抄**，不在前端二次推导比率：
+ * 后端已按「已穿透 / 未穿透」两栏算好，并把「现金等价物（本质无股票敞口）」与
+ * 三个真缺口分开标了 reason。**禁止在前端把 penetrated_ratio 与
+ * other_schemes 的比率并列或相加**——两套分类体系不可相加（GICS 只标注港股）。
+ */
+
+/** 未穿透原因（后端 REASON_* 的字面量；reason_label 是其中文说明） */
+export type PenetrationReason =
+  | "cash_equivalent"
+  | "fund_alloc_missing"
+  | "etf_holding_missing"
+  | "industry_map_missing";
+
+/** 行业层一项（csrc / gics 主口径） */
+export type PenetrationIndustry = {
+  code: string;
+  name: string;
+  value_cny: number;
+  ratio_of_total: number;
+  ratio_of_penetrated: number;
+  fund_count: number;
+};
+
+/** 非主口径体系（如 csrc 页面上的 gics）：带自身覆盖率，禁止与主口径并列 */
+export type PenetrationOtherScheme = {
+  label: string;
+  covered_cny: number;
+  /** 该体系只覆盖参与基金市值的多少（实测 gics 仅个位数） */
+  covered_ratio_of_fund: number;
+  industry_total_cny: number;
+  industry_ratio_of_covered: number;
+  note: string;
+  industries: PenetrationIndustry[];
+};
+
+/** 个股层一项（code 为 __other__ 时name 为「其他」，是截断的聚合行） */
+export type PenetrationStock = {
+  code: string;
+  name: string;
+  value_cny: number;
+  ratio_of_total: number;
+  holder_fund_count: number;
+};
+
+/** 未穿透的一腿（逐条带 reason，真缺口与本质无敞口可区分） */
+export type PenetrationUnpenetrated = {
+  symbol: string;
+  name: string;
+  asset_type: string;
+  value_cny: number;
+  ratio_of_total: number;
+  reason: PenetrationReason;
+  reason_label: string;
+};
+
+export type PenetrationCoverage = {
+  penetrated_cny: number;
+  unpenetrated_cny: number;
+  penetrated_ratio: number;
+  fund_cny: number;
+  direct_cny: number;
+  cash_equivalent_cny: number;
+  unpenetrated_fund_cny: number;
+};
+
+export type PenetrationData = {
+  as_of: string;
+  scheme: string;
+  scheme_label: string;
+  total_value_cny: number;
+  coverage: PenetrationCoverage;
+  industries: PenetrationIndustry[];
+  /** 行业合计不足 100% 的差额＝该基金的债券/现金/其他，**不是缺失数据** */
+  industry_non_equity_cny: number;
+  other_schemes: Record<string, PenetrationOtherScheme>;
+  stocks: PenetrationStock[];
+  stocks_coverage: {
+    covered_cny: number;
+    fund_count_by_basis: Record<string, number>;
+    report_period_by_basis: Record<string, string>;
+  };
+  unpenetrated: PenetrationUnpenetrated[];
+  report_periods: Record<string, number>;
+  /** 后端写死的口径说明，界面须原样展示而非自行改写 */
+  notes: string[];
+};
+
+/**
+ * 获取持仓穿透聚合（#870）。
+ * @param scheme 主口径分类体系，默认 csrc（实测只有 2 只基金缺 csrc，口径最全）
+ */
+export function getPenetration(scheme: "csrc" | "gics" = "csrc") {
+  return http.request<ApiResponse<PenetrationData>>(
+    "get",
+    BASE_URL + "penetration/",
+    { params: { scheme } }
+  );
+}
