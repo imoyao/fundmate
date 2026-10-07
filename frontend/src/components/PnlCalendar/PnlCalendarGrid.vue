@@ -1,22 +1,12 @@
 <!--
-  PnlCalendarGrid · 收益日历的「日历图」视图（#1812，#1925 从 PnlCalendar 拆出）
+  PnlCalendarGrid · 收益日历的「日历图」（日粒度，#1812；#1925 从 PnlCalendar 拆出）
 
-  拆分理由与 `PnlCalendarBars` 同源：日历图与柱状图是两种呈现角度，且父组件
-  长期超 `check_vue_size.mjs` 的 400 行软阈值——#1925 又要在父组件里加
-  日 / 月 / 年粒度编排，先把日历图的模板、格子整形与四态配色整体搬出来。
+  **只服务日粒度**：月 / 年视图没有「日」的概念，走 `PnlCalendarPeriodGrid`
+  的方格图（一根柱 = 一月 / 一年的柱状图见 `PnlCalendarBars`）。
 
-  **只服务日粒度**：月 / 年视图是柱状图（一根柱 = 一月 / 一年），没有「日」的概念。
-
-  四态视觉（**缺数据绝不能画成 0**，这是本组件存在的核心理由之一）：
-    updown   涨红跌绿柔和填充，色深 ∝ |收益|
-    zero     灰底 + 0.00（真实为零）
-    no_price 斜线纹理（balance 模式无历史价格序列，如银行理财/投顾/实物）
-    closed   空白（非交易日/未同步/区间首日）
-
-  色彩纪律（design.md 硬约束）：
-    - 只走 --color-rise / --color-fall（**绿跌**，不用参考图的蓝跌）；
-    - 禁硬编码色值，全部 CSS 变量，var() 引用的令牌必须真实存在（check_css_vars.mjs 守卫）；
-    - 柔和填充而非饱和实心块，避免长时间浏览疲劳。
+  本组件只负责**日历排版**（周一为第一列、首行补空格、7 列对齐）与把逐日序列
+  摊成格子；格子的六态配色、文案与色深档位全部住在 `PnlCalendarTile.vue`
+  ——#1942 扩状态时不再改这里，避免三套格子各写一份配色。
 -->
 
 <template>
@@ -25,47 +15,28 @@
       <span v-for="w in WEEKDAYS" :key="w">{{ w }}</span>
     </div>
     <div class="pnl-calendar__grid" role="grid">
-      <div
+      <PnlCalendarTile
         v-for="cell in calendarCells"
         :key="cell.key"
-        class="pnl-calendar__cell"
-        :class="[
-          `is-${cell.state}`,
-          {
-            'is-today': cell.isToday,
-            'is-void': cell.void,
-            // 色深档位：仅加在有真实盈亏的格子上，零收益/无价/休市不参与映射
-            [`lv-${cell.level}`]: cell.state === 'updown',
-            'is-fall': cell.isFall
-          }
-        ]"
-        role="gridcell"
-        :aria-label="cell.ariaLabel"
-      >
-        <template v-if="!cell.void">
-          <span class="pnl-calendar__day">{{ cell.day }}</span>
-          <MoneyDisplay
-            v-if="cell.state === 'updown' || cell.state === 'zero'"
-            :value="cell.pnl"
-            size="xs"
-            :show-currency="false"
-            :auto-color="false"
-            :custom-color="cell.textColor"
-          />
-          <span v-else class="pnl-calendar__tag">{{
-            STATE_TAG[cell.state]
-          }}</span>
-        </template>
-      </div>
+        :role="cell.voidCell ? undefined : 'gridcell'"
+        :label="cell.label"
+        :state="cell.state"
+        :pnl="cell.pnl"
+        :level="cell.level"
+        :void-cell="cell.voidCell"
+        :is-today="cell.isToday"
+        :title="cell.voidCell ? undefined : cell.title"
+        :aria-label="cell.voidCell ? undefined : cell.title"
+      />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
-import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import type { PnlCalendarDay, PnlCalendarState } from "@/api/summary";
-import { ymd } from "./helpers";
+import PnlCalendarTile from "./PnlCalendarTile.vue";
+import { intensity, maxAbsPnl, stateDescription, ymd } from "./helpers";
 
 defineOptions({ name: "PnlCalendarGrid" });
 
@@ -80,16 +51,6 @@ const props = defineProps<{
 
 const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"] as const;
 
-/** 四态的紧凑标签（格内空间有限，tooltip 里有完整解释） */
-const STATE_TAG: Record<PnlCalendarState, string> = {
-  updown: "",
-  zero: "0.00",
-  // 用户明确要求：不要说「无历史价格序列」——那是实现语言，用户看不懂，
-  // 且会被误解成「我的理财出问题了」。产品语言是「暂无每日估值」。
-  no_price: "暂无估值",
-  closed: "休市"
-};
-
 const dayMap = computed(() => {
   const map = new Map<string, PnlCalendarDay>();
   for (const d of props.days) map.set(d.date, d);
@@ -97,36 +58,19 @@ const dayMap = computed(() => {
 });
 
 /** 当月最大绝对盈亏，用于色深映射（避免除零） */
-const maxAbsPnl = computed(() => {
-  let max = 0;
-  for (const d of props.days) {
-    if (d.daily_pnl != null) max = Math.max(max, Math.abs(d.daily_pnl));
-  }
-  return max;
-});
-
-/** 色深档位：0（浅）/ 1（中）/ 2（深），由 |收益| / 月内最大值 决定 */
-function intensity(pnl: number | null): 0 | 1 | 2 {
-  if (pnl == null || maxAbsPnl.value === 0) return 0;
-  const ratio = Math.abs(pnl) / maxAbsPnl.value;
-  if (ratio >= 0.6) return 2;
-  if (ratio >= 0.25) return 1;
-  return 0;
-}
+const maxAbs = computed(() => maxAbsPnl(props.days.map(d => d.daily_pnl)));
 
 interface CalendarCell {
   key: string;
-  void: boolean;
-  day: number;
-  date: string;
+  voidCell: boolean;
+  label: string;
   state: PnlCalendarState;
   pnl: number | null;
   isToday: boolean;
-  isFall: boolean;
   /** 色深档位 0/1/2，由 |收益| / 月内最大绝对值 决定 */
   level: 0 | 1 | 2;
-  textColor: string;
-  ariaLabel: string;
+  /** tooltip 与 `aria-label` 共用的一份文案（不写死两处，避免读屏与悬停分叉） */
+  title: string;
 }
 
 const calendarCells = computed<CalendarCell[]>(() => {
@@ -142,65 +86,38 @@ const calendarCells = computed<CalendarCell[]>(() => {
   for (let i = 0; i < leading; i += 1) {
     cells.push({
       key: `void-${i}`,
-      void: true,
-      day: 0,
-      date: "",
+      voidCell: true,
+      label: "",
       state: "closed",
       pnl: null,
       isToday: false,
-      isFall: false,
       level: 0,
-      textColor: "",
-      ariaLabel: ""
+      title: ""
     });
   }
 
   for (let d = 1; d <= totalDays; d += 1) {
     const date = ymd(new Date(year, month, d));
     const day = dayMap.value.get(date);
+    // 区间内没有这一天（例如后端区间边界）按休市处理：不画数字，也不说「0 收益」
     const state: PnlCalendarState = day?.state ?? "closed";
     const pnl = day?.daily_pnl ?? null;
     cells.push({
       key: date,
-      void: false,
-      day: d,
-      date,
+      voidCell: false,
+      label: String(d),
       state,
       pnl,
       isToday: date === todayStr,
-      isFall: pnl != null && pnl < 0,
-      level: intensity(pnl),
-      textColor: textColorFor(state, pnl),
-      ariaLabel: ariaFor(date, state, pnl)
+      level: intensity(pnl, maxAbs.value),
+      title: stateDescription(date, state, pnl)
     });
   }
   return cells;
 });
-
-/** 文字色用 -ink 级（AA 达标），底色用柔和填充 —— 二者分工见 design.md 涨跌色应用 */
-function textColorFor(state: PnlCalendarState, pnl: number | null): string {
-  if (state === "updown" && pnl != null) {
-    return pnl > 0 ? "var(--color-rise-ink)" : "var(--color-fall-ink)";
-  }
-  return "var(--text-tertiary-ink)";
-}
-
-function ariaFor(
-  date: string,
-  state: PnlCalendarState,
-  pnl: number | null
-): string {
-  if (state === "no_price") return `${date}：无价格序列，不参与收益计算`;
-  if (state === "closed") return `${date}：非交易日或数据未同步`;
-  if (state === "zero") return `${date}：收益 0.00 元`;
-  return `${date}：收益 ${pnl ?? 0} 元`;
-}
 </script>
 
 <style lang="scss" scoped>
-@use "@/style/breakpoints" as bp;
-
-/* 窄屏（弹窗形态）压缩格子高度，但字号有下限，保证可读 */
 .pnl-calendar__grid-wrap {
   display: flex;
   flex-direction: column;
@@ -223,120 +140,5 @@ function ariaFor(
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 6px;
-}
-
-.pnl-calendar__cell {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  align-items: center;
-  justify-content: center;
-
-  /* aspect-ratio 保证格子近正方；min-height 兜底窄屏 */
-  min-height: 62px;
-  padding: 6px 2px;
-  cursor: default;
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  transition:
-    transform 0.15s ease,
-    box-shadow 0.15s ease;
-}
-
-.pnl-calendar__day {
-  font-size: 11px;
-  line-height: 1;
-  color: var(--text-tertiary-ink);
-}
-
-/* ── 四态视觉 ──
-   updown 用柔和填充 + 涨红跌绿（**绿跌**，非参考图的蓝跌）。
-
-   **色深上限 12% 是算出来的，不是随手填的**（实测 2026-10-06，WCAG AA 4.5:1）：
-   底色 = color-mix(涨跌色, --bg-card, N%)，格内有两类文字都要达标：
-     N=12% 涨：盈亏字 4.81:1 / 日期数字 4.59:1 ✅
-     N=14% 涨：盈亏字 4.68:1 / 日期数字 4.47:1 ❌（日期数字跌破 AA）
-   即**涨色的 12% 是硬顶**（跌色可到 24%，但两色必须同刻度，否则色深含义不一致）。
-   这正是 design.md 警告的坑：日期数字走 --text-tertiary-ink（4.59:1）刚好压线，
-   若图省事用 --text-tertiary（白底仅 3.69:1）则任何一档都必然不合格。
-   ⇒ 色深只表达「相对大小」，**绝不允许为了视觉冲击加深到底色**。 */
-.is-updown {
-  border-color: var(--border-subtle);
-}
-
-.is-updown.lv-1 {
-  background: color-mix(in srgb, var(--color-rise) 7%, var(--bg-card));
-  border-color: color-mix(in srgb, var(--color-rise) 18%, var(--border-light));
-}
-
-.is-updown.lv-2 {
-  background: color-mix(in srgb, var(--color-rise) 12%, var(--bg-card));
-  border-color: color-mix(in srgb, var(--color-rise) 28%, var(--border-light));
-}
-
-.is-updown.is-fall.lv-1 {
-  background: color-mix(in srgb, var(--color-fall) 7%, var(--bg-card));
-  border-color: color-mix(in srgb, var(--color-fall) 18%, var(--border-light));
-}
-
-.is-updown.is-fall.lv-2 {
-  background: color-mix(in srgb, var(--color-fall) 12%, var(--bg-card));
-  border-color: color-mix(in srgb, var(--color-fall) 28%, var(--border-light));
-}
-
-/* 零收益：灰底 + 0.00，语义是「真的是零」 */
-.is-zero {
-  background: var(--bg-hover);
-  border-color: var(--border-light);
-}
-
-/* 无价格序列：斜线纹理，与「零收益」「休市」三者可辨 */
-.is-no_price {
-  background: repeating-linear-gradient(
-    45deg,
-    transparent,
-    transparent 4px,
-    color-mix(in srgb, var(--text-tertiary) 12%, transparent) 4px,
-    color-mix(in srgb, var(--text-tertiary) 12%, transparent) 7px
-  );
-  border-color: var(--border-subtle);
-}
-
-.pnl-calendar__tag {
-  font-size: 10px;
-  line-height: 1;
-  color: var(--text-tertiary-ink);
-}
-
-/* 休市 / 首日：留白，不画任何数字（避免"看起来是 0"） */
-.is-closed {
-  background: transparent;
-  border-color: var(--border-light);
-}
-
-/* 今日：细边框高亮，不改变底色 */
-.is-today {
-  outline: 2px solid var(--color-rise);
-  outline-offset: -2px;
-}
-
-.is-void {
-  background: transparent;
-  border-color: transparent;
-}
-
-/* 响应式：窄屏压缩格子但保字号下限（design.md 可读性要求）。
-   断点走 _breakpoints.scss 单一来源（`bp.below("sm")` = < 640px），
-   禁手写像素——guard_breakpoints.py 会拦。 */
-@include bp.below("sm") {
-  .pnl-calendar__cell {
-    min-height: 52px;
-    padding: 4px 1px;
-  }
-
-  .pnl-calendar__day {
-    font-size: 10px;
-  }
 }
 </style>

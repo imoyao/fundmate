@@ -1,22 +1,26 @@
 <!--
-  PnlCalendar · 收益日历（#1812 日视图 / #1925 日·月·年三视图）
+  PnlCalendar · 收益日历（#1812 日视图 / #1925 三视图 / #1942 方格图与六态）
 
   一组件多容器：welcome 嵌入卡（满宽 12 列）、panorama「总资产构成」原地切换、
   账户详情半宽容器，共用同一份数据与口径。
 
-  三视图（#1925）：
-    日收益  按月翻；日历图 / 柱状图两种呈现角度
-    月收益  按年翻；一根柱 = 一个月
-    年收益  按年翻，一次看 YEAR_WINDOW 年；一根柱 = 一年
+  三视图（#1925）× 两种形态（#1942）：
+    日收益  按月翻；日历图（一屏一个月）/ 柱状图（一根柱 = 一天）
+    月收益  按年翻；方格图（12 个月各一格）/ 柱状图（一根柱 = 一个月）
+    年收益  **投资以来**全览，一格一年（区间固定，故无区间导航）；两种形态同上
+    点击下钻：年格 → 该年的月格 → 该月的日日历
   三者**不是三条口径**，而是同一条日序列的三种切法——聚合下推在后端
   （`granularity` 参数），前端只做呈现，禁止二次盈亏计算。
 
-  四态视觉与色彩纪律见 `PnlCalendarGrid.vue`（日历图）与 `PnlCalendarBars.vue`（柱状图）：
-    updown   涨红跌绿柔和填充，色深 ∝ |收益|
-    zero     灰底 + 0.00（真实为零）
-    no_price 斜线纹理（balance 模式无历史价格序列，如银行理财/投顾/实物）
-    closed   空白（非交易日/未同步/区间首日）
+  六态视觉与色彩纪律集中在 `PnlCalendarTile.vue`（格子）与 `PnlCalendarBars.vue`（柱）：
+    updown       涨红跌绿柔和填充，色深 ∝ |收益|
+    zero         灰底 + 0.00（真实为零）
+    no_price     斜线纹理（balance 模式无历史价格序列，如银行理财/投顾/实物）
+    no_data      虚线 + 「未同步」（开盘日却没取到当天估值）
+    no_position  虚线 + 「无持仓」（建仓前 / 清仓后）
+    closed       空白 + 「休市」（非 A 股开盘日；判据是后端交易日历，不是「有没有价格」）
   **缺数据绝不能画成 0**，这是本组件存在的核心理由之一。
+  「休市」与「未同步」必须分开（#1942）：前者只能等开盘，后者要去跑同步任务。
 -->
 
 <template>
@@ -34,10 +38,10 @@
             size="small"
             ariaLabel="切换收益粒度"
           />
-          <!-- 形态只在日粒度下有意义：月 / 年视图的「一根柱」本身就对应一月 / 一年，
-               再分日历图 / 柱状图没有第二个角度可切 -->
+          <!-- 形态：日 / 月 / 年三粒度**都有**两种呈现角度（#1942）。
+               标签随粒度变化（日历图 / 方格图），因为「一屏一个月」与
+               「12 个月各一格」是两种不同的看图方式，不该共用一个词。 -->
           <SegmentedControl
-            v-if="granularity === 'day'"
             v-model="view"
             :options="VIEW_OPTIONS"
             size="small"
@@ -46,8 +50,15 @@
           <!-- 区间导航。`role="group"` + `aria-label` 是按钮组的正确 a11y 语义：
                组本身不是按钮，但需一个可访问名来把三枚按钮归为一组。顺带说明：守卫
                `guard_a11y_interaction.py` 的 `<(el-button|button)\b` 会把
-               `el-button-group` 一并匹配上，这里给组加名是正解，不是为过守卫而塞的无用属性。 -->
-          <el-button-group role="group" :aria-label="nav.groupAria">
+               `el-button-group` 一并匹配上，这里给组加名是正解，不是为过守卫而塞的无用属性。
+
+               年视图没有导航：它的区间恒为「投资以来 → 今年」，往前翻只会有建仓前的空年份、
+               往后翻本来就是空的。给一组按不动的按钮是骗人的，故只留一个区间标签。 -->
+          <el-button-group
+            v-if="granularity !== 'year'"
+            role="group"
+            :aria-label="nav.groupAria"
+          >
             <el-button
               size="small"
               text
@@ -70,6 +81,7 @@
               <IconifyIconOffline icon="ep:arrow-right" />
             </el-button>
           </el-button-group>
+          <span v-else class="pnl-calendar__range">{{ rangeLabel }}</span>
         </div>
       </template>
     </SectionHeader>
@@ -111,13 +123,21 @@
       </el-button>
     </div>
 
-    <!-- ===== 主体：日历图 / 柱状图 ===== -->
+    <!-- ===== 主体：方格图（日历图 / 月格 / 年格）/ 柱状图 ===== -->
     <template v-else>
       <PnlCalendarGrid
         v-if="granularity === 'day' && view === 'calendar'"
         :days="series?.days ?? []"
         :year="cursor.getFullYear()"
         :month-index="cursor.getMonth()"
+      />
+
+      <!-- 月 / 年视图的方格图（#1942）：一格一个期间，点击下钻 -->
+      <PnlCalendarPeriodGrid
+        v-else-if="granularity !== 'day' && view === 'calendar'"
+        :periods="series?.periods ?? []"
+        :granularity="granularity"
+        @select="selectPeriod"
       />
 
       <!-- 柱状图：三粒度共用一份几何，只是「一根柱」的含义不同（见文件头）。
@@ -153,8 +173,9 @@ import SectionHeader from "@/components/SectionHeader/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import PnlCalendarGrid from "./PnlCalendarGrid.vue";
+import PnlCalendarPeriodGrid from "./PnlCalendarPeriodGrid.vue";
 import PnlCalendarBars from "./PnlCalendarBars.vue";
-import { firstOfMonth, ymd } from "./helpers";
+import { firstOfMonth, rangeFor, rangeLabelFor } from "./helpers";
 import {
   getPnlCalendar,
   type PnlCalendarDay,
@@ -177,26 +198,11 @@ const emit = defineEmits<{
 }>();
 void emit; // 预留的「点某天看明细」事件，当前尚无消费方；保留契约避免破坏容器
 
-const VIEW_OPTIONS = [
-  { label: "日历图", value: "calendar" },
-  { label: "柱状图", value: "bar" }
-] as const;
-
 const GRANULARITY_OPTIONS = [
   { label: "日收益", value: "day" },
   { label: "月收益", value: "month" },
   { label: "年收益", value: "year" }
 ] as const;
-
-/**
- * 年粒度一次看几年（#1925）。
- *
- * 取 3 而非 5：区间长度与耗时**线性**（真实库 151 笔持仓实测——
- * 365 天 1.3s、1827 天 3.6s），1096 天约 2.0s，已是「点一下等一会儿」的上限；
- * 再长会让切粒度变成明显卡顿。要拉长窗口，先复测 `services/pnl_calendar.py`
- * 的区间耗时，别只改这个数。
- */
-const YEAR_WINDOW = 3;
 
 const series = ref<PnlCalendarSeries | null>(null);
 const loading = ref(false);
@@ -205,9 +211,37 @@ const view = ref<"calendar" | "bar">("calendar");
 const granularity = ref<PnlCalendarGranularity>("day");
 
 /**
+ * 形态选项随粒度改名：日粒度是**日历**（一屏一个月，看「哪几天」），
+ * 月 / 年粒度是**方格**（一格一个期间，看「哪些期间」）。三者共用一套 `view` 取值，
+ * 切粒度时不清空（切回来还是你上次选的形态）。
+ *
+ * 旧实现 `v-if="granularity === 'day'"` 隐藏了整个形态切换——这正是 #1942 里
+ * 「月 / 年只有柱状图了？」的直接来源：**不是形态标签少了一个，是月 / 年压根没有第二种形态**。
+ */
+const VIEW_OPTIONS = computed(() =>
+  granularity.value === "day"
+    ? [
+        { label: "日历图", value: "calendar" },
+        { label: "柱状图", value: "bar" }
+      ]
+    : [
+        { label: "方格图", value: "calendar" },
+        { label: "柱状图", value: "bar" }
+      ]
+);
+
+/**
+ * 「投资以来」的起点（#1942）。年视图要**投资以来每一年占一格**，就必须知道起点，
+ * 不能靠前端写死一个年数窗口。该字段由后端随每次响应下发（最早一笔改变份额的流水），
+ * 故任何一个粒度加载成功后都会更新它。
+ */
+const firstTxnDate = ref<string | null>(null);
+
+/**
  * 游标，永远存**某月 1 号**（避免时区漂移）。
  *
- * 日粒度用「年 + 月」；月 / 年粒度只读 `getFullYear()`。三种粒度共用一个游标，
+ * 日粒度用「年 + 月」；月粒度只读 `getFullYear()`；年粒度**不使用游标**——
+ * 它的区间恒为「投资以来 → 今年」（见 `rangeFor`）。三种粒度共用一个游标，
  * 在粒度之间来回切时不会丢失「你原本在看哪个月」（`shift` 也刻意保留月序号）。
  */
 const cursor = ref<Date>(firstOfMonth(new Date()));
@@ -223,7 +257,9 @@ const CALIBER_NOTE =
   "股票按交易日切，两者在同一天未必同价，故与「总资产日环比」有出入是正常的）。" +
   "建仓当日不记盈亏，显示「—」——建仓那一刻浮盈本来就是 0。" +
   "斜线格「暂无每日估值」= 该产品按日无估值序列（银行理财、投顾组合、实物资产等），不是收益为零。" +
-  "月 / 年视图是同一份日盈亏的合计，不另算。";
+  "虚框「未同步」= 那天是交易日，但还没取到当天的估值（净值未发布、或每日同步任务没跑）——" +
+  "与「休市」（周末、法定节假日）不是一回事：一个要等同步，一个只能等开盘。" +
+  "月 / 年视图是同一份日盈亏的合计，不另算；点某一格可下钻看更细的一级。";
 
 /**
  * 空态文案。**不要**命名为 `emptyText`——那是 `MoneyDisplay` 的 prop 名，
@@ -243,36 +279,12 @@ const EMPTY_NO_VALUATION =
   "账户里的产品按日没有估值序列（银行理财、投顾组合、实物资产等），" +
   "因此没有每日收益。";
 
-/** 当前粒度要请求的闭区间。月 / 年粒度整段取自然年，由后端按粒度聚合。 */
-function rangeFor(): { start: string; end: string } {
-  const year = cursor.value.getFullYear();
-  const month = cursor.value.getMonth();
-  if (granularity.value === "month") {
-    return { start: `${year}-01-01`, end: `${year}-12-31` };
-  }
-  if (granularity.value === "year") {
-    return {
-      start: `${year - YEAR_WINDOW + 1}-01-01`,
-      end: `${year}-12-31`
-    };
-  }
-  const last = new Date(year, month + 1, 0).getDate();
-  return {
-    start: `${year}-${String(month + 1).padStart(2, "0")}-01`,
-    end: ymd(new Date(year, month, last))
-  };
-}
+/** 当前浏览区间的标签（导航中键 / 区间标签、合计行、柱状图 aria 共用同一份） */
+const rangeLabel = computed(() =>
+  rangeLabelFor(granularity.value, cursor.value, firstTxnDate.value)
+);
 
-/** 当前浏览区间的标签（导航中键、合计行、柱状图 aria 三处共用，必须同一份） */
-const rangeLabel = computed(() => {
-  const year = cursor.value.getFullYear();
-  const g = granularity.value;
-  if (g === "day") return `${year} 年 ${cursor.value.getMonth() + 1} 月`;
-  if (g === "month") return `${year} 年`;
-  return `${year - YEAR_WINDOW + 1}–${year} 年`;
-});
-
-/** 导航语义随粒度切换：日=按月翻，月 / 年=按年翻 */
+/** 导航语义随粒度切换：日=按月翻，月=按年翻（年视图无导航，见模板） */
 const nav = computed(() => {
   const isDay = granularity.value === "day";
   return {
@@ -281,6 +293,29 @@ const nav = computed(() => {
     next: isDay ? "下个月" : "下一年"
   };
 });
+
+/**
+ * 点某格下钻（#1942）：年格 → 该年的月格 → 该月的日日历。
+ *
+ * 实现是「改游标 + 改粒度」两步，靠 `watch([cursor, granularity], load)` 合并成
+ * **一次**请求（数组式 watch 在同一 tick 内只触发一次）——若沿用旧的两条独立
+ * watcher，下钻会连发两次相同区间的请求。
+ */
+function selectPeriod(period: string): void {
+  if (granularity.value === "year") {
+    cursor.value = new Date(Number(period), 0, 1);
+    granularity.value = "month";
+    return;
+  }
+  if (granularity.value === "month") {
+    cursor.value = new Date(
+      Number(period.slice(0, 4)),
+      Number(period.slice(5)) - 1,
+      1
+    );
+    granularity.value = "day";
+  }
+}
 
 const hasAnyPrice = computed(() => series.value?.has_any_price === true);
 
@@ -301,7 +336,8 @@ const emptyScope = computed(() => {
   const g = granularity.value;
   if (g === "day") return "本月";
   if (g === "month") return "本年";
-  return "该区间";
+  // 年视图的区间就是「投资以来」，说「该区间」不如直说
+  return "投资以来";
 });
 
 const emptyHint = computed(() =>
@@ -315,7 +351,10 @@ const latestPriceLabel = computed(() => {
   const d = series.value?.latest_price_date;
   if (!d) return "";
   const year = d.slice(0, 4);
-  if (granularity.value !== "day") {
+  // 年视图区间恒为「投资以来 → 今年」，最新数据必然落在区间内，没有可跳的去处
+  // （区间与游标无关，真跳了也不会换区间——这种按钮是骗人的，故一律不显示）
+  if (granularity.value === "year") return "";
+  if (granularity.value === "month") {
     return year === String(cursor.value.getFullYear()) ? "" : `${year} 年`;
   }
   const monthKey = d.slice(0, 7);
@@ -341,7 +380,17 @@ function jumpToLatestPrice() {
 async function load() {
   loading.value = true;
   error.value = "";
-  const { start, end } = rangeFor();
+  const { start, end } = rangeFor(
+    granularity.value,
+    cursor.value,
+    firstTxnDate.value
+  );
+  // 年视图的区间依赖 `first_txn_date`。正常路径是「先进日视图 → 拿到起点 → 再切年」，
+  // 起点早已就位；只有冷启动直接点「年收益」时才可能还没有。此时先按回落区间取一次，
+  // 响应里带的起点写回后**再取一次正确区间**，避免「投资以来」被截成一年。
+  // `needsFirstTxn` 在请求前求值，第二次调用时 firstTxnDate 已非空 ⇒ 不会再递归。
+  const needsFirstTxn =
+    granularity.value === "year" && firstTxnDate.value === null;
   try {
     const { data } = await getPnlCalendar({
       start_date: start,
@@ -350,6 +399,11 @@ async function load() {
       granularity: granularity.value
     });
     series.value = data;
+    if (data.first_txn_date) firstTxnDate.value = data.first_txn_date;
+    if (needsFirstTxn && firstTxnDate.value) {
+      await load();
+      return;
+    }
   } catch {
     error.value = "收益日历加载失败，请稍后重试";
     series.value = null;
@@ -364,21 +418,20 @@ function shift(delta: number) {
     cursor.value = new Date(c.getFullYear(), c.getMonth() + delta, 1);
     return;
   }
-  // 月 / 年粒度按年平移；**保留月序号**，切回日粒度时仍落在你原来那个月
+  // 月粒度按年平移；**保留月序号**，切回日粒度时仍落在你原来那个月。
+  // （年视图不调用本函数：它没有区间导航。）
   cursor.value = new Date(c.getFullYear() + delta, c.getMonth(), 1);
 }
 
 function goCurrent() {
-  // 三种粒度都把游标放回「今天所在的那个月」：日粒度看当月，
-  // 月 / 年粒度取 getFullYear()，自然就是今年 / 今天的年份
+  // 把游标放回「今天所在的那个月」：日粒度看当月，月粒度取 getFullYear()，
+  // 自然就是今年的年份。年视图不调用（区间恒为投资以来）。
   cursor.value = firstOfMonth(new Date());
 }
 
-watch(() => props.ledgerId, load);
-watch(cursor, load);
-// 粒度切换时游标不动（这是有意的：切粒度不该顺手把你翻到别的区间），
-// 故必须单独监听它触发重取——否则会拿日粒度的 payload 直接当月视图渲染。
-watch(granularity, load);
+// 三条触发源合并成一个数组式 watch：下钻要同时改「游标 + 粒度」，
+// 若拆成多条 watcher 会在同一 tick 里连发两次相同区间（由 `selectPeriod` 造成）。
+watch([() => props.ledgerId, cursor, granularity], load);
 onMounted(load);
 
 defineExpose({ reload: load });
@@ -391,6 +444,12 @@ defineExpose({ reload: load });
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+/* 年视图的区间标签（替代区间导航按钮组：年视图区间固定，按不动的按钮是骗人的） */
+.pnl-calendar__range {
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
 /* 合计行：一行小字 */
