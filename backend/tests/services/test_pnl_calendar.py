@@ -18,8 +18,8 @@ from app.services.pnl_calendar import (
     GRANULARITY_DAY,
     GRANULARITY_MONTH,
     GRANULARITY_YEAR,
-    STATE_CLOSED,
     STATE_NO_PRICE,
+    STATE_PARTIAL,
     STATE_UPDOWN,
     STATE_ZERO,
     _collect_fund_nav,
@@ -157,7 +157,7 @@ def test_零收益与无数据可区分(db, make_position, make_transaction):
     assert _pnl_of(result, d3) == 0
 
 
-def test_部分标的断档时不出数(db, make_position, make_transaction):
+def test_部分标的断档时标partial且仍出数(db, make_position, make_transaction):
     """回归 #1812：一部分标的有当日价、一部分断档 ⇒ 日总额不完整，差分是错的。
 
     实测（真实库 2026-09-30）：只有 13/57 笔有价，若照常出数，
@@ -187,8 +187,9 @@ def test_部分标的断档时不出数(db, make_position, make_transaction):
     result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-07')
 
     # d2 覆盖不全 ⇒ 不出数（而不是把B 的市值当成 0 算出个假盈亏）
-    assert _state_of(result, d2) == STATE_CLOSED, '部分标的断档时应标数据不全'
-    assert _pnl_of(result, d2) is None
+    # #1917 的 C 方案：断档日**照常给出数值**，另标 `partial` 告知数据不完整。
+    assert _state_of(result, d2) == STATE_PARTIAL, '部分标的断档应标 partial'
+    assert _pnl_of(result, d2) == pytest.approx(100.0, abs=0.01)
 
 
 def test_月合计等于区间内日序列求和(db, make_position, make_transaction):
@@ -375,7 +376,7 @@ def test_空态能区分数据缺口与持仓无估值(db, make_position, make_t
     assert result['latest_price_date'] is None, '取不到任何价格 ⇒ 应报缺口，让前端说「本月无数据」'
 
 
-def test_家庭级覆盖不全时账户级丢同一批天(db, make_position, make_transaction):
+def test_家庭级部分断档时账户级判定天一致(db, make_position, make_transaction):
     """#1916 回归：家庭级因某账户断档丢天时，账户级不得各自出数。
 
     场景：账户甲的基金 1/5~1/7 都有净值；账户乙的基金仅 1/5 有、1/6 起断档。
@@ -420,16 +421,16 @@ def test_家庭级覆盖不全时账户级丢同一批天(db, make_position, mak
         db, family_id=1, start_date='2026-01-05', end_date='2026-01-07', ledger_id=b.ledger_id
     )
 
-    # 家庭级：d2/d3 覆盖不全 ⇒ 不出数（#1812 既有行为，不得回归）
+    # #1917 的 A+C：基准无条件推进 ⇒ 断档日**照常出数**（标 partial），不再「丢天」。
     for day in (d2, d3):
-        assert _state_of(family, day) == STATE_CLOSED
-        assert _pnl_of(family, day) is None
+        assert _state_of(family, day) == STATE_PARTIAL, f'{day} 应标 partial'
+        assert _pnl_of(family, day) is not None, f'{day} 应给出数值'
 
-    # #1916：账户级必须丢同一批天——不能因为自己那笔有价就照常出数
-    for led in (led_a, led_b):
-        for day in (d2, d3):
-            assert _state_of(led, day) == STATE_CLOSED, f'{day} 账户级应与家庭级同为 closed'
-            assert _pnl_of(led, day) is None
+    # #1916 核心保证不受影响：账户级与家庭级用同一批判定天（decision_positions），
+    # 逐日可加 ⇒ 月合计精确相等。
+    for day in (d2, d3):
+        for led in (led_a, led_b):
+            assert _state_of(led, day) == STATE_PARTIAL, f'{day} 账户级判定天须一致'
 
     assert family['month_total'] == pytest.approx(led_a['month_total'] + led_b['month_total'], abs=0.02)
 
@@ -614,3 +615,95 @@ def test_净值查询只取指定代码(db):
     assert set(got) == {'000001'}
     assert '110011' not in got
     assert got['000001'][dt.date(2026, 1, 5)] == Money.yuan_to_price_units(1.0)
+
+
+def test_断档日仍推进差分基准(db, make_position, make_transaction):
+    """#1917 的 A 方案核心守卫：**基准无条件推进**，与「能否出数」解耦。
+
+    这是消灭「同一日在不同区间得不同盈亏」的唯一关键。旧行为「数据不全就不写基准」
+    会让基准冻结在更早的日子 ⇒ 释放那天的差分跨越不连续的几天 ⇒ 实测真实库
+    2026-09-19（周六，全市场休市）报出 4756.40，而它真实值是 0.00；同一日在小区间
+    里因起点不同、基准推进次数不同，答案是 0.00。
+
+    本例构造「断档两天后恢复」：d4 的盈亏必须只反映 d3→d4 这一天，
+    绝不能把断档期间（或更早）的涨跌一次性算进来。
+    """
+    d1 = dt.date(2026, 1, 5)
+    d2 = dt.date(2026, 1, 6)
+    d3 = dt.date(2026, 1, 7)
+    d4 = dt.date(2026, 1, 8)
+
+    a = make_position(symbol='000091', name='全程有价', quantity=1000, avg_price=1.0, asset_type='fund')
+    b = make_position(symbol='000092', name='断档两天', quantity=1000, avg_price=1.0, asset_type='fund')
+    for pos, sym in ((a, '000091'), (b, '000092')):
+        make_transaction(
+            position_id=pos.id,
+            ledger_id=pos.ledger_id,
+            txn_type='buy',
+            quantity=1000,
+            price=1.0,
+            confirm_date=dt.date(2025, 12, 1),
+            symbol=sym,
+        )
+    # A 逐日有价；B 仅 d1 有，d2/d3 断档，d4 恢复
+    _add_nav(db, '000091', d1, 1.0)
+    _add_nav(db, '000091', d2, 1.1)
+    _add_nav(db, '000091', d3, 1.2)
+    _add_nav(db, '000091', d4, 1.2)
+    _add_nav(db, '000092', d1, 1.0)
+    _add_nav(db, '000092', d4, 1.0)
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-09')
+
+    # d2/d3 部分断档 ⇒ partial，且**仍出数**（A 方案：断档那几笔对称抵消）
+    for day in (d2, d3):
+        assert _state_of(result, day) == STATE_PARTIAL, f'{day} 应标 partial'
+        assert _pnl_of(result, day) is not None, f'{day} 应出数'
+
+    # 关键：A 在 d4 的净值与 d3 相同 ⇒ d4 的真实盈亏是 0。
+    # 若基准冻结在 d1/d2，d4 就会报出一个累积的假值。
+    assert _pnl_of(result, d4) == pytest.approx(0.0, abs=0.01), (
+        f'd4 应为 0（净值未变），实得 {_pnl_of(result, d4)} —— 基准可能冻结了'
+    )
+
+
+def test_同一日在不同区间下必须得到相同结果(db, make_position, make_transaction):
+    """**核心不变量**（#1917）：日盈亏只依赖该日及其前一日，不依赖查询区间。
+
+    实测缺陷：2026-09-19 在整月区间得 4756.40、在小区间得 0.00——
+    同一笔数据的两个答案。根因是「数据不全就不写基准」的旧判据让基准日不推进，
+    次日差分跨越不连续的两天，而能推进几步取决于区间起点。
+    """
+    d1 = dt.date(2026, 1, 5)
+    d2 = dt.date(2026, 1, 6)
+    d3 = dt.date(2026, 1, 7)
+    d4 = dt.date(2026, 1, 8)
+
+    a = make_position(symbol='000081', name='稳定有价', quantity=1000, avg_price=1.0, asset_type='fund')
+    b = make_position(symbol='000082', name='断档后恢复', quantity=1000, avg_price=1.0, asset_type='fund')
+    for pos, sym in ((a, '000081'), (b, '000082')):
+        make_transaction(
+            position_id=pos.id,
+            ledger_id=pos.ledger_id,
+            txn_type='buy',
+            quantity=1000,
+            price=1.0,
+            confirm_date=dt.date(2025, 12, 1),
+            symbol=sym,
+        )
+    _add_nav(db, '000081', d1, 1.0)
+    _add_nav(db, '000081', d2, 1.1)
+    _add_nav(db, '000081', d3, 1.2)
+    _add_nav(db, '000082', d1, 1.0)
+    _add_nav(db, '000082', d3, 1.05)
+
+    wide = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-09')
+    narrow = build_daily_pnl_series(db, family_id=1, start_date='2026-01-06', end_date='2026-01-09')
+
+    for day in (d2, d3, d4):
+        assert _state_of(wide, day) == _state_of(narrow, day), (
+            f'{day} 状态随区间变化：整月={_state_of(wide, day)} 小区间={_state_of(narrow, day)}'
+        )
+        assert _pnl_of(wide, day) == _pnl_of(narrow, day), (
+            f'{day} 盈亏随区间变化：整月={_pnl_of(wide, day)} 小区间={_pnl_of(narrow, day)}'
+        )
