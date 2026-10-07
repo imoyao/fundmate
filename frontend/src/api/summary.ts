@@ -129,23 +129,33 @@ export function getSnapshots(params?: {
 }
 
 /**
- * #1812 收益日历单日状态（#1942 由四态扩为六态，**缺数据绝不可画成 0**）
+ * #1812 收益日历单日状态（#1917 加 `partial`、#1942 拆「休市/没数据」，**缺数据绝不可画成 0**）
  *
  * - `updown`      有价且有持仓，当日盈亏非零
  * - `zero`        有价，当日盈亏恰为 0
+ * - `partial`     **部分断档**（#1917 C 方案）：当天有标的有真报价、也有标的没有
+ *   ⇒ **照常给出数值**，只是标注「数据不完整」。不可与 `closed` 合并——
+ *   「有数据但不完整」与「无数据」对用户是完全不同的含义
  * - `no_price`    该标的整段无历史价格序列（`valuation_mode='balance'` 的银行理财/
  *   投顾/实物等，市值来自 `market_value_override` 单值非序列）
- * - `no_data`     **A 股开盘日**却没取到当天估值（净值未发布 / 每日同步任务没跑 /
- *   部分标的断档）。用户能处置（去跑同步），与「休市」不是一回事
+ * - `no_data`     **A 股开盘日**却一个可用价都取不到（净值未发布 / 每日同步任务没跑）。
+ *   用户能处置（去跑同步），与「休市」不是一回事
  * - `no_position` 当天没有持仓（建仓前 / 清仓后）
  * - `closed`      **非 A 股开盘日**（周末 / 法定节假日 / 调休补班的周末）。
  *   判据是后端 `core/trading_calendar.is_trading_day()`，**不是**「当天有没有价格」
  *
  * #1942 之前 `no_data` 与 `closed` 共用一个状态码，UI 一律显示「休市」，
- * 于是「数据没同步」被读成「市场关门」。
+ * 于是「数据没同步」被读成「市场关门」。三方分工：
+ * **有值但不全 → `partial`；一个值都没有 → 开盘日 `no_data` / 非开盘日 `closed`。**
  */
 export type PnlCalendarState =
-  "updown" | "zero" | "no_price" | "no_data" | "no_position" | "closed";
+  | "updown"
+  | "zero"
+  | "partial"
+  | "no_price"
+  | "no_data"
+  | "no_position"
+  | "closed";
 
 /** 收益日历单日 */
 export type PnlCalendarDay = {

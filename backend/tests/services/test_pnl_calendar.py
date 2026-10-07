@@ -22,6 +22,7 @@ from app.services.pnl_calendar import (
     STATE_NO_DATA,
     STATE_NO_POSITION,
     STATE_NO_PRICE,
+    STATE_PARTIAL,
     STATE_UPDOWN,
     STATE_ZERO,
     _collect_fund_nav,
@@ -129,10 +130,14 @@ def test_无价格序列标记为no_price而非零收益(db, make_position, make
 
 
 def test_零收益与无数据可区分(db, make_position, make_transaction):
-    """净值持平 ⇒ zero 态且盈亏 0；开盘日却无净值记录 ⇒ no_data 态且盈亏 None。
+    """净值持平 ⇒ zero 态且盈亏 0；**开盘日却一条新鲜报价都没有** ⇒ no_data 且盈亏 None。
 
-    #1942 修正：后一种情况原先也报 `closed`，与「休市」共用同一个状态码，
-    前端一律显示「休市」，把「没同步」说成了「市场关门」。
+    #1942 细化：#1917 的 C 方案把这种「全体都没出真报价」的日子按前值回填后
+    照常出 0.00。但 0.00 是一句关于收益的断言，而当天的事实是**根本没取到估值**
+    ——2026-01-07 是周三（开盘日），把「净值没同步」说成「今天没赚没亏」，
+    与把「没同步」说成「休市」是同一类错。故按开盘日历分派：
+    开盘日 → `no_data`（用户可去跑同步）/ 非开盘日 → `closed`（只能等开盘）。
+    差分恰为 0，不出数不会丢钱；基准仍无条件推进（#1917 的 A 方案不变）。
     """
     d1 = dt.date(2026, 1, 5)
     d2 = dt.date(2026, 1, 6)
@@ -150,27 +155,25 @@ def test_零收益与无数据可区分(db, make_position, make_transaction):
     )
     _add_nav(db, '000003', d1, 1.0)
     _add_nav(db, '000003', d2, 1.0)
-    # d3 故意不写净值 ⇒ 模拟未同步/休市
+    # d3 故意不写净值 ⇒ 模拟未同步
 
     result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-07')
 
     assert _state_of(result, d2) == STATE_ZERO
     assert _pnl_of(result, d2) == 0
-    # d3（2026-01-07 周三，A 股开盘日）没有任何新鲜报价 ⇒ 是「没同步」，
-    # 不是「休市」，更不是「0 收益」：前值回填出来的 0 只保证市值不跳空，
-    # 不构成「今天没赚没亏」的证据（#1942）。这与「部分有价部分没价」分开处理，
-    # 见 test_部分标的断档时不出数。
+    # d3（周三，A 股开盘日）没有任何新鲜报价 ⇒ 是「没同步」，不是「0 收益」，
+    # 更不是「休市」。这与「部分有价部分没价」（partial，见
+    # test_部分标的断档时标partial且仍出数）分开处理。
     assert _state_of(result, d3) == STATE_NO_DATA
     assert _pnl_of(result, d3) is None
 
 
-def test_部分标的断档时不出数(db, make_position, make_transaction):
+def test_部分标的断档时标partial且仍出数(db, make_position, make_transaction):
     """回归 #1812：一部分标的有当日价、一部分断档 ⇒ 日总额不完整，差分是错的。
 
     实测（真实库 2026-09-30）：只有 13/57 笔有价，若照常出数，
     缺失标的的市值被当成 0，日净资产凭空少 20.8 万。
-    按 design.md「缺数据不可画成 0」，这类日子不出数（#1942 起标 `no_data`，
-    原先是 `closed`——但那天是开盘日，缺的是数据而不是市场关门）。
+    按 design.md「缺数据不可画成 0」，这类日子标closed（数据不全）而不是给出错数。
     """
     d1 = dt.date(2026, 1, 5)
     d2 = dt.date(2026, 1, 6)
@@ -195,8 +198,9 @@ def test_部分标的断档时不出数(db, make_position, make_transaction):
     result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-07')
 
     # d2 覆盖不全 ⇒ 不出数（而不是把B 的市值当成 0 算出个假盈亏）
-    assert _state_of(result, d2) == STATE_NO_DATA, '部分标的断档时应标数据未同步'
-    assert _pnl_of(result, d2) is None
+    # #1917 的 C 方案：断档日**照常给出数值**，另标 `partial` 告知数据不完整。
+    assert _state_of(result, d2) == STATE_PARTIAL, '部分标的断档应标 partial'
+    assert _pnl_of(result, d2) == pytest.approx(100.0, abs=0.01)
 
 
 def test_月合计等于区间内日序列求和(db, make_position, make_transaction):
@@ -383,12 +387,11 @@ def test_空态能区分数据缺口与持仓无估值(db, make_position, make_t
     assert result['latest_price_date'] is None, '取不到任何价格 ⇒ 应报缺口，让前端说「本月无数据」'
 
 
-def test_家庭级覆盖不全时账户级丢同一批天(db, make_position, make_transaction):
+def test_家庭级部分断档时账户级判定天一致(db, make_position, make_transaction):
     """#1916 回归：家庭级因某账户断档丢天时，账户级不得各自出数。
 
     场景：账户甲的基金 1/5~1/7 都有净值；账户乙的基金仅 1/5 有、1/6 起断档。
-    家庭级 1/6、1/7 触发「覆盖不全不出数」⇒ no_data/None（#1812 不出数行为不变，
-    #1942 把状态码从 closed 改为 no_data——那两天是开盘日，缺的是数据）。
+    家庭级 1/6、1/7 触发「覆盖不全不出数」⇒ closed/None（#1812 既有行为）。
     若账户级按各自持仓判定：账户甲 1/6 会照常算出 +50 ⇒ Σ账户级 ≠ 家庭级。
     真实库实测：份额口径修正后该缺口放大到 3502.91，根因即丢天集合不一致。
 
@@ -429,16 +432,16 @@ def test_家庭级覆盖不全时账户级丢同一批天(db, make_position, mak
         db, family_id=1, start_date='2026-01-05', end_date='2026-01-07', ledger_id=b.ledger_id
     )
 
-    # 家庭级：d2/d3 覆盖不全 ⇒ 不出数（#1812 既有行为，不得回归）
+    # #1917 的 A+C：基准无条件推进 ⇒ 断档日**照常出数**（标 partial），不再「丢天」。
     for day in (d2, d3):
-        assert _state_of(family, day) == STATE_NO_DATA
-        assert _pnl_of(family, day) is None
+        assert _state_of(family, day) == STATE_PARTIAL, f'{day} 应标 partial'
+        assert _pnl_of(family, day) is not None, f'{day} 应给出数值'
 
-    # #1916：账户级必须丢同一批天——不能因为自己那笔有价就照常出数
-    for led in (led_a, led_b):
-        for day in (d2, d3):
-            assert _state_of(led, day) == STATE_NO_DATA, f'{day} 账户级应与家庭级同为 no_data'
-            assert _pnl_of(led, day) is None
+    # #1916 核心保证不受影响：账户级与家庭级用同一批判定天（decision_positions），
+    # 逐日可加 ⇒ 月合计精确相等。
+    for day in (d2, d3):
+        for led in (led_a, led_b):
+            assert _state_of(led, day) == STATE_PARTIAL, f'{day} 账户级判定天须一致'
 
     assert family['month_total'] == pytest.approx(led_a['month_total'] + led_b['month_total'], abs=0.02)
 
@@ -485,6 +488,8 @@ def test_流水与持仓账户不一致时按持仓归集(db, make_position, mak
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# #1925 日 / 月 / 年三视图
+# ─────────────────────────────────────────────────────────────────────────────
 # #1942：休市必须来自交易日历，不能拿「当天取不到价格」当判据
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -492,9 +497,9 @@ def test_流水与持仓账户不一致时按持仓归集(db, make_position, mak
 def test_非开盘日报道休市_开盘日缺数据报未同步(db, make_position, make_transaction):
     """#1942 核心回归：2026-01-10/11 是周末（休市），01-13 是周二（没同步）。
 
-    旧实现把「当天取不到价」当成休市判据，于是这两天都报 `closed`、UI 一律显示
-    「休市」。用户的直接观感是「9 月一半都是休市，与实际不符」——市场没关门，
-    是每日净值没同步。两者处置方式相反：一个等开盘，一个要去跑同步任务。
+    旧实现把「当天取不到价」当成休市判据，于是这两天都报同一个「非交易日」态、
+    UI 一律显示「休市」。用户的直接观感是「9 月一半都是休市，与实际不符」——
+    市场没关门，是每日净值没同步。两者处置方式相反：一个等开盘，一个要去跑同步。
     """
     from app.core.trading_calendar import is_trading_day
 
@@ -536,7 +541,7 @@ def test_非开盘日报道休市_开盘日缺数据报未同步(db, make_positi
     assert _state_of(result, mon) == STATE_UPDOWN
     assert _pnl_of(result, mon) == pytest.approx(50.0, abs=0.01)
 
-    assert _state_of(result, tue) == STATE_NO_DATA, '开盘日取不到净值 ⇒ 未同步，不是休市'
+    assert _state_of(result, tue) == STATE_NO_DATA, '开盘日一条估值都没有 ⇒ 未同步，不是休市'
     assert _pnl_of(result, tue) is None
 
 
@@ -637,8 +642,6 @@ def test_建仓前整月的期间状态是无持仓(db, make_position, make_tran
     assert period['pnl'] is None
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# #1925 日 / 月 / 年三视图
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -776,3 +779,95 @@ def test_净值查询只取指定代码(db):
     assert set(got) == {'000001'}
     assert '110011' not in got
     assert got['000001'][dt.date(2026, 1, 5)] == Money.yuan_to_price_units(1.0)
+
+
+def test_断档日仍推进差分基准(db, make_position, make_transaction):
+    """#1917 的 A 方案核心守卫：**基准无条件推进**，与「能否出数」解耦。
+
+    这是消灭「同一日在不同区间得不同盈亏」的唯一关键。旧行为「数据不全就不写基准」
+    会让基准冻结在更早的日子 ⇒ 释放那天的差分跨越不连续的几天 ⇒ 实测真实库
+    2026-09-19（周六，全市场休市）报出 4756.40，而它真实值是 0.00；同一日在小区间
+    里因起点不同、基准推进次数不同，答案是 0.00。
+
+    本例构造「断档两天后恢复」：d4 的盈亏必须只反映 d3→d4 这一天，
+    绝不能把断档期间（或更早）的涨跌一次性算进来。
+    """
+    d1 = dt.date(2026, 1, 5)
+    d2 = dt.date(2026, 1, 6)
+    d3 = dt.date(2026, 1, 7)
+    d4 = dt.date(2026, 1, 8)
+
+    a = make_position(symbol='000091', name='全程有价', quantity=1000, avg_price=1.0, asset_type='fund')
+    b = make_position(symbol='000092', name='断档两天', quantity=1000, avg_price=1.0, asset_type='fund')
+    for pos, sym in ((a, '000091'), (b, '000092')):
+        make_transaction(
+            position_id=pos.id,
+            ledger_id=pos.ledger_id,
+            txn_type='buy',
+            quantity=1000,
+            price=1.0,
+            confirm_date=dt.date(2025, 12, 1),
+            symbol=sym,
+        )
+    # A 逐日有价；B 仅 d1 有，d2/d3 断档，d4 恢复
+    _add_nav(db, '000091', d1, 1.0)
+    _add_nav(db, '000091', d2, 1.1)
+    _add_nav(db, '000091', d3, 1.2)
+    _add_nav(db, '000091', d4, 1.2)
+    _add_nav(db, '000092', d1, 1.0)
+    _add_nav(db, '000092', d4, 1.0)
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-09')
+
+    # d2/d3 部分断档 ⇒ partial，且**仍出数**（A 方案：断档那几笔对称抵消）
+    for day in (d2, d3):
+        assert _state_of(result, day) == STATE_PARTIAL, f'{day} 应标 partial'
+        assert _pnl_of(result, day) is not None, f'{day} 应出数'
+
+    # 关键：A 在 d4 的净值与 d3 相同 ⇒ d4 的真实盈亏是 0。
+    # 若基准冻结在 d1/d2，d4 就会报出一个累积的假值。
+    assert _pnl_of(result, d4) == pytest.approx(0.0, abs=0.01), (
+        f'd4 应为 0（净值未变），实得 {_pnl_of(result, d4)} —— 基准可能冻结了'
+    )
+
+
+def test_同一日在不同区间下必须得到相同结果(db, make_position, make_transaction):
+    """**核心不变量**（#1917）：日盈亏只依赖该日及其前一日，不依赖查询区间。
+
+    实测缺陷：2026-09-19 在整月区间得 4756.40、在小区间得 0.00——
+    同一笔数据的两个答案。根因是「数据不全就不写基准」的旧判据让基准日不推进，
+    次日差分跨越不连续的两天，而能推进几步取决于区间起点。
+    """
+    d1 = dt.date(2026, 1, 5)
+    d2 = dt.date(2026, 1, 6)
+    d3 = dt.date(2026, 1, 7)
+    d4 = dt.date(2026, 1, 8)
+
+    a = make_position(symbol='000081', name='稳定有价', quantity=1000, avg_price=1.0, asset_type='fund')
+    b = make_position(symbol='000082', name='断档后恢复', quantity=1000, avg_price=1.0, asset_type='fund')
+    for pos, sym in ((a, '000081'), (b, '000082')):
+        make_transaction(
+            position_id=pos.id,
+            ledger_id=pos.ledger_id,
+            txn_type='buy',
+            quantity=1000,
+            price=1.0,
+            confirm_date=dt.date(2025, 12, 1),
+            symbol=sym,
+        )
+    _add_nav(db, '000081', d1, 1.0)
+    _add_nav(db, '000081', d2, 1.1)
+    _add_nav(db, '000081', d3, 1.2)
+    _add_nav(db, '000082', d1, 1.0)
+    _add_nav(db, '000082', d3, 1.05)
+
+    wide = build_daily_pnl_series(db, family_id=1, start_date='2026-01-05', end_date='2026-01-09')
+    narrow = build_daily_pnl_series(db, family_id=1, start_date='2026-01-06', end_date='2026-01-09')
+
+    for day in (d2, d3, d4):
+        assert _state_of(wide, day) == _state_of(narrow, day), (
+            f'{day} 状态随区间变化：整月={_state_of(wide, day)} 小区间={_state_of(narrow, day)}'
+        )
+        assert _pnl_of(wide, day) == _pnl_of(narrow, day), (
+            f'{day} 盈亏随区间变化：整月={_pnl_of(wide, day)} 小区间={_pnl_of(narrow, day)}'
+        )

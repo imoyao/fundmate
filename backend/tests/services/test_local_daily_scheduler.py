@@ -51,11 +51,12 @@ def _reset_singleton():
 
 
 class TestLoadConfig:
-    def test_default_is_disabled_with_eleven_jobs(self):
+    def test_default_is_disabled_with_full_job_list(self):
         cfg = ds.load_config({})
         # 必须显式打开：否则 conftest 每个用例都会 create_app()，测试里就会真的起抓取线程
         assert cfg.enabled is False
-        # 末四项是 #1934 补进本机调度的（此前它们只注册在编排器里，从未自动跑过）
+        # 末四项是 #1934 补进本机调度的（此前它们只注册在编排器里，从未自动跑过），
+        # 末项 orphan_backfill 是 #950 新增的孤儿交易回填
         assert cfg.job_names() == [
             'temperature',
             'fund_nav',
@@ -68,6 +69,7 @@ class TestLoadConfig:
             'index_valuation',
             'convertible_bond',
             'dividend_split',
+            'orphan_backfill',
         ]
         assert cfg.timezone == ds.DEFAULT_TIMEZONE
         assert cfg.skip_non_trading_day is True
@@ -85,11 +87,16 @@ class TestLoadConfig:
         assert crons['index_valuation'] == ds.DEFAULT_INDEX_VALUATION_CRON
         assert crons['convertible_bond'] == ds.DEFAULT_CONVERTIBLE_BOND_CRON
         assert crons['dividend_split'] == ds.DEFAULT_DIVIDEND_SPLIT_CRON
+        assert crons['orphan_backfill'] == ds.DEFAULT_ORPHAN_BACKFILL_CRON
         # 顺序即依赖（#1104）：现价回写读的是净值 job 刚落库的 daily_worth、
         # 以及场内日线 job 刚落库的 price_history.close，早于两者会写到旧口径。
         names = cfg.job_names()
         assert names.index('fund_nav') < names.index('position_price')
         assert names.index('price_history') < names.index('position_price')
+        # 孤儿回填（#950）必须排在本机调度的**最后**：它按身份把孤儿流水挂回持仓，
+        # 看到的是当天最终状态。排在 fund_position 之前会因「持仓尚未建好」，
+        # 把本可挂上的流水继续留在孤儿态——而那正是本 job 要消灭的东西。
+        assert names.index('orphan_backfill') == len(names) - 1
 
     def test_fund_position_is_weekly_not_daily(self):
         """回归（#870）：持仓是季报数据，日变更量为 0——必须是每周，不能是每日。
@@ -146,6 +153,7 @@ class TestLoadConfig:
             'index_valuation',
             'convertible_bond',
             'dividend_split',
+            'orphan_backfill',
         ]
 
     def test_price_history_job_targets_stock_pool(self):
@@ -178,6 +186,7 @@ class TestLoadConfig:
             'index_valuation',
             'convertible_bond',
             'dividend_split',
+            'orphan_backfill',
         ]
         assert cfg.jobs[0].cron == '5 22 * * 1-5'
         # target_kind 必须留着：丢了它净值 job 会拿到空目标池并「成功」空跑
