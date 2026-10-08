@@ -354,7 +354,6 @@ export function useWelcomeData() {
     startTicker,
     // 汇总 / XIRR
     summary,
-    distributions,
     portfolioXirr,
     includeCashEquivalents,
     // 温度
