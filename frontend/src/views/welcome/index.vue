@@ -48,7 +48,13 @@
       <div
         class="lg:col-span-12 flex flex-col gap-3 card-hover card-enter h-full"
       >
-        <SectionHeader :title="watchlistTitle">
+        <!-- info tooltip 承载「怎么置顶 / 怎么取消置顶」这类指引（#1954）。
+             此前这段说明是WatchlistWidget 内部一块带 border-b 的文字区，与表头线
+             挤在一起像多余的分割线，且文案承诺了组件根本没有的能力
+             （「可拖动排序或取消置顶」——首页 widget 既无拖拽也无取消置顶入口，
+             用户按提示去找两个都找不到）。
+             改为挂在区块标题的 info 图标上：需要时 hover 可读，不占版面、不抢视线。 -->
+        <SectionHeader :title="watchlistTitle" :info="watchlistHint">
           <template #action>
             <div class="flex items-center gap-2">
               <el-button
@@ -76,7 +82,6 @@
           ref="watchlistWidgetRef"
           :key="watchlistWidgetKey"
           class="flex-1"
-          @select="onWatchlistSelect"
           @add="showAddWatchlistModal = true"
         />
       </div>
@@ -98,7 +103,6 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted } from "vue";
-import { type HomeSummaryItem } from "@/api/watchlist";
 import WatchlistWidget from "@/components/WatchlistWidget/index.vue";
 import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
@@ -158,10 +162,22 @@ const watchlistTitle = computed(() => {
   return watchlistWidgetRef.value.hasPinned ? "置顶资产" : "持仓市值最大资产";
 });
 
+/**
+ * 区块指引文案（挂SectionHeader 的 info tooltip，#1954）。
+ * 两种状态给的指引不同——有置顶时用户想的是「怎么取消/调顺序」，
+ * 无置顶时想的是「怎么置顶」。直接由 widget 的 expose 派生，不另存状态。
+ */
+const watchlistHint = computed(() =>
+  watchlistWidgetRef.value?.hasPinned
+    ? "置顶的资产会固定排在最前。取消置顶、调整顺序请到「我的自选」页操作。"
+    : "当前展示持仓市值最大的资产。在「我的自选」页点击图钉即可置顶，置顶后会固定显示在这里。"
+);
+
 // ===== 事件处理 =====
-const onWatchlistSelect = (item: HomeSummaryItem) => {
-  // TODO: 跳转到资产详情
-};
+// 行点击的跳转由 WatchlistWidget 内部完成（router.push('/watchlist')），本页不再挂
+// @select —— 此前挂的是onWatchlistSelect，而它是个空函数 + `// TODO: 跳转到资产详情`：
+// 整行 cursor-pointer、行内按钮有 hover 反馈，点了却什么都不发生，是「像 demo」的直接来源（#1954）。
+// 待单标的详情页（#1909）落地后，再由本页承接 select 事件改跳详情。
 
 const onWatchlistChanged = () => {
   watchlistWidgetKey.value++;
