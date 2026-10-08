@@ -108,6 +108,42 @@
         <div v-else class="xirr-empty">计算中...</div>
       </CardBlock>
 
+      <!-- 货基收益（组合维度：按 ledger_id 聚合关联账户；与 XIRR 并列，不与 XIRR 相加） -->
+      <CardBlock v-if="moneyFundData || moneyFundLoading" class="mb-6">
+        <SectionHeader title="货基收益">
+          <template #action>
+            <el-button
+              size="small"
+              :loading="moneyFundLoading"
+              @click="fetchMoneyFund"
+            >
+              <IconifyIconOffline icon="ep:refresh" class="mr-1" /> 刷新
+            </el-button>
+          </template>
+        </SectionHeader>
+        <div v-if="moneyFundData" class="xirr-grid">
+          <div class="xirr-item">
+            <span class="xirr-label">近30天累计</span>
+            <div class="xirr-value">
+              <MoneyDisplay :value="moneyFundData.total_income" />
+            </div>
+          </div>
+          <div class="xirr-item xirr-item--ml">
+            <span class="xirr-label">今日收益</span>
+            <div class="xirr-value">
+              <MoneyDisplay
+                :value="moneyFundData.today_income"
+                :show-sign="true"
+              />
+            </div>
+          </div>
+        </div>
+        <div v-else-if="!moneyFundLoading" class="xirr-empty">
+          点击刷新获取货基收益
+        </div>
+        <div v-else class="xirr-empty">计算中...</div>
+      </CardBlock>
+
       <!-- 持仓穿透（#870 B2：钱最终压在哪些行业/个股） -->
       <div class="mb-6">
         <PenetrationPanel />
@@ -352,7 +388,12 @@ import {
   getPortfolioHoldings,
   type PortfolioDetail
 } from "@/api/portfolio";
-import { getPortfolioXirr, type XirrData } from "@/api/performance";
+import {
+  getPortfolioXirr,
+  getMoneyFundIncome,
+  type XirrData,
+  type MoneyFundIncomeData
+} from "@/api/performance";
 import { getLedgers, type LedgerItem } from "@/api/ledger";
 import { getPositions, updatePosition } from "@/api/positions";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
@@ -413,6 +454,9 @@ const portfolio = ref<PortfolioDetail | null>(null);
 const linkedLedgers = ref<LinkedLedger[]>([]);
 const xirrData = ref<XirrData | null>(null);
 const xirrLoading = ref(false);
+// 组合货基收益（组合维度，按 ledger_id 聚合关联账户；与 XIRR 并列展示，不相加）
+const moneyFundData = ref<MoneyFundIncomeData | null>(null);
+const moneyFundLoading = ref(false);
 // #1354：年化收益是否纳入现金等价物；默认 false=仅主动投资，反映真实投资水准
 const includeCashEquivalents = ref(false);
 const sortProp = ref<string | null>(null);
@@ -580,6 +624,21 @@ async function fetchXirr() {
   }
 }
 
+async function fetchMoneyFund() {
+  moneyFundLoading.value = true;
+  try {
+    const res = await getMoneyFundIncome({
+      scope: "portfolio",
+      portfolio_id: portfolioId.value
+    });
+    moneyFundData.value = res.data;
+  } catch {
+    ElMessage.error("获取货基收益失败");
+  } finally {
+    moneyFundLoading.value = false;
+  }
+}
+
 // ---------- 删除 / 跳转 ----------
 async function handleDelete() {
   try {
@@ -614,6 +673,7 @@ onMounted(async () => {
   await fetchDetail();
   if (portfolio.value) {
     void fetchXirr(); // 自动加载收益率
+    void fetchMoneyFund(); // 自动加载组合货基收益
     await fetchUnarchived(); // 加载未归档持仓（探市录入等）
   }
 });

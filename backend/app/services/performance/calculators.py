@@ -236,15 +236,15 @@ def calculate_portfolio_xirr_by_id(
     if not portfolio:
         raise ValueError('投资组合不存在')
 
-    # 获取组合关联的所有 Ledger 名称（家庭维度）
-    ledger_names = [
+    # 获取组合关联的所有 Ledger ID（家庭维度）。统一按 ledger_id（外键维度）聚合，
+    # 不用冗余的 account_name —— 同名账户会造成口径串味（历史 bug）；未归档持仓
+    # ledger_id 为 NULL 自然不计入组合。
+    ledger_ids = [
         row[0]
-        for row in db.query(Ledger.name)
-        .filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == family_id)
-        .all()
+        for row in db.query(Ledger.id).filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == family_id).all()
     ]
 
-    if not ledger_names:
+    if not ledger_ids:
         return {
             'xirr': 0.0,
             'total_invested': 0.0,
@@ -254,9 +254,9 @@ def calculate_portfolio_xirr_by_id(
             'cashflow_count': 0,
         }
 
-    # 获取这些账户下的持仓总市值
+    # 获取这些账户下的持仓总市值（按 ledger_id 集合过滤）
     pos_filter = [
-        Position.account_name.in_(ledger_names),
+        Position.ledger_id.in_(ledger_ids),
         Position.quantity > 0,
         Position.family_id == family_id,
     ]
@@ -273,7 +273,7 @@ def calculate_portfolio_xirr_by_id(
 
     logger.debug(
         f'组合 XIRR 计算(portfolio_id={portfolio_id}): '
-        f'账户数={len(ledger_names)}, 持仓数={len(positions)}, '
+        f'账户数={len(ledger_ids)}, 持仓数={len(positions)}, '
         f'总市值={total_value:.2f}, 现金流笔数={len(cashflows)}'
     )
 
