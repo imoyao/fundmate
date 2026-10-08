@@ -930,3 +930,43 @@ def test_整段无可算日时区间收益率为None而非零(db, make_position)
 
     assert res['periods'][0]['state'] == STATE_NO_PRICE
     assert res['range_rate'] is None
+
+
+def test_区间前一天为非交易日时单月与宽区间逐日相等(db, make_position, make_transaction):
+    """#1953 回归：区间前一天（scan_start）落在非交易日/无净值时，首个区间日不得
+    把整笔累计浮盈吞成当日盈亏；同一批日期在「单月区间」与「宽区间」下必须逐日相等。
+
+    构造：基金 1/2 建仓（cost 1.0），5/29 起净值 1.2（已涨 20%），5/31 周日无净值；
+    宽区间 scan_start=4/30 补 4/30 nav 使其有价。修复前，单月区间的 scan_start=5/31
+    价格窗口不含 5/29，回填取不到价 ⇒ prev_total_pnl 低估 ⇒ 6/1 把累计浮盈当当日盈亏，
+    与宽区间 6/1 不一致（单月合计虚增，违反区间无关性）；修复后两者逐日相等。
+    """
+    pos = make_position(symbol='000001', name='测试基金', quantity=1000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=dt.date(2026, 1, 2),
+        symbol='000001',
+    )
+    # 净值：4/30=1.2（宽区间基准日有价）、5/29=1.2（单月区间可回填到的最后价）、
+    # 6/1~6/3=1.2；5/31 周日刻意不加（区间前一天无净值，正是 #1953 触发条件）
+    for nav_date in (
+        dt.date(2026, 4, 30),
+        dt.date(2026, 5, 29),
+        dt.date(2026, 6, 1),
+        dt.date(2026, 6, 2),
+        dt.date(2026, 6, 3),
+    ):
+        _add_nav(db, '000001', nav_date, 1.2)
+
+    single = build_daily_pnl_series(db, family_id=1, start_date='2026-06-01', end_date='2026-06-03')
+    wide = build_daily_pnl_series(db, family_id=1, start_date='2026-05-01', end_date='2026-06-03')
+
+    for day in (dt.date(2026, 6, 1), dt.date(2026, 6, 2), dt.date(2026, 6, 3)):
+        s = _pnl_of(single, day)
+        w = _pnl_of(wide, day)
+        assert s is not None and w is not None, f'{day} 两区间都应可算'
+        assert s == w, f'{day} 单月({s})与宽区间({w})应逐日相等（#1953 区间无关性）'

@@ -434,8 +434,16 @@ def build_daily_pnl_series(
         for p in decision_positions
         if venue_of_row((p.symbol or '').strip(), p.asset_type) == EXCHANGE and (p.symbol or '').strip()
     }
-    fund_nav = _collect_fund_nav(db, scan_start, end, otc_codes)
-    exchange_prices = _collect_price_history(db, ex_symbols, scan_start, end)
+    # 价格窗口起点从 `scan_start` 再往前扩 `_STALE_CARRY_DAYS` 天（#1953）：
+    # `scan_start`（区间前一天）当天若无净值行（周末/节假日/基金当日没出净值），
+    # `_price_for` 会向前回溯至多 7 天取前值回填；若窗口从 `scan_start` 起，回溯到的
+    # 那些日期不在窗口内 ⇒ 取不到价 ⇒ `scan_start` 净资产被低估（甚至按 0 计）⇒
+    # 首个区间日的差分把整笔累计浮盈吞成当日盈亏（单月合计虚增，违反区间无关性）。
+    # 多取这 7 天只让 SQL 区间加宽 7 天（IN 过滤下增量可忽略，见 `_collect_fund_nav`
+    # 性能注释），却能保证基准日取到回填价。
+    price_window_start = scan_start - dt.timedelta(days=_STALE_CARRY_DAYS)
+    fund_nav = _collect_fund_nav(db, price_window_start, end, otc_codes)
+    exchange_prices = _collect_price_history(db, ex_symbols, price_window_start, end)
 
     # ── as-of 份额 / 成本 / 已实现盈亏 ──
     # 传 end 而非 scan_start：`_as_of_shares` 内部按 `eff > <参数>` 截断，
