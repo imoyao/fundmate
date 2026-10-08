@@ -63,6 +63,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from loguru import logger
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.constants import EXCHANGE_RATES
@@ -73,6 +74,7 @@ from app.domains.funds.models import DailyWorth
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.transactions.models import Transaction
+from app.services import pnl_snapshot_store
 from app.services.pnl_service import (
     _DIVEST_TXN_TYPES,
     _INVEST_TXN_TYPES,
@@ -113,6 +115,22 @@ STATE_PARTIAL = 'partial'
 # 太小：单日数据抖动就会让市值归零、差分出现假跳空。7 天覆盖周末与节假日。
 _STALE_CARRY_DAYS = 7
 
+# ── 物化新鲜窗（#1926）────────────────────────────────────────────────────────
+# `>= 今天 - PRICE_FRESH_DAYS` 的日期**永不落库**、读时恒现算，其行也就从不被写出去。
+#
+# 为什么这样能免掉「价格同步」的失效钩子：日常增量同步写的是今天 / 近几天的净值，
+# 而新到的价格最多被 `_STALE_CARRY_DAYS` 天的前值回填**向前**吃到 7 天——
+# 新数据可能改变的日子，正好被这 8 天窗覆盖。于是「同一行先算完、后到新价格」
+# 这件事在结构上不可能发生，不必靠钩子去补。
+#
+# 代价是每次读都要重算末尾 8 天（近 30 天的视图 ≈8/30），远小于整窗重算。
+# 例外是**历史回填**（`sync --job fund_nav --full-sync`）：它改的是窗口外的老日期，
+# 由 sync 编排器在成功后调 `pnl_snapshot_store.purge_all()` 整表作废。
+#
+# 取值必须 ≥ `_STALE_CARRY_DAYS + 1`：新价格对 T 日的影响沿前值回填传播到
+# T + _STALE_CARRY_DAYS，窗比传播半径短一天就会漏掉尾巴。
+PRICE_FRESH_DAYS = _STALE_CARRY_DAYS + 1
+
 # 聚合粒度（#1925 三视图）：day=逐日明细回 `days`；month/year=期间聚合回 `periods`。
 # 口径唯一出口仍是后端——前端只做呈现，禁止二次盈亏计算（见本文件顶部口径说明）。
 GRANULARITY_DAY = 'day'
@@ -135,12 +153,20 @@ def _to_price_units(value) -> int:
 
 
 def _effective_date(txn) -> Optional[dt.date]:
-    """流水生效日：优先 confirm_date，缺失回退 trade_date 的日期部分。"""
+    """流水生效日：优先 confirm_date，缺失回退 trade_date 的日期部分。
+
+    `trade_date` 列型是 `DateTime`（到分钟），但**flush 之中**读到的未必是方言
+    解析后的 `datetime`——`pnl_snapshot_store._before_flush` 在 flush 里读属性，
+    拿到的可能是写入时塞进去的 `date` 对象（`.date()` 会 `AttributeError`）。
+    日历自身只读已提交的行、拿不到这个形态，故这层判断是**失效钩子接上后**
+    才暴露的；两种类型都收，语义不变。
+    """
     if txn.confirm_date:
         return txn.confirm_date
-    if txn.trade_date:
-        return txn.trade_date.date()
-    return None
+    trade = txn.trade_date
+    if not trade:
+        return None
+    return trade.date() if hasattr(trade, 'date') else trade
 
 
 def _as_of_shares(
@@ -373,6 +399,163 @@ def _resolve_range(start_date: Optional[str], end_date: Optional[str]) -> Tuple[
     return start, end
 
 
+# ──────────────────── 物化读路径的辅助件（#1926）────────────────────────────
+#
+# 这一组函数只解决一件事：让「先算 A 段、再算 B 段、拼起来」与「一次算 A+B 段」
+# 逐位相等。任何一条做不到，物化就是静默错数字（#1812 那批 bug 的复刻）。
+
+
+def _date_range(start: dt.date, end: dt.date) -> Iterable[dt.date]:
+    """闭区间逐日迭代——物化读路径要逐日比对「这天有没有行」。"""
+    day = start
+    while day <= end:
+        yield day
+        day += dt.timedelta(days=1)
+
+
+def _fresh_window_start() -> dt.date:
+    """物化新鲜窗左端（含）：该日起的日期读时恒现算、永不落库。见 `PRICE_FRESH_DAYS`。"""
+    from app.core.time_utils import now_shanghai
+
+    return now_shanghai().date() - dt.timedelta(days=PRICE_FRESH_DAYS)
+
+
+def _price_code_sets(decision_positions: List[Position]) -> Tuple[set, set]:
+    """按场所拆出要查的基金代码 / 场内代码（判定集是家庭级全量）。"""
+    otc_codes: set = set()
+    ex_symbols: set = set()
+    for p in decision_positions:
+        symbol = (p.symbol or '').strip()
+        if not symbol:
+            continue
+        venue = venue_of_row(symbol, p.asset_type)
+        if venue == OTC:
+            otc_codes.add(symbol)
+        elif venue == EXCHANGE:
+            ex_symbols.add(symbol)
+    return otc_codes, ex_symbols
+
+
+def _price_presence(
+    db: Session,
+    decision_positions: List[Position],
+    start: dt.date,
+    end: dt.date,
+) -> Tuple[set, Optional[dt.date]]:
+    """`(整段无价格序列的持仓 id 集合, 区间内最新价格日)`。
+
+    窗口 = `[start - 1, end]`，与现算取价的 `scan_start..end` **逐字一致**——
+    `no_price_ids` 的语义是「这段窗口内有无价格序列」，窗口一变答案就变。
+
+    **为什么不复用 `price_series` 推导**（#1926）：物化读只取尾段的价格行，
+    前段的 `price_series` 对它是空的；拿它推会让同一个问题在「缓存命中」与
+    「缓存未命中」时给出不同答案。等价性是一行恒等式::
+
+        bool(fund_nav.get(code))  ⟺  该代码在窗口内有行  ⟺  MAX(date) 组存在
+
+    只回 `code -> MAX(date)` 一行/代码，走 `(fund_code, date)` / `(symbol, trade_date)`
+    唯一索引，成本 O(代码数) 而非 O(代码数 × 天数)——所以缓存全命中时，
+    `coverage` / `latest_price_date` 这两个区间级字段仍能廉价算出来，
+    不必为了诊断字段把全量价格行再拉一遍。
+    """
+    decision_start = start - dt.timedelta(days=1)
+    otc_codes, ex_symbols = _price_code_sets(decision_positions)
+
+    otc_latest: Dict[str, dt.date] = {}
+    if otc_codes:
+        otc_latest = dict(
+            db.query(DailyWorth.fund_code, func.max(DailyWorth.date))
+            .filter(
+                DailyWorth.fund_code.in_(otc_codes),
+                DailyWorth.date >= decision_start,
+                DailyWorth.date <= end,
+            )
+            .group_by(DailyWorth.fund_code)
+            .all()
+        )
+    ex_latest: Dict[str, dt.date] = {}
+    if ex_symbols:
+        ex_latest = dict(
+            db.query(PriceHistory.symbol, func.max(PriceHistory.trade_date))
+            .filter(
+                PriceHistory.symbol.in_(ex_symbols),
+                PriceHistory.trade_date >= decision_start,
+                PriceHistory.trade_date <= end,
+            )
+            .group_by(PriceHistory.symbol)
+            .all()
+        )
+
+    no_price_ids: set = set()
+    latest: Optional[dt.date] = None
+    for p in decision_positions:
+        symbol = (p.symbol or '').strip()
+        venue = venue_of_row(symbol, p.asset_type)
+        if venue == OTC:
+            matched = otc_latest.get(symbol)
+        elif venue == EXCHANGE:
+            matched = ex_latest.get(symbol)
+        else:
+            matched = None
+        if matched is None:
+            no_price_ids.add(p.id)
+        elif latest is None or matched > latest:
+            latest = matched
+    return no_price_ids, latest
+
+
+def _coverage(positions: List[Position], no_price_ids: set) -> dict:
+    """按本作用域自己的持仓报覆盖率（`no_price_ids` 是家庭级全集，须按持仓过滤）。"""
+    unpriced = sum(1 for p in positions if p.id in no_price_ids)
+    return {
+        'total_positions': len(positions),
+        'priced_positions': len(positions) - unpriced,
+        'unpriced_positions': unpriced,
+    }
+
+
+def _row_meta(row) -> dict:
+    """物化行 → 与现算结果同构的中间形态（整数分 / 整数基点）。"""
+    return {
+        'daily_pnl_cents': row.daily_pnl_cents,
+        'net_worth_cents': row.net_worth_cents,
+        'rate_bp': row.rate_bp,
+        'state': row.state,
+    }
+
+
+def _day_to_api(date: dt.date, meta: dict) -> dict:
+    """把**存储形态**（整数分 / 整数基点）还原成 API 形态（元 / 百分比）。
+
+    与现算路径逐字对齐——物化读与现算读必须逐位相等，单位换算是唯一可能引入
+    差异的地方，故逐项写明依据：
+
+    - 金额：`round(Money.cents_to_yuan(x), 2)`，与现算同一条 `Money` 出口，整数分
+      进出无损；
+    - 收益率：现算给的是 2 位小数的 float，存时经 `Decimal(str(v)) * 100` 取整基点
+      （`str` 给最短往返表示，故十进制上是精确的），读时 `float(Decimal(bp) / 100)`
+      还原到**同一个** IEEE-754 double；
+    - 负零：`round(-0.0001, 2)` 得 `-0.0`（大额组合的 1 分钱日盈亏就会命中），
+      而整数基点 0 会把这个符号吃掉。故按「基点为 0 且当日盈亏为负」补回 `-0.0`，
+      否则前端从 `-0.00%` 变成 `0.00%`——数值相等、字面不同，
+      「物化读 ≡ 现算读」就不再逐位成立。
+    """
+    pnl = meta['daily_pnl_cents']
+    rate_bp = meta['rate_bp']
+    rate = None
+    if rate_bp is not None:
+        rate = float(Decimal(rate_bp) / 100)
+        if rate_bp == 0 and pnl is not None and pnl < 0:
+            rate = -0.0
+    return {
+        'date': date.isoformat(),
+        'daily_pnl': None if pnl is None else round(Money.cents_to_yuan(pnl), 2),
+        'net_worth': round(Money.cents_to_yuan(meta['net_worth_cents']), 2),
+        'rate': rate,
+        'state': meta['state'],
+    }
+
+
 def build_daily_pnl_series(
     db: Session,
     family_id: int = 1,
@@ -400,14 +583,32 @@ def build_daily_pnl_series(
      2. 状态判定（丢天/覆盖不全/无持仓）恒用**家庭级全量决策集**——各作用域丢同一批天、
         同步推进差分基准，否则 month_total 的差分链错位、不可加（实测差 3502.91）；
      3. day_total 按持仓可加（每笔持仓恰属一个账户）。
+
+    ── 物化读路径（#1926）──────────────────────────────────────────────────────
+    以前每次调用都 as-of 现算整段区间（1 年 ≈1.3s、5 年 ≈3.6s，成本随天数线性）。
+    现在按日落库、缺哪天补哪天：
+
+    1. 先取物化行（新鲜窗内的行不算数，见 `PRICE_FRESH_DAYS`）；
+    2. 区间全命中 ⇒ 直接拼 payload，`coverage` / `latest_price_date` 走
+       `_price_presence` 的廉价聚合查询，不取全量价格行；
+    3. 有缺失 ⇒ 从 `first_missing` 起**只重算尾段**（其前一天作差分基准），
+       前段用物化行拼，随后 upsert 回去，下次命中；
+    4. `daily_pnl`/`rate` 为 NULL 的行照原样输出 `None`——**缺数据绝不画成 0**。
+
+    **物化只省时间、不改口径**：拼接结果与「整窗现算」逐位相等由
+    `tests/services/test_pnl_snapshot_store.py` 钉住。三条必要条件缺一不可：
+    取价窗口前扩 `_STALE_CARRY_DAYS`（首日答案不再取决于查询起点）、
+    `no_price_ids`/`latest_price_date` 用固定窗口的存在性聚合查询、
+    基准日的水平值与窗口起点无关——`_build_per_pos` 先注入 `scan_start` 之前的
+    累计、循环再补 `[scan_start, A]`，故 day A 的份额/已实现恒为 `Σ_{d≤A}`
+    （#1917 之后基准无条件推进，也不再有「断档日不能当基准」这回事）。
+
+    物化窗口比 `start` 多带一天 `start - 1`：`range_rate` 的分母是**区间前一天**
+    的净资产，全量命中时若不存它，分母就无处可取。
     """
-    # 往前多取一天，**只为给区间首日建立差分基准**。
-    # 否则每月 1 号都因「无前一日」而不可算（#1942 起报 no_data，而不是「休市」，
-    # 因为成因是基准缺失而非市场关门）。该日不进入输出（见下方 emit 条件）。
     start, end = _resolve_range(start_date, end_date)
     if start > end:
         return _empty_payload(ledger_id, start, end)
-    scan_start = start - dt.timedelta(days=1)
 
     positions = _positions(db, family_id, ledger_id)
     if not positions:
@@ -421,35 +622,189 @@ def build_daily_pnl_series(
     # 基准；而 day_total 按持仓可加（份额/已实现均按持仓归集），故
     # Σ账户级 month_total ≡ 家庭级 month_total。家庭级调用时两者为同一集合。
     decision_positions = positions if ledger_id is None else _positions(db, family_id, None)
+    # 覆盖率诊断按**原始窗口**算，缓存命中与否都不影响它（见 `_price_presence`）。
+    no_price_ids, latest_dt = _price_presence(db, decision_positions, start, end)
+    latest_price_date = latest_dt.isoformat() if latest_dt else None
+    # as-of 份额/流水在此取一次：`first_txn_date` 在**全量命中**路径上也要用到，
+    # 而那条路根本不进 `_compute_days`；留在里面取会变成命中即白查一次。
+    shares, txns = _as_of_shares(db, family_id, end)
+
+    # ── 取物化行（含 `start - 1`：`range_rate` 的分母要区间前一天的净资产）──
+    baseline_day = start - dt.timedelta(days=1)
+    cached = pnl_snapshot_store.load_days(db, family_id, ledger_id, baseline_day, end)
+    fresh_start = _fresh_window_start()
+    for d in [d for d in cached if d >= fresh_start]:
+        cached.pop(d)  # 新鲜窗内的行即使存量里有也当作没有（读时恒现算）
+
+    first_missing: Optional[dt.date] = None
+    for d in _date_range(baseline_day, end):
+        if d not in cached:
+            first_missing = d
+            break
+
+    computed_by_date: Dict[dt.date, dict] = {}
+    metas: Dict[dt.date, dict] = {}
+    loop_start: Optional[dt.date] = None
+    if first_missing is None:
+        metas = {d: _row_meta(cached[d]) for d in _date_range(baseline_day, end)}
+        recomputed = 0
+    else:
+        # 起点就是第一个缺口，不必再回退找「可用的基准日」：`_build_per_pos` 先注入
+        # `scan_start` 之前的累计、循环再补 `[scan_start, A]`，故 `first_missing - 1`
+        # 的水平值与从哪天起算无关（#1917 之后基准也无条件推进，不再有「断档日
+        # 不能当基准」这回事）。回退逻辑连同 `baseline_ok` 列一并移除，见 docstring。
+        loop_start = first_missing
+        computed = _compute_days(
+            db,
+            family_id,
+            positions,
+            decision_positions,
+            start,
+            end,
+            ledger_id,
+            loop_start,
+            no_price_ids,
+            shares,
+            txns,
+        )
+        pnl_snapshot_store.save_days(
+            db,
+            family_id,
+            ledger_id,
+            computed,
+            max_date=fresh_start - dt.timedelta(days=1),
+        )
+        computed_by_date = {dt.date.fromisoformat(m['date']): m for m in computed}
+        metas = {d: _row_meta(cached[d]) for d in _date_range(baseline_day, loop_start) if d in cached}
+        recomputed = len(computed)
+
+    def _meta_of(d: dt.date) -> dict:
+        """某日的存储形态：缺口之后现算、之前用物化行，与取数窗口无关。"""
+        if loop_start is not None and d >= loop_start:
+            return computed_by_date[d]
+        return metas[d]
+
+    days = [_day_to_api(d, _meta_of(d)) for d in _date_range(start, end)]
+
+    total_cents = sum(int(Decimal(str(d['daily_pnl'])) * 100) for d in days if d['daily_pnl'] is not None)
+
+    # ── 区间收益率（#1942）：分母 = 区间前一天的净资产 ──
+    # 与首个期间的 `rate` 同分母口径（不是把日收益率相加——那会算错复利）。
+    # `range_baseline` 与 `total_cents` 同为分，比值与单位无关。
+    #
+    # 三个「不可算」都要回 None，**不能借 0.0 兜底**（「缺数据绝不画成 0」这条红线
+    # 在区间层同样成立）：
+    #   · 无基准 / 基准为 0（区间首日就无前值）
+    #   · 区间内**没有任何可算日**（整段 no_price / no_data / closed），
+    #     此时 total_cents 恒为 0，若报 0.00% 会被读成「这段时间没涨没跌」。
+    #   · 基准日那行本身取不到（罕见，如落在未物化的新鲜窗内）——宁可不报也不猜。
+    baseline_meta = computed_by_date.get(baseline_day, metas.get(baseline_day))
+    range_baseline = None if baseline_meta is None else baseline_meta['net_worth_cents']
+    has_computable = any(d['daily_pnl'] is not None for d in days)
+    range_rate = (
+        round(total_cents / abs(range_baseline) * 100, 2)
+        if has_computable and range_baseline not in (None, 0)
+        else None
+    )
+
+    # ── 「投资以来」的起点（#1942 年视图）──
+    # 最早一笔**改变份额**的流水（买 / 卖 / 转入 / 转出）的生效日，按本作用域持仓过滤。
+    # 年视图要「投资以来每一年占一格」，前端必须知道起点；旧实现写死 3 年窗口
+    # （`YEAR_WINDOW`），窗口边界与真实建仓年份无关，年份一多就既看不全也对不上。
+    # `shares` 已按 position_id 归组且只含 `eff <= end` 的流水，故取键的最小值即得，
+    # 不需要再查一次库。
+    scope_position_ids = {p.id for p in positions}
+    first_txn = min(
+        (day for pid in scope_position_ids for day in shares.get(pid, {})),
+        default=None,
+    )
+
+    logger.info(
+        '收益日历派生完成 scope={} 区间={}~{} 天数={} 合计={} 物化补算={}',
+        'ledger' if ledger_id is not None else 'family',
+        start,
+        end,
+        len(days),
+        round(Money.cents_to_yuan(total_cents), 2),
+        recomputed,
+    )
+
+    return {
+        'ledger_id': ledger_id,
+        'scope': 'ledger' if ledger_id is not None else 'family',
+        'start_date': start.isoformat(),
+        'end_date': end.isoformat(),
+        'month_total': round(Money.cents_to_yuan(total_cents), 2),
+        'range_rate': range_rate,
+        'has_any_price': any(d['state'] in (STATE_UPDOWN, STATE_ZERO) for d in days),
+        # ── 覆盖率诊断（前端据此区分「你的标的无估值」与「这个月没数据」）──
+        # 这两件事对用户完全不同的处置：前者是持仓属性（本来就不该有日估值），
+        # 后者是数据缺口（该有却没有，多半是每日快照任务没跑）。
+        # 不区分就会像 #1812 上线首日那样，一律显示「无历史价格序列」——
+        # 而真实原因是当月一条价格数据都没有。
+        'coverage': _coverage(positions, no_price_ids),
+        'latest_price_date': latest_price_date,
+        # 「投资以来」起点：最早一笔改变份额的流水生效日；无持仓 / 无流水时 None
+        'first_txn_date': first_txn.isoformat() if first_txn else None,
+        'days': days,
+    }
+
+
+def _compute_days(
+    db: Session,
+    family_id: int,
+    positions: List[Position],
+    decision_positions: List[Position],
+    start: dt.date,
+    end: dt.date,
+    ledger_id: Optional[int],
+    loop_start: dt.date,
+    no_price_ids: set,
+    shares: Dict[int, Dict[dt.date, int]],
+    txns: Dict[int, List[Transaction]],
+) -> List[dict]:
+    """现算 `[loop_start, end]` 并返回**存储形态**（整数分 / 整数基点，供 `save_days`）。
+
+    `loop_start > start` 时只重算尾段，前段由调用方拿物化行拼（部分重算）。
+    `shares` / `txns` 由调用方一次取好传入——`first_txn_date` 在全量命中路径上
+    也要用到，留在这里取会变成「命中即白查一次」。
+    注意几处**刻意与窗口解耦**的口径：
+
+    - `no_price_ids` 由调用方按**原始窗口** `[start-1, end]` 给入，不在本函数内从
+      `price_series` 推导——本函数的取价窗口已前扩，推出来的集合会不一样；
+    - 输出条件是 `day >= loop_start` 而非 `>= start`，否则会把 `loop_start - 1`
+      也写进结果，与前段的物化行重复。
+    """
+    # 往前多取一天，**只为给区间首日建立差分基准**。
+    # 否则每月 1 号都因「无前一日」而不可算（#1942 起报 no_data，而不是「休市」，
+    # 因为成因是基准缺失而非市场关门）。该日不进入输出（见下方 emit 条件）。
+    scan_start = loop_start - dt.timedelta(days=1)
 
     # ── 价格批量取回（跨域两步法：先按键分组，再 in_ 一次取回）──
     # 判定集是家庭级全量，价格按全量取（账户级调用也一样）。
-    otc_codes = {
-        (p.symbol or '').strip()
-        for p in decision_positions
-        if venue_of_row((p.symbol or '').strip(), p.asset_type) == OTC and (p.symbol or '').strip()
-    }
-    ex_symbols = {
-        (p.symbol or '').strip()
-        for p in decision_positions
-        if venue_of_row((p.symbol or '').strip(), p.asset_type) == EXCHANGE and (p.symbol or '').strip()
-    }
-    # 价格窗口起点从 `scan_start` 再往前扩 `_STALE_CARRY_DAYS` 天（#1953）：
-    # `scan_start`（区间前一天）当天若无净值行（周末/节假日/基金当日没出净值），
-    # `_price_for` 会向前回溯至多 7 天取前值回填；若窗口从 `scan_start` 起，回溯到的
-    # 那些日期不在窗口内 ⇒ 取不到价 ⇒ `scan_start` 净资产被低估（甚至按 0 计）⇒
-    # 首个区间日的差分把整笔累计浮盈吞成当日盈亏（单月合计虚增，违反区间无关性）。
-    # 多取这 7 天只让 SQL 区间加宽 7 天（IN 过滤下增量可忽略，见 `_collect_fund_nav`
-    # 性能注释），却能保证基准日取到回填价。
-    price_window_start = scan_start - dt.timedelta(days=_STALE_CARRY_DAYS)
-    fund_nav = _collect_fund_nav(db, price_window_start, end, otc_codes)
-    exchange_prices = _collect_price_history(db, ex_symbols, price_window_start, end)
+    otc_codes, ex_symbols = _price_code_sets(decision_positions)
+    # 价格窗口起点从 `scan_start` 再往前扩 `_STALE_CARRY_DAYS` 天。两条独立理由，
+    # 缺一条都会踩到：
+    #
+    # · #1953（口径）：`scan_start`（区间前一天）当天若无净值行（周末/节假日/基金
+    #   当日没出净值），`_price_for` 会向前回溯至多 7 天取前值回填；窗口若从
+    #   `scan_start` 起，回溯到的那些日期不在窗口内 ⇒ 取不到价 ⇒ `scan_start`
+    #   净资产被低估（甚至按 0 计）⇒ 首个区间日的差分把整笔累计浮盈吞成当日盈亏
+    #   （单月合计虚增，违反区间无关性）。
+    # · #1926（等价性）：`_price_for` 在某天要回看 `[day-7, day]`，窗口不前扩则
+    #   区间首日的回看被窗口起点截断 ⇒ **同一笔持仓换个月份看会算出不同的首日盈亏**
+    #   （结果取决于查询区间），物化读与现算读必然分叉。
+    #
+    # 前扩后回看完整，窗口长度既不再是口径的一部分、也不再是结果的隐含输入。
+    # 多取这 7 天只让 SQL 区间加宽 7 天（IN 过滤下增量可忽略）。
+    fetch_start = scan_start - dt.timedelta(days=_STALE_CARRY_DAYS)
+    fund_nav = _collect_fund_nav(db, fetch_start, end, otc_codes)
+    exchange_prices = _collect_price_history(db, ex_symbols, fetch_start, end)
 
     # ── as-of 份额 / 成本 / 已实现盈亏 ──
-    # 传 end 而非 scan_start：`_as_of_shares` 内部按 `eff > <参数>` 截断，
-    # 传 scan_start 会把「建仓当天正好落在 scan_start 之后」的流水整条丢掉
-    # （实测：买在窗口第 1 天 ⇒ 份额恒为 0 ⇒ 整月 closed）。
-    shares, txns = _as_of_shares(db, family_id, end)
+    # `shares`/`txns` 已按 `end` 截断后传入（而非按 `scan_start`）：`_as_of_shares`
+    # 内部按 `eff > <参数>` 截断，按 `scan_start` 截会把「建仓当天正好落在
+    # scan_start 之后」的流水整条丢掉（实测：买在窗口第 1 天 ⇒ 份额恒为 0 ⇒ 整月 closed）。
 
     # ── 价格序列按持仓解析一次（#1925 性能）──
     # 日循环里每笔持仓每天要问两次「你属于哪个场所 / 你有哪条序列」，每次
@@ -458,7 +813,9 @@ def build_daily_pnl_series(
     # （账户级的价值集是它的子集）；coverage 诊断按本作用域报。
     price_series = {p.id: _price_series_of(p, fund_nav, exchange_prices) for p in decision_positions}
     # 整段无价格序列的持仓（balance 模式 / 无场所判定）——整段区间都不可能有日收益。
-    no_price_ids = {pid for pid, series in price_series.items() if not series}
+    # `no_price_ids` 由调用方按**原始窗口**注入（见 `_price_presence`），刻意不在这里
+    # 从 `price_series` 推：本函数的取价窗口已前扩 `_STALE_CARRY_DAYS`，推出来的集合
+    # 会把前扩进来的行也算成「有序列」，与缓存命中路径的答案分叉。
 
     # 当日价缓存：只在**同一天内**复用（值循环与判定循环各查一次），故每天清空。
     # 键取 `pos.id` 而非 `(id, iso日期)`：热路径上每次省掉 2.31µs 的字符串构造，
@@ -479,10 +836,6 @@ def build_daily_pnl_series(
     day = scan_start
     prev_net_worth: Optional[int] = None
     prev_total_pnl: Optional[int] = None
-    # 区间收益率（`range_rate`）的分母：**区间前一天**的净资产。
-    # 与首个期间的 `rate` 同分母口径（不是把日收益率相加——那会算错复利）。
-    # 只在首个区间日捕获一次；该日的前一日恰好是 `scan_start`（= start − 1 天）。
-    range_baseline: Optional[int] = None
 
     # 账户级调用时决策集（家庭全集）与值集（本账户）是两套；家庭级调用时同一套。
     per_pos_sets = (value_per_pos,) if value_per_pos is decision_per_pos else (decision_per_pos, value_per_pos)
@@ -575,22 +928,31 @@ def build_daily_pnl_series(
             # 「当日缺席」= 该标的这一天**没有真报价**（即使回填成功也不算数）。
             # 沿用前值只是让市值不跳空，并不代表「价格没变」这个事实。
             #
-            # 新鲜度判定改用预解析的价格序列（#1925）：`no_price_ids` 本就由
-            # `price_series` 推导（见上方 `no_price_ids = {... if not series}`），
-            # 故 `pos.id not in no_price_ids` ≡ `series` 非空；`day in series`
-            # 与旧 `_has_fresh_price` 末尾的 `bool(series) and day in series`
-            # 同义，免去每笔每天的 `venue_of_row` 正则解析（5 年窗口 55 万次 ≈1.8s）。
+            # 新鲜度判定改用预解析的价格序列（#1925）：`no_price_ids` 由调用方按
+            # **原始窗口**给出（见 `_price_presence`），与 `series` 非空在整窗现算时
+            # 等价；`day in series` 与旧 `_has_fresh_price` 末尾的
+            # `bool(series) and day in series` 同义，免去每笔每天的 `venue_of_row`
+            # 正则解析（5 年窗口 55 万次 ≈1.8s）。
+            #
+            # `series or {}`：部分重算时取价窗口只到尾段，某标的可能在原始窗口内
+            # 有序列、而尾段窗口里一条都没有（`_price_series_of` 回 None）。
+            # 整窗现算下 `not in no_price_ids` 已保证 `series` 非空，加 `or {}`
+            # 对它是无操作——只补上窗口变窄后会踩的 `None` 下标。
             if held:
                 day_held_count += 1
             if held and pos.id not in no_price_ids:
-                if day in series:
+                if day in (series or {}):
                     day_present_count += 1
                 else:
                     day_missing_ids.add(pos.id)
 
             price = price_of(pos, day)
             if price is None:
-                if not series:
+                # 按 `no_price_ids` 而非 `not series` 判（#1926）：`series` 是尾段
+                # 窗口的，可能因窗口变窄而空，那不等于「这个标的根本没有价格序列」
+                # ——整段区间都不可能有日收益的只有后者，判错了会把部分重算的
+                # 结果算成 no_price，与缓存命中路径分叉。
+                if pos.id in no_price_ids:
                     day_unpriced_count += 1
                 continue
             day_has_price = True
@@ -680,16 +1042,26 @@ def build_daily_pnl_series(
         if daily_pnl is not None and prev_net_worth not in (None, 0):
             rate_pct = round(daily_pnl / abs(prev_net_worth) * 100, 2)
 
-        if day >= start:
-            if range_baseline is None:
-                # 首个区间日：此刻的 `prev_net_worth` 就是区间前一天（scan_start）的净资产
-                range_baseline = prev_net_worth
+        # 输出条件用 `loop_start` 而非 `start`（#1926 部分重算）：`loop_start > start`
+        # 时若仍按 `start` 判，`loop_start - 1` 会被写进结果、与前段的物化行重复。
+        # 两者在整窗现算下等价——`scan_start = start - 1` 本就被原条件排除。
+        #
+        # `range_baseline`（`range_rate` 的分母 = 区间前一天净资产）刻意**不在这里
+        # 捕获**：它要的是 `start - 1` 的净资产，而部分重算的循环是从 `loop_start - 1`
+        # 才起的，`loop_start > start` 时首轮 `prev_net_worth` 还是 None——捕出来会
+        # 变成 None 或锚到错误的某天。改由 `build_daily_pnl_series` 从物化行取
+        # `start - 1` 的 `net_worth_cents`，与取数窗口无关。
+        if day >= loop_start:
+            # 这里出的是**存储形态**（整数分 / 整数基点），不是 API 形态：
+            # `daily_pnl`/`day_net_worth` 本来就是分，`Money` 换算挪到 `_day_to_api`
+            # 一次做完——热路径上少一轮 float 往返，物化行与现算结果也就共用同一个
+            # 转换出口，不可能各算各的。
             days.append(
                 {
                     'date': day.isoformat(),
-                    'daily_pnl': None if daily_pnl is None else round(Money.cents_to_yuan(daily_pnl), 2),
-                    'net_worth': round(Money.cents_to_yuan(day_net_worth), 2),
-                    'rate': rate_pct,
+                    'daily_pnl_cents': daily_pnl,
+                    'net_worth_cents': day_net_worth,
+                    'rate_bp': None if rate_pct is None else int(Decimal(str(rate_pct)) * 100),
                     'state': state_code,
                 }
             )
@@ -710,72 +1082,7 @@ def build_daily_pnl_series(
         prev_net_worth = day_net_worth
         day += dt.timedelta(days=1)
 
-    total_cents = sum(int(Decimal(str(d['daily_pnl'])) * 100) for d in days if d['daily_pnl'] is not None)
-    # 区间收益率：分母是区间前一天净资产（`range_baseline` 与 `total_cents` 同为分，
-    # 比值与单位无关）。
-    #
-    # 三个「不可算」都要回 None，**不能借 0.0 兜底**（「缺数据绝不画成 0」这条红线
-    # 在区间层同样成立）：
-    #   · 无基准 / 基准为 0（区间首日就无前值）
-    #   · 区间内**没有任何可算日**（整段 no_price / no_data / closed），
-    #     此时 total_cents 恒为 0，若报 0.00% 会被读成「这段时间没涨没跌」。
-    has_computable = any(d['daily_pnl'] is not None for d in days)
-    range_rate = (
-        round(total_cents / abs(range_baseline) * 100, 2)
-        if has_computable and range_baseline not in (None, 0)
-        else None
-    )
-    logger.info(
-        '收益日历派生完成 scope={} 区间={}~{} 天数={} 合计={}',
-        'ledger' if ledger_id is not None else 'family',
-        start,
-        end,
-        len(days),
-        round(Money.cents_to_yuan(total_cents), 2),
-    )
-
-    # coverage 按本作用域自己的持仓报（no_price_ids 是家庭级全集，须按持仓过滤）
-    scope_unpriced = sum(1 for p in positions if p.id in no_price_ids)
-    priced_total = len(positions) - scope_unpriced
-    latest_price_date = _latest_price_date(fund_nav, exchange_prices)
-
-    # ── 「投资以来」的起点（#1942 年视图）──
-    # 最早一笔**改变份额**的流水（买 / 卖 / 转入 / 转出）的生效日，按本作用域持仓过滤。
-    # 年视图要「投资以来每一年占一格」，前端必须知道起点；旧实现写死 3 年窗口
-    # （`YEAR_WINDOW`），窗口边界与真实建仓年份无关，年份一多就既看不全也对不上。
-    # `shares` 已按 position_id 归组且只含 `eff <= end` 的流水，故取键的最小值即得，
-    # 不需要再查一次库。
-    scope_position_ids = {p.id for p in positions}
-    first_txn = min(
-        (day for pid in scope_position_ids for day in shares.get(pid, {})),
-        default=None,
-    )
-
-    return {
-        'ledger_id': ledger_id,
-        'scope': 'ledger' if ledger_id is not None else 'family',
-        'start_date': start.isoformat(),
-        'end_date': end.isoformat(),
-        'month_total': round(Money.cents_to_yuan(total_cents), 2),
-        'has_any_price': any(d['state'] in (STATE_UPDOWN, STATE_ZERO) for d in days),
-        # ── 覆盖率诊断（前端据此区分「你的标的无估值」与「这个月没数据」）──
-        # 这两件事对用户完全不同的处置：前者是持仓属性（本来就不该有日估值），
-        # 后者是数据缺口（该有却没有，多半是每日快照任务没跑）。
-        # 不区分就会像 #1812 上线首日那样，一律显示「无历史价格序列」——
-        # 而真实原因是当月一条价格数据都没有。
-        'coverage': {
-            'total_positions': len(positions),
-            'priced_positions': priced_total,
-            'unpriced_positions': scope_unpriced,
-        },
-        'latest_price_date': latest_price_date,
-        # 「投资以来」起点：最早一笔改变份额的流水生效日；无持仓 / 无流水时 None
-        'first_txn_date': first_txn.isoformat() if first_txn else None,
-        # 区间收益率（%，分母 = 区间前一天净资产）。前端「金额 / 收益率」切换
-        # 的合计行用它；`month_total` 仍是元。#1942 第二轮。
-        'range_rate': range_rate,
-        'days': days,
-    }
+    return days
 
 
 def _period_key(date_iso: str, granularity: str) -> str:
@@ -937,19 +1244,6 @@ def build_pnl_series(
     payload['periods'] = _aggregate_periods(in_range, granularity, baseline)
     payload['days'] = []  # 聚合下推：期间视图不再回日明细
     return payload
-
-
-def _latest_price_date(
-    fund_nav: Dict[str, Dict[dt.date, int]],
-    exchange_prices: Dict[str, Dict[dt.date, int]],
-) -> Optional[str]:
-    """区间内可用的最新价格日（ISO）。前端用它提示「有数据的最后一天」。"""
-    latest: Optional[dt.date] = None
-    for series in (*fund_nav.values(), *exchange_prices.values()):
-        for d in series:
-            if latest is None or d > latest:
-                latest = d
-    return latest.isoformat() if latest else None
 
 
 def _empty_payload(ledger_id: Optional[int], start: dt.date, end: dt.date) -> dict:

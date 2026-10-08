@@ -27,6 +27,7 @@ from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 from app.domains.transactions.models import Transaction
+from app.services import pnl_snapshot_store
 
 # 决议动作白名单：持仓支持 merge，资产无 merge（金额无「加权平均」语义）
 _POSITION_ACTIONS = ('keep_source', 'keep_target', 'merge')
@@ -692,6 +693,11 @@ def migrate_orphan_data(db, target: Ledger, family_id: int) -> dict:
                 synchronize_session=False,
             )
         )
+        # 显式失效（#1926）：`Query.update()` 是 **bulk 语句，不进 session 状态**，
+        # `before_flush` 事件与 mapper 事件都抓不到（`positions/models.py:173` 的
+        # docstring 讲的同一个盲区）。改的是 `Position.ledger_id`（账户归属），
+        # 直接改变账户级作用域的持仓集 ⇒ 整族失效。
+        pnl_snapshot_store.purge_family(db, family_id)
         db.commit()
     except IntegrityError:
         # uq_positions_ledger_symbol 唯一约束冲突：归入导致目标账户出现同名持仓
@@ -737,6 +743,9 @@ def delete_orphan_data(db, family_id: int) -> dict:
         .filter(Asset.family_id == family_id, _orphan_ledger_condition(Asset.ledger_id, valid_ledger_ids))
         .delete(synchronize_session=False)
     )
+    # 显式失效（#1926）：同上，`Query.delete()` 不进 session 状态，事件抓不到。
+    # 删的是持仓与流水 ⇒ 直接改到日历的事实源 ⇒ 整族失效。
+    pnl_snapshot_store.purge_family(db, family_id)
     db.commit()
 
     return {

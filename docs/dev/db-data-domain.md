@@ -58,6 +58,7 @@
 | `watchlist`（含 watchlist_groups / item_group / tag_defs / item_tags / alerts / cleared_positions） | **用户自选关系**（非种子清单） | 按用户数×关注数增长，不受美股/港股扩展影响 |
 | `strategy`（strategy_tags / position_strategy_tags） | 策略标签 | 轻量 |
 | `summary`（asset_snapshots） | 资产快照（family_id 隔离） | 中等 |
+| `summary`（pnl_daily_snapshots，#1926） | 收益日历逐日物化快照（`family_id` × `ledger_id`(NULL=家庭级) × `date` 唯一） | 按家庭数 × (账户数+1) × 天数增长；无家庭读过日历即无行（读时回填），失效靠 `pnl_snapshot_store` 的口径版本 / `before_flush` 事件 / `full_sync` 全清 |
 | `usage`（user_usage） | 用量统计 | 轻量 |
 | `agent_session`（账本精灵，#1121 S2） | 服务端权威会话：状态 / 原文 / 轮次（摘要与关键信息卡同存） | 每用户每日少量行；JSON 列硬截断后单行有界 |
 | `agent_trace`（账本精灵单轮决策 trace，#1736 S4） | 每轮一行：意图 / 工具 / 脱敏参数 / 耗时 / token / 结果 / 拦截位——评估四指标与按 session 回放的唯一数据源（无 API 面，脚本直读） | 每轮 1 行，个人量级日增 < 1k 行；年增 < 50MB，暂不设清理 |

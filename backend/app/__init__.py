@@ -88,3 +88,12 @@ logging.getLogger('apscheduler').setLevel(logging.WARNING)
 from app.core.logging_config import setup_file_logging  # noqa: E402
 
 setup_file_logging()
+
+# 收益日历物化快照的失效钩子（#1926）：`before_flush` 事件把「谁被改了」翻译成
+# 「哪些快照行该作废」。挂在这里而不是各写入口，与上文两条 install 同源——
+# 写流水/持仓的入口有十余处，逐个打补丁漏一处就是静默错数字（#1812 的
+# `asset_snapshots` 正是这么烂掉的），事件则「无论怎么绕都会经过」。
+# 失效规则见 app/services/pnl_snapshot_store.py 模块 docstring。
+from app.services.pnl_snapshot_store import install_invalidation  # noqa: E402
+
+install_invalidation()
