@@ -941,9 +941,7 @@ def test_区间前一天为非交易日时单月与宽区间逐日相等(db, mak
     价格窗口不含 5/29，回填取不到价 ⇒ prev_total_pnl 低估 ⇒ 6/1 把累计浮盈当当日盈亏，
     与宽区间 6/1 不一致（单月合计虚增，违反区间无关性）；修复后两者逐日相等。
     """
-    pos = make_position(
-        symbol='000001', name='测试基金', quantity=1000, avg_price=1.0, asset_type='fund'
-    )
+    pos = make_position(symbol='000001', name='测试基金', quantity=1000, avg_price=1.0, asset_type='fund')
     make_transaction(
         position_id=pos.id,
         ledger_id=pos.ledger_id,
