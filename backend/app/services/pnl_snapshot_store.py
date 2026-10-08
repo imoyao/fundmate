@@ -110,10 +110,14 @@ def load_days(
     这一步刻意**不做**「按版本过滤就完事」：不清理的话，从未被重新读到的日期
     会永远留着旧版本行占盘，且下次换版又要重新判一次。
     """
-    rows = _scope(db.query(PnlDailySnapshot), family_id, ledger_id).filter(
-        PnlDailySnapshot.date >= start,
-        PnlDailySnapshot.date <= end,
-    ).all()
+    rows = (
+        _scope(db.query(PnlDailySnapshot), family_id, ledger_id)
+        .filter(
+            PnlDailySnapshot.date >= start,
+            PnlDailySnapshot.date <= end,
+        )
+        .all()
+    )
     stale = [r for r in rows if r.caliber_version != CALIBER_VERSION]
     if stale:
         purged = purge_all(db)
@@ -155,9 +159,10 @@ def save_days(
     if not rows:
         return 0
     dates = [d for d, _ in rows]
-    existing = {r.date: r for r in _scope(db.query(PnlDailySnapshot), family_id, ledger_id).filter(
-        PnlDailySnapshot.date.in_(dates)
-    ).all()}
+    existing = {
+        r.date: r
+        for r in _scope(db.query(PnlDailySnapshot), family_id, ledger_id).filter(PnlDailySnapshot.date.in_(dates)).all()
+    }
 
     touched = 0
     for d, e in rows:

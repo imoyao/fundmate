@@ -339,9 +339,7 @@ def test_孤儿归入与清理的bulk写后显式作废(db, make_position):
 
     def _snapshot():
         db.add(
-            PnlDailySnapshot(
-                family_id=1, ledger_id=None, date=dt.date(2026, 1, 5), net_worth_cents=100, state='zero'
-            )
+            PnlDailySnapshot(family_id=1, ledger_id=None, date=dt.date(2026, 1, 5), net_worth_cents=100, state='zero')
         )
         db.commit()
 
