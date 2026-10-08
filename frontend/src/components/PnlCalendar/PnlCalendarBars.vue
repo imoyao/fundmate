@@ -40,7 +40,14 @@
           <div
             class="pnl-calendar-bars__slot"
             :class="{ 'is-clickable': drillable }"
+            :role="drillable ? 'button' : undefined"
+            :tabindex="drillable ? 0 : undefined"
+            :aria-label="
+              drillable ? '下钻查看 ' + bar.label + ' 明细' : undefined
+            "
             @click="drillable && emit('select', bar.key)"
+            @keydown.enter="drillable && emit('select', bar.key)"
+            @keydown.space.prevent="drillable && emit('select', bar.key)"
           >
             <span
               v-if="bar.hasBar"
@@ -261,7 +268,8 @@ const ariaLabel = computed(() => {
   cursor: pointer;
 }
 
-.pnl-calendar-bars__slot.is-clickable:hover {
+.pnl-calendar-bars__slot.is-clickable:hover,
+.pnl-calendar-bars__slot.is-clickable:focus-visible {
   background: color-mix(in srgb, var(--color-info) 10%, transparent);
   border-radius: 4px;
 }
