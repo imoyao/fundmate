@@ -203,7 +203,7 @@ test("已声明脏基线的快速录入表单，挂载时必须先复位一次",
   for (const f of [
     "frontend/src/components/QuickEntry/BuyForm.vue",
     "frontend/src/components/QuickEntry/SellForm.vue",
-    "frontend/src/components/QuickEntry/DividendForm.vue"
+    "frontend/src/views/asset/investment/manual/DividendForm.vue"
   ]) {
     const t = stripComments(readFileSync(join(process.cwd(), f), "utf8"));
     if (!/initialSnapshot = ref\(|useFormDirty|useDialogForm/.test(t)) continue;
@@ -248,7 +248,7 @@ test("#1891：三个快速录入表单都必须 expose isDirty", () => {
   for (const f of [
     "frontend/src/components/QuickEntry/BuyForm.vue",
     "frontend/src/components/QuickEntry/SellForm.vue",
-    "frontend/src/components/QuickEntry/DividendForm.vue"
+    "frontend/src/views/asset/investment/manual/DividendForm.vue"
   ]) {
     const t = stripComments(readFileSync(join(process.cwd(), f), "utf8"));
     const m = t.match(/defineExpose\(\{([^}]*)\}\)/);

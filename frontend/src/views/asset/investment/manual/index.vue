@@ -279,7 +279,7 @@ import { IconifyIconOffline } from "@/components/ReIcon";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import BuyForm from "@/components/QuickEntry/BuyForm.vue";
 import SellForm from "@/components/QuickEntry/SellForm.vue";
-import DividendForm from "@/components/QuickEntry/DividendForm.vue";
+import DividendForm from "./DividendForm.vue";
 import {
   useQuickEntry,
   useQuickEntrySubmit
