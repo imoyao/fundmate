@@ -12,8 +12,8 @@ from app.core.auth import get_family_id
 from app.core.database import get_db
 from app.core.validation import parse_query
 from app.domains.ledgers.models import Ledger
-from app.domains.portfolios.models import Portfolio
 from app.domains.performance.schemas import MoneyFundIncomeRequest, XirrRequest
+from app.domains.portfolios.models import Portfolio
 from app.services.money_fund_income import calculate_money_fund_income
 from app.services.performance import calculate_portfolio_xirr, calculate_position_xirr
 from app.services.performance.calculators import calculate_portfolio_xirr_by_id

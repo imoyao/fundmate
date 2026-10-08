@@ -112,7 +112,11 @@
       <CardBlock v-if="moneyFundData || moneyFundLoading" class="mb-6">
         <SectionHeader title="货基收益">
           <template #action>
-            <el-button size="small" :loading="moneyFundLoading" @click="fetchMoneyFund">
+            <el-button
+              size="small"
+              :loading="moneyFundLoading"
+              @click="fetchMoneyFund"
+            >
               <IconifyIconOffline icon="ep:refresh" class="mr-1" /> 刷新
             </el-button>
           </template>
@@ -127,7 +131,10 @@
           <div class="xirr-item xirr-item--ml">
             <span class="xirr-label">今日收益</span>
             <div class="xirr-value">
-              <MoneyDisplay :value="moneyFundData.today_income" :show-sign="true" />
+              <MoneyDisplay
+                :value="moneyFundData.today_income"
+                :show-sign="true"
+              />
             </div>
           </div>
         </div>
@@ -381,7 +388,12 @@ import {
   getPortfolioHoldings,
   type PortfolioDetail
 } from "@/api/portfolio";
-import { getPortfolioXirr, getMoneyFundIncome, type XirrData, type MoneyFundIncomeData } from "@/api/performance";
+import {
+  getPortfolioXirr,
+  getMoneyFundIncome,
+  type XirrData,
+  type MoneyFundIncomeData
+} from "@/api/performance";
 import { getLedgers, type LedgerItem } from "@/api/ledger";
 import { getPositions, updatePosition } from "@/api/positions";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
@@ -617,7 +629,7 @@ async function fetchMoneyFund() {
   try {
     const res = await getMoneyFundIncome({
       scope: "portfolio",
-      portfolio_id: portfolioId.value,
+      portfolio_id: portfolioId.value
     });
     moneyFundData.value = res.data;
   } catch {
