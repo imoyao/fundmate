@@ -58,18 +58,20 @@ export interface MoneyFundIncomeData {
   daily_series: MoneyFundDailyIncome[];
 }
 
-/** 货币基金收益查询参数（scope=ledger 时须传 ledger_id；scope=family 无需） */
+/** 货币基金收益查询参数（scope=ledger 须传 ledger_id；scope=portfolio 须传 portfolio_id；scope=family 无需） */
 export interface MoneyFundIncomeParams {
-  scope: "ledger" | "family";
+  scope: "ledger" | "family" | "portfolio";
   ledger_id?: number;
+  portfolio_id?: number;
   start_date?: string;
   end_date?: string;
 }
 
-/** 获取货币基金收益（账户维度 / 家庭维度） */
+/** 获取货币基金收益（账户维度 / 家庭维度 / 组合维度） */
 export function getMoneyFundIncome(params: MoneyFundIncomeParams) {
   const query: Record<string, string | number> = { scope: params.scope };
   if (params.ledger_id != null) query.ledger_id = params.ledger_id;
+  if (params.portfolio_id != null) query.portfolio_id = params.portfolio_id;
   if (params.start_date) query.start_date = params.start_date;
   if (params.end_date) query.end_date = params.end_date;
   return http.request<ApiResponse<MoneyFundIncomeData>>(

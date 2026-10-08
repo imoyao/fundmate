@@ -11,6 +11,7 @@ import pytest
 from app.core.money import Money
 from app.domains.funds.models import Fund, MoneyFundDailyWorth
 from app.domains.ledgers.models import Ledger
+from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.money_fund_income import calculate_money_fund_income
@@ -331,6 +332,23 @@ class TestScopeAndParams:
         )
         assert result == {'today_income': 0.0, 'total_income': 0.0, 'daily_series': []}
 
+    def test_portfolio_scope_sums_member_ledgers(self, db):
+        """scope=portfolio 按 ledger_ids 求和：组合收益 = 成员账户之和（口径 A）。"""
+        ledger_a = _make_ledger(db, name='账户A')
+        ledger_b = _make_ledger(db, name='账户B')
+        _make_fund(db, '511880')
+        day = dt.date(2026, 8, 1)
+        _make_worth(db, '511880', day, 0.35)
+        _make_orphan_flow(db, ledger_a, '511880', day, 'buy', 500.0)
+        _make_orphan_flow(db, ledger_b, '511880', day, 'buy', 1000.0)
+
+        result = calculate_money_fund_income(
+            db, start_date=day, end_date=day, scope='portfolio',
+            ledger_ids=[ledger_a.id, ledger_b.id], family_id=1
+        )
+        # (50000+100000)×0.35/10000 = 5.25 分 → round 到 5 分 = 0.05 元
+        assert result['total_income'] == 0.05
+
 
 # -------------------- API 端点 --------------------
 
@@ -417,3 +435,111 @@ class TestMoneyFundIncomeEndpoint:
         series = resp.get_json()['data']['daily_series']
         assert [item['date'] for item in series] == ['2026-08-01', '2026-08-02']
         assert resp.get_json()['data']['total_income'] == 0.04  # D1: 2分 + D2: 2分
+
+    def test_portfolio_scope_ok(self, client, db):
+        """scope=portfolio：路由解析组合关联账户后求和，并做组合归属校验。"""
+        ledger_a = _make_ledger(db, name='账户A')
+        ledger_b = _make_ledger(db, name='账户B')
+        portfolio = Portfolio(name='组合1', family_id=1)
+        db.add(portfolio)
+        db.flush()
+        ledger_a.portfolio_id = portfolio.id
+        ledger_b.portfolio_id = portfolio.id
+        db.flush()
+        _make_fund(db, '511880')
+        day = dt.date(2026, 8, 1)
+        _make_worth(db, '511880', day, 0.35)
+        _make_orphan_flow(db, ledger_a, '511880', day, 'buy', 500.0)
+        _make_orphan_flow(db, ledger_b, '511880', day, 'buy', 1000.0)
+        db.commit()
+
+        resp = client.get(
+            f'/api/performance/money-fund-income/?scope=portfolio&portfolio_id={portfolio.id}'
+            f'&start_date={day}&end_date={day}'
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()['data']['total_income'] == 0.05
+
+    def test_portfolio_not_found_404(self, client, db):
+        """越权/不存在的组合统一 404。"""
+        resp = client.get('/api/performance/money-fund-income/?scope=portfolio&portfolio_id=999')
+        assert resp.status_code == 404
+
+    def test_same_name_ledgers_no_cross_contamination(self, client, db):
+        """回归（account_name 同名 bug 修复）：两账户同名（不同 ledger_id）分属不同组合，
+        组合 A 的货基收益不得串入组合 B 的交易。"""
+        ledger_a = _make_ledger(db, name='同名账户')
+        ledger_b = _make_ledger(db, name='同名账户')
+        portfolio_a = Portfolio(name='组合A', family_id=1)
+        portfolio_b = Portfolio(name='组合B', family_id=1)
+        db.add_all([portfolio_a, portfolio_b])
+        db.flush()
+        ledger_a.portfolio_id = portfolio_a.id
+        ledger_b.portfolio_id = portfolio_b.id
+        db.flush()
+        _make_fund(db, '511880')
+        day = dt.date(2026, 8, 1)
+        _make_worth(db, '511880', day, 0.35)
+        _make_orphan_flow(db, ledger_a, '511880', day, 'buy', 500.0)
+        _make_orphan_flow(db, ledger_b, '511880', day, 'buy', 1000.0)
+        db.commit()
+
+        # 组合 A 只应含 ledger_a 的 500 元 → 2 分，不得串入 ledger_b 的 1000 元
+        resp_a = client.get(
+            f'/api/performance/money-fund-income/?scope=portfolio&portfolio_id={portfolio_a.id}'
+            f'&start_date={day}&end_date={day}'
+        )
+        assert resp_a.status_code == 200
+        assert resp_a.get_json()['data']['total_income'] == 0.02
+
+
+# -------------------- 组合 XIRR：ledger_id 维度回归 --------------------
+
+
+class TestPortfolioXirrLedgerId:
+    """#1929 配套：组合 XIRR 聚合统一按 ledger_id（修复 account_name 同名串味）。"""
+
+    def test_same_name_ledgers_no_cross_contamination(self, db):
+        """两账户同名（account_name 相同）分属不同组合，组合 A 的 XIRR 现金流不得串入 B。
+
+        旧逻辑按 account_name.in_() 过滤，两笔交易 account_name 都等于 '同名账户' 会被
+        两个组合同时匹配 → 串味（cashflow_count 各 = 2）。新逻辑按 ledger_id，各 = 1。
+        """
+        from app.domains.transactions.models import Transaction as Txn
+        from app.services.performance.calculators import calculate_portfolio_xirr_by_id
+
+        ledger_a = _make_ledger(db, name='同名账户')
+        ledger_b = _make_ledger(db, name='同名账户')
+        portfolio_a = Portfolio(name='组合A', family_id=1)
+        portfolio_b = Portfolio(name='组合B', family_id=1)
+        db.add_all([portfolio_a, portfolio_b])
+        db.flush()
+        ledger_a.portfolio_id = portfolio_a.id
+        ledger_b.portfolio_id = portfolio_b.id
+        db.flush()
+
+        day = dt.date(2026, 8, 1)
+        # 两笔交易 account_name 都等于 '同名账户'（模拟旧快照/同名），ledger_id 分别指向 a / b
+        for lid in (ledger_a.id, ledger_b.id):
+            db.add(
+                Txn(
+                    position_id=None,
+                    ledger_id=lid,
+                    txn_type='buy',
+                    symbol='600519',
+                    amount=Money.yuan_to_cents(1000.0),
+                    confirm_date=day,
+                    trade_date=dt.datetime.combine(day, dt.time(10, 0)),
+                    asset_type='stock',
+                    account_name='同名账户',
+                    family_id=1,
+                    status='success',
+                )
+            )
+        db.flush()
+
+        res_a = calculate_portfolio_xirr_by_id(db, portfolio_a.id, family_id=1)
+        res_b = calculate_portfolio_xirr_by_id(db, portfolio_b.id, family_id=1)
+        # 新逻辑按 ledger_id：各自只计入本组合的 1 笔
+        assert res_a['cashflow_count'] == 1
+        assert res_b['cashflow_count'] == 1

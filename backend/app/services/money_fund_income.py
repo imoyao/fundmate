@@ -64,10 +64,14 @@ def _empty_result() -> dict:
     }
 
 
-def _collect_orphan_flows(db: Session, family_id: int, ledger_id: Optional[int]) -> Dict[str, Dict[dt.date, int]]:
+def _collect_orphan_flows(db: Session, family_id: int, ledger_ids: Optional[List[int]]) -> Dict[str, Dict[dt.date, int]]:
     """孤儿流水净额：{fund_code: {date: net_cents}}。
 
     buy/deposit 为正、sell/withdraw 为负；确认日为空时回退到交易日的日期。
+
+    ledger_ids 非空时按账户 ID 集合过滤（scope=ledger 传单元素列表，scope=portfolio
+    传组合下所有账户 ID）；为 None 时不限账户（scope=family 全家庭）。
+    统一用 ledger_id 而非冗余的 account_name —— 同名账户会造成口径串味（历史 bug）。
     """
     query = db.query(Transaction).filter(
         Transaction.position_id.is_(None),
@@ -76,8 +80,8 @@ def _collect_orphan_flows(db: Session, family_id: int, ledger_id: Optional[int])
         # #863 D1：收益行（is_income）不进本金基线，防止收益再产生收益
         or_(Transaction.is_income.is_(None), Transaction.is_income.is_(False)),
     )
-    if ledger_id is not None:
-        query = query.filter(Transaction.ledger_id == ledger_id)
+    if ledger_ids:
+        query = query.filter(Transaction.ledger_id.in_(ledger_ids))
 
     flows: Dict[str, Dict[dt.date, int]] = {}
     for txn in query.all():
@@ -99,20 +103,22 @@ def _collect_orphan_flows(db: Session, family_id: int, ledger_id: Optional[int])
     return flows
 
 
-def _collect_position_market_value(db: Session, family_id: int, ledger_id: Optional[int]) -> Dict[str, int]:
+def _collect_position_market_value(db: Session, family_id: int, ledger_ids: Optional[List[int]]) -> Dict[str, int]:
     """positions 中货基市值：{fund_code: cents}（迁移前兼容口径，作为恒定基线）。
 
     #863 修正：存量货基以 type='fund' 录入（funds 名录货币型），经回填脚本置
     is_money_fund=True；收益基线必须同时覆盖 asset_type='money_fund' 与
     is_money_fund=True 两条表达，否则 type='fund' 的货基持仓收益被漏算。
+
+    ledger_ids 非空时按账户 ID 集合过滤（统一用 ID，避免 account_name 同名串味）。
     """
     query = db.query(Position).filter(
         Position.family_id == family_id,
         Position.quantity > 0,
         or_(Position.asset_type == 'money_fund', Position.is_money_fund.is_(True)),
     )
-    if ledger_id is not None:
-        query = query.filter(Position.ledger_id == ledger_id)
+    if ledger_ids:
+        query = query.filter(Position.ledger_id.in_(ledger_ids))
 
     mv: Dict[str, int] = {}
     for pos in query.all():
@@ -184,6 +190,7 @@ def calculate_money_fund_income(
     end_date: Optional[dt.date] = None,
     scope: str = 'family',
     ledger_id: Optional[int] = None,
+    ledger_ids: Optional[List[int]] = None,
     family_id: int = 1,
 ) -> dict:
     """计算货币基金每日收益序列与汇总。
@@ -192,8 +199,10 @@ def calculate_money_fund_income(
         db: 数据库会话
         start_date: 起始日期（含），默认近 30 天
         end_date: 结束日期（含），默认今天
-        scope: 'family'（家庭全量）或 'ledger'（指定账户）
-        ledger_id: scope='ledger' 时必填
+        scope: 'family'（家庭全量） / 'ledger'（单账户） / 'portfolio'（组合=多账户之和）
+        ledger_id: scope='ledger' 时必填（单账户 ID）
+        ledger_ids: scope='portfolio' 时必填（组合下账户 ID 列表）；过滤统一走 ledger_id
+            维度，不在服务内耦合 portfolio 概念（由路由把 portfolio_id 解析成 ledger_ids）
         family_id: 家庭 ID（家庭隔离键）
 
     Returns:
@@ -203,10 +212,12 @@ def calculate_money_fund_income(
             'daily_series': [{'date': 'YYYY-MM-DD', 'income': 元}, ...],
         }
     """
-    if scope not in ('ledger', 'family'):
-        raise ValueError('scope 参数非法，仅支持 ledger / family')
+    if scope not in ('ledger', 'family', 'portfolio'):
+        raise ValueError('scope 参数非法，仅支持 ledger / family / portfolio')
     if scope == 'ledger' and not ledger_id:
         raise ValueError('scope=ledger 时必须提供 ledger_id')
+    if scope == 'portfolio' and not ledger_ids:
+        raise ValueError('scope=portfolio 时必须提供 ledger_ids')
 
     end = end_date or dt.date.today()
     start = start_date or (end - dt.timedelta(days=_DEFAULT_WINDOW_DAYS - 1))
@@ -214,8 +225,11 @@ def calculate_money_fund_income(
         # 防御：范围倒挂时返回空序列，不报错
         return _empty_result()
 
-    flows = _collect_orphan_flows(db, family_id, ledger_id if scope == 'ledger' else None)
-    position_mv = _collect_position_market_value(db, family_id, ledger_id if scope == 'ledger' else None)
+    # 统一过滤维度：ledger=单元素列表，portfolio=多账户列表，family=None（全家庭）。
+    # 组合若无关联账户（ledger_ids 空）已在上面 portfolio 分支拦截，这里列表必非空。
+    effective_ledger_ids = ledger_ids if ledger_ids else ([ledger_id] if ledger_id else None)
+    flows = _collect_orphan_flows(db, family_id, effective_ledger_ids)
+    position_mv = _collect_position_market_value(db, family_id, effective_ledger_ids)
     nav_map = _collect_nav_map(db, start, end)
     holdings_by_day = _daily_holdings(flows, position_mv, start, end)
 
