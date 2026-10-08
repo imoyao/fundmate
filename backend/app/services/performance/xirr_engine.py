@@ -227,12 +227,13 @@ def generate_cashflows(
 
 def _exclude_internal_transfers(
     transfer_candidates: list[dict],
-    portfolio_ledger_names: set[str],
+    portfolio_ledger_ids: set[int],
 ) -> set[int]:
     """
     识别并返回应排除的内部划转交易索引集合。
 
-    配对条件：同日、金额相等（分精度）、方向相反、分属本组合内不同账户。
+    配对条件：同日、金额相等（分精度）、方向相反、分属本组合内不同账户
+    （按 ledger_id 判定，避免 account_name 同名串味的历史 bug）。
     """
     excluded = set()
     deposit_code = BusinessType.DEPOSIT.code
@@ -248,17 +249,18 @@ def _exclude_internal_transfers(
                 continue
             if a['amount_cents'] != b['amount_cents']:
                 continue
-            if a['account_name'] == b['account_name']:
+            # 同一账户内的存取不算内部划转（按 ID 判定）
+            if a['ledger_id'] == b['ledger_id']:
                 continue
             # 方向相反
             a_out = a['txn_type'] == deposit_code and b['txn_type'] == withdraw_code
             b_out = b['txn_type'] == deposit_code and a['txn_type'] == withdraw_code
             if not (a_out or b_out):
                 continue
-            if a['account_name'] not in portfolio_ledger_names or b['account_name'] not in portfolio_ledger_names:
+            if a['ledger_id'] not in portfolio_ledger_ids or b['ledger_id'] not in portfolio_ledger_ids:
                 continue
             excluded.update([i, j])
-            logger.debug(f'内部划转已排除: {a["date"]} {a["account_name"]}↔{b["account_name"]} 金额={a["amount"]:.2f}')
+            logger.debug(f'内部划转已排除: {a["date"]} ledger#{a["ledger_id"]}↔#{b["ledger_id"]} 金额={a["amount"]:.2f}')
             break
     return excluded
 
@@ -277,7 +279,7 @@ def generate_portfolio_cashflows(
     elif isinstance(end_date, dt.datetime):
         end_date = end_date.date()
 
-    # 1. 校验组合存在且未删除，获取关联账户名（家庭维度）
+    # 1. 校验组合存在且未删除，获取关联账户 ID（家庭维度）
     portfolio = (
         db_session.query(Portfolio)
         .filter(
@@ -290,21 +292,23 @@ def generate_portfolio_cashflows(
     if not portfolio:
         raise ValueError(f'投资组合不存在: {portfolio_id}')
 
-    ledger_names = [
+    # 组合聚合统一按 ledger_id（外键维度），不用冗余的 account_name —— 同名账户
+    # 会造成口径串味（历史 bug）。未归档持仓 ledger_id 为 NULL 自然不计入组合。
+    ledger_ids = [
         row[0]
-        for row in db_session.query(Ledger.name)
+        for row in db_session.query(Ledger.id)
         .filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == family_id)
         .all()
     ]
-    if not ledger_names:
+    if not ledger_ids:
         return []
 
-    ledger_set = set(ledger_names)
+    ledger_set = set(ledger_ids)
 
-    # 2. 查询所有相关交易
+    # 2. 查询所有相关交易（按 ledger_id 集合过滤）
     transactions = (
         db_session.query(Transaction)
-        .filter(Transaction.account_name.in_(ledger_names), Transaction.family_id == family_id)
+        .filter(Transaction.ledger_id.in_(ledger_ids), Transaction.family_id == family_id)
         .all()
     )
 
@@ -341,7 +345,7 @@ def generate_portfolio_cashflows(
                     'amount': amount_f,
                     'amount_cents': round(amount_f * 100),
                     'txn_type': txn_type,
-                    'account_name': txn.account_name,
+                    'ledger_id': txn.ledger_id,
                 }
             )
         elif txn_type in outflow_types:
@@ -349,7 +353,7 @@ def generate_portfolio_cashflows(
         elif txn_type in inflow_types:
             investment_cf.append((txn_date, amount_f))
 
-    # 4. 剔除内部划转
+    # 4. 剔除内部划转（按 ledger_id 判定）
     _ = _exclude_internal_transfers(transfer_candidates, ledger_set)
 
     # 5. 添加虚拟卖出

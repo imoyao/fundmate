@@ -203,45 +203,45 @@ class TestSpec83Cases:
         assert abs(calculate_xirr(cf) - 0.1) < 0.01
 
     def test_case9_internal_transfer_pair_excluded(self):
-        """组合内两账户之间同日等额对敲，应被识别为内部划转并成对剔除。"""
+        """组合内两账户之间同日等额对敲，应被识别为内部划转并成对剔除（按 ledger_id）。"""
         candidates = [
             {
                 'date': dt.date(2024, 3, 1),
                 'amount': 5000.0,
                 'amount_cents': 500000,
                 'txn_type': BusinessType.WITHDRAW.code,
-                'account_name': '支付宝',
+                'ledger_id': 1,
             },
             {
                 'date': dt.date(2024, 3, 1),
                 'amount': 5000.0,
                 'amount_cents': 500000,
                 'txn_type': BusinessType.DEPOSIT.code,
-                'account_name': '天天基金',
+                'ledger_id': 2,
             },
         ]
-        excluded = _exclude_internal_transfers(candidates, {'支付宝', '天天基金'})
+        excluded = _exclude_internal_transfers(candidates, {1, 2})
         assert excluded == {0, 1}
 
     def test_case9_external_transfer_not_excluded(self):
-        """对手方不在本组合内（真实外部出入金），不得当成内部划转剔除。"""
+        """对手方不在本组合内（ledger_id 不在集合），不得当成内部划转剔除。"""
         candidates = [
             {
                 'date': dt.date(2024, 3, 1),
                 'amount': 5000.0,
                 'amount_cents': 500000,
                 'txn_type': BusinessType.WITHDRAW.code,
-                'account_name': '支付宝',
+                'ledger_id': 1,
             },
             {
                 'date': dt.date(2024, 3, 1),
                 'amount': 5000.0,
                 'amount_cents': 500000,
                 'txn_type': BusinessType.DEPOSIT.code,
-                'account_name': '银行卡',  # 不属于本组合账户
+                'ledger_id': 3,  # 不属于本组合账户
             },
         ]
-        excluded = _exclude_internal_transfers(candidates, {'支付宝', '天天基金'})
+        excluded = _exclude_internal_transfers(candidates, {1, 2})
         assert excluded == set()
 
     def test_case9_transfer_amount_mismatch_not_excluded(self):
@@ -252,17 +252,59 @@ class TestSpec83Cases:
                 'amount': 5000.0,
                 'amount_cents': 500000,
                 'txn_type': BusinessType.WITHDRAW.code,
-                'account_name': '支付宝',
+                'ledger_id': 1,
             },
             {
                 'date': dt.date(2024, 3, 1),
                 'amount': 4000.0,
                 'amount_cents': 400000,
                 'txn_type': BusinessType.DEPOSIT.code,
-                'account_name': '天天基金',
+                'ledger_id': 2,
             },
         ]
-        excluded = _exclude_internal_transfers(candidates, {'支付宝', '天天基金'})
+        excluded = _exclude_internal_transfers(candidates, {1, 2})
+        assert excluded == set()
+
+    def test_case9_same_name_different_ledger_still_paired(self):
+        """回归：两账户同名（不同 ledger_id）但都属于本组合 → 仍正确配对剔除。"""
+        candidates = [
+            {
+                'date': dt.date(2024, 3, 1),
+                'amount': 5000.0,
+                'amount_cents': 500000,
+                'txn_type': BusinessType.WITHDRAW.code,
+                'ledger_id': 1,  # 账户 A（与 B 同名）
+            },
+            {
+                'date': dt.date(2024, 3, 1),
+                'amount': 5000.0,
+                'amount_cents': 500000,
+                'txn_type': BusinessType.DEPOSIT.code,
+                'ledger_id': 2,  # 账户 B（与 A 同名，ID 不同）
+            },
+        ]
+        excluded = _exclude_internal_transfers(candidates, {1, 2})
+        assert excluded == {0, 1}
+
+    def test_case9_same_name_one_outside_not_excluded(self):
+        """回归（account_name 同名 bug 修复）：同名账户之一 ledger_id 不在本组合，不得剔除。"""
+        candidates = [
+            {
+                'date': dt.date(2024, 3, 1),
+                'amount': 5000.0,
+                'amount_cents': 500000,
+                'txn_type': BusinessType.WITHDRAW.code,
+                'ledger_id': 1,  # 账户 A（本组合）
+            },
+            {
+                'date': dt.date(2024, 3, 1),
+                'amount': 5000.0,
+                'amount_cents': 500000,
+                'txn_type': BusinessType.DEPOSIT.code,
+                'ledger_id': 99,  # 账户 C 同名但不在本组合
+            },
+        ]
+        excluded = _exclude_internal_transfers(candidates, {1, 2})
         assert excluded == set()
 
     # --- 用例 10：极端收益率 ---
