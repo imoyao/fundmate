@@ -277,10 +277,7 @@ function hasHolding(item: HomeSummaryItem): boolean {
  *    故列头 title 与文案都不宣称占比口径。
  */
 const totalMarketValue = computed(() =>
-  displayItems.value.reduce(
-    (sum, i) => sum + (i.position_market_value ?? 0),
-    0
-  )
+  displayItems.value.reduce((sum, i) => sum + (i.position_market_value ?? 0), 0)
 );
 
 function marketValueRatio(item: HomeSummaryItem): number | null {

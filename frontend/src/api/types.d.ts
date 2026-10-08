@@ -241,12 +241,6 @@ export interface WatchlistItem {
   links?: { code: string; name: string | null; link_type: string | null }[];
 }
 
-/**
- * 首页自选摘要行（#1954）。
- *
- * 口径与 `WatchlistItem` 的对应字段严格一致（同源 enrich），差异只有一处：
- * 无持仓时 `position_market_value` 是 `0.0`（非 null），而持仓三项为 `null`。
- */
 export interface HomeSummaryItem {
   id: number;
   symbol: string;
@@ -254,20 +248,11 @@ export interface HomeSummaryItem {
   is_pinned: boolean;
   current_price: number | null;
   change_pct: number | null;
-  /** 最新价 / 涨跌幅的数据日期（#1954，与自选列表 price_as_of 同义） */
-  price_as_of?: string | null;
   position_market_value: number;
   status: string;
-  /** 资产类型（小写枚举），用于价格精度判定 */
-  asset_type?: string | null;
+  asset_type?: string | null; // 资产类型（后端返回，用于价格精度判定）
   venue: string;
-  /** 资产类型中文标签（后端下发，#1954；此前缺失导致产品列不显示类别） */
-  type_label?: string | null;
-  /** 真实持仓统计（后端 enrich，与自选列表同源）；无持仓时为 null */
-  holding_quantity?: number | null;
-  holding_cost_price?: number | null;
-  holding_pnl?: number | null;
-  holding_pnl_percent?: number | null;
+  type_label?: string; // 资产类型中文标签（后端动态字段）
 }
 
 // 分组相关
