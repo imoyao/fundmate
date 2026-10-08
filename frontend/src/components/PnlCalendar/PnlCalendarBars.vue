@@ -37,7 +37,18 @@
           :hide-after="0"
           popper-class="rich-tip"
         >
-          <div class="pnl-calendar-bars__slot">
+          <div
+            class="pnl-calendar-bars__slot"
+            :class="{ 'is-clickable': drillable }"
+            :role="drillable ? 'button' : undefined"
+            :tabindex="drillable ? 0 : undefined"
+            :aria-label="
+              drillable ? '下钻查看 ' + bar.label + ' 明细' : undefined
+            "
+            @click="drillable && emit('select', bar.key)"
+            @keydown.enter="drillable && emit('select', bar.key)"
+            @keydown.space.prevent="drillable && emit('select', bar.key)"
+          >
             <span
               v-if="bar.hasBar"
               class="pnl-calendar-bars__bar"
@@ -63,6 +74,11 @@
         >{{ bar.label }}</span
       >
     </div>
+    <!-- 下钻发现性：柱状图没有方格图那种「按钮」暗示，加一行小字点明可下钻
+         （用户原始反馈「点年选年」找不到入口的直接原因）。仅月 / 年粒度（drillable）。 -->
+    <p v-if="drillable" class="pnl-calendar-bars__drill-hint">
+      点击柱体可下钻查看更细粒度
+    </p>
   </div>
 </template>
 
@@ -77,6 +93,10 @@ import PnlCalendarUnitTip from "./PnlCalendarUnitTip.vue";
 import { maxAbsPnl, valueIn, type PnlCalendarValueMode } from "./helpers";
 
 defineOptions({ name: "PnlCalendarBars" });
+
+/** 点击某根柱下钻（仅 `drillable` 时由父组件绑定）：`key` 即期间键
+   日粒度 `YYYY-MM-DD` / 月粒度 `YYYY-MM` / 年粒度 `YYYY` */
+const emit = defineEmits<{ select: [key: string] }>();
 
 // 四个 prop 都由父组件必传（`days` / `periods` 二选一传空数组），故不给
 // withDefaults 默认值——eslint `vue/no-required-prop-with-default` 会把
@@ -95,8 +115,11 @@ const props = withDefaults(
     rangeRate?: number | null;
     /** 数字口径（#1942 ②）：柱高与 aria 都按它取数 */
     mode?: PnlCalendarValueMode;
+    /** 是否可点击下钻：仅月 / 年粒度由父组件传入（日粒度是叶子，不传）。
+        为 true 时整列（含无柱的空槽）可点，emit `select` 带该期间键 */
+    drillable?: boolean;
   }>(),
-  { rangeRate: null, mode: "amount" }
+  { rangeRate: null, mode: "amount", drillable: false }
 );
 
 interface Normalized {
@@ -240,6 +263,17 @@ const ariaLabel = computed(() => {
   min-width: 0;
 }
 
+/* 可下钻：整列可点（含无柱空槽），hover 给淡信息色背景提示可交互 */
+.pnl-calendar-bars__slot.is-clickable {
+  cursor: pointer;
+}
+
+.pnl-calendar-bars__slot.is-clickable:hover,
+.pnl-calendar-bars__slot.is-clickable:focus-visible {
+  background: color-mix(in srgb, var(--color-info) 10%, transparent);
+  border-radius: 4px;
+}
+
 .pnl-calendar-bars__bar {
   position: absolute;
   left: 50%;
@@ -264,6 +298,15 @@ const ariaLabel = computed(() => {
   min-width: 0;
   font-size: 9px;
   line-height: 1;
+  color: var(--text-tertiary-ink);
+  text-align: center;
+}
+
+/* 下钻提示：一行小字，不占纵向空间（Voice & Content 规范） */
+.pnl-calendar-bars__drill-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
   color: var(--text-tertiary-ink);
   text-align: center;
 }

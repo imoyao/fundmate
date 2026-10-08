@@ -158,6 +158,9 @@
 
       <!-- 柱状图：三粒度共用一份几何，只是「一根柱」的含义不同（见文件头）。
            后端保证 days / periods 只有一侧非空，Bars 内部据此选边。 -->
+      <!-- 柱状图三粒度共用（见文件头）。月 / 年视图的柱一根 = 一月 / 一年，
+           点击也走 `selectPeriod` 下钻，与方格图交互对齐；日粒度是叶子，
+           不传 `drillable`（柱不可点）。 -->
       <PnlCalendarBars
         v-else
         :days="series?.days ?? []"
@@ -166,6 +169,8 @@
         :total="series?.month_total ?? 0"
         :range-rate="series?.range_rate ?? null"
         :mode="valueMode"
+        :drillable="granularity !== 'day'"
+        @select="selectPeriod"
       />
 
       <!-- ===== 合计行：一行小字，不占纵向空间（Voice & Content规范） ===== -->

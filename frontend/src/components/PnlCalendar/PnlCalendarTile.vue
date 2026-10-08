@@ -301,9 +301,11 @@ const textColor = computed(() =>
   border-color: var(--border-light);
 }
 
-/* 今日：细边框高亮，不改变底色 */
+/* 今日高亮用「信息色」而非涨红：红 = 涨的语义会让人误以为「今天涨了」，
+   今日只是定位标记，与涨跌无关。--color-info 在亮 / 暗两主题都不与红涨绿跌冲突
+   （注意 --brand-700 暗色等于 --color-rise，故不能用品牌色当天高亮）。 */
 .is-today {
-  outline: 2px solid var(--color-rise);
+  outline: 2px solid var(--color-info);
   outline-offset: -2px;
 }
 
