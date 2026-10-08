@@ -321,8 +321,8 @@ defineExpose({ hasPinned });
    现在：表头一条线 + 每个数据行一条线，粗细统一为 1px var(--border-light)，
    末行无线（:last-child 去掉），也不再有额外横线。 */
 .wl-table {
-  border-collapse: collapse;
   border-spacing: 0;
+  border-collapse: collapse;
 }
 
 .wl-th {
@@ -387,8 +387,8 @@ defineExpose({ hasPinned });
 
 .wl-tr:hover,
 .wl-tr:focus-visible {
-  background-color: var(--bg-hover);
   outline: none;
+  background-color: var(--bg-hover);
 }
 
 /* 置顶行：极淡品牌底，让「上面这一块是置顶的」一眼可辨。
