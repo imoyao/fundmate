@@ -81,9 +81,9 @@ def get_money_fund_income():
                 abort(404, '账户不存在或无权访问')
         elif scope == 'portfolio':
             # 组合归属校验：越权/不存在统一 404
-            portfolio = db.query(Portfolio).filter(
-                Portfolio.id == portfolio_id, Portfolio.family_id == get_family_id()
-            ).first()
+            portfolio = (
+                db.query(Portfolio).filter(Portfolio.id == portfolio_id, Portfolio.family_id == get_family_id()).first()
+            )
             if not portfolio:
                 abort(404, '投资组合不存在或无权访问')
             # 解析组合下关联账户 ID 集合（统一 ledger_id 维度，避免 account_name 同名串味）

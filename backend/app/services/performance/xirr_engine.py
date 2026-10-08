@@ -260,7 +260,9 @@ def _exclude_internal_transfers(
             if a['ledger_id'] not in portfolio_ledger_ids or b['ledger_id'] not in portfolio_ledger_ids:
                 continue
             excluded.update([i, j])
-            logger.debug(f'内部划转已排除: {a["date"]} ledger#{a["ledger_id"]}↔#{b["ledger_id"]} 金额={a["amount"]:.2f}')
+            logger.debug(
+                f'内部划转已排除: {a["date"]} ledger#{a["ledger_id"]}↔#{b["ledger_id"]} 金额={a["amount"]:.2f}'
+            )
             break
     return excluded
 

@@ -343,8 +343,7 @@ class TestScopeAndParams:
         _make_orphan_flow(db, ledger_b, '511880', day, 'buy', 1000.0)
 
         result = calculate_money_fund_income(
-            db, start_date=day, end_date=day, scope='portfolio',
-            ledger_ids=[ledger_a.id, ledger_b.id], family_id=1
+            db, start_date=day, end_date=day, scope='portfolio', ledger_ids=[ledger_a.id, ledger_b.id], family_id=1
         )
         # (50000+100000)×0.35/10000 = 5.25 分 → round 到 5 分 = 0.05 元
         assert result['total_income'] == 0.05

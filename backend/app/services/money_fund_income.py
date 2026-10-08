@@ -64,7 +64,9 @@ def _empty_result() -> dict:
     }
 
 
-def _collect_orphan_flows(db: Session, family_id: int, ledger_ids: Optional[List[int]]) -> Dict[str, Dict[dt.date, int]]:
+def _collect_orphan_flows(
+    db: Session, family_id: int, ledger_ids: Optional[List[int]]
+) -> Dict[str, Dict[dt.date, int]]:
     """孤儿流水净额：{fund_code: {date: net_cents}}。
 
     buy/deposit 为正、sell/withdraw 为负；确认日为空时回退到交易日的日期。

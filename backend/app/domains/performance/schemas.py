@@ -25,7 +25,9 @@ class MoneyFundIncomeRequest(BaseModel):
 
     scope: Optional[str] = Field(None, description='查询范围: ledger / family / portfolio')
     ledger_id: Optional[int] = Field(None, description='账户ID（scope=ledger时必填）')
-    portfolio_id: Optional[int] = Field(None, description='投资组合ID（scope=portfolio时必填，由后端解析为关联账户集合）')
+    portfolio_id: Optional[int] = Field(
+        None, description='投资组合ID（scope=portfolio时必填，由后端解析为关联账户集合）'
+    )
     start_date: Optional[date] = Field(None, description='起始日期(YYYY-MM-DD)，默认近30天')
     end_date: Optional[date] = Field(None, description='结束日期(YYYY-MM-DD)，默认今天')
 

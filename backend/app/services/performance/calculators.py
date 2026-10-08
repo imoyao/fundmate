@@ -241,9 +241,7 @@ def calculate_portfolio_xirr_by_id(
     # ledger_id 为 NULL 自然不计入组合。
     ledger_ids = [
         row[0]
-        for row in db.query(Ledger.id)
-        .filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == family_id)
-        .all()
+        for row in db.query(Ledger.id).filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == family_id).all()
     ]
 
     if not ledger_ids:
