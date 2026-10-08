@@ -19,6 +19,7 @@
     <WelcomeAssetBoard
       ref="assetBoardRef"
       :summary="summary"
+      :distributions="distributions"
       :error="summaryError"
       @retry="onRetryAsset"
     />
@@ -120,6 +121,7 @@ defineOptions({
 // 页面状态单体：欢迎语 / 播报 / 汇总 / XIRR / 温度 / 派生列表（#980 拆分）
 const {
   summary,
+  distributions,
   portfolioXirr,
   includeCashEquivalents,
   recordDays,
@@ -138,6 +140,7 @@ const {
   homeFeed,
   mentalAccounts,
   fetchSummary,
+  fetchDistributions,
   fetchXirr,
   fetchTemperature,
   fetchRecordStats,
@@ -193,6 +196,7 @@ const onRetryAsset = async () => {
 // ===== 生命周期（顺序与拆分前一致：汇总 → 其余并行；ticker 清理在 composable 内） =====
 onMounted(() => {
   fetchSummary();
+  fetchDistributions();
   fetchXirr();
   fetchTemperature();
   fetchRecordStats();

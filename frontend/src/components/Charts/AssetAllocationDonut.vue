@@ -32,7 +32,9 @@ const props = withDefaults(
     showLegend?: boolean;
     /**
      * 图例是否显示占比（`名称 xx.x%`），默认 true。
-     * 首页资产看板传 false——它的图例区本来就窄，且 tooltip 已格式化显示占比。
+     * 分类名本身已含含义的调用方可传 false——占比在 tooltip 里也有。
+     * 注：首页资产看板改为按**资产大类**出图（#1955，原按 market 分组恒为单扇区），
+     * 大类只有 4 项、带占比不换行，故回到默认 true（原先传 false 是为 market 分组时的窄图例让位）。
      */
     showLegendPercent?: boolean;
     /**
@@ -67,6 +69,10 @@ function colorFor(name: string): string {
   const varName = props.colorMap[name];
   if (varName) return getCssVar(varName, "#8E8B82");
   const idx = props.data.findIndex(d => d.name === name);
+  // findIndex 未命中返回 -1，而 `-1 % 8 === -1`（JS 取模不取绝对值），
+  // 数组下标 -1 是undefined → 兜底分支吃进品牌红，让「未知分类」被画成红色，
+  // 与真实的涨跌色语义撞车。未命中直接给中性灰，宁可朴素也不误用语义色。
+  if (idx < 0) return getCssVar("--text-tertiary", "#8E8B82");
   return getCssVar(
     CHART_PALETTE_VARS[idx % CHART_PALETTE_VARS.length] ?? "--chart-01",
     "#8E8B82"
