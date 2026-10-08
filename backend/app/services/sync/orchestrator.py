@@ -33,6 +33,7 @@ from app.core.time_utils import now_shanghai
 from app.domains.positions.models import Position
 from app.domains.watchlist.models import WatchlistItem
 from app.models.sync_log import SyncLog
+from app.services import pnl_snapshot_store
 from app.services.adapters.advisor_source import AdvisorSourceRegistry
 from app.services.adapters.akshare_adapter import AkshareAdapter
 from app.services.adapters.eastmoney_adapter import EastmoneyAdapter
@@ -89,6 +90,18 @@ SYMBOL_BACKFILL_JOBS = frozenset(
         'dividend_split',
     }
 )
+
+# **会改历史价格表**的回填型 job（#1926）——收益日历物化快照的整表作废名单。
+#
+# 白名单而非「任何 full_sync 都清」：日历只读 `DailyWorth`（fund_nav 写）与
+# `PriceHistory`（price_history 写），其余 job 改的是基金资料/持仓/列表，
+# 与日历的任何数字都无关，清了只是白重算一遍。
+#
+# 为什么**只有 full_sync 需要钩子**：日常增量同步写的是「今天 / 近几天」，
+# 落在 `pnl_calendar.PRICE_FRESH_DAYS` 新鲜窗内——那些日期**永不物化**，
+# 读时恒现算，天然不会有过期行被读出去。而 `--full-sync` 回填的是窗口外的老日期，
+# 那些行早已落库，只有整表清才能保证读到的不是回填前的旧值。
+PRICE_BACKFILL_JOBS = frozenset({'fund_nav', 'price_history'})
 
 
 def require_full_sync_scope(job_name: str, full_sync: bool, has_targets: bool) -> None:
@@ -387,6 +400,17 @@ class DataSyncOrchestrator:
         now = now_shanghai()
         result['duration'] = (now - (job.snapshot_time or now)).total_seconds()
         self._save_sync_log_with_fallback(job_name, result, full_sync)
+        # 价格历史回填后整表作废物化快照（#1926）。
+        #
+        # 位置在审计落库**之后**且**自行 commit**：审计那步遇异常会 rollback，
+        # 把作废挂在它前面会让「回填成功但缓存没清」静默发生——那正是物化最危险
+        # 的失败形态（读到回填前的旧值，且不报任何错）。作废只删行、可重复执行，
+        # 单独提交的代价是零。
+        if full_sync and job_name in PRICE_BACKFILL_JOBS:
+            purged = pnl_snapshot_store.purge_all(self.db)
+            self.db.commit()
+            if purged:
+                logger.info(f'[{job_name}] 全量回填完成，作废收益日历物化快照 {purged} 行（#1926）')
         return result
 
     def _save_sync_log_with_fallback(self, job_name: str, result: Dict[str, Any], full_sync: bool) -> None:
