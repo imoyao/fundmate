@@ -29,13 +29,15 @@
 
 import datetime as dt
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.money import Money
 from app.domains.funds.models import MoneyFundDailyWorth
+from app.domains.ledgers.models import Ledger
+from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.importer.mappings import BusinessType
@@ -249,3 +251,51 @@ def calculate_money_fund_income(
         'total_income': Money.cents_to_yuan(total_income_cents),
         'daily_series': daily_series,
     }
+
+
+def resolve_money_fund_scope(
+    db: Session,
+    scope: Optional[str],
+    ledger_id: Optional[int],
+    portfolio_id: Optional[int],
+    family_id: int,
+) -> Optional[Tuple[Optional[int], Optional[List[int]]]]:
+    """校验查询范围与归属，并把组合解析为其关联账户 ID 集合（#1929）。
+
+    视图层只做 HTTP 编排，故 scope 合法性、账户/组合归属校验与「组合 → 关联账户 ID 集合」
+    解析一并下沉到本服务（`views → services` 是合法边，见 `decisions.md` D26 视图职责）。
+
+    口径 A：组合货基收益 = 其关联账户之和，统一走外键 `ledger_id` 维度——不用冗余的
+    `account_name`（同名账户会串味，且账户改名即失效）。
+
+    Returns:
+        `(ledger_id, ledger_ids)` 二元组。参数非法抛 `ValueError`（调用方转 400）；
+        账户/组合不存在或不属于该家庭时返回 `None`（调用方转 404，避免泄露存在性）。
+    """
+    if scope not in ('ledger', 'family', 'portfolio'):
+        raise ValueError('scope 参数非法，仅支持 ledger / family / portfolio')
+
+    if scope == 'ledger':
+        if not ledger_id:
+            raise ValueError('scope=ledger 时必须提供 ledger_id')
+        owned = db.query(Ledger.id).filter(Ledger.id == ledger_id, Ledger.family_id == family_id).first() is not None
+        return (ledger_id, None) if owned else None
+
+    if scope == 'portfolio':
+        if not portfolio_id:
+            raise ValueError('scope=portfolio 时必须提供 portfolio_id')
+        owns = (
+            db.query(Portfolio.id).filter(Portfolio.id == portfolio_id, Portfolio.family_id == family_id).first()
+            is not None
+        )
+        if not owns:
+            return None
+        ledger_ids = [
+            row[0]
+            for row in db.query(Ledger.id)
+            .filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == family_id)
+            .all()
+        ]
+        return None, ledger_ids
+
+    return None, None

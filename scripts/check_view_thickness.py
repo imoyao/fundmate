@@ -96,6 +96,12 @@ NEW_FILE_LIMITS = {
 # `reason` 全在 services），属本文件允许的视图职责。summary 141 → 176 行、max_func 20 → 31，
 # 其中 11 行是穿透口径的 docstring（覆盖率硬上限 / gics 非主口径 / 季报个股只披露前十大），
 # 值得写清。按本文件既有先例（2026-09-20「summary +2」那次）以 `--report` 实测回写，非手工拍数。
+# 2026-10-08 收紧（#1929，**非放宽**）：给 `money-fund-income` 端点加「组合」维度时，
+# scope 合法性校验、账户/组合归属校验与「组合 → 关联账户 ID 集合」解析一并下沉到
+# `services/money_fund_income.resolve_money_fund_scope`（`views → services` 是合法边，D26），
+# 视图只留「入参解析 + 调服务 + 组响应」——顺带修掉 #1929 第一版把 portfolio 分支写在视图里
+# 导致的 orm_queries / max_func 回潮（守卫拦下 113/3/55 超基线）。按 `--report` 实测回写：
+# 93/1/0/36 → 87/0/0/31（orm_queries 归零，与全仓 views 收敛趋势一致）。基线只减不增。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/assets/views.py": {"lines": 208, "orm_queries": 4, "commits": 0, "max_func": 44},
     "backend/app/domains/auth/views.py": {"lines": 137, "orm_queries": 3, "commits": 0, "max_func": 45},
@@ -105,7 +111,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/ledgers/views.py": {"lines": 723, "orm_queries": 16, "commits": 0, "max_func": 60},
     "backend/app/domains/market/views.py": {"lines": 37, "orm_queries": 0, "commits": 0, "max_func": 21},
     "backend/app/domains/ocr/views.py": {"lines": 214, "orm_queries": 1, "commits": 0, "max_func": 48},
-    "backend/app/domains/performance/views.py": {"lines": 93, "orm_queries": 1, "commits": 0, "max_func": 36},
+    "backend/app/domains/performance/views.py": {"lines": 87, "orm_queries": 0, "commits": 0, "max_func": 31},
     "backend/app/domains/portfolios/views.py": {"lines": 166, "orm_queries": 1, "commits": 0, "max_func": 29},
     "backend/app/domains/positions/views.py": {"lines": 288, "orm_queries": 6, "commits": 0, "max_func": 57},
     "backend/app/domains/reconciliation/views.py": {"lines": 225, "orm_queries": 2, "commits": 0, "max_func": 48},
