@@ -1,5 +1,9 @@
 import { ref, onUnmounted, computed } from "vue";
-import { getSummary } from "@/api/summary";
+import {
+  getSummary,
+  getDistributions,
+  type DistributionsData
+} from "@/api/summary";
 import { getPortfolioXirr, type XirrData } from "@/api/performance";
 import { getRecordStats } from "@/api/users";
 import { useTemperatureOverview } from "@/composables/temperature/useTemperatureOverview";
@@ -43,6 +47,16 @@ export type MentalAccountItem = {
 export function useWelcomeData() {
   // ===== 数据 =====
   const summary = ref<SummaryData | null>(null);
+  /**
+   * 家庭级多维市值分布（后端唯一聚合出口`/api/summary/distributions/`）。
+   *
+   * 首页环形图**不再**消费 `summary.market_distribution`：那份数据按持仓
+   * `market` 分组，实测 154 笔持仓全为 `CN_A` → 只回一个扇区，环上画成整圈单色；
+   * 且它只覆盖**持仓市值**，与看板左侧「家庭总资产」（含房产/存款等通用资产）
+   * 不是同一口径，图与数字对不上。`category_distribution`（资产大类）才是
+   * 与「家庭总资产」对得上的维度：各项之和 === `distributions.total_assets`。
+   */
+  const distributions = ref<DistributionsData | null>(null);
   const portfolioXirr = ref<XirrData | null>(null);
   // #1354：年化收益是否纳入现金等价物（货币基金/逆回购/现金）；默认 false=仅主动投资，反映真实投资水准
   const includeCashEquivalents = ref(false);
@@ -258,6 +272,26 @@ export function useWelcomeData() {
   // 加载中 / 失败（可重试）/ 真的为 0。
   const summaryError = ref(false);
   const xirrError = ref(false);
+  /**
+   * 环形图数据加载失败（与 #1832 同源的问题）。
+   *
+   * 分布失败**不触发整卡的「加载失败 + 重试」**——左侧总资产数字是好的，
+   * 让它因为一张次要图表挂掉而整块变成错误态是本末倒置。这里独立一个标记，
+   * 供环形图自己降级为空态（「暂无数据」），不牵连金额展示。
+   */
+  const distributionsError = ref(false);
+
+  const fetchDistributions = async () => {
+    try {
+      const res = await getDistributions();
+      distributions.value = res.data ?? null;
+      distributionsError.value = false;
+    } catch (e) {
+      console.error("Failed to fetch distributions:", e);
+      distributions.value = null;
+      distributionsError.value = true;
+    }
+  };
 
   const fetchSummary = async () => {
     try {
@@ -301,9 +335,13 @@ export function useWelcomeData() {
     // 资产数据加载失败态（#1832）：展示层据此渲染「加载失败 + 重试」而不是 ¥0
     summaryError,
     xirrError,
+    /** 环形图数据失败态：仅让图表降级为空态，不影响左侧金额 */
+    distributionsError,
+    /** 环形图数据（资产大类分布；与「家庭总资产」同一口径） */
+    distributions,
     /** 资产关键数据重试（汇总 + 年化），供页面「重试」按钮调用 */
     retryAssetLoad: async () => {
-      await Promise.all([fetchSummary(), fetchXirr()]);
+      await Promise.all([fetchSummary(), fetchXirr(), fetchDistributions()]);
     },
     welcomeState,
     greetingText,
@@ -316,6 +354,7 @@ export function useWelcomeData() {
     startTicker,
     // 汇总 / XIRR
     summary,
+    distributions,
     portfolioXirr,
     includeCashEquivalents,
     // 温度
@@ -328,6 +367,7 @@ export function useWelcomeData() {
     homeFeed,
     // 请求入口（页面 onMounted 编排，保持拆分前的调用顺序）
     fetchSummary,
+    fetchDistributions,
     fetchXirr,
     fetchTemperature,
     fetchRecordStats

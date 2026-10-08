@@ -450,6 +450,74 @@ class TestDistributionsEndpoint:
         # 负债明细单独列出（正数）
         assert _find(data['liability_distribution'], '信用卡') == 5000.0
 
+    def test_single_market_still_multi_category(self, client, db):
+        """同一回归锚点：全持仓同市场时，资产大类仍须多档（#1955）。
+
+        背景：首页环形图曾消费 `summary.market_distribution`（按持仓 `market`
+        分组）。本机实测 154 笔持仓全为 `CN_A` → 只回一个扇区，环上画成整圈
+        单色，首页表现为「一个完整的红色圆环」，看起来像没取到数。
+        本测试锁定服务端行为：`category_distribution` 与市场数无关，
+        大类维度上必须能出多档，且各项之和等于 `total_assets`。
+        """
+        # 两笔同市场（CN_A）持仓 + 一笔现金资产 + 一笔固定资产
+        db.add_all(
+            [
+                Position(
+                    symbol='SH600519',
+                    name='茅台',
+                    market='CN_A',
+                    asset_type='stock',
+                    quantity=Money.shares_to_min_unit(100),
+                    current_price=Money.yuan_to_price_units(1000),
+                    currency='CNY',
+                ),
+                Position(
+                    symbol='SH601318',
+                    name='平安',
+                    market='CN_A',
+                    asset_type='stock',
+                    quantity=Money.shares_to_min_unit(100),
+                    current_price=Money.yuan_to_price_units(500),
+                    currency='CNY',
+                ),
+                Asset(
+                    user_id=1,
+                    major_category='cash',
+                    name='活期存款',
+                    amount=Money.yuan_to_cents(80000),
+                    currency='CNY',
+                ),
+                Asset(
+                    user_id=1,
+                    major_category='fixed',
+                    name='自住房',
+                    amount=Money.yuan_to_cents(2000000),
+                    currency='CNY',
+                ),
+            ]
+        )
+        db.commit()
+
+        resp = client.get('/api/summary/distributions/')
+        data = resp.get_json()['data']
+
+        # 前提成立：市场维度确实只有一档（这正是旧实现的坑）
+        assert len(data['market_distribution']) == 1
+
+        # 但大类维度必须多档
+        assert len(data['category_distribution']) >= 3
+
+        def _find(dist, name):
+            return next((d['value'] for d in dist if d['name'] == name), None)
+
+        assert _find(data['category_distribution'], '固定资产') == 2000000.0
+        assert _find(data['category_distribution'], '流动资金') == 80000.0
+        assert _find(data['category_distribution'], '投资理财') == 150000.0
+
+        # 口径闭合：各大类之和 === total_assets（与首页「家庭总资产」对得上）
+        total = sum(d['value'] for d in data['category_distribution'])
+        assert total == data['total_assets']
+
     def test_distribution_sorted_desc(self, client, db):
         """分布按市值降序返回，便于前端直接取最大项"""
         p1 = Position(

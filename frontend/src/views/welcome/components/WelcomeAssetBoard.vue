@@ -122,12 +122,18 @@
                 :style="{ color: 'var(--text-secondary)' }"
                 >资产构成分布</span
               >
+              <span
+                class="text-[10px]"
+                :style="{ color: 'var(--text-tertiary-ink)' }"
+                >按资产大类</span
+              >
             </div>
             <AssetAllocationDonut
               :data="distributionData"
               class="h-[220px]"
+              :color-map="CATEGORY_COLOR_MAP"
               :legend-font-size="10"
-              :show-legend-percent="false"
+              :show-legend-percent="true"
             />
           </div>
         </div>
@@ -148,26 +154,40 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { SummaryData } from "@/api/types";
+import type { DistributionsData } from "@/api/summary";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import AssetAllocationDonut from "@/components/Charts/AssetAllocationDonut.vue";
+import {
+  buildDistributionData,
+  CATEGORY_COLOR_MAP
+} from "../composables/distributionLogic";
 
 defineOptions({ name: "WelcomeAssetBoard" });
 
-const props = defineProps<{
-  summary: SummaryData | null;
-  /** 汇总请求失败（#1832）：为 true 时渲染「加载失败 + 重试」，不显示 ¥0 */
-  error?: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    summary: SummaryData | null;
+    /** 汇总请求失败（#1832）：为 true 时渲染「加载失败 + 重试」，不显示 ¥0 */
+    error?: boolean;
+    /** 多维分布（`/api/summary/distributions/`）；环形图的数据源 */
+    distributions?: DistributionsData | null;
+  }>(),
+  { distributions: null }
+);
 
 const emit = defineEmits<{ retry: [] }>();
 
-/** 资产分布：后端给的是 Record<string, number>，组件要的是 [{ name, value }]
- *  （#1902 收敛到 AssetAllocationDonut 后，这里不再自己维护 echarts option） */
+/**
+ * 资产分布：走 `distributionLogic` 的统一口径（#1955）。
+ *
+ * **不再用 `summary.market_distribution`**（#1902 遗留）：那份按持仓 `market`
+ * 分组，实测本机 154 笔持仓全为 `CN_A`，只回一个扇区，环上画成整圈单色；
+ * 且只覆盖持仓市值（65.9 万），与左侧「家庭总资产」（390.4 万）不同口径。
+ * 详见 distributionLogic.ts 顶部的缺陷背景。
+ */
 const distributionData = computed(() =>
-  Object.entries(props.summary?.market_distribution ?? {}).map(
-    ([name, value]) => ({ name, value })
-  )
+  buildDistributionData(props.distributions)
 );
 </script>
