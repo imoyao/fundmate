@@ -84,6 +84,7 @@
           :key="watchlistWidgetKey"
           class="flex-1"
           @add="showAddWatchlistModal = true"
+          @select="onWatchlistSelect"
         />
       </div>
     </div>
@@ -104,7 +105,11 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted } from "vue";
+import { useRouter } from "vue-router";
+import { ElMessage } from "element-plus";
 import WatchlistWidget from "@/components/WatchlistWidget/index.vue";
+import type { HomeSummaryItem } from "@/api/types";
+import { resolveDetailPath } from "@/utils/productDetailNav";
 import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import PnlCalendar from "@/components/PnlCalendar/index.vue";
@@ -177,10 +182,31 @@ const watchlistHint = computed(() =>
 );
 
 // ===== 事件处理 =====
-// 行点击的跳转由 WatchlistWidget 内部完成（router.push('/watchlist')），本页不再挂
-// @select —— 此前挂的是onWatchlistSelect，而它是个空函数 + `// TODO: 跳转到资产详情`：
-// 整行 cursor-pointer、行内按钮有 hover 反馈，点了却什么都不发生，是「像 demo」的直接来源（#1954）。
-// 待单标的详情页（#1909）落地后，再由本页承接 select 事件改跳详情。
+// 行点击 → 跳产品详情（#1965）：本页承接 WatchlistWidget 的 `select` 事件。
+// #1954 曾摘掉这个挂载，因为当时详情页不存在、`onWatchlistSelect` 是个空函数 +
+// `// TODO: 跳转到资产详情`——整行 cursor-pointer、行内按钮有 hover 反馈，点了却什么都不
+// 发生，是「像 demo」的直接来源。现详情页已落地（路由 #1964 / 接线 #1965），按当时的
+// 约定把它接回来，并且**不再是空函数**。
+const router = useRouter();
+
+const onWatchlistSelect = async (item: HomeSummaryItem) => {
+  try {
+    // 摘要行的 asset_type 可能为空、也没有 market → 内部回后端问权威品类，
+    // 不在前端按 symbol 形态猜（那正是 #1497 错标成一堆无关基金的根因）
+    const path = await resolveDetailPath({
+      symbol: item.symbol,
+      assetType: item.asset_type,
+      venue: item.venue
+    });
+    if (!path) {
+      ElMessage.warning("该品类详情页暂未开放");
+      return;
+    }
+    await router.push(path);
+  } catch {
+    ElMessage.warning("未找到该产品，可能已下架或代码有误");
+  }
+};
 
 const onWatchlistChanged = () => {
   watchlistWidgetKey.value++;

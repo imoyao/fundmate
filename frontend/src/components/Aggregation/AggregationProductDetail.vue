@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import { ElDrawer, ElMessage } from "element-plus";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { formatQuantity } from "@/utils/format";
 import type { AggregationProductGroup, AggregationSource } from "@/api/ledger";
 import { allocateValue } from "@/api/positions";
+import { resolveDetailPath } from "@/utils/productDetailNav";
 
 /**
  * 产品详情抽屉（#1133，对齐参考截图3/4）。
@@ -39,6 +41,34 @@ const emit = defineEmits<{
   /** 总价分摊保存成功；调用方需刷新聚合数据（#1176） */
   (e: "saved"): void;
 }>();
+
+const router = useRouter();
+const detailLoading = ref(false);
+
+/**
+ * 跳详情页（#1965）。
+ *
+ * 聚合分组**只有 symbol**——没有 asset_type / market / venue，故一律回后端取权威品类
+ * （设计 §3.3：前端不推断）。按既有范式「先关抽屉再跳」，否则抽屉会盖住详情页。
+ */
+async function goDetail() {
+  const g = props.group;
+  if (!g?.symbol || detailLoading.value) return;
+  detailLoading.value = true;
+  try {
+    const path = await resolveDetailPath({ symbol: g.symbol });
+    if (!path) {
+      ElMessage.warning("该品类详情页暂未开放");
+      return;
+    }
+    emit("update:modelValue", false);
+    await router.push(path);
+  } catch {
+    ElMessage.warning("未找到该产品，可能已下架或代码有误");
+  } finally {
+    detailLoading.value = false;
+  }
+}
 
 /** 汇总份额 */
 const totalShares = computed(() => (props.group?.quantity || 0) / 10000);
@@ -194,6 +224,11 @@ function fmtShort(d: string | null): string {
           {{ group?.name || "--" }}
         </p>
         <p class="detail-code">{{ group?.symbol }}</p>
+        <!-- #1965：聚合分组只有 symbol（无 asset_type / market / venue），
+             点击时回后端问权威品类（前端不推断、不剥前缀） -->
+        <el-button text size="small" :loading="detailLoading" @click="goDetail">
+          查看详情
+        </el-button>
       </div>
     </template>
 
