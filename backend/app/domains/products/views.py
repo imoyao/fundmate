@@ -17,9 +17,10 @@ from flask import abort, g, jsonify, request
 from app.core.auth import get_family_id
 from app.core.db_factory import market_session_factory, user_session_factory
 from app.core.validation import parse_query
-from app.domains.products.schemas import ProductResolveRequest
+from app.domains.products.schemas import ProductResolveRequest, ProductTrendRequest
 from app.services.fund_profile import build_fund_profile
 from app.services.product_identity import resolve_product_identity
+from app.services.product_trend import RANGE_DAYS, fetch_product_trend
 
 bp = APIBlueprint('products', __name__, url_prefix='/api/products')
 
@@ -84,9 +85,9 @@ def fund_profile():
        products 域是新文件，限额宽裕（lines ≤ 400 / query ≤ 10 / 单函数 ≤ 60）。
 
     为何要新增而不让前端拼既有端点：**日涨跌**要「最近两日净值」自己算（funds 域无端点
-    直出），**基金经理**更是没有任何端点（``/managers/search/`` 是按经理名模糊搜，与「某只
-    基金有哪些经理」无关，关系只在 ``funds.managers`` 关联表里）。详见
-    ``services/fund_profile.py`` 模块 docstring。
+    直出），**基金经理**也没有对应端点（``/managers/search/`` 是按经理名模糊搜，与「某只
+    基金有哪些经理」无关；该关系本身在 ``fund_managers`` 关联表里是完整的，funds 域缺的
+    只是把它读出来的出口）。详见 ``services/fund_profile.py`` 模块 docstring。
     """
     fund_code = (request.args.get('code') or '').strip()
     with closing(market_session_factory()()) as db:
@@ -97,3 +98,40 @@ def fund_profile():
     if data is None:
         abort(404, f'基金不存在：{fund_code}')
     return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/trend/')
+def product_trend():
+    """产品历史走势序列（#1967 · 详情页走势区块）。
+
+    与 ``/api/watchlist/trends/`` 的区别：本端点**带日期轴**且用区间语义（1M/3M/6M/1Y），
+    因为详情页要画坐标轴、并给出「数据日期」口径脚注；trends 面向列表页迷你图，只要数值数组。
+
+    降级：品类本身没有序列数据源（指数 / 基金经理 / 投顾组合）时返回**空序列**而非 404——
+    「该品类不提供走势」与「产品不存在」是两件事，前端要分别渲染空态。
+    """
+    query: ProductTrendRequest = parse_query(ProductTrendRequest)
+
+    with closing(market_session_factory()()) as db:
+        try:
+            result = fetch_product_trend(
+                db,
+                symbol=query.symbol,
+                asset_type=query.asset_type,
+                range_key=query.range_,
+            )
+        except ValueError as e:
+            abort(400, str(e))
+
+    if result is None:
+        result = {
+            'symbol': (query.symbol or '').strip().upper(),
+            'kind': '',
+            'dates': [],
+            'values': [],
+            'source': '',
+            'range': query.range_,
+            'requested_days': RANGE_DAYS[query.range_],
+            'available_days': 0,
+        }
+    return jsonify({'data': result, 'message': 'ok'})

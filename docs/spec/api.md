@@ -146,6 +146,7 @@ title: 核心 API 端点清单（api）
 | POST | `/api/positions/validate/` | `validate_trade_order` |
 | GET | `/api/products/fund-profile/` | `fund_profile` |
 | GET | `/api/products/resolve/` | `resolve_product` |
+| GET | `/api/products/trend/` | `product_trend` |
 | POST | `/api/reconciliation/adjustments/` | `apply_adjustment` |
 | GET | `/api/reconciliation/discrepancies/` | `list_discrepancies` |
 | POST | `/api/reconciliation/discrepancies/<int:discrepancy_id>/ignore/` | `ignore_discrepancy` |

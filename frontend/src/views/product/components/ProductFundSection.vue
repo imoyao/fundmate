@@ -118,12 +118,16 @@ watch(() => props.symbol, load, { immediate: true });
         </div>
         <div class="fund-section__fact">
           <dt class="fund-section__label">基金经理</dt>
-          <dd class="fund-section__value">
-            {{
-              profile.managers.length
-                ? profile.managers.map(m => m.name).join("、")
-                : DASH
-            }}
+          <dd class="fund-section__value fund-section__value--wrap">
+            <template v-if="profile.managers.length">
+              <template v-for="(m, i) in profile.managers" :key="m.mgr_code">
+                <span v-if="i > 0" aria-hidden="true">、</span>{{ m.name
+                }}<span v-if="m.is_classic" class="fund-section__badge"
+                  >代表作</span
+                >
+              </template>
+            </template>
+            <template v-else>{{ DASH }}</template>
           </dd>
         </div>
         <div class="fund-section__fact">
@@ -232,6 +236,17 @@ watch(() => props.symbol, load, { immediate: true });
   margin-left: var(--space-1);
   font-size: 12px;
   color: var(--text-tertiary-ink);
+}
+
+/* 代表作品徽标（#1968）：标记该经理在此基金上是代表作品，数据来自 fund_managers.is_classic */
+.fund-section__badge {
+  padding: 0 var(--space-1);
+  margin-left: var(--space-1);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--color-info);
+  background: color-mix(in srgb, var(--color-info) 12%, transparent);
+  border-radius: 4px;
 }
 
 .fund-section__hint,
