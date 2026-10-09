@@ -14,9 +14,12 @@
  *   勿与 `hidden` 混用，见 `router/utils.ts` 的 meta 约定）；
  * - `requiresAuth`：默认即需登录，这里显式写出以免读者以为可省。
  *
- * router-orphan-allow: 四入口接线在 #1965，本卡路由还没有任何 `router-link`
- * 指向它，故会被 `scripts/check_router_links.mjs` 判为孤儿路由。但「用户手输 /
- * fund/004369 直达」正是本设计的核心诉求（§3.1），属**预期孤儿**，故显式豁免。
+ * 孤儿路由：本路由靠「用户手输 `/fund/004369` 直达」进入，没有侧边栏入口
+ * （`showLink: false`），但组件 `defineOptions({ name: "ProductDetail" })` 与本
+ * `name` 一致，`scripts/check_router_links.mjs` 按 name 入链判定即可，
+ * **不需要** `router-orphan-allow` 豁免——四入口的 `router.push(productRoute(…))`
+ * 是函数调用、不产生字面量入链证据，这与 `asset.ts` 里「页面接真实数据后摘掉盲区
+ * 标记转正」是同一件事。
  */
 const ProductDetailRoute = {
   path: "/:assetType/:symbol",

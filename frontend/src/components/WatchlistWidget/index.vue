@@ -100,8 +100,8 @@
               class="wl-tr"
               :class="{ 'is-pinned': item.is_pinned === true }"
               tabindex="0"
-              @click="handleItemClick()"
-              @keydown.enter="handleItemClick()"
+              @click="handleItemClick(item)"
+              @keydown.enter="handleItemClick(item)"
             >
               <td class="wl-td wl-td--product">
                 <!-- 内层 flex 包裹：td 本身不能设 display:flex（会破坏表格单元格布局），
@@ -195,12 +195,12 @@
                    此前这里混进了类型 / 持仓状态标签（AssetTypeBadge），
                    语义错位且与产品信息列重复（#1954）。 -->
               <td class="wl-td wl-td--num wl-td--actions">
-                <el-tooltip content="在自选页查看与操作" placement="top">
+                <el-tooltip content="查看产品详情" placement="top">
                   <button
                     type="button"
                     class="wl-action"
-                    :aria-label="`在自选页查看 ${item.display_name || item.symbol}`"
-                    @click.stop="handleItemClick()"
+                    :aria-label="`查看 ${item.display_name || item.symbol} 详情`"
+                    @click.stop="handleItemClick(item)"
                   >
                     <IconifyIconOffline icon="ep:right" />
                   </button>
@@ -232,16 +232,17 @@ import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 
 /**
- * 只对外抛 `add`（空态点击 → 打开添加弹窗）。
- * 此前还有一个 `select` 事件，但欢迎页的处理器是空函数（`// TODO: 跳转到资产详情`），
- * 事件抛出去无人消费——行点击的跳转改由本组件内部完成（#1954）。
- * 待单标的详情页（#1909）落地后，再把跳转收回父组件、恢复 `select` 事件。
+ * 对外抛 `add`（空态点击 → 打开添加弹窗）与 `select`（行点击 → 该产品详情）。
+ *
+ * #1954 曾摘掉 `select`、把行点击改成组件内部跳自选页，原因是当时详情页不存在、
+ * 欢迎页的处理器是空函数（`// TODO: 跳转到资产详情`）——事件抛出去无人消费。
+ * 现详情页已落地（路由 #1964 / 接线 #1965），故**恢复 `select` 并交回父组件**：
+ * 取权威品类、拼详情路径属页面层职责，组件只负责「用户点了哪一行」。
  */
 const emit = defineEmits<{
   add: [];
+  select: [item: HomeSummaryItem];
 }>();
-
-const router = useRouter();
 
 const items = ref<HomeSummaryItem[]>([]);
 const loading = ref(true);
@@ -287,13 +288,14 @@ function marketValueRatio(item: HomeSummaryItem): number | null {
 }
 
 /**
- * 行点击 / 操作按钮 → 去自选页。
- * 此前整行 cursor-pointer 但落地是个空函数，行内还有「快速记账」按钮 emit 到那里，
- * 按钮有 hover 反馈却点了什么都不发生——「像个 demo」的直接来源（#1954）。
- * 现阶段没有单标的详情页可跳（#1909 待做），去自选页是唯一诚实且可用的去向。
+ * 行点击 / 操作按钮 → 抛 `select` 给父组件（欢迎页）跳产品详情。
+ *
+ * 组件自己不碰路由：品类判定（可能需回后端问权威）与详情路径拼接都已收口到
+ * `utils/productDetailNav`，使用方是页面层——这正是 #1954 摘掉 select 时划的边界，
+ * 现在详情页落地了，只是把它接回去。
  */
-function handleItemClick() {
-  void router.push("/watchlist");
+function handleItemClick(item: HomeSummaryItem) {
+  emit("select", item);
 }
 
 async function fetchData() {
