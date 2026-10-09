@@ -56,3 +56,19 @@ class ProductTrendRequest(BaseModel):
     )
 
     model_config = ConfigDict(populate_by_name=True)
+
+
+class StockProfileRequest(BaseModel):
+    """`GET /api/products/stock-profile/` 的查询参数（#1969 · 详情页股票区块）。
+
+    与 `ProductResolveRequest` 分开而非合并：本端点只要**资料 + 区间行情**，不关心
+    自选 / 持仓状态，故不需要 `venue` / `asset_type` —— 品类已由详情页 resolver 判定并
+    分派到本区块，前端不重复推断。
+    """
+
+    symbol: str = Field(..., min_length=1, max_length=50, description='产品代码（带市场前缀形态，如 SZ000001）')
+    market: Optional[str] = Field(
+        None,
+        max_length=20,
+        description='市场消歧；同码跨市场时由 resolve 结果带下来，为空则不按市场过滤',
+    )
