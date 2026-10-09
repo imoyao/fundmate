@@ -175,6 +175,39 @@ export function getManagerProfile(params: {
   );
 }
 
+/** 跨渠道关联标的条目（`/api/products/related-symbols/` 返回） */
+export interface RelatedSymbolLink {
+  /** 关联标的**裸代码**（关系表统一存裸代码，无市场前缀） */
+  code: string;
+  /** 名称；缺失时为 null，前端降级显示代码 */
+  name: string | null;
+  /** 关系类型：index_etf（指数↔场内ETF）/ etf_feeder（场内ETF↔场外联接） */
+  link_type: "index_etf" | "etf_feeder";
+  /** 按本标的角色决定的称呼，如「同标的 ETF」「跟踪指数」「场外联接」 */
+  label: string;
+}
+
+/** 关联标的聚合结果（#1976）。links 为空即无关联，前端降级「—」，不是错误。 */
+export interface RelatedSymbolsResult {
+  links: RelatedSymbolLink[];
+  /** 按出现顺序去重的分组标签，用于分区展示 */
+  groups: string[];
+}
+
+/**
+ * 跨渠道关联标的（指数 ↔ 场内 ETF ↔ 场外联接）。
+ *
+ * 关系靠名称匹配建立，落库口径覆盖率约 66.4%（跨境 / 商品 ETF 缺口见 #1419），
+ * 故**无关联是正常情形**，后端返回空列表而非 404。
+ */
+export function getRelatedSymbols(params: { symbol: string }) {
+  return http.request<ApiResponse<RelatedSymbolsResult>>(
+    "get",
+    "/api/products/related-symbols/",
+    { params }
+  );
+}
+
 /** 场内单根 K 线（#1969） */
 export interface ProductTrendOhlc {
   date: string;

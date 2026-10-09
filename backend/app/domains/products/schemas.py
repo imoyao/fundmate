@@ -97,3 +97,19 @@ class ManagerProfileRequest(BaseModel):
         le=100,
         description='任职基金返回条数上限（默认 20；实测最多 42 只）',
     )
+
+
+class RelatedSymbolsRequest(BaseModel):
+    """`GET /api/products/related-symbols/` 的查询参数（#1976 · 详情页关联标的区块）。
+
+    只需 symbol：关系表 ``channel_links`` 统一存**裸代码**，入参带不带市场前缀都能命中
+    （service 内抽取数字部分），故不需要 `market` / `venue` 消歧——这与
+    `StockProfileRequest` 不同，后者要按市场过滤证券记录。
+    """
+
+    symbol: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description='产品代码（带前缀形态如 SH510300 或裸代码 510300 均可）',
+    )
