@@ -135,6 +135,17 @@ export function getStockProfile(params: { symbol: string; market?: string }) {
   );
 }
 
+/** 场内单根 K 线（#1969） */
+export interface ProductTrendOhlc {
+  date: string;
+  /** 盘中价可能为 null（存量行缺列）；前端绘制时退化为收盘价，不留空洞 */
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number;
+  volume: number | null;
+}
+
 /** 走势区间档位（设计 §5 B 区块；默认 3M 见 §12 ⑤） */
 export type TrendRange = "1M" | "3M" | "6M" | "1Y";
 
@@ -154,6 +165,8 @@ export interface ProductTrendResult {
   requested_days: number;
   /** 实际数据跨度天数；远小于 requested_days 说明历史不足，需收敛档位 */
   available_days: number;
+  /** 场内**未复权** OHLCV（画 K 线 + 成交量）；场外为空数组 → 前端改画净值线 */
+  ohlc: ProductTrendOhlc[];
 }
 
 /** 取产品历史走势序列。空 dates/values 表示无数据，前端渲染空态而非报错。 */

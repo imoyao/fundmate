@@ -82,6 +82,47 @@ def _latest_price_source(db: Session, symbol: str) -> str:
     return row[0] if row else ''
 
 
+def _fetch_ohlc_series(db: Session, symbol: str, start: dt.date) -> List[Dict]:
+    """场内 OHLCV 序列（K 线与成交量副图用）。
+
+    **未复权**而非前复权：K 线是「当时真实成交的价格」，用户要拿它跟自己的持仓成本
+    对账（同花顺 / 雪球默认也是不复权）。前复权价只在算区间收益时才需要，那条走
+    `_fetch_close_series`。
+
+    `open/high/low` 可能为 NULL（存量行或个别来源缺列）——原样回 `None`，不在这里
+    用 close 编造盘中数据；前端绘制时按「无盘中数据则退化为收盘价」降级。
+    """
+    rows = (
+        db.query(
+            PriceHistory.trade_date,
+            PriceHistory.open,
+            PriceHistory.high,
+            PriceHistory.low,
+            PriceHistory.close,
+            PriceHistory.volume,
+        )
+        .filter(PriceHistory.symbol == symbol, PriceHistory.trade_date >= start)
+        .order_by(PriceHistory.trade_date)
+        .all()
+    )
+    out: List[Dict] = []
+    for trade_date, open_, high, low, close, volume in rows:
+        if close is None:
+            # close 是 NOT NULL 列，这里防御的是历史脏行；缺收盘价的 K 线没有意义
+            continue
+        out.append(
+            {
+                'date': trade_date.isoformat(),
+                'open': float(open_) if open_ is not None else None,
+                'high': float(high) if high is not None else None,
+                'low': float(low) if low is not None else None,
+                'close': float(close),
+                'volume': float(volume) if volume is not None else None,
+            }
+        )
+    return out
+
+
 def _fetch_nav_series(db: Session, symbol: str, start: dt.date) -> List[Tuple[dt.date, float]]:
     """场外基金单位净值序列（``daily_worth.fund_code`` 为裸 6 位码）。"""
     code = symbol[3:] if symbol.startswith('OF.') else symbol
@@ -115,9 +156,10 @@ def fetch_product_trend(
         range_key: ``1M`` / ``3M`` / ``6M`` / ``1Y``。
 
     Returns:
-        ``{symbol, kind, dates, values, source, basis, range, requested_days,
+        ``{symbol, kind, dates, values, source, basis, ohlc, range, requested_days,
         available_days}``；``source`` 是**站点名**（如「新浪财经」），``basis`` 是口径
-        说明（如「前复权收盘价」）——用户看来源，需要时看口径（#1969）。
+        说明——用户看来源，需要时看口径（#1969）。``ohlc`` 为场内**未复权** OHLCV
+        （画 K 线 + 成交量），场外为空数组（改画净值线）。
         品类本身无序列数据源（指数等）时返回 ``None``，由调用方降级。
 
     Raises:
@@ -140,9 +182,15 @@ def fetch_product_trend(
         series = _fetch_nav_series(market_db, code, start)
         # 来源与口径分开给：来源是站点名（用户看得懂），口径是「怎么算的」
         kind, basis, source = 'nav', '单位净值', data_source_label(FUND_NAV_SOURCE_LABEL)
+        # 场外基金只有单位净值，没有 OHLCV —— 前端据此画净值线而不是 K 线（品类差异化）
+        ohlc: List[Dict] = []
     else:
         series = _fetch_close_series(market_db, code, start)
-        kind, basis = 'close', '前复权收盘价'
+        ohlc = _fetch_ohlc_series(market_db, code, start)
+        kind = 'close'
+        # 图上是未复权 K 线（与持仓成本可比），而区间涨跌幅仍按前复权算（除权日不跳空）——
+        # 两者口径不同，必须在脚注讲清楚，否则用户会拿图上首尾差去核对涨跌幅
+        basis = '未复权 K 线；区间涨跌幅按前复权'
         source = data_source_label(_latest_price_source(market_db, code))
 
     # 实际可用跨度：用于前端「无长历史自动收敛到可用档」（设计 §12 ⑤），数据不足时
@@ -157,6 +205,8 @@ def fetch_product_trend(
         # source 是**站点名**（新浪财经 / 天天基金…），不是内部表名或抓取管线码（#1969）
         'source': source,
         'basis': basis,
+        # 场内：未复权 OHLCV（画 K 线 + 成交量）；场外：空数组（改画净值线）
+        'ohlc': ohlc,
         'range': range_key,
         'requested_days': days,
         'available_days': available_days,
