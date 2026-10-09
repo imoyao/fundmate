@@ -17,8 +17,9 @@ from flask import abort, g, jsonify
 from app.core.auth import get_family_id
 from app.core.db_factory import market_session_factory, user_session_factory
 from app.core.validation import parse_query
-from app.domains.products.schemas import ProductResolveRequest
+from app.domains.products.schemas import ProductResolveRequest, ProductTrendRequest
 from app.services.product_identity import resolve_product_identity
+from app.services.product_trend import RANGE_DAYS, fetch_product_trend
 
 bp = APIBlueprint('products', __name__, url_prefix='/api/products')
 
@@ -68,4 +69,41 @@ def resolve_product():
 
     if result is None:
         abort(404, f'未识别的产品代码：{query.symbol}')
+    return jsonify({'data': result, 'message': 'ok'})
+
+
+@bp.get('/trend/')
+def product_trend():
+    """产品历史走势序列（#1967 · 详情页走势区块）。
+
+    与 ``/api/watchlist/trends/`` 的区别：本端点**带日期轴**且用区间语义（1M/3M/6M/1Y），
+    因为详情页要画坐标轴、并给出「数据日期」口径脚注；trends 面向列表页迷你图，只要数值数组。
+
+    降级：品类本身没有序列数据源（指数 / 基金经理 / 投顾组合）时返回**空序列**而非 404——
+    「该品类不提供走势」与「产品不存在」是两件事，前端要分别渲染空态。
+    """
+    query: ProductTrendRequest = parse_query(ProductTrendRequest)
+
+    with closing(market_session_factory()()) as db:
+        try:
+            result = fetch_product_trend(
+                db,
+                symbol=query.symbol,
+                asset_type=query.asset_type,
+                range_key=query.range_,
+            )
+        except ValueError as e:
+            abort(400, str(e))
+
+    if result is None:
+        result = {
+            'symbol': (query.symbol or '').strip().upper(),
+            'kind': '',
+            'dates': [],
+            'values': [],
+            'source': '',
+            'range': query.range_,
+            'requested_days': RANGE_DAYS[query.range_],
+            'available_days': 0,
+        }
     return jsonify({'data': result, 'message': 'ok'})

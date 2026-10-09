@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.asset_types import normalize_asset_type
 
@@ -34,3 +34,25 @@ class ProductResolveRequest(BaseModel):
     def _normalize_asset_type(cls, v: Optional[str]) -> Optional[str]:
         """归一为小写；非法值由 normalize_asset_type 抛 ValueError → 400。"""
         return normalize_asset_type(v) if v else v
+
+
+class ProductTrendRequest(BaseModel):
+    """`GET /api/products/trend/` 的查询参数（#1967 · 详情页走势区块）。
+
+    与 `ProductResolveRequest` 分开而非合并：走势要的是**序列 + 区间**，解析要的是
+    **身份**，两者生命周期也不同（走势按区间懒加载，解析进页面即取一次）。
+    """
+
+    symbol: str = Field(..., min_length=1, max_length=50, description='产品代码')
+    range_: str = Field(
+        '3M',
+        alias='range',
+        description='区间档位：1M / 3M / 6M / 1Y（默认 3M，设计 §12 ⑤）',
+    )
+    asset_type: Optional[str] = Field(
+        None,
+        max_length=20,
+        description='品类；由 #1963 的 resolver 判定后回传，本服务据此选净值口径还是收盘价口径',
+    )
+
+    model_config = ConfigDict(populate_by_name=True)

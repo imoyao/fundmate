@@ -35,3 +35,36 @@ export function resolveProduct(params: ProductResolveParams) {
     { params }
   );
 }
+
+/** 走势区间档位（设计 §5 B 区块；默认 3M 见 §12 ⑤） */
+export type TrendRange = "1M" | "3M" | "6M" | "1Y";
+
+export interface ProductTrendResult {
+  symbol: string;
+  /** `close`=场内收盘价口径；`nav`=场外单位净值；空串=该品类无序列数据源（指数等） */
+  kind: string;
+  /** 与 values 等长的日期轴（YYYY-MM-DD） */
+  dates: string[];
+  values: number[];
+  /** 口径脚注用：数据来源（如「price_history 前复权收盘价」） */
+  source: string;
+  range: TrendRange;
+  /** 请求的区间天数（3M → 90） */
+  requested_days: number;
+  /** 实际数据跨度天数；远小于 requested_days 说明历史不足，需收敛档位 */
+  available_days: number;
+}
+
+/** 取产品历史走势序列。空 dates/values 表示无数据，前端渲染空态而非报错。 */
+export function getProductTrend(params: {
+  symbol: string;
+  range: TrendRange;
+  /** 品类，由 resolve 返回后回传；后端据此选收盘价口径还是净值口径 */
+  asset_type?: string;
+}) {
+  return http.request<ApiResponse<ProductTrendResult>>(
+    "get",
+    "/api/products/trend/",
+    { params }
+  );
+}
