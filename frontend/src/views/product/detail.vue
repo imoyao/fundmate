@@ -10,6 +10,7 @@ import { useRealtimeQuotes } from "@/composables/useRealtimeQuotes";
 import { resolveProduct, type ProductResolveResult } from "@/api/products";
 import { isDetailAssetType, parseProductRef } from "@/utils/productIdentity";
 import ProductPositionSection from "./components/ProductPositionSection.vue";
+import ProductStockSection from "./components/ProductStockSection.vue";
 import ProductTrendSection from "./components/ProductTrendSection.vue";
 
 /**
@@ -168,6 +169,15 @@ watch(productRef, loadProduct, { immediate: true });
       <ProductFundSection
         v-if="product.asset_type === 'fund'"
         :symbol="product.symbol"
+      />
+
+      <!-- 股票行情（#1969）：仅场内股票品类渲染（`stock-profile` 端点按 securities
+           记录取资料，非股票品类挂上去只会拿到空资料）。走势曲线由下面的走势区块
+           复用同一份行情源，本区块只补「资料 + 区间高低」，不重复画图。 -->
+      <ProductStockSection
+        v-if="product.asset_type === 'stock'"
+        :symbol="product.symbol"
+        :market="product.market"
       />
 
       <!-- 后续区块槽位：走势 / 基金资料 等由 #1967-#1971 各自注入。

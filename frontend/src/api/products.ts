@@ -89,6 +89,46 @@ export function getFundProfile(code: string) {
   );
 }
 
+/** 股票资料聚合结果（#1969 · 详情页股票区块）。字段缺失一律为 null，前端据此降级为「—」 */
+export interface StockProfileResult {
+  symbol: string;
+  name: string;
+  market: string | null;
+  /** 品类（后端 securities.type），如 stock / etf；前端不另建映射表 */
+  asset_type: string;
+  currency: string | null;
+  /** 行业 / 板块；securities.sector 填充率有限，缺失时降级「—」而不是编造 */
+  sector: string | null;
+  /** 区间统计窗口（**交易日条数**，非自然日）：后端默认 60 */
+  window_days: number;
+  /** 行情日期 YYYY-MM-DD；无行情为 null */
+  quote_date: string | null;
+  /** 最新收盘价（优先前复权 adj_close）；无行情为 null */
+  close: number | null;
+  /** 区间最高 / 最低（**未复权原值**，与持仓页「当日最高/最低」同口径） */
+  high: number | null;
+  low: number | null;
+  /** 区间涨跌幅(%)（窗口首日 → 最新）。null 表示首日缺失或为 0，**不是「没涨」** */
+  change_pct: number | null;
+  /** 实际参与统计的交易日条数；小于 window_days 说明上市/历史不足，需如实提示 */
+  trading_days: number;
+}
+
+/**
+ * 取股票资料聚合（详情页股票区块）。
+ *
+ * 只补 `/trend/` 给不出的东西（基本资料 + 区间高低）：走势曲线仍由
+ * `getProductTrend` 取，本端点**不返回序列**，同页不会出现两条行情取数链路。
+ * 无行情不是错误（资料照常返回、行情字段为 null），仅代码不存在才 404。
+ */
+export function getStockProfile(params: { symbol: string; market?: string }) {
+  return http.request<ApiResponse<StockProfileResult>>(
+    "get",
+    "/api/products/stock-profile/",
+    { params }
+  );
+}
+
 /** 走势区间档位（设计 §5 B 区块；默认 3M 见 §12 ⑤） */
 export type TrendRange = "1M" | "3M" | "6M" | "1Y";
 
