@@ -65,8 +65,7 @@ const isCandle = computed(() => (trend.value?.ohlc?.length ?? 0) >= 2);
 /** 成交量副图：整段都没有量能数据时（个别来源缺列）不占版面 */
 const hasVolume = computed(
   () =>
-    isCandle.value &&
-    (trend.value?.ohlc ?? []).some(o => (o.volume ?? 0) > 0)
+    isCandle.value && (trend.value?.ohlc ?? []).some(o => (o.volume ?? 0) > 0)
 );
 
 const candleCloses = computed(() =>
@@ -319,6 +318,7 @@ watch(range, load);
 
 .trend-section__chart {
   width: 100%;
+
   /* K 线格 + 量能格叠放（见 chartOption 的 grid 高度），故比单线图高一截 */
   height: 300px;
 }

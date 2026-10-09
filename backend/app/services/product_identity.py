@@ -106,6 +106,7 @@ def _market_aliases(contract_market: str) -> tuple:
     """
     return _MARKET_ALIASES.get(contract_market, (contract_market,))
 
+
 # 「指数 / 场内」形态：带市场前缀或纯数字。**裸码反查只对这些形态开放**——
 # 平台原生码（投顾 ZHxxxx / 经理 MGR_xxx）里的数字与市场码无关。
 _MARKET_PREFIXES_2 = ('SH', 'SZ', 'BJ', 'HK', 'US', 'CR')

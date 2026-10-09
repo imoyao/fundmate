@@ -158,7 +158,6 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
           :precision="2"
         />
       </div>
-
     </template>
   </CardBlock>
 </template>

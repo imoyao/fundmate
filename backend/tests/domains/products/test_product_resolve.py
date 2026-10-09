@@ -317,9 +317,7 @@ def test_resolve_keeps_watchlist_state_with_legacy_market(client):
     _seed_security(symbol='SH601899', name='紫金矿业')
     _seed_watchlist_row(symbol='SH601899', market='SH')
 
-    resp = client.get(
-        RESOLVE_URL, query_string={'symbol': 'SH601899', 'market': 'CN_A'}, headers={'X-User-Id': '1'}
-    )
+    resp = client.get(RESOLVE_URL, query_string={'symbol': 'SH601899', 'market': 'CN_A'}, headers={'X-User-Id': '1'})
 
     assert resp.status_code == 200
     assert resp.get_json()['data']['in_watchlist'] is True
@@ -333,9 +331,7 @@ def test_resolve_position_state_survives_contract_market_filter(client):
     _seed_security(symbol='SH601899', name='紫金矿业')
     _seed_position(symbol='SH601899', market='CN_A')
 
-    resp = client.get(
-        RESOLVE_URL, query_string={'symbol': 'SH601899', 'market': 'CN_A'}, headers={'X-User-Id': '1'}
-    )
+    resp = client.get(RESOLVE_URL, query_string={'symbol': 'SH601899', 'market': 'CN_A'}, headers={'X-User-Id': '1'})
 
     assert resp.status_code == 200
     data = resp.get_json()['data']

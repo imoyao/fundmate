@@ -160,7 +160,11 @@ export function externalQuoteLinks(input: ExternalLinkInput): ExternalLink[] {
         label: "东方财富",
         url: `https://quote.eastmoney.com/${lower}${bare}.html`
       },
-      { key: "xueqiu", label: "雪球", url: `https://xueqiu.com/S/${prefix}${bare}` },
+      {
+        key: "xueqiu",
+        label: "雪球",
+        url: `https://xueqiu.com/S/${prefix}${bare}`
+      },
       ...(isHuShen
         ? [
             {
@@ -175,7 +179,9 @@ export function externalQuoteLinks(input: ExternalLinkInput): ExternalLink[] {
 
   // 无前缀（形态不明）→ 只有雪球能用裸码兜一把，且仅限 A 股 6 位码
   if (/^\d{6}$/.test(bare)) {
-    return [{ key: "xueqiu", label: "雪球", url: `https://xueqiu.com/S/${bare}` }];
+    return [
+      { key: "xueqiu", label: "雪球", url: `https://xueqiu.com/S/${bare}` }
+    ];
   }
   return [];
 }

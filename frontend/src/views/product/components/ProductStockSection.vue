@@ -116,7 +116,9 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
           </div>
           <div class="stock-section__quote-item">
             <dt class="stock-section__label">行情日期</dt>
-            <dd class="stock-section__value">{{ profile.quote_date || DASH }}</dd>
+            <dd class="stock-section__value">
+              {{ profile.quote_date || DASH }}
+            </dd>
           </div>
         </dl>
 
@@ -217,6 +219,7 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
 
 .stock-section__facts {
   display: grid;
+
   /* auto-fit + 真实最小列宽（#1969 P0 截图修复）：
      · `minmax(0, 1fr)` 让轨道可收缩到 0 → 列宽塌成几像素，标签逐字竖排、数值被截断；
      · `auto-fill` 不折叠空轨道，项少时右侧留大片空白；`auto-fit` 才会把剩余列拉伸填满。 */

@@ -219,6 +219,7 @@ watch(() => props.symbol, load, { immediate: true });
 
 .fund-section__facts {
   display: grid;
+
   /* auto-fit + 真实最小列宽（#1969 P0，与 ProductStockSection 同因）：
      · `minmax(0, 1fr)` 让轨道收缩到 0 → 列宽塌成几像素，标签逐字竖排；
      · `auto-fill` 不折叠空轨道，`auto-fit` 才会把剩余列拉伸填满。 */

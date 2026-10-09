@@ -140,9 +140,7 @@ def test_window_counts_trading_days_not_calendar_days():
     assert profile['low'] == min(window_closes) - 1
     # 最新收盘 = 窗口末条；区间涨跌幅以窗口首条为基
     assert profile['close'] == window_closes[-1]
-    assert profile['change_pct'] == round(
-        (window_closes[-1] - window_closes[0]) / window_closes[0] * 100, 2
-    )
+    assert profile['change_pct'] == round((window_closes[-1] - window_closes[0]) / window_closes[0] * 100, 2)
     assert profile['quote_date'] == (date.today()).isoformat()
 
 

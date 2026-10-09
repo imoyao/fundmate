@@ -23,21 +23,22 @@ describe("splitSymbolForLinks", () => {
       prefix: "",
       bare: "004369"
     });
-    expect(splitSymbolForLinks("004369")).toEqual({ prefix: "", bare: "004369" });
+    expect(splitSymbolForLinks("004369")).toEqual({
+      prefix: "",
+      bare: "004369"
+    });
     expect(splitSymbolForLinks("  ")).toEqual({ prefix: "", bare: "" });
   });
 });
 
 describe("externalQuoteLinks", () => {
   it("A 股给四家，且各自用对形态（同花顺裸码 / 东财小写 / 雪球带前缀）", () => {
-    const links = externalQuoteLinks({ symbol: "SH601899", assetType: "stock" });
+    const links = externalQuoteLinks({
+      symbol: "SH601899",
+      assetType: "stock"
+    });
 
-    expect(labelsOf(links)).toEqual([
-      "同花顺",
-      "东方财富",
-      "雪球",
-      "新浪财经"
-    ]);
+    expect(labelsOf(links)).toEqual(["同花顺", "东方财富", "雪球", "新浪财经"]);
     expect(urlsOf(links)).toEqual([
       "http://stockpage.10jqka.com.cn/601899/",
       "https://quote.eastmoney.com/sh601899.html",
@@ -122,9 +123,7 @@ describe("externalQuoteLinks", () => {
       externalQuoteLinks({ symbol: "SH113050", assetType: "bond" })
     );
 
-    expect(urls).toEqual([
-      "https://data.eastmoney.com/kzz/detail/113050.html"
-    ]);
+    expect(urls).toEqual(["https://data.eastmoney.com/kzz/detail/113050.html"]);
   });
 
   it("指数走东财 zs 前缀", () => {
