@@ -175,9 +175,8 @@ watch(() => props.symbol, load, { immediate: true });
         </div>
       </dl>
 
-      <p class="fund-section__footnote">
-        净值来源：daily_worth 单位净值 · 费率来源：funds 费率阶梯
-      </p>
+      <!-- 来源给站点名：净值 / 费率 / 基础资料整条链路都走天天基金（#1969） -->
+      <p class="fund-section__footnote">数据来源：{{ profile.source }}</p>
     </template>
   </CardBlock>
 </template>
@@ -220,7 +219,11 @@ watch(() => props.symbol, load, { immediate: true });
 
 .fund-section__facts {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(0, 1fr));
+
+  /* auto-fit + 真实最小列宽（#1969 P0，与 ProductStockSection 同因）：
+     · `minmax(0, 1fr)` 让轨道收缩到 0 → 列宽塌成几像素，标签逐字竖排；
+     · `auto-fill` 不折叠空轨道，`auto-fit` 才会把剩余列拉伸填满。 */
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: var(--space-3) var(--space-6);
   margin: 0;
 }

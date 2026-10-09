@@ -17,10 +17,15 @@ from flask import abort, g, jsonify, request
 from app.core.auth import get_family_id
 from app.core.db_factory import market_session_factory, user_session_factory
 from app.core.validation import parse_query
-from app.domains.products.schemas import ProductResolveRequest, ProductTrendRequest
+from app.domains.products.schemas import (
+    ProductResolveRequest,
+    ProductTrendRequest,
+    StockProfileRequest,
+)
 from app.services.fund_profile import build_fund_profile
 from app.services.product_identity import resolve_product_identity
 from app.services.product_trend import RANGE_DAYS, fetch_product_trend
+from app.services.stock_profile import build_stock_profile
 
 bp = APIBlueprint('products', __name__, url_prefix='/api/products')
 
@@ -97,6 +102,38 @@ def fund_profile():
             abort(400, str(e))
     if data is None:
         abort(404, f'基金不存在：{fund_code}')
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/stock-profile/')
+def stock_profile():
+    """股票资料聚合（#1969 · 详情页股票详情区块）：基本资料 + 区间行情一次取完。
+
+    与 `/trend/` 的分工（**不是**平行链路，是互补，避免前端重复拉数）：
+
+    - 走势曲线复用已上线的 `/trend/`（前端 `getProductTrend`），本端点**不返回序列**，
+      否则同一区块会出现两条行情取数链路；
+    - 本端点只补 `/trend/` 给不出的东西：**区间高低**与**基本资料**。区间高低需要在
+      最近 N 个交易日上做聚合，而现有唯一的高低价出口 `securities/<symbol>/price-range/`
+      是「指定单日」语义（#948 记账回填用），拿到 60 日高低得拉 60 次日请求或把明细
+      整段搬到浏览器算——前者拖慢首屏，后者违反「明细不在前端算」的数据策略。
+
+    故按 #1968 的同一硬规则「拼不出首屏就在本卡内补端点」，由后端一次查完。字段缺失
+    一律回 `null`，前端降级为「—」（设计 §6 诚实降级），不编造占位值。
+
+    为何放 products 域而不放 securities 域：与 `/resolve/`、`/trend/` 同族，服务的是
+    「详情页」这一个页面（理由同 `fund_profile`）。
+    """
+    query: StockProfileRequest = parse_query(StockProfileRequest)
+
+    with closing(market_session_factory()()) as db:
+        try:
+            data = build_stock_profile(db, query.symbol, market=query.market)
+        except ValueError as e:
+            abort(400, str(e))
+
+    if data is None:
+        abort(404, f'证券不存在：{query.symbol}')
     return jsonify({'data': data, 'message': 'ok'})
 
 

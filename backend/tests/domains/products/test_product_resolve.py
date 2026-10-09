@@ -26,7 +26,7 @@ from app.domains.watchlist.models import WatchlistItem
 RESOLVE_URL = '/api/products/resolve/'
 
 # 本文件会读写的 symbol（跨用例必须清干净，见 _isolate_product_rows）
-_TEST_SYMBOLS = ('SZ000001', 'SZ159915')
+_TEST_SYMBOLS = ('SZ000001', 'SZ159915', 'SH601899')
 
 
 @pytest.fixture(autouse=True)
@@ -229,3 +229,111 @@ def test_resolve_from_position_when_not_in_watchlist(client):
     assert data['source'] == 'position'
     assert data['in_watchlist'] is False
     assert data['has_position'] is True
+
+
+# ── 8. 市场词表口径统一（#1969 P0：详情页「已持有」与「暂无持仓记录」同屏）──────
+def _seed_watchlist_row(
+    family_id=1,
+    symbol='SH601899',
+    market='SH',
+    venue='EXCHANGE',
+    asset_type='stock',
+    name='紫金矿业',
+):
+    """按**给定 market 原样**写自选行。
+
+    与 `_seed_watchlist` 的区别：那个固定写契约市场 `CN_A`，本函数用来复现存量库里
+    「场内自选存交易所形态」的历史事实（本机实测 `SH` 13 行 / `SZ` 22 行）。
+    """
+    with closing(user_session_factory()()) as db:
+        exists = (
+            db.query(WatchlistItem.id)
+            .filter(
+                WatchlistItem.family_id == family_id,
+                WatchlistItem.symbol == symbol,
+                WatchlistItem.market == market,
+                WatchlistItem.venue == venue,
+            )
+            .first()
+        )
+        if exists is None:
+            db.add(
+                WatchlistItem(
+                    family_id=family_id,
+                    symbol=symbol,
+                    market=market,
+                    venue=venue,
+                    asset_type=asset_type,
+                    name=name,
+                )
+            )
+            db.commit()
+
+
+def _seed_position(symbol='SH601899', market='CN_A', quantity=100):
+    """写一行持仓（**契约市场**）。实测 `positions.market` 155/155 都是 `CN_A`。"""
+    with closing(user_session_factory()()) as db:
+        exists = (
+            db.query(Position.id)
+            .filter(Position.family_id == 1, Position.symbol == symbol, Position.market == market)
+            .first()
+        )
+        if exists is None:
+            db.add(
+                Position(
+                    family_id=1,
+                    symbol=symbol,
+                    market=market,
+                    asset_type='stock',
+                    name='紫金矿业',
+                    quantity=quantity,
+                )
+            )
+            db.commit()
+
+
+def test_resolve_normalizes_exchange_market_to_contract(client):
+    """自选行存**交易所**形态（`SH`）→ 出口必须归一为契约市场 `CN_A`。
+
+    这条是 #1969 P0 的根因锁：resolve 回 `SH` 而 `positions.market` 一律 `CN_A`，
+    详情页拿它去过滤持仓恒为空 —— 于是 hero 说「持仓 已持有」、下一个区块说
+    「当前产品暂无持仓记录」，同一页面对同一事实给出相反结论。
+    """
+    _seed_security(symbol='SH601899', name='紫金矿业')
+    _seed_watchlist_row(symbol='SH601899', market='SH')
+
+    resp = client.get(RESOLVE_URL, query_string={'symbol': 'SH601899'}, headers={'X-User-Id': '1'})
+
+    assert resp.status_code == 200
+    assert resp.get_json()['data']['market'] == 'CN_A'
+
+
+def test_resolve_keeps_watchlist_state_with_legacy_market(client):
+    """归一后的 market 回传（`CN_A`）不得把存量为 `SH` 的自选行漏掉。
+
+    这是归一化的**连带面**：`market` 入参参与自选查询过滤，只比契约值会让存量的
+    `SH` 行查不到，结果是「修好了持仓、却把已自选弄丢」。
+    """
+    _seed_security(symbol='SH601899', name='紫金矿业')
+    _seed_watchlist_row(symbol='SH601899', market='SH')
+
+    resp = client.get(RESOLVE_URL, query_string={'symbol': 'SH601899', 'market': 'CN_A'}, headers={'X-User-Id': '1'})
+
+    assert resp.status_code == 200
+    assert resp.get_json()['data']['in_watchlist'] is True
+
+
+def test_resolve_position_state_survives_contract_market_filter(client):
+    """详情页主链路：用 resolve 回的 market 过滤持仓**必须命中**（持仓区块不再恒空）。
+
+    市场词表一旦再分叉，此处直接红灯。
+    """
+    _seed_security(symbol='SH601899', name='紫金矿业')
+    _seed_position(symbol='SH601899', market='CN_A')
+
+    resp = client.get(RESOLVE_URL, query_string={'symbol': 'SH601899', 'market': 'CN_A'}, headers={'X-User-Id': '1'})
+
+    assert resp.status_code == 200
+    data = resp.get_json()['data']
+    assert data['has_position'] is True
+    assert data['market'] == 'CN_A'

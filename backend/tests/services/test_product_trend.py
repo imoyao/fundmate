@@ -33,8 +33,14 @@ def _seed_price_series(db, symbol='SZ000001', points=5, adj_close=None, base_pri
                 security_id=security.id,
                 symbol=symbol,
                 trade_date=start + timedelta(days=i),
+                open=base_price + i - 0.5,
+                high=base_price + i + 1,
+                low=base_price + i - 1,
                 close=base_price + i,
                 adj_close=adj_close,
+                volume=1000 + i,
+                # 真实落库的场内来源码（akshare_adapter：股票走新浪、ETF 走东财）
+                source='akshare_sina',
             )
         )
     db.commit()
@@ -129,6 +135,85 @@ def test_endpoint_invalid_range_returns_400(client, db):
 
     assert resp.status_code == 400
     assert resp.get_json()['error_code'] == 1001  # ErrorCode.INVALID_PARAMS
+
+
+# ── 数据来源表述（#1969）──────────────────────────────────────────────
+def test_source_is_site_name_not_internal_table(db):
+    """出场的是**站点名**，不是内部表名。
+
+    此前这里给的是 `'price_history 前复权收盘价'` —— 用户既看不懂 `price_history`，
+    也看不出这根线到底来自哪个网站。口径信息改由 `basis` 单独承担。
+    """
+    _seed_price_series(db, points=5)
+
+    result = fetch_product_trend(db, 'SZ000001', asset_type='stock', range_key='1M')
+
+    assert result is not None
+    assert result['source'] == '新浪财经'
+    assert 'price_history' not in result['source']
+    # 口径要说清「图上画的是未复权 K 线，而区间涨跌幅按前复权」——两者不同，
+    # 不讲清楚用户会拿图上首尾差去核对涨跌幅（#1969）
+    assert 'K 线' in result['basis'] and '前复权' in result['basis']
+
+
+def test_fund_source_is_daily_fund_site(db):
+    """场外基金净值来自天天基金（xalpha → pingzhongdata / lsjz）。"""
+    _seed_nav_series(db, fund_code='004369')
+
+    result = fetch_product_trend(db, '004369', asset_type='fund', range_key='3M')
+
+    assert result is not None
+    assert result['source'] == '天天基金'
+    assert result['basis'] == '单位净值'
+
+
+# ── K 线数据（#1969）──────────────────────────────────────────────────
+def test_ohlc_is_exchange_only(db):
+    """场内回未复权 OHLCV（画 K 线与成交量）；场外为空数组（改画净值线）。
+
+    这条同时锁住「K 线用未复权」：与 `values`（前复权收盘价）**有意不同**——K 线要能跟
+    持仓成本对账，前复权价对不上用户实际成交价。
+    """
+    _seed_price_series(db, points=5)
+
+    result = fetch_product_trend(db, 'SZ000001', asset_type='stock', range_key='1M')
+
+    assert result is not None
+    assert len(result['ohlc']) == 5, '每个交易日一根 K 线'
+    bar = result['ohlc'][0]
+    assert bar['date'] == result['dates'][0]
+    assert bar['close'] == 10.0
+    assert bar['open'] == 9.5
+    assert bar['high'] == 11.0
+    assert bar['low'] == 9.0
+    assert bar['volume'] == 1000
+
+
+def test_ohlc_keeps_null_intraday_prices(db):
+    """`open/high/low` 缺失时原样回 None——**不用收盘价编造盘中数据**（由前端降级绘制）。"""
+    symbol = 'SZ000002'
+    _seed_price_series(db, symbol=symbol, points=3)
+    db.query(PriceHistory).filter(PriceHistory.symbol == symbol).update(
+        {PriceHistory.open: None, PriceHistory.high: None, PriceHistory.low: None}
+    )
+    db.commit()
+
+    result = fetch_product_trend(db, symbol, asset_type='stock', range_key='1M')
+
+    assert result is not None
+    assert result['ohlc'][0]['open'] is None
+    assert result['ohlc'][0]['high'] is None
+    assert result['ohlc'][0]['close'] == 10.0, '收盘价仍在，K 线才画得出来'
+
+
+def test_ohlc_empty_for_fund(db):
+    """场外基金没有 OHLC → 空数组，前端据此画净值线而不是 K 线。"""
+    _seed_nav_series(db, fund_code='004369')
+
+    result = fetch_product_trend(db, '004369', asset_type='fund', range_key='3M')
+
+    assert result is not None
+    assert result['ohlc'] == []
 
 
 def test_endpoint_default_range_is_3m(client, db):

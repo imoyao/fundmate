@@ -21,9 +21,13 @@ import {
  * 口径与红线：
  * - 区间 `1M/3M/6M/1Y`，**默认 3M**（设计 §12 ⑤）；历史不够长时由 `available_days`
  *   判断并提示收敛，不画一条只有几天的曲线假装是 3M；
- * - 曲线颜色按首尾比较取 `--color-rise` / `--color-fall`（禁止硬编码色值，图表红线）；
+ * - **品类差异化**（#1969）：场内有 OHLCV → K 线 + 成交量 + MA5/10/20（口径未复权，
+ *   与持仓成本可比）；场外基金只有单位净值 → 净值线；
+ * - 图表颜色一律经 `getCssVar` 取**真实色值**：ECharts 不解析 `var(--x)`，给变量字符串
+ *   等于给了一个无效色（旧版 splitLine 的写法就是这么错的，也会让网格看起来发黑发乱）；
+ * - 线条**不平滑**：smooth 会画出实际不存在的峰谷，价格序列上属失真；
  * - **无数据就显示空态**，绝不用 mock 顶替（设计 G1 教训）；
- * - 口径脚注写明「数据日期 · 来源」，让用户知道这根线从哪来。
+ * - 脚注写明「数据日期 · 来源 · 口径」——来源是站点名，不是内部表名（#1969）。
  */
 
 const props = defineProps<{
@@ -55,6 +59,55 @@ function hexToRgba(hex: string, alpha: number): string {
 
 const hasData = computed(() => (trend.value?.values.length ?? 0) >= 2);
 
+/** 场内 = 有 OHLCV → 画 K 线；场外基金只有单位净值 → 退回净值线（品类差异化） */
+const isCandle = computed(() => (trend.value?.ohlc?.length ?? 0) >= 2);
+
+/** 成交量副图：整段都没有量能数据时（个别来源缺列）不占版面 */
+const hasVolume = computed(
+  () =>
+    isCandle.value && (trend.value?.ohlc ?? []).some(o => (o.volume ?? 0) > 0)
+);
+
+const candleCloses = computed(() =>
+  (trend.value?.ohlc ?? []).map(o => o.close)
+);
+
+/**
+ * 简单移动平均。
+ *
+ * 放在前端算：它是对已有收盘序列的**纯派生**（不跨表、不聚合明细），且切换区间时
+ * 无需重新请求——后端只负责「数据从哪来、口径是什么」（数据策略约束针对的是跨表
+ * 聚合，不是这种单序列滑窗）。
+ */
+function movingAverage(values: number[], window: number): (number | null)[] {
+  const out: (number | null)[] = [];
+  let sum = 0;
+  for (let i = 0; i < values.length; i++) {
+    sum += values[i];
+    if (i >= window) sum -= values[i - window];
+    out.push(i >= window - 1 ? +(sum / window).toFixed(3) : null);
+  }
+  return out;
+}
+
+/**
+ * 蜡烛图数据。
+ *
+ * ECharts 的 `candlestick` 要求 `[open, close, low, high]` 这个**固定顺序**（不是
+ * OHLC 顺序）——写错不会报错，只会画出一条形状诡异的图。
+ *
+ * 盘中价缺失时用收盘价兜底：ECharts 不接受 null，而「没有盘中数据」在图上表现为
+ * 一根没有上下影线的横线，比整段图缺一根要诚实。
+ */
+const candleData = computed(() =>
+  (trend.value?.ohlc ?? []).map(o => [
+    o.open ?? o.close,
+    o.close,
+    o.low ?? o.close,
+    o.high ?? o.close
+  ])
+);
+
 /** 历史不足：实际跨度不到请求区间的一半 → 提示已收敛（长区间待 #1535 落库后放开） */
 const spanNotice = computed(() => {
   const t = trend.value;
@@ -67,11 +120,105 @@ const chartOption = computed(() => {
   void themeTick.value; // 主题切换时重算，让曲线重读 CSS 变量
   const dates = trend.value?.dates ?? [];
   const values = trend.value?.values ?? [];
+  const rise = getCssVar(CHART_TOKENS.rise, "#e34f38");
+  const fall = getCssVar(CHART_TOKENS.fall, "#287d51");
+
+  // 网格线取**真实色值**并用实线：
+  // · ECharts 不解析 `var(--x)`，直接给变量字符串等于给了一个无效色（旧版就是）；
+  // · 虚线在密集 K 线与影线之间会糊成一片，是「看着杂乱」的一半原因（#1969）。
+  const splitLine = {
+    lineStyle: { color: getCssVar(CHART_TOKENS.borderLight, "#e8e8e8") }
+  };
+
+  if (isCandle.value) {
+    // 成交量副图：与 K 线共用 x 轴（放下面一格），整段无量能时不渲染这一格
+    const volumeSeries = hasVolume.value
+      ? [
+          {
+            name: "成交量",
+            type: "bar",
+            xAxisIndex: 1,
+            yAxisIndex: 1,
+            // 量能柱与 K 线同色（阳红阴绿）：这样「放量下跌」一眼能看出来，
+            // 全部涂成中性灰的话量能就只是个装饰（同花顺 / 雪球都是同色）
+            data: (trend.value?.ohlc ?? []).map(o => ({
+              value: o.volume ?? 0,
+              itemStyle: {
+                color: o.close >= (o.open ?? o.close) ? rise : fall
+              }
+            }))
+          }
+        ]
+      : [];
+    const maLine = (window: number, token: string, fallback: string) => ({
+      name: `MA${window}`,
+      type: "line",
+      data: movingAverage(candleCloses.value, window),
+      symbol: "none",
+      smooth: false,
+      lineStyle: { width: 1, color: getCssVar(token, fallback) }
+    });
+
+    return {
+      animation: false,
+      tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
+      axisPointer: { link: [{ xAxisIndex: "all" }] },
+      grid: [
+        { left: 56, right: 16, top: 20, height: 176 },
+        { left: 56, right: 16, top: 220, height: hasVolume.value ? 56 : 0 }
+      ],
+      xAxis: [
+        {
+          type: "category",
+          data: dates,
+          boundaryGap: true,
+          axisTick: { show: false },
+          // 日期轴只画在量能那格，K 线格不重复显示（两格共用同一轴）
+          axisLabel: { show: !hasVolume.value, fontSize: 11, hideOverlap: true }
+        },
+        {
+          type: "category",
+          gridIndex: 1,
+          data: dates,
+          boundaryGap: true,
+          axisTick: { show: false },
+          axisLabel: { fontSize: 11, hideOverlap: true }
+        }
+      ],
+      yAxis: [
+        { scale: true, axisLabel: { fontSize: 11 }, splitLine },
+        {
+          gridIndex: 1,
+          splitNumber: 2,
+          axisLabel: { show: false },
+          splitLine: { show: false }
+        }
+      ],
+      series: [
+        {
+          name: "K 线",
+          type: "candlestick",
+          data: candleData.value,
+          // 涨红跌绿：color 是阳线、color0 是阴线（与 A 股看盘习惯一致）
+          itemStyle: {
+            color: rise,
+            color0: fall,
+            borderColor: rise,
+            borderColor0: fall
+          }
+        },
+        maLine(5, CHART_TOKENS.warning, "#e6a23c"),
+        maLine(10, CHART_TOKENS.info, "#409eff"),
+        maLine(20, CHART_TOKENS.textTertiary, "#9aa0a6"),
+        ...volumeSeries
+      ]
+    };
+  }
+
+  // 场外（单位净值）或没有 OHLCV 的场内：一条线。
+  // **不平滑**：平滑会画出实际不存在的峰谷，价格序列上那是失真（#1969）。
   const rising = values.length >= 2 && values[values.length - 1] >= values[0];
-  const lineColor = getCssVar(
-    rising ? CHART_TOKENS.rise : CHART_TOKENS.fall,
-    rising ? "#e34f38" : "#287d51"
-  );
+  const lineColor = rising ? rise : fall;
   return {
     tooltip: { trigger: "axis" },
     grid: { left: 52, right: 16, top: 16, bottom: 28 },
@@ -85,13 +232,13 @@ const chartOption = computed(() => {
       type: "value",
       scale: true,
       axisLabel: { fontSize: 11 },
-      splitLine: { lineStyle: { color: "var(--border-light)", type: "dashed" } }
+      splitLine
     },
     series: [
       {
         type: "line",
         data: values,
-        smooth: true,
+        smooth: false,
         symbol: "none",
         lineStyle: { color: lineColor, width: 2 },
         areaStyle: { color: hexToRgba(lineColor, 0.08) }
@@ -149,9 +296,14 @@ watch(range, load);
         class="trend-section__chart"
       />
       <p v-if="spanNotice" class="trend-section__hint">{{ spanNotice }}</p>
+      <!-- 来源说「哪个网站」，口径说「怎么算的」——后端分开给，前端只排版，
+           不在这里推断「close 就等于前复权」（#1969） -->
       <p class="trend-section__footnote">
         数据日期：{{ trend?.dates?.[0] }} 至
-        {{ trend?.dates?.[trend.dates.length - 1] }} · 来源：{{ trend?.source }}
+        {{ trend?.dates?.[trend.dates.length - 1] }}
+        <template v-if="trend?.source">
+          · 数据来源：{{ trend.source }}（{{ trend.basis }}）
+        </template>
       </p>
     </template>
   </CardBlock>
@@ -166,7 +318,9 @@ watch(range, load);
 
 .trend-section__chart {
   width: 100%;
-  height: 280px;
+
+  /* K 线格 + 量能格叠放（见 chartOption 的 grid 高度），故比单线图高一截 */
+  height: 300px;
 }
 
 .trend-section__hint {

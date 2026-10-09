@@ -151,6 +151,23 @@ def test_manager_is_classic_read_from_link_table():
     assert flags['王五'] is False
 
 
+def test_source_is_site_name_not_internal_table():
+    """来源必须是**站点名**（#1969）：此前脚注写的是 `daily_worth` / `funds` 表名。
+
+    用户看不懂表名，脚注要说「哪个网站」。基金净值 / 费率 / 基础资料整条链路都走
+    天天基金，故固定为「天天基金」。
+    """
+    _seed_fund()
+    _seed_navs(values=(2.10, 2.00))
+
+    with closing(_market_db()) as db:
+        profile = build_fund_profile(db, '004369')
+
+    assert profile is not None
+    assert profile['source'] == '天天基金'
+    assert 'daily_worth' not in str(profile['source'])
+
+
 def test_fee_rates_degrade_to_none():
     """费率取不到时降级为 None，不让整个资料 500。"""
     _seed_fund()

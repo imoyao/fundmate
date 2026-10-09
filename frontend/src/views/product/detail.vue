@@ -1,16 +1,18 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import CardBlock from "@/components/CardBlock/index.vue";
 import BondExternalLinkCard from "@/components/BondExternalLinkCard/index.vue";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import RealtimeEstimateToggle from "@/components/RealtimeEstimateToggle/index.vue";
-import { assetTypeLabel } from "@/composables/useEnumLabels";
+import { assetTypeLabel, useEnumLabels } from "@/composables/useEnumLabels";
 import { useRealtimeQuotes } from "@/composables/useRealtimeQuotes";
 import { resolveProduct, type ProductResolveResult } from "@/api/products";
 import { isDetailAssetType, parseProductRef } from "@/utils/productIdentity";
+import ProductExternalLinksSection from "./components/ProductExternalLinksSection.vue";
 import ProductPositionSection from "./components/ProductPositionSection.vue";
+import ProductStockSection from "./components/ProductStockSection.vue";
 import ProductTrendSection from "./components/ProductTrendSection.vue";
 
 /**
@@ -25,6 +27,15 @@ const router = useRouter();
 const loading = ref(false);
 const notFound = ref(false);
 const product = ref<ProductResolveResult | null>(null);
+
+const { ensure: ensureEnums, marketLabel, venueLabel } = useEnumLabels();
+
+onMounted(() => {
+  // 市场 / 场所的中文标签来自后端 /api/utils/enums（**无前端镜像**，不像 asset_type
+  // 那样有同步回退），必须等拉取完成；marketLabel/venueLabel 读 enums ref，
+  // 拉到的瞬间模板自动重渲染。
+  void ensureEnums();
+});
 
 /** 路径段 → 产品引用；品类段不在一期白名单内时为 null（交 404 态） */
 const productRef = computed(() => parseProductRef(router.currentRoute.value));
@@ -81,7 +92,11 @@ async function loadProduct() {
 }
 
 function goWatchlist() {
-  router.push("/asset/watchlist");
+  // 自选页路由是 `/watchlist`（router/modules/home.ts）。这里曾写成 `/asset/watchlist`——
+  // 那条路径并不存在，会被本页路由 `/:assetType/:symbol` 抢先匹配（assetType="asset"、
+  // symbol="watchlist"），于是按钮把用户送回同一个「未找到该产品」空态，还提示
+  // 「代码 watchlist 暂未被收录」：自选页面路径被当成产品代码去查了。
+  router.push("/watchlist");
 }
 
 watch(productRef, loadProduct, { immediate: true });
@@ -128,13 +143,19 @@ watch(productRef, loadProduct, { immediate: true });
               {{ product.symbol }}
             </dd>
           </div>
+          <!-- 市场 / 场所走 /enums 中文标签：#1969 前此处把 CN_A / SH / EXCHANGE
+               这些内部词表原键直接排版给用户看，等于让用户去猜我们的枚举 -->
           <div v-if="product.market" class="product-detail__fact">
             <dt class="product-detail__fact-label">市场</dt>
-            <dd class="product-detail__fact-value">{{ product.market }}</dd>
+            <dd class="product-detail__fact-value">
+              {{ marketLabel(product.market) }}
+            </dd>
           </div>
           <div v-if="product.venue" class="product-detail__fact">
             <dt class="product-detail__fact-label">场所</dt>
-            <dd class="product-detail__fact-value">{{ product.venue }}</dd>
+            <dd class="product-detail__fact-value">
+              {{ venueLabel(product.venue) }}
+            </dd>
           </div>
           <!-- 未登录时这两项为 null（端点为可选登录），此时不渲染徽标，
                不能当成「未自选 / 未持有」——那是「未知」不是「没有」 -->
@@ -171,6 +192,15 @@ watch(productRef, loadProduct, { immediate: true });
         :symbol="product.symbol"
       />
 
+      <!-- 股票行情（#1969）：仅场内股票品类渲染（`stock-profile` 端点按 securities
+           记录取资料，非股票品类挂上去只会拿到空资料）。走势曲线由下面的走势区块
+           复用同一份行情源，本区块只补「资料 + 区间高低」，不重复画图。 -->
+      <ProductStockSection
+        v-if="product.asset_type === 'stock'"
+        :symbol="product.symbol"
+        :market="product.market"
+      />
+
       <!-- 后续区块槽位：走势 / 基金资料 等由 #1967-#1971 各自注入。
            刻意不渲染 mock 占位（设计 §10「不用 mock / 演示数据占位」）。 -->
       <slot name="sections" />
@@ -189,6 +219,15 @@ watch(productRef, loadProduct, { immediate: true });
       <ProductTrendSection
         :symbol="product.symbol"
         :asset-type="product.asset_type"
+      />
+
+      <!-- 第三方数据（#1969）：我们不做行情终端——资金流 / 盘口 / 财务这类深度数据
+           交给专业站，「深度研究」外包出去比半吊子自建更诚实。品类无对应站点时
+           该卡自己不渲染（见 ProductExternalLinksSection）。 -->
+      <ProductExternalLinksSection
+        :symbol="product.symbol"
+        :asset-type="product.asset_type"
+        :market="product.market"
       />
     </template>
   </div>

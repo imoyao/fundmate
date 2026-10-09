@@ -78,6 +78,8 @@ export interface FundProfileResult {
     purchase: { start_quota: number; end_quota: number | null; rate: number }[];
     redeem: { start_day: number; end_day: number | null; rate: number }[];
   } | null;
+  /** 数据来源站点名（如「天天基金」）；#1969 前脚注写的是 daily_worth 这类表名 */
+  source: string;
 }
 
 /** 取基金资料聚合（详情页首屏 + 资料区块）。404 = 该代码不是基金。 */
@@ -87,6 +89,61 @@ export function getFundProfile(code: string) {
     "/api/products/fund-profile/",
     { params: { code } }
   );
+}
+
+/** 股票资料聚合结果（#1969 · 详情页股票区块）。字段缺失一律为 null，前端据此降级为「—」 */
+export interface StockProfileResult {
+  symbol: string;
+  name: string;
+  market: string | null;
+  /** 品类（后端 securities.type），如 stock / etf；前端不另建映射表 */
+  asset_type: string;
+  currency: string | null;
+  /** 行业 / 板块；securities.sector 填充率有限，缺失时降级「—」而不是编造 */
+  sector: string | null;
+  /** 区间统计窗口（**交易日条数**，非自然日）：后端默认 60 */
+  window_days: number;
+  /** 行情日期 YYYY-MM-DD；无行情为 null */
+  quote_date: string | null;
+  /** 最新收盘价（优先前复权 adj_close）；无行情为 null */
+  close: number | null;
+  /** 区间最高 / 最低（**未复权原值**，与持仓页「当日最高/最低」同口径） */
+  high: number | null;
+  low: number | null;
+  /** 区间涨跌幅(%)（窗口首日 → 最新）。null 表示首日缺失或为 0，**不是「没涨」** */
+  change_pct: number | null;
+  /** 实际参与统计的交易日条数；小于 window_days 说明上市/历史不足，需如实提示 */
+  trading_days: number;
+  /** 数据来源站点名（如「新浪财经」）；一条行情都没有时为空串 */
+  source: string;
+  /** 口径说明（前复权收盘价 / 未复权高低） */
+  basis: string;
+}
+
+/**
+ * 取股票资料聚合（详情页股票区块）。
+ *
+ * 只补 `/trend/` 给不出的东西（基本资料 + 区间高低）：走势曲线仍由
+ * `getProductTrend` 取，本端点**不返回序列**，同页不会出现两条行情取数链路。
+ * 无行情不是错误（资料照常返回、行情字段为 null），仅代码不存在才 404。
+ */
+export function getStockProfile(params: { symbol: string; market?: string }) {
+  return http.request<ApiResponse<StockProfileResult>>(
+    "get",
+    "/api/products/stock-profile/",
+    { params }
+  );
+}
+
+/** 场内单根 K 线（#1969） */
+export interface ProductTrendOhlc {
+  date: string;
+  /** 盘中价可能为 null（存量行缺列）；前端绘制时退化为收盘价，不留空洞 */
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number;
+  volume: number | null;
 }
 
 /** 走势区间档位（设计 §5 B 区块；默认 3M 见 §12 ⑤） */
@@ -99,13 +156,17 @@ export interface ProductTrendResult {
   /** 与 values 等长的日期轴（YYYY-MM-DD） */
   dates: string[];
   values: number[];
-  /** 口径脚注用：数据来源（如「price_history 前复权收盘价」） */
+  /** 数据来源**站点名**（如「新浪财经」「天天基金」）；#1969 前这里回的是内部表名 */
   source: string;
+  /** 口径说明（如「前复权收盘价」「单位净值」）——与来源分开表达，前端不自行推断 */
+  basis: string;
   range: TrendRange;
   /** 请求的区间天数（3M → 90） */
   requested_days: number;
   /** 实际数据跨度天数；远小于 requested_days 说明历史不足，需收敛档位 */
   available_days: number;
+  /** 场内**未复权** OHLCV（画 K 线 + 成交量）；场外为空数组 → 前端改画净值线 */
+  ohlc: ProductTrendOhlc[];
 }
 
 /** 取产品历史走势序列。空 dates/values 表示无数据，前端渲染空态而非报错。 */
