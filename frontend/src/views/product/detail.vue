@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import CardBlock from "@/components/CardBlock/index.vue";
+import BondExternalLinkCard from "@/components/BondExternalLinkCard/index.vue";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import RealtimeEstimateToggle from "@/components/RealtimeEstimateToggle/index.vue";
@@ -173,6 +174,14 @@ watch(productRef, loadProduct, { immediate: true });
       <!-- 后续区块槽位：走势 / 基金资料 等由 #1967-#1971 各自注入。
            刻意不渲染 mock 占位（设计 §10「不用 mock / 演示数据占位」）。 -->
       <slot name="sections" />
+
+      <!-- 可转债深度分析（#1971）：一期只做集思录外链，不做内部详情区块。
+           设计 §6/§10 拍板：本地只有静态条款，YTM / 下修历史 / 正股 PB 仍缺（#1400），
+           与其用残缺数据做一个「看起来完整」的页面，不如把深度分析交给集思录。 -->
+      <BondExternalLinkCard
+        v-if="product.asset_type === 'bond'"
+        :bond-code="product.symbol"
+      />
 
       <!-- 走势（#1967）：默认 3M、无数据显空态、口径脚注写明数据日期与来源。
            放在 slot 之后，与 #1966 的持仓区块（插在 slot 之前）错开锚点，
