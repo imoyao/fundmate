@@ -25,6 +25,16 @@ from app.domains.securities.models import Security
 from app.domains.transactions.models import Transaction
 from app.services.nav_service import NavService
 from app.services.performance.xirr_engine import calculate_xirr, generate_cashflows, generate_portfolio_cashflows
+from app.services.symbol_scope import collect_transaction_symbol_variants, query_positions_by_symbol
+
+
+class XirrScopeParameterError(ValueError):
+    """scope 参数缺失 / 非法。
+
+    单独成类而不是裸 `ValueError`：HTTP 层要把它映射成 **400**（客户端参数错），
+    而 `ValueError` 在这条链路上已经被用作**归属校验失败 → 404**（如「持仓不存在」），
+    混用会让「你传漏了参数」和「这东西不是你的」返回同一个状态码。
+    """
 
 
 def _get_fund_latest_nav(db: Session, fund_code: str) -> float:
@@ -127,6 +137,21 @@ def _get_position_current_value(db: Session, position: Position) -> float:
     return shares * unit_price
 
 
+def _empty_xirr_result() -> Dict[str, Any]:
+    """空结果的标准结构（无账户 / 无成交 / 无市值）：全 0。
+
+    前端据 `cashflow_count == 0` 降级显示 `—`，不会出现 NaN（#1972 验收③）。
+    """
+    return {
+        'xirr': 0.0,
+        'total_invested': 0.0,
+        'current_value': 0.0,
+        'total_withdrawn': 0.0,
+        'total_return': 0.0,
+        'cashflow_count': 0,
+    }
+
+
 def _calculate_xirr_for_cashflows(
     cashflows: List[Tuple[dt.date, float]],
     current_market_value: float = 0.0,
@@ -179,6 +204,61 @@ def calculate_position_xirr(
     current_value = _get_position_current_value(db, position)
     cashflows = generate_cashflows(transactions, current_value, include_cash_equivalents=include_cash_equivalents)
     return _calculate_xirr_for_cashflows(cashflows, current_value)
+
+
+def calculate_symbol_xirr(
+    db: Session, symbol: str, family_id: int = 1, include_cash_equivalents: bool = False
+) -> Dict[str, Any]:
+    """
+    计算**产品级**持有年化：跨账户按 symbol 汇总现金流（#1972）。
+
+    与 `calculate_position_xirr`（单持仓**行**）的区别：同一产品常分散在多个账户
+    （场内 ETF + 场外联接、定投账户 + 主账户），逐行看年化没有意义；产品级口径把这些
+    账户的买卖 / 分红现金流**合并成一条时间线**，再挂上合计当前市值。
+
+    口径要点：
+
+    - 持仓匹配与详情页「我的持仓」区块**同一口径**（`services/symbol_scope.py`，#1966），
+      否则会出现「列表有三行、年化只算了两行」的自相矛盾页面；
+    - `transactions.symbol` 只有字面量快照、无归一列，故先取持仓拿到真实写法再 `IN`
+      （两步法，见 `collect_transaction_symbol_variants`）；
+    - 无成交且无市值时返回全 0 结构（与 `calculate_portfolio_xirr_by_id` 的空账户同构），
+      前端据此降级为 `—`，不显示 NaN。
+
+    边界：`transactions` 无 market 字段，本口径**不做市场消歧**——同码跨市场
+    （如 `000001` 场内 / 场外各一行）会合并计算；若详情页将来需要 market 消歧另立卡。
+    """
+    if not symbol:
+        raise ValueError('缺少 symbol 参数')
+
+    positions = query_positions_by_symbol(db, symbol, family_id=family_id)
+    symbols = collect_transaction_symbol_variants(symbol, positions)
+
+    txn_q = db.query(Transaction).filter(Transaction.family_id == family_id, Transaction.symbol.in_(symbols))
+    if not include_cash_equivalents:
+        # NULL 的 asset_type 默认视为投资类资产，纳入计算（与其余两个 scope 同口径）
+        txn_q = txn_q.filter(Transaction.asset_type.is_(None) | Transaction.asset_type.not_in(EXCLUDED_ASSET_TYPES))
+    transactions = txn_q.all()
+
+    # 市值只取 quantity > 0 的持仓：清仓行不贡献当前市值（但它的流水已计入现金流）
+    open_positions = [p for p in positions if (p.quantity or 0) > 0]
+    if not include_cash_equivalents:
+        open_positions = [p for p in open_positions if p.asset_type not in EXCLUDED_ASSET_TYPES]
+    total_value = sum(_batch_get_position_values(db, open_positions).values())
+
+    if not transactions and total_value <= 1e-8:
+        logger.debug(f'产品级 XIRR(symbol={symbol})：无成交且无市值，返回空结果')
+        return _empty_xirr_result()
+
+    cashflows = generate_cashflows(transactions, total_value, include_cash_equivalents=include_cash_equivalents)
+
+    logger.debug(
+        f'产品级 XIRR 计算(symbol={symbol}): 持仓行数={len(positions)}, '
+        f'成交笔数={len(transactions)}, 合计市值={total_value:.2f}, '
+        f'现金流笔数={len(cashflows)}, 含现金等价物={include_cash_equivalents}'
+    )
+
+    return _calculate_xirr_for_cashflows(cashflows, total_value)
 
 
 def calculate_portfolio_xirr(db: Session, family_id: int = 1, include_cash_equivalents: bool = False) -> Dict[str, Any]:
@@ -245,14 +325,7 @@ def calculate_portfolio_xirr_by_id(
     ]
 
     if not ledger_ids:
-        return {
-            'xirr': 0.0,
-            'total_invested': 0.0,
-            'current_value': 0.0,
-            'total_withdrawn': 0.0,
-            'total_return': 0.0,
-            'cashflow_count': 0,
-        }
+        return _empty_xirr_result()
 
     # 获取这些账户下的持仓总市值（按 ledger_id 集合过滤）
     pos_filter = [
@@ -278,3 +351,41 @@ def calculate_portfolio_xirr_by_id(
     )
 
     return _calculate_xirr_for_cashflows(cashflows, total_value)
+
+
+def calculate_xirr_by_scope(
+    db: Session,
+    scope: str,
+    family_id: int = 1,
+    position_id: int | None = None,
+    portfolio_id: int | None = None,
+    symbol: str | None = None,
+    include_cash_equivalents: bool = False,
+) -> Dict[str, Any]:
+    """按 scope 分派年化收益率计算（#1929 / #1972：视图只做 HTTP 编排，分派逻辑在 service）。
+
+    为什么分派与参数校验也要放 service：视图里 `abort(400)` 抛的 `BadRequest` 是
+    `Exception` 子类，落进视图兜底的 `except Exception` 会被转成 **500**（存量 bug：
+    `scope=position` 缺 `position_id` 一直返回 500 而不是代码里写明的 400）。本函数把
+    「参数缺失」显式抛 `XirrScopeParameterError`，由视图映射 400，语义才对得上。
+
+    scope 取值：
+    - ``position``：单持仓行的年化（须传 ``position_id``）；
+    - ``portfolio``：指定组合（须传 ``portfolio_id``）；不传组合 id 时退化为**家庭整体**；
+    - ``symbol``：产品级持有年化，跨账户按 symbol 汇总现金流（须传 ``symbol``，#1972）。
+    """
+    if scope == 'position':
+        if not position_id:
+            raise XirrScopeParameterError('缺少 position_id 参数')
+        return calculate_position_xirr(
+            db, position_id, family_id=family_id, include_cash_equivalents=include_cash_equivalents
+        )
+    if scope == 'portfolio' and portfolio_id:
+        return calculate_portfolio_xirr_by_id(
+            db, portfolio_id, family_id=family_id, include_cash_equivalents=include_cash_equivalents
+        )
+    if scope == 'symbol':
+        if not symbol:
+            raise XirrScopeParameterError('缺少 symbol 参数')
+        return calculate_symbol_xirr(db, symbol, family_id=family_id, include_cash_equivalents=include_cash_equivalents)
+    return calculate_portfolio_xirr(db, family_id=family_id, include_cash_equivalents=include_cash_equivalents)
