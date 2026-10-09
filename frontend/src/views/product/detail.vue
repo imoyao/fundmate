@@ -91,7 +91,11 @@ async function loadProduct() {
 }
 
 function goWatchlist() {
-  router.push("/asset/watchlist");
+  // 自选页路由是 `/watchlist`（router/modules/home.ts）。这里曾写成 `/asset/watchlist`——
+  // 那条路径并不存在，会被本页路由 `/:assetType/:symbol` 抢先匹配（assetType="asset"、
+  // symbol="watchlist"），于是按钮把用户送回同一个「未找到该产品」空态，还提示
+  // 「代码 watchlist 暂未被收录」：自选页面路径被当成产品代码去查了。
+  router.push("/watchlist");
 }
 
 watch(productRef, loadProduct, { immediate: true });
