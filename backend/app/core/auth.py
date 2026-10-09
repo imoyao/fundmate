@@ -55,9 +55,7 @@ PUBLIC_PREFIXES = (
 #   services/product_identity.resolve_product_identity 的 include_user_state 参数）。
 #   **不能放 PUBLIC_PREFIXES**：那样 g.current_user 永远不存在，登录用户也永远拿不到
 #   私有状态，登录与未登录的响应将完全一致——等于把该功能砍了。
-OPTIONAL_AUTH_PREFIXES = (
-    '/api/products/resolve',
-)
+OPTIONAL_AUTH_PREFIXES = ('/api/products/resolve',)
 # 免登录精确路径
 # - logout：允许无有效 token 也返回成功（由前端清理本地会话）
 # - auth/resolve：登录前的"标识→邮箱"解析，帮助 Supabase 完成用户名登录（D10）
