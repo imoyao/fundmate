@@ -37,6 +37,7 @@ from app.domains.ocr.views import ocr_bp  # noqa: E402
 from app.domains.performance.views import bp as performance_bp  # noqa: E402
 from app.domains.portfolios.views import portfolios_bp  # noqa: E402
 from app.domains.positions.views import bp as positions_bp  # noqa: E402
+from app.domains.products.views import bp as products_bp  # noqa: E402
 from app.domains.reconciliation.views import bp as reconciliation_bp  # noqa: E402
 from app.domains.search.views import bp as search_bp  # noqa: E402
 from app.domains.securities.views import bp as securities_bp  # noqa: E402
@@ -94,6 +95,7 @@ def create_app() -> APIFlask:
     # 注册蓝图
     app.register_blueprint(health_bp)
     app.register_blueprint(positions_bp)
+    app.register_blueprint(products_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(assets_bp)
     app.register_blueprint(transactions_bp)

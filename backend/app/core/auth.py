@@ -44,6 +44,18 @@ PUBLIC_PREFIXES = (
     '/api/utils/config',
     '/api/utils/enums',
 )
+
+# 「可选登录」端点：**不强制登录**，但若请求带了有效身份（Bearer token 或 X-User-Id），
+# 仍注入 g.current_user / g.family_id，由端点据此决定是否回家庭私有字段。
+# 与 PUBLIC_PREFIXES 的关键区别：白名单端点**一律匿名**（中间件直接 return，压根不解析身份），
+# 拿不到登录态；可选登录端点会尝试解析一次，解析不到才匿名放行。
+# - /api/products/resolve（#1963）：产品身份解析。未登录只回公开字段
+#   （asset_type / market / venue / 展示名 / source），in_watchlist 与 has_position
+#   恒为 null；登录后才回这两项（口径见
+#   services/product_identity.resolve_product_identity 的 include_user_state 参数）。
+#   **不能放 PUBLIC_PREFIXES**：那样 g.current_user 永远不存在，登录用户也永远拿不到
+#   私有状态，登录与未登录的响应将完全一致——等于把该功能砍了。
+OPTIONAL_AUTH_PREFIXES = ('/api/products/resolve',)
 # 免登录精确路径
 # - logout：允许无有效 token 也返回成功（由前端清理本地会话）
 # - auth/resolve：登录前的"标识→邮箱"解析，帮助 Supabase 完成用户名登录（D10）
@@ -231,6 +243,11 @@ def auth_before_request():
     db = get_session()
     try:
         user = _resolve_user(db)
+        # 可选登录端点：解析不到身份就匿名放行（**不 401**），由端点自己决定回哪些字段。
+        # 放在 `not auth_enabled()` 回退**之前**：否则本地 / 测试（门禁未启用）会把匿名
+        # 请求回退成默认用户 1，反而把「未登录」当成「已登录」而泄露家庭私有状态。
+        if user is None and any(request.path.startswith(prefix) for prefix in OPTIONAL_AUTH_PREFIXES):
+            return None
         if user is None and not auth_enabled():
             # 开发/未启用模式：回退默认用户 1（由 domains.users.seed 播种），保持本地单用户可用
             user = _identity().get_by_id(db, 1)
