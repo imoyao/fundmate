@@ -21,12 +21,14 @@ from app.domains.products.schemas import (
     ManagerProfileRequest,
     ProductResolveRequest,
     ProductTrendRequest,
+    RelatedSymbolsRequest,
     StockProfileRequest,
 )
 from app.services.fund_profile import build_fund_profile
 from app.services.manager_profile import build_manager_profile
 from app.services.product_identity import resolve_product_identity
 from app.services.product_trend import RANGE_DAYS, fetch_product_trend
+from app.services.related_symbols import build_related_symbols
 from app.services.stock_profile import build_stock_profile
 
 bp = APIBlueprint('products', __name__, url_prefix='/api/products')
@@ -161,6 +163,28 @@ def manager_profile():
 
     if data is None:
         abort(404, f'基金经理不存在：{query.mgr_code}')
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/related-symbols/')
+def related_symbols():
+    """跨渠道关联标的（#1976 · 详情页关联标的区块）：指数 ↔ 场内 ETF ↔ 场外联接。
+
+    关系表`channel_links` 存有向关系，此处按裸代码双向查，对任一端都返回「另一侧」，
+    前端无需判断方向（与自选页角标同一套规则）。
+
+    与自选域的取舍：`watchlist_display._apply_channel_link_fields` 逻辑同源但挂在列表页
+    批量 enrich 链上（签名是「往 out dict 塞字段」）。详情页是单标的按需取数，走自选域
+    会破坏域边界，故独立成 `services/related_symbols.py`，取数规则保持一致。
+
+    **无关联不返回 404**：关系靠名称匹配建立（覆盖率约 66.4%，缺口见 #1419），
+    无关联是正常情形而非错误，前端据此降级 `—`。
+    """
+    query: RelatedSymbolsRequest = parse_query(RelatedSymbolsRequest)
+
+    with closing(market_session_factory()()) as db:
+        data = build_related_symbols(db, query.symbol)
+
     return jsonify({'data': data, 'message': 'ok'})
 
 
