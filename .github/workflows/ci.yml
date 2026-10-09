@@ -233,6 +233,15 @@ jobs:
       - name: 扫描交互可达性回潮（阻断）
         run: python scripts/guard_a11y_interaction.py
 
+      # 控件裁切守卫（2026-10-09 自选页圆按钮「又大又被切」）：拦两类回潮——
+      # ① 容器挂 max-height+overflow:hidden 给子控件盖盖子；② 用 content-box+padding
+      # 撑热区（padding 会画进可见框，28px 的圆被撑成 42px）。两条各自看都像在
+      # 「收紧 / 补偿」，叠加才把圆切扁，散文规范拦不住，故并入本 job 阻断
+      # （同属「前端设计语言回潮」一类；不新增 job 就不必改 gate.needs）。
+      # 判据边界与豁免方式见脚本 docstring；回归样本在 scripts/tests/guard_control_clip.test.js。
+      - name: 扫描控件裁切回潮（阻断）
+        run: python scripts/guard_control_clip.py
+
   # 乱码守卫（mojibake）：防止任何绕过本地 pre-commit 钩子的提交（--no-verify、
   # 或经 gh api / MCP 直推导致本地钩子不执行）把 GBK 乱码合进 PR。
   # 扫描 PR 变更的全部文本类型文件 + 逐提交校验中文提交信息（两层兜底）。

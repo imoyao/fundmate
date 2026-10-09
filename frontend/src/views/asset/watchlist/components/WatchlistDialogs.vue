@@ -13,6 +13,8 @@ import TagEditorDialog from "@/components/Watchlist/TagEditorDialog.vue";
 import NotesEditorDialog from "@/components/Watchlist/NotesEditorDialog.vue";
 import WatchlistRemoveDialog from "@/views/asset/watchlist/components/WatchlistRemoveDialog.vue";
 import WatchlistQuickViewDrawer from "@/views/asset/watchlist/components/WatchlistQuickViewDrawer.vue";
+// 持仓未入自选「明细」弹窗（#1458 后续：持仓即自选；横幅内联前 3 条，超出走这里）
+import HoldingGapDialog from "@/views/asset/watchlist/components/HoldingGapDialog.vue";
 import type { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import type { useWatchlistTags } from "@/composables/useWatchlistTags";
 import type { useWatchlistData } from "@/composables/useWatchlistData";
@@ -24,7 +26,7 @@ import type { WatchlistColumnVisibility } from "@/composables/useWatchlistColumn
 /**
  * 自选页弹窗集合（#980 P0-b 拆分自 index.vue，零行为变更）：
  * 添加 / OCR 导入 / 移除 / 标签管理 / 分组管理 / 组内产品（#987）/ 多分组（#1449）/
- * 行内标签与备注编辑 / 行速览抽屉（#1285）/ 管理设置抽屉。
+ * 行内标签与备注编辑 / 行速览抽屉（#1285）/ 持仓缺口明细（#1458 后续）/ 管理设置抽屉。
  * 弹窗位置不变（页面根节点下、非 CardBlock 内），teleport 行为与拆分前一致。
  */
 const props = defineProps<{
@@ -59,6 +61,7 @@ const showNotesEditor = bridge(props.data.showNotesEditor);
 const groupItemsVisible = bridge(props.actions.groupItemsVisible);
 const multiGroupVisible = bridge(props.actions.multiGroupVisible);
 const quickViewVisible = bridge(props.actions.quickViewVisible);
+const gapDialogVisible = bridge(props.actions.gapDialogVisible);
 </script>
 
 <template>
@@ -138,6 +141,15 @@ const quickViewVisible = bridge(props.actions.quickViewVisible);
     :item="actions.quickViewItem.value"
     :all-tags="tags.allTags.value"
     @edit-notes="data.openNotesEditor"
+  />
+
+  <!-- 持仓未入自选「明细」弹窗：横幅内联前 3 条，超出部分在此看全（限高滚动）。
+       补齐成功后由 useWatchlistPageActions 关闭（缺口已清零，列表无内容可看）。 -->
+  <HoldingGapDialog
+    v-model="gapDialogVisible"
+    :gaps="actions.holdingGaps.value"
+    :reconciling="actions.reconciling.value"
+    @add-all="actions.handleAddAllToWatchlist"
   />
 
   <SettingsDrawer

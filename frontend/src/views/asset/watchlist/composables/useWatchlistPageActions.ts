@@ -42,6 +42,8 @@ export function useWatchlistPageActions(options: PageActionsOptions) {
   // ── #1458 后续：持仓即自选 —— 缺口提示与一键补齐 ──
   const holdingGaps = ref<HoldingGap[]>([]);
   const reconciling = ref(false);
+  // 明细弹窗（横幅内联只放前 3 条，超出走弹窗，见 HoldingGapBanner 注释）
+  const gapDialogVisible = ref(false);
 
   async function fetchHoldingGaps(): Promise<void> {
     try {
@@ -53,11 +55,17 @@ export function useWatchlistPageActions(options: PageActionsOptions) {
     }
   }
 
+  function openGapDialog(): void {
+    gapDialogVisible.value = true;
+  }
+
   async function handleAddAllToWatchlist(): Promise<void> {
     reconciling.value = true;
     try {
       await reconcileWatchlist(true);
       ElMessage.success("已为持仓补齐自选，现在可打标签 / 写备注");
+      // 补齐后缺口清零：明细弹窗留着也没有内容可看，一并收起
+      gapDialogVisible.value = false;
       await fetchHoldingGaps();
       await fetchData();
     } catch {
@@ -197,7 +205,9 @@ export function useWatchlistPageActions(options: PageActionsOptions) {
     groupItemsVisible,
     holdingGaps,
     reconciling,
+    gapDialogVisible,
     fetchHoldingGaps,
+    openGapDialog,
     handleAddAllToWatchlist,
     activeCustomGroup,
     isEmptyCustomGroup,
