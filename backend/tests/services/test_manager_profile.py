@@ -71,11 +71,7 @@ def _link(mgr_code, fund_code, is_classic=False):
     with closing(market_session_factory()()) as db:
         mgr = db.query(Manager).filter(Manager.mgr_code == mgr_code).first()
         fund = db.query(Fund).filter(Fund.fund_code == fund_code).first()
-        exists = (
-            db.query(FundManager)
-            .filter(FundManager.mgr_id == mgr.id, FundManager.fund_id == fund.id)
-            .first()
-        )
+        exists = db.query(FundManager).filter(FundManager.mgr_id == mgr.id, FundManager.fund_id == fund.id).first()
         if exists is None:
             db.add(FundManager(mgr_id=mgr.id, fund_id=fund.id, is_classic=is_classic))
             db.commit()
@@ -133,9 +129,7 @@ def test_filled_fields_are_returned():
     from datetime import date
 
     company_id = _seed_company()
-    _seed_manager(
-        'ddd444', '李四', company_id, appointment_date=date(2015, 3, 1), sum_scale=123.45, best_return=88.8
-    )
+    _seed_manager('ddd444', '李四', company_id, appointment_date=date(2015, 3, 1), sum_scale=123.45, best_return=88.8)
 
     with closing(market_session_factory()()) as db:
         data = build_manager_profile(db, 'ddd444')
@@ -181,8 +175,8 @@ def test_fund_count_is_total_not_limited():
     with closing(market_session_factory()()) as db:
         data = build_manager_profile(db, 'fff666', fund_limit=2)
 
-    assert data['fund_count'] == 5      # 总数
-    assert len(data['funds']) == 2      # 被 fund_limit 截断
+    assert data['fund_count'] == 5  # 总数
+    assert len(data['funds']) == 2  # 被 fund_limit 截断
 
 
 def test_manager_without_fund():
