@@ -590,6 +590,24 @@ Element Plus 给 `.el-textarea__inner:focus` 自带
 }
 ```
 
+#### 紧凑工具条按钮 · 尺寸梯度与热区（2026-10-09 定案）
+
+工具条类（自选页头部、卡片头、列表头）的按钮走**三级高度梯度**，与上表 40px 的表单按钮并存、不互相覆盖：
+
+| 变体 | 视觉尺寸 | 命中区 | 用途 |
+|------|---------|--------|------|
+| 主 CTA | 36px 高 | 36×36 | 工具条最右的主操作（如「添加自选」） |
+| 次级文字按钮 | 32px 高 | 32×32 | 次要操作（如「管理」） |
+| **纯图标按钮** | **28×28 正圆** | **40×40** | 刷新 / 导出 / AI 导入 / 实时估值 |
+
+两条机械约束（**优先级高于本表的尺寸数值**，因为它们由 CI 强制，其余只是规范）：
+
+1. **命中区扩到 40×40 只能用 `::after` 伪元素**（`position: absolute; inset: -6px`），**禁止用 `padding` 扩**——padding 与 border 一样绘制在 border-box 上，`content-box + width 28 + padding 6 + border 1` 得到的可见圆是 **42px**：既比 28 大一圈，又会被下一条的行容器盖子切掉上下各 1px，圆变成「上下压扁的椭圆」。
+2. **行容器禁止 `max-height` + `overflow: hidden`**：那是折叠态机制 2026-09-05 废弃后留下的天花板，行内控件高度各有各的来源，盖子只进不出就会切边。要收敛溢出请在控件本身收尺寸，不要在容器上盖盖子。
+
+> 两条由 `scripts/guard_control_clip.py` 在 CI `layout_guard` 阻断；回归样本见 `scripts/tests/guard_control_clip.test.js`。确需豁免，在出问题的**规则块内**写 `control-clip-allow` 注明理由。
+> 参考实现：`frontend/src/views/asset/watchlist/components/WatchlistHeadPrimary.vue`。
+
 #### 复合按钮 · 发送 / 停止（#1714）
 
 对话输入区的「发送」与「停止」是**同一个按钮的两个态**，不是两个按钮：
