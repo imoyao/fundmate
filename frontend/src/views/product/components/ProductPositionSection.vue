@@ -297,7 +297,9 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
   </CardBlock>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
+@use "@/style/breakpoints" as bp;
+
 .product-position {
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
@@ -346,7 +348,9 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
   gap: var(--space-3) var(--space-compact);
 }
 
-@media (width >= 768px) {
+/* 断点走单一来源（#1571，`_breakpoints.scss`）：md = 48rem = 768px，
+   与模板里的 Tailwind `md:` 前缀同阈值同语义，禁止另写裸 @media。 */
+@include bp.above("md") {
   .product-position__grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
