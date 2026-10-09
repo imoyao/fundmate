@@ -14,9 +14,12 @@
   ## 文案必须说明「为何跳外部」
   验收要求：说明为何跳外部。故正文直说数据缺口，而不是含糊地写「更多数据」。
 
-  ## 游客可见范围必须如实告知
-  集思录未登录只展示前 30 只（实测 2026-10-09，见 utils/bondExternalLinks.ts）。
-  不写清楚的话，用户跳过去发现列表里没有自己的债，会以为是我们链接坏了。
+  ## 两个入口，缺一不可（实测 2026-10-09）
+  集思录**有**单券详情页 `/data/convert_bond_detail/<code>`，但**游客访问一律 302 跳登录页**。
+  故：
+  - 主入口 = 单券详情页，**须提示需登录**，否则用户以为链接坏了；
+  - 副入口 = 列表页定位（游客可用），但只见前 30 只，**须说明可见范围**。
+  登录前后都有可用出路。
 
   props:
     - bondCode: 标准化 symbol（`SH113050`）或裸 6 位债券代码
@@ -29,6 +32,7 @@
     >
       <template #info>
         <p>{{ infoText }}</p>
+        <p>{{ detailNote }}</p>
         <p>{{ visibilityNote }}</p>
       </template>
     </SectionHeader>
@@ -36,22 +40,37 @@
     <div class="bond-external">
       <p class="bond-external__lead">{{ infoText }}</p>
 
-      <p class="bond-external__note">{{ visibilityNote }}</p>
+      <p class="bond-external__note">{{ detailNote }}</p>
 
       <!-- 代码不合法时不渲染按钮：宁可少一个入口，也不给一个打不开的链接 -->
-      <div v-if="jisiluUrl" class="bond-external__actions">
+      <div v-if="detailUrl || listUrl" class="bond-external__actions">
         <a
+          v-if="detailUrl"
           class="bond-external__cta"
-          :href="jisiluUrl"
+          :href="detailUrl"
           target="_blank"
           rel="noopener noreferrer"
         >
-          去集思录查看
+          查看单券详情
           <el-icon class="bond-external__icon"><TopRightIcon /></el-icon>
+        </a>
+        <a
+          v-if="listUrl"
+          class="bond-external__link"
+          :href="listUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          在可转债列表中查看
         </a>
       </div>
       <p v-else class="bond-external__empty">
         未识别到可转债代码，无法生成外部链接
+      </p>
+
+      <!-- 列表入口的可见范围只在有副入口时提示，避免孤零零一句 -->
+      <p v-if="listUrl" class="bond-external__note bond-external__note--sub">
+        {{ visibilityNote }}
       </p>
     </div>
   </CardBlock>
@@ -63,6 +82,7 @@ import { TopRight as TopRightIcon } from "@element-plus/icons-vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import {
+  BOND_DETAIL_LOGIN_NOTE,
   BOND_EXTERNAL_VISIBILITY_NOTE,
   buildBondExternalUrl
 } from "@/utils/bondExternalLinks";
@@ -82,8 +102,17 @@ const infoText =
 /** 游客可见范围（实测限制，不说明会让用户以为链接坏了） */
 const visibilityNote = BOND_EXTERNAL_VISIBILITY_NOTE;
 
-const jisiluUrl = computed(() =>
+/** 详情页登录墙提示（实测游客 302 跳登录页） */
+const detailNote = BOND_DETAIL_LOGIN_NOTE;
+
+/** 主入口：集思录单券详情页（登录后可用） */
+const detailUrl = computed(() =>
   buildBondExternalUrl(props.bondCode, "jisilu")
+);
+
+/** 副入口：列表页定位（游客可用，但只见前 30 只） */
+const listUrl = computed(() =>
+  buildBondExternalUrl(props.bondCode, "jisiluList")
 );
 </script>
 
@@ -139,6 +168,29 @@ const jisiluUrl = computed(() =>
       outline: 2px solid var(--brand-700);
       outline-offset: 2px;
     }
+  }
+
+  /* 副入口：文字链，弱于主 CTA（与既有外链范式 qwv-link / PageFooter 一致） */
+  &__link {
+    font-size: 14px;
+    color: var(--el-color-primary);
+    text-decoration: none;
+
+    &:hover,
+    &:focus-visible {
+      text-decoration: underline;
+    }
+
+    /* 键盘焦点必须可见（#1838 可访问性） */
+    &:focus-visible {
+      outline: 2px solid var(--brand-700);
+      outline-offset: 2px;
+    }
+  }
+
+  &__note--sub {
+    margin: var(--space-2) 0 0;
+    background: transparent;
   }
 
   &__icon {
