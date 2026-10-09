@@ -46,10 +46,17 @@ export interface Position {
   pnl?: number;
 }
 
-/** 持仓分页列表请求参数（对齐后端 list_positions，仅支持分页参数） */
+/** 持仓分页列表请求参数（对齐后端 list_positions） */
 export interface PositionListParams {
   page?: number;
   per_page?: number;
+  /**
+   * 按产品代码过滤（#1966）：详情页「我的持仓」区块取数用，后端下推到 SQL。
+   * 同时匹配展示形态与归一身份键，故 `SZ000001` 与 `000001.SZ` 视为同一只产品。
+   */
+  symbol?: string;
+  /** 市场消歧：同码跨市场时与 symbol 组合使用 */
+  market?: string;
   /** 按关联账户ID精确过滤；传字符串 'null' 表示仅查未归档持仓（对齐后端 views.py） */
   ledger_id?: string | number;
 }

@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 from app.core.constants import ALLOCATION_LABELS, MARKET_LABELS, TYPE_LABELS, PositionSource, ValuationMode
 from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
-from app.core.symbol_utils import derive_security_type, normalize_by_venue, split_symbol
+from app.core.symbol_utils import derive_security_type, normalize_by_venue, split_symbol, symbol_identity
 from app.core.utils import get_confirm_date, paginate
 from app.core.venues import asset_types_of_venue, resolve_venue
 from app.domains.funds.models import Fund
@@ -1448,12 +1448,24 @@ class PositionService:
         return PositionService.recompute_position_from_transactions(db, existing.id)
 
     @staticmethod
-    def build_position_list(db, family_id: int, group_by: str, page: int, per_page: int, ledger_id_raw: str) -> dict:
+    def build_position_list(
+        db,
+        family_id: int,
+        group_by: str,
+        page: int,
+        per_page: int,
+        ledger_id_raw: str,
+        symbol: str = '',
+        market: str = '',
+    ) -> dict:
         """list_positions 的核心：过滤 + 按账户分组 / 分页组装（#1642 B 块，从 views 下沉）。
 
         与下沉前逐字段一致：``ledger_id='null'`` 仅取未归档持仓；``group_by='account'`` 按
         account_name 分组并补首次买入确认日（优先交易流水，回退 position.confirm_date）；否则分页
         + enrich_position_dict。返回原 jsonify 的「内层 data 字典」（视图负责补 message）。
+
+        ``symbol`` / ``market``（#1966）：产品维度过滤，供详情页「我的持仓」区块用。
+        **下推到 SQL**——取全表后内存筛违反数据策略硬约束 §6。
         """
         query = db.query(Position).filter(Position.family_id == family_id)
         # 未归档过滤：ledger_id 显式传 'null' 时仅返回未绑定账户的持仓
@@ -1461,6 +1473,29 @@ class PositionService:
             query = query.filter(Position.ledger_id.is_(None))
         elif ledger_id_raw:
             query = query.filter(Position.ledger_id == int(ledger_id_raw))
+        if symbol:
+            # symbol 同时匹配「展示形态」与 #1662 的「归一身份键」，取并集：
+            # 存量行 symbol_norm 可能为空、只有新写入行保证有值，只用其一都会漏命中。
+            #
+            # 归一候选要覆盖三种 venue：实测**不传 venue** 时 `symbol_identity('SZ000001')`
+            # 与 `symbol_identity('000001.SZ')` 分别得到 `NO_VENUE:SZ000001` 与
+            # `NO_VENUE:000001.SZ`——并不等价；只有传 `venue='EXCHANGE'` 才双双归一为
+            # `EXCHANGE:SZ000001`。而持仓行的 symbol_norm 是**写入时**按当时的
+            # asset_type / venue 算的，彼此可能不同，故一次把三种候选都列进 WHERE：
+            # 多一个 OR 索引，远便宜于漏命中导致详情页显示「无持仓」。
+            conditions = [Position.symbol == symbol]
+            try:
+                identities = {
+                    symbol_identity(symbol),
+                    symbol_identity(symbol, venue='EXCHANGE'),
+                    symbol_identity(symbol, venue='OTC'),
+                }
+            except Exception:  # 归一不了就退化为纯字面量匹配，不阻断过滤
+                identities = set()
+            conditions += [Position.symbol_norm == ident for ident in identities if ident]
+            query = query.filter(or_(*conditions))
+        if market:
+            query = query.filter(Position.market == market)
         query = query.order_by(Position.updated_at.desc())
 
         if group_by == 'account':
