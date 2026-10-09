@@ -149,7 +149,7 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - run: curl -X POST -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" ${{ secrets.ENDPOINT }}/api/cron/bias
+      - run: curl -X POST -H "X-Cron-Secret: $<!-- -->{{ secrets.CRON_SECRET }}<!-- -->" $<!-- -->{{ secrets.ENDPOINT }}<!-- -->/api/cron/bias
 ```
 
 ### 7.4 与上一轮结论的关系
