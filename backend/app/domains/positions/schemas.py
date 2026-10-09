@@ -4,6 +4,27 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class PositionListRequest(BaseModel):
+    """持仓列表过滤参数（#1966）。
+
+    过滤一律**下推到 SQL**（由 `PositionService.build_position_list` 执行）——
+    取全表后内存筛是数据策略硬约束 §6 明令禁止的写法。
+
+    - `symbol`：产品代码过滤。同时匹配「展示形态」与 #1662 的「归一身份键」，
+      故 `SZ000001` 与 `000001.SZ` 视为同一只产品（详见 service 内注释）。
+    - `market`：市场过滤，与 symbol 组合用于同码跨市场消歧。
+    - `ledger_id`：传字符串 `'null'` 表示仅查未归档持仓（`ledger_id IS NULL`）。
+    - `group_by`：目前仅支持 `'account'`（按账户分组）。
+    """
+
+    group_by: str = Field('', description="分组维度，仅 'account' 生效")
+    page: int = Field(1, description='页码（1 起）')
+    per_page: int = Field(20, description='每页条数')
+    ledger_id: str = Field('', description="账户 ID；'null' 表示仅未归档持仓")
+    symbol: str = Field('', description='产品代码过滤（#1966）')
+    market: str = Field('', description='市场过滤（#1966），与 symbol 组合消歧')
+
+
 class PositionCreate(BaseModel):
     symbol: Optional[str] = Field('manual', description='代码')
     name: Optional[str] = Field(None, description='名称')

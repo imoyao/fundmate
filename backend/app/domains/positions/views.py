@@ -12,10 +12,10 @@ from sqlalchemy.exc import IntegrityError
 from app.core.auth import get_family_id, get_owned_or_404
 from app.core.database import get_db
 from app.core.money import Money
-from app.core.validation import parse_body
+from app.core.validation import parse_body, parse_query
 from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
-from app.domains.positions.schemas import PositionCreate, PositionUpdate
+from app.domains.positions.schemas import PositionCreate, PositionListRequest, PositionUpdate
 from app.domains.transactions.models import Transaction
 from app.services.position_presenter import enrich_position_dict
 from app.services.position_service import PositionService
@@ -30,23 +30,13 @@ bp = APIBlueprint('positions', __name__, url_prefix='/api/positions/')
 def list_positions():
     """获取所有持仓记录，支持分页和按账户分组.
 
-    过滤参数:
-      ledger_id: 按关联账户ID精确过滤；传字符串 'null' 表示仅查未归档持仓(ledger_id IS NULL)。
-      symbol: 按产品代码过滤（#1966）；同时匹配展示形态与归一身份键，故 `SZ000001` 与
-        `000001.SZ` 视为同一只产品。过滤在服务层下推到 SQL，不做全表内存筛。
-      market: 按市场过滤（#1966），与 symbol 组合用于同码跨市场消歧。
+    过滤参数见 `PositionListRequest`（#1966 起改由 schema 统一声明，视图只做编排）。
     """
-    group_by = request.args.get('group_by', '')
-    page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 20, type=int)
-    ledger_id_raw = request.args.get('ledger_id', '')
-    # 产品维度过滤（#1966）：详情页「我的持仓」按 symbol(+market) 取，过滤在服务层下推到 SQL
-    symbol = request.args.get('symbol', '', type=str).strip()
-    market = request.args.get('market', '', type=str).strip()
+    q: PositionListRequest = parse_query(PositionListRequest)
 
     with get_db() as db:
         payload = PositionService.build_position_list(
-            db, get_family_id(), group_by, page, per_page, ledger_id_raw, symbol, market
+            db, get_family_id(), q.group_by, q.page, q.per_page, q.ledger_id, q.symbol, q.market
         )
         return jsonify({**payload, 'message': 'ok'})
 
