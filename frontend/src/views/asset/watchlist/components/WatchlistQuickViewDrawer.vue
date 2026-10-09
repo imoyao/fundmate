@@ -6,7 +6,8 @@
 
   本版本为**速览版**：展示当前可得的通用字段（行情 / 持有 / 信息 / 备注）。
   品种专属维度（指数估值、可转债条款、投顾持仓等）待数据底座落地后增量补充；
-  详情页入口**预留且禁用**（详情页后期实现），避免与「行点击」争抢语义。
+  详情页入口已于 #1965 启用（跳 ProductDetail）；一期仅 fund / stock / manager 可跳，
+  其余品类按钮禁用并说明「暂未开放」，不静默失败。
 
   可持有品类判定与列配置层一致：index / manager / portfolio 不展示「持有」区。
 -->
@@ -233,10 +234,15 @@
         <p v-else class="wqv-empty">暂无备注</p>
       </section>
 
-      <!-- 详情页入口（预留，详情页后期实现） -->
+      <!-- 详情页入口（#1965 启用）：一期只开放 fund / stock / manager（设计 §3.1），
+           其余品类按钮禁用并说明原因，不静默失败 -->
       <div class="wqv-footer">
-        <el-button disabled>查看详情</el-button>
-        <span class="wqv-hint">详情页开发中</span>
+        <el-button :disabled="!detailOpenable" @click="goDetail"
+          >查看详情</el-button
+        >
+        <span class="wqv-hint">{{
+          detailOpenable ? "查看完整资料与持仓" : "该品类详情页暂未开放"
+        }}</span>
       </div>
     </div>
   </el-drawer>
@@ -244,6 +250,8 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { useRouter } from "vue-router";
+import { ElMessage } from "element-plus";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import { formatDate } from "@/utils/date";
@@ -257,6 +265,8 @@ import {
   type AdvisorHoldingsResult
 } from "@/api/funds";
 import type { WatchlistItem } from "@/api/watchlist";
+import { resolveDetailPath } from "@/utils/productDetailNav";
+import { isDetailAssetType } from "@/utils/productIdentity";
 
 const props = defineProps<{
   modelValue: boolean;
@@ -275,6 +285,36 @@ const visible = computed({
   get: () => props.modelValue,
   set: val => emit("update:modelValue", val)
 });
+
+const router = useRouter();
+
+/** 一期仅 fund / stock / manager 有详情页（设计 §3.1）；其余品类禁用并说明原因 */
+const detailOpenable = computed(() =>
+  isDetailAssetType(props.item?.asset_type)
+);
+
+async function goDetail() {
+  const it = props.item;
+  if (!it) return;
+  try {
+    // 字段齐全时内部直接拼路径；缺失则回后端问权威品类（前端不推断）
+    const path = await resolveDetailPath({
+      symbol: it.symbol,
+      assetType: it.asset_type,
+      market: it.market,
+      venue: it.venue
+    });
+    if (!path) {
+      ElMessage.warning("该品类详情页暂未开放");
+      return;
+    }
+    // 先关抽屉再跳：否则抽屉会盖住刚打开的详情页
+    visible.value = false;
+    await router.push(path);
+  } catch {
+    ElMessage.warning("未找到该产品，可能已下架或代码有误");
+  }
+}
 
 /** 非交易实体（组合 / 经理）：不展示代码、不展示「持有」区 */
 const COMPOSITE_TYPES = new Set(["manager", "portfolio"]);

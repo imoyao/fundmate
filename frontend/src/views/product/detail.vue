@@ -9,6 +9,7 @@ import { assetTypeLabel } from "@/composables/useEnumLabels";
 import { useRealtimeQuotes } from "@/composables/useRealtimeQuotes";
 import { resolveProduct, type ProductResolveResult } from "@/api/products";
 import { isDetailAssetType, parseProductRef } from "@/utils/productIdentity";
+import ProductPositionSection from "./components/ProductPositionSection.vue";
 import ProductTrendSection from "./components/ProductTrendSection.vue";
 
 /**
@@ -153,8 +154,17 @@ watch(productRef, loadProduct, { immediate: true });
         </dl>
       </CardBlock>
 
-      <!-- 区块槽位：走势 / 基金资料 / 持仓 等由 #1966-#1971 各自注入。
-           此处刻意不渲染 mock 占位（设计 §10「不用 mock / 演示数据占位」）。 -->
+      <!-- 我的持仓（#1966）：仅在该家庭确实持有时才拉取。
+           未登录时 has_position 为 null（resolve 是「可选登录」端点），此时不渲染——
+           否则等于拉一个 401 再显示成「暂无持仓」，把「未知」说成「没有」。 -->
+      <ProductPositionSection
+        v-if="product.has_position === true"
+        :symbol="product.symbol"
+        :market="product.market"
+      />
+
+      <!-- 后续区块槽位：走势 / 基金资料 等由 #1967-#1971 各自注入。
+           刻意不渲染 mock 占位（设计 §10「不用 mock / 演示数据占位」）。 -->
       <slot name="sections" />
 
       <!-- 走势（#1967）：默认 3M、无数据显空态、口径脚注写明数据日期与来源。
