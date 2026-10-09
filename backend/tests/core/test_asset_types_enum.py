@@ -42,6 +42,22 @@ def test_enums_endpoint_includes_new_categories(client):
         assert key in data['asset_category'], f'enums 下发缺少新增大类 {key}'
 
 
+# ─────────────────────── #1969 市场 / 交易场所标签下发 ───────────────────────
+def test_enums_endpoint_includes_market_and_venue_labels(client):
+    """详情页把 CN_A / EXCHANGE 这类内部键直接排版给用户看（#1969 P0）。
+
+    修法是走 /enums 下发的中文标签，故此处锁住这两个键真的在响应里——前端
+    `marketLabel` / `venueLabel` 没有任何前端镜像可供回退，缺了这个键就是原键上屏。
+    """
+    data = client.get('/api/utils/enums/').get_json()['data']
+
+    assert data['market']['CN_A'] == 'A股'
+    assert data['market']['CN_HK'] == '港股'
+    assert data['market'][''], '空市场（经理/投顾组合）也要有标签，否则前端渲染空'
+    assert data['venue']['EXCHANGE'] == '场内'
+    assert data['venue']['OTC'] == '场外'
+
+
 # ───────────────────────────── #1527 asset_type 强约束 ─────────────────────────────
 def test_asset_type_values_derived_from_labels():
     # 合法值集合必须与标签映射同源，禁止手抄第二份

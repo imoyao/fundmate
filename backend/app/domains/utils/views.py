@@ -105,7 +105,7 @@ def get_enums():
         ASSET_TYPE_VALUES,
         INVESTMENT_MINOR_CATEGORIES,
     )
-    from app.core.constants import MARKET_LABELS, OP_TYPE_LABEL, POSITION_SOURCE_LABELS
+    from app.core.constants import MARKET_LABELS, OP_TYPE_LABEL, POSITION_SOURCE_LABELS, VENUE_LABELS
 
     return jsonify(
         {
@@ -120,6 +120,8 @@ def get_enums():
                 'op_type_labels': OP_TYPE_LABEL,
                 # #1286：市场码 → 中文标签（含无市场实体 '' → 通用）
                 'market': MARKET_LABELS,
+                # #1969：交易场所标签（EXCHANGE/OTC 原键不再直接上屏）
+                'venue': VENUE_LABELS,
             },
             'message': 'ok',
         }
