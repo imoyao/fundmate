@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
-import { assetTypeLabel } from "@/composables/useEnumLabels";
+import { assetTypeLabel, useEnumLabels } from "@/composables/useEnumLabels";
 import { getStockProfile, type StockProfileResult } from "@/api/products";
 
 /**
@@ -32,6 +32,13 @@ const props = defineProps<{
   /** 市场消歧：同码跨市场时由 resolve 结果带下来 */
   market?: string;
 }>();
+
+const { ensure: ensureEnums, marketLabel } = useEnumLabels();
+
+onMounted(() => {
+  // 市场码 → 中文：真相源在后端 /enums，前端无镜像，必须等拉取完成（同 detail.vue）
+  void ensureEnums();
+});
 
 const loading = ref(false);
 const profile = ref<StockProfileResult | null>(null);
@@ -145,7 +152,9 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
         </div>
         <div class="stock-section__fact">
           <dt class="stock-section__label">市场</dt>
-          <dd class="stock-section__value">{{ profile.market || DASH }}</dd>
+          <dd class="stock-section__value">
+            {{ marketLabel(profile.market) || DASH }}
+          </dd>
         </div>
         <div class="stock-section__fact">
           <dt class="stock-section__label">币种</dt>
@@ -207,7 +216,10 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
 
 .stock-section__facts {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(0, 1fr));
+  /* auto-fit + 真实最小列宽（#1969 P0 截图修复）：
+     · `minmax(0, 1fr)` 让轨道可收缩到 0 → 列宽塌成几像素，标签逐字竖排、数值被截断；
+     · `auto-fill` 不折叠空轨道，项少时右侧留大片空白；`auto-fit` 才会把剩余列拉伸填满。 */
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: var(--space-3) var(--space-6);
   margin: 0;
 }
