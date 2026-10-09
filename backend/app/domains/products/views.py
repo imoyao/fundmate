@@ -18,11 +18,13 @@ from app.core.auth import get_family_id
 from app.core.db_factory import market_session_factory, user_session_factory
 from app.core.validation import parse_query
 from app.domains.products.schemas import (
+    ManagerProfileRequest,
     ProductResolveRequest,
     ProductTrendRequest,
     StockProfileRequest,
 )
 from app.services.fund_profile import build_fund_profile
+from app.services.manager_profile import build_manager_profile
 from app.services.product_identity import resolve_product_identity
 from app.services.product_trend import RANGE_DAYS, fetch_product_trend
 from app.services.stock_profile import build_stock_profile
@@ -134,6 +136,31 @@ def stock_profile():
 
     if data is None:
         abort(404, f'证券不存在：{query.symbol}')
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/manager-profile/')
+def manager_profile():
+    """基金经理资料聚合（#1970 · 详情页经理详情区块）：资料 + 任职基金列表一次取完。
+
+    反向于 `/fund-profile/`（那只回答「某只基金有哪些经理」），此处回答「某位经理管过
+    哪些基金」。funds 域无对应端点，故按 #1968 / #1969 的同一硬规则在本域补出口。
+
+    入参用 `mgr_code` 而非姓名：`managers` 实测 119 组重名（最多 6 位同名），
+    姓名不是唯一键。放 products 域的理由与同族端点一致——服务的是详情页这一个页面。
+
+    任职起止 / 管理规模 / 任期回报实测填充率 0%，一律回 `null` 由前端降级「—」。
+    """
+    query: ManagerProfileRequest = parse_query(ManagerProfileRequest)
+
+    with closing(market_session_factory()()) as db:
+        try:
+            data = build_manager_profile(db, query.mgr_code, fund_limit=query.fund_limit)
+        except ValueError as e:
+            abort(400, str(e))
+
+    if data is None:
+        abort(404, f'基金经理不存在：{query.mgr_code}')
     return jsonify({'data': data, 'message': 'ok'})
 
 
