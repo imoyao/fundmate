@@ -162,6 +162,13 @@ watch(productRef, loadProduct, { immediate: true });
         :market="product.market"
       />
 
+      <!-- 基金资料（#1968）：仅基金品类渲染。首屏净值与日涨跌 + 类型/经理/规模/费率，
+           缺项逐项降级为「—」。「我的成本 / 持有收益」在上面的持仓区块，不重复取数。 -->
+      <ProductFundSection
+        v-if="product.asset_type === 'fund'"
+        :symbol="product.symbol"
+      />
+
       <!-- 后续区块槽位：走势 / 基金资料 等由 #1967-#1971 各自注入。
            刻意不渲染 mock 占位（设计 §10「不用 mock / 演示数据占位」）。 -->
       <slot name="sections" />

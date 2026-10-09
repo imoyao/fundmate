@@ -12,12 +12,13 @@
 from contextlib import closing
 
 from apiflask import APIBlueprint
-from flask import abort, g, jsonify
+from flask import abort, g, jsonify, request
 
 from app.core.auth import get_family_id
 from app.core.db_factory import market_session_factory, user_session_factory
 from app.core.validation import parse_query
 from app.domains.products.schemas import ProductResolveRequest
+from app.services.fund_profile import build_fund_profile
 from app.services.product_identity import resolve_product_identity
 
 bp = APIBlueprint('products', __name__, url_prefix='/api/products')
@@ -69,3 +70,30 @@ def resolve_product():
     if result is None:
         abort(404, f'未识别的产品代码：{query.symbol}')
     return jsonify({'data': result, 'message': 'ok'})
+
+
+@bp.get('/fund-profile/')
+def fund_profile():
+    """基金资料聚合（#1968）：详情页首屏 + 资料区块所需字段一次取完。
+
+    为什么放 products 域而不放 funds 域（两条理由都成立）：
+
+    1. **架构归属**：本端点服务的是「详情页」，与同族的 ``/resolve/``（身份解析）、
+       ``/trend/``（走势）是同一族；funds 域管的是基金基础操作（搜索 / 净值 / 费率同步）；
+    2. **视图层厚度守卫**：funds 视图已顶在冻结基线上（217 行），再加端点会被守卫拦下。
+       products 域是新文件，限额宽裕（lines ≤ 400 / query ≤ 10 / 单函数 ≤ 60）。
+
+    为何要新增而不让前端拼既有端点：**日涨跌**要「最近两日净值」自己算（funds 域无端点
+    直出），**基金经理**更是没有任何端点（``/managers/search/`` 是按经理名模糊搜，与「某只
+    基金有哪些经理」无关，关系只在 ``funds.managers`` 关联表里）。详见
+    ``services/fund_profile.py`` 模块 docstring。
+    """
+    fund_code = (request.args.get('code') or '').strip()
+    with closing(market_session_factory()()) as db:
+        try:
+            data = build_fund_profile(db, fund_code)
+        except ValueError as e:
+            abort(400, str(e))
+    if data is None:
+        abort(404, f'基金不存在：{fund_code}')
+    return jsonify({'data': data, 'message': 'ok'})
