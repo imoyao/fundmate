@@ -9,9 +9,11 @@
 
 - **日涨跌**：funds 域没有任何端点直接给。它必须由「最近两日单位净值」算出，
   照搬前端拼装就是两次串行请求（``?date=`` 当日 + 前一日），详情页首屏直接被拉长；
-- **基金经理**：funds 域**根本没有「某只基金的经理」端点**——唯一暴露经理的
+- **基金经理**：funds 域**没有「某只基金的经理」端点**——唯一暴露经理的
   ``/api/funds/managers/search/`` 是按经理姓名模糊搜，与「某只基金有哪些经理」无关。
-  关系只在 ``funds.managers``（经 ``fund_managers`` 关联表）里；
+  注意：**关系本身在数据层是完整的**（``fund_managers`` 关联表，含任期起止 ``start_date``
+  与代表作品标记 ``is_classic``，并有同步 job 维护），funds 域缺的只是把这条关系
+  **读出来**的 HTTP 出口——故此处经关联表 join 取经理；
 - 费率虽有 ``/api/funds/<code>/fee-rates/``，但与净值/经理分属不同步的请求。
 
 故此处**一次查完**并返回，前端一次请求拿到首屏所需全部字段。字段缺失一律返回
@@ -45,10 +47,26 @@ def _change_pct(latest: Optional[float], prev: Optional[float]) -> Optional[floa
     return round((latest - prev) / prev * 100, 2)
 
 
-def _managers_of(fund) -> List[Dict[str, Any]]:
-    """基金经理列表（含所属公司），按经理姓名排序。"""
+def _managers_of(db: Session, fund) -> List[Dict[str, Any]]:
+    """基金经理列表（含所属公司与代表作品标记），按经理姓名排序。
+
+    显式 join ``fund_managers`` 关联表，而非遍历 ``fund.managers`` relationship——因为
+    ``is_classic``（代表作品）与 ``start_date``（任职起始）**只存在于关联表**，走
+    relationship 只能拿到 Manager 自己的列。
+
+    顺带说明：经理关系在**数据层本来就是完整的**（``fund_managers`` 关联表 + 同步 job
+    维护，含任期起止与代表作品标记），funds 域缺的只是「读出这条关系」的 HTTP 出口。
+    """
+    from app.domains.funds.models import FundManager, Manager
+
+    rows = (
+        db.query(Manager, FundManager.is_classic)
+        .join(FundManager, FundManager.mgr_id == Manager.id)
+        .filter(FundManager.fund_id == fund.id)
+        .all()
+    )
     managers = []
-    for mgr in getattr(fund, 'managers', []) or []:
+    for mgr, is_classic in rows:
         company = getattr(mgr, 'company', None)
         managers.append(
             {
@@ -56,6 +74,8 @@ def _managers_of(fund) -> List[Dict[str, Any]]:
                 'name': mgr.name,
                 'company': getattr(company, 'name', None),
                 'appointment_date': mgr.appointment_date.isoformat() if mgr.appointment_date else None,
+                # 代表作品：该经理在此基金上的标记，前端可在名字后挂「代表作」徽标
+                'is_classic': bool(is_classic),
             }
         )
     managers.sort(key=lambda m: m['name'] or '')
@@ -118,6 +138,6 @@ def build_fund_profile(db: Session, fund_code: str) -> Optional[Dict[str, Any]]:
         'create_time': fund.create_time.isoformat() if fund.create_time else None,
         'risk_level': fund.risk_level,
         'benchmark': fund.benchmark,
-        'managers': _managers_of(fund),
+        'managers': _managers_of(db, fund),
         'fee_rates': _fee_rates_of(db, code),
     }

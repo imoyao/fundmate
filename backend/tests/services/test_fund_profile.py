@@ -48,7 +48,7 @@ def _seed_navs(fund_code='004369', values=(2.0, 2.1)):
         db.commit()
 
 
-def _seed_manager(fund, mgr_code='MGR_001', name='张三'):
+def _seed_manager(fund, mgr_code='MGR_001', name='张三', is_classic=False):
     with closing(market_session_factory()()) as db:
         manager = db.query(Manager).filter(Manager.mgr_code == mgr_code).first()
         if manager is None:
@@ -59,7 +59,7 @@ def _seed_manager(fund, mgr_code='MGR_001', name='张三'):
             db.query(FundManager.id).filter(FundManager.fund_id == fund.id, FundManager.mgr_id == manager.id).first()
         )
         if linked is None:
-            db.add(FundManager(fund_id=fund.id, mgr_id=manager.id))
+            db.add(FundManager(fund_id=fund.id, mgr_id=manager.id, is_classic=is_classic))
             db.commit()
 
 
@@ -112,6 +112,25 @@ def test_profile_lists_managers():
 
     assert profile is not None
     assert '张三' in [m['name'] for m in profile['managers']]
+
+
+def test_manager_is_classic_read_from_link_table():
+    """代表作品标记只存在于 fund_managers 关联表，须经关联表 join 才能取到。
+
+    顺带锁住「True / False 都要如实返回」：``bool(None)`` 也应为 False，前端据此决定
+    是否挂「代表作」徽标，若把缺值当成 True 会给所有经理都打上徽标。
+    """
+    fund = _seed_fund()
+    _seed_manager(fund, mgr_code='MGR_CLASSIC', name='李四', is_classic=True)
+    _seed_manager(fund, mgr_code='MGR_PLAIN', name='王五', is_classic=False)
+
+    with closing(_market_db()) as db:
+        profile = build_fund_profile(db, '004369')
+
+    assert profile is not None
+    flags = {m['name']: m['is_classic'] for m in profile['managers']}
+    assert flags['李四'] is True
+    assert flags['王五'] is False
 
 
 def test_fee_rates_degrade_to_none():
