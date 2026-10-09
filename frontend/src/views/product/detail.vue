@@ -2,7 +2,6 @@
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import CardBlock from "@/components/CardBlock/index.vue";
-import IconifyIconOffline from "@/components/IconifyIconOffline/index.vue";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import RealtimeEstimateToggle from "@/components/RealtimeEstimateToggle/index.vue";
@@ -171,7 +170,7 @@ watch(productRef, loadProduct, { immediate: true });
 .product-detail__hero {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-compact);
 }
 
 .product-detail__hero-head {
@@ -184,7 +183,7 @@ watch(productRef, loadProduct, { immediate: true });
   margin: 0;
   font-size: 20px;
   font-weight: 600;
-  color: var(--text-primary-ink);
+  color: var(--text-primary);
 }
 
 .product-detail__hero-type {
@@ -207,7 +206,7 @@ watch(productRef, loadProduct, { immediate: true });
 .product-detail__fact-value {
   margin: 4px 0 0;
   font-size: 14px;
-  color: var(--text-primary-ink);
+  color: var(--text-primary);
 }
 
 /* 代码原样展示：不做缩写 / 不补前缀 / 不剥市场前缀 */
@@ -233,7 +232,7 @@ watch(productRef, loadProduct, { immediate: true });
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: var(--text-primary-ink);
+  color: var(--text-primary);
 }
 
 .product-detail__empty-text {
