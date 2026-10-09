@@ -21,13 +21,24 @@ PROFILE_URL = '/api/products/fund-profile/?code=004369'
 
 
 def _seed_fund(fund_code='004369', name='测试基金'):
+    """确保基金存在，返回其 **id**（int，不是 ORM 实例）。
+
+    两个容易踩的点：
+
+    1. **必须 commit**，只 ``flush`` 不够——``closing`` 退出即关 session，未提交的写入
+       会被回滚，于是 ``funds`` 里查不到该 code，随后 ``_seed_navs`` 插 ``daily_worth``
+       就撞外键（``daily_worth.fund_code`` 外键指向 ``funds.fund_code``）：
+       ``sqlite3.IntegrityError: FOREIGN KEY constraint failed``。
+    2. **只回 id**：commit 后实例属性已过期（expire_on_commit），session 关闭后再取
+       ``fund.id`` 会抛 DetachedInstanceError。
+    """
     with closing(market_session_factory()()) as db:
         fund = db.query(Fund).filter(Fund.fund_code == fund_code).first()
         if fund is None:
             fund = Fund(fund_code=fund_code, name=name)
             db.add(fund)
-            db.flush()
-        return fund
+            db.commit()
+        return fund.id
 
 
 def _seed_navs(fund_code='004369', values=(2.0, 2.1)):
@@ -48,7 +59,8 @@ def _seed_navs(fund_code='004369', values=(2.0, 2.1)):
         db.commit()
 
 
-def _seed_manager(fund, mgr_code='MGR_001', name='张三', is_classic=False):
+def _seed_manager(fund_id, mgr_code='MGR_001', name='张三', is_classic=False):
+    """关联一只基金与一位经理（``fund_managers``），返回是否新建的关联行。"""
     with closing(market_session_factory()()) as db:
         manager = db.query(Manager).filter(Manager.mgr_code == mgr_code).first()
         if manager is None:
@@ -56,10 +68,10 @@ def _seed_manager(fund, mgr_code='MGR_001', name='张三', is_classic=False):
             db.add(manager)
             db.flush()
         linked = (
-            db.query(FundManager.id).filter(FundManager.fund_id == fund.id, FundManager.mgr_id == manager.id).first()
+            db.query(FundManager.id).filter(FundManager.fund_id == fund_id, FundManager.mgr_id == manager.id).first()
         )
         if linked is None:
-            db.add(FundManager(fund_id=fund.id, mgr_id=manager.id, is_classic=is_classic))
+            db.add(FundManager(fund_id=fund_id, mgr_id=manager.id, is_classic=is_classic))
             db.commit()
 
 
@@ -72,6 +84,12 @@ def test_profile_returns_nav_and_change_pct():
     """首屏三项：单位净值 + 净值日期 + 日涨跌。"""
     _seed_fund()
     _seed_navs(values=(2.10, 2.00))
+
+    # 锁死回归（#1968 CI 曾整文件红）：种子基金必须**已提交**落库——
+    # daily_worth.fund_code 有外键指向 funds.fund_code，若种子只 flush 不 commit，
+    # closing 关 session 时写入被回滚，插净值就撞 FOREIGN KEY constraint failed。
+    with closing(_market_db()) as db:
+        assert db.query(Fund).filter(Fund.fund_code == '004369').first() is not None
 
     with closing(_market_db()) as db:
         profile = build_fund_profile(db, '004369')
@@ -104,8 +122,8 @@ def test_profile_returns_none_for_unknown_fund():
 
 def test_profile_lists_managers():
     """经理从 fund_managers 关联表取（此前无任何端点能给出）。"""
-    fund = _seed_fund()
-    _seed_manager(fund)
+    fund_id = _seed_fund()
+    _seed_manager(fund_id)
 
     with closing(_market_db()) as db:
         profile = build_fund_profile(db, '004369')
@@ -120,9 +138,9 @@ def test_manager_is_classic_read_from_link_table():
     顺带锁住「True / False 都要如实返回」：``bool(None)`` 也应为 False，前端据此决定
     是否挂「代表作」徽标，若把缺值当成 True 会给所有经理都打上徽标。
     """
-    fund = _seed_fund()
-    _seed_manager(fund, mgr_code='MGR_CLASSIC', name='李四', is_classic=True)
-    _seed_manager(fund, mgr_code='MGR_PLAIN', name='王五', is_classic=False)
+    fund_id = _seed_fund()
+    _seed_manager(fund_id, mgr_code='MGR_CLASSIC', name='李四', is_classic=True)
+    _seed_manager(fund_id, mgr_code='MGR_PLAIN', name='王五', is_classic=False)
 
     with closing(_market_db()) as db:
         profile = build_fund_profile(db, '004369')
