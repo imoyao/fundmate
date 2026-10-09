@@ -40,6 +40,15 @@ export function getPositionXirr(positionId: number) {
   });
 }
 
+/** 获取产品级持有年化（跨账户按 symbol 汇总现金流，#1972）
+ *  无成交且无市值时后端返回全 0 结构（cashflow_count = 0），
+ *  调用方据此（以及请求失败时）降级显示 `—`，不显示 NaN。 */
+export function getSymbolXirr(symbol: string) {
+  return http.request<ApiResponse<XirrData>>("get", "/api/performance/xirr/", {
+    params: { scope: "symbol", symbol }
+  });
+}
+
 /** 货币基金每日收益序列项（金额为元，两位小数） */
 export interface MoneyFundDailyIncome {
   /** 日期 YYYY-MM-DD */
