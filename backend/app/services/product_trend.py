@@ -31,6 +31,7 @@ from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
+from app.core.data_sources import FUND_NAV_SOURCE_LABEL, data_source_label
 from app.domains.funds.models import DailyWorth
 from app.domains.price_history.models import PriceHistory
 
@@ -63,6 +64,22 @@ def _fetch_close_series(db: Session, symbol: str, start: dt.date) -> List[Tuple[
             continue
         series.append((trade_date, round(float(value), 4)))
     return series
+
+
+def _latest_price_source(db: Session, symbol: str) -> str:
+    """该标的日线的来源码（取**最近一条**非空 `source`）。
+
+    取最近一条而非全表去重：同一标的的来源可能随时间变过（如 ETF 曾走新浪、后改走
+    东财），脚注要反映「眼下这段数据从哪来」，最近一条是最合理的近似。图上真跨了
+    来源时以最近为准——不为此扫描整段序列，性价比不划算。
+    """
+    row = (
+        db.query(PriceHistory.source)
+        .filter(PriceHistory.symbol == symbol, PriceHistory.source.isnot(None))
+        .order_by(PriceHistory.trade_date.desc())
+        .first()
+    )
+    return row[0] if row else ''
 
 
 def _fetch_nav_series(db: Session, symbol: str, start: dt.date) -> List[Tuple[dt.date, float]]:
@@ -98,7 +115,9 @@ def fetch_product_trend(
         range_key: ``1M`` / ``3M`` / ``6M`` / ``1Y``。
 
     Returns:
-        ``{symbol, kind, dates, values, source, range, requested_days, available_days}``；
+        ``{symbol, kind, dates, values, source, basis, range, requested_days,
+        available_days}``；``source`` 是**站点名**（如「新浪财经」），``basis`` 是口径
+        说明（如「前复权收盘价」）——用户看来源，需要时看口径（#1969）。
         品类本身无序列数据源（指数等）时返回 ``None``，由调用方降级。
 
     Raises:
@@ -119,10 +138,12 @@ def fetch_product_trend(
 
     if normalized_type == 'fund':
         series = _fetch_nav_series(market_db, code, start)
-        kind, source = 'nav', 'daily_worth 单位净值'
+        # 来源与口径分开给：来源是站点名（用户看得懂），口径是「怎么算的」
+        kind, basis, source = 'nav', '单位净值', data_source_label(FUND_NAV_SOURCE_LABEL)
     else:
         series = _fetch_close_series(market_db, code, start)
-        kind, source = 'close', 'price_history 前复权收盘价'
+        kind, basis = 'close', '前复权收盘价'
+        source = data_source_label(_latest_price_source(market_db, code))
 
     # 实际可用跨度：用于前端「无长历史自动收敛到可用档」（设计 §12 ⑤），数据不足时
     # 由前端提示收敛，而不是画一条只有几天的曲线假装是 3M。
@@ -133,7 +154,9 @@ def fetch_product_trend(
         'kind': kind,
         'dates': [d.isoformat() for d, _ in series],
         'values': [v for _, v in series],
+        # source 是**站点名**（新浪财经 / 天天基金…），不是内部表名或抓取管线码（#1969）
         'source': source,
+        'basis': basis,
         'range': range_key,
         'requested_days': days,
         'available_days': available_days,

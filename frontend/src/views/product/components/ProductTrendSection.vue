@@ -149,9 +149,14 @@ watch(range, load);
         class="trend-section__chart"
       />
       <p v-if="spanNotice" class="trend-section__hint">{{ spanNotice }}</p>
+      <!-- 来源说「哪个网站」，口径说「怎么算的」——后端分开给，前端只排版，
+           不在这里推断「close 就等于前复权」（#1969） -->
       <p class="trend-section__footnote">
         数据日期：{{ trend?.dates?.[0] }} 至
-        {{ trend?.dates?.[trend.dates.length - 1] }} · 来源：{{ trend?.source }}
+        {{ trend?.dates?.[trend.dates.length - 1] }}
+        <template v-if="trend?.source">
+          · 数据来源：{{ trend.source }}（{{ trend.basis }}）
+        </template>
       </p>
     </template>
   </CardBlock>

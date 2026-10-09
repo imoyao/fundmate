@@ -78,6 +78,8 @@ export interface FundProfileResult {
     purchase: { start_quota: number; end_quota: number | null; rate: number }[];
     redeem: { start_day: number; end_day: number | null; rate: number }[];
   } | null;
+  /** 数据来源站点名（如「天天基金」）；#1969 前脚注写的是 daily_worth 这类表名 */
+  source: string;
 }
 
 /** 取基金资料聚合（详情页首屏 + 资料区块）。404 = 该代码不是基金。 */
@@ -112,6 +114,10 @@ export interface StockProfileResult {
   change_pct: number | null;
   /** 实际参与统计的交易日条数；小于 window_days 说明上市/历史不足，需如实提示 */
   trading_days: number;
+  /** 数据来源站点名（如「新浪财经」）；一条行情都没有时为空串 */
+  source: string;
+  /** 口径说明（前复权收盘价 / 未复权高低） */
+  basis: string;
 }
 
 /**
@@ -139,8 +145,10 @@ export interface ProductTrendResult {
   /** 与 values 等长的日期轴（YYYY-MM-DD） */
   dates: string[];
   values: number[];
-  /** 口径脚注用：数据来源（如「price_history 前复权收盘价」） */
+  /** 数据来源**站点名**（如「新浪财经」「天天基金」）；#1969 前这里回的是内部表名 */
   source: string;
+  /** 口径说明（如「前复权收盘价」「单位净值」）——与来源分开表达，前端不自行推断 */
+  basis: string;
   range: TrendRange;
   /** 请求的区间天数（3M → 90） */
   requested_days: number;

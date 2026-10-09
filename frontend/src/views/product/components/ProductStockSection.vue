@@ -166,12 +166,13 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
         </div>
       </dl>
 
-      <p class="stock-section__footnote">
-        行情来源：price_history 前复权收盘价；区间高低为未复权原值
-        <template v-if="shortHistory">
-          · 历史仅 {{ profile.trading_days }} 个交易日（不足
-          {{ profile.window_days }} 日窗口），按实际可用数据统计
-        </template>
+      <!-- 来源给站点名（用户看得懂），不再写 price_history 这类表名（#1969） -->
+      <p v-if="profile.source" class="stock-section__footnote">
+        数据来源：{{ profile.source }}（{{ profile.basis }}）
+      </p>
+      <p v-if="shortHistory" class="stock-section__footnote">
+        历史仅 {{ profile.trading_days }} 个交易日（不足
+        {{ profile.window_days }} 日窗口），按实际可用数据统计
       </p>
     </template>
   </CardBlock>

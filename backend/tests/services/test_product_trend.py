@@ -35,6 +35,8 @@ def _seed_price_series(db, symbol='SZ000001', points=5, adj_close=None, base_pri
                 trade_date=start + timedelta(days=i),
                 close=base_price + i,
                 adj_close=adj_close,
+                # 真实落库的场内来源码（akshare_adapter：股票走新浪、ETF 走东财）
+                source='akshare_sina',
             )
         )
     db.commit()
@@ -129,6 +131,34 @@ def test_endpoint_invalid_range_returns_400(client, db):
 
     assert resp.status_code == 400
     assert resp.get_json()['error_code'] == 1001  # ErrorCode.INVALID_PARAMS
+
+
+# ── 数据来源表述（#1969）──────────────────────────────────────────────
+def test_source_is_site_name_not_internal_table(db):
+    """出场的是**站点名**，不是内部表名。
+
+    此前这里给的是 `'price_history 前复权收盘价'` —— 用户既看不懂 `price_history`，
+    也看不出这根线到底来自哪个网站。口径信息改由 `basis` 单独承担。
+    """
+    _seed_price_series(db, points=5)
+
+    result = fetch_product_trend(db, 'SZ000001', asset_type='stock', range_key='1M')
+
+    assert result is not None
+    assert result['source'] == '新浪财经'
+    assert result['basis'] == '前复权收盘价'
+    assert 'price_history' not in result['source']
+
+
+def test_fund_source_is_daily_fund_site(db):
+    """场外基金净值来自天天基金（xalpha → pingzhongdata / lsjz）。"""
+    _seed_nav_series(db, fund_code='004369')
+
+    result = fetch_product_trend(db, '004369', asset_type='fund', range_key='3M')
+
+    assert result is not None
+    assert result['source'] == '天天基金'
+    assert result['basis'] == '单位净值'
 
 
 def test_endpoint_default_range_is_3m(client, db):

@@ -26,6 +26,8 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
+from app.core.data_sources import FUND_NAV_SOURCE_LABEL
+
 
 def _latest_two_navs(db: Session, fund_code: str) -> List[Any]:
     """最近两条单位净值（倒序：第 0 条是最新）。"""
@@ -140,4 +142,7 @@ def build_fund_profile(db: Session, fund_code: str) -> Optional[Dict[str, Any]]:
         'benchmark': fund.benchmark,
         'managers': _managers_of(db, fund),
         'fee_rates': _fee_rates_of(db, code),
+        # 数据来源（#1969）：净值 / 费率 / 基础资料整条链路都走天天基金（东方财富），
+        # 脚注要说站点名而不是 daily_worth / funds 这些表名
+        'source': FUND_NAV_SOURCE_LABEL,
     }

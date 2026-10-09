@@ -159,11 +159,6 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
         />
       </div>
 
-      <!-- 产品级 XIRR 占位：后端只有 scope=position / portfolio，按 symbol 跨账户汇总
-           属 B1 卡。此处**显示「—」而不是编一个数**（设计 G1：不用 mock / 演示数据占位）。 -->
-      <p class="position-section__hint">
-        持有年化 XIRR：— （待按产品跨账户汇总后展示）
-      </p>
     </template>
   </CardBlock>
 </template>

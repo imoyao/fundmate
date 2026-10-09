@@ -175,9 +175,8 @@ watch(() => props.symbol, load, { immediate: true });
         </div>
       </dl>
 
-      <p class="fund-section__footnote">
-        净值来源：daily_worth 单位净值 · 费率来源：funds 费率阶梯
-      </p>
+      <!-- 来源给站点名：净值 / 费率 / 基础资料整条链路都走天天基金（#1969） -->
+      <p class="fund-section__footnote">数据来源：{{ profile.source }}</p>
     </template>
   </CardBlock>
 </template>

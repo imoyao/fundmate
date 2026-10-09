@@ -104,6 +104,8 @@ def _seed_prices(
                     adj_close=base_price + i + adj_offset if adj_offset is not None else None,
                     high=high,
                     low=low,
+                    # 真实落库的场内来源码，供「来源要出站点名」的断言用
+                    source='akshare_sina',
                 )
             )
         db.add_all(rows)
@@ -235,6 +237,35 @@ def test_missing_sector_degrades_to_none():
 
     assert profile is not None
     assert profile['sector'] is None
+
+
+# ── 数据来源表述（#1969）──────────────────────────────────────────────
+def test_quote_source_is_site_name():
+    """区间行情的来源是**站点名**：库里存 `akshare_sina`，出场必须是「新浪财经」。
+
+    详情页脚注此前写 `price_history 前复权收盘价`——表名对用户没有意义（#1969）。
+    """
+    _seed_security()
+    _seed_prices(points=5)
+
+    with closing(_market_db()) as db:
+        profile = build_stock_profile(db, 'SZ000001')
+
+    assert profile is not None
+    assert profile['source'] == '新浪财经'
+    assert profile['basis'] == '前复权收盘价 / 未复权高低'
+
+
+def test_quote_source_is_blank_without_quotes():
+    """没有行情行时来源为空串——前端据此不渲染来源脚注（而不是显示「数据来源：」空挂）。"""
+    _seed_security(symbol='SZ000002', name='万科A')
+    _seed_prices(symbol='SZ000002', points=0)
+
+    with closing(_market_db()) as db:
+        profile = build_stock_profile(db, 'SZ000002')
+
+    assert profile is not None
+    assert profile['source'] == ''
 
 
 # ── 端点 ──────────────────────────────────────────────────────────────

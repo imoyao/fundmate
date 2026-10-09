@@ -32,6 +32,8 @@ from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
 
+from app.core.data_sources import data_source_label
+
 # 区间统计窗口（交易日）。与 watchlist 迷你走势的 60 日一致，见模块 docstring。
 DEFAULT_WINDOW = 60
 
@@ -55,6 +57,7 @@ def _quote_stats(db: Session, symbol: str, window: int = DEFAULT_WINDOW) -> Dict
             PriceHistory.close,
             PriceHistory.high,
             PriceHistory.low,
+            PriceHistory.source,
         )
         .filter(PriceHistory.symbol == symbol)
         .order_by(PriceHistory.trade_date.desc())
@@ -69,13 +72,14 @@ def _quote_stats(db: Session, symbol: str, window: int = DEFAULT_WINDOW) -> Dict
             'low': None,
             'change_pct': None,
             'trading_days': 0,
+            'source': '',
         }
 
     # 倒序：第 0 条是最新。收盘价口径与走势一致——优先前复权。
-    closes_desc = [adj if adj is not None else close for _d, adj, close, _h, _l in rows]
+    closes_desc = [adj if adj is not None else close for _d, adj, close, _h, _l, _s in rows]
     closes_desc = [c for c in closes_desc if c is not None]
-    highs = [h for _d, _a, _c, h, _l in rows if h is not None]
-    lows = [low for _d, _a, _c, _h, low in rows if low is not None]
+    highs = [h for _d, _a, _c, h, _l, _s in rows if h is not None]
+    lows = [low for _d, _a, _c, _h, low, _s in rows if low is not None]
 
     latest_close = closes_desc[0] if closes_desc else None
     earliest_close = closes_desc[-1] if closes_desc else None
@@ -92,6 +96,8 @@ def _quote_stats(db: Session, symbol: str, window: int = DEFAULT_WINDOW) -> Dict
         'low': float(min(lows)) if lows else None,
         'change_pct': change_pct,
         'trading_days': len(rows),
+        # 站点名（新浪财经 / 东方财富…）而非 price_history 这类内部表名（#1969）
+        'source': data_source_label(rows[0][5]),
     }
 
 
@@ -143,5 +149,7 @@ def build_stock_profile(
         # 缺失时前端降级为「—」，不为凑版面去外部数据源补（设计 §6「诚实降级」）
         'sector': security.sector,
         'window_days': window,
+        # 口径说明（与来源分开）：来源回答「哪来的」，口径回答「怎么算的」
+        'basis': '前复权收盘价 / 未复权高低',
         **stats,
     }
