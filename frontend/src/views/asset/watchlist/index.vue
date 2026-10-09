@@ -50,36 +50,15 @@
           @manage-group-items="actions.onManageGroupItems"
         />
 
-        <!-- 持仓未入自选提示（#1458 后续：持仓即自选）：缺口可一键补齐 -->
-        <el-alert
+        <!-- 持仓未入自选提示（#1458 后续：持仓即自选）：内联前 3 条明细 + 一键补齐，
+             缺口多于 3 条时由「查看全部」打开 HoldingGapDialog（明细弹窗） -->
+        <HoldingGapBanner
           v-if="holdingGaps.length > 0"
-          type="warning"
-          :closable="false"
-          show-icon
-          class="holding-gap-banner"
-        >
-          <template #title>
-            <span
-              >有 {{ holdingGaps.length }} 个持仓产品尚未加入自选，暂无法打标签
-              / 写备注。</span
-            >
-          </template>
-          <template #default>
-            <span
-              >持仓即自选：补齐后即可像普通自选一样管理，卖出后也不会被删除。</span
-            >
-            <el-button
-              type="warning"
-              size="small"
-              plain
-              class="ml-2"
-              :loading="reconciling"
-              @click="handleAddAllToWatchlist"
-            >
-              一键加入自选
-            </el-button>
-          </template>
-        </el-alert>
+          :gaps="holdingGaps"
+          :reconciling="reconciling"
+          @add-all="handleAddAllToWatchlist"
+          @view-all="actions.openGapDialog"
+        />
 
         <!-- 合规横幅：仅在开启实时时出现（未开启实时时它没有意义） -->
         <RealtimeWarningBanner v-if="realtimeEnabled" />
@@ -153,6 +132,7 @@ import WatchlistHeadPrimary from "@/views/asset/watchlist/components/WatchlistHe
 import WatchlistTableSection from "@/views/asset/watchlist/components/WatchlistTableSection.vue";
 import WatchlistTableFooter from "@/views/asset/watchlist/components/WatchlistTableFooter.vue";
 import WatchlistDialogs from "@/views/asset/watchlist/components/WatchlistDialogs.vue";
+import HoldingGapBanner from "@/views/asset/watchlist/components/HoldingGapBanner.vue";
 import { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import { useWatchlistTags } from "@/composables/useWatchlistTags";
 import { useWatchlistData } from "@/composables/useWatchlistData";
@@ -308,15 +288,6 @@ onMounted(async () => {
   border: 0;
   clip: rect(0 0 0 0);
   clip-path: inset(50%);
-}
-
-/* #1458 后续：持仓未入自选的引导 banner（warning 级） */
-.holding-gap-banner {
-  margin: 12px 0;
-}
-
-.holding-gap-banner .ml-2 {
-  margin-left: 8px;
 }
 
 /* 自选卡片沿用 design.md「表格/列表/筛选栏：--space-compact(16px)」，

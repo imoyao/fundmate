@@ -191,28 +191,27 @@ const batchMoveGroupId = computed({
    —— 第一行 .head-primary：搜索框 + 快捷工具图标（刷新/导出/AI导入/实时估值，
       2026-09-05 从第二行上移）+ 核心操作（管理 / 添加自选，主 CTA 最右）；
       第二行由 WatchlistFilterBar 承载「分组 Tab（最左）+ 标签筛选/视图/新建」。
-   两行各自 justify-between / 左紧右松，主次分离；控件统一 32px 高、
-   同一垂直基线。
+   两行各自 justify-between / 左紧右松，主次分离；控件同一垂直基线居中，
+   尺寸走三级梯度（主 36 / 次 32 / 纯图标 28，见下方 .head-primary__actions）。
    ====================================== */
 
-/* 搜索 + 核心操作区：固定高度由内容撑出，与下方筛选行间距 12px（--space-3）。
+/* 搜索 + 核心操作区：高度由内容撑出，与下方筛选行间距 12px（--space-3）。
    （2026-09-06 呼吸感回调：原 6px 使「搜索行 / 分组筛选行 / 表头」三带几乎贴合成
    一条，缺少分区层级；回到规范间距后各带边界可辨，代价约 6px 首屏高度。）
    不吸顶：作为滚动内容首行，页面下滚时自然滚出视口（即「搜索框自动隐藏」），
-   无需 JS 收起动画。max-height 40px 上限防止内容意外溢出（原紧凑态折叠机制
-   已于 2026-09-05 根因修复时随外层滚动架构废弃）。 */
+   无需 JS 收起动画。
+
+   ⚠️ 本行**禁止再挂 max-height + overflow:hidden**（2026-10-09 用户反馈修复）：
+   那是折叠态机制 2026-09-05 废弃后留下的天花板，行内控件高度却各有各的来源
+   ——图标按钮当时实际 42px（见 .icon-tool-btn 注释），被 40px 的盖子切掉上下
+   各 1px，圆按钮渲染成「上下压扁的椭圆」。要收敛溢出请在控件本身收尺寸，
+   不要在容器上盖盖子；该组合由 scripts/guard_control_clip.py 拦截。 */
 .head-primary {
   display: flex;
   gap: var(--space-3);
   align-items: center;
   justify-content: space-between;
-  max-height: 40px;
   margin-bottom: var(--space-3);
-  overflow: hidden;
-  transition:
-    max-height 200ms ease,
-    margin-bottom 200ms ease,
-    opacity 150ms ease;
 }
 
 /* 搜索区：固定 240px（2026-09-05 修订）。
@@ -267,13 +266,18 @@ const batchMoveGroupId = computed({
    尺寸规范：纯图标按钮统一 28×28（与主按钮 36、次级按钮 32 形成三级梯度）；
    默认中性弱化线框，hover 提亮；实时开关开启态填品牌实底
 
-   热区补偿（#1834）：28×28 的可点区域低于 44×44 的可及性下限。视觉尺寸保持 28，
-   靠 padding 把命中区扩到 40×40（元素本身是 inline-flex，多余空间不占布局、不推动相邻元素） */
+   热区补偿（#1834）：28×28 的可点区域低于 44×44 的可及性下限，故视觉保持 28、
+   命中区扩到 40×40。**命中区必须用 ::after 伪元素，禁止用 padding 扩**
+   （2026-10-09 用户反馈修复）：padding 与 border 同样绘制在 border-box 上，
+   旧写法 `content-box + width 28 + padding 6 + border 1` 算出来的可见圆是
+   **42px**——既比规范大一圈，又被 .head-primary 的 max-height 40px 切掉上下
+   各 1px，成了「上下压扁的椭圆」。伪元素不参与布局、不画背景，视觉才是 28px 正圆。 */
 .icon-tool-btn {
-  box-sizing: content-box;
+  position: relative; /* ::after 热区的定位锚点（EP 的 .el-button 自带，显式声明免得依赖上游） */
+  box-sizing: border-box;
   width: 28px;
   height: 28px;
-  padding: 6px;
+  padding: 0;
   color: var(--text-tertiary-ink);
   background-color: transparent;
   border: 1px solid var(--border-default);
@@ -282,6 +286,13 @@ const batchMoveGroupId = computed({
     color 150ms ease,
     background-color 150ms ease,
     border-color 150ms ease;
+}
+
+/* 命中区补偿：28 + 6×2 = 40×40（伪元素在按钮绘制区之外，不撑布局、不挡样式） */
+.icon-tool-btn::after {
+  position: absolute;
+  inset: -6px;
+  content: "";
 }
 
 .icon-tool-btn:hover {

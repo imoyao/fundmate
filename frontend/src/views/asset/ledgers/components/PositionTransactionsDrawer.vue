@@ -22,6 +22,10 @@
           }}</el-tag>
         </div>
       </div>
+      <!-- #1965：新增跳详情入口（持仓抽屉原先只能看流水，没有出口） -->
+      <el-button text size="small" :loading="detailLoading" @click="goDetail">
+        查看详情
+      </el-button>
     </div>
 
     <!-- 2. 核心摘要卡片 -->
@@ -369,6 +373,8 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from "vue";
+import { useRouter } from "vue-router";
+import { ElMessage } from "element-plus";
 import { Loading, Edit } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { getPositionTransactions } from "@/api/positions";
@@ -377,6 +383,7 @@ import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import { pricePrecision } from "@/utils/pricePrecision";
 import TransactionEditDialog from "./TransactionEditDialog.vue";
 import { txnTypeLabel } from "@/constants";
+import { resolveDetailPath } from "@/utils/productDetailNav";
 
 const props = defineProps<{
   visible: boolean;
@@ -386,6 +393,39 @@ const props = defineProps<{
 const emit = defineEmits<{
   "update:visible": [value: boolean];
 }>();
+
+const router = useRouter();
+const detailLoading = ref(false);
+
+/**
+ * 跳详情页（#1965）。
+ *
+ * 持仓行带 `asset_type` 但**没有 venue**（持仓表不存交易场所），故不传——
+ * 由后端 resolve 按品类兜底（fund → OTC），不在前端编造场所。
+ */
+async function goDetail() {
+  const pos = props.positionData;
+  if (!pos?.symbol || detailLoading.value) return;
+  detailLoading.value = true;
+  try {
+    const path = await resolveDetailPath({
+      symbol: pos.symbol,
+      assetType: pos.asset_type,
+      market: pos.market
+    });
+    if (!path) {
+      ElMessage.warning("该品类详情页暂未开放");
+      return;
+    }
+    // 先关抽屉再跳（沿用 TransactionDrawer 的既有范式）
+    emit("update:visible", false);
+    await router.push(path);
+  } catch {
+    ElMessage.warning("未找到该产品，可能已下架或代码有误");
+  } finally {
+    detailLoading.value = false;
+  }
+}
 
 // 基金类型判断（基金/货币基金）
 const isFund = computed(() =>
