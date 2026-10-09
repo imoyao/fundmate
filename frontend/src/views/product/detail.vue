@@ -14,6 +14,7 @@ import ProductExternalLinksSection from "./components/ProductExternalLinksSectio
 import ProductPositionSection from "./components/ProductPositionSection.vue";
 import ProductStockSection from "./components/ProductStockSection.vue";
 import ProductTrendSection from "./components/ProductTrendSection.vue";
+import ProductManagerSection from "./components/ProductManagerSection.vue";
 
 /**
  * 产品详情页骨架（#1964 · 设计 §4 / §8）。
@@ -199,6 +200,15 @@ watch(productRef, loadProduct, { immediate: true });
         v-if="product.asset_type === 'stock'"
         :symbol="product.symbol"
         :market="product.market"
+      />
+
+      <!-- 基金经理（#1970）：仅经理品类渲染。入参是 mgr_code 而非姓名——库内实测
+           119 组重名（最多「吴昊」6 位），姓名不是唯一键；路由 `/manager/<symbol>`
+           传下来的就是 mgr_code。任职起止 / 规模 / 任期回报实测填充率 0%，
+           逐项降级「—」并在整片为空时给出定调说明（不显示「暂无数据」白块）。 -->
+      <ProductManagerSection
+        v-if="product.asset_type === 'manager'"
+        :mgr-code="product.symbol"
       />
 
       <!-- 后续区块槽位：走势 / 基金资料 等由 #1967-#1971 各自注入。

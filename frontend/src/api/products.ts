@@ -135,6 +135,46 @@ export function getStockProfile(params: { symbol: string; market?: string }) {
   );
 }
 
+/** 任职基金条目（`/api/products/manager-profile/` 返回） */
+export interface ManagerProfileFund {
+  fund_code: string;
+  name: string;
+  /** 代表作品标记（来自 fund_managers 关联表） */
+  is_classic: boolean;
+  /** 任职起止：实测生产库填充率 0%，恒为 null，前端统一降级「—」 */
+  start_date: string | null;
+  end_date: string | null;
+}
+
+/** 基金经理资料聚合结果（#1970）。字段缺失一律为 null，前端据此降级为「—」 */
+export interface ManagerProfileResult {
+  mgr_code: string;
+  name: string;
+  /** 重名靠公司消歧（库内 119 组重名，最多 6 位同名） */
+  company: string | null;
+  mgr_type: string | null;
+  /** 以下四项实测填充率均为 0% */
+  appointment_date: string | null;
+  sum_scale: number | null;
+  best_return: number | null;
+  avatar_url: string | null;
+  /** 任职基金**总数**（非返回条数——列表有 fund_limit 上限，两者不同） */
+  fund_count: number;
+  funds: ManagerProfileFund[];
+}
+
+/** 基金经理资料。入参是 mgr_code 而非姓名（库内重名，姓名不是唯一键）。 */
+export function getManagerProfile(params: {
+  mgr_code: string;
+  fund_limit?: number;
+}) {
+  return http.request<ApiResponse<ManagerProfileResult>>(
+    "get",
+    "/api/products/manager-profile/",
+    { params }
+  );
+}
+
 /** 场内单根 K 线（#1969） */
 export interface ProductTrendOhlc {
   date: string;

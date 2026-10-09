@@ -72,3 +72,28 @@ class StockProfileRequest(BaseModel):
         max_length=20,
         description='市场消歧；同码跨市场时由 resolve 结果带下来，为空则不按市场过滤',
     )
+
+
+class ManagerProfileRequest(BaseModel):
+    """`GET /api/products/manager-profile/` 的查询参数（#1970 · 详情页经理区块）。
+
+    入参是 **``mgr_code`` 而非姓名**：``managers`` 表实测有 119 组重名（最多「吴昊」
+    6 位），姓名不是唯一键；``mgr_code`` 是 12 位哈希、100% 唯一。
+    详情页路由 ``/manager/<symbol>`` 传下来的就是它（与 ``lookup_manager`` 同源）。
+
+    任职基金条数上限默认 20 条（经理最多管 42 只，属极端值）：详情页是「看一眼」的
+    定位而非列表页，不做分页，故给一个上限防止极端值把首屏撑爆。
+    """
+
+    mgr_code: str = Field(
+        ...,
+        min_length=1,
+        max_length=30,
+        description='经理编码 mgr_code（12 位哈希；非姓名——库内存在重名）',
+    )
+    fund_limit: int = Field(
+        20,
+        ge=1,
+        le=100,
+        description='任职基金返回条数上限（默认 20；实测最多 42 只）',
+    )
