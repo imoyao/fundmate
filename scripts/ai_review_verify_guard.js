@@ -13,8 +13,12 @@
  *   AI_REVIEW_SELECTED_OK 本轮探测有没有选中健康模型（steps.probe*.outputs.selected_ok）
  *   AI_REVIEW_ROUND       轮次（1 / 2），仅用于日志措辞
  *
- * 退出语义：产出有效评论 → 正常返回；否则 core.setFailed()。
- *   —— 第 1 轮由 workflow 的 continue-on-error 接住（只触发换模型重试，不终局）；
+ * 退出语义（2026-10-10 修订）：
+ *   · 产出有效评论 → 正常返回（pass）；
+ *   · **未产出 + 上游模型不可用** → 也正常返回（pass），但打醒目 warning + 写 step summary 留痕
+ *     —— 用户裁决：模型不可用属上游故障，不该阻塞合并（红灯一多，真问题反而被淹没）；
+ *   · **未产出 + 只产出了协议信封泄漏**（本仓 agent 兜底路径的自身缺陷）→ core.setFailed()，job 红。
+ *   —— 第 1 轮失败由 workflow 的 continue-on-error 接住（只触发换模型重试，不终局）；
  *   —— 第 2 轮没有 continue-on-error，失败即 job 红。
  */
 module.exports = async function verifyAiReviewComments({ github, context, core }) {
@@ -168,12 +172,52 @@ module.exports = async function verifyAiReviewComments({ github, context, core }
   // 另：若本次只产出了「协议泄漏评论」且已被步骤 2 全部删除，aiComments 会归零，
   // 同样落到这里判失败（本次确实没有面向用户的有效产出）。
   //
-  // 残留缺口（已知，不装作没有）：若历史 AI 评论已存在、而本轮又静默失败，仍会放行。
-  // 要彻底堵住需要 action 自身在 LLM 报错时非零退出，当前版本（v0.76.0）不提供该信号。
-  core.setFailed(
-    `第 ${round} 轮深度线路 AI 审查未产出任何有效评论（候选模型均不可用/限流/欠费，模型输出为空，`
-    + '或只产出了被清理的协议泄漏评论）——'
-    + `selected_ok=${selectedOk}，清理后 PR 上 AI 评论数=${aiComments}，本轮新增=${hadNew}，`
-    + `协议泄漏已清理=${purged}。标记为失败以避免假成功；请检查探测步骤输出中的 429 / 额度告警。`
+  // ── 2026-10-10 修订（用户裁决）：把「上游模型不可用」与「本轮产出异常」分开 ──────────
+  // 此前这里**无条件** setFailed，于是上游 429 / 额度耗尽期间每个 PR 都挂一个红灯。
+  // 但这个红灯的含义是「审查没跑成」，**不是**「代码有问题」——红灯一多就没人看了
+  // （对红灯麻木，真问题反而被淹没）。用户裁决：模型不可用 → CI 直接 pass。
+  //
+  // 新的两分法：
+  //   · **只产出了协议信封泄漏**（purged > 0 且清理后 aiComments 归零）→ **仍判失败**。
+  //     那是本仓 agent 兜底路径的缺陷（未返回 FINAL 时把 TOOL_CALL 原文当最终答案，见步骤 2），
+  //     属「我们自己的问题」，该红。
+  //   · **其余零产出**（探测未选中健康模型，或探测通过但实调零产出）→ **job 保持通过**，
+  //     判为「上游模型不可用」。但必须打醒目 warning + 写 step summary ——
+  //     否则绿色会被读成「审查通过、代码没问题」，那是另一种假成功。
+  //
+  // 已知取舍（不装作没有）：放宽后，「模型正常但本轮静默失败」也会通过 —— 该信号
+  // ai-review v0.76.0 不提供（见上方历史注释），只能靠 warning + summary 让人看见。
+  // 残留缺口：历史 AI 评论已存在而本轮静默失败时，仍走上面的「成功 + 告警」分支。
+  const onlyEnvelopeLeak = purged > 0 && aiComments === 0;
+  if (onlyEnvelopeLeak) {
+    core.setFailed(
+      `第 ${round} 轮深度线路只产出了「agent 协议信封泄漏」评论并已全部清理`
+      + `（selected_ok=${selectedOk}，清理后 AI 评论数=${aiComments}，本轮新增=${hadNew}，已清理=${purged}）。`
+      + '这是本仓 agent 兜底路径的缺陷（未返回 FINAL 时把 TOOL_CALL 原文当答案），属自身问题而非上游故障，'
+      + '故仍判失败；排查见「清理协议泄漏」步骤的日志。'
+    );
+    return;
+  }
+
+  const reason = selectedOk === false
+    ? '探测阶段未选中任何健康模型（候选均不可用 / 429 / 限流 / 欠费）'
+    : '探测选中了模型，但本轮实调未产出评论（历史同型：探测 200 通过、真实调用 429，见 #1412 / #1567）';
+  core.warning(
+    `⚠️ 第 ${round} 轮深度线路未产出评论 → 判为**上游模型不可用（非代码问题）**，job 保持通过。`
+    + ` 原因：${reason}。selected_ok=${selectedOk}，清理后 AI 评论数=${aiComments}，本轮新增=${hadNew}。`
+    + ' ⚠️ 本轮**没有审查结论**：这个绿色只表示「上游故障不阻塞合并」，不等于「代码没问题」。'
+    + ' 需要结论请手动重跑该 job。'
   );
+  if (core.summary) {
+    await core.summary
+      .addHeading(`ai-review 第 ${round} 轮未执行：上游模型不可用（job 保持通过）`, 3)
+      .addRaw(
+        `- 原因：${reason}\n`
+        + `- selected_ok=\`${selectedOk}\`，清理后 AI 评论数=${aiComments}，本轮新增=${hadNew}，协议泄漏已清理=${purged}\n`
+        + '- ⚠️ 本轮**没有**审查结论。绿色只代表「上游故障不阻塞合并」，不代表代码无问题。\n'
+        + '- 需要结论：手动重跑该 job，或等额度恢复 / 换模型。\n'
+      )
+      .write();
+  }
+  return;
 };

@@ -55,13 +55,19 @@
 #   review:deepseek   → 沿用旧标签名，落到 cheap 档（GLM 5.3 / 豆包 Turbo）
 # 优先级（MODEL_PRIORITY，可在下方步骤覆盖）：pro,cheap（质量优先；想省钱改成 cheap,pro）
 #
-# 失败保护（防假成功）：deep-review 在 AI 审查 step 之后校验「本轮是否在 PR 上发布了评论」。
-#   若 LLM 失败/限流/欠费导致 action 静默跳过（不发评论），则 job 标红失败，不再显示 success。
+# 产出校验（2026-10-10 前叫「防假成功」）：deep-review 在 AI 审查 step 之后校验
+#   「本轮是否在 PR 上发布了评论」。
 #   2026-09-11 补强：原逻辑只看「探测是否选中健康模型」，但探测只发一次极短请求、真实审查是
 #   长上下文 + 多轮 agent，两者限流概率不同——PR #1412 实测到「探测 200 通过、实调用 429、
-#   一条评论都没发」却被判成功。现改为：PR 上一条 AI 评论都没有 → 一律失败。
+#   一条评论都没发」却被判成功。
 #   2026-09-17：校验逻辑抽到 scripts/ai_review_verify_guard.js（两轮共用，避免复制漂移）；
 #   第 1 轮失败由 continue-on-error 接住并触发换模型重试，第 2 轮失败才判 job 红。
+#   ⚠️ 2026-10-10 修订（用户裁决）：把「上游模型不可用」与「本轮产出异常」分开——
+#     · 上游不可用（探测未选中健康模型，或探测通过但实调零产出）→ **job 保持通过**，
+#       只打醒目 warning + 写 step summary 留痕。理由：这类红灯的含义是「审查没跑成」，
+#       不是「代码有问题」，红灯一多就没人看了（对红灯麻木，真问题反被淹没）；
+#     · 只产出了 agent 协议信封泄漏并被清理（本仓兜底路径的自身缺陷）→ **仍判失败**。
+#     取舍与残留缺口见 scripts/ai_review_verify_guard.js 头部注释、docs/spec/ai-review.md。
 #
 # 前置：仓库 Settings → Secrets → Actions 新增
 #   ARK_API_KEY_CODEREVIEW（火山方舟，深度线路专用，值为本地 backend/.env 的 ARK_API_KEY）
