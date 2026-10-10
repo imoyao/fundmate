@@ -39,11 +39,22 @@ export interface Position {
   /** 首次确认日期：group_by 路径必含，分页路径可能缺失 */
   confirm_date?: string | null;
   /**
-   * 市值/盈亏：后端 enrich_position_dict 目前不产出这两个字段（已知 bug，
-   * 见 Inventory 表格 :262/:270），如实标记为可选，避免类型谎报必有。
+   * 市值 / 盈亏：由后端 `services/position_presenter.enrich_position_dict` 现算产出
+   * （#1174 已收口到唯一市值口径 `position_valuation.market_value_cents`），**非落库列**。
+   * 标为可选，是因为取不到时按 0 处理，不谎报必有。
+   *
+   * 2026-10-10 复核更正：原注释称「enrich_position_dict 目前不产出这两个字段（已知 bug，
+   * 见 Inventory 表格 :262/:270）」——**该说法不成立**。该函数 L38-45 明确产出两者，
+   * 后端 `tests/domains/test_positions.py:948` 亦有断言。原注释指向的 Inventory 表格
+   * 那条路径是否另有问题，不在 #2005 范围，未复核。
    */
   market_value?: number;
   pnl?: number;
+  /**
+   * 持仓天数：后端 `PositionOut.holding_days` 的派生字段（#862）。
+   * 此前前端类型漏声明，导致详情页「我的持仓」拿不到、也就一直没展示（#2005 补）。
+   */
+  holding_days?: number | null;
 }
 
 /** 持仓分页列表请求参数（对齐后端 list_positions） */

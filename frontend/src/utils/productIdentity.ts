@@ -14,11 +14,19 @@
  * symbol 原样透传，各品类由后端与各自表去认。
  */
 
-/** 详情页路由参数形状（与 vue-router 的 params 对齐） */
+/**
+ * 详情页路由参数形状。
+ *
+ * `assetType` / `symbol` 对应路径段 `/:assetType/:symbol`；`market` / `venue`
+ * **不属于路由**（#2005 起不再序列化进 URL，见 `productRoute`）——它们是
+ * 交给后端 `resolve` 做同码消歧的输入，如何真正参与解析由 #2006 定案。
+ */
 export interface ProductRef {
   assetType: string;
   symbol: string;
+  /** 市场消歧（如 SH / CN_A），仅 resolve 用 */
   market?: string;
+  /** 场所消歧（EXCHANGE / OTC），仅 resolve 用 */
   venue?: string;
 }
 
@@ -48,17 +56,20 @@ export function pathToAssetType(segment: string): DetailAssetType | null {
   return isDetailAssetType(normalized) ? normalized : null;
 }
 
-/** 生成详情页 URL：/fund/004369?market=&venue=（空消歧参数不带） */
+/**
+ * 生成详情页 URL：`/fund/004369`、`/stock/SH600383`。
+ *
+ * **只用路径段表达身份，不带 query**（#2005）。此前会追加 `?market=&venue=`，
+ * 但那两个值没有任何代码读——路由 `/:assetType/:symbol` 只有两个参数位，
+ * market / venue 进不了 `params`，而 `parseProductRef` 只读 `params`，
+ * 于是它们在 `resolveProduct` 之前就已丢失。URL 上挂着两个从不参与解析的参数，
+ * 只是噪声。消歧如何真正生效由 #2006 定案，届时**不应**再靠往 URL 里塞参数。
+ */
 export function productRoute(ref: ProductRef): string {
   const segment = assetTypeToPath(ref.assetType);
   const symbol = (ref.symbol || "").trim();
   if (!segment || !symbol) return "";
-
-  const params = new URLSearchParams();
-  if (ref.market) params.set("market", ref.market);
-  if (ref.venue) params.set("venue", ref.venue);
-  const query = params.toString();
-  return `/${segment}/${encodeURIComponent(symbol)}${query ? `?${query}` : ""}`;
+  return `/${segment}/${encodeURIComponent(symbol)}`;
 }
 
 /**
@@ -83,6 +94,8 @@ export function parseProductRef(
     const [segment, code] = path.replace(/^\/+/, "").split("/");
     assetType = segment;
     symbol = code;
+    // #2005 起应用不再往 URL 里写 market / venue，这里的 query 解析**不是死代码**：
+    // 它是宽容回退——手输、外部分享或 #2006 接线后带上消歧参数时仍能解析出来。
     const search = new URLSearchParams(query);
     market = search.get("market");
     venue = search.get("venue");
