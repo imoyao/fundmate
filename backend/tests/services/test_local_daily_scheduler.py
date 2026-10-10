@@ -369,9 +369,7 @@ class TestCatchUpTargets:
         判定依据：休市日跑它**能补齐上一个交易日的数据**，且无缺口时空跑成本≈0
         （增量窗口为空即不抓取，只花一次库内查询、0 次外部请求）。
         """
-        assert ds.REST_DAY_JOB_NAMES == frozenset(
-            {'price_history', 'fund_nav', 'position_price'}
-        )
+        assert ds.REST_DAY_JOB_NAMES == frozenset({'price_history', 'fund_nav', 'position_price'})
         assert ds.runs_on_rest_day('price_history') is True
         assert ds.runs_on_rest_day('fund_nav') is True
         assert ds.runs_on_rest_day('position_price') is True
