@@ -187,19 +187,59 @@ def _calculate_xirr_for_cashflows(
     }
 
 
+def _position_scope_transactions(db: Session, position: Position, include_cash_equivalents: bool) -> List[Transaction]:
+    """该持仓**行**名下的流水（#2009）。
+
+    收敛键 = `symbol`（写法变体）+ `ledger_id`，依据见 `calculate_position_xirr` 的说明。
+    `ledger_id` 走 NULL-safe 相等：未归属持仓（`ledger_id` 为空）退化为「按 symbol」——
+    这类持仓本身就没有账户维度可用，退化是唯一合理选择。
+    """
+    symbols = collect_transaction_symbol_variants(position.symbol, [position])
+    txn_q = db.query(Transaction).filter(
+        Transaction.family_id == position.family_id,
+        Transaction.symbol.in_(symbols),
+    )
+    if position.ledger_id is None:
+        txn_q = txn_q.filter(Transaction.ledger_id.is_(None))
+    else:
+        txn_q = txn_q.filter(Transaction.ledger_id == position.ledger_id)
+    if not include_cash_equivalents:
+        # NULL 的 asset_type 默认视为投资类资产，纳入计算
+        txn_q = txn_q.filter(Transaction.asset_type.is_(None) | Transaction.asset_type.not_in(EXCLUDED_ASSET_TYPES))
+    return txn_q.all()
+
+
 def calculate_position_xirr(
     db: Session, position_id: int, family_id: int = 1, include_cash_equivalents: bool = False
 ) -> Dict[str, Any]:
-    """计算单持仓的年化收益率 (XIRR)"""
+    """计算单持仓**行**的年化收益率 (XIRR)。
+
+    ## 现金流必须收敛到这一行（#2009）
+
+    此前这里只按 `family_id` 过滤流水，而市值侧 `_get_position_current_value(db, position)`
+    只取**这一行** —— 「现金流是全家、市值是单行」，两者口径不一致。后果：只要家庭里
+    多于一个标的，算出来的年化就是错的，且标的越多越趋近于家庭整体收益
+    （前端持仓交易抽屉调 `scope=position`，故对多标的用户基本必错）。
+
+    ## 收敛键为什么是 `symbol` + `ledger_id`
+
+    依据本机真实库实测（数据与推演见 #2009 评论）：
+
+    - `positions` 有唯一约束 `uq_positions_ledger_symbol (ledger_id, symbol)`，故这两列的
+      组合 ↔ 持仓行**一一对应**，语义上与 `position_id` 等价；而 `transactions.position_id`
+      覆盖率只有 **45%**，靠它收敛等于额外依赖 `orphan_backfill` 回填 —— 回填没跑到时
+      数字照样错，只是错得更隐蔽，故不取；
+    - 库里「`ledger_id` 为空但 `symbol` 非空」的记录是 **0 条**：缺账户归属的流水同时也没有
+      symbol。故按此收敛**既不漏**（不存在「有 symbol 却缺账户」的流水被挡在门外），
+      也**不会被污染**（同 symbol 多账户确实存在，`ledger_id` 参与收敛才分得开）；
+    - `symbol` 的写法变体沿用 `symbol_scope.collect_transaction_symbol_variants`
+      （与 #1966「我的持仓」、#1972 产品级年化同一真相源），不另造一套匹配规则。
+    """
     position = db.query(Position).filter(Position.id == position_id, Position.family_id == family_id).first()
     if not position:
         raise ValueError('持仓不存在')
 
-    txn_q = db.query(Transaction).filter(Transaction.family_id == family_id)
-    if not include_cash_equivalents:
-        # NULL 的 asset_type 默认视为投资类资产，纳入计算
-        txn_q = txn_q.filter(Transaction.asset_type.is_(None) | Transaction.asset_type.not_in(EXCLUDED_ASSET_TYPES))
-    transactions = txn_q.all()
+    transactions = _position_scope_transactions(db, position, include_cash_equivalents)
 
     current_value = _get_position_current_value(db, position)
     cashflows = generate_cashflows(transactions, current_value, include_cash_equivalents=include_cash_equivalents)
