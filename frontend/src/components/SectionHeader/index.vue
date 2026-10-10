@@ -3,7 +3,12 @@
   - 标题 + 可选信息图标（hover/焦点显示 tooltip）+ 右侧操作槽（具名插槽 #action）
   - 禁止各页面再手写 <h2>/<h3> + 分散的图标/操作按钮，统一收口到本组件
   props:
-    - title:     区块标题
+    - title:     区块标题。**传空串表示「宿主已经自带标题」**：此时不渲染 `<h2>`
+                 （连同空的 title-group 一起跳过），只留 `#action`。用于本组件被嵌进
+                 一个自己画了标题的卡片时——否则会出现两个一模一样的标题
+                 （#2035：收益日历在资产总览右卡正是这样撞的车）。
+                 不传 `title` 也不显示标题，但**通常不该这么用**：区块标题行缺一个
+                 语义化 heading 对读屏是信息损失。
     - info:      信息图标 tooltip 文案（可选；不传则不显示图标）
     - infoLabel: 信息图标的可访问名（可选，默认取 `info`）。
                  **富内容（`#info` 插槽）必须传**：插槽内容读屏读不到「这是什么」，
@@ -18,8 +23,11 @@
 -->
 <template>
   <div class="section-header">
-    <div class="section-header__title-group">
-      <h2 class="section-header__title">{{ title }}</h2>
+    <div
+      v-if="title || info || $slots.info"
+      class="section-header__title-group"
+    >
+      <h2 v-if="title" class="section-header__title">{{ title }}</h2>
       <el-tooltip
         v-if="info || $slots.info"
         :content="info"

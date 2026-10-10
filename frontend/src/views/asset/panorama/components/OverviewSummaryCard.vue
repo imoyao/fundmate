@@ -159,9 +159,12 @@
         </div>
 
         <!-- L2 容器：收益日历原地切换态。与 welcome 第三排 / 账户详情是
-             **同一组件的三处容器**，口径唯一。 -->
+             **同一组件的三处容器**，口径唯一。
+             `hide-title`（#2035）：上面这个 `<h3>` 已经把「收益日历」写在这里了
+             （它必须自己写——另一态是「总资产构成」），再让 PnlCalendar 画一遍
+             就是两个同名标题上下叠着，窄容器下第二个还会被右侧控件行挤断成残影。 -->
         <div v-if="calendarMode" class="min-h-[280px]">
-          <PnlCalendar />
+          <PnlCalendar hide-title />
         </div>
         <div v-else ref="waterfallChartRef" class="h-[280px]" />
       </div>
