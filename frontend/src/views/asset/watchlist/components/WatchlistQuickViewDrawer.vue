@@ -288,7 +288,9 @@ const visible = computed({
 
 const router = useRouter();
 
-/** 一期仅 fund / stock / manager 有详情页（设计 §3.1）；其余品类禁用并说明原因 */
+/** 有详情页的品类由 `productIdentity` 白名单单点判定（设计 §3.1）。
+ *  已开放：fund / stock / manager / portfolio（#1975）/ etf（#1974）；
+ *  未开放品类（如 bond、index）在此禁用并说明原因，不在这里另写一份名单。 */
 const detailOpenable = computed(() =>
   isDetailAssetType(props.item?.asset_type)
 );

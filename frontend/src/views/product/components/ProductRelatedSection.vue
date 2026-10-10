@@ -23,9 +23,11 @@ import { productRoute } from "@/utils/productIdentity";
  *   不在 `index_catalog` 内，缺口见 #1419），故「没有关联」不等于「没有对应标的」，
  *   故给一句定调说明，避免用户误判为数据缺失。
  *
- * 跳转：关联标的的品类由其代码前缀决定不了（关系表存裸代码），故按关系类型推断
- * —— `index_etf` 的另一端可能是指数也可能是 ETF，`etf_feeder` 的另一端是场外联接基金。
- * 这里统一跳 **基金 / ETF 详情页**（`/fund/`），指数详情属二期（#1974）。
+ * 跳转：关联标的的品类由其代码前缀决定不了（关系表存裸代码），故按后端返回的
+ * `peer_role` 决定路径段 —— `etf` → `/etf/`、`feeder` → `/fund/`。
+ * #1974 之前这里一律跳 `/fund/`，把场内 ETF 错标成了场外基金（URL 说 fund、实际是
+ * etf）；`index` 那端因尚无详情页（#2028 卡在 #1407 估值长历史口径）拿到空串，
+ * 降级为**不可点击的纯文本**——宁可不可点，也不给一个点进去就404 的链接。
  */
 const props = defineProps<{
   /** 标准化 symbol（`SH510300`）或裸代码均可——后端按裸代码匹配 */
@@ -50,9 +52,26 @@ const grouped = computed(() => {
     .filter(g => g.items.length > 0);
 });
 
-/** 关联标的的跳转路径：`etf_feeder` 那端是场外联接基金，其余按场内基金处理 */
+/**
+ * 对端角色 → 详情页路径段（#1974）。`index` 故意保留为 `index`：它不在
+ * `DETAIL_ASSET_TYPES` 白名单里，`productRoute` 会返回空串，由模板降级为纯文本。
+ * 不在此处自行「猜」指数该跳哪个品类——映射表只有 `productIdentity` 一份。
+ */
+const PEER_ASSET_TYPE: Record<RelatedSymbolLink["peer_role"], string> = {
+  index: "index",
+  etf: "etf",
+  feeder: "fund"
+};
+
+/** 无详情页时的说明（挂 title，避免无解释地「点不动」） */
+const NO_DETAIL_TITLE = "该品类暂无详情页";
+
+/** 关联标的的跳转路径；无详情页的品类返回空串，调用方据此渲染成纯文本 */
 function linkTo(item: RelatedSymbolLink) {
-  return productRoute({ assetType: "fund", symbol: item.code });
+  return productRoute({
+    assetType: PEER_ASSET_TYPE[item.peer_role],
+    symbol: item.code
+  });
 }
 
 async function load() {
@@ -96,9 +115,19 @@ watch(() => props.symbol, load, { immediate: true });
         <h4 class="rel-section__subtitle">{{ g.label }}</h4>
         <ul class="rel-section__list">
           <li v-for="item in g.items" :key="`${item.link_type}-${item.code}`">
-            <RouterLink class="rel-section__link" :to="linkTo(item)">
+            <RouterLink
+              v-if="linkTo(item)"
+              class="rel-section__link"
+              :to="linkTo(item)"
+            >
               {{ item.name || item.code }}
             </RouterLink>
+            <span
+              v-else
+              class="rel-section__link rel-section__link--plain"
+              :title="NO_DETAIL_TITLE"
+              >{{ item.name || item.code }}</span
+            >
           </li>
         </ul>
       </div>
@@ -162,6 +191,16 @@ watch(() => props.symbol, load, { immediate: true });
     &:focus-visible {
       outline: 2px solid var(--brand-700);
       outline-offset: 2px;
+    }
+
+    /* 无详情页的品类（#1974，如指数）：形态与链接一致避免布局抖动，但不假装可点 */
+    &--plain {
+      color: var(--text-tertiary-ink);
+      cursor: default;
+
+      &:hover {
+        background: var(--bg-muted);
+      }
     }
   }
 }

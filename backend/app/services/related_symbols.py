@@ -118,6 +118,10 @@ def build_related_symbols(db: Session, symbol: str) -> Dict[str, Any]:
                 'name': other_name or None,
                 'link_type': r.link_type,
                 'label': _label_for(r.link_type, _role_of(r.link_type, self_is_from)),
+                # #1974：另一端的**品类**。前端要按它决定跳`/etf/` 还是 `/fund/`
+                # （#1976 时期一律跳 `/fund/`，把场内 ETF 错标成了场外基金）。
+                # 不让前端靠 `label` 文案反推——文案是给人看的，不是数据。
+                'peer_role': _role_of(r.link_type, not self_is_from),
             }
         )
 

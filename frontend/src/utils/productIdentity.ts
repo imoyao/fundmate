@@ -6,8 +6,13 @@
  * **路径段 = asset_type，一对一映射，不推断、不别名**，映射表只有本文件一份；
  * 任何页面都不得自己拼字符串跳转。
  *
- * 一期只做三品类（§3.1 表格）：fund / stock / manager。bond 一期只做集思录外链、
- * etf / index 二期、portfolio 三期，故不在白名单内——传了返回空串，由调用方回退。
+ * 分期落地情况（设计 §3.1 表格）：
+ * - 一期：fund / stock / manager；bond 一期只做集思录外链，**不在**白名单内；
+ * - 二期：etf（#1974 加入）、index（卡在 #1407 估值长历史口径，未开）；
+ * - 三期：portfolio（#1975 加入）。
+ *
+ * 未开放的品类传进来返回空串 / null，由调用方回退到「无详情页」的表现，
+ * **不在前端推断、不加别名**。
  *
  * 路径上的 asset_type 只是**入口提示**，真实身份一律由后端
  * `GET /api/products/resolve/` 判定（§3.3）。本模块**不解析、不剥前缀**，
@@ -44,17 +49,22 @@ export interface ProductRef {
  * 与 `/asset/portfolios/:id`（**我方**组合）的区分放在**页面**层：详情页写
  * 「投顾组合」+ 平台，我方组合页写「我的组合」。路由层面不会互相命中（首段
  * `portfolio` vs `asset` 不同、末段平台码 vs 数字 id 不同）。推演见 #1975 评论。
+ *
+ * `etf` 于 #1974 加入，走 `etf` 路径段（同样不引别名），由后端 resolve 判身份——
+ * 它与 `fund` **不在同一个数据口径**：ETF 是场内证券、落在 `securities` 表，
+ * 前端不可拿 `fund` 的路径段去套ETF（后端会按 symbol 纠正，但 URL 与实际品类不符）。
  */
 export const DETAIL_ASSET_TYPES = [
   "fund",
   "stock",
   "manager",
-  "portfolio"
+  "portfolio",
+  "etf"
 ] as const;
 
 export type DetailAssetType = (typeof DETAIL_ASSET_TYPES)[number];
 
-/** 是否一期已支持详情页的品类 */
+/** 是否已支持详情页的品类 */
 export function isDetailAssetType(value: unknown): value is DetailAssetType {
   return (
     typeof value === "string" &&

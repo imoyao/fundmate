@@ -27,9 +27,17 @@ describe("productRoute", () => {
     expect(url).not.toContain("venue");
   });
 
-  it("品类段不在一期白名单、或 symbol 为空 → 空串（调用方据此回退）", () => {
-    expect(productRoute({ assetType: "etf", symbol: "SZ159915" })).toBe("");
+  it("品类段不在白名单、或 symbol 为空 → 空串（调用方据此回退）", () => {
+    // index 至今未开放（#2028 卡在 #1407 估值长历史口径），故拿它当「不在白名单」的样本
+    expect(productRoute({ assetType: "index", symbol: "000300" })).toBe("");
     expect(productRoute({ assetType: "stock", symbol: "  " })).toBe("");
+  });
+
+  it("etf 自 #1974 起产出 /etf/ 路径段，不套 /fund/", () => {
+    // ETF 是场内证券、落 securities 表，与场外基金不同口径——URL 必须能区分二者
+    expect(productRoute({ assetType: "etf", symbol: "SZ159915" })).toBe(
+      "/etf/SZ159915"
+    );
   });
 
   it("symbol 只编码一次（含特殊字符的代码不被中途改写）", () => {
@@ -69,10 +77,17 @@ describe("parseProductRef", () => {
   });
 
   it("品类段非白名单 / 缺 symbol / 输入为空 → null", () => {
-    expect(parseProductRef("/etf/SZ159915")).toBeNull();
+    expect(parseProductRef("/index/000300")).toBeNull();
     expect(parseProductRef("/stock/")).toBeNull();
     expect(parseProductRef("")).toBeNull();
     expect(parseProductRef(undefined)).toBeNull();
+  });
+
+  it("etf 路径段可解析（#1974 开放，与 productRoute 往返一致）", () => {
+    expect(parseProductRef("/etf/SZ159915")).toEqual({
+      assetType: "etf",
+      symbol: "SZ159915"
+    });
   });
 
   it("symbol 只解码一次", () => {

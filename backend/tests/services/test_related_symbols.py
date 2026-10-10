@@ -109,6 +109,8 @@ def test_index_side_returns_etf():
     assert link['name'] == '测试ETF'
     assert link['link_type'] == 'index_etf'
     assert link['label'] == '同标的 ETF'
+    # #1974：对端角色决定前端跳 /etf/ 还是 /fund/，必须由后端给出而非前端猜
+    assert link['peer_role'] == 'etf'
 
 
 def test_etf_side_returns_index_with_tracking_label():
@@ -123,6 +125,7 @@ def test_etf_side_returns_index_with_tracking_label():
     assert link['code'] == IDX
     # 角色反转 → 标签必须跟着变，否则用户看到「ETF 的同标的 ETF」这种错话
     assert link['label'] == '跟踪指数'
+    assert link['peer_role'] == 'index'
 
 
 def test_bare_code_strips_prefix():
@@ -148,6 +151,8 @@ def test_etf_has_both_index_and_feeder():
     assert {x['code'] for x in result['links']} == {IDX, FEEDER}
     assert {x['label'] for x in result['links']} == {'跟踪指数', '场外联接'}
     assert set(result['groups']) == {'跟踪指数', '场外联接'}
+    # 两端角色不同 → 前端要跳不同路径：指数暂无详情页（#2028），联接跳 /fund/
+    assert {x['peer_role'] for x in result['links']} == {'index', 'feeder'}
 
 
 def test_index_multiple_etfs_all_returned():
