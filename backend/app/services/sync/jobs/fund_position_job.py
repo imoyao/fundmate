@@ -63,7 +63,7 @@ class FundPositionSyncJob(SyncJob):
         return 'fund_position'
 
     def resolve_pool(self, targets: Optional[List[str]]) -> List[str]:
-        """解析受限目标池：剔除占位符/空值、去重保序、超限截断。
+        """解析受限目标池：剔除占位符/空值、去重保序、超限截断、**剔除货基**（#1982）。
 
         `__full__` 与空列表语义相同 —— 「无受限目标池」，返回空列表由调用方跳过。
         """
@@ -80,7 +80,41 @@ class FundPositionSyncJob(SyncJob):
                 f'（逐只 2 次请求 ≈3s/只；全库 26,938 只 ≈22 小时，见 #1403）'
             )
             pool = pool[:MAX_TARGETS]
-        return pool
+        return self._drop_money_funds(pool)
+
+    def _drop_money_funds(self, pool: List[str]) -> List[str]:
+        """剔除货币型基金（#1982）：它们没有股票/行业敞口，抓回来只会污染穿透。
+
+        「货币基金被摊出股票行业」的**病灶**是伪数据 + 标记未回填（见 #1982 卡），
+        这条守卫堵的是**复发路径**：货基一旦进池，东财返回的「持仓明细 / 行业配置」会被写进
+        `fund_holdings` / `fund_industry_allocs`，此后**任何持有该货基的组合**在穿透里都会多出
+        一块并不存在的股票行业（#1982 实证：一款示例货基被摊出「制造业 10.61%」）。
+
+        判据用 :func:`app.services.fund_utils.resolve_money_fund_flags_strict`
+        （全库唯一真相源，与 `migrations.migrate_positions_money_fund_flag` 同一函数），
+        且**只剔除它明确点头的 `True`**：
+
+        - `False`（名录说是别的类型）→ 保留；
+        - `None`（名录无此码 / 类型未知 / market 域不可达）→ **保留**。
+
+        这与 #1661 的「宁漏不误」同一条取舍：漏剔除只是少省一次请求，误剔除会让**真实**
+        基金的持仓数据再也同步不进来 —— 后者严重得多。
+        """
+        from app.services.fund_utils import normalize_fund_code, resolve_money_fund_flags_strict
+
+        try:
+            flags = resolve_money_fund_flags_strict(pool)
+        except Exception as e:  # noqa: BLE001 - 判定失败不得让整批同步挂掉
+            self.logger.warning(f'货基判定失败，本批不做剔除（不猜测）：{e}')
+            return pool
+
+        kept = [c for c in pool if flags.get(normalize_fund_code(c)) is not True]
+        dropped = len(pool) - len(kept)
+        if dropped:
+            self.logger.info(f'目标池剔除 {dropped} 只货币基金（无股票/行业敞口，写进来会污染穿透，#1982）')
+        # 显式记 0 也有意义：它证明这次**判定确实跑过**，而不是没查（#1982 排查时用得上）
+        self.stats['money_fund_excluded'] = dropped
+        return kept
 
     def run(self, full_sync: bool = False, targets: Optional[List[str]] = None) -> Dict[str, Any]:
         """覆写 `run()` 时**必须自己打 `snapshot_time`**。
