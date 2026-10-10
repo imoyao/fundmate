@@ -497,6 +497,30 @@ def is_rest_day(today: Optional[date] = None) -> bool:
     return not is_trading_day(today or today_shanghai())
 
 
+# 休市日仍要运行的 job（#2016）：它们按**缺口增量回补**，休市日跑是为了补齐上一个
+# 交易日没拿到的数据。
+#
+# 为什么必须有这个例外：数据源当日不齐（ETF 的当日 K 线要次日才齐），所以当天 17:30
+# 那次只拿到 T-1，缺口本应由「下一次运行」补上。而全局 `skip_non_trading_day` 会把
+# 周末整体跳过 —— 于是**周五的缺口要拖到周一 17:30 才补**，整个周末的持仓市值/盈亏
+# 都在用周四的价（2026-10-10 实测：54 个标的里只有 19 个更新到最新交易日）。
+#
+# 没有缺口时它们空跑：增量窗口为空即跳过抓取，只花一次库内查询、0 次外部请求。
+# 其余 job（温度 / 指数估值 / 投顾等）休市确实无新数据可抓，照旧跳过。
+REST_DAY_JOB_NAMES: frozenset = frozenset(
+    {
+        'price_history',  # 场内日线：缺口回补本就是它的既有口径
+        'fund_nav',  # 场外净值：增量窗口 = 上次成功日 − 1 天
+        'position_price',  # 持仓现价回写：消费上面两者的落库结果，不补跑则持仓停在周五之前
+    }
+)
+
+
+def runs_on_rest_day(job_name: str) -> bool:
+    """该 job 在休市日是否照跑（回补型，见 `REST_DAY_JOB_NAMES`）。"""
+    return job_name in REST_DAY_JOB_NAMES
+
+
 def today_fire_time(cron: str, tzinfo: Any, now: datetime) -> Optional[datetime]:
     """今天该 cron 的触发时刻；今天不触发则返回 None。
 
@@ -527,14 +551,21 @@ def catch_up_targets(
     tzinfo = ZoneInfo(config.timezone)
     if now.tzinfo is None:
         now = now.replace(tzinfo=tzinfo)
-    if config.skip_non_trading_day and is_rest_day(now.date()):
-        return []
+
+    rest_day = config.skip_non_trading_day and is_rest_day(now.date())
 
     due: List[str] = []
     for spec in config.jobs:
-        fire = today_fire_time(spec.cron, tzinfo, now)
-        if fire is None or now < fire:
-            continue
+        if rest_day:
+            # 休市日只补回补型；其余 job 无新数据可抓（#2016）
+            if not runs_on_rest_day(spec.job_name):
+                continue
+            # 休市日的回补型**不受「今日触发时刻是否已过」限制**：它补的是上一个交易日的
+            # 缺口，与今天几点启动无关——否则周六上午启动还得干等到 17:30 才补上
+        else:
+            fire = today_fire_time(spec.cron, tzinfo, now)
+            if fire is None or now < fire:
+                continue
         last_success = last_success_dates.get(spec.job_name)
         if last_success is None or last_success < now.date():
             due.append(spec.job_name)
@@ -703,8 +734,11 @@ class DailyScheduler:
 
     def _run_job(self, spec: DailyJobSpec) -> None:
         if self.config.skip_non_trading_day and is_rest_day():
-            logger.info(f'[每日调度] {spec.job_name} 跳过：今天休市（无新数据可抓）')
-            return
+            if not runs_on_rest_day(spec.job_name):
+                logger.info(f'[每日调度] {spec.job_name} 跳过：今天休市（无新数据可抓）')
+                return
+            # 回补型照跑：补上一个交易日未发布的数据（#2016）；无缺口时是空跑
+            logger.info(f'[每日调度] {spec.job_name} 休市日照跑（补上一个交易日的缺口）')
 
         logger.info(f'[每日调度] 开始 {spec.job_name}（{spec.description}）')
         result = run_sync_job(spec, jitter_seconds=self.config.jitter_seconds)
@@ -715,10 +749,8 @@ class DailyScheduler:
             logger.warning(f'[每日调度] {spec.job_name} 未成功：status={status} {result.get("error") or ""}')
 
     def _startup_catch_up(self) -> None:
-        if self.config.skip_non_trading_day and is_rest_day():
-            logger.info('[每日调度] 启动补跑跳过：今天休市')
-            return
-
+        # 休市日不再整体跳过：回补型 job 仍要补上一个交易日的缺口（#2016）。
+        # 「该补哪些」交给 catch_up_targets 按 runs_on_rest_day 过滤，此处不重复判断。
         now = datetime.now(ZoneInfo(self.config.timezone))
         last_dates = {spec.job_name: last_success_date(spec.job_name) for spec in self.config.jobs}
         due = catch_up_targets(self.config, now, last_dates)
