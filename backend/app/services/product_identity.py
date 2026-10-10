@@ -55,6 +55,7 @@ from app.domains.securities.models import ConvertibleBondTerm, Security
 from app.domains.watchlist.models import WatchlistItem
 from app.services.watchlist_service import (
     bare_code_of,
+    looks_like_exchange_code,
     lookup_manager,
     resolve_display_name,
 )
@@ -65,21 +66,11 @@ from app.services.watchlist_service import (
 # （watchlist 存 SH、positions 存 CN_A，详情页拿 SH 过滤持仓恒为空）。
 
 
-# 「指数 / 场内」形态：带市场前缀或纯数字。**裸码反查只对这些形态开放**——
-# 平台原生码（投顾 ZHxxxx / 经理 MGR_xxx）里的数字与市场码无关。
-_MARKET_PREFIXES_2 = ('SH', 'SZ', 'BJ', 'HK', 'US', 'CR')
-_MARKET_PREFIXES_3 = ('CSI', 'CNI')
-
-
-def _looks_like_exchange_code(symbol: str) -> bool:
-    """是否「指数 / 场内」形态（带市场前缀或纯数字）。
-
-    用于限定裸码反查的适用范围：``bare_code_of`` 会把 ``ZH000001`` 压成
-    ``000001``、``MGR_xxx`` 压成空串，若不限定形态，前者会撞上上证指数、
-    后者会撞上任意同号基金——投顾组合与基金经理就被错标成别的东西了。
-    """
-    code = (symbol or '').strip().upper()
-    return bool(code) and (code.isdigit() or code[:2] in _MARKET_PREFIXES_2 or code[:3] in _MARKET_PREFIXES_3)
+# 「指数 / 场内」形态（带市场前缀或纯数字）：**裸码反查只对这些形态开放**——
+# 平台原生码（投顾 ZHxxxx / 经理 MGR_xxx）里的数字与市场码无关（ZH000001 的裸码 000001
+# 就是上证指数）。判据收口在 `watchlist_service.looks_like_exchange_code`（与 `bare_code_of`
+# 成对）：此处曾独立存过一份实现，而 `resolve_display_name` 那边没有闸门 → #2029 的
+# 「远足」被同裸码基金劫持。**判据只此一处，勿再复制**。
 
 
 def _resolve_market_venue(
@@ -139,7 +130,7 @@ def _infer_asset_type_from_catalog(market_db: Session, symbol: str) -> Optional[
     # 裸码反查**仅适用于「指数 / 场内」形态**（带市场前缀或纯数字）：平台原生码里的
     # 数字与市场码无关——``ZH000001``（投顾组合）的裸码 ``000001`` 恰好就是上证指数，
     # 不限定形态就会把一只投顾组合错判成指数。
-    allow_bare = _looks_like_exchange_code(symbol)
+    allow_bare = looks_like_exchange_code(symbol)
     # 指数按**裸码**存（#1497：本库 index_catalog 与 funds 裸码重叠 258 条且撞主流码，
     # 故命中即返回，不回退 funds——错标成一只无关的货币基金比退回显示代码更糟）
     if allow_bare and bare and market_db.query(IndexCatalog.id).filter(IndexCatalog.index_code == bare).first():

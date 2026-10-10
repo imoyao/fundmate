@@ -603,6 +603,58 @@ class TestWatchlistItemCRUD:
         assert resolve_display_name('SH000300', db, 'etf') == '德邦德利货币A'
         assert resolve_display_name('SH000300', db) == '德邦德利货币A'
 
+    def test_resolve_display_name_platform_code_not_hijacked_by_bare_fund(self, client, db):
+        """#2029：平台原生码（投顾组合 / 基金经理）不得被同裸码基金劫持。
+
+        实测 invest.db：``ZH012926``（且慢「远足」）的裸码 ``012926`` 是真实基金
+        「民生加银中证500指数增强A」。原实现的裸码回退**没有形态闸门**（#1497 只特判了
+        指数），且基金分支排在 AdvisorPortfolio **之前** → 组合分支沦为死代码，
+        自选页/详情页显示成一只无关基金。库里 ``advisor_portfolios.name`` 一直是对的，
+        错在读取端反查——本库 114 个投顾组合中 18 个裸码撞基金。
+        """
+        from app.domains.funds.models import AdvisorPortfolio, Fund
+
+        db.add(Fund(fund_code='012926', name='民生加银中证500指数增强A'))
+        db.add(AdvisorPortfolio(platform='QIEMAN', code='ZH012926', name='远足'))
+        db.commit()
+
+        # 调用方带 asset_type（自选列表 / 产品详情页都传）
+        assert resolve_display_name('ZH012926', db, 'portfolio') == '远足'
+        # 历史调用点不传 asset_type，同样不得被同裸码基金劫持
+        assert resolve_display_name('ZH012926', db) == '远足'
+        # 基金经理码里的数字与市场码无关（lookup_manager 未命中时同样落到闸门）
+        assert resolve_display_name('MGR_012926', db, 'manager') == 'MGR_012926'
+        # 组合目录里没有的码：宁可退回代码，也不编造一个基金名
+        assert resolve_display_name('ZH999999', db, 'portfolio') == 'ZH999999'
+        # 闸门不得削弱 #1497 的能力：裸码 / 带前缀基金码照常解析
+        assert resolve_display_name('012926', db, 'fund') == '民生加银中证500指数增强A'
+        assert resolve_display_name('SZ012926', db, 'fund') == '民生加银中证500指数增强A'
+
+    def test_list_items_portfolio_display_name_not_hijacked(self, client, db):
+        """#2029 端到端：自选列表里投顾组合显示组合名，不是同裸码基金名。
+
+        POST 时**不带 name**（模拟 `name IS NULL` 的存量行：搜索回显没给名字），
+        读取端只能靠 resolve_display_name 反查——正是本 bug 的现场。
+        """
+        from app.domains.funds.models import AdvisorPortfolio, Fund
+
+        resp = _post(
+            client,
+            '/api/watchlist/items/',
+            {'symbol': 'ZH012926', 'venue': 'OTC', 'asset_type': 'portfolio'},
+        )
+        assert resp.status_code == 200
+        symbol = resp.get_json()['data']['symbol']
+
+        # 建档（真实库里两行都一直在，只是读取端反查错了）
+        db.add(Fund(fund_code='012926', name='民生加银中证500指数增强A'))
+        db.add(AdvisorPortfolio(platform='QIEMAN', code=symbol, name='远足'))
+        db.commit()
+
+        item = next(i for i in _get(client, '/api/watchlist/items/').get_json()['data'] if i['symbol'] == symbol)
+        # 回归点：此前这里是 '民生加银中证500指数增强A'（错名），修复后是 '远足'
+        assert item['display_name'] == '远足'
+
     def test_list_items_etf_display_name(self, client, db):
         """端到端：#1497 自选列表里场内 ETF 名显示中文而非代码。"""
         from app.domains.funds.models import Fund
