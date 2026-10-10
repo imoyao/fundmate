@@ -150,6 +150,46 @@ def test_pool_is_deduped_and_capped(job, monkeypatch):
     assert pool == ['a', 'b', 'c']
 
 
+# ── 货基守卫（#1982）────────────────────────────────────────────────────────
+
+
+def test_pool_drops_only_catalog_confirmed_money_funds(job, monkeypatch):
+    """只剔名录**明确**说是货基的（True）：False 与 None 都必须留下。
+
+    `None` 的语义是「名录没说话」（无此码 / 类型未知 / market 域不可达），
+    按 #1661 的「宁漏不误」不能当成「不是货基」，更不能当成「是货基」——
+    误剔除会让真实基金的持仓数据再也同步不进来。
+    """
+    monkeypatch.setattr(
+        'app.services.fund_utils.resolve_money_fund_flags_strict',
+        lambda codes: {'110022': True, '110033': False, '110044': None},
+    )
+
+    pool = job.resolve_pool(['110022', '110033', '110044'])
+
+    assert pool == ['110033', '110044']
+    assert job.stats['money_fund_excluded'] == 1
+
+
+def test_pool_records_zero_excluded_when_nothing_dropped(job, monkeypatch):
+    """剔除数为 0 也要记：它证明判定**跑过**，而不是没查（排查时用得上）。"""
+    monkeypatch.setattr('app.services.fund_utils.resolve_money_fund_flags_strict', lambda codes: {})
+
+    assert job.resolve_pool(['005827']) == ['005827']
+    assert job.stats['money_fund_excluded'] == 0
+
+
+def test_pool_survives_catalog_failure_without_guessing(job, monkeypatch):
+    """名录读取抛错 → 整池保留、不猜。宁可少省一次请求，也不能误剔真实基金。"""
+
+    def _boom(codes):
+        raise RuntimeError('market 域不可达')
+
+    monkeypatch.setattr('app.services.fund_utils.resolve_money_fund_flags_strict', _boom)
+
+    assert job.resolve_pool(['110022', '110033']) == ['110022', '110033']
+
+
 def test_partial_failure_does_not_abort_batch(job, db):
     """单只失败只跳过该只，其余继续。"""
     db.add_all([Fund(fund_code='000001', name='A'), Fund(fund_code='110022', name='B')])
