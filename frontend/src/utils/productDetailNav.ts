@@ -44,16 +44,18 @@ export async function resolveDetailPath(
   if (!symbol) return "";
 
   if (isDetailAssetType(input.assetType)) {
+    // 只带品类段与 symbol：#2006 起详情页 URL 不再承载 market / venue
     const direct = productRoute({
       assetType: input.assetType,
-      symbol,
-      market: input.market ?? undefined,
-      venue: input.venue ?? undefined
+      symbol
     });
     if (direct) return direct;
   }
 
-  // 品类缺失 / 不在一期白名单 → 后端权威判定
+  // 品类缺失 / 不在一期白名单 → 后端权威判定。
+  // 注意：这里的 market / venue 是**发给 resolve 的 HTTP 入参**（后端据此在
+  // watchlist / positions 行内快照里判身份），与「URL 是否承载消歧参数」是两件事，
+  // 故保留；而返回的路径不再回填它们（#2006）。
   const { data } = await resolveProduct({
     symbol,
     market: input.market ?? undefined,
@@ -61,8 +63,6 @@ export async function resolveDetailPath(
   });
   return productRoute({
     assetType: data.asset_type,
-    symbol: data.symbol,
-    market: data.market,
-    venue: data.venue
+    symbol: data.symbol
   });
 }

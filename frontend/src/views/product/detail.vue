@@ -78,8 +78,8 @@ async function loadProduct() {
   try {
     const { data } = await resolveProduct({
       symbol: ref.symbol,
-      market: ref.market,
-      venue: ref.venue,
+      // 不带 market / venue（#2006）：详情页 URL 不承载消歧参数，从前这里传的
+      // 永远是 undefined；消歧由后端按 symbol 判定（取证：库内无同码多实体）。
       // 路径段仅作提示：后端判定优先于此（设计 §3.3「不信任手输路径」）
       asset_type: ref.assetType
     });
