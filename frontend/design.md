@@ -462,6 +462,14 @@ Element Plus 给 `.el-textarea__inner:focus` 自带
 **隐藏与预留是一对**：命中隐藏的页面**不要**再预留 `--layout-fab-safe`（白掉一截宽度）；
 从清单 / meta 摘掉时**必须恢复预留**，否则又会被压。
 
+**隐藏后入口去哪了：全局快捷键 `N`。** 隐藏 FAB 的页面仍要能「记一笔」——单键 `N`
+直接打开记账抽屉，实现见 `frontend/src/composables/useQuickEntryHotkey.ts`
+（`layout/index.vue` 注入，未隐藏页同样可用）。三道防误触守卫缺一不可：输入焦点
+（input/textarea/select/contenteditable 一律让键）、中文输入法 `isComposing`、EP 弹层
+`.el-overlay` **可见**时让键（注意 EP 遮罩是 vShow 常驻 DOM，须判 `display` 而非判存在）。
+首次进入隐藏页 toast 提示一次（sessionStorage 去重）。用户实测案例：自选页 `/watchlist`
+的 FAB 压住表格右下角固定操作列（置顶/关注/移除按钮），2026-10-10 起该页走此机制隐藏。
+
 ### 输入框基线契约（#1772：el-input / el-textarea / el-select 唯一真相源）
 
 `el-input` / `el-textarea` / `el-select` 的内部视觉**只有一个真相源**：`frontend/src/style/element-plus.scss`
