@@ -185,6 +185,14 @@ export interface RelatedSymbolLink {
   link_type: "index_etf" | "etf_feeder";
   /** 按本标的角色决定的称呼，如「同标的 ETF」「跟踪指数」「场外联接」 */
   label: string;
+  /**
+   * **对端**在本条关系中的角色（#1974）：`index` 指数 / `etf` 场内 ETF /
+   * `feeder` 场外联接基金。前端按它决定跳 `/index/` `/etf/` 还是 `/fund/`。
+   *
+   * 为什么必须后端给：同一条 `index_etf` 关系，站在指数侧看到的是 ETF、站在 ETF 侧
+   * 看到的是指数——前端只看 `label` 文案反推等于拿给人看的文案当数据用。
+   */
+  peer_role: "index" | "etf" | "feeder";
 }
 
 /** 关联标的聚合结果（#1976）。links 为空即无关联，前端降级「—」，不是错误。 */

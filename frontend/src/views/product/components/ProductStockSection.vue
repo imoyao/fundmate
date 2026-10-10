@@ -7,7 +7,16 @@ import { assetTypeLabel, useEnumLabels } from "@/composables/useEnumLabels";
 import { getStockProfile, type StockProfileResult } from "@/api/products";
 
 /**
- * 详情页「股票行情」区块（#1969 · 设计 §5 / §6 品类矩阵）。
+ * 详情页「场内行情」区块（#1969 股票 · #1974 起 ETF · 设计 §5 / §6 品类矩阵）。
+ *
+ * 命名仍是 `ProductStockSection`，但职责自 #1974 起扩为**场内证券口径**
+ * （`stock` / `etf`）：两者同落`securities` 表、同走 `stock-profile` 端点、
+ * 同用 `price_history` 日线，故复用本区块而非复制一份（设计 §6「ETF 与基金区块
+ * 高度同构，可复用」在**取数层同样成立**）。
+ *
+ * **注意不能用 `fund-profile` 取 ETF 资料**（设计 §6 那句只对 UI 展示层成立）：
+ * `services/fund_profile.py` 只查 `funds` 表的 6 位场外裸码，ETF 是场内码
+ * （如 `510300`），挂上去直接 404。
  *
  * 取数一次到位：`GET /api/products/stock-profile/` 一次返回基本资料 + 区间行情。
  * 为什么这些字段必须后端直出（而非前端拼）：
@@ -24,14 +33,33 @@ import { getStockProfile, type StockProfileResult } from "@/api/products";
  * - 一条行情行都没有时不报错：行情区转为空态文案，资料项照常展示；
  * - 行情条数不足窗口时（次新股 / 上市不满 60 个交易日）如实提示实际条数，
  *   不假装统计了整个窗口；
- * - 资料缺项逐项降级为「—」，**不用 mock 顶替**（设计 §10）。
+ * - 资料缺项逐项降级为「—」，**不用 mock 顶替**（设计 §10）；
+ * - ETF 不展示「行业」：它是指数化产品，`securities.sector` 对 ETF 基本恒空，
+ *   摆一行恒为「—」的字段只是噪声（不是缺数据，是这一维度对它不适用）。
  */
 
 const props = defineProps<{
   symbol: string;
   /** 市场消歧：同码跨市场时由 resolve 结果带下来 */
   market?: string;
+  /**
+   * 品类（#1974）：只影响标题 / 空态文案与「行业」项是否展示，取数端点两者相同。
+   * 缺省按 `stock` 处理，保持 #1969 的原行为（调用方不传也不会变形）。
+   */
+  assetType?: string;
 }>();
+
+/** 是否 ETF：文案与字段取舍的唯一分歧点，其余逻辑与股票完全一致 */
+const isEtf = computed(
+  () => (props.assetType || "stock").trim().toLowerCase() === "etf"
+);
+const sectionTitle = computed(() => (isEtf.value ? "ETF 行情" : "股票行情"));
+const loadingHint = computed(() =>
+  isEtf.value ? "正在读取 ETF 行情…" : "正在读取股票行情…"
+);
+const emptyHint = computed(() =>
+  isEtf.value ? "暂无可展示的 ETF 行情" : "暂无可展示的股票行情"
+);
 
 const { ensure: ensureEnums, marketLabel } = useEnumLabels();
 
@@ -85,12 +113,12 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
 
 <template>
   <CardBlock class="stock-section">
-    <SectionHeader title="股票行情" />
+    <SectionHeader :title="sectionTitle" />
 
-    <p v-if="loading" class="stock-section__hint">正在读取股票行情…</p>
+    <p v-if="loading" class="stock-section__hint">{{ loadingHint }}</p>
 
     <p v-else-if="failed || !profile" class="stock-section__hint">
-      暂无可展示的股票行情
+      {{ emptyHint }}
     </p>
 
     <template v-else>
@@ -162,7 +190,7 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
           <dt class="stock-section__label">币种</dt>
           <dd class="stock-section__value">{{ profile.currency || DASH }}</dd>
         </div>
-        <div class="stock-section__fact">
+        <div v-if="!isEtf" class="stock-section__fact">
           <dt class="stock-section__label">行业</dt>
           <dd class="stock-section__value">{{ profile.sector || DASH }}</dd>
         </div>

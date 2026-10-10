@@ -51,8 +51,11 @@ const headerSubtitle = computed(() =>
   product.value ? assetTypeLabel(product.value.asset_type) : ""
 );
 
-/** 实时估值只对场内品类有意义（场外基金走净值；基金经理无行情） */
-const showRealtime = computed(() => product.value?.asset_type === "stock");
+/** 实时估值只对场内品类有意义（场外基金走净值；指数无行情源；基金经理无行情）。
+ *  ETF 自 #1974 起与股票同属场内，故一并放行。 */
+const showRealtime = computed(() =>
+  ["stock", "etf"].includes(product.value?.asset_type ?? "")
+);
 
 const {
   enabled: realtimeEnabled,
@@ -193,13 +196,15 @@ watch(productRef, loadProduct, { immediate: true });
         :symbol="product.symbol"
       />
 
-      <!-- 股票行情（#1969）：仅场内股票品类渲染（`stock-profile` 端点按 securities
-           记录取资料，非股票品类挂上去只会拿到空资料）。走势曲线由下面的走势区块
-           复用同一份行情源，本区块只补「资料 + 区间高低」，不重复画图。 -->
+      <!-- 场内行情（#1969 股票 / #1974 ETF）：两者同为 `securities` 表口径、共用
+           `stock-profile` 端点，故合并渲染（ETF 不是基金，不能挂 `fund-profile`——
+           那个端点只查 funds 表 6 位场外裸码，ETF 场内码会 404）。
+           走势曲线由下面的走势区块复用同一份行情源，本区块只补「资料 + 区间高低」。 -->
       <ProductStockSection
-        v-if="product.asset_type === 'stock'"
+        v-if="product.asset_type === 'stock' || product.asset_type === 'etf'"
         :symbol="product.symbol"
         :market="product.market"
+        :asset-type="product.asset_type"
       />
 
       <!-- 基金经理（#1970）：仅经理品类渲染。入参是 mgr_code 而非姓名——库内实测
