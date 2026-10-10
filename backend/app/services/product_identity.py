@@ -47,6 +47,7 @@ from typing import Any, Dict, Optional
 from sqlalchemy.orm import Session
 
 from app.core.asset_types import is_valid_asset_type
+from app.core.markets import market_aliases, to_contract_market
 from app.domains.funds.models import AdvisorPortfolio, Fund
 from app.domains.indices.models import IndexCatalog
 from app.domains.positions.models import Position
@@ -58,53 +59,10 @@ from app.services.watchlist_service import (
     resolve_display_name,
 )
 
-# 场内品类：watchlist 命名空间前缀 → securities 契约市场（models.Security.market）
-# 同时充当「交易所形态 → 契约市场」的归一表（见 _to_contract_market）。
-_PREFIX_TO_MARKET = {
-    'SH': 'CN_A',
-    'SZ': 'CN_A',
-    'BJ': 'CN_A',
-    'HK': 'CN_HK',
-    'US': 'US',
-    'CR': 'CRYPTO',
-}
-
-# 契约市场 → 该市场在**存量数据里出现过的全部形态**（含交易所别名）。
-# 供读侧「兼容存量脏值」用，不改变写入口径；待数据迁移后别名可只留契约值。
-_MARKET_ALIASES = {
-    'CN_A': ('CN_A', 'SH', 'SZ', 'BJ'),
-    'CN_HK': ('CN_HK', 'HK'),
-    'CRYPTO': ('CRYPTO', 'CR'),
-}
-
-
-def _to_contract_market(market: str, symbol: str = '') -> str:
-    """把任意市场形态归一为**契约市场**（`securities.market` / `positions.market` 口径）。
-
-    为什么必须有这一步（#1969 P0，本机库实测）：市场在库里有两套词表——
-    `watchlist.market` 由 `normalize_and_infer_venue` → `normalizer.normalize()` 写入，
-    场内拿到的是**交易所**（`SH` 13 行 / `SZ` 22 行）；而 `positions.market` 一律契约
-    市场（`CN_A` 155 行，无一例外）。详情页把 resolve 回来的 `SH` 直接当持仓过滤条件，
-    `Position.market == 'SH'` 恒不成立 → 「已持有」与「暂无持仓记录」同屏（用户实测截图）。
-
-    故出口统一只说契约市场，消费方（持仓过滤 / 前端 / 外链）不必再猜是哪种词表。
-    入参为空时按 symbol 前缀补全（只读口径，不抛错——手输 `/stock/600519` 不带 market
-    也要能解析，见 `_resolve_market_venue` 的说明）。
-    """
-    raw = (market or '').strip().upper()
-    if not raw:
-        return _PREFIX_TO_MARKET.get((symbol or '')[:2].upper(), '')
-    return _PREFIX_TO_MARKET.get(raw, raw)
-
-
-def _market_aliases(contract_market: str) -> tuple:
-    """契约市场 → 查询时需一并匹配的别名列表（含存量脏值形态）。
-
-    读侧放宽而非写侧容忍：库里 `watchlist.market` 的历史值混着 `SH` / `SZ` / `CN_A`，
-    查询只用契约值会**静默漏掉**存量行（归一后「已自选」反而被判成未自选）。
-    根治（写入侧归一 + 存量迁移）见 #1969 待办；此处先保证两种形态都能命中。
-    """
-    return _MARKET_ALIASES.get(contract_market, (contract_market,))
+# 市场归一（交易所前缀 → 契约市场、读侧别名）收口在 `app.core.markets`：
+# **写入侧**（`watchlist_service.normalize_and_infer_venue`）与本**出口**共用同一份
+# 真相源，避免「两处各写一份归一表」再把口径写分叉——这正是 #1969 P0 的成因
+# （watchlist 存 SH、positions 存 CN_A，详情页拿 SH 过滤持仓恒为空）。
 
 
 # 「指数 / 场内」形态：带市场前缀或纯数字。**裸码反查只对这些形态开放**——
@@ -143,7 +101,7 @@ def _resolve_market_venue(
         resolved_venue = 'OTC'
     # 出口只说**契约市场**：库里两套词表（watchlist 存 SH/SZ、positions 存 CN_A），
     # 消费方不该猜是哪套（详见 _to_contract_market）
-    resolved_market = _to_contract_market(market, symbol)
+    resolved_market = to_contract_market(market, symbol)
     return resolved_market, resolved_venue
 
 
@@ -242,7 +200,7 @@ def resolve_product_identity(
         # 入参 market 同样走「契约市场 + 别名」匹配：存量 watchlist.market 混着
         # SH/SZ 与 CN_A 两套词表，只比契约值会静默漏行，归一后「已自选」反而被判成
         # 未自选（#1969 P0 的连带面，详见 _market_aliases）
-        market_in = _market_aliases(_to_contract_market(market, symbol)) if market else ()
+        market_in = market_aliases(to_contract_market(market, symbol)) if market else ()
         wl_query = user_db.query(WatchlistItem).filter(
             WatchlistItem.family_id == family_id,
             WatchlistItem.symbol == symbol,
