@@ -4,12 +4,10 @@ import { injectSupabaseSession } from "./support/session";
 /**
  * 产品详情页去重回归网（用户反馈：同一个产品名在一页里出现 4 次）。
  *
- * 本用例只钉**本次改动的所有权范围**：识别信息（名称 + 品类）只由页头承担，
- * 识别卡（`.product-detail__hero`）不再复述一遍。
- *
- * 「整页产品名只出现一次」的终局不变式要等 #2005 / PR #2012 落地
- * （持仓区块按账户分行、不再逐行重复产品名）后才成立，届时把下面
- * `hero 不含名称` 那条断言收紧为全页计数即可，不必另起用例。
+ * 钉两条不变式：
+ * 1. 识别信息（名称 + 品类）只由页头承担，识别卡（`.product-detail__hero`）不再复述；
+ * 2. 持仓区块按账户分行，行标签是渠道名，不再逐行抄产品名，表头整块只出一次——
+ *    因此整页产品名恰好只出现 1 次。
  *
  * 接口全部用 `page.route` 打桩，不依赖后端（docs/dev/frontend-e2e.md §7）。
  */
@@ -63,37 +61,41 @@ async function stubProductApis(page: Page) {
     // 注意：**不能**套信封包装器——positions 的响应体本身就是
     // `{ data: [...], total, page, per_page }`，再包一层会让组件拿到对象而非数组
     // （症状：整块显示「当前产品暂无持仓记录。」，第一版就是这么错的）
+    // 两条不同 ledger 的持仓，用于走通 #2012 的「多账户」分支（单账户会进指标网格）
     route.fulfill({
       status: 200,
       json: {
-        data: [
-          {
-            id: 1,
-            symbol: SYMBOL,
-            name: NAME,
-            market: "CN_A",
-            type: "fund",
-            account_name: "支付宝",
-            quantity: 29551.43,
-            avg_price: 10000,
-            currency: "CNY",
-            current_price: 7600,
-            trade_date: "2026-10-08",
-            notes: null,
-            created_at: "2026-01-01T00:00:00Z",
-            updated_at: "2026-01-01T00:00:00Z",
-            ledger_id: 2,
-            market_value: 22532.97,
-            pnl: -18.5
-          }
-        ],
-        total: 1,
+        data: [position(1, 2, "支付宝"), position(2, 3, "招商银行")],
+        total: 2,
         page: 1,
         per_page: 100,
         message: "ok"
       }
     })
   );
+}
+
+/** 打桩持仓行：只有 id / ledger_id / account_name 会变，其余口径字段恒定 */
+function position(id: number, ledgerId: number, accountName: string) {
+  return {
+    id,
+    symbol: SYMBOL,
+    name: NAME,
+    market: "CN_A",
+    type: "fund",
+    account_name: accountName,
+    quantity: 29551.43,
+    avg_price: 10000,
+    currency: "CNY",
+    current_price: 7600,
+    trade_date: "2026-10-08",
+    notes: null,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+    ledger_id: ledgerId,
+    market_value: 22532.97,
+    pnl: -18.5
+  };
 }
 
 test.describe("产品详情页去重（页头承担识别信息）", () => {
@@ -126,6 +128,29 @@ test.describe("产品详情页去重（页头承担识别信息）", () => {
     await expect(hero.getByText(SYMBOL)).toBeVisible();
     await expect(hero.getByText("已关注")).toBeVisible();
     await expect(hero.getByText("已持有")).toBeVisible();
+  });
+
+  test("整页产品名只出现 1 次，持仓表头整块只出 1 次", async ({ page }) => {
+    await page.goto(`/#/fund/${SYMBOL}`);
+    // 等持仓区块渲染完（打桩里有两条不同账户的持仓 → 走多账户表格分支）
+    const table = page.locator(".product-position__table");
+    await expect(table).toBeVisible({ timeout: 60_000 });
+
+    // 页头 h1 = 唯一一次；识别卡与持仓行里都不再重复
+    const bodyText = await page.locator("body").innerText();
+    expect(bodyText.split(NAME).length - 1).toBe(1);
+
+    // #2012 之后整块只有**一个** thead（旧版每个渠道块各带一整套表头），
+    // 且首列是「账户」而不是「产品」
+    await expect(table.locator("thead")).toHaveCount(1);
+    await expect(table.locator("thead th").first()).toHaveText("账户");
+    await expect(page.getByText("产品", { exact: true })).toHaveCount(0);
+
+    // 行标签是账户名——产品名不再以任何形式出现在持仓区块里
+    await expect(table.locator("tbody .product-position__account")).toHaveText([
+      "支付宝",
+      "招商银行"
+    ]);
   });
 });
 
