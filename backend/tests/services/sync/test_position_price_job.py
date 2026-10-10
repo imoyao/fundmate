@@ -87,16 +87,79 @@ def test_writes_confirmed_nav_in_price_units(job, db, make_position):
 
 
 def test_unchanged_price_is_not_rewritten(job, db, make_position):
-    """同价不写：避免每次调度都把 updated_at 刷成今天，让「何时真正更新过」失真。"""
+    """同价不写：避免每次调度都把 updated_at 刷成今天，让「何时真正更新过」失真。
+
+    #2007 补充：「没变」要连同 `prev_close` / `price_date` 一起算——只比 `current_price`
+    不够（见下一条用例）。故这里先让三者都处在「跑完会得到的样子」：库里只有一根净值，
+    所以没有上一根、日期就是那一根。此时 job 才是真正无事可做。
+    """
     pos = make_position(symbol='023887', asset_type='fund', quantity=1000, avg_price=1.0, current_price=1.2345)
+    pos.prev_close = None
+    pos.price_date = today_shanghai() - timedelta(days=1)
+    db.commit()
     _add_nav(db, '023887', 1.2345, days_ago=1)
 
     result = job.run()
 
     assert result['stats']['success'] == 0
     assert result['stats']['unchanged'] == 1
+    # 有价无基准：这一笔算不出当日盈亏，计数要如实（前端会降级「—」）
+    assert result['stats']['prev_close_missing'] == 1
     db.refresh(pos)
     assert pos.current_price == Money.yuan_to_price_units(1.2345)
+
+
+def test_prev_close_and_price_date_are_written_with_price(job, db, make_position):
+    """#2007：current_price / prev_close / price_date **同批**落库，三个值同源。
+
+    有上一根净值时，prev_close 必须是**相邻的那一根**（不是随便一个更早的数）——
+    上层要拿 (current_price − prev_close) 当当日涨跌用。
+    """
+    pos = make_position(symbol='023887', asset_type='fund', quantity=1000, avg_price=1.0, current_price=1.0)
+    _add_nav(db, '023887', 1.2000, days_ago=2)  # 上一根
+    _add_nav(db, '023887', 1.2345, days_ago=1)  # 最新一根
+
+    result = job.run()
+
+    assert result['stats']['success'] == 1
+    assert result['stats']['prev_close_missing'] == 0
+    db.refresh(pos)
+    assert pos.current_price == Money.yuan_to_price_units(1.2345)
+    assert pos.prev_close == Money.yuan_to_price_units(1.2000)
+    assert pos.price_date == today_shanghai() - timedelta(days=1)
+
+
+def test_same_price_new_day_still_updates_baseline(job, db, make_position):
+    """「同价不写」的边界（#2007）：价格没变但**交易日推进**时仍须写。
+
+    连续两天收在同一个价（一字板 / 净值持平）是常见的。若只比 current_price 就跳过，
+    prev_close 与 price_date 会永远停在昨天，用户看到的是「今天的涨跌」写着一个昨天的差。
+    """
+    pos = make_position(symbol='023887', asset_type='fund', quantity=1000, avg_price=1.0, current_price=1.5)
+    _add_nav(db, '023887', 1.5, days_ago=2)
+    _add_nav(db, '023887', 1.5, days_ago=1)
+
+    result = job.run()
+
+    assert result['stats']['success'] == 1, '同价但基准推进了，必须写'
+    db.refresh(pos)
+    assert pos.current_price == Money.yuan_to_price_units(1.5)
+    assert pos.prev_close == Money.yuan_to_price_units(1.5)
+    assert pos.price_date == today_shanghai() - timedelta(days=1)
+
+
+def test_money_fund_leaves_baseline_null(job, db, make_position):
+    """货基按面值计价，没有「上一日价差」→ 基准留 NULL，不写 0（#2007）。"""
+    pos = make_position(symbol='000009', asset_type='money_fund', quantity=10000, avg_price=1.0, current_price=0.9)
+    _add_nav(db, '000009', 2.0, days_ago=1)  # 即便库里有净值，货基也不读
+
+    result = job.run()
+
+    assert result['stats']['success'] == 1
+    db.refresh(pos)
+    assert pos.current_price == Money.yuan_to_price_units(MONEY_FUND_FACE_VALUE)
+    assert pos.prev_close is None
+    assert pos.price_date is None
 
 
 def test_multiple_families_are_all_updated(job, db, make_position):

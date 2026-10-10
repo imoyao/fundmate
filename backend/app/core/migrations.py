@@ -464,6 +464,52 @@ def migrate_channel_link_indexes(engine: Engine) -> str:
     raise RuntimeError('channel_links.to_symbol 索引创建后校验失败')
 
 
+def migrate_positions_price_columns(engine: Engine) -> str:
+    """positions 补「当日盈亏」的基准列（#2007）：`prev_close` + `price_date`。
+
+    ## 为什么需要
+
+    当日盈亏 = (current_price − prev_close) × quantity。此前 `positions` 只落了
+    `current_price`，而且**没有表达「这个价是哪一天的」**的列（`position_price` job
+    同价不写以保护 `updated_at`，故 `updated_at` 也当不了价格日期）。于是两件事都做不到：
+    算不出当日盈亏（缺上一确认价）；即便硬算，也说不清差额对应哪一天——用户会拿它当
+    「今天赚了多少」，那正是最需要准确的数。
+
+    ## 加列方式
+
+    SQLite / libsql 对**可空列**支持直接 `ALTER TABLE ADD COLUMN`（无需整表重建），
+    故两列都声明为可空：历史行没有基准价，只能 NULL；NULL 在读取端降级为「—」，
+    **不写 0**（0 会被读成「今天没涨没跌」，那是编造）。
+
+    幂等：列已存在则跳过。非 SQLite 引擎（Supabase Postgres）由 ORM 模型 / 迁移工具负责，
+    直接跳过，避免 init_db 在 Supabase 路径上误跑 SQLite 专属 SQL。
+
+    ⚠️ 本迁移**只加列、不回填**：`prev_close` 是「上一确认价」，只能在写入
+    `current_price` 的**同一批**里取到（`sync/jobs/position_price_job`），事后凭历史数据
+    补不出时点正确的值（补错了比空着更糟）。存量行会在下次调度自然补齐。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
+
+    if 'positions' not in inspect(engine).get_table_names():
+        return '[SKIP] positions 表不存在（空库，init_db 将按新模型建表）'
+
+    cols = [('prev_close', 'INTEGER'), ('price_date', 'DATE')]
+    with engine.connect() as conn:
+        existing = {c['name'] for c in inspect(engine).get_columns('positions')}
+        added = []
+        for name, typ in cols:
+            if name not in existing:
+                conn.execute(text(f'ALTER TABLE positions ADD COLUMN {name} {typ}'))
+                added.append(name)
+        conn.commit()
+    if added:
+        logger.info(f'[OK] positions 增加列: {added}')
+        return f'[OK] 增加列 {added}'
+    return '[SKIP] positions.prev_close / price_date 已存在'
+
+
 # 写路径（#1661）已强制「显式非基金类型 → False」；存量若仍为 True 属历史污染，本迁移清零。
 _NON_FUND_ASSET_TYPES: tuple[str, ...] = ('stock', 'etf', 'bond', 'reverse_repo', 'crypto', 'index')
 # 只有这两类才可能真为货基（与 `core/venues._OTC_ASSET_TYPES` 同族）

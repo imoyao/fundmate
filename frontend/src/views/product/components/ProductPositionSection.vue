@@ -11,6 +11,7 @@ import { formatQuantity } from "@/utils/format";
 // 计算口径单独成模块，由 __tests__/productPositionMetrics.spec.ts 钉住：
 // 尤其「盈亏率必须是百分数」这条——旧实现给了比值却拼上 "%"，小了 100 倍
 import {
+  dayPnlRate,
   daysText,
   pnlRate,
   sumUp,
@@ -47,11 +48,24 @@ import {
  * - 涨跌颜色交给 `RiseFallText` / `MoneyDisplay` 的 autoColor（涨红跌绿语义变量），
  *   此处不自己拼颜色。
  *
+ * ## 当日盈亏（#2007）
+ *
+ * 它是「持有盈亏」之外的第二个时间窗口口径：(现价 − 上一确认价) × 数量。基准价由后端
+ * `position_price_job` 与 `current_price` **同批**写入 `positions.prev_close`
+ * ——同批这个前提不成立时，相减出来的是两段行情之差、不是当日涨跌。
+ * 三处刻意为之：
+ *
+ * - **无基准显示「—」而不是 0**：0 是「今天没涨没跌」这个**结论**，我们没有依据下它；
+ * - **基准日明示**（「截至 10-09」）：场外基金是 T-1 净值、场内是最近收盘日，
+ *   这个「当日」并不总是今天，不说清就等于让用户自己误会；
+ * - **率是百分数**（与后端 `pnl_rate` 一致），由 `productPositionMetrics` 统一收口，
+ *   展示层不做单位换算（那条 100× 教训见该模块头注释）。
+ *
  * ## 为什么不做抽屉 / 逐条展开
  *
- * 后端能诚实供给的口径只有 7 个（当日盈亏要 `prev_close`、分红方式与卖出费率不在
- * `positions` 表，见 #2007），一张网格放得下。抽屉是为「放不下」准备的方案，
- * 而持仓是用户自己的钱、是打开「我的」产品页的唯一理由，不该多一次点击才能看到。
+ * 后端能诚实供给的口径仍是一张网格放得下的量（分红方式与卖出费率不在 `positions` 表，
+ * 见 #2007 卡的取证结论）。抽屉是为「放不下」准备的方案，而持仓是用户自己的钱、
+ * 是打开「我的」产品页的唯一理由，不该多一次点击才能看到。
  */
 
 const props = defineProps<{
@@ -107,6 +121,16 @@ const hasRows = computed(() => !!rows.value.length);
 
 const accountPath = (ledgerId: number | null) =>
   ledgerId ? `/asset/ledgers/${ledgerId}` : "";
+
+/**
+ * `YYYY-MM-DD` → `MM-DD`（#2007）。
+ *
+ * 当日盈亏的基准日只在「当日」这个标签旁边做注脚，年份在这里是噪声——
+ * 完整日期由列说明给出，指标标签上留太长的串会把版面挤歪。
+ */
+function shortDate(iso: string): string {
+  return iso.length === 10 ? iso.slice(5) : iso;
+}
 
 async function load() {
   if (!props.symbol) return;
@@ -210,6 +234,36 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
               <RiseFallText :value="pnlRate(single)" suffix="%" />
             </span>
           </div>
+          <!-- 当日盈亏（#2007）：与上面两项同级——它是「今天赚了多少」，不是补充信息。
+               无基准时显示「—」而不是 0（0 会被读成「今天没涨没跌」，那是结论不是数据）。 -->
+          <div class="metric metric--hero">
+            <span class="metric__label">
+              当日盈亏
+              <span v-if="single.dayBasisDate" class="metric__hint">
+                截至 {{ shortDate(single.dayBasisDate) }}
+              </span>
+            </span>
+            <span class="metric__value">
+              <MoneyDisplay
+                v-if="single.dayPnl != null"
+                :value="single.dayPnl"
+                :precision="2"
+                size="lg"
+              />
+              <span v-else class="metric__empty">—</span>
+            </span>
+          </div>
+          <div class="metric metric--hero">
+            <span class="metric__label">当日盈亏率</span>
+            <span class="metric__value">
+              <RiseFallText
+                v-if="dayPnlRate(single) !== null"
+                :value="dayPnlRate(single) ?? 0"
+                suffix="%"
+              />
+              <span v-else class="metric__empty">—</span>
+            </span>
+          </div>
           <div class="metric">
             <span class="metric__label">持有金额</span>
             <span class="metric__value">
@@ -267,6 +321,8 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
               <th>持有金额</th>
               <th>持有盈亏</th>
               <th>盈亏率</th>
+              <th>当日盈亏</th>
+              <th>当日盈亏率</th>
               <th>持仓天数</th>
             </tr>
           </thead>
@@ -308,6 +364,22 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
               <td>
                 <RiseFallText :value="pnlRate(g)" suffix="%" />
               </td>
+              <td>
+                <MoneyDisplay
+                  v-if="g.dayPnl != null"
+                  :value="g.dayPnl"
+                  :precision="2"
+                />
+                <span v-else class="product-position__empty">—</span>
+              </td>
+              <td>
+                <RiseFallText
+                  v-if="dayPnlRate(g) !== null"
+                  :value="dayPnlRate(g) ?? 0"
+                  suffix="%"
+                />
+                <span v-else class="product-position__empty">—</span>
+              </td>
               <td>{{ daysText(g.holdingDays) }}</td>
             </tr>
           </tbody>
@@ -335,10 +407,32 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
               <td>
                 <RiseFallText :value="pnlRate(totals)" suffix="%" />
               </td>
+              <td>
+                <MoneyDisplay
+                  v-if="totals.dayPnl != null"
+                  :value="totals.dayPnl"
+                  :precision="2"
+                />
+                <span v-else class="product-position__empty">—</span>
+              </td>
+              <td>
+                <RiseFallText
+                  v-if="dayPnlRate(totals) !== null"
+                  :value="dayPnlRate(totals) ?? 0"
+                  suffix="%"
+                />
+                <span v-else class="product-position__empty">—</span>
+              </td>
               <td />
             </tr>
           </tfoot>
         </table>
+        <!-- 「当日」到底指哪一天要写出来（#2007）：场外基金是 T-1 净值、场内是最近收盘日，
+             不总是今天。多账户各自基准日可能不同，故给最新那一天，并说明口径。 -->
+        <p v-if="totals.dayBasisDate" class="product-position__asof">
+          当日盈亏 =（现价 − 上一确认价）× 数量；最新基准日
+          {{ totals.dayBasisDate }}（场外基金为 T-1 净值，与平台披露节奏一致）
+        </p>
       </div>
     </div>
   </CardBlock>
@@ -427,6 +521,28 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
 /* 盈亏两项是这一页的核心，字号提一档；不改颜色，颜色仍由 RiseFallText / MoneyDisplay 按语义变量给 */
 .metric--hero .metric__value {
   font-size: 17px;
+}
+
+/* 当日盈亏的基准日注脚（#2007）：它说明「这个『当日』是哪一天」，属标签的一部分，
+   故弱化，不与数值争注意力 */
+.metric__hint {
+  margin-left: var(--space-1);
+  font-size: 11px;
+  color: var(--text-tertiary-ink);
+}
+
+/* 「—」占位统一样式：保持字号但走弱色，避免被读成一个真值 */
+.metric__empty,
+.product-position__empty {
+  color: var(--text-tertiary-ink);
+}
+
+/* 多账户表格下方的基准日说明：把「当日」的日期口径说在表格外，不额外占一列 */
+.product-position__asof {
+  margin: var(--space-2) 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-tertiary-ink);
 }
 
 /* ===== 多账户：紧凑表格 ===== */

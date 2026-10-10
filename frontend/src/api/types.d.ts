@@ -51,6 +51,22 @@ export interface Position {
   market_value?: number;
   pnl?: number;
   /**
+   * 当日盈亏（#2007）= `(现价 − 上一确认价) × 数量`，单位**元**（与 `pnl` 同）。
+   * `null` = 没有基准价（后端 `prev_close` 为空）→ 展示层降级「—」，
+   * **不得当 0 用**：0 会被读成「今天一分没涨没跌」，而真相是没数据。
+   * 由 `services/position_presenter.enrich_position_dict` 现算产出，非落库列。
+   */
+  day_pnl?: number | null;
+  /**
+   * 当日盈亏率（#2007）：单位与后端既有 `pnl_rate` **逐字一致 —— 百分数**
+   * （10 表示 10%），所以这里不再 ×100。`null` = 没有基准价。
+   */
+  day_pnl_rate?: number | null;
+  /** 上一确认价（元）；`null` = 未取到（#2007）。当日盈亏的基准 */
+  prev_close?: number | null;
+  /** `current_price` 对应的交易日（`YYYY-MM-DD`）；`null` = 未知（#2007） */
+  price_date?: string | null;
+  /**
    * 持仓天数：后端 `PositionOut.holding_days` 的派生字段（#862）。
    * 此前前端类型漏声明，导致详情页「我的持仓」拿不到、也就一直没展示（#2005 补）。
    */

@@ -43,4 +43,21 @@ def enrich_position_dict(p: Position) -> dict:
         if p.avg_price
         else 0.0
     )
+
+    # ── 当日盈亏（#2007）──
+    # 口径：(现价 − 上一确认价) × 数量。与 `pnl` 同为**浮动**性质（不含已实现），
+    # 区别只在窗口是一天。基准价由 `sync/jobs/position_price_job` 与 `current_price`
+    # **同批**写入——同源同批这个前提不成立时，相减出来的是两段行情之差、不是当日涨跌，
+    # 所以这里只负责算，不负责凑。
+    d['prev_close'] = Money.price_units_to_yuan(p.prev_close) if p.prev_close is not None else None
+    d['price_date'] = p.price_date.isoformat() if p.price_date else None
+    if p.prev_close:
+        d['day_pnl'] = Money.cents_to_yuan(Money.multiply_price_quantity(p.current_price - p.prev_close, p.quantity))
+        # 单位与既有 `pnl_rate` 逐字一致：**百分数**（×100，两位小数），前端不再做换算
+        d['day_pnl_rate'] = round((p.current_price - p.prev_close) / p.prev_close * 100, 2)
+    else:
+        # 无基准（未取到上一确认价 / 货基面值无当日涨跌）→ None，前端降级「—」。
+        # 给 0 会被读成「今天一分没涨没跌」，那是在编造一个用户会信的结论。
+        d['day_pnl'] = None
+        d['day_pnl_rate'] = None
     return d

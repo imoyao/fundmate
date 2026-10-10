@@ -111,6 +111,12 @@ class PositionOut(BaseModel):
     avg_price: float
     currency: str
     current_price: float
+    # 当日盈亏基准（#2007）：与 current_price **同批**写入的上一确认价及其交易日。
+    # 必须声明在 Out Schema 里——否则 `model_validate` 后被静默丢掉、前端拿不到
+    # （与上面 `is_money_fund` 同一条坑）。None 是合法值：读取端按「无基准」处理，
+    # **不得当成 0**（0 会被读成「今天没涨没跌」，而真相是没数据）。
+    prev_close: Optional[float] = None
+    price_date: Optional[date] = None
     valuation_mode: str = 'nav'
     market_value_override: Optional[float] = None
     value_override_at: Optional[datetime] = None
