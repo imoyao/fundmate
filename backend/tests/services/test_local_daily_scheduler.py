@@ -339,9 +339,46 @@ class TestCatchUpTargets:
         dates = {'temperature': date(2026, 9, 11), 'fund_nav': None}
         assert ds.catch_up_targets(_config(), now, dates) == ['temperature', 'fund_nav']
 
-    def test_rest_day_never_catches_up(self):
+    def test_rest_day_only_catches_up_backfill_jobs(self):
+        """休市日只补「回补型」（#2016）。
+
+        原行为是休市日一律返回空，实测代价：数据源当日不齐（ETF 当日 K 线次日才齐），
+        周五 17:30 只拿到 T-1，缺口本应由下一次运行补——而周末被整体跳过，于是拖到
+        周一才补，整个周末的持仓市值/盈亏都在用周四的价。
+        """
         now = datetime(2026, 9, 12, 23, 0, tzinfo=TZ)  # 周六
-        assert ds.catch_up_targets(_config(), now, {}) == []
+        # temperature 休市无新数据可抓；fund_nav 是回补型，要补缺口
+        assert ds.catch_up_targets(_config(), now, {}) == ['fund_nav']
+
+    def test_rest_day_backfill_ignores_fire_time(self):
+        """休市日的回补型**不受「今天几点」限制**：周六上午启动也要能补上周五的缺口。
+
+        否则用户周六早上开机，要干等到 21:30 才补上——那时他早看完了。
+        """
+        now = datetime(2026, 9, 12, 9, 0, tzinfo=TZ)  # 周六 09:00，远早于净值 21:30
+        assert ds.catch_up_targets(_config(), now, {}) == ['fund_nav']
+
+    def test_rest_day_backfill_skipped_when_already_succeeded(self):
+        """今天已成功过就不重复补（幂等：只在 last_success 早于今天时才补）。"""
+        now = datetime(2026, 9, 12, 9, 0, tzinfo=TZ)
+        assert ds.catch_up_targets(_config(), now, {'fund_nav': SATURDAY}) == []
+
+    def test_rest_day_backfill_list_is_explicit(self):
+        """回补型名单是**显式白名单**，加/删都要有意识。
+
+        判定依据：休市日跑它**能补齐上一个交易日的数据**，且无缺口时空跑成本≈0
+        （增量窗口为空即不抓取，只花一次库内查询、0 次外部请求）。
+        """
+        assert ds.REST_DAY_JOB_NAMES == frozenset(
+            {'price_history', 'fund_nav', 'position_price'}
+        )
+        assert ds.runs_on_rest_day('price_history') is True
+        assert ds.runs_on_rest_day('fund_nav') is True
+        assert ds.runs_on_rest_day('position_price') is True
+        # 温度 / 指数估值 / 投顾：休市确实无新数据可抓
+        assert ds.runs_on_rest_day('temperature') is False
+        assert ds.runs_on_rest_day('index_valuation') is False
+        assert ds.runs_on_rest_day('advisor_portfolio') is False
 
     def test_rest_day_can_be_ignored(self):
         now = datetime(2026, 9, 12, 23, 0, tzinfo=TZ)
@@ -420,6 +457,35 @@ class TestRunSyncJob:
         ds.run_sync_job(ds.DailyJobSpec('fund_nav', '30 21 * * *', 'fund', '净值'), jitter_seconds=600)
 
         assert calls == [(600, '每日调度 fund_nav')]
+
+
+class TestRunJobOnRestDay:
+    """`_run_job` 的休市判定：回补型照跑、其余跳过（#2016）。"""
+
+    def _make_scheduler(self, tmp_path, monkeypatch, calls):
+        def _fake_run(spec, jitter_seconds=0):
+            calls.append(spec.job_name)
+            return {'job_name': spec.job_name, 'status': 'success', 'stats': {}}
+
+        monkeypatch.setattr(ds, 'run_sync_job', _fake_run)
+        monkeypatch.setattr(ds, 'is_rest_day', lambda today=None: True)
+        return ds.DailyScheduler(_config(lock_file=tmp_path / 'rest.lock'))
+
+    def test_backfill_job_runs_on_rest_day(self, tmp_path, monkeypatch):
+        calls = []
+        scheduler = self._make_scheduler(tmp_path, monkeypatch, calls)
+
+        scheduler._run_job(ds.DailyJobSpec('fund_nav', '30 21 * * *', 'fund', '净值'))
+
+        assert calls == ['fund_nav']
+
+    def test_non_backfill_job_skipped_on_rest_day(self, tmp_path, monkeypatch):
+        calls = []
+        scheduler = self._make_scheduler(tmp_path, monkeypatch, calls)
+
+        scheduler._run_job(ds.DailyJobSpec('temperature', '0 20 * * *', None, '温度计'))
+
+        assert calls == []
 
 
 # ── 单实例锁与调度器生命周期 ────────────────────────────────────────────
