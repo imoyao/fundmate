@@ -400,6 +400,14 @@ def normalize_and_infer_venue(
     if venue == 'EXCHANGE':
         normalizer = get_normalizer()
         normalized, market, _ = normalizer.normalize(symbol)
+        # market 存的是 **normalizer 命名空间**（SH / SZ / BJ / HK / CR），**不要**把它
+        # 归一成契约市场（CN_A）——`cross_domain._join_key` 直接拿 `watchlist.market`
+        # 当跨域冗余键，而 `to_security_key` 的映射表只认 SH/SZ/BJ/HK；一旦这里改存
+        # CN_A，场内自选的市场侧资料 / 估值会**全部取不到**（2026-10-10 核实）。
+        #
+        # 详情页那类「已持有 vs 暂无持仓记录」的口径问题在**出口**修：resolve 返回前
+        # 经 `app.core.markets.to_contract_market()` 归一（#1969 P0），读侧再用
+        # `market_aliases()` 兼容两种形态。写入口径保持命名空间不动。
         return {'symbol': normalized or symbol, 'market': market or 'UNKNOWN', 'venue': 'EXCHANGE'}
 
     # 其他未知 venue 也报错
