@@ -102,11 +102,12 @@
 
 ```ts
 // 只读字段、不改写 symbol 字符串（D35/D36 契约）
-export interface ProductRef { assetType: string; symbol: string; market?: string; venue?: string }
+// #2006（2026-10-10）修订：market / venue **不经 URL 传递**，故 ProductRef 收敛为两字段、
+// productKey 移除（全仓零调用且概念已不成立）——取证与定案见该卡评论。
+export interface ProductRef { assetType: string; symbol: string }
 export function assetTypeToPath(t: string): string     // asset_type → 路径段（唯一映射表）
-export function productRoute(r: ProductRef): string    // → /fund/004369?market=&venue=
-export function parseProductRef(route): ProductRef
-export function productKey(r: ProductRef): string      // `${assetType}|${symbol}|${market}|${venue}`
+export function productRoute(r: ProductRef): string    // → /fund/004369（不带 query）
+export function parseProductRef(route): ProductRef     // 只读路径段与 symbol，忽略 query
 ```
 
 - **入口侧适配**：自选行（`asset_type/symbol/market/venue` 四字段现成）、持仓 / 聚合卡
@@ -355,6 +356,12 @@ PageHeaderBar  标题=产品名  副标题=# 代码 · 品类 · 数据日期
 
 ## 13. 变更记录
 
+- **2026-10-10 · #2006 落地**：详情页 URL **不再承载** `market` / `venue` 消歧参数。
+  原实现把两者拼进 query，却没有任何消费方（路由 `/:assetType/:symbol` 没有参数位、
+  `parseProductRef` 只读 `params` 不读 `query`），属「写了没人读」的死链；
+  取证确认库内**不存在同码多实体**后，整条链路按「URL 不承载消歧参数」收敛，
+  §3.2 的 `ProductRef` / `productRoute` / `parseProductRef` / `productKey` 示意同步修订。
+  真出现同码多实体时按样本重新设计（先定后端选取规则，再定参数怎么传）。
 - **2026-10-08 v2（用户评审后修订）**：① 路由由 `/product/:symbol` 改为**按品类分段**
   （路径段 = `asset_type`，含 `/portfolio` 与 `/asset/portfolios` 的重名坑登记）；
   ② 一期品类改为**基金 / 股票 / 基金经理**，可转债改集思录外链、指数·ETF 转二期、投顾组合转三期；
