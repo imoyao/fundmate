@@ -27,8 +27,18 @@
   <div class="pnl-calendar">
     <!-- ===== 标题行：口径说明 + 粒度切换 + 形态切换 + 区间导航 =====
          口径说明走 `#info` 富内容插槽（#1942 ③）：原先是一条 500 字的字符串直接塞进
-         tooltip，悬停出来就是一堵墙。现在拆成「口径 3 条 + 七态图例」，宽度也有约束。 -->
-    <SectionHeader title="收益日历" info-label="收益日历的口径与图例说明">
+         tooltip，悬停出来就是一堵墙。现在拆成「口径 3 条 + 七态图例」，宽度也有约束。
+
+         标题可被宿主抑制（`hideTitle`，#2035）：三处容器里只有资产总览右卡外面套了
+         卡片标题（它要随开关在「总资产构成 / 收益日历」之间变），不抑制就会有两个
+         一模一样的「收益日历」上下叠着；被窗口宽度压窄时第二个还会被右侧控件行挤断，
+         露出一小块残影，看起来像个莫名其妙的月牙。抑制的**只有 `<h2>`**——
+         `#info` 口径图标与 `#action` 全部控件照常渲染，它们是本组件自己的信息，
+         宿主不承载。 -->
+    <SectionHeader
+      :title="hideTitle ? '' : '收益日历'"
+      info-label="收益日历的口径与图例说明"
+    >
       <template #info>
         <PnlCalendarCaliberTip />
       </template>
@@ -230,8 +240,21 @@ const props = withDefaults(
   defineProps<{
     /** 账户ID：不传=家庭级，传=该账户级（账户维度天然支持，见设计文档 §3） */
     ledgerId?: number;
+    /**
+     * 宿主是否已经自带本组件的标题（#2035）。
+     *
+     * PnlCalendar 的三处容器——投资概览第三排、资产总览右卡、账户详情——共用同一份
+     * 口径，但只有资产总览那处外面套了卡片标题（`OverviewSummaryCard` 必须自己画
+     * `<h3>`，因为它要在「总资产构成 / 收益日历」两态之间变，还挂着返回开关）。
+     * 不抑制就会出现两个「收益日历」；更糟的是窄容器下第二个会被右侧约 588px 宽的
+     * 控件行挤断，只剩 `text-overflow: ellipsis` 切出来的一小块残影。
+     *
+     * 抑制的是**标题这一个字**：`#info` 口径图标与 `#action` 全部控件不受影响——
+     * 它们属于本组件，宿主不承载。另两处不传即为 `false`，行为与改动前完全一致。
+     */
+    hideTitle?: boolean;
   }>(),
-  { ledgerId: undefined }
+  { ledgerId: undefined, hideTitle: false }
 );
 
 const emit = defineEmits<{
