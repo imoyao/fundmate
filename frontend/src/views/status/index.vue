@@ -355,13 +355,13 @@ onMounted(fetchHealth);
   padding: 12px 0;
   border-top: 1px solid var(--border-subtle);
 
+  @include bp.below("md") {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
   /* 窄屏：状态文字换到第三行，避免「名称 / 要点 / 状态」三列互相挤压 */
   &:first-child {
     border-top: 0;
-  }
-
-  @include bp.below("md") {
-    grid-template-columns: auto minmax(0, 1fr);
   }
 
   &__dot {
