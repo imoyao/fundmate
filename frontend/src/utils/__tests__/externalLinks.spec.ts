@@ -118,12 +118,10 @@ describe("externalQuoteLinks", () => {
     ).toHaveLength(3);
   });
 
-  it("可转债走东财数据中心（股票形态的 quote 页对它返回 404）", () => {
-    const urls = urlsOf(
+  it("可转债不在此处出链：它有 #1971 的专用卡（否则详情页会出现两块外链卡）", () => {
+    expect(
       externalQuoteLinks({ symbol: "SH113050", assetType: "bond" })
-    );
-
-    expect(urls).toEqual(["https://data.eastmoney.com/kzz/detail/113050.html"]);
+    ).toEqual([]);
   });
 
   it("指数走东财 zs 前缀", () => {
