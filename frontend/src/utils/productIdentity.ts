@@ -33,8 +33,19 @@ export interface ProductRef {
   symbol: string;
 }
 
-/** 一期支持独立详情页的品类白名单（设计 §3.1） */
-export const DETAIL_ASSET_TYPES = ["fund", "stock", "manager"] as const;
+/**
+ * 支持独立详情页的品类白名单（设计 §3.1 / §6 分期）。
+ *
+ * `portfolio`（投顾组合）于 #1975 加入，同时拍板**路径段就用 `portfolio`**（**不**引入
+ * `/advisory` 别名）—— 本表是「路径段 = asset_type、一对一、不推断、不别名」的唯一
+ * 映射表，加别名会让它出现一对多特例（今天为 portfolio 破例，明天做 etf / index
+ * 就没理由拒绝再破）。
+ *
+ * 与 `/asset/portfolios/:id`（**我方**组合）的区分放在**页面**层：详情页写
+ * 「投顾组合」+ 平台，我方组合页写「我的组合」。路由层面不会互相命中（首段
+ * `portfolio` vs `asset` 不同、末段平台码 vs 数字 id 不同）。推演见 #1975 评论。
+ */
+export const DETAIL_ASSET_TYPES = ["fund", "stock", "manager", "portfolio"] as const;
 
 export type DetailAssetType = (typeof DETAIL_ASSET_TYPES)[number];
 

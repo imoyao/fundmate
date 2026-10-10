@@ -18,12 +18,14 @@ from app.core.auth import get_family_id
 from app.core.db_factory import market_session_factory, user_session_factory
 from app.core.validation import parse_query
 from app.domains.products.schemas import (
+    AdvisorProfileRequest,
     ManagerProfileRequest,
     ProductResolveRequest,
     ProductTrendRequest,
     RelatedSymbolsRequest,
     StockProfileRequest,
 )
+from app.services.advisor_profile import build_advisor_profile
 from app.services.fund_profile import build_fund_profile
 from app.services.manager_profile import build_manager_profile
 from app.services.product_identity import resolve_product_identity
@@ -163,6 +165,36 @@ def manager_profile():
 
     if data is None:
         abort(404, f'基金经理不存在：{query.mgr_code}')
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/advisor-profile/')
+def advisor_profile():
+    """投顾组合资料聚合（#1975 · 详情页投顾组合区块）：组合档案 + 可得指标一次取完。
+
+    **为什么补这个出口**：`advisor_portfolios` 的档案与指标字段此前**没有任何端点返回** ——
+    funds 域只有 `advisors/<code>/holdings/` 与 `advisors/<code>/adjusts/`，它们回答
+    「持什么、调过什么」，回答不了「这是个什么组合」，而详情页首屏要的正是后者。
+
+    放 products 域的理由同 `fund-profile` / `manager-profile`：服务的是**同一个详情页**。
+    持仓与调仓**复用已有端点**（前端并发取），本端点不重复搬数据 —— 只额外给出两者的
+    条数，让前端据此决定那一块要不要渲染、请求要不要发（实测调仓只覆盖 16/105 个组合）。
+
+    **字段可得性**（本机真实库 105 个组合实测）：`org_name` / `risk_level` / 区间收益 /
+    回撤 / 波动率 / 夏普 填充率 91~100%，可直接展示；而 `strategy_type` / `cum_return` /
+    `running_days` / `benchmark` / `excess_return` 为 **0%**、`host` **1.9%**、
+    `return_ytd` **2.9%** —— 一律回 `null`，由前端降级「—」（设计 §6 诚实降级，不编造）。
+    """
+    query: AdvisorProfileRequest = parse_query(AdvisorProfileRequest)
+
+    with closing(market_session_factory()()) as db:
+        try:
+            data = build_advisor_profile(db, query.code)
+        except ValueError as e:
+            abort(400, str(e))
+
+    if data is None:
+        abort(404, f'投顾组合不存在：{query.code}')
     return jsonify({'data': data, 'message': 'ok'})
 
 

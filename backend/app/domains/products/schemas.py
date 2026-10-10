@@ -99,6 +99,26 @@ class ManagerProfileRequest(BaseModel):
     )
 
 
+class AdvisorProfileRequest(BaseModel):
+    """`GET /api/products/advisor-profile/` 的查询参数（#1975 · 详情页投顾组合区块）。
+
+    入参是 **``code`` 而非组合名**：``code`` 是 ``advisor_portfolios`` 的表级唯一键
+    （本机实测 105/105 唯一），而 ``name`` 没有唯一约束 —— 当前 105 个组合恰好不重名，
+    但那不是约束保证的（多平台接入后「稳健」「进取」这类通用名很容易撞）。
+    详情页路由 ``/portfolio/<symbol>`` 传下来的就是它。
+
+    与 ``ManagerProfileRequest`` 同族：档案类入参一律用**业务唯一键**，不用展示名 ——
+    展示名是给用户看的，不该同时承担寻址职责。
+    """
+
+    code: str = Field(
+        ...,
+        min_length=1,
+        max_length=30,
+        description='平台组合码（如 ZH012926 / XCOVSEX / LONG_WIN）',
+    )
+
+
 class RelatedSymbolsRequest(BaseModel):
     """`GET /api/products/related-symbols/` 的查询参数（#1976 · 详情页关联标的区块）。
 
