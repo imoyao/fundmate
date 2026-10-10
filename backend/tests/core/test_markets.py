@@ -99,7 +99,5 @@ def test_watchlist_write_keeps_otc_and_non_traded_branches():
 
 def test_watchlist_write_index_branch_untouched():
     """指数按命名空间前缀定 market（CN_A / CSI / CNI），不属于本次归一范围。"""
-    assert (
-        normalize_and_infer_venue('SH000300', 'EXCHANGE', 'index')['market'] == 'CN_A'
-    )
+    assert normalize_and_infer_venue('SH000300', 'EXCHANGE', 'index')['market'] == 'CN_A'
     assert normalize_and_infer_venue('CSI930950', '', 'index')['market'] == 'CSI'
