@@ -27,6 +27,13 @@
  *   `fund/search.aspx` 实测忽略一切查询参数（换 4 个参数名都返回同一只基金），
  *   用基金代码拼不出正确页面。
  * - **不放集思录**：见上，无法确认按代码可达。
+ *
+ * ## 可转债**不归本模块**（踩过一次重复实现的坑）
+ *
+ * 可转债有自己的 `utils/bondExternalLinks.ts` + `BondExternalLinkCard`（#1971：集思录
+ * 条款数据 + 登录墙提示 + 游客降级入口），详情页对 `bond` 品类渲染那张卡。
+ * 本模块此处曾同时给转债出链（东财数据中心页），合并后详情页一度**出现两块外链卡**。
+ * 故 `bond` 在此返回空数组 —— 新增品类时先确认「是否已有专用卡」，别再叠一层。
  */
 
 /** 一条外链。`label` 是站点名（面向用户），`key` 供前端做稳定性标识 */
@@ -90,17 +97,6 @@ export function externalQuoteLinks(input: ExternalLinkInput): ExternalLink[] {
         url: `http://fund.10jqka.com.cn/${bare}/`
       },
       { key: "qieman", label: "且慢", url: `https://qieman.com/funds/${bare}` }
-    ];
-  }
-
-  // ── 可转债：东财数据中心有独立详情页（股票形态的 quote 页对它 404）──
-  if (type === "bond") {
-    return [
-      {
-        key: "eastmoney-cb",
-        label: "东方财富",
-        url: `https://data.eastmoney.com/kzz/detail/${bare}.html`
-      }
     ];
   }
 
