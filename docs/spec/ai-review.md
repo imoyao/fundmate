@@ -111,18 +111,26 @@ v0.76.0 的 agent 模式在本仓环境下**必然失败**：
   限额暂停（429 `SetLimitExceeded`），探测标 429 后自动跳过、不影响其它候选；在方舟「模型开通」页
   调整或关闭该模式后，**无需改代码**即可自动重新参与（删掉反而要多改一次代码）。
 - 推论（不变）：**未要求 infra 执行时，该 check 的绿色不作数**。
-  > **2026-10-10 补充**：自 2026-10-10 起「上游模型不可用 → job 保持绿色」（见 §9 产出校验），
-  > 于是绿色**更**不能读作「审查通过」——它只表示「上游故障不阻塞合并」。
-  > 要判断本轮到底有没有出结论，看 job summary 的「未执行」告示，或运行日志里的 warning。
+  > **2026-10-10 补充**：自 2026-10-10 起，上游模型不可用时 `deep-review-verdict` 显示为
+  > **skipped** 而非 success ——「没审查」与「审查通过」在 checks 里是**两个状态**，别把
+  > skipped 读成通过。要看本轮到底有没有出结论：看该 job 的状态
+  > （success=已审查 / skipped=未执行 / failure=自身缺陷），或 job summary 里的 verdict。
 
 ## 9. 相关文件
 
 - 配置：`.ai-review-deep.yaml`（仓库根目录）
 - 提示词：`docs/configs/ai-review-prompt.md`、`docs/configs/ai-review-system-summary.md`、`docs/configs/ai-review-known-false-positives.md`
 - 护栏与探测：`scripts/verify_ai_review_config.py`、`scripts/llm_health_probe.py`
-- 产出校验（两轮共用；2026-10-10 起由「一律 setFailed」改为**分类判定**）：`scripts/ai_review_verify_guard.js`——**回归用例**：`scripts/tests/ai_review_verify_guard.test.js`（#1584；`pnpm test:scripts`，或 CI job「守卫:脚本单测 (scripts)」；零新依赖、纯 mock 无网络）。
+- 产出判定（两轮共用；2026-10-10 起 guard **只输出 verdict，不再自己决定红绿**）：`scripts/ai_review_verify_guard.js`——**回归用例**：`scripts/tests/ai_review_verify_guard.test.js`（#1584；`pnpm test:scripts`，或 CI job「守卫:脚本单测 (scripts)」；零新依赖、纯 mock 无网络）。
   - **2026-09-18 起（#1581）**：该脚本另统计 AI 评论里的「生成标记」类幻觉（`# added` 等固定形态，inline + summary 双通道）并写进 job summary：**只计数、不删除评论、不改变 job 成败**。
-  - **2026-10-10 修订（用户裁决）**：把「上游模型不可用」与「本轮产出异常」分开 ——
-    ① **上游不可用**（探测未选中健康模型，或探测通过但实调零产出）→ **job 保持通过**，同时打醒目 warning + 写 step summary 留痕。理由：这类红灯的含义是「审查没跑成」而非「代码有问题」，红灯一多就没人看了（对红灯麻木，真问题反被淹没）。
-    ② **只产出了 agent 协议信封泄漏并被清理**（本仓兜底路径自身的缺陷）→ **仍判失败**（这才是「真有问题」）。
-    已知取舍：「模型正常但本轮静默失败」也会通过 —— 该信号 ai-review v0.76.0 不提供，只能靠 warning / summary 让人看见。
+  - **2026-10-10 修订（用户裁决）**：verdict 三态 → 由 `.github/workflows/ai-review.yml` 的 `deep-review-verdict` job 用 `if` 承接成三种 **check 状态**：
+
+    | verdict | 含义 | 判定 job 状态 |
+    |---|---|---|
+    | `audited` | 本轮确有产出（含「历史评论兜底」）| success |
+    | `upstream_unavailable` | 探测未选中健康模型，或探测通过但实调零产出 | **skipped** |
+    | `own_defect` | 只产出了 agent 协议信封泄漏并被清理（本仓兜底缺陷）| failure |
+
+    WHY 拆出独立 job：Actions 里 job 一旦开始执行就**无法把自身标成 skipped**（skipped 只在 job 级 `if` 未通过时产生），而「模型是否可用」只有执行到探测 / 实调才知道。
+    历史口径（10-10 之前）：guard 内部一律 `setFailed`，于是上游 429 / 额度耗尽期间每个 PR 都挂红灯 —— 但那个红灯的含义是「审查没跑成」而非「代码有问题」，红多了没人看，真问题反被淹没。
+  - 已知取舍：「模型正常但本轮静默失败」也会被判为 `upstream_unavailable`（→ skipped）—— 该信号 ai-review v0.76.0 不提供，只能靠 warning / summary 让人看见。
