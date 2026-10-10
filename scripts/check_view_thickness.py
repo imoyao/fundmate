@@ -124,7 +124,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/ledgers/views.py": {"lines": 723, "orm_queries": 16, "commits": 0, "max_func": 60},
     "backend/app/domains/market/views.py": {"lines": 37, "orm_queries": 0, "commits": 0, "max_func": 21},
     "backend/app/domains/ocr/views.py": {"lines": 214, "orm_queries": 1, "commits": 0, "max_func": 48},
-    "backend/app/domains/performance/views.py": {"lines": 87, "orm_queries": 0, "commits": 0, "max_func": 31},
+    "backend/app/domains/performance/views.py": {"lines": 86, "orm_queries": 0, "commits": 0, "max_func": 31},
     "backend/app/domains/portfolios/views.py": {"lines": 166, "orm_queries": 1, "commits": 0, "max_func": 29},
     "backend/app/domains/positions/views.py": {"lines": 286, "orm_queries": 6, "commits": 0, "max_func": 57},
     "backend/app/domains/reconciliation/views.py": {"lines": 225, "orm_queries": 2, "commits": 0, "max_func": 48},

@@ -14,6 +14,8 @@ import ProductExternalLinksSection from "./components/ProductExternalLinksSectio
 import ProductPositionSection from "./components/ProductPositionSection.vue";
 import ProductStockSection from "./components/ProductStockSection.vue";
 import ProductTrendSection from "./components/ProductTrendSection.vue";
+import ProductManagerSection from "./components/ProductManagerSection.vue";
+import ProductRelatedSection from "./components/ProductRelatedSection.vue";
 
 /**
  * 产品详情页骨架（#1964 · 设计 §4 / §8）。
@@ -200,6 +202,20 @@ watch(productRef, loadProduct, { immediate: true });
         :symbol="product.symbol"
         :market="product.market"
       />
+
+      <!-- 基金经理（#1970）：仅经理品类渲染。入参是 mgr_code 而非姓名——库内实测
+           119 组重名（最多「吴昊」6 位），姓名不是唯一键；路由 `/manager/<symbol>`
+           传下来的就是 mgr_code。任职起止 / 规模 / 任期回报实测填充率 0%，
+           逐项降级「—」并在整片为空时给出定调说明（不显示「暂无数据」白块）。 -->
+      <ProductManagerSection
+        v-if="product.asset_type === 'manager'"
+        :mgr-code="product.symbol"
+      />
+
+      <!-- 关联标的（#1976）：指数 ↔ 场内 ETF ↔ 场外联接，对所有品类都可能有关系，
+           故不按asset_type 过滤（持仓里的债券/基金同样可能有联接基金）。
+           无关联降级「—」并附覆盖率说明；关系覆盖率约 66.4%（缺口见 #1419）。 -->
+      <ProductRelatedSection :symbol="product.symbol" />
 
       <!-- 后续区块槽位：走势 / 基金资料 等由 #1967-#1971 各自注入。
            刻意不渲染 mock 占位（设计 §10「不用 mock / 演示数据占位」）。 -->

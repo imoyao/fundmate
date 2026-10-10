@@ -13,43 +13,42 @@ from app.core.database import get_db
 from app.core.validation import parse_query
 from app.domains.performance.schemas import MoneyFundIncomeRequest, XirrRequest
 from app.services.money_fund_income import calculate_money_fund_income, resolve_money_fund_scope
-from app.services.performance import calculate_portfolio_xirr, calculate_position_xirr
-from app.services.performance.calculators import calculate_portfolio_xirr_by_id
+from app.services.performance import XirrScopeParameterError, calculate_xirr_by_scope
 
 bp = APIBlueprint('performance', __name__, url_prefix='/api/performance')
 
 
 @bp.get('/xirr/')
 def get_xirr():
-    """查询年化收益率"""
+    """查询年化收益率（scope=position / portfolio / symbol，分派下沉 services）"""
     query_data: XirrRequest = parse_query(XirrRequest)
-    scope = query_data.scope
-    position_id = query_data.position_id
-    portfolio_id = query_data.portfolio_id
-    include_cash = query_data.include_cash_equivalents
 
     with get_db() as db:
+        # scope 校验 / 分派 / 归属校验全部下沉 services（#1929 / #1972）：
+        # XirrScopeParameterError 必须排在 ValueError 之前捕获（它是其子类），
+        # 否则「参数缺失」会被归属校验的 404 分支吃掉。
         try:
-            if scope == 'position':
-                if not position_id:
-                    abort(400, '缺少 position_id 参数')
-                result = calculate_position_xirr(
-                    db, position_id, family_id=get_family_id(), include_cash_equivalents=include_cash
-                )
-            elif scope == 'portfolio' and portfolio_id:
-                result = calculate_portfolio_xirr_by_id(
-                    db, portfolio_id, family_id=get_family_id(), include_cash_equivalents=include_cash
-                )
-                logger.info(f'组合 XIRR 计算完成(portfolio_id={portfolio_id}, 含现金等价物={include_cash}): {result}')
-            else:
-                result = calculate_portfolio_xirr(db, family_id=get_family_id(), include_cash_equivalents=include_cash)
-                logger.info(f'组合 XIRR 计算完成(含现金等价物={include_cash}): {result}')
+            result = calculate_xirr_by_scope(
+                db,
+                scope=query_data.scope,
+                position_id=query_data.position_id,
+                portfolio_id=query_data.portfolio_id,
+                symbol=query_data.symbol,
+                family_id=get_family_id(),
+                include_cash_equivalents=query_data.include_cash_equivalents,
+            )
+        except XirrScopeParameterError as e:
+            abort(400, str(e))
         except ValueError as e:
             abort(404, str(e))
         except Exception as e:
             logger.exception('年化收益率计算异常')
             abort(500, f'年化收益率计算失败，请稍后重试: {str(e)}')
 
+    logger.info(
+        f'年化收益率计算完成(scope={query_data.scope}, position_id={query_data.position_id}, '
+        f'portfolio_id={query_data.portfolio_id}, symbol={query_data.symbol}): {result}'
+    )
     return jsonify({'data': result, 'message': 'ok'})
 
 

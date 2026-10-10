@@ -135,6 +135,79 @@ export function getStockProfile(params: { symbol: string; market?: string }) {
   );
 }
 
+/** 任职基金条目（`/api/products/manager-profile/` 返回） */
+export interface ManagerProfileFund {
+  fund_code: string;
+  name: string;
+  /** 代表作品标记（来自 fund_managers 关联表） */
+  is_classic: boolean;
+  /** 任职起止：实测生产库填充率 0%，恒为 null，前端统一降级「—」 */
+  start_date: string | null;
+  end_date: string | null;
+}
+
+/** 基金经理资料聚合结果（#1970）。字段缺失一律为 null，前端据此降级为「—」 */
+export interface ManagerProfileResult {
+  mgr_code: string;
+  name: string;
+  /** 重名靠公司消歧（库内 119 组重名，最多 6 位同名） */
+  company: string | null;
+  mgr_type: string | null;
+  /** 以下四项实测填充率均为 0% */
+  appointment_date: string | null;
+  sum_scale: number | null;
+  best_return: number | null;
+  avatar_url: string | null;
+  /** 任职基金**总数**（非返回条数——列表有 fund_limit 上限，两者不同） */
+  fund_count: number;
+  funds: ManagerProfileFund[];
+}
+
+/** 基金经理资料。入参是 mgr_code 而非姓名（库内重名，姓名不是唯一键）。 */
+export function getManagerProfile(params: {
+  mgr_code: string;
+  fund_limit?: number;
+}) {
+  return http.request<ApiResponse<ManagerProfileResult>>(
+    "get",
+    "/api/products/manager-profile/",
+    { params }
+  );
+}
+
+/** 跨渠道关联标的条目（`/api/products/related-symbols/` 返回） */
+export interface RelatedSymbolLink {
+  /** 关联标的**裸代码**（关系表统一存裸代码，无市场前缀） */
+  code: string;
+  /** 名称；缺失时为 null，前端降级显示代码 */
+  name: string | null;
+  /** 关系类型：index_etf（指数↔场内ETF）/ etf_feeder（场内ETF↔场外联接） */
+  link_type: "index_etf" | "etf_feeder";
+  /** 按本标的角色决定的称呼，如「同标的 ETF」「跟踪指数」「场外联接」 */
+  label: string;
+}
+
+/** 关联标的聚合结果（#1976）。links 为空即无关联，前端降级「—」，不是错误。 */
+export interface RelatedSymbolsResult {
+  links: RelatedSymbolLink[];
+  /** 按出现顺序去重的分组标签，用于分区展示 */
+  groups: string[];
+}
+
+/**
+ * 跨渠道关联标的（指数 ↔ 场内 ETF ↔ 场外联接）。
+ *
+ * 关系靠名称匹配建立，落库口径覆盖率约 66.4%（跨境 / 商品 ETF 缺口见 #1419），
+ * 故**无关联是正常情形**，后端返回空列表而非 404。
+ */
+export function getRelatedSymbols(params: { symbol: string }) {
+  return http.request<ApiResponse<RelatedSymbolsResult>>(
+    "get",
+    "/api/products/related-symbols/",
+    { params }
+  );
+}
+
 /** 场内单根 K 线（#1969） */
 export interface ProductTrendOhlc {
   date: string;

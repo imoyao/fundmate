@@ -5,6 +5,7 @@ import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import { getPositions } from "@/api/positions";
+import { getSymbolXirr } from "@/api/performance";
 import type { Position } from "@/api/types";
 import { formatQuantity } from "@/utils/format";
 // 计算口径单独成模块，由 __tests__/productPositionMetrics.spec.ts 钉住：
@@ -17,7 +18,7 @@ import {
 } from "./productPositionMetrics";
 
 /**
- * 详情页「我的持仓」区块（#1966 · 设计 §4.2；#2005 重做信息密度）。
+ * 详情页「我的持仓」区块（#1966 · 设计 §4.2；#2005 重做信息密度；持有年化由 #1972 补齐）。
  *
  * 数据来自 `GET /api/positions/?symbol=&market=`，过滤在**后端下推到 SQL**
  * （#1966 同期新增的过滤参数），不在前端拉全量再筛——后者是数据策略硬约束 §6 明令禁止的。
@@ -40,6 +41,9 @@ import {
  * - 盈亏率 = 盈亏 ÷ 持仓成本（成本单价 × 持有数量），与持仓列表页同一口径；
  * - 持仓天数用后端派生字段 `holding_days`（#862），多笔取**最短**（最早建仓那笔），
  *   不做平均——「拿了多久」的自然是第一笔；
+ * - 持有年化 = 跨账户按 symbol 汇总现金流的 XIRR（`scope=symbol`，#1972），与上面的
+ *   持仓行**同一套 symbol 归一口径**（后端 `services/symbol_scope.py` 收口），
+ *   所以「列表有几行、年化就算几个账户」不会打架；
  * - 涨跌颜色交给 `RiseFallText` / `MoneyDisplay` 的 autoColor（涨红跌绿语义变量），
  *   此处不自己拼颜色。
  *
@@ -58,6 +62,8 @@ const props = defineProps<{
 
 const loading = ref(false);
 const rows = ref<Position[]>([]);
+/** 产品级持有年化（XIRR，小数）；`null` = 无数据 / 拉取失败，模板显示 `—` */
+const xirr = ref<number | null>(null);
 
 interface ChannelGroup extends ChannelTotals {
   key: string;
@@ -105,6 +111,7 @@ const accountPath = (ledgerId: number | null) =>
 async function load() {
   if (!props.symbol) return;
   loading.value = true;
+  xirr.value = null;
   try {
     const res = await getPositions({
       symbol: props.symbol,
@@ -114,10 +121,24 @@ async function load() {
     rows.value = res.data ?? [];
   } catch {
     // 拉不到就当作「暂无持仓」：这是详情页的附属区块，不该为它显示错误态，
-    // 更不该显示假数据。整块 v-if="hasRows" 会随之隐藏。
+    // 更不该显示假数据。rows 置空后，正文转为「当前产品暂无持仓记录」空态。
     rows.value = [];
   } finally {
     loading.value = false;
+  }
+  // 持有年化跟着同一次刷新走；没有持仓行时不发请求（正文只剩空态提示）
+  if (rows.value.length) void loadXirr();
+}
+
+async function loadXirr() {
+  try {
+    const res = await getSymbolXirr(props.symbol);
+    // cashflow_count = 0 表示该产品无成交：后端给的是全 0 结构，按「无数据」显示 `—`
+    const data = res.data;
+    xirr.value = data && data.cashflow_count > 0 ? data.xirr : null;
+  } catch {
+    // 持有年化是锦上添花的指标，拉不到就降级 `—`，不惊动整块持仓列表
+    xirr.value = null;
   }
 }
 
@@ -125,14 +146,40 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
 </script>
 
 <template>
-  <CardBlock v-if="hasRows" class="product-position">
+  <CardBlock class="product-position">
     <template #header>
-      <SectionHeader title="我的持仓" />
+      <SectionHeader
+        title="我的持仓"
+        info="按渠道（账户）分列；盈亏率 = 盈亏 ÷ 持仓成本。未归档持仓单独一组。持有年化为跨账户合并现金流后的 XIRR。"
+        info-label="关于持仓口径"
+      >
+        <template #action>
+          <!-- 持有年化挂在标题右侧，不占表格列（#1972）。区块已由 detail.vue 的
+               has_position 门槛保证「确有持仓」才挂载，故不再判 rows.length。 -->
+          <p class="product-position__xirr">
+            <span class="product-position__xirr-label">持有年化</span>
+            <RiseFallText
+              v-if="xirr !== null"
+              :value="xirr"
+              size="sm"
+              :precision="2"
+            />
+            <span v-else class="product-position__xirr-empty">—</span>
+          </p>
+        </template>
+      </SectionHeader>
     </template>
 
     <div v-loading="loading" class="product-position__body">
+      <!-- 拉取中 / 拉不到时 hasRows 为假：给一句明确的空态，而不是让整块凭空消失。
+           原先 CardBlock 挂 v-if="hasRows"，连带让这里的 v-loading 永远不触发——
+           加载中 hasRows 必为假、整块不渲染，遮罩自然无处可挂，故改为空态接管。 -->
+      <p v-if="!loading && !hasRows" class="product-position__hint">
+        当前产品暂无持仓记录。
+      </p>
+
       <!-- 单账户：不进表格、不重复表头，走紧凑指标网格 -->
-      <template v-if="single">
+      <template v-else-if="single">
         <div class="product-position__channel">
           <router-link
             v-if="single.ledgerId"
@@ -426,6 +473,31 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
 
 .product-position__table tfoot td:first-child {
   font-weight: 400;
+  color: var(--text-tertiary-ink);
+}
+
+/* 产品级持有年化（#1972）：挂在区块标题右侧，不占表格列 */
+.product-position__xirr {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.product-position__xirr-label {
+  font-size: 12px;
+  color: var(--text-tertiary-ink);
+}
+
+.product-position__xirr-empty {
+  color: var(--text-tertiary-ink);
+}
+
+/* 空态提示（拉取失败 / 确无记录） */
+.product-position__hint {
+  margin: 0;
+  font-size: 13px;
   color: var(--text-tertiary-ink);
 }
 </style>

@@ -108,7 +108,7 @@ workflow 已按如下三处改（定义仍在 `main`，因为 `schedule` 只认�
 
 | 项 | 修复 |
 |----|------|
-| 调度分支 | `actions/checkout` 显式 `ref: ${{ env.SCHEDULER_REF }}`（默认 `dev`）→ **实际执行 dev 代码**，避开 main 的旧代码 |
+| 调度分支 | `actions/checkout` 显式 `ref: $&#123;&#123; env.SCHEDULER_REF }}`（默认 `dev`）→ **实际执行 dev 代码**，避开 main 的旧代码 |
 | 失败告警 | job 失败时用 `actions/github-script` **自动开/更新一个 tracking issue**（`permissions: issues: write`） |
 | secrets 预检 | 新增「校验必需 secrets」步骤：缺失即 `exit 1` 并 `::error` 列出缺失项 —— 不再出现「secret 展开为空串 → `create_engine('')` → ArgumentError、真因不可见」 |
 
