@@ -346,7 +346,7 @@ watch(() => props.code, load, { immediate: true });
 }
 
 .advisor-section__metrics {
-  margin-top: var(--space-4);
+  margin-top: var(--space-3);
 }
 
 .advisor-section__metrics-title {
@@ -393,14 +393,14 @@ watch(() => props.code, load, { immediate: true });
 }
 
 .advisor-section__desc {
-  margin: var(--space-4) 0 0;
+  margin: var(--space-3) 0 0;
   font-size: 13px;
   line-height: 1.6;
   color: var(--text-secondary);
 }
 
 .advisor-section__block {
-  margin-top: var(--space-4);
+  margin-top: var(--space-3);
 }
 
 .advisor-section__holdings {

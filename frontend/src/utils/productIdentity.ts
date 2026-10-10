@@ -45,7 +45,12 @@ export interface ProductRef {
  * 「投顾组合」+ 平台，我方组合页写「我的组合」。路由层面不会互相命中（首段
  * `portfolio` vs `asset` 不同、末段平台码 vs 数字 id 不同）。推演见 #1975 评论。
  */
-export const DETAIL_ASSET_TYPES = ["fund", "stock", "manager", "portfolio"] as const;
+export const DETAIL_ASSET_TYPES = [
+  "fund",
+  "stock",
+  "manager",
+  "portfolio"
+] as const;
 
 export type DetailAssetType = (typeof DETAIL_ASSET_TYPES)[number];
 
