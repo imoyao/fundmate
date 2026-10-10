@@ -55,18 +55,21 @@
 #   review:deepseek   → 沿用旧标签名，落到 cheap 档（GLM 5.3 / 豆包 Turbo）
 # 优先级（MODEL_PRIORITY，可在下方步骤覆盖）：pro,cheap（质量优先；想省钱改成 cheap,pro）
 #
-# 产出校验（2026-10-10 前叫「防假成功」）：deep-review 在 AI 审查 step 之后校验
-#   「本轮是否在 PR 上发布了评论」。
+# 产出判定（2026-10-10 前叫「防假成功」）：deep-review 在 AI 审查 step 之后判定
+#   「本轮是否在 PR 上发布了评论」，并把结论拆成三种状态。
 #   2026-09-11 补强：原逻辑只看「探测是否选中健康模型」，但探测只发一次极短请求、真实审查是
 #   长上下文 + 多轮 agent，两者限流概率不同——PR #1412 实测到「探测 200 通过、实调用 429、
 #   一条评论都没发」却被判成功。
-#   2026-09-17：校验逻辑抽到 scripts/ai_review_verify_guard.js（两轮共用，避免复制漂移）；
-#   第 1 轮失败由 continue-on-error 接住并触发换模型重试，第 2 轮失败才判 job 红。
-#   ⚠️ 2026-10-10 修订（用户裁决）：把「上游模型不可用」与「本轮产出异常」分开——
-#     · 上游不可用（探测未选中健康模型，或探测通过但实调零产出）→ **job 保持通过**，
-#       只打醒目 warning + 写 step summary 留痕。理由：这类红灯的含义是「审查没跑成」，
-#       不是「代码有问题」，红灯一多就没人看了（对红灯麻木，真问题反被淹没）；
-#     · 只产出了 agent 协议信封泄漏并被清理（本仓兜底路径的自身缺陷）→ **仍判失败**。
+#   2026-09-17：判定逻辑抽到 scripts/ai_review_verify_guard.js（两轮共用，避免复制漂移）；
+#   第 1 轮不产出即触发换模型重试，第 2 轮是终局。
+#   ⚠️ 2026-10-10 修订（用户裁决）：guard **不再自行决定红绿**，只输出 verdict，由
+#     `deep-review-verdict` job 用 `if` 承接为三种状态：
+#       · verdict=upstream_unavailable（探测未选中健康模型，或探测通过但实调零产出）
+#         → 判定 job **skipped**。既不是 pass（「没审查」≠「审查通过」），也不再是
+#         failure —— 那些红灯的含义本来是「审查没跑成」，红多了没人看，真问题反被淹没；
+#       · verdict=own_defect（只产出了 agent 协议信封泄漏并被清理）→ 判定 job **failure**
+#         —— 那是本仓兜底路径的自身缺陷，才是「真有问题」；
+#       · verdict=audited → 判定 job **success**。
 #     取舍与残留缺口见 scripts/ai_review_verify_guard.js 头部注释、docs/spec/ai-review.md。
 #
 # 前置：仓库 Settings → Secrets → Actions 新增
@@ -105,6 +108,12 @@ jobs:
   # 前置：仓库 Settings → Secrets → Actions 新增 ARK_API_KEY_CODEREVIEW（2026-09-17 起不再需要 ZHIPU_API_KEY）。
   deep-review:
     runs-on: ubuntu-latest
+    # 本 job 只负责**跑审查并输出结论**（verdict 由 guard 判定，见
+    # scripts/ai_review_verify_guard.js）。红绿与「skipped」由下方
+    # `deep-review-verdict` job 用 `if` 承接 —— 原因见该 job 的注释。
+    outputs:
+      # 第 2 轮跑过就用它的结论，否则用第 1 轮（第 1 轮 audited 时第 2 轮不跑）
+      verdict: ${{ steps.verify_2.outputs.verdict || steps.verify_1.outputs.verdict }}
     steps:
       - name: 拉取代码
         uses: actions/checkout@v5
@@ -213,11 +222,14 @@ jobs:
           VCS__HTTP_CLIENT__API_URL: "https://api.github.com"
           VCS__HTTP_CLIENT__API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 校验深度线路评论已发布（第 1 轮 · 防假成功）
+      - name: 判定深度线路产出（第 1 轮 · guard 输出 verdict）
         id: verify_1
         if: ${{ github.event_name == 'pull_request' }}
-        # 第 1 轮失败不当场终局（continue-on-error）：只用于触发下方换模型重试。
-        # 真正决定 job 红绿的是第 2 轮校验（那里没有 continue-on-error）。
+        # guard 自 2026-10-10 起**不再 setFailed**，只输出 verdict
+        # （audited / upstream_unavailable / own_defect）。verdict != audited 即触发下方
+        # 换模型重试；红绿与 skipped 由 `deep-review-verdict` job 用 `if` 承接。
+        # continue-on-error 保留：guard 自身抛错（如 API 抖动）不该中断主流程 ——
+        # 此时 verdict 为空，同样落到「换模型重试」这条路径上。
         continue-on-error: true
         uses: actions/github-script@v7
         env:
@@ -240,7 +252,7 @@ jobs:
       # ============================================================================
       - name: 探测可用模型（第 2 轮 · 排除第 1 轮模型）
         id: probe_2
-        if: ${{ github.event_name == 'pull_request' && steps.verify_1.outcome == 'failure' }}
+        if: ${{ github.event_name == 'pull_request' && steps.verify_1.outputs.verdict != 'audited' }}
         env:
           ARK_API_KEY_CODEREVIEW: ${{ secrets.ARK_API_KEY_CODEREVIEW }}
           REVIEW_TIER: ${{ steps.resolve-labels.outputs.tier }}
@@ -251,7 +263,7 @@ jobs:
 
       - name: AI 深度审查（第 2 轮 · 换模型）
         id: review_2
-        if: ${{ github.event_name == 'pull_request' && steps.verify_1.outcome == 'failure' }}
+        if: ${{ github.event_name == 'pull_request' && steps.verify_1.outputs.verdict != 'audited' }}
         continue-on-error: true
         uses: Nikita-Filonov/ai-review@v0.76.0
         with:
@@ -271,8 +283,9 @@ jobs:
           VCS__HTTP_CLIENT__API_URL: "https://api.github.com"
           VCS__HTTP_CLIENT__API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 校验深度线路评论已发布（第 2 轮 · 防假成功，决定 job 红绿）
-        if: ${{ github.event_name == 'pull_request' && steps.verify_1.outcome == 'failure' }}
+      - name: 判定深度线路产出（第 2 轮 · guard 输出 verdict，终局）
+        id: verify_2
+        if: ${{ github.event_name == 'pull_request' && steps.verify_1.outputs.verdict != 'audited' }}
         uses: actions/github-script@v7
         env:
           AI_REVIEW_ROUND: "2"
@@ -285,10 +298,44 @@ jobs:
             await require(path)({ github, context, core });
 
       - name: 故障转移结果
-        if: ${{ always() && steps.verify_1.outcome == 'failure' }}
+        if: ${{ always() && steps.verify_1.outputs.verdict != 'audited' }}
         run: |
-          if [ "${{ steps.verify_2.outcome }}" = "success" ]; then
+          if [ "${{ steps.verify_2.outputs.verdict }}" = "audited" ]; then
             echo "::notice::第 1 轮（${{ steps.probe.outputs.model }}）零产出，已自动换模型（${{ steps.probe_2.outputs.model }}）重试成功。"
           else
-            echo "::warning::两轮 AI 审查均未产出评论：第 1 轮 ${{ steps.probe.outputs.model }}、第 2 轮 ${{ steps.probe_2.outputs.model }}。请核对探测输出里的 429 / 额度告警。"
+            echo "::warning::两轮 AI 审查均未产出评论（verdict=${{ steps.verify_2.outputs.verdict || steps.verify_1.outputs.verdict }}）：第 1 轮 ${{ steps.probe.outputs.model }}、第 2 轮 ${{ steps.probe_2.outputs.model }}。判定 job 将按 verdict 显示为 skipped（上游不可用）或 failure（自身缺陷）。"
           fi
+
+  # ── 判定 job（2026-10-10 新增）：把「没审查」与「审查通过」分开 ────────────────────
+  #
+  # WHY 单独一个 job：GitHub Actions 里 job 一旦开始执行就**无法把自身标成 skipped**
+  #   —— `skipped` 只在 job 级 `if` 未通过时产生，而「上游模型是否可用」只有执行到
+  #   探测 / 实调时才知道（本 workflow 顺序：先跑审查，再来这里判定）。
+  #   故由本 job 用 `if` 承接 deep-review 输出的 verdict：
+  #     verdict=upstream_unavailable → 本 job **skipped**（表示「本轮未执行审查」，
+  #                                    不阻塞合并，但**绝不是**「审查通过」）
+  #     verdict=own_defect           → 本 job **failure**（只产出协议信封泄漏，自身缺陷）
+  #     verdict=audited              → 本 job **success**
+  #   历史口径（2026-10-10 之前）：guard 内部一律 setFailed，于是上游 429 / 额度耗尽
+  #   期间每个 PR 都挂一个红灯 —— 而那个红灯的含义其实是「审查没跑成」，红灯一多就没人看了。
+  deep-review-verdict:
+    needs: deep-review
+    if: ${{ always() && github.event_name == 'pull_request' && needs.deep-review.outputs.verdict != 'upstream_unavailable' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: 判定 AI 审查结论
+        run: |
+          verdict="${{ needs.deep-review.outputs.verdict }}"
+          case "$verdict" in
+            audited)
+              echo "::notice::AI 审查已执行并有产出（verdict=audited）。"
+              ;;
+            own_defect)
+              echo "::error::AI 审查只产出了 agent 协议信封泄漏评论并被清理 —— 这是本仓 agent 兜底路径的自身缺陷（未返回 FINAL 时把 TOOL_CALL 原文当最终答案），不是上游故障。排查见 deep-review 运行里「判定深度线路产出」步骤的日志与 step summary。"
+              exit 1
+              ;;
+            *)
+              echo "::error::deep-review 未给出结论（verdict='$verdict'），但本 job 未被跳过 —— 说明判定步骤缺失或 deep-review job 本身失败，请查看其日志。"
+              exit 1
+              ;;
+          esac

@@ -13,13 +13,13 @@
  *   AI_REVIEW_SELECTED_OK 本轮探测有没有选中健康模型（steps.probe*.outputs.selected_ok）
  *   AI_REVIEW_ROUND       轮次（1 / 2），仅用于日志措辞
  *
- * 退出语义（2026-10-10 修订）：
- *   · 产出有效评论 → 正常返回（pass）；
- *   · **未产出 + 上游模型不可用** → 也正常返回（pass），但打醒目 warning + 写 step summary 留痕
- *     —— 用户裁决：模型不可用属上游故障，不该阻塞合并（红灯一多，真问题反而被淹没）；
- *   · **未产出 + 只产出了协议信封泄漏**（本仓 agent 兜底路径的自身缺陷）→ core.setFailed()，job 红。
- *   —— 第 1 轮失败由 workflow 的 continue-on-error 接住（只触发换模型重试，不终局）；
- *   —— 第 2 轮没有 continue-on-error，失败即 job 红。
+ * 输出语义（2026-10-10 修订）：本脚本**只判定并输出 `verdict`，不决定任何 job 的红绿**
+ *   —— 原因见下方 verdict 判定处的长注释（Actions 里 job 一旦开始执行就无法自我 skip）。
+ *   · `audited`——本轮确实产出了评论（含「历史评论兜底」分支）；
+ *   · `upstream_unavailable`——其余零产出（上游模型不可用 / 限流 / 欠费）→ 对应 workflow 的
+ *     `deep-review-verdict` job 被 **skipped**（「没审查」不等于「审查通过」）；
+ *   · `own_defect`——只产出了 agent 协议信封泄漏并被清理（本仓兜底路径自身缺陷）→ 那个 job **failure**。
+ *   两轮共用：第 1 轮的 verdict 决定要不要换模型重试，第 2 轮的 verdict 是终局。
  */
 module.exports = async function verifyAiReviewComments({ github, context, core }) {
   const pr = context.payload.pull_request.number;
@@ -142,13 +142,15 @@ module.exports = async function verifyAiReviewComments({ github, context, core }
 
   if (hadNew && aiComments > 0) {
     core.info(`第 ${round} 轮深度线路已发布评论，计数 ${before} → ${after}`);
+    core.setOutput('verdict', 'audited');
+    core.setOutput('reason', '本轮产出了评论');
     return;
   }
   if (selectedOk && aiComments > 0) {
     // 2026-09-11 PR #1411 实测：本轮一条评论都没产出，却因为有 22 条**历史** AI 评论
     // 而被判成功——这是假成功的残留缺口（无法区分「去重跳过」与「本轮静默失败」，
     // ai-review v0.76.0 不在 LLM 报错时非零退出，拿不到该信号）。
-    // 成功结论保持不变（历史评论尚在使用期内），但必须打出醒目告警，否则它会一直
+    // 结论保持不变（历史评论尚在使用期内），但必须打出醒目告警，否则它会一直
     // 伪装成"AI 审查通过"，让人误以为模型额度与 agent 都正常。
     core.warning(
       `⚠️ 第 ${round} 轮未新增评论，仅凭 PR 上已有的 ${aiComments} 条历史 AI 评论判为成功。` +
@@ -161,6 +163,8 @@ module.exports = async function verifyAiReviewComments({ github, context, core }
       '提示：要彻底堵住这个缺口，需 ai-review action 自身在 LLM 报错时非零退出；' +
         ' 当前版本（v0.76.0）不提供该信号，见 tech-debt。'
     );
+    core.setOutput('verdict', 'audited');
+    core.setOutput('reason', `本轮未新增评论，仅凭 ${aiComments} 条历史 AI 评论判定`);
     return;
   }
   // 未新增评论必须再分两种，**不能只看「探测是否选中健康模型」**。
@@ -172,50 +176,58 @@ module.exports = async function verifyAiReviewComments({ github, context, core }
   // 另：若本次只产出了「协议泄漏评论」且已被步骤 2 全部删除，aiComments 会归零，
   // 同样落到这里判失败（本次确实没有面向用户的有效产出）。
   //
-  // ── 2026-10-10 修订（用户裁决）：把「上游模型不可用」与「本轮产出异常」分开 ──────────
-  // 此前这里**无条件** setFailed，于是上游 429 / 额度耗尽期间每个 PR 都挂一个红灯。
-  // 但这个红灯的含义是「审查没跑成」，**不是**「代码有问题」——红灯一多就没人看了
-  // （对红灯麻木，真问题反而被淹没）。用户裁决：模型不可用 → CI 直接 pass。
+  // ── 2026-10-10 修订：判定「已审查 / 上游不可用 / 自身缺陷」，**只输出、不决定红绿** ──────
+  // 修订 1：此前这里**无条件** setFailed，于是上游 429 / 额度耗尽期间每个 PR 都挂一个红灯。
+  //   但那个红灯的含义是「审查没跑成」，**不是**「代码有问题」——红灯一多就没人看了。
+  // 修订 2（用户裁决）：也**不能**记 pass ——「没审查」与「审查通过」是两件事，在 GitHub
+  //   里分别对应 **skipped** 与 **success**。但 Actions 有个硬约束：job 一旦开始执行，
+  //   就无法把自身标成 skipped（skipped 只在 job 级 `if` 未通过时产生），而「模型是否可用」
+  //   只有执行到探测 / 实调时才知道。
+  //   ⇒ 故本脚本**只判定并输出 verdict**，红绿由 workflow 的 `deep-review-verdict` job
+  //     用 `if` 承接（见 .github/workflows/ai-review.yml）：
+  //       verdict=upstream_unavailable → 那个 job **显式 skipped**（没审查 ≠ 审查通过）
+  //       verdict=own_defect           → 那个 job **failure**（自身缺陷，该红）
+  //       verdict=audited              → 那个 job **success**
   //
-  // 新的两分法：
-  //   · **只产出了协议信封泄漏**（purged > 0 且清理后 aiComments 归零）→ **仍判失败**。
-  //     那是本仓 agent 兜底路径的缺陷（未返回 FINAL 时把 TOOL_CALL 原文当最终答案，见步骤 2），
-  //     属「我们自己的问题」，该红。
-  //   · **其余零产出**（探测未选中健康模型，或探测通过但实调零产出）→ **job 保持通过**，
-  //     判为「上游模型不可用」。但必须打醒目 warning + 写 step summary ——
-  //     否则绿色会被读成「审查通过、代码没问题」，那是另一种假成功。
+  // 判定口径：
+  //   · **只产出了协议信封泄漏**（purged > 0 且清理后 aiComments 归零）→ `own_defect`：
+  //     本仓 agent 兜底路径的缺陷（未返回 FINAL 时把 TOOL_CALL 原文当最终答案，见步骤 2）。
+  //   · **其余零产出**（探测未选中健康模型，或探测通过但实调零产出）→ `upstream_unavailable`。
   //
-  // 已知取舍（不装作没有）：放宽后，「模型正常但本轮静默失败」也会通过 —— 该信号
-  // ai-review v0.76.0 不提供（见上方历史注释），只能靠 warning + summary 让人看见。
-  // 残留缺口：历史 AI 评论已存在而本轮静默失败时，仍走上面的「成功 + 告警」分支。
+  // 已知取舍（不装作没有）：「模型正常但本轮静默失败」也会被判为 upstream_unavailable ——
+  // 该信号 ai-review v0.76.0 不提供（见上方历史注释），只能靠 warning + summary 让人看见。
+  // 残留缺口：历史 AI 评论已存在而本轮静默失败时，仍走上面的「audited + 告警」分支。
   const onlyEnvelopeLeak = purged > 0 && aiComments === 0;
+  let verdict;
+  let reason;
   if (onlyEnvelopeLeak) {
-    core.setFailed(
-      `第 ${round} 轮深度线路只产出了「agent 协议信封泄漏」评论并已全部清理`
-      + `（selected_ok=${selectedOk}，清理后 AI 评论数=${aiComments}，本轮新增=${hadNew}，已清理=${purged}）。`
-      + '这是本仓 agent 兜底路径的缺陷（未返回 FINAL 时把 TOOL_CALL 原文当答案），属自身问题而非上游故障，'
-      + '故仍判失败；排查见「清理协议泄漏」步骤的日志。'
+    verdict = 'own_defect';
+    reason = '只产出了 agent 协议信封泄漏评论并已全部清理'
+      + '（本仓 agent 兜底路径缺陷：未返回 FINAL 时把 TOOL_CALL 原文当最终答案）';
+    core.warning(`⚠️ 第 ${round} 轮${reason} → verdict=\`own_defect\`，判定 job 会因此变红。`);
+  } else {
+    verdict = 'upstream_unavailable';
+    reason = selectedOk === false
+      ? '探测阶段未选中任何健康模型（候选均不可用 / 429 / 限流 / 欠费）'
+      : '探测选中了模型，但本轮实调未产出评论（历史同型：探测 200 通过、真实调用 429，见 #1412 / #1567）';
+    core.warning(
+      `⚠️ 第 ${round} 轮深度线路未产出评论 → verdict=\`upstream_unavailable\`（上游模型不可用，非代码问题）。`
+      + ` 原因：${reason}。selected_ok=${selectedOk}，清理后 AI 评论数=${aiComments}，本轮新增=${hadNew}。`
+      + ' ⚠️ 判定 job 会被标记为 **skipped**——「本轮未执行审查」**不等于**审查通过。'
     );
-    return;
   }
-
-  const reason = selectedOk === false
-    ? '探测阶段未选中任何健康模型（候选均不可用 / 429 / 限流 / 欠费）'
-    : '探测选中了模型，但本轮实调未产出评论（历史同型：探测 200 通过、真实调用 429，见 #1412 / #1567）';
-  core.warning(
-    `⚠️ 第 ${round} 轮深度线路未产出评论 → 判为**上游模型不可用（非代码问题）**，job 保持通过。`
-    + ` 原因：${reason}。selected_ok=${selectedOk}，清理后 AI 评论数=${aiComments}，本轮新增=${hadNew}。`
-    + ' ⚠️ 本轮**没有审查结论**：这个绿色只表示「上游故障不阻塞合并」，不等于「代码没问题」。'
-    + ' 需要结论请手动重跑该 job。'
-  );
+  core.setOutput('verdict', verdict);
+  core.setOutput('reason', reason);
   if (core.summary) {
     await core.summary
-      .addHeading(`ai-review 第 ${round} 轮未执行：上游模型不可用（job 保持通过）`, 3)
+      .addHeading(`ai-review 第 ${round} 轮：${verdict}`, 3)
       .addRaw(
-        `- 原因：${reason}\n`
+        `- 判定：\`${verdict}\`\n`
+        + `- 原因：${reason}\n`
         + `- selected_ok=\`${selectedOk}\`，清理后 AI 评论数=${aiComments}，本轮新增=${hadNew}，协议泄漏已清理=${purged}\n`
-        + '- ⚠️ 本轮**没有**审查结论。绿色只代表「上游故障不阻塞合并」，不代表代码无问题。\n'
-        + '- 需要结论：手动重跑该 job，或等额度恢复 / 换模型。\n'
+        + (verdict === 'upstream_unavailable'
+          ? '- ⚠️ 本轮**没有**审查结论；`deep-review-verdict` 会显示为 **skipped**（表示「未执行」，不阻塞合并）。\n'
+          : '- ⚠️ 本轮只产出了协议信封泄漏评论并被清理，属本仓兜底路径缺陷。\n')
       )
       .write();
   }
