@@ -170,29 +170,30 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
 </script>
 
 <template>
+  <!-- SectionHeader 必须是 CardBlock 的**直接子节点**：CardBlock 只有一个匿名
+       <slot />，没有 header 具名插槽，写 <template #header> 会被 Vue 静默丢弃——
+       本组件曾这么写，结果标题、info 口径说明与持有年化整段不渲染。 -->
   <CardBlock class="product-position">
-    <template #header>
-      <SectionHeader
-        title="我的持仓"
-        info="按渠道（账户）分列；盈亏率 = 盈亏 ÷ 持仓成本。未归档持仓单独一组。持有年化为跨账户合并现金流后的 XIRR。"
-        info-label="关于持仓口径"
-      >
-        <template #action>
-          <!-- 持有年化挂在标题右侧，不占表格列（#1972）。区块已由 detail.vue 的
-               has_position 门槛保证「确有持仓」才挂载，故不再判 rows.length。 -->
-          <p class="product-position__xirr">
-            <span class="product-position__xirr-label">持有年化</span>
-            <RiseFallText
-              v-if="xirr !== null"
-              :value="xirr"
-              size="sm"
-              :precision="2"
-            />
-            <span v-else class="product-position__xirr-empty">—</span>
-          </p>
-        </template>
-      </SectionHeader>
-    </template>
+    <SectionHeader
+      title="我的持仓"
+      info="按渠道（账户）分列；盈亏率 = 盈亏 ÷ 持仓成本。未归档持仓单独一组。持有年化为跨账户合并现金流后的 XIRR。"
+      info-label="关于持仓口径"
+    >
+      <template #action>
+        <!-- 持有年化挂在标题右侧，不占表格列（#1972）。区块已由 detail.vue 的
+             has_position 门槛保证「确有持仓」才挂载，故不再判 rows.length。 -->
+        <p class="product-position__xirr">
+          <span class="product-position__xirr-label">持有年化</span>
+          <RiseFallText
+            v-if="xirr !== null"
+            :value="xirr"
+            size="sm"
+            :precision="2"
+          />
+          <span v-else class="product-position__xirr-empty">—</span>
+        </p>
+      </template>
+    </SectionHeader>
 
     <div v-loading="loading" class="product-position__body">
       <!-- 拉取中 / 拉不到时 hasRows 为假：给一句明确的空态，而不是让整块凭空消失。
@@ -446,11 +447,9 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
   border-radius: var(--radius-md);
 }
 
-.product-position :deep(.card-block__header) {
-  padding-bottom: var(--space-compact);
-  margin-bottom: var(--space-compact);
-  border-bottom: 1px solid var(--border-light);
-}
+/* 标题与正文的间距由 SectionHeader 自带的 margin-bottom 给，
+   此处不再写 :deep(.card-block__header) —— CardBlock 是纯容器
+   （<section class="card-block"><slot /></section>），根本没有这个元素。 */
 
 .product-position__body {
   font-size: 13px;
