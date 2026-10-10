@@ -19,6 +19,13 @@ E 账户导入用**同一个快照值**同时填 `avg_price` 与 `current_price`
    `MAX_INTRADAY_STALENESS_DAYS`(10 天) 的**不写**。同步链路断掉时宁可保持原值
    （页面本就有「数据滞后」提示），也不要把更旧的数据覆盖进来，制造「刚更新过」的假象。
 3. **价格单位走 `Money.yuan_to_price_units`**（0.0001 元 / 4 位小数，见 #1099）：禁止裸乘除 float。
+4. **同批写「上一确认价」（#2007）**：`prev_close` 与 `price_date` 跟 `current_price`
+   **来自同一次查询的相邻两根**——分别是上一确认价、以及该价对应的交易日。上层据此算
+   「当日盈亏 = (current_price − prev_close) × quantity」。
+   分两次取（各自取「最新」）会让两个数落在不同时点，相减出来的是两段行情之差、
+   不是「当日」涨跌，故必须同批。
+   取不到上一根 / 无当日涨跌可言（货基按面值）时**留 NULL**（前端降级「—」），
+   **绝不写 0**——0 会被读成「今天没涨没跌」，那是编造。
 
 ## 目标池与数据域
 
@@ -34,7 +41,7 @@ E 账户导入用**同一个快照值**同时填 `avg_price` 与 `current_price`
 
 | 类型 | 处理 | 原因 |
 |---|---|---|
-| 货基（`asset_type='money_fund'` / `is_money_fund=True`） | 按**面值 1.0000 元**回写 | 货基每份净值恒为 1 元，收益体现在 `money_fund_daily_worth` 的万份收益（`money_fund_income` 链路）；**绝不读** `daily_worth`（错表残留见 #1554） |
+| 货基（`asset_type='money_fund'` / `is_money_fund=True`） | 按**面值 1.0000 元**回写（`prev_close` / `price_date` 留 NULL） | 货基每份净值恒为 1 元，收益体现在 `money_fund_daily_worth` 的万份收益（`money_fund_income` 链路）；**绝不读** `daily_worth`（错表残留见 #1554）。面值没有「上一日价差」，故当日盈亏基准留空而不是填 0 |
 | 场内（股票 / ETF / 可转债） | 按**最近交易日收盘价**（`price_history.close`，未复权）回写 | #1104 场内口径已拍板：已确认收盘价与估值不混；盘中实时价仍只走前端展示链路，不落库 |
 | `valuation_mode='balance'` | 跳过 | 无份额可乘，市值靠 `market_value_override` 人工录入 |
 | `asset_type` 缺失 / 未知 | 跳过 | 6 位数字代码在场外基金与场内 ETF 上**重叠**（如 510300），无显式类型时不敢猜 |
@@ -149,10 +156,12 @@ class PositionPriceSyncJob(SyncJob):
 
         # ── 第二步：批量取 market 域已确认净值（唯一入口 NavService，禁 N+1） ──
         # allow_remote=False：本 job 是本地回写任务，绝不因为「库里没有」就替用户发起逐只抓取。
+        # get_latest_navs_with_prev（#2007）：一次拿到「最新净值 + 净值日 + 上一根」，
+        # 三个值同源同批。它是纯本地读（原 allow_remote=False 的等价收紧）。
         nav_map: Dict[str, tuple] = {}
         if fund_codes:
             try:
-                nav_map = NavService.get_latest_navs_with_dates(self.db, fund_codes, allow_remote=False)
+                nav_map = NavService.get_latest_navs_with_prev(self.db, fund_codes)
             except Exception as e:  # noqa: BLE001 - 读取失败不得让整批同步挂掉
                 self.logger.exception(f'读取基金净值失败：{e}')
                 errors.append(f'nav_read: {e}')
@@ -169,8 +178,13 @@ class PositionPriceSyncJob(SyncJob):
         # ── 第三步：写回 ──
         updated = 0
         unchanged = 0
+        # 「有价无基准」计数（#2007）：当日盈亏要 prev_close，缺了它前端只能显示「—」。
+        # 单独计数而没有塞进 skipped —— 这些持仓的 current_price **是写成功的**，
+        # 混进「跳过原因」会让「为什么没更新」这类提问拿到错误答案。
+        no_prev = 0
         today = today_shanghai()
         for pos, yuan in money_fund_writes:
+            # 货基面值恒定，没有「上一日价差」可言 → 基准留 NULL（不写 0），见模块 docstring
             if self._write_price(pos, yuan):
                 updated += 1
             else:
@@ -182,7 +196,7 @@ class PositionPriceSyncJob(SyncJob):
             if not entry:
                 _skip(SKIP_NO_NAV)
                 continue
-            nav, nav_date = entry
+            nav, nav_date, prev_nav = entry
             if nav is None or float(nav) <= 0:
                 _skip(SKIP_NO_NAV)
                 continue
@@ -190,10 +204,17 @@ class PositionPriceSyncJob(SyncJob):
                 # 新鲜度闸门：宁可保持原值，也不写入更旧的数据（见模块 docstring 硬约束 2）
                 _skip(SKIP_STALE_NAV)
                 continue
-            if self._write_price(pos, Decimal(str(nav))):
+            if self._write_price(
+                pos,
+                Decimal(str(nav)),
+                prev_close=Decimal(str(prev_nav)) if prev_nav else None,
+                price_date=nav_date,
+            ):
                 updated += 1
             else:
                 unchanged += 1
+            if prev_nav is None:
+                no_prev += 1
 
         # 场内（股票 / ETF / 可转债）：最近交易日收盘价 → current_price（#1104）
         for pos in intraday_positions:
@@ -201,7 +222,7 @@ class PositionPriceSyncJob(SyncJob):
             if not entry:
                 _skip(SKIP_NO_CLOSE)
                 continue
-            close_date, close = entry  # entry = (trade_date, close)
+            close_date, close, prev_close = entry  # entry = (trade_date, close, prev_close)
             if close <= 0:
                 _skip(SKIP_NO_CLOSE)
                 continue
@@ -209,10 +230,17 @@ class PositionPriceSyncJob(SyncJob):
                 # 行情链路断掉时保持原值，不把更旧的收盘价覆盖进来
                 _skip(SKIP_STALE_CLOSE)
                 continue
-            if self._write_price(pos, Decimal(str(close))):
+            if self._write_price(
+                pos,
+                Decimal(str(close)),
+                prev_close=Decimal(str(prev_close)) if prev_close else None,
+                price_date=close_date,
+            ):
                 updated += 1
             else:
                 unchanged += 1
+            if prev_close is None:
+                no_prev += 1
 
         try:
             self.db.commit()
@@ -229,6 +257,8 @@ class PositionPriceSyncJob(SyncJob):
                 'skipped': sum(skipped.values()),
                 'failed': 0 if not errors else 1,
                 'unchanged': unchanged,
+                # 有 current_price 却没 prev_close（当日盈亏算不出来）：见上方 no_prev 注释
+                'prev_close_missing': no_prev,
                 'skip_reasons': skipped,
                 'errors': errors,
             }
@@ -254,13 +284,18 @@ class PositionPriceSyncJob(SyncJob):
         )
 
     def _load_latest_closes(self, symbols: List[str]) -> Dict[str, tuple]:
-        """批量取 {symbol: (trade_date, close)}——`price_history` 内最近交易日的**未复权**收盘价。
+        """批量取 {symbol: (trade_date, close, prev_close)}——`price_history` 内最近交易日的
+        **未复权**收盘价，外加**上一根**收盘价（#2007 当日盈亏基准）。
 
-        一次拉回近 `INTRADAY_LOOKBACK_DAYS` 天的行再本地取最新（不做 per-symbol 子查询：
+        一次拉回近 `INTRADAY_LOOKBACK_DAYS` 天的行再本地取最新两根（不做 per-symbol 子查询：
         28 条持仓逐个查 max(trade_date) 就是 N+1）。`adj_close` 刻意不用——它是前复权价，
         会随分红除权重算，不能当「当前价」写进 positions（见 adapter 的口径说明）。
+
+        只有一根时 `prev_close` 为 `None`（调用方留 NULL，前端降级「—」），**不拿更早的行凑数**
+        ——跨过春节长假取「上一根」，算出来的多半不是「当日」涨跌。
         """
         out: Dict[str, tuple] = {}
+        buckets: Dict[str, List[tuple]] = {}
         cutoff = today_shanghai() - timedelta(days=INTRADAY_LOOKBACK_DAYS)
         for i in range(0, len(symbols), IN_CHUNK_SIZE):
             chunk = symbols[i : i + IN_CHUNK_SIZE]
@@ -271,10 +306,15 @@ class PositionPriceSyncJob(SyncJob):
                 .all()
             )
             for symbol, trade_date, close in rows:
-                # 已按 (symbol, trade_date desc) 排序：第一次出现即该 symbol 的最新一根
-                if symbol in out or close is None:
+                # 已按 (symbol, trade_date desc) 排序：每根按顺序落到该 symbol 的桶里，
+                # 桶里前两根即「最新」与「上一根」
+                if symbol is None or close is None:
                     continue
-                out[symbol] = (trade_date, float(close))
+                bucket = buckets.setdefault(symbol, [])
+                if len(bucket) < 2:
+                    bucket.append((trade_date, float(close)))
+        for symbol, bucket in buckets.items():
+            out[symbol] = (bucket[0][0], bucket[0][1], bucket[1][1] if len(bucket) > 1 else None)
         return out
 
     @staticmethod
@@ -304,16 +344,34 @@ class PositionPriceSyncJob(SyncJob):
         return SKIP_UNKNOWN_TYPE
 
     @staticmethod
-    def _write_price(pos: Position, yuan: Decimal) -> bool:
-        """把「元」写成 `current_price`（0.0001 元）；有变化返回 True。
+    def _write_price(
+        pos: Position,
+        yuan: Decimal,
+        *,
+        prev_close: Optional[Decimal] = None,
+        price_date=None,
+    ) -> bool:
+        """把「元」写成 `current_price`（0.0001 元），并同批落 `prev_close` / `price_date`
+        （#2007）；**任一字段有变化**即返回 True。
 
-        同价不写：避免每次调度都把 `positions.updated_at` 刷成今天，
-        让「持仓何时真正被更新过」这一信号失真。
+        「同价不写」的边界（#2007 修订）：价格、上一确认价、价格日期三者**全都没变**才不写。
+
+        只比 `current_price` 是不够的——同一价格连着两个交易日出现时（一字板 / 净值持平），
+        `current_price` 没变，但 `prev_close` 与 `price_date` **必须前进**；否则「当日盈亏」
+        会永远停在昨天那个数上，用户看到的是「今天的涨跌」写着一个昨天的差。
+        这样改仍保留了原意：不做无意义的重复写，`positions.updated_at` 只在
+        「这一次确实取到了新数据」时才动。
         """
         new_units = Money.yuan_to_price_units(yuan)
-        if new_units <= 0 or new_units == (pos.current_price or 0):
+        if new_units <= 0:
+            return False
+        prev_units = Money.yuan_to_price_units(prev_close) if prev_close is not None else None
+        if new_units == (pos.current_price or 0) and prev_units == pos.prev_close and price_date == pos.price_date:
             return False
         pos.current_price = new_units
+        # prev_close / price_date 成对落库：缺一个就算不出当日盈亏，所以不做「只写其中一个」
+        pos.prev_close = prev_units
+        pos.price_date = price_date
         return True
 
 
