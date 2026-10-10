@@ -10,6 +10,7 @@ import { assetTypeLabel, useEnumLabels } from "@/composables/useEnumLabels";
 import { useRealtimeQuotes } from "@/composables/useRealtimeQuotes";
 import { resolveProduct, type ProductResolveResult } from "@/api/products";
 import { isDetailAssetType, parseProductRef } from "@/utils/productIdentity";
+import ProductAdvisorSection from "./components/ProductAdvisorSection.vue";
 import ProductExternalLinksSection from "./components/ProductExternalLinksSection.vue";
 import ProductPositionSection from "./components/ProductPositionSection.vue";
 import ProductStockSection from "./components/ProductStockSection.vue";
@@ -210,6 +211,17 @@ watch(productRef, loadProduct, { immediate: true });
       <ProductManagerSection
         v-if="product.asset_type === 'manager'"
         :mgr-code="product.symbol"
+      />
+
+      <!-- 投顾组合（#1975）：仅投顾组合品类渲染。入参是平台组合码
+           （advisor_portfolios.code，如 ZH012926）——路由 `/portfolio/<symbol>`
+           传下来的就是它。组合类标的**不展示代码**（设计 §2.6），靠「名称 + 平台 +
+           机构」识别（设计要求写的「主理人」实测填充率只有 1.9%，故锚点落在机构上）。
+           调仓记录不在本区块渲染：速览抽屉已有，复用需先提取共用组件（设计 §7 已登记
+           为 B6 复评项），此处先给「档案 + 指标 + 成分」。 -->
+      <ProductAdvisorSection
+        v-if="product.asset_type === 'portfolio'"
+        :code="product.symbol"
       />
 
       <!-- 关联标的（#1976）：指数 ↔ 场内 ETF ↔ 场外联接，对所有品类都可能有关系，
