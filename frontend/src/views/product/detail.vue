@@ -132,13 +132,11 @@ watch(productRef, loadProduct, { immediate: true });
     </CardBlock>
 
     <template v-else-if="product">
+      <!-- 识别卡：只放事实项（代码 / 市场 / 场所 / 自选 / 持仓）。
+           名称与品类已由上面的 PageHeaderBar 页头承担（标题=产品名、副标题=品类），
+           此处再排一次 h2 名称 + 类型徽章是纯重复——用户实测「同一名称出现 4 次」，
+           故删掉卡内标题行，只留 facts。 -->
       <CardBlock class="product-detail__hero">
-        <div class="product-detail__hero-head">
-          <h2 class="product-detail__hero-name">{{ product.display_name }}</h2>
-          <span class="product-detail__hero-type">{{
-            assetTypeLabel(product.asset_type)
-          }}</span>
-        </div>
         <dl class="product-detail__facts">
           <div class="product-detail__fact">
             <dt class="product-detail__fact-label">代码</dt>
@@ -269,28 +267,11 @@ watch(productRef, loadProduct, { immediate: true });
   font-variant-numeric: tabular-nums;
 }
 
+/* 识别卡只有 facts 一行，无卡内标题（标题由页头承担，见上方注释） */
 .product-detail__hero {
   display: flex;
   flex-direction: column;
   gap: var(--space-compact);
-}
-
-.product-detail__hero-head {
-  display: flex;
-  gap: var(--space-3);
-  align-items: baseline;
-}
-
-.product-detail__hero-name {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.product-detail__hero-type {
-  font-size: 13px;
-  color: var(--text-tertiary-ink);
 }
 
 .product-detail__facts {
