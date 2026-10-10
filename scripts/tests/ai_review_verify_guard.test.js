@@ -65,18 +65,30 @@ function makeCore({ withSummary = true } = {}) {
   return core;
 }
 
-/** mock github.rest（只用到 4 个方法）。 */
+/** mock github.rest（只用到 4 个方法）。
+ *
+ *  删除**必须真的从数组里移除**：guard 在「清理协议泄漏」之后会重新列举评论来算
+ *  `aiComments`，那是终局判据（决定 job 红绿）。早期 mock 只记录删除、列表不变，
+ *  会让「清理后归零」这条路径在用例里失真 —— 真 API 删完再列举是不含该评论的。 */
 function makeGithub({ inline = [], general = [], reviews = [], deleted = [] }) {
+  let inlineData = inline;
+  let generalData = general;
   return {
     rest: {
       pulls: {
-        listReviewComments: async () => ({ data: inline }),
+        listReviewComments: async () => ({ data: inlineData }),
         listReviews: async () => ({ data: reviews }),
-        deleteReviewComment: async a => deleted.push(`inline#${a.comment_id}`),
+        deleteReviewComment: async a => {
+          deleted.push(`inline#${a.comment_id}`);
+          inlineData = inlineData.filter(c => String(c.id) !== String(a.comment_id));
+        },
       },
       issues: {
-        listComments: async () => ({ data: general }),
-        deleteComment: async a => deleted.push(`general#${a.comment_id}`),
+        listComments: async () => ({ data: generalData }),
+        deleteComment: async a => {
+          deleted.push(`general#${a.comment_id}`);
+          generalData = generalData.filter(c => String(c.id) !== String(a.comment_id));
+        },
       },
     },
   };
@@ -208,10 +220,46 @@ test('统计步骤自身抛错 → 不上抛、留「已跳过」告警、主判
 //    改这个脚本时，最该钉住的就是这三条 —— 它们直接决定 job 的红绿。
 // ---------------------------------------------------------------------------
 
-test('零产出（无任何 AI 评论）→ 仍 setFailed（防假成功语义）', async () => {
+test('零产出 + 探测未选中健康模型 → 不判失败（上游不可用），但必须留痕', async () => {
+  // 2026-10-10 修订（用户裁决）：模型不可用属**上游故障**，不该阻塞合并 —— 此前这里判 fail，
+  // 于是 429 / 额度耗尽期间每个 PR 都挂一个红灯，红灯一多就没人看了。
+  // 现改为 pass，但**必须**打 warning + 写 step summary，否则「绿色」会被读成
+  // 「审查通过、代码没问题」，那是另一种假成功。
   const { core } = await run({ before: '0', selectedOk: 'false', reviews: ONE_REVIEW });
-  assert.equal(core.calls.failed.length, 1, '必须判失败，否则假成功会伪装成通过');
-  assert.ok(core.calls.failed[0].includes('未产出任何有效评论'));
+  assert.deepEqual(core.calls.failed, [], '上游不可用不得判失败（本用例锁住新语义）');
+  assert.ok(
+    core.calls.warning.some(m => m.includes('上游模型不可用')),
+    '必须打醒目 warning，避免绿色被误读成审查通过'
+  );
+  const headings = core.calls.summary.filter(x => x[0] === 'heading').map(x => x[1]);
+  assert.ok(
+    headings.some(h => h.includes('未执行')),
+    '必须写 step summary 留痕（job 日志会过期，summary 随 run 保留）'
+  );
+});
+
+test('零产出 + 探测通过（历史 #1412 同型：探测 200、实调 429）→ 同样 pass，措辞区分得开', async () => {
+  const { core } = await run({ before: '0', selectedOk: 'true', reviews: ONE_REVIEW });
+  assert.deepEqual(core.calls.failed, [], '实调限流同属上游不可用');
+  assert.ok(
+    core.calls.warning.some(m => m.includes('探测选中了模型')),
+    '原因措辞应与「探测未选中」区分，便于事后归因（是探测挂了还是实调挂了）'
+  );
+});
+
+test('只产出协议信封泄漏（清理后归零）→ 仍 setFailed（自身缺陷，不是上游故障）', async () => {
+  // 这是「真有问题」的那一类：agent 未返回 FINAL 时把 TOOL_CALL 原文当最终答案（步骤 2 删评论），
+  // 清理后 aiComments 归零。它源自本仓兜底路径自身的缺陷，该红。
+  const { core, deleted } = await run({
+    before: '0',
+    inline: [
+      { id: 31, path: 'x.ts', line: 9, body: '{"action": "TOOL_CALL", "command": "git show"}' + INLINE_TAG },
+    ],
+    reviews: ONE_REVIEW,
+  });
+  assert.deepEqual(deleted, ['inline#31'], '泄漏评论必须被清理');
+  assert.equal(core.calls.failed.length, 1, '自身缺陷仍须判失败');
+  assert.ok(core.calls.failed[0].includes('协议信封泄漏'));
 });
 
 test('零产出但 PR 上已有历史 AI 评论 + 探测选中健康模型 → 不判失败，但打「假成功」告警', async () => {
