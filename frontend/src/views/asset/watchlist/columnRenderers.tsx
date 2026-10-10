@@ -88,16 +88,31 @@ export interface RenderCtx {
   /** 是否批量管理模式（true 时 actions 列显示 "-" 占位） */
   batchMode: boolean;
   /**
+   * 当前是否处于**自定义分组**视图（activeGroup 以 custom_ 开头）。
+   * 用途：操作列「移除」按钮的语义分流——自定义分组内的「移除」= 仅从当前分组移除，
+   * 持仓（HOLDING）资产同样允许；系统分组/全部视图下的「移除」= 彻底删除自选，
+   * 持仓资产在此禁用（持仓即自选，删除无意义，见 useWatchlistData.executeRemove）。
+   */
+  currentIsCustom: boolean;
+  /**
    * 是否处于「品类视图」（类型筛选命中单一品类，见 #1285）。
    * 用途：让产品列的分层信息行与**品类专属列**去重——例如基金经理的「所属公司」
    * 在经理品类视图已有独立列（`manager_company`），产品列就不该再重复显示一遍；
    * 混合视图没有该列，分层行仍需承担公司信息（否则经理行的公司无处可见）。
    */
   categoryView: boolean;
-  /** 当前 hover 行的 key（row.id ?? row.symbol，由 index.vue @cell-mouse-enter/leave 维护）。
-   *  操作列/产品列是 fixed 列，EP 固定列独立 DOM，CSS :hover 无法跨表同步，
-   *  因此行 hover 淡入必须由 JS 行 hover 状态驱动（见 design.md 行内操作交互规范）。 */
-  hoveredRowKey: string | number | null;
+  /**
+   * 当前 hover 行的 key（row.id ?? row.symbol，由 index.vue @cell-mouse-enter/leave 维护）。
+   * 操作列/产品列是 fixed 列，EP 固定列独立 DOM，CSS :hover 无法跨表同步，
+   * 因此行 hover 淡入必须由 JS 行 hover 状态驱动（见 design.md 行内操作交互规范）。
+   *
+   * ⚠️ 必须是**稳定 getter**，禁止改成直接读值（`hoveredRowKey: hoveredRowKey.value`）：
+   * 直读会把 hover 状态烧进 renderCtx 的对象身份——每次 mouseenter/leave 都让 computed
+   * 产出新对象，prop 身份变了，全表每个单元格（约「列数 × 行数」个）同步重渲染，
+   * 实测表现为悬停操作列时整表抖动、滚动条闪烁。改成 getter 后 ctx 身份恒定，
+   * 只有**在渲染里调用了本 getter 的产品列**才会订阅并重渲染（操作列只写不读，不重渲染）。
+   * （Vue 3 函数式组件在自己的渲染 effect 里执行：渲染期间读到的响应式依赖才触发该组件更新。） */
+  getHoveredRowKey: () => string | number | null;
   /** 手动设置 hover 行状态（fixed 列自身 hover 时自驱动，避免依赖主表 mouseenter） */
   setHoveredRowKey: (key: string | number | null) => void;
   /** 操作回调（actions 列） */
@@ -462,9 +477,12 @@ const renderProduct: FunctionalComponent<{
   const tagName = (tagId: number) =>
     ctx.allTags.find(t => t.id === tagId)?.name || "";
   // 行 hover 状态（add-tag 按钮在 fixed:left 产品列内，:hover 无法跨固定列 DOM 同步，需 JS 状态驱动）；
-  // 容器自身绑定 mouseenter/leave 自驱动，鼠标直接悬停产品列时也能亮起 add-tag 按钮
+  // 容器自身绑定 mouseenter/leave 自驱动，鼠标直接悬停产品列时也能亮起 add-tag 按钮。
+  // 经稳定 getter 读取（见 RenderCtx.getHoveredRowKey 注释）：hover 变化只重渲染本列，
+  // 不再牵动全表单元格。
+  const hoveredKey = ctx.getHoveredRowKey();
   const isRowHovered =
-    ctx.hoveredRowKey != null && ctx.hoveredRowKey === (row.id ?? row.symbol);
+    hoveredKey != null && hoveredKey === (row.id ?? row.symbol);
   const rowKey = row.id ?? row.symbol;
   /** 第二行最多展示的标签 chip 数，超出折叠为 +N（title 列出全部标签名） */
   const MAX_TAGS = 2;
@@ -638,6 +656,14 @@ const renderActions: FunctionalComponent<{
   // 置顶/加标签按钮的高亮（跨 fixed 列 DOM 无法用 :hover 同步），并非控制显隐。
   // 状态用图标颜色表达：已置顶 = 品牌色实心图钉；已关注 = 暖橙实心星。
   const editable = row.id != null;
+  /**
+   * 移除按钮是否被「持仓不可删」挡住——按**当前分组语义**分流，不再无条件按 HOLDING 禁用：
+   * - 自定义分组视图：移除 = 仅从当前分组摘除（分组是用户自管的元数据，与持仓不冲突）
+   *   → 持仓资产不禁用、正常可点；弹窗默认范围也落在「仅从当前分组移除」。
+   * - 系统分组 / 全部视图：移除 = 彻底删除自选记录，而持仓即自选（#1458），删了仍会回来
+   *   → 持仓资产禁用 + 保留原提示，引导用户先处理持仓。
+   */
+  const holdingBlocked = row.status === "HOLDING" && !ctx.currentIsCustom;
   const tooltipBtn = (
     tip: string,
     icon: string,
@@ -697,10 +723,10 @@ const renderActions: FunctionalComponent<{
         }
       ),
       tooltipBtn(
-        row.status === "HOLDING" ? "持仓资产无法直接从自选移除" : "移除",
+        holdingBlocked ? "持仓资产无法直接从自选移除" : "移除",
         "ep:delete",
         undefined,
-        row.status === "HOLDING" || !editable,
+        holdingBlocked || !editable,
         (e: Event) => {
           e.stopPropagation();
           a.remove(row);

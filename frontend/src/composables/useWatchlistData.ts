@@ -78,7 +78,8 @@ export function useWatchlistData(
   tags: ReturnType<typeof useWatchlistTags>,
   toolbar: WatchlistToolbarState
 ) {
-  const { activeGroup, allGroups, activeCustomGroupId } = groups;
+  const { activeGroup, allGroups, activeCustomGroupId, currentIsCustom } =
+    groups;
   const { selectedFilterTagIds } = tags;
   const {
     searchKeyword,
@@ -312,7 +313,11 @@ export function useWatchlistData(
   function confirmRemove(row: WatchlistItem) {
     if (row.id == null) return;
     removingItem.value = row;
-    removeScope.value = "all";
+    // 默认范围按**用户所在视图**分流（用户心智模型：在哪个视图里点的移除，就先做那个视图
+    // 对应的移除）——自定义分组内默认「仅从当前分组移除」；系统分组/全部视图没有
+    // 「当前分组」可言，默认彻底删除。破坏性的「从所有分组移除并删除」必须由用户显式改选
+    // （弹窗内另有警示文案，双保险，见 WatchlistRemoveDialog）。
+    removeScope.value = currentIsCustom.value ? "current" : "all";
     removeDialogVisible.value = true;
   }
 
@@ -325,6 +330,14 @@ export function useWatchlistData(
         await removeItemFromGroup(item.id, activeCustomGroupId.value);
         ElMessage.success("已从当前分组移除");
       } else {
+        // 防御性闸门：持仓资产禁止彻底删除（持仓即自选 #1458，删除无意义）。
+        // 正常路径已被两层 UI 挡住——系统分组视图操作列按钮禁用、自定义分组视图
+        // 弹窗「从所有分组移除并删除」单选禁用；这里兜底防止状态残留或未来复用
+        // 本函数的新入口绕过两层 UI 直接删。
+        if (item.status === "HOLDING") {
+          ElMessage.warning("持仓资产无法从自选彻底删除，请先处理持仓");
+          return;
+        }
         await deleteWatchlistItem(item.id);
         ElMessage.success("已移除自选");
       }
@@ -376,16 +389,33 @@ export function useWatchlistData(
 
   async function handleBatchDelete() {
     if (selectedItems.value.length === 0) return;
+    // 持仓资产不可彻底删除（持仓即自选 #1458，删除无意义）：与单行移除按钮、
+    // executeRemove 的闸门保持一致——批量删除同样跳过持仓行并明示数量，
+    // 否则「单行拦得住、批量拦不住」，语义分裂（虚拟持仓行 id=null 本就不可删，一并过滤）。
+    const deletable = selectedItems.value.filter(
+      (item): item is WatchlistItem & { id: number } =>
+        item.id != null && item.status !== "HOLDING"
+    );
+    const holdingCount = selectedItems.value.length - deletable.length;
+    if (deletable.length === 0) {
+      ElMessage.warning(
+        selectedItems.value.some(item => item.status === "HOLDING")
+          ? "选中的均为持仓资产，无法从自选彻底删除，请先处理持仓"
+          : "选中的自选资产缺少主键，无法删除，请刷新后重试"
+      );
+      return;
+    }
     try {
       await ElMessageBox.confirm(
-        `确定要移除选中的 ${selectedItems.value.length} 个自选资产吗？`,
+        holdingCount > 0
+          ? `确定要移除选中的 ${deletable.length} 个自选资产吗？` +
+              `（持仓资产 ${holdingCount} 个不可删除，将跳过）`
+          : `确定要移除选中的 ${deletable.length} 个自选资产吗？`,
         "批量移除",
         { confirmButtonText: "确定", cancelButtonText: "取消", type: "warning" }
       );
-      for (const item of selectedItems.value) {
+      for (const item of deletable) {
         try {
-          // 虚拟持仓行（id=null）无自选记录，不可删除，跳过
-          if (item.id == null) continue;
           await deleteWatchlistItem(item.id);
         } catch {
           /* ignore */
