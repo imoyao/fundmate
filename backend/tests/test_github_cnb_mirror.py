@@ -25,6 +25,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT_PATH = _REPO_ROOT / 'scripts' / 'bridge' / 'github_cnb_issues.py'
 
@@ -41,6 +43,11 @@ def _load_mirror():
         spec.loader.exec_module(module)
         _MIRROR = module
     return _MIRROR
+
+
+@pytest.fixture()
+def m():
+    return _load_mirror()
 
 
 def _issue(**over):
@@ -166,13 +173,34 @@ def test_extract_returns_none_on_foreign_body():
 # —— 4. 格式冻结（防漂移）——
 
 
-def test_header_matches_legacy_mirror_card():
-    """正文头部必须与 2026-10-11 全量同步的存量镜像卡（CNB `#5` ← GitHub `#783`）一致。
+def _fixed_clock(m, monkeypatch, when='2026-10-12'):
+    """把 `build_body` 的建卡时刻钉死，让头部可以逐字节断言（否则日期一过就红）。
 
-    存量卡的字段顺序 / 措辞 / 全角空格都钉在这里；改这里的格式等于让两侧镜像卡
-    出现两种长相，必须是有意识的决定，而不是顺手重构的副作用。
+    供 `test_header_matches_frozen_shape` 等用例复用；存量卡对照口径见其 docstring。
+    """
+
+    class _FixedDatetime:
+        @staticmethod
+        def now(tz=None):
+            from datetime import datetime
+
+            return datetime.fromisoformat(f'{when}T00:00:00+00:00')
+
+    monkeypatch.setattr(m, 'datetime', _FixedDatetime)
+
+
+def test_header_matches_frozen_shape(m, monkeypatch):
+    """正文头部形状冻结（源头卡为 CNB #5 ← GitHub #783，2026-10-11 全量同步）。
+
+    字段顺序 / 措辞 / 全角空格都钉在这里；改它等于让前后两批镜像卡出现两种长相，
+    必须是有意识的决定，而不是顺手重构的副作用。
+
+    #118 与 #120 都想让卡面「自己声明是快照」，合并时统一到一份溯源块：
+    保留 #120 的建卡时刻 + 更正台账（`mirror_correction.py`），并并入 #118 的
+    可执行核对动作（`git show <ref>:<file>`）。幂等键仍在同一位置。
     """
     m = _load_mirror()
+    _fixed_clock(m, monkeypatch)
     body = m.build_body(_issue())
     expected_header = '\n'.join(
         [
@@ -183,8 +211,17 @@ def test_header_matches_legacy_mirror_card():
             '> - 里程碑：`P0 导入统一入口 Import Unified Entry`',
             '> - 原标签：`triage-done` `导入导出` `Q2-YELLOW`',
             '> - 作者：@imoyao　创建：2026-05-26　评论数：5',
+            '> - 镜像生成时间：2026-10-12 00:00 UTC',
             '>',
-            '> ⚠️ 本卡为只读镜像，正式讨论与状态变更请回到 GitHub 原卡；CNB 侧改动不会自动回流。',
+            '> ⚠️ 本卡是**建卡时快照**（截至 2026-10-12），**不覆盖后续变更**；',
+            '> 正文引用的文件 / 行号 / 字段 / 结论均为快照时刻的位置，可能与当前代码不一致——',
+            '> 按它动手之前，先用 `git show <ref>:<file>` 确认该行仍在当前分支上。',
+            '> ⚠️ 正式讨论、更正与状态变更请回到 GitHub 原卡，CNB 侧改动不会自动回流；',
+            '> 本卡正文若与 GitHub 原卡不符，**一律以 GitHub 为准**。',
+            '>',
+            '> 📝 **更正**：在本卡评论区追加一条更正评论（不改正文）——',
+            '> 标题写 `## 更正（{日期}）`，正文逐条写「❌ 原文 → ✅ 实际（依据：PR/commit）」。',
+            '> 依据 AGENTS.md「失实信息修正纪律」；命令见 `scripts/bridge/mirror_correction.py`。',
             '',
             '---',
             '',
@@ -192,6 +229,33 @@ def test_header_matches_legacy_mirror_card():
         ]
     )
     assert body == expected_header
+
+
+def test_snapshot_warning_is_present(m, monkeypatch):
+    """#118 的硬要求：卡面必须**自己声明**可能过期，且给出核对动作。
+
+    这条不是措辞问题：镜像卡正文顶上原本写着「状态：`open`」这类看着权威的字段，
+    读者没有任何线索知道它是快照——`#106` 就是活例子（引用的行号早已删除，
+    卡面读了两个版本前的代码）。
+    """
+    m = _load_mirror()
+    _fixed_clock(m, monkeypatch)
+    body = m.build_body(_issue())
+    # 必须出现：建卡时刻、快照声明、核对动作、以 GitHub 为准
+    assert '镜像生成时间：2026-10-12' in body
+    assert '建卡时快照' in body
+    assert 'git show <ref>:<file>' in body
+    assert '以 GitHub 为准' in body
+    # 旧的「只读镜像」措辞不得复活（它与「更正在评论区」自相矛盾）
+    assert '本卡为只读镜像' not in body
+
+
+def test_idempotency_key_position_unchanged(m, monkeypatch):
+    """加字段不得动幂等键：`GitHub 编号：#N` 仍是溯源块里的独立一行，抠得回来。"""
+    m = _load_mirror()
+    _fixed_clock(m, monkeypatch)
+    for n in (1, 783, 2051):
+        assert m.extract_github_number(m.build_body(_issue(number=n))) == n
 
 
 def test_body_keeps_origin_content_verbatim():
