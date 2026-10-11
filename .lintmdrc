@@ -2,7 +2,7 @@
   "excludeFiles": [
     "**/node_modules/**",
     "**/.git/**",
-    "**/working-notes/legacy/**"
+    "**/working-notes/legacy/worktile-archive-2021-2026-08-09.md"
   ],
   "rules": {
     "no-empty-code-lang": 2,
