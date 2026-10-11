@@ -1277,6 +1277,64 @@ class AkshareAdapter(DataSourceAdapter):
             self.logger.warning(f'中证指数估值获取失败 {index_code}: {e}')
             return []
 
+    # 乐咕乐股侧的中文 symbol → 裸 6 位码（#1407 分位基线）。
+    # 2026-10-11 实测（akshare 1.18.91）：这 9 个宽基 PE/PB 双成功；深证成指 / 创业板指 /
+    # 行业类（消费 / 医疗 / 白酒…）乐咕均 KeyError 无覆盖，A500（000510）/ 中证2000（932000）
+    # 同样无源——无源指数不进基线，分位由读路径降级为 None。
+    LG_INDEX_NAMES: dict[str, str] = {
+        '000016': '上证50',
+        '000010': '上证180',
+        '000009': '上证380',
+        '000015': '上证红利',
+        '000300': '沪深300',
+        '000903': '中证100',
+        '000905': '中证500',
+        '000906': '中证800',
+        '000852': '中证1000',
+    }
+
+    def fetch_index_pe_lg(self, index_code: str) -> List[dict]:
+        """乐咕乐股月频 PE 序列（ak.stock_index_pe_lg，#1407 分位基线）。
+
+        返回**全历史**月频序列（实测约 21 年、260 点），近 5 年窗口的裁剪由 Job 负责
+        （窗口是产品口径，不属于数据源层）。只取「滚动市盈率」单列——#1407 拍板的
+        分位口径，其余 7 个口径列（等权 / 静态 / 中位数…）不落库，避免口径堆砌。
+
+        乐咕返回月频（月末采样），**不是日频**；无覆盖的 symbol 会抛 KeyError，
+        由本方法吞掉返回空列表，Job 静默跳过。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        name = self.LG_INDEX_NAMES.get(index_code)
+        if not name:
+            return []
+        ak = get_akshare()
+        try:
+            df = ak.stock_index_pe_lg(symbol=name)
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                d = self._parse_dividend_date(self._cell(row, '日期'))
+                if not d:
+                    continue
+                pe = self._num(self._cell(row, '滚动市盈率'))
+                if pe is None:
+                    continue
+                out.append(
+                    {
+                        'index_code': index_code,
+                        'index_name': name,
+                        'trade_date': d,
+                        'pe_ttm': pe,
+                        'source': 'lg',
+                    }
+                )
+            return out
+        except Exception as e:
+            self.logger.warning(f'乐咕乐股指数 PE 获取失败 {index_code}({name}): {e}')
+            return []
+
     def fetch_index_catalog_cni(self) -> List[dict]:
         """国证指数官网全量名录（ak.index_all_cni），#1365 三源合并之国证源。
 

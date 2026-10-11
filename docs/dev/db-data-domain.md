@@ -42,6 +42,7 @@
 | `advisor_portfolios` / `advisor_holdings` / `advisor_industry_allocs` / `advisor_adjust_histories` | 投顾组合公开参照与持仓/行业/调仓明细（#1167；2026-09-08 补登记，此前文档漂移） | 参照小表，明细随组合数增长 |
 | `index_constituents` | 指数成分股（#1358 / #1286；2026-09-08 补登记） | 按指数×成分，覆盖式更新 |
 | `index_catalog` | 指数名录（#1286 聚合搜索底座） | 恒定，千级，覆盖式重建 |
+| `index_valuations` / `index_valuation_baselines` | 指数估值（#1285 官方日频近 20 日）与分位基线（#1407 乐咕月频近 5 年，滚动 PE 单列） | 按指数×日期，小表（基线约 9 指数 × 60 点） |
 
 > **2026-09-08 注**：完整表清单以 `backend/app/core/db_factory.py` 的 `DATA_DOMAIN_REGISTRY` 为唯一权威（启动校验兜底）；本节为人工盘点快照，新增表时须同步更新（AGENTS.md 双库硬规则 §1）。
 

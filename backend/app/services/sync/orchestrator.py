@@ -61,6 +61,7 @@ from app.services.sync.jobs.index_catalog_job import IndexCatalogSyncJob
 from app.services.sync.jobs.index_constituent_job import INDEX_TARGETS, IndexConstituentSyncJob
 from app.services.sync.jobs.index_daily_job import IndexDailySyncJob
 from app.services.sync.jobs.index_valuation_job import IndexValuationSyncJob
+from app.services.sync.jobs.index_valuation_lg_job import IndexValuationLgSyncJob
 from app.services.sync.jobs.manager_tenure_job import ManagerTenureSyncJob
 from app.services.sync.jobs.market_asset_daily_job import MarketAssetDailySyncJob
 from app.services.sync.jobs.orphan_backfill_job import OrphanBackfillJob
@@ -198,6 +199,8 @@ class DataSyncOrchestrator:
         self.jobs['index_constituents'] = IndexConstituentSyncJob(self.data_sources['akshare'], self.db)
         # #1285/#1394：指数估值（中证官方：市盈率 / 股息率）
         self.jobs['index_valuation'] = IndexValuationSyncJob(self.data_sources['akshare'], self.db)
+        # #1407 拍板：分位基线（乐咕月频滚动 PE，近 5 年）
+        self.jobs['index_valuation_lg'] = IndexValuationLgSyncJob(self.data_sources['akshare'], self.db)
         # #1285 §3.8：跨渠道关联（指数↔ETF，主流宽基白名单）
         self.jobs['channel_link'] = ChannelLinkSyncJob(self.data_sources['akshare'], self.db)
         # #1285/#1393：可转债条款（强赎状态 + 静态条款，akshare 集思录）
