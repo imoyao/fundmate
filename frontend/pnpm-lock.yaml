@@ -280,8 +280,8 @@ importers:
         specifier: ^1.0.0
         version: 1.0.0
       vite-svg-loader:
-        specifier: ^5.1.1
-        version: 5.1.2(vue@3.5.42(typescript@5.9.3))
+        specifier: ^5.1.3
+        version: 5.1.3(vue@3.5.42(typescript@5.9.3))
       vitest:
         specifier: ^5.0.3
         version: 5.0.3(@types/node@20.19.43)(vite@7.3.6(@types/node@20.19.43)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.103.1)(yaml@2.9.0))
@@ -3994,8 +3994,8 @@ packages:
   vite-plugin-router-warn@1.0.0:
     resolution: {integrity: sha512-jnr7faHJPkKxukBXVpg7Ui1UDqhmxD7xU6JGidq8ivSHTsNAPqzSpPpwW8O1PBP/0+Owq4bLfNNk11drOkz4xA==}
 
-  vite-svg-loader@5.1.2:
-    resolution: {integrity: sha512-/ANGO8+F64Cd6fXRaefCY0mlHHIdstySQ+nr+blHpaXSJaXq+TH68KkVHbumtQIVLt6HZFBtlaxMV3dQyzg6lA==}
+  vite-svg-loader@5.1.3:
+    resolution: {integrity: sha512-JLROmqf5lrg2EXqQf6uXHiXoY1ea8xt3+i5nI/cjXgEmEZL4P7rrQZczi/aWF+V9JTK6pyfMmhWmVW2FAYji1g==}
     peerDependencies:
       vue: '>=3.2.13'
 
@@ -5948,7 +5948,7 @@ snapshots:
   css-tree@2.3.1:
     dependencies:
       mdn-data: 2.0.30
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
 
   css-tree@3.2.1:
     dependencies:
@@ -7800,7 +7800,7 @@ snapshots:
 
   vite-plugin-router-warn@1.0.0: {}
 
-  vite-svg-loader@5.1.2(vue@3.5.42(typescript@5.9.3)):
+  vite-svg-loader@5.1.3(vue@3.5.42(typescript@5.9.3)):
     dependencies:
       debug: 4.4.3
       svgo: 3.3.5
