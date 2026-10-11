@@ -150,11 +150,19 @@ export function useWatchlistData(
   async function fetchData(refreshAll = true) {
     loading.value = true;
     try {
-      const res = await getWatchlistItems(fetchParams.value);
-      items.value = res.data ?? [];
-      totalItems.value = res.total ?? items.value.length;
       if (refreshAll) {
-        await fetchAllItems();
+        // 并行发起：当前页 + 全量 lite（后端 per_page=200 已覆盖全量，单次请求即可）
+        const [pageRes, allRes] = await Promise.all([
+          getWatchlistItems(fetchParams.value),
+          getWatchlistItems({ ...fetchParams.value, page: 1, per_page: 200, fields: "lite" })
+        ]);
+        items.value = pageRes.data ?? [];
+        totalItems.value = pageRes.total ?? items.value.length;
+        allItems.value = allRes.data ?? [];
+      } else {
+        const res = await getWatchlistItems(fetchParams.value);
+        items.value = res.data ?? [];
+        totalItems.value = res.total ?? items.value.length;
       }
     } catch (e) {
       ElMessage.error("获取自选列表失败");
@@ -166,34 +174,18 @@ export function useWatchlistData(
 
   /**
    * 拉取「全量过滤结果」（忽略分页），供实时估值汇总条使用（#1245）。
-   * 后端 per_page 上限 200，故按页累加直到取尽（安全阀防止异常死循环），
-   * 确保汇总口径与整组一致、翻页时不再跳变。
-   *
-   * `fields=lite`：汇总只消费 current_price / holding_* / position_market_value，
-   * 不需要基金回撤、可转债条款、指数估值、跨渠道关联这些展示专用字段。
-   * 后端据此跳过这些按 symbol 查库（含扫 3 年 daily_worth 的基金回撤）的 enrich——
-   * 实测这是自选列表接口最大的单点耗时，不传该参数会让「全量拉取」为 164 行
-   * 各算一遍回撤，叠加本函数与首页分页请求的两次全量构建，足以把首屏拖过 10s 超时。
+   * 后端已支持 per_page=200 单次返回全量，且 `fields=lite` 只回基础字段（跳过回撤/条款/估值/跨渠道），
+   * 单次请求即可完成。保留此函数兼容旧调用（如手动刷新），内部复用 fetchData 逻辑。
    */
   async function fetchAllItems() {
     const base: Record<string, string | number | boolean> = {
-      ...fetchParams.value
+      ...fetchParams.value,
+      page: 1,
+      per_page: 200,
+      fields: "lite"
     };
-    delete base.page;
-    const all: WatchlistItem[] = [];
-    const perPage = 200;
-    for (let page = 1; page <= 50; page++) {
-      const res = await getWatchlistItems({
-        ...base,
-        page,
-        per_page: perPage,
-        fields: "lite"
-      });
-      const rows = (res.data ?? []) as WatchlistItem[];
-      all.push(...rows);
-      if (rows.length < perPage) break;
-    }
-    allItems.value = all;
+    const res = await getWatchlistItems(base);
+    allItems.value = (res.data ?? []) as WatchlistItem[];
   }
 
   // ─────────────────────────────────────────────
