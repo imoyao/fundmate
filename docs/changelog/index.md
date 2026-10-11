@@ -1,7 +1,7 @@
 ---
 title: 更新日志
-# 构建期从 FeedLog 拉取（见 docs/.vitepress/theme/index.ts 的 changelogData）。
-# 数据源不可达时该 loader 返回 { degraded: true }，组件显示降级提示。
+# 构建期从 FeedLog 拉取（见 docs/.vitepress/theme/index.ts 的 changelogData）
+# 数据源不可达时该 loader 返回 { degraded: true }，组件显示降级提示
 use: changelogData
 ---
 

@@ -7,7 +7,7 @@
 
 ## 1. 现象：`pdm run sync --job fund_position` 报「同步失败」
 
-```
+```plain
 12:50:07 | INFO    | orchestrator:run_job:371 - 开始执行 fund_position (全量=False, 目标数=全部)
 12:50:07 | WARNING | fund_position_job:run:88  - 目标池为空或仅含 __full__：... 显式跳过
 12:50:07 | ERROR   | __main__:main:185       - 同步失败: unsupported operand type(s) for -: 'datetime.datetime' and 'NoneType'
@@ -102,7 +102,7 @@ bug 是「跳过」这件事本身把 CLI 带崩了 —— 而且崩在 `main()`
 回填走的是与调度器等价的路径（`resolve_targets()` + `run_job`），
 **不用** CLI（当时 CLI 正好是坏的）：
 
-```
+```plain
 status=success  total=117  success=101  failed=0  duration=363s（6.1 分钟）
 ```
 

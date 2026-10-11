@@ -16,7 +16,7 @@
 现算任意历史日的份额与市值，日差分得日盈亏。持仓一改，历史自动跟着变——
 这正是用户诉求。
 
-落位：**投资概览（welcome）满宽12 列**，组件一形态两容器（嵌入卡 + panorama 弹窗）。
+落位：**投资概览（welcome）满宽 12 列**，组件一形态两容器（嵌入卡 + panorama 弹窗）。
 
 ---
 
@@ -24,7 +24,7 @@
 
 `write_asset_snapshot`（`summary_service.py:752`）的取数链：
 
-```
+```plain
 write_asset_snapshot(db, family_id, snapshot_date)
   └─ get_distributions(db, family_id)        # summary_service.py:769 —— 无日期参数
   └─ family_pnl_cents(db, family_id)         # summary_service.py:770
@@ -67,7 +67,7 @@ write_asset_snapshot(db, family_id, snapshot_date)
 
 对日期 `D`：
 
-```
+```plain
 shares_asof(pos, D)   = Σ transactions.quantity  where confirm_date <= D
                                           且 txn_type ∈ (buy, deposit) (+) / (sell, withdraw) (−)
 mv_asof(pos, D)       = shares_asof(pos, D) × price_asof(symbol, D)
@@ -94,7 +94,7 @@ daily_pnl(D)          = total_pnl_asof(D) − total_pnl_asof(D−1)
 | **无价格序列** | `valuation_mode='balance'`（银行理财/投顾/实物） | **斜线纹理** |
 | 休市 / 非交易日 | 交易日历无该日 | 空白 |
 
-**第3 态是账户级的硬需求**：`market_value_override` 是**单值非序列**
+**第 3 态是账户级的硬需求**：`market_value_override` 是**单值非序列**
 （`positions/models.py:63-70`），`balance` 模式无历史价格 ⇒ 该账户日历整月空白。
 不加斜线态用户会以为功能坏了。
 
@@ -175,7 +175,7 @@ daily_pnl(D)          = total_pnl_asof(D) − total_pnl_asof(D−1)
 
 ### 4.1 welcome 五排（核心资产看板扩满宽）
 
-```
+```plain
 ① 欢迎语 ticker
 ② 核心资产看板（满宽 12，资产构成分布 5 列跟着变宽）
 ③ 收益日历（满宽 12）← 本卡新增，替换原「收益趋势」占位
@@ -276,4 +276,4 @@ L1/L2 复用同一 `PnlCalendar`，口径唯一，绝不写两遍逻辑。
 `market 域 Hrana HTTP 308 永久重定向`（Turso secret host 需人工核对，告警 issue #1490）。
 
 用户 2026-10-06 指示暂不考虑远端 DB，已移出关键路径。
-⚠️ 但派生方案的价格数据在生产同属market 域，**此洞不补则生产日历同样为空**。
+⚠️ 但派生方案的价格数据在生产同属 market 域，**此洞不补则生产日历同样为空**。

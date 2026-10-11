@@ -1,7 +1,7 @@
 # 反馈与更新日志闭环：调研结论与演进方案
 
 > 2026-10-09 调研产出 · 里程碑 #16「反馈与更新日志闭环 Feedback & Changelog」
-> 关联卡：#1996（更新日志链路）· #1997（app 接入 widget）· #2000（外链与SSO 后续）
+> 关联卡：#1996（更新日志链路）· #1997（app 接入 widget）· #2000（外链与 SSO 后续）
 
 ## 一、现状盘点（实测，非推测）
 
@@ -11,7 +11,7 @@
 |------|------|------|
 | FeedLog 自部署站| ✅ 线上 200 | `feedback.duoduobei.com` |
 | widget 服务端配置 | ✅ 可匿名读 | `/api/widget/config` 返回 `enabled:true` |
-| roadmap | ✅ 8 张卡片 | `/roadmap` 有planned/in-progress/completed |
+| roadmap | ✅ 8 张卡片 | `/roadmap` 有 planned/in-progress/completed |
 | 桥接脚本 | ✅ 878 行，三通道 | `scripts/bridge/feedlog_bridge.py` |
 | 桥接工作流 | ✅ 在跑 | 2026-10-09 10:13 schedule success |
 | FeedLog→GitHub 定时同步 | ✅ 每 3 小时 | 同上 |
@@ -55,7 +55,7 @@
 
 ### L1 更新日志（#1996）— 零开发，最高性价比
 
-```
+```plain
 dev 合入 → 打 tag → gh release create → release:published 事件
         → bridge-feedback.yml 触发 → create_changelog_entry() 直连 Neon 写 changelog 表
         → 公开 /changelog 页面出现条目
@@ -97,8 +97,8 @@ dev 合入 → 打 tag → gh release create → release:published 事件
 | 阶段 | 能做到 | 代价 |
 |------|--------|------|
 | **当天** | 发首个 Release → 更新日志立刻有内容；开`allowPost` → app 立刻能收反馈 | 几十分钟配置 |
-| **一周内** | widget 在app 亮/暗主题正常、窄屏不炸；发版流程文档化、脚本化 | 一个前端 PR |
+| **一周内** | widget 在 app 亮/暗主题正常、窄屏不炸；发版流程文档化、脚本化 | 一个前端 PR |
 | **一月内** | 主站/docs 外链；3–5 条真实更新日志；roadmap 有真实卡片在流转 | 零后端小活 |
-| **想更perfect** | SSO 绑定用户身份 → 反馈可运营；AI 从反馈起草 changelog；categories 自动化 | 需Flask 端点 + workspace SSO secret |
+| **想更 perfect** | SSO 绑定用户身份 → 反馈可运营；AI 从反馈起草 changelog；categories 自动化 | 需 Flask 端点 + workspace SSO secret |
 
 **建议先走到「一周内」**，拿到真实反馈数据再决定要不要投入 SSO。反馈系统最大的坑不是功能缺失，是**建了没人用**——先有数据，再谈精细化。

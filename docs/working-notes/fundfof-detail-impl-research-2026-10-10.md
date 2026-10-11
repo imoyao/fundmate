@@ -11,38 +11,38 @@
 ## 0. 结论先行
 
 **① fundfof 的 13 个 tab 没有一个「重实现」，全是同一个骨架换参数。**
-反编译实证：13 个 tab 共 30 个组件，**每个组件只发1–4 个 GET、只渲染 1–4 张图**。
+反编译实证：13 个 tab 共 30 个组件，**每个组件只发 1–4 个 GET、只渲染 1–4 张图**。
 它的复杂度不在前端，在**后端预计算 + 一堆独立派生表**（`excess-return` / `scenario-analysis` /
-`style-monitoring` / `position-monitoring-hot` …）。前端薄得像一张白纸。
+`style-monitoring` / `position-monitoring-hot` ……）。前端薄得像一张白纸。
 
 **② 它的「13 tab」实际只有 4 类东西，我们已经全有了。**
 把 30 个组件按端点归类，去重后**只剩 8 个数据家族**：
 
 | # | 数据家族 | 覆盖 tab | 我们有没有 |
 |---|---|---|---|
-| F1 | 净值序列 | 业绩表现 / 相似走势 / 超额观察 / 相关性 | ✅ `daily_worth` 754万行 |
+| F1 | 净值序列 | 业绩表现 / 相似走势 / 超额观察 / 相关性 | ✅ `daily_worth` 754 万行 |
 | F2 | 区间收益率（年/季/月/周） | 业绩表现 / 超额观察 | ✅ `services/performance` |
 | F3 | 持仓明细（单期 or 多期） | 持股分析 / 调仓跟踪 / 言行一致 | ⚠️ 有，但**每只基金只有 1 期** |
 | F4 | 行业配置 | 行业分析 / 大类资产 | ⚠️ `fund_industry_allocs` 830 条，仅 1 期为主 |
 | F5 | 基准指数日线 | 超额观察 / 业绩归因 / 相关性 | ✅ **已补上**（`000300.SH` 5,223 条）|
 | F6 | 规模 / 经理 / 费率 | 业绩表现 / 言行一致 | ⚠️ 部分（经理字段全空）|
 | F7 | 派生统计（回撤/胜率/情景/风格） | 新高观察 / 情景适应 / 超额观察 | ❌ 需自建算法 |
-| F8 | 概念 / ETF 资金流 | 概念含量 / ETF资金 | ❌ 无此数据源 |
+| F8 | 概念 / ETF 资金流 | 概念含量 / ETF 资金 | ❌ 无此数据源 |
 
 **③ 因此「照抄 / 不做」的真正分界线不是 tab 名，而是「有没有 F7 派生统计」。**
 13 个 tab 里，**能直接照抄的是 6 个**（业绩表现 / 相似走势 / 持股分析 / 行业分析 / 新高观察 / 相关性），
 **需要先自建算法的是 3 个**（超额观察 / 情景适应 / 业绩归因），
-**明确不做的是 4 个**（言行一致 / 调仓跟踪 / 大类资产 / ETF资金 + 概念含量）——理由见 §5。
+**明确不做的是 4 个**（言行一致 / 调仓跟踪 / 大类资产 / ETF 资金 + 概念含量）——理由见 §5。
 
 **④ 有一条旧结论必须修正（重要）。**
-`external-source-policy-2026-09-30.md` §0.1 与 round2 文档都写「沪深300 = 0 条，基准日线是阻塞点」。
+`external-source-policy-2026-09-30.md` §0.1 与 round2 文档都写「沪深 300 = 0 条，基准日线是阻塞点」。
 **真库实测（2026-10-10）这条已经过期**：`index_daily` 现 **113,143 行 / 22 个指数**，
 `000300.SH` 5,223 条（2005-04-08 ~ 2026-10-09）、`000905.SH` 4,794 条。
 → **「超额观察 / 业绩归因」的最大物理障碍已解除**，只剩 F7 算法自建。
 
 **⑤ 接第三方源的判断：维持「不新增 fundfof 抓取」，且本文给出比 policy 更硬的理由。**
 13 个 tab 用的**全部是它自己的库表**，前端没有任何一处直接调外部行情源。
-也就是说：**照抄它的界面不需要碰它的数据**，更不需要接第三方。本卡没有任何动作需要动policy 的红线。
+也就是说：**照抄它的界面不需要碰它的数据**，更不需要接第三方。本卡没有任何动作需要动 policy 的红线。
 
 ---
 
@@ -87,7 +87,7 @@ React 18.3.1）打进**单个 3.8MB 文件**。
 
 ## 2. 完整 tab → 实现映射（13/13，全部实证）
 
-`pe = "//www.fundfof.com"`（**同源相对路径**，前端与API 同域，前端不跨域）。
+`pe = "//www.fundfof.com"`（**同源相对路径**，前端与 API 同域，前端不跨域）。
 每个 tab 的组件在 `useEffect(..., [e, s])` 里按 tab 切换懒加载，**首屏只请求当前 tab**。
 
 | # | tab | 组件 | 端点（函数体内实证） | 图表形态 |
@@ -104,7 +104,7 @@ React 18.3.1）打进**单个 3.8MB 文件**。
 | 10 | **相关性** | `F5e` / `M5e` | `similar-funds`、`similar-funds-nav`、`low-corr-funds`、`correlation`、`investment-type` | 相近基金 + ETF 相关性 |
 | 11 | **情景适应** | `jSe` | `scenario-analysis`、`scenario-time-ranges` | 情景分析（多时间窗） |
 | 12 | **业绩归因** | `P5e` | `performance-attribution`、`performance-attribution-years`、`attribution-credibility`、`index-returns` | 归因表 + **归因可信度** |
-| 13 | **ETF资金** | （`useEffect` 内联） | `etf-net-inflow-history/{code}?time_range=` | 资金净流入时间序列（1月/3月/6月/1年/3年/5年/今年/成立来）|
+| 13 | **ETF 资金** | （`useEffect` 内联） | `etf-net-inflow-history/{code}?time_range=` | 资金净流入时间序列（1 月/3 月/6 月/1 年/3 年/5 年/今年/成立来）|
 | 动态 | **概念含量** | （`useEffect` 内联） | `fund-concept-holdings/{code}` | 概念板块权重 |
 
 ### 2.1 容器级共用接口（与 tab 无关，进入页面就发）
@@ -119,11 +119,11 @@ React 18.3.1）打进**单个 3.8MB 文件**。
 | `/api/funds/{code}/valuation?start_date=&big_freq=Q\|HY` | `业绩表现` tab，`big_freq` 由「重仓/HY」开关切换 | 估值带（PE/PB），走 `indexes/compare/search` |
 | `/api/funds/{code}/market-cap-distribution?holding_source_id=` | 持仓 tab | 市值分布（重仓/全量双口径）|
 | `/api/funds/{code}/analysis-reports` + `/api/para-section-id?para_type=19&para_sub_type=3..8` | `行业分析` / `持股分析` tab | **AI 文字报告**：先取报告列表，再按 `para_type=19` 的 6 个子类型逐个取文案 |
-| `/api/funds/{code}/report-list` | `持股分析` tab | 报告期列表，取 `report_date` + `holding_source_id` 驱动全tab 联动 |
+| `/api/funds/{code}/report-list` | `持股分析` tab | 报告期列表，取 `report_date` + `holding_source_id` 驱动全 tab 联动 |
 
 ### 2.2 首屏调用顺序（实证结论）
 
-```
+```plain
 路由进入 (?tab=xxx)
   ├─ useEffect: fund_detail_view 埋点（sessionId::fundCode 去重，同一只不重复埋）
   ├─ 首屏: GET /api/funds/{code}  +  GET /api/fund-type/{code}
@@ -153,7 +153,7 @@ React 18.3.1）打进**单个 3.8MB 文件**。
 | 数据请求 | axios 存在但**详情页全用原生 `fetch` + `.json()`** | ⚠️ 无请求层、无统一错误处理 |
 | 组件分割 | `React.lazy` **0 次**、`Suspense` 11 次（但无 lazy 配对）| ❌ 不照抄 |
 | 加载态 | `加载中…` 107 处、`暂无数据` 65 处、`animate-pulse` 18 处（Tailwind 自绘骨架）| ✅ 照抄「每区块独立 loading，不做全页遮罩」 |
-| 错误态 | `catch → console.error → 保持空态`，`加载失败` 33 处 | ✅ 照抄降级哲学，⚠️ 但它把错误只打console，用户侧看不出「数据没来」 |
+| 错误态 | `catch → console.error → 保持空态`，`加载失败` 33 处 | ✅ 照抄降级哲学，⚠️ 但它把错误只打 console，用户侧看不出「数据没来」 |
 | 超时/重试 | 详情页**无 AbortController、无重试**（bundle 里那 9 处 AbortController 属其他模块）| ⚠️ 我方应**做得更好**，不照抄 |
 
 **结论：它的前端工程水平一般（单文件 3.8MB、无代码分割、错误只打 console）。
@@ -178,7 +178,7 @@ React 18.3.1）打进**单个 3.8MB 文件**。
 
 ### 4.1 关键缺口只有一条：持仓**期数**
 
-```
+```plain
 fund_holdings 每只基金的期数分布： [(1, 101)]← 101 只基金，每只都只有 1 期
 ```
 
@@ -197,7 +197,7 @@ round2 已实证：适配器、job、注册位全在，`sync_logs` 里 `fund_pos
 
 | 旧结论（09-30 / 10-01） | 本轮真库实测 | 处置 |
 |---|---|---|
-| `index_daily` 只 10 个 `.WI` 指数，沪深300 = **0** 条 | **22 个指数 / 113,143 行**，`000300.SH` **5,223** 条、`000905.SH` 4,794 条 | ❌ **撤回**。基准日线已补齐，「超额/归因」物理障碍解除 |
+| `index_daily` 只 10 个 `.WI` 指数，沪深 300 = **0** 条 | **22 个指数 / 113,143 行**，`000300.SH` **5,223** 条、`000905.SH` 4,794 条 | ❌ **撤回**。基准日线已补齐，「超额/归因」物理障碍解除 |
 | `funds` 26,938 | 26,938 | ✅ 未变 |
 | `fund_holdings` 6,423 / 101 只 | 6,423 / 101 只，**每只仅 1 期** | ⬆️ **精确化**：表不是问题，**期数**才是 |
 | `securities.sector` 0 / 8,357 | **3** / 8,357 | ⬆️ 仍等于没有，无需行动 |
@@ -236,19 +236,19 @@ round2 已实证：适配器、job、注册位全在，`sync_logs` 里 `fund_pos
 | **言行一致** | 依赖 `manager-consistency`：**经理任职区间 + 观点文本**。我方 `managers.appointment_date` = **0/4,267**、`fund_managers.start_date` = **0**、观点文本压根没有。**这不是算法缺口，是要解季报 PDF**——远超本项目定位 |
 | **调仓跟踪** | 依赖**持仓多期**（我方每只仅 1 期，见 §4.1）+ 申万口径仓位监控（`position-monitoring-hot/sw` 需申万行业分类逐期快照）。**成本高、用户价值低**：个人投资者不会按申万一级看自己那只基金的仓位 |
 | **大类资产** | 依赖 `asset-allocation-history`（**股票/债券/现金/海外的跨期序列**）。我方**连单期大类资产表都没有**（只有 `fund_industry_allocs` 这一层行业配置）。要新开一条采集链路，收益是「一个饼图」 |
-| **ETF资金** | 依赖 `etf-net-inflow-history`（**ETF 份额×净值推算的资金净流入**）。我方无此数据源，且**这只对 ETF 有意义**（fundfof 自己也只在 `fund_type==="ETF"` 时显示这个 tab）。规模小众 |
+| **ETF 资金** | 依赖 `etf-net-inflow-history`（**ETF 份额×净值推算的资金净流入**）。我方无此数据源，且**这只对 ETF 有意义**（fundfof 自己也只在 `fund_type==="ETF"` 时显示这个 tab）。规模小众 |
 | **概念含量**（动态 tab） | 依赖 `fund-concept-holdings`（第三方概念板块归类）。**概念板块是玄学**，与本项目「抹平信息不对称」的定位冲突，且需外部概念源。**明确不做** |
 
 ---
 
 ## 6. 落地建议（不改代码，仅给排期）
 
-**第0 优先级（零新数据，今天就能做）**
+**第 0 优先级（零新数据，今天就能做）**
 - 「新高观察」：纯 `daily_worth` 现算，无新数据源。
 - tab deep-link（`?tab=` / `?section=`）+ 非法值静默回落 + 切区块埋点。**8 个区块后没有这个会很难用**。
 
 **第 1 优先级（一次采集解锁多个能力）**
-- 让 `fund_position_job` **回填多报告期**（不是新开链路，是让已有 job多跑几期）。
+- 让 `fund_position_job` **回填多报告期**（不是新开链路，是让已有 job 多跑几期）。
   解锁：行业变化 / 持仓重叠度 / 大类资产（部分）/ 调仓跟踪（部分）。
   **这是本卡识别出的最高杠杆单点。**
 
@@ -286,7 +286,7 @@ policy §0.1 的「不新增 fundfof 抓取」结论**本文维持**，并补三
 - **未核对后端实现**：fundfof 的 `performance-attribution` / `scenario-analysis` 等端点
   **具体算法未知**（服务端闭源，前端只能看到入参出参）。
   §5.2 的「可做」判断基于**我方数据充分性**，不是「已知它的算法可复现」。
-- **`Yt`（ETF资金组件符号）定义未定位**：该tab 的取数写在容器 `useEffect` 内联，
+- **`Yt`（ETF 资金组件符号）定义未定位**：该 tab 的取数写在容器 `useEffect` 内联，
   已在 §2 表格按端点实证记录，但组件符号未还原（不影响结论）。
 - **`dSe`（持股分析）组件内 0 端点**：数据由容器 `portfolio` + `report-list` 注入，
   已在表格中注明，**非提取失败**。
