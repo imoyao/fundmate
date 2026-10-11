@@ -542,19 +542,27 @@ PY
 - 仅当锁文件逐字节一致才可 junction；一旦某 worktree 的 `package.json` / `pnpm-lock.yaml` / `pyproject.toml` 与主仓库不同，复用旧 `node_modules` 会**版本错配**导致诡异运行时错误。此时必须走第 3 步。
 - 同一时刻只在一个 worktree 跑 `pnpm install` / `pdm install`，避免两 worktree 同时改写共享 store 的链接层。
 
-### 临时改共享配置的还原纪律（强制，2026-10-10）
+### 本机依赖源配置（#2031，2026-10-11）
 
-- **背景**：`backend/pyproject.toml` 的 `[[tool.pdm.source]]` 钉死阿里云镜像（#1628：本机快，CI 主动改写成 PyPI），而镜像偶发**索引与文件不同步**——索引页列出 `python-dotenv 1.2.3`、`mcp 2.0.0`，对应 `.whl.metadata` 实测 **404**，`pdm sync` 解析直接失败（2026-10-10 实测，根治方案 → #2031）。此时为装依赖只能**临时**把源换成 PyPI。
-- **纪律**：为让本地跑通而对**共享 / 版本化配置**（`pyproject.toml`、`pnpm-lock.yaml`、`uv.lock`、`tsconfig.json` …）的任何临时改写，**必须放进 `try/finally`、装完立刻还原**，并紧接着用 `git status --porcelain` 自证只剩预期改动：
+- **仓库不再声明依赖源**：`backend/pyproject.toml` 不含 `[[tool.pdm.source]]`（#1628 时代写死阿里云的做法已废除）——CI 不声明源即天然走官方 PyPI（海外 runner 快），`ci.yml` 里的「改写工作区文件切源」步骤已删除。
+- **本机（国内）声明机器级源**，只配一次、与仓库文件解耦：
 
   ```powershell
-  try { <临时改源/改配置> ; pdm sync -G dev }
+  pdm config pypi.url https://mirrors.aliyun.com/pypi/simple/   # 本机默认（快）
+  pdm config pypi.url https://pypi.org/simple/                  # 一键切官方（镜像滞后时用）
+  ```
+
+- **镜像滞后时**（索引列出版本、对应文件 URL 却 404，如 2026-10-10 的 `python-dotenv 1.2.3` / `mcp 2.0.0`）：先 `pdm config pypi.url https://pypi.org/simple/` 再装，装完**无需还原任何仓库文件**（机器级配置不进 `git status`）；想切回阿里云再跑一次第一条命令即可。
+- 实测记录（PDM 2.26.8，空项目坏地址探针，2026-10-11）：无项目源时 **user 级 `pypi.url` 生效**、**`PDM_PYPI_URL` 环境变量同样生效**（指向 `127.0.0.1:9` 均 ConnectError）；`pdm.lock` 只记文件名+哈希、**不记录 index URL**，删源声明无需重锁。
+- **临时改共享配置的纪律不变**：为让本地跑通而对**共享 / 版本化配置**（`pyproject.toml`、`pnpm-lock.yaml`、`uv.lock`、`tsconfig.json` …）的任何临时改写，**必须放进 `try/finally`、装完立刻还原**，并紧接着用 `git status --porcelain` 自证只剩预期改动：
+
+  ```powershell
+  try { <临时改配置> ; pdm sync -G dev }
   finally { git -C <worktree> checkout -- backend/pyproject.toml
             git -C <worktree> status --porcelain -- backend/pyproject.toml }
   ```
 
-- **禁止**：把临时改动留在工作区「等会儿再还原」，或顺手把源改成 PyPI 后提交。**先改后还原、顺序反了**同样不合格——#2029 修复过程中就是这样让用户在 `git status` 里看见源被换掉，一度误判为「仓库配置回归」；配置类改动只要出现在 `git status` 里，就会消耗掉别人对仓库的信任。
-- **根治**：源下沉到机器级 `pdm config pypi.url`（pyproject 不声明源 → 本机天然阿里云、CI 天然 PyPI，`ci.yml` 那段 sed 改写可删）→ #2031。
+- **禁止**：把临时改动留在工作区「等会儿再还原」。#2029 修复过程中曾临时改源且顺序反了，让用户在 `git status` 里看见源被换掉、一度误判为「仓库配置回归」——配置类改动只要出现在 `git status` 里，就会消耗掉别人对仓库的信任。**装依赖卡住想换源时，正确的做法是 `pdm config`（机器级），不是改 pyproject.toml。**
 
 ---
 
