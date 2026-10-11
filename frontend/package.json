@@ -113,7 +113,7 @@
     "eslint": "^9.39.5",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.6",
-    "eslint-plugin-vue": "^10.10.0",
+    "eslint-plugin-vue": "^10.11.1",
     "fast-vite-plugins": "^1.0.21",
     "gradient-string": "^3.0.0",
     "husky": "^9.1.7",
