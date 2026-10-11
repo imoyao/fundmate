@@ -184,6 +184,43 @@ def test_chain_survives_missing_optional_columns():
     assert p['tenure_display'] is None
 
 
+def test_dedup_keeps_existing_manager_so_profile_can_be_backfilled():
+    """存量经理行必须能沿流水线被回填 —— 这是 #1970 扩展的原始诉求。
+
+    ⚠️ 走的是**真实流水线三步**（`_validate_data` → `_deduplicate` → `_save_data`），
+    不是直接调 `_save_data`：bug 恰好出在 `_deduplicate` 那一步，
+    只测 `_save_data` 是测不到的 —— 这正是它上线时漏网的原因。
+
+    实测 bug（2026-10-11）：基类 `_deduplicate_by_unique_key` 把「库里**已存在**的
+    `mgr_code`」整批丢掉 → `_save_data` 拿不到存量经理 →
+    `_backfill_manager_profile` 空转 → 生产库 4267 行三列永远是 NULL。
+    现象：`pdm run sync --job fund_manager --full-sync --targets …` 报 success，
+    而 `select count(*) from managers where sum_scale is not null` 仍是 **0**。
+
+    ⚠️ 种子姓名必须是本文件独有的合成值（`回填经理`）——本文件的测试不走 `app`
+    夹具，写入落在**整轮测试共享的那个库**上，用真名（如「张坤」）会串到别的用例。
+    """
+    rows = [_em_row('回填经理', '回填基金管理有限公司', '005827', 123.45, 67.89, 3650.0)]
+
+    with closing(market_session_factory()()) as db:
+        job = _make_job(db)
+        validated = job._validate_data(rows)
+        code = validated[0]['mgr_code']
+        # 先造一行「已存在但档案全空」的经理 —— 模拟生产库的存量行
+        db.add(Manager(mgr_code=code, name='回填经理'))
+        db.commit()
+
+        # 真实流水线的第 3、4 步
+        job._save_data(job._deduplicate(validated))
+
+    with closing(market_session_factory()()) as db:
+        p = build_manager_profile(db, code, as_of=AS_OF)
+
+    assert p['sum_scale'] == 123.45, '存量经理的规模没被回填（_deduplicate 把它丢了？）'
+    assert p['best_return'] == 67.89
+    assert p['appointment_date'] is not None
+
+
 def _mgr_code_of(db, name):
     """按姓名取 mgr_code（仅测试用；生产代码严禁按姓名检索，库内 119 组重名）。"""
     m = db.query(Manager).filter(Manager.name == name).first()
