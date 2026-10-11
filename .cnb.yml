@@ -41,6 +41,14 @@
     - name: 增量建卡
       script: |
         python scripts/bridge/github_cnb_issues.py --apply
+    # 引用时效自检（#118）：CNB 侧已成型的镜像卡里，`path:line` 引用可能已随代码失效，
+    # 而镜像卡「只增不覆盖」意味着它永远不会被纠正——#106 就是活例子（引用的行已在
+    # #980 拆页时删除，卡面读过两个版本）。本阶段扫全部镜像卡，把失效引用报出来。
+    # **只报告不拦构建**（`|| true`）：建卡才是主任务，自检是信号，不该把建卡一起拖红；
+    # 需要变红灯时删掉末尾的 `|| true`。
+    - name: 引用时效自检（只报告）
+      script: |
+        python scripts/bridge/check_mirror_refs.py --report || true
 
 # 定时任务必须挂在具体分支下（不能放 $ 兜底），故这里显式写 main。
 main:

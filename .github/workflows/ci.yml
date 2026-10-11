@@ -61,6 +61,10 @@ jobs:
           filters: |
             backend:
               - 'backend/**'
+              # scripts/bridge/** 由 backend job 里的 pytest 管辖（镜像脚本的回归网
+              # 在 backend/tests/test_github_cnb_mirror.py），不放进 filter 的话
+              # 「只改脚本」的 PR 会让那份回归网静默不跑（源 #118）。
+              - 'scripts/bridge/**'
               - '.github/workflows/ci.yml'
             frontend:
               - 'frontend/**'
