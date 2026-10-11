@@ -4,7 +4,7 @@ title: 技术债务与开口项明细（tech-debt）
 
 # 技术债务与开口项明细（tech-debt）
 
-> ⚠️ **易腐烂内容**：本文件随修复进展频繁变化。最后核实日期：**2026-09-14**。每条债务修复后，须将状态更新为"✅ 已修复"并注明版本号；请勿删除历史条目（保留可追溯）。
+> ⚠️ **易腐烂内容**：本文件随修复进展频繁变化。最后核实日期：**2026-10-10**。每条债务修复后，须将状态更新为"✅ 已修复"并注明版本号；请勿删除历史条目（保留可追溯）。
 >
 > **看板同步（2026-08-14）**：本文档技术债务已全量同步至 GitHub Project 看板（多多贝·投资账本 #3）并按四象限赋级——补登被引用但未进看板的 #796/#230/#507/#911；将 §1/§9–§12 中无 issue 编号的独立债务条目提升为 issue #948–#976 并赋象限；其余被引用的 issue（#821/#825/#869/#894/#898/#912/#913/#820/#824/#933/#934/#937/#947 等）统一补挂象限。交叉引用以 issue 编号为准。
 >
@@ -38,7 +38,7 @@ title: 技术债务与开口项明细（tech-debt）
 | 导入成功后净值自动同步（静默回填）已实现但依赖元数据同步 | 低 | 若用户从未同步过基金数据，`daily_worth` 表为空 | 导入前引导用户执行元数据同步，或导入后手动触发 |
 | 桑基图资产负债交叉显示问题（ECharts 底层限制） | 低 | 图表原生不支持正负双流向分层 | 记录技术债务，暂不处理 |
 | ~~交易流水全量加载无分页~~ | ~~低~~ **✅ 已实现 (2026-08-09)** | 原描述：交易流水全量加载，大数据量无分页筛选优化 | **实证回填**：后端 `list_transactions` 已 `paginate` + `page/per_page`（`transactions/views.py:28-29,75,98`）；前端交易流水页 `el-pagination` + 分页参数（`TransactionList.vue:169-177,415`）。 |
-| 基金经理信息未同步 | 低 | `ak.fund_manager_em` 接口不稳定 | 调研替代方案，暂不实现 |
+| 基金经理信息未同步 | 低 | ~~`ak.fund_manager_em` 接口不稳定~~ **归因错误（2026-10-10 实测修正）** | **实证**：接口稳定（单次返回 36,468 行 / 36468 条，偶发 `IncompleteRead` 已有重试覆盖）。真实根因是 `fund_manager_job._save_data` 的 `mgr_records` 只写 `mgr_code`/`name`/`company_id`，把适配器已拿到的「现任基金资产总规模 / 现任基金最佳回报 / 累计从业时间」三列**在 `_filter_managers` 阶段就丢弃了**；`fund_managers.start_date`/`end_date` 从未写入。**模型列已存在，修复为纯写入侧改动、零 DB 迁移**。详案见 `docs/working-notes/manager-profile-card-phase1-design-2026-10-10.md` |
 | 指数行情同步不可用 | 低 | 新浪接口不支持指数代码 | 改用 `xa.indexinfo`，待实现 |
 | 全量同步时 `stock_list` / `fund_list` 需传入占位 `["__full__"]` | 低 | 重构遗留问题 | 后续优化为在 Job 中声明不需要 targets |
 | `Transaction.confirm_date` 存在 NULL 值 | **已消除** | 早期写入源头未统一赋值 | 所有写入入口已堵上；存量仅 1 条，已手动修复 |
@@ -155,9 +155,9 @@ title: 技术债务与开口项明细（tech-debt）
 | **文档站构建技术未定**：当前 `docs/README.md` 为 docsify 风格（`home:true`/`heroText`），钱迹参考站为 GitBook | 低 | 评估 docsify→VitePress/GitBook 迁移；用户手册结构按钱迹"产品模块 + 疑问式标题"组织 |
 | **落地页视频/动效场景待补充**（参考 WorkBuddy） | 低 | WorkBuddy 在 Hero 区嵌入了产品截图/视频展示应用场景，多多贝当前为纯静态 HTML。后期可补充：(a) 工具实际使用录屏（Lottie/MP4 嵌入 Hero 或功能区）；(b) 产品界面截图轮播；(c) 数据可视化动态演示（XIRR 曲线绘制过程）。需先录制素材再编码嵌入，属于视觉打磨阶段 |
 | **用户手册与开发文档物理隔离**：当前混在 `docs/` 同名目录，未来需明确发布范围（`/docs` 仅发布用户向，内部放 `/docs-internal` 或私有） | 低 | 待用户手册成形后再规划发布边界 |
-    95:---plainplainplainplainplainplain
-    96:
-    97:## 16. 首页「支持导入」Logo 混排素材缺口（技术债务 · 中）
+---
+
+## 16. 首页「支持导入」Logo 混排素材缺口（技术债务 · 中）
 
 **背景**：落地页（`#ecosystem`，首页而非应用站）保留原有的「3 行横向滚动条」交互，仅把轨道内的纯文字药丸升级为「真实 Logo + 文字药丸兜底」混排（`landing.content.yml` 的 `eco.logos` / `eco.texts`）——Logo 灰度默认、悬停恢复彩色 + 红色阴影，与文字药丸同轨无缝滚动。
 
@@ -251,63 +251,63 @@ title: 技术债务与开口项明细（tech-debt）
 
 ## 2026-08-04 OOM 修复记录
 
-    99:### 问题plainplainplainplainplain
-   100:前端 `pnpm run build` 因 JavaScript heap OOM 失败，`--max-old-space-size=8192`（8GB）仍不足，阻塞生产部署。
-   101:
-   102:### 根因分析（不调内存，直接排查）
-   103:经排查，OOM 由四个因素叠加导致，非单一原因：
-   104:
-   105:#### ① 致命级：无 manualChunks 分包（vite.config.ts）
-   106:Rollup 在 build 阶段将 111 个 `.vue` 文件 + 全部依赖合并到极少 chunk 内，模块图随文件数增长，内存峰值远超合理范围。这是 OOM 的**首要原因**。
-   107:
-   108:#### ② 严重级：ECharts 全量引入（8 处）
-   109:8 个文件直接 `import * as echarts from "echarts"`，ECharts 6 完整包约 1MB+ 未压缩，每个使用它的 chunk 都独立打包一份。仅 2 个文件使用了按需引入。另外 `temperature/index.vue` 有独立的 `use([...])` 注册（与全局注册重复）。
-   110:
-   111:涉及文件：
-   112:| 文件 | 改动 |
-   113:|---|---|
-   114:| `src/views/welcome/index.vue` | `import * as echarts from "echarts"` → `import echarts from "@/plugins/echarts"` |
-   115:| `src/views/asset/Overview.vue` | 同上 |
-   116:| `src/views/asset/ledgers/detail.vue` | 同上 |
-   117:| `src/views/asset/IntelligentAnalysis.vue` | 同上 |
-   118:| `src/views/asset/AssetPanorama.vue` | 同上 |
-   119:| `src/views/asset/AssetOverview.vue` | 同上 |
-   120:| `src/views/account/InvestmentAnalysis.vue` | 同上 |
-   121:| `src/components/Charts/SankeyChart.vue` | 同上 |
-   122:| `src/views/temperature/index.vue` | 移除冗余 `use([...])` 独立注册 |
-   123:
-   124|#### ③ 中等级：@iconify/json 巨型依赖
-   125|`@iconify/json` 包含所有图标集，node_modules 超 200MB。项目实际只用 `@iconify-json/ep`（Element Plus 图标），源码零引用 `@iconify/json`。unplugin-icons 构建时可能解析它。
-   126|
-   127|#### ④ 严重级（暂缓）：Element Plus 伪按需 + 全量 CSS
-   128|`elementPlus.ts` 一次性注册约 100+ 个组件，`main.ts` 引入全量 CSS（`element-plus/dist/index.css`），体积接近全量引入。改为 `unplugin-vue-components` 自动按需可进一步优化，但改动面大，**本次暂缓**。
-   129|
-   130|### 修复措施（已完成）
-   131|
-   132|| 步骤 | 操作 | 文件 |
-   133||------|------|------|
-   134|| **1** | 添加 `manualChunks` 分包（vue/echarts/element-plus/pureAdmin/utils 独立 chunk） | `vite.config.ts` |
-   135|| **2** | ECharts 统一按需引入：全局注册（`plugins/echarts.ts`）+ 8 文件改为 `import echarts from "@/plugins/echarts"` + main.ts 启用 `useEcharts` | `plugins/echarts.ts` / `main.ts` + 9 个 `.vue` |
-   136|| **3** | `plugins/echarts.ts` 补上 `SankeyChart`（`SankeyChart.vue` 需要） | `plugins/echarts.ts` |
-   137|| **4** | 移除 `@iconify/json` 依赖 + 清理 `build/optimize.ts` 中的 exclude 引用 | `package.json` / `build/optimize.ts` |
-   138|
-   139|### 验证
-   140|- **typecheck**：`vue-tsc --noEmit` 无新增错误（仅项目原有 TS 错误，与本次改动无关）
-   141|- **echarts 相关**：typecheck 中无任何 echarts 相关类型错误
-   142|- **build**：由于环境限制无法完整跑 build（shell 误判 vite 为 watch 命令），但 typecheck 通过 + 所有导入路径已确保正确。建议用户本地执行 `pnpm run build` 最终确认。
-   143|
-   144|### 决策
-   145|- **Element Plus 按需引入（unplugin-vue-components）暂缓**：改动面大（需修改 `elementPlus.ts` 全局注册方式 + 移除全量 CSS + 逐个确认组件），不阻塞 OOM 修复
-   146|- **不调大内存**：按用户要求，通过代码层面优化解决，非堆内存扩增
-   147|
-   148|### 剩余风险
-   149|| 风险 | 说明 |
-   150||------|------|
-   151|| 样式回归未做 | ECharts 功能不受影响（只是导入路径变化），但依赖升级带来的样式变化仍需人工核对 |
-   152|| Element Plus 全量 CSS | 仍引入 ~800KB 全量 CSS，后续可优化 |
-   153|| Build 最终验证 | 需用户本地执行 `pnpm run build` 确认通过（环境限制无法完整执行） |
+### 问题
+前端 `pnpm run build` 因 JavaScript heap OOM 失败，`--max-old-space-size=8192`（8GB）仍不足，阻塞生产部署。
 
-> ⚠️ **本行以上至「## 2026-08-04 OOM 修复记录」标题之间共 86 行（文件 158–243 行）已损坏**：整段是带行号前缀的粘贴产物——每行形如「行号 + 冒号/竖线 + 原文」，另有一行字面量为 `plainplainplain…`。原文并未丢失（剥掉行号前缀即可复原），但**渲染已完全失效**（标题、表格均不成立）。本轮未修（超出本次任务范围），修法见本节末段。
+### 根因分析（不调内存，直接排查）
+经排查，OOM 由四个因素叠加导致，非单一原因：
+
+#### ① 致命级：无 manualChunks 分包（vite.config.ts）
+Rollup 在 build 阶段将 111 个 `.vue` 文件 + 全部依赖合并到极少 chunk 内，模块图随文件数增长，内存峰值远超合理范围。这是 OOM 的**首要原因**。
+
+#### ② 严重级：ECharts 全量引入（8 处）
+8 个文件直接 `import * as echarts from "echarts"`，ECharts 6 完整包约 1MB+ 未压缩，每个使用它的 chunk 都独立打包一份。仅 2 个文件使用了按需引入。另外 `temperature/index.vue` 有独立的 `use([...])` 注册（与全局注册重复）。
+
+涉及文件：
+| 文件 | 改动 |
+|---|---|
+| `src/views/welcome/index.vue` | `import * as echarts from "echarts"` → `import echarts from "@/plugins/echarts"` |
+| `src/views/asset/Overview.vue` | 同上 |
+| `src/views/asset/ledgers/detail.vue` | 同上 |
+| `src/views/asset/IntelligentAnalysis.vue` | 同上 |
+| `src/views/asset/AssetPanorama.vue` | 同上 |
+| `src/views/asset/AssetOverview.vue` | 同上 |
+| `src/views/account/InvestmentAnalysis.vue` | 同上 |
+| `src/components/Charts/SankeyChart.vue` | 同上 |
+| `src/views/temperature/index.vue` | 移除冗余 `use([...])` 独立注册 |
+
+| #### ③ 中等级：@iconify/json 巨型依赖
+| `@iconify/json` 包含所有图标集，node_modules 超 200MB。项目实际只用 `@iconify-json/ep`（Element Plus 图标），源码零引用 `@iconify/json`。unplugin-icons 构建时可能解析它。
+| 
+| #### ④ 严重级（暂缓）：Element Plus 伪按需 + 全量 CSS
+| `elementPlus.ts` 一次性注册约 100+ 个组件，`main.ts` 引入全量 CSS（`element-plus/dist/index.css`），体积接近全量引入。改为 `unplugin-vue-components` 自动按需可进一步优化，但改动面大，**本次暂缓**。
+| 
+| ### 修复措施（已完成）
+| 
+| 步骤 | 操作 | 文件 |
+|------|------|------|
+| **1** | 添加 `manualChunks` 分包（vue/echarts/element-plus/pureAdmin/utils 独立 chunk） | `vite.config.ts` |
+| **2** | ECharts 统一按需引入：全局注册（`plugins/echarts.ts`）+ 8 文件改为 `import echarts from "@/plugins/echarts"` + main.ts 启用 `useEcharts` | `plugins/echarts.ts` / `main.ts` + 9 个 `.vue` |
+| **3** | `plugins/echarts.ts` 补上 `SankeyChart`（`SankeyChart.vue` 需要） | `plugins/echarts.ts` |
+| **4** | 移除 `@iconify/json` 依赖 + 清理 `build/optimize.ts` 中的 exclude 引用 | `package.json` / `build/optimize.ts` |
+| 
+| ### 验证
+- **typecheck**：`vue-tsc --noEmit` 无新增错误（仅项目原有 TS 错误，与本次改动无关）
+- **echarts 相关**：typecheck 中无任何 echarts 相关类型错误
+- **build**：由于环境限制无法完整跑 build（shell 误判 vite 为 watch 命令），但 typecheck 通过 + 所有导入路径已确保正确。建议用户本地执行 `pnpm run build` 最终确认。
+| 
+| ### 决策
+- **Element Plus 按需引入（unplugin-vue-components）暂缓**：改动面大（需修改 `elementPlus.ts` 全局注册方式 + 移除全量 CSS + 逐个确认组件），不阻塞 OOM 修复
+- **不调大内存**：按用户要求，通过代码层面优化解决，非堆内存扩增
+| 
+| ### 剩余风险
+| 风险 | 说明 |
+|------|------|
+| 样式回归未做 | ECharts 功能不受影响（只是导入路径变化），但依赖升级带来的样式变化仍需人工核对 |
+| Element Plus 全量 CSS | 仍引入 ~800KB 全量 CSS，后续可优化 |
+| Build 最终验证 | 需用户本地执行 `pnpm run build` 确认通过（环境限制无法完整执行） |
+
+> **历史提示（2026-10-11 已修复，保留供追溯）**：本段与下方「2026-08-04 OOM 修复记录」两处曾整段是带行号前缀的粘贴产物（每行形如「行号 + 冒号/竖线 + 原文」，另夹带字面量 `plainplainplain…`），导致标题降级、表格不渲染。已于 2026-10-11 修复：剥离 158–160 与 254–308 两段共 **55 行**的行号前缀，并清除 `plain` 残留。**当时的诊断范围偏大**（记为「86 行整段损坏」，实测仅两段共 55 行带前缀，段内其余内容本身完好）；修法②「从提交取原文」**不可行**——核实`git log -S` 后确认损坏在 `06b3e9e7e`（上一次全库 `lint-md --fix`）之前即已存在，父提交中同样带前缀，历史里没有完好原文。
 
 ## 2026-09-11 仓库治理：CI 守卫与合并门禁（修复 3 项 + 开口 1 项）
 
@@ -326,7 +326,7 @@ title: 技术债务与开口项明细（tech-debt）
 - 因此 private 状态下唯一防线是**人工规则**：合并前必须确认 `质量门禁汇总` 为绿。该口径已写入 `AGENTS.md` 项目概述，避免「以为有门禁」的误判。
 - 长期私有化的两种正解：① 升级到含保护分支的付费计划；② 改走「合并后检出」守卫（`push` 到 `dev` 时回查该提交所属 PR 的检查结论，红灯则开 issue 并使 run 失败）——**当前不实施**：单人维护、红灯在 PR 页一眼可见，加检测器属过度工程。
 
-附：本文件 158–243 行的损坏段（见开头提示）与本轮治理无关，属既有残留，需专门清一次。建议修法二选一：① **机械剥离前缀**——每行去掉行首的「行号 + 冒号/竖线」，注意竖线场景下原行首的 `|` 要保留（否则表格列会丢）；② **从引入该段的提交重新取原文覆盖**（更稳，可避免剥离规则在边界行上出错）。**留待专门一次文档清理**，不与本轮治理混做。
+附：本文件 158–160 与 254–308 两段的行号前缀残留（见上方历史提示）已于 2026-10-11 单独清理完毕，与本轮治理无关。清理时踩到的两个坑记录在此，供后续复用：① **表格必须顶格**——直接按行首缩进删前缀会让表格整体失效，须把竖线提到行首；② **竖线不一定是表格**——55 行里 11 行是真表格、5 行实为以减号开头的列表项，须按内容自身形态判定，不能一律补竖线。
 
 配套决策见 `docs/spec/decisions.md` 2026-09-11 行（D22）；授权变更见根 `LICENSE`、`README.md`「授权与使用限制」与 `AGENTS.md` 核心约束「授权与可见性」。
 
@@ -776,8 +776,10 @@ V8 守卫的**反向对照**——故意设 `V8_GUARD_ENABLED=0` 并**断言并�
 
 ```bash
 python scripts/guard_layer_direction.py        # R1~R5（含 1 条冻结基线）
-cd backend && pdm run pytest tests/core/test_layer_direction.py tests/core/test_identity_wiring.py -p no:xdist -q
-cd backend && pdm run pytest tests/test_company_resolver.py tests/test_eastmoney_adapter.py -p no:xdist -q
+cd backend && pdm run pytest tests/core/test_layer_direction.py \
+  tests/core/test_identity_wiring.py -p no:xdist -q
+cd backend && pdm run pytest tests/test_company_resolver.py \
+  tests/test_eastmoney_adapter.py -p no:xdist -q
 ```
 
 ## 2026-09-19 错误响应统一信封（#1610，D27）：63 处已补齐 + 守卫上线
@@ -812,9 +814,11 @@ cd backend && pdm run pytest tests/test_company_resolver.py tests/test_eastmoney
 
 ```bash
 python scripts/guard_layer_direction.py
-cd backend && pdm run pytest tests/core/test_layer_direction.py tests/core/test_identity_wiring.py -p no:xdist -q
+cd backend && pdm run pytest tests/core/test_layer_direction.py \
+  tests/core/test_identity_wiring.py -p no:xdist -q
 python scripts/guard_error_envelope.py
-cd backend && pdm run pytest tests/test_error_envelope.py tests/test_auth.py tests/domains -p no:xdist -q
+cd backend && pdm run pytest tests/test_error_envelope.py \
+  tests/test_auth.py tests/domains -p no:xdist -q
 ```
 
 ## 2026-09-19 规范一致性批次（#1611，D28）：尾斜杠 / api.md / 日志三项收敛
@@ -869,6 +873,7 @@ cd backend && pdm run pytest tests/test_api_conventions.py -p no:xdist -q
 cd backend && pdm run pytest tests/services/sync/test_advisor_portfolio_job.py -p no:xdist -q
 cd backend && pdm run python scripts/repair_advisor_adjust_history.py            # dry-run
 cd backend && pdm run python scripts/repair_advisor_adjust_history.py --apply    # 落库
+```
 
 ## 2026-09-23 文字色收敛（二）收尾：真机亮暗六路由全 0 + 盲区处置落库（#1599）
 
@@ -912,8 +917,10 @@ cd backend && pdm run python scripts/repair_advisor_adjust_history.py --apply   
 ### 复跑
 ```bash
 node scripts/audit_text_contrast.mjs --all
-node scripts/axe_contrast_audit.mjs --routes /explore,/profile,/asset/watchlist --shot axe_shots/light
-node scripts/axe_contrast_audit.mjs --theme dark --routes /explore,/profile,/asset/watchlist --shot axe_shots/dark
+node scripts/axe_contrast_audit.mjs \
+  --routes /explore,/profile,/asset/watchlist --shot axe_shots/light
+node scripts/axe_contrast_audit.mjs --theme dark \
+  --routes /explore,/profile,/asset/watchlist --shot axe_shots/dark
 ```
 
 ## 2026-09-26 docs:lint-md 存量遗留：守卫硬拦自证文件 + fixer 非幂等追加（PR #1706）
@@ -922,3 +929,23 @@ node scripts/axe_contrast_audit.mjs --theme dark --routes /explore,/profile,/ass
 
 1. **`docs/working-notes/amac-encoding-incident-2026-08-17.md` 含 3 行 5 处字面 U+FFFD（替换符）**：该文件是乱码事件复盘，示例串与「名称含 U+FFFD 即丢弃」的规则表述本身就需要真实替换符，属有意保留；但 `scripts/guard_mojibake.py` 对 U+FFFD 是**无白名单硬拦截**（`check_text` 第 1 条），CI 乱码守卫又扫 PR 变更的**整文件**（`ci.yml` `mojibake_guard` job，pathspec 含 `*.md`） ⇒ **未来任何 PR 只要触碰该文件即红灯**（存量陷阱，与具体 PR 无关）。处置二选一待拍板：① 守卫给该文件加显式豁免清单；② 文件内示例改用转义写法（字面 `\uFFFD`）去掉真实替换符。
 2. **lint-md 0.2.0 `no-empty-code-lang` fixer 对本文件 `94:`/`98:` 编号行非幂等**：fixer 取 AST 节点起始行整行 `trimEnd + "plain"` 后回写（`lib/fix-rules/no-empty-code-lang.js`），而这两行是存量编号摘录残迹（4 空格缩进被解析为无语言代码块），每次执行都被追加 `plain`（历史 ×9→×29→×40，2026-09-26 又 +3）。根因是该行内容本身损坏、fixer 不收敛。处置二选一：① 修复编号行使之不再落入「无语言代码块」；② 向 lint-md 上游提非幂等 issue。
+
+## 2026-10-10 基金经理画像卡一期扩展：归因修正 + 降级判断推翻（#1970 扩展）
+
+**动因**：为扩展 #1970 的经理详情区块做数据源可行性实测，结果推翻了「经理字段拿不到」的既有判断。
+
+| 旧判断（#1970 关卡结论） | 实测结论（2026-10-10） |
+|---|---|
+| `managers.sum_scale` / `best_return` / `appointment_date` 填充率 0% → 字段不可得 | `ak.fund_manager_em()` **稳定返回 36,468 行**，这三列本就存在，但被 `_filter_managers` 丢弃、`_save_data` 不写 |
+| `fund_managers.start_date` / `end_date` 空 → 任期降级 `—` | `fundf10.eastmoney.com/jjjl_<code>.html`「历任基金经理」表可直接取到，且带逐基金任期回报 |
+| 「基金经理信息未同步」= 接口不稳定 | **归因错误**：接口不稳是偶发 `IncompleteRead`（已有重试覆盖）；主因是自己没用它的字段 |
+
+**影响面**：
+1. `tech-debt.md` §1「基金经理信息未同步」一条的归因已改写（原归因会持续误导后续读者去「调研替代接口」）。
+2. `docs/working-notes/product-detail-page-design-2026-10-08.md` §6 经理行新增 §6.1 修正说明，避免后续按「字段空是常态」做决策。
+3. **模型列（`Manager.sum_scale` / `best_return` / `appointment_date`、`FundManager.start_date` / `end_date`）全部已存在** → 修复是纯写入侧改动，**零 DB 迁移**。
+
+**诚实降级原则不变**：解析失败仍降级 `—`，只是「拿不到」从「必然」变为「偶发」。
+
+详案：`docs/working-notes/manager-profile-card-phase1-design-2026-10-10.md`
+（含数据源台账、三个实测坑、转换层设计、头像防盗链 567 硬阻断的实测证据）。

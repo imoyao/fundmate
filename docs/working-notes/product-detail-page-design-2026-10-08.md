@@ -124,7 +124,7 @@ export function parseProductRef(route): ProductRef     // 只读路径段与 sym
 **路径里的 `asset_type` 只是「入口提示」，不是权威**——用户可以手输、收藏夹可能过期。
 权威判定仍走后端两步法（`docs/features/watchlist.md:228`：symbol 前缀不能单独当判据）：
 
-```
+```plain
 GET /api/products/resolve/?symbol=&market=&venue=&asset_type=
 → { asset_type, market, venue, display_name, in_watchlist, has_position, source }
 ```
@@ -158,7 +158,7 @@ GET /api/products/resolve/?symbol=&market=&venue=&asset_type=
 
 ## 5. 信息架构（页面骨架）
 
-```
+```plain
 PageHeaderBar  标题=产品名  副标题=品类（识别信息全页只在此出现一次，见 §13 2026-10-10 去重）
 ├─ #action：[返回] [＋加入自选/已在自选] [记一笔]
 │
@@ -208,14 +208,33 @@ PageHeaderBar  标题=产品名  副标题=品类（识别信息全页只在此�
 |---|---|---|---|
 | **基金 `fund`** | 持仓（聚合接口）、净值（`fetchFundNav` / `useNavCache`）、费率（`getFundFeeRates`）、经理 / 公司名、60 日走势 | 产品级 XIRR（B1）、长历史走势（#1535）、基金详情端点（G5）、最大回撤口径（#1410） | **一期** |
 | **股票 `stock`** | 持仓、价格区间（`getSecurityPriceRange`）、行业字段 ⚠️填充率待核 | 长历史、基本面；行情可走第三方过渡（§9.1） | **一期** |
-| **基金经理 `manager`** | `managers` 4,264 / `fund_managers` 34,809 **已落盘** → 任职基金列表可展示 | `appointment_date`=0、`start/end_date` 空 → **任期 / 风格 / 任职回报降级 `—`**（G6，修复方向是补字段抓取） | **一期（诚实降级）** |
+| **基金经理 `manager`** | `managers` 4,264 / `fund_managers` 34,809 **已落盘** → 任职基金列表可展示 | ✅~~`appointment_date`=0、`start/end_date` 空 → 降级 `—`~~ **（2026-10-10 实测推翻，见下）** | **一期（诚实降级）→ 扩展期** |
 | **可转债 `bond`** | — | 条款类数据源未定（#1400 需 cookie） | **一期：只做「去集思录」外链卡**，不建内部区块 |
-| ETF `etf` | 行情 / 走势（`price_history`，`product_trend` 未排除该品类）、`securities` 资料、跨渠道关联（#1394） | 与基金区块**UI 层**同构可复用组件，但**取数层不可复用 `fund-profile`**——该端点只查 `funds` 表 6 位场外裸码，ETF 是场内码（如 `510300`）会404；故实际复用**股票区块**（`stock-profile`） | 二期 ✅ #1974 |
+| ETF `etf` | 行情 / 走势（`price_history`，`product_trend` 未排除该品类）、`securities` 资料、跨渠道关联（#1394） | 与基金区块**UI 层**同构可复用组件，但**取数层不可复用 `fund-profile`**——该端点只查 `funds` 表 6 位场外裸码，ETF 是场内码（如 `510300`）会 404；故实际复用**股票区块**（`stock-profile`） | 二期 ✅ #1974 |
 | 指数 `index` | 估值 PE / 股息率**仅最新一期**（`index_valuations`）、`index_daily`（仅 10 个 `.WI` 有日线） | **无历史分位**（#1407 未拍板）、**无资料端点**（indices 四表均无 API 出口）、**无走势**（`product_trend._NO_SERIES_TYPES` 显式含 `index`） | 二期 → **已拆卡 #2028**，前置 #1407 拍板 |
 | 投顾组合 `portfolio` | 自选侧已有：配置目标 / 组合净值 / 策略简介 / 成分基金 / 调仓（`getAdvisorHoldings` / `getAdvisorAdjusts`）、区间收益（#1392） | 跨平台一致性、业绩基准；路由命名坑（§3.1） | 三期 |
 
 > **降级规则**：任一品类区块的数据拿不到 → 该区块整体不渲染或显示 `—`，
 > **禁止**用 mock / 演示数据占位（G1 演示债教训）。
+
+### 6.1 经理品类降级判断的修正（2026-10-10 实测推翻 #1970）
+
+上表经理行的「字段空 → 诚实降级」结论**已被实测推翻**，写在这里是为了不让后续读者
+再按「字段空是数据源缺失」做决策：
+
+- **六个 0% 填充字段全部可拿**：`managers.sum_scale` / `best_return` 来自
+  `ak.fund_manager_em()` 已返回但被 `_filter_managers` 丢弃的两列；
+  `fund_managers.start_date` / `end_date` 来自 `fundf10.eastmoney.com/jjjl_<code>.html`
+  「历任基金经理」表；管理规模 / 从业年限同样可拿。
+- **根因是写入侧裁剪，不是数据源没有**：`fund_manager_job._save_data` 的
+  `mgr_records` 只写 `mgr_code` / `name` / `company_id`。
+  故 `docs/spec/tech-debt.md:41`「基金经理信息未同步 / 接口不稳定」那条记录的归因也需修正——
+  接口稳定（36468 行），不稳的是我们自己没用它的字段。
+- **模型列全部已存在** → 修复是纯写入侧改动，**零 DB 迁移**。
+- **诚实降级原则本身不变**：解析失败仍降级 `—`，只是「拿不到」的概率从「必然」变成「偶发」。
+
+详案（含数据源台账、三个坑、转换层设计、头像防盗链实测）见
+`docs/working-notes/manager-profile-card-phase1-design-2026-10-10.md`。
 
 ---
 
@@ -327,7 +346,7 @@ PageHeaderBar  标题=产品名  副标题=品类（识别信息全页只在此�
 |---|---|---|---|---|
 | B1 | `feat(performance): XIRR 支持 scope=symbol` | 产品级持有年化（跨账户汇总现金流）+ 测试 + 前端接线 | A4 | Q4 |
 | B2 | `调研: fundfof 详情页实现方式补充 + 第三方数据源接入边界` | 数据源 / 图表编排 / 接口调用链；产出「照抄 / 不做」清单 | — | Q4 |
-| B3 | `feat(detail): ETF 详情区块` **→ #1974** | 与股票同属 `securities` 口径，**无新增后端端点**（仅关联标的补`peer_role` 字段，让 ETF跳 `/etf/` 而非误跳 `/fund/`）；已落地 | A2 | Q4 |
+| B3 | `feat(detail): ETF 详情区块` **→ #1974** | 与股票同属 `securities` 口径，**无新增后端端点**（仅关联标的补`peer_role` 字段，让 ETF 跳 `/etf/` 而非误跳 `/fund/`）；已落地 | A2 | Q4 |
 | B3b | `feat(detail): 指数详情区块` **→ #2028** | 原与 ETF 同为 B3，因数据缺三块（无资料端点 / 无走势 / 无分位）于 2026-10-10 拆出 | A2、**#1407 拍板** | Q4 |
 | B4 | `feat(detail): 投顾组合详情区块` **→ #1975** | 三期货品；路由命名**已拍板 = `/portfolio`**（不引入 `/advisory` 别名，推演见 #1975 评论）；依赖 #1392 | A2、#1392 | Q4 |
 | B5 | `feat(detail): 关联标的区块` | ETF↔场外联接 / 指数↔场内 ETF | A2、#1394 | Q4 |
@@ -349,7 +368,7 @@ PageHeaderBar  标题=产品名  副标题=品类（识别信息全页只在此�
 
 | # | 问题 | 结论 |
 |---|---|---|
-| ① | 路径形态 | **按品类分 URL，路径段 = `asset_type`**（`/fund/` `/stock/` `/manager/` …）；v1 `/product/:symbol` 废止（§3.1） |
+| ① | 路径形态 | **按品类分 URL，路径段 = `asset_type`**（`/fund/` `/stock/` `/manager/` ……）；v1 `/product/:symbol` 废止（§3.1） |
 | ② | 一期品类 | **基金 / 股票 / 基金经理**；可转债 → 集思录外链；指数·ETF 二期、投顾组合三期（§6） |
 | ③ | 抽屉是否瘦身 | 本期**不瘦身**、停止生长；**详情页上线后复评**（B6） |
 | ④ | 线框图 | **一期不做**（实现卡开工时按需补） |
@@ -369,7 +388,7 @@ PageHeaderBar  标题=产品名  副标题=品类（识别信息全页只在此�
   `fund-profile` 只查 `funds` 表 6 位场外裸码、ETF 场内码会 404，故实际复用**股票区块**；
   ③ **关联标的跳转按品类分流**——此前一律跳 `/fund/`（把场内 ETF 错标成场外基金），
   现按后端新增的 `peer_role` 决定：`etf`→`/etf/`、`feeder`→`/fund/`、`index` 因暂无
-  详情页降级为**不可点击文本**（不给点进去就404 的链接）。
+  详情页降级为**不可点击文本**（不给点进去就 404 的链接）。
 
 - **2026-10-10 · #2006 落地**：详情页 URL **不再承载** `market` / `venue` 消歧参数。
   原实现把两者拼进 query，却没有任何消费方（路由 `/:assetType/:symbol` 没有参数位、
