@@ -53,13 +53,18 @@ export interface ProductRef {
  * `etf` 于 #1974 加入，走 `etf` 路径段（同样不引别名），由后端 resolve 判身份——
  * 它与 `fund` **不在同一个数据口径**：ETF 是场内证券、落在 `securities` 表，
  * 前端不可拿 `fund` 的路径段去套ETF（后端会按 symbol 纠正，但 URL 与实际品类不符）。
+ *
+ * `index` 于 #2028 加入，走 `index` 路径段（同样不引别名）。它在后端由
+ * `index_catalog` 裸码命中判定（优先于 funds——同码重叠 258 条），资料走
+ * 本卡新增的 `index-profile` 端点，估值分位口径见 #1407 拍板。
  */
 export const DETAIL_ASSET_TYPES = [
   "fund",
   "stock",
   "manager",
   "portfolio",
-  "etf"
+  "etf",
+  "index"
 ] as const;
 
 export type DetailAssetType = (typeof DETAIL_ASSET_TYPES)[number];

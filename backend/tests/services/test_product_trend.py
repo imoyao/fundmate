@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """产品历史走势取数（#1967 · 详情页走势区块）。
 
-重点覆盖三件事：
+重点覆盖四件事：
 1. 场内取**前复权**（``adj_close``）而非未复权 ``close``——除权日用 close 会画出一条假跳空；
 2. 场外按**裸 6 位码**查 ``daily_worth``（入库侧没有 ``OF.`` 前缀）；
-3. 无序列能力的品类（指数等）返回 ``None``，由端点降级成空序列而不是 404。
+3. 无序列能力的品类（经理 / 投顾组合）返回 ``None``，由端点降级成空序列而不是 404；
+4. 指数（#2028）走 ``index_daily``：有日线出曲线，无日线返回 ``None`` 诚实降级。
 """
 
 from datetime import date, timedelta
@@ -12,6 +13,7 @@ from datetime import date, timedelta
 import pytest
 
 from app.domains.funds.models import DailyWorth, Fund
+from app.domains.indices.models import IndexDaily
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
 from app.services.product_trend import fetch_product_trend
@@ -100,8 +102,34 @@ def test_fund_uses_unit_nav_by_bare_code(db):
 
 
 def test_index_has_no_series(db):
-    """指数没有历史序列数据源 → None（不是空数组，由端点决定怎么降级）。"""
-    assert fetch_product_trend(db, 'SH000300', asset_type='index', range_key='3M') is None
+    """指数库里无该码日线 → None（诚实降级，不是空数组，由端点决定怎么降级）。"""
+    assert fetch_product_trend(db, 'SH999999', asset_type='index', range_key='3M') is None
+
+
+def test_index_series_from_index_daily(db):
+    """指数有日线（index_daily，交易所后缀原生形态）→ 出单线曲线（#2028）。"""
+    start = date.today() - timedelta(days=8)
+    for i in range(5):
+        db.add(
+            IndexDaily(
+                index_code='000300.SH',
+                trade_date=start + timedelta(days=i),
+                close=4000.0 + i * 10,
+                source='tencent',
+            )
+        )
+    db.commit()
+
+    # 入口是裸码 / 带前缀形态，都要能命中 000300.SH
+    result = fetch_product_trend(db, 'SH000300', asset_type='index', range_key='1M')
+
+    assert result is not None
+    assert result['kind'] == 'close'
+    assert result['values'] == [4000.0, 4010.0, 4020.0, 4030.0, 4040.0]
+    # 指数日线无 OHLCV——前端画单线而非 K 线
+    assert result['ohlc'] == []
+    # 来源要出站点名（内部码 tencent → 腾讯）
+    assert result['source'] == '腾讯'
 
 
 def test_invalid_range_raises(db):
