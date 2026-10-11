@@ -687,6 +687,17 @@ PY
 
   - 用 `python scripts/bridge/mirror_correction.py add --cnb <编号> --date <日期> --correction '<一条更正>'` 生成（默认 dry-run，加 `--apply` 真正发布；幂等，重复执行只发一次，返工用 `--force`）；`list --cnb <编号>` 看某张卡已记的更正。
   - 边界：**只往 CNB 写，绝不回写 GitHub**；不动镜像卡正文、标签与状态；脚本会拒绝往非镜像卡（人工卡）写更正。
+- **CNB 本地卡**（只对 CNB 有效、**不进 GitHub** 的卡，D49 / CNB #117）：
+  - 判据是「这张卡的存在意义是否依赖 CNB 这个环境」——`CNB_TOKEN` 构建内注入、`cnb` CLI、
+    `.cnb.yml` cron 语义、CNB 自身镜像链路取舍等，镜像到 GitHub 读起来会莫名其妙；
+  - **开卡时就声明**，两种任选（都认）：正文顶部写 `> 📍 **CNB 本地卡**`，或挂 `CNB 本地` 标签；
+  - **忘了声明也不会丢**：`python scripts/bridge/github_cnb_issues.py --report-local` 会把
+    「无 `GitHub 同步` 标签 + 无幂等键」的卡兜底认成本地卡并报出来——但兜底是**猜**
+    （报告里记为 `fallback`），所以**声明仍是正道**；
+  - 若某张卡正文引用了 GitHub 侧卡，**写完整 URL** `https://github.com/imoyao/fundmate/issues/N`：
+    回写作业（`cnb_github_backfill.py`）只认完整 URL，裸引用 `imoyao/fundmate#N` 会被
+    **静默跳过**（该取舍是对的——写路径认错会把评论贴到别人卡上；`--report-local` 会把
+    这类卡单独标出来供人判断）。
 
 ---
 
