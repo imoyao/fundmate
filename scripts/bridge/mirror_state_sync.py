@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""镜像卡「状态回流」：把 GitHub 侧的关闭事实带到 CNB 镜像卡上（CNB #117 硬要求 ②）。
+"""镜像卡「状态回流」：把 GitHub 侧的关闭事实带到 CNB 镜像卡上（CNB #117 硬要求 ②）。  # cross-repo-ref-allow
 
 为什么需要它
 ------------
@@ -368,7 +368,7 @@ def run(*, apply: bool, only_cnb: int | None, repo: str | None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description='镜像卡状态回流：GitHub 已关闭 → 在 CNB 标记（CNB #117 硬要求 ②）')
+    parser = argparse.ArgumentParser(description='镜像卡状态回流：GitHub 已关闭 → 在 CNB 标记（CNB #117 硬要求 ②）')  # cross-repo-ref-allow
     parser.add_argument('--repo', default=None, help='CNB 仓库，默认从 CNB_REPO_SLUG 环境变量识别')
     parser.add_argument('--cnb', type=int, default=None, help='只处理某张 CNB 镜像卡（演练用）')
     parser.add_argument('--report', action='store_true', help='只报告不写（等同默认的 dry-run）')
