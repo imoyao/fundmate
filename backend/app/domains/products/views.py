@@ -27,6 +27,7 @@ from app.domains.products.schemas import (
 )
 from app.services.advisor_profile import build_advisor_profile
 from app.services.fund_profile import build_fund_profile
+from app.services.manager_holdings import build_manager_holdings
 from app.services.manager_profile import build_manager_profile
 from app.services.product_identity import resolve_product_identity
 from app.services.product_trend import RANGE_DAYS, fetch_product_trend
@@ -153,13 +154,49 @@ def manager_profile():
     入参用 `mgr_code` 而非姓名：`managers` 实测 119 组重名（最多 6 位同名），
     姓名不是唯一键。放 products 域的理由与同族端点一致——服务的是详情页这一个页面。
 
-    任职起止 / 管理规模 / 任期回报实测填充率 0%，一律回 `null` 由前端降级「—」。
+    任职起止 / 管理规模 / 任期回报已在 #1970 扩展中接入：`sum_scale` / `best_return`
+    由 `ak.fund_manager_em()` 透传落库，`appointment_date` 由该接口「累计从业时间」反推
+    （实测 4358/4358 成功；⚠️ 误差 ≤1 天，东财统计截止日未知，不可宣称精确到日），
+    `start_date` / `end_date` 来自天天基金 F10 `jjjl` 表 A。
+
+    ⚠️ 转换层不落地在本端点，而在 `services/tenure_display.py`：存原始值、回中文可读文本，
+    每个换算值附 `basis` + `raw` 供前端显示口径；**不返回颜色**（配色由前端令牌决定）。
+    仍有值缺失时回 `null`，由前端降级「—」（设计 §6 诚实降级，不编造）。
     """
     query: ManagerProfileRequest = parse_query(ManagerProfileRequest)
 
     with closing(market_session_factory()()) as db:
         try:
             data = build_manager_profile(db, query.mgr_code, fund_limit=query.fund_limit)
+        except ValueError as e:
+            abort(400, str(e))
+
+    if data is None:
+        abort(404, f'基金经理不存在：{query.mgr_code}')
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/manager-holdings/')
+def manager_holdings():
+    """基金经理代表作的前十大重仓（#1970 扩展 · 详情页经理区块）。
+
+    **为什么单独开一个端点而不塞进 ``manager-profile``**：``fund_holdings`` 要按
+    ``fund_code`` 查最新报告期，是一次独立的重查询；经理区块首屏并不总需要重仓
+    （没有关联基金、或该基金未到披露期时为空态），塞在一起会让「不关心重仓的用户」
+    也承担这份开销。拆开后前端可按需决定发不发。
+
+    入参与 ``manager-profile`` 完全一致（复用 ``ManagerProfileRequest``）：
+    ``mgr_code`` 而非姓名 —— 库内119 组重名，姓名不是唯一键。
+
+    **口径透传**：``basis`` / ``basis_label`` / ``report_period`` 必须下发，
+    前端要能告诉用户这是「季报前十大」还是「半年报全量」—— 否则「只披露 10 只」
+    会被误读成「只买了 10 只」。
+    """
+    query: ManagerProfileRequest = parse_query(ManagerProfileRequest)
+
+    with closing(market_session_factory()()) as db:
+        try:
+            data = build_manager_holdings(db, query.mgr_code, fund_limit=query.fund_limit)
         except ValueError as e:
             abort(400, str(e))
 

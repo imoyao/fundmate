@@ -560,8 +560,57 @@ class AkshareAdapter(DataSourceAdapter):
         self.logger.info(f'获取到 {len(df)} 条基金经理数据')
         return self._filter_managers(df, fund_code)
 
+    @staticmethod
+    def _opt_float(row, key: str) -> Optional[float]:
+        """安全取 float：缺失 / NaN / 非数字一律 None（不返回 0，避免「没数据」被读成「真的是 0」）。
+
+        `fund_manager_em` 这三列存在空值与 ``'--'`` 占位，故必须逐值判定，
+        不能依赖 pandas 的 ``pd.to_numeric`` 批量转换后统一判断。
+        """
+        try:
+            raw = row.get(key)
+        except Exception:  # noqa: BLE001
+            return None
+        if raw is None:
+            return None
+        text = str(raw).strip()
+        if not text or text in {'--', '-', 'nan', 'None'}:
+            return None
+        try:
+            value = float(text)
+        except (TypeError, ValueError):
+            return None
+        # NaN 自身（float('nan')）比较恒 False，须显式判定
+        return None if value != value else value
+
     def _filter_managers(self, df, fund_code: str) -> List[dict]:
-        """从全量数据中筛选某基金的经理"""
+        """从全量数据中筛选某基金的经理。
+
+        **除姓名/公司外，透传三列规模类字段**（#1970 扩展）：
+
+        ===========================  ==================================  ==========
+        源列                目标字段                实测样本
+        ===========================  ==================================  ==========
+        现任基金资产总规模            ``sum_scale``（亿元）张坤 307.94
+        现任基金最佳回报``best_return``（%）           张坤 297.54
+        累计从业时间                ``tenure_days``（**单位：天**）    张坤 5125
+        ===========================  ==================================  ==========
+
+        **为什么此前填充率是 0%**：本方法当年只回传 ``name`` / ``company`` /
+        ``mgr_code``，这三列虽在 DataFrame 里却在此处被丢弃，下游 ``_save_data``
+        无从写入 —— **是写入侧的裁剪决策，不是数据源缺失**。
+
+        **三个口径要点（改动前请读完）**：
+
+        1. **规模与回报是「该经理全部在管基金的合计」，不是逐只基金的数字。**
+           实测张坤 3 行（005827/110011/118001）的这两列**完全相同**
+           （307.94 / 297.54）。故只写到 ``managers`` 单行，
+           **禁止**灌进 ``fund_managers``（会造成同经理每基金一行重复同值）。
+        2. **「累计从业时间」单位是天**（值域 1~8145），不是年。展示层须换算，
+           且**不可用它反推 ``appointment_date``** —— 那会造出假日期。
+           故本方法不产出日期，只产出 ``tenure_days``。
+        3. 源列缺失 / 非数字时返回 ``None`` 而非 0，交由下游降级「—」。
+        """
         try:
             filtered = df[df['现任基金代码'].str.contains(fund_code, na=False)]
             if filtered.empty:
@@ -584,6 +633,9 @@ class AkshareAdapter(DataSourceAdapter):
                         'name': name,
                         'mgr_code': mgr_code,
                         'company': company,
+                        'sum_scale': self._opt_float(row, '现任基金资产总规模'),
+                        'best_return': self._opt_float(row, '现任基金最佳回报'),
+                        'tenure_days': self._opt_float(row, '累计从业时间'),
                     }
                 )
             return managers
