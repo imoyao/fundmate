@@ -52,8 +52,12 @@ def mod():
     return _load()
 
 
-def _run(mod, text, *args):
-    """把正文喂给脚本的 run()，返回 (exit_code, 捕获的输出)。"""
+def _run(mod, text, *args, ref=None):
+    """把正文喂给脚本的 run()，返回 (exit_code, 捕获的输出)。
+
+    `ref=None`（默认）表示**不写死版本**，由脚本自己解析「远端默认分支」——
+    这正是 #144 §四 要钉住的行为。需要指定版本时显式传 `ref=`。
+    """
     import argparse
     import io
     from contextlib import redirect_stdout
@@ -62,7 +66,7 @@ def _run(mod, text, *args):
     ns = argparse.Namespace(
         issue=None,
         file=None,
-        ref='origin/dev',
+        ref=ref,
         cwd=str(_REPO_ROOT),
         strict_ref='--strict-ref' in args,
         json=False,
@@ -226,6 +230,112 @@ def test_non_strict_tolerates_missing_version(mod):
     """
     code, out = _run(mod, '`frontend/src/views/welcome/index.vue:1`')
     assert code == 0, out
+
+
+# ---------------------------------------------------------------------------
+# 4b. 默认核对版本 = 远端默认分支，**不是**写死的 dev（#144 §四）
+#
+# #144 §四 记的判据缺陷：`check_issue_refs.py` / `check_mirror_refs.py` 的默认
+# `--ref` 写死 `origin/dev`，而卡面（GitHub 原卡 / CNB 镜像卡）描述的是**默认分支**
+# （`main`）的代码。于是「`dev` 上已删、`main` 上还在」的引用被报成失效——
+# 实测活证据：CNB #104（GitHub #2032）的 `AssetInsightPanel.vue` 就是这个假阳性，
+# 而它让整份报告在**只看默认分支**的场景下不可用（不是少报，是把好的报成坏的）。
+#
+# 这里钉住三件事：① 默认解析到 `origin/main`（远端 HEAD）；② 该假阳性消失；
+# ③ 真失效（`main` 上确实没有）**没有**被一起放过（防「为了消假阳性把判据调松」）。
+# ---------------------------------------------------------------------------
+
+
+def test_default_ref_follows_remote_head(mod):
+    """默认核对版本必须是**远端 HEAD** 指向的分支，不是写死的分支名。
+
+    mock 掉 `git ls-remote --symref origin HEAD` 的输出，断言解析结果——
+    这样本用例在任何 checkout（含没有 remote 的浅克隆）上都有意义。
+    """
+    real_git = mod._git
+
+    def fake_git(args, cwd=None):
+        assert args[:3] == ['ls-remote', '--symref', 'origin'], args
+        return 0, 'ref: refs/heads/trunk\tHEAD\n' + 'abc123\tHEAD'
+
+    mod._git = fake_git
+    try:
+        assert mod.default_ref(cwd=str(_REPO_ROOT)) == 'origin/trunk'
+    finally:
+        mod._git = real_git
+
+
+def test_default_ref_falls_back_when_unresolvable(mod):
+    """解析不出远端 HEAD 时退回 `origin/main`（本仓默认分支），不得退回 `dev`。"""
+    real_git = mod._git
+
+    def fake_git(_args, cwd=None):
+        return 128, 'fatal: no remote'
+
+    mod._git = fake_git
+    try:
+        assert mod.default_ref(cwd=str(_REPO_ROOT)) == 'origin/main'
+    finally:
+        mod._git = real_git
+
+
+def test_default_ref_env_override(mod, monkeypatch):
+    """`CHECK_REFS_DEFAULT_REF` 可覆盖，便于非本仓布局 / 特殊场景注入。"""
+    monkeypatch.setenv(mod.DEFAULT_REF_ENV, 'origin/some-branch')
+    assert mod.default_ref(cwd=str(_REPO_ROOT)) == 'origin/some-branch'
+
+
+def test_default_ref_matches_repo_main_branch(mod):
+    """**真实仓库断言**（不 mock）：本仓远端 HEAD 就是 `main`。
+
+    一旦仓库把默认分支改成别的名字，这条会红——**那正是想要的**：判据的默认值
+    必须跟着默认分支走，不能靠记忆。
+    """
+    assert mod.default_ref(cwd=str(_REPO_ROOT)) == 'origin/main'
+
+
+def test_main_only_file_not_flagged_by_default(mod):
+    """#104 的假阳性：`dev` 已删、`main` 还在的文件，**默认核对不得红灯**。
+
+    用真实仓库里的真实文件（`AssetInsightPanel.vue` 在 `origin/main` 存在、
+    `origin/dev` 不存在），不做 mock —— 这正是 #144 §四 报的那个具体个案。
+    若哪天该文件在 `main` 也被删了，本用例会红，提示换一个「main 独有」的样本。
+    """
+    text = '见 `frontend/src/components/AssetInsight/AssetInsightPanel.vue:38-41`'
+    code, out = _run(mod, text)  # ref=None → 解析远端默认分支
+    assert code == 0, out
+    assert 'origin/main' in out, out
+    assert '仍然有效' in out
+
+
+def test_explicit_ref_still_overrides_default(mod):
+    """显式 `--ref origin/dev` 必须仍然生效——默认值改了，不等于不能指定。"""
+    text = '见 `frontend/src/components/AssetInsight/AssetInsightPanel.vue:38-41`'
+    code, out = _run(mod, text, ref='origin/dev')
+    assert code == 1, out
+    assert 'origin/dev' in out
+
+
+def test_genuinely_stale_ref_still_caught_on_default(mod):
+    """真失效（`main` 上确实越界）**不能**因为是默认分支就被放过。
+
+    这条专治「为了让 #104 转绿而把判据调松」——用一个 `main` 上确实不存在的
+    引用断言默认路径仍然红灯。防的是**修假阳性时顺手引入假阴性**。
+    """
+    code, out = _run(mod, '`explore/index.vue:99999`')
+    assert code == 1, out
+    assert '越界' in out or '不存在' in out
+
+
+def test_output_prints_actual_ref_per_reference(mod):
+    """逐条打出实际核对版本：卡面自带 `@ref` 时与默认版本不同，必须可见。
+
+    这是 #144 §四 附带的要求——「至少在报告里把 `--ref` 显式打出来」。
+    """
+    text = '见 `frontend/src/views/welcome/index.vue@origin/dev:1-10`'
+    code, out = _run(mod, text)
+    assert code == 0, out
+    assert '[核对版本 origin/dev]' in out, out
 
 
 # ---------------------------------------------------------------------------

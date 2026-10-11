@@ -154,13 +154,22 @@ cron 阶段末尾挂了三节**只报告/幂等**的收尾任务：
 「只增不覆盖」让**卡面过期不可见**。为此加了一件独立的只读工具：
 
 ```bash
-# 单张卡面：从 GitHub issue / 本地文件核对
-python scripts/bridge/check_issue_refs.py --issue 2034 --ref origin/dev
-python scripts/bridge/check_issue_refs.py --file card.md --ref origin/dev --strict-ref
+# 单张卡面：从 GitHub issue / 本地文件核对（留空 --ref = 远端默认分支）
+python scripts/bridge/check_issue_refs.py --issue 2034
+python scripts/bridge/check_issue_refs.py --file card.md --strict-ref
+# 需要指定版本时才显式传（例如核对一条明确指向 dev 的引用）
+python scripts/bridge/check_issue_refs.py --file card.md --ref origin/dev
 
 # 全部镜像卡：批量扫，输出 markdown 报告
-python scripts/bridge/check_mirror_refs.py --report --ref origin/dev
+python scripts/bridge/check_mirror_refs.py --report
 ```
+
+> **默认核对版本 = 远端默认分支**（`default_ref()` 解析 `git ls-remote --symref origin HEAD`，
+> 本仓即 `origin/main`），**不是**写死的 `dev`。#144 §四 记的正是这处错位：卡面
+> （GitHub 原卡 / CNB 镜像卡）描述的是**默认分支**的代码，拿 `dev` 核对会把
+> 「`dev` 上已删、`main` 上还在」的引用报成失效——实测假阳性就是 `#104`（GitHub #2032）
+> 的 `AssetInsightPanel.vue`（`main` 上仍在，`dev` 上已删）。逐条输出现在会打出
+> `[核对版本 <ref>]`，卡面自带 `@ref` 时一眼可见它与默认版本不同。
 
 `check_mirror_refs.py` 复用 `check_issue_refs.py` 的抽取 / 核对逻辑（**不抄第二份正则**，
 两份判据必然漂移），扫 CNB 侧全部镜像卡，报出失效引用。
@@ -174,7 +183,10 @@ python scripts/bridge/check_mirror_refs.py --report --ref origin/dev
 | **`scripts/` 不在前缀表里** | — | 它是本脚本自己的目录，放进去会把引用核对成脚本自己 |
 | **`--strict-ref` 默认关** | 缺 `@ref` 只提示不拦 | 存量卡全都没写 `@ref`，硬拦等于全红；新卡由 strict 管 |
 
-**首轮实测**（2026-10-11，110 张镜像卡）：报出 **3 张卡 / 4 条失效引用**，逐条核实为真：
+**首轮实测**（2026-10-11，110 张镜像卡）：按 `origin/dev` 核对报出 **4 张卡 / 5 条**，
+其中 **`#104`（GitHub #2032）的 `AssetInsightPanel.vue:38-41` 是假阳性**——该文件在
+`main` 上仍然存在、只在 `dev` 上被删，属「判据读错了版本」（#144 §四）。默认版本改为
+**远端默认分支 `origin/main`** 后，报告为 **3 张卡 / 4 条**，且这 4 条逐条核实为真：
 
 - `#56` (#1095)：引用 `portfolios/views.py:214-215` 说 `get_portfolio_holdings`「Python 循环逐行算市值」，
   但该文件现在只有 **166 行**，函数在第 **159** 行——卡面引用的行号在文件之外；
