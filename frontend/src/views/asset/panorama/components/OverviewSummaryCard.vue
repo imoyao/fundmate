@@ -129,15 +129,16 @@
         }"
       >
         <div class="flex justify-between items-center mb-4">
-          <!-- #2034：标题由「总资产构成」改为「资产大类」。
-               原写法与同页桑基卡标题「资产构成流向」几乎同名，两卡内容却不同
-               （一张是资产大类堆到净资产的瀑布，一张是资金流向）；
-               且瀑布实际把**负债**也算进构成，叫「总资产构成」名实不符。
+          <!-- ⓘ 有两枚，按卡片体两态各给一枚，且**都与本行标题同行**：
+               · 瀑布图态（#2034）：口径 = 各大类累加后扣负债落到净资产；
+               · 日历态（#2050）：口径 = 收益日历自己的口径与图例说明，
+                 由 `PnlCalendarCaliberIcon` 提供（视觉契约与 SectionHeader 的
+                 `.section-header__info` 完全一致，满宽容器里的 ⓘ 也是它）。
 
-               #2034 收尾（二轮）：原先写成「资产大类构成」，但那正好撞上
+               #2034 收尾（二轮）注：标题原先写成「资产大类构成」，那正好撞上
                `AssetInsightPanel` 切换按钮的字面——按钮态（「资产构成」）与标题态
-               （「资产大类构成」）**几乎同名**，切过去像按住没反应。改成「资产大类」：
-               与卡片内的 (i) 口径说明分工互补（标题给维度，tooltip 给口径），
+               （「资产大类构成」）几乎同名，切过去像按住没反应。改成「资产大类」：
+               与 (i) 口径说明分工互补（标题给维度，tooltip 给口径），
                也不再与按钮上的字同长。 -->
           <div class="flex items-center gap-1.5">
             <h3 class="font-semibold" :style="{ color: 'var(--text-primary)' }">
@@ -154,6 +155,7 @@
                 :style="{ color: 'var(--text-tertiary-ink)' }"
               />
             </el-tooltip>
+            <PnlCalendarCaliberIcon v-else />
           </div>
           <!-- #1812：这个日历图标自设计起就是「资产月历」的预留入口
                （tooltip 曾写「后续版本推出」）。#1925 把它从「唤起弹窗」改成
@@ -185,11 +187,21 @@
 
         <!-- L2 容器：收益日历原地切换态。与 welcome 第三排 / 账户详情是
              **同一组件的三处容器**，口径唯一。
-             `hide-title`（#2035）：上面这个 `<h3>` 已经把「收益日历」写在这里了
+             `host-header`（#2050）：上面这个 `<h3>` 已经把「收益日历」写在这里了
              （它必须自己写——另一态是「资产大类」），再让 PnlCalendar 画一遍
-             就是两个同名标题上下叠着，窄容器下第二个还会被右侧控件行挤断成残影。 -->
+             就是两个同名标题上下叠着。`host-header` 让 PnlCalendar 完全不画
+             SectionHeader，只输出控件排；口径 ⓘ 由本卡的 `PnlCalendarCaliberIcon`
+             与标题同行画出。
+
+             **勿退回 `hide-title`（#2050 回归的根因）**：该 prop 在 #2050 里已被
+             删除，写 `hide-title` 只会落成 DOM 上的 `hidetitle=""`，组件走默认
+             分支把完整 SectionHeader（标题 + ⓘ + 控件排）重新画一遍 —— 症状是
+             截图里那个被控件行挤断成「收益…」的残影 + 独占一行的孤立 ⓘ，
+             即 #2035 与 #2050 同时复发。`frontend/e2e/pnl-calendar-host-header.spec.ts`
+             断言 `.pnl-calendar .section-header` 计数为 0，但 e2e 不进 per-PR
+             门禁，必须靠这里的注释守住。 -->
         <div v-if="calendarMode" class="min-h-[280px]">
-          <PnlCalendar hide-title />
+          <PnlCalendar host-header />
         </div>
         <div v-else ref="waterfallChartRef" class="h-[280px]" />
       </div>
@@ -204,6 +216,7 @@ import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import { type AssetSnapshotItem } from "@/api/summary";
 import PnlCalendar from "@/components/PnlCalendar/index.vue";
+import PnlCalendarCaliberIcon from "@/components/PnlCalendar/PnlCalendarCaliberIcon.vue";
 import echarts from "@/plugins/echarts";
 import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
 
