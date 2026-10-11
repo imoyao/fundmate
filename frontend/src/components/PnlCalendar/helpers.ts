@@ -23,6 +23,76 @@ export const VALUE_MODE_OPTIONS = [
   { label: "收益率", value: "rate" }
 ] as const;
 
+/* ── 粒度可选项（#2033：宿主可约束本组件能用哪几档）────────────────────────
+ *
+ * 三粒度是**组件的完整能力**，但**不是每个宿主都需要全三档**：资产总览右卡是
+ * 与左卡并排的等高兄弟容器（卡片体锁死 280px），日粒度的「一屏一个月」在那个
+ * 高度里既排不下也读不清，且下钻链（年→月→日）会把用户带进一个本卡装不下的形态。
+ * 故把「能用哪几档」做成宿主可控的 prop，而不是在某一处硬写死日粒度。
+ *
+ * **日粒度的家在投资概览页**（welcome 满宽日历），那里有整屏宽度与高度。
+ * 不传 `granularities` 的宿主（welcome / 账户详情）仍是三档，行为逐像素不变。 */
+
+/** 全站默认的三档粒度，顺序即控件排里的展示顺序（改这里等于改全站默认） */
+export const ALL_GRANULARITIES: readonly PnlCalendarGranularity[] = [
+  "day",
+  "month",
+  "year"
+];
+
+/** 粒度的中文标签（SegmentedControl 的入参；与控件排的历史文案一致，勿改字） */
+const GRANULARITY_LABELS: Record<PnlCalendarGranularity, string> = {
+  day: "日收益",
+  month: "月收益",
+  year: "年收益"
+};
+
+/** 下钻的下一档（`null` = 叶子，日粒度不可再下钻） */
+const NEXT_GRANULARITY: Record<
+  PnlCalendarGranularity,
+  PnlCalendarGranularity | null
+> = {
+  day: null,
+  month: "day",
+  year: "month"
+};
+
+/**
+ * 控件排的粒度选项：按 `ALL_GRANULARITIES` 的固定顺序过滤出宿主允许的那几档。
+ *
+ * 顺序不跟传入数组走（那会让同一组控件在不同宿主里顺序不同），只取并集。
+ */
+export function granularityOptions(
+  allowed: readonly PnlCalendarGranularity[]
+): { label: string; value: PnlCalendarGranularity }[] {
+  return ALL_GRANULARITIES.filter(g => allowed.includes(g)).map(g => ({
+    label: GRANULARITY_LABELS[g],
+    value: g
+  }));
+}
+
+/** 默认粒度 = 允许集合里最靠前的一档（宿主排掉日粒度后自然落到月粒度） */
+export function defaultGranularity(
+  allowed: readonly PnlCalendarGranularity[]
+): PnlCalendarGranularity {
+  return ALL_GRANULARITIES.find(g => allowed.includes(g)) ?? "day";
+}
+
+/**
+ * 当前粒度可否继续下钻，以及下钻到哪一档。
+ *
+ * 目标档不在宿主允许的集合里就返回 `null`——**必须在动手下钻之前问**
+ * （年 → 月 → 日是逐级收窄的链，只挡住控件挡不住点击：格子与柱体同样可点）。
+ * 少问一次的后果就是「控件里没有日粒度，点年格却掉进了日日历」这种来路不明的形态。
+ */
+export function nextGranularity(
+  granularity: PnlCalendarGranularity,
+  allowed: readonly PnlCalendarGranularity[]
+): PnlCalendarGranularity | null {
+  const next = NEXT_GRANULARITY[granularity];
+  return next !== null && allowed.includes(next) ? next : null;
+}
+
 /**
  * 取该单元在当前口径下的数值。
  *

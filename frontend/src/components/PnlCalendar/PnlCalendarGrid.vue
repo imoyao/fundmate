@@ -222,6 +222,9 @@ const calendarCells = computed<CalendarCell[]>(() => {
 <style lang="scss" scoped>
 .pnl-calendar__grid-wrap {
   display: flex;
+
+  /* #2033：宿主给了确定高度就填满，没给仍是自然高（另两处宿主逐像素不变）。 */
+  flex: 1;
   flex-direction: column;
   gap: 6px;
 }
@@ -239,6 +242,12 @@ const calendarCells = computed<CalendarCell[]>(() => {
 
 .pnl-calendar__grid {
   display: grid;
+
+  /* 行高交给容器分配（`1fr`）：高度不定的宿主里 1fr 按内容算，等同改动前；
+     高度确定的宿主里各行等分，把可用高度用满（#2033）。压不动时由格子的
+     `min-height: 62px` 兜底——**不要**为了塞进容器去改那个下限。 */
+  flex: 1;
+  grid-auto-rows: 1fr;
   gap: 6px;
 }
 

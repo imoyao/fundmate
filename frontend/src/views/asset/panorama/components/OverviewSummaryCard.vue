@@ -9,7 +9,20 @@
           border: '1px solid var(--border-light)'
         }"
       >
-        <div class="flex flex-col justify-between h-full">
+        <!-- 左卡内部：常规纵向流 + 纵向居中（#2033）。
+             原先是 `flex flex-col justify-between h-full` + 中间一条 `my-5` 分割线：
+             行高被右卡钉死后，上下两块被推到两头，中间空出一大段，那条分割线
+             就**悬在卡片正中**——看着像布局坏了（且「分割线」本身已无信息量：
+             上下是同一张卡的两个数字块，不是两个分区）。故删掉分割线、改为 gap-4
+             的常规流，内容连成一体。
+             `justify-center`（用户拍板）：内容在**锁定高度内**垂直居中，留白上下
+             对称（各约 74px），读作有意留白而不是「内容没撑满」。
+             ⚠️ 原裁决否掉居中的理由是「切换跳变未消除、居中会跟着一起跳」——
+             那个理由**只在行高会变时成立**；行高已由右卡锁死（固定 280px 的卡片体），
+             切换零跳变，居中也就随之稳定，故该理由失效。
+             `h-full` 是居中的前提：容器高度不确定时 `justify-center` 无效（内容高
+             等于容器高，没有可分配的空余）；它同时也是两卡底边恒对齐的依托。 -->
+        <div class="flex flex-col justify-center gap-4 h-full">
           <div>
             <p
               class="text-sm mb-2"
@@ -72,10 +85,8 @@
               >
             </div>
           </div>
-          <div
-            class="my-5"
-            :style="{ borderTop: '1px solid var(--border-light)' }"
-          />
+          <!-- 三列 Grid（总负债 / 净资产 / 总盈亏）：作为自然流的一块紧跟涨跌行，
+               不再被 justify-between 钉到卡片底边（#2033）。 -->
           <div class="grid grid-cols-3 gap-4">
             <div>
               <p
@@ -120,8 +131,13 @@
     </el-col>
 
     <el-col :xs="24" :md="12">
+      <!-- 右卡：与左卡并排，**卡片体高度由本卡钉死**（#2033）。
+           瀑布图态与日历态的自然高本是两回事（旧口径下 314~604px 随粒度横跳），
+           锁成同一个高度后：① 两卡底边恒对齐；② 切换零跳变。
+           高度约束**只由宿主施加**，本卡内的两个内容组件各自填满即可
+           （PnlCalendar 的「给固定高度就填满、没给就自然高」即为此而来）。 -->
       <div
-        class="rounded-2xl p-6 h-full"
+        class="overview-card rounded-2xl p-6 h-full flex flex-col"
         :style="{
           backgroundColor: 'var(--bg-card)',
           boxShadow: 'var(--shadow-raised)',
@@ -199,11 +215,21 @@
              截图里那个被控件行挤断成「收益…」的残影 + 独占一行的孤立 ⓘ，
              即 #2035 与 #2050 同时复发。`frontend/e2e/pnl-calendar-host-header.spec.ts`
              断言 `.pnl-calendar .section-header` 计数为 0，但 e2e 不进 per-PR
-             门禁，必须靠这里的注释守住。 -->
-        <div v-if="calendarMode" class="min-h-[280px]">
-          <PnlCalendar host-header />
+             门禁，必须靠这里的注释守住。
+
+             **粒度只给月 / 年（#2033）**：日粒度的家在**投资概览页**（welcome 第三排
+             的满宽日历），本卡是与左卡并排、卡片体锁死 280px 的**等高兄弟容器**，
+             日粒度的「一屏一个月」在这里既排不下也读不清。
+             ⚠️ 因此本卡**不提供日粒度，也不提供任何入口**（没有「展开 / 查看大图」，
+             已裁决）——日粒度的需求去 welcome 即可。请勿「好心」把日粒度加回来：
+             下钻链（年→月→日）的最后一级正是日粒度，只在控件排里挡而不在
+             PnlCalendar 的下钻里挡，用户就会掉进一个本卡装不下、且没有控件能切回来的形态。 -->
+        <div class="overview-card__body">
+          <div v-if="calendarMode" class="h-full">
+            <PnlCalendar host-header :granularities="PANORAMA_GRANULARITIES" />
+          </div>
+          <div v-else ref="waterfallChartRef" class="h-full" />
         </div>
-        <div v-else ref="waterfallChartRef" class="h-[280px]" />
       </div>
     </el-col>
   </el-row>
@@ -214,11 +240,27 @@ import { ref, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
-import { type AssetSnapshotItem } from "@/api/summary";
+import {
+  type AssetSnapshotItem,
+  type PnlCalendarGranularity
+} from "@/api/summary";
 import PnlCalendar from "@/components/PnlCalendar/index.vue";
 import PnlCalendarCaliberIcon from "@/components/PnlCalendar/PnlCalendarCaliberIcon.vue";
 import echarts from "@/plugins/echarts";
 import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
+
+/**
+ * 本卡允许的收益日历粒度（#2033）：**只有月 / 年，没有日**。
+ *
+ * 日粒度的家在投资概览页（welcome 第三排的满宽日历）；本卡是与摘要卡并排、
+ * 卡片体锁死 280px 的等高兄弟容器，日粒度的「一屏一个月」在这里排不下也读不清。
+ * 本卡**不提供日粒度、也不提供任何入口**（没有「展开 / 查看大图」，已裁决）——
+ * 请勿「好心」把它加回来。
+ */
+const PANORAMA_GRANULARITIES: readonly PnlCalendarGranularity[] = [
+  "month",
+  "year"
+];
 
 const props = defineProps<{
   totalAssets: number;
@@ -387,6 +429,29 @@ onBeforeUnmount(() => {
 
 .summary-card:hover {
   box-shadow: var(--shadow-float);
+}
+
+/* 卡片体锁高 280px（#2033）：瀑布图态与日历态共用同一个高度，切换零跳变。
+   **是 height，不是 min-height**——min-height 在内容更高时会把卡片顶高，
+   两态高度不同的问题原封不动地回来了。数字沿用瀑布图原有的 280，不新增常量。
+   两个内容容器都用 h-full 填满它，高度约束只由宿主（本卡）施加。 */
+.overview-card__body {
+  height: 280px;
+}
+
+/* #2039 兜底，**仅本容器**：收益日历那排控件（3 枚 SegmentedControl + 区间导航）
+   实测宽 588px，本卡半宽容器装不下时若既不能收缩也不能换行，就会横向溢出、
+   叠到左侧的 ⓘ 上。全站 `SectionHeader` 的操作槽已经能收缩（见其样式注释），
+   这里对同一类操作槽再兜一层。
+   ⚠️ **只打本容器，不要改全站 SectionHeader**——那两个宿主（投资概览第三排、
+     账户详情）是满宽 / 半宽的正常容器，兜底不需要蔓延过去。
+   本卡是 host-header 模式，PnlCalendar 不画 SectionHeader，控件排实际落在
+   `.pnl-calendar__controls` 上，故两个选择器都兜一份。 */
+.overview-card :deep(.section-header__action),
+.overview-card :deep(.pnl-calendar__controls) {
+  flex-shrink: 1;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 /* 开关态（#1925）：切到收益日历时点亮图标，与标题变化一起回答「现在看的是哪个」。
