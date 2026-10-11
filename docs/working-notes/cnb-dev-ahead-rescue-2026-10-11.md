@@ -1,6 +1,6 @@
 # CNB `dev` 领先 GitHub 的提交清单与救援口径（2026-10-11）
 
-> 关联：`cnb-github-mirror-route-2026-10-11.md`（路线决策）、CNB #125 / GitHub #2032、#2034
+> 关联：`cnb-github-mirror-route-2026-10-11.md`（路线决策）、CNB `#125` / GitHub `#2032`、`#2034`
 > 用途：管道 A（GitHub → CNB 快进镜像）**已停摆**，本文件把「CNB 侧独有提交」逐条核到它对应
 > 哪张 GitHub 卡、哪一步该回流，免得救援时把工作量估大或漏掉。
 
@@ -51,7 +51,7 @@ docs/working-notes/page-split-welcome-vs-panorama-2026-08-13.md | \
 
 **这些改动在 GitHub 侧一个都不存在**：`dev` 上 `AssetInsightPanel.vue` 还在，
 `panorama/index.vue` 还挂着它，`scripts/tests/welcome_structure_dedup.test.js` 返回 404。
-也就是说，GitHub 上的 #2032（标题与字段对不上）**原样成立**。
+也就是说，GitHub 上的 `#2032`（标题与字段对不上）**原样成立**。
 
 ### 3.3 一个必须说清的坑：CNB 的 `git show` 会给出**假的合并结果**
 
@@ -78,7 +78,7 @@ git cat-file -p <frontend/src tree 的 sha> # 再往下取一层
 3. **#2034 的收尾按它自己的卡重新落一次 PR**（即在 GitHub 上真的把「资产透视」区块处理掉），
    而不是把 CNB 的提交搬过来——搬到 GitHub 后仍要过 GitHub 的评审与门禁，
    不如直接按卡做，顺便把 `welcome_structure_dedup.test.js` 一并入库；
-4. 在 CNB 的镜像卡（如 #104）评论区把「本卡在 CNB 侧已修、GitHub 侧未修」**明确写出来**，
+4. 在 CNB 的镜像卡（如 `#104`）评论区把「本卡在 CNB 侧已修、GitHub 侧未修」**明确写出来**，
    避免下次有人看到 CNB 的代码以为已经修好了。
 
 ## 5. 一句话
