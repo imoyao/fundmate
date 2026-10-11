@@ -141,7 +141,15 @@ export function useAggregation(
   const total = computed(() => result.value?.total ?? 0);
   const totalPages = computed(() => result.value?.total_pages ?? 1);
 
+  /**
+   * 请求令牌（#1833）：快速切换维度 / 排序 / 分页时，先发的请求可能后到。
+   * 旧响应直接写 `result` 会让页面显示**与当前筛选不符**的数据（不崩，但错得很难察觉）。
+   * 每次 load 自增令牌，响应回来先比对令牌，不一致就丢弃。
+   */
+  let loadToken = 0;
+
   async function load() {
+    const token = ++loadToken;
     loading.value = true;
     errorMsg.value = "";
     scheduleSkeleton();
@@ -161,8 +169,11 @@ export function useAggregation(
         query.fund_type = fundType.value || undefined;
       }
       const res = await fetcher(query);
+      // 旧请求的响应：丢弃，别覆盖新筛选的结果（#1833）
+      if (token !== loadToken) return;
       result.value = (res?.data as AggregationResult) ?? null;
     } catch (e: any) {
+      if (token !== loadToken) return;
       // 技术错误映射为用户友好文案，不暴露原始信息
       const msg = String(e?.message ?? e ?? "");
       if (/timeout/i.test(msg)) {
@@ -180,8 +191,11 @@ export function useAggregation(
       }
       result.value = null;
     } finally {
-      loading.value = false;
-      settleSkeleton();
+      // 只有最新一次请求能收尾：否则旧请求的 finally 会把新请求的 loading 提前关掉（#1833）
+      if (token === loadToken) {
+        loading.value = false;
+        settleSkeleton();
+      }
     }
   }
 

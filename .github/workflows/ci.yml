@@ -26,7 +26,12 @@ on:
       - dev
       - main
   # 防直推卡点：直接 push 到受保护分支 main 时，下方 guard-direct-push job 会拦截。
-  # 通过 PR 合并的 push 属于 pull_request 事件，不会触发本 push 卡点。
+  # 重要事实修正（#1771）：GitHub 合并 PR 到 main 时【同时】发出 push 事件
+  #   （github.event.push），故本工作流在 push 到 main 时【也会触发】；
+  #   guard-direct-push 已用「是否关联已合并 PR」区分：PR 合并产生的 push 放行，
+  #   真正的本地直推（无关联 PR）才拦截。
+  #   质量门禁类 job（changes / backend / frontend / layout_guard）已限定仅
+  #   pull_request 事件运行，故 push 场景只跑 guard-direct-push，不会误跑全量门禁。
   push:
     branches:
       - main
@@ -44,6 +49,7 @@ permissions:
 jobs:
   # 计算哪些目录有改动，决定下方 job 是否运行
   changes:
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
@@ -63,7 +69,7 @@ jobs:
   backend:
     name: 后端测试 + Lint
     needs: changes
-    if: ${{ needs.changes.outputs.backend == 'true' }}
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
     # 防 pytest 偶发 hang 卡满 GitHub 默认 6h 兜底：单进程后端测试正常 ~19min，给 30min 余量（#1596 排查 CI 卡死）
     timeout-minutes: 30
@@ -184,6 +190,7 @@ jobs:
   # 都是合并冲突把 gate.needs 里的 job 弄丢，少动一次就少一次风险。
   layout_guard:
     name: 布局宽度守卫 (layout-width)
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -203,6 +210,37 @@ jobs:
       # 与上两条同属「前端设计语言回潮」一类，故并入本 job 而不另起 job（不新增 job 就不必改 gate.needs）。
       - name: 扫描分段控制器回潮
         run: python scripts/guard_segmented.py
+
+      # 输入焦点守卫（#1815）：禁止把 --focus-ring（无障碍双环）拼进输入框焦点表达式——
+      # 那会让一个聚焦输入框叠出三层描边（用户反馈的「描边好几层」）。同属本 job 的「回潮」范畴。
+      - name: 扫描输入焦点回潮
+        run: python scripts/guard_input_focus.py
+
+      # job 调度覆盖守门（#1934）：编排器注册的 job 必须出现在「每日调度」或
+      # 「明确不调度」两张表之一。加 job 的人只改 orchestrator 而忘了调度表时，
+      # 数据会静默永不更新（index_valuation / convertible_bond / market_asset_daily /
+      # dividend_split 都曾如此，真库从未执行过）。故用静态 ast 解析交叉校验两张清单。
+      - name: 校验 job 调度覆盖
+        run: python scripts/guard_job_schedule_coverage.py
+
+      # 交互可达性守卫（#1842）：纯图标按钮无可访问名称 / div@click 当按钮 /
+      # hover 显隐无 focus-within 与 hover:none 兜底——前端交互排查里 P1 的主体三类。
+      # 2026-10-05 起**阻断**：存量已清零（初报 109 处，其中规则一有 53 处是守卫
+      # 自身误报——`_has_text` 先剥标签再要求 `>…<` 两步互斥；规则三早期把
+      # `@keyframes` 的 from、`.is-folded` 折叠态误当 hover 显隐，4 处命中零真问题）。
+      # 六个判据 bug 修完 + 24 条回归样本 + 逐条反向验证后，守卫精度才可信到
+      # 拿来阻断。**新增违规一律挂 PR**，要豁免就在元素上方写 a11y-allow 并注理由。
+      - name: 扫描交互可达性回潮（阻断）
+        run: python scripts/guard_a11y_interaction.py
+
+      # 控件裁切守卫（2026-10-09 自选页圆按钮「又大又被切」）：拦两类回潮——
+      # ① 容器挂 max-height+overflow:hidden 给子控件盖盖子；② 用 content-box+padding
+      # 撑热区（padding 会画进可见框，28px 的圆被撑成 42px）。两条各自看都像在
+      # 「收紧 / 补偿」，叠加才把圆切扁，散文规范拦不住，故并入本 job 阻断
+      # （同属「前端设计语言回潮」一类；不新增 job 就不必改 gate.needs）。
+      # 判据边界与豁免方式见脚本 docstring；回归样本在 scripts/tests/guard_control_clip.test.js。
+      - name: 扫描控件裁切回潮（阻断）
+        run: python scripts/guard_control_clip.py
 
   # 乱码守卫（mojibake）：防止任何绕过本地 pre-commit 钩子的提交（--no-verify、
   # 或经 gh api / MCP 直推导致本地钩子不执行）把 GBK 乱码合进 PR。
@@ -259,7 +297,7 @@ jobs:
   frontend:
     name: 前端类型检查 + Lint + 构建
     needs: changes
-    if: ${{ needs.changes.outputs.frontend == 'true' }}
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -290,6 +328,14 @@ jobs:
       - name: 守卫:lock 与 package.json 一致性
         run: node ../scripts/check_lock_consistency.mjs
 
+      # 守卫：路由死链（#936）—— `to="/x"` / `router.push("/x")` / `{ name: "X" }` 指向
+      # 未登记路由。这类缺陷**完全静默**：点击无反应、控制台不报错、构建与类型检查全绿，
+      # `/asset/entry` 因此从 v1.2 活到 #936 近 7 周才被人肉点出。纯 Node 静态扫描
+      # frontend/src，零依赖秒级；与上一条 node 守卫同属「前端静态检查」，故并入本 job
+      # 而不新增 job（不新增 job 就不必改 gate.needs）。
+      - name: 守卫:路由死链
+        run: node ../scripts/check_router_links.mjs
+
       - name: 类型检查
         run: pnpm typecheck
 
@@ -301,6 +347,12 @@ jobs:
           pnpm exec eslint "{src,mock,build,e2e}/**/*.{vue,js,ts,tsx}" "playwright.config.ts" --max-warnings 0
           pnpm exec prettier --check "src/**/*.{js,ts,json,tsx,css,scss,vue,html}" "e2e/**/*.ts" "playwright.config.ts"
           pnpm exec stylelint "**/*.{html,vue,css,scss}" --cache-location node_modules/.cache/stylelint/
+
+      # 单测（#1792 引入 vitest，首批覆盖导入形态判定 / 撤销快照等纯逻辑）。
+      # 不进 CI 就等于把「有测试」降级为「本地曾经跑过」——重构会静默弄坏测试契约
+      # 而无人察觉；纯逻辑用例秒级，进本 job 不新增 job、不必改 gate.needs。
+      - name: 单元测试
+        run: pnpm test:unit
 
       # 页面规模门禁（#980 治本项）：扫描 .vue 文件行数，超出阈值报告。
       # 当前为 warn 模式（不阻断 CI），仅让存量大页面趋势可见；
@@ -434,8 +486,16 @@ jobs:
 
   # 防直推卡点（替代 GitHub Pro 才有的 branch protection）
   # 用此 job 拦截「直接 push 到 main」的行为：
-  # 正常流程是 分支 → PR → merge，merge 产生的 push 属 pull_request 事件不触发本 job；
-  # 只有「本地直接 git push origin main」才会触发并失败。
+  # 正常流程是 分支 → PR → merge，merge 产生的 push 也会触发本 push 事件（#1771 修正：
+  #   旧注释称「merge 不触发」是错误的），故此处用 GitHub API 反查本 commit 是否关联
+  #   「已合并的 PR」来区分：
+  #     - 关联已合并 PR（即 PR 合并产生的 push）→ 放行，不再误红；
+  #     - 未关联任何 PR（真正的本地直推）→ 失败红灯，提示走 PR 流程。
+  #   覆盖 GitHub 三种合并方式（create a merge commit / squash / rebase）。
+  #
+  # 重要边界：本 job 不是 required status check（required 是 pull_request 事件的 gate），
+  #   它只能「标红提示」，不能硬拦；真正的强制拦截仍靠 branch protection + PR 必经。
+  #   故 API 调用异常（限流/网络）时按「放行」处理，宁可漏拦也不误红（符合 #1771 验收）。
   #
   # 历史坑（2026-09-11 修正）：此 job 原写作 branches: [M] / refs/heads/M —— `M` 早已
   # 随分支清理删除，导致守卫**从未真正运行过**，main 长期处于无保护状态。
@@ -444,8 +504,22 @@ jobs:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     steps:
-      - name: 拦截直推
+      - name: 判断本次 push 是否来自 PR 合并
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "::error::检测到直接向主分支 main 推送。请改用 PR 流程：从 dev 切出分支 → 提交 → 开 PR → review 后合并。"
+          sha="${{ github.sha }}"
+          # GitHub 合并 PR 到 main 时会在 push 事件里带上 merge commit；
+          # 用 commits/{sha}/pulls 反查是否由已合并 PR 产生（覆盖 merge / squash / rebase）。
+          prs_json=$(gh api "repos/${{ github.repository }}/commits/${sha}/pulls" 2>/dev/null) || {
+            echo "::warning::无法调用 GitHub API 反查 PR 关联（可能限流/网络），按放行处理，避免误拦 PR 合并。"
+            exit 0
+          }
+          pr_count=$(printf '%s' "$prs_json" | jq 'length')
+          if [ "${pr_count:-0}" -gt 0 ]; then
+            echo "本次 push 来自 PR 合并（关联已合并 PR 数=${pr_count}），放行。"
+            exit 0
+          fi
+          echo "::error::检测到直接向主分支 main 推送（未关联任何已合并 PR）。请改用 PR 流程：从 dev 切出分支 → 提交 → 开 PR → review 后合并。"
           echo "::error::Direct push to main is blocked. Use a PR instead."
           exit 1

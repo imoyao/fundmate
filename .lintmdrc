@@ -1,0 +1,11 @@
+{
+  "excludeFiles": [
+    "**/node_modules/**",
+    "**/.git/**",
+    "**/working-notes/legacy/**"
+  ],
+  "rules": {
+    "no-empty-code-lang": 2,
+    "no-long-code": [2, { "length": 100 }]
+  }
+}

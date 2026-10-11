@@ -39,7 +39,7 @@ title: 项目路线图与进度表（roadmap）
 | P1-08 | 特别关注页面功能增强 | 基础完成 | ⭐⭐⭐ | 🟢 | Ⅳ | 暂缓优化。关联 issue：[#807](https://github.com/imoyao/fundmate/issues/807)（自选页实时估值设计文档 v2.0，**实时估值核心(成功标准 1–7)已交付并关闭**，成功标准 8–11 转 [#821](https://github.com/imoyao/fundmate/issues/821)）、[#821](https://github.com/imoyao/fundmate/issues/821)（探市页即免登录沙盒，**已上线但有 2 个 P0 缺陷**）、[#273](https://github.com/imoyao/fundmate/issues/273)（自选拖拽排序，未实现） |
 | P1-06 | 全局 UI 细节微调 | **✅ 已完成** | ⭐⭐ | 🟢 | Ⅳ | 永久停止投入 |
 | P1-13 | 移动端响应式 / PWA | 未开始 | ⭐⭐ | 🟢 | Ⅳ | 长期规划 |
-| **P1-21** | **乖离率（BIAS）模块** | **✅ 已放开（SKIP_BIAS=False，待实网验证）** | ⭐⭐⭐⭐ | 🟡 | Ⅱ | 计算/存储/API 已实现（31 行业+6 宽基，存 `market_multi_items`）。2026-08-02 起曾临时跳过（`SKIP_BIAS=True`）；**2026-08-05 起数据源改为直连（腾讯行情/东财 push2his，见 `bias/direct_feeds.py`），已放开 `SKIP_BIAS=False`**。直连+兜底失败时单品种标 `stale` 或整批为空，不阻断主流程。待实网同步验证 `market_multi_items` 正常落库。详见 §2.1 与 `docs/working-notes/eastmoney-antiscrape-2026-08-05.md`。 |
+| **P1-21** | **乖离率（BIAS）模块** | **✅ 已放开（SKIP_BIAS=False，待实网验证）** | ⭐⭐⭐⭐ | 🟡 | Ⅱ | 计算/存储/API 已实现（31 行业+6 宽基，存 `market_multi_items`）。2026-08-02 起曾临时跳过（`SKIP_BIAS=True`）；**2026-08-05 起数据源改为直连（腾讯行情/东财 push2his，见 `adapters/direct_feeds.py`），已放开 `SKIP_BIAS=False`**。直连+兜底失败时单品种标 `stale` 或整批为空，不阻断主流程。待实网同步验证 `market_multi_items` 正常落库。详见 §2.1 与 `docs/working-notes/eastmoney-antiscrape-2026-08-05.md`。 |
 | **P1-22** | **登录认证（后端 JWT 鉴权 + 前端登录收敛）** | **✅ 已完成（2026-08-07）** | ⭐⭐⭐⭐ | 🟡 | Ⅱ | 后端：Supabase JWT 本地验签中间件（`core/auth.py`）+ users/families 域 + `GET /api/auth/me` + 探市免登录白名单 + **首次登录 JIT 自动建本地用户**（默认家庭 1 / member）；前端：清 mock 死路径、守卫以 Supabase session 为准、`/temperature` 探市免登录、401/403 全局拦截、token 来源修复、新增 `api/auth.ts`/`api/family.ts` 契约。见 decisions D2/D4。 |
 | **P1-23** | **多用户家庭隔离地基** | 🚧 进行中（Phase 1） | ⭐⭐⭐⭐ | 🟢 | Ⅱ | 核心表 `family_id` 迁移 + 服务层过滤补齐 + `CURRENT_USER_ID` 退役 + admin/member/viewer 三档分权。见 decisions D1/D3。 |
 
@@ -81,7 +81,7 @@ title: 项目路线图与进度表（roadmap）
 | **全面盘点** | **98%** | **资产分类按需加载与轻量汇总接口已上线；操作入口前置优化；各章节间距与呼吸感统一完成。** |
 | **设计语言体系** | **100%** | ✅ 亮色模式 v2.3.2 与暗色模式 v1.4 已完成封箱 |
 | **通用业务组件** | **100%** | ✅ `MoneyDisplay`、`RiseFallText`、`ProductDisplay`、`usePageRefresh` 封装完成 |
-| **乖离率模块** | **✅ 已放开** | 计算/存储/API 已实现；2026-08-05 数据源改直连（`bias/direct_feeds.py`）并放开 `SKIP_BIAS=False`，待实网落库验证 |
+| **乖离率模块** | **✅ 已放开** | 计算/存储/API 已实现；2026-08-05 数据源改直连（`adapters/direct_feeds.py`）并放开 `SKIP_BIAS=False`，待实网落库验证 |
 
 ---
 
@@ -91,7 +91,7 @@ title: 项目路线图与进度表（roadmap）
 
 ### 2.1 乖离率（P1-21）当前状态
 
-- **已放开（2026-08-05）**：`thermometer/jobs.py` 顶部 `SKIP_BIAS = False`；数据源由 akshare/东财改为**直连**（腾讯行情 `web.ifzq.gtimg.cn` / 东财 `push2his`，见 `bias/direct_feeds.py`），绕开 akshare 上游东财限流/IP 封。
+- **已放开（2026-08-05）**：`thermometer/jobs.py` 顶部 `SKIP_BIAS = False`；数据源由 akshare/东财改为**直连**（腾讯行情 `web.ifzq.gtimg.cn` / 东财 `push2his`，见 `adapters/direct_feeds.py`），绕开 akshare 上游东财限流/IP 封。
 - **降级策略**：直连 + 兜底均失败时，单品种标 `stale` 或整批为空，**不阻断主流程**（`jobs.py` 内已按此实现）。
 - **待办**：实网跑一次温度同步，验证 `market_multi_items`（`source='bias'`）正常落库且 `/overview` 返回乖离率；前端如有依赖乖离率的展示需同步回归。
 - **注意**：放开不影响 `sync_cli.py` 用法。

@@ -79,7 +79,10 @@ const HomeRouteConfig = {
         rank: 4,
         keepAlive: true,
         // 高密度列表页：隐藏布局级页脚，把整块垂直空间交给表格（#1281）
-        hideFooter: true
+        hideFooter: true,
+        // 隐藏右下角「记一笔」FAB：它会压住表格右下角固定操作列（置顶/关注/移除），
+        // 入口改由快捷键 N 承担（useQuickEntryHotkey，首次进页自动提示一次）。
+        hideQuickEntry: true
       }
     },
     {
@@ -90,6 +93,17 @@ const HomeRouteConfig = {
         title: "交易流水",
         icon: "ep:list",
         rank: 5
+      }
+    },
+    {
+      path: "/dividends",
+      name: "Dividends",
+      component: () => import("@/views/asset/dividends/index.vue"),
+      meta: {
+        title: "分红与股息",
+        icon: "ep:coin",
+        rank: 6,
+        keepAlive: true
       }
     }
   ]

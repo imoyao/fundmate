@@ -73,6 +73,9 @@ const {
 
     <div class="step3-body">
       <SummaryPanel />
+      <!-- #1792：批量修正面板改为摘要下方内联展开（原右侧覆盖式抽屉已移除），
+           摘要、修正面板、表格三者同屏互不覆盖 -->
+      <BatchFixPanel v-if="showFixPanel" class="step3-fixpanel" />
       <PreviewTable />
     </div>
 
@@ -112,15 +115,6 @@ const {
         </div>
       </div>
     </div>
-
-    <el-drawer
-      v-model="showFixPanel"
-      title="智能修正"
-      :size="400"
-      direction="rtl"
-    >
-      <BatchFixPanel />
-    </el-drawer>
   </div>
 </template>
 
@@ -184,6 +178,17 @@ const {
   min-height: calc(100vh - 240px);
   padding: 16px;
   overflow: hidden;
+}
+
+/*
+ * #1792 内联修正面板：摘要下方、表格上方，三者同屏。
+ * 有界内滚（max-height + overflow-y）——内容高时面板内部滚动，不产生页面级滚动条，
+ * 表格仍是唯一可滚动的主体区域（#783 §1「仅表格区域纵向滚动」的口径按此放宽）。
+ */
+.step3-fixpanel {
+  flex: 0 1 auto;
+  max-height: 42%;
+  overflow-y: auto;
 }
 
 .fixed-action-bar {

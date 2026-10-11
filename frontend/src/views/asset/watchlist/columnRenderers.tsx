@@ -29,6 +29,7 @@ import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import MoneyWithRatio from "@/components/MoneyWithRatio/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
+import PnlEstimateLine from "@/components/PnlEstimateLine/index.vue";
 import {
   getAdvisorPlatformLabel,
   isCompositeAssetType
@@ -39,10 +40,20 @@ import type { ColumnDef, ColumnRenderer, WatchlistRow } from "./columnDefs";
 // renderer DOM 不携带页面 scoped 属性，配套样式必须随渲染器走（见 css 文件头注释）
 import "./columnRenderers.css";
 
-/** 实时估值项（与 useRealtimeQuotes.getValuationItem 返回结构一致） */
+/** 实时估值项（`useRealtimeQuotes.getValuationItem` 返回结构的子集） */
 export interface ValuationItem {
   currentPrice?: number;
   changePct?: number;
+  /**
+   * 引擎按 `costPrice × quantity` 算出的盈亏（#1104「预估」副行直接用，不在此重算）。
+   *
+   * 引擎已把它取整到分位（`valuationEngine.ts` 收尾的 Math.round），
+   * 且 `costPrice` / `quantity` 由 `useWatchlistValuation.getHoldings` 从
+   * `holding_cost_price` / `holding_quantity` 注入 —— 与「持仓收益」列同源。
+   */
+  pnl?: number;
+  /** realtime＝真实行情；static＝引擎回退到后端静态价（那就是「已确认」口径本身） */
+  source?: "realtime" | "static";
 }
 
 /** 派生值结果（组合计算列，由 index.vue 注入计算函数） */
@@ -77,16 +88,31 @@ export interface RenderCtx {
   /** 是否批量管理模式（true 时 actions 列显示 "-" 占位） */
   batchMode: boolean;
   /**
+   * 当前是否处于**自定义分组**视图（activeGroup 以 custom_ 开头）。
+   * 用途：操作列「移除」按钮的语义分流——自定义分组内的「移除」= 仅从当前分组移除，
+   * 持仓（HOLDING）资产同样允许；系统分组/全部视图下的「移除」= 彻底删除自选，
+   * 持仓资产在此禁用（持仓即自选，删除无意义，见 useWatchlistData.executeRemove）。
+   */
+  currentIsCustom: boolean;
+  /**
    * 是否处于「品类视图」（类型筛选命中单一品类，见 #1285）。
    * 用途：让产品列的分层信息行与**品类专属列**去重——例如基金经理的「所属公司」
    * 在经理品类视图已有独立列（`manager_company`），产品列就不该再重复显示一遍；
    * 混合视图没有该列，分层行仍需承担公司信息（否则经理行的公司无处可见）。
    */
   categoryView: boolean;
-  /** 当前 hover 行的 key（row.id ?? row.symbol，由 index.vue @cell-mouse-enter/leave 维护）。
-   *  操作列/产品列是 fixed 列，EP 固定列独立 DOM，CSS :hover 无法跨表同步，
-   *  因此行 hover 淡入必须由 JS 行 hover 状态驱动（见 design.md 行内操作交互规范）。 */
-  hoveredRowKey: string | number | null;
+  /**
+   * 当前 hover 行的 key（row.id ?? row.symbol，由 index.vue @cell-mouse-enter/leave 维护）。
+   * 操作列/产品列是 fixed 列，EP 固定列独立 DOM，CSS :hover 无法跨表同步，
+   * 因此行 hover 淡入必须由 JS 行 hover 状态驱动（见 design.md 行内操作交互规范）。
+   *
+   * ⚠️ 必须是**稳定 getter**，禁止改成直接读值（`hoveredRowKey: hoveredRowKey.value`）：
+   * 直读会把 hover 状态烧进 renderCtx 的对象身份——每次 mouseenter/leave 都让 computed
+   * 产出新对象，prop 身份变了，全表每个单元格（约「列数 × 行数」个）同步重渲染，
+   * 实测表现为悬停操作列时整表抖动、滚动条闪烁。改成 getter 后 ctx 身份恒定，
+   * 只有**在渲染里调用了本 getter 的产品列**才会订阅并重渲染（操作列只写不读，不重渲染）。
+   * （Vue 3 函数式组件在自己的渲染 effect 里执行：渲染期间读到的响应式依赖才触发该组件更新。） */
+  getHoveredRowKey: () => string | number | null;
   /** 手动设置 hover 行状态（fixed 列自身 hover 时自驱动，避免依赖主表 mouseenter） */
   setHoveredRowKey: (key: string | number | null) => void;
   /** 操作回调（actions 列） */
@@ -342,6 +368,29 @@ const renderText: FunctionalComponent<{
   );
 };
 
+/**
+ * 取某行的「当日预估盈亏」（元）。拿不到真实行情时返回 `null`。
+ *
+ * 三个门槛缺一不可（#1104）：
+ * 1. 实时估值已开启（`ctx.realtimeEnabled`）；
+ * 2. 引擎**真的**拿到了实时行情（`source === "realtime"`）—— 引擎在行情不可达时会回退到
+ *    后端静态价，那个值就是「已确认」口径本身，照原样显示会出现两行一模一样的数字；
+ * 3. 有持仓、且成本价有效（`holding_cost_price > 0`）—— 成本价缺失时引擎算出的 `pnl`
+ *    会退化成「市值全额」，是个看着很合理的巨值（与 `confirmedPnl` 的守卫同理）。
+ *
+ * 数值直接取引擎产出的 `item.pnl`，**不在此重算**：引擎的 costPrice / quantity 由
+ * `useWatchlistValuation.getHoldings` 从 `holding_cost_price` / `holding_quantity` 注入，
+ * 与「持仓收益」列同源；重算就是养第二份口径。
+ */
+function estimatePnlOfRow(row: WatchlistRow, ctx: RenderCtx): number | null {
+  if (!ctx.realtimeEnabled) return null;
+  if ((Number(field(row, "holding_quantity")) || 0) <= 0) return null;
+  if ((Number(field(row, "holding_cost_price")) || 0) <= 0) return null;
+  const item = ctx.getValuationItem(row.symbol);
+  if (!item || item.source !== "realtime") return null;
+  return typeof item.pnl === "number" ? item.pnl : null;
+}
+
 const renderMoneyRatio: FunctionalComponent<{
   row: WatchlistRow;
   def: ColumnDef;
@@ -376,13 +425,27 @@ const renderMoneyRatio: FunctionalComponent<{
   const ratioKey = (def.props?.ratioKey as string) || "change_pct";
   const ratio = Number(field(row, ratioKey)) || 0;
   const hasPosition = (Number(field(row, "holding_quantity")) || 0) > 0;
-  return h(MoneyWithRatio, {
+  const money = h(MoneyWithRatio, {
     value: hasPosition ? value : null,
     ratio: hasPosition ? ratio : null,
     moneySize: "sm",
     showSign: true,
     showCurrency: false
   });
+
+  // #1104：追加「估」副行。用列定义上的声明式开关（`props.estimatePnl`）而不是硬编码
+  // `def.key === "holding_pnl"`，与 `realtimeField` / `derived` 同一手法：列能力写进列定义。
+  if (!def.props?.estimatePnl) return money;
+
+  const estimated = estimatePnlOfRow(row, ctx);
+  // 拿不到真实行情 → 保持原样，**不复述提示**：自选页是高密度表格，逐行写
+  // 「未开启实时估值」等于整列复读机；开关与状态在汇总条（WatchlistSummaryBar）上本来就有。
+  if (estimated == null) return money;
+
+  return h("div", { class: "watchlist-pnl-dual" }, [
+    money,
+    h(PnlEstimateLine, { estimated })
+  ]);
 };
 
 const renderProduct: FunctionalComponent<{
@@ -414,9 +477,12 @@ const renderProduct: FunctionalComponent<{
   const tagName = (tagId: number) =>
     ctx.allTags.find(t => t.id === tagId)?.name || "";
   // 行 hover 状态（add-tag 按钮在 fixed:left 产品列内，:hover 无法跨固定列 DOM 同步，需 JS 状态驱动）；
-  // 容器自身绑定 mouseenter/leave 自驱动，鼠标直接悬停产品列时也能亮起 add-tag 按钮
+  // 容器自身绑定 mouseenter/leave 自驱动，鼠标直接悬停产品列时也能亮起 add-tag 按钮。
+  // 经稳定 getter 读取（见 RenderCtx.getHoveredRowKey 注释）：hover 变化只重渲染本列，
+  // 不再牵动全表单元格。
+  const hoveredKey = ctx.getHoveredRowKey();
   const isRowHovered =
-    ctx.hoveredRowKey != null && ctx.hoveredRowKey === (row.id ?? row.symbol);
+    hoveredKey != null && hoveredKey === (row.id ?? row.symbol);
   const rowKey = row.id ?? row.symbol;
   /** 第二行最多展示的标签 chip 数，超出折叠为 +N（title 列出全部标签名） */
   const MAX_TAGS = 2;
@@ -590,6 +656,14 @@ const renderActions: FunctionalComponent<{
   // 置顶/加标签按钮的高亮（跨 fixed 列 DOM 无法用 :hover 同步），并非控制显隐。
   // 状态用图标颜色表达：已置顶 = 品牌色实心图钉；已关注 = 暖橙实心星。
   const editable = row.id != null;
+  /**
+   * 移除按钮是否被「持仓不可删」挡住——按**当前分组语义**分流，不再无条件按 HOLDING 禁用：
+   * - 自定义分组视图：移除 = 仅从当前分组摘除（分组是用户自管的元数据，与持仓不冲突）
+   *   → 持仓资产不禁用、正常可点；弹窗默认范围也落在「仅从当前分组移除」。
+   * - 系统分组 / 全部视图：移除 = 彻底删除自选记录，而持仓即自选（#1458），删了仍会回来
+   *   → 持仓资产禁用 + 保留原提示，引导用户先处理持仓。
+   */
+  const holdingBlocked = row.status === "HOLDING" && !ctx.currentIsCustom;
   const tooltipBtn = (
     tip: string,
     icon: string,
@@ -649,10 +723,10 @@ const renderActions: FunctionalComponent<{
         }
       ),
       tooltipBtn(
-        row.status === "HOLDING" ? "持仓资产无法直接从自选移除" : "移除",
+        holdingBlocked ? "持仓资产无法直接从自选移除" : "移除",
         "ep:delete",
         undefined,
-        row.status === "HOLDING" || !editable,
+        holdingBlocked || !editable,
         (e: Event) => {
           e.stopPropagation();
           a.remove(row);

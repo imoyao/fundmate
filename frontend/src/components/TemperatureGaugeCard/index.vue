@@ -18,6 +18,9 @@
       `gauge-card--${size}`,
       { 'gauge-card--featured': featured, 'gauge-card--clickable': clickable }
     ]"
+    role="button"
+    tabindex="0"
+    @keydown.enter="onClick"
     @click="onClick"
   >
     <div class="gauge-ring">

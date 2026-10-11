@@ -390,23 +390,11 @@ html.dark {
   border-top-color: var(--border-light) !important;
 }
 
-.dark .el-input__wrapper {
-  background-color: var(--bg-card) !important;
-  border-color: var(--border-default) !important;
-}
-
-.dark .el-input__wrapper:hover {
-  border-color: var(--border-light) !important;
-}
-
-.dark .el-input__wrapper.is-focus {
-  border-color: var(--brand-700) !important;
-  box-shadow: var(--focus-ring) !important;
-}
-
-.dark .el-select .el-input__wrapper {
-  background-color: var(--bg-card) !important;
-}
+/* 输入框的亮 / 暗焦点基线已统一到 element-plus.scss 的「输入基线（#1772）」：
+   底色 / 边框 / 焦点环全部由 --input-* 令牌驱动，暗色自动跟随
+   --bg-card / --brand-* / --focus-ring 的暗色取值，此处不再另写 .dark 覆盖
+   （原 `.dark .el-input__wrapper*` 四条 !important 规则即因此删除 —— 它们只
+   在暗色侧表达焦点，与亮色侧不一致，正是 #1772 要收敛的「两套表达」）。 */
 
 .dark .el-dropdown-menu {
   background-color: var(--bg-card) !important;

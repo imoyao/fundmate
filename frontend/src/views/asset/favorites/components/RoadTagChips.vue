@@ -19,6 +19,9 @@
         icon="ep:close"
         class="road-tag__close"
         :aria-label="`移除标签 ${tag.name}`"
+        role="button"
+        tabindex="0"
+        @keydown.enter="$emit('remove', tag.id)"
         @click="$emit('remove', tag.id)"
       />
     </span>

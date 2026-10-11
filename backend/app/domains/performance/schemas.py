@@ -12,9 +12,12 @@ from pydantic import BaseModel, Field
 class XirrRequest(BaseModel):
     """年化收益率查询参数"""
 
-    scope: str = Field(..., description='查询范围: position / portfolio')
+    scope: str = Field(..., description='查询范围: position / portfolio / symbol')
     position_id: Optional[int] = Field(None, description='持仓ID（scope=position时必填）')
     portfolio_id: Optional[int] = Field(None, description='投资组合ID（scope=portfolio时用于指定组合）')
+    symbol: Optional[str] = Field(
+        None, description='产品代码（scope=symbol 时必填；跨账户按 symbol 汇总现金流，算产品级持有年化）'
+    )
     include_cash_equivalents: bool = Field(
         False, description='是否将货币基金/逆回购/现金等现金等价物纳入年化收益分母；默认 False=仅主动投资'
     )
@@ -23,8 +26,11 @@ class XirrRequest(BaseModel):
 class MoneyFundIncomeRequest(BaseModel):
     """货币基金每日收益查询参数"""
 
-    scope: Optional[str] = Field(None, description='查询范围: ledger / family')
+    scope: Optional[str] = Field(None, description='查询范围: ledger / family / portfolio')
     ledger_id: Optional[int] = Field(None, description='账户ID（scope=ledger时必填）')
+    portfolio_id: Optional[int] = Field(
+        None, description='投资组合ID（scope=portfolio时必填，由后端解析为关联账户集合）'
+    )
     start_date: Optional[date] = Field(None, description='起始日期(YYYY-MM-DD)，默认近30天')
     end_date: Optional[date] = Field(None, description='结束日期(YYYY-MM-DD)，默认今天')
 

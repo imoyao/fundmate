@@ -200,7 +200,6 @@
         '关注公众号获取更多市场监测解读'
       ]"
       :sources="footerSources"
-      copyright="© 2026 多多贝 · 让投资更从容"
     />
   </div>
 </template>

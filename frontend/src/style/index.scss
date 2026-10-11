@@ -80,7 +80,8 @@
   margin: 0 auto;
 }
 
-@media (width <= 960px) {
+/* breakpoint-allow: 960px 不在断点表（表内仅 640/768/1024/1280/1536）。 */
+@media (width <= 960px) /* breakpoint-allow */ {
   .main-content {
     padding: var(--space-5);
   }

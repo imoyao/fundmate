@@ -61,7 +61,7 @@ title: 核心 API 端点清单（api）
 
 <!-- AUTO-ENDPOINTS:START（由 scripts/check_api_conventions.py --write 生成，勿手改） -->
 
-全量端点清单（共 **135** 条）：由 `scripts/check_api_conventions.py --write` 从
+全量端点清单（共 **149** 条）：由 `scripts/check_api_conventions.py --write` 从
 `backend/app/domains/**/views.py` 的 `@<bp>.<method>(...)` 装饰器静态生成，**禁止手改**——
 改路由后重跑该命令即可；CI 守卫会校验本段与实现逐条一致（不一致即红灯）。
 
@@ -79,6 +79,9 @@ title: 核心 API 端点清单（api）
 | POST | `/api/auth/logout/` | `logout` |
 | GET | `/api/auth/me/` | `me` |
 | POST | `/api/auth/resolve/` | `resolve_identifier` |
+| GET | `/api/dividends/summary/` | `get_dividend_summary` |
+| DELETE | `/api/dividends/target/` | `delete_dividend_target` |
+| PUT | `/api/dividends/target/` | `put_dividend_target` |
 | POST | `/api/e-account/attribution/` | `attribution` |
 | POST | `/api/e-account/reconcile/` | `reconcile` |
 | GET | `/api/e-account/reconciliation/` | `reconciliation` |
@@ -141,6 +144,15 @@ title: 核心 API 端点清单（api）
 | GET | `/api/positions/<int:id>/transactions/` | `get_position_transactions` |
 | POST | `/api/positions/allocate-value/` | `allocate_position_value` |
 | POST | `/api/positions/validate/` | `validate_trade_order` |
+| GET | `/api/products/advisor-profile/` | `advisor_profile` |
+| GET | `/api/products/fund-performance/` | `fund_performance` |
+| GET | `/api/products/fund-profile/` | `fund_profile` |
+| GET | `/api/products/manager-holdings/` | `manager_holdings` |
+| GET | `/api/products/manager-profile/` | `manager_profile` |
+| GET | `/api/products/related-symbols/` | `related_symbols` |
+| GET | `/api/products/resolve/` | `resolve_product` |
+| GET | `/api/products/stock-profile/` | `stock_profile` |
+| GET | `/api/products/trend/` | `product_trend` |
 | POST | `/api/reconciliation/adjustments/` | `apply_adjustment` |
 | GET | `/api/reconciliation/discrepancies/` | `list_discrepancies` |
 | POST | `/api/reconciliation/discrepancies/<int:discrepancy_id>/ignore/` | `ignore_discrepancy` |
@@ -160,6 +172,8 @@ title: 核心 API 端点清单（api）
 | GET | `/api/summary/distributions/` | `distributions` |
 | GET | `/api/summary/ghost-duplicates/` | `ghost_duplicates` |
 | GET | `/api/summary/groups/` | `position_groups` |
+| GET | `/api/summary/penetration/` | `penetration` |
+| GET | `/api/summary/pnl-calendar/` | `pnl_calendar` |
 | GET | `/api/summary/sankey/` | `sankey` |
 | GET | `/api/summary/snapshots/` | `list_snapshots` |
 | POST | `/api/summary/snapshots/` | `create_snapshot` |

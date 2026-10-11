@@ -166,5 +166,5 @@ pdm run python -m app.tools.sync_metadata --job temperature
 ## 8. 乖离率计算状态（2026-08-02 暂停 → 2026-08-05 已放开）
 
 - **2026-08-02 起**：`TemperatureJob._fetch_data` 内的乖离率块曾运行时报错，临时以 `SKIP_BIAS = True` 跳过。
-- **2026-08-05 已放开**：`jobs.py` 顶部 `SKIP_BIAS = False`；数据源由 akshare/东财改为**直连**（腾讯行情 / 东财 push2his，`bias/direct_feeds.py`），绕开 akshare 上游东财限流/IP 封。直连+兜底失败时单品种标 `stale` 或整批为空，不阻断主流程。
+- **2026-08-05 已放开**：`jobs.py` 顶部 `SKIP_BIAS = False`；数据源由 akshare/东财改为**直连**（腾讯行情 / 东财 push2his，`adapters/direct_feeds.py`），绕开 akshare 上游东财限流/IP 封。直连+兜底失败时单品种标 `stale` 或整批为空，不阻断主流程。
 - **影响**：同步任务现会尝试落库乖离率数据（`market_multi_items`，`source='bias'`）；前端若依赖乖离率展示需在实网验证后同步回归。

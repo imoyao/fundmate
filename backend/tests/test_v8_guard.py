@@ -22,6 +22,10 @@ CHECK。因此本文件在 Linux 上只能证明「未回归」，**崩溃缺陷
 **对照实验设计**：两组都走真实的 `import app`（即在包导入期自动安装守卫），
 唯一变量是 `V8_GUARD_ENABLED`。这样跑的既是守卫本身，也顺带验证了应急开关有效。
 
+**概率性断言带重试**：「无守卫必须崩」的对照用例断言语义是「不崩即红」，而竞态复现率
+随机器状态分钟级摆动（#1931 实测同一份代码 30 轮 0 崩 ↔ 8 轮 7 崩），单次采样天然假红。
+故它最多跑 `_UNGUARDED_REPRO_ATTEMPTS` 次子进程、**任一次崩即通过**；详见常量处说明。
+
 **注意断言强度**：子进程「非零退出」**不等于**「被 V8 中止」——脚本自身的
 `SyntaxError` / `IndentationError` 同样是退出码 1。故对照用例除退出码外，还要断言
 stderr 里没有 Python 层错误、且脚本没有跑完（跑完会打印哨兵串）。早期版本正因
@@ -41,6 +45,23 @@ import pytest
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 _CONCURRENT_WORKERS = 8
+
+# 「无守卫必须崩」对照用例的重试参数（#1931）。
+#
+# 该用例的断言语义是「不崩即红」，而竞态复现率随机器状态**分钟级**摆动：同一份代码、
+# 同一解释器，2026-10-07 实测出现过「30 次尝试 0 崩」与「8 次尝试 7 崩」的完整摆动
+# （#1931），全量 pytest 里因此概率性假红。更麻烦的是**假红与真红在结果上无法区分**
+# （都是「没崩」），这正是它设计上的自反点。
+#
+# 处置取 #1931 的首选方案（重试法）：最多试 N 次子进程，**任一次崩即通过**——
+# 独立噪声导致的假红率由 (1-p) 压到 (1-p)^N；而「真·长期不崩」（上游修好
+# `mr_init_context` 竞态 → 每次都能跑完）依然会在 N 次全绿后如期变红，
+# 保住本用例「提醒可撤销 `core/v8_guard.py` workaround」的原始意图。
+#
+# ⚠️ 重试压的是**单次采样的随机性**，压不掉「机器长时间停在不复现窗口」——那种情况
+# 仍会红，且与真红无法区分，只能靠失败信息里逐次的 returncode/stdout 证据人工判断。
+_UNGUARDED_REPRO_ATTEMPTS = 5
+_UNGUARDED_REPRO_ROUNDS = 5
 
 # 跨版本安全的「试跑 + 释放」片段（零缩进，直接拼进子进程脚本）。
 #
@@ -168,30 +189,62 @@ def test_unguarded_concurrent_construct_repro_aborts():
 
     这是**缺陷存在性**的守卫——若某天它不再崩（例如 mini-racer 上游修好了
     `mr_init_context` 的竞态），说明本 workaround 可以撤掉了，此用例会红以提醒。
+
+    但「不崩即红」是概率性断言：竞态复现率随机器状态分钟级摆动，单次子进程跑完不等于
+    缺陷消失（#1931）。故此处改成最多 `_UNGUARDED_REPRO_ATTEMPTS` 次独立子进程，
+    **任一次崩即通过**；全部跑完仍不崩才红——假红率 (1-p) → (1-p)^N，而真红（上游
+    修好竞态 → 永远不崩）依旧红。完整取舍见 `_UNGUARDED_REPRO_ATTEMPTS` 处的注释。
     """
-    code = _CONCURRENT_CONSTRUCT + textwrap.dedent(
-        """
-        from app.core.v8_guard import guard_status
+    code = (
+        _CONCURRENT_CONSTRUCT
+        + f'rounds = {_UNGUARDED_REPRO_ROUNDS}\n'
+        + textwrap.dedent(
+            """
+            from app.core.v8_guard import guard_status
 
-        assert guard_status()['patched'] is False, '开关未生效，守卫仍被安装'
+            assert guard_status()['patched'] is False, '开关未生效，守卫仍被安装'
 
-        # 竞态是概率性的（本机实测单轮约 80% 崩），故多轮提升复现率；
-        # 任意一轮命中 Fast Fail 都会直接终结本进程，后面的轮次根本没机会跑。
-        for round_no in range(5):
-            round_errors = run_round()
-            assert not round_errors, f'第 {round_no} 轮抛 Python 层异常：{round_errors}'
+            # 竞态是概率性的（本机实测单轮约 80% 崩），故多轮提升复现率；
+            # 任意一轮命中 Fast Fail 都会直接终结本进程，后面的轮次根本没机会跑。
+            for round_no in range(rounds):
+                round_errors = run_round()
+                assert not round_errors, f'第 {round_no} 轮抛 Python 层异常：{round_errors}'
 
-        print('NO_CRASH')
-        """
+            print('NO_CRASH')
+            """
+        )
     )
 
-    proc = _run_subprocess(code, env_extra={'V8_GUARD_ENABLED': '0'})
+    # 每次尝试的现场都留着——「真红」（上游修好了竞态）与「假红」（机器恰好处在不复现
+    # 窗口）在结果上无法区分，但至少要让看红灯的人拿到全部证据自行判断。
+    evidence = []
+    for attempt in range(1, _UNGUARDED_REPRO_ATTEMPTS + 1):
+        try:
+            proc = _run_subprocess(code, env_extra={'V8_GUARD_ENABLED': '0'})
+        except subprocess.TimeoutExpired as exc:
+            evidence.append(f'第 {attempt} 次：{exc.timeout}s 内既没崩也没跑完（超时）')
+            continue
 
-    assert not _python_level_error(proc.stderr), f'脚本自身报错（不是复现到崩溃）：\n{proc.stderr}'
-    assert 'NO_CRASH' not in proc.stdout, (
-        f'未复现崩溃：关掉守卫后并发构造 5 轮仍全部成功。\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}'
+        # 「脚本自身报错」与「复现到崩溃」必须分开：SyntaxError / Traceback 同样是非零
+        # 退出码，混进重试会把真正的脚本缺陷反复掩盖掉——故一见即红，不进重试。
+        assert not _python_level_error(proc.stderr), (
+            f'第 {attempt}/{_UNGUARDED_REPRO_ATTEMPTS} 次尝试脚本自身报错（不是复现到崩溃）：\n{proc.stderr}'
+        )
+
+        if 'NO_CRASH' not in proc.stdout and proc.returncode != 0:
+            return  # 命中 Fast Fail：进程没跑完、也没留下跑完的哨兵串 → 任一次崩即通过
+
+        evidence.append(
+            f'第 {attempt} 次：returncode={proc.returncode} '
+            f'stdout={proc.stdout.strip()!r} stderr={proc.stderr.strip()!r}'
+        )
+
+    pytest.fail(
+        f'未复现崩溃：关掉守卫后并发构造 {_UNGUARDED_REPRO_ROUNDS} 轮 × '
+        f'{_UNGUARDED_REPRO_ATTEMPTS} 次尝试全部存活。\n'
+        f'若多次全绿，说明 #1566 的竞态可能已被上游修复——可评估撤销 app/core/v8_guard.py 的 workaround。\n'
+        + '\n'.join(evidence)
     )
-    assert proc.returncode != 0, f'进程既没跑完也没中止？returncode={proc.returncode}'
 
 
 def test_trace_file_records_construct_scene(tmp_path):

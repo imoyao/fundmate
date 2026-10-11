@@ -25,6 +25,16 @@ from app.domains.securities.models import Security
 from app.domains.transactions.models import Transaction
 from app.services.nav_service import NavService
 from app.services.performance.xirr_engine import calculate_xirr, generate_cashflows, generate_portfolio_cashflows
+from app.services.symbol_scope import collect_transaction_symbol_variants, query_positions_by_symbol
+
+
+class XirrScopeParameterError(ValueError):
+    """scope 参数缺失 / 非法。
+
+    单独成类而不是裸 `ValueError`：HTTP 层要把它映射成 **400**（客户端参数错），
+    而 `ValueError` 在这条链路上已经被用作**归属校验失败 → 404**（如「持仓不存在」），
+    混用会让「你传漏了参数」和「这东西不是你的」返回同一个状态码。
+    """
 
 
 def _get_fund_latest_nav(db: Session, fund_code: str) -> float:
@@ -127,6 +137,21 @@ def _get_position_current_value(db: Session, position: Position) -> float:
     return shares * unit_price
 
 
+def _empty_xirr_result() -> Dict[str, Any]:
+    """空结果的标准结构（无账户 / 无成交 / 无市值）：全 0。
+
+    前端据 `cashflow_count == 0` 降级显示 `—`，不会出现 NaN（#1972 验收③）。
+    """
+    return {
+        'xirr': 0.0,
+        'total_invested': 0.0,
+        'current_value': 0.0,
+        'total_withdrawn': 0.0,
+        'total_return': 0.0,
+        'cashflow_count': 0,
+    }
+
+
 def _calculate_xirr_for_cashflows(
     cashflows: List[Tuple[dt.date, float]],
     current_market_value: float = 0.0,
@@ -162,23 +187,118 @@ def _calculate_xirr_for_cashflows(
     }
 
 
+def _position_scope_transactions(db: Session, position: Position, include_cash_equivalents: bool) -> List[Transaction]:
+    """该持仓**行**名下的流水（#2009）。
+
+    收敛键 = `symbol`（写法变体）+ `ledger_id`，依据见 `calculate_position_xirr` 的说明。
+    `ledger_id` 走 NULL-safe 相等：未归属持仓（`ledger_id` 为空）退化为「按 symbol」——
+    这类持仓本身就没有账户维度可用，退化是唯一合理选择。
+    """
+    symbols = collect_transaction_symbol_variants(position.symbol, [position])
+    txn_q = db.query(Transaction).filter(
+        Transaction.family_id == position.family_id,
+        Transaction.symbol.in_(symbols),
+    )
+    if position.ledger_id is None:
+        txn_q = txn_q.filter(Transaction.ledger_id.is_(None))
+    else:
+        txn_q = txn_q.filter(Transaction.ledger_id == position.ledger_id)
+    if not include_cash_equivalents:
+        # NULL 的 asset_type 默认视为投资类资产，纳入计算
+        txn_q = txn_q.filter(Transaction.asset_type.is_(None) | Transaction.asset_type.not_in(EXCLUDED_ASSET_TYPES))
+    return txn_q.all()
+
+
 def calculate_position_xirr(
     db: Session, position_id: int, family_id: int = 1, include_cash_equivalents: bool = False
 ) -> Dict[str, Any]:
-    """计算单持仓的年化收益率 (XIRR)"""
+    """计算单持仓**行**的年化收益率 (XIRR)。
+
+    ## 现金流必须收敛到这一行（#2009）
+
+    此前这里只按 `family_id` 过滤流水，而市值侧 `_get_position_current_value(db, position)`
+    只取**这一行** —— 「现金流是全家、市值是单行」，两者口径不一致。后果：只要家庭里
+    多于一个标的，算出来的年化就是错的，且标的越多越趋近于家庭整体收益
+    （前端持仓交易抽屉调 `scope=position`，故对多标的用户基本必错）。
+
+    ## 收敛键为什么是 `symbol` + `ledger_id`
+
+    依据本机真实库实测（数据与推演见 #2009 评论）：
+
+    - `positions` 有唯一约束 `uq_positions_ledger_symbol (ledger_id, symbol)`，故这两列的
+      组合 ↔ 持仓行**一一对应**，语义上与 `position_id` 等价；而 `transactions.position_id`
+      覆盖率只有 **45%**，靠它收敛等于额外依赖 `orphan_backfill` 回填 —— 回填没跑到时
+      数字照样错，只是错得更隐蔽，故不取；
+    - 库里「`ledger_id` 为空但 `symbol` 非空」的记录是 **0 条**：缺账户归属的流水同时也没有
+      symbol。故按此收敛**既不漏**（不存在「有 symbol 却缺账户」的流水被挡在门外），
+      也**不会被污染**（同 symbol 多账户确实存在，`ledger_id` 参与收敛才分得开）；
+    - `symbol` 的写法变体沿用 `symbol_scope.collect_transaction_symbol_variants`
+      （与 #1966「我的持仓」、#1972 产品级年化同一真相源），不另造一套匹配规则。
+    """
     position = db.query(Position).filter(Position.id == position_id, Position.family_id == family_id).first()
     if not position:
         raise ValueError('持仓不存在')
 
-    txn_q = db.query(Transaction).filter(Transaction.family_id == family_id)
-    if not include_cash_equivalents:
-        # NULL 的 asset_type 默认视为投资类资产，纳入计算
-        txn_q = txn_q.filter(Transaction.asset_type.is_(None) | Transaction.asset_type.not_in(EXCLUDED_ASSET_TYPES))
-    transactions = txn_q.all()
+    transactions = _position_scope_transactions(db, position, include_cash_equivalents)
 
     current_value = _get_position_current_value(db, position)
     cashflows = generate_cashflows(transactions, current_value, include_cash_equivalents=include_cash_equivalents)
     return _calculate_xirr_for_cashflows(cashflows, current_value)
+
+
+def calculate_symbol_xirr(
+    db: Session, symbol: str, family_id: int = 1, include_cash_equivalents: bool = False
+) -> Dict[str, Any]:
+    """
+    计算**产品级**持有年化：跨账户按 symbol 汇总现金流（#1972）。
+
+    与 `calculate_position_xirr`（单持仓**行**）的区别：同一产品常分散在多个账户
+    （场内 ETF + 场外联接、定投账户 + 主账户），逐行看年化没有意义；产品级口径把这些
+    账户的买卖 / 分红现金流**合并成一条时间线**，再挂上合计当前市值。
+
+    口径要点：
+
+    - 持仓匹配与详情页「我的持仓」区块**同一口径**（`services/symbol_scope.py`，#1966），
+      否则会出现「列表有三行、年化只算了两行」的自相矛盾页面；
+    - `transactions.symbol` 只有字面量快照、无归一列，故先取持仓拿到真实写法再 `IN`
+      （两步法，见 `collect_transaction_symbol_variants`）；
+    - 无成交且无市值时返回全 0 结构（与 `calculate_portfolio_xirr_by_id` 的空账户同构），
+      前端据此降级为 `—`，不显示 NaN。
+
+    边界：`transactions` 无 market 字段，本口径**不做市场消歧**——同码跨市场
+    （如 `000001` 场内 / 场外各一行）会合并计算；若详情页将来需要 market 消歧另立卡。
+    """
+    if not symbol:
+        raise ValueError('缺少 symbol 参数')
+
+    positions = query_positions_by_symbol(db, symbol, family_id=family_id)
+    symbols = collect_transaction_symbol_variants(symbol, positions)
+
+    txn_q = db.query(Transaction).filter(Transaction.family_id == family_id, Transaction.symbol.in_(symbols))
+    if not include_cash_equivalents:
+        # NULL 的 asset_type 默认视为投资类资产，纳入计算（与其余两个 scope 同口径）
+        txn_q = txn_q.filter(Transaction.asset_type.is_(None) | Transaction.asset_type.not_in(EXCLUDED_ASSET_TYPES))
+    transactions = txn_q.all()
+
+    # 市值只取 quantity > 0 的持仓：清仓行不贡献当前市值（但它的流水已计入现金流）
+    open_positions = [p for p in positions if (p.quantity or 0) > 0]
+    if not include_cash_equivalents:
+        open_positions = [p for p in open_positions if p.asset_type not in EXCLUDED_ASSET_TYPES]
+    total_value = sum(_batch_get_position_values(db, open_positions).values())
+
+    if not transactions and total_value <= 1e-8:
+        logger.debug(f'产品级 XIRR(symbol={symbol})：无成交且无市值，返回空结果')
+        return _empty_xirr_result()
+
+    cashflows = generate_cashflows(transactions, total_value, include_cash_equivalents=include_cash_equivalents)
+
+    logger.debug(
+        f'产品级 XIRR 计算(symbol={symbol}): 持仓行数={len(positions)}, '
+        f'成交笔数={len(transactions)}, 合计市值={total_value:.2f}, '
+        f'现金流笔数={len(cashflows)}, 含现金等价物={include_cash_equivalents}'
+    )
+
+    return _calculate_xirr_for_cashflows(cashflows, total_value)
 
 
 def calculate_portfolio_xirr(db: Session, family_id: int = 1, include_cash_equivalents: bool = False) -> Dict[str, Any]:
@@ -236,27 +356,20 @@ def calculate_portfolio_xirr_by_id(
     if not portfolio:
         raise ValueError('投资组合不存在')
 
-    # 获取组合关联的所有 Ledger 名称（家庭维度）
-    ledger_names = [
+    # 获取组合关联的所有 Ledger ID（家庭维度）。统一按 ledger_id（外键维度）聚合，
+    # 不用冗余的 account_name —— 同名账户会造成口径串味（历史 bug）；未归档持仓
+    # ledger_id 为 NULL 自然不计入组合。
+    ledger_ids = [
         row[0]
-        for row in db.query(Ledger.name)
-        .filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == family_id)
-        .all()
+        for row in db.query(Ledger.id).filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == family_id).all()
     ]
 
-    if not ledger_names:
-        return {
-            'xirr': 0.0,
-            'total_invested': 0.0,
-            'current_value': 0.0,
-            'total_withdrawn': 0.0,
-            'total_return': 0.0,
-            'cashflow_count': 0,
-        }
+    if not ledger_ids:
+        return _empty_xirr_result()
 
-    # 获取这些账户下的持仓总市值
+    # 获取这些账户下的持仓总市值（按 ledger_id 集合过滤）
     pos_filter = [
-        Position.account_name.in_(ledger_names),
+        Position.ledger_id.in_(ledger_ids),
         Position.quantity > 0,
         Position.family_id == family_id,
     ]
@@ -273,8 +386,46 @@ def calculate_portfolio_xirr_by_id(
 
     logger.debug(
         f'组合 XIRR 计算(portfolio_id={portfolio_id}): '
-        f'账户数={len(ledger_names)}, 持仓数={len(positions)}, '
+        f'账户数={len(ledger_ids)}, 持仓数={len(positions)}, '
         f'总市值={total_value:.2f}, 现金流笔数={len(cashflows)}'
     )
 
     return _calculate_xirr_for_cashflows(cashflows, total_value)
+
+
+def calculate_xirr_by_scope(
+    db: Session,
+    scope: str,
+    family_id: int = 1,
+    position_id: int | None = None,
+    portfolio_id: int | None = None,
+    symbol: str | None = None,
+    include_cash_equivalents: bool = False,
+) -> Dict[str, Any]:
+    """按 scope 分派年化收益率计算（#1929 / #1972：视图只做 HTTP 编排，分派逻辑在 service）。
+
+    为什么分派与参数校验也要放 service：视图里 `abort(400)` 抛的 `BadRequest` 是
+    `Exception` 子类，落进视图兜底的 `except Exception` 会被转成 **500**（存量 bug：
+    `scope=position` 缺 `position_id` 一直返回 500 而不是代码里写明的 400）。本函数把
+    「参数缺失」显式抛 `XirrScopeParameterError`，由视图映射 400，语义才对得上。
+
+    scope 取值：
+    - ``position``：单持仓行的年化（须传 ``position_id``）；
+    - ``portfolio``：指定组合（须传 ``portfolio_id``）；不传组合 id 时退化为**家庭整体**；
+    - ``symbol``：产品级持有年化，跨账户按 symbol 汇总现金流（须传 ``symbol``，#1972）。
+    """
+    if scope == 'position':
+        if not position_id:
+            raise XirrScopeParameterError('缺少 position_id 参数')
+        return calculate_position_xirr(
+            db, position_id, family_id=family_id, include_cash_equivalents=include_cash_equivalents
+        )
+    if scope == 'portfolio' and portfolio_id:
+        return calculate_portfolio_xirr_by_id(
+            db, portfolio_id, family_id=family_id, include_cash_equivalents=include_cash_equivalents
+        )
+    if scope == 'symbol':
+        if not symbol:
+            raise XirrScopeParameterError('缺少 symbol 参数')
+        return calculate_symbol_xirr(db, symbol, family_id=family_id, include_cash_equivalents=include_cash_equivalents)
+    return calculate_portfolio_xirr(db, family_id=family_id, include_cash_equivalents=include_cash_equivalents)

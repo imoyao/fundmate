@@ -20,7 +20,15 @@
               <el-radio-button :value="true">含现金</el-radio-button>
             </el-radio-group>
           </div>
+          <!-- 失败态（#1832）：年化请求失败时不显示 0.00% 与 ¥0 —— 与资产看板同一原则 -->
+          <div v-if="error" class="flex items-center gap-2" role="alert">
+            <span class="text-sm" :style="{ color: 'var(--text-secondary)' }">
+              年化数据加载失败
+            </span>
+            <el-button text size="small" @click="emit('retry')">重试</el-button>
+          </div>
           <RiseFallText
+            v-else
             :value="(portfolioXirr?.xirr ?? 0) * 100"
             size="lg"
             :precision="2"
@@ -35,7 +43,22 @@
             }}</span
           >
         </div>
+        <!-- 市值 / 总投入两行同样要进失败态（#1832 复核发现）：只把年化百分比挪进错误分支时，
+             这两行仍在渲染空值兜底的 0，于是错误态里并排出现「年化数据加载失败」与两个零值。
+             注：本注释刻意不写那个金额字面量——E2E 用 getByText 断言「页面不出现该金额」，
+             而 getByText 会匹配 DOM 注释里的文本，注释里写一次就等于凭空多出一处命中。 -->
         <div
+          v-if="error"
+          class="flex gap-8 pt-4"
+          :style="{ borderTop: '1px solid var(--border-light)' }"
+          role="alert"
+        >
+          <span class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }">
+            当前市值与总投入同样取不到——它们与年化出自同一次请求。
+          </span>
+        </div>
+        <div
+          v-else
           class="flex gap-8 pt-4"
           :style="{ borderTop: '1px solid var(--border-light)' }"
         >
@@ -138,6 +161,8 @@ defineProps<{
   compositeTemperature: CompositeTemperature | null;
   temperatureBands: TemperatureBands | null;
   temperatureConclusion: string;
+  /** 年化请求失败（#1832）：为 true 时显示「加载失败 + 重试」，不显示 0.00% / ¥0 */
+  error?: boolean;
   bandPillStyle: (level: string) => {
     color: string;
     backgroundColor: string;
@@ -147,6 +172,7 @@ defineProps<{
 const emit = defineEmits<{
   "update:includeCashEquivalents": [value: boolean];
   change: [];
+  retry: [];
 }>();
 
 // el-radio-group 的 modelValue 类型为宽联合（bool | string | number），

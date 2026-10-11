@@ -52,6 +52,10 @@ const toggleClick = () => {
       :icon="MenuFold"
       :class="[iconClass, themeColor === 'light' ? '' : 'text-primary']"
       :style="{ transform: isActive ? 'none' : 'rotateY(180deg)' }"
+      role="button"
+      tabindex="0"
+      aria-label="isActive ? '折叠侧边栏' : '展开侧边栏'"
+      @keydown.enter="toggleClick"
       @click="toggleClick"
     />
   </div>

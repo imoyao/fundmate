@@ -6,6 +6,7 @@
     width="640px"
     destroy-on-close
     :close-on-click-modal="false"
+    :before-close="onBeforeClose"
   >
     <!-- 顶部：剩余次数提示（三态：正常 / 紧张 / 用尽）。极简通栏，弱化存在感，聚焦「粘贴区」与「开始识别」 -->
     <div class="usage-banner" :class="usageStateClass">
@@ -72,6 +73,8 @@
         识别到 {{ candidates.length }} 条，可勾选导入
       </div>
       <div class="candidate-list">
+        <!-- a11y-allow 容器内首行就是 el-checkbox，整行点击只是它的热区扩展；
+             补 role=button 会把整行读成一个按钮、盖住 checkbox 的语义 -->
         <div
           v-for="item in candidates"
           :key="item.code"
@@ -98,7 +101,7 @@
     </div>
 
     <template #footer>
-      <el-button class="ocr-cancel-btn" size="large" @click="visible = false"
+      <el-button class="ocr-cancel-btn" size="large" @click="requestClose"
         >取消</el-button
       >
       <el-button
@@ -134,6 +137,10 @@ import { Icon as IconifyIconOffline } from "@iconify/vue";
 import ImageUploader from "@/components/ImageUploader/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import { parseImportText, recognizeImage, getOcrUsage } from "@/api/ocr";
+import {
+  useFormDirty,
+  useUnsavedChangesGuard
+} from "@/composables/useUnsavedChangesGuard";
 import { createWatchlistItem, getWatchlistItems } from "@/api/watchlist";
 import type { OcrImportItem } from "@/api/ocr";
 
@@ -397,11 +404,44 @@ const fetchUsage = async () => {
   }
 };
 
+// ── 未保存离开保护（#1835）──
+//关闭按钮 / ESC 走 before-close；底部「取消」是程序化 close，走不到它。
+// 脏基线只取「用户真正输入过的东西」：识别**结果**不算改动（candidates 是派生出来的，
+// 识别完不给钱的是它，但用户重开一次识别不贵；而要求用户先导入才让关，反而误伤）。
+const { isDirty, markClean } = useFormDirty(() => ({
+  tab: activeTab.value,
+  file: imageFile.value?.name ?? null,
+  fileSize: imageFile.value?.size ?? 0,
+  text: textContent.value
+}));
+
+const { onBeforeClose, requestClose: confirmThenClose } =
+  useUnsavedChangesGuard(() => isDirty.value, {
+    message: "已输入内容，确定放弃吗？"
+  });
+
+/** 底部「取消」：程序化 close 走不到 before-close，必须自己问一遍 */
+async function requestClose() {
+  await confirmThenClose(() => (visible.value = false));
+}
+
+// 打开时记基线（不用 @open：它在动画结束后才触发，期间的改动会被误判）
+watch(
+  () => props.modelValue,
+  open => {
+    if (open) markClean();
+  },
+  { immediate: true }
+);
+
 const reset = () => {
   candidates.value = [];
   textContent.value = "";
   imageFile.value = null;
   textError.value = "";
+  // 与表单一起清基线：reset 跑在「导入成功」与「放弃后关闭」两条路上，
+  // 只清表单不清基线的话，关闭后再开弹窗会直接是脏的（#1845 同源）。
+  markClean();
 };
 
 // 🔥 修复：组件挂载时弹窗处于关闭态（visible=false），onMounted 不会触发
@@ -642,22 +682,19 @@ onMounted(() => {
   }
 }
 
+/* 文本域走 #1772 输入基线令牌：等宽字体直接写在容器上（EP 内部
+   `font-family: inherit` 会继承下来），圆角 / 静态描边 / 过渡 / 焦点光晕
+   全部由令牌表达，不再 :deep。
+   ⚠️ 焦点刻意**不用**全局 --focus-ring（2px 间隙圈 + 4px 实红双环）——
+   本输入区因自动聚焦常驻显示，重环会呈现「报错红框」观感；
+   改用 brand-40% 柔光，聚焦感清晰但不施压。 */
 .ocr-textarea {
-  :deep(.el-textarea__inner) {
-    font-family: var(--font-mono); /* 代码等宽，数字纵向对齐 */
-    border-radius: var(--radius-sm);
-    box-shadow: 0 0 0 1px var(--border-default) inset;
-    transition: box-shadow 0.2s ease;
+  --input-focus-shadow:
+    0 0 0 1px var(--brand-700) inset,
+    0 0 0 3px color-mix(in srgb, var(--brand-400) 40%, transparent);
+  --input-transition: box-shadow 0.2s ease;
 
-    &:focus {
-      /* 轻聚焦：仅 1px 品牌红内边 + 浅色光晕。
-         不用全局 --focus-ring（它是 2px 白圈+4px 实红双环，本输入区因自动聚焦常驻显示，
-         重环会呈现「报错红框」观感），改用 brand-40% 柔光，聚焦感清晰但不施压 */
-      box-shadow:
-        0 0 0 1px var(--brand-700) inset,
-        0 0 0 3px color-mix(in srgb, var(--brand-400) 40%, transparent);
-    }
-  }
+  font-family: var(--font-mono); /* 代码等宽，数字纵向对齐 */
 }
 
 /* 行内错误提示：危险色小字，不弹全局红提示 */

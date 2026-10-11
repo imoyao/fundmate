@@ -69,7 +69,11 @@
             </div>
           </el-option>
         </el-select>
-        <el-button size="large" @click="tagFormVisible = true">
+        <el-button
+          size="large"
+          aria-label="新建标签"
+          @click="tagFormVisible = true"
+        >
           <IconifyIconOffline icon="ep:plus" />
         </el-button>
       </div>

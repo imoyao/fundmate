@@ -65,6 +65,8 @@ export interface ImportConfirmRow {
   error?: string | null;
   import_hash?: string;
   is_duplicate?: boolean;
+  /** #1882：疑似重复且被用户勾选保留 → 后端按「真插入」落库（仅 is_duplicate 行有意义） */
+  keep_duplicate?: boolean;
   allocation?: string | null;
   source?: string;
   net_amount?: number;
@@ -95,6 +97,10 @@ export interface ImportCommitResult {
   errors: ImportErrorItem[];
   /** 银证转账在关联现金账户侧生成的反向记录数（#1010） */
   cash_transfers_created: number;
+  /** 勾选保留的疑似重复行实际入库数（#1882 决策 (a) 真插入） */
+  kept_duplicates: number;
+  /** 勾选保留但被去重规则拦截数（此前已保留过，幂等跳过，#1882） */
+  kept_duplicates_blocked: number;
 }
 
 /** 确认导入响应 */

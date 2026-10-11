@@ -25,7 +25,7 @@ export const getMe = () => {
 };
 
 /** 退出登录：统一走后端接口，由后端服务端作废 Supabase 会话 */
-export const logoutApi = (supabaseToken?: string | null) => {
+export const logout = (supabaseToken?: string | null) => {
   return http.request<{ success: boolean }>(
     "post",
     "/api/auth/logout/",

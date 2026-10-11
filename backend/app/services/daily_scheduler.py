@@ -91,8 +91,23 @@ ENV_PRICE_HISTORY_ENABLED = 'SCHEDULER_PRICE_HISTORY_ENABLED'
 ENV_PRICE_HISTORY_CRON = 'SCHEDULER_PRICE_HISTORY_CRON'
 ENV_POSITION_PRICE_ENABLED = 'SCHEDULER_POSITION_PRICE_ENABLED'
 ENV_POSITION_PRICE_CRON = 'SCHEDULER_POSITION_PRICE_CRON'
+ENV_INDEX_DAILY_ENABLED = 'SCHEDULER_INDEX_DAILY_ENABLED'
+ENV_INDEX_DAILY_CRON = 'SCHEDULER_INDEX_DAILY_CRON'
 ENV_ADVISOR_ENABLED = 'SCHEDULER_ADVISOR_ENABLED'
 ENV_ADVISOR_CRON = 'SCHEDULER_ADVISOR_CRON'
+ENV_FUND_HOLDING_ENABLED = 'SCHEDULER_FUND_HOLDING_ENABLED'
+ENV_FUND_HOLDING_CRON = 'SCHEDULER_FUND_HOLDING_CRON'
+# --- #1934：以下四个 job 早已注册进编排器与全量执行计划，却从未进本机每日调度 ---
+ENV_INDEX_VALUATION_ENABLED = 'SCHEDULER_INDEX_VALUATION_ENABLED'
+ENV_INDEX_VALUATION_CRON = 'SCHEDULER_INDEX_VALUATION_CRON'
+ENV_CONVERTIBLE_BOND_ENABLED = 'SCHEDULER_CONVERTIBLE_BOND_ENABLED'
+ENV_CONVERTIBLE_BOND_CRON = 'SCHEDULER_CONVERTIBLE_BOND_CRON'
+ENV_MARKET_ASSET_DAILY_ENABLED = 'SCHEDULER_MARKET_ASSET_DAILY_ENABLED'
+ENV_MARKET_ASSET_DAILY_CRON = 'SCHEDULER_MARKET_ASSET_DAILY_CRON'
+ENV_DIVIDEND_SPLIT_ENABLED = 'SCHEDULER_DIVIDEND_SPLIT_ENABLED'
+ENV_DIVIDEND_SPLIT_CRON = 'SCHEDULER_DIVIDEND_SPLIT_CRON'
+ENV_ORPHAN_BACKFILL_ENABLED = 'SCHEDULER_ORPHAN_BACKFILL_ENABLED'
+ENV_ORPHAN_BACKFILL_CRON = 'SCHEDULER_ORPHAN_BACKFILL_CRON'
 
 DEFAULT_TIMEZONE = 'Asia/Shanghai'
 # 温度计：集思录中位 PB / 韭圈儿 / 行业拥挤度盘后即出
@@ -105,9 +120,47 @@ DEFAULT_PRICE_HISTORY_CRON = '30 17 * * *'
 # 持仓现价回写（#1104）：净值走 daily_worth、场内走 price_history，故**必须晚于两者**。
 # 与投顾组合（22:00）错开 15 分钟，避免两个 job 同时抢同一个 DB 会话与磁盘。
 DEFAULT_POSITION_PRICE_CRON = '15 22 * * *'
+# 指数日线（#275 / #861）：本机调度原先**不含**本任务，index_daily 只在 CI / 手工
+# `grab.*` 时更新——实测数据停在 2026-09-08（陈旧 23 天）。
+# A 股 15:00 收盘、腾讯日线盘后即出，排在 17:30 场内日线之后、20:00 温度计之前：
+# 与两者都无依赖关系，只是错开 DB 会话与外部请求窗口（同一出口同时打两路易成突发指纹）。
+DEFAULT_INDEX_DAILY_CRON = '0 18 * * *'
 # 投顾组合：排在净值之后——且慢调仓快照带当日净值占比，且调仓多发生在盘后，
 # 排在净值前会用到前一日口径。这也是且慢调仓历史的**唯一**来源（无官方历史接口）。
 DEFAULT_ADVISOR_CRON = '0 22 * * *'
+# 基金持仓明细 + 行业配置（#870）：**每周一次，不进每日**。
+# 持仓是季报数据，日变更量恒为 0——每日跑 133 只 × 2 次请求纯属浪费外部请求，
+# 还叠加东财限流风险（#1403 的原始形态）。选周一 23:00：排在净值（21:30）与投顾
+# （22:00）、持仓现价（22:15）之后，避开同一时段抢 DB 会话。
+# ⚠️ 星期必须写 `mon` 而不是数字：APScheduler 的 `day_of_week` 是 **0 = 周一**，
+# 与 crontab 的 0 = 周日**相反**——实测写 `* * 1` 排出来的是周二。
+DEFAULT_FUND_HOLDING_CRON = '0 23 * * mon'
+
+# --- #1934：四个「已注册却从未被调度」的 job 的默认 cron ---
+#
+# 为什么现在才排期：它们都在编排器与全量执行计划里，却不在本机调度清单，
+# 于是「看起来做了」但真库从未执行过（#1397 / #1400 / #1460 / #1179 的实证）。
+# 时点全部**错开**现有 7 项（17:30 price_history / 18:00 index_daily / 20:00
+# temperature / 21:30 fund_nav / 22:00 advisor / 22:15 position_price / 周一23:00
+# fund_position），避免同时抢 DB 会话与上游限流。
+#
+# 17:10 探市快照：场内收盘后（15:00）尽早落库，让 overview 读库优先生效；
+# 不联网（NullAdapter，只读已落库的指数/基金数据），无请求风暴风险。
+DEFAULT_MARKET_ASSET_DAILY_CRON = '10 17 * * *'
+# 18:20 指数估值：中证官方收盘后约 1 小时下发，排在 index_daily(18:00) 之后
+# 拉当日日线，再取同日估值，避免拿到「昨日日线 + 今日估值」的错配口径。
+DEFAULT_INDEX_VALUATION_CRON = '20 18 * * *'
+# 21:00 可转债条款：集思录收盘后更新，排在 fund_nav(21:30) 之前，
+# 让「强赎计数」与当日净值同晚就绪（#1393 的列依赖它）。
+DEFAULT_CONVERTIBLE_BOND_CRON = '0 21 * * *'
+# 21:45 分红送股：公告类，增量为主（按 import_hash 幂等去重），
+# 排在 fund_nav 之后错峰。
+DEFAULT_DIVIDEND_SPLIT_CRON = '45 21 * * *'
+# 23:30 孤儿交易回填（#950）：纯本地查库、不联网，排在当日**最后一个**落库类 job
+# （周一 23:00 fund_position）之后跑最保险——那时刻持仓与分红拆分行都已就位，
+# 回填看到的是当天最终状态，不会因「持仓尚未建好」把本可挂上的流水留在孤儿态。
+# 错开 30 分钟同样是为了不与fund_position 抢 DB 会话（与 position_price 的错峰同理）。
+DEFAULT_ORPHAN_BACKFILL_CRON = '30 23 * * *'
 
 # backend/ 目录（app/services/daily_scheduler.py → parents[2]）
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -191,6 +244,19 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[str], str], ...] = (
         '场内日线（股票 / ETF / 可转债，按缺口回补）',
     ),
     (
+        # 指数日线（#275 基准对比 / #861 绩效分析底座）：双源——万得系走韭圈儿、
+        # 交易所宽基（沪深300 等）走腾讯直连，见 sync/jobs/index_daily_job.py。
+        # target_kind=None：目标池是**固定清单**（WIND/TENCENT_INDEX_TARGETS），
+        # 与用户持仓/自选无关，套 resolve_targets() 只会拿到不相干的 fund/stock 代码。
+        # job 是 best-effort（_allow_empty_data=True），非交易日/源失败静默跳过不阻断。
+        'index_daily',
+        ENV_INDEX_DAILY_ENABLED,
+        ENV_INDEX_DAILY_CRON,
+        DEFAULT_INDEX_DAILY_CRON,
+        None,
+        '指数日线（万得系 + 交易所宽基，增量自愈；#275 / #861）',
+    ),
+    (
         # 持仓现价回写（#1104）：把 daily_worth 的确认净值写回 positions.current_price，
         # 否则「导入时 avg_price == current_price」会让盈亏恒为 0。
         # target_kind=None：目标池是**持仓表本身**（user 域），不是 fund/stock 代码池；
@@ -214,7 +280,97 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[str], str], ...] = (
         None,
         '投顾组合持仓 / 调仓快照（且慢 + 天天；且慢无历史调仓接口，快照序列是唯一来源）',
     ),
+    (
+        # 基金持仓明细 + 行业配置（#870）。target_kind='fund'：目标池取持仓 + 自选（133 只），
+        # job 侧另有 MAX_TARGETS=500 硬上限与 `__full__` 显式跳过（data-strategy.md §4.3.3）。
+        # **本项默认 cron 是每周一次，不是每日**——见 DEFAULT_FUND_HOLDING_CRON 注释。
+        'fund_position',
+        ENV_FUND_HOLDING_ENABLED,
+        ENV_FUND_HOLDING_CRON,
+        DEFAULT_FUND_HOLDING_CRON,
+        'fund',
+        '基金持仓明细 + 行业配置（季报口径，每周一次；#870）',
+    ),
+    # --- #1934：以下四条是「已注册进编排器与全量执行计划、却从未进本机调度」的 job ---
+    # 探市快照（#1460）：target_kind=None，因其目标池就是「要落快照的大类资产」，
+    # 不是 fund/stock 代码池，套resolve_targets() 只会拿到不相干的代码。
+    # 落了它，overview 的「读库优先」才真的有库可读（否则每天重复实时抓）。
+    (
+        'market_asset_daily',
+        ENV_MARKET_ASSET_DAILY_ENABLED,
+        ENV_MARKET_ASSET_DAILY_CRON,
+        DEFAULT_MARKET_ASSET_DAILY_CRON,
+        None,
+        '探市大类资产日频快照（overview 读库优先的库源；#1460）',
+    ),
+    # 指数估值（#1397）：target_kind=None —— 目标池是固定指数清单
+    # （INDEX_VALUATION_TARGETS），与用户持仓/自选无关。中证官方约收盘后 1 小时下发。
+    (
+        'index_valuation',
+        ENV_INDEX_VALUATION_ENABLED,
+        ENV_INDEX_VALUATION_CRON,
+        DEFAULT_INDEX_VALUATION_CRON,
+        None,
+        '指数估值 PE / 股息率（中证官方；历史分位本期仍不提供；#1397）',
+    ),
+    # 可转债条款（#1400 / #1393）：target_kind=None —— 目标池是「在库的可转债」，
+    # 按 symbol 覆盖式 upsert，不是持仓+自选池（只抓持仓会漏掉自选里的转债）。
+    (
+        'convertible_bond',
+        ENV_CONVERTIBLE_BOND_ENABLED,
+        ENV_CONVERTIBLE_BOND_CRON,
+        DEFAULT_CONVERTIBLE_BOND_CRON,
+        None,
+        '可转债条款 + 集思录强赎计数（#1393 的列依赖它；#1400）',
+    ),
+    # 分红送股（#1179）：target_kind=None —— 事件型数据（分红/送股公告），
+    # 按 import_hash 幂等去重，重跑不产生重复行。
+    (
+        'dividend_split',
+        ENV_DIVIDEND_SPLIT_ENABLED,
+        ENV_DIVIDEND_SPLIT_CRON,
+        DEFAULT_DIVIDEND_SPLIT_CRON,
+        None,
+        '分红 / 送股事件（akshare 公告口径，按 import_hash 幂等；#1179）',
+    ),
+    (
+        # 孤儿交易回填（#950）：target_kind=None —— 与目标池无关，纯本地扫描
+        # `position_id IS NULL` 的交易，按 symbol 身份挂回既有持仓。
+        # 不联网；幂等（挂过即离开候选集）；只补 position_id，不改金额/确认日。
+        'orphan_backfill',
+        ENV_ORPHAN_BACKFILL_ENABLED,
+        ENV_ORPHAN_BACKFILL_CRON,
+        DEFAULT_ORPHAN_BACKFILL_CRON,
+        None,
+        '孤儿交易回填（position_id IS NULL → 按 symbol 身份挂回持仓；不联网、幂等；#950）',
+    ),
 )
+
+# 编排器已注册、但**明确不进每日调度**的 job（#1934）。
+#
+# 这张表与 `_JOB_TEMPLATES` 共同构成「编排器注册过的 job 的完整去向」，
+# `scripts/guard_job_schedule_coverage.py` 断言两者覆盖全集——
+# 加job 的人若只改 `orchestrator._register_jobs` 而忘了这两张表之一，守门即红。
+#
+# ⚠️ 往这张表加条目前先问一句：**这个 job 的数据日变化吗、用户直接看得见吗？**
+# 两个都是才该进每日调度（判据见 #1934 卡）。只满足「有用」不满足「日变+可见」，
+# 就该留在本表里，并写清真实频率与依据 —— 否则等于把季报级/全库型 job 变成
+# 每天打上游，风险远大于收益。
+_NOT_SCHEDULED: Dict[str, Tuple[str, str]] = {
+    # job 名 → (为什么不进每日调度, 建议的真实频率)
+    'stock_list': ('全库列表型：单次调用即换全市场股票列表，日变更量极小', '月度 / 手动'),
+    'fund_list': ('全库列表型：同上；且东财/天天源对全库频抓敏感（限流）', '月度 / 手动'),
+    'fund_detail_enrich': ('逐只详情（基金经理/费率/持仓等），成本高、日变更量小', '月度'),
+    'fund_manager': ('基金经理任期变更，季报级披露', '季度 / 事件驱动'),
+    'fund_company_backfill': ('基金公司主数据回填；覆盖率演进慢，且与 #1386 遗留同源', '月度'),
+    'fund_scale': ('全库规模单次换全市场（__full__）；逐只抓是限流炸弹（#1403）', '季度 / 手动'),
+    'fund_type': ('基金分类映射，日变更量极小', '月度'),
+    'index_constituents': ('指数成分股，季报级调整', '季度'),
+    'index_catalog': ('指数名录（基准/跟踪映射），准静态', '月度 / 手动'),
+    'channel_link': ('跨渠道关联：随基金列表与指数名录变化，重跑需前置已更新', '周（依赖上游先更新）'),
+    'amac_institution': ('公募机构持仓，季报级披露', '季度'),
+    'asset_snapshot': ('D21 明确把 asset_snapshot 排除在本机通道之外（资产快照按用户手动触发）', '手动'),
+}
 
 
 def _truthy(raw: Optional[str], default: bool) -> bool:
@@ -341,6 +497,30 @@ def is_rest_day(today: Optional[date] = None) -> bool:
     return not is_trading_day(today or today_shanghai())
 
 
+# 休市日仍要运行的 job（#2016）：它们按**缺口增量回补**，休市日跑是为了补齐上一个
+# 交易日没拿到的数据。
+#
+# 为什么必须有这个例外：数据源当日不齐（ETF 的当日 K 线要次日才齐），所以当天 17:30
+# 那次只拿到 T-1，缺口本应由「下一次运行」补上。而全局 `skip_non_trading_day` 会把
+# 周末整体跳过 —— 于是**周五的缺口要拖到周一 17:30 才补**，整个周末的持仓市值/盈亏
+# 都在用周四的价（2026-10-10 实测：54 个标的里只有 19 个更新到最新交易日）。
+#
+# 没有缺口时它们空跑：增量窗口为空即跳过抓取，只花一次库内查询、0 次外部请求。
+# 其余 job（温度 / 指数估值 / 投顾等）休市确实无新数据可抓，照旧跳过。
+REST_DAY_JOB_NAMES: frozenset = frozenset(
+    {
+        'price_history',  # 场内日线：缺口回补本就是它的既有口径
+        'fund_nav',  # 场外净值：增量窗口 = 上次成功日 − 1 天
+        'position_price',  # 持仓现价回写：消费上面两者的落库结果，不补跑则持仓停在周五之前
+    }
+)
+
+
+def runs_on_rest_day(job_name: str) -> bool:
+    """该 job 在休市日是否照跑（回补型，见 `REST_DAY_JOB_NAMES`）。"""
+    return job_name in REST_DAY_JOB_NAMES
+
+
 def today_fire_time(cron: str, tzinfo: Any, now: datetime) -> Optional[datetime]:
     """今天该 cron 的触发时刻；今天不触发则返回 None。
 
@@ -371,14 +551,21 @@ def catch_up_targets(
     tzinfo = ZoneInfo(config.timezone)
     if now.tzinfo is None:
         now = now.replace(tzinfo=tzinfo)
-    if config.skip_non_trading_day and is_rest_day(now.date()):
-        return []
+
+    rest_day = config.skip_non_trading_day and is_rest_day(now.date())
 
     due: List[str] = []
     for spec in config.jobs:
-        fire = today_fire_time(spec.cron, tzinfo, now)
-        if fire is None or now < fire:
-            continue
+        if rest_day:
+            # 休市日只补回补型；其余 job 无新数据可抓（#2016）
+            if not runs_on_rest_day(spec.job_name):
+                continue
+            # 休市日的回补型**不受「今日触发时刻是否已过」限制**：它补的是上一个交易日的
+            # 缺口，与今天几点启动无关——否则周六上午启动还得干等到 17:30 才补上
+        else:
+            fire = today_fire_time(spec.cron, tzinfo, now)
+            if fire is None or now < fire:
+                continue
         last_success = last_success_dates.get(spec.job_name)
         if last_success is None or last_success < now.date():
             due.append(spec.job_name)
@@ -547,8 +734,11 @@ class DailyScheduler:
 
     def _run_job(self, spec: DailyJobSpec) -> None:
         if self.config.skip_non_trading_day and is_rest_day():
-            logger.info(f'[每日调度] {spec.job_name} 跳过：今天休市（无新数据可抓）')
-            return
+            if not runs_on_rest_day(spec.job_name):
+                logger.info(f'[每日调度] {spec.job_name} 跳过：今天休市（无新数据可抓）')
+                return
+            # 回补型照跑：补上一个交易日未发布的数据（#2016）；无缺口时是空跑
+            logger.info(f'[每日调度] {spec.job_name} 休市日照跑（补上一个交易日的缺口）')
 
         logger.info(f'[每日调度] 开始 {spec.job_name}（{spec.description}）')
         result = run_sync_job(spec, jitter_seconds=self.config.jitter_seconds)
@@ -559,10 +749,8 @@ class DailyScheduler:
             logger.warning(f'[每日调度] {spec.job_name} 未成功：status={status} {result.get("error") or ""}')
 
     def _startup_catch_up(self) -> None:
-        if self.config.skip_non_trading_day and is_rest_day():
-            logger.info('[每日调度] 启动补跑跳过：今天休市')
-            return
-
+        # 休市日不再整体跳过：回补型 job 仍要补上一个交易日的缺口（#2016）。
+        # 「该补哪些」交给 catch_up_targets 按 runs_on_rest_day 过滤，此处不重复判断。
         now = datetime.now(ZoneInfo(self.config.timezone))
         last_dates = {spec.job_name: last_success_date(spec.job_name) for spec in self.config.jobs}
         due = catch_up_targets(self.config, now, last_dates)

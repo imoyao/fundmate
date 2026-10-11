@@ -232,6 +232,7 @@ onMounted(() => load());
         <el-input
           :model-value="keyword"
           class="search-input"
+          aria-label="搜索名称或代码"
           placeholder="搜索名称 / 代码"
           clearable
           @update:model-value="setKeyword"
@@ -261,7 +262,16 @@ onMounted(() => load());
             aria-label="排序方式"
             @change="setSort"
           />
-          <el-button class="order-btn" text @click="toggleOrder">
+          <el-button
+            class="order-btn"
+            text
+            :aria-label="
+              order === 'desc'
+                ? '当前降序，点击切换为升序'
+                : '当前升序，点击切换为降序'
+            "
+            @click="toggleOrder"
+          >
             <IconifyIconOffline
               :icon="order === 'desc' ? 'ep:sort-down' : 'ep:sort-up'"
             />

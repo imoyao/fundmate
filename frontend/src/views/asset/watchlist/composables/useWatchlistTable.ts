@@ -133,10 +133,18 @@ export function useWatchlistTable(options: TableRenderOptions) {
     batchMode: batchMode.value,
     // 品类视图（类型筛选命中单一品类）：供产品列与品类专属列去重（#1425）
     categoryView: options.activeCategory.value !== null,
-    hoveredRowKey: hoveredRowKey.value,
+    // 行 hover 状态经**稳定 getter** 注入（不能直接写 hoveredRowKey.value：
+    // 那会把 hover 烧进 renderCtx 对象身份，每次 mouseenter/leave 让全表单元格
+    // 重渲染——悬停操作列时的整表抖动/滚动条闪烁即源于此。getter 身份恒定，
+    // 仅产品列渲染时读取并订阅，见 columnRenderers.RenderCtx.getHoveredRowKey）。
+    getHoveredRowKey: () => hoveredRowKey.value,
     setHoveredRowKey: (key: string | number | null) => {
       hoveredRowKey.value = key;
     },
+    // 是否处于自定义分组视图：操作列「移除」按钮据此区分语义——
+    // 自定义分组内移除 = 从当前分组移除（持仓资产也允许）；
+    // 系统分组/全部视图内移除 = 彻底删除自选（持仓资产禁用 + 提示）。
+    currentIsCustom: groups.currentIsCustom.value,
     actions: {
       togglePin: data.handleTogglePin,
       toggleFavorite: data.handleToggleFavorite,

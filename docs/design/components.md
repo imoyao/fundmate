@@ -19,6 +19,9 @@ title: 组件使用规范（设计语言实现层）
   - `RiseFallText` — 涨跌幅文本（正负号 + 涨红跌绿 + 等宽数字）
   - `ProductDisplay` — 产品信息单元格（名称 + 代码 + 类型标签，表格产品列统一）
   - `AssetTypeBadge` — 资产 / 账本类型胶囊（统一账本配色）
+  - `PnlDualLine` — 盈亏双线（已确认 / 预估两行同显，「估」标记 + 免责 tooltip，#1104）
+  - `PnlEstimateLine` — 「预估」副行（`PnlDualLine` 的组成件；主行不是 `PnlDualLine` 的列——如自选页「持仓收益」——单独复用它，#1104）
+  - `RealtimeEstimateToggle` — 当日预估开关 + 轮询状态（`PnlDualLine` 的必备搭档，四页复用，#1104）
 - `CardBlock` — 区块卡片容器（统一 token 卡片，禁各页手写 `bg-white rounded-2xl` 等重复样式）
 - `PortfolioEditDialog` — 组合编辑对话框（编辑组合 + 关联账户，自 portfolio 详情页拆出）
 - `TagManagerDialog` / `TagFormDialog` / `TagEditorDialog` — 自选标签管理（GitHub Labels 风格列表）/ 标签新建编辑轻量弹窗 / 行内标签编辑弹窗（自 watchlist 页拆出，见「自选标签弹窗」章节）
@@ -26,6 +29,7 @@ title: 组件使用规范（设计语言实现层）
 - `TemperatureContextCard` — 温度上下文解读卡
 - `PageHeaderBar` — 页面统一页头
 - `SegmentedControl` — 分段控制器（`role="tablist"` 的「多选一、选项少 2–6」**一律**走此组件：视图 / 维度 / 档位 / 筛选 / 排序；`default` / `small` 两档 + `block` 铺满 + 可选 `count` 数量徽章；#1717 收敛、#1731 扩边到「全部手写 tablist 按钮组」，禁再用 `el-segmented`、页面自写 `.xxx-segmented` 样式块、或手写 `role="tablist"` 按钮组——**仅两类登记例外**：「分组胶囊 Tab」与「水平滑动胶囊栏」，判别见 `frontend/design.md`「Segmented（分段控制器）」的「语言边界」）
+- `PnlCalendar` — 收益日历卡（**唯一**实现，welcome 嵌入卡 / 账户详情 / panorama「总资产构成」三处容器共用；#1925 起带日 / 月 / 年三粒度；#1942 起**三粒度各有两形态**：`PnlCalendarGrid`（日·日历图）/ `PnlCalendarPeriodGrid`（月·12 格 / 年·投资以来每年一格，可点击下钻）与 `PnlCalendarBars`（三粒度共用的柱状几何）。格子的**七态**视觉与文案只有 `PnlCalendarTile` 一处实现，区间 / 文案 / 色深规则在 `helpers.ts`——禁止各页重写格子、柱或另起一套配色。第二轮（同日）：日历图**默认 5 列（一~五）**，周末不占格（该月有周末日不是 `closed` 时自动回 7 列）；表头多一个**金额 / 收益率**口径开关（两个口径的数都由后端下发，切换不发请求）；悬浮提示由原生 `title` 换成两个共享卡片——`PnlCalendarUnitTip`（单格：日期含星期 + 金额与收益率同显 + 态说明）与 `PnlCalendarCaliberTip`（标题行 (i)：口径 3 条 + 七态图例），气泡样式走全局 `style/el-tooltip.css` 的 `rich-tip`；`SectionHeader` 因此多了 `#info` 富内容插槽与 `infoLabel`）
 - `PageFooter` / `MarketFooter` — 探市 / 温度计页脚
 - `Superellipse` — 品牌 n=3 超椭圆容器（logo / 头像 / 卡片普适轮廓，禁各处手写圆角或 polygon 轮廓）
 - 全站页脚：`frontend/src/layout/components/lay-footer/index.vue`
@@ -48,6 +52,7 @@ title: 组件使用规范（设计语言实现层）
 - 结构：左侧「标题 + 可选信息图标（hover / 焦点 tooltip）」+ 右侧「操作槽（具名插槽 `#action`）」。
 - props：`title`（区块标题）、`info`（信息图标 tooltip 文案，缺省则不显示图标）、`icon`（信息图标名，默认 `ep:info-filled`）。
 - 与 `MetricCard` / `TemperatureGaugeCard` 标题行视觉一致（16px / 600 / `--text-primary`，右侧操作槽垂直居中）。
+- **`#action` 收缩契约（#2039）**：`__action` 是 `flex-shrink: 1; min-width: 0` 的 flex 项，窄容器下**会收缩到自身 min-content 以下**。因此 `#action` 里若有**多枚控件**（最典型的反例是 `PnlCalendar`——那排粒度 / 范围 / 币种控件实测宽 588px），调用方**必须**在内层套一个 `flex-wrap: wrap` 容器承接折行，否则收缩只会把控件压扁 / 压溢出卡片，叠到左侧 ⓘ 上。反向约束：**禁止给 `__action` 写回 `flex-shrink: 0`**——那会让它恒为 max-content，把负空间全甩给 `min-width: 0` 的 title-group（正是 #2039 的根因）。宽容器下负空间为 0，两条声明均不生效，宽屏排版逐像素不变。
 
 ## 设置页 · 单栏居中布局（D13）
 
@@ -174,6 +179,49 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - 子项默认 `flex: 1 1 200px`，featured 子项 `flex: 2 1 400px`。
 - 行内剩余空间由 flex 自动均分，避免出现右侧大片空白。
 - 响应式：≤960px → 最小宽度 160px；≤520px → 1 列。
+
+## PnlDualLine · 盈亏双线（#1104）
+
+两条口径**两行同显**，不合并、不互相覆盖：
+
+| 行 | 口径 | 数据源 | 展示 |
+|---|---|---|---|
+| 主行「已确认」 | T-1 确认净值 / 最近交易日收盘价 | 后端 `positions.current_price`（`position_price` job 回写） | `MoneyDisplay` + 口径标签 |
+| 副行「预估」 | 盘中实时行情估算 | 前端 `useRealtimeQuotes`（天天基金估值 / 腾讯行情） | 「估」徽章 + `MoneyDisplay`，或不可用提示 |
+
+- props：`confirmed` / `estimated`（`null` 即无值）/ `hint`（预估不可用时的提示文案）/ `size`（`sm` \| `md`）。
+- **拿不到真实行情时不显示数字**：引擎降级到后端静态价时 `source === "static"`，那等于确认口径本身，同显会出现两行一模一样的数——由 `usePositionValuation.estimatedPnl` 拦掉。
+- 「估」徽章是唯一视觉锚点（`--brand-100` 底 + `--brand-700` 字），**必须**带免责 tooltip（文案 `ESTIMATE_DISCLAIMER`）；调用方同时应在区块标题的 `info` 里给出 `PNL_DUAL_SCOPE_TIP`。
+- 预估覆盖范围 = 调用方传入的持仓集合（当前页），**禁止**在分页表格上做跨页预估汇总。
+
+### 接线清单（每接一处都要齐的四件事）
+
+用到 `PnlDualLine` 的页面**必须**同时提供开关入口，否则副行永远停在「未开启实时估值」＝功能等于没接线：
+
+| # | 事项 | 落点 |
+|---|---|---|
+| 1 | `usePositionValuation(positionsRef)` 建实例 | 页面 setup 顶层（**必须在 await 之前**，内部注册了 watch 与生命周期钩子） |
+| 2 | 盈亏列换 `PnlDualLine` | 列宽 ≥ 160px；去掉该列的 `show-overflow-tooltip`（两行组件会被截成一行文本） |
+| 3 | 开关 + 状态 | `<RealtimeEstimateToggle>`（自 `views/asset/inventory/` 上提为共享组件）；无 `SectionHeader` 的容器里就地放标题行右侧 |
+| 4 | 口径说明 | 区块 `SectionHeader` 的 `info` 或开关旁的小字 tooltip，文案统一 `PNL_DUAL_SCOPE_TIP` |
+
+- **模板不会解包嵌套 ref**：`:enabled="valuation.realtime.enabled"` 传过去的是 Ref 对象（恒为真）。用 `usePositionValuation` 返回的顶层别名（`estimateEnabled` / `estimateStatus` / `estimateUpdatedAt`）解构后直接绑定即可。
+- 已接线（`PnlDualLine` 形态）：全面盘点「持仓明细」、账户详情「持仓明细」Tab、组合详情「持仓明细」、策略分析（分组表）。
+
+#### 例外形态：主行不是 `PnlDualLine` 的列（自选页「持仓收益」）
+
+自选页的主行是 `MoneyWithRatio`（金额 + 百分比二合一），塞不进 `PnlDualLine`，于是**只复用副行**
+`PnlEstimateLine`，且**不新建轮询实例**——该页已有实时链路（`useWatchlistValuation`），
+在 renderer 里读 `ctx.getValuationItem(symbol).pnl` 即可（引擎按注入的 `costPrice × quantity`
+算好的值，重算就是养第二份口径）。要点：
+
+- 开关声明式写在列定义上（`columnDefs` 的 `props.estimatePnl`），不在 renderer 里硬编码列 key；
+- 三个门槛缺一不可：实时已开启、`source === "realtime"`（引擎会把行情不可达回退成静态价，
+  那就是「已确认」口径本身）、`holding_cost_price > 0`（成本价缺失时引擎的 `pnl` 会退化成「市值全额」）；
+- **不复述提示**：高密度表格不逐行写「未开启实时估值」（该页汇总条上本就有开关与状态）；
+  拿不到预估就只渲染原来的两行；
+- 该列会因此变成**三行**，行高 +约 13px（`.el-table__row` 的 height 是最小高度语义）。
+  这是「开启实时估值」这一 opt-in 模式的代价，默认态不受影响。
 
 ## CardBlock · 区块卡片容器（强制复用）
 
@@ -427,6 +475,64 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - 接入 `layout/index.vue`，登录 / 注册页通过 `route.meta.hiddenFooter` 隐藏。
 - 免责声明固定文案：「市场有风险，投资需谨慎。本平台内容仅供参考，不构成任何投资建议。」
 
+## 导入预览问题摘要三卡片（#1791，导入向导页面级形态）
+
+> 位置：`src/views/asset/investment/import/components/SummaryPanel.vue`（第 3 步「预览与修正」，表格上方常驻）。源设计 #783 §3 原型。**三卡片是数据分诊的唯一分类法**，已吞并并删除原 `SummaryStats.vue` 胶囊 Tab（全部 / 已校验 / 重复项 / 待确认），禁止两套口径并存。
+
+- **结构**（自上而下）：
+  1. 标题：`数据预览 — 系统已自动分析`；存在疑似重复或需修正时追加 `，发现以下问题`。
+  2. 三卡片（grid `repeat(auto-fit, minmax(240px, 1fr))`，图标用 Iconify `ep:*`、**禁 emoji**）：
+
+     | 卡 | 图标 / 语义色 | 附加内容 |
+     |----|----------------|----------|
+     | 数据完整 `complete` | `ep:circle-check-filled` / `--color-success-ink` | 三态全选复选框 +【展开查看】 |
+     | 疑似重复 `duplicate` | `ep:warning-filled` / `--color-warning-ink` | 复选框 + 说明「已自动跳过，如需保留请手动勾选」+【展开查看】 |
+     | 需要修正 `fix` | `ep:circle-close-filled` / `--color-danger-ink` | 细分错误 chips（解析错误 / 代码未匹配 / 数量或价格缺失 / 数据不一致）+【批量修正】+【展开查看】 |
+
+  3. 底部行：`已选择 N 条` +【展开全部数据（总条数）】。
+- **和式不变量（硬规则）**：`complete / duplicate / fix` 互斥完备（谓词 `categorizeRow`，`useImportWizard.ts`），卡片计数、fix 细分 chips、表格状态过滤**共用同一谓词**——「卡片条数 = 展开后表格条数 = 底部总条数」是结构性成立，不是各数一遍再对数；**禁止**再引入并行分类口径。
+- **卡即过滤器**：【展开查看】把 `tableStatusFilter` 置为该卡键、再点【收起】复位；展开时同时清掉子分类与「只看问题」开关（叠加会破坏上面的等式），关键词 / 类型搜索保留（正交收窄）。
+- **常驻不滚动**：面板位于 `.step3-body`（flex 列 + `overflow: hidden`）内且 `flex-shrink: 0`，表格 `.step3-right` 是唯一滚动容器——展开任一类别时摘要面板不得消失。
+- **复选框作用域**：卡片全选只作用于该类「可勾行」（解析错误 / 数量价格缺失 / 资金划转 / 已忽略行不可勾；**疑似重复行可勾**，#1791 验收④——后端落库边界见该 issue 评论）。
+- **令牌**：面板 `--bg-card`、卡片 `--bg-subtle`、边框 `--border-default`、圆角 `--radius-sm`；细分 chip `--color-danger-10` 底 + `--color-danger-30` 边 + **`--color-danger-ink` 字**（文字级必须 `-ink`，直接用 `--color-danger` 暗色仅 3.36:1）。无硬编码 hex，暗色自动适配（见 `design.dark.md` 注记）。
+
+## 批量修正面板（#1792，导入向导页面级形态）
+
+> 位置：`src/views/asset/investment/import/components/BatchFixPanel.vue`，由 `PreviewStep.vue` 在摘要面板下方**内联展开**（`v-if="showFixPanel"`，布局 class `.step3-fixpanel`）。源设计 #783 §4~§5。**禁止改回右侧抽屉 / 覆盖层**——摘要、面板、表格同屏不覆盖是验收硬项（`rg -e 'el-drawer' …/PreviewStep.vue` 须 0 命中）。
+
+- **结构**（自上而下）：
+  1. 顶部动作行：形态标签（`[data-fix-mode]`，文案「分类批量修正模式 / 逐条修正模式 / 请到完整表格处理」）+【自动修复可处理项】+【撤销上一步】（`canUndo` 控制禁用）。
+  2. 错误提示条（`batch` 形态含解析错误时，§4-4）：「另有 N 条解析错误不支持批量修正」+【跳过这 N 条】+【去完整表格】；`table` 形态另有同构提示条（含【跳过】【去完整表格】）。
+  3. 四分区 grid（`repeat(auto-fit, minmax(300px, 1fr))`；分区头点击 = 过滤表格，动作区 `@click.stop` 不冒泡）：
+
+     | 分区 | `data-section` | 动作 |
+     |------|----------------|------|
+     | 代码未匹配 | `missingCode` | 【匹配基金代码（基金行数多于一只时显示）】+ 代码输入 +【应用到全部】+【全部跳过】 |
+     | 单价/数量缺失 | `missingQtyPrice` | 「可自动填充 N 条」+【自动填充】【查看已填充数据】【撤销】【逐条修正】【全部跳过】 |
+     | 数据不一致 | `mismatch` | 【自动修正金额】【逐条修正】【全部跳过】 |
+     | 逆回购识别（信息型） | `reverse_repo` | 【查看转换结果】(el-dialog：识别依据 + 配置目标) /【撤销】（liquid→longterm，`repoRevertable` 为空即禁用） |
+
+  4. `single` 形态：`[data-fix-card]` 卡片式单条表单（按分区渲染对应表单 +【跳过此条】；`fixModeOverride === 'single'` 时另有【返回分类批量】）。
+  5. 底部【收起批量修正】+ 两个 `el-dialog`（已填充数据 / 逆回购转换结果）。
+- **形态判定**：纯函数 `classifyFixMode`（`composables/batchFixLogic.ts`）——无问题 `none` / 单一可批量分区固定 `batch` / >10 `batch` / ≤10 混合 `single` / ≤10 纯错误 `table`；与撤销快照 `snapshotRows / restoreRows` 同受 vitest 单测覆盖（`pnpm test:unit`）。
+- **撤销栈**：`fixUndoStack` 上限 20 层；分区【撤销】按 `undoTopScope` 与本分区作用域匹配才可点，顶部【撤销上一步】逐层回滚；`autoFix` 组合操作合成为单条入栈。
+- **令牌**：面板 `--bg-card`、分区 / 卡片 `--bg-subtle`、边框 `--border-default`、圆角 8px；计数警示 `--color-warning-ink`、错误 `--color-danger-ink`、形态标签 `--text-secondary`。无硬编码 hex（暗色见 `design.dark.md` 注记）。
+
+## 行内就地编辑（#1790，导入预览表格三列）
+
+> 位置：`src/views/asset/investment/import/components/EditableCell.vue`（数量 / 单价 / 金额三列通用），编辑状态由 `composables/useImportWizard.ts` 驱动，纯逻辑在 `composables/cellEditLogic.ts`（vitest 单测钉住）。源设计 #783 §6.2「编辑就地转为输入框」——**禁止改回 `el-popover` 浮层**（`rg -e 'el-popover'` 于 `import/` 目录须 0 命中，E2E 另断言页面 `.el-popover` 为 0）。
+
+- **进入**：**单击** / Enter / Space 点击展示态即就地进入编辑并自动聚焦（§6.2 原文为「点击」；#1790 正文写「双击」系误引，已在 issue 评论留痕）。同一时刻仅单行单格处于编辑态（`editingRowKey`）：跨行切格走 `saveAllEditingRows + closeAllEditing`，同行切格由 `startEdit` 兜底按提交收尾上一格，已改值不丢。
+- **键盘**（展示态与输入框焦点均绑定；页面有 `.edit-hint` 交互说明，见 TableControls）：
+  - `Enter` = 提交并**停留当前格**（焦点回展示态，可再按 Enter 继续编辑）；
+  - `Esc` = 取消还原（`_oldValue` 还原，与弹层时代【取消】语义一致）；
+  - `Tab` = 提交并跳**下一可编辑格**（DOM 顺序即列序：数量→单价→金额→下一行……；末格提交并停留）。
+- **金额自动重算**（#783 §6.2；纯函数 `cellEditLogic.recalcAfterEdit`）：改数量 / 单价 → `金额 = 数量 × 单价`（2 位）；改金额 → 有数量则反算单价（4 位）、数量缺失但单价在则反推数量，**两者均缺失不计算**（§6.2 明文）；编辑字段自身为空时仍走 `smartFill` 互推。重算后的金额与数量×单价恒等，只会消解「数据不一致」、不会制造新不符。
+- **草稿与还原**：输入框绑定本地 `draft`（`-` / `abc` 这类非纯数字中间态只留草稿、不污染行值与分类判定），行值随输入实时写回，保证 `saveAllEditingRows` / 点击切格兜底不丢改动；Esc 统一由 `finishEdit` 从 `_oldValue` 还原。
+- **列收敛**：数据列 9 + 勾选 50 + 操作 120 = **11 列**（§6.1），数据列一律 `minWidth`（design.md「冻结列与横向滚动规范」第 4 条：仅冻结列用固定 `width`）；手续费（两模式）/ 合同编号 / 发生金额（股票模式）列**退场但数据仍完整携带**（导入载荷不受影响，仅不再占列）；`cell-missing` 高亮由手续费列改挂**金额列**。
+- **补全入口**：操作列【补全】（缺数量 / 价格时）直接就地打开对应格；`missingField` 基金模式仍返回 `null`（该捷径暂不提供，修正走批量面板）。
+- **令牌**：`.edit-hint` 提示 `--text-tertiary-ink`；展示态悬停 `--el-color-primary`。无硬编码 hex（暗色自动适配）。
+
 ## 共享基建（composables / utils 层，强制复用）
 
 > 本层为**非 UI 的共享逻辑**（图表生命周期 / 图表取色 / 币种换算），与页面级 UI 组件同属「强制复用」范围。
@@ -440,6 +546,7 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 | 货币工具 | `src/utils/currency.ts` | `toBaseCurrency` / `fromBaseCurrency` / `getCurrencySymbol` / `formatAmount` |
 | `usePageRefresh` | `src/composables/usePageRefresh.ts` | 全局刷新事件订阅（防抖计时器每实例私有） |
 | `useFundTradeDate` | `src/composables/useFundTradeDate.ts` | 基金交易日期联动（calcFundConfirmDate + fetchFundNav），BuyForm / SellForm / TransactionEditDialog 三处共用 |
+| `usePositionValuation` | `src/composables/usePositionValuation.ts` | 持仓盈亏双线接线（已确认 `confirmedPnl` + 预估 `estimatedPnl` / `estimateHint`），#1104 |
 
 ### useEchartsLifecycle · 图表生命周期
 

@@ -73,11 +73,31 @@ export function useEnumLabels() {
     return enums.value?.position_source?.[source] ?? source;
   }
 
+  /**
+   * 市场码 → 中文 label（#1969：此前详情页把 `SH` / `CN_A` 原键直接排版给用户看）。
+   *
+   * **必须走 composable 而非模块级同步函数**：市场没有前端镜像（不像 asset_type），
+   * 模块级函数在 `ensure()` 完成前拿不到表，会把原键漏上屏。用 `enums` ref 建立
+   * 响应式依赖，拉取完成后模板自动重渲染。
+   */
+  function marketLabel(market: string | undefined | null): string {
+    if (!market) return "";
+    return enums.value?.market?.[market] ?? market;
+  }
+
+  /** 交易场所 → 中文 label（EXCHANGE→场内 / OTC→场外）。同样无前端镜像，见 marketLabel。 */
+  function venueLabel(venue: string | undefined | null): string {
+    if (!venue) return "";
+    return enums.value?.venue?.[venue] ?? venue;
+  }
+
   return {
     ensure,
     enums,
     positionSourceLabel,
     assetTypeLabel,
-    assetCategoryLabel
+    assetCategoryLabel,
+    marketLabel,
+    venueLabel
   };
 }

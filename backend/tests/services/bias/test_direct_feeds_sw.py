@@ -3,7 +3,7 @@
 
 import pandas as pd
 
-from app.services.bias.direct_feeds import fetch_close_sw_industry
+from app.services.adapters.direct_feeds import fetch_close_sw_industry
 
 
 def test_sw_industry_non_si_returns_none():

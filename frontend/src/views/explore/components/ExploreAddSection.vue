@@ -230,6 +230,9 @@ const addHotAsset = (item: (typeof hotAssets)[0]) => {
           v-for="item in hotAssets"
           :key="item.symbol"
           class="hot-card"
+          role="button"
+          tabindex="0"
+          @keydown.enter="addHotAsset(item)"
           @click="addHotAsset(item)"
         >
           <span class="hot-name">{{ item.name }}</span>

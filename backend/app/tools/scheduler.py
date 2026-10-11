@@ -30,6 +30,7 @@ import argparse
 import os
 import sys
 import time
+import urllib.parse
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -58,6 +59,13 @@ import app.domains.transactions.models  # noqa: E402,F401
 import app.domains.users.models  # noqa: E402,F401
 import app.domains.watchlist.models  # noqa: E402,F401
 from app.core.database import get_db, init_db  # noqa: E402
+from app.core.db_factory import (  # noqa: E402
+    DOMAIN_APP,
+    DOMAIN_USER,
+    DatabaseConfig,
+    DatabaseFactory,
+    get_app_env,
+)
 from app.core.jitter import (  # noqa: E402
     apply_jitter,
     random_gap,
@@ -81,6 +89,55 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument('--check-jsl', action='store_true', help='只做集思录 cookie 自检/保活')
     parser.add_argument('--status', action='store_true', help='只读打印本机调度状态（不动数据）')
     return parser.parse_args()
+
+
+def _diagnose_db() -> None:
+    """启动期 DB 连接诊断（#1490 根因排查）。
+
+    在真正 init_db 之前打印各数据域连接 URL 的 scheme + host（脱敏，不含 query/token），
+    并对走 sqlalchemy-libsql 的 Hrana(HTTP) 协议的 market 域做一次轻量 SELECT 1 探测。
+    若连接收到 Hrana 308 永久重定向，直接给出指向 secret 配置的清晰指引并重新抛出，
+    使 CI 在下一次失败时即可从打印的 host 定位根因，无需再翻源码。
+    """
+    from sqlalchemy import text
+
+    env = get_app_env()
+    logger.info(f'[DB诊断] APP_ENV={env}')
+
+    app_parsed = urllib.parse.urlparse(DatabaseConfig.for_app(env).url)
+    user_parsed = urllib.parse.urlparse(DatabaseConfig.for_user(env).url)
+
+    def _describe(label: str, parsed: 'urllib.parse.ParseResult') -> bool:
+        logger.info(f'[DB诊断] 域={label} scheme={parsed.scheme} host={parsed.netloc}')
+        is_turso = parsed.scheme in ('turso', 'libsql') or (
+            parsed.scheme == 'https' and 'turso' in parsed.netloc.lower()
+        )
+        if is_turso:
+            logger.info(f'[DB诊断] 域={label} 将经 sqlalchemy-libsql 的 Hrana(HTTP) 协议连接')
+        return is_turso
+
+    is_app_turso = _describe(DOMAIN_APP, app_parsed)
+    _describe(DOMAIN_USER, user_parsed)
+
+    # 仅对走 Hrana(HTTP) 的 market 域做轻量连接探测（本地 SQLite 无需、也避免开文件锁）
+    if not is_app_turso:
+        return
+    engine = DatabaseFactory.create(DOMAIN_APP)
+    try:
+        with engine.connect() as conn:
+            conn.execute(text('SELECT 1'))
+        logger.info('[DB诊断] market 域(Turso/Hrana) 连接 OK')
+    except Exception as e:  # noqa: BLE001 - 连接层异常需重新抛出，由 main 兜底捕获上抛
+        msg = str(e)
+        if '308' in msg or 'Hrana' in msg or 'Permanent Redirect' in msg:
+            logger.error(
+                '[DB诊断] market 域 Hrana 连接收到 HTTP 308 永久重定向。'
+                '通常意味着 TURSO_DATABASE_URL/DATABASE_URL 指向的 host 已被服务端重定向'
+                '（旧地址 / 应为 https / 区域或组织后缀变更）。请到仓库 Settings → Secrets'
+                ' 核对该 secret 的真实 host，改用 Turso 当前要求的地址'
+                '（如 libsql://<db>.turso.io?authToken=...）。原始错误：' + msg
+            )
+        raise
 
 
 def main() -> None:
@@ -109,6 +166,8 @@ def main() -> None:
     window = 0 if args.no_jitter else resolve_jitter_seconds(args.jitter)
     apply_jitter(window, label='每日调度起跑')
 
+    # 启动期 DB 连接诊断（#1490 根因排查）：打印归一 URL + 探测 market 域，遇 Hrana 308 快速失败
+    _diagnose_db()
     init_db()
     with get_db() as db:
         orch = DataSyncOrchestrator(db)

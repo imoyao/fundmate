@@ -7,6 +7,7 @@ import {
 import { useLedgerDetail } from "@/composables/useLedgerDetail";
 import { useLedgerTransactions } from "@/composables/useLedgerTransactions";
 import { usePositionMigration } from "@/composables/usePositionMigration";
+import { usePositionValuation } from "@/composables/usePositionValuation";
 
 /**
  * 账户详情页状态单体（#980 P1-C 纯结构拆分）：
@@ -87,6 +88,16 @@ export function useLedgerDetailPage() {
     loadConsistency();
   });
 
+  /**
+   * 盈亏双线（#1104）：估值接线在**页面级建一次**，三个子组件经同一 page 实例消费
+   * （与「全面盘点」注入 `InvestmentPositionTable` 同模式）。
+   *
+   * 传当前页持仓：与表格「后端分页、逐行展示」的口径一致，页面不做跨页预估汇总
+   * （分页表格上的「合计」会被误读成全仓）。翻页由 `usePositionValuation` 内部的
+   * `watch(positions)` 触发重取。
+   */
+  const valuation = usePositionValuation(detail.holdingsList);
+
   return {
     ...detail,
     ...txns,
@@ -94,6 +105,7 @@ export function useLedgerDetailPage() {
     visibleConsistencyItems,
     dismissAllConsistency,
     goReconcile,
+    valuation,
     router
   };
 }

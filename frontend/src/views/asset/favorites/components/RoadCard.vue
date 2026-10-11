@@ -364,8 +364,18 @@ function onCardClick() {
   transition: opacity 0.15s ease;
 }
 
-.road-card:hover .road-edit-entry {
+.road-card:hover .road-edit-entry,
+/* 键盘焦点与触屏（无 hover）也要能看到操作入口（#1834）：原来只有 :hover，
+   触屏设备与键盘用户永远看不到这个编辑入口——功能等于不存在 */
+.road-card:focus-within .road-edit-entry,
+.road-edit-entry:focus-visible {
   opacity: 1;
+}
+
+@media (hover: none) {
+  .road-edit-entry {
+    opacity: 1;
+  }
 }
 
 /* ── 正文 ── */

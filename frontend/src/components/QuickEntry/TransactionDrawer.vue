@@ -5,19 +5,23 @@
     direction="rtl"
     destroy-on-close
     :close-on-click-modal="false"
+    :before-close="onBeforeClose"
     @closed="resetForm"
   >
     <template #header>
       <div class="flex items-center justify-between w-full">
         <span>记录交易</span>
-        <el-tooltip content="导入交割单或手动录入持仓" placement="bottom">
+        <el-tooltip
+          content="导入持仓快照/交易流水、查看全部持仓"
+          placement="bottom"
+        >
           <el-button
             link
             size="small"
             class="text-gray-400 hover:text-primary"
             @click="goToInventory"
           >
-            导入持仓 >
+            去全面盘点 >
           </el-button>
         </el-tooltip>
         <el-tooltip
@@ -77,7 +81,9 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
+import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
+import { useUnsavedChangesGuard } from "@/composables/useUnsavedChangesGuard";
 import BuyForm from "./BuyForm.vue";
 import SellForm from "./SellForm.vue";
 import RecognizerImportModal from "./RecognizerImportModal.vue";
@@ -86,15 +92,55 @@ import {
   useQuickEntrySubmit
 } from "@/composables/useQuickEntry";
 
+const router = useRouter();
+
 const props = defineProps<{ modelValue: boolean }>();
+
 const emit = defineEmits<{
   (e: "update:modelValue", value: boolean): void;
   (e: "submitted"): void;
 }>();
 
+// ── 未保存离开保护（#1853）──
+// 脏状态住在 BuyForm / SellForm 内部（两者各自 expose isDirty），父组件只能间接读。
+//
+// **更正**（#1853 关档后经真实浏览器走查发现）：`el-drawer` **是有** `before-close` 的
+// ——`drawer.d.ts:47` 声明了 `beforeClose: DialogBeforeCloseFn`，Drawer 直接复用了 Dialog
+// 的 API。之前写的「el-drawer 没有 before-close」是错的，代价是 ESC / 关闭按钮
+// 绕过 `v-model` setter 直接把抽屉关掉（实测：弹了确认框，点「继续编辑」抽屉仍被关）。
+//
+// 现在两条都挂：
+//   · `before-close` —— 拦 Element Plus 自己触发的关闭（关闭按钮 / ESC / 点遮罩）
+//   · `v-model` setter —— 兜住**程序化** close（底部「取消」走不到 before-close）
+const isDirty = computed(() => {
+  const form = opType.value === "buy" ? buyFormRef.value : sellFormRef.value;
+  return form?.isDirty === true;
+});
+
+const { confirmDiscard, onBeforeClose } = useUnsavedChangesGuard(
+  () => isDirty.value,
+  {
+    message: "交易表单已填写，确定放弃吗？"
+  }
+);
+
+/** 确认通过后的放行标志：只对本次 emit 生效，避免后续关闭被误拦 */
+const allowClose = ref(false);
+
 const visible = computed({
   get: () => props.modelValue,
-  set: val => emit("update:modelValue", val)
+  set: val => {
+    if (!val && !allowClose.value && isDirty.value) {
+      void confirmDiscard().then(ok => {
+        if (!ok) return;
+        allowClose.value = true;
+        emit("update:modelValue", false);
+        allowClose.value = false;
+      });
+      return;
+    }
+    emit("update:modelValue", val);
+  }
 });
 
 const opType = ref<"buy" | "sell">("buy");
@@ -117,6 +163,9 @@ watch(visible, val => {
 function onTabChange() {} // v-if 自动重置
 
 function onSubmitSuccess() {
+  // 先清脏再关：保存成功后表单仍是脏的，而关闭走的是 v-model setter——
+  // 不先清就会弹「确定放弃吗？」（`resetForm` 挂在 @closed 上，跑在关闭之后）。
+  resetForms();
   visible.value = false;
   emit("submitted");
   emitRefresh();
@@ -128,7 +177,10 @@ function resetForm() {
 }
 
 function goToInventory() {
+  // #936：此前只关抽屉、不跳转，按钮点了没反应。全面盘点是导入与持仓的集中入口
+  // （导入持仓快照 / 导入交易流水 / 持仓明细），故关抽屉后跳过去。
   visible.value = false;
+  router.push("/inventory");
 }
 
 // 截图导入（#934）：打开 AI 识别模态（锁定 txn_import），候选落 recon-draft 后由工作台确认入库

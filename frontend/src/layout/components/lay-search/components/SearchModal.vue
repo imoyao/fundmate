@@ -290,6 +290,7 @@ onKeyStroke("ArrowDown", handleDown);
       size="large"
       clearable
       placeholder="搜索菜单（支持拼音搜索）"
+      aria-label="搜索菜单"
       @input="handleSearch"
     >
       <template #prefix>

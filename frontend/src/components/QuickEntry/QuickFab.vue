@@ -5,6 +5,7 @@
       <!-- 毛玻璃浮窗样式见 design.md「Elevation & Depth · 毛玻璃」，token 改动须双端同步 -->
       <button
         class="quick-entry-glass w-12 h-12 rounded-full flex items-center justify-center transition-all hover:scale-105 active:scale-95"
+        aria-label="记一笔"
         @click="emit('open')"
       >
         <IconifyIconOffline

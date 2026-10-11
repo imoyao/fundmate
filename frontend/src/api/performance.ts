@@ -40,6 +40,15 @@ export function getPositionXirr(positionId: number) {
   });
 }
 
+/** 获取产品级持有年化（跨账户按 symbol 汇总现金流，#1972）
+ *  无成交且无市值时后端返回全 0 结构（cashflow_count = 0），
+ *  调用方据此（以及请求失败时）降级显示 `—`，不显示 NaN。 */
+export function getSymbolXirr(symbol: string) {
+  return http.request<ApiResponse<XirrData>>("get", "/api/performance/xirr/", {
+    params: { scope: "symbol", symbol }
+  });
+}
+
 /** 货币基金每日收益序列项（金额为元，两位小数） */
 export interface MoneyFundDailyIncome {
   /** 日期 YYYY-MM-DD */
@@ -58,18 +67,20 @@ export interface MoneyFundIncomeData {
   daily_series: MoneyFundDailyIncome[];
 }
 
-/** 货币基金收益查询参数（scope=ledger 时须传 ledger_id；scope=family 无需） */
+/** 货币基金收益查询参数（scope=ledger 须传 ledger_id；scope=portfolio 须传 portfolio_id；scope=family 无需） */
 export interface MoneyFundIncomeParams {
-  scope: "ledger" | "family";
+  scope: "ledger" | "family" | "portfolio";
   ledger_id?: number;
+  portfolio_id?: number;
   start_date?: string;
   end_date?: string;
 }
 
-/** 获取货币基金收益（账户维度 / 家庭维度） */
+/** 获取货币基金收益（账户维度 / 家庭维度 / 组合维度） */
 export function getMoneyFundIncome(params: MoneyFundIncomeParams) {
   const query: Record<string, string | number> = { scope: params.scope };
   if (params.ledger_id != null) query.ledger_id = params.ledger_id;
+  if (params.portfolio_id != null) query.portfolio_id = params.portfolio_id;
   if (params.start_date) query.start_date = params.start_date;
   if (params.end_date) query.end_date = params.end_date;
   return http.request<ApiResponse<MoneyFundIncomeData>>(

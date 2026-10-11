@@ -20,6 +20,7 @@
       <el-input
         v-model="keyword"
         placeholder="搜索标签..."
+        aria-label="搜索标签"
         size="large"
         class="tag-search"
         clearable
@@ -58,6 +59,9 @@
             <el-popconfirm
               title="确定删除该标签？"
               :disabled="usageOf(tag.id) > 0"
+              confirm-button-text="删除"
+              cancel-button-text="取消"
+              popper-class="danger-popconfirm"
               @confirm="deleteTag(tag.id)"
             >
               <template #reference>
@@ -76,7 +80,13 @@
           </div>
         </li>
         <!-- 新建标签：置于列表末尾，紧挨标签名（GitHub Labels 风格），替代顶部按钮 -->
-        <li class="tag-row tag-row--create" @click="openCreate">
+        <li
+          class="tag-row tag-row--create"
+          role="button"
+          tabindex="0"
+          @keydown.enter="openCreate"
+          @click="openCreate"
+        >
           <el-icon class="mr-1"><Plus /></el-icon>
           新建标签
         </li>
@@ -176,12 +186,11 @@ const deleteTag = async (tagId: number) => {
 }
 
 .tag-search {
+  /* 胶囊搜索框：只覆盖 #1772 输入基线的圆角令牌，不再 :deep */
+  --input-radius: var(--radius-pill);
+
   flex: 1;
   min-width: 0;
-}
-
-.tag-search :deep(.el-input__wrapper) {
-  border-radius: var(--radius-pill);
 }
 
 /* 列表末尾「新建标签」行：与标签行同高、紧挨列表，hover 提亮为品牌色 */
@@ -272,7 +281,16 @@ const deleteTag = async (tagId: number) => {
   transition: opacity 0.2s;
 }
 
-.tag-row:hover .tag-row__actions {
+.tag-row:hover .tag-row__actions,
+/* 触屏 / 键盘也要能看到行操作（#1834） */
+.tag-row:focus-within .tag-row__actions,
+.tag-row__actions:focus-visible {
   opacity: 1;
+}
+
+@media (hover: none) {
+  .tag-row__actions {
+    opacity: 1;
+  }
 }
 </style>

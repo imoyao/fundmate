@@ -11,6 +11,8 @@ from flask import jsonify, request
 
 from app.core.auth import get_family_id
 from app.core.database import get_db
+from app.services.penetration import SCHEME_LABELS, build_penetration
+from app.services.pnl_calendar import GRANULARITY_DAY, build_pnl_series
 from app.services.summary_service import (
     get_account_groups,
     get_distributions,
@@ -60,6 +62,40 @@ def distributions():
             data = get_distributions(db, get_family_id())
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
+        return jsonify({'data': {}, 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500
+
+
+@bp.get('/summary/penetration/')
+def penetration():
+    """返回基金持仓穿透（行业 / 个股真实暴露，#870 Step 2）。
+
+    查询参数：
+    - `scheme`：主聚合口径，`csrc`（默认，证监会门类）/ `gics`（GICS 板块）。
+      两套体系**不可相加**，非主口径的结果在 `other_schemes` 单列返回。
+    - `top_n`：个股分布截断条数，默认 20；`<=0` 表示不截断（超出部分合并为「其他」）。
+
+    覆盖率有硬上限（本机实测约 53%）：直持股票无「个股→行业」映射、场内 ETF 无
+    底层持仓数据、货基债基本身无股票敞口。`unpenetrated` 逐条带 `reason`，区分
+    「真缺口」与「本质无敞口」，前端不得把两者混为一谈。
+    """
+    scheme = (request.args.get('scheme') or 'csrc').strip().lower()
+    if scheme not in SCHEME_LABELS:
+        return jsonify(
+            {'data': {}, 'message': f'scheme 仅支持 {"/".join(sorted(SCHEME_LABELS))}', 'error_code': 1001}
+        ), 400
+
+    raw_top_n = request.args.get('top_n')
+    try:
+        top_n = int(raw_top_n) if raw_top_n not in (None, '') else 20
+    except (TypeError, ValueError):
+        return jsonify({'data': {}, 'message': f'top_n 必须为整数: {raw_top_n!r}', 'error_code': 1001}), 400
+
+    try:
+        with get_db() as db:
+            data = build_penetration(db, get_family_id(), scheme=scheme, top_n=top_n)
+        return jsonify({'data': data, 'message': 'ok'})
+    except Exception as e:
+        # 标准错误信封 {data, message, error_code}（AGENTS.md 接口契约）
         return jsonify({'data': {}, 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500
 
 
@@ -117,6 +153,27 @@ def list_snapshots():
         return jsonify({'data': [], 'message': str(e), 'error_code': 1001}), 400
     except Exception as e:
         return jsonify({'data': [], 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500
+
+
+@bp.get('/summary/pnl-calendar/')
+def pnl_calendar():
+    """#1812 每日收益日历（as-of 派生逐日盈亏；口径与六态定义见 services/pnl_calendar.py）。
+    与 snapshots 的区别：快照记的是落库当时的状态，改持仓后历史不更新、回填还会把今天
+    的值贴到历史日期上；本接口现算。`ledger_id` 同 snapshots（不传=家庭级）；#1925 加
+    `granularity`（day 缺省回 `days`，month/year 回 `periods`，聚合下推），非法值回 400。
+    """
+    try:
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        ledger_id = request.args.get('ledger_id', type=int)
+        granularity = request.args.get('granularity', GRANULARITY_DAY)
+        with get_db() as db:
+            data = build_pnl_series(db, get_family_id(), start_date, end_date, ledger_id, granularity)
+        return jsonify({'data': data, 'message': 'ok'})
+    except ValueError as e:
+        return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400
+    except Exception as e:
+        return jsonify({'data': None, 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500
 
 
 @bp.get('/summary/ghost-duplicates/')

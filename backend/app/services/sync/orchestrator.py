@@ -33,6 +33,7 @@ from app.core.time_utils import now_shanghai
 from app.domains.positions.models import Position
 from app.domains.watchlist.models import WatchlistItem
 from app.models.sync_log import SyncLog
+from app.services import pnl_snapshot_store
 from app.services.adapters.advisor_source import AdvisorSourceRegistry
 from app.services.adapters.akshare_adapter import AkshareAdapter
 from app.services.adapters.eastmoney_adapter import EastmoneyAdapter
@@ -58,12 +59,70 @@ from app.services.sync.jobs.index_constituent_job import INDEX_TARGETS, IndexCon
 from app.services.sync.jobs.index_daily_job import IndexDailySyncJob
 from app.services.sync.jobs.index_valuation_job import IndexValuationSyncJob
 from app.services.sync.jobs.market_asset_daily_job import MarketAssetDailySyncJob
+from app.services.sync.jobs.orphan_backfill_job import OrphanBackfillJob
 from app.services.sync.jobs.position_price_job import PositionPriceSyncJob
 from app.services.sync.jobs.price_history_job import PriceHistorySyncJob
 from app.services.sync.jobs.stock_list_job import StockListSyncJob
 from app.services.thermometer.jobs import TemperatureJob
 
 BASE_DIR = Path(app.__path__[0]).parent
+
+
+# ============================================================
+# --full-sync 范围强制校验（#824 / #1776 ④）
+# ============================================================
+
+# 这些 Job 属于「逐标的全市场历史回填」型：--full-sync 会触发逐标的全网抓取，
+# 数据量大（净值表 868MB 量级）且东财对出口 IP 限流封禁（eastmoney-antiscrape）。
+# 它们走 --full-sync 时**必须**带 --targets / --target-file 限定范围，禁止裸 --full-sync。
+# 列表型 / 指数型 Job（fund_list / stock_list / index_* / temperature 等）本身是「全市场刷新」，
+# 不依赖用户目标池，裸 --full-sync 是其正常模式，不在此限。
+SYMBOL_BACKFILL_JOBS = frozenset(
+    {
+        'fund_nav',
+        'price_history',
+        'fund_detail_enrich',
+        'fund_manager',
+        'fund_type',
+        'fund_company_backfill',
+        'fund_position',
+        'position_price',
+        'dividend_split',
+    }
+)
+
+# **会改历史价格表**的回填型 job（#1926）——收益日历物化快照的整表作废名单。
+#
+# 白名单而非「任何 full_sync 都清」：日历只读 `DailyWorth`（fund_nav 写）与
+# `PriceHistory`（price_history 写），其余 job 改的是基金资料/持仓/列表，
+# 与日历的任何数字都无关，清了只是白重算一遍。
+#
+# 为什么**只有 full_sync 需要钩子**：日常增量同步写的是「今天 / 近几天」，
+# 落在 `pnl_calendar.PRICE_FRESH_DAYS` 新鲜窗内——那些日期**永不物化**，
+# 读时恒现算，天然不会有过期行被读出去。而 `--full-sync` 回填的是窗口外的老日期，
+# 那些行早已落库，只有整表清才能保证读到的不是回填前的旧值。
+PRICE_BACKFILL_JOBS = frozenset({'fund_nav', 'price_history'})
+
+
+def require_full_sync_scope(job_name: str, full_sync: bool, has_targets: bool) -> None:
+    """校验 --full-sync 是否带了范围。
+
+    Args:
+        job_name: 目标 Job 名。
+        full_sync: 是否全量同步。
+        has_targets: 是否提供了 --targets 或 --target-file 范围。
+
+    Raises:
+        ValueError: 当 full_sync 且 job 属于 SYMBOL_BACKFILL_JOBS 但无范围时。
+    """
+    if not full_sync:
+        return
+    if job_name in SYMBOL_BACKFILL_JOBS and not has_targets:
+        raise ValueError(
+            f'--full-sync 必须指定范围：用 --targets <code> 或 --target-file <csv> 限定 '
+            f"'{job_name}' 的回填标的；禁止裸 --full-sync"
+            '（逐标的全市场全量回填会触发数据源封禁且耗时极长）。'
+        )
 
 
 # ============================================================
@@ -114,6 +173,10 @@ class DataSyncOrchestrator:
         # 消费导入侧观察值（user 域 fund_company_observations）补 funds.company_id：
         # 纯本地解析、不联网，故 NullAdapter 占位（同 amac_institution 的处理）。
         self.jobs['fund_company_backfill'] = FundCompanyBackfillJob(NullAdapter(), self.db)
+        # 孤儿交易回填（#950）：把 position_id IS NULL 的流水按 symbol 身份挂回既有持仓。
+        # 纯本地、不联网，NullAdapter 占位；与写入层的货基挂回互补——写入层只在**建仓那一刻**
+        # 挂回货基/逆回购，其余标的建仓时不管，孤儿会永久滞留（tech-debt.md §1）。
+        self.jobs['orphan_backfill'] = OrphanBackfillJob(NullAdapter(), self.db)
         self.jobs['fund_scale'] = FundScaleSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['fund_position'] = FundPositionSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['fund_type'] = FundTypeSyncJob(self.data_sources['akshare'], self.db)
@@ -330,8 +393,24 @@ class DataSyncOrchestrator:
             job.target_file_codes = targets
 
         result = job.run(full_sync, targets=targets)
-        result['duration'] = (now_shanghai() - job.snapshot_time).total_seconds()
+        # `snapshot_time` 可能仍是 None：覆写 `run()` 的子类若在早退路径漏赋值，
+        # 这里会 `datetime - None` 抛 TypeError，把「显式跳过」变成 CLI 非零退出
+        # （#870 实测）。与 `_save_error_sync_log` 同口径降级为 now——
+        # 「跳过」的 duration 记 0 秒是准确的，不该让审计链路把 job 结果吃掉。
+        now = now_shanghai()
+        result['duration'] = (now - (job.snapshot_time or now)).total_seconds()
         self._save_sync_log_with_fallback(job_name, result, full_sync)
+        # 价格历史回填后整表作废物化快照（#1926）。
+        #
+        # 位置在审计落库**之后**且**自行 commit**：审计那步遇异常会 rollback，
+        # 把作废挂在它前面会让「回填成功但缓存没清」静默发生——那正是物化最危险
+        # 的失败形态（读到回填前的旧值，且不报任何错）。作废只删行、可重复执行，
+        # 单独提交的代价是零。
+        if full_sync and job_name in PRICE_BACKFILL_JOBS:
+            purged = pnl_snapshot_store.purge_all(self.db)
+            self.db.commit()
+            if purged:
+                logger.info(f'[{job_name}] 全量回填完成，作废收益日历物化快照 {purged} 行（#1926）')
         return result
 
     def _save_sync_log_with_fallback(self, job_name: str, result: Dict[str, Any], full_sync: bool) -> None:
@@ -432,6 +511,9 @@ class DataSyncOrchestrator:
                 # 让 /api/market/overview 读库即回（毫秒级）；无外部目标池依赖，targets 传空。
                 ('market_asset_daily', []),
                 ('dividend_split', stock_targets + fund_targets),  # 分红/送股抓取（#1179）
+                # 孤儿交易回填（#950）：只补 position_id，不碰金额/确认日，故与外部数据源无关，
+                # 排在分红拆分之后即可（它自己查库，不依赖任何 target池）。
+                ('orphan_backfill', []),
                 ('advisor_portfolio', ['__full__']),  # 投顾组合持仓/调仓回填（#1167，组合数少且自带节流）
                 # #1104：持仓现价回写——必须排在净值/行情之后、资产快照之前：
                 # 快照的市值/盈亏读的正是 positions.current_price，顺序错了快照就还是旧价。
@@ -456,6 +538,7 @@ class DataSyncOrchestrator:
     def _save_sync_log(self, job_name: str, result: Dict[str, Any], full_sync: bool) -> None:
         """将同步结果写入 sync_logs 表"""
         job = self.jobs[job_name]
+        now = now_shanghai()
         log_entry = SyncLog(
             job_name=job_name,
             status=result.get('status', 'unknown'),
@@ -464,8 +547,11 @@ class DataSyncOrchestrator:
             error_detail=str(result.get('stats', {}).get('errors', [])),
             data_source=job.adapter.get_name(),
             data_source_version=job.adapter.get_version(),
-            started_at=job.snapshot_time,
-            finished_at=now_shanghai(),
+            # started_at 是 NOT NULL：子类覆写 run() 时漏赋 snapshot_time 会让这里
+            # 抛 IntegrityError，随之触发 run_job 的「审计降级重写」，多打一轮 warning
+            # 并可能把正常的 success 行降级成 error 行。与 _save_error_sync_log 同口径。
+            started_at=job.snapshot_time or now,
+            finished_at=now,
             duration_seconds=result.get('duration', 0),
         )
         self.db.add(log_entry)

@@ -3,6 +3,7 @@
   - 复盘引导（revisitText / revisitItems 由页面传入，避免复制粘贴串味）
   - 数据来源（sources 由页面传入，统一展示，避免两页差异）
   - 公众号引导卡片
+  - 法律底栏（免责 / 版权 / 系统状态）统一下沉到 SiteLegalBar（footer 去耦）
   props:
     - revisitText:  复盘引导首句（与页面语义相关）
     - revisitItems: 复盘引导列表项（与页面语义相关）
@@ -108,17 +109,18 @@
       </div>
     </div>
 
-    <p v-if="copyright" class="page-footer__copyright">{{ copyright }}</p>
+    <SiteLegalBar brand-suffix="· 让投资更从容" />
   </footer>
 </template>
 
 <script setup lang="ts">
+import SiteLegalBar from "@/components/SiteLegalBar/index.vue";
+
 withDefaults(
   defineProps<{
     revisitText?: string;
     revisitItems?: string[];
     sources?: Array<{ label: string; url?: string }>;
-    copyright?: string;
   }>(),
   {
     revisitText: "市场有周期，情绪有温度，理性投资，从容应对。",
@@ -133,7 +135,11 @@ withDefaults(
 </script>
 
 <style lang="scss" scoped>
-@media (width <= 640px) {
+/* 断点走 bp mixin（#1838）：原先这里是手写的裸宽度媒体查询，会被 guard_breakpoints
+   记进存量基线，阈值一旦与 _breakpoints.scss 分叉就没人知道。 */
+@use "@/style/breakpoints" as bp;
+
+@include bp.below("sm") {
   .page-footer .footer-card {
     flex-basis: 100%;
   }
@@ -255,15 +261,6 @@ withDefaults(
       width: 100%;
       height: 100%;
     }
-  }
-
-  &__copyright {
-    max-width: var(--layout-content-width);
-    padding: 0 24px;
-    margin: 16px auto 0;
-    font-size: 12px;
-    color: var(--text-tertiary-ink);
-    text-align: center;
   }
 }
 

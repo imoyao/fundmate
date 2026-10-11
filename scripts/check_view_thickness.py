@@ -90,6 +90,31 @@ NEW_FILE_LIMITS = {
 # 「开会话 + 调 orchestrator」留在视图（`views → services` 是合法边，D26 视图职责即「调服务」）。
 # 代价是 importers max_func +1（52 → 53）、ocr lines +23（191 → 214），两者仍 ≤ 60 / 远低于基线；
 # 用 +1 行换掉一条违规边与一个空壳模块，账是划算的。基线只减不增。
+# 2026-10-04 重取（**新增端点**，非放宽）：#1826 给 summary 加 `GET /summary/penetration/`
+# （基金持仓穿透，计算全在 `services/penetration.py`）—— 视图侧只有「入参解析 + 400 校验 +
+# 调服务 + 三字段信封」，`orm_queries` / `commits` 仍为 **0**，没有业务规则可下沉（口径与四类
+# `reason` 全在 services），属本文件允许的视图职责。summary 141 → 176 行、max_func 20 → 31，
+# 其中 11 行是穿透口径的 docstring（覆盖率硬上限 / gics 非主口径 / 季报个股只披露前十大），
+# 值得写清。按本文件既有先例（2026-09-20「summary +2」那次）以 `--report` 实测回写，非手工拍数。
+# 2026-10-08 收紧（#1929，**非放宽**）：给 `money-fund-income` 端点加「组合」维度时，
+# scope 合法性校验、账户/组合归属校验与「组合 → 关联账户 ID 集合」解析一并下沉到
+# `services/money_fund_income.resolve_money_fund_scope`（`views → services` 是合法边，D26），
+# 视图只留「入参解析 + 调服务 + 组响应」——顺带修掉 #1929 第一版把 portfolio 分支写在视图里
+# 导致的 orm_queries / max_func 回潮（守卫拦下 113/3/55 超基线）。按 `--report` 实测回写：
+# 93/1/0/36 → 87/0/0/31（orm_queries 归零，与全仓 views 收敛趋势一致）。基线只减不增。
+# 2026-10-09 收紧（#1966，**非放宽**）：`GET /api/positions/` 新增 symbol / market 过滤时，
+# **没有**把参数一行行加进视图，而是用 `parse_query(PositionListRequest)` 把入参声明收口到
+# `domains/positions/schemas.py`，视图反而净减 2 行（288 → 286）；过滤仍在 service 下推到 SQL。
+# 这是「新增功能但视图变薄」的样本：入参声明本就不该在视图，业务规则更不该。
+# 按本文件既有先例以实测回写，基线只减不增。
+# 2026-10-09 重取（#1969，**新增响应字段、非业务规则进视图**）：`GET /api/utils/enums/` 增补
+# `venue` 交易场所标签（`app.core.constants.VENUE_LABELS`，EXCHANGE / OTC 原键不再直接上屏，
+# 前端 `useEnumLabels` 消费）。视图侧增量只有「import 多一个常量 + 响应 dict 多一个键 + 一行 why
+# 注释」，正是本文件明列的视图职责（组响应），**没有可下沉的业务规则**——标签本体是 constants 的
+# 唯一真相源、不是视图逻辑，搬进 services 只会得到一个零逻辑转发壳（#1642 已否掉同类做法）。
+# 其余三项原地不动：orm_queries 0 / commits 0 / max_func 38，唯 `lines` 126 → 128。
+# 按本文件既有先例（2026-09-20 错误信封补齐 4 文件共 +26、2026-10-04 summary 新增端点 141 → 176）
+# 以 `--report` 实测回写，非手工拍数；新增字段一律走 `/enums/` 单一出口，不许前端再抄第二份。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/assets/views.py": {"lines": 208, "orm_queries": 4, "commits": 0, "max_func": 44},
     "backend/app/domains/auth/views.py": {"lines": 137, "orm_queries": 3, "commits": 0, "max_func": 45},
@@ -99,19 +124,19 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/ledgers/views.py": {"lines": 723, "orm_queries": 16, "commits": 0, "max_func": 60},
     "backend/app/domains/market/views.py": {"lines": 37, "orm_queries": 0, "commits": 0, "max_func": 21},
     "backend/app/domains/ocr/views.py": {"lines": 214, "orm_queries": 1, "commits": 0, "max_func": 48},
-    "backend/app/domains/performance/views.py": {"lines": 93, "orm_queries": 1, "commits": 0, "max_func": 36},
+    "backend/app/domains/performance/views.py": {"lines": 86, "orm_queries": 0, "commits": 0, "max_func": 31},
     "backend/app/domains/portfolios/views.py": {"lines": 166, "orm_queries": 1, "commits": 0, "max_func": 29},
-    "backend/app/domains/positions/views.py": {"lines": 288, "orm_queries": 6, "commits": 0, "max_func": 57},
+    "backend/app/domains/positions/views.py": {"lines": 286, "orm_queries": 6, "commits": 0, "max_func": 57},
     "backend/app/domains/reconciliation/views.py": {"lines": 225, "orm_queries": 2, "commits": 0, "max_func": 48},
     "backend/app/domains/search/views.py": {"lines": 25, "orm_queries": 0, "commits": 0, "max_func": 7},
     "backend/app/domains/securities/views.py": {"lines": 72, "orm_queries": 1, "commits": 0, "max_func": 35},
     "backend/app/domains/strategy/views.py": {"lines": 144, "orm_queries": 5, "commits": 0, "max_func": 22},
-    "backend/app/domains/summary/views.py": {"lines": 141, "orm_queries": 0, "commits": 0, "max_func": 20},
+    "backend/app/domains/summary/views.py": {"lines": 198, "orm_queries": 0, "commits": 0, "max_func": 31},
     "backend/app/domains/temperature/views.py": {"lines": 140, "orm_queries": 0, "commits": 0, "max_func": 38},
     "backend/app/domains/transactions/views.py": {"lines": 136, "orm_queries": 2, "commits": 0, "max_func": 60},
     "backend/app/domains/usage/views.py": {"lines": 68, "orm_queries": 0, "commits": 0, "max_func": 27},
     "backend/app/domains/users/views.py": {"lines": 115, "orm_queries": 4, "commits": 0, "max_func": 38},
-    "backend/app/domains/utils/views.py": {"lines": 126, "orm_queries": 0, "commits": 0, "max_func": 38},
+    "backend/app/domains/utils/views.py": {"lines": 128, "orm_queries": 0, "commits": 0, "max_func": 38},
     "backend/app/domains/watchlist/views.py": {"lines": 622, "orm_queries": 14, "commits": 0, "max_func": 53},
 }
 

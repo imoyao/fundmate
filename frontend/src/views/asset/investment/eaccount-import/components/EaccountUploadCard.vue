@@ -21,8 +21,14 @@
             <el-button plain class="upload-btn" :loading="p.parsing">
               {{ p.parsing ? "正在解析..." : "点击上传" }}
             </el-button>
-            <p class="upload-hint">E账户导出文件（基金持仓快照）</p>
-            <p class="upload-format-info">支持 Excel、CSV 格式 ｜ 最大 5MB</p>
+            <!-- #1788 §3 覆盖范围标注：后端持仓文件解析器只有 registry.py:63 的
+                 EAccountHoldingParser 一个，通用渠道由 AI 分段承担，这里必须说清楚 -->
+            <p class="upload-hint">
+              基金持仓快照 ｜ 仅支持 E账户（中国结算）导出格式
+            </p>
+            <p class="upload-format-info">
+              支持 Excel、CSV 格式 ｜ 最大 5MB ｜ 其他平台请切「AI 识别持仓」
+            </p>
           </template>
         </el-upload>
 
@@ -38,7 +44,9 @@
     </div>
   </div>
 
-  <!-- 解析完成状态条：折叠后的一行反馈 + 重新上传 -->
+  <!-- 解析完成状态条：折叠后的一行反馈 + 退回录入。
+       手动录入（#1788）没有「文件」可重传，文案与动作改成「返回修改」——
+       resetUpload 只清预览、不清 manualRows，用户回去能接着改已填的行。 -->
   <transition name="done-bar">
     <div v-if="p.parsedOk" class="parse-done-bar">
       <IconifyIconOffline
@@ -49,7 +57,7 @@
         {{ p.fileName }}
       </span>
       <span class="parse-done-bar__summary">
-        已解析
+        {{ p.importMode === "manual" ? "已录入" : "已解析" }}
         <b class="parse-done-bar__count">{{ p.parseMeta.total }}</b>
         条记录<template v-if="p.errorCount > 0"
           >，其中 {{ p.errorCount }} 条解析失败</template
@@ -57,7 +65,7 @@
       </span>
       <el-button text class="parse-done-bar__reset" @click="p.resetUpload">
         <IconifyIconOffline icon="ep:refresh-left" class="mr-1" />
-        重新上传
+        {{ p.importMode === "manual" ? "返回修改" : "重新上传" }}
       </el-button>
     </div>
   </transition>

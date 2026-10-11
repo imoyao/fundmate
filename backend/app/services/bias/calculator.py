@@ -53,6 +53,12 @@ from loguru import logger
 # 正常由 app/__init__ 安装，此处为幂等兜底，避免遗漏调用点。
 from app.core.cache import resolve_cache_subdir
 from app.core.requests_patch import install_requests_patch
+from app.services.adapters.direct_feeds import (
+    _eastmoney_secid,
+    fetch_close_eastmoney,
+    fetch_close_sw_industry,
+    fetch_close_tencent,
+)
 from app.services.bias.constants import (
     BIAS_PERIOD,
     BIAS_THRESHOLD_HIGH,
@@ -64,12 +70,6 @@ from app.services.bias.constants import (
     ITEM_TYPE_INDEX,
     ITEM_TYPE_INDUSTRY,
     ITEM_TYPE_STOCK,
-)
-from app.services.bias.direct_feeds import (
-    _eastmoney_secid,
-    fetch_close_eastmoney,
-    fetch_close_sw_industry,
-    fetch_close_tencent,
 )
 from app.services.bias.schemas import BiasResult
 

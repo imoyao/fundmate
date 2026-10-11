@@ -30,6 +30,7 @@
     <div v-loading="loading" class="group-items">
       <el-input
         v-model="keyword"
+        aria-label="搜索代码或名称"
         placeholder="搜索代码或名称（同时过滤左右两栏）..."
         clearable
         class="gi-search"
@@ -108,7 +109,13 @@
                 >
                   <el-icon><Plus /></el-icon>
                 </el-button>
-                <div class="gi-row__main" @click="addItem(item)">
+                <div
+                  class="gi-row__main"
+                  role="button"
+                  tabindex="0"
+                  @keydown.enter="addItem(item)"
+                  @click="addItem(item)"
+                >
                   <span class="gi-name">{{ item.display_name }}</span>
                   <span v-if="showCode(item)" class="gi-code">{{
                     item.symbol

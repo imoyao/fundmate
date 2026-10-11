@@ -143,6 +143,84 @@ class TestHomeSummary:
         data = resp.get_json()['data']
         assert data == []
 
+    def test_home_summary_downstream_type_label(self, client, app):
+        """#1954：首页摘要必须下发 type_label / 归一后的 asset_type / price_as_of。
+
+        回归背景：`build_home_summary` 此前只返回 asset_type 原值（历史存大写）且
+        **完全没有 type_label**，前端 ProductDisplay 恒收到 undefined ——
+        产品信息列所有品类都不显示类别（基金之所以有「基」标签，是前端按
+        venue==='OTC' 单独兜的，场内股票/ETF/可转债一律落空）。
+        """
+        from app.core.constants import TYPE_LABELS
+
+        with get_db() as db:
+            pos = Position(
+                symbol='SH601899',
+                name='紫金矿业',
+                asset_type='stock',
+                account_name='华泰',
+                quantity=1000000,  # 100份
+                avg_price=14000000,  # 1400元
+                current_price=14895000,  # 1489.5元
+            )
+            db.add(pos)
+            db.add(
+                WatchlistItem(
+                    symbol='SH601899',
+                    market='SH',
+                    status='HOLDING',
+                    # 历史数据是大写，与 enrich_item 的归一行为对齐验证
+                    asset_type='STOCK',
+                )
+            )
+            db.commit()
+
+        resp = client.get('/api/watchlist/home-summary/')
+        assert resp.status_code == 200
+        row = resp.get_json()['data'][0]
+        assert row['symbol'] == 'SH601899'
+        # asset_type 对外统一小写（前端 pricePrecision 依赖小写判定精度）
+        assert row['asset_type'] == 'stock'
+        # 单一来源 TYPE_LABELS，与 enrich_item 同一口径
+        assert row['type_label'] == TYPE_LABELS['stock'] == '股票'
+        # 行情字段（无 price_history 时 latest_price 为 None，日期同为 None）
+        assert 'price_as_of' in row
+        # 持仓三项：有持仓时全部有值（100份 × (1489.5-1400) = +8950元）
+        assert row['holding_quantity'] == 100.0
+        assert row['holding_cost_price'] == 1400.0
+        assert row['holding_pnl'] == 8950.0
+        assert row['holding_pnl_percent'] == 6.39
+
+    def test_home_summary_no_holding_nulls(self, client, app):
+        """#1954：无持仓（纯观察）时持仓三项为 None，供前端渲染 -- 而非 ¥0.00。
+
+        构造：置顶但完全没有 positions 记录的自选项——即「只加入自选、未建仓」。
+        摘要接口的取数口径是「置顶 ∪ 持仓」，置顶即可入选，无需持仓。
+        """
+        with get_db() as db:
+            db.add(
+                WatchlistItem(
+                    symbol='000001',
+                    market='SZ',
+                    status='WATCHING',
+                    venue='OTC',
+                    asset_type='FUND',
+                    is_pinned=True,
+                    pinned_at=date.today(),
+                )
+            )
+            db.commit()
+
+        resp = client.get('/api/watchlist/home-summary/')
+        row = resp.get_json()['data'][0]
+        assert row['type_label'] == '基金'
+        # 无持仓：数量/成本/盈亏/收益率全 None，市值口径与自选页一致为 0.0
+        assert row['holding_quantity'] is None
+        assert row['holding_cost_price'] is None
+        assert row['holding_pnl'] is None
+        assert row['holding_pnl_percent'] is None
+        assert row['position_market_value'] == 0.0
+
 
 # ─────────────── 资产 CRUD ───────────────
 class TestWatchlistItemCRUD:
@@ -524,6 +602,58 @@ class TestWatchlistItemCRUD:
         # 非指数类型仍照常回退 funds（回退能力未被削弱）
         assert resolve_display_name('SH000300', db, 'etf') == '德邦德利货币A'
         assert resolve_display_name('SH000300', db) == '德邦德利货币A'
+
+    def test_resolve_display_name_platform_code_not_hijacked_by_bare_fund(self, client, db):
+        """#2029：平台原生码（投顾组合 / 基金经理）不得被同裸码基金劫持。
+
+        实测 invest.db：``ZH012926``（且慢「远足」）的裸码 ``012926`` 是真实基金
+        「民生加银中证500指数增强A」。原实现的裸码回退**没有形态闸门**（#1497 只特判了
+        指数），且基金分支排在 AdvisorPortfolio **之前** → 组合分支沦为死代码，
+        自选页/详情页显示成一只无关基金。库里 ``advisor_portfolios.name`` 一直是对的，
+        错在读取端反查——本库 114 个投顾组合中 18 个裸码撞基金。
+        """
+        from app.domains.funds.models import AdvisorPortfolio, Fund
+
+        db.add(Fund(fund_code='012926', name='民生加银中证500指数增强A'))
+        db.add(AdvisorPortfolio(platform='QIEMAN', code='ZH012926', name='远足'))
+        db.commit()
+
+        # 调用方带 asset_type（自选列表 / 产品详情页都传）
+        assert resolve_display_name('ZH012926', db, 'portfolio') == '远足'
+        # 历史调用点不传 asset_type，同样不得被同裸码基金劫持
+        assert resolve_display_name('ZH012926', db) == '远足'
+        # 基金经理码里的数字与市场码无关（lookup_manager 未命中时同样落到闸门）
+        assert resolve_display_name('MGR_012926', db, 'manager') == 'MGR_012926'
+        # 组合目录里没有的码：宁可退回代码，也不编造一个基金名
+        assert resolve_display_name('ZH999999', db, 'portfolio') == 'ZH999999'
+        # 闸门不得削弱 #1497 的能力：裸码 / 带前缀基金码照常解析
+        assert resolve_display_name('012926', db, 'fund') == '民生加银中证500指数增强A'
+        assert resolve_display_name('SZ012926', db, 'fund') == '民生加银中证500指数增强A'
+
+    def test_list_items_portfolio_display_name_not_hijacked(self, client, db):
+        """#2029 端到端：自选列表里投顾组合显示组合名，不是同裸码基金名。
+
+        POST 时**不带 name**（模拟 `name IS NULL` 的存量行：搜索回显没给名字），
+        读取端只能靠 resolve_display_name 反查——正是本 bug 的现场。
+        """
+        from app.domains.funds.models import AdvisorPortfolio, Fund
+
+        resp = _post(
+            client,
+            '/api/watchlist/items/',
+            {'symbol': 'ZH012926', 'venue': 'OTC', 'asset_type': 'portfolio'},
+        )
+        assert resp.status_code == 200
+        symbol = resp.get_json()['data']['symbol']
+
+        # 建档（真实库里两行都一直在，只是读取端反查错了）
+        db.add(Fund(fund_code='012926', name='民生加银中证500指数增强A'))
+        db.add(AdvisorPortfolio(platform='QIEMAN', code=symbol, name='远足'))
+        db.commit()
+
+        item = next(i for i in _get(client, '/api/watchlist/items/').get_json()['data'] if i['symbol'] == symbol)
+        # 回归点：此前这里是 '民生加银中证500指数增强A'（错名），修复后是 '远足'
+        assert item['display_name'] == '远足'
 
     def test_list_items_etf_display_name(self, client, db):
         """端到端：#1497 自选列表里场内 ETF 名显示中文而非代码。"""

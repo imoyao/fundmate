@@ -3,8 +3,10 @@
     :model-value="modelValue"
     title="编辑交易"
     width="520px"
+    :before-close="onBeforeClose"
     @update:model-value="val => emit('update:modelValue', val)"
     @open="initForm"
+    @close="resetAfterClose"
   >
     <el-form
       ref="formRef"
@@ -116,6 +118,7 @@
             value-format="YYYY-MM-DD"
             placeholder="选择日期"
             clearable
+            :disabled-date="disabledDate"
           />
           <el-radio-group v-if="isFund" v-model="isAfter15" size="small">
             <el-radio-button :value="false">15:00前</el-radio-button>
@@ -144,9 +147,8 @@
     </el-form>
 
     <template #footer>
-      <el-button :disabled="saving" @click="emit('update:modelValue', false)"
-        >取消</el-button
-      >
+      <!-- 取消也走守卫：`before-close` 只拦关闭按钮 / ESC / 点遮罩，程序化 close 走不到它（#1835） -->
+      <el-button :disabled="saving" @click="requestClose">取消</el-button>
       <el-button type="primary" :loading="saving" @click="handleSave"
         >保存</el-button
       >
@@ -166,6 +168,11 @@ import {
   createStockPriceValidator
 } from "@/composables/useSecurityPrice";
 import { ElMessage } from "element-plus";
+import {
+  useUnsavedChangesGuard,
+  useFormDirty
+} from "@/composables/useUnsavedChangesGuard";
+import { disabledTradeDate } from "@/utils/date";
 
 const props = defineProps<{
   modelValue: boolean;
@@ -186,6 +193,10 @@ const form = ref<any>({});
 
 // 初始化标记：防止 initForm 赋值时触发 watch 覆盖原始金额
 const isInitializing = ref(false);
+
+// 交易日期不允许选未来（#1835）：此前只有新增交易的三张表单禁用了，编辑已入账交易的这张漏了——
+// 同一规则散落三处、漏一处，故规则收在 utils/date，这里只留别名保持模板可读
+const disabledDate = disabledTradeDate;
 
 // 15:00 后下单（影响确认日计算）
 const isAfter15 = ref(false);
@@ -268,9 +279,51 @@ function initForm() {
   };
   // 展示已有确认日期（若交易记录里有）
   confirmDateDisplay.value = t.confirm_date || "";
+  // 未保存离开保护（#1835）的基线：弹窗打开时的表单快照
+  markClean();
   nextTick(() => {
     isInitializing.value = false;
   });
+}
+
+// ── 未保存离开保护（#1835）──
+// 关闭按钮 / ESC / 点遮罩走 el-dialog 的 before-close；底部「取消」是程序化 close，
+// 走不到 before-close，必须各自接一道，否则那条路仍然静默丢数据。
+// 路由离开由 `useUnsavedChangesGuard` 内部注册（第 4 路，#1853）。
+
+// 脏状态交给共用的 useFormDirty：原先这里的 `initialSnapshot = ref("")` 与表单初值 `{}`
+// 比永不相等，**弹窗没打开就算“有未保存修改”**；叠上 onBeforeRouteLeave 后，
+// 用户在账户列表点卡片进详情都会被问「确定放弃吗？」（#1845 回归）。
+const { isDirty, markClean } = useFormDirty(() => form.value);
+
+/**
+ * 关闭后把表单与基线一起清空（#1880，与 AssetEditDialog / CreateAccountDialog 同源）。
+ *
+ * `@open="initForm"` 只覆盖打开这一侧。关闭侧以前完全没处理，于是「保存」与「放弃修改」
+ * 都只是 `modelValue → false`，表单里留着改后的值而基线还是打开时的值 → `isDirty` 为 true，
+ * 叠上 `onBeforeRouteLeave` 就是「关掉弹窗后点侧边栏仍弹未保存修改、导航被拦死」。
+ *
+ * 挂 `@close` 而非 `before-close`：后者是**询问**是否关闭，用户点「继续编辑」时不能复位。
+ */
+function resetAfterClose() {
+  form.value = {
+    quantity: null,
+    price: null,
+    amount: null,
+    fee: null,
+    trade_date: null,
+    confirm_date: null,
+    notes: ""
+  };
+  confirmDateDisplay.value = "";
+  markClean();
+}
+
+const { onBeforeClose, requestClose: confirmThenClose } =
+  useUnsavedChangesGuard(() => isDirty.value);
+
+async function requestClose() {
+  await confirmThenClose(() => emit("update:modelValue", false));
 }
 
 // 金额为权威数据：
@@ -364,6 +417,8 @@ async function handleSave() {
     };
     const res = await updateLedgerTransaction(t.ledger_id, t.id, payload);
     const data = res.data;
+    // 保存成功后重置脏基线：否则紧接着的关闭会弹「放弃修改？」，问得毫无意义（#1835）
+    markClean();
     emit("saved", data);
     emit("update:modelValue", false);
     ElMessage.success("保存成功");
@@ -385,49 +440,25 @@ async function handleSave() {
   margin-bottom: 0;
 }
 
-/* 输入框统一样式 —— 对齐 design.md Input 规范 & BuyForm/SellForm */
-:deep(.el-input__wrapper),
-:deep(.el-textarea__inner) {
-  --el-input-border-color: var(--border-default);
-  --el-input-hover-border-color: var(--brand-500);
-  --el-input-focus-border-color: var(--brand-700);
-  --el-input-focus-shadow:
-    inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
-    0 0 0 4px var(--brand-700);
-
-  border-radius: var(--radius-sm);
+/* 输入框 / 数字输入 / 日期选择器：视觉全部走 element-plus.scss 的
+   「输入基线（#1772）」（底色、边框三态、圆角、焦点环），本文件不再
+   用 :deep 覆盖 wrapper / textarea 内层的同一件事。
+   本表单（size=large）的控件高度是 40px，用高度令牌表达。 */
+.el-form {
+  --input-height: 40px;
 }
 
-:deep(.el-input-number .el-input__wrapper) {
-  --el-input-border-color: var(--border-default);
-  --el-input-hover-border-color: var(--brand-500);
-  --el-input-focus-border-color: var(--brand-700);
-  --el-input-focus-shadow:
-    inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
-    0 0 0 4px var(--brand-700);
-
-  height: 40px;
-  border-radius: var(--radius-sm);
-}
-
-/* el-input-number controls=false 后文字默认居中，强制左对齐 */
-:deep(.el-input-number .el-input__inner) {
+/* el-input-number controls=false 后文字默认居中，强制左对齐。
+   用原生 input 元素匹配（而非 .el-input__inner），既避开 EP 同特异性的
+   `.el-input-number .el-input__inner{text-align:center}`，也避免本文件
+   再次命中「三个禁改选择器」。 */
+:deep(.el-input-number input) {
   text-align: left;
 }
 
-/* 日期选择器：强制 100% 宽度，与数字输入框等宽 */
-:deep(.el-date-editor.el-input),
-:deep(.el-date-editor.el-input__wrapper) {
-  --el-input-border-color: var(--border-default);
-  --el-input-hover-border-color: var(--brand-500);
-  --el-input-focus-border-color: var(--brand-700);
-  --el-input-focus-shadow:
-    inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
-    0 0 0 4px var(--brand-700);
-
+/* 日期选择器：强制 100% 宽度，与数字输入框等宽（高度由上面的高度令牌接管） */
+:deep(.el-date-editor.el-input) {
   width: 100% !important;
-  height: 40px;
-  border-radius: var(--radius-sm);
 }
 
 /* 主按钮物理反馈 */

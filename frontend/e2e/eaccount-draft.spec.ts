@@ -67,16 +67,14 @@ test.describe("E账户导入草稿层（#1694：persistDraft 接线 + 恢复落�
       })
     );
 
-    await page.goto("/#/investment/eaccount-import");
+    await page.goto("/#/investment/holding-import");
     await uploadAndParse(page);
 
     // 刷新：persistDraft 必须已落盘（修复前无调用点 → Banner 永不出现，此断言即红）
     await page.reload();
     const banner = page.locator(BANNER);
     await expect(banner).toBeVisible();
-    await expect(banner).toContainText(
-      "发现未完成的 E账户导入草稿（1 条持仓）"
-    );
+    await expect(banner).toContainText("发现未完成的导入草稿（1 条持仓）");
 
     // 恢复：内容区必须渲染预览表格（修复前落步骤 1 且无 result → 整段内容空白）
     await banner.getByRole("button", { name: "恢复草稿" }).click();
@@ -105,7 +103,7 @@ test.describe("E账户导入草稿层（#1694：persistDraft 接线 + 恢复落�
       })
     );
 
-    await page.goto("/#/investment/eaccount-import");
+    await page.goto("/#/investment/holding-import");
     await uploadAndParse(page);
     await page.reload();
 

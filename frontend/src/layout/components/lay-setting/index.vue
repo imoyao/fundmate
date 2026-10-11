@@ -340,6 +340,9 @@ onUnmounted(() => removeMatchMedia);
           v-show="showThemeColors(item.themeColor)"
           :key="index"
           :style="getThemeColorStyle(item.color)"
+          role="button"
+          tabindex="0"
+          @keydown.enter="setLayoutThemeColor(item.themeColor)"
           @click="setLayoutThemeColor(item.themeColor)"
         >
           <el-icon
@@ -361,6 +364,9 @@ onUnmounted(() => removeMatchMedia);
             zIndex: 41000
           }"
           :class="layoutTheme.layout === 'vertical' ? 'is-select' : ''"
+          role="button"
+          tabindex="0"
+          @keydown.enter="setLayoutModel('vertical')"
           @click="setLayoutModel('vertical')"
         >
           <div />
@@ -374,6 +380,9 @@ onUnmounted(() => removeMatchMedia);
             zIndex: 41000
           }"
           :class="layoutTheme.layout === 'horizontal' ? 'is-select' : ''"
+          role="button"
+          tabindex="0"
+          @keydown.enter="setLayoutModel('horizontal')"
           @click="setLayoutModel('horizontal')"
         >
           <div />
@@ -387,6 +396,10 @@ onUnmounted(() => removeMatchMedia);
             zIndex: 41000
           }"
           :class="layoutTheme.layout === 'mix' ? 'is-select' : ''"
+          role="button"
+          tabindex="0"
+          aria-label="混合菜单"
+          @keydown.enter="setLayoutModel('mix')"
           @click="setLayoutModel('mix')"
         >
           <div />
@@ -414,6 +427,7 @@ onUnmounted(() => removeMatchMedia);
         <button
           v-else
           v-ripple="{ class: 'text-gray-300' }"
+          aria-label="切换页宽（拉伸／非拉伸）"
           class="bg-transparent flex-c w-full h-20 rounded-md border border-[var(--pure-border-color)]"
           @click="setStretch(!settings.stretch)"
         >

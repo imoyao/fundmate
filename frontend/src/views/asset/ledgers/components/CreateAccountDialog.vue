@@ -1,7 +1,11 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import AccountFormFields from "./AccountFormFields.vue";
+import {
+  useUnsavedChangesGuard,
+  useDialogForm
+} from "@/composables/useUnsavedChangesGuard";
 import {
   createLedger,
   type SalesInstitution,
@@ -47,22 +51,43 @@ const createForm = ref({
 
 // 每次打开重置表单（原 openCreateDialog 的重置语义迁移至此）；
 // ledger_type 取外部预置渠道分组（分组入口预填），未指定时维持默认 bank
+//
+// 快照声明**必须在 watch 之前**：`immediate: true` 会同步执行回调回填它，
+// 声明在后面就是 TDZ ReferenceError（vue-tsc 报 TS2304）。#1853
+const EMPTY_FORM = {
+  name: "",
+  ledger_type: "bank",
+  notes: "",
+  linked_cash_ledger_id: null,
+  linked_money_fund_code: null,
+  auto_purchase_money_fund: false,
+  portfolio_id: null,
+  fee_config: null,
+  sales_institution_id: null
+};
+
+/**
+ * 打开时填初值、关闭时复位，**两种态都同步脏基线**（#1880，与 AssetEditDialog 同源）。
+ *
+ * 关闭分支以前是 `if (val) {…}` 什么都不做：创建成功后虽然显式 `markClean()` 了一次，
+ * 但「创建失败后关闭」「ESC 直接关」等路径仍留着改后的表单值，
+ * 下次点侧边栏会弹一次莫名其妙的「账户信息已填写，确定放弃吗？」。
+ */
+const { isDirty, fillOnOpen, markSaved } = useDialogForm(createForm, () => ({
+  ...EMPTY_FORM,
+  ledger_type: props.initialLedgerType || "bank"
+}));
+
 watch(
   () => props.visible,
-  val => {
-    if (val) {
-      createForm.value = {
-        name: "",
-        ledger_type: props.initialLedgerType || "bank",
-        notes: "",
-        linked_cash_ledger_id: null,
-        linked_money_fund_code: null,
-        auto_purchase_money_fund: false,
-        portfolio_id: null,
-        fee_config: null,
-        sales_institution_id: null
-      };
-    }
+  val => fillOnOpen(val)
+);
+
+// ── 未保存离开保护（#1853）──
+const { onBeforeClose, requestClose } = useUnsavedChangesGuard(
+  () => isDirty.value,
+  {
+    message: "账户信息已填写，确定放弃吗？"
   }
 );
 
@@ -86,6 +111,8 @@ async function handleCreate() {
       sales_institution_id: createForm.value.sales_institution_id
     });
     ElMessage.success("账户创建成功");
+    // 已落库，当前值即新基线（关闭分支也会复位，两处都做是为了时序上不依赖单一路径）
+    markSaved();
     emit("update:visible", false);
     emit("created");
   } catch (e: any) {
@@ -102,6 +129,7 @@ async function handleCreate() {
     title="创建账户"
     width="420px"
     destroy-on-close
+    :before-close="onBeforeClose"
     @update:model-value="emit('update:visible', $event)"
   >
     <el-form :model="createForm" label-width="100px">
@@ -130,7 +158,10 @@ async function handleCreate() {
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="emit('update:visible', false)">取消</el-button>
+      <!-- 取消走 requestClose：before-close 只拦关闭按钮 / ESC / 点遮罩，程序化 close 走不到它 -->
+      <el-button @click="requestClose(() => emit('update:visible', false))"
+        >取消</el-button
+      >
       <el-button type="primary" :loading="creating" @click="handleCreate"
         >确认创建</el-button
       >

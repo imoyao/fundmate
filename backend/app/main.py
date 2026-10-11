@@ -15,13 +15,16 @@ from flask import jsonify  # noqa: E402
 from flask_cors import CORS  # noqa: E402
 from loguru import logger  # noqa: E402
 from werkzeug.exceptions import HTTPException  # noqa: E402
+from werkzeug.serving import BaseWSGIServer  # noqa: E402
 
 from app.core.auth import auth_before_request, register_user_identity  # noqa: E402
 from app.core.database import init_db, teardown_request_session  # noqa: E402
 from app.core.exceptions import ErrorCode, SBException  # noqa: E402
+from app.core.instance_guard import enforce_web_instance_or_exit  # noqa: E402
 from app.domains.agent.views import agent_bp  # noqa: E402
 from app.domains.assets.views import bp as assets_bp  # noqa: E402
 from app.domains.auth.views import auth_bp  # noqa: E402
+from app.domains.dividends.views import dividends_bp  # noqa: E402
 from app.domains.families.views import families_bp  # noqa: E402
 from app.domains.funds.views import bp as funds_bp  # noqa: E402
 from app.domains.health import bp as health_bp  # noqa: E402
@@ -34,6 +37,7 @@ from app.domains.ocr.views import ocr_bp  # noqa: E402
 from app.domains.performance.views import bp as performance_bp  # noqa: E402
 from app.domains.portfolios.views import portfolios_bp  # noqa: E402
 from app.domains.positions.views import bp as positions_bp  # noqa: E402
+from app.domains.products.views import bp as products_bp  # noqa: E402
 from app.domains.reconciliation.views import bp as reconciliation_bp  # noqa: E402
 from app.domains.search.views import bp as search_bp  # noqa: E402
 from app.domains.securities.views import bp as securities_bp  # noqa: E402
@@ -49,6 +53,23 @@ from app.domains.utils.views import utils_bp  # noqa: E402
 from app.domains.watchlist.views import watchlist_bp  # noqa: E402
 from app.models.sync_log import SyncLog  # noqa: F401, E402  # 确保 sync_logs 表随 init_db 建表
 from app.services.daily_scheduler import start_daily_scheduler  # noqa: E402
+
+# —— 关掉 werkzeug 开发服务器的地址复用（#1816，配合 #1809 单实例守门）——
+# WHY：Windows 的 `SO_REUSEADDR` 语义与 POSIX 不同，**两个都带该选项的 socket 可以
+# 同时监听同一 host:port**（本机实测：第二方 bind 成功、无任何报错）。而 werkzeug 的
+# `BaseWSGIServer.allow_reuse_address = True` 是类属性硬编码——`run_simple()` 的签名里
+# 早已没有这个参数，命令行也关不掉。后果是「重启后端」会静默变成「又多起一个实例」，
+# 正是 #1809 里多个实例共享 SQLite 的入口。
+#
+# 置 False 后，第二个实例会在**重载父进程**的 `run_simple → server_bind` 拿到
+# EADDRINUSE，由 werkzeug 打印 `Port <n> is in use by another program.` 并以退出码 1
+# 终止（`werkzeug/serving.py` 的 `except OSError ... sys.exit(1)`）——**不 spawn 重载
+# 子进程、不进守门、不进重载循环**，一次说清楚，不会再出现 `Restarting with stat` 刷屏。
+#
+# 安全性（本机 Python 3.12 / Windows 实测）：`reuse=False` 重绑刚释放的端口成功，
+# 即便该端口上存在 TIME_WAIT 连接（`0.0.0.0` 监听与 `127.0.0.1` 上的 TIME_WAIT 不冲突），
+# 故开发期反复重启不受影响；重载子进程走继承的 `WERKZEUG_SERVER_FD`，本来就不重新 bind。
+BaseWSGIServer.allow_reuse_address = False
 
 
 def create_app() -> APIFlask:
@@ -74,10 +95,12 @@ def create_app() -> APIFlask:
     # 注册蓝图
     app.register_blueprint(health_bp)
     app.register_blueprint(positions_bp)
+    app.register_blueprint(products_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(assets_bp)
     app.register_blueprint(transactions_bp)
     app.register_blueprint(summary_bp)
+    app.register_blueprint(dividends_bp)
     app.register_blueprint(securities_bp)
     app.register_blueprint(search_bp)
     app.register_blueprint(funds_bp)
@@ -109,7 +132,16 @@ def create_app() -> APIFlask:
     # 这里兜底清理异常路径残留的请求级会话，避免连接泄漏。
     app.teardown_request(teardown_request_session)
 
-    # 初始化数据库：core 只建表结构，默认家庭/用户属 user 域业务数据，由域侧播种（#1607）
+    # 单实例守门（#1809）：同一 DB 只允许一个 web 实例，且**必须排在 init_db()/迁移之前**——
+    # 否则第二个实例的启动迁移会在这个 SQLite 上长时间持写锁，把正常请求拖成
+    # `database is locked`（2026-09-30「编辑账户保存失败」的成因）。
+    enforce_web_instance_or_exit()
+
+    # 初始化数据库：core 只建表结构，默认家庭/用户属 user 域业务数据，由域侧播种（#1607）。
+    # 这里**刻意不按「是否重载父进程」跳过**：守门判据一旦误判（例如 `uvicorn --reload`
+    # 的 argv 里同样有 `--reload`），库就会被永远跳过不建——代价远大于重复执行一次。
+    # 父进程会不会绕过守门写库，由 `instance_guard` 的**探查**负责（见 #1816）：
+    # 探不到锁就直接退出，根本走不到这里。
     with app.app_context():
         init_db()
         seed_default_identity()
@@ -118,6 +150,23 @@ def create_app() -> APIFlask:
     # 仅在 SCHEDULER_ENABLED 打开、且当前不是测试/CI/重载父进程时启动；启动失败只记
     # 日志（调度是增强项，不是可用性前提，绝不能因此让应用起不来）。
     start_daily_scheduler(debug=app.debug)
+
+    # 首次启动一次性提醒（#1720）：数据调度默认关闭，部署后首次启动显式提示运维，
+    # 用标记文件保证「仅提示一次」（清理该文件即可重新提示，避免重载/重启刷屏）。
+    if os.getenv('SCHEDULER_ENABLED', '').lower() not in ('1', 'true', 'yes', 'on'):
+        _tip_flag = os.path.join(app.root_path, '..', 'data', '.first_launch_tip_done')
+        try:
+            if not os.path.exists(_tip_flag):
+                app.logger.warning(
+                    '[首启提醒] 数据调度(SCHEDULER_ENABLED)默认关闭，自选/持仓净值与温度计不会自动更新；'
+                    '如需自动更新，请在 .env 设置 SCHEDULER_ENABLED=1 并常驻调度进程'
+                    '（pdm run scheduler-daemon 或应用内启动）。详见 /api/health 状态页。'
+                )
+                os.makedirs(os.path.dirname(_tip_flag), exist_ok=True)
+                with open(_tip_flag, 'w', encoding='utf-8') as _f:
+                    _f.write('1')
+        except Exception:  # 标记文件写入失败绝不应阻断启动
+            pass
 
     # 注册全局异常处理器（统一 {data, message, error_code} 信封）。
     # 必须在 create_app() 内部注册，否则测试 fixture 直接调用 create_app()
