@@ -52,8 +52,12 @@ def mod():
     return _load()
 
 
-def _run(mod, text, *args):
-    """把正文喂给脚本的 run()，返回 (exit_code, 捕获的输出)。"""
+def _run(mod, text, *args, ref=None):
+    """把正文喂给脚本的 run()，返回 (exit_code, 捕获的输出)。
+
+    `ref=None`（默认）表示**不写死版本**，由脚本自己解析「远端默认分支」——
+    这正是 #144 §四 要钉住的行为。需要指定版本时显式传 `ref=`。
+    """
     import argparse
     import io
     from contextlib import redirect_stdout
@@ -62,7 +66,7 @@ def _run(mod, text, *args):
     ns = argparse.Namespace(
         issue=None,
         file=None,
-        ref='origin/dev',
+        ref=ref,
         cwd=str(_REPO_ROOT),
         strict_ref='--strict-ref' in args,
         json=False,
@@ -229,6 +233,112 @@ def test_non_strict_tolerates_missing_version(mod):
 
 
 # ---------------------------------------------------------------------------
+# 4b. 默认核对版本 = 远端默认分支，**不是**写死的 dev（#144 §四）
+#
+# #144 §四 记的判据缺陷：`check_issue_refs.py` / `check_mirror_refs.py` 的默认
+# `--ref` 写死 `origin/dev`，而卡面（GitHub 原卡 / CNB 镜像卡）描述的是**默认分支**
+# （`main`）的代码。于是「`dev` 上已删、`main` 上还在」的引用被报成失效——
+# 实测活证据：CNB #104（GitHub #2032）的 `AssetInsightPanel.vue` 就是这个假阳性，
+# 而它让整份报告在**只看默认分支**的场景下不可用（不是少报，是把好的报成坏的）。
+#
+# 这里钉住三件事：① 默认解析到 `origin/main`（远端 HEAD）；② 该假阳性消失；
+# ③ 真失效（`main` 上确实没有）**没有**被一起放过（防「为了消假阳性把判据调松」）。
+# ---------------------------------------------------------------------------
+
+
+def test_default_ref_follows_remote_head(mod):
+    """默认核对版本必须是**远端 HEAD** 指向的分支，不是写死的分支名。
+
+    mock 掉 `git ls-remote --symref origin HEAD` 的输出，断言解析结果——
+    这样本用例在任何 checkout（含没有 remote 的浅克隆）上都有意义。
+    """
+    real_git = mod._git
+
+    def fake_git(args, cwd=None):
+        assert args[:3] == ['ls-remote', '--symref', 'origin'], args
+        return 0, 'ref: refs/heads/trunk\tHEAD\n' + 'abc123\tHEAD'
+
+    mod._git = fake_git
+    try:
+        assert mod.default_ref(cwd=str(_REPO_ROOT)) == 'origin/trunk'
+    finally:
+        mod._git = real_git
+
+
+def test_default_ref_falls_back_when_unresolvable(mod):
+    """解析不出远端 HEAD 时退回 `origin/main`（本仓默认分支），不得退回 `dev`。"""
+    real_git = mod._git
+
+    def fake_git(_args, cwd=None):
+        return 128, 'fatal: no remote'
+
+    mod._git = fake_git
+    try:
+        assert mod.default_ref(cwd=str(_REPO_ROOT)) == 'origin/main'
+    finally:
+        mod._git = real_git
+
+
+def test_default_ref_env_override(mod, monkeypatch):
+    """`CHECK_REFS_DEFAULT_REF` 可覆盖，便于非本仓布局 / 特殊场景注入。"""
+    monkeypatch.setenv(mod.DEFAULT_REF_ENV, 'origin/some-branch')
+    assert mod.default_ref(cwd=str(_REPO_ROOT)) == 'origin/some-branch'
+
+
+def test_default_ref_matches_repo_main_branch(mod):
+    """**真实仓库断言**（不 mock）：本仓远端 HEAD 就是 `main`。
+
+    一旦仓库把默认分支改成别的名字，这条会红——**那正是想要的**：判据的默认值
+    必须跟着默认分支走，不能靠记忆。
+    """
+    assert mod.default_ref(cwd=str(_REPO_ROOT)) == 'origin/main'
+
+
+def test_main_only_file_not_flagged_by_default(mod):
+    """#104 的假阳性：`dev` 已删、`main` 还在的文件，**默认核对不得红灯**。
+
+    用真实仓库里的真实文件（`AssetInsightPanel.vue` 在 `origin/main` 存在、
+    `origin/dev` 不存在），不做 mock —— 这正是 #144 §四 报的那个具体个案。
+    若哪天该文件在 `main` 也被删了，本用例会红，提示换一个「main 独有」的样本。
+    """
+    text = '见 `frontend/src/components/AssetInsight/AssetInsightPanel.vue:38-41`'
+    code, out = _run(mod, text)  # ref=None → 解析远端默认分支
+    assert code == 0, out
+    assert 'origin/main' in out, out
+    assert '仍然有效' in out
+
+
+def test_explicit_ref_still_overrides_default(mod):
+    """显式 `--ref origin/dev` 必须仍然生效——默认值改了，不等于不能指定。"""
+    text = '见 `frontend/src/components/AssetInsight/AssetInsightPanel.vue:38-41`'
+    code, out = _run(mod, text, ref='origin/dev')
+    assert code == 1, out
+    assert 'origin/dev' in out
+
+
+def test_genuinely_stale_ref_still_caught_on_default(mod):
+    """真失效（`main` 上确实越界）**不能**因为是默认分支就被放过。
+
+    这条专治「为了让 #104 转绿而把判据调松」——用一个 `main` 上确实不存在的
+    引用断言默认路径仍然红灯。防的是**修假阳性时顺手引入假阴性**。
+    """
+    code, out = _run(mod, '`explore/index.vue:99999`')
+    assert code == 1, out
+    assert '越界' in out or '不存在' in out
+
+
+def test_output_prints_actual_ref_per_reference(mod):
+    """逐条打出实际核对版本：卡面自带 `@ref` 时与默认版本不同，必须可见。
+
+    这是 #144 §四 附带的要求——「至少在报告里把 `--ref` 显式打出来」。
+    """
+    text = '见 `frontend/src/views/welcome/index.vue@origin/dev:1-10`'
+    code, out = _run(mod, text)
+    assert code == 0, out
+    assert '[核对版本 origin/dev]' in out, out
+
+
+# ---------------------------------------------------------------------------
 # 5. 只读纪律（脚本有外部副作用的邻域，边界要钉住）
 # ---------------------------------------------------------------------------
 
@@ -299,7 +409,10 @@ def test_scanner_detects_stale_refs_end_to_end(scanner, monkeypatch, capsys):
     def fake_list(_repo):
         return [{'number': 106, 'title': 'x', 'labels': [{'name': 'GitHub 同步'}]}]
 
-    def fake_get(_path):
+    def fake_get(path):
+        # 新增：`run()` 会先拉评论区判断「该卡是否已记过更正」。无评论 ⇒ 判为待更正。
+        if path.endswith('/comments'):
+            return []
         return {'body': body}
 
     monkeypatch.setattr(scanner, 'list_mirror_cards', fake_list)
@@ -331,6 +444,7 @@ def test_scanner_report_shape_for_stale(scanner):
             'title': 't',
             'refs': 1,
             'stale': [('Foo.vue:119-130', 'Foo.vue 在 `origin/dev` 上不存在')],
+            'corrected': False,
         }
     ]
     report = scanner.build_report(rows, 'origin/dev')
@@ -353,6 +467,142 @@ def test_scanner_never_writes_cards(scanner):
     for banned in ("method='POST'", "method='PUT'", "method='PATCH'", "method='DELETE'"):
         assert banned not in src, f'扫描器出现写操作：{banned}'
     assert 'def cnb_get' in src  # 只有 GET
+
+
+# ---------------------------------------------------------------------------
+# 五、假红修复（CNB #123）：只读正文会把已记过账的卡永远报成待办
+# ---------------------------------------------------------------------------
+#
+# #120 的更正通道是「正文不动、更正写评论区」。若扫描器只看正文，就会永远报红——
+# 修好了也红，而红却不指向任何还需动手的事。这与 #118 要治的「静默降级」同族：
+# 那边是假绿，这边是假红，**红灯的可信度一样会掉没**。
+
+
+def test_correction_key_re_is_reused_not_recopied(scanner):
+    """「评论区是否已更正」的判据必须复用 `mirror_correction.py` 的幂等键正则。
+
+    抄第二份的代价与 `_load_checker` 同理：两份判据会漂移，漂移之后「算不算已更正」
+    这个结论就不可信了。这里断言它真的用 `mirror_correction.py` 里的那一条。
+    """
+    key_re = scanner._correction_key_re()
+    # 与 source of truth 逐字一致（同一份字面量）
+    mirror_src = (SCRIPT_DIR_SRC / 'mirror_correction.py').read_text(encoding='utf-8')
+    assert '更正键：' in mirror_src
+    assert '([0-9a-f]{12})' in mirror_src
+    # 真的能命中 `mirror_correction.build_comment` 产出的正文
+    import importlib.util as ilu
+
+    spec = ilu.spec_from_file_location('mirror_correction', SCRIPT_DIR_SRC / 'mirror_correction.py')
+    corr = ilu.module_from_spec(spec)
+    sys.modules['mirror_correction'] = corr
+    spec.loader.exec_module(corr)
+    body = corr.build_comment('2026-10-11', ['❌ x → ✅ y'], 'deadbeef0000')
+    assert key_re.search(body), '复用失败：连自己脚本产出的更正评论都识别不出'
+
+
+def test_load_corrected_numbers_reads_comments(scanner, monkeypatch):
+    """`load_corrected_numbers` 要按「评论区有无更正键」挑卡，而不是按正文有无。"""
+    import argparse  # noqa: F401
+
+    key = '595cc49f310d'
+    comments = {
+        56: [{'body': f'## 更正（2026-10-11）\n\n- ❌ x → ✅ y\n\n<!-- 更正键：{key} -->'}],
+        38: [{'body': '随便聊聊，不是更正'}],
+    }
+
+    def fake_get(path):
+        for n, c in comments.items():
+            if path.endswith(f'issues/{n}/comments'):
+                return c
+        return []
+
+    monkeypatch.setattr(scanner, 'cnb_get', fake_get)
+    cards = [{'number': 56}, {'number': 38}, {'number': 999}]
+    got = scanner.load_corrected_numbers('duoduobei/fundmate', cards)
+    assert got == {56}, f'只该认出 #56，实际 {got}'
+
+
+def test_load_corrected_numbers_skips_on_error(scanner, monkeypatch):
+    """拉评论失败时**跳过**（按未更正处理）：宁可多报，也不静默漏报。"""
+
+    def boom(_path):
+        raise RuntimeError('网络炸了')
+
+    monkeypatch.setattr(scanner, 'cnb_get', boom)
+    assert scanner.load_corrected_numbers('x/y', [{'number': 56}]) == set()
+
+
+def test_report_splits_pending_and_acked(scanner):
+    """报告必须把「待更正」与「已更正」分开列——这是消掉假红的全部内容。"""
+    stale_row = {
+        'cnb': 56,
+        'github': 1095,
+        'gh_repo': 'imoyao/fundmate',
+        'title': 't',
+        'refs': 2,
+        'stale': [('portfolios/views.py:214-215', '越界')],
+    }
+    report = scanner.build_report([dict(stale_row, corrected=False)], 'origin/dev')
+    assert '需要动手）：1 张' in report
+    assert '账已记）：0 张' in report
+    assert '### ⚠️ 待更正' in report
+    assert '### ✅ 已更正' not in report
+
+    report2 = scanner.build_report([dict(stale_row, corrected=True)], 'origin/dev')
+    assert '需要动手）：0 张' in report2
+    assert '账已记）：1 张' in report2
+    assert '### ✅ 已更正' in report2
+    assert '### ⚠️ 待更正' not in report2, '已记过账的卡不该再出现在待办区'
+
+
+def test_report_green_when_all_acked(scanner):
+    """全部已更正时，报告的「待办」是 0 —— 这正是 #123 要的「不再假红」。"""
+    rows = [
+        {
+            'cnb': 56,
+            'github': 1095,
+            'gh_repo': 'imoyao/fundmate',
+            'title': 't',
+            'refs': 1,
+            'stale': [('portfolios/views.py:193', '越界')],
+            'corrected': True,
+        }
+    ]
+    report = scanner.build_report(rows, 'origin/dev')
+    assert '引用已失效**：1 张' in report
+    assert '需要动手）：0 张' in report
+
+
+def test_end_to_end_acked_card_counts_as_recorded(scanner, monkeypatch, capsys):
+    """**走真实代码路径**：评论区已有更正时，端到端输出里该卡落在「已更正」区。
+
+    这条不 mock `run` 的判定，只 mock 网络（CNB 取卡 + 取评论），与上一条端到端用例同法。
+    """
+    import argparse
+    import re as _re
+
+    body = '见 `frontend/src/views/welcome/index.vue:99999`'
+    key = '595cc49f310d'
+
+    def fake_list(_repo):
+        return [{'number': 106, 'title': 'x', 'labels': [{'name': 'GitHub 同步'}]}]
+
+    def fake_get(path):
+        if path.endswith('/comments'):
+            return [{'body': f'## 更正（2026-10-11）\n\n- ❌ x → ✅ y\n\n<!-- 更正键：{key} -->'}]
+        return {'body': body}
+
+    monkeypatch.setattr(scanner, 'list_mirror_cards', fake_list)
+    monkeypatch.setattr(scanner, 'cnb_get', fake_get)
+    monkeypatch.setattr(scanner, 'GITHUB_NUMBER_RE', _re.compile(r'GitHub 编号：`#(\d+)`'))
+
+    args = argparse.Namespace(
+        repo='duoduobei/fundmate', issue=None, ref='origin/dev', cwd=str(_REPO_ROOT), out=None, report=True
+    )
+    assert scanner.run(args) == 0
+    out = capsys.readouterr().out
+    assert '需要动手）：0 张' in out, out
+    assert '账已记）：1 张' in out, out
 
 
 SCRIPT_DIR_SRC = _SCRIPT_PATH.parent

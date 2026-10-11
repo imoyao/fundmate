@@ -50,6 +50,33 @@ for (const [spec, expected] of Object.entries(overrides)) {
   }
 }
 
+// 2b) pnpm-lock.yaml 顶部的 overrides: 段必须与 package.json 逐条一致。
+//     只查「锁里能否找到 name@expected」会漏掉「锁的 overrides 段被删掉但解析项仍在」
+//     这一形态（探针实测：#136 加入 brace-expansion 后从锁里删掉该行，守卫仍绿）。
+//     锁的 overrides 段是 pnpm 判定 override 已生效的依据，两者漂移必须报红。
+{
+  const lockLines = lockText.split(/\r?\n/);
+  const start = lockLines.findIndex((l) => l === 'overrides:');
+  const lockOverrides = {};
+  if (start !== -1) {
+    for (const line of lockLines.slice(start + 1)) {
+      if (line.trim() === '') continue;
+      if (!line.startsWith(' ')) break; // 离开 overrides 段
+      const m = line.match(/^\s{2}([^:]+):\s*(.+?)\s*$/);
+      if (m) lockOverrides[m[1]] = m[2].replace(/^['"]|['"]$/g, '');
+    }
+  }
+  const a = JSON.stringify(overrides, Object.keys(overrides).sort());
+  const b = JSON.stringify(lockOverrides, Object.keys(lockOverrides).sort());
+  if (a !== b) {
+    problems.push(
+      `pnpm-lock.yaml 的 overrides 段与 package.json 的 pnpm.overrides 不一致：\n`
+      + `  package.json: ${a}\n  pnpm-lock.yaml: ${b}\n`
+      + '锁文件的 overrides 段决定 override 是否真的生效，漂移时必须重新生成锁文件。'
+    );
+  }
+}
+
 // 3) pnpm-workspace.yaml 与 package.json 双写时，两处必须一致。
 const workspacePath = join(repoRoot, 'pnpm-workspace.yaml');
 if (existsSync(workspacePath)) {

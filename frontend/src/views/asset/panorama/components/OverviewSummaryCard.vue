@@ -133,7 +133,7 @@
             class="font-semibold flex items-center gap-1.5"
             :style="{ color: 'var(--text-primary)' }"
           >
-            {{ calendarMode ? "收益日历" : "总资产构成" }}
+            {{ calendarMode ? "收益日历" : "资产大类" }}
             <!-- #2050：口径 ⓘ 与标题同行。旧 `hide-title` 只抑制 PnlCalendar 的
                  `<h2>` 文字，ⓘ 仍独占一行（窄容器下被控件行挤断成残影）。
                  `host-header` 模式下 PnlCalendar 完全不画 SectionHeader，
@@ -145,9 +145,11 @@
                **原地开关**：右列卡片体在瀑布图与收益日历之间切换，左列摘要卡
                不动，页面不再被遮罩盖住。
                标题 / tooltip / aria-label / 图标四者必须同步变——只换标题会让
-               用户找不到回去的路（这正是「关闭要先于关闭之前问」的老问题的镜像）。 -->
+               用户找不到回去的路（这正是「关闭要先于关闭之前问」的老问题的镜像）。
+               当心：这四处**不能**写成本卡片对外显示的名字（`AssetInsightPanel`
+               的切换按钮就写着它），否则按钮与标题同名，切过去像没切。 -->
           <el-tooltip
-            :content="calendarMode ? '返回总资产构成' : '收益日历'"
+            :content="calendarMode ? '返回资产大类' : '收益日历'"
             placement="top"
           >
             <el-button
@@ -155,7 +157,7 @@
               size="small"
               class="summary-card__toggle"
               :class="{ 'is-on': calendarMode }"
-              :aria-label="calendarMode ? '返回总资产构成' : '打开收益日历'"
+              :aria-label="calendarMode ? '返回资产大类' : '打开收益日历'"
               @click="toggleCalendar"
             >
               <IconifyIconOffline
@@ -169,7 +171,7 @@
         <!-- L2 容器：收益日历原地切换态。与 welcome 第三排 / 账户详情是
              **同一组件的三处容器**，口径唯一。
              `host-header`（#2050）：上面这个 `<h3>` 已经把「收益日历」写在这里了
-             （它必须自己写——另一态是「总资产构成」），再让 PnlCalendar 画一遍
+             （它必须自己写——另一态是「资产大类」），再让 PnlCalendar 画一遍
              就是两个同名标题上下叠着。`host-header` 让 PnlCalendar 完全不画
              SectionHeader，只输出控件排；口径 ⓘ 由本卡的 `PnlCalendarCaliberIcon`
              与标题同行画出，避免旧 `hide-title` 下 ⓘ 独占一行的残影。 -->
@@ -205,7 +207,7 @@ const waterfallChartRef = ref<HTMLDivElement>();
 let waterfallChart: echarts.ECharts | null = null;
 const themeTick = useThemeTick();
 /**
- * #1925：右列卡片体的原地开关——false = 总资产构成瀑布图，true = 收益日历。
+ * #1925：右列卡片体的原地开关——false = 资产大类瀑布图，true = 收益日历。
  * （#1812 的 `calendarVisible` 弹窗形态已随本卡移除。）
  */
 const calendarMode = ref(false);
@@ -241,7 +243,7 @@ function initWaterfallChart() {
   if (waterfallChart) waterfallChart.dispose();
   waterfallChart = echarts.init(waterfallChartRef.value);
 
-  // 消费后端 distributions：总资产构成瀑布（真实数据，非模拟）
+  // 消费后端 distributions：资产大类瀑布（真实数据，非模拟）
   const categories = props.distributions?.category_distribution ?? [];
   const totalLiab = props.distributions?.total_liabilities ?? 0;
   const netWorth = props.distributions?.net_worth ?? 0;

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""GitHub → CNB issue 增量镜像脚本的回归网（源 issue #2 的「要不要做成常驻同步」）。
+"""GitHub → CNB issue 增量镜像脚本的回归网（源 issue `#2` 的「要不要做成常驻同步」）。
 
 ## WHY 有这份文件
 
@@ -15,7 +15,7 @@
 1. **字段映射**：象阵 → priority、里程碑 → `里程碑:` 标签、原标签去重；
 2. **标签合法性**：非法字符被等价替换、超长截断到 CNB 的 50 字上限、总数不超 10；
 3. **幂等键**：`build_body` 产出的正文能被 `extract_github_number` 原样抠回；
-4. **格式冻结**：正文头部与存量镜像卡（CNB #5，GitHub #783）逐字节一致——
+4. **格式冻结**：正文头部与存量镜像卡（CNB `#5`，GitHub `#783`）逐字节一致——
    这条是防止「格式漂移」的硬钉子，改格式必须是有意识的决定。
 
 全程 **零网络、零写入**，只跑纯函数。
@@ -174,7 +174,10 @@ def test_extract_returns_none_on_foreign_body():
 
 
 def _fixed_clock(m, monkeypatch, when='2026-10-12'):
-    """把 `build_body` 的建卡时刻钉死，让头部可以逐字节断言（否则日期一过就红）。"""
+    """把 `build_body` 的建卡时刻钉死，让头部可以逐字节断言（否则日期一过就红）。
+
+    供 `test_header_matches_frozen_shape` 等用例复用；存量卡对照口径见其 docstring。
+    """
 
     class _FixedDatetime:
         @staticmethod

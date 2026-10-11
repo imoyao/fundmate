@@ -70,71 +70,57 @@
                 <MoneyDisplay :value="summary?.total_pnl_cny ?? 0" size="xl" />
               </div>
             </div>
-            <div
-              class="grid grid-cols-2 gap-4 pt-6"
-              :style="{ borderTop: '1px solid var(--border-light)' }"
-            >
-              <div class="flex flex-col">
-                <span
-                  class="text-xs mb-1"
-                  :style="{ color: 'var(--text-tertiary-ink)' }"
-                  >本月资产增加</span
-                >
-                <!-- 后端暂无此口径数据，不展示编造数值 -->
-                <span
-                  class="text-lg font-semibold"
-                  :style="{ color: 'var(--text-tertiary-ink)' }"
-                  >—</span
-                >
-                <span
-                  class="text-[10px] mt-1"
-                  :style="{ color: 'var(--text-tertiary-ink)' }"
-                  >即将上线</span
-                >
-              </div>
-              <div class="flex flex-col">
-                <span
-                  class="text-xs mb-1"
-                  :style="{ color: 'var(--text-tertiary-ink)' }"
-                  >本月负债减少</span
-                >
-                <!-- 后端暂无此口径数据，不展示编造数值 -->
-                <span
-                  class="text-lg font-semibold"
-                  :style="{ color: 'var(--text-tertiary-ink)' }"
-                  >—</span
-                >
-                <span
-                  class="text-[10px] mt-1"
-                  :style="{ color: 'var(--text-tertiary-ink)' }"
-                  >即将上线</span
-                >
-              </div>
-            </div>
           </div>
+          <!-- 右半边：净资产 / 总负债（#2034）。
+               原「资产构成分布」环形图已移除——它消费 `category_distribution`，
+               与资产总览瀑布图**同字段同口径**，同一份「资产大类」在两页画两遍；
+               而按两页分工（page-split-welcome-vs-panorama-2026-08-13.md），
+               **结构拆解归资产总览**，本页只讲「我有多少钱、涨没涨」。
+               结构图让位后，这里补上此前一直缺席的**净资产**——它是家庭资产负债表的
+               真刻度（资产 − 负债），比「总资产」更该出现在首屏；总负债同时给出，
+               两者都由 `/api/summary/` 直出（`net_assets_cny` / `total_liabilities_cny`），
+               非派生计算、非编造。 -->
           <div
-            class="lg:col-span-5 flex flex-col items-center justify-center h-full"
+            class="lg:col-span-5 flex flex-col justify-center gap-5 h-full"
             :style="{ borderLeft: '1px solid var(--border-light)' }"
           >
-            <div class="w-full flex justify-between items-center mb-4">
+            <div class="flex flex-col">
               <span
-                class="font-bold text-sm"
-                :style="{ color: 'var(--text-secondary)' }"
-                >资产构成分布</span
-              >
-              <span
-                class="text-[10px]"
+                class="text-xs mb-1"
                 :style="{ color: 'var(--text-tertiary-ink)' }"
-                >按资产大类</span
+                >家庭净资产</span
+              >
+              <MoneyDisplay
+                :value="summary?.net_assets_cny ?? 0"
+                size="xl"
+                :show-sign="false"
+              />
+              <span
+                class="text-[10px] mt-1"
+                :style="{ color: 'var(--text-tertiary-ink)' }"
+                >总资产 − 总负债</span
               >
             </div>
-            <AssetAllocationDonut
-              :data="distributionData"
-              class="h-[220px]"
-              :color-map="CATEGORY_COLOR_MAP"
-              :legend-font-size="10"
-              :show-legend-percent="true"
-            />
+            <div
+              class="flex flex-col pt-5"
+              :style="{ borderTop: '1px solid var(--border-light)' }"
+            >
+              <span
+                class="text-xs mb-1"
+                :style="{ color: 'var(--text-tertiary-ink)' }"
+                >家庭总负债</span
+              >
+              <MoneyDisplay
+                :value="summary?.total_liabilities_cny ?? 0"
+                size="lg"
+                :show-sign="false"
+              />
+              <span
+                class="text-[10px] mt-1"
+                :style="{ color: 'var(--text-tertiary-ink)' }"
+                >房贷、车贷等有息负债合计</span
+              >
+            </div>
           </div>
         </div>
       </CardBlock>
@@ -152,42 +138,26 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
 import type { SummaryData } from "@/api/types";
-import type { DistributionsData } from "@/api/summary";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
-import AssetAllocationDonut from "@/components/Charts/AssetAllocationDonut.vue";
-import {
-  buildDistributionData,
-  CATEGORY_COLOR_MAP
-} from "../composables/distributionLogic";
 
 defineOptions({ name: "WelcomeAssetBoard" });
 
-const props = withDefaults(
-  defineProps<{
-    summary: SummaryData | null;
-    /** 汇总请求失败（#1832）：为 true 时渲染「加载失败 + 重试」，不显示 ¥0 */
-    error?: boolean;
-    /** 多维分布（`/api/summary/distributions/`）；环形图的数据源 */
-    distributions?: DistributionsData | null;
-  }>(),
-  { distributions: null }
-);
+defineProps<{
+  summary: SummaryData | null;
+  /** 汇总请求失败（#1832）：为 true 时渲染「加载失败 + 重试」，不显示 ¥0 */
+  error?: boolean;
+}>();
 
 const emit = defineEmits<{ retry: [] }>();
 
-/**
- * 资产分布：走 `distributionLogic` 的统一口径（#1955）。
- *
- * **不再用 `summary.market_distribution`**（#1902 遗留）：那份按持仓 `market`
- * 分组，实测本机 154 笔持仓全为 `CN_A`，只回一个扇区，环上画成整圈单色；
- * 且只覆盖持仓市值（65.9 万），与左侧「家庭总资产」（390.4 万）不同口径。
- * 详见 distributionLogic.ts 顶部的缺陷背景。
+/*
+ * #2034：本组件原持有一张「资产构成分布」环形图（口径 `category_distribution`），
+ * 已整体移除——它与资产总览瀑布图同字段同口径，属结构性重复；
+ * 按两页分工（`docs/working-notes/page-split-welcome-vs-panorama-2026-08-13.md`
+ * 「拆解 vs 表现+目标」），结构图只归资产总览。
+ * 首页因此不再需要 `distributions` 入参，`distributionLogic.ts` 亦无消费方。
  */
-const distributionData = computed(() =>
-  buildDistributionData(props.distributions)
-);
 </script>

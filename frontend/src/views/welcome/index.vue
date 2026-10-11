@@ -16,10 +16,11 @@
     />
 
     <!-- ===== 第一排：核心资产看板 + 收益趋势（饼图在子组件内，数据就绪后由本页触发首绘） ===== -->
+    <!-- #2034：不再透传 distributions——首页资产看板的结构环形图已移除，
+         结构拆解归资产总览（见 page-split-welcome-vs-panorama-2026-08-13.md）。 -->
     <WelcomeAssetBoard
       ref="assetBoardRef"
       :summary="summary"
-      :distributions="distributions"
       :error="summaryError"
       @retry="onRetryAsset"
     />
@@ -126,7 +127,6 @@ defineOptions({
 // 页面状态单体：欢迎语 / 播报 / 汇总 / XIRR / 温度 / 派生列表（#980 拆分）
 const {
   summary,
-  distributions,
   portfolioXirr,
   includeCashEquivalents,
   recordDays,
@@ -145,7 +145,6 @@ const {
   homeFeed,
   mentalAccounts,
   fetchSummary,
-  fetchDistributions,
   fetchXirr,
   fetchTemperature,
   fetchRecordStats,
@@ -222,7 +221,6 @@ const onRetryAsset = async () => {
 // ===== 生命周期（顺序与拆分前一致：汇总 → 其余并行；ticker 清理在 composable 内） =====
 onMounted(() => {
   fetchSummary();
-  fetchDistributions();
   fetchXirr();
   fetchTemperature();
   fetchRecordStats();

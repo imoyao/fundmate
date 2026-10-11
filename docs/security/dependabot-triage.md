@@ -32,7 +32,7 @@
 | nanoid | 3.3.16 | 3.3.17 | 6.0.1 | patched 3.3.17 未发布(3.x 最新即 3.3.16)；升 6.x 是破坏性大版本，会崩上游 API。**2026-08-16 起 3.3.18 已发布并修复（见 3.3）** | dismiss → 已修复 |
 | postcss | 8.5.19 | 8.5.23 | 8.5.26 | 可升到 8.5.26，但仅 dev CSS 处理，不可达 | dismiss（或可选 overrides 钉 8.5.26，低风险） |
 | esbuild | 0.21.5 | 0.25.0/0.28.1 | 0.28.2 | 可升，但仅 dev 构建期打包，不可达 | dismiss |
-| brace-expansion | 1.1.16 | 1.1.18 | 5.0.9 | lock 内已有 1.1.18 实例；1.1.16 受上游范围约束，强行升 5.x 破坏性 | dismiss |
+| brace-expansion | 1.1.16 | 1.1.18 | 5.0.9 | lock 内已有 1.1.18 实例；1.1.16 受上游范围约束，强行升 5.x 破坏性。**已于 D49 / D51 两轮处置（见下方 3.4）** | dismiss → 已用 overrides 钉到 2.1.7 |
 | js-yaml | 3.15.0 | 3.15.1 | 5.2.3 | 3.15.1 未发布(3.x 已停更)；升 5.x 破坏性大版本 | dismiss |
 
 **关键判断**：这 15 个 npm alert 无一在生产运行时可达（全是 dev/build 工具链传递依赖，不进前端打包产物）。且 patched 版本要么未发布、要么需破坏性大版本跳跃（会搞崩上游包）。强行用 pnpm overrides 覆盖传递依赖风险 > 收益。
@@ -42,6 +42,25 @@
 ### 3.2 明细（15 个 npm alert 编号）
 
 编号清单见同目录 `dependabot-dismiss-ids.yml` 的 `npm.root.alert_ids` / `npm.frontend.alert_ids`（下方为带包名的可读明细）。
+
+### 3.4 brace-expansion 两轮 CVE 的实际处置（2026-10-11，本表结论的唯一例外）
+
+3.1 的结论「强行用 overrides 覆盖传递依赖风险 > 收益」对 brace-expansion **已不再适用**——
+这个包前后来了两条 CVE，而 1.x/2.x 线确实存在同源修复版，可以既不破坏调用方、又真正修掉：
+
+| 轮次 | CVE | 告警要求 | 实际处置 |
+|---|---|---|---|
+| D49（CNB #136） | CVE-2026-14257 | 升 `5.0.8` | 不升 5.x（会打挂 `glob@7`），只加防回潮 override `brace-expansion@<1.1.21 → 1.1.21` |
+| **D51（CNB #135）** | **CVE-2026-69152** | 升 `5.0.9` | **把上条升级为 `brace-expansion@^1.0.0 → 2.1.7`** |
+
+**为什么 5.0.9 不能选**：5.0.9 与 5.0.8 在两个新维度（`EXPANSION_MAX_DEPTH` / `EXPANSION_MAX_REWRITES`）上**完全一样**（实测均为 `undefined`），
+真正补齐的是 5.0.11 / 5.0.12；且 5.x 全线改命名导出，`minimatch@3.1.5` 会抛 `expand is not a function`。
+
+**为什么 2.1.7 可以选**：同源修复、三项上限齐全（`MAX_LENGTH` / `MAX_DEPTH` / `MAX_REWRITES`），且仍是 `module.exports = 函数`（drop-in）。
+上限活性实测：真深递归 1500 层与 5000 层同样被截在 **1002 条**，说明上限在拦而不是声明着不用。
+
+**风险如实标注**：CVE 声称的「400 KB 输入阻塞两分钟」路径**未独立复现**（2.1.7 与 5.0.9 上多条候选均为毫秒级返回），
+故只声称「修到了上游同源的全部三个上限」，不声称「已完全封堵该 CVE」。依据全文见 `docs/spec/decisions.md` D49 / D51。
 
 根 `pnpm-lock.yaml`：825/824/823 image-size、822 nanoid、821 js-yaml、820/819 vite(6.x CVE,5.x 不受影响)、818 vite、817 postcss、816/812 brace-expansion、732 esbuild、709 trim
 frontend `pnpm-lock.yaml`：815 esbuild、627 esbuild、822 nanoid（已在根列，frontend 实例同号）

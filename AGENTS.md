@@ -19,6 +19,7 @@
 - [核心约束](#核心约束)
 - [数据域架构（双引擎硬规则）](#数据域架构双引擎硬规则)
 - [数据策略（按需存、禁止全量堆砌）](#数据策略按需存禁止全量堆砌)
+- [双端协作（CNB ↔ GitHub）](#双端协作cnb--github)
 - [Issue 全局治理（里程碑强制）](#issue-全局治理里程碑强制)
 - [双库架构 Issue 治理（里程碑 #14）](#双库架构-issue-治理里程碑-14)
 - [自动化工具](#自动化工具)
@@ -64,9 +65,55 @@
 
 ### PR 与 Review
 
-- 功能分支 PR：`base` 填 `dev`。
-- 发布 PR（`dev` → `main`）：`base` 填 `main`。
+**两种 PR，两种 base，没有第三种**（2026-10-11 明确，源自 CNB #123）：
+
+| PR 类型 | base | 说明 |
+|---|---|---|
+| 功能 / 文档分支 PR | **`dev`** | 默认情况。从 `dev` 切分支，合回 `dev`。 |
+| 发布 PR（`dev` → `main`） | **`main`** | 「发版」这一个动作，不做别的事。 |
+
+- 除此之外**一律 base=`dev`**。看某个 PR 的 base 是不是 `main`，判据只有一个：
+  **它是不是「把 `dev` 整体合回 `main`」的发版 PR**（head 就是 `dev` 自己）。
+  head 是 `feat/*` / `fix/*` / `docs/*` 等功能分支、base 却填了 `main` ⇒ **错**，即使理由听起来合理。
+- **不要因为「这个改动需要尽快生效」就把 base 改成 `main`**。它属于「该发版了」，
+  正确做法是单独开一张发布 PR，把要生效的一批改动一起带过去——
+  否则 `dev` 会被绕过，`main` 与 `dev` 各自长出对方没有的提交（CNB 侧 #123 实测已发生：
+  `main` 独有 9 个提交、`dev` 独有 29 个，两边**互不包含**）。
+- **CNB 镜像仓（`duoduobei/fundmate`）没有例外条款**：它同样只有 `dev` / `main` 两条长期分支，
+  镜像脚本的改动照走「功能分支 → `dev`」。它曾因「cron 挂在 `main`，所以改动得直接进 `main`」
+  连续 5 个 PR 以 `main` 为 base（#114 / #122 / #124 / #126 等），导致上面的分叉。
+  **cron 挂在哪个分支，不构成绕过 `dev` 的理由**——正确做法是改变更分支 + 及时发版，
+  见下方「CNB 镜像链路的挂钩分支纪律」。
 - AI review（免费 GLM 总结 + 智能路由深度）自动在 PR 上评论。
+
+#### CNB 镜像链路的挂钩分支纪律（2026-10-11，#123）
+
+`duoduobei/fundmate` 的镜像作业由 `.cnb.yml` 的 cron 驱动，而 **CNB 的 `crontab` 事件只能挂在具体分支下**
+（不能放 `$` 兜底）。这条平台限制带来一个真实约束，但它**不改变 base 的填法**：
+
+- **改动照常提 `dev`**（`docs(bridge):` / `feat(bridge):` 等），不因为「要跑 cron」而改 base；
+- **要生效就得发版**：cron 读的是 `main` 上的那版脚本，所以功能分支合入 `dev` 后，
+  需要另开一张 `dev` → `main` 的**发布 PR**，让镜像改动真正落地；
+- **发版前镜像作业跑的是旧脚本**，这是需接受的窗口，**不是**「所以我要直连 `main`」的许可证。
+  改 base 只会把「旧脚本还跑着」变成「新旧代码在两处、且互不包含」——更难收拾；
+- 判据自查（发版前跑一次，`main` 落后 `dev` 时应看得见）：
+
+  ```bash
+  git fetch origin dev main
+  git rev-list --count origin/dev..origin/main   # main 领先 dev 的提交数（正常应为 0）
+  git rev-list --count origin/main..origin/dev   # dev 领先 main 的提交数（待发版的量）
+  git merge-base --is-ancestor origin/main origin/dev && echo 'main 是 dev 祖先，未分叉'       || echo '⚠ 已分叉：main 上有 dev 没有的提交'
+  ```
+
+- **判据机器化**：上面三条命令已固化进 `scripts/bridge/check_branch_divergence.py`
+  （只读本地 git、不联网），并挂进 `.cnb.yml` 的收尾阶段（只报告）：
+
+  ```bash
+  python scripts/bridge/check_branch_divergence.py --report   # 退出码 1 = 已分叉
+  ```
+
+  正常态是「`main` 领先 0、`main` 是 `dev` 的祖先」——即 `main` 始终是 `dev` 的历史前缀。
+  **出现 `main` 领先 `dev` 就是分叉，无论提交数多小，都先查是不是有 PR 用错了 base。**
 
 ---
 
@@ -633,6 +680,78 @@ PY
 
 ---
 
+## 双端协作（CNB ↔ GitHub）
+
+> **CNB 侧只读**：`cnb.cool/duoduobei/fundmate` 是 `imoyao/fundmate` 的镜像仓，不做 PR 流程。
+> 讨论与状态变更都回 GitHub；CNB 的 issue/评论由流水线单向镜像过来（只增不覆盖、不同步关闭态）。
+> 本节是 CNB 侧踩过的坑，**每条都是实测撞出来的**，不是风格建议。
+
+### 引用编号必须挂源：GitHub 的 issue / PR 一律写完整链接
+
+**CNB 的正文与评论里，裸 `#123` 一律被解析成本仓库（CNB）的编号并渲染成链接。** 于是：
+
+- 写「见 GitHub 的 #2050」→ 点进去落到 `cnb.cool/.../-/issues/2050`，**本站根本没这张卡**（用户 2026-10-11 实测撞到）；<!-- cross-repo-ref-allow -->
+- 更隐蔽的是**同号撞车**：CNB 侧确实存在同号卡时链接能打开、但打开的是**另一张卡**。
+  双端编号是**两个独立空间**，「点得开却是错的」比 404 更难发现。
+
+**规则**：提到 GitHub 的 issue / PR，编号必须挂源，三选一。
+
+| 写法 | 例 | 说明 |
+|---|---|---|
+| **完整链接（首选）** | `https://github.com/imoyao/fundmate/issues/2050` | 跨仓一律用这个 |
+| 限定形态 | `GitHub #2050` / `GH #2050` / `imoyao/fundmate#2050` | 短，但读者已知在说哪一侧 |
+| 行内代码 | `` `#2050` `` | 仅限「上下文已明确指 GitHub」的正文 |
+
+**反例**：`见 GitHub 的 #2050` / `另见 #1996` / `PR #1757 已合并`（在讲 GitHub 侧 PR 时）。
+后者在 CNB 上点开是 CNB 的 #1757，**换一侧看编号，完全不相干**。
+
+- **裸 `#N` 只留给本仓（CNB）自己**的编号，例如「里程碑 #14」这类 CNB 概念。
+- 机器兜底：`scripts/guard_cross_repo_refs.mjs`（并入 CI 的 `scripts_test` job，即 `gate` 的 needs）。
+  逐行扫，命中「行里在说 GitHub、行里还有没挂源的裸 `#N`」即报红；行尾加 `cross-repo-ref-allow` 可豁免
+  （仅限讲机制本身、代码里的正则、反例清单三类）。回归网与 **6 个证伪探针**见
+  `scripts/tests/guard_cross_repo_refs.test.js`。
+- **存量取「行级冻结基线 + 只管新增」**（`scripts/guard_cross_repo_refs.baseline.mjs`）：
+  上线时全仓 89 处命中（历史文档、上游项目名 `pytest #3221`、`Project #3` 等，多为误报形态），
+  一次改完会把修复摊成 90 处无关 diff。基线键是 **`文件|行指纹` 而非文件名**——按文件名冻会
+  让「已脏文件里新增的裸引用」跟着蒙混过关。改到某行时顺手挂源，行文本一变指纹即失效、该行转红；
+  守卫会列出已失效条目催删档，避免基线长成「永远豁免」的垃圾桶。重新生成：`--freeze`。
+- **边界**：判据是**行级**的（同一文件里 CNB 编号与 GitHub 编号混排时，只会有问题的那些行红），
+  因此「一句不带任何 GitHub 词的『另见 #999』」是它的**已知假阴性**<!-- cross-repo-ref-allow -->——脚本尾部会打印
+  「裸露高发文件」提示人工复核，那部分是**报告不是判据**。
+
+### 「永久记忆」存在哪、什么时候读
+
+NPC 没有跨会话记忆，**每一次开工都是新进程**。所谓「记住」= 写进**版本控制的仓库文本**，
+靠「开工必读」而不是靠记忆生效：
+
+| 载体 | 读者 | 何时读 |
+|---|---|---|
+| 根 `AGENTS.md`（本节所在） | 所有人 / AI | **每次任务开始** |
+| `docs/spec/decisions.md` | 需要决策依据时 | 动规范 / 架构前 |
+| `docs/spec/conventions.md` | 冻结区，不可擅改 | 改契约 / 数据模型前 |
+| `docs/dev/*.md` | 专项作业 | 做对应作业时 |
+| `scripts/guard_*.py\|mjs` | CI | 每次 PR |
+
+所以**想让 AI 长期遵守某条规则，唯一有效的做法就是把它写进 `AGENTS.md`**
+（或对应 spec），并尽量配一条机器守卫——只写在评论里的话，下一个会话就没了。
+
+### 在 CNB 侧的其它已知边界（实测）
+
+- **CNB 构建环境没有 GitHub 凭据**：`env` 里只有 `CNB_*`；`git push https://github.com/...` 报
+  `could not read Username`，`api.github.com` 匿名 POST 返 **401**。要写 GitHub 就走
+  **GitHub Actions 定时拉取**（`GITHUB_TOKEN` 自动注入、自带 `issues: write`），CNB 侧保持只读。
+- **别在 `dev` / `main` 上直接 push**：CNB 的代码镜像（`sync/mirror` 分支的定时任务）是
+  **fast-forward only**——CNB 侧一有独有提交，下一轮就「无法快进」判否、**整条镜像链停摆**
+  （2026-10-11 实测停摆，救援分支 `rescue/2-cnb-commits`）。
+- **`git push --dry-run` 对 cnb.cool 是假信号**：它不真正建 ref，也不代表正式 push 会成功。
+- **CNB API 不在 `cnb.cool`** 而在 `https://api.cnb.cool`，路径是 `/-/` 风格，
+  鉴权 `Authorization: Bearer`，且 `Accept` 必须是 `application/vnd.cnb.api+json`
+  （否则拿到 HTML）；分页参数是**下划线** `page_size`，写成 `page-size` 会被静默忽略。
+- **CNB `create-issue --labels` 会被静默忽略**（HTTP 201 但标签为空）：必须**先建卡、再单独挂标签**。
+  标签名只允许中英文 / 数字 / `._:-/\` 与内部空格，长度 ≤50，`&`、`（）`、`#` 一律 400 拒收。
+
+---
+
 ## Issue 全局治理（里程碑强制）
 
 > 全局硬性规定：**任何 issue（含 AI 自动创建 / ClawBot 生成的元 issue）创建后必须挂里程碑，禁止处于无里程碑（No milestone）状态。**
@@ -646,7 +765,7 @@ PY
 
 ### CI 守卫（拦住新建漏挂）
 
-- 工作流 `.github/workflows/issue-milestone-guard.yml` 在 issue 被 `opened / edited / reopened / milestoned / demilestoned` 时检查其 `milestone` 字段（后两个为 #1515 补充：**补挂里程碑时 GitHub 发出的事件是 `milestoned` 而非 `edited`**，旧版只订阅前三个会「补挂后不自愈」——整改完成了 run 仍是红的，红灯可信度随之崩塌；`demilestoned` 用于反向校验「已挂又被摘掉」）：
+- 工作流 `.github/workflows/issue-milestone-guard.yml` 在 issue 被 `opened / edited / reopened / milestoned / demilestoned` 时检查其 `milestone` 字段（后两个为 GitHub #1515 补充：**补挂里程碑时 GitHub 发出的事件是 `milestoned` 而非 `edited`**，旧版只订阅前三个会「补挂后不自愈」——整改完成了 run 仍是红的，红灯可信度随之崩塌；`demilestoned` 用于反向校验「已挂又被摘掉」）：
   - 有里程碑 → 通过；
   - 无里程碑 → 在 issue 下**评论提醒责任人补挂**，并使该 workflow run **失败（红）**作为止损信号（issue 本身无法被 Action 自动关闭/拦截，故以失败 run + 评论提醒）。
 - 该守卫只针对 issue（`pull_request` 事件不触发），不影响正常 PR 流程。

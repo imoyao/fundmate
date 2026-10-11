@@ -17,8 +17,22 @@
 ----
 对每张镜像卡的正文：
 1. 抽取 `path:line` / `path@ref:line` 引用（复用 `check_issue_refs.py`，同一套正则）；
-2. 按 `--ref`（默认 `origin/dev`）逐条核对；
+2. 按默认核对版本（`--ref`，留空 = **远端默认分支** `origin/main`）逐条核对；
+   镜像卡是 **GitHub 原卡的建卡快照**，描述的是原仓默认分支（`main`）的代码，
+   不是 `dev`——拿 `dev` 核对会把「`dev` 已删、`main` 还在」报成失效（CNB #144 §四）；
 3. 卡面**自带 `@ref`** 的按其指定的版本核对——这是本卡倡导的写法，得尊重。
+
+判据之一：**评论区已有更正就不算「待办」**（CNB #123）
+--------------------------------------------------------
+`#120` 拍板的更正通道是「**正文不动、更正写评论区**」。于是只看正文的自检会永远报红——
+修好了也红，而红却不指向任何还需动手的事（**假红**）。这与 #118 要治的「静默降级」
+是同一族：那边是假绿，这边是假红，**红灯的可信度一样会掉没**。
+
+故本脚本对「正文引用失效」分两类报：
+
+- ⚠️ **待更正**：正文引用失效，且评论区**没有任何**更正 —— 这才是还需要动手的；
+- ✅ **已更正**：正文引用失效，但评论区已有更正说明（靠 `mirror_correction.py` 的
+  幂等键 `更正键：<sha1>` 识别，**不抄第二份正则**）—— 账已记，不必再报。
 
 边界（有意为之）
 ----------------
@@ -55,6 +69,46 @@ CNB_REPO_DEFAULT = 'duoduobei/fundmate'
 MIRROR_LABEL = 'GitHub 同步'
 # 与 github_cnb_issues.py 的幂等键一致：镜像卡正文里必有这一行
 GITHUB_NUMBER_RE = __import__('re').compile(r'GitHub 编号：`#(\d+)`')
+
+
+def _correction_key_re() -> Any:
+    """复用 `mirror_correction.py` 的更正幂等键正则 —— 不抄第二份。
+
+    抄一份的代价与 `_load_checker` 同理：两份判据会漂移，漂移之后「评论区算不算
+    已更正」这个结论就不可信了。这里只取正则，不 import 整个模块（后会触发
+    `github_cnb_issues` 的依赖，且本脚本声明「零依赖」）。
+    """
+    import ast
+
+    src = (SCRIPT_DIR / 'mirror_correction.py').read_text(encoding='utf-8')
+    m = __import__('re').search(r"IDEMPOTENCY_KEY_RE = re[.]compile[(](r'[^']+')[)]", src)
+    if not m:
+        raise RuntimeError('未能在 mirror_correction.py 中找到 IDEMPOTENCY_KEY_RE —— 判据已变更，请同步本脚本')
+    # 用 `literal_eval` 而非 `eval`：只接受字符串字面量，即便源码被改坏也不会执行代码。
+    return __import__('re').compile(ast.literal_eval(m.group(1)))
+
+
+def load_corrected_numbers(repo: str, cards: list[dict[str, Any]]) -> set[int]:
+    """拉每张卡的评论，返回「评论区已有更正」的卡号集合。
+
+    只读、逐张拉：CNB 列表接口不返回评论，必须单张取。失败即**跳过**
+    （返回的集合里没有它 ⇒ 该卡按「待更正」报），宁可多报也不静默漏报。
+    """
+    key_re = _correction_key_re()
+    corrected: set[int] = set()
+    for card in cards:
+        number = int(card['number'])
+        try:
+            raw = cnb_get(f'/{repo}/-/issues/{number}/comments')
+        except Exception:  # noqa: BLE001
+            continue
+        comments = raw if isinstance(raw, list) else (raw or {}).get('comments') or []
+        for item in comments:
+            body = (item.get('body') or item.get('note') or '') if isinstance(item, dict) else ''
+            if key_re.search(str(body)):
+                corrected.add(number)
+                break
+    return corrected
 
 
 def _load_checker() -> Any:
@@ -104,41 +158,71 @@ def list_mirror_cards(repo: str) -> list[dict[str, Any]]:
     return out
 
 
+def _card_row(r: dict[str, Any]) -> str:
+    return f'| #{r["cnb"]} | [#{r["github"]}](https://github.com/{r["gh_repo"]}/issues/{r["github"]}) '
+
+
 def build_report(rows: list[dict[str, Any]], default_ref: str) -> str:
+    """把失效引用分「待更正 / 已更正」两类报。
+
+    只按「正文是否失效」一刀切会产出**假红**：`#120` 的通道是「正文不动、更正写评论区」，
+    所以修好了正文照样失效 —— 红却不指向任何还需动手的事。判据必须读评论区
+    （`r['corrected']`），否则报告会永远红下去，红灯随之失去可信度。
+    """
     stale = [r for r in rows if r['stale']]
+    pending = [r for r in stale if not r.get('corrected')]
+    acked = [r for r in stale if r.get('corrected')]
     lines = [
         '## 镜像卡引用时效自检',
         '',
         f'- 扫描镜像卡：{len(rows)} 张（默认核对版本 `{default_ref}`）',
         f'- **引用已失效**：{len(stale)} 张',
+        f'  - ⚠️ **待更正**（评论区无更正，需要动手）：{len(pending)} 张',
+        f'  - ✅ **已更正**（评论区已有更正说明，账已记）：{len(acked)} 张',
         '',
     ]
     if not stale:
         lines.append('✅ 全部镜像卡正文里的 `path:line` 引用在当前版本上仍然有效。')
         return '\n'.join(lines)
 
-    lines += ['| CNB | GitHub | 失效引用 | 原因 |', '|---|---|---|---|']
-    for r in stale:
-        for ref, why in r['stale']:
-            lines.append(
-                f'| #{r["cnb"]} | [#{r["github"]}](https://github.com/{r["gh_repo"]}/issues/{r["github"]}) | `{ref}` | {why} |'
-            )
-    lines += [
-        '',
-        '> 镜像卡「只增不覆盖」，正文不会自动更正。处置方式见 `AGENTS.md`「失实信息修正纪律」：',
-        '> 在原卡追加更正评论，**不要**改正文。',
-    ]
+    if pending:
+        lines += ['### ⚠️ 待更正（需要动手）', '', '| CNB | GitHub | 失效引用 | 原因 |', '|---|---|---|---|']
+        for r in pending:
+            for ref, why in r['stale']:
+                lines.append(f'{_card_row(r)}| `{ref}` | {why} |')
+        lines += [
+            '',
+            '> 处置方式见 `AGENTS.md`「失实信息修正纪律」：在原卡**追加更正评论**、**不要**改正文；',
+            '> 命令见 `scripts/bridge/mirror_correction.py`（默认 dry-run，确认后加 `--apply`）。',
+            '',
+        ]
+
+    if acked:
+        lines += ['### ✅ 已更正（账已记，无需再动手）', '', '| CNB | GitHub | 失效引用 | 原因 |', '|---|---|---|---|']
+        for r in acked:
+            for ref, why in r['stale']:
+                lines.append(f'{_card_row(r)}| `{ref}` | {why} |')
+        lines += [
+            '',
+            '> 这些卡的正文引用确实已失效，但评论区已有更正说明（`更正键：…`）——',
+            '> 按 #120 的通道，账已记，**不再计入待办**。',
+        ]
+
     return '\n'.join(lines)
 
 
 def run(args: argparse.Namespace) -> int:
     checker = _load_checker()
+    # 默认核对版本与 check_issue_refs 共用同一处解析（远端 HEAD），不写死分支。
+    resolved_ref = args.ref or checker.default_ref(cwd=args.cwd)
     repo = args.repo
     cards = list_mirror_cards(repo)
     if args.issue:
         wanted = {int(n) for n in args.issue}
         cards = [c for c in cards if int(c['number']) in wanted]
     print(f'🔍 镜像卡 {len(cards)} 张，逐张读取正文…')
+    # 先收「评论区已有更正」的卡号：只读正文会把已记过账的卡也报成待办（假红）。
+    corrected = load_corrected_numbers(repo, cards)
 
     rows: list[dict[str, Any]] = []
     for card in cards:
@@ -153,7 +237,7 @@ def run(args: argparse.Namespace) -> int:
         refs = checker.extract_refs(body)
         stale = []
         for ref in refs:
-            why = checker.check_ref(ref, args.ref, cwd=args.cwd)
+            why = checker.check_ref(ref, resolved_ref, cwd=args.cwd)
             if why:
                 stale.append((ref['raw'], why))
         rows.append(
@@ -164,10 +248,12 @@ def run(args: argparse.Namespace) -> int:
                 'title': (card.get('title') or '')[:60],
                 'refs': len(refs),
                 'stale': stale,
+                # 评论区已有更正 ⇒ 该卡算「已记」，不再计入待办（见文件头）
+                'corrected': number in corrected,
             }
         )
 
-    report = build_report(rows, args.ref)
+    report = build_report(rows, resolved_ref)
     print()
     print(report)
     if args.out:
@@ -182,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description='扫描 CNB 镜像卡里已失效的 path:line 引用')
     p.add_argument('--report', action='store_true', help='输出 markdown 报告（默认行为）')
     p.add_argument('--repo', default=CNB_REPO_DEFAULT, help=f'CNB 仓库（默认 {CNB_REPO_DEFAULT}）')
-    p.add_argument('--ref', default='origin/dev', help='核对版本（默认 origin/dev）')
+    p.add_argument('--ref', default=None, help='核对版本（留空=远端默认分支，本仓即 origin/main）')
     p.add_argument('--cwd', default=None, help='git 仓库路径（默认当前目录）')
     p.add_argument('--issue', action='append', help='只查指定 CNB 卡号（可重复）')
     p.add_argument('--out', default=None, help='报告写入文件')

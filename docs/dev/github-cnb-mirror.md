@@ -131,19 +131,22 @@ python scripts/bridge/github_cnb_issues.py --apply --limit 3
 > 改镜像行为时，先确认改动落在 `main`（或已经发版过去），否则它永远不会被执行。
 > 这与 `issue-milestone-guard.yml`「补挂里程碑后不自愈」同族：整改做完了，跑的不是它。
 
-cron 阶段末尾挂了两节**只报告/幂等**的收尾任务：
+cron 阶段末尾挂了三节**只报告/幂等**的收尾任务：
 
 ```yaml
-    - name: 引用时效自检（只报告）
-      script: |
-        python scripts/bridge/check_mirror_refs.py --report || true
     - name: 状态回流（GitHub 已关闭 → CNB 标记）
       script: |
         python scripts/bridge/mirror_state_sync.py --apply || true
+    - name: 引用时效自检（认评论区更正，只报告）
+      script: |
+        python scripts/bridge/check_mirror_refs.py --report || true
+    - name: 分支分叉自检（只报告）
+      script: |
+        python scripts/bridge/check_branch_divergence.py --report || true
 ```
 
-状态回流也带 `|| true`：**建卡才是主任务**，状态回流是收尾信号，不该把建卡一起拖红。
-（它自身是幂等的，重复执行只发一次评论。）
+三节都带 `|| true`：**建卡才是主任务**，这些收尾作业是信号，不该把建卡一起拖红。
+（状态回流自身是幂等的，重复执行只发一次评论。）
 
 
 ## 7. 引用时效自检（#118）
@@ -151,13 +154,22 @@ cron 阶段末尾挂了两节**只报告/幂等**的收尾任务：
 「只增不覆盖」让**卡面过期不可见**。为此加了一件独立的只读工具：
 
 ```bash
-# 单张卡面：从 GitHub issue / 本地文件核对
-python scripts/bridge/check_issue_refs.py --issue 2034 --ref origin/dev
-python scripts/bridge/check_issue_refs.py --file card.md --ref origin/dev --strict-ref
+# 单张卡面：从 GitHub issue / 本地文件核对（留空 --ref = 远端默认分支）
+python scripts/bridge/check_issue_refs.py --issue 2034
+python scripts/bridge/check_issue_refs.py --file card.md --strict-ref
+# 需要指定版本时才显式传（例如核对一条明确指向 dev 的引用）
+python scripts/bridge/check_issue_refs.py --file card.md --ref origin/dev
 
 # 全部镜像卡：批量扫，输出 markdown 报告
-python scripts/bridge/check_mirror_refs.py --report --ref origin/dev
+python scripts/bridge/check_mirror_refs.py --report
 ```
+
+> **默认核对版本 = 远端默认分支**（`default_ref()` 解析 `git ls-remote --symref origin HEAD`，
+> 本仓即 `origin/main`），**不是**写死的 `dev`。#144 §四 记的正是这处错位：卡面
+> （GitHub 原卡 / CNB 镜像卡）描述的是**默认分支**的代码，拿 `dev` 核对会把
+> 「`dev` 上已删、`main` 上还在」的引用报成失效——实测假阳性就是 `#104`（GitHub #2032）
+> 的 `AssetInsightPanel.vue`（`main` 上仍在，`dev` 上已删）。逐条输出现在会打出
+> `[核对版本 <ref>]`，卡面自带 `@ref` 时一眼可见它与默认版本不同。
 
 `check_mirror_refs.py` 复用 `check_issue_refs.py` 的抽取 / 核对逻辑（**不抄第二份正则**，
 两份判据必然漂移），扫 CNB 侧全部镜像卡，报出失效引用。
@@ -171,7 +183,10 @@ python scripts/bridge/check_mirror_refs.py --report --ref origin/dev
 | **`scripts/` 不在前缀表里** | — | 它是本脚本自己的目录，放进去会把引用核对成脚本自己 |
 | **`--strict-ref` 默认关** | 缺 `@ref` 只提示不拦 | 存量卡全都没写 `@ref`，硬拦等于全红；新卡由 strict 管 |
 
-**首轮实测**（2026-10-11，110 张镜像卡）：报出 **3 张卡 / 4 条失效引用**，逐条核实为真：
+**首轮实测**（2026-10-11，110 张镜像卡）：按 `origin/dev` 核对报出 **4 张卡 / 5 条**，
+其中 **`#104`（GitHub #2032）的 `AssetInsightPanel.vue:38-41` 是假阳性**——该文件在
+`main` 上仍然存在、只在 `dev` 上被删，属「判据读错了版本」（#144 §四）。默认版本改为
+**远端默认分支 `origin/main`** 后，报告为 **3 张卡 / 4 条**，且这 4 条逐条核实为真：
 
 - `#56` (#1095)：引用 `portfolios/views.py:214-215` 说 `get_portfolio_holdings`「Python 循环逐行算市值」，
   但该文件现在只有 **166 行**，函数在第 **159** 行——卡面引用的行号在文件之外；
@@ -180,6 +195,23 @@ python scripts/bridge/check_mirror_refs.py --report --ref origin/dev
 
 > 这一节是「引用须带 ref」这条纪律的**机器化落地**：光在文档里写「引用要写引自哪个 commit」
 > 是没用的（存量卡已经躺在那儿了），得有一个作业能问出「这张卡读过时了吗」。
+
+### 但只读正文会产出**假红**（#123 修）
+
+`#120` 拍板的更正通道是「**正文不动、更正写评论区**」。于是只看正文的自检会
+**永远报红**——修好了也红，而红却不指向任何还需动手的事。这与 #118 要治的「静默降级」
+是同一族：那边是假绿，这边是假红，**红灯的可信度一样会掉没**。
+
+故报告按「评论区有无更正」分两类（靠 `mirror_correction.py` 的幂等键
+`更正键：<sha1>` 识别，**不抄第二份正则**）：
+
+| 类别 | 含义 | 要不要动手 |
+|------|------|-----------|
+| ⚠️ **待更正** | 正文引用失效，评论区**没有任何**更正 | **要**——这才是待办 |
+| ✅ **已更正** | 正文引用失效，但评论区已有更正说明 | 不要——账已记 |
+
+实测（2026-10-11）：修复前报告 4 张全为待办；修复后 **0 张待办 / 4 张已记**
+（这 4 张的更正评论此前已按 #120 通道逐张发布，`mirror_correction.py list` 可复核）。
 
 ## 8. 状态回流（CNB #117 硬要求 ②）
 
@@ -328,3 +360,80 @@ python scripts/bridge/github_cnb_issues.py --report-local --out local-report.md
 - **匿名 GitHub API 限额 60 次/时/IP**：107 张卡走 2 次分页调用，余量充足；仓库若长到
   数千 open issue，需配 `GITHUB_TOKEN`。§8 的状态回流要拉 `state=all`（含 closed），
   调用量比建卡那次大——限额下会静默少拉（`plan()` 对拉不到的卡**跳过而不是猜**）。
+
+## 10. 分支分叉自检（CNB #123）
+
+`crontab` **只能挂在具体分支下**（平台限制，见 §6），而本仓 `.cnb.yml` 挂在 `main`。
+若「整改代码在 `dev`、会被执行的代码在 `main`」，就会出现 #123 记的那个病：
+
+> **写完了，跑的不是它**——且没有任何信号提示这件事。
+
+这与 `issue-milestone-guard.yml`「补挂里程碑后不自愈」同族。故加一件只读工具：
+
+```bash
+# 默认比较 origin/main ← origin/dev
+python scripts/bridge/check_branch_divergence.py --report
+
+# 只看「哪些作业只在单侧」
+python scripts/bridge/check_branch_divergence.py --report --jobs-only
+```
+
+### 判据
+
+- **`main` 独有提交数 > 0 ⇒ 分叉**（正常态恒为 0：发版 PR 把 `dev` 推上去，`main` 不领先）；
+- 列出两侧互不包含的「决定什么会被执行」的文件（`.cnb.yml` + `.github/workflows/*.yml`）。
+
+退出码：`0` = 未分叉；`1` = 检出分叉；`2` = 取不到分支。`.cnb.yml` 里带 `|| true`
+——它是信号，不是门禁。
+
+### 根因诊断：`--explain`（答「为什么分叉」，2026-10-11 补）
+
+首版只报「分叉了几个提交、哪些作业只在单侧」，**答不出「为什么」**。而卡面 §一 建议 3
+的原话是：
+
+> 为什么 `dev` 会完全不含 `main` 的这一个 commit？……**需要先答这个，
+> 否则发版完还会再分叉一次。**
+
+```bash
+python scripts/bridge/check_branch_divergence.py --report --explain
+```
+
+它额外给两件**可证**的事：
+
+1. **稳定分支独有的提交清单**（短号 + 主题）——来路由人判断；
+2. **发版试算**：`git merge-tree --write-tree --name-only <right> <left>`（**离线**，不碰工作区），
+   答「把 `dev` 合进 `main` 会不会冲突、冲突哪几个文件」。
+
+#### 为什么不自动判断「这条提交来自 GitHub 还是 CNB」
+
+实测三条路**都答不了**这个问题（2026-10-11），逐条留证：
+
+| 路 | 为什么不成立 |
+|---|---|
+| 提交信息启发式 | `feat(detail): …（#2029 卡 B）` 与 `docs(api): …（#2029 卡 B）` 同批同源，没有任何标记能区分平台 |
+| `refs/fetched/*` | 它标的是「该提交**被合进** CNB 时 fetch 过」：跨仓同步 merge `6c97c259` 在内，而它上游那批 GitHub 提交**全不在**——反着来 |
+| `sync/mirror` 分支 | 是另一条 lineage，不含这批提交 |
+
+猜错的代价是**报告指向错误的处置**（该发版的被判成纪律违规，或反之），比不给结论坏得多。
+故 `--explain` 只报事实、由人判断来路。
+
+> 这个「不猜」的取舍本身有一条回归网钉着：`test_explain_never_guesses_platform`
+> 断言报告里**不得**出现 `github-pr` / `cnb-local` 一类的平台归类标签。
+
+### 为什么这么写
+
+| 取舍 | 做法 | 为什么 |
+|------|------|--------|
+| **纯离线** | 只读本地 git，**不 fetch** | 分叉判定不该依赖网络，否则「网络不通 = 报告绿」又是一次静默降级 |
+| **只报告，不改动** | 不 fetch / merge / push | 要不要更新远端视图是调用方的决定；脚本有副作用就不可信 |
+| **方向敏感** | `git diff --name-status left right` 里 `D` = 只在 `left`、`A` = 只在 `right` | 初版把 `A`/`D` 都算「只在 right」，同一文件同时出现在两侧列表（见回归网 `test_side_only_no_duplicate_across_sides`） |
+
+### 分叉的成因（2026-10-11 实测）
+
+不是「main 落后 dev」，是**双向分叉**：`main` 独有 15 个提交、`dev` 独有 20 个，
+`git merge-base --is-ancestor origin/main origin/dev` 为 **false**。根因是两条功能分支
+（`feat/github-issue-cnb-mirror`、`feat/2-cnb-github-backfill`）从**同一个 base**
+分出后各自只投递到一侧 ⇒ `main` 拿到镜像链路、`dev` 拿到回写链路，互不包含。
+
+**处置是发版**（`dev` → `main` 的 PR，head 必须是 `dev` 本身），
+**不是**「把功能分支 base 改成 `main`」——后者正是本分叉的成因（见 AGENTS.md「PR 与 Review」）。
