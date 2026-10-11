@@ -130,9 +130,9 @@ class TestLoadConfig:
         assert spec.target_kind is None
 
     def test_advisor_job_has_no_target_kind(self):
-        """投顾 job 的目标池是「组合代码」，不能套 fund/stock。
+        """投顾 job 的目标池是「组合代码」，不能套 fund/stock/etf。
 
-        resolve_targets() 只产 fund/stock 两类；这里 target_kind 必须为 None，
+        resolve_targets() 产 fund/stock/etf 三类；这里 target_kind 必须为 None，
         让 job 内部 _resolve_targets 回退库内全部在售组合。套成 'fund' 会拿到空列表，
         而该 job 空目标不报错，结果是「每天记一条 success 但什么都没同步」的静默空跑。
         """
@@ -432,6 +432,35 @@ class TestRunSyncJob:
         ds.run_sync_job(spec, jitter_seconds=0)
 
         assert fake.calls == [('temperature', None)]
+
+    def test_multi_pool_target_kind_concatenates_in_order(self, monkeypatch):
+        """#1983：target_kind 为元组时按声明顺序拼接多池、去重保序。
+
+        fund_position 吃 fund + etf 两池；同一只代码在两池都出现时
+        （理论上不该，防御性）只传一次。
+        """
+        fake = _FakeOrchestrator(
+            targets={
+                'fund': ['004369', '005827'],
+                'etf': ['159857', '004369'],
+                'stock': ['SH600519'],
+            }
+        )
+        monkeypatch.setattr(ds, '_build_orchestrator', lambda db: fake)
+
+        spec = ds.DailyJobSpec('fund_position', '0 9 * * 1', ('fund', 'etf'), '持仓明细')
+        ds.run_sync_job(spec, jitter_seconds=0)
+
+        assert fake.calls == [('fund_position', ['004369', '005827', '159857'])]
+
+    def test_fund_position_targets_fund_and_etf_pools(self):
+        """#1983：本机调度的 fund_position 必须吃 fund + etf 双池。
+
+        丢了 etf 池，场内 ETF 的底层持仓永远同步不到（#1983 的病灶）。
+        """
+        cfg = ds.load_config({})
+        spec = next(s for s in cfg.jobs if s.job_name == 'fund_position')
+        assert spec.target_kind == ('fund', 'etf')
 
     def test_exception_is_returned_not_raised(self, monkeypatch):
         """后台线程里抛异常只会变成一行日志，调用方看不到原因——故必须收敛为结果。"""
