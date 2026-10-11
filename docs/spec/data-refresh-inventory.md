@@ -94,7 +94,8 @@ title: 数据自动更新清单（分层 · 频率 · 现状 · 缺口）
 **诊断命令**（换 `<run_id>` 即可复现）：
 
 ```bash
-gh api repos/imoyao/fundmate/actions/workflows/daily-snapshot.yml/runs --jq '.workflow_runs[] | "\(.created_at) \(.event) \(.conclusion)"'
+gh api repos/imoyao/fundmate/actions/workflows/daily-snapshot.yml/runs \
+  --jq '.workflow_runs[] | "\(.created_at) \(.event) \(.conclusion)"'
 gh run view <run_id> --log-failed
 ```
 
