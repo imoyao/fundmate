@@ -130,8 +130,8 @@ const isTop10 = computed(() => holdings.value?.basis === "top10");
 
 /* ⚠️ 口径警告：这是**用户必须看到**的信息，不能做成不显眼的脚注 */
 .holding-section__caveat {
-  margin: 0;
   padding: var(--space-2) var(--space-3);
+  margin: 0;
   font-size: 12px;
   line-height: 1.6;
   color: var(--text-secondary);
@@ -146,8 +146,8 @@ const isTop10 = computed(() => holdings.value?.basis === "top10");
 
 .holding-section__table {
   width: 100%;
-  border-collapse: collapse;
   font-size: 13px;
+  border-collapse: collapse;
 }
 
 .holding-section__table th,
@@ -164,8 +164,8 @@ const isTop10 = computed(() => holdings.value?.basis === "top10");
 }
 
 .holding-section__num {
-  text-align: right;
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .holding-section__code {

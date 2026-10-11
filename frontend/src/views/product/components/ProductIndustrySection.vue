@@ -144,7 +144,9 @@ const hasData = computed(() => (props.detail?.industries?.length ?? 0) > 0);
   </CardBlock>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
+@use "@/style/breakpoints" as bp;
+
 .industry-section {
   display: flex;
   flex-direction: column;
@@ -161,15 +163,17 @@ const hasData = computed(() => (props.detail?.industries?.length ?? 0) > 0);
 
 .industry-section__layout {
   display: grid;
+
   /* 严禁 `minmax(0, 1fr)`：会让轨道塌成 0（#1969 P0 实测，标签逐字竖排） */
   grid-template-columns: minmax(240px, 320px) minmax(260px, 1fr);
+
   /* 注意：不能用 `--space-4` —— 它在全仓被引用但**从未定义**（探针实测），
      写了会整条 gap 静默失效。定义齐全的是 1/2/3/5/6。 */
   gap: var(--space-3) var(--space-5);
   align-items: start;
 }
 
-@media (max-width: 900px) {
+@include bp.below("lg") {
   .industry-section__layout {
     grid-template-columns: 1fr;
   }
@@ -199,8 +203,8 @@ const hasData = computed(() => (props.detail?.industries?.length ?? 0) > 0);
 
 .industry-section__table {
   width: 100%;
-  border-collapse: collapse;
   font-size: 13px;
+  border-collapse: collapse;
 }
 
 .industry-section__table th,
@@ -216,13 +220,13 @@ const hasData = computed(() => (props.detail?.industries?.length ?? 0) > 0);
 }
 
 .industry-section__num {
-  text-align: right;
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .industry-section__empty {
-  text-align: center;
   color: var(--text-tertiary);
+  text-align: center;
 }
 
 .industry-section__other {
@@ -231,10 +235,10 @@ const hasData = computed(() => (props.detail?.industries?.length ?? 0) > 0);
 }
 
 .industry-section__other-title {
-  cursor: pointer;
   font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary);
+  cursor: pointer;
 }
 
 .industry-section__other-note {
@@ -250,8 +254,8 @@ const hasData = computed(() => (props.detail?.industries?.length ?? 0) > 0);
 
 .industry-section__other-item {
   display: flex;
-  justify-content: space-between;
   gap: var(--space-2);
+  justify-content: space-between;
   font-size: 13px;
 }
 

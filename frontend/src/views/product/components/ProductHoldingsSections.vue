@@ -76,8 +76,8 @@ watch(() => props.symbol, load, { immediate: true });
 
 <style scoped>
 .product-holdings__hint {
-  margin: 0;
   padding: var(--space-3);
+  margin: 0;
   font-size: 12px;
   color: var(--text-tertiary);
 }
