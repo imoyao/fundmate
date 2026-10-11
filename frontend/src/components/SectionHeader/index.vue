@@ -19,7 +19,9 @@
              并自动挂 `rich-tip` 气泡样式（宽度与排版见 style/el-tooltip.css）。
              用途：口径 + 图例这类「多行结构化」说明——一行字符串塞进去只会变成一堵墙
              （#1942 第三轮反馈：收益日历的口径说明正是这样被吐槽的）。
-    - action: 右侧操作槽
+    - action: 右侧操作槽。**窄容器下本槽会收缩**（#2039），因此槽内若有多枚控件，
+              请自行套一个 `flex-wrap: wrap` 的容器：收缩时靠它折行，而不是溢出卡片
+              （参考 PnlCalendar 的 `#action`——它那排控件宽 588px，是最典型的场景）。
 -->
 <template>
   <div class="section-header">
@@ -119,9 +121,17 @@ withDefaults(
 
   &__action {
     display: inline-flex;
-    flex-shrink: 0;
+
+    /* #2039：操作槽必须可收缩。原先 `flex-shrink: 0` 让它恒为 max-content
+       （收益日历那排控件实测 588px），窄窗口下负空间只能全压给 `min-width: 0`
+       的 title-group——压到 0 之后，整排控件就溢出卡片、叠到左侧的 ⓘ 上。
+       `min-width: 0` 是 flex 项能压到自身 min-content 以下的前提；
+       调用方 `#action` 内层是 `flex-wrap: wrap` 容器时，随收缩自动折行。
+       宽容器的负空间为 0，两条声明都不生效 ⇒ 宽屏排版逐像素不变。 */
+    flex-shrink: 1;
     gap: 8px;
     align-items: center;
+    min-width: 0;
   }
 }
 </style>

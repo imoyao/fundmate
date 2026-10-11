@@ -52,6 +52,7 @@ title: 组件使用规范（设计语言实现层）
 - 结构：左侧「标题 + 可选信息图标（hover / 焦点 tooltip）」+ 右侧「操作槽（具名插槽 `#action`）」。
 - props：`title`（区块标题）、`info`（信息图标 tooltip 文案，缺省则不显示图标）、`icon`（信息图标名，默认 `ep:info-filled`）。
 - 与 `MetricCard` / `TemperatureGaugeCard` 标题行视觉一致（16px / 600 / `--text-primary`，右侧操作槽垂直居中）。
+- **`#action` 收缩契约（#2039）**：`__action` 是 `flex-shrink: 1; min-width: 0` 的 flex 项，窄容器下**会收缩到自身 min-content 以下**。因此 `#action` 里若有**多枚控件**（最典型的反例是 `PnlCalendar`——那排粒度 / 范围 / 币种控件实测宽 588px），调用方**必须**在内层套一个 `flex-wrap: wrap` 容器承接折行，否则收缩只会把控件压扁 / 压溢出卡片，叠到左侧 ⓘ 上。反向约束：**禁止给 `__action` 写回 `flex-shrink: 0`**——那会让它恒为 max-content，把负空间全甩给 `min-width: 0` 的 title-group（正是 #2039 的根因）。宽容器下负空间为 0，两条声明均不生效，宽屏排版逐像素不变。
 
 ## 设置页 · 单栏居中布局（D13）
 
