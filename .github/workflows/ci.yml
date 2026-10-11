@@ -448,6 +448,9 @@ jobs:
   # base 必须是 dev、只有发版 PR 才用 main」这条判据机械化。此前该规矩只写在 AGENTS.md 里
   # （且只写了前半句），实际执行中出现连续多个以 main 为 base 的功能 PR，导致 main / dev
   # 互不包含。判据的价值在于**base 对不对是可以算的**，不靠每个人各自的理由。
+  # 2026-10-11（#120）再补一层 Python 侧：`scripts/bridge/` 的镜像脚本同样带外部副作用
+  # （建卡 / 写更正评论），且与 Node 侧是两套解释器，故上面那条 node --test 覆盖不到。
+  # untested。两个脚本都是纯标准库 + 纯函数可测，故直接在这里跑 python -m unittest。
   scripts_test:
     name: 守卫:脚本单测 (scripts)
     if: ${{ github.event_name == 'pull_request' }}
@@ -471,6 +474,14 @@ jobs:
       # 判据边界与豁免方式见脚本 docstring；回归网在 scripts/tests/guard_cross_repo_refs.test.js。
       - name: 扫描跨仓引用是否挂源（阻断）
         run: node scripts/guard_cross_repo_refs.mjs
+
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: 跑 scripts/ 下的 Python 守卫/桥接脚本单测
+        run: python -m unittest discover -s scripts/tests -p "test_*.py" -v
 
   gate:
     name: 质量门禁汇总

@@ -1,0 +1,57 @@
+# CNB 流水线配置（duoduobei/fundmate）
+#
+# 目前只有一条流水线：GitHub Issues → CNB Issues 的**每日增量镜像**。
+#
+# 背景（源 issue `#2`）：CNB 侧没有 GitHub 的 issue 视图，讨论散在两处。
+# 2026-10-11 做过一次全量手工同步（107 张卡，CNB #5~#112），但那是一次性的：
+# GitHub 之后新开的卡不会再出现，两侧很快又各说各话。本流水线把那个动作
+# 固化成可重复执行的增量作业，脚本是 scripts/bridge/github_cnb_issues.py。
+#
+# 设计取舍（详见 scripts/bridge/github_cnb_issues.py 的文件头）：
+#   - 单向：只 GitHub → CNB，不回写；双向会在状态不一致时互相打架；
+#   - 只增不覆盖：已存在的镜像卡永不改动；
+#   - 不同步关闭态：GitHub 关了 CNB 不自动关，避免「CNB 侧看不到活跃讨论」的误判；
+#   - 幂等键 = 镜像卡正文里的 `GitHub 编号：#N`，辅以 scripts/bridge/github_cnb_state.json 缓存。
+#
+# 本地跑法：
+#   export CNB_TOKEN=<你的 token>
+#   python scripts/bridge/github_cnb_issues.py --dry-run     # 先看要建哪些
+#   python scripts/bridge/github_cnb_issues.py --apply       # 真正创建
+#
+# 更正通道（#120）：镜像卡是**只增不覆盖**的，正文永远停在建卡快照。
+# 发现镜像卡正文失实时，**不要改正文**，用下面这条在它的评论区追加一条更正
+# （默认 dry-run，加 --apply 真正发布；幂等，重复执行只发一次）：
+#   python scripts/bridge/mirror_correction.py list --cnb <编号>
+#   python scripts/bridge/mirror_correction.py add --cnb <编号> --date <YYYY-MM-DD> \
+#       --correction '❌ 正文「x」→ ✅ 实际「y」（依据：PR #115）' --apply
+# 这是人工动作，不挂 cron —— 更正由发现者发起，不该由定时任务代劳。
+
+# 公共片段：两条触发方式跑的是同一套环境与命令，用锚点避免抄两遍。
+.mirror-job: &mirror-job
+  runner:
+    # 纯标准库脚本，收窄核数省额度
+    cpus: 2
+  docker:
+    image: python:3.12-slim
+  env:
+    # CNB_TOKEN 由平台注入（构建凭证，建卡用）；
+    # GITHUB_TOKEN 可选，不设则走匿名 API（60 次/时/IP，够用）。
+    GITHUB_REPO: imoyao/fundmate
+  stages:
+    - name: 增量建卡
+      script: |
+        python scripts/bridge/github_cnb_issues.py --apply
+
+# 定时任务必须挂在具体分支下（不能放 $ 兜底），故这里显式写 main。
+main:
+  # 每日 18:00 UTC（＝北京次日 02:00）：issue 不是时效数据，
+  # 一天一次足够，也省构建分钟数。
+  "crontab: 0 18 * * *":
+    - name: GitHub issue 增量镜像
+      <<: *mirror-job
+
+# 手动触发放兜底分支：与分支无关，放 $ 下任何分支都能点。
+$:
+  web_trigger:
+    - name: GitHub issue 增量镜像（手动）
+      <<: *mirror-job
