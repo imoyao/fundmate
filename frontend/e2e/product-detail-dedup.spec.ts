@@ -101,6 +101,42 @@ async function stubProductApis(page: Page) {
       }
     })
   );
+  // #2029 卡 B：业绩与风险区块同样此前没打桩会落到兜底 404 → 走降级。
+  // 补桩后 detail.vue 漏挂 ProductPerformanceSection 会让下面的断言变红（反向验证同卡 A）。
+  await page.route("**/api/products/fund-performance/**", route =>
+    route.fulfill({
+      status: 200,
+      json: {
+        data: {
+          fund_kind: "fund",
+          applicable: true,
+          basis: "acc_nav",
+          acc_nav_caveat:
+            "累计净值口径（分红不再投近似复权），非严格分红再投复权净值",
+          intervals: [
+            { key: "1w", label: "近1周", value: 1.23 },
+            { key: "1m", label: "近1月", value: 3.45 },
+            { key: "3m", label: "近3月", value: 6.78 },
+            { key: "6m", label: "近6月", value: 9.01 },
+            { key: "1y", label: "近1年", value: 12.34 },
+            { key: "2y", label: "近2年", value: 18.56 },
+            { key: "3y", label: "近3年", value: 22.78 },
+            { key: "5y", label: "近5年", value: 35.9 },
+            { key: "ytd", label: "今年以来", value: 8.12 },
+            { key: "since", label: "成立以来", value: 45.67 }
+          ],
+          max_drawdown: -18.52,
+          max_drawdown_basis: "fixed_3y",
+          max_drawdown_window: "近3年",
+          max_drawdown_as_of: "2026-10-09",
+          volatility_1y: 16.6,
+          as_of: "2026-10-09",
+          source: "天天基金"
+        },
+        message: "ok"
+      }
+    })
+  );
   await page.route("**/api/positions/**", route =>
     // 注意：**不能**套信封包装器——positions 的响应体本身就是
     // `{ data: [...], total, page, per_page }`，再包一层会让组件拿到对象而非数组
@@ -240,6 +276,48 @@ test.describe("基金资料区块确实挂载（#2029）", () => {
     // #1969 起脚注给站点名（天天基金），不给 daily_worth 这类表名
     await expect(section.getByText("天天基金")).toBeVisible();
     await expect(section).not.toContainText("daily_worth");
+  });
+});
+
+/**
+ * #2029 卡 B 回归网：业绩与风险区块必须真的渲染。
+ *
+ * 这条与卡 A 同源——修复前基金资料区块因漏 import 而静默不渲染，本卡若也漏挂
+ * `<ProductPerformanceSection>`，Vue 只会发一条 warning 不报错，详情页就少了整块业绩数据。
+ *
+ * 反向验证：把 detail.vue 里 <ProductPerformanceSection> 的挂载删掉，本用例必须红。
+ */
+test.describe("业绩与风险区块确实挂载（#2029 卡 B）", () => {
+  test.setTimeout(180_000);
+
+  test.beforeEach(async ({ context, baseURL, page }) => {
+    await injectSupabaseSession(context, baseURL!);
+    await stubProductApis(page);
+  });
+
+  test("基金详情页渲染业绩与风险区块并带出指标", async ({ page }) => {
+    await page.goto(`/#/fund/${SYMBOL}`);
+    const section = page.locator(".performance-section");
+    await expect(section).toBeVisible({ timeout: 60_000 });
+
+    // 区块标题
+    await expect(
+      section.getByRole("heading", { name: "业绩与风险" })
+    ).toBeVisible();
+
+    // 区间收益切面带出标签（成立以来有打桩值）
+    await expect(section.getByText("成立以来")).toBeVisible();
+
+    // 风险指标：最大回撤为纯文本数值（非 RiseFallText），可直接断言
+    await expect(section.getByText("最大回撤（近3年）")).toBeVisible();
+    await expect(section.getByText("-18.52%")).toBeVisible();
+
+    // 脚注给站点名而非表名
+    await expect(section.getByText("天天基金")).toBeVisible();
+    await expect(section).not.toContainText("daily_worth");
+
+    // 有数据时不应出现降级文案
+    await expect(section).not.toContainText("暂无可展示的业绩数据");
   });
 });
 

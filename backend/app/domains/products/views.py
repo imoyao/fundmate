@@ -26,6 +26,7 @@ from app.domains.products.schemas import (
     StockProfileRequest,
 )
 from app.services.advisor_profile import build_advisor_profile
+from app.services.fund_performance import build_fund_performance
 from app.services.fund_profile import build_fund_profile
 from app.services.manager_holdings import build_manager_holdings
 from app.services.manager_profile import build_manager_profile
@@ -105,6 +106,30 @@ def fund_profile():
     with closing(market_session_factory()()) as db:
         try:
             data = build_fund_profile(db, fund_code)
+        except ValueError as e:
+            abort(400, str(e))
+    if data is None:
+        abort(404, f'基金不存在：{fund_code}')
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/fund-performance/')
+def fund_performance():
+    """基金业绩与风险（#2029 卡 B · 详情页业绩与风险卡）。
+
+    一次算完区间收益切面（近1周~成立以来）+ 最大回撤（近3年）+ 年化波动率（近1年），
+    前端一次请求拿到表现卡全部字段。口径与自选域同源 ``daily_worth.acc_nav``，
+    业务日走 ``today_shanghai()``。
+
+    货基分支：货币基金无日涨跌 / 回撤口径，改返万份收益 + 七日年化
+    （``money_fund_daily_worth``），不显净值型指标（设计卡 §4.2⑧）。
+
+    字段缺失一律回 ``null``，前端降级「—」（设计 §6 诚实降级，不编造）。
+    """
+    fund_code = (request.args.get('code') or '').strip()
+    with closing(market_session_factory()()) as db:
+        try:
+            data = build_fund_performance(db, fund_code)
         except ValueError as e:
             abort(400, str(e))
     if data is None:
