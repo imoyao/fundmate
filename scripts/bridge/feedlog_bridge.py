@@ -327,7 +327,7 @@ def create_post_from_issue(
       2. DB 中已存在 gh-issue-{issue_number} slug 的帖子 → 跳过。
     第 2 道是并发安全兜底：state 经 git 提交在并发 job 间传递会丢映射
     （2026-08-23 曾因 5 个 issue 并发触发，4 个映射丢失导致帖子被渠道 1
-    重复同步回 GitHub 成 #1069–#1072），DB 层查重不受时序影响。
+    重复同步回 GitHub 成 GitHub #1069–#1072），DB 层查重不受时序影响。
 
     护栏：带 feedlog 标签的 issue 是由「FeedLog → GitHub」通道（渠道 1）创建的，
     不应再反向建帖子，否则会形成 FeedLog ↔ GitHub 死循环。

@@ -2,7 +2,7 @@
 #
 # 目前只有一条流水线：GitHub Issues → CNB Issues 的**每日增量镜像**。
 #
-# 背景（源 issue #2）：CNB 侧没有 GitHub 的 issue 视图，讨论散在两处。
+# 背景（源 issue `#2`）：CNB 侧没有 GitHub 的 issue 视图，讨论散在两处。
 # 2026-10-11 做过一次全量手工同步（107 张卡，CNB #5~#112），但那是一次性的：
 # GitHub 之后新开的卡不会再出现，两侧很快又各说各话。本流水线把那个动作
 # 固化成可重复执行的增量作业，脚本是 scripts/bridge/github_cnb_issues.py。

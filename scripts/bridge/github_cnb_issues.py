@@ -4,7 +4,7 @@
 为什么需要它
 ------------
 CNB 侧没有 GitHub 的 issue 视图，讨论散在两处。2026-10-11 做过一次全量手工同步
-（107 张卡，CNB #5~#112），但那是**一次性**的：GitHub 之后新开的卡不会再出现，
+（107 张卡，CNB `#5`~`#112`），但那是**一次性**的：GitHub 之后新开的卡不会再出现，
 两侧很快又各说各话。本脚本把那次同步固化成可重复执行的增量作业，配套
 `.cnb.yml` 的每日 cron 跑。
 
@@ -151,7 +151,7 @@ def build_body(issue: dict[str, Any]) -> str:
     """
     number = issue['number']
     state = issue.get('state', 'open')
-    # 建卡快照时刻：显式打印出来，避免正文里只有 GitHub 的创建时间、读者误以为本卡很新。见 #120 方案 A。
+    # 建卡快照时刻：显式打印出来，避免正文里只有 GitHub 的创建时间、读者误以为本卡很新。见 `#120` 方案 A。
     mirrored_at = datetime.now(UTC)
     milestone = (issue.get('milestone') or {}).get('title') or '—'
     author = (issue.get('user') or {}).get('login') or 'unknown'
