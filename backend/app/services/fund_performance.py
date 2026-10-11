@@ -13,6 +13,7 @@
 货基分支（§4.2⑧）：货币基金没有日涨跌 / 回撤口径，走 ``money_fund_daily_worth``
 的**万份收益 + 七日年化**——不显净值型指标，避免用户误读「货币也跌了」。
 """
+
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -27,22 +28,22 @@ from app.services.fund_metrics import compute_max_drawdown, load_nav_points
 # 区间档位（近 N + 今年以来 + 成立以来）。``days`` 为自然数日，用于定位起点；
 # ``ytd`` / ``since`` 为特殊档（当年 1/1 / 序列首点）。标签与后端返回 key 一一对应。
 _PERIODS: List[Tuple[str, str, Optional[int]]] = [
-    ("1w", "近1周", 7),
-    ("1m", "近1月", 30),
-    ("3m", "近3月", 90),
-    ("6m", "近6月", 180),
-    ("1y", "近1年", 365),
-    ("2y", "近2年", 730),
-    ("3y", "近3年", 1095),
-    ("5y", "近5年", 1825),
-    ("ytd", "今年以来", None),
-    ("since", "成立以来", None),
+    ('1w', '近1周', 7),
+    ('1m', '近1月', 30),
+    ('3m', '近3月', 90),
+    ('6m', '近6月', 180),
+    ('1y', '近1年', 365),
+    ('2y', '近2年', 730),
+    ('3y', '近3年', 1095),
+    ('5y', '近5年', 1825),
+    ('ytd', '今年以来', None),
+    ('since', '成立以来', None),
 ]
 
 # 回撤固定窗口（与自选域 _apply_fund_drawdown_fields 一致，见 fund_metrics §3.10）
 _DRAWDOWN_WINDOW_DAYS = 1095  # 近 3 年
 _DRAWDOWN_MIN_SAMPLES = 20
-_DRAWDOWN_WINDOW_LABEL = "近3年"
+_DRAWDOWN_WINDOW_LABEL = '近3年'
 
 # 波动率窗口：近 1 年（年化口径，trailing 252 交易日）
 _VOL_WINDOW_DAYS = 365
@@ -53,9 +54,9 @@ _MIN_POINTS = 2
 
 def _is_money_fund(fund) -> bool:
     """货基判定：基金小类名含「货币」（如「货币型」）。无 is_money_fund 标志，靠类型名。"""
-    fund_type = getattr(fund, "fund_type", None)
-    name = getattr(fund_type, "name", None) or ""
-    return "货币" in name
+    fund_type = getattr(fund, 'fund_type', None)
+    name = getattr(fund_type, 'name', None) or ''
+    return '货币' in name
 
 
 def _money_fund_performance(db: Session, fund_code: str) -> Dict[str, Any]:
@@ -70,24 +71,22 @@ def _money_fund_performance(db: Session, fund_code: str) -> Dict[str, Any]:
     )
     if row is None:
         return {
-            "fund_kind": "money",
-            "applicable": True,
-            "basis": "insufficient",
-            "annual_return_7d": None,
-            "nav_per_10k": None,
-            "as_of": None,
-            "source": FUND_NAV_SOURCE_LABEL,
+            'fund_kind': 'money',
+            'applicable': True,
+            'basis': 'insufficient',
+            'annual_return_7d': None,
+            'nav_per_10k': None,
+            'as_of': None,
+            'source': FUND_NAV_SOURCE_LABEL,
         }
     return {
-        "fund_kind": "money",
-        "applicable": True,
-        "basis": "money_fund",
-        "annual_return_7d": round(float(row.annual_return_7d), 4)
-        if row.annual_return_7d is not None
-        else None,
-        "nav_per_10k": float(row.nav_per_10k) if row.nav_per_10k is not None else None,
-        "as_of": row.date.isoformat() if row.date else None,
-        "source": FUND_NAV_SOURCE_LABEL,
+        'fund_kind': 'money',
+        'applicable': True,
+        'basis': 'money_fund',
+        'annual_return_7d': round(float(row.annual_return_7d), 4) if row.annual_return_7d is not None else None,
+        'nav_per_10k': float(row.nav_per_10k) if row.nav_per_10k is not None else None,
+        'as_of': row.date.isoformat() if row.date else None,
+        'source': FUND_NAV_SOURCE_LABEL,
     }
 
 
@@ -120,7 +119,7 @@ def _annualized_volatility(points: List[Tuple[date, float]], since: date) -> Opt
         return None
     mean = sum(rets) / len(rets)
     var = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
-    return round((var ** 0.5) * (252 ** 0.5) * 100, 2)
+    return round((var**0.5) * (252**0.5) * 100, 2)
 
 
 def _open_fund_performance(db: Session, fund_code: str, today: date) -> Dict[str, Any]:
@@ -141,29 +140,27 @@ def _open_fund_performance(db: Session, fund_code: str, today: date) -> Dict[str
 
     if len(points) < _MIN_POINTS:
         return {
-            "fund_kind": "fund",
-            "applicable": False,
-            "basis": "insufficient",
-            "intervals": [],
-            "max_drawdown": None,
-            "max_drawdown_basis": "insufficient",
-            "volatility_1y": None,
-            "as_of": points[-1][0].isoformat() if points else None,
-            "source": FUND_NAV_SOURCE_LABEL,
+            'fund_kind': 'fund',
+            'applicable': False,
+            'basis': 'insufficient',
+            'intervals': [],
+            'max_drawdown': None,
+            'max_drawdown_basis': 'insufficient',
+            'volatility_1y': None,
+            'as_of': points[-1][0].isoformat() if points else None,
+            'source': FUND_NAV_SOURCE_LABEL,
         }
 
     # 区间收益切面
     intervals = []
     for key, label, days in _PERIODS:
-        if key == "ytd":
+        if key == 'ytd':
             start = date(today.year, 1, 1)
-        elif key == "since":
+        elif key == 'since':
             start = points[0][0]
         else:
             start = today - timedelta(days=days)
-        intervals.append(
-            {"key": key, "label": label, "value": _interval_return(points, start)}
-        )
+        intervals.append({'key': key, 'label': label, 'value': _interval_return(points, start)})
 
     # 最大回撤：近 3 年固定窗口（与自选域一致）
     dd_since = today - timedelta(days=_DRAWDOWN_WINDOW_DAYS)
@@ -171,28 +168,28 @@ def _open_fund_performance(db: Session, fund_code: str, today: date) -> Dict[str
     dd = compute_max_drawdown(dd_points) if len(dd_points) >= _MIN_POINTS else None
     if dd is None or dd.sample_size < _DRAWDOWN_MIN_SAMPLES:
         max_dd = None
-        max_dd_basis = "insufficient"
+        max_dd_basis = 'insufficient'
     else:
         max_dd = round(dd.max_drawdown, 2)
-        max_dd_basis = "fixed_3y"
+        max_dd_basis = 'fixed_3y'
 
     # 年化波动率：近 1 年
     vol = _annualized_volatility(points, today - timedelta(days=_VOL_WINDOW_DAYS))
 
     return {
-        "fund_kind": "fund",
-        "applicable": True,
-        "basis": "acc_nav",
+        'fund_kind': 'fund',
+        'applicable': True,
+        'basis': 'acc_nav',
         # acc_nav 是「分红不再投」口径的近似复权序列，非严格分红再投复权净值（fund_metrics §9-11）
-        "acc_nav_caveat": "累计净值口径（分红不再投近似复权），非严格分红再投复权净值",
-        "intervals": intervals,
-        "max_drawdown": max_dd,
-        "max_drawdown_basis": max_dd_basis,
-        "max_drawdown_window": _DRAWDOWN_WINDOW_LABEL,
-        "max_drawdown_as_of": dd.as_of.isoformat() if dd else None,
-        "volatility_1y": vol,
-        "as_of": points[-1][0].isoformat(),
-        "source": FUND_NAV_SOURCE_LABEL,
+        'acc_nav_caveat': '累计净值口径（分红不再投近似复权），非严格分红再投复权净值',
+        'intervals': intervals,
+        'max_drawdown': max_dd,
+        'max_drawdown_basis': max_dd_basis,
+        'max_drawdown_window': _DRAWDOWN_WINDOW_LABEL,
+        'max_drawdown_as_of': dd.as_of.isoformat() if dd else None,
+        'volatility_1y': vol,
+        'as_of': points[-1][0].isoformat(),
+        'source': FUND_NAV_SOURCE_LABEL,
     }
 
 
@@ -205,9 +202,9 @@ def build_fund_performance(db: Session, fund_code: str) -> Optional[Dict[str, An
     """
     from app.domains.funds.models import Fund
 
-    code = (fund_code or "").strip()
+    code = (fund_code or '').strip()
     if not code:
-        raise ValueError("缺少 fund_code")
+        raise ValueError('缺少 fund_code')
 
     fund = db.query(Fund).filter(Fund.fund_code == code).first()
     if fund is None:
