@@ -33,3 +33,34 @@
 - `docs/features/concepts.md`（概念 SSOT）
 - `docs/features/account.md`（Objective 章节已废弃）
 - `docs/spec/data-model.md` §5.11 投资组合
+
+---
+
+## 补记（2026-10-11，#2034）：落地决策 2、4 的收尾
+
+本文件 2026-08-13 写下「welcome 不再展示任何结构图」，但该条**当时并未落地**——
+「资产构成分布」环形图一直留在 welcome 首屏（#1902 收敛到 `AssetAllocationDonut`、
+#1955 把口径从 `market_distribution` 换成 `category_distribution`，两次都在修图，
+没人执行"迁走"这一决策）。结果是同一份 `category_distribution` 在 welcome 环形图
+与 panorama 瀑布图各画一遍。
+
+#2034 按决策 2/4 收尾，具体口径：
+
+| 动作 | 落点 |
+|---|---|
+| 删除 welcome 首屏「资产构成分布」环形图 | `WelcomeAssetBoard.vue`；welcome 不再有结构图 |
+| 右半边改放**家庭净资产 + 总负债** | 数据来自 `/api/summary/` 的 `net_assets_cny` / `total_liabilities_cny`（**直出，非派生**），替掉原先两处「即将上线」死位 |
+| 删除随图失效的 `distributionLogic.ts` 与其单测 | 已无消费方；环形配色本就复用 panorama 桑基的语义色，无独有信息 |
+| welcome 不再请求 `/api/summary/distributions/` | 该请求已无消费方，页面少一次请求 |
+| panorama 瀑布图标题「总资产构成」→「资产大类构成」 | 与同页桑基「资产构成流向」区分；且瀑布实际含负债，叫「总资产构成」名实不符 |
+
+**为何右半边放净资产而不是别的**：welcome 的职责是「我有多少钱 · 离目标多远」，
+而净资产（资产 − 负债）才是家庭资产负债表的真刻度——它此前只出现在 panorama。
+结构图让位后由它补位，既避免空洞，也不越界去讲「结构怎么拆」（那仍归 panorama）。
+
+**守门**：`scripts/tests/welcome_structure_dedup.test.js` 钉住「welcome 资产看板
+不得再出现结构图」（判据锚在数据源 `category_distribution` / `market_distribution`
+与组件 `AssetAllocationDonut` 上，换组件名也拦得住），并自带回退探针。
+
+**留给 panorama 的（不在本卡范围）**：#2032（资产透视两环标题与字段对不上）、
+#2033（摘要卡与日历同排的高度冲突）。
