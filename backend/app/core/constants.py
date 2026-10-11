@@ -15,9 +15,12 @@ TYPE_LABELS = ASSET_TYPE_LABELS
 # ── 自选/搜索标的代码命名空间（#1286）──
 # 基金经理在 watchlist.symbol（及搜索 code）中统一表示为 'MGR_' + managers.mgr_code，
 # 与场内 SH/SZ 码、场外 6 位基金码、投顾组合平台原生码（ZHxxxx/CSIxxxx）隔离命名空间，
-# 防不同实体空间的代码碰撞。展示名解析须剥离该前缀回查 managers 表
-# （见 services/watchlist_service.lookup_manager / resolve_display_name 唯一实现），
-# 否则会把 sha256 派生码直接甩给用户。
+# 防不同实体空间的代码碰撞。**任何**按 code 回查 managers 表的入口都必须先归一
+# （剥 `MGR_` 前缀 + 大小写不敏感）：服务端唯一实现见
+# `services/manager_code.bare_manager_code`，展示名解析见
+# `services/watchlist_service.lookup_manager / resolve_display_name`。
+# 漏做这一步要么把 sha256 派生码直接甩给用户，要么让接口整片 404
+# （2026-10-11 实测：manager-profile / manager-holdings 漏归一，经理详情页全空白）。
 MANAGER_SYMBOL_PREFIX = 'MGR_'
 
 # ── 汇率（MVP 阶段硬编码，后续可迁移到数据库）──

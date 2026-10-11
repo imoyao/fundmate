@@ -230,8 +230,11 @@ watch(productRef, loadProduct, { immediate: true });
       />
 
       <!-- 基金经理（#1970）：仅经理品类渲染。入参是 mgr_code 而非姓名——库内实测
-           119 组重名（最多「吴昊」6 位），姓名不是唯一键；路由 `/manager/<symbol>`
-           传下来的就是 mgr_code。任职起止 / 规模 / 任期回报实测填充率 0%，
+           119 组重名（最多「吴昊」6 位），姓名不是唯一键。注意 `product.symbol` 不是
+           `managers.mgr_code` 原值：自选/搜索进来带 `MGR_` 前缀，且会被
+           `resolve_product_identity` 大写化。这里**原样透传**，归一由后端
+           `services/manager_code.py` 收口（曾因两边都没归一，每张经理页都空白）。
+           任职起止 / 规模 / 任期回报实测填充率 0%，
            逐项降级「—」并在整片为空时给出定调说明（不显示「暂无数据」白块）。 -->
       <ProductManagerSection
         v-if="product.asset_type === 'manager'"
