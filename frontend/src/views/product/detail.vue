@@ -16,6 +16,7 @@ import ProductExternalLinksSection from "./components/ProductExternalLinksSectio
 // warning 就静默不渲染 —— 基金详情页从上线起就没有基金资料区块，且 e2e 未打桩
 // fund-profile（落到兜底 404）反向掩盖。e2e 已补断言，勿再删这一行。
 import ProductFundSection from "./components/ProductFundSection.vue";
+import ProductPerformanceSection from "./components/ProductPerformanceSection.vue";
 import ProductPositionSection from "./components/ProductPositionSection.vue";
 import ProductStockSection from "./components/ProductStockSection.vue";
 import ProductTrendSection from "./components/ProductTrendSection.vue";
@@ -196,6 +197,13 @@ watch(productRef, loadProduct, { immediate: true });
       <!-- 基金资料（#1968）：仅基金品类渲染。首屏净值与日涨跌 + 类型/经理/规模/费率，
            缺项逐项降级为「—」。「我的成本 / 持有收益」在上面的持仓区块，不重复取数。 -->
       <ProductFundSection
+        v-if="product.asset_type === 'fund'"
+        :symbol="product.symbol"
+      />
+
+      <!-- 业绩与风险（#2029 卡 B）：仅基金品类渲染。区间收益 + 最大回撤 + 年化波动率，
+           后端基于 daily_worth.acc_nav 现算，与自选域同源；货基走万份收益 / 七日年化分支。 -->
+      <ProductPerformanceSection
         v-if="product.asset_type === 'fund'"
         :symbol="product.symbol"
       />
