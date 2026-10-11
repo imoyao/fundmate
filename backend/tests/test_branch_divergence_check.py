@@ -188,6 +188,165 @@ def test_run_returns_2_on_missing_ref(mod, diverged_repo):
 
 
 # ---------------------------------------------------------------------------
+# 二之二、`--explain`：答「为什么会分叉」+「发版会不会冲突」
+# ---------------------------------------------------------------------------
+
+
+def test_explain_lists_left_only_commits(mod, diverged_repo):
+    """`main` 独有的提交要被逐个列出（短号 + 主题），人来判断来路。"""
+    exp = mod.explain('main', 'dev', str(diverged_repo))
+    subjects = ' '.join(c['subject'] for c in exp['commits'])
+    assert 'main-only' in subjects, f'应列出 main 独有提交，实际 {exp["commits"]}'
+    assert 'dev-only' not in subjects, 'dev 独有的提交不该出现在 main 的清单里'
+
+
+def test_explain_clean_merge_when_fast_forward(mod, diverged_repo):
+    """两边只各自加文件、不碰同一文件 ⇒ 试算应报「可干净合并」。"""
+    exp = mod.explain('main', 'dev', str(diverged_repo))
+    assert exp['merge_trial']['status'] == 'clean', exp['merge_trial']
+
+
+def test_explain_detects_conflict(mod, tmp_path):
+    """同一文件两侧都改 ⇒ 试算必须报冲突，且**指名文件**。
+
+    这条钉的是 `merge-tree --write-tree` 的方向：`git merge-tree <A> <B>` 的语义是
+    「把 B 合进 A」。发版方向是 `dev`→`main`（right→left），传反了算出来的冲突
+    与发布 PR 无关 —— 而冲突文件名的输出形态（首行是 40 位 tree hash）也一并钉住：
+    不滤掉那行，报告里会混进一条谁也看不懂的哈希。
+    """
+    import os
+
+    repo = tmp_path / 'c'
+    repo.mkdir()
+    env = {
+        'GIT_AUTHOR_NAME': 't',
+        'GIT_AUTHOR_EMAIL': 't@e',
+        'GIT_COMMITTER_NAME': 't',
+        'GIT_COMMITTER_EMAIL': 't@e',
+        'PATH': os.environ['PATH'],
+    }
+
+    def git(*args):
+        subprocess.run(['git', *args], cwd=repo, check=True, capture_output=True, env=env)
+
+    git('init', '-q', '-b', 'main')
+    (repo / 'shared.txt').write_text('base\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '-m', 'base')
+
+    (repo / 'shared.txt').write_text('main side\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '-m', 'main-edit')
+
+    git('checkout', '-q', '-b', 'dev', 'HEAD~1')
+    (repo / 'shared.txt').write_text('dev side\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '-m', 'dev-edit')
+
+    exp = mod.explain('main', 'dev', str(repo))
+    trial = exp['merge_trial']
+    assert trial['status'] == 'conflict', f'同一文件两侧都改，必须报冲突：{trial}'
+    assert 'shared.txt' in trial['conflicts'], f'冲突清单里要有文件名：{trial["conflicts"]}'
+    assert not any(len(f) == 40 and all(ch in '0123456789abcdef' for ch in f) for f in trial['conflicts']), (
+        f'tree hash 不该混进冲突清单：{trial["conflicts"]}'
+    )
+
+
+def test_merge_trial_direction_matters(mod, tmp_path):
+    """**方向不对称**的场景：`dev` 侧有未提交到 `main` 的重命名 ⇒ 只有正确方向才报冲突。
+
+    为什么单开一条：上面那条用的是**对称冲突**（同一文件两侧都改），`git merge-tree A B`
+    与 `merge-tree B A` 都会报同一个文件——方向传反了也照样绿。实测探针就是这样 MISSED 的。
+
+    本用例造**不对称**：`dev` 上把 `a.txt` 改名成 `b.txt`，`main` 上继续改 `a.txt`。
+    合 `dev` 进 `main`（发版方向）⇒ 改名对改内容，**冲突**；
+    合 `main` 进 `dev` ⇒ 同样冲突……故这里改用「`main` 独有一个**新增**文件、
+    `dev` 把它**改名**」的形态：只有「把 dev 合进 main」才会撞上改名/新增之争。
+    """
+    import os
+
+    repo = tmp_path / 'd'
+    repo.mkdir()
+    env = {
+        'GIT_AUTHOR_NAME': 't',
+        'GIT_AUTHOR_EMAIL': 't@e',
+        'GIT_COMMITTER_NAME': 't',
+        'GIT_COMMITTER_EMAIL': 't@e',
+        'PATH': os.environ['PATH'],
+    }
+
+    def git(*args):
+        subprocess.run(['git', *args], cwd=repo, check=True, capture_output=True, env=env)
+
+    git('init', '-q', '-b', 'main')
+    (repo / 'base.txt').write_text('base\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '-m', 'base')
+
+    # main：新增 only-on-main.txt
+    (repo / 'only-on-main.txt').write_text('from main\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '-m', 'main-adds-file')
+
+    # dev：从 base 分出，把同一路径改成目录（与 main 的新增文件正面相撞）
+    git('checkout', '-q', '-b', 'dev', 'HEAD~1')
+    (repo / 'only-on-main.txt').mkdir()
+    (repo / 'only-on-main.txt' / 'inner.txt').write_text('inner\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '-m', 'dev-turns-it-into-dir')
+
+    trial = mod._merge_trial('main', 'dev', str(repo))
+    assert trial['status'] == 'conflict', f'方向不对称场景应报冲突：{trial}'
+    # git 对「改名 / 建目录」这类冲突会写成 `路径~<侧>`（这里是 `only-on-main.txt~main`），
+    # 故只断言**文件名前缀存在**，不要求逐字相等。
+    assert any('only-on-main.txt' in c for c in trial['conflicts']), trial['conflicts']
+
+
+def test_merge_trial_call_direction_is_release_direction(mod, diverged_repo, monkeypatch):
+    """钉住 `explain()` 传给 `_merge_trial` 的**参数顺序**。
+
+    `git merge-tree <A> <B>` = 「把 B 合进 A」。发版方向是 `dev`→`main`（right→left），
+    故必须调 `_merge_trial(left, right)` —— 传反了算出来的是反方向的冲突，
+    与发布 PR 无关。上面那条「同一文件两侧都改」的对称场景**测不出这个错**（实测探针 MISSED），
+    故这里直接记录调用参数。
+    """
+    seen = {}
+    real = mod._merge_trial
+
+    def spy(left, right, cwd=None):
+        seen['args'] = (left, right)
+        return real(left, right, cwd)
+
+    monkeypatch.setattr(mod, '_merge_trial', spy)
+    mod.explain('main', 'dev', str(diverged_repo))
+    assert seen.get('args') == ('main', 'dev'), (
+        f'发版方向是 dev→main（right→left），_merge_trial 必须收 (left, right)；实际 {seen.get("args")}'
+    )
+
+
+def test_explain_never_guesses_platform(mod, diverged_repo):
+    """`--explain` **不得**猜「提交来自 GitHub 还是 CNB」。
+
+    实测过三条路（提交信息启发式 / `refs/fetched` / `sync/mirror` 分支）都答不了这个问题：
+    `feat(detail): …（#2029 卡 B）` 与 `docs(api): …（#2029 卡 B）` 同批同源、
+    却没有任何标记能区分。猜错的代价是**报告指向错误的处置**（该发版的被判成纪律违规），
+    比不给结论坏得多。故这里钉住「只报可证事实」。
+    """
+    exp = mod.explain('main', 'dev', str(diverged_repo))
+    rendered = mod.build_explanation({'left': 'main', 'right': 'dev'}, exp)
+    for banned in ('github-pr', 'cnb-local', 'github-issue'):
+        assert banned not in rendered, f'报告不该出现平台归类标签 `{banned}`（那是猜）'
+
+
+def test_explain_renders_unknown_when_no_base(mod, monkeypatch):
+    """取不到 merge-base 时明写「试算不可用」，**不猜**成「无冲突」。"""
+    monkeypatch.setattr(mod, '_git', lambda *a, **k: (1, ''))
+    trial = mod._merge_trial('main', 'dev', None)
+    assert trial['status'] == 'unknown', trial
+    assert trial.get('reason')
+
+
+# ---------------------------------------------------------------------------
 # 三、边界：只读、不联网
 # ---------------------------------------------------------------------------
 
@@ -240,3 +399,29 @@ def test_real_repo_reports_divergence_or_green(mod):
         text=True,
     ).stdout.strip()
     assert str(res['left_only']) == real, f'脚本算的 {res["left_only"]} 与 git 的 {real} 不一致'
+
+
+def test_merge_tree_args_are_left_right(mod, monkeypatch):
+    """钉住 `_merge_trial` **自己**传给 `git merge-tree` 的参数顺序。
+
+    上一条只钉了 `explain` → `_merge_trial` 的传参；若有人在 `_merge_trial` 内部把
+    `_git([... left, right])` 写成 `right, left`，那一条照样绿（实测探针 MISSED）。
+    这里直接记录 `_git` 收到的参数，把方向钉死在**真正执行 git 的那一行**。
+
+    `git merge-tree <A> <B>` = 把 B 合进 A。发版是 `dev`→`main`（right→left），
+    故必须看到 `merge-tree ... left right`。
+    """
+    seen = {}
+    real = mod._git
+
+    def spy(args, cwd=None):
+        if args and args[0] == 'merge-tree':
+            seen['args'] = list(args)
+        return real(args, cwd)
+
+    monkeypatch.setattr(mod, '_git', spy)
+    # 用**本仓真实 ref**：`cwd=None` 在测试进程里不保证能解析出 main/dev。
+    mod._merge_trial('origin/main', 'origin/dev', str(_REPO_ROOT))
+    got = seen.get('args')
+    assert got is not None, '没有调到 merge-tree'
+    assert got[-2:] == ['origin/main', 'origin/dev'], f'merge-tree 的参数顺序必须是 (left, right)；实际 {got}'
