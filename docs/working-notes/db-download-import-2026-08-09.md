@@ -59,13 +59,19 @@
 - 不做：自动定时生成快照（初期手动/按需触发即可）。
 - 不做：快照增量差分（一期只做全量快照，增量靠日常 `--all`）。
 
-## 落地清单（挂 issue #「DB 下载导入层」）
+## 落地清单（挂 issue #1776）
 
-1. 后端：快照导出命令（`pdm run sync --snapshot <path>`）——复用现有读写管线，导出只读 SQLite 文件；
-2. 后端：`--full-sync` 裸调用拒绝 + 范围强制校验（`sync_metadata.py` 参数校验）；
-3. 后端：`GET /api/sync/snapshot/` 受控下载（或静态文件托管，二选一，视部署形态）；
-4. 客户端/CLI：快照导入命令（`pdm run sync --import-snapshot <file>`），含校验 + upsert 去重；
-5. 文档：同步入口职责说明更新（`--all` 日常 / `--full-sync` 限范围 / `--snapshot` 导出 / `--import-snapshot` 导入）。
+1. [x] 后端：快照导出命令（`pdm run sync --snapshot <path>`）——**2026-10-01 完成**（`services/sync/snapshot.py`，
+   SQLite 原生通道复制市场域表 + `snapshot_meta`，临时文件原子改名）；
+2. [x] 后端：`--full-sync` 裸调用拒绝 + 范围强制校验（`sync_metadata.py` 参数校验）——**2026-09-30 完成**（PR #1783，
+   `require_full_sync_scope` / `SYMBOL_BACKFILL_JOBS`）；
+3. [ ] 后端：`GET /api/sync/snapshot/` 受控下载（或静态文件托管，二选一，视部署形态）——**不做端点**：
+   部署形态决策（静态托管 / 内部文件分发即可满足"拿文件"），留待真正接入下载入口时再议；
+4. [x] 客户端/CLI：快照导入命令（`pdm run sync --import-snapshot <file>`），含校验 + upsert 去重——
+   **2026-10-01 完成**（校验：SQLite magic / `snapshot_meta` / 表白名单 / 格式版本；去重：本地唯一约束
+   `INSERT OR IGNORE`，不覆盖本地记录；rowid 主键 `id` 不导入，交给本地重新分配）；
+5. [x] 文档：同步入口职责说明更新——**2026-10-01 完成**（`AGENTS.md` 同步入口段 + 命令、
+   `docs/spec/data-strategy.md` §4.3 第 8 条）。
 
 ## 变更记录
 

@@ -347,6 +347,12 @@
 - 内层环（2px）：与卡片背景色一致，制造干净间隙
 - 外层环（4px）：品牌色，指示焦点位置
 
+> **边界（#1815）**：`--focus-ring` 是**双环**，只用于**非输入类**的键盘焦点
+> （按钮 / 链接 / 自定义控件 / 容器 `:focus-within`）。输入类控件
+> （`el-input` / `el-textarea` / `el-select`）一律用「输入框基线契约」的
+> `--input-focus-shadow` 柔光**单环**——把 `--focus-ring` 叠进输入框会得到三层描边，
+> 守卫 `scripts/guard_input_focus.py` 会拦。
+
 > 禁止移除 `outline` 而不提供替代视觉指示。所有交互元素需附带 `aria` 标签。
 
 > **自动化测试约束**：所有 CSS 变量（颜色）变更必须通过 axe-core 或 Lighthouse 进行对比度回归测试，确保 WCAG AA 合规。禁止在无自动化验证的情况下修改 `--text-*` 或颜色相关变量。
@@ -406,6 +412,127 @@
 | 消息列 | 限宽居中（约 820px）保阅读行宽；**输入 dock 与页面同宽贴底**（「消息窄、输入宽」是聊天界面通行比例） |
 | 空态 | 在消息流内垂直居中，不套卡片 |
 | 状态提示 | 贴输入区上方**左对齐**：右下角有全局「记一笔」FAB 常驻，文案放右侧会被压住 |
+
+### 三条硬约定：输入框焦点环 / 整屏页面滚动 / 右下角 FAB 安全区（#1714 复核）
+
+**① 焦点环只画一次。**
+
+Element Plus 给 `.el-textarea__inner:focus` 自带
+`box-shadow: 0 0 0 1px var(--el-input-focus-border-color) inset`（用**内描边**当边框）——
+只清静态 `box-shadow` 时它照旧生效，于是「容器焦点环 + 内部描边」叠成双线，
+观感就是「输入框一聚焦，外面多出一圈很奇怪的线」。
+
+**#1772 起这件事由「输入框基线契约」（见下文）单点负责**：亮 / 暗同一条焦点规则、
+只有一个环，页面**不再**手写「连 `:focus` 一起清掉」这类 `:deep` 对抗规则。页面侧只需：
+
+- 让控件自己聚焦：什么都不用做，基线已画好唯一那一环；
+- 让**容器**聚焦（如 agent 输入药丸）：用 `--input-focus-shadow: none` 关掉控件自身的焦点阴影，
+  再由容器 `:focus-within` 画 `--focus-ring`；
+- 容器自身不要在聚焦时同时留 `border` 与 `--focus-ring`：让 `border-color: transparent`，只留一环。
+
+**② 整屏高的页面用「单一滚动 + sticky 贴底」，不要自算视口高。**
+
+`height: calc(100vh - 顶栏)` 会把页面高度钉死在视口高，与 Layout（`lay-content` 的
+`el-scrollbar`）自己的滚动容器**叠加**，右侧就长出两条滚动条。正确写法：
+
+- 容器 `min-height: calc(100vh - var(--layout-topbar-height))`（内容少也占满一屏，多则交给外层唯一那条滚动条）；
+- 内容区**不滚动**（`overflow: visible`）；
+- 底部操作区（输入区 / 页脚动作）`position: sticky; bottom: 0` + **不透明底色**（否则内容从下面透出）；
+- sticky 可用性依赖 `el-scrollbar__view` 的 `overflow: clip`（不建立滚动容器，真正的滚动祖先是 `.el-scrollbar__wrap`，见 `lay-content/index.vue` 注释，#1528 同因）。
+
+参考实现：`frontend/src/views/agent/index.vue`。
+
+**③ 贴底 / 右下角固定元素必须避让「记一笔」FAB。**
+
+全局 FAB 固定在 `bottom-24 right-8`（距底 96px、距右 32px，直径 48px）⇒ 占据右侧
+`[32, 80]px` 这条竖带。任何贴在右下角的操作区（对话页输入行、贴底工具栏等）都要用
+**`--layout-fab-safe`** 预留横向空间，否则会和 FAB 压在一起——对话页的发送按钮就这样被压过
+（用户截图实测：FAB 把发送按钮盖成半个圆）。
+
+**但先问一句：这页真的需要 FAB 吗？** 隐藏控制有两个入口，**就近优先**（#1775）：
+
+| 方式 | 落点 | 适用 |
+|---|---|---|
+| 路由 meta | `meta: { hideQuickEntry: true }` | 单个页面，且希望在路由定义处一眼看到（现有 8 个记账 / 录入类页面用它） |
+| **集中清单** | `frontend/src/constants/fab.ts` 的 `QUICK_ENTRY_HIDDEN_ROUTES` | 一整类 / 前缀级目标（如 `/agent` 覆盖其全部对话页）——**新增屏蔽目标只改一行** |
+
+两者都作用于「FAB + 回到顶部」两枚浮标（实现：`layout/index.vue` 的 `isGlobalFabHidden`
+→ `.hide-global-fab` → `style/index.scss`）。
+
+**隐藏与预留是一对**：命中隐藏的页面**不要**再预留 `--layout-fab-safe`（白掉一截宽度）；
+从清单 / meta 摘掉时**必须恢复预留**，否则又会被压。
+
+**隐藏后入口去哪了：全局快捷键 `N`。** 隐藏 FAB 的页面仍要能「记一笔」——单键 `N`
+直接打开记账抽屉，实现见 `frontend/src/composables/useQuickEntryHotkey.ts`
+（`layout/index.vue` 注入，未隐藏页同样可用）。三道防误触守卫缺一不可：输入焦点
+（input/textarea/select/contenteditable 一律让键）、中文输入法 `isComposing`、EP 弹层
+`.el-overlay` **可见**时让键（注意 EP 遮罩是 vShow 常驻 DOM，须判 `display` 而非判存在）。
+首次进入隐藏页 toast 提示一次（sessionStorage 去重）。用户实测案例：自选页 `/watchlist`
+的 FAB 压住表格右下角固定操作列（置顶/关注/移除按钮），2026-10-10 起该页走此机制隐藏。
+
+### 输入框基线契约（#1772：el-input / el-textarea / el-select 唯一真相源）
+
+`el-input` / `el-textarea` / `el-select` 的内部视觉**只有一个真相源**：`frontend/src/style/element-plus.scss`
+的「输入基线」块。底色、边框三态、圆角、高度、文本域几何、焦点环全部由**令牌**表达，
+亮 / 暗两侧是同一条规则（`dark.scss` 的旧输入块已删除），**聚焦时只画一个环**。
+
+**页面侧只允许两件事：在容器上覆盖令牌、或写纯几何的 `:deep`。禁止再复制一套视觉覆盖。**
+
+#### 1. 令牌（声明在页面容器上，`element-plus.scss` 的 `:root` 是默认值）
+
+| 令牌 | 默认值 | 覆盖场景（真实读者） |
+|------|--------|----------------------|
+| `--input-bg` | `var(--bg-card)` | agent 输入药丸设 `transparent`（药丸自带底色） |
+| `--input-border-color` | `var(--border-default)` | agent 设 `transparent` |
+| `--input-hover-border-color` | `var(--brand-500)` | —— |
+| `--input-focus-border-color` | `var(--brand-700)` | 改焦点色时**必须与 `--input-focus-shadow` 同时覆盖** |
+| `--input-focus-shadow` | `inset 1px 品牌色 + 3px 12% 品牌柔光`（**单环**） | OCR / 识别导入柔环（40% 品牌 400）、agent `none` |
+| `--input-radius` | `var(--radius-sm)` | 标签搜索框 `--radius-pill`、AssetEntry 录入表单 `8px` |
+| `--input-height` | `auto`（= EP 原生 32px） | QuickEntry 三表单 / 流水编辑弹窗 `40px` |
+| `--input-textarea-padding` | `5px 11px` | 添加自选弹窗 `8px 12px`、agent `4px 8px` |
+| `--input-textarea-resize` | `vertical` | agent `none` |
+| `--input-transition` | `var(--el-transition-box-shadow)` | 柔光类用 `box-shadow 0.4s ease` 等放慢呼吸 |
+
+> **坑**：CSS 自定义属性的 `var()` 在**声明处**替换 —— 页面只改 `--input-focus-border-color`
+> 不会传导进默认的 `--input-focus-shadow`，要改焦点观感请直接覆盖 `--input-focus-shadow` 本身。
+
+#### 2. 焦点表达（亮 / 暗完全一致，**只有一环**）
+
+三条规则，无 `!important`：
+
+- input：`.el-input:not(.is-exceed) .el-input__wrapper.is-focus`
+- textarea：`.el-textarea:not(.is-exceed) .el-textarea__inner:focus`
+- select：`.el-select__wrapper.is-focused:not(.is-disabled)`
+
+`:not(.is-exceed)` 给超长红边让位；禁用态原生 input 拿不到焦点，无需再排 `.is-disabled`。
+
+表达式 = `--input-focus-shadow` 默认值：**1px 品牌内描边 + 3px 12% 品牌柔光**。
+
+> **`--focus-ring` 不属于输入类控件**（#1815）。它是无障碍的**双环**指示器
+> （`0 0 0 2px 间隙 + 0 0 0 4px 品牌实环`，见「Focus & Accessibility」），
+> 早先输入基线把它拼进 `--input-focus-shadow`，于是一个聚焦输入框叠出
+> 「1px 内描边 + 2px 间隙 + 4px 实环」**三层描边**——正是「输入框一聚焦，
+> 描边好几层」的成因。`--focus-ring` 只用于**非输入类**的键盘焦点
+> （按钮 / 链接 / 自定义控件 / 容器 `:focus-within`）。
+> 守卫 `scripts/guard_input_focus.py` 会拦住「把 `--focus-ring` 写回输入基线」。
+
+#### 2.1 校验错误态：红边取代焦点环，不叠加
+
+`.el-form-item.is-error` 下的 input / textarea / select（含其 `.is-focus` / `:focus`
+变体）统一为 `box-shadow: 0 0 0 1px var(--color-danger) inset`——**错误优先、且只有一层**；
+否则「红框 + 品牌柔光」同框又是多层描边。该规则写在焦点规则之后：两者特异性同为
+`(0,4,0)`，靠顺序取胜，不依赖 EP 内部规则的档位。
+
+#### 3. 允许的 `:deep` 例外（纯几何，现存 1 个文件，验收阈值 ≤2）
+
+| 文件 | 保留内容 |
+|------|----------|
+| `views/asset/AssetEntry.vue` | 录入表单的 padding / 字号 / 文本对齐（几何），圆角走 `--input-radius: 8px` |
+
+`rg -l -e ':deep\([^)]*(el-input__wrapper|el-textarea__inner|el-input__inner)' frontend/src`
+**应恒等于这 1 个文件**（注释里写这个正则同样计数，别在注释中复述）。原表中
+`BatchFixPanel.vue` 的「两条内边距微调」已随 #1792 面板重写移除——纯 class 选择器即可达成，
+不再需要 `:deep`。新增页面既不要成第 2 个，也不要另起一套 `:deep` 视觉覆盖 —— 需要差异就改令牌。
 
 ### 资产代码（symbol）展示契约（venue，2026-09-24 #1662 / D35 + D36）
 
@@ -471,6 +598,24 @@
 }
 ```
 
+#### 紧凑工具条按钮 · 尺寸梯度与热区（2026-10-09 定案）
+
+工具条类（自选页头部、卡片头、列表头）的按钮走**三级高度梯度**，与上表 40px 的表单按钮并存、不互相覆盖：
+
+| 变体 | 视觉尺寸 | 命中区 | 用途 |
+|------|---------|--------|------|
+| 主 CTA | 36px 高 | 36×36 | 工具条最右的主操作（如「添加自选」） |
+| 次级文字按钮 | 32px 高 | 32×32 | 次要操作（如「管理」） |
+| **纯图标按钮** | **28×28 正圆** | **40×40** | 刷新 / 导出 / AI 导入 / 实时估值 |
+
+两条机械约束（**优先级高于本表的尺寸数值**，因为它们由 CI 强制，其余只是规范）：
+
+1. **命中区扩到 40×40 只能用 `::after` 伪元素**（`position: absolute; inset: -6px`），**禁止用 `padding` 扩**——padding 与 border 一样绘制在 border-box 上，`content-box + width 28 + padding 6 + border 1` 得到的可见圆是 **42px**：既比 28 大一圈，又会被下一条的行容器盖子切掉上下各 1px，圆变成「上下压扁的椭圆」。
+2. **行容器禁止 `max-height` + `overflow: hidden`**：那是折叠态机制 2026-09-05 废弃后留下的天花板，行内控件高度各有各的来源，盖子只进不出就会切边。要收敛溢出请在控件本身收尺寸，不要在容器上盖盖子。
+
+> 两条由 `scripts/guard_control_clip.py` 在 CI `layout_guard` 阻断；回归样本见 `scripts/tests/guard_control_clip.test.js`。确需豁免，在出问题的**规则块内**写 `control-clip-allow` 注明理由。
+> 参考实现：`frontend/src/views/asset/watchlist/components/WatchlistHeadPrimary.vue`。
+
 #### 复合按钮 · 发送 / 停止（#1714）
 
 对话输入区的「发送」与「停止」是**同一个按钮的两个态**，不是两个按钮：
@@ -496,7 +641,7 @@
 | 边框 | `--border-default` |
 | 圆角 | `--radius-sm` |
 | 高度 | 40px |
-| Focus | 边框 `--brand-700` + `--focus-ring` |
+| Focus | 边框 `--brand-700` + 输入基线柔光单环（`--input-focus-shadow`） |
 
 ### Card
 
@@ -591,6 +736,42 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
    - **二级筛选（状态/子维度）**：如"持有状态（全部/持仓/观察中/已清仓）"或"自定义分组"。**严禁将此维度放在左侧边栏**。必须将其转化为 **`水平滑动胶囊栏 (Horizontal Scroll Capsules)`**，紧贴在一级筛选栏下方。超出容器宽度时支持触控/鼠标滚轮横向滑动，严禁强制换行挤压表格空间。**它是与 `SegmentedControl` 并列的独立语言**（分水岭：需横向滚动 ⇒ 胶囊栏，平铺 ⇒ 分段控制器），不属守卫第 ③ 条的回潮，参考实现 `views/asset/favorites/components/RoadFilterBar.vue` 的 `.road-pills--scroll`。
 
 2. **去冗余原则**：明确各筛选维度的交集逻辑，**禁止在列表上方同时出现"全部/股票/基金"与"场内/场外"等语义重叠的筛选层**，统一整合进两级筛选架构中。
+
+### 导入预览问题摘要三卡片（#1791）
+
+> 导入向导第 3 步「预览与修正」的摘要面板（`views/asset/investment/import/components/SummaryPanel.vue`）。**三卡片是数据分诊的唯一分类法**，已吞并并删除原胶囊 Tab（全部 / 已校验 / 重复项 / 待确认）——禁止两套分类口径并存。
+
+| 卡片 | 图标语义色 | 内容 |
+|------|-----------|------|
+| 数据完整 | `--color-success-ink` | 条数 + 三态全选复选框 +【展开查看】 |
+| 疑似重复 | `--color-warning-ink` | 条数 + 复选框 +「已自动跳过，如需保留请手动勾选」+【展开查看】 |
+| 需要修正 | `--color-danger-ink` | 条数 + 细分错误 chips（`--color-danger-10` 底 / `--color-danger-30` 边 / `--color-danger-ink` 字）+【批量修正】+【展开查看】 |
+
+- **和式不变量**：三类互斥完备（complete / duplicate / fix），卡片条数 = 展开后表格条数 = 底部「展开全部数据（总条数）」——三处共用同一分类谓词，**不是各数一遍再对数**。
+- **卡即过滤器**：【展开查看】过滤下方表格、再点【收起】复原；无论展开哪一类，摘要面板**常驻**（表格是唯一滚动容器）。
+- 面板底部恒显「已选择 N 条」+【展开全部数据（总条数）】。
+- 组件级结构与实现细节见 `docs/design/components.md`「导入预览问题摘要三卡片」。
+
+### 批量修正面板（内联展开，#1792）
+
+> 导入向导第 3 步的修正面板（`views/asset/investment/import/components/BatchFixPanel.vue`），源设计 #783 §4~§5。**由摘要面板下方内联展开（`.step3-fixpanel`），禁止改回右侧抽屉 / 覆盖层**——摘要、修正面板、表格三者同屏互不覆盖是验收硬项（`rg -e 'el-drawer' …/PreviewStep.vue` 须 0 命中）。
+
+- **形态随阈值切换**（判定纯函数 `classifyFixMode`，`composables/batchFixLogic.ts`，边界由 vitest 单测钉住）：
+
+  | 条件 | 形态 | 说明 |
+  |------|------|------|
+  | 无问题行 | `none` | 「本批数据校验通过」空态 |
+  | 单一可批量分区（任意条数） | `batch` | §4-3：同类型固定走分类批量，≤10 也不进逐条 |
+  | >10 条且含可批量分区 | `batch` | 纯解析错误则 `table` |
+  | ≤10 条混合 | `single` | 卡片式单条表单 |
+  | ≤10 条纯解析错误 | `table` | 引导去完整表格 +【跳过】 |
+
+- **四分区**（`batch` 形态，分区头点击即过滤表格）：代码未匹配（【应用到全部】【全部跳过】）、单价/数量缺失（【自动填充】【查看已填充数据】【撤销】【逐条修正】【全部跳过】）、数据不一致（【自动修正金额】【逐条修正】【全部跳过】）、**逆回购识别**（信息型，非问题分区：【查看转换结果】【撤销】）。
+- **撤销栈**：分区级【撤销】仅在栈顶作用域匹配时可点（`undoTopScope`），顶部【撤销上一步】逐层回滚任意最近操作，上限 20 层；回滚统一走 `UNDO_FIELDS` 快照（`snapshotRows/restoreRows`，单测覆盖）。
+- **逆回购**：解析期按代码模式识别（沪 204xxx / 深 1318xx → `reverse_repo` + 配置目标「活钱」）；**类型识别是解析事实不可撤**，配置目标可撤（回「长期增值」）。
+- **有界内滚**：面板 `flex: 0 1 auto; max-height: 42%; overflow-y: auto`——面板内部滚动，表格仍是主滚动区。
+- **测试锚点**（E2E 断言用，勿删）：`[data-fix-panel]` / `[data-fix-mode]` / `[data-section]` / `[data-fix-card]`。
+- 无硬编码 hex，全部走语义令牌；暗色适配见 `design.dark.md` 注记，组件结构见 `docs/design/components.md`「批量修正面板」。
 
 ### 分组胶囊 Tab（Group Tab）
 
@@ -749,7 +930,7 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 | 元素 | 涨（红） | 跌（绿） |
 |------|----------|----------|
 | 盈亏数字 | `--color-rise` | `--color-fall` |
-| 收益率标签 | `--brand-100` 底 + `--brand-700` 字 | `#F0F9F2` 底 + `#38A354` 字 |
+| 收益率标签 | `--brand-100` 底 + `--color-rise-ink` 字 | `#F0F9F2` 底 + `--color-fall-ink` 字 |
 | 走势图 | 红色渐变区域 | 绿色渐变区域 |
 
 > 所有图表颜色通过 `getComputedStyle` 动态读取 CSS 变量，禁止硬编码色值。

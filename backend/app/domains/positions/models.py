@@ -56,6 +56,25 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     currency = Column(String(10), default='CNY')
     current_price = Column(Integer, default=0, comment='当前市价(0.0001元)')
 
+    # ── 当日盈亏基准（#2007）──
+    # 当日盈亏 = (current_price − prev_close) × quantity，所以基准价必须与 current_price
+    # **同源同批**写入（都出自「最近一次已确认快照」的两根相邻数据），否则两个数来自不同
+    # 时点，相减出来的是两段行情之差、不是「当日」涨跌。
+    # 写入方：`services/sync/jobs/position_price_job`——场内取 `price_history` 倒数第二根
+    # 收盘价，场外取 `daily_worth` 上一根确认净值。
+    # 未取到 / 无意义（货基按面值计价）时留 **NULL**，不写 0：0 会被前端读成
+    # 「今天一分没涨没跌」，而 NULL 才能诚实降级成「—」。
+    prev_close = Column(
+        Integer,
+        nullable=True,
+        comment='上一确认价(0.0001元)；与 current_price 同批写入，未取到=NULL（#2007）',
+    )
+    price_date = Column(
+        Date,
+        nullable=True,
+        comment='current_price 对应的交易日(场内=收盘日/场外=净值日)；未知=NULL（#2007）',
+    )
+
     # ── 双态计价字段（#1174 / 决策 D1 方案 A）──
     # valuation_mode 决定市值如何计算：nav=份额×净值；balance=直接余额（无净值产品，市值靠人工录入）。
     # 设为持仓的一等属性，而非靠「有没有 override」隐式推断，后续盈亏口径才能跟着模式走。

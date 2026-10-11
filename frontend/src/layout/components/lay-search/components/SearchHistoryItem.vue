@@ -34,11 +34,19 @@ function handleDelete(item) {
     v-show="item.type === 'history'"
     :icon="StarIcon"
     class="w-[18px] h-[18px] mr-2 hover:text-[#d7d5d4]"
+    role="button"
+    tabindex="0"
+    aria-label="收藏该条历史"
+    @keydown.enter.stop="handleCollect(item)"
     @click.stop="handleCollect(item)"
   />
   <IconifyIconOffline
     :icon="CloseIcon"
     class="w-[18px] h-[18px] hover:text-[#d7d5d4] cursor-pointer"
+    role="button"
+    tabindex="0"
+    aria-label="删除该条历史"
+    @keydown.enter.stop="handleDelete(item)"
     @click.stop="handleDelete(item)"
   />
 </template>

@@ -98,6 +98,8 @@ export default withDuxTheme(
         { text: '首页', link: '/' },
         { text: '使用', link: '/guide/' },
         { text: '功能', link: '/features/' },
+        // 更新日志：内容构建期从 FeedLog 拉取，本仓不维护第二份（见 scripts/docs/load-changelog.mjs）
+        { text: '更新日志', link: '/changelog/' },
         { text: '接口', link: '/api/' },
         { text: '博客', link: '/blog/' },
         { text: '关于', link: '/about/' },

@@ -103,7 +103,8 @@ watch(
       <el-dropdown trigger="click">
         <span class="el-dropdown-link navbar-bg-hover select-none">
           <Superellipse class="navbar-avatar" :style="avatarsStyle" :power="3">
-            <img :src="userAvatar" />
+            <!-- 装饰性头像：用户名就在旁边，alt 留空（#1838） -->
+            <img :src="userAvatar" alt="" />
           </Superellipse>
           <p v-if="username" class="dark:text-white">{{ username }}</p>
         </span>
@@ -122,6 +123,9 @@ watch(
       <span
         class="set-icon navbar-bg-hover"
         title="打开外观设置"
+        role="button"
+        tabindex="0"
+        @keydown.enter="onPanel"
         @click="onPanel"
       >
         <IconifyIconOffline :icon="Palette" />

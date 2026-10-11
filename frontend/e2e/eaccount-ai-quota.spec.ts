@@ -53,7 +53,7 @@ test.describe("E账户导入 AI 额度（#1695：limit=0 不被 || 吞、used �
       });
     });
 
-    await page.goto("/#/investment/eaccount-import");
+    await page.goto("/#/investment/holding-import");
     // 切到 AI 模式才会拉取额度（switchMode → fetchAiUsage）；入口是 tablist 里的 role="tab"
     await page.getByRole("tab", { name: /AI 识别持仓/ }).click();
 
@@ -87,7 +87,7 @@ test.describe("E账户导入 AI 额度（#1695：limit=0 不被 || 吞、used �
       })
     );
 
-    await page.goto("/#/investment/eaccount-import");
+    await page.goto("/#/investment/holding-import");
     await page.getByRole("tab", { name: /AI 识别持仓/ }).click();
 
     // 核心断言：正确读 used → 30-5=25——修复前 d.count=undefined 显示 NaN（本条即抓出线上缺陷的回归网）

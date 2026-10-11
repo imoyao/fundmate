@@ -54,7 +54,14 @@ onMounted(() => {
     class="horizontal-header"
     :style="{ backgroundColor: 'var(--bg-card)' }"
   >
-    <div v-if="showLogo" class="horizontal-header-left" @click="backTopMenu">
+    <div
+      v-if="showLogo"
+      class="horizontal-header-left"
+      role="button"
+      tabindex="0"
+      @keydown.enter="backTopMenu"
+      @click="backTopMenu"
+    >
       <BrandLogo :size="34" />
       <span class="navbar-brand-name">
         {{ title }}
@@ -87,7 +94,8 @@ onMounted(() => {
       <el-dropdown trigger="click">
         <span class="el-dropdown-link navbar-bg-hover">
           <Superellipse class="navbar-avatar" :style="avatarsStyle" :power="3">
-            <img :src="userAvatar" />
+            <!-- 装饰性头像：用户名就在旁边，alt 留空（#1838） -->
+            <img :src="userAvatar" alt="" />
           </Superellipse>
           <p v-if="username" class="dark:text-white">{{ username }}</p>
         </span>
@@ -106,6 +114,9 @@ onMounted(() => {
       <span
         class="set-icon navbar-bg-hover"
         title="打开外观设置"
+        role="button"
+        tabindex="0"
+        @keydown.enter="onPanel"
         @click="onPanel"
       >
         <IconifyIconOffline :icon="Palette" />

@@ -63,6 +63,16 @@ MARKET_LABELS = {
     '': '通用',
 }
 
+# ── 交易场所标签 ──
+# 与 market 正交：venue 表示「场内 / 场外」，'' 为无场所实体（经理/投顾组合，#1286）
+# 的约定取值。详情页此前把 EXCHANGE / OTC 原键直接排版给用户看（#1969 P0），
+# 故与 MARKET_LABELS 一并收口于此、随 /api/utils/enums 下发。
+VENUE_LABELS = {
+    'EXCHANGE': '场内',
+    'OTC': '场外',
+    '': '',
+}
+
 # ── 五笔钱 / 配置目标标签 ──
 ALLOCATION_LABELS = {
     'liquid': '活钱',

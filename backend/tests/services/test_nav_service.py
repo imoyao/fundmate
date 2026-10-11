@@ -83,6 +83,60 @@ def test_allow_remote_false_never_touches_network(db):
     mock_fetch.assert_not_called()
 
 
+# ── get_latest_navs_with_prev（#2007 当日盈亏基准）────────────────────────
+
+
+def test_latest_navs_with_prev_returns_adjacent_pair(db):
+    """同一次查询给出「最新 + 上一根」，且两根必须**相邻**。
+
+    当日盈亏 =（最新 − 上一根）× 数量。若两根之间隔着一次补数，差额就不是「当日」涨跌，
+    所以这两个值不允许各自去取「最新」再拼接。
+    """
+    _seed(db, '005827', 1.2, date.today() - timedelta(days=2))
+    _seed(db, '005827', 1.5, date.today() - timedelta(days=1))
+
+    result = NavService.get_latest_navs_with_prev(db, ['005827'])
+
+    nav, nav_date, prev_nav = result['005827']
+    assert nav == 1.5
+    assert nav_date == date.today() - timedelta(days=1)
+    assert prev_nav == 1.2
+
+
+def test_latest_navs_with_prev_single_row_still_returns_nav(db):
+    """只有一根时照常返回最新净值（`prev_nav` 为 None）。
+
+    不能把这类基金整个排除——调用方还要拿最新净值去写 `current_price`，
+    排除就等于把「没有上一根」误伤成「没有净值」。
+    """
+    _seed(db, '005827', 1.5, date.today() - timedelta(days=1))
+
+    result = NavService.get_latest_navs_with_prev(db, ['005827'])
+
+    nav, _nav_date, prev_nav = result['005827']
+    assert nav == 1.5
+    assert prev_nav is None
+
+
+def test_latest_navs_with_prev_is_local_only(db):
+    """纯本地读：绝不因为库里少一根就联网（当日盈亏属展示口径）。"""
+    with patch(FETCH) as mock_fetch:
+        assert NavService.get_latest_navs_with_prev(db, ['999999']) == {}
+    mock_fetch.assert_not_called()
+
+
+def test_latest_navs_with_prev_respects_lookback_window(db):
+    """窗口之外的更早一根不参与：窗口只给扫描限界，不当成「上一日」用。"""
+    _seed(db, '005827', 1.0, date.today() - timedelta(days=200))
+    _seed(db, '005827', 1.5, date.today() - timedelta(days=1))
+
+    result = NavService.get_latest_navs_with_prev(db, ['005827'], lookback_days=30)
+
+    nav, _nav_date, prev_nav = result['005827']
+    assert nav == 1.5
+    assert prev_nav is None, '190 天前那根不该被当成「上一日」'
+
+
 def test_empty_codes_short_circuit(db):
     """空列表直接返回，不查库也不触网。"""
     with patch(FETCH) as mock_fetch:

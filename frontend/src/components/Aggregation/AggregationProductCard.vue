@@ -324,7 +324,9 @@ function handleClick() {
   color: var(--brand-600, #f06b57) !important;
 }
 
-/* 收益率胶囊：涨跌语义走 design.md「收益率标签」规范（涨 brand-100 底 + 跌 #F0F9F2 底） */
+/* 收益率胶囊：涨跌语义走 design.md「收益率标签」规范（涨 brand-100 底 + 跌 #F0F9F2 底）。
+   字色必须走 --color-*-ink（#1837）：规范里原先写死的 #38A354 是浅绿字配浅绿底，约 3.3:1，
+   13px 文字不达 AA，且暗色下无对应值（正收益态用的是会自动翻暗的 --brand-100，负收益态不会）。 */
 .return-badge {
   flex-shrink: 0;
   padding: 2px 10px;
@@ -341,7 +343,8 @@ function handleClick() {
 }
 
 .return-badge--negative {
-  color: #38a354;
+  /* 底色仍是规范里的 #F0F9F2（无对应令牌，补令牌需同时给暗色值，另开卡处理） */
+  color: var(--color-fall-ink);
   background: #f0f9f2;
 }
 

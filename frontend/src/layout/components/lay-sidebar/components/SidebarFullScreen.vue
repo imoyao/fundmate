@@ -24,7 +24,14 @@ watch(
 </script>
 
 <template>
-  <span class="fullscreen-icon navbar-bg-hover" @click="toggle">
+  <span
+    class="fullscreen-icon navbar-bg-hover"
+    role="button"
+    tabindex="0"
+    aria-label="切换全屏"
+    @keydown.enter="toggle"
+    @click="toggle"
+  >
     <IconifyIconOffline :icon="screenIcon" />
   </span>
 </template>

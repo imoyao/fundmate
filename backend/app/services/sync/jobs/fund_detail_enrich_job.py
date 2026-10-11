@@ -100,16 +100,25 @@ class FundDetailEnrichJob(SyncJob):
                     self.stats['errors'].append({'fund_code': code, 'error': str(e)})
 
             # 批次提交
+            enriched_before = self.stats['enriched']
             try:
                 self.db.commit()
             except Exception as e:
                 self.db.rollback()
                 logger.error(f'批次提交失败: {e}')
+                # #1833：commit 失败意味着这一批的写入**全部丢失**，而逐只累加的
+                # enriched 计数不会自动回退。若仍记 SUCCESS，sync_logs 里就留下一条
+                # 「enriched=N 但一条都没落库」的假成功，get_last_sync_time 还会拿它
+                # 当增量基线，health 也会报「调度正常」。口径照 asset_snapshot_job /
+                # position_price_job（有 errors 就 FAILED）。
+                self.stats['errors'].append({'stage': 'batch_commit', 'batch_size': len(batch), 'error': str(e)})
+                self.stats['enriched'] = enriched_before
 
             time.sleep(1)  # 避免请求过快
 
         self._post_run()
-        self.status = JobStatus.SUCCESS
+        # 有 errors 就判 FAILED：不能一边记录错误一边宣称成功（#1833）
+        self.status = JobStatus.FAILED if self.stats.get('errors') else JobStatus.SUCCESS
         self.logger.info(
             f'基金详情补充完成: 新增 {self.stats["enriched"]}, '
             f'跳过 {self.stats["skipped"]}, 错误 {len(self.stats["errors"])}'

@@ -16,6 +16,7 @@ from sqlalchemy import func
 
 from app.core import database  # 晚绑定：属性在调用时解析，勿改成 from-import（#1608）
 from app.core.time_utils import today_shanghai
+from app.core.trading_calendar import is_trading_day
 from app.domains.temperature.models import MarketComposite, MarketMultiItem, MarketSingleValue
 from app.services.thermometer.constants import LINKS as THERMOMETER_LINKS
 from app.services.thermometer.constants import label_temp
@@ -464,13 +465,30 @@ class TemperatureService:
         if dates:
             latest_date = max(dates)
             age_days = (today_shanghai() - latest_date).days
+            latest_d = latest_date.date() if hasattr(latest_date, 'date') else latest_date
+            today_val = today_shanghai()
+            today_d = today_val.date() if hasattr(today_val, 'date') else today_val
+            if not is_trading_day(today_d):
+                # 非交易日：数据停留上一交易日属正常，不提示调度故障（#1720）
+                stale = False
+            else:
+                # 交易日：最新数据早于「上一交易日」即陈旧（已跨交易日未更新）
+                cur = today_d - timedelta(days=1)
+                last_td = cur
+                for _ in range(730):
+                    if is_trading_day(cur):
+                        last_td = cur
+                        break
+                    cur -= timedelta(days=1)
+                stale = latest_d < last_td
         else:
             latest_date, age_days = None, None
+            stale = False
         freshness = {
             'latest': latest_date.isoformat() if latest_date else None,
             'age_days': age_days,
-            'stale': bool(age_days is not None and age_days > FRESHNESS_THRESHOLD_DAYS),
-            'threshold_days': FRESHNESS_THRESHOLD_DAYS,
+            'stale': bool(stale),
+            'threshold_days': FRESHNESS_THRESHOLD_DAYS,  # 仅作自然日展示参考
         }
 
         return {

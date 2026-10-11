@@ -14,6 +14,7 @@
 - [技术栈与开发环境](#技术栈与开发环境)
 - [后端开发](#后端开发)
 - [前端开发](#前端开发)
+- [前端交互修复：判据与验证](#前端交互修复判据与验证强制2026-10-06)
 - [文档站与落地页](#文档站与落地页)
 - [核心约束](#核心约束)
 - [数据域架构（双引擎硬规则）](#数据域架构双引擎硬规则)
@@ -137,6 +138,16 @@
   - `core/requests_patch.py`：东财 TLS 补丁（全局 `impersonate chrome`）。
   - `core/v8_guard.py`：`py_mini_racer` 并发构造守卫（进程级锁 + 启动预热），防止 akshare
     并发取数触发 V8 Fast Fail 硬杀后端（#1566；不要绕过它去「修」各调用点）。
+  - `core/instance_guard.py`：**同一 DB 的 web 单实例守门**（`data/app_instance.lock`，排在
+    `init_db()`/迁移之前）。SQLite 只允许一个写者，多实例共享同一库会让写请求等满
+    `busy_timeout` 后报 `database is locked`；Windows 的 `SO_REUSEADDR` 还会让第二个
+    `flask run` **不报端口占用**、静默多起一个实例（#1809）。冲突实例以**退出码 4** 退出，
+    持有者 PID 记在 `data/app_instance.owner`；`APP_INSTANCE_GUARD=0` 可显式关闭。
+    **退出码不能用 3**：3 是 werkzeug 重载器「请重载」的哨兵，冲突退 3 会让父进程无限
+    拉子进程刷屏（#1810 初版即踩中，#1816 修正）。配套两道防线：重载父进程**只探查不持锁**，
+    锁被占即在 `init_db()` 之前退出；`main.py` 导入期置
+    `BaseWSGIServer.allow_reuse_address = False`，让第二个实例直接死在绑端口
+    （打印 `Port <n> is in use by another program.`），同样见 #1816。
 - **服务层**：
   - `services/sync/`：同步编排器 + 各 `SyncJob` 实现（编排/注册类）。
   - `services/adapters/`：第三方数据适配层（xalpha / akshare / 东财直连 / 韭圈儿 / 各投顾平台）；
@@ -149,6 +160,20 @@
 - **同步入口**：两套 CLI（`pdm run invoke grab.*` 和 `pdm run sync --job`），共用 `DataSyncOrchestrator`。
   **本机常驻**另有两条路：`.env` 置 `SCHEDULER_ENABLED=1` 随应用启动，或 `pdm run scheduler-daemon`
   独立守护（同机靠单实例锁只跑一份）；详见 `docs/dev/scheduler-tasks.md`。
+  - **`--full-sync` 必须带范围（#824 / #1776 ④）**：逐标的回填型 job（`fund_nav` / `price_history` /
+    `fund_detail_enrich` / `fund_manager` / `fund_type` / `fund_company_backfill` / `fund_position` /
+    `position_price` / `dividend_split`）裸 `--full-sync` 由 CLI 直接拒绝（`sync/orchestrator.py` 的
+    `SYMBOL_BACKFILL_JOBS` + `require_full_sync_scope`，接入 `sync_metadata.py` / `sync_cli.py`），
+    必须配 `--targets <code>[,<code>...]` 或 `--target-file <csv>`（全市场逐标的全量回填会触发数据源封禁
+    且耗时以小时计）；`--all --full-sync` 同样必须带 `--target-file`。列表型（`fund_list` / `stock_list`）/
+    指数型（`index_*`）/ 温度计型 job 单次调用换全市场，裸 `--full-sync` 为其正常模式，不受限。
+  - **基金净值止于 T-1（#824）**：`fund_nav_job._validate_data` 丢弃 `date >= today` 的记录——净值发布有
+    滞后，T 日 / 未来净值尚未成立，不得入库。
+  - **初始化/重建走 DB 快照，不走全市场拉取（#1776 ⑤）**：`pdm run sync --snapshot <path>` 导出市场域
+    只读快照（31 张市场域表 + `snapshot_meta`，**不含用户私有数据**、排除 `sync_logs`），文件分发给用户后
+    `pdm run sync --import-snapshot <file>` 本地导入（校验 magic / meta / 表白名单，按本地唯一约束
+    `INSERT OR IGNORE` 幂等去重，不覆盖本地记录）。实现见 `services/sync/snapshot.py`，设计见
+    `docs/working-notes/db-download-import-2026-08-09.md`。
 
 ### 日志（2026-08-09 统一）
 
@@ -171,6 +196,7 @@
 | 运行 API | `pdm run flask --app app.main:app run --debug --host 0.0.0.0 --port 8000` |
 | 测试 | `pdm run pytest -p no:xdist`（或 `pdm run invoke test`） |
 | 同步任务 | `pdm run invoke grab.temperature` / `grab.all` / `grab.job <name>`<br>或 `pdm run sync --job temperature` |
+| 全量回填 | `pdm run sync --job <name> --full-sync --targets <code>[,<code>...]`（或 `--target-file <csv>`）——逐标的回填型 job（`fund_nav` / `price_history` 等）**禁止裸 `--full-sync`** |
 | 本机每日调度 | `pdm run invoke sched.status`（状态，只读）<br>`pdm run scheduler-daemon`（常驻守护，Ctrl+C 退出） |
 | Lint & Format | `pdm run ruff check .` / `pdm run ruff format .` |
 | 诊断东财抓取 | `pdm run python scripts/diag_em.py` |
@@ -215,6 +241,115 @@
 
 ---
 
+## 前端交互修复：判据与验证（强制，2026-10-06）
+
+> 本节来自 #1830–#1842 排查、#1845 / #1883 / #1890 / #1891 / #1892 / #1896 六轮修复的复盘。
+> 那一批问题里，**同一类形态反复出现三次**（`initialSnapshot = ref("")` 拿空串当基线、
+> 成功路径不复位、宿主没接线），每一次的发现方式都相同：**先扫全仓，再逐处核实**。
+
+### 一、加「未保存离开保护」前先答三问
+
+扫描出「有录入 UI 但无守卫」的组件后，**不要直接加守卫**。按顺序核实这三问，任一命中就**不要加**：
+
+| 问法 | 命中则 | 为什么 |
+|---|---|---|
+| **1 数据归谁管？** | 数据在别的 composable / context 里 → 不加 | 数据不在自己手里，守卫拦不住也不该拦。`CreateLedgerDialog`（#1897）字段全来自 `useImportWizardContext()`，纯展示组件 |
+| **2 有草稿 / 自动保存吗？** | 有 `persist` / localStorage / draft → 不加 | 丢了能恢复，守卫是多余的打断。`EaccountManualPanel` 的 `useEaccountImport` 有 `draft` ×21 / `persist` ×5 |
+| **3 关闭路径是显式的吗？** | 只有显式「取消 / 保存」→ 不加 | 静默丢失才需要拦。`RoadCardEditor` 无「点外部收起」，用户点的是有字的按钮，天然知道会丢 |
+
+**反过来，三问都不命中就必须加**——`EditAccountDialog`（#1896）就是这样：数据自己管、
+无草稿、13 个字段且弹窗可点遮罩关闭。更糟的是它**自己写了一份 `editFormSnapshot` 比较却只用来
+禁用保存按钮**，没有任何人读它，于是「改了费率配置点关闭」全程静默丢弃。
+
+> **判据是「数据归谁管」，不是「有没有守卫」。** 同一份 `AccountFormFields` 的三个宿主，
+> 两个需要守卫、一个不需要——差别在数据归属，不在代码长相。
+
+### 二、守门要分两层，组件层抓不到「宿主没接线」
+
+`#1891` 那一页整块漏了守卫，但三个表单组件**本身都没问题**——问题是**没人读它们的 `isDirty`**。
+组件层守门（断言 `isFormDirtyJson` 语义、断言组件用了共享 helper）**对此完全无能为力**，
+因为出问题的不是组件，是宿主有没有把 `isDirty` 接进守卫。
+
+所以新增「未保存」类守门时，**必须同时覆盖两层**：
+
+- **组件层**：脏基线语义（`baseline === null` 视为不脏）、用共享 helper 不手写快照比较；
+- **接线层**：宿主必须调 `useUnsavedChangesGuard`，且脏状态要真的读到了子组件的 `isDirty`
+  （只断言 `isDirty` 存在不够——它可能像 `EditAccountDialog` 那样只被用来禁用按钮）。
+
+接线层的断言要按**复用关系**枚举，而不是按文件：`AccountFormFields` 的三个宿主、
+快速录入的三个表单，都要在名单里；名单扩到新成员时守门要一起扩。
+
+### 二之二、弹窗类：只调 composable 不够，四路要各自接上（2026-10-06 踩过）
+
+`useUnsavedChangesGuard` 内部的 `onBeforeRouteLeave` **只覆盖「路由离开」**那一路。
+弹窗还有两路，必须调用方自己接：
+
+| 路 | 谁接 | 不接的后果 |
+|---|---|---|
+| 路由离开 | composable 内部自动 | — |
+| **关闭按钮 / ESC / 点遮罩** | 调用方挂 `:before-close="onBeforeClose"` | **点 × 直接关掉，数据静默丢失** |
+| **底部「取消」等程序化 close** | 调用方包 `requestClose(close)` | 同上（程序化 close 走不到 `before-close`） |
+
+#### 最容易犯的错：把「关闭时复位基线」当成拦截
+
+`#1898` 就是这么错的，原话写在 PR 里：
+
+> 「底部「取消」是程序化 `emit('update:visible', false)`，走不到 `before-close`，
+> 但 `fillOnOpen(false)` 已在关闭时复位，两条路都覆盖到。」
+
+**`fillOnOpen(false)` 跑在 `watch(props.visible)` 里——弹窗已经关了之后才复位基线。**
+它的作用是「让**之后**的离开不再弹确认」，**阻止不了这次关闭**。把它当拦截手段，
+结果就是：用户改了字段点 ×，弹窗直接关、数据没了，而 composable 内部那条路根本没被触发。
+
+修法（`#1901` 补的）：`:before-close="onBeforeClose"` + 底部按钮
+`@click="requestClose(() => emit('update:visible', false))"`。
+
+#### 判别口诀
+
+**「这个操作会让弹窗关掉吗？」** —— 会，就必须在**关闭之前**问。
+在关闭之后执行的任何复位、清理、重置，都不是拦截。
+
+### 三、守门通过 ≠ 守门有效：必须用探针自检
+
+新写/改判据后，**跑一次绿不算数**。要临时注入一次回退，确认守门真的会红：
+
+```powershell
+# 临时把修复删掉 → 确认该条用例 not ok → 还原 → 确认恢复全绿
+python - <<'PY'
+import pathlib, subprocess
+F = "frontend/src/views/asset/ledgers/components/EditAccountDialog.vue"
+orig = pathlib.Path(F).read_text(encoding="utf-8")
+pathlib.Path(F).write_text(orig.replace("markSaved();", "", 1), encoding="utf-8", newline="")
+r = subprocess.run(["node", "--test", "scripts/tests/unsaved_guard_baseline.test.js"],
+                   capture_output=True, text=True, encoding="utf-8", errors="replace")
+print("CAUGHT" if any(l.startswith("not ok") for l in r.stdout.splitlines()) else "MISSED（守门失效）")
+pathlib.Path(F).write_text(orig, encoding="utf-8", newline="")
+PY
+```
+
+今天的两次真实拦截：#1891 那一版判据按**缩进**截取函数体，被 `CreateAccountDialog.handleCreate`
+里第 98 行闭的是 `if (!name.trim())` 假失败；另一版用 `/set\s*\(/` 匹配不到对象方法的
+`set: (v) => {}`（`set` 与 `(` 之间有冒号）。**判据自己先崩了两次**——所以判据写好后
+必须在**真实代码**上跑，且要有一次回退验证。
+
+### 四、正则/字符串类判据的两个常见错
+
+- **按缩进截取函数体会截错**：`async function f() { if (x) { … } … }` 里第一个 `\n  }` 闭的是
+  `if` 不是函数。要**数花括号配对**（`extractAsyncFunctionBody` 那段）。
+- **先 `stripComments` 再匹配**：文档里写「旧写法是 `ref("")`」会被当成代码，仓库里
+  `unsaved_guard_baseline.test.js` 的注释已经明说「今天已被咬第三次」。
+
+### 五、扫描优先于抽查
+
+一轮扫 18 个候选，最后只有 1 个是真问题（#1896）。**抽查会漏掉同型漏点**——
+#1845 / #1883 / #1884 三轮都在修组件内部语义，而 #1891 那一页始终漏着，因为三轮都没扫过宿主。
+机械化扫一遍的成本是几分钟，漏一个的代价是一整轮返工。
+
+判定「不需要修」时，**把三问的答案写进卡或守门注释**，否则下一个人看到「没守卫」就会去补。
+`#1897` 就是反面教材：建卡时只看到「在向导内、没守卫」，没查数据归属，卡建错了又关掉。
+
+---
+
 ## 依赖复用与 Worktree 规范
 
 > 多 worktree 并行开发时，每个 worktree 重复 `pnpm install` / `pdm install` 既耗时又占盘。本节规定复用策略，所有 AI / 开发者开新 worktree 后**必须**按此执行。
@@ -227,12 +362,52 @@
   之类都无所谓），但只要要**改文件**，就换到 worktree。
 - **禁止在主仓库执行会改写工作区的命令**：`git checkout <分支>` / `git switch` / `git stash pop|apply` /
   `git reset --hard` / 有本地改动时的 `git pull` 等。确需切换分支时**先停掉 dev server**。
+  **同样禁止**（2026-10-05 补充，见下节）：`git add` / `git commit` / `git checkout -- <file>` /
+  `git restore` / `git rebase` / `git reset --soft` / `Remove-Item` / `rm`。
+  判据不是命令名，而是**是否改写主仓库工作区或 `.git` 状态**——`git add` 只是写 index，
+  但它让主仓库进入「有本地改动」状态，从此 `git checkout dev` 开始报
+  "local changes would be overwritten"，把主仓库锁死。
 - **为什么**（#1421 事故复盘，2026-09-11 实测）：主仓库跑着 Vite 时切分支，git 是**逐个文件**改写工作区的——
   它先 unlink 了 `frontend/build/dep-drift-guard.ts`，而仍然 import 它的 `frontend/build/plugins.ts`
   尚未被改写；Vite 监听着「配置依赖」的变化，立刻重载配置 bundle，重新读到的仍是新版 `plugins.ts`，于是报
   `Could not resolve "./dep-drift-guard"` → `server restart failed`。dev server 与磁盘状态随即错位，
   而报错指向一个「明明存在」的文件，极易被误判成代码缺陷。**这是工作流问题，不是代码缺陷。**
 - 同理：跑着 dev server 的工作区不要被 `git worktree remove`、外部脚本或编辑器插件批量改写文件。
+
+### 抢救主仓库里的未提交改动（强制，2026-10-05）
+
+> 上一节的条文假设主仓库工作区是**干净**的。现实是主仓库里常会躺着别的人 / 前序会话的
+> 未提交工作——可能是 detached HEAD 上做了一半的活，也可能是「dev 分支切不过去」的原因。
+> **这类场景最容易让人在主仓库里「顺手救一下」，那正是上一条禁止的事。**
+
+- **正确姿势（三步，主仓库零改动）**：
+
+  ```powershell
+  # ① 只读导出，把「未提交改动」变成一个文件
+  git diff > D:\codes\_bk\work.patch
+
+  # ② git worktree add 是**唯一**允许在主仓库执行的命令（纯元数据，不碰工作区）
+  git worktree add D:\codes\fm-<issue#> -b <type>/<issue#>-<slug> origin/dev
+
+  # ③ 在新 worktree 里重放并验证
+  cd D:\codes\fm-<issue#>
+  git apply D:\codes\_bk\work.patch
+  ```
+
+- **禁止在主仓库「救」**：不建分支、不 `add`、不 `commit`、不 `checkout --`、不 `rebase`。
+  哪怕「只是导出一下」「只是建个分支」也不行——主仓库一旦进入有本地改动的状态，
+  就同时挡住了别人和后续的 `checkout dev`。
+- **为什么要开新 worktree 而不是原地救**（2026-10-05 实测复盘）：
+  - 原地救会**改写主仓库 HEAD**（detached → 自分支），并发会话一旦同时操作同一个 `.git`，
+    双方互相覆盖，`.git/refs/remotes/` 被清空、reflog 归零这类元数据损坏随之而来；
+  - 原地救**必然 rebase**，而 rebase 撞上 dev 已前进的同名改动就会冲突，
+    逼你逐处重新核对——本该 10 分钟的抢救拖成两轮返工，还差点把工作判成冗余而丢弃；
+  - 抢救时最危险的判断是「这份改动 dev 上已经有了，丢掉吧」。
+    在 worktree 里对着最新 `origin/dev` 核对，判错的后果只是**不提交**；
+    在主仓库原地判错，删掉就**不可逆**。
+- **抢救前先备份**：动任何文件之前，把 `git diff` 与工作区里那些**未跟踪**文件
+  （`git status --porcelain` 里的 `??`）一并复制到仓库外。
+  未跟踪文件在 diff 里不存在，而它们往往是这次工作的**主体**。
 
 ### 原理（为什么不能"直接复用主仓库依赖"）
 
@@ -302,6 +477,20 @@
 
 - 仅当锁文件逐字节一致才可 junction；一旦某 worktree 的 `package.json` / `pnpm-lock.yaml` / `pyproject.toml` 与主仓库不同，复用旧 `node_modules` 会**版本错配**导致诡异运行时错误。此时必须走第 3 步。
 - 同一时刻只在一个 worktree 跑 `pnpm install` / `pdm install`，避免两 worktree 同时改写共享 store 的链接层。
+
+### 临时改共享配置的还原纪律（强制，2026-10-10）
+
+- **背景**：`backend/pyproject.toml` 的 `[[tool.pdm.source]]` 钉死阿里云镜像（#1628：本机快，CI 主动改写成 PyPI），而镜像偶发**索引与文件不同步**——索引页列出 `python-dotenv 1.2.3`、`mcp 2.0.0`，对应 `.whl.metadata` 实测 **404**，`pdm sync` 解析直接失败（2026-10-10 实测，根治方案 → #2031）。此时为装依赖只能**临时**把源换成 PyPI。
+- **纪律**：为让本地跑通而对**共享 / 版本化配置**（`pyproject.toml`、`pnpm-lock.yaml`、`uv.lock`、`tsconfig.json` …）的任何临时改写，**必须放进 `try/finally`、装完立刻还原**，并紧接着用 `git status --porcelain` 自证只剩预期改动：
+
+  ```powershell
+  try { <临时改源/改配置> ; pdm sync -G dev }
+  finally { git -C <worktree> checkout -- backend/pyproject.toml
+            git -C <worktree> status --porcelain -- backend/pyproject.toml }
+  ```
+
+- **禁止**：把临时改动留在工作区「等会儿再还原」，或顺手把源改成 PyPI 后提交。**先改后还原、顺序反了**同样不合格——#2029 修复过程中就是这样让用户在 `git status` 里看见源被换掉，一度误判为「仓库配置回归」；配置类改动只要出现在 `git status` 里，就会消耗掉别人对仓库的信任。
+- **根治**：源下沉到机器级 `pdm config pypi.url`（pyproject 不声明源 → 本机天然阿里云、CI 天然 PyPI，`ci.yml` 那段 sed 改写可删）→ #2031。
 
 ---
 

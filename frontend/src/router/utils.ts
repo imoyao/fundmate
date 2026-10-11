@@ -61,7 +61,16 @@ function ascending(arr: any[]) {
  * 但只要其下仍有可见子项，就应保留该父级以渲染子菜单，而非整棵删除；
  * hidden 为 true 的节点（如「个人中心」）语义是「不进侧边栏但保留标签页/面包屑」，
  * 与 showLink 对称处理——自身不可见，但若有可见子项仍保留父级渲染子菜单
- * （面包屑读原始路由表、multiTags 只拦 showLink，均不受 filterTree 影响）。 */
+ * （面包屑读原始路由表、multiTags 只拦 showLink，均不受 filterTree 影响）。
+ *
+ * 隐藏标记选用约定（#1797 固化——两个字段语义不同，同一意图只打一个，禁止混用）：
+ * - 不进菜单且不进标签页 → showLink:false（全屏页默认：/login、/explore、/status…）；
+ * - 不进菜单但保留标签页/面包屑 → hidden:true（如「个人中心」；error.ts 的异常页
+ *   也用它，系 6484c665b 的定向修复：当时仅父级 showLink:false、子级无标记，
+ *   可见子项把父级整棵保留在侧边栏——父子必须同打才能整棵移除）；
+ * - 只拦标签页、菜单照常 → hiddenTag（读取点在 multiTags.ts）。
+ * （asset.ts 存在 showLink:false 与 hidden:true 双打的冗余写法，行为以 showLink 为准，
+ *   新代码勿模仿。） */
 function filterTree(data: RouteComponent[]) {
   const newTree = cloneDeep(data);
   newTree.forEach((v: any) => {
@@ -151,9 +160,18 @@ function findRouteByPath(path: string, routes: RouteRecordRaw[]) {
   }
 }
 
-/** 动态路由注册完成后，再添加全屏404（页面不存在）页面，避免刷新动态路由页面时误跳转到404页面 */
+/**
+ * 全屏 404 catch-all（#1915）。
+ *
+ * 挂载时机已从「动态路由注册完成后」提前到「createRouter 之后立即挂」：本项目业务路由
+ * 全部为静态声明（initRouter 不再下发动态路由），不存在「先匹配、后注册」的误跳 404
+ * 场景；反过来若首屏直访未匹配路径时本记录缺失，router-view 为空 → 白屏。
+ * vue-router 按路径具体度排序，通配记录不会遮蔽具体路由；resetRouter 会 clearRoutes，
+ * 故清空后需由 index.ts 重新补挂。
+ */
 function addPathMatch() {
-  if (!router.hasRoute("pathMatch")) {
+  // 按路由 name 判存在（原写法查 "pathMatch"，与实际 name "PageNotFound" 不符，恒为 false）
+  if (!router.hasRoute("PageNotFound")) {
     router.addRoute({
       path: "/:pathMatch(.*)*",
       name: "PageNotFound",

@@ -104,25 +104,29 @@ class IndexDaily(Base, PrimaryKeyMixin, TimestampMixin):
     """指数日线点位（market 域，#275 基准对比 / #861 绩效分析的数据底座）。
 
     与 index_catalog 的关系：名录是「有哪些指数」（搜索/引用），本表是
-    「某指数的历史点位序列」。存储数据源原生代码（如 881001.WI），
-    交易所指数（000300 等）行情可后续经 akshare 通道补充进同表。
+    「某指数的历史点位序列」。代码用**数据源原生形态**：万得系带 `.WI`
+    （如 881001.WI），交易所指数带交易所后缀（如 000300.SH、399006.SZ）。
 
-    万得全A（881001.WI）点位经韭圈儿公开接口**反推派生**（价格口径，
-    非 Full Return 全收益），锚点随最新收盘平移——仅用于展示与对比，
-    勿做跨年回测级依赖；来源与口径细节见 jiucaishuo_adapter.py 模块注释。
+    两路来源（2026-10-01 起）：
+    - `jiucaishuo`：万得系全家桶。点位经公开接口**反推派生**（价格口径，非 Full
+      Return 全收益），锚点随最新收盘平移——仅用于展示与对比，勿做跨年回测级依赖；
+      口径细节见 jiucaishuo_adapter.py 模块注释。
+    - `tencent`：交易所指数（沪深300 / 中证500 / 创业板指…），腾讯日线直连的**真实
+      收盘价**，口径 `raw`。补这一路的动因见 sync/jobs/index_daily_job.py 模块注释。
     """
 
     __tablename__ = 'index_daily'
 
-    index_code = Column(String(20), nullable=False, comment='指数代码（数据源原生形态，如 881001.WI）')
+    index_code = Column(String(20), nullable=False, comment='指数代码（数据源原生形态，如 881001.WI / 000300.SH）')
     trade_date = Column(Date, nullable=False, comment='交易日')
-    close = Column(SafeNumeric(18, 6), comment='收盘点位（韭圈儿来源为反推派生值，价格口径）')
+    close = Column(SafeNumeric(18, 6), comment='收盘点位（口径见 price_mode：raw=源侧真实收盘；其余为派生/归一化）')
     ret_pct = Column(SafeNumeric(12, 4), comment='区间累计收益率(%)（数据源原始值，可空）')
-    source = Column(String(20), default='jiucaishuo', comment='数据来源: jiucaishuo')
+    source = Column(String(20), default='jiucaishuo', comment='数据来源: jiucaishuo(万得系) / tencent(交易所指数)')
     price_mode = Column(
         String(10),
         default='anchored',
-        comment='点位口径: anchored(有真实收盘锚，如 881001) / normalized(起点归一化 1000，如 885 系基金指数)，#275',
+        comment='点位口径: raw(源侧真实收盘，交易所指数) / anchored(有真实收盘锚、反推派生，如 881001) / '
+        'normalized(起点归一化 1000，如 885 系基金指数)，#275',
     )
 
     __table_args__ = (UniqueConstraint('index_code', 'trade_date', name='uk_index_daily_code_date'),)

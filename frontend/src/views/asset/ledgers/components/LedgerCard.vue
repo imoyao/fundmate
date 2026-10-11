@@ -12,6 +12,13 @@ defineProps<{
   ledger: any;
   /** 持仓快照一致性待核对项数（#1133 §4 温柔提醒）：>0 时显示中性色角标，绝不阻断操作 */
   staleCount?: number;
+  /**
+   * 本卡在所属分组内的位置（0 起）与该组总数（#1841）。
+   * 键盘重排的 aria-label 与 Home/End 目标位都靠它——没有这两个数，
+   * 屏幕阅读器只能念「调整顺序」却念不出「当前第几位」。
+   */
+  index?: number;
+  total?: number;
 }>();
 
 const emit = defineEmits<{
@@ -21,6 +28,11 @@ const emit = defineEmits<{
   delete: [ledger: any];
   /** 归档 / 激活切换（已 stopPropagation） */
   toggleArchive: [ledger: any];
+  /**
+   * 键盘重排（#1841）：抓手 ↑/↓/Home/End 上抛目标下标，由页面调 reorderLedgers 落库。
+   * 组件自己不落库——它不知道所属分组，跨组语义在页面层。
+   */
+  reorderKey: [payload: { ledger: any; to: number }];
 }>();
 </script>
 
@@ -37,14 +49,27 @@ const emit = defineEmits<{
     <!-- 标题行：名称 + 类型标签 + 行内操作（hover 卡片时浮现） -->
     <div class="flex items-center justify-between mb-3">
       <div class="flex items-center gap-2 min-w-0">
-        <!-- 拖拽手柄：常驻低透明（暗示可拖拽），hover/focus 时高亮；点击/回车均 stop，避免触发卡片打开详情（#1083） -->
+        <!-- 拖拽手柄：常驻低透明（暗示可拖拽），hover/focus 时高亮；点击/回车均 stop，避免触发卡片打开详情（#1083）
+             键盘替代（#1841）：此前 tabindex="-1" 刻意不可聚焦，键盘用户无法排序（WCAG 2.1.1）。
+             现在 ↑/↓ 移动一位、Home/End 移到首/尾，事件上抛给页面（落库与拖拽同一接口）。 -->
         <span
           class="drag-handle"
           role="button"
-          tabindex="-1"
-          :title="`拖拽排序：${ledger.name}`"
+          tabindex="0"
+          :aria-label="`调整顺序：${ledger.name}，当前第 ${(index ?? 0) + 1} / ${total ?? 1} 位，用上下方向键移动`"
+          :title="`拖拽或用方向键调整顺序：${ledger.name}`"
           @click.stop
           @keydown.enter.stop
+          @keydown.up.stop.prevent="
+            emit('reorderKey', { ledger, to: (index ?? 0) - 1 })
+          "
+          @keydown.down.stop.prevent="
+            emit('reorderKey', { ledger, to: (index ?? 0) + 1 })
+          "
+          @keydown.home.stop.prevent="emit('reorderKey', { ledger, to: 0 })"
+          @keydown.end.stop.prevent="
+            emit('reorderKey', { ledger, to: (total ?? 1) - 1 })
+          "
         >
           <!-- 卡片拖拽：四向「移动」双箭头，暗示单张卡片可上下/左右重排，与分组抓手（纵向三横线）明确区分 -->
           <svg

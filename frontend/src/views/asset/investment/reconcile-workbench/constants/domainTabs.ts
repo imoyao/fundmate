@@ -55,7 +55,8 @@ export const domainTabs: WorkbenchDomainTab[] = [
     desc: "P1 落地：导入 commit 后自动触发对账，差异进本工作台补录。",
     links: [
       { to: "/inventory/investment/import", label: "前往交易导入" },
-      { to: "/investment/eaccount-import", label: "前往 E账户导入" }
+      // 目的地页面 #1788 已改名「导入持仓快照」，链接文案跟着对齐，避免点过去标题对不上
+      { to: "/investment/holding-import", label: "前往导入持仓快照" }
     ]
   }
 ];

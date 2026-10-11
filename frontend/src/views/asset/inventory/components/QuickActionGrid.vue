@@ -9,6 +9,9 @@
         border: '1px solid var(--border-default)',
         boxShadow: 'var(--shadow-raised)'
       }"
+      role="button"
+      tabindex="0"
+      @keydown.enter="emit('select', item.key)"
       @click="emit('select', item.key)"
     >
       <div class="flex items-center gap-3">

@@ -1,0 +1,154 @@
+# -*- coding: utf-8 -*-
+"""#1812 收益日历接口契约测试。
+
+锁定三件事：
+1. 路由与响应信封符合 `AGENTS.md` 接口契约（`{data, message, error_code}`）；
+2. 四态经HTTP 出口后仍然可区分（序列化不能把 None 变成 0）；
+3. `ledger_id` 透传生效（家庭级 / 账户级）。
+"""
+
+import datetime as dt
+
+import pytest
+
+from app.domains.funds.models import DailyWorth
+
+
+def _seed(db, make_position, make_transaction, ledger_id=None):
+    d1 = dt.date(2026, 1, 5)
+    d2 = dt.date(2026, 1, 6)
+    kwargs = {
+        'symbol': '000031',
+        'name': '接口测试基金',
+        'quantity': 1000,
+        'avg_price': 1.0,
+        'asset_type': 'fund',
+        # 必须给account_name：make_position 靠它调 _ensure_ledger 建账户，
+        # 否则 pos.ledger_id 为 None，账户级用例就退化成家庭级（测不到透传）。
+        'account_name': '证券测试账户',
+    }
+    if ledger_id is not None:
+        kwargs['ledger_id'] = ledger_id
+    pos = make_position(**kwargs)
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=d1,
+        symbol='000031',
+    )
+    db.add(DailyWorth(fund_code='000031', date=d1, unit_nav=1.0))
+    db.add(DailyWorth(fund_code='000031', date=d2, unit_nav=1.1))
+    db.commit()
+    return pos
+
+
+def test_收益日历接口返回契约信封(client, db, make_position, make_transaction):
+    _seed(db, make_position, make_transaction)
+    resp = client.get('/api/summary/pnl-calendar/?start_date=2026-01-05&end_date=2026-01-07')
+    assert resp.status_code == 200
+    payload = resp.get_json()
+    assert 'data' in payload and 'message' in payload
+    data = payload['data']
+    assert data['scope'] == 'family'
+    assert data['ledger_id'] is None
+    assert len(data['days']) == 3
+    # 首日不再是无基准的 None：实现会多取前一天建立差分基准（#1812 修复），
+    # 所以首日就能给出真实盈亏。这里建仓日盈亏按定义记 0。
+    assert data['days'][0]['daily_pnl'] == 0.0
+    assert data['days'][0]['state'] == 'zero'
+    # 次日净值 1.0→1.1，1000 份 ⇒ +100
+    assert data['days'][1]['daily_pnl'] == 100.0
+    assert data['days'][1]['state'] == 'updown'
+
+
+def test_收益日历接口_缺数据不被序列化成零(client, db, make_position):
+    """balance 模式无价格序列 ⇒ state=no_price 且 daily_pnl 为 null。"""
+    from app.core.money import Money
+
+    make_position(
+        symbol='ZH9999',
+        name='无价理财',
+        quantity=0,
+        avg_price=0,
+        asset_type='portfolio',
+        valuation_mode='balance',
+        market_value_override=Money.yuan_to_cents(30000),
+    )
+    resp = client.get('/api/summary/pnl-calendar/?start_date=2026-01-05&end_date=2026-01-06')
+    data = resp.get_json()['data']
+    assert data['has_any_price'] is False
+    assert all(d['state'] == 'no_price' for d in data['days'])
+    # 关键：JSON 里必须是 null，若被转成 0.0 前端就会把缺数据画成「零收益」
+    assert all(d['daily_pnl'] is None for d in data['days'])
+    assert b'"daily_pnl":null' in resp.data
+
+
+def test_收益日历接口_ledger_id透传(client, db, make_position, make_transaction):
+    pos = _seed(db, make_position, make_transaction)
+    resp = client.get(f'/api/summary/pnl-calendar/?start_date=2026-01-05&end_date=2026-01-07&ledger_id={pos.ledger_id}')
+    data = resp.get_json()['data']
+    assert data['scope'] == 'ledger'
+    assert data['ledger_id'] == pos.ledger_id
+
+
+def test_收益日历接口_非法日期返回400(client):
+    resp = client.get('/api/summary/pnl-calendar/?start_date=not-a-date')
+    assert resp.status_code == 400
+    payload = resp.get_json()
+    assert payload['error_code'] == 1001
+    assert payload['data'] is None
+
+
+def test_收益日历接口_缺省粒度为day(client, db, make_position, make_transaction):
+    """不带 granularity 的老调用行为不变（welcome / 账户详情两处容器共用）。"""
+    _seed(db, make_position, make_transaction)
+    data = client.get('/api/summary/pnl-calendar/?start_date=2026-01-05&end_date=2026-01-07').get_json()['data']
+
+    assert data['granularity'] == 'day'
+    assert data['periods'] == []
+    assert len(data['days']) == 3
+
+
+def test_收益日历接口_月粒度聚合下推(client, db, make_position, make_transaction):
+    """月/年粒度回 `periods`、`days` 为空——聚合在后端做，不回日明细。"""
+    _seed(db, make_position, make_transaction)
+    resp = client.get('/api/summary/pnl-calendar/?start_date=2026-01-05&end_date=2026-01-07&granularity=month')
+
+    assert resp.status_code == 200
+    data = resp.get_json()['data']
+    assert data['granularity'] == 'month'
+    assert data['days'] == []
+    assert [p['period'] for p in data['periods']] == ['2026-01']
+    # 期间值与同区间日粒度合计必须相等（口径唯一）
+    assert data['periods'][0]['pnl'] == pytest.approx(data['month_total'], abs=0.01)
+
+
+def test_收益日历接口_非法粒度返回400(client):
+    resp = client.get('/api/summary/pnl-calendar/?start_date=2026-01-05&granularity=week')
+
+    assert resp.status_code == 400
+    payload = resp.get_json()
+    assert payload['error_code'] == 1001
+    assert payload['data'] is None
+
+
+def test_收益日历接口_账户级三视图与日粒度口径一致(client, db, make_position, make_transaction):
+    """验收 5：同一个 `ledger_id` 下，月粒度的期间值必须等于同区间日粒度合计。
+
+    聚合不按 scope 分叉，这条钉住「换了粒度不换口径、换了账户也不换口径」。
+    """
+    pos = _seed(db, make_position, make_transaction)
+    base = f'/api/summary/pnl-calendar/?start_date=2026-01-05&end_date=2026-01-07&ledger_id={pos.ledger_id}'
+
+    day = client.get(base).get_json()['data']
+    month = client.get(f'{base}&granularity=month').get_json()['data']
+
+    assert day['scope'] == 'ledger' and month['scope'] == 'ledger'
+    assert month['granularity'] == 'month'
+    assert month['days'] == []
+    assert [p['period'] for p in month['periods']] == ['2026-01']
+    assert month['periods'][0]['pnl'] == pytest.approx(month['month_total'], abs=0.01)
+    assert month['month_total'] == pytest.approx(day['month_total'], abs=0.01)

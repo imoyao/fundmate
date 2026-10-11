@@ -64,3 +64,25 @@ export function formatTime(value: string | number | Date): string {
   const mm = String(d.getMinutes()).padStart(2, "0");
   return `${hh}:${mm}`;
 }
+
+/**
+ * 是否为「未来交易日」——交易日期不允许选未来（#1835）。
+ *
+ * 记账场景里把交易日期设成未来会直接污染确认日与净值匹配逻辑（确认日按 T+n 推算，
+ * T 在未来 ⇒ 确认日也在未来 ⇒ 永远匹配不到净值）。新增交易的三张表单早就禁用了未来日期，
+ * 只有「编辑已入账交易」的 `TransactionEditDialog` 漏了——同一规则散落三处、漏一处，
+ * 故收进共享工具。
+ *
+ * 比较用「当天 00:00」而不是精确时刻：Element Plus 的日期面板按天选中，
+ * `setHours(0,0,0,0)` 才能让「今天」可选、「明天」不可选。
+ */
+export function isFutureTradeDate(value: string | number | Date): boolean {
+  const d = toDate(value);
+  if (!d) return false;
+  return d.getTime() > new Date().setHours(0, 0, 0, 0);
+}
+
+/** Element Plus `el-date-picker` 的 `disabled-date` 直接用这个（#1835） */
+export function disabledTradeDate(time: Date): boolean {
+  return isFutureTradeDate(time);
+}

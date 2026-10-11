@@ -306,3 +306,16 @@
 .el-table .advisor-source-link:hover {
   text-decoration: underline;
 }
+
+/* ── 「持仓收益」列的三行态（#1104）──
+   实时估值开启、且引擎真拿到行情时，该列在「金额 / 百分比」之下追加「估」副行
+   （副行自带行内样式，这里只负责让它与金额共用同一右缘）。
+   ⚠️ 行高会因此增加约 13px：`.el-table__row` 的 height 是**最小高度**语义
+   （见 style/el-table.css），多行内容会撑高整行。这是「开启实时估值」这一
+   opt-in 模式的代价，默认（未开启）完全不受影响。 */
+.el-table .watchlist-pnl-dual {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-end;
+}

@@ -169,6 +169,8 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'advisor_holdings': DOMAIN_MARKET,  # 投顾组合当前基金级持仓（#1167）
     'advisor_industry_allocs': DOMAIN_MARKET,  # 投顾组合行业配置（#1167）
     'advisor_adjust_histories': DOMAIN_MARKET,  # 投顾组合历史调仓明细（#1167）
+    'fund_holdings': DOMAIN_MARKET,  # 基金持仓明细（#870：报告期快照，前十大与全量并存）
+    'fund_industry_allocs': DOMAIN_MARKET,  # 基金行业配置（#870：csrc/gics 双体系分区）
     'convertible_bond_terms': DOMAIN_MARKET,  # 可转债条款（#1285/#1393：强赎/回售/转股）
     'daily_worth': DOMAIN_MARKET,  # 基金净值（最大体积表）
     'money_fund_daily_worth': DOMAIN_MARKET,  # 货基净值
@@ -205,7 +207,9 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'cleared_positions': DOMAIN_USER,
     'strategy_tags': DOMAIN_USER,
     'position_strategy_tags': DOMAIN_USER,
+    'dividend_targets': DOMAIN_USER,  # 家庭股息目标（#872）：用户私有配置，一家庭一条
     'asset_snapshots': DOMAIN_USER,
+    'pnl_daily_snapshots': DOMAIN_USER,  # 收益日历逐日物化快照（#1926）：含 family_id
     'user_usage': DOMAIN_USER,
     'agent_session': DOMAIN_USER,  # 账本精灵会话（#1121 S2：状态/原文/轮次，含 user_id）
     'agent_trace': DOMAIN_USER,  # 账本精灵单轮决策 trace（#1736 S4：回放/评估，经 session_id 同族）

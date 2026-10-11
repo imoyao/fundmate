@@ -105,11 +105,17 @@ function formatTime(iso: string | null): string {
 /* 页内左栏（#1714 UI 复核）：定宽 + 自身滚动。旧形态是插在卡片顶部的折叠块
    （max-height: 40vh），展开时把消息区整体挤下去，观感像下拉面板而非侧栏 */
 .session-history {
+  position: sticky;
+  top: var(--space-compact);
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
+  align-self: flex-start;
   width: 260px;
-  min-height: 0;
+
+  /* 页面改为「外层唯一滚动」后（#1714 复核），左栏必须自己限高 + 自己滚动：
+     否则历史条目一多就把整页拉长；sticky + align-self:flex-start 则让它在滚动时留在视野里 */
+  max-height: calc(100vh - var(--layout-topbar-height) - 120px);
   padding: var(--space-compact);
   background-color: var(--bg-muted);
   border: 1px solid var(--border-light);

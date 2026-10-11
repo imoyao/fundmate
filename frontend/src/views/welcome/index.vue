@@ -16,7 +16,13 @@
     />
 
     <!-- ===== 第一排：核心资产看板 + 收益趋势（饼图在子组件内，数据就绪后由本页触发首绘） ===== -->
-    <WelcomeAssetBoard ref="assetBoardRef" :summary="summary" />
+    <WelcomeAssetBoard
+      ref="assetBoardRef"
+      :summary="summary"
+      :distributions="distributions"
+      :error="summaryError"
+      @retry="onRetryAsset"
+    />
 
     <!-- ===== 第二排：年化收益追踪 + 市场温度（同一层级） ===== -->
     <WelcomeXirrTemperature
@@ -26,16 +32,30 @@
       :temperature-bands="temperatureBands"
       :temperature-conclusion="temperatureConclusion"
       :band-pill-style="bandPillStyle"
+      :error="xirrError"
       @change="fetchXirr"
+      @retry="onRetryAsset"
     />
 
-    <!-- ===== 第三排：持仓市值最大资产 ===== -->
+    <!-- ===== 第三排：收益日历（#1812，满宽 12 列）=====
+         日频派生洞察按分层原则放首页看板；满宽是硬约束（7 列月历 + 格内双信息）。 -->
+    <div class="mb-8">
+      <PnlCalendar />
+    </div>
+
+    <!-- ===== 第四排：持仓市值最大资产 ===== -->
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-8">
       <!-- 持仓市值最大资产（风险预警改由顶部消息播报承载，本页不再保留静态风险热力图） -->
       <div
         class="lg:col-span-12 flex flex-col gap-3 card-hover card-enter h-full"
       >
-        <SectionHeader :title="watchlistTitle">
+        <!-- info tooltip 承载「怎么置顶 / 怎么取消置顶」这类指引（#1954）。
+             此前这段说明是WatchlistWidget 内部一块带 border-b 的文字区，与表头线
+             挤在一起像多余的分割线，且文案承诺了组件根本没有的能力
+             （「可拖动排序或取消置顶」——首页 widget 既无拖拽也无取消置顶入口，
+             用户按提示去找两个都找不到）。
+             改为挂在区块标题的 info 图标上：需要时 hover 可读，不占版面、不抢视线。 -->
+        <SectionHeader :title="watchlistTitle" :info="watchlistHint">
           <template #action>
             <div class="flex items-center gap-2">
               <el-button
@@ -63,8 +83,8 @@
           ref="watchlistWidgetRef"
           :key="watchlistWidgetKey"
           class="flex-1"
-          @select="onWatchlistSelect"
           @add="showAddWatchlistModal = true"
+          @select="onWatchlistSelect"
         />
       </div>
     </div>
@@ -85,10 +105,14 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted } from "vue";
-import { type HomeSummaryItem } from "@/api/watchlist";
-import WatchlistWidget from "@/components/WatchlistWidget.vue";
+import { useRouter } from "vue-router";
+import { ElMessage } from "element-plus";
+import WatchlistWidget from "@/components/WatchlistWidget/index.vue";
+import type { HomeSummaryItem } from "@/api/types";
+import { resolveDetailPath } from "@/utils/productDetailNav";
 import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
+import PnlCalendar from "@/components/PnlCalendar/index.vue";
 import WelcomeGreeting from "./components/WelcomeGreeting.vue";
 import WelcomeAssetBoard from "./components/WelcomeAssetBoard.vue";
 import WelcomeXirrTemperature from "./components/WelcomeXirrTemperature.vue";
@@ -102,6 +126,7 @@ defineOptions({
 // 页面状态单体：欢迎语 / 播报 / 汇总 / XIRR / 温度 / 派生列表（#980 拆分）
 const {
   summary,
+  distributions,
   portfolioXirr,
   includeCashEquivalents,
   recordDays,
@@ -120,9 +145,13 @@ const {
   homeFeed,
   mentalAccounts,
   fetchSummary,
+  fetchDistributions,
   fetchXirr,
   fetchTemperature,
-  fetchRecordStats
+  fetchRecordStats,
+  summaryError,
+  xirrError,
+  retryAssetLoad
 } = useWelcomeData();
 
 // 资产分布饼图：echarts 实例在 WelcomeAssetBoard 内，汇总数据就绪后经其 expose 的 render 首绘
@@ -141,18 +170,59 @@ const watchlistTitle = computed(() => {
   return watchlistWidgetRef.value.hasPinned ? "置顶资产" : "持仓市值最大资产";
 });
 
+/**
+ * 区块指引文案（挂SectionHeader 的 info tooltip，#1954）。
+ * 两种状态给的指引不同——有置顶时用户想的是「怎么取消/调顺序」，
+ * 无置顶时想的是「怎么置顶」。直接由 widget 的 expose 派生，不另存状态。
+ */
+const watchlistHint = computed(() =>
+  watchlistWidgetRef.value?.hasPinned
+    ? "置顶的资产会固定排在最前。取消置顶、调整顺序请到「我的自选」页操作。"
+    : "当前展示持仓市值最大的资产。在「我的自选」页点击图钉即可置顶，置顶后会固定显示在这里。"
+);
+
 // ===== 事件处理 =====
-const onWatchlistSelect = (item: HomeSummaryItem) => {
-  // TODO: 跳转到资产详情
+// 行点击 → 跳产品详情（#1965）：本页承接 WatchlistWidget 的 `select` 事件。
+// #1954 曾摘掉这个挂载，因为当时详情页不存在、`onWatchlistSelect` 是个空函数 +
+// `// TODO: 跳转到资产详情`——整行 cursor-pointer、行内按钮有 hover 反馈，点了却什么都不
+// 发生，是「像 demo」的直接来源。现详情页已落地（路由 #1964 / 接线 #1965），按当时的
+// 约定把它接回来，并且**不再是空函数**。
+const router = useRouter();
+
+const onWatchlistSelect = async (item: HomeSummaryItem) => {
+  try {
+    // 摘要行的 asset_type 可能为空、也没有 market → 内部回后端问权威品类，
+    // 不在前端按 symbol 形态猜（那正是 #1497 错标成一堆无关基金的根因）
+    const path = await resolveDetailPath({
+      symbol: item.symbol,
+      assetType: item.asset_type,
+      venue: item.venue
+    });
+    if (!path) {
+      ElMessage.warning("该品类详情页暂未开放");
+      return;
+    }
+    await router.push(path);
+  } catch {
+    ElMessage.warning("未找到该产品，可能已下架或代码有误");
+  }
 };
 
 const onWatchlistChanged = () => {
   watchlistWidgetKey.value++;
 };
 
+// 资产关键数据重试（#1832）：重拉汇总 + 年化。
+// 饼图重绘不再需要显式调用——图表收敛到 AssetAllocationDonut 后（#1902），
+// 组件自己 watch data 重绘，props 变化即触发。
+const onRetryAsset = async () => {
+  await retryAssetLoad();
+};
+
 // ===== 生命周期（顺序与拆分前一致：汇总 → 其余并行；ticker 清理在 composable 内） =====
 onMounted(() => {
-  fetchSummary().then(() => nextTick(() => assetBoardRef.value?.render()));
+  fetchSummary();
+  fetchDistributions();
   fetchXirr();
   fetchTemperature();
   fetchRecordStats();

@@ -1,6 +1,33 @@
 <template>
-  <el-dialog v-model="visible" title="编辑资产" width="420px" destroy-on-close>
+  <el-dialog
+    v-model="visible"
+    title="编辑资产"
+    width="420px"
+    destroy-on-close
+    :before-close="onBeforeClose"
+  >
     <el-form :model="form" label-width="80px">
+      <!--
+        子类选择（#1849）：此前编辑弹窗只有「金额 / 备注」，而房产页与贵金属页的
+        「去补分类」按钮恰恰指向这里 —— 提示说「未选择子类」，点进来却改不了，
+        入口与能力对不上（半成品功能）。
+        选项复用盘点页录入的同一份枚举（house / car / gold），不另造一套。
+      -->
+      <el-form-item v-if="isFixedCategory" label="子类">
+        <el-select
+          v-model="form.minorCategory"
+          class="w-full"
+          placeholder="请选择子类（房产 / 汽车 / 黄金）"
+          clearable
+        >
+          <el-option
+            v-for="opt in fixedSubtypeOptions"
+            :key="opt.key"
+            :label="opt.label"
+            :value="opt.key"
+          />
+        </el-select>
+      </el-form-item>
       <el-form-item label="金额">
         <el-input-number
           v-model="form.amount"
@@ -19,7 +46,8 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="visible = false">取消</el-button>
+      <!-- 取消走 requestClose：before-close 只拦关闭按钮 / ESC / 点遮罩，程序化 close 走不到它 -->
+      <el-button @click="requestClose(() => (visible = false))">取消</el-button>
       <el-button type="primary" :loading="saving" @click="save">保存</el-button>
     </template>
   </el-dialog>
@@ -35,7 +63,12 @@
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { updateAsset, type AssetRecord } from "@/api/assets";
+import {
+  useUnsavedChangesGuard,
+  useDialogForm
+} from "@/composables/useUnsavedChangesGuard";
 import { getErrorMessage } from "../helpers";
+import { ASSET_TYPE_MAP } from "../constants";
 
 const props = defineProps<{
   /** 弹窗显隐（v-model） */
@@ -56,24 +89,73 @@ const visible = computed({
 });
 
 const saving = ref(false);
-const form = ref<{ id: number | null; amount: number; notes: string }>({
+
+/**
+ * 子类选项（#1849）：复用盘点页录入用的同一份枚举，不另造一套
+ * （`views/asset/inventory/constants.ts` 的 `ASSET_TYPE_MAP.fixed`）。
+ */
+const fixedSubtypeOptions = ASSET_TYPE_MAP.fixed;
+
+/** 固定资产大类才补子类：其余大类的 minor_category 语义不同（investment 下是基金细分等） */
+const isFixedCategory = computed(() => props.asset?.major_category === "fixed");
+
+const form = ref<{
+  id: number | null;
+  amount: number;
+  notes: string;
+  /** 子类键（minor_category）：#1849 补分类入口所需 */
+  minorCategory: string | null;
+}>({
   id: null,
   amount: 0,
-  notes: ""
+  notes: "",
+  minorCategory: null
 });
 
-// 每次打开都按传入行回填，避免复用同一弹窗时残留上一次的输入
+/**
+ * 弹窗打开时的表单快照（未保存离开保护用，#1853）。
+ *
+ * 声明**必须在下面那个 `watch(..., { immediate: true })` 之前**——immediate 会同步
+ * 执行回调回填本快照，声明在后面就是 TDZ ReferenceError（`vue-tsc` 会报
+ * `TS2304: Cannot find name 'initialSnapshot'`）。
+ */
+const EMPTY_FORM = {
+  id: null,
+  amount: 0,
+  notes: "",
+  minorCategory: null
+};
+
+/**
+ * 打开时按传入行回填，关闭时复位为空表单，**两种态都同步脏基线**（#1880）。
+ *
+ * 关闭态复位不是可有可无：只处理打开分支时，「保存」与「放弃修改」都只把
+ * `modelValue` 置 false，表单仍留着改后的值而基线还是打开时的值 → `isDirty` 为 true。
+ * 叠上 `onBeforeRouteLeave` 的后果是**保存成功后点侧边栏照样弹「未保存的修改」，
+ * 且导航被拦死**（真机实测：hash 停在 `/inventory` 不变）。
+ */
+const { isDirty, fillOnOpen, markSaved } = useDialogForm(form, () => ({
+  ...EMPTY_FORM
+}));
+
 watch(
   () => props.modelValue,
   open => {
-    if (!open) return;
-    form.value = {
+    fillOnOpen(open, () => ({
       id: props.asset?.id ?? null,
       amount: props.asset?.amount || 0,
-      notes: props.asset?.notes || ""
-    };
+      notes: props.asset?.notes || "",
+      minorCategory: props.asset?.minor_category ?? null
+    }));
   },
   { immediate: true }
+);
+
+const { onBeforeClose, requestClose } = useUnsavedChangesGuard(
+  () => isDirty.value,
+  {
+    message: "资产金额／备注已改动，确定放弃吗？"
+  }
 );
 
 async function save() {
@@ -82,9 +164,16 @@ async function save() {
   try {
     await updateAsset(form.value.id, {
       amount: form.value.amount,
-      notes: form.value.notes
+      notes: form.value.notes,
+      // 只在固定资产大类下提交子类：其余大类的 minor_category 有各自的语义
+      // （investment 下是基金细分等），这里不越界替用户改（#1849）
+      ...(isFixedCategory.value
+        ? { minor_category: form.value.minorCategory || null }
+        : {})
     });
     ElMessage.success("资产已更新");
+    // 显式清脏：即便 modelValue→false 分支因时序未跑到，也保证基线与当前值一致
+    markSaved();
     visible.value = false;
     emit("saved");
   } catch (e) {

@@ -316,6 +316,10 @@
 
 > **文字色与亮色对齐（v1.5 修订）**：实底按钮（主 / 涨 / 跌）文字统一为 **`#FFFFFF`**，与 `design.md` 亮色主按钮「白色文字」原则一致。主按钮实底底色（#1600）：亮色静息 `--brand-800` 白字 4.92:1 / 暗色 `#C94A33` 白字 4.66:1，均达 AA（详见 Button 表）。**禁止**使用 `--bg-card` 作按钮文字——暗色下 `--bg-card` 为深色 `#242120`，在实底珊瑚按钮上不可读，且违反了 design.md「文字不引用背景色」的编码红线。
 
+#### 紧凑工具条按钮（36 / 32 / 28）与热区（暗色）
+
+与亮色**完全一致，不另设暗色覆盖**：尺寸、命中区、裁切约束都不随主题变化，控件用的全是语义 token（`--text-tertiary-ink` / `--border-default` / `--bg-hover`）。两条机械约束同样由 `scripts/guard_control_clip.py` 强制——① 热区只能用 `::after` 伪元素扩到 40×40，禁止 `content-box + padding`（会把 28px 的圆撑成 42px）；② 行容器禁止 `max-height + overflow: hidden` 盖盖子切边。详见 `design.md`「紧凑工具条按钮 · 尺寸梯度与热区」。
+
 #### 危险按钮交互（暗色）
 
 与亮色模式一致，采用"幽灵按钮 + 悬停填充"模式：
@@ -354,6 +358,10 @@
 | Focus | 边框 `--brand-700` + `--focus-ring`（**继承全局 Focus Ring 样式**，显式引用 `var(--focus-ring)`） |
 
 > **注意**：Input 的 Focus 态必须使用全局 `--focus-ring` 双层环（Gap + Outer），禁止使用 `outline: 2px solid` 等简写方式，以确保聚焦环在深色背景下的可见性。
+>
+> **#1772 输入框基线**：亮 / 暗两侧的输入框视觉（含上表背景 `--bg-card`）由 `src/style/element-plus.scss` 的
+> 「输入基线」块**同一条规则**表达，`dark.scss` 不再单独覆盖输入控件；令牌与例外清单见 `design.md`
+> 「输入框基线契约」。暗色下**不要**再为输入控件新增 `!important` 规则。
 
 ### Card
 
@@ -384,6 +392,8 @@
 > 横向滚动支持浏览器原生 `Shift + 滚轮`，禁止引入拖拽滚动库（金融表格复制数字场景易误触）。行高 44px 由基线统一（页面级例外统一登记在亮色 `design.md`「Table · 行高例外」，当前为自选页 56px 双行信息，页面 `:deep` 覆盖对暗色同样生效），暗色无需单独覆盖。
 
 > **分组胶囊 Tab（Group Tab）暗色适配**：与亮色共用同一套类名与结构，选中态软按钮（`--brand-100` 底 / `--brand-700` 字 / `--brand-400` 边框）与未选中态（`--text-secondary` / hover `--bg-hover`）均由暗色 token 自动适配（暗色 `--brand-100` 为极暗红灰 `#2D1612`，作为选中底色成立），**无需单独覆盖**。行内图标 / hover 浮现机制同理，全部走语义 token。
+
+> **导入预览问题摘要三卡片（#1791）暗色适配**：面板底 `--bg-card`、卡片底 `--bg-subtle`、边框 `--border-default` 均为暗色专调 token；三类语义色直接用文字级 `-ink` 族（`--color-success-ink` / `--color-warning-ink` / `--color-danger-ink`，暗色下由 `dark.scss` 提亮保对比），细分 chips 底 / 边用 `--color-danger-10` / `--color-danger-30` 半透明叠加、字用 `--color-danger-ink`，**无需单独覆盖**。**批量修正面板（#1792）暗色适配**：面板底 `--bg-card`、分区 / 逐条卡片底 `--bg-subtle`、边框 `--border-default`，形态标签次级文字 `--text-secondary`、分区说明 / 元信息 `--text-tertiary-ink`，警示计数 `--color-warning-ink`、错误文字 `--color-danger-ink`——均为暗色专调 token，**同样无需单独覆盖**。
 
 
 ### 对话气泡（账本精灵，2026-09-26 #1121 S1-B）

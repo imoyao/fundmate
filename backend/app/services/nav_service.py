@@ -55,7 +55,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from loguru import logger
 from sqlalchemy import func
@@ -214,6 +214,71 @@ class NavService:
         """
         result = NavService.get_latest_navs(db, [fund_code])
         return result.get(fund_code, 0.0)
+
+    @staticmethod
+    def get_latest_navs_with_prev(
+        db: Session,
+        fund_codes: List[str],
+        *,
+        lookback_days: int = 90,
+    ) -> Dict[str, Tuple[float, date, Optional[float]]]:
+        """批量获取「最新净值 + 净值日 + **上一根**净值」（#2007 当日盈亏基准）。
+
+        与 :meth:`get_latest_navs_with_dates` 的区别有两点，都是刻意的：
+
+        1. **多返回上一根确认净值**——当日涨跌 = 最新净值 − 上一净值，两个值必须出自
+           **同一次查询的相邻两根**；各自去取「最新」再拼，中间可能隔着一次补数，
+           差额就不是当日涨跌了；
+        2. **纯本地读、不联网**（不提供 ``allow_remote``）——当日盈亏属展示口径，
+           不该因为库里少一根就替用户发起抓取。持仓现价回写（#1104）本来也是
+           ``allow_remote=False``，故这条对它是等价收紧。
+
+        **只有一根的基金照常返回**（``prev_nav`` 为 ``None``）：调用方仍需拿到最新净值
+        去写 ``current_price``，若把这类基金整个排除，会把「没上一根」误伤成「没净值」。
+        这也是它没被做成 ``get_latest_navs_with_dates(..., with_prev=True)`` 的原因：
+        返回形状不同（三元组 vs 二元组），硬塞进同一签名会让既有调用方拿到结构不一致的结果。
+
+        Args:
+            lookback_days: 回看窗口，**只用来给扫描限界**（数据策略 §4.3 禁止无界扫描），
+                不承担「新鲜度」判断——那是调用方自己的闸门
+                （`position_price_job.MAX_STALENESS_DAYS` = 7 天）。故这里给得宽松（90 天），
+                免得把「净值陈旧」这种本该由调用方识别的情况，提前变成「查无净值」。
+
+        Returns:
+            ``{fund_code: (unit_nav, nav_date, prev_nav | None)}``；无净值的基金不在其中。
+        """
+        if not fund_codes:
+            return {}
+
+        cutoff = date.today() - timedelta(days=lookback_days)
+        try:
+            rows = (
+                db.query(DailyWorth.fund_code, DailyWorth.date, DailyWorth.unit_nav)
+                .filter(
+                    DailyWorth.fund_code.in_(fund_codes),
+                    DailyWorth.date >= cutoff,
+                    DailyWorth.unit_nav.isnot(None),
+                )
+                .order_by(DailyWorth.fund_code, DailyWorth.date.desc())
+                .all()
+            )
+        except Exception:
+            logger.exception('NavService: 查询 daily_worth 相邻两期净值失败')
+            return {}
+
+        # 已按 (fund_code, date desc) 排序：每只基金只留前两根
+        buckets: Dict[str, List[Tuple[date, float]]] = {}
+        for code, nav_date, unit_nav in rows:
+            if not code or nav_date is None or not unit_nav or float(unit_nav) <= 0:
+                continue
+            bucket = buckets.setdefault(code, [])
+            if len(bucket) < 2:
+                bucket.append((nav_date, float(unit_nav)))
+
+        return {
+            code: (bucket[0][1], bucket[0][0], bucket[1][1] if len(bucket) > 1 else None)
+            for code, bucket in buckets.items()
+        }
 
     # ──────────────────────────────────────────
     # 内部实现

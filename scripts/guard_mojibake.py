@@ -292,6 +292,140 @@ def _pre_push() -> int:
     return 0
 
 
+def _rev_list(expr: str):
+    """git rev-list 的薄封装（失败返回空列表，由调用方判定语义）。"""
+    out = subprocess.run(
+        ["git", "rev-list", expr],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    ).stdout
+    return [s.strip() for s in out.splitlines() if s.strip()]
+
+
+def _object_exists(rev: str) -> bool:
+    """该 rev 是否解析为一个 commit 对象。"""
+    return (
+        subprocess.run(
+            ["git", "cat-file", "-e", f"{rev}^{{commit}}"],
+            capture_output=True,
+            check=False,
+        ).returncode
+        == 0
+    )
+
+
+def _resolve_range(base: str, head: str):
+    """把「base..head」规范化成待检查的提交清单，返回 (revs, note, ok)。
+
+    `ok=False` 表示**范围不可确定**——调用方必须报错，绝不静默放行
+    （「没扫到」不等于「没问题」，那正是本守卫要防的失效模式）。
+
+    为什么需要它：push 事件的 `before` 有三种畸形，粗暴地 `git rev-list before..after`
+    会给出错误范围或直接报错：
+
+    1. `before` 全零 → 首次推送 / 新建分支：`rev-list 0..head` 无意义 → 降级为只校验
+       `head` 单提交（并给出 NOTE）；
+    2. `base` 对象不在仓库（浅克隆、已被 GC）→ 同样降级为单提交；
+    3. `head` 不可解析 → 返回 ok=False。
+
+    ⚠️ **不再把「base 不是 head 的祖先」当作降级条件**（初版如此，被真实场景证伪）：
+    发版 PR（`dev → main`）的 base 就是 **main** 的 head，而 main 上只有发版合并提交、
+    dev **不含**它 —— 于是「非祖先」在这条最常见的路径上恒成立，降级会让 210 个提交的
+    扫描退化成 1 个（漏扫）。`rev-list base..head` 本身对两个可解析对象都能给出
+    「head 可达、base 不可达」的差集，这**正是**我们要检查的「本次推送/合并带来的提交」，
+    force push 与跨分支发版都适用。
+    """
+    head = head.strip()
+    base = base.strip()
+
+    if not head:
+        return [], "head 为空", False
+    if not _object_exists(head):
+        return [], f"head {head[:8]} 不是仓内的 commit（浅克隆 / 已被 GC？）", False
+
+    if not base or set(base) == {"0"}:
+        return [head], "before 全零（首次推送 / 新建分支）→ 只校验 head 单提交", True
+
+    if not _object_exists(base):
+        return [head], f"base {base[:8]} 不是仓内的 commit → 只校验 head 单提交", True
+
+    revs = _rev_list(f"{base}..{head}")
+    if not revs:
+        return [], f"{base[:8]}..{head[:8]} 无新提交", True
+    return revs, "", True
+
+
+def _check_range_files(base: str, head: str, root: Path) -> int:
+    """检查 base→head 之间所有变更的文本文件，返回失败数。"""
+    pats = [
+        "*.md", "*.py", "*.vue", "*.ts", "*.tsx", "*.js", "*.jsx", "*.json",
+        "*.yml", "*.yaml", "*.html", "*.htm", "*.css", "*.scss", "*.sass",
+        "*.sh", "*.ps1", "*.bat", "*.toml", "*.xml", "*.svg", "*.mjs", "*.cjs",
+    ]
+    names = subprocess.run(
+        ["git", "diff", "--name-only", base, head, "--", *pats],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    ).stdout
+    failed = 0
+    for rel in [n.strip() for n in names.splitlines() if n.strip()]:
+        fp = root / rel
+        if fp.is_file() and is_likely_mojibake(fp):
+            failed += 1
+    return failed
+
+
+def _scan_range(base: str, head: str) -> int:
+    """扫描 base..head 的提交信息与变更文件（PR 与 push 两条路径共用同一实现）。"""
+    root = Path(os.getcwd())
+    revs, note, ok = _resolve_range(base, head)
+    if note:
+        print(f"NOTE: {note}")
+    if not ok:
+        print(
+            "ERROR: 无法确定检查范围（见上方 NOTE）——不静默放行，请人工确认本次推送内容。",
+            file=sys.stderr,
+        )
+        return 2
+    if not revs:
+        print("OK: 本次范围无新提交，无需检查")
+        return 0
+
+    bad_msgs = []
+    for sha in revs:
+        if is_exempt_commit_message(sha):  # 历史豁免：只豁免信息，文件照查
+            continue
+        if _check_commit(sha):
+            bad_msgs.append(sha[:8])
+
+    # 文件层：逐提交 diff 对 merge 提交为空（会漏掉冲突解决引入的内容），故正常范围走
+    # 「范围 diff」；降级模式（只剩 head 单提交）则查该提交自身的 diff。
+    degraded = len(revs) == 1 and revs[0] == head.strip()
+    if degraded:
+        failed_files = 1 if _check_commit_files(revs[0], root) else 0
+    else:
+        failed_files = _check_range_files(base.strip(), head.strip(), root)
+
+    if bad_msgs or failed_files:
+        if bad_msgs:
+            print(
+                f"ERROR: 以下提交的中文提交信息疑似乱码：{', '.join(bad_msgs)}",
+                file=sys.stderr,
+            )
+        if failed_files:
+            print(f"ERROR: {failed_files} 个变更文件疑似乱码", file=sys.stderr)
+        return 1
+
+    print(f"OK: 范围内 {len(revs)} 个提交，变更文件与提交信息编码正常")
+    return 0
+
+
 def main() -> int:
     args = sys.argv[1:]
     if args and args[0] == "--check-message":
@@ -306,6 +440,15 @@ def main() -> int:
             )
             else 0
         )
+    if args and args[0] == "--scan-range":
+        # CI 用：PR 事件传 base.sha/head.sha；push 事件传 before/after（before 可能全零）
+        if len(args) < 3:
+            print(
+                "ERROR: --scan-range 需要 <base> <head>（base 允许为空串或全零）",
+                file=sys.stderr,
+            )
+            return 2
+        return _scan_range(args[1], args[2])
     if args and args[0] == "--is-exempt":
         # 供 CI 在「逐提交查信息」的循环里先问一句：命中即跳过该提交的信息检查，
         # 避免按 sha 硬编码在 workflow 里（清单单一来源原则，同 close_linked_issues.js）

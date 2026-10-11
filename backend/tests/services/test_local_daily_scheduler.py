@@ -51,16 +51,25 @@ def _reset_singleton():
 
 
 class TestLoadConfig:
-    def test_default_is_disabled_with_five_jobs(self):
+    def test_default_is_disabled_with_full_job_list(self):
         cfg = ds.load_config({})
         # 必须显式打开：否则 conftest 每个用例都会 create_app()，测试里就会真的起抓取线程
         assert cfg.enabled is False
+        # 末四项是 #1934 补进本机调度的（此前它们只注册在编排器里，从未自动跑过），
+        # 末项 orphan_backfill 是 #950 新增的孤儿交易回填
         assert cfg.job_names() == [
             'temperature',
             'fund_nav',
             'price_history',
+            'index_daily',
             'position_price',
             'advisor_portfolio',
+            'fund_position',
+            'market_asset_daily',
+            'index_valuation',
+            'convertible_bond',
+            'dividend_split',
+            'orphan_backfill',
         ]
         assert cfg.timezone == ds.DEFAULT_TIMEZONE
         assert cfg.skip_non_trading_day is True
@@ -70,13 +79,45 @@ class TestLoadConfig:
         assert crons['temperature'] == ds.DEFAULT_TEMPERATURE_CRON
         assert crons['fund_nav'] == ds.DEFAULT_NAV_CRON
         assert crons['price_history'] == ds.DEFAULT_PRICE_HISTORY_CRON
+        assert crons['index_daily'] == ds.DEFAULT_INDEX_DAILY_CRON
         assert crons['position_price'] == ds.DEFAULT_POSITION_PRICE_CRON
         assert crons['advisor_portfolio'] == ds.DEFAULT_ADVISOR_CRON
+        assert crons['fund_position'] == ds.DEFAULT_FUND_HOLDING_CRON
+        assert crons['market_asset_daily'] == ds.DEFAULT_MARKET_ASSET_DAILY_CRON
+        assert crons['index_valuation'] == ds.DEFAULT_INDEX_VALUATION_CRON
+        assert crons['convertible_bond'] == ds.DEFAULT_CONVERTIBLE_BOND_CRON
+        assert crons['dividend_split'] == ds.DEFAULT_DIVIDEND_SPLIT_CRON
+        assert crons['orphan_backfill'] == ds.DEFAULT_ORPHAN_BACKFILL_CRON
         # 顺序即依赖（#1104）：现价回写读的是净值 job 刚落库的 daily_worth、
         # 以及场内日线 job 刚落库的 price_history.close，早于两者会写到旧口径。
         names = cfg.job_names()
         assert names.index('fund_nav') < names.index('position_price')
         assert names.index('price_history') < names.index('position_price')
+        # 孤儿回填（#950）必须排在本机调度的**最后**：它按身份把孤儿流水挂回持仓，
+        # 看到的是当天最终状态。排在 fund_position 之前会因「持仓尚未建好」，
+        # 把本可挂上的流水继续留在孤儿态——而那正是本 job 要消灭的东西。
+        assert names.index('orphan_backfill') == len(names) - 1
+
+    def test_fund_position_is_weekly_not_daily(self):
+        """回归（#870）：持仓是季报数据，日变更量为 0——必须是每周，不能是每日。
+
+        每日跑 133 只 × 2 次外部请求既无新数据，又叠加东财限流风险（#1403 的原始形态）。
+        同时锁死「星期用英文缩写」这一点：APScheduler 的 day_of_week 是 0=周一，
+        与 crontab 的 0=周日相反，写成数字会静默排到错的那一天。
+        """
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        from apscheduler.triggers.cron import CronTrigger
+
+        cfg = ds.load_config({})
+        spec = next(s for s in cfg.jobs if s.job_name == 'fund_position')
+        tz = ZoneInfo(cfg.timezone)
+        trigger = CronTrigger.from_crontab(spec.cron, timezone=tz)
+        # 2026-09-30 是周三 → 下一次触发应落在下周一（10-05）23:00
+        fire = trigger.get_next_fire_time(None, datetime(2026, 9, 30, 23, 30, tzinfo=tz))
+        assert fire.strftime('%a') == 'Mon'
+        assert (fire.hour, fire.minute) == (23, 0)
 
     def test_position_price_job_has_no_target_kind(self):
         """现价回写的目标池是**持仓表本身**（user 域），不是 fund/stock 代码池。
@@ -101,7 +142,19 @@ class TestLoadConfig:
 
     def test_advisor_job_can_be_disabled_alone(self):
         cfg = ds.load_config({ds.ENV_ENABLED: 'true', ds.ENV_ADVISOR_ENABLED: '0'})
-        assert cfg.job_names() == ['temperature', 'fund_nav', 'price_history', 'position_price']
+        assert cfg.job_names() == [
+            'temperature',
+            'fund_nav',
+            'price_history',
+            'index_daily',
+            'position_price',
+            'fund_position',
+            'market_asset_daily',
+            'index_valuation',
+            'convertible_bond',
+            'dividend_split',
+            'orphan_backfill',
+        ]
 
     def test_price_history_job_targets_stock_pool(self):
         """场内日线（#1104）必须带 'stock' 目标池：丢了 target_kind 会拿空池「成功」空跑。"""
@@ -121,13 +174,36 @@ class TestLoadConfig:
                 ds.ENV_ADVISOR_ENABLED: '0',
                 ds.ENV_POSITION_PRICE_ENABLED: '0',
                 ds.ENV_PRICE_HISTORY_ENABLED: '0',
+                ds.ENV_INDEX_DAILY_ENABLED: '0',
+                ds.ENV_FUND_HOLDING_ENABLED: '0',
                 ds.ENV_NAV_CRON: '5 22 * * 1-5',
             }
         )
-        assert cfg.job_names() == ['fund_nav']
+        # #1934 补进调度的四项没被上面的开关关掉，故仍在列表里（fund_nav 排最前）
+        assert cfg.job_names() == [
+            'fund_nav',
+            'market_asset_daily',
+            'index_valuation',
+            'convertible_bond',
+            'dividend_split',
+            'orphan_backfill',
+        ]
         assert cfg.jobs[0].cron == '5 22 * * 1-5'
         # target_kind 必须留着：丢了它净值 job 会拿到空目标池并「成功」空跑
         assert cfg.jobs[0].target_kind == 'fund'
+
+    def test_new_jobs_have_no_target_kind(self):
+        """#1934 补进的四项目标池都不是「持仓+自选」，target_kind 必须为 None。
+
+        套成 'fund' / 'stock' 会拿到不相干的代码池：market_asset_daily 的对象是
+        「要落快照的大类资产」、index_valuation 是固定指数清单、convertible_bond
+        按在库 symbol 全量 upsert、dividend_split 是事件型数据。套错的结果是
+        「每天记一条 success 但什么都没同步」的静默空跑。
+        """
+        cfg = ds.load_config({})
+        for name in ('market_asset_daily', 'index_valuation', 'convertible_bond', 'dividend_split'):
+            spec = next(s for s in cfg.jobs if s.job_name == name)
+            assert spec.target_kind is None, f'{name} 的 target_kind 应为 None'
 
     def test_timezone_override(self):
         assert ds.load_config({ds.ENV_TIMEZONE: 'UTC'}).timezone == 'UTC'
@@ -263,9 +339,44 @@ class TestCatchUpTargets:
         dates = {'temperature': date(2026, 9, 11), 'fund_nav': None}
         assert ds.catch_up_targets(_config(), now, dates) == ['temperature', 'fund_nav']
 
-    def test_rest_day_never_catches_up(self):
+    def test_rest_day_only_catches_up_backfill_jobs(self):
+        """休市日只补「回补型」（#2016）。
+
+        原行为是休市日一律返回空，实测代价：数据源当日不齐（ETF 当日 K 线次日才齐），
+        周五 17:30 只拿到 T-1，缺口本应由下一次运行补——而周末被整体跳过，于是拖到
+        周一才补，整个周末的持仓市值/盈亏都在用周四的价。
+        """
         now = datetime(2026, 9, 12, 23, 0, tzinfo=TZ)  # 周六
-        assert ds.catch_up_targets(_config(), now, {}) == []
+        # temperature 休市无新数据可抓；fund_nav 是回补型，要补缺口
+        assert ds.catch_up_targets(_config(), now, {}) == ['fund_nav']
+
+    def test_rest_day_backfill_ignores_fire_time(self):
+        """休市日的回补型**不受「今天几点」限制**：周六上午启动也要能补上周五的缺口。
+
+        否则用户周六早上开机，要干等到 21:30 才补上——那时他早看完了。
+        """
+        now = datetime(2026, 9, 12, 9, 0, tzinfo=TZ)  # 周六 09:00，远早于净值 21:30
+        assert ds.catch_up_targets(_config(), now, {}) == ['fund_nav']
+
+    def test_rest_day_backfill_skipped_when_already_succeeded(self):
+        """今天已成功过就不重复补（幂等：只在 last_success 早于今天时才补）。"""
+        now = datetime(2026, 9, 12, 9, 0, tzinfo=TZ)
+        assert ds.catch_up_targets(_config(), now, {'fund_nav': SATURDAY}) == []
+
+    def test_rest_day_backfill_list_is_explicit(self):
+        """回补型名单是**显式白名单**，加/删都要有意识。
+
+        判定依据：休市日跑它**能补齐上一个交易日的数据**，且无缺口时空跑成本≈0
+        （增量窗口为空即不抓取，只花一次库内查询、0 次外部请求）。
+        """
+        assert ds.REST_DAY_JOB_NAMES == frozenset({'price_history', 'fund_nav', 'position_price'})
+        assert ds.runs_on_rest_day('price_history') is True
+        assert ds.runs_on_rest_day('fund_nav') is True
+        assert ds.runs_on_rest_day('position_price') is True
+        # 温度 / 指数估值 / 投顾：休市确实无新数据可抓
+        assert ds.runs_on_rest_day('temperature') is False
+        assert ds.runs_on_rest_day('index_valuation') is False
+        assert ds.runs_on_rest_day('advisor_portfolio') is False
 
     def test_rest_day_can_be_ignored(self):
         now = datetime(2026, 9, 12, 23, 0, tzinfo=TZ)
@@ -344,6 +455,35 @@ class TestRunSyncJob:
         ds.run_sync_job(ds.DailyJobSpec('fund_nav', '30 21 * * *', 'fund', '净值'), jitter_seconds=600)
 
         assert calls == [(600, '每日调度 fund_nav')]
+
+
+class TestRunJobOnRestDay:
+    """`_run_job` 的休市判定：回补型照跑、其余跳过（#2016）。"""
+
+    def _make_scheduler(self, tmp_path, monkeypatch, calls):
+        def _fake_run(spec, jitter_seconds=0):
+            calls.append(spec.job_name)
+            return {'job_name': spec.job_name, 'status': 'success', 'stats': {}}
+
+        monkeypatch.setattr(ds, 'run_sync_job', _fake_run)
+        monkeypatch.setattr(ds, 'is_rest_day', lambda today=None: True)
+        return ds.DailyScheduler(_config(lock_file=tmp_path / 'rest.lock'))
+
+    def test_backfill_job_runs_on_rest_day(self, tmp_path, monkeypatch):
+        calls = []
+        scheduler = self._make_scheduler(tmp_path, monkeypatch, calls)
+
+        scheduler._run_job(ds.DailyJobSpec('fund_nav', '30 21 * * *', 'fund', '净值'))
+
+        assert calls == ['fund_nav']
+
+    def test_non_backfill_job_skipped_on_rest_day(self, tmp_path, monkeypatch):
+        calls = []
+        scheduler = self._make_scheduler(tmp_path, monkeypatch, calls)
+
+        scheduler._run_job(ds.DailyJobSpec('temperature', '0 20 * * *', None, '温度计'))
+
+        assert calls == []
 
 
 # ── 单实例锁与调度器生命周期 ────────────────────────────────────────────

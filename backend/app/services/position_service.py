@@ -39,6 +39,7 @@ from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_money_fund_s
 from app.services.import_records import compute_position_hash
 from app.services.pnl_service import compute_sell_realized_cents
 from app.services.position_presenter import enrich_position_dict
+from app.services.symbol_scope import build_position_symbol_conditions
 from app.services.trading import TransactionService, validate_buy, validate_sell
 from app.services.watchlist_service import (
     ensure_watchlist_for_positions,
@@ -1237,13 +1238,36 @@ class PositionService:
         account = data.get('account_name', '')
         qty = data.get('quantity', 0)
         price = data.get('avg_price', 0)
+        name = (data.get('name') or data.get('position_name') or '').strip()
 
         # 尝试查找现有持仓（家庭维度）
-        existing = (
-            db.query(Position)
-            .filter_by(symbol=symbol, account_name=account, family_id=_resolve_family_id(data))
-            .first()
-        )
+        existing = None
+        if symbol:
+            existing = (
+                db.query(Position)
+                .filter_by(symbol=symbol, account_name=account, family_id=_resolve_family_id(data))
+                .first()
+            )
+        if existing is None and name:
+            # **symbol 缺失时的兜底关联**（#1920）
+            # 券商交割单里「证券名称」常有而「证券代码」为空（实测真实库 1348/2051 笔
+            # 无 symbol）。此前只按 symbol 匹配 ⇒ 必然查不到持仓 ⇒ 卖出退化成孤儿流水
+            # ⇒ `realized_pnl` 无从计算而**静默丢 0**（真实库 649 笔卖出如此）。
+            # 名称 + 账户在单个账户内足以唯一定位持仓，退化风险远低于丢成本基准。
+            existing = (
+                db.query(Position)
+                .filter_by(name=name, account_name=account, family_id=_resolve_family_id(data))
+                .filter(Position.ownership_status == 'active')
+                .first()
+            )
+            if existing is not None:
+                logger.info(
+                    '卖出/取出按名称兜底关联到持仓：symbol=%r name=%r account=%r → position_id=%s',
+                    symbol,
+                    name,
+                    account,
+                    existing.id,
+                )
 
         if existing:
             try:
@@ -1425,12 +1449,24 @@ class PositionService:
         return PositionService.recompute_position_from_transactions(db, existing.id)
 
     @staticmethod
-    def build_position_list(db, family_id: int, group_by: str, page: int, per_page: int, ledger_id_raw: str) -> dict:
+    def build_position_list(
+        db,
+        family_id: int,
+        group_by: str,
+        page: int,
+        per_page: int,
+        ledger_id_raw: str,
+        symbol: str = '',
+        market: str = '',
+    ) -> dict:
         """list_positions 的核心：过滤 + 按账户分组 / 分页组装（#1642 B 块，从 views 下沉）。
 
         与下沉前逐字段一致：``ledger_id='null'`` 仅取未归档持仓；``group_by='account'`` 按
         account_name 分组并补首次买入确认日（优先交易流水，回退 position.confirm_date）；否则分页
         + enrich_position_dict。返回原 jsonify 的「内层 data 字典」（视图负责补 message）。
+
+        ``symbol`` / ``market``（#1966）：产品维度过滤，供详情页「我的持仓」区块用。
+        **下推到 SQL**——取全表后内存筛违反数据策略硬约束 §6。
         """
         query = db.query(Position).filter(Position.family_id == family_id)
         # 未归档过滤：ledger_id 显式传 'null' 时仅返回未绑定账户的持仓
@@ -1438,6 +1474,15 @@ class PositionService:
             query = query.filter(Position.ledger_id.is_(None))
         elif ledger_id_raw:
             query = query.filter(Position.ledger_id == int(ledger_id_raw))
+        if symbol:
+            # symbol 同时匹配「展示形态」与 #1662 的「归一身份键」，取并集：存量行
+            # symbol_norm 可能为空、只有新写入行保证有值，只用其一都会漏命中。
+            # 判定收口在 `services/symbol_scope.py`（三种 venue 归一候选的详细理由见其模块注释），
+            # 与产品级 XIRR（#1972 `scope=symbol`）**共用同一份口径**——两边各写一份，
+            # 迟早漂移成「列表里有三行、年化只算了两行」的自相矛盾详情页。
+            query = query.filter(or_(*build_position_symbol_conditions(symbol)))
+        if market:
+            query = query.filter(Position.market == market)
         query = query.order_by(Position.updated_at.desc())
 
         if group_by == 'account':

@@ -1,5 +1,5 @@
 <template>
-  <!-- #1239 草稿层：同域（A）E账户导入草稿恢复 Banner，不弹窗打断 -->
+  <!-- #1239 草稿层：同域（A）导入持仓快照的草稿恢复 Banner，不弹窗打断 -->
   <div
     v-if="p.draftBannerVisible && p.pendingDraftMeta"
     class="draft-banner"
@@ -7,7 +7,7 @@
   >
     <IconifyIconOffline icon="ep:edit-pen" class="draft-banner__icon" />
     <div class="draft-banner__text">
-      发现未完成的 E账户导入草稿（{{ p.pendingDraftMeta.rowCount }} 条持仓），
+      发现未完成的导入草稿（{{ p.pendingDraftMeta.rowCount }} 条持仓），
       是否继续？
     </div>
     <div class="draft-banner__actions">

@@ -4,7 +4,7 @@
 # File : models.py
 """资产快照模型：每日记录家庭总资产/负债/净资产，支撑同比计算（历史积累期）。"""
 
-from sqlalchemy import Column, Date, Index, Integer, text
+from sqlalchemy import Column, Date, Index, Integer, String, text
 
 from app.core.database import Base, PrimaryKeyMixin, TimestampMixin
 
@@ -83,4 +83,99 @@ class AssetSnapshot(Base, PrimaryKeyMixin, TimestampMixin):
         nullable=True,
         default=None,
         comment='当日货基收益（分，#863 P1-5 展示用，不入 total_assets；NULL=无货基）',
+    )
+
+
+class PnlDailySnapshot(Base, PrimaryKeyMixin, TimestampMixin):
+    """收益日历逐日物化快照（#1926）：把「读时 as-of 现算」的结果按日落库。
+
+    与 `asset_snapshots` 的**根本区别**（#1812 的 docstring 记录了后者为何不可用）
+    ---------------------------------------------------------------
+    `asset_snapshots` 记的是「落库那一刻的当前状态」，`snapshot_date` 只是个**标签**
+    ——取数链无日期过滤、全仓无失效/重算钩子，回填等于把今天的值贴到历史日期。
+    本表记的是「**截至该日**」的状态，且配三道失效机制：
+
+    1. `caliber_version`：口径一改全部作废（读时按版本过滤，不符即全表清）；
+    2. 用户编辑：`before_flush` 事件按**流水生效日**精确删 `[D, ∞)`，
+       持仓结构变化因 #1916「状态判定恒用家庭级全量决策集」而整族删；
+    3. 价格数据：`full_sync` 回填后整表清（见 `pnl_snapshot_store`）。
+
+    **读路径永不因快照缺失而空白**：缺行即回退 as-of 现算并回填（#1926 验收 3）。
+
+    字段口径（与 `pnl_calendar.days[]` 逐字段对应，前端禁止二次计算）
+    ------------------------------------------------------------------
+    - `daily_pnl_cents`：日盈亏（分）。**NULL = 算不出来**（`no_price` /
+      `closed` / `no_data` / `no_position`），绝不可写 0——「缺数据绝不可画成 0」
+      是本产品红线。
+    - `net_worth_cents`：该日净资产（分，仅持仓口径，与日历一致）。
+    - `rate_bp`：日收益率，**基点**（`rate(%) × 100`），如 −0.45% → −45。
+      NULL 同上。用整数而非浮点，是为了让「物化读」与「现算读」逐位相等。
+    - `state`：日历报的状态码。#1917/#1942 之后共 7 种：`updown` / `zero` /
+      `no_price` / `closed` / `no_data` / `no_position` / `partial`。存**码本身**
+      而非数值枚举，新增状态不必改表（`String(16)` 够放）。
+
+    **刻意不存 `baseline_ok`**（初版曾存，重合并 `origin/dev` 时移除）：它源自
+    #1917 之前的 `day_complete`（「部分断档日不可作次日的差分基准」），而
+    #1917 的 A 方案已改为**基准无条件推进**——断档那几笔在基准日与当日之间
+    对称抵消，故任何一天的水平值都可复现：`_build_per_pos` 先注入 `scan_start`
+    之前的累计、循环再补 `[scan_start, A]`，day A 的份额/已实现恒为 `Σ_{d≤A}`，
+    与从哪天起算无关。恒为真的列撞 AGENTS.md 数据策略硬约束 §1「新列必须当场
+    指定读者」，故连同 `_chain_anchor` 的回退逻辑一并移除。
+
+    **刻意不存 `total_pnl_cents`**（issue #1926 正文列了它）：API 不返回、
+    `month_total` 走 `Σ daily_pnl`、`rate` 分母走 `net_worth`——全仓零读者，
+    撞 AGENTS.md 数据策略硬约束 §1「新列必须当场指定读者」。
+
+    幂等 upsert 作用域 `(family_id, COALESCE(ledger_id, -1), date)`
+    （与 `asset_snapshots.uq_asset_snapshots_scope` 同范式：NULL 在唯一约束中
+    互不冲突，故用 COALESCE 落哨兵 -1，让家庭级行也参与去重）。
+    """
+
+    __tablename__ = 'pnl_daily_snapshots'
+    __table_args__ = (
+        Index(
+            'uq_pnl_daily_snapshots_scope',
+            'family_id',
+            text('COALESCE(ledger_id, -1)'),
+            'date',
+            unique=True,
+        ),
+        # 口径版本变更后的全表清扫（`WHERE caliber_version != 当前`）走它；
+        # 该操作一整个安装周期只发生一次，但表随家庭数 × 账户数 × 天数膨胀，
+        # 没有索引就是全表扫。
+        Index('ix_pnl_daily_snapshots_caliber', 'caliber_version'),
+    )
+
+    family_id = Column(Integer, nullable=False, default=1, comment='归属家庭（家庭共享层隔离键）')
+    ledger_id = Column(
+        Integer,
+        nullable=True,
+        default=None,
+        comment='账户ID；NULL=家庭级快照，非 NULL=该账户级快照。刻意不加外键',
+    )
+    date = Column(Date, nullable=False, comment='快照日期（上海时区本地日期）')
+    daily_pnl_cents = Column(
+        Integer,
+        nullable=True,
+        default=None,
+        comment='日盈亏（分）；NULL=当日算不出来（缺数据不可画成 0）',
+    )
+    net_worth_cents = Column(Integer, nullable=False, comment='该日净资产（分，仅持仓口径）')
+    rate_bp = Column(
+        Integer,
+        nullable=True,
+        default=None,
+        comment='日收益率基点（rate% × 100）；NULL=不可算',
+    )
+    state = Column(
+        String(16),
+        nullable=False,
+        comment='状态码 updown/zero/no_price/closed/no_data/no_position/partial',
+    )
+    caliber_version = Column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default=text('1'),
+        comment='口径版本号；与 pnl_snapshot_store.CALIBER_VERSION 不符即作废',
     )

@@ -271,21 +271,24 @@ withDefaults(
   color: var(--text-tertiary-ink);
 }
 
-/* ===== 乖离率数值颜色 ===== */
-.bias-extreme-high {
+/* ===== 乖离率数值颜色 =====
+   文字色一律走对应的 **-ink 文字级令牌（#1837）：温度底色级按 design.md 只能作背景/边框/图形
+   （白底 3.30–3.96:1，作正文不达 AA）。原先的写法是把底色级掺 15% 文字色再套 color-mix，
+   字面上避开了守门判据，语义与合规后果却完全一样。
+   极端档与非极端档的区分改用**字重**表达，不再靠「浅一点所以弱一点」的不可读色。 */
+.bias-extreme-high,
+.bias-high {
   color: var(--temp-high-ink);
 }
 
-.bias-high {
-  color: color-mix(in srgb, var(--temp-high) 85%, var(--text-primary));
-}
-
-.bias-extreme-low {
+.bias-extreme-low,
+.bias-low {
   color: var(--temp-low-ink);
 }
 
-.bias-low {
-  color: color-mix(in srgb, var(--temp-low) 85%, var(--text-primary));
+.bias-extreme-high,
+.bias-extreme-low {
+  font-weight: 700;
 }
 
 .bias-neutral {

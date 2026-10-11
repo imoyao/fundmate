@@ -50,36 +50,15 @@
           @manage-group-items="actions.onManageGroupItems"
         />
 
-        <!-- 持仓未入自选提示（#1458 后续：持仓即自选）：缺口可一键补齐 -->
-        <el-alert
+        <!-- 持仓未入自选提示（#1458 后续：持仓即自选）：内联前 3 条明细 + 一键补齐，
+             缺口多于 3 条时由「查看全部」打开 HoldingGapDialog（明细弹窗） -->
+        <HoldingGapBanner
           v-if="holdingGaps.length > 0"
-          type="warning"
-          :closable="false"
-          show-icon
-          class="holding-gap-banner"
-        >
-          <template #title>
-            <span
-              >有 {{ holdingGaps.length }} 个持仓产品尚未加入自选，暂无法打标签
-              / 写备注。</span
-            >
-          </template>
-          <template #default>
-            <span
-              >持仓即自选：补齐后即可像普通自选一样管理，卖出后也不会被删除。</span
-            >
-            <el-button
-              type="warning"
-              size="small"
-              plain
-              class="ml-2"
-              :loading="reconciling"
-              @click="handleAddAllToWatchlist"
-            >
-              一键加入自选
-            </el-button>
-          </template>
-        </el-alert>
+          :gaps="holdingGaps"
+          :reconciling="reconciling"
+          @add-all="handleAddAllToWatchlist"
+          @view-all="actions.openGapDialog"
+        />
 
         <!-- 合规横幅：仅在开启实时时出现（未开启实时时它没有意义） -->
         <RealtimeWarningBanner v-if="realtimeEnabled" />
@@ -130,6 +109,13 @@
       :actions="actions"
       :column-settings="columnSettings"
     />
+
+    <!-- 表头列排序的键盘等价物（#1852）：操作提示与结果播报。
+         role=status + aria-live=polite：只在文本变化时读一次，顺序变了但视觉上
+         只是表头换位，不播报则屏幕阅读器用户完全感知不到。
+         提示元素是表头 th 的 aria-describedby 目标，屏幕阅读器聚焦列头时会读它。 -->
+    <span id="watchlist-col-hint" class="a11y-live">{{ COL_HINT }}</span>
+    <p class="a11y-live" role="status" aria-live="polite">{{ announce }}</p>
   </div>
 </template>
 
@@ -146,6 +132,7 @@ import WatchlistHeadPrimary from "@/views/asset/watchlist/components/WatchlistHe
 import WatchlistTableSection from "@/views/asset/watchlist/components/WatchlistTableSection.vue";
 import WatchlistTableFooter from "@/views/asset/watchlist/components/WatchlistTableFooter.vue";
 import WatchlistDialogs from "@/views/asset/watchlist/components/WatchlistDialogs.vue";
+import HoldingGapBanner from "@/views/asset/watchlist/components/HoldingGapBanner.vue";
 import { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import { useWatchlistTags } from "@/composables/useWatchlistTags";
 import { useWatchlistData } from "@/composables/useWatchlistData";
@@ -192,7 +179,14 @@ const sticky = useWatchlistStickyLayout({
   dataColumns,
   realtimeEnabled: valuation.realtimeEnabled
 });
-const { pageRef, onTableReady, initHeaderDrag, bindStickyObserver } = sticky;
+const {
+  pageRef,
+  onTableReady,
+  initHeaderDrag,
+  bindStickyObserver,
+  announce,
+  COL_HINT
+} = sticky;
 
 // 表格渲染域（renderCtx 组装 / 行 hover / 排序分发），见 useWatchlistTable
 const table = useWatchlistTable({
@@ -281,13 +275,19 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* #1458 后续：持仓未入自选的引导 banner（warning 级） */
-.holding-gap-banner {
-  margin: 12px 0;
-}
-
-.holding-gap-banner .ml-2 {
-  margin-left: 8px;
+/* 视觉隐藏但保留给屏幕阅读器（#1852）。与 LedgerGroupsList 的 .a11y-live 同款——
+   那套是 #1841 定的，这里直接沿用，不另立写法。 */
+.a11y-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  white-space: nowrap;
+  border: 0;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
 }
 
 /* 自选卡片沿用 design.md「表格/列表/筛选栏：--space-compact(16px)」，
@@ -356,29 +356,11 @@ onMounted(async () => {
 }
 
 /* ======================================
-   基础输入框/下拉框样式（作用于本页树内全部子组件的控件）
+   输入框 / 下拉框的视觉已收敛到 element-plus.scss 的「输入基线（#1772）」：
+   底色、边框、hover、focus、圆角由 --input-* 令牌统一驱动，本页不再
+   自己写一套（原两条 :deep 块即因此删除 —— 它们设的 --el-input-focus-shadow
+   EP 根本不读，一直是个死令牌）。需要局部差异时只在容器上覆盖令牌。
    ====================================== */
-:deep(.el-input__wrapper) {
-  --el-input-border-color: var(--border-default);
-  --el-input-hover-border-color: var(--brand-500);
-  --el-input-focus-border-color: var(--brand-700);
-  --el-input-focus-shadow:
-    inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
-    0 0 0 4px var(--brand-700);
-
-  border-radius: var(--radius-sm);
-}
-
-:deep(.el-select .el-input__wrapper) {
-  --el-input-border-color: var(--border-default);
-  --el-input-hover-border-color: var(--brand-500);
-  --el-input-focus-border-color: var(--brand-700);
-  --el-input-focus-shadow:
-    inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
-    0 0 0 4px var(--brand-700);
-
-  border-radius: var(--radius-sm);
-}
 
 /* ======================================
    按钮物理反馈（去除缩放，仅保留符合规范的 translateY）

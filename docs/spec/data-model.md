@@ -133,6 +133,8 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 - `last_nav_check`：最后一次净值检查时间。
 - `nav_fail_count`：连续获取净值失败次数。
 - `pinyin_abbr`：拼音首字母简拼（仿天天基金规则），用于搜索。
+- `equity_position` / `equity_position_period`：近似股票仓位（%）及其对应报告期。口径为
+  **行业配置合计**（非「前十大之和」），详见 §5.16。
 
 ### 5.10 货币基金独立净值模型
 
@@ -311,3 +313,69 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | `market_single_values` | 单值指标（综合温度、恐贪指数、股债性价比、成交额等） | **永久** |
 | `market_composites` | 复合指标（集思录估值指标、自算估值分位、二鸟说手抄报） | **1 年** |
 | `market_multi_items` | 多维列表数据（乖离率、行业拥挤度、板块资金流） | **1 年** |
+
+### 5.15 分红与股息（新增，源 #872 / 决策 D41）
+
+**分红事件本身没有独立表**——这是本期刻意的取舍：现金分红 / 红利再投资 / 送股 / 红利税的事实来源已经是
+`transactions`（列名 `type`，属性名 `txn_type`），再建一张事件表等于同一事实存两遍，必然出现
+「流水有、事件表没有」的漂移。统计口径的唯一出口是 `services/dividend_service.py`。
+
+| `transactions.type` | 含义 | 金额落点 |
+|---|---|---|
+| `dividend`（无配对 `buy`） | 现金分红 | `amount` = 分红金额（分） |
+| `dividend`（同 `link_group_id` 有 `buy`） | 红利再投资的分红入账 | `amount` = 分红金额；份额在同组 `buy` 流水 |
+| `dividend_tax` | 红利税 | `amount` 为**负值**（展示取正） |
+| `split` | 送股 / 拆分 | `amount = 0`，只增份额、只计事件数 |
+
+> 判据注意：红利再投靠「同 `link_group_id` 存在 `buy` 流水」识别，**不是**靠
+> `link_group_id` 非空（那是通用配对列）；`txn_type='dividend_reinvest'` 从不落库。
+> 债券兑付 `bond_redeem` 不计入分红统计（还本付息不是股息收入）。
+
+本期新增的**唯一**一张表是本域的用户私有配置：
+
+| 表名 | 归属域 | 字段 | 不变式 |
+|------|--------|------|--------|
+| `dividend_targets` | user | `id / family_id / target_yield_pct(Numeric(6,2)) / notes / created_at / updated_at` | 一家庭一条（`uq_dividend_target_family`）；逐持仓的**实际**股息率实时从流水算、**不落库** |
+
+口径（详见 `decisions.md` D41）：股息率 =（现金分红 + 红利再投 − 红利税）/ 当前持仓成本；
+`totals` / `by_year` 走**全量流水**口径（含已清仓与孤儿分红），`portfolio` / `holdings` 走**在管持仓**口径；
+分母非正返回 `null` 而非 0。API 见 `api.md`（`GET /api/dividends/summary/`、`PUT|DELETE /api/dividends/target/`）。
+
+### 5.16 基金持仓明细与行业配置（新增 2026-09-30，源 #870）
+
+两表都是**报告期快照**，不是日期序列：东财只提供报告期粒度（`季度`），**没有**任意日期查询接口。
+版本键统一用 `report_period`（如 `2026Q2`），不用日期。
+
+| 表名 | 域 | 唯一键 | 来源 |
+|------|-----|--------|------|
+| `fund_holdings` | market | `(fund_code, report_period, holding_basis, stock_code)` | 东财基金档案-投资组合（ccmx） |
+| `fund_industry_allocs` | market | `(fund_code, report_period, industry_code)` | 东财 `api.fund.eastmoney.com/f10/HYPZ/` |
+
+**为什么 `holding_basis` 进唯一键**：季报（Q1/Q3）只披露前十大，半年报/年报（Q2/Q4）披露全量
+（东财服务端硬上限 100 条）。两者**并存落库、不做单值覆盖**——一旦合并成单一口径，季报期数据就会
+"凭空缩水"，被误读成大幅减仓。取值 `full` / `top10`。
+
+**为什么行业配置独立成表**：值是「占净值比例」而非持仓数量，分类体系也与个股不同。`scheme` 标记体系
+——东财同一端点**混用两套且不做任何标记**：境内股票走证监会门类（`csrc`，单字母 A~S），港股等走
+GICS 板块（`gics`，两位数字）。两套体系语义不重叠（GICS 的「非必需消费品」在证监会门类里并入
+「制造业」），**聚合时必须按 `scheme` 分区各自求和，禁止跨体系相加**，否则会得出两者同级并列的荒谬结论。
+
+**`funds.equity_position` 的口径自本表起改为「行业配置合计」**，并新增 `equity_position_period`
+记录对应报告期。理由：
+
+- 「前十大之和」对分散型基金系统性低估——实测 `005827` 前十大 38.95% vs 全量 76.43%（偏差 −37.5pp）、
+  `000001` −36.2pp、`110022` −19.6pp；
+- 证监会要求季报**也**披露行业分类比例（个股只要求前十大），故**行业层在任何报告期都是全量口径**、
+  不随报告期跳变；实测与持仓全量合计交叉吻合到小数点后两位（110022: 87.18% vs 87.19%；
+  005827: 76.42% vs 76.43%）；
+- 无源数据时**不覆盖原值**——明细是源、标量是派生，无源即不派生，不用 0 掩盖缺失
+  （部分 QDII 无行业配置数据，写 0 就是假数据）。
+
+> ⚠️ **口径边界**：`equity_position` 是**直持股票**口径。ETF 联接基金（如 `000961`）该值仅 ≈2%——
+> 它持有的是 ETF 份额而非股票，其股票暴露需先经 `channel_links`（ETF↔联接）落到 ETF 再穿透。
+
+**已知上限**（不可对外宣称"全量穿透"）：个股明细最多覆盖前 100 大持仓（半年报/年报）或前十大（季报）；
+**行业层不受此限**。
+
+调度：`fund_position` 已注册进本机调度，但 cron 是**每周一次**（周一 23:00）而非每日——持仓是季报数据、
+日变更量恒为 0，每日跑只浪费外部请求并叠加东财限流风险（#1403 的原始形态）。

@@ -19,6 +19,7 @@
       <el-input
         v-model="keyword"
         placeholder="搜索分组..."
+        aria-label="搜索分组"
         size="large"
         class="group-search"
         clearable
@@ -62,6 +63,9 @@
             <el-popconfirm
               title="确定删除该分组？"
               :disabled="group.is_system"
+              confirm-button-text="删除"
+              cancel-button-text="取消"
+              popper-class="danger-popconfirm"
               @confirm="deleteGroup(group.id)"
             >
               <template #reference>
@@ -80,7 +84,13 @@
           </div>
         </li>
         <!-- 新建分组：置于列表末尾，紧挨分组名（GitHub Labels 风格），替代顶部按钮 -->
-        <li class="group-row group-row--create" @click="openCreate">
+        <li
+          class="group-row group-row--create"
+          role="button"
+          tabindex="0"
+          @keydown.enter="openCreate"
+          @click="openCreate"
+        >
           <el-icon class="mr-1"><Plus /></el-icon>
           新建分组
         </li>
@@ -176,12 +186,11 @@ const deleteGroup = async (groupId: number) => {
 }
 
 .group-search {
+  /* 胶囊搜索框：只覆盖 #1772 输入基线的圆角令牌，不再 :deep */
+  --input-radius: var(--radius-pill);
+
   flex: 1;
   min-width: 0;
-}
-
-.group-search :deep(.el-input__wrapper) {
-  border-radius: var(--radius-pill);
 }
 
 /* 列表末尾「新建分组」行：与分组行同高、紧挨列表，hover 提亮为品牌色 */
@@ -278,7 +287,16 @@ const deleteGroup = async (groupId: number) => {
   transition: opacity 0.2s;
 }
 
-.group-row:hover .group-row__actions {
+.group-row:hover .group-row__actions,
+/* 触屏 / 键盘也要能看到行操作（#1834） */
+.group-row:focus-within .group-row__actions,
+.group-row__actions:focus-visible {
   opacity: 1;
+}
+
+@media (hover: none) {
+  .group-row__actions {
+    opacity: 1;
+  }
 }
 </style>

@@ -53,6 +53,7 @@
               v-model="tagSearch"
               size="small"
               clearable
+              aria-label="搜索标签"
               placeholder="搜索标签"
               class="filter-panel__search"
             />

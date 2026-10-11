@@ -662,3 +662,116 @@ def test_mixed_rows_transfer_and_invest_counted_separately(db):
     assert res['imported'] == 1  # 仅投资交易
     assert res['cash_transfers_created'] == 1  # 仅转账
     assert res['skipped'] == 0
+
+
+# ── #1882 疑似重复·勾选保留（决策 (a) 真插入，2026-10-06） ──
+
+
+def _make_keep_row(**overrides):
+    """构造 #1882 保留用例的投资交易预览行（货基行形态，与 #1065 去重用例同构）。"""
+    row = {
+        'symbol': '000001',
+        'name': '货币基金',
+        'type': 'money_fund',
+        'op_type': 'deposit',
+        'amount': 100.0,
+        'quantity': None,
+        'price': None,
+        'fee': 0.0,
+        'trade_date': '2026-08-01',
+        'account_name': '',
+        'contract_id': 'TXN-KEEP',
+        'net_amount': 88.5,
+        'source': 'ths_stock',
+        'import_hash': 'keep-hash-1',
+    }
+    row.update(overrides)
+    return row
+
+
+def _make_ledger(db):
+    ledger = Ledger(name='证券账户', ledger_type='stock', family_id=1)
+    db.add(ledger)
+    db.commit()
+    return ledger
+
+
+def test_keep_duplicate_row_imported_with_hash_suffix(db):
+    """#1882 决策 (a)：勾选保留的疑似重复行真插入——原件保留、保留行以 :keep 后缀入库。"""
+    ledger = _make_ledger(db)
+    orch = ImportOrchestrator(db, family_id=1)
+
+    # 首次导入：正常入库，回执两个保留计数键恒为 0（契约恒定，含无投资行批次）
+    row = _make_keep_row(ledger_id=ledger.id)
+    r1 = orch.commit_from_preview([row])
+    assert r1['imported'] == 1
+    assert r1['kept_duplicates'] == 0
+    assert r1['kept_duplicates_blocked'] == 0
+
+    # 同一行再提交：预览口径标 is_duplicate，用户勾选保留（keep_duplicate）
+    dup = {**row, 'is_duplicate': True, 'keep_duplicate': True}
+    r2 = orch.commit_from_preview([dup])
+    assert r2['imported'] == 1
+    assert r2['kept_duplicates'] == 1
+    assert r2['kept_duplicates_blocked'] == 0
+    assert r2['skipped'] == 0  # 不存在「前端放、后端拦」的静默丢弃
+
+    # 库内两份：原件原 hash + 保留行 :keep 后缀（绕开复合唯一约束）
+    assert db.query(Transaction).filter_by(import_hash='keep-hash-1', ledger_id=ledger.id).count() == 1
+    assert db.query(Transaction).filter_by(import_hash='keep-hash-1:keep', ledger_id=ledger.id).count() == 1
+
+
+def test_keep_duplicate_rerun_is_idempotent(db):
+    """#1882：同一保留行再次导入 → 命中已存在的 suffixed hash，规则拦截计数、不叠第三份。"""
+    ledger = _make_ledger(db)
+    orch = ImportOrchestrator(db, family_id=1)
+
+    row = _make_keep_row(ledger_id=ledger.id)
+    orch.commit_from_preview([row])  # 原件入库
+    dup = {**row, 'is_duplicate': True, 'keep_duplicate': True}
+    r2 = orch.commit_from_preview([dup])  # 首次保留
+    assert r2['kept_duplicates'] == 1
+
+    r3 = orch.commit_from_preview([dict(dup)])  # 再次保留 → 幂等拦截
+    assert r3['imported'] == 0
+    assert r3['kept_duplicates'] == 0
+    assert r3['kept_duplicates_blocked'] == 1
+    assert r3['skipped'] == 0
+    assert db.query(Transaction).filter_by(ledger_id=ledger.id).count() == 2
+
+
+def test_duplicate_without_keep_still_filtered(db):
+    """#1882 回归：未勾选保留（无 keep_duplicate）的疑似重复行维持过滤语义，不入库。"""
+    ledger = _make_ledger(db)
+    orch = ImportOrchestrator(db, family_id=1)
+
+    row = _make_keep_row(ledger_id=ledger.id)
+    orch.commit_from_preview([row])
+
+    dup = {**row, 'is_duplicate': True}  # 仅标重复、未勾选保留
+    r2 = orch.commit_from_preview([dup])
+    assert r2['imported'] == 0
+    assert r2['skipped'] == 1  # 过滤行计入 skipped，非静默
+    assert r2['kept_duplicates'] == 0
+    assert r2['kept_duplicates_blocked'] == 0
+    assert db.query(Transaction).filter_by(ledger_id=ledger.id).count() == 1
+
+
+def test_keep_duplicate_after_original_deleted_inserts_plain_hash(db):
+    """#1882：原件已被删（已非重复）→ 保留行保持原 hash 正常入库，不带后缀。"""
+    ledger = _make_ledger(db)
+    orch = ImportOrchestrator(db, family_id=1)
+
+    row = _make_keep_row(ledger_id=ledger.id, import_hash='keep-hash-gone')
+    orch.commit_from_preview([row])
+
+    # 原件删除后再以「勾选保留」提交：它已非重复，按原 hash 正常插回
+    db.query(Transaction).filter_by(import_hash='keep-hash-gone', ledger_id=ledger.id).delete()
+    db.commit()
+
+    dup = {**row, 'is_duplicate': True, 'keep_duplicate': True}
+    r2 = orch.commit_from_preview([dup])
+    assert r2['imported'] == 1
+    assert r2['kept_duplicates'] == 1
+    assert db.query(Transaction).filter_by(import_hash='keep-hash-gone', ledger_id=ledger.id).count() == 1
+    assert db.query(Transaction).filter_by(import_hash='keep-hash-gone:keep', ledger_id=ledger.id).count() == 0

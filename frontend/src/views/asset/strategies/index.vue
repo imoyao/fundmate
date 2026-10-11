@@ -85,9 +85,26 @@
             </p>
           </el-card>
         </div>
-        <el-button @click="openTagManager">
-          <IconifyIconOffline icon="ep:setting" class="mr-1" /> 管理标签
-        </el-button>
+        <div class="flex gap-3 items-center">
+          <!-- 盈亏双线（#1104）：口径说明 + 实时估值开关 -->
+          <el-tooltip :content="PNL_DUAL_SCOPE_TIP" placement="top">
+            <span
+              class="text-xs"
+              :style="{ color: 'var(--text-tertiary-ink)', cursor: 'help' }"
+              >盈亏口径</span
+            >
+          </el-tooltip>
+          <RealtimeEstimateToggle
+            :enabled="estimateEnabled"
+            :status="estimateStatus"
+            :last-update-time="estimateUpdatedAt"
+            :text="estimateToggleText"
+            @toggle="estimateQuotes.toggle"
+          />
+          <el-button @click="openTagManager">
+            <IconifyIconOffline icon="ep:setting" class="mr-1" /> 管理标签
+          </el-button>
+        </div>
       </div>
 
       <!-- 分组列表 -->
@@ -159,9 +176,15 @@
             </template>
           </el-table-column>
 
-          <el-table-column label="盈亏" width="120" align="right">
+          <!-- 盈亏双线（#1104）：主行＝已确认，副行＝当日预估。
+               组级汇总（totalPnl）仍是静态确认口径，不含预估——预估只做逐行参考。 -->
+          <el-table-column label="盈亏" width="170" align="right">
             <template #default="{ row }">
-              <MoneyDisplay :value="row.pnl || 0" size="sm" />
+              <PnlDualLine
+                :confirmed="confirmedPnl(row as EnrichedHolding)"
+                :estimated="estimatedPnl(row as EnrichedHolding)"
+                :hint="estimateHint(row as EnrichedHolding)"
+              />
             </template>
           </el-table-column>
 
@@ -308,6 +331,9 @@
           <template #default="{ row }">
             <el-popconfirm
               title="删除后相关持仓将解绑此标签"
+              confirm-button-text="删除"
+              cancel-button-text="取消"
+              popper-class="danger-popconfirm"
               @confirm="deleteGlobalTag(row.id)"
             >
               <template #reference>
@@ -326,6 +352,13 @@ import { ref, computed, onMounted } from "vue";
 import { ElMessage } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import PnlDualLine from "@/components/PnlDualLine/index.vue";
+import RealtimeEstimateToggle from "@/components/RealtimeEstimateToggle/index.vue";
+import {
+  confirmedPnl,
+  PNL_DUAL_SCOPE_TIP,
+  usePositionValuation
+} from "@/composables/usePositionValuation";
 import {
   getStrategyTags,
   createStrategyTag,
@@ -360,6 +393,23 @@ const tagManagerVisible = ref(false);
 const newGlobalTag = ref("");
 const newTagNames = ref<Record<number, string>>({});
 
+/**
+ * 盈亏双线（#1104）：估值接线。
+ *
+ * 传 **`rawHoldings`（原始持仓，每只一份）** 而非 `enrichedHoldings` / `strategyGroups`：
+ * 策略分组是「一只持仓按标签复制进多个组」的多对多结构，传分组结果会让同一 symbol
+ * 出现多个副本，估值引擎按 symbol 查回时命中哪一份不确定。
+ */
+const {
+  estimatedPnl,
+  estimateHint,
+  estimateEnabled,
+  estimateStatus,
+  estimateUpdatedAt,
+  toggleText: estimateToggleText,
+  realtime: estimateQuotes
+} = usePositionValuation(rawHoldings);
+
 // 分组内分页相关
 const groupPageSize = 20; // 每个标签分组每页显示20条
 const groupPages = ref<Record<string, number>>({}); // 标签名 -> 当前页码
@@ -373,7 +423,9 @@ async function fetchAll() {
     rawHoldings.value = holdings.map((h: any) => ({
       ...h,
       marketValue: (h.quantity || 0) * (h.current_price || 0),
-      pnl: ((h.current_price || 0) - (h.avg_price || 0)) * (h.quantity || 0),
+      // 盈亏口径收敛到 confirmedPnl（#1104）：这里原本是页面自算的同款公式，
+      // 与「已确认」双线并存就会出现同一行两套公式——货基 / 逆回购的豁免只在一处生效。
+      pnl: confirmedPnl(h) ?? 0,
       pnlRate: h.avg_price
         ? ((h.current_price - h.avg_price) / h.avg_price) * 100
         : 0,
@@ -477,12 +529,18 @@ async function updateTags(row: EnrichedHolding | any, selected: string[]) {
   const toAdd = selected.filter(t => !current.includes(t));
   const toRemove = current.filter(t => !selected.includes(t));
 
+  // 逐项收集失败而不是空 catch（#1833）：过去绑定失败也被吞掉，最后无条件弹「标签已更新」——
+  // 用户看到成功、刷新后标签消失。乐观更新 + 静默失败比直接报错更伤信任。
+  const failed: string[] = [];
+
   for (const tagName of toAdd) {
     const tag = allTags.value.find(t => t.name === tagName);
     if (tag) {
       try {
         await bindPositionTag(tag.id, r.id);
-      } catch (e) {}
+      } catch {
+        failed.push(tagName);
+      }
     }
   }
   for (const tagName of toRemove) {
@@ -490,12 +548,19 @@ async function updateTags(row: EnrichedHolding | any, selected: string[]) {
     if (tag) {
       try {
         await unbindPositionTag(tag.id, r.id);
-      } catch (e) {}
+      } catch {
+        failed.push(tagName);
+      }
     }
   }
 
-  positionTagMap.value[r.id] = selected;
-  ElMessage.success("标签已更新");
+  // 本地映射只提交真正生效的部分，别把失败的写进去
+  positionTagMap.value[r.id] = selected.filter(t => !failed.includes(t));
+  if (failed.length) {
+    ElMessage.warning(`部分标签未生效：${failed.join("、")}`);
+  } else {
+    ElMessage.success("标签已更新");
+  }
 }
 
 async function createTagForRow(row: EnrichedHolding | any) {

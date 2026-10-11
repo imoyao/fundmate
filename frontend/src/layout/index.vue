@@ -17,6 +17,10 @@
         layout.includes('vertical')
       "
       class="app-mask"
+      role="button"
+      tabindex="0"
+      aria-label="关闭侧栏菜单"
+      @keydown.enter="useAppStoreHook().toggleSideBar()"
       @click="useAppStoreHook().toggleSideBar()"
     />
     <NavVertical
@@ -139,6 +143,8 @@ import NavHorizontal from "./components/lay-sidebar/NavHorizontal.vue";
 import BackTopIcon from "@/assets/svg/back_top.svg?component";
 
 import { QuickFab, TransactionDrawer } from "@/components/QuickEntry";
+import { isQuickEntryHidden } from "@/constants/fab";
+import { useQuickEntryHotkey } from "@/composables/useQuickEntryHotkey";
 
 const appWrapperRef = ref();
 const { isDark } = useDark();
@@ -149,8 +155,16 @@ const route = useRoute();
 
 // 全局记账抽屉
 const showTransactionDrawer = ref(false);
-// 记账/录入类页面隐藏右下角全局悬浮控件（路由 meta.hideQuickEntry 标记）
-const isGlobalFabHidden = computed(() => route.meta?.hideQuickEntry === true);
+// 隐藏右下角全局悬浮控件（FAB + 回到顶部）：路由 meta.hideQuickEntry 就近声明优先，
+// 其次看集中清单 constants/fab.ts（#1775：新增屏蔽目标只改清单一行即可）
+const isGlobalFabHidden = computed(() =>
+  isQuickEntryHidden(route.path, route.meta?.hideQuickEntry)
+);
+// 「记一笔」快捷键（N 单键）：FAB 被 hideQuickEntry 隐藏的页面（自选等）靠它保留入口；
+// 未隐藏的页面同样可用（与 FAB 并存）。首次进入隐藏页会自动提示一次，见 composable 注释。
+useQuickEntryHotkey(() => {
+  showTransactionDrawer.value = true;
+}, isGlobalFabHidden);
 const onTransactionSubmitted = () => {
   // 记账成功后，可以在这里触发全局的资产刷新
   // 例如调用 store 中的 action 来更新仪表盘数据

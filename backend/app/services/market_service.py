@@ -4,6 +4,7 @@
 设计依据：docs/features/market-explorer.md（2026-09-12 实测结论）。
 核心约束（来自该文档 §2.1 通道健康度）：
 - 新浪通道 ✅ 全通 → 本服务主通道（港股 / 美股 / 商品 / 汇率）
+- A 股宽基 3 指数 → 腾讯直连（与 index_daily 落库同源，#1829），腾讯失败回退新浪
 - 东财 push2 / push2his ❌ 全挂 → 凡依赖东财的资产一律换源或软占位
 - 中债 ✅ 通 → 债券收益率轨
 
@@ -29,6 +30,9 @@ from app.core.akshare_lazy import get_akshare
 from app.core.cache import CacheService
 from app.core.time_utils import now_shanghai
 
+# 叶子依赖（stdlib / requests / loguru），可在导入期加载；A 股宽基现拉走此腾讯直连（#1829）
+from app.services.adapters.direct_feeds import fetch_kline_tencent
+
 # ─────────────────────────── 缓存 ───────────────────────────
 # 单资产序列缓存 30 分钟（overview 由各序列现算组装，不整体缓存）。
 _SERIES_TTL = 1800
@@ -38,6 +42,10 @@ _cache = CacheService(namespace='market_overview')
 # 2026-09-12 实测：不传 start_date 时 akshare 会翻 19 页拉全部历史（≈9500 行，单次 ~29s），
 # 是该接口首屏超时（前端 timeout 10s）的主因；传近月起点后降至 ~2.5s（30 行）。
 _BOND_SERIES_DAYS = 30
+
+# A 股宽基现拉走腾讯直连（#1829）：拉取窗口须覆盖 500 交易日分位（≈720 自然日），取 750
+# 留余量；腾讯单页上限 800 交易日，750 自然日约 517 条，一页即足（不必走分页回补）。
+_TENCENT_SERIES_DAYS = 750
 
 # 资产序列取数并发度。
 # 2026-09-12 实测：清缓存后 14 个资产**串行**取数合计 ~40s（各源网络往返之和），
@@ -87,11 +95,15 @@ _US_10Y_RE = re.compile(r'^美国国债收益率\s*10\s*年$')
 # 也不承诺排期。技术细节（哪个源不通、抛了什么异常）一律留在条目上方的注释里给开发看。
 ASSET_CONFIG: List[Dict[str, Any]] = [
     # ───────── A股 ─────────
+    # 3 只宽基现拉走腾讯直连（source=tencent_direct，#1829）：与 index_daily 落库
+    # （#870/#275/#1825）同源同口径，消除两源分差（2026-09-30 沪深300 新浪 4357.6155
+    # vs 腾讯 4357.620）；fallback_source 是腾讯失败时的新浪回退，双失败由调用方降级。
     {
         'key': 'sh000001',
         'name': '上证指数',
         'category': 'A股',
-        'source': 'stock_zh_index_daily',
+        'source': 'tencent_direct',
+        'fallback_source': 'stock_zh_index_daily',
         'args': ('sh000001',),
         'position_basis': '价格分位',
         'position_window': 500,
@@ -100,7 +112,8 @@ ASSET_CONFIG: List[Dict[str, Any]] = [
         'key': 'sh000300',
         'name': '沪深300',
         'category': 'A股',
-        'source': 'stock_zh_index_daily',
+        'source': 'tencent_direct',
+        'fallback_source': 'stock_zh_index_daily',
         'args': ('sh000300',),
         'position_basis': '价格分位',
         'position_window': 500,
@@ -109,7 +122,8 @@ ASSET_CONFIG: List[Dict[str, Any]] = [
         'key': 'sh000905',
         'name': '中证500',
         'category': 'A股',
-        'source': 'stock_zh_index_daily',
+        'source': 'tencent_direct',
+        'fallback_source': 'stock_zh_index_daily',
         'args': ('sh000905',),
         'position_basis': '价格分位',
         'position_window': 500,
@@ -339,15 +353,38 @@ def _normalize_series(df: Any) -> Tuple[List[str], List[float]]:
     return dates, closes
 
 
+def _fetch_tencent_series(asset: Dict[str, Any], ak: Any) -> Tuple[List[str], List[float]]:
+    """A 股宽基：腾讯直连优先（#1829，与 index_daily 落库同源），失败回退新浪。
+
+    回退也失败时抛异常，由 `_build_asset_item` 降级软占位（页面永远可渲染的硬约束）。
+    """
+    try:
+        start = date.today() - timedelta(days=_TENCENT_SERIES_DAYS)
+        rows = fetch_kline_tencent(asset['args'][0], start, date.today())
+        if len(rows) >= 2:
+            return [d for d, _ in rows], [c for _, c in rows]
+        raise ValueError(f'腾讯日线点数不足 {len(rows)}')
+    except Exception as e:  # noqa: BLE001 - 回退路径不放过任何异常，双失败才降级软占位
+        logger.warning('资产 {}({}) 腾讯直连失败，回退新浪: {}', asset['name'], asset['key'], e)
+    fn = getattr(ak, asset.get('fallback_source', ''), None)
+    if fn is None:
+        raise ValueError(f'未知回退数据源 {asset.get("fallback_source")}')
+    return _normalize_series(fn(*asset['args']))
+
+
 def _fetch_close_series(asset: Dict[str, Any]) -> Tuple[List[str], List[float]]:
     """取某资产的 (dates, closes)。带 30 分钟缓存，失败抛异常由调用方降级。"""
     cache_key = f'series:{asset["key"]}'
     ak = get_akshare()
-    fn = getattr(ak, asset['source'], None)
-    if fn is None:
-        raise ValueError(f'未知数据源 {asset["source"]}')
 
     def producer() -> Tuple[List[str], List[float]]:
+        # A 股宽基走腾讯直连（#1829）；其余资产仍按 source 分派 akshare 函数。
+        # fn 解析放进 producer：tencent_direct 不对应任何 akshare 函数，入口解析会误抛。
+        if asset['source'] == 'tencent_direct':
+            return _fetch_tencent_series(asset, ak)
+        fn = getattr(ak, asset['source'], None)
+        if fn is None:
+            raise ValueError(f'未知数据源 {asset["source"]}')
         # akshare 的 currency_boc_sina 默认日期被硬编码成 20230304~20231110，会导致探市页
         # 汇率卡永远显示 2023 年数据（复盘实测：尾部停在 2023-11-10）。强制传入近期窗口：
         # 既拿到当前汇率，又保留足够长的历史用于 500 日分位计算（#1451 已明确这两张卡是

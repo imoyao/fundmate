@@ -12,7 +12,7 @@ from loguru import logger
 from sqlalchemy import distinct, func, or_, select
 from sqlalchemy.orm import Query, Session
 
-from app.core.constants import MANAGER_SYMBOL_PREFIX
+from app.core.constants import MANAGER_SYMBOL_PREFIX, TYPE_LABELS
 from app.core.money import Money
 from app.core.symbol_utils import get_normalizer
 from app.domains.funds.models import AdvisorPortfolio, DailyWorth, Fund, Manager
@@ -261,6 +261,29 @@ def bare_code_of(symbol: str) -> str:
     return ''.join(ch for ch in (symbol or '') if ch.isdigit())
 
 
+#: 「指数 / 场内」形态的市场前缀（2 字 / 3 字）。与 :func:`looks_like_exchange_code` 同处一地，
+#: 裸码反查的两半（抽数字 + 判形态）必须一起读，缺一半就会出 #2029 那种错名。
+_MARKET_PREFIXES_2 = ('SH', 'SZ', 'BJ', 'HK', 'US', 'CR')
+_MARKET_PREFIXES_3 = ('CSI', 'CNI')
+
+
+def looks_like_exchange_code(symbol: str) -> bool:
+    """symbol 是否为「指数 / 场内」形态（带市场前缀或纯数字）。
+
+    **必须与 :func:`bare_code_of` 成对使用**——裸码反查只对这些形态开放。
+    ``bare_code_of`` 抹掉了命名空间：``ZH012926``（且慢投顾组合「远足」）→ ``012926``，
+    恰好是真实基金「民生加银中证500指数增强A」；``MGR_xxx``（基金经理）会压成一串数字。
+    不限定形态就等于拿别人码空间里的数字去撞 ``funds`` / ``index_catalog``，把投顾组合与
+    基金经理错标成一只无关的基金名（#2029）。
+
+    单一来源：``product_identity._infer_asset_type_from_catalog`` 的 ``allow_bare`` 亦用本函数。
+    该判据历史上**两处各存一份**，一边有闸门一边没有——这正是 #2029 得以发生的前提，
+    故收口于此，勿再复制到别处。
+    """
+    code = (symbol or '').strip().upper()
+    return bool(code) and (code.isdigit() or code[:2] in _MARKET_PREFIXES_2 or code[:3] in _MARKET_PREFIXES_3)
+
+
 def resolve_display_name(symbol: str, db: Session, asset_type: Optional[str] = None) -> str:
     """资产展示名**反查链**（自选列表页与首页自选摘要共用，禁止再各写一份）。
 
@@ -268,8 +291,8 @@ def resolve_display_name(symbol: str, db: Session, asset_type: Optional[str] = N
     :func:`resolve_item_display_name`（**快照优先**，本函数仅作快照缺失时的兜底）。
     本函数仍在「只有裸 symbol、没有 item」的场景使用（如持仓缺口、估值 enrich）。
 
-    优先级：Manager.name（MGR_ 前缀）→ Security.name → Fund.name →
-    AdvisorPortfolio.name → symbol 兜底。
+    优先级：Manager.name（MGR_ 前缀）→ Security.name → 可转债名 →
+    AdvisorPortfolio.name → Fund.name（精确 + 裸码回退）→ symbol 兜底。
 
     投顾组合（#1167，且慢 ZHxxxx / 蛋卷 / 天天基金 combo）既不在 Securities 也不在
     Funds；基金经理（#1286）只在 managers 表。不补这两层，界面会把原始代码 /
@@ -284,6 +307,12 @@ def resolve_display_name(symbol: str, db: Session, asset_type: Optional[str] = N
     场内 ETF / 指数 / 场内基金在 watchlist 里是带前缀码（`SZ159857`、`SH000906`），
     但 funds/index_catalog 按裸码存名 → 原实现等值比对必落空，名称退化成代码。
     故新增**裸码**回退：指数查 `index_catalog`、其余查 `funds`。
+
+    ⚠️ 裸码回退只对「指数 / 场内」形态开放（:func:`looks_like_exchange_code` 闸门，#2029）。
+    平台原生码里的数字与市场码无关：投顾组合 `ZH012926`（且慢「远足」）的裸码 `012926`
+    恰好是真实基金「民生加银中证500指数增强A」，而基金分支原本排在 `AdvisorPortfolio`
+    **之前** → 组合名被这只基金劫持（库里名字一直是对的，错在读取端反查）。
+    实测本库 114 个投顾组合有 18 个裸码撞基金。**先判形态、再抽数字**，两步缺一不可。
 
     为何需要 asset_type 参与：裸码跨表**不唯一**。实测 `SH000906` 的裸码 `000906`
     同时命中 `index_catalog`（中证800）与 `funds`（广发全球精选股票(QDII)美元A）。
@@ -313,6 +342,15 @@ def resolve_display_name(symbol: str, db: Session, asset_type: Optional[str] = N
     if bond and bond.name:
         return bond.name
 
+    # 投顾组合（#1167）：平台原生码（ZHxxxx / SIxxxx / J7 / LONG_WIN / 天天 combo）形态独有，
+    # 与 funds 码空间本无交集 → 按「形态独特性」先判（与
+    # product_identity._infer_asset_type_from_catalog 同一排序哲学）。
+    # 不能留在基金分支之后：基金精确匹配与裸码回退都排在它前面，只要码撞上 funds
+    # （本库 114 个组合里 18 个裸码撞基金）就先 return，组合分支沦为死代码（#2029）。
+    advisor = db.query(AdvisorPortfolio).filter_by(code=symbol).first()
+    if advisor and advisor.name:
+        return advisor.name
+
     # 指数：symbol 是 SH000906/CSI930950 形态，名称只在 index_catalog（按裸码存）。
     if (asset_type or '').strip().lower() == 'index':
         # 指数语义已由调用方确定 → 名称**只认 index_catalog**，未命中时**不得回退 funds**
@@ -329,15 +367,16 @@ def resolve_display_name(symbol: str, db: Session, asset_type: Optional[str] = N
             return fund.name
         # 裸码回退：场内 ETF/基金 symbol 带 SH/SZ 前缀，funds.fund_code 存裸码（#1497）。
         # 仅在带前缀等值查未命中时尝试，不改变原有精确匹配的优先级。
-        bare = bare_code_of(symbol)
-        if bare and bare != symbol:
-            fund = db.query(Fund).filter_by(fund_code=bare).first()
-            if fund and fund.name:
-                return fund.name
+        # **形态闸门**（#2029）：只对指数/场内形态开放。`ZH012926`（且慢「远足」）的裸码
+        # `012926` 是真实基金「民生加银中证500指数增强A」，`MGR_xxx` 会压成一串数字——
+        # 不限定形态就是拿别人码空间里的数字去撞 funds，把组合/经理错标成无关基金名。
+        if looks_like_exchange_code(symbol):
+            bare = bare_code_of(symbol)
+            if bare and bare != symbol:
+                fund = db.query(Fund).filter_by(fund_code=bare).first()
+                if fund and fund.name:
+                    return fund.name
 
-    advisor = db.query(AdvisorPortfolio).filter_by(code=symbol).first()
-    if advisor and advisor.name:
-        return advisor.name
     return symbol
 
 
@@ -400,6 +439,14 @@ def normalize_and_infer_venue(
     if venue == 'EXCHANGE':
         normalizer = get_normalizer()
         normalized, market, _ = normalizer.normalize(symbol)
+        # market 存的是 **normalizer 命名空间**（SH / SZ / BJ / HK / CR），**不要**把它
+        # 归一成契约市场（CN_A）——`cross_domain._join_key` 直接拿 `watchlist.market`
+        # 当跨域冗余键，而 `to_security_key` 的映射表只认 SH/SZ/BJ/HK；一旦这里改存
+        # CN_A，场内自选的市场侧资料 / 估值会**全部取不到**（2026-10-10 核实）。
+        #
+        # 详情页那类「已持有 vs 暂无持仓记录」的口径问题在**出口**修：resolve 返回前
+        # 经 `app.core.markets.to_contract_market()` 归一（#1969 P0），读侧再用
+        # `market_aliases()` 兼容两种形态。写入口径保持命名空间不动。
         return {'symbol': normalized or symbol, 'market': market or 'UNKNOWN', 'venue': 'EXCHANGE'}
 
     # 其他未知 venue 也报错
@@ -667,19 +714,37 @@ def build_home_summary(db: Session, family_id: int) -> List[Dict[str, Any]]:
     data = []
     for item in result_items:
         display_name = resolve_item_display_name(item, db)
-        position_value_units = (
-            db.query(func.sum(Position.quantity * Position.current_price))
+        # 持仓统计一次查询取全（#1954）：原先为了拿市值 + 均价跑两段聚合，
+        # 现合并为一段，口径与自选列表 `_compute_holding_stats` 完全一致——
+        # quantity 存最小单位(0.0001 份)、avg_price/current_price 存 0.0001元，
+        # 换算统一走 Money（禁止裸乘除 float）。
+        # 注意与 positions 无关的标的（纯观察）返回 None 三个字段，前端按「无持仓」降级。
+        stats = (
+            db.query(
+                func.sum(Position.quantity).label('qty_units'),
+                func.sum(Position.quantity * Position.avg_price).label('cost_raw'),
+                func.sum(Position.quantity * Position.current_price).label('value_raw'),
+                func.avg(Position.current_price).label('avg_price_units'),
+            )
             .filter(Position.symbol == item.symbol, Position.family_id == family_id)
-            .scalar()
-            or 0.0
+            .first()
         )
-        # quantity 最小单位(0.0001份) × current_price(0.0001元) = ×1e8 → multiply_price_quantity ÷1e6 得 分 → 元
-        position_value = Money.cents_to_yuan(Money.multiply_price_quantity(position_value_units, 1))
-        avg_price_units = (
-            db.query(func.avg(Position.current_price))
-            .filter(Position.symbol == item.symbol, Position.family_id == family_id)
-            .scalar()
-        )
+        qty_units = stats.qty_units if stats else None
+        if qty_units:
+            # quantity(×10000) × price(×10000) = ×1e8，multiply_price_quantity ÷1e6 得 分，cents_to_yuan ÷100 得 元
+            position_value = Money.cents_to_yuan(Money.multiply_price_quantity(stats.value_raw, 1))
+            cost_value = Money.cents_to_yuan(Money.multiply_price_quantity(stats.cost_raw, 1))
+            holding_quantity = Money.min_unit_to_shares(qty_units)
+            holding_cost_price = cost_value / holding_quantity if holding_quantity else 0.0
+            holding_pnl = position_value - cost_value
+            holding_pnl_percent = (holding_pnl / cost_value * 100) if cost_value else 0.0
+            avg_price_units = stats.avg_price_units
+        else:
+            # 无持仓：市值口径与自选页一致（0.0 而非 None，前端据此显示 ¥0.00 而非 --），
+            # 持仓三项为 None 表示「无持仓」，前端渲染 --。
+            position_value = 0.0
+            holding_quantity = holding_cost_price = holding_pnl = holding_pnl_percent = None
+            avg_price_units = stats.avg_price_units if stats else None
         # 最新价 / 涨跌幅（#1104）：与自选列表同源——优先最近交易日收盘价 / 确认净值，
         # 没有行情才回退持仓快照。原先只读 positions.current_price，场内标的一直是
         # 导入当天的旧价，与自选页显示不一致（首页摘要同样是用户可见的入口）。
@@ -690,6 +755,10 @@ def build_home_summary(db: Session, family_id: int) -> List[Dict[str, Any]]:
         else:
             price_value = Money.price_units_to_yuan(avg_price_units) if avg_price_units else None
             change_pct = None
+        # 行情数据日期：前端据此标注「最新价」的新鲜度（与自选列表 price_as_of 同义，#1954）。
+        price_as_of = quote['trade_date'].isoformat() if quote and quote['trade_date'] else None
+        # 资产类型小写归一后取中文标签（单一来源 TYPE_LABELS，与 enrich_item 同一口径）。
+        asset_type = item.asset_type.lower() if item.asset_type else None
         data.append(
             {
                 'id': item.id,
@@ -698,10 +767,22 @@ def build_home_summary(db: Session, family_id: int) -> List[Dict[str, Any]]:
                 'is_pinned': item.is_pinned,
                 'current_price': price_value,
                 'change_pct': change_pct,
+                'price_as_of': price_as_of,
                 'position_market_value': round(position_value, 2),
                 'status': item.status,
-                'asset_type': item.asset_type,
+                # watchlist.asset_type 历史存放大写（STOCK/ETF/...），对外统一归一为小写，
+                # 与 watchlist_display.enrich_item 及 positions 域保持一致（#1171）。
+                'asset_type': asset_type,
+                # 资产类型中文标签：此前首页摘要**不下发**该字段，前端 ProductDisplay
+                # 恒收到 undefined，导致产品信息列所有品类都不显示类别（#1954）。
+                'type_label': TYPE_LABELS.get(asset_type) if asset_type else None,
                 'venue': item.venue,
+                # 真实持仓统计（与自选列表同源，#1954）：首页「持仓收益」列需要，
+                # 无持仓时为 None，前端降级 --。
+                'holding_quantity': round(holding_quantity, 4) if holding_quantity is not None else None,
+                'holding_cost_price': round(holding_cost_price, 4) if holding_cost_price is not None else None,
+                'holding_pnl': round(holding_pnl, 2) if holding_pnl is not None else None,
+                'holding_pnl_percent': round(holding_pnl_percent, 2) if holding_pnl_percent is not None else None,
             }
         )
 
