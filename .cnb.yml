@@ -27,6 +27,7 @@ sync/mirror:
             git remote add src "$SRC"
             git remote add dst "$DST"
             FAILED=0
+            REPORT=""
             for b in dev main; do
               git fetch --quiet src "refs/heads/$b:refs/src/$b" || { echo "[$b] 源仓库无此分支，跳过"; continue; }
               if ! git fetch --quiet dst "refs/heads/$b:refs/dst/$b"; then
@@ -41,8 +42,42 @@ sync/mirror:
                 git push --quiet dst "refs/src/$b:refs/heads/$b"
                 echo "[$b] 快进 $D -> $S"
               else
-                echo "[$b] 无法快进：CNB 侧存在独有提交（dst=$D src=$S），已跳过，需人工处理"
+                # 层 2（CNB #118 / #123）：不再只打两串 SHA —— 把**两侧各自的独有提交清单**
+                # 直接打出来，接手的人照抄即可救援（原来还得自己 rev-list --not 一遍）。
+                echo "[$b] 无法快进：两侧已分叉（dst=$D src=$S），已跳过"
+                echo "[$b] CNB 独有（= 需要送回 GitHub 的）："
+                git log --oneline --no-merges "refs/src/$b..refs/dst/$b" | sed 's/^/    /' || true
+                echo "[$b] GitHub 独有（= 救援 PR 合入后会自动快进过来的）："
+                git log --oneline --no-merges "refs/dst/$b..refs/src/$b" | head -20 | sed 's/^/    /' || true
+                echo "[$b] 救援办法：把上面 CNB 独有的提交 cherry-pick 成 rescue/ 分支，走 GitHub PR 合回。"
+                echo "[$b] ⚠️ 不要 force push、不要删除 CNB 侧的独有提交（会静默丢改动）。"
+                REPO_FILE="$WORK/report-$b.txt"
+                {
+                  echo "### \`$b\` 已分叉"
+                  echo
+                  echo "- CNB 侧 tip：\`$D\`（独有）"
+                  echo "- GitHub 侧 tip：\`$S\`"
+                  echo
+                  echo 'CNB 独有（需送回 GitHub）：'
+                  echo
+                  echo '```text'
+                  git log --oneline --no-merges "refs/src/$b..refs/dst/$b" || true
+                  echo '```'
+                } > "$REPO_FILE"
+                REPORT="$REPORT$REPO_FILE"
+                # 层 2 的前提：必须真的让任务变红。少了这一行，脚本会「报了断链却退 0」——
+                # 那正是本卡要治的静默失效，且比原版更隐蔽（日志看起来很正常）。
                 FAILED=1
               fi
             done
+
+            # 层 1：失败必须在 CNB 侧可见，不能只进构建日志。
+            # 这是 crontab（不是 PR check），红了没人盯 —— 只打日志等于静默停摆。
+            # 交给独立脚本（可单测、可本地 dry-run），不把 JSON 拼装塞在 YAML 里。
+            # 建卡本身失败**不改变退出码**（避免「提醒失败」把真实原因盖掉）。
+            if [ "$FAILED" != "0" ]; then
+              echo "::error::镜像已断链，需人工救援（同时在建提醒卡）"
+              python scripts/bridge/notify_mirror_divergence.py --report $REPORT || \
+                echo "[warn] 建提醒卡失败，请手工查看本次构建日志"
+            fi
             exit $FAILED
