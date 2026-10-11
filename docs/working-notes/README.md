@@ -14,6 +14,7 @@
 
 | 文件 | 内容 |
 |---|---|
+| `cnb-dev-ahead-rescue-2026-10-11.md` | **CNB `dev` 领先 GitHub 的 6 个提交逐条核验与救援口径**：结论是「CNB 侧领先的不是新功能，而是同一张卡的另一种最终状态」——只有 `fix/2034-category-dedup`（CNB PR #125）内容独有且已合入，其余多是镜像产物。含 `dc3feb28`/`49272b6a` 一半内容与 GitHub 重复的**内容级**判定依据（不是标题像）、#2032 在 GitHub 侧**原样成立**的实测（`AssetInsightPanel.vue` 还在、`welcome_structure_dedup.test.js` 404）、以及一处 `git ls-tree` 在合并提交上给出**与对象读取相反**结果的坑（判文件去向必须读 tree 对象）|
 | `cnb-github-mirror-route-2026-10-11.md` | **「CNB 造的东西要不要回流 GitHub」的路线决策**：结论是要，但正确形态不是双向同步而是**单源（GitHub）+ 两条单向管道**（代码镜像 GitHub→CNB 走 fast-forward；讨论回写 CNB→GitHub 由 GitHub 定时拉）。含**全量 fetch 下的四分支实测**（`dev` 真分叉/各 6 与 8 个独有；`main` 是 CNB 单方面领先 408、其中仅 2 个自造）、三层「断链大声失败」修法、分三步落点，以及**本轮踩过的三个探测陷阱**：`--dry-run` 对 cnb.cool 恒返 0、共用对象库时 `cat-file -e` 分不清远端（导致结论反转）、**浅克隆会给出虚假分叉读数（布尔判定都会翻）**。附「不建议做」四项（真双向同步 / CNB 存 GitHub PAT / 加 `--force` / 把镜像配置写进 `dev`·`main`） |
 
 ## 展示名反查 / 投顾组合错标（2026-10-10，#2029）
