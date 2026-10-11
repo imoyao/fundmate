@@ -10,6 +10,7 @@
 
 - [项目概述](#项目概述)
 - [Git 分支规范](#git-分支规范)
+- [双端协作（CNB ↔ GitHub，强制）](#双端协作cnb--github强制)
 - [目录边界](#目录边界)
 - [技术栈与开发环境](#技术栈与开发环境)
 - [后端开发](#后端开发)
@@ -67,6 +68,48 @@
 - 功能分支 PR：`base` 填 `dev`。
 - 发布 PR（`dev` → `main`）：`base` 填 `main`。
 - AI review（免费 GLM 总结 + 智能路由深度）自动在 PR 上评论。
+
+### 双端协作（CNB ↔ GitHub，强制）
+
+> 本仓库在 **GitHub `imoyao/fundmate`**（原始仓，所有 PR / CI / 保护都在那边）
+> 与 **CNB `duoduobei/fundmate`**（镜像仓）两处同时存在。
+> 2026-10-11 因在 CNB 侧合了 PR，导致每小时镜像链路静默停摆 —— 本节把那次实测的
+> 结论钉成规则，避免再靠「记得」来维持。
+
+#### 1. CNB 侧只读，合 PR 一律回 GitHub
+
+- CNB 侧的 `dev` / `main` **禁止直接 push、禁止在 CNB 侧合 PR、禁止在 CNB 侧建远程分支后指望它回流**。
+- 根因（数学上不可共存）：镜像任务只允许 **fast-forward**，而在 CNB 侧合 PR 必然产生
+  GitHub 没有的 merge commit ⇒ 下一次运行 `merge-base --is-ancestor` 判否 ⇒ 任务失败、
+  **静默停摆**（失败只打一行日志，外部与正常态完全一样）。
+- 想让改动进两仓，正确路径只有一条：**在 GitHub 开 PR 合入 GitHub `dev`**，再由镜像快进到 CNB。
+
+#### 2. 双端编号是独立空间，交叉引用必须带仓库
+
+- **CNB PR #116 ≠ GitHub PR #116**（后者是 2021 年的 dependabot，早就关了）。
+- 任何写进文档 / 提交信息 / issue 的交叉引用，要么带仓库前缀，要么直接给完整 URL。
+
+#### 3. `.cnb.yml` 与 `sync/mirror` 的关系
+
+- `.cnb.yml` 已入库（镜像仓与源仓同源）；`sync/mirror` 分支上的定时任务负责
+  「GitHub → CNB」的**代码**快进，与 issue 镜像（`main` 上的 cron）互不影响。
+- 改镜像任务时注意：它是**写权限来源**，不要在 `dev` / `main` 上给它加配置
+  （会被下一次同步覆盖，或产生独有提交）。
+
+#### 4. `git push --dry-run` 对 CNB 是假信号（不要用它做预检）
+
+- 实测：对 `cnb.cool` **任何 refspec 都返回 exit 0** —— 包括不存在的 ref 和瞎编的 SHA；
+  同样命令对 GitHub 会正常报错。
+- 因此任何「先 `--dry-run` 预检再真推」的 CNB 侧脚本都是空转。要预检就比对 SHA，
+  或直接看流水线结论。
+
+#### 5. 断链怎么发现、怎么修
+
+- **发现**：比对两侧 SHA（`git ls-remote` / `cnb git list-branches`）。正常态两侧 `dev` /
+  `main` 应在同一条线上；出现「CNB 有独有提交」即已断链。
+- **修**：把 CNB 侧的独有提交在 GitHub 侧重放成一条分支（`cherry-pick`，标 `rescue/` 前缀）
+  → 开 PR 到 GitHub `dev` → 合并后两侧重新同线，快进恢复。这类救援 PR 属例外，
+  可在描述里写明一次性性质。
 
 ---
 
