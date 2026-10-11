@@ -396,7 +396,7 @@ jobs:
         with:
           node-version: "22.x"
 
-      - name: 校验 5 条安全 override 在锁中真实生效
+      - name: 校验安全 override 在锁中真实生效
         run: node scripts/check_pnpm_overrides.mjs
 
   # 缓存目录单一真相源守卫（#1540 治本项）：把「新增未经 resolve_cache_file_dir() /
