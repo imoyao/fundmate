@@ -81,3 +81,27 @@ sync/mirror:
                 echo "[warn] 建提醒卡失败，请手工查看本次构建日志"
             fi
             exit $FAILED
+
+# 层 3（CNB #118 / #123）：反向守卫 —— 断链的**成因**是「在 CNB 侧合了 PR」。
+# 与其事后发现分叉，不如在 PR 被创建 / 重新打开 / 源分支 push 的那一刻就说清楚：
+# **本仓 CNB 侧只读**，PR 请到 GitHub 开（见 AGENTS.md「双端协作」§1）。
+#
+# 为什么这条防线能生效：`.cnb.yml` 就长在 CNB 仓里，`pull_request` 事件在**本仓**触发，
+# 不需要跨仓凭据、也不需要额外的凭据 —— 属于「配置写在会被执行的地方」。
+# （对比：sync/mirror 的镜像配置曾被认为「配在了不执行的地方」，那是误判；见文件头说明。）
+pull_request:
+  - name: CNB 侧只读守卫
+    stages:
+      - name: 拒绝在 CNB 侧合 PR
+        script: |
+          cat <<'MSG'
+          ::error::本仓 CNB 侧只读：请在 GitHub 开 PR，不要在 CNB 侧合并。
+
+          原因（数学上不可共存）：每小时镜像只允许 **fast-forward**，
+          而在 CNB 侧合 PR 必然产生 GitHub 没有的 merge commit，
+          下一次镜像就会判否并停摆（2026-10-11 已实测发生一次）。
+
+          正确路径：在 GitHub `imoyao/fundmate` 开 PR 合入 `dev`，
+          再由镜像快进到 CNB。详见 AGENTS.md「双端协作（CNB ↔ GitHub，强制）」。
+          MSG
+          exit 1

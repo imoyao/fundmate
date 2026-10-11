@@ -119,3 +119,25 @@ def test_cnb_yml_prints_both_sides_commit_lists():
     script = cfg["sync/mirror"]["crontab: 0 * * * *"][0]["stages"][0]["script"]
     assert "refs/src/$b..refs/dst/$b" in script  # CNB 独有
     assert "refs/dst/$b..refs/src/$b" in script  # GitHub 独有
+
+
+def _load_cnb_yml():
+    import yaml
+
+    repo_root = Path(__file__).resolve().parents[2]
+    return yaml.safe_load((repo_root / ".cnb.yml").read_text(encoding="utf-8"))
+
+
+def test_cnb_yml_has_reverse_guard_on_pull_request():
+    """层 3：CNB 侧 PR 事件必须有守卫，且**必须 exit 1**。
+
+    断链的成因是「在 CNB 侧合 PR」，守卫在成因发生的那一刻拦，
+    比事后从日志里发现分叉便宜得多。断言两件事：事件接上了、且真的会红
+    （少 `exit 1` 就是「喊了口号但放行」，与 #118 的静默失效同型）。
+    """
+    cfg = _load_cnb_yml()
+    assert "pull_request" in cfg, "未接 pull_request 事件，反向守卫是空的"
+    script = cfg["pull_request"][0]["stages"][0]["script"]
+    assert "exit 1" in script
+    assert "只读" in script
+    assert "GitHub" in script
