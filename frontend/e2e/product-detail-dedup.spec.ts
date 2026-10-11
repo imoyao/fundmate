@@ -57,6 +57,50 @@ async function stubProductApis(page: Page) {
       }
     })
   );
+  // #2029：此前本用例根本没给 fund-profile 打桩，请求落到上面的兜底 404 →
+  // 基金资料区块走降级分支 → 又因为 detail.vue 漏 import 而完全不渲染，
+  // 两处缺陷互相掩盖。补上打桩后，缺 import 会直接让新增断言变红。
+  await page.route("**/api/products/fund-profile/**", route =>
+    route.fulfill({
+      status: 200,
+      json: {
+        data: {
+          fund_code: SYMBOL,
+          name: NAME,
+          full_name: "永赢北证50成份指数发起式证券投资基金",
+          fund_type: "指数型-股票",
+          fund_variety: "股票型",
+          company: "永赢基金管理有限公司",
+          unit_nav: 0.8234,
+          nav_date: "2026-10-09",
+          prev_unit_nav: 0.8201,
+          prev_nav_date: "2026-10-08",
+          change_pct: 0.402,
+          scale: 12.34,
+          create_time: "2022-03-15",
+          risk_level: null,
+          benchmark: "中证北证50成份指数收益率*95%+银行活期存款利率*5%",
+          managers: [
+            {
+              mgr_code: "MGR0001",
+              name: "测试经理",
+              company: "永赢基金管理有限公司",
+              appointment_date: "2022-03-15",
+              is_classic: true
+            }
+          ],
+          fee_rates: {
+            fund_code: SYMBOL,
+            currency: "CNY",
+            purchase: [{ start_quota: 0, end_quota: 1000000, rate: 0.012 }],
+            redeem: [{ start_day: 0, end_day: 7, rate: 0.015 }]
+          },
+          source: "天天基金"
+        },
+        message: "ok"
+      }
+    })
+  );
   await page.route("**/api/positions/**", route =>
     // 注意：**不能**套信封包装器——positions 的响应体本身就是
     // `{ data: [...], total, page, per_page }`，再包一层会让组件拿到对象而非数组
@@ -151,6 +195,51 @@ test.describe("产品详情页去重（页头承担识别信息）", () => {
       "支付宝",
       "招商银行"
     ]);
+  });
+});
+
+/**
+ * #2029 回归网：基金资料区块必须真的渲染。
+ *
+ * 这条不是「多测一点」——修复前 detail.vue 漏了 ProductFundSection 的 import，
+ * Vue 只发一条「Failed to resolve component」warning 就静默不渲染，
+ * 基金详情页从上线起就没有基金资料区块，而当时的用例只断言「识别卡不复述产品名」，
+ * 恰好完全绕开了这个区块。
+ *
+ * 反向验证：把 detail.vue 的 import 行删掉，本用例必须红。
+ */
+test.describe("基金资料区块确实挂载（#2029）", () => {
+  test.setTimeout(180_000);
+
+  test.beforeEach(async ({ context, baseURL, page }) => {
+    await injectSupabaseSession(context, baseURL!);
+    await stubProductApis(page);
+  });
+
+  test("基金详情页渲染基金资料区块并带出资料字段", async ({ page }) => {
+    await page.goto(`/#/fund/${SYMBOL}`);
+    const section = page.locator(".fund-section");
+    await expect(section).toBeVisible({ timeout: 60_000 });
+
+    // 区块标题 + 首屏净值与资料字段（打桩里有值，故不该出现降级文案）
+    await expect(
+      section.getByRole("heading", { name: "基金资料" })
+    ).toBeVisible();
+    await expect(section.getByText("0.8234")).toBeVisible();
+    await expect(section.getByText("永赢基金管理有限公司")).toBeVisible();
+    await expect(section.getByText("指数型-股票")).toBeVisible();
+
+    // 降级文案不应出现——有值的数据被打桩喂到了
+    await expect(section).not.toContainText("暂无可展示的基金资料");
+  });
+
+  test("区块脚注标注数据来源而非表名", async ({ page }) => {
+    await page.goto(`/#/fund/${SYMBOL}`);
+    const section = page.locator(".fund-section");
+    await expect(section).toBeVisible({ timeout: 60_000 });
+    // #1969 起脚注给站点名（天天基金），不给 daily_worth 这类表名
+    await expect(section.getByText("天天基金")).toBeVisible();
+    await expect(section).not.toContainText("daily_worth");
   });
 });
 

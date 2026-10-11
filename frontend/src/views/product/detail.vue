@@ -12,6 +12,10 @@ import { resolveProduct, type ProductResolveResult } from "@/api/products";
 import { isDetailAssetType, parseProductRef } from "@/utils/productIdentity";
 import ProductAdvisorSection from "./components/ProductAdvisorSection.vue";
 import ProductExternalLinksSection from "./components/ProductExternalLinksSection.vue";
+// #2029：此前模板用了本组件但漏掉 import，Vue 只发「Failed to resolve component」
+// warning 就静默不渲染 —— 基金详情页从上线起就没有基金资料区块，且 e2e 未打桩
+// fund-profile（落到兜底 404）反向掩盖。e2e 已补断言，勿再删这一行。
+import ProductFundSection from "./components/ProductFundSection.vue";
 import ProductPositionSection from "./components/ProductPositionSection.vue";
 import ProductStockSection from "./components/ProductStockSection.vue";
 import ProductTrendSection from "./components/ProductTrendSection.vue";
