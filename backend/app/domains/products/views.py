@@ -26,6 +26,7 @@ from app.domains.products.schemas import (
     StockProfileRequest,
 )
 from app.services.advisor_profile import build_advisor_profile
+from app.services.fund_holdings_detail import build_fund_holdings_detail
 from app.services.fund_performance import build_fund_performance
 from app.services.fund_profile import build_fund_profile
 from app.services.manager_holdings import build_manager_holdings
@@ -130,6 +131,32 @@ def fund_performance():
     with closing(market_session_factory()()) as db:
         try:
             data = build_fund_performance(db, fund_code)
+        except ValueError as e:
+            abort(400, str(e))
+    if data is None:
+        abort(404, f'基金不存在：{fund_code}')
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/fund-holdings-detail/')
+def fund_holdings_detail():
+    """基金行业配置 + 持仓明细（#2029 卡 C · 详情页行业配置卡 + 持仓明细卡）。
+
+    两张卡共用一个端点：同属「持仓穿透」语义，且「取最新报告期 + 选口径」的
+    逻辑完全一致（``fund_position_job`` 一次写两张表）。拆成两个请求只会让
+    详情页多一次往返，而两者能同时为空的情形极少。
+
+    口径不在本端点定，全部下沉到 ``services/fund_holdings_detail.py``：
+    行业配置按 ``scheme`` 分区（csrc 主口径 / gics 单列，**禁止跨体系相加**），
+    持仓明细同期内 ``full`` 优先并下发 ``basis_label``（季报前十大 ≠ 半年报全量）。
+
+    「基金不存在」返 404；「存在但无披露数据」返 ``applicable: false`` —— 两者
+    是不同语义，前端据此分别渲染 404 页与空态卡。
+    """
+    fund_code = (request.args.get('code') or '').strip()
+    with closing(market_session_factory()()) as db:
+        try:
+            data = build_fund_holdings_detail(db, fund_code)
         except ValueError as e:
             abort(400, str(e))
     if data is None:
