@@ -157,7 +157,7 @@ class FundManagerSyncJob(SyncJob):
             rec['best_return'] = item.get('best_return')
             rec['appointment_date'] = self._derive_appointment_date(item)
             # 溯源原值（供回填路径重建展示档的 raw；**不是模型列，不入库**，
-            #故以下划线前缀区分，防止被 bulk_insert 当成 Manager 字段写进去）
+            # 故以下划线前缀区分，防止被 bulk_insert 当成 Manager 字段写进去）
             rec['_tenure_days'] = item.get('tenure_days')
             mgr_records.append(rec)
         # 下划线开头的键是**仅在本方法内流转**的临时数据（溯源原值），

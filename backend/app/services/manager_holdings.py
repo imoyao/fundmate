@@ -30,6 +30,7 @@
 被误读成大幅减仓。组内**优先 ``full``**，无 ``full`` 才用 ``top10`` 并据此打标，
 与 :func:`app.services.penetration._load_holding_map` 同规则。
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
@@ -121,12 +122,7 @@ def build_manager_holdings(
     if manager is None:
         return None
 
-    rel_rows = (
-        db.query(FundManager.fund_id)
-        .filter(FundManager.mgr_id == manager.id)
-        .limit(fund_limit)
-        .all()
-    )
+    rel_rows = db.query(FundManager.fund_id).filter(FundManager.mgr_id == manager.id).limit(fund_limit).all()
     fund_ids = [r.fund_id for r in rel_rows]
     representative_id = _pick_representative_fund(db, manager.id, fund_ids)
     if representative_id is None:
@@ -141,7 +137,7 @@ def build_manager_holdings(
         return _empty('该基金暂无重仓披露（未到披露期或抓取未覆盖）', fund_code=fund.fund_code, fund_name=fund.name)
 
     basis, holdings = record
-    rows = sorted(holdings, key=lambda h: (h.rank if h.rank is not None else 999))[:top_n]
+    rows = sorted(holdings, key=lambda h: h.rank if h.rank is not None else 999)[:top_n]
 
     return {
         'fund_code': fund.fund_code,

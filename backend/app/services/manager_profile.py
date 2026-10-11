@@ -174,8 +174,9 @@ def build_manager_profile(
             manager.appointment_date,
             'em_days_derived',
             as_of=as_of,
-            raw=(None if manager.appointment_date is None or as_of is None
-                 else (as_of - manager.appointment_date).days),
+            raw=(
+                None if manager.appointment_date is None or as_of is None else (as_of - manager.appointment_date).days
+            ),
         ),
         'fund_count': funds['total'],
         'active_fund_count': funds['active_in_list'],

@@ -61,9 +61,7 @@ def _link(mgr_code, fund_code, is_classic=False, start_date=None):
     with closing(market_session_factory()()) as db:
         m = db.query(Manager).filter(Manager.mgr_code == mgr_code).first()
         f = db.query(Fund).filter(Fund.fund_code == fund_code).first()
-        exists = (
-            db.query(FundManager).filter(FundManager.mgr_id == m.id, FundManager.fund_id == f.id).first()
-        )
+        exists = db.query(FundManager).filter(FundManager.mgr_id == m.id, FundManager.fund_id == f.id).first()
         if exists is None:
             db.add(FundManager(mgr_id=m.id, fund_id=f.id, is_classic=is_classic, start_date=start_date))
         else:

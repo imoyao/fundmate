@@ -68,9 +68,7 @@ def test_derived_start_is_within_one_day_of_f10_anchor():
     故硬编码日期会在特定日期假红 —— 那是测试写错，不是代码错。
     """
     for base in (date(2026, 10, 10), date(2026, 10, 11), date(2026, 10, 9)):
-        got = FundManagerSyncJob._derive_appointment_date(
-            {'tenure_days': ZHANGKUN_TENURE_DAYS}, today=base
-        )
+        got = FundManagerSyncJob._derive_appointment_date({'tenure_days': ZHANGKUN_TENURE_DAYS}, today=base)
         assert got is not None
         assert abs((got - ZHANGKUN_F10_START).days) <= 1, f'基准日 {base} 反推得 {got}，超出 ±1 天'
 
