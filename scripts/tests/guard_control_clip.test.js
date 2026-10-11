@@ -12,7 +12,7 @@
  * 最后两条跑**真实文件**：一条断言当前代码零命中，一条把 bug 注回去断言必须报红
  * —— 只有后者绿了，才知道前者不是空转。
  */
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,14 +25,55 @@ const REAL_FILE = join(
   ROOT,
   "frontend/src/views/asset/watchlist/components/WatchlistHeadPrimary.vue"
 );
-const PY = process.env.PYTHON || "python";
+
+/**
+ * 解释器探测与「静默绿」（#119）。
+ *
+ * 原先写死 `process.env.PYTHON || "python"`，而 `python` 不是处处都有（Debian/Ubuntu
+ * 只有 `python3`；本仓 CNB 工作区、WSL、多数容器皆如此）。此时 `execFileSync` 抛 ENOENT，
+ * 被 `catch` 拼成 `"spawnSync python ENOENT"` 返回——它既不含 `[clip]` 也不含 `Traceback`，
+ * 于是本文件的放行断言**全部假通过**：`NO_HIT` 恰好因为「什么都没跑」而成立。
+ * 这是最坏的一种绿——守卫根本没执行，却报告「无回潮」。
+ *
+ * 与 `health_scan_rules.test.js` 同构：先探测真实解释器；探测不到就**显式失败**。
+ */
+function findPython() {
+  const candidates = [];
+  if (process.env.PYTHON) candidates.push([process.env.PYTHON]);
+  if (process.platform === "win32") {
+    candidates.push(["python"], ["py", "-3"]);
+  } else {
+    candidates.push(["python3"], ["python"]);
+  }
+  for (const args of candidates) {
+    const r = spawnSync(args[0], [...args.slice(1), "--version"], { encoding: "utf8" });
+    if (!r.error && r.status === 0) return args;
+  }
+  return null;
+}
+
+const PY = findPython();
+if (!PY) {
+  throw new Error(
+    "找不到 Python 解释器（试过 $PYTHON / python3 / python）。\n" +
+      "本文件所有断言都靠子进程跑守卫脚本；没有解释器时 NO_HIT 会因「什么都没跑」而假通过。\n" +
+      "请安装 Python，或把解释器路径写进 $PYTHON 环境变量。"
+  );
+}
+const PY_BIN = PY[0];
+const PY_ARGS = PY.slice(1);
 
 function run(paths) {
-  try {
-    return execFileSync(PY, [SCRIPT, ...paths], { encoding: "utf8" });
-  } catch (e) {
-    return (e.stdout || "") + (e.stderr || "");
+  const r = spawnSync(PY_BIN, [...PY_ARGS, SCRIPT, ...paths], { encoding: "utf8" });
+  // 解释器 / 脚本层面的失败直接抛，不再拼进返回值：退出码 1 是守卫「发现了问题」的
+  // 正常信号，>1 才是自身崩溃；把崩溃喂给 NO_HIT 会伪装成「无回潮」。
+  if (r.error) {
+    throw new Error(`守卫脚本无法启动（${PY_BIN}）：${r.error.message}`);
   }
+  if (r.status > 1) {
+    throw new Error(`守卫脚本异常退出（status=${r.status}）：\n${r.stdout || ""}\n${r.stderr || ""}`);
+  }
+  return (r.stdout || "") + (r.stderr || "");
 }
 
 function guard(files) {
