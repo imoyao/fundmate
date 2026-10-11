@@ -112,18 +112,28 @@ def test_build_money_fund():
 
 
 def test_build_open_fund(monkeypatch):
-    # 场外基金：构造 4 年月度净值（含一次回撤），验证结构与同源口径
-    monkeypatch.setattr(
-        "app.services.fund_performance.today_shanghai", lambda: date(2026, 10, 9)
-    )
+    # 场外基金：构造 48 个月度净值（含一次回撤），验证结构与同源口径。
+    # 序列必须**锚定到 today**（末点落在 today 所在月），否则「近1年」窗口内点数
+    # 不足 3 → volatility_1y 恒为 None，测不到真实分支。
+    today = date(2026, 10, 9)
+    monkeypatch.setattr("app.services.fund_performance.today_shanghai", lambda: today)
+    # 从 today 所在月往前推 48 个月，再反转为「最早在前」
+    months = []
+    y, m = today.year, today.month
+    for _ in range(48):
+        months.append((y, m))
+        m -= 1
+        if m == 0:
+            m, y = 12, y - 1
+    months.reverse()
     rows = []
-    base = date(2022, 1, 1)
-    for i in range(48):
-        y = base.year + (base.month - 1 + i) // 12
-        m = ((base.month - 1 + i) % 12) + 1
-        nav = 1.0 * (1.005 ** i)
+    for i, (y, m) in enumerate(months):
+        # 增长率本身要波动：若净利严格单调（如恒定 1.005^i），日收益全同 → 方差 0 → 波动率恒为 0，
+        # 测不到真实数值分支。这里用 ±1% 交替偏离做确定性噪声（不引入随机源，保证可复现）。
+        growth = 1.005 + (0.01 if i % 2 == 0 else -0.01)
+        nav = 1.0 * (growth**i)
         if i == 30:
-            nav *= 0.8  # 中途 -20% 回撤
+            nav *= 0.8  # 中途 -20% 回撤（落在近 3 年窗口内）
         rows.append(_DailyWorth(date(y, m, 1), round(nav, 6)))
     db = _fake_db(_Fund("股票型"), daily_rows=rows)
     result = build_fund_performance(db, "110020")
@@ -132,11 +142,29 @@ def test_build_open_fund(monkeypatch):
     assert result["applicable"] is True
     assert result["basis"] == "acc_nav"
     assert len(result["intervals"]) == 10
-    # 4 年历史覆盖所有窗口 → 区间值均非空
+    # 4 年历史覆盖所有窗口（近5年 起点晚于首点 → 退化为首点）→ 区间值均非空
     assert all(iv["value"] is not None for iv in result["intervals"])
     # 含回撤 → 最大回撤为负且非 None，口径 fixed_3y
     assert result["max_drawdown"] is not None
     assert result["max_drawdown"] < 0
     assert result["max_drawdown_basis"] == "fixed_3y"
+    # 近 1 年窗口内 ≥3 个月度点 → 波动率可算（月度间距不代表真实年化，仅验证分支可达）
     assert result["volatility_1y"] is not None
+    assert result["volatility_1y"] > 0
     assert result["source"] == "天天基金"
+
+
+def test_build_open_fund_stale_series_no_volatility(monkeypatch):
+    """数据陈旧（末点远早于 today）→ 近1年窗口点数不足，波动率降级为 None 而非报错。
+
+    这条守护的是「序列锚点写错」这类测试自身 bug：实现对陈旧数据必须诚实地返回 None。
+    """
+    today = date(2026, 10, 9)
+    monkeypatch.setattr("app.services.fund_performance.today_shanghai", lambda: today)
+    # 末点 2025-12，距 today 10 个月 → 近1年窗口内只有 1 个点
+    rows = [_DailyWorth(date(2025, 11, 1), 1.0), _DailyWorth(date(2025, 12, 1), 1.05)]
+    result = build_fund_performance(_fake_db(_Fund("股票型"), daily_rows=rows), "110020")
+    assert result["applicable"] is True
+    assert result["volatility_1y"] is None
+    assert result["max_drawdown"] is None
+    assert result["max_drawdown_basis"] == "insufficient"

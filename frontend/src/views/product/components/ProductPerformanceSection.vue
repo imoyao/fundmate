@@ -53,7 +53,10 @@ watch(() => props.symbol, load, { immediate: true });
 
     <p v-if="loading" class="performance-section__hint">正在读取业绩与风险…</p>
 
-    <p v-else-if="failed || !perf || !perf.applicable" class="performance-section__hint">
+    <p
+      v-else-if="failed || !perf || !perf.applicable"
+      class="performance-section__hint"
+    >
       暂无可展示的业绩数据
     </p>
 
@@ -63,13 +66,21 @@ watch(() => props.symbol, load, { immediate: true });
         <div class="performance-section__kpi-item">
           <dt class="performance-section__label">七日年化</dt>
           <dd class="performance-section__value">
-            {{ perf.annual_return_7d != null ? perf.annual_return_7d.toFixed(2) + "%" : DASH }}
+            {{
+              perf.annual_return_7d != null
+                ? perf.annual_return_7d.toFixed(2) + "%"
+                : DASH
+            }}
           </dd>
         </div>
         <div class="performance-section__kpi-item">
           <dt class="performance-section__label">万份收益</dt>
           <dd class="performance-section__value">
-            {{ perf.nav_per_10k != null ? perf.nav_per_10k.toFixed(4) + " 元" : DASH }}
+            {{
+              perf.nav_per_10k != null
+                ? perf.nav_per_10k.toFixed(4) + " 元"
+                : DASH
+            }}
           </dd>
         </div>
       </dl>
@@ -104,13 +115,21 @@ watch(() => props.symbol, load, { immediate: true });
             最大回撤（{{ perf.max_drawdown_window || "近3年" }}）
           </dt>
           <dd class="performance-section__value">
-            {{ perf.max_drawdown != null ? perf.max_drawdown.toFixed(2) + "%" : DASH }}
+            {{
+              perf.max_drawdown != null
+                ? perf.max_drawdown.toFixed(2) + "%"
+                : DASH
+            }}
           </dd>
         </div>
         <div class="performance-section__fact">
           <dt class="performance-section__label">年化波动率（近1年）</dt>
           <dd class="performance-section__value">
-            {{ perf.volatility_1y != null ? perf.volatility_1y.toFixed(2) + "%" : DASH }}
+            {{
+              perf.volatility_1y != null
+                ? perf.volatility_1y.toFixed(2) + "%"
+                : DASH
+            }}
           </dd>
         </div>
       </dl>
@@ -118,7 +137,9 @@ watch(() => props.symbol, load, { immediate: true });
       <p class="performance-section__footnote">
         数据来源：{{ perf.source
         }}<template v-if="perf.as_of"> · 截至 {{ perf.as_of }}</template>
-        <template v-if="perf.acc_nav_caveat"> · {{ perf.acc_nav_caveat }}</template>
+        <template v-if="perf.acc_nav_caveat">
+          · {{ perf.acc_nav_caveat }}</template
+        >
       </p>
     </template>
   </CardBlock>
@@ -138,11 +159,13 @@ watch(() => props.symbol, load, { immediate: true });
   color: var(--text-tertiary-ink);
 }
 
+/* 令牌口径：`--text-secondary` 在 colors.css:33 有定义（`--text-secondary-ink` 未定义，
+   写了会让整条 color 声明静默失效 → 回落浏览器默认色，暗色端直接失控）。 */
 .performance-section__block-label {
   margin: var(--space-3) 0 var(--space-1);
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-secondary-ink);
+  color: var(--text-secondary);
 }
 
 .performance-section__label {

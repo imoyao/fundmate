@@ -111,7 +111,8 @@ async function stubProductApis(page: Page) {
           fund_kind: "fund",
           applicable: true,
           basis: "acc_nav",
-          acc_nav_caveat: "累计净值口径（分红不再投近似复权），非严格分红再投复权净值",
+          acc_nav_caveat:
+            "累计净值口径（分红不再投近似复权），非严格分红再投复权净值",
           intervals: [
             { key: "1w", label: "近1周", value: 1.23 },
             { key: "1m", label: "近1月", value: 3.45 },
