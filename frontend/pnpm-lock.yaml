@@ -99,8 +99,8 @@ importers:
         specifier: ^4.6.4
         version: 4.6.4(vue@3.5.42(typescript@5.9.3))
       vue-tippy:
-        specifier: ^6.7.1
-        version: 6.7.1(vue@3.5.42(typescript@5.9.3))
+        specifier: ^6.8.0
+        version: 6.8.0(vue@3.5.42(typescript@5.9.3))
       vue-types:
         specifier: ^6.0.0
         version: 6.0.0(vue@3.5.42(typescript@5.9.3))
@@ -4133,8 +4133,8 @@ packages:
     peerDependencies:
       vue: ^3.5.0
 
-  vue-tippy@6.7.1:
-    resolution: {integrity: sha512-gdHbBV5/Vc8gH87hQHLA7TN1K4BlLco3MAPrTb70ZYGXxx+55rAU4a4mt0fIoP+gB3etu1khUZ6c29Br1n0CiA==}
+  vue-tippy@6.8.0:
+    resolution: {integrity: sha512-NiWpwncli2vXpestHyvuFPDgQ51qLbBKpZQj7FeSOm1mFbPhzMeaRxWBQQEhl/FqGRXasfGvETgAUW4md6SAbA==}
     peerDependencies:
       vue: ^3.2.0
 
@@ -7933,7 +7933,7 @@ snapshots:
       '@vue/devtools-api': 6.6.4
       vue: 3.5.42(typescript@5.9.3)
 
-  vue-tippy@6.7.1(vue@3.5.42(typescript@5.9.3)):
+  vue-tippy@6.8.0(vue@3.5.42(typescript@5.9.3)):
     dependencies:
       tippy.js: 6.3.7
       vue: 3.5.42(typescript@5.9.3)
