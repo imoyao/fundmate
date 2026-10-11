@@ -1,0 +1,101 @@
+# CNB 流水线配置（duoduobei/fundmate）
+#
+# 目前只有一条流水线：GitHub Issues → CNB Issues 的**每日增量镜像**。
+#
+# 背景（源 issue #2）：CNB 侧没有 GitHub 的 issue 视图，讨论散在两处。
+# 2026-10-11 做过一次全量手工同步（107 张卡，CNB #5~#112），但那是一次性的：
+# GitHub 之后新开的卡不会再出现，两侧很快又各说各话。本流水线把那个动作
+# 固化成可重复执行的增量作业，脚本是 scripts/bridge/github_cnb_issues.py。
+#
+# 设计取舍（详见 scripts/bridge/github_cnb_issues.py 的文件头）：
+#   - 单向：只 GitHub → CNB，不回写；双向会在状态不一致时互相打架；
+#   - 只增不覆盖：已存在的镜像卡永不改动；
+#   - 不同步关闭态：GitHub 关了 CNB 不自动关，避免「CNB 侧看不到活跃讨论」的误判；
+#   - 幂等键 = 镜像卡正文里的 `GitHub 编号：#N`，辅以 scripts/bridge/github_cnb_state.json 缓存。
+#
+# 本地跑法：
+#   export CNB_TOKEN=<你的 token>
+#   python scripts/bridge/github_cnb_issues.py --dry-run     # 先看要建哪些
+#   python scripts/bridge/github_cnb_issues.py --apply       # 真正创建
+
+# 公共片段：两条触发方式跑的是同一套环境与命令，用锚点避免抄两遍。
+.mirror-job: &mirror-job
+  runner:
+    # 纯标准库脚本，收窄核数省额度
+    cpus: 2
+  docker:
+    image: python:3.12-slim
+  env:
+    # CNB_TOKEN 由平台注入（构建凭证，建卡用）；
+    # GITHUB_TOKEN 可选，不设则走匿名 API（60 次/时/IP，够用）。
+    GITHUB_REPO: imoyao/fundmate
+  stages:
+    - name: 增量建卡
+      script: |
+        python scripts/bridge/github_cnb_issues.py --apply
+
+# 定时任务必须挂在具体分支下（不能放 $ 兜底），故这里显式写 main。
+main:
+  # 每日 18:00 UTC（＝北京次日 02:00）：issue 不是时效数据，
+  # 一天一次足够，也省构建分钟数。
+  "crontab: 0 18 * * *":
+    - name: GitHub issue 增量镜像
+      <<: *mirror-job
+
+# 手动触发放兜底分支：与分支无关，放 $ 下任何分支都能点。
+$:
+  web_trigger:
+    - name: GitHub issue 增量镜像（手动）
+      <<: *mirror-job
+
+# ---------------------------------------------------------------------------
+# sync/mirror 分支：GitHub → CNB 的**代码**镜像（每小时的 fast-forward 快进）
+#
+# 为什么单独一个分支：dev / main 是被同步的目标，若把配置写在那边，
+# 下一次同步就会把配置覆盖掉，或让 CNB 侧产生独有提交而无法快进。
+#
+# 安全约束：
+#   1. 只同步 dev / main 两个分支，不动其它分支、不动标签；
+#   2. 只允许 fast-forward，CNB 侧一旦出现独有提交即失败并打印 src/dst；
+#   3. 绝不 force push、绝不删除分支。
+#
+# 已知前提（重要）：**CNB 侧禁止直接合 PR**。CNB 的合并必然产生对方没有的
+# merge commit，会让本任务在下一次运行时因「无法快进」而静默停摆
+# （2026-10-11 实测：CNB dev 长出 4 个独有提交，链路断成两截）。
+# 所有 PR 一律在 GitHub 侧合并，CNB 侧只读。
+# ---------------------------------------------------------------------------
+sync/mirror:
+  # 每小时整点，与 issue 镜像错开（那条在 18:00）
+  "crontab: 0 * * * *":
+    - name: 镜像同步 dev / main
+      stages:
+        - name: sync from github
+          script: |
+            set -e
+            SRC=https://github.com/imoyao/fundmate.git
+            DST=https://cnb:$CNB_TOKEN@cnb.cool/duoduobei/fundmate.git
+            WORK=$(mktemp -d)
+            git init --bare -q "$WORK"
+            cd "$WORK"
+            git remote add src "$SRC"
+            git remote add dst "$DST"
+            FAILED=0
+            for b in dev main; do
+              git fetch --quiet src "refs/heads/$b:refs/src/$b" || { echo "[$b] 源仓库无此分支，跳过"; continue; }
+              if ! git fetch --quiet dst "refs/heads/$b:refs/dst/$b"; then
+                echo "[$b] 目标仓库无此分支，跳过"; continue
+              fi
+              S=$(git rev-parse "refs/src/$b")
+              D=$(git rev-parse "refs/dst/$b")
+              if [ "$S" = "$D" ]; then
+                echo "[$b] 已一致 $D"; continue
+              fi
+              if git merge-base --is-ancestor "refs/dst/$b" "refs/src/$b"; then
+                git push --quiet dst "refs/src/$b:refs/heads/$b"
+                echo "[$b] 快进 $D -> $S"
+              else
+                echo "[$b] 无法快进：CNB 侧存在独有提交（dst=$D src=$S），已跳过，需人工处理"
+                FAILED=1
+              fi
+            done
+            exit $FAILED
