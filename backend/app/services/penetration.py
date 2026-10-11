@@ -58,7 +58,7 @@ from app.core.constants import EXCHANGE_RATES
 from app.core.money import Money
 from app.core.time_utils import today_shanghai
 from app.domains.funds.models import FundHolding, FundIndustryAlloc
-from app.services.fund_utils import is_cash_equivalent_position, normalize_fund_code
+from app.services.fund_utils import is_cash_equivalent_position, normalize_fund_code, resolve_money_fund_flags_strict
 from app.services.position_valuation import market_value_cents
 
 # 复用 summary_service 的持仓加载器（同一过滤口径：active only）。
@@ -271,6 +271,25 @@ def build_penetration(
     """
     positions, _assets = _load_user_assets(db, family_id)
 
+    # 场内货币 ETF（如 511990 华宝添益）以 asset_type='etf' 录入时 is_money_fund
+    # 为 False（写路径 #1661：显式 etf 类型一律 False，绝不落回名录），分流只看
+    # 类型会把它当普通 ETF → 永远报 etf_holding_missing（假缺口：它本质无股票
+    # 敞口）。这里只在**读侧**补判：仅对 etf 持仓批量查一次名录，取 strict
+    # 明确确认为货币型（True）的归一代码进豁免集。
+    # 键一致性：返回值键 = normalize_fund_code(symbol)，leg.code =
+    # _business_code(...) 最终同样 normalize_fund_code，对 SH511990 /
+    # EXCHANGE:SH511990 / 裸 511990 三种形态产出一致，可直接比较。
+    # 为什么不动写侧置 is_money_fund=True：position_price_job 见
+    # money_fund / is_money_fund 会按面值 1.0000 回写 current_price，而场内
+    # 货基 ETF 每份约 100 元，市值会塌约 100 倍（#1661 同型事故）。
+    etf_symbols = [getattr(p, 'symbol', '') or '' for p in positions if (getattr(p, 'asset_type', None) or '') == 'etf']
+    money_fund_etf_codes: set[str] = set()
+    if etf_symbols:
+        # strict 内部已捕获 market 域不可达异常并全返 None，无需再包 try；
+        # None（名录没说话）不进豁免集——维持现状走 fund_leg，不猜。
+        flags = resolve_money_fund_flags_strict(etf_symbols)
+        money_fund_etf_codes = {code for code, is_money in flags.items() if is_money is True}
+
     # ── 1. 逐持仓定值 + 分流 ──────────────────────────────────────────────
     fund_legs: list[_Leg] = []
     direct_legs: list[_Leg] = []
@@ -291,8 +310,9 @@ def build_penetration(
         )
         total_cents += cents
 
-        if is_cash_equivalent_position(p):
-            # 货基 / 逆回购：本质无股票敞口，归未穿透但**不是**数据缺口
+        if is_cash_equivalent_position(p) or ((leg.asset_type or '') == 'etf' and leg.code in money_fund_etf_codes):
+            # 货基 / 逆回购：本质无股票敞口，归未穿透但**不是**数据缺口。
+            # 场内货币 ETF（511990 类）同理：名录（strict）明确货币型即归此桶。
             leg.reason = REASON_CASH_EQUIVALENT
             direct_legs.append(leg)
         elif (leg.asset_type or '') in _PENETRABLE_TYPES:
