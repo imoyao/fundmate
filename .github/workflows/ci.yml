@@ -61,6 +61,10 @@ jobs:
           filters: |
             backend:
               - 'backend/**'
+              # 镜像/回写脚本的回归网住在 backend/tests/ 下（#2）：脚本本身改了、
+              # 或对应 workflow 改了，都必须把后端 job 唤起，否则那份回归网永远不跑。
+              - 'scripts/bridge/**'
+              - '.github/workflows/cnb-github-backfill.yml'
               - '.github/workflows/ci.yml'
             frontend:
               - 'frontend/**'
