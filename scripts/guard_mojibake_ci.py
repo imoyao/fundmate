@@ -31,7 +31,7 @@ TEXT_GLOBS = [
 
 def run(*args: str) -> str:
     """跑命令并返回 stdout（失败时抛 RuntimeError，避免调用方误判）。"""
-    proc = subprocess.run(args, capture_output=True, text=True, encoding="utf-8")
+    proc = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", check=False)
     if proc.returncode != 0:
         raise RuntimeError(f"命令失败({' '.join(args)}): {proc.stderr.strip() or proc.stdout.strip()}")
     return proc.stdout
@@ -57,7 +57,7 @@ def main() -> int:
 
     # 第 1 层：文件内容
     rc_files = subprocess.run(
-        [sys.executable, "scripts/guard_mojibake.py", *files], text=True
+        [sys.executable, "scripts/guard_mojibake.py", *files], text=True, check=False
     ).returncode
 
     # 第 2 层：逐提交的中文提交信息
@@ -68,6 +68,7 @@ def main() -> int:
         if subprocess.run(
             [sys.executable, "scripts/guard_mojibake.py", "--is-exempt", sha],
             capture_output=True,
+            check=False,
         ).returncode == 0:
             print(f"  豁免 {sha[:8]}")
             continue
@@ -75,7 +76,8 @@ def main() -> int:
         with open("_tmp_msg.txt", "w", encoding="utf-8") as fh:
             fh.write(body)
         if subprocess.run(
-            [sys.executable, "scripts/guard_mojibake.py", "--check-message", "_tmp_msg.txt"]
+            [sys.executable, "scripts/guard_mojibake.py", "--check-message", "_tmp_msg.txt"],
+            check=False,
         ).returncode != 0:
             print(f"  -> 提交 {sha[:8]} 的中文提交信息疑似乱码")
             rc_msgs = 1
