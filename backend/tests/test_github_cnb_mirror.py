@@ -190,7 +190,7 @@ def _fixed_clock(m, monkeypatch, when='2026-10-12'):
 
 
 def test_header_matches_frozen_shape(m, monkeypatch):
-    """正文头部形状冻结（源头卡为 CNB #5 ← GitHub #783，2026-10-11 全量同步）。
+    """正文头部形状冻结（源头卡为 CNB #5 ← GitHub #783，2026-10-11 全量同步）。  # cross-repo-ref-allow
 
     字段顺序 / 措辞 / 全角空格都钉在这里；改它等于让前后两批镜像卡出现两种长相，
     必须是有意识的决定，而不是顺手重构的副作用。

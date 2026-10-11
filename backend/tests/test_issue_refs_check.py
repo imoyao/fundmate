@@ -99,7 +99,7 @@ def test_extract_range_and_explicit_ref(mod):
 
 def test_extract_ignores_issue_numbers_and_urls(mod):
     """`#118` / `https://…` / `12:30` 不能被当成文件引用（误报比漏报更耗信任）。"""
-    text = '源 CNB issue #118；见 https://github.com/imoyao/fundmate/issues/2034 ；时间 12:30'
+    text = '源 CNB issue #118；见 https://github.com/imoyao/fundmate/issues/2034 ；时间 12:30'  # cross-repo-ref-allow
     assert mod.extract_refs(text) == []
 
 
