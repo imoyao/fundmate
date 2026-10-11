@@ -104,10 +104,15 @@ tmp_path_retention_policy = "failed"
 tmp_path_retention_count = 1
 
 [tool.pdm]
-[[tool.pdm.source]]
-name = "pypi"
-url = "https://mirrors.aliyun.com/pypi/simple/"
-verify_ssl = true
+# #2031（根治 #1628 / 本节旧条文）：本文件**不再声明** [[tool.pdm.source]]。
+# 依赖源下沉到机器级配置：本机 `pdm config pypi.url https://mirrors.aliyun.com/pypi/simple/`
+# （国内快），CI 不声明 → PDM 默认官方 PyPI（海外 runner 快）。
+# 镜像滞后（索引列出但文件 404）时一键切换，不改任何仓库文件：
+#   pdm config pypi.url https://pypi.org/simple/   # 临时切官方
+#   pdm config pypi.url https://mirrors.aliyun.com/pypi/simple/  # 切回
+# 实测（PDM 2.26.8，2026-10-11，空项目探针）：无项目源时 user 级 pypi.url 生效、
+# PDM_PYPI_URL 环境变量同样生效（指向 127.0.0.1:9 均 ConnectError）；
+# pdm.lock 不记录 index URL（仅文件名+哈希），故本变更无需重锁。
 
 [tool.pdm.dev-dependencies]
 test = [
