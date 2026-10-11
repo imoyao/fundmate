@@ -91,6 +91,64 @@ export function getFundProfile(code: string) {
   );
 }
 
+/** 区间收益切面条目（`/api/products/fund-performance/` 返回） */
+export interface FundPerformanceInterval {
+  /** 档位 key：1w/1m/3m/6m/1y/2y/3y/5y/ytd/since */
+  key: string;
+  /** 中文标签（近1周 / 成立以来…） */
+  label: string;
+  /** 区间收益率(%)；null = 该区间数据不足 */
+  value: number | null;
+}
+
+/**
+ * 基金业绩与风险（#2029 卡 B · 详情页业绩与风险卡）。
+ *
+ * - `fund_kind: "fund"`：场外基金，含区间收益切面 + 最大回撤（近3年）+ 年化波动率（近1年）；
+ *   `applicable: false` 表示净值点不足，前端降级「暂无可展示的业绩数据」。
+ * - `fund_kind: "money"`：货币基金，无回撤口径，改返 `annual_return_7d`（七日年化）+
+ *   `nav_per_10k`（万份收益）；`basis: "money_fund"`。
+ * 所有收益率/指标缺失一律为 null，前端据此降级为「—」。
+ */
+export interface FundPerformanceResult {
+  fund_kind: "fund" | "money";
+  /** 是否有可展示的业绩数据（场外基金净值点不足时为 false） */
+  applicable: boolean;
+  /** 口径标记：acc_nav / money_fund / insufficient */
+  basis: string;
+  /** acc_nav 口径说明（场外基金）：累计净值口径，非严格分红再投复权净值 */
+  acc_nav_caveat?: string;
+  /** 区间收益切面（仅 fund_kind=fund 且有数据时非空） */
+  intervals: FundPerformanceInterval[];
+  /** 最大回撤(%)（负数，如 -18.52）；样本不足为 null */
+  max_drawdown: number | null;
+  /** 回撤口径：fixed_3y / insufficient */
+  max_drawdown_basis: string;
+  /** 回撤窗口中文标签（如「近3年」） */
+  max_drawdown_window: string | null;
+  /** 回撤序列截至日 YYYY-MM-DD */
+  max_drawdown_as_of: string | null;
+  /** 近1年年化波动率(%)；样本不足为 null */
+  volatility_1y: number | null;
+  /** 数据截至日 YYYY-MM-DD */
+  as_of: string | null;
+  /** 数据来源站点名（如「天天基金」） */
+  source: string;
+  /** 货基：七日年化收益率(%)（仅 fund_kind=money） */
+  annual_return_7d?: number | null;
+  /** 货基：万份收益(元)（仅 fund_kind=money） */
+  nav_per_10k?: number | null;
+}
+
+/** 取基金业绩与风险。404 = 该代码不是基金。 */
+export function getFundPerformance(code: string) {
+  return http.request<ApiResponse<FundPerformanceResult>>(
+    "get",
+    "/api/products/fund-performance/",
+    { params: { code } }
+  );
+}
+
 /** 股票资料聚合结果（#1969 · 详情页股票区块）。字段缺失一律为 null，前端据此降级为「—」 */
 export interface StockProfileResult {
   symbol: string;
