@@ -444,6 +444,10 @@ jobs:
   # 2026-09-24（#1683）起本 job 同时跑 `scripts/close_linked_issues.js` 的单测：它被
   # close-linked-issues workflow 直接驱动，且带**外部副作用**（关闭 issue）——解析错一次
   # 就是误关别人的卡，比假红灯更贵，同样必须有回归网。
+  #
+  # 2026-10-11（#120）再补一层 Python 侧：`scripts/bridge/` 的镜像脚本同样带外部副作用
+  # （建卡 / 写更正评论），且与 Node 侧是两套解释器，故上面那条 node --test 覆盖不到。
+  # untested。两个脚本都是纯标准库 + 纯函数可测，故直接在这里跑 python -m unittest。
   scripts_test:
     name: 守卫:脚本单测 (scripts)
     if: ${{ github.event_name == 'pull_request' }}
@@ -459,6 +463,14 @@ jobs:
       # 引号是必须的：bash 不展开双引号内的 glob，交给 Node 自己的测试发现（跨平台一致）
       - name: 跑 scripts/ 下的守卫脚本单测
         run: node --test "scripts/tests/*.test.js"
+
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: 跑 scripts/ 下的 Python 守卫/桥接脚本单测
+        run: python -m unittest discover -s scripts/tests -p "test_*.py" -v
 
   gate:
     name: 质量门禁汇总
