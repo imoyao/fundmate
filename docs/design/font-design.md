@@ -237,7 +237,8 @@ CJK 全字重体积巨大，必须子集化，否则首屏被拖垮。**v1.2 实
 ```html
 <!-- index.html <head>：font-display: swap 在 @font-face 已声明，防止 FOIT -->
 <!-- 首屏仅预加载 Inter latin 与 Mi Sans Regular(400)；500/600/700 由浏览器按需拉取 -->
-<link rel="preload" href="/fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/inter-latin-wght-normal.woff2"
+      as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/misans-subset-400.woff2" as="font" type="font/woff2" crossorigin>
 ```
 

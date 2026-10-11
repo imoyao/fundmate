@@ -91,7 +91,8 @@
 pdm run python scripts/diag_em.py
 
 # 直接验证单个数据源能否连通
-pdm run python -c "import akshare as ak; print(ak.index_zh_a_hist('000300','daily','20260101','20260801'))"
+pdm run python -c \
+  "import akshare as ak; print(ak.index_zh_a_hist('000300','daily','20260101','20260801'))"
 
 # 触发乖离率任务，看 BiasJob 日志里抓取是否报 RemoteDisconnected
 pdm run sync --job temperature

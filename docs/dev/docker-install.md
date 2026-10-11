@@ -14,7 +14,11 @@ docker pull mysql:8.0.27
 ```bash
 docker run --name mysql8027 -e MYSQL_ROOT_PASSWORD=123456 -d -p 3307:3306 mysql:8.0.27
 # 另一个更加丰富的命令（TODO:文件目录映射好像有问题，至少WSL2上会报错）
-docker run -p 3306:3306 --restart=always --name mysql8027 -v /opt/docker_v/mysql/conf:/etc/mysql/conf.d  -v /data/mysql/my.cnf:/etc/mysql/my.cnf -v /data/mysql/data:/var/lib/mysql -e MYSQL_ROOT_PASSWORD=123456 -d imageID
+docker run -p 3306:3306 --restart=always --name mysql8027 \
+  -v /opt/docker_v/mysql/conf:/etc/mysql/conf.d \
+  -v /data/mysql/my.cnf:/etc/mysql/my.cnf \
+  -v /data/mysql/data:/var/lib/mysql \
+  -e MYSQL_ROOT_PASSWORD=123456 -d imageID
 ```
 
 ::: tip

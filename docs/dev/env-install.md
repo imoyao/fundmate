@@ -26,7 +26,8 @@ python3 --version
 针对`ModuleNotFoundError: No module named '_ctypes'`错误：
 
 ```shell
-yum -y install zlib-devel bzip2-devel openssl-devel ncurses-devel sqlite-devel readline-devel tk-devel gdbm-devel db4-devel libpcap-devel xz-devel
+yum -y install zlib-devel bzip2-devel openssl-devel ncurses-devel sqlite-devel \
+  readline-devel tk-devel gdbm-devel db4-devel libpcap-devel xz-devel
 ```
 
 :::
