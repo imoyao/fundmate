@@ -17,6 +17,7 @@ import ProductExternalLinksSection from "./components/ProductExternalLinksSectio
 // fund-profile（落到兜底 404）反向掩盖。e2e 已补断言，勿再删这一行。
 import ProductFundSection from "./components/ProductFundSection.vue";
 import ProductPerformanceSection from "./components/ProductPerformanceSection.vue";
+import ProductHoldingsSections from "./components/ProductHoldingsSections.vue";
 import ProductPositionSection from "./components/ProductPositionSection.vue";
 import ProductStockSection from "./components/ProductStockSection.vue";
 import ProductTrendSection from "./components/ProductTrendSection.vue";
@@ -204,6 +205,15 @@ watch(productRef, loadProduct, { immediate: true });
       <!-- 业绩与风险（#2029 卡 B）：仅基金品类渲染。区间收益 + 最大回撤 + 年化波动率，
            后端基于 daily_worth.acc_nav 现算，与自选域同源；货基走万份收益 / 七日年化分支。 -->
       <ProductPerformanceSection
+        v-if="product.asset_type === 'fund'"
+        :symbol="product.symbol"
+      />
+
+      <!-- 行业配置 + 持仓明细（#2029 卡 C）：仅基金品类渲染。两张卡共用一个端点，
+           容器组件取一次数分发给两个纯展示子组件（各自取数就是重复往返）。
+           无披露数据时整块不渲染——持仓明细没有这层壳会渲染出一个只有标题和
+           「暂无数据」的空块，正是 §6 诚实降级要避免的噪声。 -->
+      <ProductHoldingsSections
         v-if="product.asset_type === 'fund'"
         :symbol="product.symbol"
       />

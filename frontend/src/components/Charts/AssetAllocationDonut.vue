@@ -42,13 +42,23 @@ const props = withDefaults(
      * 空间紧凑的容器（首页资产看板）传 10——图例条目多时 12 会换行。
      */
     legendFontSize?: number;
+    /**
+     * tooltip 数值格式化，默认按**金额**（`¥1,234`）。
+     *
+     * ⚠️ 这个组件此前只服务资产分布（值是元），tooltip 硬编码了 `¥`。
+     * 基金行业配置卡（#2029 卡 C）传的是**占比%**，若沿用会在 tooltip 里
+     * 显示「¥30.0（33.7%）」—— 给百分比加货币符号属于编造单位。
+     * 故开放此 prop：传函数即接管，不传保持原样（现有 4 个调用方零改动）。
+     */
+    formatValue?: (value: number, pct: number) => string;
   }>(),
   {
     colorMap: () => ({}),
     emptyText: "暂无数据",
     showLegend: true,
     showLegendPercent: true,
-    legendFontSize: 12
+    legendFontSize: 12,
+    formatValue: undefined
   }
 );
 
@@ -109,7 +119,10 @@ function buildOption() {
       },
       formatter: (params: { name: string; value: number }) => {
         const pct = total > 0 ? ((params.value / total) * 100).toFixed(1) : "0";
-        return `${params.name}<br/>¥${Number(params.value).toLocaleString()}（${pct}%）`;
+        const value = props.formatValue
+          ? props.formatValue(params.value, Number(pct))
+          : `¥${Number(params.value).toLocaleString()}（${pct}%）`;
+        return `${params.name}<br/>${value}`;
       }
     },
     legend: showLegend
