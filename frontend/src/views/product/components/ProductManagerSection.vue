@@ -278,9 +278,9 @@ watch(() => props.mgrCode, load, { immediate: true });
   &__identity {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-2) var(--space-4);
+    gap: var(--space-2) var(--space-6);
     align-items: baseline;
-    margin-bottom: var(--space-4);
+    margin-bottom: var(--space-6);
   }
 
   &__name {
