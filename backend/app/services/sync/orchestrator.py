@@ -39,6 +39,7 @@ from app.services.adapters.advisor_source import AdvisorSourceRegistry
 from app.services.adapters.akshare_adapter import AkshareAdapter
 from app.services.adapters.eastmoney_adapter import EastmoneyAdapter
 from app.services.adapters.jiucaishuo_adapter import JiucaishuoAdapter
+from app.services.adapters.manager_tenure import ManagerTenureAdapter
 from app.services.adapters.null_adapter import NullAdapter
 from app.services.adapters.xalpha_adapter import XalphaAdapter
 from app.services.fund_utils import normalize_fund_code
@@ -60,6 +61,7 @@ from app.services.sync.jobs.index_catalog_job import IndexCatalogSyncJob
 from app.services.sync.jobs.index_constituent_job import INDEX_TARGETS, IndexConstituentSyncJob
 from app.services.sync.jobs.index_daily_job import IndexDailySyncJob
 from app.services.sync.jobs.index_valuation_job import IndexValuationSyncJob
+from app.services.sync.jobs.manager_tenure_job import ManagerTenureSyncJob
 from app.services.sync.jobs.market_asset_daily_job import MarketAssetDailySyncJob
 from app.services.sync.jobs.orphan_backfill_job import OrphanBackfillJob
 from app.services.sync.jobs.position_price_job import PositionPriceSyncJob
@@ -172,6 +174,11 @@ class DataSyncOrchestrator:
             self.data_sources['akshare'], self.data_sources['xalpha'], self.db
         )
         self.jobs['fund_manager'] = FundManagerSyncJob(self.data_sources['akshare'], self.db)
+        # #2082：任期只存在于天天基金 F10 经理页，**每只基金一次 HTTP**，故独立成 job，
+        # 由调用方按目标池限量传 targets（本 job 不接受"空 targets → 全库"的兜底）。
+        # adapter 用 ManagerTenureAdapter 而不是 NullAdapter：它确实在抓上游，
+        # sync_logs.data_source 得如实写成 tiantian_f10。
+        self.jobs['manager_tenure'] = ManagerTenureSyncJob(ManagerTenureAdapter(), self.db)
         # 消费导入侧观察值（user 域 fund_company_observations）补 funds.company_id：
         # 纯本地解析、不联网，故 NullAdapter 占位（同 amac_institution 的处理）。
         self.jobs['fund_company_backfill'] = FundCompanyBackfillJob(NullAdapter(), self.db)
