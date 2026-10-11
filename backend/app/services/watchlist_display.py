@@ -224,17 +224,17 @@ class BatchContext:
 
         # 4. 最新行情：窗口函数一次取每 symbol 最近 2 根，替代逐 symbol 的
         #    compute_latest_quote（每次 1~2 条查询 × 158 行 = 主要残留 N+1）。
-        rn = func.row_number().over(
-            partition_by=PriceHistory.symbol, order_by=PriceHistory.trade_date.desc()
-        ).label('rn')
+        rn = (
+            func.row_number()
+            .over(partition_by=PriceHistory.symbol, order_by=PriceHistory.trade_date.desc())
+            .label('rn')
+        )
         ph_sub = (
             self.db.query(PriceHistory.symbol, PriceHistory.trade_date, PriceHistory.close, rn)
             .filter(PriceHistory.symbol.in_(self.symbols), PriceHistory.close.isnot(None))
             .subquery()
         )
-        ph_rows = (
-            self.db.query(ph_sub.c.symbol, ph_sub.c.trade_date, ph_sub.c.close).filter(ph_sub.c.rn <= 2).all()
-        )
+        ph_rows = self.db.query(ph_sub.c.symbol, ph_sub.c.trade_date, ph_sub.c.close).filter(ph_sub.c.rn <= 2).all()
         by_sym: dict[str, list] = {}
         for r in ph_rows:
             by_sym.setdefault(r.symbol, []).append(r)
@@ -317,18 +317,12 @@ class BatchContext:
                     self._group_names[gid] = gname
 
         # 5. AdvisorPortfolio + AdvisorHolding
-        advisors = (
-            self.db.query(AdvisorPortfolio)
-            .filter(AdvisorPortfolio.code.in_(self.symbols))
-            .all()
-        )
+        advisors = self.db.query(AdvisorPortfolio).filter(AdvisorPortfolio.code.in_(self.symbols)).all()
         for adv in advisors:
             self._advisor[adv.code] = adv
             ratios = [
                 float(r[0])
-                for r in self.db.query(AdvisorHolding.after_ratio)
-                .filter_by(portfolio_id=adv.id)
-                .all()
+                for r in self.db.query(AdvisorHolding.after_ratio).filter_by(portfolio_id=adv.id).all()
                 if r[0] is not None
             ]
             if ratios:
@@ -342,9 +336,7 @@ class BatchContext:
                 if code:
                     manager_codes.append(code.upper())  # 归一大写，便于后续按大写 symbol 查
         if manager_codes:
-            managers = (
-                self.db.query(Manager).filter(func.upper(Manager.mgr_code).in_(manager_codes)).all()
-            )
+            managers = self.db.query(Manager).filter(func.upper(Manager.mgr_code).in_(manager_codes)).all()
             for m in managers:
                 # key 用完整 symbol（MGR_XXX），便于后续直接按 symbol 取
                 full_sym = MANAGER_SYMBOL_PREFIX + m.mgr_code.upper()
@@ -353,9 +345,7 @@ class BatchContext:
         # 7. 展示名反查链的名称映射（Security / 可转债 / Fund / IndexCatalog）：
         #    resolve_display_name 原本逐行最多 6 条查询，这里一次性按 IN 查齐，
         #    由 ctx.resolve_display_name 按**同一优先级链**纯内存组装（见下方方法）。
-        sec_rows = (
-            self.db.query(Security.symbol, Security.name).filter(Security.symbol.in_(self.symbols)).all()
-        )
+        sec_rows = self.db.query(Security.symbol, Security.name).filter(Security.symbol.in_(self.symbols)).all()
         self._security_names = {s: n for s, n in sec_rows if n}
         bond_name_rows = (
             self.db.query(ConvertibleBondTerm.symbol, ConvertibleBondTerm.name)
@@ -400,11 +390,7 @@ class BatchContext:
         不为 20 行页面重复预取全部 158 行的基础字段。
         """
         # 8a. 可转债条款
-        bond_rows = (
-            self.db.query(ConvertibleBondTerm)
-            .filter(ConvertibleBondTerm.symbol.in_(self.symbols))
-            .all()
-        )
+        bond_rows = self.db.query(ConvertibleBondTerm).filter(ConvertibleBondTerm.symbol.in_(self.symbols)).all()
         for b in bond_rows:
             self._bond_terms[b.symbol] = b
 
@@ -448,9 +434,7 @@ class BatchContext:
             # 只取计算所需 4 列（load_nav_points 按属性名取值，列元组同样满足），
             # 比整实体少构造 DailyWorth ORM 对象（每基金 ~1095 行/3 年）
             nav_rows = (
-                self.db.query(
-                    DailyWorth.fund_code, DailyWorth.date, DailyWorth.acc_nav, DailyWorth.unit_nav
-                )
+                self.db.query(DailyWorth.fund_code, DailyWorth.date, DailyWorth.acc_nav, DailyWorth.unit_nav)
                 .filter(DailyWorth.fund_code.in_(bare_fund_codes), DailyWorth.date >= since)
                 .order_by(DailyWorth.fund_code, DailyWorth.date)
                 .all()
@@ -478,7 +462,6 @@ class BatchContext:
             for r in link_rows:
                 for code in (r.from_symbol, r.to_symbol):
                     self._channel_links.setdefault(code, []).append(r)
-
 
     # —— 取数接口（enrich 函数调用）——
     def get_position_stats(self, symbol: str) -> Optional[dict]:
@@ -831,7 +814,9 @@ def _apply_advisor_fields(out: dict, symbol: str, db) -> None:
         out['advisor_concentration'] = None
 
 
-def apply_deferred_display_fields(out: dict, symbol: str, asset_type: str, db, ctx: Optional[BatchContext] = None) -> None:
+def apply_deferred_display_fields(
+    out: dict, symbol: str, asset_type: str, db, ctx: Optional[BatchContext] = None
+) -> None:
     """「展示专用」enrich 统一入口（可延后到分页之后补算）。
 
     这四个 enricher 只填充**展示**字段（可转债条款 / 指数估值 / 基金最大回撤 /
@@ -862,7 +847,9 @@ def apply_deferred_display_fields(out: dict, symbol: str, asset_type: str, db, c
 # ────────────────────────── 行组装 ──────────────────────────
 
 
-def enrich_item(item: WatchlistItem, db, family_id: int, defer_display: bool = False, ctx: Optional[BatchContext] = None) -> dict:
+def enrich_item(
+    item: WatchlistItem, db, family_id: int, defer_display: bool = False, ctx: Optional[BatchContext] = None
+) -> dict:
     """把自选模型实例组装成前端行（基础字段 + 持仓统计 + 展示专用字段）。"""
     out = WatchlistItemOut.model_validate(item).model_dump()
     # watchlist.asset_type 历史存放大写（STOCK/ETF/...），对外统一归一为小写，
@@ -898,9 +885,18 @@ def enrich_item(item: WatchlistItem, db, family_id: int, defer_display: bool = F
             out['advisor_strategy_type'] = advisor.strategy_type
             out['advisor_org_name'] = advisor.org_name
             _ADVISOR_METRIC_KEYS = (
-                'return_1d', 'return_1w', 'return_1m', 'return_1q',
-                'return_6m', 'return_1y', 'return_ytd', 'return_since_incep',
-                'max_drawdown', 'excess_return', 'volatility', 'sharpe_ratio',
+                'return_1d',
+                'return_1w',
+                'return_1m',
+                'return_1q',
+                'return_6m',
+                'return_1y',
+                'return_ytd',
+                'return_since_incep',
+                'max_drawdown',
+                'excess_return',
+                'volatility',
+                'sharpe_ratio',
             )
             for k in _ADVISOR_METRIC_KEYS:
                 out[k] = _to_float(getattr(advisor, k))
@@ -922,9 +918,18 @@ def enrich_item(item: WatchlistItem, db, family_id: int, defer_display: bool = F
                 out['advisor_concentration'] = None
         else:
             _ADVISOR_METRIC_KEYS = (
-                'return_1d', 'return_1w', 'return_1m', 'return_1q',
-                'return_6m', 'return_1y', 'return_ytd', 'return_since_incep',
-                'max_drawdown', 'excess_return', 'volatility', 'sharpe_ratio',
+                'return_1d',
+                'return_1w',
+                'return_1m',
+                'return_1q',
+                'return_6m',
+                'return_1y',
+                'return_ytd',
+                'return_since_incep',
+                'max_drawdown',
+                'excess_return',
+                'volatility',
+                'sharpe_ratio',
             )
             for k in _ADVISOR_METRIC_KEYS:
                 out[k] = None
@@ -1086,7 +1091,16 @@ def _compute_avg_current_price(symbol, db, family_id: int):
     return Money.price_units_to_yuan(avg_price_units) if avg_price_units else 0.0
 
 
-def list_holding_items(db, family_id, venue=None, search=None, asset_types=None, defer_display=False, lite=False, ctx: Optional[BatchContext] = None):
+def list_holding_items(
+    db,
+    family_id,
+    venue=None,
+    search=None,
+    asset_types=None,
+    defer_display=False,
+    lite=False,
+    ctx: Optional[BatchContext] = None,
+):
     """持仓分组列表：返回 positions 表全部 active 持仓的虚拟行（按 symbol 聚合）。
 
     与 watchlist.status 快照解耦：一个 symbol 可能多账户多行，distinct 后按 symbol 聚合；
@@ -1158,7 +1172,16 @@ def list_holding_items(db, family_id, venue=None, search=None, asset_types=None,
     return data
 
 
-def _build_holding_row(symbol, db, family_id, market=None, asset_type=None, venue=None, defer_display: bool = False, ctx: Optional[BatchContext] = None):
+def _build_holding_row(
+    symbol,
+    db,
+    family_id,
+    market=None,
+    asset_type=None,
+    venue=None,
+    defer_display: bool = False,
+    ctx: Optional[BatchContext] = None,
+):
     """构造持仓虚拟行 dict，字段对齐 WatchlistItemOut/enrich_item 输出（前端直接复用）。
 
     id=None 是虚拟行约定：该 symbol 可能不在自选表，行操作（置顶/关注/标签/移除）一律禁用。
@@ -1262,11 +1285,15 @@ def _build_holding_row(symbol, db, family_id, market=None, asset_type=None, venu
     }
     # 持仓集中度（HHI）：与 _apply_advisor_fields 同源，避免虚拟行（持仓聚合无 id）漏字段
     if advisor is not None:
-        ratios = ctx.get_advisor_ratios(symbol) if ctx else [
-            float(r[0])
-            for r in db.query(AdvisorHolding.after_ratio).filter_by(portfolio_id=advisor.id).all()
-            if r[0] is not None
-        ]
+        ratios = (
+            ctx.get_advisor_ratios(symbol)
+            if ctx
+            else [
+                float(r[0])
+                for r in db.query(AdvisorHolding.after_ratio).filter_by(portfolio_id=advisor.id).all()
+                if r[0] is not None
+            ]
+        )
         if ratios:
             row['advisor_holding_count'] = len(ratios)
             row['advisor_concentration'] = round(sum(r * r for r in ratios), 1)
@@ -1293,11 +1320,7 @@ def _enrich_holding_with_watchlist(row: dict, db, family_id: int, ctx: Optional[
     if ctx:
         item = ctx.get_watchlist_item(symbol)
     else:
-        item = (
-            db.query(WatchlistItem)
-            .filter_by(symbol=symbol, market=market, venue=venue, family_id=family_id)
-            .first()
-        )
+        item = db.query(WatchlistItem).filter_by(symbol=symbol, market=market, venue=venue, family_id=family_id).first()
         if item is None:
             item = db.query(WatchlistItem).filter_by(symbol=symbol, family_id=family_id).first()
     if item is None:
@@ -1325,7 +1348,15 @@ def _enrich_holding_with_watchlist(row: dict, db, family_id: int, ctx: Optional[
 
 
 def build_all_items(
-    db, family_id, venue=None, search=None, tag_ids_str=None, favorite=False, group_id=None, defer_display=False, lite=False
+    db,
+    family_id,
+    venue=None,
+    search=None,
+    tag_ids_str=None,
+    favorite=False,
+    group_id=None,
+    defer_display=False,
+    lite=False,
 ):
     """「全部」分组数据：自选清单 ∪ 真实持仓补集（同一 symbol 自选记录优先，去重）。
 

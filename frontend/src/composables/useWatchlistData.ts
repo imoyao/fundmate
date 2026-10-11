@@ -146,6 +146,7 @@ export function useWatchlistData(
   /** 拉取列表（分页切片由后端完成，前端只消费 data/total）。
    * @param refreshAll 是否顺带刷新全量结果 allItems（供估值汇总条）。
    *        筛选/排序/搜索/分组变化时应传 true；纯翻页传 false（汇总保持稳定）。
+   *        全量结果用 fields=lite 单请求取回（per_page=200 覆盖全量）。
    */
   async function fetchData(refreshAll = true) {
     loading.value = true;
@@ -154,7 +155,12 @@ export function useWatchlistData(
         // 并行发起：当前页 + 全量 lite（后端 per_page=200 已覆盖全量，单次请求即可）
         const [pageRes, allRes] = await Promise.all([
           getWatchlistItems(fetchParams.value),
-          getWatchlistItems({ ...fetchParams.value, page: 1, per_page: 200, fields: "lite" })
+          getWatchlistItems({
+            ...fetchParams.value,
+            page: 1,
+            per_page: 200,
+            fields: "lite"
+          })
         ]);
         items.value = pageRes.data ?? [];
         totalItems.value = pageRes.total ?? items.value.length;
@@ -170,22 +176,6 @@ export function useWatchlistData(
     } finally {
       loading.value = false;
     }
-  }
-
-  /**
-   * 拉取「全量过滤结果」（忽略分页），供实时估值汇总条使用（#1245）。
-   * 后端已支持 per_page=200 单次返回全量，且 `fields=lite` 只回基础字段（跳过回撤/条款/估值/跨渠道），
-   * 单次请求即可完成。保留此函数兼容旧调用（如手动刷新），内部复用 fetchData 逻辑。
-   */
-  async function fetchAllItems() {
-    const base: Record<string, string | number | boolean> = {
-      ...fetchParams.value,
-      page: 1,
-      per_page: 200,
-      fields: "lite"
-    };
-    const res = await getWatchlistItems(base);
-    allItems.value = (res.data ?? []) as WatchlistItem[];
   }
 
   // ─────────────────────────────────────────────
