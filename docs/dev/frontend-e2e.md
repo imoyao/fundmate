@@ -74,6 +74,18 @@ pnpm exec playwright test e2e/explore-sidebar.spec.ts -g "对照组"   # 只跑�
 **证伪能力（有效性证据）**：临时回滚 #1566 的守卫修复后，用例 1 / 2 **必然失败**
 （菜单项 0），恢复后 **3/3 通过**。一条不能证伪的回归网等于没有——新增用例请一并证明这一点。
 
+`e2e/section-header-action-overflow.spec.ts`（#2039 回归网）：
+
+1. 视口 1100px（右卡半宽）下进入 `/#/panorama` → 切「收益日历」→ 断言
+   `.section-header__action` 的 `right` 不超出标题行 / 卡片内容区，且控件排确实**折了行**
+   （证明收缩生效，而非恰好塞得下）；
+2. 扫描页面上所有 `.section-header__action`，任一越出自身容器即红（覆盖其它复用该组件的标题行）。
+
+**为什么必须用浏览器**：这是纯几何缺陷——typecheck / lint / jsdom 单测（不做 flex 布局）
+一律看不见，只有真实浏览器量 `getBoundingClientRect` 才能钉住。
+**证伪能力**：临时恢复 `flex-shrink: 0` 后用例 1 必然失败（实测 `action.right=1288 >
+header.right=1027`），恢复修复后 2/2 通过。
+
 ## 6. CI 编排与成本边界
 
 - `.github/workflows/e2e.yml`：**`workflow_dispatch` + 每夜 19:00 UTC**（北京 03:00），
