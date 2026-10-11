@@ -64,9 +64,48 @@
 
 ### PR 与 Review
 
-- 功能分支 PR：`base` 填 `dev`。
-- 发布 PR（`dev` → `main`）：`base` 填 `main`。
+**两种 PR，两种 base，没有第三种**（2026-10-11 明确，源自 CNB #123）：
+
+| PR 类型 | base | 说明 |
+|---|---|---|
+| 功能 / 文档分支 PR | **`dev`** | 默认情况。从 `dev` 切分支，合回 `dev`。 |
+| 发布 PR（`dev` → `main`） | **`main`** | 「发版」这一个动作，不做别的事。 |
+
+- 除此之外**一律 base=`dev`**。看某个 PR 的 base 是不是 `main`，判据只有一个：
+  **它是不是「把 `dev` 整体合回 `main`」的发版 PR**（head 就是 `dev` 自己）。
+  head 是 `feat/*` / `fix/*` / `docs/*` 等功能分支、base 却填了 `main` ⇒ **错**，即使理由听起来合理。
+- **不要因为「这个改动需要尽快生效」就把 base 改成 `main`**。它属于「该发版了」，
+  正确做法是单独开一张发布 PR，把要生效的一批改动一起带过去——
+  否则 `dev` 会被绕过，`main` 与 `dev` 各自长出对方没有的提交（CNB 侧 #123 实测已发生：
+  `main` 独有 6 个提交、`dev` 独有 10 个，两边**互不包含**）。
+- **CNB 镜像仓（`duoduobei/fundmate`）没有例外条款**：它同样只有 `dev` / `main` 两条长期分支，
+  镜像脚本的改动照走「功能分支 → `dev`」。它曾因「cron 挂在 `main`，所以改动得直接进 `main`」
+  连续 5 个 PR 以 `main` 为 base（#114 / #122 / #124 / #126 等），导致上面的分叉。
+  **cron 挂在哪个分支，不构成绕过 `dev` 的理由**——正确做法是改变更分支 + 及时发版，
+  见下方「CNB 镜像链路的挂钩分支纪律」。
 - AI review（免费 GLM 总结 + 智能路由深度）自动在 PR 上评论。
+
+#### CNB 镜像链路的挂钩分支纪律（2026-10-11，#123）
+
+`duoduobei/fundmate` 的镜像作业由 `.cnb.yml` 的 cron 驱动，而 **CNB 的 `crontab` 事件只能挂在具体分支下**
+（不能放 `$` 兜底）。这条平台限制带来一个真实约束，但它**不改变 base 的填法**：
+
+- **改动照常提 `dev`**（`docs(bridge):` / `feat(bridge):` 等），不因为「要跑 cron」而改 base；
+- **要生效就得发版**：cron 读的是 `main` 上的那版脚本，所以功能分支合入 `dev` 后，
+  需要另开一张 `dev` → `main` 的**发布 PR**，让镜像改动真正落地；
+- **发版前镜像作业跑的是旧脚本**，这是需接受的窗口，**不是**「所以我要直连 `main`」的许可证。
+  改 base 只会把「旧脚本还跑着」变成「新旧代码在两处、且互不包含」——更难收拾；
+- 判据自查（发版前跑一次，`main` 落后 `dev` 时应看得见）：
+
+  ```bash
+  git fetch origin dev main
+  git rev-list --count origin/dev..origin/main   # main 领先 dev 的提交数（正常应为 0）
+  git rev-list --count origin/main..origin/dev   # dev 领先 main 的提交数（待发版的量）
+  git merge-base --is-ancestor origin/main origin/dev && echo 'main 是 dev 祖先，未分叉'       || echo '⚠ 已分叉：main 上有 dev 没有的提交'
+  ```
+
+  正常态是「`main` 领先 0、`main` 是 `dev` 的祖先」——即 `main` 始终是 `dev` 的历史前缀。
+  **出现 `main` 领先 `dev` 就是分叉，无论提交数多小，都先查是不是有 PR 用错了 base。**
 
 ---
 

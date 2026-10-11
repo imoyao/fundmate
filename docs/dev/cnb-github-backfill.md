@@ -133,7 +133,79 @@ python scripts/bridge/cnb_github_backfill.py --apply --limit 3
 修法是截断时先给标记留出额度。这类「截断把哨兵切掉」的缺陷靠人工 review 很难发现
 （截断逻辑看着人畜无害），正是回归网的用武之地。
 
-## 9. 已知边界
+## 9. 分支纪律：镜像脚本的改动提到哪
+
+> 这一节回答的是 CNB #123 的质问：「提 PR 的时候到底是提到 `dev` 还是 `main`？必须固定下来。」
+> 权威判据在 `AGENTS.md` §「Git 分支规范 → PR 与 Review」，此处只讲**镜像链路特有的那部分**。
+
+### 两条长期分支，两种 base，没有第三种
+
+| PR 类型 | base | head |
+|---|---|---|
+| 功能 / 文档分支 PR（**默认**） | `dev` | `feat/*` / `fix/*` / `docs/*` |
+| 发布 PR（发版） | `main` | **`dev` 本身** |
+
+**镜像脚本的改动照走第一行。** 「它要跑 cron，所以得进 `main`」**不是**改 base 的理由——
+cron 挂在哪个分支，改变不了「改动应当经过 `dev` 集成」这件事。
+
+### 为什么「要跑 cron」会诱使人改 base
+
+CNB 的 `crontab` 事件**只能挂在具体分支下**（不能放 `$` 兜底），当前挂在 `main`
+（`.cnb.yml`）。于是产生一个真实的时间差：
+
+```
+功能分支 ──PR(base=dev)──▶ dev ──发布PR──▶ main ──cron 读这里──▶ 作业生效
+                          ↑
+                 改动停在这里时，跑的还是旧脚本
+```
+
+**这个窗口应通过「及时发版」消除，而不是通过「把 base 改成 `main`」消除。**
+后者看起来更快，代价是把 `dev` 绕过：`main` 上长出一个 `dev` 没有的提交，
+两边从此**互不包含**（`git merge-base --is-ancestor main dev` 变 false），
+之后的每一次发版都会撞上「为什么 main 有 dev 没有的东西」。
+
+### 已付的代价（2026-10-11 实测，可复现）
+
+正是这个诱因，让镜像链路连续几个 PR 以 `main` 为 base。截至本卡：
+
+```
+                     CNB dev            CNB main
+.cnb.yml                无                 有      ← 镜像流水线只挂在 main
+github_cnb_issues.py    无                 有      ← 建卡脚本只在 main
+mirror_correction.py    无                 有      ← 更正通道只在 main
+cnb_github_backfill.py  有                 无      ← PR #116 的回写脚本只在 dev
+.github/workflows/cnb-github-backfill.yml 有     无
+```
+
+```text
+git rev-list --count origin/dev..origin/main   = 6    ← main 独有的 6 个提交
+git rev-list --count origin/main..origin/dev   = 10   ← dev 独有的 10 个提交
+git merge-base --is-ancestor origin/main origin/dev    ⇒ false（已分叉）
+```
+
+后果不是理论风险：**「改镜像链路」的代码在 `dev`，「会被真正执行」的代码在 `main`**，
+而两边对「镜像卡是只读副本还是允许修正」的结论是**相反**的。PR #116 带来的时效声明 /
+评论回写链路目前**一行都没在跑**。
+
+### 发版前先自查有没有分叉
+
+```bash
+git fetch origin dev main
+git rev-list --count origin/dev..origin/main   # 正常应为 0
+git merge-base --is-ancestor origin/main origin/dev && echo '未分叉' || echo '⚠ 已分叉'
+```
+
+**`main` 领先 `dev` 的提交数应为 0**（`main` 始终是 `dev` 的历史前缀）。
+不为 0 就是有 PR 用错了 base，先查清再发版——直接发版会把分叉固化。
+
+### 本节的边界
+
+- **不改变**任何脚本的行为，只是把「改动提到哪」写死，消除「看起来随意」的空间；
+- **不替代**发版：本节明确「要生效就得发版」，而不是宣称改 `dev` 就自动生效；
+- 与 `docs/dev/github-cnb-mirror.md`（只在 `main` 上）的关系：那份文档记录镜像链路的
+  **路线决策**，本卡的分支纪律是它的**执行层补充**，两者不冲突。
+
+## 10. 已知边界
 
 - **延迟**：最长一次 cron 间隔（一天）。要即时，走 `workflow_dispatch` 手动触发。
 - **只回写评论，不改状态**：CNB 卡关了不会自动关 GitHub 卡，反之亦然。关闭是人的判断。
@@ -144,7 +216,7 @@ python scripts/bridge/cnb_github_backfill.py --apply --limit 3
 - **CNB 列表接口不返回 `body`**：映射阶段是「列表 + 逐张详情」两步；`comment_count == 0`
   的卡直接跳过，省掉详情调用。
 
-## 10. 与代码双向镜像的关系
+## 11. 与代码双向镜像的关系
 
 **代码不需要这套机制。** 两侧的 `dev` / `main` 由 CNB 侧 `sync/mirror` 分支的定时任务
 `git fetch` + **fast-forward only** 对齐（`.cnb.yml`），这是仓库级的直接搬运，比任何
