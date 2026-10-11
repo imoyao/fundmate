@@ -396,7 +396,7 @@ jobs:
         with:
           node-version: "22.x"
 
-      - name: 校验 4 条安全 override 在锁中真实生效
+      - name: 校验 5 条安全 override 在锁中真实生效
         run: node scripts/check_pnpm_overrides.mjs
 
   # 缓存目录单一真相源守卫（#1540 治本项）：把「新增未经 resolve_cache_file_dir() /
@@ -466,6 +466,14 @@ jobs:
       # 引号是必须的：bash 不展开双引号内的 glob，交给 Node 自己的测试发现（跨平台一致）
       - name: 跑 scripts/ 下的守卫脚本单测
         run: node --test "scripts/tests/*.test.js"
+
+      # 跨仓引用守卫（源 CNB 卡）：CNB 的正文/评论里裸 `#N` 会被解析成**本仓**编号，
+      # 于是「见 GitHub 的某号」点进去落到 cnb.cool 的同号（要么 404、要么撞上另一张卡）。
+      # 用户实测撞到，故规则是「提到 GitHub 的编号必须挂源」。不新增 job——并入本 job，
+      # 也就不必动 gate.needs（#1559/#1560 两次事故都是合并冲突把 needs 弄丢）。
+      # 判据边界与豁免方式见脚本 docstring；回归网在 scripts/tests/guard_cross_repo_refs.test.js。
+      - name: 扫描跨仓引用是否挂源（阻断）
+        run: node scripts/guard_cross_repo_refs.mjs
 
       - name: 设置 Python 3.12
         uses: actions/setup-python@v6

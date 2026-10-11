@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""CNB → GitHub 回写脚本的回归网（源 issue #2 的「评论同步到 GitHub」）。
+"""CNB → GitHub 回写脚本的回归网（源 CNB `#2` 的「评论能否同步到 GitHub」）。
 
 ## WHY 有这份文件
 

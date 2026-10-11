@@ -19,6 +19,7 @@
 - [核心约束](#核心约束)
 - [数据域架构（双引擎硬规则）](#数据域架构双引擎硬规则)
 - [数据策略（按需存、禁止全量堆砌）](#数据策略按需存禁止全量堆砌)
+- [双端协作（CNB ↔ GitHub）](#双端协作cnb--github)
 - [Issue 全局治理（里程碑强制）](#issue-全局治理里程碑强制)
 - [双库架构 Issue 治理（里程碑 #14）](#双库架构-issue-治理里程碑-14)
 - [自动化工具](#自动化工具)
@@ -672,6 +673,78 @@ PY
 
 ---
 
+## 双端协作（CNB ↔ GitHub）
+
+> **CNB 侧只读**：`cnb.cool/duoduobei/fundmate` 是 `imoyao/fundmate` 的镜像仓，不做 PR 流程。
+> 讨论与状态变更都回 GitHub；CNB 的 issue/评论由流水线单向镜像过来（只增不覆盖、不同步关闭态）。
+> 本节是 CNB 侧踩过的坑，**每条都是实测撞出来的**，不是风格建议。
+
+### 引用编号必须挂源：GitHub 的 issue / PR 一律写完整链接
+
+**CNB 的正文与评论里，裸 `#123` 一律被解析成本仓库（CNB）的编号并渲染成链接。** 于是：
+
+- 写「见 GitHub 的 #2050」→ 点进去落到 `cnb.cool/.../-/issues/2050`，**本站根本没这张卡**（用户 2026-10-11 实测撞到）；<!-- cross-repo-ref-allow -->
+- 更隐蔽的是**同号撞车**：CNB 侧确实存在同号卡时链接能打开、但打开的是**另一张卡**。
+  双端编号是**两个独立空间**，「点得开却是错的」比 404 更难发现。
+
+**规则**：提到 GitHub 的 issue / PR，编号必须挂源，三选一。
+
+| 写法 | 例 | 说明 |
+|---|---|---|
+| **完整链接（首选）** | `https://github.com/imoyao/fundmate/issues/2050` | 跨仓一律用这个 |
+| 限定形态 | `GitHub #2050` / `GH #2050` / `imoyao/fundmate#2050` | 短，但读者已知在说哪一侧 |
+| 行内代码 | `` `#2050` `` | 仅限「上下文已明确指 GitHub」的正文 |
+
+**反例**：`见 GitHub 的 #2050` / `另见 #1996` / `PR #1757 已合并`（在讲 GitHub 侧 PR 时）。
+后者在 CNB 上点开是 CNB 的 #1757，**换一侧看编号，完全不相干**。
+
+- **裸 `#N` 只留给本仓（CNB）自己**的编号，例如「里程碑 #14」这类 CNB 概念。
+- 机器兜底：`scripts/guard_cross_repo_refs.mjs`（并入 CI 的 `scripts_test` job，即 `gate` 的 needs）。
+  逐行扫，命中「行里在说 GitHub、行里还有没挂源的裸 `#N`」即报红；行尾加 `cross-repo-ref-allow` 可豁免
+  （仅限讲机制本身、代码里的正则、反例清单三类）。回归网与 **6 个证伪探针**见
+  `scripts/tests/guard_cross_repo_refs.test.js`。
+- **存量取「行级冻结基线 + 只管新增」**（`scripts/guard_cross_repo_refs.baseline.mjs`）：
+  上线时全仓 89 处命中（历史文档、上游项目名 `pytest #3221`、`Project #3` 等，多为误报形态），
+  一次改完会把修复摊成 90 处无关 diff。基线键是 **`文件|行指纹` 而非文件名**——按文件名冻会
+  让「已脏文件里新增的裸引用」跟着蒙混过关。改到某行时顺手挂源，行文本一变指纹即失效、该行转红；
+  守卫会列出已失效条目催删档，避免基线长成「永远豁免」的垃圾桶。重新生成：`--freeze`。
+- **边界**：判据是**行级**的（同一文件里 CNB 编号与 GitHub 编号混排时，只会有问题的那些行红），
+  因此「一句不带任何 GitHub 词的『另见 #999』」是它的**已知假阴性**<!-- cross-repo-ref-allow -->——脚本尾部会打印
+  「裸露高发文件」提示人工复核，那部分是**报告不是判据**。
+
+### 「永久记忆」存在哪、什么时候读
+
+NPC 没有跨会话记忆，**每一次开工都是新进程**。所谓「记住」= 写进**版本控制的仓库文本**，
+靠「开工必读」而不是靠记忆生效：
+
+| 载体 | 读者 | 何时读 |
+|---|---|---|
+| 根 `AGENTS.md`（本节所在） | 所有人 / AI | **每次任务开始** |
+| `docs/spec/decisions.md` | 需要决策依据时 | 动规范 / 架构前 |
+| `docs/spec/conventions.md` | 冻结区，不可擅改 | 改契约 / 数据模型前 |
+| `docs/dev/*.md` | 专项作业 | 做对应作业时 |
+| `scripts/guard_*.py\|mjs` | CI | 每次 PR |
+
+所以**想让 AI 长期遵守某条规则，唯一有效的做法就是把它写进 `AGENTS.md`**
+（或对应 spec），并尽量配一条机器守卫——只写在评论里的话，下一个会话就没了。
+
+### 在 CNB 侧的其它已知边界（实测）
+
+- **CNB 构建环境没有 GitHub 凭据**：`env` 里只有 `CNB_*`；`git push https://github.com/...` 报
+  `could not read Username`，`api.github.com` 匿名 POST 返 **401**。要写 GitHub 就走
+  **GitHub Actions 定时拉取**（`GITHUB_TOKEN` 自动注入、自带 `issues: write`），CNB 侧保持只读。
+- **别在 `dev` / `main` 上直接 push**：CNB 的代码镜像（`sync/mirror` 分支的定时任务）是
+  **fast-forward only**——CNB 侧一有独有提交，下一轮就「无法快进」判否、**整条镜像链停摆**
+  （2026-10-11 实测停摆，救援分支 `rescue/2-cnb-commits`）。
+- **`git push --dry-run` 对 cnb.cool 是假信号**：它不真正建 ref，也不代表正式 push 会成功。
+- **CNB API 不在 `cnb.cool`** 而在 `https://api.cnb.cool`，路径是 `/-/` 风格，
+  鉴权 `Authorization: Bearer`，且 `Accept` 必须是 `application/vnd.cnb.api+json`
+  （否则拿到 HTML）；分页参数是**下划线** `page_size`，写成 `page-size` 会被静默忽略。
+- **CNB `create-issue --labels` 会被静默忽略**（HTTP 201 但标签为空）：必须**先建卡、再单独挂标签**。
+  标签名只允许中英文 / 数字 / `._:-/\` 与内部空格，长度 ≤50，`&`、`（）`、`#` 一律 400 拒收。
+
+---
+
 ## Issue 全局治理（里程碑强制）
 
 > 全局硬性规定：**任何 issue（含 AI 自动创建 / ClawBot 生成的元 issue）创建后必须挂里程碑，禁止处于无里程碑（No milestone）状态。**
@@ -685,7 +758,7 @@ PY
 
 ### CI 守卫（拦住新建漏挂）
 
-- 工作流 `.github/workflows/issue-milestone-guard.yml` 在 issue 被 `opened / edited / reopened / milestoned / demilestoned` 时检查其 `milestone` 字段（后两个为 #1515 补充：**补挂里程碑时 GitHub 发出的事件是 `milestoned` 而非 `edited`**，旧版只订阅前三个会「补挂后不自愈」——整改完成了 run 仍是红的，红灯可信度随之崩塌；`demilestoned` 用于反向校验「已挂又被摘掉」）：
+- 工作流 `.github/workflows/issue-milestone-guard.yml` 在 issue 被 `opened / edited / reopened / milestoned / demilestoned` 时检查其 `milestone` 字段（后两个为 GitHub #1515 补充：**补挂里程碑时 GitHub 发出的事件是 `milestoned` 而非 `edited`**，旧版只订阅前三个会「补挂后不自愈」——整改完成了 run 仍是红的，红灯可信度随之崩塌；`demilestoned` 用于反向校验「已挂又被摘掉」）：
   - 有里程碑 → 通过；
   - 无里程碑 → 在 issue 下**评论提醒责任人补挂**，并使该 workflow run **失败（红）**作为止损信号（issue 本身无法被 Action 自动关闭/拦截，故以失败 run + 评论提醒）。
 - 该守卫只针对 issue（`pull_request` 事件不触发），不影响正常 PR 流程。

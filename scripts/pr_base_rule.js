@@ -115,7 +115,7 @@ function findBaseViolations(pulls, opts) {
  * 登记在此是为了让「当前违规数」这个数字有意义——新出现的违规必须立刻处理。
  */
 const KNOWN_HISTORICAL_VIOLATIONS = [
-  { number: 114, reason: 'GitHub→CNB 建卡脚本首版，误以 main 为 base（CNB #123 实测）' },
+  { number: 114, reason: 'GitHub→CNB 建卡脚本首版，误以 main 为 base（CNB `#123` 实测）' },
   { number: 122, reason: '镜像卡快照声明 PR，误以 main 为 base（CNB #123 实测）' },
   { number: 124, reason: '镜像卡更正台账 PR，误以 main 为 base（CNB #123 实测）' },
   { number: 126, reason: '镜像路线决策文档 PR，误以 main 为 base（CNB #123 实测）' },

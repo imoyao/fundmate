@@ -225,7 +225,7 @@ git merge-base --is-ancestor origin/main origin/dev && echo '未分叉' || echo 
 本作业只管 **issue 与评论**这一层——它没有 git 层面的等价物。
 
 > ⚠️ 那条 `sync/mirror` 定时任务**自 2026-10-11 起实际处于停摆状态**：两侧 `dev`
-> 已分叉（CNB 停在 `0de73e21`，GitHub 已到 `16e807c4`，中间是 PR #2049/#2051）。
+> 已分叉（CNB 停在 `0de73e21`，GitHub 已到 `16e807c4`，中间是 GitHub PR #2049 / GitHub PR #2051）。
 > 该任务只允许快进，一旦有人直接往 CNB 侧推过分支（镜像分支本身就在 CNB 侧），
 > 后续同向的快进会被拒。这是**代码镜像独立于本作业的一个待修项**，见 issue #2 的
 > 讨论；本作业刻意不碰它（不越界修别人的腿）。
