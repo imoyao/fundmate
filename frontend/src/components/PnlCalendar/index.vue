@@ -25,90 +25,49 @@
 
 <template>
   <div class="pnl-calendar">
-    <!-- ===== 标题行：口径说明 + 粒度切换 + 形态切换 + 区间导航 =====
-         口径说明走 `#info` 富内容插槽（#1942 ③）：原先是一条 500 字的字符串直接塞进
-         tooltip，悬停出来就是一堵墙。现在拆成「口径 3 条 + 七态图例」，宽度也有约束。
+    <!-- ===== 标题行 =====
+         两种模式（#2050）：
 
-         标题可被宿主抑制（`hideTitle`，#2035）：三处容器里只有资产总览右卡外面套了
-         卡片标题（它要随开关在「资产大类 / 收益日历」之间变），不抑制就会有两个
-         一模一样的「收益日历」上下叠着；被窗口宽度压窄时第二个还会被右侧控件行挤断，
-         露出一小块残影，看起来像个莫名其妙的月牙。抑制的**只有 `<h2>`**——
-         `#info` 口径图标与 `#action` 全部控件照常渲染，它们是本组件自己的信息，
-         宿主不承载。 -->
+         · `hostHeader=false`（默认）：组件自画完整 SectionHeader——标题 + 口径 ⓘ
+           + 控件排。投资概览第三排、账户详情用此模式。
+
+         · `hostHeader=true`：标题与口径 ⓘ **一并交给宿主**，组件只输出控件排
+           （右对齐）。资产总览右卡用此模式——宿主必须自己画 `<h3>`（它要在
+           「资产大类 / 收益日历」之间变），若组件再画一遍就会出现两个同名标题
+           上下叠着（#2035 的旧 `hideTitle` 只抑制了 `<h2>` 文字，ⓘ 仍独占一行，
+           形成孤立伪标题行——#2050 修的正是这个）。宿主侧用
+           `PnlCalendarCaliberIcon` 在自画标题旁补上 ⓘ。 -->
     <SectionHeader
-      :title="hideTitle ? '' : '收益日历'"
+      v-if="!hostHeader"
+      title="收益日历"
       info-label="收益日历的口径与图例说明"
     >
       <template #info>
         <PnlCalendarCaliberTip />
       </template>
       <template #action>
-        <div class="flex flex-wrap items-center justify-end gap-2">
-          <!-- 粒度：日 / 月 / 年。SegmentedControl 是全站唯一实现（#1717；静态守卫
-               guard_segmented.py 拦截「改用 Element Plus 自带分段组件」与手写
-               xxx-segmented 样式块的回潮） -->
-          <SegmentedControl
-            v-model="granularity"
-            :options="GRANULARITY_OPTIONS"
-            size="small"
-            ariaLabel="切换收益粒度"
-          />
-          <!-- 形态：日 / 月 / 年三粒度**都有**两种呈现角度（#1942）。
-               标签随粒度变化（日历图 / 方格图），因为「一屏一个月」与
-               「12 个月各一格」是两种不同的看图方式，不该共用一个词。 -->
-          <SegmentedControl
-            v-model="view"
-            :options="VIEW_OPTIONS"
-            size="small"
-            ariaLabel="切换呈现形态"
-          />
-          <!-- 口径：金额 / 收益率（#1942 第二轮②）。三视图共用同一个开关，
-               切换**不重新请求**——`rate` 随每次响应一并下发，前端只换显示口径。
-               合计行不跟随它：金额与收益率同时显示（一个数不该因为开关而消失）。 -->
-          <SegmentedControl
-            v-model="valueMode"
-            :options="VALUE_MODE_OPTIONS"
-            size="small"
-            ariaLabel="切换金额或收益率"
-          />
-          <!-- 区间导航。`role="group"` + `aria-label` 是按钮组的正确 a11y 语义：
-               组本身不是按钮，但需一个可访问名来把三枚按钮归为一组。顺带说明：守卫
-               `guard_a11y_interaction.py` 的 `<(el-button|button)\b` 会把
-               `el-button-group` 一并匹配上，这里给组加名是正解，不是为过守卫而塞的无用属性。
-
-               年视图没有导航：它的区间恒为「投资以来 → 今年」，往前翻只会有建仓前的空年份、
-               往后翻本来就是空的。给一组按不动的按钮是骗人的，故只留一个区间标签。 -->
-          <el-button-group
-            v-if="granularity !== 'year'"
-            role="group"
-            :aria-label="nav.groupAria"
-          >
-            <el-button
-              size="small"
-              text
-              :aria-label="nav.prev"
-              :disabled="loading"
-              @click="shift(-1)"
-            >
-              <IconifyIconOffline icon="ep:arrow-left" />
-            </el-button>
-            <el-button size="small" text :disabled="loading" @click="goCurrent">
-              {{ rangeLabel }}
-            </el-button>
-            <el-button
-              size="small"
-              text
-              :aria-label="nav.next"
-              :disabled="loading"
-              @click="shift(1)"
-            >
-              <IconifyIconOffline icon="ep:arrow-right" />
-            </el-button>
-          </el-button-group>
-          <span v-else class="pnl-calendar__range">{{ rangeLabel }}</span>
-        </div>
+        <PnlCalendarActionBar
+          v-model:granularity="granularity"
+          v-model:view="view"
+          v-model:value-mode="valueMode"
+          :loading="loading"
+          :range-label="rangeLabel"
+          @shift="shift"
+          @go-current="goCurrent"
+        />
       </template>
     </SectionHeader>
+    <div v-else class="pnl-calendar__controls">
+      <PnlCalendarActionBar
+        v-model:granularity="granularity"
+        v-model:view="view"
+        v-model:value-mode="valueMode"
+        :loading="loading"
+        :range-label="rangeLabel"
+        @shift="shift"
+        @go-current="goCurrent"
+      />
+    </div>
 
     <!-- ===== 加载 / 空态 / 错误 ===== -->
     <div v-if="loading" class="pnl-calendar__placeholder">
@@ -213,15 +172,14 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
-import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import PnlCalendarGrid from "./PnlCalendarGrid.vue";
 import PnlCalendarPeriodGrid from "./PnlCalendarPeriodGrid.vue";
 import PnlCalendarBars from "./PnlCalendarBars.vue";
 import PnlCalendarCaliberTip from "./PnlCalendarCaliberTip.vue";
+import PnlCalendarActionBar from "./PnlCalendarActionBar.vue";
 import {
-  VALUE_MODE_OPTIONS,
   firstOfMonth,
   rangeFor,
   rangeLabelFor,
@@ -241,32 +199,26 @@ const props = withDefaults(
     /** 账户ID：不传=家庭级，传=该账户级（账户维度天然支持，见设计文档 §3） */
     ledgerId?: number;
     /**
-     * 宿主是否已经自带本组件的标题（#2035）。
+     * 宿主是否自带标题行（#2050）。
      *
      * PnlCalendar 的三处容器——投资概览第三排、资产总览右卡、账户详情——共用同一份
-     * 口径，但只有资产总览那处外面套了卡片标题（`OverviewSummaryCard` 必须自己画
-     * `<h3>`，因为它要在「资产大类 / 收益日历」两态之间变，还挂着返回开关）。
-     * 不抑制就会出现两个「收益日历」；更糟的是窄容器下第二个会被右侧约 588px 宽的
-     * 控件行挤断，只剩 `text-overflow: ellipsis` 切出来的一小块残影。
+     * 口径。资产总览那处外面套了卡片标题（`OverviewSummaryCard` 必须自己画 `<h3>`，
+     * 因为它要在「资产大类 / 收益日历」两态之间变，还挂着返回开关）。
      *
-     * 抑制的是**标题这一个字**：`#info` 口径图标与 `#action` 全部控件不受影响——
-     * 它们属于本组件，宿主不承载。另两处不传即为 `false`，行为与改动前完全一致。
+     * 旧 `hideTitle` 只抑制 `<h2>` 文字，`#info` 口径图标仍独占一行（窄容器下被控件行
+     * 挤断后只剩残影）。`hostHeader` 模式下本组件**完全不画 `SectionHeader`**——标题、
+     * 口径图标、控件三者由宿主一行排开，宿主用 `PnlCalendarCaliberIcon` 画图标。
+     * 另两处不传即为 `false`，行为与改动前完全一致。
      */
-    hideTitle?: boolean;
+    hostHeader?: boolean;
   }>(),
-  { ledgerId: undefined, hideTitle: false }
+  { ledgerId: undefined, hostHeader: false }
 );
 
 const emit = defineEmits<{
   (e: "select-day", payload: { date: string; day: PnlCalendarDay }): void;
 }>();
 void emit; // 预留的「点某天看明细」事件，当前尚无消费方；保留契约避免破坏容器
-
-const GRANULARITY_OPTIONS = [
-  { label: "日收益", value: "day" },
-  { label: "月收益", value: "month" },
-  { label: "年收益", value: "year" }
-] as const;
 
 const series = ref<PnlCalendarSeries | null>(null);
 const loading = ref(false);
@@ -283,26 +235,6 @@ const granularity = ref<PnlCalendarGranularity>("day");
  * （与粒度 / 形态同档，刷新即回默认的金额）。
  */
 const valueMode = ref<PnlCalendarValueMode>("amount");
-
-/**
- * 形态选项随粒度改名：日粒度是**日历**（一屏一个月，看「哪几天」），
- * 月 / 年粒度是**方格**（一格一个期间，看「哪些期间」）。三者共用一套 `view` 取值，
- * 切粒度时不清空（切回来还是你上次选的形态）。
- *
- * 旧实现 `v-if="granularity === 'day'"` 隐藏了整个形态切换——这正是 #1942 里
- * 「月 / 年只有柱状图了？」的直接来源：**不是形态标签少了一个，是月 / 年压根没有第二种形态**。
- */
-const VIEW_OPTIONS = computed(() =>
-  granularity.value === "day"
-    ? [
-        { label: "日历图", value: "calendar" },
-        { label: "柱状图", value: "bar" }
-      ]
-    : [
-        { label: "方格图", value: "calendar" },
-        { label: "柱状图", value: "bar" }
-      ]
-);
 
 /**
  * 「投资以来」的起点（#1942）。年视图要**投资以来每一年占一格**，就必须知道起点，
@@ -342,16 +274,6 @@ const EMPTY_NO_VALUATION =
 const rangeLabel = computed(() =>
   rangeLabelFor(granularity.value, cursor.value, firstTxnDate.value)
 );
-
-/** 导航语义随粒度切换：日=按月翻，月=按年翻（年视图无导航，见模板） */
-const nav = computed(() => {
-  const isDay = granularity.value === "day";
-  return {
-    groupAria: isDay ? "月份导航" : "年份导航",
-    prev: isDay ? "上个月" : "上一年",
-    next: isDay ? "下个月" : "下一年"
-  };
-});
 
 /**
  * 点某格下钻（#1942）：年格 → 该年的月格 → 该月的日日历。
