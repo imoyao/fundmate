@@ -484,6 +484,16 @@ jobs:
       - name: 跑 scripts/ 下的 Python 守卫/桥接脚本单测
         run: python -m unittest discover -s scripts/tests -p "test_*.py" -v
 
+      # CNB 事件结构守卫（源 CNB #152）：`.cnb.yml` 的顶层**只认分支名**，而 PR #150 把
+      # `push:` 与两条 `"crontab: ..."` 写在了顶层 —— 平台读成三个**不存在的分支**，随后
+      # 7 条流水线全红，报错却是 `GetFileContent: not found` 与 `parse yaml failed` 两种
+      # 与「写错位置」毫不相干的形态（完整推导见回归网文件头）。
+      # 不新增 job：并入本 job 即可，也就不必动 gate.needs。
+      # 判据边界（含「不拉网络、不校验 URL 可达性」）见脚本 docstring；
+      # 回归网在 scripts/tests/branch_structure.test.js。
+      - name: 检查 .cnb.yml 的顶层事件是否挂在分支之下（阻断）
+        run: python scripts/check_cnb_events.py
+
   gate:
     name: 质量门禁汇总
     if: ${{ always() && github.event_name == 'pull_request' }}
