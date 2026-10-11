@@ -93,8 +93,34 @@ class FundManagerSyncJob(SyncJob):
     # ── 去重 ──
 
     def _deduplicate(self, data: List[dict]) -> List[dict]:
-        """基于 mgr_code 去重"""
-        return self._deduplicate_by_unique_key(data, Manager, 'mgr_code')
+        """**只做批内去重，不按库内已有值过滤** —— 与基类默认行为不同，理由见下。
+
+        基类的 :meth:`SyncJob._deduplicate_by_unique_key` 会把「库里**已存在**的
+        ``mgr_code``」整批丢掉。对本 job 这恰好把回填路径掐死了：``_save_data``
+        需要**存量经理**出现在入参里，才能由 :meth:`_backfill_manager_profile`
+        把 #1970 新增的三列（``sum_scale`` / ``best_return`` / ``appointment_date``）
+        补到旧行上；被丢掉之后 ``mgr_records`` 只剩新经理，而新经理插入时三列本来
+        就带着值，回填分支恒为 ``dirty=False``。
+
+        实测（2026-10-11）：生产库 4267 行存量经理，跑
+        ``pdm run sync --job fund_manager --full-sync --targets …`` **报 success**，
+        而 ``select count(*) from managers where sum_scale is not null`` 仍是 **0**；
+        日志里两条线索固定出现：``新增 0 位经理`` 与 ``回填存量经理档案列: {'updated': 0}``。
+
+        幂等由 :meth:`_save_data` 自己负责（它本就是按幂等写的）：插入走
+        ``bulk_insert_if_not_exists``（冲突即跳过）、建关联前先查 ``existing_rels``、
+        回填**只补 NULL 不覆盖**已有值。故这里只需按 ``mgr_code`` 去掉**批次内**
+        重复（同一经理在多只基金的行里会重复出现）。
+        """
+        seen: set = set()
+        deduped: List[dict] = []
+        for item in data:
+            code = item.get('mgr_code')
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            deduped.append(item)
+        return deduped
 
     # ── 保存 ──
 
