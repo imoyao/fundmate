@@ -1414,9 +1414,9 @@ class TestListItemsDeferredDisplayEnrich:
         calls: list[str] = []
         original = wd.apply_deferred_display_fields
 
-        def spy(out, symbol, asset_type, db_):
+        def spy(out, symbol, asset_type, db_, ctx=None):
             calls.append(symbol)
-            return original(out, symbol, asset_type, db_)
+            return original(out, symbol, asset_type, db_, ctx)
 
         monkeypatch.setattr(wd, 'apply_deferred_display_fields', spy)
 
