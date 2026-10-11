@@ -90,6 +90,15 @@ main:
   # ===== 双向代码同步（CNB <-> GitHub，git-sync 插件）=====
   # 凭据放密钥仓库 fundmate-secret 的 vars.yml：GIT_USERNAME / GITHUB_PAT
   # （PAT 需 repo 权限；参考 https://cnb.cool/cnb/plugins/tencentcom/git-sync）
+  #
+  # ⚠️ vars.yml 必须是 **YAML**（`KEY: value`），不是 `.env` 的 `KEY=VALUE`。
+  # imports 会把文件解析成「对象」再转环境变量；写成 `GIT_USERNAME=imoyao` 这种
+  # 等号风格，YAML 解析器会先在首行得到一个纯量、次行又一个，到第三行 mapping 时
+  # 直接报 `parse yaml failed … (3:12)`，流水线死在 Prepare，且报错里**不含 not found**。
+  # 模板与完整踩坑记录见 docs/ops/git-sync-secret-vars.example.yml。
+  #
+  # 另注：该文件在 Secret 仓库，API/token 一律 403（`Secret repos do not support
+  # token access`）——**只能人工在 Web 界面改**，改不进 PR，故模板落在代码仓里。
   # push 模式不开 force：CNB 为权威源，绝不通把 GitHub 独有提交冲掉（即「反向护栏」）。
   push:
     - imports: https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
