@@ -129,26 +129,32 @@
         }"
       >
         <div class="flex justify-between items-center mb-4">
-          <!-- #2034：标题由「总资产构成」改为「资产大类构成」。
+          <!-- #2034：标题由「总资产构成」改为「资产大类」。
                原写法与同页桑基卡标题「资产构成流向」几乎同名，两卡内容却不同
                （一张是资产大类堆到净资产的瀑布，一张是资金流向）；
                且瀑布实际把**负债**也算进构成，叫「总资产构成」名实不符。
-               新标题点明维度（资产大类），与左卡「总资产（本月）」也不撞词。 -->
+               新标题点明维度（资产大类），与左卡「总资产（本月）」也不撞词。
+
+               #2034 收尾（二轮）：原先写成「资产大类构成」，但那正好撞上
+               `AssetInsightPanel` 切换按钮的字面——按钮态（「资产构成」）与标题态
+               （「资产大类构成」）**几乎同名**，切过去像按住没反应。改成「资产大类」：
+               与卡片内的 (i) 口径说明分工互补（标题给维度，tooltip 给口径），
+               也不再与按钮上的字同长。 -->
           <h3
             class="font-semibold flex items-center gap-1.5"
             :style="{ color: 'var(--text-primary)' }"
           >
-            {{ calendarMode ? "收益日历" : "资产大类构成" }}
+            {{ calendarMode ? "收益日历" : "资产大类" }}
             <!-- #2050：口径 ⓘ 与标题同行。旧 `hide-title` 只抑制 PnlCalendar 的
                  `<h2>` 文字，ⓘ 仍独占一行（窄容器下被控件行挤断成残影）。
                  `host-header` 模式下 PnlCalendar 完全不画 SectionHeader，
                  本卡自画标题 + ⓘ + 控件三者一行排开。 -->
             <PnlCalendarCaliberIcon v-if="calendarMode" />
-            <!-- #2034：非日历态补口径 tooltip，解释「资产大类构成」的口径
-                 （各大类累加后扣负债落净资产）。与上方日历态 ⓘ 互斥显示。 -->
+            <!-- #2034：非日历态补口径 tooltip（日历态由 PnlCalendarCaliberIcon 承担），
+                 两者互斥显示。 -->
             <el-tooltip
               v-if="!calendarMode"
-              content="按资产大类拆解：各大类金额逐项累加，扣除负债后落到净资产"
+              content="口径：各大类金额逐项累加，扣除负债后落到净资产"
               placement="top"
             >
               <IconifyIconOffline
@@ -163,9 +169,11 @@
                **原地开关**：右列卡片体在瀑布图与收益日历之间切换，左列摘要卡
                不动，页面不再被遮罩盖住。
                标题 / tooltip / aria-label / 图标四者必须同步变——只换标题会让
-               用户找不到回去的路（这正是「关闭要先于关闭之前问」的老问题的镜像）。 -->
+               用户找不到回去的路（这正是「关闭要先于关闭之前问」的老问题的镜像）。
+               当心：这四处**不能**写成本卡片对外显示的名字（`AssetInsightPanel`
+               的切换按钮就写着它），否则按钮与标题同名，切过去像没切。 -->
           <el-tooltip
-            :content="calendarMode ? '返回资产大类构成' : '收益日历'"
+            :content="calendarMode ? '返回资产大类' : '收益日历'"
             placement="top"
           >
             <el-button
@@ -173,7 +181,7 @@
               size="small"
               class="summary-card__toggle"
               :class="{ 'is-on': calendarMode }"
-              :aria-label="calendarMode ? '返回资产大类构成' : '打开收益日历'"
+              :aria-label="calendarMode ? '返回资产大类' : '打开收益日历'"
               @click="toggleCalendar"
             >
               <IconifyIconOffline
@@ -187,10 +195,11 @@
         <!-- L2 容器：收益日历原地切换态。与 welcome 第三排 / 账户详情是
              **同一组件的三处容器**，口径唯一。
              `host-header`（#2050）：上面这个 `<h3>` 已经把「收益日历」写在这里了
-             （它必须自己写——另一态是「资产大类构成」，见 #2034），再让 PnlCalendar
-             画一遍就是两个同名标题上下叠着。`host-header` 让 PnlCalendar 完全不画
-             SectionHeader，只输出控件排；口径 ⓘ 由本卡的 `PnlCalendarCaliberIcon`
-             与标题同行画出，避免旧 `hide-title` 下 ⓘ 独占一行的残影。 -->
+             （它必须自己写——另一态是「资产大类」，见 #2034 二轮改名），再让
+             PnlCalendar 画一遍就是两个同名标题上下叠着。`host-header` 让 PnlCalendar
+             完全不画 SectionHeader，只输出控件排；口径 ⓘ 由本卡的
+             `PnlCalendarCaliberIcon` 与标题同行画出，避免旧 `hide-title` 下 ⓘ
+             独占一行的残影。 -->
         <div v-if="calendarMode" class="min-h-[280px]">
           <PnlCalendar host-header />
         </div>
@@ -223,7 +232,7 @@ const waterfallChartRef = ref<HTMLDivElement>();
 let waterfallChart: echarts.ECharts | null = null;
 const themeTick = useThemeTick();
 /**
- * #1925：右列卡片体的原地开关——false = 资产大类构成瀑布图，true = 收益日历。
+ * #1925：右列卡片体的原地开关——false = 资产大类瀑布图，true = 收益日历。
  * （#1812 的 `calendarVisible` 弹窗形态已随本卡移除。）
  */
 const calendarMode = ref(false);
@@ -259,7 +268,7 @@ function initWaterfallChart() {
   if (waterfallChart) waterfallChart.dispose();
   waterfallChart = echarts.init(waterfallChartRef.value);
 
-  // 消费后端 distributions：资产大类构成瀑布（真实数据，非模拟）
+  // 消费后端 distributions：资产大类瀑布（真实数据，非模拟）
   const categories = props.distributions?.category_distribution ?? [];
   const totalLiab = props.distributions?.total_liabilities ?? 0;
   const netWorth = props.distributions?.net_worth ?? 0;
