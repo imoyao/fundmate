@@ -17,6 +17,7 @@ import ProductExternalLinksSection from "./components/ProductExternalLinksSectio
 // fund-profile（落到兜底 404）反向掩盖。e2e 已补断言，勿再删这一行。
 import ProductFundSection from "./components/ProductFundSection.vue";
 import ProductPerformanceSection from "./components/ProductPerformanceSection.vue";
+import ProductHoldingsSections from "./components/ProductHoldingsSections.vue";
 import ProductPositionSection from "./components/ProductPositionSection.vue";
 import ProductStockSection from "./components/ProductStockSection.vue";
 import ProductTrendSection from "./components/ProductTrendSection.vue";
@@ -208,6 +209,15 @@ watch(productRef, loadProduct, { immediate: true });
         :symbol="product.symbol"
       />
 
+      <!-- 行业配置 + 持仓明细（#2029 卡 C）：仅基金品类渲染。两张卡共用一个端点，
+           容器组件取一次数分发给两个纯展示子组件（各自取数就是重复往返）。
+           无披露数据时整块不渲染——持仓明细没有这层壳会渲染出一个只有标题和
+           「暂无数据」的空块，正是 §6 诚实降级要避免的噪声。 -->
+      <ProductHoldingsSections
+        v-if="product.asset_type === 'fund'"
+        :symbol="product.symbol"
+      />
+
       <!-- 场内行情（#1969 股票 / #1974 ETF）：两者同为 `securities` 表口径、共用
            `stock-profile` 端点，故合并渲染（ETF 不是基金，不能挂 `fund-profile`——
            那个端点只查 funds 表 6 位场外裸码，ETF 场内码会 404）。
@@ -220,8 +230,11 @@ watch(productRef, loadProduct, { immediate: true });
       />
 
       <!-- 基金经理（#1970）：仅经理品类渲染。入参是 mgr_code 而非姓名——库内实测
-           119 组重名（最多「吴昊」6 位），姓名不是唯一键；路由 `/manager/<symbol>`
-           传下来的就是 mgr_code。任职起止 / 规模 / 任期回报实测填充率 0%，
+           119 组重名（最多「吴昊」6 位），姓名不是唯一键。注意 `product.symbol` 不是
+           `managers.mgr_code` 原值：自选/搜索进来带 `MGR_` 前缀，且会被
+           `resolve_product_identity` 大写化。这里**原样透传**，归一由后端
+           `services/manager_code.py` 收口（曾因两边都没归一，每张经理页都空白）。
+           任职起止 / 规模 / 任期回报实测填充率 0%，
            逐项降级「—」并在整片为空时给出定调说明（不显示「暂无数据」白块）。 -->
       <ProductManagerSection
         v-if="product.asset_type === 'manager'"

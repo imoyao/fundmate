@@ -39,6 +39,11 @@ DATA_SOURCE_LABELS: dict[str, str] = {
     'akshare_fund_ann': '东方财富',
     # 场外基金净值（xalpha → 天天基金 pingzhongdata / lsjz）
     'xalpha': '天天基金',
+    # 东财**直连**（非 akshare 封装）：基金持仓 f10/ccmx、行业配置 f10/HYPZ 等
+    # （fund_position_job 的 HOLDING_SOURCE / INDUSTRY_SOURCE）。
+    # 此前缺这一键，`data_source_label('eastmoney')` 会原样返回内部码，
+    # 前端脚注会把「eastmoney」当站点名直接显示给用户（#2029 卡 C 实测）。
+    'eastmoney': '东方财富',
 }
 
 # 场外基金净值的来源：`daily_worth` 表**没有 source 列**，净值整条链路都由

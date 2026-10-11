@@ -149,6 +149,85 @@ export function getFundPerformance(code: string) {
   );
 }
 
+/**
+ * 基金行业配置 + 持仓明细（#2029 卡 C · 详情页行业配置卡 + 持仓明细卡）。
+ *
+ * 口径（后端 `services/fund_holdings_detail.py` 定，前端只呈现）：
+ * - `industries` **按 scheme 分区**：csrc（证监会门类，主口径）与 gics（GICS 板块）
+ *   语义不重叠，**禁止跨体系相加**；`is_primary` 标出主口径，非主口径仅参考。
+ * - `holdings.basis` 为披露口径：`full`（半年报/年报全量）/ `top10`（季报前十大），
+ *   同期间并存时优先 `full`。`basis_label` 必须展示给用户 —— 否则会把
+ *   「只披露了 10 只」误读成「只买了 10 只」。
+ * - 所有字段缺失一律 null，前端据此降级为「—」。
+ */
+export interface FundIndustryItem {
+  industry_code: string;
+  industry_name: string;
+  /** 占净值比例(%)；缺失为 null（不按 0 参与合计） */
+  ratio: number | null;
+}
+
+export interface FundIndustryBucket {
+  /** csrc（证监会门类）/ gics（GICS 板块） */
+  scheme: string;
+  scheme_label: string;
+  /** 是否主口径（true 的那个才进环形图） */
+  is_primary: boolean;
+  report_period: string | null;
+  report_date: string | null;
+  items: FundIndustryItem[];
+  /** 该分区占比合计(%) */
+  total_ratio: number | null;
+}
+
+export interface FundHoldingRow {
+  rank: number | null;
+  stock_code: string;
+  stock_name: string | null;
+  /** 占净值比例(%) */
+  ratio: number | null;
+  /** 持股数(万股) */
+  shares: number | null;
+  /** 持仓市值(万元) */
+  market_value: number | null;
+}
+
+export interface FundHoldingsDetailResult {
+  fund_code: string;
+  fund_name: string | null;
+  /** 是否有任一类可展示数据（行业配置或持仓明细） */
+  applicable: boolean;
+  has_industry: boolean;
+  has_holding: boolean;
+  /** 按 scheme 分区的行业配置，主口径排第一 */
+  industries: FundIndustryBucket[];
+  /** 环形图数据（只含主口径，且已与表格同口径截断） */
+  industry_chart: Array<{ name: string; value: number }>;
+  holdings: {
+    rows: FundHoldingRow[];
+    /** full / top10 / unknown */
+    basis: string | null;
+    /** 中文口径标签，必须展示 */
+    basis_label: string | null;
+    report_period: string | null;
+    report_date: string | null;
+    /** 所示条目的占比合计(%) */
+    shown_total_ratio: number | null;
+  };
+  as_of: string | null;
+  /** 数据来源站点名（东财 f10，非净值链路的天天基金） */
+  source: string;
+}
+
+/** 取基金行业配置 + 持仓明细。404 = 该代码不是基金。 */
+export function getFundHoldingsDetail(code: string) {
+  return http.request<ApiResponse<FundHoldingsDetailResult>>(
+    "get",
+    "/api/products/fund-holdings-detail/",
+    { params: { code } }
+  );
+}
+
 /** 股票资料聚合结果（#1969 · 详情页股票区块）。字段缺失一律为 null，前端据此降级为「—」 */
 export interface StockProfileResult {
   symbol: string;

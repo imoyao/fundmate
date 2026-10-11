@@ -146,8 +146,65 @@ def test_skip_path_always_sets_snapshot_time(job, db, targets):
 
 def test_pool_is_deduped_and_capped(job, monkeypatch):
     monkeypatch.setattr('app.services.sync.jobs.fund_position_job.MAX_TARGETS', 3)
-    pool = job.resolve_pool(['a', 'b', 'a', '__full__', '', 'c', 'd'])
-    assert pool == ['a', 'b', 'c']
+    # #1983：带前缀 ETF 与裸码归一化后视为同一只（归一化在去重之前）
+    pool = job.resolve_pool(['159857', 'SZ159857', '159857', '__full__', '', '005827', '110022'])
+    assert pool == ['159857', '005827', '110022']
+
+
+# ── 场内 ETF 目标池接入（#1983）────────────────────────────────────
+
+
+def test_pool_normalizes_prefixed_etf_and_drops_non_etf_symbols(job):
+    """#1983：带前缀 ETF 归一化为裸码入池；股票 / 垃圾 symbol 剔除。
+
+    `SH600519` 虽能剥出 6 位码，但 `derive_security_type` 判为 stock ——
+    股票归 `price_history` 的 stock 池，fund_position 只收基金与 ETF。
+    """
+    pool = job.resolve_pool(['SZ159857', '159857', 'SH600519', '', '__full__'])
+    assert pool == ['159857']
+
+
+def test_pool_keeps_bare_fund_codes_as_is(job, monkeypatch):
+    """裸 6 位码来自 fund 池，按既有语义全收（#1983 不改裸码路径）。"""
+    monkeypatch.setattr(
+        'app.services.fund_utils.resolve_money_fund_flags_strict',
+        lambda codes: {'005827': False, '004369': True},
+    )
+
+    pool = job.resolve_pool(['005827', '004369'])
+    assert pool == ['005827']
+    assert job.stats['money_fund_excluded'] == 1
+
+
+def _find_industry(result, industry_code):
+    return next(i for i in result['industries'] if i['code'] == industry_code)
+
+
+def test_etf_prefixed_target_persists_bare_code_and_penetrates(job, db, make_position):
+    """端到端（#1983）：带前缀 ETF 目标 → 裸码抓、裸码落库 → 穿透不再报缺口。
+
+    造数与 `tests/services/test_penetration.py` 同口径：
+    `fund_industry_allocs` 写入后，`build_penetration` 对 asset_type='etf'
+    的持仓自动转入行业分布，`unpenetrated` 不再出现 `etf_holding_missing`。
+    """
+    from app.services.penetration import build_penetration
+
+    make_position(symbol='SZ159857', asset_type='etf', name='光伏ETF', quantity=1000, current_price=1.0)
+    db.add(Fund(fund_code='159857', name='光伏ETF'))
+    db.commit()
+
+    result = job.run(full_sync=True, targets=['SZ159857'])
+    assert result['status'] == 'success'
+    # 抓取按裸码发起：normalize 发生在 resolve_pool 内，adapter 看不到前缀
+    called = [c.args[0] for c in job.adapter.fetch_fund_top_holdings.call_args_list]
+    assert called == ['159857']
+    assert db.query(FundHolding).filter_by(fund_code='159857').count() == len(HOLDINGS_PAYLOAD['holdings'])
+    assert db.query(FundIndustryAlloc).filter_by(fund_code='159857').count() == len(INDUSTRY_PAYLOAD['items'])
+
+    result = build_penetration(db, family_id=1, scheme='csrc')
+    assert result['unpenetrated'] == []
+    # 行业配置合计 30.0%（csrc 门类 C）× 市值 1000 = 300
+    assert _find_industry(result, 'C')['value_cny'] == pytest.approx(300.0)
 
 
 # ── 货基守卫（#1982）────────────────────────────────────────────────────────

@@ -1,0 +1,115 @@
+# CNB → GitHub issue 回写（评论镜像）
+#
+# ## 为什么需要它
+#
+# `scripts/bridge/github_cnb_issues.py` 只做 GitHub → CNB 的**单向建卡**：CNB 侧
+# 积累的讨论回流不到 GitHub。在 CNB 上把一张卡分析完、结论落在 CNB 评论里，
+# GitHub 上的人完全看不到 —— 两侧各说各话。本 workflow 补上反向那条腿。
+#
+# ## 为什么由 GitHub 这边拉（而不是 CNB 那边推）
+#
+# CNB 构建内的环境**没有任何 GitHub 凭证**（`env` 里只有 `CNB_*`；对
+# `api.github.com` 匿名 POST 返回 401），所以「CNB 去写 GitHub」在当前环境里做不到。
+# 反方向的凭据是现成的：Actions 里 `GITHUB_TOKEN` 自动注入且带 `issues: write`。
+# 故拓扑是 **GitHub 定时拉 CNB** —— 不需要在 CNB 存 GitHub PAT，也不要求 CNB 有写权限。
+#
+# ## 三条设计取舍（与镜像方向互为镜像，详见脚本文件头）
+#
+#   1. **单向**：只 CNB → GitHub，绝不在 CNB 建/改任何东西（CNB 侧是只读消费）；
+#   2. **只增不覆盖**：已回写过的评论永不重发、永不编辑 —— 幂等键是评论末尾的
+#      隐藏标记 `<!-- cnb-backfill: issue=N comment=M -->`，回写前先把目标 issue 的
+#      评论扫一遍收集标记，命中即跳过；
+#   3. **不自动关卡**：「GitHub 关了 → CNB 也关」以及反向都不做。关闭与否是人的判断，
+#      #1177 用 PR 状态代替验收的教训已经吃过一次。
+#
+# ## 降频
+#
+# issue 讨论不是时效数据，**每日一次**足够（与镜像方向同频）。手动触发留给
+# 「刚在 CNB 讨论完、想马上同步过去」的场景。
+
+name: CNB → GitHub 回写（评论镜像）
+
+# 并发护栏：定时与手动共用固定 group，避免两者同时跑把同一条评论发两遍
+# （脚本幂等，但重复跑纯属浪费分钟数）。排队而非取消，保证回写不丢。
+concurrency:
+  group: cnb-github-backfill
+  cancel-in-progress: false
+
+on:
+  schedule:
+    # 每日 18:30 UTC（＝北京次日 02:30），与镜像 cron（18:00）错开半小时，
+    # 免得两个作业抢同一个 runner 池。
+    - cron: '30 18 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '只打印要回写什么，不实际写入'
+        required: false
+        default: false
+        type: boolean
+      since:
+        description: '只回写该时间之后的 CNB 评论（ISO8601，留空=全部）'
+        required: false
+        default: ''
+        type: string
+      limit:
+        description: '本次最多回写几条（调试用，留空=不限）'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  backfill:
+    name: 回写 CNB 评论到 GitHub
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      # 脚本是纯标准库（urllib），不需要 pip install —— 故意保持这样，
+      # 免得每日作业被某个三方包的破坏性升级带崩。
+      - name: 回写 CNB 评论 → GitHub
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          CNB_REPO: duoduobei/fundmate
+        run: |
+          ARGS=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          else
+            ARGS="$ARGS --apply"
+          fi
+          if [ -n "${{ inputs.since }}" ]; then
+            ARGS="$ARGS --since '${{ inputs.since }}'"
+          fi
+          if [ -n "${{ inputs.limit }}" ]; then
+            ARGS="$ARGS --limit ${{ inputs.limit }}"
+          fi
+          echo "运行参数：$ARGS"
+          eval python scripts/bridge/cnb_github_backfill.py $ARGS
+
+      # 状态文件回写（供人工审计「哪条 CNB 评论回写过」）。
+      # 用 [skip ci] 免得这次提交又触发一轮 CI。
+      - name: 提交状态文件（仅当有变化）
+        if: ${{ inputs.dry_run != true }}
+        run: |
+          if git diff --quiet -- scripts/bridge/cnb_github_backfill_state.json; then
+            echo "状态文件无变化，跳过"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/bridge/cnb_github_backfill_state.json
+          git commit -m "chore(bridge): 回写 CNB 评论状态 [${{ github.run_id }}] [skip ci]"
+          git push

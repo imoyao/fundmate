@@ -127,7 +127,7 @@ class TestStateComment(unittest.TestCase):
     def test_标题与事实固定(self):
         body = self._body()
         self.assertTrue(body.startswith('## 状态回流（2026-10-11）'))
-        self.assertIn('GitHub 原卡 #2034 **已关闭**', body)
+        self.assertIn('GitHub 原卡 #2034 **已关闭**', body)  # cross-repo-ref-allow
         self.assertIn('https://github.com/imoyao/fundmate/issues/2034', body)
 
     def test_明示不会自动关(self):

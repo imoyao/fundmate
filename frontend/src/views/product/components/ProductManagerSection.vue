@@ -23,7 +23,10 @@ import { productRoute } from "@/utils/productIdentity";
  * 而首屏并非总需要它。分开后档案可以先渲染，重仓慢也不拖累整个区块。
  *
  * 入参是 **mgr_code 而非姓名**：库内实测 119 组重名（最多「吴昊」6 位），
- * 姓名不是唯一键；详情页路由 `/manager/<symbol>` 传下来的就是它。
+ * 姓名不是唯一键。这里把路由 symbol **原样**发出去，不要在前端猜形态——
+ * 自选/搜索里点进来的是 `MGR_<mgr_code>`（#1286 命名空间），而详情页路由的 symbol
+ * 还会被 `resolve_product_identity` 大写化；**归一收口在后端**
+ * （`services/manager_code.py`），前端若自己剥前缀，就会出现「两个地方各剥一半」。
  *
  * **换算全部交给后端**（#1970 扩展 · `services/tenure_display.py`）：
  * 本组件直接用后端给的 `*_display` 文本，**不做任何÷365 / toFixed 换算**。

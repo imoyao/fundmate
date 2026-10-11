@@ -25,6 +25,7 @@
 """
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 
@@ -32,6 +33,33 @@ import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT_PATH = _REPO_ROOT / 'scripts' / 'bridge' / 'check_issue_refs.py'
+
+
+def _ensure_default_ref() -> None:
+    """保证 `origin/dev` 在**任何** checkout 里都存在，让下面的断言有真实 ref 可用。
+
+    CI 的 `actions/checkout` 在 PR 场景只取 merge ref，**不创建** `origin/dev`；
+    于是这一组用例在 CI 上必挂、在本地却全绿（实测：本地有 ref → 31 passed，
+    CI 无 ref → 8 failed，全挂在 `git show origin/dev:…` 解析不出路径上）。
+
+    补一个指向当前 HEAD 的本地 ref 即可——**不是 mock**：解析仍然走真实 `git show`，
+    只是把「环境里有没有这个 ref」这件与判据无关的事抹平。本地已存在时是 no-op。
+    """
+    if subprocess.run(
+        ['git', 'rev-parse', '--verify', '--quiet', 'origin/dev'],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        check=False,
+    ).returncode:
+        subprocess.run(
+            ['git', 'update-ref', 'refs/remotes/origin/dev', 'HEAD'],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            check=False,
+        )
+
+
+_ensure_default_ref()
 
 _MOD = None
 
@@ -99,7 +127,7 @@ def test_extract_range_and_explicit_ref(mod):
 
 def test_extract_ignores_issue_numbers_and_urls(mod):
     """`#118` / `https://…` / `12:30` 不能被当成文件引用（误报比漏报更耗信任）。"""
-    text = '源 CNB issue #118；见 https://github.com/imoyao/fundmate/issues/2034 ；时间 12:30'
+    text = '源 CNB issue #118；见 https://github.com/imoyao/fundmate/issues/2034 ；时间 12:30'  # cross-repo-ref-allow
     assert mod.extract_refs(text) == []
 
 
@@ -299,7 +327,10 @@ def test_scanner_detects_stale_refs_end_to_end(scanner, monkeypatch, capsys):
     def fake_list(_repo):
         return [{'number': 106, 'title': 'x', 'labels': [{'name': 'GitHub 同步'}]}]
 
-    def fake_get(_path):
+    def fake_get(path):
+        # 新增：`run()` 会先拉评论区判断「该卡是否已记过更正」。无评论 ⇒ 判为待更正。
+        if path.endswith('/comments'):
+            return []
         return {'body': body}
 
     monkeypatch.setattr(scanner, 'list_mirror_cards', fake_list)
@@ -331,6 +362,7 @@ def test_scanner_report_shape_for_stale(scanner):
             'title': 't',
             'refs': 1,
             'stale': [('Foo.vue:119-130', 'Foo.vue 在 `origin/dev` 上不存在')],
+            'corrected': False,
         }
     ]
     report = scanner.build_report(rows, 'origin/dev')
@@ -353,6 +385,142 @@ def test_scanner_never_writes_cards(scanner):
     for banned in ("method='POST'", "method='PUT'", "method='PATCH'", "method='DELETE'"):
         assert banned not in src, f'扫描器出现写操作：{banned}'
     assert 'def cnb_get' in src  # 只有 GET
+
+
+# ---------------------------------------------------------------------------
+# 五、假红修复（CNB #123）：只读正文会把已记过账的卡永远报成待办
+# ---------------------------------------------------------------------------
+#
+# #120 的更正通道是「正文不动、更正写评论区」。若扫描器只看正文，就会永远报红——
+# 修好了也红，而红却不指向任何还需动手的事。这与 #118 要治的「静默降级」同族：
+# 那边是假绿，这边是假红，**红灯的可信度一样会掉没**。
+
+
+def test_correction_key_re_is_reused_not_recopied(scanner):
+    """「评论区是否已更正」的判据必须复用 `mirror_correction.py` 的幂等键正则。
+
+    抄第二份的代价与 `_load_checker` 同理：两份判据会漂移，漂移之后「算不算已更正」
+    这个结论就不可信了。这里断言它真的用 `mirror_correction.py` 里的那一条。
+    """
+    key_re = scanner._correction_key_re()
+    # 与 source of truth 逐字一致（同一份字面量）
+    mirror_src = (SCRIPT_DIR_SRC / 'mirror_correction.py').read_text(encoding='utf-8')
+    assert '更正键：' in mirror_src
+    assert '([0-9a-f]{12})' in mirror_src
+    # 真的能命中 `mirror_correction.build_comment` 产出的正文
+    import importlib.util as ilu
+
+    spec = ilu.spec_from_file_location('mirror_correction', SCRIPT_DIR_SRC / 'mirror_correction.py')
+    corr = ilu.module_from_spec(spec)
+    sys.modules['mirror_correction'] = corr
+    spec.loader.exec_module(corr)
+    body = corr.build_comment('2026-10-11', ['❌ x → ✅ y'], 'deadbeef0000')
+    assert key_re.search(body), '复用失败：连自己脚本产出的更正评论都识别不出'
+
+
+def test_load_corrected_numbers_reads_comments(scanner, monkeypatch):
+    """`load_corrected_numbers` 要按「评论区有无更正键」挑卡，而不是按正文有无。"""
+    import argparse  # noqa: F401
+
+    key = '595cc49f310d'
+    comments = {
+        56: [{'body': f'## 更正（2026-10-11）\n\n- ❌ x → ✅ y\n\n<!-- 更正键：{key} -->'}],
+        38: [{'body': '随便聊聊，不是更正'}],
+    }
+
+    def fake_get(path):
+        for n, c in comments.items():
+            if path.endswith(f'issues/{n}/comments'):
+                return c
+        return []
+
+    monkeypatch.setattr(scanner, 'cnb_get', fake_get)
+    cards = [{'number': 56}, {'number': 38}, {'number': 999}]
+    got = scanner.load_corrected_numbers('duoduobei/fundmate', cards)
+    assert got == {56}, f'只该认出 #56，实际 {got}'
+
+
+def test_load_corrected_numbers_skips_on_error(scanner, monkeypatch):
+    """拉评论失败时**跳过**（按未更正处理）：宁可多报，也不静默漏报。"""
+
+    def boom(_path):
+        raise RuntimeError('网络炸了')
+
+    monkeypatch.setattr(scanner, 'cnb_get', boom)
+    assert scanner.load_corrected_numbers('x/y', [{'number': 56}]) == set()
+
+
+def test_report_splits_pending_and_acked(scanner):
+    """报告必须把「待更正」与「已更正」分开列——这是消掉假红的全部内容。"""
+    stale_row = {
+        'cnb': 56,
+        'github': 1095,
+        'gh_repo': 'imoyao/fundmate',
+        'title': 't',
+        'refs': 2,
+        'stale': [('portfolios/views.py:214-215', '越界')],
+    }
+    report = scanner.build_report([dict(stale_row, corrected=False)], 'origin/dev')
+    assert '需要动手）：1 张' in report
+    assert '账已记）：0 张' in report
+    assert '### ⚠️ 待更正' in report
+    assert '### ✅ 已更正' not in report
+
+    report2 = scanner.build_report([dict(stale_row, corrected=True)], 'origin/dev')
+    assert '需要动手）：0 张' in report2
+    assert '账已记）：1 张' in report2
+    assert '### ✅ 已更正' in report2
+    assert '### ⚠️ 待更正' not in report2, '已记过账的卡不该再出现在待办区'
+
+
+def test_report_green_when_all_acked(scanner):
+    """全部已更正时，报告的「待办」是 0 —— 这正是 #123 要的「不再假红」。"""
+    rows = [
+        {
+            'cnb': 56,
+            'github': 1095,
+            'gh_repo': 'imoyao/fundmate',
+            'title': 't',
+            'refs': 1,
+            'stale': [('portfolios/views.py:193', '越界')],
+            'corrected': True,
+        }
+    ]
+    report = scanner.build_report(rows, 'origin/dev')
+    assert '引用已失效**：1 张' in report
+    assert '需要动手）：0 张' in report
+
+
+def test_end_to_end_acked_card_counts_as_recorded(scanner, monkeypatch, capsys):
+    """**走真实代码路径**：评论区已有更正时，端到端输出里该卡落在「已更正」区。
+
+    这条不 mock `run` 的判定，只 mock 网络（CNB 取卡 + 取评论），与上一条端到端用例同法。
+    """
+    import argparse
+    import re as _re
+
+    body = '见 `frontend/src/views/welcome/index.vue:99999`'
+    key = '595cc49f310d'
+
+    def fake_list(_repo):
+        return [{'number': 106, 'title': 'x', 'labels': [{'name': 'GitHub 同步'}]}]
+
+    def fake_get(path):
+        if path.endswith('/comments'):
+            return [{'body': f'## 更正（2026-10-11）\n\n- ❌ x → ✅ y\n\n<!-- 更正键：{key} -->'}]
+        return {'body': body}
+
+    monkeypatch.setattr(scanner, 'list_mirror_cards', fake_list)
+    monkeypatch.setattr(scanner, 'cnb_get', fake_get)
+    monkeypatch.setattr(scanner, 'GITHUB_NUMBER_RE', _re.compile(r'GitHub 编号：`#(\d+)`'))
+
+    args = argparse.Namespace(
+        repo='duoduobei/fundmate', issue=None, ref='origin/dev', cwd=str(_REPO_ROOT), out=None, report=True
+    )
+    assert scanner.run(args) == 0
+    out = capsys.readouterr().out
+    assert '需要动手）：0 张' in out, out
+    assert '账已记）：1 张' in out, out
 
 
 SCRIPT_DIR_SRC = _SCRIPT_PATH.parent

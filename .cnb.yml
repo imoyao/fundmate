@@ -2,7 +2,7 @@
 #
 # 目前只有一条流水线：GitHub Issues → CNB Issues 的**每日增量镜像**。
 #
-# 背景（源 issue #2）：CNB 侧没有 GitHub 的 issue 视图，讨论散在两处。
+# 背景（源 issue `#2`）：CNB 侧没有 GitHub 的 issue 视图，讨论散在两处。
 # 2026-10-11 做过一次全量手工同步（107 张卡，CNB #5~#112），但那是一次性的：
 # GitHub 之后新开的卡不会再出现，两侧很快又各说各话。本流水线把那个动作
 # 固化成可重复执行的增量作业，脚本是 scripts/bridge/github_cnb_issues.py。
@@ -50,20 +50,29 @@
     - name: 增量建卡
       script: |
         python scripts/bridge/github_cnb_issues.py --apply
-    # 引用时效自检（#118）：CNB 侧已成型的镜像卡里，`path:line` 引用可能已随代码失效，
-    # 而镜像卡「只增不覆盖」意味着它永远不会被纠正——#106 就是活例子（引用的行已在
-    # #980 拆页时删除，卡面读过两个版本）。本阶段扫全部镜像卡，把失效引用报出来。
-    # **只报告不拦构建**（`|| true`）：建卡才是主任务，自检是信号，不该把建卡一起拖红；
-    # 需要变红灯时删掉末尾的 `|| true`。
-    - name: 引用时效自检（只报告）
-      script: |
-        python scripts/bridge/check_mirror_refs.py --report || true
     # 状态回流（#117 硬要求 ②）：GitHub 已关闭、CNB 镜像卡还开着 ⇒ 在镜像卡评论区
     # 追加「状态回流」评论 + 挂 `GitHub 已关闭` 标签（**不自动关卡**，见文件头）。
     # 幂等键写进评论正文，重复执行只发一次。
     - name: 状态回流（GitHub 已关闭 → CNB 标记）
       script: |
         python scripts/bridge/mirror_state_sync.py --apply || true
+    # 引用时效自检（#118，2026-10-11 起认评论区更正 —— #123）：CNB 侧已成型的镜像卡里，
+    # `path:line` 引用可能已随代码失效，而镜像卡「只增不覆盖」意味着正文永远不会被纠正
+    # ——#106 就是活例子（引用的行已在 #980 拆页时删除，卡面读过两个版本）。
+    # 判据必须读评论区：`#120` 的更正通道是「正文不动、更正写评论区」，只看正文会
+    # **永远报红**（修好了也红，红却不指向任何还需动手的事 = 假红，与 #118 的假绿同族）。
+    # 故报告分「⚠️ 待更正 / ✅ 已更正」两类，只把还没记过账的列为待办。
+    # **只报告不拦构建**（`|| true`）：建卡才是主任务，自检是信号，不该把建卡一起拖红。
+    - name: 引用时效自检（认评论区更正，只报告）
+      script: |
+        python scripts/bridge/check_mirror_refs.py --report || true
+    # 分支分叉自检（CNB #123 §一「中等」建议）：`main` 与 `dev` 若互不包含，
+    # 就会出现「整改代码在 dev、会被执行的代码在 main」——**写完了，跑的不是它**，
+    # 且没有任何信号提示。本节点把「靠人肉 git log 发现分叉」换成一条命令。
+    # 只读本地 git（**不 fetch**，故不依赖网络）；带 `|| true` 明确「信号不是门禁」。
+    - name: 分支分叉自检（只报告）
+      script: |
+        python scripts/bridge/check_branch_divergence.py --report || true
 
 # 定时任务必须挂在具体分支下（不能放 $ 兜底），故这里显式写 main。
 main:

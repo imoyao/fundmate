@@ -28,7 +28,8 @@ from loguru import logger
 debugfile = '/var/log/fmp.log'
 # logger.remove(handler_id=None)  # 不输出stdout
 logger.add(debugfile,
-           format="{time:YYYY-MM-DD at HH:mm:ss} {level} at Line: {line} Model_name is: **{name}**, Function:{function}, MSG is:{message}",
+           format=("{time:YYYY-MM-DD at HH:mm:ss} {level} at Line: {line} "
+                   "Model_name is: **{name}**, Function:{function}, MSG is:{message}"),
            rotation="50 MB",
            encoding='utf-8',
            enqueue=True, retention="10 days")

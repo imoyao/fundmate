@@ -63,14 +63,42 @@ class FundPositionSyncJob(SyncJob):
         return 'fund_position'
 
     def resolve_pool(self, targets: Optional[List[str]]) -> List[str]:
-        """解析受限目标池：剔除占位符/空值、去重保序、超限截断、**剔除货基**（#1982）。
+        """解析受限目标池：归一化带前缀 symbol、剔除占位符/空值、去重保序、超限截断、**剔除货基**（#1982）。
 
         `__full__` 与空列表语义相同 —— 「无受限目标池」，返回空列表由调用方跳过。
+
+        #1983：带交易所前缀的场内 ETF symbol（如 `SZ159857`）在此**归一化为裸
+        6 位码**——`fund_holdings.fund_code` 与穿透读侧都以裸码对齐
+        （读侧从 `EXCHANGE:SZ159857` 提取裸码 '159857'），归一化放在去重
+        **之前**，使 `SZ159857` 与 `159857` 视为同一只。
+
+        带前缀的**股票 / 可转债** symbol（如 `SH600519`、`SH110067`）不归本
+        job——它们归 `price_history`（stock 池）等其它 job，按
+        `derive_security_type` 只放行 `etf` 类；裸 6 位码来自 fund 池，
+        按既有语义全收（基金码与股票码段有交叠，如 000001 既是基金也是
+        平安银行，无法只凭代码形态区分，故裸码不做品类过滤）。
         """
+        from app.core.symbol_utils import derive_security_type, split_symbol
+        from app.services.fund_utils import normalize_fund_code
+
         seen = set()
         pool: List[str] = []
         for t in targets or []:
-            if not t or t == FULL_PLACEHOLDER or t in seen:
+            if not t or t == FULL_PLACEHOLDER:
+                continue
+            if not (t.isdigit() and len(t) == 6):
+                # 带前缀 symbol：剥出裸码后按证券细类判定是否归 fund_position
+                bare = normalize_fund_code(t)
+                if not bare:
+                    self.logger.warning(f'目标 {t} 无法归一化为 6 位代码，已丢弃（#1983）')
+                    continue
+                market, _ = split_symbol(t)
+                if derive_security_type(bare, market) != 'etf':
+                    # 股票 / 可转债等归其它 job 的目标池，本 job 不抓
+                    self.logger.debug(f'目标 {t} 非 ETF 类（归其它 job 目标池），已跳过（#1983）')
+                    continue
+                t = bare
+            if t in seen:
                 continue
             seen.add(t)
             pool.append(t)

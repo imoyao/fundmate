@@ -139,9 +139,11 @@ class Fund(PkModel, UpsertMixin):
     __table_args__ = {'comment': '基金表'}
     # TODO: 验证规则
     '''
-    [《证券投资基金编码规范》实施细则](http://www.csisc.cn/zbscbzw/ywguize/201212/bf12c532a6c44cde864f59d9f2423f1b.shtml)
+    [《证券投资基金编码规范》实施细则](
+        http://www.csisc.cn/zbscbzw/ywguize/201212/bf12c532a6c44cde864f59d9f2423f1b.shtml)
     [证券投资基金编码简介](http://www.csisc.cn/zbscbzw/cpbmjj/201212/f3263ab61f7c4dba8461ebbd9d0c6755.shtml)
-    [证券投资基金编码规范](http://www.csisc.cn/zbscbzw/hyfbjcbmm/201904/d2587b8addb54335a87017af40344e24.shtml)
+    [证券投资基金编码规范](
+        http://www.csisc.cn/zbscbzw/hyfbjcbmm/201904/d2587b8addb54335a87017af40344e24.shtml)
     [基金代码有什么规则？区分认购代码和交易代码 - 希财网](https://www.csai.cn/jijin/1298440.html)
     [基金代码含义及编制规则 - 知乎](https://zhuanlan.zhihu.com/p/24948157)
     '''
@@ -152,7 +154,8 @@ class Fund(PkModel, UpsertMixin):
     1. [python - Use alias for column name in SQLAlchemy - Stack Overflow]
     (https://stackoverflow.com/questions/37758128/use-alias-for-column-name-in-sqlalchemy)
     2. [mysql - Aliasing field names in SQLAlchemy model or underlying SQL table - Stack Overflow]
-    (https://stackoverflow.com/questions/37420135/aliasing-field-names-in-sqlalchemy-model-or-underlying-sql-table)
+    (https://stackoverflow.com/questions/37420135/
+     aliasing-field-names-in-sqlalchemy-model-or-underlying-sql-table)
     查询：
     [SQLAlchemy select 中的表别名、列别名 | Jeremy's blog](https://www.isyin.cn/note/2018-10-28-2249/)
     ```
@@ -403,7 +406,8 @@ class RiskTypeEnum(BaseTypeEnum):
     def default(cls):
         """
         默认值，如果要使用非默认的默认值，则调用普通赋值操作即可
-        FIXME: py3.8+ [python - Using property() on classmethods - Stack Overflow](https://stackoverflow.com/questions/128573/using-property-on-classmethods)
+        FIXME: py3.8+ [python - Using property() on classmethods - Stack Overflow](
+            https://stackoverflow.com/questions/128573/using-property-on-classmethods)
         :return:
         """
         return cls.balance
@@ -482,7 +486,8 @@ class DkEnumTypeImpl(object):
 
     def __init__(self, enum_class):
         if Enum is None:
-            raise ImproperlyConfigured("'enum34' package is required to use 'EnumType' in Python " "< 3.4")
+            raise ImproperlyConfigured(
+                "'enum34' package is required to use 'EnumType' in Python " "< 3.4")
         if not issubclass(enum_class, Enum):
             raise ImproperlyConfigured("EnumType needs a class of enum defined.")
         # 组装一个字典，让保存在数据库中的int类型的key去获取对应的ChoiceTypeIntegerDk

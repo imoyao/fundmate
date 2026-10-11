@@ -29,6 +29,7 @@ from app.core.database import SQLALCHEMY_DATABASE_URL as DB_URL
 # 留在本模块会让它们为了借锁而连带加载 akshare。此处保留同名导入以兼容既有
 # 调用方与测试的 monkeypatch 目标（`app.services.sync.orchestrator.acquire_lock`）。
 from app.core.file_lock import acquire_lock
+from app.core.symbol_utils import derive_security_type, split_symbol
 from app.core.time_utils import now_shanghai
 from app.domains.positions.models import Position
 from app.domains.watchlist.models import WatchlistItem
@@ -40,6 +41,7 @@ from app.services.adapters.eastmoney_adapter import EastmoneyAdapter
 from app.services.adapters.jiucaishuo_adapter import JiucaishuoAdapter
 from app.services.adapters.null_adapter import NullAdapter
 from app.services.adapters.xalpha_adapter import XalphaAdapter
+from app.services.fund_utils import normalize_fund_code
 from app.services.sync.jobs.advisor_portfolio_job import AdvisorPortfolioSyncJob
 from app.services.sync.jobs.amac_institution_job import AmacInstitutionJob
 from app.services.sync.jobs.asset_snapshot_job import AssetSnapshotJob
@@ -217,7 +219,7 @@ class DataSyncOrchestrator:
 
     def resolve_targets(self, target_file: Optional[str] = None) -> Dict[str, List[str]]:
         """
-        解析本次同步的目标代码列表，按类型分为 'fund' 和 'stock'。
+        解析本次同步的目标代码列表，按类型分为 'fund' / 'stock' / 'etf'。
 
         优先级:
             1. 命令行传入的 --target-file CSV 文件
@@ -225,17 +227,44 @@ class DataSyncOrchestrator:
             3. 空列表（增量同步在无持仓时会跳过）
 
         Returns:
-            {"fund": [...], "stock": [...]}
+            {"fund": [...], "stock": [...], "etf": [...]}
+
+            - 'fund'：裸 6 位基金代码（场外基金，既有语义不变）；
+            - 'stock'：带交易所前缀的非基金 symbol（原样保留）。
+              场内 ETF 的带前缀符号**也在本池**——`price_history` 靠它同步
+              ETF 场内价格，剔除会断行情；
+            - 'etf'（#1983）：场内 ETF 的带前缀符号归一化后的**裸 6 位码**，
+              只喂给 `fund_position` 抓底层持仓 / 行业配置。裸码形态与
+              `fund_holdings.fund_code` / 穿透读侧对齐（读侧从
+              `EXCHANGE:SZ159857` 提取裸码 '159857' 与表内 fund_code 对账）。
+
+        为什么 ETF 要同时出现在两个池：两个池的消费方不同——stock 池的
+        `price_history` 要带前缀形态，etf 池的 `fund_position` 要裸码形态；
+        两侧互不影响，缺任一侧都会断一条链路。
         """
         if target_file:
             codes = self._load_codes_from_csv(target_file)
         else:
             codes = self._load_codes_from_database()
 
-        # 按类型分类：6 位纯数字为基金代码，其余为股票代码
-        fund_codes = [c for c in codes if c.isdigit() and len(c) == 6]
-        stock_codes = [c for c in codes if not (c.isdigit() and len(c) == 6)]
-        return {'fund': fund_codes, 'stock': stock_codes}
+        fund_codes: List[str] = []
+        stock_codes: List[str] = []
+        etf_codes: List[str] = []
+        for c in codes:
+            if c.isdigit() and len(c) == 6:
+                # 裸 6 位数字：场外基金（既有语义，不变）
+                fund_codes.append(c)
+                continue
+            bare = normalize_fund_code(c)
+            market, _ = split_symbol(c)
+            if bare and derive_security_type(bare, market) == 'etf':
+                # 场内 ETF：带前缀符号原样留 stock 池（行情用），裸码再进
+                # etf 池（底层持仓用，见上方 Returns 说明）
+                etf_codes.append(bare)
+                stock_codes.append(c)
+                continue
+            stock_codes.append(c)
+        return {'fund': fund_codes, 'stock': stock_codes, 'etf': etf_codes}
 
     def _load_codes_from_csv(self, filepath: str) -> List[str]:
         """
@@ -486,6 +515,9 @@ class DataSyncOrchestrator:
             targets = self.resolve_targets(target_file)
             fund_targets = targets.get('fund', [])
             stock_targets = targets.get('stock', [])
+            # #1983：场内 ETF 的裸码只进 fund_position（抓底层持仓 / 行业配置），
+            # 不进 fund_nav / fund_type 等其他 job——它们对 ETF 的既有语义不变。
+            etf_targets = targets.get('etf', [])
 
             # 执行顺序：列表类 Job 不需要目标列表，净值/行情需要
             execution_plan = [
@@ -497,7 +529,10 @@ class DataSyncOrchestrator:
                 #   fund_scale —— 单次 HTTP 返回全市场列表，§4.3.3 允许全量
                 #   fund_position —— 逐只 HTTP（≈1.8s/只），§4.3.3 强制按目标池限量
                 ('fund_scale', ['__full__']),
-                ('fund_position', fund_targets),  # 空 targets 显式跳过，不退化为全库
+                (
+                    'fund_position',
+                    fund_targets + etf_targets,
+                ),  # 空 targets 显式跳过，不退化为全库（#1983：含场内 ETF 裸码）
                 ('fund_manager', fund_targets),  # 回填基金经理并关联基金公司（核心池）
                 # 导入侧观察值 → funds.company_id（不联网、幂等、只填空缺）：
                 # 紧跟基金公司相关任务，且 funds 已由 fund_list 建好

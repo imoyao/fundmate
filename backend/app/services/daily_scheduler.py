@@ -44,7 +44,7 @@ import threading
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 from zoneinfo import ZoneInfo
 
 from loguru import logger
@@ -186,12 +186,14 @@ class DailyJobSpec:
             `'fund'` / `'stock'` 表示目标由 `orchestrator.resolve_targets()` 现取
             （持仓 + 自选）——**绝不能省**：`FundNavSyncJob` 拿到空 targets 会直接
             跳过（`_allow_empty_data=True`），等于空跑还不报错。
+            #1983 起支持元组（如 `('fund', 'etf')`）：按声明顺序拼接多个目标池、
+            去重保序后整体传给 job（fund_position 同时吃场外基金与场内 ETF 裸码池）。
         description: 人可读说明，进日志与 `--status`。
     """
 
     job_name: str
     cron: str
-    target_kind: Optional[str]
+    target_kind: Optional[Union[str, Tuple[str, ...]]]
     description: str
 
 
@@ -213,7 +215,7 @@ class DailySchedulerConfig:
 
 
 # job 名 → (开关环境变量, cron 环境变量, 默认 cron, 目标类型, 说明)
-_JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[str], str], ...] = (
+_JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[Union[str, Tuple[str, ...]]], str], ...] = (
     (
         'temperature',
         ENV_TEMPERATURE_ENABLED,
@@ -281,15 +283,17 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[str], str], ...] = (
         '投顾组合持仓 / 调仓快照（且慢 + 天天；且慢无历史调仓接口，快照序列是唯一来源）',
     ),
     (
-        # 基金持仓明细 + 行业配置（#870）。target_kind='fund'：目标池取持仓 + 自选（133 只），
-        # job 侧另有 MAX_TARGETS=500 硬上限与 `__full__` 显式跳过（data-strategy.md §4.3.3）。
+        # 基金持仓明细 + 行业配置（#870）。#1983 起 target_kind=('fund', 'etf')：
+        # 目标池 = 场外基金裸码 + 场内 ETF 裸码（resolve_targets 的 etf 池），
+        # job 侧另有 MAX_TARGETS=500 硬上限与 `__full__` 显式跳过
+        # （data-strategy.md §4.3.3）。
         # **本项默认 cron 是每周一次，不是每日**——见 DEFAULT_FUND_HOLDING_CRON 注释。
         'fund_position',
         ENV_FUND_HOLDING_ENABLED,
         ENV_FUND_HOLDING_CRON,
         DEFAULT_FUND_HOLDING_CRON,
-        'fund',
-        '基金持仓明细 + 行业配置（季报口径，每周一次；#870）',
+        ('fund', 'etf'),
+        '基金持仓明细 + 行业配置（季报口径，每周一次；#870 / #1983）',
     ),
     # --- #1934：以下四条是「已注册进编排器与全量执行计划、却从未进本机调度」的 job ---
     # 探市快照（#1460）：target_kind=None，因其目标池就是「要落快照的大类资产」，
@@ -617,7 +621,15 @@ def run_sync_job(spec: DailyJobSpec, jitter_seconds: int = 0) -> Dict[str, Any]:
             if spec.target_kind is not None:
                 # 目标池统一由编排器解析（持仓 + 自选），与 `pdm run scheduler` 同源。
                 # 空列表交给 job 自行处理：净值类 job 允许空数据，会正常记一条 success。
-                targets = orchestrator.resolve_targets().get(spec.target_kind, [])
+                # #1983：target_kind 可以是元组（fund_position 吃 fund + etf 两池）——
+                # 按声明顺序拼接、去重保序。
+                kinds = (spec.target_kind,) if isinstance(spec.target_kind, str) else spec.target_kind
+                resolved = orchestrator.resolve_targets()
+                targets = []
+                for kind in kinds:
+                    for code in resolved.get(kind, []):
+                        if code not in targets:
+                            targets.append(code)
             return orchestrator.run_job(spec.job_name, targets=targets)
     except Exception as exc:  # noqa: BLE001 - 调度线程必须兜住一切
         logger.exception(f'[每日调度] {spec.job_name} 执行异常：{exc}')

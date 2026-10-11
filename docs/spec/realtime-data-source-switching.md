@@ -61,7 +61,8 @@ switch (dataSource) {
 核心：`fetchFundBestSource(code)` 先发 RPC 探测「最佳源是哪类」，再分支：
 
 ```plain
-bestSource = await fetchFundBestSource(code)   // 返回 'ttjj' | 'sinaEstimateNetworth' | 'supabase_qdii'
+bestSource = await fetchFundBestSource(code)
+// 返回 'ttjj' | 'sinaEstimateNetworth' | 'supabase_qdii'
 if (bestSource === 'supabase_qdii') return fetchSupabaseQdiiValuation(code)
 if (bestSource === 'sinaEstimateNetworth') {
     const sina = await fetchSinaEstimateNetworthResponse(code)

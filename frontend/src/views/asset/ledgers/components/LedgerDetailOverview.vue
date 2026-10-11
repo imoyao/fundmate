@@ -198,7 +198,7 @@
   </CardBlock>
 
   <!-- #1812：收益日历已落地（账户级，传 ledgerId 走该账户的 as-of 派生序列）。
-       与 welcome 第三排 / panorama「总资产构成」原地切换是**同一组件的三处容器**，
+       与 welcome 第三排 / panorama「资产大类 ⇄ 收益日历」原地切换是**同一组件的三处容器**，
        口径唯一；#1925 起三处都带日 / 月 / 年粒度切换。 -->
   <div class="mb-6">
     <PnlCalendar :ledger-id="p.ledgerId ? Number(p.ledgerId) : undefined" />

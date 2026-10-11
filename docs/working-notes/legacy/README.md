@@ -8,7 +8,7 @@
 |---|---|
 | `worktile-archive-2021-2026-08-09.md` | Worktile 2021 年看板归档（16 张卡片原始描述全文）：晨星爬虫方案、开源金融数据对比、竞品观察，及雪球 IRR/XIRR/Modified Dietz 论证全文。迁移处置见 `../worktile-migration-map-2026-08-09.md` |
 
-## 已删除：前端重构系列（2026-10-11，Issue #108）
+## 已删除：前端重构系列（2026-10-11，Issue #2042）
 
 原先此处有 27 个文件（`frontend-refactor-*.md`、`delete-orphans.sh`），记录 2026-08-09 的前端大规模重构（batches / codebooks / reference / guides）。
 

@@ -137,6 +137,98 @@ async function stubProductApis(page: Page) {
       }
     })
   );
+  // #2029 卡 C：行业配置 + 持仓明细共用一个端点，同样此前没打桩会落到兜底 404。
+  // 打桩刻意做成**双 scheme + top10 口径**，这样下面两条断言才真的在验证
+  // 「GICS 单列参考」与「前十大口径提示」这两个分支，而不是恰好路过的 happy path。
+  await page.route("**/api/products/fund-holdings-detail/**", route =>
+    route.fulfill({
+      status: 200,
+      json: {
+        data: {
+          fund_code: "110020",
+          fund_name: "易方达消费行业股票",
+          applicable: true,
+          has_industry: true,
+          has_holding: true,
+          industries: [
+            {
+              scheme: "csrc",
+              scheme_label: "证监会门类",
+              is_primary: true,
+              report_period: "2026Q2",
+              report_date: "2026-06-30",
+              total_ratio: 89.0,
+              items: [
+                {
+                  industry_code: "C",
+                  industry_name: "制造业",
+                  ratio: 30.5
+                },
+                {
+                  industry_code: "A",
+                  industry_name: "金融业",
+                  ratio: 22.25
+                },
+                {
+                  industry_code: "I",
+                  industry_name: "信息传输",
+                  ratio: null
+                }
+              ]
+            },
+            {
+              scheme: "gics",
+              scheme_label: "GICS 板块",
+              is_primary: false,
+              report_period: "2025Q4",
+              report_date: "2025-12-31",
+              total_ratio: 12.0,
+              items: [
+                {
+                  industry_code: "25",
+                  industry_name: "非必需消费品",
+                  ratio: 12.0
+                }
+              ]
+            }
+          ],
+          // 环形图只含主口径（csrc）且与表格同口径
+          industry_chart: [
+            { name: "制造业", value: 30.5 },
+            { name: "金融业", value: 22.25 }
+          ],
+          holdings: {
+            rows: [
+              {
+                rank: 1,
+                stock_code: "600519",
+                stock_name: "贵州茅台",
+                ratio: 9.87,
+                shares: 1234.5,
+                market_value: 98765.43
+              },
+              {
+                rank: 2,
+                stock_code: "000858",
+                stock_name: null,
+                ratio: 7.65,
+                shares: null,
+                market_value: null
+              }
+            ],
+            basis: "top10",
+            basis_label: "前十大（季报）",
+            report_period: "2026Q2",
+            report_date: "2026-06-30",
+            shown_total_ratio: 17.52
+          },
+          as_of: "2026-06-30",
+          source: "东方财富"
+        },
+        message: "ok"
+      }
+    })
+  );
   await page.route("**/api/positions/**", route =>
     // 注意：**不能**套信封包装器——positions 的响应体本身就是
     // `{ data: [...], total, page, per_page }`，再包一层会让组件拿到对象而非数组
@@ -318,6 +410,73 @@ test.describe("业绩与风险区块确实挂载（#2029 卡 B）", () => {
 
     // 有数据时不应出现降级文案
     await expect(section).not.toContainText("暂无可展示的业绩数据");
+  });
+});
+
+/**
+ * #2029 卡 C 回归网：行业配置 + 持仓明细两张卡必须真的渲染，且遵守两条硬口径。
+ *
+ * 与卡 A / 卡 B 同源：漏挂组件 Vue 只发 warning 不报错，详情页就少一整块数据。
+ * 这里额外钉**两条容易被改坏的分支**：
+ * - GICS 单列参考且标注「不可相加」（csrc/gics 跨体系相加会得出荒谬结论）；
+ * - `top10` 口径必须出「不代表全部持仓」的提示（否则用户会把「只披露10 只」
+ *   误读成「只买了 10 只」）。
+ *
+ * 反向验证：删掉 detail.vue 里 <ProductHoldingsSections> 的挂载 → 本用例红。
+ */
+test.describe("行业配置与持仓明细区块确实挂载（#2029 卡 C）", () => {
+  test.setTimeout(180_000);
+
+  test.beforeEach(async ({ context, baseURL, page }) => {
+    await injectSupabaseSession(context, baseURL!);
+    await stubProductApis(page);
+  });
+
+  test("渲染行业配置卡并把 GICS 单列为参考", async ({ page }) => {
+    await page.goto(`/#/fund/${SYMBOL}`);
+    const section = page.locator(".industry-section");
+    await expect(section).toBeVisible({ timeout: 60_000 });
+    await expect(
+      section.getByRole("heading", { name: "行业配置" })
+    ).toBeVisible();
+
+    // 主口径表格带出行业与占比
+    await expect(section.getByText("证监会门类")).toBeVisible();
+    await expect(section.getByText("制造业")).toBeVisible();
+    await expect(section.getByText("30.50%")).toBeVisible();
+    // 缺失占比降级为「—」，不按 0 展示
+    await expect(section.getByText("信息传输")).toBeVisible();
+
+    // 非主口径单列，且明确标注不可相加
+    await expect(section.getByText("GICS 板块（参考）")).toBeVisible();
+    await expect(section.getByText("不可相加")).toBeVisible();
+
+    // 脚注给站点名（东财，非净值链路的天天基金）
+    await expect(section.getByText("东方财富")).toBeVisible();
+    await expect(section).not.toContainText("暂无行业配置数据");
+  });
+
+  test("渲染持仓明细卡并标注 top10 口径", async ({ page }) => {
+    await page.goto(`/#/fund/${SYMBOL}`);
+    const section = page.locator(".holding-section");
+    await expect(section).toBeVisible({ timeout: 60_000 });
+    await expect(
+      section.getByRole("heading", { name: "持仓明细" })
+    ).toBeVisible();
+
+    // 表格行带出代码 / 名称 / 占比
+    await expect(section.getByText("600519")).toBeVisible();
+    await expect(section.getByText("贵州茅台")).toBeVisible();
+    await expect(section.getByText("9.87%")).toBeVisible();
+
+    // 口径标注（top10） + 「不代表全部持仓」提示
+    await expect(section.getByText("前十大（季报）")).toBeVisible();
+    await expect(section.getByText("不代表该基金的全部持仓")).toBeVisible();
+
+    // 缺失字段降级「—」（stock_name / shares / market_value 均为 null）
+    await expect(section.getByText("000858")).toBeVisible();
+
+    await expect(section).not.toContainText("暂无持仓明细数据");
   });
 });
 
