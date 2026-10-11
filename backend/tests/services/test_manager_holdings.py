@@ -359,3 +359,21 @@ def test_total_ratio_is_sum_of_returned_rows():
         data = build_manager_holdings(db, 'mh011')
 
     assert data['total_ratio'] == 21.75
+
+
+def test_accepts_watchlist_symbol_and_uppercase_code():
+    """与 ``manager-profile`` 同一口径：``MGR_<code>`` / 大写形态必须命中同一经理。
+
+    归一前这些入参一律返回 ``None``（视同「经理不存在」），表现是详情页重仓区块整块空。
+    """
+    cid = _seed_company()
+    _seed_manager('mh012', '形态经理', cid)
+    _seed_fund('6A0014', '形态基金')
+    _link('mh012', '6A0014', is_classic=True)
+    _seed_holding('6A0014', '720001', '形态股', 9.9, 1)
+
+    for raw in ('mh012', 'MH012', 'MGR_mh012', 'MGR_MH012'):
+        with closing(market_session_factory()()) as db:
+            data = build_manager_holdings(db, raw)
+        assert data is not None, f'{raw!r} 应能命中 mh012（归一前会返回 None）'
+        assert data['fund_code'] == '6A0014'

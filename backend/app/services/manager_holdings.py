@@ -35,8 +35,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.services.manager_code import bare_manager_code
 from app.services.penetration import BASIS_FULL
 
 # 前十大重仓展示条数上限。重仓表本身按 rank 最多 10 条（全量口径可能更多，
@@ -114,11 +116,13 @@ def build_manager_holdings(
     """
     from app.domains.funds.models import Fund, FundManager, Manager
 
-    code = (mgr_code or '').strip()
+    # 与 `manager_profile` 同一口径：归一（去 `MGR_` 前缀 + 小写）后大小写不敏感匹配，
+    # 否则带 watchlist symbol 形态进来必 404（见 services/manager_code.py 的实测表）。
+    code = bare_manager_code(mgr_code)
     if not code:
         raise ValueError('缺少 mgr_code')
 
-    manager = db.query(Manager).filter(Manager.mgr_code == code).first()
+    manager = db.query(Manager).filter(func.lower(Manager.mgr_code) == code).first()
     if manager is None:
         return None
 
