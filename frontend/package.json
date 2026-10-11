@@ -55,7 +55,7 @@
     "@pureadmin/descriptions": "^1.2.1",
     "@pureadmin/table": "^3.3.0",
     "@pureadmin/utils": "^2.6.4",
-    "@supabase/ssr": "^0.7.0",
+    "@supabase/ssr": "^0.12.5",
     "@supabase/supabase-js": "^2.112.3",
     "@vueuse/core": "^14.4.0",
     "@vueuse/motion": "^3.0.3",
