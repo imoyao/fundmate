@@ -129,8 +129,16 @@
         }"
       >
         <div class="flex justify-between items-center mb-4">
-          <h3 class="font-semibold" :style="{ color: 'var(--text-primary)' }">
+          <h3
+            class="font-semibold flex items-center gap-1.5"
+            :style="{ color: 'var(--text-primary)' }"
+          >
             {{ calendarMode ? "收益日历" : "总资产构成" }}
+            <!-- #2050：口径 ⓘ 与标题同行。旧 `hide-title` 只抑制 PnlCalendar 的
+                 `<h2>` 文字，ⓘ 仍独占一行（窄容器下被控件行挤断成残影）。
+                 `host-header` 模式下 PnlCalendar 完全不画 SectionHeader，
+                 本卡自画标题 + ⓘ + 控件三者一行排开。 -->
+            <PnlCalendarCaliberIcon v-if="calendarMode" />
           </h3>
           <!-- #1812：这个日历图标自设计起就是「资产月历」的预留入口
                （tooltip 曾写「后续版本推出」）。#1925 把它从「唤起弹窗」改成
@@ -160,11 +168,13 @@
 
         <!-- L2 容器：收益日历原地切换态。与 welcome 第三排 / 账户详情是
              **同一组件的三处容器**，口径唯一。
-             `hide-title`（#2035）：上面这个 `<h3>` 已经把「收益日历」写在这里了
+             `host-header`（#2050）：上面这个 `<h3>` 已经把「收益日历」写在这里了
              （它必须自己写——另一态是「总资产构成」），再让 PnlCalendar 画一遍
-             就是两个同名标题上下叠着，窄容器下第二个还会被右侧控件行挤断成残影。 -->
+             就是两个同名标题上下叠着。`host-header` 让 PnlCalendar 完全不画
+             SectionHeader，只输出控件排；口径 ⓘ 由本卡的 `PnlCalendarCaliberIcon`
+             与标题同行画出，避免旧 `hide-title` 下 ⓘ 独占一行的残影。 -->
         <div v-if="calendarMode" class="min-h-[280px]">
-          <PnlCalendar hide-title />
+          <PnlCalendar host-header />
         </div>
         <div v-else ref="waterfallChartRef" class="h-[280px]" />
       </div>
@@ -179,6 +189,7 @@ import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import { type AssetSnapshotItem } from "@/api/summary";
 import PnlCalendar from "@/components/PnlCalendar/index.vue";
+import PnlCalendarCaliberIcon from "@/components/PnlCalendar/PnlCalendarCaliberIcon.vue";
 import echarts from "@/plugins/echarts";
 import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
 

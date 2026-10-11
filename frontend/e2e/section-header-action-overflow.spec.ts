@@ -47,24 +47,22 @@ test.describe("SectionHeader 操作槽在窄容器下不溢出（#2039）", () =
     await expect(toggle).toBeVisible({ timeout: 90_000 });
     await toggle.click();
 
-    // 等 PnlCalendar 的标题行渲染完——控件排无条件渲染，与日历数据是否取到无关
-    const action = page.locator(
-      ".pnl-calendar .section-header .section-header__action"
-    );
-    await expect(action).toBeVisible({ timeout: 30_000 });
+    // 等 PnlCalendar 的控件排渲染完——控件排无条件渲染，与日历数据是否取到无关。
+    // #2050：panorama 用 `host-header` 模式，PnlCalendar 不再画 SectionHeader，
+    // 控件排在 `.pnl-calendar__controls` 里（而非旧的 `.section-header__action`）。
+    const controls = page.locator(".pnl-calendar .pnl-calendar__controls");
+    await expect(controls).toBeVisible({ timeout: 30_000 });
 
     // 先证明控件**真的渲染出来了**，否则「不溢出」会因为槽是空的而假绿
-    const controlCount = await action.locator("button").count();
+    const controlCount = await controls.locator("button").count();
     expect(controlCount).toBeGreaterThanOrEqual(5);
 
     const m = await measureHeader(page);
-    // 1) 操作槽右边缘不得超出标题行右边缘（修复前 action 恒为 588px，此处必红）
-    expect(m.actionRight).toBeLessThanOrEqual(m.headerRight + 1);
-    // 2) 也不得超出卡片内容区（标题行本身撑满卡片，这条是 1) 的物理底线）
-    expect(m.actionRight).toBeLessThanOrEqual(m.cardContentRight + 1);
-    // 3) 整排控件确实**折了行**（收缩到低于 max-content 才会折），
+    // 1) 控件排右边缘不得超出卡片内容区右边缘（修复前控件恒为 588px，此处必红）
+    expect(m.controlsRight).toBeLessThanOrEqual(m.cardContentRight + 1);
+    // 2) 整排控件确实**折了行**（收缩到低于 max-content 才会折），
     //    否则说明只是恰好塞得下，断言就没有真正命中 #2039 的场景
-    expect(m.actionHeight).toBeGreaterThan(m.singleLineHeight);
+    expect(m.controlsHeight).toBeGreaterThan(m.singleLineHeight);
   });
 
   test("不做任何操作时页面上不存在横向溢出的标题行（守门不是空转）", async ({
@@ -99,30 +97,26 @@ test.describe("SectionHeader 操作槽在窄容器下不溢出（#2039）", () =
   });
 });
 
-/** 量一组几何值：标题行 / 操作槽 / 卡片内容区的右边缘，以及操作槽行高 */
+/** 量一组几何值：控件排 / 卡片内容区的右边缘，以及控件排行高 */
 async function measureHeader(page: Page) {
   return page.evaluate(() => {
-    const header = document.querySelector<HTMLElement>(
-      ".pnl-calendar .section-header"
+    const controls = document.querySelector<HTMLElement>(
+      ".pnl-calendar .pnl-calendar__controls"
     );
-    if (!header) throw new Error("未找到收益日历的 .section-header");
-    const action = header.querySelector<HTMLElement>(".section-header__action");
-    if (!action) throw new Error("未找到 .section-header__action");
-    const card = header.closest<HTMLElement>("div.rounded-2xl");
-    if (!card) throw new Error("未找到承载标题行的卡片");
-    const headerRect = header.getBoundingClientRect();
-    const actionRect = action.getBoundingClientRect();
+    if (!controls) throw new Error("未找到收益日历的 .pnl-calendar__controls");
+    const card = controls.closest<HTMLElement>("div.rounded-2xl");
+    if (!card) throw new Error("未找到承载控件排的卡片");
+    const controlsRect = controls.getBoundingClientRect();
     const cardRect = card.getBoundingClientRect();
     const padRight = parseFloat(getComputedStyle(card).paddingRight) || 0;
     // 单个控件（SegmentedControl / 按钮）的典型行高，用于判「是否折了行」
-    const control = action.querySelector<HTMLElement>("button");
+    const control = controls.querySelector<HTMLElement>("button");
     const singleLineHeight = control
       ? control.getBoundingClientRect().height
       : 0;
     return {
-      headerRight: headerRect.right,
-      actionRight: actionRect.right,
-      actionHeight: actionRect.height,
+      controlsRight: controlsRect.right,
+      controlsHeight: controlsRect.height,
       cardContentRight: cardRect.right - padRight,
       singleLineHeight
     };
