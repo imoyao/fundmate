@@ -272,3 +272,135 @@ def test_empty_body_and_no_labels_do_not_crash():
     assert '原标签：—' in body
     assert 'GitHub 编号：`#783`' in body
     assert m.build_labels(_issue(labels=[], milestone=None)) == ['GitHub 同步']
+
+
+# —— 5. CNB 本地卡（#117：只对 CNB 有效的卡不该被当成「漏同步的镜像卡」）——
+
+
+def _cnb_card(**over):
+    """造一张最小可用的 CNB 卡载荷（判据只看 labels / body / comment_count）。"""
+    base = {'number': 117, 'state': 'open', 'title': '某张卡', 'comment_count': 0, 'labels': [], 'body': ''}
+    base.update(over)
+    return base
+
+
+def test_mirror_card_marked_by_label():
+    """挂 `GitHub 同步` 标签的卡是镜像卡，不是本地卡。"""
+    m = _load_mirror()
+    card = _cnb_card(labels=[{'name': m.MIRROR_LABEL}], body='随便写的正文')
+    assert m.is_mirror_card(card) is True
+    assert m.is_local_card(card) is False
+    assert m.local_card_kind(card) == ''
+
+
+def test_mirror_card_marked_by_idempotency_key():
+    """没标签但有幂等键 `GitHub 编号：#N` 的也是镜像卡（判据互补，不是只认标签）。"""
+    m = _load_mirror()
+    card = _cnb_card(body='> - GitHub 编号：`#2034`　状态：`open`')
+    assert m.is_mirror_card(card) is True
+    assert m.is_local_card(card) is False
+
+
+def test_local_card_marked_by_label():
+    """挂 `CNB 本地` 标签 = 显式声明，判定来源记为 `label`。"""
+    m = _load_mirror()
+    card = _cnb_card(labels=[{'name': m.LOCAL_LABEL}], body='正文')
+    assert m.is_local_card(card) is True
+    assert m.local_card_kind(card) == 'label'
+
+
+def test_local_card_marked_by_body_declaration():
+    """正文顶部写 `> 📍 **CNB 本地卡**` = 显式声明，判定来源记为 `body`。
+
+    这条存在的意义：人工开的本地卡**不一定记得挂标签**，
+    但一定写得出这一行；两者都认，声明才不至于因为「忘了挂标签」而失效。
+    """
+    m = _load_mirror()
+    for body in ('> 📍 **CNB 本地卡**\n\n正文', '> **CNB 本地卡**\n\n正文'):
+        card = _cnb_card(labels=[{'name': m.MIRROR_LABEL}], body=body)
+        assert m.local_card_kind(card) == 'body', body
+        assert m.is_local_card(card) is True
+
+
+def test_local_card_fallback_is_labelled_as_guess():
+    """既无标签又无幂等键 ⇒ 判为本地卡，但来源必须是 `fallback`（**猜的**）。
+
+    这是本判据最容易做错的地方：兜底把「格式写歪的镜像卡」也说成本地卡。
+    把来源单独记下来，报告里才能把「声明」与「猜测」分开计数 ——
+    否则一张少算的报告看上去依然自洽（#117 的静默失效主题）。
+    """
+    m = _load_mirror()
+    card = _cnb_card(labels=[], body='随便写的正文')
+    assert m.local_card_kind(card) == 'fallback'
+    assert m.is_local_card(card) is True
+
+
+def test_mentioning_the_concept_is_not_a_declaration():
+    """正文里**提到**「**CNB 本地卡**」这个概念，不等于本卡是本地卡。
+
+    这条是判据的证伪用例：没有它，`LOCAL_MARKER_RE` 退化成
+    「只要出现过这几个字就算」也能全绿 —— 而那张卡其实只是挂了镜像标签、
+    正在讲解这个概念（本卡的正文就是这种）。
+    """
+    m = _load_mirror()
+    card = _cnb_card(labels=[{'name': m.MIRROR_LABEL}], body='本卡讲解 **CNB 本地卡** 与镜像卡的区别')
+    assert m.local_card_kind(card) == ''
+    assert m.is_local_card(card) is False
+
+
+def test_conflict_is_reported_not_silently_resolved():
+    """两种判据都命中（既挂镜像标签又挂本地标签）⇒ 报 `conflict`，不替人选边。"""
+    m = _load_mirror()
+    card = _cnb_card(labels=[{'name': m.MIRROR_LABEL}, {'name': m.LOCAL_LABEL}], body='正文')
+    report = m.local_card_report([card])
+    row = report['cards'][0]
+    assert row['conflict'] is True
+    assert row['local'] is True and row['mirror'] is True
+    assert report['summary']['conflict'] == 1
+
+
+def test_github_refs_only_counts_github_side():
+    """`_github_refs` 只收 GitHub 侧引用。
+
+    一张 CNB 本地卡正文里满是 `duoduobei/fundmate#106`（指向 CNB 自己）——
+    把它们也算成「提到了 GitHub」，提示就变成噪音，人就不会再看这一列了。
+    """
+    m = _load_mirror()
+    body = '相关：duoduobei/fundmate#106（GitHub imoyao/fundmate#2034）、CNB #120'
+    assert m._github_refs(body) == ['imoyao/fundmate#2034']
+    assert m._github_refs('只有 CNB 自己的卡 duoduobei/fundmate#106') == []
+    assert m._github_refs('见 https://github.com/imoyao/fundmate/issues/2034') == [
+        'https://github.com/imoyao/fundmate/issues/2034'
+    ]
+
+
+def test_report_summary_counts_local_comments():
+    """报告要算出「本地卡上的评论总数」——这是「讨论被静默留在 CNB」的实际规模。
+
+    `#117` 的实测口径：123 张卡 = 111 镜像 + 12 本地，本地卡上 72 条评论。
+    本用例只钉**算式**（不钉真实数字，那个数会随看板变化）。
+    """
+    m = _load_mirror()
+    cards = [
+        _cnb_card(number=1, labels=[{'name': m.LOCAL_LABEL}], comment_count=3),
+        _cnb_card(number=2, labels=[], body='', comment_count=4),
+        _cnb_card(number=3, labels=[{'name': m.MIRROR_LABEL}], comment_count=9),
+    ]
+    report = m.local_card_report(cards)
+    assert report['summary']['total'] == 3
+    assert report['summary']['mirror'] == 1
+    assert report['summary']['local'] == 2
+    assert report['summary']['comments_on_local'] == 7
+    assert report['summary']['by_kind']['label'] == 1
+    assert report['summary']['by_kind']['fallback'] == 1
+
+
+def test_render_report_shows_local_card_and_flags_guess():
+    """渲染出的报告必须能让人看出「这张是猜的」，否则它与「已声明」长得一样。"""
+    m = _load_mirror()
+    cards = [_cnb_card(number=117, labels=[], body='x', comment_count=3)]
+    text = m.render_local_report(m.local_card_report(cards))
+    assert 'CNB 本地卡对照报告' in text
+    assert '兜底猜测' in text
+    assert '#117' in text
+    assert '这些讨论不会出现在 GitHub' in text
