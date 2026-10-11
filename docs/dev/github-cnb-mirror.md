@@ -293,6 +293,40 @@ python scripts/bridge/check_branch_divergence.py --report --jobs-only
 退出码：`0` = 未分叉；`1` = 检出分叉；`2` = 取不到分支。`.cnb.yml` 里带 `|| true`
 ——它是信号，不是门禁。
 
+### 根因诊断：`--explain`（答「为什么分叉」，2026-10-11 补）
+
+首版只报「分叉了几个提交、哪些作业只在单侧」，**答不出「为什么」**。而卡面 §一 建议 3
+的原话是：
+
+> 为什么 `dev` 会完全不含 `main` 的这一个 commit？……**需要先答这个，
+> 否则发版完还会再分叉一次。**
+
+```bash
+python scripts/bridge/check_branch_divergence.py --report --explain
+```
+
+它额外给两件**可证**的事：
+
+1. **稳定分支独有的提交清单**（短号 + 主题）——来路由人判断；
+2. **发版试算**：`git merge-tree --write-tree --name-only <right> <left>`（**离线**，不碰工作区），
+   答「把 `dev` 合进 `main` 会不会冲突、冲突哪几个文件」。
+
+#### 为什么不自动判断「这条提交来自 GitHub 还是 CNB」
+
+实测三条路**都答不了**这个问题（2026-10-11），逐条留证：
+
+| 路 | 为什么不成立 |
+|---|---|
+| 提交信息启发式 | `feat(detail): …（#2029 卡 B）` 与 `docs(api): …（#2029 卡 B）` 同批同源，没有任何标记能区分平台 |
+| `refs/fetched/*` | 它标的是「该提交**被合进** CNB 时 fetch 过」：跨仓同步 merge `6c97c259` 在内，而它上游那批 GitHub 提交**全不在**——反着来 |
+| `sync/mirror` 分支 | 是另一条 lineage，不含这批提交 |
+
+猜错的代价是**报告指向错误的处置**（该发版的被判成纪律违规，或反之），比不给结论坏得多。
+故 `--explain` 只报事实、由人判断来路。
+
+> 这个「不猜」的取舍本身有一条回归网钉着：`test_explain_never_guesses_platform`
+> 断言报告里**不得**出现 `github-pr` / `cnb-local` 一类的平台归类标签。
+
 ### 为什么这么写
 
 | 取舍 | 做法 | 为什么 |

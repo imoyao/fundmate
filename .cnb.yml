@@ -70,9 +70,14 @@
     # 就会出现「整改代码在 dev、会被执行的代码在 main」——**写完了，跑的不是它**，
     # 且没有任何信号提示。本节点把「靠人肉 git log 发现分叉」换成一条命令。
     # 只读本地 git（**不 fetch**，故不依赖网络）；带 `|| true` 明确「信号不是门禁」。
+    # 带 `--explain`：卡面 §一 建议 3 问的是「为什么 dev 会完全不含 main 的这一个 commit」——
+    # 只报「分叉了几个」修不了根因，故额外列出稳定分支独有的提交清单，
+    # 并**离线试算发版会不会冲突**（`git merge-tree`，不碰工作区）。
+    # 有意**不猜**「哪个提交来自 GitHub、哪个来自 CNB」：实测提交信息、`refs/fetched`、
+    # `sync/mirror` 三条路都答不了，猜错会让报告指向错误的处置。
     - name: 分支分叉自检（只报告）
       script: |
-        python scripts/bridge/check_branch_divergence.py --report || true
+        python scripts/bridge/check_branch_divergence.py --report --explain || true
 
 # 定时任务必须挂在具体分支下（不能放 $ 兜底），故这里显式写 main。
 main:
