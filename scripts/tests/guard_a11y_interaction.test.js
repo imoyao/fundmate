@@ -8,8 +8,19 @@
  *   · **名单样本** —— element-plus 图标名单不许被清空（清空后规则 1 对裸写图标静默失效）。
  *
  * 样本取自实际代码里出现过的形态，不是构造的理想化片段。
+ *
+ * ## 解释器探测与「静默绿」（#119）
+ *
+ * 本文件原先写死 `process.env.PYTHON || "python"`，而 `python` 这个命令**不是处处都有**
+ * （Debian/Ubuntu 只有 `python3`，本仓 CNB 工作区、WSL、多数容器皆如此）。此时
+ * `execFileSync` 抛 ENOENT，而 `guard()` 把异常 `toString()` 成 `"spawnSync python ENOENT"`
+ * ——里面没有 `aria-label` 也没有 `发现 N 处`，于是「必须命中」的断言全部失败、
+ * 「必须放行」的断言**全部假通过**。一次假绿会连带放过之后所有回退。
+ *
+ * 与 `health_scan_rules.test.js` 同构：先探测真实解释器；探测不到就**显式失败**，
+ * 绝不静默跳过。「解释器不在」与「判据没命中」是两件事，必须报出前者。
  */
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,7 +28,33 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 const SCRIPT = join(process.cwd(), "scripts", "guard_a11y_interaction.py");
-const PY = process.env.PYTHON || "python";
+
+/** 探测可用的 Python 解释器（`$PYTHON` 优先；按平台试常见命令）。 */
+function findPython() {
+  const candidates = [];
+  if (process.env.PYTHON) candidates.push([process.env.PYTHON]);
+  if (process.platform === "win32") {
+    candidates.push(["python"], ["py", "-3"]);
+  } else {
+    candidates.push(["python3"], ["python"]);
+  }
+  for (const args of candidates) {
+    const r = spawnSync(args[0], [...args.slice(1), "--version"], { encoding: "utf8" });
+    if (!r.error && r.status === 0) return args;
+  }
+  return null;
+}
+
+const PY = findPython();
+if (!PY) {
+  throw new Error(
+    "找不到 Python 解释器（试过 $PYTHON / python3 / python）。\n" +
+      "本文件的所有断言都靠子进程跑守卫脚本，没有解释器就没有判据。\n" +
+      "请安装 Python，或把解释器路径写进 $PYTHON 环境变量。"
+  );
+}
+const PY_BIN = PY[0];
+const PY_ARGS = PY.slice(1);
 
 function guard(files) {
   const dir = mkdtempSync(join(tmpdir(), "a11y-guard-"));
@@ -26,19 +63,37 @@ function guard(files) {
     writeFileSync(p, content, "utf8");
     return p;
   });
-  try {
-    return execFileSync(PY, [SCRIPT, ...paths], { encoding: "utf8" });
-  } catch (e) {
-    return (e.stdout || "") + (e.stderr || "");
+  const r = spawnSync(PY_BIN, [...PY_ARGS, SCRIPT, ...paths], { encoding: "utf8" });
+  // 解释器 / 脚本层面的失败必须直接抛：把 e.stdout 当守卫输出喂给正则，会让
+  // 「守卫没跑起来」伪装成「守卫通过」——正是 #119 那 18 个假绿的成因。
+  // （退出码 1 是守卫「发现了问题」的正常信号，只有 >1 才是自身崩溃。）
+  if (r.error) {
+    throw new Error(`守卫脚本无法启动（${PY_BIN}）：${r.error.message}`);
   }
+  if (r.status > 1) {
+    throw new Error(`守卫脚本异常退出（status=${r.status}）：\n${r.stdout || ""}\n${r.stderr || ""}`);
+  }
+  return (r.stdout || "") + (r.stderr || "");
 }
 
 function load() {
-  return execFileSync(PY, ["-c", `import importlib.util,sys
+  const r = spawnSync(
+    PY_BIN,
+    [
+      ...PY_ARGS,
+      "-c",
+      `import importlib.util,sys
 spec = importlib.util.spec_from_file_location("g", r"${SCRIPT}")
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
-print(len(m.EP_ICON_NAMES))`], { encoding: "utf8" }).trim();
+print(len(m.EP_ICON_NAMES))`
+    ],
+    { encoding: "utf8" }
+  );
+  if (r.status !== 0) {
+    throw new Error(`无法导入守卫脚本取图标名单（status=${r.status}）：\n${r.stderr || ""}`);
+  }
+  return r.stdout.trim();
 }
 
 /* ---------- 规则 1：纯图标按钮无可访问名称 ---------- */

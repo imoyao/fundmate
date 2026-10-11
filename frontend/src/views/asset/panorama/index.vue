@@ -27,7 +27,7 @@
       </div>
     </div>
 
-    <!-- 总览大卡片（含总资产构成瀑布图） -->
+    <!-- 总览大卡片（含资产大类瀑布图） -->
     <OverviewSummaryCard
       class="mb-6"
       :total-assets="totalAssets"
@@ -60,8 +60,13 @@
       <SankeyChart :data="sankeyData" :display-mode="sankeyDisplayMode" />
     </div>
 
-    <!-- 资产透视：资产分布 + 基金类型分布环形图 -->
-    <AssetInsightPanel class="mb-4" />
+    <!-- 「资产透视」区块（原 `AssetInsightPanel`）已于 #2034 收尾时**删除**：
+         它的两张环形图，标题与数据字段各有对不上的地方（#2032）——
+         左图写「资产分布」而画的是产品类型（`type_distribution`），
+         右图写「基金类型分布」而画的是五笔钱 / 配置目标（`allocation_distribution`）；
+         而这两套数据在本页下方「多维视图」里各有**标题与字段对得上**的视图
+         （「产品类型」「配置目标」）。留着就是同一份数据在首屏重复第二遍，
+         且名字叫错——本卡（#2034）处理的正是「同一口径画两遍」这一形态。 -->
 
     <!-- 多维视图表格 -->
     <div
@@ -111,7 +116,6 @@ import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import OverviewSummaryCard from "./components/OverviewSummaryCard.vue";
 import CategoryBalanceTable from "./components/CategoryBalanceTable.vue";
 import DetailGroupList from "./components/DetailGroupList.vue";
-import AssetInsightPanel from "@/components/AssetInsight/AssetInsightPanel.vue";
 import {
   getSummary,
   getSankeyData,

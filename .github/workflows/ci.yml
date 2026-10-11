@@ -61,6 +61,10 @@ jobs:
           filters: |
             backend:
               - 'backend/**'
+              # 镜像/回写脚本的回归网住在 backend/tests/ 下（#2）：脚本本身改了、
+              # 或对应 workflow 改了，都必须把后端 job 唤起，否则那份回归网永远不跑。
+              - 'scripts/bridge/**'
+              - '.github/workflows/cnb-github-backfill.yml'
               - '.github/workflows/ci.yml'
             frontend:
               - 'frontend/**'
@@ -440,7 +444,10 @@ jobs:
   # 2026-09-24（#1683）起本 job 同时跑 `scripts/close_linked_issues.js` 的单测：它被
   # close-linked-issues workflow 直接驱动，且带**外部副作用**（关闭 issue）——解析错一次
   # 就是误关别人的卡，比假红灯更贵，同样必须有回归网。
-  #
+  # 2026-10-11（CNB #123）起一并跑 `scripts/pr_base_rule.js` 的单测：它把「功能分支 PR 的
+  # base 必须是 dev、只有发版 PR 才用 main」这条判据机械化。此前该规矩只写在 AGENTS.md 里
+  # （且只写了前半句），实际执行中出现连续多个以 main 为 base 的功能 PR，导致 main / dev
+  # 互不包含。判据的价值在于**base 对不对是可以算的**，不靠每个人各自的理由。
   # 2026-10-11（#120）再补一层 Python 侧：`scripts/bridge/` 的镜像脚本同样带外部副作用
   # （建卡 / 写更正评论），且与 Node 侧是两套解释器，故上面那条 node --test 覆盖不到。
   # untested。两个脚本都是纯标准库 + 纯函数可测，故直接在这里跑 python -m unittest。
