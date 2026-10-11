@@ -142,12 +142,12 @@
         @select="selectPeriod"
       />
 
-      <!-- ===== 合计行：一行小字，不占纵向空间（Voice & Content规范） ===== -->
+      <!-- ===== 合计行：区间收益的落点，一行读完（Voice & Content 规范） ===== -->
       <div class="pnl-calendar__summary">
         <span class="pnl-calendar__summary-label">{{ rangeLabel }}合计</span>
         <MoneyDisplay
           :value="series?.month_total ?? null"
-          size="sm"
+          size="md"
           :show-currency="true"
         />
         <!-- 区间收益率与金额**同时**显示（#1942 ②）：切换口径是针对格子里那 30 个
@@ -433,17 +433,23 @@ defineExpose({ reload: load });
   color: var(--text-secondary);
 }
 
-/* 合计行：一行小字 */
+/* 合计行：一行读完，但必须比格子里的小数字更重。
+   它是「这个区间到底赚没赚」的答案，是用户扫完整张图后**唯一会去找**的那个数；
+   原先与格内 13px 数字同权重（MoneyDisplay size=sm），用户很难一眼定位。
+   现在金额升到 md（16px）并给整行一条极淡的底色带 —— 用底色而不是加边框分隔线，
+   是因为这一行已经紧跟在格子下面，再加一条横线会读成「新的一段的表头」。 */
 .pnl-calendar__summary {
   display: flex;
   gap: 10px;
   align-items: baseline;
-  padding-top: 10px;
+  padding: 8px 10px;
   font-size: 12px;
-  border-top: 1px solid var(--border-light);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
 }
 
 .pnl-calendar__summary-label {
+  font-weight: 500;
   color: var(--text-secondary);
 }
 

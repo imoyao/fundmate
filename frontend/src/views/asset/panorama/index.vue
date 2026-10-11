@@ -122,7 +122,8 @@ import {
   getDistributions,
   getSnapshots,
   postSnapshot,
-  type AssetSnapshotItem
+  type AssetSnapshotItem,
+  type DistributionsData
 } from "@/api/summary";
 import { ElMessage } from "element-plus";
 
@@ -131,7 +132,9 @@ defineOptions({ name: "AssetPanorama" });
 const totalAssets = ref(0);
 const totalLiabilities = ref(0);
 const totalPnl = ref(0);
-const distributions = ref<any>(null);
+// 不用 `any`：distributions 是后端下发的固定结构，`any` 会让下游三个消费方
+// （摘要卡 / 分类表 / 分组列表）都失去类型检查。字段口径见 `DistributionsData`。
+const distributions = ref<DistributionsData | null>(null);
 const sankeyData = ref<{ nodes: any[]; links: any[] }>({
   nodes: [],
   links: []
@@ -176,7 +179,7 @@ async function fetchData() {
     totalAssets.value = (sumRes as any)?.data?.total_assets_cny || 0;
     totalLiabilities.value = (sumRes as any)?.data?.total_liabilities_cny || 0;
     totalPnl.value = (sumRes as any)?.data?.total_pnl_cny || 0;
-    distributions.value = (distRes as any)?.data || null;
+    distributions.value = distRes?.data ?? null;
     sankeyData.value = {
       nodes: sankeyRaw.nodes || [],
       links: sankeyRaw.links || []

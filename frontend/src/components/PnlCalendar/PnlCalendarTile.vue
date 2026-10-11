@@ -29,6 +29,10 @@
                           切换口径不会让格子里的文字跳动
   两个口径都遵循同一条纪律：**不可算就给态标签或「—」，绝不补 0**。
 
+  数字**加粗到 600**（原为组件默认的 500）：13px 的等宽数字在五列密排下
+  笔画过细、扫视时容易「化」进底色；加粗不改变字号，故不破坏上面「两种口径
+  字号相同」的换口径不跳动承诺，也不影响格子的几何与换行。
+
   色彩纪律（design.md 硬约束）：
     - 只走 --color-rise / --color-fall（**绿跌**，不用参考图的蓝跌）；
     - 禁硬编码色值，全部 CSS 变量，var() 引用的令牌必须真实存在（check_css_vars.mjs 守卫）；
@@ -184,6 +188,19 @@ const textColor = computed(() =>
   border-color: var(--border-subtle);
 }
 
+/* 最小一档也要有底色。
+   此前 `lv-0`（数值最小的那批）没有任何填充色、与「休市 / 未同步」的空白格
+   读起来一模一样——用户扫一眼分不出「这天有收益只是很小」和「这天没数据」。
+   3% 比最深档 12% 更浅，对比度只会更宽松，不触碰上面那条 AA 硬顶。
+   加这一档后，「有数据」恒定带色、「无数据」恒定留白，两类一眼可分。 */
+.is-updown.lv-0 {
+  background: color-mix(in srgb, var(--color-rise) 3%, var(--bg-card));
+}
+
+.is-updown.is-fall.lv-0 {
+  background: color-mix(in srgb, var(--color-fall) 3%, var(--bg-card));
+}
+
 .is-updown.lv-1 {
   background: color-mix(in srgb, var(--color-rise) 7%, var(--bg-card));
   border-color: color-mix(in srgb, var(--color-rise) 18%, var(--border-light));
@@ -247,14 +264,19 @@ const textColor = computed(() =>
   border-radius: inherit;
 }
 
-/* 无价格序列：斜线纹理，与「零收益」「休市」三者可辨 */
+/* 无价格序列：斜线纹理，与「零收益」「休市」三者可辨。
+   纹理刻意做**稀**：这是「无数据」态，属于要尽快被略过的背景，不该与有数据的
+   涨跌格抢注意力。原先 12% 透明度 / 3px 线宽，密到像一层灰网，扫视时先读到
+   「这里有花纹」而不是「这里没有估值」。降到 7% + 加宽到 5px 周期：
+   仍是可辨的斜线（与 zero 的纯灰底、partial 的灰底+斜纹保持可分），
+   但退回背景该有的权重。 */
 .is-no_price {
   background: repeating-linear-gradient(
     45deg,
     transparent,
-    transparent 4px,
-    color-mix(in srgb, var(--text-tertiary) 12%, transparent) 4px,
-    color-mix(in srgb, var(--text-tertiary) 12%, transparent) 7px
+    transparent 7px,
+    color-mix(in srgb, var(--text-tertiary) 7%, transparent) 7px,
+    color-mix(in srgb, var(--text-tertiary) 7%, transparent) 10px
   );
   border-color: var(--border-subtle);
 }
@@ -281,6 +303,19 @@ const textColor = computed(() =>
   font-size: 10px;
   line-height: 1;
   color: var(--text-tertiary-ink);
+}
+
+/* 格内盈亏数字加粗到 600（`MoneyDisplay` / `RiseFallText` 的 `.number` 默认 500）。
+   13px 等宽数字在五列密排下笔画偏细，扫视时容易「化」进底色、与态标签读成同一档。
+   **只改字重、不改字号**：两个口径（金额 xs / 收益率 sm）本就同为 13px，
+   加粗后两者仍然一致 ⇒ 切换口径时文字不跳动（#1942 ② 的既有约定不回归）。
+
+   命中的是子组件**内部**的 `.number`（`MoneyDisplay` 用 scoped 样式，外部改不到），
+   故必须走 `:deep()`；写 `.pnl-calendar__rate` 无效——那是 `RiseFallText` 的
+   根元素，`.number` 在它下一层。 */
+:deep(.money-display .number),
+:deep(.rise-fall-text .number) {
+  font-weight: 600;
 }
 
 /* partial 的斜纹叠加层是 `z-index: 0`，文字层（日期数字 / 金额 / 收益率 / 态标签）

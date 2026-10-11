@@ -1,117 +1,98 @@
 <template>
   <el-row :gutter="16">
     <el-col :xs="24" :md="12" class="mb-4 md:mb-0">
-      <div
-        class="summary-card rounded-2xl p-6 h-full"
-        :style="{
-          backgroundColor: 'var(--bg-card)',
-          boxShadow: 'var(--shadow-raised)',
-          border: '1px solid var(--border-light)'
-        }"
-      >
-        <div class="flex flex-col justify-between h-full">
-          <div>
-            <p
-              class="text-sm mb-2"
-              :style="{ color: 'var(--text-tertiary-ink)' }"
-            >
-              总资产（本月）
-            </p>
+      <div class="summary-card rounded-2xl p-6 h-full">
+        <!-- 左卡竖向节奏：原先是 `flex flex-col justify-between h-full`。
+             右卡（280px 图表 + 标题行）比左卡内容高出一大截，`justify-between`
+             把这段高度差**全部**变成 hero 与底部三指标之间的空洞，三指标被顶到
+             卡片最底边、看起来像掉队的一行。改为**整组垂直居中 + 固定紧凑间距**：
+             剩余高度均分到上下两侧，卡片读起来是「有意留白」而不是「内容被撑散」。
+             `h-full` 保留（与右卡等高是两卡并排的基本秩序），但它不再参与内部排布。 -->
+        <div class="summary-card__stack">
+          <div class="summary-card__hero">
+            <p class="summary-card__label">总资产（本月）</p>
+            <!-- 总资产是**存量**不是盈亏：design.md「指标数值不染涨跌色」。
+                 `MoneyDisplay` 的 `auto-color` 默认开着，值 > 0 时会把 48px 的
+                 主数字染成涨红——主数字被染红既与语义不符，也让下面三列的中性
+                 基调被拉偏。故显式关掉 autoColor 并给 --text-primary。 -->
             <MoneyDisplay
               :value="totalAssets"
               size="hero"
               :show-sign="false"
               :show-currency="true"
+              :auto-color="false"
+              custom-color="var(--text-primary)"
             />
-            <div class="flex items-center gap-4 mt-3">
-              <template v-if="latestSnapshot?.monthly_change_pct != null">
-                <RiseFallText
-                  :value="latestSnapshot.monthly_change_pct"
-                  suffix="%"
-                  size="sm"
-                />
-              </template>
-              <el-tooltip
-                v-else
-                content="暂无上月同期数据，持续使用后自动积累"
-                placement="top"
-              >
-                <span
-                  class="text-sm"
-                  :style="{ color: 'var(--text-tertiary-ink)' }"
-                  >——</span
+            <!-- 环比 / 同比：标签在前、数值在后（原先是「数值 较上月」）。
+                 「+1.24% 较上月」要回读一遍才知道是什么，「较上月 +1.24%」不用。 -->
+            <div class="summary-card__deltas">
+              <div class="summary-card__delta">
+                <span class="summary-card__delta-label">较上月</span>
+                <template v-if="latestSnapshot?.monthly_change_pct != null">
+                  <RiseFallText
+                    :value="latestSnapshot.monthly_change_pct"
+                    suffix="%"
+                    size="sm"
+                  />
+                </template>
+                <el-tooltip
+                  v-else
+                  content="暂无上月同期数据，持续使用后自动积累"
+                  placement="top"
                 >
-              </el-tooltip>
-              <span
-                class="text-xs"
-                :style="{ color: 'var(--text-tertiary-ink)' }"
-                >较上月</span
-              >
-              <template v-if="latestSnapshot?.yearly_change_pct != null">
-                <RiseFallText
-                  :value="latestSnapshot.yearly_change_pct"
-                  suffix="%"
-                  size="sm"
-                />
-              </template>
-              <el-tooltip
-                v-else
-                content="暂无去年同期数据，持续使用后自动积累"
-                placement="top"
-              >
-                <span
-                  class="text-sm"
-                  :style="{ color: 'var(--text-tertiary-ink)' }"
-                  >——</span
+                  <span class="summary-card__delta-none">——</span>
+                </el-tooltip>
+              </div>
+              <div class="summary-card__delta">
+                <span class="summary-card__delta-label">较去年同期</span>
+                <template v-if="latestSnapshot?.yearly_change_pct != null">
+                  <RiseFallText
+                    :value="latestSnapshot.yearly_change_pct"
+                    suffix="%"
+                    size="sm"
+                  />
+                </template>
+                <el-tooltip
+                  v-else
+                  content="暂无去年同期数据，持续使用后自动积累"
+                  placement="top"
                 >
-              </el-tooltip>
-              <span
-                class="text-xs"
-                :style="{ color: 'var(--text-tertiary-ink)' }"
-                >较去年同期</span
-              >
+                  <span class="summary-card__delta-none">——</span>
+                </el-tooltip>
+              </div>
             </div>
           </div>
-          <div
-            class="my-5"
-            :style="{ borderTop: '1px solid var(--border-light)' }"
-          />
-          <div class="grid grid-cols-3 gap-4">
-            <div>
-              <p
-                class="text-xs mb-1"
-                :style="{ color: 'var(--text-tertiary-ink)' }"
-              >
-                总负债
-              </p>
+
+          <div class="summary-card__rule" />
+
+          <!-- 三列之间用竖细线分隔而不是各给一个底色块：它们是同一组指标的
+               三个并列视角，给底色块会读成三张独立小卡、反而割裂。 -->
+          <div class="summary-card__metrics">
+            <div class="summary-card__metric">
+              <p class="summary-card__metric-label">总负债</p>
               <MoneyDisplay
                 :value="totalLiabilities"
                 size="md"
                 :show-sign="false"
                 :show-currency="true"
+                :auto-color="false"
+                custom-color="var(--text-primary)"
               />
             </div>
-            <div>
-              <p
-                class="text-xs mb-1"
-                :style="{ color: 'var(--text-tertiary-ink)' }"
-              >
-                净资产
-              </p>
+            <div class="summary-card__metric">
+              <p class="summary-card__metric-label">净资产</p>
               <MoneyDisplay
                 :value="totalAssets - totalLiabilities"
                 size="md"
                 :show-sign="false"
                 :show-currency="true"
+                :auto-color="false"
+                custom-color="var(--text-primary)"
               />
             </div>
-            <div>
-              <p
-                class="text-xs mb-1"
-                :style="{ color: 'var(--text-tertiary-ink)' }"
-              >
-                总盈亏
-              </p>
+            <div class="summary-card__metric">
+              <p class="summary-card__metric-label">总盈亏</p>
+              <!-- 唯一保留涨红跌绿的一格：它本来就是盈亏口径 -->
               <MoneyDisplay :value="totalPnl" size="md" :show-currency="true" />
             </div>
           </div>
@@ -120,14 +101,7 @@
     </el-col>
 
     <el-col :xs="24" :md="12">
-      <div
-        class="rounded-2xl p-6 h-full"
-        :style="{
-          backgroundColor: 'var(--bg-card)',
-          boxShadow: 'var(--shadow-raised)',
-          border: '1px solid var(--border-light)'
-        }"
-      >
+      <div class="summary-card rounded-2xl p-6 h-full">
         <div class="flex justify-between items-center mb-4">
           <!-- ⓘ 有两枚，按卡片体两态各给一枚，且**都与本行标题同行**：
                · 瀑布图态（#2034）：口径 = 各大类累加后扣负债落到净资产；
@@ -214,18 +188,23 @@ import { ref, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
-import { type AssetSnapshotItem } from "@/api/summary";
+import { type AssetSnapshotItem, type DistributionsData } from "@/api/summary";
 import PnlCalendar from "@/components/PnlCalendar/index.vue";
 import PnlCalendarCaliberIcon from "@/components/PnlCalendar/PnlCalendarCaliberIcon.vue";
 import echarts from "@/plugins/echarts";
 import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
+import {
+  buildWaterfallBars,
+  buildWaterfallOption,
+  hasWaterfallData
+} from "./assetWaterfall";
 
 const props = defineProps<{
   totalAssets: number;
   totalLiabilities: number;
   totalPnl: number;
   latestSnapshot: AssetSnapshotItem | null;
-  distributions: any;
+  distributions: DistributionsData | null;
 }>();
 
 const waterfallChartRef = ref<HTMLDivElement>();
@@ -265,97 +244,33 @@ function initWaterfallChart() {
   // distributions / 主题的 watcher 可能在日历态下触发，这里必须短路
   if (calendarMode.value) return;
   if (!waterfallChartRef.value) return;
+  if (!props.distributions) return;
+  // 消费后端 distributions：资产大类瀑布（真实数据，非模拟）。
+  // 无可画的数据时直接返回，保留空白绘图区而不是画一张全 0 的空图。
+  if (!hasWaterfallData(props.distributions)) return;
+
   if (waterfallChart) waterfallChart.dispose();
   waterfallChart = echarts.init(waterfallChartRef.value);
 
-  // 消费后端 distributions：资产大类瀑布（真实数据，非模拟）
-  const categories = props.distributions?.category_distribution ?? [];
-  const totalLiab = props.distributions?.total_liabilities ?? 0;
-  const netWorth = props.distributions?.net_worth ?? 0;
-  if (categories.length === 0 && totalLiab <= 0) return;
-
-  const primaryColor = getCSSColor("--brand-700");
-  const infoColor = getCSSColor("--color-info");
-  const riseColor = getCSSColor("--color-rise");
-  const fallColor = getCSSColor("--color-fall");
-  const neutralColor = getCSSColor("--color-neutral");
-
-  const start = 0;
-  const changes = [
-    ...categories.map(c => ({ name: c.name, value: c.value })),
-    ...(totalLiab > 0 ? [{ name: "负债", value: -totalLiab }] : [])
-  ];
-  const end = netWorth;
-  const cumulativeValues: number[] = [start];
-  changes.forEach((item, index) => {
-    cumulativeValues.push(cumulativeValues[index] + item.value);
-  });
-  const allData = [
-    { name: "起点", height: start, change: start, isEndpoint: true },
-    ...changes.map((item, index) => ({
-      name: item.name,
-      height: cumulativeValues[index + 1],
-      change: item.value,
-      isEndpoint: false
-    })),
-    { name: "净资产", height: end, change: end, isEndpoint: true }
-  ];
-
-  waterfallChart.setOption({
-    tooltip: { trigger: "axis" },
-    grid: { left: "8%", right: "4%", top: 20, bottom: 50, containLabel: true },
-    xAxis: {
-      type: "category",
-      data: allData.map(d => d.name),
-      axisLabel: {
-        rotate: 30,
-        fontSize: 10,
-        color: getCSSColor("--text-tertiary")
-      },
-      axisLine: { lineStyle: { color: getCSSColor("--border-light") } }
-    },
-    yAxis: {
-      type: "value",
-      min: 0,
-      splitLine: { lineStyle: { color: getCSSColor("--border-light") } },
-      axisLabel: {
-        color: getCSSColor("--text-tertiary"),
-        fontSize: 11,
-        formatter: (v: number) => v.toLocaleString()
-      }
-    },
-    series: [
-      {
-        type: "bar",
-        data: allData.map(d => d.height),
-        barWidth: "30%",
-        barMinHeight: 4,
-        itemStyle: {
-          borderRadius: 4,
-          color: (params: any) => {
-            const d = allData[params.dataIndex];
-            if (d.isEndpoint && d.name === "起点") return primaryColor;
-            if (d.isEndpoint && d.name === "净资产") return infoColor;
-            if (d.change > 0) return riseColor;
-            if (d.change < 0) return fallColor;
-            return neutralColor;
-          }
-        },
-        label: {
-          show: true,
-          position: "top",
-          fontSize: 10,
-          color: getCSSColor("--text-secondary"),
-          formatter: (params: any) => {
-            const d = allData[params.dataIndex];
-            if (d.isEndpoint) return "¥" + d.height.toLocaleString();
-            if (d.change === 0) return "¥0";
-            return (d.change >= 0 ? "+" : "") + d.change.toLocaleString();
-          }
-        }
-      }
-    ]
-  });
+  /*
+   * 柱几何与 option 构造已抽到 `assetWaterfall.ts`（纯计算，不碰 DOM / 实例）。
+   * 本文件只保留「什么时候画、画在哪个 DOM 上、什么时候 dispose」——
+   * 那部分与 `toggleCalendar` 的两态时序耦合，不能搬走。
+   */
+  const bars = buildWaterfallBars(props.distributions);
+  waterfallChart.setOption(
+    buildWaterfallOption(bars, {
+      rise: getCSSColor("--color-rise"),
+      fall: getCSSColor("--color-fall"),
+      info: getCSSColor("--color-info"),
+      neutral: getCSSColor("--color-neutral"),
+      textSecondary: getCSSColor("--text-secondary"),
+      // 轴标签也是文字：design.md 规定 `color:` 用途一律走 --text-tertiary-ink
+      //（--text-tertiary 白底仅 3.69:1，达不到正文 4.5:1）
+      axis: getCSSColor("--text-tertiary-ink"),
+      border: getCSSColor("--border-light")
+    })
+  );
 }
 
 // distributions 异步到达 / 刷新时重绘瀑布图（容器常驻，无需等待挂载）
@@ -381,12 +296,90 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* 两张卡的底色 / 描边 / 阴影 / hover 收敛到同一条规则：
+   原本它们各自写了一份**内联 style**（backgroundColor / border / boxShadow），
+   而 hover 的 `--shadow-float` 写在 `.summary-card:hover` 这个 class 规则里——
+   内联样式的优先级高于任何 class 规则，于是 hover 一直是段死代码。
+   现在全部下沉到本规则，两卡 hover 行为也终于一致。 */
 .summary-card {
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-raised);
+  transition: box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .summary-card:hover {
   box-shadow: var(--shadow-float);
+}
+
+.summary-card__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  justify-content: center;
+  height: 100%;
+}
+
+.summary-card__label {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--text-tertiary-ink);
+}
+
+.summary-card__deltas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin-top: 14px;
+}
+
+.summary-card__delta {
+  display: inline-flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.summary-card__delta-label {
+  font-size: 12px;
+  color: var(--text-tertiary-ink);
+}
+
+.summary-card__delta-none {
+  font-size: 13px;
+  color: var(--text-tertiary-ink);
+}
+
+.summary-card__rule {
+  height: 1px;
+  background-color: var(--border-light);
+}
+
+.summary-card__metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.summary-card__metric {
+  min-width: 0;
+  padding: 0 12px;
+}
+
+.summary-card__metric:first-child {
+  padding-left: 0;
+}
+
+.summary-card__metric:last-child {
+  padding-right: 0;
+}
+
+.summary-card__metric + .summary-card__metric {
+  border-left: 1px solid var(--border-light);
+}
+
+.summary-card__metric-label {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: var(--text-tertiary-ink);
 }
 
 /* 开关态（#1925）：切到收益日历时点亮图标，与标题变化一起回答「现在看的是哪个」。
