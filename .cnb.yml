@@ -25,6 +25,15 @@
 #   python scripts/bridge/mirror_correction.py add --cnb <编号> --date <YYYY-MM-DD> \
 #       --correction '❌ 正文「x」→ ✅ 实际「y」（依据：PR #115）' --apply
 # 这是人工动作，不挂 cron —— 更正由发现者发起，不该由定时任务代劳。
+#
+# 状态回流（#117 硬要求 ②）：GitHub 关了原卡，CNB 这边一个字都不变——
+# 读者在 CNB 看到一张「还活着」的卡，实际那件事早已结案。cron 里挂了这一步：
+# 在镜像卡评论区追加一条「状态回流」评论 + 挂 `GitHub 已关闭` 标签。
+# **不自动关卡**（#117 硬要求 ①：人工回路保留）——CNB 侧的追问常发生在
+# GitHub 结案之后，关掉会把那些讨论一起埋掉；要真正关卡请人工执行
+# `cnb issues close --number <n>`。
+#   python scripts/bridge/mirror_state_sync.py --report    # 只报告漂移
+#   python scripts/bridge/mirror_state_sync.py --apply      # 真正回流（幂等）
 
 # 公共片段：两条触发方式跑的是同一套环境与命令，用锚点避免抄两遍。
 .mirror-job: &mirror-job
@@ -49,6 +58,12 @@
     - name: 引用时效自检（只报告）
       script: |
         python scripts/bridge/check_mirror_refs.py --report || true
+    # 状态回流（#117 硬要求 ②）：GitHub 已关闭、CNB 镜像卡还开着 ⇒ 在镜像卡评论区
+    # 追加「状态回流」评论 + 挂 `GitHub 已关闭` 标签（**不自动关卡**，见文件头）。
+    # 幂等键写进评论正文，重复执行只发一次。
+    - name: 状态回流（GitHub 已关闭 → CNB 标记）
+      script: |
+        python scripts/bridge/mirror_state_sync.py --apply || true
 
 # 定时任务必须挂在具体分支下（不能放 $ 兜底），故这里显式写 main。
 main:
