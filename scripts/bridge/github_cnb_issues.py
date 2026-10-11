@@ -46,6 +46,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -148,6 +149,8 @@ def build_body(issue: dict[str, Any]) -> str:
     """
     number = issue['number']
     state = issue.get('state', 'open')
+    # 建卡快照时刻：显式打印出来，避免正文里只有 GitHub 的创建时间、读者误以为本卡很新。见 #120 方案 A。
+    mirrored_at = datetime.now(UTC)
     milestone = (issue.get('milestone') or {}).get('title') or '—'
     author = (issue.get('user') or {}).get('login') or 'unknown'
     created = (issue.get('created_at') or '')[:10]
@@ -165,8 +168,16 @@ def build_body(issue: dict[str, Any]) -> str:
             f'> - 里程碑：`{milestone}`',
             f'> - 原标签：{labels_text}',
             f'> - 作者：@{author}　创建：{created}　评论数：{comments}',
+            f'> - 镜像生成时间：{mirrored_at:%Y-%m-%d %H:%M UTC}',
             '>',
-            '> ⚠️ 本卡为只读镜像，正式讨论与状态变更请回到 GitHub 原卡；CNB 侧改动不会自动回流。',
+            f'> ⚠️ 本卡是**建卡时快照**（截至 {mirrored_at:%Y-%m-%d}），**不覆盖后续变更**；',
+            '> 正文里的文件路径与行号均为快照时刻的位置，可能与当前代码不一致。',
+            '> ⚠️ 本卡为只读镜像，正式讨论、更正与状态变更请回到 GitHub 原卡，CNB 侧改动不会自动回流；',
+            '> 本卡正文若与 GitHub 原卡不符，**一律以 GitHub 为准**。',
+            '>',
+            '> 📝 **更正**：在本卡评论区追加一条更正评论（不改正文）——',
+            '> 标题写 `## 更正（{日期}）`，正文逐条写「❌ 原文 → ✅ 实际（依据：PR/commit）」。',
+            '> 依据 AGENTS.md「失实信息修正纪律」；命令见 `scripts/bridge/mirror_correction.py`。',
         ]
     )
     return f'{header}\n\n---\n\n{issue.get("body") or ""}'
@@ -409,8 +420,6 @@ def run(dry_run: bool, limit: int | None) -> int:
         print(f'  ✅ CNB #{number} ← GitHub #{issue["number"]} {title[:50]}')
 
     if not dry_run:
-        from datetime import UTC, datetime
-
         state['last_sync_at'] = datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')
         save_state(state)
 
