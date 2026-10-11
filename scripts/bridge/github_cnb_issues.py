@@ -149,12 +149,12 @@ def build_body(issue: dict[str, Any]) -> str:
     """
     number = issue['number']
     state = issue.get('state', 'open')
+    # 建卡快照时刻：显式打印出来，避免正文里只有 GitHub 的创建时间、读者误以为本卡很新。见 #120 方案 A。
+    mirrored_at = datetime.now(UTC)
     milestone = (issue.get('milestone') or {}).get('title') or '—'
     author = (issue.get('user') or {}).get('login') or 'unknown'
     created = (issue.get('created_at') or '')[:10]
     comments = issue.get('comments', 0)
-    # 建卡时刻（不是 GitHub 卡的创建时间）：用于让读者一眼看出「这张卡停在什么时候」。
-    snapshot_date = datetime.now(UTC).strftime('%Y-%m-%d')
 
     origin_labels = [(raw['name'] if isinstance(raw, dict) else str(raw)) for raw in (issue.get('labels') or [])]
     labels_text = ' '.join(f'`{n}`' for n in origin_labels) if origin_labels else '—'
@@ -168,12 +168,17 @@ def build_body(issue: dict[str, Any]) -> str:
             f'> - 里程碑：`{milestone}`',
             f'> - 原标签：{labels_text}',
             f'> - 作者：@{author}　创建：{created}　评论数：{comments}',
-            f'> - 镜像于：{snapshot_date}（**以下字段均为建卡时快照，之后 GitHub 侧的变更不会回流**）',
+            f'> - 镜像生成时间：{mirrored_at:%Y-%m-%d %H:%M UTC}',
             '>',
-            '> ⚠️ **本卡是快照，不是实时视图。** 正文引用的文件 / 行号 / 字段 / 结论可能已随代码变化——'
-            '按它动手之前，先用 `git show <ref>:<file>` 确认该行仍在当前分支上。',
-            '> ⚠️ 卡面若与 GitHub 原卡不符，**以 GitHub 为准**；CNB 侧改动不会自动回流，'
-            '更正请写在 GitHub 原卡（或本卡评论区，见 `AGENTS.md`「失实信息修正纪律」）。',
+            f'> ⚠️ 本卡是**建卡时快照**（截至 {mirrored_at:%Y-%m-%d}），**不覆盖后续变更**；'
+            '> 正文引用的文件 / 行号 / 字段 / 结论均为快照时刻的位置，可能与当前代码不一致——'
+            '> 按它动手之前，先用 `git show <ref>:<file>` 确认该行仍在当前分支上。',
+            '> ⚠️ 正式讨论、更正与状态变更请回到 GitHub 原卡，CNB 侧改动不会自动回流；'
+            '> 本卡正文若与 GitHub 原卡不符，**一律以 GitHub 为准**。',
+            '>',
+            '> 📝 **更正**：在本卡评论区追加一条更正评论（不改正文）——',
+            '> 标题写 `## 更正（{日期}）`，正文逐条写「❌ 原文 → ✅ 实际（依据：PR/commit）」。',
+            '> 依据 AGENTS.md「失实信息修正纪律」；命令见 `scripts/bridge/mirror_correction.py`。',
         ]
     )
     return f'{header}\n\n---\n\n{issue.get("body") or ""}'

@@ -192,8 +192,9 @@ def test_header_matches_frozen_shape(m, monkeypatch):
     字段顺序 / 措辞 / 全角空格都钉在这里；改它等于让前后两批镜像卡出现两种长相，
     必须是有意识的决定，而不是顺手重构的副作用。
 
-    `镜像于：` 一行是 #118 加的：**「只增不覆盖」意味着过期不可见**，读者需要一眼
-    看出这张卡停在什么时候。它不破坏前面的字段（幂等键仍在同一位置）。
+    #118 与 #120 都想让卡面「自己声明是快照」，合并时统一到一份溯源块：
+    保留 #120 的建卡时刻 + 更正台账（`mirror_correction.py`），并并入 #118 的
+    可执行核对动作（`git show <ref>:<file>`）。幂等键仍在同一位置。
     """
     m = _load_mirror()
     _fixed_clock(m, monkeypatch)
@@ -207,12 +208,17 @@ def test_header_matches_frozen_shape(m, monkeypatch):
             '> - 里程碑：`P0 导入统一入口 Import Unified Entry`',
             '> - 原标签：`triage-done` `导入导出` `Q2-YELLOW`',
             '> - 作者：@imoyao　创建：2026-05-26　评论数：5',
-            '> - 镜像于：2026-10-12（**以下字段均为建卡时快照，之后 GitHub 侧的变更不会回流**）',
+            '> - 镜像生成时间：2026-10-12 00:00 UTC',
             '>',
-            '> ⚠️ **本卡是快照，不是实时视图。** 正文引用的文件 / 行号 / 字段 / 结论可能已随代码变化——'
-            '按它动手之前，先用 `git show <ref>:<file>` 确认该行仍在当前分支上。',
-            '> ⚠️ 卡面若与 GitHub 原卡不符，**以 GitHub 为准**；CNB 侧改动不会自动回流，'
-            '更正请写在 GitHub 原卡（或本卡评论区，见 `AGENTS.md`「失实信息修正纪律」）。',
+            '> ⚠️ 本卡是**建卡时快照**（截至 2026-10-12），**不覆盖后续变更**；'
+            '> 正文引用的文件 / 行号 / 字段 / 结论均为快照时刻的位置，可能与当前代码不一致——'
+            '> 按它动手之前，先用 `git show <ref>:<file>` 确认该行仍在当前分支上。',
+            '> ⚠️ 正式讨论、更正与状态变更请回到 GitHub 原卡，CNB 侧改动不会自动回流；'
+            '> 本卡正文若与 GitHub 原卡不符，**一律以 GitHub 为准**。',
+            '>',
+            '> 📝 **更正**：在本卡评论区追加一条更正评论（不改正文）——',
+            '> 标题写 `## 更正（{日期}）`，正文逐条写「❌ 原文 → ✅ 实际（依据：PR/commit）」。',
+            '> 依据 AGENTS.md「失实信息修正纪律」；命令见 `scripts/bridge/mirror_correction.py`。',
             '',
             '---',
             '',
@@ -233,7 +239,7 @@ def test_snapshot_warning_is_present(m, monkeypatch):
     _fixed_clock(m, monkeypatch)
     body = m.build_body(_issue())
     # 必须出现：建卡时刻、快照声明、核对动作、以 GitHub 为准
-    assert '镜像于：2026-10-12' in body
+    assert '镜像生成时间：2026-10-12' in body
     assert '建卡时快照' in body
     assert 'git show <ref>:<file>' in body
     assert '以 GitHub 为准' in body
