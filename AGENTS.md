@@ -232,8 +232,25 @@
 ### 测试
 
 - 命令：`pdm run pytest -p no:xdist`（单进程，防 OOM）。
-- 夹具：`tests/conftest.py` 提供 `app`/`client`/`db`/`make_position` 等（内存 SQLite）。
+- 夹具：`tests/conftest.py` 提供 `app`/`client`/`db`/`make_position` 等。
+- **测试库既不是内存库、也不是复用的持久化库**：是**每用例一个临时文件**
+  （`tmp_path/_fixture_app.db` + `_fixture_market.db`，用完即删），另有一个按源码指纹
+  缓存的「完成态模板库」供 `shutil.copyfile` 秒级落地（#1722）。
+  - 2026-09-27 起从 StaticPool 内存库切到文件库（#1721）：单连接下 B 会话 `close()`
+    的 rollback 会连带回滚 A 的**未提交**写，生产不可能出现，却稳定制造
+    `StaleDataError` 假阳性。shared-cache 内存 URI 也试过，表级锁导致
+    `database table is locked`。完整三轮踩坑见 `conftest.py` 的 `_make_file_engine` docstring。
+  - 想「改回内存库」前先读那段 docstring，别重复已否决的方案。
 - **禁止**直接导入 `SessionLocal`（须用 `conftest` 夹具）。
+
+- **本 worktree 的 `backend/.venv` 是空壳**（`pdm run` 会新建一个无依赖的 venv，
+  `import sqlalchemy` 直接失败）。跑后端测试/ruff 用**主仓解释器**，不要用 `pdm run`：
+  `D:/codes/fundmate/backend/.venv/Scripts/python.exe -m pytest <paths> -p no:xdist -q`
+  （主仓路径以 `git rev-parse --git-common-dir` 上溯为准，此 worktree 实测为
+  `D:/codes/fundmate`；换 worktree 前先重新确认，别照抄路径）。
+- **默认不在本地跑全量测试，交给 CI**（`gh pr checks <pr>`）。实测同一份代码本地全量
+  约 **2h40m**、CI 约 **8min**（原因未查清，勿编）。本地只跑**与改动直接相关**的测试
+  文件（分钟级）；跑不完就推 CI，**不要**为凑「本地全绿」挂几小时的任务。
 
 ### 常用后端命令（`cd backend`）
 
