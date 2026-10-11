@@ -17,6 +17,14 @@
 #   export CNB_TOKEN=<你的 token>
 #   python scripts/bridge/github_cnb_issues.py --dry-run     # 先看要建哪些
 #   python scripts/bridge/github_cnb_issues.py --apply       # 真正创建
+#
+# 更正通道（#120）：镜像卡是**只增不覆盖**的，正文永远停在建卡快照。
+# 发现镜像卡正文失实时，**不要改正文**，用下面这条在它的评论区追加一条更正
+# （默认 dry-run，加 --apply 真正发布；幂等，重复执行只发一次）：
+#   python scripts/bridge/mirror_correction.py list --cnb <编号>
+#   python scripts/bridge/mirror_correction.py add --cnb <编号> --date <YYYY-MM-DD> \
+#       --correction '❌ 正文「x」→ ✅ 实际「y」（依据：PR #115）' --apply
+# 这是人工动作，不挂 cron —— 更正由发现者发起，不该由定时任务代劳。
 
 # 公共片段：两条触发方式跑的是同一套环境与命令，用锚点避免抄两遍。
 .mirror-job: &mirror-job
