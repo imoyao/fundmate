@@ -228,5 +228,5 @@
 
 | 目录 | 内容 |
 |---|---|
-| `legacy/` | Worktile 2021 年看板归档：`legacy/worktile-archive-2021-2026-08-09.md`（晨星爬虫方案、开源金融数据对比、监控组合竞品，及雪球 IRR/XIRR/Modified Dietz 论证全文存档；原始卡片「不适合建 issue 但有长期参考价值」）。原前端重构系列 27 个文件（batches / codebooks / reference / guides）已因**入库前即乱码、不可逆且已被后续实现取代**于 2026-10-11 整批删除（Issue #108），处置依据见 `legacy/README.md` |
+| `legacy/` | Worktile 2021 年看板归档：`legacy/worktile-archive-2021-2026-08-09.md`（晨星爬虫方案、开源金融数据对比、监控组合竞品，及雪球 IRR/XIRR/Modified Dietz 论证全文存档；原始卡片「不适合建 issue 但有长期参考价值」）。原前端重构系列 27 个文件（batches / codebooks / reference / guides）已因**入库前即乱码、不可逆且已被后续实现取代**于 2026-10-11 整批删除（Issue #2042），处置依据见 `legacy/README.md` |
 | `issue-triage/` | Issue 看板分拣依据：`triage-report.md`（24 个活跃 issue 分拣报告）、`triage-matrix.csv`（优先级矩阵）。`_tmp_bodies/`、`auto/` 为分拣中间产物，不入库 |
