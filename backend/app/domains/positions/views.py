@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core.auth import get_family_id, get_owned_or_404
 from app.core.database import get_db
 from app.core.money import Money
+from app.core.retry import retry_on_db_locked
 from app.core.validation import parse_body, parse_query
 from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
@@ -220,6 +221,7 @@ def update_position(id):
 
 
 @bp.delete('/<int:id>/')
+@retry_on_db_locked()
 def delete_position(id):
     """删除某条持仓记录."""
     delete_txns = request.args.get('delete_transactions', 'false').lower() == 'true'
