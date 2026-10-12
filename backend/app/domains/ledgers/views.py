@@ -15,6 +15,7 @@ from app.core.auth import get_family_id, get_owned_or_404
 from app.core.constants import ALLOCATION_LABELS, LEDGER_TYPE_LABELS
 from app.core.database import get_db
 from app.core.money import Money
+from app.core.retry import retry_on_db_locked
 from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, SalesInstitution
@@ -579,6 +580,7 @@ def update_ledger_position(ledger_id: int, position_id: int):
 
 
 @ledgers_bp.delete('/<int:ledger_id>/positions/<int:position_id>/')
+@retry_on_db_locked()
 def delete_ledger_position(ledger_id: int, position_id: int):
     """删除账户内持仓"""
     delete_txns = request.args.get('delete_transactions', 'false').lower() == 'true'

@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+from loguru import logger
 from sqlalchemy import Column, DateTime, Engine, Integer, func, inspect
 from sqlalchemy import exc as sa_exc
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
@@ -286,6 +287,27 @@ def get_db():
         yield db
 
 
+def rollback_request_sessions() -> None:
+    """回滚当前请求已持有的全部会话槽位（非请求上下文 / 无会话为空操作）。
+
+    供 :func:`app.core.retry.retry_on_db_locked` 在重试前调用：WAL 下读快照
+    升级写锁遇 ``database is locked`` 时，只有放弃旧快照、重开事务才能拿到
+    新快照；不回滚则重跑视图仍在过期快照上失败。回滚失败不外抛——重试逻辑
+    本身会再次报错，这里只需尽力清理。
+    """
+    scope = _request_scope()
+    if scope is None:
+        return
+    for slot in _SESSION_SLOTS:
+        session = getattr(scope, slot, None)
+        if session is None:
+            continue
+        try:
+            session.rollback()
+        except Exception:  # noqa: BLE001 - 尽力清理，失败由重试路径自然暴露
+            pass
+
+
 def teardown_request_session(exc=None):
     """请求收尾：统一提交（成功）/ 回滚（异常）并关闭**全部**请求级会话（#1632 / #1640）。
 
@@ -297,6 +319,12 @@ def teardown_request_session(exc=None):
 
     ``flask.g`` 上的三个槽位都会被收尾；任一会话提交失败都会被回滚并**在收尾完其余会话后**
     上抛（保证不留未关闭的连接）。非请求上下文（未挂 ``flask.g``）为空操作；无会话亦为空操作（幂等）。
+
+    例外（错误遮蔽防护）：``exc is None`` 但 commit 抛 ``PendingRollbackError`` 时
+    **不上抛**——说明请求内已有失败（如视图 flush 阶段遇 ``database is locked``），
+    会话早已进入 needs-rollback，原始错误已由 Flask 错误处理器转成响应信封；此时
+    再抛 PendingRollbackError 只会把真因盖掉（曾导致删除持仓 500 显示错乱）。只
+    记 warning 并回滚清理。
     """
     scope = _request_scope()
     if scope is None:
@@ -318,6 +346,14 @@ def teardown_request_session(exc=None):
                 session.rollback()
             else:
                 session.commit()
+        except sa_exc.PendingRollbackError:
+            # 请求内已有失败，原始错误已由错误处理器响应；此处 commit 只是
+            # 二次噪音，回滚清理即可，不得覆盖真因（见 docstring 例外说明）。
+            logger.warning('teardown: 会话已处于 needs-rollback 状态，跳过提交并回滚（请求内已有更早的失败）')
+            try:
+                session.rollback()
+            except Exception:  # pragma: no cover - 回滚都失败时无法再补救
+                pass
         except Exception as err:  # noqa: BLE001 - 提交失败需先回滚，收尾其余会话后再上抛
             failure = failure or err
             try:
