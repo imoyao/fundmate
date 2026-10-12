@@ -247,6 +247,16 @@ jobs:
       - name: 扫描控件裁切回潮（阻断）
         run: python scripts/guard_control_clip.py
 
+      # 密钥引用位置守卫（源 CNB #148，2026-10-12）：插件凭据必须挂**插件 `settingsFrom`**，
+      # 不能挂流水线级 `imports`。挂错时三条 git-sync 作业会**全部死在 Prepare**
+      # （`declares allow_images and can only be referenced by plugin tasks`），
+      # 而那个报错把人指向密钥仓库——一个读不到也改不了的 Secret 仓库。
+      # 同属「配置回潮」一类，故并入本 job 而不另起 job（不新增 job 就不必改 gate.needs）。
+      # 判据边界（含「不拉网络、只读仓库内模板」）见脚本 docstring；
+      # 回归网在 scripts/tests/guard_secret_imports.test.js。
+      - name: 扫描密钥引用位置回潮（阻断）
+        run: python scripts/guard_secret_imports.py
+
   # 乱码守卫（mojibake）：防止任何绕过本地 pre-commit 钩子的提交（--no-verify、
   # 或经 gh api / MCP 直推导致本地钩子不执行）把 GBK 乱码合进 PR。
   # 扫描 PR 变更的全部文本类型文件 + 逐提交校验中文提交信息（两层兜底）。

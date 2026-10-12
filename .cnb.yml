@@ -91,20 +91,32 @@ main:
   # 凭据放密钥仓库 fundmate-secret 的 vars.yml：GIT_USERNAME / GITHUB_PAT
   # （PAT 需 repo 权限；参考 https://cnb.cool/cnb/plugins/tencentcom/git-sync）
   #
+  # ⚠️ 凭据必须挂**插件的 `settingsFrom`**，不能挂流水线级 `imports`（CNB #148，2026-10-12）。
+  # 实测三条作业全部死在 Prepare，连 stage 都没进：
+  #     vars.yml declares allow_images and can only be referenced by plugin tasks.
+  # 原因是位置错了：vars.yml 必须声明 `allow_images: [tencentcom/git-sync]`（否则插件读不到
+  # 密钥），而 `imports` 是**流水线级**引用，平台不算它是「插件任务」，于是判定
+  # 「声明了 allow_images 却没在插件任务里用」→ 直接拒绝。`settingsFrom` 才是插件任务的
+  # 凭据入口。判断口诀：**引用不声明 `allow_*` 的普通 YAML 用 `imports`，
+  # 引用声明了 `allow_images` 的密钥文件用 `settingsFrom`。**
+  #
   # ⚠️ vars.yml 必须是 **YAML**（`KEY: value`），不是 `.env` 的 `KEY=VALUE`。
-  # imports 会把文件解析成「对象」再转环境变量；写成 `GIT_USERNAME=imoyao` 这种
-  # 等号风格，YAML 解析器会先在首行得到一个纯量、次行又一个，到第三行 mapping 时
-  # 直接报 `parse yaml failed … (3:12)`，流水线死在 Prepare，且报错里**不含 not found**。
+  # 写成 `GIT_USERNAME=imoyao` 这种等号风格，YAML 解析器会先在首行得到一个纯量、
+  # 次行又一个，到第三行 mapping 时直接报 `parse yaml failed … (3:12)`，
+  # 流水线死在 Prepare，且报错里**不含 not found**。
   # 模板与完整踩坑记录见 docs/ops/git-sync-secret-vars.example.yml。
   #
   # 另注：该文件在 Secret 仓库，API/token 一律 403（`Secret repos do not support
   # token access`）——**只能人工在 Web 界面改**，改不进 PR，故模板落在代码仓里。
   # push 模式不开 force：CNB 为权威源，绝不通把 GitHub 独有提交冲掉（即「反向护栏」）。
+  # 回归网：scripts/guard_secret_imports.py（并入 ci.yml 的 layout_guard job）。
   push:
-    - imports: https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
-      stages:
+    - stages:
         - name: 同步到 GitHub（全分支 + 标签）
           image: tencentcom/git-sync
+          # 凭据走插件入口 settingsFrom（见上方说明；不要改回流水线级 imports）
+          settingsFrom:
+            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
           settings:
             target_url: https://github.com/imoyao/fundmate.git
             auth_type: https
@@ -113,10 +125,12 @@ main:
             push_tags: true
   # 每小时从 GitHub 拉回（闭合 GitHub -> CNB）
   "crontab: 0 * * * *":
-    - imports: https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
       stages:
         - name: 从 GitHub 拉取（全分支 + 标签）
           image: tencentcom/git-sync
+          # 凭据走插件入口 settingsFrom（见上方说明；不要改回流水线级 imports）
+          settingsFrom:
+            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
           settings:
             target_url: https://github.com/imoyao/fundmate.git
             auth_type: https
@@ -126,10 +140,12 @@ main:
             push_tags: true
   # 每小时把 CNB 全部分支推到 GitHub（覆盖 feature 分支，不依赖 main push）
   "crontab: 30 * * * *":
-    - imports: https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
       stages:
         - name: 同步到 GitHub（每小时兜底）
           image: tencentcom/git-sync
+          # 凭据走插件入口 settingsFrom（见上方说明；不要改回流水线级 imports）
+          settingsFrom:
+            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
           settings:
             target_url: https://github.com/imoyao/fundmate.git
             auth_type: https
