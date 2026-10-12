@@ -915,7 +915,7 @@ NPC 没有跨会话记忆，**每一次开工都是新进程**。所谓「记住
 ### GitHub Issue / Discussion / PR 创建（自动化通道）
 
 - **环境**：必须 UTF-8（`export LANG=C.UTF-8; export LC_ALL=C.UTF-8`；Python 设 `PYTHONUTF8=1`）。
-- **中文内容**：issue / discussion 必须用 `--title-file` / `--body-file` 传入 UTF-8 无 BOM 文件，禁止内联中文变量。
+- **中文内容**：正文一律用 `--body-file` / `-F` 传入 UTF-8 无 BOM 文件，禁止内联中文变量。**`gh issue create` 没有 `--title-file`**（gh 2.97.0 实测 `unknown flag`，2026-10-12；此前本行记载有误）：issue 标题与 PR 标题同理禁止内联中文，正确做法是先用 ASCII 占位标题建卡，再用 UTF-8 JSON 文件 `gh api -X PATCH repos/<owner/repo>/issues/<n> --input title.json` 修正（`title.json` 形如 `{"title": "中文标题"}`，由写文件工具生成，禁止内联中文），随后按下方「回读校验」确认。
 - **PR 标题（高频踩坑点）**：`gh pr create` **不支持 `--title-file`**，故严禁 `gh pr create --title "中文…"` 内联传标题——Windows GBK 控制台会把中文按代码页 936 编码，gh 收到 GBK 字节却当 UTF-8 发给 GitHub，标题被永久存成乱码（正文 body 走 `--body-file`/`-F` 不受影响）。正确做法二选一：
   1. **首选 `gh pr create --fill`**：标题与正文直接取自最新提交信息（git 内为干净 UTF-8），完全绕开内联中文；
   2. 确需显式标题时：先 `gh pr create` 建空标题 PR，再用 UTF-8 JSON 文件 `gh api -X PATCH repos/<owner>/<repo>/pulls/<n> --input title.json` 修正（`title.json` 用 `write_to_file` 生成，禁止内联）。
