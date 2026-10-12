@@ -13,6 +13,7 @@ from sqlalchemy import Column, DateTime, Engine, Integer, func, inspect
 from sqlalchemy import exc as sa_exc
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from sqlalchemy.sql import visitors
+from sqlalchemy.sql.annotation import Annotated
 
 from app.core.db_factory import (
     DATA_DOMAIN_REGISTRY,
@@ -100,7 +101,9 @@ def _domain_for_statement(mapper, clause) -> Optional[str]:
     **查找顺序与 SQLAlchemy 2.0 ``Session.get_bind`` 对 ``binds`` 的查找逐条对齐**：
     先由 mapper 落到 ``persist_selectable``，再遍历 clause 里的表；命中的第一张
     **已登记模型表**决定域。只认 identity 属于 ``Base.metadata`` 的表——与旧实现
-    「binds 以 Table 对象为键命中」等价，别的 MetaData 上的同名表不参与路由。
+    「binds 以 Table 对象为键命中」等价，别的 MetaData 上的同名表不参与路由；
+    ORM 实体 select 的 ``AnnotatedTable`` 注解包装先解包到底层 Table 再比对
+    （否则 clause 路径全部落空、误回落应用域，见循环体内注释）。
     """
     if mapper is not None:
         try:
@@ -118,7 +121,27 @@ def _domain_for_statement(mapper, clause) -> Optional[str]:
 
     for obj in visitors.iterate(clause):
         name = getattr(obj, 'name', None)
-        if not isinstance(name, str) or Base.metadata.tables.get(name) is not obj:
+        if not isinstance(name, str):
+            continue
+        table = Base.metadata.tables.get(name)
+        if table is None:
+            continue
+        # identity 比对前先解注解包装：`select(Entity)` / `db.query(Entity)` 的 FROM
+        # 节点是 `AnnotatedTable`（name/metadata 是从真表复制来的，真表挂在私有
+        # `_Annotated__element` 上），与 Base.metadata 里的裸 Table **不是同一对象**，
+        # 直接比 identity 必然落空 → 返回 None → 误回落 APP 引擎。dev 单库下 user/app
+        # 是两条独立连接：flush 走 mapper 路径（正确落 user 引擎）写入的**未提交**行，
+        # 在 refresh 的 SELECT（clause 路径、误落 app 连接）里读不到 →
+        # `InvalidRequestError: Could not refresh instance` 500（2026-10-12 AI 批量
+        # 导入自选 6 条全挂）。解包到底后仍须 is table，保住「同名异库表不参与路由」
+        # 的原语义（`test_ad_hoc_table_with_same_name_is_not_routed`）。
+        target = obj
+        while isinstance(target, Annotated):
+            inner = target._deannotate()  # values=None 分支直接返回底层元素
+            if inner is target:
+                break  # 防御：解不动就停，不无限循环
+            target = inner
+        if target is not table:
             continue
         domain = DATA_DOMAIN_REGISTRY.get(name)
         if domain is not None:

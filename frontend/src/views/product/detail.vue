@@ -197,6 +197,18 @@ watch(productRef, loadProduct, { immediate: true });
         :market="product.market"
       />
 
+      <!-- 走势（#1967）：默认 3M、无数据显空态、口径脚注写明数据日期与来源。
+           位置恢复设计 §5 的 B 位（「我的持仓」之后、「公开资料」之前）——
+           #1967 合入时为避免与 #1966 持仓区块互相 rebase，曾把本卡放到 slot 之后，
+           结果沉到最后一屏（关联标的 / 外链之后），与「走势是用户最关注的指标」
+           这一反馈正相反。各卡现均已合入，错开锚点的理由不再成立。
+           无序列数据源的品类（manager / portfolio / 无日线的 index）由组件自行
+           整卡不渲染（kind 为空串），不会在首屏顶一张空卡。 -->
+      <ProductTrendSection
+        :symbol="product.symbol"
+        :asset-type="product.asset_type"
+      />
+
       <!-- 交易记录（#2104）：仅在该产品有交易流水时才拉取。
            过滤在后端下推到 SQL，不在前端拉全量再筛。 -->
       <ProductTransactionSection
@@ -230,7 +242,7 @@ watch(productRef, loadProduct, { immediate: true });
       <!-- 场内行情（#1969 股票 / #1974 ETF）：两者同为 `securities` 表口径、共用
            `stock-profile` 端点，故合并渲染（ETF 不是基金，不能挂 `fund-profile`——
            那个端点只查 funds 表 6 位场外裸码，ETF 场内码会 404）。
-           走势曲线由下面的走势区块复用同一份行情源，本区块只补「资料 + 区间高低」。 -->
+           走势曲线由上面的走势区块复用同一份行情源，本区块只补「资料 + 区间高低」。 -->
       <ProductStockSection
         v-if="product.asset_type === 'stock' || product.asset_type === 'etf'"
         :symbol="product.symbol"
@@ -284,14 +296,6 @@ watch(productRef, loadProduct, { immediate: true });
       <BondExternalLinkCard
         v-if="product.asset_type === 'bond'"
         :bond-code="product.symbol"
-      />
-
-      <!-- 走势（#1967）：默认 3M、无数据显空态、口径脚注写明数据日期与来源。
-           放在 slot 之后，与 #1966 的持仓区块（插在 slot 之前）错开锚点，
-           两张卡各自独立合入时不必互相 rebase。 -->
-      <ProductTrendSection
-        :symbol="product.symbol"
-        :asset-type="product.asset_type"
       />
 
       <!-- 第三方数据（#1969）：我们不做行情终端——资金流 / 盘口 / 财务这类深度数据
