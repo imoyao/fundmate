@@ -227,11 +227,7 @@ def _build_style_labels(
     top1: Optional[float] = None
     if alloc_rows:
         latest_period = alloc_rows[0].report_period
-        vals = [
-            float(r.ratio)
-            for r in alloc_rows
-            if r.report_period == latest_period and r.ratio is not None
-        ]
+        vals = [float(r.ratio) for r in alloc_rows if r.report_period == latest_period and r.ratio is not None]
         if vals:
             top1 = round(max(vals), 2)
 

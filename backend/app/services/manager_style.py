@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # Author : imoyao
 """基金经理风格标签判据（#2044）：可复算纯函数 + 全库分布标定阈值。
 
@@ -46,10 +46,10 @@ DIM_SIZE = 'size'
 class StyleLabel:
     """单个风格标签。**不含颜色**——配色是前端令牌的事（硬约束 2）。"""
 
-    dim: str   # 维度枚举
-    key: str   # 稳定标签枚举，如 concentration_high（前端映射 Badge 样式）
-    label: str # 中文短文案
-    basis: str # 可解释依据（指标值 + 分位注记）
+    dim: str  # 维度枚举
+    key: str  # 稳定标签枚举，如 concentration_high（前端映射 Badge 样式）
+    label: str  # 中文短文案
+    basis: str  # 可解释依据（指标值 + 分位注记）
 
     def as_dict(self) -> Dict[str, Any]:
         return {'dim': self.dim, 'key': self.key, 'label': self.label, 'basis': self.basis}
@@ -63,15 +63,16 @@ class FundStyleMetrics:
     """
 
     fund_code: str
-    top10_ratio: Optional[float] = None        # 前十大重仓合计占净值比（%）
-    holding_basis: Optional[str] = None        # 'full' | 'top10'（披露口径，影响 basis 注记）
+    top10_ratio: Optional[float] = None  # 前十大重仓合计占净值比（%）
+    holding_basis: Optional[str] = None  # 'full' | 'top10'（披露口径，影响 basis 注记）
     top_industry_ratio: Optional[float] = None  # csrc 第一大行业占净值比（%）
-    size_covered_pct: Optional[float] = None    # 市值分桶覆盖率（%，已覆盖占全部持仓）
-    size_large_share: Optional[float] = None    # 沪深300 成分占已覆盖持仓比（%）
-    report_period: Optional[str] = None         # 最新报告期，如 '2026Q2'
+    size_covered_pct: Optional[float] = None  # 市值分桶覆盖率（%，已覆盖占全部持仓）
+    size_large_share: Optional[float] = None  # 沪深300 成分占已覆盖持仓比（%）
+    report_period: Optional[str] = None  # 最新报告期，如 '2026Q2'
 
 
 # ── 阈值结构 ────────────────────────────────────────────────
+
 
 @dataclass(frozen=True)
 class Band3:
@@ -111,23 +112,23 @@ class Thresholds:
 #: 复标时机：持仓多期回填落地后（数据只随报告期缓慢变化，不做高频重标）。
 DEFAULT_THRESHOLDS = Thresholds(
     concentration=Band3(
-        lo=50.0,    # n=100 P50 = 49.78，四舍五入 50
-        hi=66.0,    # n=100 P80 = 65.83，四舍五入 66
+        lo=50.0,  # n=100 P50 = 49.78，四舍五入 50
+        hi=66.0,  # n=100 P80 = 65.83，四舍五入 66
         note_lo='全库 P50 以下',
         note_mid='全库 P50–P80',
         note_hi='全库 P80',
     ),
     industry=Band3(
-        lo=60.0,    # 全库 P50 = 60.42，取整 60
-        hi=81.0,    # 全库 P80 = 80.75，取整 81
+        lo=60.0,  # 全库 P50 = 60.42，取整 60
+        hi=81.0,  # 全库 P80 = 80.75，取整 81
         note_lo='全库 P50 以下',
         note_mid='全库 P50–P80',
         note_hi='全库 P80',
     ),
     size=SizeBand(
         min_coverage=60.0,  # ≈ 全库 P25（61.9）向下取整；78/101 只通过
-        lo=36.5,            # 全库 P25 = 36.53
-        hi=67.4,            # 全库 P75 = 67.38
+        lo=36.5,  # 全库 P25 = 36.53
+        hi=67.4,  # 全库 P75 = 67.38
         note_lo='全库 P25',
         note_mid='全库 P25–P75',
         note_hi='全库 P75',
@@ -175,9 +176,7 @@ def _note_for(suffix: str, band: 'Band3 | SizeBand') -> str:
     return {'low': band.note_lo, 'mid': band.note_mid, 'high': band.note_hi}[suffix]
 
 
-def _make_label(
-    dim: str, suffix: str, value: float, note: str, extra: str = '', key_suffix: str = ''
-) -> StyleLabel:
+def _make_label(dim: str, suffix: str, value: float, note: str, extra: str = '', key_suffix: str = '') -> StyleLabel:
     """拼标签：`suffix` 索引文案与分位注记，`key_suffix` 缺省与 suffix 相同。"""
     key = f'{dim}_{key_suffix or suffix}'
     basis = f'{_METRIC_TEXTS[dim]} {value:.1f}%，{note}{extra}'
@@ -206,9 +205,7 @@ def judge_style(
     if top10 is not None:
         suffix = _band3(top10, th.concentration)
         extra = '（季报前十大口径）' if metrics.holding_basis == 'top10' else ''
-        labels.append(
-            _make_label(DIM_CONCENTRATION, suffix, top10, _note_for(suffix, th.concentration), extra)
-        )
+        labels.append(_make_label(DIM_CONCENTRATION, suffix, top10, _note_for(suffix, th.concentration), extra))
 
     # 2. 行业集中度（csrc 口径由装配方保证，本函数不辨体系——跨体系混算是上游的错）
     top1 = _pct(metrics.top_industry_ratio)
@@ -223,10 +220,6 @@ def judge_style(
         suffix = _band3(large_share, th.size)
         # size 的 key 枚举独立命名（small/balanced/large），文案仍按 suffix 取
         size_key = {'low': 'small', 'mid': 'balanced', 'high': 'large'}[suffix]
-        labels.append(
-            _make_label(
-                DIM_SIZE, suffix, large_share, _note_for(suffix, th.size), key_suffix=size_key
-            )
-        )
+        labels.append(_make_label(DIM_SIZE, suffix, large_share, _note_for(suffix, th.size), key_suffix=size_key))
 
     return labels
