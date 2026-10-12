@@ -24,6 +24,7 @@ import ProductStockSection from "./components/ProductStockSection.vue";
 import ProductTrendSection from "./components/ProductTrendSection.vue";
 import ProductManagerSection from "./components/ProductManagerSection.vue";
 import ProductRelatedSection from "./components/ProductRelatedSection.vue";
+import ProductTransactionSection from "./components/ProductTransactionSection.vue";
 
 /**
  * 产品详情页骨架（#1964 · 设计 §4 / §8）。
@@ -204,6 +205,14 @@ watch(productRef, loadProduct, { immediate: true });
            无序列数据源的品类（manager / portfolio / 无日线的 index）由组件自行
            整卡不渲染（kind 为空串），不会在首屏顶一张空卡。 -->
       <ProductTrendSection
+        :symbol="product.symbol"
+        :asset-type="product.asset_type"
+      />
+
+      <!-- 交易记录（#2104）：仅可交易品类渲染（manager / portfolio / index 由组件
+           整块不渲染、不发请求），挂载即拉取最近 10 条。过滤在后端下推到 SQL，
+           不在前端拉全量再筛。 -->
+      <ProductTransactionSection
         :symbol="product.symbol"
         :asset-type="product.asset_type"
       />

@@ -33,9 +33,9 @@ def list_transactions():
         'end_date': request.args.get('end_date'),
         'status': request.args.get('status'),
         'asset_type': request.args.get('asset_type'),
+        'symbol': request.args.get('symbol'),
     }
-    page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 20, type=int)
+    page, per_page = request.args.get('page', 1, type=int), request.args.get('per_page', 20, type=int)
     with get_db() as db:
         payload = build_transaction_list(db, get_family_id(), page, per_page, filters)
         return jsonify({**payload, 'message': 'ok'})
