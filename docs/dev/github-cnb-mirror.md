@@ -1,6 +1,6 @@
 ---
 title: GitHub → CNB Issue 增量镜像
-status: v1.1（2026-10-11，源 CNB issue #2；§9 本地卡对照源自 CNB #117）
+status: v1.2（2026-10-12，源 CNB issue #2；§9 本地卡对照源自 CNB #117；§13 双向同步三故障）
 owner: 阿白
 ---
 
@@ -501,3 +501,118 @@ push:
 - **探针要断言「变异真的生效」**。第一轮探针里，往函数体开头插 `return []` 看着像回退，
   实际那是一段**不可达代码**（循环照跑），于是 `--file` 指对文件时守卫仍能报错、
   探针却误判成 `MISSED`。**没有「变异生效」断言的探针，本身就是一个假信号。**
+
+## 13. 双向同步的三个故障与「失败形态对照表」（源 CNB #148，2026-10-12）
+
+2026-10-11~10-12 的构建列表里，**大量 job 长相一模一样**（都叫 `Crontab job`、都是
+`error`），但底下是三种**互不相关**的故障。分不清形态就会像 #152 那次一样，
+把注意力全花在一个读不到也改不了的 Secret 仓库上。
+
+**排查第一步：不要看 job 标题，看 stage 名。**
+
+| stage 长这样 | 报错原文关键词 | 真实原因 | 处理 |
+|---|---|---|---|
+| `Prepare` 失败（**连 stage 都没进**） | `declares allow_images and can only be referenced by plugin tasks` | 密钥文件被挂在**流水线级 `imports`** 上（§13.1） | 改挂插件 `settingsFrom`，见 §13.1 |
+| `Prepare` 失败 | `parse yaml failed … (3:12)` | 密钥文件写成了 `.env` 风格（`KEY=VALUE`） | 改成 `KEY: value` |
+| `Prepare` 失败 | `GetFileContent: not found` | **事件无定义**（事件写在 `.cnb.yml` 顶层，见 §12），平台拿默认分支的定义兜底 | 把事件挂到分支之下 |
+| `stage-0` 失败，日志有 `无法快进` | `无法快进：CNB 侧存在独有提交（dst=… src=…），已跳过，需人工处理` | 分支**分叉**（§11）：CNB 侧长出了 GitHub 没有的提交 | 走 PR 把 CNB 独有提交同步过去，分叉消失后自愈 |
+
+前三条都发生在 `Prepare`、都指向密钥仓库，但**根因完全不同**（位置错 / 格式错 / 事件没定义），
+只有报错原文能区分；第四条根本不在 Prepare 阶段，是**内容**问题。
+
+> **「有的成功有的失败」的真相**（#148 实测）：绿的那条是 `crontab: 0 18 * * *` 的
+> **issue 镜像 job**——它用 `python:3.12-slim` 跑纯标准库脚本，**不 import 密钥、不用插件**；
+> 红的那些全是 git-sync 作业。两者唯一的区别就是「有没有碰密钥文件」。
+
+### 13.1 凭据必须走插件 `settingsFrom`，不能走流水线级 `imports`
+
+三条 git-sync 作业（`push` + 两条 `crontab`）曾在 2026-10-12 于 `Prepare` 阶段**全部**失败：
+
+```
+The file: .../fundmate-secret/-/blob/main/vars.yml declares allow_images
+and can only be referenced by plugin tasks.
+```
+
+根因是**位置错了**，不是内容写错：
+
+1. `fundmate-secret` 是私有且非同源仓库，被引用时**必须**声明
+   `allow_images: [tencentcom/git-sync]`（见 CNB 文档
+   [文件引用 › 权限检查](https://docs.cnb.cool/zh/build/file-reference.md#权限检查)），
+   否则 git-sync 插件读不到密钥；
+2. 但 `imports` 是**流水线级**引用，平台**不认为它是「插件任务」**⇒ 判定
+   「声明了 `allow_images` 却没在插件任务里用它」⇒ `Prepare` 直接拒绝。
+
+判断口诀：
+
+```
+引用**不声明 `allow_*`** 的普通 YAML → imports（流水线级，注入环境变量）
+引用**声明了 `allow_images`** 的密钥文件 → settingsFrom（插件任务级，插件读）
+```
+
+正确形态（`.cnb.yml` 现在就是这个形状）：
+
+```yaml
+main:
+  push:
+    - stages:
+        - name: 同步到 GitHub（全分支 + 标签）
+          image: tencentcom/git-sync
+          settingsFrom:                                  # ← 凭据挂这里
+            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
+          settings:
+            target_url: https://github.com/imoyao/fundmate.git
+            auth_type: https
+            username: ${GIT_USERNAME}
+            password: ${GITHUB_PAT}
+            push_tags: true
+```
+
+⚠️ 迁移时**必须删掉原来那行 `imports`**：同一份文件两种语义并存时，`imports` 那条路
+依旧会在 `Prepare` 被拒——那是「改了但没改完」的典型半吊子状态。
+
+#### 静态守卫与它的边界
+
+`scripts/guard_secret_imports.py`（并入 `ci.yml` 的 **`layout_guard`** job；不新增 job，
+就不必动 `gate.needs`）拦两条：
+
+1. **同一份 URL 同时出现在 `imports` 与 `settingsFrom`** —— 半吊子迁移；
+2. **被 `imports` 引用的密钥文件声明了 `allow_images`** —— 只读**仓库内**的同路径模板
+   `docs/ops/git-sync-secret-vars.example.yml` 判断（模板与密钥仓库内容同步，
+   这是唯一在 CI 里读得到的副本；Secret 仓库对 API / token 一律 403）。
+
+**边界**：判据 2 的前提是「模板里确实写着 `allow_images`」。若密钥仓库那份被人改动了、
+而模板没跟着改，守卫会按模板的**过期事实**判定——这是已知的假阴性来源，
+故模板与密钥仓库的同步是**人工纪律**（改密钥仓库时顺手改模板，走 PR）。
+
+**已知假阴性（刻意不拦）**：把 `imports` 引用指向**不声明 `allow_*`** 的普通 YAML 是
+合法用法，守卫不报错；反过来，若密钥文件被移到与模板不同的路径，判据 2 也会因
+「模板缺失」而静默跳过（只按判据 1 判定，输出里会说明跳过了哪条）。
+
+#### 守门自己也得先被验过（本仓老规矩）
+
+`guard_secret_imports.py` 带 `self_check()` 探针：用一份**最小真实形态**的配置
+（同一 URL 同时出现在 `imports` 与 `settingsFrom`）验证两条判据都真会报错。
+反向探针（把判据 2 摘掉 / 把 `settingsFrom` 检测键名改错）实测会被
+`scripts/tests/guard_secret_imports.test.js` 抓住——探针本身失效时，那才是真正的
+假绿（#152 的教训：没有「变异生效」断言的探针就是个假信号）。
+
+### 13.2 Secret 仓库的人工操作清单（本仓改不进 PR）
+
+`.cnb.yml`、模板、文档都能走 PR；**唯独密钥仓库那份 `vars.yml` 只能人工在 Web 改**。
+以下步骤需在 CNB Web 界面执行（AI / CLI 读不到也写不了，`Secret repos do not support
+token access`）：
+
+1. 打开 `https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml`（需登录且有权限）；
+2. 对照本仓模板 `docs/ops/git-sync-secret-vars.example.yml` 逐项核对：
+   - 文件是**YAML**（`KEY: value`），不是 `.env` 的 `KEY=VALUE`；
+   - 有 `GIT_USERNAME` 与 `GITHUB_PAT`（PAT 需 `repo` 权限）；
+   - 四个 `allow_*` 齐全：`allow_slugs`（本仓 slug）、`allow_events`（`push` + `crontab:*`）、
+     `allow_branches`（`main` / `dev`）、`allow_images`（`tencentcom/git-sync` 及其 `:*` glob）；
+   - 没有多写 `allow_tags` / `allow_users`（字段不存在，写了静默不生效）；
+3. **保存后手动触发一次任一条 git-sync 作业**（`main` 分支 → 运行流水线 → 选 `push` 或
+   `crontab: 0 * * * *`），确认 `Prepare` 阶段转绿、stage 能进；
+4. 若 `Prepare` 仍报 `declares allow_images` ⇒ **是 `.cnb.yml` 里还留着 `imports` 那行**
+   （或改动尚未发版到 `main`），不是密钥仓库的问题——先跑
+   `python scripts/guard_secret_imports.py` 自证。
+
+> ⚠️ 改密钥仓库时同步更新本仓模板，否则 §13.1 的判据 2 会按过期事实判定。
