@@ -58,7 +58,12 @@ from app.core.constants import EXCHANGE_RATES
 from app.core.money import Money
 from app.core.time_utils import today_shanghai
 from app.domains.funds.models import FundHolding, FundIndustryAlloc
-from app.services.fund_utils import is_cash_equivalent_position, normalize_fund_code, resolve_money_fund_flags_strict
+from app.domains.securities.models import SecurityIndustryMap
+from app.services.fund_utils import (
+    is_cash_equivalent_position,
+    normalize_business_code,
+    resolve_money_fund_flags_strict,
+)
 from app.services.position_valuation import market_value_cents
 
 # 复用 summary_service 的持仓加载器（同一过滤口径：active only）。
@@ -67,7 +72,14 @@ from app.services.summary_service import _load_user_assets
 
 # ── 主口径与分类体系 ──
 DEFAULT_SCHEME = 'csrc'
-SCHEME_LABELS: dict[str, str] = {'csrc': '证监会门类', 'gics': 'GICS 板块'}
+SCHEME_LABELS: dict[str, str] = {
+    'csrc': '证监会门类',
+    'gics': 'GICS 板块',
+    # #1981：申万一级（31 个）。**只在 `security_industry_maps` 里有数据**——
+    # 基金侧行业配置（`fund_industry_allocs`）只有 csrc / gics 两套，没有申万口径。
+    # 故它只覆盖直持腿，与主口径的基金部分互补，绝不并入主口径。
+    'sw1': '申万一级',
+}
 
 # 可尝试穿透的持仓类型（基金 / ETF）。ETF 目前无底层数据，仍走同一路径，
 # 待 B3 补齐 ETF 持仓后自动生效，无需改这里。
@@ -152,12 +164,11 @@ def _share(value_cents: int, ratio_pct: float) -> int:
 
 
 def _business_code(symbol_norm: str, symbol: str) -> str:
-    """从归一身份键取业务码：`OTC:004369` → `004369`；`EXCHANGE:SZ159857` → `159857`。
+    """从归一身份键取业务码（薄封装，口径与理由见 `fund_utils.normalize_business_code`）。
 
-    没有 `symbol_norm`（历史行 / 夹具）时退回裸 `symbol` 解析。
+    #1981 起不再自持一份解析：写侧的行业映射采集要用**同一个**键，两处各写一遍必然漂。
     """
-    raw = symbol_norm.split(':', 1)[1] if ':' in (symbol_norm or '') else (symbol or '')
-    return normalize_fund_code(raw)
+    return normalize_business_code(symbol_norm, symbol)
 
 
 def _load_industry_map(db: Session, codes: Iterable[str], scheme: str) -> dict[str, _AllocRecord]:
@@ -199,6 +210,50 @@ def _load_industry_map(db: Session, codes: Iterable[str], scheme: str) -> dict[s
             out[row.fund_code] = rec
         rec.items.append((row.industry_code, row.industry_name, float(row.ratio or 0)))
     return out
+
+
+def _load_security_industry_map(db: Session, codes: Iterable[str], scheme: str) -> dict[str, tuple[str, str]]:
+    """直持证券的「代码 → (行业代码, 行业名)」映射（#1981）。
+
+    **刻意与 :func:`_load_industry_map` 分开两张表读**：那张是**基金**的报告期行业配置
+    （带 `report_period` 与 `ratio`，要按「各自最新报告期」去重），本表是**证券**的行业
+    归属（无期间、无比例，一码一条）。混用会让「按报告期去重」的逻辑把证券映射也按期
+    切一遍，或者反之——两套口径的键根本不同。
+
+    ``scheme`` 显式入参：证监会门类（``csrc``，与基金侧同口径、**主口径**）与申万一级
+    （``sw1``，细粒度、只进 ``other_schemes`` 单列）各自取，互不混用。
+    """
+    code_list = sorted({c for c in codes if c})
+    if not code_list:
+        return {}
+
+    rows = (
+        db.query(SecurityIndustryMap.symbol, SecurityIndustryMap.industry_code, SecurityIndustryMap.industry_name)
+        .filter(SecurityIndustryMap.scheme == scheme, SecurityIndustryMap.symbol.in_(code_list))
+        .all()
+    )
+    return {sym: (code, name or '') for sym, code, name in rows}
+
+
+def _other_scheme_note(scheme_key: str, label: str) -> str:
+    """非主口径的覆盖范围说明（#1981 起**按体系分述**）。
+
+    原先是一句写死的「GICS 只标注港股」。加入申万一级后这句话对 ``sw1`` 不成立——
+    ``sw1`` 恰恰**只**覆盖直持腿（基金侧没有申万口径），两者互补而非重叠，
+    用同一句话会把一个高覆盖率的体系描述成残缺的，前端也会照着错误地降级展示。
+    """
+    if scheme_key == 'gics':
+        return (
+            f'{label} 仅覆盖基金持仓的一部分（实测 GICS 只标注港股），'
+            '行业合计远低于参与基金市值，不可当作独立穿透口径与主口径并列展示。'
+        )
+    if scheme_key == 'sw1':
+        return (
+            f'{label} 只覆盖**直持**股票 / 可转债——基金侧行业配置只有证监会门类、没有申万口径。'
+            '故它与主口径的基金部分**互补而不重叠**；`direct_industries` 即其全部覆盖范围，'
+            '与主口径 `industries`（基金部分）相加才是申万一级的完整分布。'
+        )
+    return f'{label} 覆盖范围有限，不可当作独立穿透口径与主口径并列展示。'
 
 
 def _load_holding_map(db: Session, codes: Iterable[str]) -> dict[str, _HoldingRecord]:
@@ -327,6 +382,20 @@ def build_penetration(
     fund_codes = [leg.code for leg in fund_legs if leg.code]
     primary_map = _load_industry_map(db, fund_codes, scheme)
 
+    # ── 直持腿的行业映射（#1981）────────────────────────────────────────
+    # 只对「因缺映射而未穿透」的直持腿生效：**现金等价物（货基 / 逆回购）不参与映射**
+    # ——它本质无股票敞口，即便代码碰巧撞上某行业也不该被归类，那等于把现金算成
+    # 某个行业的暴露。
+    #
+    # 命中即把 ``reason`` 清空：它不再是缺口，下面的行业层会把它全额并进去。
+    # 未命中的**保持原样**，仍在 ``unpenetrated`` 里带 ``industry_map_missing`` ——
+    # 这正是验收第 2 条要求的「不得凭空调出 0 值行业」。
+    mappable = [leg for leg in direct_legs if leg.reason == REASON_INDUSTRY_MAP_MISSING and leg.code]
+    direct_map = _load_security_industry_map(db, [leg.code for leg in mappable], scheme)
+    mapped_direct = [leg for leg in mappable if leg.code in direct_map]
+    for leg in mapped_direct:
+        leg.reason = None
+
     penetrated_cents = 0
     industry_cents: dict[str, int] = defaultdict(int)
     industry_names: dict[str, str] = {}
@@ -335,7 +404,8 @@ def build_penetration(
     # 按**基金码**去重（同一基金可能在多个账本各有一条持仓，那是同一份报告期口径），
     # 出参语义是「多少只基金用的哪一期」，不是「多少条持仓」。
     period_funds: dict[str, set[str]] = defaultdict(set)
-    unpenetrated: list[_Leg] = list(direct_legs)
+    # 只收「仍带 reason」的腿：命中映射的直持腿已转入行业分布，不再是缺口（#1981）
+    unpenetrated: list[_Leg] = [leg for leg in direct_legs if leg.reason is not None]
 
     for leg in fund_legs:
         rec = primary_map.get(leg.code)
@@ -364,6 +434,19 @@ def build_penetration(
         # 13 只 <40（债基 / 指数联接基金的股票仓位本就极低）。故不摊进行业、不归一化。
         residual_cents += leg.value_cents - allocated
 
+    # ── 直持腿并入行业分布（#1981）──────────────────────────────────────
+    # 直持股票没有 report_period / ratio 可摊：**全额**归到它自己的行业。
+    # 它不进 period_funds（那是「多少只基金用的哪一期报告」的语义，直持腿不是基金、
+    # 也没有报告期），改用 direct_counts 单独计数。
+    direct_counts: dict[str, int] = defaultdict(int)
+    for leg in mapped_direct:
+        industry_code, industry_name = direct_map[leg.code]
+        industry_cents[industry_code] += leg.value_cents
+        penetrated_cents += leg.value_cents
+        direct_counts[industry_code] += 1
+        if industry_name and industry_code not in industry_names:
+            industry_names[industry_code] = industry_name
+
     industries = [
         {
             'code': code,
@@ -372,6 +455,9 @@ def build_penetration(
             'ratio_of_total': _ratio(value, total_cents),
             'ratio_of_penetrated': _ratio(value, penetrated_cents),
             'fund_count': len(industry_funds[code]),
+            # 直持腿命中数（#1981）：与 fund_count 分开，因为两者语义不同——
+            # 前者是「多少只基金的行业配置里有它」，后者是「多少只直持证券归它」。
+            'direct_count': direct_counts.get(code, 0),
         }
         for code, value in sorted(industry_cents.items(), key=lambda kv: -kv[1])
     ]
@@ -399,7 +485,27 @@ def build_penetration(
                 agg[industry_code] += _share(leg.value_cents, ratio_pct)
                 if industry_code not in names and industry_name:
                     names[industry_code] = industry_name
-        if not agg:
+
+        # 直持腿在该体系下的分布（#1981），**单列**而不是并进 agg：
+        # `covered_cny` / `covered_ratio_of_fund` 的分母是「参与基金市值」，把直持腿
+        # 混进分子会让这个比值失真（甚至 > 1）。单列后前端可自行把两者相加，
+        # 而 `industries` 仍是纯基金口径、`covered_ratio` 语义不变。
+        direct_other_map = _load_security_industry_map(db, [leg.code for leg in mappable], other)
+        direct_agg: dict[str, int] = defaultdict(int)
+        direct_names: dict[str, str] = {}
+        for leg in mappable:
+            hit = direct_other_map.get(leg.code)
+            if hit is None:
+                continue
+            direct_code, direct_name = hit
+            direct_agg[direct_code] += leg.value_cents
+            if direct_name and direct_code not in direct_names:
+                direct_names[direct_code] = direct_name
+
+        # 两侧都空才算这一体系没有数据。**不能只看 agg**：申万一级在基金侧
+        # 没有对应记录（`fund_industry_allocs` 只有 csrc / gics），只有直持腿有，
+        # 若沿用旧的 `if not agg: continue`，sw1 会被整条跳过、白采一遍。
+        if not agg and not direct_agg:
             continue
         industry_total = sum(agg.values())
         label = SCHEME_LABELS.get(other, other)
@@ -409,7 +515,7 @@ def build_penetration(
             'covered_ratio_of_fund': _ratio(covered_cents, fund_cents),
             'industry_total_cny': _cny(industry_total),
             'industry_ratio_of_covered': _ratio(industry_total, covered_cents),
-            'note': f'{label} 仅覆盖基金持仓的一部分（实测 GICS 只标注港股），行业合计远低于参与基金市值，不可当作独立穿透口径与主口径并列展示。',
+            'note': _other_scheme_note(other, label),
             'industries': [
                 {
                     'code': code,
@@ -418,6 +524,17 @@ def build_penetration(
                     'ratio_of_total': _ratio(value, total_cents),
                 }
                 for code, value in sorted(agg.items(), key=lambda kv: -kv[1])
+            ],
+            # 直持腿在该体系下的行业分布（#1981），与上面 `industries`（基金部分）
+            # 互补不重叠，相加才是该体系的完整分布
+            'direct_industries': [
+                {
+                    'code': code,
+                    'name': direct_names.get(code) or code,
+                    'value_cny': _cny(value),
+                    'ratio_of_total': _ratio(value, total_cents),
+                }
+                for code, value in sorted(direct_agg.items(), key=lambda kv: -kv[1])
             ],
         }
 
@@ -475,8 +592,12 @@ def build_penetration(
         )
 
     # ── 5. 分层汇总（三层守恒为硬口径）─────────────────────────────────
-    direct_cents = sum(leg.value_cents for leg in direct_legs if leg.reason != REASON_CASH_EQUIVALENT)
+    direct_cents = sum(leg.value_cents for leg in direct_legs if leg.reason == REASON_INDUSTRY_MAP_MISSING)
     cash_equiv_cents = sum(leg.value_cents for leg in direct_legs if leg.reason == REASON_CASH_EQUIVALENT)
+    # #1981：命中映射的直持腿**已并入 penetrated_cents**，故这里只是把它单列出来做
+    # 透明度（用户能看到「直持有多少已按行业归类」），**绝不能再计入 direct_cny**，
+    # 否则同一笔钱会被算两次、守恒立刻破。
+    mapped_direct_cents = sum(leg.value_cents for leg in mapped_direct)
     unpenetrated_fund_cents = sum(
         leg.value_cents for leg in unpenetrated if leg.reason in (REASON_FUND_ALLOC_MISSING, REASON_ETF_HOLDING_MISSING)
     )
@@ -492,6 +613,8 @@ def build_penetration(
             'penetrated_ratio': _ratio(penetrated_cents, total_cents),
             'fund_cny': _cny(fund_cents),
             'direct_cny': _cny(direct_cents),
+            # #1981：直持腿已按行业归类的金额（**已含在 penetrated_cny 内**，此处仅作拆分展示）
+            'mapped_direct_cny': _cny(mapped_direct_cents),
             'cash_equivalent_cny': _cny(cash_equiv_cents),
             'unpenetrated_fund_cny': _cny(unpenetrated_fund_cents),
         },
@@ -523,7 +646,12 @@ def build_penetration(
             '（见 industry_non_equity_cny），**不是缺失数据**，故未归一化到 100%。'
             '实测基金间差异极大：股票型多在 90% 以上，债基/指数联接基金可低至个位数。',
             f'行业分类体系为 {SCHEME_LABELS.get(scheme, scheme)}，与其它体系不可相加，'
-            '非主口径结果在 other_schemes 单列且**不自成完整口径**（GICS 只覆盖港股部分）。',
+            '非主口径结果在 other_schemes 单列（各体系的覆盖范围见其 note 字段）。',
+            '直持股票/可转债按「代码→行业」映射**全额**并入主口径行业分布（#1981）：'
+            '命中的计入 penetrated_cny，并在 industries[].direct_count 可见来源；'
+            '未命中的仍带 industry_map_missing，**绝不凭空补出一个 0 值行业**。',
+            '申万一级（sw1）只覆盖直持腿（基金侧行业配置只有证监会门类，没有申万口径），'
+            '故其 direct_industries 与主口径 industries 的基金部分互补而不重叠。',
             '个股层季报只披露前十大（basis=top10），与半年报全量（full）口径强度不同，'
             'stocks_coverage.fund_count_by_basis 标明各口径基金数。',
             '未穿透逐条带 reason：cash_equivalent 是本质无股票敞口（非缺口），其余三项才是待补的真缺口。',

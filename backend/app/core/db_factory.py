@@ -180,6 +180,9 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'fee_ratios': DOMAIN_MARKET,
     'price_history': DOMAIN_MARKET,  # 历史行情（最大体积表）
     'securities': DOMAIN_MARKET,
+    # 个股/可转债 → 行业映射（#1981）。随 securities 同域：公开证券主数据，
+    # 无家庭私有字段，且 penetration 读它时要与 securities / price_history 同会话。
+    'security_industry_maps': DOMAIN_MARKET,
     'market_single_values': DOMAIN_MARKET,
     'market_composites': DOMAIN_MARKET,
     'market_multi_items': DOMAIN_MARKET,

@@ -67,6 +67,7 @@ from app.services.sync.jobs.market_asset_daily_job import MarketAssetDailySyncJo
 from app.services.sync.jobs.orphan_backfill_job import OrphanBackfillJob
 from app.services.sync.jobs.position_price_job import PositionPriceSyncJob
 from app.services.sync.jobs.price_history_job import PriceHistorySyncJob
+from app.services.sync.jobs.security_industry_map_job import SecurityIndustryMapSyncJob
 from app.services.sync.jobs.stock_list_job import StockListSyncJob
 from app.services.thermometer.jobs import TemperatureJob
 
@@ -207,6 +208,10 @@ class DataSyncOrchestrator:
         self.jobs['convertible_bond'] = ConvertibleBondSyncJob(self.data_sources['akshare'], self.db)
         # #1286：指数名录（聚合搜索可搜索的指数条目，与成分互补）
         self.jobs['index_catalog'] = IndexCatalogSyncJob(self.data_sources['akshare'], self.db)
+        # #1981：个股 / 可转债 → 行业映射（申万宏源全量 31 请求 + 巨潮按 targets 补）。
+        # 取数在 services/security_industry_map_service 内直连上游（两家**非东财**源），
+        # 故与 market_asset_daily 同范式用 NullAdapter 占位。
+        self.jobs['security_industry_maps'] = SecurityIndustryMapSyncJob(NullAdapter(), self.db)
         # #275：指数日线点位（万得全A 经韭圈儿公开接口，独立数据源）
         self.jobs['index_daily'] = IndexDailySyncJob(JiucaishuoAdapter(), self.db)
         # #1460：探市大类资产日频快照（数据经 market_service 直连 akshare，不经过 adapter，
