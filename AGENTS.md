@@ -115,6 +115,26 @@
   正常态是「`main` 领先 0、`main` 是 `dev` 的祖先」——即 `main` 始终是 `dev` 的历史前缀。
   **出现 `main` 领先 `dev` 就是分叉，无论提交数多小，都先查是不是有 PR 用错了 base。**
 
+#### `.cnb.yml` 的事件写在分支下，不写顶层（2026-10-11，#152）
+
+同一条平台限制的另一面，且**更容易踩**：`.cnb.yml` 的**顶层只认分支名**（与 `$`）。
+事件（`push:` / `"crontab: ..."` / `web_trigger:`）必须写在**分支之下**。
+
+写成顶层不会报「位置错」，而是被读成**一个名字叫 `push` 的分支**——随后报错形态全错位：
+
+- `GetFileContent: not found` = **事件无定义**，不是「文件不存在」（平台拿默认分支的定义兜底）；
+- 同一次事故里 `parse yaml failed` 又是另一件事（定义后来长出来、才轮到读文件内容）。
+
+两者看着像「同一件事的两个阶段」，实际是两个独立原因——2026-10-11 连续 7 条流水线全红
+就是被这两句话各带偏一次，注意力全在 `fundmate-secret`（Secret 仓库，API 一律 403），
+而真正要改的是 `.cnb.yml` 的缩进。
+
+- **判据机器化**：`python scripts/check_cnb_events.py`（并入 `ci.yml` 的 `scripts_test` job，
+  阻断），回归网 `scripts/tests/branch_structure.test.js`；完整推导见
+  `docs/dev/github-cnb-mirror.md` §12。
+- **守卫白名单只能是单值键**：把 `main` / `dev` 写进「允许的顶层键」会让任何分支名都合法、
+  判据当场失效。守卫自带自检探针（用真实存在的 `sync/mirror:` 反证）。
+
 ---
 
 ## 目录边界
@@ -831,6 +851,17 @@ NPC 没有跨会话记忆，**每一次开工都是新进程**。所谓「记住
 
   - 用 `python scripts/bridge/mirror_correction.py add --cnb <编号> --date <日期> --correction '<一条更正>'` 生成（默认 dry-run，加 `--apply` 真正发布；幂等，重复执行只发一次，返工用 `--force`）；`list --cnb <编号>` 看某张卡已记的更正。
   - 边界：**只往 CNB 写，绝不回写 GitHub**；不动镜像卡正文、标签与状态；脚本会拒绝往非镜像卡（人工卡）写更正。
+- **CNB 本地卡**（只对 CNB 有效、**不进 GitHub** 的卡，D49 / CNB #117）：
+  - 判据是「这张卡的存在意义是否依赖 CNB 这个环境」——`CNB_TOKEN` 构建内注入、`cnb` CLI、
+    `.cnb.yml` cron 语义、CNB 自身镜像链路取舍等，镜像到 GitHub 读起来会莫名其妙；
+  - **开卡时就声明**，两种任选（都认）：正文顶部写 `> 📍 **CNB 本地卡**`，或挂 `CNB 本地` 标签；
+  - **忘了声明也不会丢**：`python scripts/bridge/github_cnb_issues.py --report-local` 会把
+    「无 `GitHub 同步` 标签 + 无幂等键」的卡兜底认成本地卡并报出来——但兜底是**猜**
+    （报告里记为 `fallback`），所以**声明仍是正道**；
+  - 若某张卡正文引用了 GitHub 侧卡，**写完整 URL** `https://github.com/imoyao/fundmate/issues/N`：
+    回写作业（`cnb_github_backfill.py`）只认完整 URL，裸引用 `imoyao/fundmate#N` 会被
+    **静默跳过**（该取舍是对的——写路径认错会把评论贴到别人卡上；`--report-local` 会把
+    这类卡单独标出来供人判断）。
 
 ---
 

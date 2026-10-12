@@ -54,13 +54,22 @@ jobs:
         run: pip install ftfy >/dev/null
 
       - name: 扫描本次推送范围（变更文件 + 提交信息）
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_AFTER: ${{ github.event.after }}
+          # `inputs.*` 只有 workflow_dispatch / workflow_call 才定义；push 触发时是
+          # **未定义上下文**，写进 `run:` 会留下字面量（bash 惰性解析，平时不炸，
+          # 一旦走到那个分支就 `bad substitution`）。经 `env:` 传则未定义时解析为空串。
+          INPUT_BASE: ${{ inputs.base }}
+          INPUT_HEAD: ${{ inputs.head }}
         run: |
           # push 事件：before / after；手动触发：inputs
-          base="${{ github.event.before }}"
-          head="${{ github.event.after }}"
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            base="${{ inputs.base }}"
-            head="${{ inputs.head }}"
+          base="$EVENT_BEFORE"
+          head="$EVENT_AFTER"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            base="$INPUT_BASE"
+            head="$INPUT_HEAD"
           fi
           if [ -z "$head" ]; then
             head="$(git rev-parse HEAD)"
