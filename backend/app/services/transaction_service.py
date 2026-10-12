@@ -66,6 +66,11 @@ def build_transaction_list(db, family_id: int, page: int, per_page: int, filters
         pids = [p.id for p in position_ids]
         query = query.filter(Transaction.position_id.in_(pids))
 
+    # 筛选：产品代码（字面量快照，与持仓侧 symbol_scope 归一身份键一致）
+    symbol = filters.get('symbol')
+    if symbol:
+        query = query.filter(Transaction.symbol == symbol)
+
     # 排序与分页
     query = query.order_by(Transaction.created_at.desc())
     items, total = paginate(query, page=page, per_page=per_page)
@@ -80,6 +85,7 @@ def build_transaction_list(db, family_id: int, page: int, per_page: int, filters
                 'position_name': t.position_name or '未知资产',
                 'type': t.txn_type,
                 'asset_type': t.asset_type,
+                'symbol': t.symbol,
                 'trade_date': t.trade_date.strftime('%Y-%m-%d') if t.trade_date else None,
                 'confirm_date': t.confirm_date.strftime('%Y-%m-%d') if t.confirm_date else None,
                 'quantity': Money.min_unit_to_shares(t.quantity),

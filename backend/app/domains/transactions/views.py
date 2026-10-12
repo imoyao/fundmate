@@ -33,6 +33,7 @@ def list_transactions():
         'end_date': request.args.get('end_date'),
         'status': request.args.get('status'),
         'asset_type': request.args.get('asset_type'),
+        'symbol': request.args.get('symbol'),
     }
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 20, type=int)

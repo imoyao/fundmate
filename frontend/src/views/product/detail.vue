@@ -24,6 +24,7 @@ import ProductStockSection from "./components/ProductStockSection.vue";
 import ProductTrendSection from "./components/ProductTrendSection.vue";
 import ProductManagerSection from "./components/ProductManagerSection.vue";
 import ProductRelatedSection from "./components/ProductRelatedSection.vue";
+import ProductTransactionSection from "./components/ProductTransactionSection.vue";
 
 /**
  * 产品详情页骨架（#1964 · 设计 §4 / §8）。
@@ -194,6 +195,13 @@ watch(productRef, loadProduct, { immediate: true });
         v-if="product.has_position === true"
         :symbol="product.symbol"
         :market="product.market"
+      />
+
+      <!-- 交易记录（#2104）：仅在该产品有交易流水时才拉取。
+           过滤在后端下推到 SQL，不在前端拉全量再筛。 -->
+      <ProductTransactionSection
+        :symbol="product.symbol"
+        :asset-type="product.asset_type"
       />
 
       <!-- 基金资料（#1968）：仅基金品类渲染。首屏净值与日涨跌 + 类型/经理/规模/费率，
