@@ -148,13 +148,26 @@ function buildOption() {
     series: [
       {
         type: "pie",
-        radius: isDataEmpty ? "50%" : ["45%", "70%"],
+        // 有数据时**上移圆心并内缩外径**：给底部图例换行预留空间。
+        //
+        // ⚠️ 为什么必须留：legend 是 `bottom: 0` 的绝对定位，**换行时不会挤压
+        // series**（pie 不参与 grid 布局）。容器 min-height 200px，图例 1 行约占底部
+        // 10%、2 行约占 20%；而未内缩的圆环底缘在 50% + 70%/2 = 85% 处——
+        // 2 行图例顶到 80%，就压住扇区约 5%，表现为「文字压在图形上」。
+        //
+        // 内缩到 42%/64% + 圆心 45% 后底缘落在 77%，两行图例也有 ~23% 余量。
+        // 代价是圆环略小——宁可留白，不可重叠。
+        radius: isDataEmpty ? "50%" : ["42%", "64%"],
+        center: isDataEmpty ? ["50%", "50%"] : ["50%", "45%"],
         itemStyle: {
           color: (params: { name?: string }) => colorFor(params.name ?? ""),
           borderRadius: 6,
           borderColor,
           borderWidth: 2
         },
+        // label 只在空态出现（position: "center"，居中占位文字），**任何一种形态都
+        // 不需要引导线**。此前写 `show: !isDataEmpty` 与 `label: { show: false }`
+        // 自相矛盾：有数据时画出一批指向空处的引线，视觉上就是「奇怪的线划过图形」。
         label: isDataEmpty
           ? {
               show: true,
@@ -164,7 +177,7 @@ function buildOption() {
               fontSize: 12
             }
           : { show: false },
-        labelLine: { show: !isDataEmpty },
+        labelLine: { show: false },
         data: isDataEmpty ? [{ name: props.emptyText, value: 1 }] : props.data
       }
     ]
