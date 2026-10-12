@@ -43,11 +43,25 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 
 const GUARD = join(process.cwd(), "scripts", "check_cnb_events.py");
 const src = readFileSync(GUARD, "utf8");
+
+/** 把内容写成临时 .cnb.yml 跑守卫，断言退出码与输出，最后一定清理。 */
+function expectGuard(content, expectStatus, msg) {
+  const tmp = join(process.cwd(), ".cnb.yml.branch-structure-test-tmp");
+  writeFileSync(tmp, content, "utf8");
+  try {
+    const r = spawnSync("python3", [GUARD, "--file", tmp], { encoding: "utf8" });
+    assert.equal(r.status, expectStatus, `${msg}（stdout=${r.stdout} stderr=${r.stderr}）`);
+    return r;
+  } finally {
+    rmSync(tmp, { force: true });
+  }
+}
 
 /** 从真实守卫里取出「顶层键白名单」常量，避免测试与实现各写一份。 */
 function extractSet(name) {
@@ -74,4 +88,42 @@ test("守卫必须带「唯一值键当分支」的自检探针（防白名单�
   // 探针必须发现并报错——没有这条，白名单退化后守卫会静默失效。
   assert.match(src, /自检|self.?check|probe/i, "守卫里没有自检探针的痕迹");
   assert.match(src, /sync\/mirror/, "自检探针没有用真实存在的分支键（sync/mirror）");
+});
+
+test("回退验证：顶层 push: 必须报红（#152 最高频写法，EVENT_LIKE 必须生效）", () => {
+  // #152 的根因正是把 `push:` 写在文件顶层。守卫必须把它判成「事件指向不存在的分支」，
+  // 而不是「长得像分支名就放行」——否则 EVENT_LIKE 没接进判据，根因写法会被静默放过。
+  const bad = [
+    "push:",
+    "  - stages:",
+    "      - image: tencentcom/git-sync",
+    "        stages: []",
+    "",
+  ].join("\n");
+  const r = expectGuard(bad, 1, "顶层 push: 没被守卫拦截（守门失效）");
+  assert.match(r.stdout, /事件|push|不存在分支/);
+});
+
+test("回退验证：pull_request / web_trigger 写在顶层也要报红", () => {
+  for (const ev of ["pull_request", "web_trigger", "tag_push"]) {
+    const bad = `${ev}:\n  - stages:\n      - image: tencentcom/git-sync\n        stages: []\n`;
+    const r = expectGuard(bad, 1, `顶层 ${ev}: 没被守卫拦截（守门失效）`);
+    assert.match(r.stdout, /事件|不存在分支/);
+  }
+});
+
+test("合法形态不误报：事件挂在分支之下（main: 之内）", () => {
+  const ok = [
+    "main:",
+    "  push:",
+    "    - stages:",
+    "        - image: tencentcom/git-sync",
+    "          stages: []",
+    "  \"crontab: 0 * * * *\":",
+    "    - stages:",
+    "        - image: tencentcom/git-sync",
+    "          stages: []",
+    "",
+  ].join("\n");
+  expectGuard(ok, 0, "事件挂在分支之下却被误报");
 });

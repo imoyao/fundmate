@@ -68,10 +68,24 @@ def check_top_keys(data: dict) -> list[str]:
     for key in data:
         if key in ALLOWED_TOP_KEYS:
             continue
+        if isinstance(key, str) and EVENT_LIKE.match(key):
+            # `push` / `pull_request` / `web_trigger` / `tag_push` / `"crontab: ..."`
+            # 这些是**事件**，不是分支名。写在顶层等于让事件指向一个名为该字符串的
+            # **不存在分支**——#152 的根因正是 PR #150 把 `push:` 与两条 `"crontab: ..."`
+            # 写在了文件顶层。CNB 的事件必须写在分支之下（`main:` / `dev:` 之内）。
+            problems.append(
+                f'顶层键 {key!r} 看起来是**事件**而不是分支名。'
+                'CNB 的顶层只认分支名（事件要写在分支之下）；'
+                f'写成顶层等于让事件指向一个名为 {key!r} 的**不存在分支**——'
+                '而平台会用默认分支的定义去兜底，报错形态会南辕北辙（见文件头）。'
+            )
+            continue
         if isinstance(key, str) and BRANCH_NAME.match(key):
             # 形如 `main` / `sync/mirror`：这是**单值分支键**，正是 CNB 期望的写法。
             # 注意：这里「看起来像分支名」就放行——真正的分支是否存在，静态无从判定；
             # 本守卫拦的是「长得像事件、其实指向不存在的分支」这一类（本事故的根因）。
+            # 与上面 EVENT_LIKE 的区别：`push` 这种「既是合法分支名又像事件」的键，
+            # 优先按事件处理（#152 最高频的写法就是顶层 `push:`），故 EVENT_LIKE 先判。
             continue
         problems.append(
             f'顶层键 {key!r} 既不是分支名也不是已知元键。'
@@ -127,6 +141,12 @@ def self_check() -> list[str]:
             '自检探针失败：真实存在的分支键 sync/mirror 被判成非法顶层键，'
             f'说明白名单被改坏了（{problems[0]}）'
         ]
+    # 反向探针：#152 最高频的写法就是顶层 `push:`（以及 `pull_request` / `web_trigger`）。
+    # 守卫必须把它判成事件、而不是「长得像分支名就放行」——否则 EVENT_LIKE 没接进判据、
+    # 守卫会静默放过根因写法。
+    for bad_top in ('push', 'pull_request', 'web_trigger', 'tag_push', '"crontab: 0 * * * *"'):
+        if not check_top_keys({bad_top: [{'stages': []}]}):
+            return [f'自检探针失败：顶层事件键 {bad_top!r} 没被判成非法（EVENT_LIKE 未生效？）']
     if 'main' in ALLOWED_TOP_KEYS or 'dev' in ALLOWED_TOP_KEYS:
         return ['自检探针失败：ALLOWED_TOP_KEYS 里出现了具体分支名（多值白名单 = 判据失效）。']
     return []

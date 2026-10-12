@@ -58,10 +58,6 @@ from pathlib import Path
 
 import yaml
 
-# 密钥仓库 `vars.yml` 在本仓的**内容同步模板**（见 docs/ops/git-sync-secret-vars.example.yml 文件头：
-# 「真正被读取的是密钥仓库里的 vars.yml……故模板落在代码仓里」）。
-SECRET_TEMPLATE = Path('docs/ops/git-sync-secret-vars.example.yml')
-
 # 插件任务标记：与 `image` 同级、可用来引用外部文件的键名，按 CNB 语法只有两种。
 PLUGIN_TASK_KEYS = ('imports', 'settingsFrom')
 
@@ -203,17 +199,6 @@ def check_settingsfrom_var_substitution(data: dict) -> list[str]:
                 '改用插件任务级 `imports`（它注入环境变量，`${VAR}` 才解析得出）。'
             )
     return problems
-
-
-def _secret_template_has_allow_images(path: Path) -> bool:
-    template = path.resolve().parent / SECRET_TEMPLATE
-    if not template.exists():
-        return False
-    try:
-        content = yaml.safe_load(template.read_text(encoding='utf-8'))
-    except yaml.YAMLError:
-        return False
-    return isinstance(content, dict) and bool(content.get('allow_images'))
 
 
 def self_check() -> list[str]:
