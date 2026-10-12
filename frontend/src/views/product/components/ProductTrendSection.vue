@@ -27,7 +27,13 @@ import {
  *   等于给了一个无效色（旧版 splitLine 的写法就是这么错的，也会让网格看起来发黑发乱）；
  * - 线条**不平滑**：smooth 会画出实际不存在的峰谷，价格序列上属失真；
  * - **无数据就显示空态**，绝不用 mock 顶替（设计 G1 教训）；
- * - 脚注写明「数据日期 · 来源 · 口径」——来源是站点名，不是内部表名（#1969）。
+ * - 脚注写明「数据日期 · 来源 · 口径」——来源是站点名，不是内部表名（#1969）；
+ * - **品类无序列源时整卡不渲染**（#1967 后续）：后端对 manager / portfolio /
+ *   无日线的 index 返回 `kind=''` + 空序列，此时渲染出的只有标题的卡片是纯噪声。
+ *   走势区块已从最后一屏移回首屏（设计 §5 B 位），这条降级从「脚注」升级为
+ *   「区块整体不渲染」（设计 §6 降级规则）。判据取后端 `kind` 而非在前端镜像
+ *   一份「哪些品类没序列」的类型清单——后端 `product_trend._NO_SERIES_TYPES`
+ *   是权威，前端不复制它。
  */
 
 const props = defineProps<{
@@ -45,9 +51,16 @@ const RANGE_OPTIONS: { label: string; value: TrendRange }[] = [
 
 const range = ref<TrendRange>("3M");
 const loading = ref(false);
+const failed = ref(false);
 const trend = ref<ProductTrendResult | null>(null);
 
 const themeTick = useThemeTick();
+
+/** 品类无序列数据源（manager / portfolio / 无日线的 index）：后端 kind 返回空串。
+    整卡不渲染，不在首屏顶一张空卡（设计 §6 降级规则；判据说明见组件头注释）。 */
+const noSeries = computed(
+  () => trend.value !== null && trend.value.kind === ""
+);
 
 /** hex → rgba：面积渐变需要具体色值（CSS 变量不能直接给 alpha） */
 function hexToRgba(hex: string, alpha: number): string {
@@ -250,6 +263,7 @@ const chartOption = computed(() => {
 async function load() {
   if (!props.symbol) return;
   loading.value = true;
+  failed.value = false;
   try {
     const res = await getProductTrend({
       symbol: props.symbol,
@@ -258,8 +272,11 @@ async function load() {
     });
     trend.value = res.data;
   } catch {
-    // 拉不到就当无数据：区块降级为空态，不影响详情页其余部分
+    // 拉不到就当无数据：区块降级为空态，不影响详情页其余部分。
+    // 与「品类无序列源」（kind 空串，整卡不渲染）是两回事——这里是取数失败，
+    // 卡片要留在原处并告知可重试，不能装作「这个品类没有走势」。
     trend.value = null;
+    failed.value = true;
   } finally {
     loading.value = false;
   }
@@ -271,7 +288,7 @@ watch(range, load);
 </script>
 
 <template>
-  <CardBlock class="trend-section">
+  <CardBlock v-if="!noSeries" class="trend-section">
     <SectionHeader title="走势">
       <template #action>
         <SegmentedControl
@@ -285,9 +302,11 @@ watch(range, load);
 
     <p v-if="loading" class="trend-section__hint">正在读取走势…</p>
 
-    <p v-else-if="!hasData" class="trend-section__hint">
-      {{ trend?.kind ? "暂无该区间的历史数据" : "该品类暂不提供走势" }}
+    <p v-else-if="failed" class="trend-section__hint">
+      走势读取失败，可稍后重试
     </p>
+
+    <p v-else-if="!hasData" class="trend-section__hint">暂无该区间的历史数据</p>
 
     <template v-else>
       <v-chart
