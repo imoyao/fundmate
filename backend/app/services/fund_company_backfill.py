@@ -71,11 +71,32 @@ _MISS_CACHE_MAX = 512
 _BACKFILL_LOCK = threading.Lock()
 
 
+# ══════════════════════════════════════════════════════════════════════
+# ⚠️ 临时诊断（#2089 CI 定位用，**定位后整块删除**，勿留在正式代码里）
+#
+# 为什么要临时加：本模块有**五条返回 None 的路径全是静默的**（基金不存在 /
+# 负缓存命中 / company_id 悬空 / 取数空 / resolver 返空），而 CI 上
+# `test_fund_company_backfill` 的 4 个用例 + `test_fund_profile_lazy_company`
+# 的 2 个用例报 `assert None == '易方达基金'`，日志里**一条本模块的 warning
+# 都没有**——说明走的是静默路径之一，而本地（单文件 / 干净库 / 全量）一律复现
+# 不出来。故给每条路径留声，并给负缓存记录带调用栈，用来定位「谁污染了它」。
+def _diag(msg: str) -> None:
+    logger.warning(f'[BACKFILL-DIAG] {msg}')
+
+
+def _diag_stack(msg: str) -> None:
+    import traceback
+
+    _diag(f'{msg}\n' + ''.join(traceback.format_stack()[-8:-1]))
+
+
 def _in_miss_cache(code: str) -> bool:
     return (time.monotonic() - _MISS_CACHE.get(code, 0.0)) < _MISS_TTL_SECONDS
 
 
 def _remember_miss(code: str) -> None:
+    # 临时诊断：负缓存是进程级 dict，谁记的它决定了谁在后面「莫名其妙返回 None」
+    _diag_stack(f'remember_miss code={code}')
     if len(_MISS_CACHE) >= _MISS_CACHE_MAX:
         _MISS_CACHE.clear()
     _MISS_CACHE[code] = time.monotonic()
@@ -107,18 +128,24 @@ def ensure_fund_company(db: Session, fund_code: str) -> Optional[str]:
 
     code = (fund_code or '').strip()
     if not code:
+        _diag('blank code')
         return None
 
     fund = db.query(Fund).filter(Fund.fund_code == code).first()
     if fund is None:
+        _diag(f'SILENT-PATH-1 基金不存在 code={code!r}')
         return None
     if fund.company_id:
         # 路径 1：已有归属。显式查 FundCompany 而非走 `fund.company` relationship——
         # 后者会再打一次 SELECT，而这里要的只是那一行的 name。
         company = db.query(FundCompany).filter(FundCompany.id == fund.company_id).first()
+        if company is None:
+            # 悬空外键：funds.company_id 指向一个 fund_companies 里不存在的行
+            _diag(f'SILENT-PATH-2 company 行缺失 code={code!r} fund_id={fund.id} company_id={fund.company_id}')
         return company.name if company else None
 
     if _in_miss_cache(code):  # 路径 2
+        _diag(f'SILENT-PATH-3 命中负缓存 code={code!r}')
         return None
 
     with _BACKFILL_LOCK:  # 路径 3
@@ -131,10 +158,13 @@ def ensure_fund_company(db: Session, fund_code: str) -> Optional[str]:
         # （拿到的是本会话缓存的同一实例）。
         fund = db.query(Fund).filter(Fund.fund_code == code).first()
         if fund is None:
+            _diag(f'SILENT-PATH-4 抢锁后基金不存在 code={code!r}')
             return None
         db.refresh(fund)
         if fund.company_id:
             company = db.query(FundCompany).filter(FundCompany.id == fund.company_id).first()
+            if company is None:
+                _diag(f'SILENT-PATH-5 抢锁后 company 行缺失 code={code!r} company_id={fund.company_id}')
             return company.name if company else None
 
         try:
@@ -146,12 +176,14 @@ def ensure_fund_company(db: Session, fund_code: str) -> Optional[str]:
         if not fetched or not fetched.get('name'):
             # 查不到不等于「公司不存在」，也可能是源临时不可用：两者都不写库，
             # 只进负缓存，避免把一次网络抖动固化成永久留白。
+            _diag(f'SILENT-PATH-6 取数无 name code={code!r} fetched={fetched!r}')
             _remember_miss(code)
             return None
 
         try:
             company_id = get_or_create_fund_company(db, fetched['name'])
             if not company_id:
+                _diag(f'SILENT-PATH-7 resolver 返空 code={code!r} name={fetched["name"]!r}')
                 db.rollback()
                 _remember_miss(code)
                 return None
@@ -166,5 +198,6 @@ def ensure_fund_company(db: Session, fund_code: str) -> Optional[str]:
             _remember_miss(code)
             return None
 
+        _diag(f'OK 回填成功 code={code!r} name={fetched["name"]!r} company_id={company_id}')
         logger.info(f'按需回填基金 {code} 的基金公司：{fetched["name"]}')
         return fetched['name']
