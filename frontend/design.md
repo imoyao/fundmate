@@ -662,6 +662,21 @@ Element Plus 给 `.el-textarea__inner:focus` 自带
 | 品牌 | `--brand-200` | `--brand-700` | `--radius-pill` |
 | 危险 | `#FEF0F0` | `--color-danger-system` | `--radius-pill` |
 
+#### 风格标签三档徽章（#2044 · 基金经理代表作）
+
+代表作的风格标签（持仓集中度 / 行业集中度 / 市值风格）用**同族底色、递进墨重**的三档胶囊表达档位强度。**刻意不用红绿**：集中度高≠坏、中性≠好，红绿是涨跌语义专用（见上表「涨 / 跌」变体）。
+
+| 档位 | 背景 | 文字 | 字重 | 映射（key 后缀） |
+|------|------|------|------|------------------|
+| 低 | 透明 + 1px `--border-subtle` | `--text-secondary` | 400 | `low` 分散 / `small` 偏中小盘 |
+| 中 | `--bg-soft` | `--text-secondary` | 400 | `mid` 中性 / `balanced` 均衡 |
+| 高 | `--bg-soft` | `--text-primary` | 600 | `high` 高集中 / `large` 偏大盘 |
+
+- 圆角 `--radius-pill`（Badge 语言），字号 11px；徽章文字直接用后端 `label`，不改写。
+- `basis`（判定依据）经 `el-tooltip` hover 展示；徽章 `tabindex="0"` 保证键盘可达（#1838）。
+- 后端**不返回颜色**，配色在此层由 key → 档位映射决定；数据不足的维度**缺席**而非 null 占位，`style_labels` 为空则整行不渲染（不显示空容器 / 占位徽章）。
+- 参考实现：`views/product/components/ProductManagerSection.vue` 的 `.mgr-section__style-badge`。
+
 ### Table（el-table）
 
 > **全站 `el-table` 视觉基线统一维护在 `src/style/el-table.css`**（2026-08 起强制）。
