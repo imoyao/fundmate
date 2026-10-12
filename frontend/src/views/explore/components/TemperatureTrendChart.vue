@@ -122,7 +122,10 @@ const chartOption = computed(() => {
       min: 0,
       max: 100,
       splitLine: {
-        lineStyle: { color: "var(--border-light)", type: "dashed" }
+        lineStyle: {
+          color: getCssVar("--border-light", "#f0ebe4"),
+          type: "dashed"
+        }
       },
       axisLabel: {
         formatter: "{value}°",
@@ -138,7 +141,7 @@ const chartOption = computed(() => {
         symbol: "circle",
         symbolSize: 6,
         lineStyle: {
-          color: "var(--brand-700)",
+          color: getCssVar("--brand-700", "#e34f38"),
           width: 2
         },
         areaStyle: {
@@ -163,7 +166,7 @@ const chartOption = computed(() => {
         itemStyle: {
           color: (params: any) => {
             const idx = params.dataIndex;
-            return colors[idx] || "var(--brand-700)";
+            return colors[idx] || getCssVar("--brand-700", "#e34f38");
           }
         },
         markLine: {
@@ -173,7 +176,7 @@ const chartOption = computed(() => {
               yAxis: 70,
               label: {
                 formatter: "偏高",
-                color: "var(--text-tertiary)",
+                color: getCssVar("--text-tertiary", "#8c8478"),
                 fontSize: 11
               }
             },
@@ -181,7 +184,7 @@ const chartOption = computed(() => {
               yAxis: 40,
               label: {
                 formatter: "适中",
-                color: "var(--text-tertiary)",
+                color: getCssVar("--text-tertiary", "#8c8478"),
                 fontSize: 11
               }
             },
@@ -189,13 +192,13 @@ const chartOption = computed(() => {
               yAxis: 25,
               label: {
                 formatter: "偏低",
-                color: "var(--text-tertiary)",
+                color: getCssVar("--text-tertiary", "#8c8478"),
                 fontSize: 11
               }
             }
           ],
           lineStyle: {
-            color: "var(--border-default)",
+            color: getCssVar("--border-default", "#e5ddd4"),
             type: "dashed",
             width: 1
           }
