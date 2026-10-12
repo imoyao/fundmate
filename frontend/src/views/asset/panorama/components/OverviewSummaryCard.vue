@@ -173,11 +173,21 @@
              截图里那个被控件行挤断成「收益…」的残影 + 独占一行的孤立 ⓘ，
              即 #2035 与 #2050 同时复发。`frontend/e2e/pnl-calendar-host-header.spec.ts`
              断言 `.pnl-calendar .section-header` 计数为 0，但 e2e 不进 per-PR
-             门禁，必须靠这里的注释守住。 -->
-        <div v-if="calendarMode" class="min-h-[280px]">
-          <PnlCalendar host-header />
+             门禁，必须靠这里的注释守住。
+
+             **粒度只给月 / 年（#2033）**：日粒度的家在**投资概览页**（welcome 第三排
+             的满宽日历），本卡是与左卡并排、卡片体锁死 280px 的**等高兄弟容器**，
+             日粒度的「一屏一个月」在这里既排不下也读不清。
+             ⚠️ 因此本卡**不提供日粒度，也不提供任何入口**（没有「展开 / 查看大图」，
+             已裁决）——日粒度的需求去 welcome 即可。请勿「好心」把日粒度加回来：
+             下钻链（年→月→日）的最后一级正是日粒度，只在控件排里挡而不在
+             PnlCalendar 的下钻里挡，用户就会掉进一个本卡装不下、且没有控件能切回来的形态。 -->
+        <div class="overview-card__body">
+          <div v-if="calendarMode" class="h-full">
+            <PnlCalendar host-header :granularities="PANORAMA_GRANULARITIES" />
+          </div>
+          <div v-else ref="waterfallChartRef" class="h-full" />
         </div>
-        <div v-else ref="waterfallChartRef" class="h-[280px]" />
       </div>
     </el-col>
   </el-row>
@@ -188,7 +198,11 @@ import { ref, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
-import { type AssetSnapshotItem, type DistributionsData } from "@/api/summary";
+import {
+  type AssetSnapshotItem,
+  type DistributionsData,
+  type PnlCalendarGranularity
+} from "@/api/summary";
 import PnlCalendar from "@/components/PnlCalendar/index.vue";
 import PnlCalendarCaliberIcon from "@/components/PnlCalendar/PnlCalendarCaliberIcon.vue";
 import echarts from "@/plugins/echarts";
@@ -198,6 +212,19 @@ import {
   buildWaterfallOption,
   hasWaterfallData
 } from "./assetWaterfall";
+
+/**
+ * 本卡允许的收益日历粒度（#2033）：**只有月 / 年，没有日**。
+ *
+ * 日粒度的家在投资概览页（welcome 第三排的满宽日历）；本卡是与摘要卡并排、
+ * 卡片体锁死 280px 的等高兄弟容器，日粒度的「一屏一个月」在这里排不下也读不清。
+ * 本卡**不提供日粒度、也不提供任何入口**（没有「展开 / 查看大图」，已裁决）——
+ * 请勿「好心」把它加回来。
+ */
+const PANORAMA_GRANULARITIES: readonly PnlCalendarGranularity[] = [
+  "month",
+  "year"
+];
 
 const props = defineProps<{
   totalAssets: number;
@@ -310,6 +337,29 @@ onBeforeUnmount(() => {
 
 .summary-card:hover {
   box-shadow: var(--shadow-float);
+}
+
+/* 卡片体锁高 280px（#2033）：瀑布图态与日历态共用同一个高度，切换零跳变，
+   两卡底边恒对齐。**是 height，不是 min-height**——min-height 在内容更高时
+   会把卡片顶高，两态高度不同的问题原封不动地回来了。数字沿用瀑布图原有的
+   280，不新增常量；内部两个内容容器都用 h-full 填满它，高度约束只由宿主
+   （本卡）施加。 */
+.overview-card__body {
+  height: 280px;
+}
+
+/* #2039 兜底，**仅本卡**：收益日历那排控件（3 枚 SegmentedControl + 区间导航）
+   实测宽 588px，本卡半宽容器装不下时若既不能收缩也不能换行，就会横向溢出。
+   ⚠️ **只打本卡，不要改全站 SectionHeader**——那两个宿主（投资概览第三排、
+   账户详情）是满宽 / 半宽的正常容器，兜底不需要蔓延过去。
+   本卡是 host-header 模式，PnlCalendar 不画 SectionHeader，控件排实际落在
+   `.pnl-calendar__controls` 上，故两个选择器都兜一份。
+   选择器锚点用 `.summary-card`（本卡两卡共用），左卡内无这些子元素，不受影响。 */
+.summary-card :deep(.section-header__action),
+.summary-card :deep(.pnl-calendar__controls) {
+  flex-shrink: 1;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .summary-card__stack {

@@ -20,19 +20,24 @@
   展示与持仓盈亏用，``adj_close`` 才是前复权、供区间收益与收益率曲线用）；
 - 场外（fund）：``daily_worth.unit_nav``。``fund_code`` 是**裸 6 位码**，入库侧没有
   ``OF.`` 前缀（见 ``core/venues.py``；该前缀只是 watchlist trends 接口的历史入参约定）；
-- 指数 / 基金经理 / 投顾组合：**无历史序列数据源**（``index_daily`` 仅 10 个 ``.WI``
-  有日线、且无 API 出口），故返回 ``None`` 由调用方降级为 ``—``，不假装有数据。
+- 指数（index，#2028）：``index_daily`` 收盘点位，裸 6 位码按交易所后缀候选匹配
+  （``000300`` → ``000300.SH`` / ``000300.SZ``）。**有日线才出曲线**：库里没有该
+  指数的日线（覆盖极低，万得系 ``.WI`` 码无法从裸码推导）时返回 ``None``，
+  前端诚实降级「该品类暂无走势序列」，不假装有数据（#2028 拍板口径结论）；
+- 基金经理 / 投顾组合：**无历史序列数据源**，返回 ``None`` 由调用方降级为 ``—``。
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import re
 from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
 from app.core.data_sources import FUND_NAV_SOURCE_LABEL, data_source_label
 from app.domains.funds.models import DailyWorth
+from app.domains.indices.models import IndexDaily
 from app.domains.price_history.models import PriceHistory
 
 # 区间 → 自然日天数（设计 §5 B 区块：1M / 3M / 6M / 1Y）
@@ -45,8 +50,9 @@ RANGE_DAYS: Dict[str, int] = {
 # 设计 §12 ⑤：默认档 3M
 DEFAULT_RANGE = '3M'
 
-# 无历史序列能力的品类：指数（index_daily 无 API 出口）、基金经理、投顾组合
-_NO_SERIES_TYPES = frozenset({'index', 'manager', 'portfolio'})
+# 无历史序列能力的品类：基金经理、投顾组合。指数自 #2028 起走 index_daily（有日线
+# 才出曲线，无日线返回 None，见 _fetch_index_series）。
+_NO_SERIES_TYPES = frozenset({'manager', 'portfolio'})
 
 
 def _fetch_close_series(db: Session, symbol: str, start: dt.date) -> List[Tuple[dt.date, float]]:
@@ -140,6 +146,39 @@ def _fetch_nav_series(db: Session, symbol: str, start: dt.date) -> List[Tuple[dt
     return series
 
 
+def _fetch_index_series(db: Session, symbol: str, start: dt.date) -> Tuple[List[Tuple[dt.date, float]], str]:
+    """指数收盘点位序列（``index_daily``，#2028 拍板「有日线才出曲线」）。
+
+    ``index_daily.index_code`` 存**数据源原生形态**（``000300.SH`` / ``881001.WI``），
+    而详情页入口是裸 6 位码——按交易所后缀候选匹配（沪 / 深 / 裸），命中哪个用哪个。
+    万得系 ``.WI`` 码（881001 等）无法从裸码推导，不在本路径覆盖范围。
+
+    返回 ``(序列, source码)``；无日线时序列为空，调用方据此返回 ``None`` 诚实降级。
+    点位口径含 ``raw`` / ``anchored`` 混合（见 IndexDaily.price_mode），仅作展示曲线，
+    脚注按「点位走势，非全收益」表述。
+    """
+    m = re.search(r'\d{6}', (symbol or '').strip().upper())
+    if not m:
+        return [], ''
+    bare = m.group(0)
+    candidates = [f'{bare}.SH', f'{bare}.SZ', bare]
+    rows = (
+        db.query(IndexDaily.index_code, IndexDaily.trade_date, IndexDaily.close, IndexDaily.source)
+        .filter(IndexDaily.index_code.in_(candidates), IndexDaily.trade_date >= start)
+        .order_by(IndexDaily.trade_date)
+        .all()
+    )
+    series: List[Tuple[dt.date, float]] = []
+    source_code = ''
+    for _code, trade_date, close, source in rows:
+        if close is None:
+            continue
+        series.append((trade_date, round(float(close), 4)))
+        if source:
+            source_code = source
+    return series, source_code
+
+
 def fetch_product_trend(
     market_db: Session,
     symbol: str,
@@ -184,6 +223,15 @@ def fetch_product_trend(
         kind, basis, source = 'nav', '单位净值', data_source_label(FUND_NAV_SOURCE_LABEL)
         # 场外基金只有单位净值，没有 OHLCV —— 前端据此画净值线而不是 K 线（品类差异化）
         ohlc: List[Dict] = []
+    elif normalized_type == 'index':
+        # 指数：index_daily 收盘点位（#2028）。无日线 → None 诚实降级，不画假曲线。
+        index_series, index_source = _fetch_index_series(market_db, code, start)
+        if not index_series:
+            return None
+        series = index_series
+        kind, basis, source = 'close', '指数收盘点位（点位走势，非全收益）', data_source_label(index_source)
+        # 指数日线只有收盘点位，无 OHLCV —— 前端画单线而非 K 线
+        ohlc = []
     else:
         series = _fetch_close_series(market_db, code, start)
         ohlc = _fetch_ohlc_series(market_db, code, start)

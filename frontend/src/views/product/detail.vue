@@ -16,6 +16,7 @@ import ProductExternalLinksSection from "./components/ProductExternalLinksSectio
 // warning 就静默不渲染 —— 基金详情页从上线起就没有基金资料区块，且 e2e 未打桩
 // fund-profile（落到兜底 404）反向掩盖。e2e 已补断言，勿再删这一行。
 import ProductFundSection from "./components/ProductFundSection.vue";
+import ProductIndexSection from "./components/ProductIndexSection.vue";
 import ProductPerformanceSection from "./components/ProductPerformanceSection.vue";
 import ProductHoldingsSections from "./components/ProductHoldingsSections.vue";
 import ProductPositionSection from "./components/ProductPositionSection.vue";
@@ -227,6 +228,14 @@ watch(productRef, loadProduct, { immediate: true });
         :symbol="product.symbol"
         :market="product.market"
         :asset-type="product.asset_type"
+      />
+
+      <!-- 指数资料与估值（#2028）：仅指数品类渲染。名录 + 中证官方 PE / 股息率 +
+           PE 历史分位（乐咕月频近 5 年窗口现算，#1407 拍板口径）。分位样本不足时
+           给定调说明而非空指标（诚实降级）。 -->
+      <ProductIndexSection
+        v-if="product.asset_type === 'index'"
+        :symbol="product.symbol"
       />
 
       <!-- 基金经理（#1970）：仅经理品类渲染。入参是 mgr_code 而非姓名——库内实测

@@ -21,47 +21,55 @@
 -->
 
 <template>
-  <div
-    class="pnl-calendar-period-grid"
-    :class="`is-${granularity}`"
-    role="group"
-    :aria-label="groupLabel"
-  >
-    <!-- 悬浮卡片取代浏览器原生 `title`（#1942 ③）：原生提示延迟约 1 秒、样式不可控。
-         触发元素仍是那个透明 `<button>`（键盘可达 + `aria-label` 在按钮上），
-         el-tooltip 不渲染任何包装 DOM，故不影响这里的 grid 排版。 -->
-    <el-tooltip
-      v-for="tile in tiles"
-      :key="tile.period"
-      placement="top"
-      :show-after="120"
-      :hide-after="0"
-      popper-class="rich-tip"
+  <!-- 外层只承担一件事：**在宿主给出的确定高度里安放方格网**（#2033）。
+       装得下就由 `1fr` 把格子拉满，装不下（年格数量随「投资以来」逐年增长）
+       就在这一层内部滚动——不让它把卡片打爆。
+       `min-height: 0` 是前提：没有它，flex 项的自动最小尺寸会把内容高度顶回来，
+       滚动永远不会触发。宿主高度不定时（welcome / 账户详情）这里不产生任何滚动，
+       排版与改动前完全一致。 -->
+  <div class="pnl-calendar-period-grid-wrap">
+    <div
+      class="pnl-calendar-period-grid"
+      :class="`is-${granularity}`"
+      role="group"
+      :aria-label="groupLabel"
     >
-      <button
-        type="button"
-        class="pnl-calendar-period-grid__slot"
-        :aria-label="tile.title"
-        @click="emit('select', tile.period)"
+      <!-- 悬浮卡片取代浏览器原生 `title`（#1942 ③）：原生提示延迟约 1 秒、样式不可控。
+           触发元素仍是那个透明 `<button>`（键盘可达 + `aria-label` 在按钮上），
+           el-tooltip 不渲染任何包装 DOM，故不影响这里的 grid 排版。 -->
+      <el-tooltip
+        v-for="tile in tiles"
+        :key="tile.period"
+        placement="top"
+        :show-after="120"
+        :hide-after="0"
+        popper-class="rich-tip"
       >
-        <PnlCalendarTile
-          :label="tile.label"
-          :state="tile.state"
-          :pnl="tile.pnl"
-          :rate="tile.rate"
-          :mode="mode"
-          :level="tile.level"
-        />
-      </button>
-      <template #content>
-        <PnlCalendarUnitTip
-          :name="tile.period"
-          :state="tile.state"
-          :pnl="tile.pnl"
-          :rate="tile.rate"
-        />
-      </template>
-    </el-tooltip>
+        <button
+          type="button"
+          class="pnl-calendar-period-grid__slot"
+          :aria-label="tile.title"
+          @click="emit('select', tile.period)"
+        >
+          <PnlCalendarTile
+            :label="tile.label"
+            :state="tile.state"
+            :pnl="tile.pnl"
+            :rate="tile.rate"
+            :mode="mode"
+            :level="tile.level"
+          />
+        </button>
+        <template #content>
+          <PnlCalendarUnitTip
+            :name="tile.period"
+            :state="tile.state"
+            :pnl="tile.pnl"
+            :rate="tile.rate"
+          />
+        </template>
+      </el-tooltip>
+    </div>
   </div>
 </template>
 
@@ -140,11 +148,25 @@ const groupLabel = computed(() =>
 <style lang="scss" scoped>
 @use "@/style/breakpoints" as bp;
 
+.pnl-calendar-period-grid-wrap {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .pnl-calendar-period-grid {
   display: grid;
 
+  /* 行高交给容器分配（`1fr`）：高度不定的宿主里按内容算（等同改动前），
+     高度确定的宿主里各行等分把容器用满（#2033）。`1fr` 压不动格子的
+     `min-height: 62px`，超出部分由外层滚动容器接管——这是有意为之。 */
+  flex: 1;
+
   /* 年格数量随「投资以来」增长，用 auto-fill 自动换行；单格上限见下方 slot */
   grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  grid-auto-rows: 1fr;
   gap: 6px;
 }
 

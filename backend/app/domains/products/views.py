@@ -19,6 +19,7 @@ from app.core.db_factory import market_session_factory, user_session_factory
 from app.core.validation import parse_query
 from app.domains.products.schemas import (
     AdvisorProfileRequest,
+    IndexProfileRequest,
     ManagerProfileRequest,
     ProductResolveRequest,
     ProductTrendRequest,
@@ -29,6 +30,7 @@ from app.services.advisor_profile import build_advisor_profile
 from app.services.fund_holdings_detail import build_fund_holdings_detail
 from app.services.fund_performance import build_fund_performance
 from app.services.fund_profile import build_fund_profile
+from app.services.index_profile import build_index_profile
 from app.services.manager_holdings import build_manager_holdings
 from app.services.manager_profile import build_manager_profile
 from app.services.product_identity import resolve_product_identity
@@ -193,6 +195,31 @@ def stock_profile():
 
     if data is None:
         abort(404, f'证券不存在：{query.symbol}')
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/index-profile/')
+def index_profile():
+    """指数资料聚合（#2028 · 详情页指数详情区块）：资料 + 官方估值 + 历史分位一次取完。
+
+    与同族端点同一硬规则（#1968 / #1969）：三张指数表（``index_catalog`` /
+    ``index_valuations`` / ``index_valuation_baselines``）均无 API 出口，拼不出
+    首屏就在本域补端点；放 products 域的理由同 ``fund-profile``——服务的是「详情页」
+    这一个页面。
+
+    分位在读路径现算（乐咕月频近 5 年窗口，#1407 拍板），样本不足或无基线的指数
+    回 ``null``，前端诚实降级「—」。股息率分位本期恒为 ``null``（乐咕无该序列）。
+    """
+    query: IndexProfileRequest = parse_query(IndexProfileRequest)
+
+    with closing(market_session_factory()()) as db:
+        try:
+            data = build_index_profile(db, query.symbol)
+        except ValueError as e:
+            abort(400, str(e))
+
+    if data is None:
+        abort(404, f'指数不存在：{query.symbol}')
     return jsonify({'data': data, 'message': 'ok'})
 
 

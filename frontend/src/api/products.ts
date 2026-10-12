@@ -91,6 +91,45 @@ export function getFundProfile(code: string) {
   );
 }
 
+/**
+ * 指数资料聚合结果（#2028 · `/api/products/index-profile/`）。
+ *
+ * 字段缺失一律 null，前端降级「—」。分位是**读路径现算**（乐咕月频近 5 年窗口，
+ * #1407 拍板）：样本不足 12 点时 pe_percentile 为 null——那是「样本不够」不是
+ * 「分位为 0」，两者语义相反，不可混。股息率分位本期恒为 null（乐咕无该序列）。
+ */
+export interface IndexProfileResult {
+  /** 裸 6 位指数码（service 已归一，带前缀入口也返回裸码） */
+  index_code: string;
+  /** 指数中文简称（index_catalog.name） */
+  name: string;
+  /** 编制/发布机构中文名（中证指数公司 / 国证指数…）；未知为 null */
+  publisher_label: string | null;
+  /** 核心指数白名单标记（自选分组置顶用，此处仅展示「核心」徽标） */
+  is_core: boolean;
+  /** 市盈率（中证官方口径 pe_1，最新一期）；无官方估值文件为 null */
+  pe: number | null;
+  /** 股息率(%)（中证官方口径 dividend_yield_1）；为 null 时不可显示为 0 */
+  dividend_yield: number | null;
+  /** 估值日期 YYYY-MM-DD（官方文件最新一期） */
+  valuation_date: string | null;
+  /** PE 历史分位(%)：乐咕滚动 PE 在近 5 年月频窗口中的位置；样本不足为 null */
+  pe_percentile: number | null;
+  /** 分位口径元数据（脚注直接展示，前端不另建映射） */
+  percentile_metric: string | null;
+  /** 分位基线的最新采样日 YYYY-MM-DD */
+  percentile_date: string | null;
+}
+
+/** 取指数资料聚合。404 = 该代码不在指数名录。 */
+export function getIndexProfile(symbol: string) {
+  return http.request<ApiResponse<IndexProfileResult>>(
+    "get",
+    "/api/products/index-profile/",
+    { params: { symbol } }
+  );
+}
+
 /** 区间收益切面条目（`/api/products/fund-performance/` 返回） */
 export interface FundPerformanceInterval {
   /** 档位 key：1w/1m/3m/6m/1y/2y/3y/5y/ytd/since */

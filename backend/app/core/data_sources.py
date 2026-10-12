@@ -32,6 +32,11 @@ DATA_SOURCE_LABELS: dict[str, str] = {
     'sina': '新浪财经',
     'csindex': '中证指数',
     'cni': '国证指数',
+    # 指数日线（index_daily，#275 两路来源）
+    'tencent': '腾讯',  # 交易所指数腾讯日线直连（raw 收盘）
+    'jiucaishuo': '韭圈儿',  # 万得系指数经韭圈儿公开接口（anchored/normalized）
+    # 乐咕乐股（指数估值分位基线，#1407）
+    'lg': '乐咕乐股',
     # 可转债与公告
     'akshare_jsl': '集思录',
     'akshare_bond_zh_cov': '集思录',

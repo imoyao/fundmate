@@ -16,7 +16,7 @@
 -->
 
 <template>
-  <!-- `justify-between` 把控件分成左右两组：左边三枚「看什么」的开关（粒度 / 形态 /
+<!-- `justify-between` 把控件分成左右两组：左边三枚「看什么」的开关（粒度 / 形态 /
        口径），右边「看哪一段」的区间导航。原先四组控件用同一个 `gap-2` 挤在一行，
        区间导航与前三个开关视觉上连成一片，用户分不清「切换维度」和「翻时间段」
        是两类不同的操作。
@@ -25,10 +25,12 @@
     <div class="pnl-calendar-action-bar__views">
       <!-- 粒度：日 / 月 / 年。SegmentedControl 是全站唯一实现（#1717；静态守卫
            guard_segmented.py 拦截「改用 Element Plus 自带分段组件」与手写
-           xxx-segmented 样式块的回潮） -->
+           xxx-segmented 样式块的回潮）。
+           选项随宿主的 `granularities` 过滤（#2033）：宿主只给两档时这里就只列两档，
+           排序始终按 ALL_GRANULARITIES 的固定顺序，不跟宿主传入的数组顺序走。 -->
       <SegmentedControl
         v-model="granularity"
-        :options="GRANULARITY_OPTIONS"
+        :options="granularityChoices"
         size="small"
         ariaLabel="切换收益粒度"
       />
@@ -51,7 +53,6 @@
         ariaLabel="切换金额或收益率"
       />
     </div>
-
     <!-- 区间导航。`role="group"` + `aria-label` 是按钮组的正确 a11y 语义：
          组本身不是按钮，但需一个可访问名来把三枚按钮归为一组。顺带说明：守卫
          `guard_a11y_interaction.py` 的 `<(el-button|button)\b` 会把
@@ -97,7 +98,12 @@
 import { computed } from "vue";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
-import { VALUE_MODE_OPTIONS, type PnlCalendarValueMode } from "./helpers";
+import {
+  ALL_GRANULARITIES,
+  granularityOptions,
+  VALUE_MODE_OPTIONS,
+  type PnlCalendarValueMode
+} from "./helpers";
 import type { PnlCalendarGranularity } from "@/api/summary";
 
 defineOptions({ name: "PnlCalendarActionBar" });
@@ -113,6 +119,15 @@ const valueMode = defineModel<PnlCalendarValueMode>("valueMode", {
 const props = defineProps<{
   loading: boolean;
   rangeLabel: string;
+  /**
+   * 宿主允许的粒度档位（#2033）；不传 = 三档全开（welcome / 账户详情）。
+   *
+   * 之前这里是一份写死的三档常量，改成受 prop 约束：等高兄弟容器（如资产总览右卡，
+   * 卡片体锁死 280px）根本放不下日粒度，而下钻链最后一级正是日粒度——
+   * 只挡控件不挡点击会留下「控件里没有日、点一下却掉进日日历」的漏洞，
+   * 那一侧的挡由 PnlCalendar 的 `selectPeriod` 一起做（见 helpers.nextGranularity）。
+   */
+  granularities?: readonly PnlCalendarGranularity[];
 }>();
 
 const emit = defineEmits<{
@@ -120,11 +135,12 @@ const emit = defineEmits<{
   (e: "goCurrent"): void;
 }>();
 
-const GRANULARITY_OPTIONS = [
-  { label: "日收益", value: "day" },
-  { label: "月收益", value: "month" },
-  { label: "年收益", value: "year" }
-] as const;
+/** 粒度选项 = 全站三档里宿主允许的那几档（空数组视作不约束，保持三档） */
+const granularityChoices = computed(() =>
+  granularityOptions(
+    props.granularities?.length ? props.granularities : ALL_GRANULARITIES
+  )
+);
 
 /**
  * 形态选项随粒度改名：日粒度是**日历**（一屏一个月，看「哪几天」），
