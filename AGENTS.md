@@ -851,7 +851,7 @@ NPC 没有跨会话记忆，**每一次开工都是新进程**。所谓「记住
 
   - 用 `python scripts/bridge/mirror_correction.py add --cnb <编号> --date <日期> --correction '<一条更正>'` 生成（默认 dry-run，加 `--apply` 真正发布；幂等，重复执行只发一次，返工用 `--force`）；`list --cnb <编号>` 看某张卡已记的更正。
   - 边界：**只往 CNB 写，绝不回写 GitHub**；不动镜像卡正文、标签与状态；脚本会拒绝往非镜像卡（人工卡）写更正。
-- **CNB 本地卡**（只对 CNB 有效、**不进 GitHub** 的卡，D49 / CNB #117）：
+- **CNB 本地卡**（只对 CNB 有效、**不进 GitHub** 的卡，D49 / CNB #117）： <!-- cross-repo-ref-allow -->
   - 判据是「这张卡的存在意义是否依赖 CNB 这个环境」——`CNB_TOKEN` 构建内注入、`cnb` CLI、
     `.cnb.yml` cron 语义、CNB 自身镜像链路取舍等，镜像到 GitHub 读起来会莫名其妙；
   - **开卡时就声明**，两种任选（都认）：正文顶部写 `> 📍 **CNB 本地卡**`，或挂 `CNB 本地` 标签；
