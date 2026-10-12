@@ -265,10 +265,20 @@ def build_report(res: dict) -> str:
 
 
 def run(args: argparse.Namespace) -> int:
-    for ref in (args.left, args.right):
-        if not _ref_exists(ref, args.cwd):
-            print(f'❌ 取不到分支 `{ref}`（先 git fetch，或换 --left / --right）', file=sys.stderr)
-            return 2
+    missing = [ref for ref in (args.left, args.right) if not _ref_exists(ref, args.cwd)]
+    if missing:
+        # 「分支不存在」与「分叉」是两件事，但都会让本自检失效，且**都不该静默通过**。
+        # 尤其 `origin/dev` 整体消失（2026-10-12 实测：CNB 侧 53 个分支里没有 dev）
+        # 意味着「功能分支 → dev」这条流程的落点没了 —— 比「分叉了几个提交」严重得多，
+        # 而旧版只打一行 terse 的「先 git fetch」就退出 2，容易被当成环境噪音滑过去。
+        print(f'❌ 取不到分支：{", ".join(f"`{r}`" for r in missing)}', file=sys.stderr)
+        print(
+            '   可能是 ① 没 fetch（先 `git fetch origin`）；② 分支被删/改名。\n'
+            '   若是 `origin/dev` 不存在：本仓长期分支只有 `dev` / `main`，'
+            '`dev` 消失意味着功能分支无处可合，须先恢复它再谈分叉。',
+            file=sys.stderr,
+        )
+        return 2
     res = compute(args.left, args.right, args.cwd)
     if args.jobs_only:
         res = {**res, 'left_only': None, 'right_only': None}
