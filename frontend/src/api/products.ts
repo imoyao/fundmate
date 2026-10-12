@@ -448,6 +448,25 @@ export interface ManagerHoldingRow {
   market_value: number | null;
 }
 
+/**
+ * 风格标签（#2044）。
+ *
+ * - `dim`/`key` 是稳定枚举，前端按 `key` 映射 Badge 样式；
+ * - 后端**不返回颜色**（配色由前端令牌决定，硬约束）；
+ * - 数据不足的维度**缺席**而非 null——`style_labels` 里找不到该 `dim` 即该维度
+ *   无数据，展示层按维度缺席处理（不渲染占位徽章）。
+ */
+export interface StyleLabel {
+  /** 维度：`concentration` 持仓集中度 / `industry` 行业集中度 / `size` 市值风格 */
+  dim: string;
+  /** 稳定标签枚举，如 `concentration_high` / `size_large` */
+  key: string;
+  /** 中文短文案，如「持仓高集中」 */
+  label: string;
+  /** 可解释依据，如「前十大重仓占净值 65.8%，全库 P80」（hover/副文本展示） */
+  basis: string;
+}
+
 /** 代表作前十大重仓结果（#1970 扩展 · `manager-holdings` 端点） */
 export interface ManagerHoldingsResult {
   fund_code: string | null;
@@ -468,6 +487,8 @@ export interface ManagerHoldingsResult {
   /** 前 N 大合计占净值比（集中度锚点） */
   total_ratio: number | null;
   rows: ManagerHoldingRow[];
+  /** 风格标签（#2044）：纯函数判据 + 全库标定阈值，数据不足维度缺席 */
+  style_labels: StyleLabel[];
   /** 无数据时的原因（固定契约：rows 为空即无数据，不是接口错误） */
   empty_reason?: string;
 }
