@@ -45,6 +45,10 @@ from app.services.penetration import BASIS_FULL
 # 但详情页只展示「十大」这一概念，超出部分没有展示位）。
 DEFAULT_TOP_N = 10
 
+# 市值分桶用的三只规模指数（代码不含交易所后缀）。归属规则见标定文档 §1：
+# large=∈300；mid=∈500 且∉300；small=∈1000 且∉500 且∉300；其余未覆盖。
+_SIZE_INDEX_CODES = ('000300', '000905', '000852')
+
 
 def _pick_representative_fund(db: Session, mgr_id: int, fund_ids: List[int]) -> Optional[int]:
     """选代表作的 ``fund_id``：``is_classic`` 优先，否则取任期最长的那只。
@@ -106,9 +110,12 @@ def build_manager_holdings(
 
     Returns:
         ``{fund_code, fund_name, report_period, report_date, basis, basis_label,
-        total_ratio, rows[]}``；**经理不存在时返回 None**（由调用方转 404）。
+        total_ratio, rows[], style_labels[]}``；**经理不存在时返回 None**（由调用方转 404）。
 
     ``rows[]`` 每项：``{rank, stock_code, stock_name, ratio, market_value}``。
+
+    ``style_labels[]`` 每项：``{dim, key, label, basis}``（#2044 风格标签，无颜色字段；
+    数据不足的维度**缺席**而非回 null，前端按维度缺席显示 —）。
 
     ``basis_label`` 把 ``full`` / ``top10`` 翻成中文，**必须下发给前端**——
     用户看到「十大重仓」时需要知道这是季报口径（前十大）还是半年报全量，
@@ -153,6 +160,9 @@ def build_manager_holdings(
         # 前十大合计占比：给用户一个「集中度」锚点。只在 top10 口径下有意义，
         # full 口径下是**全量合计**，故用 basis 区分，不改名以免前端误解。
         'total_ratio': round(sum(float(h.ratio) for h in rows if h.ratio is not None), 2) if rows else None,
+        # 代表作风格标签（#2044）：纯函数判据 + 全库标定阈值，数据不足维度缺席（非 null 占位）。
+        # 与重仓同源同期，故挂在本端点而非首屏 manager-profile（见 views.py 端点拆分理由）。
+        'style_labels': _build_style_labels(db, fund.fund_code, basis, holdings),
         'rows': [
             {
                 'rank': h.rank,
@@ -164,6 +174,106 @@ def build_manager_holdings(
             for h in rows
         ],
     }
+
+
+def _build_style_labels(
+    db: Session,
+    fund_code: str,
+    basis: Optional[str],
+    holdings: List[Any],
+) -> List[Dict[str, Any]]:
+    """装配代表作风格标签的输入指标，并调用纯函数判据（#2044）。
+
+    职责分界：**查库装配在这里，判定在 :func:`manager_style.judge_style`（纯函数）**。
+    数据不足的维度在装配侧回 ``None``，由判据统一跳过：
+
+    - ``top10`` 口径不足 10 行 → 集中度 ``None``（季报抓取不完整会系统性低估；
+      标定样本同规则剔除，见标定文档 §1「不完整样本剔除」）。``full`` 口径不受此限——
+      全量披露下基金真持有不足 10 只时，合计值就是其真实集中度；
+    - 无 csrc 行业配置 → 行业 ``None``（跨体系不混算，gics 不作替补）；
+    - 市值分桶覆盖率照实回传，低于判据 `min_coverage` 门时拒判——QDII/重仓港股基金
+      的港股代码不在 A 股成分表内，覆盖率天然不足，诚实缺席而非硬猜大盘小盘。
+
+    Args:
+        db: market 域会话。
+        fund_code: 代表作代码。
+        basis: 持仓披露口径（``full`` / ``top10``）。
+        holdings: 该基金**最新报告期**的全部持仓行（勿传展示截断后的 ``rows``——
+            集中度按占净值比降序取前 10，与标定口径一致）。
+
+    Returns:
+        ``StyleLabel.as_dict()`` 列表；无可用维度时为 ``[]``（前端按维度缺席显示 —）。
+    """
+    from app.domains.funds.models import FundIndustryAlloc
+    from app.domains.indices.models import IndexConstituent
+    from app.services.manager_style import FundStyleMetrics, judge_style
+
+    # ── 集中度：同最新期持仓按 ratio 降序取前 10 求和 ──
+    ratios = sorted((float(h.ratio) for h in holdings if h.ratio is not None), reverse=True)
+    top10: Optional[float] = None
+    if ratios and not (basis == 'top10' and len(ratios) < 10):
+        top10 = round(sum(ratios[:10]), 2)
+
+    # ── 行业集中度：csrc 最新期第一大行业占净值比 ──
+    alloc_rows = (
+        db.query(FundIndustryAlloc.report_period, FundIndustryAlloc.ratio)
+        .filter(
+            FundIndustryAlloc.fund_code == fund_code,
+            FundIndustryAlloc.scheme == 'csrc',
+        )
+        .order_by(FundIndustryAlloc.report_period.desc())
+        .all()
+    )
+    top1: Optional[float] = None
+    if alloc_rows:
+        latest_period = alloc_rows[0].report_period
+        vals = [float(r.ratio) for r in alloc_rows if r.report_period == latest_period and r.ratio is not None]
+        if vals:
+            top1 = round(max(vals), 2)
+
+    # ── 市值分桶：持仓按 中证300/500/1000 成分归属（成分表按持仓代码定向查，
+    #    不整表拉 1800 只）──
+    stock_codes = [h.stock_code for h in holdings if h.stock_code]
+    large = mid = small = other = 0.0
+    if stock_codes:
+        member_rows = (
+            db.query(IndexConstituent.index_code, IndexConstituent.symbol)
+            .filter(
+                IndexConstituent.index_code.in_(_SIZE_INDEX_CODES),
+                IndexConstituent.symbol.in_(stock_codes),
+            )
+            .all()
+        )
+        s300 = {r.symbol for r in member_rows if r.index_code == '000300'}
+        s905 = {r.symbol for r in member_rows if r.index_code == '000905'}
+        s852 = {r.symbol for r in member_rows if r.index_code == '000852'}
+        for h in holdings:
+            if h.ratio is None or not h.stock_code:
+                continue
+            r = float(h.ratio)
+            if h.stock_code in s300:
+                large += r
+            elif h.stock_code in s905:
+                mid += r
+            elif h.stock_code in s852:
+                small += r
+            else:
+                other += r
+    total = large + mid + small + other
+    covered = large + mid + small
+    coverage = round(covered / total * 100, 1) if total > 0 else None
+    large_share = round(large / covered * 100, 1) if covered > 0 else None
+
+    metrics = FundStyleMetrics(
+        fund_code=fund_code,
+        top10_ratio=top10,
+        holding_basis=basis,
+        top_industry_ratio=top1,
+        size_covered_pct=coverage,
+        size_large_share=large_share,
+        report_period=holdings[0].report_period if holdings else None,
+    )
+    return [label.as_dict() for label in judge_style(metrics)]
 
 
 def _empty(reason: str, fund_code: Optional[str] = None, fund_name: Optional[str] = None) -> Dict[str, Any]:
@@ -181,6 +291,7 @@ def _empty(reason: str, fund_code: Optional[str] = None, fund_name: Optional[str
         'basis_label': None,
         'total_ratio': None,
         'rows': [],
+        'style_labels': [],
         'empty_reason': reason,
     }
 

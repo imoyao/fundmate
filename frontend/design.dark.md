@@ -383,6 +383,8 @@
 | 品牌 | `--brand-300` | `--brand-700` | `--radius-pill` |
 | 危险 | `#2D1618` | `--color-danger-system` | `--radius-pill` |
 
+> **风格标签三档徽章（#2044）暗色适配**：与亮色共用同一套类名与档位映射，全部走语义令牌（低档描边 `--border-subtle` / 中高档底 `--bg-soft` / 文字 `--text-secondary`→`--text-primary` 递进），暗色由 token 自动切换，**无专属覆写规则**。档位为中性强度阶梯，两主题均不用红绿（涨跌语义专用）。
+
 ### Table（el-table）
 
 > 暗色适配说明：全站 `el-table` 视觉基线统一维护在 `src/style/el-table.css`，

@@ -270,6 +270,10 @@ def manager_holdings():
     **口径透传**：``basis`` / ``basis_label`` / ``report_period`` 必须下发，
     前端要能告诉用户这是「季报前十大」还是「半年报全量」—— 否则「只披露 10 只」
     会被误读成「只买了 10 只」。
+
+    **风格标签（#2044）**：``style_labels[]``（``{dim, key, label, basis}``）挂在本
+    端点而非首屏 ``manager-profile``——标签描述的是代表作、与重仓同源同期，且要查
+    同一批持仓表；数据不足的维度**缺席**而非回 null，后端不返回颜色（配色由前端令牌决定）。
     """
     query: ManagerProfileRequest = parse_query(ManagerProfileRequest)
 
