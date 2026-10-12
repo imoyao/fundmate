@@ -18,6 +18,7 @@ from app.core.money import Money
 from app.core.utils import paginate
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
+from app.services.symbol_scope import collect_transaction_symbol_variants, query_positions_by_symbol
 
 
 def build_transaction_list(db, family_id: int, page: int, per_page: int, filters: dict) -> dict:
@@ -66,10 +67,17 @@ def build_transaction_list(db, family_id: int, page: int, per_page: int, filters
         pids = [p.id for p in position_ids]
         query = query.filter(Transaction.position_id.in_(pids))
 
-    # 筛选：产品代码（字面量快照，与持仓侧 symbol_scope 归一身份键一致）
+    # 筛选：产品代码（产品详情页「交易记录」区块，#2104）。
+    # 复用 `symbol_scope` 的「同一产品」口径（与持仓列表 #1966 / 持有年化 #1972 一致）：
+    # `transactions.symbol` 是字面量快照、无 norm 列，故先按 symbol 取该产品持仓行、
+    # 收集真实写法再做 `IN`（数据策略硬约束 §3 应用层两步法），`SZ000001` 与
+    # `000001.SZ`、`SZ159915` 与 `159915` 视为同一只产品——字面量等值会让详情页
+    # URL 写法与流水快照写法不一致时显示「暂无交易记录」假阴性。
     symbol = filters.get('symbol')
     if symbol:
-        query = query.filter(Transaction.symbol == symbol)
+        positions = query_positions_by_symbol(db, symbol, family_id)
+        variants = collect_transaction_symbol_variants(symbol, positions)
+        query = query.filter(Transaction.symbol.in_(variants))
 
     # 排序与分页
     query = query.order_by(Transaction.created_at.desc())

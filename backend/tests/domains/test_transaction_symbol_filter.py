@@ -76,10 +76,12 @@ def test_symbol_filter_unmatched_returns_empty(client):
 
 
 def test_symbol_filter_stored_symbol_matches(client):
-    """后端归一化 symbol（如 000001.SZ → SZ000001）后，按归一化后的 symbol 查询能命中。
+    """写入侧归一后，按归一化 symbol 查询能命中。
 
-    注意：transactions.symbol 是字面量快照，后端在创建持仓时会归一化 symbol。
-    本测试验证归一化后的 symbol 过滤链路正确。
+    注意：`transactions.symbol` 是字面量快照，落库形态由写入侧 `process_buy_or_deposit`
+    的 venue 归一决定（`000001.SZ` → `SZ000001`），本测试只验证「查询形态与落库形态
+    一致」这条基础链路；「查询形态 ≠ 落库形态」由下方
+    `test_symbol_filter_matches_varied_writings` 覆盖。
     """
     _post(
         client,
@@ -102,4 +104,34 @@ def test_symbol_filter_stored_symbol_matches(client):
     assert resp.status_code == 200
     rows = resp.get_json()['data']
     assert len(rows) >= 1
+    assert any(t['symbol'] == 'SZ000001' for t in rows)
+
+
+def test_symbol_filter_matches_varied_writings(client):
+    """查询写法与流水快照写法不一致时，经 symbol_scope 两步法仍能命中（证伪测试）。
+
+    场景：流水/持仓落库为 `SZ000001`（写入侧 venue 归一），但产品详情页 URL 传来的
+    是 `000001.SZ` / 裸码等其它写法。字面量等值实现下本用例必红（假阴性显示
+    「暂无交易记录」）；两步法先按持仓侧归一身份键收集真实写法再 `IN`，故应命中。
+    """
+    _post(
+        client,
+        '/api/positions/',
+        {
+            'symbol': 'SZ000001',
+            'name': '平安银行',
+            'type': 'stock',
+            'market': 'CN_A',
+            'account_name': '测试账户',
+            'quantity': 100,
+            'avg_price': 10,
+            'trade_date': '2026-01-01',
+        },
+    )
+
+    # 落库写法为 SZ000001，用另一种写法查询
+    resp = _get(client, '/api/transactions', {'symbol': '000001.SZ'})
+
+    assert resp.status_code == 200
+    rows = resp.get_json()['data']
     assert any(t['symbol'] == 'SZ000001' for t in rows)

@@ -209,8 +209,9 @@ watch(productRef, loadProduct, { immediate: true });
         :asset-type="product.asset_type"
       />
 
-      <!-- 交易记录（#2104）：仅在该产品有交易流水时才拉取。
-           过滤在后端下推到 SQL，不在前端拉全量再筛。 -->
+      <!-- 交易记录（#2104）：仅可交易品类渲染（manager / portfolio / index 由组件
+           整块不渲染、不发请求），挂载即拉取最近 10 条。过滤在后端下推到 SQL，
+           不在前端拉全量再筛。 -->
       <ProductTransactionSection
         :symbol="product.symbol"
         :asset-type="product.asset_type"
