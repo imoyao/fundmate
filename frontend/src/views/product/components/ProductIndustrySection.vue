@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import AssetAllocationDonut from "@/components/Charts/AssetAllocationDonut.vue";
+import AssetAllocationBars from "@/components/Charts/AssetAllocationBars.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import type {
@@ -11,10 +11,16 @@ import type {
 /**
  * 详情页「行业配置」区块（#2029 卡 C · 设计卡 §4.1 #4）。
  *
- * 环形图 + 表格，数据来自 `GET /api/products/fund-holdings-detail/`。
+ * **横向条形图**（`AssetAllocationBars`）+ 表格，数据来自
+ * `GET /api/products/fund-holdings-detail/`。
+ *
+ * 为什么不用环形图（#2097 改）：后端按 `DEFAULT_INDUSTRY_TOP_N = 12` 截断行业，
+ * 加上「其他」**最多 13 个扇区**——远超饼图的舒适区（6~7 类）。扇区太细时角度
+ * 不可比（读者分不出「电子 8%」与「医药 7%」），底部图例也会挤到换行。
+ * 横向条形按长度排序，一眼看出重仓谁。少分类场景仍用 `AssetAllocationDonut`。
  *
  * 口径与降级（设计卡 §4.2④ · penetration 硬口径 2）：
- * - **csrc / gics 禁止跨体系相加** —— 环形图只画主口径（证监会门类），
+ * - **csrc / gics 禁止跨体系相加** —— 图只画主口径（证监会门类），
  *   GICS 板块只作参考单列并明确标注「与证监会门类不可相加」。把两套体系混进
  *   一张图会得出「制造业与非必需消费品同级并列」的荒谬结论。
  * - 无数据显空态，**绝不 mock 顶替**（G1 教训）。
@@ -51,17 +57,15 @@ const hasData = computed(() => (props.detail?.industries?.length ?? 0) > 0);
     <p v-if="!hasData" class="industry-section__hint">暂无行业配置数据</p>
 
     <template v-else>
-      <!-- 环形图 + 表格并排：窄屏纵向堆叠 -->
+      <!-- 条形图 + 表格并排：窄屏纵向堆叠 -->
       <div class="industry-section__layout">
         <div class="industry-section__chart">
-          <AssetAllocationDonut
-            :data="chartData"
-            empty-text="暂无行业配置"
-            :legend-font-size="11"
-            :format-value="
-              (value, pct) => `${value.toFixed(2)}%（占净值 ${pct}%）`
-            "
-          />
+          <!-- 条右侧标签直接给「占净值比」，不传 formatValue。
+               旧环形图传的是 `${value}%（占净值 ${pct}%）`，而那个 `pct` 是
+               **占图表各项之和**的比例（各行业占净值比之和未必等于 100，未披露
+               部分被摊掉了）——标成「占净值」会让人误以为是占净值比。
+               条形长度本身就是 value，再叠一次换算只会多一个口径。 -->
+          <AssetAllocationBars :data="chartData" empty-text="暂无行业配置" />
         </div>
 
         <div class="industry-section__table-wrap">
@@ -164,8 +168,12 @@ const hasData = computed(() => (props.detail?.industries?.length ?? 0) > 0);
 .industry-section__layout {
   display: grid;
 
-  /* 严禁 `minmax(0, 1fr)`：会让轨道塌成 0（#1969 P0 实测，标签逐字竖排） */
-  grid-template-columns: minmax(240px, 320px) minmax(260px, 1fr);
+  /* 严禁 `minmax(0, 1fr)`：会让轨道塌成 0（#1969 P0 实测，标签逐字竖排）。
+     图表列从 320px 放宽到 420px（#2097 改环形图 → 条形图）：横向条形图靠
+     **长度**传达比例，320px 里扣掉左侧行业名（约 96px）只剩 200px 画条，
+     13 行里「8% vs 7%」的条长差不足 15px，读不出来。表格只有两列，
+     收到 200px 仍然宽裕。 */
+  grid-template-columns: minmax(320px, 420px) minmax(200px, 1fr);
 
   /* 注意：不能用 `--space-4` —— 它在全仓被引用但**从未定义**（探针实测），
      写了会整条 gap 静默失效。定义齐全的是 1/2/3/5/6。 */
@@ -179,9 +187,8 @@ const hasData = computed(() => (props.detail?.industries?.length ?? 0) > 0);
   }
 }
 
-.industry-section__chart {
-  min-height: 220px;
-}
+/* 高度交给 `AssetAllocationBars` 按条目数算：行业少时不该留一大片空白，
+   行业多时也不该把 13 行压成看不出差别的细线。 */
 
 .industry-section__table-wrap {
   min-width: 0;

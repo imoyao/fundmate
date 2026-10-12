@@ -414,6 +414,19 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - 颜色红线：必须经 CSS 语义变量（`colorMap` 传变量名，组件内 `getCssVar` 读取）；不传或缺失回退 `--chart-01~08` 循环。
 - 参考实现：`frontend/src/views/asset/ledgers/detail.vue`（`typeColorMap` + `allocationData`）。
 
+## AssetAllocationBars · 横向条形图（强制复用，与上组件二选一）
+
+- 用途：**多分类**的构成/排名展示。选它的判据是**分类数量**，不是个人偏好：
+  - **≤ 6 类** → 用 `AssetAllocationDonut`（环形看整体构成，图例即清单）；
+  - **7 类以上** → 用本组件（条长可比，排名一眼可辨）。
+- 为什么需要它：饼图 / 环形图靠**角度**传达比例，人眼对角度的分辨精度远低于长度。行业配置后端按 `DEFAULT_INDUSTRY_TOP_N = 12` 截断、加上「其他」**可达 13 个扇区**——扇区过细时读者分不出「电子 8%」与「医药 7%」，底部图例还会挤到换行（`AssetAllocationDonut` 的图例换行还会压到扇区，见该组件 option 里的 `center` / `radius` 说明）。
+- 基于 `useEchartsLifecycle`（与环形图同一套生命周期），高度**随条目数自动增长**（`rowHeight` 默认 26px + 32px 余量）：写死高度会把 13 行压成看不出差别的细线，那等于换了个样式的饼图。
+- props：`data`(`{ name, value }[]`，value ≤ 0 的项自动剔除)、`colorMap`、`emptyText`、`rowHeight`、`formatValue`。
+- **`formatValue` 的口径纪律**：条右侧标签直接给 `value`，**不要**再叠一层「占合计的百分比」换算——各行之和未必等于 100%（未披露部分被摊掉了），标成「占净值」会让人误读成另一个口径（#2097 顺手去掉了旧环形图图例里 `${value}%（占净值 ${pct}%）` 的写法）。
+- 不设图例：分类名已在 y 轴，重复一遍只会挤占宽度。
+- 颜色红线：与 `AssetAllocationDonut` 相同（`colorMap` 传变量名，`getCssVar` 读取，回退 `--chart-01~08`）。
+- 参考实现：`frontend/src/views/product/components/ProductIndustrySection.vue`（行业配置）。
+
 ## TemperatureGaugeCard · 温度环形卡（三页复用）
 
 - 供「探市 / 温度计 / 达报」使用，纯 SVG 圆环（与现有温度计页一致，不引入 echarts）。
