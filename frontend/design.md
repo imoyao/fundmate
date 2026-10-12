@@ -467,7 +467,9 @@ Element Plus 给 `.el-textarea__inner:focus` 自带
 （`layout/index.vue` 注入，未隐藏页同样可用）。三道防误触守卫缺一不可：输入焦点
 （input/textarea/select/contenteditable 一律让键）、中文输入法 `isComposing`、EP 弹层
 `.el-overlay` **可见**时让键（注意 EP 遮罩是 vShow 常驻 DOM，须判 `display` 而非判存在）。
-首次进入隐藏页 toast 提示一次（sessionStorage 去重）。用户实测案例：自选页 `/watchlist`
+首次进入隐藏页 toast 提示一次（**localStorage 去重，每浏览器仅首次**——#2099：曾用
+sessionStorage，其生命周期仅单标签页会话，重启浏览器 / 新开标签页即重置，用户体感
+「每次进自选页都弹」，干扰过大；存储不可用时退化为页内每次加载最多一次）。用户实测案例：自选页 `/watchlist`
 的 FAB 压住表格右下角固定操作列（置顶/关注/移除按钮），2026-10-10 起该页走此机制隐藏。
 
 ### 输入框基线契约（#1772：el-input / el-textarea / el-select 唯一真相源）

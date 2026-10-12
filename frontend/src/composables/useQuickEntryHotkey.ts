@@ -20,7 +20,7 @@ import { ElMessage } from "element-plus";
  * @param fabHidden 当前路由是否隐藏 FAB（决定是否发「首次提示」）
  */
 const HINT_STORAGE_KEY = "quick-entry-n-hint-shown";
-/** sessionStorage 不可用（隐私模式等）时的页内兜底去重，避免每次进页都提示 */
+/** localStorage 不可用（隐私模式等）时的页内兜底去重，避免每次进页都提示 */
 let hintedThisPageLoad = false;
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -59,16 +59,23 @@ export function useQuickEntryHotkey(
   }
   window.addEventListener("keydown", onKeydown);
 
-  // 首次进入「FAB 已隐藏」页面时提示一次快捷键（sessionStorage 去重，会话内只提示一次）：
+  // 首次进入「FAB 已隐藏」页面时提示一次快捷键（localStorage 去重，每浏览器仅首次）：
   // 隐藏后入口不可见，不提示则用户永远不知道有 N。
+  // ⚠️ 曾用 sessionStorage 去重（#2099）：其生命周期是「单标签页会话」，新开标签页 /
+  // 重启浏览器都会重置，用户体感「每次进自选页都弹」。改为 localStorage 后永久去重。
   const stopHint = watch(
     fabHidden,
     hidden => {
       if (!hidden) return;
       if (hintedThisPageLoad) return;
       try {
-        if (sessionStorage.getItem(HINT_STORAGE_KEY)) return;
-        sessionStorage.setItem(HINT_STORAGE_KEY, "1");
+        if (localStorage.getItem(HINT_STORAGE_KEY)) return;
+        // 旧版 sessionStorage 命中的用户视为已提示：迁移标记，不再弹
+        if (sessionStorage.getItem(HINT_STORAGE_KEY)) {
+          localStorage.setItem(HINT_STORAGE_KEY, "1");
+          return;
+        }
+        localStorage.setItem(HINT_STORAGE_KEY, "1");
       } catch {
         /* 存储不可用：落到页内兜底标记，本页生命周期内仍只提示一次 */
       }
