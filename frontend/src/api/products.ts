@@ -288,6 +288,13 @@ export interface StockProfileResult {
   low: number | null;
   /** 区间涨跌幅(%)（窗口首日 → 最新）。null 表示首日缺失或为 0，**不是「没涨」** */
   change_pct: number | null;
+  /** 前一个**有收盘价**的交易日收盘（停牌时即最后交易日收盘，与行情软件「昨收」同口径）。
+      窗口内只有 1 条行情时为 null —— 没有基准就不给日涨跌 */
+  prev_close: number | null;
+  /** 日涨跌额 = close − prev_close；null 表示缺基准，**不是「没涨跌」** */
+  change_amount: number | null;
+  /** 日涨跌幅(%)（昨收 → 最新）；给「最新收盘」上色用的就是这个口径，不是区间口径 */
+  day_change_pct: number | null;
   /** 实际参与统计的交易日条数；小于 window_days 说明上市/历史不足，需如实提示 */
   trading_days: number;
   /** 数据来源站点名（如「新浪财经」）；一条行情都没有时为空串 */
