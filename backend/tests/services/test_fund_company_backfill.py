@@ -193,6 +193,41 @@ def test_miss_is_cached_so_repeat_call_skips_network(monkeypatch, fetch_result):
     assert len(calls) == 1, '负缓存未生效：第二次仍在打外部请求'
 
 
+def test_unrecorded_code_is_not_a_miss_cache_hit(monkeypatch):
+    """**未记录过**的 code 不得被判为命中负缓存（#2089 CI 6 例红 的真根因）。
+
+    曾经的实现是 ``(time.monotonic() - _MISS_CACHE.get(code, 0.0)) < TTL``，而
+    ``time.monotonic()`` 返回的是**进程启动后的秒数**：进程启动后的前 30 分钟内，
+    ``0.0 → 现在`` 的差值小于 TTL，于是**从未记录**的 code 也被判成「命中」。
+
+    后果两条，第二条当时没人看见：
+
+    1. 测试只在 CI 上红：GitHub runner 每次全新启动，跑到本文件时 uptime 约
+       400s < 1800s；开发机开机已久、uptime 几十万秒，判据看着完全正常。
+    2. 生产上更严重：应用每次重启后的前 30 分钟内，L3 懒加载整体失效，
+       详情页基金公司恒为「—」，且不发起任何请求。
+
+    用假时钟把三种情形钉住，**不依赖跑测机器的真实 uptime**（否则本地这条测试
+    在开机 30 分钟后会恒绿、CI 才红，等于没测）。
+    """
+
+    class _FakeClock:
+        def __init__(self, now):
+            self.now = now
+
+        def monotonic(self):
+            return self.now
+
+    monkeypatch.setattr(backfill_module, 'time', _FakeClock(10.0))
+    assert backfill_module._in_miss_cache('NEVER-SEEN') is False, '进程刚启动时未记录的 code 不得算命中'
+
+    backfill_module._remember_miss('SEEN')
+    assert backfill_module._in_miss_cache('SEEN') is True, '记录过且未过期应命中'
+
+    monkeypatch.setattr(backfill_module, 'time', _FakeClock(10.0 + backfill_module._MISS_TTL_SECONDS + 1))
+    assert backfill_module._in_miss_cache('SEEN') is False, '超过 TTL 应失效'
+
+
 def test_fetch_exception_degrades_to_none(monkeypatch):
     """取数口抛异常 → 降级 None，不把异常抛给详情页（否则整页 500）。"""
 
