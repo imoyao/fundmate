@@ -1,6 +1,6 @@
 ---
 title: GitHub → CNB Issue 增量镜像
-status: v1（2026-10-11，源 CNB issue #2）
+status: v1.3（2026-10-12，源 CNB issue #2；§9 本地卡对照源自 CNB #117；§13 双向同步三故障/四种失败形态）
 owner: 阿白
 ---
 
@@ -154,13 +154,22 @@ cron 阶段末尾挂了三节**只报告/幂等**的收尾任务：
 「只增不覆盖」让**卡面过期不可见**。为此加了一件独立的只读工具：
 
 ```bash
-# 单张卡面：从 GitHub issue / 本地文件核对
-python scripts/bridge/check_issue_refs.py --issue 2034 --ref origin/dev
-python scripts/bridge/check_issue_refs.py --file card.md --ref origin/dev --strict-ref
+# 单张卡面：从 GitHub issue / 本地文件核对（留空 --ref = 远端默认分支）
+python scripts/bridge/check_issue_refs.py --issue 2034
+python scripts/bridge/check_issue_refs.py --file card.md --strict-ref
+# 需要指定版本时才显式传（例如核对一条明确指向 dev 的引用）
+python scripts/bridge/check_issue_refs.py --file card.md --ref origin/dev
 
 # 全部镜像卡：批量扫，输出 markdown 报告
-python scripts/bridge/check_mirror_refs.py --report --ref origin/dev
+python scripts/bridge/check_mirror_refs.py --report
 ```
+
+> **默认核对版本 = 远端默认分支**（`default_ref()` 解析 `git ls-remote --symref origin HEAD`，
+> 本仓即 `origin/main`），**不是**写死的 `dev`。#144 §四 记的正是这处错位：卡面
+> （GitHub 原卡 / CNB 镜像卡）描述的是**默认分支**的代码，拿 `dev` 核对会把
+> 「`dev` 上已删、`main` 上还在」的引用报成失效——实测假阳性就是 `#104`（GitHub #2032）
+> 的 `AssetInsightPanel.vue`（`main` 上仍在，`dev` 上已删）。逐条输出现在会打出
+> `[核对版本 <ref>]`，卡面自带 `@ref` 时一眼可见它与默认版本不同。
 
 `check_mirror_refs.py` 复用 `check_issue_refs.py` 的抽取 / 核对逻辑（**不抄第二份正则**，
 两份判据必然漂移），扫 CNB 侧全部镜像卡，报出失效引用。
@@ -174,7 +183,10 @@ python scripts/bridge/check_mirror_refs.py --report --ref origin/dev
 | **`scripts/` 不在前缀表里** | — | 它是本脚本自己的目录，放进去会把引用核对成脚本自己 |
 | **`--strict-ref` 默认关** | 缺 `@ref` 只提示不拦 | 存量卡全都没写 `@ref`，硬拦等于全红；新卡由 strict 管 |
 
-**首轮实测**（2026-10-11，110 张镜像卡）：报出 **3 张卡 / 4 条失效引用**，逐条核实为真：
+**首轮实测**（2026-10-11，110 张镜像卡）：按 `origin/dev` 核对报出 **4 张卡 / 5 条**，
+其中 **`#104`（GitHub #2032）的 `AssetInsightPanel.vue:38-41` 是假阳性**——该文件在
+`main` 上仍然存在、只在 `dev` 上被删，属「判据读错了版本」（#144 §四）。默认版本改为
+**远端默认分支 `origin/main`** 后，报告为 **3 张卡 / 4 条**，且这 4 条逐条核实为真：
 
 - `#56` (#1095)：引用 `portfolios/views.py:214-215` 说 `get_portfolio_holdings`「Python 循环逐行算市值」，
   但该文件现在只有 **166 行**，函数在第 **159** 行——卡面引用的行号在文件之外；
@@ -259,16 +271,97 @@ python scripts/bridge/mirror_state_sync.py --cnb 106 --apply
 「只增不覆盖」的直接推论是存量卡的标签/优先级不会跟着 GitHub 改——那需要先拍板
 「镜像卡是只读副本还是允许修正的本地副本」，口径见 CNB #117。
 
-## 9. 已知边界
+## 9. CNB 本地卡：只对 CNB 有效的卡，不进 GitHub（#117）
+
+镜像的初衷是「把 GitHub 的讨论带到 CNB」。但**反方向同样成立且更容易被忽略**：
+CNB 侧会长出一些**只对 CNB 有效**的卡——`CNB_TOKEN` 是构建内注入的凭据、
+`cnb issues` CLI、CNB 的 cron 语义、CNB 自身的镜像链路取舍……这些讨论放到
+GitHub 上读起来会莫名其妙，因为它们描述的是一个 GitHub 上不存在的环境。
+
+本节回答的就是用户当时问的那句：「有的 issue 只是对我们 CNB 来说有效，
+完全同步到 GitHub 上面的话似乎也很奇怪，应该怎么处理？」
+
+### 结论：**本地卡不进 GitHub，但必须是「被声明的」，且必须能被数出来**
+
+三条一起才成立，缺一条就会退化成静默：
+
+1. **不进 GitHub**：本地卡不参与镜像（现状已如此，因为镜像方向是 GitHub → CNB 单向）；
+2. **被声明的**：卡面必须能表明「我是本地卡」，否则下一个人（或下一个作业）
+   会把它当成「漏同步的镜像卡」，去补一张莫名其妙的 GitHub 卡；
+3. **能被数出来**：必须有一条命令能回答「CNB 侧有多少本地卡、它们上面有多少讨论、
+   其中多少条讨论**本该到 GitHub 却到不了**」。
+
+### 声明方式（两种，都认）
+
+```text
+> 📍 **CNB 本地卡**     ← 正文顶部声明（人工卡最常用；锚在行首引用块，正文里提到这个概念不算）
+```
+
+或挂 `CNB 本地` 标签（显式、可筛选）。
+
+两种都是**声明**。既没声明、又无 `GitHub 同步` 标签、也抠不到 `GitHub 编号：#N` 的，
+判据会**兜底**认成本地卡 —— 但兜底是**猜**，报告里单独计数（`fallback`），
+因为一张格式写歪的镜像卡也会命中兜底。
+
+> **把「是不是」和「怎么判出来的」分开**，是这条判据最容易被做错的地方。
+> 合在一起时，报告看不出某一行是**声明**还是**猜测**，而一份「少算了 87%
+> 却依然自洽」的报告比没有报告更坏 —— 实测踩过：早期版本用状态文件的映射
+> 跳过「已知镜像卡」，报告说「本地卡 12 张」，而真实总数是 123 张卡。
+
+### 怎么数：`--report-local`
+
+```bash
+# 只读：不建卡、不写状态文件
+python scripts/bridge/github_cnb_issues.py --report-local
+python scripts/bridge/github_cnb_issues.py --report-local --out local-report.md
+```
+
+输出的关键几行（**实测读数，2026-10-11**）：
+
+```text
+- CNB 卡总数：123
+- 镜像卡：111
+- 本地卡：12（标签声明 0 / 正文声明 0 / 兜底猜测 12）
+- 判据冲突（既像本地又像镜像）：0
+- 本地卡上的评论总数：72 —— 这些讨论不会出现在 GitHub
+- 其中引用了 GitHub 侧卡的本地卡：3
+```
+
+### 它顺手查出的一个**真缺口**：裸引用
+
+回写作业（`cnb_github_backfill.py` 的 `resolve_github_number`）只认**完整 URL**
+`https://github.com/<repo>/issues/N`，抠不到就跳过（「宁可漏，不可错」——写路径认错了
+会把评论贴到别人卡上，这条取舍**是对的**）。
+
+但实测发现：#117 / #120 等本地卡正文里写的是**裸引用** `imoyao/fundmate#2034`，
+不是完整 URL ⇒ **认不出、静默跳过**。也就是说这些卡「指向 GitHub、讨论却到不了 GitHub」，
+而**没有任何信号**提示这件事。
+
+本报告把它标出来（`🔗imoyao/fundmate#2034` + 汇总计数），但**不改回写脚本**：
+
+| | 回写脚本（写路径） | 本报告（只读路径） |
+|---|---|---|
+| 认什么 | **只认完整 URL** | 完整 URL + 裸引用都收 |
+| 认错了的代价 | 评论贴到别人的卡上 | 报告里多一行提示 |
+| 该取哪一边 | **宁可漏** | **宁可全** |
+
+两边判据**刻意不同**，不是不一致。要根治「裸引用到不了 GitHub」，需要的是
+**规范卡面写法**（引用跨仓卡时写完整 URL）或**在回写侧加白名单**，
+那是另一件事，不在本报告范围内。
+
+## 10. 已知边界
 
 - **不回写、不覆盖、不关**：见 §2。状态用**标记**（§8），不做自动关卡。
+- **本地卡不进 GitHub**：见 §9。它们不是「漏同步」，是**本就不该同步**；
+  判据、声明方式与 `--report-local` 都在那一节。兜底判定（`fallback`）是**猜**，
+  报告里单独计数，别把它的数字当成事实。
 - **只镜像 open issue**：GitHub 侧已关闭的卡不会补建。若某张卡在首次同步前就关了，
   CNB 侧看不到（但若它已被镜像过、之后 GitHub 关了，§8 会回流标记）。
 - **匿名 GitHub API 限额 60 次/时/IP**：107 张卡走 2 次分页调用，余量充足；仓库若长到
   数千 open issue，需配 `GITHUB_TOKEN`。§8 的状态回流要拉 `state=all`（含 closed），
   调用量比建卡那次大——限额下会静默少拉（`plan()` 对拉不到的卡**跳过而不是猜**）。
 
-## 10. 分支分叉自检（CNB #123）
+## 11. 分支分叉自检（CNB #123）
 
 `crontab` **只能挂在具体分支下**（平台限制，见 §6），而本仓 `.cnb.yml` 挂在 `main`。
 若「整改代码在 `dev`、会被执行的代码在 `main`」，就会出现 #123 记的那个病：
@@ -293,6 +386,40 @@ python scripts/bridge/check_branch_divergence.py --report --jobs-only
 退出码：`0` = 未分叉；`1` = 检出分叉；`2` = 取不到分支。`.cnb.yml` 里带 `|| true`
 ——它是信号，不是门禁。
 
+### 根因诊断：`--explain`（答「为什么分叉」，2026-10-11 补）
+
+首版只报「分叉了几个提交、哪些作业只在单侧」，**答不出「为什么」**。而卡面 §一 建议 3
+的原话是：
+
+> 为什么 `dev` 会完全不含 `main` 的这一个 commit？……**需要先答这个，
+> 否则发版完还会再分叉一次。**
+
+```bash
+python scripts/bridge/check_branch_divergence.py --report --explain
+```
+
+它额外给两件**可证**的事：
+
+1. **稳定分支独有的提交清单**（短号 + 主题）——来路由人判断；
+2. **发版试算**：`git merge-tree --write-tree --name-only <right> <left>`（**离线**，不碰工作区），
+   答「把 `dev` 合进 `main` 会不会冲突、冲突哪几个文件」。
+
+#### 为什么不自动判断「这条提交来自 GitHub 还是 CNB」
+
+实测三条路**都答不了**这个问题（2026-10-11），逐条留证：
+
+| 路 | 为什么不成立 |
+|---|---|
+| 提交信息启发式 | `feat(detail): …（#2029 卡 B）` 与 `docs(api): …（#2029 卡 B）` 同批同源，没有任何标记能区分平台 |
+| `refs/fetched/*` | 它标的是「该提交**被合进** CNB 时 fetch 过」：跨仓同步 merge `6c97c259` 在内，而它上游那批 GitHub 提交**全不在**——反着来 |
+| `sync/mirror` 分支 | 是另一条 lineage，不含这批提交 |
+
+猜错的代价是**报告指向错误的处置**（该发版的被判成纪律违规，或反之），比不给结论坏得多。
+故 `--explain` 只报事实、由人判断来路。
+
+> 这个「不猜」的取舍本身有一条回归网钉着：`test_explain_never_guesses_platform`
+> 断言报告里**不得**出现 `github-pr` / `cnb-local` 一类的平台归类标签。
+
 ### 为什么这么写
 
 | 取舍 | 做法 | 为什么 |
@@ -310,3 +437,248 @@ python scripts/bridge/check_branch_divergence.py --report --jobs-only
 
 **处置是发版**（`dev` → `main` 的 PR，head 必须是 `dev` 本身），
 **不是**「把功能分支 base 改成 `main`」——后者正是本分叉的成因（见 AGENTS.md「PR 与 Review」）。
+
+
+## 12. `.cnb.yml` 的事件必须挂在分支之下（CNB #152）
+
+> 事故：2026-10-11 双向同步上线后，**连续 7 条流水线全红**，报错三种形态、每一条
+> 单独看都会把人指向错误的方向。根因不在密钥仓库、不在分支纪律，而在 `.cnb.yml`
+> 的**写法**——GitHub PR #150 把 `push:` 与两条 `"crontab: ..."` 写在了**文件顶层**。
+
+### 平台语义
+
+CNB 的 `.cnb.yml` 顶层**只认分支名**（与 `$`）；事件（`push:` / `"crontab: ..."` /
+`web_trigger:` …）必须写在**分支之下**：
+
+```yaml
+# ✅ 对：事件挂在分支下
+main:
+  push:
+    - stages: [...]
+  "crontab: 0 * * * *":
+    - stages: [...]
+
+# ❌ 错：顶层只认分支名 ⇒ 平台读成三个「名为 push / crontab: … 的分支」
+push:
+  - stages: [...]
+"crontab: 0 * * * *":
+  - stages: [...]
+```
+
+写错的后果不是「事件没生效」这么直白，而是**报错指向与真实原因相反的方向**：
+
+| 现象 | 看起来在说 | 实际在说 |
+|---|---|---|
+| `GetFileContent: not found` | 密钥仓库里没这个文件 | **事件无定义** ⇒ CNB 拿 `main` 的定义兜底，而 `main` 上当时没有 `imports` |
+| `parse yaml failed … (3:12)` | `vars.yml` 内容写错 | 定义**后来**长出来了（GitHub #150 合入 `main`），于是才轮到文件内容被读到——两种报错是**两件事**，不是同一件事的两个阶段 |
+| `sync from github` 的 `无法快进` | 分支纪律出问题 | 与本次**无关**：那是 `sync/mirror` 分支上的镜像任务（CNB 为权威源的正常态），只是链路起来后才成为可见的红灯 |
+
+> 这三条里前两条把注意力引向 `fundmate-secret`（一个**读不到也改不了**的 Secret 仓库，
+> 对 API / token 一律 403），第三条引向根本不存在的问题——一次事故里三次误判，
+> 全部由「顶层写了非分支键」这一个原因产生。
+
+### 静态守卫
+
+`scripts/check_cnb_events.py`（**零第三方依赖之外的 `pyyaml`**，仓库已有）：
+顶层键必须是分支名或 `$`；`imports` 必须指向**文件**而不是仓库（指向仓库是 `installs` 的语法）。
+并入 `ci.yml` 的 **`scripts_test` job**（不新增 job ⇒ 不必动 `gate.needs`），回归网
+`scripts/tests/branch_structure.test.js`。
+
+**刻意不做的事**：**不拉网络、不校验 URL 可达性**。`GetFileContent: not found` 那一类
+构造不出静态判据（要查的是 Secret 仓库的权限与存在性），守卫拦的是它的**根因**——
+事件有没有挂在真实分支上。
+
+### 守卫自己也可能失效（本仓老规矩）
+
+判据写好后跑了 **6 组反向探针**（含「事件挂顶层」「imports 指向仓库」「白名单混入分支名」
+「顶层键判据被摘掉」「自检探针被摘掉」「imports 判据被摘掉」），全部 CAUGHT、还原后复绿。
+
+其中两条**必须踩过才知道**：
+
+- **白名单只能是单值键**。第一版把 `main` / `dev` 也写进白名单（想着「分支键当然合法」），
+  于是**任何**分支名都合法、「顶层键必须是分支名」等于没有——探针 S3 当场抓住。
+  现在守卫自带一个自检：用真实存在的唯一值键 `sync/mirror:` 反证白名单没被架空。
+- **探针要断言「变异真的生效」**。第一轮探针里，往函数体开头插 `return []` 看着像回退，
+  实际那是一段**不可达代码**（循环照跑），于是 `--file` 指对文件时守卫仍能报错、
+  探针却误判成 `MISSED`。**没有「变异生效」断言的探针，本身就是一个假信号。**
+
+## 13. 双向同步的三个故障与「失败形态对照表」（源 CNB #148，2026-10-12）
+
+2026-10-11~10-12 的构建列表里，**大量 job 长相一模一样**（都叫 `Crontab job`、都是
+`error`），但底下是三种**互不相关**的故障。分不清形态就会像 #152 那次一样，
+把注意力全花在一个读不到也改不了的 Secret 仓库上。
+
+**排查第一步：不要看 job 标题，看 stage 名。**
+
+| stage 长这样 | 报错原文关键词 | 真实原因 | 处理 |
+|---|---|---|---|
+| `Prepare` 失败（**连 stage 都没进**） | `declares allow_images and can only be referenced by plugin tasks` | 密钥文件被挂在**流水线级 `imports`** 上（§13.1） | 移到**插件任务内部**（与 `image` 同级），见 §13.1 |
+| `stage-0` 失败，日志有 `could not read Username` | `fatal: could not read Username for 'https://github.com'` | 凭据挂在**插件 `settingsFrom`** 上，但 `settings` 用了 `${VAR}`（§13.1 ②） | 改用**插件任务级 `imports`**（注入环境变量），见 §13.1 |
+| `Prepare` 失败 | `parse yaml failed … (3:12)` | 密钥文件写成了 `.env` 风格（`KEY=VALUE`） | 改成 `KEY: value` |
+| `Prepare` 失败 | `GetFileContent: not found` | **事件无定义**（事件写在 `.cnb.yml` 顶层，见 §12），平台拿默认分支的定义兜底 | 把事件挂到分支之下 |
+| `stage-0` 失败，日志有 `无法快进` | `无法快进：CNB 侧存在独有提交（dst=… src=…），已跳过，需人工处理` | 分支**分叉**（§11）：CNB 侧长出了 GitHub 没有的提交 | 走 PR 把 CNB 独有提交同步过去，分叉消失后自愈 |
+
+前三条都发生在 `Prepare`、都指向密钥仓库，但**根因完全不同**（位置错 / 格式错 / 事件没定义），
+只有报错原文能区分；第四条根本不在 Prepare 阶段，是**内容**问题。
+
+> **「有的成功有的失败」的真相**（#148 实测）：绿的那条是 `crontab: 0 18 * * *` 的
+> **issue 镜像 job**——它用 `python:3.12-slim` 跑纯标准库脚本，**不 import 密钥、不用插件**；
+> 红的那些全是 git-sync 作业。两者唯一的区别就是「有没有碰密钥文件」。
+
+### 13.1 凭据引用必须挂在**插件任务级**，且用 `imports`（不是流水线级、不是 `settingsFrom`）
+
+三条 git-sync 作业（`push` + 两条 `crontab`）曾在 2026-10-12 连续踩了**两个**形态——
+报错完全不同，且**都把人带向了错方向**。
+
+#### ① 流水线级 `imports` ⇒ 死在 `Prepare`
+
+先看第一个形态：
+
+```
+The file: .../fundmate-secret/-/blob/main/vars.yml declares allow_images
+and can only be referenced by plugin tasks.
+```
+
+根因是**引用挂在了流水线级**（`push:` 下一层、`stages:` 之上一行）：
+
+1. `fundmate-secret` 是私有且非同源仓库，被引用时**必须**声明
+   `allow_images: [tencentcom/git-sync]`（见 CNB 文档
+   [文件引用 › 权限检查](https://docs.cnb.cool/zh/build/file-reference.md#权限检查)），
+   否则 git-sync 插件读不到密钥；
+2. 但 `imports` 若挂在**流水线级**，平台**不认为它是「插件任务」**⇒ 判定
+   「声明了 `allow_images` 却没在插件任务里用它」⇒ `Prepare` 直接拒绝，连 stage 都进不去。
+
+#### ② 插件任务级 `settingsFrom` ⇒ `Prepare` 过了，但推不上去
+
+按 ① 的结论把凭据改挂插件 `settingsFrom` 后，`Prepare` 转绿、stage 也进了，
+却在推送时换了一个**看着很不相干**的报错：
+
+```
+Configuring Git...
+Setting up authentication type: https
+HTTPS setup completed
+...
+Local tags count: 2
+Pushing all branches
+fatal: could not read Username for 'https://github.com': No such device or address
+Error: Failed to push all branches
+```
+
+注意日志里 `HTTPS setup completed` **只说明走到这一步了**，不代表凭据写成功了——
+插件的 `setup_https()` 是这样的：
+
+```sh
+setup_https() {
+  if [ ! -z "$PLUGIN_USERNAME" ] && [ ! -z "$PLUGIN_PASSWORD" ]; then
+    echo "https://$PLUGIN_USERNAME:$PLUGIN_PASSWORD@$DOMAIN" > $HOME/.git-credentials
+  fi            # ← 没有 else：凭据为空时静默跳过，什么都不打印
+}
+```
+
+所以「`HTTPS setup completed` 之后 git 还要用户名」= **`PLUGIN_USERNAME` / `PLUGIN_PASSWORD`
+是空的**，凭据文件根本没写。
+
+为什么空？`settingsFrom` 的语义是「从文件**加载插件参数**」（文件里的 `KEY` 直接当插件参数名），
+**它不注入环境变量**；而 `settings` 里写的 `username: ${GIT_USERNAME}` 是**环境变量替换**。
+两者对不上 ⇒ 插件最终拿到空的 username/password。
+
+> CNB 文档《文件引用 › image 检查说明》原文：
+> 镜像任务参数「可通过 `settingsFrom` 设置，也可通过 `imports` 引入后以**环境变量**方式设置，
+> **两种方式均视为插件任务引用文件**」。
+> 前半句就是 ① ② 两个形态的来源，后半句是解药——见 ③。
+
+#### ③ 正确形态：**插件任务级 `imports`**（与 `image` 平级）
+
+把凭据引用**从流水线级下移到插件任务内部**（与 `image` 同级），并且**用 `imports`**：
+
+```yaml
+main:
+  push:
+    - stages:
+        - name: 同步到 GitHub（全分支 + 标签）
+          image: tencentcom/git-sync
+          imports:                                       # ← 与 image 平级，不是流水线级
+            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
+          settings:
+            target_url: https://github.com/imoyao/fundmate.git
+            auth_type: https
+            username: ${GIT_USERNAME}                    # 环境变量替换：imports 注入后才解析得出
+            password: ${GITHUB_PAT}
+            push_tags: true
+```
+
+为什么这样就对：
+
+- **位置**：插件任务级 `imports` 同样是**合规的插件引用**（官方文档「两种方式均视为插件任务
+  引用文件」），故 `allow_images` 检查通过 ⇒ 解 ①；
+- **语义**：`imports` **注入环境变量** ⇒ `settings` 里的 `${GIT_USERNAME}` 解析得出
+  ⇒ 插件拿到真实凭据 ⇒ 解 ②。
+
+这也是 git-sync 插件作者给的**官方示例形状**——其仓库 `example.yml` 正是
+`imports: <密钥文件>` + `username: "${GIT_USERNAME}"`（见
+[插件仓库](https://cnb.cool/cnb/plugins/tencentcom/git-sync)）。
+
+判断口诀：
+
+```
+「引用挂在哪」决定合规      → 必须在**插件任务内**（与 image 同级）；挂流水线级必死 Prepare
+「用 imports 还是 settingsFrom」决定 `${VAR}` 能不能解析
+                            → 要在 settings 里用 ${VAR} 就必须 imports；settingsFrom 不注入环境变量
+```
+
+⚠️ 迁移时**必须删掉原来那一种写法**：同一份文件两种语义并存（`imports` + `settingsFrom`）
+会让「到底哪条生效」变得不可预测，也是过渡期最容易留下的半吊子状态。
+
+#### 静态守卫与它的边界
+
+`scripts/guard_secret_imports.py`（并入 `ci.yml` 的 **`layout_guard`** job；不新增 job，
+就不必动 `gate.needs`）拦三条，全部**只读仓库内 `.cnb.yml`**、不拉网络：
+
+1. **密钥类 URL 挂在流水线级（非插件任务级）** —— #148 ① 的回潮；
+2. **插件任务用 `settingsFrom` 引密钥、却在 `settings` 里写 `${VAR}` 凭据** —— #148 ② 的回潮
+   （这一条是本轮新增，用来钉住「改了位置、但改错了方式」这个半成品）；
+3. **同一份 URL 同时出现在 `imports` 与 `settingsFrom`** —— 半吊子迁移。
+
+**判据 1 的边界**：它只认 `push:` / `crontab:` **事件对象直接持有**的
+`imports` / `settingsFrom`（即流水线级）；插件任务级的引用在 `stages[*]` 内部，不会被误伤。
+
+**已知假阴性（刻意不拦）**：引用**不声明 `allow_*`** 的普通 YAML 是合法用法（那种文件
+既可挂流水线级 `imports`，也不受 `allow_images` 约束），守卫不报错；
+只有 URL 里含 `secret` 或结尾是 `vars.yml` 的才进入判据 1 的视野。
+
+#### 守门自己也得先被验过（本仓老规矩）
+
+`guard_secret_imports.py` 带 `self_check()` 探针，用**最小真实形态**的配置验证三件事：
+
+- 合法的「插件任务级 `imports`」形态**不误报**；
+- 三个错误形态（流水线级 `imports` / `settingsFrom` + `${VAR}` / 两种语义并存）**各自会报错**。
+
+回归网 `scripts/tests/guard_secret_imports.test.js` 更进一步：它把真实 `.cnb.yml` 里的一处
+`imports` **回退成 `settingsFrom`** 写进临时文件，断言守卫确实以退出码 1 报错——探针本身
+失效时，那才是真正的假绿（#152 的教训：没有「变异生效」断言的探针就是个假信号）。
+
+### 13.2 Secret 仓库的人工操作清单（本仓改不进 PR）
+
+`.cnb.yml`、模板、文档都能走 PR；**唯独密钥仓库那份 `vars.yml` 只能人工在 Web 改**。
+以下步骤需在 CNB Web 界面执行（AI / CLI 读不到也写不了，`Secret repos do not support
+token access`）：
+
+1. 打开 `https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml`（需登录且有权限）；
+2. 对照本仓模板 `docs/ops/git-sync-secret-vars.example.yml` 逐项核对：
+   - 文件是**YAML**（`KEY: value`），不是 `.env` 的 `KEY=VALUE`；
+   - 有 `GIT_USERNAME` 与 `GITHUB_PAT`（PAT 需 `repo` 权限）；
+   - 四个 `allow_*` 齐全：`allow_slugs`（本仓 slug）、`allow_events`（`push` + `crontab:*`）、
+     `allow_branches`（`main` / `dev`）、`allow_images`（`tencentcom/git-sync` 及其 `:*` glob）；
+   - 没有多写 `allow_tags` / `allow_users`（字段不存在，写了静默不生效）；
+3. **保存后手动触发一次任一条 git-sync 作业**（`main` 分支 → 运行流水线 → 选 `push` 或
+   `crontab: 0 * * * *`），确认 `Prepare` 转绿、stage **能进且能推成功**（`Pushing all branches`
+   之后不出现 `could not read Username`）；
+4. 两种红灯的归属不同，别混：
+   - `Prepare` 报 `declares allow_images` ⇒ 是 **`.cnb.yml` 的引用位置**错（还挂在流水线级，
+     或改动没发版到 `main`），**不是**密钥仓库的问题；
+   - `stage-0` 报 `could not read Username` ⇒ 是 **`.cnb.yml` 的引用方式**错（用了
+     `settingsFrom` 却写 `${VAR}`）；先跑 `python scripts/guard_secret_imports.py` 自证。
+
+> ⚠️ 改密钥仓库时同步更新本仓模板——两者是**内容同步的副本**，模板漂了，
+> 后续排查就会对着过期事实判断。注意：`settingsFrom` 路线**不需要**改密钥仓库
+> （保持 `GIT_USERNAME` / `GITHUB_PAT` 的键名即可），这正是选它的原因之一。

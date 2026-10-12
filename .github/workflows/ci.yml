@@ -182,6 +182,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      # 密钥引用位置守卫（guard_secret_imports.py）要解析 .cnb.yml，依赖 pyyaml；
+      # 本 job 只用 setup-python 裸环境，故在此显式安装（不拉其他依赖）。
+      - name: 安装 pyyaml（密钥守卫解析 .cnb.yml 需要）
+        run: python -m pip install pyyaml
+
       - name: 扫描容器宽度字面量
         run: python scripts/guard_layout_widths.py
 
@@ -223,6 +228,18 @@ jobs:
       # 判据边界与豁免方式见脚本 docstring；回归样本在 scripts/tests/guard_control_clip.test.js。
       - name: 扫描控件裁切回潮（阻断）
         run: python scripts/guard_control_clip.py
+
+      # 密钥引用位置守卫（源 CNB #148，2026-10-12，两个形态都踩过）：
+      # git-sync 凭据必须挂**插件任务级 `imports`**（与 image 平级），
+      # ① 挂流水线级 imports ⇒ 死在 Prepare（`declares allow_images … plugin tasks`）；
+      # ② 挂 settingsFrom 却写 ${VAR} ⇒ 推不上去（`could not read Username for github.com`）——
+      #    settingsFrom 只加载插件参数、不注入环境变量。
+      # 两个报错都不指向真正的原因（前者指向读不到的 Secret 仓库，后者指向一个空凭据）。
+      # 同属「配置回潮」一类，故并入本 job 而不另起 job（不新增 job 就不必改 gate.needs）。
+      # 判据边界（含「不拉网络、只读仓库内 .cnb.yml」）见脚本 docstring；
+      # 回归网在 scripts/tests/guard_secret_imports.test.js（含变异回退探针）。
+      - name: 扫描密钥引用位置回潮（阻断）
+        run: python scripts/guard_secret_imports.py
 
   # 乱码守卫（mojibake）：防止任何绕过本地 pre-commit 钩子的提交（--no-verify、
   # 或经 gh api / MCP 直推导致本地钩子不执行）把 GBK 乱码合进 PR。
@@ -445,6 +462,17 @@ jobs:
       - name: 跑 scripts/ 下的守卫脚本单测
         run: node --test "scripts/tests/*.test.js"
 
+      # workflow `inputs` 插值守卫（源 CNB #148，2026-10-12）：`inputs` 只有
+      # workflow_dispatch / workflow_call 才定义，`schedule` 下写进 `run:` 会留**字面量**
+      # ⇒ `bash: bad substitution`，步骤首行即挂。`cnb-github-backfill.yml` 因此
+      # **每一天都红**且只花 9 秒（run 38179858075），回写路径从未真正跑过；
+      # `mojibake-dev-guard.yml` 同型但在惰性分支里，185 次 push 全绿、一次 dispatch 就会挂。
+      # 同属「配置回潮」一类，故并入本 job 而不另起 job（不新增 job 就不必改 gate.needs）。
+      # 判据边界见脚本 docstring；回归网在 scripts/tests/guard_workflow_inputs_interpolation.test.js
+      # （含两处回退变异探针）。
+      - name: 扫描 workflow inputs 插值回潮（阻断）
+        run: python scripts/guard_workflow_inputs_interpolation.py
+
       # 跨仓引用守卫（源 CNB 卡）：CNB 的正文/评论里裸 `#N` 会被解析成**本仓**编号，
       # 于是「见 GitHub 的某号」点进去落到 cnb.cool 的同号（要么 404、要么撞上另一张卡）。
       # 用户实测撞到，故规则是「提到 GitHub 的编号必须挂源」。不新增 job——并入本 job，
@@ -458,8 +486,23 @@ jobs:
         with:
           python-version: "3.12"
 
+      # 本 job 的 setup-python 裸环境不含 pyyaml，而 check_cnb_events.py /
+      # guard_secret_imports.py 解析 .cnb.yml 依赖它；不拉其他依赖。
+      - name: 安装 pyyaml
+        run: python -m pip install pyyaml
+
       - name: 跑 scripts/ 下的 Python 守卫/桥接脚本单测
         run: python -m unittest discover -s scripts/tests -p "test_*.py" -v
+
+      # CNB 事件结构守卫（源 CNB #152）：`.cnb.yml` 的顶层**只认分支名**，而 PR #150 把
+      # `push:` 与两条 `"crontab: ..."` 写在了顶层 —— 平台读成三个**不存在的分支**，随后
+      # 7 条流水线全红，报错却是 `GetFileContent: not found` 与 `parse yaml failed` 两种
+      # 与「写错位置」毫不相干的形态（完整推导见回归网文件头）。
+      # 不新增 job：并入本 job 即可，也就不必动 gate.needs。
+      # 判据边界（含「不拉网络、不校验 URL 可达性」）见脚本 docstring；
+      # 回归网在 scripts/tests/branch_structure.test.js。
+      - name: 检查 .cnb.yml 的顶层事件是否挂在分支之下（阻断）
+        run: python scripts/check_cnb_events.py
 
   gate:
     name: 质量门禁汇总

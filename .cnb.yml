@@ -70,9 +70,14 @@
     # 就会出现「整改代码在 dev、会被执行的代码在 main」——**写完了，跑的不是它**，
     # 且没有任何信号提示。本节点把「靠人肉 git log 发现分叉」换成一条命令。
     # 只读本地 git（**不 fetch**，故不依赖网络）；带 `|| true` 明确「信号不是门禁」。
+    # 带 `--explain`：卡面 §一 建议 3 问的是「为什么 dev 会完全不含 main 的这一个 commit」——
+    # 只报「分叉了几个」修不了根因，故额外列出稳定分支独有的提交清单，
+    # 并**离线试算发版会不会冲突**（`git merge-tree`，不碰工作区）。
+    # 有意**不猜**「哪个提交来自 GitHub、哪个来自 CNB」：实测提交信息、`refs/fetched`、
+    # `sync/mirror` 三条路都答不了，猜错会让报告指向错误的处置。
     - name: 分支分叉自检（只报告）
       script: |
-        python scripts/bridge/check_branch_divergence.py --report || true
+        python scripts/bridge/check_branch_divergence.py --report --explain || true
 
 # 定时任务必须挂在具体分支下（不能放 $ 兜底），故这里显式写 main。
 main:
@@ -81,6 +86,92 @@ main:
   "crontab: 0 18 * * *":
     - name: GitHub issue 增量镜像
       <<: *mirror-job
+
+  # ===== 双向代码同步（CNB <-> GitHub，git-sync 插件）=====
+  # 凭据放密钥仓库 fundmate-secret 的 vars.yml：GIT_USERNAME / GITHUB_PAT
+  # （PAT 需 repo 权限；参考 https://cnb.cool/cnb/plugins/tencentcom/git-sync）
+  #
+  # ⚠️ 凭据引用必须挂在**插件任务（stage 元素）内部**、与 `image` 平级，**不能挂流水线级**；
+  # 且本仓要用 `${GIT_USERNAME}` 求解，所以方式必须是 `imports`（不是 `settingsFrom`）。
+  # CNB #148 两轮实测把这三种形态的前两种都踩了：
+  #
+  # ① 挂**流水线级** `imports`（`push:` 下一层、`stages:` 之上一行）⇒ 死在 Prepare：
+  #        vars.yml declares allow_images and can only be referenced by plugin tasks.
+  #    因为 vars.yml 必须声明 `allow_images: [tencentcom/git-sync]`（否则插件读不到密钥），
+  #    而流水线级引用**不算「插件任务」**，平台判定「声明了 allow_images 却没在插件任务里用」
+  #    → 直接拒绝，连 stage 都进不去。
+  #
+  # ② 改挂**插件任务级 `settingsFrom`** ⇒ Prepare 过了、进得了 stage，但推不上去：
+  #        fatal: could not read Username for 'https://github.com'
+  #    `settingsFrom` 的语义是「从文件**加载插件参数**」(KEY 直接当插件参数名)，**不注入环境变量**；
+  #    而 `settings` 里写的 `${GIT_USERNAME}` 是环境变量替换，此时无从解析 ⇒ 插件拿到空的
+  #    username/password ⇒ `setup_https()` 跳过写 `~/.git-credentials` ⇒ git 交互式要用户名而失败。
+  #
+  # ✅ 正确形态：**插件任务级 `imports`**（与 `image` 平级）。依据 CNB 文档
+  #    《文件引用 › image 检查说明》：镜像任务参数「可通过 `settingsFrom` 设置，也可通过
+  #    `imports` 引入后以**环境变量**方式设置，**两种方式均视为插件任务引用文件**」。
+  #    即：插件任务级 `imports` 同样是合规的插件引用（`allow_images` 检查通过），
+  #    且它**注入环境变量**，`settings` 里的 `${GIT_USERNAME}` 才解析得出。
+  #    这也是 git-sync 插件作者给的官方示例形状（其 example.yml 即此法）。
+  #
+  # 判断口诀：**「引用挂在哪」决定合规（必须插件任务内），「用 imports 还是 settingsFrom」
+  # 决定 `${VAR}` 能不能解析（要解析就用 imports）。** 本仓两个都要 ⇒ 插件任务级 imports。
+  #
+  # ⚠️ vars.yml 必须是 **YAML**（`KEY: value`），不是 `.env` 的 `KEY=VALUE`。
+  # 写成 `GIT_USERNAME=imoyao` 这种等号风格，YAML 解析器会先在首行得到一个纯量、
+  # 次行又一个，到第三行 mapping 时直接报 `parse yaml failed … (3:12)`，
+  # 流水线死在 Prepare，且报错里**不含 not found**。
+  # 模板与完整踩坑记录见 docs/ops/git-sync-secret-vars.example.yml。
+  #
+  # 另注：该文件在 Secret 仓库，API/token 一律 403（`Secret repos do not support
+  # token access`）——**只能人工在 Web 界面改**，改不进 PR，故模板落在代码仓里。
+  # push 模式不开 force：CNB 为权威源，绝不通把 GitHub 独有提交冲掉（即「反向护栏」）。
+  # 回归网：scripts/guard_secret_imports.py（并入 ci.yml 的 layout_guard job）。
+  push:
+    - stages:
+        - name: 同步到 GitHub（全分支 + 标签）
+          image: tencentcom/git-sync
+          # 凭据走**插件任务级** imports（见上方说明：必须与 image 平级，且要用 imports 才能
+          # 让 settings 里的 ${VAR} 解析；不要改回流水线级 imports，也不要改成 settingsFrom）
+          imports:
+            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
+          settings:
+            target_url: https://github.com/imoyao/fundmate.git
+            auth_type: https
+            username: ${GIT_USERNAME}
+            password: ${GITHUB_PAT}
+            push_tags: true
+  # 每小时从 GitHub 拉回（闭合 GitHub -> CNB）
+  "crontab: 0 * * * *":
+      stages:
+        - name: 从 GitHub 拉取（全分支 + 标签）
+          image: tencentcom/git-sync
+          # 凭据走**插件任务级** imports（见上方说明：必须与 image 平级，且要用 imports 才能
+          # 让 settings 里的 ${VAR} 解析；不要改回流水线级 imports，也不要改成 settingsFrom）
+          imports:
+            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
+          settings:
+            target_url: https://github.com/imoyao/fundmate.git
+            auth_type: https
+            username: ${GIT_USERNAME}
+            password: ${GITHUB_PAT}
+            sync_mode: pull
+            push_tags: true
+  # 每小时把 CNB 全部分支推到 GitHub（覆盖 feature 分支，不依赖 main push）
+  "crontab: 30 * * * *":
+      stages:
+        - name: 同步到 GitHub（每小时兜底）
+          image: tencentcom/git-sync
+          # 凭据走**插件任务级** imports（见上方说明：必须与 image 平级，且要用 imports 才能
+          # 让 settings 里的 ${VAR} 解析；不要改回流水线级 imports，也不要改成 settingsFrom）
+          imports:
+            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
+          settings:
+            target_url: https://github.com/imoyao/fundmate.git
+            auth_type: https
+            username: ${GIT_USERNAME}
+            password: ${GITHUB_PAT}
+            push_tags: true
 
 # 手动触发放兜底分支：与分支无关，放 $ 下任何分支都能点。
 $:
