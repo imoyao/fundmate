@@ -159,7 +159,7 @@ function formatTradeDate(date: string | null): string {
 
 .transaction-section__empty {
   padding: 24px;
-  color: var(--color-text-3);
+  color: var(--text-tertiary);
   text-align: center;
 }
 
