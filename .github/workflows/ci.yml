@@ -480,6 +480,17 @@ jobs:
       - name: 跑 scripts/ 下的守卫脚本单测
         run: node --test "scripts/tests/*.test.js"
 
+      # workflow `inputs` 插值守卫（源 CNB #148，2026-10-12）：`inputs` 只有
+      # workflow_dispatch / workflow_call 才定义，`schedule` 下写进 `run:` 会留**字面量**
+      # ⇒ `bash: bad substitution`，步骤首行即挂。`cnb-github-backfill.yml` 因此
+      # **每一天都红**且只花 9 秒（run 38179858075），回写路径从未真正跑过；
+      # `mojibake-dev-guard.yml` 同型但在惰性分支里，185 次 push 全绿、一次 dispatch 就会挂。
+      # 同属「配置回潮」一类，故并入本 job 而不另起 job（不新增 job 就不必改 gate.needs）。
+      # 判据边界见脚本 docstring；回归网在 scripts/tests/guard_workflow_inputs_interpolation.test.js
+      # （含两处回退变异探针）。
+      - name: 扫描 workflow inputs 插值回潮（阻断）
+        run: python scripts/guard_workflow_inputs_interpolation.py
+
       # 跨仓引用守卫（源 CNB 卡）：CNB 的正文/评论里裸 `#N` 会被解析成**本仓**编号，
       # 于是「见 GitHub 的某号」点进去落到 cnb.cool 的同号（要么 404、要么撞上另一张卡）。
       # 用户实测撞到，故规则是「提到 GitHub 的编号必须挂源」。不新增 job——并入本 job，

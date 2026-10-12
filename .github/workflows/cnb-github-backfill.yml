@@ -83,24 +83,42 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}
           CNB_REPO: duoduobei/fundmate
+          # ⚠️ `inputs` 只有 workflow_dispatch / workflow_call 两种事件才定义。
+          # schedule 触发时它是**未定义上下文**，`${{ inputs.xxx }}` 不会被求值成空串，
+          # 而是把**字面量**留进 shell —— `[ "${{ inputs.dry_run }}" = "true" ]` 展开成
+          # `[ "${{ inputs.dry_run }}" = "true" ]`，bash 报 `bad substitution`，
+          # 步骤在第一条语句就退出（实测 2026-10-11 22:17 那次 schedule 运行，
+          # 9 秒即 failure，正确性：run 38179858075）。
+          # 修法：一律经 `env:` 传值（未定义上下文在 env 里解析成空串，不落进 shell），
+          # 脚本里只读环境变量，且**不用 eval**（避免把输入拼进命令行）。
+          DRY_RUN: ${{ inputs.dry_run }}
+          SINCE: ${{ inputs.since }}
+          LIMIT: ${{ inputs.limit }}
         run: |
-          ARGS=""
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            ARGS="$ARGS --dry-run"
-          else
-            ARGS="$ARGS --apply"
+          set -euo pipefail
+          # 缺 token 直接失败：GITHUB_TOKEN 缺失时脚本只会在每个 issue 上打印
+          # 「401 Unauthorized」然后以退出码 0 结束 —— 红灯变绿灯，静默空跑。
+          if [ -z "${GITHUB_TOKEN:-}" ]; then
+            echo "❌ GITHUB_TOKEN 为空（secrets.GH_PAT / secrets.GITHUB_TOKEN 都没拿到），提前失败" >&2
+            exit 1
           fi
-          if [ -n "${{ inputs.since }}" ]; then
-            ARGS="$ARGS --since '${{ inputs.since }}'"
+          args=(--apply)
+          if [ "${DRY_RUN:-}" = "true" ]; then
+            args=(--dry-run)
           fi
-          if [ -n "${{ inputs.limit }}" ]; then
-            ARGS="$ARGS --limit ${{ inputs.limit }}"
+          if [ -n "${SINCE:-}" ]; then
+            args+=(--since "$SINCE")
           fi
-          echo "运行参数：$ARGS"
-          eval python scripts/bridge/cnb_github_backfill.py $ARGS
+          if [ -n "${LIMIT:-}" ]; then
+            args+=(--limit "$LIMIT")
+          fi
+          echo "运行参数：${args[*]}"
+          python scripts/bridge/cnb_github_backfill.py "${args[@]}"
 
       # 状态文件回写（供人工审计「哪条 CNB 评论回写过」）。
       # 用 [skip ci] 免得这次提交又触发一轮 CI。
+      # `if:` 是表达式上下文，`inputs.dry_run` 未定义时求值为 null，`null != true` 为真，
+      # 所以 schedule 下这里会执行 —— 是我们要的行为，不必改。
       - name: 提交状态文件（仅当有变化）
         if: ${{ inputs.dry_run != true }}
         run: |
