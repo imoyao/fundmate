@@ -247,13 +247,15 @@ jobs:
       - name: 扫描控件裁切回潮（阻断）
         run: python scripts/guard_control_clip.py
 
-      # 密钥引用位置守卫（源 CNB #148，2026-10-12）：插件凭据必须挂**插件 `settingsFrom`**，
-      # 不能挂流水线级 `imports`。挂错时三条 git-sync 作业会**全部死在 Prepare**
-      # （`declares allow_images and can only be referenced by plugin tasks`），
-      # 而那个报错把人指向密钥仓库——一个读不到也改不了的 Secret 仓库。
+      # 密钥引用位置守卫（源 CNB #148，2026-10-12，两个形态都踩过）：
+      # git-sync 凭据必须挂**插件任务级 `imports`**（与 image 平级），
+      # ① 挂流水线级 imports ⇒ 死在 Prepare（`declares allow_images … plugin tasks`）；
+      # ② 挂 settingsFrom 却写 ${VAR} ⇒ 推不上去（`could not read Username for github.com`）——
+      #    settingsFrom 只加载插件参数、不注入环境变量。
+      # 两个报错都不指向真正的原因（前者指向读不到的 Secret 仓库，后者指向一个空凭据）。
       # 同属「配置回潮」一类，故并入本 job 而不另起 job（不新增 job 就不必改 gate.needs）。
-      # 判据边界（含「不拉网络、只读仓库内模板」）见脚本 docstring；
-      # 回归网在 scripts/tests/guard_secret_imports.test.js。
+      # 判据边界（含「不拉网络、只读仓库内 .cnb.yml」）见脚本 docstring；
+      # 回归网在 scripts/tests/guard_secret_imports.test.js（含变异回退探针）。
       - name: 扫描密钥引用位置回潮（阻断）
         run: python scripts/guard_secret_imports.py
 

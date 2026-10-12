@@ -91,14 +91,31 @@ main:
   # 凭据放密钥仓库 fundmate-secret 的 vars.yml：GIT_USERNAME / GITHUB_PAT
   # （PAT 需 repo 权限；参考 https://cnb.cool/cnb/plugins/tencentcom/git-sync）
   #
-  # ⚠️ 凭据必须挂**插件的 `settingsFrom`**，不能挂流水线级 `imports`（CNB #148，2026-10-12）。
-  # 实测三条作业全部死在 Prepare，连 stage 都没进：
-  #     vars.yml declares allow_images and can only be referenced by plugin tasks.
-  # 原因是位置错了：vars.yml 必须声明 `allow_images: [tencentcom/git-sync]`（否则插件读不到
-  # 密钥），而 `imports` 是**流水线级**引用，平台不算它是「插件任务」，于是判定
-  # 「声明了 allow_images 却没在插件任务里用」→ 直接拒绝。`settingsFrom` 才是插件任务的
-  # 凭据入口。判断口诀：**引用不声明 `allow_*` 的普通 YAML 用 `imports`，
-  # 引用声明了 `allow_images` 的密钥文件用 `settingsFrom`。**
+  # ⚠️ 凭据引用必须挂在**插件任务（stage 元素）内部**、与 `image` 平级，**不能挂流水线级**；
+  # 且本仓要用 `${GIT_USERNAME}` 求解，所以方式必须是 `imports`（不是 `settingsFrom`）。
+  # CNB #148 两轮实测把这三种形态的前两种都踩了：
+  #
+  # ① 挂**流水线级** `imports`（`push:` 下一层、`stages:` 之上一行）⇒ 死在 Prepare：
+  #        vars.yml declares allow_images and can only be referenced by plugin tasks.
+  #    因为 vars.yml 必须声明 `allow_images: [tencentcom/git-sync]`（否则插件读不到密钥），
+  #    而流水线级引用**不算「插件任务」**，平台判定「声明了 allow_images 却没在插件任务里用」
+  #    → 直接拒绝，连 stage 都进不去。
+  #
+  # ② 改挂**插件任务级 `settingsFrom`** ⇒ Prepare 过了、进得了 stage，但推不上去：
+  #        fatal: could not read Username for 'https://github.com'
+  #    `settingsFrom` 的语义是「从文件**加载插件参数**」(KEY 直接当插件参数名)，**不注入环境变量**；
+  #    而 `settings` 里写的 `${GIT_USERNAME}` 是环境变量替换，此时无从解析 ⇒ 插件拿到空的
+  #    username/password ⇒ `setup_https()` 跳过写 `~/.git-credentials` ⇒ git 交互式要用户名而失败。
+  #
+  # ✅ 正确形态：**插件任务级 `imports`**（与 `image` 平级）。依据 CNB 文档
+  #    《文件引用 › image 检查说明》：镜像任务参数「可通过 `settingsFrom` 设置，也可通过
+  #    `imports` 引入后以**环境变量**方式设置，**两种方式均视为插件任务引用文件**」。
+  #    即：插件任务级 `imports` 同样是合规的插件引用（`allow_images` 检查通过），
+  #    且它**注入环境变量**，`settings` 里的 `${GIT_USERNAME}` 才解析得出。
+  #    这也是 git-sync 插件作者给的官方示例形状（其 example.yml 即此法）。
+  #
+  # 判断口诀：**「引用挂在哪」决定合规（必须插件任务内），「用 imports 还是 settingsFrom」
+  # 决定 `${VAR}` 能不能解析（要解析就用 imports）。** 本仓两个都要 ⇒ 插件任务级 imports。
   #
   # ⚠️ vars.yml 必须是 **YAML**（`KEY: value`），不是 `.env` 的 `KEY=VALUE`。
   # 写成 `GIT_USERNAME=imoyao` 这种等号风格，YAML 解析器会先在首行得到一个纯量、
@@ -114,8 +131,9 @@ main:
     - stages:
         - name: 同步到 GitHub（全分支 + 标签）
           image: tencentcom/git-sync
-          # 凭据走插件入口 settingsFrom（见上方说明；不要改回流水线级 imports）
-          settingsFrom:
+          # 凭据走**插件任务级** imports（见上方说明：必须与 image 平级，且要用 imports 才能
+          # 让 settings 里的 ${VAR} 解析；不要改回流水线级 imports，也不要改成 settingsFrom）
+          imports:
             - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
           settings:
             target_url: https://github.com/imoyao/fundmate.git
@@ -128,8 +146,9 @@ main:
       stages:
         - name: 从 GitHub 拉取（全分支 + 标签）
           image: tencentcom/git-sync
-          # 凭据走插件入口 settingsFrom（见上方说明；不要改回流水线级 imports）
-          settingsFrom:
+          # 凭据走**插件任务级** imports（见上方说明：必须与 image 平级，且要用 imports 才能
+          # 让 settings 里的 ${VAR} 解析；不要改回流水线级 imports，也不要改成 settingsFrom）
+          imports:
             - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
           settings:
             target_url: https://github.com/imoyao/fundmate.git
@@ -143,8 +162,9 @@ main:
       stages:
         - name: 同步到 GitHub（每小时兜底）
           image: tencentcom/git-sync
-          # 凭据走插件入口 settingsFrom（见上方说明；不要改回流水线级 imports）
-          settingsFrom:
+          # 凭据走**插件任务级** imports（见上方说明：必须与 image 平级，且要用 imports 才能
+          # 让 settings 里的 ${VAR} 解析；不要改回流水线级 imports，也不要改成 settingsFrom）
+          imports:
             - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
           settings:
             target_url: https://github.com/imoyao/fundmate.git
