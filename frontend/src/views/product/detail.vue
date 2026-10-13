@@ -200,10 +200,14 @@ watch(productRef, loadProduct, { immediate: true });
             :asset-type="product.asset_type"
           />
 
-          <!-- 交易记录（#2104）：仅可交易品类渲染（manager / portfolio / index 由组件
-               整块不渲染、不发请求），挂载即拉取最近 10 条。过滤在后端下推到 SQL，
-               不在前端拉全量再筛。 -->
+          <!-- 交易记录（#2104）：与「我的持仓」同条件——仅当前持有时渲染。
+               流水是用户自己的账本数据（transactions 表带账户字段），无持仓不可能
+               有流水；原来只按「品类可交易」渲染，未持有用户点进详情页会白得一张
+               「暂无交易记录」空卡 + 一次无用请求，导航胶囊还多一项死重量。
+               清仓用户回看完整流水（含搜索/编辑/手续费）去账本详情页，那是管理语境；
+               本页只服务当前持有人快速回看最近操作。 -->
           <ProductTransactionSection
+            v-if="product.has_position === true"
             id="nav-transactions"
             :symbol="product.symbol"
             :asset-type="product.asset_type"
