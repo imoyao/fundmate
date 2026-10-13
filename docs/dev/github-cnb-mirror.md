@@ -260,6 +260,49 @@ python scripts/bridge/mirror_state_sync.py --cnb 106 --apply
 不代表 CNB 侧那些讨论又活了。若脚本反向回退，它就变成「GitHub 只要还开着，CNB 就不许关」
 ——等于取消人工回路，正是 #117 硬要求 ① 要防的。
 
+### ⚠️ 「拿不到数据」≠「没有漂移」（#171，2026-10-13 修）
+
+这是本作业上线后**真实发生**的失效，且形态最坏：**它一直是绿的，也一直没干活。**
+
+症状：`--report` 打印
+
+```text
+⚠️ GitHub 限额用尽（403），只拿到前 0 页共 0 张；本轮的卡可能漏标。
+📥 GitHub issue 0 张；CNB 镜像卡 107 张
+✅ 无状态漂移，两侧已对齐          ← 一张 issue 都没拉到，却报「已对齐」
+```
+
+根因是两层叠加：
+
+1. **额度不够**：`fetch_github_issues_by_number()` 用 `state=all`（含已关闭卡）翻页，
+   而 cron 里 `GITHUB_TOKEN` 是「可选、不设则走匿名」——匿名只有 **60 次/时/IP**，
+   且建卡 job 先跑、先把额度吃掉，`state=all` 到第 3 页就 403；
+2. **错误的等价**：403 时函数 `break` 返回空映射，而 `run()` 里 `if not todo: print('✅ 两侧已对齐')`
+   —— **「拉不到」被当成了「没漂移」**。文件头当时写的「少拉只是少标记、不会误标」
+   只考虑了**误标**（确实成立），没意识到**少拉到 0 张时报告会给出完全错误的结论**。
+
+修法（`scripts/bridge/mirror_state_sync.py`）：
+
+- `fetch_github_issues_by_number()` 改为返回 `(映射, 是否完整)` 二元组，把「完整性」
+  交出去当一等值；
+- `run()` 在 `complete=False` 时**一律不得宣称对齐**，打印「数据不完整，本次结论不可信」，
+  并**以退出码 1 结束**（让 cron 侧看得出这次没跑成）；
+- 部分数据下**照做但不背书**：`plan()` 对拿不到的卡本就是跳过，故能安全回流已判定的漂移。
+
+回归网：`scripts/tests/test_mirror_state_sync.py` 的 `TestIncompleteDataNotGreen`（3 条）
+—— 「0 张 + 不完整不得报已对齐」「不完整但有漂移照做但不背书」「完整且无漂移才报已对齐」。
+**2 轮反向探针 CAUGHT**（S1 去掉 `not complete` 分支；S2 永不置 `complete=False`）。
+
+> 这条修正的教训不止于本脚本：**任何「拿不到输入就当没有」的判据都是假绿生产线**。
+> 假绿比假红更贵——假红有人去修，假绿没人去看。
+
+**修复后复跑立刻露出第二个独立的坑**：GitHub 已对**大结果集禁用 page 参数**——
+page 9/10 正常（各 100 条）、**page 11 直接 422**（阈值 1000 条），
+报 `Pagination with the page parameter is not supported for large datasets, please use cursor based pagination`。
+而镜像卡是 `#783`~`#2050` 的**老卡**，`sort=updated` 会把它们排到 1000 名之外 ⇒
+**靠后的镜像卡永远落在可达窗口之外**。故「按编号直查（`GET /issues/{n}`）替代翻全量列表」
+不是优化项，而是**前置必修**；在此之前，`complete=False` 会如实报出这个不完整。
+
 ### 幂等键带上 GitHub 的 `updated_at`
 
 `状态键 = sha1(CNB 编号 | GitHub 编号 | 状态 | GitHub 侧 updated_at)`。带上 `updated_at`

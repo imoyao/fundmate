@@ -163,7 +163,7 @@ class TestRunApply(unittest.TestCase):
                 sync, 'load_state', return_value={'mirrored': {str(c['gh']): {'cnb': c['cnb']} for c in cards}}
             ),
             mock.patch.object(sync, 'mirrored_cards', return_value=cards),
-            mock.patch.object(sync, 'fetch_github_issues_by_number', return_value=gh),
+            mock.patch.object(sync, 'fetch_github_issues_by_number', return_value=(gh, True)),
             mock.patch.object(sync, 'list_issue_comments', return_value=comments or []),
             mock.patch.object(sync, 'is_mirror_card', return_value=is_mirror),
             mock.patch.object(sync, 'post_comment', side_effect=lambda n, b, repo=None: posts.append((n, b))),
@@ -275,8 +275,10 @@ class TestFetchDegradation(unittest.TestCase):
     def test_限额用尽返回已抓到的部分(self):
         import urllib.error
 
+        # 满页（100）才会继续翻页，进而撞上第 2 页的 403——这正是线上形态。
+        page1 = [{'number': i, 'state': 'open'} for i in range(1, 101)]
         pages = [
-            self._page([{'number': 1, 'state': 'closed'}, {'number': 2, 'state': 'open'}]),
+            self._page(page1),
             urllib.error.HTTPError('u', 403, 'rate limited', {}, None),
         ]
         calls = {'n': 0}
@@ -293,8 +295,9 @@ class TestFetchDegradation(unittest.TestCase):
             mock.patch.object(sync, '_github_headers', return_value={}),
             mock.patch('github_cnb_issues._request', side_effect=fake_request),
         ):
-            got = sync.fetch_github_issues_by_number()
-        self.assertEqual(sorted(got), [1, 2], '限额中断时应返回已拿到的部分，而不是抛异常')
+            got, complete = sync.fetch_github_issues_by_number()
+        self.assertEqual(sorted(got), list(range(1, 101)), '限额中断时应返回已拿到的部分，而不是抛异常')
+        self.assertFalse(complete, '限额中断 = 数据不完整，必须如实报告（issue #171）')
 
     def test_PULL_REQUEST混入时被剔除(self):
         page = self._page([{'number': 1}, {'number': 9, 'pull_request': {}}])
@@ -303,8 +306,9 @@ class TestFetchDegradation(unittest.TestCase):
             mock.patch.object(sync, '_github_headers', return_value={}),
             mock.patch('github_cnb_issues._request', return_value=page),
         ):
-            got = sync.fetch_github_issues_by_number()
+            got, complete = sync.fetch_github_issues_by_number()
         self.assertEqual(sorted(got), [1], 'GitHub 的 /issues 会混入 PR，必须剔除')
+        self.assertTrue(complete, '拉到底了（不足一页）⇒ 数据完整')
 
     def test_非403的HTTP错误同样降级(self):
         import urllib.error
@@ -314,8 +318,88 @@ class TestFetchDegradation(unittest.TestCase):
             mock.patch.object(sync, '_github_headers', return_value={}),
             mock.patch('github_cnb_issues._request', side_effect=err),
         ):
-            got = sync.fetch_github_issues_by_number()
+            got, complete = sync.fetch_github_issues_by_number()
         self.assertEqual(got, {}, '一次性网络错不该把作业带崩')
+        self.assertFalse(complete, '非 403 的错误同样意味着数据不完整')
+
+
+# ---------------------------------------------------------------------------
+# 六、假绿防线（issue #171）：拿不到数据时**不得**宣称「两侧已对齐」
+# ---------------------------------------------------------------------------
+
+
+class TestIncompleteDataNotGreen(unittest.TestCase):
+    """这是本文件里最贵的一组用例。
+
+    上线时的失败形态不是「漏标一张卡」，而是：**一张 GitHub issue 都拉不到却打印
+    `✅ 无状态漂移，两侧已对齐`**。实测（2026-10-13）它真的发生了——匿名限额被建卡
+    job 耗尽，`state=all` 第 3 页 403 ⇒ 空映射 ⇒ 由于 `not todo` 为真，报告「已对齐」。
+
+    一个「永远绿、永远不干活」的机制比没有机制更坏：它让人以为网在，实际上一次都没织成。
+    """
+
+    def _patch(self, *, cards, gh, complete, is_mirror=True):
+        posts: list = []
+        return (
+            mock.patch.object(
+                sync, 'load_state', return_value={'mirrored': {str(c['gh']): {'cnb': c['cnb']} for c in cards}}
+            ),
+            mock.patch.object(sync, 'mirrored_cards', return_value=cards),
+            mock.patch.object(sync, 'fetch_github_issues_by_number', return_value=(gh, complete)),
+            mock.patch.object(sync, 'list_issue_comments', return_value=[]),
+            mock.patch.object(sync, 'is_mirror_card', return_value=is_mirror),
+            mock.patch.object(sync, 'post_comment', side_effect=lambda n, b, repo=None: posts.append((n, b))),
+            mock.patch.object(sync, 'add_status_label'),
+            posts,
+        )
+
+    def test_全空且不完整不得报已对齐(self):
+        """核心回归网：0 张 issue + 数据不完整 ⇒ 非 0 退出，且不得出现「已对齐」。"""
+        import contextlib
+        import io
+
+        p = self._patch(cards=[{'cnb': 106, 'gh': 2034, 'cnb_state': 'open'}], gh={}, complete=False)
+        buf = io.StringIO()
+        with p[0], p[1], p[2], p[3], p[4], p[5], p[6], contextlib.redirect_stdout(buf):
+            rc = sync.run(apply=True, only_cnb=None, repo=None)
+        out = buf.getvalue()
+        self.assertEqual(rc, 1, '数据不完整 ⇒ 非 0 退出，让 cron 侧看得出这次没跑成')
+        self.assertNotIn('已对齐', out, '拿不全就不能说已对齐——这正是 #171 的假绿')
+        self.assertIn('数据不完整', out)
+
+    def test_不完整但有漂移时照做但不背书(self):
+        """部分数据仍能安全回流（plan 对拿不到的卡是跳过），故「照做但不背书」。"""
+        import contextlib
+        import io
+
+        p = self._patch(
+            cards=[
+                {'cnb': 106, 'gh': 2034, 'cnb_state': 'open'},
+                {'cnb': 107, 'gh': 2037, 'cnb_state': 'open'},
+            ],
+            gh={2034: {'state': 'closed', 'updated_at': '2026-10-11T00:00:00Z'}},  # 2037 拉不到
+            complete=False,
+        )
+        buf = io.StringIO()
+        with p[0], p[1], p[2], p[3], p[4], p[5], p[6], contextlib.redirect_stdout(buf):
+            rc = sync.run(apply=True, only_cnb=None, repo=None)
+        self.assertEqual([n for n, _ in p[7]], [106], '拿得到的漂移照样回流')
+        self.assertEqual(rc, 1, '但不完整的事实必须如实反映为退出码')
+
+    def test_完整且无漂移才报已对齐(self):
+        import contextlib
+        import io
+
+        p = self._patch(
+            cards=[{'cnb': 106, 'gh': 2034, 'cnb_state': 'open'}],
+            gh={2034: {'state': 'open', 'updated_at': '2026-10-11T00:00:00Z'}},
+            complete=True,
+        )
+        buf = io.StringIO()
+        with p[0], p[1], p[2], p[3], p[4], p[5], p[6], contextlib.redirect_stdout(buf):
+            rc = sync.run(apply=True, only_cnb=None, repo=None)
+        self.assertEqual(rc, 0)
+        self.assertIn('已对齐', buf.getvalue(), '数据完整时的「已对齐」才是可信的')
 
 
 if __name__ == '__main__':
