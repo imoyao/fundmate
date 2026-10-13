@@ -269,14 +269,21 @@ def _gh_number_from_state(state: dict[str, Any], cnb_number: int) -> int | None:
 
 
 def fetch_github_issues_by_number() -> dict[int, dict[str, Any]]:
-    """GitHub 编号 → issue。含 **closed**（本脚本的全部意义就在 closed 上）。
+    """GitHub 编号 → (issue 映射, 是否拉全)。
 
     `fetch_github_open_issues` 只拉 open，故这里另走一遍带 `state=all` 的查询。
 
-    **拉不满不算失败**：匿名限额只有 60 次/时/IP，而本查询比建卡那次重（`state=all`
-    含已关闭卡）。一旦中途撞上限额（403）或别的一次性网络错，**返回已经拿到的那部分**
-    并显式告警——理由是 `plan()` 对「拿不到的卡」是**跳过而不是猜**，少拉只是少标记、
-    不会误标；反之若在这里抛异常，整个 cron 阶段会挂掉，连已经能做的回流一起丢。
+    **为什么要返回「是否拉全」这个布尔（issue #171）**：本函数以前只返回映射，
+    拿不到就 `break`，而调用方 `run()` 把「空映射」等同成「没有漂移」，于是打印
+    `✅ 无状态漂移，两侧已对齐`——**一张卡都没拉到，却给出一个完全错误的结论**。
+    这不是假阴性，是假阳性里最坏的一种：机制从此隐身，红也看不见（整段还带 `|| true`）。
+
+    实测（2026-10-13，本仓 CNB cron 环境）：`state=all` 要连拉 3 页，而匿名限额
+    60 次/时/IP 被建卡 job 先耗掉，第 3 页 403 ⇒ 本函数返回 0 张 ⇒ 报告说「已对齐」。
+
+    故现在**把「完整性」作为一等返回值交出去**：调用方在拿不全时不得宣称对齐。
+    之所以仍然不抛异常（而是返回部分结果），是为了让「能做的回流照做」——
+    `plan()` 对拿不到的卡是**跳过而不是猜**，故部分结果只会少标记、不会误标。
     """
     import json
     import urllib.error
@@ -284,6 +291,7 @@ def fetch_github_issues_by_number() -> dict[int, dict[str, Any]]:
     from github_cnb_issues import _github_repo, _request
 
     out: dict[int, dict[str, Any]] = {}
+    complete = True
     page = 1
     while True:
         qs = urllib.parse.urlencode({'state': 'all', 'per_page': 100, 'page': page, 'sort': 'updated'})
@@ -291,10 +299,12 @@ def fetch_github_issues_by_number() -> dict[int, dict[str, Any]]:
         try:
             batch = json.loads(_request(url, headers=_github_headers()))
         except urllib.error.HTTPError as exc:
+            complete = False
             if exc.code == 403:
-                print(f'⚠️ GitHub 限额用尽（403），只拿到前 {page - 1} 页共 {len(out)} 张；本轮的卡可能漏标。')
+                print(f'❌ GitHub 限额用尽（403），只拿到前 {page - 1} 页共 {len(out)} 张 —— 数据不完整。')
+                print('   根因多为未注入 GITHUB_TOKEN（匿名 60 次/时/IP）；本轮结论不可信。')
             else:
-                print(f'⚠️ GitHub 返回 {exc.code}，中断在 page {page}；本轮已拿 {len(out)} 张。')
+                print(f'❌ GitHub 返回 {exc.code}，中断在 page {page}；本轮已拿 {len(out)} 张 —— 数据不完整。')
             break
         if not batch:
             break
@@ -305,8 +315,10 @@ def fetch_github_issues_by_number() -> dict[int, dict[str, Any]]:
             break
         page += 1
         if page > 20:  # 2000 张卡的天花板，防呆
+            complete = False
+            print(f'❌ 分页超过 {page - 1} 页天花板 —— 数据可能不完整。')
             break
-    return out
+    return out, complete
 
 
 def _github_headers() -> dict[str, str]:
@@ -329,11 +341,23 @@ def run(*, apply: bool, only_cnb: int | None, repo: str | None) -> int:
             print(f'❌ CNB #{only_cnb} 不在镜像卡映射里（状态文件无记录，或它不是镜像卡）')
             return 1
 
-    gh_by_number = fetch_github_issues_by_number()
+    gh_by_number, complete = fetch_github_issues_by_number()
     print(f'📥 GitHub issue {len(gh_by_number)} 张；CNB 镜像卡 {len(cards)} 张')
 
     todo = plan(cards, gh_by_number)
-    if not todo:
+
+    # 「拉不到」不等于「没漂移」（issue #171）。
+    # 只要数据不完整（限额 / 网络错 / 分页天花板），**一律不得宣称对齐**——
+    # 拿到 0 张却报「✅ 两侧已对齐」是本机制最坏的失败形态：错误结论 + 红灯不可见。
+    # 有漂移时部分数据仍能安全回流（plan 对拿不到的卡是跳过），故「照做但不背书」。
+    if not complete:
+        print(
+            f'❌ 数据不完整，本次结论不可信'
+            f'（已判定漂移 {len(todo)} 张，但这既不能证明有、也不能证明没有）。'
+        )
+        if not todo:
+            print('   注意：这里本该打印「无漂移」——但因数据不完整，该结论不成立。')
+    elif not todo:
         print('✅ 无状态漂移，两侧已对齐')
         return 0
 
@@ -364,7 +388,8 @@ def run(*, apply: bool, only_cnb: int | None, repo: str | None) -> int:
         print(f'🎉 完成：回流 {done} 张，跳过 {len(todo) - done} 张')
     else:
         print(f'[DRY-RUN] 将回流 {len(todo)} 张（加 --apply 真正执行）')
-    return 0
+    # 退出码即信号：数据不完整 ⇒ 非 0，让 cron 侧能看出「这次没真的跑成」。
+    return 1 if not complete else 0
 
 
 def main(argv: list[str] | None = None) -> int:
