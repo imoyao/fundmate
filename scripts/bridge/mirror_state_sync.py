@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""镜像卡「状态回流」：把 GitHub 侧的关闭事实带到 CNB 镜像卡上（CNB #117 硬要求 ②）。
+"""镜像卡「状态回流」：把 GitHub 侧的关闭事实带到 CNB 镜像卡上（CNB `#117` 硬要求 ②）。
 
 为什么需要它
 ------------
@@ -8,20 +8,25 @@
 读者在 CNB 看到一张「还活着」的卡，实际那件事早已结案。这正是 CNB #117 报的问题：
 **只同步卡面、不同步状态，比两侧明显不一致更难察觉。**
 
-本脚本把「GitHub 已关闭」这个事实**单向回流**到镜像卡上，形态是：
+本脚本把「GitHub 已关闭」这个事实**单向回流**到镜像卡上，形态是三件一起做：
 
 1. 在该卡评论区追加一条结构化的「状态回流」评论（带隐藏幂等键，只发一次）；
-2. 给该卡挂上 `CNB_STATUS_LABEL`（默认 `GitHub 已关闭`）标签，供看板一眼筛出。
+2. 给该卡挂上 `CNB_STATUS_LABEL`（默认 `GitHub 已关闭`）标签，供看板一眼筛出；
+3. **把 CNB 镜像卡关掉**（B 口径，2026-10-13 用户拍板）。
 
-为什么是「标记」而不是「自动关卡」
-----------------------------------
-原取舍（`github_cnb_issues.py` 文件头）写的是「不同步关闭态」，理由是
-「CNB 关了会被误读成『这事不做了』，而关闭与否该由人拍板」（CNB #117 硬要求 ①：
-人工回路必须保留）。这条理由现在仍然成立——**CNB 侧的追问往往发生在 GitHub 关掉之后**，
-直接把卡关掉会把那些讨论一起埋掉。
+为什么从「标记不关」改成「真的关」（口径变更史）
+------------------------------------------------
+D48（CNB #117 硬要求 ②）原口径是**标记不关**：说清楚、但不替人关卡，
+理由是「CNB 侧的追问常发生在 GitHub 关掉之后，关掉会把那些讨论一起埋掉」，
+并保留人工回路（硬要求 ①）。
 
-所以本脚本采取**标记法**：把关闭事实**说清楚**（评论 + 标签），但**不替人做关闭这个决定**。
-要把卡真正关掉，请人工执行 `cnb issues close --number <n>`。
+用户 2026-10-13 在 CNB `#171` 明确选了 **B：GitHub 关了，CNB 也自动关**——
+理由是**两边长期不一致的代价更高**：镜像卡的读者在 CNB 看到的是一张「还活着」的卡，
+而它在 GitHub 早已结案；「标记不关」把「卡片状态」和「事实状态」永久劈成两半，
+看板越用越不可信。讨论被埋是可接受的代价（评论**不会被删**，只是卡变灰）。
+
+**没有丢的是人工回路**：反向不回流（见下），以及 `--no-close` 逃生阀——
+若某轮想只看不关，加这个开关即可。
 
 边界（与既有两条管道一致）
 --------------------------
@@ -31,6 +36,10 @@
 - **只认镜像卡**：拒绝往人工卡写（与 `mirror_correction.py` 同一条闸门）；
 - **纯标准库**：复用 `github_cnb_issues.py` 的 `cnb_api`，无需 pip install。
 
+**「评论已发过」不阻断「关卡」**：D48 时代已有 13 张卡发过回流评论却仍是 `open`，
+本口径切换后它们**必须被补关**——否则口径改了、那些卡还漂着，等于换了个说法继续不一致。
+故 `run()` 里评论走幂等键、关卡走 `cnb_state`，两条判据**分开**。
+
 用法
 ----
     export CNB_TOKEN=<你的 token>
@@ -38,8 +47,11 @@
     # ① 只报告：两侧状态漂移有多少（不写任何东西）
     python scripts/bridge/mirror_state_sync.py --report
 
-    # ② 真正回流（默认 dry-run，只打印将发布的评论）
+    # ② 真正回流（默认 dry-run，只打印将执行的动作）
     python scripts/bridge/mirror_state_sync.py --apply
+
+    # ③ 只想标记、不想自动关（逃生阀，用于人工 triage）
+    python scripts/bridge/mirror_state_sync.py --apply --no-close
 
     # 单张卡演练
     python scripts/bridge/mirror_state_sync.py --cnb 106 --apply
@@ -92,19 +104,33 @@ def build_state_comment(
     *,
     repo: str,
     today: str | None = None,
+    closed: bool = True,
 ) -> str:
-    """拼状态回流评论：固定标题 + 事实 + 「不自动关」的明示 + 隐藏幂等键。"""
+    """拼状态回流评论：固定标题 + 事实 + 「本卡已随之关闭」的明示 + 隐藏幂等键。
+
+    `closed=False`（`--no-close` 逃生阀）时正文改成「本卡仍开着、需人工确认」，
+    **不能**在没关的卡上说「已自动关闭」——那是又一种说了等于没说的假绿。
+    """
     date = today or datetime.now(UTC).strftime('%Y-%m-%d')
     verb = {'closed': '已关闭', 'open': '已重新打开'}.get(gh_state, f'状态为 `{gh_state}`')
+    if closed:
+        tail = [
+            '> ✅ 本卡**已随 GitHub 同步关闭**（B 口径，CNB `#171` 用户拍板）。',
+            '> 评论不会被删除，只是卡片转为已关闭；需要继续讨论时直接重新打开：',
+            '> `cnb issues open --number <本卡编号>`。',
+        ]
+    else:
+        tail = [
+            '> ⚠️ 本轮**未自动关闭**本卡（`--no-close` 逃生阀）。GitHub 侧已结案，',
+            '> 请人工确认此处是否还有讨论价值：`cnb issues close --number <本卡编号>`。',
+        ]
     lines = [
         f'## 状态回流（{date}）',
         '',
         f'- GitHub 原卡 #{gh_number} **{verb}**（GitHub 侧最后更新：{_as_date(gh_updated)}）',
         f'- 依据：https://github.com/{repo}/issues/{gh_number}',
         '',
-        '> ⚠️ 本卡**不会被自动关闭**——CNB 侧的追问常发生在 GitHub 结案之后，',
-        '> 关掉会把那些讨论一起埋掉（CNB #117 硬要求 ①）。',
-        '> 若确认此处已无讨论价值，请人工执行 `cnb issues close --number <本卡编号>`。',
+        *tail,
         '',
         STATE_KEY_LINE.format(key),
     ]
@@ -172,6 +198,23 @@ def add_status_label(cnb_number: int, *, repo: str | None = None) -> None:
         f'/{repo or _cnb_repo()}/-/issues/{cnb_number}/labels',
         method='POST',
         payload={'labels': [CNB_STATUS_LABEL]},
+    )
+
+
+def close_issue(cnb_number: int, *, repo: str | None = None) -> None:
+    """关闭 CNB 镜像卡（B 口径）。
+
+    端点形状经 `cnb-cli` 实现核实：`PATCH /{repo}/-/issues/{number}`，
+    体为 `{"state": "closed", "state_reason": "completed"}`（与 `cnb issues close` 同路）。
+    CNB 侧对「已关闭的卡再关一次」是幂等的，故不需要额外的「关没关过」判据——
+    但调用方仍应先看 `cnb_state`，避免无谓请求与日志噪音。
+    """
+    from github_cnb_issues import _cnb_repo
+
+    cnb_api(
+        f'/{repo or _cnb_repo()}/-/issues/{cnb_number}',
+        method='PATCH',
+        payload={'state': 'closed', 'state_reason': 'completed'},
     )
 
 
@@ -332,7 +375,7 @@ def _github_headers() -> dict[str, str]:
     return headers
 
 
-def run(*, apply: bool, only_cnb: int | None, repo: str | None) -> int:
+def run(*, apply: bool, only_cnb: int | None, repo: str | None, auto_close: bool = True) -> int:
     state = load_state()
     cards = mirrored_cards(repo=repo, state=state)
     if only_cnb is not None:
@@ -351,55 +394,98 @@ def run(*, apply: bool, only_cnb: int | None, repo: str | None) -> int:
     # 拿到 0 张却报「✅ 两侧已对齐」是本机制最坏的失败形态：错误结论 + 红灯不可见。
     # 有漂移时部分数据仍能安全回流（plan 对拿不到的卡是跳过），故「照做但不背书」。
     if not complete:
-        print(
-            f'❌ 数据不完整，本次结论不可信'
-            f'（已判定漂移 {len(todo)} 张，但这既不能证明有、也不能证明没有）。'
-        )
+        print(f'❌ 数据不完整，本次结论不可信（已判定漂移 {len(todo)} 张，但这既不能证明有、也不能证明没有）。')
         if not todo:
             print('   注意：这里本该打印「无漂移」——但因数据不完整，该结论不成立。')
     elif not todo:
         print('✅ 无状态漂移，两侧已对齐')
         return 0
 
-    print(f'🆕 待回流 {len(todo)} 张')
-    done = 0
+    print(f'🆕 待回流 {len(todo)} 张（自动关闭：{"开" if auto_close else "关（--no-close）"}）')
+    commented = 0
+    closed = 0
     for card in todo:
         key = make_state_key(card['cnb'], card['gh'], card['gh_state'], card['gh_updated'])
         published = existing_state_keys(list_issue_comments(card['cnb'], repo=repo))
-        body = build_state_comment(card['gh'], card['gh_state'], card['gh_updated'], key, repo=_gh_repo_name())
-        if key in published:
-            print(f'  ⏭️  CNB #{card["cnb"]}（GitHub #{card["gh"]}）状态已回流过，跳过')
+        need_comment = key not in published
+        # 关卡与评论**分开判**：D48 时代发过评论却没关的卡（13 张），口径切到 B 后必须补关，
+        # 否则「口径改了、那些卡还漂着」。
+        #
+        # 这里不再重复判 `card['cnb_state'] != 'closed'`——`plan()` 只交出漂移卡，
+        # 而 `state_drift()` 的定义已经排除「两侧都关」。加一道等价判断是**死代码**：
+        # 它永远不会为假，守门也咬不住它（实测 S5 探针 MISSED），留着只会让人以为
+        # 它承担了「不重复关」的职责。真正保证幂等的地方在 `plan()`，回归网钉在那边。
+        need_close = auto_close
+        body = build_state_comment(
+            card['gh'], card['gh_state'], card['gh_updated'], key, repo=_gh_repo_name(), closed=need_close
+        )
+
+        if not need_comment and not need_close:
+            print(f'  ⏭️  CNB #{card["cnb"]}（GitHub #{card["gh"]}）已回流且已关闭，跳过')
             continue
         if not apply:
-            print(f'  [DRY-RUN] CNB #{card["cnb"]} ← GitHub #{card["gh"]} {card["gh_state"]}')
+            acts = []
+            if need_comment:
+                acts.append('发回流评论')
+            if need_close:
+                acts.append('关闭卡片')
+            print(f'  [DRY-RUN] CNB #{card["cnb"]} ← GitHub #{card["gh"]} {card["gh_state"]}：{"、".join(acts)}')
             continue
         if not is_mirror_card(card['cnb'], repo=repo):
             print(f'  ❌ CNB #{card["cnb"]} 不是镜像卡，拒绝写入')
             continue
-        post_comment(card['cnb'], body, repo=repo)
+        if need_comment:
+            post_comment(card['cnb'], body, repo=repo)
+            commented += 1
+        else:
+            print(f'  ⏭️  CNB #{card["cnb"]} 回流评论已存在（幂等键命中），跳过评论')
         try:
             add_status_label(card['cnb'], repo=repo)
         except Exception as exc:  # noqa: BLE001  # 挂标签失败不该丢评论
-            print(f'  ⚠️ CNB #{card["cnb"]} 挂标签失败（评论已发）：{exc}')
-        done += 1
-        print(f'  ✅ CNB #{card["cnb"]} ← GitHub #{card["gh"]} 已标记「{CNB_STATUS_LABEL}」')
+            print(f'  ⚠️ CNB #{card["cnb"]} 挂标签失败：{exc}')
+        if need_close:
+            try:
+                close_issue(card['cnb'], repo=repo)
+                closed += 1
+            except Exception as exc:  # noqa: BLE001  # 关卡失败要显式报，不能静默
+                print(f'  ❌ CNB #{card["cnb"]} 关闭失败：{exc}')
+                continue
+        marks = []
+        if need_comment:
+            marks.append('已回流')
+        if need_close:
+            marks.append('已关闭')
+        print(f'  ✅ CNB #{card["cnb"]} ← GitHub #{card["gh"]}：{"、".join(marks)}（标签「{CNB_STATUS_LABEL}」）')
 
     if apply:
-        print(f'🎉 完成：回流 {done} 张，跳过 {len(todo) - done} 张')
+        print(f'🎉 完成：评论 {commented} 张、关闭 {closed} 张（共待处理 {len(todo)} 张）')
     else:
-        print(f'[DRY-RUN] 将回流 {len(todo)} 张（加 --apply 真正执行）')
+        print(f'[DRY-RUN] 将处理 {len(todo)} 张（加 --apply 真正执行）')
     # 退出码即信号：数据不完整 ⇒ 非 0，让 cron 侧能看出「这次没真的跑成」。
     return 1 if not complete else 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description='镜像卡状态回流：GitHub 已关闭 → 在 CNB 标记（CNB #117 硬要求 ②）')
+    parser = argparse.ArgumentParser(
+        description='镜像卡状态回流：GitHub 已关闭 → CNB 标记并自动关闭（B 口径，CNB `#171`）'
+    )
     parser.add_argument('--repo', default=None, help='CNB 仓库，默认从 CNB_REPO_SLUG 环境变量识别')
     parser.add_argument('--cnb', type=int, default=None, help='只处理某张 CNB 镜像卡（演练用）')
     parser.add_argument('--report', action='store_true', help='只报告不写（等同默认的 dry-run）')
     parser.add_argument('--apply', action='store_true', help='真正写入（默认 dry-run）')
+    parser.add_argument(
+        '--no-close',
+        dest='no_close',
+        action='store_true',
+        help='逃生阀：只发回流评论 + 挂标签，不自动关闭卡片（默认自动关）',
+    )
     args = parser.parse_args(argv)
-    return run(apply=args.apply and not args.report, only_cnb=args.cnb, repo=args.repo)
+    return run(
+        apply=args.apply and not args.report,
+        only_cnb=args.cnb,
+        repo=args.repo,
+        auto_close=not args.no_close,
+    )
 
 
 if __name__ == '__main__':
