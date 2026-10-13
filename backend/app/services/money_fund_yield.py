@@ -57,6 +57,12 @@ _PRECISION = 4
 # 批量 UPDATE 的分片大小（SQLite 变量上限 + 事务体积）
 _UPDATE_CHUNK = 2000
 
+# ── 对外口径元数据（#2121 验收项：as_of / 样本天数 / 7 自然日还是 7 交易日）──
+# 读侧 `fund_performance._money_fund_performance` 与前端脚注都取这里的常量，
+# 不各自写字面量——否则「7 自然日」这个关键口径会在三处漂移。
+WINDOW_DAYS = 7
+CALIBER_NOTE = '近 7 个自然日内已发布万份收益的日均值 × 365 年化；缺失日不补 0 也不补均值，样本不足 2 天不出值'
+
 # (日期, 万份收益元)；万份收益允许为 None（当日未发布）
 YieldPoint = Tuple[date, Optional[float]]
 
