@@ -16,7 +16,10 @@ import ProductExternalLinksSection from "./components/ProductExternalLinksSectio
 // warning 就静默不渲染 —— 基金详情页从上线起就没有基金资料区块，且 e2e 未打桩
 // fund-profile（落到兜底 404）反向掩盖。e2e 已补断言，勿再删这一行。
 import ProductFundSection from "./components/ProductFundSection.vue";
+import ProductIdentityCard from "./components/ProductIdentityCard.vue";
 import ProductIndexSection from "./components/ProductIndexSection.vue";
+import ProductPageNav from "./components/ProductPageNav.vue";
+import ProductPageToc from "./components/ProductPageToc.vue";
 import ProductPerformanceSection from "./components/ProductPerformanceSection.vue";
 import ProductHoldingsSections from "./components/ProductHoldingsSections.vue";
 import ProductPositionSection from "./components/ProductPositionSection.vue";
@@ -25,6 +28,7 @@ import ProductTrendSection from "./components/ProductTrendSection.vue";
 import ProductManagerSection from "./components/ProductManagerSection.vue";
 import ProductRelatedSection from "./components/ProductRelatedSection.vue";
 import ProductTransactionSection from "./components/ProductTransactionSection.vue";
+import { useProductPageNav } from "./composables/useProductPageNav";
 
 /**
  * 产品详情页骨架（#1964 · 设计 §4 / §8）。
@@ -39,7 +43,21 @@ const loading = ref(false);
 const notFound = ref(false);
 const product = ref<ProductResolveResult | null>(null);
 
-const { ensure: ensureEnums, marketLabel, venueLabel } = useEnumLabels();
+/** 区块容器（锚点扫描与 MutationObserver 的挂载点，见 useProductPageNav） */
+const pageMain = ref<HTMLElement>();
+
+// 页内导航（#1968 子卡）：<xl 顶部锚点胶囊 + xl+ 右侧目录 rail。
+// state / scroll-spy 全在 composable 里，本文件只接线——detail.vue 已近 400 行
+// 门禁线（scripts/check_vue_size.mjs），不再往里塞监听逻辑。
+const {
+  items: navItems,
+  activeId: navActiveId,
+  goTo: goToNavSection
+} = useProductPageNav(product, pageMain);
+
+// 市场 / 场所标签已随识别卡移入 ProductIdentityCard（那里自行 ensure）；
+// asset_type 标签（页头副标题）用模块级导入的那份（ composable 也返回同一个函数）。
+const { ensure: ensureEnums } = useEnumLabels();
 
 onMounted(() => {
   // 市场 / 场所的中文标签来自后端 /api/utils/enums（**无前端镜像**，不像 asset_type
@@ -143,170 +161,167 @@ watch(productRef, loadProduct, { immediate: true });
     </CardBlock>
 
     <template v-else-if="product">
-      <!-- 识别卡：只放事实项（代码 / 市场 / 场所 / 自选 / 持仓）。
-           名称与品类已由上面的 PageHeaderBar 页头承担（标题=产品名、副标题=品类），
-           此处再排一次 h2 名称 + 类型徽章是纯重复——用户实测「同一名称出现 4 次」，
-           故删掉卡内标题行，只留 facts。 -->
-      <CardBlock class="product-detail__hero">
-        <dl class="product-detail__facts">
-          <div class="product-detail__fact">
-            <dt class="product-detail__fact-label">代码</dt>
-            <dd class="product-detail__fact-value product-detail__symbol">
-              {{ product.symbol }}
-            </dd>
-          </div>
-          <!-- 市场 / 场所走 /enums 中文标签：#1969 前此处把 CN_A / SH / EXCHANGE
-               这些内部词表原键直接排版给用户看，等于让用户去猜我们的枚举 -->
-          <div v-if="product.market" class="product-detail__fact">
-            <dt class="product-detail__fact-label">市场</dt>
-            <dd class="product-detail__fact-value">
-              {{ marketLabel(product.market) }}
-            </dd>
-          </div>
-          <div v-if="product.venue" class="product-detail__fact">
-            <dt class="product-detail__fact-label">场所</dt>
-            <dd class="product-detail__fact-value">
-              {{ venueLabel(product.venue) }}
-            </dd>
-          </div>
-          <!-- 未登录时这两项为 null（端点为可选登录），此时不渲染徽标，
-               不能当成「未自选 / 未持有」——那是「未知」不是「没有」 -->
-          <div
-            v-if="product.in_watchlist === true"
-            class="product-detail__fact"
-          >
-            <dt class="product-detail__fact-label">自选</dt>
-            <dd class="product-detail__fact-value">已关注</dd>
-          </div>
-          <div
+      <!-- 页内导航（#1968 子卡）：<xl 顶部锚点胶囊；xl+ 由正文右侧的目录 rail
+           接管（见 .product-detail__body 内的 ProductPageToc）。两级互斥，
+           导航项由 composable 按 DOM 里真实渲染的锚点动态生成，不留死链。 -->
+      <ProductPageNav
+        v-if="navItems.length > 1"
+        :items="navItems"
+        :active-id="navActiveId"
+        @navigate="goToNavSection"
+      />
+
+      <div class="product-detail__body">
+        <div ref="pageMain" class="product-detail__main">
+          <!-- 识别卡（#1964）：只放事实项（代码 / 市场 / 场所 / 自选 / 持仓），
+               名称与品类由 PageHeaderBar 承担。独立组件见 ProductIdentityCard。 -->
+          <ProductIdentityCard :product="product" />
+
+          <!-- 我的持仓（#1966）：仅在该家庭确实持有时才拉取。
+               未登录时 has_position 为 null（resolve 是「可选登录」端点），此时不渲染——
+               否则等于拉一个 401 再显示成「暂无持仓」，把「未知」说成「没有」。 -->
+          <ProductPositionSection
             v-if="product.has_position === true"
-            class="product-detail__fact"
-          >
-            <dt class="product-detail__fact-label">持仓</dt>
-            <dd class="product-detail__fact-value">已持有</dd>
-          </div>
-        </dl>
-      </CardBlock>
+            id="nav-position"
+            :symbol="product.symbol"
+            :market="product.market"
+          />
 
-      <!-- 我的持仓（#1966）：仅在该家庭确实持有时才拉取。
-           未登录时 has_position 为 null（resolve 是「可选登录」端点），此时不渲染——
-           否则等于拉一个 401 再显示成「暂无持仓」，把「未知」说成「没有」。 -->
-      <ProductPositionSection
-        v-if="product.has_position === true"
-        :symbol="product.symbol"
-        :market="product.market"
-      />
+          <!-- 走势（#1967）：默认 3M、无数据显空态、口径脚注写明数据日期与来源。
+               位置恢复设计 §5 的 B 位（「我的持仓」之后、「公开资料」之前）——
+               #1967 合入时为避免与 #1966 持仓区块互相 rebase，曾把本卡放到 slot 之后，
+               结果沉到最后一屏（关联标的 / 外链之后），与「走势是用户最关注的指标」
+               这一反馈正相反。各卡现均已合入，错开锚点的理由不再成立。
+               无序列数据源的品类（manager / portfolio / 无日线的 index）由组件自行
+               整卡不渲染（kind 为空串），不会在首屏顶一张空卡。 -->
+          <ProductTrendSection
+            id="nav-trend"
+            :symbol="product.symbol"
+            :asset-type="product.asset_type"
+          />
 
-      <!-- 走势（#1967）：默认 3M、无数据显空态、口径脚注写明数据日期与来源。
-           位置恢复设计 §5 的 B 位（「我的持仓」之后、「公开资料」之前）——
-           #1967 合入时为避免与 #1966 持仓区块互相 rebase，曾把本卡放到 slot 之后，
-           结果沉到最后一屏（关联标的 / 外链之后），与「走势是用户最关注的指标」
-           这一反馈正相反。各卡现均已合入，错开锚点的理由不再成立。
-           无序列数据源的品类（manager / portfolio / 无日线的 index）由组件自行
-           整卡不渲染（kind 为空串），不会在首屏顶一张空卡。 -->
-      <ProductTrendSection
-        :symbol="product.symbol"
-        :asset-type="product.asset_type"
-      />
+          <!-- 交易记录（#2104）：仅可交易品类渲染（manager / portfolio / index 由组件
+               整块不渲染、不发请求），挂载即拉取最近 10 条。过滤在后端下推到 SQL，
+               不在前端拉全量再筛。 -->
+          <ProductTransactionSection
+            id="nav-transactions"
+            :symbol="product.symbol"
+            :asset-type="product.asset_type"
+          />
 
-      <!-- 交易记录（#2104）：仅可交易品类渲染（manager / portfolio / index 由组件
-           整块不渲染、不发请求），挂载即拉取最近 10 条。过滤在后端下推到 SQL，
-           不在前端拉全量再筛。 -->
-      <ProductTransactionSection
-        :symbol="product.symbol"
-        :asset-type="product.asset_type"
-      />
+          <!-- 基金资料（#1968）：仅基金品类渲染。首屏净值与日涨跌 + 类型/经理/规模/费率，
+               缺项逐项降级为「—」。「我的成本 / 持有收益」在上面的持仓区块，不重复取数。 -->
+          <ProductFundSection
+            v-if="product.asset_type === 'fund'"
+            id="nav-fund"
+            :symbol="product.symbol"
+          />
 
-      <!-- 基金资料（#1968）：仅基金品类渲染。首屏净值与日涨跌 + 类型/经理/规模/费率，
-           缺项逐项降级为「—」。「我的成本 / 持有收益」在上面的持仓区块，不重复取数。 -->
-      <ProductFundSection
-        v-if="product.asset_type === 'fund'"
-        :symbol="product.symbol"
-      />
+          <!-- 业绩与风险（#2029 卡 B）：仅基金品类渲染。区间收益 + 最大回撤 + 年化波动率，
+               后端基于 daily_worth.acc_nav 现算，与自选域同源；货基走万份收益 / 七日年化分支。 -->
+          <ProductPerformanceSection
+            v-if="product.asset_type === 'fund'"
+            id="nav-performance"
+            :symbol="product.symbol"
+          />
 
-      <!-- 业绩与风险（#2029 卡 B）：仅基金品类渲染。区间收益 + 最大回撤 + 年化波动率，
-           后端基于 daily_worth.acc_nav 现算，与自选域同源；货基走万份收益 / 七日年化分支。 -->
-      <ProductPerformanceSection
-        v-if="product.asset_type === 'fund'"
-        :symbol="product.symbol"
-      />
+          <!-- 行业配置 + 持仓明细（#2029 卡 C）：仅基金品类渲染。两张卡共用一个端点，
+               容器组件取一次数分发给两个纯展示子组件（各自取数就是重复往返）。
+               无披露数据时整块不渲染——持仓明细没有这层壳会渲染出一个只有标题和
+               「暂无数据」的空块，正是 §6 诚实降级要避免的噪声。 -->
+          <ProductHoldingsSections
+            v-if="product.asset_type === 'fund'"
+            anchor-id="nav-holdings"
+            :symbol="product.symbol"
+          />
 
-      <!-- 行业配置 + 持仓明细（#2029 卡 C）：仅基金品类渲染。两张卡共用一个端点，
-           容器组件取一次数分发给两个纯展示子组件（各自取数就是重复往返）。
-           无披露数据时整块不渲染——持仓明细没有这层壳会渲染出一个只有标题和
-           「暂无数据」的空块，正是 §6 诚实降级要避免的噪声。 -->
-      <ProductHoldingsSections
-        v-if="product.asset_type === 'fund'"
-        :symbol="product.symbol"
-      />
+          <!-- 场内行情（#1969 股票 / #1974 ETF）：两者同为 `securities` 表口径、共用
+               `stock-profile` 端点，故合并渲染（ETF 不是基金，不能挂 `fund-profile`——
+               那个端点只查 funds 表 6 位场外裸码，ETF 场内码会 404）。
+               走势曲线由上面的走势区块复用同一份行情源，本区块只补「资料 + 区间高低」。 -->
+          <ProductStockSection
+            v-if="
+              product.asset_type === 'stock' || product.asset_type === 'etf'
+            "
+            id="nav-stock"
+            :symbol="product.symbol"
+            :market="product.market"
+            :asset-type="product.asset_type"
+          />
 
-      <!-- 场内行情（#1969 股票 / #1974 ETF）：两者同为 `securities` 表口径、共用
-           `stock-profile` 端点，故合并渲染（ETF 不是基金，不能挂 `fund-profile`——
-           那个端点只查 funds 表 6 位场外裸码，ETF 场内码会 404）。
-           走势曲线由上面的走势区块复用同一份行情源，本区块只补「资料 + 区间高低」。 -->
-      <ProductStockSection
-        v-if="product.asset_type === 'stock' || product.asset_type === 'etf'"
-        :symbol="product.symbol"
-        :market="product.market"
-        :asset-type="product.asset_type"
-      />
+          <!-- 指数资料与估值（#2028）：仅指数品类渲染。名录 + 中证官方 PE / 股息率 +
+               PE 历史分位（乐咕月频近 5 年窗口现算，#1407 拍板口径）。分位样本不足时
+               给定调说明而非空指标（诚实降级）。 -->
+          <ProductIndexSection
+            v-if="product.asset_type === 'index'"
+            id="nav-index"
+            :symbol="product.symbol"
+          />
 
-      <!-- 指数资料与估值（#2028）：仅指数品类渲染。名录 + 中证官方 PE / 股息率 +
-           PE 历史分位（乐咕月频近 5 年窗口现算，#1407 拍板口径）。分位样本不足时
-           给定调说明而非空指标（诚实降级）。 -->
-      <ProductIndexSection
-        v-if="product.asset_type === 'index'"
-        :symbol="product.symbol"
-      />
+          <!-- 基金经理（#1970）：仅经理品类渲染。入参是 mgr_code 而非姓名——库内实测
+               119 组重名（最多「吴昊」6 位），姓名不是唯一键。注意 `product.symbol` 不是
+               `managers.mgr_code` 原值：自选/搜索进来带 `MGR_` 前缀，且会被
+               `resolve_product_identity` 大写化。这里**原样透传**，归一由后端
+               `services/manager_code.py` 收口（曾因两边都没归一，每张经理页都空白）。
+               任职起止 / 规模 / 任期回报实测填充率 0%，
+               逐项降级「—」并在整片为空时给出定调说明（不显示「暂无数据」白块）。 -->
+          <ProductManagerSection
+            v-if="product.asset_type === 'manager'"
+            id="nav-manager"
+            :mgr-code="product.symbol"
+          />
 
-      <!-- 基金经理（#1970）：仅经理品类渲染。入参是 mgr_code 而非姓名——库内实测
-           119 组重名（最多「吴昊」6 位），姓名不是唯一键。注意 `product.symbol` 不是
-           `managers.mgr_code` 原值：自选/搜索进来带 `MGR_` 前缀，且会被
-           `resolve_product_identity` 大写化。这里**原样透传**，归一由后端
-           `services/manager_code.py` 收口（曾因两边都没归一，每张经理页都空白）。
-           任职起止 / 规模 / 任期回报实测填充率 0%，
-           逐项降级「—」并在整片为空时给出定调说明（不显示「暂无数据」白块）。 -->
-      <ProductManagerSection
-        v-if="product.asset_type === 'manager'"
-        :mgr-code="product.symbol"
-      />
+          <!-- 投顾组合（#1975）：仅投顾组合品类渲染。入参是平台组合码
+               （advisor_portfolios.code，如 ZH012926）——路由 `/portfolio/<symbol>`
+               传下来的就是它。组合类标的**不展示代码**（设计 §2.6），靠「名称 + 平台 +
+               机构」识别（设计要求写的「主理人」实测填充率只有 1.9%，故锚点落在机构上）。
+               调仓记录不在本区块渲染：速览抽屉已有，复用需先提取共用组件（设计 §7 已登记
+               为 B6 复评项），此处先给「档案 + 指标 + 成分」。 -->
+          <ProductAdvisorSection
+            v-if="product.asset_type === 'portfolio'"
+            id="nav-advisor"
+            :code="product.symbol"
+          />
 
-      <!-- 投顾组合（#1975）：仅投顾组合品类渲染。入参是平台组合码
-           （advisor_portfolios.code，如 ZH012926）——路由 `/portfolio/<symbol>`
-           传下来的就是它。组合类标的**不展示代码**（设计 §2.6），靠「名称 + 平台 +
-           机构」识别（设计要求写的「主理人」实测填充率只有 1.9%，故锚点落在机构上）。
-           调仓记录不在本区块渲染：速览抽屉已有，复用需先提取共用组件（设计 §7 已登记
-           为 B6 复评项），此处先给「档案 + 指标 + 成分」。 -->
-      <ProductAdvisorSection
-        v-if="product.asset_type === 'portfolio'"
-        :code="product.symbol"
-      />
+          <!-- 关联标的（#1976）：指数 ↔ 场内 ETF ↔ 场外联接，对所有品类都可能有关系，
+               故不按asset_type 过滤（持仓里的债券/基金同样可能有联接基金）。
+               无关联降级「—」并附覆盖率说明；关系覆盖率约 66.4%（缺口见 #1419）。 -->
+          <ProductRelatedSection id="nav-related" :symbol="product.symbol" />
 
-      <!-- 关联标的（#1976）：指数 ↔ 场内 ETF ↔ 场外联接，对所有品类都可能有关系，
-           故不按asset_type 过滤（持仓里的债券/基金同样可能有联接基金）。
-           无关联降级「—」并附覆盖率说明；关系覆盖率约 66.4%（缺口见 #1419）。 -->
-      <ProductRelatedSection :symbol="product.symbol" />
+          <!-- 后续区块槽位：走势 / 基金资料 等由 #1967-#1971 各自注入。
+               刻意不渲染 mock 占位（设计 §10「不用 mock / 演示数据占位」）。 -->
+          <slot name="sections" />
 
-      <!-- 后续区块槽位：走势 / 基金资料 等由 #1967-#1971 各自注入。
-           刻意不渲染 mock 占位（设计 §10「不用 mock / 演示数据占位」）。 -->
-      <slot name="sections" />
+          <!-- 可转债深度分析（#1971）：一期只做集思录外链，不做内部详情区块。
+               设计 §6/§10 拍板：本地只有静态条款，YTM / 下修历史 / 正股 PB 仍缺（#1400），
+               与其用残缺数据做一个「看起来完整」的页面，不如把深度分析交给集思录。 -->
+          <BondExternalLinkCard
+            v-if="product.asset_type === 'bond'"
+            id="nav-bond"
+            :bond-code="product.symbol"
+          />
 
-      <!-- 可转债深度分析（#1971）：一期只做集思录外链，不做内部详情区块。
-           设计 §6/§10 拍板：本地只有静态条款，YTM / 下修历史 / 正股 PB 仍缺（#1400），
-           与其用残缺数据做一个「看起来完整」的页面，不如把深度分析交给集思录。 -->
-      <BondExternalLinkCard
-        v-if="product.asset_type === 'bond'"
-        :bond-code="product.symbol"
-      />
+          <!-- 第三方数据（#1969）：我们不做行情终端——资金流 / 盘口 / 财务这类深度数据
+               交给专业站，「深度研究」外包出去比半吊子自建更诚实。品类无对应站点时
+               该卡自己不渲染（见 ProductExternalLinksSection）。 -->
+          <ProductExternalLinksSection
+            id="nav-external"
+            :symbol="product.symbol"
+            :asset-type="product.asset_type"
+            :market="product.market"
+          />
+        </div>
 
-      <!-- 第三方数据（#1969）：我们不做行情终端——资金流 / 盘口 / 财务这类深度数据
-           交给专业站，「深度研究」外包出去比半吊子自建更诚实。品类无对应站点时
-           该卡自己不渲染（见 ProductExternalLinksSection）。 -->
-      <ProductExternalLinksSection
-        :symbol="product.symbol"
-        :asset-type="product.asset_type"
-        :market="product.market"
-      />
+        <!-- xl+ 右目录 rail：与顶部胶囊共用 items/activeId（父级 composable 下发）。
+             宽度账：xl（1280）视口下侧边栏展开 240px，内容区约 1040px，让出 160+20
+             后卡片仍有约 860px——图表与内部横向滚动表格都够用（调研 §5.3 的取舍）。 -->
+        <ProductPageToc
+          v-if="navItems.length > 1"
+          :items="navItems"
+          :active-id="navActiveId"
+          @navigate="goToNavSection"
+        />
+      </div>
     </template>
   </div>
 </template>
@@ -319,34 +334,23 @@ watch(productRef, loadProduct, { immediate: true });
   font-variant-numeric: tabular-nums;
 }
 
-/* 识别卡只有 facts 一行，无卡内标题（标题由页头承担，见上方注释） */
-.product-detail__hero {
+/* 页内导航两级布局（#1968 子卡）：<xl 单列（胶囊在正文上方整条横跨）；
+   xl+ 主列 + 160px 右目录 rail，列间距 20px。 */
+.product-detail__body {
   display: flex;
+  gap: var(--space-5);
+}
+
+/* 区块纵向节奏：设计笔记（product-detail-page-design-2026-10-08.md §13）写明
+   「间距由容器 gap 控制」，但实现漏了这层——实测卡片相贴（相邻 gap 全 0）。
+   借页内导航接线一并补上：取 --space-5（20px），与探市页卡片节奏一致；
+   本页卡片密度高（一页 9~14 张），不用 --space-section 的 48px。 */
+.product-detail__main {
+  display: flex;
+  flex: 1;
   flex-direction: column;
-  gap: var(--space-compact);
-}
-
-.product-detail__facts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-6);
-  margin: 0;
-}
-
-.product-detail__fact-label {
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
-}
-
-.product-detail__fact-value {
-  margin: 4px 0 0;
-  font-size: 14px;
-  color: var(--text-primary);
-}
-
-/* 代码原样展示：不做缩写 / 不补前缀 / 不剥市场前缀 */
-.product-detail__symbol {
-  font-family: var(--font-mono, monospace);
+  gap: var(--space-5);
+  min-width: 0;
 }
 
 .product-detail__empty {

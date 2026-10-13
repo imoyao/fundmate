@@ -84,10 +84,12 @@ function formatTradeDate(date: string | null): string {
 </script>
 
 <template>
+  <!-- SectionHeader 必须是 CardBlock 的**直接子节点**：CardBlock 只有一个匿名
+       <slot />，没有 header 具名插槽——<template #header> 会被 Vue 静默丢弃，
+       整张卡的标题跟着消失（#2104 首版正是这么写的，交易记录卡一直无标题；
+       同款坑在 ProductPositionSection 的注释里有记录）。 -->
   <CardBlock v-if="renderable">
-    <template #header>
-      <SectionHeader title="交易记录" />
-    </template>
+    <SectionHeader title="交易记录" />
 
     <div v-if="loading" class="transaction-section__loading">
       <el-skeleton :rows="3" animated />
