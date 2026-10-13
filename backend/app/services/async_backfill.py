@@ -25,6 +25,7 @@ from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
 from app.services.adapters.akshare_adapter import AkshareAdapter
 from app.services.adapters.xalpha_adapter import XalphaAdapter
+from app.services.money_fund_yield import compute_series_from_records
 
 
 def _as_date(value) -> Optional[date]:
@@ -74,6 +75,8 @@ def _backfill_fund_nav(fund_code: str):
                         'fund_code': fund_code,
                         'date': r['date'],
                         'nav_per_10k': r['unit_nav'],
+                        # #2120 P0-1：七日年化随行落库（下方按窗口统一回填）
+                        'annual_return_7d': None,
                         # #863 P0-4：与 fund_nav_job 一致，新写入标记 v2_recalc
                         'source_version': SOURCE_VERSION_V2_RECALC,
                     }
@@ -87,6 +90,14 @@ def _backfill_fund_nav(fund_code: str):
                         'acc_nav': r.get('acc_nav', 0),
                     }
                 )
+
+        # #2120 P0-1：七日年化是**滑动窗口**指标（每行的窗口是它自己往前 7 个自然日），
+        # 所以不能逐行独立算。本路径一次拿到全历史（pingzhongdata），
+        # 直接在内存里按窗口算好随行落库，无需再回查 DB。
+        # 口径与 `fund_nav_job` 共用 `money_fund_yield`，避免两处各算一套。
+        if money_records:
+            for row, (_day, _nav, value) in zip(money_records, compute_series_from_records(money_records)):
+                row['annual_return_7d'] = value
 
         if normal_records:
             total = bulk_insert_if_not_exists(
