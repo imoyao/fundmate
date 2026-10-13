@@ -59,6 +59,7 @@ title: 多多贝 项目规范体系（文档枢纽）
 | [launch-priority-baseline.md](./launch-priority-baseline.md) | 基础可用版上线优先级基线（四象限对齐） | 基线（易腐烂，待核实） |
 | [ai-review.md](./ai-review.md) | AI 代码审查链路机制与配置事实（配置分层、配额截断、降噪结论、排障指引） | 事实标准（依据包源码实测） |
 | [data-refresh-inventory.md](./data-refresh-inventory.md) | 数据自动更新清单（各数据项的分层 / 来源 job / 建议频率 / 实测现状 / 调度缺口） | 事实标准（现状列易腐烂，引用前先重跑诊断） |
+| [fund-risk-metrics.md](./fund-risk-metrics.md) | 基金风险收益指标调研（UI / UPI / 夏普 / 卡玛 / 波回比 / 拟涨幅的口径与参考源实证结论、我们的底数可行性、缺口与待决项） | 调研记录（**未实施**，易腐烂待核实） |
 | [internal-index.md](./internal-index.md) | 内部资产 / 备忘索引（钩子清单） | 索引页（`srcExclude`，不参与构建） |
 
 ## 视觉设计语言（权威入口）
