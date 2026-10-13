@@ -29,11 +29,11 @@ def _make_db(tmp_path, rows, hot_codes=('000002',)):
     conn.executescript(
         'CREATE TABLE daily_worth (fund_code TEXT, date TEXT, unit_nav REAL);'
         'CREATE TABLE positions (symbol TEXT);'
-        'CREATE TABLE watchlist_items (symbol TEXT);'
+        'CREATE TABLE watchlist (symbol TEXT);'
         'CREATE TABLE transactions (symbol TEXT);'
     )
     conn.executemany('INSERT INTO daily_worth VALUES (?,?,?)', rows)
-    for t in ('positions', 'watchlist_items', 'transactions'):
+    for t in ('positions', 'watchlist', 'transactions'):
         conn.executemany('INSERT INTO %s VALUES (?)' % t, [(c,) for c in hot_codes])
     conn.commit()
     conn.close()
@@ -181,3 +181,42 @@ class TestDryRunAndIdempotency:
         r = _run(seeded, '--table', 'daily_worths')
         assert r.returncode != 0
         assert 'daily_worths' in (r.stdout + r.stderr)
+
+
+class TestHotSourceTablesMustExist:
+    """热集来源表缺失必须报错，**不得静默跳过**。
+
+    2026-10-13 实测的真 bug：`watchlist_items` 是错表名（真名 `watchlist`），
+    当初用「表不存在就跳过」的守卫，结果自选被悄悄漏掉——7 只「仅自选、未持有、
+    无流水」的基金被误判为冷集，误删 10,714 行。而删除量占比仅 0.13%、
+    dry-run 与真删数字完全一致、三条断言全过，**没有任何现有检查能发现它**。
+    """
+
+    def test_missing_watchlist_source_aborts(self, tmp_path):
+        """建一个缺 watchlist 表的库：脚本必须拒绝执行且不动任何数据。"""
+        start = date.today() - timedelta(days=400)
+        rows = [('000001', (start + timedelta(days=j)).isoformat(), 1.0) for j in range(400)]
+        db = _make_db(tmp_path, rows)
+        conn = sqlite3.connect(db)
+        conn.execute('DROP TABLE watchlist')
+        conn.commit()
+        conn.close()
+
+        r = _run(db, '--table', 'daily_worth')
+        assert r.returncode != 0
+        assert 'watchlist' in (r.stdout + r.stderr)
+        assert len(_rows(db)) == 400, '拒绝执行时不该动任何数据'
+
+    def test_missing_transactions_source_aborts(self, tmp_path):
+        start = date.today() - timedelta(days=400)
+        rows = [('000001', (start + timedelta(days=j)).isoformat(), 1.0) for j in range(400)]
+        db = _make_db(tmp_path, rows)
+        conn = sqlite3.connect(db)
+        conn.execute('DROP TABLE transactions')
+        conn.commit()
+        conn.close()
+
+        r = _run(db, '--table', 'daily_worth')
+        assert r.returncode != 0
+        assert 'transactions' in (r.stdout + r.stderr)
+        assert len(_rows(db)) == 400

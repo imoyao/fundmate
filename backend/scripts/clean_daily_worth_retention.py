@@ -29,7 +29,7 @@ from datetime import date, timedelta
 TABLES = ('daily_worth', 'money_fund_daily_worth')
 HOT_PARTS = (
     "SELECT DISTINCT symbol FROM positions WHERE LENGTH(symbol)=6 AND symbol NOT GLOB '*[^0-9]*'",
-    "SELECT DISTINCT symbol FROM watchlist_items WHERE LENGTH(symbol)=6 AND symbol NOT GLOB '*[^0-9]*'",
+    "SELECT DISTINCT symbol FROM watchlist WHERE LENGTH(symbol)=6 AND symbol NOT GLOB '*[^0-9]*'",
     "SELECT DISTINCT symbol FROM transactions WHERE LENGTH(symbol)=6 AND symbol NOT GLOB '*[^0-9]*'",
 )
 
@@ -63,13 +63,29 @@ def _prep(conn, table, cutoff, floor):
 
     TEMP 表不受事务回滚影响，故必须在事务外建——否则回滚会把它们一起丢掉，
     后续断言无从引用。
+
+    ⚠️ 热集来源表**缺失时直接报错，不静默跳过**。
+    2026-10-13 实测踩过：`watchlist_items` 是错表名（真名 `watchlist`），而当初
+    用了「表不存在就跳过」的守卫，结果**自选被悄悄漏掉**——7 只「仅自选、未持有、
+    无流水」的基金被误判为冷集，误删 10,714 行（`001411` / `001706` / `007450` /
+    `118001`）。删除量占比只有 0.13%，断言全过、dry-run 与真删数字一致，
+    **没有任何现有检查能发现它**。热集口径是 §10 的硬约束，宁可报错也不能少算。
     """
     conn.execute('CREATE TEMP TABLE IF NOT EXISTS hot_codes (code TEXT PRIMARY KEY)')
     conn.execute('DELETE FROM hot_codes')
+    missing = []
     for sql in HOT_PARTS:
         t = sql.split('FROM ')[1].split()[0]
-        if _has(conn, t):
-            conn.execute('INSERT OR IGNORE INTO hot_codes (code) %s' % sql.replace('SELECT DISTINCT', 'SELECT'))
+        if not _has(conn, t):
+            missing.append(t)
+            continue
+        conn.execute('INSERT OR IGNORE INTO hot_codes (code) %s' % sql.replace('SELECT DISTINCT', 'SELECT'))
+    if missing:
+        raise SystemExit(
+            '热集来源表缺失: %s\n拒绝执行：热集口径是「持仓 ∪ 自选 ∪ 流水」，少算任一来源\n'
+            '都会把「仅自选、未持有」的基金误判为冷集而删掉其历史（§10 明令禁止）。\n'
+            '若表名确有变更，请同步修正 HOT_PARTS。' % missing
+        )
     hot_n = conn.execute('SELECT COUNT(*) FROM hot_codes').fetchone()[0]
 
     # 近窗口行数 < floor 的冷集基金 → 取其最近 floor 行作额外保留

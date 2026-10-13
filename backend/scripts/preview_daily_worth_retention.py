@@ -22,7 +22,7 @@ DOC_FLAGGED = ('001046', '003443', '003451', '003572', '003868')
 # 只在场外基金，代码即便重叠也会被保护——属保守方向，不构成风险。
 HOT_PARTS = (
     "SELECT DISTINCT symbol FROM positions WHERE LENGTH(symbol)=6 AND symbol NOT GLOB '*[^0-9]*'",
-    "SELECT DISTINCT symbol FROM watchlist_items WHERE LENGTH(symbol)=6 AND symbol NOT GLOB '*[^0-9]*'",
+    "SELECT DISTINCT symbol FROM watchlist WHERE LENGTH(symbol)=6 AND symbol NOT GLOB '*[^0-9]*'",
     "SELECT DISTINCT symbol FROM transactions WHERE LENGTH(symbol)=6 AND symbol NOT GLOB '*[^0-9]*'",
 )
 W = 84
@@ -37,8 +37,13 @@ def preview(conn, keep_days, floor, top):
     today = date.today()
     cutoff = (today - timedelta(days=keep_days)).isoformat()
     parts = [s for s in HOT_PARTS if _has(conn, s.split('FROM ')[1].split()[0])]
-    if not parts:
-        raise SystemExit('未找到热集来源表')
+    # 缺表直接报错，不静默跳过——错表名会让热集少算，把「仅自选」的基金误判为冷集。
+    # 2026-10-13 实测：`watchlist_items` 是错表名（真名 `watchlist`），静默跳过导致
+    # 7 只仅自选的基金被误删 10,714 行，而 dry-run 与真删数字完全一致、断言全过，
+    # **没有任何现有检查能发现它**。
+    missing = [s.split('FROM ')[1].split()[0] for s in HOT_PARTS if not _has(conn, s.split('FROM ')[1].split()[0])]
+    if missing:
+        raise SystemExit('热集来源表缺失: %s（热集口径 = 持仓 ∪ 自选 ∪ 流水，少算任一来源都会误删）' % missing)
     hot_codes = {r[0] for r in conn.execute(' UNION '.join(parts)).fetchall()}
 
     def w(s=''):
