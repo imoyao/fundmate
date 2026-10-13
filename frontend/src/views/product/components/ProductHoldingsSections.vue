@@ -23,6 +23,11 @@ import {
 
 const props = defineProps<{
   symbol: string;
+  /** 页内导航锚点 id（#1968 子卡）。挂在根节点上：无披露数据 / 未收录时整块
+      不渲染，锚点随之消失，导航项由 useProductPageNav 的 DOM 存在性过滤收走，
+      不会留死链。多根组件吃不到父级的 attribute fallthrough（Vue 会丢弃并告警），
+      故由 prop 显式下发。 */
+  anchorId?: string;
 }>();
 
 const loading = ref(false);
@@ -51,30 +56,42 @@ watch(() => props.symbol, load, { immediate: true });
 </script>
 
 <template>
-  <!-- 两张卡都没有可展示内容时**整块不渲染**：
-       持仓明细没有这层壳会渲染出一个只有标题和「暂无数据」的空块，
-       那正是 §6「诚实降级」要避免的视觉噪声。 -->
-  <template v-if="detail?.applicable">
-    <ProductIndustrySection
-      v-if="detail.has_industry"
-      :detail="detail"
-      :source="detail.source"
-    />
+  <!-- 单根容器：#1968 页内导航的锚点宿主（多根无法被父级挂 id，见 anchorId 注释）。
+       根节点带 v-if，无披露数据 / 未收录时不渲染——与旧版「整块不渲染」语义一致。 -->
+  <div
+    v-if="detail?.applicable || failed"
+    :id="anchorId"
+    class="product-holdings"
+  >
+    <template v-if="detail?.applicable">
+      <ProductIndustrySection
+        v-if="detail.has_industry"
+        :detail="detail"
+        :source="detail.source"
+      />
 
-    <ProductHoldingSection
-      v-if="detail.has_holding"
-      :detail="detail"
-      :source="detail.source"
-    />
-  </template>
+      <ProductHoldingSection
+        v-if="detail.has_holding"
+        :detail="detail"
+        :source="detail.source"
+      />
+    </template>
 
-  <!-- 取数失败才提示；「无披露数据」是常态（多数基金未到披露期），不打扰用户 -->
-  <p v-else-if="failed" class="product-holdings__hint">
-    持仓数据读取失败，可稍后重试
-  </p>
+    <!-- 取数失败才提示；「无披露数据」是常态（多数基金未到披露期），不打扰用户 -->
+    <p v-else-if="failed" class="product-holdings__hint">
+      持仓数据读取失败，可稍后重试
+    </p>
+  </div>
 </template>
 
 <style scoped>
+/* 与 .product-detail__main 同一套纵向节奏（gap 由容器给，见 detail.vue） */
+.product-holdings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
 .product-holdings__hint {
   padding: var(--space-3);
   margin: 0;
