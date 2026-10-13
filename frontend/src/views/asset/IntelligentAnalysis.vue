@@ -45,26 +45,34 @@
             info="XIRR 由已录入的交易现金流真实计算，录入交易后自动生成；本页不做收益预测"
           />
           <MetricGrid>
+            <!-- value-color：本页主数字统一走品牌文字色 `--brand-ink`
+                 （WCAG AA：白底 5.86:1）。默认 `--text-primary` 是中性暖黑 #2d2a24，
+                 作为「这一页的主角数字」缺少品牌识别，看不出是可交互的分析结论区。
+                 ⚠️ 不要用 `--brand-700`：它作文字仅 3.73:1，不达标。 -->
             <MetricCard
               title="年化收益率 (XIRR)"
               :value="xirrRateLabel"
               unit="%"
               featured
+              value-color="var(--brand-ink)"
               :caption="xirrCaption"
             />
             <MetricCard
               title="总收益"
               :value="xirrReturnLabel"
+              value-color="var(--brand-ink)"
               caption="含已赎回部分"
             />
             <MetricCard
               title="当前市值"
               :value="xirrCurrentValueLabel"
+              value-color="var(--brand-ink)"
               caption="在投本金的当前价值"
             />
             <MetricCard
               title="总投入"
               :value="xirrInvestedLabel"
+              value-color="var(--brand-ink)"
               caption="累计投入本金"
             />
           </MetricGrid>
@@ -80,12 +88,14 @@
             <MetricCard
               title="今日收益"
               :value="mfTodayLabel"
+              value-color="var(--brand-ink)"
               :caption="mfTodayCaption"
               featured
             />
             <MetricCard
               title="累计收益"
               :value="mfTotalLabel"
+              value-color="var(--brand-ink)"
               caption="持有期累计（万份收益 × 份额）"
             />
           </MetricGrid>
@@ -107,7 +117,7 @@
                 </p>
                 <p
                   class="text-4xl font-bold mt-1"
-                  :style="{ color: 'var(--text-primary)' }"
+                  :style="{ color: 'var(--brand-ink)' }"
                 >
                   {{ formatYuan(totalAssets) }}
                 </p>
@@ -172,7 +182,7 @@
                   </p>
                   <p
                     class="text-lg font-bold mt-1"
-                    :style="{ color: 'var(--text-primary)' }"
+                    :style="{ color: 'var(--brand-ink)' }"
                   >
                     {{ formatYuan(card.value) }}
                   </p>
@@ -313,7 +323,13 @@
                         >({{ item.symbol }})</span
                       >
                     </td>
-                    <td class="px-4 py-3">
+                    <!-- 持仓市值染品牌文字色，与页面其它主数字一致；
+                         盈亏两列保持 RiseFallText 涨跌色（不染品牌色，见 design.md
+                         「指标数值不染涨跌色」的反面：涨跌值**必须**染涨跌色）。 -->
+                    <td
+                      class="px-4 py-3"
+                      :style="{ color: 'var(--brand-ink)' }"
+                    >
                       {{ formatYuan(item.market_value) }}
                     </td>
                     <td class="px-4 py-3">
