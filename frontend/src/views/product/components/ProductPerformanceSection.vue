@@ -87,6 +87,13 @@ watch(() => props.symbol, load, { immediate: true });
       <p class="performance-section__footnote">
         数据来源：{{ perf.source
         }}<template v-if="perf.as_of"> · 截至 {{ perf.as_of }}</template>
+        <template v-if="perf.samples != null">
+          · 七日年化 = 近 {{ perf.window_days ?? 7 }} 个自然日内
+          {{ perf.samples }} 个已发布样本的日均值 × 365
+          <template v-if="perf.samples < (perf.window_days ?? 7)">
+            （不足 {{ perf.window_days ?? 7 }} 天，含节假日缺口）
+          </template>
+        </template>
         · 货币基金（万份收益 / 七日年化，无回撤口径）
       </p>
     </template>

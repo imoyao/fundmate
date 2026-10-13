@@ -201,3 +201,84 @@ class TestRecomputeDb:
 
         second = recompute_annual_return_7d(db, fund_codes=[seeded], apply=True)
         assert second['changed'] == 0, '重跑必须幂等：值没变就不该再写'
+
+
+class TestReadPathCaliberMetadata:
+    """#2121 验收项：读侧必须交代口径（as_of / 样本天数 / 7 自然日还是 7 交易日）。"""
+
+    def _seed_fund(self, db):
+        """造一只**货基**：`_is_money_fund` 靠 `fund.fund_type.name` 含「货币」判定。"""
+        from app.domains.funds.models import Fund, FundType
+
+        ft = db.query(FundType).filter_by(name='货币型').first()
+        if ft is None:
+            ft = FundType(name='货币型')
+            db.add(ft)
+            db.flush()
+        if not db.query(Fund).filter_by(fund_code='900009').first():
+            db.add(Fund(fund_code='900009', name='口径元数据测试货基', fund_type_id=ft.id))
+            db.flush()
+
+    def _seed_rows(self, db, dates):
+        from app.domains.funds.models import MoneyFundDailyWorth
+
+        for d in dates:
+            db.add(MoneyFundDailyWorth(fund_code='900009', date=d, nav_per_10k=0.23))
+        db.commit()
+
+    def test_exposes_window_samples_and_note(self, db):
+        """窗口 7 自然日 + 样本数 + 口径说明三件套都要返回（端到端：算→落→读）。"""
+        from app.services.fund_performance import build_fund_performance
+        from app.services.money_fund_yield import recompute_annual_return_7d
+
+        self._seed_fund(db)
+        self._seed_rows(db, [date(2026, 10, 5) + timedelta(days=i) for i in range(7)])
+        # 读路径读的是**落库值**，所以先重算把 annual_return_7d 填上
+        recompute_annual_return_7d(db, fund_codes=['900009'], apply=True)
+        perf = build_fund_performance(db, '900009')
+        assert perf['fund_kind'] == 'money'
+        assert perf['window_days'] == 7
+        assert perf['samples'] == 7
+        assert perf['annual_return_7d'] == pytest.approx(0.84, abs=1e-3)
+        assert '自然日' in perf['caliber_note'] and '365' in perf['caliber_note']
+
+    def test_samples_counts_only_published_days(self, db):
+        """节假日缺口：窗口仍 7 自然日，但样本数须如实为 6。"""
+        from app.services.fund_performance import build_fund_performance
+        from app.services.money_fund_yield import recompute_annual_return_7d
+
+        self._seed_fund(db)
+        self._seed_rows(db, [date(2026, 10, 6) + timedelta(days=i) for i in range(6)])
+        recompute_annual_return_7d(db, fund_codes=['900009'], apply=True)
+        perf = build_fund_performance(db, '900009')
+        assert perf['as_of'] == '2026-10-11'
+        assert perf['window_days'] == 7, '窗口是 7 个自然日，不是 7 个观测'
+        assert perf['samples'] == 6, '样本数必须如实反映节假日缺口'
+        assert perf['annual_return_7d'] is not None
+
+    def test_reads_stored_value_not_recomputed(self, db):
+        """读路径读落库值：没算过的行 annual_return_7d 为 None，但元数据仍在。"""
+        from app.services.fund_performance import build_fund_performance
+
+        self._seed_fund(db)
+        self._seed_rows(db, [date(2026, 10, 5) + timedelta(days=i) for i in range(7)])
+        perf = build_fund_performance(db, '900009')
+        assert perf['samples'] == 7, '元数据与数值解耦：样本数照实给'
+        assert perf['annual_return_7d'] is None, '未回填的行不编造数值'
+
+    def test_no_rows_returns_zero_samples(self, db):
+        from app.services.fund_performance import build_fund_performance
+
+        self._seed_fund(db)
+        perf = build_fund_performance(db, '900009')
+        assert perf['basis'] == 'insufficient'
+        assert perf['window_days'] == 7
+        assert perf['samples'] == 0
+        assert perf['annual_return_7d'] is None
+
+    def test_window_days_matches_compute_module(self):
+        """读侧与计算侧窗口常量必须同源，否则口径会在两处漂移。"""
+        from app.services import money_fund_yield
+
+        assert money_fund_yield.WINDOW_DAYS == 7
+        assert '自然日' in money_fund_yield.CALIBER_NOTE
