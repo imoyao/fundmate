@@ -60,6 +60,7 @@ class TestLoadConfig:
         assert cfg.job_names() == [
             'temperature',
             'fund_nav',
+            'fund_valuation_snapshot',
             'price_history',
             'index_daily',
             'position_price',
@@ -78,6 +79,7 @@ class TestLoadConfig:
         crons = {spec.job_name: spec.cron for spec in cfg.jobs}
         assert crons['temperature'] == ds.DEFAULT_TEMPERATURE_CRON
         assert crons['fund_nav'] == ds.DEFAULT_NAV_CRON
+        assert crons['fund_valuation_snapshot'] == ds.DEFAULT_VALUATION_CRON
         assert crons['price_history'] == ds.DEFAULT_PRICE_HISTORY_CRON
         assert crons['index_daily'] == ds.DEFAULT_INDEX_DAILY_CRON
         assert crons['position_price'] == ds.DEFAULT_POSITION_PRICE_CRON
@@ -145,6 +147,7 @@ class TestLoadConfig:
         assert cfg.job_names() == [
             'temperature',
             'fund_nav',
+            'fund_valuation_snapshot',
             'price_history',
             'index_daily',
             'position_price',
@@ -182,6 +185,7 @@ class TestLoadConfig:
         # #1934 补进调度的四项没被上面的开关关掉，故仍在列表里（fund_nav 排最前）
         assert cfg.job_names() == [
             'fund_nav',
+            'fund_valuation_snapshot',
             'market_asset_daily',
             'index_valuation',
             'convertible_bond',

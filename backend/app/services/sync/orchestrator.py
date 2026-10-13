@@ -57,6 +57,7 @@ from app.services.sync.jobs.fund_nav_job import FundNavSyncJob
 from app.services.sync.jobs.fund_position_job import FundPositionSyncJob
 from app.services.sync.jobs.fund_scale_job import FundScaleSyncJob
 from app.services.sync.jobs.fund_type_job import FundTypeSyncJob
+from app.services.sync.jobs.fund_valuation_snapshot_job import FundValuationSnapshotJob
 from app.services.sync.jobs.index_catalog_job import IndexCatalogSyncJob
 from app.services.sync.jobs.index_constituent_job import INDEX_TARGETS, IndexConstituentSyncJob
 from app.services.sync.jobs.index_daily_job import IndexDailySyncJob
@@ -196,6 +197,10 @@ class DataSyncOrchestrator:
         # 注册表同时充当 SyncJob 的 adapter 槽位（sync_logs 审计读 get_name/get_version）。
         self.jobs['advisor_portfolio'] = AdvisorPortfolioSyncJob(AdvisorSourceRegistry(), self.db)
         self.jobs['fund_nav'] = FundNavSyncJob(self.data_sources['xalpha'], self.db)
+        # #2141：收盘估值定格。天天基金 HTTP 直抓（非 akshare/xalpha 数据源），
+        # NullAdapter 占位；目标池吃 fund 池（场外基金裸码），多时点由
+        # daily_scheduler 的 cron 驱动，按 (fund_code, est_date) 幂等覆盖。
+        self.jobs['fund_valuation_snapshot'] = FundValuationSnapshotJob(NullAdapter(), self.db)
         self.jobs['price_history'] = PriceHistorySyncJob(self.data_sources['akshare'], self.db)
         self.jobs['index_constituents'] = IndexConstituentSyncJob(self.data_sources['akshare'], self.db)
         # #1285/#1394：指数估值（中证官方：市盈率 / 股息率）

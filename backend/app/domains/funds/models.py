@@ -217,6 +217,30 @@ class DailyWorth(Base, PrimaryKeyMixin, TimestampMixin):
     __table_args__ = (UniqueConstraint('fund_code', 'date', name='uq_daily_worth_code_date'),)
 
 
+class FundValuationDaily(Base, PrimaryKeyMixin, TimestampMixin):
+    """场外基金收盘估值定格（#2141）
+
+    收盘后按固定时点（15:15 / 19:15 / 21:15）抓取天天基金估值快照，
+    供「收盘后估值」定格展示与 pnl_calendar 当日估算回退。
+    估值是时点数据：净值发布后源端会清空 GSZ，故同一 (fund_code, est_date)
+    可能被多个时点覆盖——采用 REPLACE 语义，后写入的时点覆盖先写入的。
+    fund_code 不设 FK：估值覆盖全市场场外基金，本地 funds 表可能不存在该基金
+    （与 AdvisorHolding 同款业务键模式），跨域 join 本就禁止。
+    """
+
+    __tablename__ = 'fund_valuation_daily'
+
+    fund_code = Column(String(16), nullable=False, comment='基金代码')
+    est_date = Column(Date, nullable=False, comment='估值日期（源端 PDATE）')
+    estimated_nav = Column(SafeNumeric(18, 6), nullable=False, comment='估算净值（元），精度6位小数')
+    change_pct = Column(SafeNumeric(10, 4), comment='估算涨跌幅（%），如 1.2345 表示 +1.2345%')
+    source_time = Column(String(32), comment='源端估值时间字符串（GZTIME，原样存储，如 "2026-10-13 15:00"）')
+    source = Column(String(32), default='tiantian_gsz', comment='数据源标识，默认天天基金 GSZ')
+    status = Column(String(16), default='estimated', comment='估值状态: estimated / official')
+
+    __table_args__ = (UniqueConstraint('fund_code', 'est_date', name='uq_fund_valuation_code_date'),)
+
+
 class PurchaseRule(Base, PrimaryKeyMixin, TimestampMixin):
     """申购/认购费率阶梯的金额区间规则"""
 

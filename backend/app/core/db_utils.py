@@ -67,6 +67,61 @@ def bulk_insert_if_not_exists(
     return total_inserted
 
 
+def bulk_upsert_replace(
+    db: Session,
+    model,
+    data: List[dict],
+    unique_columns: List[str],
+    batch_size: int = 1000,
+) -> int:
+    """
+    批量 upsert（冲突时以新行整体覆盖旧行），用于时点型快照数据。
+
+    与 bulk_insert_if_not_exists 的 INSERT OR IGNORE 语义不同：
+    估值定格（#2141）同一 (fund_code, est_date) 会被多个时点先后写入，
+    后写入的时点应覆盖先写入的（REPLACE 语义），而非保留首次快照。
+
+    Args:
+        db: SQLAlchemy Session
+        model: ORM 模型类
+        data: 待写入的字典列表
+        unique_columns: 联合唯一键列表，如 ['fund_code', 'est_date']
+        batch_size: 每批写入数量
+
+    Returns:
+        写入的记录数（估算值）
+    """
+    if not data:
+        return 0
+
+    dialect_name = db.bind.dialect.name if hasattr(db.bind, 'dialect') else 'sqlite'
+
+    total_written = 0
+    for i in range(0, len(data), batch_size):
+        batch = data[i : i + batch_size]
+
+        if dialect_name == 'postgresql':
+            stmt = pg_insert(model).values(batch)
+            # SET 子句排除唯一键，其余列全部以 excluded 新值覆盖
+            stmt = stmt.on_conflict_do_update(
+                index_elements=unique_columns,
+                set_={
+                    c.name: getattr(stmt.excluded, c.name)
+                    for c in model.__table__.columns
+                    if c.name not in unique_columns
+                },
+            )
+        else:
+            # SQLite 使用 INSERT OR REPLACE，需要完整的 INSERT 语句
+            stmt = model.__table__.insert().prefix_with('OR REPLACE').values(batch)
+
+        result = db.execute(stmt)
+        total_written += result.rowcount if hasattr(result, 'rowcount') else len(batch)
+
+    db.commit()
+    return total_written
+
+
 class SafeNumeric(TypeDecorator):
     """
     Numeric 安全适配器。

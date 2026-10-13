@@ -68,9 +68,10 @@ from sqlalchemy.orm import Session
 
 from app.core.constants import EXCHANGE_RATES
 from app.core.money import Money
+from app.core.time_utils import now_shanghai
 from app.core.trading_calendar import is_trading_day
 from app.core.venues import EXCHANGE, OTC, venue_of_row
-from app.domains.funds.models import DailyWorth
+from app.domains.funds.models import DailyWorth, FundValuationDaily
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.transactions.models import Transaction
@@ -250,6 +251,50 @@ def _collect_fund_nav(
     for code, date, unit_nav in rows:
         nav.setdefault(code, {})[date] = _to_price_units(unit_nav)
     return nav
+
+
+def _merge_today_estimates(
+    db: Session,
+    fund_nav: Dict[str, Dict[dt.date, int]],
+    fund_codes: Iterable[str],
+) -> set:
+    """#2141：当日官方净值缺失的基金，回退收盘估值定格（`fund_valuation_daily`）。
+
+    严格 **date == 今天（上海时区）**——预估只服务「净值空窗期」这一件事：
+    昨天及更早的日子若官方净值缺失，维持原状（前值回填 / 缺行），
+    绝不回退预估。这条限定同时是「预估永不进物化快照」的结构保证：
+    新鲜窗（`PRICE_FRESH_DAYS`）内今日行永不落库，而预估只可能出现在今日行，
+    于是物化/现算等价域不受影响，`CALIBER_VERSION` 无需 bump。
+
+    官方优先：`fund_nav[code]` 已有今日行的基金直接跳过（不覆盖官方值）。
+    就地合并进 `fund_nav`（今日缺失键补上估值），返回**用上估值**的代码集合，
+    供调用方给当日行打 `estimated` 标记。
+
+    空代码集 / 非相关日期直接返回空集，不发查询（热路径上每次请求都会路过）。
+    """
+    codes = sorted({(c or '').strip() for c in fund_codes if (c or '').strip()})
+    if not codes:
+        return set()
+    today = now_shanghai().date()
+    rows = (
+        db.query(
+            FundValuationDaily.fund_code,
+            FundValuationDaily.estimated_nav,
+            FundValuationDaily.source_time,
+        )
+        .filter(
+            FundValuationDaily.est_date == today,
+            FundValuationDaily.fund_code.in_(codes),
+        )
+        .all()
+    )
+    estimated_codes: set = set()
+    for code, estimated_nav, _source_time in rows:
+        day_map = fund_nav.setdefault(code, {})
+        if day_map.get(today) is None and estimated_nav is not None:
+            day_map[today] = _to_price_units(estimated_nav)
+            estimated_codes.add(code)
+    return estimated_codes
 
 
 def _collect_price_history(
@@ -547,13 +592,18 @@ def _day_to_api(date: dt.date, meta: dict) -> dict:
         rate = float(Decimal(rate_bp) / 100)
         if rate_bp == 0 and pnl is not None and pnl < 0:
             rate = -0.0
-    return {
+    api = {
         'date': date.isoformat(),
         'daily_pnl': None if pnl is None else round(Money.cents_to_yuan(pnl), 2),
         'net_worth': round(Money.cents_to_yuan(meta['net_worth_cents']), 2),
         'rate': rate,
         'state': meta['state'],
     }
+    # #2141：现算行可能带 estimated（当日回退估值定格）；物化行永远没有——
+    # 预估只出现在新鲜窗内的今日行，而新鲜窗行永不落库（见 PRICE_FRESH_DAYS）。
+    if meta.get('estimated'):
+        api['estimated'] = True
+    return api
 
 
 def build_daily_pnl_series(
@@ -799,6 +849,12 @@ def _compute_days(
     # 多取这 7 天只让 SQL 区间加宽 7 天（IN 过滤下增量可忽略）。
     fetch_start = scan_start - dt.timedelta(days=_STALE_CARRY_DAYS)
     fund_nav = _collect_fund_nav(db, fetch_start, end, otc_codes)
+    # #2141 当日预估回退：官方净值未落的基金用收盘估值定格补「今天」，
+    # 严格 date==today（详见 `_merge_today_estimates` docstring——这条限定
+    # 同时保证预估永不进物化快照，等价域与 CALIBER_VERSION 都不受影响）。
+    # 区间不含今日（end < today）则整段跳过，历史读路径零额外查询。
+    today = now_shanghai().date()
+    estimated_codes = _merge_today_estimates(db, fund_nav, otc_codes) if end >= today else set()
     exchange_prices = _collect_price_history(db, ex_symbols, fetch_start, end)
 
     # ── as-of 份额 / 成本 / 已实现盈亏 ──
@@ -842,6 +898,9 @@ def _compute_days(
 
     while day <= end:
         price_cache.clear()
+        # #2141：本日是否有持仓用上收盘估值（仅 day==today 可能为 True），
+        # 有则当日行附 estimated 标记——前端徽标/开关据此展示，不再前端猜。
+        day_uses_estimate = False
         for per_pos in per_pos_sets:
             for state in per_pos.values():
                 # 建仓日标记：份额由 0 变正的那一天。前一日基准是「未持有」，
@@ -865,6 +924,9 @@ def _compute_days(
             held_shares = state['shares']
             if held_shares <= 0:
                 continue
+            # #2141：该持仓当日价来自估值定格（merge 后 series[today] 即估值行）
+            if day == today and estimated_codes and (pos.symbol or '').strip() in estimated_codes:
+                day_uses_estimate = True
             market_value = Money.multiply_price_quantity(price, held_shares)
             # 成本基数与 pnl_service.cost_basis_cents 同口径：nav 模式用成本均价×份额。
             # as-of 份额变了，故成本也必须按当日份额重算，不能用当下的 avg_price。
@@ -1056,15 +1118,18 @@ def _compute_days(
             # `daily_pnl`/`day_net_worth` 本来就是分，`Money` 换算挪到 `_day_to_api`
             # 一次做完——热路径上少一轮 float 往返，物化行与现算结果也就共用同一个
             # 转换出口，不可能各算各的。
-            days.append(
-                {
-                    'date': day.isoformat(),
-                    'daily_pnl_cents': daily_pnl,
-                    'net_worth_cents': day_net_worth,
-                    'rate_bp': None if rate_pct is None else int(Decimal(str(rate_pct)) * 100),
-                    'state': state_code,
-                }
-            )
+            row = {
+                'date': day.isoformat(),
+                'daily_pnl_cents': daily_pnl,
+                'net_worth_cents': day_net_worth,
+                'rate_bp': None if rate_pct is None else int(Decimal(str(rate_pct)) * 100),
+                'state': state_code,
+            }
+            if day_uses_estimate:
+                # #2141：今日行的价含估值定格。该行必在新鲜窗内、永不物化
+                # （save_days 的 max_date 截止在窗左端），故此键不会进快照表。
+                row['estimated'] = True
+            days.append(row)
 
         # 基准**无条件推进**（#1917 的 A 方案）。
         #
