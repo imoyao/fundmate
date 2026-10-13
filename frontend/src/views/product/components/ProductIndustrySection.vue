@@ -160,31 +160,35 @@ function barColor(index: number): string {
         </tfoot>
       </table>
 
-      <!-- 非主口径：单列并显式警告不可相加（硬口径 2） -->
-      <details
+      <!-- 非主口径：单列并显式警告不可相加（硬口径 2）。
+           ⚠️ 这条警告必须在 <details> **外面**：跨体系（csrc / gics）相加会得出
+           荒谬结论，藏进折叠区就不再是「用户第一眼就要看到」的硬口径了。 -->
+      <div
         v-for="b in secondary"
         :key="b.scheme"
         class="industry-section__other"
       >
-        <summary class="industry-section__other-title">
-          {{ b.scheme_label }}（参考）
-        </summary>
         <p class="industry-section__other-note">
           该分类体系与上方{{ primary?.scheme_label }}不可相加，仅作参考
         </p>
-        <dl class="industry-section__other-list">
-          <div
-            v-for="it in b.items"
-            :key="it.industry_code || it.industry_name"
-            class="industry-section__other-item"
-          >
-            <dt>{{ it.industry_name }}</dt>
-            <dd>
-              {{ it.ratio != null ? it.ratio.toFixed(2) + "%" : "—" }}
-            </dd>
-          </div>
-        </dl>
-      </details>
+        <details class="industry-section__other-details">
+          <summary class="industry-section__other-title">
+            {{ b.scheme_label }}（参考）
+          </summary>
+          <dl class="industry-section__other-list">
+            <div
+              v-for="it in b.items"
+              :key="it.industry_code || it.industry_name"
+              class="industry-section__other-item"
+            >
+              <dt>{{ it.industry_name }}</dt>
+              <dd>
+                {{ it.ratio != null ? it.ratio.toFixed(2) + "%" : "—" }}
+              </dd>
+            </div>
+          </dl>
+        </details>
+      </div>
 
       <p class="industry-section__footnote">
         数据来源：{{ source }} · 行业配置为报告期快照（非日期序列）
@@ -203,11 +207,24 @@ function barColor(index: number): string {
 }
 
 .industry-section__hint,
-.industry-section__footnote,
-.industry-section__other-note {
+.industry-section__footnote {
   margin: 0;
   font-size: 12px;
   color: var(--text-tertiary);
+}
+
+/* 「不可相加」是**跨体系硬口径**，不是普通脚注：csrc / gics 加总得出的是荒谬结论。
+   沿用持仓明细 caveat 的同一套警告视觉，避免两处硬口径长得不一样。
+   （此前它躺在 <details> 里且是 tertiary 淡色，等于没有警告。） */
+.industry-section__other-note {
+  padding: var(--space-2) var(--space-3);
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  background: var(--bg-subtle, var(--bg-card));
+  border-left: 3px solid var(--color-warning, var(--brand-700));
+  border-radius: 0 var(--radius-sm, 4px) var(--radius-sm, 4px) 0;
 }
 
 .industry-section__scheme {
@@ -311,10 +328,6 @@ function barColor(index: number): string {
   font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;
-}
-
-.industry-section__other-note {
-  margin: var(--space-2) 0;
 }
 
 .industry-section__other-list {
