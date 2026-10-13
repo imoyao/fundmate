@@ -15,7 +15,9 @@ import { injectSupabaseSession } from "./support/session";
  * 接口全部 page.route 打桩，不依赖后端（docs/dev/frontend-e2e.md §7）。
  *
  * 反向验证：删掉 detail.vue 里 <ProductPageNav> 挂载 → 本文件全红；
- * 把 useProductPageNav 的 items 过滤改成静态清单 → 经理页用例红（死链回归）。
+ * 把 useProductPageNav 的 items 过滤改成静态清单 → 经理页用例红（死链回归）；
+ * 去掉 <ProductTransactionSection> 的 has_position 条件 → 「无持仓」用例红
+ * （空卡 + 无用请求 + 胶囊死重量三样回归）。
  */
 
 const NAME = "永赢北证50成份指数发起C";
@@ -61,7 +63,8 @@ async function scrollSectionUnderLine(page: Page, id: string) {
   return top as number;
 }
 
-async function stubProductApis(page: Page) {
+async function stubProductApis(page: Page, opts?: { hasPosition?: boolean }) {
+  const hasPosition = opts?.hasPosition ?? true;
   await page.route(/^https?:\/\/[^/]+\/api\//, route =>
     route.fulfill({
       status: 404,
@@ -92,7 +95,7 @@ async function stubProductApis(page: Page) {
           venue: "OTC",
           display_name: NAME,
           in_watchlist: true,
-          has_position: true,
+          has_position: hasPosition,
           source: "position"
         },
         message: "ok"
@@ -209,6 +212,48 @@ test.describe("详情页页内导航（#1968）", () => {
     expect(counts.pills).toBe(counts.anchors);
   });
 
+  test("无持仓：交易记录不渲染、不进导航、不发请求", async ({ page }) => {
+    // #2104 行为修正：交易流水是用户自己的账本数据，与「我的持仓」同条件——
+    // 仅当前持有时渲染。未持有用户不该看到一张「暂无交易记录」空卡，
+    // 也不该为它打一次无用请求，导航胶囊更不该多一项死重量。
+    // 反向验证：把 detail.vue 的 v-if 去掉 → 本用例红（空卡 + 死链回归）。
+    const txnRequests: string[] = [];
+    page.on("request", req => {
+      // 只认真 API：dev server 下前端模块 src/api/transactions.ts 的路径
+      // 也含 "transactions" 字样，宽松子串匹配会误抓
+      if (/\/api\/transactions(\?|$|\/)/.test(new URL(req.url()).pathname)) {
+        txnRequests.push(req.url());
+      }
+    });
+    // beforeEach 已按「有持仓」打过桩；后注册的 route 优先，覆盖 resolve
+    await stubProductApis(page, { hasPosition: false });
+
+    await page.goto(`/#/fund/${SYMBOL}`);
+    await expect(page.locator(".page-nav")).toBeVisible({ timeout: 60_000 });
+
+    // 胶囊里没有「交易记录」，锚点也不存在
+    await expect(page.locator(".page-nav__pill")).not.toHaveText([
+      "我的持仓",
+      "走势",
+      "交易记录",
+      "基金资料",
+      "业绩与风险",
+      "行业与持仓",
+      "关联标的",
+      "第三方数据"
+    ]);
+    expect(
+      await page.locator(".page-nav__pill", { hasText: "交易记录" }).count()
+    ).toBe(0);
+    expect(await page.locator("#nav-transactions").count()).toBe(0);
+
+    // 持仓区块同样不渲染（has_position=false），与交易记录同源
+    expect(await page.locator("#nav-position").count()).toBe(0);
+
+    // 没有为交易记录发过请求
+    expect(txnRequests).toEqual([]);
+  });
+
   test("点击胶囊滚动到目标区块且 active 随动", async ({ page }) => {
     await page.goto(`/#/fund/${SYMBOL}`);
     await expect(page.locator(".page-nav")).toBeVisible({ timeout: 60_000 });
@@ -302,7 +347,9 @@ test.describe("详情页页内导航（#1968）", () => {
     await expect(page.locator(".page-nav")).toBeHidden();
     const toc = page.locator(".page-toc");
     await expect(toc).toBeVisible();
-    await expect(toc.getByText("本页目录")).toBeVisible();
+    // 无视觉标题，但必须有可访问名称（aria-label）——读屏用户靠它认出这个
+    // aside 是什么；视觉标题与 aria-label 并存会让读屏听到两次「本页目录」
+    await expect(toc).toHaveAttribute("aria-label", "本页目录");
     await expect(toc.locator(".page-toc__link")).toHaveText(pillTexts);
 
     // rail 是 sticky 的：滚过两个不同深度时位置不变（都进入吸顶态后比对）

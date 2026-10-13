@@ -2,7 +2,7 @@
   ProductPageToc · 详情页页内导航·右侧目录 rail（#1968 子卡）
 
   形态登记：调研结论 docs/working-notes/product-detail-research-2026-10-12.md §5.3 ——
-  `xl+`（>=1280）右侧 sticky 目录，宽 160px，「本页目录」式锚点列表。
+  `xl+`（>=1280）右侧 sticky 目录，宽 160px，锚点列表（无视觉标题，理由见 template 注释）。
   为什么不做左栏：全局 NavVertical 已在左（240px），双左栏视觉打架且随折叠
   宽度抖动（调研 §5.2，Agent 页 session-history 是反面先例）。右侧补空不抢宽。
 
@@ -23,8 +23,13 @@ const emit = defineEmits<{
 </script>
 
 <template>
+  <!-- 无视觉标题：产品页的 rail 语义是「快捷跳转」不是「内容大纲」，
+       条目自己会说话（我的持仓/走势/交易记录），再加一个「本页目录」
+       小标题只会多占 20px 垂直空间 + 一次视觉停顿。文档站 TOC 带标题
+       是文档语境的惯例，不适用于产品详情页。可访问名称由 aria-label
+       提供（读屏用户需要知道这个 aside 是什么；若同时保留视觉标题，
+       屏幕阅读器会读到两次「本页目录」）。 -->
   <aside class="page-toc" aria-label="本页目录">
-    <p class="page-toc__title">本页目录</p>
     <ul class="page-toc__list">
       <li v-for="item in items" :key="item.id">
         <button
@@ -61,13 +66,6 @@ const emit = defineEmits<{
     width: 160px;
     border-left: 1px solid var(--border-light);
   }
-}
-
-.page-toc__title {
-  padding: 0 var(--space-3);
-  margin: 0 0 var(--space-2) -1px;
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
 }
 
 .page-toc__list {
