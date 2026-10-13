@@ -177,6 +177,15 @@ export interface FundPerformanceResult {
   annual_return_7d?: number | null;
   /** 货基：万份收益(元)（仅 fund_kind=money） */
   nav_per_10k?: number | null;
+  /**
+   * 货基：七日年化的窗口长度（自然日），恒为 7。
+   * 刻意按**自然日**而非「最近 7 个观测」——后者会让国庆这类长假把窗口拉到 13 天。
+   */
+  window_days?: number;
+  /** 货基：窗口内实际有几个已发布样本（节假日会 < window_days） */
+  samples?: number;
+  /** 货基：七日年化口径的人话说明，供脚注直接展示 */
+  caliber_note?: string;
 }
 
 /** 取基金业绩与风险。404 = 该代码不是基金。 */
