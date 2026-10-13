@@ -174,6 +174,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'fund_industry_allocs': DOMAIN_MARKET,  # 基金行业配置（#870：csrc/gics 双体系分区）
     'convertible_bond_terms': DOMAIN_MARKET,  # 可转债条款（#1285/#1393：强赎/回售/转股）
     'daily_worth': DOMAIN_MARKET,  # 基金净值（最大体积表）
+    'fund_valuation_daily': DOMAIN_MARKET,  # 场外基金收盘估值定格（#2141）
     'money_fund_daily_worth': DOMAIN_MARKET,  # 货基净值
     'purchase_rules': DOMAIN_MARKET,
     'redeem_rules': DOMAIN_MARKET,

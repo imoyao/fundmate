@@ -105,6 +105,10 @@ NEW_FILE_LIMITS = {
 # 2026-10-09 收紧（#1966，**非放宽**）：`GET /api/positions/` 新增 symbol / market 过滤时，
 # **没有**把参数一行行加进视图，而是用 `parse_query(PositionListRequest)` 把入参声明收口到
 # `domains/positions/schemas.py`，视图反而净减 2 行（288 → 286）；过滤仍在 service 下推到 SQL。
+# 2026-10-14 重取（**新增端点**，非放宽）：#2141 给 summary 加 `GET /summary/fund-valuation/`
+# （收盘估值定格清单，查询全在 `services/summary_service.list_fund_valuation_rows`）——
+# 视图侧只有「入参解析 + 400 校验 + 调服务 + 信封」，`orm_queries` / `commits` 仍为 **0**，
+# `max_func` 不变（31）。summary 198 → 229 行（+31，含端点 docstring）。按 `--report` 实测回写。
 # 这是「新增功能但视图变薄」的样本：入参声明本就不该在视图，业务规则更不该。
 # 按本文件既有先例以实测回写，基线只减不增。
 # 2026-10-09 重取（#1969，**新增响应字段、非业务规则进视图**）：`GET /api/utils/enums/` 增补
@@ -141,7 +145,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/search/views.py": {"lines": 25, "orm_queries": 0, "commits": 0, "max_func": 7},
     "backend/app/domains/securities/views.py": {"lines": 72, "orm_queries": 1, "commits": 0, "max_func": 35},
     "backend/app/domains/strategy/views.py": {"lines": 144, "orm_queries": 5, "commits": 0, "max_func": 22},
-    "backend/app/domains/summary/views.py": {"lines": 198, "orm_queries": 0, "commits": 0, "max_func": 31},
+    "backend/app/domains/summary/views.py": {"lines": 229, "orm_queries": 0, "commits": 0, "max_func": 31},
     "backend/app/domains/temperature/views.py": {"lines": 140, "orm_queries": 0, "commits": 0, "max_func": 38},
     "backend/app/domains/transactions/views.py": {"lines": 138, "orm_queries": 2, "commits": 0, "max_func": 60},
     "backend/app/domains/usage/views.py": {"lines": 68, "orm_queries": 0, "commits": 0, "max_func": 27},

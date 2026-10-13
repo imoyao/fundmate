@@ -29,6 +29,9 @@
     - `temperature`   20:00 —— 温度源（集思录中位 PB / 韭圈儿 / 行业拥挤度）盘后即出。
     - `fund_nav`      21:30 —— 场外基金净值通常 19:00~24:00 陆续公布，21:30 可覆盖大头；
       当晚漏掉的由次日增量的「上次成功日 − 1 天」窗口自动补齐（见 `FundNavSyncJob`）。
+    - `fund_valuation_snapshot` 15:15 / 19:15 / 21:15（工作日，#2141）——
+      收盘估值定格三时点，供收益日历「今日预估」回退；源端净值公布后即
+      清空估值（GSZ），晚于净值落库的时点无意义。
     - `position_price` 22:15 —— 把已确认净值回写 `positions.current_price`（#1104）。
       **必须晚于 `fund_nav`**：它读的就是后者刚落库的净值；早了会写入昨天的口径。
 
@@ -108,12 +111,23 @@ ENV_DIVIDEND_SPLIT_ENABLED = 'SCHEDULER_DIVIDEND_SPLIT_ENABLED'
 ENV_DIVIDEND_SPLIT_CRON = 'SCHEDULER_DIVIDEND_SPLIT_CRON'
 ENV_ORPHAN_BACKFILL_ENABLED = 'SCHEDULER_ORPHAN_BACKFILL_ENABLED'
 ENV_ORPHAN_BACKFILL_CRON = 'SCHEDULER_ORPHAN_BACKFILL_CRON'
+ENV_VALUATION_ENABLED = 'SCHEDULER_VALUATION_ENABLED'
+ENV_VALUATION_CRON = 'SCHEDULER_VALUATION_CRON'
 
 DEFAULT_TIMEZONE = 'Asia/Shanghai'
 # 温度计：集思录中位 PB / 韭圈儿 / 行业拥挤度盘后即出
 DEFAULT_TEMPERATURE_CRON = '0 20 * * *'
 # 基金净值：场外净值 19:00~24:00 陆续公布
 DEFAULT_NAV_CRON = '30 21 * * *'
+# 收盘估值定格（#2141）：工作日 15:15 / 19:15 / 21:15 三时点捕捉
+# 收盘估值快照（源端净值公布后即清空 GSZ，错过即无意义）。
+# 时点错开现有 17:10 / 17:30 / 18:00 / 18:20 / 20:00 / 21:00 /
+# 21:30 / 21:45 / 22:00 / 22:15。
+# ⚠️ 星期必须写 `mon-fri` 而不是数字：APScheduler 的 `day_of_week`
+# 是 **0 = 周一**，与 crontab 的 0 = 周日相反——实测 `* * 1-5`
+# 排出来的是周二~周六；`mon-fri` 是单条 cron 表达「工作日」
+# 的唯一正确写法。
+DEFAULT_VALUATION_CRON = '15 15,19,21 * * mon-fri'
 # 场内日线（#1104）：A 股 15:00 收盘，日线数据盘后发布（ETF 两源当日 K 线常要次日才齐，
 # 由缺口回补在下一次运行时补齐）。**必须早于持仓现价回写**——后者读的就是这里落库的收盘价。
 DEFAULT_PRICE_HISTORY_CRON = '30 17 * * *'
@@ -231,6 +245,18 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[Union[str, Tuple[str, .
         DEFAULT_NAV_CRON,
         'fund',
         '自选 + 持仓的基金净值（当日增量）',
+    ),
+    (
+        # 收盘估值定格（#2141）：target_kind='fund'——目标池 = 持仓 ∪
+        # 自选的场外基金裸码（job 内再按 venue 排除场内标的）；
+        # 空池 job 自行跳过。多时点幂等覆盖，不进 REST_DAY_JOB_NAMES：
+        # 休市日源端不更新估值，空跑无意义。
+        'fund_valuation_snapshot',
+        ENV_VALUATION_ENABLED,
+        ENV_VALUATION_CRON,
+        DEFAULT_VALUATION_CRON,
+        'fund',
+        '场外基金收盘估值定格（天天 GSZ，工作日 15:15 / 19:15 / 21:15；#2141）',
     ),
     (
         # 场内日线（#1104）：本机调度原先**不含**本 job，股票行情只靠 CI 每天跑一次，
