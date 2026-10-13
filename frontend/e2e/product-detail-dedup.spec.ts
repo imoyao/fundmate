@@ -441,7 +441,12 @@ test.describe("行业配置与持仓明细区块确实挂载（#2029 卡 C）", 
     ).toBeVisible();
 
     // 主口径表格带出行业与占比
-    await expect(section.getByText("证监会门类")).toBeVisible();
+    // 体系名在 SectionHeader 的 #action 区（#2112 起），且**必须用容器精确定位**：
+    // GICS 参考提示里插了同一串字（「该分类体系与上方证监会门类不可相加」），
+    // 直接 getByText 会命中 2 个元素触发 strict mode 违规。
+    await expect(section.locator(".industry-section__scheme")).toHaveText(
+      "证监会门类"
+    );
     await expect(section.getByText("制造业")).toBeVisible();
     await expect(section.getByText("30.50%")).toBeVisible();
     // 缺失占比降级为「—」，不按 0 展示
@@ -477,6 +482,104 @@ test.describe("行业配置与持仓明细区块确实挂载（#2029 卡 C）", 
     await expect(section.getByText("000858")).toBeVisible();
 
     await expect(section).not.toContainText("暂无持仓明细数据");
+
+    // 短表格不该出现展开按钮——「展开全部 2 只」这种按钮是纯噪声。
+    // PREVIEW_SIZE 若被改成 0 / 1，这里会转红。
+    await expect(section.getByRole("button")).toHaveCount(0);
+  });
+});
+
+/**
+ * 持仓明细渐进披露回归网。
+ *
+ * 库内实测（2026-10-12）：`fund_holdings` 最新报告期共 113 只基金，其中
+ * **112 只是 `full` 口径、中位 67 行、最大 100 行**，全部超过预览行数——
+ * 把整张表堆在详情页是**主流形态而非偶发**，会把走势 / 业绩挤出几屏之外。
+ * 故默认只渲染前 10 行，其余靠按钮渐进披露。
+ *
+ * 钉三条容易被改坏的点：
+ * 1. 超量才出按钮（短表格不出）——否则到处是「展开全部 2 只」这类噪声；
+ * 2. 「所示合计」跟着**可见行**走——折叠时显示全量合计会让标签变成假的；
+ * 3. ⚠️「不代表全部持仓」只属于 `basis=top10`。`full` 口径是「数据全但表格长」，
+ *    折叠**不得**复用该警告，否则用户会以为全量披露的基金也只披露了十只。
+ *
+ * 反向验证：把 `PREVIEW_SIZE` 调大（或去掉 `needToggle`）→ 第 1 条断言转红；
+ * 把 tfoot 改回直接用 `holdings.shown_total_ratio` → 第 2 条断言转红。
+ */
+test.describe("持仓明细渐进披露（#1968 子卡）", () => {
+  test.setTimeout(180_000);
+
+  // 15 行 `full` 口径持仓：每行 1.5%，故前 10 行合计 15.00%、全量 22.50%
+  const MANY_ROWS = Array.from({ length: 15 }, (_, i) => ({
+    rank: i + 1,
+    stock_code: `6000${i}`,
+    stock_name: `测试重仓${i + 1}`,
+    ratio: 1.5,
+    shares: 100 + i,
+    market_value: 1000 + i
+  }));
+
+  test.beforeEach(async ({ context, baseURL, page }) => {
+    await injectSupabaseSession(context, baseURL!);
+    await stubProductApis(page);
+    // 覆盖 stubProductApis 里的 2 行 top10 打桩（后注册的 route 优先匹配）
+    await page.route("**/api/products/fund-holdings-detail/**", route =>
+      route.fulfill({
+        status: 200,
+        json: {
+          data: {
+            fund_code: SYMBOL,
+            fund_name: NAME,
+            applicable: true,
+            has_industry: false,
+            has_holding: true,
+            industries: [],
+            holdings: {
+              rows: MANY_ROWS,
+              basis: "full",
+              basis_label: "全量披露（半年报/年报）",
+              report_period: "2026H1",
+              report_date: "2026-06-30",
+              shown_total_ratio: 22.5
+            },
+            as_of: "2026-06-30",
+            source: "东方财富"
+          },
+          message: "ok"
+        }
+      })
+    );
+  });
+
+  test("超过预览行数时默认折叠，展开后才渲染全量", async ({ page }) => {
+    await page.goto(`/#/fund/${SYMBOL}`);
+    const section = page.locator(".holding-section");
+    await expect(section).toBeVisible({ timeout: 60_000 });
+
+    // 默认只渲染前 10 行
+    await expect(section.locator("tbody tr")).toHaveCount(10);
+
+    const more = section.getByRole("button", { name: /展开全部 15 只/ });
+    await expect(more).toBeVisible();
+    // 折叠态也带出全量合计：不必为了看一眼总占比先展开上百行
+    await expect(more).toContainText("22.50%");
+    // 「所示合计」必须等于可见行之和，而不是全量合计
+    await expect(section.locator("tfoot")).toContainText("15.00%");
+
+    await more.click();
+    await expect(section.locator("tbody tr")).toHaveCount(15);
+    // 展开后合计跟着可见行走：10 行 15.00% → 15 行 22.50%
+    await expect(section.locator("tfoot")).toContainText("22.50%");
+    await expect(section.getByRole("button", { name: "收起" })).toBeVisible();
+  });
+
+  test("full 口径折叠不误出 top10 警告", async ({ page }) => {
+    await page.goto(`/#/fund/${SYMBOL}`);
+    const section = page.locator(".holding-section");
+    await expect(section).toBeVisible({ timeout: 60_000 });
+
+    await expect(section.getByText("全量披露（半年报/年报）")).toBeVisible();
+    await expect(section).not.toContainText("不代表该基金的全部持仓");
   });
 });
 
