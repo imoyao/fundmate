@@ -51,8 +51,10 @@ const emit = defineEmits<{
   @include bp.above("xl") {
     position: sticky;
 
-    /* 贴在滚动容器顶部下方一点；fixedHeader 下容器顶沿即全局页头下沿 */
-    top: var(--space-4);
+    /* 贴在滚动容器顶部下方一点；fixedHeader 下容器顶沿即全局页头下沿。
+       16px 用 --space-compact（与 Agent 页 session-history 同款偏移）——
+       没有 --space-4 这个令牌（check_css_vars 会当幽灵令牌拦下）。 */
+    top: var(--space-compact);
     display: block;
     flex-shrink: 0;
     align-self: flex-start;
