@@ -39,6 +39,7 @@ from app.core.data_sources import FUND_NAV_SOURCE_LABEL, data_source_label
 from app.domains.funds.models import DailyWorth
 from app.domains.indices.models import IndexDaily
 from app.domains.price_history.models import PriceHistory
+from app.services.fund_nav_on_demand import maybe_trigger_nav_backfill
 
 # 区间 → 自然日天数（设计 §5 B 区块：1M / 3M / 6M / 1Y）
 RANGE_DAYS: Dict[str, int] = {
@@ -219,6 +220,11 @@ def fetch_product_trend(
 
     if normalized_type == 'fund':
         series = _fetch_nav_series(market_db, code, start)
+        # #2120 P0-2：冷集长曲线按需取——本地窗口盖不住本次请求区间时，后台单只回补
+        # 全历史净值。**本请求不等待**（外部 HTTP 在 async_backfill 的后台线程里），
+        # 本次仍按现有 `available_days` 诚实降级；下次进同一页面即有完整曲线。
+        # 触发条件用**本次请求的窗口**而非最长档，避免「只看 3M 却为 5Y 回补」。
+        maybe_trigger_nav_backfill(code, series, start)
         # 来源与口径分开给：来源是站点名（用户看得懂），口径是「怎么算的」
         kind, basis, source = 'nav', '单位净值', data_source_label(FUND_NAV_SOURCE_LABEL)
         # 场外基金只有单位净值，没有 OHLCV —— 前端据此画净值线而不是 K 线（品类差异化）

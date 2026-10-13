@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 from app.core.data_sources import FUND_NAV_SOURCE_LABEL
 from app.core.time_utils import today_shanghai
 from app.services.fund_metrics import compute_max_drawdown, load_nav_points
+from app.services.fund_nav_on_demand import maybe_trigger_nav_backfill
 
 # 区间档位（近 N + 今年以来 + 成立以来）。``days`` 为自然数日，用于定位起点；
 # ``ytd`` / ``since`` 为特殊档（当年 1/1 / 序列首点）。标签与后端返回 key 一一对应。
@@ -50,6 +51,11 @@ _VOL_WINDOW_DAYS = 365
 
 # 区间收益 / 回撤 / 波动率都要求至少 2 个有效点，否则无法构成「变化」
 _MIN_POINTS = 2
+
+# #2120 P0-2：本模块对外声明的最长档位跨度（自然日）。序列起点晚于
+# 「今天 − 该跨度」即说明 5y / since 档位拿不到数据，触发按需回补。
+# 从 _PERIODS 派生而非写死 1825：档位表调整时本值自动跟随，不会漂移。
+_LONGEST_PERIOD_DAYS = max(days for _key, _label, days in _PERIODS if days is not None)
 
 
 def _is_money_fund(fund) -> bool:
@@ -137,6 +143,14 @@ def _open_fund_performance(db: Session, fund_code: str, today: date) -> Dict[str
     for d, nav in load_nav_points(rows):
         if nav is not None and float(nav) > 0:
             points.append((d, float(nav)))
+
+    # #2120 P0-2：冷集长曲线按需取。本函数对外声明了 1y/2y/3y/5y/since 档位（见
+    # _PERIODS），若本地序列起点晚于**最长档位**起点，说明这些档位根本拿不到数据 ——
+    # 按 fund-nav-retention.md §1「同一只基金、同一接口、不同时间返回不同档位 =
+    # 对外契约不稳定」的口径，此时后台单只回补全历史。
+    # 本请求不等待；缺的档位照旧返回 None，由前端渲染「—」（诚实降级，不编造）。
+    # 放在 `len(points) < _MIN_POINTS` 早退**之前**：完全没有数据才是最该回补的情况。
+    maybe_trigger_nav_backfill(fund_code, points, today - timedelta(days=_LONGEST_PERIOD_DAYS))
 
     if len(points) < _MIN_POINTS:
         return {
