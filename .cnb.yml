@@ -139,11 +139,21 @@ main:
   #
   # 另注：该文件在 Secret 仓库，API/token 一律 403（`Secret repos do not support
   # token access`）——**只能人工在 Web 界面改**，改不进 PR，故模板落在代码仓里。
-  # push 模式不开 force：CNB 为权威源，绝不通把 GitHub 独有提交冲掉（即「反向护栏」）。
-  # 回归网：scripts/guard_secret_imports.py（并入 ci.yml 的 layout_guard job）。
+  # push 模式不开 force：绝不肯把 GitHub 独有提交冲掉（即「反向护栏」）。
+  # 回归网：scripts/guard_secret_imports.py + scripts/guard_git_sync_push_scope.py
+  #        （均并入 ci.yml 的 layout_guard job）。
+  #
+  # ⚠️ **目标分支收窄为 `dev`，不再 `--all`（CNB #167 / #172，2026-10-13）**：
+  #    插件不指定 `branch` 时执行 `git push target --all`，会把 CNB 的 `main` 一并推给 GitHub；
+  #    而 GitHub 侧 `main` 是权威源（只由发版 PR 推进）⇒ 两侧 `main` 各自长出独有提交，
+  #    分叉由此产生（实测 2026-10-13：CNB `main` 独有 31 / GitHub `main` 独有 27，交集 0）。
+  #    `branch: dev` 是插件**唯一**能表达「只推指定分支」的参数形态；`main` 从此不经此路外流。
+  #    **不要**删掉 `branch`、也不要改回不写 —— 那就是回到 `--all`（守卫会拦）。
+  #    功能分支的同步见下方 `"**/!(main|dev)"` 段。
   push:
-    - stages:
-        - name: 同步到 GitHub（全分支 + 标签）
+    - name: 同步到 GitHub（仅 dev + 标签）
+      stages:
+        - name: 同步到 GitHub（仅 dev + 标签）
           image: tencentcom/git-sync
           # 凭据走**插件任务级** imports（见上方说明：必须与 image 平级，且要用 imports 才能
           # 让 settings 里的 ${VAR} 解析；不要改回流水线级 imports，也不要改成 settingsFrom）
@@ -154,9 +164,21 @@ main:
             auth_type: https
             username: ${GIT_USERNAME}
             password: ${GITHUB_PAT}
+            # 只推 dev；main 不在其列（GitHub 权威源自己推进）
+            branch: dev
             push_tags: true
+  # ---- 触发器结构：`crontab` / `push` 一律写成「job 列表 + 命名 stage」----
+  # ⚠️ CNB #167 实测：把 `stages:` **直接**挂在 `"crontab: ..."` 下（没有 `- name:` 包一层的
+  # job 对象）时，该 stage 在构建详情的 `get-build-stage` 里**查不到**
+  # （用 `stage-0` / `stages` / 各类 id 试过，全报「没有查询到该stage信息」）。
+  # 后果不是「样式不统一」，而是**作业内部到底推没推成功看不出来** ——
+  # `crontab: 30` 因此长期「挂旧 sha、实际没推上去、却报绿」，比红灯更危险。
+  # 故此处两条 cron 与 `push:` 统一为 `- name: <job 名> / stages: [...]` 形态。
+  # （job 名只用于构建页展示；stage 名才是 get-build-stage 的查询锚点，两者都要写。）
+
   # 每小时从 GitHub 拉回（闭合 GitHub -> CNB）
   "crontab: 0 * * * *":
+    - name: 从 GitHub 拉取（全分支 + 标签）
       stages:
         - name: 从 GitHub 拉取（全分支 + 标签）
           image: tencentcom/git-sync
@@ -171,10 +193,13 @@ main:
             password: ${GITHUB_PAT}
             sync_mode: pull
             push_tags: true
-  # 每小时把 CNB 全部分支推到 GitHub（覆盖 feature 分支，不依赖 main push）
+  # 每小时兜底：**只推 `dev`**，不再 `--all`（CNB #167 / #172）。
+  # cron 事件下没有「被推的功能分支」上下文（`CNB_BRANCH` 恒为该段所挂分支），
+  # 故功能分支不由 cron 兜底 —— 那条路由 `push:` 事件下的 `branch: ${CNB_BRANCH}` 覆盖。
   "crontab: 30 * * * *":
+    - name: 同步到 GitHub（每小时兜底，仅 dev）
       stages:
-        - name: 同步到 GitHub（每小时兜底）
+        - name: 同步到 GitHub（每小时兜底，仅 dev）
           image: tencentcom/git-sync
           # 凭据走**插件任务级** imports（见上方说明：必须与 image 平级，且要用 imports 才能
           # 让 settings 里的 ${VAR} 解析；不要改回流水线级 imports，也不要改成 settingsFrom）
@@ -185,7 +210,29 @@ main:
             auth_type: https
             username: ${GIT_USERNAME}
             password: ${GITHUB_PAT}
+            # 只推 dev；main 不在其列
+            branch: dev
             push_tags: true
+
+# 功能分支 → 上游同名分支（收窄 push 目标，源 CNB #167 / #172）
+# 单独成段、且**显式排除 main/dev**：dev 由上面 `push:` 段负责，main 永不外推。
+# 这里是「CNB 侧功能分支改动也能上 GitHub」的合法通道，用 `CNB_BRANCH` 精确推送**当前**分支——
+# 不像 `--all` 那样把 `main` 一起带上。
+"**/!(main|dev)":
+  push:
+    - name: 同步当前功能分支到 GitHub
+      stages:
+        - name: 同步当前功能分支到 GitHub
+          image: tencentcom/git-sync
+          imports:
+            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
+          settings:
+            target_url: https://github.com/imoyao/fundmate.git
+            auth_type: https
+            username: ${GIT_USERNAME}
+            password: ${GITHUB_PAT}
+            # 只推「触发本次构建的那条分支」；cron 不走此段，故不会误推 dev/main
+            branch: ${CNB_BRANCH}
 
 # 手动触发放兜底分支：与分支无关，放 $ 下任何分支都能点。
 $:

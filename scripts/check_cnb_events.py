@@ -53,8 +53,16 @@ ALLOWED_TOP_KEYS = {'$', 'version'}
 # （`main: push:` / `main: "crontab: ...":`），写到顶层就成了一个不存在的分支名。
 EVENT_LIKE = re.compile(r'^(push|pull_request|web_trigger|tag_push|crontab\s*:|\$.*)$', re.IGNORECASE)
 
-# 分支名的合法字符集（CNB 允许 `/`、`.`、`-`、`_`；`crontab: 0 * * * *` 里的空格与 `*` 不在内）
-BRANCH_NAME = re.compile(r'^[A-Za-z0-9._/-]+$')
+# 分支名的合法字符集（CNB 允许 `/`、`.`、`-`、`_` 与 glob 通配；`crontab: 0 * * * *` 里的
+# 空格不在内）。
+#
+# 字符集**必须**含 `*` `!` `(` `)` `|`：CNB 官方支持用 glob 给一批分支挂事件，
+# 本仓 `"**/!(main|dev)"` 段（功能分支 → GitHub，源 CNB #167）就是这种形态。
+# 收紧到纯字母数字会让合法配置报红——守卫的第一原则是「在真实数据上跑过」。
+# 放宽字符集**不会**架空判据：`EVENT_LIKE` 在 `check_top_keys` 里**先判**，
+# 事件名（`push:` / `crontab: ...:`）命中即报错，抢在这条之前；
+# 且自检探针里用真实的 glob 反证（见 self_check）。
+BRANCH_NAME = re.compile(r'^[A-Za-z0-9._/!()*|?-]+$')
 
 
 def _load(path: Path) -> dict:
@@ -67,6 +75,17 @@ def check_top_keys(data: dict) -> list[str]:
     problems: list[str] = []
     for key in data:
         if key in ALLOWED_TOP_KEYS:
+            continue
+        # ⚠️ EVENT_LIKE 必须**先判**：glob 字符集放宽后（见 BRANCH_NAME），
+        # `push:*` 这类也可能落进字符集，若顺序反了就会被当成「分支名」放行 ——
+        # 那正是本守卫存在的理由（源 CNB #152）被架空。探针 S4 钉住这个顺序。
+        if isinstance(key, str) and EVENT_LIKE.match(key):
+            problems.append(
+                f'顶层键 {key!r} 是**事件名**，不是分支名。'
+                'CNB 的顶层只认分支名（事件要写在分支之下）；'
+                f'写成顶层等于让事件指向一个名为 {key!r} 的**不存在分支**——'
+                '而平台会用默认分支的定义去兜底，报错形态会南辕北辙（见文件头）。'
+            )
             continue
         if isinstance(key, str) and BRANCH_NAME.match(key):
             # 形如 `main` / `sync/mirror`：这是**单值分支键**，正是 CNB 期望的写法。
@@ -129,6 +148,23 @@ def self_check() -> list[str]:
         ]
     if 'main' in ALLOWED_TOP_KEYS or 'dev' in ALLOWED_TOP_KEYS:
         return ['自检探针失败：ALLOWED_TOP_KEYS 里出现了具体分支名（多值白名单 = 判据失效）。']
+
+    # 探针 S3b：CNB 官方 glob 分支键（本仓 `"**/!(main|dev)"`，源 CNB #167）必须放行，
+    # 否则「事件挂在具体分支下」的正确配置反而报红，守卫会被人绕开而非遵守。
+    glob_probe = {'**/!(main|dev)': {'push': [{'stages': []}]}}
+    if check_top_keys(glob_probe):
+        return [
+            f'自检探针失败：合法的 CNB glob 分支键 **/!(main|dev) 被判成非法顶层键'
+            f'（{check_top_keys(glob_probe)[0]}）——字符集漏了 glob 通配。'
+        ]
+
+    # 探针 S4：字符集放宽后，事件名必须**仍然**被拦（顺序不能反）。
+    for ev in ('push', 'web_trigger'):
+        if not check_top_keys({ev: {'stages': []}}):
+            return [
+                f'自检探针失败：字符集放宽后，顶层事件名 {ev!r} 不再被判错 ——'
+                'EVENT_LIKE 判据被架空（或判定顺序被调换）。'
+            ]
     return []
 
 

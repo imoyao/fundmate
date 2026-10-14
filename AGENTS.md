@@ -115,6 +115,26 @@
   正常态是「`main` 领先 0、`main` 是 `dev` 的祖先」——即 `main` 始终是 `dev` 的历史前缀。
   **出现 `main` 领先 `dev` 就是分叉，无论提交数多小，都先查是不是有 PR 用错了 base。**
 
+#### git-sync 的 push 目标必须显式指定且不含 `main`（2026-10-13，#167 / #172）
+
+`main` 分叉的最直接来源：git-sync 插件在**不写 `branch`** 时执行 `git push <target> --all`，
+把 CNB 的 `main` 一并推给 GitHub。而 GitHub 是权威源（`main` 只由发版 PR 推进）⇒
+两侧各自长出独有提交、交集为 0（2026-10-13 实测 CNB 31 / GitHub 27）。
+
+- **`push:` 与每小时兜底都写 `branch: dev`**；功能分支走单独一段
+  `"**/!(main|dev)"` + `branch: ${CNB_BRANCH}`；
+- 拉取方向（`sync_mode: pull`）不写 `branch` 是对的——它只拉不推；
+- **判据机器化**：`python scripts/guard_git_sync_push_scope.py`（并入 `ci.yml` 的
+  `layout_guard` job，阻断），回归网 `scripts/tests/git_sync_push_scope.test.js`（含三个变异探针）。
+
+#### `crontab` / `push` 下必须写成「job 列表 + 命名 stage」（2026-10-13，#167）
+
+把 `stages:` **直接**挂在 `"crontab: ..."` 下（没有 `- name:` 包一层 job 对象）时，
+stage 在 `get-build-stage` 里**查不到** ⇒ 作业内部推没推成功看不出来。
+`crontab: 30` 因此长期「挂旧 sha、实际没推上去、却报绿」——**假绿比红灯更危险**。
+两条 cron 与 `push:` 一律写成 `- name: <job 名> / stages: [ - name: <stage 名> ]`，
+job 名与 stage 名都要写（后者是查询锚点）。
+
 #### `.cnb.yml` 的事件写在分支下，不写顶层（2026-10-11，#152）
 
 同一条平台限制的另一面，且**更容易踩**：`.cnb.yml` 的**顶层只认分支名**（与 `$`）。
