@@ -65,6 +65,7 @@ jobs:
               # 脚本本身改了、或对应 workflow 改了，都必须把后端 job 唤起，
               # 否则「只改脚本 / 只改 workflow」的 PR 会让那份回归网静默不跑。
               - 'scripts/bridge/**'
+              - 'scripts/guard_no_duplicate_pie.py'
               - '.github/workflows/cnb-github-backfill.yml'
               - '.github/workflows/ci.yml'
             frontend:
@@ -160,6 +161,13 @@ jobs:
       # 不新增 job：不新增 job 就不必改 gate.needs。
       - name: 守卫:跨域模型同语句
         run: python ../scripts/check_cross_domain_query.py
+
+      # 守卫：禁止在 AssetAllocationDonut 之外新写 pie option（#2164）。
+      # 规范（components.md「强制复用」）此前只落在文档里、无机器化拦截，于是同类实现
+      # 长到 4 套并存。本守卫扫 frontend/src 全量，白名单仅 AggregationHero（hero 横向
+      # 布局放不下表格，其 HTML 折叠图例属信息分层；理由已写进 components.md）。
+      - name: 守卫:资产分布图统一复用
+        run: python ../scripts/guard_no_duplicate_pie.py
 
       # 单进程（避 OOM），排除需联网的 slow 测试
       - name: 运行测试

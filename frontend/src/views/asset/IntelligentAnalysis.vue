@@ -226,8 +226,14 @@
               title="资产分布"
               info="各大类市值占比（含汇率换算）"
             />
+            <!-- 资产分布（#2164：收编到统一组件 AssetAllocationDonut，替代原先手写的
+                 pie option；分类 3~6 类，命中 components.md「≤6 类用环形」判据） -->
             <div class="h-52">
-              <canvas ref="distributionChartRef" />
+              <AssetAllocationDonut
+                :data="donutData"
+                :legend-font-size="11"
+                empty-text="暂无数据"
+              />
             </div>
           </CardBlock>
 
@@ -368,6 +374,7 @@ import { useRouter } from "vue-router";
 import echarts from "@/plugins/echarts";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import GhostDuplicateBanner from "@/components/GhostDuplicateBanner/index.vue";
+import AssetAllocationDonut from "@/components/Charts/AssetAllocationDonut.vue";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
@@ -397,9 +404,13 @@ defineOptions({ name: "AssetAnalysis" });
 
 const router = useRouter();
 
-const distributionChartRef = ref<HTMLElement | null>(null);
 const profitTrendChartRef = ref<HTMLElement | null>(null);
 const riskHeatmapChartRef = ref<HTMLElement | null>(null);
+
+/** 资产分布喂给统一组件 AssetAllocationDonut 的数据（#2164） */
+const donutData = computed(() =>
+  distributionData.value.map(d => ({ name: d.name, value: d.value }))
+);
 
 // 真实数据源（#1195 基线，#1798 合体）：分布 /summary/distributions/、
 // 净值走势 /summary/snapshots/、持仓 /summary/groups、收益 /performance/xirr/。
@@ -493,55 +504,23 @@ const pnlPct = (item: GroupItem) => {
   return cost ? (item.pnl / cost) * 100 : 0;
 };
 
-const CHART_PALETTE_VARS = [
-  "--chart-01",
-  "--chart-02",
-  "--chart-03",
-  "--chart-04",
-  "--chart-05",
-  "--chart-06",
-  "--chart-07",
-  "--chart-08"
-];
+// #2164：原先给「资产分布」手写 pie 用的调色板已随收编删除 —— donut 内部缺失
+// colorMap 时自行回退 --chart-01~08 循环，与本文件原来的行为一致。
 
-const paintDistributionChart = (chart: echarts.ECharts) => {
-  const isEmpty = distributionData.value.length === 0;
-  chart.setOption({
-    tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
-    legend: {
-      position: "bottom",
-      itemWidth: 12,
-      itemHeight: 12,
-      textStyle: { fontSize: 11 }
-    },
-    series: [
-      {
-        type: "pie",
-        radius: ["40%", "65%"],
-        center: ["50%", "45%"],
-        // 空态：echarts 在总和为 0 时会均分扇区（误导），故空时显示中心文案
-        label: isEmpty
-          ? {
-              show: true,
-              position: "center",
-              formatter: "暂无数据",
-              color: getCssVar("--text-tertiary", "#999"),
-              fontSize: 12
-            }
-          : { show: false },
-        data: isEmpty
-          ? [{ name: "暂无数据", value: 1 }]
-          : distributionData.value.map((d, i) => ({
-              name: d.name,
-              value: d.value,
-              itemStyle: {
-                color: getCssVar(CHART_PALETTE_VARS[i % 8], "#8E8B82")
-              }
-            }))
-      }
-    ]
-  });
-};
+// #2164：资产分布原先也是本文件手写的一整套 pie option（tooltip / legend / series /
+// 空态兜底），已收编到统一组件 `AssetAllocationDonut`（components.md 明文「强制复用」，
+// 且 `scripts/guard_no_duplicate_pie.py` 在 CI 拦新增）。
+//
+// 顺带修掉三处口径不一致（都是 donut 已覆盖的更优行为）：
+//   1. 图例补占比 —— 原 echarts legend 只显分类名，违反「图例即清单（分类名 + 占比）」；
+//   2. tooltip 统一 `¥…（x.x%）` —— 原用 echarts 默认 `{b}: {c} ({d}%)`，无货币符号；
+//   3. 空态判定补 `total === 0` 防护 —— 原先只判 `length === 0`，而 echarts 在总和为 0
+//      时会按分类数均分扇区（误导），donut 内部已处理。
+// 本文件不再直接持有该图表的实例：它由 donut 自带的 useEchartsLifecycle 管理
+// （含 keepAlive 恢复 resize），故不在下方 specs 里登记。
+//
+// 注意：同页上部 `categoryCards` 已用「品牌色条 + share%」画过一遍大类分布，
+// 与本图是重复呈现。收编时一并评估过去重（见 #2164 备注），本卡不改动 card 布局。
 
 const paintProfitTrendChart = (chart: echarts.ECharts) => {
   chart.setOption({
@@ -602,15 +581,6 @@ const paintRiskHeatmapChart = (chart: echarts.ECharts) => {
 // 主题切换重绘由 composable 内置的 `watch(themeTick, render)` 覆盖（下方不再重复写）。
 const { render: initCharts } = useEchartsLifecycle(
   [
-    {
-      ref: distributionChartRef,
-      build: el => {
-        const chart = echarts.init(el);
-        paintDistributionChart(chart);
-        return chart;
-      },
-      update: paintDistributionChart
-    },
     {
       ref: profitTrendChartRef,
       build: el => {

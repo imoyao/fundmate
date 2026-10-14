@@ -21,7 +21,6 @@ title: 组件使用规范（设计语言实现层）
   - `AssetTypeBadge` — 资产 / 账本类型胶囊（统一账本配色）
   - `PnlDualLine` — 盈亏双线（已确认 / 预估两行同显，「估」标记 + 免责 tooltip，#1104）
   - `PnlEstimateLine` — 「预估」副行（`PnlDualLine` 的组成件；主行不是 `PnlDualLine` 的列——如自选页「持仓收益」——单独复用它，#1104）
-  - `ValuationSourceBadge` — 估 / 确认状态徽标（#2143 **唯一实现**：`status` 驱动——`estimated`「估」品牌胶囊 / `confirmed`「确认」默认徽章档，未知状态不渲染；`source` / `sourceTime` 拼入读屏与 tooltip 元信息；`tip` 由调用方传各语境完整文案，组件不内置 el-tooltip——日历格等外层已有悬浮卡的场景直接裸用，避免双层 tooltip 打架。当前消费方：`PnlEstimateLine`（md 档）、`PnlCalendarTile` 当日预估格（sm 档）。禁止页面另写「估」胶囊）
   - `RealtimeEstimateToggle` — 当日预估开关 + 轮询状态（`PnlDualLine` 的必备搭档，四页复用，#1104）
 - `CardBlock` — 区块卡片容器（统一 token 卡片，禁各页手写 `bg-white rounded-2xl` 等重复样式）
 - `PortfolioEditDialog` — 组合编辑对话框（编辑组合 + 关联账户，自 portfolio 详情页拆出）
@@ -414,6 +413,13 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - props：`data`(`{ name, value }[]`)、`colorMap`(name → CSS 变量名，如 `{ 股票: "--invest-stock" }`)、`emptyText`(空态文案)、`showLegend`(默认 true)。
 - 颜色红线：必须经 CSS 语义变量（`colorMap` 传变量名，组件内 `getCssVar` 读取）；不传或缺失回退 `--chart-01~08` 循环。
 - 参考实现：`frontend/src/views/asset/ledgers/detail.vue`（`typeColorMap` + `allocationData`）。
+- **机器化拦截**：`scripts/guard_no_duplicate_pie.py` 扫 `type: "pie"`，除本组件与下述白名单外一律 CI 变红。新增例外必须同时更新该脚本 `WHITELIST` 与本小节，否则这道拦截会退化成「谁熟谁加」的橡皮图章。
+- **已登记的例外**（#2164）：`frontend/src/components/Aggregation/AggregationHero.vue`。
+  按判据它本该走表内嵌条（基金侧 `fund_type` 常 > 6 类），但 hero 是**横向概览锚点**、
+  空间放不下表格；它把 echarts 原生图例换成「HTML top5 + 其他 N 类」折叠，属
+  **信息分层**而非「重新实现一套资产分布」——「读全分类」的诉求由聚合页下方的
+  表内嵌条承担。中期可半收编：series 换成本组件并 `:show-legend="false"`，
+  自定义 HTML 图例保留。
 
 ## 多分类配置展示：用「表内嵌条」，不单独立图表组件
 
