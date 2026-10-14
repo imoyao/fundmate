@@ -248,3 +248,13 @@ git merge-base --is-ancestor origin/main origin/dev && echo '未分叉' || echo 
 > `docs/dev/github-cnb-mirror.md` §13.3）；
 > ② **存量分叉靠发版收敛**，不是靠 `--force`（force 会静默抹掉一侧改动）。
 > 本作业仍刻意不碰它（不越界修别人的腿），但它**不再是「无人认领」的红**。
+>
+> **2026-10-14 处置（源 CNB #450 评论「先按 2、3 提个 PR」）**：
+> ① `sync/mirror` 那条 cron 已被**移除**——该分支自建起就只为托管这条 cron
+> （相对共同祖先只有 1 个提交、+48 行），而职责早被 `dev` 的 git-sync 取代；
+> ② `dev` 的 **pull cron 已删除**：插件的 pull = `git pull --rebase` + `git push origin --force`，
+> 而 CNB `dev` 比 GitHub `dev` 多 83 笔独有提交、**逐笔 rebase 79 笔冲突**
+> （同一对分支用 **merge** 则零冲突）⇒ 它必然红且一字节都拉不动。**「解掉
+> `decisions.md` 的冲突债」解不掉它**——那只是 79 分之一。GitHub → CNB 的整段合并
+> 改走人工的 `scripts/bridge/dev_converge.py --apply`（用 merge）。
+> 仍**待办**：GitHub 侧 `dev` 的分支保护（push 被 `质量门禁汇总` 拦）需要仓库管理员在 Web 上处置。

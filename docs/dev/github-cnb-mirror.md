@@ -880,7 +880,7 @@ GitHub `main` 独有 27、**交集 0**；`crontab` 只能挂在具体分支下�
 | 推 `dev` | `push:` on `main` | `branch: dev` | 发版前的集成分支；不再带 `main` |
 | 每小时兜底推 | `crontab: 30` | `branch: dev` | cron 下没有「当前功能分支」上下文，故只管 `dev` |
 | 功能分支 | `"**/!(main|dev)"` 的 `push:` | `branch: ${CNB_BRANCH}` | 精确推触发本次构建的那条分支 |
-| **从 GitHub 拉** | `crontab: 0`（`sync_mode: pull`） | **`branch: dev`** | **只拉 `dev`**；不加就会被 GitHub `main` force 覆盖（#167） |
+| ~~从 GitHub 拉~~ | ~~`crontab: 0`（`sync_mode: pull`）~~ | — | **已于 2026-10-14 删除（源 CNB #450）**：插件只提供 `pull --rebase`，而 CNB `dev` 有 83 笔独有提交、逐笔 rebase **79 笔冲突**（merge 则零冲突）⇒ 必然红且拉不动。GitHub → CNB 改走 `dev_converge.py`（merge） |  <!-- cross-repo-ref-allow -->
 
 **守卫**：`scripts/guard_git_sync_push_scope.py`（并入 `ci.yml` 的 `layout_guard` job，
 阻断），覆盖**两个方向**的四条判据：① 两个方向的 git-sync 都必须显式写 `branch`
