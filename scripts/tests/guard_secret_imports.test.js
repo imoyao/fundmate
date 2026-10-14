@@ -35,6 +35,19 @@
  * 判据就一直是绿的；但明天把密钥仓改名成 `fundmate-vars`，判据**静默失效**。
  * 故本文件钉住：**文件名形如 `vars.yml` 也算密钥文件**，且探针验证它真会报错。
  *
+ * ## #269（2026-10-14）：判据 1 自己有两个洞，都是回退探针咬出来的
+ *
+ * ① **`$` 段被跳过**：`_walk_stage_items` / `_iter_pipeline_level_refs` 把 `$` 和锚点键
+ *    （`.` 开头）一起 `continue` 掉了。而 `$` 段 push 下的 `认领同步`（`http-request` 插件）
+ *    正是把 `imports` 挂在 **job 对象**上（= 流水线级）**每跑必红**的那一条 ——
+ *    守卫当时报绿，等于把「刚修好的 bug」误报成「本来就合规」。`$` 只是「所有分支」的写法，
+ *    仍是一个分支段，插件任务规则完全适用。
+ * ② **URL 级白名单架空了判据 1**：原实现是「密钥 URL 只要在**任意**插件任务级出现过就放过」
+ *    （为判据 3 的去重服务）。本仓所有 job 引的是**同一份** `vars.yml` ⇒ 只要有一条挂对，
+ *    **任何一条挂错的 job 都被放过**。合规是**每个挂载点各自**的属性，不能由别处的正确豁免。
+ *
+ * 两条都补了探针。**判据的假绿比假红贵得多**：假红会有人查，假绿会让修好的东西被当成没修。
+ *
  * ## 不做什么
  *
  * 不拉网络：`fundmate-secret` 对 API / token 一律 403，守卫读不到也不该读。
@@ -236,5 +249,84 @@ test("最小合法化不得把普通 YAML 引用误判成密钥文件（假阳�
     r.status,
     0,
     `引用一份普通文档被误判成密钥文件（假阳性）：${r.stdout}${r.stderr}`
+  );
+});
+
+test("守卫必须也扫 `$` 段：那里的流水线级 imports 同样要报错（#269 ①）", () => {
+  // `$` 段 = 「所有分支」。它**不是**锚点键，不能和 `.mirror-job` 一起被 continue 掉。
+  // 真实形态（CNB #269）：`$` 段 push 里的 `认领同步` 作业把 imports 挂在了 job 对象上。
+  const bad = [
+    "$:",
+    "  push:",
+    "    - name: 认领同步（任何分支，幂等）",
+    "      imports:",
+    `        - ${SECRET_URL}`,
+    "      stages:",
+    "        - name: 认领同步",
+    "          image: tencentcom/http-request",
+    "          env:",
+    "            GITHUB_REPO: imoyao/fundmate",
+    "",
+  ].join("\n");
+  const r = runGuardOnCnb(bad);
+  assert.equal(
+    r.status,
+    1,
+    "`$` 段里挂在 job 对象上的 imports 没被报错 —— 遍历又把 `$` 跳过了（#269 ①）。" +
+      r.stdout +
+      r.stderr
+  );
+  assert.match(r.stdout, /\$\.push\[0\]\.imports|流水线级/);
+});
+
+test("守卫必须也扫 `$` 段：那里的插件任务级 imports 不得误报（#269 ① 反向）", () => {
+  const ok = [
+    "$:",
+    "  push:",
+    "    - name: 认领同步（任何分支，幂等）",
+    "      stages:",
+    "        - name: 认领同步",
+    "          image: tencentcom/http-request",
+    "          imports:",
+    `            - ${SECRET_URL}`,
+    "",
+  ].join("\n");
+  const r = runGuardOnCnb(ok);
+  assert.equal(
+    r.status,
+    0,
+    `\`$\` 段里合法的插件任务级 imports 被误报：${r.stdout}${r.stderr}`
+  );
+});
+
+test("别处挂对、这一处挂错，仍须报错（#269 ②：URL 级白名单会架空判据 1）", () => {
+  // 本仓所有 job 引的是**同一份** vars.yml。若判据写成「URL 在任意插件任务级出现过就放过」，
+  // 那么只要 git-sync 有一条挂对，任何挂错的 job 都会被豁免 —— 判据 1 当场归零。
+  const mixed = [
+    "main:",
+    "  push:",
+    "    - name: 同步到 GitHub",
+    "      stages:",
+    "        - name: 同步到 GitHub",
+    "          image: tencentcom/git-sync",
+    "          imports:",
+    `            - ${SECRET_URL}`,
+    "$:",
+    "  push:",
+    "    - name: 认领同步",
+    "      imports:",
+    `        - ${SECRET_URL}`,
+    "      stages:",
+    "        - name: 认领同步",
+    "          image: tencentcom/http-request",
+    "",
+  ].join("\n");
+  const r = runGuardOnCnb(mixed);
+  assert.equal(
+    r.status,
+    1,
+    "同一份密钥「别处挂对、这一处挂错」时守卫没报错 —— URL 级白名单又回来了（#269 ②）。" +
+      r.stdout +
+      r.stderr
   );
 });

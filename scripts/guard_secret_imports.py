@@ -92,32 +92,48 @@ def _vals(v) -> list[str]:
     return [x.strip() for x in items if isinstance(x, str)]
 
 
-def _walk_stage_items(data: dict):
-    """产出所有「插件任务对象」（含 image 的 stage 元素）及其所在分支事件名。
+def _iter_branch_events(data: dict):
+    """产出「分支段 → 事件 → job 列表」三层，只跳过锚点键（`.` 开头）。
 
-    CNB 语法里插件任务 = `stages` 列表里的一个 dict（`image` 与 `imports`/`settingsFrom` 同级）。
+    ⚠️ **`$` 段必须扫，不能跳过**（2026-10-14 修，源 CNB #269）：
+    初版把 `$` 和锚点键一起 `continue` 掉了，于是判据 1 / 判据 2 **恰好漏掉真 bug 所在的段** ——
+    `$` 段 push 下的 `认领同步`（`tencentcom/http-request` 插件）把 `imports` 挂在 **job 对象**上
+    （= 流水线级），每跑必红、死在 Prepare：
+        vars.yml declares allow_images and can only be referenced by plugin tasks.
+    更坏的是**守卫当时报绿**（回退探针实测 MISSED）：它把「刚修好的 bug」误报成「本来就合规」，
+    假绿比假红贵得多。`$` 只是「所有分支」的写法，仍是一个分支段，插件任务规则完全适用。
     """
     for branch, events in (data or {}).items():
-        if branch.startswith('.') or branch == '$':
+        if branch.startswith('.'):
             continue
         if not isinstance(events, dict):
             continue
         for event, jobs in events.items():
-            for job in jobs or []:
-                if not isinstance(job, dict):
-                    continue
-                for stage in job.get('stages') or []:
-                    if isinstance(stage, dict) and 'image' in stage:
-                        yield branch, event, stage
+            yield branch, event, jobs if isinstance(jobs, list) else []
+
+
+def _iter_plugin_stages(data: dict):
+    """产出所有「插件任务对象」：`stages` 列表里含 `image` 的那个 dict。
+
+    CNB 语法里插件任务 = `stages` 元素，且 `image` 与 `imports` / `settingsFrom` **同级**
+    （这是「合规」的那一级，见文件头口诀）。
+    """
+    for branch, event, jobs in _iter_branch_events(data):
+        for job in jobs:
+            if not isinstance(job, dict):
+                continue
+            for stage in job.get('stages') or []:
+                if isinstance(stage, dict) and 'image' in stage:
+                    yield branch, event, stage
 
 
 def check_pipeline_level_secret_refs(data: dict) -> list[str]:
     """判据 1 + 3：密钥类 URL 必须挂在插件任务级，且不得两种语义并存。"""
 
     problems: list[str] = []
-    # 先收集「插件任务级」出现过的 URL，供判据 1 白名单用。
+    # 判据 3 用它判「同一引用对象两种语义并存」——按 **URL** 维度就够（同一份密钥文件）。
     plugin_level: set[str] = set()
-    for _branch, _event, stage in _walk_stage_items(data):
+    for _branch, _event, stage in _iter_plugin_stages(data):
         for key in PLUGIN_TASK_KEYS:
             plugin_level.update(_vals(stage.get(key)))
 
@@ -129,36 +145,38 @@ def check_pipeline_level_secret_refs(data: dict) -> list[str]:
 def _iter_pipeline_level_refs(data: dict):
     """产出流水线级（非插件任务级）的 imports/settingsFrom 引用。
 
-    做法：从 `push:` / `crontab:` 的事件对象**直接**取这两个键——插件任务级的引用
-    在 `stages[*]` 里，不会被这里取到。
+    做法：从**事件下的 job 对象直接**取这两个键 —— 插件任务级的引用在 `stages[*]` 里，
+    这一层扫不到，正是判据要的「挂错了位置」那一层。
     """
-    for branch, events in (data or {}).items():
-        if branch.startswith('.') or branch == '$':
-            continue
-        if not isinstance(events, dict):
-            continue
-        for event, jobs in events.items():
-            for i, job in enumerate(jobs or []):
-                if not isinstance(job, dict):
-                    continue
-                for key in PLUGIN_TASK_KEYS:
-                    if key in job:
-                        for url in _vals(job[key]):
-                            yield key, url, f'{branch}.{event}[{i}].{key}'
+    for branch, event, jobs in _iter_branch_events(data):
+        for i, job in enumerate(jobs):
+            if not isinstance(job, dict):
+                continue
+            for key in PLUGIN_TASK_KEYS:
+                if key in job:
+                    for url in _vals(job[key]):
+                        yield key, url, f'{branch}.{event}[{i}].{key}'
 
 
 def _check_pipeline_level(data: dict, plugin_level: set[str]) -> list[str]:
+    """判据 1：**任何** job 对象上的密钥类引用都算挂错位置（不论别处挂得多对）。
+
+    ⚠️ 曾经这里写的是「URL 只要在**任意**插件任务级出现过就放过」（`if url in plugin_level: continue`），
+    理由是「同 URL 在别处合规就不算两种语义并存」。**那条白名单把判据 1 整个架空了**：
+    本仓所有 job 引的是**同一份** `vars.yml` ⇒ 只要 git-sync 的某条 stage 挂对了，
+    **任何一条挂错的 job 都会被放过**（2026-10-14 回退探针实测 MISSED，两次都是这个原因）。
+
+    正确语义是**逐挂载点**判：合规与不合规是**每个引用位置各自**的属性。
+    URL 级别的去重只服务于「别把同一处报两遍」，不能拿来当豁免。
+    """
     problems: list[str] = []
     seen: set[tuple[str, str]] = set()
     for key, url, trail in _iter_pipeline_level_refs(data):
         if not _is_secret_url(url):
             continue
-        if url in plugin_level:
-            # 同一 URL 也在插件任务级出现过：判据 3 会单独报「两种语义并存」，这里别重复报。
+        if (key, url, trail) in seen:
             continue
-        if (key, url) in seen:
-            continue
-        seen.add((key, url))
+        seen.add((key, url, trail))
         problems.append(
             f'{url} 被**流水线级** `{trail}` 引用。密钥文件声明了 allow_images，'
             '只有**插件任务级**引用才合规（流水线级会让整条作业死在 Prepare：'
@@ -171,7 +189,7 @@ def _check_pipeline_level(data: dict, plugin_level: set[str]) -> list[str]:
 def _check_dual_use(data: dict) -> list[str]:
     imports: dict[str, str] = {}
     settings_from: dict[str, str] = {}
-    for branch, event, stage in _walk_stage_items(data):
+    for branch, event, stage in _iter_plugin_stages(data):
         for key in PLUGIN_TASK_KEYS:
             for url in _vals(stage.get(key)):
                 bucket = imports if key == 'imports' else settings_from
@@ -195,7 +213,7 @@ def check_settingsfrom_var_substitution(data: dict) -> list[str]:
     表现为 `fatal: could not read Username for 'https://github.com'`（#148 ② 原文）。
     """
     problems: list[str] = []
-    for branch, event, stage in _walk_stage_items(data):
+    for branch, event, stage in _iter_plugin_stages(data):
         refs = _vals(stage.get('settingsFrom'))
         if not any(_is_secret_url(u) for u in refs):
             continue
@@ -255,6 +273,61 @@ def self_check() -> list[str]:
     }
     if check_pipeline_level_secret_refs(ok) or check_settingsfrom_var_substitution(ok):
         errors.append('自检探针失败：合法的「插件任务级 imports」形态却被判为不合规。')
+
+    # 合法形态（`$` 段）：`$` 只是「所有分支」的写法，插件任务级 imports 同样该判合规。
+    # 这两条既是「别把 `$` 一刀切掉」的正向探针，也是判据 1 的对照。
+    ok_dollar = {
+        '$': {
+            'push': [
+                {
+                    'stages': [
+                        {
+                            'image': 'tencentcom/http-request',
+                            'imports': ['https://cnb.cool/o/secret/-/blob/main/vars.yml'],
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+    if check_pipeline_level_secret_refs(ok_dollar) or check_settingsfrom_var_substitution(ok_dollar):
+        errors.append('自检探针失败：`$` 段里合法的「插件任务级 imports」被误判为不合规。')
+
+    # ⚠️ 判据 1 的**回归探针**（源 CNB #269，初版实测 MISSED）：
+    # `$` 段的 push 里，把 imports 挂在 **job 对象**上（= 流水线级）。
+    # 这正是 `认领同步` 的真实形态：每跑必红，而守卫当时报绿。
+    bad_dollar = {
+        '$': {
+            'push': [
+                {
+                    'imports': ['https://cnb.cool/o/secret/-/blob/main/vars.yml'],
+                    'stages': [{'image': 'tencentcom/http-request'}],
+                }
+            ]
+        }
+    }
+    if not check_pipeline_level_secret_refs(bad_dollar):
+        errors.append(
+            '自检探针失败：`$` 段的**流水线级** imports 引密钥（#269 的真实形态）没被判据 1 报错'
+            ' —— 说明遍历又把 `$` 跳过了。'
+        )
+
+    # ⚠️ 判据 1 的**第二条回归探针**：同一份密钥文件，**别处挂对、这一处挂错**。
+    # 本仓所有 job 引的是同一个 `vars.yml`，所以「URL 只要在别处合规就放过」这条白名单
+    # 会把判据 1 整个架空（2026-10-14 回退探针实测 MISSED，两次都栽在它上面）。
+    bad_mixed = {
+        'main': {
+            'push': [
+                {'stages': [{'image': 'tencentcom/git-sync', 'imports': ['https://x/vars.yml']}]}
+            ]
+        },
+        '$': {'push': [{'imports': ['https://x/vars.yml'], 'stages': [{'image': 'tencentcom/http-request'}]}]},
+    }
+    if not check_pipeline_level_secret_refs(bad_mixed):
+        errors.append(
+            '自检探针失败：「别处挂对、这一处挂在 job 对象上」没被判据 1 报错'
+            ' —— URL 级白名单又回来了（它会把判据 1 整个架空）。'
+        )
 
     # 判据 1：流水线级 imports 引密钥。
     bad1 = {

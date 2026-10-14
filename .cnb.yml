@@ -50,7 +50,17 @@
   stages:
     - name: 增量建卡
       script: |
+        # ⚠️ 必须回声退出码：建卡在 GitHub 匿名限额（60 次/时/IP）被同流水线前序作业耗尽时
+        # 返回 1（「拉不到 ≠ 没有」，源 CNB #179 / #171）。裸跑的话失败只体现在「stage 红了」，
+        # 日志里没有一句人话，而它又与后一步的健康绿混在一起，很容易被读成「同步过了」。
+        # 故显式打印一行「结论不可信」。
+        set +e
         python scripts/bridge/github_cnb_issues.py --apply
+        rc=$?
+        if [ $rc -ne 0 ]; then
+          echo "⚠️ 增量建卡返回 $rc（多为 GitHub 数据不完整 / 限额）——本轮结论不可信"
+        fi
+        exit 0
     # 状态回流（#117 硬要求 ②，2026-10-13 起改为 B 口径）：GitHub 已关闭、CNB 镜像卡
     # 还开着 ⇒ 评论 + 挂 `GitHub 已关闭` 标签 + **关闭卡片**。
     # 幂等键写进评论正文（评论只发一次）；**关卡与评论分开判**——D48 时代发过评论
@@ -402,7 +412,15 @@ $:
       stages:
         - name: 增量建卡（幂等，任何分支）
           script: |
+            # 与 `main` 的 cron 同一套命令（改一处必须改两处），故同一条边界也在这里：
+            # 建卡返回 1（GitHub 数据不完整 / 限额）必须**回声**，不得被静默成「绿」。
+            set +e
             python scripts/bridge/github_cnb_issues.py --apply
+            rc=$?
+            if [ $rc -ne 0 ]; then
+              echo "⚠️ 增量建卡返回 $rc（多为 GitHub 数据不完整 / 限额）——本轮结论不可信"
+            fi
+            exit 0
         # 与 `main` 的 cron 同一条边界：`|| true` 只遮「已回流过的幂等跳过」，
         # 「数据不完整」必须可见（#171）——故回声退出码，不吞掉失败态。
         - name: 状态回流（GitHub 已关闭 → CNB 标记并关闭）
