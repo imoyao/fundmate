@@ -96,6 +96,18 @@ repos:
         files: ^frontend/src/.*\.(vue|css|scss|sass)$
         exclude: ^frontend/src/style/_breakpoints\.scss$
         pass_filenames: true
+      - id: guard-col-divider
+        name: guard bare column divider (use .soft-col-divider)
+        entry: python scripts/guard_col_divider.py
+        language: python
+        # 栏间竖向分割线唯一走全局工具类 .soft-col-divider（#2157）：
+        # 手写裸 border-left/right: 1px solid var(--border-light) 会同时踩「线贴住邻栏
+        # 文字」与「lg 以下两栏堆叠后留孤线」两个坑。存量 4 处冻结在脚本 BASELINE
+        # （逐处理由见脚本 docstring，只减不增）；语义强调条（3px/4px）与选中指示条
+        # （2px transparent）有意放行，不属本判据。
+        files: ^frontend/src/.*\.(vue|css|scss|sass)$
+        exclude: ^frontend/src/style/
+        pass_filenames: true
       - id: forbid-bp-input
         name: forbid APIFlask @bp.input() auto-paradigm
         entry: python scripts/forbid_bp_input.py
