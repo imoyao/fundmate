@@ -219,8 +219,13 @@
           </CardBlock>
         </section>
 
-        <!-- 图表区：三张真实图（分布 / 快照走势 / 风险评分空态） -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <!-- 图表区：两张真实图（分布 / 快照走势）。
+             #2156：原第三张「风险热力图」整卡是空态（无风险评分数据源，
+             paint 函数只画一行「暂无风险评分数据」文案），与本文件头
+             「无数据源的推测性面板一律不上屏」的承诺自相矛盾，已整卡下线
+             （模板 / ref / paint / lifecycle 四处同步删）。要恢复必须先接
+             真实数据源，详见 welcome 页同款裁决「不动的数据不占首屏」。 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <CardBlock>
             <SectionHeader
               title="资产分布"
@@ -251,30 +256,6 @@
               >
                 暂无资产快照数据
               </p>
-            </div>
-          </CardBlock>
-
-          <CardBlock>
-            <SectionHeader
-              title="风险热力图"
-              info="风险评分数据源尚未接入，仅展示空态（#1195 下线假数据）"
-            />
-            <div class="h-52">
-              <canvas ref="riskHeatmapChartRef" />
-            </div>
-            <div
-              class="mt-3 flex justify-center space-x-4 text-[10px]"
-              :style="{ color: 'var(--text-tertiary-ink)' }"
-            >
-              <span class="flex items-center"
-                ><span class="w-2 h-2 bg-green-500 rounded mr-1" />低风险</span
-              >
-              <span class="flex items-center"
-                ><span class="w-2 h-2 bg-amber-500 rounded mr-1" />中风险</span
-              >
-              <span class="flex items-center"
-                ><span class="w-2 h-2 bg-red-500 rounded mr-1" />高风险</span
-              >
             </div>
           </CardBlock>
         </div>
@@ -396,7 +377,7 @@ import {
   type MoneyFundIncomeData,
   type XirrData
 } from "@/api/performance";
-import { getCssVar } from "@/composables/echarts/theme";
+import { getCssVar, getCssVarWithAlpha } from "@/composables/echarts/theme";
 import { useEchartsLifecycle } from "@/composables/echarts/useEchartsLifecycle";
 import { formatAmount } from "@/utils/currency";
 
@@ -405,7 +386,6 @@ defineOptions({ name: "AssetAnalysis" });
 const router = useRouter();
 
 const profitTrendChartRef = ref<HTMLElement | null>(null);
-const riskHeatmapChartRef = ref<HTMLElement | null>(null);
 
 /** 资产分布喂给统一组件 AssetAllocationDonut 的数据（#2164） */
 const donutData = computed(() =>
@@ -542,14 +522,22 @@ const paintProfitTrendChart = (chart: echarts.ECharts) => {
         type: "line",
         smooth: true,
         data: profitTrendData.value.map(d => d.net),
+        // 面积渐变按折线主色 --brand-700 派生透明度（#2156：原硬编码
+        // rgba(255,107,0,…) 与 --brand-700(#e34f38) 不是同色，暗色更明显）。
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: "rgba(255, 107, 0, 0.3)" },
-            { offset: 1, color: "rgba(255, 107, 0, 0.05)" }
+            {
+              offset: 0,
+              color: getCssVarWithAlpha("--brand-700", 0.3, "#e34f38")
+            },
+            {
+              offset: 1,
+              color: getCssVarWithAlpha("--brand-700", 0.05, "#e34f38")
+            }
           ])
         },
         // 主色走语义变量（--brand-700），避免硬编码 hex（design.md 红线）
-        itemStyle: { color: getCssVar("--brand-700", "#FF6B00") },
+        itemStyle: { color: getCssVar("--brand-700", "#e34f38") },
         lineStyle: { width: 2 },
         symbol: "circle",
         symbolSize: 4
@@ -558,23 +546,7 @@ const paintProfitTrendChart = (chart: echarts.ECharts) => {
   });
 };
 
-// 风险热力图：当前无真实风险评分数据源，仅展示空态提示（#1195 决策沿用）
-const paintRiskHeatmapChart = (chart: echarts.ECharts) => {
-  chart.setOption({
-    title: {
-      text: "暂无风险评分数据",
-      left: "center",
-      top: "center",
-      textStyle: {
-        color: getCssVar("--text-tertiary", "#999"),
-        fontSize: 12,
-        fontWeight: "normal"
-      }
-    }
-  });
-};
-
-// #2164：三个图表的实例生命周期（init / window resize / 卸载 dispose / 主题重绘 /
+// #2164：两个图表的实例生命周期（init / window resize / 卸载 dispose / 主题重绘 /
 // keepAlive 恢复时 resize）统一交给 useEchartsLifecycle；本文件只负责「往给定实例
 // setOption」。`reuse: true` 保留原先 `chart ?? echarts.init()` 的复用语义——
 // 否则每次刷新都重建实例，动画状态丢失且肉眼可见地闪一下。
@@ -589,15 +561,6 @@ const { render: initCharts } = useEchartsLifecycle(
         return chart;
       },
       update: paintProfitTrendChart
-    },
-    {
-      ref: riskHeatmapChartRef,
-      build: el => {
-        const chart = echarts.init(el);
-        paintRiskHeatmapChart(chart);
-        return chart;
-      },
-      update: paintRiskHeatmapChart
     }
   ],
   { keepAlive: true, reuse: true, autoRenderOnMount: false }
