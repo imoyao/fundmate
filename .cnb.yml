@@ -289,6 +289,74 @@ main:
 # ⚠️ `$` 段**不能**挂 git-sync：`$` 下没有「当前分支」上下文，
 # `CNB_BRANCH` 在 cron/push 形态下不可靠，误推 `main` 就是分叉（守卫会拦，见 #167/#172）。
 # 功能分支的代码同步仍由 `"**/!(main|dev)"` 段的 `push:` 负责。
+
+# =============================================================================
+# 认领同步：CNB 侧在干活 → GitHub 侧挂 `CNB 处理中`（源 CNB #179）  <!-- cross-repo-ref-allow -->
+# =============================================================================
+#
+# 场景（用户 2026-10-14 在 CNB #179 提的）：
+#   我们已经把 CNB 当成一个 contributor，但 GitHub 上的人**不知道** CNB 正在改哪张卡。
+#   两边可以同时动手，最后合并时才发现撞了。实测已经发生过一次：CNB 的 PR #180 与
+#   PR #181 是同一张卡（CNB #179）的**两套并行解法**，最后要人工逐处消解冲突。
+#
+# 为什么只能这样做（先把「做不到」说清，免得下一个人再来问一遍）
+# --------------------------------------------------------------
+# 用户的最初诉求是「**实时**感知，不要每小时拉或推」。这个诉求被**凭据拓扑**挡住了：
+#
+#   - CNB 构建 → 写 GitHub：**本仓打通了**（凭据来自 Secret 仓库 `fundmate-secret`
+#     的 `GITHUB_PAT`，与 git-sync 同一份；挂**插件任务级**是 §13.1 定死的形态）。
+#     ⚠️ 注意区分：从前那句「CNB 构建环境没有 GitHub 凭据」指的是**手工 `git push`**
+#     （`env` 里只有 `CNB_*`，所以那条路确实不通）；走**插件任务 + Secret imports**
+#     这条路是通的，git-sync 三个方向全在跑就是证据。
+#   - 但**触发**只能是 push / cron：CNB 侧收不到 GitHub 的 webhook（没装 GitHub App），
+#     所以「GitHub 上有人动了那张卡」这件事**叫不醒** CNB 的流水线。
+#
+# 于是把方向掰过来：**「实时」的那一半放在 GitHub 侧**（它能订阅自己的事件），
+# CNB 侧只负责「我这边有动静时顺手报一次」。
+#
+#   | 方向 | 谁驱动 | 延迟 |
+#   |---|---|---|
+#   | GitHub 侧有人动手 → CNB 镜像卡评论区 | `.github/workflows/claim-sync.yml` 订阅 issues/PR 事件 | **秒级** |
+#   | CNB 侧有人动手 → GitHub 原卡挂标签 | 本段（`$` 段 push，任何分支） | 分钟级（跟着 push 走） |
+#
+# 为什么挂在 `$` 段（而不是 `main` 的 cron）
+# ------------------------------------------
+# 认领是**「有人正在干活」**这件事的影子，而「干活」= push。挂在 `$` 段意味着
+# **任何分支一有 push 就顺手报一次**——这正是「有动静就报」，而不是「每小时巡逻」。
+# 挂 cron 反而更差：cron 只能挂具体分支（平台限制），会退化成「一小时一次」。
+#
+# 为什么这里可以挂插件（上一段刚说了 `$` 段不能挂 git-sync）
+# ---------------------------------------------------------
+# 那条禁令的理由是 **`CNB_BRANCH` 在 `$` 下不可靠 ⇒ 可能误推 `main`**。
+# 本任务不推任何东西：它只**读** CNB（匿名 / CNB_TOKEN）、**写** GitHub 的 issue 标签。
+# 没有 `branch` 参数，也就没有 `main` 可误推。
+# `scripts/tests/git_sync_push_scope.test.js` 里那条「`$` 段不得出现 `tencentcom/git-sync`」
+# 断言**依然成立**（本任务用的是 http-request 插件），不要去放宽它。
+#
+# 幂等（敢挂在每次 push 上的前提）
+# --------------------------------
+#   - 标签：GitHub `POST /labels` 原生幂等，重复挂不报错、不会重复；
+#   - 评论：正文末尾带隐藏标记 `<!-- cnb-claim: github=N prs=… -->`，
+#     发之前先把目标 issue 的评论扫一遍收标记 ⇒ **同一事实只发一次**。
+#   所以重复跑的成本是「多几次 API 调用」，不是「重复刷屏」。
+#
+# 凭据与「拿不到就大声失败」
+# --------------------------
+# `GITHUB_PAT` 来自 Secret 仓库（与 git-sync 同一份，**不要**再存一份到别处）。
+# 挂在**插件任务级 imports**（与 `image` 平级）——照 §13.1 的形态抄，不要改回流水线级、
+# 也不要改成 `settingsFrom`；`scripts/guard_secret_imports.py` 会拦这两种回潮。
+#
+# 缺凭据时脚本**自己以退出码 1 失败**（不是默默跳过）：认领同步的假绿形态最坏——
+# 标签没挂上、而所有人都以为挂上了，然后两边照旧同时动手。
+# 收尾阶段因此回声退出码（`|| true` 只拦住「不该把建卡一起拖红」，不遮信号）。
+#
+# 本任务**不**改 `.cnb.yml` 之外的任何东西，也不碰 CNB 的 issue（只读）。
+"claim-sync": &claim-job
+  runner:
+    cpus: 2
+  docker:
+    image: python:3.12-slim
+
 $:
   web_trigger:
     - name: GitHub issue 增量镜像（手动）
@@ -297,13 +365,38 @@ $:
   # 任何分支的 push 都跑一轮幂等建卡 + 状态回流：
   # 功能分支上开的卡、写的评论，当天就能被系统看见。
   push:
+    - name: 认领同步（任何分支，幂等）
+      <<: *claim-job
+      stages:
+        # 调 GitHub 需要 HTML 侧的 PAT —— 走 http-request 插件 + 插件任务级 imports
+        # （形态与 §13.1 的三条 git-sync 一致：`imports` 与 `image` 平级，注入环境变量）。
+        # 参考 https://cnb.cool/cnb/plugins/tencentcom/http-request
+        - name: 认领同步（CNB 在干活 → GitHub 挂 `CNB 处理中`）
+          image: tencentcom/http-request
+          imports:
+            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
+          env:
+            GITHUB_REPO: imoyao/fundmate
+          script: |
+            # 凭据缺失：http-request 插件只负责「有网」，PAT 得自己看。
+            # 这里**先自证**再跑，免得脚本里所有读都 200、所有写都 401 而没人看见。
+            if [ -z "${GITHUB_PAT:-}" ]; then
+              echo "❌ GITHUB_PAT 未注入（Secret 仓库 vars.yml 应有该键）——认领同步无法执行"
+              exit 1
+            fi
+            export GITHUB_TOKEN="$GITHUB_PAT"
+            set +e
+            python scripts/bridge/claim_detect.py --apply
+            rc=$?
+            if [ $rc -ne 0 ]; then
+              echo "⚠️ 认领同步返回 $rc——本轮结论不可信（可能是 GitHub 数据不完整，或写失败）"
+            fi
+            exit 0
+
     - name: issue 镜像兜底（任何分支，幂等）
       # ⚠️ 同步约束：本 job 与 `main` 下的 cron 跑的是**同一套命令**，
       # 改一处必须改两处（否则「功能分支上看得见、main 上看不见」或反之）。
-      runner:
-        cpus: 2
-      docker:
-        image: python:3.12-slim
+      <<: *claim-job
       env:
         GITHUB_REPO: imoyao/fundmate
       stages:

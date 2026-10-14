@@ -1,0 +1,91 @@
+# 认领同步（GitHub 侧）：CNB 侧正在干活的卡，在**这里**挂 `CNB 处理中`（源 CNB #179）  <!-- cross-repo-ref-allow -->
+#
+# ## 它解决什么
+#
+# 我们已经把 CNB 当成一个 contributor，但 GitHub 上的人**不知道** CNB 正在改哪张卡，
+# 于是两边可以同时动手、合并时才发现撞了。实测已发生过：CNB 的 PR #180 与 PR #181
+# 是同一张卡（CNB #179）的两套并行解法，最后要人工逐处消解冲突。
+#
+# ## 为什么「实时」这件事必须放在 GitHub 侧
+#
+# CNB 构建**收不到 GitHub 的 webhook**（没装 GitHub App），所以「GitHub 上有人动了那张卡」
+# 这件事叫不醒 CNB 的流水线。反过来，GitHub Actions **能订阅自己的事件**——
+# 于是把方向掰过来：
+#
+#   | 方向 | 谁驱动 | 延迟 |
+#   |---|---|---|
+#   | GitHub 有人动手 → CNB 镜像卡评论区 | **本 workflow** | **秒级** |
+#   | CNB 有人动手 → GitHub 原卡挂标签 | `.cnb.yml` 的 `$` 段 push（`claim_detect.py`） | 分钟级（跟着 push 走） |
+#
+# 两个方向合起来才是「实时感知」：**自己那一侧的事件由自己订阅**，不需要对方轮询。
+#
+# ## 它做两件事，且都幂等
+#
+# 1. **留痕**：把「CNB 侧正在处理」写进镜像卡评论区（带隐藏键，同一事实只发一次）；
+# 2. **摘标签**：`closed` / `unassigned` / 或 CNB 侧已无 open PR 时，摘掉 `CNB 处理中`。
+#    这一条是刻意加的 —— 标签过期会自己消失，而不是一直挂着骗人（「狼来了」的反面）。
+#
+# ## 为什么用 `pull_request` 而不是只订 `issues`
+#
+# 认领的**事实**是「CNB 上有人开了 PR」，而 GitHub 侧看不到 CNB 的 PR。
+# 所以本 workflow 查的是 CNB 的 PR 列表（匿名可读）——订阅 GitHub 事件只是为了
+# 「有人动了 → 我们顺手复核一次」，不是事件本身提供了结论。
+# 于是 `opened` / `reopened` / `assigned` 都只当作**触发器**，结论永远重算。
+
+name: CNB 认领同步（GitHub 侧）
+
+concurrency:
+  # 同一条 issue 的并发事件互相取消；schedule 无 issue 号时回退 run_id，互不干扰
+  # （与 bridge-feedback.yml 同形）。
+  group: claim-sync-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+on:
+  # 定时兜底：CNB 侧长时间没人 push 时，标签该摘的还是得摘掉。
+  # 这是**兜底**不是主通道——主通道是事件（秒级）。
+  schedule:
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+  issues:
+    types: [opened, reopened, assigned, unassigned, labeled, unlabeled, closed]
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  claim-sync:
+    name: 同步 CNB 认领状态
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+        with:
+          # `claim_detect.py` 在 `dev` 上；默认检出的是 base 分支，显式取 dev 更稳。
+          ref: dev
+
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      # 纯标准库（urllib），不需要 pip install —— 故意保持这样，
+      # 免得每小时级的作业被某个三方包的破坏性升级带崩（同 cnb-github-backfill.yml）。
+      - name: 同步认领状态 → GitHub 标签
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          CNB_REPO: duoduobei/fundmate
+        run: |
+          set -euo pipefail
+          # 缺 token 直接失败：否则每条认领都只在写的时候 401，
+          # 而这个 workflow 会以一个绿灯结束 —— 标签没挂上，所有人却以为挂上了。
+          # 这是本仓反复咬过的「假绿」（见 AGENTS.md「判据必须有失败态」）。
+          if [ -z "${GITHUB_TOKEN:-}" ]; then
+            echo "❌ GITHUB_TOKEN 为空（secrets.GH_PAT / secrets.GITHUB_TOKEN 都没拿到），提前失败" >&2
+            exit 1
+          fi
+          python scripts/bridge/claim_detect.py --apply
