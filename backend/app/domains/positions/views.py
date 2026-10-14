@@ -119,6 +119,10 @@ def _validate_price_within_range(data: dict) -> None:
     trade_date = data.get('trade_date')
     if not symbol or avg_price is None or not trade_date:
         return
+    # nav_pending 占位价 / 价格未知(<=0) 不做区间拦截：占位价不是真实成交价，
+    # 0 价与区间比较无意义（必填性由 process_buy_or_deposit 自己校验）。
+    if data.get('nav_pending') or avg_price <= 0:
+        return
     rng = resolve_security_price_range(symbol, trade_date, use_live_fallback=True)
     if not rng:
         return

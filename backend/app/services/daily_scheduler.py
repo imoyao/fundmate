@@ -119,6 +119,8 @@ ENV_VALUATION_ENABLED = 'SCHEDULER_VALUATION_ENABLED'
 ENV_VALUATION_CRON = 'SCHEDULER_VALUATION_CRON'
 ENV_VALUATION_RECONCILE_ENABLED = 'SCHEDULER_VALUATION_RECONCILE_ENABLED'
 ENV_VALUATION_RECONCILE_CRON = 'SCHEDULER_VALUATION_RECONCILE_CRON'
+ENV_NAV_BACKFILL_ENABLED = 'SCHEDULER_NAV_BACKFILL_ENABLED'
+ENV_NAV_BACKFILL_CRON = 'SCHEDULER_NAV_BACKFILL_CRON'
 
 DEFAULT_TIMEZONE = 'Asia/Shanghai'
 # 温度计：集思录中位 PB / 韭圈儿 / 行业拥挤度盘后即出
@@ -138,6 +140,10 @@ DEFAULT_VALUATION_CRON = '15 15,19,21 * * mon-fri'
 # day-D 官方净值最早 D+1 21:30 落库 ⇒ 对照排在其后：晚 22:30 对照当晚净值，
 # 晨 08:30 兜底（休市日 catch-up、源延迟恢复）。零外部请求的纯 DB job。
 DEFAULT_VALUATION_RECONCILE_CRON = '30 8,22 * * *'
+# 净值缺失流水回填（pending_nav → 官方净值重算份额/成本）：与对照同吃 T-1 落库
+# 节奏（#824，day-D 官方净值最早 D+1 21:30 落库），排在对照之后 5 分钟；
+# 晨 08:35 兜底（休市日 catch-up、源延迟恢复）。纯 DB 零外部请求。
+DEFAULT_NAV_BACKFILL_CRON = '35 8,22 * * *'
 # 场内日线（#1104）：A 股 15:00 收盘，日线数据盘后发布（ETF 两源当日 K 线常要次日才齐，
 # 由缺口回补在下一次运行时补齐）。**必须早于持仓现价回写**——后者读的就是这里落库的收盘价。
 DEFAULT_PRICE_HISTORY_CRON = '30 17 * * *'
@@ -279,6 +285,17 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[Union[str, Tuple[str, .
         DEFAULT_VALUATION_RECONCILE_CRON,
         None,
         '场外基金预估→官方净值对照（官方到位后翻 confirmed + 记偏差；#2142）',
+    ),
+    (
+        # 净值缺失流水回填：entry_status='pending_nav' 的流水等官方净值到位后重算
+        # 份额/成本。target_kind=None——目标池是 pending 流水（job 自扫，同 reconcile
+        # 范式）；纯 DB 零外部请求；进 REST_DAY_JOB_NAMES（休市日 catch-up 空跑无害）。
+        'nav_backfill',
+        ENV_NAV_BACKFILL_ENABLED,
+        ENV_NAV_BACKFILL_CRON,
+        DEFAULT_NAV_BACKFILL_CRON,
+        None,
+        '净值缺失流水回填（pending_nav → 官方净值到位后重算份额/成本并清标记）',
     ),
     (
         # 场内日线（#1104）：本机调度原先**不含**本 job，股票行情只靠 CI 每天跑一次，
@@ -580,6 +597,7 @@ REST_DAY_JOB_NAMES: frozenset = frozenset(
         'position_price',  # 持仓现价回写：消费上面两者的落库结果，不补跑则持仓停在周五之前
         'fund_valuation_reconcile',  # 预估→正式对照（#2142）：周末 fund_nav 补昨日净值后，
         # 周六晨间即可对照周五预估；纯 DB 零成本，休市日空跑无害
+        'nav_backfill',  # 净值缺失流水回填：官方净值 T-1 落库，休市日 catch-up 同理，纯 DB 零成本
     }
 )
 

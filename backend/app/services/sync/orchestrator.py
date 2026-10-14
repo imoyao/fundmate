@@ -66,6 +66,7 @@ from app.services.sync.jobs.index_valuation_job import IndexValuationSyncJob
 from app.services.sync.jobs.index_valuation_lg_job import IndexValuationLgSyncJob
 from app.services.sync.jobs.manager_tenure_job import ManagerTenureSyncJob
 from app.services.sync.jobs.market_asset_daily_job import MarketAssetDailySyncJob
+from app.services.sync.jobs.nav_backfill_job import NavBackfillJob
 from app.services.sync.jobs.orphan_backfill_job import OrphanBackfillJob
 from app.services.sync.jobs.position_price_job import PositionPriceSyncJob
 from app.services.sync.jobs.price_history_job import PriceHistorySyncJob
@@ -205,6 +206,10 @@ class DataSyncOrchestrator:
         # #2142：预估→正式对照。纯 DB（读 daily_worth、写 fund_valuation_daily 对照列），
         # 无外部请求，NullAdapter 占位；target_kind=None 全量路径，不入 SYMBOL_BACKFILL_JOBS。
         self.jobs['fund_valuation_reconcile'] = FundValuationReconcileJob(self.db)
+        # 净值缺失流水回填：entry_status='pending_nav' 流水等官方净值到位后重算份额/成本。
+        # 纯 DB（读 daily_worth、写流水+持仓），NullAdapter 占位；target_kind=None
+        # 全量路径（目标池是 pending 流水，job 自扫），不入 SYMBOL_BACKFILL_JOBS。
+        self.jobs['nav_backfill'] = NavBackfillJob(self.db)
         self.jobs['price_history'] = PriceHistorySyncJob(self.data_sources['akshare'], self.db)
         self.jobs['index_constituents'] = IndexConstituentSyncJob(self.data_sources['akshare'], self.db)
         # #1285/#1394：指数估值（中证官方：市盈率 / 股息率）
