@@ -1,6 +1,8 @@
 # CNB 流水线配置（duoduobei/fundmate）
 #
-# 目前只有一条流水线：GitHub Issues → CNB Issues 的**每日增量镜像**。
+# 目前有三类作业：① GitHub Issues → CNB Issues 的每日增量镜像（main 每日 cron）；
+# ② CNB ↔ GitHub 的双向代码同步（git-sync 插件：push + 每小时拉 + 每小时推）；
+# ③ CNB 侧 PR 只读守卫（pull_request，断链成因的层 3 反向护栏）。
 #
 # 背景（源 issue `#2`）：CNB 侧没有 GitHub 的 issue 视图，讨论散在两处。
 # 2026-10-11 做过一次全量手工同步（107 张卡，CNB #5~#112），但那是一次性的：
@@ -69,15 +71,21 @@
     # 分支分叉自检（CNB #123 §一「中等」建议）：`main` 与 `dev` 若互不包含，
     # 就会出现「整改代码在 dev、会被执行的代码在 main」——**写完了，跑的不是它**，
     # 且没有任何信号提示。本节点把「靠人肉 git log 发现分叉」换成一条命令。
-    # 只读本地 git（**不 fetch**，故不依赖网络）；带 `|| true` 明确「信号不是门禁」。
-    # 带 `--explain`：卡面 §一 建议 3 问的是「为什么 dev 会完全不含 main 的这一个 commit」——
-    # 只报「分叉了几个」修不了根因，故额外列出稳定分支独有的提交清单，
-    # 并**离线试算发版会不会冲突**（`git merge-tree`，不碰工作区）。
-    # 有意**不猜**「哪个提交来自 GitHub、哪个来自 CNB」：实测提交信息、`refs/fetched`、
-    # `sync/mirror` 三条路都答不了，猜错会让报告指向错误的处置。
-    - name: 分支分叉自检（只报告）
+    # 先 fetch 刷新 `origin/dev` / `origin/main`：runner 的检出可能停在单个 ref 上，
+    # 不 fetch 就看不到对侧分支的最新状态（#123 那次分叉就是这样被肉眼拖了一周）。
+    # 失败不阻塞（`|| true`，本地 ref 兜底）——脚本本身仍然只读、不 fetch、不联网。
+    # 带 `--explain`：只报「分叉了几个」修不了根因，故报告附两侧独有提交清单
+    # （救援照抄即可）与离线合并试算（`git merge-tree`，回答「发版会不会冲突」）。
+    # 断链 ≠ 任务失败（`|| true` 口径不变），但**必须有人知道**：crontab 红了没人盯，
+    # 失败只进日志等于静默停摆（2026-10-11 白丢大半天）。故退出码非零时建一张
+    # 断链提醒卡（幂等：已有未关闭同题卡只追加评论）——「大声失败」，不是「自动抹平」。
+    - name: 分支分叉自检（断链即建卡）
       script: |
-        python scripts/bridge/check_branch_divergence.py --report --explain || true
+        git fetch origin dev main --quiet || true
+        python scripts/bridge/check_branch_divergence.py --report --explain --out report-divergence.md
+        if [ $? -ne 0 ]; then
+          python scripts/bridge/notify_mirror_divergence.py --report report-divergence.md || true
+        fi
 
 # 定时任务必须挂在具体分支下（不能放 $ 兜底），故这里显式写 main。
 main:
@@ -172,6 +180,54 @@ main:
             username: ${GIT_USERNAME}
             password: ${GITHUB_PAT}
             push_tags: true
+
+  # ===== 层 3：反向守卫（CNB #118 / #123）=====
+  # 断链的**成因**是「在 CNB 侧合了 PR」。与其事后从分叉自检发现，
+  # 不如在 PR 被创建 / 重新打开 / 源分支 push 的那一刻就说清楚：
+  # **本仓 CNB 侧只读**，PR 请到 GitHub 开（见 AGENTS.md「双端协作」）。
+  #
+  # 为什么这条防线能生效：`.cnb.yml` 就长在仓库里，`pull_request` 事件在**本仓**触发，
+  # 不需要跨仓凭据 —— 属于「配置写在会被执行的地方」。
+  #
+  # ⚠️ 事件必须挂在**分支之下**（#152：CNB 的 `.cnb.yml` 顶层只认分支名，
+  # `pull_request:` 写在顶层会被读成一个名为 pull_request 的**不存在分支**，
+  # 守卫空转还不报错）。main / dev 是仅有的两条长期分支，各挂一份；
+  # 配置随分支同步到 CNB，PR 打向哪条长期分支，就在哪条的配置里读到守卫。
+  pull_request:
+    - name: CNB 侧只读守卫
+      stages:
+        - name: 拒绝在 CNB 侧合 PR
+          script: |
+            cat <<'MSG'
+            ::error::本仓 CNB 侧只读：请在 GitHub 开 PR，不要在 CNB 侧合并。
+
+            原因：在 CNB 侧合 PR 必然产生 GitHub 没有的提交，下一次从 GitHub
+            同步时无法快进，镜像链路停摆（2026-10-11 已实测发生一次断链）。
+
+            正确路径：在 GitHub `imoyao/fundmate` 开 PR 合入 `dev`，
+            再由同步带到 CNB。详见 AGENTS.md「双端协作（CNB ↔ GitHub，强制）」。
+            MSG
+            exit 1
+
+# dev 同样挂一份：PR 打向 dev 时读的是 dev 分支上的 `.cnb.yml`。
+# 两条长期分支之外的 feature 分支不挂 —— 它们本就不该在 CNB 侧被合入，
+# 而 `$` 兜底只对 web_trigger 有意义（pull_request 需要分支上下文）。
+dev:
+  pull_request:
+    - name: CNB 侧只读守卫
+      stages:
+        - name: 拒绝在 CNB 侧合 PR
+          script: |
+            cat <<'MSG'
+            ::error::本仓 CNB 侧只读：请在 GitHub 开 PR，不要在 CNB 侧合并。
+
+            原因：在 CNB 侧合 PR 必然产生 GitHub 没有的提交，下一次从 GitHub
+            同步时无法快进，镜像链路停摆（2026-10-11 已实测发生一次断链）。
+
+            正确路径：在 GitHub `imoyao/fundmate` 开 PR 合入 `dev`，
+            再由同步带到 CNB。详见 AGENTS.md「双端协作（CNB ↔ GitHub，强制）」。
+            MSG
+            exit 1
 
 # 手动触发放兜底分支：与分支无关，放 $ 下任何分支都能点。
 $:

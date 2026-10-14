@@ -8,13 +8,15 @@
 判错方向，给出的就是**反向的安心**——「未分叉」而实际已分叉，下一个照着它发版的人
 会以为没问题。这正是本仓「守门通过 ≠ 守门有效」那一课的同类。
 
-故按三类钉死：
+故按四类钉死：
 
 1. **方向语义**：`git diff --name-status left right` 里 `D` = 只在 `left`、`A` = 只在 `right`。
    这条曾是**真 bug**：初版把 `A` 和 `D` 都算「只在 right」，于是 `.cnb.yml` 与
    `cnb-github-backfill.yml` 同时出现在两侧列表里，报告自相矛盾；
 2. **分叉判定**：`main` 独有提交 > 0 ⇒ 分叉；两侧一致 ⇒ 不分叉（退出码 1 / 0）；
-3. **只读**：出现 `fetch` / `merge` / `push` 即越界。
+3. **独有提交清单**：分叉时报告须列出两侧各自的提交 SHA（照抄即可救援），
+   跳过 merge commit、超限截断带注记 —— 清单是断链卡面（`notify_mirror_divergence.py`）的原料；
+4. **只读**：出现 `fetch` / `merge` / `push` 即越界。
 
 用例尽量走**真实 git**（本仓自己），只在需要构造「确定的分叉」时才用临时仓库——
 mock 出来的 git 永远绿，而被测的正是「跟真实 git 对话时方向对不对」。
@@ -144,12 +146,100 @@ def test_compute_counts_both_directions(mod, diverged_repo):
     assert res['right_only_jobs'] == ['.github/workflows/cnb-github-backfill.yml']
 
 
+def test_compute_lists_unique_commits(mod, diverged_repo):
+    """清单 = 救援照抄的 SHA：main 侧须含 `main-only`、dev 侧须含 `dev-only`。
+
+    没有清单功能的旧版在这里必须红 —— 只报数字修不了根因（CNB #118 卡面同诉求）。
+    """
+    res = mod.compute('main', 'dev', str(diverged_repo))
+    assert any('main-only' in c for c in res['left_only_commits']), (
+        f'main 独有提交清单缺 main-only：{res["left_only_commits"]}'
+    )
+    assert any('dev-only' in c for c in res['right_only_commits']), (
+        f'dev 独有提交清单缺 dev-only：{res["right_only_commits"]}'
+    )
+    # 方向不能反：main-only 不得出现在 dev 侧清单里
+    assert not any('main-only' in c for c in res['right_only_commits']), '清单方向反了'
+    assert not any('dev-only' in c for c in res['left_only_commits']), '清单方向反了'
+
+
+def test_commit_list_skips_merge_commits(mod, diverged_repo):
+    """merge commit 只是症状不是内容，不进清单（否则把业务提交挤下去）。"""
+    import os
+
+    env = {
+        'GIT_AUTHOR_NAME': 't',
+        'GIT_AUTHOR_EMAIL': 't@e',
+        'GIT_COMMITTER_NAME': 't',
+        'GIT_COMMITTER_EMAIL': 't@e',
+        'PATH': os.environ['PATH'],
+    }
+    repo = diverged_repo
+    # 在 main 上造一个 merge commit（合并 dev 的历史但不含其 tip）
+    subprocess.run(['git', 'checkout', '-q', 'main'], cwd=repo, check=True, capture_output=True, env=env)
+    subprocess.run(
+        ['git', 'merge', '-q', '--no-ff', '-m', 'merge dev', 'dev~0'],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        env=env,
+    )
+    res = mod.compute('main', 'dev', str(repo))
+    assert not any('merge dev' in c for c in res['left_only_commits']), (
+        f'merge commit 不该进清单：{res["left_only_commits"]}'
+    )
+
+
+def test_commit_list_truncated_with_note(mod, diverged_repo):
+    """超 LIMIT 截断 + 「还有 N 条」注记：救援照抄最近的足够定位，别把报告撑爆。"""
+    import os
+
+    env = {
+        'GIT_AUTHOR_NAME': 't',
+        'GIT_AUTHOR_EMAIL': 't@e',
+        'GIT_COMMITTER_NAME': 't',
+        'GIT_COMMITTER_EMAIL': 't@e',
+        'PATH': os.environ['PATH'],
+    }
+    repo = diverged_repo
+    subprocess.run(['git', 'checkout', '-q', 'main'], cwd=repo, check=True, capture_output=True, env=env)
+    limit = mod.COMMIT_LIST_LIMIT
+    for i in range(limit + 3):
+        (repo / f'f{i}.txt').write_text(f'{i}\n', encoding='utf-8')
+        subprocess.run(['git', 'add', '.'], cwd=repo, check=True, capture_output=True, env=env)
+        subprocess.run(
+            ['git', 'commit', '-q', '-m', f'main-bulk-{i}'], cwd=repo, check=True, capture_output=True, env=env
+        )
+    res = mod.compute('main', 'dev', str(repo))
+    listed = res['left_only_commits']
+    assert len(listed) == limit + 1, f'应截断到 {limit} 条 + 1 行注记，实际 {len(listed)} 条'
+    # 注记里的「还有 N 条」必须与 git 自己的计数对账：
+    # fixture 已有 1 条 main 独有提交，本测试又加了 limit+3 条 ⇒ 共 limit+4 条，剩 4 条。
+    real = subprocess.run(
+        ['git', 'rev-list', '--count', '--no-merges', 'dev..main'],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        env=env,
+    ).stdout.strip()
+    assert f'还有 {int(real) - limit} 条' in listed[-1], f'末行应是「还有 N 条」注记：{listed[-1]}'
+
+
 def test_report_marks_diverged(mod, diverged_repo):
     res = mod.compute('main', 'dev', str(diverged_repo))
     report = mod.build_report(res)
     assert '已分叉' in report
     assert '.cnb.yml' in report
     assert 'cnb-github-backfill.yml' in report
+
+
+def test_report_lists_unique_commits(mod, diverged_repo):
+    """报告须含两侧独有提交的 SHA 行（救援照抄清单，不是只给数字）。"""
+    res = mod.compute('main', 'dev', str(diverged_repo))
+    report = mod.build_report(res)
+    assert 'main-only' in report, '报告缺 main 侧独有提交'
+    assert 'dev-only' in report, '报告缺 dev 侧独有提交'
+    assert 'cherry-pick' in report, '报告须说明清单用途（照抄 cherry-pick）'
 
 
 def test_report_green_when_fast_forward(mod, diverged_repo):
@@ -167,14 +257,18 @@ def test_report_green_when_fast_forward(mod, diverged_repo):
 def test_run_returns_1_on_diverged(mod, diverged_repo):
     import argparse
 
-    args = argparse.Namespace(left='main', right='dev', cwd=str(diverged_repo), out=None, report=True, jobs_only=False)
+    args = argparse.Namespace(
+        left='main', right='dev', cwd=str(diverged_repo), out=None, report=True, jobs_only=False, explain=False
+    )
     assert mod.run(args) == 1, '分叉必须以退出码 1 表达（供 CI 当信号）'
 
 
 def test_run_returns_0_when_same(mod, diverged_repo):
     import argparse
 
-    args = argparse.Namespace(left='dev', right='dev', cwd=str(diverged_repo), out=None, report=True, jobs_only=False)
+    args = argparse.Namespace(
+        left='dev', right='dev', cwd=str(diverged_repo), out=None, report=True, jobs_only=False, explain=False
+    )
     assert mod.run(args) == 0
 
 
@@ -182,9 +276,65 @@ def test_run_returns_2_on_missing_ref(mod, diverged_repo):
     import argparse
 
     args = argparse.Namespace(
-        left='no-such-branch', right='dev', cwd=str(diverged_repo), out=None, report=True, jobs_only=False
+        left='no-such-branch',
+        right='dev',
+        cwd=str(diverged_repo),
+        out=None,
+        report=True,
+        jobs_only=False,
+        explain=False,
     )
     assert mod.run(args) == 2, '取不到分支要用独立退出码，别混进「已分叉」'
+
+
+def test_explain_dry_runs_the_release_merge(mod, diverged_repo):
+    """`--explain` 必须真的跑 merge-tree 试算，并给出可执行的结论。
+
+    没有 `--explain` 的旧版在这里必须红 —— `.cnb.yml` 一直在调这个参数，
+    旧版 argparse 直接报错、被 `|| true` 吞掉，自检从未真正生效过。
+    """
+    import argparse
+
+    args = argparse.Namespace(
+        left='main', right='dev', cwd=str(diverged_repo), out=None, report=True, jobs_only=False, explain=True
+    )
+    assert mod.run(args) == 1
+    res = mod.compute('main', 'dev', str(diverged_repo))
+    res['merge_dry_run'] = mod.merge_dry_run('main', 'dev', str(diverged_repo))
+    report = mod.build_report(res)
+    # fixture 两侧改的是不同文件 ⇒ 可干净合并
+    assert res['merge_dry_run']['ok'] is True, f'不同文件的合并应可干净进行：{res["merge_dry_run"]}'
+    assert '可干净合并' in report, '报告须给出合并试算结论'
+
+
+def test_explain_reports_conflicts(mod, diverged_repo):
+    """两侧改**同一个文件** ⇒ 试算须报冲突并列出文件（发版前知道要解哪）。"""
+    import os
+    import subprocess
+
+    env = {
+        'GIT_AUTHOR_NAME': 't',
+        'GIT_AUTHOR_EMAIL': 't@e',
+        'GIT_COMMITTER_NAME': 't',
+        'GIT_COMMITTER_EMAIL': 't@e',
+        'PATH': os.environ['PATH'],
+    }
+    repo = diverged_repo
+    subprocess.run(['git', 'checkout', '-q', 'main'], cwd=repo, check=True, capture_output=True, env=env)
+    (repo / 'shared.txt').write_text('main-side\n', encoding='utf-8')
+    subprocess.run(['git', 'add', '.'], cwd=repo, check=True, capture_output=True, env=env)
+    subprocess.run(
+        ['git', 'commit', '-q', '-m', 'main edits shared'], cwd=repo, check=True, capture_output=True, env=env
+    )
+    subprocess.run(['git', 'checkout', '-q', 'dev'], cwd=repo, check=True, capture_output=True, env=env)
+    (repo / 'shared.txt').write_text('dev-side\n', encoding='utf-8')
+    subprocess.run(['git', 'add', '.'], cwd=repo, check=True, capture_output=True, env=env)
+    subprocess.run(
+        ['git', 'commit', '-q', '-m', 'dev edits shared'], cwd=repo, check=True, capture_output=True, env=env
+    )
+    dry = mod.merge_dry_run('main', 'dev', str(repo))
+    assert dry['ok'] is False, f'同文件双改必须判冲突：{dry}'
+    assert 'shared.txt' in dry['conflicts'], f'冲突清单须含 shared.txt：{dry["conflicts"]}'
 
 
 # ---------------------------------------------------------------------------
@@ -240,3 +390,19 @@ def test_real_repo_reports_divergence_or_green(mod):
         text=True,
     ).stdout.strip()
     assert str(res['left_only']) == real, f'脚本算的 {res["left_only"]} 与 git 的 {real} 不一致'
+    # 清单对账：main 独有的**非 merge**提交存在时，脚本清单第一条须与 git log 第一条逐字相同。
+    # 注意两处计数口径不同（有意为之）：`left_only` 用 rev-list（含 merge，回答「落后几个」）；
+    # 清单用 --no-merges（镜像断链场景里 merge 只是症状不是内容，见 list_unique_commits docstring）。
+    # 故卫句必须落在同一口径上——曾按含 merge 的计数放行，真实仓 main 独有全是 merge 时
+    # `git log --no-merges` 输出为空，`splitlines()[0]` 直接 IndexError。
+    real_lines = subprocess.run(
+        ['git', 'log', '--oneline', '--no-decorate', '--no-merges', 'origin/dev..origin/main'],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    if real_lines:
+        assert res['left_only_commits'], f'git 能列出 {len(real_lines)} 条，脚本清单却是空的'
+        assert res['left_only_commits'][0] == real_lines[0], (
+            f'脚本清单首条 {res["left_only_commits"][:1]} 与 git 的 {real_lines[0]!r} 不一致'
+        )

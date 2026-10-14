@@ -22,6 +22,8 @@
 判据
 ----
 - **`main` 独有提交数 > 0** ⇒ 分叉（正常态恒为 0）；
+- 分叉时列出**两侧各自的独有提交清单**（`--oneline`，超 LIMIT 截断）——
+  只报数字修不了根因，救援的人需要能照抄的 SHA（CNB #118 断链卡面同诉求）；
 - 列出**两侧互不包含**的「镜像 / 作业配置文件」（`.cnb.yml` + `.github/workflows/*.yml`）
   —— 这类文件决定「什么会被执行」，只在单侧存在就是 #123 记的那个病；
 - 角色可切换（`--left` / `--right`），非本仓的 main/dev 布局也能用。
@@ -44,6 +46,12 @@
 
     # 换一对分支（例如本地分支）
     python scripts/bridge/check_branch_divergence.py --report --left main --right dev --cwd /path/to/repo
+
+    # 分叉时附带离线合并试算（git merge-tree，回答「发版会不会冲突」）
+    python scripts/bridge/check_branch_divergence.py --report --explain
+
+    # 报告落盘（供 notify_mirror_divergence.py 拼断链卡面）
+    python scripts/bridge/check_branch_divergence.py --report --explain --out report-divergence.md
 """
 
 from __future__ import annotations
@@ -56,6 +64,10 @@ import sys
 # 有意只收这两类 —— 业务代码落后不致命（下次发版跟上即可），
 # 而作业配置落后会让**作业本身**按旧策略跑。
 JOB_PATHSPECS = ('.cnb.yml', '.github/workflows')
+
+# 独有提交清单的截断长度：分叉严重时一侧可能有几百个提交，
+# 全列会把报告（与断链卡面）撑爆，救援照抄最近的足够定位。
+COMMIT_LIST_LIMIT = 20
 
 
 def _git(args: list[str], cwd: str | None = None) -> tuple[int, str]:
@@ -104,6 +116,45 @@ def list_side_only(left: str, right: str, cwd: str | None) -> tuple[list[str], l
     return sorted(set(only_left)), sorted(set(only_right))
 
 
+def list_unique_commits(behind_ref: str, ahead_ref: str, cwd: str | None, limit: int = COMMIT_LIST_LIMIT) -> list[str]:
+    """`ahead_ref` 相对 `behind_ref` 的独有提交清单（`--oneline`，最新的在前）。
+
+    跳过 merge commit：镜像断链场景里两侧各自的 merge commit 只是症状不是内容，
+    列出来只会把真正该被 cherry-pick 的业务提交挤下去。截断到 `limit` 条，
+    最后补一行「还有 N 条」的注记 —— 救援照抄清单，不需要全量。
+    """
+    code, out = _git(['log', '--oneline', '--no-decorate', '--no-merges', f'{behind_ref}..{ahead_ref}'], cwd)
+    if code != 0 or not out:
+        return []
+    lines = out.splitlines()
+    if len(lines) > limit:
+        lines = lines[:limit] + [
+            f'…（还有 {len(lines) - limit} 条，完整清单跑 `git log --oneline {behind_ref}..{ahead_ref}`）'
+        ]
+    return lines
+
+
+def merge_dry_run(left: str, right: str, cwd: str | None) -> dict:
+    """离线试算「把 right 合并进 left」会不会冲突（`git merge-tree`，不碰工作区）。
+
+    回答 #123 卡面 §一 的问题：分叉之后，发版 PR（`dev` → `main`）还能不能干净合。
+    退出码 0 = 可干净合并；1 = 有冲突（stdout 列冲突文件）；其余 = 试算本身失败。
+    """
+    code, out = _git(['merge-tree', '--write-tree', left, right], cwd)
+    if code not in (0, 1):
+        return {'ok': None, 'conflicts': []}
+    conflicts = []
+    if code == 1:
+        # merge-tree --write-tree 的冲突段：`<mode> <sha> <path>` 之后是
+        # `CONFLICT ( ... )` 行；这里只取「出现在输出里的路径」，够定位。
+        for line in out.splitlines():
+            parts = line.split('\t')
+            if len(parts) == 2 and parts[1].strip():
+                conflicts.append(parts[1].strip())
+        conflicts = sorted(set(conflicts))
+    return {'ok': code == 0, 'conflicts': conflicts}
+
+
 def compute(left: str, right: str, cwd: str | None = None) -> dict:
     """把「谁落后谁、哪些作业只在单侧」算成结构化结果（纯函数，便于钉回归网）。"""
     left_jobs, right_jobs = list_side_only(left, right, cwd)
@@ -114,6 +165,8 @@ def compute(left: str, right: str, cwd: str | None = None) -> dict:
         'right_only': count_unique(left, right, cwd),
         'left_only_jobs': left_jobs,
         'right_only_jobs': right_jobs,
+        'left_only_commits': list_unique_commits(right, left, cwd),
+        'right_only_commits': list_unique_commits(left, right, cwd),
     }
 
 
@@ -135,6 +188,17 @@ def build_report(res: dict) -> str:
 
     lines.append(f'⚠️ **已分叉**：两侧互不包含。正常态是 `{left}` 独有提交恒为 0。')
     lines.append('')
+    for side, key, commits in (
+        (left, 'left_only_commits', res.get('left_only_commits') or []),
+        (right, 'right_only_commits', res.get('right_only_commits') or []),
+    ):
+        if commits:
+            lines.append(f'**只在 `{side}` 上的提交**（需 cherry-pick 送回另一侧，照抄即可）：')
+            lines.append('')
+            lines.append('```text')
+            lines.extend(commits)
+            lines.append('```')
+            lines.append('')
     for side, key, jobs in (
         (left, 'left_only_jobs', res['left_only_jobs']),
         (right, 'right_only_jobs', res['right_only_jobs']),
@@ -144,6 +208,19 @@ def build_report(res: dict) -> str:
             lines.append('')
             lines.extend(f'- `{p}`' for p in jobs)
             lines.append('')
+    dry = res.get('merge_dry_run')
+    if dry is not None:
+        if dry['ok'] is None:
+            lines.append('> ⚠️ 合并试算失败（`git merge-tree` 异常退出），冲突与否未知。')
+        elif dry['ok']:
+            lines.append(
+                '> ✅ 试算：把 `dev` 合进 `main` **可干净合并**（离线 `git merge-tree`，未碰工作区）——尽快发版即可闭环。'
+            )
+        else:
+            lines.append('> ⛔ 试算：发版合并**有冲突**，需先在 `dev` 解决：')
+            lines.append('>')
+            lines.extend(f'> - `{p}`' for p in dry['conflicts'])
+        lines.append('')
     lines += [
         '> 处置：**发版**（`dev` → `main` 的 PR，head 必须是 `dev` 本身）。',
         '> 不要用「把功能分支 base 改成 main」消除时间差 —— 那正是本分叉的成因（见 AGENTS.md「PR 与 Review」）。',
@@ -160,6 +237,8 @@ def run(args: argparse.Namespace) -> int:
     if args.jobs_only:
         res = {**res, 'left_only': None, 'right_only': None}
     diverged = bool(res['left_only']) or bool(res['right_only'])
+    if args.explain and diverged:
+        res['merge_dry_run'] = merge_dry_run(args.left, args.right, args.cwd)
     report = build_report(res)
     print(report)
     if args.out:
@@ -177,6 +256,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument('--right', default='origin/dev', help='集成分支（默认 origin/dev）')
     p.add_argument('--cwd', default=None, help='git 仓库路径（默认当前目录）')
     p.add_argument('--jobs-only', action='store_true', help='只看作业文件差异，不报提交数')
+    p.add_argument(
+        '--explain', action='store_true', help='分叉时离线试算发版合并会不会冲突（git merge-tree，不碰工作区）'
+    )
     p.add_argument('--out', default=None, help='报告写入文件')
     return run(p.parse_args(argv))
 

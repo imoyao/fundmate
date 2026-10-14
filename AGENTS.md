@@ -106,11 +106,17 @@
   ```
 
 - **判据机器化**：上面三条命令已固化进 `scripts/bridge/check_branch_divergence.py`
-  （只读本地 git、不联网），并挂进 `.cnb.yml` 的收尾阶段（只报告）：
+  （只读本地 git、不联网），并挂进 `.cnb.yml` 的收尾阶段：
 
   ```bash
-  python scripts/bridge/check_branch_divergence.py --report   # 退出码 1 = 已分叉
+  python scripts/bridge/check_branch_divergence.py --report            # 退出码 1 = 已分叉
+  python scripts/bridge/check_branch_divergence.py --report --explain   # 附两侧提交清单 + 发版试算
   ```
+
+  **退出码不吞**：分叉时 `.cnb.yml` 会用非零退出码触发 `notify_mirror_divergence.py`
+  建一张断链提醒卡（幂等，标题即幂等键）——crontab 的红灯没人盯，
+  只进日志等于静默停摆。stage 整体仍不拦构建（建卡才是主任务）。
+  成因侧另有 `pull_request` 反向守卫挂在 `main:` / `dev:` 之下（CNB 侧只读，直接 `exit 1`）。
 
   正常态是「`main` 领先 0、`main` 是 `dev` 的祖先」——即 `main` 始终是 `dev` 的历史前缀。
   **出现 `main` 领先 `dev` 就是分叉，无论提交数多小，都先查是不是有 PR 用错了 base。**
