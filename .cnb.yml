@@ -272,37 +272,33 @@ dev:
   # 故此处两条 cron 与 `push:` 统一为 `- name: <job 名> / stages: [...]` 形态。
   # （job 名只用于构建页展示；stage 名才是 get-build-stage 的查询锚点，两者都要写。）
 
-  # 每小时从 GitHub 拉回 **dev**（闭合 GitHub -> CNB）
-  "crontab: 0 * * * *":
-    - name: 从 GitHub 拉取（仅 dev + 标签）
-      # ⚠️ 必须用「带 name 的 job」形态（列表 + `- name:`），不要退回裸 `stages:`。
-      # 裸 stages 的 job 在构建详情里**查不到 stage**：外部看是绿的，实际推没推上去无从判断
-      # —— 比红灯更危险的「假绿」（CNB #172 实测）。命名 job 才会在详情页可见。
-      stages:
-        - name: 从 GitHub 拉取（仅 dev + 标签）
-          image: tencentcom/git-sync
-          # 凭据走**插件任务级** imports（见上方说明：必须与 image 平级，且要用 imports 才能
-          # 让 settings 里的 ${VAR} 解析；不要改回流水线级 imports，也不要改成 settingsFrom）
-          imports:
-            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
-          settings:
-            target_url: https://github.com/imoyao/fundmate.git
-            auth_type: https
-            username: ${GIT_USERNAME}
-            password: ${GITHUB_PAT}
-            sync_mode: pull
-            # ⚠️⚠️ pull 方向**同样必须写 `branch`**（CNB #167 收尾，2026-10-14）。
-            # 「pull 只拉不推、不会分叉」是**直觉错误** —— 插件源码 `entrypoint.sh` 里
-            # pull **总会** `git push origin <b> --force` 写回本地 origin；
-            # 不写 `branch` 时它走 else 分支，取 target 的**全部**分支逐个处理 ⇒
-            # **GitHub 的 `main` 被 force 覆盖到 CNB 的 `main`**（不看是否 fast-forward）。
-            # 这与既定口径直接冲突：**CNB 的 `main` 与 GitHub 的 `main` 没有任何关系**
-            # （CNB `main` 只由 CNB 自己的发版 PR 推进，既不外推也不被覆盖）。
-            # 写 `branch: dev` 后走 if 分支：只处理 `dev`，`git push origin dev --force`
-            # 只覆盖 CNB 的 `dev` —— 这正是「CNB 拉 GitHub 的代码」该有的范围。
-            # 判据已并入 `scripts/guard_git_sync_push_scope.py`（pull 形态也须显式 branch）。
-            branch: dev
-            push_tags: true
+  # ⛔ 「从 GitHub 拉取（`sync_mode: pull`）」那条 cron **已删除**（源 CNB #450，2026-10-14）。  # cross-repo-ref-allow
+  #
+  # WHY 删而不是修（实测，不是判断）：
+  #   - 插件的 pull = `git pull --rebase target <b>` + `git push origin <b> --force`，
+  #     即**把 CNB 自己的提交逐笔重放**到 GitHub 的 `dev` 之上；
+  #   - 而 CNB `dev` 相对 GitHub `dev` 有 **83 笔独有提交**，逐笔 rebase **79 笔冲突**
+  #     （只解 `docs/spec/decisions.md` 那一处，剩下 78 笔照旧）；
+  #   - 同一对分支用 **merge** 合，**零冲突**（`git merge gh/dev` 实测）。
+  #   ⇒ 内容本身完全可合，**是操作方式错了**（rebase vs merge），插件只提供 rebase。
+  #     故「解掉 decisions.md 的冲突债」解不掉这件事——它只是 79 分之一。
+  #
+  # 这条 cron 每次跑都必然红在同一个形态上（实测 2026-10-14：`cnb-b4a-1k4tbd6f2` /
+  # `cnb-907-1k4t7v3uj` 等），却一字节都拉不动 ⇒ 只是**每小时污染一次构建列表**。
+  #
+  # 取而代之（不新增 cron）：GitHub → CNB 的整段合并走**人工**的
+  # `python scripts/bridge/dev_converge.py --apply`（建 rescue 分支 + merge + 列冲突，
+  # 不碰 `dev`、不自动解冲突）——它用的正是 merge。判据见
+  # `docs/dev/github-cnb-mirror.md` §18。
+  #
+  # ⚠️ 与 CNB #167 的关系：那条决策是「pull **必须写 `branch`**（否则 force 覆盖 `main`）」，
+  # 描述的是「若启用 pull 该怎么配」。本处是**不再启用 pull**，故不与之冲突；
+  # 守卫 `scripts/guard_git_sync_push_scope.py` 的 pull 判据仍保留（防止将来有人加回裸 pull）。
+  #
+  # ⚠️ 回退姿势：要恢复拉取时**不要**只把这条 cron 贴回来——先确认
+  # `python scripts/bridge/check_cross_repo_dev_divergence.py --report` 报「无分叉」，
+  # 否则它一上线就撞回同一批冲突。
+
   # 每小时兜底：**只推 `dev`**，不再 `--all`（CNB #167 / #172）。
   # cron 事件下没有「被推的功能分支」上下文（`CNB_BRANCH` 恒为该段所挂分支），
   # 故功能分支不由 cron 兜底 —— 那条路由 `push:` 事件下的 `branch: ${CNB_BRANCH}` 覆盖。

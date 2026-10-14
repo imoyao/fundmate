@@ -18,14 +18,22 @@
  *
  * ## 这份文件钉什么
  *
- * 1. **两个方向（push / pull）的 git-sync 任务都显式写了 `branch`**，
- *    且不是 `main` / `*` / `--all`；
+ * 1. **每个方向的 git-sync 任务都显式写了 `branch`**，且不是 `main` / `*` / `--all`；
  * 2. **没有「不写 branch」的任务**——push 方向不写 = `--all`（会推 main）；
  *    **pull 方向不写 = 取 target 全分支 + `git push origin --force`（会把 GitHub
  *    的 `main` force 覆盖到 CNB 的 `main`）**，这条是 #167 收尾新加的；
  * 3. **守卫的每条判据都真会报错**（含 pull 方向的两条，本仓老规矩「守门通过 ≠ 守门有效」）；
  * 4. **`check_cnb_events.py` 认得 glob 顶层分支键**（CNB 官方文档列出的
  *    「排除 main 和 dev」写法），此前被守卫的字符集误判为非法。
+ *
+ * ## ⚠️ 2026-10-14 起仓库里**已没有** pull 任务（源 CNB #450）
+ *
+ * 那条 `sync_mode: pull` 的 cron 被删掉了：插件的 pull = `git pull --rebase` +
+ * `git push origin --force`，而 CNB `dev` 比 GitHub `dev` 多 83 笔独有提交，
+ * 逐笔 rebase **79 笔冲突**（同一对分支用 merge 合则**零冲突**）⇒ 它每次必然红、
+ * 一字节都拉不动。**守卫的 pull 判据并未删除**（防止将来有人加回裸 pull），
+ * 但**不能再用真实 `.cnb.yml` 当变异源**——故 pull 的两条探针改为喂**合成的** pull 片段。
+ * 判据仍在「当前文件里没有不合规的 git-sync 任务」这一层生效。
  *
  * ## 不做什么
  *
@@ -65,41 +73,39 @@ test("当前 .cnb.yml 通过 push 目标分支守卫", () => {
   assert.equal(r.status, 0, `守卫应当通过，实际：${r.stdout}${r.stderr}`);
 });
 
-test("两个方向的 git-sync 任务都显式写了 branch，且不是 --all 的等价写法", () => {
+test("仓库里的 git-sync 任务都显式写了 branch，且不是 --all 的等价写法", () => {
   // 逐条找 git-sync 任务块，块内必须有 branch: 且值不在禁区。
   // 只取「真在 stages 里用了 git-sync 镜像」的块——注释里提到镜像名的块（如 .mirror-job
   // 的说明、`guard_secret_imports.py` 的注解）不算任务，否则会误报「没写 branch」。
+  //
+  // ⚠️ 2026-10-14（源 CNB #450）：pull 任务已从 `.cnb.yml` 删除（见本文件头）。
+  // 故此处的下限从 4 降到 3（push dev + 两条 cron），pull 的判据改由合成片段覆盖
+  // （见下一个用例）——**不再要求真实文件里必须有一条 pull**。
   const blocks = CNB_YML.split(/\n(?=\s*- name:)/).filter((b) =>
     /^\s*image:\s*tencentcom\/git-sync\s*$/m.test(b)
   );
-  assert.ok(blocks.length >= 4, `git-sync 任务应有 4 条（push + pull + 两条 cron），实际 ${blocks.length}`);
-  let pullSeen = 0;
+  assert.ok(blocks.length >= 3, `git-sync 任务至少应有 3 条（push dev + 两条 cron），实际 ${blocks.length}`);
+  // ⚠️ 只认**真实生效的 YAML 行**：`sync_mode: pull` 出现在注释里（讲述它为什么被删）
+  // 不算「又加了 pull」——否则这条判据会被自己的说明文字咬住（本仓「注释里提到代码」
+  // 咬过守卫多次，故此处显式按行剥离注释）。
+  const stripCommentLines = (b) =>
+    b.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
+  assert.equal(
+    blocks.map(stripCommentLines).filter((b) => /^\s*sync_mode:\s*pull\s*$/m.test(b)).length,
+    0,
+    "仓库里又出现了 pull 任务 —— 它必然撞 rebase 冲突（源 CNB #450），" +
+      "要恢复须先跑 check_cross_repo_dev_divergence.py --report 确认无分叉。"
+  );
   for (const block of blocks) {
     const name = (block.match(/- name:\s*(.+)/) || [])[1] || "<无名>";
-    const isPull = /sync_mode:\s*pull/.test(block);
-    if (isPull) pullSeen += 1;
     const m = block.match(/^\s*branch:\s*(.+)$/m);
-    assert.ok(
-      m,
-      isPull
-        ? `pull 任务「${name}」没写 branch —— 插件会取 target 全分支并 ` +
-            `git push origin --force 覆盖 CNB 的 main（#167）。`
-        : `任务「${name}」没写 branch —— 插件会执行 git push --all 把 main 推上去（#172）。`
-    );
+    assert.ok(m, `任务「${name}」没写 branch —— 插件会执行 git push --all 把 main 推上去（#172）。`);
     const val = m[1].trim();
     assert.ok(
       !["main", "*", "--all", "refs/heads/main"].includes(val),
       `任务「${name}」的 branch 是禁区值 ${val}（#167/#172）。`
     );
   }
-  assert.equal(pullSeen, 1, `应恰有 1 条 pull 任务（拉 GitHub dev），实际 ${pullSeen}。`);
-  // pull 方向必须恰好是 dev：CNB 的 main 不由同步推进。
-  const pullBlock = blocks.find((b) => /sync_mode:\s*pull/.test(b));
-  assert.match(
-    pullBlock,
-    /^\s*branch:\s*dev\s*$/m,
-    "pull 任务的目标分支应为 `dev` —— CNB 的 `main` 与 GitHub 的 `main` 无关，不得被覆盖（#167）。"
-  );
 });
 
 test("守卫能抓到三种回退形态（探针：守门通过 ≠ 守门有效）", () => {
@@ -133,25 +139,46 @@ test("守卫能抓到三种回退形态（探针：守门通过 ≠ 守门有效
   );
 });
 
-test("守卫能抓到 pull 方向的两种回退（#167 收尾新判据）", () => {
-  // pull 段的 branch 行：它紧跟在 `sync_mode: pull` 之后的第一条可执行 `branch: dev`。
-  const pullBranchRe = /(sync_mode:\s*pull\n(?:[ \t]*#[^\n]*\n)*)([ \t]*)branch:\s*dev\n/;
-  assert.match(CNB_YML, pullBranchRe, "变异未生效：测试自身写坏了（pull 段的 branch: dev 没找到）。");
+test("守卫能抓到 pull 方向的两种回退（#167 判据，用合成片段）", () => {
+  // ⚠️ 源 CNB #450：仓库里已**没有** pull 任务（它必然撞 rebase 冲突，详见文件头），
+  // 故不能再拿真实 `.cnb.yml` 当变异源。守卫的 pull 判据**仍在**（防止将来有人加回
+  // 裸 pull），这里改为喂**合成的 pull 片段**，直接问「守卫认不认这个形态」。
+  //
+  // 合成片段保留真实形态的必要元素：`.cnb.yml` 顶层是**分支键**（`dev`）、
+  // 事件挂分支下、job 是「列表 + 命名 stage」（否则先被判据 4 拦掉，测不到 pull 判据）。
+  const pullFixture = (branchLine) =>
+    [
+      "dev:",
+      '  "crontab: 0 * * * *":',
+      "    - name: 从 GitHub 拉取（合成片段）",
+      "      stages:",
+      "        - name: 从 GitHub 拉取（合成片段）",
+      "          image: tencentcom/git-sync",
+      "          settings:",
+      "            target_url: https://github.com/imoyao/fundmate.git",
+      "            sync_mode: pull",
+      ...(branchLine === null ? [] : [branchLine]),
+      "            push_tags: true",
+      "",
+    ].join("\n");
 
-  // ① 删掉 pull 的 branch（回到「全分支 force 覆盖 main」形态）
-  const pullNoBranch = CNB_YML.replace(pullBranchRe, "$1");
-  assert.notEqual(pullNoBranch, CNB_YML, "变异 ① 未生效：测试自身写坏了。");
+  // ① 合规形态：pull 显式 `branch: dev` ⇒ 守卫放行（这一段正是历史配置，删掉前必须绿）。
   assert.equal(
-    runGuardOn(pullNoBranch).status,
+    runGuardOn(pullFixture("            branch: dev")).status,
+    0,
+    "pull + branch: dev 被判成不合规 —— 守卫把合法形态也拦了（假红）。"
+  );
+
+  // ② 删掉 pull 的 branch（回到「全分支 force 覆盖 main」形态）⇒ 必须红。
+  assert.equal(
+    runGuardOn(pullFixture(null)).status,
     1,
     "删掉 pull 的 branch 后守卫没报错 —— 「GitHub main 覆盖 CNB main」的形态漏网（#167）。"
   );
 
-  // ② pull 显式写 main
-  const pullToMain = CNB_YML.replace(pullBranchRe, "$1$2branch: main\n");
-  assert.notEqual(pullToMain, CNB_YML, "变异 ② 未生效：测试自身写坏了。");
+  // ③ pull 显式写 main ⇒ 必须红。
   assert.equal(
-    runGuardOn(pullToMain).status,
+    runGuardOn(pullFixture("            branch: main")).status,
     1,
     "pull 方向写 branch: main 后守卫没报错（#167）。"
   );
@@ -278,7 +305,9 @@ test("git-sync 作业挂在 `dev:` 键下（不是 `main:` 键下）", () => {
 });
 
 test("守卫能抓到「挂 main 键下推 dev」这一真实形态（探针）", () => {
-  // 复刻 CNB #269 的原始形态：把 `dev:` 段内的**三个事件**搬进 `main:` 段。
+  // 复刻 CNB #269 的原始形态：把 `dev:` 段内的 push 事件搬进 `main:` 段。
+  // ⚠️ 源 CNB #450 起 `dev:` 段只剩 push + 一条 cron（pull 那条已删），
+  // 故边界改用 push 之后**紧邻的那个事件**（`crontab: 30`），不再假定有 `crontab: 0`。
   // ⚠️ 必须产出**合法 YAML**：上一版把 dev 段整块缩进 2 格接在 `main:` 之后，
   // 结果 YAML 解析就失败了 —— 守卫因此报红，**但红在解析而不是判据上**，
   // 「摘掉判据 5 测试仍全绿」就是这么暴露的（判据自己先崩了）。
@@ -286,11 +315,14 @@ test("守卫能抓到「挂 main 键下推 dev」这一真实形态（探针）"
   const devKeyIdx = CNB_YML.search(/^dev:\s*$/m);
   const pushIdx = CNB_YML.indexOf("  push:\n", devKeyIdx);
   assert.ok(pushIdx > devKeyIdx, "变异未生效：dev 段里的 push: 没找到。");
-  const pushEnd = CNB_YML.indexOf("  \"crontab: 0 * * * *\":", pushIdx);
+  // ⚠️ 边界必须是 push 之后**紧邻的事件键**。历史上这里找的是 `crontab: 0`，
+  // 而 #450 删掉 pull 后 `dev:` 段里 push 的下一个事件变成了 `crontab: 30`
+  // —— 继续找 `crontab: 0` 会 indexOf 到 -1（或找到别的段），探针当场失效。
+  const pushEnd = CNB_YML.indexOf("  \"crontab: 30 * * * *\":", pushIdx);
   assert.ok(pushEnd > pushIdx, "变异未生效：dev 段的 push 块边界没找到。");
   const pushBlock = CNB_YML.slice(pushIdx, pushEnd);
 
-  // 1) 从 dev 段里摘掉 push 块（dev 只剩两条 cron，仍合法）
+  // 1) 从 dev 段里摘掉 push 块（dev 只剩一条 cron，仍合法）
   // 2) 把它插进 main 段末尾（main 段结束于 `dev:` 之前）
   const mutated = (
     CNB_YML.slice(0, devKeyIdx) +        // ... main 段
