@@ -485,31 +485,10 @@ def get_ledger_summary(ledger_id: int):
                 data.update(money_fund)
 
             # 类现金统计（#1137）：货基 + 逆回购 + 账户现金，口径与 XIRR 的
-            # EXCLUDED_ASSET_TYPES 一致
-            cash_like_stats = LedgerService.get_cash_like_stats(db, ledger.id, get_family_id())
-            data.update(cash_like_stats)
-            total_mv = data.get('total_market_value') or 0.0
-            #
-            # ⚠️ 「投资资产」只能减**持仓内的**类现金（货基/逆回购持仓市值）——
-            # 只有它是 total_market_value 的子集，减完仍是一个真实存在的量。
-            #
-            # 「账外类现金」= 孤儿货基/逆回购流水净额 + 账户现金（major_category='current'）。
-            # 这类**不建持仓**、不进 total_market_value，从总市值里扣掉等于减了两遍。
-            # 真机实证：账户「同花顺——银河」（id=12，stock）孤儿货基流水净额 476,951 元，
-            # 而持仓总市值仅 296,042 元 —— 旧式 `总市值 - cash_like_amount` 算出
-            # **-180,909 元**，前端环形图因此画出「投资资产 -63.2% / 现金类资产 163.2%」：
-            # 占比为负、且超过 100%，圆环被渲染成一整圈绿，与事实不符。
-            #
-            # 改后：环形图两片 = 持仓市值的一个**划分**（投资 + 持仓内类现金），
-            # 合计恒等于左侧「总资产」，两片均 ≥ 0，占比自然落在 0~100% 且合计 100%。
-            # 账外类现金仍由 `cash_like_amount` 独立对外，不参与本划分。
-            cash_like_in_positions = min(
-                cash_like_stats.get('money_fund_amount') or 0.0, total_mv
-            )
-            data['investment_amount'] = round(
-                max(0.0, total_mv - cash_like_in_positions), 2
-            )
-            data['cash_like_in_positions_amount'] = round(cash_like_in_positions, 2)
+            # EXCLUDED_ASSET_TYPES 一致；「投资 / 持仓内类现金」两片划分见
+            # `LedgerService.split_cash_like_allocation`（#1606 业务规则下沉 services）。
+            data.update(LedgerService.get_cash_like_stats(db, ledger.id, get_family_id()))
+            LedgerService.split_cash_like_allocation(data)
 
         elif ledger.ledger_type == 'bank':
             data.update(LedgerService.get_bank_stats(db, ledger.id))

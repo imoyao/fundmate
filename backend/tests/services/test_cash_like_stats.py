@@ -157,9 +157,7 @@ class TestCashLikeStats:
         # 中高风险 = 总市值 - 类现金（只剩普通基金）
         assert data['investment_amount'] == fund_mv
 
-    def test_investment_amount_never_negative_when_cash_like_exceeds_mv(
-        self, client, db, make_transaction
-    ):
+    def test_investment_amount_never_negative_when_cash_like_exceeds_mv(self, client, db, make_transaction):
         """账外类现金 > 持仓总市值时，「投资资产」不得为负（真机 #bug 回归）。
 
         真机形态（账户「同花顺——银河」id=12，stock）：
