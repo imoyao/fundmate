@@ -19,6 +19,7 @@ from app.core.db_factory import market_session_factory, user_session_factory
 from app.core.validation import parse_query
 from app.domains.products.schemas import (
     AdvisorProfileRequest,
+    FundRiskRankingRequest,
     ManagerProfileRequest,
     ProductResolveRequest,
     ProductTrendRequest,
@@ -28,6 +29,7 @@ from app.domains.products.schemas import (
 from app.services.advisor_profile import build_advisor_profile
 from app.services.fund_performance import build_fund_performance
 from app.services.fund_profile import build_fund_profile
+from app.services.fund_risk_ranking import SORTABLE_METRICS, list_by_metric
 from app.services.manager_holdings import build_manager_holdings
 from app.services.manager_profile import build_manager_profile
 from app.services.product_identity import resolve_product_identity
@@ -134,6 +136,49 @@ def fund_performance():
             abort(400, str(e))
     if data is None:
         abort(404, f'基金不存在：{fund_code}')
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/fund-risk-ranking/')
+def fund_risk_ranking():
+    """按风险指标筛同类基金（#167 · 「按指标选基」的出口）。
+
+    用户原话（CNB #167）：「用同一个标准衡量股基/混基/债基的夏普率是不是有问题」——
+    有问题，根因是**风险预算不可比**（债基年化波动 2%、股基 25%，夏普把波动当风险
+    ⇒ 债基系统性偏高）。解法不是换公式，是**同类内排序**：债基只跟债基比。
+
+    故 ``fund_type_id`` 必填，本端点**不提供跨类榜**。客户端要跨类读时，看的是
+    `fund-performance` 的 ``peer_percentiles``（「同类里排前 X%」这句话对任何类别
+    都是同一个意思），而不是把两个类别的夏普放一起排。
+
+    口径纪律：
+    - ``basis != 'acc_nav'``（跳变污染 / 样本不足）的行**默认剔除**，剔除条数回显在
+      ``excluded_distorted``——否则「榜上只有 3 只」会被读成「同类只有 3 只有数据」；
+    - 只取当前 ``caliber_version`` 的行（旧口径混排是本模块最危险的形态）；
+    - 值缺失（NULL）的行不进榜（没算出来 ≠ 排最后一名）。
+    """
+    query: FundRiskRankingRequest = parse_query(FundRiskRankingRequest)
+
+    metric = (query.metric or '').strip()
+    if metric not in SORTABLE_METRICS:
+        abort(400, f'不支持的排序指标：{metric}')
+
+    ascending = None
+    if query.order:
+        order = query.order.strip().lower()
+        if order not in ('asc', 'desc'):
+            abort(400, f'order 只能是 asc / desc：{query.order}')
+        ascending = order == 'asc'
+
+    with closing(market_session_factory()()) as db:
+        data = list_by_metric(
+            db,
+            fund_type_id=query.fund_type_id,
+            metric=metric,
+            limit=query.limit,
+            ascending=ascending,
+            include_distorted=bool(query.include_distorted),
+        )
     return jsonify({'data': data, 'message': 'ok'})
 
 

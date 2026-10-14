@@ -110,6 +110,84 @@ const riskRows = computed(() => {
 
 const hasRiskRows = computed(() => riskRows.value.some(r => r.value !== DASH));
 
+/**
+ * 同类分位（#167）：**越大越好**是统一读法（后端已按指标方向取过负）。
+ *
+ * 只在此数据显示；同类样本 < 5 时后端不出分位（缺键即降级「—」）——
+ * 2 只基金选出的「同类第一」是噪音，显示它比不显示更坏。
+ */
+const PEER_METRIC_LABEL: Record<string, string> = {
+  current_drawdown: "本轮回撤",
+  max_drawdown: "最大回撤",
+  annual_volatility: "波动率",
+  sharpe: "夏普",
+  sortino: "索提诺",
+  calmar: "卡玛",
+  upi: "UPI",
+  return_drawdown_ratio: "波回比",
+  win_rate: "胜率"
+};
+
+const peerRows = computed(() => {
+  const pcts = perf.value?.peer_percentiles;
+  if (!pcts) return [];
+  // 固定顺序（不按对象键序），否则同一页在不同 JS 引擎下顺序可能不同
+  return Object.keys(PEER_METRIC_LABEL)
+    .filter(k => pcts[k] != null)
+    .map(k => ({
+      key: k,
+      label: PEER_METRIC_LABEL[k],
+      value: pcts[k]
+    }));
+});
+
+/** 分位文案：「前 12%」比「第 88 分位」好懂；分位越高越靠前。 */
+function peerText(pct: number): string {
+  // 分位 88 ⇒ 低于它的占 88% ⇒ 它在前 12%。四舍五入到整数百分比。
+  const ahead = Math.max(1, Math.round(100 - pct));
+  return `前 ${ahead}%`;
+}
+
+/** 基准相对指标行（仅 available=true 时） */
+const benchmarkRows = computed(() => {
+  const b = perf.value?.benchmark;
+  if (!b || !b.available) return [];
+  return [
+    {
+      key: "excess",
+      label: "超额收益",
+      hint: "基金年化 − 基准年化",
+      value: fmtPct(b.excess_return),
+      digits: false
+    },
+    {
+      key: "ir",
+      label: "信息比率",
+      hint: "年化超额 / 跟踪误差；>1 说明超额比较稳定",
+      value: fmtRatio(b.information_ratio),
+      digits: false
+    },
+    {
+      key: "up",
+      label: "上行捕获",
+      hint: "基准涨时它涨多少；>100% = 涨得比基准多",
+      value: fmtPct(b.upside_capture),
+      digits: false
+    },
+    {
+      key: "down",
+      label: "下行捕获",
+      hint: "基准跌时它跌多少；<100% = 跌得比基准少",
+      value: fmtPct(b.downside_capture),
+      digits: false
+    }
+  ];
+});
+
+const hasBenchmarkRows = computed(() =>
+  benchmarkRows.value.some(r => r.value !== DASH)
+);
+
 async function load() {
   if (!props.symbol) return;
   loading.value = true;
@@ -166,6 +244,61 @@ watch(() => props.symbol, load, { immediate: true });
           </dd>
         </div>
       </dl>
+      <!-- 同类内分位（#167）：绝对值跨类别不可比，分位可跨类读 -->
+      <template v-if="peerRows.length">
+        <div class="performance-section__block-label">
+          同类分位
+          <span class="performance-section__aside">同类内排位，越大越靠前</span>
+        </div>
+        <dl class="performance-section__facts">
+          <div
+            v-for="row in peerRows"
+            :key="row.key"
+            class="performance-section__fact"
+          >
+            <dt class="performance-section__label">{{ row.label }}</dt>
+            <dd class="performance-section__value">
+              {{ peerText(row.value) }}
+            </dd>
+          </div>
+        </dl>
+      </template>
+
+      <!-- 基准相对（#167）：债基对债指数、股基对同类股基指数——按类型映射，不解析自然语言 -->
+      <template v-if="perf.benchmark">
+        <div class="performance-section__block-label">
+          对比基准
+          <span class="performance-section__aside">{{
+            perf.benchmark.name
+          }}</span>
+        </div>
+        <dl
+          v-if="perf.benchmark.available && hasBenchmarkRows"
+          class="performance-section__facts"
+        >
+          <div
+            v-for="row in benchmarkRows"
+            :key="row.key"
+            class="performance-section__fact"
+          >
+            <dt class="performance-section__label" :title="row.hint">
+              {{ row.label }}
+            </dt>
+            <dd class="performance-section__value">{{ row.value }}</dd>
+          </div>
+        </dl>
+        <!-- 基准选定但序列缺：显式说明，不退回沪深300 顶替（那会让用户读不到「没比过」） -->
+        <p v-else class="performance-section__hint">
+          {{ perf.benchmark.reason || "基准数据暂不可用" }}
+        </p>
+        <p class="performance-section__footnote">
+          基准按基金类型映射（{{ perf.benchmark.matched_by }}）
+          <template v-if="perf.benchmark.sample_points">
+            · 共同交易日 {{ perf.benchmark.sample_points }} 天</template
+          >
+        </p>
+      </template>
+
       <p class="performance-section__footnote">
         数据来源：{{ perf.source
         }}<template v-if="perf.as_of"> · 截至 {{ perf.as_of }}</template>

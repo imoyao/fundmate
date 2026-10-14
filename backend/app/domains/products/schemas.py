@@ -133,3 +133,18 @@ class RelatedSymbolsRequest(BaseModel):
         max_length=50,
         description='产品代码（带前缀形态如 SH510300 或裸代码 510300 均可）',
     )
+
+
+class FundRiskRankingRequest(BaseModel):
+    """`GET /api/products/fund-risk-ranking/` 的查询参数（#167 · 按风险指标筛同类）。
+
+    ``fund_type_id`` **必填**：风险比跨类别不可比（债基波动天生小 ⇒ 夏普系统性偏高），
+    所以榜单必须限定在同一类内。**不提供「不传就全市场」的默认**——那种默认一定会被
+    误用成跨类榜，而那正是用户担心的事。
+    """
+
+    fund_type_id: int = Field(..., ge=1, description='基金类型 ID（同类分组键，必填）')
+    metric: str = Field(..., min_length=1, max_length=40, description='排序指标（白名单见后端 SORTABLE_METRICS）')
+    limit: Optional[int] = Field(None, ge=1, description='条数上限（默认 20，硬上限 200）')
+    order: Optional[str] = Field(None, description='asc / desc；不给则用指标默认方向')
+    include_distorted: bool = Field(False, description='是否纳入口径可疑（净值跳变/样本不足）的行')
