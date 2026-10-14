@@ -30,7 +30,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from app.services.fund_metrics import compute_max_drawdown
@@ -308,6 +308,124 @@ def win_rate(
         return None
     ups = sum(1 for r in rets if r > 0)
     return round(ups / len(rets) * 100, 2)
+
+
+# ── 拟涨幅2（#167 收尾 · 参考源自创指标）────────────────────────────────────────
+#
+# 口径与出处（源 CNB #167，原文「拟涨幅」的再次讨论，逐字核对）：
+#
+#   1 月 / 3 月 / 6 月 / 1 年这四个**滚动涨幅**彼此**重叠**（近1年区间包含了近6月），
+#   直接加权等于把同一段行情数了多遍。故先把它们拆成四段**互不重叠**的收益：
+#       p1 = r1                                  （近 1 月这一段）
+#       p2 = (1+r2)/(1+r1) − 1                   （1~3 月这一段）
+#       p3 = (1+r3)/(1+r2) − 1                   （3~6 月这一段）
+#       p4 = (1+r4)/(1+r3) − 1                   （6~12 月这一段）
+#   四段合起来正好是**一整年**，且不重不漏。
+#   2. 按「越近权重越高」加权（远→近 0.1 / 0.2 / 0.3 / 0.4，和为 1）：
+#       拟涨幅2 = (1+0.4·p1)(1+0.3·p2)(1+0.2·p3)(1+0.1·p4) − 1
+#
+#   ⚠️ 是**连乘**而非加权求和：乘法对应复利（先涨 50% 再跌 30% ≠ 净 20%），
+#   且保证「四段全 0 → 结果 0」与「单调性」两条性质。
+#
+# **为什么只实现「拟涨幅2」而不做原版「拟涨幅」**：原版要 K 值把不同周期的涨幅
+# 统一到年频，而**K 值的定义在可得的公开材料里查不到**（调研卡 §2/§6 均记为
+# 「K 系数需定义」，原文《自创指标："拟涨幅"》抓取只得到登录墙 stub）。
+# 按 data-strategy 的口径纪律，**不猜一个系数**——猜出来的 K 会让这个指标
+# 看起来有数、实际不可复核。故原版仍留在「待拍板」清单里。
+
+#: 拟涨幅2 的四段权重（远→近）。和为 1，改这里即改变口径，**必须同步更新
+#: `SHAPE_GAIN2_BASIS`**，否则随值下发的口径说明会与实现脱节。
+SHAPE_GAIN2_WEIGHTS: Tuple[float, ...] = (0.1, 0.2, 0.3, 0.4)
+
+#: 四段的分界（自然日）。近 1 月 / 3 月 / 6 月 / 1 年，与参考站「滚动收益率」的
+#: 20 / 60 / 120 / 250 交易日口径**不同**——此处按自然日定位起点，因为净值是
+#: 按自然日发布的序列；交易日口径会在长假前后漂移，而本指标的价值在于跨基金可比。
+SHAPE_GAIN2_SPANS: Tuple[int, ...] = (30, 90, 180, 365)
+
+SHAPE_GAIN2_BASIS = (
+    '四段互不重叠的区间收益加权连乘（权重远→近 '
+    + '/'.join(f'{w}' for w in SHAPE_GAIN2_WEIGHTS)
+    + '）；不含无风险利率，跨类别不可直接比'
+)
+
+#: 四段都要有足够样本，否则整指标不出值（诚实降级，不缩窗口凑数）。
+_SHAPE_GAIN2_MIN_POINTS = 5
+
+
+def shape_gain2(
+    points: Sequence[Tuple[date, Optional[float]]],
+    *,
+    as_of: Optional[date] = None,
+) -> Optional[Dict[str, Any]]:
+    """拟涨幅2（%）：四个**互不重叠**区间收益的加权连乘（见上方口径块）。
+
+    为什么要去重叠：近 1 月 / 3 月 / 6 月 / 1 年这四个滚动涨幅彼此包含，
+    直接加权会把同一段行情数上多遍（近 1 月的行情在四个数里各出现一次）。
+
+    Args:
+        points: 升序 ``(日期, 净值)``；非法点（None / ≤0）由内部剔除。
+        as_of: 计算基准日；默认取序列最后一点。**与 `fund_performance` 的现算路径
+            共用同一业务日**，避免同页两处数字差一天。
+
+    Returns:
+        ``{'shape_gain2', 'segments', 'basis'}``；段样本不足时返回 ``None``
+        （**不缩窗口凑数**——那样「成立 2 个月的基金」会得到一个看起来很正常的数）。
+        `segments` 是四段的原始收益（%），随值下发供复核。
+    """
+    series = _clean(points)
+    if as_of is not None:
+        series = [(d, v) for d, v in series if d <= as_of]
+    if len(series) < _SHAPE_GAIN2_MIN_POINTS:
+        return None
+
+    end_date, end_nav = series[-1]
+
+    # 每个分界日取「≥ 该日的首个点」，与 fund_performance._interval_return 同一手法
+    # （不插值、不就近取——净值只在发布日存在，插值出来的点是编的）。
+    #
+    # ⚠️ **序列起点晚于 target 时必须回 None**（不是「退化取首点」）：
+    # 成立才 3 个月的基金，`_nav_at(365)` 若退化取首点，这段就变成了「成立以来」，
+    # 而它还要和其它三段加权连乘 ⇒ 结果既不是「近一年」也不是「成立以来」，
+    # 是个无意义却看着正常的数。这正是「历史不足一年 ⇒ 不出值」的判据所在。
+    first_date = series[0][0]
+
+    def _nav_at(days_back: int) -> Optional[float]:
+        target = end_date - timedelta(days=days_back)
+        if first_date > target:
+            return None
+        for d, v in series:
+            if d >= target:
+                return v
+        return None
+
+    # 四个分界日的净值。任一段取不到 ⇒ **整指标不出值**（不拿 0 / 不拿成立以来顶替）：
+    # 近 1 年那段用「成立以来」凑的话，r4 与其它段的口径就不一致了，而四个数还要
+    # 加权连乘——掺一个口径不同的数进去，结果既不是「近一年」也不是「成立以来」。
+    navs: List[Optional[float]] = [_nav_at(s) for s in SHAPE_GAIN2_SPANS]
+    if any(nav is None or nav <= 0 for nav in navs):
+        return None
+
+    # 滚动涨幅 r1..r4（%）
+    rolling: List[float] = [(end_nav / nav - 1) * 100 for nav in navs]  # type: ignore[operator]
+
+    # 去重叠：p1 = r1；p_i = (1+r_i)/(1+r_{i-1}) − 1
+    prev = 0.0
+    segments: List[float] = []
+    for r in rolling:
+        segments.append((1 + r / 100) / (1 + prev / 100) - 1)
+        prev = r
+
+    # 加权连乘。段序是「近 → 远」，权重表也按「近 → 远」给出（0.4 给最近的 p1）。
+    weights = SHAPE_GAIN2_WEIGHTS[::-1]  # 权重表是「远→近」，此处按段序「近→远」对齐
+    value = 1.0
+    for seg, w in zip(segments, weights):
+        value *= 1 + w * seg
+
+    return {
+        'shape_gain2': round((value - 1) * 100, 4),
+        'segments': [round(s * 100, 4) for s in segments],
+        'basis': SHAPE_GAIN2_BASIS,
+    }
 
 
 # ── 基准相对指标 ──────────────────────────────────────────────────────────────

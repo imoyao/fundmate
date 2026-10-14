@@ -20,6 +20,7 @@ from app.core.validation import parse_query
 from app.domains.products.schemas import (
     AdvisorProfileRequest,
     FundRiskRankingRequest,
+    FundRiskTypesRequest,
     ManagerProfileRequest,
     ProductResolveRequest,
     ProductTrendRequest,
@@ -29,7 +30,7 @@ from app.domains.products.schemas import (
 from app.services.advisor_profile import build_advisor_profile
 from app.services.fund_performance import build_fund_performance
 from app.services.fund_profile import build_fund_profile
-from app.services.fund_risk_ranking import SORTABLE_METRICS, list_by_metric
+from app.services.fund_risk_ranking import SORTABLE_METRICS, list_by_metric, list_fund_types
 from app.services.manager_holdings import build_manager_holdings
 from app.services.manager_profile import build_manager_profile
 from app.services.product_identity import resolve_product_identity
@@ -179,6 +180,24 @@ def fund_risk_ranking():
             ascending=ascending,
             include_distorted=bool(query.include_distorted),
         )
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/fund-risk-types/')
+def fund_risk_types():
+    """列出**当前有榜**的基金小类（#167 · 榜单页的类型选择器）。
+
+    为什么单开一个端点而不是让前端列举 `fund_types` 名录：名录里有些类型
+    一只基金都没算过（样本不足 / 口径不适用），选中它们只会看到空榜——
+    而用户分不清「这个类没有基金」与「我们没算」。故只交出有快照行的类型，
+    并带上样本数（快照表按类型聚合，不做全表扫描）。
+
+    与 `/fund-risk-ranking/` 是**同一族的两个出口**：这个回答「能看什么」，
+    那个回答「看了是什么」。`fund_type_id` 在那个端点必填，正是本端点存在的理由。
+    """
+    query: FundRiskTypesRequest = parse_query(FundRiskTypesRequest)
+    with closing(market_session_factory()()) as db:
+        data = list_fund_types(db, caliber_version=query.caliber_version)
     return jsonify({'data': data, 'message': 'ok'})
 
 

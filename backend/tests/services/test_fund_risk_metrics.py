@@ -18,6 +18,7 @@ from app.services.fund_risk_metrics import (
     current_drawdown,
     detect_jumps,
     drawdown_series,
+    shape_gain2,
     ulcer_index,
     win_rate,
 )
@@ -326,3 +327,110 @@ def test_compute_risk_metrics_ships_drawdown_caliber():
     assert r.drawdown_days == 1
     assert r.max_drawdown_peak_date is not None
     assert r.max_drawdown_trough_date is not None
+
+
+# ── 拟涨幅2（#167 收尾）──────────────────────────────────────────────────────
+
+
+def _daily_flat_return_series(daily_pct: float, days: int = 400, start=D0):
+    """构造日复利序列（每天的收益率为 daily_pct%），用于可手算的拟涨幅2 断言。"""
+    values = [1.0]
+    for _ in range(days):
+        values.append(values[-1] * (1 + daily_pct / 100))
+    return _series(values, start=start)
+
+
+def test_shape_gain2_equal_segments_is_weighted_product():
+    """四段各 +10% ⇒ 连乘加权，结果 = (1+0.4·.1)(1+0.3·.1)(1+0.2·.1)(1+0.1·.1)−1。
+
+    这是「算得对」的判据：**连乘而非加权求和**。写成 0.4+0.3+0.2+0.1 的加权平均
+    会得到 10.00%（而不是 10.355%），本用例会红。
+    """
+    # 每天恒定涨，四段涨幅必然相同（复利下四段略不等，故直接构造分段数据）
+    from datetime import date as _d
+
+    end = _d(2021, 12, 31)
+    # 四个分界点：end-365/180/90/30，各段 +10%
+    navs = {365: 1.0, 180: 1.1, 90: 1.21, 30: 1.331}
+    pts = [(end - timedelta(days=366), 1.0)]
+    for back, nav in navs.items():
+        pts.append((end - timedelta(days=back), nav))
+    pts.append((end, 1.331 * 1.1))
+
+    out = shape_gain2(pts)
+    assert out is not None
+    expected = 1.0
+    for w in (0.4, 0.3, 0.2, 0.1):
+        expected *= 1 + w * 0.10
+    assert out['shape_gain2'] == pytest.approx((expected - 1) * 100, abs=0.02)
+
+
+def test_shape_gain2_deoverlaps_segments():
+    """去重叠：四段收益互不包含，故四段的**复合** = 整年涨幅。
+
+    这条钉住「p_i = (1+r_i)/(1+r_{i-1})−1」那步**确实做了**：若直接把滚动
+    r1..r4 当 p1..p4 用，近 1 月的行情会被算四遍（segments 里会出现四个
+    同量级的正数），复合并后会远大于整年涨幅，本用例即红。
+    """
+    from datetime import date as _d
+
+    end = _d(2021, 12, 31)
+    # 四段各 +5%，故整年 = 1.05^4 − 1
+    pts = [
+        (end - timedelta(days=400), 1.0),  # 早于一年前，只为让 365 段有落点
+        (end - timedelta(days=365), 1.0),
+        (end - timedelta(days=180), 1.05),
+        (end - timedelta(days=90), 1.05**2),
+        (end - timedelta(days=30), 1.05**3),
+        (end, 1.05**4),
+    ]
+    out = shape_gain2(pts)
+    assert out is not None
+    segs = out['segments']
+    assert len(segs) == 4
+    for s in segs:
+        assert s == pytest.approx(5.0, abs=0.01), '每段应恰为 +5%（去重叠后不重复计数）'
+    compounded = 1.0
+    for s in segs:
+        compounded *= 1 + s / 100
+    assert (compounded - 1) * 100 == pytest.approx(21.550625, abs=0.02)
+
+
+def test_shape_gain2_none_when_history_under_one_year():
+    """历史不足一年 ⇒ None（**不拿成立以来凑**）：掺一个口径不同的数进去，
+    结果既不是「近一年」也不是「成立以来」。"""
+    pts = _daily_flat_return_series(0.05, days=100)
+    assert shape_gain2(pts) is None
+
+
+def test_shape_gain2_flat_nav_yields_zero():
+    """净值不动 ⇒ 四段全 0 ⇒ 结果 0（而非 None）：0 是诚实结论，不是缺数据。"""
+    out = shape_gain2(_flat(400))
+    assert out is not None
+    assert out['shape_gain2'] == pytest.approx(0.0, abs=1e-6)
+    assert out['segments'] == [0.0, 0.0, 0.0, 0.0]
+
+
+def test_shape_gain2_respects_as_of():
+    """`as_of` 之后的点不参与——与 fund_performance 的业务日口径一致。
+
+    ⚠️ 必须用**非恒定增长**的序列：日复利恒定增长时，任何 as_of 下的四段比值
+    都相同（数学上必然相等），拿它测 as_of 会得到「两条路都对」的假绿。
+    这里构造「前 400 天涨 1 倍、后 400 天平」，截断点落在后半段 ⇒ 结果必然不同。
+    """
+    from datetime import date as _d
+    from datetime import timedelta as _td
+
+    D = _d(2020, 1, 1)
+    values = [1.0]
+    for i in range(1, 801):
+        step = 0.002 if i <= 400 else 0.0  # 前半段涨、后半段平
+        values.append(values[-1] * (1 + step))
+    pts = [(D + _td(days=i), v) for i, v in enumerate(values)]
+
+    full = shape_gain2(pts)
+    # 截到倒数第 61 个点（仍有 ~739 天历史）：此时最后一日落在「平段」
+    truncated = shape_gain2(pts, as_of=pts[-61][0])
+    assert full is not None and truncated is not None
+    assert full['shape_gain2'] != truncated['shape_gain2']
+    assert truncated['segments'] != full['segments']

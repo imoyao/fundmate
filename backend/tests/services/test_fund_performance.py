@@ -484,7 +484,14 @@ def _fake_db_with_bench(fund, daily_rows, bench_rows, peer_rows=None):
 
 
 def test_benchmark_mapped_for_bond_fund(monkeypatch):
-    """债基映射到债券族基准，且**不是**沪深300 —— 这是「分类别参照」的核心。"""
+    """债基映射到债券族基准，且**不是**沪深300 —— 这是「分类别参照」的核心。
+
+    断言用 `BENCH_BOND_FUND` 常量而非写死代码：映射的具体标的会变
+    （2026-10-14 由源侧无序列的 `885005.WI` 换成 `H11001.CSI`），
+    不变的是「债基有一个**取得到序列**的债券族基准」这件事本身。
+    """
+    from app.services.fund_benchmark import BENCH_BOND_FUND
+
     today = date(2026, 10, 9)
     monkeypatch.setattr('app.services.fund_performance.today_shanghai', lambda: today)
     rows = _monotonic_rows(today)
@@ -495,7 +502,7 @@ def test_benchmark_mapped_for_bond_fund(monkeypatch):
 
     assert out['benchmark'] is not None
     b = out['benchmark']
-    assert b['code'].startswith('8850')  # 万得债券系
+    assert b['code'] == BENCH_BOND_FUND
     assert b['code'] != '000300.SH'
     assert b['matched_by']
     # 原始序列是内部实现，不得下发（前端不该自己算，也不该被 500 个点撑爆响应）
@@ -515,7 +522,14 @@ def test_benchmark_none_for_index_fund(monkeypatch):
 
 
 def test_benchmark_reports_unavailable_when_series_missing(monkeypatch):
-    """映射成立但序列取不到 ⇒ available=False + 原因，**不退回别的指数**。"""
+    """映射成立但序列取不到 ⇒ available=False + 原因，**不退回别的指数**。
+
+    构造手法：债基基准（`BENCH_BOND_FUND`）映射成立，但「库里没有它的日线」
+    （`_fake_db_with_bench` 传空基准序列）——这正是「尚未跑同步 / 源侧未收录」
+    的真实形态。断言用 `BENCH_BOND_FUND` 常量而非写死代码，映射换标的时本用例不失效。
+    """
+    from app.services.fund_benchmark import BENCH_BOND_FUND
+
     today = date(2026, 10, 9)
     monkeypatch.setattr('app.services.fund_performance.today_shanghai', lambda: today)
     db = _fake_db_with_bench(_Fund('债券型-长期纯债'), _monotonic_rows(today), [])
@@ -524,7 +538,7 @@ def test_benchmark_reports_unavailable_when_series_missing(monkeypatch):
     assert b is not None
     assert b['available'] is False
     assert b['reason']
-    assert 'code' in b and b['code'].startswith('8850')
+    assert b['code'] == BENCH_BOND_FUND
 
 
 def test_benchmark_block_carries_relative_metrics(monkeypatch):
@@ -571,3 +585,33 @@ def test_peer_percentile_failure_does_not_break_the_block(monkeypatch):
     assert out is not None
     assert out['peer_percentiles'] is None
     assert out['applicable'] is True
+
+
+def test_shape_gain2_present_in_payload(monkeypatch):
+    """拟涨幅2 随表现卡下发（#167 收尾）；历史不足一年时为 None 而**不是缺席**。
+
+    缺席与 null 的区别：前端拿到 null 才知道「这个位置本该有值、只是没算出来」，
+    字段直接不在时它只能猜是「这个品类没有这项」还是「这次没取到」。
+    """
+    today = date(2026, 10, 9)
+    monkeypatch.setattr('app.services.fund_performance.today_shanghai', lambda: today)
+    # 48 个月 ≈ 4 年 ⇒ 有 ≥365 天历史，拟涨幅2 应出值
+    rows = _monotonic_rows(today, months=48)
+    db = _fake_db_with_bench(_Fund('股票型'), rows, [])
+    out = build_fund_performance(db, '000001')
+    assert 'shape_gain2' in out
+    assert out['shape_gain2'] is not None
+    assert 'shape_gain2' in out['shape_gain2']
+    assert len(out['shape_gain2']['segments']) == 4
+
+
+def test_shape_gain2_none_when_short_history(monkeypatch):
+    """历史不足一年：key 在、值为 None（不拿别的口径凑）。"""
+    today = date(2026, 10, 9)
+    monkeypatch.setattr('app.services.fund_performance.today_shanghai', lambda: today)
+    # 4 个月 ⇒ 历史不足一年
+    rows = _monotonic_rows(today, months=4)
+    db = _fake_db_with_bench(_Fund('股票型'), rows, [])
+    out = build_fund_performance(db, '000001')
+    assert 'shape_gain2' in out
+    assert out['shape_gain2'] is None

@@ -138,3 +138,54 @@ def test_only_same_type_returned(client, db):
 
     resp = client.get(f'{URL}?fund_type_id=7&metric=sharpe')
     assert [r['fund_code'] for r in resp.get_json()['data']['rows']] == ['000001']
+
+
+TYPES_URL = '/api/products/fund-risk-types/'
+
+
+def _seed_type(type_id, name):
+    """落一行 `fund_types` 小类（幂等）。"""
+    from app.domains.funds.models import FundType
+
+    with closing(market_session_factory()()) as db:
+        db.query(FundType).filter(FundType.id == type_id).delete()
+        db.add(FundType(id=type_id, name=name))
+        db.commit()
+
+
+def test_types_lists_only_types_with_rows(client, db):
+    """选择器只交出发出过快照的类型——没算过的类选中就是空榜，用户分不清原因。
+
+    这是本端点存在的理由：`fund_types` 名录里有些类型一只都没算过（样本不足 /
+    口径不适用），对它们「有没有基金」与「我们没算」在界面上长得一样。
+    """
+    _seed('000001', 7, 1.0)
+    _seed('000002', 7, 2.0)
+    _seed('000003', 8, 1.0)
+    _seed_type(7, '混合型-偏股')
+    _seed_type(8, '债券型-长期纯债')
+    _seed_type(9, '货币型')  # 名录里有，但一只都没算 ⇒ 不该出现
+
+    resp = client.get(TYPES_URL)
+    assert resp.status_code == 200
+    data = resp.get_json()['data']
+    ids = [t['fund_type_id'] for t in data['types']]
+    assert ids == [7, 8], '应按样本数降序（7 有 2 只、8 有 1 只），且不含没数据的 9'
+    assert data['types'][0] == {'fund_type_id': 7, 'name': '混合型-偏股', 'count': 2}
+    assert data['caliber_version'] == CALIBER_VERSION
+
+
+def test_types_excludes_distorted_rows(client, db):
+    """口径可疑的行不算「这个类有货」——否则点进去还是空榜（与榜单同一条纪律）。"""
+    _seed('000001', 7, 1.0, basis='distorted')
+
+    data = client.get(TYPES_URL).get_json()['data']
+    assert [t['fund_type_id'] for t in data['types']] == []
+
+
+def test_types_name_falls_back_without_inventing(client, db):
+    """`fund_types` 缺该 id 时回退 `类型#<id>`，**不编造名称**（同名名录里的假名更糟）。"""
+    _seed('000001', 4242, 1.0)
+
+    data = client.get(TYPES_URL).get_json()['data']
+    assert data['types'] == [{'fund_type_id': 4242, 'name': '类型#4242', 'count': 1}]

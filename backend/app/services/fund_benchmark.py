@@ -48,32 +48,33 @@ from typing import Dict, List, Optional
 BENCH_EQUITY_FUND = '885000.WI'  # 万得普通股票型基金指数
 BENCH_HYBRID_FUND = '885001.WI'  # 万得偏股混合型基金指数
 BENCH_BALANCED_HYBRID_FUND = '885002.WI'  # 万得平衡混合型基金指数
-BENCH_BOND_FUND = '885005.WI'  # 万得债券型基金指数（⚠️ 源侧未收录，见「已知缺口」）
+# 债券族基准：**中证全债指数**（中证官网 `.CSI` 路，真实收盘，2005 年至今 5287 条）。
+#
+# ⚠️ 为什么不是「万得债券型基金指数」885005.WI：它在韭圈儿**源侧未收录**
+# （2026-10-14 二次复核仍为空序列，见 `index_daily_job.WIND_INDEX_TARGETS` 的 ⏳）。
+# 把一个**取不到序列**的代码挂在映射上，前端只能显示「基准已选定但暂无数据」——
+# 映射看着完整，用户实际拿不到任何参照。中证全债是**真实的债券市场全价指数**，
+# 比 885005.WI（同类基金加权）更适合回答「债基跑赢债市了吗」，且数据就在手边。
+BENCH_BOND_FUND = 'H11001.CSI'  # 中证全债指数（中证官网日线）
 # 交易所以内（.SH/.SZ）：宽基，腾讯源真实收盘。
 BENCH_HS300 = '000300.SH'  # 沪深300
 BENCH_CSI500 = '000905.SH'  # 中证500
 BENCH_CSI1000 = '000852.SH'  # 中证1000
 BENCH_CSI2000 = '932000.CSI'  # 中证2000（中证官网日线，见 index_daily_job）
-BENCH_SSE_GOV_BOND = '000012.SH'  # 上证国债指数 —— 纯债类基准的近似（见缺口说明）
+BENCH_SSE_GOV_BOND = '000012.SH'  # 上证国债指数（纯债类的近似旁证，当前映射未使用）
 
 # 代码 → 展示名。单一真相源在后端，前端直接展示，不再抄一份映射（同 #1425 的做法）。
 BENCHMARK_LABELS: Dict[str, str] = {
     BENCH_EQUITY_FUND: '万得普通股票型基金指数',
     BENCH_HYBRID_FUND: '万得偏股混合型基金指数',
     BENCH_BALANCED_HYBRID_FUND: '万得平衡混合型基金指数',
-    BENCH_BOND_FUND: '万得债券型基金指数',
+    BENCH_BOND_FUND: '中证全债指数',
     BENCH_HS300: '沪深300',
     BENCH_CSI500: '中证500',
     BENCH_CSI1000: '中证1000',
     BENCH_CSI2000: '中证2000',
     BENCH_SSE_GOV_BOND: '上证国债指数',
 }
-
-# 已登记但**当下取不到序列**的基准（源侧未收录 / 待补抓）。
-# 用在 `resolve()` 的返回值里当 `unavailable=True`：前端据此显示「暂无基准」而不是
-# 「基准算不出来」。**不许**在这些代码上退回沪深300——债基对沪深300 的超额收益是负的
-# 且没有意义，用户会真的去读那个数。
-_UNAVAILABLE_BENCHES = {BENCH_BOND_FUND}
 
 
 @dataclass(frozen=True)
@@ -83,7 +84,12 @@ class BenchmarkChoice:
     code: str  # 指数代码（== index_daily.index_code）
     name: str  # 展示名
     matched_by: str  # 命中的规则名（口径留痕：用户可复核「凭什么拿它比」）
-    unavailable: bool = False  # True = 映射成立但序列取不到（前端降级「暂无基准」）
+
+    # 注：这里**刻意没有** `unavailable` 字段（2026-10-14 删除）。它原用于标「映射成立
+    # 但源侧未收录」的基准（885005.WI 那类），而那一形态与「已同步但序列暂缺」在
+    # 前端是**同一种降级**（`available: false` + 各自的 reason），由 `_benchmark_payload`
+    # 按 `load_index_points` 的实际结果判定即可，不需要映射表额外标一遍。
+    # 留着它就得靠 monkeypatch 才跑得到分支——那正是「看起来在兜底、其实恒假」的死代码。
 
 
 # ── 映射规则表（**有序**：靠前先命中）────────────────────────────────────────
@@ -106,15 +112,15 @@ _RULES: List[tuple] = [
     #
     # 这两条**不是**「反正后面也匹配不到」的摆设：去掉它，下面的债券族会把
     # 「指数型-债券」捡成「比同类债基」——而指数债基该比的是它跟踪的那只指数。
-    # 变异探针实测确认（删掉规则后 `resolve('指数型-债券')` 变成 885005.WI），
+    # 变异探针实测确认（删掉规则后 `resolve('指数型-债券')` 变成债券族基准），
     # 故有 `test_index_bond_fund_not_mapped_to_peer_bond_fund` 钉住。
     ('指数型（跟踪标的不明，不猜）', ('指数',), None),
     ('ETF（跟踪标的不明，不猜）', ('ETF', '联接'), None),
     # ── 债券族（必须先于「混合」）──
     ('转债基金 → 可转债等权（暂未收录，降级）', ('可转债',), None),
-    ('纯债 / 中长期纯债 → 万得债券型基金指数', ('债', '纯债'), BENCH_BOND_FUND),
-    ('债券型 → 万得债券型基金指数', ('债券',), BENCH_BOND_FUND),
-    ('偏债混合 → 万得债券型基金指数', ('偏债',), BENCH_BOND_FUND),
+    ('纯债 / 中长期纯债 → 中证全债指数', ('债', '纯债'), BENCH_BOND_FUND),
+    ('债券型 → 中证全债指数', ('债券',), BENCH_BOND_FUND),
+    ('偏债混合 → 中证全债指数', ('偏债',), BENCH_BOND_FUND),
     # ── 权益族 ──
     ('股票型 → 万得普通股票型基金指数', ('股票型',), BENCH_EQUITY_FUND),
     ('偏股混合 → 万得偏股混合型基金指数', ('偏股',), BENCH_HYBRID_FUND),
@@ -155,7 +161,6 @@ def resolve(fund_type_name: Optional[str], variety_name: Optional[str] = None) -
             code=code,
             name=BENCHMARK_LABELS.get(code, code),
             matched_by=rule_name,
-            unavailable=code in _UNAVAILABLE_BENCHES,
         )
     return _FALLBACK
 
