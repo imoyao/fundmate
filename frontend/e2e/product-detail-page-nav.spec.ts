@@ -301,6 +301,35 @@ test.describe("详情页页内导航（#1968）", () => {
     expect(txnRequests).toEqual([]);
   });
 
+  test("基金经理字段缺失：降级为「—」，不抛错不消失（#2191）", async ({
+    page
+  }) => {
+    // #2191：模板曾裸取 profile.managers.length，fund-profile 响应缺该字段时
+    // 渲染抛 TypeError。Vue 把渲染错误吞进子组件（父级透传的 #nav-fund 锚点
+    // 可能还在），整块基金资料渲染成空、页面无可见报错——本用例钉两条：
+    // ① 基金经理行降级为「—」（与基金类型/规模等字段同一契约，见
+    //    FundProfileResult「字段缺失一律为 null，前端据此降级」）；
+    // ② 加载全程零 pageerror。
+    // 反向验证：把模板改回 profile.managers.length → 本用例红。
+    const pageErrors: string[] = [];
+    page.on("pageerror", e => pageErrors.push(e.message));
+
+    await page.goto(`/#/fund/${SYMBOL}`);
+    await expect(page.locator(".page-nav")).toBeVisible({ timeout: 60_000 });
+
+    // 先证明桩接上了：区块必须渲染真实内容而非「暂无可展示」空态——
+    // 取数失败时下面的断言会假绿，所以先钉死这一条
+    const fund = page.locator("#nav-fund");
+    await expect(fund).toBeVisible();
+    await expect(fund.locator(".fund-section__hint")).toHaveCount(0);
+
+    await expect(
+      fund.locator(".fund-section__fact", { hasText: "基金经理" })
+    ).toContainText("—");
+
+    expect(pageErrors).toEqual([]);
+  });
+
   test("点击胶囊滚动到目标区块且 active 随动", async ({ page }) => {
     await page.goto(`/#/fund/${SYMBOL}`);
     await expect(page.locator(".page-nav")).toBeVisible({ timeout: 60_000 });
