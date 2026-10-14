@@ -138,6 +138,56 @@ export interface FundPerformanceResult {
   annual_return_7d?: number | null;
   /** 货基：万份收益(元)（仅 fund_kind=money） */
   nav_per_10k?: number | null;
+
+  // ── 风险指标块（#167）────────────────────────────────────────────────
+  // 仅在 fund_kind="fund" 且 applicable=true 时存在。货基没有净值型风险口径，
+  // 该块**不出现**而不是显示成「—」（避免误读「货币也跌了」）。
+  // 数值来源：每日 fund_risk_metrics 快照；快照缺失 / 口径版本过期 / 落后于最新净值时
+  // 后端回退现算，两条路径数字逐位相等（见后端 `test_snapshot_and_computed_paths_agree_digit_for_digit`）。
+  /** 本轮回撤(%)：当前所处回撤区间（最近一次新高 → 最新一日）。0 = 正在新高，负 = 还在坑里 */
+  current_drawdown?: number | null;
+  /** 本轮回撤起点（最近一次净值新高日）YYYY-MM-DD */
+  current_drawdown_peak_date?: string | null;
+  /** 本轮自高点起熬过的自然日数（用户体感的是日历，不是 K 线根数） */
+  current_drawdown_days?: number | null;
+  /** 最大回撤高点日 YYYY-MM-DD */
+  max_drawdown_peak_date?: string | null;
+  /** 最大回撤低点日 YYYY-MM-DD */
+  max_drawdown_trough_date?: string | null;
+  /** 年化收益(%)（窗口与 risk_window 一致） */
+  annual_return?: number | null;
+  /** 年化波动率(%)——注意与上方「近1年」的 volatility_1y **窗口不同** */
+  annual_volatility?: number | null;
+  /** 夏普：(年化−rf)/年化波动。把上涨也算成风险，作参照用 */
+  sharpe?: number | null;
+  /** 索提诺：只罚下行波动（比夏普更贴买方） */
+  sortino?: number | null;
+  /** 卡玛：年化/|最大回撤| */
+  calmar?: number | null;
+  /** 溃疡指数 UI(%)：看整段煎熬而非单个最深处 */
+  ulcer_index?: number | null;
+  /** UPI：年化/UI（参考方简化式） */
+  upi?: number | null;
+  /** 波回比：年化/(波动×|最大回撤率|) */
+  return_drawdown_ratio?: number | null;
+  /** 胜率(%) */
+  win_rate?: number | null;
+  /** 胜率周期 day/week/month */
+  win_rate_period?: string | null;
+  /** 胜率是否基于重叠滚动窗口（是 ⇒ 持有体验，不可当概率读） */
+  win_rate_overlap?: boolean;
+  /** 风险指标窗口标签（如「近3年」）——跨基金比较前必须确认窗口一致 */
+  risk_window?: string | null;
+  /** 参与计算的净值点数（样本量透明） */
+  risk_sample_points?: number;
+  /** 无风险利率（年化小数）：不告诉用户 rf 取多少的夏普不可复核 */
+  risk_free_rate?: number;
+  /** 风险口径：acc_nav / distorted（检出净值跳变，疑似份额折算/大额赎回） */
+  risk_basis?: string | null;
+  /** 口径提示（逐条展示：含 rf 取值、跳变告警、分母退化说明） */
+  risk_caveats?: string[];
+  /** 数值来源：snapshot（每日快照）/ computed（快照缺失时现算回退） */
+  risk_source?: "snapshot" | "computed";
 }
 
 /** 取基金业绩与风险。404 = 该代码不是基金。 */

@@ -15,7 +15,9 @@ from app.services.fund_risk_metrics import (
     RISK_FREE_RATE_ANNUAL,
     benchmark_diagnostics,
     compute_risk_metrics,
+    current_drawdown,
     detect_jumps,
+    drawdown_series,
     ulcer_index,
     win_rate,
 )
@@ -235,3 +237,92 @@ def test_benchmark_none_when_not_provided():
 def test_benchmark_attached_when_provided():
     r = compute_risk_metrics(_series([1.0, 1.1, 1.2, 1.3]), benchmark_points=_series([1.0, 1.05, 1.1, 1.15]))
     assert r.benchmark is not None and r.benchmark['basis'] == 'ok'
+
+
+# ── 本轮回撤（#167：与「最大回撤」是两个不同问题） ─────────────────────────
+
+
+def test_drawdown_series_shape_and_bounds():
+    # 1.0 → 1.2（新高）→ 0.9（-25%）→ 1.1（仍低于新高，DD = -8.33%）
+    series = drawdown_series(_series([1.0, 1.2, 0.9, 1.1]))
+    assert series[0][1] == 0.0  # 首日即高点
+    assert series[1][1] == 0.0  # 创新高 → DD 归 0
+    assert series[2][1] == pytest.approx(-25.0)
+    assert series[3][1] == pytest.approx(-8.3333, abs=1e-3)
+    assert all(dd <= 0 for _d, dd in series), '回撤恒 ≤ 0'
+
+
+def test_current_drawdown_zero_when_at_new_high():
+    """已爬出坑 → 本轮回撤 0.0（**不是 None**：在最高点是事实，不是缺数据）。"""
+    st = current_drawdown(_series([1.0, 1.2, 0.9, 1.5]))
+    assert st is not None
+    assert st.current_drawdown == 0.0
+    assert st.days == 0
+    assert st.peak_date == D0 + timedelta(days=3)  # 高点就是最后一天
+
+
+def test_current_drawdown_differs_from_max_drawdown():
+    """核心判据：跌 30% 但已修复 → 最大回撤仍是 -30%，本轮回撤归 0。
+
+    只给最大回撤会把「已修复」和「仍在水下」显示成同一个数——这正是本轮回撤存在的理由。
+    """
+    s = _series([1.0, 1.3, 0.91, 1.35])
+    r = compute_risk_metrics(s)
+    assert r.max_drawdown is not None and r.max_drawdown < -25
+    assert r.current_drawdown == 0.0  # 1.35 > 1.3，最新一日即新高
+
+
+def test_current_drawdown_when_still_underwater():
+    """仍在坑里 → 本轮回撤是「最近一次新高 → 最新一日」，并给出熬了多少天。"""
+    s = _series([1.0, 1.5, 1.2])
+    st = current_drawdown(s)
+    assert st is not None
+    assert st.current_drawdown == pytest.approx(-20.0)
+    assert st.peak_date == D0 + timedelta(days=1)
+    assert st.days == 1  # 高点到最新一日 = 1 个自然日
+
+
+def test_current_drawdown_uses_latest_peak_not_deepest():
+    """本轮起点是**最近一次**新高，不是历史上最高的那次。"""
+    # 1.0 → 1.5（新高）→ 1.2（回落）→ 1.6（又新高，本轮起点）→ 1.4
+    st = current_drawdown(_series([1.0, 1.5, 1.2, 1.6, 1.4]))
+    assert st is not None
+    assert st.peak_date == D0 + timedelta(days=3)  # 1.6 那天才是「本轮」起点
+    assert st.current_drawdown == pytest.approx(-12.5)  # 1.4/1.6 − 1
+
+
+def test_current_drawdown_peak_is_running_max_not_global_max():
+    """历史最高点之后又出现新高时，起点必须跟着推进 —— 否则跌幅会被算大。
+
+    1.0 → 2.0（历史最高）→ 1.0 → 3.0（又创新高）→ 2.7：本轮从 3.0 算，跌 10%，不是从 2.0 算跌…%
+    """
+    st = current_drawdown(_series([1.0, 2.0, 1.0, 3.0, 2.7]))
+    assert st is not None
+    assert st.peak_date == D0 + timedelta(days=3)
+    assert st.current_drawdown == pytest.approx(-10.0)
+
+
+def test_current_drawdown_monotonic_up_is_zero():
+    st = current_drawdown(_series([1.0, 1.1, 1.2]))
+    assert st is not None and st.current_drawdown == 0.0
+
+
+def test_current_drawdown_single_point_is_zero():
+    st = current_drawdown(_series([1.0]))
+    assert st is not None
+    assert st.current_drawdown == 0.0
+    assert st.days == 0
+
+
+def test_current_drawdown_empty_is_none():
+    assert current_drawdown([]) is None
+
+
+def test_compute_risk_metrics_ships_drawdown_caliber():
+    """口径元数据必须随值下发：光给一个 -20% 不知道「哪天掉下来的、熬了多久」。"""
+    r = compute_risk_metrics(_series([1.0, 1.5, 1.2]))
+    assert r.current_drawdown == pytest.approx(-20.0)
+    assert r.drawdown_peak_date == D0 + timedelta(days=1)
+    assert r.drawdown_days == 1
+    assert r.max_drawdown_peak_date is not None
+    assert r.max_drawdown_trough_date is not None

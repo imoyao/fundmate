@@ -169,3 +169,248 @@ def test_build_open_fund_stale_series_no_volatility(monkeypatch):
     assert result['volatility_1y'] is None
     assert result['max_drawdown'] is None
     assert result['max_drawdown_basis'] == 'insufficient'
+
+
+# ── #167：风险指标块（本轮回撤 / 夏普族），快照优先 + 现算回退 ────────────────
+
+
+class _Snap:
+    def __init__(self, **kw):
+        for k, v in kw.items():
+            setattr(self, k, v)
+
+
+def _snap_query(snap):
+    q = MagicMock()
+    q.filter.return_value.order_by.return_value.first.return_value = snap
+    return q
+
+
+def _fake_db_with_snap(fund, snap, daily_rows):
+    db = _fake_db(fund, daily_rows=daily_rows)
+    base = db.query.side_effect
+
+    def _query(model):
+        if getattr(model, '__name__', '') == 'FundRiskMetrics':
+            return _snap_query(snap)
+        return base(model)
+
+    db.query.side_effect = _query
+    return db
+
+
+def _monotonic_rows(today, months=48, drop_at=None):
+    """构造锚定 today 的月度净值序列（可选中途一次性回撤）。"""
+    rows = []
+    for i in range(months):
+        y, m = today.year, today.month
+        m -= months - 1 - i
+        while m <= 0:
+            m += 12
+            y -= 1
+        nav = 1.0 * (1.004**i)
+        if drop_at is not None and i >= drop_at:
+            nav *= 0.75
+        rows.append(_DailyWorth(date(y, m, 1), round(nav, 6)))
+    return rows
+
+
+def test_risk_block_present_for_open_fund(monkeypatch):
+    today = date(2026, 10, 9)
+    monkeypatch.setattr('app.services.fund_performance.today_shanghai', lambda: today)
+    rows = _monotonic_rows(today, drop_at=30)
+    db = _fake_db_with_snap(_Fund('股票型'), None, rows)
+    result = build_fund_performance(db, '110020')
+    # 快照缺失 → 现算回退
+    assert result['risk_source'] == 'computed'
+    assert result['current_drawdown'] is not None and result['current_drawdown'] < 0
+    assert result['upi'] is not None
+    assert result['risk_free_rate'] == 0.015
+    assert result['risk_window'] == '近3年'
+    assert result['risk_basis'] in ('acc_nav', 'distorted')
+    assert result['risk_caveats'], '口径 caveats 必须随值下发'
+    assert result['win_rate_period'] == 'month'
+
+
+def test_risk_block_prefers_fresh_snapshot(monkeypatch):
+    """快照 as_of 与净值最新日一致且口径版本对 → 走快照，不回退现算。"""
+    today = date(2026, 10, 9)
+    monkeypatch.setattr('app.services.fund_performance.today_shanghai', lambda: today)
+    rows = _monotonic_rows(today)
+    last = rows[-1].date
+    from app.services.sync.jobs.fund_risk_metrics_job import CALIBER_VERSION
+
+    snap = _Snap(
+        as_of=last,
+        caliber_version=CALIBER_VERSION,
+        current_drawdown=-3.5,
+        drawdown_peak_date=None,
+        drawdown_days=12,
+        max_drawdown=-9.0,
+        max_drawdown_peak_date=None,
+        max_drawdown_trough_date=None,
+        annual_return=8.0,
+        annual_volatility=12.0,
+        sharpe=0.54,
+        sortino=0.8,
+        calmar=0.88,
+        ulcer_index=2.0,
+        upi=4.0,
+        return_drawdown_ratio=7.4,
+        win_rate=58.0,
+        win_rate_period='month',
+        sample_points=len(rows),
+        basis='acc_nav',
+        window_label='近3年',
+    )
+    result = build_fund_performance(_fake_db_with_snap(_Fund('股票型'), snap, rows), '110020')
+    assert result['risk_source'] == 'snapshot'
+    assert result['current_drawdown'] == -3.5
+    assert result['max_drawdown'] == -9.0
+    assert result['sharpe'] == 0.54
+
+
+def test_risk_block_falls_back_when_snapshot_stale(monkeypatch):
+    """快照落后于最新净值 → 回退现算（否则页面显示的是上一个交易日的口径）。"""
+    today = date(2026, 10, 9)
+    monkeypatch.setattr('app.services.fund_performance.today_shanghai', lambda: today)
+    rows = _monotonic_rows(today)
+    from app.services.sync.jobs.fund_risk_metrics_job import CALIBER_VERSION
+
+    snap = _Snap(
+        as_of=date(2026, 8, 1),
+        caliber_version=CALIBER_VERSION,
+        current_drawdown=-99.0,  # 若走快照就会泄漏这个哨兵值
+        drawdown_peak_date=None,
+        drawdown_days=1,
+        max_drawdown=-99.0,
+        max_drawdown_peak_date=None,
+        max_drawdown_trough_date=None,
+        annual_return=None,
+        annual_volatility=None,
+        sharpe=None,
+        sortino=None,
+        calmar=None,
+        ulcer_index=None,
+        upi=None,
+        return_drawdown_ratio=None,
+        win_rate=None,
+        win_rate_period=None,
+        sample_points=1,
+        basis='acc_nav',
+        window_label='近3年',
+    )
+    result = build_fund_performance(_fake_db_with_snap(_Fund('股票型'), snap, rows), '110020')
+    assert result['risk_source'] == 'computed'
+    assert result['current_drawdown'] != -99.0
+
+
+def test_risk_block_falls_back_when_caliber_outdated(monkeypatch):
+    """口径版本不符 → 回退现算。旧口径的数与新口径不可比，宁可多算一次。"""
+    today = date(2026, 10, 9)
+    monkeypatch.setattr('app.services.fund_performance.today_shanghai', lambda: today)
+    rows = _monotonic_rows(today)
+    from app.services.sync.jobs.fund_risk_metrics_job import CALIBER_VERSION
+
+    snap = _Snap(
+        as_of=rows[-1].date,
+        caliber_version=CALIBER_VERSION + 1,  # 旧代码写的行
+        current_drawdown=-99.0,
+        drawdown_peak_date=None,
+        drawdown_days=1,
+        max_drawdown=-99.0,
+        max_drawdown_peak_date=None,
+        max_drawdown_trough_date=None,
+        annual_return=None,
+        annual_volatility=None,
+        sharpe=None,
+        sortino=None,
+        calmar=None,
+        ulcer_index=None,
+        upi=None,
+        return_drawdown_ratio=None,
+        win_rate=None,
+        win_rate_period=None,
+        sample_points=1,
+        basis='acc_nav',
+        window_label='近3年',
+    )
+    result = build_fund_performance(_fake_db_with_snap(_Fund('股票型'), snap, rows), '110020')
+    assert result['risk_source'] == 'computed'
+
+
+def test_money_fund_has_no_risk_block():
+    """货基没有日净值口径，风险指标块**不出现**（不是显示成「—」，是不该有这个区块）。"""
+    db = _fake_db(_Fund('货币型'), money_row=_MoneyRow())
+    result = build_fund_performance(db, '000001')
+    assert 'current_drawdown' not in result
+    assert 'sharpe' not in result
+
+
+def test_snapshot_and_computed_paths_agree_digit_for_digit(monkeypatch):
+    """物化读与现算读**逐位相等** —— 这是物化快照能不能信的判据。
+
+    与 `pnl_snapshot_store` 同款纪律：两条路径不一致就退化回 #1812 那种「静默错数字」，
+    而那种错最难发现——页面有值、数字也「像是对的」。
+
+    做法：先用现算跑出一个结果，把它当作快照内容喂回去，要求两条路径输出的
+    **同名字段逐个相等**（浮点用精确比较：两条路径调的是同一个纯函数，不该有误差）。
+    """
+    today = date(2026, 10, 9)
+    monkeypatch.setattr('app.services.fund_performance.today_shanghai', lambda: today)
+    rows = _monotonic_rows(today, drop_at=30)
+    fund = _Fund('股票型')
+
+    computed = build_fund_performance(_fake_db_with_snap(fund, None, rows), '110020')
+    assert computed['risk_source'] == 'computed'
+
+    from app.services.sync.jobs.fund_risk_metrics_job import CALIBER_VERSION
+
+    snap = _Snap(
+        as_of=rows[-1].date,
+        caliber_version=CALIBER_VERSION,
+        current_drawdown=computed['current_drawdown'],
+        drawdown_peak_date=None,
+        drawdown_days=computed['current_drawdown_days'],
+        max_drawdown=computed['max_drawdown'],
+        max_drawdown_peak_date=None,
+        max_drawdown_trough_date=None,
+        annual_return=computed['annual_return'],
+        annual_volatility=computed['annual_volatility'],
+        sharpe=computed['sharpe'],
+        sortino=computed['sortino'],
+        calmar=computed['calmar'],
+        ulcer_index=computed['ulcer_index'],
+        upi=computed['upi'],
+        return_drawdown_ratio=computed['return_drawdown_ratio'],
+        win_rate=computed['win_rate'],
+        win_rate_period=computed['win_rate_period'],
+        sample_points=computed['risk_sample_points'],
+        basis=computed['risk_basis'],
+        window_label=computed['risk_window'],
+    )
+    from_snap = build_fund_performance(_fake_db_with_snap(fund, snap, rows), '110020')
+    assert from_snap['risk_source'] == 'snapshot'
+
+    for key in (
+        'current_drawdown',
+        'max_drawdown',
+        'annual_return',
+        'annual_volatility',
+        'sharpe',
+        'sortino',
+        'calmar',
+        'ulcer_index',
+        'upi',
+        'return_drawdown_ratio',
+        'win_rate',
+        'risk_sample_points',
+        'risk_basis',
+        'risk_window',
+    ):
+        assert from_snap[key] == computed[key], f'{key} 在两条路径下不一致'
+
+    # 键集合也必须一致：前端在两条路径下看到的字段不能不同，否则「有时有 sharpe 有时没有」
+    assert {k for k in from_snap if k.startswith(('risk_', 'current_', 'max_drawdown'))} == {
+        k for k in computed if k.startswith(('risk_', 'current_', 'max_drawdown'))
+    }
