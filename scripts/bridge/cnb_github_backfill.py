@@ -34,8 +34,14 @@ CNB 构建内的环境**没有**任何 GitHub 凭证（`env` 里只有 `CNB_*`�
 网络与依赖
 ----------
 纯标准库（urllib），零 pip 依赖。
-- CNB：匿名 `api.cnb.cool` 对**公开仓库**无需 token；给了 `CNB_TOKEN` 也用不上（那是
-  CNB 侧的凭证，GitHub runner 上没有）。私有仓库要自己配一个只读 token 传进来。
+- CNB：**必须带 `CNB_READ_TOKEN` 或 `CNB_TOKEN`，匿名一律 401。**
+  ⚠️ 本文件旧版曾写「匿名对公开仓库无需 token」——那是**错的**，已实测纠正
+  （2026-10-14）：`api.cnb.cool` 对匿名请求一律返回
+  `{"errcode":16,"errmsg":"The task will not run because the user is not logged in."}`，
+  **与仓库是否公开无关**。token 需在 CNB 侧生成，并配进 GitHub 仓库 secret
+  `CNB_READ_TOKEN`（Settings → Secrets and variables → Actions）。
+  正因为旧假设是错的，run 38481492722 / 38329575746 / 38179858075 三次定时
+  全部挂在第一步拉列表，评论镜像**从未真正跑通过一次**。
 - GitHub：`GITHUB_TOKEN`（Actions 自动注入，`issues: write` 足够）。
 
 用法
@@ -188,27 +194,88 @@ def _request(
     data: bytes | None = None,
     headers: dict[str, str] | None = None,
     timeout: int = 30,
+    what: str = '',
 ) -> bytes:
+    """发一个 HTTP 请求，失败时抛**带诊断**的异常（而不是裸 urllib traceback）。
+
+    为什么要包一层：CNB 回写曾连续 3 次定时失败，日志里只有一行
+    `HTTPError: HTTP Error 401` —— 看不出是「token 没配」「token 过期」还是
+    「CNB 侧故障」，排查只能回去猜。加了 `what`（这一步在干什么）与按状态码
+    分类的处置建议后，日志本身就能回答「下一步该做什么」。
+    """
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header('User-Agent', 'fundmate-cnb-github-backfill')
     for k, v in (headers or {}).items():
         req.add_header(k, v)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read()
+    except urllib.error.HTTPError as exc:
+        detail = ''
+        try:
+            detail = exc.read(400).decode('utf-8', 'replace').strip()
+        except Exception:  # noqa: BLE001 - 读错误体失败不该盖掉原始错误
+            pass
+        hint = ''
+        if exc.code in (401, 403):
+            is_cnb = 'cnb.cool' in url
+            if is_cnb:
+                hint = (
+                    'CNB OpenAPI **要求带凭证，匿名一律 401**（实测，与仓库是否公开无关）。'
+                    '请配置仓库 secret `CNB_READ_TOKEN`：'
+                    'Settings → Secrets and variables → Actions → New repository secret。'
+                )
+            else:
+                hint = (
+                    'GitHub 侧鉴权失败：检查 `GITHUB_TOKEN` 是否有效、'
+                    '权限是否含 `issues: write`。'
+                )
+        elif exc.code == 404:
+            hint = '路径或仓库不存在；核对 `CNB_REPO`（当前约定 `duoduobei/fundmate`）。'
+        elif exc.code == 429:
+            hint = '触发限流。本次失败不影响幂等（标记只在评论成功发出后才算），稍后重跑即可。'
+        elif exc.code >= 500:
+            hint = '对端服务故障，属可重试的临时故障；本 workflow 每日定时，会自动重试。'
+        else:
+            hint = '非预期状态码，请把上面的响应体一并反馈。'
+        raise RuntimeError(
+            f'HTTP {exc.code} {exc.reason}'
+            + (f'（{what}）' if what else '')
+            + f'\n  URL  : {url}\n  响应 : {detail[:300]}\n  处置 : {hint}'
+        ) from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(
+            f'网络不可达（{what or url}）：{exc.reason}。'
+            '属临时故障；本 workflow 每日定时，会自动重试。'
+        ) from exc
 
 
 def cnb_api(path: str) -> Any:
-    """调 CNB 只读 OpenAPI（匿名可读公开仓库）。
+    """调 CNB 只读 OpenAPI。**必须带 `CNB_READ_TOKEN`，匿名必然 401。**
+
+    实测（2026-10-14）：匿名请求 `https://api.cnb.cool/duoduobei/fundmate/-/issues`
+    与 `.../duoduobei/fundmate` 都返回
+    `{"errcode":16,"errmsg":"The task will not run because the user is not logged in."}`。
+    与「仓库是否公开」无关——**旧注释里「匿名可读公开仓库」的假设是错的**，
+    三次定时运行（run 38481492722 / 38329575746 / 38179858075）都因此挂在第一步。
 
     `Authorization` 是 Bearer 且 `Accept` 必须是 `application/vnd.cnb.api+json`，
     否则拿到的是网页 HTML —— 细节同 github_cnb_issues.py。
     """
     base = (os.environ.get('CNB_API_ENDPOINT') or 'https://api.cnb.cool').rstrip('/')
-    headers = {'Accept': 'application/vnd.cnb.api+json'}
     token = os.environ.get('CNB_READ_TOKEN') or os.environ.get('CNB_TOKEN')
-    if token:
-        headers['Authorization'] = f'Bearer {token}'
-    raw = _request(f'{base}{path}', headers=headers)
+    if not token:
+        raise RuntimeError(
+            '缺少 CNB_READ_TOKEN。\n'
+            '  CNB OpenAPI 对匿名请求一律 401（实测 errcode=16），无法降级为匿名读取。\n'
+            '  请在 GitHub 仓库配置：Settings → Secrets and variables → Actions\n'
+            '    → New repository secret → 名称 `CNB_READ_TOKEN`（值为 CNB 侧生成的只读 token）'
+        )
+    headers = {
+        'Accept': 'application/vnd.cnb.api+json',
+        'Authorization': f'Bearer {token}',
+    }
+    raw = _request(f'{base}{path}', headers=headers, what=f'CNB 只读 API {path}')
     return json.loads(raw) if raw else None
 
 
