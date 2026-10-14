@@ -957,12 +957,16 @@ def scan_cross_ledger_duplicates(db: Session, family_id: int) -> list[dict]:
 
 
 def list_fund_valuation_rows(db: Session, query_date: date, fund_code: str | None = None) -> list[dict]:
-    """#2141：某日收盘估值定格清单（只读）。
+    """#2141/#2142：某日收盘估值定格清单（只读）。
 
     返回该日定格行（fund_code / estimated_nav / change_pct /
-    source / source_time / status），按 fund_code 升序；
-    `fund_code` 非空时只返回该基金。estimated_nav / change_pct
+    source / source_time / status / official_nav / deviation / deviation_pct），
+    按 fund_code 升序；`fund_code` 非空时只返回该基金。
+    estimated_nav / change_pct / official_nav / deviation / deviation_pct
     是 SafeNumeric（Decimal），API 序列化转 float。
+
+    status='confirmed' 时 official_nav/deviation/deviation_pct 有值
+    （官方净值副本与偏差，#2142 对照 job 落库）；status='estimated' 时三列均为 null。
     """
     stmt = db.query(
         FundValuationDaily.fund_code,
@@ -971,6 +975,9 @@ def list_fund_valuation_rows(db: Session, query_date: date, fund_code: str | Non
         FundValuationDaily.source,
         FundValuationDaily.source_time,
         FundValuationDaily.status,
+        FundValuationDaily.official_nav,
+        FundValuationDaily.deviation,
+        FundValuationDaily.deviation_pct,
     ).filter(FundValuationDaily.est_date == query_date)
     if fund_code:
         stmt = stmt.filter(FundValuationDaily.fund_code == fund_code.strip())
@@ -983,6 +990,9 @@ def list_fund_valuation_rows(db: Session, query_date: date, fund_code: str | Non
             'source': r[3],
             'source_time': r[4],
             'status': r[5],
+            'official_nav': float(r[6]) if r[6] is not None else None,
+            'deviation': float(r[7]) if r[7] is not None else None,
+            'deviation_pct': float(r[8]) if r[8] is not None else None,
         }
         for r in rows
     ]
