@@ -22,7 +22,8 @@ import {
  * - 区间 `1M/3M/6M/1Y`，**默认 3M**（设计 §12 ⑤）；历史不够长时由 `available_days`
  *   判断并提示收敛，不画一条只有几天的曲线假装是 3M；
  * - **品类差异化**（#1969）：场内有 OHLCV → K 线 + 成交量 + MA5/10/20（口径未复权，
- *   与持仓成本可比）；场外基金只有单位净值 → 净值线；
+ *   与持仓成本可比）；场外基金只有净值 → 净值线（#2171 起为**累计净值**，
+ *   缺失回退单位净值，与业绩卡同源——单位净值遇分红除息跳空是假暴跌）；
  * - 图表颜色一律经 `getCssVar` 取**真实色值**：ECharts 不解析 `var(--x)`，给变量字符串
  *   等于给了一个无效色（旧版 splitLine 的写法就是这么错的，也会让网格看起来发黑发乱）；
  * - 线条**不平滑**：smooth 会画出实际不存在的峰谷，价格序列上属失真；
@@ -72,7 +73,7 @@ function hexToRgba(hex: string, alpha: number): string {
 
 const hasData = computed(() => (trend.value?.values.length ?? 0) >= 2);
 
-/** 场内 = 有 OHLCV → 画 K 线；场外基金只有单位净值 → 退回净值线（品类差异化） */
+/** 场内 = 有 OHLCV → 画 K 线；场外基金只有净值 → 退回净值线（品类差异化） */
 const isCandle = computed(() => (trend.value?.ohlc?.length ?? 0) >= 2);
 
 /** 成交量副图：整段都没有量能数据时（个别来源缺列）不占版面 */
@@ -228,7 +229,7 @@ const chartOption = computed(() => {
     };
   }
 
-  // 场外（单位净值）或没有 OHLCV 的场内：一条线。
+  // 场外（累计净值，#2171）或没有 OHLCV 的场内：一条线。
   // **不平滑**：平滑会画出实际不存在的峰谷，价格序列上那是失真（#1969）。
   const rising = values.length >= 2 && values[values.length - 1] >= values[0];
   const lineColor = rising ? rise : fall;

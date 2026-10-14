@@ -18,8 +18,10 @@
   缺失时回退 ``close``。同 ``pnl_calendar._collect_price_history`` 的理由——除权日用
   ``close`` 会跳空，画出来的「走势」是假的（``close`` 的口径是未复权收盘价，供最新价
   展示与持仓盈亏用，``adj_close`` 才是前复权、供区间收益与收益率曲线用）；
-- 场外（fund）：``daily_worth.unit_nav``。``fund_code`` 是**裸 6 位码**，入库侧没有
-  ``OF.`` 前缀（见 ``core/venues.py``；该前缀只是 watchlist trends 接口的历史入参约定）；
+- 场外（fund）：``daily_worth`` 的**累计净值** ``acc_nav``（缺失回退 ``unit_nav``，
+  与 ``fund_metrics.load_nav_points`` 同源，#2171 修订）。单位净值遇现金分红除息
+  跳空，画出来是假暴跌；``fund_code`` 是**裸 6 位码**，入库侧没有 ``OF.`` 前缀
+  （见 ``core/venues.py``；该前缀只是 watchlist trends 接口的历史入参约定）；
 - 指数（index，#2028）：``index_daily`` 收盘点位，裸 6 位码按交易所后缀候选匹配
   （``000300`` → ``000300.SH`` / ``000300.SZ``）。**有日线才出曲线**：库里没有该
   指数的日线（覆盖极低，万得系 ``.WI`` 码无法从裸码推导）时返回 ``None``，
@@ -131,19 +133,27 @@ def _fetch_ohlc_series(db: Session, symbol: str, start: dt.date) -> List[Dict]:
 
 
 def _fetch_nav_series(db: Session, symbol: str, start: dt.date) -> List[Tuple[dt.date, float]]:
-    """场外基金单位净值序列（``daily_worth.fund_code`` 为裸 6 位码）。"""
+    """场外基金净值序列（``daily_worth.fund_code`` 为裸 6 位码）。
+
+    #2171：优先 **累计净值** ``acc_nav``，缺失回退 ``unit_nav``——与
+    ``fund_metrics.load_nav_points`` / ``fund_performance`` 同源。单位净值在现金分红
+    除息日会向下跳空（分红从净值扣除），画出来是「产品暴跌」的假象；买方视角要看
+    的是持有期间的真实涨幅，累计净值（分红不再投的近似复权序列）才诚实。此前本模块
+    只用 ``unit_nav``，与同页「业绩与风险」卡（acc_nav）口径分裂，属 #2153 一类问题。
+    """
     code = symbol[3:] if symbol.startswith('OF.') else symbol
     rows = (
-        db.query(DailyWorth.date, DailyWorth.unit_nav)
+        db.query(DailyWorth.date, DailyWorth.acc_nav, DailyWorth.unit_nav)
         .filter(DailyWorth.fund_code == code, DailyWorth.date >= start)
         .order_by(DailyWorth.date)
         .all()
     )
     series: List[Tuple[dt.date, float]] = []
-    for nav_date, unit_nav in rows:
-        if unit_nav is None:
+    for nav_date, acc_nav, unit_nav in rows:
+        value = acc_nav if acc_nav is not None else unit_nav
+        if value is None:
             continue
-        series.append((nav_date, round(float(unit_nav), 4)))
+        series.append((nav_date, round(float(value), 4)))
     return series
 
 
@@ -226,7 +236,7 @@ def fetch_product_trend(
         # 触发条件用**本次请求的窗口**而非最长档，避免「只看 3M 却为 5Y 回补」。
         maybe_trigger_nav_backfill(code, series, start)
         # 来源与口径分开给：来源是站点名（用户看得懂），口径是「怎么算的」
-        kind, basis, source = 'nav', '单位净值', data_source_label(FUND_NAV_SOURCE_LABEL)
+        kind, basis, source = 'nav', '累计净值（分红不再投近似复权，缺失回退单位净值）', data_source_label(FUND_NAV_SOURCE_LABEL)
         # 场外基金只有单位净值，没有 OHLCV —— 前端据此画净值线而不是 K 线（品类差异化）
         ohlc: List[Dict] = []
     elif normalized_type == 'index':

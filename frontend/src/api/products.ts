@@ -576,14 +576,14 @@ export type TrendRange = "1M" | "3M" | "6M" | "1Y";
 
 export interface ProductTrendResult {
   symbol: string;
-  /** `close`=场内收盘价口径；`nav`=场外单位净值；空串=该品类无序列数据源（指数等） */
+  /** `close`=场内收盘价口径；`nav`=场外累计净值（缺失回退单位净值，#2171）；空串=该品类无序列数据源（指数等） */
   kind: string;
   /** 与 values 等长的日期轴（YYYY-MM-DD） */
   dates: string[];
   values: number[];
   /** 数据来源**站点名**（如「新浪财经」「天天基金」）；#1969 前这里回的是内部表名 */
   source: string;
-  /** 口径说明（如「前复权收盘价」「单位净值」）——与来源分开表达，前端不自行推断 */
+  /** 口径说明（如「前复权收盘价」「累计净值」）——与来源分开表达，前端不自行推断 */
   basis: string;
   range: TrendRange;
   /** 请求的区间天数（3M → 90） */
