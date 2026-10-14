@@ -117,6 +117,18 @@
           />
         </el-col>
       </el-row>
+
+      <!-- #2160：symbol 预筛的回显。它多半不是用户自己设的（详情页「查看全部流水」
+           带过来的），所以必须显式可见 + 可清除：否则「共 3 条」会被读成全站只有 3 条。 -->
+      <div
+        v-if="filters.symbol"
+        class="mb-2 flex items-center gap-2 text-sm text-gray-500"
+      >
+        <span>已按产品代码筛选：</span>
+        <el-tag closable size="small" type="info" @close="clearSymbolFilter">
+          {{ filters.symbol }}
+        </el-tag>
+      </div>
     </el-card>
 
     <!-- 表格视图 -->
@@ -344,6 +356,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick, onUnmounted } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { Refresh, Download } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { getTransactions, exportTransactions } from "@/api/transactions";
@@ -377,8 +390,31 @@ const filters = ref({
   assetType: "",
   status: "",
   timeRange: "",
-  customDate: null as [Date, Date] | null
+  customDate: null as [Date, Date] | null,
+  /**
+   * 产品代码筛选（#2160）。与其它筛选项不同，它**多半不是用户手输的**，
+   * 而是产品详情页「查看全部流水」用 `?symbol=` 带过来的——所以它必须
+   * 在筛选栏显式回显且可清除，否则用户看到「共 3 条」会以为全站只有 3 条流水。
+   */
+  symbol: ""
 });
+
+/** #2160：详情页「查看全部流水」的落点，query 承载 symbol 预筛 */
+const route = useRoute();
+const router = useRouter();
+
+/**
+ * 从 query 初始化 symbol 筛选。
+ * 用 `String()` 收敛：query 值类型是 `string | string[] | null`，重复 query
+ * （`?symbol=a&symbol=b`）会拿到数组，直接赋值会让 params.symbol 变数组并被
+ * axios 序列化成 `symbol[]=a&symbol[]=b`——后端 `request.args.get('symbol')`
+ * 只取到第一个，静默筛错且没有任何报错。
+ */
+function applySymbolFromQuery() {
+  const raw = route.query.symbol;
+  const picked = Array.isArray(raw) ? raw[0] : raw;
+  filters.value.symbol = picked ? String(picked) : "";
+}
 
 const currentPage = ref(1);
 const pageSize = ref(10);
@@ -441,6 +477,8 @@ const fetchData = async (isLoadMore = false) => {
     if (filters.value.assetType) params.asset_type = filters.value.assetType;
     if (filters.value.status) params.status = filters.value.status;
     if (filters.value.timeRange) params.time_range = filters.value.timeRange;
+    // #2160：symbol 预筛（后端经 symbol_scope 两步法匹配流水快照的真实写法）
+    if (filters.value.symbol) params.symbol = filters.value.symbol;
     if (filters.value.customDate) {
       const [start, end] = filters.value.customDate;
       params.start_date = start.toISOString().slice(0, 10);
@@ -469,6 +507,22 @@ const resetAndFetch = () => {
   hasMore.value = true;
   fetchData();
 };
+
+/**
+ * 清除 symbol 预筛（#2160）。同时把 query 里的 symbol 摘掉——
+ * 只清本地状态的话，刷新页面 query 会把筛选原样带回来，用户清不掉。
+ */
+function clearSymbolFilter() {
+  filters.value.symbol = "";
+  // 摘掉 query 里的 symbol：只清本地状态的话，刷新页面筛选会被 query 原样带回来。
+  // 用 clone + delete 而不是 `const { symbol, ...rest }`——那个解构出的 `symbol`
+  // 在本函数里用不到，会撞 `@typescript-eslint/no-unused-vars`
+  // （本项目 eslint 配置只开了 args/vars 的 `^_` 前缀豁免，没开 ignoreRestSiblings）。
+  const nextQuery = { ...route.query };
+  delete nextQuery.symbol;
+  void router.replace({ query: nextQuery });
+  resetAndFetch();
+}
 
 // 行内编辑
 const editDialogVisible = ref(false);
@@ -626,9 +680,25 @@ function statusLabel(status: string): string {
 
 // 生命周期
 onMounted(() => {
+  // #2160：先按 query 定筛选再取数，否则会先用「无 symbol」的参数拉一次全量再改
+  applySymbolFromQuery();
   fetchData();
   nextTick(bindScroll);
 });
+
+/**
+ * query 变化时重新套用筛选（#2160）。列表页会被 keepAlive 复用：
+ * 用户可能已经从详情页跳来过一次、返回后再从别处 push 进来，
+ * 只在 onMounted 读一次 query 会出现「URL 变了但筛选没变」。
+ */
+watch(
+  () => route.query.symbol,
+  (next, prev) => {
+    if (next === prev) return;
+    applySymbolFromQuery();
+    resetAndFetch();
+  }
+);
 onUnmounted(unbindScroll);
 </script>
 
