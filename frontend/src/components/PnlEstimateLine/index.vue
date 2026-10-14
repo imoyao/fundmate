@@ -10,26 +10,22 @@
 
   抽出来之前这两处只能各写一份，违反 `components.md`「禁止各页重写同类结构」。
 
-  「估」徽章是唯一视觉锚点：`--brand-100` 底 + `--brand-700` 字 + 免责 tooltip
-  （文案 `ESTIMATE_DISCLAIMER`，紧贴数字）。
+  「估」徽章（#2143 起为 `ValuationSourceBadge` 统一实现）是唯一视觉锚点：
+  完整免责 tooltip（文案 `ESTIMATE_DISCLAIMER`，单一出口）紧贴数字，
+  来源 / 数据时间作为元信息缀入 tooltip 与读屏文案（有则显示）。
 -->
 <template>
   <!-- 既无预估、也无提示文案 → 整行不渲染。
        自选页这种高密度表格不需要逐行复述「未开启实时估值」；
        需要复述的表格（全面盘点 / 账户详情…）由调用方传 `hint`。 -->
   <span v-if="hasEstimated || hint" class="pnl-estimate-line">
-    <el-tooltip
-      v-if="hasEstimated"
-      :content="ESTIMATE_DISCLAIMER"
-      placement="top"
-    >
-      <span
-        class="pnl-estimate-line__badge"
-        tabindex="0"
-        role="note"
-        :aria-label="ESTIMATE_DISCLAIMER"
-        >估</span
-      >
+    <el-tooltip v-if="hasEstimated" :content="tipText" placement="top">
+      <ValuationSourceBadge
+        status="estimated"
+        :source="source"
+        :source-time="sourceTime"
+        :tip="ESTIMATE_DISCLAIMER"
+      />
     </el-tooltip>
     <span v-else class="pnl-estimate-line__tag">预估</span>
 
@@ -46,6 +42,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import ValuationSourceBadge from "@/components/ValuationSourceBadge/index.vue";
+import { valuationMetaText } from "@/components/ValuationSourceBadge/helpers";
 import { ESTIMATE_DISCLAIMER } from "@/composables/usePositionValuation";
 
 const props = withDefaults(
@@ -54,13 +52,23 @@ const props = withDefaults(
     estimated?: number | null;
     /** 拿不到预估时的提示文案；留空则整行不渲染（密集表格用） */
     hint?: string;
+    /** 估值来源标识（Quote.provider / 后端 source）；缺省不缀名 */
+    source?: string | null;
+    /** 行情数据时间（源端字符串原样）；缺省不缀时 */
+    sourceTime?: string | null;
   }>(),
-  { estimated: null, hint: "" }
+  { estimated: null, hint: "", source: null, sourceTime: null }
 );
 
 const hasEstimated = computed(
   () => props.estimated != null && !Number.isNaN(props.estimated)
 );
+
+/** tooltip 内容 = 免责主句（ESTIMATE_DISCLAIMER 单一出口）+ 元信息（有则缀） */
+const tipText = computed(() => {
+  const meta = valuationMetaText(props.source, props.sourceTime);
+  return meta ? `${ESTIMATE_DISCLAIMER}（${meta}）` : ESTIMATE_DISCLAIMER;
+});
 </script>
 
 <style scoped>
@@ -81,29 +89,7 @@ const hasEstimated = computed(
   white-space: nowrap;
 }
 
-/* 「估」徽章：与 SegmentedControl 选中态同一「软按钮」语言（--brand-100 底 + --brand-700 字）。
-   它是「这个数字不是确认值」的唯一视觉锚点，因此比旁边的口径标签更重。 */
-.pnl-estimate-line__badge {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-  color: var(--brand-700);
-  cursor: help;
-  background-color: var(--brand-100);
-  border-radius: var(--radius-pill);
-}
-
-.pnl-estimate-line__badge:focus-visible {
-  outline: 1px solid var(--brand-400);
-  outline-offset: 1px;
-}
+/* 「估」徽章的视觉住在 `ValuationSourceBadge`（#2143 统一实现），本组件只负责外套 tooltip */
 
 /* 预估不可用时的提示：比口径标签更弱，避免在表格里抢注意力 */
 .pnl-estimate-line__hint {

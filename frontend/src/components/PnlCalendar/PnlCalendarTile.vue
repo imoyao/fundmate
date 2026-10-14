@@ -14,6 +14,10 @@
   可点击的年 / 月格子则由调用方在外面套一个 `<button>`。这样既不用在 `<span>` 上挂
   `@click`（守卫 `guard_a11y_interaction.py` 会拦），也不会把 `<div>` 塞进 `<button>`。
 
+  当日预估徽标（#2143）：后端 `estimated` 标记（#2141 收盘估值定格回退）为真时，
+  日号旁画「估」小徽标（`ValuationSourceBadge` sm 档）。前端**不按日期自行推断**；
+  悬浮说明由外层 PnlCalendarUnitTip 承载（徽标不内嵌 tooltip，避免双层打架）。
+
   七态视觉（**缺数据绝不能画成 0**，这是本组件存在的核心理由之一）：
     updown       涨红跌绿柔和填充，色深 ∝ |收益|
     zero         灰底 + 0.00（真实为零）
@@ -55,7 +59,18 @@
     ]"
   >
     <template v-if="!voidCell">
-      <span class="pnl-calendar__day">{{ label }}</span>
+      <!-- 日号 + 估徽标（#2143）：徽标只在后端下发 estimated 时出现（#2141 收盘
+           估值定格回退，前端不按日期自行推断）。徽标不带内嵌 tooltip——格子外层
+           已有整格悬浮卡（PnlCalendarUnitTip），说明写进悬浮卡，避免双层打架。 -->
+      <span class="pnl-calendar__head">
+        <span class="pnl-calendar__day">{{ label }}</span>
+        <ValuationSourceBadge
+          v-if="estimated"
+          status="estimated"
+          size="sm"
+          tip="当日按收盘估值预估，官方净值公布后自动确认"
+        />
+      </span>
       <!-- 金额口径 -->
       <MoneyDisplay
         v-if="hasValue && mode === 'amount'"
@@ -87,6 +102,7 @@
 import { computed } from "vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
+import ValuationSourceBadge from "@/components/ValuationSourceBadge/index.vue";
 import type { PnlCalendarState } from "@/api/summary";
 import { hasValueState, stateTag, type PnlCalendarValueMode } from "./helpers";
 
@@ -108,8 +124,16 @@ const props = withDefaults(
     /** 占位空格（日历图首行与周一之前的那几格）：只占位、不画内容 */
     voidCell?: boolean;
     isToday?: boolean;
+    /** 当日行按收盘估值预估（后端 estimated 标记，#2141/#2143）：画「估」徽标 */
+    estimated?: boolean;
   }>(),
-  { rate: null, mode: "amount", voidCell: false, isToday: false }
+  {
+    rate: null,
+    mode: "amount",
+    voidCell: false,
+    isToday: false,
+    estimated: false
+  }
 );
 
 /** 有真实数值才画金额 / 收益率；`partial` 也照画（值可信，只是不全），其余一律出态标签 */
@@ -171,6 +195,13 @@ const textColor = computed(() =>
   font-size: 11px;
   line-height: 1;
   color: var(--text-tertiary-ink);
+}
+
+/* 日号 + 估徽标同排（#2143）：徽标 sm 档 14px 与 11px 日号共线，不新增行高 */
+.pnl-calendar__head {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
 }
 
 /* ── 七态视觉 ──

@@ -679,6 +679,20 @@ sessionStorage，其生命周期仅单标签页会话，重启浏览器 / 新开
 - 后端**不返回颜色**，配色在此层由 key → 档位映射决定；数据不足的维度**缺席**而非 null 占位，`style_labels` 为空则整行不渲染（不显示空容器 / 占位徽章）。
 - 参考实现：`views/product/components/ProductManagerSection.vue` 的 `.mgr-section__style-badge`。
 
+#### 估 / 确认状态徽标（#2143 · ValuationSourceBadge 唯一实现）
+
+估值状态徽标（「估」/「确认」）收敛为 `ValuationSourceBadge` 组件，**禁止页面另写「估」胶囊**（强制复用清单已登记）。
+
+| 状态 | 背景 | 文字 | 语义 |
+|------|------|------|------|
+| `estimated` 预估 | `--brand-100` | `--brand-700` | 沿用 #1104「估」胶囊——「这个数字不是确认值」的视觉锚点，比口径标签重一档 |
+| `confirmed` 已确认 | `--bg-soft` | `--text-secondary` | 设计系统默认徽章档：尘埃落定的安静态，让数字本身承载注意力 |
+
+- 状态由**后端数据驱动**（`status` prop），前端禁止按日期自行推断；未知状态整块不渲染（诚实缺席）。
+- 红绿是涨跌语义专用，两态均不使用。
+- 两档尺寸：md 16px（盈亏副行）/ sm 14px（日历格密排）；圆角 `--radius-pill`。
+- 组件**不内置 el-tooltip**：完整提示文案由调用方按语境传入 `tip`（盘中免责走 `ESTIMATE_DISCLAIMER` 单一出口；日历格说明走外层悬浮卡 `PnlCalendarUnitTip`），徽标自身以 `role="note"` + `aria-label` 保读屏与键盘可达。
+
 ### Table（el-table）
 
 > **全站 `el-table` 视觉基线统一维护在 `src/style/el-table.css`**（2026-08 起强制）。
