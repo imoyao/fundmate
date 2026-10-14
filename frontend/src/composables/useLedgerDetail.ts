@@ -73,6 +73,8 @@ export interface LedgerHoldingRow {
   /** 持有时长（天），基于本轮建仓确认日 confirm_date；清仓后重买重置；无确认日时为 null（#862） */
   holding_days?: number | null;
   current_price?: number;
+  /** 价格时点（#2140）：基金=实际采用的最新净值日；其他=快照回写日；缺失为 null */
+  price_date?: string | null;
   allocation?: string | null;
   allocation_label?: string;
   quantity?: number;
