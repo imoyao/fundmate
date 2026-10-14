@@ -158,7 +158,7 @@ resolve() → available=True           「基准可用」，带上下载序列�
 | 残留项 | 处置 | 落点 |
 |---|---|---|
 | 文档断链：`docs/spec/fund-risk-metrics.md` 只在 GitHub | 补回 CNB 并登记 `docs/spec/index.md`；正文加「实施进度」提示（该文是调研快照，§5/§6 的「缺 rf」等结论已过期） | `docs/spec/fund-risk-metrics.md` |
-| 拟涨幅 / 拟涨幅2 | **拟涨幅2 已实现**（口径完整、参考源原文逐字核对）；**拟涨幅原版未实现**——它的 K 年化系数在可得材料里查不到定义（原文抓取只得到登录墙），按口径纪律**不猜系数** | `fund_risk_metrics.shape_gain2` |
+| 拟涨幅 / 拟涨幅2 | **两者均已实现**（口径完整）。原版曾记「K 倒数查不到定义」——该结论已推翻：K 的定义在参考源的**公式图**里（正文只写「用 K 值统一到年频」），OCR 复原为「k = 窗口长度/年」（1/12、0.25、0.5、1），并**复算原文 9 条特例曲线的排位逐位一致** | `fund_risk_metrics.shape_gain` / `shape_gain2` |
 | 投顾 `sharpe_ratio` 透传 | **核实为已实现**：`qieman_fetcher` 的 `夏普比率 → sharpe_ratio` 映射与 `CANONICAL_OVERVIEW_COLUMNS` 早已就位，`AdvisorPortfolio.sharpe_ratio` 列亦在。调研卡 §5 记的缺口是**调研当时**的状态 | `adapters/qieman_fetcher.py` |
 | 横向筛的列表页 UI | 后端补 `GET /api/products/fund-risk-types/`（类型选择器数据源）+ 前端新增「同类风险榜」页（`/asset/fund-ranking`） | `domains/products/views.py` · `views/asset/fund-ranking/` |
 | `885005.WI` / `885008.WI` 源侧未收录 | **债基基准改指 `H11001.CSI`（中证全债指数）**，走已建好的 `.CSI` 路取真实收盘（5287 条，2005 起）。原代码在韭圈儿 2026-10-14 二次复核仍为 0 条 | `fund_benchmark.BENCH_BOND_FUND` |
