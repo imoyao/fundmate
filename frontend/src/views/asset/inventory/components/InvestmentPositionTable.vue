@@ -35,6 +35,7 @@
             :confirmed="confirmedPnl(row as Position)"
             :estimated="valuation.estimatedPnl(row as Position)"
             :hint="valuation.estimateHint(row as Position)"
+            :price-date="(row as Position).price_date"
           />
         </template>
       </el-table-column>
