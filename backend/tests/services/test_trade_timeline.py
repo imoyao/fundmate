@@ -45,12 +45,9 @@ def _txn(make_transaction, pos, **kwargs):
 def test_basic_replay_buy_sell(db, make_position, make_transaction):
     """两笔买入 + 一笔卖出：点数、成本线、汇总计数。"""
     pos = _seed_position(make_position)
-    _txn(make_transaction, pos, txn_type='buy',
-         quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
-    _txn(make_transaction, pos, txn_type='buy',
-         quantity=100, price=1.2, amount=120, trade_date=_day(2026, 2, 5))
-    _txn(make_transaction, pos, txn_type='sell',
-         quantity=50, price=1.5, amount=75, trade_date=_day(2026, 3, 5))
+    _txn(make_transaction, pos, txn_type='buy', quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
+    _txn(make_transaction, pos, txn_type='buy', quantity=100, price=1.2, amount=120, trade_date=_day(2026, 2, 5))
+    _txn(make_transaction, pos, txn_type='sell', quantity=50, price=1.5, amount=75, trade_date=_day(2026, 3, 5))
 
     result = build_trade_timeline(db, symbol='004369', family_id=1)
 
@@ -72,8 +69,9 @@ def test_basic_replay_buy_sell(db, make_position, make_transaction):
 def test_cost_includes_fee(db, make_position, make_transaction):
     """买入成本 = 成交金额 + 手续费（#2171 定稿口径 4）。"""
     pos = _seed_position(make_position)
-    _txn(make_transaction, pos, txn_type='buy',
-         quantity=100, price=1.0, amount=100, fee=50, trade_date=_day(2026, 1, 5))
+    _txn(
+        make_transaction, pos, txn_type='buy', quantity=100, price=1.0, amount=100, fee=50, trade_date=_day(2026, 1, 5)
+    )
 
     result = build_trade_timeline(db, symbol='004369', family_id=1)
 
@@ -90,10 +88,8 @@ def test_sell_prorates_cost(db, make_position, make_transaction):
     「成本总额不变」是错的：那会让成本率随减持被动抬升。
     """
     pos = _seed_position(make_position)
-    _txn(make_transaction, pos, txn_type='buy',
-         quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
-    _txn(make_transaction, pos, txn_type='sell',
-         quantity=40, price=1.5, amount=60, trade_date=_day(2026, 2, 5))
+    _txn(make_transaction, pos, txn_type='buy', quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
+    _txn(make_transaction, pos, txn_type='sell', quantity=40, price=1.5, amount=60, trade_date=_day(2026, 2, 5))
 
     result = build_trade_timeline(db, symbol='004369', family_id=1)
 
@@ -107,10 +103,8 @@ def test_sell_prorates_cost(db, make_position, make_transaction):
 def test_clear_position_breaks_cost_line(db, make_position, make_transaction):
     """清仓笔 closed=True；清仓后不再产成本线点（线中断）。"""
     pos = _seed_position(make_position)
-    _txn(make_transaction, pos, txn_type='buy',
-         quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
-    _txn(make_transaction, pos, txn_type='sell',
-         quantity=100, price=1.2, amount=120, trade_date=_day(2026, 2, 5))
+    _txn(make_transaction, pos, txn_type='buy', quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
+    _txn(make_transaction, pos, txn_type='sell', quantity=100, price=1.2, amount=120, trade_date=_day(2026, 2, 5))
 
     result = build_trade_timeline(db, symbol='004369', family_id=1)
 
@@ -125,12 +119,9 @@ def test_clear_position_breaks_cost_line(db, make_position, make_transaction):
 def test_rebuild_after_clear_restarts_cost_line(db, make_position, make_transaction):
     """清仓后再买入：新一轮成本线重新开始（不是续上前值）。"""
     pos = _seed_position(make_position)
-    _txn(make_transaction, pos, txn_type='buy',
-         quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
-    _txn(make_transaction, pos, txn_type='sell',
-         quantity=100, price=1.2, amount=120, trade_date=_day(2026, 2, 5))
-    _txn(make_transaction, pos, txn_type='buy',
-         quantity=50, price=0.8, amount=40, trade_date=_day(2026, 3, 5))
+    _txn(make_transaction, pos, txn_type='buy', quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
+    _txn(make_transaction, pos, txn_type='sell', quantity=100, price=1.2, amount=120, trade_date=_day(2026, 2, 5))
+    _txn(make_transaction, pos, txn_type='buy', quantity=50, price=0.8, amount=40, trade_date=_day(2026, 3, 5))
 
     result = build_trade_timeline(db, symbol='004369', family_id=1)
 
@@ -143,10 +134,8 @@ def test_rebuild_after_clear_restarts_cost_line(db, make_position, make_transact
 def test_dividend_not_in_cost_line_or_points(db, make_position, make_transaction):
     """现金分红不改份额 / 成本，也不是买卖点；只进 dividend_count。"""
     pos = _seed_position(make_position)
-    _txn(make_transaction, pos, txn_type='buy',
-         quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
-    _txn(make_transaction, pos, txn_type='dividend',
-         quantity=0, price=0, amount=10, trade_date=_day(2026, 2, 5))
+    _txn(make_transaction, pos, txn_type='buy', quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
+    _txn(make_transaction, pos, txn_type='dividend', quantity=0, price=0, amount=10, trade_date=_day(2026, 2, 5))
 
     result = build_trade_timeline(db, symbol='004369', family_id=1)
 
@@ -159,10 +148,8 @@ def test_dividend_not_in_cost_line_or_points(db, make_position, make_transaction
 def test_same_day_trades_dedup_cost_line(db, make_position, make_transaction):
     """同日多笔：成本线去重为一条（当日最后一笔后的值），买卖点保留全部。"""
     pos = _seed_position(make_position)
-    _txn(make_transaction, pos, txn_type='buy',
-         quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
-    _txn(make_transaction, pos, txn_type='buy',
-         quantity=100, price=1.5, amount=150, trade_date=_day(2026, 1, 5))
+    _txn(make_transaction, pos, txn_type='buy', quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
+    _txn(make_transaction, pos, txn_type='buy', quantity=100, price=1.5, amount=150, trade_date=_day(2026, 1, 5))
 
     result = build_trade_timeline(db, symbol='004369', family_id=1)
 
@@ -182,12 +169,15 @@ def test_symbol_variant_convergence(db, make_position, make_transaction):
     from app.core.symbol_utils import symbol_identity
 
     pos_a = _seed_position(make_position, symbol='004369')
-    pos_b = make_position(symbol='004369', quantity=100, avg_price=1.0,
-                          account_name='账户B', symbol_norm=symbol_identity('004369', venue='OTC'))
-    _txn(make_transaction, pos_a, txn_type='buy',
-         quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
-    _txn(make_transaction, pos_b, txn_type='buy',
-         quantity=50, price=1.1, amount=55, trade_date=_day(2026, 1, 6))
+    pos_b = make_position(
+        symbol='004369',
+        quantity=100,
+        avg_price=1.0,
+        account_name='账户B',
+        symbol_norm=symbol_identity('004369', venue='OTC'),
+    )
+    _txn(make_transaction, pos_a, txn_type='buy', quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
+    _txn(make_transaction, pos_b, txn_type='buy', quantity=50, price=1.1, amount=55, trade_date=_day(2026, 1, 6))
 
     result = build_trade_timeline(db, symbol='004369', family_id=1)
 
@@ -197,8 +187,16 @@ def test_symbol_variant_convergence(db, make_position, make_transaction):
 def test_null_position_id_still_counted(db, make_position, make_transaction):
     """position_id 为 NULL 的流水也必须收敛（覆盖率仅 45% 的实测教训，#2009）。"""
     pos = _seed_position(make_position)
-    _txn(make_transaction, pos, position_id=None, txn_type='buy',
-         quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
+    _txn(
+        make_transaction,
+        pos,
+        position_id=None,
+        txn_type='buy',
+        quantity=100,
+        price=1.0,
+        amount=100,
+        trade_date=_day(2026, 1, 5),
+    )
 
     result = build_trade_timeline(db, symbol='004369', family_id=1)
 
@@ -209,10 +207,8 @@ def test_ledger_filter(db, make_position, make_transaction):
     """ledger_id 传了只重放该账户；不传全部合并。"""
     pos_a = _seed_position(make_position, account='账户A')
     pos_b = make_position(symbol='004369', quantity=50, avg_price=1.0, account_name='账户B')
-    _txn(make_transaction, pos_a, txn_type='buy',
-         quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
-    _txn(make_transaction, pos_b, txn_type='buy',
-         quantity=50, price=1.0, amount=50, trade_date=_day(2026, 1, 6))
+    _txn(make_transaction, pos_a, txn_type='buy', quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
+    _txn(make_transaction, pos_b, txn_type='buy', quantity=50, price=1.0, amount=50, trade_date=_day(2026, 1, 6))
 
     merged = build_trade_timeline(db, symbol='004369', family_id=1)
     single = build_trade_timeline(db, symbol='004369', family_id=1, ledger_id=pos_a.ledger_id)
@@ -227,10 +223,8 @@ def test_ledger_filter(db, make_position, make_transaction):
 def test_ignored_types_counted_not_silent(db, make_position, make_transaction):
     """未识别类型（拆分等）计数跳过，不静默丢弃、不进买卖点。"""
     pos = _seed_position(make_position)
-    _txn(make_transaction, pos, txn_type='buy',
-         quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
-    _txn(make_transaction, pos, txn_type='split',
-         quantity=0, price=0, amount=0, trade_date=_day(2026, 2, 5))
+    _txn(make_transaction, pos, txn_type='buy', quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
+    _txn(make_transaction, pos, txn_type='split', quantity=0, price=0, amount=0, trade_date=_day(2026, 2, 5))
 
     result = build_trade_timeline(db, symbol='004369', family_id=1)
 
@@ -257,9 +251,16 @@ def test_missing_symbol_raises(db):
 def test_trade_date_anchors_point(db, make_position, make_transaction):
     """买卖点锚 T 日（trade_date），确认日随点返回（#2171 定稿口径 3）。"""
     pos = _seed_position(make_position)
-    _txn(make_transaction, pos, txn_type='buy',
-         quantity=100, price=1.0, amount=100,
-         trade_date=_day(2026, 1, 5), confirm_date=date(2026, 1, 6))
+    _txn(
+        make_transaction,
+        pos,
+        txn_type='buy',
+        quantity=100,
+        price=1.0,
+        amount=100,
+        trade_date=_day(2026, 1, 5),
+        confirm_date=date(2026, 1, 6),
+    )
 
     result = build_trade_timeline(db, symbol='004369', family_id=1)
 

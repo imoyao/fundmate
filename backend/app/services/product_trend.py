@@ -236,7 +236,11 @@ def fetch_product_trend(
         # 触发条件用**本次请求的窗口**而非最长档，避免「只看 3M 却为 5Y 回补」。
         maybe_trigger_nav_backfill(code, series, start)
         # 来源与口径分开给：来源是站点名（用户看得懂），口径是「怎么算的」
-        kind, basis, source = 'nav', '累计净值（分红不再投近似复权，缺失回退单位净值）', data_source_label(FUND_NAV_SOURCE_LABEL)
+        kind, basis, source = (
+            'nav',
+            '累计净值（分红不再投近似复权，缺失回退单位净值）',
+            data_source_label(FUND_NAV_SOURCE_LABEL),
+        )
         # 场外基金只有单位净值，没有 OHLCV —— 前端据此画净值线而不是 K 线（品类差异化）
         ohlc: List[Dict] = []
     elif normalized_type == 'index':
