@@ -11,6 +11,7 @@ import time
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
+import requests
 from loguru import logger
 
 from app.core.symbol_utils import (
@@ -28,6 +29,54 @@ _FUND_MANAGER_RETRY_SLEEP = 3  # 秒
 # 日线取数中**不接受日期区间参数**的品类：可转债（bond_zh_hs_cov_daily）与 ETF 的
 # 新浪回退源（fund_etf_hist_sina）都会返回全部历史，必须由调用侧本地裁剪（#1104）
 _NO_WINDOW_SEC_TYPES = ('bond', 'etf')
+
+# ── 东财 K 线连接级失败熔断器 ────────────────────────────────────────────────
+# WHY：2026-10-14 实测 push2his.eastmoney.com 对本机 IP 级拒绝（RemoteDisconnected，
+# curl 直连同样失败）。东财挂掉期间每只 ETF 仍白烧 adjust='' 与 adjust='qfq' 两轮、
+# 每轮 urllib3 重试 3 次（约 7~10 秒/只）才走到既有回退，8 只持仓 ETF 一轮多耗
+# 约 1.5 分钟并刷屏 WARNING（当日实测 16 条）。
+# 熔断语义：连续 2 次连接级失败后 600s 内跳过东财——adjust='' 直切新浪回退、
+# adjust='qfq' 直接返回 None（adj_close 由 _fetch_adj_close_map 回退 close）；
+# 一次成功即复位；冷却过期后下一次调用即半开试探。仅连接级异常（ConnectionError /
+# Timeout）计数，解析错等业务异常不计。数据自愈仍靠 price_history 缺口回补下次运行。
+_EM_KLINE_FAILURE_THRESHOLD = 2
+_EM_KLINE_BREAKER_COOLDOWN = 600  # 秒
+
+
+class _EmKlineBreaker:
+    """东财 K 线连接级失败熔断器（进程内共享，见模块级常量处的 WHY 说明）。"""
+
+    def __init__(self):
+        self._consecutive = 0
+        self._open_until = 0.0
+
+    def should_skip(self, now: float) -> bool:
+        """熔断是否处于打开期（now 早于冷却截止时间）。"""
+        return now < self._open_until
+
+    def record_success(self) -> None:
+        """一次成功即完全复位（含关闭熔断）。"""
+        self._consecutive = 0
+        self._open_until = 0.0
+
+    def record_connection_failure(self, now: float) -> None:
+        """记录一次连接级失败；达到阈值时打开熔断并打日志。"""
+        self._consecutive += 1
+        if self._consecutive >= _EM_KLINE_FAILURE_THRESHOLD:
+            self._open_until = now + _EM_KLINE_BREAKER_COOLDOWN
+            logger.info(
+                f'东财 K 线连接级失败连续 {self._consecutive} 次，熔断打开 '
+                f'{_EM_KLINE_BREAKER_COOLDOWN}s：期间 ETF 未复权直切新浪回退、'
+                '复权请求直接跳过（adj_close 回退 close）'
+            )
+
+    def reset(self) -> None:
+        """测试用：清零计数并关闭熔断。"""
+        self._consecutive = 0
+        self._open_until = 0.0
+
+
+_em_kline_breaker = _EmKlineBreaker()
 
 # ── 基金持仓明细 / 行业配置（#870）─────────────────────────────────────────────
 # 东财基金档案-投资组合有两个端点，取数语义都是「**报告年份**」，不是日期：
@@ -273,7 +322,16 @@ class AkshareAdapter(DataSourceAdapter):
         新浪源不支持复权参数，故只在取**未复权**数据（adjust=''）时回退；
         复权请求失败返回 None，由 `_fetch_adj_close_map` 让 adj_close 回退 close。
         新浪源返回全历史且无日期参数，区间裁剪由 `fetch_stock_price` 统一完成。
+
+        连续连接级失败会触发模块级熔断（见 `_EmKlineBreaker`）：打开期间
+        adjust='' 直切新浪、adjust='qfq' 直接返回 None，不再白烧东财重试。
         """
+        now = time.time()
+        if _em_kline_breaker.should_skip(now):
+            self.logger.debug(f'东财熔断打开中，跳过 {code} adjust={adjust!r} 的东财请求')
+            if adjust:
+                return None
+            return ak.fund_etf_hist_sina(symbol=f'{market.lower()}{code}')
         try:
             df = ak.fund_etf_hist_em(
                 symbol=code,
@@ -283,8 +341,12 @@ class AkshareAdapter(DataSourceAdapter):
                 adjust=adjust,
             )
             if df is not None and not df.empty:
+                _em_kline_breaker.record_success()
                 return df
         except Exception as e:
+            # 仅连接级异常计入熔断；解析错等业务异常不影响熔断状态
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                _em_kline_breaker.record_connection_failure(now)
             self.logger.warning(f'东财 ETF 日线失败（{code} adjust={adjust!r}）: {e}')
         if adjust:
             return None
