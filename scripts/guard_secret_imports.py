@@ -70,8 +70,21 @@ CREDENTIAL_KEYS = ('username', 'password', 'ssh_key')
 
 
 def _is_secret_url(value: str) -> bool:
-    low = value.lower()
-    return 'secret' in low or low.strip().endswith('vars.yml')
+    """判断一个引用 URL 是不是「密钥类文件」。
+
+    **有意不要求 URL 里含 `secret`**（2026-10-14 修，源 CNB #179）：
+    密钥仓库没必要叫 `*-secret`，改个名字（如 `duoduobei/fundmate-vars`）就会让
+    判据 1 静默失效——**而它是安全判据，静默放过比误报贵得多**。
+    改为同时认两种形态：① URL 里含 `secret`；② 文件名形如 `<名>.vars.yml`
+    （本仓的约定是密钥文件叫 `vars.yml`，`fundmate-secret` 只是**当前位置**的名字，
+    不是判据的唯一入口）。
+    """
+    low = value.lower().strip()
+    if 'secret' in low:
+        return True
+    tail = low.rstrip('/').rsplit('/', 1)[-1].split('?')[0]
+    # `vars.yml` / `xxx.vars.yml` / `xxx-vars.yml` 都认；`vars.example.yml` 不认（那是文档）。
+    return tail == 'vars.yml' or (tail.endswith('.vars.yml') and not tail.endswith('.example.vars.yml'))
 
 
 def _vals(v) -> list[str]:

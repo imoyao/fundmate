@@ -96,33 +96,42 @@
   需要另开一张 `dev` → `main` 的**发布 PR**，让镜像改动真正落地；
 - **发版前镜像作业跑的是旧脚本**，这是需接受的窗口，**不是**「所以我要直连 `main`」的许可证。
   改 base 只会把「旧脚本还跑着」变成「新旧代码在两处、且互不包含」——更难收拾；
-- 判据自查（发版前跑一次，`main` 落后 `dev` 时应看得见）：
+- **判据（2026-10-14 二次修正，源 CNB #179）**：**发版滞后本身不是故障**。
 
-  ```bash
-  git fetch origin dev main
-  git rev-list --count origin/dev..origin/main   # main 领先 dev 的提交数（正常应为 0）
-  git rev-list --count origin/main..origin/dev   # dev 领先 main 的提交数（待发版的量）
-  git merge-base --is-ancestor origin/main origin/dev && echo 'main 是 dev 祖先，未分叉'       || echo '⚠ 已分叉：main 上有 dev 没有的提交'
-  ```
+  | 形态 | 判定 |
+  |---|---|
+  | `main` 独有提交是**发版 merge**（第二父是 `dev` 的祖先） | ✅ 正常（`main` 停在上一发版点） |
+  | `main` 独有提交是**普通提交**，或 merge 的第二父不是 `dev` 的祖先 | ⚠️ **纪律违规**：有人绕过 `dev` |
+  | `git cherry origin/dev origin/main` 有 `+` 行 | ⚠️ `main` 上有 `dev` 拿不到的改动 |
 
-- **判据机器化**：上面三条命令已固化进 `scripts/bridge/check_branch_divergence.py`
+  ⚠️ **不要**把「`main` 独有提交数 > 0」当分叉判据：本仓发版后 `main` 必然多一个
+  merge commit，且 `dev` 继续前进 ⇒ `main` 既不领先也不是 `dev` 的祖先。拿它报红
+  就是**每次都喊狼来了**，红灯随之失去可信度。判据要二分，不要数数。
+
+- **判据机器化**：已固化进 `scripts/bridge/check_branch_divergence.py`
   （只读本地 git、不联网），并挂进 `.cnb.yml` 的收尾阶段（只报告）：
 
   ```bash
-  python scripts/bridge/check_branch_divergence.py --report   # 退出码 1 = 已分叉
+  python scripts/bridge/check_branch_divergence.py --report   # 退出码 1 = 有新形态
   ```
 
-  正常态是「`main` 领先 0、`main` 是 `dev` 的祖先」——即 `main` 始终是 `dev` 的历史前缀。
-  **出现 `main` 领先 `dev` 就是分叉，无论提交数多小，都先查是不是有 PR 用错了 base。**
+  ⚠️ 内容级判据用 **`git cherry`（补丁等价）**，**不是** `git diff`：
+  交叉合并（`main` 合过 `dev`、`dev` 又前进）下 `diff` 非空但 `main` 零独有内容，
+  用 `diff` + 祖先关系会**假红**（2026-10-14 实测 7 个文件全是假阳性）。
+  「拿不到输入」（`git cherry` / `git log` 失败）一律按红，**不得**降级成正常。
 
-  ⚠️ **但「`main` 独有提交数 > 0」本身不是判据**（2026-10-14 重写，源 CNB #179）：
-  发版 PR 必然给 `main` 留一个 merge commit 而**不引入内容**，且发版后 `dev` 继续走、
-  `main` 必然既不领先也不包含 `dev` ⇒ 按提交数判会**每次正常发版都红一次**，
-  真违规反被噪音淹掉。现行判据只看一件事：**`main` 有没有 `dev` 拿不到的代码**
-  （互不包含时**逐文件**判「`main` 侧版本在 `dev` 历史里出现过吗」——
-  出现过即「停在旧版」属正常滞后，从未出现才是绕过 `dev`）。
-  同样地，**`git diff main dev` 非空也不等于分叉**（diff 是双向的，
-  `dev` 领先同样非空）。两个旧口径都产生过假红，处置见 `docs/dev/github-cnb-mirror.md` §11。
+  ⚠️ **两个旧口径都产生过假红**，别再走回去：
+
+  | 旧口径 | 为什么会误报 |
+  |---|---|
+  | ①「`main` 独有提交数 > 0 ⇒ 分叉」 | 发版 PR 必然给 `main` 留一个 merge commit 而**不引入内容** ⇒ 每次正常发版都红一次 |
+  | ②「`git diff main dev` 非空 ⇒ 分叉」 | `diff` 是**双向**的，「`dev` 领先、`main` 停在旧版」也非空 ⇒ **假红** |
+
+  ⚠️ 也**不要**改用「逐文件查 blob 历史」（`git log --find-object`）来绕开 ②：
+  它只看得见「`main` 侧**存在**的路径」，`main` 上**纯删除**的改动会被跳过 ⇒ **假绿**
+  （`main` 合过 `dev` 后又删了一个 `dev` 里还在的文件、`dev` 再前进 ⇒ 逐文件法报
+  「两侧内容一致」，而 `git cherry` 报 `+`，是真违规）。判据只用
+  **`git cherry <dev> <main>`（补丁等价）**，详细推导见 `docs/dev/github-cnb-mirror.md` §11。
 
 #### git-sync **两个方向**都必须显式指定 `branch`，且不含 `main`（2026-10-13 ~ 10-14，#167 / #172）
 
