@@ -115,17 +115,30 @@
   正常态是「`main` 领先 0、`main` 是 `dev` 的祖先」——即 `main` 始终是 `dev` 的历史前缀。
   **出现 `main` 领先 `dev` 就是分叉，无论提交数多小，都先查是不是有 PR 用错了 base。**
 
-#### git-sync 的 push 目标必须显式指定且不含 `main`（2026-10-13，#167 / #172）
+#### git-sync **两个方向**都必须显式指定 `branch`，且不含 `main`（2026-10-13 ~ 10-14，#167 / #172）
 
-`main` 分叉的最直接来源：git-sync 插件在**不写 `branch`** 时执行 `git push <target> --all`，
-把 CNB 的 `main` 一并推给 GitHub。而 GitHub 是权威源（`main` 只由发版 PR 推进）⇒
-两侧各自长出独有提交、交集为 0（2026-10-13 实测 CNB 31 / GitHub 27）。
+**口径（用户 2026-10-14 在 CNB #167 明确）**：
 
-- **`push:` 与每小时兜底都写 `branch: dev`**；功能分支走单独一段
-  `"**/!(main|dev)"` + `branch: ${CNB_BRANCH}`；
-- 拉取方向（`sync_mode: pull`）不写 `branch` 是对的——它只拉不推；
+> **CNB 的 `main` 与 GitHub 的 `main` 没有任何关系。** CNB `main` 只由 CNB 自己的发版 PR
+> （`dev` → `main`）推进——**既不外推给 GitHub，也不被 GitHub 覆盖**。
+> CNB 的 `dev` 推给 GitHub `dev` 可以；CNB 从 GitHub 拉代码也可以。
+> 一句话判据：**CNB `main` 不得有 `dev` 没有的代码**（发版 merge commit 除外）。
+
+两个方向各有一个「不写 `branch` 就会碰 `main`」的陷阱：
+
+| 方向 | 不写 `branch` 时插件干什么 | 后果 |
+|---|---|---|
+| **push** | `git push <target> --all` | 把 CNB 的 `main` 一并推给 GitHub ⇒ 两侧 `main` 分叉（2026-10-13 实测 CNB 31 / GitHub 27，交集 0） |
+| **pull** | 取 target **全部**分支，逐个 `pull --rebase` 后 **`git push origin <b> --force`** | **GitHub 的 `main` force 覆盖 CNB 的 `main`**（不看是否 fast-forward） |
+
+- ⚠️ **「pull 只拉不推、不会分叉」是直觉错误**（2026-10-14 读插件 `entrypoint.sh` 实测）：
+  pull **总会** `git push origin --force` 写回本地 origin；不写 `branch` 时遍历 target 全分支。
+  **故 pull 也必须写 `branch: dev`**（此前 #172 那句「拉取方向不写 branch 是对的」已作废）。
+- **四处都要写**：`push:`（推 dev）/ `crontab: 30`（兜底推 dev）/ `"**/!(main|dev)"`
+  （`branch: ${CNB_BRANCH}`，推当前功能分支）/ `crontab: 0` 的 **pull（拉 dev）**。
 - **判据机器化**：`python scripts/guard_git_sync_push_scope.py`（并入 `ci.yml` 的
-  `layout_guard` job，阻断），回归网 `scripts/tests/git_sync_push_scope.test.js`（含三个变异探针）。
+  `layout_guard` job，阻断），覆盖两个方向的四条判据；回归网
+  `scripts/tests/git_sync_push_scope.test.js`（含 **5 个**变异探针：push 三种 + pull 两种）。
 
 #### `crontab` / `push` 下必须写成「job 列表 + 命名 stage」（2026-10-13，#167）
 

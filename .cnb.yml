@@ -178,14 +178,14 @@ main:
   # 故此处两条 cron 与 `push:` 统一为 `- name: <job 名> / stages: [...]` 形态。
   # （job 名只用于构建页展示；stage 名才是 get-build-stage 的查询锚点，两者都要写。）
 
-  # 每小时从 GitHub 拉回（闭合 GitHub -> CNB）
+  # 每小时从 GitHub 拉回 **dev**（闭合 GitHub -> CNB）
   "crontab: 0 * * * *":
-    - name: 从 GitHub 拉取（全分支 + 标签）
+    - name: 从 GitHub 拉取（仅 dev + 标签）
       # ⚠️ 必须用「带 name 的 job」形态（列表 + `- name:`），不要退回裸 `stages:`。
       # 裸 stages 的 job 在构建详情里**查不到 stage**：外部看是绿的，实际推没推上去无从判断
       # —— 比红灯更危险的「假绿」（CNB #172 实测）。命名 job 才会在详情页可见。
       stages:
-        - name: 从 GitHub 拉取（全分支 + 标签）
+        - name: 从 GitHub 拉取（仅 dev + 标签）
           image: tencentcom/git-sync
           # 凭据走**插件任务级** imports（见上方说明：必须与 image 平级，且要用 imports 才能
           # 让 settings 里的 ${VAR} 解析；不要改回流水线级 imports，也不要改成 settingsFrom）
@@ -197,6 +197,17 @@ main:
             username: ${GIT_USERNAME}
             password: ${GITHUB_PAT}
             sync_mode: pull
+            # ⚠️⚠️ pull 方向**同样必须写 `branch`**（CNB #167 收尾，2026-10-14）。
+            # 「pull 只拉不推、不会分叉」是**直觉错误** —— 插件源码 `entrypoint.sh` 里
+            # pull **总会** `git push origin <b> --force` 写回本地 origin；
+            # 不写 `branch` 时它走 else 分支，取 target 的**全部**分支逐个处理 ⇒
+            # **GitHub 的 `main` 被 force 覆盖到 CNB 的 `main`**（不看是否 fast-forward）。
+            # 这与既定口径直接冲突：**CNB 的 `main` 与 GitHub 的 `main` 没有任何关系**
+            # （CNB `main` 只由 CNB 自己的发版 PR 推进，既不外推也不被覆盖）。
+            # 写 `branch: dev` 后走 if 分支：只处理 `dev`，`git push origin dev --force`
+            # 只覆盖 CNB 的 `dev` —— 这正是「CNB 拉 GitHub 的代码」该有的范围。
+            # 判据已并入 `scripts/guard_git_sync_push_scope.py`（pull 形态也须显式 branch）。
+            branch: dev
             push_tags: true
   # 每小时兜底：**只推 `dev`**，不再 `--all`（CNB #167 / #172）。
   # cron 事件下没有「被推的功能分支」上下文（`CNB_BRANCH` 恒为该段所挂分支），

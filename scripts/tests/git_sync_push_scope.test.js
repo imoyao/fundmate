@@ -1,5 +1,6 @@
 /**
- * 「git-sync push 目标分支不含 main」守门的回归网（源 CNB #172，2026-10-13）。
+ * 「git-sync 两个方向都只作用在 dev/功能分支，main 不外推也不被覆盖」守门的回归网
+ * （源 CNB #172 起、#167 收尾，2026-10-13 ~ 10-14）。
  *
  * ## 为什么有这份文件
  *
@@ -17,9 +18,12 @@
  *
  * ## 这份文件钉什么
  *
- * 1. **两处 push 都显式写了 `branch`**，且不是 `main` / `*` / `--all`；
- * 2. **没有「不写 branch」的 push 任务**（那就是 `--all`，会推 main）；
- * 3. **守卫三条判据都真会报错**（一正三反探针，本仓老规矩「守门通过 ≠ 守门有效」）；
+ * 1. **两个方向（push / pull）的 git-sync 任务都显式写了 `branch`**，
+ *    且不是 `main` / `*` / `--all`；
+ * 2. **没有「不写 branch」的任务**——push 方向不写 = `--all`（会推 main）；
+ *    **pull 方向不写 = 取 target 全分支 + `git push origin --force`（会把 GitHub
+ *    的 `main` force 覆盖到 CNB 的 `main`）**，这条是 #167 收尾新加的；
+ * 3. **守卫的每条判据都真会报错**（含 pull 方向的两条，本仓老规矩「守门通过 ≠ 守门有效」）；
  * 4. **`check_cnb_events.py` 认得 glob 顶层分支键**（CNB 官方文档列出的
  *    「排除 main 和 dev」写法），此前被守卫的字符集误判为非法。
  *
@@ -61,25 +65,41 @@ test("当前 .cnb.yml 通过 push 目标分支守卫", () => {
   assert.equal(r.status, 0, `守卫应当通过，实际：${r.stdout}${r.stderr}`);
 });
 
-test("push 任务都显式写了 branch，且不是 --all 的等价写法", () => {
+test("两个方向的 git-sync 任务都显式写了 branch，且不是 --all 的等价写法", () => {
   // 逐条找 git-sync 任务块，块内必须有 branch: 且值不在禁区。
   // 只取「真在 stages 里用了 git-sync 镜像」的块——注释里提到镜像名的块（如 .mirror-job
   // 的说明、`guard_secret_imports.py` 的注解）不算任务，否则会误报「没写 branch」。
   const blocks = CNB_YML.split(/\n(?=\s*- name:)/).filter((b) =>
     /^\s*image:\s*tencentcom\/git-sync\s*$/m.test(b)
   );
-  assert.ok(blocks.length >= 3, `git-sync 任务应有 3 条（push + 两条 cron），实际 ${blocks.length}`);
+  assert.ok(blocks.length >= 4, `git-sync 任务应有 4 条（push + pull + 两条 cron），实际 ${blocks.length}`);
+  let pullSeen = 0;
   for (const block of blocks) {
     const name = (block.match(/- name:\s*(.+)/) || [])[1] || "<无名>";
-    if (/sync_mode:\s*pull/.test(block)) continue; // 拉取方向不推 GitHub
+    const isPull = /sync_mode:\s*pull/.test(block);
+    if (isPull) pullSeen += 1;
     const m = block.match(/^\s*branch:\s*(.+)$/m);
-    assert.ok(m, `任务「${name}」没写 branch —— 插件会执行 git push --all 把 main 推上去（#172）。`);
+    assert.ok(
+      m,
+      isPull
+        ? `pull 任务「${name}」没写 branch —— 插件会取 target 全分支并 ` +
+            `git push origin --force 覆盖 CNB 的 main（#167）。`
+        : `任务「${name}」没写 branch —— 插件会执行 git push --all 把 main 推上去（#172）。`
+    );
     const val = m[1].trim();
     assert.ok(
       !["main", "*", "--all", "refs/heads/main"].includes(val),
-      `任务「${name}」的 branch 是禁区值 ${val}（#172）。`
+      `任务「${name}」的 branch 是禁区值 ${val}（#167/#172）。`
     );
   }
+  assert.equal(pullSeen, 1, `应恰有 1 条 pull 任务（拉 GitHub dev），实际 ${pullSeen}。`);
+  // pull 方向必须恰好是 dev：CNB 的 main 不由同步推进。
+  const pullBlock = blocks.find((b) => /sync_mode:\s*pull/.test(b));
+  assert.match(
+    pullBlock,
+    /^\s*branch:\s*dev\s*$/m,
+    "pull 任务的目标分支应为 `dev` —— CNB 的 `main` 与 GitHub 的 `main` 无关，不得被覆盖（#167）。"
+  );
 });
 
 test("守卫能抓到三种回退形态（探针：守门通过 ≠ 守门有效）", () => {
@@ -97,6 +117,30 @@ test("守卫能抓到三种回退形态（探针：守门通过 ≠ 守门有效
   const viaVar = CNB_YML.replace(/\n(\s*)branch: dev\n/, "\n$1branch: ${CNB_BRANCH}\n");
   assert.notEqual(viaVar, CNB_YML, "变异 ③ 未生效：测试自身写坏了。");
   assert.equal(runGuardOn(viaVar).status, 1, "main 键下用 ${CNB_BRANCH} 后守卫没报错。");
+});
+
+test("守卫能抓到 pull 方向的两种回退（#167 收尾新判据）", () => {
+  // pull 段的 branch 行：它紧跟在 `sync_mode: pull` 之后的第一条可执行 `branch: dev`。
+  const pullBranchRe = /(sync_mode:\s*pull\n(?:[ \t]*#[^\n]*\n)*)([ \t]*)branch:\s*dev\n/;
+  assert.match(CNB_YML, pullBranchRe, "变异未生效：测试自身写坏了（pull 段的 branch: dev 没找到）。");
+
+  // ① 删掉 pull 的 branch（回到「全分支 force 覆盖 main」形态）
+  const pullNoBranch = CNB_YML.replace(pullBranchRe, "$1");
+  assert.notEqual(pullNoBranch, CNB_YML, "变异 ① 未生效：测试自身写坏了。");
+  assert.equal(
+    runGuardOn(pullNoBranch).status,
+    1,
+    "删掉 pull 的 branch 后守卫没报错 —— 「GitHub main 覆盖 CNB main」的形态漏网（#167）。"
+  );
+
+  // ② pull 显式写 main
+  const pullToMain = CNB_YML.replace(pullBranchRe, "$1$2branch: main\n");
+  assert.notEqual(pullToMain, CNB_YML, "变异 ② 未生效：测试自身写坏了。");
+  assert.equal(
+    runGuardOn(pullToMain).status,
+    1,
+    "pull 方向写 branch: main 后守卫没报错（#167）。"
+  );
 });
 
 test("所有 job 都带 name（否则 stage 在详情页查不到 = 假绿）", () => {

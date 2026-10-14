@@ -1,6 +1,6 @@
 ---
 title: GitHub → CNB Issue 增量镜像
-status: v1.3（2026-10-12，源 CNB issue #2；§9 本地卡对照源自 CNB #117；§13 双向同步三故障/四种失败形态）
+status: v1.4（2026-10-14，源 CNB issue #2；§9 本地卡对照源自 CNB #117；§13 双向同步三故障/四种失败形态；§13.5 「CNB main 与 GitHub main 无关」口径）
 owner: 阿白
 ---
 
@@ -448,13 +448,28 @@ python scripts/bridge/check_branch_divergence.py --report
 python scripts/bridge/check_branch_divergence.py --report --jobs-only
 ```
 
-### 判据
+### 判据（2026-10-14 改为**内容级**，源 CNB #167 规则 1）
 
-- **`main` 独有提交数 > 0 ⇒ 分叉**（正常态恒为 0：发版 PR 把 `dev` 推上去，`main` 不领先）；
+**`main` 有没有 `dev` 拿不到的代码**才算分叉 —— 判据从「提交数」升级为「内容」：
+
+| 形态 | 内容级判据 | 退出码 |
+|---|---|---|
+| `git diff <left> <right>` 为空 | ✅ 一致：`left` 独有的只是**发版等结构节点** | 0 |
+| diff 非空，但 `left` 是 `right` 的**祖先** | ℹ️ 只是 `right` 领先（正常态） | 0 |
+| diff 非空，且 `left` 有 `right` 拿不到的路径 | ⚠️ **真分叉**，报告点名文件 | 1 |
+| 拿不到 `git diff` | ❓ **判据不可用**，明说不降级（#171 教训） | 2 |
+
+> **为什么改**：旧口径「`main` 独有提交数 > 0 ⇒ 分叉」把**每次发版**都报成红——
+> 发版 PR 必然给 `main` 留一个 merge commit，而它**不引入内容**。红却不指向任何
+> 还需动手的事，是**假红**（与 #118 的假绿同族）。用户口径原话是「CNB 的 `main`
+> 不能有 `dev` 没有的**代码**」——判据就该按**内容**答，而不是按提交数。
+
+辅助信号（仍会打印，供人看结构）：
+
+- 两侧**互不包含**时明说「这才是 #123 记的双向分叉形态」；
 - 列出两侧互不包含的「决定什么会被执行」的文件（`.cnb.yml` + `.github/workflows/*.yml`）。
 
-退出码：`0` = 未分叉；`1` = 检出分叉；`2` = 取不到分支。`.cnb.yml` 里带 `|| true`
-——它是信号，不是门禁。
+`.cnb.yml` 里带 `|| true`——它是信号，不是门禁。
 
 ### 根因诊断：`--explain`（答「为什么分叉」，2026-10-11 补）
 
@@ -753,31 +768,48 @@ token access`）：
 > 后续排查就会对着过期事实判断。注意：`settingsFrom` 路线**不需要**改密钥仓库
 > （保持 `GIT_USERNAME` / `GITHUB_PAT` 的键名即可），这正是选它的原因之一。
 
-### 13.3 push 目标分支收窄：`main` 不经 CNB 外推（源 CNB #167 / #172）
+### 13.3 分支范围收窄：`main` **不外推、也不被覆盖**（源 CNB #167 / #172）
 
-**症状**：`main` 两侧互相分叉，且**各自都是真的**——CNB `main` 与 GitHub `main`
-各有独有提交、交集为 0（2026-10-13 实测：CNB 31 / GitHub 27）。`crontab` 只能挂在
-具体分支下，`.cnb.yml` 挂在 `main` ⇒ **真正执行的是 `main` 上那份配置**，
-而「整改代码」可能躺在 `dev` 上。同一个病在 #118 / #123 已记过两次。
+**这条的口径（用户 2026-10-14 在 CNB #167 明确）**：
 
-**根因不在凭据，在 `--all`**：git-sync 插件的 push 方向在**不写 `branch`** 时执行
-`git push <target> --all`，把 CNB 的 `main` 一并推给 GitHub。而本仓的权威源是 GitHub
-（`main` 只由发版 PR 推进），于是两边各自长出对方没有的提交，`--is-ancestor` 判否。
+> **CNB 的 `main` 与 GitHub 的 `main` 没有任何关系。** CNB `main` 只由 CNB 自己的
+> 发版 PR（`dev` → `main`）推进，既**不外推**给 GitHub，也**不被覆盖**。
+> CNB 的 `dev` 推给 GitHub `dev` 是可以的；CNB 从 GitHub 拉代码也是可以的。
+> 判据一句话：**「CNB `main` 不能有 `dev` 没有的代码」**（发版 merge commit 除外）。
 
-**修法**（三处，缺一不可）：
+**两个方向各有一个「默认行为会碰 `main`」的陷阱**，且第二个反直觉：
+
+| 方向 | 不写 `branch` 时插件干什么 | 后果 |
+|---|---|---|
+| **push** | `git push <target> --all`（源码 else 分支） | 把 CNB 的 `main` 一并推给 GitHub |
+| **pull** | 取 target 的**全部**分支，逐个 `git pull --rebase` 后 **`git push origin <b> --force`** | **把 GitHub 的 `main` force 覆盖到 CNB 的 `main`**（不看是否 fast-forward） |
+
+> ⚠️ **「pull 只拉不推、不会分叉」是直觉错误**（#167 收尾实测，读插件 `entrypoint.sh` 得到）：
+> pull 分支**总会** `git push origin --force` 写回本地 origin。不写 `branch` 时走
+> else 分支 ⇒ 遍历 target 全分支 ⇒ GitHub `main` 直接盖掉 CNB `main`。
+> 故 **pull 也必须显式写 `branch: dev`**。
+
+**push 方向的分叉症状（#172 回顾）**：2026-10-13 实测 CNB `main` 独有 31 /
+GitHub `main` 独有 27、**交集 0**；`crontab` 只能挂在具体分支下、`.cnb.yml` 挂在 `main`
+⇒ **真正执行的是 `main` 上那份配置**，而「整改代码」可能躺在 `dev` 上（病在 #118 / #123
+已记过两次）。
+
+**修法（四处，缺一不可）**：
 
 | 作业 | 事件 | 目标分支 | 说明 |
 |---|---|---|---|
 | 推 `dev` | `push:` on `main` | `branch: dev` | 发版前的集成分支；不再带 `main` |
-| 每小时兜底 | `crontab: 30` | `branch: dev` | cron 下没有「当前功能分支」上下文，故只管 `dev` |
+| 每小时兜底推 | `crontab: 30` | `branch: dev` | cron 下没有「当前功能分支」上下文，故只管 `dev` |
 | 功能分支 | `"**/!(main|dev)"` 的 `push:` | `branch: ${CNB_BRANCH}` | 精确推触发本次构建的那条分支 |
-
-拉取方向（`crontab: 0`，`sync_mode: pull`）不受影响——它只拉不推。
+| **从 GitHub 拉** | `crontab: 0`（`sync_mode: pull`） | **`branch: dev`** | **只拉 `dev`**；不加就会被 GitHub `main` force 覆盖（#167） |
 
 **守卫**：`scripts/guard_git_sync_push_scope.py`（并入 `ci.yml` 的 `layout_guard` job，
-阻断），三条判据：① push 形态的 git-sync 必须显式写 `branch`（不写 = `--all`）；
-② `branch` 不得是 `main` / `*` / `--all`；③ `main` 顶层键下不得用 `${CNB_BRANCH}` 推分支。
-回归网 `scripts/tests/git_sync_push_scope.test.js`，含三个变异回退探针。
+阻断），覆盖**两个方向**的四条判据：① 两个方向的 git-sync 都必须显式写 `branch`
+（push 不写 = `--all`；pull 不写 = 全分支 force 覆盖）；② `branch` 不得是
+`main` / `*` / `--all`；③ `main` 顶层键下不得用 `${CNB_BRANCH}` 推分支；
+④ 每个 job 必须带 `name`（见 §13.4）。
+回归网 `scripts/tests/git_sync_push_scope.test.js`，含 **5 个**变异回退探针
+（push 三种 + **pull 两种**）。
 
 **连带放宽**：`check_cnb_events.py` 的 `BRANCH_NAME` 字符集补上 glob 通配
 （`"**/!(main|dev)"` 是 CNB 官方支持的形态，旧字符集把它误判成非法顶层键）。
@@ -816,3 +848,47 @@ job 对象）时，CNB 不把它当标准 job 列表处理，stage 不进可查�
 **判据机械化**：`scripts/tests/git_sync_push_scope.test.js` 里按 `- name:` 切块，
 逐条 git-sync 任务断言 `branch` 存在且非禁区——结构回潮会一起暴露
 （`stages` 直接挂在事件下时，`- name:` 切块拿不到该任务，测试会报「任务数少了」）。
+
+### 13.5 口径：**CNB 的 `main` 与 GitHub 的 `main` 没有任何关系**（源 CNB #167，2026-10-14）
+
+在 §13.3 的「怎么改」之上，先钉住「为什么这么改」——否则下一个人看到「CNB 落后 GitHub
+27 个提交」，第一反应还是「那就同步过去呗」，于是把两侧 `main` 又接到一起。
+
+**用户原话（CNB #167，2026-10-14）**：
+
+> 我们不应该在 CNB 端去更新……CNB 的 `main` 应该和 `dev` 不能超出 `dev`，有超出 `dev` 的代码。
+> 我们 CNB 的 `dev` 直接往 GitHub 上面去推送是可以接受的。但是 CNB 上面的 `main` 分支和
+> GitHub 上面的 `main` 分支，它们两个应该没有什么关系，不能够把它们两个做一个推送，
+> 不然的话肯定会出现问题的呀。我们 CNB 和 GitHub 上面的分支同步的时候，应该是
+> **CNB 向 GitHub 同步**，然后 **CNB 拉 GitHub 的代码**。
+
+**翻译成四条可判定的规则**：
+
+| # | 规则 | 判据（可机器验） |
+|---|---|---|
+| 1 | **CNB `main` 不得有 `dev` 没有的代码** | `git log origin/dev..origin/main` 只允许出现发版 merge commit（内容 diff 为空） |
+| 2 | **CNB `dev` → GitHub `dev` 是允许的** | `.cnb.yml` 的 push 任务 `branch: dev`（✅，已落地） |
+| 3 | **CNB `main` 与 GitHub `main` 互不推送** | ① CNB 侧没有任何 push 任务的目标是 `main`；② **pull 任务必须写 `branch: dev`**，否则 GitHub `main` 会 force 覆盖 CNB `main` |
+| 4 | **方向固定：CNB → GitHub（推 dev）；GitHub → CNB（拉 dev）** | 两个方向都收窄到 `dev`，功能分支走 `"**/!(main|dev)"`（CI 守卫钉住） |
+
+**为什么「CNB `main` 与 GitHub `main` 无关」是对的**：两者的**推进者**不同——
+CNB `main` 是 CNB 上发版 PR 的产物（甚至可以是空 diff 的合并节点），
+GitHub `main` 是 GitHub 上发版 PR 的产物。它们**恰好内容相近**只是巧合，
+一旦「同步」就会把两套发版历史焊在一起（谁赢没定义），这正是 2026-10-13 那场
+「交集 0 的双向分叉」的成因。
+
+**存量核对（2026-10-14 实测，CNB 侧）**：
+
+```
+CNB main: 8fa55fe6    CNB dev: c76b7621
+git log origin/dev..origin/main  → 8fa55fe6（发版 #177）、fc49e500（发版 #162）
+git log origin/main..origin/dev  → （空）
+git diff origin/dev origin/main  → （空）
+```
+
+即：CNB `main` 领先 `dev` 的**只有两个发版 merge commit，内容差异为 0** ⇒
+**符合规则 1**（「不能有 `dev` 没有的代码」——这两条没有引入任何代码）。
+
+**回归网**：规则 3 的 ①② 由 `scripts/guard_git_sync_push_scope.py` 阻断；
+规则 1 由 `.cnb.yml` 的「分支分叉自检」节点（`check_branch_divergence.py --report --explain`）
+持续报告。

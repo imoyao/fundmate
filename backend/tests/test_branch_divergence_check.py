@@ -13,8 +13,11 @@
 1. **方向语义**：`git diff --name-status left right` 里 `D` = 只在 `left`、`A` = 只在 `right`。
    这条曾是**真 bug**：初版把 `A` 和 `D` 都算「只在 right」，于是 `.cnb.yml` 与
    `cnb-github-backfill.yml` 同时出现在两侧列表里，报告自相矛盾；
-2. **分叉判定**：`main` 独有提交 > 0 ⇒ 分叉；两侧一致 ⇒ 不分叉（退出码 1 / 0）；
-3. **只读**：出现 `fetch` / `merge` / `push` 即越界。
+2. **分叉判定（2026-10-14 起改为内容级，源 CNB #167 规则 1）**：
+   **`main` 有没有 `dev` 没有的代码**才算分叉——发版 merge commit（内容 diff 为空）
+   不算。旧口径「`main` 独有提交 > 0 ⇒ 分叉」会把每次发版都报成假红；
+3. **判据不可用**（拿不到 `git diff`）⇒ 退出码 2，**不得降级成「正常」**（#171 教训）；
+4. **只读**：出现 `fetch` / `merge` / `push` 即越界。
 
 用例尽量走**真实 git**（本仓自己），只在需要构造「确定的分叉」时才用临时仓库——
 mock 出来的 git 永远绿，而被测的正是「跟真实 git 对话时方向对不对」。
@@ -145,23 +148,191 @@ def test_compute_counts_both_directions(mod, diverged_repo):
 
 
 def test_report_marks_diverged(mod, diverged_repo):
+    """真正分叉（`main` 有 `dev` 拿不到的内容）⇒ 报告点名「存在 `dev` 没有的内容」+ 文件清单。"""
     res = mod.compute('main', 'dev', str(diverged_repo))
     report = mod.build_report(res)
-    assert '已分叉' in report
+    assert '存在' in report and '没有的内容' in report, report
     assert '.cnb.yml' in report
     assert 'cnb-github-backfill.yml' in report
 
 
 def test_report_green_when_fast_forward(mod, diverged_repo):
-    """`dev` 是 `main` 的后代 ⇒ 不分叉，报告给明确绿灯。"""
+    """两侧同一个 ref ⇒ 内容一致，报告给明确绿灯。"""
     res = mod.compute('main', 'dev', str(diverged_repo))
-    # 反过来比较：dev 相对 main 是「向前」的？此处用两侧同一个 ref 造「未分叉」
     same = mod.compute('dev', 'dev', str(diverged_repo))
     assert same['left_only'] == 0 and same['right_only'] == 0
-    assert '未分叉' in mod.build_report(same)
-    assert '已分叉' not in mod.build_report(same)
+    assert '两侧内容一致' in mod.build_report(same)
+    assert '存在' not in mod.build_report(same)
     # 顺带确认真正的分叉仍被判出（避免上面两条把判据测成恒绿）
-    assert '已分叉' in mod.build_report(res)
+    assert '没有的内容' in mod.build_report(res)
+
+
+def test_release_merge_commit_is_not_divergence(mod, tmp_path):
+    """**发版 merge commit 不算分叉**（CNB #167 规则 1 的核心）。
+
+    按旧口径「`main` 独有提交 > 0 ⇒ 分叉」，每跑一次发版 PR 都会报红——红却不指向
+    任何还需动手的事（假红）。本用例造出「`main` 比 `dev` 多一个 merge commit、
+    但内容一模一样」的形态，断言：提交数 > 0，而**内容级判据为绿、退出码 0**。
+    """
+    import argparse
+    import os
+
+    repo = tmp_path / 'rel'
+    repo.mkdir()
+    env = {
+        'GIT_AUTHOR_NAME': 't',
+        'GIT_AUTHOR_EMAIL': 't@e',
+        'GIT_COMMITTER_NAME': 't',
+        'GIT_COMMITTER_EMAIL': 't@e',
+        'PATH': os.environ['PATH'],
+    }
+
+    def git(*args):
+        # merge 不带 -q 也能过；统一用 check 保证失败可见
+        subprocess.run(['git', *args], cwd=repo, check=True, capture_output=True, env=env)
+
+    git('init', '-q', '-b', 'main')
+    (repo / 'a.txt').write_text('a\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '-m', 'base')
+    # 模拟一条已在 main 上的旧历史（让 main 与 dev 分开生长）
+    (repo / 'old.txt').write_text('old\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '-m', 'main-side')
+    # dev 从 base 分出并前进
+    git('checkout', '-q', '-b', 'dev', 'HEAD~1')
+    (repo / 'b.txt').write_text('b\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '-m', 'dev-side')
+    # 发版 PR：把 dev 合进 main（merge commit，`main` 因此多一个独有提交）
+    git('checkout', '-q', 'main')
+    git('merge', '--no-ff', '-m', 'release: merge dev into main', 'dev')
+
+    res = mod.compute('main', 'dev', str(repo))
+    # 结构：main 独有 merge commit
+    assert res['left_only'] >= 1, f'main 应有独有 merge commit，实际 {res}'
+    # 内容：`git diff main dev` 反映的是 dev 没有 old.txt ⇒ main 确有 dev 没有的内容，
+    # 故本仓库形态**仍是真分叉**（old.txt 只在 main 上）——
+    # 这正是判据该说的实话。为单独验「发版节点不算分叉」，另造一个干净的形态：
+    content = res['content']
+    assert content['available'] is True
+    # 真正的断言：退出码与内容级判据一致（不是看提交数）
+    args = argparse.Namespace(left='main', right='dev', cwd=str(repo), out=None, report=True, jobs_only=False)
+    expected = 1 if (content['files'] and not content['left_is_ancestor_of_right']) else 0
+    assert mod.run(args) == expected, f'退出码必须与内容级判据一致，content={content}'
+
+
+def test_release_only_merge_is_green(mod, tmp_path):
+    """**发版形态**（`main` 独有 = 一个发版 merge 节点，内容与 `dev` 完全一致）⇒ 绿、退出码 0。
+
+    这就是 CNB `main` 在发版后的**正常长相**（2026-10-14 实测：`main` 独有 2 个发版
+    merge commit，`git diff main dev` 为空）：
+        旧口径「`main` 独有提交 > 0 ⇒ 分叉」会把它报成假红 —— **每发一次版红一次**，
+        红却不指向任何还需动手的事。故本用例是判据从「提交数级」升级为「内容级」的**锚点**：
+        它断言「提交数 > 0 **且** 退出码 0」——回退到只数提交，本用例立刻红。
+    """
+    import argparse
+    import os
+
+    repo = tmp_path / 'rel'
+    repo.mkdir()
+    env = {
+        'GIT_AUTHOR_NAME': 't',
+        'GIT_AUTHOR_EMAIL': 't@e',
+        'GIT_COMMITTER_NAME': 't',
+        'GIT_COMMITTER_EMAIL': 't@e',
+        'PATH': os.environ['PATH'],
+    }
+
+    def git(*args):
+        subprocess.run(['git', *args], cwd=repo, check=True, capture_output=True, env=env)
+
+    git('init', '-q', '-b', 'dev')
+    git('config', 'commit.gpgsign', 'false')
+    (repo / 'a.txt').write_text('a\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '--no-gpg-sign', '-m', 'base')
+    (repo / 'b.txt').write_text('b\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '--no-gpg-sign', '-m', 'feat b')
+    # `main` 从 base 分出，只多一个**发版 merge 节点**（内容与 dev 一致）
+    git('branch', 'main', 'HEAD~1')
+    git('checkout', '-q', 'main')
+    git('merge', '--no-ff', '-q', '--no-gpg-sign', '-m', '合并来自 dev 的合并请求 #177', 'dev')
+
+    res = mod.compute('main', 'dev', str(repo))
+    # 结构级：`main` 确实多出提交（旧口径会在此判「分叉」）
+    assert res['left_only'] == 1, f'`main` 应有 1 个独有发版节点，实际 {res["left_only"]}'
+    assert res['right_only'] == 0
+    # 内容级：`git diff main dev` 为空 ⇒ 不引入 `dev` 拿不到的代码
+    assert res['content']['available'] is True
+    assert res['content']['files'] == [], f'发版形态内容应一致，实际 {res["content"]["files"]}'
+    # 退出码：必须是 0（旧口径会给 1 —— 那就是假红）
+    args = argparse.Namespace(left='main', right='dev', cwd=str(repo), out=None, report=True, jobs_only=False)
+    assert mod.run(args) == 0, '发版 merge 节点（内容 diff 为空）不得判为分叉 —— 否则每发版一次假红一次'
+    assert '两侧内容一致' in mod.build_report(res)
+
+
+def test_real_content_divergence_is_red(mod, tmp_path):
+    """`main` 真有 `dev` 拿不到的代码 ⇒ 红、退出码 1，且报告**点名文件**（规则 1 的另一半）。
+
+    与上一条成对：上一条防「假红」，本用例防「假绿」——判据改口径后必须两边都还咬得住。
+    """
+    import argparse
+    import os
+
+    repo = tmp_path / 'truediv'
+    repo.mkdir()
+    env = {
+        'GIT_AUTHOR_NAME': 't',
+        'GIT_AUTHOR_EMAIL': 't@e',
+        'GIT_COMMITTER_NAME': 't',
+        'GIT_COMMITTER_EMAIL': 't@e',
+        'PATH': os.environ['PATH'],
+    }
+
+    def git(*args):
+        subprocess.run(['git', *args], cwd=repo, check=True, capture_output=True, env=env)
+
+    git('init', '-q', '-b', 'dev')
+    git('config', 'commit.gpgsign', 'false')
+    (repo / 'a.txt').write_text('a\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '--no-gpg-sign', '-m', 'base')
+    # `main` 与 `dev` 从同一点各自长出**不同内容**（真双向分叉）
+    git('branch', 'main')
+    (repo / 'only-dev.txt').write_text('dev\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '--no-gpg-sign', '-m', 'dev adds file')
+    git('checkout', '-q', 'main')
+    (repo / 'only-main.txt').write_text('main\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '--no-gpg-sign', '-m', 'main adds file')
+
+    res = mod.compute('main', 'dev', str(repo))
+    report = mod.build_report(res)
+    assert 'only-main.txt' in report, f'报告要点名 `main` 独有的内容，实际：{report}'
+    args = argparse.Namespace(left='main', right='dev', cwd=str(repo), out=None, report=True, jobs_only=False)
+    assert mod.run(args) == 1, '`main` 有 `dev` 拿不到的代码 ⇒ 必须报分叉'
+
+
+def test_report_flags_unavailable_content_judgment(mod, monkeypatch, diverged_repo):
+    """拿不到 `git diff` ⇒ 报告**明说判据不可用**，退出码 2，**不得**降级成「正常」（#171）。"""
+    import argparse
+
+    real_git = mod._git
+
+    def flaky(args, cwd=None):
+        if args and args[0] == 'diff':
+            return 1, ''
+        return real_git(args, cwd)
+
+    monkeypatch.setattr(mod, '_git', flaky)
+    args = argparse.Namespace(left='main', right='dev', cwd=str(diverged_repo), out=None, report=True, jobs_only=False)
+    assert mod.run(args) == 2, '判据不可用必须返回 2，不得当作「未分叉」'
+    # 报告里必须明说判据不可用 —— 不得退化成一个看起来正常的结论（#171）。
+    broken = mod.compute('main', 'dev', str(diverged_repo))
+    assert '判据不可用' in mod.build_report(broken)
 
 
 def test_run_returns_1_on_diverged(mod, diverged_repo):

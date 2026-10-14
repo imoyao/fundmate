@@ -123,6 +123,50 @@ def list_side_only(left: str, right: str, cwd: str | None) -> tuple[list[str], l
     return sorted(set(only_left)), sorted(set(only_right))
 
 
+def content_ahead(left: str, right: str, cwd: str | None = None) -> dict:
+    """**内容级**判据：`left` 有没有 `right` 没有的**代码**（CNB #167 规则 1）。
+
+    为什么不能只看提交数：发版 PR（`dev` → `main`）**必然**给 `left` 留一个 merge commit，
+    而它**不引入任何内容**（相对 `right` 的 diff 为空）。旧版 `count_unique(left) > 0`
+    把这种**正常的发版节点**也报成「已分叉」，于是每发一次版就红一次——
+    红却不指向任何还需动手的事，是**假红**（与 #118 的假绿同族）。
+
+    真正该问的是：**`left` 上有没有 `right` 拿不到的内容**。
+
+    判据用 `git diff <left> <right>` 的方向语义（**方向敏感，别猜**）：
+      - diff 为空 ⇒ 两侧内容一致，`left` 独有的只是（发版）结构节点，**不算分叉**；
+      - diff 非空 ⇒ `left` 侧存在 `right` 没有的内容，**才是 `dev` 缺代码**——
+        这正是用户口径「CNB `main` 不能有 `dev` 没有的代码」要拦的形态。
+
+    返回 `has_only_left`（是否有 `left` 独有内容）、`files`（独有内容涉及的路径）、
+    `additions` / `deletions`（行数），取不到 git 结果时返回 `None` 表示**判据不可用**
+    ——**不猜、不降级成「正常」**（否则又是「拿不到输入 = 输入为空」，见 #171）。
+    """
+    code, out = _git(['diff', '--numstat', left, right], cwd)
+    if code != 0:
+        return {'available': False, 'reason': f'git diff 退出码 {code}'}
+    files: list[str] = []
+    add = dele = 0
+    for line in out.splitlines():
+        parts = line.split('\t')
+        if len(parts) < 3:
+            continue
+        a, d, path = parts[0], parts[1], parts[2]
+        files.append(path)
+        add += int(a) if a.isdigit() else 0
+        dele += int(d) if d.isdigit() else 0
+    # `git diff left right` 的 diff 是「把 left 变成 right」的补丁：
+    # 有内容 ⇒ left 与 right 不同（无论谁更旧）。是不是「left 独有」还要看祖先关系。
+    is_ancestor = _git(['merge-base', '--is-ancestor', left, right], cwd)[0] == 0
+    return {
+        'available': True,
+        'files': files,
+        'additions': add,
+        'deletions': dele,
+        'left_is_ancestor_of_right': is_ancestor,
+    }
+
+
 def compute(left: str, right: str, cwd: str | None = None) -> dict:
     """把「谁落后谁、哪些作业只在单侧」算成结构化结果（纯函数，便于钉回归网）。"""
     left_jobs, right_jobs = list_side_only(left, right, cwd)
@@ -133,6 +177,7 @@ def compute(left: str, right: str, cwd: str | None = None) -> dict:
         'right_only': count_unique(left, right, cwd),
         'left_only_jobs': left_jobs,
         'right_only_jobs': right_jobs,
+        'content': content_ahead(left, right, cwd),
     }
 
 
@@ -231,9 +276,15 @@ def build_explanation(res: dict, exp: dict) -> str:
 
 
 def build_report(res: dict) -> str:
+    """报告分两段：**内容级**（用户口径的判据）在前，**提交数级**（结构性信号）在后。
+
+    为什么要把内容级放前面：用户口径是「CNB `main` 不能有 `dev` 没有的**代码**」（CNB #167）。
+    发版 merge commit 必然让 `left` 多出提交，但**不引入内容** —— 只看提交数会把它误报成
+    分叉（假红）。故判据以 `content_ahead()` 为准，提交数只作「结构上发生了什么」的补充。
+    """
     left, right = res['left'], res['right']
     lo, ro = res['left_only'], res['right_only']
-    diverged = bool(lo) or bool(ro)
+    content = res.get('content') or {}
     lines = [
         '## 分支分叉自检',
         '',
@@ -241,22 +292,69 @@ def build_report(res: dict) -> str:
         f'- `{left}` 独有提交：**{lo}**',
         f'- `{right}` 独有提交：**{ro}**',
         '',
+        '### 内容级判据（口径：`main` 不得有 `dev` 没有的代码）',
+        '',
     ]
-    if not diverged:
-        lines.append(f'✅ 未分叉：`{left}` 是 `{right}` 的祖先（或两侧一致），发版不会丢东西。')
+
+    if not content.get('available'):
+        # 「拿不到」不是「没有」—— 必须显式说出，不得退化成看起来正常的结论（#171 教训）。
+        lines.append(
+            f'❓ **判据不可用**：{content.get("reason")}。'
+            '本轮结论**不可信**，请先确认 git 可用后重跑。'
+        )
         return '\n'.join(lines)
 
-    lines.append(f'⚠️ **已分叉**：两侧互不包含。正常态是 `{left}` 独有提交恒为 0。')
+    files = content.get('files') or []
+    left_is_ancestor = bool(content.get('left_is_ancestor_of_right'))
+    if not files:
+        lines.append(
+            f'✅ **两侧内容一致**（`git diff {left} {right}` 为空）——'
+            f'`{left}` 独有的提交只是发版等**结构节点**，没有引入 `{right}` 拿不到的代码。'
+        )
+    elif left_is_ancestor:
+        lines.append(
+            f'ℹ️ 两侧内容有差异（{len(files)} 个文件），但 `{left}` 是 `{right}` 的**祖先** ⇒'
+            f'这些差异是 `{right}` **领先**的部分，不是 `{left}` 独有（正常态）。'
+        )
+    else:
+        lines += [
+            f'⚠️ **`{left}` 存在 `{right}` 没有的内容**（{len(files)} 个文件，'
+            f'+{content.get("additions")}/-{content.get("deletions")}）：',
+            '',
+        ]
+        lines += [f'- `{f}`' for f in files[:20]]
+        if len(files) > 20:
+            lines.append(f'- …还有 {len(files) - 20} 个，见 `git diff {left} {right}`')
+        lines.append('')
+
+    lines += ['### 结构级信号（提交数，补充信息）', '']
+    if not lo and not ro:
+        lines.append('两侧一致。')
+        return '\n'.join(lines)
+
+    if lo and ro and not left_is_ancestor:
+        lines.append(
+            f'⚠️ 两侧**互不包含**（`{left}` 独有 {lo} / `{right}` 独有 {ro}）——'
+            '这才是 #123 记的双向分叉形态。'
+        )
+    elif lo:
+        lines.append(
+            f'`{left}` 独有 {lo} 个提交（发版节点属正常；若上面「内容级判据」为 ⚠️ 才是真分叉）。'
+        )
+    else:
+        lines.append(f'`{right}` 领先 `{left}` {ro} 个提交（待发版）。')
     lines.append('')
-    for side, key, jobs in (
-        (left, 'left_only_jobs', res['left_only_jobs']),
-        (right, 'right_only_jobs', res['right_only_jobs']),
+
+    for side, jobs in (
+        (left, res['left_only_jobs']),
+        (right, res['right_only_jobs']),
     ):
         if jobs:
             lines.append(f'**只在 `{side}` 上的作业配置**（改了不跑 / 跑了不是它）：')
             lines.append('')
             lines.extend(f'- `{p}`' for p in jobs)
             lines.append('')
+
     lines += [
         '> 处置：**发版**（`dev` → `main` 的 PR，head 必须是 `dev` 本身）。',
         '> 不要用「把功能分支 base 改成 main」消除时间差 —— 那正是本分叉的成因（见 AGENTS.md「PR 与 Review」）。',
@@ -282,7 +380,15 @@ def run(args: argparse.Namespace) -> int:
     res = compute(args.left, args.right, args.cwd)
     if args.jobs_only:
         res = {**res, 'left_only': None, 'right_only': None}
-    diverged = bool(res['left_only']) or bool(res['right_only'])
+    # 退出码口径（CNB #167）：**内容级**才算分叉 —— `left` 有 `right` 拿不到的代码。
+    # 发版 merge commit（内容 diff 为空）不算；判据不可用时返回 2（与「取不到分支」同语义），
+    # 绝不放行成 0（「拿不到 ≠ 正常」，#171 教训）。
+    content = res.get('content') or {}
+    if not content.get('available'):
+        diverged = None
+    else:
+        files = content.get('files') or []
+        diverged = bool(files) and not content.get('left_is_ancestor_of_right')
     report = build_report(res)
     # `getattr` 默认 False：`run()` 也被测试直接调用（`argparse.Namespace` 手搓），
     # 新加的可选开关不该让老调用点崩。
@@ -295,6 +401,8 @@ def run(args: argparse.Namespace) -> int:
 
         Path(args.out).write_text(report + '\n', encoding='utf-8')
         print(f'\n📄 报告已写入 {args.out}')
+    if diverged is None:
+        return 2  # 判据不可用：不得当作「正常」
     return 1 if diverged else 0
 
 

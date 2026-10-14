@@ -1,17 +1,25 @@
 #!/usr/bin/env python3
-"""守门：git-sync 的 push 目标分支**不得包含 `main`**（源 CNB #172，2026-10-13）。
+"""守门：git-sync 的**两个方向**都只能作用在 `dev` / 功能分支上，`main` 一律不碰
+（源 CNB #172 / #167，2026-10-13 ~ 10-14）。
 
-WHY：本仓的权威源是 GitHub，`main` 只由 GitHub 的发版 PR 推进。而 git-sync 插件在
-**不指定 `branch`** 时执行 `git push target --all` —— 把 CNB 的 `main` 一并推给 GitHub。
-两侧各自长出独有提交，`main` 就此分叉（实测 2026-10-13：CNB `main` 独有 31 /
-GitHub `main` 独有 27，**交集 0**）。分叉不是理论风险：`crontab` 只能挂在具体分支下，
-`.cnb.yml` 挂在 `main` ⇒ 真正执行的可能是别人那份。
+WHY：**CNB 的 `main` 与 GitHub 的 `main` 没有任何关系**（用户口径，CNB #167）——
+CNB `main` 只由 CNB 自己的发版 PR 推进，不是 GitHub `main` 的镜像，也不向 GitHub 外推。
+两条方向各有一个「默认行为会碰 `main`」的陷阱：
 
-判据（三条，静态、不拉网络）
+- **push 方向**：不指定 `branch` ⇒ 插件执行 `git push target --all`，把 CNB 的 `main`
+  一并推给 GitHub。两侧各自长出独有提交 ⇒ `main` 分叉（实测 2026-10-13：CNB 31 /
+  GitHub 27，**交集 0**）。
+- **pull 方向**（CNB #167 收尾新增）：**不指定 `branch` 同样会碰 `main`**——
+  插件 `entrypoint.sh` 的 pull 分支在不写 `branch` 时取 target 的**全部**分支，
+  逐个 `git pull --rebase target <b>` 后 `git push origin <b> --force`
+  ⇒ **把 GitHub 的 `main` force 覆盖到 CNB 的 `main`**（不看是否 fast-forward）。
+  「pull 只拉不推、不会分叉」是**直觉错误**：它会 force 写回本地 origin。
+
+判据（四条，静态、不拉网络）
 ----------------------------
-1. **push 形态的插件任务必须显式写 `branch`**。不写 = `--all` = 会推 `main`，报错。
-   `sync_mode: pull` 的任务不受此约束（它拉不推）。
-2. **`branch` 的值不得是 `main` / `*` / `--all`**（等价于推 main 的几种写法）。
+1. **两个方向的插件任务都必须显式写 `branch`**。不写 = `--all`（push）或「全分支
+   force 写回 origin」（pull），两者都会碰 `main`，一律报错。
+2. **`branch` 的值不得是 `main` / `*` / `--all`**（等价于推/覆盖 main 的几种写法）。
 3. **顶层分支键不得只写 `main` 就套 push 任务**——本仓 `main` 在外推路径上必须被排除，
    显式推 `main` 的字段（`"main":` 下挂 push 插件任务）一律报错。
 4. **每一个 job 必须带 `name`**（列表形态 `- name: ...` + `stages:`，不能把 `stages:` 直接
@@ -24,7 +32,9 @@ GitHub `main` 独有 27，**交集 0**）。分叉不是理论风险：`crontab`
 - **只看 `.cnb.yml`、不拉网络**：判断配置形状，不判断 push 实际会不会成功；
 - **不猜 `${VAR}` 的运行时值**：`branch: ${CNB_BRANCH}` 这类**放行**（它的取值由段所在
   分支的 glob 决定，而 glob 段本身已由判据 3 的「排除 main」语义覆盖）；
-  本守卫只拦「字面写出 main / 把 main 当推送目标」的确定形态。
+  本守卫只拦「字面写出 main / 把 main 当推送（或覆盖）目标」的确定形态。
+- **判据 1 对 pull 方向豁免的只有「拉取后不写回 origin」这一种**——而插件源码里
+  pull **总会** `push origin --force`，故本仓口径是不设豁免：pull 也必须写 `branch`。
 
 用法
 ----
@@ -78,31 +88,48 @@ def _is_pull(stage: dict) -> bool:
     return str((stage.get('settings') or {}).get('sync_mode') or '').lower() == 'pull'
 
 
+# 两个方向的「不写 branch 会怎样」——报错文案要各自说清，别让读者猜。
+_NO_BRANCH_REASON = {
+    'push': (
+        '插件在不指定时执行 `git push target --all`，会把 `main` 一并推给 GitHub，'
+        '而 `main` 的权威源是 GitHub（只由发版 PR 推进）⇒ 两侧 `main` 分叉（#172）。'
+        '请显式写明要推的分支（本仓为 `dev` / `${CNB_BRANCH}`）。'
+    ),
+    'pull': (
+        '插件在不指定时取 target 的**全部**分支，逐个 `git pull --rebase` 后执行 '
+        '`git push origin <b> --force` —— 会**把 GitHub 的 `main` force 覆盖到 CNB 的 `main`**'
+        '（不看是否 fast-forward）。而 CNB 的 `main` 与 GitHub 的 `main` 没有任何关系'
+        '（用户口径，CNB #167）。请显式写 `branch: dev`，只拉 dev。'
+    ),
+}
+
+
 def check_push_scope(data: dict) -> list[str]:
-    """判据 1 + 2：push 形态的 git-sync 任务必须显式、且非 main 地指定 `branch`。"""
+    """判据 1 + 2：**两个方向**的 git-sync 任务都必须显式、且非 main 地指定 `branch`。
+
+    pull 方向同样受限（CNB #167）：插件源码里 pull 分支**总会** `git push origin --force`
+    写回本地 origin，不写 `branch` 时就是「GitHub `main` force 覆盖 CNB `main`」。
+    """
     problems: list[str] = []
     for branch_key, event, stage in _walk_stage_items(data):
         if not _is_git_sync(stage):
             continue
-        if _is_pull(stage):
-            # 拉取方向不推 GitHub，不受本判据约束。
-            continue
         settings = stage.get('settings') or {}
         if not isinstance(settings, dict):
             continue
+        direction = 'pull' if _is_pull(stage) else 'push'
         target = str(settings.get('branch') or '').strip()
         if not target:
             problems.append(
-                f'`{branch_key}` → `{event}` 的 git-sync push 任务**没有指定 `branch`**。'
-                '插件在不指定时执行 `git push target --all`，会把 `main` 一并推给 GitHub，'
-                '而 `main` 的权威源是 GitHub（只由发版 PR 推进）⇒ 两侧 `main` 分叉（#172）。'
-                '请显式写明要推的分支（本仓为 `dev` / `${CNB_BRANCH}`）。'
+                f'`{branch_key}` → `{event}` 的 git-sync {direction} 任务**没有指定 `branch`**。'
+                + _NO_BRANCH_REASON[direction]
             )
             continue
         if target in FORBIDDEN_BRANCHES:
             problems.append(
-                f'`{branch_key}` → `{event}` 的 git-sync push 目标分支是 `{target}`，'
-                '而 `main` 不得由 CNB 侧外推（GitHub 为权威源，见 AGENTS.md「双端协作」）。'
+                f'`{branch_key}` → `{event}` 的 git-sync {direction} 目标分支是 `{target}`，'
+                '而 `main` 不得由 CNB 侧外推、也不得被 GitHub 侧覆盖'
+                '（CNB `main` 与 GitHub `main` 无关系，见 AGENTS.md「双端协作」）。'
             )
     return problems
 
@@ -194,19 +221,28 @@ def self_check() -> list[str]:
     # 合法：显式只推 dev。
     if check_push_scope(push_task('dev')):
         errors.append('自检探针失败：合法的 `branch: dev` 被判为不合规。')
-    # 合法：pull 不加 branch。
-    if check_push_scope(push_task(None, 'pull')):
-        errors.append('自检探针失败：`sync_mode: pull` 被判为不合规。')
+    # 合法：pull 显式只拉 dev（#167 起 pull 也必须写 branch）。
+    if check_push_scope(push_task('dev', 'pull')):
+        errors.append('自检探针失败：`sync_mode: pull` + `branch: dev` 被判为不合规。')
     # 合法：glob 段里用 ${CNB_BRANCH}。
     if check_push_scope(push_task('${CNB_BRANCH}', key='**/!(main|dev)')):
         errors.append('自检探针失败：glob 段的 `${CNB_BRANCH}` 被判为不合规。')
-    # 判据 1：不写 branch。
+    # 判据 1：不写 branch（push）。
     if not check_push_scope(push_task(None)):
         errors.append('自检探针失败：push 任务不写 `branch`（= `--all`，会推 main）没被拦。')
+    # 判据 1（#167）：不写 branch（pull）—— 会「GitHub main force 覆盖 CNB main」。
+    if not check_push_scope(push_task(None, 'pull')):
+        errors.append(
+            '自检探针失败：pull 任务不写 `branch`（= 全分支 `push origin --force`，'
+            '会覆盖 CNB main）没被拦 —— CNB #167 的病。'
+        )
     # 判据 2：显式推 main。
     for bad in ('main', '*', '--all'):
         if not check_push_scope(push_task(bad)):
             errors.append(f'自检探针失败：`branch: {bad}` 没被拦。')
+    # 判据 2（#167）：pull 方向也不得显式写 main。
+    if not check_push_scope(push_task('main', 'pull')):
+        errors.append('自检探针失败：pull 方向 `branch: main` 没被拦。')
     # 判据 3：main 键 + ${CNB_BRANCH}。
     if not check_top_level_main(push_task('${CNB_BRANCH}', key='main')):
         errors.append('自检探针失败：`main` 键下用 `${CNB_BRANCH}` 推分支没被拦。')
@@ -219,7 +255,9 @@ def self_check() -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description='检查 git-sync 的 push 目标分支不含 main（CNB #172）')
+    ap = argparse.ArgumentParser(
+        description='检查 git-sync 两个方向都只作用在 dev/功能分支，main 不被外推也不被覆盖（CNB #167/#172）'
+    )
     ap.add_argument('--file', default=None, help='待检查文件（默认仓库根 .cnb.yml）')
     args = ap.parse_args(argv)
 
@@ -241,11 +279,11 @@ def main(argv: list[str] | None = None) -> int:
     problems += check_named_jobs(data)
 
     if problems:
-        print(f'❌ {path} 的 git-sync push 目标分支检查未通过：')
+        print(f'❌ {path} 的 git-sync 分支范围检查未通过：')
         for p in problems:
             print(f'  - {p}')
         return 1
-    print('✅ git-sync push 目标分支合规（不含 main）')
+    print('✅ git-sync 两个方向的分支范围合规（main 不外推、也不被覆盖）')
     return 0
 
 
