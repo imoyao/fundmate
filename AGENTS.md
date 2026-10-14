@@ -976,6 +976,38 @@ NPC 没有跨会话记忆，**每一次开工都是新进程**。所谓「记住
 - **CNB 侧延迟 = 距离上一次 push**；**摘标签**依赖 GitHub 事件或 2 小时兜底 cron；
 - 细节与实测推导见 `docs/dev/github-cnb-mirror.md` §15；决策见 D57。
 
+### ⚠️ 「配置对了」≠「同步成功了」：跨仓 `dev` 分叉会静默锁死（2026-10-14，源 CNB #269）  <!-- cross-repo-ref-allow -->
+
+**这是最容易白干两天的一类**：把 `.cnb.yml` 的形状一路修对（凭据挂载层级、命名 stage 防假绿、
+事件挂分支下、`main` 收窄……见下几节），**每一处都真修对了，但两侧 `dev` 依然推不动**——
+因为**形状对了，分叉这个事实还在**。判据修的是「水管长什么样」，没人去清「管里堵的那个东西」。
+
+**判据一句话：`dev` 必须两侧一致；`main` 允许不一致**（§13.5 口径）。实测
+（2026-10-14，`git ls-remote` + `fetch` 两侧真实 ref）：
+
+```
+CNB dev = af8750e0   GitHub dev = eb9c9bba   最后成功同步 = 2026-10-11 13:34
+git cherry 双向        → CNB 独有 30 笔 / GitHub 独有 89 笔
+```
+
+**根因不是配置错**：push 任务 `branch: dev` 且**刻意不开 `force`**（反向上是护栏），
+→ GitHub `dev` 有 CNB 没有的提交 → 非快进 → **永远被拒，只会一直红**；
+pull 又只拉 `dev`，**哪边都拉不动对方** ⇒ **死锁，两边都不动，且零信号**。
+
+- **保护 `dev` 的正确形态是「合并」，不是「隔绝」**：用户「怕 pull force 冲掉 CNB dev」
+  的担心是对的（§13.3 实测 pull 会 `git push origin <b> --force`），但拒绝同步只让差异滚大。
+- **缺口在判据的作用域**：`check_branch_divergence.py`（§11）只比**仓内** `main ← dev`，
+  **问不出**跨仓分叉——因为另一半在另一个仓库。三天零信号正是这个原因。
+- **判据机器化**：`python scripts/bridge/check_cross_repo_dev_divergence.py --report`
+  （只用 `git cherry` 补丁等价、双向各一次；**两侧都有 `+`** ⇒ 退 1；单向领先 ⇒ 退 0；
+  拿不到输入 ⇒ 退 2 且声明结论不可信）。挂在 `.cnb.yml` 收尾自检（只报告、退出码回显）；
+  **不挂 `ci.yml`**——它是联网判据，PR 门禁不该依赖外网与 GitHub 凭据。
+  回归网 `backend/tests/test_cross_repo_dev_divergence.py`（含 2 个变异探针）。
+- **`main` 保持现状不是 bug**：实测 CNB `main` 只领先 `dev` 3 个发版 merge、
+  GitHub `main` 只领先 GitHub `dev` 1 个合并——**都合规，不要去「同步 main」**。
+- **收敛必须先定方向再合**（以哪一侧为基线），且要一次人工合并解冲突；
+  **继续放着不动不是中立选项**，每天多欠一笔。细节与推导见 `docs/dev/github-cnb-mirror.md` §17。
+
 ### 在 CNB 侧的其它已知边界（实测）
 
 - ⚠️ **「CNB 构建环境没有 GitHub 凭据」是错话，2026-10-14 已纠正**（源 CNB #179）。  <!-- cross-repo-ref-allow -->

@@ -110,6 +110,34 @@
       script: |
         python scripts/bridge/check_branch_divergence.py --report --explain || true
 
+    # 跨仓 dev 分叉自检（源 CNB #269，2026-10-14）：上面那条比的是**同一个仓库内部**的  cross-repo-ref-allow
+    # `main ← dev`；而 2026-10-11 ~ 10-14 真正出事的是**跨仓**那一维 —— CNB `dev` 停了、
+    # GitHub `dev` 一直在走，两边各自长出对方没有的改动（30 vs 89），**三天没有任何信号**。
+    # 后果不是理论风险：push 不开 `force`（是护栏，对的），于是「CNB dev → GitHub dev」
+    # 永远非快进、永远被拒；pull 又拉不动 ⇒ **两边都不动，死锁**。
+    # 一句话：**「分叉了几笔」在仓内自检里问不出来，因为另一半在另一个仓库。**
+    #
+    # 判据与 #179 同源（**只用 `git cherry` 补丁等价**，双向各跑一次）：
+    #   - 两侧都空      ⇒ 未分叉（放行正常落后）→ 退 0；
+    #   - 只有一侧有 `+` ⇒ 单侧领先，**正常落后，不红** → 退 0；
+    #   - **两侧都有 `+`** ⇒ 真双向分叉 ⇒ 退 1（要报的正是这个）。
+    # 「拿不到输入」（fetch 失败 / ref 缺失）⇒ 打印「结论不可信」并退 2，**不得**降级成 0。
+    #
+    # 本节点会 **fetch** 两个 remote 的 dev（与上面那条「纯离线」不同），故**不挂进
+    # `ci.yml`**（PR 门禁不该依赖外网与 GitHub 凭据）。这里网络与凭据都具备。
+    # 与其它自检一致：**只报告不拦构建**，但退出码要回显 —— 否则失败态就地消失（#171 假绿）。
+    - name: 跨仓 dev 分叉自检（只报告）
+      script: |
+        set +e
+        python scripts/bridge/check_cross_repo_dev_divergence.py --report
+        rc=$?
+        if [ $rc -eq 1 ]; then
+          echo "⚠️ CNB dev 与 GitHub dev 已**双向分叉** —— 同步会一直空转，需要一次人工收敛（否则差异逐日累积）"
+        elif [ $rc -eq 2 ]; then
+          echo "⚠️ 跨仓 dev 自检**拿不到输入**（fetch 失败）—— 本轮结论不可信，不得认为「已对齐」"
+        fi
+        exit 0
+
 # 定时任务必须挂在具体分支下（不能放 $ 兜底），故这里显式写 main。
 main:
   # 每日 18:00 UTC（＝北京次日 02:00）：issue 不是时效数据，
