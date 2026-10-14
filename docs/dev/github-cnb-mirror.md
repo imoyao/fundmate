@@ -1853,3 +1853,104 @@ python scripts/bridge/dev_converge.py --apply --base github   # 反向
 
 退出码：0 = 分支就绪无冲突；1 = 有冲突（列出文件）；2 = 拿不到输入（**结论不可信**，
 不得当作「没问题」——同 §15 / §17.4 的假绿口径）。
+
+---
+
+## 19. 收敛之后**又**分叉了：一次成功，不等于稳态（源 CNB #269，2026-10-14）  <!-- cross-repo-ref-allow -->
+
+上一节（§18.5）说「合入后手动触发一次 push ⇒ 死锁解开」。**它确实解开了 ——
+然后 30 分钟内又岔开一次。** 这一节记这次复发，以及它暴露出的两个真问题。
+
+### 19.1 复现路径（每一步都已实测）
+
+| 时刻 | 动作 | 两侧 `dev` |
+|---|---|---|
+| T0 | PR #425 收敛完成，CNB `dev` 含全部 GitHub 独有提交 | 一致 |
+| T1 | 发现 push 作业挂在 `main:` 键下 ⇒ 从未生效（§18 之外的另一个病） | — |
+| T2 | PR #448 把三条 git-sync 作业挪到 `dev:` 键下，并**再合一次** GitHub `dev` 的 `029afe05` | CNB `866e2043` / GH `ff73c5ad+` |
+| T3 | **合并后第一次 push 构建仍红**：`! [rejected] dev -> dev (fetch first)` | CNB `866e2043` / GH **`d1b5780b`** |
+
+**T3 的红不是 T1/T2 修的那个病。** T2 修的是「作业没跑」——已验：runner 日志里
+出现了 `Checking if branch dev exists locally... Pushing specified branch: dev`，
+**不再是** `Warning: branch dev does not exist locally, skipping push`。
+
+T3 红的是**另一个病**：GitHub `dev` 在 T2 的快照之后又前进了 1 笔。
+
+### 19.2 那 1 笔是什么
+
+`git cherry` 双向量实测：
+
+```
+CNB    dev = 866e2043    GitHub dev = d1b5780b
+GitHub 独有 → 1 笔：90d233b8「feat(ledger): 持仓行价格时点标注（#2140）」
+CNB 独有   → 33 笔
+```
+
+它是 PR #2170 在 20:56 合入的**真实新提交**，两条独立佐证：
+
+- ✅ `git grep priceDate origin/dev` 为空 ⇒ CNB 侧连该功能的痕迹都没有；
+- ✅ `git patch-id` 扫 CNB `dev` 近 60 个提交，**无一等价补丁**（排除 hook 改写
+  commit message 造成的 `cherry` 假阳性 —— 这是 AGENTS.md 提过的 `git cherry` 陷阱，
+  这里已排除）。
+
+⇒ push 刻意不开 `force`（反向护栏，**对**），非快进就必被拒。**这就是那次报错。**
+
+### 19.3 教训一：**每次「收敛」都带一个有效期，而不是一个终态**
+
+#425 / #448 都被叙述成「死锁解开了」。**准确的说法是**：
+
+> 截至合并那一刻，CNB `dev` 包含 GitHub `dev`；**从 GitHub 下一次推进 `dev` 起，
+> 这个包含关系就作废了**，直到 push 真正跑成功一次为止。
+
+这中间是一个**敞口窗口**：`dev` 已前进、push 还没成功。窗口内 GitHub 只要再动一次
+`dev`，收敛就作废。这不是运气差 —— GitHub 那个仓库**是活的**（人在上面合 PR），
+窗口越宽，撞上的概率越高。
+
+**故「收敛完成」的验收标准不是「merge 进去了」，而是「push 构建 success
+且 GitHub 侧 ref 对上 SHA」。** 只有后者会让窗口关闭。
+
+### 19.4 教训二：自检**咬住了**这次分叉 —— 它不是假绿
+
+值得单独记一句：`check_cross_repo_dev_divergence.py`（§17.3）**上线后第一次真报红**，
+而这次是真分叉（不是它自己的假阳性）：
+
+```
+$ python3 scripts/bridge/check_cross_repo_dev_divergence.py --report
+- CNB   dev → 866e2043
+- GitHub dev → d1b5780b
+❌ 双向分叉：CNB 独有 33 笔 / GitHub 独有 1 笔
+EXIT=1
+```
+
+它验证了两件事：
+
+- **判据的方向是对的** —— 上一节担心的「`git cherry` 单向领先也报红」的假红**没有发生**；
+- **它挂在收尾自检里是对的** —— 若它挂在 per-PR 门禁，这次分会话里就不会有人看见它。
+
+⚠️ 但要注意它的**报告时机**：它跑在**构建收尾**，而构建是**被 push 触发**的。
+⇒ 「分叉 → 下一次有人 push → 才报红」，**不是即时**。要更快只能靠 cron，
+但 cron 也就是 hourly 量级 —— **这条链路本来就做不到「秒级感知对方仓库的推进」**，
+别把一个「小时级信号」叙述成实时。
+
+### 19.5 处置：再合一次（这一次实测零冲突）
+
+本轮同款处置 —— 合 `gh/dev` 进功能分支，让它重新成为祖先：
+
+```
+$ git merge --no-ff refs/remotes/gh/dev
+Merge made by the 'ort' strategy.   7 files changed, 127 insertions(+), 7 deletions(-)
+$ git merge-base --is-ancestor gh/dev HEAD   ✅
+GitHub 独有补丁（merge 后）  0 笔
+```
+
+**注意这次是零冲突**（#425 那次 25 个文件冲突）—— 因为 #425 已经解过一次，
+这次的 1 笔（#2140）是纯新增文件区域，没有撞上治理文件。⇒ **冲突的成本主要在第一次**，
+之后的复发只要及时处理，代价是小得多的。这正是「当天看见就便宜、拖三天就贵」的量化版本。
+
+### 19.6 这段该记进 `AGENTS.md` 的一句话
+
+> **跨仓同步的「收敛」是一次动作，不是一个状态。**
+> 只要「GitHub 会推 `dev`」+「CNB push 不开 force」两条同时成立，
+> 分叉就会**反复发生**，且每次都可能只差一笔。
+> ⇒ ① 收敛的验收标准是「push 成功且 GitHub ref 对上」而非「merge 完成」；
+> ② 自检要能长期跑（它已挂收尾），且**别把小时级信号说成实时**。
