@@ -1,6 +1,6 @@
 ---
 title: GitHub → CNB Issue 增量镜像
-status: v1.4（2026-10-14，源 CNB issue #2；§9 本地卡对照源自 CNB #117；§13 双向同步三故障/四种失败形态；§13.5 「CNB main 与 GitHub main 无关」口径）
+status: v1.5（2026-10-14，源 CNB issue #2；§9 本地卡对照源自 CNB #117；§13 双向同步三故障/四种失败形态；§13.5 「CNB main 与 GitHub main 无关」口径；§14 本地卡出口）  <!-- cross-repo-ref-allow -->
 owner: 阿白
 ---
 
@@ -124,6 +124,10 @@ python scripts/bridge/github_cnb_issues.py --apply --limit 3
 注意 **crontab 事件必须挂在具体分支下**（不能放 `$` 兜底），故 cron 挂在 `main` 下；
 `web_trigger` 与分支无关，按平台建议放 `$` 下。
 
+**`$` 段还挂了第二段 `push:`**（CNB #172）：任何分支的 push 都跑一轮**幂等**建卡 +
+状态回流。补的是「有人在功能分支上开了张 CNB 本地卡、却永远扫不到」这个缺口
+（原作业只挂 `main` 的 cron，一天一次）。见 §14.3。
+
 > ⚠️ **正因为 cron 挂在 `main` 下，`.cnb.yml` 与本脚本必须活在 `main` 上。**
 > 2026-10-11 实测：`.cnb.yml` / `github_cnb_issues.py` 只存在于 CNB `main`，
 > 而 CNB `dev` 上有另一套（`cnb_github_backfill.py` + 回写 workflow）——**两边互不包含**。
@@ -178,7 +182,7 @@ python scripts/bridge/check_mirror_refs.py --report
 
 | 取舍 | 做法 | 为什么 |
 |------|------|--------|
-| **只报告，不改卡** | 不写任何 CNB / GitHub 状态 | 改镜像卡正文要产品拍板（CNB #120）；`.cnb.yml` 里用 `\|\| true` 明确「这是信号不是门禁」 |
+| **只报告，不改卡** | 不写任何 CNB / GitHub 状态 | 改镜像卡正文要产品拍板（CNB #120）；  <!-- cross-repo-ref-allow -->`.cnb.yml` 里用 `\|\| true` 明确「这是信号不是门禁」 |
 | **路径补全要求唯一** | 裸文件名（`summary_service.py:392`）只有在全仓**恰好一个**文件以它结尾时才认 | 多命中时挑一个是**猜**，会给出**假绿灯**，比报「不存在」更坏 |
 | **`scripts/` 不在前缀表里** | — | 它是本脚本自己的目录，放进去会把引用核对成脚本自己 |
 | **`--strict-ref` 默认关** | 缺 `@ref` 只提示不拦 | 存量卡全都没写 `@ref`，硬拦等于全红；新卡由 strict 管 |
@@ -415,9 +419,16 @@ python scripts/bridge/github_cnb_issues.py --report-local --out local-report.md
 | 认错了的代价 | 评论贴到别人的卡上 | 报告里多一行提示 |
 | 该取哪一边 | **宁可漏** | **宁可全** |
 
-两边判据**刻意不同**，不是不一致。要根治「裸引用到不了 GitHub」，需要的是
-**规范卡面写法**（引用跨仓卡时写完整 URL）或**在回写侧加白名单**，
-那是另一件事，不在本报告范围内。
+两边判据**刻意不同**，不是不一致。
+
+**结论（CNB #172，2026-10-14）**：出口不是「放宽回写判据」（那会把评论贴到别人卡上），
+而是两件更硬的事 ——
+
+1. **规范卡面写法**：引用跨仓卡一律写**完整 URL**（这条已成规则，见 AGENTS.md
+   「双端协作」；`scripts/guard_cross_repo_refs.mjs` 把新增的裸引用拦在 CI 上）；
+2. **给本地卡一条显式的出口**：结论需要 GitHub 侧看见时，用
+   §14.2 的 `local_card_promote.py` 推广——它**只建一次卡、只留一条完整 URL 的链**，
+   不靠「裸引用恰好被认出来」这种运气。
 
 ## 10. 已知边界
 
@@ -425,6 +436,9 @@ python scripts/bridge/github_cnb_issues.py --report-local --out local-report.md
 - **本地卡不进 GitHub**：见 §9。它们不是「漏同步」，是**本就不该同步**；
   判据、声明方式与 `--report-local` 都在那一节。兜底判定（`fallback`）是**猜**，
   报告里单独计数，别把它的数字当成事实。
+- **本地卡的结论有一个显式出口**（CNB #172）：结论需要 GitHub 侧看见时，用  <!-- cross-repo-ref-allow -->
+  `local_card_promote.py` **推广**成一张 GitHub 卡（§14.2）。它是**人工决定 + 三步固定动作**，
+  不是自动镜像——别把「有出口」读成「会自己同步」。
 - **只镜像 open issue**：GitHub 侧已关闭的卡不会补建。若某张卡在首次同步前就关了，
   CNB 侧看不到（但若它已被镜像过、之后 GitHub 关了，§8 会回流标记）。
 - **匿名 GitHub API 限额 60 次/时/IP**：107 张卡走 2 次分页调用，余量充足；仓库若长到
@@ -914,7 +928,7 @@ job 对象）时，CNB 不把它当标准 job 列表处理，stage 不进可查�
 逐条 git-sync 任务断言 `branch` 存在且非禁区——结构回潮会一起暴露
 （`stages` 直接挂在事件下时，`- name:` 切块拿不到该任务，测试会报「任务数少了」）。
 
-### 13.5 口径：**CNB 的 `main` 与 GitHub 的 `main` 没有任何关系**（源 CNB #167，2026-10-14）
+### 13.5 口径：**CNB 的 `main` 与 GitHub 的 `main` 没有任何关系**（源 CNB #167，2026-10-14）  <!-- cross-repo-ref-allow -->
 
 在 §13.3 的「怎么改」之上，先钉住「为什么这么改」——否则下一个人看到「CNB 落后 GitHub
 27 个提交」，第一反应还是「那就同步过去呗」，于是把两侧 `main` 又接到一起。
@@ -957,3 +971,108 @@ git diff origin/dev origin/main  → （空）
 **回归网**：规则 3 的 ①② 由 `scripts/guard_git_sync_push_scope.py` 阻断；
 规则 1 由 `.cnb.yml` 的「分支分叉自检」节点（`check_branch_divergence.py --report --explain`）
 持续报告。
+## 14. 本地卡的出口：推广 + 兜底挂载（源 CNB #172，2026-10-14）
+
+> 本节回答用户 2026-10-14 在 CNB #172 的两个质问，两问都指向**真缺口**：
+>
+> 1. 「只对 CNB 生效的这些改动，它会永远留在 CNB 里面，然后不会同步到 GitHub 上面吗？」
+> 2. 「我们有一些其他的分支在实现其他的功能，这个 issues 是不是无法感知到这一块？」
+
+### 14.1 先把「只对 CNB 生效」拆成三类（这是困惑的根源）
+
+「只对 CNB 生效的改动」不是一件事，是三件，处理方式各不相同：
+
+| 类别 | 能不能到 GitHub | 机制 |
+|---|---|---|
+| **代码改动** | **能** | `push:` 段（`branch: dev`）+ `"**/!(main|dev)"` 段（`branch: ${CNB_BRANCH}`） |
+| **issue / 评论** | **能** | `cnb-github-backfill.yml` 每日拉取（只回写**镜像卡**上的评论） |
+| **CNB 本地卡的结论** | **原先不能，现在按需能** | 见 §14.2 的推广通道 |
+
+前两类此前已经通了，**第二类里的「本地卡评论」是真正的缺口**：本地卡
+（D49 / CNB `#117`）按设计不镜像到 GitHub，于是它上面的讨论**没有任何出口**——
+实测规模：123 张 CNB 卡里 12 张是本地卡，它们上面有 **72 条**评论永远到不了 GitHub。
+
+> 一句话：**代码是双向流动的，issue 也是（有边界），只有「本地卡上的结论」原先没有出口。**
+
+### 14.2 出口：`local_card_promote.py`（人工决定、脚本执行）
+
+不自动判定「哪张本地卡该推广」——脚本猜错会往 GitHub 灌一堆讲 CNB cron 的卡。
+把「**人工决定**」与「**三步固定动作**」分开：
+
+```bash
+# ① 先看有哪些本地卡（只读，与 `--report-local` 同一判据）
+python scripts/bridge/local_card_promote.py --list
+
+# ② 演练（默认 dry-run，不写任何东西）
+python scripts/bridge/local_card_promote.py --cnb 172 \
+    --title '<GitHub 卡标题>' --body-file /tmp/promote-body.md
+
+# ③ 执行：GitHub 建卡 → CNB 原卡留链 → 刷新镜像
+python scripts/bridge/local_card_promote.py --cnb 172 \
+    --title '<GitHub 卡标题>' --body-file /tmp/promote-body.md --apply
+```
+
+三步缺一不可，且**顺序固定**（先 GitHub 后 CNB：GitHub 建卡失败则 CNB 一个字都不改，
+不会留下「半个推广」）：
+
+1. **GitHub 建卡**：用推广正文（**去掉 CNB 味的标题**），默认挂 `CNB 本地` 标签；
+2. **CNB 原卡留链**：在评论区追加一条「## 已推广到 GitHub」，给**完整 URL**——
+   这是本卡唯一不会被任何机制覆盖的位置（正文是只读的）；
+3. **刷新映射**：调既有建卡作业，让新卡的评论按常规通道回流。
+
+#### 为什么第 2 步必须是**完整 URL**
+
+`cnb_github_backfill.py` 的 `resolve_github_number` **只认完整 URL**，裸引用
+（`imoyao/fundmate#2034`）会被**静默跳过**——CNB `#117` 正文写的就是裸引用，
+于是它一直没能参与回写，而没有任何报错。回归网把这条钉死在
+`scripts/tests/test_local_card_promote.py::test_链接是完整URL`。
+
+#### 幂等与重跑
+
+推广键 = `sha1(CNB 编号 | GitHub 编号)` 的前 12 位，写在 CNB 原卡那条评论的**隐藏标记**
+（`<!-- 推广键：… -->`）里。另有一道兜底：建卡前先按**完全相同**的标题搜一遍 GitHub
+（模糊匹配会撞上「标题像但其实是另一件事」的卡，那比重复建一张更贵）。
+
+### 14.3 第二个缺口：功能分支上的新卡没人扫
+
+**症状**：建卡作业原先只挂 `main` 的 `crontab: 0 18 * * *`。有人在 `feat/*` 上开一张
+CNB 本地卡 ⇒ **永远扫不到**，因为作业只跑在 `main` 上、且一天一次。
+
+**修法**：`.cnb.yml` 的 `$` 段新增一段 `push:`，任何分支的 push 都跑一轮
+**幂等**建卡 + 状态回流：
+
+```yaml
+$:
+  push:
+    - name: issue 镜像兜底（任何分支，幂等）
+      stages:
+        - name: 增量建卡（幂等，任何分支）
+          script: python scripts/bridge/github_cnb_issues.py --apply
+```
+
+**为什么敢挂在 push 上**：两个作业都是**幂等**的——`github_cnb_issues.py` 靠
+`GitHub 编号：#N` 判重，`mirror_state_sync.py` 靠评论里的 `状态键：`。重复跑的成本是
+「多几次 API 调用」，不是「重复建卡 / 重复发评论」。
+
+**为什么只挂这两条**：其余自检（引用时效 `check_mirror_refs.py`、分支分叉
+`check_branch_divergence.py`）读的是「仓库整体状态」，push 到功能分支时结论并不会更新，
+留在 `main` 的 cron 里跑即可。
+
+**为什么 `$` 段不挂 git-sync**：`$` 事件不属于任何分支，`CNB_BRANCH` 在此不可靠；
+一旦有 git-sync push 落在这里就可能把 `main` 推给 GitHub——那正是 §13.3 要消灭的分叉来源。
+回归网 `scripts/tests/git_sync_push_scope.test.js` 最后三条断言钉住这一点
+（含一条「`$` 段里不得出现 `tencentcom/git-sync`」）。
+
+### 14.4 边界（不要把这套读成「本地卡会全自动回流」）
+
+- 推广**是人工决定**的：脚本不猜哪张卡该推广，`--list` 只负责把候选列出来；
+- **不是全自动镜像**：推广之后，原 CNB 卡与其 GitHub 新卡是**两张卡**，靠原卡评论区
+  那条链接互相指认；本地卡正文的后续修改**不会**自动同步过去；
+- **`$` 段兜底不等于实时**：它跟着 push 走，`feat/*` 上没有新动作时当然不会触发；
+  这不是「巡逻」，只是「有动静就顺手扫一遍」。
+
+### 14.5 关联
+
+- 决策与口径：D49（CNB 本地卡）、D52（本地卡识别与对照报告）、本节（出口通道）；
+- 上位规范：AGENTS.md「双端协作（CNB ↔ GitHub）」；
+- 相关卡：CNB #117（本地卡定义）、#120（更正台账）、#167（push 收窄）、#172（本卡）。

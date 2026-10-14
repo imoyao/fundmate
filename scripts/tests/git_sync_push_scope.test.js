@@ -185,3 +185,46 @@ test("check_cnb_events.py 接受 glob 顶层分支键，但仍拦事件名（两
     rmSync(tmp, { force: true });
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `$` 段的「任何分支都跑一轮幂等建卡」兜底（源 CNB #172 的第二个动作）
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("`$` 段挂了幂等建卡 + 状态回流（功能分支上的新卡当天可见）", () => {
+  // 缺口：建卡作业原先只挂 `main` 的 cron。有人在 `feat/*` 上开一张 CNB 本地卡
+  // ⇒ 永远扫不到。`$` 段与分支无关，正是补这个缺口的地方。
+  const yaml = CNB_YML;
+  assert.match(yaml, /\n\$:\n/, "`$` 段不见了 —— 功能分支上的新卡会再次无人看见。");
+  const dollar = yaml.slice(yaml.indexOf("\n$:\n"));
+  assert.match(dollar, /push:/, "`$` 段下没有 push: —— 兜底作业挂了空。");
+  assert.match(
+    dollar,
+    /github_cnb_issues\.py --apply/,
+    "`$` 段的 push 里没有跑建卡作业。"
+  );
+});
+
+test("`$` 段**不得**挂 git-sync（`$` 下没有当前分支上下文）", () => {
+  // `$` 事件不属于任何分支，`CNB_BRANCH` 在此不可靠；一旦有 git-sync push 落在这里，
+  // 就可能把 `main` 推给 GitHub —— 那正是 #167/#172 要消灭的分叉来源。 cross-repo-ref-allow
+  const dollar = CNB_YML.slice(CNB_YML.indexOf("\n$:\n"));
+  assert.ok(
+    !dollar.includes("tencentcom/git-sync"),
+    "`$` 段里出现了 git-sync —— `$` 下没有当前分支上下文，误推 main 就是分叉。"
+  );
+  assert.ok(
+    !dollar.includes("target_url: https://github.com"),
+    "`$` 段里出现了 GitHub 推送目标 —— 代码同步只允许在具体分支段下。"
+  );
+});
+
+test("`$` 段的 job 仍然必须带 name（假绿形态对 `$` 同样适用）", () => {
+  const dollar = CNB_YML.slice(CNB_YML.indexOf("\n$:\n"));
+  // 判据是「事件值必须是列表、元素必须带 name」——`$` 底下若退化成裸 stages，
+  // stage 在构建详情里同样查不到（#172 的假绿就是这么来的）。
+  assert.match(
+    dollar,
+    /push:\n\s+- name: .+\n/,
+    "`$` 段的 push 退回了裸 `stages:`（无 name 的 job）——又一种假绿。"
+  );
+});

@@ -57,7 +57,7 @@ EVENT_LIKE = re.compile(r'^(push|pull_request|web_trigger|tag_push|crontab\s*:|\
 # 空格不在内）。
 #
 # 字符集**必须**含 `*` `!` `(` `)` `|`：CNB 官方支持用 glob 给一批分支挂事件，
-# 本仓 `"**/!(main|dev)"` 段（功能分支 → GitHub，源 CNB #167）就是这种形态。
+# 本仓 `"**/!(main|dev)"` 段（功能分支 → GitHub，源 CNB #167）。  cross-repo-ref-allow
 # 收紧到纯字母数字会让合法配置报红——守卫的第一原则是「在真实数据上跑过」。
 # 放宽字符集**不会**架空判据：`EVENT_LIKE` 在 `check_top_keys` 里**先判**，
 # 事件名（`push:` / `crontab: ...:`）命中即报错，抢在这条之前；
