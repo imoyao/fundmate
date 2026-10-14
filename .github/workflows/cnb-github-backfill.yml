@@ -76,6 +76,15 @@ jobs:
         with:
           python-version: '3.12'
 
+      # ⚠️ 必须在跑脚本**之前**恢复：脚本读状态文件判断「哪条已回写过」，
+      # 而 checkout 拿到的是仓库里的版本（可能已被别的 job 更新过）。
+      - name: 恢复上一次的状态文件
+        uses: ./.github/actions/save-bridge-state
+        with:
+          mode: restore
+          path: scripts/bridge/cnb_github_backfill_state.json
+          cache-key-prefix: cnb-backfill
+
       # 脚本是纯标准库（urllib），不需要 pip install —— 故意保持这样，
       # 免得每日作业被某个三方包的破坏性升级带崩。
       - name: 回写 CNB 评论 → GitHub
@@ -83,6 +92,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}
           CNB_REPO: duoduobei/fundmate
+          # 🔑 CNB 只读 token。**CNB OpenAPI 对匿名请求一律 401**（实测
+          # `{"errcode":16,"errmsg":"The task will not run because the user is not
+          # logged in."}`，与仓库是否公开无关）—— 旧版本漏了这个变量，脚本走匿名
+          # 分支，三次定时运行（38481492722 / 38329575746 / 38179858075）全部
+          # 挂在第一步拉列表，评论镜像从未跑通过一次。
+          # 需先在仓库配好：Settings → Secrets and variables → Actions
+          #   → New repository secret → 名称 CNB_READ_TOKEN。
+          CNB_READ_TOKEN: ${{ secrets.CNB_READ_TOKEN }}
           # ⚠️ `inputs` 只有 workflow_dispatch / workflow_call 两种事件才定义。
           # schedule 触发时它是**未定义上下文**，`${{ inputs.xxx }}` 不会被求值成空串，
           # 而是把**字面量**留进 shell —— `[ "${{ inputs.dry_run }}" = "true" ]` 展开成
@@ -102,6 +119,15 @@ jobs:
             echo "❌ GITHUB_TOKEN 为空（secrets.GH_PAT / secrets.GITHUB_TOKEN 都没拿到），提前失败" >&2
             exit 1
           fi
+          # 同理：CNB 侧缺 token 是**必然 401**，不是偶发。早失败能把「配置缺失」
+          # 与「CNB 故障」在日志上分开——前者要人去配 secret，后者等重试即可。
+          if [ -z "${CNB_READ_TOKEN:-}" ]; then
+            echo "❌ CNB_READ_TOKEN 为空，CNB OpenAPI 对匿名请求一律 401，无法降级。" >&2
+            echo "   请配置：Settings → Secrets and variables → Actions" >&2
+            echo "           → New repository secret → 名称 CNB_READ_TOKEN" >&2
+            echo "           （值 = CNB 侧生成的只读 token）" >&2
+            exit 1
+          fi
           args=(--apply)
           if [ "${DRY_RUN:-}" = "true" ]; then
             args=(--dry-run)
@@ -115,19 +141,16 @@ jobs:
           echo "运行参数：${args[*]}"
           python scripts/bridge/cnb_github_backfill.py "${args[@]}"
 
-      # 状态文件回写（供人工审计「哪条 CNB 评论回写过」）。
-      # 用 [skip ci] 免得这次提交又触发一轮 CI。
-      # `if:` 是表达式上下文，`inputs.dry_run` 未定义时求值为 null，`null != true` 为真，
-      # 所以 schedule 下这里会执行 —— 是我们要的行为，不必改。
-      - name: 提交状态文件（仅当有变化）
+      # 状态文件改为存 cache + 留 artifact，不再 commit 回仓库。
+      # 原因见 `.github/actions/save-bridge-state/action.yml` 文件头：
+      # 无参数 `git push` 在 schedule/issues 下推向默认分支 `main`（保护分支），
+      # 而 `[skip ci]` 又让 required check 永远等不到结论 → GH006 死锁（已复现）。
+      # 状态文件只是优化不是正确性依赖——幂等键是写在 GitHub 评论末尾的
+      # `<!-- cnb-backfill: issue=N comment=M -->` 标记，每次运行都会重新扫描收集。
+      - name: 存档状态文件（cache 传递 + artifact 审计）
         if: ${{ inputs.dry_run != true }}
-        run: |
-          if git diff --quiet -- scripts/bridge/cnb_github_backfill_state.json; then
-            echo "状态文件无变化，跳过"
-            exit 0
-          fi
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add scripts/bridge/cnb_github_backfill_state.json
-          git commit -m "chore(bridge): 回写 CNB 评论状态 [${{ github.run_id }}] [skip ci]"
-          git push
+        uses: ./.github/actions/save-bridge-state
+        with:
+          mode: save
+          path: scripts/bridge/cnb_github_backfill_state.json
+          cache-key-prefix: cnb-backfill

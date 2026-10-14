@@ -1,0 +1,84 @@
+﻿# 持久化桥接状态文件（替代「commit 回仓库」）
+#
+# ## 为什么不再 git commit 回去
+#
+# 原实现在 workflow 末尾 `git commit -m "... [skip ci]"` + **无参数** `git push`，
+# 而 `actions/checkout` 在 `schedule` / `issues` 事件下 checkout 的是**默认分支
+# `main`**（已核实）。三者叠加成死锁：
+#
+# 1. `main` 是保护分支，要求 required check `质量门禁汇总`；
+# 2. commit message 里的 `[skip ci]` 让 CI **不跑** → required check 永远等不到结论；
+# 3. -> `GH006: Protected branch update failed for refs/heads/main`。
+#
+# 实测已复现（run `38499077160` 的 `github-to-feedlog`；CNB 回写是同款步骤）。
+# 去掉 `[skip ci]` 也不行：那会让每次桥接都触发一整轮质量门禁，为一个状态文件
+# 花掉十几分钟 Actions 分钟数，且 workflow 的 push 仍然拿不到 PR 上下文。
+#
+# ## 为什么状态文件可以不落 Git
+#
+# 状态文件**只是优化、不是正确性依赖**：
+# - 防循环靠的是 FeedLog DB 里的 `system` 作者哨兵（`feedlog_bridge.py:144-151`
+#   的注释明确写了「这比 bridge_state.json 更可靠——state 靠 git 提交在并发 job
+#   间传递，时序竞争会丢映射，而作者字段在 DB 里不会丢」）；
+# - CNB 回写的幂等键是**写在 GitHub 评论末尾**的 `<!-- cnb-backfill: issue=N
+#   comment=M -->` 隐藏标记，每次运行都重新扫描目标 issue 的评论收集，与状态文件
+#   无关。
+#
+# 所以 cache 丢失的代价只是「多发一次评论 / 多建一次卡」，被上述两道护栏兜住。
+# 用 cache 跨 run 传递 + artifact 留档，审计能力不丢，仓库历史也干净了。
+#
+# ## 用法（composite action 无法包住调用方，故拆成两段调用）
+#
+#   - uses: ./.github/actions/save-bridge-state
+#     with:
+#       mode: restore        # 放在跑脚本**之前**
+#       path: scripts/bridge/xxx.json
+#       cache-key-prefix: cnb-backfill
+#   ... 跑脚本 ...
+#   - uses: ./.github/actions/save-bridge-state
+#     with:
+#       mode: save           # 放在跑脚本**之后**
+#       path: scripts/bridge/xxx.json
+#       cache-key-prefix: cnb-backfill
+name: 保存桥接状态
+description: 状态文件存入 Actions cache（跨 run 传递）并上传 artifact（审计），避开受保护分支
+
+inputs:
+  mode:
+    description: restore = 跑脚本前恢复上次存档；save = 跑脚本后存档并留档
+    required: true
+  path:
+    description: 状态文件的仓库相对路径
+    required: true
+  cache-key-prefix:
+    description: cache key 前缀；同一前缀的多次运行会自动回退到最近一次存档
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: 恢复上一次的状态文件
+      if: ${{ inputs.mode == 'restore' }}
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.cache-key-prefix }}-${{ github.run_id }}
+        # 本次 run 必然 miss（还没存过），靠前缀回退拿到最近一次存档
+        restore-keys: |
+          ${{ inputs.cache-key-prefix }}-
+
+    - name: 存档到 cache（供下次 run 恢复）
+      if: ${{ inputs.mode == 'save' }}
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.cache-key-prefix }}-${{ github.run_id }}
+
+    - name: 上传 artifact（供人工审计「哪条已同步过」）
+      if: ${{ inputs.mode == 'save' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: bridge-state-${{ inputs.cache-key-prefix }}-${{ github.run_id }}
+        path: ${{ inputs.path }}
+        retention-days: 90
+        if-no-files-found: warn
