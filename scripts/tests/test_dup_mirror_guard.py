@@ -42,6 +42,11 @@ import harvest_scan_guard as guard  # noqa: E402
 
 REPO_FILE = ROOT / 'scripts' / 'bridge' / 'github_cnb_issues.py'
 
+# 修复「缓存短路」那个提交的**父提交**（不可变 SHA）：探针必须拿它当「修复前」的样本。
+# 不能用 `origin/dev` —— 修复合入后它就变成修复后的代码，探针会随分支推进自行失效。
+PREFIX_FIX_COMMIT = 'dbac7233'
+
+
 
 def _card(number: int, gh: int | None, mirror: bool = True) -> dict:
     body = f'# 正文\n\n> - GitHub 编号：`#{gh}`　状态：`open`\n' if gh is not None else '# 无键正文\n'
@@ -57,19 +62,24 @@ class HarvestMustScanTest(unittest.TestCase):
         self.assertEqual(problems, [], f'\n'.join(problems))
 
     def test_变异探针_修复前的短路形态必须被抓到(self):
-        """把 `origin/dev` 上**修复前**的版本喂给守卫 —— 它必须报红。
+        """把**修复前**的真实版本喂给守卫 —— 它必须报红。
 
         这是本组最重要的一条：不加它，"守卫绿"只能证明"代码里没有它不认识的东西"，
         证明不了"它能认出那个 bug"。判据自己崩过的例子，AGENTS.md 里已记过两次。
+
+        ⚠️ **必须钉在不可变的 commit SHA 上，不能读 `origin/dev`**（2026-10-14 实测踩到）：
+        该守卫的修复 PR #451 一旦合入 `dev`，`origin/dev` 里就是**修复后**的代码，
+        这条探针便永远取不到「修复前」的版本而**恒红/恒绿**——把探针钉在可变的 ref 上，
+        等于让它随分支推进自己失效。故改用修复提交的父提交 `dbac7233`（不可变）。
         """
         before = subprocess.run(
-            ['git', 'show', 'origin/dev:scripts/bridge/github_cnb_issues.py'],
+            ['git', 'show', f'{PREFIX_FIX_COMMIT}:scripts/bridge/github_cnb_issues.py'],
             cwd=ROOT,
             capture_output=True,
             text=True,
             encoding='utf-8',
         ).stdout
-        self.assertTrue(before.strip(), '取不到 origin/dev 版本，无法验证探针（不得静默跳过）')
+        self.assertTrue(before.strip(), f'取不到 {PREFIX_FIX_COMMIT} 版本，无法验证探针（不得静默跳过）')
         problems = guard.check(before)
         self.assertTrue(problems, '修复前的短路形态未被守卫抓到 —— 守卫是假的')
         self.assertTrue(any('list_cnb_issues' in p and 'return' in p for p in problems), problems)

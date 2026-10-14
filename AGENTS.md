@@ -1120,11 +1120,24 @@ if known:            # ← 缓存非空就直接 return，CNB 侧一个字都不
 - **观测**：`python scripts/bridge/check_duplicate_mirrors.py --report`（挂 `.cnb.yml` 收尾，只报告）
   —— 同一幂等键 >1 张卡 ⇒ 退 1；**有卡读不到 ⇒ 退 2 且声明「结论不可信」**（不得退化成「无重复」）。
   清理是**人的决定**，脚本只读、不猜留哪张。
+- **清理**：`python scripts/bridge/cleanup_duplicate_mirrors.py`（配套，默认 dry-run，
+  `--apply` 才删；`--close` 改删为关）。保留判据**可重放**：**有评论的卡优先**，其余留 CNB 编号最小；
+  **`--apply` 在有卡读不到时拒绝动手**（#171 的失败态纪律）。实测 224 张重复卡全部零评论、
+  标签与正文（除快照时间戳）一致 ⇒ 删除不丢信息（「被清理卡上的评论总数」在报告里显式列出，非 0 即须停下核实）。
+  ⚠️ **别按 `state` 判保留**：本仓（CNB）编号 `167` 那张卡对应 GitHub `2118`，它是 `closed` 却带着 38 条评论（唯一正本），
+  9 张重复卡全是空的 `open` —— 按状态判会**删掉正本**。
 - **并集口径**：修好后取 `缓存 ∪ CNB 实况`，不取 CNB 实况单值 ——
   **宁可漏建，不可重复建**（漏建下轮补得上，重复建**不可逆**）。
 
-回归网 `scripts/tests/test_dup_mirror_guard.py`（16 条，含 **3 个变异探针**，
-其中一个是拿 `git show origin/dev:` 上**修复前的真实代码**喂给守卫，确认它真的转红）。
+回归网 `scripts/tests/test_dup_mirror_guard.py`（16 条，含 **3 个变异探针**）
+与 `scripts/tests/test_cleanup_duplicate_mirrors.py`（13 条，含 2 个变异探针：
+「拿掉评论维度」与「按 `open` 优先」各一条，均确认真的转红）。
+
+⚠️ **探针必须钉在不可变 SHA 上，不能读 `origin/dev`**（2026-10-14 实测踩到）：
+修复 PR #451 一合入 `dev`，`origin/dev` 里就是**修复后**的代码，那条「拿修复前代码喂守卫」的探针
+便再也取不到修复前的样本 —— **探针钉在可变 ref 上，会随分支推进自己失效**（当时它已恒红在 `dev` 上）。
+现改用修复提交的父提交 `dbac7233`。
+
 推导与实测命令见 `docs/dev/github-cnb-mirror.md` §20。
 
 ### 在 CNB 侧的其它已知边界（实测）
