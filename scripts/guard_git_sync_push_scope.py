@@ -14,6 +14,10 @@ GitHub `main` 独有 27，**交集 0**）。分叉不是理论风险：`crontab`
 2. **`branch` 的值不得是 `main` / `*` / `--all`**（等价于推 main 的几种写法）。
 3. **顶层分支键不得只写 `main` 就套 push 任务**——本仓 `main` 在外推路径上必须被排除，
    显式推 `main` 的字段（`"main":` 下挂 push 插件任务）一律报错。
+4. **每一个 job 必须带 `name`**（列表形态 `- name: ...` + `stages:`，不能把 `stages:` 直接
+   裸挂在事件下）。裸 `stages:` 的 job 在构建详情页**查不到 stage**：外部看是绿的，
+   实际推没推上去无从判断 —— 比红灯更危险的「假绿」（CNB #172 实测：
+   `crontab: 30` 的兜底 push 长期显示绿，但 `sha` 一直停在旧提交，从未推上去）。
 
 边界（有意为之）
 ----------------
@@ -130,6 +134,41 @@ def check_top_level_main(data: dict) -> list[str]:
     return problems
 
 
+def _walk_jobs(data: dict):
+    """产出 (顶层分支键, 事件名, job 对象, job 是否带 name)。"""
+    for branch, events in (data or {}).items():
+        if not isinstance(events, dict) or branch in ('.mirror-job',):
+            continue
+        for event, jobs in events.items():
+            if not isinstance(jobs, list):
+                # 事件值不是列表 = 裸 `stages:` 直接挂在事件下（无 job 包裹）⇒ 假绿形态。
+                yield branch, event, jobs, False
+                continue
+            for job in jobs:
+                if isinstance(job, dict):
+                    yield branch, event, job, bool(str(job.get('name') or '').strip())
+
+
+def check_named_jobs(data: dict) -> list[str]:
+    """判据 4：每个 job 必须带 `name`，且必须包在列表里。
+
+    不带 name 的 job（裸 `stages:`）在构建详情页查不到 stage，绿了也不知道推没推上去。
+    """
+    problems: list[str] = []
+    for branch_key, event, job, named in _walk_jobs(data):
+        if named:
+            continue
+        # 只对真正带 stages 的节点报错，避免误伤 `.mirror-job:` 之类锚点（已在 _walk_jobs 跳过）。
+        has_stages = isinstance(job, dict) and 'stages' in job
+        if not isinstance(job, dict) or has_stages:
+            problems.append(
+                f'`{branch_key}` → `{event}` 的 job **没有 `name`**（`stages:` 直接裸挂在事件下）。'
+                '这种形态的 job 在构建详情页查不到 stage：外部显示绿也无从判断实际有没有跑/推成功'
+                '—— 即「假绿」（CNB #172）。请改成列表形态：`- name: <作业名>` 换行缩进 `stages:`。'
+            )
+    return problems
+
+
 def self_check() -> list[str]:
     """探针：判据写坏了守卫会全绿，故用最小真实形态一正一反验证。"""
     errors: list[str] = []
@@ -171,6 +210,11 @@ def self_check() -> list[str]:
     # 判据 3：main 键 + ${CNB_BRANCH}。
     if not check_top_level_main(push_task('${CNB_BRANCH}', key='main')):
         errors.append('自检探针失败：`main` 键下用 `${CNB_BRANCH}` 推分支没被拦。')
+    # 判据 4：命名 job 合法；裸 stages 报错。
+    if check_named_jobs({'dev': {'push': [{'name': 'x', 'stages': []}]}}):
+        errors.append('自检探针失败：带 name 的 job 被判为不合规。')
+    if not check_named_jobs({'dev': {'push': {'stages': []}}}):
+        errors.append('自检探针失败：裸 `stages:`（无 name 的 job）没被拦——假绿形态漏网。')
     return errors
 
 
@@ -194,6 +238,7 @@ def main(argv: list[str] | None = None) -> int:
 
     problems += check_push_scope(data)
     problems += check_top_level_main(data)
+    problems += check_named_jobs(data)
 
     if problems:
         print(f'❌ {path} 的 git-sync push 目标分支检查未通过：')
