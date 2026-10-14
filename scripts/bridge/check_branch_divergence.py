@@ -19,9 +19,31 @@
 
 本脚本把「靠人肉 `git log` 发现分叉」换成「一条命令问出来」。
 
-判据
-----
-- **`main` 独有提交数 > 0** ⇒ 分叉（正常态恒为 0）；
+判据（二分，源 CNB #179，2026-10-14）
+--------------------------------------
+初版的「`main` 独有提交数 > 0 ⇒ 分叉」在本仓**恒为真**：`dev` 发完版继续走，
+`main` 必然既不领先、也不是 `dev` 的祖先 ⇒ **每次发版都报红**，而红的是合规发版本身。
+「喊狼来了」喊多了，红灯就不再被人当真 —— 这比没有自检更坏。
+
+现在**两层判据，任一层成立才红**：
+
+1. **提交级**（逐笔二分，`classify_unique_commits()`）：
+   - `left` 独有提交是 merge、且其**第二父**是 `right` 的祖先 ⇒ `release`，**不红**；
+   - 是普通提交，或 merge 的第二父不是 `right` 的祖先 ⇒ `violation`，**红**；
+   - 提交读不出来 ⇒ `unknown`，**也红**（「拿不到输入」不得退化成「正常」）。
+2. **内容级**（`content_ahead()`，`git cherry` 补丁等价）：`left` 上有 `right` 拿不到的
+   改动 ⇒ 红。这一层兜住「有人绕过 `right` 在 `left` 上改了文件」。
+
+`right` 领先 `left`（待发版量）**不红** —— 那是本仓的正常态。
+
+### 判据选型的实测教训（#179）
+
+`git diff <left> <right>` 非空 **不等于**「`left` 有独有内容」。本仓交叉合并
+（`main` 合过 `dev@c76b7621`、`dev` 又往前走了）后，两侧**都不是对方的祖先**，
+diff 也非空 ⇒ 旧版报「`main` 有 7 个文件 `dev` 没有」。**实测这 7 个全假**：
+`git cherry <right> <left>` 为空，`left` 一个字节的独有内容都没有。故内容级改用
+`git cherry`（一个判据直接回答被问的问题），不再拼「diff + 祖先关系」那条两步路。
+
 - 列出**两侧互不包含**的「镜像 / 作业配置文件」（`.cnb.yml` + `.github/workflows/*.yml`）
   —— 这类文件决定「什么会被执行」，只在单侧存在就是 #123 记的那个病；
 - 角色可切换（`--left` / `--right`），非本仓的 main/dev 布局也能用。
@@ -49,7 +71,8 @@
 - **纯离线**：只读本地 git，**不联网、不调 GitHub / CNB API**——
   分叉判定不该依赖网络，否则「网络不通 = 报告绿」又是一次静默降级；
 - **只报告，不改动**：不 fetch、不 merge、不 push（fetch 会改 refs，且属于调用方决定）；
-- **退出码**：0 = 未分叉；1 = 检出分叉（供 CI 当信号用）。调用方若不想要红灯，
+- **退出码**：0 = 无新形态；1 = 有新形态（供 CI 当信号用）；2 = 取不到 `left` / `right`
+  （「分支不存在」与「判出问题」是两件事，混在一起就分不出是哪一种）。调用方若不想要红灯，
   显式写 `|| true` —— 与 `check_mirror_refs.py` 同一口径。
 
 用法
@@ -124,46 +147,160 @@ def list_side_only(left: str, right: str, cwd: str | None) -> tuple[list[str], l
 
 
 def content_ahead(left: str, right: str, cwd: str | None = None) -> dict:
-    """**内容级**判据：`left` 有没有 `right` 没有的**代码**（CNB #167 规则 1）。
+    """**内容级**判据：`left` 有没有 `right` 拿不到的**代码**（源 CNB #167 → #179 修正）。
 
-    为什么不能只看提交数：发版 PR（`dev` → `main`）**必然**给 `left` 留一个 merge commit，
-    而它**不引入任何内容**（相对 `right` 的 diff 为空）。旧版 `count_unique(left) > 0`
-    把这种**正常的发版节点**也报成「已分叉」，于是每发一次版就红一次——
-    红却不指向任何还需动手的事，是**假红**（与 #118 的假绿同族）。
+    为什么不能只看提交数：发版 PR（`right` → `left`）**必然**给 `left` 留一个 merge commit，
+    而它**不引入任何内容**。旧版 `count_unique(left) > 0` 把这种**正常的发版节点**
+    也报成「已分叉」，每发一次版就红一次——红却不指向任何还需动手的事，是**假红**
+    （与 #118 的假绿同族）。
 
-    真正该问的是：**`left` 上有没有 `right` 拿不到的内容**。
+    ### #179 实测踩到的坑：`git diff` **不是**这个判据
 
-    判据用 `git diff <left> <right>` 的方向语义（**方向敏感，别猜**）：
-      - diff 为空 ⇒ 两侧内容一致，`left` 独有的只是（发版）结构节点，**不算分叉**；
-      - diff 非空 ⇒ `left` 侧存在 `right` 没有的内容，**才是 `dev` 缺代码**——
-        这正是用户口径「CNB `main` 不能有 `dev` 没有的代码」要拦的形态。
+    上一版用「`git diff <left> <right>` 非空 ⇒ `left` 有独有内容」。它在**交叉合并**后失灵：
 
-    返回 `has_only_left`（是否有 `left` 独有内容）、`files`（独有内容涉及的路径）、
-    `additions` / `deletions`（行数），取不到 git 结果时返回 `None` 表示**判据不可用**
-    ——**不猜、不降级成「正常」**（否则又是「拿不到输入 = 输入为空」，见 #171）。
+        `main` 合过 `dev@c76b7621`，`dev` 又往前走了 2 个提交 ⇒
+        **两侧都不是对方的祖先**（`--is-ancestor` 双向皆 false），
+        于是 `left_is_ancestor_of_right=False` 且 diff 非空 ⇒ 报 ⚠️「main 有 7 个文件 dev 没有」。
+
+    **实测这 7 个文件全是假阳性**：`git cherry <right> <left>` 为空 ——
+    `left` 上**每一条提交都能在 `right` 找到补丁等价的对应**，
+    `left` 一个字节的独有内容都没有。diff 非空只是因为 `right` **更靠前**（领先 2 个提交），
+    而「更靠前」在交叉合并下**不能**由「非祖先」推出来。
+
+    故判据换成 **`git cherry`（补丁等价）**，它才是「`left` 有没有 `right` 没有的改动」的正解：
+
+        git cherry <right> <left>   # 逐行输出 `+ <sha>`（right 缺）/ `- <sha>`（right 已有等价）
+
+      - **没有 `+` 行** ⇒ `left` 的改动 `right` 全有 ⇒ 不算分叉（放行发版滞后）；
+      - **有 `+` 行** ⇒ `left` 上有 `right` 拿不到的改动 ⇒ 这才是要拦的形态。
+
+    为什么不用 `diff` + 祖先关系拼：那条路要**两个判据同时成立**才敢放行，
+    而交叉合并恰好卡在中间（都 false / 都非空）。`git cherry` 是一个判据、
+    直接回答被问的那个问题。
+
+    取不到 git 结果时返回 `available=False` 表示**判据不可用**——**不猜、不降级成「正常」**
+    （否则又是「拿不到输入 = 输入为空」，见 #171）。
     """
-    code, out = _git(['diff', '--numstat', left, right], cwd)
+    code, out = _git(['cherry', right, left], cwd)
     if code != 0:
-        return {'available': False, 'reason': f'git diff 退出码 {code}'}
-    files: list[str] = []
-    add = dele = 0
+        return {'available': False, 'reason': f'git cherry 退出码 {code}'}
+    only_left: list[str] = []
     for line in out.splitlines():
-        parts = line.split('\t')
-        if len(parts) < 3:
-            continue
-        a, d, path = parts[0], parts[1], parts[2]
-        files.append(path)
-        add += int(a) if a.isdigit() else 0
-        dele += int(d) if d.isdigit() else 0
-    # `git diff left right` 的 diff 是「把 left 变成 right」的补丁：
-    # 有内容 ⇒ left 与 right 不同（无论谁更旧）。是不是「left 独有」还要看祖先关系。
-    is_ancestor = _git(['merge-base', '--is-ancestor', left, right], cwd)[0] == 0
+        line = line.rstrip()
+        # 形如 `+ <sha>`（right 缺这条改动）或 `- <sha>`（right 已有等价补丁）。
+        # 只认 `+`；`-` 正是「右侧已有等价改动」的**放行**信号。
+        if line.startswith('+'):
+            sha = line[1:].strip()
+            if sha:
+                only_left.append(sha)
+    # 与「哪些文件」一并给出：光说「有 3 条独有提交」不够，读者要知道碰了哪些路径。
+    # 逐个 `git show --name-only` 而不是一条 `git log -- <rev^!...>`：前者对每个 sha
+    # 独立取变更路径，不受 pathspec 括号展开形态（Windows / 不同 git 版本差异）影响，
+    # 也不会被 `--pretty=format:` 的空行吃掉（实测 `log --name-only --pretty=format:` 会给出空）。
+    files: list[str] = []
+    for sha in only_left:
+        code, names = _git(['show', '--name-only', '--format=', sha], cwd)
+        if code == 0:
+            files.extend(ln.strip() for ln in names.splitlines() if ln.strip())
     return {
         'available': True,
+        'has_only_left': bool(only_left),
+        'only_left_commits': only_left,
         'files': files,
-        'additions': add,
-        'deletions': dele,
-        'left_is_ancestor_of_right': is_ancestor,
+    }
+
+
+def parse_commit(sha: str, cwd: str | None = None) -> dict | None:
+    """把一个提交读成 `{sha, short, subject, parents}`；**取不到返回 None，不猜**。
+
+    `git log -1 --format=%h%x09%s%x09%P <sha>`：`%h` 短号、`%s` 主题、
+    `%P` **全部**父提交（merge 有两个，空格分隔）。用 TAB 分隔是因为主题里
+    可能含任意字符、含空格是常态。
+    """
+    code, out = _git(['log', '-1', '--format=%h%x09%s%x09%P', sha], cwd)
+    if code != 0 or not out:
+        return None
+    parts = out.splitlines()[0].split('\t')
+    if len(parts) < 3:
+        return None
+    return {
+        'sha': sha,
+        'short': parts[0],
+        'subject': parts[1],
+        'parents': [p for p in parts[2].split() if p],
+    }
+
+
+def classify_commit(commit: dict, right: str, cwd: str | None = None) -> dict:
+    """判断 `left` 上的一个独有提交是「合规发版」还是「纪律违规」（源 CNB #179）。
+
+    - **普通提交**（父 < 2）⇒ `violation`：它没有「被合进来」的语义，
+      在稳定分支上只能意味着有人绕过 `right` 直接提交 / 直接推；
+    - **合并提交** ⇒ 看**第二父**是不是 `right` 的祖先：
+        - 是 ⇒ `release`（合规发版：把 `right` 合进 `left`）；
+        - 否 ⇒ `violation`（合并的另一侧来路不明，等于绕过了 `right`）。
+
+    ⚠️ **是第二父，不是第一父**：`git log --format=%P` 的**第一父**是当前分支自己的历史
+    （`left` 上继续的那个），**第二父**才是被合入的一侧。取第一父判「是不是 `right` 的祖先」，
+    会把每一笔合规发版都判成违规 —— 「判据方向错等于报告不可用」。
+
+    父提交信息**取不到**时返回 `unknown`：拿不到输入不得退化成「正常」（假绿），
+    也不得退化成「违规」（替人定罪）—— 两种都是替人做判断。
+    """
+    parents = commit.get('parents') or []
+    if len(parents) < 2:
+        return {'kind': 'violation', 'reason': f'普通提交（非合并）出现在稳定分支上：无人经 `{right}` 中转'}
+    merged_side = parents[1]
+    code, _ = _git(['merge-base', '--is-ancestor', merged_side, right], cwd)
+    if code == 0:
+        return {
+            'kind': 'release',
+            'merged_side': merged_side[:8],
+            'reason': f'合规发版：合并的第二父 {merged_side[:8]} 是 `{right}` 的祖先',
+        }
+    if code == 1:
+        return {
+            'kind': 'violation',
+            'merged_side': merged_side[:8],
+            'reason': f'合并的第二父 {merged_side[:8]} 不是 `{right}` 的祖先：来路不明',
+        }
+    return {
+        'kind': 'unknown',
+        'reason': f'取不到 {merged_side[:8]} 与 `{right}` 的祖先关系（git 退出码 {code}）',
+    }
+
+
+def classify_unique_commits(left: str, right: str, cwd: str | None = None) -> dict:
+    """把 `left` 独有的提交逐个分类（源 CNB #179）。
+
+    返回 `{commits, violations, unknowns, readable}`：
+      - `commits` = 全部独有提交，每条带 `verdict`（`release` / `violation` / `unknown`）；
+      - `violations` / `unknowns` = 该报红的两类；
+      - `readable` = 提交清单**取得**到吗（False ⇒ 判据不可用，不得读成「无异常」）。
+    """
+    code, out = _git(['log', '--format=%H', f'{right}..{left}'], cwd)
+    if code != 0:
+        return {'commits': [], 'violations': [], 'unknowns': [], 'readable': False}
+    commits: list[dict] = []
+    for sha in [ln.strip() for ln in out.splitlines() if ln.strip()]:
+        commit = parse_commit(sha, cwd)
+        if commit is None:
+            commits.append(
+                {
+                    'sha': sha,
+                    'short': sha[:8],
+                    'subject': '<读取失败>',
+                    'verdict': {'kind': 'unknown', 'reason': '取不到提交信息'},
+                }
+            )
+            continue
+        commit['verdict'] = classify_commit(commit, right, cwd)
+        commits.append(commit)
+    return {
+        'commits': commits,
+        'violations': [c for c in commits if c['verdict']['kind'] == 'violation'],
+        'unknowns': [c for c in commits if c['verdict']['kind'] == 'unknown'],
+        'readable': True,
     }
 
 
@@ -178,7 +315,32 @@ def compute(left: str, right: str, cwd: str | None = None) -> dict:
         'left_only_jobs': left_jobs,
         'right_only_jobs': right_jobs,
         'content': content_ahead(left, right, cwd),
+        **classify_unique_commits(left, right, cwd),
     }
+
+
+def needs_red(res: dict) -> bool:
+    """该不该报红 —— **只看有没有新形态**，不看「分叉了几个提交」（源 CNB #179）。
+
+    两层判据，任一层成立就红：
+
+      - **提交级**：`left` 独有提交里有 `violation`（普通提交 / 来路不明的 merge）
+        或 `unknown`（判不出）⇒ 红。`release`（合规发版 merge）**不红**；
+      - **内容级**（`content_ahead()`，源 #167）：`left` 有 `right` 拿不到的**代码** ⇒ 红。
+        发版 merge 不引入内容，故正常情况下两层口径一致；内容级兜住「有人绕过 `right`
+        在 `left` 上改了文件」这类形态。
+
+    两个「拿不到输入」都**不得**退化成正常：`commits_readable` 为假、或
+    `content.available` 为假 ⇒ 红（#171 那条「拿不到 ≠ 空的」）。
+    """
+    if res.get('commits_readable') is False:
+        return True
+    if res.get('violations') or res.get('unknowns'):
+        return True
+    content = res.get('content') or {}
+    if not content.get('available'):
+        return True
+    return bool(content.get('has_only_left'))
 
 
 def explain(left: str, right: str, cwd: str | None = None) -> dict:
@@ -276,88 +438,109 @@ def build_explanation(res: dict, exp: dict) -> str:
 
 
 def build_report(res: dict) -> str:
-    """报告分两段：**内容级**（用户口径的判据）在前，**提交数级**（结构性信号）在后。
+    """报告分三段：**提交级二分**（该不该红）→ **内容级**（#167 口径）→ **结构级**（补充）。
 
-    为什么要把内容级放前面：用户口径是「CNB `main` 不能有 `dev` 没有的**代码**」（CNB #167）。
-    发版 merge commit 必然让 `left` 多出提交，但**不引入内容** —— 只看提交数会把它误报成
-    分叉（假红）。故判据以 `content_ahead()` 为准，提交数只作「结构上发生了什么」的补充。
+    为什么提交级放最前：判据二分之后，「该不该红」由它回答；内容级与结构级都是**佐证**，
+    其中内容级**仍有独立价值**——它兜住「有人在 `left` 上改了文件、`right` 拿不到」这类
+    形态（那种情况下提交级也会红，但内容级能直接点名文件）。
     """
     left, right = res['left'], res['right']
     lo, ro = res['left_only'], res['right_only']
+    commits = res.get('commits') or []
+    violations = res.get('violations') or []
+    unknowns = res.get('unknowns') or []
+    releases = [c for c in commits if (c.get('verdict') or {}).get('kind') == 'release']
     content = res.get('content') or {}
+
     lines = [
         '## 分支分叉自检',
         '',
         f'- 比较：`{left}` ↔ `{right}`',
-        f'- `{left}` 独有提交：**{lo}**',
-        f'- `{right}` 独有提交：**{ro}**',
+        f'- `{left}` 独有提交：**{lo}**（合规发版 {len(releases)} / 新形态 {len(violations)} / 判不出 {len(unknowns)}）',
+        f'- `{right}` 独有提交：**{ro}**（待发版量，正常态）',
         '',
-        '### 内容级判据（口径：`main` 不得有 `dev` 没有的代码）',
+        '### 提交级判据（逐笔二分：合规发版 / 新形态）',
         '',
     ]
 
-    if not content.get('available'):
-        # 「拿不到」不是「没有」—— 必须显式说出，不得退化成看起来正常的结论（#171 教训）。
+    if res.get('commits_readable') is False:
+        # 「拿不到输入」≠「输入为空」：显式说出并以红灯表达（#171 / #179）。
         lines.append(
-            f'❓ **判据不可用**：{content.get("reason")}。'
-            '本轮结论**不可信**，请先确认 git 可用后重跑。'
+            f'❌ **判据不可用**：取不到 `{left}` 独有的提交清单（`git log` 失败）。'
+            '本轮**无法给出结论**，不得读成「无异常」；先确认 git 可用、ref 存在后重跑。'
         )
-        return '\n'.join(lines)
-
-    files = content.get('files') or []
-    left_is_ancestor = bool(content.get('left_is_ancestor_of_right'))
-    if not files:
+    elif violations:
+        lines.append(f'⚠️ **检出 {len(violations)} 个新形态** —— `{left}` 上有未经 `{right}` 中转的提交：')
+        lines.append('')
+        for c in violations:
+            lines.append(f'- `{c["short"]}` {c["subject"]} —— {(c.get("verdict") or {}).get("reason", "")}')
+        lines.append('')
+        lines.append(f'处置：查清来路，走 PR 把它并回 `{right}`（**不要**用 `--force` 抹掉）。')
+    elif releases:
         lines.append(
-            f'✅ **两侧内容一致**（`git diff {left} {right}` 为空）——'
-            f'`{left}` 独有的提交只是发版等**结构节点**，没有引入 `{right}` 拿不到的代码。'
+            f'✅ 无新形态：`{left}` 独有的 {len(releases)} 个提交**全部是合规发版 merge**'
+            f'（把 `{right}` 合进 `{left}`）。'
         )
-    elif left_is_ancestor:
+        lines.append('')
         lines.append(
-            f'ℹ️ 两侧内容有差异（{len(files)} 个文件），但 `{left}` 是 `{right}` 的**祖先** ⇒'
-            f'这些差异是 `{right}` **领先**的部分，不是 `{left}` 独有（正常态）。'
+            f'这是本仓的正常态 —— `{right}` 领先 {ro} 个提交，`{left}` 停在上一发版点。'
+            '**不要拿它当红灯**：为了消红而强行对齐只会逼出下策。'
         )
     else:
+        lines.append(f'`{left}` 没有独有提交。')
+
+    if unknowns:
         lines += [
-            f'⚠️ **`{left}` 存在 `{right}` 没有的内容**（{len(files)} 个文件，'
-            f'+{content.get("additions")}/-{content.get("deletions")}）：',
+            '',
+            f'❓ **{len(unknowns)} 个提交判不出类型**（拿不到父提交 / 祖先关系）——**按红灯对待**：',
+        ]
+        lines.extend(f'- `{c["short"]}` {c["subject"]}' for c in unknowns)
+
+    # ---- 内容级（#167 口径，用 git cherry 补丁等价判定） ----
+    lines += ['', '### 内容级判据（口径：`' + left + '` 不得有 `' + right + '` 拿不到的代码）', '']
+    if not content.get('available'):
+        lines.append(f'❓ **判据不可用**：{content.get("reason")}。「拿不到」不是「没有」——**不得读成本轮无异常**。')
+    elif content.get('has_only_left'):
+        only = content.get('only_left_commits') or []
+        files = content.get('files') or []
+        lines += [
+            f'⚠️ **`{left}` 上有 {len(only)} 条 `{right}` 拿不到的改动**' + f'（`git cherry {right} {left}` 报 `+`）：',
             '',
         ]
-        lines += [f'- `{f}`' for f in files[:20]]
-        if len(files) > 20:
-            lines.append(f'- …还有 {len(files) - 20} 个，见 `git diff {left} {right}`')
+        lines += [f'- `{s[:8]}`' for s in only[:20]]
+        if files:
+            lines += ['', '涉及路径：', '']
+            lines += [f'- `{f}`' for f in files[:20]]
         lines.append('')
+    else:
+        lines.append(
+            f'✅ **`{left}` 没有 `{right}` 拿不到的改动**'
+            f'（`git cherry {right} {left}` 无 `+` 行：`{left}` 上每条提交都在 `{right}` 有补丁等价的对应）。'
+        )
+        if content.get('files'):
+            # 兼容旧字段：不该出现（cherry 无 + 时 files 为空），出现即说明实现漂了。
+            lines.append(f'（注：拿到了非空文件清单 {content.get("files")} —— 与 `+` 行为空矛盾，请查实现。）')
 
-    lines += ['### 结构级信号（提交数，补充信息）', '']
+    # ---- 结构级（提交数，补充） ----
+    lines += ['', '### 结构级信号（提交数，补充信息）', '']
     if not lo and not ro:
         lines.append('两侧一致。')
         return '\n'.join(lines)
-
-    if lo and ro and not left_is_ancestor:
-        lines.append(
-            f'⚠️ 两侧**互不包含**（`{left}` 独有 {lo} / `{right}` 独有 {ro}）——'
-            '这才是 #123 记的双向分叉形态。'
-        )
-    elif lo:
-        lines.append(
-            f'`{left}` 独有 {lo} 个提交（发版节点属正常；若上面「内容级判据」为 ⚠️ 才是真分叉）。'
-        )
-    else:
-        lines.append(f'`{right}` 领先 `{left}` {ro} 个提交（待发版）。')
+    lines.append(f'`{left}` 独有 {lo} / `{right}` 独有 {ro}。')
     lines.append('')
+    lines.append('> ⚠️ 提交数**不是判据**：交叉合并（`main` 合过 `dev`、`dev` 又前进）下')
+    lines.append('> 两侧会「互不包含」而 `left` 其实零独有内容 —— 这正是 #179 实测的假阳性形态。')
 
-    for side, jobs in (
-        (left, res['left_only_jobs']),
-        (right, res['right_only_jobs']),
-    ):
+    for side, jobs in ((left, res['left_only_jobs']), (right, res['right_only_jobs'])):
         if jobs:
-            lines.append(f'**只在 `{side}` 上的作业配置**（改了不跑 / 跑了不是它）：')
-            lines.append('')
+            lines += ['', f'**只在 `{side}` 上的作业配置**（改了不跑 / 跑了不是它）：', '']
             lines.extend(f'- `{p}`' for p in jobs)
-            lines.append('')
 
     lines += [
-        '> 处置：**发版**（`dev` → `main` 的 PR，head 必须是 `dev` 本身）。',
-        '> 不要用「把功能分支 base 改成 main」消除时间差 —— 那正是本分叉的成因（见 AGENTS.md「PR 与 Review」）。',
+        '',
+        '> 判据口径（源 CNB #179）：**合规发版 merge 不报红**（`' + left + '` 停在上一发版点是正常态）；',
+        f'> `{left}` 独有普通提交、或合并的第二父不是 `{right}` 的祖先，才是**新形态**。',
+        '> 只报告，不改动：不 fetch / merge / push（要不要更新远端视图是调用方的决定）。',
     ]
     return '\n'.join(lines)
 
@@ -380,15 +563,10 @@ def run(args: argparse.Namespace) -> int:
     res = compute(args.left, args.right, args.cwd)
     if args.jobs_only:
         res = {**res, 'left_only': None, 'right_only': None}
-    # 退出码口径（CNB #167）：**内容级**才算分叉 —— `left` 有 `right` 拿不到的代码。
-    # 发版 merge commit（内容 diff 为空）不算；判据不可用时返回 2（与「取不到分支」同语义），
-    # 绝不放行成 0（「拿不到 ≠ 正常」，#171 教训）。
-    content = res.get('content') or {}
-    if not content.get('available'):
-        diverged = None
-    else:
-        files = content.get('files') or []
-        diverged = bool(files) and not content.get('left_is_ancestor_of_right')
+    # 退出码口径（源 CNB #179）：**有没有新形态**，不是「left 独有提交数是不是 0」。
+    # 合规发版滞后在本仓恒存在（`dev` 一直在前进），拿它当红灯就是「狼来了」——
+    # 判定交给 `needs_red()`，它同时覆盖提交级二分与 #167 的内容级判据。
+    diverged = needs_red(res)
     report = build_report(res)
     # `getattr` 默认 False：`run()` 也被测试直接调用（`argparse.Namespace` 手搓），
     # 新加的可选开关不该让老调用点崩。
@@ -401,8 +579,6 @@ def run(args: argparse.Namespace) -> int:
 
         Path(args.out).write_text(report + '\n', encoding='utf-8')
         print(f'\n📄 报告已写入 {args.out}')
-    if diverged is None:
-        return 2  # 判据不可用：不得当作「正常」
     return 1 if diverged else 0
 
 

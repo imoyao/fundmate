@@ -96,24 +96,29 @@
   需要另开一张 `dev` → `main` 的**发布 PR**，让镜像改动真正落地；
 - **发版前镜像作业跑的是旧脚本**，这是需接受的窗口，**不是**「所以我要直连 `main`」的许可证。
   改 base 只会把「旧脚本还跑着」变成「新旧代码在两处、且互不包含」——更难收拾；
-- 判据自查（发版前跑一次，`main` 落后 `dev` 时应看得见）：
+- **判据（2026-10-14 二次修正，源 CNB #179）**：**发版滞后本身不是故障**。
 
-  ```bash
-  git fetch origin dev main
-  git rev-list --count origin/dev..origin/main   # main 领先 dev 的提交数（正常应为 0）
-  git rev-list --count origin/main..origin/dev   # dev 领先 main 的提交数（待发版的量）
-  git merge-base --is-ancestor origin/main origin/dev && echo 'main 是 dev 祖先，未分叉'       || echo '⚠ 已分叉：main 上有 dev 没有的提交'
-  ```
+  | 形态 | 判定 |
+  |---|---|
+  | `main` 独有提交是**发版 merge**（第二父是 `dev` 的祖先） | ✅ 正常（`main` 停在上一发版点） |
+  | `main` 独有提交是**普通提交**，或 merge 的第二父不是 `dev` 的祖先 | ⚠️ **纪律违规**：有人绕过 `dev` |
+  | `git cherry origin/dev origin/main` 有 `+` 行 | ⚠️ `main` 上有 `dev` 拿不到的改动 |
 
-- **判据机器化**：上面三条命令已固化进 `scripts/bridge/check_branch_divergence.py`
+  ⚠️ **不要**把「`main` 独有提交数 > 0」当分叉判据：本仓发版后 `main` 必然多一个
+  merge commit，且 `dev` 继续前进 ⇒ `main` 既不领先也不是 `dev` 的祖先。拿它报红
+  就是**每次都喊狼来了**，红灯随之失去可信度。判据要二分，不要数数。
+
+- **判据机器化**：已固化进 `scripts/bridge/check_branch_divergence.py`
   （只读本地 git、不联网），并挂进 `.cnb.yml` 的收尾阶段（只报告）：
 
   ```bash
-  python scripts/bridge/check_branch_divergence.py --report   # 退出码 1 = 已分叉
+  python scripts/bridge/check_branch_divergence.py --report   # 退出码 1 = 有新形态
   ```
 
-  正常态是「`main` 领先 0、`main` 是 `dev` 的祖先」——即 `main` 始终是 `dev` 的历史前缀。
-  **出现 `main` 领先 `dev` 就是分叉，无论提交数多小，都先查是不是有 PR 用错了 base。**
+  ⚠️ 内容级判据用 **`git cherry`（补丁等价）**，**不是** `git diff`：
+  交叉合并（`main` 合过 `dev`、`dev` 又前进）下 `diff` 非空但 `main` 零独有内容，
+  用 `diff` + 祖先关系会**假红**（2026-10-14 实测 7 个文件全是假阳性）。
+  「拿不到输入」（`git cherry` / `git log` 失败）一律按红，**不得**降级成正常。
 
 #### git-sync **两个方向**都必须显式指定 `branch`，且不含 `main`（2026-10-13 ~ 10-14，#167 / #172）
 
