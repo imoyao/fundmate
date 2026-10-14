@@ -485,10 +485,10 @@ def get_ledger_summary(ledger_id: int):
                 data.update(money_fund)
 
             # 类现金统计（#1137）：货基 + 逆回购 + 账户现金，口径与 XIRR 的
-            # EXCLUDED_ASSET_TYPES 一致；中高风险 = 总市值 - 类现金，供前端主次展示。
+            # EXCLUDED_ASSET_TYPES 一致；「投资 / 持仓内类现金」两片划分见
+            # `LedgerService.split_cash_like_allocation`（#1606 业务规则下沉 services）。
             data.update(LedgerService.get_cash_like_stats(db, ledger.id, get_family_id()))
-            total_mv = data.get('total_market_value') or 0.0
-            data['investment_amount'] = round(total_mv - (data.get('cash_like_amount') or 0.0), 2)
+            LedgerService.split_cash_like_allocation(data)
 
         elif ledger.ledger_type == 'bank':
             data.update(LedgerService.get_bank_stats(db, ledger.id))

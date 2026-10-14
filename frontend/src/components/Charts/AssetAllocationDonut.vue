@@ -90,14 +90,29 @@ function colorFor(name: string): string {
 }
 
 function buildOption() {
-  const total = props.data.reduce((s, d) => s + (d.value || 0), 0);
+  // 构成图只接受「非负且有限」的片：负值 / NaN / Infinity 一律剔除。
+  //
+  // ⚠️ 为什么必须在组件这一层守：环形图表达的是「一个整体的划分」，负值没有几何意义。
+  // ECharts 对负值扇区不报错，而是按绝对值参与角度计算，表现为「占比为负 + 另一片超过
+  // 100%」，圆环被画成一整圈——真机事故：账户 id=12 曾显示
+  // 「投资资产 -63.2% / 现金类资产 163.2%」（投资资产被算成 -180,909 元）。
+  // 剔除而不是 `Math.max(0, v)` 夹取：夹取会把「数据不可信」伪装成合法的 0 占比，
+  // 静默丢掉信息；剔除后至少占比合计仍是 100%，且不会画出负角。
+  const safeData = props.data.filter(
+    d => Number.isFinite(d.value) && d.value > 0
+  );
+  const total = safeData.reduce((s, d) => s + d.value, 0);
   // 空态判定：数组为空 **或** 全部值为 0。
   // 仅判 length 会漏掉「账户无数据」场景：调用方（账本详情页等）通常固定传全部分类
   // （如「投资资产 / 现金类资产」），空账户时两个值都是 0、数组长度仍为 2，空态不触发。
   // 而 ECharts 在总和为 0 时会把圆环按分类数均分（见 pieLayout.js：sum===0 时每个
   // 扇区取 unitRadian = 2π / 分类数），两个分类即各占 180°，视觉上变成误导性的
   // 「50% / 50%」，与"账户里根本没有数据"的事实不符。故总和为 0 一律按空态处理。
-  const isDataEmpty = props.data.length === 0 || total === 0;
+  // 「传了分类却一片都画不出」= 数据不可信（全为负 / NaN），与「账户本来就没资产」
+  // 是两件事，文案必须区分：说「暂无数据」等于替脏数据背书。
+  const isInvalid = props.data.length > 0 && safeData.length === 0;
+  const isDataEmpty = safeData.length === 0 || total === 0;
+  const centerText = isInvalid ? "构成数据异常" : props.emptyText;
   const legendTextColor = getCssVar("--text-secondary", "#6b655c");
   const borderColor = getCssVar("--bg-card", "#ffffff");
   // 尊重系统减弱动效偏好：关闭 echarts 入场动画
@@ -138,7 +153,7 @@ function buildOption() {
           // 分类名 + 金额，再加百分比会挤换行）。
           formatter: (name: string) => {
             if (!props.showLegendPercent) return name;
-            const d = props.data.find(x => x.name === name);
+            const d = safeData.find(x => x.name === name);
             const pct =
               total > 0 ? (((d?.value || 0) / total) * 100).toFixed(1) : "0";
             return `${name} ${pct}%`;
@@ -172,13 +187,13 @@ function buildOption() {
           ? {
               show: true,
               position: "center",
-              formatter: props.emptyText,
+              formatter: centerText,
               color: getCssVar("--text-tertiary", "#999"),
               fontSize: 12
             }
           : { show: false },
         labelLine: { show: false },
-        data: isDataEmpty ? [{ name: props.emptyText, value: 1 }] : props.data
+        data: isDataEmpty ? [{ name: centerText, value: 1 }] : safeData
       }
     ]
   };

@@ -156,3 +156,103 @@ class TestCashLikeStats:
         assert data['cash_like_amount'] == mf_mv
         # 中高风险 = 总市值 - 类现金（只剩普通基金）
         assert data['investment_amount'] == fund_mv
+
+    def test_investment_amount_never_negative_when_cash_like_exceeds_mv(self, client, db, make_transaction):
+        """账外类现金 > 持仓总市值时，「投资资产」不得为负（真机 #bug 回归）。
+
+        真机形态（账户「同花顺——银河」id=12，stock）：
+        - 持仓总市值 296,042 元
+        - 孤儿货基/逆回购流水净额 476,951 元（**不建持仓，不进总市值**）
+        旧式 `investment_amount = 总市值 - cash_like_amount` 算出 **-180,909 元**，
+        前端环形图因此显示「投资资产 -63.2% / 现金类资产 163.2%」：
+        占比为负、且超过 100%，圆环被渲染成一整圈绿。
+
+        根因是口径错配：cash_like 里的「账外」部分（孤儿流水净额 + 账户现金）
+        从来不在 total_market_value 里，从总市值中扣掉等于减了两遍。
+        """
+        ledger = _make_ledger(db, name='同花顺——银河', ledger_type='stock')
+        _make_position(
+            db,
+            ledger,
+            symbol='600519',
+            name='贵州茅台',
+            shares=10.0,
+            price_yuan=1.0,  # 市值 10 元
+            asset_type='stock',
+        )
+        # 孤儿货基流水净额 1000 元 >> 持仓市值 10 元
+        # （`make_transaction` 的 amount 入参单位是**元**，与 Asset.amount 的分不同，别混）
+        make_transaction(
+            None,
+            ledger.id,
+            txn_type='buy',
+            amount=1000,
+            asset_type='money_fund',
+            entry_status='orphan',
+        )
+        db.commit()
+
+        resp = client.get(f'/api/ledgers/{ledger.id}/summary/')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+
+        total_mv = data['total_market_value']
+        assert total_mv == 10.0
+        # 账外类现金照旧独立暴露（它仍是真实存在的类现金，只是不进持仓市值）
+        assert data['cash_like_amount'] == 1000.0
+        # 关键断言：投资资产非负，且两片合计 == 总市值（左侧「总资产」）
+        assert data['investment_amount'] >= 0
+        assert data['investment_amount'] == 10.0
+        assert data['cash_like_in_positions_amount'] == 0.0
+        assert (
+            round(
+                data['investment_amount'] + data['cash_like_in_positions_amount'],
+                2,
+            )
+            == total_mv
+        )
+
+    def test_composition_slices_partition_total_market_value(self, client, db):
+        """正常形态：投资 + 持仓内类现金 == 总市值（构成图两片合计恒为 100%）。
+
+        货基 10 元 + 普通基金 1000 元：现金片 10 元、投资片 1000 元，合计 1010。
+        """
+        ledger = _make_ledger(db, name='蚂蚁基金', ledger_type='fund')
+        _make_position(
+            db,
+            ledger,
+            symbol='000198',
+            name='天弘余额宝货币',
+            shares=10.0,
+            price_yuan=1.0,
+            asset_type='money_fund',
+            code='000198',
+        )
+        _make_position(
+            db,
+            ledger,
+            symbol='110011',
+            name='易方达优质精选',
+            shares=10.0,
+            price_yuan=100.0,
+            asset_type='fund',
+        )
+
+        resp = client.get(f'/api/ledgers/{ledger.id}/summary/')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+
+        mf_mv = _market_value_yuan(10.0, 1.0)
+        fund_mv = _market_value_yuan(10.0, 100.0)
+        total_mv = round(mf_mv + fund_mv, 2)
+
+        assert data['total_market_value'] == total_mv
+        assert round(data['cash_like_in_positions_amount'], 2) == round(mf_mv, 2)
+        assert round(data['investment_amount'], 2) == round(fund_mv, 2)
+        assert (
+            round(
+                data['investment_amount'] + data['cash_like_in_positions_amount'],
+                2,
+            )
+            == total_mv
+        )
