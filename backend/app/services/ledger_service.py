@@ -42,6 +42,23 @@ class LedgerService:
             return {}
 
     @staticmethod
+    def _batch_fund_navs_with_dates(db: Session, fund_codes: list[str]) -> dict[str, tuple]:
+        """批量获取基金最新单位净值**及净值日期**（#2140：持仓行时点标注用）。
+
+        与 :meth:`_batch_fund_latest_navs` 同源（NavService、allow_remote=False），
+        只多返回日期——持仓分页行的 `price_date` 必须取**实际采用的那条净值**的日期，
+        而非 `positions.price_date` 快照（后者 22:15 才回写，会低估新鲜度）。
+
+        返回 {fund_code: (unit_nav_float, nav_date)}，无数据的基金不在结果中。
+        """
+        if not fund_codes:
+            return {}
+        try:
+            return NavService.get_latest_navs_with_dates(db, fund_codes, allow_remote=False)
+        except Exception:
+            return {}
+
+    @staticmethod
     def get_pending_money_fund_estimate(db: Session, ledger_id: int, family_id: int) -> dict:
         """#863 2-A：账户「确认中」货基申购预估（展示用，非账本口径，不参与聚合）。
 
@@ -481,12 +498,14 @@ class LedgerService:
             .all()
             if row[0]
         ]
-        latest_navs = LedgerService._batch_fund_latest_navs(db, all_fund_symbols)
+        # #2140：改走带日期版本——行级 price_date 必须与实际采用的净值同源
+        latest_navs = LedgerService._batch_fund_navs_with_dates(db, all_fund_symbols)
 
         def _effective_price_units(p_asset_type: str, p_symbol: str | None, snapshot_units: int) -> int:
             """基金用最新净值，其他类型用快照价（统一 0.0001元 单位）"""
-            if p_asset_type == 'fund' and p_symbol and p_symbol in latest_navs and latest_navs[p_symbol] > 0:
-                return Money.yuan_to_price_units(latest_navs[p_symbol])
+            entry = latest_navs.get(p_symbol) if p_asset_type == 'fund' and p_symbol else None
+            if entry and entry[0] > 0:
+                return Money.yuan_to_price_units(entry[0])
             return snapshot_units
 
         # 总市值：Python 聚合（分）。逐行 ROUND_HALF_UP 语义必须保留（tech-debt §13，
@@ -515,6 +534,15 @@ class LedgerService:
             if eff_price and avg and eff_price < avg:
                 back = round((avg - eff_price) / eff_price * 100, 2)
 
+            # 价格时点（#2140）：基金行取**实际采用**的最新净值日（与 eff_price 同源）；
+            # 其余类型或基金无净值回退快照时，取 22:15 回写的 positions.price_date；
+            # 都没有则 None（前端 tooltip 容错省略，不编日期）
+            nav_entry = latest_navs.get(p.symbol) if p.asset_type == 'fund' and p.symbol else None
+            if nav_entry and nav_entry[0] > 0:
+                price_date = nav_entry[1].isoformat() if nav_entry[1] else None
+            else:
+                price_date = p.price_date.isoformat() if p.price_date else None
+
             items.append(
                 {
                     'id': p.id,
@@ -529,6 +557,8 @@ class LedgerService:
                     'pnl_rate': pnl_rate,
                     'avg_price': Money.price_units_to_yuan(avg),
                     'current_price': Money.price_units_to_yuan(eff_price),
+                    # 价格时点（#2140）：已确认口径的「截至日期」，前端 tooltip 消费
+                    'price_date': price_date,
                     # 持有时长（天）：基于首次建仓确认日，无确认日返回 None（#862）
                     'holding_days': (today_shanghai() - p.confirm_date).days if p.confirm_date else None,
                     'allocation': p.allocation,

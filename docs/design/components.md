@@ -19,7 +19,7 @@ title: 组件使用规范（设计语言实现层）
   - `RiseFallText` — 涨跌幅文本（正负号 + 涨红跌绿 + 等宽数字）
   - `ProductDisplay` — 产品信息单元格（名称 + 代码 + 类型标签，表格产品列统一）
   - `AssetTypeBadge` — 资产 / 账本类型胶囊（统一账本配色）
-  - `PnlDualLine` — 盈亏双线（已确认 / 预估两行同显，「估」标记 + 免责 tooltip，#1104）
+  - `PnlDualLine` — 盈亏双线（已确认 / 预估两行同显，「估」标记 + 免责 tooltip，#1104；#2140 起可传行级 `priceDate`——「已确认」tag 悬停说明「价格截至 MM-DD」，缺省无 tooltip。时点是行级精确值，禁止改做区块级聚合日期）
   - `PnlEstimateLine` — 「预估」副行（`PnlDualLine` 的组成件；主行不是 `PnlDualLine` 的列——如自选页「持仓收益」——单独复用它，#1104）
   - `RealtimeEstimateToggle` — 当日预估开关 + 轮询状态（`PnlDualLine` 的必备搭档，四页复用，#1104）
 - `CardBlock` — 区块卡片容器（统一 token 卡片，禁各页手写 `bg-white rounded-2xl` 等重复样式）
