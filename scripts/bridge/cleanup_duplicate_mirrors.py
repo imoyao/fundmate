@@ -28,6 +28,19 @@
 且被人工关过（拆卡转移），而 9 张重复卡全是空的 `open`。按判据 1 保留 CNB #167 ——
 它才是唯一的正本。**不要**因为「#167 是 closed、重复卡是 open」就去保留重复卡。
 
+## ⚠️ 保留卡的状态必须跟 GitHub 对齐（2026-10-14 实测踩到）
+
+判据 1（有评论优先）会在一个场景下**选出一张 `closed` 的保留卡**：
+正本带讨论、但被人工关过（#167 正是如此），而重复卡全是空的 `open`。
+若只按判据 1 选它、再把 9 张 open 的关掉，这组就**一张 open 都不剩**，
+而 GitHub 侧那张卡**还开着** —— 镜像失去了「活的卡」，看板上再也找不到它。
+
+所以判据 1 之后还要补一条**状态检查**：**GitHub 侧仍 open ⇒ 保留卡也必须是 open**，
+不是就**重开它**（`PATCH state=open`）。判据是「GitHub 的 state」，不是卡自己的 history。
+
+> 实测：本仓（CNB）编号 `167` 那张卡是 `closed`（人工拆卡转移），而 GitHub 侧对应编号 `2118`
+> 仍 `open`。清理后我手工重开了它，本脚本补上这条之后就不再依赖人工发现。
+
 ## 失败态（#171 的纪律）
 
 拿不到输入（CNB 列表 / 详情读取失败）⇒ **退出码 2 并声明结论不可信**，
@@ -38,6 +51,7 @@
 
     python scripts/bridge/cleanup_duplicate_mirrors.py           # dry-run，列出将关闭的卡
     python scripts/bridge/cleanup_duplicate_mirrors.py --apply   # 真正关闭
+    python scripts/bridge/cleanup_duplicate_mirrors.py --apply --reopen-keeper  # 并修好保留卡状态
     python scripts/bridge/cleanup_duplicate_mirrors.py --json out.json
 """
 
@@ -53,7 +67,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from check_duplicate_mirrors import collect, group_by_github_number  # noqa: E402
-from github_cnb_issues import cnb_api, get_cnb_issue  # noqa: E402
+from github_cnb_issues import cnb_api, fetch_github_open_issues, get_cnb_issue  # noqa: E402
 
 EXIT_OK = 0
 EXIT_ACTIONED = 1  # dry-run 下有可清理项（便于 CI 判红），或 apply 后有失败
@@ -112,7 +126,46 @@ def close_issue(number: int) -> None:
     )
 
 
-def render(plans: dict[int, dict[str, Any]], failed: list[int], *, applied: bool) -> tuple[str, int]:
+def keeper_state_fixes(
+    plans: dict[int, dict[str, Any]],
+    details: dict[int, dict[str, Any]],
+    github_open: set[int],
+) -> dict[int, int]:
+    """算出「保留卡应当被重开」的 `{GitHub 编号: CNB 卡号}`。
+
+    判据：**GitHub 侧仍 open，而保留卡是 `closed`** ⇒ 这组会一张 open 都不剩，
+    镜像就此从看板上消失。此时必须重开保留卡（它是带讨论的正本）。
+
+    只输出**需要动**的，已经是 open 的不管。纯函数，供单测直接用。
+    """
+    fixes: dict[int, int] = {}
+    for gh, p in plans.items():
+        keeper = p['keep']
+        if gh not in github_open:
+            continue
+        if (details.get(keeper) or {}).get('state') == 'closed':
+            fixes[gh] = keeper
+    return fixes
+
+
+def reopen_issue(number: int) -> None:
+    """重开一张被误关的保留卡（GitHub 侧仍 open 时用）。"""
+    repo = 'duoduobei/fundmate'
+    cnb_api(
+        f'/{repo}/-/issues/{number}',
+        method='PATCH',
+        payload={'state': 'open', 'state_reason': 'reopened'},
+    )
+
+
+def render(
+    plans: dict[int, dict[str, Any]],
+    failed: list[int],
+    *,
+    applied: bool,
+    keeper_fixes: dict[int, int] | None = None,
+) -> tuple[str, int]:
+    keeper_fixes = keeper_fixes or {}
     total = sum(len(p['remove']) for p in plans.values())
     lost_comments = sum(p['removed_comments'] for p in plans.values())
 
@@ -128,6 +181,10 @@ def render(plans: dict[int, dict[str, Any]], failed: list[int], *, applied: bool
         + ('' if lost_comments == 0 else '　⚠️ 非零即违反保留判据，应停下核实')
     )
     lines.append(f'- 读取失败的卡：{len(failed)} 张' + (f'（{failed[:20]}）' if failed else ''))
+    if keeper_fixes:
+        lines.append(
+            f'- ⚠️ **保留卡需重开**：{len(keeper_fixes)} 张（GitHub 侧仍 open，但保留卡是 closed）：{keeper_fixes}'
+        )
     lines.append('')
 
     if plans:
@@ -159,6 +216,11 @@ def render(plans: dict[int, dict[str, Any]], failed: list[int], *, applied: bool
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description='重复镜像卡清理（CNB #450）')
     parser.add_argument('--apply', action='store_true', help='真正执行清理（默认 dry-run）')
+    parser.add_argument(
+        '--reopen-keeper',
+        action='store_true',
+        help='若保留卡是 closed 而 GitHub 侧仍 open，重开它（否则这组会一张 open 都不剩）',
+    )
     parser.add_argument('--limit', type=int, default=None, help='只读前 N 张镜像卡（调试用）')
     parser.add_argument('--json', dest='json_out', default=None, help='把结构化清单写到该文件')
     args = parser.parse_args(argv)
@@ -178,16 +240,35 @@ def main(argv: list[str] | None = None) -> int:
 
     plans = plan(grouped, details)
 
+    # GitHub 侧仍 open 的编号：用于判断保留卡是否该重开（见文件头「状态必须跟 GitHub 对齐」）
+    keeper_fixes: dict[int, int] = {}
+    github_failed = False
+    if plans and args.reopen_keeper:
+        gh_issues, complete = fetch_github_open_issues()
+        if not complete:
+            github_failed = True
+            print('⚠️ GitHub 侧拉取不完整，无法判断保留卡状态（不得当成「无需重开」）', file=sys.stderr)
+        else:
+            keeper_fixes = keeper_state_fixes(plans, details, {int(i['number']) for i in gh_issues})
+
     # 失败态：拿不到输入就不动手（#171 的纪律）
-    if failed and args.apply:
-        print('❌ 有卡读取失败，结论不可信，拒绝执行清理（先查清再跑）', file=sys.stderr)
-        text, _ = render(plans, failed, applied=False)
+    if (failed or github_failed) and args.apply:
+        print('❌ 有输入读取失败，结论不可信，拒绝执行清理（先查清再跑）', file=sys.stderr)
+        text, _ = render(plans, failed, applied=False, keeper_fixes=keeper_fixes)
         print(text)
         return EXIT_UNKNOWN
 
     applied = False
     actions_failed: list[int] = []
     if args.apply:
+        # 先修保留卡状态，再关重复卡：顺序反了的话，中间态会出现「这组一张 open 都没有」
+        for gh, keeper in keeper_fixes.items():
+            try:
+                reopen_issue(keeper)
+                print(f'  🔓 GitHub #{gh}：已重开保留卡 CNB #{keeper}（GitHub 侧仍 open）')
+            except Exception as exc:  # noqa: BLE001
+                actions_failed.append(keeper)
+                print(f'  ❌ GitHub #{gh}：重开 CNB #{keeper} 失败：{exc}', file=sys.stderr)
         for gh, p in plans.items():
             for n in p['remove']:
                 try:
@@ -198,7 +279,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(f'  ❌ GitHub #{gh}：关闭 CNB #{n} 失败：{exc}', file=sys.stderr)
         applied = True
 
-    text, code = render(plans, failed, applied=applied)
+    text, code = render(plans, failed, applied=applied, keeper_fixes=keeper_fixes)
     print(text)
 
     if args.json_out:
@@ -209,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
                     'unkeyed': unkeyed,
                     'read_failed': failed,
                     'actions_failed': actions_failed,
+                    'keeper_fixes': {str(k): v for k, v in keeper_fixes.items()},
                     'applied': applied,
                 },
                 ensure_ascii=False,

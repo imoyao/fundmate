@@ -135,6 +135,54 @@ class RenderTest(unittest.TestCase):
         self.assertNotIn('删除（DELETE）', text)
 
 
+class KeeperStateTest(unittest.TestCase):
+    """保留卡状态必须跟 GitHub 对齐 —— 否则这组会一张 open 都不剩。
+
+    真实场景（2026-10-14 实测）：#167 带 38 条评论但是 `closed`（人工拆卡转移），
+    GitHub `2118` 却还 `open`。判据 1 选它当保留卡 → 再把 9 张 open 的关掉 →
+    这组**一张 open 都没有**，镜像从看板上消失。故须补一条：GitHub 仍 open ⇒ 重开保留卡。
+    """
+
+    def _plans(self):
+        return {2118: {'keep': 167, 'remove': [186], 'keep_comments': 38, 'removed_comments': 0}}
+
+    def test_保留卡是closed且GitHub仍open_要重开(self):
+        details = {167: _detail(167, comments=38, state='closed')}
+        fixes = cleanup.keeper_state_fixes(self._plans(), details, github_open={2118})
+        self.assertEqual(fixes, {2118: 167})
+
+    def test_保留卡已open_不动(self):
+        details = {167: _detail(167, comments=38, state='open')}
+        fixes = cleanup.keeper_state_fixes(self._plans(), details, github_open={2118})
+        self.assertEqual(fixes, {})
+
+    def test_GitHub已关_不动(self):
+        """GitHub 关了的话，保留卡是 closed 反而是对的（那是状态回流的正常形态）。"""
+        details = {167: _detail(167, comments=38, state='closed')}
+        fixes = cleanup.keeper_state_fixes(self._plans(), details, github_open=set())
+        self.assertEqual(fixes, {})
+
+    def test_变异探针_不检查GitHub状态会漏修(self):
+        """把「GitHub 是否 open」这个维度摘掉（恒当真），必须给出不同结论。
+
+        这里用「GitHub 已关」那组来证伪：正确判据不动手，摘掉维度会误动手。
+        """
+        details = {167: _detail(167, comments=38, state='closed')}
+        # 正确：GitHub 关了 ⇒ 不重开
+        self.assertEqual(cleanup.keeper_state_fixes(self._plans(), details, github_open=set()), {})
+        # 错误（摘掉维度，恒当真）：会去重开一张 GitHub 已关的卡
+        naive = cleanup.keeper_state_fixes(self._plans(), details, github_open={2118})
+        self.assertEqual(naive, {2118: 167})
+        self.assertNotEqual(naive, {}, '探针失效：摘掉 GitHub 状态后结论没变')
+
+    def test_reopen_issue_走_PATCH_open(self):
+        with mock.patch.object(cleanup, 'cnb_api') as fake:
+            cleanup.reopen_issue(167)
+        _args, kwargs = fake.call_args
+        self.assertEqual(kwargs['method'], 'PATCH')
+        self.assertEqual(kwargs['payload']['state'], 'open')
+
+
 class ActionTest(unittest.TestCase):
     """动作面：只有关闭，没有删除。"""
 
