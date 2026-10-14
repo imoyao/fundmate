@@ -263,6 +263,65 @@ dev:
             # 只推 dev；main 不在其列（GitHub 权威源自己推进）
             branch: dev
             push_tags: true
+    # ---- 机器分支通道（源 CNB #450，2026-10-14）：上面那条 git-sync 直推会撞两道闸 ----
+    #
+    # 上面那条是 **fast-forward only** 且**直推裸 ref**，于是撞两件都不是「配置写错」的事：
+    #   ① 非快进：`! [rejected] dev -> dev (fetch first)` —— GitHub 多一笔就永久被拒；
+    #   ② 分支保护：`GH006 … Required status check "质量门禁汇总" is expected` ——
+    #      而这条检查**只在 PR 上产生**（`ci.yml` 的 `gate`：`on: pull_request` +
+    #      `if: github.event_name == 'pull_request'`）⇒ **直推时它根本不跑**。
+    #
+    # 所以 ② 不是「门禁太严」，是**直推这种通行方式需要一个不可能存在的检查**。
+    # 解法不是关掉门禁（用户 2026-10-14 明确「质量门禁不能关」），是**换通行方式**：
+    # 推一次性机器分支（无保护规则）→ 在 GitHub 开 PR → `质量门禁汇总` **真的跑起来**
+    # → 绿了再合。**门禁一个检查都没少，是被「满足」不是被「绕过」。**
+    #
+    # 本 job **只做能机器化的那一半**：把两侧 dev 合起来、推成 `bridge/github-dev`。
+    #   - **无冲突** ⇒ 推成功，人去 GitHub 开 PR（或由 Actions 接 auto-merge）；
+    #   - **有冲突** ⇒ 脚本**一个字节都不推**并退出 1 —— 冲突面是 `.cnb.yml` / `AGENTS.md`
+    #     这类**治理文件**，解错等于悄悄改掉治理规则，故**刻意不自动解**。
+    #
+    # ⚠️ 它与「治理文件只在 CNB 侧改」（§21，PR #454）是**一对，不能只上一个**：
+    #    C 让冲突面趋零，B' 才让「无冲突 ⇒ 自动推」真的跑起来。
+    # ⚠️ 也**不要**把它换成 `CNBDEV` 那种长期中转分支：判据是「推的是长期分支还是
+    #    一次性中间态」（`docs/dev/github-cnb-mirror.md` §22.3）。
+    # ⚠️ 先决条件读不到：`dev` 的保护里若勾了「Require approvals」，机器 PR 会卡在等人
+    #    Approve（把死锁从「永远红」换成「永远等」）——那件事只能由人在 GitHub 确认。
+    #
+    # 凭据：本 job 是**脚本任务**，而 `vars.yml` 声明了 `allow_images` ⇒ 脚本任务引不了它
+    # （会死在 Prepare，报 `vars.yml declares allow_images and can only be referenced by
+    # plugin tasks`，见 §13.1 同款推导）。故走认领同步那份**不含 `allow_images`** 的
+    # `claim-sync-env.yml`。
+    # ⚠️ 它**不 push 到 `dev`**（只推 `bridge/github-dev`），故不违反「`main` 不外推」那套范围纪律。
+    - name: 跨仓同步（机器分支 + PR 通道，仅 dev）
+      stages:
+        - name: 合并两侧 dev 并推成机器分支
+          imports:
+            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/claim-sync-env.yml
+          env:
+            # 非敏感参数走 env；凭据一律来自上面的 imports（**不要**写成字面量）。
+            GITHUB_REPO: imoyao/fundmate
+          script: |
+            # 凭据缺失：先自证再跑，免得「所有读都 200、所有写都 401」而没人看见。
+            # ⚠️ 这里**不能**在缺凭据时 exit 0 —— 那会让「机器分支没推上去」表现为绿。
+            if [ -z "${GITHUB_PAT:-}" ]; then
+              echo "❌ GITHUB_PAT 未注入 —— 机器分支通道无法执行"
+              echo "   请在密钥仓库 fundmate-secret 的 claim-sync-env.yml 里配 GITHUB_PAT"
+              echo "   （模板见 docs/ops/claim-sync-secret-env.example.yml；与 vars.yml 里那份同一值）。"
+              exit 1
+            fi
+            set +e
+            python scripts/bridge/machine_branch.py --apply --push \
+              --github-url "https://x-access-token:${GITHUB_PAT}@github.com/${GITHUB_REPO}.git"
+            rc=$?
+            if [ $rc -eq 1 ]; then
+              echo "⚠️ 两侧 dev 有冲突 —— 机器分支通道**什么都没推**（脚本刻意不自动解冲突）"
+              echo "   冲突面多为治理文件（.cnb.yml / AGENTS.md）；口径见 docs/dev/github-cnb-mirror.md §21 / §22"
+              echo "   解冲突是人工动作：先跑 \`python scripts/bridge/dev_converge.py --apply\` 看清单"
+            elif [ $rc -eq 2 ]; then
+              echo "⚠️ 拿不到输入（fetch / ref 缺失）—— 本轮结论不可信，不得认为「无需同步」"
+            fi
+            exit $rc
   # ---- 触发器结构：`crontab` / `push` 一律写成「job 列表 + 命名 stage」----
   # ⚠️ CNB #167 实测：把 `stages:` **直接**挂在 `"crontab: ..."` 下（没有 `- name:` 包一层的
   # job 对象）时，该 stage 在构建详情的 `get-build-stage` 里**查不到**

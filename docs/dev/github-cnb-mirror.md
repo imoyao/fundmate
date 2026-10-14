@@ -135,7 +135,7 @@ python scripts/bridge/github_cnb_issues.py --apply --limit 3
 > 改镜像行为时，先确认改动落在 `main`（或已经发版过去），否则它永远不会被执行。
 > 这与 `issue-milestone-guard.yml`「补挂里程碑后不自愈」同族：整改做完了，跑的不是它。
 
-cron 阶段末尾挂了三节**只报告/幂等**的收尾任务：
+cron 阶段末尾挂了三节收尾任务（前两节只报告/幂等，第三节断链即建卡）：
 
 ```yaml
     - name: 状态回流（GitHub 已关闭 → CNB 标记）
@@ -144,13 +144,23 @@ cron 阶段末尾挂了三节**只报告/幂等**的收尾任务：
     - name: 引用时效自检（认评论区更正，只报告）
       script: |
         python scripts/bridge/check_mirror_refs.py --report || true
-    - name: 分支分叉自检（只报告）
+    - name: 分支分叉自检（断链即建卡）
       script: |
-        python scripts/bridge/check_branch_divergence.py --report || true
+        git fetch origin dev main --quiet || true
+        python scripts/bridge/check_branch_divergence.py --report --explain --out report-divergence.md
+        if [ $? -ne 0 ]; then
+          python scripts/bridge/notify_mirror_divergence.py --report report-divergence.md || true
+        fi
 ```
 
-三节都带 `|| true`：**建卡才是主任务**，这些收尾作业是信号，不该把建卡一起拖红。
+前两节带 `|| true`：**建卡才是主任务**，这两节是信号，不该把建卡一起拖红。
 （状态回流自身是幂等的，重复执行只发一次评论。）
+
+第三节**刻意不在检查本身上吞退出码**：分叉是「镜像链路已经坏了」的事实，
+只进日志等于静默停摆（crontab 红了没人盯，2026-10-11 白丢大半天）。
+它的「大声失败」载体不是红灯而是**建卡**——退出码非零即建一张断链提醒卡
+（幂等：已有未关闭同题卡只追加评论，见 §11.1）。stage 整体仍不拦构建：
+建卡 job 才是主任务，分叉自检是挂在它尾部的信号。
 
 
 ## 7. 引用时效自检（#118）
@@ -460,6 +470,9 @@ python scripts/bridge/check_branch_divergence.py --report
 
 # 只看「哪些作业只在单侧」
 python scripts/bridge/check_branch_divergence.py --report --jobs-only
+
+# 报告落盘（供 notify_mirror_divergence.py 拼断链卡面，见 §11.1）
+python scripts/bridge/check_branch_divergence.py --report --explain --out report-divergence.md
 ```
 
 ### 判据（2026-10-14 定型，源 CNB #167 / #179）
@@ -549,6 +562,17 @@ git cherry <right> <left>   # 逐行 `+ <sha>`（right 缺这条改动）/ `- <s
 **自相矛盾**（本仓 #123 时代 `list_side_only` 就踩过同型 bug）。现在只有一个结论字段，
 矛盾在结构上就不可能出现。
 
+#### 退出码与建卡
+
+`0` = 无新形态；`1` = 有新形态；`2` = 取不到分支。`.cnb.yml` 里**不在检查本身
+上吞退出码**（`|| true` 只加在建卡调用上）——分叉是「链路已经坏了」的事实，
+退出码是建卡分支的唯一输入，吞了就又静默了（见 §11.1）。
+
+`--explain` 时另附**救援清单**（两侧独有提交，`--no-merges`、超限截断带注记；
+GitHub 侧 #2175 的贡献，2026-10-14 并进来）与**发版试算**（`git merge-tree`，不碰工作区）。  <!-- cross-repo-ref-allow -->
+两处计数口径**有意不同**，别去「统一」：`left_only` 用 `rev-list --count`（含 merge，
+回答「落后几个」），清单用 `--no-merges`（merge 只是症状不是内容）。
+
 ### 根因诊断：`--explain`（答「为什么分叉」，2026-10-11 补）
 
 首版只报「分叉了几个提交、哪些作业只在单侧」，**答不出「为什么」**。而卡面 §一 建议 3
@@ -591,6 +615,41 @@ python scripts/bridge/check_branch_divergence.py --report --explain
 | **只报告，不改动** | 不 fetch / merge / push | 要不要更新远端视图是调用方的决定；脚本有副作用就不可信 |
 | **方向敏感** | `git diff --name-status left right` 里 `D` = 只在 `left`、`A` = 只在 `right` | 初版把 `A`/`D` 都算「只在 right」，同一文件同时出现在两侧列表（见回归网 `test_side_only_no_duplicate_across_sides`） |
 | **判据选型** | 内容级用 `git cherry`（补丁等价），提交级看 merge 的**第二父** | `git diff` + 祖先关系在交叉合并下假红（#179）；第一父是当前分支自己的历史，取它会误判合规发版 |
+
+### 11.1 断链提醒卡：`notify_mirror_divergence.py`（2026-10-14 补）
+
+分叉自检挂在 **crontab** 上，而 crontab 的红灯没人盯。只把结论写进构建日志，
+等于「报告了一切，没人会看」——2026-10-11 那次分叉白丢大半天，根因就在这。
+故 `.cnb.yml` 里退出码非零时建一张 **CNB 侧的断链提醒卡**（幂等：已有未关闭
+同题卡只追加评论，不重复建）：
+
+```bash
+python scripts/bridge/notify_mirror_divergence.py --report report-divergence.md
+```
+
+卡面四要素缺一不可（**现场 / 修法 / 禁令 / 溯源**）——缺任何一个，读到的人就无从照做：
+
+- **现场**：落盘报告原文（两侧独有提交清单，照抄即可 cherry-pick）；
+- **修法**：把 CNB 独有提交 cherry-pick 成 `rescue/` 分支，走 GitHub PR 合回；
+- **禁令**：**不要 force push、不要删 CNB 侧独有提交**（会静默丢改动）；
+- **溯源**：CNB #118 / #123。
+
+设计取舍：
+
+- **建卡失败不改退出码**（`|| true`）——「提醒失败」不该把真实原因盖掉；
+- **标题就是幂等键**（`[镜像断链] …`）——改标题等于每次运行都建新卡，
+  很快把卡列表刷成噪音，而噪音比没有提醒更糟；
+- **重复断链只追加评论**，不复述「怎么修」——那是卡面的事，评论只给新现场；
+- **零网络单测**：`scripts/tests/test_notify_mirror_divergence.py` 钉模板四要素、
+  幂等键与截断行为。
+
+#### 顺手修掉的静默失效：`--explain` 曾经不存在
+
+`--explain` 的用法 2026-10-11 就写进了本文档，`.cnb.yml` 也早就传了这个参数——
+但脚本当时**根本没有声明它**：argparse 报错、退出码 2，被 stage 的 shell 忽略，
+分叉自检从未真正生效（「看着配了，实际空转」，与 #118 的假绿同族）。
+本次把 `--explain` 落到实现（提交清单 + 离线合并试算），并加了一条**反向断言**钉住
+「`.cnb.yml` 传了 ⇒ 脚本必须真的声明」：`test_cnb_yml_passes_explain_for_both_sides_lists`。
 
 ### 分叉的成因（2026-10-11 实测）
 
@@ -665,6 +724,23 @@ push:
 - **探针要断言「变异真的生效」**。第一轮探针里，往函数体开头插 `return []` 看着像回退，
   实际那是一段**不可达代码**（循环照跑），于是 `--file` 指对文件时守卫仍能报错、
   探针却误判成 `MISSED`。**没有「变异生效」断言的探针，本身就是一个假信号。**
+
+### 层 3：pull_request 反向守卫（2026-10-14 补，CNB #118 / #123）
+
+§11 的自检是**事后**发现分叉；断链的**成因**是「在 CNB 侧合了 PR」。
+故 `main:` 与 `dev:` 之下各挂一份 `pull_request` 守卫：PR 打向哪条长期分支，
+就在哪条的配置里读到它——**本仓 CNB 侧只读，PR 请到 GitHub 开**，
+直接 `exit 1`。
+
+两个写法要点：
+
+- **必须挂分支之下**。挂在顶层会被读成「一个名为 `pull_request` 的不存在分支」
+  （#152 的平台语义），守卫空转还不报错；
+- **只挂 `main` / `dev`**。feature 分支本就不该在 CNB 侧被合入；`$` 兜底只对
+  `web_trigger` 有意义（`pull_request` 需要分支上下文）。
+
+回归网：`scripts/tests/test_notify_mirror_divergence.py::test_cnb_yml_has_reverse_guard_on_pull_request`
+（钉「两条长期分支都挂了」+「`exit 1` 在」——少 `exit 1` 就是喊了口号但放行）。
 
 ## 13. 双向同步的三个故障与「失败形态对照表」（源 CNB #148，2026-10-12）
 
@@ -2077,57 +2153,153 @@ return cached | seen        # 并集；扫描结果回写缓存
 
 ---
 
-## 21. 跨仓同步的通行方式：**PR 是通道，不是绕行**（源 CNB #450，2026-10-14）  <!-- cross-repo-ref-allow -->
+## 22. 跨仓同步换通行方式：机器分支 + PR（源 CNB #450，2026-10-14）  <!-- cross-repo-ref-allow -->
 
-§18.3 曾把「自动提 PR」一竿子判否，理由是「搬运不需要再 review 一次」。
-2026-10-14 用户在 CNB #450 追问之后，**那条理由被证明过度概括了**——它否掉的是
-「每个功能分支都自动开 PR」，而用户问的是另一件事：**跨仓那一步能不能换一种载体**。
-这一节记这次修正，以及配套的 C（治理文件方向口径）。
+### 22.1 问题：直推撞在**两道闸**上，而第二道是悖论
 
-### 21.1 用户的问题，逐条核
+用户 2026-10-14 问的原话：
 
-> 「我们能同步到特定分支吗？然后从特定分支再开 PR 合并到 dev。这样能绕开吗？」
+> 「我们能不能做成新开一个 `CNBDEV` 分支（名称可以你来定），然后同步到这个分支，
+> 最后同步到这个分支的代码直接向 github dev 开 PR，这样，能够减少一部分我们的工作量。」
+>
+> 「**质量门禁不能关。** 我们能同步到特定分支吗？然后从特定分支再开 PR 合并到 dev。
+> 这样能绕开吗？会不会搞复杂了。开源社区如何同步 gitee 和 github 仓库的代码呢？」
 
-**答案是「能」，而且准确说不是「绕开」。** 先把事实钉住：
+先量现状（2026-10-14，两侧真实 ref）：
 
-| 项 | 实测值 |
+```text
+CNB    dev = 1ead0ecd
+GitHub dev = 51349e99
+git cherry 双向：CNB 独有 40 笔 / GitHub 独有 7 笔   ⇒ 真双向分叉，从未收敛
+```
+
+而 `dev` 的 push 作业**同时**撞两道：
+
+| 闸 | 报错原文 | 为什么 git-sync 自己过不去 |
+|---|---|---|
+| 非快进 | `! [rejected] dev -> dev (fetch first)` | push 刻意不开 `force`（反向护栏，**对的**）⇒ GitHub 多一笔就永久被拒 |
+| 分支保护 | `GH006: Protected branch update failed … Required status check "质量门禁汇总" is expected` | 见下 |
+
+**第二道是关键，也是全案的立论**：`质量门禁汇总`（`.github/workflows/ci.yml` 的 job
+`gate`）**只在 PR 上产生**：
+
+```yaml
+on:
+  pull_request:
+    branches: [dev, main]     # ← 目标分支是 dev/main 才跑
+# gate job 自己：if: ${{ always() && github.event_name == 'pull_request' }}
+```
+
+⇒ **CNB 直推裸 ref 时，这条检查根本不跑**；而保护规则要求它「已经通过」。
+这不是「门禁太严」，是**直推这种通行方式需要一个不可能存在的检查**。
+
+### 22.2 解法：不是关掉门禁，是换一种通行方式
+
+用户那句「这样能绕开吗」——准确说法是：
+
+> **绕开的是「直推需要一条根本不存在的检查」这个悖论；
+> `质量门禁汇总` 一个检查都没少，它是被「满足」了，不是被「绕过」了。**
+
+| 步骤 | 结果 |
 |---|---|
-| `dev` 的 required check | `质量门禁汇总`（`ci.yml` 的 `gate`） |
-| `gate` 的触发条件 | `on: pull_request: branches: [dev, main]` + `if: github.event_name == 'pull_request'` |
-| 直推裸 ref 时它跑吗 | **不跑** ⇒ 保护永远不满足 ⇒ `GH006: Protected branch update failed` |
-| 走 PR 时它跑吗 | **跑**，且必须绿，否则按钮灰 |
+| CNB 推一条**机器分支**（`bridge/github-dev`）到 GitHub | 该分支**无保护规则**，push 不受限 |
+| 从它开 PR → `dev` | 命中 `pull_request` 事件 ⇒ **`质量门禁汇总` 真的跑起来** |
+| 门禁绿 ⇒ 合并 | **保护被满足** |
 
-⇒ **「提 PR」不是绕开质量门禁，而是给质量门禁一个能生效的载体。**
-用户那句「质量门禁不能关」在这个方案里是**自然满足**的：门禁照跑，一个检查都不少。
+这也回答了「开源社区怎么同步 gitee ↔ github」：**主流本来就是单向**（一主一镜；
+CPython / Rust 只接受一个源的 PR，另一源靠 bot 搬运）。本仓的处境不是「有特殊情况」，
+而是**「选了双向、却没配套中继」**——本节的机器分支就是那个中继的轻量形态。
 
-同类形态本仓已有先例：`.github/workflows/dependabot-auto-merge.yml` 用的就是
-`gh pr merge --auto --squash` —— 机器开 PR + 自动合并，不是新东西。
+### 22.3 与 `CNBDEV` 方案的区别（判据是「搬什么」）
 
-### 21.2 这与 §18.3 否掉的 `CNBDEV` 中转**不是一回事**
+用户提的 `CNBDEV` 与本节方案**长得像、判据不同**（§18.2 已否掉前者）：
 
-| | `CNBDEV` 中转（§18.3 否） | 机器分支 + PR（本节采纳） |
+| | `CNBDEV` 长期中转（否） | **机器分支 + PR（是）** |
 |---|---|---|
-| 推过去的是什么 | 又一条**长期分支**（活着、要维护、违反「禁止长期分支」） | **一次性 ref**（PR 合完即亡） |
-| 有没有解分叉 | **没有** —— 31 vs 89 原样搬到 `CNBDEV` | **有** —— 先 merge 再推，本来就是快进 |
-| 多出来的 review | 给搬运加一层无人 review 的噪声 | 没有加 review —— 载体变了，内容没变 |
+| 推过去的是什么 | 又一条**长期分支**，活着、要维护 | **一次性 ref**（`bridge/github-dev`），PR 合完即亡 |
+| 有没有解分叉 | 没有——冲突换个分支名再演一遍 | **有**——先 merge 再推，本来快进 |
+| 违反「禁止长期分支」 | 是 | 否 |
+| 多出来的 review | 多一层无人 review 的 PR 噪声 | 同一件事，但它是**必需的载体**（门禁的宿主） |
 
-**判据**：差别在「**推的是一个长期存在的分支，还是一次性的中间态**」。
+**一句话**：`CNBDEV` 是给「已经正确的道路」加绕行；机器分支是给「被闸门卡死的道路」
+换通行方式。§18.3 那句「本仓不需要自动提 PR」**否的是「每个功能分支都自动开 PR」**，
+对「跨仓那一步换用 PR 承载」不成立——后者不是给搬运加 review，是给门禁找一个能生效的宿主。
 
-### 21.3 开源社区怎么同步 gitee ↔ github
+### 22.4 工具：`scripts/bridge/machine_branch.py`
 
-| 做法 | 普及度 | 机制 |
+```bash
+# 演练：只报会怎么合、有没有冲突（不建分支、不写远端）
+python scripts/bridge/machine_branch.py --dry-run
+
+# 执行：建机器分支并推 GitHub（**不碰 dev / main**）
+python scripts/bridge/machine_branch.py --apply --push
+
+# 反向：以 GitHub dev 为基线，把 CNB dev 合进来
+python scripts/bridge/machine_branch.py --apply --push --base github
+```
+
+| 它做 | 它不做 |
+|---|---|
+| 取两侧 `dev` ref；以一侧为基线 merge 另一侧 | ❌ 不直接动 `dev` / `main` |
+| **无冲突** ⇒ 推成 `bridge/github-dev` | ❌ 有冲突时**一个字节都不推** |
+| 有冲突 ⇒ 停下、列文件、留人解 | ❌ 不自动解冲突（`--resolve` 有意不提供） |
+| 拿不到输入 ⇒ 退 2 且声明「结论不可信」 | ❌ 不 force push（与 git-sync 同一护栏） |
+
+退出码：`0` = 无冲突（已推）/ `1` = 有冲突（**什么都没推**）/ `2` = 拿不到输入。
+
+**为什么它解不掉冲突**（这是 B' 必须与 C 一起上的原因）：冲突面是 `.cnb.yml` /
+`AGENTS.md` / `ci.yml` / `docs/spec/*` 这类**治理文件**，解错等于悄悄改掉治理规则。
+故「自动到冲突为止，冲突处停下交人」是它的设计上限，不是没做完。
+
+### 22.5 B' 与 C 是一对，单独上 B' 会白做
+
+| 方案 | 内容 | 单独上的后果 |
 |---|---|---|
-| **① 一主一镜** | **绝对主流** | 权威源只有一个；另一个是**只读镜像**，cron `git push --mirror` |
-| **② PR 走主库 + bot 反向 port** | CPython / Rust / React 等 | **真的只接受一个源的 PR**，另一源上的改动靠 bot 定期搬 |
-| **③ 双向 PR 网关** | 少数（Gitee 官方同步 / 自建 bot） | 两源各自收 PR，由**中继服务**成对搬运 |
+| **B'** | 跨仓同步换「机器分支 → PR → 等门禁绿 → 合并」 | 通行方式换了，**冲突照样每轮复发**（今天已复发两次） |
+| **C** | 约定治理文件**只在 CNB 侧改**（`governance_files_rule.js` + GitHub 侧提示） | 冲突面归零，但没有 B' 时 push 仍被两道闸挡着 |
 
-⇒ 用户直觉里「他们不可能只接受一个源的 PR」**恰好相反**：①是主流，②是严肃大项目的选择。
-CPython 只接受 GitHub 的 PR，Gitee 镜像上的 PR 会被建议「去 GitHub 提」。
+⇒ **必须一起上**：C 让冲突面趋零，B' 才让「无冲突 ⇒ 自动推」真正跑起来。
 
-本仓的处境**不是「有特殊情况、没最佳实践」**，而是**选了 ③ 双向、却没配套中继**。
-「机器分支 + PR + auto-merge」就是那个中继的轻量形态。
+### 22.6 先决条件（读不到，只能由人确认）
 
-### 21.4 C：治理文件只在 CNB 侧改
+`dev` 的 classic branch protection 里**是否勾了「Require approvals」**：
+
+```text
+GET /repos/imoyao/fundmate/branches/dev/protection  → 401（需鉴权）
+GET /repos/imoyao/fundmate/rulesets                 → []（空）   ← 无 ruleset，即 classic protection
+```
+
+- **没勾** ⇒ 机器 PR 能自动合并，**从这道闸起不再需要人点任何东西**；
+- **勾了** ⇒ PR 会卡在等人 Approve，等于把死锁从「永远红」换成「永远等」，
+  这条路不成立 —— 那时应退回「只在分叉时人工合」。
+
+本脚本**读不到** protection，故它**不假装自己知道**：只负责把可合的结果推出去，
+要不要开 PR / 能不能自动合由调用方（人 / Actions）决定。
+
+### 22.7 回归网（含 4 个变异探针）
+
+`scripts/tests/test_machine_branch.py`（14 例），探针逐条实测转红：
+
+| 探针 | 改什么 | 结果 |
+|---|---|---|
+| 1 | 有冲突时也不提前 return | **CAUGHT**（「一个字节都不该推」+ `merge --abort` 两条同时红） |
+| 2 | 拿不到输入退 0（而非 2） | **CAUGHT** |
+| 3 | `push` 参数里加 `--force` | **CAUGHT** |
+| 4 | `--base github` 的 `base_ref` 写反 | **CAUGHT** |
+
+**踩坑留证（写这份回归网时自咬两次，都值得记）**：
+
+- **① 判据不能按全文扫关键词**：第一版 `test_script_never_force_pushes` 扫全文找
+  `--force`，被 `worktree remove --force` **误伤成恒红**。判据要**收窄到 `git push` 那一行**。
+- **② 造冲突必须用两个独立仓库**：第一版图省事，用一个仓库的两条分支冒充「两侧」，
+  `git merge` 自然成功 ⇒ 「有冲突」那两条用例**恒绿**，探针都没咬住。
+  造真冲突要有**两条独立历史**（`gh` 从 `cnb` clone 出来 + 两侧改同一行）。
+
+---
+
+## 23. C：治理文件只在 CNB 侧改（源 CNB #450，2026-10-14）  <!-- cross-repo-ref-allow -->
+
+### 23.1 为什么这是治根
 
 **为什么这是治根**：分叉**反复复发**的结构性根因是「CNB 侧与 GitHub 侧同时改同一批治理文件」。
 
@@ -2158,7 +2330,7 @@ backend/tests/test_branch_divergence_check.py  ← 两边都改
 
 **口径**：判断标准不是「文件重不重要」，而是「**两侧是否都会改它**」。会，就进清单。
 
-### 21.5 两个必须如实说明的边界
+### 23.2 两个必须如实说明的边界
 
 **① 走过 PR 路线的批准前提，我读不到。**
 `dev` 的保护详情匿名 API 返 **401**（`GET /branches/dev/protection`），
