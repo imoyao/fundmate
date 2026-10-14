@@ -27,7 +27,12 @@
     </div>
 
     <!-- 副行：当日预估（估值口径）。拿到真实行情才显示数字 -->
-    <PnlEstimateLine :estimated="estimated" :hint="hint" />
+    <PnlEstimateLine
+      :estimated="estimated"
+      :hint="hint"
+      :source="source"
+      :source-time="sourceTime"
+    />
   </div>
 </template>
 
@@ -43,10 +48,21 @@ withDefaults(
     estimated?: number | null;
     /** 预估不可用时的副行提示（由调用方按原因给出，见 usePositionValuation.estimateHint） */
     hint?: string;
+    /** 估值来源标识（#2143 契约透传；缺省徽标不缀名） */
+    source?: string | null;
+    /** 行情数据时间字符串（源端原样，#2143 契约透传） */
+    sourceTime?: string | null;
     /** 主行金额字号；副行恒为 xs（维持主次层级） */
     size?: "sm" | "md";
   }>(),
-  { confirmed: null, estimated: null, hint: "", size: "sm" }
+  {
+    confirmed: null,
+    estimated: null,
+    hint: "",
+    source: null,
+    sourceTime: null,
+    size: "sm"
+  }
 );
 </script>
 

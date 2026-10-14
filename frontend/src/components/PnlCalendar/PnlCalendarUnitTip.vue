@@ -56,8 +56,10 @@ const props = withDefaults(
     state: PnlCalendarState;
     pnl: number | null;
     rate?: number | null;
+    /** 当日行按收盘估值预估（后端 estimated 标记，#2141/#2143）：note 补一句口径说明 */
+    estimated?: boolean;
   }>(),
-  { rate: null }
+  { rate: null, estimated: false }
 );
 
 /** 标题行：期间名 + 星期（只有日粒度有星期） */
@@ -69,7 +71,14 @@ const head = computed(() => {
 
 const hasValue = computed(() => hasValueState(props.state));
 
-const note = computed(() => stateNote(props.state));
+/** 预估口径说明（#2143）：与状态 note 同区展示，一句话说清「这个数从哪来、会怎么变」 */
+const ESTIMATE_NOTE = "当日行按收盘估值预估，官方净值公布后自动确认";
+
+const note = computed(() => {
+  const base = stateNote(props.state);
+  if (!props.estimated) return base;
+  return base ? `${base} ${ESTIMATE_NOTE}` : ESTIMATE_NOTE;
+});
 </script>
 
 <style scoped>

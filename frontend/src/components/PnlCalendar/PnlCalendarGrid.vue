@@ -62,6 +62,7 @@
             :mode="mode"
             :level="cell.level"
             :is-today="cell.isToday"
+            :estimated="cell.estimated"
             :aria-label="cell.title"
           />
           <template #content>
@@ -70,6 +71,7 @@
               :state="cell.state"
               :pnl="cell.pnl"
               :rate="cell.rate"
+              :estimated="cell.estimated"
             />
           </template>
         </el-tooltip>
@@ -155,6 +157,8 @@ interface CalendarCell {
   pnl: number | null;
   rate: number | null;
   isToday: boolean;
+  /** 当日行按收盘估值预估（后端 `estimated` 标记，#2141）；前端不自行推断 */
+  estimated: boolean;
   /** 色深档位 0/1/2，由 |当前口径数值| / 区间内最大绝对值 决定 */
   level: 0 | 1 | 2;
   /** tooltip 与 `aria-label` 共用的一份文案（不写死两处，避免读屏与悬停分叉） */
@@ -188,6 +192,7 @@ const calendarCells = computed<CalendarCell[]>(() => {
       pnl: null,
       rate: null,
       isToday: false,
+      estimated: false,
       level: 0,
       title: ""
     });
@@ -210,6 +215,8 @@ const calendarCells = computed<CalendarCell[]>(() => {
       pnl,
       rate,
       isToday: date === todayStr,
+      // 后端 day_uses_estimate 落点（#2141）：徽标据此展示，不在前端按日期猜
+      estimated: day?.estimated === true,
       // 色深按当前口径的比例算：金额大不等于收益率高，两个口径的档位必须各算各的
       level: intensity(valueIn(props.mode, pnl, rate), maxAbs.value),
       title: stateDescription(date, state, pnl)
