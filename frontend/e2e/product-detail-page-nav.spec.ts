@@ -29,7 +29,7 @@ import { injectSupabaseSession } from "./support/session";
  * updateActive 的 EPSILON 改回 0 → 逐项点击用例红（亚像素回跳回归）；
  * 去掉触底兜底 → scroll-spy 用例的触底断言红（点胶囊路径已由 pinnedId 兜住）；
  * goTo 不设 pinnedId（停稳后按位置终算一次）→ 逐项点击逆序列红
- * （点「关联标的」滚到底后高亮被兜底改写成「第三方数据」）；
+ * （点「关联标的」滚到底后高亮被兜底改写成「更多数据」）；
  * goTo 换回原生 scrollTo({behavior:'smooth'}) → 数据在飞机用例红（过期目标回归）。
  */
 
@@ -246,7 +246,7 @@ test.describe("详情页页内导航（#1968）", () => {
       "业绩与风险",
       "行业与持仓",
       "关联标的",
-      "第三方数据"
+      "更多数据"
     ]);
 
     // 每个胶囊都必须有对应锚点——死链是这条不变式的反面
@@ -287,7 +287,7 @@ test.describe("详情页页内导航（#1968）", () => {
       "业绩与风险",
       "行业与持仓",
       "关联标的",
-      "第三方数据"
+      "更多数据"
     ]);
     expect(
       await page.locator(".page-nav__pill", { hasText: "交易记录" }).count()
