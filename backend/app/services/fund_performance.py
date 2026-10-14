@@ -28,6 +28,20 @@
 **快照缺失/口径过期时回退现算**（与 ``pnl_daily_snapshots`` 同口径：「读路径永不因快照
 缺失而空白」）。回退路径与 job 走的是**同一个纯函数** ``compute_risk_metrics``，故物化读
 与现算读逐位相等；这一点由 ``tests/services/test_fund_performance.py`` 的等价性用例钉住。
+
+#167 追加之二：**基准相对指标 + 同类内分位**
+--------------------------------------------
+用户原话：「债基跟股基该参照的东西不一样，用同一个标准衡量它们的夏普率是不是有问题」。
+
+这句话里那个「对的一半」是**基准**：债基不该拿沪深300 比。落地分两块：
+
+- **基准相对**（超额收益 / 信息比率 / 上行下行捕获率）：基准指数由 ``fund_benchmark.resolve``
+  按 ``fund_type.name`` 映射（**不解析** ``Fund.benchmark`` 那句自然语言），序列从
+  ``index_daily`` 取。映射命不中（货基 / 指数型 / QDII）**不给基准**，不拿宽基顶替。
+- **同类内分位**：绝对值跨类别不可比 ⇒ 补「在同类里排前 X%」。计算在
+  ``fund_risk_ranking.peer_percentiles_for``，分母只含当前口径版本、`basis='acc_nav'` 的行。
+
+两者都只做读取，无新抓取（D21）。
 """
 
 from __future__ import annotations
@@ -35,12 +49,21 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
+from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.core.data_sources import FUND_NAV_SOURCE_LABEL
 from app.core.time_utils import today_shanghai
+from app.services.fund_benchmark import BENCHMARK_LABELS, load_index_points
+from app.services.fund_benchmark import resolve as resolve_benchmark
 from app.services.fund_metrics import compute_max_drawdown, load_nav_points
-from app.services.fund_risk_metrics import RISK_FREE_RATE_ANNUAL, WINDOW_3Y, RiskMetricsResult, compute_risk_metrics
+from app.services.fund_risk_metrics import (
+    RISK_FREE_RATE_ANNUAL,
+    WINDOW_3Y,
+    RiskMetricsResult,
+    benchmark_diagnostics,
+    compute_risk_metrics,
+)
 
 # 区间档位（近 N + 今年以来 + 成立以来）。``days`` 为自然数日，用于定位起点；
 # ``ytd`` / ``since`` 为特殊档（当年 1/1 / 序列首点）。标签与后端返回 key 一一对应。
@@ -171,10 +194,107 @@ def _risk_metrics_payload(result: RiskMetricsResult) -> Dict[str, Any]:
         'risk_free_rate': RISK_FREE_RATE_ANNUAL,
         'risk_basis': result.basis,
         'risk_caveats': result.caveats,
+        # 基准相对指标（#167）：「拿什么比」在 `_benchmark_payload`、「比出什么」在
+        # `result.benchmark`，两者由 `_merge_benchmark` 合成一块。缺失时给 None，
+        # 由调用方按「无基准 / 基准序列缺」两种情形分别下发。
+        'benchmark': result.benchmark,
     }
 
 
-def _load_risk_metrics(db: Session, fund_code: str, points: List[Tuple[date, float]]) -> Dict[str, Any]:
+def _merge_benchmark(mapped: Optional[Dict[str, Any]], relative: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """合并「基准映射结果」与「基准相对指标」成一个基准块。
+
+    `mapped` 回答「拿什么比、凭什么」（`code` / `name` / `matched_by` / `available`），
+    `relative` 回答「比出了什么」（超额 / 跟踪误差 / 信息比率 / 捕获率）。
+
+    两者缺一不可，故合并而非覆盖。`mapped['available'] is False`（选了基准但序列缺）
+    时只下发映射结果——这是**有意义的**状态（用户知道「本想拿它比」），比留白好。
+
+    `points` 是内部用的原始序列，**不下发**：前端不该自己算，500+ 个点也不该进响应体。
+    """
+    if mapped is None:
+        return None
+    out = {k: v for k, v in mapped.items() if k != 'points'}
+    if out.get('available') and relative:
+        # `relative` 里同名的键（basis / sample_points）以它为准：它是真算过的那个口径
+        for key, value in relative.items():
+            if key != 'basis' or key not in out:
+                out[key] = value
+        out['basis'] = relative.get('basis', out.get('basis'))
+    return out
+
+
+def _peer_percentiles(db: Session, fund_code: str) -> Optional[Dict[str, float]]:
+    """同类内分位（该基金各指标在同类中的百分位，越大越好）。
+
+    只是把 ``fund_risk_ranking.peer_percentiles_for`` 的异常兜住：分位是**锦上添花**
+    的信息（主指标已经给出），它的失败不该让整个业绩块 500——详情页会因为一个
+    「排序参考」而整块打不开，那是本末倒置。
+
+    返回 ``None`` 表示本基金不在任何同类样本里（快照还没有它 / 同类样本不足）。
+    """
+    try:
+        from app.services.fund_risk_ranking import peer_percentiles_for
+
+        return peer_percentiles_for(db, [fund_code]).get(fund_code) or None
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f'同类分位计算失败 {fund_code}: {e}')
+        return None
+
+
+def _benchmark_payload(db: Session, fund) -> Optional[Dict[str, Any]]:
+    """基准相对指标块（按 `fund_type` 映射基准，序列取自 `index_daily`）。
+
+    返回 ``None`` 表示**本基金不适用基准**（货基 / 指数型 / QDII，或类型缺失）。
+    调用方据此下发「暂无基准」——**不得**退回沪深300 顶替：拿沪深300 去比债基，
+    超额收益会是「负多少」这个没有意义的数，而用户读不出「它其实没被比过」。
+
+    映射成立但序列取不到（如万得债券型基金指数源侧未收录）时，下发一条带
+    ``unavailable=True`` 的块，前端显式说明「基准已选定、但数据暂缺」——
+    这与「没给基准」是两种状态，不该长得一样。
+    """
+    choice = resolve_benchmark(
+        getattr(getattr(fund, 'fund_type', None), 'name', None),
+        getattr(getattr(fund, 'variety', None), 'name', None),
+    )
+    if choice is None:
+        return None
+
+    if choice.unavailable:
+        return {
+            'code': choice.code,
+            'name': BENCHMARK_LABELS.get(choice.code, choice.name),
+            'matched_by': choice.matched_by,
+            'available': False,
+            'reason': '该基准指数暂无日线数据（源侧未收录），不以上述以外的指数顶替',
+        }
+
+    points = load_index_points(db, choice.code, limit=int(WINDOW_3Y * 1.1))
+    if not points:
+        return {
+            'code': choice.code,
+            'name': BENCHMARK_LABELS.get(choice.code, choice.name),
+            'matched_by': choice.matched_by,
+            'available': False,
+            'reason': '该基准指数无日线数据（尚未同步），不以上述以外的指数顶替',
+        }
+
+    return {
+        'code': choice.code,
+        'name': BENCHMARK_LABELS.get(choice.code, choice.name),
+        'matched_by': choice.matched_by,
+        'available': True,
+        'points': points,  # 交给 compute_risk_metrics 做「共同日对齐」
+    }
+
+
+def _load_risk_metrics(
+    db: Session,
+    fund_code: str,
+    points: List[Tuple[date, float]],
+    *,
+    benchmark_points: Optional[List[Tuple[date, float]]] = None,
+) -> Dict[str, Any]:
     """风险指标：**优先读每日快照，缺失/口径过期则现算回退**。
 
     为什么优先读快照而不是每次都现算：详情页已经读过一遍 3 年日净值，再跑一遍同一套
@@ -185,6 +305,10 @@ def _load_risk_metrics(db: Session, fund_code: str, points: List[Tuple[date, flo
     1. 快照表里还没有这只基金（新基金 / job 还没跑到它）；
     2. 快照的 ``caliber_version`` 是旧的（口径改过，旧数字与新口径不可比）；
     3. 快照的 ``as_of`` 落后于当前净值序列的最新日（净值在快照之后又更新了）。
+
+    ``benchmark_points`` 只影响基准相对块（超额 / 信息比率 / 捕获率），**两条路径都现场算**：
+    它不进快照表（基准映射会变、基准序列每天增长，物化它等于把「改映射后旧快照仍生效」
+    这个坑引进来）。故基准块是「永远现算」，而它是**纯函数 + 共同日对齐**，代价是一次交集。
     """
     from app.domains.funds.models import FundRiskMetrics
     from app.services.sync.jobs.fund_risk_metrics_job import CALIBER_VERSION
@@ -238,17 +362,33 @@ def _load_risk_metrics(db: Session, fund_code: str, points: List[Tuple[date, flo
             }
         )
         payload['max_drawdown'] = float(snap.max_drawdown) if snap.max_drawdown is not None else None
+        # 基准块**不走快照**：映射与基准序列都会变，物化它会让「改了映射但快照没重算」
+        # 变成一个静默的错值。它本身很便宜（一次去交集），两条路径都现算。
+        payload['benchmark'] = (
+            benchmark_diagnostics(points, benchmark_points, window=WINDOW_3Y) if benchmark_points else None
+        )
         return payload
 
-    result = compute_risk_metrics(points, window=WINDOW_3Y, window_label='近3年')
+    result = compute_risk_metrics(
+        points,
+        window=WINDOW_3Y,
+        window_label='近3年',
+        benchmark_points=benchmark_points,
+    )
     payload = _risk_metrics_payload(result)
     payload['max_drawdown'] = result.max_drawdown
     payload['risk_source'] = 'computed'
     return payload
 
 
-def _open_fund_performance(db: Session, fund_code: str, today: date) -> Dict[str, Any]:
-    """场外基金：区间收益 + 最大回撤 + 年化波动率（同源 acc_nav）。"""
+def _open_fund_performance(db: Session, fund, code: str, today: date) -> Dict[str, Any]:
+    """场外基金：区间收益 + 最大回撤 + 年化波动率 + 风险指标 + 基准相对（同源 acc_nav）。
+
+    ``fund`` 传实体而非仅 code：基准要按 ``fund.fund_type.name`` 映射，多查一次
+    ``Fund``（调用方刚查过）是白费一次查询。fund_code 仍单独传入——不必让本函数
+    依赖实体的某个属性，调用方手里本来就有这个字符串（也少一处能对不上的地方）。
+    """
+    fund_code = code
     from app.domains.funds.models import DailyWorth
 
     rows = (
@@ -301,7 +441,11 @@ def _open_fund_performance(db: Session, fund_code: str, today: date) -> Dict[str
     # 年化波动率：近 1 年
     vol = _annualized_volatility(points, today - timedelta(days=_VOL_WINDOW_DAYS))
 
-    risk = _load_risk_metrics(db, fund_code, points)
+    # 基准（#167）：按 fund_type 映射，不解析 Fund.benchmark 的自然语言串。
+    bench = _benchmark_payload(db, fund)
+    bench_points = bench.get('points') if bench and bench.get('available') else None
+
+    risk = _load_risk_metrics(db, fund_code, points, benchmark_points=bench_points)
 
     out = {
         'fund_kind': 'fund',
@@ -321,6 +465,13 @@ def _open_fund_performance(db: Session, fund_code: str, today: date) -> Dict[str
     # 风险指标块（#167）：本轮回撤 / 最大回撤 / 夏普族 + 口径元数据。
     # 其中 max_drawdown 是**快照优先**的同一字段（老字段不动，语义不变：窗口内最深回撤）。
     out.update(risk)
+    # 基准块（#167）：**映射结果**（哪只指数、凭什么选中）来自 `_benchmark_payload`，
+    # **相对指标**（超额 / 信息比率 / 捕获率）来自 `risk['benchmark']`（现算）。
+    # 两块必须合并成一个对象而不是后者覆盖前者——它们各带一半信息：
+    # 只留映射结果，前端拿不到数字；只留相对指标，用户不知道拿什么比的。
+    out['benchmark'] = _merge_benchmark(bench, out.pop('benchmark', None))
+    # 同类内分位（#167）：绝对值跨类别不可比，分位可读。
+    out['peer_percentiles'] = _peer_percentiles(db, fund_code)
     return out
 
 
@@ -343,4 +494,4 @@ def build_fund_performance(db: Session, fund_code: str) -> Optional[Dict[str, An
 
     if _is_money_fund(fund):
         return _money_fund_performance(db, code)
-    return _open_fund_performance(db, code, today_shanghai())
+    return _open_fund_performance(db, fund, code, today_shanghai())

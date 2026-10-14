@@ -188,6 +188,105 @@ export interface FundPerformanceResult {
   risk_caveats?: string[];
   /** 数值来源：snapshot（每日快照）/ computed（快照缺失时现算回退） */
   risk_source?: "snapshot" | "computed";
+
+  // ── 基准相对块（#167 追加之二）────────────────────────────────────────
+  // 基准按 fund_type 映射（**不解析** fund.benchmark 那句自然语言），
+  // 债基对债指数、股基对同类股基指数。`null` = 本基金不适用基准
+  // （货基 / 指数型 / QDII —— 它们该比的是跟踪标的，而我们没有标的指数数据，
+  // 所以**不给**而不是拿沪深300 顶替）。
+  benchmark?: FundBenchmark | null;
+  /**
+   * 同类内分位（百分位 0~100，**越大越好**）。
+   *
+   * 为什么需要它：风险比跨类别不可比（债基波动天生小 ⇒ 夏普系统性偏高），
+   * 绝对值不能跨类读，而「在同类里排前 10%」对任何类别都是同一句话。
+   * 缺失的指标不出现在这里（同类样本 < 5 时后端不出分位）——降级为「—」。
+   */
+  peer_percentiles?: Record<string, number> | null;
+}
+
+/** 基准相对块（#167）。`available: false` 表示基准已选定但序列暂缺，**不以上述以外的指数顶替** */
+export interface FundBenchmark {
+  /** 基准指数代码（`index_daily.index_code`），如 `000300.SH` / `885001.WI` */
+  code: string;
+  /** 基准展示名（后端下发，前端不抄映射） */
+  name: string;
+  /** 命中规则名——口径留痕：用户可复核「凭什么拿它比」 */
+  matched_by: string;
+  /** 序列是否可用 */
+  available: boolean;
+  /** 不可用时的原因（仅 available=false） */
+  reason?: string;
+  /** 共同交易日上的样本数（仅 available=true） */
+  sample_points?: number;
+  /** 基准同期年化收益(%) */
+  bench_annual_return?: number | null;
+  /** 基金同期年化收益(%) */
+  fund_annual_return?: number | null;
+  /** 超额收益(%)：基金 − 基准 */
+  excess_return?: number | null;
+  /** 年化跟踪误差(%) */
+  tracking_error_annual?: number | null;
+  /** 信息比率：年化超额 / 年化跟踪误差 */
+  information_ratio?: number | null;
+  /** 上行捕获率(%)：>100 = 基准涨时它涨得更多 */
+  upside_capture?: number | null;
+  /** 下行捕获率(%)：<100 = 基准跌时它跌得更少 */
+  downside_capture?: number | null;
+  /** 口径标记：ok / insufficient（共同交易日不足） */
+  basis?: string;
+}
+
+/** 取同类型基金的风险指标榜（#167）。`fund_type_id` 必填——不做跨类榜。 */
+export interface FundRiskRankingRow {
+  fund_code: string;
+  fund_type_id: number | null;
+  as_of: string | null;
+  max_drawdown: number | null;
+  current_drawdown: number | null;
+  drawdown_days: number | null;
+  annual_return: number | null;
+  annual_volatility: number | null;
+  sharpe: number | null;
+  sortino: number | null;
+  calmar: number | null;
+  ulcer_index: number | null;
+  upi: number | null;
+  return_drawdown_ratio: number | null;
+  win_rate: number | null;
+  sample_points: number;
+  /** 口径：acc_nav（正常）/ distorted / insufficient */
+  basis: string;
+  window_label: string;
+}
+
+export interface FundRiskRankingResult {
+  fund_type_id: number;
+  metric: string;
+  order: "asc" | "desc";
+  caliber_version: number;
+  rows: FundRiskRankingRow[];
+  /**
+   * 因口径可疑（净值跳变 / 样本不足）被剔除的条数。
+   *
+   * **必须展示**：不展示的话「榜上只剩 3 只」会被读成「同类只有 3 只有数据」。
+   */
+  excluded_distorted: number;
+}
+
+/** 取同类基金的风险指标榜（#167）。`fund_type_id` 必填——风险比跨类别不可比。 */
+export function getFundRiskRanking(params: {
+  fund_type_id: number;
+  metric: string;
+  limit?: number;
+  order?: "asc" | "desc";
+  include_distorted?: boolean;
+}) {
+  return http.request<ApiResponse<FundRiskRankingResult>>(
+    "get",
+    "/api/products/fund-risk-ranking/",
+    { params }
+  );
 }
 
 /** 取基金业绩与风险。404 = 该代码不是基金。 */

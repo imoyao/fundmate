@@ -16,6 +16,7 @@ from app.services.adapters.jiucaishuo_adapter import JiucaishuoAdapter
 from app.services.bias.constants import BENCHMARK_INDICES
 from app.services.sync.jobs import index_daily_job as index_daily_job_module
 from app.services.sync.jobs.index_daily_job import (
+    CSINDEX_INDEX_TARGETS,
     DEFAULT_TARGETS,
     TENCENT_INDEX_TARGETS,
     WIND_INDEX_TARGETS,
@@ -169,7 +170,14 @@ class TestIndexDailySyncJob:
         for gu in ('881003.WI', '881007.WI', '8841425.WI', '8841431.WI', '889033.WI'):
             assert gu in DEFAULT_TARGETS
         # 2026-10-01：默认清单 = 万得系（韭圈儿）+ 交易所指数（腾讯）
-        assert DEFAULT_TARGETS == [c for c, _ in WIND_INDEX_TARGETS] + [c for c, _ in TENCENT_INDEX_TARGETS]
+        # 2026-10-14（#167）：再加中证专属码（中证官网，`.CSI`）——腾讯源没有这些代码
+        # （932000 实测 sh/sz 两形态均 0 行），故单开一路。断言仍锁「默认清单 == 三张表
+        # 的并集，且无多余项」，新增源时必须同步改这里（避免清单与源脱节）。
+        assert DEFAULT_TARGETS == (
+            [c for c, _ in WIND_INDEX_TARGETS]
+            + [c for c, _ in TENCENT_INDEX_TARGETS]
+            + [c for c, _ in CSINDEX_INDEX_TARGETS]
+        )
 
     def test_incremental_uses_12_months(self, job, db):
         """非全量跑 12 月增量；全量跑成立来（'all'）。"""
@@ -257,3 +265,71 @@ class TestTencentRouting:
         result = job.run(full_sync=False, targets=['000300.SH'])
         assert result['status'] == 'success'
         assert db.query(IndexDaily).count() == 0
+
+
+class TestCsindexRouting:
+    """`.CSI` 走中证官网（#167 基准补齐）。
+
+    为什么必须单开这一路：**腾讯源没有中证专属码**——2026-10-14 实测
+    `sh932000` / `sz932000` 均返回 0 行，而同期的 `sh000852`（中证1000）正常。
+    不是限流，是源侧不存在。故分流必须按 `.CSI` 后缀，而不是「试着走腾讯、空了再说」。
+    """
+
+    @pytest.fixture
+    def job(self, db):
+        return IndexDailySyncJob(MagicMock(), db)
+
+    def test_csi_code_routes_to_csindex(self, job, db, monkeypatch):
+        calls = []
+
+        def fake_fetch(symbol, start_date=None, **kwargs):
+            calls.append(symbol)
+            return [('2026-09-29', 3100.0), ('2026-10-13', 3024.95)]
+
+        monkeypatch.setattr(index_daily_job_module, 'fetch_daily_csindex', fake_fetch)
+        result = job.run(full_sync=False, targets=['932000.CSI'])
+
+        assert result['status'] == 'success'
+        # 传给适配器的是**裸码**（中证官网接口不带交易所后缀）
+        assert calls == ['932000']
+        rows = db.query(IndexDaily).filter_by(index_code='932000.CSI').order_by(IndexDaily.trade_date).all()
+        assert [r.source for r in rows] == ['csindex', 'csindex']
+        assert [r.price_mode for r in rows] == ['raw', 'raw']
+        assert float(rows[-1].close) == 3024.95
+        # 另两路一次都不该被碰
+        job.adapter.fetch_index_daily.assert_not_called()
+
+    def test_csi_code_never_goes_to_tencent(self, job, db, monkeypatch):
+        """`.CSI` 绝不能落到腾讯路——腾讯源对它返回空，走错路会静默「无数据」。"""
+        monkeypatch.setattr(index_daily_job_module, 'fetch_daily_csindex', lambda *a, **k: [('2026-10-13', 3024.95)])
+
+        def boom(*args, **kwargs):
+            raise AssertionError('中证专属码不该走腾讯通道')
+
+        monkeypatch.setattr(index_daily_job_module, 'fetch_daily_tencent', boom)
+        job.run(full_sync=False, targets=['932000.CSI'])
+        assert db.query(IndexDaily).count() == 1
+
+    def test_csindex_empty_is_tolerated(self, job, db, monkeypatch):
+        """中证官网取空（未收录 / 通道异常）不得让整个 job 失败。"""
+        monkeypatch.setattr(index_daily_job_module, 'fetch_daily_csindex', lambda *a, **k: [])
+        result = job.run(full_sync=False, targets=['932000.CSI'])
+        assert result['status'] == 'success'
+        assert db.query(IndexDaily).count() == 0
+
+    def test_csindex_rerun_is_idempotent(self, job, db, monkeypatch):
+        """全量/增量不分流：重跑同一批数据只更新不重复（该接口一次给全序列）。"""
+        monkeypatch.setattr(
+            index_daily_job_module,
+            'fetch_daily_csindex',
+            lambda *a, **k: [('2026-09-29', 3100.0), ('2026-10-13', 3024.95)],
+        )
+        job.run(full_sync=False, targets=['932000.CSI'])
+        job.run(full_sync=True, targets=['932000.CSI'])
+        assert db.query(IndexDaily).filter_by(index_code='932000.CSI').count() == 2
+
+
+def test_csindex_target_list_carries_display_name():
+    """目标清单必须带展示名：`_fetch_data` 用它落 `gu_name`，缺了会显示成裸代码。"""
+    names = dict(CSINDEX_INDEX_TARGETS)
+    assert names.get('932000.CSI') == '中证2000'
