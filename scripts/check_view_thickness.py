@@ -129,6 +129,10 @@ NEW_FILE_LIMITS = {
 # 等于把「重试整个请求」改成「重试半个请求」，反而掩盖错误。装饰器是端点级横切关注点的
 # 最小表达，与本文件明列的视图职责同层。按既有先例以 `--report` 实测回写（仅 lines）：
 # ledgers 723 → 725、positions 286 → 288、transactions 136 → 138。
+# 2026-10-15 重取（#1337，**新增端点**，非放宽）：给 users 加 `GET/PUT /users/preferences/<key>/`
+# （用户私有偏好键值，#993 方案 B 跨设备同步）——视图侧只有「key 长度校验 + 调 ORM upsert +
+# JSON 文本↔对象转换 + 信封」，无业务规则可下沉（upsert 是唯一写语义，合并策略在前端）。
+# 按 `--report` 实测回写：lines 115 → 160、orm_queries 4 → 6（max_func / commits 不动）。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/assets/views.py": {"lines": 208, "orm_queries": 4, "commits": 0, "max_func": 44},
     "backend/app/domains/auth/views.py": {"lines": 137, "orm_queries": 3, "commits": 0, "max_func": 45},
@@ -149,7 +153,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/temperature/views.py": {"lines": 140, "orm_queries": 0, "commits": 0, "max_func": 38},
     "backend/app/domains/transactions/views.py": {"lines": 138, "orm_queries": 2, "commits": 0, "max_func": 60},
     "backend/app/domains/usage/views.py": {"lines": 68, "orm_queries": 0, "commits": 0, "max_func": 27},
-    "backend/app/domains/users/views.py": {"lines": 115, "orm_queries": 4, "commits": 0, "max_func": 38},
+    "backend/app/domains/users/views.py": {"lines": 160, "orm_queries": 6, "commits": 0, "max_func": 38},
     "backend/app/domains/utils/views.py": {"lines": 128, "orm_queries": 0, "commits": 0, "max_func": 38},
     "backend/app/domains/watchlist/views.py": {"lines": 622, "orm_queries": 14, "commits": 0, "max_func": 53},
 }

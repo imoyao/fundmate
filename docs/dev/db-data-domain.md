@@ -52,6 +52,7 @@
 |-----------|------|---------|
 | `families` | 家庭 | 几十~几千行 |
 | `users`（含 `supabase_id`） | 用户 / auth 边界 | 几十~几千行 |
+| `user_preferences`（含 `watchlist-column-settings` 等键） | 用户私有偏好键值（按 `user_id`，非 family；#1337） | 每用户每键一行 |
 | `ledgers` | 账户（FK → portfolios / sales_institutions） | 增长慢 |
 | `portfolios` | 组合 | 增长慢 |
 | `positions` | 持仓（存 `symbol`/`fund_code` 字符串冗余键，**非** FK） | 增长慢 |
