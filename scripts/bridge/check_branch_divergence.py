@@ -19,12 +19,28 @@
 
 本脚本把「靠人肉 `git log` 发现分叉」换成「一条命令问出来」。
 
-判据
-----
-- **`main` 独有提交数 > 0** ⇒ 分叉（正常态恒为 0）；
-- 列出**两侧互不包含**的「镜像 / 作业配置文件」（`.cnb.yml` + `.github/workflows/*.yml`）
-  —— 这类文件决定「什么会被执行」，只在单侧存在就是 #123 记的那个病；
-- 角色可切换（`--left` / `--right`），非本仓的 main/dev 布局也能用。
+判据（2026-10-14 重写，源 CNB #179）
+-------------------------------------
+两个旧口径都产生过**假红**，各自修掉一层：
+
+1. 「**`main` 独有提交数 > 0 ⇒ 分叉**」——发版 PR 必然给 `main` 留一个 merge commit，
+   而它不引入任何内容 ⇒ **每发一次版红一次**；
+2. 「**`git diff main dev` 非空 ⇒ 分叉**」——diff 是**双向**的，非空既可能是
+   「`main` 有 `dev` 拿不到的」，也可能是「`dev` 更新、`main` 停在旧版」。
+   本仓 2026-10-14 实测正是后者：`main` 停在发版时的版本、`dev` 往前走了 2 个提交，
+   7 个文件的 diff 全是 `main` **更旧**，一条「`main` 独有内容」都没有，却报红。
+
+**现行判据**（只认「`main` 有没有 `dev` 拿不到的代码」，即用户口径）：
+
+- 先看祖先关系：`main` 是 `dev` 的祖先 ⇒ 差异全是 `dev` 领先 ⇒ **绿**；
+- 互不包含时**逐文件判**：`main` 侧那个版本（blob）在 `dev` 的历史里出现过吗？
+  - 出现过 ⇒ `dev` 曾经有过、`main` 停在旧版 ⇒ **滞后，不算独有**；
+  - 从未出现 ⇒ `main` 上凭空长出来的 ⇒ **独有 ⇒ 红**（这才是要拦的）；
+- 拿不到任一层的 git 结果 ⇒ 退出码 2 并**明说判据不可用**（「拿不到 ≠ 正常」，#171）。
+
+另保留：列出**两侧互不包含**的「镜像 / 作业配置文件」（`.cnb.yml` +
+`.github/workflows/*.yml`）—— 这类文件决定「什么会被执行」，只在单侧存在就是 #123 记的病；
+角色可切换（`--left` / `--right`），非本仓的 main/dev 布局也能用。
 
 根因诊断（`--explain`，2026-10-11 补）
 ---------------------------------------
@@ -124,46 +140,101 @@ def list_side_only(left: str, right: str, cwd: str | None) -> tuple[list[str], l
 
 
 def content_ahead(left: str, right: str, cwd: str | None = None) -> dict:
-    """**内容级**判据：`left` 有没有 `right` 没有的**代码**（CNB #167 规则 1）。
+    """**内容级**判据：`left` 上有没有 `right` **拿不到**的内容（CNB #179）。
 
     为什么不能只看提交数：发版 PR（`dev` → `main`）**必然**给 `left` 留一个 merge commit，
-    而它**不引入任何内容**（相对 `right` 的 diff 为空）。旧版 `count_unique(left) > 0`
-    把这种**正常的发版节点**也报成「已分叉」，于是每发一次版就红一次——
-    红却不指向任何还需动手的事，是**假红**（与 #118 的假绿同族）。
+    而它**不引入任何新内容**。旧版 `count_unique(left) > 0` 把这种**正常的发版节点**也
+    报成「已分叉」，于是每发一次版就红一次 —— 红却不指向任何还需动手的事，是**假红**
+    （与 #118 的假绿同族）。
 
-    真正该问的是：**`left` 上有没有 `right` 拿不到的内容**。
+    为什么也不能只看 `git diff left right` 非空（**这是本卡修掉的第二个坑**）：
+    `git diff` 的差异是**双向**的，非空既可能是「`left` 有 `right` 拿不到的」，
+    也可能是「`right` 更新、`left` 停在旧版」。本仓 2026-10-14 实测就是后者：
+    `main` 停在发版时的旧版、`dev` 往前走了 2 个提交，7 个文件的 diff 全部是
+    **`main` 更旧**（numstat 里删除数远大于新增），一条「`main` 独有内容」都没有，
+    旧实现却报红 —— 又一处假红。
 
-    判据用 `git diff <left> <right>` 的方向语义（**方向敏感，别猜**）：
-      - diff 为空 ⇒ 两侧内容一致，`left` 独有的只是（发版）结构节点，**不算分叉**；
-      - diff 非空 ⇒ `left` 侧存在 `right` 没有的内容，**才是 `dev` 缺代码**——
-        这正是用户口径「CNB `main` 不能有 `dev` 没有的代码」要拦的形态。
-
-    返回 `has_only_left`（是否有 `left` 独有内容）、`files`（独有内容涉及的路径）、
-    `additions` / `deletions`（行数），取不到 git 结果时返回 `None` 表示**判据不可用**
-    ——**不猜、不降级成「正常」**（否则又是「拿不到输入 = 输入为空」，见 #171）。
+    判据（三层，逐层收紧，每层都只报可证的事实）
+    -------------------------------------------
+    1. **祖先关系**（最快、最干净）：
+       - `left` 是 `right` 的祖先 ⇒ 差异全是「`right` 领先」⇒ **没有 `left` 独有内容**；
+       - `right` 是 `left` 的祖先 ⇒ 差异全是「`left` 独有」⇒ 全部算独有；
+    2. **互不包含时逐文件判**（本仓常态：`left` 停在旧版 + `right` 往前走了）：
+       取 `git diff --name-only` 的每个路径，问「`left` 侧那个版本（blob）
+       在 `right` 的历史里出现过吗」（`git log --find-object=<blob> <right> -- <path>`）：
+       - 出现过 ⇒ 那是 `right` 曾经有过、`left` 停在旧版 ⇒ **不算独有**；
+       - 从未出现过 ⇒ `left` 上凭空长出来的 ⇒ **算独有**（这才是要拦的形态）。
+    3. 拿不到任何一层的结果时，`available=False` **明说判据不可用**——
+       不猜、不降级成「正常」（「拿不到输入 ≠ 输入为空」，#171 教训）。
     """
-    code, out = _git(['diff', '--numstat', left, right], cwd)
+    code, out = _git(['diff', '--name-only', left, right], cwd)
     if code != 0:
         return {'available': False, 'reason': f'git diff 退出码 {code}'}
-    files: list[str] = []
-    add = dele = 0
-    for line in out.splitlines():
-        parts = line.split('\t')
-        if len(parts) < 3:
-            continue
-        a, d, path = parts[0], parts[1], parts[2]
-        files.append(path)
-        add += int(a) if a.isdigit() else 0
-        dele += int(d) if d.isdigit() else 0
-    # `git diff left right` 的 diff 是「把 left 变成 right」的补丁：
-    # 有内容 ⇒ left 与 right 不同（无论谁更旧）。是不是「left 独有」还要看祖先关系。
-    is_ancestor = _git(['merge-base', '--is-ancestor', left, right], cwd)[0] == 0
+    changed = [ln.strip() for ln in out.splitlines() if ln.strip()]
+    left_is_ancestor = _git(['merge-base', '--is-ancestor', left, right], cwd)[0] == 0
+    right_is_ancestor = _git(['merge-base', '--is-ancestor', right, left], cwd)[0] == 0
+
+    if not changed:
+        only_left, unique = [], []
+    elif left_is_ancestor:
+        # 快路径（**不是判据的一部分**）：`left` 是 `right` 的祖先时，差异必然全在 `right`
+        # 那边 ⇒ `left` 不可能有 `right` 拿不到的内容，可跳过下面的逐文件历史查询。
+        #
+        # ⚠️ 这条分支**可以被删掉而不改变行为** —— 走下面的逐文件分支会得到同样结果
+        # （`left` 侧的每个版本都在 `right` 历史里 ⇒ 全落 `superseded`）。回退探针实测
+        # 把它改成 `elif False:` 后**一条用例都不红**，即它是死代码级别的短路优化。
+        # 按 AGENTS.md「探针咬不住的分支，往往在做假装的工作」：处置是**写明它是优化**，
+        # 而不是给它补一条测试（那会把假的工作固化）。留着的理由是省掉 N 次 `git log`。
+        only_left, unique = [], []
+    elif right_is_ancestor:
+        # 快路径（与上面的 `left_is_ancestor` 同性质，**也可以被删掉而不改变行为**）：
+        # `right` 是 `left` 的祖先 ⇒ `left` 独有 `changed` 里的每个路径，
+        # 走逐文件分支同样会把它们全判成独有（`right` 的历史里找不到这些新版本）。
+        #
+        # ⚠️ **只填 `unique`，绝不填 `superseded`**：这两个列表语义互斥 ——
+        # 「独有」= `right` 从没见过该版本；「停在旧版」= `right` 历史里出现过该版本。
+        # 同时填会让同一路径出现在报告的两处，**报告自相矛盾**（本仓 #123 时代
+        # `list_side_only` 就踩过同型 bug）。有用例 `test_two_lists_are_disjoint` 钉着。
+        only_left, unique = [], list(changed)
+    else:
+        # 互不包含：逐文件判「`left` 侧版本在 `right` 历史里出现过吗」。
+        only_left, unique = [], []
+        for path in changed:
+            code_b, blob = _git(['rev-parse', '--verify', '--quiet', f'{left}:{path}'], cwd)
+            if code_b != 0 or not blob:
+                # 该路径在 `left` 上**不存在**（diff 的 deleted 侧）⇒ 谈不上「`left` 独有内容」。
+                # 用 `--verify --quiet` 让「不存在」以退出码表达，而不是抛错。
+                continue
+            # ⚠️ 必须用 `--find-object=<blob>` 的**等号**写法：写成空格分隔的
+            # `--find-object <blob>` 会被 git 当成 `--find-object` 不带值 + 一个多余的
+            # revision 参数，实测直接退出 129（git 2.39.5）。这一处是踩出来的。
+            hist = _git(['log', '--oneline', f'--find-object={blob}', right, '--', path], cwd)
+            if hist[0] != 0:
+                # 历史查询失败 ⇒ 判据不可用，**不得**默认成「出现过」。
+                return {'available': False, 'reason': f'git log --find-object 退出码 {hist[0]}（路径 {path}）'}
+            if hist[1]:
+                # `left` 侧这个版本在 `right` 历史里存在 ⇒ `right` 曾经有过、`left` 停在旧版。
+                only_left.append(path)
+            else:
+                unique.append(path)
+    additions = deletions = 0
+    if unique:
+        code, out = _git(['diff', '--numstat', left, right, '--', *unique], cwd)
+        if code != 0:
+            return {'available': False, 'reason': f'git diff --numstat 退出码 {code}'}
+        for line in out.splitlines():
+            parts = line.split('\t')
+            if len(parts) >= 3:
+                additions += int(parts[0]) if parts[0].isdigit() else 0
+                deletions += int(parts[1]) if parts[1].isdigit() else 0
     return {
         'available': True,
-        'files': files,
-        'additions': add,
-        'deletions': dele,
-        'left_is_ancestor_of_right': is_ancestor,
+        'files': unique,          # **真正**是 left 独有的内容（判据只认这个）
+        'superseded': only_left,  # left 停在旧版（right 曾经有过 ⇒ 正常滞后）
+        'additions': additions,
+        'deletions': deletions,
+        'left_is_ancestor_of_right': left_is_ancestor,
+        'right_is_ancestor_of_left': right_is_ancestor,
     }
 
 
@@ -276,11 +347,17 @@ def build_explanation(res: dict, exp: dict) -> str:
 
 
 def build_report(res: dict) -> str:
-    """报告分两段：**内容级**（用户口径的判据）在前，**提交数级**（结构性信号）在后。
+    """把结构化结果写成给人看的报告（CNB #179）。
 
-    为什么要把内容级放前面：用户口径是「CNB `main` 不能有 `dev` 没有的**代码**」（CNB #167）。
-    发版 merge commit 必然让 `left` 多出提交，但**不引入内容** —— 只看提交数会把它误报成
-    分叉（假红）。故判据以 `content_ahead()` 为准，提交数只作「结构上发生了什么」的补充。
+    判据只有一条，但要说清三件事：
+      1. **真分叉**：`left` 上有 `right` 拿不到的**内容**（逐文件判定，见 `content_ahead`）；
+      2. **正常滞后**：`left` 停在旧版（那些文件 `right` 曾经有过）—— **不报红**；
+      3. **判据不可用**：拿不到 git 结果 ⇒ 明说，**不得**退化成看起来正常的结论（#171）。
+
+    为什么报告要写这么细：2026-10-14 之前，本判据把「`left` 停在旧版」也算成
+    「`left` 有 `right` 没有的代码」，于是**每一次正常发版都留下一个永远红的信号**，
+    而它不指向任何还需动手的事 —— 真违规反而被这层噪音淹掉（用户原话：
+    「做了好多事情，但还是很乱」）。**报告的第一职责是别撒谎。**
     """
     left, right = res['left'], res['right']
     lo, ro = res['left_only'], res['right_only']
@@ -292,7 +369,7 @@ def build_report(res: dict) -> str:
         f'- `{left}` 独有提交：**{lo}**',
         f'- `{right}` 独有提交：**{ro}**',
         '',
-        '### 内容级判据（口径：`main` 不得有 `dev` 没有的代码）',
+        f'### 内容级判据（`{left}` 有没有 `{right}` 拿不到的代码？）',
         '',
     ]
 
@@ -304,45 +381,48 @@ def build_report(res: dict) -> str:
         )
         return '\n'.join(lines)
 
-    files = content.get('files') or []
+    unique = content.get('files') or []
+    superseded = content.get('superseded') or []
     left_is_ancestor = bool(content.get('left_is_ancestor_of_right'))
-    if not files:
-        lines.append(
-            f'✅ **两侧内容一致**（`git diff {left} {right}` 为空）——'
-            f'`{left}` 独有的提交只是发版等**结构节点**，没有引入 `{right}` 拿不到的代码。'
-        )
-    elif left_is_ancestor:
-        lines.append(
-            f'ℹ️ 两侧内容有差异（{len(files)} 个文件），但 `{left}` 是 `{right}` 的**祖先** ⇒'
-            f'这些差异是 `{right}` **领先**的部分，不是 `{left}` 独有（正常态）。'
-        )
-    else:
+    right_is_ancestor = bool(content.get('right_is_ancestor_of_left'))
+
+    if unique:
         lines += [
-            f'⚠️ **`{left}` 存在 `{right}` 没有的内容**（{len(files)} 个文件，'
+            f'⚠️ **`{left}` 上有 `{right}` 拿不到的代码**（{len(unique)} 个文件，'
             f'+{content.get("additions")}/-{content.get("deletions")}）：',
             '',
         ]
-        lines += [f'- `{f}`' for f in files[:20]]
-        if len(files) > 20:
-            lines.append(f'- …还有 {len(files) - 20} 个，见 `git diff {left} {right}`')
+        lines += [f'- `{f}`' for f in unique[:20]]
+        if len(unique) > 20:
+            lines.append(f'- …还有 {len(unique) - 20} 个，见 `git diff {left} {right}`')
+        lines.append('')
+    elif not superseded:
+        lines.append(f'✅ **两侧内容一致**（`git diff {left} {right}` 为空）。')
+        lines.append('')
+    else:
+        lines.append(
+            f'✅ **`{left}` 没有 `{right}` 拿不到的代码**：'
+            f'两侧有内容差异的 {len(superseded)} 个文件，`{left}` 上都是**旧版**'
+            f'（该版本在 `{right}` 的历史里出现过 ⇒ `{right}` 已往前走了）。'
+        )
+        lines.append('')
+        if len(superseded) <= 20:
+            lines += [f'- `{f}`（`{left}` 停在旧版）' for f in superseded]
         lines.append('')
 
     lines += ['### 结构级信号（提交数，补充信息）', '']
     if not lo and not ro:
         lines.append('两侧一致。')
-        return '\n'.join(lines)
-
-    if lo and ro and not left_is_ancestor:
+    elif lo and ro and not left_is_ancestor and not right_is_ancestor:
         lines.append(
-            f'⚠️ 两侧**互不包含**（`{left}` 独有 {lo} / `{right}` 独有 {ro}）——'
-            '这才是 #123 记的双向分叉形态。'
+            f'两侧**互不包含**（`{left}` 独有 {lo} / `{right}` 独有 {ro}）。'
+            f'差异是「`{right}` 领先 + `{left}` 停在旧版」（见上）还是「`{left}` 被绕过」，'
+            '以上面的内容级判据为准。'
         )
     elif lo:
-        lines.append(
-            f'`{left}` 独有 {lo} 个提交（发版节点属正常；若上面「内容级判据」为 ⚠️ 才是真分叉）。'
-        )
+        lines.append(f'`{left}` 独有 {lo} 个提交（发版节点属正常）。')
     else:
-        lines.append(f'`{right}` 领先 `{left}` {ro} 个提交（待发版）。')
+        lines.append(f'`{right}` 领先 `{left}` {ro} 个提交（待发版，属正常节奏）。')
     lines.append('')
 
     for side, jobs in (
@@ -358,6 +438,7 @@ def build_report(res: dict) -> str:
     lines += [
         '> 处置：**发版**（`dev` → `main` 的 PR，head 必须是 `dev` 本身）。',
         '> 不要用「把功能分支 base 改成 main」消除时间差 —— 那正是本分叉的成因（见 AGENTS.md「PR 与 Review」）。',
+        '> 若发版后**仍**红，说明有提交没经过 `dev` 就落在 `main` 上了 —— 那时才是纪律问题。',
     ]
     return '\n'.join(lines)
 
@@ -387,8 +468,10 @@ def run(args: argparse.Namespace) -> int:
     if not content.get('available'):
         diverged = None
     else:
-        files = content.get('files') or []
-        diverged = bool(files) and not content.get('left_is_ancestor_of_right')
+        # 只看 `files`（逐文件判定后的**真独有**）。`superseded` 是「left 停在旧版」，
+        # 属正常滞后 ⇒ 不计入。旧版在这里用「`git diff` 非空」判红，把滞后也算成独有，
+        # 于是每次正常发版都红一次（#179 要消灭的假红）。
+        diverged = bool(content.get('files'))
     report = build_report(res)
     # `getattr` 默认 False：`run()` 也被测试直接调用（`argparse.Namespace` 手搓），
     # 新加的可选开关不该让老调用点崩。
