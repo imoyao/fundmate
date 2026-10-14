@@ -182,14 +182,14 @@ def pnl_calendar():
 
 @bp.get('/summary/fund-valuation/')
 def fund_valuation():
-    """#2141 收盘估值定格清单（某日，需登录）。
+    """#2141/#2142 收盘估值定格清单（某日，需登录）。
 
     查询参数：
     - `date`：YYYY-MM-DD，默认上海时区今日；
     - `fund_code`：可选，单基金过滤。
 
-    返回该日定格行列表（fund_code / estimated_nav / change_pct /
-    source / source_time / status），按 fund_code 升序；日期非法回 400。
+    返回该日定格行（fund_code / estimated_nav / change_pct / source / source_time /
+    status / official_nav / deviation / deviation_pct）按 fund_code 升序；日期非法回 400。
     """
     raw_date = (request.args.get('date') or '').strip()
     try:

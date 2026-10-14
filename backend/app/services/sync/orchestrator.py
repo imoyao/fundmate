@@ -57,6 +57,7 @@ from app.services.sync.jobs.fund_nav_job import FundNavSyncJob
 from app.services.sync.jobs.fund_position_job import FundPositionSyncJob
 from app.services.sync.jobs.fund_scale_job import FundScaleSyncJob
 from app.services.sync.jobs.fund_type_job import FundTypeSyncJob
+from app.services.sync.jobs.fund_valuation_reconcile_job import FundValuationReconcileJob
 from app.services.sync.jobs.fund_valuation_snapshot_job import FundValuationSnapshotJob
 from app.services.sync.jobs.index_catalog_job import IndexCatalogSyncJob
 from app.services.sync.jobs.index_constituent_job import INDEX_TARGETS, IndexConstituentSyncJob
@@ -201,6 +202,9 @@ class DataSyncOrchestrator:
         # NullAdapter 占位；目标池吃 fund 池（场外基金裸码），多时点由
         # daily_scheduler 的 cron 驱动，按 (fund_code, est_date) 幂等覆盖。
         self.jobs['fund_valuation_snapshot'] = FundValuationSnapshotJob(NullAdapter(), self.db)
+        # #2142：预估→正式对照。纯 DB（读 daily_worth、写 fund_valuation_daily 对照列），
+        # 无外部请求，NullAdapter 占位；target_kind=None 全量路径，不入 SYMBOL_BACKFILL_JOBS。
+        self.jobs['fund_valuation_reconcile'] = FundValuationReconcileJob(self.db)
         self.jobs['price_history'] = PriceHistorySyncJob(self.data_sources['akshare'], self.db)
         self.jobs['index_constituents'] = IndexConstituentSyncJob(self.data_sources['akshare'], self.db)
         # #1285/#1394：指数估值（中证官方：市盈率 / 股息率）

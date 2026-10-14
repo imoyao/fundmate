@@ -61,6 +61,7 @@ class TestLoadConfig:
             'temperature',
             'fund_nav',
             'fund_valuation_snapshot',
+            'fund_valuation_reconcile',
             'price_history',
             'index_daily',
             'position_price',
@@ -80,6 +81,7 @@ class TestLoadConfig:
         assert crons['temperature'] == ds.DEFAULT_TEMPERATURE_CRON
         assert crons['fund_nav'] == ds.DEFAULT_NAV_CRON
         assert crons['fund_valuation_snapshot'] == ds.DEFAULT_VALUATION_CRON
+        assert crons['fund_valuation_reconcile'] == ds.DEFAULT_VALUATION_RECONCILE_CRON
         assert crons['price_history'] == ds.DEFAULT_PRICE_HISTORY_CRON
         assert crons['index_daily'] == ds.DEFAULT_INDEX_DAILY_CRON
         assert crons['position_price'] == ds.DEFAULT_POSITION_PRICE_CRON
@@ -148,6 +150,7 @@ class TestLoadConfig:
             'temperature',
             'fund_nav',
             'fund_valuation_snapshot',
+            'fund_valuation_reconcile',
             'price_history',
             'index_daily',
             'position_price',
@@ -186,6 +189,7 @@ class TestLoadConfig:
         assert cfg.job_names() == [
             'fund_nav',
             'fund_valuation_snapshot',
+            'fund_valuation_reconcile',
             'market_asset_daily',
             'index_valuation',
             'convertible_bond',
@@ -203,9 +207,17 @@ class TestLoadConfig:
         「要落快照的大类资产」、index_valuation 是固定指数清单、convertible_bond
         按在库 symbol 全量 upsert、dividend_split 是事件型数据。套错的结果是
         「每天记一条 success 但什么都没同步」的静默空跑。
+        #2142 的 fund_valuation_reconcile 同理：目标池是「库里全部 estimated 行」，
+        不是 fund/stock 代码池。
         """
         cfg = ds.load_config({})
-        for name in ('market_asset_daily', 'index_valuation', 'convertible_bond', 'dividend_split'):
+        for name in (
+            'market_asset_daily',
+            'index_valuation',
+            'convertible_bond',
+            'dividend_split',
+            'fund_valuation_reconcile',
+        ):
             spec = next(s for s in cfg.jobs if s.job_name == name)
             assert spec.target_kind is None, f'{name} 的 target_kind 应为 None'
 
@@ -373,10 +385,14 @@ class TestCatchUpTargets:
         判定依据：休市日跑它**能补齐上一个交易日的数据**，且无缺口时空跑成本≈0
         （增量窗口为空即不抓取，只花一次库内查询、0 次外部请求）。
         """
-        assert ds.REST_DAY_JOB_NAMES == frozenset({'price_history', 'fund_nav', 'position_price'})
+        assert ds.REST_DAY_JOB_NAMES == frozenset(
+            {'price_history', 'fund_nav', 'position_price', 'fund_valuation_reconcile'}
+        )
         assert ds.runs_on_rest_day('price_history') is True
         assert ds.runs_on_rest_day('fund_nav') is True
         assert ds.runs_on_rest_day('position_price') is True
+        # 预估→正式对照（#2142）：周末 fund_nav 补昨日净值后，周六晨间即可对照周五预估
+        assert ds.runs_on_rest_day('fund_valuation_reconcile') is True
         # 温度 / 指数估值 / 投顾：休市确实无新数据可抓
         assert ds.runs_on_rest_day('temperature') is False
         assert ds.runs_on_rest_day('index_valuation') is False

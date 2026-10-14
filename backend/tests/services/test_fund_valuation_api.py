@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
-"""#2141 收盘估值定格端点契约测试。
+"""#2141/#2142 收盘估值定格端点契约测试。
 
-锁定三件事：
+锁定四件事：
 1. 路由与响应信封符合 AGENTS.md 接口契约（{data, message}，成功无 error_code）；
 2. date / fund_code 过滤生效；日期非法回 400 + error_code 1001；
-3. 需登录：AUTH_ENABLED 强制模式下无 token 访问回 401。
+3. 需登录：AUTH_ENABLED 强制模式下无 token 访问回 401；
+4. 对照三列契约（#2142）：estimated 行三列为 null，confirmed 行有值。
 """
 
 from datetime import date
+
+import pytest
 
 from app.domains.funds.models import FundValuationDaily
 
@@ -78,3 +81,43 @@ class TestFundValuationEndpoint:
         monkeypatch.setenv('AUTH_ENABLED', 'true')
         resp = client.get('/api/summary/fund-valuation/')
         assert resp.status_code == 401
+
+
+class TestReconcileFields:
+    """#2142 对照三列的 API 契约。"""
+
+    def test_estimated_row_has_null_official_fields(self, client, db):
+        """estimated 行：official_nav / deviation / deviation_pct 键存在且为 null"""
+        _seed(db, est_date=date(2026, 10, 13))
+        resp = client.get('/api/summary/fund-valuation/?date=2026-10-13')
+        assert resp.status_code == 200
+        row = resp.get_json()['data'][0]
+        assert row['status'] == 'estimated'
+        assert row['official_nav'] is None
+        assert row['deviation'] is None
+        assert row['deviation_pct'] is None
+
+    def test_confirmed_row_has_official_fields(self, client, db):
+        """confirmed 行：三列有值（对照 job 落库后的形态）"""
+        db.add(
+            FundValuationDaily(
+                fund_code='000001',
+                est_date=date(2026, 10, 13),
+                estimated_nav='1.234567',
+                change_pct='0.56',
+                source='tiantian_gsz',
+                source_time='2026-10-13 15:00',
+                status='confirmed',
+                official_nav='1.230000',
+                deviation='0.004567',
+                deviation_pct='0.3713',
+            )
+        )
+        db.commit()
+        resp = client.get('/api/summary/fund-valuation/?date=2026-10-13')
+        assert resp.status_code == 200
+        row = resp.get_json()['data'][0]
+        assert row['status'] == 'confirmed'
+        assert row['official_nav'] == pytest.approx(1.23)
+        assert row['deviation'] == pytest.approx(0.004567)
+        assert row['deviation_pct'] == pytest.approx(0.3713)
