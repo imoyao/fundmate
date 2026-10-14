@@ -6,7 +6,9 @@ import SectionHeader from "@/components/SectionHeader/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import {
   getProductTrend,
+  getTradeTimeline,
   type ProductTrendResult,
+  type TradeTimelineResult,
   type TrendRange
 } from "@/api/products";
 import {
@@ -35,12 +37,27 @@ import {
  *   「区块整体不渲染」（设计 §6 降级规则）。判据取后端 `kind` 而非在前端镜像
  *   一份「哪些品类没序列」的类型清单——后端 `product_trend._NO_SERIES_TYPES`
  *   是权威，前端不复制它。
+ *
+ * ## 买卖点 / 成本线叠加（#2171）
+ *
+ * - **首版只叠场外净值线**：买卖点与成本线都是「元/份」的日序列，与净值曲线同构；
+ *   场内 K 线是未复权价格且 tooltip 为 cross 模式，叠加属另一套坐标语义，留 P1；
+ * - **取色避开 rise/fall**：买卖点不是涨跌语义，红绿会让「我买过」被误读成「涨了」。
+ *   蓝（info）三角朝上=买入、橙（warning）三角朝下=卖出、中性灰虚线=成本线——
+ *   形状主编码，色弱用户也能分辨；
+ * - **同日多笔聚合**为一个点（金额合计 + 笔数），tooltip 显示「N 笔合计」；
+ * - **成本线前向填充**：非交易日延续前值，首笔交易前为 null 不画，清仓日断在最后一笔；
+ * - **时间线不分区间**：后端一次返回全量重放结果，前端按当前区间过滤展示；
+ * - 拉取失败 / 未持有 → 静默不渲染叠加层，主曲线不受影响（设计 §6）。
  */
 
 const props = defineProps<{
   symbol: string;
   /** 品类：由 #1963 resolve 判定后回传，后端据此选收盘价 / 净值口径 */
   assetType?: string;
+  /** 当前家庭是否持有该产品（详情页 resolve 回传）。仅持有时拉交易时间线——
+      流水是私有数据，未持有用户发请求只会拿到空结构，还多一次往返（#2104 同款教训）。 */
+  hasPosition?: boolean;
 }>();
 
 const RANGE_OPTIONS: { label: string; value: TrendRange }[] = [
@@ -84,6 +101,121 @@ const hasVolume = computed(
 
 const candleCloses = computed(() =>
   (trend.value?.ohlc ?? []).map(o => o.close)
+);
+
+// ── 买卖点 / 成本线叠加（#2171）────────────────────────────────────
+/**
+ * 交易时间线（私有数据，仅持有时拉）。
+ *
+ * 未登录 / 无流水后端返回**同构空结构**（points/cost_line 为空数组），
+ * 因此这里只判 `points.length`，不分支解析；拉取失败静默降级——
+ * 叠加层是增量信息，主曲线不因为它挂掉（设计 §6 诚实降级）。
+ */
+const timeline = ref<TradeTimelineResult | null>(null);
+
+/** 叠加层开关：默认开（「我买在了哪」是买方核心诉求），信息过载时可关 */
+const showMarkers = ref(true);
+
+async function loadTimeline() {
+  if (!props.symbol || props.hasPosition !== true) {
+    timeline.value = null;
+    return;
+  }
+  try {
+    const res = await getTradeTimeline({ symbol: props.symbol });
+    timeline.value = res.data;
+  } catch {
+    timeline.value = null;
+  }
+}
+
+// 时间线不分区间（全量重放），symbol / 持有状态变化才重拉
+watch(() => [props.symbol, props.hasPosition], loadTimeline, {
+  immediate: true
+});
+
+/** 日期 → 净值：买卖点画在当日净值位置（用户实际按净值成交，#2171 定稿） */
+const navByDate = computed(() => {
+  const m = new Map<string, number>();
+  const dates = trend.value?.dates ?? [];
+  const values = trend.value?.values ?? [];
+  dates.forEach((d, i) => m.set(d, values[i]));
+  return m;
+});
+
+/**
+ * 买卖点 scatter 数据。
+ *
+ * **同日多笔按方向聚合**（金额合计、笔数计数）——不合并会两个点重叠成一个，
+ * tooltip 也说不清「那天到底操作了几笔」。区间外的交易日（point.date 不在
+ * trend.dates 里）直接丢弃：曲线没画到那天，点画上去是悬空的。
+ */
+const markerData = computed(() => {
+  const nav = navByDate.value;
+  type MarkerMeta = {
+    side: "buy" | "sell";
+    date: string;
+    y: number;
+    amount: number;
+    count: number;
+    closed: boolean;
+    confirm: string | null;
+    account: string | null;
+  };
+  const agg = new Map<string, MarkerMeta>();
+  for (const p of timeline.value?.points ?? []) {
+    const y = nav.get(p.date);
+    if (y === undefined || !Number.isFinite(y)) continue;
+    const key = `${p.side}@${p.date}`;
+    const cur =
+      agg.get(key) ??
+      ({
+        side: p.side,
+        date: p.date,
+        y,
+        amount: 0,
+        count: 0,
+        closed: false,
+        confirm: p.confirm_date,
+        account: p.account_name
+      } as MarkerMeta);
+    cur.amount += p.amount_yuan;
+    cur.count += 1;
+    cur.closed = cur.closed || p.closed;
+    agg.set(key, cur);
+  }
+  const buy: Array<{ value: [string, number] } & MarkerMeta> = [];
+  const sell: Array<{ value: [string, number] } & MarkerMeta> = [];
+  for (const meta of agg.values()) {
+    const item = { value: [meta.date, meta.y] as [string, number], ...meta };
+    (meta.side === "buy" ? buy : sell).push(item);
+  }
+  return { buy, sell };
+});
+
+/** 成本线：cost_line 前向填充到区间每一天（非交易日延续前值；首笔交易前为 null 不画） */
+const costSeriesData = computed(() => {
+  const m = new Map(
+    (timeline.value?.cost_line ?? []).map(c => [c.date, c.cost_yuan])
+  );
+  let last: number | null = null;
+  return (trend.value?.dates ?? []).map(d => {
+    if (m.has(d)) last = m.get(d) ?? null;
+    return last;
+  });
+});
+
+/** 叠加层是否有效：开关开着 + 有交易点 + 场外净值线（首版不叠 K 线，见组件头注释） */
+const markersActive = computed(
+  () =>
+    showMarkers.value &&
+    !isCandle.value &&
+    markerData.value.buy.length + markerData.value.sell.length > 0
+);
+
+/** 有交易点（决定开关可不可见；与 markersActive 的区别是不受开关自身影响） */
+const hasMarkers = computed(
+  () => markerData.value.buy.length + markerData.value.sell.length > 0
 );
 
 /**
@@ -233,8 +365,43 @@ const chartOption = computed(() => {
   // **不平滑**：平滑会画出实际不存在的峰谷，价格序列上那是失真（#1969）。
   const rising = values.length >= 2 && values[values.length - 1] >= values[0];
   const lineColor = rising ? rise : fall;
+  // 叠加层取色刻意避开 rise（红）/ fall（绿）：买卖点不是涨跌语义，
+  // 涂红涂绿会让用户把「我买过」误读成「涨了」。蓝=买入、橙=卖出、
+  // 中性灰虚线=成本线——与净值曲线（动态涨跌色）三层不打架（#2171 定稿）。
+  const markerBuyColor = getCssVar(CHART_TOKENS.info, "#409eff");
+  const markerSellColor = getCssVar(CHART_TOKENS.warning, "#e6a23c");
+  const costLineColor = getCssVar(CHART_TOKENS.textTertiary, "#9aa0a6");
+
+  /** 轴触发 tooltip：净值行 + 当日成本线 + 当日买卖汇总（#2171）。
+      同日多笔在 markerData 已聚合，这里直接显示「N 笔合计」。 */
+  const tooltipFormatter = (params: Array<Record<string, unknown>>) => {
+    if (!params?.length) return "";
+    const date = String(params[0].axisValue ?? "");
+    const rows: string[] = [`<b>${date}</b>`];
+    for (const p of params) {
+      const data = (p.data ?? {}) as Record<string, unknown>;
+      const seriesName = String(p.seriesName ?? "");
+      if (p.seriesType === "scatter") {
+        const amount = Number(data.amount ?? 0).toFixed(2);
+        const count = Number(data.count ?? 1);
+        const merged = count > 1 ? `（${count} 笔合计）` : "";
+        const confirm = data.confirm ? `<br/>确认日 ${data.confirm}` : "";
+        const closed = data.closed ? " · 当日清仓" : "";
+        rows.push(
+          `${p.marker ?? ""}${seriesName}${merged}：¥${amount}${closed}${confirm}`
+        );
+      } else {
+        const v = Array.isArray(p.value) ? Number(p.value[1]) : Number(p.value);
+        rows.push(
+          `${p.marker ?? ""}${seriesName}：${Number.isFinite(v) ? v.toFixed(4) : "—"}`
+        );
+      }
+    }
+    return rows.join("<br/>");
+  };
+
   return {
-    tooltip: { trigger: "axis" },
+    tooltip: { trigger: "axis", formatter: tooltipFormatter },
     grid: { left: 52, right: 16, top: 16, bottom: 28 },
     xAxis: {
       type: "category",
@@ -250,13 +417,53 @@ const chartOption = computed(() => {
     },
     series: [
       {
+        name: "净值",
         type: "line",
         data: values,
         smooth: false,
         symbol: "none",
         lineStyle: { color: lineColor, width: 2 },
         areaStyle: { color: hexToRgba(lineColor, 0.08) }
-      }
+      },
+      // 成本线（#2171）：移动加权（含手续费），非交易日前向延续；清仓日断在
+      // 最后一笔（costSeriesData 在首笔前为 null，天然不画）。虚线 + 中性灰，
+      // 与净值曲线（实线 + 涨跌色）形态分层，不抢主视觉。
+      ...(markersActive.value
+        ? [
+            {
+              name: "成本线",
+              type: "line",
+              data: costSeriesData.value,
+              symbol: "none",
+              smooth: false,
+              lineStyle: { color: costLineColor, width: 1, type: "dashed" }
+            }
+          ]
+        : []),
+      // 买卖点：三角朝上=买入、朝下=卖出（形状主编码，色弱用户也能分辨）
+      ...(markersActive.value
+        ? [
+            {
+              name: "买入",
+              type: "scatter",
+              data: markerData.value.buy,
+              symbol: "triangle",
+              symbolSize: 9,
+              itemStyle: { color: markerBuyColor },
+              z: 5
+            },
+            {
+              name: "卖出",
+              type: "scatter",
+              data: markerData.value.sell,
+              symbol: "triangle",
+              symbolRotate: 180,
+              symbolSize: 9,
+              itemStyle: { color: markerSellColor },
+              z: 5
+            }
+          ]
+        : [])
     ]
   };
 });
@@ -298,6 +505,16 @@ watch(range, load);
           size="small"
           ariaLabel="切换走势区间"
         />
+        <!-- 买卖点 / 成本线开关（#2171）：有交易点才可开；关掉后只剩净值曲线。
+             默认开——「我买在了哪」是买方核心诉求；信息过载的用户可自行关闭。 -->
+        <el-checkbox
+          v-if="hasMarkers"
+          v-model="showMarkers"
+          size="small"
+          class="trend-section__marker-toggle"
+        >
+          买卖点
+        </el-checkbox>
       </template>
     </SectionHeader>
 
@@ -354,5 +571,10 @@ watch(range, load);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
+}
+
+/* 买卖点开关：与区间切换胶囊同处 action 槽，拉开间距不贴在一起 */
+.trend-section__marker-toggle {
+  margin-left: var(--space-2, 8px);
 }
 </style>

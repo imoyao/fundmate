@@ -608,6 +608,77 @@ export function getProductTrend(params: {
   );
 }
 
+/** 买卖点（#2171 · 走势叠加层）。锚 T 日（trade_date），确认日随点返回 */
+export interface TradePoint {
+  /** 交易日 YYYY-MM-DD（x 轴锚定用） */
+  date: string;
+  side: "buy" | "sell";
+  /** 成交金额（元） */
+  amount_yuan: number;
+  /** 份额（份） */
+  quantity: number;
+  /** 成交价（元） */
+  price_yuan: number;
+  /** 手续费（元） */
+  fee_yuan: number;
+  /** 确认日（悬浮展示；可能为 null） */
+  confirm_date: string | null;
+  account_name: string | null;
+  /** 该笔之后的成本线值（元）；清仓笔为 0 */
+  cost_after_yuan: number;
+  /** 该笔后清仓（成本线在此中断） */
+  closed: boolean;
+}
+
+/** 成本线一点：某交易日收盘后的持仓成本（元） */
+export interface CostLinePoint {
+  date: string;
+  cost_yuan: number;
+}
+
+export interface TradeTimelineSummary {
+  buy_count: number;
+  sell_count: number;
+  dividend_count: number;
+  total_buy_amount_yuan: number;
+  total_sell_amount_yuan: number;
+  total_fee_yuan: number;
+  first_trade_date: string | null;
+  last_trade_date: string | null;
+  current_quantity: number;
+  current_cost_yuan: number;
+  /** 成本均价（元/份）；空仓为 null */
+  current_avg_cost_yuan: number | null;
+  /** 未参与重放的流水数（拆分 / 兑付等，不静默丢弃） */
+  ignored_count: number;
+  ignored_types: Record<string, number>;
+}
+
+export interface TradeTimelineResult {
+  symbol: string;
+  points: TradePoint[];
+  cost_line: CostLinePoint[];
+  summary: TradeTimelineSummary;
+}
+
+/**
+ * 取持仓交易时间线（#2171 · 详情页走势叠加买卖点 / 成本线）。
+ *
+ * 私有数据：未登录 / 无持仓 / 无流水均返回空 points + 空 cost_line（结构不变），
+ * 调用方据 `points.length` 决定是否渲染叠加层，**不分支解析**。
+ * `ledger_id` 不传 = 全部账户合并（产品级视角，与产品级 XIRR 同源）。
+ */
+export function getTradeTimeline(params: {
+  symbol: string;
+  ledger_id?: number;
+}) {
+  return http.request<ApiResponse<TradeTimelineResult>>(
+    "get",
+    "/api/products/trade-timeline/",
+    { params }
+  );
+}
+
 /**
  * 投顾组合档案（#1975 · 详情页投顾组合区块）。字段名跟随后端/库的 snake_case 契约。
  *

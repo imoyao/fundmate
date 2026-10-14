@@ -198,6 +198,7 @@ watch(productRef, loadProduct, { immediate: true });
             id="nav-trend"
             :symbol="product.symbol"
             :asset-type="product.asset_type"
+            :has-position="product.has_position === true"
           />
 
           <!-- 交易记录（#2104）：与「我的持仓」同条件——仅当前持有时渲染。
