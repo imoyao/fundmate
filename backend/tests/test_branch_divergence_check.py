@@ -814,3 +814,105 @@ def test_merge_tree_args_are_left_right(mod, monkeypatch):
     got = seen.get('args')
     assert got is not None, '没有调到 merge-tree'
     assert got[-2:] == ['origin/main', 'origin/dev'], f'merge-tree 的参数顺序必须是 (left, right)；实际 {got}'
+
+
+# ---------------------------------------------------------------------------
+# 五、交叉合并下的**删除类违规**：`git cherry` 看得见，逐文件 blob 历史看不见
+#     （PR #181 冲突复盘，源 CNB #179）
+# ---------------------------------------------------------------------------
+
+
+def _mk_cross_merge_repo(tmp_path, name):
+    """造「交叉合并 + `left` 上纯删除」的仓库——本仓 #179 实测那种形态。
+
+        base ── main: merge dev ── main: 删除 a.txt（违规，绕过 dev）
+                 └─ dev: 加 d.txt ── dev: 再加 e.txt
+
+    合并之后 `main` 与 `dev` **互不包含**（都不是对方的祖先），`git diff` 也非空。
+    """
+    import os
+
+    repo = tmp_path / name
+    repo.mkdir()
+    env = {
+        'GIT_AUTHOR_NAME': 't',
+        'GIT_AUTHOR_EMAIL': 't@e',
+        'GIT_COMMITTER_NAME': 't',
+        'GIT_COMMITTER_EMAIL': 't@e',
+        'PATH': os.environ['PATH'],
+    }
+
+    def git(*args):
+        subprocess.run(['git', *args], cwd=repo, check=True, capture_output=True, env=env)
+
+    git('init', '-q', '-b', 'main')
+    (repo / 'a.txt').write_text('v1\n', encoding='utf-8')
+    (repo / 'keep.txt').write_text('keep\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '-m', 'base')
+
+    git('checkout', '-q', '-b', 'dev')
+    (repo / 'd.txt').write_text('dev\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '-m', 'dev-adds-d')
+
+    main_side = subprocess.run(['git', 'rev-parse', 'dev'], cwd=repo, capture_output=True, text=True).stdout.strip()
+    git('checkout', '-q', 'main')
+    git('merge', '-q', '--no-ff', main_side, '-m', 'release: merge dev')
+
+    # 违规：在 main 上**直接删掉** a.txt（`dev` 里它还在）
+    git('rm', '-q', 'a.txt')
+    git('commit', '-q', '-m', 'violation: 绕过 dev 在 main 上删文件')
+
+    # dev 再往前走 ⇒ 两侧互不包含
+    git('checkout', '-q', 'dev')
+    (repo / 'e.txt').write_text('more\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '-m', 'dev-adds-e')
+    return repo
+
+
+def test_cross_merge_deletion_on_left_is_red(mod, tmp_path):
+    """交叉合并下 `left` 上的**纯删除**必须报红 —— 这是逐文件 blob 法的盲区。
+
+    实测（PR #181 冲突复盘）：另一版实现遍历 `git diff --name-only` 的路径、再查
+    「`left` 侧该 blob 在 `right` 历史里出现过吗」。它只处理 `left` 侧**存在**的路径，
+    删除侧（`left:{path}` 解析失败）被 `continue` 跳过 ⇒ 给出「✅ 两侧内容一致」**假绿**。
+
+    本仓的判据是 `git cherry`（补丁等价），以**补丁**为单位，没有这个盲区。
+    这条用例把结论钉死在行为上：删一个 `right` 里还在的文件，**必须**是红灯。
+    """
+    repo = _mk_cross_merge_repo(tmp_path, 'del')
+    # 前提校验：确实是「互不包含」，才有意义
+    left_is_anc = subprocess.run(['git', 'merge-base', '--is-ancestor', 'main', 'dev'], cwd=repo).returncode == 0
+    right_is_anc = subprocess.run(['git', 'merge-base', '--is-ancestor', 'dev', 'main'], cwd=repo).returncode == 0
+    assert not left_is_anc and not right_is_anc, '本用例要求互不包含的交叉合并形态'
+
+    res = mod.compute('main', 'dev', str(repo))
+    content = res['content']
+    assert content['available'], content
+    assert content['has_only_left'], f'`main` 上那条删除是 `dev` 拿不到的改动，必须报红：{content}'
+    assert 'a.txt' in content['files'], f'要点名被删的路径：{content["files"]}'
+    assert mod.needs_red(res) is True, '纯删除是违规，必须判红'
+
+
+def test_content_ahead_uses_cherry_not_diff(mod, tmp_path, monkeypatch):
+    """钉住内容级判据**确实**调的是 `git cherry`，不是 `git diff` / `--find-object`。
+
+    为什么单开一条：上面那条只证明「结论对」，但**换个实现也可能碰巧对**。
+    这里直接记录 `_git` 收到的参数，把判据的形态钉在**真正执行 git 的那一行**
+    ——「判据必须有失败态」，换成 `diff` 或逐文件 blob 历史即失败。
+    """
+    seen = []
+    real = mod._git
+
+    def spy(args, cwd=None):
+        seen.append(list(args))
+        return real(args, cwd)
+
+    monkeypatch.setattr(mod, '_git', spy)
+    repo = _mk_cross_merge_repo(tmp_path, 'spy')
+    mod.content_ahead('main', 'dev', str(repo))
+
+    assert any(a and a[0] == 'cherry' for a in seen), f'内容级判据必须调 `git cherry`，实际调用：{seen}'
+    assert not any('--find-object' in ' '.join(a) for a in seen), '不得退回逐文件 blob 历史（交叉合并下漏报删除）'

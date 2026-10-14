@@ -448,12 +448,22 @@ python scripts/bridge/check_branch_divergence.py --report
 python scripts/bridge/check_branch_divergence.py --report --jobs-only
 ```
 
-### 判据：两层，任一层成立才红（2026-10-14 二次修正，源 CNB #179）
+### 判据（2026-10-14 定型，源 CNB #167 / #179）
+
+只认一件事：**`main` 有没有 `dev` 拿不到的代码**。判据说到底就是用户口径那句
+「CNB 的 `main` 不能有 `dev` 没有的**代码**」。
+
+**两个旧口径都产生过假红**，各修掉一层，值得都记下来 —— 它们看着都「挺对」：
+
+| 旧口径 | 为什么会误报 |
+|---|---|
+| ①「`main` 独有提交数 > 0 ⇒ 分叉」 | 发版 PR 必然给 `main` 留一个 merge commit，而它**不引入内容** ⇒ **每发一次版红一次** |
+| ②「`git diff main dev` 非空 ⇒ 分叉」 | `git diff` 是**双向**的。非空既可能是「`main` 有 `dev` 拿不到的」，也可能是「`dev` 更新、`main` 停在旧版」。本仓 2026-10-14 实测正是后者：7 个文件的 diff 全是 `main` **更旧**（numstat 里删除数远大于新增），一条「`main` 独有内容」都没有 |
+
+#### 三层判据（提交级 + 内容级；任一层成立才红）
 
 **先说结论**：本仓「发版滞后」是**正常态**（`dev` 一直在前进，`main` 停在上一发版点），
 **不得报红**。拿它当红灯喊久了，红灯就不再被人当真 —— 这比没有自检更坏。
-
-判据现在有两个层次：
 
 | 层 | 判据 | 红？ |
 |---|---|---|
@@ -466,6 +476,30 @@ python scripts/bridge/check_branch_divergence.py --report --jobs-only
 
 退出码：`0` 无新形态；`1` 有新形态；`2` **取不到分支**。
 （`2` 与「有新形态」分开：「分支不存在」与「判出问题」是两件事，混在一起就分不出是哪一种。）
+
+#### 内容级判据一定用 `git cherry`（补丁等价），**不得**用这两个
+
+两个看着都很对的替代实现，实测各有盲区，都被淘汰：
+
+- **`git diff main dev` 非空**：`diff` 是**双向**的 ⇒ 「`dev` 领先、`main` 停在旧版」
+  也非空。本仓 2026-10-14 实测 7 个文件的 diff 全是 `main` **更旧**，
+  一条「`main` 独有内容」都没有 ⇒ **假红**。
+- **逐文件 blob 历史**（`git log --find-object=<blob>`）：它遍历 `git diff --name-only`
+  的路径，只处理 `left` 侧**存在**的路径 ⇒ `left` 上**纯删除**的文件（`left:{path}`
+  解析失败）被跳过 ⇒ **假绿**。实测（`main` 合过 `dev` 后删掉一个 `dev` 里还在的文件、
+  `dev` 再前进）：`git cherry` 报 `+`（真违规），逐文件法给「✅ 两侧内容一致」。
+  回归网 `test_cross_merge_deletion_on_left_is_red` 与
+  `test_content_ahead_uses_cherry_not_diff` 把这条钉死。
+
+`git cherry` 以**补丁**为单位，没有上面两个盲区，且是一个判据直接回答被问的问题
+—— 不再拼「diff + 祖先关系」那条两步路。
+
+```bash
+git cherry <right> <left>   # 逐行 `+ <sha>`（right 缺这条改动）/ `- <sha>`（right 已有等价补丁）
+```
+
+- **没有 `+` 行** ⇒ `left` 的改动 `right` 全有 ⇒ 放行（发版滞后不算分叉）；
+- **有 `+` 行** ⇒ `left` 上有 `right` 拿不到的改动 ⇒ 红，并逐个列出 sha 与涉及路径。
 
 #### 两个「拿不到输入」都不得降级成正常（#171 / #179）
 
@@ -480,34 +514,6 @@ python scripts/bridge/check_branch_divergence.py --report --jobs-only
 都判成违规**。回归网 `test_classify_commit_release_uses_second_parent` 造了一个
 「第一父不是 `dev` 的祖先、第二父是」的发版合并，专门钉住这个方向。
 
-### 内容级为什么用 `git cherry`，不用 `git diff`（#179 实测踩到的坑）
-
-上一版用「`git diff <left> <right>` 非空 ⇒ `left` 有独有内容」。它在**交叉合并**后**假红**：
-
-```
-main 合过 dev@c76b7621，dev 又往前走了 2 个提交
-⇒ 两侧都不是对方的祖先（--is-ancestor 双向 false）
-⇒ 旧实现：非祖先 + diff 非空 ⇒ 报 ⚠️「main 有 7 个文件 dev 没有」
-```
-
-**实测这 7 个全是假阳性**：`git cherry dev main` **为空** —— `main` 上每一条提交
-都能在 `dev` 找到补丁等价的对应，`main` **一个字节的独有内容都没有**。
-diff 非空只是因为 `dev` **更靠前**，而「更靠前」在交叉合并下**不能**由「非祖先」推出来。
-
-所以内容级改用一个判据直接回答被问的问题：
-
-```bash
-git cherry <right> <left>   # 逐行 `+ <sha>`（right 缺这条改动）/ `- <sha>`（right 已有等价补丁）
-```
-
-- **没有 `+` 行** ⇒ `left` 的改动 `right` 全有 ⇒ 放行（发版滞后不算分叉）；
-- **有 `+` 行** ⇒ `left` 上有 `right` 拿不到的改动 ⇒ 红，并逐个列出 sha 与涉及路径。
-
-不再拼「diff + 祖先关系」那条两步路 —— 它要**两个判据同时成立**才敢放行，
-而交叉合并恰好卡在中间（都 false / 都非空）。回归网 `test_content_only_divergence_is_red`
-造出这个交叉合并形态，断言「diff 非空 **且** cherry 无 `+`」⇒ 必须绿
-（回退到 `git diff` 立刻红）。
-
 ### 辅助信号（仍会打印，供人看结构）
 
 - 两侧**互不包含**时说明「形态上是双向分叉，**是否报红看上两段判据**」；
@@ -515,6 +521,19 @@ git cherry <right> <left>   # 逐行 `+ <sha>`（right 缺这条改动）/ `- <s
 - ⚠️ **提交数不是判据**：交叉合并下两侧会「互不包含」而 `left` 其实零独有内容。
 
 `.cnb.yml` 里带 `|| true`——它是信号，不是门禁。
+
+#### 内容级的返回字段是契约（不准悄悄改）
+
+`content_ahead()` 返回 `{available, has_only_left, only_left_commits, files}`：
+
+- `available=False` ⇒ **判据不可用**（`git cherry` 取不到结果），调用方按红处理；
+- `has_only_left` ⇒ 有没有 `+` 行（判据的**唯一**结论）；
+- `only_left_commits` / `files` ⇒ 给报告点名用。
+
+旧实现那套「逐文件分别填 `files`（独有）/ `superseded`（停在旧版）」已随判据改为
+`git cherry` 一并删除 —— 那两个列表**语义互斥**、同时填会让同一路径出现在报告两处、
+**自相矛盾**（本仓 #123 时代 `list_side_only` 就踩过同型 bug）。现在只有一个结论字段，
+矛盾在结构上就不可能出现。
 
 ### 根因诊断：`--explain`（答「为什么分叉」，2026-10-11 补）
 

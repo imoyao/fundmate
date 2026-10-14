@@ -178,6 +178,20 @@ def content_ahead(left: str, right: str, cwd: str | None = None) -> dict:
     而交叉合并恰好卡在中间（都 false / 都非空）。`git cherry` 是一个判据、
     直接回答被问的那个问题。
 
+    ### 另一个曾考虑的判据：逐文件 blob 历史（`git log --find-object`）——也不可用
+
+    PR #181 冲突复盘时的实测：另一版实现遍历 `git diff --name-only` 的每个路径，
+    再问「`left` 侧那个 blob 在 `right` 历史里出现过吗」。它**同样在交叉合并下漏报真违规**：
+
+        `main` 合过 `dev` 后**删掉**了一个文件、`dev` 再往前走 ⇒
+        `git diff --name-only` 里那个文件是**删除侧**（`left:{path}` 解析失败），
+        实现把它 `continue` 跳过 ⇒ 判定「✅ 两侧内容一致」**假绿**，
+        而 `git cherry <right> <left>` 明确报 `+`（真违规）。
+
+    根因是判据的**取值域**被 `git diff` 的输出侧限定住了（只看 `left` 侧存在的路径），
+    删除类改动天然落在域外。`git cherry` 以**补丁**为单位，没有这个盲区，
+    故内容级一律用它 —— 这也是「拿不到输入（该路径在 left 不存在）不得退化成正常」的落实。
+
     取不到 git 结果时返回 `available=False` 表示**判据不可用**——**不猜、不降级成「正常」**
     （否则又是「拿不到输入 = 输入为空」，见 #171）。
     """
@@ -517,9 +531,14 @@ def build_report(res: dict) -> str:
             f'✅ **`{left}` 没有 `{right}` 拿不到的改动**'
             f'（`git cherry {right} {left}` 无 `+` 行：`{left}` 上每条提交都在 `{right}` 有补丁等价的对应）。'
         )
-        if content.get('files'):
-            # 兼容旧字段：不该出现（cherry 无 + 时 files 为空），出现即说明实现漂了。
-            lines.append(f'（注：拿到了非空文件清单 {content.get("files")} —— 与 `+` 行为空矛盾，请查实现。）')
+        # 绿灯要说清**是哪一种绿灯**：`left` 停在旧版（`right` 领先）是正常滞后，
+        # 与「两侧完全一致」不是一回事。少了这句，读者看到绿也答不出「那我还要不要发版」。
+        # 判据本身只认 `git cherry`；这里**只做措辞**，不引入第二个判据（避免又拼出假红/假绿）。
+        if lo and ro:
+            lines.append(
+                f'`{left}` 停在上一发版点、`{right}` 领先 {ro} 个提交 —— 这是正常滞后，'
+                f'**不是**「`{left}` 有独有内容」。'
+            )
 
     # ---- 结构级（提交数，补充） ----
     lines += ['', '### 结构级信号（提交数，补充信息）', '']
