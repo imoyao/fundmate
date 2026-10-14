@@ -24,7 +24,7 @@ import type { ProductResolveResult } from "@/api/products";
  *
  * ## 锚点从哪来：DOM 存在性过滤，而不是静态清单
  * 区块是否渲染由各组件自己决定（走势对 manager 整卡不渲染、持仓明细无披露数据时
- * 不渲染、第三方数据无链接时不渲染……）。静态清单必然长出死链——点一下原地不动。
+ * 不渲染、更多数据无链接时不渲染……）。静态清单必然长出死链——点一下原地不动。
  * 故导航项 = 扫描容器里真实存在的 `nav-` 锚点，按 DOM 序出列表；
  * 异步到位的区块（持仓明细要等一次请求）由 MutationObserver 补扫。
  * 代价：新增区块若忘了挂锚点，导航里就没有它——用 DEV 告警兜底（见 scan）。
@@ -46,7 +46,7 @@ import type { ProductResolveResult } from "@/api/products";
  *   实际位移为准续期，真实停摆才强制收尾；
  * - **pin 活到用户接管为止**：停稳后高亮不「终算一次」——maxScroll 截断
  *   下点倒数第二项会滚到底，此时触底兜底会把高亮改写成最后一项（实测：
- *   点「关联标的」高亮跑「第三方数据」）。故 goTo 的意图（pinnedId）在
+ *   点「关联标的」高亮跑「更多数据」）。故 goTo 的意图（pinnedId）在
  *   用户自行滚动 / 布局变化前持续有效，触底兜底只作用于无 pin 的
  *   自然滚动；
  * - **触底时当前项 = 最后一项**（仅无 pin 时）：maxScroll 截断下最后一项
@@ -73,7 +73,7 @@ const NAV_LABELS: Record<string, string> = {
   "nav-advisor": "投顾组合",
   "nav-bond": "深度分析",
   "nav-related": "关联标的",
-  "nav-external": "第三方数据"
+  "nav-external": "更多数据"
 };
 
 const ANCHOR_PREFIX = "nav-";
@@ -231,7 +231,7 @@ let anim: NavAnim | null = null;
 
 /** 显式跳转意图：goTo 的目标。停稳后不「终算一次」释放——maxScroll 截断下
  *  点击项可能被压在视口外（点倒数第二项滚到底），此时高亮必须留在点击项上，
- *  而不是被触底兜底改写成最后一项（实测：点「关联标的」高亮跑「第三方数据」）。
+ *  而不是被触底兜底改写成最后一项（实测：点「关联标的」高亮跑「更多数据」）。
  *  清除时机只有四种：用户自行滚动（滚轮 / 触摸 / 滚动键 / 拖滑块）、视口
  *  变化、品类切换、目标卸载。 */
 let pinnedId: string | null = null;

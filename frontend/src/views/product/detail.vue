@@ -306,7 +306,7 @@ watch(productRef, loadProduct, { immediate: true });
             :bond-code="product.symbol"
           />
 
-          <!-- 第三方数据（#1969）：我们不做行情终端——资金流 / 盘口 / 财务这类深度数据
+          <!-- 更多数据（#1969）：我们不做行情终端——资金流 / 盘口 / 财务这类深度数据
                交给专业站，「深度研究」外包出去比半吊子自建更诚实。品类无对应站点时
                该卡自己不渲染（见 ProductExternalLinksSection）。 -->
           <ProductExternalLinksSection
