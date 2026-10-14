@@ -559,14 +559,31 @@ def save_state(state: dict[str, Any]) -> None:
 def harvest_existing(state: dict[str, Any]) -> set[int]:
     """收集 CNB 侧已存在的镜像卡对应的 GitHub 编号。
 
-    状态文件里有映射的直接信它；没有的（首次运行、或别人手工建的镜像卡）
-    逐张拉正文抠 `GitHub 编号：#N`，并把结果写回状态文件，下次就不必再拉。
+    ⚠️ **必须每次真扫 CNB 侧，不得拿状态文件当前置短路**（CNB #450，2026-10-14）。
+
+    旧版在 `known` 非空时**直接 return**，把状态文件当成了「已镜像集合」的全集。
+    但它是**一份缓存、而且是不全的缓存**：
+
+      - 它只在**建卡成功的那条路径**里被写入（`run()` 里建一张写一条），
+        历史上任何一次「卡建出来了、state 没落盘」（构建被中断 / `save_state` 抛错 /
+        Web 端手工建卡）都不会补记；
+      - CNB 侧的卡还会被**人工**创建或调整，它们同样不在缓存里；
+      - 于是「缓存里有 1 条 ⇒ 判定整个 CNB 侧已镜像完毕」这个推论是**错的**。
+
+    实测后果（2026-10-14）：缓存里 107 条（首轮全量同步那批，CNB #5~#112）冻结了三天，
+    而 CNB 侧已有 365 张镜像卡 ⇒ 之后每一轮 cron / push 都把 ~140 张 GitHub 卡**再建一遍**，
+    累计产生 **224 张重复卡**（CNB #164~#447，同一 GitHub 编号最多 11 张）。  # cross-repo-ref-allow
+    建卡是**幂等键判重**的，判重依据却停在一份不全会话的缓存上 —— 幂等就失效了。
+
+    现在的口径：**缓存只是索引，CNB 实况才是判据**。两者取并集，
+    且扫描结果回写缓存（只用于加速与审计，不再是信任边界）。
+
+    扫描成本：CNB 列表接口 100/页，逐张拉详情抠幂等键。实测 365 张镜像卡
+    约 370 次请求，可接受 —— 相比「重复建 140 张卡」的代价，这个成本必须付。
     """
     mirrored: dict[str, Any] = state.setdefault('mirrored', {})
     # 状态文件的键就是 GitHub 编号（str），值只存 CNB 编号与标题快照。
-    known = {int(k) for k in mirrored if str(k).isdigit()}
-    if known:
-        return known
+    cached = {int(k) for k in mirrored if str(k).isdigit()}
 
     existing = list_cnb_issues('open') + list_cnb_issues('closed')
     mirror_cards = [
@@ -574,8 +591,12 @@ def harvest_existing(state: dict[str, Any]) -> set[int]:
         for it in existing
         if any((lb.get('name') if isinstance(lb, dict) else lb) == MIRROR_LABEL for lb in (it.get('labels') or []))
     ]
-    print(f'🔍 CNB 侧已有镜像卡 {len(mirror_cards)} 张，逐张读取 GitHub 编号…')
+    print(
+        f'🔍 CNB 侧 {len(existing)} 张卡中有镜像卡 {len(mirror_cards)} 张，逐张读取 GitHub 编号…'
+        f'（状态文件缓存 {len(cached)} 条，**只作索引、不作为已镜像全集**）'
+    )
 
+    seen: set[int] = set()
     for card in mirror_cards:
         try:
             detail = get_cnb_issue(int(card['number']))
@@ -583,9 +604,14 @@ def harvest_existing(state: dict[str, Any]) -> set[int]:
             print(f'  ⚠️ 读取 CNB #{card["number"]} 失败，跳过：{exc}')
             continue
         gh = extract_github_number(detail.get('body'))
-        if gh:
-            mirrored[str(gh)] = {'cnb': int(card['number']), 'title': card['title'][:80]}
-    return {int(k) for k in mirrored if str(k).isdigit()}
+        if not gh:
+            continue
+        seen.add(gh)
+        mirrored[str(gh)] = {'cnb': int(card['number']), 'title': card['title'][:80]}
+
+    # 并集：缓存里有、CNB 侧已找不到的也保留（可能只是本轮读取失败），
+    # **宁可漏建也不重复建** —— 漏建能被下一轮扫描补上，重复建会污染看板且不可逆。
+    return cached | seen
 
 
 # ---------------------------------------------------------------------------
