@@ -18,6 +18,7 @@ from app.services.fund_risk_metrics import (
     current_drawdown,
     detect_jumps,
     drawdown_series,
+    shape_gain,
     shape_gain2,
     ulcer_index,
     win_rate,
@@ -434,3 +435,178 @@ def test_shape_gain2_respects_as_of():
     assert full is not None and truncated is not None
     assert full['shape_gain2'] != truncated['shape_gain2']
     assert truncated['segments'] != full['segments']
+
+
+# ── 拟涨幅（原版 · #167 收尾）────────────────────────────────────────────────
+
+
+def _monthly_gain_curve(gain_months):
+    """构造原文 §1 的 9 条特例曲线之一：12 个月里只在 ``gain_months`` 内均匀涨 100%。
+
+    位置设「当前为 12 月底」：第 m 月的月度末净值进序列；起点（年初）= 1.0。
+    """
+    v = 1.0
+    navs = [1.0]
+    for m in range(1, 13):
+        if m in gain_months:
+            v *= 2 ** (1.0 / len(gain_months))
+        navs.append(v)
+    # 月度末按「当前日往前推 (12-m) 个 30 天」定位，使 30/90/180 三个窗口恰好落在
+    # 对应的月度末上。**年初那一点必须 ≥365 天**，否则 365 窗口取不到点 ⇒ 整指标
+    # 不出值（这正是「历史不足一年 ⇒ None」的判据，不该被测试数据触发）。
+    end = date(2021, 12, 31)
+    pts = [(end - timedelta(days=30 * (12 - i)), nav) for i, nav in enumerate(navs)]
+    pts.insert(0, (end - timedelta(days=366), navs[0]))  # 补一个一年前的锚点
+    return pts
+
+
+#: 原文 §1 的 9 条曲线：均涨 100%、起点终点相同，仅「涨在哪几个月」不同。
+_SOURCE_CURVES = {
+    '基金1': list(range(1, 7)),  # 前 6 月
+    '基金2': list(range(1, 10)),  # 前 9 月
+    '基金3': list(range(1, 12)),  # 前 11 月
+    '基金4': list(range(1, 13)),  # 全年均匀
+    '基金5': list(range(7, 13)),  # 后 6 月
+    '基金6': list(range(10, 13)),  # 后 3 月
+    '基金7': [12],  # 最后 1 月
+    '基金8': [7, 8, 9],  # 三季度
+    '基金9': [10, 11],  # 四季度前 2 月
+}
+
+
+def _rank_desc(scores):
+    return [name for name, _v in sorted(scores.items(), key=lambda kv: -kv[1])]
+
+
+def test_shape_gain_matches_source_ranking():
+    """**口径正确性的硬判据**：复算原文 9 条特例曲线的排位，逐位一致。
+
+    原文（见基行事《拟涨幅》，K 定义与公式为图片，已 OCR 复原）给出的总排位是：
+        基金7>基金6>基金9>基金5>基金8>基金4>基金3>基金2>基金1
+    权重取原文示例（给 r4 更高权重）：0.1 / 0.2 / 0.3 / 0.4。
+
+    这条不是「跑通」，是「和作者用同一组数得同一个序」——K 系数、几何平均、
+    权重方向（哪头是近一月）任一处理错，排位都会变。
+    """
+    scores = {}
+    for name, months in _SOURCE_CURVES.items():
+        out = shape_gain(_monthly_gain_curve(months))
+        assert out is not None, f'{name} 应出值'
+        scores[name] = out['shape_gain']
+    assert _rank_desc(scores) == [
+        '基金7',
+        '基金6',
+        '基金9',
+        '基金5',
+        '基金8',
+        '基金4',
+        '基金3',
+        '基金2',
+        '基金1',
+    ]
+
+
+def test_shape_gain2_matches_source_ranking():
+    """拟涨幅2 复算原文**第二条**排位，逐位一致（与上一条同为硬判据）。
+
+    原文第二条排位：基金7>基金9>基金6>基金5>基金8>基金4>基金3>基金2>基金1
+    （与第一条的区别：基金6 与基金9 交换位置）。
+    """
+    scores = {}
+    for name, months in _SOURCE_CURVES.items():
+        out = shape_gain2(_monthly_gain_curve(months))
+        assert out is not None, f'{name} 应出值'
+        scores[name] = out['shape_gain2']
+    assert _rank_desc(scores) == [
+        '基金7',
+        '基金9',
+        '基金6',
+        '基金5',
+        '基金8',
+        '基金4',
+        '基金3',
+        '基金2',
+        '基金1',
+    ]
+
+
+def test_shape_gain_matches_closed_form_on_steady_growth():
+    """匀速增长下有**闭式解**，用它钉住「几何平均 + K 归一化」的算式。
+
+    设日增 g，则 d 天窗口的涨幅 r_d = (1+g)^d − 1，K 归一化后
+    1 + k_d·r_d = 1 + (d/365)·((1+g)^d − 1)。权重全 1 时结果即这四个因子的
+    几何平均。这不是「随便对个数字」——闭式解由公式定义直接推出，
+    几何平均写成算术平均、K 取错（如全取 1）、权重方向反了都会让它偏掉。
+    """
+    g = 0.0005  # 日增 0.05%
+    pts = _daily_flat_return_series(0.05, days=400)
+    out = shape_gain(pts, weights=[1, 1, 1, 1])
+    assert out is not None
+    expected = 1.0
+    for d, k in zip((30, 90, 180, 365), (1 / 12, 0.25, 0.5, 1.0)):
+        r = (1 + g) ** d - 1
+        expected *= 1 + k * r
+    expected = expected**0.25  # 四个因子、权重全 1 ⇒ 四次方根
+    assert out['shape_gain'] == pytest.approx((expected - 1) * 100, abs=0.01)
+
+
+def test_shape_gain_weights_scale_invariant():
+    """权重**同比例缩放不影响结果**（几何平均已按 Σw 归一化）。
+
+    这是「权重和不必凑 100%」的判据（参考站也是这么做的：拖完滑块点“等比缩放到 100%”
+    只是显示方便）。若实现漏了 Σw 归一化，本用例必红。
+    """
+    pts = _daily_flat_return_series(0.03, days=400)
+    a = shape_gain(pts, weights=[0.1, 0.2, 0.3, 0.4])
+    b = shape_gain(pts, weights=[1, 2, 3, 4])
+    assert a is not None and b is not None
+    assert a['shape_gain'] == pytest.approx(b['shape_gain'], abs=1e-6)
+
+
+def test_shape_gain_k_normalizes_to_annual():
+    """K 把窗口涨幅折成年频：**只有近 1 月涨 10%** 与「只有近 1 年涨 X%」等价当且仅当
+    X 由 k 归一化给出。
+
+    构造两个序列并比较其 r1·k1 与 r4·k4 是否同量级（K 的立法意图）。
+    若 K 被误设为全 1（不归一化），1 个月的 10% 会被当作 1 年的 10%（低估近端）。
+    """
+    out = shape_gain(_daily_flat_return_series(0.05, days=400))
+    assert out is not None
+    assert out['k'] == [pytest.approx(1 / 12), pytest.approx(0.25), pytest.approx(0.5), pytest.approx(1.0)]
+
+
+def test_shape_gain_needs_full_year():
+    """历史不足一年 ⇒ None（与拟涨幅2 同一条诚实降级）。"""
+    assert shape_gain(_daily_flat_return_series(0.05, days=100)) is None
+
+
+def test_shape_gain_flat_nav_yields_zero():
+    out = shape_gain(_flat(400))
+    assert out is not None
+    assert out['shape_gain'] == pytest.approx(0.0, abs=1e-6)
+
+
+def test_shape_gain_rejects_bad_weights():
+    """非法权重**抛错**而不是静默夹值——一个被悄悄改过的权重会让指标
+    看着正常、实则不是用户要的口径。"""
+    pts = _daily_flat_return_series(0.02, days=400)
+    with pytest.raises(ValueError):
+        shape_gain(pts, weights=[1, 1, 1])
+    with pytest.raises(ValueError):
+        shape_gain(pts, weights=[0, 1, 1, 1])
+    with pytest.raises(ValueError):
+        shape_gain(pts, weights=[-1, 1, 1, 1])
+
+
+def test_shape_gain_respects_as_of():
+    """`as_of` 之后的点不参与（用非恒定增长序列，避免恒等式假绿）。"""
+    D = date(2020, 1, 1)
+    values = [1.0]
+    for i in range(1, 801):
+        step = 0.002 if i <= 400 else 0.0
+        values.append(values[-1] * (1 + step))
+    pts = [(D + timedelta(days=i), v) for i, v in enumerate(values)]
+    full = shape_gain(pts)
+    truncated = shape_gain(pts, as_of=pts[-61][0])
+    assert full is not None and truncated is not None
+    assert full['shape_gain'] != truncated['shape_gain']

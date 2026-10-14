@@ -29,6 +29,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -310,10 +311,39 @@ def win_rate(
     return round(ups / len(rets) * 100, 2)
 
 
-# ── 拟涨幅2（#167 收尾 · 参考源自创指标）────────────────────────────────────────
+# ── 拟涨幅 / 拟涨幅2（#167 收尾 · 参考源自创指标）──────────────────────────────
 #
-# 口径与出处（源 CNB #167，原文「拟涨幅」的再次讨论，逐字核对）：
+# 两个指标共用**同一组窗口**（近 1 月 / 3 月 / 6 月 / 1 年的滚动涨幅 r1..r4）
+# 与**同一条取数口径**（自然日定位、不插值、历史不足整指标不出值）；区别只在合成方式：
 #
+#   拟涨幅  （原版）＝ 把各期涨幅用 K 归一化到年频后，做**加权几何平均**；
+#   拟涨幅2（剥离版）＝ 先把四期拆成**互不重叠**的四段，再按权重**加权连乘**。
+#
+# ── 口径出处（源 CNB #167；原文正文 + 实现站公式图，OCR 后逐字核对）──────────
+#
+# 原版「拟涨幅」（见基行事/金牛星空实装，公式为图片，已 OCR 复原）：
+#
+#   拟涨幅 = [ Π_{i=1..4} (1 + k_i · r_i)^{w_i} ] ^ (1 / Σ_{i=1..4} w_i)  − 1
+#
+#   其中 r1..r4 = 近1月/近3月/近6月/近1年的**收益率**；
+#       k_i = **时间归一化系数**（把各周期的涨幅统一到年频），取值表（原文标注
+#             「固定，不要改」）：
+#                 近1月  k1 = 1/12 ≈ 0.0833
+#                 近3月  k2 = 3/12 = 0.25
+#                 近6月  k3 = 6/12 = 0.5
+#                 近1年  k4 = 12/12 = 1
+#             —— 即 k_i = 该窗口长度（年）。用它把「近1月涨 5%」折成「年化 60%」，
+#             使四个不同频率的涨幅**可比**（否则 1 个月的 5% 与 1 年的 5% 被同等看待）。
+#       w_i = **用户权重**（任意正数，可拖动）；分母 Σw_i 是几何平均的归一化。
+#
+#   ⚠️ 是**加权几何平均**（连乘后开 Σw 次方），不是加权求和——与拟涨幅2 同理，
+#   乘法对应复利。权重同比例缩放时结果不变（Σw 归一化），故「权重和为 100%」不是必要约束。
+#
+#   **回归验证（不可省）**：原文用 9 条特例曲线（起点终点相同、均涨 100%，仅节奏不同）
+#   给出排位「基金7>基金6>基金9>基金5>基金8>基金4>基金3>基金2>基金1」。本实现
+#   复算该排位**逐位一致**（见测试 `test_shape_gain_matches_source_ranking`）。
+#
+# 拟涨幅2（剥离版）：
 #   1 月 / 3 月 / 6 月 / 1 年这四个**滚动涨幅**彼此**重叠**（近1年区间包含了近6月），
 #   直接加权等于把同一段行情数了多遍。故先把它们拆成四段**互不重叠**的收益：
 #       p1 = r1                                  （近 1 月这一段）
@@ -323,24 +353,76 @@ def win_rate(
 #   四段合起来正好是**一整年**，且不重不漏。
 #   2. 按「越近权重越高」加权（远→近 0.1 / 0.2 / 0.3 / 0.4，和为 1）：
 #       拟涨幅2 = (1+0.4·p1)(1+0.3·p2)(1+0.2·p3)(1+0.1·p4) − 1
+#   同样复算原文第二条排位「基金7>基金9>基金6>基金5>基金8>基金4>基金3>基金2>基金1」
+#   **逐位一致**。
 #
-#   ⚠️ 是**连乘**而非加权求和：乘法对应复利（先涨 50% 再跌 30% ≠ 净 20%），
-#   且保证「四段全 0 → 结果 0」与「单调性」两条性质。
-#
-# **为什么只实现「拟涨幅2」而不做原版「拟涨幅」**：原版要 K 值把不同周期的涨幅
-# 统一到年频，而**K 值的定义在可得的公开材料里查不到**（调研卡 §2/§6 均记为
-# 「K 系数需定义」，原文《自创指标："拟涨幅"》抓取只得到登录墙 stub）。
-# 按 data-strategy 的口径纪律，**不猜一个系数**——猜出来的 K 会让这个指标
-# 看起来有数、实际不可复核。故原版仍留在「待拍板」清单里。
+# **历史修订（留痕，勿删）**：早期结论曾记「原版拟涨幅的 K 系数在可得材料里查不到
+# 定义，故不实现」——该结论**已被推翻**。K 的定义确实不在正文（原文正文只写
+# 「用 K 值把不同频率统一到年频」），但它**在实现站的两张公式图里**（`拟涨幅 = …`
+# 与 `k_i 取值表`），OCR 后即得。教训：**「正文里没有」不等于「材料里没有」**，
+# 引用图片型公式前先 OCR，别把「抓不到正文」升格成「不存在」。
+
+
+def _rolling_window_navs(
+    series: Sequence[Tuple[date, float]],
+    spans: Tuple[int, ...],
+) -> Optional[Tuple[float, List[float]]]:
+    """取每个窗口起点的净值，返回 ``(期末净值, [各窗口起点净值...])``。
+
+    与 `fund_performance._interval_return` 同一手法：每个分界日取「≥ 该日的首个点」
+    （不插值、不就近取——净值只在发布日存在，插值出来的点是编的）。
+
+    ⚠️ **序列起点晚于窗口起点时必须回 None**（不是「退化取首点」）：成立才 3 个月的
+    基金，365 天前那个窗口若退化取首点，这段就变成了「成立以来」，与其它窗口口径
+    不一致 ⇒ 结果既不是「近一年」也不是「成立以来」，是个无意义却看着正常的数。
+    这正是「历史不足一年 ⇒ 整指标不出值」的判据所在。
+
+    取值规则（两处调用共享，**不要再各写一份**）：任一窗口取不到 ⇒ 返回 None。
+    """
+    first_date = series[0][0]
+    end_date, end_nav = series[-1]
+
+    def _nav_at(days_back: int) -> Optional[float]:
+        target = end_date - timedelta(days=days_back)
+        if first_date > target:
+            return None
+        for d, v in series:
+            if d >= target:
+                return v
+        return None
+
+    navs: List[Optional[float]] = [_nav_at(s) for s in spans]
+    if any(nav is None or nav <= 0 for nav in navs):
+        return None
+    return end_nav, [float(n) for n in navs]  # type: ignore[arg-type]
+
+
+#: 两个拟涨幅指标共用的窗口分界（自然日）。近 1 月 / 3 月 / 6 月 / 1 年，与参考站
+#: 「滚动收益率」的 20 / 60 / 120 / 250 交易日口径**不同**——此处按自然日定位起点，
+#: 因为净值是按自然日发布的序列；交易日口径会在长假前后漂移，而本指标的价值在于跨基金可比。
+SHAPE_GAIN_SPANS: Tuple[int, ...] = (30, 90, 180, 365)
+
+#: K 时间归一化系数（年），与 `SHAPE_GAIN_SPANS` 同序（近→远）。原文标注「固定，不要改」。
+#: 值 = 各窗口长度（年）：1/12、3/12、6/12、12/12。改它即改变口径，**必须同步
+#: `SHAPE_GAIN_BASIS`**。
+SHAPE_GAIN_K: Tuple[float, ...] = (1 / 12, 3 / 12, 6 / 12, 1.0)
+
+#: 原版拟涨幅的默认权重（近→远）。原文示例给 r4（近1年）更高权重，取 0.1/0.2/0.3/0.4。
+#: 同上：权重同比例缩放不影响结果（几何平均已按 Σw 归一化）。
+SHAPE_GAIN_WEIGHTS: Tuple[float, ...] = (0.1, 0.2, 0.3, 0.4)
+
+SHAPE_GAIN_BASIS = (
+    '近1月/3月/6月/1年四期滚动涨幅，各自经 K 归一化到年频（k=窗口长度年）后做加权几何平均；'
+    '权重近→远 ' + '/'.join(f'{w}' for w in SHAPE_GAIN_WEIGHTS) + '；不含无风险利率，跨类别不可直接比'
+)
 
 #: 拟涨幅2 的四段权重（远→近）。和为 1，改这里即改变口径，**必须同步更新
 #: `SHAPE_GAIN2_BASIS`**，否则随值下发的口径说明会与实现脱节。
 SHAPE_GAIN2_WEIGHTS: Tuple[float, ...] = (0.1, 0.2, 0.3, 0.4)
 
-#: 四段的分界（自然日）。近 1 月 / 3 月 / 6 月 / 1 年，与参考站「滚动收益率」的
-#: 20 / 60 / 120 / 250 交易日口径**不同**——此处按自然日定位起点，因为净值是
-#: 按自然日发布的序列；交易日口径会在长假前后漂移，而本指标的价值在于跨基金可比。
-SHAPE_GAIN2_SPANS: Tuple[int, ...] = (30, 90, 180, 365)
+#: 拟涨幅2 的段分界——与 `SHAPE_GAIN_SPANS` **同一组窗口**（两个指标共用 r1..r4），
+#: 别名而非另写字面量：分开写迟早会各改一处、两个指标悄悄比不同的东西。
+SHAPE_GAIN2_SPANS: Tuple[int, ...] = SHAPE_GAIN_SPANS
 
 SHAPE_GAIN2_BASIS = (
     '四段互不重叠的区间收益加权连乘（权重远→近 '
@@ -348,8 +430,93 @@ SHAPE_GAIN2_BASIS = (
     + '）；不含无风险利率，跨类别不可直接比'
 )
 
-#: 四段都要有足够样本，否则整指标不出值（诚实降级，不缩窗口凑数）。
-_SHAPE_GAIN2_MIN_POINTS = 5
+#: 两个拟涨幅指标共用的最小样本数：低于此值连四个窗口都定位不到，直接不出值。
+_MIN_SHAPE_GAIN_POINTS = 5
+
+
+def _shape_gain_ready(
+    points: Sequence[Tuple[date, Optional[float]]],
+    as_of: Optional[date],
+    spans: Tuple[int, ...],
+) -> Optional[Tuple[float, List[float]]]:
+    """两个拟涨幅共用的前置：清洗 → 截到 ``as_of`` → 取各窗口起点净值。
+
+    返回 ``(期末净值, [各窗口起点净值...])``，或 ``None``（样本不足 / 任一窗口取不到）。
+    把它抽出来是因为**两处调用共享同一条取数口径**——各写一份必然漂移。
+    """
+    series = _clean(points)
+    if as_of is not None:
+        series = [(d, v) for d, v in series if d <= as_of]
+    if len(series) < _MIN_SHAPE_GAIN_POINTS:
+        return None
+    return _rolling_window_navs(series, spans)
+
+
+def shape_gain(
+    points: Sequence[Tuple[date, Optional[float]]],
+    *,
+    as_of: Optional[date] = None,
+    weights: Optional[Sequence[float]] = None,
+) -> Optional[Dict[str, Any]]:
+    """拟涨幅（%，原版）：各期涨幅经 K 归一化到年频后的**加权几何平均**（见上方口径块）。
+
+    公式：``[Π (1 + k_i·r_i)^{w_i}]^{1/Σw_i} − 1``。K 把四个不同长度的窗口涨幅统一到
+    年频使其可比；权重 **同比例缩放不影响结果**（已按 Σw 归一化）。
+
+    Args:
+        points: 升序 ``(日期, 净值)``；非法点（None / ≤0）由内部剔除。
+        as_of: 计算基准日；默认取序列最后一点。**与技术面的现算路径共用同一业务日**，
+            避免同页两处数字差一天。
+        weights: 四期权重（近→远），默认 `SHAPE_GAIN_WEIGHTS`。任意正数；
+            非正 / 长度不符 / 和为零一律抛 ``ValueError``（**不静默夹到 0**——
+            一个被悄悄改过的权重会让指标看着正常、实则不是用户要的口径）。
+
+    Returns:
+        ``{'shape_gain', 'rolling', 'k', 'weights', 'basis'}``；历史不足一年
+        或任一窗口取不到 ⇒ ``None``（**不缩窗口 / 不拿成立以来凑数**）。
+        `rolling` / `k` / `weights` 随值下发，供用户复算。
+    """
+    if weights is None:
+        weights = SHAPE_GAIN_WEIGHTS
+    ws = [float(w) for w in weights]
+    if len(ws) != len(SHAPE_GAIN_SPANS):
+        raise ValueError(f'权重需 {len(SHAPE_GAIN_SPANS)} 个（近→远），收到 {len(ws)} 个')
+    if any(w <= 0 for w in ws):
+        raise ValueError(f'权重须为正数，收到 {ws}')
+    if sum(ws) <= 0:
+        raise ValueError('权重之和须为正数')
+
+    ready = _shape_gain_ready(points, as_of, SHAPE_GAIN_SPANS)
+    if ready is None:
+        return None
+    end_nav, navs = ready
+
+    # 滚动涨幅 r1..r4（%），与 shape_gain2 同源
+    rolling = [(end_nav / nav - 1) * 100 for nav in navs]
+
+    # 加权几何平均：Π (1 + k_i·r_i/100)^{w_i}，再开 Σw 次方。
+    #
+    # 用对数域累加而非直接连乘：四个底数都是 (1 + 年化涨幅)，长期牛基的 r4 可能到几倍，
+    # 连乘的中间值会无谓地放大浮点误差；log 域求和再 exp 是同一数学式、数值更稳。
+    total_w = sum(ws)
+    log_sum = 0.0
+    for r, k, w in zip(rolling, SHAPE_GAIN_K, ws):
+        base = 1 + k * r / 100
+        if base <= 0:
+            # 年化后跌破 -100% 在真实净值序列里不该出现（净值恒正）；出现即数据异常，
+            # 不出值比返回一个 log 域里的 NaN 更诚实。
+            return None
+        log_sum += w * math.log(base)
+
+    value = math.exp(log_sum / total_w)
+
+    return {
+        'shape_gain': round((value - 1) * 100, 4),
+        'rolling': [round(r, 4) for r in rolling],
+        'k': list(SHAPE_GAIN_K),
+        'weights': ws,
+        'basis': SHAPE_GAIN_BASIS,
+    }
 
 
 def shape_gain2(
@@ -372,41 +539,13 @@ def shape_gain2(
         （**不缩窗口凑数**——那样「成立 2 个月的基金」会得到一个看起来很正常的数）。
         `segments` 是四段的原始收益（%），随值下发供复核。
     """
-    series = _clean(points)
-    if as_of is not None:
-        series = [(d, v) for d, v in series if d <= as_of]
-    if len(series) < _SHAPE_GAIN2_MIN_POINTS:
+    ready = _shape_gain_ready(points, as_of, SHAPE_GAIN2_SPANS)
+    if ready is None:
         return None
-
-    end_date, end_nav = series[-1]
-
-    # 每个分界日取「≥ 该日的首个点」，与 fund_performance._interval_return 同一手法
-    # （不插值、不就近取——净值只在发布日存在，插值出来的点是编的）。
-    #
-    # ⚠️ **序列起点晚于 target 时必须回 None**（不是「退化取首点」）：
-    # 成立才 3 个月的基金，`_nav_at(365)` 若退化取首点，这段就变成了「成立以来」，
-    # 而它还要和其它三段加权连乘 ⇒ 结果既不是「近一年」也不是「成立以来」，
-    # 是个无意义却看着正常的数。这正是「历史不足一年 ⇒ 不出值」的判据所在。
-    first_date = series[0][0]
-
-    def _nav_at(days_back: int) -> Optional[float]:
-        target = end_date - timedelta(days=days_back)
-        if first_date > target:
-            return None
-        for d, v in series:
-            if d >= target:
-                return v
-        return None
-
-    # 四个分界日的净值。任一段取不到 ⇒ **整指标不出值**（不拿 0 / 不拿成立以来顶替）：
-    # 近 1 年那段用「成立以来」凑的话，r4 与其它段的口径就不一致了，而四个数还要
-    # 加权连乘——掺一个口径不同的数进去，结果既不是「近一年」也不是「成立以来」。
-    navs: List[Optional[float]] = [_nav_at(s) for s in SHAPE_GAIN2_SPANS]
-    if any(nav is None or nav <= 0 for nav in navs):
-        return None
+    end_nav, navs = ready
 
     # 滚动涨幅 r1..r4（%）
-    rolling: List[float] = [(end_nav / nav - 1) * 100 for nav in navs]  # type: ignore[operator]
+    rolling = [(end_nav / nav - 1) * 100 for nav in navs]
 
     # 去重叠：p1 = r1；p_i = (1+r_i)/(1+r_{i-1}) − 1
     prev = 0.0

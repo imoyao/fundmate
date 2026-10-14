@@ -63,6 +63,7 @@ from app.services.fund_risk_metrics import (
     RiskMetricsResult,
     benchmark_diagnostics,
     compute_risk_metrics,
+    shape_gain,
     shape_gain2,
 )
 
@@ -408,6 +409,7 @@ def _open_fund_performance(db: Session, fund, code: str, today: date) -> Dict[st
             'source': FUND_NAV_SOURCE_LABEL,
             # 固定契约：样本不足时也保留 key（前端据「有 key 但 null」降级「—」，
             # 与 shape_gain2 字段在正常路径下的形态一致——字段直接缺席时前端只能猜）
+            'shape_gain': None,
             'shape_gain2': None,
         }
 
@@ -467,8 +469,11 @@ def _open_fund_performance(db: Session, fund, code: str, today: date) -> Dict[st
     out['benchmark'] = _merge_benchmark(bench, out.pop('benchmark', None))
     # 同类内分位（#167）：绝对值跨类别不可比，分位可读。
     out['peer_percentiles'] = _peer_percentiles(db, fund_code)
-    # 拟涨幅2（#167 收尾）：四段互不重叠区间收益的加权连乘。历史不足一年 ⇒ None
-    # （不拿「成立以来」凑，理由见 `fund_risk_metrics.shape_gain2` 的 docstring）。
+    # 拟涨幅 / 拟涨幅2（#167 收尾）：
+    #   原版 = 四期滚动涨幅经 K 归一化到年频后的加权几何平均；
+    #   2 版 = 四段互不重叠区间收益的加权连乘。
+    # 历史不足一年 ⇒ 两者皆 None（不拿「成立以来」凑，理由见各自 docstring）。
+    out['shape_gain'] = shape_gain(points, as_of=today)
     out['shape_gain2'] = shape_gain2(points, as_of=today)
     return out
 

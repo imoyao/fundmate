@@ -587,31 +587,38 @@ def test_peer_percentile_failure_does_not_break_the_block(monkeypatch):
     assert out['applicable'] is True
 
 
-def test_shape_gain2_present_in_payload(monkeypatch):
-    """拟涨幅2 随表现卡下发（#167 收尾）；历史不足一年时为 None 而**不是缺席**。
+def test_shape_gain_present_in_payload(monkeypatch):
+    """拟涨幅（原版）与拟涨幅2 一并随表现卡下发（#167 收尾）；历史不足一年时为
+    None 而**不是缺席**。
 
     缺席与 null 的区别：前端拿到 null 才知道「这个位置本该有值、只是没算出来」，
     字段直接不在时它只能猜是「这个品类没有这项」还是「这次没取到」。
     """
     today = date(2026, 10, 9)
     monkeypatch.setattr('app.services.fund_performance.today_shanghai', lambda: today)
-    # 48 个月 ≈ 4 年 ⇒ 有 ≥365 天历史，拟涨幅2 应出值
+    # 48 个月 ≈ 4 年 ⇒ 有 ≥365 天历史，两个拟涨幅都应出值
     rows = _monotonic_rows(today, months=48)
     db = _fake_db_with_bench(_Fund('股票型'), rows, [])
     out = build_fund_performance(db, '000001')
-    assert 'shape_gain2' in out
-    assert out['shape_gain2'] is not None
+
+    assert 'shape_gain' in out and out['shape_gain'] is not None
+    assert 'shape_gain' in out['shape_gain']
+    # 原版随值下发 K 与权重，供用户复算（口径透明）
+    assert len(out['shape_gain']['k']) == 4
+    assert len(out['shape_gain']['weights']) == 4
+
+    assert 'shape_gain2' in out and out['shape_gain2'] is not None
     assert 'shape_gain2' in out['shape_gain2']
     assert len(out['shape_gain2']['segments']) == 4
 
 
-def test_shape_gain2_none_when_short_history(monkeypatch):
-    """历史不足一年：key 在、值为 None（不拿别的口径凑）。"""
+def test_shape_gain_none_when_short_history(monkeypatch):
+    """历史不足一年：两个拟涨幅的 key 都在、值均为 None（不拿别的口径凑）。"""
     today = date(2026, 10, 9)
     monkeypatch.setattr('app.services.fund_performance.today_shanghai', lambda: today)
     # 4 个月 ⇒ 历史不足一年
     rows = _monotonic_rows(today, months=4)
     db = _fake_db_with_bench(_Fund('股票型'), rows, [])
     out = build_fund_performance(db, '000001')
-    assert 'shape_gain2' in out
-    assert out['shape_gain2'] is None
+    assert 'shape_gain' in out and out['shape_gain'] is None
+    assert 'shape_gain2' in out and out['shape_gain2'] is None
