@@ -129,6 +129,11 @@ NEW_FILE_LIMITS = {
 # 等于把「重试整个请求」改成「重试半个请求」，反而掩盖错误。装饰器是端点级横切关注点的
 # 最小表达，与本文件明列的视图职责同层。按既有先例以 `--report` 实测回写（仅 lines）：
 # ledgers 723 → 725、positions 286 → 288、transactions 136 → 138。
+# 2026-10-15 收紧（#981，**非放宽**）：把 PATCH 组合的「账户关联 diff（归属校验 +
+# 集合差 + 批量写）」从视图下沉到 `services/portfolio_service.replace_portfolio_ledger_links`
+# （`views → services` 是合法边，D26），视图只留「入参解析 + 调服务 + 异常→HTTP」；
+# 顺带把逐字段 if 压成等价 getattr/setattr 循环、删 `get_owned_or_404` 后的永假分支。
+# 按 `--report` 实测回写：lines 166 → 161、max_func 29 → 25（orm_queries / commits 不动）。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/assets/views.py": {"lines": 208, "orm_queries": 4, "commits": 0, "max_func": 44},
     "backend/app/domains/auth/views.py": {"lines": 137, "orm_queries": 3, "commits": 0, "max_func": 45},
@@ -139,7 +144,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/market/views.py": {"lines": 37, "orm_queries": 0, "commits": 0, "max_func": 21},
     "backend/app/domains/ocr/views.py": {"lines": 214, "orm_queries": 1, "commits": 0, "max_func": 48},
     "backend/app/domains/performance/views.py": {"lines": 86, "orm_queries": 0, "commits": 0, "max_func": 31},
-    "backend/app/domains/portfolios/views.py": {"lines": 166, "orm_queries": 1, "commits": 0, "max_func": 29},
+    "backend/app/domains/portfolios/views.py": {"lines": 161, "orm_queries": 1, "commits": 0, "max_func": 25},
     "backend/app/domains/positions/views.py": {"lines": 288, "orm_queries": 6, "commits": 0, "max_func": 57},
     "backend/app/domains/reconciliation/views.py": {"lines": 225, "orm_queries": 2, "commits": 0, "max_func": 48},
     "backend/app/domains/search/views.py": {"lines": 25, "orm_queries": 0, "commits": 0, "max_func": 7},
