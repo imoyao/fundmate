@@ -194,7 +194,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
+import { ref, watch, onMounted, nextTick } from "vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
@@ -206,7 +206,8 @@ import {
 import PnlCalendar from "@/components/PnlCalendar/index.vue";
 import PnlCalendarCaliberIcon from "@/components/PnlCalendar/PnlCalendarCaliberIcon.vue";
 import echarts from "@/plugins/echarts";
-import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
+import { getCssVar } from "@/composables/echarts/theme";
+import { useEchartsLifecycle } from "@/composables/echarts/useEchartsLifecycle";
 import {
   buildWaterfallBars,
   buildWaterfallOption,
@@ -234,14 +235,47 @@ const props = defineProps<{
   distributions: DistributionsData | null;
 }>();
 
-const waterfallChartRef = ref<HTMLDivElement>();
-let waterfallChart: echarts.ECharts | null = null;
-const themeTick = useThemeTick();
+const waterfallChartRef = ref<HTMLElement | null>(null);
 /**
  * #1925：右列卡片体的原地开关——false = 资产大类瀑布图，true = 收益日历。
  * （#1812 的 `calendarVisible` 弹窗形态已随本卡移除。）
  */
 const calendarMode = ref(false);
+
+// #2164：实例生命周期（init / window resize / 卸载 dispose / 主题重绘 /
+// keepAlive 恢复时 resize）移交 `useEchartsLifecycle`。默认的全量重建语义正好
+// 匹配本组件原行为（每次都 dispose + 重新 init），故不必开 `reuse`。
+const { render, charts } = useEchartsLifecycle(
+  [
+    {
+      ref: waterfallChartRef,
+      build: el => {
+        const chart = echarts.init(el);
+        if (!drawableWaterfall()) {
+          chart.dispose();
+          return chart;
+        }
+        const bars = buildWaterfallBars(props.distributions!);
+        chart.setOption(
+          buildWaterfallOption(bars, {
+            rise: getCSSColor("--color-rise"),
+            fall: getCSSColor("--color-fall"),
+            info: getCSSColor("--color-info"),
+            neutral: getCSSColor("--color-neutral"),
+            textSecondary: getCSSColor("--text-secondary"),
+            // 轴标签也是文字：design.md 规定 `color:` 用途一律走 --text-tertiary-ink
+            //（--text-tertiary 白底仅 3.69:1，达不到正文 4.5:1）
+            axis: getCSSColor("--text-tertiary-ink"),
+            border: getCSSColor("--border-light")
+          })
+        );
+        return chart;
+      }
+    }
+  ],
+  // 首次绘制由 onMounted / distributions watcher 触发（都已在原文件里）
+  { keepAlive: true, autoRenderOnMount: false }
+);
 
 /**
  * 切换右列卡片体。
@@ -254,8 +288,10 @@ async function toggleCalendar() {
   calendarMode.value = !calendarMode.value;
   await nextTick();
   if (calendarMode.value) {
-    waterfallChart?.dispose();
-    waterfallChart = null;
+    // 容器已被摘下，手动交回收（composable 不提供「临时释放单个实例」的 API，
+    // 这里直接操作它暴露的 charts 数组——下次 render 会因数组已清空而重新 build）
+    charts.forEach(c => c?.dispose());
+    charts.length = 0;
     return;
   }
   initWaterfallChart();
@@ -276,27 +312,23 @@ function initWaterfallChart() {
   // 无可画的数据时直接返回，保留空白绘图区而不是画一张全 0 的空图。
   if (!hasWaterfallData(props.distributions)) return;
 
-  if (waterfallChart) waterfallChart.dispose();
-  waterfallChart = echarts.init(waterfallChartRef.value);
+  render();
+}
 
-  /*
-   * 柱几何与 option 构造已抽到 `assetWaterfall.ts`（纯计算，不碰 DOM / 实例）。
-   * 本文件只保留「什么时候画、画在哪个 DOM 上、什么时候 dispose」——
-   * 那部分与 `toggleCalendar` 的两态时序耦合，不能搬走。
-   */
-  const bars = buildWaterfallBars(props.distributions);
-  waterfallChart.setOption(
-    buildWaterfallOption(bars, {
-      rise: getCSSColor("--color-rise"),
-      fall: getCSSColor("--color-fall"),
-      info: getCSSColor("--color-info"),
-      neutral: getCSSColor("--color-neutral"),
-      textSecondary: getCSSColor("--text-secondary"),
-      // 轴标签也是文字：design.md 规定 `color:` 用途一律走 --text-tertiary-ink
-      //（--text-tertiary 白底仅 3.69:1，达不到正文 4.5:1）
-      axis: getCSSColor("--text-tertiary-ink"),
-      border: getCSSColor("--border-light")
-    })
+/*
+ * 柱几何与 option 构造已抽到 `assetWaterfall.ts`（纯计算，不碰 DOM / 实例）。
+ * 本文件只保留「什么时候画、画在哪个 DOM 上」——那部分与 `toggleCalendar` 的两态
+ * 时序耦合，不能搬走；「什么时候 dispose」已移交 useEchartsLifecycle。
+ */
+
+// 瀑布图在日历态下没有任何可画数据（容器已被 v-else 摘掉），build 里直接交回收，
+// 避免画出一张全 0 的空图。返回的实例已是 disposed，composable 下次 render 会重建。
+function drawableWaterfall(): boolean {
+  return (
+    !calendarMode.value &&
+    !!waterfallChartRef.value &&
+    !!props.distributions &&
+    hasWaterfallData(props.distributions)
   );
 }
 
@@ -309,16 +341,11 @@ watch(
   }
 );
 
-// 主题切换（暗色）时重绘瀑布图，重新读取语义色（#976）
-watch(themeTick, () => nextTick(initWaterfallChart));
+// 主题切换（暗色）由 composable 内置的 `watch(themeTick, render)` 覆盖（#2164），
+// 不再在本文件重复写一遍。
 
 onMounted(() => {
   if (props.distributions) initWaterfallChart();
-});
-
-onBeforeUnmount(() => {
-  waterfallChart?.dispose();
-  waterfallChart = null;
 });
 </script>
 
