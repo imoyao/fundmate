@@ -129,13 +129,21 @@ NEW_FILE_LIMITS = {
 # 等于把「重试整个请求」改成「重试半个请求」，反而掩盖错误。装饰器是端点级横切关注点的
 # 最小表达，与本文件明列的视图职责同层。按既有先例以 `--report` 实测回写（仅 lines）：
 # ledgers 723 → 725、positions 286 → 288、transactions 136 → 138。
+# 2026-10-15 重取（#1123 P0，**新增入参校验、非业务规则进视图**）：持仓「配置目标（五笔钱）」
+# 开放行内编辑，两条写路径都要拦非法值——positions 域收在 `PositionUpdate` 的 pydantic
+# field_validator（视图零增长，positions 288 不动）；ledgers 域嵌套端点是裸 dict 读 body、
+# 无 schema 体系，白名单只能在视图做（`if not in ALLOCATION_LABELS: abort(400)`）。
+# 本文件明列的视图职责是「入参解析 + 归属校验 + 调服务 + 组响应」，**入参白名单正属此列**
+# （与同函数上方的 get_owned_or_404 归属校验同层），不是编排逻辑。增量仅 +3 行（注释 1 +
+# if 2），orm_queries / commits / max_func 三项不动。按既有先例以 `--report` 实测回写（仅 lines）：
+# ledgers 725 → 728。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/assets/views.py": {"lines": 208, "orm_queries": 4, "commits": 0, "max_func": 44},
     "backend/app/domains/auth/views.py": {"lines": 137, "orm_queries": 3, "commits": 0, "max_func": 45},
     "backend/app/domains/families/views.py": {"lines": 72, "orm_queries": 2, "commits": 0, "max_func": 22},
     "backend/app/domains/funds/views.py": {"lines": 197, "orm_queries": 2, "commits": 0, "max_func": 39},
     "backend/app/domains/importers/views.py": {"lines": 249, "orm_queries": 1, "commits": 0, "max_func": 53},
-    "backend/app/domains/ledgers/views.py": {"lines": 725, "orm_queries": 16, "commits": 0, "max_func": 60},
+    "backend/app/domains/ledgers/views.py": {"lines": 728, "orm_queries": 16, "commits": 0, "max_func": 60},
     "backend/app/domains/market/views.py": {"lines": 37, "orm_queries": 0, "commits": 0, "max_func": 21},
     "backend/app/domains/ocr/views.py": {"lines": 214, "orm_queries": 1, "commits": 0, "max_func": 48},
     "backend/app/domains/performance/views.py": {"lines": 86, "orm_queries": 0, "commits": 0, "max_func": 31},
