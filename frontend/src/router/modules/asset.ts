@@ -115,13 +115,29 @@ const AssetRouteConfig = {
           }
         },
         {
+          // #167 收尾：按风险指标横向筛的列表页。端点（fund-risk-types /
+          // fund-risk-ranking）早已上线，缺的是这个入口——能力在、用户看不到。
+          // rank 5.5 插在「智能分析」与「对账单导入」之间；名字与组件
+          // `defineOptions({ name })` 逐字一致（keep-alive 判据）。
+          path: "/asset/fund-ranking",
+          name: "AssetFundRanking",
+          component: () => import("@/views/asset/fund-ranking/index.vue"),
+          meta: {
+            title: "同类风险榜",
+            icon: "ep:histogram",
+            rank: 6,
+            showLink: true,
+            keepAlive: true
+          }
+        },
+        {
           path: "/inventory/investment/import",
           name: "InvestmentImport",
           component: () => import("@/views/asset/investment/import/index.vue"),
           meta: {
             title: "对账单导入",
             icon: "ep:document",
-            rank: 6,
+            rank: 7,
             showLink: false,
             hideQuickEntry: true
           }
@@ -134,7 +150,7 @@ const AssetRouteConfig = {
           meta: {
             title: "手动记账",
             icon: "ep:edit",
-            rank: 7,
+            rank: 8,
             showLink: false,
             hideQuickEntry: true
           }

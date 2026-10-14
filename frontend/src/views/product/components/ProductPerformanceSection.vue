@@ -104,6 +104,15 @@ const riskRows = computed(() => {
       label: "波回比",
       hint: "年化 / (波动 × 最大回撤)",
       value: fmtRatio(p.return_drawdown_ratio)
+    },
+    {
+      // #167 收尾 · 拟涨幅2：四段**互不重叠**区间收益的加权连乘。
+      // 它与上面的比值族不同源（比值族看「风险调整后收益」，它看「多周期收益合成」），
+      // 故在 hint 里点明口径，避免被当成「另一个夏普」。历史不足一年时为「—」。
+      key: "shape_gain2",
+      label: "拟涨幅2",
+      hint: "近1月/3月/6月/1年四段去重叠后加权合成（越近权重越高）",
+      value: fmtPct(p.shape_gain2?.shape_gain2)
     }
   ];
 });

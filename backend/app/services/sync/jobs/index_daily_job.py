@@ -98,6 +98,11 @@ TENCENT_INDEX_TARGETS: List[tuple] = [
 # `.SH` / `.WI` 后缀在**字符串层面**即可分流（不看前缀、不做正则）。
 CSINDEX_INDEX_TARGETS: List[tuple] = [
     ('932000.CSI', '中证2000'),  # ✅ 2026-10-14 实测 773 条（2023-08-01 起，成立以来）
+    # 债券族基准（#167 收尾）：中证全债此前被记为「无公开行情通道」缺口（见下方
+    # TENCENT_INDEX_TARGETS 的债券段注释），2026-10-14 实测中证官网可直取 5287 条
+    # （2005-01-04 起，真实收盘）⇒ 用 `.CSI` 路补上。它替换了原先挂在映射上、却
+    # 因韭圈儿未收录而永远取不到序列的 `885005.WI`（见 `fund_benchmark.BENCH_BOND_FUND`）。
+    ('H11001.CSI', '中证全债指数'),  # ✅ 2026-10-14 实测 5287 条（2005 起）
 ]
 
 DEFAULT_TARGETS = [code for code, _name in WIND_INDEX_TARGETS + TENCENT_INDEX_TARGETS + CSINDEX_INDEX_TARGETS]

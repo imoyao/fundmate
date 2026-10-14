@@ -120,6 +120,65 @@ def list_by_metric(
     }
 
 
+def list_fund_types(db: Session, *, caliber_version: Optional[int] = None) -> Dict[str, Any]:
+    """列出**榜上真的有货**的基金小类（供前端做类型选择器）。
+
+    为什么不能直接用「全库 fund_types 名录」当选择器：名录里有 20+ 个小类，
+    而快照只覆盖其中一部分（其它类样本不足 / 口径不适用 / 尚未算）。选中一个
+    没数据的类，用户看到的是空榜——他分不清「这个类没有基金」与「我们没算」。
+    故只交出发出过快照行的类型，并**带上各自的样本数**（`count`），
+    让前端能显示「债券型-长期纯债（312）」而不是一个光秃秃的下拉项。
+
+    样本数只算**当前口径**且 `basis == 'acc_nav'` 的行——与榜单同一条纪律：
+    口径可疑的行不能当「这个类有货」的凭据，否则点进去还是空榜。
+
+    Args:
+        db: market 域会话（`fund_risk_metrics` 是 market 域）。
+        caliber_version: 口径版本；不给则用当前 `CALIBER_VERSION`。
+
+    Returns:
+        ``{'caliber_version', 'types': [{'fund_type_id', 'name', 'count'}]}``，
+        按 `count` 降序（有货多的排前），`name` 取自 `fund_types`（缺失回退
+        ``'类型#<id>'``，不编造名称）。
+    """
+    from sqlalchemy import func
+
+    from app.domains.funds.models import FundRiskMetrics, FundType
+    from app.services.sync.jobs.fund_risk_metrics_job import CALIBER_VERSION
+
+    version = CALIBER_VERSION if caliber_version is None else caliber_version
+
+    # 聚合在 DB 侧完成：快照表是这个项目最容易长大的表之一，不把它整表拉进内存分组。
+    rows = (
+        db.query(FundRiskMetrics.fund_type_id, func.count(FundRiskMetrics.id))
+        .filter(
+            FundRiskMetrics.caliber_version == version,
+            FundRiskMetrics.basis == 'acc_nav',
+            FundRiskMetrics.fund_type_id.isnot(None),
+        )
+        .group_by(FundRiskMetrics.fund_type_id)
+        .all()
+    )
+    if not rows:
+        return {'caliber_version': version, 'types': []}
+
+    type_ids = [int(tid) for tid, _ in rows]
+    name_by_id = {
+        int(tid): name for tid, name in db.query(FundType.id, FundType.name).filter(FundType.id.in_(type_ids)).all()
+    }
+
+    types = [
+        {
+            'fund_type_id': int(tid),
+            'name': name_by_id.get(int(tid)) or f'类型#{int(tid)}',
+            'count': int(cnt),
+        }
+        for tid, cnt in rows
+    ]
+    types.sort(key=lambda x: (-x['count'], x['name']))
+    return {'caliber_version': version, 'types': types}
+
+
 def _row_payload(row) -> Dict[str, Any]:
     """快照行 → 榜单条目（数值一律 float，口径字段原样带出）。"""
 
@@ -215,4 +274,11 @@ def peer_percentiles_for(db: Session, codes: Sequence[str]) -> Dict[str, Dict[st
     return {code: all_pcts[code] for code in wanted if code in all_pcts}
 
 
-__all__ = ['DEFAULT_LIMIT', 'MAX_LIMIT', 'SORTABLE_METRICS', 'list_by_metric', 'peer_percentiles_for']
+__all__ = [
+    'DEFAULT_LIMIT',
+    'MAX_LIMIT',
+    'SORTABLE_METRICS',
+    'list_by_metric',
+    'list_fund_types',
+    'peer_percentiles_for',
+]

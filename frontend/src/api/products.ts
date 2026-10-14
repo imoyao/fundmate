@@ -203,6 +203,25 @@ export interface FundPerformanceResult {
    * 缺失的指标不出现在这里（同类样本 < 5 时后端不出分位）——降级为「—」。
    */
   peer_percentiles?: Record<string, number> | null;
+
+  // ── 拟涨幅2（#167 收尾）──────────────────────────────────────────────
+  /**
+   * 拟涨幅2：近 1 月 / 3 月 / 6 月 / 1 年四段**互不重叠**收益的加权连乘。
+   *
+   * 为什么去重叠：这四个滚动涨幅彼此包含，直接加权会把同一段行情数上多遍。
+   * `null` = 历史不足一年（**不拿「成立以来」凑**）或样本不足，降级为「—」。
+   */
+  shape_gain2?: ShapeGain2 | null;
+}
+
+/** 拟涨幅2 结果（#167 收尾）。`segments` 是四段原始收益（%），随值下发供复核。 */
+export interface ShapeGain2 {
+  /** 拟涨幅2（%） */
+  shape_gain2: number;
+  /** 四段去重叠收益（%），近 → 远 */
+  segments: number[];
+  /** 口径说明（权重与「不含 rf」） */
+  basis: string;
 }
 
 /** 基准相对块（#167）。`available: false` 表示基准已选定但序列暂缺，**不以上述以外的指数顶替** */
@@ -235,6 +254,33 @@ export interface FundBenchmark {
   downside_capture?: number | null;
   /** 口径标记：ok / insufficient（共同交易日不足） */
   basis?: string;
+}
+
+/** 榜单可选的一类基金（#167）。`count` = 当前口径下该类可上榜的只数。 */
+export interface FundRiskTypeOption {
+  fund_type_id: number;
+  name: string;
+  /** 当前口径、`basis=acc_nav` 的行数——用来显示「债券型-长期纯债（312）」 */
+  count: number;
+}
+
+export interface FundRiskTypesResult {
+  caliber_version: number;
+  /** 只含**有快照行**的类型；按只数降序。没有数据的类型不在内（选中即空榜） */
+  types: FundRiskTypeOption[];
+}
+
+/**
+ * 取「当前有榜可看」的基金小类（#167 · 榜单页类型选择器）。
+ *
+ * 不用「全库 fund_types 名录」当选项：名录里有些类型一只都没算过，
+ * 选中只会看到空榜，而用户分不清「这个类没有基金」与「我们没算」。
+ */
+export function getFundRiskTypes() {
+  return http.request<ApiResponse<FundRiskTypesResult>>(
+    "get",
+    "/api/products/fund-risk-types/"
+  );
 }
 
 /** 取同类型基金的风险指标榜（#167）。`fund_type_id` 必填——不做跨类榜。 */

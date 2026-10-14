@@ -63,6 +63,7 @@ from app.services.fund_risk_metrics import (
     RiskMetricsResult,
     benchmark_diagnostics,
     compute_risk_metrics,
+    shape_gain2,
 )
 
 # 区间档位（近 N + 今年以来 + 成立以来）。``days`` 为自然数日，用于定位起点；
@@ -249,9 +250,9 @@ def _benchmark_payload(db: Session, fund) -> Optional[Dict[str, Any]]:
     调用方据此下发「暂无基准」——**不得**退回沪深300 顶替：拿沪深300 去比债基，
     超额收益会是「负多少」这个没有意义的数，而用户读不出「它其实没被比过」。
 
-    映射成立但序列取不到（如万得债券型基金指数源侧未收录）时，下发一条带
-    ``unavailable=True`` 的块，前端显式说明「基准已选定、但数据暂缺」——
-    这与「没给基准」是两种状态，不该长得一样。
+    映射成立但序列取不到（源侧未收录 / 尚未跑同步）时，下发 ``available=False``
+    的块并带 ``reason``，前端显式说明「基准已选定、但数据暂缺」——
+    这与「没给基准」（整个块为 ``None``）是两种状态，不该长得一样。
     """
     choice = resolve_benchmark(
         getattr(getattr(fund, 'fund_type', None), 'name', None),
@@ -259,15 +260,6 @@ def _benchmark_payload(db: Session, fund) -> Optional[Dict[str, Any]]:
     )
     if choice is None:
         return None
-
-    if choice.unavailable:
-        return {
-            'code': choice.code,
-            'name': BENCHMARK_LABELS.get(choice.code, choice.name),
-            'matched_by': choice.matched_by,
-            'available': False,
-            'reason': '该基准指数暂无日线数据（源侧未收录），不以上述以外的指数顶替',
-        }
 
     points = load_index_points(db, choice.code, limit=int(WINDOW_3Y * 1.1))
     if not points:
@@ -414,6 +406,9 @@ def _open_fund_performance(db: Session, fund, code: str, today: date) -> Dict[st
             'volatility_1y': None,
             'as_of': points[-1][0].isoformat() if points else None,
             'source': FUND_NAV_SOURCE_LABEL,
+            # 固定契约：样本不足时也保留 key（前端据「有 key 但 null」降级「—」，
+            # 与 shape_gain2 字段在正常路径下的形态一致——字段直接缺席时前端只能猜）
+            'shape_gain2': None,
         }
 
     # 区间收益切面
@@ -472,6 +467,9 @@ def _open_fund_performance(db: Session, fund, code: str, today: date) -> Dict[st
     out['benchmark'] = _merge_benchmark(bench, out.pop('benchmark', None))
     # 同类内分位（#167）：绝对值跨类别不可比，分位可读。
     out['peer_percentiles'] = _peer_percentiles(db, fund_code)
+    # 拟涨幅2（#167 收尾）：四段互不重叠区间收益的加权连乘。历史不足一年 ⇒ None
+    # （不拿「成立以来」凑，理由见 `fund_risk_metrics.shape_gain2` 的 docstring）。
+    out['shape_gain2'] = shape_gain2(points, as_of=today)
     return out
 
 

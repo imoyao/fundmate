@@ -135,6 +135,16 @@ class RelatedSymbolsRequest(BaseModel):
     )
 
 
+class FundRiskTypesRequest(BaseModel):
+    """`GET /api/products/fund-risk-types/` 的查询参数（#167 · 榜单页类型选择器）。
+
+    只声明可选的口径版本，其余无参——本端点回答的是「哪些类型现在有榜可看」，
+    不由客户端决定范围（客户端能改范围的话，选择器与榜单就会对不上）。
+    """
+
+    caliber_version: Optional[int] = Field(None, ge=1, description='口径版本；不给用当前版本')
+
+
 class FundRiskRankingRequest(BaseModel):
     """`GET /api/products/fund-risk-ranking/` 的查询参数（#167 · 按风险指标筛同类）。
 
