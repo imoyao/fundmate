@@ -213,7 +213,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref } from "vue";
+import { computed, nextTick, onMounted, ref } from "vue";
+import { useRoute } from "vue-router";
 import {
   ArrowUp,
   Clock,
@@ -223,11 +224,17 @@ import {
   WarningFilled,
   Wallet
 } from "@element-plus/icons-vue";
+import { ElMessage } from "element-plus";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import SessionHistory from "./components/SessionHistory.vue";
 import { agentCancel, agentChat, getAgentSession } from "@/api/agent";
 import type { AgentBlock, AgentTableColumnKind, AgentTurn } from "@/api/agent";
 import { formatAmount } from "@/utils/currency";
+import {
+  agentAskHint,
+  agentAskPrefill,
+  parseAgentAskQuery
+} from "@/utils/agentAsk";
 
 defineOptions({ name: "AgentChat" });
 
@@ -278,6 +285,25 @@ const statusText = computed(() => {
   if (pending.value) return "正在整理分析结果，约 10~60 秒";
   if (stopped.value) return "已停止本轮分析，可直接再问";
   return "回车发送 · 信息不全会先确认";
+});
+
+/**
+ * 「问这个」上下文接收（#1764）：持仓 / 自选行入口带来的 query。
+ * 只预填输入框、**不自动发送**（不发请求、不烧 token，用户可改再发），
+ * 并给一句轻提示说明这句话从哪来。
+ *
+ * **刻意不摘除 query**：本仓 lay-content 以 fullPath 为 router-view 的 key
+ * （lay-content/index.vue），任何 query 改写都会重挂载页面、清空会话消息——
+ * 与仓内惯例一致（inventory 的 ?tab= 同样只读不摘）。刷新后重预填的是
+ * **同一标的**（无「串到别的标的」的错配）；换标的只能来自新入口（新 push）。
+ */
+const route = useRoute();
+
+onMounted(() => {
+  const ctx = parseAgentAskQuery(route.query as Record<string, unknown>);
+  if (!ctx) return;
+  input.value = agentAskPrefill(ctx);
+  ElMessage.info(agentAskHint(ctx));
 });
 
 /** 全站禁 Emoji 是硬约定但没有 lint 兜底，模型输出在这里剔除（AGENTS.md 前端约束） */
