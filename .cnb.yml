@@ -28,12 +28,13 @@
 #
 # 状态回流（#117 硬要求 ②）：GitHub 关了原卡，CNB 这边一个字都不变——
 # 读者在 CNB 看到一张「还活着」的卡，实际那件事早已结案。cron 里挂了这一步：
-# 在镜像卡评论区追加一条「状态回流」评论 + 挂 `GitHub 已关闭` 标签。
-# **不自动关卡**（#117 硬要求 ①：人工回路保留）——CNB 侧的追问常发生在
-# GitHub 结案之后，关掉会把那些讨论一起埋掉；要真正关卡请人工执行
-# `cnb issues close --number <n>`。
+# 在镜像卡评论区追加一条「状态回流」评论 + 挂 `GitHub 已关闭` 标签 + **关闭卡片**。
+# **口径已于 2026-10-13 由用户在 CNB #171 改为 B（自动关）**：D48 的「标记不关」
+# 让「卡片状态」与「事实状态」永久劈成两半，看板越用越不可信；讨论被埋是可接受代价
+# （评论不删、卡只是变灰，需要时 `cnb issues open` 重开）。反向仍不回流。
+# 只想标记不想关（人工 triage）时加 `--no-close`。
 #   python scripts/bridge/mirror_state_sync.py --report    # 只报告漂移
-#   python scripts/bridge/mirror_state_sync.py --apply      # 真正回流（幂等）
+#   python scripts/bridge/mirror_state_sync.py --apply      # 真正回流并关闭（幂等）
 
 # 公共片段：两条触发方式跑的是同一套环境与命令，用锚点避免抄两遍。
 .mirror-job: &mirror-job
@@ -50,15 +51,17 @@
     - name: 增量建卡
       script: |
         python scripts/bridge/github_cnb_issues.py --apply
-    # 状态回流（#117 硬要求 ②）：GitHub 已关闭、CNB 镜像卡还开着 ⇒ 在镜像卡评论区
-    # 追加「状态回流」评论 + 挂 `GitHub 已关闭` 标签（**不自动关卡**，见文件头）。
-    # 幂等键写进评论正文，重复执行只发一次。
+    # 状态回流（#117 硬要求 ②，2026-10-13 起改为 B 口径）：GitHub 已关闭、CNB 镜像卡
+    # 还开着 ⇒ 评论 + 挂 `GitHub 已关闭` 标签 + **关闭卡片**。
+    # 幂等键写进评论正文（评论只发一次）；**关卡与评论分开判**——D48 时代发过评论
+    # 却没关的存量卡会被补关（「评论已发 ≠ 卡已关」）。
+    # 反向（GitHub 开、CNB 关）不回流：CNB 侧关卡是人的决定。
     #
     # ⚠️ `|| true` 只遮「已回流过的幂等跳过」这类良性非 0；**「数据不完整」(#171) 必须可见**
     # ——脚本在拿不全 GitHub 数据时会显式打印「数据不完整」并返回 1，若这里吞掉，
     # 就退回了「一直绿、一直没干活」的假绿形态。故改成回声退出码 + 只在日志里标红，
     # 不拦构建（建卡才是主任务，收尾信号不该把建卡一起拖红）。
-    - name: 状态回流（GitHub 已关闭 → CNB 标记）
+    - name: 状态回流（GitHub 已关闭 → CNB 标记并关闭）
       script: |
         set +e
         python scripts/bridge/mirror_state_sync.py --apply
