@@ -70,7 +70,8 @@ export interface FundProfileResult {
   create_time: string | null;
   risk_level: number | null;
   benchmark: string | null;
-  managers: FundProfileManager[];
+  /** 基金经理列表；缺字段时为 null（与接口契约一致：缺失一律降级为「—」） */
+  managers: FundProfileManager[] | null;
   /** 费率阶梯；取不到时为 null（不阻断其余字段） */
   fee_rates: {
     fund_code: string;
