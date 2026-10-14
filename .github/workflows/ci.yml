@@ -528,6 +528,19 @@ jobs:
       - name: 检查 .cnb.yml 的顶层事件是否挂在分支之下（阻断）
         run: python scripts/check_cnb_events.py
 
+      # 镜像建卡的「扫描不可短路」守卫（源 CNB #450，2026-10-14）：`harvest_existing()`
+      # 曾拿状态文件缓存当前置短路（缓存非空就直接返回），于是状态文件没记的镜像卡
+      # 在判定时"不存在" ⇒ 每轮 cron/push 都把 ~140 张 GitHub 卡再建一遍，
+      # 三天攒出 224 张重复卡，而**日志全绿、零信号**。
+      # 这类「缓存被当成全集」的错靠人 review 拦不住（它就是漏过 review 的那一版），
+      # 故机械化：`harvest_existing()` 必须在函数体里真的调用 `list_cnb_issues()`，
+      # 且扫描之前不得有 `return`。
+      # 不新增 job：并入本 job，也就不必动 gate.needs（#1559/#1560 两次事故都是合并冲突弄丢 needs）。
+      # 判据边界见脚本 docstring；回归网在 scripts/tests/test_dup_mirror_guard.py
+      # （含 3 个变异探针，其中一个是拿**修复前的真实代码**喂给守卫确认它转红）。
+      - name: 检查镜像建卡是否真扫 CNB 侧（阻断）
+        run: python scripts/bridge/harvest_scan_guard.py
+
   gate:
     name: 质量门禁汇总
     if: ${{ always() && github.event_name == 'pull_request' }}
