@@ -352,9 +352,34 @@ main:
 #
 # 凭据与「拿不到就大声失败」
 # --------------------------
-# `GITHUB_PAT` 来自 Secret 仓库（与 git-sync 同一份，**不要**再存一份到别处）。
-# 挂在**插件任务级 imports**（与 `image` 平级）——照 §13.1 的形态抄，不要改回流水线级、
-# 也不要改成 `settingsFrom`；`scripts/guard_secret_imports.py` 会拦这两种回潮。
+# `GITHUB_PAT` 走 Secret 仓库 `fundmate-secret` 的 **`claim-sync-env.yml`**（不是 `vars.yml`！）。
+#
+# 为什么必须另起一份（CNB #269 的真根因，2026-10-14 读完 CNB 文档定论）
+# ------------------------------------------------------------------
+# `vars.yml` 必须声明 `allow_images`（git-sync 是插件任务，不声明插件读不到密钥）。
+# 而 CNB《文件引用 › 权限检查 › image 检查说明》有一条硬规则：
+#
+#     非插件任务的 image 为空字符串，无法匹配任何 glob 表达式；
+#     配置文件声明了 `allow_images` 将不能被非插件任务引用。
+#
+# `认领同步` 同时写了 `image` + `script` ⇒ 它是**脚本任务**（image 只是跑 script 的容器）
+# ⇒ 引用 `vars.yml` **必死在 Prepare**，且报错与「挂在第几层」无关：
+#
+#     vars.yml declares allow_images and can only be referenced by plugin tasks.
+#
+# #269 已经改过两轮层级（job 对象 → stage 元素）都还是同一条 —— 真根因在**文件里的
+# `allow_images`**，不在挂载位置。故另起一份**不声明 `allow_images`** 的文件，
+# 只留 `allow_slugs` 兜住仓库范围；`push` 是可信事件 + 非镜像任务 ⇒ 不需要 `allow_events`。
+#
+# ⚠️ 别再把它改回 `vars.yml`，也别为了「省一份副本」把两份合并：
+#    `allow_images` 一出现，这个脚本任务就又死在 Prepare 了。
+#
+# ⚠️ 也不要把凭据写成 `.cnb.yml` 里的字面量 `env`：那等于把 PAT 提交进代码仓。
+#    `env` 只用来传**非敏感**参数（如这里的 `GITHUB_REPO`）。
+#
+# 引用形态：脚本任务级 `imports`（与 `env` / `script` 平级的 stage 键）——照 CNB
+# 《文件引用 › 权限检查》官方示例（密钥文件被普通脚本任务 `imports`）的形状。
+# `scripts/guard_secret_imports.py` 守这条线。
 #
 # 缺凭据时脚本**自己以退出码 1 失败**（不是默默跳过）：认领同步的假绿形态最坏——
 # 标签没挂上、而所有人都以为挂上了，然后两边照旧同时动手。
@@ -378,29 +403,27 @@ $:
     - name: 认领同步（任何分支，幂等）
       <<: *claim-job
       stages:
-        # ⚠️⚠️ **这里是脚本任务，不是插件任务——不要再挂密钥仓库的 `imports` / `settingsFrom`.**
-        # 依据 CNB《文件引用 › 权限检查 › image 检查说明》两条原文（2026-10-14 读完文档才定论）：
-        #   ①「非插件任务的 image 为空字符串，无法匹配任何 glob 表达式；配置文件声明了
-        #      `allow_images` 将不能被非插件任务引用」；
-        #   ②「**Job 同时设置 `image` 和 `script` 属于以 image 作为执行环境的脚本任务**」。
-        # 本 job 同时写了 `image` 与 `script` ⇒ 它是脚本任务 ⇒ `allow_images` 永远匹配不上，
-        # 把密钥仓库的引用挂在这（无论 job 级还是 stage 级、无论 imports 还是 settingsFrom）
-        # 都必死在 Prepare：`declares allow_images and can only be referenced by plugin tasks.`
-        # （CNB #269 实测：改过两轮都还是这条报错，因为它与「挂在第几层」无关。）
+        # ⚠️ 这是**脚本任务**（`image` + `script` 同时存在），不是插件任务。
         #
-        # 脚本任务拿凭据的**正当途径是 `env`**（见《脚本任务 vs 插件任务》对比表：
-        # 脚本任务「自定义环境变量 ✅ 支持」，插件任务「❌ 不会传递」）。
-        # `GITHUB_PAT` 因此在 CNB 仓库的**流水线环境变量**里配置（Web 上维护，不落代码仓）。
-        # ⚠️ 别为了「和 git-sync 写法一致」再把它改回密钥仓库引用 —— git-sync 是插件任务，
-        # 两者形态本就不同，强行对齐只会再撞一次这堵墙。
+        # 脚本任务**可以**用 `imports` 取凭据（《脚本任务 vs 插件任务》对比表：
+        # 脚本任务「✅ 自定义环境变量 / ✅ imports 导入的环境变量」），
+        # **前提是被引用的密钥文件不声明 `allow_images`** —— 见本段上方「为什么必须另起一份」。
+        #
+        # 唯一要守的线：**引用的文件绝不能是 `vars.yml`**（那份带 `allow_images`，
+        # 脚本任务引用它必将整条作业拒在 Prepare）。
+        # ⚠️ 也不要改成 `settingsFrom`：那是「加载插件参数」的语义，脚本任务没有插件参数可加载。
         - name: 认领同步（CNB 在干活 → GitHub 挂 `CNB 处理中`）
+          imports:
+            # 脚本任务级 imports（与 env/script 平级）：密钥文件不含 allow_images，故能在脚本任务上引用。
+            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/claim-sync-env.yml
           env:
             GITHUB_REPO: imoyao/fundmate
           script: |
             # 凭据缺失：**先自证**再跑，免得脚本里所有读都 200、所有写都 401 而没人看见。
             if [ -z "${GITHUB_PAT:-}" ]; then
               echo "❌ GITHUB_PAT 未注入 —— 认领同步无法执行"
-              echo "   请在 CNB 仓库设置 → 环境变量里配置 GITHUB_PAT（与 git-sync 同一份 PAT）。"
+              echo "   请在密钥仓库 fundmate-secret 的 claim-sync-env.yml 里配 GITHUB_PAT"
+              echo "   （模板见 docs/ops/claim-sync-secret-env.example.yml；与 vars.yml 里那份同一值）。"
               exit 1
             fi
             export GITHUB_TOKEN="$GITHUB_PAT"

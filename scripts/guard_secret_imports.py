@@ -113,64 +113,126 @@ def _iter_branch_events(data: dict):
 
 
 def _iter_plugin_stages(data: dict):
-    """产出所有「插件任务对象」：`stages` 列表里含 `image` 的那个 dict。
+    """产出所有 `stages` 元素（stage dict），**只要它带了引用键或 `script`**。
 
-    CNB 语法里插件任务 = `stages` 元素，且 `image` 与 `imports` / `settingsFrom` **同级**
-    （这是「合规」的那一级，见文件头口诀）。
+    ⚠️ 早先这里写的是「产出含 `image` 的 stage」——那个过滤条件**把真实形态漏掉了**
+    （2026-10-14 回退探针实测 MISSED）：`认领同步` 的 `image` 来自 **job 级 `docker.image`**
+    （经 YAML 锚点 `&claim-job` 注入），stage 自身**没有** `image` 键
+    ⇒ 它压根不在遍历结果里 ⇒ 判据 4 看不见它。
+
+    ⚠️ 这正是本仓反复栽的同一类错：**判据的遍历范围本身就是判据的一部分**，
+    过滤条件写窄了的表现是**静默通过**（#269 第一轮、#171 都栽在这）。
+
+    新语义：stage 只要带 `script` / `commands` / `imports` / `settingsFrom` / `settings`
+    任一，就纳入遍历——判据各自在里面再挑它关心的。**宁多扫，不要漏。**
     """
+    interesting = ('script', 'commands', 'imports', 'settingsFrom', 'settings')
     for branch, event, jobs in _iter_branch_events(data):
         for job in jobs:
             if not isinstance(job, dict):
                 continue
             for stage in job.get('stages') or []:
-                if isinstance(stage, dict) and 'image' in stage:
+                if not isinstance(stage, dict):
+                    continue
+                if any(k in stage for k in interesting):
                     yield branch, event, stage
 
 
 def _is_script_task(stage: dict) -> bool:
-    """`image` + `script`（或 `commands`）同时存在 ⇒ **脚本任务**，不是插件任务。
+    """带 `script` / `commands` ⇒ **脚本任务**（`image` 只是执行环境，不作为插件任务）。
 
     依据 CNB《文件引用 › 权限检查 › image 检查说明》原文：
       「**Job 同时设置 `image` 和 `script` 属于以 image 作为执行环境的脚本任务**」
-    以及「非插件任务的 image 为空字符串，无法匹配任何 glob 表达式；配置文件声明了
-    `allow_images` 将不能被非插件任务引用」。
+      「非插件任务的 image 为空字符串，无法匹配任何 glob 表达式；配置文件声明了
+        `allow_images` 将不能被非插件任务引用」。
 
     即：脚本任务上的 `image` 只是**运行环境**（跑 `script` 的容器），它是插件镜像这件事
     并不成立 ⇒ 引用一份声明了 `allow_images` 的密钥文件**必然被拒**，
     且报错与「挂在第几层」无关（源 CNB #269：改了两轮都还是同一条）。
+
+    ⚠️ **`image` 不必在 stage 自己身上**（源 CNB #269 第二轮，2026-10-14）：
+    CNB 的构建环境可由 **job 级 `docker.image`** 或 pipeline 级提供，
+    `认领同步` 就是靠 YAML 锚点 `<<: *claim-job` 把 `docker.image` 注进来的 ——
+    stage 自身没有 `image` 键。故判据只看 **`script` / `commands` 是否存在**：
+    「有没有 shell 命令」才是「是不是脚本任务」的判据，「image 从哪儿来」不是。
     """
-    has_image = 'image' in stage
-    has_script = bool(stage.get('script')) or bool(stage.get('commands'))
-    return has_image and has_script
+    return bool(stage.get('script')) or bool(stage.get('commands'))
+
+
+def _is_gitsync_vars_url(value: str) -> bool:
+    """判断引用 URL 是不是 **git-sync 的那份 `vars.yml`**（= 声明了 `allow_images` 的密钥文件）。
+
+    ⚠️ 判据 4 的关键前提（CNB #269 第二轮的修正）：
+    「脚本任务不能用密钥引用」是**过宽**的说法。真正被 CNB 拒的是一条**更窄**的规则——
+
+    > 非插件任务的 image 为空字符串，无法匹配任何 glob 表达式；
+    > 配置文件**声明了 `allow_images`** 将不能被非插件任务引用。
+
+    即：**拒的是「文件里有 `allow_images`」，不是「脚本任务引用」。** 一份只声明
+    `allow_slugs` 的密钥文件，被脚本任务 `imports` 引是**合法**的（CNB 官方示例
+    「流水线密钥文件引用」就是这么写的：普通脚本任务 `script: docker login -u ${DOCKER_USER}`
+    + `imports: .../secret.yml`，该文件只声明 allow_slugs / allow_events / allow_branches）。
+
+    而 `allow_images` 是 git-sync 那条链的**必需品**（插件任务不声明它读不到密钥），
+    本仓的约定是它写在 `vars.yml` 里。守卫读不到密钥仓库（403），故按**文件名约定**判：
+    形如 `vars.yml` / `*.vars.yml` 的即视为「带 allow_images 的 git-sync 文件」。
+    `claim-sync-env.yml` 之类不长这样 ⇒ 放行。
+
+    ⚠️ 名字约定与 `SECRET_TEMPLATE`（docs/ops/git-sync-secret-vars.example.yml 里
+    `allow_images` 的存在）互为印证：模板里有 `allow_images`，文件名是 `vars.yml`。
+    """
+    low = value.lower().strip()
+    tail = low.rstrip('/').rsplit('/', 1)[-1].split('?')[0]
+    return tail == 'vars.yml' or (tail.endswith('.vars.yml') and not tail.endswith('.example.vars.yml'))
 
 
 def check_secret_ref_on_script_task(data: dict) -> list[str]:
-    """判据 4：**脚本任务**上不得挂密钥文件引用（`imports` / `settingsFrom`）。
+    """判据 4：**脚本任务**上不得引用「声明了 `allow_images` 的」密钥文件，也不得用 `settingsFrom`。
 
-    这是 #269 的真根因，也是前三条判据**结构上抓不到**的一类：前三条判的是
-    「挂在第几层」，而这一条判的是「挂它的那个 job 是不是插件任务」——
-    一个脚本任务把引用放在任何一层都不合法。
+    ⚠️ 这条判据**收窄过一次**（2026-10-14，CNB #269 第二轮），别当成「脚本任务一律不能引密钥」：
 
-    脚本任务的正当途径是 `env`（《脚本任务 vs 插件任务》对比表：脚本任务「自定义环境变量 ✅」，
-    插件任务「❌ 不会传递」）。凭据放 CNB 仓库的流水线环境变量，不落代码仓。
+    | 形态 | 判 |
+    |---|---|
+    | 脚本任务 + `imports` 引**带 `allow_images`** 的文件（`vars.yml`） | ❌ 必死在 Prepare（#269 真实形态） |
+    | 脚本任务 + `settingsFrom` 引密钥 | ❌ `settingsFrom` 是「加载插件参数」语义，脚本任务没有插件参数 |
+    | 脚本任务 + `imports` 引**不带 `allow_images`** 的文件（`claim-sync-env.yml`） | ✅ 合法（CNB 官方示例形态） |
+    | 插件任务（`image` + `settings`，无 `script`） | ✅ 由判据 1/2/3 管，本条不管 |
+
+    前三条判据判的是「挂在第几层」（**语法**），本条判的是「挂它的那个 job 是不是插件任务，
+    以及被引文件是不是给插件用的」（**语义**）——#269 的真根因在这层，前三轮都抓不到。
     """
     problems: list[str] = []
     for branch, event, stage in _iter_plugin_stages(data):
         if not _is_script_task(stage):
             continue
-        for key in PLUGIN_TASK_KEYS:
-            for url in _vals(stage.get(key)):
-                if not _is_secret_url(url):
-                    continue
-                problems.append(
-                    f'{branch}.{event} 的 `{stage.get("name") or "（无名 stage）"}` 同时写了 '
-                    f'`image` 和 `script` ⇒ 它是**脚本任务**（image 只是运行环境），'
-                    f'却用 `{key}` 引了密钥文件 `{url}`。CNB 判定「非插件任务无法匹配 allow_images」'
-                    f'⇒ 该作业**必然死在 Prepare**：'
-                    f'declares allow_images and can only be referenced by plugin tasks。'
-                    f'脚本任务取凭据请用 `env`（配在仓库流水线环境变量里），'
-                    f'或把它改造成真正的插件任务（只留 `image` + `settings`，去掉 `script`）。'
-                )
+        where = f'{branch}.{event} 的 `{stage.get("name") or "（无名 stage）"}`'
+        script_hint = '它带 `script` ⇒ 是**脚本任务**（`image` 只是运行环境，来源不限 stage 自身）'
+
+        # (a) `settingsFrom`：脚本任务上永远没有「插件参数」可加载。
+        for url in _vals(stage.get('settingsFrom')):
+            if not _is_secret_url(url):
+                continue
+            problems.append(
+                f'{where} {script_hint}，却用 `settingsFrom` 引密钥文件 `{url}`。'
+                '`settingsFrom` 的语义是「从文件加载**插件参数**」，脚本任务没有插件参数可加载。'
+                '改用 `imports`（注入环境变量），或把它改造成真正的插件任务。'
+            )
+
+        # (b) `imports` 引「带 allow_images 的文件」：CNB 明确拒绝。
+        for url in _vals(stage.get('imports')):
+            if not _is_secret_url(url) or not _is_gitsync_vars_url(url):
+                continue
+            problems.append(
+                f'{where} {script_hint}，却用 `imports` 引了 git-sync 的密钥文件 `{url}`'
+                '（该文件声明了 `allow_images`）。CNB《文件引用 › image 检查说明》：'
+                '「配置文件声明了 allow_images 将不能被非插件任务引用」'
+                '⇒ 该作业**必然死在 Prepare**：'
+                'declares allow_images and can only be referenced by plugin tasks。'
+                '（#269 实测：改挂载层级治不了它，真根因在文件里的 allow_images。）'
+                '正确做法是另起一份**不声明 allow_images** 的密钥文件'
+                '（如 `claim-sync-env.yml`，模板 docs/ops/claim-sync-secret-env.example.yml），'
+                '脚本任务 `imports` 引那一份。'
+            )
     return problems
 
 
@@ -403,6 +465,63 @@ def self_check() -> list[str]:
     }
     if check_secret_ref_on_script_task(ok_plugin_task):
         errors.append('自检探针失败：插件任务（无 script）被判据 4 误报成脚本任务。')
+
+    # ⚠️⚠️ **判据 4 的收窄探针**（源 CNB #269 第二轮）：脚本任务引**不带 `allow_images`**
+    # 的密钥文件是**合法**的，不该被报错。
+    #
+    # 这是「过宽判据」的反向探针：初版判据 4 写成「脚本任务一律不得引密钥」，把 CNB 官方
+    # 示例的合法形态（脚本任务 `script: docker login` + `imports: .../secret.yml`，
+    # 文件只声明 allow_slugs）一并判红。**判据过宽与过窄一样是 bug**，只是表现形式是
+    # 「让人放弃正确做法」。若有人把这条改回一刀切，本探针立刻红。
+    ok_script_task_imports = {
+        '$': {
+            'push': [
+                {
+                    'stages': [
+                        {
+                            'name': '认领同步',
+                            'image': 'python:3.12-slim',
+                            'script': 'python scripts/bridge/claim_detect.py --apply',
+                            'imports': [
+                                'https://cnb.cool/o/secret/-/blob/main/claim-sync-env.yml'
+                            ],
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+    if check_secret_ref_on_script_task(ok_script_task_imports):
+        errors.append(
+            '自检探针失败：脚本任务 `imports` 引**不带 allow_images** 的密钥文件'
+            '（claim-sync-env.yml）被误判为不合规 —— 判据 4 过宽了。'
+        )
+
+    # ⚠️ 同一条判据的**另一半**：脚本任务用 `settingsFrom` 引密钥，必须报错
+    # （`settingsFrom` 是加载插件参数的语义，脚本任务没有插件参数）。
+    bad_script_task_settingsfrom = {
+        'main': {
+            'push': [
+                {
+                    'stages': [
+                        {
+                            'name': '认领同步',
+                            'image': 'python:3.12-slim',
+                            'script': 'python scripts/bridge/claim_detect.py --apply',
+                            'settingsFrom': [
+                                'https://cnb.cool/o/secret/-/blob/main/claim-sync-env.yml'
+                            ],
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+    if not check_secret_ref_on_script_task(bad_script_task_settingsfrom):
+        errors.append(
+            '自检探针失败：脚本任务用 `settingsFrom` 引密钥文件没被报错'
+            ' —— `settingsFrom` 是插件参数语义，脚本任务上无意义。'
+        )
 
     # ⚠️ 判据 1 的**第二条回归探针**：同一份密钥文件，**别处挂对、这一处挂错**。
     # 本仓所有 job 引的是同一个 `vars.yml`，所以「URL 只要在别处合规就放过」这条白名单

@@ -63,7 +63,39 @@
  * 因为它与层级**无关**。脚本任务取凭据的正当途径是 `env`（对比表：脚本任务
  * 「自定义环境变量 ✅ 支持」，插件任务「❌ 不会传递」）。
  *
- * 故新增**判据 4**：脚本任务（`image` + `script`/`commands`）上不得挂密钥文件引用。
+ * 故新增**判据 4**：脚本任务上不得挂密钥文件引用。
+ *
+ * ## #269（2026-10-14，第三轮）：判据 4 **收窄** —— 「脚本任务一律不能引密钥」是过宽的
+ *
+ * 真被 CNB 拒的是一条**更窄**的规则，宾语是「**文件里有 `allow_images`**」，
+ * 不是「脚本任务引用了密钥」：
+ *
+ * > 非插件任务的 image 为空字符串，无法匹配任何 glob 表达式；
+ * > 配置文件**声明了 `allow_images`** 将不能被非插件任务引用
+ *
+ * CNB 官方《文件引用 › 权限检查 › 示例 › 流水线密钥文件引用》给的正是反例：
+ * 一份只声明 `allow_slugs` / `allow_events` / `allow_branches` 的 `secret.yml`，
+ * 被**普通脚本任务**（`script: docker login -u ${DOCKER_USER}`）用 `imports` 引用，完全合法。
+ *
+ * 于是修法是：**另起一份不声明 `allow_images` 的密钥文件**（`claim-sync-env.yml`），
+ * 脚本任务 `imports` 引那一份；`vars.yml` 留给 git-sync 插件（它需要 `allow_images`）。
+ *
+ * 判据 4 同步收窄为两半：
+ *  - 脚本任务 `imports` 引**带 `allow_images`** 的文件（`vars.yml`）⇒ 报错；
+ *  - 脚本任务用 `settingsFrom` 引密钥 ⇒ 报错（那是「加载插件参数」的语义，脚本任务没有插件参数）。
+ *
+ * **过宽与过窄一样是 bug**：过窄漏报，过宽让人放弃正确做法。两种都有探针。
+ *
+ * ## #269（第三轮，续）：判据 4 的**遍历范围**又漏掉了真实形态
+ *
+ * 收窄后回退探针**再次 MISSED**（把 imports 改回 `vars.yml`，守卫仍报绿）。
+ * 根因在 `_iter_plugin_stages()`：它只收「**stage 自己带 `image`**」的 stage，
+ * 而 `认领同步` 的 `image` 来自 **job 级 `docker.image`**（YAML 锚点 `&claim-job` 注入），
+ * stage 自身没有 `image` 键 ⇒ 压根不在遍历里。
+ *
+ * 与 #269 ① 是**同一个错误换了张脸**（那次是「跳过 `$` 段」）：
+ * **判据的遍历范围本身就是判据的一部分。** 改法：判据只认「有没有 `script`/`commands`」，
+ * 遍历凡带 `script`/`commands`/`imports`/`settingsFrom`/`settings` 的 stage 全收。
  *
  * ## 不做什么
  *
@@ -348,8 +380,9 @@ test("别处挂对、这一处挂错，仍须报错（#269 ②：URL 级白名�
   );
 });
 
-test("脚本任务（image + script）上不得挂密钥引用（#269 真根因）", () => {
-  // 这一条前三条判据**结构上抓不到**：它们判「挂在第几层」，判据 4 判「job 是不是插件任务」。
+test("脚本任务 imports 引**带 allow_images 的**密钥文件（vars.yml）必须报错（#269 真根因）", () => {
+  // 这一条前三条判据**结构上抓不到**：它们判「挂在第几层」，判据 4 判「被引文件是给谁用的」。
+  // ⚠️ 注意 grep 的是 `vars.yml`（带 allow_images 的那份），不是「脚本任务不能引密钥」。
   const bad = [
     "main:",
     "  push:",
@@ -359,18 +392,88 @@ test("脚本任务（image + script）上不得挂密钥引用（#269 真根因�
     "          image: tencentcom/http-request",
     "          script: echo hi",
     "          imports:",
-    `            - ${SECRET_URL}`,
+    "            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml",
     "",
   ].join("\n");
   const r = runGuardOnCnb(bad);
   assert.equal(
     r.status,
     1,
-    "脚本任务（image + script）上挂密钥引用没被报错 —— 它必然死在 Prepare（#269）。" +
+    "脚本任务 imports 引带 allow_images 的 vars.yml 没被报错 —— 它必然死在 Prepare（#269）。" +
       r.stdout +
       r.stderr
   );
   assert.match(r.stdout, /脚本任务|allow_images/);
+});
+
+test("脚本任务 imports 引**不带 allow_images 的**密钥文件必须合法（#269 第三轮：判据不许过宽）", () => {
+  // 这是**本仓的实际修复形态**的固化。CNB 官方示例（《文件引用 › 示例 › 流水线密钥文件引用》）
+  // 就是「普通脚本任务 imports 引一份只声明 allow_slugs 的密钥文件」。
+  // ⚠️ 判据若写成「脚本任务一律不得引密钥」，会把这个**官方推荐的正确做法**判红 ——
+  //    过宽的后果不是误报，而是让人放弃正确做法。
+  const ok = [
+    "$:",
+    "  push:",
+    "    - name: 认领同步（任何分支，幂等）",
+    "      stages:",
+    "        - name: 认领同步",
+    "          image: python:3.12-slim",
+    "          script: python scripts/bridge/claim_detect.py --apply",
+    "          imports:",
+    "            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/claim-sync-env.yml",
+    "",
+  ].join("\n");
+  const r = runGuardOnCnb(ok);
+  assert.equal(
+    r.status,
+    0,
+    `脚本任务引不带 allow_images 的密钥文件被误报（判据 4 过宽）：${r.stdout}${r.stderr}`
+  );
+});
+
+test("脚本任务用 settingsFrom 引密钥必须报错（判据 4 的另一半）", () => {
+  // `settingsFrom` 是「从文件加载**插件参数**」的语义，脚本任务没有插件参数可加载。
+  const bad = [
+    "main:",
+    "  push:",
+    "    - name: 认领同步",
+    "      stages:",
+    "        - name: 认领同步",
+    "          image: python:3.12-slim",
+    "          script: python scripts/bridge/claim_detect.py --apply",
+    "          settingsFrom:",
+    "            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/claim-sync-env.yml",
+    "",
+  ].join("\n");
+  const r = runGuardOnCnb(bad);
+  assert.equal(r.status, 1, `脚本任务 settingsFrom 引密钥没被报错：${r.stdout}${r.stderr}`);
+  assert.match(r.stdout, /settingsFrom/);
+});
+
+test("判据 4 必须能看见「image 来自 job 级 docker.image」的脚本任务（#269 第三轮遍历盲区）", () => {
+  // ⚠️ 这是**真实形态**：`认领同步` 的 `image` 由 YAML 锚点 `<<: *claim-job` 的
+  // `docker.image` 提供，**stage 自身没有 `image` 键**。旧遍历 `'image' in stage`
+  // 会把它整个漏掉 ⇒ 判据 4 永远看不见真 bug（回退探针实测 MISSED）。
+  const bad = [
+    "$:",
+    "  push:",
+    "    - name: 认领同步（任何分支，幂等）",
+    "      docker:",
+    "        image: python:3.12-slim",
+    "      stages:",
+    "        - name: 认领同步",
+    "          script: python scripts/bridge/claim_detect.py --apply",
+    "          imports:",
+    "            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml",
+    "",
+  ].join("\n");
+  const r = runGuardOnCnb(bad);
+  assert.equal(
+    r.status,
+    1,
+    "「image 来自 job 级 docker.image、stage 自身无 image」的脚本任务引 vars.yml 没被报错" +
+      " —— 遍历又漏掉了真实形态（#269 第三轮）。" + r.stdout + r.stderr
+  );
 });
 
 test("真插件任务（image + settings，无 script）挂密钥引用不得被误报为脚本任务", () => {
@@ -391,15 +494,39 @@ test("真插件任务（image + settings，无 script）挂密钥引用不得被
   assert.equal(r.status, 0, `插件任务被判据 4 误报：${r.stdout}${r.stderr}`);
 });
 
-test("`.cnb.yml` 里 `$` 段的 `认领同步` 必须用 env 取凭据，不得挂密钥引用（#269）", () => {
-  // 这是**本仓的实际修复**的固化：它曾经是脚本任务 + imports（必死 Prepare）。
+test("`.cnb.yml` 的 `认领同步` 脚本任务必须 imports 引 claim-sync-env.yml（不得退回 vars.yml / env / settingsFrom）", () => {
+  // 固化**本仓的实际修复**。它走过两轮错路：
+  //   ① 脚本任务 + imports 引 `vars.yml` ⇒ 死在 Prepare（allow_images）；
+  //   ② 一度以为「配到仓库级环境变量」——CNB **没有**这个页面（见 §16.10）。
   const claimStart = CNB_YML.indexOf("认领同步（CNB 在干活");
   assert.notEqual(claimStart, -1, "找不到 `认领同步` stage，测试自身写坏了。");
-  const tail = CNB_YML.slice(claimStart, claimStart + 800);
+  const tail = CNB_YML.slice(claimStart, claimStart + 1200);
+  assert.match(tail, /claim-sync-env\.yml/, "`认领同步` 应当 imports 引 claim-sync-env.yml。");
   assert.doesNotMatch(
     tail,
-    /fundmate-secret/,
-    "`认领同步` 又挂回密钥仓库引用了 —— 它是脚本任务，allow_images 永远匹配不上（#269）。"
+    /blob\/main\/vars\.yml/,
+    "`认领同步` 引回了 vars.yml —— 那份带 allow_images，脚本任务引用必死在 Prepare（#269）。"
   );
-  assert.match(tail, /GITHUB_PAT/, "`认领同步` 应当从 env 读 GITHUB_PAT。");
+  assert.doesNotMatch(
+    tail,
+    /settingsFrom/,
+    "`认领同步` 用了 settingsFrom —— 那是插件参数语义，脚本任务上无意义。"
+  );
+  assert.match(tail, /GITHUB_PAT/, "`认领同步` 应当读 GITHUB_PAT（凭据由 imports 注入）。");
+});
+
+test("`claim-sync-env.yml` 模板必须**不含** allow_images（本仓约定的判据基石）", () => {
+  // 守卫读不到密钥仓库（403），故 `_is_gitsync_vars_url` 靠**文件名 + 模板内容**约定：
+  // `vars.yml` 有 allow_images、`claim-sync-env.yml` 没有。这条钉住后半句。
+  const tpl = readFileSync(
+    join(ROOT, "docs", "ops", "claim-sync-secret-env.example.yml"),
+    "utf8"
+  );
+  assert.doesNotMatch(
+    tpl.split("\n").filter((l) => !l.trimStart().startsWith("#")).join("\n"),
+    /^allow_images\s*:/m,
+    "claim-sync-env.yml 模板出现了 allow_images —— 脚本任务引用它就会死在 Prepare（#269）。"
+  );
+  assert.match(tpl, /^allow_slugs\s*:/m, "claim-sync-env.yml 模板缺少 allow_slugs。");
+  assert.match(tpl, /^GITHUB_PAT\s*:/m, "claim-sync-env.yml 模板缺少 GITHUB_PAT。");
 });
