@@ -22,6 +22,9 @@
   索提诺/波回比）为主，夏普为参照。
 - 胜率同时给**周期（日/周/月）**与**窗口**两个正交轴，默认拿月频近 3 年；滚动窗口**重叠**，
   是「持有体验」而非概率，须标 ``overlap``。
+- **最大回撤 ≠ 本轮回撤**（#167）：「最大回撤」是窗口内**历史上最深**的那次；「本轮回撤」
+  是**当前所处回撤区间**（最近一次新高 → 最新一日）。前者回答「最疼过多少」，后者回答
+  「现在疼不疼」。两个都要看——只给最大值会把「已经爬出坑」和「还在坑底」显示成一样。
 """
 
 from __future__ import annotations
@@ -63,6 +66,16 @@ _MIN_RETURNS = 2
 
 
 @dataclass
+class DrawdownState:
+    """本轮回撤（当前所处回撤区间）的结果与其口径元数据。"""
+
+    current_drawdown: float  # 负数%；0.0 = 最新一日即新高
+    peak_date: date  # 本轮高点日（最近一次创新高）
+    as_of: date  # 序列最后一日（回撤计算到这天）
+    days: int  # 自高点起的自然日数（用户体感用日历，不用交易日数）
+
+
+@dataclass
 class RiskMetricsResult:
     """风险指标计算结果。字段为 ``None`` 表示样本不足（前端降级为「—」，禁止编造）。"""
 
@@ -72,6 +85,11 @@ class RiskMetricsResult:
     annual_return: Optional[float]  # 年化收益（%）
     annual_volatility: Optional[float]  # 年化波动率（%）
     max_drawdown: Optional[float]  # 最大回撤（负数%，与既有字段同号）
+    max_drawdown_peak_date: Optional[date]  # 最大回撤的高点日
+    max_drawdown_trough_date: Optional[date]  # 最大回撤的低点日
+    current_drawdown: Optional[float]  # 本轮回撤（负数%，0.0 = 最新一日即新高）
+    drawdown_peak_date: Optional[date]  # 本轮回撤起点（最近一次新高日）
+    drawdown_days: Optional[int]  # 本轮自高点起熬过的自然日数
     sharpe: Optional[float]
     sortino: Optional[float]
     calmar: Optional[float]
@@ -180,6 +198,61 @@ def ulcer_index(points: Sequence[Tuple[date, Optional[float]]], window: int = WI
     if not dds:
         return None
     return round((sum(x * x for x in dds) / len(dds)) ** 0.5, 4)
+
+
+def drawdown_series(points: Sequence[Tuple[date, Optional[float]]]) -> List[Tuple[date, float]]:
+    """逐日回撤序列（%），DD_t = (净值_t − 历史高点) / 历史高点，恒 ≤ 0。
+
+    与 ``ulcer_index`` 共用同一条 peak 走法：创新高即重置 peak，DD 归 0；
+    否则记录相对高点的跌幅。返回**已按日期升序**的完整序列（不截窗口），
+    调用方自行截取——UI 要的是「整段煎熬」的形状，截窗口是调用方的口径决定。
+    """
+    series = _clean(points)
+    if not series:
+        return []
+    peak = series[0][1]
+    out: List[Tuple[date, float]] = []
+    for d, nav in series:
+        if nav > peak:
+            peak = nav
+        out.append((d, round((nav - peak) / peak * 100.0, 4)))
+    return out
+
+
+def current_drawdown(points: Sequence[Tuple[date, Optional[float]]]) -> Optional[DrawdownState]:
+    """**本轮回撤**：当前所处回撤区间（最近一次净值新高 → 序列最后一日）。
+
+    与 ``compute_max_drawdown`` 是**两个不同问题**，不可互相替代：
+
+    | | 最大回撤 | 本轮回撤 |
+    |---|---|---|
+    | 问的是什么 | 窗口内**最疼过多少** | **现在疼不疼** |
+    | 窗口内已爬出坑 | = 那次的深度 | = 0（已在/接近新高） |
+    | 窗口内仍在坑里 | = 那次的深度 | 可能远小于它（还在半山腰） |
+
+    只给最大回撤，会把「跌下去 30% 但已修复」与「跌 30% 且仍在水下」显示成同一个数——
+    对「跌起来比涨得还猛、回不来」的筛选，后者才是要抓的形态（#167 用户原话）。
+
+    实现：单次遍历维护 running peak 与**最近一次创新高的日期**；序列走完后，
+    最新一日相对该高点的跌幅即本轮回撤。
+        - 最新一日即新高 ⇒ ``current_drawdown = 0.0``（**不是 None**：在最高点是事实，
+          不是缺数据。返回 None 会让前端显示成「—」，把一个明确结论藏起来）；
+        - ``days`` 是自然日跨度，不是交易日数（用户体感的是日历，不是 K 线根数）。
+    """
+    series = _clean(points)
+    if len(series) < 1:
+        return None
+    peak_date, peak_nav = series[0]
+    for d, nav in series:
+        if nav > peak_nav:
+            peak_nav, peak_date = nav, d
+    last_date, last_nav = series[-1]
+    return DrawdownState(
+        current_drawdown=round((last_nav - peak_nav) / peak_nav * 100.0, 4),
+        peak_date=peak_date,
+        as_of=last_date,
+        days=(last_date - peak_date).days,
+    )
 
 
 def _downside_std(rets: Sequence[float], mar_daily: float = 0.0) -> Optional[float]:
@@ -342,6 +415,11 @@ def compute_risk_metrics(
         annual_return=None,
         annual_volatility=None,
         max_drawdown=None,
+        max_drawdown_peak_date=None,
+        max_drawdown_trough_date=None,
+        current_drawdown=None,
+        drawdown_peak_date=None,
+        drawdown_days=None,
         sharpe=None,
         sortino=None,
         calmar=None,
@@ -381,6 +459,17 @@ def compute_risk_metrics(
     result.annual_volatility = ann_vol
     result.max_drawdown = max_dd
     result.ulcer_index = ui
+    if dd is not None:
+        result.max_drawdown_peak_date = dd.peak_date
+        result.max_drawdown_trough_date = dd.trough_date
+
+    # 本轮回撤（与上方的最大回撤是**两个问题**，见 current_drawdown docstring）：
+    # 用「窗口截断后」的序列，与 max_drawdown 同窗口，避免两字数出不同区间。
+    dd_state = current_drawdown(series)
+    if dd_state is not None:
+        result.current_drawdown = dd_state.current_drawdown
+        result.drawdown_peak_date = dd_state.peak_date
+        result.drawdown_days = dd_state.days
 
     rf_pct = rf_annual * 100
     # 夏普：分母为 0（无波动）时不出值，避免 inf。

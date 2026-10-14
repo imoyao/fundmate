@@ -42,6 +42,7 @@
 | `advisor_portfolios` / `advisor_holdings` / `advisor_industry_allocs` / `advisor_adjust_histories` | 投顾组合公开参照与持仓/行业/调仓明细（#1167；2026-09-08 补登记，此前文档漂移） | 参照小表，明细随组合数增长 |
 | `index_constituents` | 指数成分股（#1358 / #1286；2026-09-08 补登记） | 按指数×成分，覆盖式更新 |
 | `index_catalog` | 指数名录（#1286 聚合搜索底座） | 恒定，千级，覆盖式重建 |
+| `fund_risk_metrics` | 风险收益指标日快照（#167；`daily_worth` 的可复现派生投影） | 每只基金 1 行（覆盖式，不按日累积）；公开、无 `user_id`/`family_id`（同一只基金的指标对所有用户相同）⇒ market 域。口径由 `caliber_version` 标记，改口径先 bump（同 `pnl_daily_snapshots` 范式） |
 
 > **2026-09-08 注**：完整表清单以 `backend/app/core/db_factory.py` 的 `DATA_DOMAIN_REGISTRY` 为唯一权威（启动校验兜底）；本节为人工盘点快照，新增表时须同步更新（AGENTS.md 双库硬规则 §1）。
 

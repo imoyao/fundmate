@@ -55,8 +55,8 @@ class TestLoadConfig:
         cfg = ds.load_config({})
         # 必须显式打开：否则 conftest 每个用例都会 create_app()，测试里就会真的起抓取线程
         assert cfg.enabled is False
-        # 末四项是 #1934 补进本机调度的（此前它们只注册在编排器里，从未自动跑过），
-        # 末项 orphan_backfill 是 #950 新增的孤儿交易回填
+        # #1934 那四项补进本机调度（此前它们只注册在编排器里，从未自动跑过）、
+        # orphan_backfill 是 #950 的孤儿交易回填、fund_risk_metrics 是 #167 的风险指标快照。
         assert cfg.job_names() == [
             'temperature',
             'fund_nav',
@@ -69,6 +69,7 @@ class TestLoadConfig:
             'index_valuation',
             'convertible_bond',
             'dividend_split',
+            'fund_risk_metrics',
             'orphan_backfill',
         ]
         assert cfg.timezone == ds.DEFAULT_TIMEZONE
@@ -153,6 +154,7 @@ class TestLoadConfig:
             'index_valuation',
             'convertible_bond',
             'dividend_split',
+            'fund_risk_metrics',
             'orphan_backfill',
         ]
 
@@ -186,6 +188,7 @@ class TestLoadConfig:
             'index_valuation',
             'convertible_bond',
             'dividend_split',
+            'fund_risk_metrics',
             'orphan_backfill',
         ]
         assert cfg.jobs[0].cron == '5 22 * * 1-5'

@@ -106,6 +106,8 @@ ENV_MARKET_ASSET_DAILY_ENABLED = 'SCHEDULER_MARKET_ASSET_DAILY_ENABLED'
 ENV_MARKET_ASSET_DAILY_CRON = 'SCHEDULER_MARKET_ASSET_DAILY_CRON'
 ENV_DIVIDEND_SPLIT_ENABLED = 'SCHEDULER_DIVIDEND_SPLIT_ENABLED'
 ENV_DIVIDEND_SPLIT_CRON = 'SCHEDULER_DIVIDEND_SPLIT_CRON'
+ENV_RISK_METRICS_ENABLED = 'SCHEDULER_RISK_METRICS_ENABLED'
+ENV_RISK_METRICS_CRON = 'SCHEDULER_RISK_METRICS_CRON'
 ENV_ORPHAN_BACKFILL_ENABLED = 'SCHEDULER_ORPHAN_BACKFILL_ENABLED'
 ENV_ORPHAN_BACKFILL_CRON = 'SCHEDULER_ORPHAN_BACKFILL_CRON'
 
@@ -161,6 +163,11 @@ DEFAULT_DIVIDEND_SPLIT_CRON = '45 21 * * *'
 # 回填看到的是当天最终状态，不会因「持仓尚未建好」把本可挂上的流水留在孤儿态。
 # 错开 30 分钟同样是为了不与fund_position 抢 DB 会话（与 position_price 的错峰同理）。
 DEFAULT_ORPHAN_BACKFILL_CRON = '30 23 * * *'
+# 22:30 风险收益指标快照（#167）：**必须晚于 fund_nav（21:30）**——它读的就是后者刚落库的
+# 净值序列；又早于持仓现价回写（22:15）? 不，晚于它更稳：position_price 会改持仓现价，
+# 但本 job 只读净值、与现价无关，排在 22:30 是为避开 22:00 投顾 / 22:15 现价两处
+# DB 会话争用。纯计算不联网，故不受上游限流窗口约束。
+DEFAULT_RISK_METRICS_CRON = '30 22 * * *'
 
 # backend/ 目录（app/services/daily_scheduler.py → parents[2]）
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -332,6 +339,18 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[str], str], ...] = (
         DEFAULT_DIVIDEND_SPLIT_CRON,
         None,
         '分红 / 送股事件（akshare 公告口径，按 import_hash 幂等；#1179）',
+    ),
+    (
+        # 风险收益指标快照（#167）：target_kind='fund' —— 目标池 = 持仓 + 自选，
+        # 与 fund_nav 同一个池；空池时 job 显式跳过（不退化为全库 3 万只，见 #1403）。
+        # ⚠️ 它**不联网**：净值由 fund_nav 负责抓，本 job 只是下游的纯计算消费者。
+        # 因此 REST_DAY_JOB_NAMES 里**不含**它——休市日没有新净值，算了也是同一个数。
+        'fund_risk_metrics',
+        ENV_RISK_METRICS_ENABLED,
+        ENV_RISK_METRICS_CRON,
+        DEFAULT_RISK_METRICS_CRON,
+        'fund',
+        '风险收益指标快照（最大回撤/本轮回撤/夏普族，纯计算不联网；#167）',
     ),
     (
         # 孤儿交易回填（#950）：target_kind=None —— 与目标池无关，纯本地扫描

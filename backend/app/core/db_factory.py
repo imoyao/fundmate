@@ -173,6 +173,10 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'fund_industry_allocs': DOMAIN_MARKET,  # 基金行业配置（#870：csrc/gics 双体系分区）
     'convertible_bond_terms': DOMAIN_MARKET,  # 可转债条款（#1285/#1393：强赎/回售/转股）
     'daily_worth': DOMAIN_MARKET,  # 基金净值（最大体积表）
+    # 风险收益指标日快照（#167）：daily_worth 的可复现派生投影（L2），公开、随交易日增长、
+    # 无 user_id/family_id（同一只基金的指标对所有用户相同）⇒ 归 market 域。
+    # 表属自建派生数据（非上游镜像），口径变更时整表按 caliber_version 作废重算。
+    'fund_risk_metrics': DOMAIN_MARKET,
     'money_fund_daily_worth': DOMAIN_MARKET,  # 货基净值
     'purchase_rules': DOMAIN_MARKET,
     'redeem_rules': DOMAIN_MARKET,
