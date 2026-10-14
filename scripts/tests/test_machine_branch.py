@@ -179,7 +179,7 @@ def test_conflicts_mean_nothing_is_pushed(mod, tmp_path):
     mod._git = spy
     try:
         args = argparse.Namespace(
-            apply=True, dry_run=False, push=True, 
+            apply=True, dry_run=False, push=True,
             base='cnb', branch='dev', machine_branch='bridge/github-dev',
             cnb_url=str(cnb), github_url=str(gh), cwd=str(cnb),
         )
@@ -209,7 +209,7 @@ def test_worktree_is_cleaned_up_on_conflict(mod, tmp_path):
     mod._git = spy
     try:
         args = argparse.Namespace(
-            apply=True, dry_run=False, push=True, 
+            apply=True, dry_run=False, push=True,
             base='cnb', branch='dev', machine_branch='bridge/github-dev',
             cnb_url=str(cnb), github_url=str(gh), cwd=str(cnb),
         )
@@ -239,7 +239,7 @@ def test_fetch_failure_is_exit_2_not_zero(mod, tmp_path, monkeypatch):
         apply=False,
         dry_run=True,
         push=False,
-        
+
         base='cnb',
         branch='dev',
         machine_branch='bridge/github-dev',
@@ -259,7 +259,7 @@ def test_fetch_failure_message_says_inconclusive(mod, tmp_path, monkeypatch, cap
         apply=False,
         dry_run=True,
         push=False,
-        
+
         base='cnb',
         branch='dev',
         machine_branch='bridge/github-dev',
@@ -304,7 +304,7 @@ def test_no_conflict_reports_ok(mod, tmp_path, monkeypatch):
         apply=False,
         dry_run=False,  # 走「演练」的 merge-tree 试算分支（不建 worktree）
         push=False,
-        
+
         base='cnb',
         branch='dev',
         machine_branch='bridge/github-dev',

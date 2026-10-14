@@ -2294,3 +2294,56 @@ GET /repos/imoyao/fundmate/rulesets                 → []（空）   ← 无 ru
 - **② 造冲突必须用两个独立仓库**：第一版图省事，用一个仓库的两条分支冒充「两侧」，
   `git merge` 自然成功 ⇒ 「有冲突」那两条用例**恒绿**，探针都没咬住。
   造真冲突要有**两条独立历史**（`gh` 从 `cnb` clone 出来 + 两侧改同一行）。
+
+---
+
+## 23. C：治理文件只在 CNB 侧改（源 CNB #450，2026-10-14）  <!-- cross-repo-ref-allow -->
+
+### 23.1 为什么这是治根
+
+**为什么这是治根**：分叉**反复复发**的结构性根因是「CNB 侧与 GitHub 侧同时改同一批治理文件」。
+
+实测（2026-10-14 真实 `git merge`，5 文件 / 16 处冲突）：
+
+```
+.cnb.yml                                       ← 两边都改
+AGENTS.md                                      ← 两边都改
+docs/dev/github-cnb-mirror.md                  ← 两边都改
+scripts/bridge/check_branch_divergence.py      ← 两边都改
+backend/tests/test_branch_divergence_check.py  ← 两边都改
+```
+
+上次（§18.5，PR #425）是 **25 个文件**。**这不是运气差，是必然**——只要「两边都往
+同一批文件里写」成立，每次收敛完都会再撞一次（§19「收敛是动作不是状态」）。
+
+**机器化**：
+
+- `scripts/governance_files_rule.js`：纯离线判「一条 PR 有没有碰这批文件」；
+- `.github/workflows/governance-direction-guard.yml`：GitHub 侧在 PR 上**提示**
+  （带 `governance-direction-guard` marker 去重，反复 push 不刷屏）；
+- 回归网 `scripts/tests/governance_files_rule.test.js`（13 例）。
+
+**它刻意是「提示」不是「阻断」**：治理文件有时**确实**要从 GitHub 改
+（如 GitHub 独有的 workflow 需要同步调整）。做成阻断等于制造**第二条死锁**——
+想改的人被拦住，只能绕过去，反而更糟。这与 §17.4「拿不到输入时不得退化成正常」
+的纪律同类，但方向相反：**这里宁可放过，不可制造新的堵点**。
+
+**口径**：判断标准不是「文件重不重要」，而是「**两侧是否都会改它**」。会，就进清单。
+
+### 23.2 两个必须如实说明的边界
+
+**① 走过 PR 路线的批准前提，我读不到。**
+`dev` 的保护详情匿名 API 返 **401**（`GET /branches/dev/protection`），
+`GET /rulesets` 返 **`[]`**（空）⇒ 是 **classic branch protection，没有 bypass 列表**。
+但「是否勾了 **Require approvals**」这一条**我无法确认**（需要鉴权，我这边没有）。
+
+- 若只有 `质量门禁汇总` ⇒ 机器 PR 可以自动合并，**从这道闸起不需要人点任何东西**；
+- 若还勾了 `Require approvals` ⇒ PR 会**卡在等人 Approve**，
+  等于把死锁从「永远红」换成「永远等」——那时这条路**不成立**，得改回「只在分叉时人工合」。
+
+**这一条必须由有权限的人核实**，本节的结论依赖它。
+
+**② 「走 PR」不改变「必须先合一次」。**
+两侧当前仍是分叉（实测 2026-10-14：CNB 独有 40 笔 / GitHub 独有 2 笔，
+冲突面 5 文件 16 处）。**PR 只是通行方式，不是收敛本身**——
+第一次那 16 处冲突仍要人工解，`dev_converge.py` 的定位不变（§18.6）。
