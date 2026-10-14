@@ -378,20 +378,29 @@ $:
     - name: 认领同步（任何分支，幂等）
       <<: *claim-job
       stages:
-        # 调 GitHub 需要 HTML 侧的 PAT —— 走 http-request 插件 + 插件任务级 imports
-        # （形态与 §13.1 的三条 git-sync 一致：`imports` 与 `image` 平级，注入环境变量）。
-        # 参考 https://cnb.cool/cnb/plugins/tencentcom/http-request
+        # ⚠️⚠️ **这里是脚本任务，不是插件任务——不要再挂密钥仓库的 `imports` / `settingsFrom`.**
+        # 依据 CNB《文件引用 › 权限检查 › image 检查说明》两条原文（2026-10-14 读完文档才定论）：
+        #   ①「非插件任务的 image 为空字符串，无法匹配任何 glob 表达式；配置文件声明了
+        #      `allow_images` 将不能被非插件任务引用」；
+        #   ②「**Job 同时设置 `image` 和 `script` 属于以 image 作为执行环境的脚本任务**」。
+        # 本 job 同时写了 `image` 与 `script` ⇒ 它是脚本任务 ⇒ `allow_images` 永远匹配不上，
+        # 把密钥仓库的引用挂在这（无论 job 级还是 stage 级、无论 imports 还是 settingsFrom）
+        # 都必死在 Prepare：`declares allow_images and can only be referenced by plugin tasks.`
+        # （CNB #269 实测：改过两轮都还是这条报错，因为它与「挂在第几层」无关。）
+        #
+        # 脚本任务拿凭据的**正当途径是 `env`**（见《脚本任务 vs 插件任务》对比表：
+        # 脚本任务「自定义环境变量 ✅ 支持」，插件任务「❌ 不会传递」）。
+        # `GITHUB_PAT` 因此在 CNB 仓库的**流水线环境变量**里配置（Web 上维护，不落代码仓）。
+        # ⚠️ 别为了「和 git-sync 写法一致」再把它改回密钥仓库引用 —— git-sync 是插件任务，
+        # 两者形态本就不同，强行对齐只会再撞一次这堵墙。
         - name: 认领同步（CNB 在干活 → GitHub 挂 `CNB 处理中`）
-          image: tencentcom/http-request
-          imports:
-            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
           env:
             GITHUB_REPO: imoyao/fundmate
           script: |
-            # 凭据缺失：http-request 插件只负责「有网」，PAT 得自己看。
-            # 这里**先自证**再跑，免得脚本里所有读都 200、所有写都 401 而没人看见。
+            # 凭据缺失：**先自证**再跑，免得脚本里所有读都 200、所有写都 401 而没人看见。
             if [ -z "${GITHUB_PAT:-}" ]; then
-              echo "❌ GITHUB_PAT 未注入（Secret 仓库 vars.yml 应有该键）——认领同步无法执行"
+              echo "❌ GITHUB_PAT 未注入 —— 认领同步无法执行"
+              echo "   请在 CNB 仓库设置 → 环境变量里配置 GITHUB_PAT（与 git-sync 同一份 PAT）。"
               exit 1
             fi
             export GITHUB_TOKEN="$GITHUB_PAT"

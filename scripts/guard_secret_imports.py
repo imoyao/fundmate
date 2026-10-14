@@ -127,6 +127,53 @@ def _iter_plugin_stages(data: dict):
                     yield branch, event, stage
 
 
+def _is_script_task(stage: dict) -> bool:
+    """`image` + `script`（或 `commands`）同时存在 ⇒ **脚本任务**，不是插件任务。
+
+    依据 CNB《文件引用 › 权限检查 › image 检查说明》原文：
+      「**Job 同时设置 `image` 和 `script` 属于以 image 作为执行环境的脚本任务**」
+    以及「非插件任务的 image 为空字符串，无法匹配任何 glob 表达式；配置文件声明了
+    `allow_images` 将不能被非插件任务引用」。
+
+    即：脚本任务上的 `image` 只是**运行环境**（跑 `script` 的容器），它是插件镜像这件事
+    并不成立 ⇒ 引用一份声明了 `allow_images` 的密钥文件**必然被拒**，
+    且报错与「挂在第几层」无关（源 CNB #269：改了两轮都还是同一条）。
+    """
+    has_image = 'image' in stage
+    has_script = bool(stage.get('script')) or bool(stage.get('commands'))
+    return has_image and has_script
+
+
+def check_secret_ref_on_script_task(data: dict) -> list[str]:
+    """判据 4：**脚本任务**上不得挂密钥文件引用（`imports` / `settingsFrom`）。
+
+    这是 #269 的真根因，也是前三条判据**结构上抓不到**的一类：前三条判的是
+    「挂在第几层」，而这一条判的是「挂它的那个 job 是不是插件任务」——
+    一个脚本任务把引用放在任何一层都不合法。
+
+    脚本任务的正当途径是 `env`（《脚本任务 vs 插件任务》对比表：脚本任务「自定义环境变量 ✅」，
+    插件任务「❌ 不会传递」）。凭据放 CNB 仓库的流水线环境变量，不落代码仓。
+    """
+    problems: list[str] = []
+    for branch, event, stage in _iter_plugin_stages(data):
+        if not _is_script_task(stage):
+            continue
+        for key in PLUGIN_TASK_KEYS:
+            for url in _vals(stage.get(key)):
+                if not _is_secret_url(url):
+                    continue
+                problems.append(
+                    f'{branch}.{event} 的 `{stage.get("name") or "（无名 stage）"}` 同时写了 '
+                    f'`image` 和 `script` ⇒ 它是**脚本任务**（image 只是运行环境），'
+                    f'却用 `{key}` 引了密钥文件 `{url}`。CNB 判定「非插件任务无法匹配 allow_images」'
+                    f'⇒ 该作业**必然死在 Prepare**：'
+                    f'declares allow_images and can only be referenced by plugin tasks。'
+                    f'脚本任务取凭据请用 `env`（配在仓库流水线环境变量里），'
+                    f'或把它改造成真正的插件任务（只留 `image` + `settings`，去掉 `script`）。'
+                )
+    return problems
+
+
 def check_pipeline_level_secret_refs(data: dict) -> list[str]:
     """判据 1 + 3：密钥类 URL 必须挂在插件任务级，且不得两种语义并存。"""
 
@@ -312,6 +359,51 @@ def self_check() -> list[str]:
             ' —— 说明遍历又把 `$` 跳过了。'
         )
 
+    # ⚠️ **判据 4 的探针**（源 CNB #269 的真根因）：脚本任务上挂密钥引用。
+    # `image` + `script` 同时存在 ⇒ 它是脚本任务（image 只是运行环境），
+    # 前三条判据结构上抓不到它 —— 它们判「挂在第几层」，而这一条判「job 是不是插件任务」。
+    bad_script_task = {
+        'main': {
+            'push': [
+                {
+                    'stages': [
+                        {
+                            'name': '认领同步',
+                            'image': 'tencentcom/http-request',
+                            'script': 'python scripts/bridge/claim_detect.py --apply',
+                            'imports': ['https://cnb.cool/o/secret/-/blob/main/vars.yml'],
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+    if not check_secret_ref_on_script_task(bad_script_task):
+        errors.append(
+            '自检探针失败：**脚本任务**（image + script）上用 imports 引密钥文件没被报错'
+            ' —— 它会死在 Prepare（非插件任务无法匹配 allow_images，#269）。'
+        )
+    # 反向：真插件任务（只有 image + settings，无 script）挂了密钥引用**不该**被这条报错
+    # （合规与否由判据 1/2/3 管，判据 4 只管「job 类型」）。
+    ok_plugin_task = {
+        'main': {
+            'push': [
+                {
+                    'stages': [
+                        {
+                            'name': '同步',
+                            'image': 'tencentcom/git-sync',
+                            'settings': {'username': '${GIT_USERNAME}'},
+                            'imports': ['https://cnb.cool/o/secret/-/blob/main/vars.yml'],
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+    if check_secret_ref_on_script_task(ok_plugin_task):
+        errors.append('自检探针失败：插件任务（无 script）被判据 4 误报成脚本任务。')
+
     # ⚠️ 判据 1 的**第二条回归探针**：同一份密钥文件，**别处挂对、这一处挂错**。
     # 本仓所有 job 引的是同一个 `vars.yml`，所以「URL 只要在别处合规就放过」这条白名单
     # 会把判据 1 整个架空（2026-10-14 回退探针实测 MISSED，两次都栽在它上面）。
@@ -406,6 +498,7 @@ def main() -> int:
 
     problems += check_pipeline_level_secret_refs(data)
     problems += check_settingsfrom_var_substitution(data)
+    problems += check_secret_ref_on_script_task(data)
 
     if problems:
         print(f'❌ {path} 密钥引用位置检查未通过：')

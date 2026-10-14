@@ -48,6 +48,23 @@
  *
  * 两条都补了探针。**判据的假绿比假红贵得多**：假红会有人查，假绿会让修好的东西被当成没修。
  *
+ * ## #269（2026-10-14，第二轮）：真根因是「**job 的类型**」，前三条判据结构上抓不到
+ *
+ * 前三条判据都在判「引用挂在**第几层**」（流水线 / stage / job），于是漏掉了一整类：
+ * **挂它的那个 job 是不是插件任务**。一个作业把引用放在任何一层，
+ * 只要它同时写了 `image` 和 `script`，就仍然是**脚本任务**（image 只是运行环境）。
+ *
+ * CNB《文件引用 › 权限检查 › image 检查说明》原文两条：
+ *   - 「非插件任务的 image 为空字符串，无法匹配任何 glob 表达式；配置文件声明了
+ *      `allow_images` **将不能被非插件任务引用**」；
+ *   - 「**Job 同时设置 `image` 和 `script` 属于以 image 作为执行环境的脚本任务**」。
+ *
+ * 实测（CNB #269）：改了两轮「引用挂在第几层」都还是同一条 Prepare 报错，
+ * 因为它与层级**无关**。脚本任务取凭据的正当途径是 `env`（对比表：脚本任务
+ * 「自定义环境变量 ✅ 支持」，插件任务「❌ 不会传递」）。
+ *
+ * 故新增**判据 4**：脚本任务（`image` + `script`/`commands`）上不得挂密钥文件引用。
+ *
  * ## 不做什么
  *
  * 不拉网络：`fundmate-secret` 对 API / token 一律 403，守卫读不到也不该读。
@@ -329,4 +346,60 @@ test("别处挂对、这一处挂错，仍须报错（#269 ②：URL 级白名�
       r.stdout +
       r.stderr
   );
+});
+
+test("脚本任务（image + script）上不得挂密钥引用（#269 真根因）", () => {
+  // 这一条前三条判据**结构上抓不到**：它们判「挂在第几层」，判据 4 判「job 是不是插件任务」。
+  const bad = [
+    "main:",
+    "  push:",
+    "    - name: 认领同步",
+    "      stages:",
+    "        - name: 认领同步",
+    "          image: tencentcom/http-request",
+    "          script: echo hi",
+    "          imports:",
+    `            - ${SECRET_URL}`,
+    "",
+  ].join("\n");
+  const r = runGuardOnCnb(bad);
+  assert.equal(
+    r.status,
+    1,
+    "脚本任务（image + script）上挂密钥引用没被报错 —— 它必然死在 Prepare（#269）。" +
+      r.stdout +
+      r.stderr
+  );
+  assert.match(r.stdout, /脚本任务|allow_images/);
+});
+
+test("真插件任务（image + settings，无 script）挂密钥引用不得被误报为脚本任务", () => {
+  const ok = [
+    "main:",
+    "  push:",
+    "    - name: 同步",
+    "      stages:",
+    "        - name: 同步",
+    "          image: tencentcom/git-sync",
+    "          imports:",
+    `            - ${SECRET_URL}`,
+    "          settings:",
+    "            username: ${GIT_USERNAME}",
+    "",
+  ].join("\n");
+  const r = runGuardOnCnb(ok);
+  assert.equal(r.status, 0, `插件任务被判据 4 误报：${r.stdout}${r.stderr}`);
+});
+
+test("`.cnb.yml` 里 `$` 段的 `认领同步` 必须用 env 取凭据，不得挂密钥引用（#269）", () => {
+  // 这是**本仓的实际修复**的固化：它曾经是脚本任务 + imports（必死 Prepare）。
+  const claimStart = CNB_YML.indexOf("认领同步（CNB 在干活");
+  assert.notEqual(claimStart, -1, "找不到 `认领同步` stage，测试自身写坏了。");
+  const tail = CNB_YML.slice(claimStart, claimStart + 800);
+  assert.doesNotMatch(
+    tail,
+    /fundmate-secret/,
+    "`认领同步` 又挂回密钥仓库引用了 —— 它是脚本任务，allow_images 永远匹配不上（#269）。"
+  );
+  assert.match(tail, /GITHUB_PAT/, "`认领同步` 应当从 env 读 GITHUB_PAT。");
 });
