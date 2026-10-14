@@ -144,14 +144,23 @@ function marketValue(row: Position): number | null {
 
 <style lang="scss" scoped>
 /* 「问这个」行内入口（#1764）：按 design.md 行内操作规范——默认隐藏，
-   行 hover 经 200ms ease-out 淡入；键盘 focus 同样必须显形（验收「键盘可达」） */
+   行 hover 经 200ms ease-out 淡入；键盘 focus 同样必须显形（验收「键盘可达」）。
+   基态隐藏必须配双兜底（scripts/guard_a11y_interaction.py 阻断）：
+   键盘走 :focus-within 显形；触屏没有 hover 概念，@media (hover: none) 下常驻可见 */
 :deep(.ask-actions-col .ask-btn) {
   opacity: 0;
   transition: opacity 200ms ease-out;
 }
 
 :deep(.el-table__row:hover .ask-actions-col .ask-btn),
-:deep(.ask-actions-col .ask-btn:focus) {
+:deep(.ask-actions-col .ask-btn:focus),
+:deep(.el-table__row:focus-within .ask-actions-col .ask-btn) {
   opacity: 1;
+}
+
+@media (hover: none) {
+  :deep(.ask-actions-col .ask-btn) {
+    opacity: 1;
+  }
 }
 </style>
