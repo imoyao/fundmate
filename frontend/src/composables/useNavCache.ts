@@ -7,9 +7,11 @@
  * 2. **TTL 分级**：历史日期的净值永不变（长 TTL），当天净值短 TTL（10 分钟）。
  * 3. **批量优先**：所有公开方法接受符号列表，内部一次请求，
  *    禁止调用方循环单条请求（消除 N+1）。
- * 4. **降级链路**：本地缓存 → 天天基金 JSONP（直连）→ null（不阻塞）。
- *    **不走后端** `/api/funds/nav/`：该接口在基金数量多时会同步拉取远程，
- *    曾导致前端 10s 超时；JSONP 直连东财为纯前端行为，无后端阻塞风险。
+ * 4. **降级链路**：本地缓存 → 天天基金 JSONP（直连）→ 后端 /api/funds/nav/ → null（不阻塞）。
+ *    JSONP 是首选（纯前端行为，无后端阻塞风险）；但 JSONP 单点故障时（如东财改接口契约，
+ *    2026-10-14 实测 fund_code→fundCode 参数漂移导致整链全断、记一笔被卡死），必须有
+ *    后端兜底——后端 xalpha 适配器独立维护同一契约且带实时拉取，两条腿断一条还能走。
+ *    后端仅对 JSONP 仍缺失的少量 code 批量调用（单笔记账场景通常 1 只），不回头打全量。
  *
  * ## 使用方式
  *
@@ -39,6 +41,7 @@
 
 import { ref } from "vue";
 import { fetchNavBatchFromEastmoney } from "@/api/fundNav";
+import { calcFundNav } from "@/api/funds";
 
 // ──────────────────────────────────────────────
 // 常量
@@ -143,7 +146,7 @@ export function useNavCache() {
   /**
    * 批量获取多只基金在指定日期的单位净值。
    *
-   * 查询链路：localStorage 缓存 → 后端批量 API → 天天基金 JSONP 兜底
+   * 查询链路：localStorage 缓存 → 天天基金 JSONP（直连）→ 后端批量 API 兜底
    *
    * @param fundCodes 基金代码列表
    * @param targetDate 目标日期 YYYY-MM-DD
@@ -173,19 +176,43 @@ export function useNavCache() {
 
     // 3. 未命中的经 JSONP 直连东财（不经后端，避免阻塞）
     loading.value = true;
+    let stillMissing: string[] = missingCodes;
     try {
-      const remoteMap = await fetchNavBatchFromEastmoney(
-        missingCodes,
-        targetDate
-      );
+      try {
+        const remoteMap = await fetchNavBatchFromEastmoney(
+          missingCodes,
+          targetDate
+        );
 
-      // 4. 取到的结果写回缓存（取不到的保持缺失，下次再试）
-      for (const [code, nav] of Object.entries(remoteMap)) {
-        result[code] = nav;
-        writeCache(code, targetDate, nav, "eastmoney");
+        // 4. 取到的结果写回缓存（取不到的保持缺失，下次再试）
+        for (const [code, nav] of Object.entries(remoteMap)) {
+          result[code] = nav;
+          writeCache(code, targetDate, nav, "eastmoney");
+        }
+        stillMissing = missingCodes.filter(code => !(code in remoteMap));
+      } catch (e) {
+        console.warn("[useNavCache] JSONP 获取净值失败:", e);
       }
-    } catch (e) {
-      console.warn("[useNavCache] JSONP 获取净值失败:", e);
+
+      // 5. JSONP 仍缺失 → 后端兜底（后端 xalpha 独立维护东财契约 + 实时拉取；
+      //    JSONP 单点故障时整链不至于全断，见文件头降级链说明）
+      if (stillMissing.length > 0) {
+        try {
+          const res = await calcFundNav(stillMissing, targetDate);
+          const list = res.data;
+          if (Array.isArray(list)) {
+            for (const item of list) {
+              const nav = Number(item.unit_nav);
+              if (item.fund_code && nav > 0) {
+                result[item.fund_code] = nav;
+                writeCache(item.fund_code, targetDate, nav, "backend");
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("[useNavCache] 后端兜底获取净值失败:", e);
+        }
+      }
     } finally {
       loading.value = false;
     }
