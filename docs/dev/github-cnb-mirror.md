@@ -1865,9 +1865,9 @@ python scripts/bridge/dev_converge.py --apply --base github   # 反向
 
 | 时刻 | 动作 | 两侧 `dev` |
 |---|---|---|
-| T0 | PR #425 收敛完成，CNB `dev` 含全部 GitHub 独有提交 | 一致 |
+| T0 | CNB PR #425 收敛完成，CNB `dev` 含全部 GitHub 独有提交 | 一致 |  <!-- cross-repo-ref-allow -->
 | T1 | 发现 push 作业挂在 `main:` 键下 ⇒ 从未生效（§18 之外的另一个病） | — |
-| T2 | PR #448 把三条 git-sync 作业挪到 `dev:` 键下，并**再合一次** GitHub `dev` 的 `029afe05` | CNB `866e2043` / GH `ff73c5ad+` |
+| T2 | CNB PR #448 把三条 git-sync 作业挪到 `dev:` 键下，并**再合一次** GitHub `dev` 的 `029afe05` | CNB `866e2043` / GH `ff73c5ad+` |  <!-- cross-repo-ref-allow -->
 | T3 | **合并后第一次 push 构建仍红**：`! [rejected] dev -> dev (fetch first)` | CNB `866e2043` / GH **`d1b5780b`** |
 
 **T3 的红不是 T1/T2 修的那个病。** T2 修的是「作业没跑」——已验：runner 日志里
