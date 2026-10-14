@@ -26,6 +26,22 @@ CNB `main` 只由 CNB 自己的发版 PR 推进，不是 GitHub `main` 的镜像
    裸挂在事件下）。裸 `stages:` 的 job 在构建详情页**查不到 stage**：外部看是绿的，
    实际推没推上去无从判断 —— 比红灯更危险的「假绿」（CNB #172 实测：
    `crontab: 30` 的兜底 push 长期显示绿，但 `sha` 一直停在旧提交，从未推上去）。
+5. **git-sync 任务的挂载分支键必须与它 `settings.branch` 的目标分支一致**，
+   或该分支键是能覆盖目标分支的 glob（如 `**/!(main|dev)` 覆盖功能分支）。
+   —— **判据 1~4 全是「配置形状」，这一条判「跑在什么地方」。** 前四条都通过、这条
+   不过的形态，实测绿了三天（CNB #269）：
+
+   | 项 | 值 |
+   |---|---|
+   | `branch: dev` | ✅ 写对了（判据 1/2 通过） |
+   | 挂载位置 | ❌ 挂在 `main:` 键下 |
+   | 后果 A | `dev` 的 push 构建**根本不含这个 job**（`get-build-stage` 返回「没有查询到该stage信息」） |
+   | 后果 B | `main` 的 cron 构建里工作区只有 `main`，插件打 `Warning: Branch dev does not exist locally, skipping push` 后跳过 |
+   | 构建状态 | ✅ **success**（三天零信号） |
+
+   根因是 runner 的检出行为：`git fetch origin "refs/heads/<分支键>"` +
+   `git checkout -f -B "<分支键>" <sha>` —— **工作区里只有那个分支键对应的分支**，
+   而 git-sync 只推「工作区里存在的分支」。放错分支键 ⇒ 要么不含 job、要么找不到分支。
 
 边界（有意为之）
 ----------------
@@ -33,6 +49,8 @@ CNB `main` 只由 CNB 自己的发版 PR 推进，不是 GitHub `main` 的镜像
 - **不猜 `${VAR}` 的运行时值**：`branch: ${CNB_BRANCH}` 这类**放行**（它的取值由段所在
   分支的 glob 决定，而 glob 段本身已由判据 3 的「排除 main」语义覆盖）；
   本守卫只拦「字面写出 main / 把 main 当推送（或覆盖）目标」的确定形态。
+- **判据 5 只比字面量**：`branch: ${...}` 跳过（无从静态求值），`branch: dev` 这类字面量
+  才比。它判的是「配置里挂载位置 vs 目标分支是否自洽」，**不拉网络**、不验真实构建。
 - **判据 1 对 pull 方向豁免的只有「拉取后不写回 origin」这一种**——而插件源码里
   pull **总会** `push origin --force`，故本仓口径是不设豁免：pull 也必须写 `branch`。
 
@@ -196,6 +214,64 @@ def check_named_jobs(data: dict) -> list[str]:
     return problems
 
 
+# 能覆盖任意分支的 glob 形态（`**/!(main|dev)`、`**` 等）：目标分支落在 glob 之内即放行。
+def _glob_covers_branch(branch_key: str, target: str) -> bool:
+    """`branch_key` 是否能覆盖 `target` 分支（仅处理本仓会用到的两种形态）。"""
+    key = branch_key.strip().strip('"').strip("'")
+    if key == target:
+        return True
+    # `**/!(main|dev)` 形态：排除 main/dev ⇒ 功能分支（含 feat/*、fix/*）都在其内。
+    if '!(' in key and ')' in key:
+        inner = key.split('!(', 1)[1].split(')', 1)[0]
+        excluded = {x.strip() for x in inner.split('|') if x.strip()}
+        if target not in excluded:
+            return True
+    # `**` / `*` 兜底：覆盖一切。
+    if key in ('**', '*', '$'):
+        return True
+    return False
+
+
+def check_branch_key_matches_target(data: dict) -> list[str]:
+    """判据 5：git-sync 挂在哪个分支键下，决定 runner 检出哪个分支。
+
+    判据 1~4 只判「配置的形状」；这条判「它跑在什么地方」。CNB #269 实测的形态是
+    两条都合法、合起来致命：
+      - `settings.branch: dev` 写对了；
+      - 但作业挂在 `main:` 键下 ⇒ `dev` 的 push 不含它，
+        `main` 的 cron 里工作区没有 `dev` ⇒ 插件 `Warning: ... skipping push` 后跳过，
+        **构建报 success**（三天零信号）。
+
+    根因写在 runner 日志里：`git fetch origin "refs/heads/<分支键>"` +
+    `git checkout -f -B "<分支键>" <sha>` —— 工作区里只有分支键对应的分支。
+    """
+    problems: list[str] = []
+    for branch_key, event, stage in _walk_stage_items(data):
+        if not _is_git_sync(stage):
+            continue
+        settings = stage.get('settings') or {}
+        if not isinstance(settings, dict):
+            continue
+        target = str(settings.get('branch') or '').strip()
+        # `${VAR}` / 空值由判据 1 负责，这里只比「字面目标分支 vs 挂载分支键」。
+        if not target or target.startswith('${'):
+            continue
+        if _glob_covers_branch(branch_key, target):
+            continue
+        direction = 'pull' if _is_pull(stage) else 'push'
+        problems.append(
+            f'`{branch_key}` → `{event}` 的 git-sync {direction} 要操作 `{target}`，'
+            f'但作业**挂在 `{branch_key}` 分支键下** —— runner 只检出「挂载分支键」对应的分支'
+            f'（`git fetch origin refs/heads/{branch_key}` + `git checkout -f -B "{branch_key}"`），'
+            f'工作区里没有 `{target}` ⇒ 插件打一行 '
+            f'`Warning: Branch {target} does not exist locally, skipping push` 就跳过，'
+            f'**而构建仍报 success**；若挂错的是 `main`，则 `{target}` 的 push 构建里'
+            f'**根本不含这个 job**（`get-build-stage` 查不到 stage）。'
+            f'请把作业挂到 `{target}:` 键下（或能覆盖它的 glob，如 `"**/!(main|dev)"`）。'
+        )
+    return problems
+
+
 def self_check() -> list[str]:
     """探针：判据写坏了守卫会全绿，故用最小真实形态一正一反验证。"""
     errors: list[str] = []
@@ -251,6 +327,26 @@ def self_check() -> list[str]:
         errors.append('自检探针失败：带 name 的 job 被判为不合规。')
     if not check_named_jobs({'dev': {'push': {'stages': []}}}):
         errors.append('自检探针失败：裸 `stages:`（无 name 的 job）没被拦——假绿形态漏网。')
+
+    # 判据 5（CNB #269）：挂载分支键必须与 settings.branch 一致，否则 runner 检不出目标分支。
+    # 合法：挂在 dev 下、推 dev。
+    if check_branch_key_matches_target(push_task('dev', key='dev')):
+        errors.append('自检探针失败：`dev` 键下推 `dev` 被判为不合规。')
+    # 合法：glob 段（排除 main/dev）推功能分支。
+    if check_branch_key_matches_target(push_task('${CNB_BRANCH}', key='**/!(main|dev)')):
+        errors.append('自检探针失败：glob 段的 `${CNB_BRANCH}` 被判为不合规。')
+    # ❌ 本仓真实形态：挂在 main 下、推 dev（绿了三天的那个）。
+    if not check_branch_key_matches_target(push_task('dev', key='main')):
+        errors.append(
+            '自检探针失败：作业挂在 `main` 键下却推 `dev` 没被拦 —— 正是 CNB #269 的病'
+            '（runner 只检出 main，插件找不到 dev，跳过却报 success）。'
+        )
+    # ❌ pull 方向同理。
+    if not check_branch_key_matches_target(push_task('dev', 'pull', key='main')):
+        errors.append('自检探针失败：挂 `main` 键下 pull `dev` 没被拦。')
+    # ❌ 挂 dev 下推 main（判据 2 也会拦，这里保证判据 5 同样认得）。
+    if not check_branch_key_matches_target(push_task('main', key='dev')):
+        errors.append('自检探针失败：挂 `dev` 键下推 `main` 没被拦。')
     return errors
 
 
@@ -277,6 +373,7 @@ def main(argv: list[str] | None = None) -> int:
     problems += check_push_scope(data)
     problems += check_top_level_main(data)
     problems += check_named_jobs(data)
+    problems += check_branch_key_matches_target(data)
 
     if problems:
         print(f'❌ {path} 的 git-sync 分支范围检查未通过：')

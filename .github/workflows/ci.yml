@@ -65,6 +65,7 @@ jobs:
               # 脚本本身改了、或对应 workflow 改了，都必须把后端 job 唤起，
               # 否则「只改脚本 / 只改 workflow」的 PR 会让那份回归网静默不跑。
               - 'scripts/bridge/**'
+              - 'scripts/guard_no_duplicate_pie.py'
               - '.github/workflows/cnb-github-backfill.yml'
               - '.github/workflows/ci.yml'
             frontend:
@@ -161,6 +162,13 @@ jobs:
       - name: 守卫:跨域模型同语句
         run: python ../scripts/check_cross_domain_query.py
 
+      # 守卫：禁止在 AssetAllocationDonut 之外新写 pie option（#2164）。
+      # 规范（components.md「强制复用」）此前只落在文档里、无机器化拦截，于是同类实现
+      # 长到 4 套并存。本守卫扫 frontend/src 全量，白名单仅 AggregationHero（hero 横向
+      # 布局放不下表格，其 HTML 折叠图例属信息分层；理由已写进 components.md）。
+      - name: 守卫:资产分布图统一复用
+        run: python ../scripts/guard_no_duplicate_pie.py
+
       # 单进程（避 OOM），排除需联网的 slow 测试
       - name: 运行测试
         run: pdm run python -m pytest -p no:xdist -m "not slow"
@@ -241,13 +249,19 @@ jobs:
       - name: 扫描密钥引用位置回潮（阻断）
         run: python scripts/guard_secret_imports.py
 
-      # git-sync push 目标分支守卫（源 CNB #167 / #172，2026-10-13）：
-      # 插件不写 `branch` 时执行 `git push target --all`，会把 CNB 的 `main` 一并推给 GitHub；
-      # 而 GitHub 是权威源（`main` 只由发版 PR 推进）⇒ 两侧 `main` 各自长出独有提交
-      # （实测 CNB 31 / GitHub 27，**交集 0**），分叉由此产生。
+      # git-sync 分支范围守卫（源 CNB #167 / #172 / #269，2026-10-13 ~ 10-14）：
+      # ① 插件不写 `branch` 时执行 `git push target --all`，会把 CNB 的 `main` 一并推给
+      #    GitHub；而 GitHub 是权威源（`main` 只由发版 PR 推进）⇒ 两侧 `main` 各自长出
+      #    独有提交（实测 CNB 31 / GitHub 27，**交集 0**），分叉由此产生。
+      # ② （#269）判据 5：`branch: dev` 写对了、但作业**挂在 `main:` 键下**时，runner 只检出
+      #    挂载分支键对应的分支（`git checkout -f -B "main"`），插件拿着 `branch: dev`
+      #    找不到 ⇒ 打一行 `Warning: Branch dev does not exist locally, skipping push`
+      #    就跳过，**而构建仍报 success**；`dev` 的 push 构建里更是**根本不含这个 job**。
+      #    实测绿了三天（2026-10-11 ~ 10-14），一次都没推成 —— 判据 1~4 全是「配置形状」，
+      #    这一条判「跑在哪个工作区」。
       # 同属「配置回潮」一类，故并入本 job 而不另起 job（不新增 job 就不必改 gate.needs）。
       # 判据边界见脚本 docstring；回归网在 scripts/tests/git_sync_push_scope.test.js
-      # （含三个变异回退探针）。
+      # （含 5 个变异回退探针）。
       - name: 扫描 git-sync push 目标分支回潮（阻断）
         run: python scripts/guard_git_sync_push_scope.py
 

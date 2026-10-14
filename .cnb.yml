@@ -195,6 +195,27 @@ main:
   #    `branch: dev` 是插件**唯一**能表达「只推指定分支」的参数形态；`main` 从此不经此路外流。
   #    **不要**删掉 `branch`、也不要改回不写 —— 那就是回到 `--all`（守卫会拦）。
   #    功能分支的同步见下方 `"**/!(main|dev)"` 段。
+  #
+  # ⚠️ 还有第二层（CNB #269 之前没人踩到，因为它是**静默**的）：**挂载位置决定工作区**。
+  #    这三条作业原先挂在 `main:` 键下，于是 `dev` 的 push 构建里**根本没有它们**
+  #    （`get-build-stage` 返回「没有查询到该stage信息」确认过），而 `main` 的 cron 构建里
+  #    工作区只有 `main`、插件找不到 `dev` 就跳过。两层叠加 ⇒ **三天一次都没推成，全绿**。
+
+# ===== CNB `dev` ↔ GitHub `dev` 双向同步（git-sync 插件）=====
+# ⚠️ **必须挂在 `dev:` 分支键下**（CNB #269，2026-10-14）。这里的「挂在哪个分支键下」
+# 不是风格问题，它决定 runner 检出哪个分支 —— 而插件只推「工作区里存在的分支」：
+#   - fetch 命令是 `git fetch origin "refs/heads/<分支键>"`；checkout 是
+#     `git checkout -f -B "<分支键>" <sha>`（runner 日志原文）；
+#   - 所以作业挂在 `main` 下时，工作区只有 `main`，插件拿着 `branch: dev` 找不到，
+#     打一行 `Warning: Branch dev does not exist locally, skipping push` 就跳过，
+#     而**构建仍报 success** —— 三天里一次都没推成，却是绿的（CNB #269 实测）。
+#   - 更隐蔽的一面：挂在 `main` 下 ⇒ **`dev` 的 push 根本不带这个 job**
+#     （`get-build-stage` 查「同步到 GitHub（仅 dev + 标签）」返回「没有查询到该stage信息」）。
+# 判据见 `scripts/guard_git_sync_push_scope.py` 判据 5（新增）。
+#
+# 功能分支 → 上游同名分支的段见本文件末尾 `"**/!(main|dev)"`：那里用 `CNB_BRANCH`
+# 精确推**当前**分支，不像 `--all` 那样把 `main` 一起带上。
+dev:
   push:
     - name: 同步到 GitHub（仅 dev + 标签）
       # ⚠️ 必须是带 name 的 job（列表 + `- name:`），不要退回裸 `stages:`：
@@ -276,10 +297,6 @@ main:
             branch: dev
             push_tags: true
 
-# 功能分支 → 上游同名分支（收窄 push 目标，源 CNB #167 / #172）
-# 单独成段、且**显式排除 main/dev**：dev 由上面 `push:` 段负责，main 永不外推。
-# 这里是「CNB 侧功能分支改动也能上 GitHub」的合法通道，用 `CNB_BRANCH` 精确推送**当前**分支——
-# 不像 `--all` 那样把 `main` 一起带上。
 "**/!(main|dev)":
   push:
     - name: 同步当前功能分支到 GitHub
