@@ -68,13 +68,15 @@ test(".cnb.yml 不得有流水线级 imports 引用密钥文件（#148 ① 回�
   );
 });
 
-test("三条 git-sync 作业都用插件任务级 imports 挂凭据（默认 settingsFrom 是错的）", () => {
+test("四条 git-sync 作业都用插件任务级 imports 挂凭据（默认 settingsFrom 是错的）", () => {
   // 判据是「按作业数」而不是「文件里有没有出现过」——只改一条等于没改。
+  // 4 条 = push（推 dev）+ 两条 crontab（pull / 兜底推 dev）+ `"**/!(main|dev)"` 段
+  // （推当前功能分支，源 CNB #167）。
   const stages = CNB_YML.split("image: tencentcom/git-sync").slice(1);
   assert.equal(
     stages.length,
-    3,
-    `期望 3 条 git-sync 作业（push + 两条 crontab），实际 ${stages.length} 条——作业增减时本判据要一起改。`
+    4,
+    `期望 4 条 git-sync 作业（push + 两条 crontab + 功能分支段），实际 ${stages.length} 条——作业增减时本判据要一起改。`
   );
   stages.forEach((chunk, i) => {
     const head = chunk.split("settings:")[0];

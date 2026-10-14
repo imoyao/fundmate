@@ -752,3 +752,67 @@ token access`）：
 > ⚠️ 改密钥仓库时同步更新本仓模板——两者是**内容同步的副本**，模板漂了，
 > 后续排查就会对着过期事实判断。注意：`settingsFrom` 路线**不需要**改密钥仓库
 > （保持 `GIT_USERNAME` / `GITHUB_PAT` 的键名即可），这正是选它的原因之一。
+
+### 13.3 push 目标分支收窄：`main` 不经 CNB 外推（源 CNB #167 / #172）
+
+**症状**：`main` 两侧互相分叉，且**各自都是真的**——CNB `main` 与 GitHub `main`
+各有独有提交、交集为 0（2026-10-13 实测：CNB 31 / GitHub 27）。`crontab` 只能挂在
+具体分支下，`.cnb.yml` 挂在 `main` ⇒ **真正执行的是 `main` 上那份配置**，
+而「整改代码」可能躺在 `dev` 上。同一个病在 #118 / #123 已记过两次。
+
+**根因不在凭据，在 `--all`**：git-sync 插件的 push 方向在**不写 `branch`** 时执行
+`git push <target> --all`，把 CNB 的 `main` 一并推给 GitHub。而本仓的权威源是 GitHub
+（`main` 只由发版 PR 推进），于是两边各自长出对方没有的提交，`--is-ancestor` 判否。
+
+**修法**（三处，缺一不可）：
+
+| 作业 | 事件 | 目标分支 | 说明 |
+|---|---|---|---|
+| 推 `dev` | `push:` on `main` | `branch: dev` | 发版前的集成分支；不再带 `main` |
+| 每小时兜底 | `crontab: 30` | `branch: dev` | cron 下没有「当前功能分支」上下文，故只管 `dev` |
+| 功能分支 | `"**/!(main|dev)"` 的 `push:` | `branch: ${CNB_BRANCH}` | 精确推触发本次构建的那条分支 |
+
+拉取方向（`crontab: 0`，`sync_mode: pull`）不受影响——它只拉不推。
+
+**守卫**：`scripts/guard_git_sync_push_scope.py`（并入 `ci.yml` 的 `layout_guard` job，
+阻断），三条判据：① push 形态的 git-sync 必须显式写 `branch`（不写 = `--all`）；
+② `branch` 不得是 `main` / `*` / `--all`；③ `main` 顶层键下不得用 `${CNB_BRANCH}` 推分支。
+回归网 `scripts/tests/git_sync_push_scope.test.js`，含三个变异回退探针。
+
+**连带放宽**：`check_cnb_events.py` 的 `BRANCH_NAME` 字符集补上 glob 通配
+（`"**/!(main|dev)"` 是 CNB 官方支持的形态，旧字符集把它误判成非法顶层键）。
+放宽**不架空**核心判据——`EVENT_LIKE` 仍在 `check_top_keys` 里**先判**，
+顶层 `push:` 照样报错，且自检探针用真实 glob 反证（两向）。
+
+**未验证项**（不当作已完成）：`branch: ${CNB_BRANCH}` 在插件 `settings` 里的插值、
+以及 Secret 仓库 `allow_branches` 是否放行 `"**/!(main|dev)"` 段，均需在 CNB Web 上
+人工确认——本环境跑不了真实流水线。
+
+### 13.4 `crontab` / `push` 下必须写成「job 列表 + 命名 stage」
+
+**症状**：`"crontab: 30 * * * *"` 的 stage 在构建详情的 `get-build-stage` 里**查不到**
+（`stage-0` / `stages` / 各类 id 全报「没有查询到该stage信息」）。于是**它内部踢没踢成功
+看不出来**——从 `sha` 看它长期挂在旧提交上、实际没推上去，却报**绿**。比红灯更危险。
+
+**根因是结构写法**：把 `stages:` **直接**挂在 `"crontab: ..."` 下（没有 `- name:` 包一层的
+job 对象）时，CNB 不把它当标准 job 列表处理，stage 不进可查索引。`push:` 段当时写的是
+`- stages: [...]`（正确形态），两者不一致。
+
+```yaml
+# ❌ 错：stages 直接挂在事件下，没有 job 对象包一层
+"crontab: 30 * * * *":
+    stages:
+      - name: 同步到 GitHub（每小时兜底）
+        image: tencentcom/git-sync
+
+# ✅ 对：job 列表 + 命名 job + 命名 stage（stage 名是 get-build-stage 的查询锚点）
+"crontab: 30 * * * *":
+  - name: 同步到 GitHub（每小时兜底，仅 dev）
+    stages:
+      - name: 同步到 GitHub（每小时兜底，仅 dev）
+        image: tencentcom/git-sync
+```
+
+**判据机械化**：`scripts/tests/git_sync_push_scope.test.js` 里按 `- name:` 切块，
+逐条 git-sync 任务断言 `branch` 存在且非禁区——结构回潮会一起暴露
+（`stages` 直接挂在事件下时，`- name:` 切块拿不到该任务，测试会报「任务数少了」）。

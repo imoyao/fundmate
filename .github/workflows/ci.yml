@@ -259,6 +259,16 @@ jobs:
       - name: 扫描密钥引用位置回潮（阻断）
         run: python scripts/guard_secret_imports.py
 
+      # git-sync push 目标分支守卫（源 CNB #167 / #172，2026-10-13）：
+      # 插件不写 `branch` 时执行 `git push target --all`，会把 CNB 的 `main` 一并推给 GitHub；
+      # 而 GitHub 是权威源（`main` 只由发版 PR 推进）⇒ 两侧 `main` 各自长出独有提交
+      # （实测 CNB 31 / GitHub 27，**交集 0**），分叉由此产生。
+      # 同属「配置回潮」一类，故并入本 job 而不另起 job（不新增 job 就不必改 gate.needs）。
+      # 判据边界见脚本 docstring；回归网在 scripts/tests/git_sync_push_scope.test.js
+      # （含三个变异回退探针）。
+      - name: 扫描 git-sync push 目标分支回潮（阻断）
+        run: python scripts/guard_git_sync_push_scope.py
+
   # 乱码守卫（mojibake）：防止任何绕过本地 pre-commit 钩子的提交（--no-verify、
   # 或经 gh api / MCP 直推导致本地钩子不执行）把 GBK 乱码合进 PR。
   # 扫描 PR 变更的全部文本类型文件 + 逐提交校验中文提交信息（两层兜底）。
