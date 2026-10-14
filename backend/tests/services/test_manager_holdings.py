@@ -359,3 +359,163 @@ def test_total_ratio_is_sum_of_returned_rows():
         data = build_manager_holdings(db, 'mh011')
 
     assert data['total_ratio'] == 21.75
+
+
+def test_accepts_watchlist_symbol_and_uppercase_code():
+    """与 ``manager-profile`` 同一口径：``MGR_<code>`` / 大写形态必须命中同一经理。
+
+    归一前这些入参一律返回 ``None``（视同「经理不存在」），表现是详情页重仓区块整块空。
+    """
+    cid = _seed_company()
+    _seed_manager('mh012', '形态经理', cid)
+    _seed_fund('6A0014', '形态基金')
+    _link('mh012', '6A0014', is_classic=True)
+    _seed_holding('6A0014', '720001', '形态股', 9.9, 1)
+
+    for raw in ('mh012', 'MH012', 'MGR_mh012', 'MGR_MH012'):
+        with closing(market_session_factory()()) as db:
+            data = build_manager_holdings(db, raw)
+        assert data is not None, f'{raw!r} 应能命中 mh012（归一前会返回 None）'
+        assert data['fund_code'] == '6A0014'
+
+
+# ── 风格标签（#2044）：装配侧的诚实降级 ──────────────────────
+#
+# 本节只测**装配**（查库 → 指标 → 纯函数判据的接线）；档位边界语义在
+# tests/services/test_manager_style.py，不在这里重复。
+# 造数隔离纪律：测试库持久复用，股票代码一律用合成段（QA/QC/QB 前缀），
+# 避免与真实指数成分、其他用例的成员关系互相污染。
+
+
+def _seed_alloc(fund_code, industry_code, ratio, scheme='csrc', period='2026Q2'):
+    """幂等写入一条行业配置（唯一键 fund+period+industry_code）。"""
+    from app.domains.funds.models import FundIndustryAlloc
+
+    with closing(market_session_factory()()) as db:
+        exists = (
+            db.query(FundIndustryAlloc)
+            .filter(
+                FundIndustryAlloc.fund_code == fund_code,
+                FundIndustryAlloc.report_period == period,
+                FundIndustryAlloc.industry_code == industry_code,
+            )
+            .first()
+        )
+        if exists is not None:
+            exists.ratio = ratio
+            db.commit()
+            return
+        db.add(
+            FundIndustryAlloc(
+                fund_code=fund_code,
+                report_period=period,
+                industry_code=industry_code,
+                industry_name='行业名',
+                scheme=scheme,
+                ratio=ratio,
+                source='eastmoney',
+            )
+        )
+        db.commit()
+
+
+def _seed_constituent(index_code, symbol, index_name='沪深300'):
+    """幂等写入一条指数成分（唯一键 index_code+symbol）。"""
+    from app.domains.indices.models import IndexConstituent
+
+    with closing(market_session_factory()()) as db:
+        exists = (
+            db.query(IndexConstituent)
+            .filter(
+                IndexConstituent.index_code == index_code,
+                IndexConstituent.symbol == symbol,
+            )
+            .first()
+        )
+        if exists is not None:
+            return
+        db.add(IndexConstituent(index_code=index_code, index_name=index_name, symbol=symbol))
+        db.commit()
+
+
+def test_style_labels_only_concentration_when_no_alloc_no_membership():
+    """无行业配置、无指数成分 → 只出集中度标签（其余维度缺席，不是 null 占位）。
+
+    3 只合成股均不在任何规模指数 → 覆盖率 0 → size 按 `min_coverage` 门拒判；
+    无 csrc 行业配置 → industry 缺席。
+    """
+    cid = _seed_company()
+    _seed_manager('mh201', '风格装配一', cid)
+    _seed_fund('6S0001', '风格基金一')
+    _link('mh201', '6S0001', is_classic=True, start_date=date(2020, 1, 1))
+    _seed_holding('6S0001', 'QA0001', '合成甲', 8.5, 1)
+    _seed_holding('6S0001', 'QA0002', '合成乙', 7.25, 2)
+    _seed_holding('6S0001', 'QA0003', '合成丙', 6.0, 3)
+
+    with closing(market_session_factory()()) as db:
+        data = build_manager_holdings(db, 'mh201')
+
+    labels = data['style_labels']
+    assert [lb['dim'] for lb in labels] == ['concentration']
+    assert labels[0]['key'] == 'concentration_low'  # 21.75% < P50 门 50
+    assert labels[0]['basis'] == '前十大重仓占净值 21.8%，全库 P50 以下'
+    for lb in labels:
+        assert not ({'color', 'colour', 'hex'} & set(lb)), '后端不返回颜色（硬约束）'
+
+
+def test_style_labels_full_dims_with_csrc_only_and_membership():
+    """行业只认 csrc（gics 更大值不得混入）、市值按 300 成分归属分桶。"""
+    cid = _seed_company()
+    _seed_manager('mh202', '风格装配二', cid)
+    _seed_fund('6S0002', '风格基金二')
+    _link('mh202', '6S0002', is_classic=True, start_date=date(2020, 1, 1))
+    _seed_holding('6S0002', 'QC0001', '合成申', 8.5, 1)
+    _seed_holding('6S0002', 'QC0002', '合成酉', 7.25, 2)
+    _seed_holding('6S0002', 'QC0003', '合成戌', 6.0, 3)
+    _seed_alloc('6S0002', 'C', 70.0, scheme='csrc')
+    _seed_alloc('6S0002', 'D', 5.0, scheme='csrc')
+    # 诱导值：gics 体系 95% —— 若跨体系混算会翻成 industry_high，正确应忽略
+    _seed_alloc('6S0002', '35', 95.0, scheme='gics')
+    # 300 成分覆盖前两只：覆盖率 (8.5+7.25)/21.75 = 72.4% ≥ 60 → 判定；
+    # 已覆盖中 300 占比 100% ≥ 67.4 → 偏大盘
+    _seed_constituent('000300', 'QC0001')
+    _seed_constituent('000300', 'QC0002')
+
+    with closing(market_session_factory()()) as db:
+        data = build_manager_holdings(db, 'mh202')
+
+    labels = {lb['dim']: lb for lb in data['style_labels']}
+    assert set(labels) == {'concentration', 'industry', 'size'}
+    assert labels['industry']['key'] == 'industry_mid'  # 70 落在 [60,81)，gics 95 被忽略
+    assert labels['industry']['basis'] == '第一大行业占比 70.0%，全库 P50–P80'
+    assert labels['size']['key'] == 'size_large'
+    assert labels['size']['basis'] == '沪深300 成分占已覆盖持仓 100.0%，全库 P75'
+
+
+def test_style_labels_top10_basis_incomplete_returns_empty():
+    """top10 口径不足 10 行（抓取不完整）→ 集中度回 None → 无任何标签。
+
+    与标定样本的剔除规则同一口径（标定文档 §1）：4 行合计会系统性低估集中度，
+    宁可缺席也不产出误导标签。
+    """
+    cid = _seed_company()
+    _seed_manager('mh203', '风格装配三', cid)
+    _seed_fund('6S0003', '风格基金三')
+    _link('mh203', '6S0003', is_classic=True, start_date=date(2020, 1, 1))
+    for i in range(1, 5):
+        _seed_holding('6S0003', f'QB{i:04d}', f'季报股{i}', 9.0, i, basis='top10')
+
+    with closing(market_session_factory()()) as db:
+        data = build_manager_holdings(db, 'mh203')
+
+    assert data['basis'] == 'top10'
+    assert len(data['rows']) == 4
+    assert data['style_labels'] == []
+
+
+def test_empty_contract_carries_style_labels_key():
+    """空态契约同样带 style_labels: []——前端不需要分岔处理键是否存在。"""
+    _seed_manager('mh204', '风格空态经理', _seed_company())
+    with closing(market_session_factory()()) as db:
+        data = build_manager_holdings(db, 'mh204')
+    assert data['style_labels'] == []

@@ -13,11 +13,28 @@
 from contextlib import closing
 from datetime import date, timedelta
 
+import pytest
+
 from app.core.db_factory import market_session_factory
 from app.domains.funds.models import DailyWorth, Fund, FundManager, Manager
+from app.services import fund_profile as fund_profile_module
 from app.services.fund_profile import build_fund_profile
 
 PROFILE_URL = '/api/products/fund-profile/?code=004369'
+
+
+@pytest.fixture(autouse=True)
+def _no_network_backfill(monkeypatch):
+    """切断「基金公司按需回填」的外部请求（#2037 方案 A）。
+
+    本文件此前是纯本地测试；#2037 之后 `build_fund_profile` 在 `company_id` 为空时会
+    调 `ensure_fund_company` 打东财接口。不隔离的话，单测会在每次打开 `004369` 时
+    真发一次外网请求——慢、且随上游波动随机变红（失败降级 None 就会让断言偶尔失败）。
+
+    回填逻辑本身由 `tests/services/test_fund_company_backfill.py` 单独覆盖（那里用
+    monkeypatch 替换取数口，不触网），此处只保证聚合层测试与网络无关。
+    """
+    monkeypatch.setattr(fund_profile_module, 'ensure_fund_company', lambda db, code: None)
 
 
 def _seed_fund(fund_code='004369', name='测试基金'):

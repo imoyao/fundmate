@@ -141,7 +141,8 @@ SUPABASE_DB_PASSWORD = os.getenv('SUPABASE_DB_PASSWORD', '')
 SUPABASE_DATABASE_URL = os.getenv('SUPABASE_DATABASE_URL', '')  # 可选：直接给完整 postgres 串
 if not SUPABASE_DATABASE_URL and SUPABASE_URL and SUPABASE_DB_PASSWORD:
     _project = SUPABASE_URL.replace('https://', '').rstrip('/')
-    SUPABASE_DATABASE_URL = f'postgresql://postgres:{SUPABASE_DB_PASSWORD}@db.{_project}:5432/postgres'
+    SUPABASE_DATABASE_URL = (
+        f'postgresql://postgres:{SUPABASE_DB_PASSWORD}@db.{_project}:5432/postgres')
 USER_DATABASE_URL = SUPABASE_DATABASE_URL or 'sqlite:///./user.db'
 
 # 市场库：Turso libSQL（.env 已有 TURSO_URL + TURSO_TOKEN）
@@ -247,7 +248,9 @@ fundmate **已有**测试/生产 DB 分离机制，位于 `backend/tests/conftes
 # 现有 conftest.py（单引擎版）
 @pytest.fixture
 def app(monkeypatch):
-    test_engine = create_engine('sqlite:///:memory:', connect_args={'check_same_thread': False}, poolclass=StaticPool)
+    test_engine = create_engine(
+        'sqlite:///:memory:', connect_args={'check_same_thread': False},
+        poolclass=StaticPool)
     TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
     monkeypatch.setattr('app.core.database.engine', test_engine)
     monkeypatch.setattr('app.core.database.SessionLocal', TestSessionLocal)
@@ -416,7 +419,8 @@ EdgeOne Pages **Python 运行时原生支持 WSGI（Flask/Django）与 ASGI（Fa
 ```plain
 apiflask
 sqlalchemy
-psycopg2-binary         # SQLAlchemy 连 Supabase Postgres 的驱动（postgresql:// 默认用 psycopg2）；若用 psycopg3 则改为 psycopg
+psycopg2-binary         # SQLAlchemy 连 Supabase Postgres 的驱动（postgresql:// 默认用 psycopg2）；
+                         # 若用 psycopg3 则改为 psycopg
 loguru
 python-dotenv
 sqlalchemy-libsql       # 纯 Python 方言适配器（py3-none-any），注册 libsql:// 方言，连 Turso

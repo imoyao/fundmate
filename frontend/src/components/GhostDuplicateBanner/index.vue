@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { getGhostDuplicates, type GhostDuplicateGroup } from "@/api/summary";
 import { formatDate } from "@/utils/date";
 import { txnTypeLabel } from "@/constants";
@@ -7,6 +7,29 @@ import { txnTypeLabel } from "@/constants";
 const groups = ref<GhostDuplicateGroup[]>([]);
 const loading = ref(true);
 const dismissed = ref(false);
+const expanded = ref(false);
+
+/**
+ * 收起态最多展示几组。
+ *
+ * ⚠️ 为什么必须截断：后端 `scan_cross_ledger_duplicates` 返回的是**全量**扁平数组，
+ * 真机实测 407 组。原先模板 `v-for` 全量渲染，一张横幅被撑成几百行，把下方面内容
+ * 全部顶到屏幕外——用户能做的只有「关闭」，于是这条告警实际退化成「一次性公告」：
+ * 关掉就再也看不到，换台设备又原样弹回来。
+ *
+ * 取 5 的依据：后端已按「涉及账本数、笔数」降序排好（`summary_service.py:954`），
+ * 前几条天然是最可疑的；5 行足以让用户判断「这是不是真重复」，又不会喧宾夺主。
+ */
+const COLLAPSED_LIMIT = 5;
+
+const visibleGroups = computed(() =>
+  expanded.value ? groups.value : groups.value.slice(0, COLLAPSED_LIMIT)
+);
+const hiddenCount = computed(() =>
+  expanded.value ? 0 : Math.max(0, groups.value.length - COLLAPSED_LIMIT)
+);
+/** 只有「展开后仍然很长」才值得限高滚动：5 行以内不需要滚动条 */
+const needsScroll = computed(() => expanded.value && groups.value.length > 12);
 
 const STORAGE_KEY = "ghost_dup_banner_dismissed";
 
@@ -75,8 +98,17 @@ onMounted(async () => {
         {{ groups.length }}
         组疑似跨账本重复交易，可能造成资产或收益虚增，请核对。
       </p>
-      <ul class="ghost-dup-banner__list">
-        <li v-for="(g, i) in groups" :key="i" class="ghost-dup-banner__item">
+      <!-- 滚动容器只在展开态生效：收起态就是 5 行，套一层 overflow 会凭空
+           多出滚动条与裁切风险。 -->
+      <ul
+        class="ghost-dup-banner__list"
+        :class="{ 'ghost-dup-banner__list--scroll': needsScroll }"
+      >
+        <li
+          v-for="(g, i) in visibleGroups"
+          :key="i"
+          class="ghost-dup-banner__item"
+        >
           <span class="ghost-dup-banner__symbol">{{ g.symbol }}</span>
           <span class="ghost-dup-banner__meta">
             {{ txnTypeLabel(g.txn_type) }}
@@ -90,6 +122,33 @@ onMounted(async () => {
           </span>
         </li>
       </ul>
+
+      <!-- 处置引导（原先只有「关闭」，用户看到 407 组却无从下手）。
+           这里只给可自行执行的动作，不做跳转：后端尚无 ghost 的 ignore 接口、
+           对账工作台也没有对应域，硬塞一个跳转只会把用户带到看不到这批数据的页面。
+           补齐后的形态见 issue「幽灵重复告警接入对账工作台」。 -->
+      <div class="ghost-dup-banner__actions">
+        <button
+          v-if="hiddenCount > 0"
+          type="button"
+          class="ghost-dup-banner__link"
+          @click="expanded = true"
+        >
+          展开全部 {{ groups.length }} 组
+        </button>
+        <button
+          v-else-if="groups.length > COLLAPSED_LIMIT"
+          type="button"
+          class="ghost-dup-banner__link"
+          @click="expanded = false"
+        >
+          收起，仅看前 {{ COLLAPSED_LIMIT }} 组
+        </button>
+      </div>
+      <p class="ghost-dup-banner__hint">
+        同一笔交易被导入到多个账本会重复计入资产与收益。请到对应账本删除其中一份
+        重复记录（保留真实发生的那一份）。
+      </p>
     </div>
 
     <button
@@ -166,6 +225,46 @@ onMounted(async () => {
 .ghost-dup-banner__meta,
 .ghost-dup-banner__ledgers {
   opacity: 0.85;
+}
+
+/* 展开态限高滚动：407 组全量铺开会把页面撑到几百行，
+   把它限制在一屏内、内部滚动，横幅仍然是一条横幅而不是一页。 */
+.ghost-dup-banner__list--scroll {
+  max-height: 220px;
+  padding-right: 6px;
+  overflow-y: auto;
+}
+
+.ghost-dup-banner__actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.ghost-dup-banner__link {
+  padding: 4px 2px;
+  font-size: var(--text-label, 13px);
+  font-weight: 600;
+  color: var(--color-rise-ink);
+  text-decoration: underline;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm, 8px);
+  transition: background-color 0.15s ease;
+}
+
+.ghost-dup-banner__link:hover {
+  background: var(--brand-200, rgb(246 153 136 / 20%));
+}
+
+.ghost-dup-banner__hint {
+  margin: 6px 0 0;
+  font-size: var(--text-label, 13px);
+  line-height: 20px;
+  color: var(--color-rise-ink);
+  opacity: 0.8;
 }
 
 .ghost-dup-banner__close {

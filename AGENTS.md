@@ -186,6 +186,26 @@ job 名与 stage 名都要写（后者是查询锚点）。
 - **守卫白名单只能是单值键**：把 `main` / `dev` 写进「允许的顶层键」会让任何分支名都合法、
   判据当场失效。守卫自带自检探针（用真实存在的 `sync/mirror:` 反证）。
 
+#### `.cnb.yml` 的事件写在分支下，不写顶层（2026-10-11，#152）
+
+同一条平台限制的另一面，且**更容易踩**：`.cnb.yml` 的**顶层只认分支名**（与 `$`）。
+事件（`push:` / `"crontab: ..."` / `web_trigger:`）必须写在**分支之下**。
+
+写成顶层不会报「位置错」，而是被读成**一个名字叫 `push` 的分支**——随后报错形态全错位：
+
+- `GetFileContent: not found` = **事件无定义**，不是「文件不存在」（平台拿默认分支的定义兜底）；
+- 同一次事故里 `parse yaml failed` 又是另一件事（定义后来长出来、才轮到读文件内容）。
+
+两者看着像「同一件事的两个阶段」，实际是两个独立原因——2026-10-11 连续 7 条流水线全红
+就是被这两句话各带偏一次，注意力全在 `fundmate-secret`（Secret 仓库，API 一律 403），
+而真正要改的是 `.cnb.yml` 的缩进。
+
+- **判据机器化**：`python scripts/check_cnb_events.py`（并入 `ci.yml` 的 `scripts_test` job，
+  阻断），回归网 `scripts/tests/branch_structure.test.js`；完整推导见
+  `docs/dev/github-cnb-mirror.md` §12。
+- **守卫白名单只能是单值键**：把 `main` / `dev` 写进「允许的顶层键」会让任何分支名都合法、
+  判据当场失效。守卫自带自检探针（用真实存在的 `sync/mirror:` 反证）。
+
 ---
 
 ## 目录边界
@@ -303,8 +323,25 @@ job 名与 stage 名都要写（后者是查询锚点）。
 ### 测试
 
 - 命令：`pdm run pytest -p no:xdist`（单进程，防 OOM）。
-- 夹具：`tests/conftest.py` 提供 `app`/`client`/`db`/`make_position` 等（内存 SQLite）。
+- 夹具：`tests/conftest.py` 提供 `app`/`client`/`db`/`make_position` 等。
+- **测试库既不是内存库、也不是复用的持久化库**：是**每用例一个临时文件**
+  （`tmp_path/_fixture_app.db` + `_fixture_market.db`，用完即删），另有一个按源码指纹
+  缓存的「完成态模板库」供 `shutil.copyfile` 秒级落地（#1722）。
+  - 2026-09-27 起从 StaticPool 内存库切到文件库（#1721）：单连接下 B 会话 `close()`
+    的 rollback 会连带回滚 A 的**未提交**写，生产不可能出现，却稳定制造
+    `StaleDataError` 假阳性。shared-cache 内存 URI 也试过，表级锁导致
+    `database table is locked`。完整三轮踩坑见 `conftest.py` 的 `_make_file_engine` docstring。
+  - 想「改回内存库」前先读那段 docstring，别重复已否决的方案。
 - **禁止**直接导入 `SessionLocal`（须用 `conftest` 夹具）。
+
+- **本 worktree 的 `backend/.venv` 是空壳**（`pdm run` 会新建一个无依赖的 venv，
+  `import sqlalchemy` 直接失败）。跑后端测试/ruff 用**主仓解释器**，不要用 `pdm run`：
+  `D:/codes/fundmate/backend/.venv/Scripts/python.exe -m pytest <paths> -p no:xdist -q`
+  （主仓路径以 `git rev-parse --git-common-dir` 上溯为准，此 worktree 实测为
+  `D:/codes/fundmate`；换 worktree 前先重新确认，别照抄路径）。
+- **默认不在本地跑全量测试，交给 CI**（`gh pr checks <pr>`）。实测同一份代码本地全量
+  约 **2h40m**、CI 约 **8min**（原因未查清，勿编）。本地只跑**与改动直接相关**的测试
+  文件（分钟级）；跑不完就推 CI，**不要**为凑「本地全绿」挂几小时的任务。
 
 ### 常用后端命令（`cd backend`）
 
@@ -679,19 +716,27 @@ need_close = auto_close and card['cnb_state'] != 'closed'
 - 仅当锁文件逐字节一致才可 junction；一旦某 worktree 的 `package.json` / `pnpm-lock.yaml` / `pyproject.toml` 与主仓库不同，复用旧 `node_modules` 会**版本错配**导致诡异运行时错误。此时必须走第 3 步。
 - 同一时刻只在一个 worktree 跑 `pnpm install` / `pdm install`，避免两 worktree 同时改写共享 store 的链接层。
 
-### 临时改共享配置的还原纪律（强制，2026-10-10）
+### 本机依赖源配置（#2031，2026-10-11）
 
-- **背景**：`backend/pyproject.toml` 的 `[[tool.pdm.source]]` 钉死阿里云镜像（#1628：本机快，CI 主动改写成 PyPI），而镜像偶发**索引与文件不同步**——索引页列出 `python-dotenv 1.2.3`、`mcp 2.0.0`，对应 `.whl.metadata` 实测 **404**，`pdm sync` 解析直接失败（2026-10-10 实测，根治方案 → #2031）。此时为装依赖只能**临时**把源换成 PyPI。
-- **纪律**：为让本地跑通而对**共享 / 版本化配置**（`pyproject.toml`、`pnpm-lock.yaml`、`uv.lock`、`tsconfig.json` …）的任何临时改写，**必须放进 `try/finally`、装完立刻还原**，并紧接着用 `git status --porcelain` 自证只剩预期改动：
+- **仓库不再声明依赖源**：`backend/pyproject.toml` 不含 `[[tool.pdm.source]]`（#1628 时代写死阿里云的做法已废除）——CI 不声明源即天然走官方 PyPI（海外 runner 快），`ci.yml` 里的「改写工作区文件切源」步骤已删除。
+- **本机（国内）声明机器级源**，只配一次、与仓库文件解耦：
 
   ```powershell
-  try { <临时改源/改配置> ; pdm sync -G dev }
+  pdm config pypi.url https://mirrors.aliyun.com/pypi/simple/   # 本机默认（快）
+  pdm config pypi.url https://pypi.org/simple/                  # 一键切官方（镜像滞后时用）
+  ```
+
+- **镜像滞后时**（索引列出版本、对应文件 URL 却 404，如 2026-10-10 的 `python-dotenv 1.2.3` / `mcp 2.0.0`）：先 `pdm config pypi.url https://pypi.org/simple/` 再装，装完**无需还原任何仓库文件**（机器级配置不进 `git status`）；想切回阿里云再跑一次第一条命令即可。
+- 实测记录（PDM 2.26.8，空项目坏地址探针，2026-10-11）：无项目源时 **user 级 `pypi.url` 生效**、**`PDM_PYPI_URL` 环境变量同样生效**（指向 `127.0.0.1:9` 均 ConnectError）；`pdm.lock` 只记文件名+哈希、**不记录 index URL**，删源声明无需重锁。
+- **临时改共享配置的纪律不变**：为让本地跑通而对**共享 / 版本化配置**（`pyproject.toml`、`pnpm-lock.yaml`、`uv.lock`、`tsconfig.json` …）的任何临时改写，**必须放进 `try/finally`、装完立刻还原**，并紧接着用 `git status --porcelain` 自证只剩预期改动：
+
+  ```powershell
+  try { <临时改配置> ; pdm sync -G dev }
   finally { git -C <worktree> checkout -- backend/pyproject.toml
             git -C <worktree> status --porcelain -- backend/pyproject.toml }
   ```
 
-- **禁止**：把临时改动留在工作区「等会儿再还原」，或顺手把源改成 PyPI 后提交。**先改后还原、顺序反了**同样不合格——#2029 修复过程中就是这样让用户在 `git status` 里看见源被换掉，一度误判为「仓库配置回归」；配置类改动只要出现在 `git status` 里，就会消耗掉别人对仓库的信任。
-- **根治**：源下沉到机器级 `pdm config pypi.url`（pyproject 不声明源 → 本机天然阿里云、CI 天然 PyPI，`ci.yml` 那段 sed 改写可删）→ #2031。
+- **禁止**：把临时改动留在工作区「等会儿再还原」。#2029 修复过程中曾临时改源且顺序反了，让用户在 `git status` 里看见源被换掉、一度误判为「仓库配置回归」——配置类改动只要出现在 `git status` 里，就会消耗掉别人对仓库的信任。**装依赖卡住想换源时，正确的做法是 `pdm config`（机器级），不是改 pyproject.toml。**
 
 ---
 
@@ -1197,7 +1242,7 @@ pull 又只拉 `dev`，**哪边都拉不动对方** ⇒ **死锁，两边都不�
 ### GitHub Issue / Discussion / PR 创建（自动化通道）
 
 - **环境**：必须 UTF-8（`export LANG=C.UTF-8; export LC_ALL=C.UTF-8`；Python 设 `PYTHONUTF8=1`）。
-- **中文内容**：issue / discussion 必须用 `--title-file` / `--body-file` 传入 UTF-8 无 BOM 文件，禁止内联中文变量。
+- **中文内容**：正文一律用 `--body-file` / `-F` 传入 UTF-8 无 BOM 文件，禁止内联中文变量。**`gh issue create` 没有 `--title-file`**（gh 2.97.0 实测 `unknown flag`，2026-10-12；此前本行记载有误）：issue 标题与 PR 标题同理禁止内联中文，正确做法是先用 ASCII 占位标题建卡，再用 UTF-8 JSON 文件 `gh api -X PATCH repos/<owner/repo>/issues/<n> --input title.json` 修正（`title.json` 形如 `{"title": "中文标题"}`，由写文件工具生成，禁止内联中文），随后按下方「回读校验」确认。
 - **PR 标题（高频踩坑点）**：`gh pr create` **不支持 `--title-file`**，故严禁 `gh pr create --title "中文…"` 内联传标题——Windows GBK 控制台会把中文按代码页 936 编码，gh 收到 GBK 字节却当 UTF-8 发给 GitHub，标题被永久存成乱码（正文 body 走 `--body-file`/`-F` 不受影响）。正确做法二选一：
   1. **首选 `gh pr create --fill`**：标题与正文直接取自最新提交信息（git 内为干净 UTF-8），完全绕开内联中文；
   2. 确需显式标题时：先 `gh pr create` 建空标题 PR，再用 UTF-8 JSON 文件 `gh api -X PATCH repos/<owner>/<repo>/pulls/<n> --input title.json` 修正（`title.json` 用 `write_to_file` 生成，禁止内联）。

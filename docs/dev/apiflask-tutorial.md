@@ -19,5 +19,7 @@ class PortfoliosAdjust(MethodView):
     def get(self, portfolio_code: str, query: dict):
         ...
         portfolios = pagination.items
-        return {'adjusts': portfolios, 'pagination': pagination_builder(pagination, portfolio_code=portfolio_code)}
+        return {
+            'adjusts': portfolios,
+            'pagination': pagination_builder(pagination, portfolio_code=portfolio_code)}
 ```

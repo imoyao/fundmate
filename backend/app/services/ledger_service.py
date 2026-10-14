@@ -335,6 +335,36 @@ class LedgerService:
         }
 
     @staticmethod
+    def split_cash_like_allocation(data: dict) -> dict:
+        """把持仓总市值划分为「投资 + 持仓内类现金」两片，就地写入 `data` 并返回。
+
+        ⚠️ 「投资资产」只能减**持仓内的**类现金（货基/逆回购持仓市值）——
+        只有它是 `total_market_value` 的子集，减完仍是一个真实存在的量。
+
+        「账外类现金」= 孤儿货基/逆回购流水净额 + 账户现金（major_category='current'）。
+        这类**不建持仓**、不进 `total_market_value`，从总市值里扣掉等于减了两遍。
+        真机实证：账户「同花顺——银河」（id=12，stock）孤儿货基流水净额 476,951 元，
+        而持仓总市值仅 296,042 元 —— 旧式 `总市值 - cash_like_amount` 算出
+        **-180,909 元**，前端环形图因此画出「投资资产 -63.2% / 现金类资产 163.2%」：
+        占比为负、且超过 100%，圆环被渲染成一整圈绿，与事实不符。
+
+        改后：环形图两片 = 持仓市值的一个**划分**（投资 + 持仓内类现金），
+        合计恒等于左侧「总资产」，两片均 ≥ 0，占比自然落在 0~100% 且合计 100%。
+        账外类现金仍由 `cash_like_amount` 独立对外，不参与本划分。
+
+        `min` 兜住「货基持仓市值 > 总市值」的脏数据（否则持仓内类现金会比总市值还大，
+        两片之和不再等于总资产）；`max(0.0, ...)` 兜住相减后的负数。
+
+        就地改 `data` 而非另返回新 dict，是为了让调用方视图只留一行编排
+        （#1606：视图只做 HTTP 编排，业务规则与事务下沉 services）。
+        """
+        total_mv = data.get('total_market_value') or 0.0
+        cash_like_in_positions = min(data.get('money_fund_amount') or 0.0, total_mv)
+        data['investment_amount'] = round(max(0.0, total_mv - cash_like_in_positions), 2)
+        data['cash_like_in_positions_amount'] = round(cash_like_in_positions, 2)
+        return data
+
+    @staticmethod
     def get_bank_stats(db: Session, ledger_id: int) -> dict:
         # 1. 现金/活期余额
         current_amount = (

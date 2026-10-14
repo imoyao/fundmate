@@ -11,7 +11,7 @@ from app.core.symbol_utils import get_normalizer
 from app.domains.funds.models import ChannelLink, FundCompany, Manager
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
-from app.domains.watchlist.models import WatchlistItem
+from app.domains.watchlist.models import WatchlistGroup, WatchlistItem, WatchlistItemGroup
 from app.services.watchlist_service import lookup_manager, resolve_display_name
 
 normalizer = get_normalizer()
@@ -833,6 +833,82 @@ class TestItemGroupLink:
         assert len(list_resp.get_json()['data']) == 0
 
 
+# ─────────────── 创建即归组（#2106 AI 批量导入选分组） ───────────────
+class TestCreateItemWithGroups:
+    """POST /api/watchlist/items/ 带 group_ids：同一事务内写关联，省去「先建后逐条关联」。
+
+    边界（issue #2106 验收标准）：
+    - group_ids **可选**：不传 / 空数组 = 维持现状（只落「全部」虚拟口径）；
+    - 传入的 id 必须是**本家庭**的**自定义**分组，否则 4xx；
+    - 非法 id 必须**不落库**（不能出现「进了自选但没进分组」的半截数据）——
+      故归属校验在插入 item **之前**完成（见 watchlist_service.resolve_create_group_ids）。
+    """
+
+    def test_create_links_selected_groups(self, client, db):
+        gid_a = _post(client, '/api/watchlist/groups/', {'name': 'AI导入A'}).get_json()['data']['id']
+        gid_b = _post(client, '/api/watchlist/groups/', {'name': 'AI导入B'}).get_json()['data']['id']
+
+        resp = _post(
+            client,
+            '/api/watchlist/items/',
+            {'symbol': '110011', 'venue': 'OTC', 'group_ids': [gid_a, gid_b]},
+        )
+        assert resp.status_code == 200
+        assert set(resp.get_json()['data']['group_ids']) == {gid_a, gid_b}
+
+        for gid in (gid_a, gid_b):
+            in_group = _get(client, '/api/watchlist/items/', {'group_id': gid}).get_json()['data']
+            assert [i['symbol'] for i in in_group] == ['110011']
+
+    def test_created_item_stays_in_all_scope(self, client, db):
+        """归组后仍在「全部」中：「全部」是自选∪持仓的虚拟口径，不因归组而消失。"""
+        gid = _post(client, '/api/watchlist/groups/', {'name': '归组后仍可见'}).get_json()['data']['id']
+        assert (
+            _post(client, '/api/watchlist/items/', {'symbol': '110022', 'venue': 'OTC', 'group_ids': [gid]}).status_code
+            == 200
+        )
+
+        symbols = [i['symbol'] for i in _get(client, '/api/watchlist/items/').get_json()['data']]
+        assert '110022' in symbols
+
+    def test_create_without_group_ids_unchanged(self, client, db):
+        """不传 / 空数组：既有行为不变，不写任何关联。"""
+        assert _post(client, '/api/watchlist/items/', {'symbol': '110023', 'venue': 'OTC'}).status_code == 200
+        resp = _post(client, '/api/watchlist/items/', {'symbol': '110024', 'venue': 'OTC', 'group_ids': []})
+        assert resp.status_code == 200
+        assert resp.get_json()['data']['group_ids'] == []
+
+        assert db.query(WatchlistItemGroup).count() == 0
+
+    def test_create_rejects_missing_group_and_rolls_back(self, client, db):
+        resp = client.post('/api/watchlist/items/', json={'symbol': '161725', 'venue': 'OTC', 'group_ids': [999999]})
+        assert resp.status_code == 400
+        # 关键：非法分组不能留下「进了自选没进分组」的半截数据
+        assert db.query(WatchlistItem).filter_by(symbol='161725').first() is None
+        assert db.query(WatchlistItemGroup).count() == 0
+
+    def test_create_rejects_other_family_group(self, client, db):
+        db.add(WatchlistGroup(name='别人家的组', family_id=999, is_system=False))
+        db.commit()
+        foreign_gid = db.query(WatchlistGroup).filter_by(family_id=999).one().id
+
+        resp = client.post(
+            '/api/watchlist/items/', json={'symbol': '161726', 'venue': 'OTC', 'group_ids': [foreign_gid]}
+        )
+        assert resp.status_code == 400
+        assert db.query(WatchlistItem).filter_by(symbol='161726').first() is None
+
+    def test_create_rejects_system_group(self, client, db):
+        """系统分组（全部/持仓/…）是虚拟口径，没有关联关系，不接受 id。"""
+        db.add(WatchlistGroup(name='持仓', family_id=1, is_system=True))
+        db.commit()
+        sys_gid = db.query(WatchlistGroup).filter_by(family_id=1, is_system=True).one().id
+
+        resp = client.post('/api/watchlist/items/', json={'symbol': '161727', 'venue': 'OTC', 'group_ids': [sys_gid]})
+        assert resp.status_code == 400
+        assert db.query(WatchlistItem).filter_by(symbol='161727').first() is None
+
+
 # ─────────────── 资产-标签关联 ───────────────
 class TestItemTagLink:
     def test_add_tag_to_item(self, client, db):
@@ -1414,9 +1490,9 @@ class TestListItemsDeferredDisplayEnrich:
         calls: list[str] = []
         original = wd.apply_deferred_display_fields
 
-        def spy(out, symbol, asset_type, db_):
+        def spy(out, symbol, asset_type, db_, ctx=None):
             calls.append(symbol)
-            return original(out, symbol, asset_type, db_)
+            return original(out, symbol, asset_type, db_, ctx)
 
         monkeypatch.setattr(wd, 'apply_deferred_display_fields', spy)
 

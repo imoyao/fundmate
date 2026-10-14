@@ -264,3 +264,50 @@ class TestRunJobToleratesMissingSnapshotTime:
         rows = db.query(SyncLog).filter_by(job_name='fund_position').all()
         assert len(rows) == 1
         assert rows[0].started_at is not None
+
+
+class TestResolveTargetsEtfPool:
+    """目标代码分类（#1983）：场内 ETF 裸码进 'etf' 池，其余池语义不变。"""
+
+    @pytest.fixture
+    def orch(self, db):
+        return DataSyncOrchestrator(db)
+
+    def test_prefixed_etf_splits_into_stock_and_etf_pools(self, orch, db, make_position):
+        """带前缀 ETF → stock 池原样保留 + etf 池裸码；裸码 → fund 池。
+
+        为什么 ETF 同时在两个池：stock 池消费方（price_history）要带前缀
+        形态，etf 池消费方（fund_position）要裸码形态，缺任一侧断一条链路。
+        """
+        make_position(symbol='SZ159857', asset_type='etf', name='光伏ETF', quantity=100, current_price=1.0)
+        make_position(symbol='SH510300', asset_type='etf', name='沪深300ETF', quantity=100, current_price=1.0)
+        make_position(symbol='004369', asset_type='fund', name='场外基金', quantity=100, current_price=1.0)
+        make_position(symbol='SH600519', asset_type='stock', name='贵州茅台', quantity=100, current_price=1.0)
+        db.commit()
+
+        targets = orch.resolve_targets()
+
+        assert sorted(targets['etf']) == ['159857', '510300']
+        # stock 池必须保留 ETF 的带前缀形态（price_history 靠它同步场内价格）
+        assert 'SZ159857' in targets['stock']
+        assert 'SH510300' in targets['stock']
+        assert targets['fund'] == ['004369']
+        # 普通股票只进 stock 池，绝不进 etf 池
+        assert 'SH600519' in targets['stock']
+        assert '600519' not in targets['etf']
+
+    def test_unprefixed_bare_codes_stay_in_fund_pool(self, orch, db, make_position):
+        """裸 6 位码（含 15/16/51 开头的场内 ETF 裸码形态）一律按既有语义进 fund 池。"""
+        make_position(symbol='159915', asset_type='etf', name='创业板ETF', quantity=100, current_price=1.0)
+        db.commit()
+
+        targets = orch.resolve_targets()
+
+        assert targets['fund'] == ['159915']
+        assert targets['etf'] == []
+        assert '159915' not in targets['stock']
+
+    def test_empty_database_yields_empty_pools(self, orch, db):
+        targets = orch.resolve_targets()
+
+        assert targets == {'fund': [], 'stock': [], 'etf': []}

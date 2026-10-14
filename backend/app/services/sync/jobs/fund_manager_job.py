@@ -93,8 +93,34 @@ class FundManagerSyncJob(SyncJob):
     # ── 去重 ──
 
     def _deduplicate(self, data: List[dict]) -> List[dict]:
-        """基于 mgr_code 去重"""
-        return self._deduplicate_by_unique_key(data, Manager, 'mgr_code')
+        """**只做批内去重，不按库内已有值过滤** —— 与基类默认行为不同，理由见下。
+
+        基类的 :meth:`SyncJob._deduplicate_by_unique_key` 会把「库里**已存在**的
+        ``mgr_code``」整批丢掉。对本 job 这恰好把回填路径掐死了：``_save_data``
+        需要**存量经理**出现在入参里，才能由 :meth:`_backfill_manager_profile`
+        把 #1970 新增的三列（``sum_scale`` / ``best_return`` / ``appointment_date``）
+        补到旧行上；被丢掉之后 ``mgr_records`` 只剩新经理，而新经理插入时三列本来
+        就带着值，回填分支恒为 ``dirty=False``。
+
+        实测（2026-10-11）：生产库 4267 行存量经理，跑
+        ``pdm run sync --job fund_manager --full-sync --targets …`` **报 success**，
+        而 ``select count(*) from managers where sum_scale is not null`` 仍是 **0**；
+        日志里两条线索固定出现：``新增 0 位经理`` 与 ``回填存量经理档案列: {'updated': 0}``。
+
+        幂等由 :meth:`_save_data` 自己负责（它本就是按幂等写的）：插入走
+        ``bulk_insert_if_not_exists``（冲突即跳过）、建关联前先查 ``existing_rels``、
+        回填**只补 NULL 不覆盖**已有值。故这里只需按 ``mgr_code`` 去掉**批次内**
+        重复（同一经理在多只基金的行里会重复出现）。
+        """
+        seen: set = set()
+        deduped: List[dict] = []
+        for item in data:
+            code = item.get('mgr_code')
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            deduped.append(item)
+        return deduped
 
     # ── 保存 ──
 
@@ -309,59 +335,15 @@ class FundManagerSyncJob(SyncJob):
             self.db.flush()
         return stats
 
-    # ── 任期补齐（独立于上述全量回填）────────────────────────────
-
-    def backfill_tenures(self, fund_codes: List[str]) -> Dict[str, int]:
-        """按目标基金逐只抓取任期，写入 ``fund_managers.start_date/end_date``。
-
-        **为什么必须独立于 ``_fetch_data``**：任期只存在于天天基金 F10 经理页
-        （``fund_manager_em`` 无此维度），即**每只基金一次 HTTP**。若混进
-        ``_fetch_data``，全量回填会退化成 26000+ 次请求、且与「一次全量拿经理」
-        的既定成本模型冲突。故显式分离，调用方按目标池限量调用。
-
-        **只更新不插入**：关联关系由 ``_save_data`` 建立，本方法仅补两列，
-        对库中不存在的 (fund, mgr) 组合**直接跳过**（不凭任期数据造关系，
-        关系只由经理全量表决定）。
-
-        Args:
-            fund_codes: 目标基金代码列表。
-
-        Returns:
-            统计 dict：``{'scanned', 'matched', 'updated', 'failed'}``。
-        """
-        from app.services.adapters.manager_tenure import fetch_manager_tenures, find_tenure
-
-        stats = {'scanned': 0, 'matched': 0, 'updated': 0, 'failed': 0}
-
-        for code in fund_codes:
-            segments = fetch_manager_tenures(code)
-            if not segments:
-                stats['failed'] += 1
-                continue
-            stats['scanned'] += 1
-
-            fund = self.db.query(Fund).filter(Fund.fund_code == code).first()
-            if fund is None:
-                continue
-
-            # 该基金的经理名集合 → 任期分段中能对上的
-            rels = (
-                self.db.query(Manager.name, FundManager)
-                .join(FundManager, FundManager.mgr_id == Manager.id)
-                .filter(FundManager.fund_id == fund.id)
-                .all()
-            )
-            for mgr_name, rel in rels:
-                tenure = find_tenure(segments, mgr_name)
-                if tenure is None:
-                    continue
-                stats['matched'] += 1
-                if rel.start_date == tenure['start_date'] and rel.end_date == tenure['end_date']:
-                    continue  # 已是最新，不做无谓写入
-                rel.start_date = tenure['start_date']
-                rel.end_date = tenure['end_date']
-                stats['updated'] += 1
-
-        self.db.commit()
-        logger.info(f'任期补齐完成: {stats}')
-        return stats
+    # ── 任期补齐已迁出（#2082）─────────────────────────────────────
+    #
+    # 原 `backfill_tenures()` 就写在这里，但**全仓没有任何调用点**
+    # （`grep -rn backfill_tenures` 只命中定义本身），于是
+    # `fund_managers.start_date/end_date` 填充率恒为 0%、前端「任职起止」永远
+    # 显示「—」—— 代码写好了，却从来没被接过线。
+    #
+    # 现已迁到 `app/services/sync/jobs/manager_tenure_job.py` 的
+    # `ManagerTenureSyncJob`，并登记进 orchestrator 与 daily_scheduler 的
+    # 「明确不调度」表。接线是否还在，由两道网兜住：
+    #   - `scripts/guard_job_schedule_coverage.py`（注册的 job 必须被调度表覆盖）
+    #   - `tests/services/sync/test_manager_tenure_job.py`（断言调用链存在）

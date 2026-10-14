@@ -14,7 +14,8 @@
 1. **运行环境必须是 UTF-8 locale**：在调 `gh` / 跑 Python 脚本创建 issue 前，确保
    - shell：`export LANG=C.UTF-8; export LC_ALL=C.UTF-8`（Linux/macOS）；PowerShell 默认 UTF-8，勿用 `chcp` 切到非 UTF-8 代码页。
    - Python：设置 `PYTHONUTF8=1` 或脚本顶部 `# -*- coding: utf-8 -*-` + 显式 `.encode('utf-8')`，禁止用 `latin-1`/`ascii` 编解码中文。
-2. **用文件传中文，不靠内联字面量**：优先 `gh issue create --title-file <file> --body-file <file>`，文件以 UTF-8 无 BOM 保存；避免 `gh issue create --title "$(中文变量)"` 在非 UTF-8 终端里被截断。
+2. **用文件传中文，不靠内联字面量**：正文用 `gh issue create --body-file <file>`（文件以 UTF-8 无 BOM 保存）；避免 `gh issue create --title "$(中文变量)"` 在非 UTF-8 终端里被截断。
+   > **更正（2026-10-12）**：本条原写「优先 `gh issue create --title-file <file>`」——该 flag **不存在**（gh 2.97.0 实测 `unknown flag: --title-file`，issue [#2106](https://github.com/imoyao/fundmate/issues/2106) 建卡时撞上）。标题正确做法：先用 ASCII 占位标题建卡，再用 UTF-8 JSON 文件 `gh api -X PATCH repos/<owner/repo>/issues/<n> --input title.json` 修正，随后按规则 3 回读校验。原文保留以存历史。
 3. **创建后校验**：`gh issue view <n> --json title` 回读标题，确认中文正常（无 `?`、无 `Ã©` 类 mojibake）后再继续，否则立即删掉重建。
 4. **禁止提交疑似乱码 issue**：标题或正文出现连续 `?` 或 `Ã`/`Â` 等 mojibake 特征时，视为创建失败，不许保留。
 

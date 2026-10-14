@@ -2,7 +2,19 @@
   "excludeFiles": [
     "**/node_modules/**",
     "**/.git/**",
-    "**/working-notes/legacy/worktile-archive-2021-2026-08-09.md"
+    "**/working-notes/legacy/worktile-archive-2021-2026-08-09.md",
+    "**/working-notes/advisor-platform-landscape-2026-09-08.md",
+    "**/working-notes/advisor-ttfund-holdings-api-2026-09-08.md",
+    "**/working-notes/advisor-ttfund-id-research-2026-09-08.md",
+    "**/working-notes/ai-recognizer-architecture-2026-08-13.md",
+    "**/working-notes/build-oom-fix-2026-08-04.md",
+    "**/working-notes/code-audit-and-remediation-2026-08-01.md",
+    "**/working-notes/e-account-reconciliation-design-2026-08-16.md",
+    "**/working-notes/eastmoney-antiscrape-2026-08-05.md",
+    "**/working-notes/fund-position-skip-path-triage-2026-10-01.md",
+    "**/working-notes/issue-triage/auto/2026-09-19.md",
+    "**/working-notes/sales-institution-common-group-2026-08-24.md",
+    "**/working-notes/scheduling-options-research-2026-08-04.md"
   ],
   "rules": {
     "no-empty-code-lang": 2,

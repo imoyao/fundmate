@@ -21,6 +21,7 @@ from app.core.constants import (
 from app.core.database import Session
 from app.core.money import Money
 from app.domains.assets.models import Asset
+from app.domains.funds.models import FundValuationDaily
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.summary.models import AssetSnapshot
@@ -953,3 +954,45 @@ def scan_cross_ledger_duplicates(db: Session, family_id: int) -> list[dict]:
     # 按涉及账本数、笔数降序，最可疑的排前面
     result.sort(key=lambda x: (len(x['ledger_ids']), x['count']), reverse=True)
     return result
+
+
+def list_fund_valuation_rows(db: Session, query_date: date, fund_code: str | None = None) -> list[dict]:
+    """#2141/#2142：某日收盘估值定格清单（只读）。
+
+    返回该日定格行（fund_code / estimated_nav / change_pct /
+    source / source_time / status / official_nav / deviation / deviation_pct），
+    按 fund_code 升序；`fund_code` 非空时只返回该基金。
+    estimated_nav / change_pct / official_nav / deviation / deviation_pct
+    是 SafeNumeric（Decimal），API 序列化转 float。
+
+    status='confirmed' 时 official_nav/deviation/deviation_pct 有值
+    （官方净值副本与偏差，#2142 对照 job 落库）；status='estimated' 时三列均为 null。
+    """
+    stmt = db.query(
+        FundValuationDaily.fund_code,
+        FundValuationDaily.estimated_nav,
+        FundValuationDaily.change_pct,
+        FundValuationDaily.source,
+        FundValuationDaily.source_time,
+        FundValuationDaily.status,
+        FundValuationDaily.official_nav,
+        FundValuationDaily.deviation,
+        FundValuationDaily.deviation_pct,
+    ).filter(FundValuationDaily.est_date == query_date)
+    if fund_code:
+        stmt = stmt.filter(FundValuationDaily.fund_code == fund_code.strip())
+    rows = stmt.order_by(FundValuationDaily.fund_code).all()
+    return [
+        {
+            'fund_code': r[0],
+            'estimated_nav': float(r[1]) if r[1] is not None else None,
+            'change_pct': float(r[2]) if r[2] is not None else None,
+            'source': r[3],
+            'source_time': r[4],
+            'status': r[5],
+            'official_nav': float(r[6]) if r[6] is not None else None,
+            'deviation': float(r[7]) if r[7] is not None else None,
+            'deviation_pct': float(r[8]) if r[8] is not None else None,
+        }
+        for r in rows
+    ]

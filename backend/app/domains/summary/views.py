@@ -6,11 +6,14 @@
 
 """首页仪表盘聚合数据 API."""
 
+from datetime import date
+
 from apiflask import APIBlueprint
 from flask import jsonify, request
 
 from app.core.auth import get_family_id
 from app.core.database import get_db
+from app.core.time_utils import today_shanghai
 from app.services.penetration import SCHEME_LABELS, build_penetration
 from app.services.pnl_calendar import GRANULARITY_DAY, build_pnl_series
 from app.services.summary_service import (
@@ -20,6 +23,7 @@ from app.services.summary_service import (
     get_sankey_data,
     get_snapshots,
     get_summary_data,
+    list_fund_valuation_rows,
     scan_cross_ledger_duplicates,
     write_asset_snapshot,
 )
@@ -174,6 +178,33 @@ def pnl_calendar():
         return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400
     except Exception as e:
         return jsonify({'data': None, 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500
+
+
+@bp.get('/summary/fund-valuation/')
+def fund_valuation():
+    """#2141/#2142 收盘估值定格清单（某日，需登录）。
+
+    查询参数：
+    - `date`：YYYY-MM-DD，默认上海时区今日；
+    - `fund_code`：可选，单基金过滤。
+
+    返回该日定格行（fund_code / estimated_nav / change_pct / source / source_time /
+    status / official_nav / deviation / deviation_pct）按 fund_code 升序；日期非法回 400。
+    """
+    raw_date = (request.args.get('date') or '').strip()
+    try:
+        query_date = date.fromisoformat(raw_date) if raw_date else today_shanghai()
+    except ValueError:
+        return jsonify(
+            {'data': [], 'message': f'date 格式非法（应为 YYYY-MM-DD）: {raw_date!r}', 'error_code': 1001}
+        ), 400
+    fund_code = request.args.get('fund_code')
+    try:
+        with get_db() as db:
+            data = list_fund_valuation_rows(db, query_date, fund_code=fund_code)
+        return jsonify({'data': data, 'message': 'ok'})
+    except Exception as e:
+        return jsonify({'data': [], 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500
 
 
 @bp.get('/summary/ghost-duplicates/')

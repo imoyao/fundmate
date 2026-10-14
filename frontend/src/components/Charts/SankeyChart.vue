@@ -17,19 +17,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onBeforeUnmount, watch, nextTick } from "vue";
+import { ref, computed, watch, nextTick } from "vue";
 import echarts from "@/plugins/echarts";
 import { IconifyIconOffline } from "@/components/ReIcon";
-import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
+import { getCssVar } from "@/composables/echarts/theme";
+import { useEchartsLifecycle } from "@/composables/echarts/useEchartsLifecycle";
 
 const props = defineProps<{
   data: { nodes: any[]; links: any[] };
   displayMode: "amount" | "percent" | "hidden";
 }>();
 
-const chartRef = ref<HTMLDivElement>();
-let chart: echarts.ECharts | null = null;
-const themeTick = useThemeTick();
+// #2164：实例生命周期（init / resize / dispose / 主题重绘 / keepAlive 恢复）交给
+// `useEchartsLifecycle`，本组件只负责「给定实例把 option 画上去」。
+// `reuse: true` 而非默认的全量重建：桑基图每次都要按 `clientWidth` 重算手动布局，
+// 重建实例会丢掉动画状态并肉眼可见地闪一下。
+const chartRef = ref<HTMLElement | null>(null);
 const isEmpty = ref(true);
 const totalValue = ref(0);
 const containerHeight = ref(400);
@@ -254,29 +257,33 @@ function computeManualLayout(
   return { nodes: layouted, maxY: globalMaxY };
 }
 
-function renderChart() {
-  if (!chartRef.value) return;
-  if (
-    !props.data ||
-    !Array.isArray(props.data.nodes) ||
-    !Array.isArray(props.data.links)
-  )
-    return;
+/** 数据是否可画：props 就绪且 nodes/links 都非空 */
+function hasDrawableData(): boolean {
+  return (
+    !!props.data &&
+    Array.isArray(props.data.nodes) &&
+    Array.isArray(props.data.links) &&
+    props.data.nodes.length > 0 &&
+    props.data.links.length > 0
+  );
+}
 
-  const hasData = props.data.nodes.length > 0 && props.data.links.length > 0;
-  isEmpty.value = !hasData;
+/**
+ * 把 option 画到**给定实例**上。原先这里是 `renderChart()`：自己 init、自己
+ * dispose、自己读 clientWidth。现在 init/dispose 归 composable，本函数只做绘制，
+ * 便于 build（首绘）与 update（复用后重绘）两条路径共用同一份绘制逻辑。
+ */
+function paint(chart: echarts.ECharts, el: HTMLElement) {
+  isEmpty.value = !hasDrawableData();
 
-  if (!hasData) {
-    chart?.dispose();
-    chart = null;
+  if (isEmpty.value) {
+    // 空数据不画图（保留空白绘图区 + 空态遮罩）。这里 dispose 而非「留一张全 0 的空图」——
+    // composable 下次 render 会因 isDisposed() 为真而重新 build，故这里可以安全交回收。
+    chart.dispose();
     return;
   }
 
-  if (!chart) {
-    chart = echarts.init(chartRef.value);
-  }
-
-  const chartWidth = chartRef.value.clientWidth;
+  const chartWidth = el.clientWidth;
   const leftPad = 100;
   const rightPad = 80;
 
@@ -375,22 +382,41 @@ function renderChart() {
   );
 }
 
-watch(
-  () => [props.data.nodes, props.data.links, props.displayMode],
-  () => nextTick(renderChart),
-  { deep: true, immediate: true }
+// #2164：实例生命周期交给 composable —— window resize 自动 resize、卸载 dispose、
+// 主题切换重绘（composable 内置 `watch(themeTick, render)`）、keepAlive 恢复时 resize，
+// 这四项原先是本文件手写的（与 components.md:539「禁止各页面重新手写」相悖）。
+const { render } = useEchartsLifecycle(
+  [
+    {
+      ref: chartRef,
+      build: el => {
+        const chart = echarts.init(el);
+        paint(chart, el);
+        return chart;
+      },
+      update: chart => {
+        const el = chartRef.value;
+        if (!el) return;
+        paint(chart, el);
+      }
+    }
+  ],
+  {
+    keepAlive: true,
+    // 复用实例：桑基图每次都按 clientWidth 重算手动布局，重建会闪
+    reuse: true,
+    // 首次绘制交给下面的 watch（immediate + nextTick，等 DOM 挂载后再画）
+    autoRenderOnMount: false
+  }
 );
 
-// 主题切换（暗色）时重绘桑基图，重新读取语义色（#976）
-watch(themeTick, () => nextTick(renderChart));
-
-const resizeHandler = () => chart?.resize();
-window.addEventListener("resize", resizeHandler);
-
-onBeforeUnmount(() => {
-  chart?.dispose();
-  window.removeEventListener("resize", resizeHandler);
-});
+// 数据 / 显示模式变化时重绘。`nextTick` 不能省：watch 的 immediate 在 setup 阶段
+// 就跑，此时 `chartRef.value` 还是 null（composable 内部会因 `if (!el) return` 跳过）。
+watch(
+  () => [props.data.nodes, props.data.links, props.displayMode],
+  () => nextTick(render),
+  { deep: true, immediate: true }
+);
 </script>
 
 <style scoped>

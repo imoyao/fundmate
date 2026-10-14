@@ -467,7 +467,9 @@ Element Plus 给 `.el-textarea__inner:focus` 自带
 （`layout/index.vue` 注入，未隐藏页同样可用）。三道防误触守卫缺一不可：输入焦点
 （input/textarea/select/contenteditable 一律让键）、中文输入法 `isComposing`、EP 弹层
 `.el-overlay` **可见**时让键（注意 EP 遮罩是 vShow 常驻 DOM，须判 `display` 而非判存在）。
-首次进入隐藏页 toast 提示一次（sessionStorage 去重）。用户实测案例：自选页 `/watchlist`
+首次进入隐藏页 toast 提示一次（**localStorage 去重，每浏览器仅首次**——#2099：曾用
+sessionStorage，其生命周期仅单标签页会话，重启浏览器 / 新开标签页即重置，用户体感
+「每次进自选页都弹」，干扰过大；存储不可用时退化为页内每次加载最多一次）。用户实测案例：自选页 `/watchlist`
 的 FAB 压住表格右下角固定操作列（置顶/关注/移除按钮），2026-10-10 起该页走此机制隐藏。
 
 ### 输入框基线契约（#1772：el-input / el-textarea / el-select 唯一真相源）
@@ -661,6 +663,35 @@ Element Plus 给 `.el-textarea__inner:focus` 自带
 | 跌 | `#F0F9F2` | `#38A354` | `--radius-pill` |
 | 品牌 | `--brand-200` | `--brand-700` | `--radius-pill` |
 | 危险 | `#FEF0F0` | `--color-danger-system` | `--radius-pill` |
+
+#### 风格标签三档徽章（#2044 · 基金经理代表作）
+
+代表作的风格标签（持仓集中度 / 行业集中度 / 市值风格）用**同族底色、递进墨重**的三档胶囊表达档位强度。**刻意不用红绿**：集中度高≠坏、中性≠好，红绿是涨跌语义专用（见上表「涨 / 跌」变体）。
+
+| 档位 | 背景 | 文字 | 字重 | 映射（key 后缀） |
+|------|------|------|------|------------------|
+| 低 | 透明 + 1px `--border-subtle` | `--text-secondary` | 400 | `low` 分散 / `small` 偏中小盘 |
+| 中 | `--bg-soft` | `--text-secondary` | 400 | `mid` 中性 / `balanced` 均衡 |
+| 高 | `--bg-soft` | `--text-primary` | 600 | `high` 高集中 / `large` 偏大盘 |
+
+- 圆角 `--radius-pill`（Badge 语言），字号 11px；徽章文字直接用后端 `label`，不改写。
+- `basis`（判定依据）经 `el-tooltip` hover 展示；徽章 `tabindex="0"` 保证键盘可达（#1838）。
+- 后端**不返回颜色**，配色在此层由 key → 档位映射决定；数据不足的维度**缺席**而非 null 占位，`style_labels` 为空则整行不渲染（不显示空容器 / 占位徽章）。
+- 参考实现：`views/product/components/ProductManagerSection.vue` 的 `.mgr-section__style-badge`。
+
+#### 估 / 确认状态徽标（#2143 · ValuationSourceBadge 唯一实现）
+
+估值状态徽标（「估」/「确认」）收敛为 `ValuationSourceBadge` 组件，**禁止页面另写「估」胶囊**（强制复用清单已登记）。
+
+| 状态 | 背景 | 文字 | 语义 |
+|------|------|------|------|
+| `estimated` 预估 | `--brand-100` | `--brand-700` | 沿用 #1104「估」胶囊——「这个数字不是确认值」的视觉锚点，比口径标签重一档 |
+| `confirmed` 已确认 | `--bg-soft` | `--text-secondary` | 设计系统默认徽章档：尘埃落定的安静态，让数字本身承载注意力 |
+
+- 状态由**后端数据驱动**（`status` prop），前端禁止按日期自行推断；未知状态整块不渲染（诚实缺席）。
+- 红绿是涨跌语义专用，两态均不使用。
+- 两档尺寸：md 16px（盈亏副行）/ sm 14px（日历格密排）；圆角 `--radius-pill`。
+- 组件**不内置 el-tooltip**：完整提示文案由调用方按语境传入 `tip`（盘中免责走 `ESTIMATE_DISCLAIMER` 单一出口；日历格说明走外层悬浮卡 `PnlCalendarUnitTip`），徽标自身以 `role="note"` + `aria-label` 保读屏与键盘可达。
 
 ### Table（el-table）
 
@@ -934,6 +965,24 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 | 走势图 | 红色渐变区域 | 绿色渐变区域 |
 
 > 所有图表颜色通过 `getComputedStyle` 动态读取 CSS 变量，禁止硬编码色值。
+
+> **柱体填充用 `--color-rise` / `--color-fall`，柱上文字用 `-ink` 级**（与「盈亏数字」
+> 一致）：柱体是大面积填充、可低饱和；文字压在卡片底色上，必须走 AA 达标的 `-ink`。
+
+### 柱状 / 瀑布图的可读性约定
+
+> **为什么单列一节**：三条规则都不是审美偏好，每一条都对应一类会「说错话」的图表错误。
+
+| 规则 | 理由 |
+|------|------|
+| **柱高 = 该项自身金额，不是累计值** | 柱高画累计、标签写增量时两者对不上，用户比大小比的是错的东西。用「透明基座 + 增量」两层堆叠实现真瀑布：每根柱只画自己那一份、悬在自己的累计高度上 |
+| **轴刻度与柱标签过万缩写为「万 / 亿」** | 六位数刻度会把绘图区挤窄、标签互相压住；柱顶的长数字会和相邻柱的标签糊成一团。tooltip 保持完整精度 |
+| **小额柱不写标签，只进 tooltip** | 全员挂标签时柱顶是一排长短不一的数字，最小的几根互相挤压反而看不出重点。低于「最大单项 × 8%」的只在 tooltip 给值。轴触发 tooltip 的完整值始终可读 |
+
+> **轴标签色走 `--text-tertiary-ink`**：轴标签是**文字**（不是描边 / 图形），
+> `--text-tertiary` 白底仅 3.69:1，达不到正文 4.5:1。
+
+> 参考实现：`views/asset/panorama/components/assetWaterfall.ts`（纯计算，不碰 DOM）。
 
 
 ## Voice & Content

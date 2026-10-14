@@ -60,6 +60,8 @@ class TestLoadConfig:
         assert cfg.job_names() == [
             'temperature',
             'fund_nav',
+            'fund_valuation_snapshot',
+            'fund_valuation_reconcile',
             'price_history',
             'index_daily',
             'position_price',
@@ -79,6 +81,8 @@ class TestLoadConfig:
         crons = {spec.job_name: spec.cron for spec in cfg.jobs}
         assert crons['temperature'] == ds.DEFAULT_TEMPERATURE_CRON
         assert crons['fund_nav'] == ds.DEFAULT_NAV_CRON
+        assert crons['fund_valuation_snapshot'] == ds.DEFAULT_VALUATION_CRON
+        assert crons['fund_valuation_reconcile'] == ds.DEFAULT_VALUATION_RECONCILE_CRON
         assert crons['price_history'] == ds.DEFAULT_PRICE_HISTORY_CRON
         assert crons['index_daily'] == ds.DEFAULT_INDEX_DAILY_CRON
         assert crons['position_price'] == ds.DEFAULT_POSITION_PRICE_CRON
@@ -131,9 +135,9 @@ class TestLoadConfig:
         assert spec.target_kind is None
 
     def test_advisor_job_has_no_target_kind(self):
-        """投顾 job 的目标池是「组合代码」，不能套 fund/stock。
+        """投顾 job 的目标池是「组合代码」，不能套 fund/stock/etf。
 
-        resolve_targets() 只产 fund/stock 两类；这里 target_kind 必须为 None，
+        resolve_targets() 产 fund/stock/etf 三类；这里 target_kind 必须为 None，
         让 job 内部 _resolve_targets 回退库内全部在售组合。套成 'fund' 会拿到空列表，
         而该 job 空目标不报错，结果是「每天记一条 success 但什么都没同步」的静默空跑。
         """
@@ -146,6 +150,8 @@ class TestLoadConfig:
         assert cfg.job_names() == [
             'temperature',
             'fund_nav',
+            'fund_valuation_snapshot',
+            'fund_valuation_reconcile',
             'price_history',
             'index_daily',
             'position_price',
@@ -184,6 +190,8 @@ class TestLoadConfig:
         # #1934 补进调度的四项没被上面的开关关掉，故仍在列表里（fund_nav 排最前）
         assert cfg.job_names() == [
             'fund_nav',
+            'fund_valuation_snapshot',
+            'fund_valuation_reconcile',
             'market_asset_daily',
             'index_valuation',
             'convertible_bond',
@@ -202,9 +210,17 @@ class TestLoadConfig:
         「要落快照的大类资产」、index_valuation 是固定指数清单、convertible_bond
         按在库 symbol 全量 upsert、dividend_split 是事件型数据。套错的结果是
         「每天记一条 success 但什么都没同步」的静默空跑。
+        #2142 的 fund_valuation_reconcile 同理：目标池是「库里全部 estimated 行」，
+        不是 fund/stock 代码池。
         """
         cfg = ds.load_config({})
-        for name in ('market_asset_daily', 'index_valuation', 'convertible_bond', 'dividend_split'):
+        for name in (
+            'market_asset_daily',
+            'index_valuation',
+            'convertible_bond',
+            'dividend_split',
+            'fund_valuation_reconcile',
+        ):
             spec = next(s for s in cfg.jobs if s.job_name == name)
             assert spec.target_kind is None, f'{name} 的 target_kind 应为 None'
 
@@ -372,10 +388,14 @@ class TestCatchUpTargets:
         判定依据：休市日跑它**能补齐上一个交易日的数据**，且无缺口时空跑成本≈0
         （增量窗口为空即不抓取，只花一次库内查询、0 次外部请求）。
         """
-        assert ds.REST_DAY_JOB_NAMES == frozenset({'price_history', 'fund_nav', 'position_price'})
+        assert ds.REST_DAY_JOB_NAMES == frozenset(
+            {'price_history', 'fund_nav', 'position_price', 'fund_valuation_reconcile'}
+        )
         assert ds.runs_on_rest_day('price_history') is True
         assert ds.runs_on_rest_day('fund_nav') is True
         assert ds.runs_on_rest_day('position_price') is True
+        # 预估→正式对照（#2142）：周末 fund_nav 补昨日净值后，周六晨间即可对照周五预估
+        assert ds.runs_on_rest_day('fund_valuation_reconcile') is True
         # 温度 / 指数估值 / 投顾：休市确实无新数据可抓
         assert ds.runs_on_rest_day('temperature') is False
         assert ds.runs_on_rest_day('index_valuation') is False
@@ -435,6 +455,35 @@ class TestRunSyncJob:
         ds.run_sync_job(spec, jitter_seconds=0)
 
         assert fake.calls == [('temperature', None)]
+
+    def test_multi_pool_target_kind_concatenates_in_order(self, monkeypatch):
+        """#1983：target_kind 为元组时按声明顺序拼接多池、去重保序。
+
+        fund_position 吃 fund + etf 两池；同一只代码在两池都出现时
+        （理论上不该，防御性）只传一次。
+        """
+        fake = _FakeOrchestrator(
+            targets={
+                'fund': ['004369', '005827'],
+                'etf': ['159857', '004369'],
+                'stock': ['SH600519'],
+            }
+        )
+        monkeypatch.setattr(ds, '_build_orchestrator', lambda db: fake)
+
+        spec = ds.DailyJobSpec('fund_position', '0 9 * * 1', ('fund', 'etf'), '持仓明细')
+        ds.run_sync_job(spec, jitter_seconds=0)
+
+        assert fake.calls == [('fund_position', ['004369', '005827', '159857'])]
+
+    def test_fund_position_targets_fund_and_etf_pools(self):
+        """#1983：本机调度的 fund_position 必须吃 fund + etf 双池。
+
+        丢了 etf 池，场内 ETF 的底层持仓永远同步不到（#1983 的病灶）。
+        """
+        cfg = ds.load_config({})
+        spec = next(s for s in cfg.jobs if s.job_name == 'fund_position')
+        assert spec.target_kind == ('fund', 'etf')
 
     def test_exception_is_returned_not_raised(self, monkeypatch):
         """后台线程里抛异常只会变成一行日志，调用方看不到原因——故必须收敛为结果。"""

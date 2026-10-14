@@ -21,6 +21,7 @@ title: 组件使用规范（设计语言实现层）
   - `AssetTypeBadge` — 资产 / 账本类型胶囊（统一账本配色）
   - `PnlDualLine` — 盈亏双线（已确认 / 预估两行同显，「估」标记 + 免责 tooltip，#1104）
   - `PnlEstimateLine` — 「预估」副行（`PnlDualLine` 的组成件；主行不是 `PnlDualLine` 的列——如自选页「持仓收益」——单独复用它，#1104）
+  - `ValuationSourceBadge` — 估 / 确认状态徽标（#2143 **唯一实现**：`status` 驱动——`estimated`「估」品牌胶囊 / `confirmed`「确认」默认徽章档，未知状态不渲染；`source` / `sourceTime` 拼入读屏与 tooltip 元信息；`tip` 由调用方传各语境完整文案，组件不内置 el-tooltip——日历格等外层已有悬浮卡的场景直接裸用，避免双层 tooltip 打架。当前消费方：`PnlEstimateLine`（md 档）、`PnlCalendarTile` 当日预估格（sm 档）。禁止页面另写「估」胶囊）
   - `RealtimeEstimateToggle` — 当日预估开关 + 轮询状态（`PnlDualLine` 的必备搭档，四页复用，#1104）
 - `CardBlock` — 区块卡片容器（统一 token 卡片，禁各页手写 `bg-white rounded-2xl` 等重复样式）
 - `PortfolioEditDialog` — 组合编辑对话框（编辑组合 + 关联账户，自 portfolio 详情页拆出）
@@ -30,6 +31,24 @@ title: 组件使用规范（设计语言实现层）
 - `PageHeaderBar` — 页面统一页头
 - `SegmentedControl` — 分段控制器（`role="tablist"` 的「多选一、选项少 2–6」**一律**走此组件：视图 / 维度 / 档位 / 筛选 / 排序；`default` / `small` 两档 + `block` 铺满 + 可选 `count` 数量徽章；#1717 收敛、#1731 扩边到「全部手写 tablist 按钮组」，禁再用 `el-segmented`、页面自写 `.xxx-segmented` 样式块、或手写 `role="tablist"` 按钮组——**仅两类登记例外**：「分组胶囊 Tab」与「水平滑动胶囊栏」，判别见 `frontend/design.md`「Segmented（分段控制器）」的「语言边界」）
 - `PnlCalendar` — 收益日历卡（**唯一**实现，welcome 嵌入卡 / 账户详情 / panorama「资产大类」三处容器共用；#1925 起带日 / 月 / 年三粒度；#1942 起**三粒度各有两形态**：`PnlCalendarGrid`（日·日历图）/ `PnlCalendarPeriodGrid`（月·12 格 / 年·投资以来每年一格，可点击下钻）与 `PnlCalendarBars`（三粒度共用的柱状几何）。格子的**七态**视觉与文案只有 `PnlCalendarTile` 一处实现，区间 / 文案 / 色深规则在 `helpers.ts`——禁止各页重写格子、柱或另起一套配色。第二轮（同日）：日历图**默认 5 列（一~五）**，周末不占格（该月有周末日不是 `closed` 时自动回 7 列）；表头多一个**金额 / 收益率**口径开关（两个口径的数都由后端下发，切换不发请求）；悬浮提示由原生 `title` 换成两个共享卡片——`PnlCalendarUnitTip`（单格：日期含星期 + 金额与收益率同显 + 态说明）与 `PnlCalendarCaliberTip`（标题行 (i)：口径 3 条 + 七态图例），气泡样式走全局 `style/el-tooltip.css` 的 `rich-tip`；`SectionHeader` 因此多了 `#info` 富内容插槽与 `infoLabel`）
+
+  **格内数字的视觉契约（三处容器共享，改一处即全站生效）**：
+
+  - **有数据恒定带色**：`lv-0`（数值最小档）也有底色（3% tint），无数据恒定留白。
+    否则「这天收益很小」与「这天没数据」扫视时读成同一格——而「缺数据绝不能画成 0」
+    正是本组件的立身之本，两类**必须**一眼可分。色深上限仍是 12%（AA 硬顶，见 `PnlCalendarTile` 注释）。
+  - **无数据态的纹理要退到背景权重**：`no_price`（暂无估值）的斜纹做到 7% / 5px 周期。
+    它是「要尽快被略过」的背景，不该与有数据的涨跌格抢注意力；但仍须与 `zero`（纯灰底）、
+    `closed`（留白）保持可辨。
+  - **格内盈亏数字字重 600**（`MoneyDisplay` / `RiseFallText` 的 `.number`，经 `:deep()` 改）。
+    **只加粗、不加字号**：两个口径（金额 xs / 收益率 sm）本就同为 13px，加粗后仍然一致 ⇒ 切换口径时文字不跳动（#1942 ② 的既有约定不回归）。
+  - **合计行是区间收益的落点**：金额走 `size="md"`（16px）+ `--bg-subtle` 底色带。
+    用底色带而不是 `border-top` 分隔线——它紧跟在格子下面，再加横线会读成「新的一段的表头」。
+  - **控件排分两组**（`PnlCalendarActionBar`）：左组三枚「切换看什么」的开关
+    （粒度 / 形态 / 口径），右组「看哪一段」的区间导航，组间 `space-between`。
+    四组挤在同一 `gap-2` 里时，用户分不清「切换维度」和「翻时间段」是两类操作。
+    窄屏（`bp.below("sm")`）两组纵向堆叠并左对齐——继续右对齐会把导航推到无意义的空白旁。
+
 - `PageFooter` / `MarketFooter` — 探市 / 温度计页脚
 - `Superellipse` — 品牌 n=3 超椭圆容器（logo / 头像 / 卡片普适轮廓，禁各处手写圆角或 polygon 轮廓）
 - 全站页脚：`frontend/src/layout/components/lay-footer/index.vue`
@@ -395,6 +414,34 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - props：`data`(`{ name, value }[]`)、`colorMap`(name → CSS 变量名，如 `{ 股票: "--invest-stock" }`)、`emptyText`(空态文案)、`showLegend`(默认 true)。
 - 颜色红线：必须经 CSS 语义变量（`colorMap` 传变量名，组件内 `getCssVar` 读取）；不传或缺失回退 `--chart-01~08` 循环。
 - 参考实现：`frontend/src/views/asset/ledgers/detail.vue`（`typeColorMap` + `allocationData`）。
+
+## 多分类配置展示：用「表内嵌条」，不单独立图表组件
+
+- 判据是**分类数量与分类名长度**，不是个人偏好：
+  - **≤ 6 类** → `AssetAllocationDonut`（环形看整体构成，图例即清单）；
+  - **7 类以上 / 分类名长且必须读全** → **表内嵌条**：一行一个分类，
+    行内比例条 + 精确值 + 合计行（同一行同时给出「排名感」和「精确数」）。
+- 为什么删掉了 #2097 新建的 `AssetAllocationBars`（2026-10-12，#2097 收尾）：
+  - 后端 `industry_chart` 就是 `industries[0].items` 的投影（同一份截断后的
+    items、同一顺序，只过滤 `ratio > 0`）——「图表 + 表格」并排渲染的是
+    **同一批数字**，不是互补信息；
+  - 条形图自带精确数值标签后，表格原有的「给精度」职责已被图表接管，
+    而表没删 —— 同一份名单渲染两遍，窄屏（<lg）堆叠时尤其明显；
+  - 图表 y 轴标签写死 96px（≈8 个汉字），证监会门类名最长 15 字必被截断
+    （「电力、热力、燃气及水生产和供应业」→「电力、热力、燃…」），
+    **唯一能读全名的区域反而是表格**。把条长降级为表格里的一列之后，
+    名称列拿到剩余全部宽度，长名换行而不再截断；
+  - 纯 CSS 画条即可：为一个静态十来行的列表起一个 echarts 实例不划算，
+    表格语义对读屏与复制也更友好。
+- **表内嵌条的口径纪律**（承接旧 `formatValue` 那条，换形态不换口径）：
+  - 条长按**本区最大值**归一，**不按「各行之和」**：占比之和未必等于 100
+    （未披露项不在列表里），按和归一会把 47.94% 画成半条，读成「占了一半」；
+  - 占比缺失的行**不画条**，只显示「—」——「有占比但极小」与「无占比」
+    必须能区分；极小值给 3px 兜底宽度，否则 0.67% 在 47.94% 的最大值下
+    只有 1.4% 宽，屏上是一条看不见的线；
+  - 颜色沿用 `--chart-01~08` 循环，不引入新色；**颜色不承担分类职责**
+    （分类名就在同一行，长度才是唯一的比例通道）。
+- 参考实现：`frontend/src/views/product/components/ProductIndustrySection.vue`（行业配置）。
 
 ## TemperatureGaugeCard · 温度环形卡（三页复用）
 

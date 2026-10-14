@@ -159,7 +159,9 @@ def self_check() -> list[str]:
         ]
 
     # 探针 S4：字符集放宽后，事件名必须**仍然**被拦（顺序不能反）。
-    for ev in ('push', 'web_trigger'):
+    # 覆盖 GitHub 侧探针确认过的全部五类坏顶层键（2026-10-14 跨仓收敛时合并，
+    # 少一类就等于「EVENT_LIKE 对那一类失效」时无人发现）。
+    for ev in ('push', 'pull_request', 'web_trigger', 'tag_push', '"crontab: 0 * * * *"'):
         if not check_top_keys({ev: {'stages': []}}):
             return [
                 f'自检探针失败：字符集放宽后，顶层事件名 {ev!r} 不再被判错 ——'

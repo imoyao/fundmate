@@ -18,8 +18,11 @@
 
 from contextlib import closing
 
+import pytest
+
 from app.core.db_factory import market_session_factory
 from app.domains.funds.models import Fund, FundCompany, FundManager, Manager
+from app.services.manager_code import bare_manager_code
 from app.services.manager_profile import build_manager_profile
 
 PROFILE_URL = '/api/products/manager-profile/?mgr_code='
@@ -187,3 +190,57 @@ def test_manager_without_fund():
 
     assert data['fund_count'] == 0
     assert data['funds'] == []
+
+
+# ---------------------------------------------------------------------------
+# 入参形态归一 —— 2026-10-11「每一张经理详情页都空白」那起事故的回归网
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ('raw', 'expected'),
+    [
+        ('4202a53a90fb', '4202a53a90fb'),
+        ('4202A53A90FB', '4202a53a90fb'),
+        ('MGR_4202a53a90fb', '4202a53a90fb'),
+        ('MGR_4202A53A90FB', '4202a53a90fb'),
+        ('  MGR_4202a53a90fb  ', '4202a53a90fb'),
+        ('mgr_4202a53a90fb', '4202a53a90fb'),
+        ('MGR_', ''),
+        ('', ''),
+        ('   ', ''),
+        (None, ''),
+    ],
+)
+def test_bare_manager_code_normalizes_any_form(raw, expected):
+    """归一函数吃下「裸码 / 大写 / `MGR_` 前缀 / 前后空格 / 只有前缀」。"""
+    assert bare_manager_code(raw) == expected
+
+
+@pytest.mark.parametrize(
+    'raw',
+    ['a1b2c3d4e5f6', 'A1B2C3D4E5F6', 'MGR_a1b2c3d4e5f6', 'MGR_A1B2C3D4E5F6', ' mgr_A1B2C3D4E5F6 '],
+)
+def test_accepts_watchlist_symbol_and_uppercase_code(raw):
+    """`MGR_<code>` / 大写形态必须命中同一个经理（库内是 12 位**小写**派生码）。
+
+    实测事故：自选/搜索里点进详情页带的是 `MGR_<code>`（#1286 命名空间约定），
+    而详情页路由的 symbol 又被 `resolve_product_identity` **大写化**；两个 service
+    当时只 `.strip()` 就等值匹配，于是这几种入参**全部 404**——
+    表现是「每一张经理详情页都是空白」，而库里 4 只任职基金、公司名都在。
+
+    ⚠️ **种子的姓名/码必须是本文件独有的合成值**（这里用 `形态归一经理` /
+    `a1b2c3d4e5f6`，别用真实数据）。原因：本文件的测试**不走 `app` 夹具**，
+    因此 `market_session_factory` 没被 patch 到 tmp_path —— 写入会落进
+    **整轮测试共享的那个库**，并被后续文件读到。最初这里种的是「张坤」，
+    结果 `test_manager_profile_chain.py::test_full_chain_from_em_row_to_display_text`
+    的 `_mgr_code_of(db, '张坤')` 取到了这一行（`sum_scale` 为空）而报
+    `assert None == 307.94`（2026-10-11 实测：CI 与本地干净库都稳定复现）。
+    """
+    _seed_manager('a1b2c3d4e5f6', '形态归一经理')
+    with closing(market_session_factory()()) as db:
+        data = build_manager_profile(db, raw)
+
+    assert data is not None, f'{raw!r} 应能命中 a1b2c3d4e5f6'
+    assert data['mgr_code'] == 'a1b2c3d4e5f6'
+    assert data['name'] == '形态归一经理'

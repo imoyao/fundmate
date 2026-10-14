@@ -71,6 +71,9 @@ def _quote_stats(db: Session, symbol: str, window: int = DEFAULT_WINDOW) -> Dict
             'high': None,
             'low': None,
             'change_pct': None,
+            'prev_close': None,
+            'change_amount': None,
+            'day_change_pct': None,
             'trading_days': 0,
             'source': '',
         }
@@ -89,12 +92,54 @@ def _quote_stats(db: Session, symbol: str, window: int = DEFAULT_WINDOW) -> Dict
         else None
     )
 
+    # ── 日涨跌（与上面的「区间涨跌」是两个口径，不可混用）─────────────────
+    #
+    # `change_pct` 的分母是**区间首日**（默认 60 个交易日前），它回答「这 60 天赚了多少」；
+    # 前端要据此给「最新收盘」这个最醒目的数字上涨跌色，缺的是**日口径**——
+    # 「今天比昨天涨跌多少」，分母是前一个有效收盘。
+    #
+    # 取「按 trade_date 倒序序列的第 2 项」而不是「自然日减一天」：停牌日**不会进
+    # price_history**（采集时该日整行跳过），序列里没有空档，所以第 2 项天然就是
+    # 「上一个交易日收盘」，与行情软件的「昨收」同口径。
+    prev_row = rows[1] if len(rows) >= 2 else None
+
+    # 日涨跌的两个操作数**必须同口径**，否则相减得到的是「前复权价 − 未复权价」的
+    # 混合值——那不是真实的涨跌额。`adj_close` 是可空列（存量行可能尚未回填复权价），
+    # 于是同一只票的最新行与上一行可能一个复权一个没复权。
+    #
+    # 三种处置：
+    # · 两行都有 adj_close  → 双复权（与 `close` / `change_pct` 的展示口径一致）；
+    # · 两行都没有          → 双未复权（同上）；
+    # · 一有一无            → **不给日涨跌**（None）。
+    #
+    # 选「诚实降级」而不是「降级凑一个数」：此时若让基准回退 close，屏上会出现
+    # 「现价 13.00（复权）、昨收 11.00（未复权）、涨跌 +1.00」——而 13 − 11 = 2，
+    # 用户自己能算出矛盾。与仓库既有口径一致（区间涨跌幅遇首日为 0 也返回 None）。
+    prev_close: Optional[float] = None
+    change_amount: Optional[float] = None
+    if prev_row is not None:
+        latest_adj, prev_adj = rows[0][1], prev_row[1]
+        if latest_adj is not None and prev_adj is not None:
+            latest_cmp, prev_cmp = latest_adj, prev_adj
+        elif latest_adj is None and prev_adj is None:
+            latest_cmp, prev_cmp = rows[0][2], prev_row[2]
+        else:  # 复权口径不一致 → 不给日涨跌
+            latest_cmp = prev_cmp = None
+        if latest_cmp is not None and prev_cmp is not None:
+            prev_close = float(prev_cmp)
+            change_amount = round(latest_cmp - prev_cmp, 4)
+
+    day_change_pct = round(change_amount / prev_close * 100, 2) if change_amount is not None and prev_close else None
+
     return {
         'quote_date': rows[0][0].isoformat() if rows[0][0] else None,
         'close': float(latest_close) if latest_close is not None else None,
         'high': float(max(highs)) if highs else None,
         'low': float(min(lows)) if lows else None,
         'change_pct': change_pct,
+        'prev_close': prev_close,
+        'change_amount': change_amount,
+        'day_change_pct': day_change_pct,
         'trading_days': len(rows),
         # 站点名（新浪财经 / 东方财富…）而非 price_history 这类内部表名（#1969）
         'source': data_source_label(rows[0][5]),

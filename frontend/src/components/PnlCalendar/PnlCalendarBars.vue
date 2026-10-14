@@ -231,13 +231,23 @@ const ariaLabel = computed(() => {
 <style lang="scss" scoped>
 .pnl-calendar-bars {
   display: flex;
+
+  /* #2033：宿主给了确定高度就填满，没给仍是自然高（另两处宿主逐像素不变）。
+     `min-height: 0` 与方格网格外层同理：没有它，flex 项的自动最小尺寸会把
+     「绘图区 basis + 标签行 + 下钻提示」的高度顶回来，装不下时溢出卡片而不是压缩绘图区。 */
+  flex: 1;
   flex-direction: column;
   gap: 4px;
+  min-height: 0;
 }
 
 .pnl-calendar-bars__plot {
   position: relative;
-  height: 160px;
+
+  /* flex-basis 沿用原来的 160px，不是新数字：宿主高度不定时绘图区与改动前逐像素
+     一致；高度确定时由它吃掉多余空间（basis 160 + grow 1）。柱高用的是
+     `top` / `bottom` 的百分比（按高度解析，见文件头），撑高不影响柱的几何。 */
+  flex: 1 1 160px;
 }
 
 /* 零轴：贯穿整幅绘图区的一条细线（柱子贴着它上下生长） */

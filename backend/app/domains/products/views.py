@@ -21,6 +21,7 @@ from app.domains.products.schemas import (
     AdvisorProfileRequest,
     FundRiskRankingRequest,
     FundRiskTypesRequest,
+    IndexProfileRequest,
     ManagerProfileRequest,
     ProductResolveRequest,
     ProductTrendRequest,
@@ -28,9 +29,11 @@ from app.domains.products.schemas import (
     StockProfileRequest,
 )
 from app.services.advisor_profile import build_advisor_profile
+from app.services.fund_holdings_detail import build_fund_holdings_detail
 from app.services.fund_performance import build_fund_performance
 from app.services.fund_profile import build_fund_profile
 from app.services.fund_risk_ranking import SORTABLE_METRICS, list_by_metric, list_fund_types
+from app.services.index_profile import build_index_profile
 from app.services.manager_holdings import build_manager_holdings
 from app.services.manager_profile import build_manager_profile
 from app.services.product_identity import resolve_product_identity
@@ -91,20 +94,7 @@ def resolve_product():
 
 @bp.get('/fund-profile/')
 def fund_profile():
-    """基金资料聚合（#1968）：详情页首屏 + 资料区块所需字段一次取完。
-
-    为什么放 products 域而不放 funds 域（两条理由都成立）：
-
-    1. **架构归属**：本端点服务的是「详情页」，与同族的 ``/resolve/``（身份解析）、
-       ``/trend/``（走势）是同一族；funds 域管的是基金基础操作（搜索 / 净值 / 费率同步）；
-    2. **视图层厚度守卫**：funds 视图已顶在冻结基线上（217 行），再加端点会被守卫拦下。
-       products 域是新文件，限额宽裕（lines ≤ 400 / query ≤ 10 / 单函数 ≤ 60）。
-
-    为何要新增而不让前端拼既有端点：**日涨跌**要「最近两日净值」自己算（funds 域无端点
-    直出），**基金经理**也没有对应端点（``/managers/search/`` 是按经理名模糊搜，与「某只
-    基金有哪些经理」无关；该关系本身在 ``fund_managers`` 关联表里是完整的，funds 域缺的
-    只是把它读出来的出口）。详见 ``services/fund_profile.py`` 模块 docstring。
-    """
+    """基金资料聚合（#1968）。字段缺失降级为 null，口径见 `services/fund_profile.build_fund_profile`。"""
     fund_code = (request.args.get('code') or '').strip()
     with closing(market_session_factory()()) as db:
         try:
@@ -140,86 +130,35 @@ def fund_performance():
     return jsonify({'data': data, 'message': 'ok'})
 
 
-@bp.get('/fund-risk-ranking/')
-def fund_risk_ranking():
-    """按风险指标筛同类基金（#167 · 「按指标选基」的出口）。
+@bp.get('/fund-holdings-detail/')
+def fund_holdings_detail():
+    """基金行业配置 + 持仓明细（#2029 卡 C · 详情页行业配置卡 + 持仓明细卡）。
 
-    用户原话（CNB #167）：「用同一个标准衡量股基/混基/债基的夏普率是不是有问题」——
-    有问题，根因是**风险预算不可比**（债基年化波动 2%、股基 25%，夏普把波动当风险
-    ⇒ 债基系统性偏高）。解法不是换公式，是**同类内排序**：债基只跟债基比。
+    两张卡共用一个端点：同属「持仓穿透」语义，且「取最新报告期 + 选口径」的
+    逻辑完全一致（``fund_position_job`` 一次写两张表）。拆成两个请求只会让
+    详情页多一次往返，而两者能同时为空的情形极少。
 
-    故 ``fund_type_id`` 必填，本端点**不提供跨类榜**。客户端要跨类读时，看的是
-    `fund-performance` 的 ``peer_percentiles``（「同类里排前 X%」这句话对任何类别
-    都是同一个意思），而不是把两个类别的夏普放一起排。
+    口径不在本端点定，全部下沉到 ``services/fund_holdings_detail.py``：
+    行业配置按 ``scheme`` 分区（csrc 主口径 / gics 单列，**禁止跨体系相加**），
+    持仓明细同期内 ``full`` 优先并下发 ``basis_label``（季报前十大 ≠ 半年报全量）。
 
-    口径纪律：
-    - ``basis != 'acc_nav'``（跳变污染 / 样本不足）的行**默认剔除**，剔除条数回显在
-      ``excluded_distorted``——否则「榜上只有 3 只」会被读成「同类只有 3 只有数据」；
-    - 只取当前 ``caliber_version`` 的行（旧口径混排是本模块最危险的形态）；
-    - 值缺失（NULL）的行不进榜（没算出来 ≠ 排最后一名）。
+    「基金不存在」返 404；「存在但无披露数据」返 ``applicable: false`` —— 两者
+    是不同语义，前端据此分别渲染 404 页与空态卡。
     """
-    query: FundRiskRankingRequest = parse_query(FundRiskRankingRequest)
-
-    metric = (query.metric or '').strip()
-    if metric not in SORTABLE_METRICS:
-        abort(400, f'不支持的排序指标：{metric}')
-
-    ascending = None
-    if query.order:
-        order = query.order.strip().lower()
-        if order not in ('asc', 'desc'):
-            abort(400, f'order 只能是 asc / desc：{query.order}')
-        ascending = order == 'asc'
-
+    fund_code = (request.args.get('code') or '').strip()
     with closing(market_session_factory()()) as db:
-        data = list_by_metric(
-            db,
-            fund_type_id=query.fund_type_id,
-            metric=metric,
-            limit=query.limit,
-            ascending=ascending,
-            include_distorted=bool(query.include_distorted),
-        )
-    return jsonify({'data': data, 'message': 'ok'})
-
-
-@bp.get('/fund-risk-types/')
-def fund_risk_types():
-    """列出**当前有榜**的基金小类（#167 · 榜单页的类型选择器）。
-
-    为什么单开一个端点而不是让前端列举 `fund_types` 名录：名录里有些类型
-    一只基金都没算过（样本不足 / 口径不适用），选中它们只会看到空榜——
-    而用户分不清「这个类没有基金」与「我们没算」。故只交出有快照行的类型，
-    并带上样本数（快照表按类型聚合，不做全表扫描）。
-
-    与 `/fund-risk-ranking/` 是**同一族的两个出口**：这个回答「能看什么」，
-    那个回答「看了是什么」。`fund_type_id` 在那个端点必填，正是本端点存在的理由。
-    """
-    query: FundRiskTypesRequest = parse_query(FundRiskTypesRequest)
-    with closing(market_session_factory()()) as db:
-        data = list_fund_types(db, caliber_version=query.caliber_version)
+        try:
+            data = build_fund_holdings_detail(db, fund_code)
+        except ValueError as e:
+            abort(400, str(e))
+    if data is None:
+        abort(404, f'基金不存在：{fund_code}')
     return jsonify({'data': data, 'message': 'ok'})
 
 
 @bp.get('/stock-profile/')
 def stock_profile():
-    """股票资料聚合（#1969 · 详情页股票详情区块）：基本资料 + 区间行情一次取完。
-
-    与 `/trend/` 的分工（**不是**平行链路，是互补，避免前端重复拉数）：
-
-    - 走势曲线复用已上线的 `/trend/`（前端 `getProductTrend`），本端点**不返回序列**，
-      否则同一区块会出现两条行情取数链路；
-    - 本端点只补 `/trend/` 给不出的东西：**区间高低**与**基本资料**。区间高低需要在
-      最近 N 个交易日上做聚合，而现有唯一的高低价出口 `securities/<symbol>/price-range/`
-      是「指定单日」语义（#948 记账回填用），拿到 60 日高低得拉 60 次日请求或把明细
-      整段搬到浏览器算——前者拖慢首屏，后者违反「明细不在前端算」的数据策略。
-
-    故按 #1968 的同一硬规则「拼不出首屏就在本卡内补端点」，由后端一次查完。字段缺失
-    一律回 `null`，前端降级为「—」（设计 §6 诚实降级），不编造占位值。
-
-    为何放 products 域而不放 securities 域：与 `/resolve/`、`/trend/` 同族，服务的是
-    「详情页」这一个页面（理由同 `fund_profile`）。
-    """
+    """个股资料（#1963）。口径见 `services/stock_profile.build_stock_profile`。"""
     query: StockProfileRequest = parse_query(StockProfileRequest)
 
     with closing(market_session_factory()()) as db:
@@ -233,25 +172,34 @@ def stock_profile():
     return jsonify({'data': data, 'message': 'ok'})
 
 
+@bp.get('/index-profile/')
+def index_profile():
+    """指数资料聚合（#2028 · 详情页指数详情区块）：资料 + 官方估值 + 历史分位一次取完。
+
+    与同族端点同一硬规则（#1968 / #1969）：三张指数表（``index_catalog`` /
+    ``index_valuations`` / ``index_valuation_baselines``）均无 API 出口，拼不出
+    首屏就在本域补端点；放 products 域的理由同 ``fund-profile``——服务的是「详情页」
+    这一个页面。
+
+    分位在读路径现算（乐咕月频近 5 年窗口，#1407 拍板），样本不足或无基线的指数
+    回 ``null``，前端诚实降级「—」。股息率分位本期恒为 ``null``（乐咕无该序列）。
+    """
+    query: IndexProfileRequest = parse_query(IndexProfileRequest)
+
+    with closing(market_session_factory()()) as db:
+        try:
+            data = build_index_profile(db, query.symbol)
+        except ValueError as e:
+            abort(400, str(e))
+
+    if data is None:
+        abort(404, f'指数不存在：{query.symbol}')
+    return jsonify({'data': data, 'message': 'ok'})
+
+
 @bp.get('/manager-profile/')
 def manager_profile():
-    """基金经理资料聚合（#1970 · 详情页经理详情区块）：资料 + 任职基金列表一次取完。
-
-    反向于 `/fund-profile/`（那只回答「某只基金有哪些经理」），此处回答「某位经理管过
-    哪些基金」。funds 域无对应端点，故按 #1968 / #1969 的同一硬规则在本域补出口。
-
-    入参用 `mgr_code` 而非姓名：`managers` 实测 119 组重名（最多 6 位同名），
-    姓名不是唯一键。放 products 域的理由与同族端点一致——服务的是详情页这一个页面。
-
-    任职起止 / 管理规模 / 任期回报已在 #1970 扩展中接入：`sum_scale` / `best_return`
-    由 `ak.fund_manager_em()` 透传落库，`appointment_date` 由该接口「累计从业时间」反推
-    （实测 4358/4358 成功；⚠️ 误差 ≤1 天，东财统计截止日未知，不可宣称精确到日），
-    `start_date` / `end_date` 来自天天基金 F10 `jjjl` 表 A。
-
-    ⚠️ 转换层不落地在本端点，而在 `services/tenure_display.py`：存原始值、回中文可读文本，
-    每个换算值附 `basis` + `raw` 供前端显示口径；**不返回颜色**（配色由前端令牌决定）。
-    仍有值缺失时回 `null`，由前端降级「—」（设计 §6 诚实降级，不编造）。
-    """
+    """基金经理资料（#167）。字段与降级规则见 `services/manager_profile.build_manager_profile`。"""
     query: ManagerProfileRequest = parse_query(ManagerProfileRequest)
 
     with closing(market_session_factory()()) as db:
@@ -267,20 +215,7 @@ def manager_profile():
 
 @bp.get('/manager-holdings/')
 def manager_holdings():
-    """基金经理代表作的前十大重仓（#1970 扩展 · 详情页经理区块）。
-
-    **为什么单独开一个端点而不塞进 ``manager-profile``**：``fund_holdings`` 要按
-    ``fund_code`` 查最新报告期，是一次独立的重查询；经理区块首屏并不总需要重仓
-    （没有关联基金、或该基金未到披露期时为空态），塞在一起会让「不关心重仓的用户」
-    也承担这份开销。拆开后前端可按需决定发不发。
-
-    入参与 ``manager-profile`` 完全一致（复用 ``ManagerProfileRequest``）：
-    ``mgr_code`` 而非姓名 —— 库内119 组重名，姓名不是唯一键。
-
-    **口径透传**：``basis`` / ``basis_label`` / ``report_period`` 必须下发，
-    前端要能告诉用户这是「季报前十大」还是「半年报全量」—— 否则「只披露 10 只」
-    会被误读成「只买了 10 只」。
-    """
+    """基金经理持仓（#167）。聚合口径见 `services/manager_holdings.build_manager_holdings`。"""
     query: ManagerProfileRequest = parse_query(ManagerProfileRequest)
 
     with closing(market_session_factory()()) as db:
@@ -296,21 +231,7 @@ def manager_holdings():
 
 @bp.get('/advisor-profile/')
 def advisor_profile():
-    """投顾组合资料聚合（#1975 · 详情页投顾组合区块）：组合档案 + 可得指标一次取完。
-
-    **为什么补这个出口**：`advisor_portfolios` 的档案与指标字段此前**没有任何端点返回** ——
-    funds 域只有 `advisors/<code>/holdings/` 与 `advisors/<code>/adjusts/`，它们回答
-    「持什么、调过什么」，回答不了「这是个什么组合」，而详情页首屏要的正是后者。
-
-    放 products 域的理由同 `fund-profile` / `manager-profile`：服务的是**同一个详情页**。
-    持仓与调仓**复用已有端点**（前端并发取），本端点不重复搬数据 —— 只额外给出两者的
-    条数，让前端据此决定那一块要不要渲染、请求要不要发（实测调仓只覆盖 16/105 个组合）。
-
-    **字段可得性**（本机真实库 105 个组合实测）：`org_name` / `risk_level` / 区间收益 /
-    回撤 / 波动率 / 夏普 填充率 91~100%，可直接展示；而 `strategy_type` / `cum_return` /
-    `running_days` / `benchmark` / `excess_return` 为 **0%**、`host` **1.9%**、
-    `return_ytd` **2.9%** —— 一律回 `null`，由前端降级「—」（设计 §6 诚实降级，不编造）。
-    """
+    """投顾平台资料。口径见 `services/advisor_profile.build_advisor_profile`。"""
     query: AdvisorProfileRequest = parse_query(AdvisorProfileRequest)
 
     with closing(market_session_factory()()) as db:
@@ -381,3 +302,42 @@ def product_trend():
             'available_days': 0,
         }
     return jsonify({'data': result, 'message': 'ok'})
+
+
+@bp.get('/fund-risk-ranking/')
+def fund_risk_ranking():
+    """按风险指标筛同类基金（#167）。口径 / 为什么 `fund_type_id` 必填见
+    `services/fund_risk_ranking.list_by_metric` 的 docstring——视图只做入参校验与编排。"""
+    query: FundRiskRankingRequest = parse_query(FundRiskRankingRequest)
+
+    metric = (query.metric or '').strip()
+    if metric not in SORTABLE_METRICS:
+        abort(400, f'不支持的排序指标：{metric}')
+
+    ascending = None
+    if query.order:
+        order = query.order.strip().lower()
+        if order not in ('asc', 'desc'):
+            abort(400, f'order 只能是 asc / desc：{query.order}')
+        ascending = order == 'asc'
+
+    with closing(market_session_factory()()) as db:
+        data = list_by_metric(
+            db,
+            fund_type_id=query.fund_type_id,
+            metric=metric,
+            limit=query.limit,
+            ascending=ascending,
+            include_distorted=bool(query.include_distorted),
+        )
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/fund-risk-types/')
+def fund_risk_types():
+    """列出**当前有榜**的基金小类（#167）。为什么单开端点见
+    `services/fund_risk_ranking.list_fund_types` 的 docstring。"""
+    query: FundRiskTypesRequest = parse_query(FundRiskTypesRequest)
+    with closing(market_session_factory()()) as db:
+        data = list_fund_types(db, caliber_version=query.caliber_version)
+    return jsonify({'data': data, 'message': 'ok'})

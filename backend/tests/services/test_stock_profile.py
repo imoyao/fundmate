@@ -189,8 +189,113 @@ def test_change_pct_is_none_without_quotes():
     assert profile is not None
     assert profile['name'] == '万科A'
     assert profile['trading_days'] == 0
-    for field in ('quote_date', 'close', 'high', 'low', 'change_pct'):
+    for field in (
+        'quote_date',
+        'close',
+        'high',
+        'low',
+        'change_pct',
+        'prev_close',
+        'change_amount',
+        'day_change_pct',
+    ):
         assert profile[field] is None, f'{field} 应为 None 而不是占位值'
+
+
+# ── 日涨跌口径（现价上色用）─────────────────────────────────────────────
+def test_day_change_uses_previous_close_not_window_first():
+    """日涨跌以**前一个交易日收盘**为基准，与区间涨跌幅（窗口首日）**不是同一口径**。
+
+    两者分母不同：区间问「这 60 天赚了多少」，日涨跌问「今天比昨天多少」。
+    前端给现价上色必须用后者——用区间口径给「今天的价格」上色是把两个问题混为一谈。
+    """
+    _seed_security(symbol='SZ000010')
+    _seed_prices(symbol='SZ000010', points=5, base_price=10.0)
+
+    with closing(_market_db()) as db:
+        profile = build_stock_profile(db, 'SZ000010')
+
+    assert profile is not None
+    # 5 天递增：10 / 11 / 12 / 13 / 14 → 最新 14、基准 13、窗口首日 10
+    assert profile['close'] == 14.0
+    assert profile['prev_close'] == 13.0
+    assert profile['change_amount'] == 1.0
+    assert profile['day_change_pct'] == round(1.0 / 13.0 * 100, 2)
+    # 区间口径同时存在且分母不同，两者不可互相顶替
+    assert profile['change_pct'] == round((14.0 - 10.0) / 10.0 * 100, 2)
+
+
+def test_day_change_uses_adjusted_pair_when_both_adjusted():
+    """两行都有复权价 → 日涨跌的两个操作数**双双用复权价**，与现价展示同口径。
+
+    造数 `adj_offset=100`：5 天 close 10~14、adj 110~114 → 最新 114、基准 113、
+    涨跌额 1.0。若基准漏回退成 close(13)，涨跌额会变成 101——那种错一眼可见。
+    """
+    _seed_security(symbol='SZ000013')
+    _seed_prices(symbol='SZ000013', points=5, base_price=10.0, adj_offset=100.0)
+
+    with closing(_market_db()) as db:
+        profile = build_stock_profile(db, 'SZ000013')
+
+    assert profile is not None
+    assert profile['close'] == 114.0
+    assert profile['prev_close'] == 113.0
+    assert profile['change_amount'] == 1.0
+    assert profile['day_change_pct'] == round(1.0 / 113.0 * 100, 2)
+
+
+def test_day_change_is_none_when_adjusted_and_raw_close_mix():
+    """最新行已回填复权价、上一行还没 → 日涨跌为 None，**不做混合口径相减**。
+
+    `adj_close` 是可空列（存量行可能尚未回填）。若最新取 `adj_close`=13、基准回退
+    `close`=11，屏上会是「现价 13.00、昨收 11.00、涨跌 +1.00」——而 13 − 11 = 2，
+    用户自己能算出矛盾。诚实降级为「—」优于给一个自相矛盾的数。
+
+    顺带锁住一个前提：**`close` 是 NOT NULL 列**，所以「停牌日无收盘价」在本 schema
+    下根本不存在（采集时整行跳过），日涨跌不需要处理那种情形。
+    """
+    _seed_security(symbol='SZ000011')
+    _seed_prices(symbol='SZ000011', points=3, base_price=10.0)  # adj_close 整列留空
+
+    # 只给最新一天补复权价 → 造出「一行复权、一行未复权」
+    with closing(_market_db()) as db:
+        newest = (
+            db.query(PriceHistory)
+            .filter(PriceHistory.symbol == 'SZ000011')
+            .order_by(PriceHistory.trade_date.desc())
+            .first()
+        )
+        newest.adj_close = newest.close + 1.0
+        db.commit()
+
+    with closing(_market_db()) as db:
+        profile = build_stock_profile(db, 'SZ000011')
+
+    assert profile is not None
+    # 现价展示仍走复权（与走势图口径一致）
+    assert profile['close'] == 13.0
+    # 但日涨跌诚实降级，绝不拿 13 与 11 相减
+    assert profile['prev_close'] is None
+    assert profile['change_amount'] is None
+    assert profile['day_change_pct'] is None
+
+
+def test_day_change_is_none_without_previous_close():
+    """窗口内只有 1 条行情 → 没有基准，日涨跌为 None（而不是拿自己减自己得 0）。
+
+    0 与「无基准」在屏上必须区分：前者该走中性色，后者该显示「—」。
+    """
+    _seed_security(symbol='SZ000012')
+    _seed_prices(symbol='SZ000012', points=1, base_price=10.0)
+
+    with closing(_market_db()) as db:
+        profile = build_stock_profile(db, 'SZ000012')
+
+    assert profile is not None
+    assert profile['close'] == 10.0
+    assert profile['prev_close'] is None
+    assert profile['change_amount'] is None
+    assert profile['day_change_pct'] is None
 
 
 def test_change_pct_is_none_when_base_close_is_zero():

@@ -1,5 +1,6 @@
 import { h, defineComponent } from "vue";
 import { Icon as IconifyIcon, addIcon } from "@iconify/vue/dist/offline";
+import type { IconifyIcon as IconifyIconData } from "@iconify/vue/dist/offline";
 
 // Iconify Icon在Vue里本地使用（用于内网环境）
 export default defineComponent({
@@ -11,7 +12,11 @@ export default defineComponent({
     }
   },
   render() {
-    if (typeof this.icon === "object") addIcon(this.icon, this.icon);
+    const icon = this.icon;
+    if (typeof icon === "object" && icon !== null) {
+      // 传入的是 iconify 图标数据对象：按自身 name 注册后再渲染
+      addIcon((icon as { name: string }).name, icon as IconifyIconData);
+    }
     const attrs = this.$attrs;
     if (typeof this.icon === "string") {
       return h(

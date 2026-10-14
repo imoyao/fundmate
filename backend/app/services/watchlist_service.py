@@ -453,11 +453,53 @@ def normalize_and_infer_venue(
     raise ValueError(f'无效的 venue 值: {venue}')
 
 
+def resolve_create_group_ids(db: Session, raw_group_ids: Any, family_id: int) -> list[int]:
+    """校验并归一「创建自选时一并归入的自定义分组」id 列表（#2106）。
+
+    - 空 / 不传 → 空列表（行为与现状一致：只落「全部」）；
+    - 只接受**本家庭**的**自定义**分组：不存在 / 他人家庭 / 系统虚拟分组一律拒绝，
+      抛 ``ValueError``（由视图转 400）。
+
+    **必须在插入 item 之前调用**：请求事务的提交发生在 teardown，若先 flush item
+    再校验分组，ValueError 被视图转成 4xx 后事务仍会正常提交——留下「自选进了、
+    分组没进」的半截数据。校验前置才能保证「不落库」。
+    """
+    if not raw_group_ids:
+        return []
+    if not isinstance(raw_group_ids, (list, tuple, set)):
+        raise ValueError('group_ids 必须是分组 id 数组')
+    try:
+        wanted = {int(gid) for gid in raw_group_ids}
+    except (TypeError, ValueError):
+        raise ValueError('group_ids 必须是分组 id 数组')
+    if not wanted:
+        return []
+    # is_system 允许 NULL：老库里自定义分组可能是 NULL（列可空），只排除显式 True 的系统虚拟分组
+    rows = (
+        db.query(WatchlistGroup.id)
+        .filter(
+            WatchlistGroup.id.in_(wanted),
+            WatchlistGroup.family_id == family_id,
+            or_(WatchlistGroup.is_system.is_(False), WatchlistGroup.is_system.is_(None)),
+        )
+        .all()
+    )
+    valid = {gid for (gid,) in rows}
+    invalid = wanted - valid
+    if invalid:
+        raise ValueError(f'分组不存在或无权限：{", ".join(str(i) for i in sorted(invalid))}')
+    return sorted(valid)
+
+
 def create_watchlist_item(db: Session, data: Dict[str, Any], family_id: int) -> WatchlistItem:
     """创建自选资产并触发异步回填。
 
     事务（#1609 / §2.13）：本服务只 ``flush()``，**不 commit**——提交由请求边界
     （``get_db`` 的 teardown）统一完成；调用方仅 `watchlist.views.create_item`（请求路径）。
+
+    分组（#2106）：``data['group_ids']`` 可选，传入则在**同一事务**内写
+    ``watchlist_item_group`` 关联（多对多，可多组）；校验见
+    :func:`resolve_create_group_ids`。
     """
     # 写入前归一为小写，与后端 asset_types 单一来源（stock/etf/fund/bond/index）及 positions 域一致，
     # 并修正历史大写（STOCK/ETF/...）导致 venue 推断（asset_type=='fund'）失效的问题（#1171）。
@@ -483,6 +525,10 @@ def create_watchlist_item(db: Session, data: Dict[str, Any], family_id: int) -> 
     if existing:
         raise ValueError('该资产已在自选列表中')
 
+    # 分组归属校验前置（#2106）：非法 group_ids 在插入 item 之前就拒绝，
+    # 否则 4xx 响应后事务照样提交，会留下「进了自选但没进分组」的半截数据。
+    group_ids = resolve_create_group_ids(db, data.get('group_ids'), family_id)
+
     # 持仓状态判断（家庭维度）
     has_position = db.query(Position).filter(Position.symbol == symbol, Position.family_id == family_id).first()
     status = 'HOLDING' if has_position else 'WATCHING'
@@ -504,6 +550,11 @@ def create_watchlist_item(db: Session, data: Dict[str, Any], family_id: int) -> 
     db.add(item)
     db.flush()
     db.refresh(item)
+
+    # 分组关联（#2106）：与 item 同一事务，创建即归组（「全部」是虚拟口径，不写关联）
+    if group_ids:
+        db.add_all([WatchlistItemGroup(item_id=item.id, group_id=gid) for gid in group_ids])
+        db.flush()
 
     # 异步回填
     try:

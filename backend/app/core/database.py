@@ -8,10 +8,12 @@ from datetime import datetime
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+from loguru import logger
 from sqlalchemy import Column, DateTime, Engine, Integer, func, inspect
 from sqlalchemy import exc as sa_exc
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from sqlalchemy.sql import visitors
+from sqlalchemy.sql.annotation import Annotated
 
 from app.core.db_factory import (
     DATA_DOMAIN_REGISTRY,
@@ -25,6 +27,7 @@ from app.core.migrations import (
     migrate_advisor_portfolio_provenance,
     migrate_channel_link_indexes,
     migrate_fund_equity_position_period,
+    migrate_fund_valuation_official_columns,
     migrate_positions_money_fund_flag,
     migrate_positions_price_columns,
     migrate_positions_symbol_norm,
@@ -99,7 +102,9 @@ def _domain_for_statement(mapper, clause) -> Optional[str]:
     **查找顺序与 SQLAlchemy 2.0 ``Session.get_bind`` 对 ``binds`` 的查找逐条对齐**：
     先由 mapper 落到 ``persist_selectable``，再遍历 clause 里的表；命中的第一张
     **已登记模型表**决定域。只认 identity 属于 ``Base.metadata`` 的表——与旧实现
-    「binds 以 Table 对象为键命中」等价，别的 MetaData 上的同名表不参与路由。
+    「binds 以 Table 对象为键命中」等价，别的 MetaData 上的同名表不参与路由；
+    ORM 实体 select 的 ``AnnotatedTable`` 注解包装先解包到底层 Table 再比对
+    （否则 clause 路径全部落空、误回落应用域，见循环体内注释）。
     """
     if mapper is not None:
         try:
@@ -117,7 +122,27 @@ def _domain_for_statement(mapper, clause) -> Optional[str]:
 
     for obj in visitors.iterate(clause):
         name = getattr(obj, 'name', None)
-        if not isinstance(name, str) or Base.metadata.tables.get(name) is not obj:
+        if not isinstance(name, str):
+            continue
+        table = Base.metadata.tables.get(name)
+        if table is None:
+            continue
+        # identity 比对前先解注解包装：`select(Entity)` / `db.query(Entity)` 的 FROM
+        # 节点是 `AnnotatedTable`（name/metadata 是从真表复制来的，真表挂在私有
+        # `_Annotated__element` 上），与 Base.metadata 里的裸 Table **不是同一对象**，
+        # 直接比 identity 必然落空 → 返回 None → 误回落 APP 引擎。dev 单库下 user/app
+        # 是两条独立连接：flush 走 mapper 路径（正确落 user 引擎）写入的**未提交**行，
+        # 在 refresh 的 SELECT（clause 路径、误落 app 连接）里读不到 →
+        # `InvalidRequestError: Could not refresh instance` 500（2026-10-12 AI 批量
+        # 导入自选 6 条全挂）。解包到底后仍须 is table，保住「同名异库表不参与路由」
+        # 的原语义（`test_ad_hoc_table_with_same_name_is_not_routed`）。
+        target = obj
+        while isinstance(target, Annotated):
+            inner = target._deannotate()  # values=None 分支直接返回底层元素
+            if inner is target:
+                break  # 防御：解不动就停，不无限循环
+            target = inner
+        if target is not table:
             continue
         domain = DATA_DOMAIN_REGISTRY.get(name)
         if domain is not None:
@@ -286,6 +311,27 @@ def get_db():
         yield db
 
 
+def rollback_request_sessions() -> None:
+    """回滚当前请求已持有的全部会话槽位（非请求上下文 / 无会话为空操作）。
+
+    供 :func:`app.core.retry.retry_on_db_locked` 在重试前调用：WAL 下读快照
+    升级写锁遇 ``database is locked`` 时，只有放弃旧快照、重开事务才能拿到
+    新快照；不回滚则重跑视图仍在过期快照上失败。回滚失败不外抛——重试逻辑
+    本身会再次报错，这里只需尽力清理。
+    """
+    scope = _request_scope()
+    if scope is None:
+        return
+    for slot in _SESSION_SLOTS:
+        session = getattr(scope, slot, None)
+        if session is None:
+            continue
+        try:
+            session.rollback()
+        except Exception:  # noqa: BLE001 - 尽力清理，失败由重试路径自然暴露
+            pass
+
+
 def teardown_request_session(exc=None):
     """请求收尾：统一提交（成功）/ 回滚（异常）并关闭**全部**请求级会话（#1632 / #1640）。
 
@@ -297,6 +343,12 @@ def teardown_request_session(exc=None):
 
     ``flask.g`` 上的三个槽位都会被收尾；任一会话提交失败都会被回滚并**在收尾完其余会话后**
     上抛（保证不留未关闭的连接）。非请求上下文（未挂 ``flask.g``）为空操作；无会话亦为空操作（幂等）。
+
+    例外（错误遮蔽防护）：``exc is None`` 但 commit 抛 ``PendingRollbackError`` 时
+    **不上抛**——说明请求内已有失败（如视图 flush 阶段遇 ``database is locked``），
+    会话早已进入 needs-rollback，原始错误已由 Flask 错误处理器转成响应信封；此时
+    再抛 PendingRollbackError 只会把真因盖掉（曾导致删除持仓 500 显示错乱）。只
+    记 warning 并回滚清理。
     """
     scope = _request_scope()
     if scope is None:
@@ -318,6 +370,14 @@ def teardown_request_session(exc=None):
                 session.rollback()
             else:
                 session.commit()
+        except sa_exc.PendingRollbackError:
+            # 请求内已有失败，原始错误已由错误处理器响应；此处 commit 只是
+            # 二次噪音，回滚清理即可，不得覆盖真因（见 docstring 例外说明）。
+            logger.warning('teardown: 会话已处于 needs-rollback 状态，跳过提交并回滚（请求内已有更早的失败）')
+            try:
+                session.rollback()
+            except Exception:  # pragma: no cover - 回滚都失败时无法再补救
+                pass
         except Exception as err:  # noqa: BLE001 - 提交失败需先回滚，收尾其余会话后再上抛
             failure = failure or err
             try:
@@ -431,6 +491,8 @@ def init_db():
     migrate_channel_link_indexes(app_eng)
     # funds.equity_position_period 列（#870）：create_all 不替存量表加列，同上须先于结构校验
     migrate_fund_equity_position_period(app_eng)
+    # fund_valuation_daily 对照三列（#2142）：create_all 不替存量表加列，同上须先于结构校验
+    migrate_fund_valuation_official_columns(app_eng)
     _validate_schema(app_eng, market_meta, label='market')
     # user 域表 → 用户引擎
     user_meta = MetaData()
@@ -504,6 +566,8 @@ def init_db_split():
     migrate_channel_link_indexes(app_eng)
     # funds.equity_position_period 列（#870）：create_all 不替存量表加列，同上须先于结构校验
     migrate_fund_equity_position_period(app_eng)
+    # fund_valuation_daily 对照三列（#2142）：create_all 不替存量表加列，同上须先于结构校验
+    migrate_fund_valuation_official_columns(app_eng)
     _validate_schema(app_eng, market_meta, label='market')
     # user 域表 → 用户引擎（若已配置）
     if user_eng is not None:

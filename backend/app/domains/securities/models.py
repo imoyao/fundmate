@@ -6,7 +6,7 @@
 
 """证券元数据模型（股票、ETF、可转债、期货等）"""
 
-from sqlalchemy import Column, Date, Integer, String
+from sqlalchemy import Column, Date, Index, Integer, String, UniqueConstraint
 
 from app.core.database import Base, PrimaryKeyMixin, TimestampMixin
 from app.core.db_utils import SafeNumeric
@@ -21,6 +21,58 @@ class Security(Base, PrimaryKeyMixin, TimestampMixin):
     type = Column(String(20), nullable=False, comment='产品类型: stock, etf, bond, future, crypto')
     currency = Column(String(10), default='CNY', comment='交易币种')
     sector = Column(String(50), comment='行业/板块')
+
+
+class SecurityIndustryMap(Base, PrimaryKeyMixin, TimestampMixin):
+    """**个股 / 可转债 → 行业**映射（#1981· 组合穿透补强）。
+
+    ## 为什么需要这张表
+
+    组合穿透（`services/penetration.py`）原先只对**基金**做行业层穿透：基金的行业配置
+    来自 `fund_industry_allocs`（季报披露）。而**直持的股票 / 可转债**没有这条披露链，
+    只能拿到市值、回答不了「这笔钱压在哪些行业」，于是被归为
+    `industry_map_missing` —— 实测占组合 35.9%，是穿透率上不去的两大原因之一。
+
+    这张表就是那条缺失的映射链：**证券代码 → 行业**，落库后读侧一次查询即可并入
+    行业分布。
+
+    ## `scheme` 必须存在，且**禁止跨体系相加**
+
+    与 `fund_industry_allocs.scheme` 同理：证监会门类（`csrc`，19 个，粒度粗但稳定）
+    与申万一级（`sw1`，31 个，粒度细、市场研究的事实标准）**语义不重叠**——同一家
+    公司在两套里归属不同行业，跨体系求和会得出荒谬结论。读侧按 `scheme` 分区，
+    主口径与基金侧对齐（`csrc`），其余单列。
+
+    ## `source` / `effective_date` 是**必需**的，不是装饰
+
+    行业分类会随财报与监管口径调整（申万每年调整、证监会门类偶有修订），映射会**过期**。
+    故必须记来源（便于按 #897 的数据源优先级切换与追责）与来源侧标注的生效日期
+    （判断新鲜度），否则表里会静默躺着一批无人知晓已失效的映射。
+
+    ## 数据源（#1981 选型实证）
+
+    - `swsresearch`（申万宏源研究官网 `www.swsresearch.com`）：**31 个一级行业 × 1 个请求**
+      即可拿到全 A 映射，是本表全量刷新的主通道；
+    - `cninfo`（巨潮资讯）：证监会门类，**逐只**取，成本高，故只按需补持仓实际出现的标的；
+    - **东财已否决**（实证：同一端点分钟级从 200 变 `RemoteDisconnected`，且项目
+      `core/requests_patch` 已注入东财头 + Referer + 退避重试仍失败）——间歇性不可达，
+      不能作批量通道，详见 #1431。
+    """
+
+    __tablename__ = 'security_industry_maps'
+
+    symbol = Column(String(30), nullable=False, index=True, comment='证券代码（归一裸码，如 600519）')
+    scheme = Column(String(10), nullable=False, comment='分类体系: csrc(证监会门类) / sw1(申万一级)')
+    industry_code = Column(String(20), nullable=False, comment='行业代码（csrc 单字母 / sw1 六位如 801010）')
+    industry_name = Column(String(50), comment='行业名称')
+    source = Column(String(30), nullable=False, comment='数据来源: swsresearch(申万宏源) / cninfo(巨潮资讯)')
+    source_ref = Column(String(50), comment='来源侧原始代码（申万 801010 / 巨潮行业类别码），便于回溯')
+    effective_date = Column(Date, comment='来源侧标注的生效或发布日期（分类会调整，用于判断映射新鲜度）')
+
+    __table_args__ = (
+        UniqueConstraint('symbol', 'scheme', name='uq_security_industry_symbol_scheme'),
+        Index('ix_security_industry_scheme_symbol', 'scheme', 'symbol'),
+    )
 
 
 class ConvertibleBondTerm(Base, PrimaryKeyMixin, TimestampMixin):
