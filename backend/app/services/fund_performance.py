@@ -66,6 +66,8 @@ from app.services.fund_risk_metrics import (
     shape_gain,
     shape_gain2,
 )
+from app.services.fund_nav_on_demand import maybe_trigger_nav_backfill
+from app.services.money_fund_yield import CALIBER_NOTE, WINDOW_DAYS
 
 # 区间档位（近 N + 今年以来 + 成立以来）。``days`` 为自然数日，用于定位起点；
 # ``ytd`` / ``since`` 为特殊档（当年 1/1 / 序列首点）。标签与后端返回 key 一一对应。
@@ -93,6 +95,11 @@ _VOL_WINDOW_DAYS = 365
 # 区间收益 / 回撤 / 波动率都要求至少 2 个有效点，否则无法构成「变化」
 _MIN_POINTS = 2
 
+# #2120 P0-2：本模块对外声明的最长档位跨度（自然日）。序列起点晚于
+# 「今天 − 该跨度」即说明 5y / since 档位拿不到数据，触发按需回补。
+# 从 _PERIODS 派生而非写死 1825：档位表调整时本值自动跟随，不会漂移。
+_LONGEST_PERIOD_DAYS = max(days for _key, _label, days in _PERIODS if days is not None)
+
 
 def _is_money_fund(fund) -> bool:
     """货基判定：基金小类名含「货币」（如「货币型」）。无 is_money_fund 标志，靠类型名。"""
@@ -101,8 +108,36 @@ def _is_money_fund(fund) -> bool:
     return '货币' in name
 
 
+def _money_fund_samples(db: Session, fund_code: str, as_of: date) -> int:
+    """该行往前 7 个自然日窗口内**已发布**的万份收益样本数（#2121 口径元数据）。
+
+    只数行、不重算：七日年化已随行落库（`money_fund_yield`），这里只是把「这个值
+    由几个样本摊出来」这个元数据补上，让前端脚注能交代清楚。`nav_per_10k` 为空的
+    日子不算样本（与计算口径一致）。
+    """
+    from app.domains.funds.models import MoneyFundDailyWorth
+
+    start = as_of - timedelta(days=WINDOW_DAYS - 1)
+    return (
+        db.query(MoneyFundDailyWorth.date)
+        .filter(
+            MoneyFundDailyWorth.fund_code == fund_code,
+            MoneyFundDailyWorth.date >= start,
+            MoneyFundDailyWorth.date <= as_of,
+            MoneyFundDailyWorth.nav_per_10k.isnot(None),
+        )
+        .count()
+    )
+
+
 def _money_fund_performance(db: Session, fund_code: str) -> Dict[str, Any]:
-    """货基：万份收益 + 七日年化（money_fund_daily_worth 最新一期）。"""
+    """货基：万份收益 + 七日年化（money_fund_daily_worth 最新一期）。
+
+    除数值外还返回**口径元数据**（#2121 验收项）：`window_days`（7 个**自然日**，
+    不是 7 个观测——观测口径会让国庆这类长假把窗口拉到 13 天）、`samples`（窗口内
+    实际有几个已发布样本）、`caliber_note`（给前端脚注用的人话版）。没有这些，
+    用户看到的「七日年化」是个无法自证的数字。
+    """
     from app.domains.funds.models import MoneyFundDailyWorth
 
     row = (
@@ -120,15 +155,23 @@ def _money_fund_performance(db: Session, fund_code: str) -> Dict[str, Any]:
             'nav_per_10k': None,
             'as_of': None,
             'source': FUND_NAV_SOURCE_LABEL,
+            'window_days': WINDOW_DAYS,
+            'samples': 0,
+            'caliber_note': CALIBER_NOTE,
         }
+    as_of = row.date
     return {
         'fund_kind': 'money',
         'applicable': True,
         'basis': 'money_fund',
         'annual_return_7d': round(float(row.annual_return_7d), 4) if row.annual_return_7d is not None else None,
         'nav_per_10k': float(row.nav_per_10k) if row.nav_per_10k is not None else None,
-        'as_of': row.date.isoformat() if row.date else None,
+        'as_of': as_of.isoformat() if as_of else None,
         'source': FUND_NAV_SOURCE_LABEL,
+        # 口径元数据：window_days=7 个自然日；samples 可能 < 7（节假日缺发布日）
+        'window_days': WINDOW_DAYS,
+        'samples': _money_fund_samples(db, fund_code, as_of) if as_of else 0,
+        'caliber_note': CALIBER_NOTE,
     }
 
 
@@ -395,6 +438,14 @@ def _open_fund_performance(db: Session, fund, code: str, today: date) -> Dict[st
     for d, nav in load_nav_points(rows):
         if nav is not None and float(nav) > 0:
             points.append((d, float(nav)))
+
+    # #2120 P0-2：冷集长曲线按需取。本函数对外声明了 1y/2y/3y/5y/since 档位（见
+    # _PERIODS），若本地序列起点晚于**最长档位**起点，说明这些档位根本拿不到数据 ——
+    # 按 fund-nav-retention.md §1「同一只基金、同一接口、不同时间返回不同档位 =
+    # 对外契约不稳定」的口径，此时后台单只回补全历史。
+    # 本请求不等待；缺的档位照旧返回 None，由前端渲染「—」（诚实降级，不编造）。
+    # 放在 `len(points) < _MIN_POINTS` 早退**之前**：完全没有数据才是最该回补的情况。
+    maybe_trigger_nav_backfill(fund_code, points, today - timedelta(days=_LONGEST_PERIOD_DAYS))
 
     if len(points) < _MIN_POINTS:
         return {

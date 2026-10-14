@@ -166,10 +166,13 @@ export function useWatchlistPageActions(options: PageActionsOptions) {
     tags.fetchTags();
   }
 
+  // #2106：导入时可带自定义分组，故除了列表/标签，还必须刷新分组——
+  // 否则「全部」与新归分组的计数仍是导入前的旧值（列表已刷新、计数没动，自相矛盾）。
   function onOcrImported() {
     ocrDialogVisible.value = false;
     fetchData();
     fetchTags();
+    groups.fetchGroups();
   }
 
   /** 标签保存成功（含弹窗内新建标签）后：刷新列表与标签 */

@@ -56,7 +56,8 @@ def test_count(connect_db):
 
 ```plain
     ============================= test session starts =============================
-    platform win32 -- Python 3.6.8, pytest-6.2.5, py-1.10.0, pluggy-1.0.0 -- D:\Coding\Python3.6\python.exe
+    platform win32 -- Python 3.6.8, pytest-6.2.5, py-1.10.0, pluggy-1.0.0 --
+        D:\Coding\Python3.6\python.exe
     cachedir: .pytest_cache
     rootdir: C:\Users\libuliduobuqiuqiu\Desktop\GitProjects\PythonDemo\pytest
     plugins: Faker-8.11.0
@@ -116,7 +117,8 @@ def test_count(connect_db):
 
 ```plain
     ============================= test session starts =============================
-    platform win32 -- Python 3.6.8, pytest-6.2.5, py-1.10.0, pluggy-1.0.0 -- D:\Coding\Python3.6\python.exe
+    platform win32 -- Python 3.6.8, pytest-6.2.5, py-1.10.0, pluggy-1.0.0 --
+        D:\Coding\Python3.6\python.exe
     cachedir: .pytest_cache
     rootdir: C:\Users\libuliduobuqiuqiu\Desktop\GitProjects\PythonDemo\pytest
     plugins: Faker-8.11.0
@@ -163,7 +165,8 @@ def test_count(connect_db):
 
 ```shell
     ============================= test session starts =============================
-    platform win32 -- Python 3.6.8, pytest-6.2.5, py-1.10.0, pluggy-1.0.0 -- D:\Coding\Python3.6\python.exe
+    platform win32 -- Python 3.6.8, pytest-6.2.5, py-1.10.0, pluggy-1.0.0 --
+        D:\Coding\Python3.6\python.exe
     cachedir: .pytest_cache
     rootdir: C:\Users\libuliduobuqiuqiu\Desktop\GitProjects\PythonDemo\pytest
     plugins: Faker-8.11.0

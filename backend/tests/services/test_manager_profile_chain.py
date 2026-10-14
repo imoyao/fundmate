@@ -30,15 +30,50 @@ F10 锚点 ±1 天内。硬编码某个日期会让测试在跨零点那天假�
 from contextlib import closing
 from datetime import date
 
+import pytest
+
 from app.core.db_factory import market_session_factory
 from app.domains.funds.models import Manager
 from app.services.manager_profile import build_manager_profile
+from app.services.sync.jobs import fund_manager_job as fm_job
 from app.services.sync.jobs.fund_manager_job import FundManagerSyncJob
 
 AS_OF = date(2026, 10, 10)
 ZHANGKUN_TENURE_DAYS = 5125.0
 #: F10 实测锚点：张坤在 110011 的任职起始日（用于 ±1 天容差断言）
 ZHANGKUN_F10_START = date(2012, 9, 28)
+
+
+@pytest.fixture
+def fixed_today(monkeypatch):
+    """把 ``fund_manager_job`` 的 ``date.today()`` 钉在 :data:`AS_OF`。
+
+    ## 为什么必须钉
+
+    本文件里有两个**基准日**，它们必须同源，否则断言随运行日期整体漂移：
+
+    - 写入侧 ``_derive_appointment_date`` 用 ``date.today()`` 反推起始日；
+    - 展示档断言用固定 ``AS_OF`` 反算 ``raw = (AS_OF - appointment_date).days``。
+
+    两者不同源时 ``raw = AS_OF - (today - tenure_days)``：today 与 AS_OF 同日时偏差 0，
+    晚一天偏 1（仍在 ±1 容差内），**晚两天起就红**。
+
+    ⚠️ 这颗雷已引爆：2026-10-12 起本文件在**干净库**上稳定失败（``raw=5123`` vs
+    ``5125``，差 2）。本机开发库之所以一直绿，是旧记录走了 ``_save_data`` 的
+    「非 NULL 就不覆盖」分支、保留了两天前写入的起始日，恰好把漂移藏住了——
+    **脏数据掩盖了时间炸弹**，CI 干净库当天就照了出来。
+
+    故凡断言「起始日 / raw / 展示年限」的用例都挂这个夹具；只关心链路是否接得上的
+    场景则不需要。
+    """
+
+    class _FixedDate(date):
+        @classmethod
+        def today(cls):
+            return cls(AS_OF.year, AS_OF.month, AS_OF.day)
+
+    monkeypatch.setattr(fm_job, 'date', _FixedDate)
+    return AS_OF
 
 
 def _make_job(db):
@@ -73,7 +108,7 @@ def test_derived_start_is_within_one_day_of_f10_anchor():
         assert abs((got - ZHANGKUN_F10_START).days) <= 1, f'基准日 {base} 反推得 {got}，超出 ±1 天'
 
 
-def test_full_chain_from_em_row_to_display_text():
+def test_full_chain_from_em_row_to_display_text(fixed_today):
     """东财一行 → 落库 → 展示文本，端到端打通。"""
     rows = [
         _em_row('张坤', '易方达基金管理有限公司', '005827', 307.94, 297.54, ZHANGKUN_TENURE_DAYS),
@@ -90,9 +125,12 @@ def test_full_chain_from_em_row_to_display_text():
     # 原始档：东财值原样落库
     assert p['sum_scale'] == 307.94
     assert p['best_return'] == 297.54
-    # 起始日落在 F10 锚点 ±1 天内（不硬编码，理由见 test_derived_start_...）
+    # 起始日 = **抓取日** − tenure_days。抓取日已由 `fixed_today` 钉在 AS_OF，
+    # 于是反推值应**逐日等于** F10 实测锚点 —— 不再需要 ±1 天容差。那层容差原本是
+    # 为容忍「写入侧 today 与断言侧 AS_OF 不同源」造成的整段漂移（见 `fixed_today`
+    # 的 docstring），基准同源后漂移本身不存在了，留着只会把真偏移放过。
     stored = date.fromisoformat(p['appointment_date'])
-    assert abs((stored - ZHANGKUN_F10_START).days) <= 1
+    assert stored == ZHANGKUN_F10_START, f'反推起始日 {stored} ≠ F10 锚点 {ZHANGKUN_F10_START}'
 
     # 展示档：换算 + 口径元数据齐备
     td = p['tenure_display']
@@ -182,6 +220,43 @@ def test_chain_survives_missing_optional_columns():
     assert p['scale_display'] is None
     assert p['best_return_display'] is None
     assert p['tenure_display'] is None
+
+
+def test_dedup_keeps_existing_manager_so_profile_can_be_backfilled():
+    """存量经理行必须能沿流水线被回填 —— 这是 #1970 扩展的原始诉求。
+
+    ⚠️ 走的是**真实流水线三步**（`_validate_data` → `_deduplicate` → `_save_data`），
+    不是直接调 `_save_data`：bug 恰好出在 `_deduplicate` 那一步，
+    只测 `_save_data` 是测不到的 —— 这正是它上线时漏网的原因。
+
+    实测 bug（2026-10-11）：基类 `_deduplicate_by_unique_key` 把「库里**已存在**的
+    `mgr_code`」整批丢掉 → `_save_data` 拿不到存量经理 →
+    `_backfill_manager_profile` 空转 → 生产库 4267 行三列永远是 NULL。
+    现象：`pdm run sync --job fund_manager --full-sync --targets …` 报 success，
+    而 `select count(*) from managers where sum_scale is not null` 仍是 **0**。
+
+    ⚠️ 种子姓名必须是本文件独有的合成值（`回填经理`）——本文件的测试不走 `app`
+    夹具，写入落在**整轮测试共享的那个库**上，用真名（如「张坤」）会串到别的用例。
+    """
+    rows = [_em_row('回填经理', '回填基金管理有限公司', '005827', 123.45, 67.89, 3650.0)]
+
+    with closing(market_session_factory()()) as db:
+        job = _make_job(db)
+        validated = job._validate_data(rows)
+        code = validated[0]['mgr_code']
+        # 先造一行「已存在但档案全空」的经理 —— 模拟生产库的存量行
+        db.add(Manager(mgr_code=code, name='回填经理'))
+        db.commit()
+
+        # 真实流水线的第 3、4 步
+        job._save_data(job._deduplicate(validated))
+
+    with closing(market_session_factory()()) as db:
+        p = build_manager_profile(db, code, as_of=AS_OF)
+
+    assert p['sum_scale'] == 123.45, '存量经理的规模没被回填（_deduplicate 把它丢了？）'
+    assert p['best_return'] == 67.89
+    assert p['appointment_date'] is not None
 
 
 def _mgr_code_of(db, name):

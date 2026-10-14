@@ -125,6 +125,14 @@ def _iter_plugin_stages(data: dict):
 
     新语义：stage 只要带 `script` / `commands` / `imports` / `settingsFrom` / `settings`
     任一，就纳入遍历——判据各自在里面再挑它关心的。**宁多扫，不要漏。**
+
+    ⚠️ 与 GitHub 侧同名函数的语义差异（2026-10-14 跨仓收敛时核对，**不要**改回去）：
+    GitHub 侧的旧名是 `_walk_stage_items`，过滤条件是「stage 里含 `image` 键」。
+    在本仓的真实形态下那个条件**太窄**——`认领同步` 的 `image` 来自 job 级
+    `docker.image`（YAML 锚点 `&claim-job`），stage 自身没有 `image` 键，
+    于是它根本不在遍历结果里、判据 4 看不见它。故这里以 **CNB 侧语义为准**
+    （「带任一引用键或 `script` 就纳入」），把「什么算插件任务」交给各判据自己在
+    stage 内部去挑。跨仓收敛时若出现二选一，取本条。
     """
     interesting = ('script', 'commands', 'imports', 'settingsFrom', 'settings')
     for branch, event, jobs in _iter_branch_events(data):

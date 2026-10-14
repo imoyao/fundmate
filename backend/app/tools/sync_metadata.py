@@ -80,10 +80,34 @@ FUND_TARGET_JOBS = ('fund_nav', 'fund_detail_enrich', 'fund_manager', 'fund_posi
 # 于是 `pdm run sync --job fund_position` 会静默跑成「0 只、status=success」，
 # 比报错更危险——手工回填的人会以为成了（2026-10-01 实测踩到）。
 #
+# 值为 resolve_targets() 的池键（str 或元组，`_combine_pools` 统一兼容）：
+# fund_position 需要 fund + etf 两池（#1983：场内 ETF 的底层持仓 / 行业配置
+# 同样要抓），与 daily_scheduler 的 target_kind=('fund', 'etf') 同源覆盖，
+# CLI 单 job 路径不再漏掉 etf 池。
+#
 # ⚠️ 不要顺手把 fund_nav / fund_detail_enrich / fund_manager 一并放进这里：
 # 它们的 `targets=None` 是「子类自取核心池」的既有语义，赋成显式列表会把执行
 # 切成 `_execute_batches` 分批路径，属行为变更，需单独评估。
-DB_POOL_JOBS = {'fund_position': 'fund'}
+DB_POOL_JOBS = {'fund_position': ('fund', 'etf')}
+
+
+def _combine_pools(resolved: dict, keys) -> list:
+    """按 keys 顺序拼接 resolve_targets() 的多个目标池，去重保序。
+
+    同一只 ETF 的裸码可能同时出现在 fund 与 etf 池（带前缀符号归一化后
+    与裸码同指一只，#1983），拼接时只保留首次出现，fund 池优先。
+    `keys` 兼容单个 str（防御性：DB_POOL_JOBS 的旧值即 str 形态）。
+    """
+    if isinstance(keys, str):
+        keys = (keys,)
+    combined: list = []
+    seen = set()
+    for key in keys:
+        for code in resolved.get(key, []):
+            if code not in seen:
+                seen.add(code)
+                combined.append(code)
+    return combined
 
 
 def ensure_fund_sync_fields(db_session):
@@ -138,13 +162,15 @@ def resolve_job_targets(
     if target_file:
         all_targets = orchestrator.resolve_targets(target_file=target_file)
         if job_name in FUND_TARGET_JOBS:
-            return all_targets.get('fund', [])
+            # 不在 DB_POOL_JOBS 的基金 job（fund_nav 等）默认 ('fund',)，
+            # 仍只取基金池；fund_position 取 fund + etf（#1983）
+            return _combine_pools(all_targets, DB_POOL_JOBS.get(job_name, ('fund',)))
         if job_name == 'price_history':
             return all_targets.get('stock', [])
         return None
 
     if job_name in DB_POOL_JOBS:
-        return orchestrator.resolve_targets().get(DB_POOL_JOBS[job_name], [])
+        return _combine_pools(orchestrator.resolve_targets(), DB_POOL_JOBS[job_name])
 
     return None
 

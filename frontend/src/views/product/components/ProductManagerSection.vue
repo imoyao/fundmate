@@ -23,7 +23,10 @@ import { productRoute } from "@/utils/productIdentity";
  * 而首屏并非总需要它。分开后档案可以先渲染，重仓慢也不拖累整个区块。
  *
  * 入参是 **mgr_code 而非姓名**：库内实测 119 组重名（最多「吴昊」6 位），
- * 姓名不是唯一键；详情页路由 `/manager/<symbol>` 传下来的就是它。
+ * 姓名不是唯一键。这里把路由 symbol **原样**发出去，不要在前端猜形态——
+ * 自选/搜索里点进来的是 `MGR_<mgr_code>`（#1286 命名空间），而详情页路由的 symbol
+ * 还会被 `resolve_product_identity` 大写化；**归一收口在后端**
+ * （`services/manager_code.py`），前端若自己剥前缀，就会出现「两个地方各剥一半」。
  *
  * **换算全部交给后端**（#1970 扩展 · `services/tenure_display.py`）：
  * 本组件直接用后端给的 `*_display` 文本，**不做任何÷365 / toFixed 换算**。
@@ -82,6 +85,33 @@ const tenureCaption = computed(() => {
   if (!t) return undefined;
   return t.basis === "em_days_derived" ? "自首次任职起算" : "按任职起始日推算";
 });
+
+/**
+ * 风格标签 key 后缀 → 三档视觉档位（#2044）。
+ *
+ * 档位是**强度阶梯不是评价**（集中度高≠坏、中性≠好），故只用墨色/填充权重递进，
+ * 不用红绿——那是涨跌语义专用（见 design.md「Badge / Tag」）。size 维度的
+ * small/balanced/large 映射到同一阶梯；未知后缀落 mid（中性默认，前向兼容）。
+ */
+function styleTierClass(key: string): string {
+  const suffix = key.split("_").pop() ?? "";
+  if (suffix === "low" || suffix === "small") return "is-low";
+  if (suffix === "high" || suffix === "large") return "is-high";
+  return "is-mid";
+}
+
+/**
+ * 代表作风格标签（#2044）。
+ *
+ * 数据不足的维度由后端**缺席**（不给该 dim，而非 null 占位）；列表为空则整行
+ * 不渲染——不显示空容器、不渲染占位徽章。
+ */
+const styleBadges = computed(() =>
+  (holdings.value?.style_labels ?? []).map(lb => ({
+    ...lb,
+    tierClass: styleTierClass(lb.key)
+  }))
+);
 
 async function load() {
   if (!props.mgrCode) return;
@@ -235,6 +265,28 @@ watch(() => props.mgrCode, load, { immediate: true });
           <span v-if="holdings.fund_name" class="mgr-section__holdings-fund">
             {{ holdings.fund_name }}
           </span>
+        </div>
+        <!-- 风格标签（#2044）：徽章文字直接用后端 label；依据 basis 走 tooltip；
+             维度缺席即该徽章不出现，为空整行不渲染 -->
+        <div v-if="styleBadges.length" class="mgr-section__styles">
+          <span class="mgr-section__styles-label">风格</span>
+          <ul class="mgr-section__styles-list" aria-label="风格标签">
+            <li
+              v-for="lb in styleBadges"
+              :key="lb.key"
+              class="mgr-section__style-item"
+            >
+              <el-tooltip :content="lb.basis" placement="top">
+                <span
+                  class="mgr-section__style-badge"
+                  :class="lb.tierClass"
+                  tabindex="0"
+                >
+                  {{ lb.label }}
+                </span>
+              </el-tooltip>
+            </li>
+          </ul>
         </div>
         <el-table :data="holdings.rows" size="small" class="mgr-section__table">
           <el-table-column label="#" width="48">
@@ -409,6 +461,63 @@ watch(() => props.mgrCode, load, { immediate: true });
     gap: var(--space-2) var(--space-3);
     align-items: baseline;
     justify-content: space-between;
+  }
+
+  &__styles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: center;
+    margin-top: var(--space-2);
+  }
+
+  &__styles-label {
+    font-size: 12px;
+    color: var(--text-tertiary);
+  }
+
+  &__styles-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding: 0;
+    margin: 0;
+    list-style: none;
+  }
+
+  /* 档位阶梯：描边（低）→ 软底（中）→ 软底+重墨（高）。
+     中性强度递进，刻意不用红绿——涨跌语义专用（design.md「Badge / Tag」）；
+     配色由 key 档位在本层映射，后端不返回颜色 */
+  &__style-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 8px;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    cursor: help;
+    border: 1px solid transparent;
+    border-radius: var(--radius-pill);
+
+    &.is-low {
+      border-color: var(--border-subtle);
+    }
+
+    &.is-mid {
+      background: var(--bg-soft);
+    }
+
+    &.is-high {
+      font-weight: 600;
+      color: var(--text-primary);
+      background: var(--bg-soft);
+    }
+
+    /* 依据（basis）经 tooltip 展示，键盘 focus 也必须可见（#1838 可访问性） */
+    &:focus-visible {
+      outline: 2px solid var(--brand-700);
+      outline-offset: 2px;
+    }
   }
 
   &__holdings-fund {

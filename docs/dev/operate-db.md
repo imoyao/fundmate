@@ -76,7 +76,8 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
 
     @property
     def manager(self):
-        return FundPortfolioMgr.query.filter_by(self.platform !="own",code=self.mgr_code).one_or_none()
+        return FundPortfolioMgr.query.filter_by(
+            self.platform != "own", code=self.mgr_code).one_or_none()
 ```
 
 这样就可以使用点查询了：
@@ -120,7 +121,9 @@ fpo = FundPortfolio.query.filter_by(portfolio_code=portfolio_code).one_or_none()
 为了解决用户信息获取，我们可以：a)简单将用户信息复制一份，这样会导致用户数据重复，且后期维护时需要维护两份数据；b)将 3 个表关联起来，这样在编写代码时需要建立两个`relationship`关系。我们尝试编写如下代码将`FundPortfolio`与`User`关联：
 
 ```python
-extra_owner = relationship('User', foreign_keys=[mgr_code], primaryjoin='User.id == FundPortfolio.mgr_code')
+extra_owner = relationship(
+    'User', foreign_keys=[mgr_code],
+    primaryjoin='User.id == FundPortfolio.mgr_code')
 ```
 
 完整代码参考：[此处](https://github.com/imoyao/fundmate/blob/5723c8304be87c5bde040c0716b8c407c860bea7/backend/fundmate/fund/models.py#L483)
@@ -128,7 +131,12 @@ extra_owner = relationship('User', foreign_keys=[mgr_code], primaryjoin='User.id
 不过，我们在`fund.models`导入`user.models.User`定义并引用时会报错：
 
 ```python
-sqlalchemy.exc.InvalidRequestError: When initializing mapper mapped class FundPortfolio->fund_portfolio, expression 'User.id == FundPortfolio.mgr_code' failed to locate a name ("name 'User' is not defined"). If this is a class name, consider adding this relationship() to the <class 'backend.fundmate.fund.models.FundPortfolio'> class after both dependent classes have been defined.
+sqlalchemy.exc.InvalidRequestError: When initializing mapper mapped class
+FundPortfolio->fund_portfolio, expression 'User.id == FundPortfolio.mgr_code'
+failed to locate a name ("name 'User' is not defined"). If this is a class name,
+consider adding this relationship() to the
+<class 'backend.fundmate.fund.models.FundPortfolio'> class after both dependent
+classes have been defined.
 ```
 
 这段话中提示`User`定义未找到，看来两个数据类（`User`和`FundPortfolio`）不在同一个`models.py`文件内这样引用，代码是无法找到数据类定义的！
@@ -168,7 +176,9 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     ...
     manager = relationship('FundPortfolioMgr',
                        foreign_keys=[mgr_code],
-                       primaryjoin='and_(FundPortfolioMgr.code == FundPortfolio.mgr_code, FundPortfolio.platform!=4)')
+                       primaryjoin='and_(
+                           FundPortfolioMgr.code == FundPortfolio.mgr_code,
+                           FundPortfolio.platform != 4)')
 ```
 
 在`@output`端的`FundPortfolioDetailOutSchema`定义中，我们可以增加`extra_owner`字段的定义用于获取自有平台用户创建的组合的信息。

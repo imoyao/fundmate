@@ -89,6 +89,34 @@ function formatPrice(value: number | null) {
   return value != null ? value.toFixed(2) : DASH;
 }
 
+/** 涨跌额：正数补 `+` 号，让方向不依赖颜色也能读出（色觉障碍 / 打印场景）。 */
+function formatDelta(value: number | null) {
+  if (value == null) return DASH;
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}`;
+}
+
+/**
+ * 「最新收盘」的涨跌着色类。
+ *
+ * 为什么现价要上色：它是本区块**最醒目的数字**（18px/600），此前却是中性色——
+ * 视觉权重最高、信息量最低。行情软件通行做法是现价本身带涨跌色。
+ *
+ * 口径用 `change_amount`（**日**涨跌额）而不是 `change_pct`（**区间**涨跌幅）：
+ * 后者分母是 60 个交易日前，用它给「今天的价格」上色等于把两个问题混为一谈。
+ *
+ * 缺基准（窗口内仅 1 条行情）时返回空串走中性色，而不是当 0 处理——`0` 与
+ * 「无数据」在屏上必须区分得开，故 class 为空而非 `is-fall`。
+ *
+ * 颜色用**文字级** `--color-rise-ink / --color-fall-ink`（AA 对比度），
+ * 不用图形级 `--color-rise/fall`——与 `ProductAdvisorSection` / `ProductManagerSection`
+ * 同口径（见那两处的注释：文字级色板是专门为可读性维护的）。
+ */
+const trendClass = computed(() => {
+  const amt = profile.value?.change_amount;
+  if (amt == null || amt === 0) return "";
+  return amt > 0 ? "is-rise" : "is-fall";
+});
+
 async function load() {
   if (!props.symbol) return;
   loading.value = true;
@@ -127,8 +155,23 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
         <dl class="stock-section__quote">
           <div class="stock-section__quote-item">
             <dt class="stock-section__label">最新收盘</dt>
-            <dd class="stock-section__value stock-section__value--strong">
+            <dd
+              class="stock-section__value stock-section__value--strong"
+              :class="trendClass"
+            >
               {{ formatPrice(profile.close) }}
+            </dd>
+          </div>
+          <div class="stock-section__quote-item">
+            <dt class="stock-section__label">当日涨跌</dt>
+            <dd class="stock-section__value">
+              <template v-if="profile.day_change_pct != null">
+                <RiseFallText :value="profile.day_change_pct" size="sm" />
+                <span class="stock-section__delta">{{
+                  formatDelta(profile.change_amount)
+                }}</span>
+              </template>
+              <span v-else>{{ DASH }}</span>
             </dd>
           </div>
           <div class="stock-section__quote-item">
@@ -243,6 +286,25 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
 .stock-section__value--strong {
   font-size: 18px;
   font-weight: 600;
+}
+
+/* 现价随当日涨跌着色（trendClass）。
+   用**文字级** `--color-rise-ink / --color-fall-ink`（AA 对比度）而非图形级
+   `--color-rise / --color-fall` —— 与 ProductAdvisorSection / ProductManagerSection
+   同口径；图形级色是给折线 / 柱子用的，直接拿来上文字达不到 4.5:1。 */
+.stock-section__value.is-rise {
+  color: var(--color-rise-ink);
+}
+
+.stock-section__value.is-fall {
+  color: var(--color-fall-ink);
+}
+
+/* 涨跌额跟在涨跌幅后面（+1.23）：次要信息，字号与色都退一档 */
+.stock-section__delta {
+  margin-left: var(--space-1);
+  font-size: 12px;
+  color: var(--text-tertiary-ink);
 }
 
 .stock-section__facts {

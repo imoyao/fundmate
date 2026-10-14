@@ -65,6 +65,9 @@ function collectVueCodes(rel) {
 
 const WELCOME_BOARD = 'frontend/src/views/welcome/components/WelcomeAssetBoard.vue';
 const WATERFALL = 'frontend/src/views/asset/panorama/components/OverviewSummaryCard.vue';
+// #2093：瀑布图的几何与 option 构造被抽到此模块（纯计算，不碰 DOM / 实例），
+// `category_distribution` 的消费随之搬来这里；组件侧只留「何时画 / 画在哪 / 何时 dispose」。
+const WATERFALL_HELPER = 'frontend/src/views/asset/panorama/components/assetWaterfall.ts';
 
 /**
  * 判据 A：welcome 资产看板里不得出现「结构图」的两个特征——
@@ -101,8 +104,18 @@ test('#2034：把旧写法注回去必须报红（判据非空转）', () => {
 
 test('#2034：panorama 瀑布图仍应合法消费这些字段（不得误报）', () => {
   // 结构拆解归资产总览：这里是**唯一**该画资产大类构成图的地方。
-  const waterfall = readCode(WATERFALL);
-  assert.ok(waterfall && waterfall.includes('category_distribution'), '瀑布图应消费 category_distribution');
+  //
+  // ⚠️ 字段消费点会随重构搬家（#2093 抽到 `assetWaterfall.ts`）。断言钉死在哪个
+  // 文件，就得跟着搬到哪个文件——否则守门会在**重构成功的那一刻**误报，把
+  // 「字段被消费」判成「字段没人用」（#2093 首次 CI 就是这么红的）。故这里守两段
+  // 链路：① 计算模块真的读该字段；② 组件仍委托它，没有把数据逻辑搬回组件。
+  const helper = readCode(WATERFALL_HELPER);
+  assert.ok(
+    helper && helper.includes('category_distribution'),
+    '瀑布图计算模块应消费 category_distribution'
+  );
+  const comp = readCode(WATERFALL);
+  assert.ok(comp && comp.includes('buildWaterfallBars'), '组件应委托 buildWaterfallBars 画瀑布图');
 });
 
 test('#2034：welcome 不再请求 distributions（少一次无消费方的请求）', () => {

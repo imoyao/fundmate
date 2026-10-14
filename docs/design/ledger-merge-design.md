@@ -60,7 +60,9 @@
         "name": "沪深300ETF",
         "classification": "keep | duplicate | conflict",
         "source": { "quantity": 1000000, "avg_price": 1000, "confirm_date": "2026-08-20", ... },
-        "target": null | { "quantity": 1000000, "avg_price": 1000, "confirm_date": "2026-08-20", ... },
+        "target": null | {
+            "quantity": 1000000, "avg_price": 1000,
+            "confirm_date": "2026-08-20", ... },
         "conflict_fields": ["quantity", "avg_price"],
         "suggestion": "merge"
       }

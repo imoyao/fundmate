@@ -28,9 +28,17 @@ describe("productRoute", () => {
   });
 
   it("品类段不在白名单、或 symbol 为空 → 空串（调用方据此回退）", () => {
-    // index 至今未开放（#2028 卡在 #1407 估值长历史口径），故拿它当「不在白名单」的样本
-    expect(productRoute({ assetType: "index", symbol: "000300" })).toBe("");
+    // bond（可转债）至今未进详情页白名单——一期拍板只做集思录外链卡，故拿它当
+    // 「不在白名单」的样本（index 自 #2028 起已开放，不能再用它，见下一条）
+    expect(productRoute({ assetType: "bond", symbol: "113050" })).toBe("");
     expect(productRoute({ assetType: "stock", symbol: "  " })).toBe("");
+  });
+
+  it("index 自 #2028 起产出 /index/ 路径段（#1407 拍板后开放）", () => {
+    // 分位口径拍板（乐咕近 5 年月频基线）后，指数详情区块落地
+    expect(productRoute({ assetType: "index", symbol: "000300" })).toBe(
+      "/index/000300"
+    );
   });
 
   it("etf 自 #1974 起产出 /etf/ 路径段，不套 /fund/", () => {
@@ -77,10 +85,17 @@ describe("parseProductRef", () => {
   });
 
   it("品类段非白名单 / 缺 symbol / 输入为空 → null", () => {
-    expect(parseProductRef("/index/000300")).toBeNull();
+    expect(parseProductRef("/bond/113050")).toBeNull();
     expect(parseProductRef("/stock/")).toBeNull();
     expect(parseProductRef("")).toBeNull();
     expect(parseProductRef(undefined)).toBeNull();
+  });
+
+  it("index 路径段可解析（#2028 开放，与 productRoute 往返一致）", () => {
+    expect(parseProductRef("/index/000300")).toEqual({
+      assetType: "index",
+      symbol: "000300"
+    });
   });
 
   it("etf 路径段可解析（#1974 开放，与 productRoute 往返一致）", () => {

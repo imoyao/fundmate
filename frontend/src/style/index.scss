@@ -3,6 +3,7 @@
 @use "element-plus";
 @use "sidebar";
 @use "dark";
+@use "breakpoints" as bp;
 
 /* 多多贝设计令牌：plain CSS @import 必须位于除 @charset/@layer/@use 之外的
    所有规则之前，否则会触发 no-invalid-position-at-import-rule。
@@ -84,5 +85,38 @@
 @media (width <= 960px) /* breakpoint-allow */ {
   .main-content {
     padding: var(--space-5);
+  }
+}
+
+/* ============================================
+   栏间竖向软分割线（本处为唯一定义处，勿在业务文件里再手写 border-left）
+   ============================================
+
+   WHY
+   ---
+   此前「左指标 / 右图」这类两栏布局，分割线是在业务组件里手写
+   `borderLeft: '1px solid var(--border-light)'` 实现的（WelcomeAssetBoard、
+   LedgerDetailOverview、OverviewSummaryCard 至少 3 处）。那条线紧贴右栏文字的
+   第一个字符——**线是装饰，不是内容边界**，贴上去等于让文字顶着线读，视觉上就是
+   「线和字糊在一起」。
+
+   更隐蔽的一半问题：这些 border 写在**不带断点的类名上**，而两栏布局本身是
+   `lg:grid-cols-12`——在 lg 以下两栏已纵向堆叠，左侧那条竖线却还在，
+   变成一条孤零零贴在块左边的怪线。
+
+   故统一为：
+   - lg 及以上才画线（低于 lg 两栏堆叠，不要竖线）；
+   - 线与右栏内容之间留 `--space-standard`(24px)，与父级 grid 的 `gap-6` 对称，
+     即「左栏 → 24px → 线 → 24px → 右栏文字」。
+   ============================================ */
+.soft-col-divider {
+  padding-left: 0;
+  border-left: 0;
+}
+
+@include bp.above("lg") {
+  .soft-col-divider {
+    padding-left: var(--space-standard);
+    border-left: 1px solid var(--border-light);
   }
 }

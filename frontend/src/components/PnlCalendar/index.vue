@@ -52,6 +52,7 @@
           v-model:value-mode="valueMode"
           :loading="loading"
           :range-label="rangeLabel"
+          :granularities="allowedGranularities"
           @shift="shift"
           @go-current="goCurrent"
         />
@@ -64,6 +65,7 @@
         v-model:value-mode="valueMode"
         :loading="loading"
         :range-label="rangeLabel"
+        :granularities="allowedGranularities"
         @shift="shift"
         @go-current="goCurrent"
       />
@@ -106,63 +108,71 @@
       </el-button>
     </div>
 
-    <!-- ===== 主体：方格图（日历图 / 月格 / 年格）/ 柱状图 ===== -->
+    <!-- ===== 主体：方格图（日历图 / 月格 / 年格）/ 柱状图 =====
+         外面这一层 `pnl-calendar__body` 只负责一件事：**跟随宿主的高度**
+         （#2033）。宿主给了确定高度（资产总览右卡的等高容器）就填满，
+         没给（welcome 满宽 / 账户详情半宽）就是自然高——高度约束只能由宿主施加，
+         本组件不自带任何固定高度，那两处的排版因此与改动前逐像素一致。 -->
     <template v-else>
-      <PnlCalendarGrid
-        v-if="granularity === 'day' && view === 'calendar'"
-        :days="series?.days ?? []"
-        :year="cursor.getFullYear()"
-        :month-index="cursor.getMonth()"
-        :mode="valueMode"
-      />
-
-      <!-- 月 / 年视图的方格图（#1942）：一格一个期间，点击下钻 -->
-      <PnlCalendarPeriodGrid
-        v-else-if="granularity !== 'day' && view === 'calendar'"
-        :periods="series?.periods ?? []"
-        :granularity="granularity"
-        :mode="valueMode"
-        @select="selectPeriod"
-      />
-
-      <!-- 柱状图：三粒度共用一份几何，只是「一根柱」的含义不同（见文件头）。
-           后端保证 days / periods 只有一侧非空，Bars 内部据此选边。 -->
-      <!-- 柱状图三粒度共用（见文件头）。月 / 年视图的柱一根 = 一月 / 一年，
-           点击也走 `selectPeriod` 下钻，与方格图交互对齐；日粒度是叶子，
-           不传 `drillable`（柱不可点）。 -->
-      <PnlCalendarBars
-        v-else
-        :days="series?.days ?? []"
-        :periods="series?.periods ?? []"
-        :range-label="rangeLabel"
-        :total="series?.month_total ?? 0"
-        :range-rate="series?.range_rate ?? null"
-        :mode="valueMode"
-        :drillable="granularity !== 'day'"
-        @select="selectPeriod"
-      />
-
-      <!-- ===== 合计行：一行小字，不占纵向空间（Voice & Content规范） ===== -->
-      <div class="pnl-calendar__summary">
-        <span class="pnl-calendar__summary-label">{{ rangeLabel }}合计</span>
-        <MoneyDisplay
-          :value="series?.month_total ?? null"
-          size="sm"
-          :show-currency="true"
+      <div class="pnl-calendar__body">
+        <PnlCalendarGrid
+          v-if="granularity === 'day' && view === 'calendar'"
+          :days="series?.days ?? []"
+          :year="cursor.getFullYear()"
+          :month-index="cursor.getMonth()"
+          :mode="valueMode"
         />
-        <!-- 区间收益率与金额**同时**显示（#1942 ②）：切换口径是针对格子里那 30 个
+
+        <!-- 月 / 年视图的方格图（#1942）：一格一个期间，点击下钻 -->
+        <PnlCalendarPeriodGrid
+          v-else-if="granularity !== 'day' && view === 'calendar'"
+          :periods="series?.periods ?? []"
+          :granularity="granularity"
+          :mode="valueMode"
+          @select="selectPeriod"
+        />
+
+        <!-- 柱状图：三粒度共用一份几何，只是「一根柱」的含义不同（见文件头）。
+             后端保证 days / periods 只有一侧非空，Bars 内部据此选边。 -->
+        <!-- 柱状图三粒度共用（见文件头）。月 / 年视图的柱一根 = 一月 / 一年，
+             点击也走 `selectPeriod` 下钻，与方格图交互对齐；日粒度是叶子，
+             不传 `drillable`（柱不可点）。`drillable` 取 `canDrill`：宿主排掉了
+             下一档粒度时（如 #2033 的右卡排掉日粒度），柱体与柱下提示一并撤掉，
+             免得留一个「可点却没反应」的假 affordance。 -->
+        <PnlCalendarBars
+          v-else
+          :days="series?.days ?? []"
+          :periods="series?.periods ?? []"
+          :range-label="rangeLabel"
+          :total="series?.month_total ?? 0"
+          :range-rate="series?.range_rate ?? null"
+          :mode="valueMode"
+          :drillable="canDrill"
+          @select="selectPeriod"
+        />
+
+        <!-- ===== 合计行：一行小字，不占纵向空间（Voice & Content规范） ===== -->
+        <div class="pnl-calendar__summary">
+          <span class="pnl-calendar__summary-label">{{ rangeLabel }}合计</span>
+          <MoneyDisplay
+            :value="series?.month_total ?? null"
+            size="sm"
+            :show-currency="true"
+          />
+          <!-- 区间收益率与金额**同时**显示（#1942 ②）：切换口径是针对格子里那 30 个
              小数字的，合计行只有一个数，没必要让它随开关时隐时现。
              `null` = 算不出来（区间前一天没有基准）⇒ 显示 —，绝不显示 0.00%。 -->
-        <span class="pnl-calendar__summary-sep" aria-hidden="true">·</span>
-        <RiseFallText
-          v-if="series?.range_rate != null"
-          :value="series.range_rate"
-          size="sm"
-        />
-        <span v-else class="pnl-calendar__summary-none">收益率 —</span>
-        <span class="pnl-calendar__summary-note">
-          口径：总盈亏日差分，对存取款免疫
-        </span>
+          <span class="pnl-calendar__summary-sep" aria-hidden="true">·</span>
+          <RiseFallText
+            v-if="series?.range_rate != null"
+            :value="series.range_rate"
+            size="sm"
+          />
+          <span v-else class="pnl-calendar__summary-none">收益率 —</span>
+          <span class="pnl-calendar__summary-note">
+            口径：总盈亏日差分，对存取款免疫
+          </span>
+        </div>
       </div>
     </template>
   </div>
@@ -180,7 +190,10 @@ import PnlCalendarBars from "./PnlCalendarBars.vue";
 import PnlCalendarCaliberTip from "./PnlCalendarCaliberTip.vue";
 import PnlCalendarActionBar from "./PnlCalendarActionBar.vue";
 import {
+  ALL_GRANULARITIES,
+  defaultGranularity,
   firstOfMonth,
+  nextGranularity,
   rangeFor,
   rangeLabelFor,
   type PnlCalendarValueMode
@@ -211,6 +224,19 @@ const props = withDefaults(
      * 另两处不传即为 `false`，行为与改动前完全一致。
      */
     hostHeader?: boolean;
+    /**
+     * 本宿主允许的粒度档位（#2033）；不传 = 三档全开（welcome / 账户详情）。
+     *
+     * **日粒度的家在投资概览页**（welcome 第三排的满宽日历）：那是唯一容得下
+     * 「一屏 5 列 × 数行」日历的地方。资产总览右卡是**与左卡并排的等高兄弟容器**
+     * （卡片体锁死 280px），日粒度在那里既排不下也读不清，故由宿主传
+     * `["month", "year"]` 把它摘掉——同时**不提供任何入口**（没有「展开/查看大图」），
+     * 日粒度的需求去 welcome 即可，二者各归其位。
+     *
+     * 只挡控件排不够：方格与柱体的点击下钻也会一路走到日粒度，
+     * 所以 `selectPeriod` 与 `canDrill` 也读同一份约束（见 `helpers.nextGranularity`）。
+     */
+    granularities?: readonly PnlCalendarGranularity[];
   }>(),
   { ledgerId: undefined, hostHeader: false }
 );
@@ -224,7 +250,32 @@ const series = ref<PnlCalendarSeries | null>(null);
 const loading = ref(false);
 const error = ref("");
 const view = ref<"calendar" | "bar">("calendar");
-const granularity = ref<PnlCalendarGranularity>("day");
+
+/**
+ * 宿主允许的粒度档位（#2033）；空数组视作不约束，保持三档。
+ *
+ * 三处容器里只有资产总览右卡会传，另外两处读到的就是 `ALL_GRANULARITIES`，
+ * 于是默认粒度仍是日粒度、控件排仍是三档——行为与改动前完全一致。
+ */
+const allowedGranularities = computed<readonly PnlCalendarGranularity[]>(() =>
+  props.granularities?.length ? props.granularities : ALL_GRANULARITIES
+);
+
+/**
+ * 默认粒度取允许集合里最靠前的一档（#2033）：排掉日粒度后自动落到月粒度，
+ * 而不是留在一个「控件里选不到」的粒度上。
+ */
+const granularity = ref<PnlCalendarGranularity>(
+  defaultGranularity(allowedGranularities.value)
+);
+
+/**
+ * 能否继续下钻（#2033）。`false` 时方格 / 柱体不可点、柱下提示也一并消失——
+ * 留一个点下去没反应的控件比不给控件更糟。
+ */
+const canDrill = computed(
+  () => nextGranularity(granularity.value, allowedGranularities.value) !== null
+);
 
 /**
  * 数字口径（#1942 ②）：金额 / 收益率。
@@ -281,14 +332,20 @@ const rangeLabel = computed(() =>
  * 实现是「改游标 + 改粒度」两步，靠 `watch([cursor, granularity], load)` 合并成
  * **一次**请求（数组式 watch 在同一 tick 内只触发一次）——若沿用旧的两条独立
  * watcher，下钻会连发两次相同区间的请求。
+ *
+ * ⚠️ #2033：宿主可以排掉某一档粒度（资产总览右卡排掉日粒度）。**下钻也必须
+ * 在动手之前问**：方格与柱体的点击路径与控件排是两条独立入口，只在控件里藏掉
+ * 日粒度而这里照旧切换，用户就会掉进一个本卡装不下的形态，且没有任何控件能切回来。
  */
 function selectPeriod(period: string): void {
   if (granularity.value === "year") {
+    if (!nextGranularity("year", allowedGranularities.value)) return;
     cursor.value = new Date(Number(period), 0, 1);
     granularity.value = "month";
     return;
   }
   if (granularity.value === "month") {
+    if (!nextGranularity("month", allowedGranularities.value)) return;
     cursor.value = new Date(
       Number(period.slice(0, 4)),
       Number(period.slice(5)) - 1,
@@ -413,6 +470,13 @@ function goCurrent() {
 // 三条触发源合并成一个数组式 watch：下钻要同时改「游标 + 粒度」，
 // 若拆成多条 watcher 会在同一 tick 里连发两次相同区间（由 `selectPeriod` 造成）。
 watch([() => props.ledgerId, cursor, granularity], load);
+
+// 宿主中途收窄粒度集合时（宿主很少会动态改，但组件不该假设它不变）：
+// 当前粒度若已不在集合内，落到默认档，绝不停留在「控件里选不到」的那一档。
+watch(allowedGranularities, allowed => {
+  if (allowed.includes(granularity.value)) return;
+  granularity.value = defaultGranularity(allowed);
+});
 onMounted(load);
 
 defineExpose({ reload: load });
@@ -425,6 +489,23 @@ defineExpose({ reload: load });
   display: flex;
   flex-direction: column;
   gap: 14px;
+
+  /* #2033：跟随宿主的高度。宿主给了确定高度（资产总览右卡的等高容器，280px）
+     这里就是 280px，整列由下方的 body 吃掉剩余空间；宿主高度不定
+     （welcome 满宽 / 账户详情半宽）时百分比高度解析为 auto，仍是自然高——
+     **高度约束只能由宿主施加**，本组件不自带任何固定高度。 */
+  height: 100%;
+}
+
+/* 主体区（方格图 / 柱状图 + 合计行）：`flex: 1` 吃掉控件排以外的高度，
+   `min-height: 0` 让内部（年格网格外层的滚动容器）真能收缩——没有它，
+   flex 项的自动最小尺寸会把内容高度顶回来，装不下时卡片就被撑破而不是内部滚动。 */
+.pnl-calendar__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
 }
 
 /* 年视图的区间标签（替代区间导航按钮组：年视图区间固定，按不动的按钮是骗人的） */
@@ -433,17 +514,23 @@ defineExpose({ reload: load });
   color: var(--text-secondary);
 }
 
-/* 合计行：一行小字 */
+/* 合计行：一行读完，但必须比格子里的小数字更重。
+   它是「这个区间到底赚没赚」的答案，是用户扫完整张图后**唯一会去找**的那个数；
+   原先与格内 13px 数字同权重（MoneyDisplay size=sm），用户很难一眼定位。
+   现在金额升到 md（16px）并给整行一条极淡的底色带 —— 用底色而不是加边框分隔线，
+   是因为这一行已经紧跟在格子下面，再加一条横线会读成「新的一段的表头」。 */
 .pnl-calendar__summary {
   display: flex;
   gap: 10px;
   align-items: baseline;
-  padding-top: 10px;
+  padding: 8px 10px;
   font-size: 12px;
-  border-top: 1px solid var(--border-light);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
 }
 
 .pnl-calendar__summary-label {
+  font-weight: 500;
   color: var(--text-secondary);
 }
 

@@ -14,6 +14,10 @@
   可点击的年 / 月格子则由调用方在外面套一个 `<button>`。这样既不用在 `<span>` 上挂
   `@click`（守卫 `guard_a11y_interaction.py` 会拦），也不会把 `<div>` 塞进 `<button>`。
 
+  当日预估徽标（#2143）：后端 `estimated` 标记（#2141 收盘估值定格回退）为真时，
+  日号旁画「估」小徽标（`ValuationSourceBadge` sm 档）。前端**不按日期自行推断**；
+  悬浮说明由外层 PnlCalendarUnitTip 承载（徽标不内嵌 tooltip，避免双层打架）。
+
   七态视觉（**缺数据绝不能画成 0**，这是本组件存在的核心理由之一）：
     updown       涨红跌绿柔和填充，色深 ∝ |收益|
     zero         灰底 + 0.00（真实为零）
@@ -28,6 +32,10 @@
     收益率（`rate`）      `RiseFallText` sm（13px）——两者字号同为 `--text-label`，
                           切换口径不会让格子里的文字跳动
   两个口径都遵循同一条纪律：**不可算就给态标签或「—」，绝不补 0**。
+
+  数字**加粗到 600**（原为组件默认的 500）：13px 的等宽数字在五列密排下
+  笔画过细、扫视时容易「化」进底色；加粗不改变字号，故不破坏上面「两种口径
+  字号相同」的换口径不跳动承诺，也不影响格子的几何与换行。
 
   色彩纪律（design.md 硬约束）：
     - 只走 --color-rise / --color-fall（**绿跌**，不用参考图的蓝跌）；
@@ -51,7 +59,18 @@
     ]"
   >
     <template v-if="!voidCell">
-      <span class="pnl-calendar__day">{{ label }}</span>
+      <!-- 日号 + 估徽标（#2143）：徽标只在后端下发 estimated 时出现（#2141 收盘
+           估值定格回退，前端不按日期自行推断）。徽标不带内嵌 tooltip——格子外层
+           已有整格悬浮卡（PnlCalendarUnitTip），说明写进悬浮卡，避免双层打架。 -->
+      <span class="pnl-calendar__head">
+        <span class="pnl-calendar__day">{{ label }}</span>
+        <ValuationSourceBadge
+          v-if="estimated"
+          status="estimated"
+          size="sm"
+          tip="当日按收盘估值预估，官方净值公布后自动确认"
+        />
+      </span>
       <!-- 金额口径 -->
       <MoneyDisplay
         v-if="hasValue && mode === 'amount'"
@@ -83,6 +102,7 @@
 import { computed } from "vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
+import ValuationSourceBadge from "@/components/ValuationSourceBadge/index.vue";
 import type { PnlCalendarState } from "@/api/summary";
 import { hasValueState, stateTag, type PnlCalendarValueMode } from "./helpers";
 
@@ -104,8 +124,16 @@ const props = withDefaults(
     /** 占位空格（日历图首行与周一之前的那几格）：只占位、不画内容 */
     voidCell?: boolean;
     isToday?: boolean;
+    /** 当日行按收盘估值预估（后端 estimated 标记，#2141/#2143）：画「估」徽标 */
+    estimated?: boolean;
   }>(),
-  { rate: null, mode: "amount", voidCell: false, isToday: false }
+  {
+    rate: null,
+    mode: "amount",
+    voidCell: false,
+    isToday: false,
+    estimated: false
+  }
 );
 
 /** 有真实数值才画金额 / 收益率；`partial` 也照画（值可信，只是不全），其余一律出态标签 */
@@ -169,6 +197,13 @@ const textColor = computed(() =>
   color: var(--text-tertiary-ink);
 }
 
+/* 日号 + 估徽标同排（#2143）：徽标 sm 档 14px 与 11px 日号共线，不新增行高 */
+.pnl-calendar__head {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+}
+
 /* ── 七态视觉 ──
    updown 用柔和填充 + 涨红跌绿（**绿跌**，非参考图的蓝跌）。
 
@@ -182,6 +217,19 @@ const textColor = computed(() =>
    ⇒ 色深只表达「相对大小」，**绝不允许为了视觉冲击加深到底色**。 */
 .is-updown {
   border-color: var(--border-subtle);
+}
+
+/* 最小一档也要有底色。
+   此前 `lv-0`（数值最小的那批）没有任何填充色、与「休市 / 未同步」的空白格
+   读起来一模一样——用户扫一眼分不出「这天有收益只是很小」和「这天没数据」。
+   3% 比最深档 12% 更浅，对比度只会更宽松，不触碰上面那条 AA 硬顶。
+   加这一档后，「有数据」恒定带色、「无数据」恒定留白，两类一眼可分。 */
+.is-updown.lv-0 {
+  background: color-mix(in srgb, var(--color-rise) 3%, var(--bg-card));
+}
+
+.is-updown.is-fall.lv-0 {
+  background: color-mix(in srgb, var(--color-fall) 3%, var(--bg-card));
 }
 
 .is-updown.lv-1 {
@@ -247,14 +295,19 @@ const textColor = computed(() =>
   border-radius: inherit;
 }
 
-/* 无价格序列：斜线纹理，与「零收益」「休市」三者可辨 */
+/* 无价格序列：斜线纹理，与「零收益」「休市」三者可辨。
+   纹理刻意做**稀**：这是「无数据」态，属于要尽快被略过的背景，不该与有数据的
+   涨跌格抢注意力。原先 12% 透明度 / 3px 线宽，密到像一层灰网，扫视时先读到
+   「这里有花纹」而不是「这里没有估值」。降到 7% + 加宽到 5px 周期：
+   仍是可辨的斜线（与 zero 的纯灰底、partial 的灰底+斜纹保持可分），
+   但退回背景该有的权重。 */
 .is-no_price {
   background: repeating-linear-gradient(
     45deg,
     transparent,
-    transparent 4px,
-    color-mix(in srgb, var(--text-tertiary) 12%, transparent) 4px,
-    color-mix(in srgb, var(--text-tertiary) 12%, transparent) 7px
+    transparent 7px,
+    color-mix(in srgb, var(--text-tertiary) 7%, transparent) 7px,
+    color-mix(in srgb, var(--text-tertiary) 7%, transparent) 10px
   );
   border-color: var(--border-subtle);
 }
@@ -281,6 +334,19 @@ const textColor = computed(() =>
   font-size: 10px;
   line-height: 1;
   color: var(--text-tertiary-ink);
+}
+
+/* 格内盈亏数字加粗到 600（`MoneyDisplay` / `RiseFallText` 的 `.number` 默认 500）。
+   13px 等宽数字在五列密排下笔画偏细，扫视时容易「化」进底色、与态标签读成同一档。
+   **只改字重、不改字号**：两个口径（金额 xs / 收益率 sm）本就同为 13px，
+   加粗后两者仍然一致 ⇒ 切换口径时文字不跳动（#1942 ② 的既有约定不回归）。
+
+   命中的是子组件**内部**的 `.number`（`MoneyDisplay` 用 scoped 样式，外部改不到），
+   故必须走 `:deep()`；写 `.pnl-calendar__rate` 无效——那是 `RiseFallText` 的
+   根元素，`.number` 在它下一层。 */
+:deep(.money-display .number),
+:deep(.rise-fall-text .number) {
+  font-weight: 600;
 }
 
 /* partial 的斜纹叠加层是 `z-index: 0`，文字层（日期数字 / 金额 / 收益率 / 态标签）

@@ -74,6 +74,21 @@ class StockProfileRequest(BaseModel):
     )
 
 
+class IndexProfileRequest(BaseModel):
+    """`GET /api/products/index-profile/` 的查询参数（#2028 · 详情页指数区块）。
+
+    只要资料 + 估值 + 分位，不需要 market / venue 消歧——品类已由详情页 resolver
+    判定，指数代码在 ``index_catalog`` 是全局唯一的裸 6 位码。
+    """
+
+    symbol: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description='指数代码（裸 6 位码或带交易所前/后缀形态，service 内归一）',
+    )
+
+
 class ManagerProfileRequest(BaseModel):
     """`GET /api/products/manager-profile/` 的查询参数（#1970 · 详情页经理区块）。
 

@@ -87,7 +87,8 @@ CREATE TABLE watchlist (
     venue VARCHAR(10) DEFAULT 'EXCHANGE' COMMENT '交易场所：EXCHANGE(场内) / OTC(场外)',
 
     -- 状态：仅保留两个值，已清仓由前端动态推导
-    status VARCHAR(20) DEFAULT 'HOLDING' COMMENT 'HOLDING(持仓中) / WATCHING(观察中)。CLEARED 不存储，由前端根据 positions+transactions 推导',
+    status VARCHAR(20) DEFAULT 'HOLDING'
+        COMMENT 'HOLDING(持仓中) / WATCHING(观察中)。CLEARED 不存储，由前端根据 positions+transactions 推导',
 
     -- 特别关注：清仓后保留深度关系的资产
     favorite BOOLEAN DEFAULT FALSE COMMENT '特别关注标记。清仓后保留的深度研究资产',

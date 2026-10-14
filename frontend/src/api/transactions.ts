@@ -36,6 +36,8 @@ export interface TransactionListParams {
   status?: string;
   /** 资产类型过滤（后端经 positions 表关联） */
   asset_type?: string;
+  /** 产品代码过滤（后端经 symbol_scope 两步法匹配流水快照的真实写法） */
+  symbol?: string;
   page?: number;
   per_page?: number;
 }

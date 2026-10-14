@@ -79,8 +79,10 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.services.manager_code import bare_manager_code
 from app.services.tenure_display import (
     build_return_display,
     build_scale_display,
@@ -136,11 +138,14 @@ def build_manager_profile(
     """
     from app.domains.funds.models import Manager
 
-    code = (mgr_code or '').strip()
+    code = bare_manager_code(mgr_code)
     if not code:
         raise ValueError('缺少 mgr_code')
 
-    manager = db.query(Manager).filter(Manager.mgr_code == code).first()
+    # 归一后**大小写不敏感**匹配：入参可能来自 watchlist symbol（`MGR_<code>`），
+    # 且详情页路由的 symbol 会被 `resolve_product_identity` 大写化；库内是小写派生码。
+    # 少这一步，**每一张经理详情页**都会落到「经理不存在」（2026-10-11 实测）。
+    manager = db.query(Manager).filter(func.lower(Manager.mgr_code) == code).first()
     if manager is None:
         return None
 

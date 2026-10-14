@@ -176,10 +176,12 @@
       </div>
 
       <!-- 右栏：资产构成分布（仅股票 / 基金 / 信用账户，对齐看板饼图） -->
+      <!-- 栏间分割线走全局工具类 `.soft-col-divider`（style/index.scss）：
+           自带 24px 内边距、且仅在 lg 及以上出现——原先内联 borderLeft 既贴文字，
+           又在 lg 以下两栏堆叠时留一条孤零零的竖线。 -->
       <div
         v-if="p.isCompositionLedger"
-        class="lg:col-span-5 flex flex-col items-center justify-center h-full"
-        :style="{ borderLeft: '1px solid var(--border-light)' }"
+        class="lg:col-span-5 flex flex-col items-center justify-center h-full soft-col-divider"
       >
         <div class="w-full flex justify-between items-center mb-4">
           <span

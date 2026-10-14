@@ -122,7 +122,7 @@ def test_bar(before_func):
             @pytest.mark.usefixtures("before")
             def test_4(self):
                 print('test_2()')
-        ```
+       ```
 
         2. 在类前声明
 
@@ -154,7 +154,7 @@ def test_bar(before_func):
 
    示例代码：
 
-   ```python
+```python
    import pytest
    import time
 
@@ -179,7 +179,7 @@ def test_bar(before_func):
 
    def test_two():
        print('in test_two()')
-   ```plain
+```
 
    正所谓能力越大，责任越大。使用该功能时需要谨慎小心并控制测试用例的范围。比如你的所有测试用例都需要连接同一个数据库，那可以设置为 module，这样只需要连接一次数据库，对于模块内的所有测试，这样可以极大地提高运行效率。
 
@@ -222,15 +222,24 @@ def test_not_2(pass_data):
 
 ```python
 import pytest
-@pytest.mark.parametrize(['suffix_str', 'replace_flag', 'expected'], [('100万', 'w', 1000000), ('7.0天', 'd', 7),('2.0年', 'n', 730)])
+@pytest.mark.parametrize(
+    ['suffix_str', 'replace_flag', 'expected'],
+    [('100万', 'w', 1000000), ('7.0天', 'd', 7), ('2.0年', 'n', 730)],
+)
 def test_foo():
     pass
 
-@pytest.mark.parametrize('suffix_str,replace_flag,expected', [('100万', 'w', 1000000), ('7.0天', 'd', 7), ('2.0年', 'n', 730)])
+@pytest.mark.parametrize(
+    'suffix_str,replace_flag,expected',
+    [('100万', 'w', 1000000), ('7.0天', 'd', 7), ('2.0年', 'n', 730)],
+)
 def test_foo1():
     pass
 #
-@pytest.mark.parametrize(['suffix_str', 'replace_flag', 'expected'], [('100万', 'w', 1000000), ('7.0天', 'd', 7), ('2.0年', 'n', 730)])
+@pytest.mark.parametrize(
+    ['suffix_str', 'replace_flag', 'expected'],
+    [('100万', 'w', 1000000), ('7.0天', 'd', 7), ('2.0年', 'n', 730)],
+)
 def test_foo2():
     pass
 ```
@@ -285,8 +294,14 @@ TODO: 似乎目前无法不传默认值，参阅：[Error using parametrize with
 2.复制目录结构到指定目录，不包含文件
 
 ```shell
-find fundmate -type d|grep -v 'venv'|grep -v '__pypackages__'|grep -v '__pycache__'|grep -v 'tests'| sed 's/fundmate/mkdir -p tests/' | sh
-# 查找目录                排除目录                                                                      # 替换字符                        # 执行命令
+find fundmate -type d \
+  | grep -v 'venv' \
+  | grep -v '__pypackages__' \
+  | grep -v '__pycache__' \
+  | grep -v 'tests' \
+  | sed 's/fundmate/mkdir -p tests/' \
+  | sh
+# 查找目录并排除 venv/__pypackages__/__pycache__/tests，再替换 fundmate 为 mkdir -p tests 后执行
 ```
 
 注意如果需要，可以替换目录

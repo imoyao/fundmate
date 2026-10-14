@@ -163,6 +163,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'index_catalog': DOMAIN_MARKET,  # 指数名录（#1286 聚合搜索可搜索的指数条目）
     'index_daily': DOMAIN_MARKET,  # 指数日线点位（#275 基准对比底座，万得全A 经韭圈儿公开接口）
     'index_valuations': DOMAIN_MARKET,  # 指数估值（#1285/#1394：市盈率/股息率，中证官方）
+    'index_valuation_baselines': DOMAIN_MARKET,  # 指数估值分位基线（#1407：乐咕月频滚动 PE，近 5 年）
     'market_asset_daily': DOMAIN_MARKET,  # 探市大类资产日频快照（#1460 P1：20 资产，供读库组装）
     'market_bond_yield_daily': DOMAIN_MARKET,  # 探市债券 10Y 收益率日频快照（#1460 P1）
     'channel_links': DOMAIN_MARKET,  # 跨渠道关联（#1285 §3.8：指数↔ETF / ETF↔联接）
@@ -177,12 +178,16 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     # 无 user_id/family_id（同一只基金的指标对所有用户相同）⇒ 归 market 域。
     # 表属自建派生数据（非上游镜像），口径变更时整表按 caliber_version 作废重算。
     'fund_risk_metrics': DOMAIN_MARKET,
+    'fund_valuation_daily': DOMAIN_MARKET,  # 场外基金收盘估值定格（#2141）
     'money_fund_daily_worth': DOMAIN_MARKET,  # 货基净值
     'purchase_rules': DOMAIN_MARKET,
     'redeem_rules': DOMAIN_MARKET,
     'fee_ratios': DOMAIN_MARKET,
     'price_history': DOMAIN_MARKET,  # 历史行情（最大体积表）
     'securities': DOMAIN_MARKET,
+    # 个股/可转债 → 行业映射（#1981）。随 securities 同域：公开证券主数据，
+    # 无家庭私有字段，且 penetration 读它时要与 securities / price_history 同会话。
+    'security_industry_maps': DOMAIN_MARKET,
     'market_single_values': DOMAIN_MARKET,
     'market_composites': DOMAIN_MARKET,
     'market_multi_items': DOMAIN_MARKET,

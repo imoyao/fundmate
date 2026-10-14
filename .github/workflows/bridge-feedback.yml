@@ -75,6 +75,16 @@ jobs:
         with:
           token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
+
+      # 恢复上一次的状态文件（必须在跑脚本之前）：脚本读它判断「哪条已同步过」。
+      # 状态文件已不再 commit 回仓库（见下方 save 段与 composite action 的文件头），
+      # 仓库里那份会停在最后一次提交、越来越旧——靠 cache 传递才是最新的。
+      - name: 恢复上一次的状态文件
+        uses: ./.github/actions/save-bridge-state
+        with:
+          mode: restore
+          path: scripts/bridge/bridge_state.json
+          cache-key-prefix: feedlog-bridge
       - name: 安装 Python
         uses: actions/setup-python@v6
         with:
@@ -92,23 +102,26 @@ jobs:
         run: |
           python scripts/bridge/feedlog_bridge.py feedlog-to-github
 
-      - name: 提交状态文件
-        # 仅当 bridge_state.json 有变更时提交
-        run: |
-          if git diff --quiet scripts/bridge/bridge_state.json; then
-            echo "📭 状态文件无变化，跳过提交"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add scripts/bridge/bridge_state.json
-            git commit -m "chore: 更新 FeedLog 桥接状态 [skip ci]"
-            git push
-            echo "✅ 已提交状态文件"
-          fi
-
-  # ============================================
-  # 通道 2：GitHub Issue 标签/关闭 → FeedLog 状态
-  # ============================================
+      - name: 存档状态文件（cache 传递 + artifact 审计）
+        # ⚠️ 原实现是 `git commit "[skip ci]"` + **无参数** `git push`。而 schedule /
+        #   issues / workflow_dispatch 事件下 `actions/checkout` 检出的是**默认分支
+        #   `main`**（已核实），三件事叠加成死锁：
+        #     ① `main` 是保护分支，要求 required check「质量门禁汇总」；
+        #     ② `[skip ci]` 让 CI 不跑 -> required check 永远等不到结论；
+        #     ③ -> `GH006: Protected branch update failed for refs/heads/main`。
+        #   已实测复现：run 38499077160 的 `github-to-feedlog`。
+        #   去掉 `[skip ci]` 也不行——那会让每次桥接都触发一整轮质量门禁，为一个状态
+        #   文件烧掉十几分钟 Actions 分钟数。
+        #
+        # 状态文件可以安全地不落 Git：**防循环靠的是 FeedLog DB 里的 `system` 作者
+        #   哨兵**，不是这个 json —— `feedlog_bridge.py:144-151` 的注释已写明「这比
+        #   bridge_state.json 更可靠：state 靠 git 提交在并发 job 间传递，时序竞争会
+        #   丢映射，而作者字段在 DB 里不会丢」。所以 cache 丢失的代价只是多建一次卡。
+        uses: ./.github/actions/save-bridge-state
+        with:
+          mode: save
+          path: scripts/bridge/bridge_state.json
+          cache-key-prefix: feedlog-bridge
   github-to-feedlog:
     if: github.event_name == 'issues'
     runs-on: ubuntu-latest
@@ -117,6 +130,16 @@ jobs:
       - name: Checkout 仓库
         uses: actions/checkout@v5
 
+
+      # 恢复上一次的状态文件（必须在跑脚本之前）：脚本读它判断「哪条已同步过」。
+      # 状态文件已不再 commit 回仓库（见下方 save 段与 composite action 的文件头），
+      # 仓库里那份会停在最后一次提交、越来越旧——靠 cache 传递才是最新的。
+      - name: 恢复上一次的状态文件
+        uses: ./.github/actions/save-bridge-state
+        with:
+          mode: restore
+          path: scripts/bridge/bridge_state.json
+          cache-key-prefix: feedlog-bridge
       - name: 安装 Python
         uses: actions/setup-python@v6
         with:
@@ -185,23 +208,26 @@ jobs:
             --labels $LABELS \
             --action "${{ steps.parse.outputs.action }}"
 
-      - name: 提交状态文件（记录新建映射）
-        if: steps.parse.outputs.action == 'opened'
-        run: |
-          if git diff --quiet scripts/bridge/bridge_state.json; then
-            echo "📭 状态文件无变化，跳过提交"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add scripts/bridge/bridge_state.json
-            git commit -m "chore: 更新 FeedLog 桥接状态 [skip ci]"
-            git push
-            echo "✅ 已提交状态文件"
-          fi
-
-  # ============================================
-  # 手动回灌：GitHub Issue → FeedLog（含 --update 覆盖修复乱码镜像）
-  # ============================================
+      - name: 存档状态文件（cache 传递 + artifact 审计）
+        # ⚠️ 原实现是 `git commit "[skip ci]"` + **无参数** `git push`。而 schedule /
+        #   issues / workflow_dispatch 事件下 `actions/checkout` 检出的是**默认分支
+        #   `main`**（已核实），三件事叠加成死锁：
+        #     ① `main` 是保护分支，要求 required check「质量门禁汇总」；
+        #     ② `[skip ci]` 让 CI 不跑 -> required check 永远等不到结论；
+        #     ③ -> `GH006: Protected branch update failed for refs/heads/main`。
+        #   已实测复现：run 38499077160 的 `github-to-feedlog`。
+        #   去掉 `[skip ci]` 也不行——那会让每次桥接都触发一整轮质量门禁，为一个状态
+        #   文件烧掉十几分钟 Actions 分钟数。
+        #
+        # 状态文件可以安全地不落 Git：**防循环靠的是 FeedLog DB 里的 `system` 作者
+        #   哨兵**，不是这个 json —— `feedlog_bridge.py:144-151` 的注释已写明「这比
+        #   bridge_state.json 更可靠：state 靠 git 提交在并发 job 间传递，时序竞争会
+        #   丢映射，而作者字段在 DB 里不会丢」。所以 cache 丢失的代价只是多建一次卡。
+        uses: ./.github/actions/save-bridge-state
+        with:
+          mode: save
+          path: scripts/bridge/bridge_state.json
+          cache-key-prefix: feedlog-bridge
   sync-github-issue:
     if: github.event_name == 'workflow_dispatch' && inputs.command == 'sync-github-issue'
     runs-on: ubuntu-latest
@@ -215,6 +241,16 @@ jobs:
         with:
           token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
+
+      # 恢复上一次的状态文件（必须在跑脚本之前）：脚本读它判断「哪条已同步过」。
+      # 状态文件已不再 commit 回仓库（见下方 save 段与 composite action 的文件头），
+      # 仓库里那份会停在最后一次提交、越来越旧——靠 cache 传递才是最新的。
+      - name: 恢复上一次的状态文件
+        uses: ./.github/actions/save-bridge-state
+        with:
+          mode: restore
+          path: scripts/bridge/bridge_state.json
+          cache-key-prefix: feedlog-bridge
       - name: 安装 Python
         uses: actions/setup-python@v6
         with:
@@ -241,22 +277,26 @@ jobs:
           fi
           python scripts/bridge/feedlog_bridge.py sync-github-issue $ARGS
 
-      - name: 提交状态文件（记录新建映射）
-        run: |
-          if git diff --quiet scripts/bridge/bridge_state.json; then
-            echo "📭 状态文件无变化，跳过提交"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add scripts/bridge/bridge_state.json
-            git commit -m "chore: 更新 FeedLog 桥接状态 [skip ci]"
-            git push
-            echo "✅ 已提交状态文件"
-          fi
-
-  # ============================================
-  # 通道 3：GitHub Release → FeedLog Changelog
-  # ============================================
+      - name: 存档状态文件（cache 传递 + artifact 审计）
+        # ⚠️ 原实现是 `git commit "[skip ci]"` + **无参数** `git push`。而 schedule /
+        #   issues / workflow_dispatch 事件下 `actions/checkout` 检出的是**默认分支
+        #   `main`**（已核实），三件事叠加成死锁：
+        #     ① `main` 是保护分支，要求 required check「质量门禁汇总」；
+        #     ② `[skip ci]` 让 CI 不跑 -> required check 永远等不到结论；
+        #     ③ -> `GH006: Protected branch update failed for refs/heads/main`。
+        #   已实测复现：run 38499077160 的 `github-to-feedlog`。
+        #   去掉 `[skip ci]` 也不行——那会让每次桥接都触发一整轮质量门禁，为一个状态
+        #   文件烧掉十几分钟 Actions 分钟数。
+        #
+        # 状态文件可以安全地不落 Git：**防循环靠的是 FeedLog DB 里的 `system` 作者
+        #   哨兵**，不是这个 json —— `feedlog_bridge.py:144-151` 的注释已写明「这比
+        #   bridge_state.json 更可靠：state 靠 git 提交在并发 job 间传递，时序竞争会
+        #   丢映射，而作者字段在 DB 里不会丢」。所以 cache 丢失的代价只是多建一次卡。
+        uses: ./.github/actions/save-bridge-state
+        with:
+          mode: save
+          path: scripts/bridge/bridge_state.json
+          cache-key-prefix: feedlog-bridge
   release-to-changelog:
     if: |
       github.event_name == 'release' ||
@@ -264,6 +304,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 本 job 不读也不写 bridge_state.json（只往 FeedLog 追 Changelog），
+      # 故刻意**不**插入状态文件 restore —— 少一次无意义的 cache 恢复。
       - name: Checkout 仓库
         uses: actions/checkout@v5
 

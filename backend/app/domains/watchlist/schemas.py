@@ -4,7 +4,7 @@
 # File : schemas.py
 # 自选模块 Schema
 from datetime import date, datetime
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -34,6 +34,10 @@ class WatchlistItemCreate(BaseModel):
     is_pinned: Optional[bool] = Field(False, description='置顶自选')
     cost_price: Optional[float] = Field(None, description='观察参考成本价（探市迁移透传）')
     quantity: Optional[float] = Field(None, description='观察参考份额（探市迁移透传）')
+    # 创建即归组（#2106，AI 批量导入等场景）：**可选**，不传 / 空数组 = 维持现状（只落「全部」）。
+    # 「全部」等系统分组是虚拟口径，没有关联关系，不接受 id；只接受本家庭的自定义分组，
+    # 非法 id 由服务层校验后 400，且不落库（见 watchlist_service.resolve_create_group_ids）。
+    group_ids: Optional[List[int]] = Field(None, description='创建时一并加入的自定义分组 id（可选，多对多）')
 
 
 class WatchlistItemUpdate(BaseModel):

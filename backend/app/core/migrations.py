@@ -631,3 +631,48 @@ def migrate_fund_equity_position_period(engine: Engine) -> str:
         raise RuntimeError('funds.equity_position_period 增加后校验失败')
     logger.info('[OK] funds.equity_position_period 已就绪（#870 仓位口径版本留痕）')
     return '[OK] funds.equity_position_period 已就绪'
+
+
+def migrate_fund_valuation_official_columns(engine: Engine) -> str:
+    """fund_valuation_daily 补对照三列（#2142）：official_nav / deviation / deviation_pct。
+
+    ## 为什么需要
+
+    K 卡（#2141）落库的估值行只有预估侧字段；官方净值到位后 `fund_valuation_reconcile`
+    job 要把 status 翻 confirmed 并记录「预估 vs 官方」偏差，供数据源质量观察——
+    没有这三列，对照结果无处可写（status 单独翻 confirmed 会丢失对照依据）。
+
+    ## 加列方式
+
+    三列全为**可空**列：SQLite / libsql 对可空列支持直接 ALTER ADD COLUMN；
+    历史行（对照发生前落库的预估行）留 NULL，读取端 NULL → None 降级，不写 0。
+    幂等：列已存在则跳过。非 SQLite 引擎（Supabase Postgres）由 ORM 模型 / 迁移工具
+    负责，直接跳过。
+
+    ⚠️ 本迁移**只加列、不回填**：偏差是「当时预估 vs 当时官方」的时点对照，
+    事后可以补算（reconcile job 会自然收敛历史 estimated 行），无需启动期回填。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
+
+    if 'fund_valuation_daily' not in inspect(engine).get_table_names():
+        return '[SKIP] fund_valuation_daily 表不存在（空库，init_db 将按新模型建表）'
+
+    cols = [
+        ('official_nav', 'NUMERIC(18, 6)'),
+        ('deviation', 'NUMERIC(18, 6)'),
+        ('deviation_pct', 'NUMERIC(10, 4)'),
+    ]
+    with engine.connect() as conn:
+        existing = {c['name'] for c in inspect(engine).get_columns('fund_valuation_daily')}
+        added = []
+        for name, typ in cols:
+            if name not in existing:
+                conn.execute(text(f'ALTER TABLE fund_valuation_daily ADD COLUMN {name} {typ}'))
+                added.append(name)
+        conn.commit()
+    if added:
+        logger.info(f'[OK] fund_valuation_daily 增加对照列: {added}')
+        return f'[OK] 增加列 {added}'
+    return '[SKIP] fund_valuation_daily 对照三列已存在'

@@ -29,6 +29,7 @@ from app.core.database import SQLALCHEMY_DATABASE_URL as DB_URL
 # 留在本模块会让它们为了借锁而连带加载 akshare。此处保留同名导入以兼容既有
 # 调用方与测试的 monkeypatch 目标（`app.services.sync.orchestrator.acquire_lock`）。
 from app.core.file_lock import acquire_lock
+from app.core.symbol_utils import derive_security_type, split_symbol
 from app.core.time_utils import now_shanghai
 from app.domains.positions.models import Position
 from app.domains.watchlist.models import WatchlistItem
@@ -38,8 +39,10 @@ from app.services.adapters.advisor_source import AdvisorSourceRegistry
 from app.services.adapters.akshare_adapter import AkshareAdapter
 from app.services.adapters.eastmoney_adapter import EastmoneyAdapter
 from app.services.adapters.jiucaishuo_adapter import JiucaishuoAdapter
+from app.services.adapters.manager_tenure import ManagerTenureAdapter
 from app.services.adapters.null_adapter import NullAdapter
 from app.services.adapters.xalpha_adapter import XalphaAdapter
+from app.services.fund_utils import normalize_fund_code
 from app.services.sync.jobs.advisor_portfolio_job import AdvisorPortfolioSyncJob
 from app.services.sync.jobs.amac_institution_job import AmacInstitutionJob
 from app.services.sync.jobs.asset_snapshot_job import AssetSnapshotJob
@@ -55,14 +58,19 @@ from app.services.sync.jobs.fund_position_job import FundPositionSyncJob
 from app.services.sync.jobs.fund_risk_metrics_job import FundRiskMetricsSyncJob
 from app.services.sync.jobs.fund_scale_job import FundScaleSyncJob
 from app.services.sync.jobs.fund_type_job import FundTypeSyncJob
+from app.services.sync.jobs.fund_valuation_reconcile_job import FundValuationReconcileJob
+from app.services.sync.jobs.fund_valuation_snapshot_job import FundValuationSnapshotJob
 from app.services.sync.jobs.index_catalog_job import IndexCatalogSyncJob
 from app.services.sync.jobs.index_constituent_job import INDEX_TARGETS, IndexConstituentSyncJob
 from app.services.sync.jobs.index_daily_job import IndexDailySyncJob
 from app.services.sync.jobs.index_valuation_job import IndexValuationSyncJob
+from app.services.sync.jobs.index_valuation_lg_job import IndexValuationLgSyncJob
+from app.services.sync.jobs.manager_tenure_job import ManagerTenureSyncJob
 from app.services.sync.jobs.market_asset_daily_job import MarketAssetDailySyncJob
 from app.services.sync.jobs.orphan_backfill_job import OrphanBackfillJob
 from app.services.sync.jobs.position_price_job import PositionPriceSyncJob
 from app.services.sync.jobs.price_history_job import PriceHistorySyncJob
+from app.services.sync.jobs.security_industry_map_job import SecurityIndustryMapSyncJob
 from app.services.sync.jobs.stock_list_job import StockListSyncJob
 from app.services.thermometer.jobs import TemperatureJob
 
@@ -175,6 +183,11 @@ class DataSyncOrchestrator:
             self.data_sources['akshare'], self.data_sources['xalpha'], self.db
         )
         self.jobs['fund_manager'] = FundManagerSyncJob(self.data_sources['akshare'], self.db)
+        # #2082：任期只存在于天天基金 F10 经理页，**每只基金一次 HTTP**，故独立成 job，
+        # 由调用方按目标池限量传 targets（本 job 不接受"空 targets → 全库"的兜底）。
+        # adapter 用 ManagerTenureAdapter 而不是 NullAdapter：它确实在抓上游，
+        # sync_logs.data_source 得如实写成 tiantian_f10。
+        self.jobs['manager_tenure'] = ManagerTenureSyncJob(ManagerTenureAdapter(), self.db)
         # 消费导入侧观察值（user 域 fund_company_observations）补 funds.company_id：
         # 纯本地解析、不联网，故 NullAdapter 占位（同 amac_institution 的处理）。
         self.jobs['fund_company_backfill'] = FundCompanyBackfillJob(NullAdapter(), self.db)
@@ -190,16 +203,29 @@ class DataSyncOrchestrator:
         # 注册表同时充当 SyncJob 的 adapter 槽位（sync_logs 审计读 get_name/get_version）。
         self.jobs['advisor_portfolio'] = AdvisorPortfolioSyncJob(AdvisorSourceRegistry(), self.db)
         self.jobs['fund_nav'] = FundNavSyncJob(self.data_sources['xalpha'], self.db)
+        # #2141：收盘估值定格。天天基金 HTTP 直抓（非 akshare/xalpha 数据源），
+        # NullAdapter 占位；目标池吃 fund 池（场外基金裸码），多时点由
+        # daily_scheduler 的 cron 驱动，按 (fund_code, est_date) 幂等覆盖。
+        self.jobs['fund_valuation_snapshot'] = FundValuationSnapshotJob(NullAdapter(), self.db)
+        # #2142：预估→正式对照。纯 DB（读 daily_worth、写 fund_valuation_daily 对照列），
+        # 无外部请求，NullAdapter 占位；target_kind=None 全量路径，不入 SYMBOL_BACKFILL_JOBS。
+        self.jobs['fund_valuation_reconcile'] = FundValuationReconcileJob(self.db)
         self.jobs['price_history'] = PriceHistorySyncJob(self.data_sources['akshare'], self.db)
         self.jobs['index_constituents'] = IndexConstituentSyncJob(self.data_sources['akshare'], self.db)
         # #1285/#1394：指数估值（中证官方：市盈率 / 股息率）
         self.jobs['index_valuation'] = IndexValuationSyncJob(self.data_sources['akshare'], self.db)
+        # #1407 拍板：分位基线（乐咕月频滚动 PE，近 5 年）
+        self.jobs['index_valuation_lg'] = IndexValuationLgSyncJob(self.data_sources['akshare'], self.db)
         # #1285 §3.8：跨渠道关联（指数↔ETF，主流宽基白名单）
         self.jobs['channel_link'] = ChannelLinkSyncJob(self.data_sources['akshare'], self.db)
         # #1285/#1393：可转债条款（强赎状态 + 静态条款，akshare 集思录）
         self.jobs['convertible_bond'] = ConvertibleBondSyncJob(self.data_sources['akshare'], self.db)
         # #1286：指数名录（聚合搜索可搜索的指数条目，与成分互补）
         self.jobs['index_catalog'] = IndexCatalogSyncJob(self.data_sources['akshare'], self.db)
+        # #1981：个股 / 可转债 → 行业映射（申万宏源全量 31 请求 + 巨潮按 targets 补）。
+        # 取数在 services/security_industry_map_service 内直连上游（两家**非东财**源），
+        # 故与 market_asset_daily 同范式用 NullAdapter 占位。
+        self.jobs['security_industry_maps'] = SecurityIndustryMapSyncJob(NullAdapter(), self.db)
         # #275：指数日线点位（万得全A 经韭圈儿公开接口，独立数据源）
         self.jobs['index_daily'] = IndexDailySyncJob(JiucaishuoAdapter(), self.db)
         # #1460：探市大类资产日频快照（数据经 market_service 直连 akshare，不经过 adapter，
@@ -227,7 +253,7 @@ class DataSyncOrchestrator:
 
     def resolve_targets(self, target_file: Optional[str] = None) -> Dict[str, List[str]]:
         """
-        解析本次同步的目标代码列表，按类型分为 'fund' 和 'stock'。
+        解析本次同步的目标代码列表，按类型分为 'fund' / 'stock' / 'etf'。
 
         优先级:
             1. 命令行传入的 --target-file CSV 文件
@@ -235,17 +261,44 @@ class DataSyncOrchestrator:
             3. 空列表（增量同步在无持仓时会跳过）
 
         Returns:
-            {"fund": [...], "stock": [...]}
+            {"fund": [...], "stock": [...], "etf": [...]}
+
+            - 'fund'：裸 6 位基金代码（场外基金，既有语义不变）；
+            - 'stock'：带交易所前缀的非基金 symbol（原样保留）。
+              场内 ETF 的带前缀符号**也在本池**——`price_history` 靠它同步
+              ETF 场内价格，剔除会断行情；
+            - 'etf'（#1983）：场内 ETF 的带前缀符号归一化后的**裸 6 位码**，
+              只喂给 `fund_position` 抓底层持仓 / 行业配置。裸码形态与
+              `fund_holdings.fund_code` / 穿透读侧对齐（读侧从
+              `EXCHANGE:SZ159857` 提取裸码 '159857' 与表内 fund_code 对账）。
+
+        为什么 ETF 要同时出现在两个池：两个池的消费方不同——stock 池的
+        `price_history` 要带前缀形态，etf 池的 `fund_position` 要裸码形态；
+        两侧互不影响，缺任一侧都会断一条链路。
         """
         if target_file:
             codes = self._load_codes_from_csv(target_file)
         else:
             codes = self._load_codes_from_database()
 
-        # 按类型分类：6 位纯数字为基金代码，其余为股票代码
-        fund_codes = [c for c in codes if c.isdigit() and len(c) == 6]
-        stock_codes = [c for c in codes if not (c.isdigit() and len(c) == 6)]
-        return {'fund': fund_codes, 'stock': stock_codes}
+        fund_codes: List[str] = []
+        stock_codes: List[str] = []
+        etf_codes: List[str] = []
+        for c in codes:
+            if c.isdigit() and len(c) == 6:
+                # 裸 6 位数字：场外基金（既有语义，不变）
+                fund_codes.append(c)
+                continue
+            bare = normalize_fund_code(c)
+            market, _ = split_symbol(c)
+            if bare and derive_security_type(bare, market) == 'etf':
+                # 场内 ETF：带前缀符号原样留 stock 池（行情用），裸码再进
+                # etf 池（底层持仓用，见上方 Returns 说明）
+                etf_codes.append(bare)
+                stock_codes.append(c)
+                continue
+            stock_codes.append(c)
+        return {'fund': fund_codes, 'stock': stock_codes, 'etf': etf_codes}
 
     def _load_codes_from_csv(self, filepath: str) -> List[str]:
         """
@@ -496,6 +549,9 @@ class DataSyncOrchestrator:
             targets = self.resolve_targets(target_file)
             fund_targets = targets.get('fund', [])
             stock_targets = targets.get('stock', [])
+            # #1983：场内 ETF 的裸码只进 fund_position（抓底层持仓 / 行业配置），
+            # 不进 fund_nav / fund_type 等其他 job——它们对 ETF 的既有语义不变。
+            etf_targets = targets.get('etf', [])
 
             # 执行顺序：列表类 Job 不需要目标列表，净值/行情需要
             execution_plan = [
@@ -507,7 +563,10 @@ class DataSyncOrchestrator:
                 #   fund_scale —— 单次 HTTP 返回全市场列表，§4.3.3 允许全量
                 #   fund_position —— 逐只 HTTP（≈1.8s/只），§4.3.3 强制按目标池限量
                 ('fund_scale', ['__full__']),
-                ('fund_position', fund_targets),  # 空 targets 显式跳过，不退化为全库
+                (
+                    'fund_position',
+                    fund_targets + etf_targets,
+                ),  # 空 targets 显式跳过，不退化为全库（#1983：含场内 ETF 裸码）
                 ('fund_manager', fund_targets),  # 回填基金经理并关联基金公司（核心池）
                 # 导入侧观察值 → funds.company_id（不联网、幂等、只填空缺）：
                 # 紧跟基金公司相关任务，且 funds 已由 fund_list 建好

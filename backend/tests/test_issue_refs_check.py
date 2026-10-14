@@ -25,6 +25,7 @@
 """
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 
@@ -32,6 +33,33 @@ import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT_PATH = _REPO_ROOT / 'scripts' / 'bridge' / 'check_issue_refs.py'
+
+
+def _ensure_default_ref() -> None:
+    """保证 `origin/dev` 在**任何** checkout 里都存在，让下面的断言有真实 ref 可用。
+
+    CI 的 `actions/checkout` 在 PR 场景只取 merge ref，**不创建** `origin/dev`；
+    于是这一组用例在 CI 上必挂、在本地却全绿（实测：本地有 ref → 31 passed，
+    CI 无 ref → 8 failed，全挂在 `git show origin/dev:…` 解析不出路径上）。
+
+    补一个指向当前 HEAD 的本地 ref 即可——**不是 mock**：解析仍然走真实 `git show`，
+    只是把「环境里有没有这个 ref」这件与判据无关的事抹平。本地已存在时是 no-op。
+    """
+    if subprocess.run(
+        ['git', 'rev-parse', '--verify', '--quiet', 'origin/dev'],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        check=False,
+    ).returncode:
+        subprocess.run(
+            ['git', 'update-ref', 'refs/remotes/origin/dev', 'HEAD'],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            check=False,
+        )
+
+
+_ensure_default_ref()
 
 _MOD = None
 
@@ -103,6 +131,8 @@ def test_extract_range_and_explicit_ref(mod):
 
 def test_extract_ignores_issue_numbers_and_urls(mod):
     """`#118` / `https://…` / `12:30` 不能被当成文件引用（误报比漏报更耗信任）。"""  # cross-repo-ref-allow
+    text = '源 CNB issue #118；见 https://github.com/imoyao/fundmate/issues/2034 ；时间 12:30'  # cross-repo-ref-allow
+    """`#118` / `https://…` / `12:30` 不能被当成文件引用（误报比漏报更耗信任）。"""
     text = '源 CNB issue #118；见 https://github.com/imoyao/fundmate/issues/2034 ；时间 12:30'  # cross-repo-ref-allow
     assert mod.extract_refs(text) == []
 

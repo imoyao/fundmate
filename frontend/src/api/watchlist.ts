@@ -57,6 +57,9 @@ export interface WatchlistItemCreateInput {
   is_pinned?: boolean;
   cost_price?: number;
   quantity?: number;
+  /** 创建时一并归入的自定义分组 id（#2106，可选，多对多）。
+      不传 / 空数组 = 只落「全部」；非法 id 后端返回 400 且不落库。 */
+  group_ids?: number[];
 }
 
 /** 更新自选资产入参（PATCH，对齐后端 WatchlistItemUpdate，所有字段可选） */

@@ -91,6 +91,45 @@ export function getFundProfile(code: string) {
   );
 }
 
+/**
+ * 指数资料聚合结果（#2028 · `/api/products/index-profile/`）。
+ *
+ * 字段缺失一律 null，前端降级「—」。分位是**读路径现算**（乐咕月频近 5 年窗口，
+ * #1407 拍板）：样本不足 12 点时 pe_percentile 为 null——那是「样本不够」不是
+ * 「分位为 0」，两者语义相反，不可混。股息率分位本期恒为 null（乐咕无该序列）。
+ */
+export interface IndexProfileResult {
+  /** 裸 6 位指数码（service 已归一，带前缀入口也返回裸码） */
+  index_code: string;
+  /** 指数中文简称（index_catalog.name） */
+  name: string;
+  /** 编制/发布机构中文名（中证指数公司 / 国证指数…）；未知为 null */
+  publisher_label: string | null;
+  /** 核心指数白名单标记（自选分组置顶用，此处仅展示「核心」徽标） */
+  is_core: boolean;
+  /** 市盈率（中证官方口径 pe_1，最新一期）；无官方估值文件为 null */
+  pe: number | null;
+  /** 股息率(%)（中证官方口径 dividend_yield_1）；为 null 时不可显示为 0 */
+  dividend_yield: number | null;
+  /** 估值日期 YYYY-MM-DD（官方文件最新一期） */
+  valuation_date: string | null;
+  /** PE 历史分位(%)：乐咕滚动 PE 在近 5 年月频窗口中的位置；样本不足为 null */
+  pe_percentile: number | null;
+  /** 分位口径元数据（脚注直接展示，前端不另建映射） */
+  percentile_metric: string | null;
+  /** 分位基线的最新采样日 YYYY-MM-DD */
+  percentile_date: string | null;
+}
+
+/** 取指数资料聚合。404 = 该代码不在指数名录。 */
+export function getIndexProfile(symbol: string) {
+  return http.request<ApiResponse<IndexProfileResult>>(
+    "get",
+    "/api/products/index-profile/",
+    { params: { symbol } }
+  );
+}
+
 /** 区间收益切面条目（`/api/products/fund-performance/` 返回） */
 export interface FundPerformanceInterval {
   /** 档位 key：1w/1m/3m/6m/1y/2y/3y/5y/ytd/since */
@@ -138,6 +177,15 @@ export interface FundPerformanceResult {
   annual_return_7d?: number | null;
   /** 货基：万份收益(元)（仅 fund_kind=money） */
   nav_per_10k?: number | null;
+  /**
+   * 货基：七日年化的窗口长度（自然日），恒为 7。
+   * 刻意按**自然日**而非「最近 7 个观测」——后者会让国庆这类长假把窗口拉到 13 天。
+   */
+  window_days?: number;
+  /** 货基：窗口内实际有几个已发布样本（节假日会 < window_days） */
+  samples?: number;
+  /** 货基：七日年化口径的人话说明，供脚注直接展示 */
+  caliber_note?: string;
 
   // ── 风险指标块（#167）────────────────────────────────────────────────
   // 仅在 fund_kind="fund" 且 applicable=true 时存在。货基没有净值型风险口径，
@@ -214,132 +262,90 @@ export interface FundPerformanceResult {
   shape_gain2?: ShapeGain2 | null;
 }
 
-/** 拟涨幅2 结果（#167 收尾）。`segments` 是四段原始收益（%），随值下发供复核。 */
-export interface ShapeGain2 {
-  /** 拟涨幅2（%） */
-  shape_gain2: number;
-  /** 四段去重叠收益（%），近 → 远 */
-  segments: number[];
-  /** 口径说明（权重与「不含 rf」） */
-  basis: string;
-}
-
-/** 基准相对块（#167）。`available: false` 表示基准已选定但序列暂缺，**不以上述以外的指数顶替** */
-export interface FundBenchmark {
-  /** 基准指数代码（`index_daily.index_code`），如 `000300.SH` / `885001.WI` */
-  code: string;
-  /** 基准展示名（后端下发，前端不抄映射） */
-  name: string;
-  /** 命中规则名——口径留痕：用户可复核「凭什么拿它比」 */
-  matched_by: string;
-  /** 序列是否可用 */
-  available: boolean;
-  /** 不可用时的原因（仅 available=false） */
-  reason?: string;
-  /** 共同交易日上的样本数（仅 available=true） */
-  sample_points?: number;
-  /** 基准同期年化收益(%) */
-  bench_annual_return?: number | null;
-  /** 基金同期年化收益(%) */
-  fund_annual_return?: number | null;
-  /** 超额收益(%)：基金 − 基准 */
-  excess_return?: number | null;
-  /** 年化跟踪误差(%) */
-  tracking_error_annual?: number | null;
-  /** 信息比率：年化超额 / 年化跟踪误差 */
-  information_ratio?: number | null;
-  /** 上行捕获率(%)：>100 = 基准涨时它涨得更多 */
-  upside_capture?: number | null;
-  /** 下行捕获率(%)：<100 = 基准跌时它跌得更少 */
-  downside_capture?: number | null;
-  /** 口径标记：ok / insufficient（共同交易日不足） */
-  basis?: string;
-}
-
-/** 榜单可选的一类基金（#167）。`count` = 当前口径下该类可上榜的只数。 */
-export interface FundRiskTypeOption {
-  fund_type_id: number;
-  name: string;
-  /** 当前口径、`basis=acc_nav` 的行数——用来显示「债券型-长期纯债（312）」 */
-  count: number;
-}
-
-export interface FundRiskTypesResult {
-  caliber_version: number;
-  /** 只含**有快照行**的类型；按只数降序。没有数据的类型不在内（选中即空榜） */
-  types: FundRiskTypeOption[];
-}
-
-/**
- * 取「当前有榜可看」的基金小类（#167 · 榜单页类型选择器）。
- *
- * 不用「全库 fund_types 名录」当选项：名录里有些类型一只都没算过，
- * 选中只会看到空榜，而用户分不清「这个类没有基金」与「我们没算」。
- */
-export function getFundRiskTypes() {
-  return http.request<ApiResponse<FundRiskTypesResult>>(
-    "get",
-    "/api/products/fund-risk-types/"
-  );
-}
-
-/** 取同类型基金的风险指标榜（#167）。`fund_type_id` 必填——不做跨类榜。 */
-export interface FundRiskRankingRow {
-  fund_code: string;
-  fund_type_id: number | null;
-  as_of: string | null;
-  max_drawdown: number | null;
-  current_drawdown: number | null;
-  drawdown_days: number | null;
-  annual_return: number | null;
-  annual_volatility: number | null;
-  sharpe: number | null;
-  sortino: number | null;
-  calmar: number | null;
-  ulcer_index: number | null;
-  upi: number | null;
-  return_drawdown_ratio: number | null;
-  win_rate: number | null;
-  sample_points: number;
-  /** 口径：acc_nav（正常）/ distorted / insufficient */
-  basis: string;
-  window_label: string;
-}
-
-export interface FundRiskRankingResult {
-  fund_type_id: number;
-  metric: string;
-  order: "asc" | "desc";
-  caliber_version: number;
-  rows: FundRiskRankingRow[];
-  /**
-   * 因口径可疑（净值跳变 / 样本不足）被剔除的条数。
-   *
-   * **必须展示**：不展示的话「榜上只剩 3 只」会被读成「同类只有 3 只有数据」。
-   */
-  excluded_distorted: number;
-}
-
-/** 取同类基金的风险指标榜（#167）。`fund_type_id` 必填——风险比跨类别不可比。 */
-export function getFundRiskRanking(params: {
-  fund_type_id: number;
-  metric: string;
-  limit?: number;
-  order?: "asc" | "desc";
-  include_distorted?: boolean;
-}) {
-  return http.request<ApiResponse<FundRiskRankingResult>>(
-    "get",
-    "/api/products/fund-risk-ranking/",
-    { params }
-  );
-}
-
 /** 取基金业绩与风险。404 = 该代码不是基金。 */
 export function getFundPerformance(code: string) {
   return http.request<ApiResponse<FundPerformanceResult>>(
     "get",
     "/api/products/fund-performance/",
+    { params: { code } }
+  );
+}
+
+/**
+ * 基金行业配置 + 持仓明细（#2029 卡 C · 详情页行业配置卡 + 持仓明细卡）。
+ *
+ * 口径（后端 `services/fund_holdings_detail.py` 定，前端只呈现）：
+ * - `industries` **按 scheme 分区**：csrc（证监会门类，主口径）与 gics（GICS 板块）
+ *   语义不重叠，**禁止跨体系相加**；`is_primary` 标出主口径，非主口径仅参考。
+ * - `holdings.basis` 为披露口径：`full`（半年报/年报全量）/ `top10`（季报前十大），
+ *   同期间并存时优先 `full`。`basis_label` 必须展示给用户 —— 否则会把
+ *   「只披露了 10 只」误读成「只买了 10 只」。
+ * - 所有字段缺失一律 null，前端据此降级为「—」。
+ */
+export interface FundIndustryItem {
+  industry_code: string;
+  industry_name: string;
+  /** 占净值比例(%)；缺失为 null（不按 0 参与合计） */
+  ratio: number | null;
+}
+
+export interface FundIndustryBucket {
+  /** csrc（证监会门类）/ gics（GICS 板块） */
+  scheme: string;
+  scheme_label: string;
+  /** 是否主口径（true 的那个才进环形图） */
+  is_primary: boolean;
+  report_period: string | null;
+  report_date: string | null;
+  items: FundIndustryItem[];
+  /** 该分区占比合计(%) */
+  total_ratio: number | null;
+}
+
+export interface FundHoldingRow {
+  rank: number | null;
+  stock_code: string;
+  stock_name: string | null;
+  /** 占净值比例(%) */
+  ratio: number | null;
+  /** 持股数(万股) */
+  shares: number | null;
+  /** 持仓市值(万元) */
+  market_value: number | null;
+}
+
+export interface FundHoldingsDetailResult {
+  fund_code: string;
+  fund_name: string | null;
+  /** 是否有任一类可展示数据（行业配置或持仓明细） */
+  applicable: boolean;
+  has_industry: boolean;
+  has_holding: boolean;
+  /** 按 scheme 分区的行业配置，主口径排第一 */
+  industries: FundIndustryBucket[];
+  /** 环形图数据（只含主口径，且已与表格同口径截断） */
+  industry_chart: Array<{ name: string; value: number }>;
+  holdings: {
+    rows: FundHoldingRow[];
+    /** full / top10 / unknown */
+    basis: string | null;
+    /** 中文口径标签，必须展示 */
+    basis_label: string | null;
+    report_period: string | null;
+    report_date: string | null;
+    /** 所示条目的占比合计(%) */
+    shown_total_ratio: number | null;
+  };
+  as_of: string | null;
+  /** 数据来源站点名（东财 f10，非净值链路的天天基金） */
+  source: string;
+}
+
+/** 取基金行业配置 + 持仓明细。404 = 该代码不是基金。 */
+export function getFundHoldingsDetail(code: string) {
+  return http.request<ApiResponse<FundHoldingsDetailResult>>(
+    "get",
+    "/api/products/fund-holdings-detail/",
     { params: { code } }
   );
 }
@@ -365,6 +371,13 @@ export interface StockProfileResult {
   low: number | null;
   /** 区间涨跌幅(%)（窗口首日 → 最新）。null 表示首日缺失或为 0，**不是「没涨」** */
   change_pct: number | null;
+  /** 前一个**有收盘价**的交易日收盘（停牌时即最后交易日收盘，与行情软件「昨收」同口径）。
+      窗口内只有 1 条行情时为 null —— 没有基准就不给日涨跌 */
+  prev_close: number | null;
+  /** 日涨跌额 = close − prev_close；null 表示缺基准，**不是「没涨跌」** */
+  change_amount: number | null;
+  /** 日涨跌幅(%)（昨收 → 最新）；给「最新收盘」上色用的就是这个口径，不是区间口径 */
+  day_change_pct: number | null;
   /** 实际参与统计的交易日条数；小于 window_days 说明上市/历史不足，需如实提示 */
   trading_days: number;
   /** 数据来源站点名（如「新浪财经」）；一条行情都没有时为空串 */
@@ -518,6 +531,25 @@ export interface ManagerHoldingRow {
   market_value: number | null;
 }
 
+/**
+ * 风格标签（#2044）。
+ *
+ * - `dim`/`key` 是稳定枚举，前端按 `key` 映射 Badge 样式；
+ * - 后端**不返回颜色**（配色由前端令牌决定，硬约束）；
+ * - 数据不足的维度**缺席**而非 null——`style_labels` 里找不到该 `dim` 即该维度
+ *   无数据，展示层按维度缺席处理（不渲染占位徽章）。
+ */
+export interface StyleLabel {
+  /** 维度：`concentration` 持仓集中度 / `industry` 行业集中度 / `size` 市值风格 */
+  dim: string;
+  /** 稳定标签枚举，如 `concentration_high` / `size_large` */
+  key: string;
+  /** 中文短文案，如「持仓高集中」 */
+  label: string;
+  /** 可解释依据，如「前十大重仓占净值 65.8%，全库 P80」（hover/副文本展示） */
+  basis: string;
+}
+
 /** 代表作前十大重仓结果（#1970 扩展 · `manager-holdings` 端点） */
 export interface ManagerHoldingsResult {
   fund_code: string | null;
@@ -538,6 +570,8 @@ export interface ManagerHoldingsResult {
   /** 前 N 大合计占净值比（集中度锚点） */
   total_ratio: number | null;
   rows: ManagerHoldingRow[];
+  /** 风格标签（#2044）：纯函数判据 + 全库标定阈值，数据不足维度缺席 */
+  style_labels: StyleLabel[];
   /** 无数据时的原因（固定契约：rows 为空即无数据，不是接口错误） */
   empty_reason?: string;
 }
@@ -712,4 +746,125 @@ export function getAdvisorProfile(params: { code: string }) {
     "/api/products/advisor-profile/",
     { params }
   );
+}
+
+/** 榜单可选的一类基金（#167）。`count` = 当前口径下该类可上榜的只数。 */
+export interface FundRiskTypeOption {
+  fund_type_id: number;
+  name: string;
+  /** 当前口径、`basis=acc_nav` 的行数——用来显示「债券型-长期纯债（312）」 */
+  count: number;
+}
+
+export interface FundRiskTypesResult {
+  caliber_version: number;
+  /** 只含**有快照行**的类型；按只数降序。没有数据的类型不在内（选中即空榜） */
+  types: FundRiskTypeOption[];
+}
+
+/**
+ * 取「当前有榜可看」的基金小类（#167 · 榜单页类型选择器）。
+ *
+ * 不用「全库 fund_types 名录」当选项：名录里有些类型一只都没算过，
+ * 选中只会看到空榜，而用户分不清「这个类没有基金」与「我们没算」。
+ */
+export function getFundRiskTypes() {
+  return http.request<ApiResponse<FundRiskTypesResult>>(
+    "get",
+    "/api/products/fund-risk-types/"
+  );
+}
+
+/** 取同类型基金的风险指标榜（#167）。`fund_type_id` 必填——不做跨类榜。 */
+export interface FundRiskRankingRow {
+  fund_code: string;
+  fund_type_id: number | null;
+  as_of: string | null;
+  max_drawdown: number | null;
+  current_drawdown: number | null;
+  drawdown_days: number | null;
+  annual_return: number | null;
+  annual_volatility: number | null;
+  sharpe: number | null;
+  sortino: number | null;
+  calmar: number | null;
+  ulcer_index: number | null;
+  upi: number | null;
+  return_drawdown_ratio: number | null;
+  win_rate: number | null;
+  sample_points: number;
+  /** 口径：acc_nav（正常）/ distorted / insufficient */
+  basis: string;
+  window_label: string;
+}
+
+export interface FundRiskRankingResult {
+  fund_type_id: number;
+  metric: string;
+  order: "asc" | "desc";
+  caliber_version: number;
+  rows: FundRiskRankingRow[];
+  /**
+   * 因口径可疑（净值跳变 / 样本不足）被剔除的条数。
+   *
+   * **必须展示**：不展示的话「榜上只剩 3 只」会被读成「同类只有 3 只有数据」。
+   */
+  excluded_distorted: number;
+}
+
+/** 取同类基金的风险指标榜（#167）。`fund_type_id` 必填——风险比跨类别不可比。 */
+export function getFundRiskRanking(params: {
+  fund_type_id: number;
+  metric: string;
+  limit?: number;
+  order?: "asc" | "desc";
+  include_distorted?: boolean;
+}) {
+  return http.request<ApiResponse<FundRiskRankingResult>>(
+    "get",
+    "/api/products/fund-risk-ranking/",
+    { params }
+  );
+}
+
+/** 拟涨幅2 结果（#167 收尾）。`segments` 是四段原始收益（%），随值下发供复核。 */
+export interface ShapeGain2 {
+  /** 拟涨幅2（%） */
+  shape_gain2: number;
+  /** 四段去重叠收益（%），近 → 远 */
+  segments: number[];
+  /** 口径说明（权重与「不含 rf」） */
+  basis: string;
+}
+
+/** 基准相对块（#167）。`available: false` 表示基准已选定但序列暂缺，**不以上述以外的指数顶替** */
+export interface FundBenchmark {
+  /** 基准指数代码（`index_daily.index_code`），如 `000300.SH` / `885001.WI` */
+  code: string;
+  /** 基准展示名（后端下发，前端不抄映射） */
+  name: string;
+  /** 命中规则名——口径留痕：用户可复核「凭什么拿它比」 */
+  matched_by: string;
+  /** 序列是否可用 */
+  available: boolean;
+  /** 不可用时的原因（仅 available=false） */
+  reason?: string;
+  /** 共同交易日上的样本数（仅 available=true） */
+  sample_points?: number;
+  /** 基准同期年化收益(%) */
+  bench_annual_return?: number | null;
+  /** 基金同期年化收益(%) */
+  fund_annual_return?: number | null;
+  /** 超额收益(%)：基金 − 基准 */
+  excess_return?: number | null;
+  /** 年化跟踪误差(%) */
+  tracking_error_annual?: number | null;
+  /** 信息比率：年化超额 / 年化跟踪误差 */
+  information_ratio?: number | null;
+  /** 上行捕获率(%)：>100 = 基准涨时它涨得更多 */
+  upside_capture?: number | null;
+  /** 下行捕获率(%)：<100 = 基准跌时它跌得更少 */
+  downside_capture?: number | null;
+  /** 口径标记：ok / insufficient（共同交易日不足） */
+  basis?: string;
 }
