@@ -99,6 +99,28 @@ test("守卫能抓到三种回退形态（探针：守门通过 ≠ 守门有效
   assert.equal(runGuardOn(viaVar).status, 1, "main 键下用 ${CNB_BRANCH} 后守卫没报错。");
 });
 
+test("所有 job 都带 name（否则 stage 在详情页查不到 = 假绿）", () => {
+  // 判据 4：job 必须是列表 + `- name:`。裸 `stages:` 挂在事件下的形态，其 stage
+  // 在构建详情页查不到 —— 外部看是绿的，实际推没推上去无从判断（CNB #172 实测）。
+  const r = runGuard();
+  assert.equal(r.status, 0, `守卫应当通过，实际：${r.stdout}${r.stderr}`);
+});
+
+test("守卫能抓到「裸 stages」的假绿形态（探针）", () => {
+  // 把一个命名 job 退回裸 stages（去掉 `- name:` 与 job 缩进层）：
+  // 判据 4 必须报红，否则「假绿」这个形态会静默回潮。
+  const bare = CNB_YML.replace(
+    /\n  "_?crontab: 30 \* \* \* \*_?":\n    - name: (.+)\n[\s\S]*?\n      stages:\n/,
+    (m, name) => `\n  "crontab: 30 * * * *":\n      stages:\n`
+  );
+  assert.notEqual(bare, CNB_YML, "变异未生效：测试自身写坏了（crontab: 30 块没找到）。");
+  assert.equal(
+    runGuardOn(bare).status,
+    1,
+    "把命名 job 退回裸 `stages:` 后守卫没报错 —— 假绿形态漏网。"
+  );
+});
+
 test("check_cnb_events.py 接受 glob 顶层分支键，但仍拦事件名（两向探针）", () => {
   const eventsGuard = join(ROOT, "scripts", "check_cnb_events.py");
 

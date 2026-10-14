@@ -152,6 +152,8 @@ main:
   #    功能分支的同步见下方 `"**/!(main|dev)"` 段。
   push:
     - name: 同步到 GitHub（仅 dev + 标签）
+      # ⚠️ 必须是带 name 的 job（列表 + `- name:`），不要退回裸 `stages:`：
+      # 裸 stages 的 job 在构建详情页查不到 stage，绿了也不知道推没推上去（假绿，CNB #172）。
       stages:
         - name: 同步到 GitHub（仅 dev + 标签）
           image: tencentcom/git-sync
@@ -179,6 +181,9 @@ main:
   # 每小时从 GitHub 拉回（闭合 GitHub -> CNB）
   "crontab: 0 * * * *":
     - name: 从 GitHub 拉取（全分支 + 标签）
+      # ⚠️ 必须用「带 name 的 job」形态（列表 + `- name:`），不要退回裸 `stages:`。
+      # 裸 stages 的 job 在构建详情里**查不到 stage**：外部看是绿的，实际推没推上去无从判断
+      # —— 比红灯更危险的「假绿」（CNB #172 实测）。命名 job 才会在详情页可见。
       stages:
         - name: 从 GitHub 拉取（全分支 + 标签）
           image: tencentcom/git-sync
@@ -198,6 +203,7 @@ main:
   # 故功能分支不由 cron 兜底 —— 那条路由 `push:` 事件下的 `branch: ${CNB_BRANCH}` 覆盖。
   "crontab: 30 * * * *":
     - name: 同步到 GitHub（每小时兜底，仅 dev）
+      # ⚠️ 同上：必须是带 name 的 job，避免 stage 查不到造成假绿。
       stages:
         - name: 同步到 GitHub（每小时兜底，仅 dev）
           image: tencentcom/git-sync
@@ -221,6 +227,7 @@ main:
 "**/!(main|dev)":
   push:
     - name: 同步当前功能分支到 GitHub
+      # ⚠️ 同上：带 name 的 job 才在构建详情页可见。
       stages:
         - name: 同步当前功能分支到 GitHub
           image: tencentcom/git-sync
