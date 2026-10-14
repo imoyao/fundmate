@@ -270,10 +270,10 @@ async function handleAllocationChange(row: LedgerHoldingRow) {
 
 <style lang="scss" scoped>
 .alloc-dot {
+  flex-shrink: 0;
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  flex-shrink: 0;
 }
 
 .alloc-select {
