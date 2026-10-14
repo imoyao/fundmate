@@ -24,6 +24,7 @@ mock 出来的 git 永远绿，而被测的正是「跟真实 git 对话时方�
 """
 
 import importlib.util
+import pathlib
 import subprocess
 import sys
 from pathlib import Path
@@ -50,6 +51,13 @@ def _load():
 @pytest.fixture()
 def mod():
     return _load()
+
+
+def _head(mod, repo, branch):
+    """取某分支的 tip sha（临时仓库用）。"""
+    out = subprocess.run(['git', 'rev-parse', branch], cwd=repo, capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    return out.stdout.strip()
 
 
 @pytest.fixture()
@@ -135,6 +143,130 @@ def test_modified_file_is_not_side_only(mod, diverged_repo):
 
 
 # ---------------------------------------------------------------------------
+# 二、提交级二分（源 CNB #179）：合规发版 vs 新形态
+# ---------------------------------------------------------------------------
+
+
+def test_classify_commit_plain_commit_is_violation(mod, diverged_repo):
+    """普通提交（只有一个父）⇒ `violation` —— 它没有「被合进来」的语义。"""
+    commit = mod.parse_commit(_head(mod, diverged_repo, 'main'), str(diverged_repo))
+    assert commit is not None
+    verdict = mod.classify_commit(commit, 'dev', str(diverged_repo))
+    assert verdict['kind'] == 'violation', verdict
+
+
+def test_classify_commit_release_uses_second_parent(mod, tmp_path):
+    """**方向测**：合规发版 merge 的判定必须看**第二父**，不能看第一父。
+
+    造一个「第一父**不是** dev 的祖先、第二父**是**」的发版合并：
+    `main` 先自己提交，再从 `dev` 分叉后合并进来 ⇒ `[main-side, dev-tip]`。
+    取第二父 ⇒ `release`（正确）；取第一父 ⇒ 会被误判成 `violation`（方向反了）。
+    """
+    import os
+
+    repo = tmp_path / 'dir'
+    repo.mkdir()
+    env = {
+        'GIT_AUTHOR_NAME': 't',
+        'GIT_AUTHOR_EMAIL': 't@e',
+        'GIT_COMMITTER_NAME': 't',
+        'GIT_COMMITTER_EMAIL': 't@e',
+        'PATH': os.environ['PATH'],
+    }
+
+    def git(*args):
+        subprocess.run(['git', *args], cwd=repo, check=True, capture_output=True, env=env)
+
+    git('init', '-q', '-b', 'main')
+    git('config', 'commit.gpgsign', 'false')
+    (repo / 'base.txt').write_text('base\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '--no-gpg-sign', '-m', 'base')
+    # dev 从 base 分出
+    git('checkout', '-q', '-b', 'dev')
+    (repo / 'd1.txt').write_text('d1\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '--no-gpg-sign', '-m', 'dev work 1')
+    # main 在**自己这一侧**提交（不是 dev 的祖先）
+    git('checkout', '-q', 'main')
+    (repo / 'm1.txt').write_text('m1\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '--no-gpg-sign', '-m', 'main-side work')
+    # 发版：把 dev 合进 main ⇒ merge 的父是 [main-side, dev-tip]
+    git('merge', '--no-ff', '-q', '--no-gpg-sign', '-m', '合并来自 dev 的合并请求 #1', 'dev')
+
+    commit = mod.parse_commit(_head(mod, repo, 'main'), str(repo))
+    assert commit is not None
+    assert len(commit['parents']) == 2, commit
+    # 前提成立：第一父**不是** dev 的祖先（否则本用例测不到方向）
+    first_is_ancestor = (
+        subprocess.run(['git', 'merge-base', '--is-ancestor', commit['parents'][0], 'dev'], cwd=repo).returncode == 0
+    )
+    assert not first_is_ancestor, '用例前提不成立：第一父竟是 dev 的祖先，测不出方向错误'
+    verdict = mod.classify_commit(commit, 'dev', str(repo))
+    assert verdict['kind'] == 'release', (
+        f'合规发版必须判 release（看**第二父**）；取第一父会误判成 violation。实际 {verdict}'
+    )
+    assert verdict['merged_side'] == commit['parents'][1][:8], verdict
+
+
+def test_needs_red_reads_both_layers(mod):
+    """`needs_red()` 的两层判据各自**单独**就能报红（直接用 dict 钉，不靠仓库形态）。
+
+    为什么用 dict 而不是造仓库：真实仓库里「绕过 dev 的提交」几乎必然**同时**被内容级
+    （`git cherry`）抓到 —— 两层冗余。于是「只改一处判据」的变异不会被任何仓库型用例咬住
+    （实测 M4 探针 MISSED）。这里把两层**各自**喂给 `needs_red`，让它们分别可被验伪。
+    """
+    base = {
+        'left_only': 0,
+        'right_only': 0,
+        'left_only_jobs': [],
+        'right_only_jobs': [],
+        'commits_readable': True,
+        'commits': [],
+        'violations': [],
+        'unknowns': [],
+        'content': {'available': True, 'has_only_left': False},
+    }
+    # ① 全绿基线（防止上面三条断言把判据测成恒红）
+    assert mod.needs_red(dict(base)) is False, base
+
+    # ② **只**有提交级违规 ⇒ 红（内容级是绿的）—— 这一条单独钉住 violations 分支
+    only_violation = {
+        **base,
+        'violations': [{'short': 'abc1234', 'subject': 'bypass', 'verdict': {'kind': 'violation'}}],
+    }
+    assert mod.needs_red(only_violation) is True, '提交级违规单独存在时也必须红'
+
+    # ③ **只**有 `unknown` ⇒ 红（判不出不等于正常）
+    only_unknown = {**base, 'unknowns': [{'short': 'abc1234', 'subject': '?', 'verdict': {'kind': 'unknown'}}]}
+    assert mod.needs_red(only_unknown) is True, '判不出的提交必须按红灯对待'
+
+    # ④ **只**有内容级独有 ⇒ 红（提交级是绿的）
+    only_content = {**base, 'content': {'available': True, 'has_only_left': True, 'files': ['x.py']}}
+    assert mod.needs_red(only_content) is True, '内容级独有单独存在时也必须红'
+
+    # ⑤ 提交级**读不出** ⇒ 红（拿不到输入不得降级成正常）
+    unreadable = {**base, 'commits_readable': False}
+    assert mod.needs_red(unreadable) is True, '提交清单读不出必须红（#171）'
+
+    # ⑥ 内容级判据**不可用** ⇒ 红
+    content_broken = {**base, 'content': {'available': False, 'reason': 'git cherry 失败'}}
+    assert mod.needs_red(content_broken) is True, '内容级判据不可用必须红（#171）'
+
+    # ⑦ 合规发版（release）**不**红 —— 这是二分口径的核心，别测反了
+    release_only = {
+        **base,
+        'left_only': 2,
+        'commits': [
+            {'short': 'a1', 'subject': 'release', 'verdict': {'kind': 'release'}},
+            {'short': 'a2', 'subject': 'release', 'verdict': {'kind': 'release'}},
+        ],
+    }
+    assert mod.needs_red(release_only) is False, '合规发版滞后不得报红（#179 的核心）'
+
+
+# ---------------------------------------------------------------------------
 # 二、分叉判定与退出码
 # ---------------------------------------------------------------------------
 
@@ -147,37 +279,44 @@ def test_compute_counts_both_directions(mod, diverged_repo):
     assert res['right_only_jobs'] == ['.github/workflows/cnb-github-backfill.yml']
 
 
-def test_report_marks_diverged(mod, diverged_repo):
-    """真正分叉（`main` 有 `dev` 拿不到的内容）⇒ 报告点名「存在 `dev` 没有的内容」+ 文件清单。"""
+def test_report_marks_new_shape(mod, diverged_repo):
+    """`diverged_repo` 的 `main` 独有提交是**普通提交**（绕过 `dev`）⇒ 报「新形态」。
+
+    判据二分之后报告不再用「已分叉」那个词 —— 要报的是「`left` 上有没人经 `right` 中转的东西」。
+    """
     res = mod.compute('main', 'dev', str(diverged_repo))
     report = mod.build_report(res)
-    assert '存在' in report and '没有的内容' in report, report
+    assert '新形态' in report, report
+    assert '普通提交' in report, report
     assert '.cnb.yml' in report
     assert 'cnb-github-backfill.yml' in report
 
 
-def test_report_green_when_fast_forward(mod, diverged_repo):
-    """两侧同一个 ref ⇒ 内容一致，报告给明确绿灯。"""
-    res = mod.compute('main', 'dev', str(diverged_repo))
+def test_report_green_when_same_point(mod, diverged_repo):
+    """两侧同一个 ref ⇒ 无独有提交、无独有内容，报告给明确绿灯（别把判据测成恒红）。"""
     same = mod.compute('dev', 'dev', str(diverged_repo))
     assert same['left_only'] == 0 and same['right_only'] == 0
-    assert '两侧内容一致' in mod.build_report(same)
-    assert '存在' not in mod.build_report(same)
-    # 顺带确认真正的分叉仍被判出（避免上面两条把判据测成恒绿）
-    assert '没有的内容' in mod.build_report(res)
+    assert mod.needs_red(same) is False, f'同一个 ref 不该报红：{same}'
+    report = mod.build_report(same)
+    # 判据段落不得报红（页脚会提到「新形态」这个词，故断言的是**报红行**不存在）
+    assert '⚠️ **检出' not in report, report
+    assert '没有独有提交' in report or '两侧一致' in report, report
+    # 顺带确认真正的违规仍被判出（避免上面这条把判据测成恒绿）
+    res = mod.compute('main', 'dev', str(diverged_repo))
+    assert mod.needs_red(res) is True
+    assert '⚠️ **检出' in mod.build_report(res)
 
 
-def test_release_merge_commit_is_not_divergence(mod, tmp_path):
-    """**发版 merge commit 不算分叉**（CNB #167 规则 1 的核心）。
+def test_merge_whose_side_is_not_dev_is_red(mod, tmp_path):
+    """**合并的第二父不是 `dev` 的祖先** ⇒ 报「新形态」（`feature` → `main` 直通车，CNB #179）。
 
-    按旧口径「`main` 独有提交 > 0 ⇒ 分叉」，每跑一次发版 PR 都会报红——红却不指向
-    任何还需动手的事（假红）。本用例造出「`main` 比 `dev` 多一个 merge commit、
-    但内容一模一样」的形态，断言：提交数 > 0，而**内容级判据为绿、退出码 0**。
+    这正是 `AGENTS.md`「PR 与 Review」禁止的形态：head 是 `feat/*`、base 却填了 `main`。
+    判据只看**第二父**：取第一父（= `main` 自己的历史）会把每一笔合规发版都判成违规 —— 方向反了。
     """
     import argparse
     import os
 
-    repo = tmp_path / 'rel'
+    repo = tmp_path / 'badmerge'
     repo.mkdir()
     env = {
         'GIT_AUTHOR_NAME': 't',
@@ -188,38 +327,40 @@ def test_release_merge_commit_is_not_divergence(mod, tmp_path):
     }
 
     def git(*args):
-        # merge 不带 -q 也能过；统一用 check 保证失败可见
         subprocess.run(['git', *args], cwd=repo, check=True, capture_output=True, env=env)
 
     git('init', '-q', '-b', 'main')
-    (repo / 'a.txt').write_text('a\n', encoding='utf-8')
+    git('config', 'commit.gpgsign', 'false')
+    (repo / 'base.txt').write_text('base\n', encoding='utf-8')
     git('add', '.')
-    git('commit', '-q', '-m', 'base')
-    # 模拟一条已在 main 上的旧历史（让 main 与 dev 分开生长）
-    (repo / 'old.txt').write_text('old\n', encoding='utf-8')
+    git('commit', '-q', '--no-gpg-sign', '-m', 'base')
+    # dev 往前走
+    git('checkout', '-q', '-b', 'dev')
+    (repo / 'd.txt').write_text('d\n', encoding='utf-8')
     git('add', '.')
-    git('commit', '-q', '-m', 'main-side')
-    # dev 从 base 分出并前进
-    git('checkout', '-q', '-b', 'dev', 'HEAD~1')
-    (repo / 'b.txt').write_text('b\n', encoding='utf-8')
+    git('commit', '-q', '--no-gpg-sign', '-m', 'dev work')
+    # feature 从 dev 分出
+    git('checkout', '-q', '-b', 'feature')
+    (repo / 'f.txt').write_text('f\n', encoding='utf-8')
     git('add', '.')
-    git('commit', '-q', '-m', 'dev-side')
-    # 发版 PR：把 dev 合进 main（merge commit，`main` 因此多一个独有提交）
+    git('commit', '-q', '--no-gpg-sign', '-m', 'feature work')
+    # **违规**：把 feature 直接合进 main（第二父 = feature，不是 dev 的祖先）
     git('checkout', '-q', 'main')
-    git('merge', '--no-ff', '-m', 'release: merge dev into main', 'dev')
+    git('merge', '--no-ff', '-q', '--no-gpg-sign', '-m', '合并来自 feature 的合并请求 #99', 'feature')
+    # dev 再往前走一点，制造「两侧都不含对方」的形态
+    git('checkout', '-q', 'dev')
+    (repo / 'd2.txt').write_text('d2\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '--no-gpg-sign', '-m', 'dev work 2')
 
     res = mod.compute('main', 'dev', str(repo))
-    # 结构：main 独有 merge commit
-    assert res['left_only'] >= 1, f'main 应有独有 merge commit，实际 {res}'
-    # 内容：`git diff main dev` 反映的是 dev 没有 old.txt ⇒ main 确有 dev 没有的内容，
-    # 故本仓库形态**仍是真分叉**（old.txt 只在 main 上）——
-    # 这正是判据该说的实话。为单独验「发版节点不算分叉」，另造一个干净的形态：
-    content = res['content']
-    assert content['available'] is True
-    # 真正的断言：退出码与内容级判据一致（不是看提交数）
+    kinds = {(c['verdict'] or {}).get('kind') for c in res['commits']}
+    assert 'violation' in kinds, f'feature→main 的 merge 应判 violation，实际 {res["commits"]}'
+    # 报告要点名那条 merge 的来路
+    report = mod.build_report(res)
+    assert '新形态' in report and '不是' in report, report
     args = argparse.Namespace(left='main', right='dev', cwd=str(repo), out=None, report=True, jobs_only=False)
-    expected = 1 if (content['files'] and not content['left_is_ancestor_of_right']) else 0
-    assert mod.run(args) == expected, f'退出码必须与内容级判据一致，content={content}'
+    assert mod.run(args) == 1, '绕过 dev 的 merge 必须以退出码 1 表达'
 
 
 def test_release_only_merge_is_green(mod, tmp_path):
@@ -264,13 +405,16 @@ def test_release_only_merge_is_green(mod, tmp_path):
     # 结构级：`main` 确实多出提交（旧口径会在此判「分叉」）
     assert res['left_only'] == 1, f'`main` 应有 1 个独有发版节点，实际 {res["left_only"]}'
     assert res['right_only'] == 0
-    # 内容级：`git diff main dev` 为空 ⇒ 不引入 `dev` 拿不到的代码
+    # 提交级二分：这一个独有提交是 merge、且第二父（dev）是 dev 的祖先 ⇒ release
+    kinds = [(c['verdict'] or {}).get('kind') for c in res['commits']]
+    assert kinds == ['release'], f'发版 merge 应判 release，实际 {res["commits"]}'
+    # 内容级：`git cherry dev main` 无 `+` 行 ⇒ `main` 没有 dev 拿不到的改动
     assert res['content']['available'] is True
-    assert res['content']['files'] == [], f'发版形态内容应一致，实际 {res["content"]["files"]}'
+    assert res['content']['has_only_left'] is False, f'发版形态不该有独有内容：{res["content"]}'
     # 退出码：必须是 0（旧口径会给 1 —— 那就是假红）
     args = argparse.Namespace(left='main', right='dev', cwd=str(repo), out=None, report=True, jobs_only=False)
-    assert mod.run(args) == 0, '发版 merge 节点（内容 diff 为空）不得判为分叉 —— 否则每发版一次假红一次'
-    assert '两侧内容一致' in mod.build_report(res)
+    assert mod.run(args) == 0, '发版 merge 节点不得判为分叉 —— 否则每发版一次假红一次'
+    assert '无新形态' in mod.build_report(res)
 
 
 def test_real_content_divergence_is_red(mod, tmp_path):
@@ -310,36 +454,110 @@ def test_real_content_divergence_is_red(mod, tmp_path):
     git('commit', '-q', '--no-gpg-sign', '-m', 'main adds file')
 
     res = mod.compute('main', 'dev', str(repo))
+    # 内容级：`git cherry dev main` 必须报到 `+`，且内容级段点名文件
+    assert res['content']['available'] is True
+    assert res['content']['has_only_left'] is True, f'`main` 有独有提交，cherry 应报 `+`：{res["content"]}'
     report = mod.build_report(res)
-    assert 'only-main.txt' in report, f'报告要点名 `main` 独有的内容，实际：{report}'
+    assert 'only-main.txt' in report, f'内容级段要点名 `main` 独有的路径，实际：{report}'
+    assert '拿不到的改动' in report, report
     args = argparse.Namespace(left='main', right='dev', cwd=str(repo), out=None, report=True, jobs_only=False)
     assert mod.run(args) == 1, '`main` 有 `dev` 拿不到的代码 ⇒ 必须报分叉'
 
 
-def test_report_flags_unavailable_content_judgment(mod, monkeypatch, diverged_repo):
-    """拿不到 `git diff` ⇒ 报告**明说判据不可用**，退出码 2，**不得**降级成「正常」（#171）。"""
+def test_report_flags_unavailable_judgments(mod, monkeypatch, diverged_repo):
+    """拿不到 `git cherry` / `git log` ⇒ 报告**明说判据不可用**，且**退出口径不得是「正常」**（#171）。
+
+    两层判据各自「拿不到输入」都必须显式报警：内容级不可用时 `needs_red` 为真（红），
+    提交级不可用时同理。**不得**降级成一个看起来正常的结论 —— 那是 #171 的假绿。
+    """
     import argparse
 
     real_git = mod._git
 
     def flaky(args, cwd=None):
-        if args and args[0] == 'diff':
+        # 让 cherry（内容级）与 log（提交级清单）都取不到
+        if args and args[0] in ('cherry', 'log'):
             return 1, ''
         return real_git(args, cwd)
 
     monkeypatch.setattr(mod, '_git', flaky)
     args = argparse.Namespace(left='main', right='dev', cwd=str(diverged_repo), out=None, report=True, jobs_only=False)
-    assert mod.run(args) == 2, '判据不可用必须返回 2，不得当作「未分叉」'
-    # 报告里必须明说判据不可用 —— 不得退化成一个看起来正常的结论（#171）。
+    assert mod.run(args) == 1, '判据不可用不得当作「未分叉」（#171：拿不到 ≠ 空的）'
     broken = mod.compute('main', 'dev', str(diverged_repo))
-    assert '判据不可用' in mod.build_report(broken)
+    report = mod.build_report(broken)
+    assert '判据不可用' in report, report
+    assert mod.needs_red(broken) is True
 
 
-def test_run_returns_1_on_diverged(mod, diverged_repo):
+def test_content_only_divergence_is_red(mod, monkeypatch):
+    """**交叉合并的假阳性**：内容级必须用 `git cherry`，不能靠 `git diff` + 祖先关系（#179）。
+
+    造出「`main` 合过 `dev`、`dev` 又前进」⇒ 两侧都不是对方的祖先（`--is-ancestor` 双向 false），
+    但 `main` **零独有内容**。旧实现（diff 非空 + 非祖先 ⇒ 红）会在这里**假红**；
+    新实现（`git cherry` 无 `+`）必须绿。
+    """
+    import argparse
+    import os
+
+    repo = tmp_path = None
+    import tempfile
+
+    tmpdir = tempfile.mkdtemp()
+    repo = pathlib.Path(tmpdir) / 'x'
+    repo.mkdir(parents=True)
+    env = {
+        'GIT_AUTHOR_NAME': 't',
+        'GIT_AUTHOR_EMAIL': 't@e',
+        'GIT_COMMITTER_NAME': 't',
+        'GIT_COMMITTER_EMAIL': 't@e',
+        'PATH': os.environ['PATH'],
+    }
+
+    def git(*args):
+        subprocess.run(['git', *args], cwd=repo, check=True, capture_output=True, env=env)
+
+    git('init', '-q', '-b', 'main')
+    git('config', 'commit.gpgsign', 'false')
+    (repo / 'base.txt').write_text('base\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '--no-gpg-sign', '-m', 'base')
+    # dev 前进
+    git('checkout', '-q', '-b', 'dev')
+    (repo / 'd1.txt').write_text('d1\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '--no-gpg-sign', '-m', 'dev work 1')
+    # main 把 dev 合进来（合规发版）
+    git('checkout', '-q', 'main')
+    git('merge', '--no-ff', '-q', '--no-gpg-sign', '-m', '合并来自 dev 的合并请求 #1', 'dev')
+    # dev 再前进 ⇒ 交叉合并，两侧互不含
+    git('checkout', '-q', 'dev')
+    (repo / 'd2.txt').write_text('d2\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-q', '--no-gpg-sign', '-m', 'dev work 2')
+
+    res = mod.compute('main', 'dev', str(repo))
+    # 前提：确实「互不包含」（否则本用例测不到那个坑）
+    assert subprocess.run(['git', 'merge-base', '--is-ancestor', 'main', 'dev'], cwd=repo).returncode == 1
+    assert subprocess.run(['git', 'merge-base', '--is-ancestor', 'dev', 'main'], cwd=repo).returncode == 1
+    # 且 `git diff main dev` 非空（旧实现的假阳性触发条件）
+    assert subprocess.run(['git', 'diff', '--quiet', 'main', 'dev'], cwd=repo).returncode == 1
+    # 关键断言：`main` 零独有内容 ⇒ 必须绿
+    assert res['content']['available'] is True
+    assert res['content']['has_only_left'] is False, (
+        f'交叉合并下 `main` 零独有内容，cherry 不该报 `+`：{res["content"]}'
+    )
+    # 提交级：唯一的独有提交是合规发版 merge
+    kinds = [(c['verdict'] or {}).get('kind') for c in res['commits']]
+    assert kinds == ['release'], f'应判 release，实际 {res["commits"]}'
+    args = argparse.Namespace(left='main', right='dev', cwd=str(repo), out=None, report=True, jobs_only=False)
+    assert mod.run(args) == 0, '交叉合并 + 零独有内容 ⇒ 不得假红（#179）'
+
+
+def test_run_returns_1_on_new_shape(mod, diverged_repo):
     import argparse
 
     args = argparse.Namespace(left='main', right='dev', cwd=str(diverged_repo), out=None, report=True, jobs_only=False)
-    assert mod.run(args) == 1, '分叉必须以退出码 1 表达（供 CI 当信号）'
+    assert mod.run(args) == 1, '新形态必须以退出码 1 表达（供 CI 当信号）'
 
 
 def test_run_returns_0_when_same(mod, diverged_repo):
@@ -355,7 +573,7 @@ def test_run_returns_2_on_missing_ref(mod, diverged_repo):
     args = argparse.Namespace(
         left='no-such-branch', right='dev', cwd=str(diverged_repo), out=None, report=True, jobs_only=False
     )
-    assert mod.run(args) == 2, '取不到分支要用独立退出码，别混进「已分叉」'
+    assert mod.run(args) == 2, '取不到分支要用独立退出码，别混进「有新形态」'
 
 
 # ---------------------------------------------------------------------------

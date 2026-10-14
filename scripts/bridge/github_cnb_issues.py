@@ -404,11 +404,27 @@ def _request(
         return resp.read()
 
 
-def fetch_github_open_issues() -> list[dict[str, Any]]:
+# 单次拉取的最大页数（防无限翻页 / 打爆限额）。100/页 ⇒ 上限 3000 张卡。
+# 达到它说明仓库规模已超出「匿名限额够用」的前提，**必须显式报警**、不得当成拉全了。
+MAX_ISSUE_PAGES = 30
+
+
+def fetch_github_open_issues() -> tuple[list[dict[str, Any]], bool]:
     """拉取 GitHub 仓库全部 open issue（跨页，剔除 PR）。
 
     GitHub 的 `/issues` 会把 PR 也混进来，靠 `pull_request` 字段剔除。
     匿名限额 60/时/IP；分页 100/页，一般 1~2 次调用即可，余量充足。
+
+    返回 `(issues, complete)`：**`complete` 是这次拉取是否可信**（源 CNB #179）。
+    调用方**不得**在 `complete=False` 时报「无新增，两侧已对齐」——
+    「拉不到」不是「没有」。两个形态会让数据不完整：
+
+      - **翻页触顶**（`MAX_ISSUE_PAGES`）：仓库长到匿名限额撑不住；
+      - **分页中断**（某页返回空但前面已满页）：GitHub 偶发的空页。
+
+    与 `mirror_state_sync.fetch_github_issues_by_number()` 同一条纪律
+    （那是 #171 的修复），这里原先缺了它 —— 因为建卡作业「少拉只是少建」看起来没那么贵，
+    但「少拉 ⇒ 报已对齐 ⇒ 没人发现漏建」是**同一个假绿**。
     """
     repo = _github_repo()
     headers: dict[str, str] = {'Accept': 'application/vnd.github+json'}
@@ -418,19 +434,30 @@ def fetch_github_open_issues() -> list[dict[str, Any]]:
 
     out: list[dict[str, Any]] = []
     page = 1
+    complete = True
+    last_batch: list[dict[str, Any]] = []
     while True:
+        if page > MAX_ISSUE_PAGES:
+            # 触顶 = 数据不完整，**显式**记下来（由调用方报警），不静默当成拉全了。
+            complete = False
+            break
         qs = urllib.parse.urlencode(
             {'state': 'open', 'per_page': 100, 'page': page, 'sort': 'created', 'direction': 'asc'}
         )
         raw = _request(f'https://api.github.com/repos/{repo}/issues?{qs}', headers=headers)
         batch = json.loads(raw)
         if not batch:
+            # 空页：若此前已满页，说明分页中途断了（正常翻到尾时上一页不满页），
+            # 这种情况数据不完整，必须记下来。
+            if page > 1 and len(last_batch) >= 100:
+                complete = False
             break
+        last_batch = batch
         out.extend(i for i in batch if 'pull_request' not in i)
         if len(batch) < 100:
             break
         page += 1
-    return out
+    return out, complete
 
 
 def cnb_api(path: str, *, method: str = 'GET', payload: dict | None = None) -> Any:
@@ -611,7 +638,7 @@ def run(dry_run: bool, limit: int | None) -> int:
     state = load_state()
     already = harvest_existing(state)
 
-    gh_issues = fetch_github_open_issues()
+    gh_issues, complete = fetch_github_open_issues()
     print(f'📥 GitHub open issue {len(gh_issues)} 张；CNB 已镜像 {len(already)} 张')
 
     pending = [i for i in gh_issues if i['number'] not in already]
@@ -620,9 +647,19 @@ def run(dry_run: bool, limit: int | None) -> int:
         pending = pending[:limit]
 
     if not pending:
+        # 「拉不到」不等于「没有新增」（源 CNB #179 / #171 同族）：
+        # 数据不完整时报「已对齐」是本机制最坏的失败形态 —— 漏建 + 无人发现。
+        if not complete:
+            print('❌ 数据不完整，本次结论不可信：拉取被截断（翻页触顶或分页中断）。')
+            print('   注意：这里本该打印「无新增」——但因数据不完整，该结论不成立。')
+            return 1
         print('✅ 无新增，两侧已对齐')
         save_state(state)
         return 0
+
+    if not complete:
+        # 有得建就照建（部分数据仍安全），但**不背书**「这是全部」。
+        print(f'⚠️ 数据不完整（拉取被截断）：已发现的 {len(pending)} 张照常处理，但可能仍有遗漏。')
 
     print(f'🆕 待建 {len(pending)} 张')
     created = 0

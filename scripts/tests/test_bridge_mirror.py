@@ -24,8 +24,11 @@
 
 from __future__ import annotations
 
+import io
+import json
 import sys
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -209,6 +212,71 @@ class TestMirrorCardDetection(unittest.TestCase):
         detail = {'labels': [{'name': 'enhancement'}], 'body': '一张人工开的卡'}
         with mock.patch.object(correction, 'cnb_api', return_value=detail):
             self.assertFalse(correction.is_mirror_card(999))
+
+
+class TestFetchCompleteness(unittest.TestCase):
+    """`fetch_github_open_issues()` 必须能区分「0 张」与「没拉到」（源 CNB #179 / #171）。
+
+    WHY：建卡作业里最坏的失败形态不是「漏建几张」，而是**漏建 + 报告「无新增，两侧已对齐」**
+    —— 错误结论 + 红灯不可见。这与 #171（状态回流拉不到就报「已对齐」）是同一个假绿，
+    只是换了个作业。故这里钉住「数据不完整」这个信号本身，以及调用方会把它变成红灯。
+    """
+
+    def _fake(self, batches):
+        it = iter(batches)
+
+        def fake(url, **kw):
+            try:
+                return json.dumps(next(it)).encode('utf-8')
+            except StopIteration:
+                return b'[]'
+
+        return fake
+
+    def test_空仓库_零张且可信(self):
+        with mock.patch.object(mirror, '_request', self._fake([[]])):
+            issues, complete = mirror.fetch_github_open_issues()
+        self.assertEqual(issues, [])
+        self.assertTrue(complete, '空仓库是「真的没有」，不能报成不完整')
+
+    def test_满页后接空页_判为不完整(self):
+        """满页之后又来一个空页 ⇒ 分页中途断了，**不得**当成拉全了。"""
+        full = [{'number': i, 'title': 'x'} for i in range(100)]
+        with mock.patch.object(mirror, '_request', self._fake([full, []])):
+            issues, complete = mirror.fetch_github_open_issues()
+        self.assertEqual(len(issues), 100)
+        self.assertFalse(complete, '满页后空页说明分页中断，必须报不完整')
+
+    def test_不满页收尾_判为完整(self):
+        with mock.patch.object(mirror, '_request', self._fake([[{'number': 1, 'title': 'x'}], []])):
+            issues, complete = mirror.fetch_github_open_issues()
+        self.assertEqual(len(issues), 1)
+        self.assertTrue(complete)
+
+    def test_翻页触顶_判为不完整(self):
+        """每页都满 ⇒ 翻到 `MAX_ISSUE_PAGES` 仍未收尾 ⇒ 触顶，必须报不完整。"""
+        full = [{'number': i, 'title': 'x'} for i in range(100)]
+        batches = [full] * (mirror.MAX_ISSUE_PAGES + 5)
+        with mock.patch.object(mirror, '_request', self._fake(batches)):
+            _issues, complete = mirror.fetch_github_open_issues()
+        self.assertFalse(complete, '翻页触顶说明数据被截断，必须报不完整')
+
+    def test_无新增但不完整_退回码1且不宣称对齐(self):
+        """`run()` 在「零待建 + 数据不完整」时**不得**打印「无新增，两侧已对齐」。"""
+        out = io.StringIO()
+        state = {'mirrored': {}}
+        with (
+            mock.patch.object(mirror, 'load_state', return_value=state),
+            mock.patch.object(mirror, 'harvest_existing', return_value={}),
+            mock.patch.object(mirror, 'fetch_github_open_issues', return_value=([], False)),
+            mock.patch.object(mirror, 'save_state'),
+            redirect_stdout(out),
+        ):
+            rc = mirror.run(dry_run=True, limit=None)
+        text = out.getvalue()
+        self.assertEqual(rc, 1, '数据不完整时不得以 0 退出（那是「一切正常」）')
+        self.assertNotIn('无新增，两侧已对齐', text, text)
+        self.assertIn('数据不完整', text, text)
 
 
 if __name__ == '__main__':

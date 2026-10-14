@@ -89,6 +89,13 @@
     # 并**离线试算发版会不会冲突**（`git merge-tree`，不碰工作区）。
     # 有意**不猜**「哪个提交来自 GitHub、哪个来自 CNB」：实测提交信息、`refs/fetched`、
     # `sync/mirror` 三条路都答不了，猜错会让报告指向错误的处置。
+    #
+    # ⚠️ 判据（CNB #179，2026-10-14 二次修正）：**不要**把「`main` 独有提交数 > 0」当红灯——
+    # 本仓发版滞后是正常态（`dev` 一直在前进），拿它报红就是把红灯喊成狼来了。
+    # 现在两层判据：① 提交级二分（合规发版 merge / 绕过 dev 的提交）；
+    # ② 内容级用 `git cherry`（补丁等价）—— **不是** `git diff`，后者在交叉合并下假红。
+    # 退出码 1 = 有新形态；「拿不到输入」一律按红，不降级成正常。详见
+    # docs/dev/github-cnb-mirror.md §11。
     - name: 分支分叉自检（只报告）
       script: |
         python scripts/bridge/check_branch_divergence.py --report --explain || true
