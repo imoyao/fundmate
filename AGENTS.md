@@ -1007,6 +1007,18 @@ pull 又只拉 `dev`，**哪边都拉不动对方** ⇒ **死锁，两边都不�
   GitHub `main` 只领先 GitHub `dev` 1 个合并——**都合规，不要去「同步 main」**。
 - **收敛必须先定方向再合**（以哪一侧为基线），且要一次人工合并解冲突；
   **继续放着不动不是中立选项**，每天多欠一笔。细节与推导见 `docs/dev/github-cnb-mirror.md` §17。
+- **「CNB 能不能自动向 GitHub 提 PR」= 能，但本仓不需要，判据如下**（2026-10-14，源 `CNB #269`）：<!-- cross-repo-ref-allow -->
+  - **能做**：CNB 构建里走「插件/脚本任务 + Secret `imports` 取 `GITHUB_PAT`」通道，
+    `POST /repos/{repo}/pulls` 与挂标签/发评论同一条路（`claim_detect.py --apply` 已在生产跑）。
+    「CNB 提不了 PR」是**过时判断**，不要沿用。
+  - **不做**，两个理由：① 本仓跨仓那一步是「**搬运**」不是「**变更**」——内容是同一批
+    已 review 过的提交，再开一层 PR 只会多出无人 review 的噪声（见 §18.4 对照表）；
+    ② 造 `CNBDEV` 之类的中转分支**不解决分叉**（§18.2）——只是把同一场冲突换个分支名再演一次，
+    且违反「禁止新建长期分支」。
+  - **口径**：跨仓 = `dev → dev` 整条线；仓内 = 功能分支 → `dev` 走 PR。**两者不要混用机制。**
+  - 收敛工具：`python scripts/bridge/dev_converge.py --apply`（建 rescue 分支 + 合 + 列冲突；
+    **不**动 `dev`、**不**自动解冲突、**不** push）。回归网
+    `backend/tests/test_dev_converge.py`（含 1 个变异探针）。详见 §18。
 
 ### 在 CNB 侧的其它已知边界（实测）
 
