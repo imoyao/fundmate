@@ -8,16 +8,19 @@
 判错方向，给出的就是**反向的安心**——「未分叉」而实际已分叉，下一个照着它发版的人
 会以为没问题。这正是本仓「守门通过 ≠ 守门有效」那一课的同类。
 
-故按三类钉死：
+故按四类钉死：
 
 1. **方向语义**：`git diff --name-status left right` 里 `D` = 只在 `left`、`A` = 只在 `right`。
    这条曾是**真 bug**：初版把 `A` 和 `D` 都算「只在 right」，于是 `.cnb.yml` 与
    `cnb-github-backfill.yml` 同时出现在两侧列表里，报告自相矛盾；
-2. **分叉判定（2026-10-14 起改为内容级，源 CNB #167 规则 1）**：
+2. **分叉判定（2026-10-14 起改为二分 + 内容级，源 CNB #167 / #179）**：
    **`main` 有没有 `dev` 没有的代码**才算分叉——发版 merge commit（内容 diff 为空）
    不算。旧口径「`main` 独有提交 > 0 ⇒ 分叉」会把每次发版都报成假红；
-3. **判据不可用**（拿不到 `git diff`）⇒ 退出码 2，**不得降级成「正常」**（#171 教训）；
-4. **只读**：出现 `fetch` / `merge` / `push` 即越界。
+3. **判据不可用**（拿不到 `git cherry` / `git log`）⇒ **按红对待**，**不得降级成「正常」**
+   （#171 教训）；取不到分支 ⇒ 退出码 2（与「有新形态」分开）；
+4. **独有提交清单**：分叉时报告须列出两侧各自的提交 SHA（照抄即可救援），
+   跳过 merge commit、超限截断带注记 —— 清单是断链卡面（`notify_mirror_divergence.py`）的原料；
+5. **只读**：出现 `fetch` / `merge` / `push` 即越界。
 
 用例尽量走**真实 git**（本仓自己），只在需要构造「确定的分叉」时才用临时仓库——
 mock 出来的 git 永远绿，而被测的正是「跟真实 git 对话时方向对不对」。
@@ -277,6 +280,81 @@ def test_compute_counts_both_directions(mod, diverged_repo):
     assert res['right_only'] == 1, 'dev 独有 1 个提交'
     assert res['left_only_jobs'] == ['.cnb.yml']
     assert res['right_only_jobs'] == ['.github/workflows/cnb-github-backfill.yml']
+    # 清单（GitHub 侧 #2175 并进来的能力）：**保留 `test_compute_counts_both_directions`  <!-- cross-repo-ref-allow -->
+    # 这个原函数名**，只在它内部加清单断言 —— GitHub 侧那条断言长在同名的另一个函数里
+    # （`test_compute_lists_unique_commits`），两份实现在 #2175 撞车时名字重复。
+    # 合并时**只留一个名字、两边断言都留**，故接线式集成（而非逐行挑一侧）。
+    assert any('main-only' in c for c in res['left_only_commits']), (
+        f'main 独有提交清单缺 main-only：{res["left_only_commits"]}'
+    )
+    assert any('dev-only' in c for c in res['right_only_commits']), (
+        f'dev 独有提交清单缺 dev-only：{res["right_only_commits"]}'
+    )
+    # 方向不能反：main-only 不得出现在 dev 侧清单里
+    assert not any('main-only' in c for c in res['right_only_commits']), '清单方向反了'
+    assert not any('dev-only' in c for c in res['left_only_commits']), '清单方向反了'
+
+
+def test_commit_list_skips_merge_commits(mod, diverged_repo):
+    """merge commit 只是症状不是内容，不进清单（否则把业务提交挤下去）。"""
+    import os
+
+    env = {
+        'GIT_AUTHOR_NAME': 't',
+        'GIT_AUTHOR_EMAIL': 't@e',
+        'GIT_COMMITTER_NAME': 't',
+        'GIT_COMMITTER_EMAIL': 't@e',
+        'PATH': os.environ['PATH'],
+    }
+    repo = diverged_repo
+    # 在 main 上造一个 merge commit（合并 dev 的历史但不含其 tip）
+    subprocess.run(['git', 'checkout', '-q', 'main'], cwd=repo, check=True, capture_output=True, env=env)
+    subprocess.run(
+        ['git', 'merge', '-q', '--no-ff', '-m', 'merge dev', 'dev~0'],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        env=env,
+    )
+    res = mod.compute('main', 'dev', str(repo))
+    assert not any('merge dev' in c for c in res['left_only_commits']), (
+        f'merge commit 不该进清单：{res["left_only_commits"]}'
+    )
+
+
+def test_commit_list_truncated_with_note(mod, diverged_repo):
+    """超 LIMIT 截断 + 「还有 N 条」注记：救援照抄最近的足够定位，别把报告撑爆。"""
+    import os
+
+    env = {
+        'GIT_AUTHOR_NAME': 't',
+        'GIT_AUTHOR_EMAIL': 't@e',
+        'GIT_COMMITTER_NAME': 't',
+        'GIT_COMMITTER_EMAIL': 't@e',
+        'PATH': os.environ['PATH'],
+    }
+    repo = diverged_repo
+    subprocess.run(['git', 'checkout', '-q', 'main'], cwd=repo, check=True, capture_output=True, env=env)
+    limit = mod.COMMIT_LIST_LIMIT
+    for i in range(limit + 3):
+        (repo / f'f{i}.txt').write_text(f'{i}\n', encoding='utf-8')
+        subprocess.run(['git', 'add', '.'], cwd=repo, check=True, capture_output=True, env=env)
+        subprocess.run(
+            ['git', 'commit', '-q', '-m', f'main-bulk-{i}'], cwd=repo, check=True, capture_output=True, env=env
+        )
+    res = mod.compute('main', 'dev', str(repo))
+    listed = res['left_only_commits']
+    assert len(listed) == limit + 1, f'应截断到 {limit} 条 + 1 行注记，实际 {len(listed)} 条'
+    # 注记里的「还有 N 条」必须与 git 自己的计数对账：
+    # fixture 已有 1 条 main 独有提交，本测试又加了 limit+3 条 ⇒ 共 limit+4 条，剩 4 条。
+    real = subprocess.run(
+        ['git', 'rev-list', '--count', '--no-merges', 'dev..main'],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        env=env,
+    ).stdout.strip()
+    assert f'还有 {int(real) - limit} 条' in listed[-1], f'末行应是「还有 N 条」注记：{listed[-1]}'
 
 
 def test_report_marks_new_shape(mod, diverged_repo):
@@ -290,6 +368,15 @@ def test_report_marks_new_shape(mod, diverged_repo):
     assert '普通提交' in report, report
     assert '.cnb.yml' in report
     assert 'cnb-github-backfill.yml' in report
+
+
+def test_report_lists_unique_commits(mod, diverged_repo):
+    """报告须含两侧独有提交的 SHA 行（救援照抄清单，不是只给数字）。"""
+    res = mod.compute('main', 'dev', str(diverged_repo))
+    report = mod.build_report(res)
+    assert 'main-only' in report, '报告缺 main 侧独有提交'
+    assert 'dev-only' in report, '报告缺 dev 侧独有提交'
+    assert 'cherry-pick' in report, '报告须说明清单用途（照抄 cherry-pick）'
 
 
 def test_report_green_when_same_point(mod, diverged_repo):
@@ -499,7 +586,6 @@ def test_content_only_divergence_is_red(mod, monkeypatch):
     import argparse
     import os
 
-    repo = tmp_path = None
     import tempfile
 
     tmpdir = tempfile.mkdtemp()
@@ -556,14 +642,20 @@ def test_content_only_divergence_is_red(mod, monkeypatch):
 def test_run_returns_1_on_new_shape(mod, diverged_repo):
     import argparse
 
-    args = argparse.Namespace(left='main', right='dev', cwd=str(diverged_repo), out=None, report=True, jobs_only=False)
+    # `explain` 这个开关是 GitHub 侧 #2175 加的，`run()` 会被两条来路的测试手搓 Namespace  <!-- cross-repo-ref-allow -->
+    # ⇒ **两边都要带全字段**（少一个 AttributeError 直接崩，而不是断言失败）。
+    args = argparse.Namespace(
+        left='main', right='dev', cwd=str(diverged_repo), out=None, report=True, jobs_only=False, explain=False
+    )
     assert mod.run(args) == 1, '新形态必须以退出码 1 表达（供 CI 当信号）'
 
 
 def test_run_returns_0_when_same(mod, diverged_repo):
     import argparse
 
-    args = argparse.Namespace(left='dev', right='dev', cwd=str(diverged_repo), out=None, report=True, jobs_only=False)
+    args = argparse.Namespace(
+        left='dev', right='dev', cwd=str(diverged_repo), out=None, report=True, jobs_only=False, explain=False
+    )
     assert mod.run(args) == 0
 
 
@@ -571,7 +663,13 @@ def test_run_returns_2_on_missing_ref(mod, diverged_repo):
     import argparse
 
     args = argparse.Namespace(
-        left='no-such-branch', right='dev', cwd=str(diverged_repo), out=None, report=True, jobs_only=False
+        left='no-such-branch',
+        right='dev',
+        cwd=str(diverged_repo),
+        out=None,
+        report=True,
+        jobs_only=False,
+        explain=False,
     )
     assert mod.run(args) == 2, '取不到分支要用独立退出码，别混进「有新形态」'
 
@@ -733,6 +831,56 @@ def test_explain_renders_unknown_when_no_base(mod, monkeypatch):
     trial = mod._merge_trial('main', 'dev', None)
     assert trial['status'] == 'unknown', trial
     assert trial.get('reason')
+
+
+def test_explain_dry_runs_the_release_merge(mod, diverged_repo):
+    """`--explain` 必须真的跑 merge-tree 试算，并给出可执行的结论。
+
+    没有 `--explain` 的旧版在这里必须红 —— `.cnb.yml` 一直在调这个参数，
+    旧版 argparse 直接报错、被 `|| true` 吞掉，自检从未真正生效过。
+    """
+    import argparse
+
+    args = argparse.Namespace(
+        left='main', right='dev', cwd=str(diverged_repo), out=None, report=True, jobs_only=False, explain=True
+    )
+    assert mod.run(args) == 1
+    res = mod.compute('main', 'dev', str(diverged_repo))
+    res['merge_dry_run'] = mod.merge_dry_run('main', 'dev', str(diverged_repo))
+    report = mod.build_report(res)
+    # fixture 两侧改的是不同文件 ⇒ 可干净合并
+    assert res['merge_dry_run']['ok'] is True, f'不同文件的合并应可干净进行：{res["merge_dry_run"]}'
+    assert '可干净合并' in report, '报告须给出合并试算结论'
+
+
+def test_explain_reports_conflicts(mod, diverged_repo):
+    """两侧改**同一个文件** ⇒ 试算须报冲突并列出文件（发版前知道要解哪）。"""
+    import os
+    import subprocess
+
+    env = {
+        'GIT_AUTHOR_NAME': 't',
+        'GIT_AUTHOR_EMAIL': 't@e',
+        'GIT_COMMITTER_NAME': 't',
+        'GIT_COMMITTER_EMAIL': 't@e',
+        'PATH': os.environ['PATH'],
+    }
+    repo = diverged_repo
+    subprocess.run(['git', 'checkout', '-q', 'main'], cwd=repo, check=True, capture_output=True, env=env)
+    (repo / 'shared.txt').write_text('main-side\n', encoding='utf-8')
+    subprocess.run(['git', 'add', '.'], cwd=repo, check=True, capture_output=True, env=env)
+    subprocess.run(
+        ['git', 'commit', '-q', '-m', 'main edits shared'], cwd=repo, check=True, capture_output=True, env=env
+    )
+    subprocess.run(['git', 'checkout', '-q', 'dev'], cwd=repo, check=True, capture_output=True, env=env)
+    (repo / 'shared.txt').write_text('dev-side\n', encoding='utf-8')
+    subprocess.run(['git', 'add', '.'], cwd=repo, check=True, capture_output=True, env=env)
+    subprocess.run(
+        ['git', 'commit', '-q', '-m', 'dev edits shared'], cwd=repo, check=True, capture_output=True, env=env
+    )
+    dry = mod.merge_dry_run('main', 'dev', str(repo))
+    assert dry['ok'] is False, f'同文件双改必须判冲突：{dry}'
+    assert 'shared.txt' in dry['conflicts'], f'冲突清单须含 shared.txt：{dry["conflicts"]}'
 
 
 # ---------------------------------------------------------------------------
@@ -916,3 +1064,33 @@ def test_content_ahead_uses_cherry_not_diff(mod, tmp_path, monkeypatch):
 
     assert any(a and a[0] == 'cherry' for a in seen), f'内容级判据必须调 `git cherry`，实际调用：{seen}'
     assert not any('--find-object' in ' '.join(a) for a in seen), '不得退回逐文件 blob 历史（交叉合并下漏报删除）'
+
+
+def test_real_repo_commit_list_matches_git(mod):
+    """**清单对账**（GitHub 侧 #2175）：脚本的清单首条须与 `git log` 首条逐字相同。  <!-- cross-repo-ref-allow -->
+
+    两处计数口径**有意不同**：`left_only` 用 `rev-list --count`（含 merge，回答「落后几个」）；
+    清单用 `--no-merges`（镜像断链场景里 merge 只是症状不是内容，见 `list_unique_commits`）。
+    故卫句必须落在同一口径上——曾按含 merge 的计数放行，真实仓 `main` 独有全是 merge 时
+    `git log --no-merges` 输出为空，`splitlines()[0]` 直接 IndexError。
+    """
+    code = subprocess.run(
+        ['git', 'rev-parse', '--verify', '--quiet', 'origin/main^{commit}'],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    if code.returncode != 0:
+        pytest.skip('本机没有 origin/main，跳过真实仓库用例')
+    res = mod.compute('origin/main', 'origin/dev', str(_REPO_ROOT))
+    real_lines = subprocess.run(
+        ['git', 'log', '--oneline', '--no-decorate', '--no-merges', 'origin/dev..origin/main'],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    if real_lines:
+        assert res['left_only_commits'], f'git 能列出 {len(real_lines)} 条，脚本清单却是空的'
+        assert res['left_only_commits'][0] == real_lines[0], (
+            f'脚本清单首条 {res["left_only_commits"][:1]} 与 git 的 {real_lines[0]!r} 不一致'
+        )

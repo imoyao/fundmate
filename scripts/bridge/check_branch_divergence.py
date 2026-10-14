@@ -19,7 +19,8 @@
 
 本脚本把「靠人肉 `git log` 发现分叉」换成「一条命令问出来」。
 
-判据（二分，源 CNB #179，2026-10-14）
+判据（二分 + 清单，源 CNB #179 与 GitHub 侧 #2175，2026-10-14 合流）  <!-- cross-repo-ref-allow -->
+-------------------------------------------------------------------
 --------------------------------------
 初版的「`main` 独有提交数 > 0 ⇒ 分叉」在本仓**恒为真**：`dev` 发完版继续走，
 `main` 必然既不领先、也不是 `dev` 的祖先 ⇒ **每次发版都报红**，而红的是合规发版本身。
@@ -43,6 +44,22 @@
 diff 也非空 ⇒ 旧版报「`main` 有 7 个文件 `dev` 没有」。**实测这 7 个全假**：
 `git cherry <right> <left>` 为空，`left` 一个字节的独有内容都没有。故内容级改用
 `git cherry`（一个判据直接回答被问的问题），不再拼「diff + 祖先关系」那条两步路。
+
+### 救援清单（GitHub 侧 #2175 的贡献，2026-10-14 并进来）  <!-- cross-repo-ref-allow -->
+
+判据只回答「该不该红」，**答不出「怎么救」**。GitHub 侧那份实现（PR #2175 / 提交  <!-- cross-repo-ref-allow -->
+`086967ca`）补的正是这一块：`list_unique_commits()` 逐侧列出独有提交（`--oneline`，
+**跳过 merge**、超限截断带注记）——只报数字修不了根因，救援的人需要能照抄的 SHA
+（与 CNB #118 断链卡面的诉求同源）。
+
+两份实现在 2026-10-14 的分叉里撞在同一批文件上，合流时**两边都留**：
+**判据取 CNB 侧（二分 + `git cherry`），清单取 GitHub 侧**。
+两处计数口径**有意不同**，别去「统一」它们：
+
+| 字段 | 口径 | 回答的问题 |
+|---|---|---|
+| `left_only` / `right_only` | `rev-list --count`（**含 merge**） | 落后/领先几个提交 |
+| `left_only_commits` / `right_only_commits` | `git log --no-merges` | 该照抄哪几条回去 |
 
 - 列出**两侧互不包含**的「镜像 / 作业配置文件」（`.cnb.yml` + `.github/workflows/*.yml`）
   —— 这类文件决定「什么会被执行」，只在单侧存在就是 #123 记的那个病；
@@ -85,6 +102,12 @@ diff 也非空 ⇒ 旧版报「`main` 有 7 个文件 `dev` 没有」。**实测
 
     # 换一对分支（例如本地分支）
     python scripts/bridge/check_branch_divergence.py --report --left main --right dev --cwd /path/to/repo
+
+    # 分叉时附带离线合并试算（git merge-tree，回答「发版会不会冲突」）
+    python scripts/bridge/check_branch_divergence.py --report --explain
+
+    # 报告落盘（供 notify_mirror_divergence.py 拼断链卡面）
+    python scripts/bridge/check_branch_divergence.py --report --explain --out report-divergence.md
 """
 
 from __future__ import annotations
@@ -98,6 +121,10 @@ import sys
 # 有意只收这两类 —— 业务代码落后不致命（下次发版跟上即可），
 # 而作业配置落后会让**作业本身**按旧策略跑。
 JOB_PATHSPECS = ('.cnb.yml', '.github/workflows')
+
+# 独有提交清单的截断长度：分叉严重时一侧可能有几百个提交，
+# 全列会把报告（与断链卡面）撑爆，救援照抄最近的足够定位。
+COMMIT_LIST_LIMIT = 20
 
 
 def _git(args: list[str], cwd: str | None = None) -> tuple[int, str]:
@@ -316,6 +343,43 @@ def classify_unique_commits(left: str, right: str, cwd: str | None = None) -> di
         'unknowns': [c for c in commits if c['verdict']['kind'] == 'unknown'],
         'readable': True,
     }
+def list_unique_commits(behind_ref: str, ahead_ref: str, cwd: str | None, limit: int = COMMIT_LIST_LIMIT) -> list[str]:
+    """`ahead_ref` 相对 `behind_ref` 的独有提交清单（`--oneline`，最新的在前）。
+
+    跳过 merge commit：镜像断链场景里两侧各自的 merge commit 只是症状不是内容，
+    列出来只会把真正该被 cherry-pick 的业务提交挤下去。截断到 `limit` 条，
+    最后补一行「还有 N 条」的注记 —— 救援照抄清单，不需要全量。
+    """
+    code, out = _git(['log', '--oneline', '--no-decorate', '--no-merges', f'{behind_ref}..{ahead_ref}'], cwd)
+    if code != 0 or not out:
+        return []
+    lines = out.splitlines()
+    if len(lines) > limit:
+        lines = lines[:limit] + [
+            f'…（还有 {len(lines) - limit} 条，完整清单跑 `git log --oneline {behind_ref}..{ahead_ref}`）'
+        ]
+    return lines
+
+
+def merge_dry_run(left: str, right: str, cwd: str | None) -> dict:
+    """离线试算「把 right 合并进 left」会不会冲突（`git merge-tree`，不碰工作区）。
+
+    回答 #123 卡面 §一 的问题：分叉之后，发版 PR（`dev` → `main`）还能不能干净合。
+    退出码 0 = 可干净合并；1 = 有冲突（stdout 列冲突文件）；其余 = 试算本身失败。
+    """
+    code, out = _git(['merge-tree', '--write-tree', left, right], cwd)
+    if code not in (0, 1):
+        return {'ok': None, 'conflicts': []}
+    conflicts = []
+    if code == 1:
+        # merge-tree --write-tree 的冲突段：`<mode> <sha> <path>` 之后是
+        # `CONFLICT ( ... )` 行；这里只取「出现在输出里的路径」，够定位。
+        for line in out.splitlines():
+            parts = line.split('\t')
+            if len(parts) == 2 and parts[1].strip():
+                conflicts.append(parts[1].strip())
+        conflicts = sorted(set(conflicts))
+    return {'ok': code == 0, 'conflicts': conflicts}
 
 
 def compute(left: str, right: str, cwd: str | None = None) -> dict:
@@ -330,6 +394,11 @@ def compute(left: str, right: str, cwd: str | None = None) -> dict:
         'right_only_jobs': right_jobs,
         'content': content_ahead(left, right, cwd),
         **classify_unique_commits(left, right, cwd),
+        # GitHub 侧（#2175）带来的「可照抄的救援清单」并进 `needs_red` 那套判据里。
+        # 两处计数口径**有意不同**：`left_only` 用 rev-list（含 merge，回答「落后几个」）；
+        # 清单用 `--no-merges`（镜像断链场景里 merge 只是症状不是内容）。
+        'left_only_commits': list_unique_commits(right, left, cwd),
+        'right_only_commits': list_unique_commits(left, right, cwd),
     }
 
 
@@ -549,12 +618,34 @@ def build_report(res: dict) -> str:
     lines.append('')
     lines.append('> ⚠️ 提交数**不是判据**：交叉合并（`main` 合过 `dev`、`dev` 又前进）下')
     lines.append('> 两侧会「互不包含」而 `left` 其实零独有内容 —— 这正是 #179 实测的假阳性形态。')
-
+    lines.append('')
+    # 提交清单（GitHub 侧 #2175 引入）：只报数字修不了根因，救援的人需要能照抄的 SHA。  <!-- cross-repo-ref-allow -->
+    for side, commits in ((left, res.get('left_only_commits') or []), (right, res.get('right_only_commits') or [])):
+        if commits:
+            lines.append(f'**只在 `{side}` 上的提交**（需 cherry-pick 送回另一侧，照抄即可）：')
+            lines.append('')
+            lines.append('```text')
+            lines.extend(commits)
+            lines.append('```')
+            lines.append('')
     for side, jobs in ((left, res['left_only_jobs']), (right, res['right_only_jobs'])):
         if jobs:
             lines += ['', f'**只在 `{side}` 上的作业配置**（改了不跑 / 跑了不是它）：', '']
             lines.extend(f'- `{p}`' for p in jobs)
-
+    lines.append('')
+    dry = res.get('merge_dry_run')
+    if dry is not None:
+        if dry['ok'] is None:
+            lines.append('> ⚠️ 合并试算失败（`git merge-tree` 异常退出），冲突与否未知。')
+        elif dry['ok']:
+            lines.append(
+                '> ✅ 试算：把 `dev` 合进 `main` **可干净合并**（离线 `git merge-tree`，未碰工作区）——尽快发版即可闭环。'
+            )
+        else:
+            lines.append('> ⛔ 试算：发版合并**有冲突**，需先在 `dev` 解决：')
+            lines.append('>')
+            lines.extend(f'> - `{p}`' for p in dry['conflicts'])
+        lines.append('')
     lines += [
         '',
         '> 判据口径（源 CNB #179）：**合规发版 merge 不报红**（`' + left + '` 停在上一发版点是正常态）；',
@@ -586,10 +677,16 @@ def run(args: argparse.Namespace) -> int:
     # 合规发版滞后在本仓恒存在（`dev` 一直在前进），拿它当红灯就是「狼来了」——
     # 判定交给 `needs_red()`，它同时覆盖提交级二分与 #167 的内容级判据。
     diverged = needs_red(res)
-    report = build_report(res)
     # `getattr` 默认 False：`run()` 也被测试直接调用（`argparse.Namespace` 手搓），
-    # 新加的可选开关不该让老调用点崩。
-    if getattr(args, 'explain', False) and diverged:
+    # 新加的可选开关不该让老调用点崩。**两处 `explain` 必须都这样读**——
+    # 一处收进 `if args.explain` 而另一处用 `getattr`，等于「部分健壮」：
+    # 手搓 Namespace 的老用例在上一条语句就 AttributeError 了，后面那条再宽松也没用。
+    want_explain = getattr(args, 'explain', False)
+    if want_explain and diverged:
+        # 合并试算挂进 `res`，供 `build_report` 的结构级段渲染（GitHub 侧 #2175 的做法）。  <!-- cross-repo-ref-allow -->
+        res['merge_dry_run'] = merge_dry_run(args.left, args.right, args.cwd)
+    report = build_report(res)
+    if want_explain and diverged:
         # 卡面 §一 建议 3：光知道「分叉了几个」修不了根因 —— 得答「为什么分叉」。
         report += build_explanation(res, explain(args.left, args.right, args.cwd))
     print(report)

@@ -112,8 +112,15 @@
   （只读本地 git、不联网），并挂进 `.cnb.yml` 的收尾阶段（只报告）：
 
   ```bash
-  python scripts/bridge/check_branch_divergence.py --report   # 退出码 1 = 有新形态
+  python scripts/bridge/check_branch_divergence.py --report            # 退出码 1 = 有新形态
+  python scripts/bridge/check_branch_divergence.py --report --explain   # 附两侧提交清单 + 发版试算
   ```
+
+  **退出码不吞**：分叉时 `.cnb.yml` 会用非零退出码触发 `notify_mirror_divergence.py`
+  建一张断链提醒卡（幂等，标题即幂等键）——crontab 的红灯没人盯，
+  只进日志等于静默停摆。stage 整体仍不拦构建（建卡才是主任务）。
+  ⚠️ `.cnb.yml` 里另有一个 `pull_request` 反向守卫挂在 `main:` / `dev:` 之下
+  （CNB 侧只读，直接 `exit 1`）——它挡的是**断链的成因**。
 
   ⚠️ 内容级判据用 **`git cherry`（补丁等价）**，**不是** `git diff`：
   交叉合并（`main` 合过 `dev`、`dev` 又前进）下 `diff` 非空但 `main` 零独有内容，
@@ -185,6 +192,13 @@ job 名与 stage 名都要写（后者是查询锚点）。
   `docs/dev/github-cnb-mirror.md` §12。
 - **守卫白名单只能是单值键**：把 `main` / `dev` 写进「允许的顶层键」会让任何分支名都合法、
   判据当场失效。守卫自带自检探针（用真实存在的 `sync/mirror:` 反证）。
+
+- **救援清单是判据的另一半**（GitHub 侧 #2175 的贡献，2026-10-14 并进来）：  <!-- cross-repo-ref-allow -->
+  判据只回答「该不该红」，答不出「怎么救」。故报告附**两侧独有提交清单**
+  （`--no-merges`、超限截断带注记），救援的人照抄即可。
+  ⚠️ **两处计数口径有意不同，别去「统一」**：`left_only` / `right_only` 用
+  `rev-list --count`（**含 merge**，回答「落后几个」）；清单用 `--no-merges`
+  （镜像断链场景里 merge 只是症状不是内容）。
 
 #### `.cnb.yml` 的事件写在分支下，不写顶层（2026-10-11，#152）
 
@@ -1020,6 +1034,44 @@ NPC 没有跨会话记忆，**每一次开工都是新进程**。所谓「记住
   （本仓不做——会拖慢单人开发）；
 - **CNB 侧延迟 = 距离上一次 push**；**摘标签**依赖 GitHub 事件或 2 小时兜底 cron；
 - 细节与实测推导见 `docs/dev/github-cnb-mirror.md` §15；决策见 D57。
+
+### ⚠️ 跨仓同步的通行方式：机器分支 + PR，不是「直推裸 ref」（2026-10-14，源 CNB #450）  <!-- cross-repo-ref-allow -->
+
+**用户 2026-10-14 的原话**：「我们能不能新开一个分支，同步到它，再从它向 github dev 开 PR？
+**质量门禁不能关。** 这样能绕开吗？会不会搞复杂了。」
+
+**关键事实（这是全案的立论）**：`质量门禁汇总`（`ci.yml` 的 job `gate`）
+**只在 PR 上产生**（`on: pull_request: branches: [dev, main]`，且 job 自己
+`if: github.event_name == 'pull_request'`）。⇒ **CNB 直推裸 ref 时它根本不跑**，
+而 `dev` 的保护规则要求它「已经通过」⇒ `GH006 Protected branch update failed`。
+
+> 所以「直推」撞的不是「门禁太严」，是**这种通行方式需要一个不可能存在的检查**。
+
+**口径（与 `CNBDEV` 方案的判据边界）**：
+
+| | `CNBDEV` 长期中转（❌ 否） | **机器分支 + PR（✅ 是）** |
+|---|---|---|
+| 推过去的是什么 | 又一条**长期分支**，活着、要维护 | **一次性 ref**（`bridge/github-dev`），PR 合完即亡 |
+| 有没有解分叉 | 没有——冲突换个分支名再演一遍 | **有**——先 merge 再推，本来快进 |
+| 违反「禁止长期分支」 | 是 | 否 |
+
+**措辞纪律**：这不是「绕开门禁」——门禁**照跑、且必须绿**。绕开的是
+「直推需要一条不存在的检查」这个悖论。**「质量门禁不能关」与「走 PR 通道」是同一件事的两面。**
+
+- **落地**：`scripts/bridge/machine_branch.py` —— 以一侧 `dev` 为基线 merge 另一侧，
+  **无冲突** ⇒ 推成机器分支；**有冲突** ⇒ **一个字节都不推**，停下交人；
+  **拿不到输入** ⇒ 退 2 且声明「结论不可信」。
+  撤销/回退口径：它是**报告 + 推送**工具，**永不动 `dev` / `main`、永不 force**。
+- **它与 C 是一对，不能只上一个**：C（治理文件只在 CNB 改）让冲突面趋零，
+  B' 才让「无冲突 ⇒ 自动推」真的跑起来；**只上 B'，冲突照样每轮复发**（把 A 循环做）。
+- **先决条件读不到**：`dev` 的 classic protection 里是否勾了 **Require approvals**
+  （匿名读 `branches/dev/protection` 返 401、`rulesets` 为空）。勾了 ⇒ 机器 PR 卡在等人
+  Approve，等于把死锁从「永远红」换成「永远等」⇒ 那时退回「只在分叉时人工合」。
+  **本脚本不假装自己知道**，只负责把可合的结果推出去。
+- **老实话**：该通道**解不掉冲突**（冲突面是治理文件，解错等于悄悄改规则），
+  它的设计上限就是「自动到冲突为止」。回归网 `scripts/tests/test_machine_branch.py`
+  （14 例 / **4 个变异探针**：有冲突仍推、拿不到输入退 0、push 带 `--force`、方向写反——
+  逐条实测转红）。推导与实测命令见 `docs/dev/github-cnb-mirror.md` §22。
 
 ### ⚠️ 「配置对了」≠「同步成功了」：跨仓 `dev` 分叉会静默锁死（2026-10-14，源 CNB #269）  <!-- cross-repo-ref-allow -->
 

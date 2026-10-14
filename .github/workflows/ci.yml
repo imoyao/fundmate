@@ -541,6 +541,16 @@ jobs:
       - name: 检查镜像建卡是否真扫 CNB 侧（阻断）
         run: python scripts/bridge/harvest_scan_guard.py
 
+      # 跨仓同步新增的 Python 回归网（源 CNB #450，2026-10-14）：`machine_branch.py`  <!-- cross-repo-ref-allow -->
+      # 是「推一次性机器分支 → 开 PR → 门禁绿 → 合并」这条通道的执行体，
+      # 它的核心承诺是「有冲突时一个字节都不推」与「拿不到输入退 2 且声明结论不可信」。
+      # `scripts_test` 的 unittest discover 只收 `test_*.py`，本文件按仓库惯例命名
+      # 为 `test_machine_branch.py`，其实**已被上一条 `unittest discover` 覆盖**；
+      # 此处显式再跑一遍，是为了让「它属于哪条通道」在 CI 日志里看得见
+      # （失败时不必再推断归属）。**不新增 job**，也就不必动 `gate.needs`。
+      - name: 跨仓同步通道回归网（阻断）
+        run: python -m pytest scripts/tests/test_machine_branch.py -q -p no:cacheprovider
+
   gate:
     name: 质量门禁汇总
     if: ${{ always() && github.event_name == 'pull_request' }}
