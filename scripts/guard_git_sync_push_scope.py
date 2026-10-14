@@ -2,7 +2,7 @@
 """守门：git-sync 的**两个方向**都只能作用在 `dev` / 功能分支上，`main` 一律不碰
 （源 CNB #172 / #167，2026-10-13 ~ 10-14）。
 
-WHY：**CNB 的 `main` 与 GitHub 的 `main` 没有任何关系**（用户口径，CNB #167）——
+WHY：**CNB 的 `main` 与 GitHub 的 `main` 没有任何关系**（用户口径，CNB #167）。cross-repo-ref-allow
 CNB `main` 只由 CNB 自己的发版 PR 推进，不是 GitHub `main` 的镜像，也不向 GitHub 外推。
 两条方向各有一个「默认行为会碰 `main`」的陷阱：
 

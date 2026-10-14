@@ -190,7 +190,7 @@ def _fixed_clock(m, monkeypatch, when='2026-10-12'):
 
 
 def test_header_matches_frozen_shape(m, monkeypatch):
-    """正文头部形状冻结（源头卡为 CNB #5 ← GitHub #783，2026-10-11 全量同步）。
+    """正文头部形状冻结（源头卡为 CNB #5 ← GitHub imoyao/fundmate#783 的镜像，2026-10-11 全量同步）。  <!-- cross-repo-ref-allow -->
 
     字段顺序 / 措辞 / 全角空格都钉在这里；改它等于让前后两批镜像卡出现两种长相，
     必须是有意识的决定，而不是顺手重构的副作用。
@@ -366,7 +366,7 @@ def test_github_refs_only_counts_github_side():
     把它们也算成「提到了 GitHub」，提示就变成噪音，人就不会再看这一列了。
     """
     m = _load_mirror()
-    body = '相关：duoduobei/fundmate#106（GitHub imoyao/fundmate#2034）、CNB #120'
+    body = '相关：duoduobei/fundmate#106（GitHub imoyao/fundmate#2034）、CNB #120'  # cross-repo-ref-allow
     assert m._github_refs(body) == ['imoyao/fundmate#2034']
     assert m._github_refs('只有 CNB 自己的卡 duoduobei/fundmate#106') == []
     assert m._github_refs('见 https://github.com/imoyao/fundmate/issues/2034') == [

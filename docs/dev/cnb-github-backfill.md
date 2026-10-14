@@ -218,9 +218,14 @@ git merge-base --is-ancestor origin/main origin/dev && echo '未分叉' || echo 
 
 ## 11. 与代码双向镜像的关系
 
-**代码不需要这套机制。** 两侧的 `dev` / `main` 由 CNB 侧 `sync/mirror` 分支的定时任务
-`git fetch` + **fast-forward only** 对齐（`.cnb.yml`），这是仓库级的直接搬运，比任何
-基于 API 的镜像都快且无冲突；GitHub 侧的 PR 合并会经那条通路自动出现在 CNB。
+**代码不需要这套机制。** 代码的两个方向各有归属：
+
+- **CNB → GitHub**：`.cnb.yml` 的 `push:` 段（`branch: dev`）与
+  `"**/!(main|dev)"` 段（`branch: ${CNB_BRANCH}`，功能分支）；
+- **GitHub → CNB**：`crontab: 0 * * * *` 的 `sync_mode: pull`。
+
+`main` 两个方向都不走——它是 GitHub 的权威分支，只由发版 PR（`dev → main`）推进。
+细节与守卫见 `docs/dev/github-cnb-mirror.md` §13.3。
 
 本作业只管 **issue 与评论**这一层——它没有 git 层面的等价物。
 

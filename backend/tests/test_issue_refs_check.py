@@ -102,8 +102,8 @@ def test_extract_range_and_explicit_ref(mod):
 
 
 def test_extract_ignores_issue_numbers_and_urls(mod):
-    """`#118` / `https://…` / `12:30` 不能被当成文件引用（误报比漏报更耗信任）。"""
-    text = '源 CNB issue #118；见 https://github.com/imoyao/fundmate/issues/2034 ；时间 12:30'
+    """`#118` / `https://…` / `12:30` 不能被当成文件引用（误报比漏报更耗信任）。"""  # cross-repo-ref-allow
+    text = '源 CNB issue #118；见 https://github.com/imoyao/fundmate/issues/2034 ；时间 12:30'  # cross-repo-ref-allow
     assert mod.extract_refs(text) == []
 
 
@@ -238,7 +238,7 @@ def test_non_strict_tolerates_missing_version(mod):
 # #144 §四 记的判据缺陷：`check_issue_refs.py` / `check_mirror_refs.py` 的默认
 # `--ref` 写死 `origin/dev`，而卡面（GitHub 原卡 / CNB 镜像卡）描述的是**默认分支**
 # （`main`）的代码。于是「`dev` 上已删、`main` 上还在」的引用被报成失效——
-# 实测活证据：CNB #104（GitHub #2032）的 `AssetInsightPanel.vue` 就是这个假阳性，
+# 实测活证据：CNB #104（GitHub imoyao/fundmate#2032）的 `AssetInsightPanel.vue` 就是这个假阳性，  # cross-repo-ref-allow
 # 而它让整份报告在**只看默认分支**的场景下不可用（不是少报，是把好的报成坏的）。
 #
 # 这里钉住三件事：① 默认解析到 `origin/main`（远端 HEAD）；② 该假阳性消失；
