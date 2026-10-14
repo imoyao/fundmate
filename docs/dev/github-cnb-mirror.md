@@ -1357,19 +1357,19 @@ if url in plugin_level:      # 该 URL 在**任意**插件任务级出现过
 （image 只是跑 script 的容器），`allow_images` **永远匹配不上**。
 git-sync 那三条能过，正是因为它只有 `image` + `settings`、**没写 `script`**。
 
-**修法**：脚本任务取凭据的正当途径是 `env`（《脚本任务 vs 插件任务》对比表：
-脚本任务「自定义环境变量 ✅ 支持」，插件任务「❌ 不会传递」）。
-`GITHUB_PAT` 因此改配在 CNB 仓库的**流水线环境变量**里，不再走密钥仓库引用。
+**修法**（⚠️ **这一格后来又被改过一次，见 §16.10 —— 当时写的「配到流水线环境变量」是错的**）；
+真根因确认在 `allow_images`，修法见 §16.10。
 
-**新增判据 4**：脚本任务（`image` + `script`/`commands`）上不得挂密钥文件引用 ——
-前三条判的是「挂在第几层」（语法层），这一条判的是「job 是不是插件任务」（**语义层**）。
+**新增判据 4**：脚本任务（带 `script`/`commands`）上引用**带 `allow_images` 的**密钥文件、
+或用 `settingsFrom` 引密钥 —— 前三条判的是「挂在第几层」（语法层），
+这一条判的是「job 是不是插件任务 + 被引文件是给谁用的」（**语义层**）。
 
 | 判据 | 判什么 | 层 |
 |---|---|---|
 | 1 | 引用不在 job 对象上 | 语法 |
 | 2 | `settingsFrom` 不配 `${VAR}` | 语法 |
 | 3 | 两种语义不并存 | 语法 |
-| **4** | **job 是不是插件任务** | **语义** |
+| **4** | **脚本任务不得引带 `allow_images` 的密钥文件 / 不得用 `settingsFrom`** | **语义** |
 
 ### 16.6.1 这一轮真正学到的东西
 
@@ -1400,6 +1400,129 @@ cnb build get-build-stage --repo duoduobei/fundmate --sn <sn> \
 
 **为什么写进文档**：`get-build-stage` 的 `error` 字段是**唯一**能证明「这一条真的修好了」
 的证据 —— 静态守卫只能证明「形状合规」。第一轮的教训就是只看了守卫。
+
+### 16.10 第三轮：**「配到流水线环境变量」是错的 —— CNB 没有这个页面**（2026-10-14）
+
+§16.6 那句修法（「`GITHUB_PAT` 因此改配在 CNB 仓库的**流水线环境变量**里」）**是错的**。
+它是**文档驱动的臆测** —— 见 §16.6.1 的自我批评（「守卫绿 ≠ 线上绿」），这次错得更深一层：
+**连文档都没读，直接编了一个平台不存在的功能**。
+
+#### 事实：CNB 没有「仓库级流水线环境变量」这个设置页
+
+翻遍 CNB《云原生构建》文档，环境变量只有四条路（《环境变量》一文的功能概览表即全部）：
+
+| 功能 | 说明 |
+|---|---|
+| 声明环境变量 | `env` —— **写在 `.cnb.yml` 里**（Pipeline / Job 级） |
+| 导入环境变量 | `imports` —— 从**密钥仓库文件**注入 |
+| 导出环境变量 | `exports` —— 任务结果转环境变量 |
+| 使用环境变量 | 脚本 / 配置里引用 |
+
+Web 上唯一叫「环境变量」的页面是 **`个人设置 → 云原生开发 → 个人环境变量`**
+（`docs.cnb.cool/zh/workspaces/personal-envs.md`），而它**明写**：
+
+> 个人环境变量仅在`云原生开发`环境中生效，**不影响普通构建（`Build`）**。
+
+⇒ 它救不了 `认领同步`。而「仓库设置」下**没有**环境变量页。
+**所以 §16.6 让用户去点的那一步，用户根本点不到 —— 这正是用户回问「在哪里加？」的原因。**
+
+#### 那正确的修法是什么
+
+回到 §16.6 的核心事实（这条是**对的**）：
+
+> - 非插件任务的 image 为空字符串，无法匹配任何 glob 表达式；
+>   配置文件**声明了 `allow_images`** 将不能被非插件任务引用
+
+**关键是这句话的宾语**：被拒的是「**文件里有 `allow_images`**」，**不是**「脚本任务引用密钥」。
+§16.6 把它读成了后者，于是推出「脚本任务不能碰密钥仓库」这个**过宽的结论**。
+
+CNB 官方文档《文件引用 › 权限检查 › 示例 › **流水线密钥文件引用**》给的正是反例：
+
+```yaml
+# 密钥仓库中的 secret.yml —— 只声明 allow_slugs / allow_events / allow_branches
+allow_slugs: "p1/**"
+allow_events: push
+allow_branches: main
+DOCKER_USER: docker-user
+DOCKER_PWD: docker-pwd
+```
+```yaml
+# .cnb.yml —— 普通**脚本任务**用 imports 引它，完全合法
+main:
+  push:
+    - imports: .../secret.yml
+      stages:
+        - name: docker login
+          script: |
+            docker login -u ${DOCKER_USER} -p "${DOCKER_PWD}"
+```
+
+所以修法是：**另起一份不声明 `allow_images` 的密钥文件**，脚本任务 `imports` 引那一份。
+`vars.yml` 保持不动（git-sync 是插件任务，它需要 `allow_images`）。
+
+| | `vars.yml` | `claim-sync-env.yml`（新） |
+|---|---|---|
+| 读者 | git-sync **插件**任务 | `认领同步` **脚本**任务 |
+| `allow_images` | **必须有**（否则插件读不到密钥） | **必须没有**（有则脚本任务必然死在 Prepare） |
+| `allow_events` | 需要（`crontab:*` 等） | 不需要（`push` 是可信事件 + 非镜像任务） |
+| `allow_branches` | 需要（`main`/`dev`/`feat/**`…） | **刻意不写**（`$` 段 = 所有分支） |
+| `allow_slugs` | `duoduobei/fundmate` | 同左 |
+
+「allow 必要性检查」流程图对**可信事件 + 非镜像任务**的判定是「**通过**」
+（既不需要 `allow_events`，也不需要 `allow_images`），故这份文件只需 `allow_slugs`。
+模板见 `docs/ops/claim-sync-secret-env.example.yml`。
+
+#### 判据 4 也跟着收窄：**过宽与过窄一样是 bug**
+
+初版判据 4 写成「脚本任务上不得挂密钥文件引用」，会把上面那条**官方示例的合法形态**
+一并判红。**判据过宽的表现不是误报，而是让人放弃正确做法** —— 一样有害。
+
+| 形态 | 判 |
+|---|---|
+| 脚本任务 + `imports` 引**带 `allow_images`** 的文件（`vars.yml`） | ❌ 死在 Prepare |
+| 脚本任务 + `settingsFrom` 引密钥 | ❌ 「加载插件参数」语义，脚本任务没有插件参数 |
+| 脚本任务 + `imports` 引**不带 `allow_images`** 的文件 | ✅ 合法（官方示例形态） |
+| 插件任务（`image` + `settings`，无 `script`） | ✅ 由判据 1/2/3 管 |
+
+守卫读不到密钥仓库（403），故按**文件名约定**判「是不是带 `allow_images` 的那份」：
+形如 `vars.yml` / `*.vars.yml` 即认定（与 `docs/ops/git-sync-secret-vars.example.yml`
+里确实写着 `allow_images` 互为印证）。
+
+#### 顺带修掉判据 4 的第二个盲区：**遍历范围漏掉了真实形态**
+
+收窄完判据 4，回退探针**第一次又 MISSED**：把脚本任务的 `imports` 改回 `vars.yml`，
+守卫竟然报绿。查下去是 `_iter_plugin_stages()` 的老毛病 ——
+
+```python
+if isinstance(stage, dict) and 'image' in stage:   # ← 只收「stage 自带 image」的
+```
+
+而 `认领同步` 的 `image` 来自 **job 级 `docker.image`**（经 YAML 锚点 `&claim-job` 注入），
+stage 自身**没有** `image` 键 ⇒ 它压根不在遍历结果里 ⇒ 判据 4 看不见它。
+
+**这与 §16.7 那句是同一件事**：「判据的遍历范围本身就是判据的一部分」。
+第一次栽在「跳过 `$` 段」，第二次栽在「只收自带 image 的 stage」——
+**同一个错误换了张脸**。改法是判据只认「有没有 `script`/`commands`」
+（「有没有 shell 命令」才是「是不是脚本任务」的判据，「image 从哪儿来」不是），
+遍历则凡带 `script`/`commands`/`imports`/`settingsFrom`/`settings` 的 stage 全收。
+**宁多扫，不要漏。**
+
+#### 这一轮的四条回退探针（每条都先确认变异生效）
+
+| 探针 | 期望 | 结果 |
+|---|---|---|
+| 脚本任务 `imports` 改回 `vars.yml` | 报错 | ✅ CAUGHT |
+| 现状（`imports` 引 `claim-sync-env.yml`） | 不报错 | ✅ 绿（不误报） |
+| 脚本任务改用 `settingsFrom` 引密钥 | 报错 | ✅ CAUGHT |
+| git-sync 插件任务 `imports` 引 `vars.yml` | 不报错 | ✅ 绿 |
+
+#### 一句更长的话
+
+**「这个功能在哪个页面」这种问题，答错的方式只有一个：没查就说。**
+§16.6 的错不是判据写错（那还能被探针咬住），是**说了一个平台没有的东西**——
+它连「判据」都不是，探针咬不到，只能靠人去点一下才发现。
+所以规则补一条：**凡涉及「在 UI 哪里操作」，必须能在官方文档里指到原文，
+否则一律回答「我没查到，待确认」。**
 
 ### 16.9 关联
 
