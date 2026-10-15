@@ -2,10 +2,9 @@
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import CardBlock from "@/components/CardBlock/index.vue";
-import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
+import TransactionTable from "@/components/TransactionTable/index.vue";
 import { getTransactions, type TransactionRecord } from "@/api/transactions";
-import { formatQuantity } from "@/utils/format";
 import {
   PREVIEW_SIZE,
   EXPAND_SIZE,
@@ -162,21 +161,7 @@ watch(
   }
 );
 
-/** 操作类型中文映射 */
-const txnTypeLabel: Record<string, string> = {
-  buy: "买入",
-  sell: "卖出",
-  dividend: "分红",
-  dividend_reinvest: "红利再投资",
-  deposit: "存入",
-  withdraw: "取出",
-  split: "拆分"
-};
-
-function formatTradeDate(date: string | null): string {
-  if (!date) return "—";
-  return date;
-}
+/** 操作类型中文映射见 constants/txnTypeLabel（全站统一，随 TransactionTable 收口） */
 
 function goAllTransactions() {
   void router.push(allTransactionsLink.value);
@@ -212,52 +197,16 @@ function goAllTransactions() {
         >
       </p>
 
-      <el-table
-        id="transaction-detail-table"
-        :data="visibleRows"
-        size="small"
-        border
+      <!-- 表格本体走全站统一的 TransactionTable（#2104 验收「同一组件」：
+           此前详情页 / 账本 Tab / 持仓抽屉三套表格，字段与口径全不一致）。
+           本容器只负责渐进披露（折叠 10 条 → 就地展开 → 出口）与文案。 -->
+      <TransactionTable
+        :rows="visibleRows"
+        mode="compact"
+        show-account
+        table-id="transaction-detail-table"
         :max-height="expanded && needToggleBtn ? TABLE_MAX_HEIGHT : undefined"
-      >
-        <el-table-column prop="trade_date" label="交易日期" width="100">
-          <template #default="{ row }">
-            {{ formatTradeDate(row.trade_date) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="type" label="操作" width="60">
-          <template #default="{ row }">
-            {{ txnTypeLabel[row.type] || row.type }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="quantity" label="数量" width="100">
-          <template #default="{ row }">
-            {{ formatQuantity(row.quantity) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="price" label="价格" width="100">
-          <template #default="{ row }">
-            <MoneyDisplay
-              :value="row.price"
-              :decimals="2"
-              :auto-color="false"
-            />
-          </template>
-        </el-table-column>
-        <el-table-column prop="amount" label="金额" width="100">
-          <template #default="{ row }">
-            <MoneyDisplay
-              :value="row.amount"
-              :decimals="2"
-              :auto-color="false"
-            />
-          </template>
-        </el-table-column>
-        <el-table-column prop="account_name" label="账户" min-width="100">
-          <template #default="{ row }">
-            {{ row.account_name || "未知账户" }}
-          </template>
-        </el-table-column>
-      </el-table>
+      />
 
       <button
         v-if="needToggleBtn"

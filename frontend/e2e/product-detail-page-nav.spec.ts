@@ -301,6 +301,90 @@ test.describe("详情页页内导航（#1968）", () => {
     expect(txnRequests).toEqual([]);
   });
 
+  test("有持仓：交易记录表格渲染公共组件列集与行内容（#2104 统一）", async ({
+    page
+  }) => {
+    // #2104：详情页 / 账本 Tab / 持仓抽屉三处交易表统一为
+    // components/TransactionTable（同一组件、同一口径）。本用例钉 compact 模式
+    // （详情页）的渲染契约：列集、日期口径（trade_date 优先）、
+    // 「共 N 条」文案、零 pageerror。
+    // 反向验证：TransactionTable 列定义回归（如漏账户列、日期改认
+    // confirm_date）→ 本用例红。
+    const pageErrors: string[] = [];
+    page.on("pageerror", e => pageErrors.push(e.message));
+
+    await page.route(/\/api\/transactions(\/|\?|$)/, route =>
+      route.fulfill({
+        status: 200,
+        json: {
+          data: [
+            {
+              id: 9001,
+              type: "buy",
+              trade_date: "2026-03-02",
+              confirm_date: "2026-03-03",
+              quantity: 1000.5,
+              price: 0.9123,
+              amount: 912.71,
+              fee: 1.5,
+              account_name: "华泰证券",
+              position_name: NAME,
+              asset_type: "fund"
+            },
+            {
+              id: 9002,
+              type: "dividend",
+              trade_date: "2026-06-10",
+              confirm_date: "2026-06-11",
+              quantity: 0,
+              price: 0,
+              amount: 56.78,
+              fee: 0,
+              account_name: "华泰证券",
+              position_name: NAME,
+              asset_type: "fund"
+            }
+          ],
+          total: 2,
+          page: 1,
+          per_page: 10,
+          message: "ok"
+        }
+      })
+    );
+
+    await page.goto(`/#/fund/${SYMBOL}`);
+    const table = page.locator("#transaction-detail-table");
+    await expect(table).toBeVisible({ timeout: 60_000 });
+
+    // compact 列集（顺序即契约）：无产品列/手续费/操作列
+    await expect(table.locator(".el-table__header th")).toHaveText([
+      "交易日期",
+      "类型",
+      "价格",
+      "数量",
+      "金额",
+      "账户"
+    ]);
+
+    // 行数与桩一致（证明桩接上；没接上会走 404 错误态，表格根本不渲染）
+    await expect(table.locator(".el-table__body tbody tr")).toHaveCount(2);
+
+    // 首行：trade_date 优先（不是 confirm_date 的 03-03）、类型中文、金额带 ¥
+    const firstRow = table.locator(".el-table__body tbody tr").first();
+    await expect(firstRow).toContainText("2026-03-02");
+    await expect(firstRow).toContainText("买入");
+    await expect(firstRow).toContainText("¥912.71");
+    await expect(firstRow).toContainText("华泰证券");
+
+    // 容器文案：共 N 条（渐进披露的基数）
+    await expect(page.locator(".transaction-section__count")).toHaveText(
+      "共 2 条"
+    );
+
+    expect(pageErrors).toEqual([]);
+  });
+
   test("基金经理字段缺失：降级为「—」，不抛错不消失（#2191）", async ({
     page
   }) => {

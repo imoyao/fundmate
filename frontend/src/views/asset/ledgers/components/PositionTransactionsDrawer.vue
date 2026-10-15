@@ -259,87 +259,18 @@
       </div>
 
       <template v-else>
-        <!-- 🔥 修复1：将固定 width 改为 min-width，避免在 520px 抽屉中强制滚动 -->
-        <el-table
-          :data="transactionsList"
-          stripe
-          size="small"
-          :header-cell-style="{ color: 'var(--text-tertiary)' }"
-        >
-          <el-table-column label="日期" min-width="100" show-overflow-tooltip>
-            <template #default="{ row }">
-              {{ row.trade_date || row.confirm_date || "--" }}
-            </template>
-          </el-table-column>
-          <el-table-column label="类型" min-width="40">
-            <template #default="{ row }">
-              <span
-                :class="
-                  row.txn_type === 'buy' || row.txn_type === 'deposit'
-                    ? 'text-[var(--color-rise)]'
-                    : 'text-[var(--color-success)]'
-                "
-              >
-                {{ txnTypeLabel(row.txn_type) }}
-              </span>
-            </template>
-          </el-table-column>
-          <el-table-column
-            :label="isFund ? '确认净值' : '单价'"
-            min-width="90"
-            align="right"
-          >
-            <template #default="{ row }">
-              <MoneyDisplay
-                :value="row.price || 0"
-                :precision="pricePrecision(row.asset_type)"
-                :show-sign="false"
-                :auto-color="false"
-                size="sm"
-              />
-            </template>
-          </el-table-column>
-          <el-table-column
-            :label="isFund ? '确认份额' : '数量'"
-            min-width="80"
-            align="right"
-          >
-            <template #default="{ row }">{{ row.quantity }}</template>
-          </el-table-column>
-          <el-table-column label="金额" min-width="90" align="right">
-            <template #default="{ row }">
-              <MoneyDisplay
-                :value="row.amount || 0"
-                :show-sign="false"
-                :auto-color="false"
-                size="sm"
-              />
-            </template>
-          </el-table-column>
-          <el-table-column label="手续费" min-width="70" align="right">
-            <template #default="{ row }">
-              <MoneyDisplay
-                :value="row.fee || 0"
-                :show-sign="false"
-                :auto-color="false"
-                size="sm"
-              />
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="72" align="center">
-            <template #default="{ row }">
-              <el-button
-                size="small"
-                text
-                type="primary"
-                :icon="Edit"
-                @click="openEdit(row)"
-              >
-                编辑
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
+        <!-- 表格本体走全站统一的 TransactionTable（#2104 验收「同一组件」）。
+             抽屉单持仓视图：无产品列（抽屉头部已显示持仓名）、无账户列，
+             基金品类走「确认净值/确认份额」标签（fund 确认语义）。 -->
+        <TransactionTable
+          :rows="rows"
+          mode="compact"
+          show-fee
+          show-edit
+          :price-label="isFund ? '确认净值' : '单价'"
+          :quantity-label="isFund ? '确认份额' : '数量'"
+          @edit="openEdit"
+        />
 
         <!-- 🔥 修复3：明确加载完成的提示 -->
         <div
@@ -375,14 +306,16 @@
 import { ref, computed, watch, nextTick } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import { Loading, Edit } from "@element-plus/icons-vue";
+import { Loading } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { getPositionTransactions } from "@/api/positions";
 import { getPositionXirr } from "@/api/performance";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import TransactionTable, {
+  type TransactionRow
+} from "@/components/TransactionTable/index.vue";
 import { pricePrecision } from "@/utils/pricePrecision";
 import TransactionEditDialog from "./TransactionEditDialog.vue";
-import { txnTypeLabel } from "@/constants";
 import { resolveDetailPath } from "@/utils/productDetailNav";
 
 const props = defineProps<{
@@ -442,6 +375,12 @@ const drawerVisible = computed({
 const loadingTransactions = ref(false);
 const transactionsList = ref<any[]>([]);
 const transactionsTotal = ref(0);
+
+/** 适配公共表格行：txn_type → type（spread 保留原字段，编辑弹窗所需的
+    notes / import_hash 运行时仍在，仅类型层面不收）。 */
+const rows = computed<TransactionRow[]>(() =>
+  transactionsList.value.map(r => ({ ...r, type: r.txn_type }))
+);
 
 // 年化收益率（XIRR，#862 / #796）：单持仓维度，开抽屉时拉取
 const loadingXirr = ref(false);
