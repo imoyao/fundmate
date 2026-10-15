@@ -18,7 +18,10 @@ from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.fund_utils import should_exclude_from_investment
 from app.services.nav_service import NavService
-from app.services.summary_service import orphan_money_fund_totals_by_ledger
+from app.services.summary_service import (
+    orphan_cash_like_breakdown,
+    orphan_money_fund_totals_by_ledger,
+)
 
 
 class LedgerService:
@@ -331,6 +334,18 @@ class LedgerService:
         - 账户内现金（Asset.major_category='current'）。
 
         债券基金**不计入**：它有净值波动、XIRR 也未排除，属中低风险投资而非现金。
+
+        #2155 起另出**分项**（不改上面这个合计口径，只把已经在算的三项各自说清）：
+
+        - `cash_like_in_positions_amount`：持仓内那一项（= 货基持仓市值），是
+          `total_market_value` 的**子集**；环形图两片必须用它。
+        - `orphan_amount`：孤儿流水**本金净额**（不建持仓、不进总市值）。
+        - `orphan_income_amount`：孤儿流水里的渠道**收益桶**（#863 D1）——它同样不建持仓，
+          但**已计入家庭总资产**。⚠️ 它**不在** `cash_like_amount` 的加总里（合计口径
+          维持 #1137 原样不变）；列出来是因为「账外类现金对总资产的贡献」= 本金 + 收益。
+        - `account_cash_amount`：账户现金（`Asset.major_category='current'`）。
+        - `cash_like_breakdown`：账外孤儿流水按**产品**归组的明细，供页面解释
+          「这笔钱是什么、为什么不在持仓里」。
         """
         money_fund_amount = LedgerService.get_money_fund_stats(db, ledger_id).get('money_fund_amount', 0.0)
         # 孤儿流水净额（分）→ 元
@@ -345,10 +360,26 @@ class LedgerService:
         )
         cash_amount = Money.cents_to_yuan(cash_cents)
 
+        # 账外类现金逐产品明细（#2155）：只给一个汇总数，用户问的还是同一个问题
+        # （「这笔钱是什么、为什么不在持仓里」）。明细与上面孤儿净额同源同口径。
+        items, _net_cents, income_cents = orphan_cash_like_breakdown(db, family_id, ledger_id)
+
         return {
             'money_fund_amount': round(money_fund_amount, 2),
             'cash_amount': round(cash_amount, 2),
             'cash_like_amount': round(money_fund_amount + orphan_amount + cash_amount, 2),
+            # ---- 账外 / 持仓内的**分项出口**（#2155）----
+            # 拆分不是「新口径」，只是把已经在算的三项各自说出名字：
+            # 「持仓内」是 total_market_value 的子集，另两项不建持仓、不进总市值。
+            # ⚠️ 前端做环形图时必须用 `cash_like_in_positions_amount`（两片之和 = 总市值），
+            # 用 `cash_like_amount` 会把账外那部分减两遍、把「投资资产」算成负数（#1606）。
+            'cash_like_in_positions_amount': round(money_fund_amount, 2),
+            'orphan_amount': round(orphan_amount, 2),
+            # 孤儿流水里的渠道收益桶（#863 D1）：它同样不建持仓，但**已计入家庭总资产**，
+            # 故与本金净额分开列——两者相加才是「账外类现金」在总资产里的全部贡献。
+            'orphan_income_amount': round(Money.cents_to_yuan(income_cents), 2),
+            'account_cash_amount': round(cash_amount, 2),
+            'cash_like_breakdown': items,
         }
 
     @staticmethod
