@@ -237,21 +237,6 @@ main:
             再由同步带到 CNB。详见 AGENTS.md「双端协作（CNB ↔ GitHub，强制）」。
             MSG
             exit 1
-  pull_request:
-    - name: CNB 侧只读守卫
-      stages:
-        - name: 拒绝在 CNB 侧合 PR
-          script: |
-            cat <<'MSG'
-            ::error::本仓 CNB 侧只读：请在 GitHub 开 PR，不要在 CNB 侧合并。
-
-            原因：在 CNB 侧合 PR 必然产生 GitHub 没有的提交，下一次从 GitHub
-            同步时无法快进，镜像链路停摆（2026-10-11 已实测发生一次断链）。
-
-            正确路径：在 GitHub `imoyao/fundmate` 开 PR 合入 `dev`，
-            再由同步带到 CNB。详见 AGENTS.md「双端协作（CNB ↔ GitHub，强制）」。
-            MSG
-            exit 1
 # ===== CNB `dev` ↔ GitHub `dev` 双向同步（git-sync 插件）=====
 # ⚠️ **必须挂在 `dev:` 分支键下**（CNB #269，2026-10-14）。这里的「挂在哪个分支键下」
 # 不是风格问题，它决定 runner 检出哪个分支 —— 而插件只推「工作区里存在的分支」：
@@ -404,11 +389,9 @@ dev:
             branch: dev
             push_tags: true
 
-
-# dev 同样挂一份：PR 打向 dev 时读的是 dev 分支上的 `.cnb.yml`。
-# 两条长期分支之外的 feature 分支不挂 —— 它们本就不该在 CNB 侧被合入，
-# 而 `$` 兜底只对 web_trigger 有意义（pull_request 需要分支上下文）。
-dev:
+  # PR 打向 dev 时读的是 dev 分支上的这份配置（与 `main:` 段各一份守卫）。
+  # ⚠️ 事件必须挂在**分支之下**（#152）：写在顶层会被读成一个名为 pull_request 的
+  # 不存在分支，守卫空转还不报错。
   pull_request:
     - name: CNB 侧只读守卫
       stages:
@@ -424,6 +407,17 @@ dev:
             再由同步带到 CNB。详见 AGENTS.md「双端协作（CNB ↔ GitHub，强制）」。
             MSG
             exit 1
+
+
+# ⚠️ 这里**不再**另起一个 `dev:` 段（源 CNB #458，2026-10-15）：跨仓收敛合并
+# （`5633d04c`）把 GitHub 侧带来的 `dev: pull_request:` 落在了本文件已有的 `dev:` 段
+# 之后 ⇒ 同一层出现两个 `dev:` 键（`main:` 段内的 `pull_request` 同样重复了一份）。
+# YAML 规范允许重复键（后者覆盖前者），故 PyYAML `safe_load` 与本仓全部 `.cnb.yml`
+# 守卫都放行，而 **CNB 平台用严格解析器直接拒绝**：
+#     CI configuration file syntax error / YAMLException: duplicated mapping key (240:3)
+# 构建死在 Prepare，stage 都没进（`duration: 0`、`pipelineFailCount: 0`）。
+# 「CNB 侧只读」守卫现已并入上方 `dev:` 段的 `pull_request:` 事件（与 `main:` 段各一份）。
+# 判据已机械化：`scripts/guard_cnb_yml_duplicate_keys.py`（并入 ci.yml 的 layout_guard job）。
 "**/!(main|dev)":
   push:
     - name: 同步当前功能分支到 GitHub
