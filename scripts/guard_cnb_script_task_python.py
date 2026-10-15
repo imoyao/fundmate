@@ -27,6 +27,20 @@ WHY（源 CNB #461，2026-10-15 实测）
 3. 读不到输入（文件不存在 / 解析失败）⇒ 退 2 并声明「结论不可信」，
    **不得**退化成「没问题」（#171 的失败态纪律）。
 
+边界：**重复键会遮蔽整个 job —— 那时本守卫看不见它**（2026-10-15 补，源 CNB #463）
+--------------------------------------------------------------------
+`yaml.safe_load` 对重复键「后者覆盖前者」且**不报错**。拿它跑一份 `dev:` 重复出现的配置，
+被覆盖掉的那个 `dev:` 段里的 job（含机器分支 job）在 `safe_load` 后**根本不存在**，
+于是本守卫对它**一无所知、报绿** —— 实测：
+
+    # 拿 origin/dev 那份坏配置（顶层两个 `dev:`）喂本守卫
+    ✅ .cnb.yml 的 python 脚本任务均自带镜像     ← 假的绿灯
+
+这不是本守卫判据写错了，是**它的输入已经被别的错吃掉了**。处置：`check_text` 在解析前
+先用**保留重复键**的加载器探一遍，命中即把「job 可能被遮蔽」如实报出来（退 1），
+而不是让调用方读到一个看起来正常的 ✅。职责划分不变：**「键重复」本身仍归
+`guard_cnb_yml_duplicate_keys.py` 判**，本守卫只拒绝在「输入不可信」时给出绿结论。
+
 边界（有意为之）
 ----------------
 - **只认字面量镜像名**：`image: python*` / `python:*` / `*python:3*` 这类含
@@ -81,6 +95,70 @@ _PROBE_BAD = (
 )
 
 
+class _DupKeyLoader(yaml.SafeLoader):
+    """保留重复键的 SafeLoader：构造 mapping 时把重复的键记下来，但不抛异常。
+
+    与 `guard_cnb_yml_duplicate_keys.py` 的加载器同源（各自持有，避免守卫之间
+    互相 import —— 它们要能**单独**跑，那才是守卫该有的样子）。
+    """
+
+    def __init__(self, stream):
+        super().__init__(stream)
+        self.duplicates: list[tuple[str, int]] = []
+
+    def construct_mapping(self, node, deep=False):
+        keys: list[str] = []
+        for key_node, _ in node.value:
+            try:
+                keys.append(str(self.construct_object(key_node, deep=True)))
+            except yaml.YAMLError:
+                continue
+        for key in set(keys):
+            if keys.count(key) > 1:
+                self.duplicates.append((key, node.start_mark.line + 1))
+        return super().construct_mapping(node, deep=deep)
+
+
+def _find_duplicate_keys(text: str) -> list[tuple[str, int]]:
+    """返回 [(键名, 行号)]；同一键出现多次即计入（行号取该 mapping 起点）。
+
+    解析不了（YAML 语法错）时返回空 —— 那不是本守卫的判据，交给
+    `guard_cnb_yml_duplicate_keys.py` / 平台自身报。
+    """
+    loader = _DupKeyLoader(text)
+    try:
+        loader.get_single_data()
+    except yaml.YAMLError:
+        return []
+    finally:
+        try:
+            loader.dispose()
+        except Exception:  # noqa: BLE001 - dispose 失败不该影响判据
+            pass
+    return loader.duplicates
+
+
+# 遮蔽探针：顶层 `dev:` 出现两次。第一个 `dev:` 里的坏 job（跑 python 无 image）
+# 会被第二个 `dev:` 整个覆盖 ⇒ `safe_load` 后它不存在 ⇒ 老版本守卫会对这份输入报绿。
+# 真实来源：`origin/dev` 的 `.cnb.yml`（跨仓收敛合并 `5633d04c` 留下的重复键）。
+_PROBE_SHADOWED = (
+    'dev:\n'
+    '  push:\n'
+    '    - name: shadowed-bad\n'
+    '      stages:\n'
+    '        - name: run\n'
+    '          script: python scripts/x.py\n'
+    'dev:\n'
+    '  push:\n'
+    '    - name: winner\n'
+    '      docker:\n'
+    '        image: python:3.12-slim\n'
+    '      stages:\n'
+    '        - name: run\n'
+    '          script: python scripts/y.py\n'
+)
+
+
 def _has_python_image(job: dict, stage: dict) -> bool | None:
     """返回 True=有 python 镜像、False=有镜像但不含 python、None=没声明镜像。"""
     for img in (
@@ -102,6 +180,18 @@ def _calls_python(script: str) -> bool:
 
 def check_text(text: str) -> list[str]:
     problems: list[str] = []
+    # 先探重复键：被覆盖掉的 job 在 safe_load 后不存在，本守卫会对它一无所知、
+    # 报出一个**看起来正常**的绿（实测 `origin/dev` 那份配置）。宁可说「输入不可信」，
+    # 也不给一个方向可能反了的结论（#171 / #463）。
+    dups = _find_duplicate_keys(text)
+    if dups:
+        seen = ', '.join(f'`{k}`（第 {ln} 行起）' for k, ln in dups)
+        return [
+            f'输入不可信：`.cnb.yml` 存在重复键 {seen}。'
+            '`yaml.safe_load` 会用后者覆盖前者，被覆盖段的 job **不会进入本次检查**'
+            '—— 本守卫在遮蔽状态下给出的「均自带镜像」是假绿灯。'
+            '先跑 `python scripts/guard_cnb_yml_duplicate_keys.py` 修掉重复键再复检。'
+        ]
     data = yaml.safe_load(text)
     if not isinstance(data, dict):
         return []
@@ -157,6 +247,12 @@ def self_check() -> list[str]:
         errors.append('自检失败：跑 python 却不声明 image 的样本没被报出来（判据恒绿）。')
     if check_text(_PROBE_GOOD):
         errors.append('自检失败：合法样本（带 python 镜像）反被误报。')
+    # 遮蔽探针（#463）：重复键会把坏 job 整个吃掉，若守卫此时仍报 ✅，
+    # 它给出的就是**方向可能反了**的结论 —— 必须转红。
+    if not check_text(_PROBE_SHADOWED):
+        errors.append(
+            '自检失败：重复键遮蔽样本没被报出来（守卫在看不见的输入上给了假绿灯）。'
+        )
     return errors
 
 

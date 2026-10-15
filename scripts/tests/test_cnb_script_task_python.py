@@ -6,7 +6,10 @@
 2. 探针咬得住：拿**修复前的真实 `.cnb.yml`**（不可变 SHA `b3e64717`，机器分支 job
    还没补 `docker.image` 的那一版）喂守卫 ⇒ 必须转红。钉 SHA 而不读 `origin/dev`：
    修复一合入，`origin/dev` 里就是修好的文件，探针会随分支推进自己失效（恒绿）；
-3. 守卫自带 self_check：判据没接上时它会全绿，故每次都要跑。
+3. **重复键遮蔽**（源 CNB #463）：`dev:` 出现两次时，被覆盖段的坏 job 在
+   `safe_load` 后不存在 ⇒ 守卫会对它一无所知。拿 `origin/dev` 那份真实坏配置
+   （跨仓收敛合并 `5633d04c` 留下的重复键）喂守卫，**必须转红**，不得报 ✅；
+4. 守卫自带 self_check：判据没接上时它会全绿，故每次都要跑。
 
 跑法：`python -m unittest scripts.tests.test_cnb_script_task_python`（在仓库根）
 或 `python scripts/tests/test_cnb_script_task_python.py`。
@@ -70,6 +73,30 @@ PROBE_VAR_IMAGE = (
 )
 
 
+# 重复键遮蔽样本（源 CNB #463）：顶层 `dev:` 两次，第二个覆盖第一个，
+# 被覆盖的那个 `dev:` 里正是「跑 python 却不带 image」的 job。
+PROBE_SHADOWED = (
+    'dev:\n'
+    '  push:\n'
+    '    - name: shadowed-bad\n'
+    '      stages:\n'
+    '        - name: run\n'
+    '          script: python scripts/x.py\n'
+    'dev:\n'
+    '  push:\n'
+    '    - name: winner\n'
+    '      docker:\n'
+    '        image: python:3.12-slim\n'
+    '      stages:\n'
+    '        - name: run\n'
+    '          script: python scripts/y.py\n'
+)
+
+# `5633d04c`（跨仓收敛合并）那一版的真实 `.cnb.yml`：`main:` 下两个
+# `pull_request`、顶层两个 `dev:`。**不可变 SHA**（不读 origin/dev：修好后那里就是好的）。
+SHADOWED_SHA = '5633d04c55ab57642324234c350944fb0343e803'
+
+
 def run_guard(text: str, tmp: pathlib.Path) -> subprocess.CompletedProcess:
     p = tmp / 'probe.cnb.yml'
     p.write_text(text, encoding='utf-8')
@@ -123,6 +150,31 @@ class TestGuardCnbScriptTaskPython(unittest.TestCase):
             errors='replace',
         )
         self.assertEqual(r.returncode, 0, f'守卫自检失败：{r.stdout}{r.stderr}')
+
+    def test_shadowed_input_is_not_green(self) -> None:
+        """重复键遮蔽 ⇒ 必须报红，不得给出「均自带镜像」的假绿灯（源 CNB #463）。"""
+        r = run_guard(PROBE_SHADOWED, self.tmp)
+        self.assertEqual(
+            r.returncode, 1, f'遮蔽输入被放行（假绿灯）：{r.stdout}{r.stderr}'
+        )
+        self.assertIn('输入不可信', r.stdout)
+
+    def test_real_shadowed_config_turns_red(self) -> None:
+        """回退探针：`5633d04c` 那份真实坏配置必须转红（钉不可变 SHA）。"""
+        r = subprocess.run(
+            ['git', 'show', f'{SHADOWED_SHA}:.cnb.yml'],
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+        )
+        self.assertEqual(r.returncode, 0, f'取不到 5633d04c 的 .cnb.yml：{r.stderr}')
+        g = run_guard(r.stdout, self.tmp)
+        self.assertEqual(
+            g.returncode, 1,
+            f'重复键的真实坏配置没被转红（守卫在看不见的输入上给了绿）：{g.stdout}{g.stderr}',
+        )
+        self.assertIn('输入不可信', g.stdout)
 
     def test_before_fix_real_file_turns_red(self) -> None:
         """回退探针：修复前的真实 `.cnb.yml` 必须转红（钉不可变 SHA）。"""
