@@ -4,10 +4,12 @@
 # File : fund_service.py
 # backend/app/services/fund_service.py
 
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from loguru import logger
 from sqlalchemy import func
@@ -131,9 +133,77 @@ class FundService:
 
     # ─── 基金搜索 ─────────────────────────────────
 
-    # 外部基金列表缓存（进程级，基金列表极少变动）：避免每次搜索都打 akshare
-    _FUND_NAME_EM_CACHE: dict = {'ts': 0.0, 'data': None}
+    # 外部基金列表缓存（进程级，基金列表极少变动）：避免每次搜索都打 akshare。
+    # #2218 起这个 dict 同时承载三份状态——成功缓存（ts/data）与失败负缓存（fail_ts）：
+    # 整体 monkeypatch 该 dict 即重置全部状态，测试靠这一点做冷缓存隔离
+    # （tests/services/test_fund_search_fallback.py 的 _fresh_cache）。
+    _FUND_NAME_EM_CACHE: dict = {'ts': 0.0, 'data': None, 'fail_ts': 0.0}
     _FUND_NAME_EM_TTL = 86400
+    # 失败负缓存 TTL（#2218）：fetch 异常 / 空结果后该窗口内不再打外部源。
+    # 为什么不是更长：这是「源故障」的短歇，不是内容变化的长周期——300s 后自动重试，
+    # 成功即恢复 24h 正常缓存，避免外部源抖动被记成永久拒绝。
+    _FUND_NAME_EM_FAIL_TTL = 300
+
+    # 单飞锁（#2218）：**按缓存 key 各一把**，_FUND_LIST_LOCKS_GUARD 只护字典的建锁动作，
+    # 不参与业务等待。按 key 而非全局一把的原因：未来若有第二类外部列表缓存，
+    # 不该被基金列表的慢拉取（3MB / 14s）连带堵住。当前只有一把 key（fund_name_em）。
+    _FUND_LIST_LOCKS: Dict[str, Any] = {}
+    _FUND_LIST_LOCKS_GUARD = threading.Lock()
+
+    @classmethod
+    def _fund_list_lock(cls, key: str) -> Any:
+        """按缓存 key 取单飞锁（懒建；元锁内不许做任何耗时操作）。"""
+        with cls._FUND_LIST_LOCKS_GUARD:
+            return cls._FUND_LIST_LOCKS.setdefault(key, threading.Lock())
+
+    @classmethod
+    def _external_fund_list(cls) -> Optional[List[Dict[str, Any]]]:
+        """进程级外部基金列表获取：24h 成功缓存 + 同 key 单飞 + 失败负缓存（#2218）。
+
+        返回 None = 本次不打外部源（负缓存期内）或外部源打不通；调用方按「无外部数据」
+        处理，本地结果照常返回（单源失败不阻断的整体语义不变）。
+
+        单飞（为什么必须有）：原 24h 缓存**无并发保护**——日志实证 21:12:59 首拉
+        3MB/14s 尚未返回，21:13:10 第二个搜索请求又发起一次全量拉取。现在同 key 并发
+        只有一个线程真正执行 fetch，其余等锁后 double-check 复用已填好的缓存。
+
+        负缓存（为什么必须有）：AkshareAdapter.fetch_fund_list **内部吞异常返回 []**
+        （见适配器实现），所以「失败」的主信号就是「空」——异常与空结果统一记
+        fail_ts。不记短窗的话，外部源故障期间每个本地零命中的搜索都会各打一次 3MB 拉取。
+        """
+        cache = cls._FUND_NAME_EM_CACHE
+        now = time.time()
+        if cache.get('data') is not None and now - cache.get('ts', 0.0) <= cls._FUND_NAME_EM_TTL:
+            return cache['data']
+
+        with cls._fund_list_lock('fund_name_em'):
+            # double-check：拿锁前可能已有并发线程填好缓存（单飞的关键一步）
+            now = time.time()
+            if cache.get('data') is not None and now - cache.get('ts', 0.0) <= cls._FUND_NAME_EM_TTL:
+                return cache['data']
+            fail_ts = cache.get('fail_ts', 0.0)
+            if fail_ts and now - fail_ts < cls._FUND_NAME_EM_FAIL_TTL:
+                # 负缓存期内：不再打外部源（失败原因已记录过一次，不逐请求刷屏）
+                return None
+            try:
+                # #1363 修复：此前误拼 AKShareAdapter → ImportError 被 except 静默吞掉，
+                # 外部兜底自引入起从未生效。类名以 orchestrator 注册处（AkshareAdapter）为准。
+                from app.services.adapters.akshare_adapter import AkshareAdapter
+
+                fetched = AkshareAdapter().fetch_fund_list()
+            except Exception as e:  # 外部源任何异常只降级不阻断（与聚合搜索同语义）
+                cache['fail_ts'] = time.time()
+                logger.warning(f'基金搜索外部兜底失败: {e}（负缓存 {cls._FUND_NAME_EM_FAIL_TTL}s）')
+                return None
+            if not fetched:
+                # 空结果 = 失败（适配器内部已把异常转成 []），同样记负缓存
+                cache['fail_ts'] = time.time()
+                logger.warning(f'基金搜索外部兜底返回空列表（负缓存 {cls._FUND_NAME_EM_FAIL_TTL}s）')
+                return None
+            cache['data'] = fetched
+            cache['ts'] = time.time()
+            cache['fail_ts'] = 0.0
+            return fetched
 
     # 货基名称兜底词（仅在 fund_type_id 缺失时使用）。
     # 注意：单用「现金」过宽（存在「现金流」等非货基产品），故只收「货币」及
@@ -200,13 +270,25 @@ class FundService:
         return 'off_exchange'
 
     @staticmethod
-    def search_funds(db: Session, keyword: str) -> List[Dict[str, Any]]:
+    def search_funds(
+        db: Session,
+        keyword: str,
+        *,
+        external_gate: Optional[Callable[[], bool]] = None,
+    ) -> List[Dict[str, Any]]:
         """模糊搜索基金（代码/名称/拼音）。
 
         本地 Fund 表优先；若本地完全无命中，追加 akshare fund_name_em 外部兜底，
         覆盖本地库尚未同步的基金（如用户持有的货基），使其也能按名称搜到（#交互修复）。
         返回项含 is_money_fund，为**三态** True/False/None，供前端筛选货基
         （判定细节见 FundService._judge_money_fund）。
+
+        Args:
+            external_gate: 外部兜底的准入判定（#2218），**延迟求值**——仅在本地零命中、
+                即将打外部源时才调用一次，返回 False 则跳过兜底。聚合搜索
+                （asset_search._search_funds）传入「其它本地源已有命中即跳过」的判据；
+                缺省 None = 总是尝试兜底，即 /api/funds/search/ 端点的原有语义——
+                真正的基金名检索是兜底的设计目的，不许被条件跳过误杀。
         """
         keyword = (keyword or '').strip()
         if not keyword:
@@ -260,52 +342,46 @@ class FundService:
             )
             seen.add(f.fund_code)
 
-        # 外部兜底：本地完全无命中时，用 akshare fund_name_em 补全（覆盖未同步基金）
-        if not results:
-            try:
-                import time
-
-                cache = FundService._FUND_NAME_EM_CACHE
-                now = time.time()
-                if cache['data'] is None or now - cache['ts'] > FundService._FUND_NAME_EM_TTL:
-                    # #1363 修复：此前误拼 AKShareAdapter → ImportError 被下方 except 静默吞掉，
-                    # 外部兜底自引入起从未生效。类名以 orchestrator 注册处（AkshareAdapter）为准。
-                    from app.services.adapters.akshare_adapter import AkshareAdapter
-
-                    cache['data'] = AkshareAdapter().fetch_fund_list()
-                    cache['ts'] = now
-                kw = keyword.lower()
-                for item in cache['data'] or []:
-                    code = item.get('fund_code')
-                    if not code or code in seen:
-                        continue
-                    name = item.get('name') or ''
-                    if kw not in (code + name).lower():
-                        continue
-                    seen.add(code)
-                    # 外部兜底同样走三态：fund_type 明确时以其为准，缺失时退到名称兜底
-                    # （外部基金尚未同步万份收益，has_daily_worth 传 False）。
-                    ext_type = item.get('fund_type')
-                    if ext_type == '货币型':
-                        ext_is_money_fund: Optional[bool] = True
-                    elif ext_type:
-                        ext_is_money_fund = False
-                    else:
-                        ext_is_money_fund = FundService._judge_money_fund(None, name, False)
-                    results.append(
-                        {
-                            'code': code,
-                            'name': name,
-                            'type': 'fund',
-                            'subscription_rate': 0.0,
-                            'fund_type_id': None,
-                            'is_money_fund': ext_is_money_fund,
-                        }
-                    )
-                    if len(results) >= 20:
-                        break
-            except Exception as e:  # 外部失败不阻塞本地结果
-                logger.warning(f'基金搜索外部兜底失败: {e}')
+        # 外部兜底：本地完全无命中时，用 akshare fund_name_em 补全（覆盖未同步基金）。
+        # external_gate（#2218）：聚合搜索传入「其它本地源已有命中即跳过」判据，
+        # 免掉 3MB/14s 的全量拉取；缺省 None 仍总是尝试兜底（纯基金名检索是设计目的）。
+        # 单飞 / 失败负缓存收在 _external_fund_list 内（#2218）。
+        if not results and (external_gate is None or external_gate()):
+            external = FundService._external_fund_list()
+            if external:
+                try:
+                    kw = keyword.lower()
+                    for item in external:
+                        code = item.get('fund_code')
+                        if not code or code in seen:
+                            continue
+                        name = item.get('name') or ''
+                        if kw not in (code + name).lower():
+                            continue
+                        seen.add(code)
+                        # 外部兜底同样走三态：fund_type 明确时以其为准，缺失时退到名称兜底
+                        # （外部基金尚未同步万份收益，has_daily_worth 传 False）。
+                        ext_type = item.get('fund_type')
+                        if ext_type == '货币型':
+                            ext_is_money_fund: Optional[bool] = True
+                        elif ext_type:
+                            ext_is_money_fund = False
+                        else:
+                            ext_is_money_fund = FundService._judge_money_fund(None, name, False)
+                        results.append(
+                            {
+                                'code': code,
+                                'name': name,
+                                'type': 'fund',
+                                'subscription_rate': 0.0,
+                                'fund_type_id': None,
+                                'is_money_fund': ext_is_money_fund,
+                            }
+                        )
+                        if len(results) >= 20:
+                            break
+                except Exception as e:  # 外部结果解析失败同样不阻塞本地结果
+                    logger.warning(f'基金搜索外部兜底失败: {e}')
 
         return results
 
