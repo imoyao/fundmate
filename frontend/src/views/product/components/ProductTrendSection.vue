@@ -11,6 +11,7 @@ import {
   type TradeTimelineResult,
   type TrendRange
 } from "@/api/products";
+import ProductProfitPanel from "./ProductProfitPanel.vue";
 import {
   CHART_TOKENS,
   getCssVar,
@@ -45,10 +46,22 @@ import {
  * - **取色避开 rise/fall**：买卖点不是涨跌语义，红绿会让「我买过」被误读成「涨了」。
  *   蓝（info）三角朝上=买入、橙（warning）三角朝下=卖出、中性灰虚线=成本线——
  *   形状主编码，色弱用户也能分辨；
+ * - **低于当时成本线 → 空心**（P1）：当日均价 < 当日最后一笔之前的持仓均价。
+ *   低吸 / 割肉一眼可辨，tooltip 附偏离度；首笔前无持仓不判（无参照不下结论）。
+ *   不引入第三种颜色——那会和涨跌语义打架；
  * - **同日多笔聚合**为一个点（金额合计 + 笔数），tooltip 显示「N 笔合计」；
  * - **成本线前向填充**：非交易日延续前值，首笔交易前为 null 不画，清仓日断在最后一笔；
+ * - **「历轮」开关**（P1）：清仓后重建仓的用户可关掉旧轮次，只看最近一轮；
+ * - **建仓期区间**（P1）：有流水时区间栏追加「建仓」档——首笔买入日至今，
+ *   显式起始日走后端 `start` 参数（档位表达不了因人而异的长度）；
  * - **时间线不分区间**：后端一次返回全量重放结果，前端按当前区间过滤展示；
  * - 拉取失败 / 未持有 → 静默不渲染叠加层，主曲线不受影响（设计 §6）。
+ *
+ * ## 累计收益面板（P1，见 ProductProfitPanel.vue）
+ *
+ * 与叠加层共用同一次时间线请求（detail 层不重复取数）：累计已实现盈亏 +
+ * 金额 / 收益率切换 + 紧凑统计条。曲线**全程展示不随区间缩放**——区间是看净值
+ * 波动的窗口，不是看盈亏历史的窗口。
  */
 
 const props = defineProps<{
@@ -60,14 +73,24 @@ const props = defineProps<{
   hasPosition?: boolean;
 }>();
 
-const RANGE_OPTIONS: { label: string; value: TrendRange }[] = [
+const RANGE_BASE_OPTIONS: { label: string; value: RangeValue }[] = [
   { label: "1月", value: "1M" },
   { label: "3月", value: "3M" },
   { label: "6月", value: "6M" },
   { label: "1年", value: "1Y" }
 ];
 
-const range = ref<TrendRange>("3M");
+/**
+ * 区间取值：固定档位 + 「建仓」（#2171 P1）。
+ *
+ * 建仓期 = 首笔买入日至今，长度因人而异（有人三年有人三天），档位表达不了——
+ * 合并 research 纪要 §6 待办 #6（原计划单独一张卡）：落成走势卡的一个区间选项，
+ * 复用同一张图与口径脚注，不为同一条曲线新开一张卡。仅在有流水时出现
+ * （没买过就没有「建仓期」可言）。
+ */
+type RangeValue = TrendRange | "HOLDING";
+
+const range = ref<RangeValue>("3M");
 const loading = ref(false);
 const failed = ref(false);
 const trend = ref<ProductTrendResult | null>(null);
@@ -134,6 +157,51 @@ watch(() => [props.symbol, props.hasPosition], loadTimeline, {
   immediate: true
 });
 
+/** 首笔交易日（建仓期区间的起点；无流水为 null） */
+const firstTradeDate = computed(
+  () => timeline.value?.summary.first_trade_date ?? null
+);
+
+/** 区间选项：有流水才追加「建仓」（没买过就没有建仓期可言） */
+const rangeOptions = computed(() =>
+  firstTradeDate.value
+    ? [...RANGE_BASE_OPTIONS, { label: "建仓", value: "HOLDING" as RangeValue }]
+    : RANGE_BASE_OPTIONS
+);
+
+/** 「历轮买卖」开关（#2171 P1）：默认开=显示全部轮次；关=只看最近一轮。
+    清仓后重建仓的用户，旧轮次的点会让「我现在的成本线」难以认读。 */
+const showHistoryRounds = ref(true);
+
+/** 最近一轮的起点下标：最后一笔清仓（closed）的下一笔（无清仓则 0） */
+const currentRoundStart = computed(() => {
+  const pts = timeline.value?.points ?? [];
+  for (let i = pts.length - 1; i >= 0; i--) {
+    if (pts[i].closed) return i + 1;
+  }
+  return 0;
+});
+
+/** 是否存在历史轮次（决定「历轮」开关可不可见） */
+const hasHistoryRounds = computed(() => currentRoundStart.value > 0);
+
+/** 当前展示的交易点（历轮开关过滤后） */
+const visiblePoints = computed(() => {
+  const pts = timeline.value?.points ?? [];
+  return showHistoryRounds.value ? pts : pts.slice(currentRoundStart.value);
+});
+
+/** 当前展示的成本线（与可见交易点同轮次；成本线在清仓后自然重启，
+    按首个可见点的日期截断即可，不另造轮次概念） */
+const visibleCostLine = computed(() => {
+  const line = timeline.value?.cost_line ?? [];
+  if (showHistoryRounds.value) return line;
+  const pts = visiblePoints.value;
+  if (!pts.length) return [];
+  const from = pts[0].date;
+  return line.filter(c => c.date >= from);
+});
+
 /** 日期 → 净值：买卖点画在当日净值位置（用户实际按净值成交，#2171 定稿） */
 const navByDate = computed(() => {
   const m = new Map<string, number>();
@@ -149,6 +217,11 @@ const navByDate = computed(() => {
  * **同日多笔按方向聚合**（金额合计、笔数计数）——不合并会两个点重叠成一个，
  * tooltip 也说不清「那天到底操作了几笔」。区间外的交易日（point.date 不在
  * trend.dates 里）直接丢弃：曲线没画到那天，点画上去是悬空的。
+ *
+ * **低于当时成本线的空心编码**（#2171 P1）：当日均价 < 当日最后一笔之前的持仓均价
+ * → 空心三角。买在成本线下=低吸、卖在成本线下=割肉，都是买方要一眼看到的「这笔
+ * 划不划算」（吸收自评估期砍掉的「越跌越买评分」）。首笔前无持仓（参照为 null）
+ * 不判——没有参照就不下结论。
  */
 const markerData = computed(() => {
   const nav = navByDate.value;
@@ -157,13 +230,16 @@ const markerData = computed(() => {
     date: string;
     y: number;
     amount: number;
+    quantity: number;
     count: number;
     closed: boolean;
     confirm: string | null;
     account: string | null;
+    /** 当日最后一笔之前的持仓均价（元/份）；无参照为 null */
+    costRef: number | null;
   };
   const agg = new Map<string, MarkerMeta>();
-  for (const p of timeline.value?.points ?? []) {
+  for (const p of visiblePoints.value) {
     const y = nav.get(p.date);
     if (y === undefined || !Number.isFinite(y)) continue;
     const key = `${p.side}@${p.date}`;
@@ -174,30 +250,48 @@ const markerData = computed(() => {
         date: p.date,
         y,
         amount: 0,
+        quantity: 0,
         count: 0,
         closed: false,
         confirm: p.confirm_date,
-        account: p.account_name
+        account: p.account_name,
+        costRef: null
       } as MarkerMeta);
     cur.amount += p.amount_yuan;
+    cur.quantity += p.quantity;
     cur.count += 1;
     cur.closed = cur.closed || p.closed;
+    // 取当日最后一笔的参照均价（聚合后与当日均价比较）
+    if (p.cost_before_avg_yuan !== null) cur.costRef = p.cost_before_avg_yuan;
     agg.set(key, cur);
   }
-  const buy: Array<{ value: [string, number] } & MarkerMeta> = [];
-  const sell: Array<{ value: [string, number] } & MarkerMeta> = [];
+  const decorate = (meta: MarkerMeta) => {
+    const avgPrice = meta.quantity > 0 ? meta.amount / meta.quantity : null;
+    const below =
+      avgPrice !== null && meta.costRef !== null && avgPrice < meta.costRef;
+    const deviation =
+      avgPrice !== null && meta.costRef && meta.costRef > 0
+        ? +(((avgPrice - meta.costRef) / meta.costRef) * 100).toFixed(2)
+        : null;
+    return {
+      value: [meta.date, meta.y] as [string, number],
+      ...meta,
+      avgPrice,
+      below,
+      deviation
+    };
+  };
+  const buy: ReturnType<typeof decorate>[] = [];
+  const sell: ReturnType<typeof decorate>[] = [];
   for (const meta of agg.values()) {
-    const item = { value: [meta.date, meta.y] as [string, number], ...meta };
-    (meta.side === "buy" ? buy : sell).push(item);
+    (meta.side === "buy" ? buy : sell).push(decorate(meta));
   }
   return { buy, sell };
 });
 
 /** 成本线：cost_line 前向填充到区间每一天（非交易日延续前值；首笔交易前为 null 不画） */
 const costSeriesData = computed(() => {
-  const m = new Map(
-    (timeline.value?.cost_line ?? []).map(c => [c.date, c.cost_yuan])
-  );
+  const m = new Map(visibleCostLine.value.map(c => [c.date, c.cost_yuan]));
   let last: number | null = null;
   return (trend.value?.dates ?? []).map(d => {
     if (m.has(d)) last = m.get(d) ?? null;
@@ -217,6 +311,13 @@ const markersActive = computed(
 const hasMarkers = computed(
   () => markerData.value.buy.length + markerData.value.sell.length > 0
 );
+
+/** 有流水（决定累计收益面板可不可见；含只有分红没有买卖的边界） */
+const hasTrades = computed(() => {
+  const s = timeline.value?.summary;
+  if (!s) return false;
+  return s.buy_count + s.sell_count + s.dividend_count > 0;
+});
 
 /**
  * 简单移动平均。
@@ -373,7 +474,8 @@ const chartOption = computed(() => {
   const costLineColor = getCssVar(CHART_TOKENS.textTertiary, "#9aa0a6");
 
   /** 轴触发 tooltip：净值行 + 当日成本线 + 当日买卖汇总（#2171）。
-      同日多笔在 markerData 已聚合，这里直接显示「N 笔合计」。 */
+      同日多笔在 markerData 已聚合，这里直接显示「N 笔合计」；
+      低于当时成本线的点附偏离度（空心编码的文字版，色弱用户也能读到）。 */
   const tooltipFormatter = (params: Array<Record<string, unknown>>) => {
     if (!params?.length) return "";
     const date = String(params[0].axisValue ?? "");
@@ -387,8 +489,13 @@ const chartOption = computed(() => {
         const merged = count > 1 ? `（${count} 笔合计）` : "";
         const confirm = data.confirm ? `<br/>确认日 ${data.confirm}` : "";
         const closed = data.closed ? " · 当日清仓" : "";
+        const deviation = data.deviation as number | null;
+        const deviationText =
+          deviation === null || deviation === undefined
+            ? ""
+            : `<br/>${deviation < 0 ? "低于" : "高于"}当时成本 ${Math.abs(deviation).toFixed(2)}%`;
         rows.push(
-          `${p.marker ?? ""}${seriesName}${merged}：¥${amount}${closed}${confirm}`
+          `${p.marker ?? ""}${seriesName}${merged}：¥${amount}${closed}${deviationText}${confirm}`
         );
       } else {
         const v = Array.isArray(p.value) ? Number(p.value[1]) : Number(p.value);
@@ -440,26 +547,44 @@ const chartOption = computed(() => {
             }
           ]
         : []),
-      // 买卖点：三角朝上=买入、朝下=卖出（形状主编码，色弱用户也能分辨）
+      // 买卖点：三角朝上=买入、朝下=卖出（形状主编码，色弱用户也能分辨）。
+      // 低于当时成本线的点改**空心**（填充透明 + 同色描边）：低吸/割肉一眼可辨，
+      // 不引入第三种颜色——那会和涨跌语义打架（#2171 P1）。
       ...(markersActive.value
         ? [
             {
               name: "买入",
               type: "scatter",
-              data: markerData.value.buy,
+              data: markerData.value.buy.map(m => ({
+                ...m,
+                itemStyle: m.below
+                  ? {
+                      color: "transparent",
+                      borderColor: markerBuyColor,
+                      borderWidth: 1.5
+                    }
+                  : { color: markerBuyColor }
+              })),
               symbol: "triangle",
               symbolSize: 9,
-              itemStyle: { color: markerBuyColor },
               z: 5
             },
             {
               name: "卖出",
               type: "scatter",
-              data: markerData.value.sell,
+              data: markerData.value.sell.map(m => ({
+                ...m,
+                itemStyle: m.below
+                  ? {
+                      color: "transparent",
+                      borderColor: markerSellColor,
+                      borderWidth: 1.5
+                    }
+                  : { color: markerSellColor }
+              })),
               symbol: "triangle",
               symbolRotate: 180,
               symbolSize: 9,
-              itemStyle: { color: markerSellColor },
               z: 5
             }
           ]
@@ -472,11 +597,15 @@ async function load() {
   if (!props.symbol) return;
   loading.value = true;
   failed.value = false;
+  // 建仓期：显式起始日（首笔买入日）覆盖档位。拿不到起始日（换标的后尚无流水，
+  // 或时间线还没回来）时退回 3M——绝不把「建仓」这个前端档位当 range 发给后端。
+  const useHolding = range.value === "HOLDING" && firstTradeDate.value !== null;
   try {
     const res = await getProductTrend({
       symbol: props.symbol,
-      range: range.value,
-      asset_type: props.assetType
+      range: range.value === "HOLDING" ? "3M" : (range.value as TrendRange),
+      asset_type: props.assetType,
+      ...(useHolding ? { start: firstTradeDate.value as string } : {})
     });
     trend.value = res.data;
   } catch {
@@ -493,6 +622,11 @@ async function load() {
 // 区块懒加载：走势图数据不阻塞 Hero 渲染（设计 §5 取数编排）
 watch(() => props.symbol, load, { immediate: true });
 watch(range, load);
+// 起始日晚于走势请求回来（时间线是并行拉的）：停在「建仓」档时补一次，
+// 避免用上一个标的的起始日画窗口
+watch(firstTradeDate, () => {
+  if (range.value === "HOLDING") void load();
+});
 </script>
 
 <template>
@@ -501,7 +635,7 @@ watch(range, load);
       <template #action>
         <SegmentedControl
           v-model="range"
-          :options="RANGE_OPTIONS"
+          :options="rangeOptions"
           size="small"
           ariaLabel="切换走势区间"
         />
@@ -514,6 +648,16 @@ watch(range, load);
           class="trend-section__marker-toggle"
         >
           买卖点
+        </el-checkbox>
+        <!-- 历轮买卖（#2171 P1）：仅清仓后重建仓的用户可见。关掉只看最近一轮——
+             旧轮次的点会让「现在的成本线」难以认读。 -->
+        <el-checkbox
+          v-if="hasHistoryRounds && showMarkers"
+          v-model="showHistoryRounds"
+          size="small"
+          class="trend-section__marker-toggle"
+        >
+          历轮
         </el-checkbox>
       </template>
     </SectionHeader>
@@ -534,15 +678,21 @@ watch(range, load);
       />
       <p v-if="spanNotice" class="trend-section__hint">{{ spanNotice }}</p>
       <!-- 来源说「哪个网站」，口径说「怎么算的」——后端分开给，前端只排版，
-           不在这里推断「close 就等于前复权」（#1969） -->
+           不在这里推断「close 就等于前复权」（#1969）。
+           空心买卖点（#2171 P1）：成交价低于当时持仓成本——低吸 / 割肉。 -->
       <p class="trend-section__footnote">
         数据日期：{{ trend?.dates?.[0] }} 至
         {{ trend?.dates?.[trend.dates.length - 1] }}
         <template v-if="trend?.source">
           · 数据来源：{{ trend.source }}（{{ trend.basis }}）
         </template>
+        <template v-if="hasMarkers"> · 空心△ = 低于当时成本</template>
       </p>
     </template>
+
+    <!-- 累计收益面板（#2171 P1）：全程累计已实现 + 紧凑统计条。
+         有流水才渲染；数据来自与叠加层同一次时间线请求，不重复取数。 -->
+    <ProductProfitPanel v-if="hasTrades" :timeline="timeline" />
   </CardBlock>
 </template>
 
