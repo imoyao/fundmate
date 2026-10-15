@@ -2,7 +2,7 @@
 /* eslint-disable vue/no-mutating-props -- 状态注入模式：groups/tags/toolbar 为 composable 实例 prop，
    经 computed get/set 桥接修改其内部 ref 属有意设计（与 WatchlistToolbar 同模式） */
 import { computed, ref } from "vue";
-import { Files, Folder, Plus } from "@element-plus/icons-vue";
+import { Close, Files, Folder, Plus } from "@element-plus/icons-vue";
 import GroupFormDialog from "@/components/Watchlist/GroupFormDialog.vue";
 import type { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import type { useWatchlistTags } from "@/composables/useWatchlistTags";
@@ -126,8 +126,13 @@ const quickFilterDialogVisible = ref(false);
 
 /**
  * 「清除筛选」显隐（#2199 ⑥）：类型或标签任一生效才显示（与「筛选」入口角标
- * activeFilterCount 同源，见 FilterPanelPopover）；全空时隐藏不占位。
- * 分组切换不参与显隐——分组 Tab 高亮本身就是其状态提示，且「全部」也是可点的 Tab。
+ * activeFilterCount 同源，见 FilterPanelPopover）；分组切换不参与显隐——
+ * 分组 Tab 高亮本身就是其状态提示，且「全部」也是可点的 Tab。
+ *
+ * 显隐方式（本版布局修复）：按钮**常驻 DOM**，仅切 .is-hidden（opacity/visibility），
+ * 宽度槽位始终占据——出现/消失不再改变右段总宽，flex-wrap 换行只由容器宽度决定，
+ * 施加/清除筛选时整行零重排（此前 v-if 条件渲染会把右段挤宽、触发弹性区换行，
+ * 右段整体掉到第二行，即用户反馈的「施加筛选一瞬间页面跳动」）。
  */
 const hasActiveQuickFilters = computed(
   () =>
@@ -207,18 +212,26 @@ const hasActiveQuickFilters = computed(
         <!-- 右段分隔线：分组操作 与 筛选入口 之间的视觉分隔 -->
         <div class="right-divider" />
 
-        <!-- 清除筛选（#2199 ⑥）：类型 / 标签任一生效时才出现，全空隐藏不占位。
+        <!-- 清除筛选（#2199 ⑥ + 本版跳动修复）：类型 / 标签任一生效时才「可见」。
              用户实测痛点：面板勾了条件 + 点过分组 Tab 后无快捷清除入口，且分组
              切换不清类型条件（胶囊持续高亮）造成「条件残留」错觉。点击清空
-             类型 + 标签、分组切回「全部」并刷新（接线见 index.vue → data.clearAllFilters）。 -->
-        <el-button
-          v-if="hasActiveQuickFilters"
-          class="clear-filters-btn"
-          text
-          @click="emit('clear-filters')"
-        >
-          清除筛选
-        </el-button>
+             类型 + 标签、分组切回「全部」并刷新（接线见 index.vue → data.clearAllFilters）。
+
+             形态改 28×28 正圆 × 图标（与 + / 📁 同规格）：design.md 尺寸梯度里
+             纯图标按钮本就比 32px 文字按钮低一级，次级层级更清晰，不与「筛选」
+             入口（描边胶囊 + 角标）抢层级；语义由 tooltip + aria-label 补足。
+             关键约束：按钮**常驻 DOM**，无筛选时仅 .is-hidden 隐藏（只隐不撤）——
+             槽位宽度恒占，出现/消失零宽度变化，右段不再因它变宽触发整行重排。 -->
+        <el-tooltip content="清除筛选" placement="bottom">
+          <el-button
+            class="clear-filters-btn"
+            :class="{ 'is-hidden': !hasActiveQuickFilters }"
+            aria-label="清除筛选"
+            @click="emit('clear-filters')"
+          >
+            <el-icon><Close /></el-icon>
+          </el-button>
+        </el-tooltip>
 
         <!-- 复杂筛选入口 + 弹层（拆分见 FilterPanelPopover）；
              底部「自定义快捷筛选」链接打开外露类型管理弹窗（#1449） -->
@@ -300,19 +313,60 @@ const hasActiveQuickFilters = computed(
   align-items: center;
 }
 
-/* 「清除筛选」（#2199 ⑥）：次级 text 级动作，不与「筛选」入口（描边胶囊）抢层级——
-   颜色语言与「筛选」Popover 底栏的「重置 / 自定义快捷筛选」一致
-   （次要色起步、悬停升主文字色），32px 行高与相邻控件共线 */
+/* 「清除筛选」（#2199 ⑥ + 本版跳动修复）：次级 × 图标按钮（28×28 正圆，
+   与 + / 📁 同规格；design.md 尺寸梯度：纯图标按钮 28×28 低于 32px 文字按钮一级，
+   次级层级不与「筛选」入口抢层级）。颜色语言沿用原文字版：次要色起步、
+   悬停升主文字色（与「筛选」Popover 底栏「重置」同层级），行内 align-items 与相邻控件共线。
+
+   恒定槽位（跳动修复核心）：本按钮常驻 DOM，无筛选时进 .is-hidden（只隐不撤）——
+   若沿用 v-if 条件渲染，按钮出现的瞬间右段变宽、超过容器余量，
+   flex-wrap 会把整个右段（+ / 📁 / 清除 / 筛选）甩到第二行，
+   用户施加筛选的一瞬间页面跳动。占位恒定后，换行与否只取决于容器宽度，与筛选状态无关。 */
 .clear-filters-btn {
-  height: 32px;
-  padding: 0 8px;
-  font-size: var(--text-label);
+  position: relative; /* ::after 热区的定位锚点（同 WatchlistHeadPrimary 的 icon-tool-btn） */
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   color: var(--text-secondary);
+  background-color: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+
+  /* visibility「0s 延迟 0」：恢复可见时立即参与渲染，opacity 负责淡入；
+     淡出侧的延迟见下方 .is-hidden 的 transition（进入哪态用哪态的 transition） */
+  transition:
+    opacity 150ms ease,
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease,
+    visibility 0s linear 0s;
+}
+
+/* 命中区补偿：28 + 6×2 = 40×40（2026-10-09 定案，同 WatchlistHeadPrimary——
+   伪元素不参与布局、不画背景，视觉仍是 28px 正圆） */
+.clear-filters-btn::after {
+  position: absolute;
+  inset: -6px;
+  content: "";
 }
 
 .clear-filters-btn:hover {
   color: var(--text-primary);
   background-color: var(--bg-hover);
+}
+
+/* 无筛选时的隐藏态：opacity 淡出 150ms，visibility 延迟到淡出结束才切
+   （否则先隐再淡、过渡不可见）；pointer-events 立即断开，淡出期间也不可误点。
+   visibility:hidden 同时把它移出焦点序列与无障碍树，键盘不会聚焦到隐形按钮。
+   ⚠️ 禁止改回 v-if / display:none——那会让槽位宽度塌缩，正是要修的整行重排。 */
+.clear-filters-btn.is-hidden {
+  visibility: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    opacity 150ms ease,
+    visibility 0s linear 150ms;
 }
 
 /* 新建分组按钮：原文字按钮简化为「+」图标（2026-08-21）。
