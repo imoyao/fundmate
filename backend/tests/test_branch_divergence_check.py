@@ -883,6 +883,56 @@ def test_explain_reports_conflicts(mod, diverged_repo):
     assert 'shared.txt' in dry['conflicts'], f'冲突清单须含 shared.txt：{dry["conflicts"]}'
 
 
+def test_explain_dry_runs_the_release_merge(mod, diverged_repo):
+    """`--explain` 必须真的跑 merge-tree 试算，并给出可执行的结论。
+
+    没有 `--explain` 的旧版在这里必须红 —— `.cnb.yml` 一直在调这个参数，
+    旧版 argparse 直接报错、被 `|| true` 吞掉，自检从未真正生效过。
+    """
+    import argparse
+
+    args = argparse.Namespace(
+        left='main', right='dev', cwd=str(diverged_repo), out=None, report=True, jobs_only=False, explain=True
+    )
+    assert mod.run(args) == 1
+    res = mod.compute('main', 'dev', str(diverged_repo))
+    res['merge_dry_run'] = mod.merge_dry_run('main', 'dev', str(diverged_repo))
+    report = mod.build_report(res)
+    # fixture 两侧改的是不同文件 ⇒ 可干净合并
+    assert res['merge_dry_run']['ok'] is True, f'不同文件的合并应可干净进行：{res["merge_dry_run"]}'
+    assert '可干净合并' in report, '报告须给出合并试算结论'
+
+
+def test_explain_reports_conflicts(mod, diverged_repo):
+    """两侧改**同一个文件** ⇒ 试算须报冲突并列出文件（发版前知道要解哪）。"""
+    import os
+    import subprocess
+
+    env = {
+        'GIT_AUTHOR_NAME': 't',
+        'GIT_AUTHOR_EMAIL': 't@e',
+        'GIT_COMMITTER_NAME': 't',
+        'GIT_COMMITTER_EMAIL': 't@e',
+        'PATH': os.environ['PATH'],
+    }
+    repo = diverged_repo
+    subprocess.run(['git', 'checkout', '-q', 'main'], cwd=repo, check=True, capture_output=True, env=env)
+    (repo / 'shared.txt').write_text('main-side\n', encoding='utf-8')
+    subprocess.run(['git', 'add', '.'], cwd=repo, check=True, capture_output=True, env=env)
+    subprocess.run(
+        ['git', 'commit', '-q', '-m', 'main edits shared'], cwd=repo, check=True, capture_output=True, env=env
+    )
+    subprocess.run(['git', 'checkout', '-q', 'dev'], cwd=repo, check=True, capture_output=True, env=env)
+    (repo / 'shared.txt').write_text('dev-side\n', encoding='utf-8')
+    subprocess.run(['git', 'add', '.'], cwd=repo, check=True, capture_output=True, env=env)
+    subprocess.run(
+        ['git', 'commit', '-q', '-m', 'dev edits shared'], cwd=repo, check=True, capture_output=True, env=env
+    )
+    dry = mod.merge_dry_run('main', 'dev', str(repo))
+    assert dry['ok'] is False, f'同文件双改必须判冲突：{dry}'
+    assert 'shared.txt' in dry['conflicts'], f'冲突清单须含 shared.txt：{dry["conflicts"]}'
+
+
 # ---------------------------------------------------------------------------
 # 三、边界：只读、不联网
 # ---------------------------------------------------------------------------

@@ -237,6 +237,14 @@ jobs:
       - name: 扫描控件裁切回潮（阻断）
         run: python scripts/guard_control_clip.py
 
+      # 栏间竖向分割线守卫（#2157）：同一根 1px 线曾被手写 5 份（3 处中 2 处贴住邻栏文字、
+      # 且在 lg 以下两栏已堆叠后变成孤线），收口为全局工具类 .soft-col-divider 后，
+      # 本守卫防第 5 份拷贝再长出来。存量 4 处冻结在 BASELINE 里（逐处理由见脚本 docstring），
+      # 只减不增；语义强调条（3px/4px）与选中指示条（2px）有意放行，不属本判据。
+      # 同属「前端设计语言回潮」一类，故并入本 job（不新增 job 就不必改 gate.needs）。
+      - name: 扫描裸栏间分割线回潮（阻断）
+        run: python scripts/guard_col_divider.py
+
       # 密钥引用位置守卫（源 CNB #148，2026-10-12，两个形态都踩过）：
       # git-sync 凭据必须挂**插件任务级 `imports`**（与 image 平级），
       # ① 挂流水线级 imports ⇒ 死在 Prepare（`declares allow_images … plugin tasks`）；

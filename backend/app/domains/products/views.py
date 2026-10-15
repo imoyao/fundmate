@@ -40,6 +40,7 @@ from app.services.product_identity import resolve_product_identity
 from app.services.product_trend import RANGE_DAYS, fetch_product_trend
 from app.services.related_symbols import build_related_symbols
 from app.services.stock_profile import build_stock_profile
+from app.services.trade_timeline import build_trade_timeline, empty_trade_timeline
 
 bp = APIBlueprint('products', __name__, url_prefix='/api/products')
 
@@ -340,4 +341,26 @@ def fund_risk_types():
     query: FundRiskTypesRequest = parse_query(FundRiskTypesRequest)
     with closing(market_session_factory()()) as db:
         data = list_fund_types(db, caliber_version=query.caliber_version)
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/trade-timeline/')
+def product_trade_timeline():
+    """持仓交易时间线（#2171 · 详情页走势叠加买卖点 / 成本线）。流水是私有数据：
+    未登录 / 无流水均返回空序列（可选登录，与 /resolve/ 一致）；重放口径见 service。
+    """
+    symbol = (request.args.get('symbol') or '').strip()
+    if not symbol:
+        abort(400, '缺少 symbol 参数')
+    ledger_raw = (request.args.get('ledger_id') or '').strip()
+    ledger_id = int(ledger_raw) if ledger_raw.isdigit() else None
+
+    if not _is_authenticated():
+        return jsonify({'data': empty_trade_timeline(symbol), 'message': 'ok'})
+
+    with closing(user_session_factory()()) as db:
+        try:
+            data = build_trade_timeline(db, symbol=symbol, family_id=get_family_id(), ledger_id=ledger_id)
+        except ValueError as e:
+            abort(400, str(e))
     return jsonify({'data': data, 'message': 'ok'})

@@ -200,13 +200,15 @@ export function fetchNavFromEastmoney(
 ): Promise<{ unit_nav: number; date: string } | null> {
   return new Promise(resolve => {
     const callbackName = `__fundNavCb_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
-    const dateStr = targetDate.replace(/-/g, "");
+    // ⚠️ 东财 lsjz 契约（2026-10-14 实测）：参数必须 camelCase（fundCode/startDate/endDate），
+    // 旧 snake_case（fund_code/start_date/end_date）一律返回 ErrCode:4/404；日期必须带横线
+    // 的 YYYY-MM-DD，剥掉横线会得到 ErrCode:0 但空列表。守卫见 scripts/tests/nav_jsonp_contract.test.js。
     const url =
       `https://api.fund.eastmoney.com/f10/lsjz` +
       `?callback=${callbackName}` +
-      `&fund_code=${encodeURIComponent(fundCode)}` +
+      `&fundCode=${encodeURIComponent(fundCode)}` +
       `&pageIndex=1&pageSize=1` +
-      `&start_date=${dateStr}&end_date=${dateStr}`;
+      `&startDate=${targetDate}&endDate=${targetDate}`;
 
     const script = document.createElement("script");
     let settled = false;

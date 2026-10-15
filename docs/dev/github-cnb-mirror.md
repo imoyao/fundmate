@@ -651,6 +651,41 @@ python scripts/bridge/notify_mirror_divergence.py --report report-divergence.md
 本次把 `--explain` 落到实现（提交清单 + 离线合并试算），并加了一条**反向断言**钉住
 「`.cnb.yml` 传了 ⇒ 脚本必须真的声明」：`test_cnb_yml_passes_explain_for_both_sides_lists`。
 
+### 11.1 断链提醒卡：`notify_mirror_divergence.py`（2026-10-14 补）
+
+分叉自检挂在 **crontab** 上，而 crontab 的红灯没人盯。只把结论写进构建日志，
+等于「报告了一切，没人会看」——2026-10-11 那次分叉白丢大半天，根因就在这。
+故 `.cnb.yml` 里退出码非零时建一张 **CNB 侧的断链提醒卡**（幂等：已有未关闭
+同题卡只追加评论，不重复建）：
+
+```bash
+python scripts/bridge/notify_mirror_divergence.py --report report-divergence.md
+```
+
+卡面四要素缺一不可（**现场 / 修法 / 禁令 / 溯源**）——缺任何一个，读到的人就无从照做：
+
+- **现场**：落盘报告原文（两侧独有提交清单，照抄即可 cherry-pick）；
+- **修法**：把 CNB 独有提交 cherry-pick 成 `rescue/` 分支，走 GitHub PR 合回；
+- **禁令**：**不要 force push、不要删 CNB 侧独有提交**（会静默丢改动）；
+- **溯源**：CNB #118 / #123。
+
+设计取舍：
+
+- **建卡失败不改退出码**（`|| true`）——「提醒失败」不该把真实原因盖掉；
+- **标题就是幂等键**（`[镜像断链] …`）——改标题等于每次运行都建新卡，
+  很快把卡列表刷成噪音，而噪音比没有提醒更糟；
+- **重复断链只追加评论**，不复述「怎么修」——那是卡面的事，评论只给新现场；
+- **零网络单测**：`scripts/tests/test_notify_mirror_divergence.py` 钉模板四要素、
+  幂等键与截断行为。
+
+#### 顺手修掉的静默失效：`--explain` 曾经不存在
+
+`--explain` 的用法 2026-10-11 就写进了本文档，`.cnb.yml` 也早就传了这个参数——
+但脚本当时**根本没有声明它**：argparse 报错、退出码 2，被 stage 的 shell 忽略，
+分叉自检从未真正生效（「看着配了，实际空转」，与 #118 的假绿同族）。
+本次把 `--explain` 落到实现（提交清单 + 离线合并试算），并加了一条**反向断言**钉住
+「`.cnb.yml` 传了 ⇒ 脚本必须真的声明」：`test_cnb_yml_passes_explain_for_both_sides_lists`。
+
 ### 分叉的成因（2026-10-11 实测）
 
 不是「main 落后 dev」，是**双向分叉**：`main` 独有 15 个提交、`dev` 独有 20 个，

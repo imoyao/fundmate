@@ -343,6 +343,9 @@ def classify_unique_commits(left: str, right: str, cwd: str | None = None) -> di
         'unknowns': [c for c in commits if c['verdict']['kind'] == 'unknown'],
         'readable': True,
     }
+
+
+
 def list_unique_commits(behind_ref: str, ahead_ref: str, cwd: str | None, limit: int = COMMIT_LIST_LIMIT) -> list[str]:
     """`ahead_ref` 相对 `behind_ref` 的独有提交清单（`--oneline`，最新的在前）。
 
@@ -383,7 +386,8 @@ def merge_dry_run(left: str, right: str, cwd: str | None) -> dict:
 
 
 def compute(left: str, right: str, cwd: str | None = None) -> dict:
-    """把「谁落后谁、哪些作业只在单侧」算成结构化结果（纯函数，便于钉回归网）。"""
+    """汇总一次分叉体检的全部字段（CNB #179 定型 + GitHub 侧 #2175 的清单并流）。  <!-- cross-repo-ref-allow -->
+    """
     left_jobs, right_jobs = list_side_only(left, right, cwd)
     return {
         'left': left,
@@ -394,9 +398,6 @@ def compute(left: str, right: str, cwd: str | None = None) -> dict:
         'right_only_jobs': right_jobs,
         'content': content_ahead(left, right, cwd),
         **classify_unique_commits(left, right, cwd),
-        # GitHub 侧（#2175）带来的「可照抄的救援清单」并进 `needs_red` 那套判据里。
-        # 两处计数口径**有意不同**：`left_only` 用 rev-list（含 merge，回答「落后几个」）；
-        # 清单用 `--no-merges`（镜像断链场景里 merge 只是症状不是内容）。
         'left_only_commits': list_unique_commits(right, left, cwd),
         'right_only_commits': list_unique_commits(left, right, cwd),
     }
