@@ -8,9 +8,11 @@ import type { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import type { useWatchlistTags } from "@/composables/useWatchlistTags";
 import type { WatchlistToolbarState } from "@/composables/useWatchlistData";
 import { assetTypeLabel } from "@/composables/useEnumLabels";
+import { useWatchlistQuickFilters } from "@/composables/useWatchlistQuickFilters";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import FilterGroupTabs from "@/views/asset/watchlist/components/FilterGroupTabs.vue";
 import FilterPanelPopover from "@/views/asset/watchlist/components/FilterPanelPopover.vue";
+import QuickFilterConfigDialog from "@/views/asset/watchlist/components/QuickFilterConfigDialog.vue";
 
 /**
  * 自选筛选条（分组胶囊 Tab + 标签筛选 + 视图 Segmented），从 index.vue 顶部区块抽出（2026-08-20）。
@@ -54,35 +56,31 @@ const selectedAssetTypesModel = computed({
 });
 
 // ── 类型快捷 segmented（主界面单选快捷；弹层多选在 FilterPanelPopover）──
-// 主界面「类型快捷 segmented」（全部/股票/基金/ETF/可转债）为单维度快速切换（单选覆盖式）；
+// 主界面「类型快捷 segmented」为单维度快速切换（单选覆盖式）；
+// 外露哪些类型由用户偏好决定（#1449，user_preferences.watchlist_quick_filters 跨设备同步，
+// 默认 stock/fund/etf/bond），「全部」恒为首项。
 // 与「筛选」Popover 的多选正交：组合筛选仍走 Popover。
 // venue（场内/场外）维度 2026-09-12 已从主界面移除：普通用户对场内/场外心智门槛高，
 // 且与类型维度重叠；当前 toolbar.currentView 恒为 'all'，后端不过滤 venue（见 useWatchlistData）。
 // 中文 label 走 assetTypeLabel（后端 /enums/asset_type 唯一真相源，禁止手抄映射），
 // 「可转债」对应资产类型 bond（useEnumLabels 已映射）。
-const QUICK_TYPES = [
-  { label: assetTypeLabel("stock"), value: "stock" },
-  { label: assetTypeLabel("fund"), value: "fund" },
-  { label: assetTypeLabel("etf"), value: "etf" },
-  { label: assetTypeLabel("bond"), value: "bond" }
-] as const;
+const { quickFilters } = useWatchlistQuickFilters();
 
-// segmented 选项含「全部」（清除类型筛选），其余为高频类型。
-const TYPE_SEGMENTED_OPTIONS = [
+const TYPE_SEGMENTED_OPTIONS = computed(() => [
   { label: "全部", value: "all" },
-  ...QUICK_TYPES
-] as const;
+  ...quickFilters.value.map(v => ({ label: assetTypeLabel(v), value: v }))
+]);
 
 /**
  * 当前单选激活项派生：
  * - 无类型筛选 → 'all'（高亮「全部」）；
- * - 恰好单选一个高频类型 → 该类型；
- * - 多选 / 选了 Popover 里的其它类型 → ''（无高亮，组合态，看「筛选」角标）。
+ * - 恰好单选一个外露类型 → 该类型；
+ * - 多选 / 选了未外露（Popover 里）的类型 → ''（无高亮，组合态，看「筛选」角标）。
  */
 const quickActive = computed<string>(() => {
   const t = selectedAssetTypesModel.value;
   if (t.length === 0) return "all";
-  if (t.length === 1 && QUICK_TYPES.some(q => q.value === t[0])) return t[0];
+  if (t.length === 1 && quickFilters.value.includes(t[0])) return t[0];
   return "";
 });
 
@@ -112,6 +110,8 @@ function selectQuickType(value: string) {
 }
 
 const addDialogVisible = ref(false);
+/** 「自定义快捷筛选」弹窗（#1449，入口在「筛选」Popover 底部链接） */
+const quickFilterDialogVisible = ref(false);
 </script>
 
 <template>
@@ -167,7 +167,7 @@ const addDialogVisible = ref(false);
         </el-tooltip>
         <div class="right-divider" />
 
-        <!-- 类型快捷 segmented：全部 / 股票 / 基金 / ETF / 可转债（单选覆盖式）。
+        <!-- 类型快捷 segmented：「全部」+ 用户自定义外露类型（#1449，默认 全部/股票/基金/ETF/可转债）。
              收敛到 SegmentedControl（design.md「Segmented」唯一实现，见 docs/design/components.md）。
              与「筛选」Popover 多选正交：此处单维度快速切换，组合仍走 Popover。 -->
         <SegmentedControl
@@ -177,18 +177,22 @@ const addDialogVisible = ref(false);
           @change="selectQuickType"
         />
 
-        <!-- 复杂筛选入口 + 弹层（拆分见 FilterPanelPopover） -->
+        <!-- 复杂筛选入口 + 弹层（拆分见 FilterPanelPopover）；
+             底部「自定义快捷筛选」链接打开外露类型管理弹窗（#1449） -->
         <FilterPanelPopover
           :groups="groups"
           :tags="tags"
           :toolbar="toolbar"
           @filter-apply="emit('filter-apply')"
+          @manage-quick-filters="quickFilterDialogVisible = true"
         />
       </div>
     </div>
 
     <!-- 新建分组弹窗 -->
     <GroupFormDialog v-model="addDialogVisible" @saved="onRefresh" />
+    <!-- 快捷筛选外露类型管理（#1449）：与上方筛选条共享 useWatchlistQuickFilters 单例 -->
+    <QuickFilterConfigDialog v-model="quickFilterDialogVisible" />
   </div>
 </template>
 
