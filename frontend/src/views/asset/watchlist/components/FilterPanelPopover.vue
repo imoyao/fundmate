@@ -277,30 +277,45 @@ function resetAllFilters() {
   border-radius: var(--radius-pill);
 }
 
-/* 底部固定操作栏：重置 / 自定义快捷筛选 / 已选计数 / 取消 / 确定 永远可见
-   （样式随模板自 FilterPanelBody 原样迁回此处，保持 scoped 作用域不变，零视觉变更） */
+/* 底部固定操作栏：重置 / 自定义快捷筛选 / 已选计数 / 取消 / 确定 永远可见。
+   三区布局（#2199 精修）：左区（重置 + 自定义快捷筛选，text 级一组）、
+   中区（已选计数，轻量次要色）、右区（取消 + 确定，主次按钮组）。
+   500px 面板宽下五件套须一行排开，故计数禁止换行（见 .filter-panel__count）。 */
 .filter-panel__footer {
   display: flex;
   flex-shrink: 0;
+  gap: 8px;
   align-items: center;
   justify-content: space-between;
   padding: 10px 16px;
   border-top: 1px solid var(--border-light);
 }
 
+/* 中区「已选 N 项」：flex:1 0 auto + nowrap——左区新增「自定义快捷筛选」后
+   本区被挤窄，旧 flex:1（basis 0%）把它压成每字一行（#2199 用户反馈）。
+   改为按内容占宽（flex-basis auto）并禁止折行，两侧留白由左右两区
+   的 space-between 自适应分配；计数是次要状态提示，字号 13px + 次要色即可，
+   不再靠 flex 撑开居中（自然宽度下 text-align 无实际作用，保留仅作语义）。 */
 .filter-panel__count {
-  flex: 1;
-  padding: 0 12px;
+  flex: 1 0 auto;
   font-size: 13px;
   color: var(--text-secondary);
   text-align: center;
+  white-space: nowrap;
 }
 
-/* 底部左组：重置 + 自定义快捷筛选链接（#1449），与中央计数 / 右侧按钮三区并列 */
+/* 底部左组：重置 + 自定义快捷筛选链接（#1449），与中央计数 / 右侧按钮三区并列。
+   flex-shrink:0：极端窄面板下宁可让中区被挤（它已禁折行、是次要信息），不压按钮文字 */
 .filter-panel__left {
   display: flex;
+  flex-shrink: 0;
   gap: 4px;
   align-items: center;
+}
+
+/* 底部右组：取消 / 确定（模板内 .flex.gap-2 容器），同样不参与挤压 */
+.filter-panel__footer .flex.gap-2 {
+  flex-shrink: 0;
 }
 
 /* 链接感：次级色起步，悬停升主色（与重置的 primary text 形成层级差） */

@@ -35,3 +35,14 @@ export const DEFAULT_QUICK_FILTER_TYPES: readonly WatchlistAssetType[] = [
   "etf",
   "bond"
 ];
+
+/**
+ * 常驻外显类型（#2199 用户拍板）：股票、基金是最高频的两个基础品类，
+ * 无论用户偏好如何配置都恒在外露列表最前两位——注入由 useWatchlistQuickFilters
+ * 的应用 / 保存路径负责（normalizeQuickFilters 仍保持纯校验，不注入），
+ * 弹窗内对应 checkbox disabled 恒勾选。
+ */
+export const PINNED_QUICK_TYPES: readonly WatchlistAssetType[] = [
+  "stock",
+  "fund"
+];

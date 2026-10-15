@@ -889,6 +889,16 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 > 同页的一级 / 二级分工示例见 `RoadFilterBar.vue`：一级标的类别是 `SegmentedControl`（带数量徽章），
 > 二级状态筛选是水平滑动胶囊栏。
 
+> **裁决（#1449 / #2199）：自选页「类型快捷筛选」归水平滑动胶囊栏，不归分段控制器**。
+> 该条目的选项集由用户偏好决定（`user_preferences.watchlist_quick_filters` 外露类型，默认 4 项），
+> 自定义后可达 11 项（全部 + 10 类型），**超出分段器「选项少（2–6）、平铺」的适用域**，
+> 按分水岭切换为胶囊栏语言，视觉规格与分组胶囊 Tab 逐值对齐（32px 胶囊 / `--radius-pill` /
+> 软按钮选中态）。布局上它是筛选行的**第二个弹性区**：与分组胶囊 Tab 并列（中间以分区分隔线切开），
+> 不打架时按内容宽排布，争夺时两区各限 `max-width: 50%`、各自横滑兜底
+> （隐滚动条 + 滚轮横滑 + 右缘渐变遮罩，同 FilterGroupTabs 模式），右侧操作段固定不参与争夺。
+> **股票、基金为常驻外显（`PINNED_QUICK_TYPES`）**：无论用户如何配置都恒在外露列表最前两位，
+> 自定义弹窗内对应项 disabled 恒勾选。实现见 `views/asset/watchlist/components/QuickTypePills.vue`。
+
 > **编码红线（#1717 收紧）**：分段控制器**只有 `SegmentedControl` 一个实现**。
 > ① 禁止页面使用 `el-segmented`——其选中滑块是 JS 绝对定位的独立子元素
 > `.el-segmented__item-selected`，圆角取自 `calc(var(--el-border-radius-base) - 2px)`，与轨道 / 选项项

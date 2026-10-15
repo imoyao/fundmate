@@ -46,6 +46,7 @@
           :on-refresh="actions.onCatalogChanged"
           @view-change="data.handleViewChange"
           @filter-apply="data.handleViewChange"
+          @clear-filters="data.clearAllFilters"
           @manage-groups="groupManagerVisible = true"
           @manage-group-items="actions.onManageGroupItems"
         />
