@@ -90,7 +90,11 @@ describe("useWatchlistQuickFilters（本地 ↔ 云端同步）", () => {
       }
     });
     const { quickFilters } = await freshQuickFilters();
-    await vi.waitFor(() => expect(quickFilters.value).toEqual(["crypto"]));
+    // #2199：应用路径补注入常驻项——云端旧值缺 stock/fund，生效值仍恒含且置顶
+    await vi.waitFor(() =>
+      expect(quickFilters.value).toEqual(["stock", "fund", "crypto"])
+    );
+    // 落盘仍是云端原值（注入只发生在应用层，云端值本身未被改写）
     expect(m.setItem).toHaveBeenCalledWith(
       QUICK_FILTERS_PREF_KEY,
       expect.objectContaining({ filters: ["crypto"], updated_at: 2000 })
@@ -107,7 +111,9 @@ describe("useWatchlistQuickFilters（本地 ↔ 云端同步）", () => {
     });
     const { quickFilters } = await freshQuickFilters();
     await vi.waitFor(() => expect(m.putPref).toHaveBeenCalled());
-    expect(quickFilters.value).toEqual(["etf"]);
+    // #2199：应用层注入 stock（fund 本地已有，只补缺的）并置顶
+    expect(quickFilters.value).toEqual(["stock", "fund", "etf"]);
+    // 回传值仍是本地原值（注入不改写偏好数据本身）
     expect(m.putPref).toHaveBeenCalledWith(QUICK_FILTERS_PREF_KEY, {
       filters: ["etf"]
     });
@@ -117,14 +123,30 @@ describe("useWatchlistQuickFilters（本地 ↔ 云端同步）", () => {
     const { quickFilters, setQuickFilters } = await freshQuickFilters();
     await vi.waitFor(() => expect(m.getPref).toHaveBeenCalled());
     setQuickFilters(["etf", "etf", "nope", "stock"]);
-    expect(quickFilters.value).toEqual(["etf", "stock"]);
+    // #2199：保存路径同样注入常驻项（fund 缺失被补上）并置顶，双写值与生效值一致
+    expect(quickFilters.value).toEqual(["stock", "fund", "etf"]);
     expect(m.setItem).toHaveBeenCalledWith(
       QUICK_FILTERS_PREF_KEY,
-      expect.objectContaining({ filters: ["etf", "stock"] })
+      expect.objectContaining({ filters: ["stock", "fund", "etf"] })
     );
     expect(m.putPref).toHaveBeenCalledWith(QUICK_FILTERS_PREF_KEY, {
-      filters: ["etf", "stock"]
+      filters: ["stock", "fund", "etf"]
     });
+  });
+
+  it("常驻项注入（#2199）：旧值缺 stock/fund 被补齐置顶，已有则只调序不重复", async () => {
+    m.getItem.mockResolvedValue({
+      filters: ["bond", "fund"],
+      updated_at: 5000
+    });
+    m.getPref.mockResolvedValue({ data: null });
+    const { quickFilters, setQuickFilters } = await freshQuickFilters();
+    await vi.waitFor(() => expect(m.putPref).toHaveBeenCalled());
+    // fund 已在列表中：只把 stock 补齐、fund 不重复，常驻项恒居前两位
+    expect(quickFilters.value).toEqual(["stock", "fund", "bond"]);
+    // 保存路径同样保证常驻项（显式传入 fund 在中间也不影响置顶语义）
+    setQuickFilters(["bond", "fund"]);
+    expect(quickFilters.value).toEqual(["stock", "fund", "bond"]);
   });
 
   it("云端值损坏 → 维持本地生效值，不触发任何覆盖写", async () => {
@@ -138,7 +160,8 @@ describe("useWatchlistQuickFilters（本地 ↔ 云端同步）", () => {
     const { quickFilters } = await freshQuickFilters();
     await vi.waitFor(() => expect(m.getPref).toHaveBeenCalled());
     await flushAsync();
-    expect(quickFilters.value).toEqual(["bond"]);
+    // #2199：本地值应用时同样补注入常驻项
+    expect(quickFilters.value).toEqual(["stock", "fund", "bond"]);
     expect(m.setItem).not.toHaveBeenCalled();
     expect(m.putPref).not.toHaveBeenCalled();
   });

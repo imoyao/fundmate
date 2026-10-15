@@ -6,6 +6,8 @@
  * - **本地 localforage 先行**：进页先渲染本地缓存，不等网络，避免每次进页闪烁默认值；
  * - **云端 user_preferences 合并**「最近修改时间取胜」（pickNewer，纯函数单测覆盖），
  *   云端较新则覆盖本地，本地较新则单向回传一次（不做同步环）；
+ * - **常驻外显注入（#2199）**：股票 / 基金（PINNED_QUICK_TYPES）在应用与保存两条路径
+ *   恒置于最前两位，云端 / 本地旧值缺 stock / fund 也会被补齐；
  * - 云端不可达 / 未登录（401）/ 数据损坏一律静默回退本地或默认值，
  *   偏好配置不应阻塞自选页。
  */
@@ -23,15 +25,28 @@ import {
   normalizeQuickFilters,
   type QuickFiltersSettings
 } from "@/composables/watchlistQuickFilters";
+import { PINNED_QUICK_TYPES } from "@/views/asset/watchlist/watchlistAssetTypes";
 
 /** 模块级单例：筛选条与自定义弹窗共享同一份外露列表 */
 const quickFilters: Ref<string[]> = ref(defaultQuickFilters());
 let loadStarted = false;
 
+/**
+ * 常驻外显注入（#2199 用户拍板）：股票 / 基金恒在外露列表最前两位。
+ * 放在应用 / 保存路径而非 normalizeQuickFilters——校验函数保持纯，
+ * 云端 / 本地旧值（缺 stock / fund 的历史配置）在每次应用时被补齐，
+ * 不依赖存储侧是否已回写。已有 pinned 项会先剔除再前置，保证恰好占前两位不重复。
+ */
+function withPinned(filters: string[]): string[] {
+  const pinned: readonly string[] = PINNED_QUICK_TYPES;
+  const rest = filters.filter(t => !pinned.includes(t));
+  return [...pinned, ...rest];
+}
+
 /** 把一份偏好应用到内存状态（本地与云端合并共用；值非法则保持现状） */
 function applySettings(saved: QuickFiltersSettings): void {
   const next = normalizeQuickFilters(saved.filters);
-  if (next) quickFilters.value = next;
+  if (next) quickFilters.value = withPinned(next);
 }
 
 /** 本地时钟打点（ms）：updated_at 是本地合并策略的比较依据 */
@@ -123,7 +138,10 @@ export function useWatchlistQuickFilters(): WatchlistQuickFilters {
   }
 
   function setQuickFilters(next: string[]): void {
-    const normalized = normalizeQuickFilters(next) ?? defaultQuickFilters();
+    // 注入 pinned 后再双写：持久化值本身也保证 stock/fund 恒在，旧端读到即完整
+    const normalized = withPinned(
+      normalizeQuickFilters(next) ?? defaultQuickFilters()
+    );
     quickFilters.value = normalized;
     const stamped = stampLocal(normalized);
     localForage()
