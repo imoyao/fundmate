@@ -300,3 +300,25 @@ def fetch_product_trend(
         'requested_days': days,
         'available_days': available_days,
     }
+
+
+def empty_product_trend(symbol: Optional[str], range_key: str, start_date: Optional[dt.date] = None) -> Dict:
+    """品类本身没有序列数据源时的**降级响应**（#2171）。
+
+    「该品类不提供走势」与「产品不存在」是两件事：前者返回空序列而非 404，
+    前端据此渲染空态。字段与 `fetch_product_trend` 的成功响应同构（缺 `basis` /
+    `ohlc`——降级路径没有 K 线与复权口径可讲），避免前端为降级单写一套取值逻辑。
+
+    #1606：本函数原先内联在 `products/views.py` 里（11 行 dict 字面量），
+    属于「响应形态」这种业务规则，按视图层职责边界下沉到 services。
+    """
+    return {
+        'symbol': (symbol or '').strip().upper(),
+        'kind': '',
+        'dates': [],
+        'values': [],
+        'source': '',
+        'range': range_key,
+        'requested_days': requested_days_for(range_key, start_date),
+        'available_days': 0,
+    }

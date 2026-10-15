@@ -34,7 +34,7 @@ from app.services.index_profile import build_index_profile
 from app.services.manager_holdings import build_manager_holdings
 from app.services.manager_profile import build_manager_profile
 from app.services.product_identity import resolve_product_identity
-from app.services.product_trend import fetch_product_trend, requested_days_for
+from app.services.product_trend import empty_product_trend, fetch_product_trend
 from app.services.related_symbols import build_related_symbols
 from app.services.stock_profile import build_stock_profile
 from app.services.trade_timeline import build_trade_timeline, empty_trade_timeline
@@ -367,16 +367,9 @@ def product_trend():
             abort(400, str(e))
 
     if result is None:
-        result = {
-            'symbol': (query.symbol or '').strip().upper(),
-            'kind': '',
-            'dates': [],
-            'values': [],
-            'source': '',
-            'range': query.range_,
-            'requested_days': requested_days_for(query.range_, query.start),
-            'available_days': 0,
-        }
+        # 品类无序列数据源（指数/基金经理/投顾组合）→ 空序列降级。
+        # 响应形态由 service 给出（#1606：视图只做编排，不内联业务规则）
+        result = empty_product_trend(query.symbol, query.range_, query.start)
     return jsonify({'data': result, 'message': 'ok'})
 
 
