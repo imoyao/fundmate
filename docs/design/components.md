@@ -392,14 +392,14 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 ## PageSkeleton · 页面骨架屏（强制复用）
 
 - 用途：页面加载骨架屏，模拟真实页面结构（概览指标卡 / 图表卡 / 表格行），作为内容占位容器防布局偏移（CLS）。
-- props：`cards`(概览卡数，默认 3)、`chartCols`(图表卡列数，默认 2)、`tableRows`(表格行数，默认 6)。
+- props：`cards`(概览卡数，默认 3)、`chartCols`(图表卡列数，默认 2)、`tableRows`(表格行数，默认 6)、`productCards`(产品卡网格数，默认 0，聚合页专用，匹配真实产品卡网格)。
 - 实现铁律（业界最佳实践）：
   1. **结构一致**：形状 / 数量 / 宽度与真实内容布局高度一致（真实 DOM + 灰底圆角，非装饰条条）；
-  2. **轻量化**：纯 CSS `linear-gradient` 流光（background-size 动画，GPU 合成，不占 JS 主线程），1.8s 慢速；
+  2. **轻量化**：纯 CSS `linear-gradient` 流光（background-size 动画，GPU 合成，不占 JS 主线程），1.8s 慢速。**流光本体单一来源 `frontend/src/style/_skeleton.scss`**（`wave-bar` mixin + `skeleton-wave` keyframes + `prefers-reduced-motion` 降级），PageSkeleton 与 `views/asset/watchlist/WatchlistTableSkeleton.vue` 共用——扫光带颜色走 `--skeleton-wave` 令牌（亮 / 暗分主题定义，对比度实测见 `src/style/colors.css` 与 `dark.scss` 的令牌注释），**禁止组件内自写渐变或把扫光带改回 `--bg-hover`**（与底色仅 1.03:1，扫光不可见、观感等于静态遮罩）；
   3. **A11y**：根节点 `aria-hidden="true"`；
-  4. **阈值控制（使用方负责）**：请求 ≤200ms 返回时跳过骨架屏避免闪屏——`loading` 开始后 `setTimeout(200ms)` 才置 `showSkeleton = true`，加载结束清除计时器并复位。
+  4. **阈值控制（使用方负责）**：请求 ≤200ms 返回时跳过骨架屏避免闪屏——`loading` 开始后 `setTimeout(200ms)` 才置 `showSkeleton = true`，加载结束清除计时器并复位。统一实现见 `src/composables/useSkeletonThreshold.ts`（startSkeleton / settleSkeleton）。
 
-示例（`ledgers/detail.vue`）：
+阈值示例（`views/asset/ledgers/detail.vue` 经 `useLedgerDetail`；`views/product/detail.vue` 经 `useSkeletonThreshold`，新页面照后者接线）：
 
 ```html
 <PageSkeleton v-if="loading && showSkeleton" :cards="3" :chart-cols="2" :table-rows="6" />

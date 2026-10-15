@@ -52,6 +52,7 @@
 | `--bg-soft` | `#F5F0EB` | 柔和表面 / 毛玻璃基底 |
 | `--bg-subtle` | `#F7F3EE` | 卡片内条目底纹（比 `--bg-soft` 更淡） |
 | `--bg-hover` | `#F2EDE8` | 悬停/高亮底色 |
+| `--skeleton-wave` | `#E2DBD3` | 骨架屏扫光带（vs `--bg-soft` 1.21:1；渐变单一来源 `src/style/_skeleton.scss`） |
 
 ### 品牌色（暖红珊瑚）
 

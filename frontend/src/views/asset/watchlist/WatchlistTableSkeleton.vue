@@ -44,7 +44,13 @@
 // 纯展示占位组件，无 props / 状态
 </script>
 
-<style scoped>
+<style scoped lang="scss">
+/* 流光单一来源：与 PageSkeleton 共用 src/style/_skeleton.scss 的 wave-bar mixin
+   （渐变 / 扫光色 --skeleton-wave / keyframes / 减动效降级都在那边）。
+   禁止在本文件另写渐变——此前两处各一份「同款」拷贝，改一处不改另一处不会报错，
+   只会悄悄分叉。 */
+@use "@/style/skeleton" as sk;
+
 /* 覆盖层：绝对定位于 .watchlist-table-wrap（需在 index.vue 给该容器 position:relative），
    top 从表头底（约 30px，与真实表头高一致）开始，遮住表体/空态区而不盖表头。
    loading 结束卸载后表格原有 DOM 无缝露出。 */
@@ -104,20 +110,12 @@
   padding-right: 12px;
 }
 
-/* 灰条：PageSkeleton 同款流光动画，1.8s 慢速、GPU 合成不占主线程 */
+/* 灰条：流光本体来自 sk.wave-bar（与 PageSkeleton 同款且同一来源），本文件只定尺寸 */
 .wts-bar {
   display: block;
   height: 12px;
-  background-color: var(--bg-soft);
-  background-image: linear-gradient(
-    90deg,
-    var(--bg-soft) 25%,
-    var(--bg-hover) 37%,
-    var(--bg-soft) 63%
-  );
-  background-size: 400% 100%;
-  border-radius: var(--radius-sm);
-  animation: wts-wave 1.8s ease-in-out infinite;
+
+  @include sk.wave-bar;
 }
 
 .wts-row__cell--product .wts-bar {
@@ -143,22 +141,5 @@
   width: 20px;
   height: 20px;
   border-radius: 50%;
-}
-
-@keyframes wts-wave {
-  0% {
-    background-position: 100% 50%;
-  }
-
-  100% {
-    background-position: 0 50%;
-  }
-}
-
-/* 尊重系统「减少动效」偏好：无动画需求，骨架本就是静态占位（design.md Motion） */
-@media (prefers-reduced-motion: reduce) {
-  .wts-bar {
-    animation: none;
-  }
 }
 </style>
