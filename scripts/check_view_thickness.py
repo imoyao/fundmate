@@ -129,6 +129,19 @@ NEW_FILE_LIMITS = {
 # 等于把「重试整个请求」改成「重试半个请求」，反而掩盖错误。装饰器是端点级横切关注点的
 # 最小表达，与本文件明列的视图职责同层。按既有先例以 `--report` 实测回写（仅 lines）：
 # ledgers 723 → 725、positions 286 → 288、transactions 136 → 138。
+# 2026-10-15 收紧（#981，**非放宽**）：把 PATCH 组合的「账户关联 diff（归属校验 +
+# 集合差 + 批量写）」从视图下沉到 `services/portfolio_service.replace_portfolio_ledger_links`
+# （`views → services` 是合法边，D26），视图只留「入参解析 + 调服务 + 异常→HTTP」；
+# 顺带把逐字段 if 压成等价 getattr/setattr 循环、删 `get_owned_or_404` 后的永假分支。
+# 按 `--report` 实测回写：lines 166 → 161、max_func 29 → 25（orm_queries / commits 不动）。
+# 2026-10-15 重取（#1123 P0，**新增入参校验、非业务规则进视图**）：持仓「配置目标（五笔钱）」
+# 开放行内编辑，两条写路径都要拦非法值——positions 域收在 `PositionUpdate` 的 pydantic
+# field_validator（视图零增长，positions 288 不动）；ledgers 域嵌套端点是裸 dict 读 body、
+# 无 schema 体系，白名单只能在视图做（`if not in ALLOCATION_LABELS: abort(400)`）。
+# 本文件明列的视图职责是「入参解析 + 归属校验 + 调服务 + 组响应」，**入参白名单正属此列**
+# （与同函数上方的 get_owned_or_404 归属校验同层），不是编排逻辑。增量仅 +3 行（注释 1 +
+# if 2），orm_queries / commits / max_func 三项不动。按既有先例以 `--report` 实测回写（仅 lines）：
+# ledgers 725 → 728。
 # 2026-10-15 重取（#1337，**新增端点**，非放宽）：给 users 加 `GET/PUT /users/preferences/<key>/`
 # （用户私有偏好键值，#993 方案 B 跨设备同步）——视图侧只有「key 长度校验 + 调 ORM upsert +
 # JSON 文本↔对象转换 + 信封」，无业务规则可下沉（upsert 是唯一写语义，合并策略在前端）。
@@ -139,7 +152,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/families/views.py": {"lines": 72, "orm_queries": 2, "commits": 0, "max_func": 22},
     "backend/app/domains/funds/views.py": {"lines": 197, "orm_queries": 2, "commits": 0, "max_func": 39},
     "backend/app/domains/importers/views.py": {"lines": 249, "orm_queries": 1, "commits": 0, "max_func": 53},
-    "backend/app/domains/ledgers/views.py": {"lines": 725, "orm_queries": 16, "commits": 0, "max_func": 60},
+    "backend/app/domains/ledgers/views.py": {"lines": 728, "orm_queries": 16, "commits": 0, "max_func": 60},
     "backend/app/domains/market/views.py": {"lines": 37, "orm_queries": 0, "commits": 0, "max_func": 21},
     "backend/app/domains/ocr/views.py": {"lines": 214, "orm_queries": 1, "commits": 0, "max_func": 48},
     "backend/app/domains/performance/views.py": {"lines": 86, "orm_queries": 0, "commits": 0, "max_func": 31},

@@ -1,7 +1,9 @@
 from datetime import date, datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.core.constants import ALLOCATION_LABELS
 
 
 class PositionListRequest(BaseModel):
@@ -84,6 +86,16 @@ class PositionUpdate(BaseModel):
     currency: Optional[str] = Field(None, description='币种')
     trade_date: Optional[date] = Field(None, description='交易日期')
     notes: Optional[str] = Field(None, description='备注')
+    # #1123 P0：持仓级配置目标（五笔钱）——白名单校验收在 schema（视图 setattr 循环自动应用），
+    # 非法值 pydantic ValidationError → 422；None = 清空语义（与嵌套端点一致）
+    allocation: Optional[str] = Field(None, description='配置目标（五笔钱枚举）')
+
+    @field_validator('allocation')
+    @classmethod
+    def _check_allocation(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and value not in ALLOCATION_LABELS:
+            raise ValueError('非法配置目标')
+        return value
 
 
 class AllocateValueRequest(BaseModel):

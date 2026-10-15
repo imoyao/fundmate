@@ -53,6 +53,17 @@ RANGE_DAYS: Dict[str, int] = {
 # 设计 §12 ⑤：默认档 3M
 DEFAULT_RANGE = '3M'
 
+
+def requested_days_for(range_key: str, start_date: Optional[dt.date] = None) -> int:
+    """请求跨度（天）——档位语义，或显式起始日（#2171 建仓期）语义。
+
+    视图层的「无数据降级」分支也要报同一个数，故收口在这里，不两处各算一遍。
+    """
+    if start_date is not None:
+        return (dt.date.today() - min(start_date, dt.date.today())).days + 1
+    return RANGE_DAYS.get(range_key, RANGE_DAYS[DEFAULT_RANGE])
+
+
 # 无历史序列能力的品类：基金经理、投顾组合。指数自 #2028 起走 index_daily（有日线
 # 才出曲线，无日线返回 None，见 _fetch_index_series）。
 _NO_SERIES_TYPES = frozenset({'manager', 'portfolio'})
@@ -195,6 +206,7 @@ def fetch_product_trend(
     symbol: str,
     asset_type: Optional[str] = None,
     range_key: str = DEFAULT_RANGE,
+    start_date: Optional[dt.date] = None,
 ) -> Optional[Dict]:
     """取单产品的历史序列（含日期轴）。
 
@@ -204,6 +216,8 @@ def fetch_product_trend(
         asset_type: 后端判定的品类（来自 ``resolve_product_identity``）。为空时按
             ``fund`` 之外都走场内路径——**前端不推断品类**，故该值应由后端 resolver 给。
         range_key: ``1M`` / ``3M`` / ``6M`` / ``1Y``。
+        start_date: 显式起始日（#2171「建仓期」：首笔买入日至今）。给定时忽略
+            ``range_key`` 档位；晚于今天按今天算（空序列由前端降级）。
 
     Returns:
         ``{symbol, kind, dates, values, source, basis, ohlc, range, requested_days,
@@ -225,8 +239,15 @@ def fetch_product_trend(
     if normalized_type in _NO_SERIES_TYPES:
         return None
 
-    days = RANGE_DAYS[range_key]
-    start = dt.date.today() - dt.timedelta(days=days)
+    # 窗口起点：默认按档位回看；显式 start_date（建仓期）优先，晚于今天按今天算
+    # （首笔买入日就是今天时窗口为 0 天，空序列由前端降级，不报错）。
+    today = dt.date.today()
+    if start_date is not None:
+        start = min(start_date, today)
+        days = (today - start).days + 1
+    else:
+        days = RANGE_DAYS[range_key]
+        start = today - dt.timedelta(days=days)
 
     if normalized_type == 'fund':
         series = _fetch_nav_series(market_db, code, start)
@@ -278,4 +299,26 @@ def fetch_product_trend(
         'range': range_key,
         'requested_days': days,
         'available_days': available_days,
+    }
+
+
+def empty_product_trend(symbol: Optional[str], range_key: str, start_date: Optional[dt.date] = None) -> Dict:
+    """品类本身没有序列数据源时的**降级响应**（#2171）。
+
+    「该品类不提供走势」与「产品不存在」是两件事：前者返回空序列而非 404，
+    前端据此渲染空态。字段与 `fetch_product_trend` 的成功响应同构（缺 `basis` /
+    `ohlc`——降级路径没有 K 线与复权口径可讲），避免前端为降级单写一套取值逻辑。
+
+    #1606：本函数原先内联在 `products/views.py` 里（11 行 dict 字面量），
+    属于「响应形态」这种业务规则，按视图层职责边界下沉到 services。
+    """
+    return {
+        'symbol': (symbol or '').strip().upper(),
+        'kind': '',
+        'dates': [],
+        'values': [],
+        'source': '',
+        'range': range_key,
+        'requested_days': requested_days_for(range_key, start_date),
+        'available_days': 0,
     }
