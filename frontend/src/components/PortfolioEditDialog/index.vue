@@ -112,7 +112,7 @@ import {
   updatePortfolio,
   type PortfolioDetail
 } from "@/api/portfolio";
-import { getLedgers, updateLedger, type LedgerItem } from "@/api/ledger";
+import { getLedgers, type LedgerItem } from "@/api/ledger";
 
 /** 关联账户选项：账户 + 所属组合名（用于展示"已关联：XX"） */
 interface LedgerOption extends LedgerItem {
@@ -232,23 +232,13 @@ async function handleUpdate() {
   }
   saving.value = true;
   try {
-    await updatePortfolio(current.id, editForm.value);
-
-    // TODO(tech-debt): 账户关联差异计算（unlink/link 逐个调接口）应下沉到后端原子化接口，
-    // 详见技术债务 issue（「计算前移：组合编辑的账户关联差异应由后端统一处理」）
-    const previousIds = props.linkedLedgerIds;
-    const toUnlink = previousIds.filter(
-      id => !selectedLedgerIds.value.includes(id)
-    );
-    const toLink = selectedLedgerIds.value.filter(
-      id => !previousIds.includes(id)
-    );
-    for (const id of toUnlink) {
-      await updateLedger(id, { portfolio_id: null });
-    }
-    for (const id of toLink) {
-      await updateLedger(id, { portfolio_id: current.id });
-    }
+    // #981：账户关联只传「完整目标集合」，diff/解绑/绑定由后端事务内原子完成。
+    // 原「前端算 diff + 逐个 updateLedger」有两笔债务：逻辑无法被其它入口复用；
+    // 多次请求非原子，中途失败留下半更新状态——均已随本卡下沉后端。
+    await updatePortfolio(current.id, {
+      ...editForm.value,
+      ledger_ids: selectedLedgerIds.value
+    });
 
     ElMessage.success("组合已更新");
     emit("saved");

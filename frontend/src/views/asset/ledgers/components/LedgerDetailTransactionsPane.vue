@@ -1,96 +1,21 @@
 <template>
   <!-- 交易记录 Tab -->
   <el-tab-pane label="交易记录" name="transactions">
-    <el-table
-      :data="p.transactionsList"
-      stripe
-      size="default"
-      :default-sort="{ prop: 'confirm_date', order: 'descending' }"
-    >
-      <el-table-column prop="confirm_date" label="日期" width="110" sortable>
-        <template #default="{ row }">{{
-          formatDate(row.confirm_date)
-        }}</template>
-      </el-table-column>
-      <!-- 资产列宽统一 160（产品信息列宽度规范，见 docs/design/components.md） -->
-      <el-table-column label="资产名称" min-width="160" show-overflow-tooltip>
-        <template #default="{ row }">
-          <span class="txn-asset-name">{{ row.position_name }}</span>
-          <span v-if="row.symbol" class="txn-asset-code">{{ row.symbol }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="类型" width="80">
-        <template #default="{ row }">
-          <span :class="p.getTxnTypeClass(row.txn_type)">{{
-            txnTypeLabel(row.txn_type)
-          }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="价格" width="100" align="right">
-        <template #default="{ row }">
-          <MoneyDisplay
-            :value="row.price || 0"
-            :precision="pricePrecision(row.asset_type)"
-            :show-sign="false"
-            :show-currency="false"
-            size="sm"
-          />
-        </template>
-      </el-table-column>
-      <el-table-column label="数量" width="80" align="right">
-        <template #default="{ row }">{{ row.quantity }}</template>
-      </el-table-column>
-      <el-table-column
-        label="金额"
-        width="120"
-        align="right"
-        sortable
-        prop="amount"
-      >
-        <template #default="{ row }">
-          <MoneyDisplay
-            :value="row.amount || 0"
-            :show-sign="false"
-            :auto-color="false"
-            size="sm"
-          />
-        </template>
-      </el-table-column>
-      <el-table-column label="手续费" width="80" align="right" prop="fee">
-        <template #default="{ row }">
-          <MoneyDisplay
-            :value="row.fee || 0"
-            :show-sign="false"
-            :auto-color="false"
-            size="sm"
-          />
-        </template>
-      </el-table-column>
-      <el-table-column
-        v-if="!p.isUnclassified"
-        label="操作"
-        width="140"
-        fixed="right"
-      >
-        <template #default="{ row }">
-          <div class="flex items-center gap-1" style="white-space: nowrap">
-            <el-button
-              text
-              size="small"
-              @click.stop="p.openEditTxnDialog(row as LedgerTxnRow)"
-              >编辑</el-button
-            >
-            <el-button
-              text
-              size="small"
-              type="danger"
-              @click.stop="p.confirmDeleteTxn(row as LedgerTxnRow)"
-              >删除</el-button
-            >
-          </div>
-        </template>
-      </el-table-column>
-    </el-table>
+    <!-- 表格本体走全站统一的 TransactionTable（#2104 验收「同一组件，禁止
+         第二套实现」）：此前详情页 / 账本 Tab / 持仓抽屉三套表格，字段名
+         （type vs txn_type）、日期口径（trade_date vs confirm_date）、类型
+         着色、手续费列全不一致。本容器只负责分页与行操作。 -->
+    <TransactionTable
+      :rows="rows"
+      mode="full"
+      show-asset
+      show-fee
+      show-edit
+      show-delete
+      sortable
+      @edit="onEdit"
+      @delete="onDelete"
+    />
     <div
       v-if="p.transactionsTotal === 0"
       class="text-center py-8"
@@ -112,31 +37,36 @@
 </template>
 
 <script setup lang="ts">
-import { reactive } from "vue";
-import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
-import { txnTypeLabel } from "@/constants";
-import { formatDate } from "@/utils/date";
-import { pricePrecision } from "@/utils/pricePrecision";
+import { computed, reactive } from "vue";
+import TransactionTable, {
+  type TransactionRow
+} from "@/components/TransactionTable/index.vue";
 import type { LedgerTxnRow } from "@/composables/useLedgerTransactions";
 import type { useLedgerDetailPage } from "../composables/useLedgerDetailPage";
 
 defineOptions({ name: "LedgerDetailTransactionsPane" });
 
-// #980 P1-C 拆分自 detail.vue：交易记录 Tab 面板（表格 + 分页 + 行操作）。
-// txnTypeLabel / formatDate / pricePrecision / LedgerTxnRow 为局部导入，裸用。
+// #980 P1-C 拆分自 detail.vue：交易记录 Tab 面板（公共表格 + 分页 + 行操作）。
+// 行适配：LedgerTxnRow.txn_type → TransactionRow.type（字段名唯一分歧，
+// 其余字段同名）。emit 回传的是适配行，操作前按 id 找回原行给 page 层。
 const props = defineProps<{ page: ReturnType<typeof useLedgerDetailPage> }>();
 const p = reactive(props.page);
+
+const rows = computed<TransactionRow[]>(() =>
+  p.transactionsList.map(r => ({ ...r, type: r.txn_type }))
+);
+
+function onEdit(row: TransactionRow) {
+  const original = p.transactionsList.find(
+    (r: LedgerTxnRow) => r.id === row.id
+  );
+  if (original) p.openEditTxnDialog(original);
+}
+
+function onDelete(row: TransactionRow) {
+  const original = p.transactionsList.find(
+    (r: LedgerTxnRow) => r.id === row.id
+  );
+  if (original) void p.confirmDeleteTxn(original);
+}
 </script>
-
-<style scoped>
-/* 交易表资产名称列：名称 + 代码 */
-.txn-asset-name {
-  color: var(--text-primary);
-}
-
-.txn-asset-code {
-  margin-left: 6px;
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
-}
-</style>

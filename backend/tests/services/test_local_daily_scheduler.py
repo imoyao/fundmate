@@ -62,6 +62,7 @@ class TestLoadConfig:
             'fund_nav',
             'fund_valuation_snapshot',
             'fund_valuation_reconcile',
+            'nav_backfill',
             'price_history',
             'index_daily',
             'position_price',
@@ -83,6 +84,7 @@ class TestLoadConfig:
         assert crons['fund_nav'] == ds.DEFAULT_NAV_CRON
         assert crons['fund_valuation_snapshot'] == ds.DEFAULT_VALUATION_CRON
         assert crons['fund_valuation_reconcile'] == ds.DEFAULT_VALUATION_RECONCILE_CRON
+        assert crons['nav_backfill'] == ds.DEFAULT_NAV_BACKFILL_CRON
         assert crons['price_history'] == ds.DEFAULT_PRICE_HISTORY_CRON
         assert crons['index_daily'] == ds.DEFAULT_INDEX_DAILY_CRON
         assert crons['position_price'] == ds.DEFAULT_POSITION_PRICE_CRON
@@ -152,6 +154,7 @@ class TestLoadConfig:
             'fund_nav',
             'fund_valuation_snapshot',
             'fund_valuation_reconcile',
+            'nav_backfill',
             'price_history',
             'index_daily',
             'position_price',
@@ -192,6 +195,7 @@ class TestLoadConfig:
             'fund_nav',
             'fund_valuation_snapshot',
             'fund_valuation_reconcile',
+            'nav_backfill',
             'market_asset_daily',
             'index_valuation',
             'convertible_bond',
@@ -389,13 +393,15 @@ class TestCatchUpTargets:
         （增量窗口为空即不抓取，只花一次库内查询、0 次外部请求）。
         """
         assert ds.REST_DAY_JOB_NAMES == frozenset(
-            {'price_history', 'fund_nav', 'position_price', 'fund_valuation_reconcile'}
+            {'price_history', 'fund_nav', 'position_price', 'fund_valuation_reconcile', 'nav_backfill'}
         )
         assert ds.runs_on_rest_day('price_history') is True
         assert ds.runs_on_rest_day('fund_nav') is True
         assert ds.runs_on_rest_day('position_price') is True
         # 预估→正式对照（#2142）：周末 fund_nav 补昨日净值后，周六晨间即可对照周五预估
         assert ds.runs_on_rest_day('fund_valuation_reconcile') is True
+        # 净值缺失回填（#2179）：pending_nav 流水等官方净值到位后重算，纯 DB 零成本
+        assert ds.runs_on_rest_day('nav_backfill') is True
         # 温度 / 指数估值 / 投顾：休市确实无新数据可抓
         assert ds.runs_on_rest_day('temperature') is False
         assert ds.runs_on_rest_day('index_valuation') is False

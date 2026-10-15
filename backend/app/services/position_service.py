@@ -14,6 +14,7 @@
 - 业务异常通过 ValueError 抛出，由视图层捕获并转为 HTTP 异常
 """
 
+import json
 import uuid
 from datetime import date, datetime
 from typing import Optional
@@ -27,10 +28,10 @@ from sqlalchemy.orm import Session
 from app.core.constants import ALLOCATION_LABELS, MARKET_LABELS, TYPE_LABELS, PositionSource, ValuationMode
 from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
-from app.core.symbol_utils import derive_security_type, normalize_by_venue, split_symbol
+from app.core.symbol_utils import derive_security_type, normalize_by_venue, split_symbol, strip_exchange_prefix
 from app.core.utils import get_confirm_date, paginate
 from app.core.venues import asset_types_of_venue, resolve_venue
-from app.domains.funds.models import Fund
+from app.domains.funds.models import DailyWorth, Fund
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, resolve_sales_institution_id
 from app.domains.transactions.models import Transaction
@@ -212,6 +213,36 @@ def _get_default_notes(op_type: str, is_new: bool) -> str:
         (True, 'buy'): '初始买入',
     }
     return mapping.get((is_new, op_type), '存入')
+
+
+def _lookup_unit_nav(db: Session, symbol: str, nav_date, *, exact: bool):
+    """库内查单位净值（净值缺失先记账的定价依据）。
+
+    exact=True 按 nav_date 精确查（官方值一次到位）；exact=False 取 ≤ nav_date
+    最近一条（占位价）。nav_date 允许 date/datetime/str（str 按前 10 位解析
+    YYYY-MM-DD）；解析失败、无命中或净值非正都返回 None——调用方自行兜底 1.0。
+    """
+    if not symbol or not nav_date:
+        return None
+    if isinstance(nav_date, datetime):
+        d = nav_date.date()
+    elif isinstance(nav_date, date):
+        d = nav_date
+    else:
+        try:
+            d = datetime.strptime(str(nav_date)[:10], '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            return None
+    # daily_worth.fund_code 存裸 6 位码（#1662）；流水 symbol 可能带场所前缀，先剥掉
+    q = db.query(DailyWorth.unit_nav).filter(DailyWorth.fund_code == strip_exchange_prefix(symbol))
+    if exact:
+        q = q.filter(DailyWorth.date == d)
+    else:
+        q = q.filter(DailyWorth.date <= d).order_by(DailyWorth.date.desc())
+    row = q.first()
+    if row and row[0] is not None and row[0] > 0:
+        return row[0]
+    return None
 
 
 def _create_cash_transfer_transaction(db: Session, data: dict, txn_type: str) -> None:
@@ -762,6 +793,39 @@ class PositionService:
         if force_create_position and asset_type in ('money_fund', 'reverse_repo') and not is_balance and price <= 0:
             price = 1.0
             data['avg_price'] = 1.0
+
+        # ── 净值缺失先记账（nav_pending）──
+        # 当日净值未发布 / 前后端拉取失败时，不把用户挡在记账之外：
+        # - 库内已有 nav_date 当日官方净值（提交前恰好发布）→ 直接用官方值，一次到位不标 pending；
+        # - 否则用 ≤ nav_date 的最近净值占位（新发基金无历史 → 1.0），份额按 (买入金额−手续费)/占位价
+        #   暂算，流水标 entry_status='pending_nav'，nav_backfill job 在官方净值落库后重算份额/成本
+        #   （份额手动填写时只校正净值与成本，不覆盖份额；编辑手改份额则清标记，手动优先）。
+        nav_pending = bool(data.get('nav_pending')) and not is_balance and asset_type in ('fund', 'money_fund', 'etf')
+        shares_manual = bool(data.get('shares_manual')) and qty > 0
+        nav_date_extra = str(data.get('nav_date') or data.get('trade_date') or '')[:10]
+        if nav_pending:
+            if asset_type == 'money_fund':
+                # 货基净值恒为 1.0（#1233）：不存在"待发布"，直接定值、无需回填
+                price = 1.0
+                nav_pending = False
+            else:
+                official = _lookup_unit_nav(db, symbol, data.get('nav_date') or data.get('trade_date'), exact=True)
+                if official:
+                    price = float(official)
+                    nav_pending = False  # 官方值已在库：无需回填，走正常路径
+                else:
+                    placeholder = _lookup_unit_nav(
+                        db, symbol, data.get('nav_date') or data.get('trade_date'), exact=False
+                    )
+                    price = float(placeholder) if placeholder else 1.0
+            data['avg_price'] = price
+            if not shares_manual or qty <= 0:
+                net_yuan = float(amount or 0) - float(data.get('fee', 0) or 0)
+                if net_yuan <= 0:
+                    raise ValueError('买入金额需大于手续费，净值缺失时才能暂算份额')
+                qty = round(net_yuan / price, 4)
+                data['quantity'] = qty
+
         if is_balance:
             # balance 模式没有份额/净值概念，只校验金额——市值即由金额累加而来
             if amount <= 0:
@@ -934,6 +998,16 @@ class PositionService:
                 family_id=family_id,
                 # #1232 决策 11：流水来源与持仓同源（记一笔默认 manual，交易导入/对账补录按 data.source）
                 source=data.get('source') or PositionSource.MANUAL.value,
+                # 净值缺失先记账：pending 标记 + 元数据（nav_date/shares_manual）供 nav_backfill 消费
+                entry_status='pending_nav' if nav_pending else None,
+                extra=(
+                    json.dumps(
+                        {'nav_pending': True, 'nav_date': nav_date_extra, 'shares_manual': shares_manual},
+                        ensure_ascii=False,
+                    )
+                    if nav_pending
+                    else None
+                ),
             )
 
             db.flush()
@@ -1110,7 +1184,14 @@ class PositionService:
             return None
 
         avg_price_units = (
-            Money.yuan_to_price_units(round(Money.cents_to_yuan(buy_cost) / buy_qty, 4)) if buy_qty > 0 else 0
+            Money.yuan_to_price_units(
+                # buy_cost 是「分」、buy_qty 是「最小单位」：须先换算成份额再除，
+                # 否则均价被缩小 1e4（与 process_buy_or_deposit 两处合并公式的
+                # total_qty = min_unit_to_shares(...) 同口径）
+                round(Money.cents_to_yuan(buy_cost) / Money.min_unit_to_shares(buy_qty), 4)
+            )
+            if buy_qty > 0
+            else 0
         )
 
         if pos:

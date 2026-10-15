@@ -39,6 +39,29 @@
           />
         </template>
       </el-table-column>
+      <!-- 「问这个」（#1764）：行末入口按 design.md 行内操作规范默认隐藏，
+           行 hover 200ms 淡入、键盘 focus 可达；manual 代码无标的语义，不出口 -->
+      <el-table-column
+        label="操作"
+        width="60"
+        align="center"
+        class-name="ask-actions-col"
+      >
+        <template #default="{ row }">
+          <el-tooltip content="问这个" placement="top">
+            <el-button
+              v-if="row.symbol && row.symbol !== 'manual'"
+              circle
+              size="small"
+              class="ask-btn"
+              :aria-label="`问这个：${row.name}`"
+              @click.stop="emit('ask', row as Position)"
+            >
+              <el-icon><ChatDotSquare /></el-icon>
+            </el-button>
+          </el-tooltip>
+        </template>
+      </el-table-column>
     </el-table>
 
     <div class="flex justify-end mt-4">
@@ -68,6 +91,7 @@
  * （`valuation` prop，与自选页注入 `realtime` 同模式），本组件仍不持业务状态。
  */
 import type { Position } from "@/api/types";
+import { ChatDotSquare } from "@element-plus/icons-vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
@@ -97,6 +121,8 @@ defineProps<{
 
 const emit = defineEmits<{
   "update:page": [page: number];
+  /** 「问这个」（#1764）：携带该行上下文跳账本精灵页（纯展示组件不持路由） */
+  ask: [row: Position];
 }>();
 
 /**
@@ -115,3 +141,26 @@ function marketValue(row: Position): number | null {
   return quantity * current;
 }
 </script>
+
+<style lang="scss" scoped>
+/* 「问这个」行内入口（#1764）：按 design.md 行内操作规范——默认隐藏，
+   行 hover 经 200ms ease-out 淡入；键盘 focus 同样必须显形（验收「键盘可达」）。
+   基态隐藏必须配双兜底（scripts/guard_a11y_interaction.py 阻断）：
+   键盘走 :focus-within 显形；触屏没有 hover 概念，@media (hover: none) 下常驻可见 */
+:deep(.ask-actions-col .ask-btn) {
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+}
+
+:deep(.el-table__row:hover .ask-actions-col .ask-btn),
+:deep(.ask-actions-col .ask-btn:focus),
+:deep(.el-table__row:focus-within .ask-actions-col .ask-btn) {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  :deep(.ask-actions-col .ask-btn) {
+    opacity: 1;
+  }
+}
+</style>

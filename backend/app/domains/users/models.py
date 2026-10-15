@@ -7,7 +7,7 @@
 - `role`：admin 主理人 / member 成员 / viewer 只读。
 """
 
-from sqlalchemy import Column, ForeignKey, Integer, String
+from sqlalchemy import Column, ForeignKey, Integer, String, Text, UniqueConstraint
 
 from app.core.database import Base, PrimaryKeyMixin, TimestampMixin
 
@@ -39,3 +39,27 @@ class User(Base, PrimaryKeyMixin, TimestampMixin):
     email = Column(String(200), nullable=True, comment='邮箱')
     role = Column(String(20), default=ROLE_MEMBER, comment='admin/member/viewer')
     is_active = Column(Integer, default=1, comment='是否启用（0 停用）')
+
+
+class UserPreference(Base, PrimaryKeyMixin, TimestampMixin):
+    """用户私有偏好键值存储（#1337，#993 方案 B 跨设备同步）。
+
+    - `user_id` 私有（非 family_id）：列配置这类偏好属于个人，不随家庭共享；
+    - `key` 唯一约束 (user_id, key)：同一偏好一行，写入走 upsert；
+    - `value` 存 JSON 文本：偏好结构演进频繁（如 hidden/shown/order），
+      不为每个字段开列；updated_at 由 TimestampMixin 维护，供前端「最近修改
+      时间取胜」的合并策略读取。
+    """
+
+    __tablename__ = 'user_preferences'
+    __table_args__ = (UniqueConstraint('user_id', 'key', name='uq_user_prefs_user_key'),)
+
+    user_id = Column(
+        Integer,
+        ForeignKey('users.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+        comment='归属用户',
+    )
+    key = Column(String(100), nullable=False, comment='偏好键（如 watchlist-column-settings）')
+    value = Column(Text, nullable=False, comment='偏好值（JSON 文本）')

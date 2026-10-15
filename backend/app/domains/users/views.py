@@ -5,6 +5,7 @@
 个人资料更新仅作用于当前登录用户（`g.current_user`），不跨家庭。
 """
 
+import json
 from datetime import date, datetime
 
 from apiflask import APIBlueprint
@@ -16,8 +17,8 @@ from app.core.database import get_db
 from app.core.sensitive_word_guard import contains_sensitive
 from app.core.validation import parse_body
 from app.domains.transactions.models import Transaction
-from app.domains.users.models import ROLE_LABELS, User
-from app.domains.users.schemas import ProfileUpdate, UserOut
+from app.domains.users.models import ROLE_LABELS, User, UserPreference
+from app.domains.users.schemas import PreferenceOut, PreferenceUpsert, ProfileUpdate, UserOut
 
 users_bp = APIBlueprint('users', __name__, url_prefix='/api/users')
 
@@ -113,3 +114,47 @@ def record_stats():
                 'message': 'ok',
             }
         )
+
+
+def _pref_to_dict(pref: UserPreference) -> dict:
+    """偏好行 → 响应体：value 由 JSON 文本还原为对象，updated_at 供合并策略比较。"""
+    return PreferenceOut(
+        key=pref.key,
+        value=json.loads(pref.value),
+        updated_at=pref.updated_at,
+    ).model_dump()
+
+
+@users_bp.get('/preferences/<key>/')
+def get_preference(key: str):
+    """读取当前用户某偏好键（#1337 方案 B）。无值返回 data=null（非 404，前端按无偏好处理）。"""
+    if len(key) > 100:
+        abort(400, description='偏好键过长')
+    with get_db() as db:
+        pref = db.query(UserPreference).filter_by(user_id=g.current_user.id, key=key).first()
+        if pref is None:
+            return jsonify({'data': None, 'message': 'ok'})
+        return jsonify({'data': _pref_to_dict(pref), 'message': 'ok'})
+
+
+@users_bp.put('/preferences/<key>/')
+def upsert_preference(key: str):
+    """写入当前用户某偏好键（upsert：同 key 覆盖，updated_at 随之刷新）。
+
+    updated_at 是前端「最近修改时间取胜」合并策略的依据，必须随每次写入刷新，
+    不能保留首建时间。
+    """
+    if len(key) > 100:
+        abort(400, description='偏好键过长')
+    data = parse_body(PreferenceUpsert)
+    with get_db() as db:
+        pref = db.query(UserPreference).filter_by(user_id=g.current_user.id, key=key).first()
+        payload = json.dumps(data.value, ensure_ascii=False)
+        if pref is None:
+            pref = UserPreference(user_id=g.current_user.id, key=key, value=payload)
+            db.add(pref)
+        else:
+            pref.value = payload
+        db.flush()
+        db.refresh(pref)
+        return jsonify({'data': _pref_to_dict(pref), 'message': 'ok'})

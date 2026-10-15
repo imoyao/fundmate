@@ -12,7 +12,7 @@ bias.py · 市场乖离率（刘晨明"均线偏离度"）灵活计算引擎
 
 核心结论：乖离率不限于指数——**任何能拿到日线/净值序列的品种都能算**：
   - 指数(index)   ：akshare.index_zh_a_hist        → 收盘价
-  - ETF(etf)      ：akshare.fund_etf_hist_em        → 收盘价(市价)
+  - ETF(etf)      ：akshare.stock_zh_a_hist_tx（腾讯，2026-10-14 起；东财兜底）→ 收盘价(市价)
   - 场外基金(fund)：akshare.fund_open_fund_info_em  → 单位净值(或累计净值)
   - 股票(stock)   ：akshare.stock_zh_a_hist         → 收盘价
 所以"我们持有的基金"完全能算：ETF 用市价、场外基金用单位净值。
@@ -53,6 +53,7 @@ from loguru import logger
 # 正常由 app/__init__ 安装，此处为幂等兜底，避免遗漏调用点。
 from app.core.cache import resolve_cache_subdir
 from app.core.requests_patch import install_requests_patch
+from app.core.symbol_utils import market_of_cn_a_code
 from app.services.adapters.direct_feeds import (
     _eastmoney_secid,
     fetch_close_eastmoney,
@@ -310,7 +311,10 @@ class PriceFetcher:
         return self._fetch_akshare(symbol, item_type)
 
     def _fetch_akshare(self, symbol: str, item_type: str):
-        """akshare 兜底（东财后端）：场外基金/直连失败时使用，保留重试退避。"""
+        """akshare 兜底：场外基金/直连失败时使用，保留重试退避。
+
+        ETF 分支为腾讯优先、东财最后回退（GitHub #2173），其余分支仍走东财后端。
+        """
         from app.core.akshare_lazy import get_akshare
 
         ak = get_akshare()
@@ -325,7 +329,7 @@ class PriceFetcher:
                     df = ak.index_zh_a_hist(symbol=symbol, period='daily', start_date=start_date, end_date=end_date)
                     col = '收盘'
                 elif item_type == ITEM_TYPE_ETF:
-                    df = ak.fund_etf_hist_em(symbol=symbol, period='daily', start_date=start_date, end_date=end_date)
+                    df = self._fetch_etf_daily(ak, symbol, start_date, end_date)
                     col = '收盘'
                 elif item_type == ITEM_TYPE_STOCK:
                     df = ak.stock_zh_a_hist(symbol=symbol, period='daily', start_date=start_date, end_date=end_date)
@@ -363,6 +367,29 @@ class PriceFetcher:
                     logger.error(f'获取 {symbol} ({item_type}) 重试{self.max_retries}次仍失败: {type(e).__name__}: {e}')
 
         return None, None
+
+    def _fetch_etf_daily(self, ak, symbol: str, start_date: str, end_date: str):
+        """ETF 日线兜底：腾讯优先（GitHub #2173），失败回退东财。
+
+        WHY：直连层（#1431）已腾讯优先，本方法是直连失败后的 akshare 兜底——若仍
+        单挂东财，push2his IP 级封锁（2026-10-14）期间兜底即整体失效。腾讯与东财
+        close 已实测零差异（3 只 ETF × 252 天交叉验证）。此处只取未复权收盘序列，
+        不做复权、不接熔断器（偏差服务短生命周期，熔断状态无积累价值），
+        双源皆失败时异常上抛，由外层重试退避统一处理。
+        腾讯返回英文列，映射为「日期/收盘」以复用调用方的排序与取列逻辑。
+        """
+        mkt = market_of_cn_a_code(symbol)
+        if not mkt:
+            raise ValueError(f'无法识别 ETF 代码市场: {symbol}')
+        try:
+            df = ak.stock_zh_a_hist_tx(
+                symbol=f'{mkt.lower()}{symbol}', start_date=start_date, end_date=end_date, adjust=''
+            )
+            if df is not None and not df.empty:
+                return df.rename(columns={'date': '日期', 'close': '收盘'})
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f'腾讯 ETF 日线失败（{symbol}），回退东财: {type(e).__name__}: {e}')
+        return ak.fund_etf_hist_em(symbol=symbol, period='daily', start_date=start_date, end_date=end_date)
 
 
 class BiasCalculator:
