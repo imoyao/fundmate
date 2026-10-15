@@ -29,6 +29,7 @@ import ProductManagerSection from "./components/ProductManagerSection.vue";
 import ProductRelatedSection from "./components/ProductRelatedSection.vue";
 import ProductTransactionSection from "./components/ProductTransactionSection.vue";
 import { useProductPageNav } from "./composables/useProductPageNav";
+import { useSkeletonThreshold } from "@/composables/useSkeletonThreshold";
 
 /**
  * 产品详情页骨架（#1964 · 设计 §4 / §8）。
@@ -40,6 +41,8 @@ defineOptions({ name: "ProductDetail" });
 
 const router = useRouter();
 const loading = ref(false);
+// 骨架屏 200ms 阈值（components.md PageSkeleton 铁律4）：快请求跳过骨架屏，避免闪屏
+const { showSkeleton, startSkeleton, settleSkeleton } = useSkeletonThreshold();
 const notFound = ref(false);
 const product = ref<ProductResolveResult | null>(null);
 
@@ -105,6 +108,7 @@ async function loadProduct() {
 
   loading.value = true;
   notFound.value = false;
+  startSkeleton(); // 阈值（铁律4）：>200ms 才点亮骨架屏，快请求跳过避免闪屏
   try {
     const { data } = await resolveProduct({
       symbol: ref.symbol,
@@ -119,6 +123,7 @@ async function loadProduct() {
     product.value = null;
     notFound.value = true;
   } finally {
+    settleSkeleton();
     loading.value = false;
   }
 }
@@ -149,7 +154,13 @@ watch(productRef, loadProduct, { immediate: true });
       </template>
     </PageHeaderBar>
 
-    <PageSkeleton v-if="loading" :cards="2" :chart-cols="1" :table-rows="4" />
+    <!-- 骨架屏：阈值控制（铁律4）在 loadProduct——≤200ms 返回时 showSkeleton 不置位 -->
+    <PageSkeleton
+      v-if="loading && showSkeleton"
+      :cards="2"
+      :chart-cols="1"
+      :table-rows="4"
+    />
 
     <CardBlock v-else-if="notFound" class="product-detail__empty">
       <IconifyIconOffline icon="ep:search" class="product-detail__empty-icon" />
