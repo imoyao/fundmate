@@ -269,6 +269,17 @@ jobs:
       - name: 扫描 .cnb.yml 重复键（阻断）
         run: python scripts/guard_cnb_yml_duplicate_keys.py
 
+      # python 脚本任务必须自带镜像（源 CNB #461，2026-10-15 实测）：<!-- cross-repo-ref-allow -->
+      # 「跨仓同步（机器分支 + PR 通道）」上线时只写了 imports/env/script、没写 image，
+      # 脚本任务不声明 image 时 runner 落在**默认镜像**上，而默认镜像里没有 python ——
+      # 构建 cnb-nii-1k4ua02j8 的 stage-0 原文 `sh: line 10: python: command not found`
+      # （code 127）。于是机器分支通道自上线起一次都没跑成：不是分叉没解、不是冲突没解，
+      # 是**解释器不存在**，而报错指向「脚本第 10 行」而非「容器里没有 python」。
+      # 仓库里其它脚本任务（.mirror-job / &claim-job）都写了 docker.image，只漏这一处，
+      # 此前没有任何判据在管「这个 job 跑得起来吗」。不新增 job，并入本 job。
+      - name: 扫描 python 脚本任务是否自带镜像（阻断）
+        run: python scripts/guard_cnb_script_task_python.py
+
       # git-sync 分支范围守卫（源 CNB #167 / #172 / #269，2026-10-13 ~ 10-14）：
       # ① 插件不写 `branch` 时执行 `git push target --all`，会把 CNB 的 `main` 一并推给
       #    GitHub；而 GitHub 是权威源（`main` 只由发版 PR 推进）⇒ 两侧 `main` 各自长出

@@ -302,7 +302,21 @@ dev:
     # plugin tasks`，见 §13.1 同款推导）。故走认领同步那份**不含 `allow_images`** 的
     # `claim-sync-env.yml`。
     # ⚠️ 它**不 push 到 `dev`**（只推 `bridge/github-dev`），故不违反「`main` 不外推」那套范围纪律。
+    #
+    # ⚠️⚠️ 必须显式声明 `docker.image: python:3.12-slim`（2026-10-15 实测补，CNB #461）：
+    # 本 job 是**脚本任务**（有 `script`），不写 `image` 时 runner 落在**默认镜像**上，
+    # 而默认镜像里**没有 python**。构建 `cnb-nii-1k4ua02j8` 的 stage-0 原文：
+    #     sh: line 10: python: command not found
+    #     Finished, code: 127
+    # ⇒ 机器分支通道自上线（ad8ff42e）起**一次都没跑成**：不是分叉没解、不是冲突没解，
+    # 是**解释器不存在**。本仓所有跑 `python scripts/...` 的脚本任务都必须自带
+    # `docker.image`（`.mirror-job` / `&claim-job` 都有，本 job 漏了）。
+    # 判据已机械化：`scripts/guard_cnb_script_task_python.py`（并入 ci.yml 的 scripts_test）。
     - name: 跨仓同步（机器分支 + PR 通道，仅 dev）
+      docker:
+        # 脚本任务的 image 只是**运行环境**（跑 script 的容器），不是插件镜像；
+        # 与被引密钥文件是否声明 allow_images 无关（判据见 guard_secret_imports.py）。
+        image: python:3.12-slim
       stages:
         - name: 合并两侧 dev 并推成机器分支
           imports:
