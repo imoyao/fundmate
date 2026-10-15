@@ -1,97 +1,106 @@
+// 消息盒（lay-notice）的展示模型与 Tab 定义。
+//
+// WHY：本文件原先是 pure-admin 脚手架的假数据（写死的「小铭 评论了你」「今天」等），
+// 现已接到真实端点 `/api/notifications/`。之所以还保留一层 `ListItem` 展示模型、
+// 而不是把 `NotificationItem` 直接透给列表项组件：时间格式化只需做一次、
+// 且模板里不必再逐字段判空（后端 body / created_at 都可能为 null）。
+import { formatDateTime } from "@/utils/date";
+import type {
+  NotificationCategory,
+  NotificationItem,
+  NotificationLevel
+} from "@/api/notification";
+
+/** 列表项右上角色标的类型（沿用 Element Plus `el-tag` 的 type 取值域） */
+export type NoticeTagType =
+  "primary" | "success" | "warning" | "info" | "danger";
+
+/**
+ * 消息列表项。
+ *
+ * 字段含义已随真实接口改造：`datetime` 由后端 `created_at` 格式化而来（不再是
+ * 写死的「今天 / 昨天」字符串），`extra` / `status` 承载级别色标，新增 `isRead`
+ * 供列表做未读圆点与「点击即已读」判定。原 `avatar` 字段删除——后端不提供头像，
+ * 留着只会渲染出处处相同的占位图。
+ */
 export interface ListItem {
-  avatar: string;
+  /** 通知主键：列表的渲染 key，也是「标记已读」的入参 */
+  id: number;
   title: string;
-  datetime: string;
-  type: string;
   description: string;
-  status?: "primary" | "success" | "warning" | "info" | "danger";
-  extra?: string;
+  /** 已格式化的时间文案（YYYY-MM-DD HH:mm） */
+  datetime: string;
+  /** 级别色标文案 */
+  extra: string;
+  /** 级别色标配色 */
+  status: NoticeTagType;
+  isRead: boolean;
 }
 
+/** 消息盒 Tab：一个 Tab 承接后端一种通知归类 */
 export interface TabItem {
   key: string;
   name: string;
-  list: ListItem[];
+  category: NotificationCategory;
   emptyText: string;
 }
 
-export const noticesData: TabItem[] = [
+/**
+ * Tab 外壳沿用脚手架遗留的三个（通知 / 消息 / 订阅），与后端单流的三种 category
+ * 一一对应：系统类就是「通知」，策略信号读起来是「消息」，自选标的的动态即「订阅」。
+ * 这样既不必改调用方的观感，也不用为了让某个 Tab 有内容而编数据——某一类暂时没有
+ * 就不显示，落到该 Tab 自己的空态文案。
+ */
+export const noticeTabs: TabItem[] = [
   {
     key: "1",
     name: "通知",
-    list: [],
-    emptyText: "暂无通知"
+    category: "system",
+    emptyText: "暂无系统通知"
   },
   {
     key: "2",
     name: "消息",
-    list: [
-      {
-        avatar: "https://xiaoxian521.github.io/hyperlink/svg/smile1.svg",
-        title: "小铭 评论了你",
-        description: "诚在于心，信在于行，诚信在于心行合一。",
-        datetime: "今天",
-        type: "2"
-      },
-      {
-        avatar: "https://xiaoxian521.github.io/hyperlink/svg/smile2.svg",
-        title: "李白 回复了你",
-        description: "长风破浪会有时，直挂云帆济沧海。",
-        datetime: "昨天",
-        type: "2"
-      },
-      {
-        avatar: "https://xiaoxian521.github.io/hyperlink/svg/smile5.svg",
-        title: "标题",
-        description:
-          "请将鼠标移动到此处，以便测试超长的消息在此处将如何处理。本例中设置的描述最大行数为2，超过2行的描述内容将被省略并且可以通过tooltip查看完整内容",
-        datetime: "时间",
-        type: "2"
-      }
-    ],
-    emptyText: "暂无消息"
+    category: "strategy",
+    emptyText: "暂无策略消息"
   },
   {
     key: "3",
     name: "订阅",
-    list: [
-      {
-        avatar: "",
-        title: "第三方紧急代码变更",
-        description:
-          "小林提交于 2024-05-10，需在 2024-05-11 前完成代码变更任务",
-        datetime: "",
-        extra: "马上到期",
-        status: "danger",
-        type: "3"
-      },
-      {
-        avatar: "",
-        title: "版本发布",
-        description: "指派小铭于 2024-06-18 前完成更新并发布",
-        datetime: "",
-        extra: "已耗时 8 天",
-        status: "warning",
-        type: "3"
-      },
-      {
-        avatar: "",
-        title: "新功能开发",
-        description: "开发多租户管理",
-        datetime: "",
-        extra: "进行中",
-        type: "3"
-      },
-      {
-        avatar: "",
-        title: "任务名称",
-        description: "任务需要在 2030-10-30 10:00 前启动",
-        datetime: "",
-        extra: "未开始",
-        status: "info",
-        type: "3"
-      }
-    ],
-    emptyText: "暂无待办"
+    category: "watchlist",
+    emptyText: "暂无自选动态"
   }
 ];
+
+/** 级别色标：文案 + 配色 */
+interface NoticeLevelMeta {
+  extra: string;
+  status: NoticeTagType;
+}
+
+/**
+ * 用词中性（「重要 / 提醒 / 提示」）而非指令性的「立即处理」——前端不替后端加码，
+ * 合规上也不允许把客观事实渲染成建议语气。
+ */
+const FALLBACK_META: NoticeLevelMeta = { extra: "提示", status: "info" };
+
+const LEVEL_META: Partial<Record<NotificationLevel, NoticeLevelMeta>> = {
+  P0: { extra: "重要", status: "danger" },
+  P1: { extra: "提醒", status: "warning" },
+  P2: FALLBACK_META
+};
+
+/** 后端单条通知 → 展示模型 */
+export function toListItem(item: NotificationItem): ListItem {
+  // 后端 level 是自由字符串列，出现预期外取值时退到最弱一档，不要让整个消息盒崩掉
+  const meta = LEVEL_META[item.level] ?? FALLBACK_META;
+  return {
+    id: item.id,
+    title: item.title,
+    description: item.body ?? "",
+    datetime: formatDateTime(item.created_at ?? ""),
+    extra: meta.extra,
+    status: meta.status,
+    isRead: item.is_read
+  };
+}

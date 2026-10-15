@@ -18,6 +18,10 @@ const descriptionTooltip = ref(false);
 const { tooltipEffect } = useNav();
 const isMobile = deviceDetection();
 
+// 点击即「标记已读」，由上层发起 PATCH：本组件只报意图，不好自行发请求——
+// 那样同一个弹层里会有多个组件各写一份乐观更新与回滚，状态无从收敛。
+const emit = defineEmits<{ read: [] }>();
+
 function hoverTitle() {
   nextTick(() => {
     titleRef.value?.scrollWidth > titleRef.value?.clientWidth
@@ -49,16 +53,20 @@ function hoverDescription(event, description) {
 
 <template>
   <div
-    class="notice-container border-0 border-b-[1px] border-solid border-[#f0f0f0] dark:border-[#303030]"
+    class="notice-container"
+    role="button"
+    tabindex="0"
+    @click="emit('read')"
+    @keydown.enter.prevent="emit('read')"
+    @keydown.space.prevent="emit('read')"
   >
-    <el-avatar
-      v-if="noticeItem.avatar"
-      :size="30"
-      :src="noticeItem.avatar"
-      class="notice-container-avatar"
-    />
-    <div class="notice-container-text">
-      <div class="notice-text-title text-[#000000d9] dark:text-white">
+    <div class="notice-container__text">
+      <div class="notice-container__title">
+        <span
+          v-if="!noticeItem.isRead"
+          class="notice-container__dot"
+          aria-label="未读"
+        />
         <el-tooltip
           popper-class="notice-title-popper"
           :effect="tooltipEffect"
@@ -69,7 +77,8 @@ function hoverDescription(event, description) {
         >
           <div
             ref="titleRef"
-            class="notice-title-content"
+            class="notice-container__title-content"
+            :class="{ 'is-read': noticeItem.isRead }"
             @mouseover="hoverTitle"
           >
             {{ noticeItem.title }}
@@ -79,7 +88,7 @@ function hoverDescription(event, description) {
           v-if="noticeItem?.extra"
           :type="noticeItem?.status"
           size="small"
-          class="notice-title-extra"
+          class="notice-container__extra"
         >
           {{ noticeItem?.extra }}
         </el-tag>
@@ -94,13 +103,13 @@ function hoverDescription(event, description) {
       >
         <div
           ref="descriptionRef"
-          class="notice-text-description"
+          class="notice-container__description"
           @mouseover="hoverDescription($event, noticeItem.description)"
         >
           {{ noticeItem.description }}
         </div>
       </el-tooltip>
-      <div class="notice-text-datetime text-[#00000073] dark:text-white">
+      <div class="notice-container__datetime">
         {{ noticeItem.datetime }}
       </div>
     </div>
@@ -116,62 +125,74 @@ function hoverDescription(event, description) {
 .notice-container {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
-  padding: 12px 0;
+  padding: var(--space-3) 0;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-light);
 
-  // border-bottom: 1px solid #f0f0f0;
-
-  .notice-container-avatar {
-    margin-right: 16px;
-    background: var(--bg-card);
-  }
-
-  .notice-container-text {
+  &__text {
     display: flex;
     flex: 1;
     flex-direction: column;
     justify-content: space-between;
+  }
 
-    .notice-text-title {
-      display: flex;
-      margin-bottom: 8px;
-      font-size: 14px;
-      font-weight: 400;
-      line-height: 1.5715;
-      cursor: pointer;
+  &__title {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    margin-bottom: var(--space-2);
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.5715;
+  }
 
-      .notice-title-content {
-        flex: 1;
-        width: 200px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
+  /* 未读圆点：红点是唯一一处用品牌色的地方，刻意不与涨跌红绿混用——
+     涨跌色有明确的数据语义，消息层级没有。 */
+  &__dot {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    background: var(--brand-700);
+    border-radius: var(--radius-pill);
+  }
 
-      .notice-title-extra {
-        float: right;
-        margin-top: -1.5px;
-        font-weight: 400;
-      }
-    }
+  &__title-content {
+    flex: 1;
+    width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-primary);
+    white-space: nowrap;
+  }
 
-    .notice-text-description,
-    .notice-text-datetime {
-      font-size: 12px;
-      line-height: 1.5715;
-    }
+  /* 已读条目整体降一档，让未读在有限高度里先被看见 */
+  &__title-content.is-read {
+    color: var(--text-secondary);
+  }
 
-    .notice-text-description {
-      display: -webkit-box;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-    }
+  &__extra {
+    flex: none;
+    font-weight: 400;
+  }
 
-    .notice-text-datetime {
-      margin-top: 4px;
-    }
+  &__description,
+  &__datetime {
+    font-size: 12px;
+    line-height: 1.5715;
+  }
+
+  &__description {
+    display: -webkit-box;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    -webkit-line-clamp: 2;
+    color: var(--text-secondary);
+    -webkit-box-orient: vertical;
+  }
+
+  &__datetime {
+    margin-top: var(--space-1);
+    color: var(--text-tertiary-ink);
   }
 }
 </style>
