@@ -16,7 +16,9 @@ def _series(values, start: date = D0) -> tuple[SeriesPoint, ...]:
 
 
 def _trade(day_offset: int, side: str, qty: float, price: float) -> TradeRecord:
-    return TradeRecord(symbol='000001', trade_date=D0 + timedelta(days=day_offset), side=side, quantity=qty, price=price)
+    return TradeRecord(
+        symbol='000001', trade_date=D0 + timedelta(days=day_offset), side=side, quantity=qty, price=price
+    )
 
 
 def test_empty_trades_returns_unknown():
