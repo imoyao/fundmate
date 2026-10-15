@@ -18,8 +18,15 @@
       >
         <el-icon class="filter-entry-btn__icon"><Filter /></el-icon>
         筛选
-        <span v-if="activeFilterCount" class="filter-entry-btn__count">
-          {{ activeFilterCount }}
+        <!-- 条件数角标的「恒定槽位」（自选筛选条跳动修复）：角标本体若用 v-if 直接
+             增删，「筛选」按钮宽度会随条件数出现/消失 ±16px——与右段其它宽度变化
+             叠加足以跨过 flex-wrap 换行阈值，触发整段右操作区掉到第二行。
+             故槽位常驻（width 16px = 一位数角标宽），0 条时槽内为空、按钮宽度不变；
+             两位数角标（约 22px）向右溢出进按钮 padding（12px 内可容纳），同样不改布局宽度。 -->
+        <span class="filter-entry-btn__count-slot">
+          <span v-if="activeFilterCount" class="filter-entry-btn__count">
+            {{ activeFilterCount }}
+          </span>
         </span>
       </el-button>
     </template>
@@ -261,9 +268,12 @@ function resetAllFilters() {
   font-size: 14px;
 }
 
-/* 条件数角标：品牌实底 + 卡片色字，16px 胶囊（与分组 tab 的数量徽章同为「数字角标」语言） */
+/* 条件数角标：品牌实底 + 卡片色字，16px 胶囊（与分组 tab 的数量徽章同为「数字角标」语言）。
+   flex-shrink:0：本体现在槽位内是 flex 子项，两位数时宁可溢出槽位（进按钮 padding）
+   也不许被压窄截字——槽位宽度才是布局宽度的唯一来源。 */
 .filter-entry-btn__count {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
   min-width: 16px;
@@ -275,6 +285,16 @@ function resetAllFilters() {
   color: var(--text-inverse);
   background-color: var(--brand-solid);
   border-radius: var(--radius-pill);
+}
+
+/* 角标恒定槽位：宽度 = 一位数角标（16px），0 条时为空但始终占位——
+   「筛选」按钮宽度不随筛选状态变化，右操作区总宽恒定（防 flex-wrap 整行重排，
+   详见 WatchlistFilterBar 清除按钮处的同款注释）。 */
+.filter-entry-btn__count-slot {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  width: 16px;
 }
 
 /* 底部固定操作栏：重置 / 自定义快捷筛选 / 已选计数 / 取消 / 确定 永远可见。
