@@ -58,6 +58,10 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from cnb_yml_loader import describe_yaml_error, load_cnb_yml  # noqa: E402
+
 # 密钥仓库 `vars.yml` 在本仓的**内容同步模板**（见 docs/ops/git-sync-secret-vars.example.yml 文件头：
 # 「真正被读取的是密钥仓库里的 vars.yml……故模板落在代码仓里」）。
 SECRET_TEMPLATE = Path('docs/ops/git-sync-secret-vars.example.yml')
@@ -616,9 +620,11 @@ def main() -> int:
 
     problems = self_check()
     try:
-        data = yaml.safe_load(path.read_text(encoding='utf-8'))
+        # 拒绝重复 mapping key（源 CNB #460）：PyYAML 的 safe_load 静默放行，
+        # CNB 平台却直接报语法错、整条流水线死在 Prepare —— 口径必须与平台一致。
+        data = load_cnb_yml(path)
     except yaml.YAMLError as exc:
-        print(f'❌ {path} 不是合法 YAML：{exc}')
+        print(f'❌ {path} 不是合法 YAML：{describe_yaml_error(exc)}')
         return 1
     if not isinstance(data, dict):
         data = {}

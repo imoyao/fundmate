@@ -58,6 +58,7 @@ CNB `main` 只由 CNB 自己的发版 PR 推进，不是 GitHub `main` 的镜像
 ----
     python scripts/guard_git_sync_push_scope.py            # 检查仓库根 .cnb.yml
     python scripts/guard_git_sync_push_scope.py --file x   # 检查指定文件
+    （解析口径见 scripts/cnb_yml_loader.py：重复 mapping key 一律拒绝）
 退出码 0 = 通过，1 = 发现问题。
 """
 
@@ -68,6 +69,10 @@ import sys
 from pathlib import Path
 
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from cnb_yml_loader import describe_yaml_error, load_cnb_yml  # noqa: E402
 
 # git-sync 插件任务的识别：用了这个镜像，或调用同名插件。
 GIT_SYNC_IMAGE = 'tencentcom/git-sync'
@@ -80,7 +85,9 @@ EXCLUDE_HINT = '!(main'
 
 
 def _load(path: Path) -> dict:
-    data = yaml.safe_load(path.read_text(encoding='utf-8'))
+    # 拒绝重复 mapping key（源 CNB #460）：PyYAML 的 safe_load 会静默放行，
+    # 而 CNB 平台对重复 key 直接报语法错、整条流水线死在 Prepare。口径必须与平台一致。
+    data = load_cnb_yml(path)
     return data if isinstance(data, dict) else {}
 
 
@@ -367,7 +374,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         data = _load(path)
     except yaml.YAMLError as exc:
-        print(f'❌ {path} 不是合法 YAML：{exc}')
+        print(f'❌ {path} 不是合法 YAML：{describe_yaml_error(exc)}')
         return 1
 
     problems += check_push_scope(data)
