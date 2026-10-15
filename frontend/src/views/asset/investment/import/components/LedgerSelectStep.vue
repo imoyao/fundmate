@@ -57,7 +57,7 @@ function handleCreateLedger() {
         </el-button>
       </div>
       <p class="account-hint">
-        选择账户后，系统将根据账户类型自动匹配导入模板。家庭账户不可用于导入交易数据。
+        导入的交易将归属到该账户下；系统会按账户类型自动匹配导入模板，家庭账户不可用于导入交易数据。
       </p>
     </div>
 
