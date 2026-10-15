@@ -65,6 +65,70 @@ def _load_user_assets(db: Session, family_id: int) -> tuple[list[Type[Position]]
 
 
 # ---------------------------------------------------------------------------
+# 家庭级「总资产 / 总负债 / 净资产」唯一聚合出口（#2154）
+#
+# WHY 单一出口：此前 `get_summary_data`、`get_distributions`、`get_account_groups`、
+# `get_sankey_data` 四处各自累加，**只有前两处**在 #1174 收口时被改到唯一市值口径
+# `market_value_cents`，`get_account_groups` 漏改、仍在裸算「份额 × 快照价」——
+# balance 模式（无份额无价格、市值靠 `market_value_override`）的持仓在
+# `/api/summary/` 里算 12.3 万、在 `account_groups` 里算 0，同一接口两个数。
+# 修法不是再补一遍累加，而是把「累加规则」本身收敛成下面这一个函数：
+# **任何需要家庭级总资产的调用方都必须委托这里**，禁止再手写 += 循环。
+#
+# 口径（含账外类现金，与账户详情环形图的「是否含账外类现金」问题解耦）：
+#   总资产 = Σ 持仓市值（唯一口径 `market_value_cents`）
+#          + Σ 非负债类通用资产（正数）
+#          + 孤儿货基/逆回购流水净额（本金桶）
+#          + 渠道收益桶（is_income=True）
+#   总负债 = Σ 负债类通用资产（正数）
+#   净资产 = 总资产 − 总负债
+# 「账外类现金」= 后两项孤儿流水（不建持仓、不进市值），**计入总资产**——
+# 它是真实存在的用户资金，只是没有 UI 出口（见 #2154 关联卡）。
+# ---------------------------------------------------------------------------
+
+
+def family_totals(db: Session, family_id: int, positions=None, assets=None) -> dict[str, float]:
+    """家庭级总资产 / 总负债 / 净资产（元）——**唯一聚合出口**（#2154）。
+
+    调用方可传入已加载的 `positions` / `assets` 复用查询；不传则自行加载
+    （`_load_user_assets`，已含 ownership_status='active' 与 family 隔离）。
+
+    返回 ``{'total_assets', 'total_liabilities', 'net_worth'}``，
+    三者均为元、已 round(2)。
+
+    ⚠️ **禁止**在别处另写一套 `total_assets += ...`：口径一旦分叉，
+    balance 模式持仓会在一处算 0、另一处算实价（#2154 的实测症状）。
+    """
+    if positions is None or assets is None:
+        positions, assets = _load_user_assets(db, family_id)
+
+    total_assets = 0.0
+    for p in positions:
+        rate = EXCHANGE_RATES.get(p.currency, 1.0)
+        total_assets += Money.cents_to_yuan(market_value_cents(p, rate=rate))
+
+    total_liabilities = 0.0
+    for a in assets:
+        amount = Money.cents_to_yuan(a.amount)
+        if amount <= 0:
+            continue
+        if a.major_category == _LIABILITY_KEY:
+            total_liabilities += amount
+        else:
+            total_assets += amount
+
+    # 孤儿货基/逆回购流水：本金净额 + 渠道收益桶（#863 D1）一并计入总资产
+    net_map, income_map = orphan_money_fund_totals_by_ledger(db, family_id)
+    total_assets += Money.cents_to_yuan(sum(net_map.values()) + sum(income_map.values()))
+
+    return {
+        'total_assets': round(total_assets, 2),
+        'total_liabilities': round(total_liabilities, 2),
+        'net_worth': round(total_assets - total_liabilities, 2),
+    }
+
+
+# ---------------------------------------------------------------------------
 # 孤儿货基/逆回购流水净额口径（position_service 对 money_fund/reverse_repo
 # 只建孤立流水：position_id=None、entry_status='orphan'、amount=净额分，不建持仓）。
 # 四处聚合（get_summary_data / get_sankey_data / get_account_groups /
@@ -141,20 +205,19 @@ def get_summary_data(db: Session, family_id: int = 1) -> dict[str, Any]:
     """
     positions, assets = _load_user_assets(db, family_id)
 
-    total_assets = 0.0
     market_distribution: dict[str, float] = {}
 
     # 两个 map 均按 family 一次性查出；禁止在循环里逐持仓查流水（N+1）
     realized_map = realized_pnl_by_position(db, family_id)
     invested_map = net_invested_by_position(db, family_id)
 
-    # 一次遍历 positions，完成市值、未实现盈亏、市场分布
+    # 一次遍历 positions，完成未实现盈亏、市场分布
+    # （总资产不在此累加：交给唯一出口 family_totals，见函数注释）
     unrealized_cents = 0
     for p in positions:
         rate = EXCHANGE_RATES.get(p.currency, 1.0)
         # 市值（#1174 收口）：委托唯一口径，override / balance / nav 三种情形在函数内统一处理
         market_value = Money.cents_to_yuan(market_value_cents(p, rate=rate))
-        total_assets += market_value
 
         unrealized_cents += position_pnl_cents(
             p,
@@ -166,33 +229,16 @@ def get_summary_data(db: Session, family_id: int = 1) -> dict[str, Any]:
         market = p.market or '其他市场'
         market_distribution[market] = market_distribution.get(market, 0.0) + market_value
 
-    # 一次遍历 assets，区分负债与资产（暂不做汇率转换）
-    total_liabilities = 0.0
-    for a in assets:
-        amount = Money.cents_to_yuan(a.amount)
-        if amount <= 0:
-            continue
-        if a.major_category == _LIABILITY_KEY:
-            total_liabilities += amount
-        else:
-            total_assets += amount
-
-    # 孤儿货基/逆回购流水净额并入总资产（流动资金；净额可为负，按负数处理）
-    # #863 D1 收益桶：渠道 is_income 流水（已确认收益）并入总资产，单独累计、不膨胀本金
-    # #1305 #16/#18：两张表一次查询同时拿到（原为两条 SQL）
-    net_map, income_map = orphan_money_fund_totals_by_ledger(db, family_id)
-    orphan_net = sum(net_map.values())
-    total_assets += Money.cents_to_yuan(orphan_net)
-    income_net = sum(income_map.values())
-    total_assets += Money.cents_to_yuan(income_net)
+    # 总资产 / 总负债 / 净资产 —— 委托唯一聚合出口（#2154），禁止在此另写累加
+    totals = family_totals(db, family_id, positions=positions, assets=assets)
 
     # 已实现盈亏以流水为事实源，含已清仓持仓的结转盈亏与孤儿分红
     realized_cents = family_realized_pnl_cents(db, family_id)
 
     return {
-        'total_assets_cny': round(total_assets, 2),
-        'total_liabilities_cny': round(total_liabilities, 2),
-        'net_assets_cny': round(total_assets - total_liabilities, 2),
+        'total_assets_cny': totals['total_assets'],
+        'total_liabilities_cny': totals['total_liabilities'],
+        'net_assets_cny': totals['net_worth'],
         'realized_pnl_cny': round(Money.cents_to_yuan(realized_cents), 2),
         'unrealized_pnl_cny': round(Money.cents_to_yuan(unrealized_cents), 2),
         'total_pnl_cny': round(Money.cents_to_yuan(realized_cents + unrealized_cents), 2),
@@ -224,10 +270,10 @@ def get_sankey_data(db: Session, family_id: int = 1) -> dict[str, list[dict[str,
             )
 
     # =====================================================================
-    # 数据聚合阶段：一次遍历完成所有统计，并收集负债明细
+    # 数据聚合阶段：一次遍历完成所有分类统计，并收集负债明细
+    # 总资产/总负债不在此累加——交给唯一出口 family_totals（#2154），
+    # 否则这里的裸累加会与 get_summary_data 分叉（历史上正是这么岔的）。
     # =====================================================================
-    total_assets = 0.0
-    total_liabilities = 0.0
     category_totals: dict[str, float] = {k: 0.0 for k in CATEGORY_META}
     liability_details: list[tuple[str, float]] = []  # 收集负债项，避免二次遍历
 
@@ -236,10 +282,8 @@ def get_sankey_data(db: Session, family_id: int = 1) -> dict[str, list[dict[str,
         if amount <= 0:
             continue
         if a.major_category == _LIABILITY_KEY:
-            total_liabilities += amount
             liability_details.append((a.name, amount))
         else:
-            total_assets += amount
             if a.major_category in category_totals:
                 category_totals[a.major_category] += amount
 
@@ -252,7 +296,8 @@ def get_sankey_data(db: Session, family_id: int = 1) -> dict[str, list[dict[str,
 
     for p in positions:
         rate = EXCHANGE_RATES.get(p.currency, 1.0)
-        mv = Money.min_unit_to_shares(p.quantity) * Money.price_units_to_yuan(p.current_price) * rate
+        # 市值唯一口径（#2154）：旧版裸算「份额 × 快照价」，balance 模式恒得 0
+        mv = Money.cents_to_yuan(market_value_cents(p, rate=rate))
         if mv <= 0:
             continue
 
@@ -273,17 +318,18 @@ def get_sankey_data(db: Session, family_id: int = 1) -> dict[str, list[dict[str,
 
     # 将投资理财总额归入大类（扣除现金等价物持仓，货基不占「投资理财」）
     category_totals[_INVESTMENT_KEY] += investment_total - cash_equiv_total
-    total_assets += investment_total
 
     # 现金等价物持仓市值 + 孤儿流水本金净额 + 渠道收益 并入「流动资金/cash」大类
     net_map, income_map = orphan_money_fund_totals_by_ledger(db, family_id)
     orphan_net = sum(net_map.values())
     income_net = sum(income_map.values())
     category_totals['cash'] += cash_equiv_total + Money.cents_to_yuan(orphan_net + income_net)
-    total_assets += Money.cents_to_yuan(orphan_net + income_net)
+
+    # 总资产 / 总负债 / 净资产 —— 委托唯一聚合出口（#2154）
+    totals = family_totals(db, family_id, positions=positions, assets=assets)
 
     # 若无任何资产，返回空数据
-    if total_assets == 0:
+    if totals['total_assets'] == 0:
         return {'nodes': [], 'links': []}
 
     # =====================================================================
@@ -302,7 +348,8 @@ def get_sankey_data(db: Session, family_id: int = 1) -> dict[str, list[dict[str,
             cat_name, _ = CATEGORY_META[cat_key]
             _add_link(cat_name, _CENTER_NODE, total_val)
 
-    net_worth = total_assets - total_liabilities
+    total_liabilities = totals['total_liabilities']
+    net_worth = totals['net_worth']
 
     # 净资产分支（先添加，使其在图表上方）
     if net_worth > 0:
@@ -346,10 +393,13 @@ def get_account_groups(db: Session, family_id: int = 1) -> list[dict]:
     groups: dict[str, dict[str, float | int]] = defaultdict(lambda: {'total': 0.0, 'count': 0})
 
     # 1. 处理持仓 (均为资产)
+    #    市值必须走唯一口径 market_value_cents（#1174）——旧版裸算「份额 × 快照价」，
+    #    balance 模式（无份额无价格、市值靠 market_value_override）恒得 0，
+    #    导致 account_groups 合计与 /api/summary/ 的 total_assets_cny 对不上（#2154）。
     for p in positions:
         acc = p.account_name or '未指定账户'
         rate = EXCHANGE_RATES.get(p.currency, 1.0)
-        market_value = Money.min_unit_to_shares(p.quantity) * Money.price_units_to_yuan(p.current_price) * rate
+        market_value = Money.cents_to_yuan(market_value_cents(p, rate=rate))
         if market_value == 0:
             continue
         groups[acc]['total'] += market_value
@@ -424,8 +474,6 @@ def get_distributions(db: Session, family_id: int = 1) -> dict[str, Any]:
         account_map[p.account_name or '未指定账户'] += mv
 
     # 通用资产按大类聚合；负债单独统计，不进大类分布与总资产
-    total_assets = positions_total_mv
-    total_liabilities = 0.0
     category_map: dict[str, float] = defaultdict(float)
     liability_map: dict[str, float] = defaultdict(float)
     for a in assets:
@@ -433,10 +481,8 @@ def get_distributions(db: Session, family_id: int = 1) -> dict[str, Any]:
         if amount <= 0:
             continue
         if a.major_category == _LIABILITY_KEY:
-            total_liabilities += amount
             liability_map[a.name or '其他负债'] += amount
         else:
-            total_assets += amount
             # #1354：银行理财/投顾/信托/私募/理财型保险归一到「投资理财」，不再各成一档
             label = CATEGORY_META.get(normalize_major_category(a.major_category), (_UNKNOWN_TYPE, None))[0]
             category_map[label] += amount
@@ -444,17 +490,17 @@ def get_distributions(db: Session, family_id: int = 1) -> dict[str, Any]:
     category_map[_INVESTMENT_LABEL] += positions_total_mv - cash_equiv_total
     if cash_equiv_total > 0:
         category_map[CATEGORY_META['cash'][0]] += cash_equiv_total
-    # 孤儿流水本金净额 + 渠道收益（#863 D1 收益桶）并入流动资金分类与总资产
+    # 孤儿流水本金净额 + 渠道收益（#863 D1 收益桶）并入流动资金分类
     net_map, income_map = orphan_money_fund_totals_by_ledger(db, family_id)
-    orphan_net = sum(net_map.values())
-    income_net = sum(income_map.values())
-    cash_flow_yuan = Money.cents_to_yuan(orphan_net + income_net)
+    cash_flow_yuan = Money.cents_to_yuan(sum(net_map.values()) + sum(income_map.values()))
     if cash_flow_yuan != 0:
         category_map[CATEGORY_META['cash'][0]] += cash_flow_yuan
-    total_assets += cash_flow_yuan
 
     def _to_list(d: dict[str, float]) -> list[dict[str, float]]:
         return [{'name': k, 'value': round(v, 2)} for k, v in sorted(d.items(), key=lambda kv: -kv[1]) if v > 0]
+
+    # 总资产 / 总负债 / 净资产 —— 委托唯一聚合出口（#2154），禁止在此另写累加
+    totals = family_totals(db, family_id, positions=positions, assets=assets)
 
     return {
         'type_distribution': _to_list(type_map),
@@ -463,9 +509,9 @@ def get_distributions(db: Session, family_id: int = 1) -> dict[str, Any]:
         'account_distribution': _to_list(account_map),
         'category_distribution': _to_list(category_map),
         'liability_distribution': _to_list(liability_map),
-        'total_assets': round(total_assets, 2),
-        'total_liabilities': round(total_liabilities, 2),
-        'net_worth': round(total_assets - total_liabilities, 2),
+        'total_assets': totals['total_assets'],
+        'total_liabilities': totals['total_liabilities'],
+        'net_worth': totals['net_worth'],
         'positions_total_mv': round(positions_total_mv, 2),
     }
 
