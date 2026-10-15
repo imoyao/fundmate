@@ -55,6 +55,7 @@
             :total="investmentTotal"
             :loading="investmentLoading"
             :valuation="investmentValuation"
+            @ask="askAbout"
           />
         </section>
 
@@ -112,7 +113,9 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { AssetRecord } from "@/api/assets";
+import type { Position } from "@/api/types";
 import { INVESTMENT_MAJOR_KEYS } from "@/constants";
+import { agentAskQuery } from "@/utils/agentAsk";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import {
@@ -251,6 +254,18 @@ function handleAddType(typeKey: string) {
   router.push(
     `/asset/asset-entry?category=${activeCategory.value}&type=${typeKey}`
   );
+}
+
+/** 「问这个」（#1764）：带该行上下文跳账本精灵页，接收端预填不自动发送 */
+function askAbout(row: Position) {
+  router.push({
+    name: "AgentChat",
+    query: agentAskQuery({
+      symbol: row.symbol,
+      name: row.name,
+      from: "inventory"
+    })
+  });
 }
 
 const editDialogVisible = ref(false);

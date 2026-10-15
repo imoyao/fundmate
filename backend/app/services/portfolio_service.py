@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""投资组合域的查询 / 展示行组装服务（#1642 B 块，从 views 下沉，承 #1606）。
+"""投资组合域的查询 / 展示行组装 + 账户关联维护服务（#1642 B 块从 views 下沉，承 #1606；
+#981 追加关联原子替换）。
 
 WHY 下沉
     `get_portfolio_holdings` 长在视图里（104 行），含组合校验、关联账户推导、持仓/资产
@@ -8,11 +9,12 @@ WHY 下沉
 
 边界
     - 不碰 ``g`` / ``request``：family_id 由调用方显式传入，可脱离请求上下文单测；
-    - 只读组装：不写库、不提交事务；
+    - 查询组装为只读；关联维护（``replace_portfolio_ledger_links``）只做批量 UPDATE、
+      不 commit——提交权在调用方会话；
     - 对外 API 契约零变更（``conventions.md`` §2.4）：返回字段名、嵌套结构与下沉前逐字一致。
 """
 
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, update
 
 from app.core.constants import ASSET_CATEGORY_LABELS, TYPE_LABELS
 from app.core.money import Money
@@ -131,3 +133,47 @@ def build_portfolio_holdings(db, family_id: int, portfolio_id: int) -> list[dict
         )
 
     return holdings
+
+
+def replace_portfolio_ledger_links(db, portfolio_id: int, family_id: int, new_ids: list[int]) -> None:
+    """原子替换组合的关联账户集合（#981，从 PATCH 视图下沉）。
+
+    WHY 下沉
+        原「账户关联 diff」长在 PATCH 视图里（归属校验 + 集合差 + 逐对批量写），
+        触发视图层厚度守卫（单函数 ≤ 60 行、lines 基线只减不增，#1606）；且它与
+        holdings 组装同属「组合-账户关联」概念，收口服务层后可被未来其它入口
+        （如账户列表页改归属）复用。
+
+    语义（与原前端 diff 逐位对齐）
+        - ``new_ids`` 视为完整目标集合：集合外的现挂账户解绑（portfolio_id=None）；
+        - 集合内的未挂账户绑定到本组合（含从其它组合迁入 = 原「直接置值」语义）；
+        - ``[]`` = 全部解绑；调用方不传 ledger_ids 时不应进入本函数；
+        - 目标账户必须属于 ``family_id``：任一不存在/越权 → 抛 ``ValueError``
+          （由视图转 404），校验发生在任何写之前，保证零部分更新。
+
+    边界：只做批量 UPDATE、不 commit（提交权在调用方会话）。
+    """
+    new_ids = list(dict.fromkeys(new_ids))
+    if new_ids:
+        owned_count = db.query(Ledger.id).filter(Ledger.id.in_(new_ids), Ledger.family_id == family_id).count()
+        if owned_count != len(new_ids):
+            raise ValueError('关联账户不存在或无权访问')
+    current_ids = {
+        row[0]
+        for row in db.query(Ledger.id).filter(
+            Ledger.portfolio_id == portfolio_id,
+            Ledger.family_id == family_id,
+        )
+    }
+    to_unlink = current_ids - set(new_ids)
+    to_link = set(new_ids) - current_ids
+    if to_unlink:
+        db.execute(
+            update(Ledger).where(Ledger.id.in_(to_unlink), Ledger.family_id == family_id).values(portfolio_id=None)
+        )
+    if to_link:
+        db.execute(
+            update(Ledger)
+            .where(Ledger.id.in_(to_link), Ledger.family_id == family_id)
+            .values(portfolio_id=portfolio_id)
+        )

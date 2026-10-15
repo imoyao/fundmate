@@ -70,7 +70,8 @@ export interface FundProfileResult {
   create_time: string | null;
   risk_level: number | null;
   benchmark: string | null;
-  managers: FundProfileManager[];
+  /** 基金经理列表；缺字段时为 null（与接口契约一致：缺失一律降级为「—」） */
+  managers: FundProfileManager[] | null;
   /** 费率阶梯；取不到时为 null（不阻断其余字段） */
   fee_rates: {
     fund_code: string;
@@ -650,14 +651,14 @@ export type TrendRange = "1M" | "3M" | "6M" | "1Y";
 
 export interface ProductTrendResult {
   symbol: string;
-  /** `close`=场内收盘价口径；`nav`=场外单位净值；空串=该品类无序列数据源（指数等） */
+  /** `close`=场内收盘价口径；`nav`=场外累计净值（缺失回退单位净值，#2171）；空串=该品类无序列数据源（指数等） */
   kind: string;
   /** 与 values 等长的日期轴（YYYY-MM-DD） */
   dates: string[];
   values: number[];
   /** 数据来源**站点名**（如「新浪财经」「天天基金」）；#1969 前这里回的是内部表名 */
   source: string;
-  /** 口径说明（如「前复权收盘价」「单位净值」）——与来源分开表达，前端不自行推断 */
+  /** 口径说明（如「前复权收盘价」「累计净值」）——与来源分开表达，前端不自行推断 */
   basis: string;
   range: TrendRange;
   /** 请求的区间天数（3M → 90） */
@@ -674,10 +675,119 @@ export function getProductTrend(params: {
   range: TrendRange;
   /** 品类，由 resolve 返回后回传；后端据此选收盘价口径还是净值口径 */
   asset_type?: string;
+  /** 显式起始日 YYYY-MM-DD（#2171 建仓期区间：首笔买入日至今）；给定时后端忽略 range 档位 */
+  start?: string;
 }) {
   return http.request<ApiResponse<ProductTrendResult>>(
     "get",
     "/api/products/trend/",
+    { params }
+  );
+}
+
+/** 买卖点（#2171 · 走势叠加层）。锚 T 日（trade_date），确认日随点返回 */
+export interface TradePoint {
+  /** 流水 ID（交易明细列连接键；老数据可能为 null） */
+  txn_id: number | null;
+  /** 交易日 YYYY-MM-DD（x 轴锚定用） */
+  date: string;
+  side: "buy" | "sell";
+  /** 成交金额（元） */
+  amount_yuan: number;
+  /** 份额（份） */
+  quantity: number;
+  /** 成交价（元） */
+  price_yuan: number;
+  /** 手续费（元） */
+  fee_yuan: number;
+  /** 确认日（悬浮展示；可能为 null） */
+  confirm_date: string | null;
+  account_name: string | null;
+  /** 该笔**之前**的持仓均价（元/份）；首笔前无持仓为 null——
+      「低于当时成本线」空心编码的参照，无参照时不判 */
+  cost_before_avg_yuan: number | null;
+  /** 该笔之后的成本线值（元）；清仓笔为 0 */
+  cost_after_yuan: number;
+  /** 该笔后清仓（成本线在此中断） */
+  closed: boolean;
+}
+
+/** 成本线一点：某交易日收盘后的持仓成本（元） */
+export interface CostLinePoint {
+  date: string;
+  cost_yuan: number;
+}
+
+/** 单笔流水的贡献明细（#2171 P1 · 交易明细「当时成本 / 收益贡献」两列的数据源） */
+export interface TradeContribution {
+  txn_id: number | null;
+  /** 流水类型（buy / sell / dividend / dividend_cash / deposit / withdraw / dividend_reinvest） */
+  kind: string;
+  date: string;
+  /** 该笔之后的持仓成本（元） */
+  cost_after_yuan: number;
+  /** 收益贡献（元）：买入=0；卖出=净回款−释放成本；分红/红利再投=+金额 */
+  profit_contribution_yuan: number;
+}
+
+/** 累计收益线一点（#2171 P1）：某交易日收盘后的累计值 */
+export interface ProfitLinePoint {
+  date: string;
+  /** 累计已实现盈亏（元）= 分红 + 净回款 − 释放成本；不做市值估计 */
+  realized_yuan: number;
+  /** 累计投入成本（元，含费）——收益率模式的分母 */
+  invested_yuan: number;
+}
+
+export interface TradeTimelineSummary {
+  buy_count: number;
+  sell_count: number;
+  dividend_count: number;
+  total_buy_amount_yuan: number;
+  total_sell_amount_yuan: number;
+  total_fee_yuan: number;
+  /** 现金分红总额（元；dividend 与 dividend_cash 两种写法合计） */
+  total_dividend_yuan: number;
+  /** 累计投入成本（元，含费）——收益率分母 */
+  total_invested_yuan: number;
+  /** 累计已实现盈亏（元）= 分红 + 净回款 − 释放成本 */
+  realized_pnl_yuan: number;
+  first_trade_date: string | null;
+  last_trade_date: string | null;
+  current_quantity: number;
+  current_cost_yuan: number;
+  /** 成本均价（元/份）；空仓为 null */
+  current_avg_cost_yuan: number | null;
+  /** 未参与重放的流水数（拆分 / 兑付等，不静默丢弃） */
+  ignored_count: number;
+  ignored_types: Record<string, number>;
+}
+
+export interface TradeTimelineResult {
+  symbol: string;
+  points: TradePoint[];
+  cost_line: CostLinePoint[];
+  /** 每笔流水的当时成本 + 收益贡献（P2 两列数据源；按 txn_id 关联） */
+  contributions: TradeContribution[];
+  /** 逐日累计已实现 + 累计投入（累计收益曲线数据源） */
+  profit_line: ProfitLinePoint[];
+  summary: TradeTimelineSummary;
+}
+
+/**
+ * 取持仓交易时间线（#2171 · 详情页走势叠加买卖点 / 成本线）。
+ *
+ * 私有数据：未登录 / 无持仓 / 无流水均返回空 points + 空 cost_line（结构不变），
+ * 调用方据 `points.length` 决定是否渲染叠加层，**不分支解析**。
+ * `ledger_id` 不传 = 全部账户合并（产品级视角，与产品级 XIRR 同源）。
+ */
+export function getTradeTimeline(params: {
+  symbol: string;
+  ledger_id?: number;
+}) {
+  return http.request<ApiResponse<TradeTimelineResult>>(
+    "get",
+    "/api/products/trade-timeline/",
     { params }
   );
 }

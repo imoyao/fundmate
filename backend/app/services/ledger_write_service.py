@@ -35,6 +35,7 @@ from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, SalesInstitution
 from app.domains.transactions.models import Transaction
 from app.services.fund_service import FundService
+from app.services.position_service import PositionService
 from app.services.trading import TransactionService
 
 
@@ -476,8 +477,25 @@ def update_ledger_transaction(db, ledger, txn, data: dict) -> Transaction:
 
     touched = False
     recompute_amount = False
+    pos_recompute = False
     if 'quantity' in data:
-        txn.quantity = Money.shares_to_min_unit(_non_negative('quantity', data['quantity']))
+        new_qty_units = Money.shares_to_min_unit(_non_negative('quantity', data['quantity']))
+        if new_qty_units != txn.quantity:
+            # 净值回填让位于手动份额：pending 流水被手改过份额即清标记，nav_backfill
+            # 不再覆盖（手动优先）；同时份额微调要同步进持仓，否则编辑只改流水、
+            # 持仓份额原地不动，微调等于没发生。
+            if txn.entry_status == 'pending_nav':
+                txn.entry_status = None
+                try:
+                    extra = json.loads(txn.extra) if txn.extra else {}
+                except (ValueError, TypeError):
+                    extra = {}
+                if isinstance(extra, dict):
+                    extra['nav_pending'] = False
+                    extra['shares_manual'] = True
+                    txn.extra = json.dumps(extra, ensure_ascii=False)
+            pos_recompute = True
+        txn.quantity = new_qty_units
         touched = True
         recompute_amount = True
     if 'price' in data:
@@ -516,6 +534,10 @@ def update_ledger_transaction(db, ledger, txn, data: dict) -> Transaction:
     # 手工编辑破坏内容哈希去重不变式，清空以便重新导入按新内容对账
     if touched and txn.import_hash:
         txn.import_hash = None
+
+    # 份额变化按「从流水重建」对齐持仓（与删除流水同一口径，天然兼容合并仓）
+    if pos_recompute and txn.position_id:
+        PositionService.recompute_position_from_transactions(db, txn.position_id)
 
     db.flush()
     return txn

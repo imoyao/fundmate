@@ -1,0 +1,166 @@
+# 净值数据源真源探针（2026-10-14 事故回归）
+#
+# 事故：东财 lsjz 接口参数从 snake_case 改成 camelCase，前端 JSONP 直连全断、
+# 记一笔净值卡死——单元测试发现不了**外部源**的契约变更，只有每天真实发一次
+# 请求才能尽早暴露。本 workflow 每日跑 scripts/probe_nav_source.py：
+#   - 契约层失败（ErrCode≠0 / 响应结构变化）→ 复现当日事故形态，立即告警；
+#   - 数据层失败（7 天窗口 0 条净值）→ 疑似数据停更（长假会误报，正文提示人工确认）。
+#
+# 告警生命周期沿用 daily-snapshot.yml（#1434）的自愈模式：
+# 失败 → 自动开/更新告警 issue（挂里程碑，遵守「issue 必挂里程碑」全局硬规则）；
+# 成功 → 自动关闭仍开着的告警卡（「恢复了没人收口」同样是事故）。
+#
+# 不进 per-PR 门禁：探针打外部网络，PR CI 里跑会因网络抖动误红；只定时跑 + 手动触发。
+name: 净值数据源探针
+
+on:
+  schedule:
+    # 每天 UTC 15:00（北京时间 23:00）——净值日更之后探测，能立刻发现当日停更
+    - cron: '0 15 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: nav-source-probe
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write # 失败告警需要开/更新/关闭 issue
+
+env:
+  # 实际执行代码的分支（schedule 只读默认分支上的本文件，main 长期落后 dev）
+  PROBE_REF: dev
+
+jobs:
+  nav-source-probe:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码（ref=${{ env.PROBE_REF }}）
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.PROBE_REF }}
+
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: 运行净值源探针（标准库实现，无依赖安装）
+        run: python3 scripts/probe_nav_source.py --json | tee "$RUNNER_TEMP/nav_probe.json"; test ${PIPESTATUS[0]} -eq 0
+
+      - name: 探针结果写进 job 摘要
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/nav_probe.json" ]; then
+            {
+              echo '### 净值数据源探针结果'
+              echo '```json'
+              cat "$RUNNER_TEMP/nav_probe.json"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: 失败告警（自动开/更新 issue）
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const title = '【自动告警】净值数据源探针失败（东财 lsjz）';
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            // 探针输出（JSON）尽力带进正文；跑挂了拿不到就只附日志链接
+            let probeSummary = '（探针未产出 JSON，见运行日志）';
+            try {
+              const { data } = await github.rest.actions.downloadJobLogsForWorkflowRun({
+                owner, repo, run_id: context.runId, job_id: context.jobId,
+              });
+              // 日志可能很大，截尾部足够定位
+              probeSummary = '```\n' + String(data).slice(-3000) + '\n```';
+            } catch (e) {
+              probeSummary = `（日志拉取失败: ${e.message}）`;
+            }
+
+            const body = [
+              '净值数据源每日探针失败——东财 lsjz 可能发生契约漂移或数据停更，',
+              '**记一笔的净值拉取可能已受影响**（参考 2026-10-14 事故：参数 snake_case→camelCase）。',
+              '',
+              `- 触发事件：\`${context.eventName}\``,
+              `- 执行 ref：\`${process.env.PROBE_REF || 'dev'}\``,
+              `- 时间（UTC）：${new Date().toISOString()}`,
+              `- 运行日志：${runUrl}`,
+              '',
+              '判据说明：',
+              '- **契约层**：ErrCode≠0 / 响应结构变化（本次事故形态，直接红）；',
+              '- **数据层**：7 天窗口 0 条净值（**若正值长假属误报**，人工确认后关闭即可）。',
+              '',
+              '<!-- 本 issue 由 nav-source-probe workflow 自动创建/更新；探针恢复成功时会自动关闭 -->',
+              '',
+              '探针输出：',
+              probeSummary,
+            ].join('\n');
+
+            const { data: openIssues } = await github.rest.issues.listForRepo({
+              owner, repo, state: 'open', per_page: 100,
+            });
+            const existing = openIssues.find(
+              (it) => it.title === title && !it.pull_request,
+            );
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: existing.number, body,
+              });
+              core.notice(`已评论既有告警 issue #${existing.number}`);
+            } else {
+              // 仓库硬规则：任何 issue 必须挂里程碑（issue-milestone-guard）。
+              // 自动告警卡归 M6 待办积压；找不到里程碑编号时退化为裸开（守卫会评论提醒）。
+              const { data: milestones } = await github.rest.issues.listMilestones({
+                owner, repo, state: 'open', per_page: 100,
+              });
+              const m6 = milestones.find((m) => m.title.includes('M6'));
+              const created = await github.rest.issues.create({
+                owner, repo, title, body,
+                ...(m6 ? { milestone: m6.number } : {}),
+              });
+              core.notice(`已创建告警 issue #${created.data.number}${m6 ? `（里程碑 ${m6.title}）` : '（未找到 M6 里程碑）'}`);
+            }
+
+      # 告警生命周期收口：恢复成功即自动关卡，避免「已恢复但卡还开着」的假信号
+      - name: 探针成功则自动关闭告警 issue
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const title = '【自动告警】净值数据源探针失败（东财 lsjz）';
+            const { data: openIssues } = await github.rest.issues.listForRepo({
+              owner, repo, state: 'open', per_page: 100,
+            });
+            const existing = openIssues.find(
+              (it) => it.title === title && !it.pull_request,
+            );
+            if (!existing) {
+              core.info('没有开着的告警 issue，无需关闭');
+              return;
+            }
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: existing.number,
+              body: [
+                '本次净值源探针**已成功**，自动关闭本告警卡。',
+                '',
+                `- 时间（UTC）：${new Date().toISOString()}`,
+                `- 运行日志：${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+                '',
+                '> 若再次失败，workflow 会重新开/复用本卡。',
+              ].join('\n'),
+            });
+            await github.rest.issues.update({
+              owner, repo, issue_number: existing.number,
+              state: 'closed', state_reason: 'completed',
+            });
+            core.notice(`已自动关闭告警 issue #${existing.number}`);

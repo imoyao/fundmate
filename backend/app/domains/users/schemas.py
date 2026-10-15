@@ -44,3 +44,21 @@ class ProfileUpdate(BaseModel):
             return None
         stripped = value.strip()
         return stripped or None
+
+
+class PreferenceUpsert(BaseModel):
+    """偏好写入请求体（PUT /api/users/preferences/<key>/）。
+
+    value 必须是 JSON 对象（dict）：偏好值语义为「结构化配置」，
+    裸数组/标量无扩展空间，直接拒收避免调用方各自发明编码。
+    """
+
+    value: dict = Field(..., description='偏好值（JSON 对象）')
+
+
+class PreferenceOut(BaseModel):
+    """偏好读出（key + 结构化 value + updated_at，供前端合并策略比较新旧）。"""
+
+    key: str
+    value: dict
+    updated_at: Optional[datetime] = None
