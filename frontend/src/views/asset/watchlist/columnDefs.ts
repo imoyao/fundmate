@@ -255,7 +255,10 @@ export const watchlistColumnDefs: ColumnDef[] = [
   },
   {
     key: "change_pct",
-    label: "涨跌幅",
+    // 口径 = 当日/最新行情涨跌幅（最新两个价点的变化），与非 HOLDING 行的
+    // enrich_item 同源同义（#2211）；基金净值发布滞后 T-1，展示的是最近交易日涨跌。
+    // 持仓区间口径由「持仓收益」列承担，此处不混入区间涨幅。
+    label: "今日涨跌幅",
     renderer: "riseFall",
     appliesTo: QUOTE_TYPES,
     minWidth: 96,

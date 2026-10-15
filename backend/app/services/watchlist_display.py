@@ -1215,10 +1215,18 @@ def _build_holding_row(
         current_price = ctx.get_avg_current_price(symbol)
         stats = ctx.get_position_stats(symbol)
         position_market_value = ctx.get_position_market_value(symbol)
+        # 涨跌幅（#2211）：与 enrich_item 的行情分支同源——取 BatchContext 一次预取的
+        # 最新两价点（场内 price_history / 场外 daily_worth，见 _prefetch_all 第 4/4b 段），
+        # 不另起逐 symbol 取数。价格点不足 2 根时 change_pct 为 None（_build_quote 语义），
+        # 行保持 None、前端渲染 --，这是正确降级不是遗漏。
+        quote = ctx.get_latest_quote(symbol)
     else:
         current_price = _compute_avg_current_price(symbol, db, family_id)
         stats = _compute_holding_stats(symbol, db, family_id)
         position_market_value = _compute_position_market_value(symbol, db, family_id)
+        # 无 ctx 的兜底路径：与 enrich_item 的 else 分支同源（逐 symbol 静态行情）
+        quote = compute_latest_quote(db, symbol)
+    change_pct = quote['change_pct'] if quote else None
     row = {
         'id': None,
         'symbol': symbol,
@@ -1242,7 +1250,10 @@ def _build_holding_row(
         'group_names': [],
         'tag_ids': [],
         'current_price': round(current_price, 2) if current_price else None,
-        'change_pct': None,
+        # 当日/最新行情涨跌幅：与 enrich_item 同源（ctx.get_latest_quote /
+        # compute_latest_quote 的最新两价点变化），见 #2211；此前写死 None 导致
+        # 持仓分组整列渲染 --。价格点不足时仍为 None → 前端 --。
+        'change_pct': change_pct,
         'position_market_value': round(position_market_value, 2),
         'holding_quantity': stats['quantity'] if stats else None,
         'holding_cost_price': round(stats['cost_price'], 4) if stats else None,
