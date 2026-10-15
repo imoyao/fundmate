@@ -30,6 +30,9 @@ class PortfolioUpdate(BaseModel):
     target_amount: Optional[float] = Field(None, description='目标金额')
     target_date: Optional[date] = Field(None, description='目标日期')
     benchmark: Optional[str] = Field(None, description='基准指数（如 CSI300）')
+    # #981：关联账户完整 ID 集合——传入即在事务内原子替换（[] = 全部解绑），
+    # 不传（None）= 本次不动关联。替代前端逐个 updateLedger 的非原子 diff。
+    ledger_ids: Optional[list[int]] = Field(None, description='关联账户完整 ID 集合（传入即原子替换；[] 表示全部解绑）')
 
 
 class PortfolioOut(BaseModel):

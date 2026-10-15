@@ -5,7 +5,7 @@ import SectionHeader from "@/components/SectionHeader/index.vue";
 import { externalQuoteLinks } from "@/utils/externalLinks";
 
 /**
- * 详情页「第三方数据」区块（#1969）。
+ * 详情页「更多数据」区块（#1969）。
  *
  * 定位：我们不做行情终端。资金流、五档盘口、财务报表这类深度数据交给专业站，
  * 我们专注「我在这只产品上赚了多少」。这也是对数据完整度的诚实处理——与其
@@ -37,9 +37,9 @@ const links = computed(() =>
 <template>
   <CardBlock v-if="links.length" class="ext-links">
     <SectionHeader
-      title="第三方数据"
+      title="更多数据"
       info="资金流、盘口、财务等深度数据请到专业网站查看；链接在新标签页打开。"
-      info-label="关于第三方数据"
+      info-label="关于更多数据"
     />
     <div class="ext-links__row">
       <a

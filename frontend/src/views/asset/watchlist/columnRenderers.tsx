@@ -123,6 +123,8 @@ export interface RenderCtx {
     openNotesEditor: (row: WatchlistRow) => void;
     /** 打开「加入分组」弹层（多分组管理，#1449）：勾选多个自定义分组 */
     addToGroup: (row: WatchlistRow) => void;
+    /** 「问这个」（#1764）：带该行上下文跳账本精灵页预填提问 */
+    askAbout: (row: WatchlistRow) => void;
   };
   /** 近 N 日收盘价序列（sparkline 列，#990）：symbol → close 数组；无数据的 symbol 键缺省 */
   trends: Record<string, number[]>;
@@ -682,6 +684,8 @@ const renderActions: FunctionalComponent<{
               circle: true,
               size: "small",
               disabled,
+              // 图标按钮没有文本可作可访问名：aria-label 与 tooltip 同源（#1764 验收「键盘可达」）
+              "aria-label": tip,
               onClick
             },
             () => [
@@ -740,6 +744,16 @@ const renderActions: FunctionalComponent<{
         (e: Event) => {
           e.stopPropagation();
           a.addToGroup(row);
+        }
+      ),
+      tooltipBtn(
+        "问这个",
+        "ep:chat-dot-square",
+        undefined,
+        !editable,
+        (e: Event) => {
+          e.stopPropagation();
+          a.askAbout(row);
         }
       )
     ]

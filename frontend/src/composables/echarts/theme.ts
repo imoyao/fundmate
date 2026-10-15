@@ -18,6 +18,38 @@ export function getCssVar(name: string, fallback = ""): string {
   return trimmed || fallback;
 }
 
+/** hex（3/6 位）→ `rgba()`；非 hex（如变量未定义、空串）回退黑色透明 */
+function hexToRgba(hex: string, alpha: number): string {
+  if (!/^#[0-9a-fA-F]{3,8}$/.test(hex)) return `rgba(0, 0, 0, ${alpha})`;
+  let r = 0,
+    g = 0,
+    b = 0;
+  if (hex.length === 4) {
+    r = parseInt(hex[1] + hex[1], 16);
+    g = parseInt(hex[2] + hex[2], 16);
+    b = parseInt(hex[3] + hex[3], 16);
+  } else {
+    r = parseInt(hex.slice(1, 3), 16);
+    g = parseInt(hex.slice(3, 5), 16);
+    b = parseInt(hex.slice(5, 7), 16);
+  }
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+/**
+ * 读取 CSS 语义色变量并叠加透明度 → `rgba()`。
+ * 用于图表面积渐变等「同色系不同透明度」场景（#2156：净值走势面积渐变
+ * 原先硬编码 `rgba(255,107,0,…)`，与折线 `--brand-700` 不同色）。
+ * 变量取不到时回退 fallback（同样按 hex 解析），fallback 也未定义则返回黑色透明。
+ */
+export function getCssVarWithAlpha(
+  name: string,
+  alpha: number,
+  fallback = ""
+): string {
+  return hexToRgba(getCssVar(name, fallback), alpha);
+}
+
 /** 图表常用语义色 token（与 design.md / design.dark.md 对齐，集中维护避免散落硬编码） */
 export const CHART_TOKENS = {
   rise: "--color-rise",
