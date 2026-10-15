@@ -290,8 +290,8 @@ function resetAllFilters() {
   align-items: center;
   justify-content: space-between;
   padding: 10px 16px;
-  border-top: 1px solid var(--border-light);
   white-space: nowrap;
+  border-top: 1px solid var(--border-light);
 }
 
 /* 中区「已选 N 项」：flex:1 0 auto + nowrap——左区新增「自定义快捷筛选」后
