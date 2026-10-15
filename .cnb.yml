@@ -285,8 +285,9 @@ dev:
     #    C 让冲突面趋零，B' 才让「无冲突 ⇒ 自动推」真的跑起来。
     # ⚠️ 也**不要**把它换成 `CNBDEV` 那种长期中转分支：判据是「推的是长期分支还是
     #    一次性中间态」（`docs/dev/github-cnb-mirror.md` §22.3）。
-    # ⚠️ 先决条件读不到：`dev` 的保护里若勾了「Require approvals」，机器 PR 会卡在等人
-    #    Approve（把死锁从「永远红」换成「永远等」）——那件事只能由人在 GitHub 确认。
+    # ⚠️ 「Require approvals」是**路况不是闸**（2026-10-15 修正）：勾了 ⇒ PR 门禁绿后
+    #    多一次点击（等人 Approve）；未勾 ⇒ 自动合并。**两条路都通。** 真正的闸只有
+    #    `质量门禁汇总`，对两种情形一视同仁（必须绿）。读不到就**开 PR 后实测**，别当事前路障。
     #
     # 凭据：本 job 是**脚本任务**，而 `vars.yml` 声明了 `allow_images` ⇒ 脚本任务引不了它
     # （会死在 Prepare，报 `vars.yml declares allow_images and can only be referenced by
