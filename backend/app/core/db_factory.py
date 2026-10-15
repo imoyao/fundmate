@@ -226,6 +226,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'discrepancies': DOMAIN_USER,  # 活跃对账差异（含 family_id）
     'reconciliation_runs': DOMAIN_USER,  # 对账运行记录
     'adjustment_logs': DOMAIN_USER,  # 对账审计日志（仅用户主动操作）
+    'ghost_duplicate_ignores': DOMAIN_USER,  # 跨账本重复交易忽略记录（域 D，#2151）
 }
 
 # 规划中但尚未建表的域归属（提前登记，防止模型落地时漏声明）。

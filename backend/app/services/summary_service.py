@@ -4,11 +4,12 @@
 # File : backend/app/services/summary_service.py
 """仪表盘聚合与桑基图数据服务."""
 
+import hashlib
 from collections import defaultdict
 from datetime import date, datetime
 from typing import Any, Type
 
-from sqlalchemy import func, or_
+from sqlalchemy import or_
 
 from app.core.asset_types import normalize_major_category
 from app.core.constants import (
@@ -20,6 +21,7 @@ from app.core.constants import (
 )
 from app.core.database import Session
 from app.core.money import Money
+from app.core.symbol_utils import symbol_identity
 from app.domains.assets.models import Asset
 from app.domains.funds.models import FundValuationDaily
 from app.domains.ledgers.models import Ledger
@@ -968,55 +970,126 @@ def scan_cross_ledger_duplicates(db: Session, family_id: int) -> list[dict]:
     - 注意：持仓（positions）不做此扫描——同一标的跨账本持有两个持仓可能是
       合法分散持有，误报率高；重复风险主要在交易流水层。
 
-    返回：每组 {symbol, confirm_date, txn_type, amount_yuan, ledger_ids, ledger_names, count}
+    #2151：返回值扩展 `fingerprint` / `symbol_identity` / `transactions`：
+    - `fingerprint`：稳定 id（见 `build_ghost_fingerprint`），供忽略记录定位；
+    - `symbol_identity`：**归一身份**，同一个标的的不同写法（`600519` / `SH600519`）
+      从此归为一组，不再因写法差异漏报（此前按字面量 symbol 分组，实测漏报）；
+    - `transactions`：组内明细（id / ledger_id / quantity / price / 日期），
+      供对账工作台域 D 直接展示「删掉多余那一份」。
+
+    返回：每组 {fingerprint, symbol, symbol_identity, confirm_date, txn_type,
+              amount_yuan, ledger_ids, ledger_names, count, transactions}
     """
     ledger_name_map = {led.id: led.name for led in db.query(Ledger).filter(Ledger.family_id == family_id).all()}
 
-    # B4 修复：用 SQL 聚合直接出重复组，避免把 family 级全量交易拉进内存再分组
-    # （数据量大时全表 .all() 会 OOM/慢）。SQLite 支持 group_concat(distinct ...)，
-    # 一次性拿到每组的去重 ledger_id 列表。
-    dup_rows = (
+    # #2151：身份归一必须发生在分组**之前**，故这里从「SQL 聚合」退回「Python 分组」。
+    # 为什么非退不可：`GROUP BY symbol` 按**字面量**分组，`600519` 与 `SH600519` 会各成
+    # 一组、各自只有 1 个账本，被 `HAVING >= 2` 滤掉 —— 同一笔跨账本重复就这么**静默消失**。
+    # 而归一函数（`symbol_identity` 走 venue 推断）在 SQL 里表达不了。
+    #
+    # ⚠️ 这**部分回退了 B4 的优化**（B4 原话：「用 SQL 聚合直接出重复组，避免把 family 级
+    # 全量交易拉进内存再分组（数据量大时全表 .all() 会 OOM/慢）」）。取舍是自觉的：
+    # 拉进内存的集合已被 `family_id + ledger_id 非空 + status='success'` 收敛到
+    # 「本家庭自己的交易流水」，与同文件 `get_account_groups` 等已有口径同阶；
+    # 相比「漏报一整类重复」，「多一次内存分组」是更轻的代价。
+    # 若将来该集合真成为瓶颈，正解是给 `transactions` 加一列**持久化的身份键**
+    # （`positions.symbol_norm` 已有先例，#1662），在写入侧落库、SQL 里直接 group by，
+    # 而不是回到按字面量分组。
+    rows = (
         db.query(
+            Transaction.id,
             Transaction.confirm_date,
             Transaction.symbol,
+            Transaction.asset_type,
             Transaction.txn_type,
             Transaction.amount,
-            func.count(Transaction.id).label('cnt'),
-            func.group_concat(func.distinct(Transaction.ledger_id)).label('ledger_ids_csv'),
+            Transaction.quantity,
+            Transaction.price,
+            Transaction.ledger_id,
         )
         .filter(
             Transaction.family_id == family_id,
             Transaction.ledger_id.isnot(None),
             Transaction.status == 'success',
         )
-        .group_by(
-            Transaction.confirm_date,
-            Transaction.symbol,
-            Transaction.txn_type,
-            Transaction.amount,
-        )
-        .having(func.count(func.distinct(Transaction.ledger_id)) >= 2)
         .all()
     )
 
+    grouped: dict[tuple, list[Any]] = defaultdict(list)
+    for row in rows:
+        grouped[
+            (
+                row.confirm_date,
+                symbol_identity(row.symbol or '', row.asset_type),
+                row.txn_type,
+                row.amount,
+            )
+        ].append(row)
+
     result: list[dict] = []
-    for row in dup_rows:
-        ledger_ids = sorted({int(x) for x in (row.ledger_ids_csv or '').split(',') if x})
+    for (confirm_date, identity, txn_type, amount), txns in grouped.items():
+        ledger_ids = sorted({int(t.ledger_id) for t in txns})
+        if len(ledger_ids) < 2:
+            continue
+        symbol = next((t.symbol for t in txns if t.symbol), None)
         result.append(
             {
-                'symbol': row.symbol,
-                'confirm_date': row.confirm_date.isoformat() if row.confirm_date else None,
-                'txn_type': row.txn_type,
-                'amount_yuan': round(Money.cents_to_yuan(row.amount), 2),
+                'fingerprint': build_ghost_fingerprint(confirm_date, identity, txn_type, amount, ledger_ids),
+                'symbol': symbol,
+                'symbol_identity': identity,
+                'confirm_date': confirm_date.isoformat() if confirm_date else None,
+                'txn_type': txn_type,
+                'amount_yuan': round(Money.cents_to_yuan(amount), 2),
                 'ledger_ids': ledger_ids,
                 'ledger_names': [ledger_name_map.get(lid, f'账本{lid}') for lid in ledger_ids],
-                'count': row.cnt,
+                'count': len(txns),
+                'transactions': [
+                    {
+                        'id': t.id,
+                        'ledger_id': t.ledger_id,
+                        'ledger_name': ledger_name_map.get(t.ledger_id, f'账本{t.ledger_id}'),
+                        'quantity': round(Money.min_unit_to_shares(t.quantity), 4),
+                        'price': round(Money.price_units_to_yuan(t.price), 4),
+                        'amount_yuan': round(Money.cents_to_yuan(t.amount), 2),
+                    }
+                    # 组内按账本、流水 id 升序：展示顺序稳定，便于「留一份、删一份」时对上号
+                    for t in sorted(txns, key=lambda t: (t.ledger_id, t.id))
+                ],
             }
         )
 
     # 按涉及账本数、笔数降序，最可疑的排前面
     result.sort(key=lambda x: (len(x['ledger_ids']), x['count']), reverse=True)
     return result
+
+
+def build_ghost_fingerprint(
+    confirm_date: Any, symbol_identity_value: str, txn_type: str, amount: int, ledger_ids: list[int]
+) -> str:
+    """「幽灵重复」组指纹（#2151）：跨账本重复交易的稳定 id。
+
+    WHY 不含字面量 symbol：同一个标的的写法变体（`600519` / `SH600519`）不应产生两个
+    指纹——忽略其一后另一写法又冒出来，正是这次要消灭的形态。
+    用调用方传入的**已归一**身份（`core.symbol_utils.symbol_identity`），本函数不自己解析代码。
+
+    WHY 含 ledger_ids：`#2151` 的关键边界——「忽略了 A、B 两家的重复，后来 C 家又导入了一份」
+    是一组**新的**问题（三家重复），必须重新露面。若指纹只含内容维度，旧忽略会把新问题
+    连同静默吞掉。账本集合升序拼接，保证顺序无关。
+
+    代价（已知假阴性）：同一组「先忽略 → 后来某账本把那份删了」会得到新指纹而重新提示。
+    这是**有意的**方向选择——「重新提示一个已解决的组」是可容忍的噪声，
+    「静默吞掉一个新的重复」是不可容忍的漏报。
+    """
+    payload = '|'.join(
+        [
+            str(confirm_date),
+            symbol_identity_value or '',
+            txn_type or '',
+            str(amount),
+            ','.join(str(x) for x in sorted(set(ledger_ids))),
+        ]
+    )
+    return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
 
 def list_fund_valuation_rows(db: Session, query_date: date, fund_code: str | None = None) -> list[dict]:
