@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import SummaryPanel from "./SummaryPanel.vue";
 import PreviewTable from "./PreviewTable.vue";
 import BatchFixPanel from "./BatchFixPanel.vue";
@@ -15,7 +16,12 @@ const {
   showFixPanel,
   selectedCount,
   totalRows,
+  validRowsCount,
+  draftSavedLabel,
+  draftSavedHintVisible,
+  allRowsDuplicate,
   importNormalOnly,
+  skipAllDuplicatesAndBack,
   importing,
   confirmImport,
   showCashBindingBanner,
@@ -24,6 +30,14 @@ const {
   linkCashAccount,
   openCreateCashFromBanner
 } = useImportWizardContext();
+
+/**
+ * 待处理条数（重复 + 待补全 + 错误）：底栏「N 条待修正」与
+ * 「仅导入正常数据」按钮显隐的唯一判据（#783 §9.2）。
+ */
+const pendingFixCount = computed(
+  () => duplicateCount.value + blockedCount.value + errorCount.value
+);
 </script>
 
 <template>
@@ -31,6 +45,12 @@ const {
     <div class="step3-header">
       <el-button size="default" @click="currentStep = 1">返回上一步</el-button>
       <span class="header-ledger">导入账户：{{ selectedLedgerName }}</span>
+      <!-- #783 §一/§8.1：草稿状态文案——保存成功即现身，3 秒后淡出（不占位、不打断） -->
+      <Transition name="draft-hint">
+        <span v-if="draftSavedHintVisible" class="header-draft" role="status">
+          草稿·已保存 {{ draftSavedLabel }}
+        </span>
+      </Transition>
       <div class="header-actions ml-auto flex items-center gap-3">
         <el-button size="default" @click="toggleAllocationPanel">
           <IconifyIconOffline icon="ep:setting" class="mr-1" />
@@ -83,26 +103,31 @@ const {
       <div class="action-content">
         <div class="action-summary">
           <span class="summary-primary">
-            已选中 <strong>{{ selectedCount }}</strong> 条有效数据
+            已选择 <strong>{{ selectedCount }}</strong> 条<template
+              v-if="pendingFixCount > 0"
+              >（正常数据），<strong>{{ pendingFixCount }}</strong>
+              条待修正</template
+            >
           </span>
-          <span
-            v-if="duplicateCount + blockedCount + errorCount > 0"
-            class="summary-secondary"
-          >
-            本次共识别 {{ totalRows }} 条，另有
-            {{ duplicateCount + blockedCount + errorCount }} 条待处理（{{
-              duplicateCount
-            }}条重复 / {{ blockedCount }}条待补全
-            <template v-if="errorCount > 0">/ {{ errorCount }}条错误</template
-            >）
+          <span v-if="pendingFixCount > 0" class="summary-secondary">
+            本次共识别 {{ totalRows }} 条：{{ duplicateCount }} 条重复 /
+            {{ blockedCount }} 条待补全<template v-if="errorCount > 0"
+              >/ {{ errorCount }} 条错误</template
+            >
           </span>
         </div>
         <div class="flex gap-3">
+          <!-- #783 §十 边界一：全表皆重复时不存在「正常数据」，只留跳过出口 -->
+          <el-button v-if="allRowsDuplicate" @click="skipAllDuplicatesAndBack">
+            全部跳过，返回上一步
+          </el-button>
           <el-button
-            v-if="duplicateCount + blockedCount + errorCount > 0"
+            v-else-if="pendingFixCount > 0"
             :loading="importing"
             @click="importNormalOnly"
-            >仅导入校验通过的数据
+            >{{
+              importing ? "正在导入..." : `仅导入正常数据（${validRowsCount}）`
+            }}
           </el-button>
           <el-button
             type="primary"
@@ -110,7 +135,7 @@ const {
             :loading="importing"
             class="import-btn"
             @click="confirmImport"
-            >确认导入 {{ selectedCount }} 条
+            >{{ importing ? "正在导入..." : `确认导入 ${selectedCount} 条` }}
           </el-button>
         </div>
       </div>
@@ -168,6 +193,23 @@ const {
   font-size: 15px;
   font-weight: 500;
   color: var(--text-primary);
+}
+
+/* 草稿状态文案（#783 §一/§8.1）：次级信息，不让它跟账户名抢注意力 */
+.header-draft {
+  font-size: 12px;
+  color: var(--text-tertiary-ink);
+}
+
+/* 3 秒后淡出：进出各 0.3s，避免出现/消失的突兀跳变 */
+.draft-hint-enter-active,
+.draft-hint-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.draft-hint-enter-from,
+.draft-hint-leave-to {
+  opacity: 0;
 }
 
 .step3-body {

@@ -10,6 +10,7 @@ const {
   fixBreakdown,
   totalRows,
   selectedCount,
+  allRowsDuplicate,
   isCategoryExpanded,
   toggleCategoryFilter,
   expandAllData,
@@ -89,6 +90,13 @@ function onCardCheck(key: SummaryCategory, val: string | number | boolean) {
       <div class="summary-head">
         <span class="summary-title">{{ pageTitle }}</span>
       </div>
+
+      <!-- #783 §十 边界一：全表皆重复时说明「为什么没有可导入的行」，与底栏出口配对 -->
+      <p v-if="allRowsDuplicate" class="summary-alert">
+        本次识别的
+        {{ totalRows }}
+        条记录全部与已有记录重复，已默认跳过。如需保留，请在下方逐条勾选；也可以返回上一步重新选择文件。
+      </p>
 
       <div class="summary-cards">
         <div
@@ -197,6 +205,18 @@ function onCardCheck(key: SummaryCategory, val: string | number | boolean) {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+/* 边界提示（#783 §十）：告警级文字色 + 暖沙金底边（--color-warning 仅作底色/边框） */
+.summary-alert {
+  padding: 8px 10px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-warning-ink);
+  background: var(--color-warning-20);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-sm);
 }
 
 .summary-cards {
