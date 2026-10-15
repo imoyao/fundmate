@@ -52,6 +52,11 @@ const redeemRate = computed(() => {
   };
 });
 
+/** 基金经理列表：接口缺字段时为 null（FundProfileResult 契约：缺失一律降级），
+ *  统一收敛为空数组——模板不裸取 .length（#2191：缺字段时渲染抛错，Vue 中止
+ *  更新，整个区块永远停在「正在读取」）。 */
+const managerList = computed(() => profile.value?.managers ?? []);
+
 async function load() {
   if (!props.symbol) return;
   loading.value = true;
@@ -119,8 +124,8 @@ watch(() => props.symbol, load, { immediate: true });
         <div class="fund-section__fact">
           <dt class="fund-section__label">基金经理</dt>
           <dd class="fund-section__value fund-section__value--wrap">
-            <template v-if="profile.managers.length">
-              <template v-for="(m, i) in profile.managers" :key="m.mgr_code">
+            <template v-if="managerList.length">
+              <template v-for="(m, i) in managerList" :key="m.mgr_code">
                 <span v-if="i > 0" aria-hidden="true">、</span>{{ m.name
                 }}<span v-if="m.is_classic" class="fund-section__badge"
                   >代表作</span

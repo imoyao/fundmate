@@ -29,7 +29,7 @@ import { injectSupabaseSession } from "./support/session";
  * updateActive 的 EPSILON 改回 0 → 逐项点击用例红（亚像素回跳回归）；
  * 去掉触底兜底 → scroll-spy 用例的触底断言红（点胶囊路径已由 pinnedId 兜住）；
  * goTo 不设 pinnedId（停稳后按位置终算一次）→ 逐项点击逆序列红
- * （点「关联标的」滚到底后高亮被兜底改写成「第三方数据」）；
+ * （点「关联标的」滚到底后高亮被兜底改写成「更多数据」）；
  * goTo 换回原生 scrollTo({behavior:'smooth'}) → 数据在飞机用例红（过期目标回归）。
  */
 
@@ -246,7 +246,7 @@ test.describe("详情页页内导航（#1968）", () => {
       "业绩与风险",
       "行业与持仓",
       "关联标的",
-      "第三方数据"
+      "更多数据"
     ]);
 
     // 每个胶囊都必须有对应锚点——死链是这条不变式的反面
@@ -287,7 +287,7 @@ test.describe("详情页页内导航（#1968）", () => {
       "业绩与风险",
       "行业与持仓",
       "关联标的",
-      "第三方数据"
+      "更多数据"
     ]);
     expect(
       await page.locator(".page-nav__pill", { hasText: "交易记录" }).count()
@@ -299,6 +299,119 @@ test.describe("详情页页内导航（#1968）", () => {
 
     // 没有为交易记录发过请求
     expect(txnRequests).toEqual([]);
+  });
+
+  test("有持仓：交易记录表格渲染公共组件列集与行内容（#2104 统一）", async ({
+    page
+  }) => {
+    // #2104：详情页 / 账本 Tab / 持仓抽屉三处交易表统一为
+    // components/TransactionTable（同一组件、同一口径）。本用例钉 compact 模式
+    // （详情页）的渲染契约：列集、日期口径（trade_date 优先）、
+    // 「共 N 条」文案、零 pageerror。
+    // 反向验证：TransactionTable 列定义回归（如漏账户列、日期改认
+    // confirm_date）→ 本用例红。
+    const pageErrors: string[] = [];
+    page.on("pageerror", e => pageErrors.push(e.message));
+
+    await page.route(/\/api\/transactions(\/|\?|$)/, route =>
+      route.fulfill({
+        status: 200,
+        json: {
+          data: [
+            {
+              id: 9001,
+              type: "buy",
+              trade_date: "2026-03-02",
+              confirm_date: "2026-03-03",
+              quantity: 1000.5,
+              price: 0.9123,
+              amount: 912.71,
+              fee: 1.5,
+              account_name: "华泰证券",
+              position_name: NAME,
+              asset_type: "fund"
+            },
+            {
+              id: 9002,
+              type: "dividend",
+              trade_date: "2026-06-10",
+              confirm_date: "2026-06-11",
+              quantity: 0,
+              price: 0,
+              amount: 56.78,
+              fee: 0,
+              account_name: "华泰证券",
+              position_name: NAME,
+              asset_type: "fund"
+            }
+          ],
+          total: 2,
+          page: 1,
+          per_page: 10,
+          message: "ok"
+        }
+      })
+    );
+
+    await page.goto(`/#/fund/${SYMBOL}`);
+    const table = page.locator("#transaction-detail-table");
+    await expect(table).toBeVisible({ timeout: 60_000 });
+
+    // compact 列集（顺序即契约）：无产品列/手续费/操作列
+    await expect(table.locator(".el-table__header th")).toHaveText([
+      "交易日期",
+      "类型",
+      "价格",
+      "数量",
+      "金额",
+      "账户"
+    ]);
+
+    // 行数与桩一致（证明桩接上；没接上会走 404 错误态，表格根本不渲染）
+    await expect(table.locator(".el-table__body tbody tr")).toHaveCount(2);
+
+    // 首行：trade_date 优先（不是 confirm_date 的 03-03）、类型中文、金额带 ¥
+    const firstRow = table.locator(".el-table__body tbody tr").first();
+    await expect(firstRow).toContainText("2026-03-02");
+    await expect(firstRow).toContainText("买入");
+    await expect(firstRow).toContainText("¥912.71");
+    await expect(firstRow).toContainText("华泰证券");
+
+    // 容器文案：共 N 条（渐进披露的基数）
+    await expect(page.locator(".transaction-section__count")).toHaveText(
+      "共 2 条"
+    );
+
+    expect(pageErrors).toEqual([]);
+  });
+
+  test("基金经理字段缺失：降级为「—」，不抛错不消失（#2191）", async ({
+    page
+  }) => {
+    // #2191：模板曾裸取 profile.managers.length，fund-profile 响应缺该字段时
+    // 渲染抛 TypeError。Vue 把渲染错误吞进子组件（父级透传的 #nav-fund 锚点
+    // 可能还在），整块基金资料渲染成空、页面无可见报错——本用例钉两条：
+    // ① 基金经理行降级为「—」（与基金类型/规模等字段同一契约，见
+    //    FundProfileResult「字段缺失一律为 null，前端据此降级」）；
+    // ② 加载全程零 pageerror。
+    // 反向验证：把模板改回 profile.managers.length → 本用例红。
+    const pageErrors: string[] = [];
+    page.on("pageerror", e => pageErrors.push(e.message));
+
+    await page.goto(`/#/fund/${SYMBOL}`);
+    await expect(page.locator(".page-nav")).toBeVisible({ timeout: 60_000 });
+
+    // 先证明桩接上了：区块必须渲染真实内容而非「暂无可展示」空态——
+    // 取数失败时下面的断言会假绿，所以先钉死这一条
+    const fund = page.locator("#nav-fund");
+    await expect(fund).toBeVisible();
+    await expect(fund.locator(".fund-section__hint")).toHaveCount(0);
+
+    await expect(
+      fund.locator(".fund-section__fact", { hasText: "基金经理" })
+    ).toContainText("—");
+
+    expect(pageErrors).toEqual([]);
   });
 
   test("点击胶囊滚动到目标区块且 active 随动", async ({ page }) => {
