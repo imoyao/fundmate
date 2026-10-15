@@ -30,6 +30,10 @@
    本仓已真实栽过一次：跨仓收敛合并把两段 `dev:` 并进同一个文件，平台上多条流水线
    同时红，本地却是绿的。
 
+   口径**不在这里自备**：共用 `scripts/cnb_yml_loader.py` 的 `NoDuplicateKeyLoader`
+   （源 CNB #460 / #459 合流时收敛）。本守卫曾自带一份等价实现，两份代码干同一件事
+   —— 判据散成多份就会各自漂移，故只留共享的那一份。
+
 不做什么
 --------
 **不拉网络**：Secret 仓库对 API / token 一律 403，且 CI 里每个 URL 都去 HEAD 一次既慢又脆。
@@ -51,44 +55,14 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from cnb_yml_loader import NoDuplicateKeyLoader, describe_yaml_error  # noqa: E402
+
 # 顶层只允许这些**非分支**的元键。**绝不能**往这里加 `main` / `dev` ——
 # 「多值白名单」会让任何分支名都合法，判据随即失效（探针见 self_check()）。
 ALLOWED_TOP_KEYS = {'$', 'version'}
 
-
-class _NoDupKeyLoader(yaml.SafeLoader):
-    """拒绝重复 mapping key 的 loader（判据 4，源 CNB #457）。
-
-    `yaml.safe_load` 对重复 key 是**静默放行**的（后者覆盖前者），而 CNB 的解析器
-    直接报 `duplicated mapping key` 语法错、整条流水线死在 Prepare。两者口径不同
-    ⇒ 必须显式换一个口径更严的 loader，否则守卫对这一类错误恒绿。
-
-    `flatten_mapping` 必须保留：本仓 `.cnb.yml` 用了 `<<: *anchor` 合并键
-    （`.mirror-job` / `claim-sync`），去掉它会在 merge 键上报
-    「could not determine a constructor for the tag merge」——那是守卫自己先崩，
-    不是被测文件有问题。
-    """
-
-
-def _construct_mapping_no_dup(loader, node, deep=False):
-    loader.flatten_mapping(node)
-    keys = []
-    for key_node, _value_node in node.value:
-        key = loader.construct_object(key_node, deep=deep)
-        if key in keys:
-            raise yaml.constructor.ConstructorError(
-                None,
-                None,
-                f'duplicated mapping key {key!r}',
-                key_node.start_mark,
-            )
-        keys.append(key)
-    return yaml.SafeLoader.construct_mapping(loader, node, deep=deep)
-
-
-_NoDupKeyLoader.add_constructor(
-    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_mapping_no_dup
-)
 
 # 顶层键长得像「事件」而不是「分支名」时的告警形态。CNB 的事件写在**分支之下**
 # （`main: push:` / `main: "crontab: ...":`），写到顶层就成了一个不存在的分支名。
@@ -109,7 +83,7 @@ BRANCH_NAME = re.compile(r'^[A-Za-z0-9._/!()*|?-]+$')
 def _load(path: Path) -> dict:
     # 严格 loader：重复 key 必须在解析阶段就炸，而不是被后者静默覆盖（判据 4）。
     with path.open(encoding='utf-8') as fh:
-        data = yaml.load(fh, Loader=_NoDupKeyLoader)
+        data = yaml.load(fh, Loader=NoDuplicateKeyLoader)
     return data if isinstance(data, dict) else {}
 
 
@@ -205,7 +179,7 @@ def self_check() -> list[str]:
     # 一旦有重复 key，平台照样死在 Prepare。用最小样本验，不依赖真实文件。
     dup_probe = 'main:\n  push: []\ndev:\n  push: []\ndev:\n  pull_request: []\n'
     try:
-        yaml.load(dup_probe, Loader=_NoDupKeyLoader)
+        yaml.load(dup_probe, Loader=NoDuplicateKeyLoader)
         return [
             '自检探针失败：重复的顶层分支键（两段 `dev:`）没被拒绝 —— '
             '严格 loader 的重复 key 判据没接上（源 CNB #457）。'
@@ -240,13 +214,9 @@ def main() -> int:
     try:
         data = _load(path)
     except yaml.YAMLError as exc:
-        msg = str(exc)
-        if 'duplicated mapping key' in msg:
-            print(f'❌ {path} 有**重复的 mapping key**：{msg}')
-            print('   CNB 的解析器对这种写法直接报语法错，整条流水线死在 Prepare。')
-            print('   常见成因：跨仓收敛合并时两段同名分支键（如两段 `dev:`）被并进同一文件。')
-        else:
-            print(f'❌ {path} 不是合法 YAML：{msg}')
+        # 文案统一由共享 loader 给（源 CNB #460）：重复 key 的成因与后果只说一份，
+        # 免得三个守卫各写各的、细节互相漂移。
+        print(f'❌ {path} 不是合法 YAML：{describe_yaml_error(exc)}')
         return 1
 
     problems += check_top_keys(data)
