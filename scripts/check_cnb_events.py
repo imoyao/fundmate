@@ -66,7 +66,16 @@ ALLOWED_TOP_KEYS = {'$', 'version'}
 
 # 顶层键长得像「事件」而不是「分支名」时的告警形态。CNB 的事件写在**分支之下**
 # （`main: push:` / `main: "crontab: ...":`），写到顶层就成了一个不存在的分支名。
-EVENT_LIKE = re.compile(r'^(push|pull_request|web_trigger|tag_push|crontab\s*:|\$.*)$', re.IGNORECASE)
+#
+# ⚠️ **点分事件名必须收进来**（源 CNB #459，2026-10-15）：CNB 的事件名有点分子形态
+# （`pull_request.mergeable` / `pull_request.merged` / `pull_request.update` ……），
+# 而**点恰好在 `BRANCH_NAME` 的字符集里** ⇒ 漏掉它们就等于「顶层的
+# `pull_request.mergeable:` 被当成合法分支名放行」，正是本守卫存在的理由（#152）被架空。
+# 收成 `pull_request(\.\w+)*` 而不是逐个枚举：CNB 的点分事件是开放集合，
+# 枚举会随平台加事件而漏 —— 判据要做到「长得像事件就报」，不做到「我认识这个事件才报」。
+EVENT_LIKE = re.compile(
+    r'^(push|pull_request(\.\w+)*|web_trigger|tag_push|crontab\s*:|\$.*)$', re.IGNORECASE
+)
 
 # 分支名的合法字符集（CNB 允许 `/`、`.`、`-`、`_` 与 glob 通配；`crontab: 0 * * * *` 里的
 # 空格不在内）。
@@ -195,6 +204,21 @@ def self_check() -> list[str]:
             return [
                 f'自检探针失败：字符集放宽后，顶层事件名 {ev!r} 不再被判错 ——'
                 'EVENT_LIKE 判据被架空（或判定顺序被调换）。'
+            ]
+
+    # 探针 S6（源 CNB #459，2026-10-15）：**点分事件名**必须被拦。
+    # 这一条单列，是因为它漏得最隐蔽：`.cnb.yml` 里合法的挂法就是
+    # `main: pull_request.mergeable:`，而「点」又在 `BRANCH_NAME` 的字符集里 ⇒
+    # 一旦 EVENT_LIKE 不收点分形态，顶层的 `pull_request.mergeable:` 会被当成
+    # **合法分支名**放行 —— 判据对着一类长得跟今天一模一样的坏配置空转。
+    # 不逐个枚举具体事件（`mergeable` / `merged` / `update` …）：CNB 的点分事件是
+    # 开放集合，枚举会随平台加事件而漏。
+    for ev in ('pull_request.mergeable', 'pull_request.merged', 'pull_request.update'):
+        if not check_top_keys({ev: {'stages': []}}):
+            return [
+                f'自检探针失败：点分事件名 {ev!r} 不再被判错 ——'
+                'EVENT_LIKE 漏了点分形态，而「点」在 BRANCH_NAME 字符集里 ⇒'
+                '这类顶层坏配置会被当成合法分支名放行（源 CNB #459）。'
             ]
     return []
 
