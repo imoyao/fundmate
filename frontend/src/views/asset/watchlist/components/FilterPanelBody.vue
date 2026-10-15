@@ -103,6 +103,7 @@ import type { useWatchlistTags } from "@/composables/useWatchlistTags";
 import type { WatchlistTag } from "@/api/watchlist";
 import { DEFAULT_TAG_COLOR } from "@/constants/watchlist";
 import { assetTypeLabel } from "@/composables/useEnumLabels";
+import { WATCHLIST_ASSET_TYPE_OPTIONS } from "@/views/asset/watchlist/watchlistAssetTypes";
 
 /**
  * 筛选弹层主体（#980 P0-b 拆分自 FilterPanelPopover，零行为变更）：
@@ -131,21 +132,9 @@ function updateActivePanel(value: "type" | "tag"): void {
 }
 
 // ── 类型多选（弹层内与标签正交组合，见 FilterPanelPopover 头注释）──
-// 类型 key 列表为自选场景交易性类型（业务选择属前端职责）；中文标签统一走
-// useEnumLabels.assetTypeLabel（后端 /enums/asset_type 唯一真相源，禁止手抄映射）。
-const ASSET_TYPE_OPTIONS = [
-  "stock",
-  "etf",
-  "fund",
-  "money_fund",
-  "bond",
-  "index",
-  "crypto",
-  "reverse_repo",
-  // #1285 品类视图：经理 / 投顾组合也需可筛选（此前缺失 → 无法进入其品类视图）
-  "manager",
-  "portfolio"
-] as const;
+// 类型 key 池单源在 watchlistAssetTypes.ts（与 #1449 快捷外露自定义共用，避免两处清单漂移）；
+// 中文标签统一走 useEnumLabels.assetTypeLabel（后端 /enums/asset_type 唯一真相源，禁止手抄映射）。
+const ASSET_TYPE_OPTIONS = WATCHLIST_ASSET_TYPE_OPTIONS;
 
 /** 持仓分组（activeGroup === 'holding'）下可筛选的资产类型：仅股票与基金。
  *  经理 / 组合 / 指数 / ETF / 可转债等在「持仓」语义下不存在（持仓只来自 positions 表，

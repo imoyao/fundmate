@@ -1,5 +1,5 @@
 /**
- * 自选列偏好的「本地 ↔ 云端」合并原语（#1337 方案 B，从 useWatchlistColumnVisibility 抽出）。
+ * 自选偏好「本地 ↔ 云端」合并原语（#1337 方案 B 抽出；#1449 泛型化后由快捷筛选偏好复用）。
  *
  * WHY 独立文件：合并策略是纯函数（无 IO、无 Vue 状态），抽出后可被 vitest 直接单测，
  * 而不必连带加载 composable 的 localforage / http / columnDefs 依赖链。
@@ -20,9 +20,9 @@ export interface ColumnSettings {
   updated_at?: number;
 }
 
-/** 一侧（本地或云端）的偏好快照：配置 + 该侧最近修改时间 */
-export interface PrefStamp {
-  settings: ColumnSettings;
+/** 一侧（本地或云端）的偏好快照：配置 + 该侧最近修改时间（配置类型参数化，#1449 复用） */
+export interface PrefStamp<T = ColumnSettings> {
+  settings: T;
   ts: number;
 }
 
@@ -32,19 +32,19 @@ export interface PrefStamp {
  * - 两侧都有 → ts 更新者胜（相等时本地胜，避免无谓的云端覆盖写）。
  * 时钟偏差容忍度为秒级：单向收敛（胜者回写另一侧一次），不做双向同步环。
  */
-export function pickNewer(
-  local: PrefStamp | null,
-  cloud: PrefStamp | null
-): PrefStamp | null {
+export function pickNewer<T>(
+  local: PrefStamp<T> | null,
+  cloud: PrefStamp<T> | null
+): PrefStamp<T> | null {
   if (!local) return cloud;
   if (!cloud) return local;
   return cloud.ts > local.ts ? cloud : local;
 }
 
 /** 上云 payload：剥离本地时钟字段 updated_at（云端时间戳由服务端维护，不接受客户端篡改） */
-export function stripStamp(
-  settings: ColumnSettings
-): Omit<ColumnSettings, "updated_at"> {
+export function stripStamp<T extends { updated_at?: number }>(
+  settings: T
+): Omit<T, "updated_at"> {
   const { updated_at: _ignored, ...rest } = settings;
   return rest;
 }

@@ -37,17 +37,29 @@
       @toggle-tag="toggleDraftTag"
     >
       <template #footer>
-        <!-- 底部固定操作栏：重置 / 已选计数 / 取消 / 确定 永远可见 -->
+        <!-- 底部固定操作栏：重置 / 自定义快捷筛选 / 已选计数 / 取消 / 确定 永远可见 -->
         <div class="filter-panel__footer">
-          <el-button
-            size="small"
-            text
-            type="primary"
-            :disabled="!hasAnyFilter"
-            @click="resetAllFilters"
-          >
-            重置
-          </el-button>
+          <div class="filter-panel__left">
+            <el-button
+              size="small"
+              text
+              type="primary"
+              :disabled="!hasAnyFilter"
+              @click="resetAllFilters"
+            >
+              重置
+            </el-button>
+            <!-- 外露类型管理入口（#1449）：本面板仍负责类型多选组合，
+                 「自定义快捷筛选」只管主界面切换器露出哪些类型 -->
+            <el-button
+              size="small"
+              text
+              class="quick-filter-manage"
+              @click="emit('manage-quick-filters')"
+            >
+              自定义快捷筛选
+            </el-button>
+          </div>
           <span class="filter-panel__count">
             已选 {{ draftFilterCount }} 项
           </span>
@@ -96,6 +108,11 @@ const emit = defineEmits<{
    * watch(selectedFilterTagIds) 自动置第 1 页并刷新，两者同时触发会打两次请求。
    */
   (e: "filter-apply"): void;
+  /**
+   * 「自定义快捷筛选」链接被点（#1449）：外露类型管理弹窗由 WatchlistFilterBar 承载，
+   * 本组件只负责入口，不持有弹窗状态。
+   */
+  (e: "manage-quick-filters"): void;
 }>();
 
 // 状态注入模式：tags/toolbar 内部 ref 经 computed get/set 桥接（避免 vue/no-mutating-props）
@@ -260,7 +277,7 @@ function resetAllFilters() {
   border-radius: var(--radius-pill);
 }
 
-/* 底部固定操作栏：重置 / 已选计数 / 取消 / 确定 永远可见
+/* 底部固定操作栏：重置 / 自定义快捷筛选 / 已选计数 / 取消 / 确定 永远可见
    （样式随模板自 FilterPanelBody 原样迁回此处，保持 scoped 作用域不变，零视觉变更） */
 .filter-panel__footer {
   display: flex;
@@ -277,5 +294,21 @@ function resetAllFilters() {
   font-size: 13px;
   color: var(--text-secondary);
   text-align: center;
+}
+
+/* 底部左组：重置 + 自定义快捷筛选链接（#1449），与中央计数 / 右侧按钮三区并列 */
+.filter-panel__left {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+/* 链接感：次级色起步，悬停升主色（与重置的 primary text 形成层级差） */
+.quick-filter-manage {
+  color: var(--text-secondary);
+}
+
+.quick-filter-manage:hover {
+  color: var(--text-primary);
 }
 </style>
