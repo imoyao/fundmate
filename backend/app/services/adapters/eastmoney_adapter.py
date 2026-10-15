@@ -94,8 +94,14 @@ def fetch_fund_company_of(fund_code: str, timeout: int = 6) -> Optional[Dict[str
     if not code:
         return None
     try:
+        # Session 懒创建必须在请求互斥锁**之外**：`_get_suggest_session` 的双检锁用的是
+        # 同一把 `_suggest_session_lock`，而 `threading.Lock` 不可重入——先持锁再调它，
+        # 进程内首次调用（Session 尚未建）会同线程二次获取、永久自锁（2026-10-15 实证：
+        # 第一只 company 为空的基金触发按需回填后，/api/products/fund-profile/ 全部挂死，
+        # 前端 10s 超时显示「暂无可展示的基金资料」）。
+        session = _get_suggest_session()
         with _suggest_session_lock:  # Session 非线程安全，请求期间独占
-            resp = _get_suggest_session().get(_FUND_SUGGEST_URL, params={'m': 1, 'key': code}, timeout=timeout)
+            resp = session.get(_FUND_SUGGEST_URL, params={'m': 1, 'key': code}, timeout=timeout)
         resp.raise_for_status()
         payload = resp.json()
     except Exception as e:
