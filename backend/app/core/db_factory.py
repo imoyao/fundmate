@@ -195,6 +195,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     # ── user 域（Supabase）：含 family_id/user_id 的用户私有数据 ──
     'families': DOMAIN_USER,
     'users': DOMAIN_USER,
+    'user_preferences': DOMAIN_USER,  # 用户私有偏好键值（#1337，按 user_id，非 family）
     'ledgers': DOMAIN_USER,
     'portfolios': DOMAIN_USER,
     'positions': DOMAIN_USER,

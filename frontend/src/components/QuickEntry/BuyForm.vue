@@ -312,6 +312,11 @@
       <span>[{{ actualNavDate || form.trade_date || "--" }}]</span>
     </div>
 
+    <!-- 净值缺失先记账：放行提交的提示（份额可留空，官方净值到位后自动回填） -->
+    <div v-if="navMissing" class="nav-pending-hint text-xs mt-1">
+      当日净值暂不可用，仍可先记账：份额可留空（或按估算填写），官方净值发布后将自动回填份额与成本。
+    </div>
+
     <!-- 配置目标 -->
     <el-form-item label="配置目标" prop="allocation">
       <el-select
@@ -452,6 +457,12 @@ const isUpdating = ref(false);
 // 基金手续费折扣
 const fundFeeDiscount = ref(0.1);
 
+// ── 净值缺失先记账 ──
+// 当日净值未发布 / 数据源故障拉不到时，不再把用户挡在记账之外：置 navMissing，
+// 份额允许留空（后端按金额与最近净值占位暂算、标 pending_nav），
+// 官方净值落库后由 nav_backfill 自动回填份额与成本。
+const navMissing = ref(false);
+
 // 交易日与确认日
 const isTradingDay = ref<boolean | null>(null);
 // 基金交易日期联动 composable（calcFundConfirmDate + fetchFundNav）
@@ -499,7 +510,27 @@ const rules: FormRules = {
   symbol: [{ required: true, message: "请选择买入产品", trigger: "change" }],
   trade_date: [{ required: true, message: "请选择日期", trigger: "change" }],
   buyAmount: [{ required: true, message: "请输入买入金额", trigger: "blur" }],
-  shares: [{ required: true, message: "确认份额不能为空", trigger: "blur" }],
+  shares: [
+    {
+      validator: (
+        _rule: unknown,
+        value: unknown,
+        callback: (err?: Error) => void
+      ) => {
+        // 净值缺失先记账：份额允许留空（后端按金额/占位价暂算，官方净值到位后回填）
+        if (navMissing.value && (value === undefined || value === null)) {
+          callback();
+          return;
+        }
+        if (value === undefined || value === null || value === "") {
+          callback(new Error("确认份额不能为空"));
+          return;
+        }
+        callback();
+      },
+      trigger: ["blur", "change"]
+    }
+  ],
   allocation: [
     { required: true, message: "请选择配置目标", trigger: "change" }
   ],
@@ -546,6 +577,7 @@ watch(
   () => form.buyAmount,
   newVal => {
     if (isUpdating.value || newVal === undefined) return;
+    if (navMissing.value) return; // 净值缺失：无价可算，份额留空或由用户手填
     if (!form.price || form.price <= 0) {
       form.shares = undefined;
       return;
@@ -564,6 +596,7 @@ watch(
   () => form.shares,
   newVal => {
     if (isUpdating.value || newVal === undefined) return;
+    if (navMissing.value) return; // 净值缺失：无价可算
     if (!form.price || form.price <= 0) return;
     isUpdating.value = true;
     const fee = form.fee || 0;
@@ -765,6 +798,7 @@ async function onSecuritySelected(option: SecurityOption | null) {
     selectedSecurityOption.value = null;
     form.buyAmount = undefined;
     form.shares = undefined;
+    navMissing.value = false;
     return;
   }
   form.symbol = option.symbol;
@@ -860,8 +894,11 @@ async function fetchTradingDay() {
 async function handleSubmit() {
   const valid = await formRef.value?.validate().catch(() => false);
   if (!valid) return;
-  const quantity = form.shares!;
-  if (quantity <= 0) {
+  // 净值缺失先记账：份额允许留空/为 0，后端按最近净值占位建仓、标 pending_nav，
+  // 官方净值落库后由 nav_backfill 回填份额与成本
+  const navPending = form.type === "fund" && navMissing.value;
+  const quantity = form.shares ?? 0;
+  if (!navPending && quantity <= 0) {
     ElMessage.error("确认份额必须大于0");
     return;
   }
@@ -911,7 +948,16 @@ async function handleSubmit() {
     fee: finalFee,
     notes: form.notes,
     allocation: form.allocation,
-    isAfter15: form.isAfter15
+    isAfter15: form.isAfter15,
+    // 净值缺失先记账三件套：目标净值日优先取 actualNavDate（15:00 后下单顺延一天），
+    // 缺省回退 trade_date；份额手填过则标 shares_manual，回填只校正净值不覆盖份额
+    ...(navPending
+      ? {
+          nav_pending: true,
+          nav_date: actualNavDate.value || form.trade_date,
+          shares_manual: quantity > 0
+        }
+      : {})
   };
 
   // 统一提交层（#933）：防抖/错误信封/成功广播单点维护，表单只组装 body
@@ -928,6 +974,7 @@ function resetForm() {
   Object.assign(form, defaultForm());
   selectedSecurityOption.value = null;
   securityOptions.value = [];
+  navMissing.value = false;
   resetTradeDate();
   formRef.value?.resetFields();
 
@@ -964,7 +1011,15 @@ watch(
       });
       if (result?.nav != null) {
         form.price = result.nav;
+        navMissing.value = false;
+      } else {
+        // 净值缺失：清掉陈旧价格与联动份额，改走「先记账、官方净值到位后回填」
+        navMissing.value = true;
+        form.price = undefined;
+        form.shares = undefined;
       }
+    } else {
+      navMissing.value = false;
     }
   }
 );
@@ -974,7 +1029,7 @@ watch(
 watch(
   [() => form.buyAmount, () => form.fee, () => form.price],
   ([newBuy, newFee, newPrice]) => {
-    if (isUpdating.value) return;
+    if (isUpdating.value || navMissing.value) return;
     if (newBuy === undefined || newBuy <= 0 || !newPrice || newPrice <= 0) {
       if (form.shares !== undefined) form.shares = undefined;
       return;
@@ -1059,5 +1114,13 @@ defineExpose({ handleSubmit, resetForm, isDirty });
    死规则 —— el-select 树里没有 .el-input__wrapper）即因此删除。 */
 .el-form {
   --input-height: 40px;
+}
+
+/* 净值缺失先记账提示：走语义 warning 令牌（禁硬编码色值） */
+.nav-pending-hint {
+  padding: 6px 10px;
+  color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+  border-radius: var(--radius-sm);
 }
 </style>

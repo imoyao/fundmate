@@ -177,7 +177,13 @@ onMounted(async () => {
   padding: 12px 14px;
   margin-bottom: 16px;
   color: var(--color-rise-ink);
-  background: var(--brand-100);
+
+  /* #2156 残留5：背景由品牌直调 --brand-100 改为语义错误框令牌
+     --color-danger-10（底色）/ --color-danger-30（描边），与 UploadArea、
+     SummaryPanel 的错误框先例一致；文字沿用 #1599 已裁决的 --color-rise-ink
+     （色相 8° 同族、对比度更优）。暗色下这俩 alpha 令牌在暗底合成，轮廓不丢。 */
+  background: var(--color-danger-10);
+  border: 1px solid var(--color-danger-30);
   border-radius: var(--radius-sm, 8px);
 }
 
@@ -256,7 +262,7 @@ onMounted(async () => {
 }
 
 .ghost-dup-banner__link:hover {
-  background: var(--brand-200, rgb(246 153 136 / 20%));
+  background: var(--color-danger-20);
 }
 
 .ghost-dup-banner__hint {
@@ -283,6 +289,6 @@ onMounted(async () => {
 }
 
 .ghost-dup-banner__close:hover {
-  background: var(--brand-200, rgb(246 153 136 / 20%));
+  background: var(--color-danger-20);
 }
 </style>

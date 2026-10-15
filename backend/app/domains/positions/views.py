@@ -104,12 +104,10 @@ _KNOWN_OP_TYPES = {'buy', 'deposit', 'sell', 'withdraw', 'dividend', 'dividend_r
 
 
 def _validate_price_within_range(data: dict) -> None:
-    """后端成交价区间拦截（#948 续）：证券类成交价须落在交易日 [low, high] 内。
+    """后端成交价区间拦截（#948 续）：成交价须落在交易日 [low, high] 内（前端校验外的最终防线）。
 
-    作为权威拦截（前端校验之外的最终防线）：本地 PriceHistory 优先，缺失时启用
-    实时兜底（腾讯财经当日 / akshare 历史日）取真实区间，确保缺少本地行情的标的
-    （如隆基）也能拦住明显异常的成交价。任一来源不可达则降级为放行，不会误拦。
-    与前端 getSecurityPriceRange + SellForm/BuyForm 的区间校验保持一致。
+    本地 PriceHistory 优先、缺失时实时兜底（腾讯当日 / akshare 历史日）取真实区间；
+    任一来源不可达则降级放行，不会误拦。与前端 getSecurityPriceRange 同口径。
     """
     op_type = data.get('op_type')
     if op_type not in _PRICE_RANGE_OP_TYPES:
@@ -117,7 +115,9 @@ def _validate_price_within_range(data: dict) -> None:
     symbol = data.get('symbol')
     avg_price = data.get('avg_price')
     trade_date = data.get('trade_date')
-    if not symbol or avg_price is None or not trade_date:
+    # nav_pending 占位价 / <=0 未知价不参与区间拦截（占位价不是真实成交价，
+    # 必填性由 process_buy_or_deposit 自校验；见其「净值缺失先记账」注释）
+    if not symbol or avg_price is None or not trade_date or avg_price <= 0 or data.get('nav_pending'):
         return
     rng = resolve_security_price_range(symbol, trade_date, use_live_fallback=True)
     if not rng:

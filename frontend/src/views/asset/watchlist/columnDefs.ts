@@ -764,14 +764,16 @@ export const watchlistColumnDefs: ColumnDef[] = [
     defaultHidden: true
   },
   {
-    // 操作列：置顶 / 特别关注 / 移除 三个按钮，默认 45% 弱显、行 hover 全亮
+    // 操作列：置顶 / 特别关注 / 移除 / 加入分组 / 问这个（#1764），默认 45% 弱显、行 hover 全亮
     //（2026-09-05 回归）：曾把按钮拆到产品列 hover 图标，但 fixed 列 hover 状态
     // 在 EP 中不稳定，出现「有的行 hover 不出现」——回到固定的右固定操作列，
     // 状态以按钮图标颜色表达（置顶品牌色 / 关注暖橙），不依赖 JS hover 同步。
+    // 宽度 110 → 140（#1764 第 5 按钮：5×24 + 4×4 gap = 136，原 110 装不下）；
+    // 默认列总宽仍在 design.md 的 ≈1040px 预算内。
     key: "_actions",
     label: "操作",
     renderer: "actions",
-    width: 110,
+    width: 140,
     align: "center",
     fixed: "right",
     scope: "mixed",

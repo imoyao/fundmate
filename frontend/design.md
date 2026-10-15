@@ -152,6 +152,26 @@
 | `--border-default` | `#E5DDD4` | 默认边框 |
 | `--border-subtle` | `rgba(229, 221, 212, 0.5)` | 卡片内部分割线（降低权重） |
 
+#### 栏间竖向分割线（#2157）
+
+「左栏 ｜ 右栏」这类**分栏**布局的竖向分割线，唯一实现是全局工具类 `.soft-col-divider`
+（`frontend/src/style/index.scss`）——**禁止在业务组件里手写** `border-left: 1px solid var(--border-light)`：
+
+- `lg` 及以上：`padding-left: var(--space-standard)`（24px）+ 1px 线，即「左栏 → 24px → 线 → 24px → 右栏文字」；
+- `lg` 以下：两栏已纵向堆叠，**不画线**。
+
+手写裸 border 会同时踩两个坑：**线贴住邻栏文字**（让文字顶着线读）与**窄屏孤线**
+（border 写在不带断点的类名上，而两栏布局是 `lg:grid-cols-12`）。
+守卫 `scripts/guard_col_divider.py` 阻断新增；存量 4 处冻结在脚本 `BASELINE`（逐处理由见脚本 docstring），只减不增。
+
+以下**不属于**本判据，**有意放行**（别当漏判，也别顺手"统一"掉）：
+
+- **语义强调条**：`3px` / `4px` + `--color-warning` / `--color-danger` / `--color-info` / `--temp-*`——颜色本身就是信息（如机会卡温度条、导入表内语义色竖条），与「栏间分割线」是两回事；
+- **选中指示条**：`2px solid transparent` 占位、选中态只改 `border-left-color`（如目录 TOC）；
+- **卡片内部降权分割线**：用 `--border-subtle`，它约束的是卡片内部，不是栏与栏之间。
+
+若某处确需手写例外，在声明本行或相邻行加注释 `col-divider-allow` 并写明理由（刻意不提供文件级豁免）。
+
 
 ## Typography
 

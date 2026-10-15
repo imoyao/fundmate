@@ -1,6 +1,8 @@
 # CNB 流水线配置（duoduobei/fundmate）
 #
-# 目前只有一条流水线：GitHub Issues → CNB Issues 的**每日增量镜像**。
+# 目前有三类作业：① GitHub Issues → CNB Issues 的每日增量镜像（main 每日 cron）；
+# ② CNB ↔ GitHub 的双向代码同步（git-sync 插件：push + 每小时拉 + 每小时推）；
+# ③ CNB 侧 PR 只读守卫（pull_request，断链成因的层 3 反向护栏）。
 #
 # 背景（源 issue `#2`）：CNB 侧没有 GitHub 的 issue 视图，讨论散在两处。
 # 2026-10-11 做过一次全量手工同步（107 张卡，CNB #5~#112），但那是一次性的：
@@ -28,13 +30,12 @@
 #
 # 状态回流（#117 硬要求 ②）：GitHub 关了原卡，CNB 这边一个字都不变——
 # 读者在 CNB 看到一张「还活着」的卡，实际那件事早已结案。cron 里挂了这一步：
-# 在镜像卡评论区追加一条「状态回流」评论 + 挂 `GitHub 已关闭` 标签 + **关闭卡片**。
-# **口径已于 2026-10-13 由用户在 CNB #171 改为 B（自动关）**：D48 的「标记不关」
-# 让「卡片状态」与「事实状态」永久劈成两半，看板越用越不可信；讨论被埋是可接受代价
-# （评论不删、卡只是变灰，需要时 `cnb issues open` 重开）。反向仍不回流。
-# 只想标记不想关（人工 triage）时加 `--no-close`。
+# 在镜像卡评论区追加一条「状态回流」评论 + 挂 `GitHub 已关闭` 标签。
+# **不自动关卡**（#117 硬要求 ①：人工回路保留）——CNB 侧的追问常发生在
+# GitHub 结案之后，关掉会把那些讨论一起埋掉；要真正关卡请人工执行
+# `cnb issues close --number <n>`。
 #   python scripts/bridge/mirror_state_sync.py --report    # 只报告漂移
-#   python scripts/bridge/mirror_state_sync.py --apply      # 真正回流并关闭（幂等）
+#   python scripts/bridge/mirror_state_sync.py --apply      # 真正回流（幂等）
 
 # 公共片段：两条触发方式跑的是同一套环境与命令，用锚点避免抄两遍。
 .mirror-job: &mirror-job
@@ -50,36 +51,13 @@
   stages:
     - name: 增量建卡
       script: |
-        # ⚠️ 必须回声退出码：建卡在 GitHub 匿名限额（60 次/时/IP）被同流水线前序作业耗尽时
-        # 返回 1（「拉不到 ≠ 没有」，源 CNB #179 / #171）。裸跑的话失败只体现在「stage 红了」，
-        # 日志里没有一句人话，而它又与后一步的健康绿混在一起，很容易被读成「同步过了」。
-        # 故显式打印一行「结论不可信」。
-        set +e
         python scripts/bridge/github_cnb_issues.py --apply
-        rc=$?
-        if [ $rc -ne 0 ]; then
-          echo "⚠️ 增量建卡返回 $rc（多为 GitHub 数据不完整 / 限额）——本轮结论不可信"
-        fi
-        exit 0
-    # 状态回流（#117 硬要求 ②，2026-10-13 起改为 B 口径）：GitHub 已关闭、CNB 镜像卡
-    # 还开着 ⇒ 评论 + 挂 `GitHub 已关闭` 标签 + **关闭卡片**。
-    # 幂等键写进评论正文（评论只发一次）；**关卡与评论分开判**——D48 时代发过评论
-    # 却没关的存量卡会被补关（「评论已发 ≠ 卡已关」）。
-    # 反向（GitHub 开、CNB 关）不回流：CNB 侧关卡是人的决定。
-    #
-    # ⚠️ `|| true` 只遮「已回流过的幂等跳过」这类良性非 0；**「数据不完整」(#171) 必须可见**
-    # ——脚本在拿不全 GitHub 数据时会显式打印「数据不完整」并返回 1，若这里吞掉，
-    # 就退回了「一直绿、一直没干活」的假绿形态。故改成回声退出码 + 只在日志里标红，
-    # 不拦构建（建卡才是主任务，收尾信号不该把建卡一起拖红）。
-    - name: 状态回流（GitHub 已关闭 → CNB 标记并关闭）
+    # 状态回流（#117 硬要求 ②）：GitHub 已关闭、CNB 镜像卡还开着 ⇒ 在镜像卡评论区
+    # 追加「状态回流」评论 + 挂 `GitHub 已关闭` 标签（**不自动关卡**，见文件头）。
+    # 幂等键写进评论正文，重复执行只发一次。
+    - name: 状态回流（GitHub 已关闭 → CNB 标记）
       script: |
-        set +e
-        python scripts/bridge/mirror_state_sync.py --apply
-        rc=$?
-        if [ $rc -ne 0 ]; then
-          echo "⚠️ 状态回流返回 $rc（多为 GitHub 数据不完整，#171）——本轮结论不可信，请查上方日志"
-        fi
-        exit 0
+        python scripts/bridge/mirror_state_sync.py --apply || true
     # 引用时效自检（#118，2026-10-11 起认评论区更正 —— #123）：CNB 侧已成型的镜像卡里，
     # `path:line` 引用可能已随代码失效，而镜像卡「只增不覆盖」意味着正文永远不会被纠正
     # ——#106 就是活例子（引用的行已在 #980 拆页时删除，卡面读过两个版本）。
@@ -93,78 +71,21 @@
     # 分支分叉自检（CNB #123 §一「中等」建议）：`main` 与 `dev` 若互不包含，
     # 就会出现「整改代码在 dev、会被执行的代码在 main」——**写完了，跑的不是它**，
     # 且没有任何信号提示。本节点把「靠人肉 git log 发现分叉」换成一条命令。
-    # 只读本地 git（**不 fetch**，故不依赖网络）；带 `|| true` 明确「信号不是门禁」。
-    # 带 `--explain`：卡面 §一 建议 3 问的是「为什么 dev 会完全不含 main 的这一个 commit」——
-    # 只报「分叉了几个」修不了根因，故额外列出稳定分支独有的提交清单，
-    # 并**离线试算发版会不会冲突**（`git merge-tree`，不碰工作区）。
-    # 有意**不猜**「哪个提交来自 GitHub、哪个来自 CNB」：实测提交信息、`refs/fetched`、
-    # `sync/mirror` 三条路都答不了，猜错会让报告指向错误的处置。
-    #
-    # ⚠️ 判据（CNB #179，2026-10-14 二次修正）：**不要**把「`main` 独有提交数 > 0」当红灯——
-    # 本仓发版滞后是正常态（`dev` 一直在前进），拿它报红就是把红灯喊成狼来了。
-    # 现在两层判据：① 提交级二分（合规发版 merge / 绕过 dev 的提交）；
-    # ② 内容级用 `git cherry`（补丁等价）—— **不是** `git diff`，后者在交叉合并下假红。
-    # 退出码 1 = 有新形态；「拿不到输入」一律按红，不降级成正常。详见
-    # docs/dev/github-cnb-mirror.md §11。
-    - name: 分支分叉自检（只报告）
+    # 先 fetch 刷新 `origin/dev` / `origin/main`：runner 的检出可能停在单个 ref 上，
+    # 不 fetch 就看不到对侧分支的最新状态（#123 那次分叉就是这样被肉眼拖了一周）。
+    # 失败不阻塞（`|| true`，本地 ref 兜底）——脚本本身仍然只读、不 fetch、不联网。
+    # 带 `--explain`：只报「分叉了几个」修不了根因，故报告附两侧独有提交清单
+    # （救援照抄即可）与离线合并试算（`git merge-tree`，回答「发版会不会冲突」）。
+    # 断链 ≠ 任务失败（`|| true` 口径不变），但**必须有人知道**：crontab 红了没人盯，
+    # 失败只进日志等于静默停摆（2026-10-11 白丢大半天）。故退出码非零时建一张
+    # 断链提醒卡（幂等：已有未关闭同题卡只追加评论）——「大声失败」，不是「自动抹平」。
+    - name: 分支分叉自检（断链即建卡）
       script: |
-        python scripts/bridge/check_branch_divergence.py --report --explain || true
-
-    # 跨仓 dev 分叉自检（源 CNB #269，2026-10-14）：上面那条比的是**同一个仓库内部**的  cross-repo-ref-allow
-    # `main ← dev`；而 2026-10-11 ~ 10-14 真正出事的是**跨仓**那一维 —— CNB `dev` 停了、
-    # GitHub `dev` 一直在走，两边各自长出对方没有的改动（30 vs 89），**三天没有任何信号**。
-    # 后果不是理论风险：push 不开 `force`（是护栏，对的），于是「CNB dev → GitHub dev」
-    # 永远非快进、永远被拒；pull 又拉不动 ⇒ **两边都不动，死锁**。
-    # 一句话：**「分叉了几笔」在仓内自检里问不出来，因为另一半在另一个仓库。**
-    #
-    # 判据与 #179 同源（**只用 `git cherry` 补丁等价**，双向各跑一次）：
-    #   - 两侧都空      ⇒ 未分叉（放行正常落后）→ 退 0；
-    #   - 只有一侧有 `+` ⇒ 单侧领先，**正常落后，不红** → 退 0；
-    #   - **两侧都有 `+`** ⇒ 真双向分叉 ⇒ 退 1（要报的正是这个）。
-    # 「拿不到输入」（fetch 失败 / ref 缺失）⇒ 打印「结论不可信」并退 2，**不得**降级成 0。
-    #
-    # 本节点会 **fetch** 两个 remote 的 dev（与上面那条「纯离线」不同），故**不挂进
-    # `ci.yml`**（PR 门禁不该依赖外网与 GitHub 凭据）。这里网络与凭据都具备。
-    # 与其它自检一致：**只报告不拦构建**，但退出码要回显 —— 否则失败态就地消失（#171 假绿）。
-    - name: 跨仓 dev 分叉自检（只报告）
-      script: |
-        set +e
-        python scripts/bridge/check_cross_repo_dev_divergence.py --report
-        rc=$?
-        if [ $rc -eq 1 ]; then
-          echo "⚠️ CNB dev 与 GitHub dev 已**双向分叉** —— 同步会一直空转，需要一次人工收敛（否则差异逐日累积）"
-        elif [ $rc -eq 2 ]; then
-          echo "⚠️ 跨仓 dev 自检**拿不到输入**（fetch 失败）—— 本轮结论不可信，不得认为「已对齐」"
+        git fetch origin dev main --quiet || true
+        python scripts/bridge/check_branch_divergence.py --report --explain --out report-divergence.md
+        if [ $? -ne 0 ]; then
+          python scripts/bridge/notify_mirror_divergence.py --report report-divergence.md || true
         fi
-        exit 0
-
-    # 重复镜像卡自检（源 CNB #450，2026-10-14）：同一张 GitHub 卡在 CNB 侧有几张镜像卡。  # cross-repo-ref-allow
-    #
-    # WHY 要有它 —— #450 的 224 张重复卡是**三天里一轮一轮攒出来的**（同一 GitHub 编号  # cross-repo-ref-allow
-    # 最多 11 张），而全程**零信号**：每轮建卡都成功、日志都是「✅ CNB #N ← GitHub #M」。
-    # 已有三条作业都不问这件事：`mirror_state_sync` 问「GitHub 关了 CNB 还没关」，
-    # `check_mirror_refs` 问「正文引用的行号还在不在」，`check_branch_divergence` 问分支。
-    # 根因（`harvest_existing` 拿状态文件缓存当已镜像全集）已修，但：
-    #   ① 存量重复卡需要被发现（清理是人的决定，脚本只读）；
-    #   ② 修完还要有网盯着它别回潮。
-    # 与 #171 / #179 同族：不是缺功能，是缺**能问出这件事**的作业。
-    #
-    # 判据：同一幂等键 `GitHub 编号：#N` 对应 >1 张卡 ⇒ 退 1。
-    # **读不到卡 ⇒ 退 2 且声明「结论不可信」**，不得退化成「无重复」（#171 的失败态纪律：
-    # 「拿不到输入」不等于「输入为空」）。
-    # 不挂 `ci.yml`：它要连 CNB API 且要跑几百次请求，PR 门禁不该依赖外网。
-    # 与其它自检一致：**只报告不拦构建**，但退出码必须回显 —— 否则失败态就地消失（#171 假绿）。
-    - name: 重复镜像卡自检（只报告）
-      script: |
-        set +e
-        python scripts/bridge/check_duplicate_mirrors.py --report
-        rc=$?
-        if [ $rc -eq 1 ]; then
-          echo "⚠️ 存在**重复镜像卡**（同一 GitHub 卡被建了多次）—— 需人工决定留哪张、删哪张"
-        elif [ $rc -eq 2 ]; then
-          echo "⚠️ 重复卡自检**拿不到输入**（有卡读不到）—— 本轮结论不可信，上列重复数只是**下限**"
-        fi
-        exit 0
 
 # 定时任务必须挂在具体分支下（不能放 $ 兜底），故这里显式写 main。
 main:
@@ -212,44 +133,11 @@ main:
   #
   # 另注：该文件在 Secret 仓库，API/token 一律 403（`Secret repos do not support
   # token access`）——**只能人工在 Web 界面改**，改不进 PR，故模板落在代码仓里。
-  # push 模式不开 force：绝不肯把 GitHub 独有提交冲掉（即「反向护栏」）。
-  # 回归网：scripts/guard_secret_imports.py + scripts/guard_git_sync_push_scope.py
-  #        （均并入 ci.yml 的 layout_guard job）。
-  #
-  # ⚠️ **目标分支收窄为 `dev`，不再 `--all`（CNB #167 / #172，2026-10-13）**：
-  #    插件不指定 `branch` 时执行 `git push target --all`，会把 CNB 的 `main` 一并推给 GitHub；
-  #    而 GitHub 侧 `main` 是权威源（只由发版 PR 推进）⇒ 两侧 `main` 各自长出独有提交，
-  #    分叉由此产生（实测 2026-10-13：CNB `main` 独有 31 / GitHub `main` 独有 27，交集 0）。
-  #    `branch: dev` 是插件**唯一**能表达「只推指定分支」的参数形态；`main` 从此不经此路外流。
-  #    **不要**删掉 `branch`、也不要改回不写 —— 那就是回到 `--all`（守卫会拦）。
-  #    功能分支的同步见下方 `"**/!(main|dev)"` 段。
-  #
-  # ⚠️ 还有第二层（CNB #269 之前没人踩到，因为它是**静默**的）：**挂载位置决定工作区**。
-  #    这三条作业原先挂在 `main:` 键下，于是 `dev` 的 push 构建里**根本没有它们**
-  #    （`get-build-stage` 返回「没有查询到该stage信息」确认过），而 `main` 的 cron 构建里
-  #    工作区只有 `main`、插件找不到 `dev` 就跳过。两层叠加 ⇒ **三天一次都没推成，全绿**。
-
-# ===== CNB `dev` ↔ GitHub `dev` 双向同步（git-sync 插件）=====
-# ⚠️ **必须挂在 `dev:` 分支键下**（CNB #269，2026-10-14）。这里的「挂在哪个分支键下」
-# 不是风格问题，它决定 runner 检出哪个分支 —— 而插件只推「工作区里存在的分支」：
-#   - fetch 命令是 `git fetch origin "refs/heads/<分支键>"`；checkout 是
-#     `git checkout -f -B "<分支键>" <sha>`（runner 日志原文）；
-#   - 所以作业挂在 `main` 下时，工作区只有 `main`，插件拿着 `branch: dev` 找不到，
-#     打一行 `Warning: Branch dev does not exist locally, skipping push` 就跳过，
-#     而**构建仍报 success** —— 三天里一次都没推成，却是绿的（CNB #269 实测）。
-#   - 更隐蔽的一面：挂在 `main` 下 ⇒ **`dev` 的 push 根本不带这个 job**
-#     （`get-build-stage` 查「同步到 GitHub（仅 dev + 标签）」返回「没有查询到该stage信息」）。
-# 判据见 `scripts/guard_git_sync_push_scope.py` 判据 5（新增）。
-#
-# 功能分支 → 上游同名分支的段见本文件末尾 `"**/!(main|dev)"`：那里用 `CNB_BRANCH`
-# 精确推**当前**分支，不像 `--all` 那样把 `main` 一起带上。
-dev:
+  # push 模式不开 force：CNB 为权威源，绝不通把 GitHub 独有提交冲掉（即「反向护栏」）。
+  # 回归网：scripts/guard_secret_imports.py（并入 ci.yml 的 layout_guard job）。
   push:
-    - name: 同步到 GitHub（仅 dev + 标签）
-      # ⚠️ 必须是带 name 的 job（列表 + `- name:`），不要退回裸 `stages:`：
-      # 裸 stages 的 job 在构建详情页查不到 stage，绿了也不知道推没推上去（假绿，CNB #172）。
-      stages:
-        - name: 同步到 GitHub（仅 dev + 标签）
+    - stages:
+        - name: 同步到 GitHub（全分支 + 标签）
           image: tencentcom/git-sync
           # 凭据走**插件任务级** imports（见上方说明：必须与 image 平级，且要用 imports 才能
           # 让 settings 里的 ${VAR} 解析；不要改回流水线级 imports，也不要改成 settingsFrom）
@@ -260,53 +148,27 @@ dev:
             auth_type: https
             username: ${GIT_USERNAME}
             password: ${GITHUB_PAT}
-            # 只推 dev；main 不在其列（GitHub 权威源自己推进）
-            branch: dev
             push_tags: true
-  # ---- 触发器结构：`crontab` / `push` 一律写成「job 列表 + 命名 stage」----
-  # ⚠️ CNB #167 实测：把 `stages:` **直接**挂在 `"crontab: ..."` 下（没有 `- name:` 包一层的
-  # job 对象）时，该 stage 在构建详情的 `get-build-stage` 里**查不到**
-  # （用 `stage-0` / `stages` / 各类 id 试过，全报「没有查询到该stage信息」）。
-  # 后果不是「样式不统一」，而是**作业内部到底推没推成功看不出来** ——
-  # `crontab: 30` 因此长期「挂旧 sha、实际没推上去、却报绿」，比红灯更危险。
-  # 故此处两条 cron 与 `push:` 统一为 `- name: <job 名> / stages: [...]` 形态。
-  # （job 名只用于构建页展示；stage 名才是 get-build-stage 的查询锚点，两者都要写。）
-
-  # ⛔ 「从 GitHub 拉取（`sync_mode: pull`）」那条 cron **已删除**（源 CNB #450，2026-10-14）。  # cross-repo-ref-allow
-  #
-  # WHY 删而不是修（实测，不是判断）：
-  #   - 插件的 pull = `git pull --rebase target <b>` + `git push origin <b> --force`，
-  #     即**把 CNB 自己的提交逐笔重放**到 GitHub 的 `dev` 之上；
-  #   - 而 CNB `dev` 相对 GitHub `dev` 有 **83 笔独有提交**，逐笔 rebase **79 笔冲突**
-  #     （只解 `docs/spec/decisions.md` 那一处，剩下 78 笔照旧）；
-  #   - 同一对分支用 **merge** 合，**零冲突**（`git merge gh/dev` 实测）。
-  #   ⇒ 内容本身完全可合，**是操作方式错了**（rebase vs merge），插件只提供 rebase。
-  #     故「解掉 decisions.md 的冲突债」解不掉这件事——它只是 79 分之一。
-  #
-  # 这条 cron 每次跑都必然红在同一个形态上（实测 2026-10-14：`cnb-b4a-1k4tbd6f2` /
-  # `cnb-907-1k4t7v3uj` 等），却一字节都拉不动 ⇒ 只是**每小时污染一次构建列表**。
-  #
-  # 取而代之（不新增 cron）：GitHub → CNB 的整段合并走**人工**的
-  # `python scripts/bridge/dev_converge.py --apply`（建 rescue 分支 + merge + 列冲突，
-  # 不碰 `dev`、不自动解冲突）——它用的正是 merge。判据见
-  # `docs/dev/github-cnb-mirror.md` §18。
-  #
-  # ⚠️ 与 CNB #167 的关系：那条决策是「pull **必须写 `branch`**（否则 force 覆盖 `main`）」，
-  # 描述的是「若启用 pull 该怎么配」。本处是**不再启用 pull**，故不与之冲突；
-  # 守卫 `scripts/guard_git_sync_push_scope.py` 的 pull 判据仍保留（防止将来有人加回裸 pull）。
-  #
-  # ⚠️ 回退姿势：要恢复拉取时**不要**只把这条 cron 贴回来——先确认
-  # `python scripts/bridge/check_cross_repo_dev_divergence.py --report` 报「无分叉」，
-  # 否则它一上线就撞回同一批冲突。
-
-  # 每小时兜底：**只推 `dev`**，不再 `--all`（CNB #167 / #172）。
-  # cron 事件下没有「被推的功能分支」上下文（`CNB_BRANCH` 恒为该段所挂分支），
-  # 故功能分支不由 cron 兜底 —— 那条路由 `push:` 事件下的 `branch: ${CNB_BRANCH}` 覆盖。
+  # 每小时从 GitHub 拉回（闭合 GitHub -> CNB）
+  "crontab: 0 * * * *":
+      stages:
+        - name: 从 GitHub 拉取（全分支 + 标签）
+          image: tencentcom/git-sync
+          # 凭据走**插件任务级** imports（见上方说明：必须与 image 平级，且要用 imports 才能
+          # 让 settings 里的 ${VAR} 解析；不要改回流水线级 imports，也不要改成 settingsFrom）
+          imports:
+            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
+          settings:
+            target_url: https://github.com/imoyao/fundmate.git
+            auth_type: https
+            username: ${GIT_USERNAME}
+            password: ${GITHUB_PAT}
+            sync_mode: pull
+            push_tags: true
+  # 每小时把 CNB 全部分支推到 GitHub（覆盖 feature 分支，不依赖 main push）
   "crontab: 30 * * * *":
-    - name: 同步到 GitHub（每小时兜底，仅 dev）
-      # ⚠️ 同上：必须是带 name 的 job，避免 stage 查不到造成假绿。
       stages:
-        - name: 同步到 GitHub（每小时兜底，仅 dev）
+        - name: 同步到 GitHub（每小时兜底）
           image: tencentcom/git-sync
           # 凭据走**插件任务级** imports（见上方说明：必须与 image 平级，且要用 imports 才能
           # 让 settings 里的 ${VAR} 解析；不要改回流水线级 imports，也不要改成 settingsFrom）
@@ -317,14 +179,60 @@ dev:
             auth_type: https
             username: ${GIT_USERNAME}
             password: ${GITHUB_PAT}
-            # 只推 dev；main 不在其列
-            branch: dev
             push_tags: true
 
+  # ===== 层 3：反向守卫（CNB #118 / #123）=====
+  # 断链的**成因**是「在 CNB 侧合了 PR」。与其事后从分叉自检发现，
+  # 不如在 PR 被创建 / 重新打开 / 源分支 push 的那一刻就说清楚：
+  # **本仓 CNB 侧只读**，PR 请到 GitHub 开（见 AGENTS.md「双端协作」）。
+  #
+  # 为什么这条防线能生效：`.cnb.yml` 就长在仓库里，`pull_request` 事件在**本仓**触发，
+  # 不需要跨仓凭据 —— 属于「配置写在会被执行的地方」。
+  #
+  # ⚠️ 事件必须挂在**分支之下**（#152：CNB 的 `.cnb.yml` 顶层只认分支名，
+  # `pull_request:` 写在顶层会被读成一个名为 pull_request 的**不存在分支**，
+  # 守卫空转还不报错）。main / dev 是仅有的两条长期分支，各挂一份；
+  # 配置随分支同步到 CNB，PR 打向哪条长期分支，就在哪条的配置里读到守卫。
+  pull_request:
+    - name: CNB 侧只读守卫
+      stages:
+        - name: 拒绝在 CNB 侧合 PR
+          script: |
+            cat <<'MSG'
+            ::error::本仓 CNB 侧只读：请在 GitHub 开 PR，不要在 CNB 侧合并。
+
+            原因：在 CNB 侧合 PR 必然产生 GitHub 没有的提交，下一次从 GitHub
+            同步时无法快进，镜像链路停摆（2026-10-11 已实测发生一次断链）。
+
+            正确路径：在 GitHub `imoyao/fundmate` 开 PR 合入 `dev`，
+            再由同步带到 CNB。详见 AGENTS.md「双端协作（CNB ↔ GitHub，强制）」。
+            MSG
+            exit 1
+
+# dev 同样挂一份：PR 打向 dev 时读的是 dev 分支上的 `.cnb.yml`。
+# 两条长期分支之外的 feature 分支不挂 —— 它们本就不该在 CNB 侧被合入，
+# 而 `$` 兜底只对 web_trigger 有意义（pull_request 需要分支上下文）。
+dev:
+  pull_request:
+    - name: CNB 侧只读守卫
+      stages:
+        - name: 拒绝在 CNB 侧合 PR
+          script: |
+            cat <<'MSG'
+            ::error::本仓 CNB 侧只读：请在 GitHub 开 PR，不要在 CNB 侧合并。
+
+            原因：在 CNB 侧合 PR 必然产生 GitHub 没有的提交，下一次从 GitHub
+            同步时无法快进，镜像链路停摆（2026-10-11 已实测发生一次断链）。
+
+            正确路径：在 GitHub `imoyao/fundmate` 开 PR 合入 `dev`，
+            再由同步带到 CNB。详见 AGENTS.md「双端协作（CNB ↔ GitHub，强制）」。
+            MSG
+            exit 1
+
+# ===== 功能分支 → 上游同名分支同步（从 #450 治理分支移植）=====
 "**/!(main|dev)":
   push:
     - name: 同步当前功能分支到 GitHub
-      # ⚠️ 同上：带 name 的 job 才在构建详情页可见。
       stages:
         - name: 同步当前功能分支到 GitHub
           image: tencentcom/git-sync
@@ -338,161 +246,33 @@ dev:
             # 只推「触发本次构建的那条分支」；cron 不走此段，故不会误推 dev/main
             branch: ${CNB_BRANCH}
 
-# =============================================================================
-# 兜底挂载：`$` 段 —— **任何分支**上的变更都跑一次建卡作业
-# =============================================================================
-#
-# WHY 要有这一段（CNB #172 的第二个动作）
-# ----------------------------------------
-# 建卡作业原先只挂在 `main` 的 `crontab: 0 18 * * *` 下。这带来一个用户实际撞到的缺口：
-#
-#   有人在 `feat/*` 分支上开了一张 CNB 本地卡 → 这张卡**永远不会**被看见，
-#   因为作业只跑在 `main` 上、且一天一次。用户的原话是：
-#   「我们有一些其他的分支在实现其他的功能，这个 issues 是不是无法感知到这一块？」
-#
-# 答案是「感知不到」，而且不是理论问题。`$` 段的意义正是**与分支无关**——
-# 无论 push 到哪条分支，这次构建都会带上本作业，于是：
-#
-#   - **新卡当天就能被扫到**（原来最坏要等一天，且必须 `main` 有动静）；
-#   - **新评论当天就能回写**（回写作业在 GitHub 侧按小时拉，这里只负责把卡建出来）；
-#   - 不再依赖「别人记得往 main 合」——这条依赖本身就不该存在。
-#
-# 边界（为什么不是「每 push 一次跑一轮全量」）
-# -------------------------------------------
-# `github_cnb_issues.py` 与 `mirror_state_sync.py` 都是**幂等**的：前者靠
-# `GitHub 编号：#N` 判重，后者靠评论里的 `状态键：`。所以重复跑的成本是
-# 「多几次 API 调用」，不是「重复建卡 / 重复发评论」——这是本段敢挂 push 的前提，
-# 也是为什么**只挂这两条**：其余自检（引用时效、分支分叉）在 `main` 的 cron 里跑即可，
-# 它们读的是「仓库整体状态」，push 到功能分支时结论并不会更新。
-#
-# ⚠️ `$` 段**不能**挂 git-sync：`$` 下没有「当前分支」上下文，
-# `CNB_BRANCH` 在 cron/push 形态下不可靠，误推 `main` 就是分叉（守卫会拦，见 #167/#172）。
-# 功能分支的代码同步仍由 `"**/!(main|dev)"` 段的 `push:` 负责。
-
-# =============================================================================
-# 认领同步：CNB 侧在干活 → GitHub 侧挂 `CNB 处理中`（源 CNB #179）  <!-- cross-repo-ref-allow -->
-# =============================================================================
-#
-# 场景（用户 2026-10-14 在 CNB #179 提的）：
-#   我们已经把 CNB 当成一个 contributor，但 GitHub 上的人**不知道** CNB 正在改哪张卡。
-#   两边可以同时动手，最后合并时才发现撞了。实测已经发生过一次：CNB 的 PR #180 与
-#   PR #181 是同一张卡（CNB #179）的**两套并行解法**，最后要人工逐处消解冲突。
-#
-# 为什么只能这样做（先把「做不到」说清，免得下一个人再来问一遍）
-# --------------------------------------------------------------
-# 用户的最初诉求是「**实时**感知，不要每小时拉或推」。这个诉求被**凭据拓扑**挡住了：
-#
-#   - CNB 构建 → 写 GitHub：**本仓打通了**（凭据来自 Secret 仓库 `fundmate-secret`
-#     的 `GITHUB_PAT`，与 git-sync 同一份；挂**插件任务级**是 §13.1 定死的形态）。
-#     ⚠️ 注意区分：从前那句「CNB 构建环境没有 GitHub 凭据」指的是**手工 `git push`**
-#     （`env` 里只有 `CNB_*`，所以那条路确实不通）；走**插件任务 + Secret imports**
-#     这条路是通的，git-sync 三个方向全在跑就是证据。
-#   - 但**触发**只能是 push / cron：CNB 侧收不到 GitHub 的 webhook（没装 GitHub App），
-#     所以「GitHub 上有人动了那张卡」这件事**叫不醒** CNB 的流水线。
-#
-# 于是把方向掰过来：**「实时」的那一半放在 GitHub 侧**（它能订阅自己的事件），
-# CNB 侧只负责「我这边有动静时顺手报一次」。
-#
-#   | 方向 | 谁驱动 | 延迟 |
-#   |---|---|---|
-#   | GitHub 侧有人动手 → CNB 镜像卡评论区 | `.github/workflows/claim-sync.yml` 订阅 issues/PR 事件 | **秒级** |
-#   | CNB 侧有人动手 → GitHub 原卡挂标签 | 本段（`$` 段 push，任何分支） | 分钟级（跟着 push 走） |
-#
-# 为什么挂在 `$` 段（而不是 `main` 的 cron）
-# ------------------------------------------
-# 认领是**「有人正在干活」**这件事的影子，而「干活」= push。挂在 `$` 段意味着
-# **任何分支一有 push 就顺手报一次**——这正是「有动静就报」，而不是「每小时巡逻」。
-# 挂 cron 反而更差：cron 只能挂具体分支（平台限制），会退化成「一小时一次」。
-#
-# 为什么这里可以挂插件（上一段刚说了 `$` 段不能挂 git-sync）
-# ---------------------------------------------------------
-# 那条禁令的理由是 **`CNB_BRANCH` 在 `$` 下不可靠 ⇒ 可能误推 `main`**。
-# 本任务不推任何东西：它只**读** CNB（匿名 / CNB_TOKEN）、**写** GitHub 的 issue 标签。
-# 没有 `branch` 参数，也就没有 `main` 可误推。
-# `scripts/tests/git_sync_push_scope.test.js` 里那条「`$` 段不得出现 `tencentcom/git-sync`」
-# 断言**依然成立**（本任务用的是 http-request 插件），不要去放宽它。
-#
-# 幂等（敢挂在每次 push 上的前提）
-# --------------------------------
-#   - 标签：GitHub `POST /labels` 原生幂等，重复挂不报错、不会重复；
-#   - 评论：正文末尾带隐藏标记 `<!-- cnb-claim: github=N prs=… -->`，
-#     发之前先把目标 issue 的评论扫一遍收标记 ⇒ **同一事实只发一次**。
-#   所以重复跑的成本是「多几次 API 调用」，不是「重复刷屏」。
-#
-# 凭据与「拿不到就大声失败」
-# --------------------------
-# `GITHUB_PAT` 走 Secret 仓库 `fundmate-secret` 的 **`claim-sync-env.yml`**（不是 `vars.yml`！）。
-#
-# 为什么必须另起一份（CNB #269 的真根因，2026-10-14 读完 CNB 文档定论）
-# ------------------------------------------------------------------
-# `vars.yml` 必须声明 `allow_images`（git-sync 是插件任务，不声明插件读不到密钥）。
-# 而 CNB《文件引用 › 权限检查 › image 检查说明》有一条硬规则：
-#
-#     非插件任务的 image 为空字符串，无法匹配任何 glob 表达式；
-#     配置文件声明了 `allow_images` 将不能被非插件任务引用。
-#
-# `认领同步` 同时写了 `image` + `script` ⇒ 它是**脚本任务**（image 只是跑 script 的容器）
-# ⇒ 引用 `vars.yml` **必死在 Prepare**，且报错与「挂在第几层」无关：
-#
-#     vars.yml declares allow_images and can only be referenced by plugin tasks.
-#
-# #269 已经改过两轮层级（job 对象 → stage 元素）都还是同一条 —— 真根因在**文件里的
-# `allow_images`**，不在挂载位置。故另起一份**不声明 `allow_images`** 的文件，
-# 只留 `allow_slugs` 兜住仓库范围；`push` 是可信事件 + 非镜像任务 ⇒ 不需要 `allow_events`。
-#
-# ⚠️ 别再把它改回 `vars.yml`，也别为了「省一份副本」把两份合并：
-#    `allow_images` 一出现，这个脚本任务就又死在 Prepare 了。
-#
-# ⚠️ 也不要把凭据写成 `.cnb.yml` 里的字面量 `env`：那等于把 PAT 提交进代码仓。
-#    `env` 只用来传**非敏感**参数（如这里的 `GITHUB_REPO`）。
-#
-# 引用形态：脚本任务级 `imports`（与 `env` / `script` 平级的 stage 键）——照 CNB
-# 《文件引用 › 权限检查》官方示例（密钥文件被普通脚本任务 `imports`）的形状。
-# `scripts/guard_secret_imports.py` 守这条线。
-#
-# 缺凭据时脚本**自己以退出码 1 失败**（不是默默跳过）：认领同步的假绿形态最坏——
-# 标签没挂上、而所有人都以为挂上了，然后两边照旧同时动手。
-# 收尾阶段因此回声退出码（`|| true` 只拦住「不该把建卡一起拖红」，不遮信号）。
-#
-# 本任务**不**改 `.cnb.yml` 之外的任何东西，也不碰 CNB 的 issue（只读）。
+# ===== claim-sync 锚点（CNB 在干活 → GitHub 挂 CNB 处理中，从 #450 治理分支移植）=====
 "claim-sync": &claim-job
   runner:
     cpus: 2
   docker:
     image: python:3.12-slim
 
+# 手动触发放兜底分支：与分支无关，放 $ 下任何分支都能点。
 $:
   web_trigger:
     - name: GitHub issue 增量镜像（手动）
       <<: *mirror-job
 
-  # 任何分支的 push 都跑一轮幂等建卡 + 状态回流：
-  # 功能分支上开的卡、写的评论，当天就能被系统看见。
+  # 任何分支的 push 都跑一轮幂等建卡 + 状态回流（从 #450 治理分支移植）：
   push:
     - name: 认领同步（任何分支，幂等）
       <<: *claim-job
       stages:
-        # ⚠️ 这是**脚本任务**（`image` + `script` 同时存在），不是插件任务。
-        #
-        # 脚本任务**可以**用 `imports` 取凭据（《脚本任务 vs 插件任务》对比表：
-        # 脚本任务「✅ 自定义环境变量 / ✅ imports 导入的环境变量」），
-        # **前提是被引用的密钥文件不声明 `allow_images`** —— 见本段上方「为什么必须另起一份」。
-        #
-        # 唯一要守的线：**引用的文件绝不能是 `vars.yml`**（那份带 `allow_images`，
-        # 脚本任务引用它必将整条作业拒在 Prepare）。
-        # ⚠️ 也不要改成 `settingsFrom`：那是「加载插件参数」的语义，脚本任务没有插件参数可加载。
-        - name: 认领同步（CNB 在干活 → GitHub 挂 `CNB 处理中`）
+        - name: 认领同步（CNB 在干活 → GitHub 挂 CNB 处理中）
           imports:
-            # 脚本任务级 imports（与 env/script 平级）：密钥文件不含 allow_images，故能在脚本任务上引用。
             - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/claim-sync-env.yml
           env:
             GITHUB_REPO: imoyao/fundmate
           script: |
-            # 凭据缺失：**先自证**再跑，免得脚本里所有读都 200、所有写都 401 而没人看见。
             if [ -z "${GITHUB_PAT:-}" ]; then
-              echo "❌ GITHUB_PAT 未注入 —— 认领同步无法执行"
+              echo "GITHUB_PAT 未注入 —— 认领同步无法执行"
               echo "   请在密钥仓库 fundmate-secret 的 claim-sync-env.yml 里配 GITHUB_PAT"
-              echo "   （模板见 docs/ops/claim-sync-secret-env.example.yml；与 vars.yml 里那份同一值）。"
               exit 1
             fi
             export GITHUB_TOKEN="$GITHUB_PAT"
@@ -500,36 +280,20 @@ $:
             python scripts/bridge/claim_detect.py --apply
             rc=$?
             if [ $rc -ne 0 ]; then
-              echo "⚠️ 认领同步返回 $rc——本轮结论不可信（可能是 GitHub 数据不完整，或写失败）"
+              echo "认领同步返回 $rc——本轮结论不可信"
             fi
             exit 0
 
     - name: issue 镜像兜底（任何分支，幂等）
-      # ⚠️ 同步约束：本 job 与 `main` 下的 cron 跑的是**同一套命令**，
-      # 改一处必须改两处（否则「功能分支上看得见、main 上看不见」或反之）。
       <<: *claim-job
       env:
         GITHUB_REPO: imoyao/fundmate
       stages:
         - name: 增量建卡（幂等，任何分支）
           script: |
-            # 与 `main` 的 cron 同一套命令（改一处必须改两处），故同一条边界也在这里：
-            # 建卡返回 1（GitHub 数据不完整 / 限额）必须**回声**，不得被静默成「绿」。
             set +e
             python scripts/bridge/github_cnb_issues.py --apply
             rc=$?
             if [ $rc -ne 0 ]; then
-              echo "⚠️ 增量建卡返回 $rc（多为 GitHub 数据不完整 / 限额）——本轮结论不可信"
+              echo "增量建卡返回 $rc（多为 GitHub 数据不完整 / 限额）——本轮结论不可信"
             fi
-            exit 0
-        # 与 `main` 的 cron 同一条边界：`|| true` 只遮「已回流过的幂等跳过」，
-        # 「数据不完整」必须可见（#171）——故回声退出码，不吞掉失败态。
-        - name: 状态回流（GitHub 已关闭 → CNB 标记并关闭）
-          script: |
-            set +e
-            python scripts/bridge/mirror_state_sync.py --apply
-            rc=$?
-            if [ $rc -ne 0 ]; then
-              echo "⚠️ 状态回流返回 $rc（多为 GitHub 数据不完整，#171）——本轮结论不可信，请查上方日志"
-            fi
-            exit 0
