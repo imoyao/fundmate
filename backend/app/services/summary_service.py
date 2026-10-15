@@ -241,6 +241,94 @@ def orphan_money_fund_totals_by_ledger(db: Session, family_id: int) -> tuple[dic
     )
 
 
+def orphan_cash_like_breakdown(db: Session, family_id: int, ledger_id: int) -> tuple[list[dict], int, int]:
+    """账外类现金的**逐产品**明细（#2155）：孤儿货基/逆回购流水按产品归组。
+
+    返回 `(items, net_cents, income_cents)`：
+
+    - `items` 逐产品明细，按合计绝对值降序；每项
+      `{name, symbol, asset_type, asset_type_label, net_amount, income_amount,
+      total_amount, txn_count}`（金额均元、已 round(2)）
+    - `net_cents` / `income_cents` 该账户的**合计**（分），与
+      `orphan_money_fund_totals_by_ledger` 的本金桶 / 收益桶**同源同值**。
+
+    WHY 需要它（#2155 验收第 2 条）：账户详情页此前只能给出一个
+    `cash_like_amount` 汇总数，用户问「这笔钱是什么、为什么不在持仓里」时
+    没有任何可读的构成。只补一个汇总出口等于没答这个问题。
+
+    ⚠️ 口径必须与本模块 `orphan_money_fund_totals_by_ledger` 完全一致
+    （资产类型、`position_id IS NULL`、buy/deposit 正 / sell/withdraw 负、
+    dividend/tax 不计、`is_income` 三态切分），否则汇总与明细会对不上——
+    所以本函数**刻意**不复用另一条 SQL 的聚合结果去反推明细，而是同处定义。
+    """
+    rows = (
+        db.query(
+            Transaction.txn_type,
+            Transaction.amount,
+            Transaction.is_income,
+            Transaction.symbol,
+            Transaction.position_name,
+            Transaction.asset_type,
+        )
+        .filter(
+            Transaction.family_id == family_id,
+            Transaction.ledger_id == ledger_id,
+            Transaction.asset_type.in_(_ORPHAN_FLOW_ASSET_TYPES),
+            Transaction.position_id.is_(None),
+        )
+        .all()
+    )
+
+    grouped: dict[tuple, dict] = {}
+    net_cents = 0
+    income_cents = 0
+    for txn_type, amount, is_income, symbol, name, asset_type in rows:
+        amount = amount or 0
+        if txn_type in _ORPHAN_FLOW_POSITIVE_TYPES:
+            delta = amount
+        elif txn_type in _ORPHAN_FLOW_NEGATIVE_TYPES:
+            delta = -amount
+        else:
+            continue  # dividend/tax 等不计入
+        # 三态切分：True → 收益桶；NULL / False → 本金桶（与汇总函数逐字一致）
+        if is_income:
+            income_cents += delta
+        else:
+            net_cents += delta
+
+        key = (symbol or '', name or '', asset_type or '')
+        bucket = grouped.setdefault(
+            key,
+            {
+                'name': name or '未命名',
+                'symbol': symbol,
+                'asset_type': asset_type,
+                'asset_type_label': TYPE_LABELS.get(asset_type, asset_type or _UNKNOWN_TYPE),
+                'net_amount_cents': 0,
+                'income_amount_cents': 0,
+                'txn_count': 0,
+            },
+        )
+        if is_income:
+            bucket['income_amount_cents'] += delta
+        else:
+            bucket['net_amount_cents'] += delta
+        bucket['txn_count'] += 1
+
+    items = []
+    for bucket in grouped.values():
+        net_yuan = Money.cents_to_yuan(bucket.pop('net_amount_cents'))
+        income_yuan = Money.cents_to_yuan(bucket.pop('income_amount_cents'))
+        bucket['net_amount'] = round(net_yuan, 2)
+        bucket['income_amount'] = round(income_yuan, 2)
+        # 「合计」是用户真正关心的那个数，且必须等于本金桶 + 收益桶在该产品上的和
+        bucket['total_amount'] = round(net_yuan + income_yuan, 2)
+        items.append(bucket)
+    # 金额绝对值降序：用户第一眼要看到的是「大头是哪几个产品」
+    items.sort(key=lambda x: abs(x['total_amount']), reverse=True)
+    return items, net_cents, income_cents
+
+
 def get_summary_data(db: Session, family_id: int = 1) -> dict[str, Any]:
     """返回仪表盘聚合数据（总资产、总负债、净资产、盈亏拆分、市场分布）
 
