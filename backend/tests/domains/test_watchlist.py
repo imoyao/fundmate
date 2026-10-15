@@ -1265,6 +1265,111 @@ class TestHoldingGroupRealPositions:
         assert '代码,名称,市场,类型,场内/场外,状态,置顶,特别关注,标签' in text
         assert 'SH600519,茅台,SH,股票,场内,持仓中,否,否,' in text
 
+    def test_holding_row_change_pct_from_latest_two_price_points(self, client, db, make_position):
+        """持仓行「今日涨跌幅」= 最新两价点变化，与非 HOLDING 行 enrich_item 同源（#2211）。
+
+        根因：_build_holding_row 曾把 change_pct 写死 None 且全函数不再赋值 →
+        持仓分组整列渲染 --。≥2 个价格点时必须算出涨跌幅，且既有 holding 行
+        字段（持仓统计 / 市值 / 现价 / 展示名）不因本修复回归。
+        """
+        from app.domains.securities.models import Security
+
+        make_position(
+            symbol='SH600519',
+            name='茅台',
+            asset_type='stock',
+            market='SH',
+            account_name='华泰',
+            quantity=100,
+            avg_price=18,
+            current_price=18,
+        )
+        # price_history.security_id NOT NULL：先建证券主档再写行情
+        sec = Security(symbol='SH600519', name='贵州茅台', market='SH', type='stock')
+        db.add(sec)
+        db.flush()
+        # 最近两根：1100（最新）/ 1000（前一根）→ (1100-1000)/1000 = +10%
+        db.add_all(
+            [
+                PriceHistory(
+                    security_id=sec.id,
+                    symbol='SH600519',
+                    trade_date=date.today() - timedelta(days=1),
+                    close=1100.0,
+                ),
+                PriceHistory(
+                    security_id=sec.id,
+                    symbol='SH600519',
+                    trade_date=date.today() - timedelta(days=2),
+                    close=1000.0,
+                ),
+            ]
+        )
+        db.commit()
+
+        resp = _get(client, '/api/watchlist/items/', {'status': 'HOLDING'})
+        assert resp.status_code == 200
+        row = next(d for d in resp.get_json()['data'] if d['symbol'] == 'SH600519')
+        assert row['change_pct'] == 10.0
+        # 既有 holding 行字段不回归：虚拟行约定 + 持仓统计 + 市值 + 展示名
+        assert row['id'] is None
+        assert row['status'] == 'HOLDING'
+        assert row['holding_quantity'] == 100.0  # 份
+        assert row['holding_cost_price'] == 18.0  # 元
+        assert row['holding_pnl'] == 0.0  # (18-18)×100
+        assert row['position_market_value'] == 1800.0
+        # 持仓行 current_price 仍取持仓均价快照（本卡不改该口径，只补 change_pct）
+        assert row['current_price'] == 18.0
+        assert row['display_name'] == '茅台'
+
+    def test_holding_row_change_pct_none_when_price_points_insufficient(self, client, db, make_position):
+        """价格点不足（0 或 1 根）的持仓行 change_pct 仍为 None → 前端 --（#2211 正确降级）。"""
+        from app.domains.securities.models import Security
+
+        make_position(
+            symbol='HK00700',
+            name='腾讯',
+            asset_type='stock',
+            market='HK',
+            account_name='富途',
+            quantity=200,
+            avg_price=3,
+            current_price=3.1,
+        )
+        make_position(
+            symbol='SZ000001',
+            name='平安银行',
+            asset_type='stock',
+            market='SZ',
+            account_name='平安',
+            quantity=100,
+            avg_price=10,
+            current_price=10,
+        )
+        sec = Security(symbol='HK00700', name='腾讯', market='HK', type='stock')
+        db.add(sec)
+        db.flush()
+        # 只有 1 根 K 线：无前价可比 → _build_quote 返回 change_pct=None
+        db.add(
+            PriceHistory(
+                security_id=sec.id,
+                symbol='HK00700',
+                trade_date=date.today() - timedelta(days=1),
+                close=300.0,
+            )
+        )
+        # SZ000001 不建 Security、不写行情 → 完全无价点，quote 即 None
+        db.commit()
+
+        resp = _get(client, '/api/watchlist/items/', {'status': 'HOLDING'})
+        assert resp.status_code == 200
+        by_symbol = {d['symbol']: d for d in resp.get_json()['data']}
+        assert by_symbol['HK00700']['change_pct'] is None  # 1 个价点
+        assert by_symbol['SZ000001']['change_pct'] is None  # 0 个价点
+        # 降级只影响涨跌幅列：单根收盘价有效时最新价照常展示
+        assert by_symbol['HK00700']['current_price'] == 3.1
+        assert by_symbol['SZ000001']['current_price'] == 10.0
+
 
 # ─────────────── 「全部」分组 = 自选 ∪ 持仓（方案 A 延续）───────────────
 class TestAllGroupUnionPositions:
