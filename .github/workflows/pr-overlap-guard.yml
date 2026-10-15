@@ -1,0 +1,72 @@
+# PR 重叠守卫（一劳永逸机制 Layer 3）
+#
+# ## 为什么需要它
+#
+# #450 系列的教训：多个并行 agent 在同一批「治理脚本」上各自造轮子，开出 4 个重叠大分支，
+# 互相污染基线，合并时冲突爆炸。本工作流在 PR 打开/同步时，检查它是否与其他 open PR
+# 触碰同一批「治理文件」，若是则提前评论预警，让人先协调而非事后救火。
+#
+# ## 守卫范围（治理文件）
+#
+# scripts/bridge/ 、scripts/check_*.py 、.cnb.yml 、AGENTS.md
+# —— 这些是全局共享、易被多分支重复改写的文件。普通业务改动不触发。
+
+name: PR 重叠守卫
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  overlap:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.base.ref == 'dev'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: 检测治理文件重叠
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PR="${{ github.event.pull_request.number }}"
+          GOV_GLOB='^(scripts/bridge/|scripts/check_.*\.py|\.cnb\.yml|AGENTS\.md)'
+
+          FILES=$(gh pr diff "$PR" --name-only)
+          GOV=$(printf '%s\n' "$FILES" | grep -E "$GOV_GLOB" || true)
+          if [ -z "$GOV" ]; then
+            echo "本 PR 未触碰治理文件，跳过"; exit 0
+          fi
+
+          OTHERS=$(gh pr list --base dev --state open --json number --jq ".[].number" | grep -v "^$PR$" || true)
+          [ -z "$OTHERS" ] && { echo "无其他 open PR 可对比，跳过"; exit 0; }
+
+          COLLIDE=""
+          for o in $OTHERS; do
+            OF=$(gh pr diff "$o" --name-only | grep -E "$GOV_GLOB" || true)
+            [ -z "$OF" ] && continue
+            COMMON=$(comm -12 <(printf '%s\n' "$GOV" | sort -u) <(printf '%s\n' "$OF" | sort -u) || true)
+            if [ -n "$COMMON" ]; then
+              COLLIDE="${COLLIDE}#${o} 重叠文件：\n${COMMON}\n"
+            fi
+          done
+
+          if [ -n "$COLLIDE" ]; then
+            {
+              echo "⚠️ 本 PR 与以下 open PR 触碰**相同治理文件**，存在重复造轮子 / 基线污染风险，请先协调再推进："
+              echo ""
+              echo '```'
+              printf '%s\n' "$COLLIDE"
+              echo '```'
+              echo ""
+              echo "治理文件范围：\`scripts/bridge/\`、\`scripts/check_*.py\`、\`.cnb.yml\`、\`AGENTS.md\`。"
+            } | gh pr comment "$PR" --body-file -
+          else
+            echo "未发现治理文件重叠"
+          fi
