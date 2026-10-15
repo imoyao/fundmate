@@ -167,7 +167,8 @@
               </td>
 
               <!-- 持仓市值：金额 + 占展示行市值合计的比例（自选页同形态）。
-                   金额是余额不是涨跌 → 不带正负号；占比恒为正 → 中性色，不套涨红跌绿。 -->
+                   金额是余额不是涨跌 → 不带正负号；占比恒为正的仓位权重 → 中性色，
+                   同样不带 +/- 号（show-ratio-sign，#2209），不套涨红跌绿。 -->
               <td class="wl-td wl-td--num">
                 <MoneyWithRatio
                   :value="item.position_market_value"
@@ -175,6 +176,7 @@
                   :show-sign="false"
                   :show-currency="true"
                   :ratio-auto-color="false"
+                  :show-ratio-sign="false"
                   money-size="sm"
                 />
               </td>

@@ -416,10 +416,12 @@ const renderMoneyRatio: FunctionalComponent<{
       // 添加后收益：金额由 price_at_added 差值计算，是真盈亏 → 带 +/- 号、不带 ¥
       showSign: !isMarketValue,
       showCurrency: isMarketValue,
-      // 「持仓市值」的比例是市值占比（恒为正），非涨跌语义，必须中性色；
-      // 「添加后涨幅」的 % 是真涨跌，保留默认涨红跌绿
+      // 「持仓市值」的比例是市值占比（恒为正的仓位权重），非涨跌语义：必须中性色，
+      // 且不带 +/- 号（showRatioSign 默认 true 会让 RiseFallText 拼出无意义的「+」，#2209）；
+      // 「添加后涨幅」的 % 是真涨跌，保留符号与默认涨红跌绿
       // （components.md MoneyWithRatio：占比等非涨跌语义 ratioAutoColor=false）
-      ratioAutoColor: !isMarketValue
+      ratioAutoColor: !isMarketValue,
+      showRatioSign: !isMarketValue
     });
   }
   // 直接字段列（持仓收益）：value=def.key, ratio=props.ratioKey
