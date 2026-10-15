@@ -23,6 +23,12 @@
    本判据等于没有——故守卫自带一个探针，用真实存在的 `sync/mirror:` 验证白名单没被架空。
 3. `imports` 引用：指向**仓库**的 `installs` 写法放行（CNB 插件语法的合法形态），
    只有「以目录结尾、看起来不像文件」的 URL 才报错。
+4. **同一层不得有重复的 mapping key**（源 CNB #457，2026-10-15）。CNB 的 YAML 解析器
+   对重复 key **直接报语法错**（`YAMLException: duplicated mapping key`），整条流水线
+   死在 Prepare，连 stage 都进不去。而 PyYAML 的 `safe_load` **默认放行**重复 key
+   （后值覆盖前值），所以此前三条判据对它全部「检查通过」——守卫自己看不见这一类。
+   本仓已真实栽过一次：跨仓收敛合并把两段 `dev:` 并进同一个文件，平台上多条流水线
+   同时红，本地却是绿的。
 
 不做什么
 --------
@@ -49,6 +55,41 @@ import yaml
 # 「多值白名单」会让任何分支名都合法，判据随即失效（探针见 self_check()）。
 ALLOWED_TOP_KEYS = {'$', 'version'}
 
+
+class _NoDupKeyLoader(yaml.SafeLoader):
+    """拒绝重复 mapping key 的 loader（判据 4，源 CNB #457）。
+
+    `yaml.safe_load` 对重复 key 是**静默放行**的（后者覆盖前者），而 CNB 的解析器
+    直接报 `duplicated mapping key` 语法错、整条流水线死在 Prepare。两者口径不同
+    ⇒ 必须显式换一个口径更严的 loader，否则守卫对这一类错误恒绿。
+
+    `flatten_mapping` 必须保留：本仓 `.cnb.yml` 用了 `<<: *anchor` 合并键
+    （`.mirror-job` / `claim-sync`），去掉它会在 merge 键上报
+    「could not determine a constructor for the tag merge」——那是守卫自己先崩，
+    不是被测文件有问题。
+    """
+
+
+def _construct_mapping_no_dup(loader, node, deep=False):
+    loader.flatten_mapping(node)
+    keys = []
+    for key_node, _value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in keys:
+            raise yaml.constructor.ConstructorError(
+                None,
+                None,
+                f'duplicated mapping key {key!r}',
+                key_node.start_mark,
+            )
+        keys.append(key)
+    return yaml.SafeLoader.construct_mapping(loader, node, deep=deep)
+
+
+_NoDupKeyLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_mapping_no_dup
+)
+
 # 顶层键长得像「事件」而不是「分支名」时的告警形态。CNB 的事件写在**分支之下**
 # （`main: push:` / `main: "crontab: ...":`），写到顶层就成了一个不存在的分支名。
 EVENT_LIKE = re.compile(r'^(push|pull_request|web_trigger|tag_push|crontab\s*:|\$.*)$', re.IGNORECASE)
@@ -66,8 +107,9 @@ BRANCH_NAME = re.compile(r'^[A-Za-z0-9._/!()*|?-]+$')
 
 
 def _load(path: Path) -> dict:
+    # 严格 loader：重复 key 必须在解析阶段就炸，而不是被后者静默覆盖（判据 4）。
     with path.open(encoding='utf-8') as fh:
-        data = yaml.safe_load(fh)
+        data = yaml.load(fh, Loader=_NoDupKeyLoader)
     return data if isinstance(data, dict) else {}
 
 
@@ -158,6 +200,19 @@ def self_check() -> list[str]:
             f'（{check_top_keys(glob_probe)[0]}）——字符集漏了 glob 通配。'
         ]
 
+    # 探针 S5（源 CNB #457）：重复 key 必须**真的**被拒绝。
+    # 否则「换严格 loader」会悄悄退化成空转——loader 换了、判据没接上，而真实文件
+    # 一旦有重复 key，平台照样死在 Prepare。用最小样本验，不依赖真实文件。
+    dup_probe = 'main:\n  push: []\ndev:\n  push: []\ndev:\n  pull_request: []\n'
+    try:
+        yaml.load(dup_probe, Loader=_NoDupKeyLoader)
+        return [
+            '自检探针失败：重复的顶层分支键（两段 `dev:`）没被拒绝 —— '
+            '严格 loader 的重复 key 判据没接上（源 CNB #457）。'
+        ]
+    except yaml.YAMLError:
+        pass  # 期望行为：抛错
+
     # 探针 S4：字符集放宽后，事件名必须**仍然**被拦（顺序不能反）。
     # 覆盖 GitHub 侧探针确认过的全部五类坏顶层键（2026-10-14 跨仓收敛时合并，
     # 少一类就等于「EVENT_LIKE 对那一类失效」时无人发现）。
@@ -185,7 +240,13 @@ def main() -> int:
     try:
         data = _load(path)
     except yaml.YAMLError as exc:
-        print(f'❌ {path} 不是合法 YAML：{exc}')
+        msg = str(exc)
+        if 'duplicated mapping key' in msg:
+            print(f'❌ {path} 有**重复的 mapping key**：{msg}')
+            print('   CNB 的解析器对这种写法直接报语法错，整条流水线死在 Prepare。')
+            print('   常见成因：跨仓收敛合并时两段同名分支键（如两段 `dev:`）被并进同一文件。')
+        else:
+            print(f'❌ {path} 不是合法 YAML：{msg}')
         return 1
 
     problems += check_top_keys(data)
