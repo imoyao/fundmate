@@ -280,15 +280,18 @@ function resetAllFilters() {
 /* 底部固定操作栏：重置 / 自定义快捷筛选 / 已选计数 / 取消 / 确定 永远可见。
    三区布局（#2199 精修）：左区（重置 + 自定义快捷筛选，text 级一组）、
    中区（已选计数，轻量次要色）、右区（取消 + 确定，主次按钮组）。
-   500px 面板宽下五件套须一行排开，故计数禁止换行（见 .filter-panel__count）。 */
+   500px 面板宽下五件套须一行排开，故计数禁止换行（见 .filter-panel__count）。
+   #2207 加固：给 footer 行与 count 直接父级补 nowrap，防止祖先链/兄弟挤压仍导致逐字竖排。 */
 .filter-panel__footer {
   display: flex;
   flex-shrink: 0;
+  flex-wrap: nowrap;
   gap: 8px;
   align-items: center;
   justify-content: space-between;
   padding: 10px 16px;
   border-top: 1px solid var(--border-light);
+  white-space: nowrap;
 }
 
 /* 中区「已选 N 项」：flex:1 0 auto + nowrap——左区新增「自定义快捷筛选」后

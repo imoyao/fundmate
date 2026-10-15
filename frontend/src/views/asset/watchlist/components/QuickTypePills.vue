@@ -61,11 +61,35 @@ const emit = defineEmits<{
 // 原生滚动条常驻会占约 4px 把胶囊区撑高、与相邻分区中心错位；
 // 故隐藏滚动条，横滑由滚轮手势承担，右缘渐变遮罩提示还有更多。
 const pillScrollEl = ref<HTMLElement>();
-/** 右缘渐变遮罩是否显示：仅当胶囊横向溢出时才出现，避免未溢出时误导用户 */
+/** 右缘渐变遮罩是否显示：仅当「单行且横向溢出」时显示；两行拆行时隐藏（#2213） */
 const showPillFade = ref(false);
 function updatePillFade() {
   const el = pillScrollEl.value;
-  showPillFade.value = !!el && el.scrollWidth > el.clientWidth + 1;
+  if (!el) {
+    showPillFade.value = false;
+    return;
+  }
+  const overflow = el.scrollWidth > el.clientWidth + 1;
+  if (!overflow) {
+    showPillFade.value = false;
+    return;
+  }
+  // 单行检测：与相邻分组 Tab 容器比较 offsetTop，若差值 > 2px 即视为已拆行（两行布局）
+  const parent =
+    el.closest(".filter-bar__center") || el.parentElement?.parentElement;
+  if (parent) {
+    const groupTabs = parent.querySelector(".group-tabs-wrap");
+    if (
+      groupTabs &&
+      Math.abs(
+        el.getBoundingClientRect().top - groupTabs.getBoundingClientRect().top
+      ) > 2
+    ) {
+      showPillFade.value = false; // 已拆行，隐藏遮罩
+      return;
+    }
+  }
+  showPillFade.value = true;
 }
 
 /** 滚轮横滑：仅当胶囊区确有溢出时拦截纵向滚轮转为横向，避免干扰页面滚动 */

@@ -79,11 +79,35 @@ const allGroups = computed(() => props.groups.allGroups.value);
 // （用户反馈：滚动条出现时两边对不上）。故隐藏原生滚动条、改用「滚轮/触控板横滑」，
 // 右缘渐变遮罩（.group-tabs-fade）负责提示还有更多，行高恒定、与右侧恒对齐。
 const groupScrollEl = ref<HTMLElement>();
-/** 右缘渐变遮罩是否显示：仅当分组 tab 横向溢出时才出现，避免未溢出时误导用户（#ai-review-inline） */
+/** 右缘渐变遮罩是否显示：仅当「单行且横向溢出」时显示；两行拆行时隐藏（#2213） */
 const showGroupFade = ref(false);
 function updateGroupFade() {
   const el = groupScrollEl.value;
-  showGroupFade.value = !!el && el.scrollWidth > el.clientWidth + 1;
+  if (!el) {
+    showGroupFade.value = false;
+    return;
+  }
+  const overflow = el.scrollWidth > el.clientWidth + 1;
+  if (!overflow) {
+    showGroupFade.value = false;
+    return;
+  }
+  // 单行检测：与相邻类型胶囊容器比较 offsetTop，若差值 > 2px 即视为已拆行（两行布局）
+  const parent =
+    el.closest(".filter-bar__center") || el.parentElement?.parentElement;
+  if (parent) {
+    const quickPills = parent.querySelector(".quick-pills-wrap");
+    if (
+      quickPills &&
+      Math.abs(
+        el.getBoundingClientRect().top - quickPills.getBoundingClientRect().top
+      ) > 2
+    ) {
+      showGroupFade.value = false; // 已拆行，隐藏遮罩
+      return;
+    }
+  }
+  showGroupFade.value = true;
 }
 
 /** 滚轮横滑：仅当分组区确有溢出时拦截纵向滚轮转为横向，避免干扰行内其它滚动。
