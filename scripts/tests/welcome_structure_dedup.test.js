@@ -208,8 +208,7 @@ test('#2034：全站只有 panorama 瀑布图一处画「资产大类构成」�
     '/frontend/src/views/asset/panorama/components/OverviewSummaryCard.vue',
     // 大类余额明细表：与瀑布图同口径的**表格**表达（同一区块的两种读法，非第二个「图」）
     '/frontend/src/views/asset/panorama/components/CategoryBalanceTable.vue',
-    // 智能分析首屏的大类卡片 + 环形图（#2034 三轮开口项，见 tech-debt）
-    '/frontend/src/views/asset/IntelligentAnalysis.vue',
+    // 复盘页（原「智能分析」）已在 #2150 删掉大类卡片 + 环形图，此处**不再豁免**。
     // 盘点页复用「投资理财」切片，不画构成图
     '/frontend/src/views/asset/inventory/useInventoryData.ts'
   ];
@@ -219,5 +218,115 @@ test('#2034：全站只有 panorama 瀑布图一处画「资产大类构成」�
     [],
     '又出现了新的「资产大类构成」图：同一份数据在一个产品里画两遍是「像 demo」的来源，' +
       '新页面请先查有没有既有出口（#2034）'
+  );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #2150：/analysis 重新定义定位 —— 与 panorama 去重，且删了就得保持删着
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ANALYSIS = 'frontend/src/views/asset/IntelligentAnalysis.vue';
+
+test('#2150：全站不再有第四处消费 category_distribution（复盘页已去重）', () => {
+  const hits = [];
+  for (const [file, code] of collectVueCodes('frontend/src')) {
+    if (/category_distribution/.test(code)) {
+      hits.push(file.replace(ROOT, '').replace(/\\/g, '/'));
+    }
+  }
+  const allowed = [
+    // 资产大类瀑布图（全站唯一的「资产大类构成」图出口）
+    '/frontend/src/views/asset/panorama/components/OverviewSummaryCard.vue',
+    // 大类余额明细表：与瀑布图同口径的**表格**表达（同一区块的两种读法）
+    '/frontend/src/views/asset/panorama/components/CategoryBalanceTable.vue',
+    // 瀑布图几何/option 计算模块（#2093 从组件抽出）
+    '/frontend/src/views/asset/panorama/components/assetWaterfall.ts',
+    // 盘点页复用「投资理财」切片，不画构成图
+    '/frontend/src/views/asset/inventory/useInventoryData.ts'
+  ];
+  assert.deepEqual(
+    hits.filter(h => !allowed.includes(h)),
+    [],
+    '又出现了新的「资产大类构成」出口：复盘页（原智能分析）已按 #2150 去重，' +
+      '其余页请先查有没有既有出口'
+  );
+});
+
+test('#2150：复盘页不得再出现与 panorama 同字段同接口同算法的四块', () => {
+  const code = readCode(ANALYSIS);
+  assert.ok(code, `${ANALYSIS} 应存在`);
+
+  // ① 总资产 + 环比/同比 ← panorama OverviewSummaryCard 首卡
+  assert.ok(
+    !/monthly_change_pct|yearly_change_pct/.test(code),
+    '总资产环比/同比归 panorama 首卡（同字段同接口），复盘页不得再画一遍'
+  );
+  // ② 大类占比的二次计算 ← panorama CategoryBalanceTable 逐字同公式
+  assert.ok(
+    !/\(d\.value\s*\/\s*total\)\s*\*\s*100/.test(code),
+    '「(值/合计)*100」与 panorama 大类表逐字同公式，属重复拆解'
+  );
+  // ③ category_distribution ← panorama 瀑布图 + 明细表
+  assert.ok(
+    !/category_distribution|getDistributions/.test(code),
+    'category_distribution 全站只画一次（panorama），复盘页不得消费'
+  );
+  // ④ getPositionGroups ← panorama DetailGroupList 同接口同维度
+  assert.ok(
+    !/getPositionGroups/.test(code),
+    '持仓分组表归 panorama 多维视图（同接口同维度），复盘页不得再画一遍'
+  );
+});
+
+test('#2150：判据非空转——把四块任意一块注回去必须报红', () => {
+  const samples = [
+    'const monthlyChangePct = computed(() => latestSnapshot.value?.monthly_change_pct)',
+    'share: total ? (d.value / total) * 100 : 0',
+    'distributionData.value = dist?.category_distribution ?? []',
+    'const res = await getPositionGroups("type");'
+  ];
+  const code = readCode(ANALYSIS);
+  for (const smp of samples) {
+    // 把样本拼进真实文件内容，确认上面四条断言真的会命中（而不是靠文件里恰好没有）。
+    const injected = code + '\n' + smp;
+    const hit =
+      /monthly_change_pct|yearly_change_pct/.test(injected) ||
+      /\(d\.value\s*\/\s*total\)\s*\*\s*100/.test(injected) ||
+      /category_distribution|getDistributions/.test(injected) ||
+      /getPositionGroups/.test(injected);
+    assert.ok(hit, `注回「${smp}」后判据必须命中`);
+  }
+});
+
+test('#2150：复盘页的独占项（净值走势）必须还在——删重复不等于删自己', () => {
+  const code = readCode(ANALYSIS);
+  assert.ok(
+    /getSnapshots/.test(code),
+    '资产净值走势是复盘页唯一的独占项（welcome 已让出、panorama 只取最新快照做环比），删了页面就没有存在理由'
+  );
+  assert.ok(
+    /profitTrendChartRef/.test(code),
+    '净值走势的 canvas 必须还在'
+  );
+});
+
+test('#2150：页面标题与入口文案一致（复盘），且路由声明只有一份', () => {
+  const router = readCode('frontend/src/router/modules/asset.ts');
+  assert.ok(router, 'asset.ts 应存在');
+  const analysisRoute = router.match(/path: "\/analysis"[\s\S]{0,600}?title: "([^"]+)"/);
+  assert.ok(analysisRoute, '应有 /analysis 路由声明');
+  assert.strictEqual(
+    analysisRoute[1],
+    '复盘',
+    '路由标题应为「复盘」（#2150 重定义定位后的命名）'
+  );
+  assert.ok(
+    !/"智能分析"/.test(router),
+    '「智能分析」作为**标题字面量**不应再出现在路由表里（可用作历史沿革注释）'
+  );
+  const panorama = readCode('frontend/src/views/asset/panorama/index.vue');
+  assert.ok(
+    />\s*复盘\s*</.test(panorama),
+    'panorama 页头入口按钮文案应随页面标题改为「复盘」，否则点过去标题对不上'
   );
 });
