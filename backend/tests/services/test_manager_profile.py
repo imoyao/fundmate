@@ -10,7 +10,10 @@
    会被前端读成「管理规模 0 亿」，是假数值；
 3. **列表带公司名消歧** —— 有重名，不带公司分不出谁是谁；
 4. **``fund_count`` 是总数而非返回条数** —— 列表有 ``fund_limit`` 上限，
-   两者混淆会让「共几只」显示成「最多 20 只」。
+   两者混淆会让「共几只」显示成「最多 20 只」；
+5. **同一 (经理, 基金) 关联存多行时按 ``fund_code`` 去重**（#2215）——
+   ``fund_managers`` 无 (fund_id, mgr_id) 唯一约束，join 按关联行扇出，
+   不去重就会「每只基金出现两次」，``fund_count`` 也会按行数虚高。
 
 ⚠️ 测试数据一律造在 **market 域**会话：``managers`` / ``funds`` / ``fund_managers``
 属 market 域，生产下是独立引擎。
@@ -190,6 +193,112 @@ def test_manager_without_fund():
 
     assert data['fund_count'] == 0
     assert data['funds'] == []
+
+
+# ---------------------------------------------------------------------------
+# 同一 (经理, 基金) 关联存多行时的去重 —— #2215「任职基金每只基金重复两次」回归网
+# ---------------------------------------------------------------------------
+
+
+def _force_link(mgr_code, fund_code, **rel_fields):
+    """**直接再插一条关联行**，绕过 `_link` 的「已存在则跳过」检查。
+
+    #2215 的现场数据就是 `fund_managers` 里同一 (mgr_id, fund_id) 多行——该表
+    只有自增 id 主键、没有 (fund_id, mgr_id) 唯一约束（models.py 的 FundManager），
+    走正常写入路径造不出重复，故测试必须硬插。
+    """
+    with closing(market_session_factory()()) as db:
+        mgr = db.query(Manager).filter(Manager.mgr_code == mgr_code).first()
+        fund = db.query(Fund).filter(Fund.fund_code == fund_code).first()
+        db.add(FundManager(mgr_id=mgr.id, fund_id=fund.id, **rel_fields))
+        db.commit()
+
+
+def test_duplicate_relation_rows_render_once():
+    """#2215 回归：同一 (经理, 基金) 存两行时列表只出一条，fund_count 按去重计。"""
+    _seed_manager('dup2215x1', '重复关联经理甲')
+    for code in ('722151', '722152'):
+        _seed_fund(code, f'重复基金{code[-1]}')
+        _link('dup2215x1', code)
+        _force_link('dup2215x1', code)  # 复刻库内重复行（每只基金 ×2）
+
+    with closing(market_session_factory()()) as db:
+        data = build_manager_profile(db, 'dup2215x1', fund_limit=5)
+
+    codes = [f['fund_code'] for f in data['funds']]
+    assert len(codes) == len(set(codes)) == 2, f'去重后每只基金应只出一条: {codes}'
+    assert set(codes) == {'722151', '722152'}
+    # 总数与列表同口径（distinct fund_id），否则「共 N 只」比列表虚高
+    assert data['fund_count'] == 2
+    assert data['active_fund_count'] == 2
+
+
+def test_dedup_prefers_backfilled_row_over_blank_row():
+    """#2215 取舍：保留任期已回填的行，别被「从未回填」的空行顶掉。
+
+    `is_active = (end_date is None)` 把空行也读成在任——若去重只按 is_active
+    优先，已卸任的基金会被显示成「至今」（故取舍里完整性排第一、is_active 第二）。
+    """
+    from datetime import date
+
+    _seed_manager('dup2215x2', '重复关联经理乙')
+    _seed_fund('722153', '重复取舍基金')
+    _link('dup2215x2', '722153')  # 空行（任期从未回填）
+    _force_link('dup2215x2', '722153', start_date=date(2020, 1, 1), end_date=date(2024, 6, 30))
+
+    with closing(market_session_factory()()) as db:
+        data = build_manager_profile(db, 'dup2215x2')
+
+    assert data['fund_count'] == 1
+    assert len(data['funds']) == 1
+    f = data['funds'][0]
+    assert f['start_date'] == '2020-01-01'
+    assert f['end_date'] == '2024-06-30'
+    assert f['is_active'] is False  # 已卸任，不得显示成「至今」
+
+
+def test_dedup_prefers_active_row_when_equally_complete():
+    """#2215 取舍：任期同等完整时保留在任（无卸任日）的那条。"""
+    from datetime import date
+
+    _seed_manager('dup2215x3', '重复关联经理丙')
+    _seed_fund('722154', '在任优先基金')
+    _link('dup2215x3', '722154')  # 空行，先排除
+    _force_link('dup2215x3', '722154', start_date=date(2021, 2, 1), end_date=date(2023, 1, 1))  # 已卸任
+    _force_link('dup2215x3', '722154', start_date=date(2024, 3, 1))  # 在任
+
+    with closing(market_session_factory()()) as db:
+        data = build_manager_profile(db, 'dup2215x3')
+
+    assert data['fund_count'] == 1
+    assert len(data['funds']) == 1
+    f = data['funds'][0]
+    assert f['is_active'] is True
+    assert f['start_date'] == '2024-03-01'
+
+
+def test_truncation_counts_distinct_funds_after_dedup():
+    """#2215 截断口径：**先去重再截断**，fund_count 按 distinct 计。
+
+    重复行若在截断前未去重，会挤占 fund_limit 名额——3 只基金各重复一次、
+    limit=2 时旧实现返回的两条是**同一只基金**；fund_count 若按关联行计（6）
+    也会让「共 6 只，仅显示前 2 只」与去重后的列表自相矛盾。
+    """
+    _seed_manager('dup2215x4', '重复关联经理丁')
+    for i, code in enumerate(('722155', '722156', '722157')):
+        _seed_fund(code, f'截断基金{i}')
+        _link('dup2215x4', code)
+        _force_link('dup2215x4', code)
+
+    with closing(market_session_factory()()) as db:
+        data = build_manager_profile(db, 'dup2215x4', fund_limit=2)
+
+    assert data['fund_count'] == 3  # distinct 总数（去重前按行数是 6）
+    assert len(data['funds']) == 2  # 去重后截断：重复行没挤占名额
+    codes = [f['fund_code'] for f in data['funds']]
+    assert len(set(codes)) == 2
+    # fundsTruncated（fund_count > funds.length）判据在去重后仍成立
+    assert data['fund_count'] > len(data['funds'])
 
 
 # ---------------------------------------------------------------------------
