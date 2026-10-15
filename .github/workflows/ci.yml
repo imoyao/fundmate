@@ -173,6 +173,19 @@ jobs:
       - name: 运行测试
         run: pdm run python -m pytest -p no:xdist -m "not slow"
 
+      # 总资产聚合守卫（源 CNB #478 / GitHub #2154 → #2179）：`family_totals`
+      # 被立为唯一聚合出口之后，账户级的 `get_ledger_distributions` 仍把同一套累加
+      # 逐字重写了一遍 —— 那正是本卡要杀的形态本身（口径再变时就是「下次漏改的一处」），
+      # 当时只靠 `test_account_snapshots.py` 里一条埋着的断言兜着，靠人找。
+      # 现两处共用 `_per_ledger_buckets`（家庭桶 = 各账户桶按位相加），本守卫把「不许再写
+      # 一份」机械化：`total_assets/liabilities/net_worth +=` 出现在允许的出口之外即报红。
+      # 纯 AST、零依赖（不需装依赖），但**并入 backend job 而非另起 job** ——
+      # 不新增 job 就不必改 gate.needs（#1559/#1560 两次事故都是合并冲突弄丢 needs）。
+      # 判据边界与首版误报（已删掉的第二判据）见脚本 docstring；
+      # 回归网在 scripts/tests/guard_summary_aggregation.test.js（含真实文件的回退探针）。
+      - name: 守卫:总资产聚合唯一出口
+        run: python ../scripts/guard_summary_aggregation.py
+
   # 布局宽度守卫（#1506）：容器宽度曾有 1280px / 1400px 两套硬编码散落 13+ 个文件，
   # 导致页头 / 页脚与内容区左右边缘错开。已收口为 --layout-* 令牌，本 job 防止再次写死。
   # 断点守卫（#1571）并入本 job 而非另起 job：两者同属「布局宽度」一类，

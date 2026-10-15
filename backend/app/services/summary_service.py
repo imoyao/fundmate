@@ -65,7 +65,7 @@ def _load_user_assets(db: Session, family_id: int) -> tuple[list[Type[Position]]
 
 
 # ---------------------------------------------------------------------------
-# 家庭级「总资产 / 总负债 / 净资产」唯一聚合出口（#2154）
+# 「总资产 / 总负债 / 净资产」唯一口径（#2154 → #2179）：账户级与家庭级共用一份规则
 #
 # WHY 单一出口：此前 `get_summary_data`、`get_distributions`、`get_account_groups`、
 # `get_sankey_data` 四处各自累加，**只有前两处**在 #1174 收口时被改到唯一市值口径
@@ -87,6 +87,70 @@ def _load_user_assets(db: Session, family_id: int) -> tuple[list[Type[Position]]
 # ---------------------------------------------------------------------------
 
 
+def _empty_bucket() -> dict[str, float]:
+    """一个聚合桶：元、未 round（round 只做在稳定出口，避免累加过程里反复取整漂移）。"""
+    return {'total_assets': 0.0, 'total_liabilities': 0.0, 'net_worth': 0.0}
+
+
+def _per_ledger_buckets(db: Session, family_id: int, positions=None, assets=None) -> dict[int, dict[str, float]]:
+    """**唯一累加实现**：把家庭资产按 `ledger_id` 归组累加（账户级与家庭级共用）。
+
+    无账户归属（`ledger_id` 为 NULL）的条目统一归到哨兵键 **0**。
+
+    WHY 这一层存在（#2179）：`get_ledger_distributions`（账户级快照）曾把
+    `family_totals` 的累加逻辑**逐字重写了一遍**——持仓走 `market_value_cents`、
+    排除非正数资产、负债单独归桶、孤儿流水并入，一模一样。那正是 #2154 要杀的形态本身：
+    **口径一旦再变，这里就是那个「下次漏改的一处」**（#1174 收口市值口径时，
+    `get_account_groups` 与 `get_sankey_data` 就是这么漏掉的）。
+    现在两处共用这一份实现，账户级与家庭级在结构上不可能再分叉：
+    `family_totals` = 所有桶按位相加，故 **Σ账户桶 ≡ 家庭桶** 是构造出来的恒等式，
+    不是靠两边各自算对来维持的。
+
+    调用方可传入已加载的 `positions` / `assets` 复用查询；不传则自行加载。
+    """
+    if positions is None or assets is None:
+        positions, assets = _load_user_assets(db, family_id)
+
+    totals: dict[int, dict[str, float]] = {}
+
+    def _bucket(ledger_id) -> dict[str, float]:
+        key = ledger_id or 0
+        bucket = totals.get(key)
+        if bucket is None:
+            bucket = totals[key] = _empty_bucket()
+        return bucket
+
+    # 1. 持仓市值：唯一口径 market_value_cents（override / balance / nav 三种情形在函数内统一）
+    for p in positions:
+        rate = EXCHANGE_RATES.get(p.currency, 1.0)
+        _bucket(p.ledger_id)['total_assets'] += Money.cents_to_yuan(market_value_cents(p, rate=rate))
+
+    # 2. 通用资产：非正数跳过；负债类单独归桶（保持正数，净资产在出口处才相减）
+    for a in assets:
+        amount = Money.cents_to_yuan(a.amount)
+        if amount <= 0:
+            continue
+        bucket = _bucket(a.ledger_id)
+        if a.major_category == _LIABILITY_KEY:
+            bucket['total_liabilities'] += amount
+        else:
+            bucket['total_assets'] += amount
+
+    # 3. 孤儿货基/逆回购流水：本金净额 + 渠道收益桶（#863 D1）一并计入总资产
+    net_map, income_map = orphan_money_fund_totals_by_ledger(db, family_id)
+    for _lid in set(net_map) | set(income_map):
+        _bucket(_lid)['total_assets'] += Money.cents_to_yuan(net_map.get(_lid, 0) + income_map.get(_lid, 0))
+
+    for bucket in totals.values():
+        bucket['net_worth'] = bucket['total_assets'] - bucket['total_liabilities']
+    return totals
+
+
+def _round_totals(bucket: dict[str, float]) -> dict[str, float]:
+    """出口处统一取整到分（两位小数）。"""
+    return {k: round(v, 2) for k, v in bucket.items()}
+
+
 def family_totals(db: Session, family_id: int, positions=None, assets=None) -> dict[str, float]:
     """家庭级总资产 / 总负债 / 净资产（元）——**唯一聚合出口**（#2154）。
 
@@ -98,34 +162,16 @@ def family_totals(db: Session, family_id: int, positions=None, assets=None) -> d
 
     ⚠️ **禁止**在别处另写一套 `total_assets += ...`：口径一旦分叉，
     balance 模式持仓会在一处算 0、另一处算实价（#2154 的实测症状）。
+    需要**按账户**看同一套口径时用 `get_ledger_distributions`（它同样委托
+    `_per_ledger_buckets`），不要自己再写一遍循环。
     """
-    if positions is None or assets is None:
-        positions, assets = _load_user_assets(db, family_id)
-
-    total_assets = 0.0
-    for p in positions:
-        rate = EXCHANGE_RATES.get(p.currency, 1.0)
-        total_assets += Money.cents_to_yuan(market_value_cents(p, rate=rate))
-
-    total_liabilities = 0.0
-    for a in assets:
-        amount = Money.cents_to_yuan(a.amount)
-        if amount <= 0:
-            continue
-        if a.major_category == _LIABILITY_KEY:
-            total_liabilities += amount
-        else:
-            total_assets += amount
-
-    # 孤儿货基/逆回购流水：本金净额 + 渠道收益桶（#863 D1）一并计入总资产
-    net_map, income_map = orphan_money_fund_totals_by_ledger(db, family_id)
-    total_assets += Money.cents_to_yuan(sum(net_map.values()) + sum(income_map.values()))
-
-    return {
-        'total_assets': round(total_assets, 2),
-        'total_liabilities': round(total_liabilities, 2),
-        'net_worth': round(total_assets - total_liabilities, 2),
-    }
+    buckets = _per_ledger_buckets(db, family_id, positions=positions, assets=assets)
+    # 家庭桶 = 各账户桶按位相加：与账户级共用同一份累加实现，故 Σ账户 ≡ 家庭（#2179）
+    merged = _empty_bucket()
+    for bucket in buckets.values():
+        for key in merged:
+            merged[key] += bucket[key]
+    return _round_totals(merged)
 
 
 # ---------------------------------------------------------------------------
@@ -519,47 +565,18 @@ def get_distributions(db: Session, family_id: int = 1) -> dict[str, Any]:
 def get_ledger_distributions(db: Session, family_id: int = 1) -> dict[int, dict[str, float]]:
     """按账户聚合的总资产 / 总负债 / 净资产（元），供账户级快照落库（#1181）。
 
-    口径与家庭级 `get_distributions` 严格对齐：
-    - 持仓市值一律走唯一口径 `position_valuation.market_value_cents`
-      （含 override / balance / nav 三种情形），因此无净值产品能正确计入；
-    - 孤儿货基/逆回购流水净额按 ledger 归组并入对应账户总资产。
+    口径**就是**家庭级那一份：本函数已不再自己累加，而是委托
+    `_per_ledger_buckets`（与 `family_totals` 共用同一实现，#2179）。
+    故「各账户桶合计 == 家庭级总数」是结构上的恒等式，不再靠两边各自算对来维持。
 
     Returns:
         {ledger_id: {'total_assets', 'total_liabilities', 'net_worth'}}；
         无账户归属（ledger_id 为 NULL）的条目统一归到哨兵键 0。
     """
-    positions, assets = _load_user_assets(db, family_id)
-
-    totals: dict[int, dict[str, float]] = {}
-
-    def _bucket(ledger_id):
-        key = ledger_id or 0
-        if key not in totals:
-            totals[key] = {'total_assets': 0.0, 'total_liabilities': 0.0, 'net_worth': 0.0}
-        return totals[key]
-
-    for p in positions:
-        rate = EXCHANGE_RATES.get(p.currency, 1.0)
-        _bucket(p.ledger_id)['total_assets'] += Money.cents_to_yuan(market_value_cents(p, rate=rate))
-
-    for a in assets:
-        amount = Money.cents_to_yuan(a.amount)
-        if amount <= 0:
-            continue
-        bucket = _bucket(a.ledger_id)
-        if a.major_category == _LIABILITY_KEY:
-            bucket['total_liabilities'] += amount
-        else:
-            bucket['total_assets'] += amount
-
-    # 孤儿货基/逆回购流水按账户并入：本金净额 + #863 渠道收益桶（与家庭级口径一致）
-    orphan_map, income_map = orphan_money_fund_totals_by_ledger(db, family_id)
-    for _lid in set(orphan_map) | set(income_map):
-        _bucket(_lid or 0)['total_assets'] += Money.cents_to_yuan(orphan_map.get(_lid, 0) + income_map.get(_lid, 0))
-
-    for bucket in totals.values():
-        bucket['net_worth'] = bucket['total_assets'] - bucket['total_liabilities']
-    return {k: {kk: round(vv, 2) for kk, vv in v.items()} for k, v in totals.items()}
+    # 不再自己累加：委托与 family_totals 共用的唯一实现（#2179），
+    # 故「Σ账户桶 ≡ 家庭桶」是构造出来的恒等式，而不是两边各自算对。
+    buckets = _per_ledger_buckets(db, family_id)
+    return {ledger_id: _round_totals(bucket) for ledger_id, bucket in buckets.items()}
 
 
 # ---------------------------------------------------------------------------
