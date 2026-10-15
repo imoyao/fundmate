@@ -61,7 +61,7 @@ title: 核心 API 端点清单（api）
 
 <!-- AUTO-ENDPOINTS:START（由 scripts/check_api_conventions.py --write 生成，勿手改） -->
 
-全量端点清单（共 **158** 条）：由 `scripts/check_api_conventions.py --write` 从
+全量端点清单（共 **162** 条）：由 `scripts/check_api_conventions.py --write` 从
 `backend/app/domains/**/views.py` 的 `@<bp>.<method>(...)` 装饰器静态生成，**禁止手改**——
 改路由后重跑该命令即可；CI 守卫会校验本段与实现逐条一致（不一致即红灯）。
 
@@ -127,6 +127,10 @@ title: 核心 API 端点清单（api）
 | GET | `/api/ledgers/sales-institutions/` | `list_sales_institutions` |
 | GET | `/api/ledgers/securities-aggregation/` | `get_securities_aggregation` |
 | GET | `/api/market/overview/` | `get_market_overview` |
+| GET | `/api/notifications/` | `list_notifications` |
+| PATCH | `/api/notifications/<int:notification_id>/read/` | `mark_notification_read` |
+| POST | `/api/notifications/read-all/` | `mark_all_read` |
+| GET | `/api/notifications/unread-count/` | `get_unread_count` |
 | POST | `/api/ocr/parse/` | `ocr_parse_text` |
 | POST | `/api/ocr/recognize/` | `ocr_recognize` |
 | GET | `/api/performance/money-fund-income/` | `get_money_fund_income` |

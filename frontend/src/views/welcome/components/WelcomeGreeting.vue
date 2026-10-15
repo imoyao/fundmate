@@ -103,7 +103,9 @@ defineProps<{
 }>();
 
 const openNotice = () => {
-  // TODO: 待 lay-notice 真实站内信路由接入后替换；当前无真实跳转目标
-  console.debug("[welcome] 打开站内信：待 lay-notice 路由接入");
+  // TODO: 待消息中心页面落地后替换为跳转；当前尚未有独立页面承载。
+  // 用户路径：导航栏右侧铃铛（lay-notice）里可查看全部站内通知并逐条/批量已读，
+  // 本提示条只负责告知「有 N 条未读」。
+  console.debug("[welcome] 打开站内信：待消息中心页面路由接入");
 };
 </script>
