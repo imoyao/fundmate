@@ -17,7 +17,7 @@ from app.core.database import get_db
 from app.domains.ledgers.models import Ledger
 from app.domains.portfolios.models import Portfolio
 from app.domains.portfolios.schemas import PortfolioCreate, PortfolioUpdate
-from app.services.portfolio_service import build_portfolio_holdings
+from app.services.portfolio_service import build_portfolio_holdings, replace_portfolio_ledger_links
 
 portfolios_bp = APIBlueprint('portfolios', __name__, url_prefix='/api/portfolios')
 
@@ -108,24 +108,19 @@ def update_portfolio(portfolio_id: int):
 
     with get_db() as db:
         portfolio = get_owned_or_404(db, Portfolio, portfolio_id)
-        if not portfolio:
-            abort(404, '投资组合不存在')
 
-        # 仅更新传入的字段
-        if schema.name is not None:
-            portfolio.name = schema.name
-        if schema.description is not None:
-            portfolio.description = schema.description
-        if schema.purpose is not None:
-            portfolio.purpose = schema.purpose
-        if schema.target_return is not None:
-            portfolio.target_return = schema.target_return
-        if schema.target_amount is not None:
-            portfolio.target_amount = schema.target_amount
-        if schema.target_date is not None:
-            portfolio.target_date = schema.target_date
-        if schema.benchmark is not None:
-            portfolio.benchmark = schema.benchmark
+        # 仅更新传入的字段（None = 未传，不动）
+        for field in ('name', 'description', 'purpose', 'target_return', 'target_amount', 'target_date', 'benchmark'):
+            value = getattr(schema, field)
+            if value is not None:
+                setattr(portfolio, field, value)
+
+        # 账户关联原子替换（#981）：diff/归属校验/批量写在 service，视图只做「异常 → HTTP」
+        if schema.ledger_ids is not None:
+            try:
+                replace_portfolio_ledger_links(db, portfolio_id, get_family_id(), schema.ledger_ids)
+            except ValueError as e:
+                abort(404, str(e))
 
         db.flush()
         db.refresh(portfolio)

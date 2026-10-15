@@ -48,7 +48,16 @@ import { supabase } from "@/utils/supabase";
  * 如何排除文件请看：https://cn.vitejs.dev/guide/features.html#negative-patterns
  */
 const modules: Record<string, any> = import.meta.glob(
-  ["./modules/**/*.ts", "!./modules/**/remaining.ts"],
+  [
+    "./modules/**/*.ts",
+    "!./modules/**/remaining.ts",
+    // 测试文件不得被当路由模块急加载：spec 在浏览器里执行 vitest suite()
+    // 会于应用启动期抛错导致整站白屏（#2152 本地实测）。守卫测试实际
+    // 住 src/router/__tests__/，此负向模式防有人把 spec 放回 modules/ 下。
+    "!./modules/**/__tests__/**",
+    "!./modules/**/*.spec.ts",
+    "!./modules/**/*.test.ts"
+  ],
   {
     eager: true
   }

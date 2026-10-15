@@ -70,7 +70,8 @@ export interface FundProfileResult {
   create_time: string | null;
   risk_level: number | null;
   benchmark: string | null;
-  managers: FundProfileManager[];
+  /** 基金经理列表；缺字段时为 null（与接口契约一致：缺失一律降级为「—」） */
+  managers: FundProfileManager[] | null;
   /** 费率阶梯；取不到时为 null（不阻断其余字段） */
   fee_rates: {
     fund_code: string;
@@ -576,14 +577,14 @@ export type TrendRange = "1M" | "3M" | "6M" | "1Y";
 
 export interface ProductTrendResult {
   symbol: string;
-  /** `close`=场内收盘价口径；`nav`=场外单位净值；空串=该品类无序列数据源（指数等） */
+  /** `close`=场内收盘价口径；`nav`=场外累计净值（缺失回退单位净值，#2171）；空串=该品类无序列数据源（指数等） */
   kind: string;
   /** 与 values 等长的日期轴（YYYY-MM-DD） */
   dates: string[];
   values: number[];
   /** 数据来源**站点名**（如「新浪财经」「天天基金」）；#1969 前这里回的是内部表名 */
   source: string;
-  /** 口径说明（如「前复权收盘价」「单位净值」）——与来源分开表达，前端不自行推断 */
+  /** 口径说明（如「前复权收盘价」「累计净值」）——与来源分开表达，前端不自行推断 */
   basis: string;
   range: TrendRange;
   /** 请求的区间天数（3M → 90） */
@@ -604,6 +605,77 @@ export function getProductTrend(params: {
   return http.request<ApiResponse<ProductTrendResult>>(
     "get",
     "/api/products/trend/",
+    { params }
+  );
+}
+
+/** 买卖点（#2171 · 走势叠加层）。锚 T 日（trade_date），确认日随点返回 */
+export interface TradePoint {
+  /** 交易日 YYYY-MM-DD（x 轴锚定用） */
+  date: string;
+  side: "buy" | "sell";
+  /** 成交金额（元） */
+  amount_yuan: number;
+  /** 份额（份） */
+  quantity: number;
+  /** 成交价（元） */
+  price_yuan: number;
+  /** 手续费（元） */
+  fee_yuan: number;
+  /** 确认日（悬浮展示；可能为 null） */
+  confirm_date: string | null;
+  account_name: string | null;
+  /** 该笔之后的成本线值（元）；清仓笔为 0 */
+  cost_after_yuan: number;
+  /** 该笔后清仓（成本线在此中断） */
+  closed: boolean;
+}
+
+/** 成本线一点：某交易日收盘后的持仓成本（元） */
+export interface CostLinePoint {
+  date: string;
+  cost_yuan: number;
+}
+
+export interface TradeTimelineSummary {
+  buy_count: number;
+  sell_count: number;
+  dividend_count: number;
+  total_buy_amount_yuan: number;
+  total_sell_amount_yuan: number;
+  total_fee_yuan: number;
+  first_trade_date: string | null;
+  last_trade_date: string | null;
+  current_quantity: number;
+  current_cost_yuan: number;
+  /** 成本均价（元/份）；空仓为 null */
+  current_avg_cost_yuan: number | null;
+  /** 未参与重放的流水数（拆分 / 兑付等，不静默丢弃） */
+  ignored_count: number;
+  ignored_types: Record<string, number>;
+}
+
+export interface TradeTimelineResult {
+  symbol: string;
+  points: TradePoint[];
+  cost_line: CostLinePoint[];
+  summary: TradeTimelineSummary;
+}
+
+/**
+ * 取持仓交易时间线（#2171 · 详情页走势叠加买卖点 / 成本线）。
+ *
+ * 私有数据：未登录 / 无持仓 / 无流水均返回空 points + 空 cost_line（结构不变），
+ * 调用方据 `points.length` 决定是否渲染叠加层，**不分支解析**。
+ * `ledger_id` 不传 = 全部账户合并（产品级视角，与产品级 XIRR 同源）。
+ */
+export function getTradeTimeline(params: {
+  symbol: string;
+  ledger_id?: number;
+}) {
+  return http.request<ApiResponse<TradeTimelineResult>>(
+    "get",
+    "/api/products/trade-timeline/",
     { params }
   );
 }

@@ -154,6 +154,7 @@ title: 核心 API 端点清单（api）
 | GET | `/api/products/related-symbols/` | `related_symbols` |
 | GET | `/api/products/resolve/` | `resolve_product` |
 | GET | `/api/products/stock-profile/` | `stock_profile` |
+| GET | `/api/products/trade-timeline/` | `product_trade_timeline` |
 | GET | `/api/products/trend/` | `product_trend` |
 | POST | `/api/reconciliation/adjustments/` | `apply_adjustment` |
 | GET | `/api/reconciliation/discrepancies/` | `list_discrepancies` |

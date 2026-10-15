@@ -40,10 +40,20 @@
       <template v-else>
         <!-- 收益概览（真实 XIRR，无预测） -->
         <section>
-          <SectionHeader
-            title="收益概览"
-            info="XIRR 由已录入的交易现金流真实计算，录入交易后自动生成；本页不做收益预测"
-          />
+          <SectionHeader title="收益概览" :info="xirrScopeInfo">
+            <!-- #2153：口径开关与投资概览（首页）逐字同款——同一时刻两页绑定的
+                 参数一致，数值天然一致；口径说明挂在 info（tooltip），随开关联动 -->
+            <template #action>
+              <el-radio-group
+                v-model="includeCashEquivalents"
+                size="small"
+                @change="loadXirr"
+              >
+                <el-radio-button :value="false">剔除现金</el-radio-button>
+                <el-radio-button :value="true">含现金</el-radio-button>
+              </el-radio-group>
+            </template>
+          </SectionHeader>
           <MetricGrid>
             <!-- value-color：本页主数字统一走品牌文字色 `--brand-ink`
                  （WCAG AA：白底 5.86:1）。默认 `--text-primary` 是中性暖黑 #2d2a24，
@@ -400,6 +410,10 @@ const distributions = ref<DistributionsData | null>(null);
 const latestSnapshot = ref<AssetSnapshotItem | null>(null);
 const positionItems = ref<GroupItem[]>([]);
 const xirr = ref<XirrData | null>(null);
+// #2153：XIRR「是否含现金等价物」口径——与投资概览（welcome）同语义、同默认值
+// （false=剔除现金，与后端 include_cash_equivalents 默认值一致）。两页各自持本地
+// 状态（issue 方案 1「切换后本地生效」），但开关与口径文案逐字一致，任一处可见、语义相同。
+const includeCashEquivalents = ref(false);
 const moneyFundIncome = ref<MoneyFundIncomeData | null>(null);
 
 const initialLoading = ref(true);
@@ -456,6 +470,14 @@ const xirrCaption = computed(() => {
     ? `基于 ${d.cashflow_count} 笔交易现金流`
     : "录入交易流水后自动计算";
 });
+
+/** #2153：收益概览口径说明——沿用首段说明 + 当前口径，后半句与首页
+ *  WelcomeXirrTemperature 的口径小字逐字一致（验收「语义一致」） */
+const xirrScopeInfo = computed(() =>
+  includeCashEquivalents.value
+    ? "XIRR 由已录入的交易现金流真实计算，录入交易后自动生成；本页不做收益预测。当前口径：含货币基金/逆回购/现金，反映账户总收益"
+    : "XIRR 由已录入的交易现金流真实计算，录入交易后自动生成；本页不做收益预测。当前口径：基于主动投资交易，不含货币基金等现金等价物"
+);
 
 const formatYuan = (n: number, p = 0) => `¥${formatAmount(n || 0, p)}`;
 const formatSignedYuan = (n: number) =>
@@ -607,12 +629,21 @@ const loadPositions = async () => {
   }
 };
 
+// #2153：请求序号——快速切换口径时丢弃过期响应，防止旧口径数据覆盖新口径
+// （否则会出现「开关显示剔除现金、数字却是含现金」的显示与开关失步）。
+let xirrReqSeq = 0;
 const loadXirr = async () => {
+  const seq = ++xirrReqSeq;
   try {
-    const res = await getPortfolioXirr("portfolio");
+    const res = await getPortfolioXirr(
+      "portfolio",
+      undefined,
+      includeCashEquivalents.value
+    );
+    if (seq !== xirrReqSeq) return;
     xirr.value = res?.data ?? null;
   } catch {
-    xirr.value = null;
+    if (seq === xirrReqSeq) xirr.value = null;
   }
 };
 
