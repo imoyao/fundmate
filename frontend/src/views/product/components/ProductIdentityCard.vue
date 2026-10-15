@@ -4,6 +4,7 @@
   只放事实项（代码 / 市场 / 场所 / 自选 / 持仓）。**名称与品类不在这里**——
   它们由 PageHeaderBar 页头承担（标题=产品名、副标题=品类）；卡内再排一次
   h2 名称 + 类型徽章是纯重复（用户实测「同一名称出现 4 次」，#2107 起删掉）。
+  例外：经理品类不展示「代码」（#2216，编码对使用者无意义，同投顾组合 §2.6 口径）。
 
   未登录时 in_watchlist / has_position 为 null（resolve 是「可选登录」端点），
   此时不渲染徽标——「未知」不是「没有」，不能显示成「未自选」。
@@ -34,7 +35,14 @@ onMounted(() => {
 <template>
   <CardBlock class="product-detail__hero">
     <dl class="product-detail__facts">
-      <div class="product-detail__fact">
+      <!-- 经理品类不展示「代码」（#2216）：此时 symbol 是基金经理编码
+           （MGR_<mgr_code>，经 resolve 大写化），对使用者没有任何意义。
+           先例：投顾组合按设计 §2.6 明确「不展示代码」，靠「名称 + 平台 + 机构」
+           识别；经理编码同理，靠「姓名 + 任职基金」识别。其余品类照常展示。 -->
+      <div
+        v-if="product.asset_type !== 'manager'"
+        class="product-detail__fact"
+      >
         <dt class="product-detail__fact-label">代码</dt>
         <dd class="product-detail__fact-value product-detail__symbol">
           {{ product.symbol }}
