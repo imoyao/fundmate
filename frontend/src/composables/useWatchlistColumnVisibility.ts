@@ -1,9 +1,9 @@
 /**
- * 自选表格列显隐 + 顺序偏好（issue #993 / #992）
+ * 自选表格列显隐 + 顺序偏好（issue #993 / #992；跨设备同步 #1337 方案 B）
  *
- * 职责：维护「哪些列被用户隐藏」与「可拖拽列的自定义顺序」，经 localforage
- * （IndexedDB 优先，降级 localStorage）持久化到本机。纯前端零后端
- * （2026-08-20 决策：后端暂无 user_preferences 表，上云待该基建落地后再迁移）。
+ * 职责：维护「哪些列被用户隐藏」与「可拖拽列的自定义顺序」。
+ * 双层持久化（#1337）：本机 localforage（IndexedDB 优先，降级 localStorage）
+ * + 云端 user_preferences（按 user_id 私有，换设备/换浏览器不丢）。
  *
  * 设计要点：
  * - 模块级单例状态：自选页 index.vue 与 SettingsDrawer 共享同一份，
@@ -11,10 +11,20 @@
  * - 只持久化「被隐藏的列 key」+「可拖拽列的顺序」，而非全量配置：
  *   新增列默认可见且落在默认位置，避免老用户升级后新列被旧缓存吃掉；
  * - 顺序只记录 draggable=true 的中段列：固定列（marker/product 左固定、
- *   actions 右固定）不参与拖拽，重建时按默认定义归位。
+ *   actions 右固定）不参与拖拽，重建时按默认定义归位；
+ * - 合并策略「最近修改时间取胜」（pickNewer，可单测纯函数）：
+ *   首屏先应用本地缓存不等网络，云端拉取后按 updated_at 择新单向收敛；
+ *   云端不可达/未登录一律静默回退本地（本地缓存永远兜底）。
  */
 import { computed, ref, type ComputedRef, type Ref } from "vue";
 import { localForage } from "@/utils/localforage";
+import { getUserPreference, putUserPreference } from "@/api/userPreference";
+import {
+  pickNewer,
+  stripStamp,
+  type ColumnSettings,
+  type PrefStamp
+} from "@/composables/watchlistColumnPrefs";
 import {
   watchlistColumnDefs,
   COLUMN_GROUP_META,
@@ -25,19 +35,6 @@ import {
 
 const STORAGE_KEY = "watchlist-column-settings";
 
-/** 列设置持久化结构 */
-interface ColumnSettings {
-  hidden: string[];
-  /**
-   * 被用户「显式开启」的默认隐藏列（defaultHidden=true）。
-   * 与 hidden 分开存：hidden 记「用户关掉的」，shown 记「用户打开的」，二者互斥。
-   * 旧缓存缺 shown 字段时按「从未开启」处理，新增列保持隐藏（不打扰老用户）。
-   */
-  shown?: string[];
-  /** 可拖拽列的自定义顺序（key 数组）；缺省 = 默认定义顺序（#992） */
-  order?: string[];
-}
-
 /** 模块级单例：页面与抽屉共享同一份状态 */
 const hiddenKeys = ref<Set<string>>(new Set());
 /** 默认隐藏、但被用户显式开启过的列（#993 新增列的默认关闭语义） */
@@ -45,38 +42,99 @@ const shownKeys = ref<Set<string>>(new Set());
 const customOrder = ref<string[]>([]);
 let loadStarted = false;
 
-/** 启动时异步恢复本地偏好；失败静默回退默认（缓存损坏不应锁死表格） */
-async function loadSettings(): Promise<void> {
+/** 把一份设置应用到内存状态（本地缓存与云端拉取共用） */
+function applySettings(saved: ColumnSettings): void {
+  if (Array.isArray(saved.hidden)) {
+    hiddenKeys.value = new Set(saved.hidden);
+  }
+  if (Array.isArray(saved.shown)) {
+    shownKeys.value = new Set(saved.shown);
+  }
+  if (Array.isArray(saved.order)) {
+    // 只保留仍存在于当前定义中的 key（定义删列后旧缓存不产生幽灵顺序）
+    const known = new Set(
+      watchlistColumnDefs.filter(d => d.draggable).map(d => d.key)
+    );
+    customOrder.value = saved.order.filter(k => known.has(k));
+  }
+}
+
+/** 本地时钟打点（ms）：updated_at 是本地合并策略的比较依据 */
+function stampLocal(settings: ColumnSettings): ColumnSettings {
+  return { ...settings, updated_at: Date.now() };
+}
+
+/** 读本地缓存（不应用，供合并比较）；无值/损坏返回 null */
+async function readLocal(): Promise<PrefStamp | null> {
   try {
     const saved = await localForage().getItem<ColumnSettings>(STORAGE_KEY);
     if (saved && Array.isArray(saved.hidden)) {
-      hiddenKeys.value = new Set(saved.hidden);
-    }
-    if (saved && Array.isArray(saved.shown)) {
-      shownKeys.value = new Set(saved.shown);
-    }
-    if (saved && Array.isArray(saved.order)) {
-      // 只保留仍存在于当前定义中的 key（定义删列后旧缓存不产生幽灵顺序）
-      const known = new Set(
-        watchlistColumnDefs.filter(d => d.draggable).map(d => d.key)
-      );
-      customOrder.value = saved.order.filter(k => known.has(k));
+      return { settings: saved, ts: saved.updated_at ?? 0 };
     }
   } catch {
     /* 读取失败按无偏好处理 */
   }
+  return null;
+}
+
+/** 上云（fire-and-forget）：剥离本地时钟字段，服务端维护 updated_at */
+function pushCloud(settings: ColumnSettings): void {
+  putUserPreference(STORAGE_KEY, stripStamp(settings)).catch(() => {
+    /* 云端不可达/未登录不影响会话内生效（本地已写） */
+  });
+}
+
+/** 启动时恢复本地偏好并拉云端合并；失败静默回退默认（缓存损坏不应锁死表格） */
+async function loadSettings(): Promise<void> {
+  const local = await readLocal();
+  if (local) applySettings(local.settings);
+  try {
+    const res = await getUserPreference<ColumnSettings>(STORAGE_KEY);
+    const cloud = res?.data;
+    if (!cloud) {
+      // 云端无值：本地有则回传一次（首访上云）；没有则维持默认
+      if (local) pushCloud(local.settings);
+      return;
+    }
+    const cloudStamp: PrefStamp = {
+      settings: cloud.value,
+      ts: cloud.updated_at ? Date.parse(cloud.updated_at) : 0
+    };
+    const winner = pickNewer(local, cloudStamp);
+    if (!winner) return;
+    applySettings(winner.settings);
+    if (winner === cloudStamp) {
+      // 云端更新：落到本地（带上云端时间戳，保证下次合并可比）
+      localForage()
+        .setItem<ColumnSettings>(STORAGE_KEY, {
+          ...winner.settings,
+          updated_at: cloudStamp.ts
+        })
+        .catch(() => {
+          /* 本地写失败不阻塞 */
+        });
+    } else if (local && cloudStamp.ts !== local.ts) {
+      // 本地更新：回传云端（单向收敛一次，不做同步环）
+      pushCloud(local.settings);
+    }
+  } catch {
+    /* 未登录（401）/网络失败：本地配置照常生效 */
+  }
 }
 
 function persistSettings(): void {
+  const settings: ColumnSettings = {
+    hidden: [...hiddenKeys.value],
+    shown: [...shownKeys.value],
+    order: [...customOrder.value]
+  };
+  const stamped = stampLocal(settings);
   localForage()
-    .setItem<ColumnSettings>(STORAGE_KEY, {
-      hidden: [...hiddenKeys.value],
-      shown: [...shownKeys.value],
-      order: [...customOrder.value]
-    })
+    .setItem<ColumnSettings>(STORAGE_KEY, stamped)
     .catch(() => {
       /* 持久化失败不影响会话内生效（IndexedDB 不可用时降级由库内部处理） */
     });
+  pushCloud(stamped);
 }
 
 export interface WatchlistColumnVisibility {

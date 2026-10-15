@@ -117,3 +117,75 @@ class TestRecordStats:
         assert data['first_entry_date'] == '2025-01-01'
         expected_days = max((date.today() - trade.date()).days, 0)
         assert data['record_days'] == expected_days
+
+
+class TestUserPreferences:
+    """GET/PUT /api/users/preferences/<key>/（#1337 方案 B 跨设备同步）。
+
+    测试走开发模式默认用户（无 token 回退默认身份），另一用户行由测试直插。
+    """
+
+    KEY = 'watchlist-column-settings'
+
+    def test_get_missing_key_returns_null(self, client):
+        """无值返回 200 + data=null（前端按无偏好处理，不是 404）"""
+        resp = client.get(f'/api/users/preferences/{self.KEY}/')
+        assert resp.status_code == 200
+        assert resp.get_json()['data'] is None
+
+    def test_put_then_get_roundtrip(self, client, db):
+        """PUT upsert 后 GET 回读一致，updated_at 随写入生成（供合并策略比较）"""
+        payload = {'hidden': ['pe_ratio'], 'shown': ['manager_name'], 'order': ['price']}
+        resp = client.put(f'/api/users/preferences/{self.KEY}/', json={'value': payload})
+        assert resp.status_code == 200
+        body = resp.get_json()['data']
+        assert body['key'] == self.KEY
+        assert body['value'] == payload
+        assert body['updated_at'] is not None
+
+        got = client.get(f'/api/users/preferences/{self.KEY}/').get_json()['data']
+        assert got['value'] == payload
+
+    def test_put_same_key_overwrites_single_row(self, client, db):
+        """同 key 二次 PUT 覆盖同一行（唯一约束生效，不重复建行）"""
+        client.put(f'/api/users/preferences/{self.KEY}/', json={'value': {'hidden': ['a']}})
+        client.put(f'/api/users/preferences/{self.KEY}/', json={'value': {'hidden': ['b']}})
+
+        got = client.get(f'/api/users/preferences/{self.KEY}/').get_json()['data']
+        assert got['value'] == {'hidden': ['b']}
+
+        from app.domains.users.models import UserPreference
+
+        db.expire_all()
+        rows = db.query(UserPreference).filter_by(key=self.KEY).all()
+        assert len(rows) == 1
+
+    def test_preferences_are_isolated_per_user(self, client, db):
+        """按 user_id 私有：另一用户同 key 值互不可见、互不覆盖"""
+        from app.domains.users.models import User, UserPreference
+
+        other = User(family_id=1, username='other-pref-user')
+        db.add(other)
+        db.commit()
+        db.add(UserPreference(user_id=other.id, key=self.KEY, value='{"hidden": ["other"]}'))
+        db.commit()
+
+        my_payload = {'hidden': ['mine']}
+        client.put(f'/api/users/preferences/{self.KEY}/', json={'value': my_payload})
+
+        got = client.get(f'/api/users/preferences/{self.KEY}/').get_json()['data']
+        assert got['value'] == my_payload
+
+        db.expire_all()
+        other_row = db.query(UserPreference).filter_by(user_id=other.id, key=self.KEY).first()
+        assert other_row.value == '{"hidden": ["other"]}'
+
+    def test_put_non_object_value_rejected(self, client):
+        """value 必须是 JSON 对象：裸数组/标量拒收"""
+        resp = client.put(f'/api/users/preferences/{self.KEY}/', json={'value': [1, 2]})
+        assert 400 <= resp.status_code < 500
+
+    def test_overlong_key_rejected(self, client):
+        """key 超过 100 字符 → 400"""
+        resp = client.get(f'/api/users/preferences/{"k" * 101}/')
+        assert resp.status_code == 400
