@@ -139,7 +139,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/families/views.py": {"lines": 72, "orm_queries": 2, "commits": 0, "max_func": 22},
     "backend/app/domains/funds/views.py": {"lines": 197, "orm_queries": 2, "commits": 0, "max_func": 39},
     "backend/app/domains/importers/views.py": {"lines": 249, "orm_queries": 1, "commits": 0, "max_func": 53},
-    "backend/app/domains/ledgers/views.py": {"lines": 725, "orm_queries": 16, "commits": 0, "max_func": 60},
+    "backend/app/domains/ledgers/views.py": {"lines": 728, "orm_queries": 16, "commits": 0, "max_func": 60},
     "backend/app/domains/market/views.py": {"lines": 37, "orm_queries": 0, "commits": 0, "max_func": 21},
     "backend/app/domains/ocr/views.py": {"lines": 214, "orm_queries": 1, "commits": 0, "max_func": 48},
     "backend/app/domains/performance/views.py": {"lines": 86, "orm_queries": 0, "commits": 0, "max_func": 31},

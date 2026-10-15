@@ -329,6 +329,10 @@
   --space-2: 8px;
   --space-3: 12px;
   --space-compact: 16px;
+  /* #2171：补幽灵令牌（ProductProfitPanel.vue 引用 var(--space-4) 但全仓无定义，
+     CSS 守卫 check_css_vars.mjs 判「引用未定义」）。阶梯位 4×4=16px，与 --space-compact
+     同值——compact 是语义别名、本项是数字阶梯，两者并存不冲突（同 #1558 补 --space-6 先例）。 */
+  --space-4: 16px;
   --space-5: 20px;
   --space-6: 28px; /* #1558：补幽灵令牌（原引用 var(--space-6, 28px)，fallback 即本值） */
   --space-standard: 24px;

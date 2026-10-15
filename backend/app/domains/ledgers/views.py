@@ -569,6 +569,9 @@ def update_ledger_position(ledger_id: int, position_id: int):
             abort(404, '持仓不存在或不属于该账户')
 
         if 'allocation' in data:
+            # 五笔钱白名单（#1123 P0）；None = 清空语义保留
+            if data['allocation'] is not None and data['allocation'] not in ALLOCATION_LABELS:
+                abort(400, '非法配置目标')
             pos.allocation = data['allocation']
         if 'current_price' in data:
             pos.current_price = Money.yuan_to_price_units(data['current_price'])
