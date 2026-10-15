@@ -30,10 +30,13 @@
     </PageHeaderBar>
 
     <div class="analysis-shell">
+      <!-- #2156：chart-cols 由 3 改 2——风险热力图下线后真实图表区只剩
+           「资产分布 + 资产净值走势」两张卡，骨架屏占位数须与之一致
+           （PageSkeleton 铁律 1「结构一致」，防加载完成时布局跳动）。 -->
       <PageSkeleton
         v-if="initialLoading"
         :cards="4"
-        :chart-cols="3"
+        :chart-cols="2"
         :table-rows="5"
       />
 
@@ -568,11 +571,13 @@ const paintProfitTrendChart = (chart: echarts.ECharts) => {
   });
 };
 
-// #2164：两个图表的实例生命周期（init / window resize / 卸载 dispose / 主题重绘 /
+// #2164：图表实例生命周期（init / window resize / 卸载 dispose / 主题重绘 /
 // keepAlive 恢复时 resize）统一交给 useEchartsLifecycle；本文件只负责「往给定实例
 // setOption」。`reuse: true` 保留原先 `chart ?? echarts.init()` 的复用语义——
 // 否则每次刷新都重建实例，动画状态丢失且肉眼可见地闪一下。
 // 主题切换重绘由 composable 内置的 `watch(themeTick, render)` 覆盖（下方不再重复写）。
+// #2156：风险热力图下线后本页仅剩「资产净值走势」一张 ECharts 图，
+// 资产分布已收编到 AssetAllocationDonut 组件（#2164），不走本生命周期。
 const { render: initCharts } = useEchartsLifecycle(
   [
     {
