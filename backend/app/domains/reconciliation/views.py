@@ -6,6 +6,12 @@
 - GET  /api/reconciliation/discrepancies/ 列出当前活跃差异
 - POST /api/reconciliation/discrepancies/<id>/ignore/  忽略（临时/永久）
 
+域 D（跨账本重复交易，#2151）：
+- GET    /api/reconciliation/ghost-duplicates/                     列出未忽略的重复组（实时派生）
+- POST   /api/reconciliation/ghost-duplicates/<fingerprint>/ignore/ 忽略（幂等）
+- DELETE /api/reconciliation/ghost-duplicates/<fingerprint>/ignore/ 撤销忽略
+- GET    /api/reconciliation/ghost-duplicates/ignored/             已忽略清单（可撤销）
+
 域 B 算法（设计文档 §6.1）：
     理论持仓 = 期初快照份额 + 期后流水净变化（confirm_date > snapshot_date）
     差异     = 实际持仓（positions.quantity）− 理论持仓
@@ -22,6 +28,13 @@ from app.core.auth import get_family_id
 from app.core.database import user_session
 from app.core.money import Money
 from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy
+from app.services.ghost_duplicate_service import (
+    ignore_group,
+    list_ignores,
+    scan_visible_groups,
+    undo_ignore,
+    undo_ignore_by_id,
+)
 from app.services.reconciliation_service import apply_decision, get_ledger_snapshot_consistency
 from app.services.reconciliation_service import run_reconciliation as run_reconciliation_service
 
@@ -213,6 +226,79 @@ def ledger_consistency():
     with user_session() as db:
         items = get_ledger_snapshot_consistency(db, family_id, ledger_id)
         return jsonify({'data': {'items': items}, 'message': 'ok'})
+
+
+@bp.get('/ghost-duplicates/')
+def list_ghost_duplicates():
+    """域 D：跨账本疑似重复交易组（实时派生，减掉已忽略）。
+
+    数据源是 `services.summary_service.scan_cross_ledger_duplicates`——
+    它归 summary 域只是历史落点，**定性本身是对账**（后端注释自带：
+    「本扫描在 family 级识别同一笔交易疑似出现在多个账本」）。故列表挂在
+    `/api/reconciliation/` 下，A/B/C/D 四域的入口与忽略语义统一在这里。
+    """
+    family_id = get_family_id()
+    with user_session() as db:
+        groups = scan_visible_groups(db, family_id)
+        ignored_count = len(list_ignores(db, family_id))
+        return jsonify({'data': {'groups': groups, 'ignored_count': ignored_count}, 'message': 'ok'})
+
+
+@bp.get('/ghost-duplicates/ignored/')
+def list_ghost_duplicate_ignores():
+    """域 D：已忽略清单（撤销入口的数据源）。
+
+    ⚠️ 必须注册在 `/<fingerprint>/ignore/` **之前**的同层，且路径段固定为
+    `ignored` —— Flask 的 `<fingerprint>` 是字符串转换器（接受任意非斜杠串），
+    若顺序反了 `/ghost-duplicates/ignored/` 会被前者吃掉。此处顺序已固定。
+    """
+    family_id = get_family_id()
+    with user_session() as db:
+        return jsonify({'data': list_ignores(db, family_id), 'message': 'ok'})
+
+
+@bp.post('/ghost-duplicates/<fingerprint>/ignore/')
+def ignore_ghost_duplicate(fingerprint: str):
+    """忽略一组跨账本重复（幂等）。
+
+    body: { reason: str?, operator: int? }
+    幂等语义：同一指纹重复忽略不报错（前端刷新 / 重放安全）。
+    上限：单家庭 `MAX_IGNORES_PER_FAMILY` 条，超出回 400 并提示先撤销。
+    """
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        abort(400, description='请求体必须是 JSON 对象')
+    family_id = get_family_id()
+    with user_session() as db:
+        try:
+            data = ignore_group(db, family_id, fingerprint, reason=body.get('reason'), operator=body.get('operator'))
+        except ValueError as e:
+            return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400
+        return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.delete('/ghost-duplicates/ignored/<int:ignore_id>/')
+def undo_ghost_duplicate_ignore(ignore_id: int):
+    """按记录 id 撤销忽略（已忽略清单页用）。
+
+    为什么有 id 版而不是只留指纹版：清单页拿到的就是行（含 id 与人类可读摘要），
+    让前端为撤销再去拼指纹（64 位十六进制）是把内部实现推给 UI。
+    幂等：不存在的记录返回 deleted=False，不报 404 —— 撤销一个「已经撤销过」的目标，
+    用户的意图已经达成，报错只会制造无意义红字。
+    """
+    family_id = get_family_id()
+    with user_session() as db:
+        deleted = undo_ignore_by_id(db, family_id, ignore_id)
+        return jsonify({'data': {'deleted': deleted}, 'message': 'ok'})
+
+
+@bp.delete('/ghost-duplicates/<fingerprint>/ignore/')
+def undo_ghost_duplicate_ignore_by_fingerprint(fingerprint: str):
+    """按指纹撤销忽略（幂等，语义同 id 版）。"""
+    family_id = get_family_id()
+    with user_session() as db:
+        deleted = undo_ignore(db, family_id, fingerprint)
+        return jsonify({'data': {'deleted': deleted}, 'message': 'ok'})
 
 
 def _parse_summary(raw: str | None) -> dict:

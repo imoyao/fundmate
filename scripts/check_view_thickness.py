@@ -137,6 +137,13 @@ NEW_FILE_LIMITS = {
 # （与同函数上方的 get_owned_or_404 归属校验同层），不是编排逻辑。增量仅 +3 行（注释 1 +
 # if 2），orm_queries / commits / max_func 三项不动。按既有先例以 `--report` 实测回写（仅 lines）：
 # ledgers 725 → 728。
+# 2026-10-15 重取（#2151，**新增端点、非业务规则进视图**）：对账工作台开出域 D
+# 「跨账本重复交易」——新增 4 条端点（列表 / 已忽略清单 / ignore / 按 id 与指纹撤销）。
+# 业务规则全部落在 `services/ghost_duplicate_service.py`（指纹差集、幂等、上限、快照），
+# 视图侧只有「调服务 + 组响应 + 信封」，**orm_queries / commits / max_func 三项原地不动**
+# （2 / 0 / 48），唯 `lines` 225 → 311（+86，含 5 个端点 docstring）。
+# 这是「新增功能但视图不增厚度」的又一例：与 #2141 summary 那次同型，按既有先例以
+# `--report` 实测回写，基线只减不增。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/assets/views.py": {"lines": 208, "orm_queries": 4, "commits": 0, "max_func": 44},
     "backend/app/domains/auth/views.py": {"lines": 137, "orm_queries": 3, "commits": 0, "max_func": 45},
@@ -149,7 +156,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/performance/views.py": {"lines": 86, "orm_queries": 0, "commits": 0, "max_func": 31},
     "backend/app/domains/portfolios/views.py": {"lines": 161, "orm_queries": 1, "commits": 0, "max_func": 25},
     "backend/app/domains/positions/views.py": {"lines": 288, "orm_queries": 6, "commits": 0, "max_func": 57},
-    "backend/app/domains/reconciliation/views.py": {"lines": 225, "orm_queries": 2, "commits": 0, "max_func": 48},
+    "backend/app/domains/reconciliation/views.py": {"lines": 311, "orm_queries": 2, "commits": 0, "max_func": 48},
     "backend/app/domains/search/views.py": {"lines": 25, "orm_queries": 0, "commits": 0, "max_func": 7},
     "backend/app/domains/securities/views.py": {"lines": 72, "orm_queries": 1, "commits": 0, "max_func": 35},
     "backend/app/domains/strategy/views.py": {"lines": 144, "orm_queries": 5, "commits": 0, "max_func": 22},
