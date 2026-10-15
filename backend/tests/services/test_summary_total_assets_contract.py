@@ -2,7 +2,7 @@
 # Author : imoyao
 # Date : 2026/10/15
 # File : test_summary_total_assets_contract.py
-"""总资产契约测试：多个后端出口必须给出**同一个数**（#2154）。
+"""总资产契约测试：多个后端出口必须给出**同一个数**（#2154 / #2179）。
 
 背景：「总资产」长期有多个出口、各写一份累加逻辑，修一处漏一处：
 - #1174 把市值收口到 `position_valuation.market_value_cents`，只改了
@@ -14,10 +14,16 @@
 本文件是**契约网**：不验证某个具体数字，只验证「多出口必须相等」——
 以后再有人新增出口或改口径，这里会直接红，而不是等用户发现两个页面数字不一样。
 
-三处出口：
+出口清单：
 1. `get_summary_data` → `total_assets_cny`
 2. `get_distributions` → `total_assets`
-3. `get_account_groups` → `sum(g['total'])`
+3. `get_account_groups` → `sum(g['total'])`（净额口径，比时加回负债）
+4. `family_totals` → `total_assets`（唯一聚合出口本身）
+5. `get_ledger_distributions` → **各账户**桶合计（#2179 收进本文件）
+
+第 4、5 条的关系是**构造性恒等式**而非「两边各自算对」：账户级与家庭级共用
+`_per_ledger_buckets` 这一份累加实现，家庭桶 = 各账户桶按位相加。
+故这里钉住的不是「今天恰好相等」，而是「以后也不允许各写一份」。
 """
 
 from app.core.money import Money
@@ -25,6 +31,7 @@ from app.services.summary_service import (
     family_totals,
     get_account_groups,
     get_distributions,
+    get_ledger_distributions,
     get_sankey_data,
     get_summary_data,
 )
@@ -256,3 +263,121 @@ class TestFamilyTotalsHelper:
         a = family_totals(db, 1, positions=positions, assets=assets)
         b = family_totals(db, 1)
         assert a == b == {'total_assets': 1000.0, 'total_liabilities': 0.0, 'net_worth': 1000.0}
+
+
+class TestLedgerLevelSharesTheSameAggregation:
+    """账户级（`get_ledger_distributions`）与家庭级必须是**同一份累加实现**（#2179）。
+
+    这一条是本卡（#478 / #2154）合入后仍然留下的那个口子：账户级快照曾把家庭级的
+    累加逻辑**逐字重写了一遍**（持仓走 `market_value_cents`、排除非正数资产、负债单独
+    归桶、孤儿流水并入——一模一样），而且它**不在本文件原先那张网里**——当时靠
+    `test_account_snapshots.py` 里一条埋在别处的断言兜着，靠人找。
+
+    钉法：
+    - 逐条场景断言 **[各账户桶按位相加] == 家庭桶**（不是「总数相等」——
+      总数相等可以靠碰巧抵消，按位相等要求两个方向的错都同向）；
+    - 同时断言 **Σ账户 == 家庭** 的会计恒等式，改累加规则时两侧一起动才通过。
+    """
+
+    @staticmethod
+    def _sum_buckets(per_ledger: dict) -> dict[str, float]:
+        out = {'total_assets': 0.0, 'total_liabilities': 0.0, 'net_worth': 0.0}
+        for bucket in per_ledger.values():
+            for key in out:
+                out[key] += bucket[key]
+        return {k: round(v, 2) for k, v in out.items()}
+
+    def _assert_ledger_sum_equals_family(self, db, *, note=''):
+        family = family_totals(db, 1)
+        per_ledger = get_ledger_distributions(db, 1)
+        summed = self._sum_buckets(per_ledger)
+        ctx = f' [{note}]' if note else ''
+        assert summed == family, f'账户级与家庭级分叉{ctx}: Σ账户={summed} 家庭={family} 明细={per_ledger}'
+        return family, per_ledger
+
+    def test_balance_mode_position_buckets_by_ledger(self, db, make_position):
+        """balance 模式持仓（市值靠 override）也要按账户落入正确的桶（#2154 原始症状）。"""
+        make_position(
+            symbol='LDB001',
+            name='投顾产品',
+            account_name='理财账户',
+            asset_type='fund',
+            valuation_mode='balance',
+            market_value_override=Money.yuan_to_cents(500),
+            quantity=0,
+            current_price=0,
+            market='场外',
+            allocation='longterm',
+        )
+        family, per_ledger = self._assert_ledger_sum_equals_family(db, note='balance')
+        assert family['total_assets'] == 500.0
+        # 哨兵键 0 只装「没有账户归属」的东西，这个持仓有账户，不该落在这里
+        assert 0 not in per_ledger
+        assert per_ledger[list(per_ledger)[0]]['total_assets'] == 500.0
+
+    def test_orphan_cash_flow_lands_on_sentinel_key(self, db, make_transaction):
+        """孤儿货基流水没有账户归属 → 归哨兵键 0，且在两边口径里都只算一次。"""
+        make_transaction(None, None, txn_type='buy', amount=30000, asset_type='money_fund', entry_status='orphan')
+        family, per_ledger = self._assert_ledger_sum_equals_family(db, note='孤儿流水')
+        assert family['total_assets'] == 30000.0
+        assert per_ledger[0]['total_assets'] == 30000.0
+
+    def test_mixed_portfolio_buckets_match(self, db, make_position, make_asset, make_transaction):
+        """混合场景：两个账户 + 资产 + 负债 + 孤儿流水，逐桶相加必须等于家庭桶。
+
+        含负债是关键：负债若在账户级被算进 `total_assets`（或家庭级漏减），
+        按位比较会立刻暴露，而「总数相等」可能被别处的偏差抵消掉。
+        """
+        make_position(
+            symbol='LDB002',
+            name='股票',
+            account_name='券商',
+            asset_type='stock',
+            valuation_mode='nav',
+            quantity=200,
+            current_price=50.0,
+            market='沪市',
+            allocation='speculative',
+        )
+        make_position(
+            symbol='LDB003',
+            name='投顾产品',
+            account_name='理财账户',
+            asset_type='fund',
+            valuation_mode='balance',
+            market_value_override=Money.yuan_to_cents(80000),
+            quantity=0,
+            current_price=0,
+            market='场外',
+            allocation='longterm',
+        )
+        make_asset(account_name='银行', major_category='liability', name='信用卡', amount=5000)
+        make_transaction(None, None, txn_type='buy', amount=2000, asset_type='reverse_repo', entry_status='orphan')
+
+        family, per_ledger = self._assert_ledger_sum_equals_family(db, note='混合')
+        # 200×50 + 80000 + 2000 = 92000；负债 5000 只在 total_liabilities 里
+        assert family == {'total_assets': 92000.0, 'total_liabilities': 5000.0, 'net_worth': 87000.0}
+        assert len(per_ledger) == 4  # 券商 / 理财账户 / 银行 / 哨兵 0
+
+    def test_shadow_position_not_in_ledger_buckets(self, db, make_position):
+        """shadow（E账户影子记录）既不入家庭桶，也不得凭空造出一个账户桶（§12.3）。"""
+        make_position(
+            symbol='LDB004',
+            name='影子记录',
+            account_name='E账户',
+            asset_type='stock',
+            valuation_mode='nav',
+            quantity=100,
+            current_price=10.0,
+            market='深市',
+            allocation='longterm',
+            ownership_status='shadow',
+        )
+        family, per_ledger = self._assert_ledger_sum_equals_family(db, note='shadow')
+        assert family['total_assets'] == 0.0
+        assert per_ledger == {}
+
+    def test_empty_family_has_no_ledger_buckets(self, db):
+        """空家庭：账户级返回空字典（而不是一个全 0 的哨兵桶）。"""
+        assert get_ledger_distributions(db, 1) == {}
+        self._assert_ledger_sum_equals_family(db, note='空家庭')
