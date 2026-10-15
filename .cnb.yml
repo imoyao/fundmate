@@ -237,7 +237,6 @@ main:
             再由同步带到 CNB。详见 AGENTS.md「双端协作（CNB ↔ GitHub，强制）」。
             MSG
             exit 1
-
 # ===== CNB `dev` ↔ GitHub `dev` 双向同步（git-sync 插件）=====
 # ⚠️ **必须挂在 `dev:` 分支键下**（CNB #269，2026-10-14）。这里的「挂在哪个分支键下」
 # 不是风格问题，它决定 runner 检出哪个分支 —— 而插件只推「工作区里存在的分支」：
@@ -303,7 +302,21 @@ dev:
     # plugin tasks`，见 §13.1 同款推导）。故走认领同步那份**不含 `allow_images`** 的
     # `claim-sync-env.yml`。
     # ⚠️ 它**不 push 到 `dev`**（只推 `bridge/github-dev`），故不违反「`main` 不外推」那套范围纪律。
+    #
+    # ⚠️⚠️ 必须显式声明 `docker.image: python:3.12-slim`（2026-10-15 实测补，CNB #461）：
+    # 本 job 是**脚本任务**（有 `script`），不写 `image` 时 runner 落在**默认镜像**上，
+    # 而默认镜像里**没有 python**。构建 `cnb-nii-1k4ua02j8` 的 stage-0 原文：
+    #     sh: line 10: python: command not found
+    #     Finished, code: 127
+    # ⇒ 机器分支通道自上线（ad8ff42e）起**一次都没跑成**：不是分叉没解、不是冲突没解，
+    # 是**解释器不存在**。本仓所有跑 `python scripts/...` 的脚本任务都必须自带
+    # `docker.image`（`.mirror-job` / `&claim-job` 都有，本 job 漏了）。
+    # 判据已机械化：`scripts/guard_cnb_script_task_python.py`（并入 ci.yml 的 scripts_test）。
     - name: 跨仓同步（机器分支 + PR 通道，仅 dev）
+      docker:
+        # 脚本任务的 image 只是**运行环境**（跑 script 的容器），不是插件镜像；
+        # 与被引密钥文件是否声明 allow_images 无关（判据见 guard_secret_imports.py）。
+        image: python:3.12-slim
       stages:
         - name: 合并两侧 dev 并推成机器分支
           imports:
@@ -371,27 +384,6 @@ dev:
   # 每小时兜底：**只推 `dev`**，不再 `--all`（CNB #167 / #172）。
   # cron 事件下没有「被推的功能分支」上下文（`CNB_BRANCH` 恒为该段所挂分支），
   # 故功能分支不由 cron 兜底 —— 那条路由 `push:` 事件下的 `branch: ${CNB_BRANCH}` 覆盖。
-
-  # PR 打向 dev 时的只读守卫（源 CNB #118/#123）：与 main 段各一份。
-  # ⚠️ 两段守卫必须写在**同一个** `dev:` 键下 —— 另起一个 `dev:` 顶层键会让
-  #    YAML 出现重复 mapping key，CNB 直接报语法错、整条流水线死在 Prepare
-  #    （源 CNB #457，2026-10-15 实测：合并收敛时就是这么红了一轮）。
-  pull_request:
-    - name: CNB 侧只读守卫
-      stages:
-        - name: 拒绝在 CNB 侧合 PR
-          script: |
-            cat <<'MSG'
-            ::error::本仓 CNB 侧只读：请在 GitHub 开 PR，不要在 CNB 侧合并。
-
-            原因：在 CNB 侧合 PR 必然产生 GitHub 没有的提交，下一次从 GitHub
-            同步时无法快进，镜像链路停摆（2026-10-11 已实测发生一次断链）。
-
-            正确路径：在 GitHub `imoyao/fundmate` 开 PR 合入 `dev`，
-            再由同步带到 CNB。详见 AGENTS.md「双端协作（CNB ↔ GitHub，强制）」。
-            MSG
-            exit 1
-
   "crontab: 30 * * * *":
     - name: 同步到 GitHub（每小时兜底，仅 dev）
       # ⚠️ 同上：必须是带 name 的 job，避免 stage 查不到造成假绿。
@@ -411,7 +403,35 @@ dev:
             branch: dev
             push_tags: true
 
+  # PR 打向 dev 时读的是 dev 分支上的这份配置（与 `main:` 段各一份守卫）。
+  # ⚠️ 事件必须挂在**分支之下**（#152）：写在顶层会被读成一个名为 pull_request 的
+  # 不存在分支，守卫空转还不报错。
+  pull_request:
+    - name: CNB 侧只读守卫
+      stages:
+        - name: 拒绝在 CNB 侧合 PR
+          script: |
+            cat <<'MSG'
+            ::error::本仓 CNB 侧只读：请在 GitHub 开 PR，不要在 CNB 侧合并。
 
+            原因：在 CNB 侧合 PR 必然产生 GitHub 没有的提交，下一次从 GitHub
+            同步时无法快进，镜像链路停摆（2026-10-11 已实测发生一次断链）。
+
+            正确路径：在 GitHub `imoyao/fundmate` 开 PR 合入 `dev`，
+            再由同步带到 CNB。详见 AGENTS.md「双端协作（CNB ↔ GitHub，强制）」。
+            MSG
+            exit 1
+
+
+# ⚠️ 这里**不再**另起一个 `dev:` 段（源 CNB #458，2026-10-15）<!-- cross-repo-ref-allow -->：跨仓收敛合并
+# （`5633d04c`）把 GitHub 侧带来的 `dev: pull_request:` 落在了本文件已有的 `dev:` 段
+# 之后 ⇒ 同一层出现两个 `dev:` 键（`main:` 段内的 `pull_request` 同样重复了一份）。
+# YAML 规范允许重复键（后者覆盖前者），故 PyYAML `safe_load` 与本仓全部 `.cnb.yml`
+# 守卫都放行，而 **CNB 平台用严格解析器直接拒绝**：
+#     CI configuration file syntax error / YAMLException: duplicated mapping key (240:3)
+# 构建死在 Prepare，stage 都没进（`duration: 0`、`pipelineFailCount: 0`）。
+# 「CNB 侧只读」守卫现已并入上方 `dev:` 段的 `pull_request:` 事件（与 `main:` 段各一份）。
+# 判据已机械化：`scripts/guard_cnb_yml_duplicate_keys.py`（并入 ci.yml 的 layout_guard job）。
 "**/!(main|dev)":
   push:
     - name: 同步当前功能分支到 GitHub

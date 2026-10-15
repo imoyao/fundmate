@@ -2408,3 +2408,63 @@ backend/tests/test_branch_divergence_check.py  ← 两边都改
 两侧当前仍是分叉（实测 2026-10-14：CNB 独有 40 笔 / GitHub 独有 2 笔，
 冲突面 5 文件 16 处）。**PR 只是通行方式，不是收敛本身**——
 第一次那 16 处冲突仍要人工解，`dev_converge.py` 的定位不变（§18.6）。
+
+---
+
+## 24. 机器分支通道「一次都没跑成」：默认镜像里没有 python（源 CNB #461，2026-10-15）
+
+上一节（§23）修好了「直推裸 ref」的通行方式。这一节记一个更朴素的事故：
+**通道本身从上线起一次都没执行成功过**，而它红得非常像「同步有问题」。
+
+### 24.1 现象与第一反应的错
+
+`dev` 的 push / cron 构建连续报错，`cnb-nii-1k4ua02j8` 的两个 job 都红：
+
+    pipeline-001 同步到 GitHub（仅 dev + 标签）        → ! [rejected] dev -> dev (fetch first)
+    pipeline-002 跨仓同步（机器分支 + PR 通道，仅 dev）  → sh: line 10: python: command not found
+
+第二条最容易被读成「脚本第 10 行写错了」。它不是。**是容器里没有 python。**
+
+### 24.2 根因：脚本任务不声明 image ⇒ 落在默认镜像上
+
+`.cnb.yml` 里「跨仓同步（机器分支 + PR 通道）」只写了 `imports` / `env` / `script`，
+**没有 `image`**。CNB 的脚本任务不声明 `docker.image` 时用默认镜像执行，而默认镜像
+（runner 日志里的 `docker run` 环境）不含 Python 解释器 ⇒ `python` 找不到 ⇒ 退 127。
+
+同一份文件里另外两处脚本任务都规规矩矩写了镜像：
+
+| 任务 | image 来源 |
+|---|---|
+| `.mirror-job`（建卡 / 状态回流 / 各自检） | 锚点 `docker.image: python:3.12-slim` |
+| `&claim-job`（认领同步） | 锚点 `docker.image: python:3.12-slim` |
+| **机器分支通道** | **（漏）** |
+
+**判据教训**：仓库里已有三个 `.cnb.yml` 守卫（`check_cnb_events` /
+`guard_git_sync_push_scope` / `guard_secret_imports`）加上本轮新增的重复键守卫，
+**没有一个在问「这个 job 跑得起来吗」**。它们问的是「配置形状对不对」
+（键挂在哪一层、分支范围、密钥引用、有无重复键）——形状全对，执行环境缺失，
+照样一条都跑不成。这与 #171「缺的不是功能，是能问出这件事的判据」同族，
+只是判据问的对象从「数据完整性」换成了「执行环境」。
+
+### 24.3 修法与机械化
+
+- `.cnb.yml`：给该 job 补 `docker.image: python:3.12-slim`（脚本任务的 image 只是
+  **运行环境**，不是插件镜像；与被引密钥文件是否声明 `allow_images` 无关，
+  判据在 `guard_secret_imports.py`）。
+- 新增 `scripts/guard_cnb_script_task_python.py`：stage 带 `script` / `commands`
+  且正文调用 `python` ⇒ 该 job 必须声明含 python 的镜像（job 级 `docker.image`
+  或 stage 级 `image`）；`${VAR}` 形态放行（守卫不猜运行时值，与
+  `guard_git_sync_push_scope.py` 判据 5 同口径）。并入 `ci.yml` 的 scripts_test。
+- 回归网 `scripts/tests/test_cnb_script_task_python.py`（6 例）：含一条**回退探针** ——
+  拿修复前的真实 `.cnb.yml`（钉不可变 SHA `b3e64717`）喂守卫必须转红。
+  ⚠️ 探针**不能**用 `5633d04c`：那次收敛合并把第一段 `dev:` 覆盖没了，机器分支 job
+  在 `safe_load` 后整个消失 ⇒ 拿它喂守卫是**假绿**（这正是重复键守卫修掉的那个形态的
+  副产品：修好重复键之前，连「看见这个 job」都做不到）。
+
+### 24.4 顺带留档：另一条红是分叉，不是同一个病
+
+同一次构建里 pipeline-001 的红（`! [rejected] dev -> dev (fetch first)`）是
+**非快进**：GitHub `dev`（`7713a924`）已前进到 CNB `dev`（`5633d04c`）之外的新提交，
+而 push 刻意不开 `force`（反向护栏，对的）。这与 §19.2 是同一个病，
+处置是收敛（§18），**不是**改 `.cnb.yml`。一条构建里两条红、两个病，
+是最容易只修一个就宣布「CI 绿了」的形态。
