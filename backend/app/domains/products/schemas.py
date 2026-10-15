@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -48,6 +49,14 @@ class ProductTrendRequest(BaseModel):
         '3M',
         alias='range',
         description='区间档位：1M / 3M / 6M / 1Y（默认 3M，设计 §12 ⑤）',
+    )
+    start: Optional[dt.date] = Field(
+        None,
+        description=(
+            '显式起始日（YYYY-MM-DD）——「建仓期」区间用（#2171）：首笔买入日至今，'
+            '区间长度因人而异，档位表达不了。给定时忽略 range 档位；'
+            '晚于今天按今天算（空序列由前端降级）。'
+        ),
     )
     asset_type: Optional[str] = Field(
         None,

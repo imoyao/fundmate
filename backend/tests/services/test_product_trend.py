@@ -226,6 +226,41 @@ def test_fund_falls_back_to_unit_nav_when_acc_missing(db):
     assert result['values'] == [2.0, 2.01, 2.02, 2.03, 2.04]
 
 
+# ── 建仓期显式起始日（#2171 P1）──────────────────────────────────────
+def test_explicit_start_date_overrides_range(db):
+    """``start_date`` 给定时忽略档位，窗口从起始日算起（建仓期区间）。
+
+    区间长度因人而异（有人持有了三年，有人三天），档位 1M/3M/6M/1Y 表达不了。
+    反向验证目标：删掉 start_date 分支改回只用 RANGE_DAYS，本条转红
+    （requested_days 会变 90、dates 会包含起始日之前的点）。
+    """
+    _seed_nav_series(db, fund_code='004369', points=10, acc_nav=2.5)
+    start = date.today() - timedelta(days=5)
+
+    result = fetch_product_trend(db, '004369', asset_type='fund', range_key='3M', start_date=start)
+
+    assert result is not None
+    assert result['requested_days'] == 6, '跨度按显式起始日算（含今天）'
+    assert all(d >= start.isoformat() for d in result['dates']), '不含起始日之前的点'
+
+
+def test_start_date_in_future_clamps_to_today(db):
+    """起始日晚于今天（首笔买入日就是今天）按今天算：窗口 1 天，不报错。"""
+    _seed_nav_series(db, fund_code='004369', points=5, acc_nav=2.5)
+
+    result = fetch_product_trend(
+        db,
+        '004369',
+        asset_type='fund',
+        range_key='3M',
+        start_date=date.today() + timedelta(days=5),
+    )
+
+    assert result is not None
+    assert result['requested_days'] == 1
+    assert all(d <= date.today().isoformat() for d in result['dates'])
+
+
 # ── K 线数据（#1969）──────────────────────────────────────────────────
 def test_ohlc_is_exchange_only(db):
     """场内回未复权 OHLCV（画 K 线与成交量）；场外为空数组（改画净值线）。
