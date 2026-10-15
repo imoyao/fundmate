@@ -95,7 +95,7 @@ function onCardCheck(key: SummaryCategory, val: string | number | boolean) {
       <p v-if="allRowsDuplicate" class="summary-alert">
         本次识别的
         {{ totalRows }}
-        条记录全部与已有记录重复，已默认跳过。如需保留，请在下方逐条勾选；也可以返回上一步重新选择文件。
+        条记录全部与已有记录重复，已默认跳过。如需保留，请在下方逐条勾选；也可以点击「重新选择文件」换一份数据。
       </p>
 
       <div class="summary-cards">

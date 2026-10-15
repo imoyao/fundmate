@@ -43,7 +43,11 @@ const pendingFixCount = computed(
 <template>
   <div class="step3-container">
     <div class="step3-header">
-      <el-button size="default" @click="currentStep = 1">返回上一步</el-button>
+      <!-- #783 P1：原型要的「重新选择文件」入口。预览页的「上一步」唯一含义就是换文件，
+           故把泛称改成具体动作，用户不必推断点下去会发生什么 -->
+      <el-button size="default" @click="currentStep = 1"
+        >重新选择文件</el-button
+      >
       <span class="header-ledger">导入账户：{{ selectedLedgerName }}</span>
       <!-- #783 §一/§8.1：草稿状态文案——保存成功即现身，3 秒后淡出（不占位、不打断） -->
       <Transition name="draft-hint">
