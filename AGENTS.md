@@ -119,8 +119,13 @@
   **退出码不吞**：分叉时 `.cnb.yml` 会用非零退出码触发 `notify_mirror_divergence.py`
   建一张断链提醒卡（幂等，标题即幂等键）——crontab 的红灯没人盯，
   只进日志等于静默停摆。stage 整体仍不拦构建（建卡才是主任务）。
-  ⚠️ `.cnb.yml` 里另有一个 `pull_request` 反向守卫挂在 `main:` / `dev:` 之下
-  （CNB 侧只读，直接 `exit 1`）——它挡的是**断链的成因**。
+  ⚠️ `.cnb.yml` 里另有一个反向守卫挂在 `main:` / `dev:` 之下
+  （CNB 侧只读，直接 `exit 1`）——它挡的是**断链的成因**。事件是
+  **`pull_request.mergeable`** 而不是 `pull_request`：前者「开启中的 PR 即将可合」时才触发，
+  后者 **PR 一创建、之后每次 push 都触发** ⇒ 整张 PR 生命周期恒红。
+  **恒红的检查等于没有检查**（人只会反复回来重看同一件事，而真正该报警的「有人要点合并」
+  那一瞬淹没在噪声里）。实测 2026-10-15 同一提交 `5bde0817`：`push` 构建 success、
+  `pull_request` 构建 error，红的正是守卫自己 `exit 1`。**不要改回 `pull_request`。**
 
   ⚠️ 内容级判据用 **`git cherry`（补丁等价）**，**不是** `git diff`：
   交叉合并（`main` 合过 `dev`、`dev` 又前进）下 `diff` 非空但 `main` 零独有内容，

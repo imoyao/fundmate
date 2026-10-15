@@ -204,21 +204,41 @@ def test_cnb_yml_passes_explain_for_both_sides_lists():
 
 
 def test_cnb_yml_has_reverse_guard_on_pull_request():
-    """层 3（dev 版适配）：CNB 侧 PR 事件必须有守卫，且**必须 exit 1**。
+    """层 3（dev 版适配）：CNB 侧反向守卫必须挂 `pull_request.mergeable`，且**必须 exit 1**。
 
-    断链的成因是「在 CNB 侧合 PR」，守卫在成因发生的那一刻拦，
+    断链的成因是「在 CNB 侧**合并** PR」，守卫在成因发生的那一刻拦，
     比事后从日志里发现分叉便宜得多。
 
-    与 CNB 侧原版的差别只在**挂法**：原版把 `pull_request:` 写在文件顶层，
-    按 #152 的平台语义那会被读成「一个名为 pull_request 的分支」——守卫空转。
+    ⚠️ **为什么是 `mergeable` 而不是 `pull_request`**（源 CNB #459，2026-10-15）：
+    这条守卫的**意图**是拦「合并」，而 CNB 文档《触发规则》里两者的触发时机是：
+
+        pull_request             PR 创建、重新打开、源分支 push
+        pull_request.mergeable   开启中的 PR 满足特定条件时触发（即将可合）
+
+    挂 `pull_request` ⇒ PR 一开就红、之后每次 push 都红 ⇒ **整张 PR 生命周期恒红**。
+    恒红的检查等于没有检查：人只会反复回来重看同一件事，而真正需要报警的那一刻
+    （有人要点「合并」）淹没在噪声里。实测（2026-10-15）同一提交 `5bde0817` 的
+    `push` 构建 success、`pull_request` 构建 error，红的正是本守卫自己 `exit 1`。
+    挂 `mergeable` **意图一字不变**，但红的那次真的落在「即将合入」上。
+
+    与 CNB 侧原版的差别只在**挂法**：原版把事件写在文件顶层，
+    按 #152 的平台语义那会被读成一个**不存在分支**——守卫空转。
     dev 版改挂在仅有的两条长期分支（`main:` / `dev:`）之下：
     PR 打向哪条，就在哪条的配置里读到守卫。
     """
     cfg = _load_cnb_yml()
     for branch in ('main', 'dev'):
         assert branch in cfg, f'{branch} 分支下没有挂任何事件'
-        assert 'pull_request' in cfg[branch], f'{branch} 未接 pull_request 事件，反向守卫是空的'
-        script = cfg[branch]['pull_request'][0]['stages'][0]['script']
+        events = cfg[branch]
+        assert 'pull_request.mergeable' in events, (
+            f'{branch} 未接 `pull_request.mergeable` 事件，反向守卫是空的。'
+            '不要退回 `pull_request` —— 它会在 PR 整个生命周期恒红（源 CNB #459）。'
+        )
+        assert 'pull_request' not in events, (
+            f'{branch} 同时挂了 `pull_request` —— 它一开 PR 就红、与 mergeable 的窄面重复，'
+            '等于把恒红又放回来了（源 CNB #459）。'
+        )
+        script = events['pull_request.mergeable'][0]['stages'][0]['script']
         assert 'exit 1' in script, '少 exit 1 就是「喊了口号但放行」，与 #118 的静默失效同型'
         assert '只读' in script
         assert 'GitHub' in script
