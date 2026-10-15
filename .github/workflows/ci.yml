@@ -257,6 +257,18 @@ jobs:
       - name: 扫描密钥引用位置回潮（阻断）
         run: python scripts/guard_secret_imports.py
 
+      # .cnb.yml 重复键守卫（源 CNB #458，2026-10-15）<!-- cross-repo-ref-allow -->：跨仓收敛合并把两侧各写一份的
+      # `main:` / `dev:` / `pull_request:` 并进了同一层 ⇒ 两个 `dev:` 键、两个 `pull_request`
+      # 键。YAML 规范允许重复键（后者覆盖前者），所以 PyYAML safe_load 与本仓全部
+      # .cnb.yml 守卫**全绿**，而 CNB 平台用严格解析器直接拒绝：
+      #     YAMLException: duplicated mapping key (240:3)
+      # 构建死在 Prepare、stage 都没进（duration: 0）。这正是「本地判据与平台判据之间
+      # 差一行解析严格度」的形态，故补上：用保留重复键的加载器解析，任一层同名键即报红。
+      # 不新增 job —— 并入本 job，也就不必动 gate.needs（#1559/#1560 两次事故都是
+      # 合并冲突弄丢 needs）。
+      - name: 扫描 .cnb.yml 重复键（阻断）
+        run: python scripts/guard_cnb_yml_duplicate_keys.py
+
       # git-sync 分支范围守卫（源 CNB #167 / #172 / #269，2026-10-13 ~ 10-14）：
       # ① 插件不写 `branch` 时执行 `git push target --all`，会把 CNB 的 `main` 一并推给
       #    GitHub；而 GitHub 是权威源（`main` 只由发版 PR 推进）⇒ 两侧 `main` 各自长出

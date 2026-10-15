@@ -1275,6 +1275,21 @@ if known:            # ← 缓存非空就直接 return，CNB 侧一个字都不
   （否则拿到 HTML）；分页参数是**下划线** `page_size`，写成 `page-size` 会被静默忽略。
 - **CNB `create-issue --labels` 会被静默忽略**（HTTP 201 但标签为空）：必须**先建卡、再单独挂标签**。
   标签名只允许中英文 / 数字 / `._:-/\` 与内部空格，长度 ≤50，`&`、`（）`、`#` 一律 400 拒收。
+- ⚠️ **CNB 平台的 YAML 解析比 PyYAML 严：重复键直接拒，构建死在 Prepare**（源 CNB #458，2026-10-15）<!-- cross-repo-ref-allow -->。  <!-- cross-repo-ref-allow -->
+  YAML 规范允许同一层出现同名键（后者覆盖前者），所以 `yaml.safe_load` **解析通过**、
+  本仓全部 `.cnb.yml` 守卫（`check_cnb_events` / `guard_git_sync_push_scope` /
+  `guard_secret_imports`）都走 `safe_load` ⇒ **全绿**；而平台报的是
+  `CI configuration file syntax error / YAMLException: duplicated mapping key (240:3)`，
+  连 stage 都没进（`duration: 0`、`pipelineFailCount: 0`）。
+  **教训**：凡是「平台拒绝而本地放行」的形态，先问「本地与平台的解析严格度差在哪一行」——
+  这一行不补判据，就会以「本地全绿」的形态反复漏过去。已机械化：
+  `scripts/guard_cnb_yml_duplicate_keys.py`（并入 `ci.yml` 的 `layout_guard` job），
+  用**保留重复键**的加载器解析，任一层同名键即报红；回归网
+  `scripts/tests/test_cnb_yml_duplicate_keys.py`（12 例，含「拿不到输入退 2」与
+  「拿修复前的不可变 SHA 喂守卫确认转红」两个探针）。
+- ⚠️ **跨仓收敛合并是这类重复键的高发入口**：两侧各写一份 `main:` / `dev:` /
+  `pull_request:` 时，合并结果会在同一层长出同名键。收敛后除了跑既有守卫，
+  必须再跑一次 `python scripts/guard_cnb_yml_duplicate_keys.py`。
 
 ---
 
