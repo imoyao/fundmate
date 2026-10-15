@@ -8,7 +8,7 @@
 """
 
 from apiflask import APIBlueprint
-from flask import abort, jsonify, request
+from flask import abort, jsonify
 
 from app.core.auth import get_family_id, get_owned_or_404
 from app.core.database import get_db
@@ -16,13 +16,6 @@ from app.core.validation import parse_body
 from app.domains.positions.models import Position
 from app.domains.strategy.models import PositionStrategyTag, StrategyTag
 from app.domains.strategy.schemas import StrategyTagCreate
-from app.services.strategy_engine.data_provider import DataProvider
-from app.services.strategy_engine.diagnosis import (
-    behavior_profiles,
-    diagnose_holdings,
-    diagnose_symbol,
-    list_strategies,
-)
 from app.services.strategy_service import build_strategy_overview
 
 strategy_bp = APIBlueprint('strategy', __name__, url_prefix='/api/strategy')
@@ -149,48 +142,3 @@ def get_all_position_tags():
         for pos_id, tag_name in rows:
             result.setdefault(pos_id, []).append(tag_name)
         return jsonify({'data': result, 'message': 'ok'})
-
-
-# ──────────────────────────────────────────────────────────────
-# 策略引擎（#2224 框架 / #2225 诊断 + 行为反推）——**只读**，不写库
-#
-# 合规：接口只返回「规则触发」的客观陈述（趋势成立 / 走弱 / 结束），
-# 不含任何买入卖出建议。前端与文档站措辞须与此保持一致。
-# ──────────────────────────────────────────────────────────────
-
-
-@strategy_bp.get('/engine/strategies/')
-def list_engine_strategies():
-    """当前数据条件下可运行的策略及其元信息（供策略卡片使用）。"""
-    return jsonify({'data': list_strategies(), 'message': 'ok'})
-
-
-@strategy_bp.get('/engine/diagnosis/')
-def get_holdings_diagnosis():
-    """全部持仓的策略诊断（只读，实时计算，不落库）。
-
-    query: strategy=趋势跟踪code 可指定策略（可重复）；symbol=xxx 可只看单个标的。
-    """
-    family_id = get_family_id()
-    codes = request.args.getlist('strategy') or None
-    symbol = request.args.get('symbol')
-    with get_db() as db:
-        provider = DataProvider(db)
-        if symbol:
-            data = diagnose_symbol(provider, symbol=symbol, strategy_codes=codes)
-        else:
-            data = diagnose_holdings(provider, family_id, strategy_codes=codes)
-        return jsonify({'data': data, 'message': 'ok'})
-
-
-@strategy_bp.get('/engine/behavior/')
-def get_behavior_profile():
-    """行为反推：用真实流水 + 净值算用户**实际**的交易风格与其代价（#2225）。
-
-    只陈述用户自己的历史事实，不对未来给出倾向性意见。
-    """
-    family_id = get_family_id()
-    symbols = request.args.getlist('symbol') or None
-    with get_db() as db:
-        data = behavior_profiles(DataProvider(db), family_id, symbols=symbols)
-        return jsonify({'data': data, 'message': 'ok'})
