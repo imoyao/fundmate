@@ -127,6 +127,37 @@ def test_timeout_is_passed_through(monkeypatch):
     assert seen and seen[0][2] == 3
 
 
+# ── 首次调用不死锁（2026-10-15 事故回归）──────────────────────────────
+def test_first_call_does_not_self_deadlock(monkeypatch):
+    """进程内**首次**调用（Session 尚未创建）不得在锁内二次获取同一把非重入锁。
+
+    事故形态：`fetch_fund_company_of` 先持 `_suggest_session_lock` 再调
+    `_get_suggest_session()`，后者懒创建 Session 时又 `with _suggest_session_lock`
+    ——`threading.Lock` 不可重入，同线程自锁。后果：第一只 company 为空的基金
+    打开详情页后 `/api/products/fund-profile/` 全部挂死，前端 10s 超时后显示
+    「暂无可展示的基金资料」。既有用例都先调 `_get_suggest_session()` 建好 Session
+    （autouse fixture 又每例置 None），恰好绕开冷启动路径，故此条专门补首调。
+    """
+    import threading
+
+    # 类级打桩：不预建 Session（预建就测不到冷启动路径了）
+    def _fake_get(self, url, params=None, timeout=None):
+        return _FakeResp(_payload('110022', '易方达基金', '80000229'))
+
+    monkeypatch.setattr(requests.Session, 'get', _fake_get)
+
+    result = {}
+
+    def _call():
+        result['value'] = em.fetch_fund_company_of('110022')
+
+    t = threading.Thread(target=_call, daemon=True)
+    t.start()
+    t.join(timeout=5)
+    assert not t.is_alive(), 'fetch_fund_company_of 首次调用死锁（非重入锁被同线程二次获取）'
+    assert result.get('value') == {'name': '易方达基金', 'code': '80000229'}
+
+
 # ── Session 复用（性能事实的回归保护）─────────────────────────────────
 def test_session_is_reused_across_calls(monkeypatch):
     """多次调用复用同一个 Session（否则每次都付 TLS 握手，首屏多等约 2s）。
