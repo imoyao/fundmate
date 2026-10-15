@@ -2,8 +2,8 @@
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import CardBlock from "@/components/CardBlock/index.vue";
-import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
+import TransactionTable from "@/components/TransactionTable/index.vue";
 import { getTransactions, type TransactionRecord } from "@/api/transactions";
 import { getTradeTimeline, type TradeContribution } from "@/api/products";
 import { formatQuantity } from "@/utils/format";
@@ -263,11 +263,14 @@ function goAllTransactions() {
         >
       </p>
 
-      <el-table
-        id="transaction-detail-table"
-        :data="visibleRows"
-        size="small"
-        border
+      <!-- 表格本体走全站统一的 TransactionTable（#2104 验收「同一组件」：
+           此前详情页 / 账本 Tab / 持仓抽屉三套表格，字段与口径全不一致）。
+           本容器只负责渐进披露（折叠 10 条 → 就地展开 → 出口）与文案。 -->
+      <TransactionTable
+        :rows="visibleRows"
+        mode="compact"
+        show-account
+        table-id="transaction-detail-table"
         :max-height="expanded && needToggleBtn ? TABLE_MAX_HEIGHT : undefined"
       >
         <el-table-column prop="trade_date" label="交易日期" width="100">
