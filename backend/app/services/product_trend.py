@@ -63,6 +63,7 @@ def requested_days_for(range_key: str, start_date: Optional[dt.date] = None) -> 
         return (dt.date.today() - min(start_date, dt.date.today())).days + 1
     return RANGE_DAYS.get(range_key, RANGE_DAYS[DEFAULT_RANGE])
 
+
 # 无历史序列能力的品类：基金经理、投顾组合。指数自 #2028 起走 index_daily（有日线
 # 才出曲线，无日线返回 None，见 _fetch_index_series）。
 _NO_SERIES_TYPES = frozenset({'manager', 'portfolio'})

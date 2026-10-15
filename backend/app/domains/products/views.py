@@ -369,7 +369,10 @@ def product_trend():
     if result is None:
         result = {
             'symbol': (query.symbol or '').strip().upper(),
-            'kind': '', 'dates': [], 'values': [], 'source': '',
+            'kind': '',
+            'dates': [],
+            'values': [],
+            'source': '',
             'range': query.range_,
             'requested_days': requested_days_for(query.range_, query.start),
             'available_days': 0,

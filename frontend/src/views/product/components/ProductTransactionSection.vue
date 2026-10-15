@@ -258,9 +258,10 @@ function goAllTransactions() {
       <!-- 总数与表同屏、不藏脚注：首版的静默截断让用户以为「这就是全部」（#2160）。
            有更多时才提示「最近 10 条」，否则「共 N 条」本身就是完整信息。 -->
       <p class="transaction-section__count">
-        共 {{ total }} 条<template v-if="needToggleBtn && !expanded"
-          >（当前显示最近 {{ PREVIEW_SIZE }} 条）</template
-        >
+        共 {{ total }} 条
+        <span v-if="needToggleBtn && !expanded">
+          （当前显示最近 {{ PREVIEW_SIZE }} 条）
+        </span>
       </p>
 
       <!-- 表格本体走全站统一的 TransactionTable（#2104 验收「同一组件」：
@@ -273,67 +274,71 @@ function goAllTransactions() {
         table-id="transaction-detail-table"
         :max-height="expanded && needToggleBtn ? TABLE_MAX_HEIGHT : undefined"
       >
-        <el-table-column prop="trade_date" label="交易日期" width="100">
-          <template #default="{ row }">
-            {{ formatTradeDate(row.trade_date) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="type" label="操作" width="60">
-          <template #default="{ row }">
-            {{ txnTypeLabel[row.type] || row.type }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="quantity" label="数量" width="100">
-          <template #default="{ row }">
-            {{ formatQuantity(row.quantity) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="price" label="价格" width="100">
-          <template #default="{ row }">
-            <MoneyDisplay
-              :value="row.price"
-              :decimals="2"
-              :auto-color="false"
-            />
-          </template>
-        </el-table-column>
-        <el-table-column prop="amount" label="金额" width="100">
-          <template #default="{ row }">
-            <MoneyDisplay
-              :value="row.amount"
-              :decimals="2"
-              :auto-color="false"
-            />
-          </template>
-        </el-table-column>
-        <!-- 当时成本 / 收益贡献（#2171 P2）：由交易时间线重放得出（与走势卡
+        <!-- #2171 P2 扩展列：TransactionTable 是公共组件（#2104 统一），不带这两列；
+             经其 #extra-columns slot 注入。字段口径归本容器（交易时间线重放）。 -->
+        <template #extra-columns>
+          <el-table-column prop="trade_date" label="交易日期" width="100">
+            <template #default="{ row }">
+              {{ formatTradeDate(row.trade_date) }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="type" label="操作" width="60">
+            <template #default="{ row }">
+              {{ txnTypeLabel[row.type] || row.type }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="quantity" label="数量" width="100">
+            <template #default="{ row }">
+              {{ formatQuantity(row.quantity) }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="price" label="价格" width="100">
+            <template #default="{ row }">
+              <MoneyDisplay
+                :value="row.price"
+                :decimals="2"
+                :auto-color="false"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column prop="amount" label="金额" width="100">
+            <template #default="{ row }">
+              <MoneyDisplay
+                :value="row.amount"
+                :decimals="2"
+                :auto-color="false"
+              />
+            </template>
+          </el-table-column>
+          <!-- 当时成本 / 收益贡献（#2171 P2）：由交易时间线重放得出（与走势卡
              同源口径），无重放数据的类型（拆分等）显示 — -->
-        <el-table-column label="当时成本" width="100">
-          <template #default="{ row }">
-            <MoneyDisplay
-              :value="rowField(row, 'cost_after_yuan')"
-              :decimals="2"
-              :auto-color="false"
-            />
-          </template>
-        </el-table-column>
-        <el-table-column label="收益贡献" width="100">
-          <template #default="{ row }">
-            <!-- 收益贡献是盈亏语义：开 auto-color（涨红跌绿）；无重放数据时
+          <el-table-column label="当时成本" width="100">
+            <template #default="{ row }">
+              <MoneyDisplay
+                :value="rowField(row, 'cost_after_yuan')"
+                :decimals="2"
+                :auto-color="false"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column label="收益贡献" width="100">
+            <template #default="{ row }">
+              <!-- 收益贡献是盈亏语义：开 auto-color（涨红跌绿）；无重放数据时
                  MoneyDisplay 空值渲染 --（与价格/金额列一致） -->
-            <MoneyDisplay
-              :value="rowField(row, 'profit_contribution_yuan')"
-              :decimals="2"
-              :show-sign="true"
-            />
-          </template>
-        </el-table-column>
-        <el-table-column prop="account_name" label="账户" min-width="100">
-          <template #default="{ row }">
-            {{ row.account_name || "未知账户" }}
-          </template>
-        </el-table-column>
-      </el-table>
+              <MoneyDisplay
+                :value="rowField(row, 'profit_contribution_yuan')"
+                :decimals="2"
+                :show-sign="true"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column prop="account_name" label="账户" min-width="100">
+            <template #default="{ row }">
+              {{ row.account_name || "未知账户" }}
+            </template>
+          </el-table-column>
+        </template>
+      </TransactionTable>
 
       <!-- 两列的口径脚注：收益贡献是盈亏语义（涨红跌绿），当时成本是事实值（中性色）。
            写清楚「怎么算的」，用户才不会把「当时成本 0」误读成免费拿到。 -->

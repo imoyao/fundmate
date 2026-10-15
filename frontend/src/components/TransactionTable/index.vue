@@ -197,6 +197,15 @@ function typeClass(type: string): string {
         row.account_name || "未知账户"
       }}</template>
     </el-table-column>
+    <!-- 扩展列 slot（#2171 P2）：调用方注入**完整的 el-table-column**（如详情页的
+         「当时成本 / 收益贡献」重放列）。**可选**：三端既有调用（账本 Tab / 持仓抽屉）
+         不传即不渲染，零影响。
+         为什么走 slot 而不是加 props：这两列是 #2171 特有的重放口径，塞进公共组件会
+         让另外两端平白多两列看不懂的字段；slot 让「字段归属」留在调用方。
+         注意：slot 必须放在 </el-table> 之前、且由调用方自己写 el-table-column，
+         因为 el-table-column 的作用域只能来自 el-table 的默认 slot。 -->
+    <slot name="extra-columns" />
+
     <!-- 操作列：右冻结。hover 行才淡入（200ms ease-out），:focus-within 保键盘可达。
          这是 design.md 明确允许保留的「行内行为样式」，不触视觉基线。 -->
     <el-table-column v-if="hasActions" label="操作" width="140" fixed="right">

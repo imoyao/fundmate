@@ -303,12 +303,9 @@ def test_dividend_cash_code_also_counted(db, make_position, make_transaction):
     累计收益曲线直接少一段（#2171 开发实测）。
     """
     pos = _seed_position(make_position)
-    _txn(make_transaction, pos, txn_type='buy',
-         quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
-    _txn(make_transaction, pos, txn_type='dividend',
-         quantity=0, price=0, amount=10, trade_date=_day(2026, 2, 5))
-    _txn(make_transaction, pos, txn_type='dividend_cash',
-         quantity=0, price=0, amount=5, trade_date=_day(2026, 3, 5))
+    _txn(make_transaction, pos, txn_type='buy', quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
+    _txn(make_transaction, pos, txn_type='dividend', quantity=0, price=0, amount=10, trade_date=_day(2026, 2, 5))
+    _txn(make_transaction, pos, txn_type='dividend_cash', quantity=0, price=0, amount=5, trade_date=_day(2026, 3, 5))
 
     result = build_trade_timeline(db, symbol='004369', family_id=1)
 
@@ -327,12 +324,18 @@ def test_contributions_per_txn(db, make_position, make_transaction):
     ``test_cost_includes_fee`` 一致）——fee=500 即 5 元。
     """
     pos = _seed_position(make_position)
-    buy1 = _txn(make_transaction, pos, txn_type='buy',
-                quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
-    div = _txn(make_transaction, pos, txn_type='dividend',
-               quantity=0, price=0, amount=10, trade_date=_day(2026, 2, 5))
-    sell = _txn(make_transaction, pos, txn_type='sell',
-                quantity=100, price=1.5, amount=150, fee=500, trade_date=_day(2026, 3, 5))
+    buy1 = _txn(make_transaction, pos, txn_type='buy', quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
+    div = _txn(make_transaction, pos, txn_type='dividend', quantity=0, price=0, amount=10, trade_date=_day(2026, 2, 5))
+    sell = _txn(
+        make_transaction,
+        pos,
+        txn_type='sell',
+        quantity=100,
+        price=1.5,
+        amount=150,
+        fee=500,
+        trade_date=_day(2026, 3, 5),
+    )
 
     result = build_trade_timeline(db, symbol='004369', family_id=1)
 
@@ -349,14 +352,10 @@ def test_contributions_per_txn(db, make_position, make_transaction):
 def test_profit_line_cumulative(db, make_position, make_transaction):
     """累计收益线：逐日累计已实现 + 累计投入，同日多笔去重留当日末值。"""
     pos = _seed_position(make_position)
-    _txn(make_transaction, pos, txn_type='buy',
-         quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
-    _txn(make_transaction, pos, txn_type='buy',
-         quantity=100, price=1.2, amount=120, trade_date=_day(2026, 1, 5))
-    _txn(make_transaction, pos, txn_type='sell',
-         quantity=100, price=1.5, amount=150, trade_date=_day(2026, 2, 5))
-    _txn(make_transaction, pos, txn_type='dividend',
-         quantity=0, price=0, amount=8, trade_date=_day(2026, 3, 5))
+    _txn(make_transaction, pos, txn_type='buy', quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
+    _txn(make_transaction, pos, txn_type='buy', quantity=100, price=1.2, amount=120, trade_date=_day(2026, 1, 5))
+    _txn(make_transaction, pos, txn_type='sell', quantity=100, price=1.5, amount=150, trade_date=_day(2026, 2, 5))
+    _txn(make_transaction, pos, txn_type='dividend', quantity=0, price=0, amount=8, trade_date=_day(2026, 3, 5))
 
     result = build_trade_timeline(db, symbol='004369', family_id=1)
 
@@ -376,10 +375,12 @@ def test_profit_line_cumulative(db, make_position, make_transaction):
 def test_points_carry_txn_id_and_prior_avg_cost(db, make_position, make_transaction):
     """交易点带 txn_id（P2 列的连接键）与该笔之前的持仓均价（低于成本线编码用）。"""
     pos = _seed_position(make_position)
-    first = _txn(make_transaction, pos, txn_type='buy',
-                 quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
-    second = _txn(make_transaction, pos, txn_type='buy',
-                  quantity=100, price=1.4, amount=140, trade_date=_day(2026, 2, 5))
+    first = _txn(
+        make_transaction, pos, txn_type='buy', quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5)
+    )
+    second = _txn(
+        make_transaction, pos, txn_type='buy', quantity=100, price=1.4, amount=140, trade_date=_day(2026, 2, 5)
+    )
 
     result = build_trade_timeline(db, symbol='004369', family_id=1)
 
@@ -394,10 +395,16 @@ def test_points_carry_txn_id_and_prior_avg_cost(db, make_position, make_transact
 def test_reinvest_adds_shares_and_realized(db, make_position, make_transaction):
     """红利再投：增份额增成本（真实入股），已实现 +分红额，但不是买卖点。"""
     pos = _seed_position(make_position)
-    _txn(make_transaction, pos, txn_type='buy',
-         quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
-    _txn(make_transaction, pos, txn_type='dividend_reinvest',
-         quantity=10, price=1.0, amount=10, trade_date=_day(2026, 2, 5))
+    _txn(make_transaction, pos, txn_type='buy', quantity=100, price=1.0, amount=100, trade_date=_day(2026, 1, 5))
+    _txn(
+        make_transaction,
+        pos,
+        txn_type='dividend_reinvest',
+        quantity=10,
+        price=1.0,
+        amount=10,
+        trade_date=_day(2026, 2, 5),
+    )
 
     result = build_trade_timeline(db, symbol='004369', family_id=1)
 
@@ -415,10 +422,19 @@ def test_summary_realized_fields(db, make_position, make_transaction):
     fixture 约定：``amount`` 是元、``fee`` 是分（fee=1000 即 10 元）。
     """
     pos = _seed_position(make_position)
-    _txn(make_transaction, pos, txn_type='buy',
-         quantity=100, price=1.0, amount=100, fee=1000, trade_date=_day(2026, 1, 5))
-    _txn(make_transaction, pos, txn_type='sell',
-         quantity=50, price=1.2, amount=60, fee=200, trade_date=_day(2026, 2, 5))
+    _txn(
+        make_transaction,
+        pos,
+        txn_type='buy',
+        quantity=100,
+        price=1.0,
+        amount=100,
+        fee=1000,
+        trade_date=_day(2026, 1, 5),
+    )
+    _txn(
+        make_transaction, pos, txn_type='sell', quantity=50, price=1.2, amount=60, fee=200, trade_date=_day(2026, 2, 5)
+    )
 
     result = build_trade_timeline(db, symbol='004369', family_id=1)
 

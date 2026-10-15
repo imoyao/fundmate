@@ -237,9 +237,7 @@ def test_explicit_start_date_overrides_range(db):
     _seed_nav_series(db, fund_code='004369', points=10, acc_nav=2.5)
     start = date.today() - timedelta(days=5)
 
-    result = fetch_product_trend(
-        db, '004369', asset_type='fund', range_key='3M', start_date=start
-    )
+    result = fetch_product_trend(db, '004369', asset_type='fund', range_key='3M', start_date=start)
 
     assert result is not None
     assert result['requested_days'] == 6, '跨度按显式起始日算（含今天）'
