@@ -11,10 +11,59 @@ import {
   MARKER_MAX_SIZE,
   MARKER_MIN_SIZE,
   SELL_SIZE_RATIO,
+  clearingLabel,
+  clearingMarks,
   markerMaxSize,
   markerSize,
   maxAmountOf
 } from "../trendMarkerMetrics";
+
+describe("clearingMarks：清仓轮次标记（#2171 P2）", () => {
+  const p = (date: string, closed = false) => ({ date, closed });
+
+  it("closed 点 = 一轮结束，按出现顺序编号", () => {
+    const marks = clearingMarks([
+      p("2026-01-05"),
+      p("2026-03-05", true),
+      p("2026-05-05"),
+      p("2026-07-05", true)
+    ]);
+    expect(marks).toEqual([
+      { date: "2026-03-05", round: 1 },
+      { date: "2026-07-05", round: 2 }
+    ]);
+  });
+
+  it("没有 closed 点 → 空（没清过仓就没有轮次可言）", () => {
+    expect(clearingMarks([p("2026-01-05"), p("2026-03-05")])).toEqual([]);
+    expect(clearingMarks([])).toEqual([]);
+  });
+
+  it("同日多笔只算一轮（否则同一天画两条重合竖线）", () => {
+    const marks = clearingMarks([p("2026-03-05", true), p("2026-03-05", true)]);
+    expect(marks).toEqual([{ date: "2026-03-05", round: 1 }]);
+  });
+
+  it("序号是**绝对**轮次：传全量点才能对上「第几轮」", () => {
+    // 只传最近一段的话，编号会从 1 重新开始——这正是约定「调用方传全量」的原因
+    const all = clearingMarks([
+      p("2026-01-01", true),
+      p("2026-04-01", true),
+      p("2026-08-01", true)
+    ]);
+    expect(all.map(m => m.round)).toEqual([1, 2, 3]);
+  });
+});
+
+describe("clearingLabel：标签文案", () => {
+  it("只有一轮 → 「清仓」（写「第 1 轮」是噪声）", () => {
+    expect(clearingLabel(1, 1)).toBe("清仓");
+  });
+
+  it("多轮 → 编号（价值就在「第几轮」）", () => {
+    expect(clearingLabel(2, 3)).toBe("第 2 轮清仓");
+  });
+});
 
 describe("markerSize：金额权重 → 直径", () => {
   it("权重为 1 时顶到上限，权重为 0 时落到下限", () => {
