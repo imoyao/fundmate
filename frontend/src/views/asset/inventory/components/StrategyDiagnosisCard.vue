@@ -243,6 +243,13 @@ function round(value: number): number {
     margin-bottom: var(--space-3);
     background: var(--bg-soft);
     border-radius: var(--radius-sm);
+
+    /* 窄屏：逐标的的事实块改竖排，reason 独占一行后不再折行挤压。
+       媒体查询贴着被它覆盖的规则放（同特异性下源序即优先级） */
+    @include bp.below("md") {
+      flex-direction: column;
+      gap: var(--space-1);
+    }
   }
 
   &__overview-label {
@@ -286,10 +293,10 @@ function round(value: number): number {
 
   &__name {
     overflow: hidden;
+    text-overflow: ellipsis;
     font-size: 13px;
     font-weight: 600;
     color: var(--text-primary);
-    text-overflow: ellipsis;
     white-space: nowrap;
   }
 
@@ -313,6 +320,12 @@ function round(value: number): number {
     flex-wrap: wrap;
     gap: var(--space-2);
     align-items: baseline;
+
+    /* 窄屏：策略名 / 状态胶囊 / reason 之间的间距收紧。
+       媒体查询贴着被它覆盖的规则放（同特异性下源序即优先级） */
+    @include bp.below("md") {
+      gap: var(--space-1);
+    }
   }
 
   &__strategy {
@@ -385,16 +398,7 @@ function round(value: number): number {
     }
   }
 
-  /* 窄屏：逐标的的事实块改竖排，reason 独占一行后不再折行挤压 */
-  @include bp.below("md") {
-    &__overview {
-      flex-direction: column;
-      gap: var(--space-1);
-    }
-
-    &__signal {
-      gap: var(--space-1);
-    }
-  }
+  /* 窄屏适配已并入 &__overview / &__signal 内部（媒体查询必须贴着它覆盖的
+     规则放：同特异性下源序即优先级，见 stylelint.config.js 的 order/order 注释） */
 }
 </style>

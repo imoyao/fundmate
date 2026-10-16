@@ -65,7 +65,9 @@ def test_breach_both_directions(db, make_position):
     """双向越线：目标 40%，实际 60%（+20）与 20%（−20）都要判定越线。"""
     _pos(make_position, '000300', '沪深300', 12.0)
     _pos(make_position, '110020', '债基', 8.0, account='账户B')
-    alloc.save_targets(db, 1, [{'symbol': '000300', 'target_weight': 40.0}, {'symbol': '110020', 'target_weight': 40.0}])
+    alloc.save_targets(
+        db, 1, [{'symbol': '000300', 'target_weight': 40.0}, {'symbol': '110020', 'target_weight': 40.0}]
+    )
 
     over = alloc.compute_deviation(db, 1, threshold_pct=5.0)
     flags = {i['symbol']: (i['deviation_pct'], i['breached']) for i in over['items']}
@@ -92,7 +94,9 @@ def test_threshold_is_tunable(db, make_position):
 
 def test_save_targets_is_full_overwrite(db, make_position):
     """整体覆盖：第二次只提交 A，B 的旧目标应被移除。"""
-    alloc.save_targets(db, 1, [{'symbol': '000300', 'target_weight': 40.0}, {'symbol': '110020', 'target_weight': 30.0}])
+    alloc.save_targets(
+        db, 1, [{'symbol': '000300', 'target_weight': 40.0}, {'symbol': '110020', 'target_weight': 30.0}]
+    )
     assert alloc.read_targets(db, 1) == {'000300': 40.0, '110020': 30.0}
 
     alloc.save_targets(db, 1, [{'symbol': '000300', 'target_weight': 50.0}])

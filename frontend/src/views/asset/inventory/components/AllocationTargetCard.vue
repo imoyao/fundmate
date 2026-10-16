@@ -412,8 +412,16 @@ function signedPct(value: number): string {
     gap: var(--space-2);
     align-items: center;
     padding: var(--space-2) var(--space-2);
-    border-radius: var(--radius-sm);
     border-bottom: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+
+    /* 窄屏：压缩数字列宽，让标的名占满剩余空间。
+       放在 &--readonly 之前是有意的级联顺序：同特异性下源序即优先级，
+       只读态的窄屏列宽在 &--readonly 内再压一档，见下方注释。 */
+    @include bp.below("md") {
+      grid-template-columns: minmax(0, 1fr) 64px 64px 72px 48px;
+      gap: var(--space-1);
+    }
 
     /* 越线：整行给一层暖沙金底纹——它是「你定的线被越过了」，
        用告警色而非涨跌色，避免被读成「亏了」 */
@@ -431,14 +439,18 @@ function signedPct(value: number): string {
     /* 只读态没有「移除」列：收掉列宽，否则行尾空出 56px */
     &--readonly {
       grid-template-columns: minmax(0, 1fr) 72px 72px 80px;
+
+      @include bp.below("md") {
+        grid-template-columns: minmax(0, 1fr) 64px 64px 72px;
+      }
     }
   }
 
   &__cell {
     overflow: hidden;
+    text-overflow: ellipsis;
     font-size: 13px;
     color: var(--text-secondary);
-    text-overflow: ellipsis;
     white-space: nowrap;
 
     &--num {
@@ -470,9 +482,9 @@ function signedPct(value: number): string {
 
   &__title {
     overflow: hidden;
+    text-overflow: ellipsis;
     font-size: 13px;
     color: var(--text-primary);
-    text-overflow: ellipsis;
     white-space: nowrap;
   }
 
@@ -489,16 +501,8 @@ function signedPct(value: number): string {
     margin-top: var(--space-3);
   }
 
-  /* 窄屏：压缩数字列宽，让标的名占满剩余空间 */
-  @include bp.below("md") {
-    &__row {
-      grid-template-columns: minmax(0, 1fr) 64px 64px 72px 48px;
-      gap: var(--space-1);
-    }
-
-    &__row--readonly {
-      grid-template-columns: minmax(0, 1fr) 64px 64px 72px;
-    }
-  }
+  /* 窄屏适配已并入 &__row / &__row--readonly 内部（媒体查询必须贴着它覆盖的
+     规则放：同特异性下源序即优先级，提到外层块尾会被后面的基础规则压掉，
+     详见 stylelint.config.js 的 order/order 注释与 ExploreDetailPanel 同族注释） */
 }
 </style>

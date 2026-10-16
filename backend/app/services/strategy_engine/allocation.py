@@ -204,11 +204,11 @@ def collect_reminders(
             {
                 'level': REMINDER_LEVEL,
                 'category': 'strategy',
-                'title': f"配比偏离：{item['name']} 当前 {item['weight_pct']:.2f}%，目标 {item['target_pct']:.2f}%",
+                'title': f'配比偏离：{item["name"]} 当前 {item["weight_pct"]:.2f}%，目标 {item["target_pct"]:.2f}%',
                 'body': (
-                    f"{direction}目标 {abs(deviation):.2f} 个百分点"
-                    f"（你设定的容忍带 {threshold_pct:.1f}）。"
-                    f"这条线是你自己定的，仅在越线当天提醒一次。"
+                    f'{direction}目标 {abs(deviation):.2f} 个百分点'
+                    f'（你设定的容忍带 {threshold_pct:.1f}）。'
+                    f'这条线是你自己定的，仅在越线当天提醒一次。'
                 ),
                 'dedup_key': build_dedup_key(SOURCE_TYPE, item['symbol'], day),
                 'source_type': SOURCE_TYPE,
