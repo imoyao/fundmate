@@ -817,6 +817,12 @@ def test_merge_tree_args_are_left_right(mod, monkeypatch):
         return real(args, cwd)
 
     monkeypatch.setattr(mod, '_git', spy)
+    # CI 检出可能只有 PR ref（或浅克隆），没有 origin/main / origin/dev —— 此时
+    # `_merge_trial` 在 merge-base 一步就优雅返回，根本不会调到 merge-tree（实测 CI 红灯）。
+    # 与上一条用例同口径：缺 ref 就跳过，不把环境问题算成代码问题。
+    code, _ = real(['merge-base', 'origin/main', 'origin/dev'], str(_REPO_ROOT))
+    if code != 0:
+        pytest.skip('缺 origin/main / origin/dev（CI 检出无完整 ref），无法在真实 ref 上钉参数顺序')
     # 用**本仓真实 ref**：`cwd=None` 在测试进程里不保证能解析出 main/dev。
     mod._merge_trial('origin/main', 'origin/dev', str(_REPO_ROOT))
     got = seen.get('args')
