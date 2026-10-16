@@ -110,6 +110,19 @@
               />
             </template>
 
+            <!-- 域 D：跨账本重复交易（#2151）——未忽略组 + 已忽略清单，逐组核对 -->
+            <DomainDGhostTable
+              v-else-if="tab.key === 'D'"
+              :items="ghostGroups"
+              :ignored-items="ghostIgnored"
+              :loading="ghostLoading"
+              :deleting-id="ghostDeletingId"
+              :undoing-id="ghostUndoingId"
+              @ignore="handleGhostIgnore"
+              @undo-ignore="handleGhostUndoIgnore"
+              @delete-txn="handleGhostDeleteTxn"
+            />
+
             <!-- 域 C：占位内容 -->
             <template v-else>
               <!-- 识别候选（txn → 域 C，#1251）：AI 识别结果落草稿，确认后入库并触发域 C 对账 -->
@@ -145,8 +158,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from "vue";
-import { useRouter } from "vue-router";
+import { ref, computed, onMounted, nextTick, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
@@ -157,9 +170,11 @@ import type { DiscrepancyItem } from "@/api/reconciliation";
 import DomainBDiscTable from "./components/DomainBDiscTable.vue";
 import EAccountDomainPanel from "./components/EAccountDomainPanel.vue";
 import RecognizerCandidatesPanel from "./components/RecognizerCandidatesPanel.vue";
+import DomainDGhostTable from "./components/DomainDGhostTable.vue";
 import DomainPlaceholder from "./components/DomainPlaceholder.vue";
 import SupplementDialog from "./components/SupplementDialog.vue";
-import { domainTabs } from "./constants/domainTabs";
+import { domainTabs, type WorkbenchDomainKey } from "./constants/domainTabs";
+import { normalizeDomain } from "./utils/domainQuery";
 import { useWorkbenchDomains } from "./composables/useWorkbenchDomains";
 
 defineOptions({ name: "ReconcileWorkbench" });
@@ -173,6 +188,11 @@ const {
   bDiscs,
   eItems,
   eLoading,
+  ghostGroups,
+  ghostIgnored,
+  ghostLoading,
+  ghostDeletingId,
+  ghostUndoingId,
   recognizerCandidates,
   committing,
   totalPending,
@@ -182,17 +202,26 @@ const {
   domainIgnored,
   loadDiscrepancies,
   loadEAccount,
+  loadGhostDuplicates,
   loadRecognizerCandidates,
   commitCandidates,
   discardCandidates,
   handleRun,
   handleIgnore,
   handleEAccountCover,
-  handleEAccountIgnore
+  handleEAccountIgnore,
+  handleGhostIgnore,
+  handleGhostUndoIgnore,
+  handleGhostDeleteTxn
 } = useWorkbenchDomains();
 
-/** 当前激活域 */
-const activeDomain = ref<"A" | "B" | "C">("B");
+const route = useRoute();
+
+/** 当前激活域：初值优先取 URL 的 `?domain=`，非法值一律回落到 B（#2151）。
+ *  这样横幅「去处理」跳 `?domain=D` 才真的落在域 D，而不是跳过来还停在 B。 */
+const activeDomain = ref<WorkbenchDomainKey>(
+  normalizeDomain(route.query.domain) ?? "B"
+);
 
 /** 顶部「待裁决差异」= 当前激活域的 pending 数，与下方表格可见可操作行口径一致（#1259） */
 const pendingCount = computed(() => domainPending(activeDomain.value));
@@ -218,7 +247,7 @@ function goTo(to: string | { name: string }): void {
 
 /** Banner 点击：切换到第一个有待处理差异的域并定位到表格区（#1259） */
 function focusFirstPendingDomain(): void {
-  const order: ("A" | "B" | "C")[] = ["B", "C", "A"];
+  const order: WorkbenchDomainKey[] = ["B", "C", "A", "D"];
   const target = order.find(k => domainPending(k) > 0);
   if (!target) return;
   activeDomain.value = target;
@@ -229,9 +258,28 @@ function focusFirstPendingDomain(): void {
   });
 }
 
+/** 切域时把域写回 URL（`replace` 而非 `push`：切 tab 不该在浏览器历史里堆一层）。
+ *  URL 是本页的「域寻址」入口——横幅从别处跳 `?domain=D` 靠它落地，两者必须一致。 */
+watch(activeDomain, key => {
+  const current = normalizeDomain(route.query.domain);
+  if (current === key) return;
+  router.replace({ query: { ...route.query, domain: key } });
+});
+
+/** 反向同步：用户在地址栏改 `?domain=`（或从横幅再跳一次）时，tab 跟着走。
+ *  只处理合法值——非法值不动 tab，避免把用户从有效域弹走。 */
+watch(
+  () => route.query.domain,
+  raw => {
+    const next = normalizeDomain(raw);
+    if (next && next !== activeDomain.value) activeDomain.value = next;
+  }
+);
+
 onMounted(() => {
   loadDiscrepancies();
   loadEAccount();
+  loadGhostDuplicates();
   loadRecognizerCandidates();
 });
 </script>
