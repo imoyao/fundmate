@@ -5,6 +5,13 @@ import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import {
+  TREND_VIEW_OPTIONS,
+  overlayAvailable,
+  showViewToggle,
+  showVolumeSeries,
+  type TrendView
+} from "./trendViewMetrics";
+import {
   getProductTrend,
   getTradeTimeline,
   type ProductTrendResult,
@@ -48,16 +55,16 @@ import {
  *
  * ## 买卖点 / 成本线叠加（#2171）
  *
- * - **只叠场外净值线**：买卖点（锚定当日净值）与成本线（`avg_cost_yuan`，**元/份**）
- *   都与净值曲线同轴可比。成本线**必须**取元/份那个字段——取总成本会让净值被压平（见
- *   `costSeriesData` 注释）；
- * - **场内 K 线不叠**（决定，非遗漏）：K 线是**未复权价格** + cross tooltip + 双 grid
- *   （量能副图），叠加等于在同一张图上放第二套坐标语义；而 #2171 需求 §2.1 定稿的主图
- *   本就是「单位净值折线 + 成本线 + 买卖点」。真要在场内看买卖点，成本最低的**替代方案**
- *   不是往 K 线上硬叠，而是给场内加一个「折线」视图开关（切到收盘价折线，直接复用本叠加
- *   层与成本线口径）——届时只需加一个视图切换，不必新写一套坐标。买卖点的复盘场景另有
- *   更合适的落点：资产复盘页的「调仓时间线」（`docs/features/asset-review.md` 组件 5，
- *   按周期列出每笔买卖 + 卖出的实现盈亏，比图上几个点信息量大得多）；
+ * - **叠加层只在折线视图**：买卖点（锚定当日净值 / 收盘价）与成本线（`avg_cost_yuan`）
+ *   都与折线同轴可比。成本线**必须**取「元/份」那个字段——取总成本会让曲线被压平
+ *   （见 `costSeriesData` 注释）；
+ * - **场内提供「K线 / 折线」两个视图**（#2171 后续）：K 线是**未复权价格** + cross tooltip
+ *   + 双 grid（量能副图），叠买卖点等于在同图上放第二套坐标语义，故**不往 K 线上硬叠**；
+ *   场内要看买卖点就切折线视图（画**收盘价**，与持仓成本同口径），直接复用同一套叠加层与
+ *   成本线口径，不新写坐标。三个视图判定（切换器是否可见 / 成交量副图 / 叠加层是否可用）
+ *   收口在 `trendViewMetrics`（含单测）；
+ * - 买卖点的复盘场景另有更合适的落点：资产复盘页的「调仓时间线」
+ *   （`docs/features/asset-review.md` 组件 5，按周期列出每笔买卖 + 卖出的实现盈亏）；
  * - **取色避开 rise/fall**：买卖点不是涨跌语义，红绿会让「我买过」被误读成「涨了」。
  *   蓝（info）三角朝上=买入、橙（warning）三角朝下=卖出、中性灰虚线=成本线——
  *   形状主编码，色弱用户也能分辨；
@@ -134,13 +141,37 @@ function hexToRgba(hex: string, alpha: number): string {
 
 const hasData = computed(() => (trend.value?.values.length ?? 0) >= 2);
 
-/** 场内 = 有 OHLCV → 画 K 线；场外基金只有净值 → 退回净值线（品类差异化） */
+/** 场内 = 有 OHLCV（具备画 K 线的能力）；场外基金 / 指数只有一条净值线（品类差异化） */
 const isCandle = computed(() => (trend.value?.ohlc?.length ?? 0) >= 2);
 
-/** 成交量副图：整段都没有量能数据时（个别来源缺列）不占版面 */
-const hasVolume = computed(
-  () =>
-    isCandle.value && (trend.value?.ohlc ?? []).some(o => (o.volume ?? 0) > 0)
+/**
+ * 场内视图（#2171 后续）：K 线 / 折线。
+ *
+ * 默认 K 线，既有观感不变。折线视图存在的唯一理由是**让买卖点与成本线能叠上来**——
+ * 它们都是「元/份」「元/股」的日序列，只能与折线同轴（见 `trendViewMetrics` 头注释）。
+ */
+const candleView = ref<TrendView>("candle");
+
+/** 是否显示视图切换器：有 OHLCV 才谈得上「K 线」（场外给切换器是假选择） */
+const canToggleView = computed(() =>
+  showViewToggle(trend.value?.ohlc?.length ?? 0)
+);
+
+/** 当前**真的**在画 K 线 = 具备能力 **且** 选的是 K 线视图 */
+const useCandle = computed(
+  () => isCandle.value && candleView.value === "candle"
+);
+
+/**
+ * 成交量副图：只随 K 线视图出现，且整段无量能时不占版面。
+ * 两个条件各自成立（「有量能数据」≠「当前视图该显示量能」），故都交给 `trendViewMetrics`
+ * 判定——把它们合成一个条件就会出现「切到折线后剩一个空网格」。
+ */
+const hasVolume = computed(() =>
+  showVolumeSeries(
+    candleView.value,
+    (trend.value?.ohlc ?? []).some(o => (o.volume ?? 0) > 0)
+  )
 );
 
 const candleCloses = computed(() =>
@@ -367,11 +398,16 @@ const costSeriesData = computed(() => {
   });
 });
 
-/** 叠加层是否有效：开关开着 + 有交易点 + 场外净值线（首版不叠 K 线，见组件头注释） */
+/**
+ * 叠加层是否有效：开关开着 + 有交易点 + **折线视图**。
+ *
+ * `overlayAvailable` 收口在 `trendViewMetrics`：K 线视图是未复权价 + cross tooltip +
+ * 双 grid（量能副图），叠加属另一套坐标语义。场内要看买卖点 → 切折线视图（#2171 后续）。
+ */
 const markersActive = computed(
   () =>
     showMarkers.value &&
-    !isCandle.value &&
+    overlayAvailable(candleView.value) &&
     markerData.value.buy.length + markerData.value.sell.length > 0
 );
 
@@ -445,7 +481,7 @@ const chartOption = computed(() => {
     lineStyle: { color: getCssVar(CHART_TOKENS.borderLight, "#e8e8e8") }
   };
 
-  if (isCandle.value) {
+  if (useCandle.value) {
     // 成交量副图：与 K 线共用 x 轴（放下面一格），整段无量能时不渲染这一格
     const volumeSeries = hasVolume.value
       ? [
@@ -592,7 +628,9 @@ const chartOption = computed(() => {
     },
     series: [
       {
-        name: "净值",
+        // 场内折线视图画的是**收盘价**（与持仓成本同口径），场外才是净值——
+        // 名字不能都叫「净值」，否则场内用户会拿它去对比基金净值（#2171 后续）
+        name: isCandle.value ? "收盘价" : "净值",
         type: "line",
         data: values,
         smooth: false,
@@ -703,42 +741,49 @@ watch(firstTradeDate, () => {
   <CardBlock v-if="!noSeries" class="trend-section">
     <SectionHeader title="走势">
       <template #action>
-        <SegmentedControl
-          v-model="range"
-          :options="rangeOptions"
-          size="small"
-          ariaLabel="切换走势区间"
-        />
-        <!-- 买卖点 / 成本线开关（#2171）：有交易点才可开；关掉后只剩净值曲线。
-             默认开——「我买在了哪」是买方核心诉求；信息过载的用户可自行关闭。 -->
-        <el-checkbox
-          v-if="hasMarkers"
-          v-model="showMarkers"
-          size="small"
-          class="trend-section__marker-toggle"
-        >
-          买卖点
-        </el-checkbox>
-        <!-- 统一大小（#2171 §4.2）：默认关 = 弱金额权重（看得出大额买入）；
-             只想看「我在哪买过」的用户打开它，曲线立刻安静下来。 -->
-        <el-checkbox
-          v-if="hasMarkers && showMarkers"
-          v-model="unifiedSize"
-          size="small"
-          class="trend-section__marker-toggle"
-        >
-          统一大小
-        </el-checkbox>
-        <!-- 历轮买卖（#2171 P1）：仅清仓后重建仓的用户可见。关掉只看最近一轮——
-             旧轮次的点会让「现在的成本线」难以认读。 -->
-        <el-checkbox
-          v-if="hasHistoryRounds && showMarkers"
-          v-model="showHistoryRounds"
-          size="small"
-          class="trend-section__marker-toggle"
-        >
-          历轮
-        </el-checkbox>
+        <!-- ⚠️ 必须自己套一层 flex-wrap 容器（#2039）：SectionHeader 的 action 槽会随窄容器
+             收缩，但**只有调用方内层是可折行容器时才会折行**——否则多枚控件直接溢出卡片、
+             叠到左侧 ⓘ 上。本区现在是「区间 + 视图 + 3 个复选框」共 5 枚，必须折行。 -->
+        <div class="trend-section__actions">
+          <SegmentedControl
+            v-model="range"
+            :options="rangeOptions"
+            size="small"
+            ariaLabel="切换走势区间"
+          />
+          <!-- 场内视图切换（#2171 后续）：K 线 / 折线。折线视图让买卖点与成本线能叠上来
+               （它们都是「元/股」日序列，只能与折线同轴）；场外只有一条线，不显示该切换器。 -->
+          <SegmentedControl
+            v-if="canToggleView"
+            v-model="candleView"
+            :options="TREND_VIEW_OPTIONS"
+            size="small"
+            ariaLabel="切换走势视图"
+          />
+          <!-- 买卖点 / 成本线开关（#2171）：有交易点才可开；关掉后只剩曲线。
+               默认开——「我买在了哪」是买方核心诉求；信息过载的用户可自行关闭。 -->
+          <el-checkbox v-if="hasMarkers" v-model="showMarkers" size="small">
+            买卖点
+          </el-checkbox>
+          <!-- 统一大小（#2171 §4.2）：默认关 = 弱金额权重（看得出大额买入）；
+               只想看「我在哪买过」的用户打开它，曲线立刻安静下来。 -->
+          <el-checkbox
+            v-if="hasMarkers && showMarkers"
+            v-model="unifiedSize"
+            size="small"
+          >
+            统一大小
+          </el-checkbox>
+          <!-- 历轮买卖（#2171 P1）：仅清仓后重建仓的用户可见。关掉只看最近一轮——
+               旧轮次的点会让「现在的成本线」难以认读。 -->
+          <el-checkbox
+            v-if="hasHistoryRounds && showMarkers"
+            v-model="showHistoryRounds"
+            size="small"
+          >
+            历轮
+          </el-checkbox>
+        </div>
       </template>
     </SectionHeader>
 
@@ -803,8 +848,14 @@ watch(firstTradeDate, () => {
   color: var(--text-tertiary-ink);
 }
 
-/* 买卖点开关：与区间切换胶囊同处 action 槽，拉开间距不贴在一起 */
-.trend-section__marker-toggle {
-  margin-left: var(--space-2, 8px);
+/* action 槽的内层容器：**必须可折行**（#2039）。SectionHeader 的槽会收缩，但只有在
+   调用方内层 `flex-wrap: wrap` 时才折行——否则区间/视图/复选框一排直接溢出卡片。
+   `justify-content: flex-end` 让折行后仍贴右对齐，宽屏下与折行前逐像素一致。 */
+.trend-section__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2, 8px);
+  align-items: center;
+  justify-content: flex-end;
 }
 </style>
