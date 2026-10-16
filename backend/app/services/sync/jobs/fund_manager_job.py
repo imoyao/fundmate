@@ -218,21 +218,24 @@ class FundManagerSyncJob(SyncJob):
             if fid and mid:
                 rel_records.append({'fund_id': fid, 'mgr_id': mid})
 
-        existing_rels: set = set()
-        fund_id_chunks = list(_chunked(fund_map.values()))
-        mgr_id_chunks = list(_chunked(mgr_map.values()))
-        for fids in fund_id_chunks:
-            for mids in mgr_id_chunks:
-                rows = (
-                    self.db.query(FundManager.fund_id, FundManager.mgr_id)
-                    .filter(FundManager.fund_id.in_(fids), FundManager.mgr_id.in_(mids))
-                    .all()
-                )
-                existing_rels.update((r.fund_id, r.mgr_id) for r in rows)
-        new_rels = [r for r in rel_records if (r['fund_id'], r['mgr_id']) not in existing_rels]
-        if new_rels:
-            self.db.bulk_insert_mappings(FundManager, new_rels)
-            logger.info(f'新增 {len(new_rels)} 条基金-经理关联')
+        # 重复由**数据库唯一约束**兜底（#2239）：`INSERT OR IGNORE` / `ON CONFLICT DO NOTHING`。
+        #
+        # 为什么删掉原先的「先查已有、再过滤」两步法：那是 #2229 应用层去重的翻版 —— 表本身
+        # 仍在膨胀（每次同步都要把「本批 fund_id × 本批 mgr_id」的笛卡尔组合查一遍，
+        # 全量回填时是上万 × 上万的 in_ 查询），且并发或分批边界上仍会漏。改依赖
+        # `uq_fund_managers_fund_mgr` 后写侧只剩一次插入：「表里为什么会有重复行」
+        # 这个问题在新库上不再可能发生（旧库由
+        # `migrations.migrate_fund_managers_split_tenures` 去重后补约束）。
+        if rel_records:
+            inserted = bulk_insert_if_not_exists(
+                self.db,
+                FundManager,
+                rel_records,
+                'fund_id',
+                unique_columns=['fund_id', 'mgr_id'],
+            )
+            # helper 的返回值在「忽略冲突」时不精确（rowcount 含被跳过者），故措辞不写死「新增」
+            logger.info(f'基金-经理关联写入 {inserted} 条（重复的由唯一约束忽略）')
 
         self.db.commit()
 

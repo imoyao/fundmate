@@ -38,6 +38,7 @@
 | `temperature`（market_single_values / market_composites / market_multi_items） | 全市场温度 | 按 source+日期，可控 |
 | `securities_fund_flow` | 资金流 | 中等 |
 | `FundManager` / `Manager`（基金管理人，**独立表**） | 被 `funds` 外键引用 | 恒定小表（已确认独立表，放 market 域） |
+| `manager_tenures`（基金经理**任期分段**，#2239 从 `fund_managers` 拆出） | 与 `fund_managers` 同源同写方（`manager_tenure` job）、同样外键引用 `funds`/`managers`；读方是经理读服务 | 按 (基金 × 经理 × 段) 增长，一基金一经理通常 1–2 段；**空态合法**（只对目标池回填，见该表模型注释）。放 market 域：与 `fund_managers` 拆到不同域会制造跨域 FK 与跨域事务 |
 | `sync_logs`（系统同步审计） | 记录市场/备份同步任务执行情况 | 超小量（每日几次任务），统一放 Turso，随市场同步任务 |
 | `advisor_portfolios` / `advisor_holdings` / `advisor_industry_allocs` / `advisor_adjust_histories` | 投顾组合公开参照与持仓/行业/调仓明细（#1167；2026-09-08 补登记，此前文档漂移） | 参照小表，明细随组合数增长 |
 | `index_constituents` | 指数成分股（#1358 / #1286；2026-09-08 补登记） | 按指数×成分，覆盖式更新 |
