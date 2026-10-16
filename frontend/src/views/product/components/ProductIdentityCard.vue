@@ -39,10 +39,7 @@ onMounted(() => {
            （MGR_<mgr_code>，经 resolve 大写化），对使用者没有任何意义。
            先例：投顾组合按设计 §2.6 明确「不展示代码」，靠「名称 + 平台 + 机构」
            识别；经理编码同理，靠「姓名 + 任职基金」识别。其余品类照常展示。 -->
-      <div
-        v-if="product.asset_type !== 'manager'"
-        class="product-detail__fact"
-      >
+      <div v-if="product.asset_type !== 'manager'" class="product-detail__fact">
         <dt class="product-detail__fact-label">代码</dt>
         <dd class="product-detail__fact-value product-detail__symbol">
           {{ product.symbol }}
