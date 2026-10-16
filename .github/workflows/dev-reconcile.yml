@@ -1,0 +1,100 @@
+name: 跨仓 dev 自动对账（CNB <-> GitHub）
+
+# 把手工收敛自动化：以 GitHub dev 为基线合入 CNB dev，冲突取 GitHub（GitHub 为主、不覆盖人家），
+# 治理文件保持 GitHub 现状（§21 的治理同步是 CNB 侧独立事项，不塞进本 PR，否则会被治理方向守卫拦截）。
+# 源：CNB #269 / #488；与 scripts/bridge/dev_converge.py --base github 同语义。CI 绿灯后由 pr-auto-merge 自动合入。
+
+on:
+  schedule:
+    - cron: '37 18 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'force rebuild even if already converged'
+        required: false
+        default: 'false'
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: '0'
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: 配置 Git 身份
+        run: |
+          git config user.email "dev-reconcile[bot]@fundmate.local"
+          git config user.name "dev-reconcile[bot]"
+      - name: 添加 CNB 远程并拉取两侧 dev
+        env:
+          CNB_TOKEN: ${{ secrets.CNB_READ_TOKEN }}
+        run: |
+          git remote add cnb https://oauth2:$CNB_TOKEN@cnb.cool/duoduobei/fundmate.git || git remote set-url cnb https://oauth2:$CNB_TOKEN@cnb.cool/duoduobei/fundmate.git
+          git fetch origin dev
+          git fetch cnb dev
+      - name: 门禁（已对齐则跳过重建）
+        id: gate
+        run: |
+          git fetch origin bridge/github-dev 2>/dev/null || true
+          if git merge-base --is-ancestor origin/dev origin/bridge/github-dev 2>/dev/null && git merge-base --is-ancestor cnb/dev origin/bridge/github-dev 2>/dev/null; then
+            if [ ${{ github.event.inputs.force }} != "true" ]; then
+              echo "ALREADY_CONVERGED=1" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+      - name: 重建 bridge/github-dev（GitHub 为主，不覆盖人家）
+        if: ${{ steps.gate.outputs.ALREADY_CONVERGED != '1' }}
+        run: |
+          git branch -D bridge/github-dev 2>/dev/null || true
+          git checkout -B bridge/github-dev origin/dev
+          git merge -X ours -X renormalize cnb/dev --no-edit
+      - name: 推送 bridge/github-dev
+        if: ${{ steps.gate.outputs.ALREADY_CONVERGED != '1' }}
+        run: git push origin bridge/github-dev --force-with-lease
+      - name: 确保 PR 存在并挂 automerge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PYPR'
+          import json, os, urllib.request, urllib.error
+          TOKEN = os.environ['GH_TOKEN']
+          REPO = os.environ['GITHUB_REPOSITORY']
+          OWNER = REPO.split('/')[0]
+          API = 'https://api.github.com/repos/' + REPO
+          HEAD = 'bridge/github-dev'
+          BASE = 'dev'
+          def req(method, url, data=None):
+              body = json.dumps(data).encode() if data is not None else None
+              r = urllib.request.Request(url, data=body, method=method)
+              r.add_header('Authorization', 'Bearer ' + TOKEN)
+              r.add_header('Accept', 'application/vnd.github+json')
+              if body:
+                  r.add_header('Content-Type', 'application/json')
+              try:
+                  with urllib.request.urlopen(r) as resp:
+                      return resp.read().decode(), resp.status
+              except urllib.error.HTTPError as e:
+                  return e.read().decode(), e.code
+          out, _ = req('GET', API + '/pulls?state=open&head=' + OWNER + ':' + HEAD + '&base=' + BASE)
+          prs = json.loads(out)
+          if prs:
+              num = prs[0]['number']
+              print('existing PR', num)
+          else:
+              body = '自动对账 PR（GitHub Action 生成）。' + chr(10) + chr(10) + '- 基=GitHub dev，合 CNB dev，冲突取 GitHub（不覆盖人家）。' + chr(10) + '- 治理文件保持 GitHub 现状（§21 同步走 CNB 侧，不塞进本 PR）。' + chr(10) + '- CI 绿灯后由 pr-auto-merge 自动合入。'
+              out, st = req('POST', API + '/pulls', {'title': 'merge(bridge): 自动对账 CNB<->GitHub dev（GitHub 为主 / 治理取 CNB）', 'head': HEAD, 'base': BASE, 'body': body})
+              num = json.loads(out)['number']
+              print('created PR', num)
+          req('POST', API + '/issues/' + str(num) + '/labels', {'labels': ['automerge']})
+          print('automerge label ensured')
+          PYPR
+
