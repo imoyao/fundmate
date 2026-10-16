@@ -187,6 +187,75 @@ export interface FundPerformanceResult {
   samples?: number;
   /** 货基：七日年化口径的人话说明，供脚注直接展示 */
   caliber_note?: string;
+
+  /** 本轮回撤(%)：当前所处回撤区间（最近一次新高 → 最新一日）。0 = 正在新高，负 = 还在坑里 */
+  current_drawdown?: number | null;
+  /** 本轮回撤起点（最近一次净值新高日）YYYY-MM-DD */
+  current_drawdown_peak_date?: string | null;
+  /** 本轮自高点起熬过的自然日数（用户体感的是日历，不是 K 线根数） */
+  current_drawdown_days?: number | null;
+  /** 最大回撤高点日 YYYY-MM-DD */
+  max_drawdown_peak_date?: string | null;
+  /** 最大回撤低点日 YYYY-MM-DD */
+  max_drawdown_trough_date?: string | null;
+  /** 年化收益(%)（窗口与 risk_window 一致） */
+  annual_return?: number | null;
+  /** 年化波动率(%)——注意与上方「近1年」的 volatility_1y **窗口不同** */
+  annual_volatility?: number | null;
+  /** 夏普：(年化−rf)/年化波动。把上涨也算成风险，作参照用 */
+  sharpe?: number | null;
+  /** 索提诺：只罚下行波动（比夏普更贴买方） */
+  sortino?: number | null;
+  /** 卡玛：年化/|最大回撤| */
+  calmar?: number | null;
+  /** 溃疡指数 UI(%)：看整段煎熬而非单个最深处 */
+  ulcer_index?: number | null;
+  /** UPI：年化/UI（参考方简化式） */
+  upi?: number | null;
+  /** 波回比：年化/(波动×|最大回撤率|) */
+  return_drawdown_ratio?: number | null;
+  /** 胜率(%) */
+  win_rate?: number | null;
+  /** 胜率周期 day/week/month */
+  win_rate_period?: string | null;
+  /** 胜率是否基于重叠滚动窗口（是 ⇒ 持有体验，不可当概率读） */
+  win_rate_overlap?: boolean;
+  /** 风险指标窗口标签（如「近3年」）——跨基金比较前必须确认窗口一致 */
+  risk_window?: string | null;
+  /** 参与计算的净值点数（样本量透明） */
+  risk_sample_points?: number;
+  /** 无风险利率（年化小数）：不告诉用户 rf 取多少的夏普不可复核 */
+  risk_free_rate?: number;
+  /** 风险口径：acc_nav / distorted（检出净值跳变，疑似份额折算/大额赎回） */
+  risk_basis?: string | null;
+  /** 口径提示（逐条展示：含 rf 取值、跳变告警、分母退化说明） */
+  risk_caveats?: string[];
+  /** 数值来源：snapshot（每日快照）/ computed（快照缺失时现算回退） */
+  risk_source?: "snapshot" | "computed";
+
+  // ── 基准相对块（#167 追加之二）────────────────────────────────────────
+  // 基准按 fund_type 映射（**不解析** fund.benchmark 那句自然语言），
+  // 债基对债指数、股基对同类股基指数。`null` = 本基金不适用基准
+  // （货基 / 指数型 / QDII —— 它们该比的是跟踪标的，而我们没有标的指数数据，
+  // 所以**不给**而不是拿沪深300 顶替）。
+  benchmark?: FundBenchmark | null;
+  /**
+   * 同类内分位（百分位 0~100，**越大越好**）。
+   *
+   * 为什么需要它：风险比跨类别不可比（债基波动天生小 ⇒ 夏普系统性偏高），
+   * 绝对值不能跨类读，而「在同类里排前 10%」对任何类别都是同一句话。
+   * 缺失的指标不出现在这里（同类样本 < 5 时后端不出分位）——降级为「—」。
+   */
+  peer_percentiles?: Record<string, number> | null;
+
+  // ── 拟涨幅2（#167 收尾）──────────────────────────────────────────────
+  /**
+   * 拟涨幅2：近 1 月 / 3 月 / 6 月 / 1 年四段**互不重叠**收益的加权连乘。
+   *
+   * 为什么去重叠：这四个滚动涨幅彼此包含，直接加权会把同一段行情数上多遍。
+   * `null` = 历史不足一年（**不拿「成立以来」凑**）或样本不足，降级为「—」。
+   */
+  shape_gain2?: ShapeGain2 | null;
 }
 
 /** 取基金业绩与风险。404 = 该代码不是基金。 */
@@ -795,4 +864,125 @@ export function getAdvisorProfile(params: { code: string }) {
     "/api/products/advisor-profile/",
     { params }
   );
+}
+
+/** 榜单可选的一类基金（#167）。`count` = 当前口径下该类可上榜的只数。 */
+export interface FundRiskTypeOption {
+  fund_type_id: number;
+  name: string;
+  /** 当前口径、`basis=acc_nav` 的行数——用来显示「债券型-长期纯债（312）」 */
+  count: number;
+}
+
+export interface FundRiskTypesResult {
+  caliber_version: number;
+  /** 只含**有快照行**的类型；按只数降序。没有数据的类型不在内（选中即空榜） */
+  types: FundRiskTypeOption[];
+}
+
+/**
+ * 取「当前有榜可看」的基金小类（#167 · 榜单页类型选择器）。
+ *
+ * 不用「全库 fund_types 名录」当选项：名录里有些类型一只都没算过，
+ * 选中只会看到空榜，而用户分不清「这个类没有基金」与「我们没算」。
+ */
+export function getFundRiskTypes() {
+  return http.request<ApiResponse<FundRiskTypesResult>>(
+    "get",
+    "/api/products/fund-risk-types/"
+  );
+}
+
+/** 取同类型基金的风险指标榜（#167）。`fund_type_id` 必填——不做跨类榜。 */
+export interface FundRiskRankingRow {
+  fund_code: string;
+  fund_type_id: number | null;
+  as_of: string | null;
+  max_drawdown: number | null;
+  current_drawdown: number | null;
+  drawdown_days: number | null;
+  annual_return: number | null;
+  annual_volatility: number | null;
+  sharpe: number | null;
+  sortino: number | null;
+  calmar: number | null;
+  ulcer_index: number | null;
+  upi: number | null;
+  return_drawdown_ratio: number | null;
+  win_rate: number | null;
+  sample_points: number;
+  /** 口径：acc_nav（正常）/ distorted / insufficient */
+  basis: string;
+  window_label: string;
+}
+
+export interface FundRiskRankingResult {
+  fund_type_id: number;
+  metric: string;
+  order: "asc" | "desc";
+  caliber_version: number;
+  rows: FundRiskRankingRow[];
+  /**
+   * 因口径可疑（净值跳变 / 样本不足）被剔除的条数。
+   *
+   * **必须展示**：不展示的话「榜上只剩 3 只」会被读成「同类只有 3 只有数据」。
+   */
+  excluded_distorted: number;
+}
+
+/** 取同类基金的风险指标榜（#167）。`fund_type_id` 必填——风险比跨类别不可比。 */
+export function getFundRiskRanking(params: {
+  fund_type_id: number;
+  metric: string;
+  limit?: number;
+  order?: "asc" | "desc";
+  include_distorted?: boolean;
+}) {
+  return http.request<ApiResponse<FundRiskRankingResult>>(
+    "get",
+    "/api/products/fund-risk-ranking/",
+    { params }
+  );
+}
+
+/** 拟涨幅2 结果（#167 收尾）。`segments` 是四段原始收益（%），随值下发供复核。 */
+export interface ShapeGain2 {
+  /** 拟涨幅2（%） */
+  shape_gain2: number;
+  /** 四段去重叠收益（%），近 → 远 */
+  segments: number[];
+  /** 口径说明（权重与「不含 rf」） */
+  basis: string;
+}
+
+/** 基准相对块（#167）。`available: false` 表示基准已选定但序列暂缺，**不以上述以外的指数顶替** */
+export interface FundBenchmark {
+  /** 基准指数代码（`index_daily.index_code`），如 `000300.SH` / `885001.WI` */
+  code: string;
+  /** 基准展示名（后端下发，前端不抄映射） */
+  name: string;
+  /** 命中规则名——口径留痕：用户可复核「凭什么拿它比」 */
+  matched_by: string;
+  /** 序列是否可用 */
+  available: boolean;
+  /** 不可用时的原因（仅 available=false） */
+  reason?: string;
+  /** 共同交易日上的样本数（仅 available=true） */
+  sample_points?: number;
+  /** 基准同期年化收益(%) */
+  bench_annual_return?: number | null;
+  /** 基金同期年化收益(%) */
+  fund_annual_return?: number | null;
+  /** 超额收益(%)：基金 − 基准 */
+  excess_return?: number | null;
+  /** 年化跟踪误差(%) */
+  tracking_error_annual?: number | null;
+  /** 信息比率：年化超额 / 年化跟踪误差 */
+  information_ratio?: number | null;
+  /** 上行捕获率(%)：>100 = 基准涨时它涨得更多 */
+  upside_capture?: number | null;
+  /** 下行捕获率(%)：<100 = 基准跌时它跌得更少 */
+  downside_capture?: number | null;
+  /** 口径标记：ok / insufficient（共同交易日不足） */
+  basis?: string;
 }

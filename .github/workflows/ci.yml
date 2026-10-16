@@ -520,6 +520,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # 探针测试（branch_structure 回退验证）钉在历史不可变 SHA 上，
+          # 浅克隆缺对象会把探针误判成红（#2255 实测）——全量克隆兜底。
+          fetch-depth: 0
 
       - name: 设置 Node 22
         uses: actions/setup-node@v4
