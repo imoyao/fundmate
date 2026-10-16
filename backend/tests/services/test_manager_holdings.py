@@ -19,7 +19,7 @@ from contextlib import closing
 from datetime import date
 
 from app.core.db_factory import market_session_factory
-from app.domains.funds.models import Fund, FundCompany, FundHolding, FundManager, Manager
+from app.domains.funds.models import Fund, FundCompany, FundHolding, FundManager, Manager, ManagerTenure
 from app.services.manager_holdings import build_manager_holdings
 
 
@@ -53,20 +53,49 @@ def _seed_fund(code, name):
 
 
 def _link(mgr_code, fund_code, is_classic=False, start_date=None):
-    """建经理-基金关联。**幂等**：测试库复用持久化 SQLite，重复插入会撞 UNIQUE。
+    """建经理-基金关联（+ 可选一段任期）。**幂等**：测试库复用持久化 SQLite。
 
-    已存在时补写 ``is_classic`` / ``start_date`` —— 否则上一轮留下的旧值
-    （例如把 start_date 改成更早）会让本次断言读到陈旧数据。
+    #2239 之后任期不在关联表上：``start_date`` 改为往 ``manager_tenures`` 落一段
+    **在任**任期（``end_date=None``），正是「任期长度」聚合的输入。
+    ``start_date=None`` 表示**任期未回填** → 不落任期行（代表作挑选应跳过它）。
+
+    已存在时补写 ``is_classic`` —— 否则上一轮留下的旧值会让本次断言读到陈旧数据。
     """
     with closing(market_session_factory()()) as db:
         m = db.query(Manager).filter(Manager.mgr_code == mgr_code).first()
         f = db.query(Fund).filter(Fund.fund_code == fund_code).first()
         exists = db.query(FundManager).filter(FundManager.mgr_id == m.id, FundManager.fund_id == f.id).first()
         if exists is None:
-            db.add(FundManager(mgr_id=m.id, fund_id=f.id, is_classic=is_classic, start_date=start_date))
+            db.add(FundManager(mgr_id=m.id, fund_id=f.id, is_classic=is_classic))
         else:
             exists.is_classic = is_classic
-            exists.start_date = start_date
+        db.commit()
+
+        if start_date is None:
+            return
+        tenure = (
+            db.query(ManagerTenure)
+            .filter(
+                ManagerTenure.mgr_id == m.id,
+                ManagerTenure.fund_id == f.id,
+                ManagerTenure.start_date == start_date,
+            )
+            .first()
+        )
+        if tenure is None:
+            db.add(
+                ManagerTenure(
+                    fund_id=f.id,
+                    mgr_id=m.id,
+                    start_date=start_date,
+                    end_date=None,
+                    current=True,
+                    source='test',
+                )
+            )
+        else:
+            tenure.end_date = None
+            tenure.current = True
         db.commit()
 
 

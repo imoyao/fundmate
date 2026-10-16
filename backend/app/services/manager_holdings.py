@@ -33,6 +33,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func
@@ -50,48 +51,74 @@ DEFAULT_TOP_N = 10
 _SIZE_INDEX_CODES = ('000300', '000905', '000852')
 
 
-def _pick_representative_fund(db: Session, mgr_id: int, fund_ids: List[int]) -> Optional[int]:
-    """选代表作的 ``fund_id``：``is_classic`` 优先，否则取任期最长的那只。
+def _pick_representative_fund(
+    db: Session,
+    mgr_id: int,
+    fund_ids: List[int],
+    as_of: Optional[date] = None,
+) -> Optional[int]:
+    """选代表作的 ``fund_id``：``is_classic`` 优先，否则取**任期最长**的那只。
 
     **为什么不用「规模最大」**：规模指标已在头部展示，用它挑代表作会让用户
     误以为看到的是同一个数字；而重仓解读真正关心的是「策略延续性」，任期长度
     才是该维度的代理。
 
+    ## 任期长度从 ``manager_tenures`` **聚合**（#2239）
+
+    一段一行 → 逐段累加天数。原实现读 ``fund_managers.start_date`` 取最早的那只，
+    隐含假设「一人一基金只有一段」；遇到两进两出（张坤在 005827 就是两段）会把
+    中间**空档也算成任期**，从而挑错代表作。
+
+    **开放段（``end_date IS NULL``）按「至基准日」计**：在任中的那段若按 0 天算，
+    正在管的基金反而比卸任的短，代表作会挑到已经不管的那只。
+
+    ## 两个易错点，写在这里防止后来者改回去
+
+    1. 必须**累加**而不是取某一段 —— 这正是拆表的目的；
+    2. 一条任期都没有时（目标池未回填）退回第一只，并保证结果**可复现**：
+       此时任何选择都是任意的，稳定取同一只比按「碰巧的顺序」取更有用。
+
     Args:
         mgr_id: 经理 id。
         fund_ids: 该经理关联的基金 id 列表（**已受 fund_limit 截断**）。
+        as_of: 开放段的计算基准日，默认今天（测试注入）。
 
     Returns:
         代表作 ``fund_id``；无关联基金时返回 None。
     """
-    from app.domains.funds.models import FundManager
+    from app.domains.funds.models import FundManager, ManagerTenure
 
     if not fund_ids:
         return None
 
-    rows = (
-        db.query(FundManager.fund_id, FundManager.is_classic, FundManager.start_date)
+    rels = (
+        db.query(FundManager.fund_id, FundManager.is_classic)
         .filter(FundManager.mgr_id == mgr_id, FundManager.fund_id.in_(fund_ids))
         .all()
     )
-    if not rows:
+    if not rels:
         return None
 
-    classics = [r.fund_id for r in rows if r.is_classic]
+    classics = [r.fund_id for r in rels if r.is_classic]
     if classics:
         return classics[0]
 
-    # 无标记代表作 → **最早**任职的那只（任期最长 = 策略延续最久 = 最有代表性）。
-    #
-    # 两个易错点，写在这里防止后来者改回去：
-    # 1. 必须 `min` 不是 `max` —— 任职**最早**的才是任期最长；
-    # 2. 必须先剔除 `start_date` 为空的行。库内任期只对目标池回填，大量行为空，
-    #    而空值参与比较会被判成"最早"而误选。全部为空时才退回第一只（无任期可比较，
-    #    此时任何选择都是任意的，不如稳定取第一只以保证同一请求结果可复现）。
-    dated = [r for r in rows if r.start_date is not None]
-    if not dated:
-        return rows[0].fund_id
-    return min(dated, key=lambda r: r.start_date).fund_id
+    base = as_of or date.today()
+    days: Dict[int, int] = {}
+    for fund_id, start, end in (
+        db.query(ManagerTenure.fund_id, ManagerTenure.start_date, ManagerTenure.end_date)
+        .filter(ManagerTenure.mgr_id == mgr_id, ManagerTenure.fund_id.in_(fund_ids))
+        .all()
+    ):
+        if start is None:
+            continue
+        span = max(((end or base) - start).days, 0)
+        days[fund_id] = days.get(fund_id, 0) + span
+
+    if not days:
+        return rels[0].fund_id
+    # 平票取 fund_id 小者：同一请求重复调用必须给同一个答案
+    return max(days, key=lambda fid: (days[fid], -fid))
 
 
 def build_manager_holdings(

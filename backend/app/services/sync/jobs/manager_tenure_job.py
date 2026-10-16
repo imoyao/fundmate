@@ -3,13 +3,13 @@
 # Date : 2026/10/11
 # File : manager_tenure_job.py
 # app/services/sync/jobs/manager_tenure_job.py
-"""基金经理任期同步（#2082）：把 ``fund_managers.start_date/end_date`` 填上。
+"""基金经理任期同步（#2082 / #2239）：把 F10 抓到的任期写进 ``manager_tenures``。
 
-## WHY：这条链路曾经是断的
+## WHY：这条链路曾经是断的，落点也曾经是错的
 
 ``FundManagerSyncJob.backfill_tenures()`` 早就写好了（口径与坑位注释都很完整），
 但**全仓没有任何调用点** —— ``grep -rn backfill_tenures`` 只命中定义本身。
-于是这两个字段连「跑同步能修」都谈不上，真实库实测：
+于是任职时间连「跑同步能修」都谈不上，真实库实测：
 
 ```
 fund_managers 总数 = 34812
@@ -17,8 +17,13 @@ fund_managers 总数 = 34812
   end_date     非空      0 / 34812  =  0.0%
 ```
 
-前端「任职起止 / 任期」因此永远是「—」。本 job 把那件事接上，并且是这条链路的
-**唯一写入方**（方法已从 ``FundManagerSyncJob`` 移到这里，不留两处各写一半）。
+前端「任职起止 / 任期」因此永远是「—」。
+
+#2239 又把**落点**改对了：任期不再写 ``fund_managers``（那张表已拆成纯关联 + 唯一约束），
+而是写 ``manager_tenures`` —— 一段一行，同一 (基金, 经理) 允许**多段**，
+这是原表「一行一格」表达不出来的（张坤在 005827 就有两段）。
+本 job 是这张表的**唯一写入方**；「谁在管谁」仍由 ``fund_manager`` job 负责，
+两件事不再混在同一条写入路径里。
 
 ## 为什么必须独立成 job，而不是塞进 fund_manager
 
@@ -41,24 +46,27 @@ fund_managers 总数 = 34812
 
 ## 口径
 
-- **只更新不插入**：关联关系由 ``fund_manager`` job 的经理全量表决定；本 job 对库里
+- **不造关系**：关联关系由 ``fund_manager`` job 的经理全量表决定；本 job 对库里
   不存在的 (基金, 经理) 组合直接跳过，**不凭任期数据造关系**；
 - **取「仍在任」的那一段**（:func:`find_tenure`，实测张坤在 005827 有两段任期，
   取错段会把现任显示成已卸任的人）；
-- 抓不到 / 姓名对不上 / 与库内现值相同 → 跳过，**不写占位日期**（诚实降级 §6）。
+- **幂等键 = (fund_id, mgr_id, start_date)**：同一段反复抓取只落一行；
+- **``end_date`` 要能改**：在任段下次抓到时若已带卸任日，必须更新 —— 「任职起止」
+  这个字段的全部价值就在这条；只插不改会让卸任永远不生效；
+- 抓不到 / 姓名对不上 → 跳过，**不写占位日期**（诚实降级 §6）。
 """
 
 from typing import List
 
 from loguru import logger
 
-from app.domains.funds.models import Fund, FundManager, Manager
+from app.domains.funds.models import Fund, FundManager, Manager, ManagerTenure
 from app.services.adapters.manager_tenure import find_tenure
 from app.services.job_base import SyncJob
 
 
 class ManagerTenureSyncJob(SyncJob):
-    """按目标基金逐只抓 F10 任期，回填 ``fund_managers.start_date/end_date``。"""
+    """按目标基金逐只抓 F10 任期，写入 ``manager_tenures``（#2239）。"""
 
     @property
     def _allow_empty_data(self) -> bool:
@@ -118,15 +126,33 @@ class ManagerTenureSyncJob(SyncJob):
     # ── 写入 ──
 
     def _save_data(self, new_data: List[dict]) -> None:
-        """只更新不插入：给已存在的 (基金, 经理) 关联补上任期两列。
+        """把 F10 抓到的任期分段写进 ``manager_tenures``（#2239）。
 
-        对库中不存在的组合**直接跳过** —— 关系只由经理全量表决定，
-        不凭任期数据反向造关系（否则会凭空长出一批 (基金, 经理) 关联）。
+        对库里没有关联的 (基金, 经理) 组合**直接跳过** —— 关系只由经理全量表决定，
+        不凭任期数据反向造关系（否则会凭空长出一批关联）。
 
-        **同值不写**：``start_date`` / ``end_date`` 与库内一致时跳过，
-        避免每次运行都把整行标脏（``n_changed`` 也因此是「真实变更数」）。
+        三条写入口径：
+
+        1. **幂等键 = (fund_id, mgr_id, start_date)**（``uq_manager_tenures_fund_mgr_start``）：
+           同一段反复抓取只落一行，已有则改、没有则插；
+        2. **``end_date`` 允许变**：在任段下次抓到时若已带卸任日，必须更新 ——
+           「任职起止」这个字段的全部价值就在这条，只插不改会让卸任永远不生效。
+           ``start_date`` 变了则视为**另一段**（真实场景里换了一段任期，就该多一行）；
+        3. **``current`` 同批维护**：本段在任（``end_date`` 为空）时，把同 (基金, 经理)
+           的其它段翻成 False —— 「当前在任段」最多一条，否则读侧按它筛选代表作
+           会跨轮次选错人。
+
+        **同值不写**：三个字段都没变时跳过，避免每次运行把整行标脏
+        （``n_changed`` 也因此是「真实变更数」）。
         """
-        stats = {'scanned': 0, 'matched': 0, 'unchanged': 0, 'updated': 0, 'no_rel': 0}
+        stats = {
+            'scanned': 0,
+            'matched': 0,
+            'unchanged': 0,
+            'inserted': 0,
+            'updated': 0,
+            'no_rel': 0,
+        }
 
         for item in new_data:
             code = item['fund_code']
@@ -139,7 +165,7 @@ class ManagerTenureSyncJob(SyncJob):
             stats['scanned'] += 1
 
             rels = (
-                self.db.query(Manager.name, FundManager)
+                self.db.query(Manager.id, Manager.name)
                 .join(FundManager, FundManager.mgr_id == Manager.id)
                 .filter(FundManager.fund_id == fund.id)
                 .all()
@@ -148,22 +174,65 @@ class ManagerTenureSyncJob(SyncJob):
                 stats['no_rel'] += 1
                 continue
 
-            for mgr_name, rel in rels:
+            for mgr_id, mgr_name in rels:
                 tenure = find_tenure(segments, mgr_name)
                 if tenure is None:
                     continue
                 stats['matched'] += 1
-                if rel.start_date == tenure['start_date'] and rel.end_date == tenure['end_date']:
-                    stats['unchanged'] += 1
-                    continue
-                rel.start_date = tenure['start_date']
-                rel.end_date = tenure['end_date']
-                stats['updated'] += 1
+                is_current = tenure['end_date'] is None
 
-        if stats['updated']:
+                row = (
+                    self.db.query(ManagerTenure)
+                    .filter(
+                        ManagerTenure.fund_id == fund.id,
+                        ManagerTenure.mgr_id == mgr_id,
+                        ManagerTenure.start_date == tenure['start_date'],
+                    )
+                    .first()
+                )
+                if row is None:
+                    self.db.add(
+                        ManagerTenure(
+                            fund_id=fund.id,
+                            mgr_id=mgr_id,
+                            start_date=tenure['start_date'],
+                            end_date=tenure['end_date'],
+                            current=is_current,
+                            source='jjjl_f10',
+                        )
+                    )
+                    stats['inserted'] += 1
+                else:
+                    dirty = False
+                    if row.end_date != tenure['end_date']:
+                        row.end_date = tenure['end_date']
+                        dirty = True
+                    if row.current != is_current:
+                        row.current = is_current
+                        dirty = True
+                    if dirty:
+                        stats['updated'] += 1
+                    else:
+                        stats['unchanged'] += 1
+
+                if is_current:
+                    # 其它段让位。查询量有界：只扫本基金下该经理的段（正常 1–2 段）
+                    for other in (
+                        self.db.query(ManagerTenure)
+                        .filter(
+                            ManagerTenure.fund_id == fund.id,
+                            ManagerTenure.mgr_id == mgr_id,
+                            ManagerTenure.start_date != tenure['start_date'],
+                            ManagerTenure.current.is_(True),
+                        )
+                        .all()
+                    ):
+                        other.current = False
+
+        if stats['inserted'] or stats['updated']:
             self.db.flush()
         self.db.commit()
         # 暴露到 self.stats：`run()` 的返回值与 sync_logs 都读它，便于事后回答
-        # 「这轮到底更新了几行、有多少只是抓不到」——只写日志答不了。
+        # 「这轮到底写了几段、有多少只是抓不到」——只写日志答不了。
         self.stats['tenure'] = stats
-        logger.info(f'任期回填完成: {stats}')
+        logger.info(f'任期写入完成: {stats}')

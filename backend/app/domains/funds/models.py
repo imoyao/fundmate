@@ -148,13 +148,95 @@ class Fund(Base, PrimaryKeyMixin, TimestampMixin):
 
 
 class FundManager(Base, PrimaryKeyMixin):
+    """基金-经理**关联**：只表达「谁在管谁」（#2239 拆分后）。
+
+    ## 为什么拆成两张表（#2239）
+
+    本表原先同时承担「关联存在性」与「任职时间」两个职责，且**没有**
+    ``(fund_id, mgr_id)`` 唯一约束。后果（真实库实测，#2239 卡内有数）：
+
+    - ``fund_managers`` 69,684 行里只有 34,846 个唯一 ``(fund_id, mgr_id)`` 组合
+      —— 几乎每行重复一份，且每次同步都会再写一遍（表持续膨胀，IO/存储白耗）；
+    - ``start_date`` / ``end_date`` 填充率恒为 0%，前端「任职起止」永远是「—」；
+    - 同一经理**多次任职同一基金**这种真实场景根本表达不了（一行一格）。
+
+    #2229 只在**结果层**去重（``SELECT DISTINCT`` / 应用层过滤），表本身照旧膨胀，
+    且任何写入路径漏做去重都会静默产生重复行 —— 根因是**表结构**，不是查询写法。
+    故此处：关联归本表（带唯一约束），任期归 :class:`ManagerTenure`。
+
+    ## 唯一约束是这套改造的**承重墙**
+
+    ``uq_fund_managers_fund_mgr`` 是幂等的**数据库层**保证：写侧可以直接用
+    ``INSERT OR IGNORE`` / ``ON CONFLICT DO NOTHING``（见
+    ``sync/jobs/fund_manager_job``），不必再靠「先查已有、再过滤」的应用层两步法
+    ——后者在并发或分批边界上仍会漏，且每次都多一轮查询。
+
+    存量库由 :func:`app.core.migrations.migrate_fund_managers_split_tenures`
+    整表重建补齐（SQLite 不支持给已存在的表加约束，只能「建新表→拷贝→删旧→改名」）。
+    """
+
     __tablename__ = 'fund_managers'
+    __table_args__ = (UniqueConstraint('fund_id', 'mgr_id', name='uq_fund_managers_fund_mgr'),)
 
     fund_id = Column(Integer, ForeignKey('funds.id'), nullable=False)
     mgr_id = Column(Integer, ForeignKey('managers.id'), nullable=False)
     is_classic = Column(Boolean, default=False, comment='代表作品')
-    start_date = Column(Date, comment='任职起始')
-    end_date = Column(Date, comment='任职结束')
+
+
+class ManagerTenure(Base, PrimaryKeyMixin, TimestampMixin):
+    """基金经理**任期分段**（#2239 从 ``fund_managers`` 拆出）。
+
+    ## 语义
+
+    一段任期 = 「某经理在某基金的某段时间内在任」。同一 ``(fund_id, mgr_id)``
+    **允许多段**（张坤在 005827 就有两段，见 ``adapters/manager_tenure.find_tenure``），
+    这是拆表的核心收益：原表一行一格，表达能力上就写不下「两进两出」。
+
+    ## 字段口径
+
+    - ``start_date`` 非空、``end_date`` 可空：**NULL 表示仍在任**。展示层据此判在任
+      （``manager_profile._managed_funds`` 的 ``is_active``），所以**不要**用「未来的
+      end_date」或占位日期表示在任 —— 那会让「卸任日」这个词失去意义；
+    - ``current`` 标记**当前在任段**，供「代表作」等需要快速筛选的场景用
+      （``manager_holdings`` 原先按 ``start_date`` 最早挑，改为读本表后仍以任期长短为准，
+      见该服务注释）。它与 ``end_date IS NULL`` 在正常数据下等价，但**不冗余**：
+      数据源只给「截止某日」而调仓尚未确认时，两者会短暂分叉，届时以 ``current`` 为准；
+    - ``source`` 记来源标识（``jjjl_f10`` = 天天基金 F10 经理页），便于日后换源时区分批次。
+
+    ## 为什么仓位类字段不在这里
+
+    本表**只存时间**。``is_classic``（代表作品）是「关联的属性」而非「任期的属性」，
+    留在 :class:`FundManager` —— 一段任期结束时它不该跟着消失。
+
+    ## 幂等键
+
+    ``uq_manager_tenures_fund_mgr_start``：同一人、同一基金、同一入职日只允许一条。
+    重复抓取（同一只基金反复 ``--targets``）因此天然幂等，不需要「删了重写」。
+    """
+
+    __tablename__ = 'manager_tenures'
+    __table_args__ = (
+        UniqueConstraint(
+            'fund_id',
+            'mgr_id',
+            'start_date',
+            name='uq_manager_tenures_fund_mgr_start',
+        ),
+        Index('ix_manager_tenures_mgr_id', 'mgr_id'),
+        Index('ix_manager_tenures_fund_id', 'fund_id'),
+    )
+
+    fund_id = Column(Integer, ForeignKey('funds.id'), nullable=False)
+    mgr_id = Column(Integer, ForeignKey('managers.id'), nullable=False)
+    start_date = Column(Date, nullable=False, comment='任职起始')
+    end_date = Column(Date, nullable=True, comment='任职结束；NULL = 仍在任')
+    current = Column(
+        Boolean,
+        default=False,
+        server_default=text('0'),
+        comment='当前在任段（供「代表作」等快速筛选）；正常数据下等价于 end_date IS NULL',
+    )
+    source = Column(String(20), default='jjjl_f10', comment='来源标识（jjjl_f10 = 天天基金 F10 经理页）')
 
 
 class ChannelLink(Base, PrimaryKeyMixin, TimestampMixin):

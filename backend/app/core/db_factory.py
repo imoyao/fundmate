@@ -149,6 +149,9 @@ def _needs_sqlite_pragmas(url: str) -> bool:
 #    曾有独立的 fund_management_companies（user 域）——实测零读者/零外键/零接口，
 #    已删除。注意别再把它登记回来。
 #  - managers / fund_managers：被 market 域表 (funds) 外键引用 → 随 market 域。
+#  - manager_tenures（#2239）：与 fund_managers 同源同写方（SyncJob）、同样外键引用
+#    funds/managers，且读方是 market 域的经理读服务 → 随 market 域。它是
+#    fund_managers 拆出来的任期表，两张表放不同域会制造跨域 FK 与跨域事务。
 DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     # ── market 域（Turso）：公开、读多写少、无限膨胀的市场数据 ──
     'funds': DOMAIN_MARKET,
@@ -158,6 +161,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'fund_sales_orgs': DOMAIN_MARKET,  # 基金维度销售机构（funds 域内）
     'managers': DOMAIN_MARKET,  # 基金管理人（被 funds 引用）
     'fund_managers': DOMAIN_MARKET,  # 基金-经理关联（被 funds 引用）
+    'manager_tenures': DOMAIN_MARKET,  # 基金-经理任期分段（#2239 从 fund_managers 拆出）
     'advisor_portfolios': DOMAIN_MARKET,  # 投顾/基金组合公开参照（且慢/蛋卷/天天基金）
     'index_constituents': DOMAIN_MARKET,  # 指数成分股（#1286 品种差异化维度：指数→成分）
     'index_catalog': DOMAIN_MARKET,  # 指数名录（#1286 聚合搜索可搜索的指数条目）
