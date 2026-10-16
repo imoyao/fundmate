@@ -136,11 +136,16 @@ def fetch_ref(url: str, branch: str, dest_ref: str, cwd: str | None = None) -> t
 
 
 def conflict_files(cwd: str | None = None) -> list[str]:
-    """当前工作区未解的冲突文件清单（`--diff-filter=U`）。"""
-    code, out, _ = _git(['diff', '--name-only', '--diff-filter=U'], cwd)
+    """当前工作区未解的冲突文件清单（`git ls-files -u`，比 diff --diff-filter=U 稳）。"""
+    code, out, _ = _git(['ls-files', '-u'], cwd)
     if code != 0:
         return []
-    return [ln for ln in out.splitlines() if ln.strip()]
+    files = set()
+    for ln in out.splitlines():
+        # 每行形如：<mode> <sha> <stage>\t<path>
+        if '\t' in ln:
+            files.add(ln.split('\t', 1)[1].strip())
+    return sorted(files)
 
 
 def build_report(p: dict, *, pushed: bool, conflicts: list[str], pr_url: str | None = None) -> str:
