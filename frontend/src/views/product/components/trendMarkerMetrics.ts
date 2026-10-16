@@ -63,6 +63,51 @@ export function markerSize(
   return +(minSize + (maxSize - minSize) * Math.sqrt(weight)).toFixed(2);
 }
 
+/**
+ * 清仓轮次标记（#2171 P2）的一点：某日清仓（份额归零），即一轮结束。
+ *
+ * `round` 是**累计轮次序号**（从 1 起），不是「当前展示的第几个」——见 `clearingMarks`。
+ */
+export interface ClearingMark {
+  date: string;
+  round: number;
+}
+
+/**
+ * 从交易点里提取清仓轮次标记。
+ *
+ * 三条口径：
+ *
+ * 1. **`closed` 点 = 一轮结束**（后端在份额归零的那笔上打 `closed=True`），无需前端自己
+ *    累加份额；
+ * 2. **同日多次清仓只算一轮**：渲染层的买卖点已按日聚合，轮次标记同理——否则同一天会画出
+ *    两条重合的竖线；
+ * 3. **编号是绝对的**：调用方应传**全量**交易点，序号才与「这是第几轮」对得上。
+ *    若只传当前可见的那一段，历轮开关关掉后标签会变成「第 1 轮清仓」，与实际轮次不符。
+ */
+export function clearingMarks(
+  points: { date: string; closed: boolean }[]
+): ClearingMark[] {
+  const out: ClearingMark[] = [];
+  for (const p of points) {
+    if (!p.closed) continue;
+    const last = out[out.length - 1];
+    if (last && last.date === p.date) continue;
+    out.push({ date: p.date, round: out.length + 1 });
+  }
+  return out;
+}
+
+/**
+ * 清仓标记的标签文案。
+ *
+ * 只有一轮时写「第 1 轮清仓」是噪声（没有可比的轮次），只写「清仓」；
+ * 多轮才编号——那时的价值正是「这是第几轮、每轮结果如何」。
+ */
+export function clearingLabel(round: number, total: number): string {
+  return total > 1 ? `第 ${round} 轮清仓` : "清仓";
+}
+
 /** 一侧点集里的最大金额（权重分母）；空集为 0 */
 export function maxAmountOf(points: { amount: number }[]): number {
   let max = 0;

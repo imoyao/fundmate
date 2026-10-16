@@ -22,6 +22,8 @@ import ProductProfitPanel from "./ProductProfitPanel.vue";
 import {
   SELL_SIZE_RATIO,
   UNIFIED_SIZE,
+  clearingLabel,
+  clearingMarks,
   markerMaxSize,
   markerSize,
   maxAmountOf
@@ -80,6 +82,10 @@ import {
  *   **默默不画这个点**，等于把交易记录藏了）；
  * - **成本线前向填充**：非交易日延续前值，首笔交易前为 null 不画，清仓日断在最后一笔；
  * - **「历轮」开关**（P1）：清仓后重建仓的用户可关掉旧轮次，只看最近一轮；
+ * - **清仓轮次标记**（P2）：每轮结束（`closed`）在图上画一条**点线**竖线并编号
+ *   （「第 N 轮清仓」；只有一轮时只写「清仓」——写「第 1 轮」是噪声）。编号按**全量**
+ *   流水算、再按可见范围过滤，否则关掉「历轮」后标签会从第 1 轮重新开始、与实际不符；
+ *   逻辑收口在 `trendMarkerMetrics.clearingMarks`（含单测）；
  * - **建仓期区间**（P1）：有流水时区间栏追加「建仓」档——首笔买入日至今，
  *   显式起始日走后端 `start` 参数（档位表达不了因人而异的长度）；
  * - **时间线不分区间**：后端一次返回全量重放结果，前端按当前区间过滤展示；
@@ -260,6 +266,19 @@ const visibleCostLine = computed(() => {
   if (!pts.length) return [];
   const from = pts[0].date;
   return line.filter(c => c.date >= from);
+});
+
+/**
+ * 清仓轮次标记（#2171 P2）：在图上按轮次画竖线 + 编号。
+ *
+ * 编号必须按**全量**流水算（`clearingMarks` 的口径），再按当前可见范围过滤——否则关掉
+ * 「历轮」后标签会从「第 1 轮清仓」重新开始，与真实轮次对不上。
+ */
+const clearingMarksList = computed(() => {
+  const all = clearingMarks(timeline.value?.points ?? []);
+  if (showHistoryRounds.value || !all.length) return all;
+  const from = visiblePoints.value[0]?.date;
+  return from ? all.filter(m => m.date >= from) : all;
 });
 
 /** 日期 → 净值：买卖点画在当日净值位置（用户实际按净值成交，#2171 定稿） */
@@ -576,6 +595,8 @@ const chartOption = computed(() => {
   const markerBuyColor = getCssVar(CHART_TOKENS.info, "#409eff");
   const markerSellColor = getCssVar(CHART_TOKENS.warning, "#e6a23c");
   const costLineColor = getCssVar(CHART_TOKENS.textTertiary, "#9aa0a6");
+  // 清仓竖线用**点线**（成本线是虚线）：它标的是「一轮结束」这个事件，不是价格水平
+  const clearingColor = getCssVar(CHART_TOKENS.textTertiary, "#9aa0a6");
 
   /** 轴触发 tooltip：净值行 + 当日成本线 + 当日买卖汇总（#2171）。
       同日多笔在 markerData 已聚合，这里直接显示「N 笔合计」；
@@ -636,7 +657,29 @@ const chartOption = computed(() => {
         smooth: false,
         symbol: "none",
         lineStyle: { color: lineColor, width: 2 },
-        areaStyle: { color: hexToRgba(lineColor, 0.08) }
+        areaStyle: { color: hexToRgba(lineColor, 0.08) },
+        // 清仓轮次标记（#2171 P2）：每轮结束画一条点线竖线并编号。
+        // `silent: true` —— 它只是刻度，不该抢 tooltip（悬停仍显示当日净值 / 成本 / 买卖）。
+        ...(markersActive.value && clearingMarksList.value.length
+          ? {
+              markLine: {
+                silent: true,
+                symbol: ["none", "none"],
+                lineStyle: { color: clearingColor, type: "dotted", width: 1 },
+                label: { fontSize: 10, color: clearingColor },
+                data: clearingMarksList.value.map(m => ({
+                  xAxis: m.date,
+                  label: {
+                    formatter: clearingLabel(
+                      m.round,
+                      clearingMarksList.value.length
+                    ),
+                    position: "insideEndTop"
+                  }
+                }))
+              }
+            }
+          : {})
       },
       // 成本线（#2171）：移动加权（含手续费），非交易日前向延续；清仓日断在
       // 最后一笔（costSeriesData 在首笔前为 null，天然不画）。虚线 + 中性灰，
