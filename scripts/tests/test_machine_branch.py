@@ -172,8 +172,11 @@ def test_conflicts_mean_nothing_is_pushed(mod, tmp_path):
     calls: list[list[str]] = []
 
     def spy(args, cwd=None):
-        calls.append(list(args))
-        return real(args, cwd)
+        # 探针（#2255）：退出码一并记账——「推没推」是结果，merge/diff 的码才是根因
+        # （Linux runner 上冲突路径失灵，账里只有 push 结果时无从诊断）。
+        code, out = real(args, cwd)
+        calls.append([*args, f'rc{code}'])
+        return code, out
 
     saved = mod._git
     mod._git = spy
@@ -187,8 +190,8 @@ def test_conflicts_mean_nothing_is_pushed(mod, tmp_path):
     finally:
         mod._git = saved
     pushed = [c for c in calls if c and c[0] == 'push']
-    assert not pushed, f'有冲突时**一个字节都不该推**，实际调用了：{pushed}'
-    assert rc == 1, f'有冲突应返回 1（供调用方当信号），实际 {rc}'
+    assert not pushed, f'有冲突时**一个字节都不该推**，实际调用了：{pushed}；全程（含退出码）：{calls}'
+    assert rc == 1, f'有冲突应返回 1（供调用方当信号），实际 {rc}；全程（含退出码）：{calls}'
 
 
 def test_worktree_is_cleaned_up_on_conflict(mod, tmp_path):
@@ -203,8 +206,11 @@ def test_worktree_is_cleaned_up_on_conflict(mod, tmp_path):
     calls: list[list[str]] = []
 
     def spy(args, cwd=None):
-        calls.append(list(args))
-        return real(args, cwd)
+        # 探针（#2255）：退出码一并记账——「推没推」是结果，merge/diff 的码才是根因
+        # （Linux runner 上冲突路径失灵，账里只有 push 结果时无从诊断）。
+        code, out = real(args, cwd)
+        calls.append([*args, f'rc{code}'])
+        return code, out
 
     mod._git = spy
     try:

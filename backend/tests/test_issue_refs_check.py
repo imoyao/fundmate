@@ -36,27 +36,31 @@ _SCRIPT_PATH = _REPO_ROOT / 'scripts' / 'bridge' / 'check_issue_refs.py'
 
 
 def _ensure_default_ref() -> None:
-    """保证 `origin/dev` 在**任何** checkout 里都存在，让下面的断言有真实 ref 可用。
+    """保证 `origin/dev` 与 `origin/main` 在**任何** checkout 里都存在，让下面的断言有真实 ref 可用。
 
-    CI 的 `actions/checkout` 在 PR 场景只取 merge ref，**不创建** `origin/dev`；
-    于是这一组用例在 CI 上必挂、在本地却全绿（实测：本地有 ref → 31 passed，
-    CI 无 ref → 8 failed，全挂在 `git show origin/dev:…` 解析不出路径上）。
+    CI 的 `actions/checkout` 在 PR 场景只取 merge ref（+ base 分支），**不创建**
+    `origin/dev` / `origin/main`；于是这一组用例在 CI 上必挂、在本地却全绿（实测：
+    本地有 ref → 31 passed，CI 无 ref → 8 failed，全挂在 `git show origin/dev:…`
+    解析不出路径上）。#2255 又添一例：默认核对版本改为「远端默认分支」后，CI 缺
+    `origin/main` ⇒ `ls-tree origin/main` fatal 被报成「不存在」，
+    `test_non_strict_tolerates_missing_version` 假红。
 
     补一个指向当前 HEAD 的本地 ref 即可——**不是 mock**：解析仍然走真实 `git show`，
     只是把「环境里有没有这个 ref」这件与判据无关的事抹平。本地已存在时是 no-op。
     """
-    if subprocess.run(
-        ['git', 'rev-parse', '--verify', '--quiet', 'origin/dev'],
-        cwd=_REPO_ROOT,
-        capture_output=True,
-        check=False,
-    ).returncode:
-        subprocess.run(
-            ['git', 'update-ref', 'refs/remotes/origin/dev', 'HEAD'],
+    for ref in ('origin/dev', 'origin/main'):
+        if subprocess.run(
+            ['git', 'rev-parse', '--verify', '--quiet', ref],
             cwd=_REPO_ROOT,
             capture_output=True,
             check=False,
-        )
+        ).returncode:
+            subprocess.run(
+                ['git', 'update-ref', f'refs/remotes/{ref}', 'HEAD'],
+                cwd=_REPO_ROOT,
+                capture_output=True,
+                check=False,
+            )
 
 
 _ensure_default_ref()
@@ -327,12 +331,36 @@ def test_default_ref_matches_repo_main_branch(mod):
 def test_main_only_file_not_flagged_by_default(mod):
     """#104 的假阳性：`dev` 已删、`main` 还在的文件，**默认核对不得红灯**。
 
-    用真实仓库里的真实文件（`AssetInsightPanel.vue` 在 `origin/main` 存在、
-    `origin/dev` 不存在），不做 mock —— 这正是 #144 §四 报的那个具体个案。
-    若哪天该文件在 `main` 也被删了，本用例会红，提示换一个「main 独有」的样本。
+    原本用真实文件 `AssetInsightPanel.vue` 做样本（不做 mock），但该文件后来连
+    `main` 一起删了；且 `git diff origin/dev origin/main --diff-filter=A` = 0
+    （main ⊆ dev，仓库里**不存在**「main 独有」的真实文件），docstring 当年预言的
+    「换一个样本」路径已走不通。故改用 mock git（与本节 default_ref 系列同款）：
+    伪造「只在 origin/main 上存在」的样本，钉住的语义不变——**默认版本必须走远端
+    默认分支**：若哪天默认回退成写死 `origin/dev`，mock 下 origin/dev 无此文件 ⇒
+    本用例立刻转红。
     """
+    real_git = mod._git
+    sample = 'frontend/src/components/AssetInsight/AssetInsightPanel.vue'
+
+    def fake_git(args, cwd=None):
+        if args[0] == 'show':
+            version, _, path = args[1].partition(':')
+            if version == 'origin/main' and path == sample:
+                return 0, 'line\n' * 41  # ≥41 行，够 :38-41
+            return 128, 'fatal: Not a valid object name'
+        if args[0] == 'ls-tree':
+            # ['ls-tree', '-r', '--name-only', version] —— 只在 origin/main 列出样本
+            if args[3] == 'origin/main':
+                return 0, sample
+            return 0, ''
+        return real_git(args, cwd)
+
     text = '见 `frontend/src/components/AssetInsight/AssetInsightPanel.vue:38-41`'
-    code, out = _run(mod, text)  # ref=None → 解析远端默认分支
+    mod._git = fake_git
+    try:
+        code, out = _run(mod, text)  # ref=None → 解析远端默认分支
+    finally:
+        mod._git = real_git
     assert code == 0, out
     assert 'origin/main' in out, out
     assert '仍然有效' in out
