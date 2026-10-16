@@ -4,10 +4,15 @@
   只放事实项（代码 / 市场 / 场所 / 自选 / 持仓）。**名称与品类不在这里**——
   它们由 PageHeaderBar 页头承担（标题=产品名、副标题=品类）；卡内再排一次
   h2 名称 + 类型徽章是纯重复（用户实测「同一名称出现 4 次」，#2107 起删掉）。
-  例外：经理品类不展示「代码」（#2216，编码对使用者无意义，同投顾组合 §2.6 口径）。
 
   未登录时 in_watchlist / has_position 为 null（resolve 是「可选登录」端点），
   此时不渲染徽标——「未知」不是「没有」，不能显示成「未自选」。
+
+  **「代码」项按品类隐藏**（#2216 / #2228 · 设计 §2.6）：组合 / 经理类的 `symbol` 是
+  内部编码（`MGR_98CE0328FFF1`、投顾组合的平台原生码），对使用者没有任何意义 ——
+  这两类靠「名称 + 品类 + 平台 / 主理人」识别。判定收口在
+  `productIdentityFacts.showsCodeItem`（含单测）：设计早就这么写了，是这里漏了落地
+  （原先是**无条件**渲染）。
 
   为什么独立成组件：#1968 页内导航接线后 detail.vue 越过 400 行门禁线
   （scripts/check_vue_size.mjs），识别卡是纯展示、无取数，是最直接的拆出单元。
@@ -17,6 +22,7 @@ import { onMounted } from "vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import { useEnumLabels } from "@/composables/useEnumLabels";
 import type { ProductResolveResult } from "@/api/products";
+import { showsCodeItem } from "./productIdentityFacts";
 
 defineProps<{
   product: ProductResolveResult;
@@ -35,11 +41,15 @@ onMounted(() => {
 <template>
   <CardBlock class="product-detail__hero">
     <dl class="product-detail__facts">
-      <!-- 经理品类不展示「代码」（#2216）：此时 symbol 是基金经理编码
-           （MGR_<mgr_code>，经 resolve 大写化），对使用者没有任何意义。
-           先例：投顾组合按设计 §2.6 明确「不展示代码」，靠「名称 + 平台 + 机构」
-           识别；经理编码同理，靠「姓名 + 任职基金」识别。其余品类照常展示。 -->
-      <div v-if="product.asset_type !== 'manager'" class="product-detail__fact">
+      <!-- 代码项按品类隐藏（#2216 / #2228 · 设计 §2.6）：组合 / 经理类的 symbol 是
+           **内部编码**（`MGR_98CE0328FFF1` 经 resolve 大写化、投顾组合的平台原生码），
+           对使用者没有任何意义 —— 这两类靠「名称 + 品类 + 平台 / 主理人」识别
+           （经理靠「姓名 + 任职基金」）。其余品类照常展示。判定收口在
+           `productIdentityFacts.showsCodeItem`（含单测）。 -->
+      <div
+        v-if="showsCodeItem(product.asset_type)"
+        class="product-detail__fact"
+      >
         <dt class="product-detail__fact-label">代码</dt>
         <dd class="product-detail__fact-value product-detail__symbol">
           {{ product.symbol }}
