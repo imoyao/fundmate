@@ -86,6 +86,42 @@ SKIP_STALE_CLOSE = 'close_stale'
 SKIP_OTHER_TYPE = 'unsupported_asset_type'
 
 
+def refresh_position_prices_after_import(db) -> Dict[str, Any]:
+    """导入提交后**静默**回写一次持仓现价（#2232 项 3）。
+
+    ## 为什么必须做
+
+    导入落库时持仓的 ``current_price`` 系用成本价初始化（``orchestrator_commit`` 多处
+    ``price=0`` / ``avg_price``），而**真正的现价**由**每日 22:15** 的 ``position_price``
+    才回写（``DEFAULT_POSITION_PRICE_CRON = '15 22 * * *'``）。于是白天导入的用户，会在
+    「我的持仓」看到**盈亏恒为 0**（市值等于成本）——最坏一直错到次日 22:15。
+    该 job 自己的注释就写着这个后果：*「否则「导入时 avg_price == current_price」会让
+    盈亏恒为 0」*。用户据此会判断「导入没生效 / 这个 App 算错了」。
+
+    ## 为什么能在这里跑
+
+    本 job **纯本地读、不联网**（``NullAdapter``，只读 ``daily_worth`` / ``price_history``），
+    幂等、无上游请求、无限流风险；开销是 1~2 次批查询 + 若干 UPDATE —— 导入路径多花的
+    是**毫秒级**，不值得为它引入后台任务机制（仓库当前也没有）。
+
+    ## 为什么「静默」而不是给用户一个按钮
+
+    这是**数据正确性的收尾**，不是用户要做的决定：让用户去点「更新市价」，等于把系统
+    该做的事变成他的作业（#2232 卡里用户的原话：*「3 是否应该后台静默做，而不是让用户
+    告知？」*）。
+
+    ## 边界
+
+    - **失败不得影响导入**：调用方必须 ``try/except`` 记日志 —— 导入此时已经提交成功，
+      回写失败只是价格暂时陈旧，下次调度会补；
+    - **只覆盖「库里已有价源」的标的**：场外看 ``daily_worth``（当天已落库的确认净值），
+      场内看 ``price_history``（当日收盘价由 17:30 的 ``price_history`` job 落库）。
+      新导入的场内标的若还没行情行，这里写不进去 —— 那属另一个窗口（当日盘后补齐），
+      不是本函数的目标。
+    """
+    return PositionPriceSyncJob(db).run()
+
+
 class PositionPriceSyncJob(SyncJob):
     """把「已确认净值 / 面值」回写到 user 域 `positions.current_price`。"""
 

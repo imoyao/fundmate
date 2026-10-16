@@ -351,3 +351,31 @@ def test_never_triggers_remote_fetch(job, db, make_position):
 
     assert result['status'] == 'success'
     assert result['stats']['skip_reasons'].get(SKIP_NO_NAV) == 1
+
+
+# ── 5. 导入后静默回写（#2232 项 3） ─────────────────────────────────────────
+
+
+def test_refresh_after_import_writes_price_without_waiting_for_schedule(db, make_position):
+    """导入提交后**立即**回写现价，不必等每日 22:15 的调度。
+
+    回归锚点：「导入当天盈亏恒为 0」—— 导入落库时 ``current_price`` 用成本价初始化，
+    真正的现价由 22:15 的 ``position_price`` 才回写，于是白天导入的用户整天看到
+    盈亏 0（他会判断「导入没生效 / 这个 App 算错了」）。
+    ``refresh_position_prices_after_import`` 就是给导入路径补的那一次回写。
+
+    本用例只断言「价确实被写进去了」：它是纯本地幂等操作，不涉及网络与调度时序。
+    """
+    from app.services.sync.jobs.position_price_job import refresh_position_prices_after_import
+
+    pos = make_position(symbol='023887', asset_type='fund', quantity=1000, avg_price=1.0, current_price=1.0)
+    _add_nav(db, '023887', 1.2345, days_ago=1)
+
+    out = refresh_position_prices_after_import(db)
+
+    # 返回的是 job 的完整结果（`{status, stats}`）：导入端点把它挂在响应里留痕，
+    # 便于事后回答「这次导入到底有没有把价写进去」
+    assert out['status'] == 'success'
+    assert out['stats']['success'] == 1
+    db.refresh(pos)
+    assert pos.current_price == Money.yuan_to_price_units(1.2345), '导入后应立刻拿到现价，而不是等调度'
