@@ -14,6 +14,8 @@ WHY 下沉
 
 from datetime import date, timedelta
 
+from sqlalchemy import String, cast, func
+
 from app.core.money import Money
 from app.core.utils import paginate
 from app.domains.positions.models import Position
@@ -79,8 +81,31 @@ def build_transaction_list(db, family_id: int, page: int, per_page: int, filters
         variants = collect_transaction_symbol_variants(symbol, positions)
         query = query.filter(Transaction.symbol.in_(variants))
 
-    # 排序与分页
-    query = query.order_by(Transaction.created_at.desc())
+    # 排序与分页 —— 按**交易日期倒序**（#2171 反馈修正）
+    #
+    # 旧口径是 `created_at.desc()`，而 `created_at` 是**写入时间**不是交易时间：批量导入的
+    # 历史流水会让整张表退化成「导入批次顺序」。真机实测 `SZ000638` 的 24 笔排出来是
+    # `2023-02-03 → 2023-02-15 → 2023-02-07 → 2023-03-16 → 2023-03-13 → 2023-03-20`（乱序，
+    # 因同一批 created_at 挤在毫秒内、并列区间顺序未定义），用户在详情页看到的正是它。
+    #
+    # 口径与展示层同源（`components/TransactionTable` 的 `formatDate`：交易日优先、确认日兜底）
+    # ——排序键必须与屏幕上印的那个日期一致，否则「看起来乱序」永远说不清是谁的错。
+    # 真机 1,921 笔里有 1,211 笔 `trade_date` 为空（历史导入只填了确认日），只按 trade_date
+    # 排会把它们整批沉底，而屏上显示的却是确认日。
+    #
+    # `id` 兜底不是装饰：同一天的多笔必须有**确定**的相对顺序，否则翻页会在并列区间内
+    # 重复或漏行（批量导入的行 created_at 常精确到同一微秒）。
+    # 两个日期列类型不同（trade_date 是 DateTime / confirm_date 是 Date），合并前都要转文本：
+    # **不能转 DateTime** —— SQLite 对 `CAST('2025-06-20' AS DATETIME)` 走 NUMERIC 亲和性，
+    # 把日期当成「以年份开头的数字」（→ 2025.0），而数字在 SQLite 里恒排于文本之前，
+    # 于是「只有确认日」的行会被整批甩到最前（开发实测踩到）。
+    # 转成文本后两边都是 ISO 形式（`YYYY-MM-DD[ HH:MM:SS]`），字典序即时间序，跨 SQLite /
+    # Postgres 行为一致（`CAST(x AS VARCHAR)` 两边都合法）。
+    effective_day = func.coalesce(
+        cast(Transaction.trade_date, String),
+        cast(Transaction.confirm_date, String),
+    )
+    query = query.order_by(effective_day.desc(), Transaction.id.desc())
     items, total = paginate(query, page=page, per_page=per_page)
 
     results = []

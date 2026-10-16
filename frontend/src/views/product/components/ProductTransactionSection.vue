@@ -23,7 +23,10 @@ import {
  * （#2104 新增的 symbol 参数），不在前端拉全量再筛——后者是数据策略硬约束 §6 明令禁止的。
  *
  * 口径：
- * - 按 created_at 倒序（与后端 `build_transaction_list` 的 `order_by(created_at.desc())` 一致）；
+ * - 按**交易日期**倒序（与后端 `build_transaction_list` 的
+ *   `COALESCE(trade_date, confirm_date) DESC, id DESC` 一致；也与本表 `TransactionTable`
+ *   的展示口径同源——交易日优先、确认日兜底）。**不是 `created_at`**：那是写入时间，
+ *   批量导入的历史流水会让列表退化成「导入批次顺序」，看起来像正序（#2171 反馈修正）；
  * - 金额/份额基于 money 换算（分 → 元、份 → 份），不直接对 float 做乘除；
  * - 流水金额不表示涨跌，显式关闭 `MoneyDisplay` 的 autoColor——红绿语义只留给
  *   真正的涨跌场景，把正数金额全染红是错误语义。

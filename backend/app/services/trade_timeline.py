@@ -37,6 +37,17 @@
 
 入参：金额存**分**、价格存 **0.0001 元**、份额存最小单位（**0.0001 份**）。
 输出统一换算为「元 / 份」（前端不接触存储单位），保留位数见各字段注释。
+
+⚠️ **成本线输出两个字段，量纲不同，别混用**（#2171 实测教训）：
+
+| 字段 | 含义 | 量纲 | 谁用 |
+|---|---|---|---|
+| ``avg_cost_yuan`` | 当日持仓**单位成本** | 元/份（~1.x） | **走势图成本线**（与净值同轴可比）|
+| ``cost_yuan`` | 当日持仓**总成本** | 元（千级） | 交易明细「当时成本」金额列 |
+
+首版只给了 ``cost_yuan``，前端把「总成本（元）」当价格画进了净值图：真机一条 10,000 元的
+成本线遇上 1.x 的净值，y 轴被拉到万元级，整条净值曲线被压成贴着 0 的一条直线
+（用户报的「勾选买卖点后走势变成一条为 0 的直线」）。两个字段都保留，各供各的口径。
 """
 
 from __future__ import annotations
@@ -297,10 +308,17 @@ def build_trade_timeline(
         # 前端折线自然完成，不需要在这里补点。
         # 按日去重：同日多笔只保留当日最后一笔后的值。
         if txn_type in _SHARE_TYPES and qty_units > 0:
+            point = {
+                'date': day.isoformat(),
+                # 单位成本（元/份）——**走势图画的就是它**，与净值同量纲、同轴可比
+                'avg_cost_yuan': _avg_cost_yuan(cost_cents, qty_units),
+                # 持仓总成本（元）——金额口径，供交易明细「当时成本」列；**不要画进净值图**
+                'cost_yuan': _to_yuan(cost_cents),
+            }
             if cost_line and cost_line[-1]['date'] == day.isoformat():
-                cost_line[-1]['cost_yuan'] = _to_yuan(cost_cents)
+                cost_line[-1] = point
             else:
-                cost_line.append({'date': day.isoformat(), 'cost_yuan': _to_yuan(cost_cents)})
+                cost_line.append(point)
 
         # 累计收益线：每笔参与重放的流水都推进一次（同日多笔去重留当日末值）。
         # realized = 累计已实现盈亏；invested = 累计投入成本（含费）。
