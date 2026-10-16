@@ -8,6 +8,11 @@
   未登录时 in_watchlist / has_position 为 null（resolve 是「可选登录」端点），
   此时不渲染徽标——「未知」不是「没有」，不能显示成「未自选」。
 
+  **「代码」项按品类隐藏**（#2228 · 设计 §2.6）：组合 / 经理类的 `symbol` 是内部编码
+  （`MGR_98CE0328FFF1`、投顾组合的平台原生码），对使用者没有意义 —— 这两类靠
+  「名称 + 品类 + 平台 / 主理人」识别。判定收口在 `productIdentityFacts.showsCodeItem`
+  （含单测）：设计早就这么写了，是这里漏了落地（原先是**无条件**渲染）。
+
   为什么独立成组件：#1968 页内导航接线后 detail.vue 越过 400 行门禁线
   （scripts/check_vue_size.mjs），识别卡是纯展示、无取数，是最直接的拆出单元。
 -->
@@ -16,6 +21,7 @@ import { onMounted } from "vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import { useEnumLabels } from "@/composables/useEnumLabels";
 import type { ProductResolveResult } from "@/api/products";
+import { showsCodeItem } from "./productIdentityFacts";
 
 defineProps<{
   product: ProductResolveResult;
@@ -34,7 +40,14 @@ onMounted(() => {
 <template>
   <CardBlock class="product-detail__hero">
     <dl class="product-detail__facts">
-      <div class="product-detail__fact">
+      <!-- 代码项按品类隐藏（#2228 · 设计 §2.6）：组合 / 经理类的 symbol 是**内部编码**
+           （`MGR_98CE0328FFF1`、投顾组合的平台原生码），用户拿着它没有任何用途 ——
+           这两类靠「名称 + 品类 + 平台 / 主理人」识别。判定收口在
+           `productIdentityFacts.showsCodeItem`（含单测）：设计早就这么写了，是这里漏了落地。 -->
+      <div
+        v-if="showsCodeItem(product.asset_type)"
+        class="product-detail__fact"
+      >
         <dt class="product-detail__fact-label">代码</dt>
         <dd class="product-detail__fact-value product-detail__symbol">
           {{ product.symbol }}
