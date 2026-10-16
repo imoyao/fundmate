@@ -63,6 +63,7 @@ title: 数据自动更新清单（分层 · 频率 · 现状 · 缺口）
 | 基金名录 `funds` | L3 | `fund_list` | 每日 | 2026-05-31 | 23/25 | ⏸ 停摆 |
 | 净值 `daily_worth` | L3 | `fund_nav` | 每日 | 2026-08-14 | 10/16 | ⏸ 停摆 28 天 |
 | 货基万份收益 `money_fund_daily_worth` | L3 | `fund_nav` | 每日 | 2026-08-14 | 10/16 | ⏸ 数据止于 08-16 |
+| 风险收益指标 `fund_risk_metrics` | L2 | `fund_risk_metrics` | 每日 | 🆕 #167 新建 | — | 🆕 本 PR 新建（**不联网**：只读 `daily_worth` 现算） |
 | 行情 `price_history` | L3 | `price_history` | 每日 | 2026-05-31 | 11/13 | ⏸ 停摆 3.5 个月 |
 | 股票名录 `securities` | L3 | `stock_list` | 每日 | 2026-05-31 | 25/25 | ⏸ 停摆 |
 | 基金详情（全称 / 基准 / 成立日） | L3 | `fund_detail_enrich` | 每周 | 2026-09-11 | 24/24 | ✅ 手动触发 |
@@ -70,7 +71,7 @@ title: 数据自动更新清单（分层 · 频率 · 现状 · 缺口）
 | 近似股票仓位 | L3 | `fund_position` | 每周 | 无记录 | — | 🆕 本 PR 新建 |
 | 基金经理 | L3 | `fund_manager` | 每季 | 2026-09-08 | 2/4 | ⚠️ 有失败 |
 | 基金公司主数据 | L3 | `amac_institution` | 每季 | 2026-08-24 | 4/4 | ⚠️ 稀疏 |
-| 指数名录 / 成分 / 日线 | L3 | `index_catalog` / `index_constituents` / `index_daily` | 日 / 季 / 日 | 09-11 / 09-08 / 09-09 | 各 1~2 次 | ⚠️ 稀疏 |
+| 指数名录 / 成分 / 日线 | L3 | `index_catalog` / `index_constituents` / `index_daily` | 日 / 季 / 日 | 09-11 / 09-08 / 09-09 | 各 1~2 次 | ⚠️ 稀疏；日线三源（万得 / 腾讯 / 中证官网，见 §5.2） |
 | 温度指标 | L3 | `temperature` | 每日 | 2026-08-02 | 25/26 | ⏸ |
 | 跨渠道关联 | L4 | `channel_link` | 每月 | 2026-09-11 | 1/1 | ✅ |
 | 资产快照 | L2 | `asset_snapshot` | 每日 | 无记录 | — | ❓ 日志盲区（#1402 前抛错不落日志） |
@@ -132,6 +133,7 @@ workflow 已按如下三处改（定义仍在 `main`，因为 `schedule` 只认�
 |-----|-------------|-------------------|
 | `temperature` | 20:00 | 温度指标 |
 | `fund_nav` | 21:30 | 净值 `daily_worth` / 货基万份收益 |
+| `fund_risk_metrics` | 22:30 | 风险收益指标 `fund_risk_metrics`（#167；**必须晚于 `fund_nav`**，读的就是它刚落库的净值） |
 
 - 开关 `SCHEDULER_ENABLED`（`backend/.env.example` 默认开，代码默认关）；非开盘日跳过；
   应用启动后延迟补跑「当天已过触发时刻却没成功」的任务；`data/daily_scheduler.lock`
@@ -139,10 +141,26 @@ workflow 已按如下三处改（定义仍在 `main`，因为 `schedule` 只认�
 - **与 CI 通道的分工**：本机通道更新本机 SQLite（开发 / 自用），CI 通道更新生产库
   （Turso / Supabase），两者是不同库，不冲突、也不互为替代。
 - 本机通道**不含** `asset_snapshot`（资产快照）；需要的话在 `_JOB_TEMPLATES` 追加一行。
+- `fund_risk_metrics`（#167）是**纯计算、不联网**的回补型消费者：它不抓任何外部数据，
+  输入是 `daily_worth`。故净值停更时它跟着停更（不是它的缺陷，是上游），而它自己
+  不会引入任何新的外部依赖与限流风险。它**不在** `REST_DAY_JOB_NAMES` 里——
+  休市日没有新净值，重算得到的是同一个数。
 - 查状态：`pdm run invoke sched.status`。详见 `docs/dev/scheduler-tasks.md`。
+- **指数日线现为三源**（#167，`index_daily`）：万得系 `.WI`（韭圈儿）/ 交易所指数
+  `.SH`·`.SZ`（腾讯直连）/ 中证专属码 `.CSI`（**中证指数官网**，2026-10-14 新增）。
+  第三路是必需的而非可选：**腾讯源没有中证专属码**——2026-10-14 实测 `sh932000` /
+  `sz932000` 均返回 0 行，而同期的 `sh000852`（中证1000）正常，说明不是限流而是源侧
+  不存在。中证官网一次请求即返回全序列（932000 成立以来 773 条），故该路**不分
+  增量/全量**（做增量优化的收益是零，upsert 幂等）。
 
 > 仍**未被任何通道覆盖**的数据项：`price_history`（行情）、`fund_detail_enrich`、
 > `fund_scale`、`idx` 系列等——本机仍要手动 `pdm run invoke grab.job <name>`。
+
+> ⚠️ **用户触达范围口径**（#167）：`fund_risk_metrics` 的默认目标池是
+> `positions ∪ watchlist` 里的基金（与 `resolve_targets()` 同源），**空池即跳过**，
+> 绝不退化为全库 3 万只（那是 #1403 的形态）。要预热某只基金时显式
+> `pdm run sync --job fund_risk_metrics --targets <code>`；全库逐只回填用
+> `--targets __full__`（不联网，但耗时随库内基金数线性增长，**默认不这么跑**）。
 
 ## 6. 缺口与待办
 

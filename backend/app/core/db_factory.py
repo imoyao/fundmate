@@ -179,6 +179,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'convertible_bond_terms': DOMAIN_MARKET,  # 可转债条款（#1285/#1393：强赎/回售/转股）
     'daily_worth': DOMAIN_MARKET,  # 基金净值（最大体积表）
     'fund_valuation_daily': DOMAIN_MARKET,  # 场外基金收盘估值定格（#2141）
+    'fund_risk_metrics': DOMAIN_MARKET,  # 基金风险指标派生投影（#167 榜单/详情页；公开净值派生，无家庭私有字段）
     'money_fund_daily_worth': DOMAIN_MARKET,  # 货基净值
     'purchase_rules': DOMAIN_MARKET,
     'redeem_rules': DOMAIN_MARKET,
@@ -228,6 +229,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'discrepancies': DOMAIN_USER,  # 活跃对账差异（含 family_id）
     'reconciliation_runs': DOMAIN_USER,  # 对账运行记录
     'adjustment_logs': DOMAIN_USER,  # 对账审计日志（仅用户主动操作）
+    'ghost_duplicate_ignores': DOMAIN_USER,  # 幽灵重复忽略（域 D；FamilyScopedMixin 含 family_id）
 }
 
 # 规划中但尚未建表的域归属（提前登记，防止模型落地时漏声明）。

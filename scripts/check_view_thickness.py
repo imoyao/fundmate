@@ -158,7 +158,17 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/performance/views.py": {"lines": 86, "orm_queries": 0, "commits": 0, "max_func": 31},
     "backend/app/domains/portfolios/views.py": {"lines": 161, "orm_queries": 1, "commits": 0, "max_func": 25},
     "backend/app/domains/positions/views.py": {"lines": 288, "orm_queries": 6, "commits": 0, "max_func": 57},
-    "backend/app/domains/reconciliation/views.py": {"lines": 225, "orm_queries": 2, "commits": 0, "max_func": 48},
+    # 2026-10-16 升入存量冻结（#2255 收敛合并，**非放宽**）：CNB 侧 fund-risk 两端点
+    # （fund-risk-ranking / fund-risk-types）随收敛移植进本文件（+43 行——两段视图全是
+    # 「入参校验 + 调服务 + 信封」的纯编排，orm_queries / commits / max_func 三项实测不动），
+    # 394 → 437 顶破新文件上限 400。本文件 2026-10-09 才建（晚于 09-19 冻结日，故此前一直走
+    # NEW_FILE_LIMITS），现已是 14 个端点的存量域文件、全部函数 ≤ 30 行，**没有业务规则可下沉**
+    # （守卫正解「搬去 services」在本文件已无标的——每段都只剩薄编排）。按本脚本自述的通道
+    # 「同时改 LEGACY_VIEWS + BASELINE + 过评审」升入存量冻结集（此后任何端点再生长都会被
+    # 「只减不增」拦下），四维实测值取自 `--report`，非手工拍数。
+    "backend/app/domains/products/views.py": {"lines": 437, "orm_queries": 0, "commits": 0, "max_func": 30},
+    # 2026-10-16：#2255 收敛合并带入 CNB 域 D 对账（duoduobei/fundmate#477/#486）代码，225→311 重取基线（守卫自述「确因合并需要重取基线」场景）
+    "backend/app/domains/reconciliation/views.py": {"lines": 311, "orm_queries": 2, "commits": 0, "max_func": 48},
     "backend/app/domains/search/views.py": {"lines": 25, "orm_queries": 0, "commits": 0, "max_func": 7},
     "backend/app/domains/securities/views.py": {"lines": 72, "orm_queries": 1, "commits": 0, "max_func": 35},
     "backend/app/domains/strategy/views.py": {"lines": 144, "orm_queries": 5, "commits": 0, "max_func": 22},
@@ -190,6 +200,7 @@ LEGACY_VIEWS: frozenset[str] = frozenset({
     "backend/app/domains/performance/views.py",
     "backend/app/domains/portfolios/views.py",
     "backend/app/domains/positions/views.py",
+    "backend/app/domains/products/views.py",
     "backend/app/domains/reconciliation/views.py",
     "backend/app/domains/search/views.py",
     "backend/app/domains/securities/views.py",

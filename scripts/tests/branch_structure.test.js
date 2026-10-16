@@ -33,6 +33,9 @@
  * 3. **`imports` 引用必须能认出是文件**——指向**仓库**的 `installs` 写法（CNB 插件语法的
  *    另一种合法形态）必须放行，只有「以目录结尾、不像文件」的 URL 才报错。
  *    这条防的是「守卫自己先崩」（本仓教训：判据写好后必须在真实数据上跑过）。
+ * 4. **同一层不得有重复 mapping key**（源 CNB #457）——CNB 报语法错、死在 Prepare，
+ *    而 PyYAML 的 `safe_load` 默认放行。故守卫换成拒绝重复 key 的 loader，
+ *    并附「拿修复前的真实文件喂进去必须转红」的探针（钉 SHA，不读 origin/dev）。
  *
  * ## 不做什么
  *
@@ -110,6 +113,45 @@ test("回退验证：pull_request / web_trigger 写在顶层也要报红", () =>
     const r = expectGuard(bad, 1, `顶层 ${ev}: 没被守卫拦截（守门失效）`);
     assert.match(r.stdout, /事件|不存在分支/);
   }
+});
+
+test("回退验证：重复的顶层分支键（两段 dev:）必须报红（源 CNB #457）", () => {
+  // 2026-10-15 真实事故：跨仓收敛合并把两段 `dev:` 并进同一个 `.cnb.yml`，
+  // CNB 直接 `YAMLException: duplicated mapping key`，整条流水线死在 Prepare。
+  // 而 PyYAML 的 safe_load **默认放行**重复 key ⇒ 旧守卫对它是恒绿的。
+  const dup = [
+    "main:",
+    "  pull_request:",
+    "    - stages:",
+    "        - name: guard",
+    "          script: echo hi",
+    "dev:",
+    "  push:",
+    "    - stages:",
+    "        - name: sync",
+    "          script: echo hi",
+    "dev:",
+    "  pull_request:",
+    "    - stages:",
+    "        - name: guard2",
+    "          script: echo hi",
+    "",
+  ].join("\n");
+  const r = expectGuard(dup, 1, "重复的 `dev:` 没被守卫拦截（CNB #457 的事故写法）");
+  assert.match(r.stdout, /duplicated mapping key|重复/);
+});
+
+test("回退验证：把事故前的 .cnb.yml 喂给守卫必须转红（探针钉在不可变 SHA 上）", () => {
+  // 钉提交 SHA，**不读 origin/dev**：修复一合入 dev，origin/dev 里就是修好的文件，
+  // 这条探针会随分支推进自己失效（恒绿）。5633d04c 是 CNB #457 那个失败的构建本身。
+  const before = spawnSync(
+    "git",
+    ["show", "5633d04c55ab57642324234c350944fb0343e803:.cnb.yml"],
+    { encoding: "utf8", cwd: process.cwd() }
+  );
+  assert.equal(before.status, 0, `取不到事故前的 .cnb.yml：${before.stderr}`);
+  const r = expectGuard(before.stdout, 1, "事故前的 .cnb.yml 没被守卫转红（判据恒绿）");
+  assert.match(r.stdout, /duplicated mapping key 'dev'/);
 });
 
 test("合法形态不误报：事件挂在分支之下（main: 之内）", () => {

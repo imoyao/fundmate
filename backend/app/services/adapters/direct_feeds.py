@@ -40,6 +40,15 @@ _HEAD_E = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     'Referer': 'https://quote.eastmoney.com/',
 }
+# 中证指数官网日线（2026-10-14 引入，为 #167 的「中证2000」基准补齐）。
+# 为什么必须单开这一路：中证专属码（932000 中证2000 / 930950 中证偏股基金 …）
+# **腾讯源没有**——实测 sh932000 / sz932000 均返回 0 行，而 sh000852 正常有数据。
+# 东财 push2his 属「突发配额后限流」通道（见文件头），不做首选。
+_CSINDEX = 'https://www.csindex.com.cn/csindex-home/perf/index-perf'
+_HEAD_C = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Referer': 'https://www.csindex.com.cn/',
+}
 
 # 市场后缀 -> 腾讯前缀 / 东财指数 secid 前缀
 _SUFFIX_TENCENT = {'SH': 'sh', 'SZ': 'sz', 'BJ': 'bj'}
@@ -191,6 +200,59 @@ def fetch_daily_tencent(
             time.sleep(_TENCENT_PAGE_INTERVAL)
 
     return sorted(collected.items())
+
+
+def fetch_daily_csindex(
+    index_code: str,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    timeout: int = 30,
+) -> List[Tuple[str, float]]:
+    """中证指数官网日线：返回 `[(trade_date, close), ...]` 升序。
+
+    为什么单开这一路（2026-10-14 实测）：**中证专属码在腾讯源不存在**。
+    932000（中证2000）用 sh932000 / sz932000 均返回 0 行，而 sh000852（中证1000）
+    正常 —— 说明这不是限流，是源侧根本没有这个代码。中证官网则一次请求给全序列
+    （2023-08-01 起 773 条），无需分页。
+
+    口径：源侧给的是**真实收盘**（`close`），与腾讯路一致 ⇒ 落库 `price_mode='raw'`。
+    接口对**未收录**的代码不报错、只返回空 `data`，故取空即静默返回 `[]`
+    （best-effort，与其余源一致，不抛异常阻断整条同步）。
+    """
+    end = end_date or date.today()
+    # 不传 start_date 时从 2005 起（中证指数公司成立后最早可查年份），一次拿全；
+    # 单次响应实测 773 条（3 年），量级可控，不做分页。
+    start = start_date or date(2005, 1, 1)
+    params = {
+        'indexCode': index_code,
+        'startDate': start.strftime('%Y%m%d'),
+        'endDate': end.strftime('%Y%m%d'),
+    }
+    try:
+        r = requests.get(_CSINDEX, params=params, headers=_HEAD_C, timeout=timeout)
+        r.raise_for_status()
+        payload = r.json()
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f'中证官网日线失败 {index_code}: {e}')
+        return []
+
+    out: List[Tuple[str, float]] = []
+    for row in payload.get('data') or []:
+        if not isinstance(row, dict):
+            continue
+        raw_date, close = row.get('tradeDate'), row.get('close')
+        if not raw_date or close is None:
+            continue
+        text = str(raw_date)
+        # 源侧形态 'YYYYMMDD'（实测）；容错 'YYYY-MM-DD'
+        if len(text) == 8 and text.isdigit():
+            text = f'{text[:4]}-{text[4:6]}-{text[6:]}'
+        try:
+            out.append((text, float(close)))
+        except (TypeError, ValueError):
+            continue
+    # 源侧已升序，仍显式排序：翻页/容错日后顺序假设失效时，下游的窗口截取会静默取错段
+    return sorted(set(out))
 
 
 def fetch_close_eastmoney(secid: str, days: int = 90, timeout: int = 8) -> Optional[Tuple[List[float], str]]:

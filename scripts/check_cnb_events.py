@@ -23,6 +23,16 @@
    本判据等于没有——故守卫自带一个探针，用真实存在的 `sync/mirror:` 验证白名单没被架空。
 3. `imports` 引用：指向**仓库**的 `installs` 写法放行（CNB 插件语法的合法形态），
    只有「以目录结尾、看起来不像文件」的 URL 才报错。
+4. **同一层不得有重复的 mapping key**（源 CNB #457，2026-10-15）。CNB 的 YAML 解析器
+   对重复 key **直接报语法错**（`YAMLException: duplicated mapping key`），整条流水线
+   死在 Prepare，连 stage 都进不去。而 PyYAML 的 `safe_load` **默认放行**重复 key
+   （后值覆盖前值），所以此前三条判据对它全部「检查通过」——守卫自己看不见这一类。
+   本仓已真实栽过一次：跨仓收敛合并把两段 `dev:` 并进同一个文件，平台上多条流水线
+   同时红，本地却是绿的。
+
+   口径**不在这里自备**：共用 `scripts/cnb_yml_loader.py` 的 `NoDuplicateKeyLoader`
+   （源 CNB #460 / #459 合流时收敛）。本守卫曾自带一份等价实现，两份代码干同一件事
+   —— 判据散成多份就会各自漂移，故只留共享的那一份。
 
 不做什么
 --------
@@ -45,21 +55,44 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from cnb_yml_loader import NoDuplicateKeyLoader, describe_yaml_error  # noqa: E402
+
 # 顶层只允许这些**非分支**的元键。**绝不能**往这里加 `main` / `dev` ——
 # 「多值白名单」会让任何分支名都合法，判据随即失效（探针见 self_check()）。
 ALLOWED_TOP_KEYS = {'$', 'version'}
 
+
 # 顶层键长得像「事件」而不是「分支名」时的告警形态。CNB 的事件写在**分支之下**
 # （`main: push:` / `main: "crontab: ...":`），写到顶层就成了一个不存在的分支名。
-EVENT_LIKE = re.compile(r'^(push|pull_request|web_trigger|tag_push|crontab\s*:|\$.*)$', re.IGNORECASE)
+#
+# ⚠️ **点分事件名必须收进来**（源 CNB #459，2026-10-15）：CNB 的事件名有点分子形态
+# （`pull_request.mergeable` / `pull_request.merged` / `pull_request.update` ……），
+# 而**点恰好在 `BRANCH_NAME` 的字符集里** ⇒ 漏掉它们就等于「顶层的
+# `pull_request.mergeable:` 被当成合法分支名放行」，正是本守卫存在的理由（#152）被架空。
+# 收成 `pull_request(\.\w+)*` 而不是逐个枚举：CNB 的点分事件是开放集合，
+# 枚举会随平台加事件而漏 —— 判据要做到「长得像事件就报」，不做到「我认识这个事件才报」。
+EVENT_LIKE = re.compile(
+    r'^(push|pull_request(\.\w+)*|web_trigger|tag_push|crontab\s*:|\$.*)$', re.IGNORECASE
+)
 
-# 分支名的合法字符集（CNB 允许 `/`、`.`、`-`、`_`；`crontab: 0 * * * *` 里的空格与 `*` 不在内）
-BRANCH_NAME = re.compile(r'^[A-Za-z0-9._/-]+$')
+# 分支名的合法字符集（CNB 允许 `/`、`.`、`-`、`_` 与 glob 通配；`crontab: 0 * * * *` 里的
+# 空格不在内）。
+#
+# 字符集**必须**含 `*` `!` `(` `)` `|`：CNB 官方支持用 glob 给一批分支挂事件，
+# 本仓 `"**/!(main|dev)"` 段（功能分支 → GitHub，源 CNB #167）。  cross-repo-ref-allow
+# 收紧到纯字母数字会让合法配置报红——守卫的第一原则是「在真实数据上跑过」。
+# 放宽字符集**不会**架空判据：`EVENT_LIKE` 在 `check_top_keys` 里**先判**，
+# 事件名（`push:` / `crontab: ...:`）命中即报错，抢在这条之前；
+# 且自检探针里用真实的 glob 反证（见 self_check）。
+BRANCH_NAME = re.compile(r'^[A-Za-z0-9._/!()*|?-]+$')
 
 
 def _load(path: Path) -> dict:
+    # 严格 loader：重复 key 必须在解析阶段就炸，而不是被后者静默覆盖（判据 4）。
     with path.open(encoding='utf-8') as fh:
-        data = yaml.safe_load(fh)
+        data = yaml.load(fh, Loader=NoDuplicateKeyLoader)
     return data if isinstance(data, dict) else {}
 
 
@@ -68,13 +101,12 @@ def check_top_keys(data: dict) -> list[str]:
     for key in data:
         if key in ALLOWED_TOP_KEYS:
             continue
+        # ⚠️ EVENT_LIKE 必须**先判**：glob 字符集放宽后（见 BRANCH_NAME），
+        # `push:*` 这类也可能落进字符集，若顺序反了就会被当成「分支名」放行 ——
+        # 那正是本守卫存在的理由（源 CNB #152）被架空。探针 S4 钉住这个顺序。
         if isinstance(key, str) and EVENT_LIKE.match(key):
-            # `push` / `pull_request` / `web_trigger` / `tag_push` / `"crontab: ..."`
-            # 这些是**事件**，不是分支名。写在顶层等于让事件指向一个名为该字符串的
-            # **不存在分支**——#152 的根因正是 PR #150 把 `push:` 与两条 `"crontab: ..."`
-            # 写在了文件顶层。CNB 的事件必须写在分支之下（`main:` / `dev:` 之内）。
             problems.append(
-                f'顶层键 {key!r} 看起来是**事件**而不是分支名。'
+                f'顶层键 {key!r} 是**事件名**，不是分支名。'
                 'CNB 的顶层只认分支名（事件要写在分支之下）；'
                 f'写成顶层等于让事件指向一个名为 {key!r} 的**不存在分支**——'
                 '而平台会用默认分支的定义去兜底，报错形态会南辕北辙（见文件头）。'
@@ -84,8 +116,6 @@ def check_top_keys(data: dict) -> list[str]:
             # 形如 `main` / `sync/mirror`：这是**单值分支键**，正是 CNB 期望的写法。
             # 注意：这里「看起来像分支名」就放行——真正的分支是否存在，静态无从判定；
             # 本守卫拦的是「长得像事件、其实指向不存在的分支」这一类（本事故的根因）。
-            # 与上面 EVENT_LIKE 的区别：`push` 这种「既是合法分支名又像事件」的键，
-            # 优先按事件处理（#152 最高频的写法就是顶层 `push:`），故 EVENT_LIKE 先判。
             continue
         problems.append(
             f'顶层键 {key!r} 既不是分支名也不是已知元键。'
@@ -141,14 +171,55 @@ def self_check() -> list[str]:
             '自检探针失败：真实存在的分支键 sync/mirror 被判成非法顶层键，'
             f'说明白名单被改坏了（{problems[0]}）'
         ]
-    # 反向探针：#152 最高频的写法就是顶层 `push:`（以及 `pull_request` / `web_trigger`）。
-    # 守卫必须把它判成事件、而不是「长得像分支名就放行」——否则 EVENT_LIKE 没接进判据、
-    # 守卫会静默放过根因写法。
-    for bad_top in ('push', 'pull_request', 'web_trigger', 'tag_push', '"crontab: 0 * * * *"'):
-        if not check_top_keys({bad_top: [{'stages': []}]}):
-            return [f'自检探针失败：顶层事件键 {bad_top!r} 没被判成非法（EVENT_LIKE 未生效？）']
     if 'main' in ALLOWED_TOP_KEYS or 'dev' in ALLOWED_TOP_KEYS:
         return ['自检探针失败：ALLOWED_TOP_KEYS 里出现了具体分支名（多值白名单 = 判据失效）。']
+
+    # 探针 S3b：CNB 官方 glob 分支键（本仓 `"**/!(main|dev)"`，源 CNB #167）必须放行，
+    # 否则「事件挂在具体分支下」的正确配置反而报红，守卫会被人绕开而非遵守。
+    glob_probe = {'**/!(main|dev)': {'push': [{'stages': []}]}}
+    if check_top_keys(glob_probe):
+        return [
+            f'自检探针失败：合法的 CNB glob 分支键 **/!(main|dev) 被判成非法顶层键'
+            f'（{check_top_keys(glob_probe)[0]}）——字符集漏了 glob 通配。'
+        ]
+
+    # 探针 S5（源 CNB #457）：重复 key 必须**真的**被拒绝。
+    # 否则「换严格 loader」会悄悄退化成空转——loader 换了、判据没接上，而真实文件
+    # 一旦有重复 key，平台照样死在 Prepare。用最小样本验，不依赖真实文件。
+    dup_probe = 'main:\n  push: []\ndev:\n  push: []\ndev:\n  pull_request: []\n'
+    try:
+        yaml.load(dup_probe, Loader=NoDuplicateKeyLoader)
+        return [
+            '自检探针失败：重复的顶层分支键（两段 `dev:`）没被拒绝 —— '
+            '严格 loader 的重复 key 判据没接上（源 CNB #457）。'
+        ]
+    except yaml.YAMLError:
+        pass  # 期望行为：抛错
+
+    # 探针 S4：字符集放宽后，事件名必须**仍然**被拦（顺序不能反）。
+    # 覆盖 GitHub 侧探针确认过的全部五类坏顶层键（2026-10-14 跨仓收敛时合并，
+    # 少一类就等于「EVENT_LIKE 对那一类失效」时无人发现）。
+    for ev in ('push', 'pull_request', 'web_trigger', 'tag_push', '"crontab: 0 * * * *"'):
+        if not check_top_keys({ev: {'stages': []}}):
+            return [
+                f'自检探针失败：字符集放宽后，顶层事件名 {ev!r} 不再被判错 ——'
+                'EVENT_LIKE 判据被架空（或判定顺序被调换）。'
+            ]
+
+    # 探针 S6（源 CNB #459，2026-10-15）：**点分事件名**必须被拦。
+    # 这一条单列，是因为它漏得最隐蔽：`.cnb.yml` 里合法的挂法就是
+    # `main: pull_request.mergeable:`，而「点」又在 `BRANCH_NAME` 的字符集里 ⇒
+    # 一旦 EVENT_LIKE 不收点分形态，顶层的 `pull_request.mergeable:` 会被当成
+    # **合法分支名**放行 —— 判据对着一类长得跟今天一模一样的坏配置空转。
+    # 不逐个枚举具体事件（`mergeable` / `merged` / `update` …）：CNB 的点分事件是
+    # 开放集合，枚举会随平台加事件而漏。
+    for ev in ('pull_request.mergeable', 'pull_request.merged', 'pull_request.update'):
+        if not check_top_keys({ev: {'stages': []}}):
+            return [
+                f'自检探针失败：点分事件名 {ev!r} 不再被判错 ——'
+                'EVENT_LIKE 漏了点分形态，而「点」在 BRANCH_NAME 字符集里 ⇒'
+                '这类顶层坏配置会被当成合法分支名放行（源 CNB #459）。'
+            ]
     return []
 
 
@@ -167,7 +238,9 @@ def main() -> int:
     try:
         data = _load(path)
     except yaml.YAMLError as exc:
-        print(f'❌ {path} 不是合法 YAML：{exc}')
+        # 文案统一由共享 loader 给（源 CNB #460）：重复 key 的成因与后果只说一份，
+        # 免得三个守卫各写各的、细节互相漂移。
+        print(f'❌ {path} 不是合法 YAML：{describe_yaml_error(exc)}')
         return 1
 
     problems += check_top_keys(data)

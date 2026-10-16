@@ -1,11 +1,19 @@
 import { ref, computed } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import {
   runReconciliation,
   listDiscrepancies,
   ignoreDiscrepancy,
-  type DiscrepancyItem
+  listGhostDuplicates,
+  listGhostDuplicateIgnores,
+  ignoreGhostDuplicate,
+  undoGhostDuplicateIgnoreById,
+  type DiscrepancyItem,
+  type GhostDuplicateGroupItem,
+  type GhostDuplicateIgnore,
+  type GhostDuplicateTxn
 } from "@/api/reconciliation";
+import { deleteTransaction } from "@/api/transaction";
 import {
   getEaccountReconciliation,
   attributeEaccount,
@@ -40,6 +48,13 @@ export function useWorkbenchDomains() {
   const loading = ref(false);
   const running = ref(false);
 
+  /** 域 D：跨账本重复交易（#2151）——未忽略组 + 已忽略清单 */
+  const ghostGroups = ref<GhostDuplicateGroupItem[]>([]);
+  const ghostIgnored = ref<GhostDuplicateIgnore[]>([]);
+  const ghostLoading = ref(false);
+  const ghostDeletingId = ref<number | null>(null);
+  const ghostUndoingId = ref<number | null>(null);
+
   /** 域 A：E账户对账数据（P2 迁入） */
   const eItems = ref<ReconciliationItem[]>([]);
   const eLoading = ref(false);
@@ -55,7 +70,8 @@ export function useWorkbenchDomains() {
   const totalPending = computed(() => {
     const fromDiscs = discs.value.filter(d => d.status === "pending").length;
     const fromE = eItems.value.filter(i => i.status === "pending").length;
-    return fromDiscs + fromE;
+    // 域 D 是实时派生扫描，不进 discrepancies 表，单独计数
+    return fromDiscs + fromE + ghostGroups.value.length;
   });
   /** 数据日期：最近一次差异的 updated_at 或今日 */
   const dataDateLabel = computed(() => {
@@ -75,12 +91,15 @@ export function useWorkbenchDomains() {
   function domainPending(key: string): number {
     if (key === "A")
       return eItems.value.filter(i => i.status === "pending").length;
+    // 域 D 不走 discrepancies 表（它是实时派生扫描），待处理数即未忽略的组数
+    if (key === "D") return ghostGroups.value.length;
     return discs.value.filter(d => d.domain === key && d.status === "pending")
       .length;
   }
   function domainIgnored(key: string): number {
     if (key === "A")
       return eItems.value.filter(i => i.status === "ignored").length;
+    if (key === "D") return ghostIgnored.value.length;
     return discs.value.filter(d => d.domain === key && d.status === "ignored")
       .length;
   }
@@ -254,6 +273,85 @@ export function useWorkbenchDomains() {
     }
   }
 
+  /** 加载域 D：未忽略组 + 已忽略清单（一个接口拿不到两者，两次调用并发） */
+  async function loadGhostDuplicates(): Promise<void> {
+    ghostLoading.value = true;
+    try {
+      const [groupsRes, ignoredRes] = await Promise.all([
+        listGhostDuplicates(),
+        listGhostDuplicateIgnores()
+      ]);
+      ghostGroups.value = groupsRes.data?.groups ?? [];
+      ghostIgnored.value = ignoredRes.data ?? [];
+    } catch {
+      ghostGroups.value = [];
+      ghostIgnored.value = [];
+    } finally {
+      ghostLoading.value = false;
+    }
+  }
+
+  /** 忽略一组跨账本重复（幂等）；成功后重拉，未忽略组与已忽略清单同步变化 */
+  async function handleGhostIgnore(
+    group: GhostDuplicateGroupItem
+  ): Promise<void> {
+    try {
+      await ignoreGhostDuplicate(group.fingerprint);
+      ElMessage.success("已忽略该组，可在下方撤销");
+      await loadGhostDuplicates();
+    } catch (e: any) {
+      ElMessage.error(e?.response?.data?.message || "忽略失败");
+    }
+  }
+
+  /** 撤销忽略（带乐观提示，以服务端返回的 deleted 为准） */
+  async function handleGhostUndoIgnore(
+    item: GhostDuplicateIgnore
+  ): Promise<void> {
+    ghostUndoingId.value = item.id;
+    try {
+      const res = await undoGhostDuplicateIgnoreById(item.id);
+      ElMessage.success(res.data?.deleted ? "已撤销忽略" : "该记录已不存在");
+      await loadGhostDuplicates();
+    } catch (e: any) {
+      ElMessage.error(e?.response?.data?.message || "撤销失败");
+    } finally {
+      ghostUndoingId.value = null;
+    }
+  }
+
+  /**
+   * 删除组内某一笔流水（「留一份、删一份」的主路径）。
+   *
+   * 这里给二次确认：删除 `transactions` 会**连带重算持仓**（`DELETE /api/transactions/<id>/`
+   * 后端行为），是不可逆操作，且域 D 的每一条都是用户自己录进来的真实数据。
+   * 文案刻意不说「保留真实的那一份」——后端 `transactions.source` 为 NULL 时
+   * 无法指出哪一份权威，这种断言是后端支撑不了的（见 issue 讨论）。
+   */
+  async function handleGhostDeleteTxn(txn: GhostDuplicateTxn): Promise<void> {
+    try {
+      await ElMessageBox.confirm(
+        `确认删除「${txn.ledger_name}」中的这一笔？删除后会重算该账本持仓，无法撤销。`,
+        "删除重复交易",
+        { type: "warning", confirmButtonText: "删除", cancelButtonText: "取消" }
+      );
+    } catch {
+      return; // 用户取消
+    }
+    ghostDeletingId.value = txn.id;
+    try {
+      await deleteTransaction(txn.id);
+      ElMessage.success("已删除，持仓已重算");
+      // 删除后指纹里的账本集合可能变化，整组重新扫描比本地摘一条更可靠
+      await loadGhostDuplicates();
+      await loadDiscrepancies();
+    } catch (e: any) {
+      ElMessage.error(e?.response?.data?.message || "删除失败");
+    } finally {
+      ghostDeletingId.value = null;
+    }
+  }
+
   return {
     loading,
     running,
@@ -268,8 +366,17 @@ export function useWorkbenchDomains() {
     dataDateLabel,
     domainPending,
     domainIgnored,
+    ghostGroups,
+    ghostIgnored,
+    ghostLoading,
+    ghostDeletingId,
+    ghostUndoingId,
     loadDiscrepancies,
     loadEAccount,
+    loadGhostDuplicates,
+    handleGhostIgnore,
+    handleGhostUndoIgnore,
+    handleGhostDeleteTxn,
     loadRecognizerCandidates,
     commitCandidates,
     discardCandidates,

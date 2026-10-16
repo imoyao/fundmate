@@ -1,0 +1,108 @@
+# 治理文件改动方向守卫（源 CNB #269 / #450，2026-10-14）
+#
+# 依据口径（B+C 里的 C）：**治理文件只在 CNB 侧改**，GitHub 侧不再直接动它们。
+#
+# WHY：跨仓 `dev` 分叉反复复发的结构性根因，是 CNB 侧与 GitHub 侧**同时改同一批治理文件**。
+#   实测 2026-10-14 的真实 `git merge` 冲突面：5 个文件 / 16 处冲突
+#   （`.cnb.yml` / `AGENTS.md` / `docs/dev/github-cnb-mirror.md` /
+#     `scripts/bridge/check_branch_divergence.py` / `backend/tests/test_branch_divergence_check.py`）。
+#   这不是运气差 —— 只要「两边都往同一批文件里写」成立，每次收敛完都会再撞一次
+#   （AGENTS.md §19「收敛是动作不是状态」）。
+#
+# ⚠️ 本守卫是**提示（warning），不是阻断**（有意为之）：
+#   - 治理文件**确实**有时候要从 GitHub 侧改（GitHub 独有的 workflow 需要同步调整）；
+#   - 做成阻断就等于制造**第二条死锁** —— 想改的人被拦住只能绕过，反而更糟。
+#   故它只在本 PR 留一条评论指出「这批改动按口径该在 CNB 侧改」，不拦合并。
+#   判据见 `scripts/governance_files_rule.js` 的 docstring；回归网
+#   `scripts/tests/governance_files_rule.test.js`（13 例，含清单存在的核对与变异探针）。
+#
+# 边界：只读 PR 的**改动文件列表**，不判内容（「该不该这样改」是人的事）。
+
+name: 治理文件改动方向提示
+
+on:
+  pull_request:
+    # 只在 PR 目标为 dev / main 时检查（与 ci.yml 同一预算保护口径）
+    branches:
+      - dev
+      - main
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  governance-direction:
+    name: 治理文件改动方向提示
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: 收集本 PR 的改动文件
+        id: files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # 逐页拉全（默认 30 条/页），避免改动多的 PR 漏掉后面的治理文件（假绿）。
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
+            --jq '.[].filename' > /tmp/pr_files.txt
+          echo "改动文件数：$(wc -l < /tmp/pr_files.txt)"
+
+      - name: 判定并提示
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          # 用 Node 跑判据（与单测同一份代码，避免「测的是一份、跑的是另一份」）。
+          # 拿不到输入文件 ⇒ 显式失败，不退化成一个看起来正常的结论（#171 / #450 纪律）。
+          if [ ! -s /tmp/pr_files.txt ]; then
+            echo "::error::未取到 PR 改动文件列表 —— 本轮结论不可信，不得当作「未改动治理文件」"
+            exit 1
+          fi
+
+          node - <<'NODE' > /tmp/governance_result.txt
+          const fs = require('node:fs');
+          const rule = require('./scripts/governance_files_rule.js');
+          const files = fs.readFileSync('/tmp/pr_files.txt', 'utf8').split('\n').filter(Boolean);
+          const res = rule.checkGovernanceDirection({ number: process.env.PR_NUMBER, files });
+          console.log(res.ok ? 'OK' : 'HIT');
+          console.log(res.hits.join('\n'));
+          NODE
+
+          verdict=$(head -1 /tmp/governance_result.txt)
+          if [ "$verdict" = "OK" ]; then
+            echo "✅ 本 PR 未改动治理文件。"
+            exit 0
+          fi
+
+          echo "⚠️ 本 PR 改动了治理文件（按口径应改在 CNB 侧）。"
+          {
+            printf '<!-- governance-direction-guard -->\n'
+            printf '⚠️ **治理文件改动方向提示**\n\n'
+            printf '本 PR 改动了以下治理文件：\n\n'
+            tail -n +2 /tmp/governance_result.txt | sed 's/^/- `/' | sed 's/$/`/'
+            printf '\n'
+            printf '按仓库口径（AGENTS.md「双端协作」），**治理文件只在 CNB 侧改**——\n'
+            printf 'GitHub 侧直接改它们会与 CNB 侧撞冲突面，让跨仓 `dev` 分叉反复复发\n'
+            printf '（实测 2026-10-14：5 个文件 / 16 处冲突，源 CNB #269 / #450）。\n\n'
+            printf '**这不是阻断**，只是提示：\n\n'
+            printf '- 若这批改动**确实**需要 GitHub 侧上下文（如 GitHub 独有的 workflow）⇒ '
+            printf '在本 PR 说明理由，正常合并即可；\n'
+            printf '- 若是普通的治理规则更新 ⇒ 建议改在 CNB 侧提，避免两侧各改一遍。\n'
+          } > /tmp/governance_body.md
+
+          # 去重：反复 synchronize 不应刷屏（同一 marker 只留一条）
+          already=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json comments \
+                      --jq '[.comments[] | select(.body | test("governance-direction-guard"))] | length')
+          if [ "$already" = "0" ]; then
+            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/governance_body.md
+          else
+            echo "已有 $already 条提示评论，跳过重复评论。"
+          fi
+
+          echo "::warning::本 PR 改动治理文件，按口径应改在 CNB 侧（详见 PR 评论）。"

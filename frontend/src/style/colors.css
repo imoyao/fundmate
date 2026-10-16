@@ -380,6 +380,7 @@
   --radius-md: 12px;
   --radius-lg: 16px;
   --radius-pill: 9999px;
+  --radius-xs: 4px;
 
   /* ===== 图表色 ===== */
   --chart-01: #e34f38;

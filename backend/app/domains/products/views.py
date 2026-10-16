@@ -19,6 +19,8 @@ from app.core.db_factory import market_session_factory, user_session_factory
 from app.core.validation import parse_query
 from app.domains.products.schemas import (
     AdvisorProfileRequest,
+    FundRiskRankingRequest,
+    FundRiskTypesRequest,
     IndexProfileRequest,
     ManagerProfileRequest,
     ProductResolveRequest,
@@ -30,6 +32,7 @@ from app.services.advisor_profile import build_advisor_profile
 from app.services.fund_holdings_detail import build_fund_holdings_detail
 from app.services.fund_performance import build_fund_performance
 from app.services.fund_profile import build_fund_profile
+from app.services.fund_risk_ranking import SORTABLE_METRICS, list_by_metric, list_fund_types
 from app.services.index_profile import build_index_profile
 from app.services.manager_holdings import build_manager_holdings
 from app.services.manager_profile import build_manager_profile
@@ -371,6 +374,45 @@ def product_trend():
         # 响应形态由 service 给出（#1606：视图只做编排，不内联业务规则）
         result = empty_product_trend(query.symbol, query.range_, query.start)
     return jsonify({'data': result, 'message': 'ok'})
+
+
+@bp.get('/fund-risk-ranking/')
+def fund_risk_ranking():
+    """按风险指标筛同类基金（#167）。口径 / 为什么 `fund_type_id` 必填见
+    `services/fund_risk_ranking.list_by_metric` 的 docstring——视图只做入参校验与编排。"""
+    query: FundRiskRankingRequest = parse_query(FundRiskRankingRequest)
+
+    metric = (query.metric or '').strip()
+    if metric not in SORTABLE_METRICS:
+        abort(400, f'不支持的排序指标：{metric}')
+
+    ascending = None
+    if query.order:
+        order = query.order.strip().lower()
+        if order not in ('asc', 'desc'):
+            abort(400, f'order 只能是 asc / desc：{query.order}')
+        ascending = order == 'asc'
+
+    with closing(market_session_factory()()) as db:
+        data = list_by_metric(
+            db,
+            fund_type_id=query.fund_type_id,
+            metric=metric,
+            limit=query.limit,
+            ascending=ascending,
+            include_distorted=bool(query.include_distorted),
+        )
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/fund-risk-types/')
+def fund_risk_types():
+    """列出**当前有榜**的基金小类（#167）。为什么单开端点见
+    `services/fund_risk_ranking.list_fund_types` 的 docstring。"""
+    query: FundRiskTypesRequest = parse_query(FundRiskTypesRequest)
+    with closing(market_session_factory()()) as db:
+        data = list_fund_types(db, caliber_version=query.caliber_version)
+    return jsonify({'data': data, 'message': 'ok'})
 
 
 @bp.get('/trade-timeline/')

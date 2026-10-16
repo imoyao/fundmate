@@ -16,6 +16,7 @@ from app.services.adapters.jiucaishuo_adapter import JiucaishuoAdapter
 from app.services.bias.constants import BENCHMARK_INDICES
 from app.services.sync.jobs import index_daily_job as index_daily_job_module
 from app.services.sync.jobs.index_daily_job import (
+    CSINDEX_INDEX_TARGETS,
     DEFAULT_TARGETS,
     TENCENT_INDEX_TARGETS,
     WIND_INDEX_TARGETS,
@@ -169,7 +170,12 @@ class TestIndexDailySyncJob:
         for gu in ('881003.WI', '881007.WI', '8841425.WI', '8841431.WI', '889033.WI'):
             assert gu in DEFAULT_TARGETS
         # 2026-10-01：默认清单 = 万得系（韭圈儿）+ 交易所指数（腾讯）
-        assert DEFAULT_TARGETS == [c for c, _ in WIND_INDEX_TARGETS] + [c for c, _ in TENCENT_INDEX_TARGETS]
+        # 2026-10-14（#167 基准补齐）：+ 中证专属码（腾讯源没有中证码，单开第三路）
+        assert DEFAULT_TARGETS == (
+            [c for c, _ in WIND_INDEX_TARGETS]
+            + [c for c, _ in TENCENT_INDEX_TARGETS]
+            + [c for c, _ in CSINDEX_INDEX_TARGETS]
+        )
 
     def test_incremental_uses_12_months(self, job, db):
         """非全量跑 12 月增量；全量跑成立来（'all'）。"""

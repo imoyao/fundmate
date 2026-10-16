@@ -173,6 +173,19 @@ jobs:
       - name: 运行测试
         run: pdm run python -m pytest -p no:xdist -m "not slow"
 
+      # 总资产聚合守卫（源 CNB duoduobei/fundmate#478 / GitHub #2154 → imoyao/fundmate#2179）：`family_totals`
+      # 被立为唯一聚合出口之后，账户级的 `get_ledger_distributions` 仍把同一套累加
+      # 逐字重写了一遍 —— 那正是本卡要杀的形态本身（口径再变时就是「下次漏改的一处」），
+      # 当时只靠 `test_account_snapshots.py` 里一条埋着的断言兜着，靠人找。
+      # 现两处共用 `_per_ledger_buckets`（家庭桶 = 各账户桶按位相加），本守卫把「不许再写
+      # 一份」机械化：`total_assets/liabilities/net_worth +=` 出现在允许的出口之外即报红。
+      # 纯 AST、零依赖（不需装依赖），但**并入 backend job 而非另起 job** ——
+      # 不新增 job 就不必改 gate.needs（#1559/#1560 两次事故都是合并冲突弄丢 needs）。
+      # 判据边界与首版误报（已删掉的第二判据）见脚本 docstring；
+      # 回归网在 scripts/tests/guard_summary_aggregation.test.js（含真实文件的回退探针）。
+      - name: 守卫:总资产聚合唯一出口
+        run: python ../scripts/guard_summary_aggregation.py
+
   # 布局宽度守卫（#1506）：容器宽度曾有 1280px / 1400px 两套硬编码散落 13+ 个文件，
   # 导致页头 / 页脚与内容区左右边缘错开。已收口为 --layout-* 令牌，本 job 防止再次写死。
   # 断点守卫（#1571）并入本 job 而非另起 job：两者同属「布局宽度」一类，
@@ -180,7 +193,7 @@ jobs:
   # 都是合并冲突把 gate.needs 里的 job 弄丢，少动一次就少一次风险。
   layout_guard:
     name: 布局宽度守卫 (layout-width)
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' && github.head_ref != 'bridge/github-dev' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -257,12 +270,51 @@ jobs:
       - name: 扫描密钥引用位置回潮（阻断）
         run: python scripts/guard_secret_imports.py
 
+      # .cnb.yml 重复键守卫（源 CNB #458，2026-10-15）<!-- cross-repo-ref-allow -->：跨仓收敛合并把两侧各写一份的
+      # `main:` / `dev:` / `pull_request:` 并进了同一层 ⇒ 两个 `dev:` 键、两个 `pull_request`
+      # 键。YAML 规范允许重复键（后者覆盖前者），所以 PyYAML safe_load 与本仓全部
+      # .cnb.yml 守卫**全绿**，而 CNB 平台用严格解析器直接拒绝：
+      #     YAMLException: duplicated mapping key (240:3)
+      # 构建死在 Prepare、stage 都没进（duration: 0）。这正是「本地判据与平台判据之间
+      # 差一行解析严格度」的形态，故补上：用保留重复键的加载器解析，任一层同名键即报红。
+      # 不新增 job —— 并入本 job，也就不必动 gate.needs（#1559/#1560 两次事故都是
+      # 合并冲突弄丢 needs）。
+      - name: 扫描 .cnb.yml 重复键（阻断）
+        run: python scripts/guard_cnb_yml_duplicate_keys.py
+
+      # python 脚本任务必须自带镜像（源 CNB #461，2026-10-15 实测）：<!-- cross-repo-ref-allow -->
+      # 「跨仓同步（机器分支 + PR 通道）」上线时只写了 imports/env/script、没写 image，
+      # 脚本任务不声明 image 时 runner 落在**默认镜像**上，而默认镜像里没有 python ——
+      # 构建 cnb-nii-1k4ua02j8 的 stage-0 原文 `sh: line 10: python: command not found`
+      # （code 127）。于是机器分支通道自上线起一次都没跑成：不是分叉没解、不是冲突没解，
+      # 是**解释器不存在**，而报错指向「脚本第 10 行」而非「容器里没有 python」。
+      # 仓库里其它脚本任务（.mirror-job / &claim-job）都写了 docker.image，只漏这一处，
+      # 此前没有任何判据在管「这个 job 跑得起来吗」。不新增 job，并入本 job。
+      - name: 扫描 python 脚本任务是否自带镜像（阻断）
+        run: python scripts/guard_cnb_script_task_python.py
+
+      # git-sync 分支范围守卫（源 CNB #167 / #172 / #269，2026-10-13 ~ 10-14）：
+      # ① 插件不写 `branch` 时执行 `git push target --all`，会把 CNB 的 `main` 一并推给
+      #    GitHub；而 GitHub 是权威源（`main` 只由发版 PR 推进）⇒ 两侧 `main` 各自长出
+      #    独有提交（实测 CNB 31 / GitHub 27，**交集 0**），分叉由此产生。
+      # ② （#269）判据 5：`branch: dev` 写对了、但作业**挂在 `main:` 键下**时，runner 只检出
+      #    挂载分支键对应的分支（`git checkout -f -B "main"`），插件拿着 `branch: dev`
+      #    找不到 ⇒ 打一行 `Warning: Branch dev does not exist locally, skipping push`
+      #    就跳过，**而构建仍报 success**；`dev` 的 push 构建里更是**根本不含这个 job**。
+      #    实测绿了三天（2026-10-11 ~ 10-14），一次都没推成 —— 判据 1~4 全是「配置形状」，
+      #    这一条判「跑在哪个工作区」。
+      # 同属「配置回潮」一类，故并入本 job 而不另起 job（不新增 job 就不必改 gate.needs）。
+      # 判据边界见脚本 docstring；回归网在 scripts/tests/git_sync_push_scope.test.js
+      # （含 5 个变异回退探针）。
+      - name: 扫描 git-sync push 目标分支回潮（阻断）
+        run: python scripts/guard_git_sync_push_scope.py
+
   # 乱码守卫（mojibake）：防止任何绕过本地 pre-commit 钩子的提交（--no-verify、
   # 或经 gh api / MCP 直推导致本地钩子不执行）把 GBK 乱码合进 PR。
   # 扫描 PR 变更的全部文本类型文件 + 逐提交校验中文提交信息（两层兜底）。
   mojibake_guard:
     name: 乱码守卫 (mojibake)
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' && github.head_ref != 'bridge/github-dev' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -397,7 +449,7 @@ jobs:
   # 本 job 只做静态校验（读 package.json + pnpm-lock.yaml），不安装依赖，故轻到可常开。
   pnpm_overrides_guard:
     name: 守卫:pnpm overrides 生效
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' && github.head_ref != 'bridge/github-dev' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -415,7 +467,7 @@ jobs:
   # #1540 连犯四次的回潮。纯 AST + 标准库扫描 backend/app，秒级、零依赖，故轻到可常开。
   cache_dir_guard:
     name: 守卫:缓存目录单一真相源
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' && github.head_ref != 'bridge/github-dev' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -435,7 +487,7 @@ jobs:
   # 纯 Node 静态扫描 frontend/src，零依赖、秒级，故轻到可常开。
   css_token_guard:
     name: 守卫:CSS 令牌引用定义一致
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' && github.head_ref != 'bridge/github-dev' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -464,10 +516,14 @@ jobs:
   # untested。两个脚本都是纯标准库 + 纯函数可测，故直接在这里跑 python -m unittest。
   scripts_test:
     name: 守卫:脚本单测 (scripts)
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' && github.head_ref != 'bridge/github-dev' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # 探针测试（branch_structure 回退验证）钉在历史不可变 SHA 上，
+          # 浅克隆缺对象会把探针误判成红（#2255 实测）——全量克隆兜底。
+          fetch-depth: 0
 
       - name: 设置 Node 22
         uses: actions/setup-node@v4
@@ -503,9 +559,13 @@ jobs:
           python-version: "3.12"
 
       # 本 job 的 setup-python 裸环境不含 pyyaml，而 check_cnb_events.py /
-      # guard_secret_imports.py 解析 .cnb.yml 依赖它；不拉其他依赖。
-      - name: 安装 pyyaml
-        run: python -m pip install pyyaml
+      # guard_secret_imports.py 解析 .cnb.yml 依赖它。
+      # pytest：test_machine_branch.py（源 CNB #450，#2255 收敛带回）顶层
+      # `import pytest`，不装则 unittest discover 导入即 ERROR（CI 实测红灯）；
+      # 该文件是 pytest 风格（fixture + 裸函数，无 TestCase），discover 装上后
+      # 只导入不执行——与同 job 其余 unittest 用例互不影响。
+      - name: 安装 pyyaml + pytest
+        run: python -m pip install pyyaml pytest
 
       - name: 跑 scripts/ 下的 Python 守卫/桥接脚本单测
         run: python -m unittest discover -s scripts/tests -p "test_*.py" -v
@@ -519,6 +579,29 @@ jobs:
       # 回归网在 scripts/tests/branch_structure.test.js。
       - name: 检查 .cnb.yml 的顶层事件是否挂在分支之下（阻断）
         run: python scripts/check_cnb_events.py
+
+      # 镜像建卡的「扫描不可短路」守卫（源 CNB #450，2026-10-14）：`harvest_existing()`
+      # 曾拿状态文件缓存当前置短路（缓存非空就直接返回），于是状态文件没记的镜像卡
+      # 在判定时"不存在" ⇒ 每轮 cron/push 都把 ~140 张 GitHub 卡再建一遍，
+      # 三天攒出 224 张重复卡，而**日志全绿、零信号**。
+      # 这类「缓存被当成全集」的错靠人 review 拦不住（它就是漏过 review 的那一版），
+      # 故机械化：`harvest_existing()` 必须在函数体里真的调用 `list_cnb_issues()`，
+      # 且扫描之前不得有 `return`。
+      # 不新增 job：并入本 job，也就不必动 gate.needs（#1559/#1560 两次事故都是合并冲突弄丢 needs）。
+      # 判据边界见脚本 docstring；回归网在 scripts/tests/test_dup_mirror_guard.py
+      # （含 3 个变异探针，其中一个是拿**修复前的真实代码**喂给守卫确认它转红）。
+      - name: 检查镜像建卡是否真扫 CNB 侧（阻断）
+        run: python scripts/bridge/harvest_scan_guard.py
+
+      # 跨仓同步新增的 Python 回归网（源 CNB #450，2026-10-14）：`machine_branch.py`  <!-- cross-repo-ref-allow -->
+      # 是「推一次性机器分支 → 开 PR → 门禁绿 → 合并」这条通道的执行体，
+      # 它的核心承诺是「有冲突时一个字节都不推」与「拿不到输入退 2 且声明结论不可信」。
+      # `scripts_test` 的 unittest discover 只收 `test_*.py`，本文件按仓库惯例命名
+      # 为 `test_machine_branch.py`，其实**已被上一条 `unittest discover` 覆盖**；
+      # 此处显式再跑一遍，是为了让「它属于哪条通道」在 CI 日志里看得见
+      # （失败时不必再推断归属）。**不新增 job**，也就不必动 `gate.needs`。
+      - name: 跨仓同步通道回归网（阻断）
+        run: python -m pytest scripts/tests/test_machine_branch.py -q -p no:cacheprovider
 
   gate:
     name: 质量门禁汇总

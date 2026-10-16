@@ -136,3 +136,110 @@ export function getLedgerConsistency(
     ledgerId != null ? { params: { ledger_id: ledgerId } } : undefined
   );
 }
+
+/* ───────────────────────── 域 D：跨账本重复交易（#2151）─────────────────────────
+ * 后端 `domains/reconciliation/views.py` 的 ghost-duplicates 系列端点，出参**逐字段照抄**，
+ * 不在前端二次推导（与 `api/summary.ts` 的 GhostDuplicateGroup 是同一扫描的两个视角：
+ * 那边是 `/api/summary/` 的只读软提示，这里是带 fingerprint 与组内明细的对账入口）。
+ */
+
+/** 组内一笔明细（`transactions[]` 元素）——「留一份、删一份」的删除目标 */
+export interface GhostDuplicateTxn {
+  id: number;
+  ledger_id: number;
+  ledger_name: string;
+  /** 份额（已由后端 Money.min_unit_to_shares 转换） */
+  quantity: number;
+  /** 单价（已由后端转换） */
+  price: number;
+  amount_yuan: number;
+}
+
+/** 跨账本疑似重复组（GET /api/reconciliation/ghost-duplicates/ 的 groups 元素） */
+export interface GhostDuplicateGroupItem {
+  /** 稳定 id（sha256(确认日|归一身份|类型|金额|账本集合)），忽略/撤销的定位键 */
+  fingerprint: string;
+  symbol: string;
+  /** 归一身份：同一标的的写法变体（600519 / SH600519）归为一组 */
+  symbol_identity: string;
+  confirm_date: string | null;
+  txn_type: string;
+  amount_yuan: number;
+  ledger_ids: number[];
+  ledger_names: string[];
+  count: number;
+  /** 组内明细，已按 (ledger_id, id) 升序，与「留一份、删一份」的展示顺序一致 */
+  transactions: GhostDuplicateTxn[];
+}
+
+/** 域 D 列表响应（GET /api/reconciliation/ghost-duplicates/ 的 data） */
+export interface GhostDuplicateList {
+  groups: GhostDuplicateGroupItem[];
+  /** 当前家庭已忽略的组数（供「已忽略 N 组」入口显示） */
+  ignored_count: number;
+}
+
+/** 已忽略记录（GET /api/reconciliation/ghost-duplicates/ignored/ 元素，写时快照） */
+export interface GhostDuplicateIgnore {
+  id: number;
+  fingerprint: string;
+  /** 以下为忽略当时的快照，可能为 null（快照解析失败时降级） */
+  symbol: string | null;
+  confirm_date: string | null;
+  txn_type: string | null;
+  amount_yuan: number | null;
+  ledger_names: string[];
+  reason: string | null;
+  ignored_at: string | null;
+}
+
+/** 列出跨账本疑似重复组（已减掉忽略项） */
+export function listGhostDuplicates(): Promise<
+  ApiResponse<GhostDuplicateList>
+> {
+  return http.get<ApiResponse<GhostDuplicateList>, unknown>(
+    "/reconciliation/ghost-duplicates/"
+  );
+}
+
+/** 列出已忽略清单（撤销入口的数据源） */
+export function listGhostDuplicateIgnores(): Promise<
+  ApiResponse<GhostDuplicateIgnore[]>
+> {
+  return http.get<ApiResponse<GhostDuplicateIgnore[]>, unknown>(
+    "/reconciliation/ghost-duplicates/ignored/"
+  );
+}
+
+/** 忽略一组跨账本重复（幂等：同一指纹重复忽略不报错） */
+export function ignoreGhostDuplicate(
+  fingerprint: string,
+  payload?: { reason?: string }
+): Promise<ApiResponse<{ fingerprint: string; id: number }>> {
+  return http.post<ApiResponse<{ fingerprint: string; id: number }>, unknown>(
+    `/reconciliation/ghost-duplicates/${fingerprint}/ignore/`,
+    {
+      data: payload ?? {}
+    }
+  );
+}
+
+/** 撤销忽略（按记录 id；清单页用，不必让 UI 去拼 64 位指纹） */
+export function undoGhostDuplicateIgnoreById(
+  ignoreId: number
+): Promise<ApiResponse<{ deleted: boolean }>> {
+  return http.request<ApiResponse<{ deleted: boolean }>>(
+    "delete",
+    `/reconciliation/ghost-duplicates/ignored/${ignoreId}/`
+  );
+}
+
+/** 撤销忽略（按指纹；从组列表直接撤销时用） */
+export function undoGhostDuplicateIgnore(
+  fingerprint: string
+): Promise<ApiResponse<{ deleted: boolean }>> {
+  return http.request<ApiResponse<{ deleted: boolean }>>(
+    "delete",
+    `/reconciliation/ghost-duplicates/${fingerprint}/ignore/`
+  );
+}

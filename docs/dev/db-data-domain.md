@@ -44,6 +44,7 @@
 | `index_constituents` | 指数成分股（#1358 / #1286；2026-09-08 补登记） | 按指数×成分，覆盖式更新 |
 | `index_catalog` | 指数名录（#1286 聚合搜索底座） | 恒定，千级，覆盖式重建 |
 | `index_valuations` / `index_valuation_baselines` | 指数估值（#1285 官方日频近 20 日）与分位基线（#1407 乐咕月频近 5 年，滚动 PE 单列） | 按指数×日期，小表（基线约 9 指数 × 60 点） |
+| `fund_risk_metrics` | 基金风险指标派生投影（#167 榜单/详情页；由净值历史现算，公开数据无家庭私有字段；2026-10-16 随 #2255 收敛补登记） | 按基金数增长（每基金每口径一行），覆盖式更新 |
 
 > **2026-09-08 注**：完整表清单以 `backend/app/core/db_factory.py` 的 `DATA_DOMAIN_REGISTRY` 为唯一权威（启动校验兜底）；本节为人工盘点快照，新增表时须同步更新（AGENTS.md 双库硬规则 §1）。
 
@@ -62,6 +63,7 @@
 | `strategy`（strategy_tags / position_strategy_tags） | 策略标签 | 轻量 |
 | `summary`（asset_snapshots） | 资产快照（family_id 隔离） | 中等 |
 | `summary`（pnl_daily_snapshots，#1926） | 收益日历逐日物化快照（`family_id` × `ledger_id`(NULL=家庭级) × `date` 唯一） | 按家庭数 × (账户数+1) × 天数增长；无家庭读过日历即无行（读时回填），失效靠 `pnl_snapshot_store` 的口径版本 / `before_flush` 事件 / `full_sync` 全清 |
+| `reconciliation`（ghost_duplicate_ignores，域 D 幽灵重复） | 幽灵重复忽略（`family_id` × `fingerprint` 唯一；只存「忽略」这一个事实，扫描结果减去已忽略即为用户可见组；2026-10-16 随 #2255 收敛补登记） | 按家庭数 × 忽略组数增长，撤销即删行 |
 | `usage`（user_usage） | 用量统计 | 轻量 |
 | `notification`（notifications，#2236） | 站内通知（家庭级消息盒；`dedup_key` 去重，一天一来源一业务键至多一条） | 按家庭数 × 触发规则数 × 天增长，唯一约束天然封顶 |
 | `agent_session`（账本精灵，#1121 S2） | 服务端权威会话：状态 / 原文 / 轮次（摘要与关键信息卡同存） | 每用户每日少量行；JSON 列硬截断后单行有界 |

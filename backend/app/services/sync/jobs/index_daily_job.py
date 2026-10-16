@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """指数日线点位同步任务（#275 基准对比 / #861 绩效分析底座）。
 
-两路数据源（按代码后缀分流，同一个 Job 内）：
+三路数据源（按代码后缀分流，同一个 Job 内）：
 - **万得系**（`.WI` 后缀）→ 韭圈儿公开接口（JiucaishuoAdapter，免登录 best-effort）。
   点位口径双模式：
   - anchored：有真实收盘锚（如 881001 万得全A），反推派生、锚随最新收盘平移；
@@ -9,6 +9,10 @@
   口径与风险细节见 jiucaishuo_adapter.py 模块注释。
 - **交易所指数**（`.SH` / `.SZ` 后缀）→ 腾讯日线直连（`adapters/direct_feeds.py`，
   2026-10-01 引入）。点位为**真实收盘价**，口径 `price_mode='raw'`。
+- **中证专属码**（`.CSI` 后缀）→ 中证指数官网（`fetch_daily_csindex`，2026-10-14
+  为 #167 基准补齐引入）。点位同为真实收盘、口径 `raw`。
+  为什么必须单开这一路：**腾讯源没有中证专属码**（932000 实测 sh/sz 两形态均 0 行，
+  而同期的 sh000852 正常），不是限流而是源侧不存在。
   为什么必须补这一路：韭圈儿只覆盖万得系，而绩效对比最常用的基准（沪深300 / 中证500
   / 创业板指…）是交易所指数——它们在 `index_daily` 里原先**一行都没有**，只能靠
   `market_service` 每次向 akshare 现拉（不落库、无历史序列，无法做跨年对比）。
@@ -22,6 +26,8 @@
 目标与增量策略：
 - 万得系（WIND_INDEX_TARGETS）：全量取成立来（date='all'，万得全A 6464 条）；增量近 12 月。
 - 交易所指数（TENCENT_INDEX_TARGETS）：全量分页翻到源侧耗尽（沪深300 约 7 页）；增量近 12 月。
+- 中证专属码（CSINDEX_INDEX_TARGETS）：**不分增量/全量**——中证官网一次请求即返回全序列
+  （实测 932000 成立以来 773 条），做增量优化的收益是零；upsert 幂等，重跑无副作用。
 """
 
 from datetime import date, timedelta
@@ -30,7 +36,7 @@ from typing import List, Optional
 from loguru import logger
 
 from app.domains.indices.models import IndexDaily
-from app.services.adapters.direct_feeds import fetch_daily_tencent
+from app.services.adapters.direct_feeds import fetch_daily_csindex, fetch_daily_tencent
 from app.services.job_base import SyncJob
 
 # 万得系指数目标清单（#275 定稿）：韭圈儿 gu_code 原生形态（.WI 后缀）。
@@ -84,7 +90,22 @@ TENCENT_INDEX_TARGETS: List[tuple] = [
     ('000012.SH', '上证国债指数'),
 ]
 
-DEFAULT_TARGETS = [code for code, _name in WIND_INDEX_TARGETS + TENCENT_INDEX_TARGETS]
+# ── 中证官网目标清单（#167 基准补齐，2026-10-14 引入）──────────────────────────
+# 中证专属码（932xxx / 930x50 一类）**腾讯源不存在**：实测 sh932000 / sz932000 均 0 行，
+# 而 sh000852 正常有数据 —— 不是限流，是源侧没有这个代码。故单开一路走中证官网
+# （`fetch_daily_csindex`，一次请求给全序列，无需分页）。
+# 代码形态 `.CSI` 与 index_catalog 的 exchange='CSI' 命名空间一致，且与腾讯/万得的
+# `.SH` / `.WI` 后缀在**字符串层面**即可分流（不看前缀、不做正则）。
+CSINDEX_INDEX_TARGETS: List[tuple] = [
+    ('932000.CSI', '中证2000'),  # ✅ 2026-10-14 实测 773 条（2023-08-01 起，成立以来）
+    # 债券族基准（#167 收尾）：中证全债此前被记为「无公开行情通道」缺口（见下方
+    # TENCENT_INDEX_TARGETS 的债券段注释），2026-10-14 实测中证官网可直取 5287 条
+    # （2005-01-04 起，真实收盘）⇒ 用 `.CSI` 路补上。它替换了原先挂在映射上、却
+    # 因韭圈儿未收录而永远取不到序列的 `885005.WI`（见 `fund_benchmark.BENCH_BOND_FUND`）。
+    ('H11001.CSI', '中证全债指数'),  # ✅ 2026-10-14 实测 5287 条（2005 起）
+]
+
+DEFAULT_TARGETS = [code for code, _name in WIND_INDEX_TARGETS + TENCENT_INDEX_TARGETS + CSINDEX_INDEX_TARGETS]
 
 
 class IndexDailySyncJob(SyncJob):
@@ -103,13 +124,17 @@ class IndexDailySyncJob(SyncJob):
     def _fetch_data(self, full_sync: bool, targets: List[str]) -> List[dict]:
         # '__full__' 是编排器的全量占位符，不是真实代码
         codes = [t for t in targets if t != '__full__'] or DEFAULT_TARGETS
-        names = dict(WIND_INDEX_TARGETS + TENCENT_INDEX_TARGETS)
+        names = dict(WIND_INDEX_TARGETS + TENCENT_INDEX_TARGETS + CSINDEX_INDEX_TARGETS)
         out = []
         for code in codes:
             code = code.strip()
             if not code:
                 continue
-            if code.upper().endswith('.WI'):
+            if code.upper().endswith('.CSI'):
+                item = self._fetch_csindex_target(code, names.get(code, code), full_sync)
+                if item:
+                    out.append(item)
+            elif code.upper().endswith('.WI'):
                 # 万得系：全量取成立来（date='all'）；增量拉近 12 月（自愈缺口，2 请求/目标）
                 months = 'all' if full_sync else 12
                 try:
@@ -134,6 +159,26 @@ class IndexDailySyncJob(SyncJob):
                 if item:
                     out.append(item)
         return out
+
+    def _fetch_csindex_target(self, code: str, name: Optional[str], full_sync: bool) -> Optional[dict]:
+        """中证官网指数（`.CSI` 后缀）：真实收盘，`price_mode='raw'`。
+
+        与腾讯路的差别只有「源」：中证官网**一次请求返回全序列**（实测 932000 成立以来
+        773 条），故没有分页，也没有 `start_date` 定界的坑——增量与全量是同一个请求，
+        幂等 upsert 自行去重（重跑不产生副作用）。全量/增量的区分在此**不改变行为**，
+        这是刻意的：为一个 1 请求的接口做增量优化，收益是零。
+        """
+        rows = fetch_daily_csindex(code.rsplit('.', 1)[0])
+        if not rows:
+            self.logger.warning(f'指数日线 {code}({name or code}) 中证官网无数据，跳过')
+            return None
+        return {
+            'gu_code': code,
+            'gu_name': name or code,
+            'source': 'csindex',
+            'price_mode': 'raw',
+            'rows': [{'trade_date': date.fromisoformat(d), 'close': close} for d, close in rows],
+        }
 
     def _fetch_tencent_target(self, code: str, name: Optional[str], full_sync: bool) -> Optional[dict]:
         """交易所指数（腾讯源）：取到**带交易日**的日线，可直接落 index_daily。

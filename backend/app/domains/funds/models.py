@@ -597,3 +597,86 @@ class FundIndustryAlloc(Base, PrimaryKeyMixin, TimestampMixin):
         UniqueConstraint('fund_code', 'report_period', 'industry_code', name='uq_fund_industry_code_period'),
         Index('ix_fund_industry_period_scheme', 'report_period', 'scheme'),
     )
+
+
+class FundRiskMetrics(Base, PrimaryKeyMixin, TimestampMixin):
+    """基金风险收益指标日快照（#167 P0：最大回撤 / 本轮回撤 / 夏普族）。
+
+    为什么落库（而不只像 ``fund_risk_metrics`` 那样纯函数现算）
+    -----------------------------------------------------------
+    产品要的是「按指标横向筛」与「回撤序列」——前者要跨基金排序，后者要按时间看。
+    两者都无法靠「一次请求现算一只」满足：
+
+    - 横向筛：页面打开时不可能对全市场逐只现算（逐只读 3 年日净值）；
+    - 回撤序列：现算只能返回当次窗口内的极值，历史进程不可回溯。
+
+    故本表是 ``daily_worth`` 的可复现**派生投影**（L2 派生计算），落**最新一交易日一行**，
+    口径由 ``caliber_version`` 标记（与 ``pnl_daily_snapshots`` 同范式）。
+
+    「本轮回撤」的定义（#167 用户明确要求「本轮回撤」）
+    ----------------------------------------------------
+    不是「最近 N 天跌了多少」，而是**当前所处回撤区间**：从**最近一次净值新高**到
+    **最新一日**的跌幅（新高日之后没有更新的新高，即「还在坑里」）。
+        - ``current_drawdown`` = (最新净值 − 最近高点) / 最近高点，负数；
+        - 最新一日即新高时 = **0.0**（不是 NULL）——「此刻在最高点」是事实，不是缺数据；
+        - ``drawdown_peak_date`` / ``drawdown_days`` 是它的口径元数据（哪天掉下来的、熬了多久）。
+    与 ``max_drawdown``（窗口内**历史上最深**的那一次）是两个不同问题：前者问「现在疼不疼」，
+    后者问「最疼过多少」。
+
+    字段读者（AGENTS.md 数据策略硬约束 §1，新列必须当场指定读者）
+    -------------------------------------------------------------
+    - ``max_drawdown`` / ``current_drawdown`` → 详情页「业绩与风险」区块 + 按指标筛选列表；
+    - ``sharpe`` / ``sortino`` / ``calmar`` / ``ulcer_index`` / ``upi`` / ``return_drawdown_ratio``
+      → 风险指标表（同类内排序，跨类别不比绝对值）；
+    - ``win_rate`` / ``win_rate_period`` → 同上；
+    - ``basis`` / ``sample_points`` / ``as_of`` / ``caliber_version`` → 口径元数据，
+      随值下发（不告诉口径的数字不可复核）。
+
+    ⚠️ 跨类别不可直接比绝对值（债基波动小 ⇒ 夏普系统性偏高），排序一律**同类内**，
+    故 ``fund_type_id`` 随行落库，供读路径分组。
+    """
+
+    __tablename__ = 'fund_risk_metrics'
+
+    fund_code = Column(String(6), nullable=False, comment='基金代码（业务键）')
+    as_of = Column(Date, nullable=False, comment='指标截至日（= 该基金最后一根净值日期）')
+    # 同类内排序的分组键。不设外键（与 fund_industry_allocs 同范式：本表是派生投影，
+    # 上游 fund_types 重建时不应因引用而阻塞），值由 job 从 Fund 冗余写入。
+    fund_type_id = Column(Integer, nullable=True, comment='基金类型 ID（读路径同类内排序的分组键）')
+
+    max_drawdown = Column(SafeNumeric(10, 4), nullable=True, comment='窗口内最大回撤(%)，负数')
+    max_drawdown_peak_date = Column(Date, nullable=True, comment='最大回撤的高点日')
+    max_drawdown_trough_date = Column(Date, nullable=True, comment='最大回撤的低点日')
+    current_drawdown = Column(SafeNumeric(10, 4), nullable=True, comment='本轮回撤(%)，负数；0=正在新高')
+    drawdown_peak_date = Column(Date, nullable=True, comment='本轮回撤起点（最近一次新高日）')
+    drawdown_days = Column(Integer, nullable=True, comment='本轮自高点起熬过的自然日数')
+
+    annual_return = Column(SafeNumeric(10, 4), nullable=True, comment='年化收益(%)')
+    annual_volatility = Column(SafeNumeric(10, 4), nullable=True, comment='年化波动率(%)')
+    sharpe = Column(SafeNumeric(10, 4), nullable=True, comment='夏普（(年化−rf)/年化波动）')
+    sortino = Column(SafeNumeric(10, 4), nullable=True, comment='索提诺（只罚下行波动）')
+    calmar = Column(SafeNumeric(10, 4), nullable=True, comment='卡玛（年化/|最大回撤|）')
+    ulcer_index = Column(SafeNumeric(10, 4), nullable=True, comment='溃疡指数 UI(%)')
+    upi = Column(SafeNumeric(10, 4), nullable=True, comment='UPI（年化/UI，参考方简化式）')
+    return_drawdown_ratio = Column(SafeNumeric(10, 4), nullable=True, comment='波回比')
+    win_rate = Column(SafeNumeric(10, 4), nullable=True, comment='胜率(%)')
+    win_rate_period = Column(String(8), nullable=True, comment='胜率周期 day/week/month')
+
+    sample_points = Column(Integer, nullable=False, default=0, comment='参与计算的净值点数')
+    basis = Column(String(16), nullable=False, comment='口径/可信度：acc_nav / distorted / insufficient')
+    window_label = Column(String(16), nullable=False, comment='窗口中文标签（如「近3年」）')
+    caliber_version = Column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default=text('1'),
+        comment='口径版本；与 fund_risk_metrics_job.CALIBER_VERSION 不符即作废（改口径先 bump）',
+    )
+
+    __table_args__ = (
+        UniqueConstraint('fund_code', 'as_of', name='uq_fund_risk_metrics_code_asof'),
+        # 按指标横向筛：`WHERE basis='acc_nav' ORDER BY sharpe DESC` 走它
+        Index('ix_fund_risk_metrics_basis_sharpe', 'basis', 'sharpe'),
+        Index('ix_fund_risk_metrics_type', 'fund_type_id'),
+        Index('ix_fund_risk_metrics_caliber', 'caliber_version'),
+    )
