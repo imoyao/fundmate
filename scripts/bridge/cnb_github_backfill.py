@@ -456,9 +456,12 @@ def run(*, dry_run: bool, limit: int | None, since: datetime | None) -> int:
 
         try:
             existing = collect_markers(list_github_comments(github_repo, gh_number))
-        except urllib.error.HTTPError as exc:
+        except (urllib.error.HTTPError, RuntimeError) as exc:
             # 404 = 镜像卡指向的 GitHub 卡不存在（被删/编号写错）；403 = 限额。
             # 都不该让整轮跑挂掉。
+            # ⚠️ 必须同时接 RuntimeError：`_request` 自 df51d21b 起把 HTTPError
+            # 包成 RuntimeError（带诊断信息），只接 HTTPError 是死代码——一张坏卡
+            # 就能让全天作业挂掉，而那正是「一直报错」的形态。
             print(f'  ⚠️ 读取 GitHub #{gh_number} 评论失败（CNB #{cnb_number}）：{exc}')
             continue
 
@@ -473,7 +476,9 @@ def run(*, dry_run: bool, limit: int | None, since: datetime | None) -> int:
                 continue
             try:
                 post_github_comment(github_repo, gh_number, build_comment(cnb_number, c))
-            except urllib.error.HTTPError as exc:
+            except (urllib.error.HTTPError, RuntimeError) as exc:
+                # 同上：单条评论失败（422 正文超限 / 403 / 404）只跳过这一条，
+                # 不能炸掉整轮——回写是批处理，一条坏数据不该浪费当天剩余全部。
                 print(f'      ❌ 回写失败（id {c.get("id")}）：{exc}')
                 continue
             backfilled.setdefault(str(cnb_number), {})[str(c.get('id'))] = {

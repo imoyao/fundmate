@@ -113,7 +113,10 @@ python scripts/bridge/cnb_github_backfill.py --apply --limit 3
 依赖：**纯标准库**（`urllib`），不需要 `pip install`——故意保持这样，免得每日作业被某个
 三方包的破坏性升级带崩。
 
-读 CNB 侧**匿名即可**（公开仓库），不需要 token；`CNB_READ_TOKEN` 留给将来仓库转私有时的口子。
+读 CNB 侧**必须带 token**：`CNB_READ_TOKEN`（或 `CNB_TOKEN`）配进 GitHub 仓库 secret
+（Settings → Secrets and variables → Actions）。**匿名一律 401**——2026-10-14 实测纠正：
+`api.cnb.cool` 对匿名请求返回 `{"errcode":16,...}`，与仓库是否公开无关。本文档旧版
+「匿名即可（公开仓库）」的说法是错的，正是它让三次定时运行全挂在第一步。
 
 ## 8. 流水线
 
