@@ -1,5 +1,6 @@
 import { ref, onUnmounted, computed } from "vue";
 import { getSummary } from "@/api/summary";
+import { getUnreadCount } from "@/api/notification";
 import { getPortfolioXirr, type XirrData } from "@/api/performance";
 import { getRecordStats } from "@/api/users";
 import { useTemperatureOverview } from "@/composables/temperature/useTemperatureOverview";
@@ -55,7 +56,8 @@ export function useWelcomeData() {
   // ===== 首页欢迎语（见 docs/design/welcome-greeting-spec.md v1.2） =====
   const recordDays = ref(0);
   const recordLoading = ref(true);
-  // 未读站内信（状态三，可选迭代；当前 lay-notice 为前端示例数据，此处预留钩子）
+  // 未读站内信（#2228）：由 GET /api/notifications/unread-count/ 驱动，
+  // 此前是恒 false 的预留钩子。取值逻辑见 fetchUnreadNotifications。
   const hasUnread = ref(false);
   const unreadCount = ref(0);
 
@@ -293,6 +295,23 @@ export function useWelcomeData() {
     }
   };
 
+  /**
+   * 未读站内信数（#2228）。
+   *
+   * 失败必须静默降级：这条提示不是首屏主体，一个超时不能把欢迎语整块带崩。
+   * 降级方式是「保持 hasUnread=false（提示条不出现）」而不是「显示 0 条」——
+   * 「读不到」与「没有未读」是两回事，显示后者等于把前者伪装成后者。
+   */
+  const fetchUnreadNotifications = async () => {
+    try {
+      const res = await getUnreadCount();
+      unreadCount.value = res.data?.unread_count ?? 0;
+      hasUnread.value = unreadCount.value > 0;
+    } catch (e) {
+      console.debug("[welcome] 未读站内信拉取失败，提示条保持隐藏", e);
+    }
+  };
+
   // 综合市场温度（首页概览级，复用单例，仅触发拉取并刷新播报）
   const fetchTemperature = async (force = false) => {
     await tempOverview.fetchTemperature(force);
@@ -334,6 +353,7 @@ export function useWelcomeData() {
     fetchSummary,
     fetchXirr,
     fetchTemperature,
-    fetchRecordStats
+    fetchRecordStats,
+    fetchUnreadNotifications
   };
 }

@@ -17,7 +17,9 @@
 ----
 对每张镜像卡的正文：
 1. 抽取 `path:line` / `path@ref:line` 引用（复用 `check_issue_refs.py`，同一套正则）；
-2. 按 `--ref`（默认 `origin/dev`）逐条核对；
+2. 按默认核对版本（`--ref`，留空 = **远端默认分支** `origin/main`）逐条核对；
+   镜像卡是 **GitHub 原卡的建卡快照**，描述的是原仓默认分支（`main`）的代码，
+   不是 `dev`——拿 `dev` 核对会把「`dev` 已删、`main` 还在」报成失效（CNB #144 §四）；
 3. 卡面**自带 `@ref`** 的按其指定的版本核对——这是本卡倡导的写法，得尊重。
 
 判据之一：**评论区已有更正就不算「待办」**（CNB #123）
@@ -211,6 +213,8 @@ def build_report(rows: list[dict[str, Any]], default_ref: str) -> str:
 
 def run(args: argparse.Namespace) -> int:
     checker = _load_checker()
+    # 默认核对版本与 check_issue_refs 共用同一处解析（远端 HEAD），不写死分支。
+    resolved_ref = args.ref or checker.default_ref(cwd=args.cwd)
     repo = args.repo
     cards = list_mirror_cards(repo)
     if args.issue:
@@ -233,7 +237,7 @@ def run(args: argparse.Namespace) -> int:
         refs = checker.extract_refs(body)
         stale = []
         for ref in refs:
-            why = checker.check_ref(ref, args.ref, cwd=args.cwd)
+            why = checker.check_ref(ref, resolved_ref, cwd=args.cwd)
             if why:
                 stale.append((ref['raw'], why))
         rows.append(
@@ -249,7 +253,7 @@ def run(args: argparse.Namespace) -> int:
             }
         )
 
-    report = build_report(rows, args.ref)
+    report = build_report(rows, resolved_ref)
     print()
     print(report)
     if args.out:
@@ -264,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description='扫描 CNB 镜像卡里已失效的 path:line 引用')
     p.add_argument('--report', action='store_true', help='输出 markdown 报告（默认行为）')
     p.add_argument('--repo', default=CNB_REPO_DEFAULT, help=f'CNB 仓库（默认 {CNB_REPO_DEFAULT}）')
-    p.add_argument('--ref', default='origin/dev', help='核对版本（默认 origin/dev）')
+    p.add_argument('--ref', default=None, help='核对版本（留空=远端默认分支，本仓即 origin/main）')
     p.add_argument('--cwd', default=None, help='git 仓库路径（默认当前目录）')
     p.add_argument('--issue', action='append', help='只查指定 CNB 卡号（可重复）')
     p.add_argument('--out', default=None, help='报告写入文件')

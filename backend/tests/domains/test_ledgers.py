@@ -2025,6 +2025,65 @@ class TestLedgerDetailSearch:
         assert qty_map['600519'] == 100
         assert qty_map['000001'] == 200
 
+    def test_positions_paginated_includes_price_date(self, client, db, make_position):
+        """持仓明细行必须携带 price_date（#2140 时点标注）。
+
+        - 基金行取**实际采用**的最新净值日（多条净值时取最新一条），而非快照
+          `positions.price_date`（22:15 才回写，会低估新鲜度）；
+        - 非基金行取快照回写日；两者皆缺为 None（前端 tooltip 容错省略）。
+        """
+        from datetime import date as date_cls
+
+        from app.domains.funds.models import DailyWorth
+
+        ledger = Ledger(name='时点测试', ledger_type='mixed')
+        db.add(ledger)
+        db.commit()
+        # 基金：两条净值，最新一条 2026-01-12 必须胜出
+        db.add_all(
+            [
+                DailyWorth(fund_code='110011', date=date_cls(2026, 1, 10), unit_nav=1.4, acc_nav=1.4),
+                DailyWorth(fund_code='110011', date=date_cls(2026, 1, 12), unit_nav=1.5, acc_nav=1.5),
+            ]
+        )
+        fund_pos = make_position(
+            symbol='110011',
+            name='测试基金',
+            ledger_id=ledger.id,
+            account_name='时点测试',
+            quantity=1000,
+            avg_price=1.0,
+            current_price=1.4,
+            asset_type='fund',
+        )
+        fund_pos.price_date = date_cls(2026, 1, 1)  # 快照旧于净值——不得采用
+        stock_pos = make_position(
+            symbol='600519',
+            name='贵州茅台',
+            ledger_id=ledger.id,
+            account_name='时点测试',
+            quantity=100,
+            avg_price=10,
+            current_price=12,
+        )
+        stock_pos.price_date = date_cls(2026, 1, 11)
+        make_position(
+            symbol='000001',
+            name='平安银行',
+            ledger_id=ledger.id,
+            account_name='时点测试',
+            quantity=200,
+            avg_price=10,
+            current_price=11,
+        )  # 无任何时点 → None
+        db.commit()
+
+        resp = client.get(f'/api/ledgers/{ledger.id}/positions/')
+        items = {i['symbol']: i for i in resp.get_json()['data']['items']}
+        assert items['110011']['price_date'] == '2026-01-12'
+        assert items['600519']['price_date'] == '2026-01-11'
+        assert items['000001']['price_date'] is None
+
 
 class TestSalesInstitutionsAPI:
     """销售机构名录 API：#1081 常用分组字段与置顶排序、#1082 类型过滤。"""

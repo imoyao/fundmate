@@ -148,13 +148,95 @@ class Fund(Base, PrimaryKeyMixin, TimestampMixin):
 
 
 class FundManager(Base, PrimaryKeyMixin):
+    """基金-经理**关联**：只表达「谁在管谁」（#2239 拆分后）。
+
+    ## 为什么拆成两张表（#2239）
+
+    本表原先同时承担「关联存在性」与「任职时间」两个职责，且**没有**
+    ``(fund_id, mgr_id)`` 唯一约束。后果（真实库实测，#2239 卡内有数）：
+
+    - ``fund_managers`` 69,684 行里只有 34,846 个唯一 ``(fund_id, mgr_id)`` 组合
+      —— 几乎每行重复一份，且每次同步都会再写一遍（表持续膨胀，IO/存储白耗）；
+    - ``start_date`` / ``end_date`` 填充率恒为 0%，前端「任职起止」永远是「—」；
+    - 同一经理**多次任职同一基金**这种真实场景根本表达不了（一行一格）。
+
+    #2229 只在**结果层**去重（``SELECT DISTINCT`` / 应用层过滤），表本身照旧膨胀，
+    且任何写入路径漏做去重都会静默产生重复行 —— 根因是**表结构**，不是查询写法。
+    故此处：关联归本表（带唯一约束），任期归 :class:`ManagerTenure`。
+
+    ## 唯一约束是这套改造的**承重墙**
+
+    ``uq_fund_managers_fund_mgr`` 是幂等的**数据库层**保证：写侧可以直接用
+    ``INSERT OR IGNORE`` / ``ON CONFLICT DO NOTHING``（见
+    ``sync/jobs/fund_manager_job``），不必再靠「先查已有、再过滤」的应用层两步法
+    ——后者在并发或分批边界上仍会漏，且每次都多一轮查询。
+
+    存量库由 :func:`app.core.migrations.migrate_fund_managers_split_tenures`
+    整表重建补齐（SQLite 不支持给已存在的表加约束，只能「建新表→拷贝→删旧→改名」）。
+    """
+
     __tablename__ = 'fund_managers'
+    __table_args__ = (UniqueConstraint('fund_id', 'mgr_id', name='uq_fund_managers_fund_mgr'),)
 
     fund_id = Column(Integer, ForeignKey('funds.id'), nullable=False)
     mgr_id = Column(Integer, ForeignKey('managers.id'), nullable=False)
     is_classic = Column(Boolean, default=False, comment='代表作品')
-    start_date = Column(Date, comment='任职起始')
-    end_date = Column(Date, comment='任职结束')
+
+
+class ManagerTenure(Base, PrimaryKeyMixin, TimestampMixin):
+    """基金经理**任期分段**（#2239 从 ``fund_managers`` 拆出）。
+
+    ## 语义
+
+    一段任期 = 「某经理在某基金的某段时间内在任」。同一 ``(fund_id, mgr_id)``
+    **允许多段**（张坤在 005827 就有两段，见 ``adapters/manager_tenure.find_tenure``），
+    这是拆表的核心收益：原表一行一格，表达能力上就写不下「两进两出」。
+
+    ## 字段口径
+
+    - ``start_date`` 非空、``end_date`` 可空：**NULL 表示仍在任**。展示层据此判在任
+      （``manager_profile._managed_funds`` 的 ``is_active``），所以**不要**用「未来的
+      end_date」或占位日期表示在任 —— 那会让「卸任日」这个词失去意义；
+    - ``current`` 标记**当前在任段**，供「代表作」等需要快速筛选的场景用
+      （``manager_holdings`` 原先按 ``start_date`` 最早挑，改为读本表后仍以任期长短为准，
+      见该服务注释）。它与 ``end_date IS NULL`` 在正常数据下等价，但**不冗余**：
+      数据源只给「截止某日」而调仓尚未确认时，两者会短暂分叉，届时以 ``current`` 为准；
+    - ``source`` 记来源标识（``jjjl_f10`` = 天天基金 F10 经理页），便于日后换源时区分批次。
+
+    ## 为什么仓位类字段不在这里
+
+    本表**只存时间**。``is_classic``（代表作品）是「关联的属性」而非「任期的属性」，
+    留在 :class:`FundManager` —— 一段任期结束时它不该跟着消失。
+
+    ## 幂等键
+
+    ``uq_manager_tenures_fund_mgr_start``：同一人、同一基金、同一入职日只允许一条。
+    重复抓取（同一只基金反复 ``--targets``）因此天然幂等，不需要「删了重写」。
+    """
+
+    __tablename__ = 'manager_tenures'
+    __table_args__ = (
+        UniqueConstraint(
+            'fund_id',
+            'mgr_id',
+            'start_date',
+            name='uq_manager_tenures_fund_mgr_start',
+        ),
+        Index('ix_manager_tenures_mgr_id', 'mgr_id'),
+        Index('ix_manager_tenures_fund_id', 'fund_id'),
+    )
+
+    fund_id = Column(Integer, ForeignKey('funds.id'), nullable=False)
+    mgr_id = Column(Integer, ForeignKey('managers.id'), nullable=False)
+    start_date = Column(Date, nullable=False, comment='任职起始')
+    end_date = Column(Date, nullable=True, comment='任职结束；NULL = 仍在任')
+    current = Column(
+        Boolean,
+        default=False,
+        server_default=text('0'),
+        comment='当前在任段（供「代表作」等快速筛选）；正常数据下等价于 end_date IS NULL',
+    )
+    source = Column(String(20), default='jjjl_f10', comment='来源标识（jjjl_f10 = 天天基金 F10 经理页）')
 
 
 class ChannelLink(Base, PrimaryKeyMixin, TimestampMixin):
@@ -215,6 +297,43 @@ class DailyWorth(Base, PrimaryKeyMixin, TimestampMixin):
     fund = relationship('Fund', back_populates='daily_worth')
 
     __table_args__ = (UniqueConstraint('fund_code', 'date', name='uq_daily_worth_code_date'),)
+
+
+class FundValuationDaily(Base, PrimaryKeyMixin, TimestampMixin):
+    """场外基金收盘估值定格（#2141）
+
+    收盘后按固定时点（15:15 / 19:15 / 21:15）抓取天天基金估值快照，
+    供「收盘后估值」定格展示与 pnl_calendar 当日估算回退。
+    估值是时点数据：净值发布后源端会清空 GSZ，故同一 (fund_code, est_date)
+    可能被多个时点覆盖——采用 REPLACE 语义，后写入的时点覆盖先写入的。
+    fund_code 不设 FK：估值覆盖全市场场外基金，本地 funds 表可能不存在该基金
+    （与 AdvisorHolding 同款业务键模式），跨域 join 本就禁止。
+
+    ## 对照语义（#2142）
+
+    官方净值（`daily_worth.unit_nav`）到位后，`fund_valuation_reconcile` job 把
+    status 翻 `confirmed`，并把官方值**副本**与偏差记在本表（official_nav /
+    deviation / deviation_pct），供「预估 vs 官方」对照与数据源质量观察。
+    副本不是权威：唯一权威始终是 daily_worth，本表从不反向写它；
+    官方迟到/缺失时行保持 estimated、三列 NULL（诚实降级，前端标注即可）。
+    """
+
+    __tablename__ = 'fund_valuation_daily'
+
+    fund_code = Column(String(16), nullable=False, comment='基金代码')
+    est_date = Column(Date, nullable=False, comment='估值日期（源端 PDATE）')
+    estimated_nav = Column(SafeNumeric(18, 6), nullable=False, comment='估算净值（元），精度6位小数')
+    change_pct = Column(SafeNumeric(10, 4), comment='估算涨跌幅（%），如 1.2345 表示 +1.2345%')
+    source_time = Column(String(32), comment='源端估值时间字符串（GZTIME，原样存储，如 "2026-10-13 15:00"）')
+    source = Column(String(32), default='tiantian_gsz', comment='数据源标识，默认天天基金 GSZ')
+    status = Column(
+        String(16), default='estimated', comment='估值状态: estimated / confirmed（官方到位后由对照 job 翻 confirmed）'
+    )
+    official_nav = Column(SafeNumeric(18, 6), comment='官方净值副本（元），对照用；权威仍是 daily_worth.unit_nav')
+    deviation = Column(SafeNumeric(18, 6), comment='偏差（元）= 预估 − 官方')
+    deviation_pct = Column(SafeNumeric(10, 4), comment='偏差率（%）= deviation / official_nav × 100')
+
+    __table_args__ = (UniqueConstraint('fund_code', 'est_date', name='uq_fund_valuation_code_date'),)
 
 
 class PurchaseRule(Base, PrimaryKeyMixin, TimestampMixin):
@@ -477,4 +596,87 @@ class FundIndustryAlloc(Base, PrimaryKeyMixin, TimestampMixin):
     __table_args__ = (
         UniqueConstraint('fund_code', 'report_period', 'industry_code', name='uq_fund_industry_code_period'),
         Index('ix_fund_industry_period_scheme', 'report_period', 'scheme'),
+    )
+
+
+class FundRiskMetrics(Base, PrimaryKeyMixin, TimestampMixin):
+    """基金风险收益指标日快照（#167 P0：最大回撤 / 本轮回撤 / 夏普族）。
+
+    为什么落库（而不只像 ``fund_risk_metrics`` 那样纯函数现算）
+    -----------------------------------------------------------
+    产品要的是「按指标横向筛」与「回撤序列」——前者要跨基金排序，后者要按时间看。
+    两者都无法靠「一次请求现算一只」满足：
+
+    - 横向筛：页面打开时不可能对全市场逐只现算（逐只读 3 年日净值）；
+    - 回撤序列：现算只能返回当次窗口内的极值，历史进程不可回溯。
+
+    故本表是 ``daily_worth`` 的可复现**派生投影**（L2 派生计算），落**最新一交易日一行**，
+    口径由 ``caliber_version`` 标记（与 ``pnl_daily_snapshots`` 同范式）。
+
+    「本轮回撤」的定义（#167 用户明确要求「本轮回撤」）
+    ----------------------------------------------------
+    不是「最近 N 天跌了多少」，而是**当前所处回撤区间**：从**最近一次净值新高**到
+    **最新一日**的跌幅（新高日之后没有更新的新高，即「还在坑里」）。
+        - ``current_drawdown`` = (最新净值 − 最近高点) / 最近高点，负数；
+        - 最新一日即新高时 = **0.0**（不是 NULL）——「此刻在最高点」是事实，不是缺数据；
+        - ``drawdown_peak_date`` / ``drawdown_days`` 是它的口径元数据（哪天掉下来的、熬了多久）。
+    与 ``max_drawdown``（窗口内**历史上最深**的那一次）是两个不同问题：前者问「现在疼不疼」，
+    后者问「最疼过多少」。
+
+    字段读者（AGENTS.md 数据策略硬约束 §1，新列必须当场指定读者）
+    -------------------------------------------------------------
+    - ``max_drawdown`` / ``current_drawdown`` → 详情页「业绩与风险」区块 + 按指标筛选列表；
+    - ``sharpe`` / ``sortino`` / ``calmar`` / ``ulcer_index`` / ``upi`` / ``return_drawdown_ratio``
+      → 风险指标表（同类内排序，跨类别不比绝对值）；
+    - ``win_rate`` / ``win_rate_period`` → 同上；
+    - ``basis`` / ``sample_points`` / ``as_of`` / ``caliber_version`` → 口径元数据，
+      随值下发（不告诉口径的数字不可复核）。
+
+    ⚠️ 跨类别不可直接比绝对值（债基波动小 ⇒ 夏普系统性偏高），排序一律**同类内**，
+    故 ``fund_type_id`` 随行落库，供读路径分组。
+    """
+
+    __tablename__ = 'fund_risk_metrics'
+
+    fund_code = Column(String(6), nullable=False, comment='基金代码（业务键）')
+    as_of = Column(Date, nullable=False, comment='指标截至日（= 该基金最后一根净值日期）')
+    # 同类内排序的分组键。不设外键（与 fund_industry_allocs 同范式：本表是派生投影，
+    # 上游 fund_types 重建时不应因引用而阻塞），值由 job 从 Fund 冗余写入。
+    fund_type_id = Column(Integer, nullable=True, comment='基金类型 ID（读路径同类内排序的分组键）')
+
+    max_drawdown = Column(SafeNumeric(10, 4), nullable=True, comment='窗口内最大回撤(%)，负数')
+    max_drawdown_peak_date = Column(Date, nullable=True, comment='最大回撤的高点日')
+    max_drawdown_trough_date = Column(Date, nullable=True, comment='最大回撤的低点日')
+    current_drawdown = Column(SafeNumeric(10, 4), nullable=True, comment='本轮回撤(%)，负数；0=正在新高')
+    drawdown_peak_date = Column(Date, nullable=True, comment='本轮回撤起点（最近一次新高日）')
+    drawdown_days = Column(Integer, nullable=True, comment='本轮自高点起熬过的自然日数')
+
+    annual_return = Column(SafeNumeric(10, 4), nullable=True, comment='年化收益(%)')
+    annual_volatility = Column(SafeNumeric(10, 4), nullable=True, comment='年化波动率(%)')
+    sharpe = Column(SafeNumeric(10, 4), nullable=True, comment='夏普（(年化−rf)/年化波动）')
+    sortino = Column(SafeNumeric(10, 4), nullable=True, comment='索提诺（只罚下行波动）')
+    calmar = Column(SafeNumeric(10, 4), nullable=True, comment='卡玛（年化/|最大回撤|）')
+    ulcer_index = Column(SafeNumeric(10, 4), nullable=True, comment='溃疡指数 UI(%)')
+    upi = Column(SafeNumeric(10, 4), nullable=True, comment='UPI（年化/UI，参考方简化式）')
+    return_drawdown_ratio = Column(SafeNumeric(10, 4), nullable=True, comment='波回比')
+    win_rate = Column(SafeNumeric(10, 4), nullable=True, comment='胜率(%)')
+    win_rate_period = Column(String(8), nullable=True, comment='胜率周期 day/week/month')
+
+    sample_points = Column(Integer, nullable=False, default=0, comment='参与计算的净值点数')
+    basis = Column(String(16), nullable=False, comment='口径/可信度：acc_nav / distorted / insufficient')
+    window_label = Column(String(16), nullable=False, comment='窗口中文标签（如「近3年」）')
+    caliber_version = Column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default=text('1'),
+        comment='口径版本；与 fund_risk_metrics_job.CALIBER_VERSION 不符即作废（改口径先 bump）',
+    )
+
+    __table_args__ = (
+        UniqueConstraint('fund_code', 'as_of', name='uq_fund_risk_metrics_code_asof'),
+        # 按指标横向筛：`WHERE basis='acc_nav' ORDER BY sharpe DESC` 走它
+        Index('ix_fund_risk_metrics_basis_sharpe', 'basis', 'sharpe'),
+        Index('ix_fund_risk_metrics_type', 'fund_type_id'),
+        Index('ix_fund_risk_metrics_caliber', 'caliber_version'),
     )

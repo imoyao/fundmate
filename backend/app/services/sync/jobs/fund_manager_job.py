@@ -218,21 +218,24 @@ class FundManagerSyncJob(SyncJob):
             if fid and mid:
                 rel_records.append({'fund_id': fid, 'mgr_id': mid})
 
-        existing_rels: set = set()
-        fund_id_chunks = list(_chunked(fund_map.values()))
-        mgr_id_chunks = list(_chunked(mgr_map.values()))
-        for fids in fund_id_chunks:
-            for mids in mgr_id_chunks:
-                rows = (
-                    self.db.query(FundManager.fund_id, FundManager.mgr_id)
-                    .filter(FundManager.fund_id.in_(fids), FundManager.mgr_id.in_(mids))
-                    .all()
-                )
-                existing_rels.update((r.fund_id, r.mgr_id) for r in rows)
-        new_rels = [r for r in rel_records if (r['fund_id'], r['mgr_id']) not in existing_rels]
-        if new_rels:
-            self.db.bulk_insert_mappings(FundManager, new_rels)
-            logger.info(f'新增 {len(new_rels)} 条基金-经理关联')
+        # 重复由**数据库唯一约束**兜底（#2239）：`INSERT OR IGNORE` / `ON CONFLICT DO NOTHING`。
+        #
+        # 为什么删掉原先的「先查已有、再过滤」两步法：那是 #2229 应用层去重的翻版 —— 表本身
+        # 仍在膨胀（每次同步都要把「本批 fund_id × 本批 mgr_id」的笛卡尔组合查一遍，
+        # 全量回填时是上万 × 上万的 in_ 查询），且并发或分批边界上仍会漏。改依赖
+        # `uq_fund_managers_fund_mgr` 后写侧只剩一次插入：「表里为什么会有重复行」
+        # 这个问题在新库上不再可能发生（旧库由
+        # `migrations.migrate_fund_managers_split_tenures` 去重后补约束）。
+        if rel_records:
+            inserted = bulk_insert_if_not_exists(
+                self.db,
+                FundManager,
+                rel_records,
+                'fund_id',
+                unique_columns=['fund_id', 'mgr_id'],
+            )
+            # helper 的返回值在「忽略冲突」时不精确（rowcount 含被跳过者），故措辞不写死「新增」
+            logger.info(f'基金-经理关联写入 {inserted} 条（重复的由唯一约束忽略）')
 
         self.db.commit()
 
@@ -335,59 +338,15 @@ class FundManagerSyncJob(SyncJob):
             self.db.flush()
         return stats
 
-    # ── 任期补齐（独立于上述全量回填）────────────────────────────
-
-    def backfill_tenures(self, fund_codes: List[str]) -> Dict[str, int]:
-        """按目标基金逐只抓取任期，写入 ``fund_managers.start_date/end_date``。
-
-        **为什么必须独立于 ``_fetch_data``**：任期只存在于天天基金 F10 经理页
-        （``fund_manager_em`` 无此维度），即**每只基金一次 HTTP**。若混进
-        ``_fetch_data``，全量回填会退化成 26000+ 次请求、且与「一次全量拿经理」
-        的既定成本模型冲突。故显式分离，调用方按目标池限量调用。
-
-        **只更新不插入**：关联关系由 ``_save_data`` 建立，本方法仅补两列，
-        对库中不存在的 (fund, mgr) 组合**直接跳过**（不凭任期数据造关系，
-        关系只由经理全量表决定）。
-
-        Args:
-            fund_codes: 目标基金代码列表。
-
-        Returns:
-            统计 dict：``{'scanned', 'matched', 'updated', 'failed'}``。
-        """
-        from app.services.adapters.manager_tenure import fetch_manager_tenures, find_tenure
-
-        stats = {'scanned': 0, 'matched': 0, 'updated': 0, 'failed': 0}
-
-        for code in fund_codes:
-            segments = fetch_manager_tenures(code)
-            if not segments:
-                stats['failed'] += 1
-                continue
-            stats['scanned'] += 1
-
-            fund = self.db.query(Fund).filter(Fund.fund_code == code).first()
-            if fund is None:
-                continue
-
-            # 该基金的经理名集合 → 任期分段中能对上的
-            rels = (
-                self.db.query(Manager.name, FundManager)
-                .join(FundManager, FundManager.mgr_id == Manager.id)
-                .filter(FundManager.fund_id == fund.id)
-                .all()
-            )
-            for mgr_name, rel in rels:
-                tenure = find_tenure(segments, mgr_name)
-                if tenure is None:
-                    continue
-                stats['matched'] += 1
-                if rel.start_date == tenure['start_date'] and rel.end_date == tenure['end_date']:
-                    continue  # 已是最新，不做无谓写入
-                rel.start_date = tenure['start_date']
-                rel.end_date = tenure['end_date']
-                stats['updated'] += 1
-
-        self.db.commit()
-        logger.info(f'任期补齐完成: {stats}')
-        return stats
+    # ── 任期补齐已迁出（#2082）─────────────────────────────────────
+    #
+    # 原 `backfill_tenures()` 就写在这里，但**全仓没有任何调用点**
+    # （`grep -rn backfill_tenures` 只命中定义本身），于是
+    # `fund_managers.start_date/end_date` 填充率恒为 0%、前端「任职起止」永远
+    # 显示「—」—— 代码写好了，却从来没被接过线。
+    #
+    # 现已迁到 `app/services/sync/jobs/manager_tenure_job.py` 的
+    # `ManagerTenureSyncJob`，并登记进 orchestrator 与 daily_scheduler 的
+    # 「明确不调度」表。接线是否还在，由两道网兜住：
+    #   - `scripts/guard_job_schedule_coverage.py`（注册的 job 必须被调度表覆盖）
+    #   - `tests/services/sync/test_manager_tenure_job.py`（断言调用链存在）

@@ -33,6 +33,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func
@@ -45,49 +46,79 @@ from app.services.penetration import BASIS_FULL
 # 但详情页只展示「十大」这一概念，超出部分没有展示位）。
 DEFAULT_TOP_N = 10
 
+# 市值分桶用的三只规模指数（代码不含交易所后缀）。归属规则见标定文档 §1：
+# large=∈300；mid=∈500 且∉300；small=∈1000 且∉500 且∉300；其余未覆盖。
+_SIZE_INDEX_CODES = ('000300', '000905', '000852')
 
-def _pick_representative_fund(db: Session, mgr_id: int, fund_ids: List[int]) -> Optional[int]:
-    """选代表作的 ``fund_id``：``is_classic`` 优先，否则取任期最长的那只。
+
+def _pick_representative_fund(
+    db: Session,
+    mgr_id: int,
+    fund_ids: List[int],
+    as_of: Optional[date] = None,
+) -> Optional[int]:
+    """选代表作的 ``fund_id``：``is_classic`` 优先，否则取**任期最长**的那只。
 
     **为什么不用「规模最大」**：规模指标已在头部展示，用它挑代表作会让用户
     误以为看到的是同一个数字；而重仓解读真正关心的是「策略延续性」，任期长度
     才是该维度的代理。
 
+    ## 任期长度从 ``manager_tenures`` **聚合**（#2239）
+
+    一段一行 → 逐段累加天数。原实现读 ``fund_managers.start_date`` 取最早的那只，
+    隐含假设「一人一基金只有一段」；遇到两进两出（张坤在 005827 就是两段）会把
+    中间**空档也算成任期**，从而挑错代表作。
+
+    **开放段（``end_date IS NULL``）按「至基准日」计**：在任中的那段若按 0 天算，
+    正在管的基金反而比卸任的短，代表作会挑到已经不管的那只。
+
+    ## 两个易错点，写在这里防止后来者改回去
+
+    1. 必须**累加**而不是取某一段 —— 这正是拆表的目的；
+    2. 一条任期都没有时（目标池未回填）退回第一只，并保证结果**可复现**：
+       此时任何选择都是任意的，稳定取同一只比按「碰巧的顺序」取更有用。
+
     Args:
         mgr_id: 经理 id。
         fund_ids: 该经理关联的基金 id 列表（**已受 fund_limit 截断**）。
+        as_of: 开放段的计算基准日，默认今天（测试注入）。
 
     Returns:
         代表作 ``fund_id``；无关联基金时返回 None。
     """
-    from app.domains.funds.models import FundManager
+    from app.domains.funds.models import FundManager, ManagerTenure
 
     if not fund_ids:
         return None
 
-    rows = (
-        db.query(FundManager.fund_id, FundManager.is_classic, FundManager.start_date)
+    rels = (
+        db.query(FundManager.fund_id, FundManager.is_classic)
         .filter(FundManager.mgr_id == mgr_id, FundManager.fund_id.in_(fund_ids))
         .all()
     )
-    if not rows:
+    if not rels:
         return None
 
-    classics = [r.fund_id for r in rows if r.is_classic]
+    classics = [r.fund_id for r in rels if r.is_classic]
     if classics:
         return classics[0]
 
-    # 无标记代表作 → **最早**任职的那只（任期最长 = 策略延续最久 = 最有代表性）。
-    #
-    # 两个易错点，写在这里防止后来者改回去：
-    # 1. 必须 `min` 不是 `max` —— 任职**最早**的才是任期最长；
-    # 2. 必须先剔除 `start_date` 为空的行。库内任期只对目标池回填，大量行为空，
-    #    而空值参与比较会被判成"最早"而误选。全部为空时才退回第一只（无任期可比较，
-    #    此时任何选择都是任意的，不如稳定取第一只以保证同一请求结果可复现）。
-    dated = [r for r in rows if r.start_date is not None]
-    if not dated:
-        return rows[0].fund_id
-    return min(dated, key=lambda r: r.start_date).fund_id
+    base = as_of or date.today()
+    days: Dict[int, int] = {}
+    for fund_id, start, end in (
+        db.query(ManagerTenure.fund_id, ManagerTenure.start_date, ManagerTenure.end_date)
+        .filter(ManagerTenure.mgr_id == mgr_id, ManagerTenure.fund_id.in_(fund_ids))
+        .all()
+    ):
+        if start is None:
+            continue
+        span = max(((end or base) - start).days, 0)
+        days[fund_id] = days.get(fund_id, 0) + span
+
+    if not days:
+        return rels[0].fund_id
+    # 平票取 fund_id 小者：同一请求重复调用必须给同一个答案
+    return max(days, key=lambda fid: (days[fid], -fid))
 
 
 def build_manager_holdings(
@@ -106,9 +137,12 @@ def build_manager_holdings(
 
     Returns:
         ``{fund_code, fund_name, report_period, report_date, basis, basis_label,
-        total_ratio, rows[]}``；**经理不存在时返回 None**（由调用方转 404）。
+        total_ratio, rows[], style_labels[]}``；**经理不存在时返回 None**（由调用方转 404）。
 
     ``rows[]`` 每项：``{rank, stock_code, stock_name, ratio, market_value}``。
+
+    ``style_labels[]`` 每项：``{dim, key, label, basis}``（#2044 风格标签，无颜色字段；
+    数据不足的维度**缺席**而非回 null，前端按维度缺席显示 —）。
 
     ``basis_label`` 把 ``full`` / ``top10`` 翻成中文，**必须下发给前端**——
     用户看到「十大重仓」时需要知道这是季报口径（前十大）还是半年报全量，
@@ -153,6 +187,9 @@ def build_manager_holdings(
         # 前十大合计占比：给用户一个「集中度」锚点。只在 top10 口径下有意义，
         # full 口径下是**全量合计**，故用 basis 区分，不改名以免前端误解。
         'total_ratio': round(sum(float(h.ratio) for h in rows if h.ratio is not None), 2) if rows else None,
+        # 代表作风格标签（#2044）：纯函数判据 + 全库标定阈值，数据不足维度缺席（非 null 占位）。
+        # 与重仓同源同期，故挂在本端点而非首屏 manager-profile（见 views.py 端点拆分理由）。
+        'style_labels': _build_style_labels(db, fund.fund_code, basis, holdings),
         'rows': [
             {
                 'rank': h.rank,
@@ -164,6 +201,106 @@ def build_manager_holdings(
             for h in rows
         ],
     }
+
+
+def _build_style_labels(
+    db: Session,
+    fund_code: str,
+    basis: Optional[str],
+    holdings: List[Any],
+) -> List[Dict[str, Any]]:
+    """装配代表作风格标签的输入指标，并调用纯函数判据（#2044）。
+
+    职责分界：**查库装配在这里，判定在 :func:`manager_style.judge_style`（纯函数）**。
+    数据不足的维度在装配侧回 ``None``，由判据统一跳过：
+
+    - ``top10`` 口径不足 10 行 → 集中度 ``None``（季报抓取不完整会系统性低估；
+      标定样本同规则剔除，见标定文档 §1「不完整样本剔除」）。``full`` 口径不受此限——
+      全量披露下基金真持有不足 10 只时，合计值就是其真实集中度；
+    - 无 csrc 行业配置 → 行业 ``None``（跨体系不混算，gics 不作替补）；
+    - 市值分桶覆盖率照实回传，低于判据 `min_coverage` 门时拒判——QDII/重仓港股基金
+      的港股代码不在 A 股成分表内，覆盖率天然不足，诚实缺席而非硬猜大盘小盘。
+
+    Args:
+        db: market 域会话。
+        fund_code: 代表作代码。
+        basis: 持仓披露口径（``full`` / ``top10``）。
+        holdings: 该基金**最新报告期**的全部持仓行（勿传展示截断后的 ``rows``——
+            集中度按占净值比降序取前 10，与标定口径一致）。
+
+    Returns:
+        ``StyleLabel.as_dict()`` 列表；无可用维度时为 ``[]``（前端按维度缺席显示 —）。
+    """
+    from app.domains.funds.models import FundIndustryAlloc
+    from app.domains.indices.models import IndexConstituent
+    from app.services.manager_style import FundStyleMetrics, judge_style
+
+    # ── 集中度：同最新期持仓按 ratio 降序取前 10 求和 ──
+    ratios = sorted((float(h.ratio) for h in holdings if h.ratio is not None), reverse=True)
+    top10: Optional[float] = None
+    if ratios and not (basis == 'top10' and len(ratios) < 10):
+        top10 = round(sum(ratios[:10]), 2)
+
+    # ── 行业集中度：csrc 最新期第一大行业占净值比 ──
+    alloc_rows = (
+        db.query(FundIndustryAlloc.report_period, FundIndustryAlloc.ratio)
+        .filter(
+            FundIndustryAlloc.fund_code == fund_code,
+            FundIndustryAlloc.scheme == 'csrc',
+        )
+        .order_by(FundIndustryAlloc.report_period.desc())
+        .all()
+    )
+    top1: Optional[float] = None
+    if alloc_rows:
+        latest_period = alloc_rows[0].report_period
+        vals = [float(r.ratio) for r in alloc_rows if r.report_period == latest_period and r.ratio is not None]
+        if vals:
+            top1 = round(max(vals), 2)
+
+    # ── 市值分桶：持仓按 中证300/500/1000 成分归属（成分表按持仓代码定向查，
+    #    不整表拉 1800 只）──
+    stock_codes = [h.stock_code for h in holdings if h.stock_code]
+    large = mid = small = other = 0.0
+    if stock_codes:
+        member_rows = (
+            db.query(IndexConstituent.index_code, IndexConstituent.symbol)
+            .filter(
+                IndexConstituent.index_code.in_(_SIZE_INDEX_CODES),
+                IndexConstituent.symbol.in_(stock_codes),
+            )
+            .all()
+        )
+        s300 = {r.symbol for r in member_rows if r.index_code == '000300'}
+        s905 = {r.symbol for r in member_rows if r.index_code == '000905'}
+        s852 = {r.symbol for r in member_rows if r.index_code == '000852'}
+        for h in holdings:
+            if h.ratio is None or not h.stock_code:
+                continue
+            r = float(h.ratio)
+            if h.stock_code in s300:
+                large += r
+            elif h.stock_code in s905:
+                mid += r
+            elif h.stock_code in s852:
+                small += r
+            else:
+                other += r
+    total = large + mid + small + other
+    covered = large + mid + small
+    coverage = round(covered / total * 100, 1) if total > 0 else None
+    large_share = round(large / covered * 100, 1) if covered > 0 else None
+
+    metrics = FundStyleMetrics(
+        fund_code=fund_code,
+        top10_ratio=top10,
+        holding_basis=basis,
+        top_industry_ratio=top1,
+        size_covered_pct=coverage,
+        size_large_share=large_share,
+        report_period=holdings[0].report_period if holdings else None,
+    )
+    return [label.as_dict() for label in judge_style(metrics)]
 
 
 def _empty(reason: str, fund_code: Optional[str] = None, fund_name: Optional[str] = None) -> Dict[str, Any]:
@@ -181,6 +318,7 @@ def _empty(reason: str, fund_code: Optional[str] = None, fund_name: Optional[str
         'basis_label': None,
         'total_ratio': None,
         'rows': [],
+        'style_labels': [],
         'empty_reason': reason,
     }
 

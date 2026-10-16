@@ -15,6 +15,7 @@ from flask import Response, abort, jsonify, request
 from app.core.auth import get_family_id
 from app.core.database import get_db
 from app.core.money import Money
+from app.core.retry import retry_on_db_locked
 from app.domains.transactions.models import Transaction
 from app.services.position_service import PositionService
 from app.services.transaction_service import build_transaction_list
@@ -32,9 +33,9 @@ def list_transactions():
         'end_date': request.args.get('end_date'),
         'status': request.args.get('status'),
         'asset_type': request.args.get('asset_type'),
+        'symbol': request.args.get('symbol'),
     }
-    page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 20, type=int)
+    page, per_page = request.args.get('page', 1, type=int), request.args.get('per_page', 20, type=int)
     with get_db() as db:
         payload = build_transaction_list(db, get_family_id(), page, per_page, filters)
         return jsonify({**payload, 'message': 'ok'})
@@ -104,6 +105,7 @@ def export_transactions():
 
 
 @bp.delete('/<int:transaction_id>/')
+@retry_on_db_locked()
 def delete_transaction(transaction_id: int):
     """删除单条交易流水，并回滚对应持仓份额（buy/sell/deposit/withdraw/split）。
 

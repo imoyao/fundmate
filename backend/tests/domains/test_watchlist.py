@@ -11,7 +11,7 @@ from app.core.symbol_utils import get_normalizer
 from app.domains.funds.models import ChannelLink, FundCompany, Manager
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
-from app.domains.watchlist.models import WatchlistItem
+from app.domains.watchlist.models import WatchlistGroup, WatchlistItem, WatchlistItemGroup
 from app.services.watchlist_service import lookup_manager, resolve_display_name
 
 normalizer = get_normalizer()
@@ -833,6 +833,82 @@ class TestItemGroupLink:
         assert len(list_resp.get_json()['data']) == 0
 
 
+# ─────────────── 创建即归组（#2106 AI 批量导入选分组） ───────────────
+class TestCreateItemWithGroups:
+    """POST /api/watchlist/items/ 带 group_ids：同一事务内写关联，省去「先建后逐条关联」。
+
+    边界（issue #2106 验收标准）：
+    - group_ids **可选**：不传 / 空数组 = 维持现状（只落「全部」虚拟口径）；
+    - 传入的 id 必须是**本家庭**的**自定义**分组，否则 4xx；
+    - 非法 id 必须**不落库**（不能出现「进了自选但没进分组」的半截数据）——
+      故归属校验在插入 item **之前**完成（见 watchlist_service.resolve_create_group_ids）。
+    """
+
+    def test_create_links_selected_groups(self, client, db):
+        gid_a = _post(client, '/api/watchlist/groups/', {'name': 'AI导入A'}).get_json()['data']['id']
+        gid_b = _post(client, '/api/watchlist/groups/', {'name': 'AI导入B'}).get_json()['data']['id']
+
+        resp = _post(
+            client,
+            '/api/watchlist/items/',
+            {'symbol': '110011', 'venue': 'OTC', 'group_ids': [gid_a, gid_b]},
+        )
+        assert resp.status_code == 200
+        assert set(resp.get_json()['data']['group_ids']) == {gid_a, gid_b}
+
+        for gid in (gid_a, gid_b):
+            in_group = _get(client, '/api/watchlist/items/', {'group_id': gid}).get_json()['data']
+            assert [i['symbol'] for i in in_group] == ['110011']
+
+    def test_created_item_stays_in_all_scope(self, client, db):
+        """归组后仍在「全部」中：「全部」是自选∪持仓的虚拟口径，不因归组而消失。"""
+        gid = _post(client, '/api/watchlist/groups/', {'name': '归组后仍可见'}).get_json()['data']['id']
+        assert (
+            _post(client, '/api/watchlist/items/', {'symbol': '110022', 'venue': 'OTC', 'group_ids': [gid]}).status_code
+            == 200
+        )
+
+        symbols = [i['symbol'] for i in _get(client, '/api/watchlist/items/').get_json()['data']]
+        assert '110022' in symbols
+
+    def test_create_without_group_ids_unchanged(self, client, db):
+        """不传 / 空数组：既有行为不变，不写任何关联。"""
+        assert _post(client, '/api/watchlist/items/', {'symbol': '110023', 'venue': 'OTC'}).status_code == 200
+        resp = _post(client, '/api/watchlist/items/', {'symbol': '110024', 'venue': 'OTC', 'group_ids': []})
+        assert resp.status_code == 200
+        assert resp.get_json()['data']['group_ids'] == []
+
+        assert db.query(WatchlistItemGroup).count() == 0
+
+    def test_create_rejects_missing_group_and_rolls_back(self, client, db):
+        resp = client.post('/api/watchlist/items/', json={'symbol': '161725', 'venue': 'OTC', 'group_ids': [999999]})
+        assert resp.status_code == 400
+        # 关键：非法分组不能留下「进了自选没进分组」的半截数据
+        assert db.query(WatchlistItem).filter_by(symbol='161725').first() is None
+        assert db.query(WatchlistItemGroup).count() == 0
+
+    def test_create_rejects_other_family_group(self, client, db):
+        db.add(WatchlistGroup(name='别人家的组', family_id=999, is_system=False))
+        db.commit()
+        foreign_gid = db.query(WatchlistGroup).filter_by(family_id=999).one().id
+
+        resp = client.post(
+            '/api/watchlist/items/', json={'symbol': '161726', 'venue': 'OTC', 'group_ids': [foreign_gid]}
+        )
+        assert resp.status_code == 400
+        assert db.query(WatchlistItem).filter_by(symbol='161726').first() is None
+
+    def test_create_rejects_system_group(self, client, db):
+        """系统分组（全部/持仓/…）是虚拟口径，没有关联关系，不接受 id。"""
+        db.add(WatchlistGroup(name='持仓', family_id=1, is_system=True))
+        db.commit()
+        sys_gid = db.query(WatchlistGroup).filter_by(family_id=1, is_system=True).one().id
+
+        resp = client.post('/api/watchlist/items/', json={'symbol': '161727', 'venue': 'OTC', 'group_ids': [sys_gid]})
+        assert resp.status_code == 400
+        assert db.query(WatchlistItem).filter_by(symbol='161727').first() is None
+
+
 # ─────────────── 资产-标签关联 ───────────────
 class TestItemTagLink:
     def test_add_tag_to_item(self, client, db):
@@ -1189,6 +1265,111 @@ class TestHoldingGroupRealPositions:
         assert '代码,名称,市场,类型,场内/场外,状态,置顶,特别关注,标签' in text
         assert 'SH600519,茅台,SH,股票,场内,持仓中,否,否,' in text
 
+    def test_holding_row_change_pct_from_latest_two_price_points(self, client, db, make_position):
+        """持仓行「今日涨跌幅」= 最新两价点变化，与非 HOLDING 行 enrich_item 同源（#2211）。
+
+        根因：_build_holding_row 曾把 change_pct 写死 None 且全函数不再赋值 →
+        持仓分组整列渲染 --。≥2 个价格点时必须算出涨跌幅，且既有 holding 行
+        字段（持仓统计 / 市值 / 现价 / 展示名）不因本修复回归。
+        """
+        from app.domains.securities.models import Security
+
+        make_position(
+            symbol='SH600519',
+            name='茅台',
+            asset_type='stock',
+            market='SH',
+            account_name='华泰',
+            quantity=100,
+            avg_price=18,
+            current_price=18,
+        )
+        # price_history.security_id NOT NULL：先建证券主档再写行情
+        sec = Security(symbol='SH600519', name='贵州茅台', market='SH', type='stock')
+        db.add(sec)
+        db.flush()
+        # 最近两根：1100（最新）/ 1000（前一根）→ (1100-1000)/1000 = +10%
+        db.add_all(
+            [
+                PriceHistory(
+                    security_id=sec.id,
+                    symbol='SH600519',
+                    trade_date=date.today() - timedelta(days=1),
+                    close=1100.0,
+                ),
+                PriceHistory(
+                    security_id=sec.id,
+                    symbol='SH600519',
+                    trade_date=date.today() - timedelta(days=2),
+                    close=1000.0,
+                ),
+            ]
+        )
+        db.commit()
+
+        resp = _get(client, '/api/watchlist/items/', {'status': 'HOLDING'})
+        assert resp.status_code == 200
+        row = next(d for d in resp.get_json()['data'] if d['symbol'] == 'SH600519')
+        assert row['change_pct'] == 10.0
+        # 既有 holding 行字段不回归：虚拟行约定 + 持仓统计 + 市值 + 展示名
+        assert row['id'] is None
+        assert row['status'] == 'HOLDING'
+        assert row['holding_quantity'] == 100.0  # 份
+        assert row['holding_cost_price'] == 18.0  # 元
+        assert row['holding_pnl'] == 0.0  # (18-18)×100
+        assert row['position_market_value'] == 1800.0
+        # 持仓行 current_price 仍取持仓均价快照（本卡不改该口径，只补 change_pct）
+        assert row['current_price'] == 18.0
+        assert row['display_name'] == '茅台'
+
+    def test_holding_row_change_pct_none_when_price_points_insufficient(self, client, db, make_position):
+        """价格点不足（0 或 1 根）的持仓行 change_pct 仍为 None → 前端 --（#2211 正确降级）。"""
+        from app.domains.securities.models import Security
+
+        make_position(
+            symbol='HK00700',
+            name='腾讯',
+            asset_type='stock',
+            market='HK',
+            account_name='富途',
+            quantity=200,
+            avg_price=3,
+            current_price=3.1,
+        )
+        make_position(
+            symbol='SZ000001',
+            name='平安银行',
+            asset_type='stock',
+            market='SZ',
+            account_name='平安',
+            quantity=100,
+            avg_price=10,
+            current_price=10,
+        )
+        sec = Security(symbol='HK00700', name='腾讯', market='HK', type='stock')
+        db.add(sec)
+        db.flush()
+        # 只有 1 根 K 线：无前价可比 → _build_quote 返回 change_pct=None
+        db.add(
+            PriceHistory(
+                security_id=sec.id,
+                symbol='HK00700',
+                trade_date=date.today() - timedelta(days=1),
+                close=300.0,
+            )
+        )
+        # SZ000001 不建 Security、不写行情 → 完全无价点，quote 即 None
+        db.commit()
+
+        resp = _get(client, '/api/watchlist/items/', {'status': 'HOLDING'})
+        assert resp.status_code == 200
+        by_symbol = {d['symbol']: d for d in resp.get_json()['data']}
+        assert by_symbol['HK00700']['change_pct'] is None  # 1 个价点
+        assert by_symbol['SZ000001']['change_pct'] is None  # 0 个价点
+        # 降级只影响涨跌幅列：单根收盘价有效时最新价照常展示
+        assert by_symbol['HK00700']['current_price'] == 3.1
+        assert by_symbol['SZ000001']['current_price'] == 10.0
+
 
 # ─────────────── 「全部」分组 = 自选 ∪ 持仓（方案 A 延续）───────────────
 class TestAllGroupUnionPositions:
@@ -1414,9 +1595,9 @@ class TestListItemsDeferredDisplayEnrich:
         calls: list[str] = []
         original = wd.apply_deferred_display_fields
 
-        def spy(out, symbol, asset_type, db_):
+        def spy(out, symbol, asset_type, db_, ctx=None):
             calls.append(symbol)
-            return original(out, symbol, asset_type, db_)
+            return original(out, symbol, asset_type, db_, ctx)
 
         monkeypatch.setattr(wd, 'apply_deferred_display_fields', spy)
 

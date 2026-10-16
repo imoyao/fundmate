@@ -10,18 +10,23 @@
    会被前端读成「管理规模 0 亿」，是假数值；
 3. **列表带公司名消歧** —— 有重名，不带公司分不出谁是谁；
 4. **``fund_count`` 是总数而非返回条数** —— 列表有 ``fund_limit`` 上限，
-   两者混淆会让「共几只」显示成「最多 20 只」。
+   两者混淆会让「共几只」显示成「最多 20 只」；
+5. **同一 (经理, 基金) 关联存多行时按 ``fund_code`` 去重**（#2215）——
+   ``fund_managers`` 无 (fund_id, mgr_id) 唯一约束，join 按关联行扇出，
+   不去重就会「每只基金出现两次」，``fund_count`` 也会按行数虚高。
 
 ⚠️ 测试数据一律造在 **market 域**会话：``managers`` / ``funds`` / ``fund_managers``
 属 market 域，生产下是独立引擎。
 """
 
 from contextlib import closing
+from datetime import date
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.core.db_factory import market_session_factory
-from app.domains.funds.models import Fund, FundCompany, FundManager, Manager
+from app.domains.funds.models import Fund, FundCompany, FundManager, Manager, ManagerTenure
 from app.services.manager_code import bare_manager_code
 from app.services.manager_profile import build_manager_profile
 
@@ -193,6 +198,88 @@ def test_manager_without_fund():
 
 
 # ---------------------------------------------------------------------------
+# 同一 (经理, 基金) 关联存多行时的去重 —— #2215「任职基金每只基金重复两次」回归网
+# ---------------------------------------------------------------------------
+
+
+def test_duplicate_relation_rows_are_impossible_now():
+    """#2239：重复关联行在**新结构下造不出来**（唯一约束兜底）。
+
+    这条用例替代了 #2215 的「硬插重复行 → 断言列表去重」：那个现场已无法复刻 ——
+    `uq_fund_managers_fund_mgr` 会让第二次插入直接 IntegrityError。读侧那层按
+    ``fund_code`` 的去重**保留**（迁移前的存量库与 Postgres 路径仍需要），
+    但根治重复膨胀的是**约束**，所以这里改为钉住约束本身。
+
+    为什么值得单独一条：这条约束是**静默**的 —— 少约束不会让任何查询报错，
+    只会让表继续膨胀（`_validate_schema` 也只查缺列），必须靠测试钉住。
+    """
+    _seed_manager('dup2239x1', '唯一约束经理')
+    _seed_fund('722391', '唯一约束基金')
+    _link('dup2239x1', '722391')
+
+    with closing(market_session_factory()()) as db:
+        mgr = db.query(Manager).filter(Manager.mgr_code == 'dup2239x1').first()
+        fund = db.query(Fund).filter(Fund.fund_code == '722391').first()
+        db.add(FundManager(mgr_id=mgr.id, fund_id=fund.id))
+        with pytest.raises(IntegrityError):
+            db.commit()
+        db.rollback()
+
+        # 约束生效后，列表与总数仍是「每只一条」
+        data = build_manager_profile(db, 'dup2239x1', fund_limit=5)
+
+    codes = [f['fund_code'] for f in data['funds']]
+    assert len(codes) == len(set(codes)) == 1, f'每只基金应只出一条: {codes}'
+    assert data['fund_count'] == 1
+
+    # ---------------------------------------------------------------------------
+    # 已移除：#2215 的 3 条「重复关联行取舍」用例（#2239）
+    # ---------------------------------------------------------------------------
+    #
+    # 它们（`test_dedup_prefers_backfilled_row_over_blank_row` /
+    # `test_dedup_prefers_active_row_when_equally_complete` /
+    # `test_truncation_counts_distinct_funds_after_dedup`）都靠 `_force_link()`
+    # **硬插重复关联行**来造现场 —— 当时的 `fund_managers` 只有自增主键、没有
+    # (fund_id, mgr_id) 唯一约束，重复行是「库内既有事实」。
+    #
+    # #2239 补上 `uq_fund_managers_fund_mgr` 之后，第二次插入直接 `IntegrityError`：
+    # **现场已不可复刻**，用例无法保留（留着只会是 `NameError` / 假红）。
+    #
+    # 覆盖去向（不是净损失）：
+    #
+    # - 「重复行本身」由上面 `test_duplicate_relation_rows_are_impossible_now` 钉在
+    #   **约束**上 —— 根治重复膨胀的正是它，而它也是最容易被静默漏掉的一道
+    #   （`_validate_schema` 只查缺列）；
+    # - 「同一基金多段任期怎么挑」改由任期表承担：见本文件末尾
+    #   `test_multi_segment_prefers_active_segment` 与 `manager_tenure` job 的用例；
+    # - 「任期未回填的基金不能被漏掉」见 `test_fund_without_tenure_rows_still_listed`
+    #   —— 这是拆分后**最容易退化**的边界（读侧一写成 INNER JOIN 就整批丢基金）；
+    # - `_managed_funds` 里那层按 `fund_code` 的去重**保留不动**：它对「迁移前的存量库」
+    #   与「Postgres 路径（不跑 SQLite 迁移）」仍是必需的，只是在新库上已没有可构造的
+    #   输入 —— 属**有意保留的防御**，不是死代码疏漏。
+
+
+def test_truncation_reports_total_over_returned():
+    """截断口径（承接 #2215）：``fund_count`` 是**总数**，列表只给前 ``fund_limit`` 条。
+
+    重复行已不可能存在（见上），但「共 N 只 / 仅显示前 M 只」的一致性仍需有人守：
+    ``fund_count`` 若按返回条数（或按关联行数）计，就会与列表自相矛盾 —— 用户看到
+    「共 2 只」却知道自己在管 3 只，比不显示更让人怀疑数据。
+    """
+    _seed_manager('t9a0004', '截断口径经理')
+    for i, code in enumerate(('9T0004', '9T0005', '9T0006')):
+        _seed_fund(code, f'截断口径基金{i}')
+        _link('t9a0004', code)
+
+    with closing(market_session_factory()()) as db:
+        data = build_manager_profile(db, 't9a0004', fund_limit=2)
+
+    assert data['fund_count'] == 3, '总数是全部任职基金，不受 limit 影响'
+    assert len(data['funds']) == 2, '列表按 limit 截断'
+    assert data['fund_count'] > len(data['funds'])
+
+
+# ---------------------------------------------------------------------------
 # 入参形态归一 —— 2026-10-11「每一张经理详情页都空白」那起事故的回归网
 # ---------------------------------------------------------------------------
 
@@ -244,3 +331,105 @@ def test_accepts_watchlist_symbol_and_uppercase_code(raw):
     assert data is not None, f'{raw!r} 应能命中 a1b2c3d4e5f6'
     assert data['mgr_code'] == 'a1b2c3d4e5f6'
     assert data['name'] == '形态归一经理'
+
+
+# ---------------------------------------------------------------------------
+# 任期改从 manager_tenures 读（#2239）
+# ---------------------------------------------------------------------------
+
+
+def _seed_tenure(mgr_code, fund_code, start, end=None, current=None):
+    """往 ``manager_tenures`` 落一段任期。**幂等**（本文件写入共享库，重复跑会累积）。
+
+    ``current`` 缺省按是否在任推 —— 与 ``manager_tenure`` job 的写入口径一致。
+    """
+    with closing(market_session_factory()()) as db:
+        mgr = db.query(Manager).filter(Manager.mgr_code == mgr_code).first()
+        fund = db.query(Fund).filter(Fund.fund_code == fund_code).first()
+        exists = (
+            db.query(ManagerTenure)
+            .filter(
+                ManagerTenure.mgr_id == mgr.id,
+                ManagerTenure.fund_id == fund.id,
+                ManagerTenure.start_date == start,
+            )
+            .first()
+        )
+        if exists is not None:
+            exists.end_date = end
+            exists.current = (end is None) if current is None else current
+            db.commit()
+            return
+        db.add(
+            ManagerTenure(
+                fund_id=fund.id,
+                mgr_id=mgr.id,
+                start_date=start,
+                end_date=end,
+                current=(end is None) if current is None else current,
+                source='test',
+            )
+        )
+        db.commit()
+
+
+def test_tenure_read_from_manager_tenures():
+    """任期**从 ``manager_tenures`` 读**（#2239）。
+
+    这条用例钉的是**数据来源**：拆分后 ``fund_managers`` 已不再有 start/end，
+    若有人把读取路径改回关联表，这里会因为拿不到任期而红。
+    """
+    _seed_manager('t9a0001', '任期来源经理')
+    _seed_fund('9T0001', '任期来源基金')
+    _link('t9a0001', '9T0001')
+    _seed_tenure('t9a0001', '9T0001', date(2018, 9, 5), None)
+
+    with closing(market_session_factory()()) as db:
+        data = build_manager_profile(db, 't9a0001')
+
+    item = next(i for i in data['funds'] if i['fund_code'] == '9T0001')
+    assert item['start_date'] == '2018-09-05'
+    assert item['end_date'] is None
+    assert item['is_active'] is True
+
+
+def test_multi_segment_prefers_active_segment():
+    """多段任期时取**在任**那段（#2239）：原表一行一格，根本表达不了两段。
+
+    旧段（2015-01-01 ~ 2020-01-01，已卸任）+ 新段（2026-05-23 起，在任）→
+    展示必须是新段，否则会把「现任」显示成十年前的旧任期。
+    """
+    _seed_manager('t9a0002', '多段任期经理')
+    _seed_fund('9T0002', '多段任期基金')
+    _link('t9a0002', '9T0002')
+    _seed_tenure('t9a0002', '9T0002', date(2015, 1, 1), date(2020, 1, 1), current=False)
+    _seed_tenure('t9a0002', '9T0002', date(2026, 5, 23), None, current=True)
+
+    with closing(market_session_factory()()) as db:
+        data = build_manager_profile(db, 't9a0002')
+
+    item = next(i for i in data['funds'] if i['fund_code'] == '9T0002')
+    assert item['start_date'] == '2026-05-23'
+    assert item['end_date'] is None
+    assert item['is_active'] is True, '在任段被旧段顶掉了'
+
+
+def test_fund_without_tenure_rows_still_listed():
+    """任期未回填（该基金**一条任期行都没有**）的基金必须照常出现在列表里。
+
+    这是拆分后最容易退化的边界：任期搬到 ``manager_tenures`` 之后，读侧若用
+    **INNER JOIN** 取任期，会把所有还没回填任期的基金整批漏掉 —— 而「没任期行」是
+    **常态**（jjjl 每只基金一次 HTTP，只对目标池回填），不是异常。
+    故 ``_managed_funds`` 必须按关联行取基金、任期单独查、缺了给 None。
+    """
+    _seed_manager('t9a0003', '无任期经理')
+    _seed_fund('9T0003', '无任期基金')
+    _link('t9a0003', '9T0003')
+
+    with closing(market_session_factory()()) as db:
+        data = build_manager_profile(db, 't9a0003')
+
+    item = next(i for i in data['funds'] if i['fund_code'] == '9T0003')
+    assert item['start_date'] is None
+    assert item['end_date'] is None
+    assert data['fund_count'] == 1, '没有任期行不等于没有任职基金'

@@ -105,6 +105,10 @@ NEW_FILE_LIMITS = {
 # 2026-10-09 收紧（#1966，**非放宽**）：`GET /api/positions/` 新增 symbol / market 过滤时，
 # **没有**把参数一行行加进视图，而是用 `parse_query(PositionListRequest)` 把入参声明收口到
 # `domains/positions/schemas.py`，视图反而净减 2 行（288 → 286）；过滤仍在 service 下推到 SQL。
+# 2026-10-14 重取（**新增端点**，非放宽）：#2141 给 summary 加 `GET /summary/fund-valuation/`
+# （收盘估值定格清单，查询全在 `services/summary_service.list_fund_valuation_rows`）——
+# 视图侧只有「入参解析 + 400 校验 + 调服务 + 信封」，`orm_queries` / `commits` 仍为 **0**，
+# `max_func` 不变（31）。summary 198 → 229 行（+31，含端点 docstring）。按 `--report` 实测回写。
 # 这是「新增功能但视图变薄」的样本：入参声明本就不该在视图，业务规则更不该。
 # 按本文件既有先例以实测回写，基线只减不增。
 # 2026-10-09 重取（#1969，**新增响应字段、非业务规则进视图**）：`GET /api/utils/enums/` 增补
@@ -115,27 +119,64 @@ NEW_FILE_LIMITS = {
 # 其余三项原地不动：orm_queries 0 / commits 0 / max_func 38，唯 `lines` 126 → 128。
 # 按本文件既有先例（2026-09-20 错误信封补齐 4 文件共 +26、2026-10-04 summary 新增端点 141 → 176）
 # 以 `--report` 实测回写，非手工拍数；新增字段一律走 `/enums/` 单一出口，不许前端再抄第二份。
+# 2026-10-12 重取（#2092，**新增横切接线、非业务规则进视图**）：为修「删除持仓 / 交易偶发 500」，
+# 给 3 个 DELETE 端点（ledgers / positions / transactions）挂 `@retry_on_db_locked()`
+# 装饰器（`app/core/retry.py`，重试 SQLite 写锁冲突）。视图侧增量只有「import 一行 +
+# 装饰器一行」，三个文件同步 +2，而 **orm_queries / commits / max_func 三项原地不动**——
+# 视图并未因此「变厚」，变的只是端点接线。
+# 没有可下沉的业务规则：重试要包裹**整个端点调用**（含 service 调用与事务边界），下沉到
+# service 只会缩小重试边界——SQLite 的锁是在事务提交时抛出的，service 内重试接不住，
+# 等于把「重试整个请求」改成「重试半个请求」，反而掩盖错误。装饰器是端点级横切关注点的
+# 最小表达，与本文件明列的视图职责同层。按既有先例以 `--report` 实测回写（仅 lines）：
+# ledgers 723 → 725、positions 286 → 288、transactions 136 → 138。
+# 2026-10-15 收紧（#981，**非放宽**）：把 PATCH 组合的「账户关联 diff（归属校验 +
+# 集合差 + 批量写）」从视图下沉到 `services/portfolio_service.replace_portfolio_ledger_links`
+# （`views → services` 是合法边，D26），视图只留「入参解析 + 调服务 + 异常→HTTP」；
+# 顺带把逐字段 if 压成等价 getattr/setattr 循环、删 `get_owned_or_404` 后的永假分支。
+# 按 `--report` 实测回写：lines 166 → 161、max_func 29 → 25（orm_queries / commits 不动）。
+# 2026-10-15 重取（#1123 P0，**新增入参校验、非业务规则进视图**）：持仓「配置目标（五笔钱）」
+# 开放行内编辑，两条写路径都要拦非法值——positions 域收在 `PositionUpdate` 的 pydantic
+# field_validator（视图零增长，positions 288 不动）；ledgers 域嵌套端点是裸 dict 读 body、
+# 无 schema 体系，白名单只能在视图做（`if not in ALLOCATION_LABELS: abort(400)`）。
+# 本文件明列的视图职责是「入参解析 + 归属校验 + 调服务 + 组响应」，**入参白名单正属此列**
+# （与同函数上方的 get_owned_or_404 归属校验同层），不是编排逻辑。增量仅 +3 行（注释 1 +
+# if 2），orm_queries / commits / max_func 三项不动。按既有先例以 `--report` 实测回写（仅 lines）：
+# ledgers 725 → 728。
+# 2026-10-15 重取（#1337，**新增端点**，非放宽）：给 users 加 `GET/PUT /users/preferences/<key>/`
+# （用户私有偏好键值，#993 方案 B 跨设备同步）——视图侧只有「key 长度校验 + 调 ORM upsert +
+# JSON 文本↔对象转换 + 信封」，无业务规则可下沉（upsert 是唯一写语义，合并策略在前端）。
+# 按 `--report` 实测回写：lines 115 → 160、orm_queries 4 → 6（max_func / commits 不动）。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/assets/views.py": {"lines": 208, "orm_queries": 4, "commits": 0, "max_func": 44},
     "backend/app/domains/auth/views.py": {"lines": 137, "orm_queries": 3, "commits": 0, "max_func": 45},
     "backend/app/domains/families/views.py": {"lines": 72, "orm_queries": 2, "commits": 0, "max_func": 22},
     "backend/app/domains/funds/views.py": {"lines": 197, "orm_queries": 2, "commits": 0, "max_func": 39},
     "backend/app/domains/importers/views.py": {"lines": 249, "orm_queries": 1, "commits": 0, "max_func": 53},
-    "backend/app/domains/ledgers/views.py": {"lines": 723, "orm_queries": 16, "commits": 0, "max_func": 60},
+    "backend/app/domains/ledgers/views.py": {"lines": 728, "orm_queries": 16, "commits": 0, "max_func": 60},
     "backend/app/domains/market/views.py": {"lines": 37, "orm_queries": 0, "commits": 0, "max_func": 21},
     "backend/app/domains/ocr/views.py": {"lines": 214, "orm_queries": 1, "commits": 0, "max_func": 48},
     "backend/app/domains/performance/views.py": {"lines": 86, "orm_queries": 0, "commits": 0, "max_func": 31},
-    "backend/app/domains/portfolios/views.py": {"lines": 166, "orm_queries": 1, "commits": 0, "max_func": 29},
-    "backend/app/domains/positions/views.py": {"lines": 286, "orm_queries": 6, "commits": 0, "max_func": 57},
-    "backend/app/domains/reconciliation/views.py": {"lines": 225, "orm_queries": 2, "commits": 0, "max_func": 48},
+    "backend/app/domains/portfolios/views.py": {"lines": 161, "orm_queries": 1, "commits": 0, "max_func": 25},
+    "backend/app/domains/positions/views.py": {"lines": 288, "orm_queries": 6, "commits": 0, "max_func": 57},
+    # 2026-10-16 升入存量冻结（#2255 收敛合并，**非放宽**）：CNB 侧 fund-risk 两端点
+    # （fund-risk-ranking / fund-risk-types）随收敛移植进本文件（+43 行——两段视图全是
+    # 「入参校验 + 调服务 + 信封」的纯编排，orm_queries / commits / max_func 三项实测不动），
+    # 394 → 437 顶破新文件上限 400。本文件 2026-10-09 才建（晚于 09-19 冻结日，故此前一直走
+    # NEW_FILE_LIMITS），现已是 14 个端点的存量域文件、全部函数 ≤ 30 行，**没有业务规则可下沉**
+    # （守卫正解「搬去 services」在本文件已无标的——每段都只剩薄编排）。按本脚本自述的通道
+    # 「同时改 LEGACY_VIEWS + BASELINE + 过评审」升入存量冻结集（此后任何端点再生长都会被
+    # 「只减不增」拦下），四维实测值取自 `--report`，非手工拍数。
+    "backend/app/domains/products/views.py": {"lines": 437, "orm_queries": 0, "commits": 0, "max_func": 30},
+    # 2026-10-16：#2255 收敛合并带入 CNB 域 D 对账（duoduobei/fundmate#477/#486）代码，225→311 重取基线（守卫自述「确因合并需要重取基线」场景）
+    "backend/app/domains/reconciliation/views.py": {"lines": 311, "orm_queries": 2, "commits": 0, "max_func": 48},
     "backend/app/domains/search/views.py": {"lines": 25, "orm_queries": 0, "commits": 0, "max_func": 7},
     "backend/app/domains/securities/views.py": {"lines": 72, "orm_queries": 1, "commits": 0, "max_func": 35},
     "backend/app/domains/strategy/views.py": {"lines": 144, "orm_queries": 5, "commits": 0, "max_func": 22},
-    "backend/app/domains/summary/views.py": {"lines": 198, "orm_queries": 0, "commits": 0, "max_func": 31},
+    "backend/app/domains/summary/views.py": {"lines": 229, "orm_queries": 0, "commits": 0, "max_func": 31},
     "backend/app/domains/temperature/views.py": {"lines": 140, "orm_queries": 0, "commits": 0, "max_func": 38},
-    "backend/app/domains/transactions/views.py": {"lines": 136, "orm_queries": 2, "commits": 0, "max_func": 60},
+    "backend/app/domains/transactions/views.py": {"lines": 138, "orm_queries": 2, "commits": 0, "max_func": 60},
     "backend/app/domains/usage/views.py": {"lines": 68, "orm_queries": 0, "commits": 0, "max_func": 27},
-    "backend/app/domains/users/views.py": {"lines": 115, "orm_queries": 4, "commits": 0, "max_func": 38},
+    "backend/app/domains/users/views.py": {"lines": 160, "orm_queries": 6, "commits": 0, "max_func": 38},
     "backend/app/domains/utils/views.py": {"lines": 128, "orm_queries": 0, "commits": 0, "max_func": 38},
     "backend/app/domains/watchlist/views.py": {"lines": 622, "orm_queries": 14, "commits": 0, "max_func": 53},
 }
@@ -159,6 +200,7 @@ LEGACY_VIEWS: frozenset[str] = frozenset({
     "backend/app/domains/performance/views.py",
     "backend/app/domains/portfolios/views.py",
     "backend/app/domains/positions/views.py",
+    "backend/app/domains/products/views.py",
     "backend/app/domains/reconciliation/views.py",
     "backend/app/domains/search/views.py",
     "backend/app/domains/securities/views.py",

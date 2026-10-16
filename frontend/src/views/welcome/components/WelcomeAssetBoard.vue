@@ -80,9 +80,11 @@
                真刻度（资产 − 负债），比「总资产」更该出现在首屏；总负债同时给出，
                两者都由 `/api/summary/` 直出（`net_assets_cny` / `total_liabilities_cny`），
                非派生计算、非编造。 -->
+          <!-- 栏间分割线走全局工具类 `.soft-col-divider`（style/index.scss）：
+               自带 24px 内边距、且仅在 lg 及以上出现——原先内联 borderLeft 既贴文字，
+               又在 lg 以下两栏堆叠时留一条孤零零的竖线。 -->
           <div
-            class="lg:col-span-5 flex flex-col justify-center gap-5 h-full"
-            :style="{ borderLeft: '1px solid var(--border-light)' }"
+            class="lg:col-span-5 flex flex-col justify-center gap-5 h-full soft-col-divider"
           >
             <div class="flex flex-col">
               <span

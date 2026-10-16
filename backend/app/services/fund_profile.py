@@ -18,6 +18,11 @@
 
 故此处**一次查完**并返回，前端一次请求拿到首屏所需全部字段。字段缺失一律返回
 ``None`` 由前端降级为「—」，不编造占位值。
+
+**唯一例外是「基金公司」**：``company_id`` 覆盖率仅约 11.5%，缺失时走
+``fund_company_backfill.ensure_fund_company`` 按 symbol 单只回填（#2037 方案 A ·
+L3 按需取）。故本函数**不是纯只读**——它可能在末尾写一次库。回填放在拼装之后
+（见该处注释），失败一律降级 ``None``，不影响其余字段。
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from app.core.data_sources import FUND_NAV_SOURCE_LABEL
+from app.services.fund_company_backfill import ensure_fund_company
 
 
 def _latest_two_navs(db: Session, fund_code: str) -> List[Any]:
@@ -121,7 +127,7 @@ def build_fund_profile(db: Session, fund_code: str) -> Optional[Dict[str, Any]]:
     fund_type = getattr(fund, 'fund_type', None)
     variety = getattr(fund, 'variety', None)
 
-    return {
+    profile = {
         'fund_code': fund.fund_code,
         'name': fund.name,
         'full_name': fund.full_name,
@@ -146,3 +152,13 @@ def build_fund_profile(db: Session, fund_code: str) -> Optional[Dict[str, Any]]:
         # 脚注要说站点名而不是 daily_worth / funds 这些表名
         'source': FUND_NAV_SOURCE_LABEL,
     }
+
+    # 「基金公司」按需回填（#2037 方案 A）：`company_id` 为空时按 symbol 单只回填并落库。
+    # 查不到/抓取失败一律降级 None（前端显示「—」），绝不因此让整个资料 500。
+    # 触达不到的基金永远不请求、永远不存——全库覆盖率不是本方案的目标。
+    #
+    # 为什么放在拼装**之后**：回填会 `db.commit()`，会话内 ORM 实例随之过期，此时再读
+    # `fund.xxx` 会触发逐字段 refresh SELECT。先把资料拼完，回填只覆盖 `company` 一个键。
+    if profile['company'] is None:
+        profile['company'] = ensure_fund_company(db, code)
+    return profile

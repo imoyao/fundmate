@@ -35,14 +35,17 @@ class TestIndexCatalogSyncJob:
         return IndexCatalogSyncJob(adapter, db)
 
     def test_three_source_merge(self, job, db):
-        """三源合并：sina/中证/国证条目全部入库。"""
+        """三源合并：sina/中证/国证条目全部入库。
+        风指数(18 条)通过 WIND_INDEX_CATALOG_PAIRS 追加，合计 = 5 + 18 = 23。
+        """
         job.adapter.fetch_index_catalog.return_value = SINA_ROWS
         job.adapter.fetch_index_catalog_csindex.return_value = CSI_ROWS
         job.adapter.fetch_index_catalog_cni.return_value = CNI_ROWS
 
         result = job.run(full_sync=True, targets=['__full__'])
         assert result['status'] == 'success'
-        assert db.query(IndexCatalog).count() == 5
+        # 5 (SINA 1 + CSI 2 + CNI 2) + 18 (WIND) = 23
+        assert db.query(IndexCatalog).count() == 23
         csi = db.query(IndexCatalog).filter_by(index_code='930950').one()
         assert csi.exchange == 'CSI'
         assert csi.source == 'csindex'
@@ -62,17 +65,22 @@ class TestIndexCatalogSyncJob:
         assert row.exchange == 'SH'
 
     def test_single_source_failure_does_not_block(self, job, db):
-        """单源抛错不阻断其他源（名录覆盖面优先）。"""
+        """单源抛错不阻断其他源（名录覆盖面优先）。
+        SINA 失败，剩余 CSI 2 + CNI 2 + WIND 18 = 22。
+        """
         job.adapter.fetch_index_catalog.side_effect = RuntimeError('sina down')
         job.adapter.fetch_index_catalog_csindex.return_value = CSI_ROWS
         job.adapter.fetch_index_catalog_cni.return_value = CNI_ROWS
 
         result = job.run(full_sync=True, targets=['__full__'])
         assert result['status'] == 'success'
-        assert db.query(IndexCatalog).count() == 4
+        # 4 (CSI 2 + CNI 2) + 18 (WIND) = 22
+        assert db.query(IndexCatalog).count() == 22
 
     def test_replace_existing(self, job, db):
-        """覆盖式重建：旧名录条目被清除。"""
+        """覆盖式重建：旧名录条目被清除。
+        仅提供 SINA 源时，结果 = SINA 1 + WIND 18 = 19 条。
+        """
         db.add(IndexCatalog(index_code='000016', name='旧指数', exchange='SH'))
         db.commit()
         job.adapter.fetch_index_catalog.return_value = SINA_ROWS
@@ -81,7 +89,10 @@ class TestIndexCatalogSyncJob:
 
         result = job.run(full_sync=True, targets=['__full__'])
         assert result['status'] == 'success'
-        assert [c.index_code for c in db.query(IndexCatalog)] == ['000300']
+        # SINA 1 + WIND 18 = 19
+        codes = [c.index_code for c in db.query(IndexCatalog).order_by(IndexCatalog.index_code)]
+        assert codes[0] == '000300'
+        assert len(codes) == 19
 
     def test_rebuild_preserves_core_flags(self, job, db):
         """覆盖式重建必须保留人工策展的 is_core/core_rank（#1365 白名单）。"""

@@ -42,6 +42,23 @@ class LedgerService:
             return {}
 
     @staticmethod
+    def _batch_fund_navs_with_dates(db: Session, fund_codes: list[str]) -> dict[str, tuple]:
+        """批量获取基金最新单位净值**及净值日期**（#2140：持仓行时点标注用）。
+
+        与 :meth:`_batch_fund_latest_navs` 同源（NavService、allow_remote=False），
+        只多返回日期——持仓分页行的 `price_date` 必须取**实际采用的那条净值**的日期，
+        而非 `positions.price_date` 快照（后者 22:15 才回写，会低估新鲜度）。
+
+        返回 {fund_code: (unit_nav_float, nav_date)}，无数据的基金不在结果中。
+        """
+        if not fund_codes:
+            return {}
+        try:
+            return NavService.get_latest_navs_with_dates(db, fund_codes, allow_remote=False)
+        except Exception:
+            return {}
+
+    @staticmethod
     def get_pending_money_fund_estimate(db: Session, ledger_id: int, family_id: int) -> dict:
         """#863 2-A：账户「确认中」货基申购预估（展示用，非账本口径，不参与聚合）。
 
@@ -335,6 +352,36 @@ class LedgerService:
         }
 
     @staticmethod
+    def split_cash_like_allocation(data: dict) -> dict:
+        """把持仓总市值划分为「投资 + 持仓内类现金」两片，就地写入 `data` 并返回。
+
+        ⚠️ 「投资资产」只能减**持仓内的**类现金（货基/逆回购持仓市值）——
+        只有它是 `total_market_value` 的子集，减完仍是一个真实存在的量。
+
+        「账外类现金」= 孤儿货基/逆回购流水净额 + 账户现金（major_category='current'）。
+        这类**不建持仓**、不进 `total_market_value`，从总市值里扣掉等于减了两遍。
+        真机实证：账户「同花顺——银河」（id=12，stock）孤儿货基流水净额 476,951 元，
+        而持仓总市值仅 296,042 元 —— 旧式 `总市值 - cash_like_amount` 算出
+        **-180,909 元**，前端环形图因此画出「投资资产 -63.2% / 现金类资产 163.2%」：
+        占比为负、且超过 100%，圆环被渲染成一整圈绿，与事实不符。
+
+        改后：环形图两片 = 持仓市值的一个**划分**（投资 + 持仓内类现金），
+        合计恒等于左侧「总资产」，两片均 ≥ 0，占比自然落在 0~100% 且合计 100%。
+        账外类现金仍由 `cash_like_amount` 独立对外，不参与本划分。
+
+        `min` 兜住「货基持仓市值 > 总市值」的脏数据（否则持仓内类现金会比总市值还大，
+        两片之和不再等于总资产）；`max(0.0, ...)` 兜住相减后的负数。
+
+        就地改 `data` 而非另返回新 dict，是为了让调用方视图只留一行编排
+        （#1606：视图只做 HTTP 编排，业务规则与事务下沉 services）。
+        """
+        total_mv = data.get('total_market_value') or 0.0
+        cash_like_in_positions = min(data.get('money_fund_amount') or 0.0, total_mv)
+        data['investment_amount'] = round(max(0.0, total_mv - cash_like_in_positions), 2)
+        data['cash_like_in_positions_amount'] = round(cash_like_in_positions, 2)
+        return data
+
+    @staticmethod
     def get_bank_stats(db: Session, ledger_id: int) -> dict:
         # 1. 现金/活期余额
         current_amount = (
@@ -451,12 +498,14 @@ class LedgerService:
             .all()
             if row[0]
         ]
-        latest_navs = LedgerService._batch_fund_latest_navs(db, all_fund_symbols)
+        # #2140：改走带日期版本——行级 price_date 必须与实际采用的净值同源
+        latest_navs = LedgerService._batch_fund_navs_with_dates(db, all_fund_symbols)
 
         def _effective_price_units(p_asset_type: str, p_symbol: str | None, snapshot_units: int) -> int:
             """基金用最新净值，其他类型用快照价（统一 0.0001元 单位）"""
-            if p_asset_type == 'fund' and p_symbol and p_symbol in latest_navs and latest_navs[p_symbol] > 0:
-                return Money.yuan_to_price_units(latest_navs[p_symbol])
+            entry = latest_navs.get(p_symbol) if p_asset_type == 'fund' and p_symbol else None
+            if entry and entry[0] > 0:
+                return Money.yuan_to_price_units(entry[0])
             return snapshot_units
 
         # 总市值：Python 聚合（分）。逐行 ROUND_HALF_UP 语义必须保留（tech-debt §13，
@@ -485,6 +534,15 @@ class LedgerService:
             if eff_price and avg and eff_price < avg:
                 back = round((avg - eff_price) / eff_price * 100, 2)
 
+            # 价格时点（#2140）：基金行取**实际采用**的最新净值日（与 eff_price 同源）；
+            # 其余类型或基金无净值回退快照时，取 22:15 回写的 positions.price_date；
+            # 都没有则 None（前端 tooltip 容错省略，不编日期）
+            nav_entry = latest_navs.get(p.symbol) if p.asset_type == 'fund' and p.symbol else None
+            if nav_entry and nav_entry[0] > 0:
+                price_date = nav_entry[1].isoformat() if nav_entry[1] else None
+            else:
+                price_date = p.price_date.isoformat() if p.price_date else None
+
             items.append(
                 {
                     'id': p.id,
@@ -499,6 +557,8 @@ class LedgerService:
                     'pnl_rate': pnl_rate,
                     'avg_price': Money.price_units_to_yuan(avg),
                     'current_price': Money.price_units_to_yuan(eff_price),
+                    # 价格时点（#2140）：已确认口径的「截至日期」，前端 tooltip 消费
+                    'price_date': price_date,
                     # 持有时长（天）：基于首次建仓确认日，无确认日返回 None（#862）
                     'holding_days': (today_shanghai() - p.confirm_date).days if p.confirm_date else None,
                     'allocation': p.allocation,

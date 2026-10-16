@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import AssetAllocationDonut from "@/components/Charts/AssetAllocationDonut.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import type {
@@ -11,12 +10,22 @@ import type {
 /**
  * 详情页「行业配置」区块（#2029 卡 C · 设计卡 §4.1 #4）。
  *
- * 环形图 + 表格，数据来自 `GET /api/products/fund-holdings-detail/`。
+ * 单一区域：**表内嵌条**——行内比例条 + 精确值 + 完整行业名 + 合计行。
+ *
+ * 为什么不再是「图表 + 表格」并排（#2097 item 4 的后续收尾）：
+ * - 后端 `industry_chart` 就是 `industries[0].items` 的投影（同一份截断后的
+ *   items、同一顺序，只过滤 `ratio > 0`）——两个区域渲染的是**同一批数字**，
+ *   不是互补信息。#2097 把环形图换成条形图、且条形图自带精确数值标签之后，
+ *   表格原有的「给精度」职责就被图表自己接管了，而表没删。
+ * - 图表 y 轴标签写死 96px（≈8 个汉字），证监会门类名最长 15 字必被截断
+ *   （「电力、热力、燃气及水生产和供应业」→「电力、热力、燃…」），
+ *   **唯一能读全名的地方是表格**。合并后名称列拿到剩余全部宽度，不再截断。
+ * - 条长（图表的唯一独有贡献）降级为表格里的一列，纯 CSS 画：为一个静态
+ *   十来行的列表起一个 echarts 实例不划算，表格语义对读屏与复制也更友好。
  *
  * 口径与降级（设计卡 §4.2④ · penetration 硬口径 2）：
- * - **csrc / gics 禁止跨体系相加** —— 环形图只画主口径（证监会门类），
- *   GICS 板块只作参考单列并明确标注「与证监会门类不可相加」。把两套体系混进
- *   一张图会得出「制造业与非必需消费品同级并列」的荒谬结论。
+ * - **csrc / gics 禁止跨体系相加** —— 只列主口径（证监会门类），
+ *   GICS 板块只作参考单列并明确标注「与证监会门类不可相加」。
  * - 无数据显空态，**绝不 mock 顶替**（G1 教训）。
  */
 
@@ -38,107 +47,151 @@ const secondary = computed<FundIndustryBucket[]>(() =>
   (props.detail?.industries ?? []).filter(b => !b.is_primary)
 );
 
-/** 环形图数据：只取主口径、且占比为正的行 */
-const chartData = computed(() => props.detail?.industry_chart ?? []);
-
 const hasData = computed(() => (props.detail?.industries?.length ?? 0) > 0);
+
+/**
+ * 条长按本区最大值归一。
+ *
+ * 用最大值而不是「各行之和」：占比之和未必等于 100（未披露的行业不在这个
+ * 列表里），按和归一会把 47.94% 画成半条，读起来像「占了一半」。
+ */
+const maxRatio = computed(() => {
+  const vals = (primary.value?.items ?? [])
+    .map(it => it.ratio)
+    .filter((r): r is number => r != null && r > 0);
+  return vals.length ? Math.max(...vals) : 0;
+});
+
+/** 有占比才画条：占比缺失的行整条不画，只留「—」，避免被读成 0 */
+function hasBar(ratio: number | null): boolean {
+  return ratio != null && ratio > 0 && maxRatio.value > 0;
+}
+
+function barWidth(ratio: number): string {
+  return `${((ratio / maxRatio.value) * 100).toFixed(2)}%`;
+}
+
+/**
+ * 沿用原条形图的 `--chart-01~08` 循环：不引入新色，也不让颜色承担分类职责
+ * （分类名就在同一行，颜色只是延续既有观感）。
+ */
+const CHART_PALETTE_VARS = [
+  "--chart-01",
+  "--chart-02",
+  "--chart-03",
+  "--chart-04",
+  "--chart-05",
+  "--chart-06",
+  "--chart-07",
+  "--chart-08"
+];
+
+function barColor(index: number): string {
+  return `var(${CHART_PALETTE_VARS[index % CHART_PALETTE_VARS.length]})`;
+}
 </script>
 
 <template>
   <CardBlock class="industry-section">
-    <SectionHeader title="行业配置" />
+    <SectionHeader title="行业配置">
+      <!-- 体系名 + 报告期只在这里出现一次：此前表格标题与脚注各写一遍 -->
+      <template #action>
+        <span v-if="primary?.scheme_label" class="industry-section__scheme">
+          {{ primary.scheme_label }}
+        </span>
+        <span v-if="primary?.report_period" class="industry-section__period">
+          报告期 {{ primary.report_period }}
+        </span>
+      </template>
+    </SectionHeader>
 
     <p v-if="!hasData" class="industry-section__hint">暂无行业配置数据</p>
 
     <template v-else>
-      <!-- 环形图 + 表格并排：窄屏纵向堆叠 -->
-      <div class="industry-section__layout">
-        <div class="industry-section__chart">
-          <AssetAllocationDonut
-            :data="chartData"
-            empty-text="暂无行业配置"
-            :legend-font-size="11"
-            :format-value="
-              (value, pct) => `${value.toFixed(2)}%（占净值 ${pct}%）`
-            "
-          />
-        </div>
-
-        <div class="industry-section__table-wrap">
-          <div class="industry-section__table-title">
-            {{ primary?.scheme_label }}
-            <span
-              v-if="primary?.report_period"
-              class="industry-section__period"
-              >{{ primary.report_period }}</span
-            >
-          </div>
-          <table class="industry-section__table">
-            <thead>
-              <tr>
-                <th scope="col">行业</th>
-                <th scope="col" class="industry-section__num">占净值比</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="it in primary?.items ?? []"
-                :key="it.industry_code || it.industry_name"
+      <table class="industry-section__table">
+        <thead>
+          <tr>
+            <th scope="col">行业</th>
+            <th scope="col" class="industry-section__ratio-head">占净值比</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="(it, i) in primary?.items ?? []"
+            :key="it.industry_code || it.industry_name"
+          >
+            <th scope="row" class="industry-section__name">
+              {{ it.industry_name }}
+            </th>
+            <td class="industry-section__ratio">
+              <span
+                v-if="hasBar(it.ratio)"
+                class="industry-section__track"
+                aria-hidden="true"
               >
-                <td>{{ it.industry_name }}</td>
-                <td class="industry-section__num">
-                  {{ it.ratio != null ? it.ratio.toFixed(2) + "%" : "—" }}
-                </td>
-              </tr>
-              <tr v-if="!primary?.items?.length">
-                <td class="industry-section__empty" colspan="2">
-                  该报告期无行业配置记录
-                </td>
-              </tr>
-            </tbody>
-            <tfoot v-if="primary?.total_ratio != null">
-              <tr>
-                <th scope="row">合计</th>
-                <td class="industry-section__num">
-                  {{ primary.total_ratio.toFixed(2) }}%
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      </div>
+                <span
+                  class="industry-section__fill"
+                  :style="{
+                    width: barWidth(it.ratio ?? 0),
+                    background: barColor(i)
+                  }"
+                />
+              </span>
+              <span class="industry-section__value">
+                {{ it.ratio != null ? it.ratio.toFixed(2) + "%" : "—" }}
+              </span>
+            </td>
+          </tr>
+          <tr v-if="!primary?.items?.length">
+            <td class="industry-section__empty" colspan="2">
+              该报告期无行业配置记录
+            </td>
+          </tr>
+        </tbody>
+        <tfoot v-if="primary?.total_ratio != null">
+          <tr>
+            <th scope="row">合计</th>
+            <td class="industry-section__ratio">
+              <span class="industry-section__value">
+                {{ primary.total_ratio.toFixed(2) }}%
+              </span>
+            </td>
+          </tr>
+        </tfoot>
+      </table>
 
-      <!-- 非主口径：单列并显式警告不可相加（硬口径 2） -->
-      <details
+      <!-- 非主口径：单列并显式警告不可相加（硬口径 2）。
+           ⚠️ 这条警告必须在 <details> **外面**：跨体系（csrc / gics）相加会得出
+           荒谬结论，藏进折叠区就不再是「用户第一眼就要看到」的硬口径了。 -->
+      <div
         v-for="b in secondary"
         :key="b.scheme"
         class="industry-section__other"
       >
-        <summary class="industry-section__other-title">
-          {{ b.scheme_label }}（参考）
-        </summary>
         <p class="industry-section__other-note">
           该分类体系与上方{{ primary?.scheme_label }}不可相加，仅作参考
         </p>
-        <dl class="industry-section__other-list">
-          <div
-            v-for="it in b.items"
-            :key="it.industry_code || it.industry_name"
-            class="industry-section__other-item"
-          >
-            <dt>{{ it.industry_name }}</dt>
-            <dd>
-              {{ it.ratio != null ? it.ratio.toFixed(2) + "%" : "—" }}
-            </dd>
-          </div>
-        </dl>
-      </details>
+        <details class="industry-section__other-details">
+          <summary class="industry-section__other-title">
+            {{ b.scheme_label }}（参考）
+          </summary>
+          <dl class="industry-section__other-list">
+            <div
+              v-for="it in b.items"
+              :key="it.industry_code || it.industry_name"
+              class="industry-section__other-item"
+            >
+              <dt>{{ it.industry_name }}</dt>
+              <dd>
+                {{ it.ratio != null ? it.ratio.toFixed(2) + "%" : "—" }}
+              </dd>
+            </div>
+          </dl>
+        </details>
+      </div>
 
       <p class="industry-section__footnote">
         数据来源：{{ source }} · 行业配置为报告期快照（非日期序列）
-        <template v-if="primary?.report_period">
-          · 报告期 {{ primary.report_period }}
-        </template>
       </p>
     </template>
   </CardBlock>
@@ -154,50 +207,34 @@ const hasData = computed(() => (props.detail?.industries?.length ?? 0) > 0);
 }
 
 .industry-section__hint,
-.industry-section__footnote,
-.industry-section__other-note {
+.industry-section__footnote {
   margin: 0;
   font-size: 12px;
   color: var(--text-tertiary);
 }
 
-.industry-section__layout {
-  display: grid;
-
-  /* 严禁 `minmax(0, 1fr)`：会让轨道塌成 0（#1969 P0 实测，标签逐字竖排） */
-  grid-template-columns: minmax(240px, 320px) minmax(260px, 1fr);
-
-  /* 注意：不能用 `--space-4` —— 它在全仓被引用但**从未定义**（探针实测），
-     写了会整条 gap 静默失效。定义齐全的是 1/2/3/5/6。 */
-  gap: var(--space-3) var(--space-5);
-  align-items: start;
+/* 「不可相加」是**跨体系硬口径**，不是普通脚注：csrc / gics 加总得出的是荒谬结论。
+   沿用持仓明细 caveat 的同一套警告视觉，避免两处硬口径长得不一样。
+   （此前它躺在 <details> 里且是 tertiary 淡色，等于没有警告。） */
+.industry-section__other-note {
+  padding: var(--space-2) var(--space-3);
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  background: var(--bg-subtle, var(--bg-card));
+  border-left: 3px solid var(--color-warning, var(--brand-700));
+  border-radius: 0 var(--radius-sm, 4px) var(--radius-sm, 4px) 0;
 }
 
-@include bp.below("lg") {
-  .industry-section__layout {
-    grid-template-columns: 1fr;
-  }
-}
-
-.industry-section__chart {
-  min-height: 220px;
-}
-
-.industry-section__table-wrap {
-  min-width: 0;
-}
-
-.industry-section__table-title {
-  margin-bottom: var(--space-2);
-  font-size: 13px;
-  font-weight: 600;
+.industry-section__scheme {
+  font-size: 12px;
   color: var(--text-secondary);
 }
 
 .industry-section__period {
   margin-left: var(--space-2);
   font-size: 12px;
-  font-weight: 400;
   color: var(--text-tertiary);
 }
 
@@ -219,14 +256,66 @@ const hasData = computed(() => (props.detail?.industries?.length ?? 0) > 0);
   color: var(--text-tertiary);
 }
 
-.industry-section__num {
+/* 名称列不设宽度：剩余空间全给它，长行业名换行而不是截断
+   （旧图表 y 轴 96px 会把「电力、热力、燃气及水生产…」切掉） */
+.industry-section__name {
+  font-weight: 400;
+  color: var(--text-primary);
+}
+
+/* 比例列定宽 + 不换行：各行条长左端对齐、数值右端对齐，
+   条与条之间才可比（长度是本区块唯一的比例通道） */
+.industry-section__ratio {
+  width: 190px;
+  white-space: nowrap;
+}
+
+.industry-section__ratio-head {
+  text-align: right;
+}
+
+.industry-section__track {
+  display: inline-block;
+  width: 96px;
+  height: 8px;
+  margin-right: var(--space-2);
+  overflow: hidden;
+  vertical-align: middle;
+  background: var(--bg-muted);
+  border-radius: 4px;
+}
+
+/* 极小占比（0.67% 在 47.94% 的最大值下只有 1.4% 宽）给 3px 兜底，
+   否则屏上是一条看不见的线；0 / 缺失的行根本不画条（见 hasBar） */
+.industry-section__fill {
+  display: block;
+  min-width: 3px;
+  height: 100%;
+  border-radius: 4px;
+}
+
+.industry-section__value {
+  display: inline-block;
+  min-width: 52px;
   font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
   text-align: right;
 }
 
 .industry-section__empty {
   color: var(--text-tertiary);
   text-align: center;
+}
+
+@include bp.below("sm") {
+  /* 窄屏先让出名称空间：条缩到 48px，仍可比，只是分辨率下降 */
+  .industry-section__ratio {
+    width: 132px;
+  }
+
+  .industry-section__track {
+    width: 48px;
+  }
 }
 
 .industry-section__other {
@@ -239,10 +328,6 @@ const hasData = computed(() => (props.detail?.industries?.length ?? 0) > 0);
   font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;
-}
-
-.industry-section__other-note {
-  margin: var(--space-2) 0;
 }
 
 .industry-section__other-list {

@@ -52,6 +52,11 @@ const redeemRate = computed(() => {
   };
 });
 
+/** 基金经理列表：接口缺字段时为 null（FundProfileResult 契约：缺失一律降级），
+ *  统一收敛为空数组——模板不裸取 .length（#2191：缺字段时渲染抛错，Vue 中止
+ *  更新，整个区块永远停在「正在读取」）。 */
+const managerList = computed(() => profile.value?.managers ?? []);
+
 async function load() {
   if (!props.symbol) return;
   loading.value = true;
@@ -119,8 +124,8 @@ watch(() => props.symbol, load, { immediate: true });
         <div class="fund-section__fact">
           <dt class="fund-section__label">基金经理</dt>
           <dd class="fund-section__value fund-section__value--wrap">
-            <template v-if="profile.managers.length">
-              <template v-for="(m, i) in profile.managers" :key="m.mgr_code">
+            <template v-if="managerList.length">
+              <template v-for="(m, i) in managerList" :key="m.mgr_code">
                 <span v-if="i > 0" aria-hidden="true">、</span>{{ m.name
                 }}<span v-if="m.is_classic" class="fund-section__badge"
                   >代表作</span
@@ -167,7 +172,7 @@ watch(() => props.symbol, load, { immediate: true });
             <template v-else>{{ DASH }}</template>
           </dd>
         </div>
-        <div class="fund-section__fact">
+        <div class="fund-section__fact fund-section__fact--wide">
           <dt class="fund-section__label">业绩基准</dt>
           <dd class="fund-section__value fund-section__value--wrap">
             {{ profile.benchmark || DASH }}
@@ -214,7 +219,11 @@ watch(() => props.symbol, load, { immediate: true });
 }
 
 .fund-section__value--wrap {
-  word-break: break-all;
+  /* `overflow-wrap: anywhere` 而非 `word-break: break-all`：后者在**任意字符**处
+     断行，会把「沪深300」「85%」劈开——中文长句读起来像乱码。
+     `anywhere` 只在放不下时才断，且优先在词/短语边界断。
+     （另一条兜底：业绩基准已跨列，见 `fund-section__fact--wide`。） */
+  overflow-wrap: anywhere;
 }
 
 .fund-section__facts {
@@ -233,6 +242,14 @@ watch(() => props.symbol, load, { immediate: true });
   flex-direction: column;
   gap: var(--space-1);
   min-width: 0;
+}
+
+/* 整句型字段跨列占满整行（业绩基准）。网格是 `minmax(140px, 1fr)`，
+   业绩基准那类「沪深300指数收益率*85% + 中证500指数收益率*15%」的整句描述
+   挤在 140px 里只能疯狂换行——不是「必要的折行」，是被窄格逼出来的逐字断行。
+   它本来就是一个段落，不是指标卡，让它独占一行。 */
+.fund-section__fact--wide {
+  grid-column: 1 / -1;
 }
 
 .fund-section__tier {

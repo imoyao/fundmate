@@ -38,10 +38,13 @@
 | `temperature`（market_single_values / market_composites / market_multi_items） | 全市场温度 | 按 source+日期，可控 |
 | `securities_fund_flow` | 资金流 | 中等 |
 | `FundManager` / `Manager`（基金管理人，**独立表**） | 被 `funds` 外键引用 | 恒定小表（已确认独立表，放 market 域） |
+| `manager_tenures`（基金经理**任期分段**，#2239 从 `fund_managers` 拆出） | 与 `fund_managers` 同源同写方（`manager_tenure` job）、同样外键引用 `funds`/`managers`；读方是经理读服务 | 按 (基金 × 经理 × 段) 增长，一基金一经理通常 1–2 段；**空态合法**（只对目标池回填，见该表模型注释）。放 market 域：与 `fund_managers` 拆到不同域会制造跨域 FK 与跨域事务 |
 | `sync_logs`（系统同步审计） | 记录市场/备份同步任务执行情况 | 超小量（每日几次任务），统一放 Turso，随市场同步任务 |
 | `advisor_portfolios` / `advisor_holdings` / `advisor_industry_allocs` / `advisor_adjust_histories` | 投顾组合公开参照与持仓/行业/调仓明细（#1167；2026-09-08 补登记，此前文档漂移） | 参照小表，明细随组合数增长 |
 | `index_constituents` | 指数成分股（#1358 / #1286；2026-09-08 补登记） | 按指数×成分，覆盖式更新 |
 | `index_catalog` | 指数名录（#1286 聚合搜索底座） | 恒定，千级，覆盖式重建 |
+| `index_valuations` / `index_valuation_baselines` | 指数估值（#1285 官方日频近 20 日）与分位基线（#1407 乐咕月频近 5 年，滚动 PE 单列） | 按指数×日期，小表（基线约 9 指数 × 60 点） |
+| `fund_risk_metrics` | 基金风险指标派生投影（#167 榜单/详情页；由净值历史现算，公开数据无家庭私有字段；2026-10-16 随 #2255 收敛补登记） | 按基金数增长（每基金每口径一行），覆盖式更新 |
 
 > **2026-09-08 注**：完整表清单以 `backend/app/core/db_factory.py` 的 `DATA_DOMAIN_REGISTRY` 为唯一权威（启动校验兜底）；本节为人工盘点快照，新增表时须同步更新（AGENTS.md 双库硬规则 §1）。
 
@@ -51,6 +54,7 @@
 |-----------|------|---------|
 | `families` | 家庭 | 几十~几千行 |
 | `users`（含 `supabase_id`） | 用户 / auth 边界 | 几十~几千行 |
+| `user_preferences`（含 `watchlist-column-settings` 等键） | 用户私有偏好键值（按 `user_id`，非 family；#1337） | 每用户每键一行 |
 | `ledgers` | 账户（FK → portfolios / sales_institutions） | 增长慢 |
 | `portfolios` | 组合 | 增长慢 |
 | `positions` | 持仓（存 `symbol`/`fund_code` 字符串冗余键，**非** FK） | 增长慢 |
@@ -59,7 +63,9 @@
 | `strategy`（strategy_tags / position_strategy_tags） | 策略标签 | 轻量 |
 | `summary`（asset_snapshots） | 资产快照（family_id 隔离） | 中等 |
 | `summary`（pnl_daily_snapshots，#1926） | 收益日历逐日物化快照（`family_id` × `ledger_id`(NULL=家庭级) × `date` 唯一） | 按家庭数 × (账户数+1) × 天数增长；无家庭读过日历即无行（读时回填），失效靠 `pnl_snapshot_store` 的口径版本 / `before_flush` 事件 / `full_sync` 全清 |
+| `reconciliation`（ghost_duplicate_ignores，域 D 幽灵重复） | 幽灵重复忽略（`family_id` × `fingerprint` 唯一；只存「忽略」这一个事实，扫描结果减去已忽略即为用户可见组；2026-10-16 随 #2255 收敛补登记） | 按家庭数 × 忽略组数增长，撤销即删行 |
 | `usage`（user_usage） | 用量统计 | 轻量 |
+| `notification`（notifications，#2236） | 站内通知（家庭级消息盒；`dedup_key` 去重，一天一来源一业务键至多一条） | 按家庭数 × 触发规则数 × 天增长，唯一约束天然封顶 |
 | `agent_session`（账本精灵，#1121 S2） | 服务端权威会话：状态 / 原文 / 轮次（摘要与关键信息卡同存） | 每用户每日少量行；JSON 列硬截断后单行有界 |
 | `agent_trace`（账本精灵单轮决策 trace，#1736 S4） | 每轮一行：意图 / 工具 / 脱敏参数 / 耗时 / token / 结果 / 拦截位——评估四指标与按 session 回放的唯一数据源（无 API 面，脚本直读） | 每轮 1 行，个人量级日增 < 1k 行；年增 < 50MB，暂不设清理 |
 | `sales_institutions`（销售机构，AMAC 名录） | **被 `ledgers` 外键引用** | 恒定小表（几百~两千行），随 user 域走，避免反向跨域 FK |

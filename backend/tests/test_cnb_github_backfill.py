@@ -273,6 +273,100 @@ class TestParseTs:
 
 
 # ---------------------------------------------------------------------------
+# 6.5 批处理韧性：单点失败不炸整轮
+# ---------------------------------------------------------------------------
+
+
+class TestRunResilience:
+    """`_request` 自 df51d21b 起把 HTTPError 包成 RuntimeError（带诊断），
+    `run()` 里原有的 `except urllib.error.HTTPError` 随之变成死代码：
+    一张被删的 GitHub 卡（404）、一条超限的评论（422）就能让**全天作业**挂掉——
+    那正是「定时作业一直报错」的形态。这两条钉子保证坏数据被跳过、好数据照常回写。
+    """
+
+    @pytest.fixture()
+    def wired(self, bf, monkeypatch):
+        """搭一个最小假环境：两张有评论的 CNB 卡，都能映射到 GitHub。"""
+        monkeypatch.setenv('GITHUB_REPO', 'imoyao/fundmate')
+        monkeypatch.setenv('CNB_REPO', 'duoduobei/fundmate')
+        monkeypatch.setattr(bf, 'load_state', lambda: {'last_sync_at': None, 'backfilled': {}})
+        monkeypatch.setattr(bf, 'save_state', lambda state: None)
+        monkeypatch.setattr(
+            bf,
+            'list_cnb_issues',
+            lambda: [{'number': '2', 'comment_count': 1}, {'number': '3', 'comment_count': 1}],
+        )
+        monkeypatch.setattr(
+            bf,
+            'get_cnb_issue',
+            lambda n: {'body': f'> - 来源：https://github.com/imoyao/fundmate/issues/{100 + int(n)}'},
+        )
+        monkeypatch.setattr(
+            bf,
+            'list_cnb_comments',
+            lambda n: [
+                {
+                    'id': str(1000 + int(n)),
+                    'body': '结论：按方案 A 落地。',
+                    'author': {'username': 'cnb.user', 'is_npc': False},
+                    'created_at': '2026-10-11T00:00:00Z',
+                }
+            ],
+        )
+        return bf
+
+    def test_one_issue_read_failure_does_not_abort_run(self, wired, monkeypatch):
+        """读某张 GitHub 卡的评论失败（404 被删 / 403 限额）→ 跳过该卡，其余照常。"""
+
+        def fake_list_github_comments(repo, number):
+            if number == 102:
+                raise RuntimeError('HTTP 404 Not Found（读 GitHub 评论）')
+            return []
+
+        monkeypatch.setattr(wired, 'list_github_comments', fake_list_github_comments)
+        posted: list[int] = []
+        monkeypatch.setattr(wired, 'post_github_comment', lambda repo, number, body: posted.append(number) or {})
+
+        rc = wired.run(dry_run=False, limit=None, since=None)
+
+        assert rc == 0
+        assert posted == [103]
+
+    def test_one_comment_post_failure_does_not_abort_run(self, wired, monkeypatch):
+        """单条评论回写失败（422 正文超限 / 403）→ 跳过该条，同卡其余评论照常。"""
+        monkeypatch.setattr(wired, 'list_cnb_issues', lambda: [{'number': '2', 'comment_count': 2}])
+        monkeypatch.setattr(wired, 'list_github_comments', lambda repo, number: [])
+        comments = [
+            {
+                'id': '1',
+                'body': '甲',
+                'author': {'username': 'u', 'is_npc': False},
+                'created_at': '2026-10-11T00:00:00Z',
+            },
+            {
+                'id': '2',
+                'body': '乙',
+                'author': {'username': 'u', 'is_npc': False},
+                'created_at': '2026-10-11T01:00:00Z',
+            },
+        ]
+        monkeypatch.setattr(wired, 'list_cnb_comments', lambda n: comments)
+        sent: list[str] = []
+
+        def fake_post(repo, number, body):
+            if '乙' in body:
+                raise RuntimeError('HTTP 422（正文超限）')
+            sent.append('甲')
+
+        monkeypatch.setattr(wired, 'post_github_comment', fake_post)
+
+        rc = wired.run(dry_run=False, limit=None, since=None)
+
+        assert rc == 0
+        assert sent == ['甲']
+
+
+# ---------------------------------------------------------------------------
 # 7. 契约冻结：与镜像方向的格式一致性
 # ---------------------------------------------------------------------------
 

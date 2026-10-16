@@ -81,6 +81,22 @@ def normalize_fund_code(symbol: str) -> str:
     return s[-6:] if len(s) >= 6 and s[-6:].isdigit() else ''
 
 
+def normalize_business_code(symbol_norm: str | None, symbol: str | None) -> str:
+    """从归一身份键取**业务码**（裸 6 位）：``OTC:004369`` → ``004369``；``EXCHANGE:SZ159857`` → ``159857``。
+
+    「业务码」是标的在库内的唯一键（``funds.fund_code`` / ``security_industry_maps.symbol``
+    都是裸码形态），读侧穿透与写侧采集都必须落到同一个键上，否则映射表永远查不中。
+
+    **刻意提到公共处**：此前这段解析只存在于 ``services/penetration._business_code``，
+    写侧（#1981 的行业映射采集）若另写一份，迟早与读侧漂移——而漂移的后果是
+    「映射明明入库了，穿透却报缺口」这种极难定位的问题。
+
+    没有 ``symbol_norm``（历史行 / 夹具）时退回裸 ``symbol`` 解析。
+    """
+    raw = symbol_norm.split(':', 1)[1] if ':' in (symbol_norm or '') else (symbol or '')
+    return normalize_fund_code(raw)
+
+
 def _code_segment_fallback(symbol: str) -> bool:
     """代码段兜底（#1661）：先解析出交易所，再按该交易所专属代码段判定。
 

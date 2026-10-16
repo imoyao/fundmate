@@ -68,6 +68,31 @@ export function useImportWizard() {
       draftDirty.value && currentStep.value < 3 && previewData.value.length > 0
   );
 
+  // ── #783 §8.1：草稿保存反馈（顶部「草稿·已保存 时分」，3 秒后淡出） ──
+  /** 最近一次成功落盘的「时:分」；未保存过时为空串 */
+  const draftSavedLabel = ref("");
+  /** 提示显隐：每次保存成功重新计时，3 秒后自动淡出 */
+  const draftSavedHintVisible = ref(false);
+  let draftSavedHintTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * 展示「草稿·已保存」提示（#783 §8.1 第 2 条）。
+   * 只在**落盘成功**后调用——失败时静默留脏标、交由下个 30s 周期重试，
+   * 不能让「已保存」文案说谎。
+   */
+  function flashDraftSavedHint() {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mm = String(now.getMinutes()).padStart(2, "0");
+    draftSavedLabel.value = `${hh}:${mm}`;
+    draftSavedHintVisible.value = true;
+    if (draftSavedHintTimer) clearTimeout(draftSavedHintTimer);
+    draftSavedHintTimer = setTimeout(() => {
+      draftSavedHintVisible.value = false;
+      draftSavedHintTimer = null;
+    }, 3000);
+  }
+
   const showMatchDrawer = ref(false);
 
   const showAiModal = ref(false);
@@ -1271,6 +1296,8 @@ export function useImportWizard() {
       // 落盘成功才清脏标。await 会让出执行权，期间变更监听（flush 'pre'）先置脏、
       // 此处后清标——顺序天然正确；失败则不清，30s 周期自动重试。
       draftDirty.value = false;
+      // #783 §8.1：同步给出「草稿·已保存 时分」反馈（3 秒淡出，不占位不打断）
+      flashDraftSavedHint();
     } catch (e) {
       console.warn("保存草稿失败", e);
     }
@@ -1342,6 +1369,27 @@ export function useImportWizard() {
     clearAllSelection();
     selectAllValid();
     await confirmImport();
+  }
+
+  /**
+   * 全部行都是疑似重复（#783 §十 边界场景一）：没有任何一行可正常导入。
+   * 判据逐行取 `is_duplicate`（与 categorizeRow 的分区口径同源），不做条数相减——
+   * 重复行可能同时带解析告警，条数比较会在混合态下判错。
+   */
+  const allRowsDuplicate = computed(
+    () =>
+      previewData.value.length > 0 &&
+      previewData.value.every(row => row.is_duplicate)
+  );
+
+  /** 【全部跳过，返回上一步】（#783 §十）：丢弃草稿 + 清空预览，退回上传步骤重选文件 */
+  async function skipAllDuplicatesAndBack() {
+    await discardDraft().catch(() => {});
+    draftBannerVisible.value = false;
+    pendingDraftMeta.value = null;
+    clearImportState();
+    currentStep.value = 1;
+    ElMessage.info("已跳过本次导入，请重新选择文件");
   }
 
   function resetImport() {
@@ -2325,6 +2373,10 @@ export function useImportWizard() {
 
   onUnmounted(() => {
     stopAutosave();
+    if (draftSavedHintTimer) {
+      clearTimeout(draftSavedHintTimer);
+      draftSavedHintTimer = null;
+    }
   });
 
   return {
@@ -2467,6 +2519,8 @@ export function useImportWizard() {
     handleUpload,
     confirmImport,
     importNormalOnly,
+    allRowsDuplicate,
+    skipAllDuplicatesAndBack,
     resetImport,
     continueImport,
     reimport,
@@ -2517,6 +2571,9 @@ export function useImportWizard() {
     // #1789：离开提示与自动保存的接线点（useImportLeaveGuard 消费）
     draftDirty,
     hasUnsavedDraftWork,
+    // #783 §8.1：草稿保存反馈
+    draftSavedLabel,
+    draftSavedHintVisible,
     persistDraft,
     checkDraft,
     restoreDraft,

@@ -149,6 +149,9 @@ def _needs_sqlite_pragmas(url: str) -> bool:
 #    曾有独立的 fund_management_companies（user 域）——实测零读者/零外键/零接口，
 #    已删除。注意别再把它登记回来。
 #  - managers / fund_managers：被 market 域表 (funds) 外键引用 → 随 market 域。
+#  - manager_tenures（#2239）：与 fund_managers 同源同写方（SyncJob）、同样外键引用
+#    funds/managers，且读方是 market 域的经理读服务 → 随 market 域。它是
+#    fund_managers 拆出来的任期表，两张表放不同域会制造跨域 FK 与跨域事务。
 DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     # ── market 域（Turso）：公开、读多写少、无限膨胀的市场数据 ──
     'funds': DOMAIN_MARKET,
@@ -158,11 +161,13 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'fund_sales_orgs': DOMAIN_MARKET,  # 基金维度销售机构（funds 域内）
     'managers': DOMAIN_MARKET,  # 基金管理人（被 funds 引用）
     'fund_managers': DOMAIN_MARKET,  # 基金-经理关联（被 funds 引用）
+    'manager_tenures': DOMAIN_MARKET,  # 基金-经理任期分段（#2239 从 fund_managers 拆出）
     'advisor_portfolios': DOMAIN_MARKET,  # 投顾/基金组合公开参照（且慢/蛋卷/天天基金）
     'index_constituents': DOMAIN_MARKET,  # 指数成分股（#1286 品种差异化维度：指数→成分）
     'index_catalog': DOMAIN_MARKET,  # 指数名录（#1286 聚合搜索可搜索的指数条目）
     'index_daily': DOMAIN_MARKET,  # 指数日线点位（#275 基准对比底座，万得全A 经韭圈儿公开接口）
     'index_valuations': DOMAIN_MARKET,  # 指数估值（#1285/#1394：市盈率/股息率，中证官方）
+    'index_valuation_baselines': DOMAIN_MARKET,  # 指数估值分位基线（#1407：乐咕月频滚动 PE，近 5 年）
     'market_asset_daily': DOMAIN_MARKET,  # 探市大类资产日频快照（#1460 P1：20 资产，供读库组装）
     'market_bond_yield_daily': DOMAIN_MARKET,  # 探市债券 10Y 收益率日频快照（#1460 P1）
     'channel_links': DOMAIN_MARKET,  # 跨渠道关联（#1285 §3.8：指数↔ETF / ETF↔联接）
@@ -173,12 +178,17 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'fund_industry_allocs': DOMAIN_MARKET,  # 基金行业配置（#870：csrc/gics 双体系分区）
     'convertible_bond_terms': DOMAIN_MARKET,  # 可转债条款（#1285/#1393：强赎/回售/转股）
     'daily_worth': DOMAIN_MARKET,  # 基金净值（最大体积表）
+    'fund_valuation_daily': DOMAIN_MARKET,  # 场外基金收盘估值定格（#2141）
+    'fund_risk_metrics': DOMAIN_MARKET,  # 基金风险指标派生投影（#167 榜单/详情页；公开净值派生，无家庭私有字段）
     'money_fund_daily_worth': DOMAIN_MARKET,  # 货基净值
     'purchase_rules': DOMAIN_MARKET,
     'redeem_rules': DOMAIN_MARKET,
     'fee_ratios': DOMAIN_MARKET,
     'price_history': DOMAIN_MARKET,  # 历史行情（最大体积表）
     'securities': DOMAIN_MARKET,
+    # 个股/可转债 → 行业映射（#1981）。随 securities 同域：公开证券主数据，
+    # 无家庭私有字段，且 penetration 读它时要与 securities / price_history 同会话。
+    'security_industry_maps': DOMAIN_MARKET,
     'market_single_values': DOMAIN_MARKET,
     'market_composites': DOMAIN_MARKET,
     'market_multi_items': DOMAIN_MARKET,
@@ -186,6 +196,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     # ── user 域（Supabase）：含 family_id/user_id 的用户私有数据 ──
     'families': DOMAIN_USER,
     'users': DOMAIN_USER,
+    'user_preferences': DOMAIN_USER,  # 用户私有偏好键值（#1337，按 user_id，非 family）
     'ledgers': DOMAIN_USER,
     'portfolios': DOMAIN_USER,
     'positions': DOMAIN_USER,
@@ -208,6 +219,8 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'strategy_tags': DOMAIN_USER,
     'position_strategy_tags': DOMAIN_USER,
     'dividend_targets': DOMAIN_USER,  # 家庭股息目标（#872）：用户私有配置，一家庭一条
+    'notifications': DOMAIN_USER,  # 站内通知（#2236）：含 family_id，家庭级消息盒
+    'target_allocations': DOMAIN_USER,  # 目标配比（#2237）：含 family_id，用户自定的目标占比
     'asset_snapshots': DOMAIN_USER,
     'pnl_daily_snapshots': DOMAIN_USER,  # 收益日历逐日物化快照（#1926）：含 family_id
     'user_usage': DOMAIN_USER,
@@ -217,6 +230,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'discrepancies': DOMAIN_USER,  # 活跃对账差异（含 family_id）
     'reconciliation_runs': DOMAIN_USER,  # 对账运行记录
     'adjustment_logs': DOMAIN_USER,  # 对账审计日志（仅用户主动操作）
+    'ghost_duplicate_ignores': DOMAIN_USER,  # 幽灵重复忽略（域 D；FamilyScopedMixin 含 family_id）
 }
 
 # 规划中但尚未建表的域归属（提前登记，防止模型落地时漏声明）。

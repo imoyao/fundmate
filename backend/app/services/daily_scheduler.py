@@ -29,6 +29,13 @@
     - `temperature`   20:00 —— 温度源（集思录中位 PB / 韭圈儿 / 行业拥挤度）盘后即出。
     - `fund_nav`      21:30 —— 场外基金净值通常 19:00~24:00 陆续公布，21:30 可覆盖大头；
       当晚漏掉的由次日增量的「上次成功日 − 1 天」窗口自动补齐（见 `FundNavSyncJob`）。
+    - `fund_valuation_snapshot` 15:15 / 19:15 / 21:15（工作日，#2141）——
+      收盘估值定格三时点，供收益日历「今日预估」回退；源端净值公布后即
+      清空估值（GSZ），晚于净值落库的时点无意义。
+    - `fund_valuation_reconcile` 08:30 / 22:30（#2142）——官方净值到位后翻 confirmed
+      并记录偏差。晚 22:30 对照当晚 21:30 fund_nav 落库的昨日净值（T-1 硬护栏下
+      day-D 官方最早 D+1 21:30 才入库）；晨 08:30 兜底（休市日 catch-up、源延迟恢复）。
+      进 REST_DAY_JOB_NAMES：周末 fund_nav 补昨日净值后，周六晨间即可对照周五预估。
     - `position_price` 22:15 —— 把已确认净值回写 `positions.current_price`（#1104）。
       **必须晚于 `fund_nav`**：它读的就是后者刚落库的净值；早了会写入昨天的口径。
 
@@ -108,12 +115,35 @@ ENV_DIVIDEND_SPLIT_ENABLED = 'SCHEDULER_DIVIDEND_SPLIT_ENABLED'
 ENV_DIVIDEND_SPLIT_CRON = 'SCHEDULER_DIVIDEND_SPLIT_CRON'
 ENV_ORPHAN_BACKFILL_ENABLED = 'SCHEDULER_ORPHAN_BACKFILL_ENABLED'
 ENV_ORPHAN_BACKFILL_CRON = 'SCHEDULER_ORPHAN_BACKFILL_CRON'
+ENV_VALUATION_ENABLED = 'SCHEDULER_VALUATION_ENABLED'
+ENV_VALUATION_CRON = 'SCHEDULER_VALUATION_CRON'
+ENV_VALUATION_RECONCILE_ENABLED = 'SCHEDULER_VALUATION_RECONCILE_ENABLED'
+ENV_VALUATION_RECONCILE_CRON = 'SCHEDULER_VALUATION_RECONCILE_CRON'
+ENV_NAV_BACKFILL_ENABLED = 'SCHEDULER_NAV_BACKFILL_ENABLED'
+ENV_NAV_BACKFILL_CRON = 'SCHEDULER_NAV_BACKFILL_CRON'
 
 DEFAULT_TIMEZONE = 'Asia/Shanghai'
 # 温度计：集思录中位 PB / 韭圈儿 / 行业拥挤度盘后即出
 DEFAULT_TEMPERATURE_CRON = '0 20 * * *'
 # 基金净值：场外净值 19:00~24:00 陆续公布
 DEFAULT_NAV_CRON = '30 21 * * *'
+# 收盘估值定格（#2141）：工作日 15:15 / 19:15 / 21:15 三时点捕捉
+# 收盘估值快照（源端净值公布后即清空 GSZ，错过即无意义）。
+# 时点错开现有 17:10 / 17:30 / 18:00 / 18:20 / 20:00 / 21:00 /
+# 21:30 / 21:45 / 22:00 / 22:15。
+# ⚠️ 星期必须写 `mon-fri` 而不是数字：APScheduler 的 `day_of_week`
+# 是 **0 = 周一**，与 crontab 的 0 = 周日相反——实测 `* * 1-5`
+# 排出来的是周二~周六；`mon-fri` 是单条 cron 表达「工作日」
+# 的唯一正确写法。
+DEFAULT_VALUATION_CRON = '15 15,19,21 * * mon-fri'
+# 预估→正式对照（#2142）：fund_nav 有 T-1 硬护栏（#824，丢弃 date >= today），
+# day-D 官方净值最早 D+1 21:30 落库 ⇒ 对照排在其后：晚 22:30 对照当晚净值，
+# 晨 08:30 兜底（休市日 catch-up、源延迟恢复）。零外部请求的纯 DB job。
+DEFAULT_VALUATION_RECONCILE_CRON = '30 8,22 * * *'
+# 净值缺失流水回填（pending_nav → 官方净值重算份额/成本）：与对照同吃 T-1 落库
+# 节奏（#824，day-D 官方净值最早 D+1 21:30 落库），排在对照之后 5 分钟；
+# 晨 08:35 兜底（休市日 catch-up、源延迟恢复）。纯 DB 零外部请求。
+DEFAULT_NAV_BACKFILL_CRON = '35 8,22 * * *'
 # 场内日线（#1104）：A 股 15:00 收盘，日线数据盘后发布（ETF 两源当日 K 线常要次日才齐，
 # 由缺口回补在下一次运行时补齐）。**必须早于持仓现价回写**——后者读的就是这里落库的收盘价。
 DEFAULT_PRICE_HISTORY_CRON = '30 17 * * *'
@@ -231,6 +261,41 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[Union[str, Tuple[str, .
         DEFAULT_NAV_CRON,
         'fund',
         '自选 + 持仓的基金净值（当日增量）',
+    ),
+    (
+        # 收盘估值定格（#2141）：target_kind='fund'——目标池 = 持仓 ∪
+        # 自选的场外基金裸码（job 内再按 venue 排除场内标的）；
+        # 空池 job 自行跳过。多时点幂等覆盖，不进 REST_DAY_JOB_NAMES：
+        # 休市日源端不更新估值，空跑无意义。
+        'fund_valuation_snapshot',
+        ENV_VALUATION_ENABLED,
+        ENV_VALUATION_CRON,
+        DEFAULT_VALUATION_CRON,
+        'fund',
+        '场外基金收盘估值定格（天天 GSZ，工作日 15:15 / 19:15 / 21:15；#2141）',
+    ),
+    (
+        # 预估→正式对照（#2142）：target_kind=None——目标池是「库里全部 estimated 行」
+        # （对照 job 自己扫表），不是 fund/stock 代码池，resolve_targets() 给的池与它无关。
+        # 纯 DB 零外部请求；进 REST_DAY_JOB_NAMES（周末 fund_nav 补昨日净值后，
+        # 周六晨间即可对照周五预估）。
+        'fund_valuation_reconcile',
+        ENV_VALUATION_RECONCILE_ENABLED,
+        ENV_VALUATION_RECONCILE_CRON,
+        DEFAULT_VALUATION_RECONCILE_CRON,
+        None,
+        '场外基金预估→官方净值对照（官方到位后翻 confirmed + 记偏差；#2142）',
+    ),
+    (
+        # 净值缺失流水回填：entry_status='pending_nav' 的流水等官方净值到位后重算
+        # 份额/成本。target_kind=None——目标池是 pending 流水（job 自扫，同 reconcile
+        # 范式）；纯 DB 零外部请求；进 REST_DAY_JOB_NAMES（休市日 catch-up 空跑无害）。
+        'nav_backfill',
+        ENV_NAV_BACKFILL_ENABLED,
+        ENV_NAV_BACKFILL_CRON,
+        DEFAULT_NAV_BACKFILL_CRON,
+        None,
+        '净值缺失流水回填（pending_nav → 官方净值到位后重算份额/成本并清标记）',
     ),
     (
         # 场内日线（#1104）：本机调度原先**不含**本 job，股票行情只靠 CI 每天跑一次，
@@ -366,14 +431,35 @@ _NOT_SCHEDULED: Dict[str, Tuple[str, str]] = {
     'fund_list': ('全库列表型：同上；且东财/天天源对全库频抓敏感（限流）', '月度 / 手动'),
     'fund_detail_enrich': ('逐只详情（基金经理/费率/持仓等），成本高、日变更量小', '月度'),
     'fund_manager': ('基金经理任期变更，季报级披露', '季度 / 事件驱动'),
+    # #2082：任期只存在于天天基金 F10 经理页，**每只基金一次 HTTP**（而基金数量在
+    # 34812 量级）。进每日调度等于每天把核心池挨个打一遍上游，故明确留在本表；
+    # 需要时按目标池手动跑：`pdm run sync --job manager_tenure --full-sync --targets <codes>`。
+    'manager_tenure': ('逐只基金抓 F10 经理任期（每只一次 HTTP），且季报级才变', '季度 / 手动（按目标池）'),
     'fund_company_backfill': ('基金公司主数据回填；覆盖率演进慢，且与 #1386 遗留同源', '月度'),
     'fund_scale': ('全库规模单次换全市场（__full__）；逐只抓是限流炸弹（#1403）', '季度 / 手动'),
     'fund_type': ('基金分类映射，日变更量极小', '月度'),
     'index_constituents': ('指数成分股，季报级调整', '季度'),
     'index_catalog': ('指数名录（基准/跟踪映射），准静态', '月度 / 手动'),
+    # #1981：行业分类映射。申万一级每年调整、证监会门类偶有修订，映射近乎静态——
+    # 每日重刷 31 个请求换不到新信息，故与 index_constituents 同判：用户看得见
+    # （penetration 行业分布直接展示）但数据日不变，不进每日调度。
+    # 首次部署后需手动跑一次填充（否则表空、穿透会报 industry_map_missing）：
+    #   pdm run sync --job security_industry_maps
+    'security_industry_maps': ('行业分类映射准静态（申万年调 / 证监会门类偶修），日变更量极小', '月度 / 手动'),
+    # #1407 拍板的分位基线：乐咕返回**月频**（月末采样），两次采样之间日变更量为 0，
+    # 进每日调度等于每天打 9 次上游换回同一份数据；且分位窗口 5 年、样本 12 点/年，
+    # 晚一个月刷新对分位读数无感。
+    'index_valuation_lg': ('乐咕月频估值基线（月末采样），日变更量为 0；分位窗口 5 年、月度够用', '月度 / 手动'),
     'channel_link': ('跨渠道关联：随基金列表与指数名录变化，重跑需前置已更新', '周（依赖上游先更新）'),
     'amac_institution': ('公募机构持仓，季报级披露', '季度'),
     'asset_snapshot': ('D21 明确把 asset_snapshot 排除在本机通道之外（资产快照按用户手动触发）', '手动'),
+    # #2255：CNB 侧 #167 收敛带入的逐标的派生 job——从净值历史现算 3 年窗口风险指标，
+    # 指标日变更极小（窗口指标平滑），且需按目标池限量回填（见 SYMBOL_BACKFILL_JOBS 纪律），
+    # 不满足「日变 + 用户直接可见」双条件，故登记本表而非每日调度。
+    'fund_risk_metrics': (
+        '逐标的从净值历史派生的指标投影（3 年窗口指标日变更极小），按目标池按需回填',
+        '周度 / 手动（按目标池）',
+    ),
 }
 
 
@@ -516,6 +602,9 @@ REST_DAY_JOB_NAMES: frozenset = frozenset(
         'price_history',  # 场内日线：缺口回补本就是它的既有口径
         'fund_nav',  # 场外净值：增量窗口 = 上次成功日 − 1 天
         'position_price',  # 持仓现价回写：消费上面两者的落库结果，不补跑则持仓停在周五之前
+        'fund_valuation_reconcile',  # 预估→正式对照（#2142）：周末 fund_nav 补昨日净值后，
+        # 周六晨间即可对照周五预估；纯 DB 零成本，休市日空跑无害
+        'nav_backfill',  # 净值缺失流水回填：官方净值 T-1 落库，休市日 catch-up 同理，纯 DB 零成本
     }
 )
 

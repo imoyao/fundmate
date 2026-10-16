@@ -146,15 +146,29 @@ export function useWatchlistData(
   /** 拉取列表（分页切片由后端完成，前端只消费 data/total）。
    * @param refreshAll 是否顺带刷新全量结果 allItems（供估值汇总条）。
    *        筛选/排序/搜索/分组变化时应传 true；纯翻页传 false（汇总保持稳定）。
+   *        全量结果用 fields=lite 单请求取回（per_page=200 覆盖全量）。
    */
   async function fetchData(refreshAll = true) {
     loading.value = true;
     try {
-      const res = await getWatchlistItems(fetchParams.value);
-      items.value = res.data ?? [];
-      totalItems.value = res.total ?? items.value.length;
       if (refreshAll) {
-        await fetchAllItems();
+        // 并行发起：当前页 + 全量 lite（后端 per_page=200 已覆盖全量，单次请求即可）
+        const [pageRes, allRes] = await Promise.all([
+          getWatchlistItems(fetchParams.value),
+          getWatchlistItems({
+            ...fetchParams.value,
+            page: 1,
+            per_page: 200,
+            fields: "lite"
+          })
+        ]);
+        items.value = pageRes.data ?? [];
+        totalItems.value = pageRes.total ?? items.value.length;
+        allItems.value = allRes.data ?? [];
+      } else {
+        const res = await getWatchlistItems(fetchParams.value);
+        items.value = res.data ?? [];
+        totalItems.value = res.total ?? items.value.length;
       }
     } catch (e) {
       ElMessage.error("获取自选列表失败");
@@ -162,38 +176,6 @@ export function useWatchlistData(
     } finally {
       loading.value = false;
     }
-  }
-
-  /**
-   * 拉取「全量过滤结果」（忽略分页），供实时估值汇总条使用（#1245）。
-   * 后端 per_page 上限 200，故按页累加直到取尽（安全阀防止异常死循环），
-   * 确保汇总口径与整组一致、翻页时不再跳变。
-   *
-   * `fields=lite`：汇总只消费 current_price / holding_* / position_market_value，
-   * 不需要基金回撤、可转债条款、指数估值、跨渠道关联这些展示专用字段。
-   * 后端据此跳过这些按 symbol 查库（含扫 3 年 daily_worth 的基金回撤）的 enrich——
-   * 实测这是自选列表接口最大的单点耗时，不传该参数会让「全量拉取」为 164 行
-   * 各算一遍回撤，叠加本函数与首页分页请求的两次全量构建，足以把首屏拖过 10s 超时。
-   */
-  async function fetchAllItems() {
-    const base: Record<string, string | number | boolean> = {
-      ...fetchParams.value
-    };
-    delete base.page;
-    const all: WatchlistItem[] = [];
-    const perPage = 200;
-    for (let page = 1; page <= 50; page++) {
-      const res = await getWatchlistItems({
-        ...base,
-        page,
-        per_page: perPage,
-        fields: "lite"
-      });
-      const rows = (res.data ?? []) as WatchlistItem[];
-      all.push(...rows);
-      if (rows.length < perPage) break;
-    }
-    allItems.value = all;
   }
 
   // ─────────────────────────────────────────────
@@ -474,6 +456,35 @@ export function useWatchlistData(
     tags.resetTagFilter();
   }
 
+  /**
+   * 「清除筛选」一键快捷（#2199 ⑥）：清空类型 + 标签，分组切回系统「全部」
+   * （key 与 useWatchlistGroups.fetchGroups 的回退值同源，是「全部」的真实 key；
+   * 不用 resetActiveGroup——它回的是 holding「持仓」不是「全部」）。
+   * 搜索词不清：搜索框用户可见、可自行清，不在本按钮职责内。
+   *
+   * 刷新路径按「谁有 watch 兜底」分流，保证每个场景恰好一次请求：
+   * - 标签由非空清空 → 本文件 watch(selectedFilterTagIds)（约 255 行）兜底刷新；
+   * - 分组从非「全部」切回 → index.vue watch(activeGroup)（约 251 行）兜底刷新；
+   * - 两者都不触发（分组本就是「全部」、标签本就空、只清了类型）→ 显式刷新：
+   *   程序化改 selectedAssetTypes 没有任何 watch 监听，是唯一无人兜底的路径，
+   *   必须显式 currentPage=1 + fetchData()（#2199 用户实测的「条件残留」即此场景）。
+   * 不复用 resetFilters：它回 holding 默认态、清搜索词、且不触发 fetch，语义与
+   * 「清除筛选」均不符（该函数目前无任何消费方，勿据它接线）。
+   */
+  function clearAllFilters() {
+    const hadTags = selectedFilterTagIds.value.length > 0;
+    // 只有已偏离「全部」才需要切回；已在「全部」时不写入，避免空触发分组 watch
+    const groupChanged = activeGroup.value !== "all";
+    selectedAssetTypes.value = [];
+    if (hadTags) tags.resetTagFilter();
+    if (groupChanged) activeGroup.value = "all";
+    // 无人兜底的场景补显式刷新；其余场景交给各自 watch（与用户手动改筛选同一刷新路径）
+    if (!hadTags && !groupChanged) {
+      currentPage.value = 1;
+      fetchData();
+    }
+  }
+
   return {
     // 分页状态
     loading,
@@ -512,6 +523,7 @@ export function useWatchlistData(
     handleBatchDelete,
     handleBatchMoveToGroup,
     exportData,
-    resetFilters
+    resetFilters,
+    clearAllFilters
   };
 }

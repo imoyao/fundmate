@@ -1,0 +1,53 @@
+# PR 自动合并（绿灯即合，一劳永逸机制 Layer 2）
+#
+# ## 为什么需要它
+#
+# dev 的 branch protection 开启 enforce_admins + 必过 Check Run「质量门禁汇总」，
+# 管理员也无法绕过。过去遇到「分支解完冲突仍合不进」时，只能临时放松保护——下次又得再来一次，
+# 是重复人工救火。本工作流改用 GitHub 原生 auto-merge：只要 PR 挂了 `automerge` 标签，
+# 在「质量门禁汇总」转绿后 GitHub 自动合并。保护一直开着（质量不丢），合是自动的，
+# 不再需要人工点合、更不需要临时关保护。
+#
+# ## 触发与条件
+#
+# - 事件：PR 打开 / 同步 / 重开 / 加标签（pull_request_target，便于拿到写权限 token）。
+# - 仅对 base=dev 的 PR 生效。
+# - 仅当 PR 挂有 `automerge` 标签时启用自动合并（opt-in，避免误合）。
+# - 启用是幂等的：重复调用 `gh pr merge --auto` 不会报错。
+#
+# ## 与 Layer 1（自动变基）配合
+#
+# 自动变基让分支始终基于最新 dev，冲突在源头极小；本工作流在其之上负责「绿了就合」。
+# 二者合起来，未来 CNB/agent 分支的常态是：基于最新 dev → 自动变基保新 → 门禁绿就自动合 → 回同步 CNB。
+
+name: PR 自动合并（绿灯即合）
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  enable-auto-merge:
+    runs-on: ubuntu-latest
+    # 仅 base=dev 且挂有 automerge 标签时启用（contains 对标签数组做字符串匹配，跨事件均可靠）
+    if: >-
+      github.event.pull_request.base.ref == 'dev' &&
+      contains(toJson(github.event.pull_request.labels), 'automerge')
+    steps:
+      - name: 启用自动合并（门禁转绿即合）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          set -euo pipefail
+          if gh pr merge --auto --merge "$PR_URL" 2>/tmp/automerge.err; then
+            echo "已为 $PR_URL 启用 auto-merge（质量门禁汇总转绿后自动合入 dev）"
+          else
+            # 常见：当前仍有冲突或门禁未绿。属预期，不标红——下次 synchronize 会重试。
+            echo "auto-merge 暂未启用（可能仍有冲突或门禁未绿），将在后续推送时重试："
+            cat /tmp/automerge.err
+          fi

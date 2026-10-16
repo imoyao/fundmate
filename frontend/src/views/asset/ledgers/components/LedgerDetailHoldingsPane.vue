@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <!-- 持仓明细 Tab -->
   <el-tab-pane label="持仓明细" name="holdings">
     <!-- 盈亏双线（#1104）：口径说明 + 实时估值开关就地给出（本 Tab 没有 SectionHeader 可挂） -->
@@ -87,6 +87,7 @@
             :confirmed="confirmedPnl(row as LedgerHoldingRow)"
             :estimated="p.valuation.estimatedPnl(row as LedgerHoldingRow)"
             :hint="p.valuation.estimateHint(row as LedgerHoldingRow)"
+            :price-date="(row as LedgerHoldingRow).price_date"
           />
         </template>
       </el-table-column>
@@ -132,19 +133,29 @@
           <span v-else>--</span>
         </template>
       </el-table-column>
-      <el-table-column
-        label="配置目标"
-        width="90"
-        align="right"
-        show-overflow-tooltip
-      >
+      <!-- 配置目标（#1123 P0）：徽章改行内下拉，保存走嵌套持仓 PATCH（后端五笔钱白名单）。
+           色点保留原徽章的颜色语义（getAllocColor）；失败时以服务端真值回滚 select 的乐观更新 -->
+      <el-table-column label="配置目标" width="120" align="right">
         <template #default="{ row }">
-          <span
-            class="px-2 py-0.5 rounded-full text-xs"
-            :style="{ color: p.getAllocColor(row.allocation) }"
-          >
-            {{ row.allocation_label }}
-          </span>
+          <div class="flex items-center justify-end gap-1">
+            <span
+              class="alloc-dot"
+              :style="{ backgroundColor: p.getAllocColor(row.allocation) }"
+            />
+            <el-select
+              v-model="row.allocation"
+              size="small"
+              class="alloc-select"
+              @change="handleAllocationChange(row as LedgerHoldingRow)"
+            >
+              <el-option
+                v-for="opt in ALLOCATION_OPTIONS"
+                :key="opt.value"
+                :label="opt.label"
+                :value="opt.value"
+              />
+            </el-select>
+          </div>
         </template>
       </el-table-column>
       <el-table-column
@@ -216,11 +227,14 @@
 
 <script setup lang="ts">
 import { reactive } from "vue";
+import { ElMessage } from "element-plus";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import DeletePositionDialog from "./DeletePositionDialog.vue";
 import PnlDualLine from "@/components/PnlDualLine/index.vue";
 import RealtimeEstimateToggle from "@/components/RealtimeEstimateToggle/index.vue";
+import { updateLedgerPosition } from "@/api/ledger";
+import { ALLOCATION_OPTIONS } from "@/constants";
 import { pricePrecision } from "@/utils/pricePrecision";
 import type { LedgerHoldingRow } from "@/composables/useLedgerDetail";
 import {
@@ -237,4 +251,32 @@ const props = defineProps<{ page: ReturnType<typeof useLedgerDetailPage> }>();
 // `reactive` 的好处在这里体现：`page` 里既有顶层 ref（holdingsList）也有嵌套 ref
 // （valuation.estimateEnabled），经 reactive 代理后模板里都能直接绑，不必手写 `.value`。
 const p = reactive(props.page);
+
+/** 行内编辑配置目标（#1123 P0）：写回 Position.allocation（后端五笔钱白名单） */
+async function handleAllocationChange(row: LedgerHoldingRow) {
+  try {
+    await updateLedgerPosition(Number(p.ledgerId), row.id, {
+      allocation: row.allocation ?? null
+    });
+    ElMessage.success("配置目标已更新");
+  } catch (e) {
+    const err = e as { response?: { data?: { message?: string } } };
+    ElMessage.error(err?.response?.data?.message || "配置目标更新失败");
+    // v-model 已乐观更新 row.allocation：失败后以服务端真值恢复
+    p.loadHoldings();
+  }
+}
 </script>
+
+<style lang="scss" scoped>
+.alloc-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.alloc-select {
+  width: 96px;
+}
+</style>

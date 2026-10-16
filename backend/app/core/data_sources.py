@@ -25,13 +25,19 @@ from __future__ import annotations
 DATA_SOURCE_LABELS: dict[str, str] = {
     # 场内日线（akshare_adapter.fetch_stock_price）
     'akshare_sina': '新浪财经',  # ak.stock_zh_a_daily / bond_zh_hs_cov_daily
-    'akshare_em': '东方财富',  # ak.fund_etf_hist_em
+    'akshare_em': '东方财富',  # ak.fund_etf_hist_em（ETF 日线备源，2026-10-14 起）
+    'akshare_tx': '腾讯财经',  # ak.stock_zh_a_hist_tx（ETF 日线主源，2026-10-14 起）
     'akshare_spot': '东方财富',  # ak.stock_zh_a_spot_em（当日实时兜底）
     'akshare': 'AKShare',  # 早期/未细分来源的存量行
     # 指数与名录
     'sina': '新浪财经',
     'csindex': '中证指数',
     'cni': '国证指数',
+    # 指数日线（index_daily，#275 两路来源）
+    'tencent': '腾讯',  # 交易所指数腾讯日线直连（raw 收盘）
+    'jiucaishuo': '韭圈儿',  # 万得系指数经韭圈儿公开接口（anchored/normalized）
+    # 乐咕乐股（指数估值分位基线，#1407）
+    'lg': '乐咕乐股',
     # 可转债与公告
     'akshare_jsl': '集思录',
     'akshare_bond_zh_cov': '集思录',

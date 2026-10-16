@@ -336,6 +336,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | 表名 | 归属域 | 字段 | 不变式 |
 |------|--------|------|--------|
 | `dividend_targets` | user | `id / family_id / target_yield_pct(Numeric(6,2)) / notes / created_at / updated_at` | 一家庭一条（`uq_dividend_target_family`）；逐持仓的**实际**股息率实时从流水算、**不落库** |
+| `notifications` | user | `id / family_id / level(P0\|P1\|P2) / category(strategy\|watchlist\|system) / title / body / dedup_key / source_type / source_key / is_read / read_at / created_at / updated_at` | 家庭级（一人已读即家庭已读）；`(family_id, dedup_key)` 唯一（`uq_notification_family_dedup`）保证幂等与「一天至多一条」。**本表不生产消息**，由各业务域调 `notification_service.emit_many` 写入 |
 
 口径（详见 `decisions.md` D41）：股息率 =（现金分红 + 红利再投 − 红利税）/ 当前持仓成本；
 `totals` / `by_year` 走**全量流水**口径（含已清仓与孤儿分红），`portfolio` / `holdings` 走**在管持仓**口径；

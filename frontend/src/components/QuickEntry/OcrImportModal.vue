@@ -98,6 +98,59 @@
           >
         </div>
       </div>
+
+      <!-- 导入分组（#2106）：可选，默认不选＝只进「全部」。
+           只列**自定义分组**（多对多真实关联）；「全部」等系统分组是虚拟口径、
+           没有关联关系，故不作为勾选项出现——用户需要感知的是「可补救」，不是
+           「全部不可取消」（后者等于发明一个不存在的状态）。 -->
+      <div class="import-groups">
+        <span class="import-groups__label">同时加入分组（可选，可多选）</span>
+        <div class="import-groups__control">
+          <el-select
+            v-model="selectedGroupIds"
+            multiple
+            filterable
+            clearable
+            collapse-tags
+            collapse-tags-tooltip
+            size="small"
+            class="import-groups__select"
+            placeholder="不分组"
+          >
+            <el-option
+              v-for="g in availableGroups"
+              :key="g.id"
+              :label="g.name"
+              :value="g.id"
+            >
+              <div class="import-groups__option">
+                <span
+                  class="import-groups__dot"
+                  :style="{
+                    backgroundColor: g.color || 'var(--text-disabled)'
+                  }"
+                />
+                <span>{{ g.name }}</span>
+              </div>
+            </el-option>
+          </el-select>
+          <el-button
+            aria-label="新建分组"
+            size="small"
+            class="import-groups__add"
+            @click="groupFormVisible = true"
+          >
+            <IconifyIconOffline icon="ep:plus" />
+          </el-button>
+        </div>
+        <p class="import-groups__hint">
+          {{
+            availableGroups.length
+              ? "不选则只进入「全部」，之后可在自选页随时调整分组。"
+              : "暂无自定义分组，可点右侧 + 新建；不选则只进入「全部」。"
+          }}
+        </p>
+      </div>
     </div>
 
     <template #footer>
@@ -127,6 +180,13 @@
         导入选中（{{ selectedCount }}）
       </el-button>
     </template>
+
+    <!-- 复用全局「新建分组」弹窗（#2106）：与自选页分组管理体验一致 -->
+    <GroupFormDialog
+      v-model="groupFormVisible"
+      :used-colors="groupFormUsedColors"
+      @created="onGroupCreated"
+    />
   </el-dialog>
 </template>
 
@@ -136,12 +196,18 @@ import { ElInput, ElMessage } from "element-plus";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import ImageUploader from "@/components/ImageUploader/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
+import GroupFormDialog from "@/components/Watchlist/GroupFormDialog.vue";
 import { parseImportText, recognizeImage, getOcrUsage } from "@/api/ocr";
 import {
   useFormDirty,
   useUnsavedChangesGuard
 } from "@/composables/useUnsavedChangesGuard";
-import { createWatchlistItem, getWatchlistItems } from "@/api/watchlist";
+import {
+  createWatchlistItem,
+  getWatchlistItems,
+  getWatchlistGroups,
+  type WatchlistGroup
+} from "@/api/watchlist";
 import type { OcrImportItem } from "@/api/ocr";
 
 const props = defineProps<{
@@ -195,6 +261,40 @@ interface Candidate extends OcrImportItem {
   selected: boolean;
 }
 const candidates = ref<Candidate[]>([]);
+
+// ── 导入分组（#2106）──
+// 归属说明：只列自定义分组（WatchlistGroup + 多对多关联），「全部」等系统分组
+// 是虚拟口径、无关联关系，故不在可选项中——它不是「不可取消的勾选项」。
+const availableGroups = ref<WatchlistGroup[]>([]);
+const selectedGroupIds = ref<number[]>([]);
+const groupFormVisible = ref(false);
+
+/** 已占用的分组色，供新建分组弹窗随机取色时避开 */
+const groupFormUsedColors = computed<string[]>(() =>
+  availableGroups.value.map(g => g.color).filter((c): c is string => Boolean(c))
+);
+
+const fetchGroups = async () => {
+  try {
+    const res = await getWatchlistGroups();
+    availableGroups.value = (res.data ?? []).filter(
+      g => !g.is_system && g.id != null
+    );
+  } catch (e) {
+    console.error("获取分组失败：", e);
+  }
+};
+
+/** 现场新建的分组直接补进可选项并选中，省得用户再找一遍 */
+function onGroupCreated(group: WatchlistGroup) {
+  if (group.id == null) return;
+  if (!availableGroups.value.some(g => g.id === group.id)) {
+    availableGroups.value = [...availableGroups.value, group];
+  }
+  if (!selectedGroupIds.value.includes(group.id)) {
+    selectedGroupIds.value = [...selectedGroupIds.value, group.id];
+  }
+}
 
 const canRecognize = computed(() => {
   if (occupied.value || remaining.value <= 0) return false;
@@ -359,7 +459,9 @@ const handleImport = async () => {
         asset_type: item.type || "fund",
         market: item.market,
         venue: item.venue || "OTC",
-        add_reason: "AI 批量导入"
+        add_reason: "AI 批量导入",
+        // #2106：导入时勾选的自定义分组（空数组 = 不分组，行为与不带该字段一致）
+        group_ids: [...selectedGroupIds.value]
       });
       success++;
     } catch (e: any) {
@@ -439,6 +541,7 @@ const reset = () => {
   textContent.value = "";
   imageFile.value = null;
   textError.value = "";
+  selectedGroupIds.value = [];
   // 与表单一起清基线：reset 跑在「导入成功」与「放弃后关闭」两条路上，
   // 只清表单不清基线的话，关闭后再开弹窗会直接是脏的（#1845 同源）。
   markClean();
@@ -452,6 +555,8 @@ watch(
   val => {
     if (val) {
       fetchUsage();
+      // 分组只在确认区出现（识别后），打开即取一次，避免识别完才拉导致的空窗
+      void fetchGroups();
       // 打开弹窗且当前在文本 tab 时，自动聚焦输入框
       if (activeTab.value === "text") focusTextarea();
     }
@@ -765,6 +870,78 @@ onMounted(() => {
 
   .candidate-tag {
     border-radius: var(--radius-pill);
+  }
+}
+
+/* ============================================
+   导入分组选择（#2106）
+   轻量可选控件：默认不选，选中态由 el-select 自带 chip 表达，
+   不额外加背景块——与「留白即背景」的既有观感一致
+   ============================================ */
+.import-groups {
+  margin-top: var(--space-3);
+
+  &__label {
+    display: block;
+    margin-bottom: var(--space-2);
+    font-size: var(--text-label);
+    color: var(--text-secondary);
+  }
+
+  &__control {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+  }
+
+  &__select {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* 与 size="small" 的 el-select 同高（EP small 组件高度 24px），
+     否则「输入框 24px + 按钮 32px」会呈现明显的高低肩 */
+  &__add {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    color: var(--text-tertiary-ink);
+    background-color: var(--bg-soft);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    transition:
+      color 150ms ease,
+      background-color 150ms ease;
+
+    &:hover {
+      color: var(--text-primary);
+      background-color: var(--bg-hover);
+    }
+  }
+
+  &__option {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+  }
+
+  &__dot {
+    display: inline-block;
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  &__hint {
+    margin: var(--space-2) 0 0;
+    font-size: var(--text-label);
+    line-height: 1.6;
+    color: var(--text-tertiary-ink);
   }
 }
 

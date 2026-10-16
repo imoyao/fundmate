@@ -113,7 +113,10 @@ python scripts/bridge/cnb_github_backfill.py --apply --limit 3
 依赖：**纯标准库**（`urllib`），不需要 `pip install`——故意保持这样，免得每日作业被某个
 三方包的破坏性升级带崩。
 
-读 CNB 侧**匿名即可**（公开仓库），不需要 token；`CNB_READ_TOKEN` 留给将来仓库转私有时的口子。
+读 CNB 侧**必须带 token**：`CNB_READ_TOKEN`（或 `CNB_TOKEN`）配进 GitHub 仓库 secret
+（Settings → Secrets and variables → Actions）。**匿名一律 401**——2026-10-14 实测纠正：
+`api.cnb.cool` 对匿名请求返回 `{"errcode":16,...}`，与仓库是否公开无关。本文档旧版
+「匿名即可（公开仓库）」的说法是错的，正是它让三次定时运行全挂在第一步。
 
 ## 8. 流水线
 
@@ -184,8 +187,17 @@ git merge-base --is-ancestor origin/main origin/dev    ⇒ false（已分叉）
 ```
 
 后果不是理论风险：**「改镜像链路」的代码在 `dev`，「会被真正执行」的代码在 `main`**，
-而两边对「镜像卡是只读副本还是允许修正」的结论是**相反**的。PR #116 带来的时效声明 /
-评论回写链路目前**一行都没在跑**。
+而两边对「镜像卡是只读副本还是允许修正」的结论是**相反**的。
+
+> ⚠️ **本节这一段的结论已过期（2026-10-14 更正，源 CNB #179）**：原文写「评论回写链路目前
+> **一行都没在跑**」——那是 **2026-10-11 当时**的状态（脚本只在 `dev`、workflow 没铺开）。
+> 现状是**已在跑**：`scripts/bridge/cnb_github_backfill.py` +
+> `.github/workflows/cnb-github-backfill.yml`（每日 18:30 UTC），且脚本在 `dev` / `main`
+> **两侧都有**。实测（2026-10-14，本机真 GitHub + 真 CNB）跑 `--dry-run` 得到
+> 「可映射 21 张，回写 0 条评论」，说明映射与幂等判定都在正常工作。
+> **唯一使用门槛**：CNB 卡面引用 GitHub 卡要写**完整 URL**
+> `https://github.com/imoyao/fundmate/issues/N` —— 裸引用 `imoyao/fundmate#N` 会被
+> **静默跳过**（写路径「宁可漏，不可错」是对的，只是没信号）。
 
 ### 发版前先自查有没有分叉
 
@@ -218,14 +230,34 @@ git merge-base --is-ancestor origin/main origin/dev && echo '未分叉' || echo 
 
 ## 11. 与代码双向镜像的关系
 
-**代码不需要这套机制。** 两侧的 `dev` / `main` 由 CNB 侧 `sync/mirror` 分支的定时任务
-`git fetch` + **fast-forward only** 对齐（`.cnb.yml`），这是仓库级的直接搬运，比任何
-基于 API 的镜像都快且无冲突；GitHub 侧的 PR 合并会经那条通路自动出现在 CNB。
+**代码不需要这套机制。** 代码的两个方向各有归属：
+
+- **CNB → GitHub**：`.cnb.yml` 的 `push:` 段（`branch: dev`）与
+  `"**/!(main|dev)"` 段（`branch: ${CNB_BRANCH}`，功能分支）；
+- **GitHub → CNB**：`crontab: 0 * * * *` 的 `sync_mode: pull`。
+
+`main` 两个方向都不走——它是 GitHub 的权威分支，只由发版 PR（`dev → main`）推进。
+细节与守卫见 `docs/dev/github-cnb-mirror.md` §13.3。
 
 本作业只管 **issue 与评论**这一层——它没有 git 层面的等价物。
 
-> ⚠️ 那条 `sync/mirror` 定时任务**自 2026-10-11 起实际处于停摆状态**：两侧 `dev`
-> 已分叉（CNB 停在 `0de73e21`，GitHub 已到 `16e807c4`，中间是 GitHub PR #2049 / GitHub PR #2051）。
-> 该任务只允许快进，一旦有人直接往 CNB 侧推过分支（镜像分支本身就在 CNB 侧），
-> 后续同向的快进会被拒。这是**代码镜像独立于本作业的一个待修项**，见 issue #2 的
-> 讨论；本作业刻意不碰它（不越界修别人的腿）。
+> ⚠️ 那条 `sync/mirror` 定时任务**自 2026-10-11 起处于停摆状态**，且**至今仍在红**
+> （2026-10-14 复核）：两侧 `dev` 互不包含，该任务只允许快进，一旦有人直接往 CNB 侧
+> 推过分支，后续同向快进就被拒。
+>
+> **2026-10-14 补充（源 CNB #179）**：这条红有了**已成文的两条口径**——
+> ① **权威源单向后分叉不再产生**：CNB 侧的 git-sync 两个方向都收窄到 `dev`
+> （`push` 推 `dev`、`pull` 只拉 `dev`，`main` 两侧互不推、互不覆盖，见
+> `docs/dev/github-cnb-mirror.md` §13.3）；
+> ② **存量分叉靠发版收敛**，不是靠 `--force`（force 会静默抹掉一侧改动）。
+> 本作业仍刻意不碰它（不越界修别人的腿），但它**不再是「无人认领」的红**。
+>
+> **2026-10-14 处置（源 CNB #450 评论「先按 2、3 提个 PR」）**：
+> ① `sync/mirror` 那条 cron 已被**移除**——该分支自建起就只为托管这条 cron
+> （相对共同祖先只有 1 个提交、+48 行），而职责早被 `dev` 的 git-sync 取代；
+> ② `dev` 的 **pull cron 已删除**：插件的 pull = `git pull --rebase` + `git push origin --force`，
+> 而 CNB `dev` 比 GitHub `dev` 多 83 笔独有提交、**逐笔 rebase 79 笔冲突**
+> （同一对分支用 **merge** 则零冲突）⇒ 它必然红且一字节都拉不动。**「解掉
+> `decisions.md` 的冲突债」解不掉它**——那只是 79 分之一。GitHub → CNB 的整段合并
+> 改走人工的 `scripts/bridge/dev_converge.py --apply`（用 merge）。
+> 仍**待办**：GitHub 侧 `dev` 的分支保护（push 被 `质量门禁汇总` 拦）需要仓库管理员在 Web 上处置。

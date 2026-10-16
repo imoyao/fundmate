@@ -40,8 +40,17 @@ export interface LedgerSummaryData {
   cash_balance?: number | null;
   /** 类现金合计（#1137）：货基 + 逆回购 + 账户现金，口径同 XIRR EXCLUDED_ASSET_TYPES */
   cash_like_amount?: number;
-  /** 中高风险投资资产 = 总市值 - 类现金（#1137） */
+  /** 中高风险投资资产 = 总市值 - **持仓内**类现金（#1137） */
   investment_amount?: number;
+  /**
+   * **持仓内**类现金（货基/逆回购持仓市值），是 `total_market_value` 的子集。
+   *
+   * ⚠️ 它与 `cash_like_amount` 不同：后者还含「账外类现金」（孤儿货基/逆回购流水净额
+   * + 账户现金），那部分不建持仓、不在总市值内。环形图必须用本字段做「现金类资产」片，
+   * 否则两片之和 ≠ 左侧总资产，且「投资资产」会被算成负数
+   * （真机：账户 id=12 曾显示「投资资产 -63.2% / 现金类资产 163.2%」）。
+   */
+  cash_like_in_positions_amount?: number;
   /** 类现金明细：货基市值 */
   money_fund_amount?: number;
   /** 类现金明细：账户现金 */
@@ -64,6 +73,8 @@ export interface LedgerHoldingRow {
   /** 持有时长（天），基于本轮建仓确认日 confirm_date；清仓后重买重置；无确认日时为 null（#862） */
   holding_days?: number | null;
   current_price?: number;
+  /** 价格时点（#2140）：基金=实际采用的最新净值日；其他=快照回写日；缺失为 null */
+  price_date?: string | null;
   allocation?: string | null;
   allocation_label?: string;
   quantity?: number;
@@ -195,10 +206,19 @@ export function useLedgerDetail(): LedgerDetailApi {
     )
   );
 
-  // 环形图数据：投资资产 vs 现金类资产
+  // 环形图数据：投资资产 vs 现金类资产。
+  //
+  // ⚠️ 两片必须是**持仓市值的一个划分**（合计 = 左侧「总资产」），否则占比会算出
+  // 负数或超过 100%：账外类现金（孤儿货基流水净额 / 账户现金）不在持仓市值内，
+  // 若拿它当「现金类资产」片，投资片 = 总市值 - 类现金 就会变负
+  // （真机：账户 id=12 曾显示「投资资产 -63.2% / 现金类资产 163.2%」）。
+  // 故现金片固定取 `cash_like_in_positions_amount`（持仓内类现金）。
   const compositionData = computed(() => [
     { name: "投资资产", value: summaryData.value?.investment_amount ?? 0 },
-    { name: "现金类资产", value: summaryData.value?.cash_like_amount ?? 0 }
+    {
+      name: "现金类资产",
+      value: summaryData.value?.cash_like_in_positions_amount ?? 0
+    }
   ]);
 
   // 环形图配色：走 design.md 图表语义变量（禁止硬编码 hex），对齐家庭资产看板饼图取色（chart-01 起）

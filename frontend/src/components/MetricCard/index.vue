@@ -9,6 +9,7 @@
     - level: 等级文案，传给 TemperatureLevelBadge（如 "偏低"/"正常"）
     - caption: 副文案（如更新时间、说明）
     - featured: 放大主数字（用于核心指标）
+    - valueColor: 主数字颜色覆盖（可选，默认 --text-primary；见 props JSDoc 的取舍说明）
     - loading/empty 状态由调用方控制，这里只负责空值展示 "--"
 -->
 <template>
@@ -24,7 +25,11 @@
     </div>
 
     <div class="metric-card__body">
-      <span class="metric-card__value">{{ displayValue }}</span>
+      <span
+        class="metric-card__value"
+        :style="valueColor ? { color: valueColor } : undefined"
+        >{{ displayValue }}</span
+      >
       <span v-if="unit" class="metric-card__unit">{{ unit }}</span>
     </div>
 
@@ -44,6 +49,16 @@ const props = withDefaults(
     level?: string;
     caption?: string;
     featured?: boolean;
+    /**
+     * 主数字颜色，默认 `--text-primary`（中性暖黑）。
+     *
+     * ⚠️ 不改默认值是刻意的：MetricCard 是跨页共用组件，直接把默认色换成品牌色
+     * 会一次性改写全部调用方的观感，属于「改一个组件、动整站」的连坐式变更。
+     * 需要品牌色（如智能分析页的主数字）的调用方显式传 `var(--brand-ink)` 即可——
+     * 该令牌是**文字级**品牌色（白底 5.86:1，达 WCAG AA），而 `--brand-700`
+     * 作文字仅 3.73:1，不要用后者。
+     */
+    valueColor?: string;
   }>(),
   {
     title: "",
@@ -51,7 +66,8 @@ const props = withDefaults(
     unit: "",
     level: "",
     caption: "",
-    featured: false
+    featured: false,
+    valueColor: ""
   }
 );
 

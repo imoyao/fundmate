@@ -19,6 +19,9 @@ from app.core.db_factory import market_session_factory, user_session_factory
 from app.core.validation import parse_query
 from app.domains.products.schemas import (
     AdvisorProfileRequest,
+    FundRiskRankingRequest,
+    FundRiskTypesRequest,
+    IndexProfileRequest,
     ManagerProfileRequest,
     ProductResolveRequest,
     ProductTrendRequest,
@@ -29,12 +32,15 @@ from app.services.advisor_profile import build_advisor_profile
 from app.services.fund_holdings_detail import build_fund_holdings_detail
 from app.services.fund_performance import build_fund_performance
 from app.services.fund_profile import build_fund_profile
+from app.services.fund_risk_ranking import SORTABLE_METRICS, list_by_metric, list_fund_types
+from app.services.index_profile import build_index_profile
 from app.services.manager_holdings import build_manager_holdings
 from app.services.manager_profile import build_manager_profile
 from app.services.product_identity import resolve_product_identity
-from app.services.product_trend import RANGE_DAYS, fetch_product_trend
+from app.services.product_trend import empty_product_trend, fetch_product_trend
 from app.services.related_symbols import build_related_symbols
 from app.services.stock_profile import build_stock_profile
+from app.services.trade_timeline import build_trade_timeline, empty_trade_timeline
 
 bp = APIBlueprint('products', __name__, url_prefix='/api/products')
 
@@ -196,6 +202,31 @@ def stock_profile():
     return jsonify({'data': data, 'message': 'ok'})
 
 
+@bp.get('/index-profile/')
+def index_profile():
+    """指数资料聚合（#2028 · 详情页指数详情区块）：资料 + 官方估值 + 历史分位一次取完。
+
+    与同族端点同一硬规则（#1968 / #1969）：三张指数表（``index_catalog`` /
+    ``index_valuations`` / ``index_valuation_baselines``）均无 API 出口，拼不出
+    首屏就在本域补端点；放 products 域的理由同 ``fund-profile``——服务的是「详情页」
+    这一个页面。
+
+    分位在读路径现算（乐咕月频近 5 年窗口，#1407 拍板），样本不足或无基线的指数
+    回 ``null``，前端诚实降级「—」。股息率分位本期恒为 ``null``（乐咕无该序列）。
+    """
+    query: IndexProfileRequest = parse_query(IndexProfileRequest)
+
+    with closing(market_session_factory()()) as db:
+        try:
+            data = build_index_profile(db, query.symbol)
+        except ValueError as e:
+            abort(400, str(e))
+
+    if data is None:
+        abort(404, f'指数不存在：{query.symbol}')
+    return jsonify({'data': data, 'message': 'ok'})
+
+
 @bp.get('/manager-profile/')
 def manager_profile():
     """基金经理资料聚合（#1970 · 详情页经理详情区块）：资料 + 任职基金列表一次取完。
@@ -243,6 +274,10 @@ def manager_holdings():
     **口径透传**：``basis`` / ``basis_label`` / ``report_period`` 必须下发，
     前端要能告诉用户这是「季报前十大」还是「半年报全量」—— 否则「只披露 10 只」
     会被误读成「只买了 10 只」。
+
+    **风格标签（#2044）**：``style_labels[]``（``{dim, key, label, basis}``）挂在本
+    端点而非首屏 ``manager-profile``——标签描述的是代表作、与重仓同源同期，且要查
+    同一批持仓表；数据不足的维度**缺席**而非回 null，后端不返回颜色（配色由前端令牌决定）。
     """
     query: ManagerProfileRequest = parse_query(ManagerProfileRequest)
 
@@ -315,6 +350,7 @@ def product_trend():
 
     与 ``/api/watchlist/trends/`` 的区别：本端点**带日期轴**且用区间语义（1M/3M/6M/1Y），
     因为详情页要画坐标轴、并给出「数据日期」口径脚注；trends 面向列表页迷你图，只要数值数组。
+    ``start`` 为显式起始日（#2171 建仓期），给定时忽略档位。
 
     降级：品类本身没有序列数据源（指数 / 基金经理 / 投顾组合）时返回**空序列**而非 404——
     「该品类不提供走势」与「产品不存在」是两件事，前端要分别渲染空态。
@@ -328,19 +364,74 @@ def product_trend():
                 symbol=query.symbol,
                 asset_type=query.asset_type,
                 range_key=query.range_,
+                start_date=query.start,
             )
         except ValueError as e:
             abort(400, str(e))
 
     if result is None:
-        result = {
-            'symbol': (query.symbol or '').strip().upper(),
-            'kind': '',
-            'dates': [],
-            'values': [],
-            'source': '',
-            'range': query.range_,
-            'requested_days': RANGE_DAYS[query.range_],
-            'available_days': 0,
-        }
+        # 品类无序列数据源（指数/基金经理/投顾组合）→ 空序列降级。
+        # 响应形态由 service 给出（#1606：视图只做编排，不内联业务规则）
+        result = empty_product_trend(query.symbol, query.range_, query.start)
     return jsonify({'data': result, 'message': 'ok'})
+
+
+@bp.get('/fund-risk-ranking/')
+def fund_risk_ranking():
+    """按风险指标筛同类基金（#167）。口径 / 为什么 `fund_type_id` 必填见
+    `services/fund_risk_ranking.list_by_metric` 的 docstring——视图只做入参校验与编排。"""
+    query: FundRiskRankingRequest = parse_query(FundRiskRankingRequest)
+
+    metric = (query.metric or '').strip()
+    if metric not in SORTABLE_METRICS:
+        abort(400, f'不支持的排序指标：{metric}')
+
+    ascending = None
+    if query.order:
+        order = query.order.strip().lower()
+        if order not in ('asc', 'desc'):
+            abort(400, f'order 只能是 asc / desc：{query.order}')
+        ascending = order == 'asc'
+
+    with closing(market_session_factory()()) as db:
+        data = list_by_metric(
+            db,
+            fund_type_id=query.fund_type_id,
+            metric=metric,
+            limit=query.limit,
+            ascending=ascending,
+            include_distorted=bool(query.include_distorted),
+        )
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/fund-risk-types/')
+def fund_risk_types():
+    """列出**当前有榜**的基金小类（#167）。为什么单开端点见
+    `services/fund_risk_ranking.list_fund_types` 的 docstring。"""
+    query: FundRiskTypesRequest = parse_query(FundRiskTypesRequest)
+    with closing(market_session_factory()()) as db:
+        data = list_fund_types(db, caliber_version=query.caliber_version)
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/trade-timeline/')
+def product_trade_timeline():
+    """持仓交易时间线（#2171 · 详情页走势叠加买卖点 / 成本线）。流水是私有数据：
+    未登录 / 无流水均返回空序列（可选登录，与 /resolve/ 一致）；重放口径见 service。
+    """
+    symbol = (request.args.get('symbol') or '').strip()
+    if not symbol:
+        abort(400, '缺少 symbol 参数')
+    ledger_raw = (request.args.get('ledger_id') or '').strip()
+    ledger_id = int(ledger_raw) if ledger_raw.isdigit() else None
+
+    if not _is_authenticated():
+        return jsonify({'data': empty_trade_timeline(symbol), 'message': 'ok'})
+
+    with closing(user_session_factory()()) as db:
+        try:
+            data = build_trade_timeline(db, symbol=symbol, family_id=get_family_id(), ledger_id=ledger_id)
+        except ValueError as e:
+            abort(400, str(e))
+    return jsonify({'data': data, 'message': 'ok'})

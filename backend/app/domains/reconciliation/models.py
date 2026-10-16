@@ -5,7 +5,7 @@
 - reconciliation_runs：对账运行记录（历史与摘要，幂等可重跑）。
 - adjustment_logs：审计日志（仅用户主动操作；系统自动行为不写，§5.5）。
 
-三表均含 family_id → user 域，须在 db_factory.DATA_DOMAIN_REGISTRY 登记。
+四表均含 family_id → user 域，须在 db_factory.DATA_DOMAIN_REGISTRY 登记。
 """
 
 from sqlalchemy import Boolean, Column, Date, DateTime, Index, Integer, String, Text, UniqueConstraint
@@ -73,6 +73,40 @@ class ReconciliationRun(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin
     __table_args__ = (
         Index('idx_runs_family_domain', 'family_id', 'domain'),
         Index('idx_runs_started_at', 'family_id', 'started_at'),
+    )
+
+
+class GhostDuplicateIgnore(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
+    """跨账本重复交易（「幽灵重复」）的忽略记录（域 D，#2151）。
+
+    WHY 单独一张表而不是复用 `discrepancies`：
+    - 域 D 的行是**一组**跨账本重复（一个指纹对应 N 条流水、≥2 个账本），
+      而 `discrepancies` 的业务键唯一约束是 `(family_id, domain, ledger_id, symbol,
+      discrepancy_type)`——按「单个账本 + 标的」定位。若把组塞进去，要么一个组占 N 行
+      （去重逻辑分裂）、要么 `ledger_id` 填伪值（唯一约束语义被污染）。
+    - 且域 D 的扫描是**实时派生**（`summary_service.scan_cross_ledger_duplicates` 现算），
+      没有「本期 run 重建」这一步，不需要 `discrepancies` 的状态机（pending/cleared）。
+
+    因此本表**只存「忽略」这一个事实**：扫描结果减去本表已忽略的指纹，即为对用户可见的组。
+    `fingerprint` 由 `services.ghost_duplicate_service.build_fingerprint` 生成，
+    含账本集合 → 「忽略了 2 家，第 3 家又导入」会得到新指纹，不会被旧忽略静默吞掉。
+    """
+
+    __tablename__ = 'ghost_duplicate_ignores'
+
+    fingerprint = Column(
+        String(64), nullable=False, comment='组指纹（sha256，含 confirm_date/身份/txn_type/金额/账本集合）'
+    )
+    ignored_reason = Column(Text, nullable=True, comment='忽略原因')
+    ignored_at = Column(DateTime, nullable=True, comment='忽略时间')
+    ignored_by = Column(Integer, nullable=True, comment='操作用户ID')
+    # 建卡时快照的组摘要，供「已忽略清单」在扫描结果变化后仍能解释「当初忽略的是什么」
+    snapshot_json = Column(Text, nullable=True, comment='忽略时的组快照(JSON)')
+
+    __table_args__ = (
+        # 同一家庭内一个指纹只有一条忽略记录（ignore 幂等；撤销 = 删行，故无状态列）
+        UniqueConstraint('family_id', 'fingerprint', name='uq_ghost_dup_ignore_fingerprint'),
+        Index('idx_ghost_dup_ignore_family', 'family_id', 'created_at'),
     )
 
 

@@ -111,9 +111,15 @@ def cmd_all(args):
 
 
 def cmd_job(args):
-    """透传跑单个 Job。"""
+    """透传跑单个 Job。
+
+    #1983 遗留①：DB_POOL_JOBS 里的 job（fund_position）在无显式
+    目标时，与 sync_metadata.main() 同源解析库内核心池（含 etf 池）；
+    其他 job 仍透传 None，保持「子类自取核心池」语义。
+    """
     # 逐标的回填型 Job 走 --full-sync 必须带 --targets / --target-file（#824 / #1776 ④）
     from app.services.sync.orchestrator import require_full_sync_scope
+    from app.tools.sync_metadata import DB_POOL_JOBS, resolve_job_targets
 
     targets = None
     if args.targets:
@@ -126,6 +132,13 @@ def cmd_job(args):
     init_db()
     with get_db() as db:
         orch = _build_orchestrator(db)
+        # fund_position 对 targets=None 的语义是「目标池为空 → 显式跳过」
+        # （grab.job 此前连 fund 池都不取，是 #870 修 sync_metadata 时
+        # 遗漏的对称路径）。显式 --targets 优先（not targets 保证）；
+        # --target-file 对 fund_position 从此生效（此前该 flag 在
+        # grab.job 路径是死参数，只被门禁读了 bool）。
+        if args.job in DB_POOL_JOBS and not targets:
+            targets = resolve_job_targets(orch, args.job, None, args.target_file)
         result = orch.run_job(args.job, full_sync=args.full_sync, targets=targets)
         logger.info(f'{args.job} 执行完成: {result.get("status")}')
         return 0 if result.get('status') == 'success' else 1

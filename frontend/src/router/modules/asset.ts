@@ -4,6 +4,12 @@ const EmptyLayout = () => import("@/layout/components/EmptyLayout.vue");
 // 1. 将资产管理模块的基础 Rank 设置为 100，彻底隔离 home.ts
 const BASE_RANK = 100;
 
+// #2152：/asset 直接子级与「投资管理」孙级曾共用 BASE_RANK 段——两组排序键完全相等
+// （贵金属≡账户管理、房产≡策略分析、智能分析≡投资组合），菜单次序只能靠数组先后兜底，
+// 改数组顺序就会跳位置。孙级改占 200+ 段：直接子级相对 rank 用 0~99（→100~199）、
+// 孙级相对 rank 用 0~99（→200~299），两段永不相交；守卫见 __tests__/routeRankGuard.spec.ts。
+const GRANDCHILD_RANK_BASE = 200;
+
 // 2. 工厂函数
 const createAssetRoutes = (routeConfig: any) => {
   const children = routeConfig.children.map((child: any) => {
@@ -13,7 +19,7 @@ const createAssetRoutes = (routeConfig: any) => {
         ...grandChild,
         meta: {
           ...grandChild.meta,
-          rank: (grandChild.meta?.rank || 0) + BASE_RANK
+          rank: (grandChild.meta?.rank || 0) + GRANDCHILD_RANK_BASE
         }
       }));
     }
@@ -55,12 +61,13 @@ const AssetRouteConfig = {
     // ── 投资管理（可折叠）──
     {
       // 目录型父路由：保留相对写法，拍平后父级自身注册为「/investment」，children 已统一为绝对 path。
-      // redirect 指向当前唯一可见子级（对账工作台，#1699）：旧值 /asset/investment/favorites 已随
-      // favorites 迁移至 /the-road-not-taken 而悬空，单子级合并菜单点击父级 href 时会跳空白页。
+      // redirect 指向可见子级中排序第一者（贵金属）；原指向 /investment/reconcile-workbench——
+      // #2152 已把对账工作台与智能分析移出本目录（见下方「分析与对账」段），投资管理现只余品类页
+      // 与隐藏流程页。redirect 任何时刻都必须落在可见子级上，否则会复现 #1699 的「点父级跳空白页」。
       path: "investment",
       name: "InvestmentManage",
       component: EmptyLayout,
-      redirect: "/investment/reconcile-workbench",
+      redirect: "/asset/precious",
       meta: { title: "投资管理", icon: "ep:folder-opened", rank: 2 },
       children: [
         {
@@ -101,17 +108,24 @@ const AssetRouteConfig = {
           component: () => import("@/views/asset/realestate/index.vue"),
           meta: { title: "房产", icon: "ep:house", rank: 4, showLink: true }
         },
+        // #2150 清除：此处原有一份重复的 `/analysis` 声明（#2152 把它移出「投资管理」时
+        // 只在新位置加了一份，旧的没删）。两个同名路由都会被 filterTree 保留，
+        // 侧边栏因此渲染出两个「智能分析」条目。改名/改标题时只改一处会让两者分叉，
+        // 故连根删掉，只留下方「分析与对账」段那一份（唯一真相）。
         {
-          path: "/analysis",
-          // #1798 入口：侧边栏 showLink + 全景页头「智能分析」按钮（panorama/index.vue）；
-          // 原假数据页已与 AssetOverview.vue（#1195 真实数据版，原为无路由死文件）合体
-          name: "AssetAnalysis",
-          component: () => import("@/views/asset/IntelligentAnalysis.vue"),
+          // #167 收尾：按风险指标横向筛的列表页。端点（fund-risk-types /
+          // fund-risk-ranking）早已上线，缺的是这个入口——能力在、用户看不到。
+          // rank 5.5 插在「智能分析」与「对账单导入」之间；名字与组件
+          // `defineOptions({ name })` 逐字一致（keep-alive 判据）。
+          path: "/asset/fund-ranking",
+          name: "AssetFundRanking",
+          component: () => import("@/views/asset/fund-ranking/index.vue"),
           meta: {
-            title: "智能分析",
-            icon: "ep:data-analysis",
-            rank: 5,
-            showLink: true
+            title: "同类风险榜",
+            icon: "ep:histogram",
+            rank: 6,
+            showLink: true,
+            keepAlive: true
           }
         },
         {
@@ -121,7 +135,7 @@ const AssetRouteConfig = {
           meta: {
             title: "对账单导入",
             icon: "ep:document",
-            rank: 6,
+            rank: 7,
             showLink: false,
             hideQuickEntry: true
           }
@@ -134,7 +148,7 @@ const AssetRouteConfig = {
           meta: {
             title: "手动记账",
             icon: "ep:edit",
-            rank: 7,
+            rank: 8,
             showLink: false,
             hideQuickEntry: true
           }
@@ -180,21 +194,9 @@ const AssetRouteConfig = {
             showLink: false,
             hideQuickEntry: true
           }
-        },
-        // 统一对账工作台（#1240 P0-C）：三域 Tab 入口，P1/P2 逐域接入
-        {
-          path: "/investment/reconcile-workbench",
-          name: "ReconcileWorkbench",
-          component: () =>
-            import("@/views/asset/investment/reconcile-workbench/index.vue"),
-          meta: {
-            title: "对账工作台",
-            icon: "ep:finished",
-            rank: 12,
-            showLink: true,
-            hideQuickEntry: true
-          }
         }
+        // #2152：原在此处的「对账工作台」（rank 12）与更前的「智能分析」（rank 5）已移出
+        // 本目录、挂到 /asset 直接子级（见下方「分析与对账」段），与组合/策略聚类。
         // #1133 路由归并：场外基金 / 场内证券的聚合下钻页已收敛为 /funds（AssetFunds）
         // 与 /stocks（AssetStocks），与「资产总览 → 产品类型」的下钻目标合一。
         // 原 /asset/fund-aggregation、/asset/securities-aggregation 两个隐藏路由已删除，
@@ -240,6 +242,41 @@ const AssetRouteConfig = {
         title: "投资组合",
         icon: "ep:collection",
         rank: 5
+      }
+    },
+    // ── 分析与对账（#2152：自「投资管理」移出）──
+    // 聚类顺序：品类（投资管理内）→ 组合/策略 → 分析 → 对账，分析与对账相邻成组；
+    // 移出后不再与「投资管理」孙级共用排序键段（孙级占 200+，见文件头 GRANDCHILD_RANK_BASE）。
+    {
+      path: "/analysis",
+      // #1798 入口：侧边栏 showLink + 全景页头入口按钮（panorama/index.vue）；
+      // 原假数据页已与 AssetOverview.vue（#1195 真实数据版，原为无路由死文件）合体。
+      // #2150：标题「智能分析」→「复盘」。原名的「智能」二字既没有 AI 能力支撑
+      // （页面全是有数据源的真实计算），又暗示「比别人多算了点什么」；
+      // 而 #2150 重定义后的定位是「时间维度的表现」，中文里对应的词就是「复盘」。
+      // ⚠️ 路由 path 保持 `/analysis` 不动——它是外部可达 URL 与既有书签的锚点，
+      // 改名属另一件事（若要做，须配 301/别名，不在本卡范围）。
+      name: "AssetAnalysis",
+      component: () => import("@/views/asset/IntelligentAnalysis.vue"),
+      meta: {
+        title: "复盘",
+        icon: "ep:data-analysis",
+        rank: 6,
+        showLink: true
+      }
+    },
+    // 统一对账工作台（#1240 P0-C）：三域 Tab 入口，P1/P2 逐域接入
+    {
+      path: "/investment/reconcile-workbench",
+      name: "ReconcileWorkbench",
+      component: () =>
+        import("@/views/asset/investment/reconcile-workbench/index.vue"),
+      meta: {
+        title: "对账工作台",
+        icon: "ep:finished",
+        rank: 7,
+        showLink: true,
+        hideQuickEntry: true
       }
     },
     {

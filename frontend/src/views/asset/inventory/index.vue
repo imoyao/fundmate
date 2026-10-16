@@ -55,6 +55,7 @@
             :total="investmentTotal"
             :loading="investmentLoading"
             :valuation="investmentValuation"
+            @ask="askAbout"
           />
         </section>
 
@@ -65,6 +66,34 @@
             :assets="currentAssets"
             @edit="openEditAssetDialog"
             @remove="removeAsset"
+          />
+        </section>
+
+        <!-- 5. 策略洞察（#2237）：目标配比 + 策略诊断。
+             放在持仓明细之后：两张卡读的都是上面这些持仓，先看见「持了什么」
+             再看「规则对这些持仓说了什么」。
+             两卡各自加载/失败/重试，引擎接口慢或挂都不会拖垮上面的盘点内容。 -->
+        <section class="inventory-section">
+          <AllocationTargetCard
+            :data="allocation"
+            :loading="allocationLoading"
+            :error="allocationError"
+            :saving="allocationSaving"
+            :reminder-refreshing="reminderRefreshing"
+            @save="saveTargets"
+            @refresh-reminders="refreshReminders"
+            @retry="loadAllocation"
+          />
+        </section>
+
+        <section class="inventory-section">
+          <StrategyDiagnosisCard
+            :diagnosis="diagnosis"
+            :behavior="behavior"
+            :strategies="strategies"
+            :loading="diagnosisLoading"
+            :error="diagnosisError"
+            @retry="loadDiagnosis"
           />
         </section>
       </template>
@@ -112,7 +141,9 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { AssetRecord } from "@/api/assets";
+import type { Position } from "@/api/types";
 import { INVESTMENT_MAJOR_KEYS } from "@/constants";
+import { agentAskQuery } from "@/utils/agentAsk";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import {
@@ -120,7 +151,7 @@ import {
   INVENTORY_CATEGORIES,
   type QuickActionItem
 } from "./constants";
-import { useInventoryData } from "./useInventoryData";
+import { useInventoryData, useStrategyInsight } from "./useInventoryData";
 import {
   PNL_DUAL_SCOPE_TIP,
   usePositionValuation
@@ -134,6 +165,8 @@ import RealtimeEstimateToggle from "@/components/RealtimeEstimateToggle/index.vu
 import OtherInvestmentTable from "./components/OtherInvestmentTable.vue";
 import CategoryAssetTable from "./components/CategoryAssetTable.vue";
 import AssetEditDialog from "./components/AssetEditDialog.vue";
+import AllocationTargetCard from "./components/AllocationTargetCard.vue";
+import StrategyDiagnosisCard from "./components/StrategyDiagnosisCard.vue";
 
 // 与路由 `router/modules/home.ts` 的 name 保持一致，保证 keep-alive 命中
 defineOptions({ name: "Inventory" });
@@ -154,6 +187,32 @@ const {
   fetchData,
   removeAsset
 } = useInventoryData(activeCategory);
+
+/**
+ * 「策略洞察」区块（#2237）：目标配比 + 策略诊断 / 行为反推。
+ *
+ * 与 usePositionValuation 同理，必须在 setup 顶层**同步**调用：
+ * `useStrategyInsight` 内部注册了 `usePageRefresh` 全局刷新订阅，
+ * 晚于 await 调用会脱离组件实例。其加载失败只影响两张卡自身，
+ * 不会阻塞上面的盘点数据（两者数据源与 failure 影响面都不同）。
+ */
+const {
+  allocation,
+  allocationLoading,
+  allocationError,
+  allocationSaving,
+  reminderRefreshing,
+  diagnosis,
+  behavior,
+  strategies,
+  diagnosisLoading,
+  diagnosisError,
+  loadStrategyInsight,
+  loadAllocation,
+  loadDiagnosis,
+  saveTargets,
+  refreshReminders
+} = useStrategyInsight();
 
 /**
  * 持仓明细的盈亏双线估值接线（#1104）。
@@ -253,6 +312,18 @@ function handleAddType(typeKey: string) {
   );
 }
 
+/** 「问这个」（#1764）：带该行上下文跳账本精灵页，接收端预填不自动发送 */
+function askAbout(row: Position) {
+  router.push({
+    name: "AgentChat",
+    query: agentAskQuery({
+      symbol: row.symbol,
+      name: row.name,
+      from: "inventory"
+    })
+  });
+}
+
 const editDialogVisible = ref(false);
 const editingAsset = ref<AssetRecord | null>(null);
 
@@ -270,6 +341,8 @@ onMounted(() => {
     activeCategory.value = tab;
   }
   fetchData();
+  // 策略洞察与盘点数据并行发起，互不等待（引擎慢不拖首屏，盘点失败不影响卡片）
+  void loadStrategyInsight();
 });
 </script>
 

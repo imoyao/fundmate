@@ -3,8 +3,9 @@
  *
  * ## 为什么有这份文件
  *
- * `scripts/tests/` 下有两条回归网（`guard_a11y_interaction` / `guard_control_clip`）
- * 靠子进程跑 Python 守卫脚本。它们原先都写死 `process.env.PYTHON || "python"`，
+ * `scripts/tests/` 下有多条回归网（`guard_a11y_interaction` / `guard_control_clip` /
+ * `guard_col_divider`）靠子进程跑 Python 守卫脚本。它们原先都写死
+ * `process.env.PYTHON || "python"`，
  * 而 `python` 这个命令**不是处处都有**（Debian/Ubuntu 只有 `python3`；本仓 CNB 工作区、
  * WSL、多数容器皆如此）。
  *
@@ -20,12 +21,12 @@
  * 每次都要人工判断「这 18 个要不要紧」——红灯可信度就是这样被消耗掉的。
  *
  * 本文件把这套机制钉住，判据三条：
- *   1. 两条回归网都**不得**再写死 `PYTHON || "python"`（必须走探测函数）；
+ *   1. 名单里的回归网都**不得**再写死 `PYTHON || "python"`（必须走探测函数）；
  *   2. 探测函数必须在 `$PYTHON` 无效时**回退**到 `python3` / `python`，而不是直接认栽；
  *   3. 「解释器一个都找不到」时必须**显式抛错**，绝不能把断言放过去。
  *
  * 第 3 条是核心。它用**受限 PATH** 真跑一遍子进程验证（不是静态读代码）：
- * 在 `PATH` 里放一个空目录、再显式清掉 `PYTHON`，两条回归网都必须以「找不到 Python」
+ * 在 `PATH` 里放一个空目录、再显式清掉 `PYTHON`，名单里的回归网都必须以「找不到 Python」
  * 报错退出。旧代码在同条件下是 19 pass / 11 fail（假绿），新代码是 0 pass / 报错。
  *
  * ⚠️ **子进程不能再带 `--test`**：`node:test` 检测到「在测试文件里又起了一个 test runner」
@@ -50,14 +51,15 @@ import test from "node:test";
 const ROOT = process.cwd();
 const GUARDED = [
   "scripts/tests/guard_a11y_interaction.test.js",
-  "scripts/tests/guard_control_clip.test.js"
+  "scripts/tests/guard_control_clip.test.js",
+  "scripts/tests/guard_col_divider.test.js"
 ];
 
 const read = (rel) => readFileSync(join(ROOT, rel), "utf8");
 
 /* ---------- 判据 1：不得再写死 PYTHON || python ---------- */
 
-test("两条回归网都走解释器探测，不得写死 PYTHON || \"python\"", () => {
+test("名单里的回归网都走解释器探测，不得写死 PYTHON || \"python\"", () => {
   for (const rel of GUARDED) {
     const src = read(rel);
     // 注释里会讲解旧写法，故只看「活代码」：剔除行注释与块注释后再匹配。
@@ -107,7 +109,7 @@ console.log(JSON.stringify(found));
 
 /* ---------- 判据 3（核心）：一个解释器都找不到时，必须报错而非假绿 ---------- */
 
-test("PATH 里没有 Python 时，两条回归网都必须显式报错（不得静默绿）", () => {
+test("PATH 里没有 Python 时，名单里的回归网都必须显式报错（不得静默绿）", () => {
   // 造一个空目录当 PATH：既保证 `python3` / `python` 都找不到，又保留 node 自身
   // （node 用绝对路径调用，子进程 spawn 时用的是 PATH，故 node 不受影响）。
   const emptyDir = mkdtempSync(join(tmpdir(), "no-python-"));

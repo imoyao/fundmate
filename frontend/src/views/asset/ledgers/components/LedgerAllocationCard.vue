@@ -1,14 +1,21 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import VChart from "vue-echarts";
-import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import AssetAllocationDonut from "@/components/Charts/AssetAllocationDonut.vue";
 
 /**
  * 资产配置环形图卡（#984 ledgers/index.vue 拆分）。
- * 从 index.vue 原样迁移：数据源 overview.groups（过滤已删除账户），
- * 颜色经 getComputedStyle 读 CSS 变量（design.md 红线：禁止硬编码 hex）。
+ * 从 index.vue 原样迁移：数据源 overview.groups（过滤已删除账户）。
+ *
+ * #2164：图表部分原先是本文件手写的一整套 pie option（约 65 行：tooltip / legend /
+ * series / 主题重算 / 减动效）。现已收编到统一组件 `AssetAllocationDonut`——
+ * `components.md` §「AssetAllocationDonut · 资产配置环形图（强制复用）」明文要求如此，
+ * 且有 `scripts/guard_no_duplicate_pie.py` 在 CI 拦新增。
+ *
+ * 保留在本文件的是**卡片壳**能力（donut 不提供、也不该提供）：
+ * 圆心的「总资产」金额覆盖层、以及整卡空态（图标 + 文案）。圆心覆盖层继续用
+ * HTML 绝对定位叠在 donut 之上——donut 的 center 只用于空态文字，不设 center 插槽。
  */
 const props = defineProps<{
   /** overview.groups 原始分组 */
@@ -17,23 +24,9 @@ const props = defineProps<{
   totalAssets: number;
 }>();
 
-// 图表颜色必须经 getComputedStyle 动态读取 CSS 变量（design.md 红线：禁止硬编码 hex）
-const CHART_COLOR_VARS = [
-  "--chart-01",
-  "--chart-02",
-  "--chart-03",
-  "--chart-04",
-  "--chart-05",
-  "--chart-06",
-  "--chart-07",
-  "--chart-08"
-];
-
-function getChartColor(varName: string): string {
-  return getCssVar(varName);
-}
-
-// 环形图数据源：overview groups（过滤已删除账户），value 用 group.total（元）
+// 环形图数据源：overview groups（过滤已删除账户），value 用 group.total（元）。
+// 按 ledger_type 聚合，集合固定（bank/stock/fund/e_account/property）→ ≤5 类，
+// 命中 components.md 的「≤6 类用环形」判据。
 const allocationGroups = computed(() =>
   (props.groups ?? []).filter(
     (g: any) => g.type !== "deleted" && (g.total || 0) > 0
@@ -43,74 +36,14 @@ const allocationGroups = computed(() =>
 // 空态判定：无分组或全部 total=0 时不渲染图表
 const hasAllocationData = computed(() => allocationGroups.value.length > 0);
 
-// 环形图 option：环形 + 底部 legend（分类名 + 占比），中心由 HTML 覆盖层显示总资产
-const themeTick = useThemeTick();
-const allocationOption = computed(() => {
-  void themeTick.value; // 主题切换时重算 option，触发 vue-echarts 重绘（#976）
-  const groups = allocationGroups.value;
-  const total = groups.reduce((sum: number, g: any) => sum + (g.total || 0), 0);
-  const legendTextColor = getChartColor("--text-secondary") || "#6b655c";
-  const borderColor = getChartColor("--bg-card") || "#ffffff";
-  // 尊重系统减弱动效偏好：关闭 echarts 入场动画
-  const reduceMotion =
-    typeof window !== "undefined" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-  return {
-    animation: !reduceMotion,
-    tooltip: {
-      trigger: "item",
-      backgroundColor: getChartColor("--bg-card") || "#ffffff",
-      borderColor: getChartColor("--border-light") || "#f0ebe4",
-      textStyle: {
-        color: getChartColor("--text-primary") || "#2d2a24",
-        fontSize: 12
-      },
-      formatter: (params: any) => {
-        const pct = total > 0 ? ((params.value / total) * 100).toFixed(1) : "0";
-        return `${params.name}<br/>¥${Number(params.value).toLocaleString()}（${pct}%）`;
-      }
-    },
-    legend: {
-      bottom: 0,
-      icon: "circle",
-      itemWidth: 8,
-      itemHeight: 8,
-      itemGap: 12,
-      textStyle: { color: legendTextColor, fontSize: 12 },
-      // 分类名 + 占比（%），占比按 total 实时计算
-      formatter: (name: string) => {
-        const g = groups.find((x: any) => x.label === name);
-        const pct =
-          total > 0 ? (((g?.total || 0) / total) * 100).toFixed(1) : "0";
-        return `${name} ${pct}%`;
-      }
-    },
-    series: [
-      {
-        type: "pie",
-        radius: ["52%", "72%"],
-        center: ["50%", "42%"],
-        avoidLabelOverlap: true,
-        itemStyle: {
-          borderRadius: 6,
-          borderColor,
-          borderWidth: 2
-        },
-        label: { show: false },
-        emphasis: { scaleSize: 4 },
-        // 颜色按 CHART_COLOR_VARS 循环取用，超出 8 类时循环回绕
-        data: groups.map((g: any, i: number) => ({
-          name: g.label,
-          value: g.total,
-          itemStyle: {
-            color: getChartColor(CHART_COLOR_VARS[i % CHART_COLOR_VARS.length])
-          }
-        }))
-      }
-    ]
-  };
-});
+// 喂给统一组件的数据：name/value 与 donut 的 DonutDatum 同构，零转换。
+// 颜色不传 colorMap —— 原实现就是 --chart-01~08 循环，与 donut 缺失时的回退一致。
+const donutData = computed(() =>
+  allocationGroups.value.map((g: any) => ({
+    name: g.label,
+    value: g.total
+  }))
+);
 </script>
 
 <template>
@@ -133,9 +66,11 @@ const allocationOption = computed(() => {
           size="sm"
         />
       </div>
-      <v-chart
-        :option="allocationOption"
-        :autoresize="true"
+      <AssetAllocationDonut
+        :data="donutData"
+        :show-legend-percent="true"
+        :legend-font-size="12"
+        empty-text="暂无资产配置数据"
         class="allocation-chart"
       />
     </div>

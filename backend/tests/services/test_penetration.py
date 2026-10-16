@@ -206,6 +206,52 @@ def test_unpenetrated_reasons_distinguish_gap_from_no_exposure(db, make_position
     assert all(item['reason_label'] for item in result['unpenetrated'])
 
 
+def test_money_market_etf_is_cash_equivalent_not_gap(db, make_position, monkeypatch):
+    """场内货币 ETF（511990 华宝添益）：名录明确货币型 → 现金等价物，不是缺口。
+
+    写路径 #1661 规定显式 etf 类型不落回名录，故 is_money_fund 为
+    False；穿透读侧按名录（strict）补判为现金等价物——它本质无股票
+    敞口，报 etf_holding_missing 是假缺口。
+    """
+    make_position(symbol='SH511990', asset_type='etf', name='华宝添益', quantity=1000, current_price=100.0)
+    monkeypatch.setattr(
+        'app.services.penetration.resolve_money_fund_flags_strict',
+        lambda symbols: {'511990': True},
+    )
+    db.commit()
+
+    result = build_penetration(db, family_id=1, scheme='csrc')
+    by_name = {item['name']: item for item in result['unpenetrated']}
+
+    assert '华宝添益' in by_name
+    assert by_name['华宝添益']['reason'] == REASON_CASH_EQUIVALENT
+    assert by_name['华宝添益']['reason_label']
+    # 不得被误报为「缺底层持仓数据」的真缺口
+    assert all(item['reason'] != REASON_ETF_HOLDING_MISSING for item in result['unpenetrated'])
+    # 现金等价物金额守恒进 unpenetrated_cny
+    assert result['coverage']['unpenetrated_cny'] == pytest.approx(100000.0)
+
+
+def test_normal_etf_still_reports_holding_missing_when_name_directory_silent(db, make_position, monkeypatch):
+    """名录没说话（strict 返回 None）不得改变现状：ETF 仍报 etf_holding_missing。
+
+    strict 语义要求「None = 无法判定」，读侧不据此猜——否则名录未收录
+    的普通 ETF 会被静默改判，掩盖真缺口。
+    """
+    make_position(symbol='SZ159857', asset_type='etf', name='光伏ETF', quantity=1000, current_price=1.0)
+    monkeypatch.setattr(
+        'app.services.penetration.resolve_money_fund_flags_strict',
+        lambda symbols: {'159857': None},
+    )
+    db.commit()
+
+    result = build_penetration(db, family_id=1, scheme='csrc')
+    by_name = {item['name']: item for item in result['unpenetrated']}
+
+    assert by_name['光伏ETF']['reason'] == REASON_ETF_HOLDING_MISSING
+    assert by_name['光伏ETF']['reason_label']
+
+
 def test_etf_with_holding_data_is_not_a_gap(db, make_position):
     """ETF 一旦补上底层数据即自动进入穿透，无需改代码（B3 生效路径的前置断言）。"""
     make_position(symbol='SZ159857', asset_type='etf', name='光伏ETF', quantity=1000, current_price=1.0)

@@ -148,6 +148,7 @@ const {
   fetchXirr,
   fetchTemperature,
   fetchRecordStats,
+  fetchUnreadNotifications,
   summaryError,
   xirrError,
   retryAssetLoad
@@ -224,6 +225,7 @@ onMounted(() => {
   fetchXirr();
   fetchTemperature();
   fetchRecordStats();
+  fetchUnreadNotifications();
   startTicker();
 });
 </script>

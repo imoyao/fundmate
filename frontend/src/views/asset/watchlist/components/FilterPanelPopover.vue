@@ -18,8 +18,15 @@
       >
         <el-icon class="filter-entry-btn__icon"><Filter /></el-icon>
         筛选
-        <span v-if="activeFilterCount" class="filter-entry-btn__count">
-          {{ activeFilterCount }}
+        <!-- 条件数角标的「恒定槽位」（自选筛选条跳动修复）：角标本体若用 v-if 直接
+             增删，「筛选」按钮宽度会随条件数出现/消失 ±16px——与右段其它宽度变化
+             叠加足以跨过 flex-wrap 换行阈值，触发整段右操作区掉到第二行。
+             故槽位常驻（width 16px = 一位数角标宽），0 条时槽内为空、按钮宽度不变；
+             两位数角标（约 22px）向右溢出进按钮 padding（12px 内可容纳），同样不改布局宽度。 -->
+        <span class="filter-entry-btn__count-slot">
+          <span v-if="activeFilterCount" class="filter-entry-btn__count">
+            {{ activeFilterCount }}
+          </span>
         </span>
       </el-button>
     </template>
@@ -37,17 +44,29 @@
       @toggle-tag="toggleDraftTag"
     >
       <template #footer>
-        <!-- 底部固定操作栏：重置 / 已选计数 / 取消 / 确定 永远可见 -->
+        <!-- 底部固定操作栏：重置 / 自定义快捷筛选 / 已选计数 / 取消 / 确定 永远可见 -->
         <div class="filter-panel__footer">
-          <el-button
-            size="small"
-            text
-            type="primary"
-            :disabled="!hasAnyFilter"
-            @click="resetAllFilters"
-          >
-            重置
-          </el-button>
+          <div class="filter-panel__left">
+            <el-button
+              size="small"
+              text
+              type="primary"
+              :disabled="!hasAnyFilter"
+              @click="resetAllFilters"
+            >
+              重置
+            </el-button>
+            <!-- 外露类型管理入口（#1449）：本面板仍负责类型多选组合，
+                 「自定义快捷筛选」只管主界面切换器露出哪些类型 -->
+            <el-button
+              size="small"
+              text
+              class="quick-filter-manage"
+              @click="emit('manage-quick-filters')"
+            >
+              自定义快捷筛选
+            </el-button>
+          </div>
           <span class="filter-panel__count">
             已选 {{ draftFilterCount }} 项
           </span>
@@ -96,6 +115,11 @@ const emit = defineEmits<{
    * watch(selectedFilterTagIds) 自动置第 1 页并刷新，两者同时触发会打两次请求。
    */
   (e: "filter-apply"): void;
+  /**
+   * 「自定义快捷筛选」链接被点（#1449）：外露类型管理弹窗由 WatchlistFilterBar 承载，
+   * 本组件只负责入口，不持有弹窗状态。
+   */
+  (e: "manage-quick-filters"): void;
 }>();
 
 // 状态注入模式：tags/toolbar 内部 ref 经 computed get/set 桥接（避免 vue/no-mutating-props）
@@ -244,9 +268,12 @@ function resetAllFilters() {
   font-size: 14px;
 }
 
-/* 条件数角标：品牌实底 + 卡片色字，16px 胶囊（与分组 tab 的数量徽章同为「数字角标」语言） */
+/* 条件数角标：品牌实底 + 卡片色字，16px 胶囊（与分组 tab 的数量徽章同为「数字角标」语言）。
+   flex-shrink:0：本体现在槽位内是 flex 子项，两位数时宁可溢出槽位（进按钮 padding）
+   也不许被压窄截字——槽位宽度才是布局宽度的唯一来源。 */
 .filter-entry-btn__count {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
   min-width: 16px;
@@ -260,22 +287,66 @@ function resetAllFilters() {
   border-radius: var(--radius-pill);
 }
 
-/* 底部固定操作栏：重置 / 已选计数 / 取消 / 确定 永远可见
-   （样式随模板自 FilterPanelBody 原样迁回此处，保持 scoped 作用域不变，零视觉变更） */
+/* 角标恒定槽位：宽度 = 一位数角标（16px），0 条时为空但始终占位——
+   「筛选」按钮宽度不随筛选状态变化，右操作区总宽恒定（防 flex-wrap 整行重排，
+   详见 WatchlistFilterBar 清除按钮处的同款注释）。 */
+.filter-entry-btn__count-slot {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  width: 16px;
+}
+
+/* 底部固定操作栏：重置 / 自定义快捷筛选 / 已选计数 / 取消 / 确定 永远可见。
+   三区布局（#2199 精修）：左区（重置 + 自定义快捷筛选，text 级一组）、
+   中区（已选计数，轻量次要色）、右区（取消 + 确定，主次按钮组）。
+   500px 面板宽下五件套须一行排开，故计数禁止换行（见 .filter-panel__count）。
+   #2207 加固：给 footer 行与 count 直接父级补 nowrap，防止祖先链/兄弟挤压仍导致逐字竖排。 */
 .filter-panel__footer {
   display: flex;
   flex-shrink: 0;
+  flex-wrap: nowrap;
+  gap: 8px;
   align-items: center;
   justify-content: space-between;
   padding: 10px 16px;
+  white-space: nowrap;
   border-top: 1px solid var(--border-light);
 }
 
+/* 中区「已选 N 项」：flex:1 0 auto + nowrap——左区新增「自定义快捷筛选」后
+   本区被挤窄，旧 flex:1（basis 0%）把它压成每字一行（#2199 用户反馈）。
+   改为按内容占宽（flex-basis auto）并禁止折行，两侧留白由左右两区
+   的 space-between 自适应分配；计数是次要状态提示，字号 13px + 次要色即可，
+   不再靠 flex 撑开居中（自然宽度下 text-align 无实际作用，保留仅作语义）。 */
 .filter-panel__count {
-  flex: 1;
-  padding: 0 12px;
+  flex: 1 0 auto;
   font-size: 13px;
   color: var(--text-secondary);
   text-align: center;
+  white-space: nowrap;
+}
+
+/* 底部左组：重置 + 自定义快捷筛选链接（#1449），与中央计数 / 右侧按钮三区并列。
+   flex-shrink:0：极端窄面板下宁可让中区被挤（它已禁折行、是次要信息），不压按钮文字 */
+.filter-panel__left {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+  align-items: center;
+}
+
+/* 底部右组：取消 / 确定（模板内 .flex.gap-2 容器），同样不参与挤压 */
+.filter-panel__footer .flex.gap-2 {
+  flex-shrink: 0;
+}
+
+/* 链接感：次级色起步，悬停升主色（与重置的 primary text 形成层级差） */
+.quick-filter-manage {
+  color: var(--text-secondary);
+}
+
+.quick-filter-manage:hover {
+  color: var(--text-primary);
 }
 </style>

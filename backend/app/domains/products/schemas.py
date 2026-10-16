@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -49,6 +50,14 @@ class ProductTrendRequest(BaseModel):
         alias='range',
         description='区间档位：1M / 3M / 6M / 1Y（默认 3M，设计 §12 ⑤）',
     )
+    start: Optional[dt.date] = Field(
+        None,
+        description=(
+            '显式起始日（YYYY-MM-DD）——「建仓期」区间用（#2171）：首笔买入日至今，'
+            '区间长度因人而异，档位表达不了。给定时忽略 range 档位；'
+            '晚于今天按今天算（空序列由前端降级）。'
+        ),
+    )
     asset_type: Optional[str] = Field(
         None,
         max_length=20,
@@ -71,6 +80,21 @@ class StockProfileRequest(BaseModel):
         None,
         max_length=20,
         description='市场消歧；同码跨市场时由 resolve 结果带下来，为空则不按市场过滤',
+    )
+
+
+class IndexProfileRequest(BaseModel):
+    """`GET /api/products/index-profile/` 的查询参数（#2028 · 详情页指数区块）。
+
+    只要资料 + 估值 + 分位，不需要 market / venue 消歧——品类已由详情页 resolver
+    判定，指数代码在 ``index_catalog`` 是全局唯一的裸 6 位码。
+    """
+
+    symbol: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description='指数代码（裸 6 位码或带交易所前/后缀形态，service 内归一）',
     )
 
 
@@ -133,3 +157,28 @@ class RelatedSymbolsRequest(BaseModel):
         max_length=50,
         description='产品代码（带前缀形态如 SH510300 或裸代码 510300 均可）',
     )
+
+
+class FundRiskTypesRequest(BaseModel):
+    """`GET /api/products/fund-risk-types/` 的查询参数（#167 · 榜单页类型选择器）。
+
+    只声明可选的口径版本，其余无参——本端点回答的是「哪些类型现在有榜可看」，
+    不由客户端决定范围（客户端能改范围的话，选择器与榜单就会对不上）。
+    """
+
+    caliber_version: Optional[int] = Field(None, ge=1, description='口径版本；不给用当前版本')
+
+
+class FundRiskRankingRequest(BaseModel):
+    """`GET /api/products/fund-risk-ranking/` 的查询参数（#167 · 按风险指标筛同类）。
+
+    ``fund_type_id`` **必填**：风险比跨类别不可比（债基波动天生小 ⇒ 夏普系统性偏高），
+    所以榜单必须限定在同一类内。**不提供「不传就全市场」的默认**——那种默认一定会被
+    误用成跨类榜，而那正是用户担心的事。
+    """
+
+    fund_type_id: int = Field(..., ge=1, description='基金类型 ID（同类分组键，必填）')
+    metric: str = Field(..., min_length=1, max_length=40, description='排序指标（白名单见后端 SORTABLE_METRICS）')
+    limit: Optional[int] = Field(None, ge=1, description='条数上限（默认 20，硬上限 200）')
+    order: Optional[str] = Field(None, description='asc / desc；不给则用指标默认方向')
+    include_distorted: bool = Field(False, description='是否纳入口径可疑（净值跳变/样本不足）的行')

@@ -199,3 +199,34 @@ def find_tenure(rows: List[Dict[str, Any]], manager_name: str) -> Optional[Dict[
         return None
     active = [r for r in mine if r.get('end_date') is None]
     return active[0] if active else mine[-1]
+
+
+class ManagerTenureAdapter:
+    """把本模块的抓取函数包成 SyncJob 认的「数据源」形状（#2082）。
+
+    ## 为什么不直接借 ``NullAdapter``
+
+    ``ManagerTenureSyncJob`` **确实在抓天天基金 F10**，而 ``NullAdapter`` 会让
+    ``sync_logs.data_source`` 记成 ``'null'`` —— 审计表上看不出数据来自哪里，
+    与「抓不到也不编」的口径自相矛盾。
+
+    ## 为什么 ``get_version`` 报的是页面形态版本而不是代码版本
+
+    F10 经理页的表格结构变过一次（见模块 docstring「实测坑位」：5 列 = 本基金任期、
+    9 列 = 该经理管过的其他基金）。把它带进 ``sync_logs``，才能事后判断
+    「某个时间点之后任期开始对不上」是不是**上游改版**导致 —— 而不是回头去猜。
+    """
+
+    #: 上游页面结构版本：改动 :func:`_parse_page` 的解析假设时必须 +1
+    PAGE_FORMAT = 'f10-jjjl-v1'
+
+    def get_name(self) -> str:
+        return 'tiantian_f10'
+
+    def get_version(self) -> str:
+        return self.PAGE_FORMAT
+
+    @staticmethod
+    def fetch_tenures(fund_code: str) -> List[Dict[str, Any]]:
+        """抓某只基金的任期分段（:func:`fetch_manager_tenures` 的实例方法形态）。"""
+        return fetch_manager_tenures(fund_code)

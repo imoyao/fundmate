@@ -23,8 +23,9 @@ class IndexValuation(Base, PrimaryKeyMixin, TimestampMixin):
 
     口径提示（§3.10）：官方列名为「市盈率1 / 市盈率2 / 股息率1 / 股息率2」，本项目
     **原样落库**、不做主观口径命名，避免把官方口径写错；前端展示取 pe_1 / dividend_yield_1。
-    历史分位（percentile）**暂不提供**：当前两个可选数据源（中证官方仅下发近约 20 个
-    交易日、乐咕乐股仅覆盖 12 个指数）都不足以算有意义的历史分位，缺口单开 issue 跟踪。
+    历史分位（percentile）**不在本表计算**：官方文件仅下发近约 20 个交易日，长历史基线
+    由乐咕乐股月频序列另表承载（见 IndexValuationBaseline，#1407 拍板「组合方案」），
+    分位在读路径上现算（services/index_percentile.py）。
     """
 
     __tablename__ = 'index_valuations'
@@ -39,6 +40,35 @@ class IndexValuation(Base, PrimaryKeyMixin, TimestampMixin):
     source = Column(String(20), default='csindex', comment='数据来源')
 
     __table_args__ = (UniqueConstraint('index_code', 'trade_date', name='uk_index_valuation_code_date'),)
+
+
+class IndexValuationBaseline(Base, PrimaryKeyMixin, TimestampMixin):
+    """指数估值分位基线（market 域，#1407 拍板「组合方案」的乐咕乐股一路）。
+
+    为什么**不复用** ``index_valuations``：那张表的 ``(index_code, trade_date)`` 唯一键
+    会被乐咕月末采样日与中证官方日频行**相撞**（月末多数是交易日），且 ``pe_1`` 的
+    列语义是中证官方口径（滚动 PE 只是其中一个候选），混入乐咕「滚动市盈率」会静默
+    改掉既有列的口径。分位基线与官方估值是两份口径不同的数据，必须分表。
+
+    - 数据源：乐咕乐股（akshare ``stock_index_pe_lg``，月频、约 21 年历史），
+      只取**滚动市盈率**单列（#1407 拍板：口径列不堆砌）；
+    - 仅导入**近 5 年**（分位窗口同长，更长的市场结构不可比）；
+    - 读路径：``services/index_profile.py`` 按窗口取序列 → ``index_percentile`` 现算；
+    - 回填链路：``services/sync/jobs/index_valuation_lg_job.py``（覆盖式 upsert）。
+
+    股息率分位不在本表：乐咕无股息率序列，待自建日频 ``index_valuations`` 积累满
+    1 年后由读路径另行计算（#1407 拍板第 3 条）。
+    """
+
+    __tablename__ = 'index_valuation_baselines'
+
+    index_code = Column(String(20), nullable=False, comment='指数代码（裸 6 位码，与 index_valuations 同约定）')
+    trade_date = Column(Date, nullable=False, comment='采样日期（乐咕月末采样，非交易日日频）')
+    pe_ttm = Column(SafeNumeric(12, 4), comment='滚动市盈率（乐咕口径，分位基线唯一使用列）')
+    index_name = Column(String(60), comment='指数中文简称（乐咕侧返回，冗余便于排查）')
+    source = Column(String(20), default='lg', comment='数据来源：lg=乐咕乐股')
+
+    __table_args__ = (UniqueConstraint('index_code', 'trade_date', name='uk_index_valuation_baseline_code_date'),)
 
 
 class IndexConstituent(Base, PrimaryKeyMixin, TimestampMixin):

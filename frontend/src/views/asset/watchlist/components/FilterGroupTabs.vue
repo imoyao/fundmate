@@ -79,11 +79,35 @@ const allGroups = computed(() => props.groups.allGroups.value);
 // （用户反馈：滚动条出现时两边对不上）。故隐藏原生滚动条、改用「滚轮/触控板横滑」，
 // 右缘渐变遮罩（.group-tabs-fade）负责提示还有更多，行高恒定、与右侧恒对齐。
 const groupScrollEl = ref<HTMLElement>();
-/** 右缘渐变遮罩是否显示：仅当分组 tab 横向溢出时才出现，避免未溢出时误导用户（#ai-review-inline） */
+/** 右缘渐变遮罩是否显示：仅当「单行且横向溢出」时显示；两行拆行时隐藏（#2213） */
 const showGroupFade = ref(false);
 function updateGroupFade() {
   const el = groupScrollEl.value;
-  showGroupFade.value = !!el && el.scrollWidth > el.clientWidth + 1;
+  if (!el) {
+    showGroupFade.value = false;
+    return;
+  }
+  const overflow = el.scrollWidth > el.clientWidth + 1;
+  if (!overflow) {
+    showGroupFade.value = false;
+    return;
+  }
+  // 单行检测：与相邻类型胶囊容器比较 offsetTop，若差值 > 2px 即视为已拆行（两行布局）
+  const parent =
+    el.closest(".filter-bar__center") || el.parentElement?.parentElement;
+  if (parent) {
+    const quickPills = parent.querySelector(".quick-pills-wrap");
+    if (
+      quickPills &&
+      Math.abs(
+        el.getBoundingClientRect().top - quickPills.getBoundingClientRect().top
+      ) > 2
+    ) {
+      showGroupFade.value = false; // 已拆行，隐藏遮罩
+      return;
+    }
+  }
+  showGroupFade.value = true;
 }
 
 /** 滚轮横滑：仅当分组区确有溢出时拦截纵向滚轮转为横向，避免干扰行内其它滚动。
@@ -122,12 +146,17 @@ watch(
 
 /* 分组区外框：持有 flex 弹性与最小宽度，承载内层滚动区与右缘遮罩。
    min-width 保证分组区不被右侧操作区挤没（#1281 第四轮：本行多了搜索框与按钮组，
-   极端窄屏下宁可让整行换行，也要给分组 tab 留 120px 可见区） */
+   极端窄屏下宁可让整行换行，也要给分组 tab 留 120px 可见区）。
+   #2199 布局争夺：本区与类型快捷胶囊区（QuickTypePills 的 .quick-pills-wrap）
+   并列为两个弹性区，flex/上限规格保持一致——flex:1 1 auto 让不打架时按内容宽
+   排布，max-width:50% 保证打架时两区各限约一半、各自横滑兜底；
+   右侧操作段（.filter-bar__right）flex-shrink:0 固定，不参与争夺。 */
 .group-tabs-wrap {
   position: relative;
   display: flex;
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 120px;
+  max-width: 50%;
 }
 
 /* 分组区横滑容器。

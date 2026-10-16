@@ -167,6 +167,11 @@ export type PnlCalendarDay = {
   /** 当日收益率（%）；分母为前一日净资产，`null` = 首日或分母为 0 */
   rate: number | null;
   state: PnlCalendarState;
+  /**
+   * 当日行按收盘估值预估（#2141 收盘估值定格回退；后端 `day_uses_estimate` 落点）。
+   * 仅当日行可能为 true，物化期间行永远没有——徽标据此展示，前端不按日期自行推断。
+   */
+  estimated?: boolean;
 };
 
 /**
@@ -395,5 +400,37 @@ export function getPenetration(scheme: "csrc" | "gics" = "csrc") {
     "get",
     BASE_URL + "penetration/",
     { params: { scheme } }
+  );
+}
+
+/**
+ * 场外基金收盘估值定格行（#2141 落库 / #2142 对照三列）。
+ *
+ * - `status`: `estimated`（预估定格）| `confirmed`（官方净值已对照确认，#2142）；
+ * - `official_nav` / `deviation` / `deviation_pct`: 对照三列，confirmed 行有值、
+ *   estimated 行为 null（**不是 0**）——徽标/提示按 null 容错，不显示脏值；
+ * - `source_time` 为源端字符串原样（如 "2026-10-13 15:00"），前端不解析。
+ */
+export type FundValuationRow = {
+  fund_code: string;
+  estimated_nav: number | null;
+  change_pct: number | null;
+  source: string | null;
+  source_time: string | null;
+  status: string | null;
+  official_nav?: number | null;
+  deviation?: number | null;
+  deviation_pct?: number | null;
+};
+
+/** 某日收盘估值定格清单（需登录；date 缺省为上海时区今日） */
+export function getFundValuation(params?: {
+  date?: string;
+  fund_code?: string;
+}) {
+  return http.request<ApiResponse<FundValuationRow[]>>(
+    "get",
+    BASE_URL + "fund-valuation/",
+    { params }
   );
 }

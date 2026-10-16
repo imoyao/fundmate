@@ -288,6 +288,18 @@
   --bg-soft: #f5f0eb; /* 柔和表面 / 毛玻璃基底 */
   --bg-subtle: #f7f3ee; /* 卡片内条目底纹（比 --bg-soft 更淡）。#1545 补幽灵令牌：此前全仓引用但零定义 */
 
+  /* ===== 骨架屏扫光带（PageSkeleton / WatchlistTableSkeleton 流光共用） =====
+     渐变与 keyframes 的单一来源是 src/style/_skeleton.scss，本令牌只管扫光带颜色。
+     旧实现扫光带直接取 --bg-hover：与底色 --bg-soft 仅 1.03:1（感知差 ΔL*≈1）——
+     动画在跑，扫光却物理不可见，观感等于「一块静态遮罩」（暗色旧值 1.10:1 同病）。
+     本值把亮色扫光带压深到 1.21:1 / ΔL*≈7.3，约为 Element Plus el-skeleton 动画带
+     （≈1.08:1 / ΔL*≈3）的两倍：明显可感，但仍是柔和的 loading 底纹而非高光特效。
+     暗色值在 dark.scss :root.dark 同名覆盖，方向相反（向浅提亮），见彼处注释。
+     取值方式：用显式分主题 hex 而非 color-mix 派生——亮/暗两侧调整方向相反、
+     感知差需各自标定，一条混色公式给不出双主题等效结果；写死取值才能把实测对比度
+     钉进注释。若未来改 --bg-soft，须回来复测本令牌的对比度并同步更新注释。 */
+  --skeleton-wave: #e2dbd3; /* 亮·扫光带：vs --bg-soft(#f5f0eb) 1.21:1，ΔL* 7.3 */
+
   /* ===== 毛玻璃（记账托盘 / 回到顶部） ===== */
   --glass-bg: rgba(255, 255, 255, 0.72); /* 玻璃基底（浅色） */
   --glass-bg-hover: rgba(255, 255, 255, 0.88); /* 玻璃悬停 */
@@ -329,6 +341,10 @@
   --space-2: 8px;
   --space-3: 12px;
   --space-compact: 16px;
+  /* #2171：补幽灵令牌（ProductProfitPanel.vue 引用 var(--space-4) 但全仓无定义，
+     CSS 守卫 check_css_vars.mjs 判「引用未定义」）。阶梯位 4×4=16px，与 --space-compact
+     同值——compact 是语义别名、本项是数字阶梯，两者并存不冲突（同 #1558 补 --space-6 先例）。 */
+  --space-4: 16px;
   --space-5: 20px;
   --space-6: 28px; /* #1558：补幽灵令牌（原引用 var(--space-6, 28px)，fallback 即本值） */
   --space-standard: 24px;
@@ -364,6 +380,7 @@
   --radius-md: 12px;
   --radius-lg: 16px;
   --radius-pill: 9999px;
+  --radius-xs: 4px;
 
   /* ===== 图表色 ===== */
   --chart-01: #e34f38;

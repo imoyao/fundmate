@@ -145,6 +145,15 @@ export interface PositionCreate {
    * 两个不同的提交意图（如同一天同一基金同金额买了两笔）天然拥有不同键，互不误杀。
    */
   import_hash?: string;
+  /**
+   * 净值缺失先记账：当日净值未发布/拉取失败时置 true，
+   * 后端按最近净值占位建仓并标 entry_status='pending_nav'，官方净值到位后自动回填份额与成本。
+   */
+  nav_pending?: boolean;
+  /** 待回填目标净值日 YYYY-MM-DD（actualNavDate，缺省取 trade_date） */
+  nav_date?: string;
+  /** 份额由用户手动填写（回填只校正净值与成本，不覆盖份额） */
+  shares_manual?: boolean;
 }
 
 /** 更新持仓请求体 (PATCH，所有字段可选) */

@@ -39,6 +39,7 @@ from app.services.adapters.advisor_source import AdvisorSourceRegistry
 from app.services.adapters.akshare_adapter import AkshareAdapter
 from app.services.adapters.eastmoney_adapter import EastmoneyAdapter
 from app.services.adapters.jiucaishuo_adapter import JiucaishuoAdapter
+from app.services.adapters.manager_tenure import ManagerTenureAdapter
 from app.services.adapters.null_adapter import NullAdapter
 from app.services.adapters.xalpha_adapter import XalphaAdapter
 from app.services.fund_utils import normalize_fund_code
@@ -54,16 +55,23 @@ from app.services.sync.jobs.fund_list_job import FundListSyncJob
 from app.services.sync.jobs.fund_manager_job import FundManagerSyncJob
 from app.services.sync.jobs.fund_nav_job import FundNavSyncJob
 from app.services.sync.jobs.fund_position_job import FundPositionSyncJob
+from app.services.sync.jobs.fund_risk_metrics_job import FundRiskMetricsSyncJob
 from app.services.sync.jobs.fund_scale_job import FundScaleSyncJob
 from app.services.sync.jobs.fund_type_job import FundTypeSyncJob
+from app.services.sync.jobs.fund_valuation_reconcile_job import FundValuationReconcileJob
+from app.services.sync.jobs.fund_valuation_snapshot_job import FundValuationSnapshotJob
 from app.services.sync.jobs.index_catalog_job import IndexCatalogSyncJob
 from app.services.sync.jobs.index_constituent_job import INDEX_TARGETS, IndexConstituentSyncJob
 from app.services.sync.jobs.index_daily_job import IndexDailySyncJob
 from app.services.sync.jobs.index_valuation_job import IndexValuationSyncJob
+from app.services.sync.jobs.index_valuation_lg_job import IndexValuationLgSyncJob
+from app.services.sync.jobs.manager_tenure_job import ManagerTenureSyncJob
 from app.services.sync.jobs.market_asset_daily_job import MarketAssetDailySyncJob
+from app.services.sync.jobs.nav_backfill_job import NavBackfillJob
 from app.services.sync.jobs.orphan_backfill_job import OrphanBackfillJob
 from app.services.sync.jobs.position_price_job import PositionPriceSyncJob
 from app.services.sync.jobs.price_history_job import PriceHistorySyncJob
+from app.services.sync.jobs.security_industry_map_job import SecurityIndustryMapSyncJob
 from app.services.sync.jobs.stock_list_job import StockListSyncJob
 from app.services.thermometer.jobs import TemperatureJob
 
@@ -90,6 +98,10 @@ SYMBOL_BACKFILL_JOBS = frozenset(
         'fund_position',
         'position_price',
         'dividend_split',
+        # #167：风险指标快照也属「逐标的」型——**它不联网**，故不是为了防限流，
+        # 而是因为裸 --full-sync 会对全库 3 万只逐只读 3 年净值（十分钟级），
+        # 明显不是调用方想要的事。要走全库，显式写 `--targets __full__`。
+        'fund_risk_metrics',
     }
 )
 
@@ -172,6 +184,11 @@ class DataSyncOrchestrator:
             self.data_sources['akshare'], self.data_sources['xalpha'], self.db
         )
         self.jobs['fund_manager'] = FundManagerSyncJob(self.data_sources['akshare'], self.db)
+        # #2082：任期只存在于天天基金 F10 经理页，**每只基金一次 HTTP**，故独立成 job，
+        # 由调用方按目标池限量传 targets（本 job 不接受"空 targets → 全库"的兜底）。
+        # adapter 用 ManagerTenureAdapter 而不是 NullAdapter：它确实在抓上游，
+        # sync_logs.data_source 得如实写成 tiantian_f10。
+        self.jobs['manager_tenure'] = ManagerTenureSyncJob(ManagerTenureAdapter(), self.db)
         # 消费导入侧观察值（user 域 fund_company_observations）补 funds.company_id：
         # 纯本地解析、不联网，故 NullAdapter 占位（同 amac_institution 的处理）。
         self.jobs['fund_company_backfill'] = FundCompanyBackfillJob(NullAdapter(), self.db)
@@ -187,16 +204,33 @@ class DataSyncOrchestrator:
         # 注册表同时充当 SyncJob 的 adapter 槽位（sync_logs 审计读 get_name/get_version）。
         self.jobs['advisor_portfolio'] = AdvisorPortfolioSyncJob(AdvisorSourceRegistry(), self.db)
         self.jobs['fund_nav'] = FundNavSyncJob(self.data_sources['xalpha'], self.db)
+        # #2141：收盘估值定格。天天基金 HTTP 直抓（非 akshare/xalpha 数据源），
+        # NullAdapter 占位；目标池吃 fund 池（场外基金裸码），多时点由
+        # daily_scheduler 的 cron 驱动，按 (fund_code, est_date) 幂等覆盖。
+        self.jobs['fund_valuation_snapshot'] = FundValuationSnapshotJob(NullAdapter(), self.db)
+        # #2142：预估→正式对照。纯 DB（读 daily_worth、写 fund_valuation_daily 对照列），
+        # 无外部请求，NullAdapter 占位；target_kind=None 全量路径，不入 SYMBOL_BACKFILL_JOBS。
+        self.jobs['fund_valuation_reconcile'] = FundValuationReconcileJob(self.db)
+        # 净值缺失流水回填：entry_status='pending_nav' 流水等官方净值到位后重算份额/成本。
+        # 纯 DB（读 daily_worth、写流水+持仓），NullAdapter 占位；target_kind=None
+        # 全量路径（目标池是 pending 流水，job 自扫），不入 SYMBOL_BACKFILL_JOBS。
+        self.jobs['nav_backfill'] = NavBackfillJob(self.db)
         self.jobs['price_history'] = PriceHistorySyncJob(self.data_sources['akshare'], self.db)
         self.jobs['index_constituents'] = IndexConstituentSyncJob(self.data_sources['akshare'], self.db)
         # #1285/#1394：指数估值（中证官方：市盈率 / 股息率）
         self.jobs['index_valuation'] = IndexValuationSyncJob(self.data_sources['akshare'], self.db)
+        # #1407 拍板：分位基线（乐咕月频滚动 PE，近 5 年）
+        self.jobs['index_valuation_lg'] = IndexValuationLgSyncJob(self.data_sources['akshare'], self.db)
         # #1285 §3.8：跨渠道关联（指数↔ETF，主流宽基白名单）
         self.jobs['channel_link'] = ChannelLinkSyncJob(self.data_sources['akshare'], self.db)
         # #1285/#1393：可转债条款（强赎状态 + 静态条款，akshare 集思录）
         self.jobs['convertible_bond'] = ConvertibleBondSyncJob(self.data_sources['akshare'], self.db)
         # #1286：指数名录（聚合搜索可搜索的指数条目，与成分互补）
         self.jobs['index_catalog'] = IndexCatalogSyncJob(self.data_sources['akshare'], self.db)
+        # #1981：个股 / 可转债 → 行业映射（申万宏源全量 31 请求 + 巨潮按 targets 补）。
+        # 取数在 services/security_industry_map_service 内直连上游（两家**非东财**源），
+        # 故与 market_asset_daily 同范式用 NullAdapter 占位。
+        self.jobs['security_industry_maps'] = SecurityIndustryMapSyncJob(NullAdapter(), self.db)
         # #275：指数日线点位（万得全A 经韭圈儿公开接口，独立数据源）
         self.jobs['index_daily'] = IndexDailySyncJob(JiucaishuoAdapter(), self.db)
         # #1460：探市大类资产日频快照（数据经 market_service 直连 akshare，不经过 adapter，
@@ -210,6 +244,11 @@ class DataSyncOrchestrator:
         self.jobs['dividend_split'] = DividendSplitSyncJob(self.data_sources['akshare'], self.db)
         # #1182：资产快照每日落账（家庭/账户两级，含货基每日收益），无外部数据源
         self.jobs['asset_snapshot'] = AssetSnapshotJob(self.db)
+        # #167：风险收益指标日快照（最大回撤 / 本轮回撤 / 夏普族）。纯计算、**不联网** ——
+        # 只读 daily_worth + fund_types，故 NullAdapter 占位。落它是为了让「按指标横向筛」
+        # 与「回撤序列」可行：逐只现算撑不起全市场排序，且历史不可回溯。
+        # 放在净值类 job 之后执行（见 run_all_jobs 的执行顺序）。
+        self.jobs['fund_risk_metrics'] = FundRiskMetricsSyncJob(self.db)
         # #1104：持仓现价回写（已确认净值 / 货基面值 → positions.current_price）。
         # 只读库内已有净值、不联网，故 NullAdapter 占位；目标池自持仓表（user 域），
         # 不吃 resolve_targets() 的 fund/stock 池，故入参 targets 被忽略。
@@ -554,6 +593,10 @@ class DataSyncOrchestrator:
                 # 快照的市值/盈亏读的正是 positions.current_price，顺序错了快照就还是旧价。
                 # 不联网（只读库内已确认净值），故无请求风暴风险；目标池自持仓表，targets 传空。
                 ('position_price', []),
+                # #167：风险指标快照必须排在净值之后（它读的就是 fund_nav 刚落库的序列），
+                # 又要排在资产快照之前——快照锁的是「当日状态」，指标是状态的一部分。
+                # 不联网，故不占外部请求窗口。
+                ('fund_risk_metrics', fund_targets),
                 # #1182：资产快照落账放最后，确保前面的净值/行情已刷新，快照取到最新值
                 ('asset_snapshot', []),
             ]

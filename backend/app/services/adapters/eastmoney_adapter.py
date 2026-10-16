@@ -10,6 +10,7 @@ akshare 缺失的基金公司 code 拉取（fetch_fund_company）。
 
 import json
 import re
+import threading
 from datetime import date
 from typing import Any, Dict, List, Optional
 
@@ -27,6 +28,35 @@ from app.services.adapters.xalpha_adapter import XalphaAdapter
 # （也是 R5 守卫抓出来的真实反向边）。
 _EASTMONEY_COMPANY_URL = 'http://fund.eastmoney.com/js/jjjz_gs.js'
 
+#: 东财基金搜索联想接口（#2037 方案 A 的**单只基金公司取数口**）。
+#: 一次请求即返回 `FundBaseInfo.JJGS`（基金公司简称）/ `JJGSID`（东财权威 code）。
+#:
+#: 为什么不用 akshare `fund_info_ths`（既有 `fetch_fund_detail` 的取数口）：#2037 要在**详情页
+#: 请求路径**上按需回填，实测 `import akshare` 单独就 4.65s、单次 `fund_info_ths` 0.57s——
+#: 前者会把首屏直接拖到 5s 量级，且为拿一个公司名付出整条重链路（V8 / 限流面全占）。
+_FUND_SUGGEST_URL = 'https://fundsuggest.eastmoney.com/FundSearch/api/FundSearchAPI.ashx'
+
+# 该接口的**模块级长连接 Session**（2026-10-11 实测驱动，勿退回 `requests.get`）：
+# 首次请求要付 TLS 握手 + DNS，实测 **1.8~2.8s**；连接复用后单次只要 **43~87ms**（约 30 倍）。
+# 本函数在详情页请求路径上，模块级 `requests.get` 每次都新建 Session，等于把握手成本付给
+# 每个冷开用户——那才是「按需回填拖垮首屏」的主要来源，不是接口本身慢。
+# `requests.Session` **不是线程安全的**（连接池会被并发读写打乱），故请求期间持锁：
+# 实测带锁并发 3 只 = 2.9s 总耗时（仅首只付握手），无锁并发 = 3.5s 且两只都吃到握手。
+_suggest_session: Optional[requests.Session] = None
+_suggest_session_lock = threading.Lock()
+
+
+def _get_suggest_session() -> requests.Session:
+    """取模块级 Session（惰性建 + 双检锁）。"""
+    global _suggest_session
+    if _suggest_session is None:
+        with _suggest_session_lock:
+            if _suggest_session is None:
+                # requests_patch（app 启动时安装）会在 Session.__init__ 上挂重试适配器并
+                # 强制直连；此处直接新建即可继承，无需自己配 headers / adapter。
+                _suggest_session = requests.Session()
+    return _suggest_session
+
 
 def fetch_fund_company_list() -> List[Dict[str, str]]:
     """抓取并解析天天基金基金公司列表，返回 [{code, name}, ...]。"""
@@ -39,6 +69,51 @@ def fetch_fund_company_list() -> List[Dict[str, str]]:
         return []
     arr = json.loads(m.group(1))
     return [{'code': str(row[0]), 'name': str(row[1])} for row in arr if len(row) >= 2]
+
+
+def fetch_fund_company_of(fund_code: str, timeout: int = 6) -> Optional[Dict[str, str]]:
+    """查**单只**基金的基金公司（`{'name': 简称, 'code': 东财权威 code}`），查不到返回 None。
+
+    #2037 方案 A（L3 按需回填）的取数口：详情页发现 `funds.company_id` 为空时按 symbol
+    单只回填，不做全库（`data-strategy.md` L3「按需取 + 缓存 + 可降级」）。
+
+    **超时 6s 的取舍**：复用连接后单次实测 43~87ms，6s 是「上游已明显异常」的阈值；
+    留足 `requests_patch` 的 Retry（3 次）仍不至于让首屏等到分钟级。
+
+    **为什么 `code` 只是随行返回、调用方不必用**：`JJGSID` 与 `fetch_fund_company_list()`
+    的 code 是同一体系（2026-10-11 实测：易方达 80000229 / 华夏 80000222 / 天弘 80041198
+    两侧逐行一致），故仍由 `company_resolver.resolve_company_identity` 统一解析——
+    本函数只负责把**东财简称**带出去，不做第二次身份解析，避免两份标准漂移。
+
+    模糊搜索会返回多个候选，**必须按 `CODE` 精确回选**本只：直接取 `Datas[0]` 在 key
+    命中多只（如「001」之于 001xxx 全系列，实测此时返回 None 而非错配）时会张冠李戴。
+    命中项缺 `FundBaseInfo` 时视为查不到（返回 None），由调用方降级 `—`，
+    不拿相邻基金的资料顶替。
+    """
+    code = (fund_code or '').strip()
+    if not code:
+        return None
+    try:
+        # Session 懒创建必须在请求互斥锁**之外**：`_get_suggest_session` 的双检锁用的是
+        # 同一把 `_suggest_session_lock`，而 `threading.Lock` 不可重入——先持锁再调它，
+        # 进程内首次调用（Session 尚未建）会同线程二次获取、永久自锁（2026-10-15 实证：
+        # 第一只 company 为空的基金触发按需回填后，/api/products/fund-profile/ 全部挂死，
+        # 前端 10s 超时显示「暂无可展示的基金资料」）。
+        session = _get_suggest_session()
+        with _suggest_session_lock:  # Session 非线程安全，请求期间独占
+            resp = session.get(_FUND_SUGGEST_URL, params={'m': 1, 'key': code}, timeout=timeout)
+        resp.raise_for_status()
+        payload = resp.json()
+    except Exception as e:
+        logger.warning(f'查询基金 {code} 的基金公司失败: {e}')
+        return None
+
+    hit = next((d for d in (payload.get('Datas') or []) if d.get('CODE') == code), None)
+    base = (hit or {}).get('FundBaseInfo') or {}
+    name = (base.get('JJGS') or '').strip()
+    if not name:
+        return None
+    return {'name': name, 'code': str(base.get('JJGSID') or '')}
 
 
 class EastmoneyAdapter(DataSourceAdapter):

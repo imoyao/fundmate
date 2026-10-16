@@ -5,7 +5,7 @@
  * 供页面与子组件共用：颜色换算、大类 / 细分标签解析、投资分布分组构建。
  */
 
-import { getCssVar } from "@/composables/echarts/theme";
+import { getCssVarWithAlpha } from "@/composables/echarts/theme";
 import {
   ALLOCATION_OPTIONS,
   INVESTMENT_MINOR_CATEGORIES,
@@ -39,29 +39,11 @@ export function getErrorMessage(e: unknown, fallback: string): string {
   return (e as { message?: string } | null)?.message || fallback;
 }
 
-/** 语义色变量（可含 `var()` 包裹）→ 具体色值；读不到时回退中性灰 */
-export function resolveCssVar(varName: string): string {
-  const name = varName.replace(/var\(|\)/g, "").trim();
-  return getCssVar(name, "#8E8B82");
-}
-
-/** 语义色变量 + 透明度 → `rgba()`，用于图标底衬等浅色填充 */
+/** 语义色变量（可含 `var()` 包裹）+ 透明度 → `rgba()`，用于图标底衬等浅色填充。
+ *  委托给图表取色模块的统一实现（#2156：收敛 hex→rgba 单一来源）。 */
 export function getColorWithAlpha(colorVar: string, alpha: number): string {
-  const hex = resolveCssVar(colorVar);
-  if (!/^#[0-9a-fA-F]{3,8}$/.test(hex)) return `rgba(0,0,0,${alpha})`;
-  let r = 0,
-    g = 0,
-    b = 0;
-  if (hex.length === 4) {
-    r = parseInt(hex[1] + hex[1], 16);
-    g = parseInt(hex[2] + hex[2], 16);
-    b = parseInt(hex[3] + hex[3], 16);
-  } else {
-    r = parseInt(hex.slice(1, 3), 16);
-    g = parseInt(hex.slice(3, 5), 16);
-    b = parseInt(hex.slice(5, 7), 16);
-  }
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  const name = colorVar.replace(/var\(|\)/g, "").trim();
+  return getCssVarWithAlpha(name, alpha, "#8E8B82");
 }
 
 /**

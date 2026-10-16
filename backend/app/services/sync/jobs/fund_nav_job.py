@@ -16,6 +16,7 @@ from app.core.time_utils import now_shanghai
 from app.domains.funds.models import DailyWorth, MoneyFundDailyWorth
 from app.models.sync_log import SyncLog
 from app.services.job_base import IN_CHUNK_SIZE, SyncJob
+from app.services.money_fund_yield import recompute_annual_return_7d
 
 
 class FundNavSyncJob(SyncJob):
@@ -167,6 +168,15 @@ class FundNavSyncJob(SyncJob):
                 unique_columns=['fund_code', 'date'],
             )
             self._warn_if_skipped('money_fund_daily_worth', inserted, len(money_records), money_records)
+            # #2120 P0-1：新净值落库后重算七日年化。它是**滑动窗口**指标——新插入一天
+            # 会让最近 7 天内每一行的窗口内容都变，所以不能只在插入时算这一行。
+            # 只重算本批涉及的基金，避免全表 121 万行扫描。
+            # 不在此 commit：整个 job 是一个事务，提交权在 orchestrator（见 job_base.run）。
+            recompute_annual_return_7d(
+                self.db,
+                fund_codes=sorted({r['fund_code'] for r in money_records}),
+                apply=True,
+            )
 
     def _warn_if_skipped(self, table: str, inserted, expected: int, records: List[dict]) -> None:
         """DB 端跳过的条数 > 0 时留痕（去重漏判 / 并发写的早期信号）"""

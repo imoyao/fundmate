@@ -52,6 +52,7 @@
 | `--bg-soft` | `#F5F0EB` | 柔和表面 / 毛玻璃基底 |
 | `--bg-subtle` | `#F7F3EE` | 卡片内条目底纹（比 `--bg-soft` 更淡） |
 | `--bg-hover` | `#F2EDE8` | 悬停/高亮底色 |
+| `--skeleton-wave` | `#E2DBD3` | 骨架屏扫光带（vs `--bg-soft` 1.21:1；渐变单一来源 `src/style/_skeleton.scss`） |
 
 ### 品牌色（暖红珊瑚）
 
@@ -151,6 +152,26 @@
 | `--border-light` | `#F0EBE4` | 极浅边框 / 分割线 |
 | `--border-default` | `#E5DDD4` | 默认边框 |
 | `--border-subtle` | `rgba(229, 221, 212, 0.5)` | 卡片内部分割线（降低权重） |
+
+#### 栏间竖向分割线（#2157）
+
+「左栏 ｜ 右栏」这类**分栏**布局的竖向分割线，唯一实现是全局工具类 `.soft-col-divider`
+（`frontend/src/style/index.scss`）——**禁止在业务组件里手写** `border-left: 1px solid var(--border-light)`：
+
+- `lg` 及以上：`padding-left: var(--space-standard)`（24px）+ 1px 线，即「左栏 → 24px → 线 → 24px → 右栏文字」；
+- `lg` 以下：两栏已纵向堆叠，**不画线**。
+
+手写裸 border 会同时踩两个坑：**线贴住邻栏文字**（让文字顶着线读）与**窄屏孤线**
+（border 写在不带断点的类名上，而两栏布局是 `lg:grid-cols-12`）。
+守卫 `scripts/guard_col_divider.py` 阻断新增；存量 4 处冻结在脚本 `BASELINE`（逐处理由见脚本 docstring），只减不增。
+
+以下**不属于**本判据，**有意放行**（别当漏判，也别顺手"统一"掉）：
+
+- **语义强调条**：`3px` / `4px` + `--color-warning` / `--color-danger` / `--color-info` / `--temp-*`——颜色本身就是信息（如机会卡温度条、导入表内语义色竖条），与「栏间分割线」是两回事；
+- **选中指示条**：`2px solid transparent` 占位、选中态只改 `border-left-color`（如目录 TOC）；
+- **卡片内部降权分割线**：用 `--border-subtle`，它约束的是卡片内部，不是栏与栏之间。
+
+若某处确需手写例外，在声明本行或相邻行加注释 `col-divider-allow` 并写明理由（刻意不提供文件级豁免）。
 
 
 ## Typography
@@ -467,7 +488,9 @@ Element Plus 给 `.el-textarea__inner:focus` 自带
 （`layout/index.vue` 注入，未隐藏页同样可用）。三道防误触守卫缺一不可：输入焦点
 （input/textarea/select/contenteditable 一律让键）、中文输入法 `isComposing`、EP 弹层
 `.el-overlay` **可见**时让键（注意 EP 遮罩是 vShow 常驻 DOM，须判 `display` 而非判存在）。
-首次进入隐藏页 toast 提示一次（sessionStorage 去重）。用户实测案例：自选页 `/watchlist`
+首次进入隐藏页 toast 提示一次（**localStorage 去重，每浏览器仅首次**——#2099：曾用
+sessionStorage，其生命周期仅单标签页会话，重启浏览器 / 新开标签页即重置，用户体感
+「每次进自选页都弹」，干扰过大；存储不可用时退化为页内每次加载最多一次）。用户实测案例：自选页 `/watchlist`
 的 FAB 压住表格右下角固定操作列（置顶/关注/移除按钮），2026-10-10 起该页走此机制隐藏。
 
 ### 输入框基线契约（#1772：el-input / el-textarea / el-select 唯一真相源）
@@ -662,6 +685,35 @@ Element Plus 给 `.el-textarea__inner:focus` 自带
 | 品牌 | `--brand-200` | `--brand-700` | `--radius-pill` |
 | 危险 | `#FEF0F0` | `--color-danger-system` | `--radius-pill` |
 
+#### 风格标签三档徽章（#2044 · 基金经理代表作）
+
+代表作的风格标签（持仓集中度 / 行业集中度 / 市值风格）用**同族底色、递进墨重**的三档胶囊表达档位强度。**刻意不用红绿**：集中度高≠坏、中性≠好，红绿是涨跌语义专用（见上表「涨 / 跌」变体）。
+
+| 档位 | 背景 | 文字 | 字重 | 映射（key 后缀） |
+|------|------|------|------|------------------|
+| 低 | 透明 + 1px `--border-subtle` | `--text-secondary` | 400 | `low` 分散 / `small` 偏中小盘 |
+| 中 | `--bg-soft` | `--text-secondary` | 400 | `mid` 中性 / `balanced` 均衡 |
+| 高 | `--bg-soft` | `--text-primary` | 600 | `high` 高集中 / `large` 偏大盘 |
+
+- 圆角 `--radius-pill`（Badge 语言），字号 11px；徽章文字直接用后端 `label`，不改写。
+- `basis`（判定依据）经 `el-tooltip` hover 展示；徽章 `tabindex="0"` 保证键盘可达（#1838）。
+- 后端**不返回颜色**，配色在此层由 key → 档位映射决定；数据不足的维度**缺席**而非 null 占位，`style_labels` 为空则整行不渲染（不显示空容器 / 占位徽章）。
+- 参考实现：`views/product/components/ProductManagerSection.vue` 的 `.mgr-section__style-badge`。
+
+#### 估 / 确认状态徽标（#2143 · ValuationSourceBadge 唯一实现）
+
+估值状态徽标（「估」/「确认」）收敛为 `ValuationSourceBadge` 组件，**禁止页面另写「估」胶囊**（强制复用清单已登记）。
+
+| 状态 | 背景 | 文字 | 语义 |
+|------|------|------|------|
+| `estimated` 预估 | `--brand-100` | `--brand-700` | 沿用 #1104「估」胶囊——「这个数字不是确认值」的视觉锚点，比口径标签重一档 |
+| `confirmed` 已确认 | `--bg-soft` | `--text-secondary` | 设计系统默认徽章档：尘埃落定的安静态，让数字本身承载注意力 |
+
+- 状态由**后端数据驱动**（`status` prop），前端禁止按日期自行推断；未知状态整块不渲染（诚实缺席）。
+- 红绿是涨跌语义专用，两态均不使用。
+- 两档尺寸：md 16px（盈亏副行）/ sm 14px（日历格密排）；圆角 `--radius-pill`。
+- 组件**不内置 el-tooltip**：完整提示文案由调用方按语境传入 `tip`（盘中免责走 `ESTIMATE_DISCLAIMER` 单一出口；日历格说明走外层悬浮卡 `PnlCalendarUnitTip`），徽标自身以 `role="note"` + `aria-label` 保读屏与键盘可达。
+
 ### Table（el-table）
 
 > **全站 `el-table` 视觉基线统一维护在 `src/style/el-table.css`**（2026-08 起强制）。
@@ -838,6 +890,16 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 > 同页的一级 / 二级分工示例见 `RoadFilterBar.vue`：一级标的类别是 `SegmentedControl`（带数量徽章），
 > 二级状态筛选是水平滑动胶囊栏。
 
+> **裁决（#1449 / #2199）：自选页「类型快捷筛选」归水平滑动胶囊栏，不归分段控制器**。
+> 该条目的选项集由用户偏好决定（`user_preferences.watchlist_quick_filters` 外露类型，默认 4 项），
+> 自定义后可达 11 项（全部 + 10 类型），**超出分段器「选项少（2–6）、平铺」的适用域**，
+> 按分水岭切换为胶囊栏语言，视觉规格与分组胶囊 Tab 逐值对齐（32px 胶囊 / `--radius-pill` /
+> 软按钮选中态）。布局上它是筛选行的**第二个弹性区**：与分组胶囊 Tab 并列（中间以分区分隔线切开），
+> 不打架时按内容宽排布，争夺时两区各限 `max-width: 50%`、各自横滑兜底
+> （隐滚动条 + 滚轮横滑 + 右缘渐变遮罩，同 FilterGroupTabs 模式），右侧操作段固定不参与争夺。
+> **股票、基金为常驻外显（`PINNED_QUICK_TYPES`）**：无论用户如何配置都恒在外露列表最前两位，
+> 自定义弹窗内对应项 disabled 恒勾选。实现见 `views/asset/watchlist/components/QuickTypePills.vue`。
+
 > **编码红线（#1717 收紧）**：分段控制器**只有 `SegmentedControl` 一个实现**。
 > ① 禁止页面使用 `el-segmented`——其选中滑块是 JS 绝对定位的独立子元素
 > `.el-segmented__item-selected`，圆角取自 `calc(var(--el-border-radius-base) - 2px)`，与轨道 / 选项项
@@ -934,6 +996,24 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 | 走势图 | 红色渐变区域 | 绿色渐变区域 |
 
 > 所有图表颜色通过 `getComputedStyle` 动态读取 CSS 变量，禁止硬编码色值。
+
+> **柱体填充用 `--color-rise` / `--color-fall`，柱上文字用 `-ink` 级**（与「盈亏数字」
+> 一致）：柱体是大面积填充、可低饱和；文字压在卡片底色上，必须走 AA 达标的 `-ink`。
+
+### 柱状 / 瀑布图的可读性约定
+
+> **为什么单列一节**：三条规则都不是审美偏好，每一条都对应一类会「说错话」的图表错误。
+
+| 规则 | 理由 |
+|------|------|
+| **柱高 = 该项自身金额，不是累计值** | 柱高画累计、标签写增量时两者对不上，用户比大小比的是错的东西。用「透明基座 + 增量」两层堆叠实现真瀑布：每根柱只画自己那一份、悬在自己的累计高度上 |
+| **轴刻度与柱标签过万缩写为「万 / 亿」** | 六位数刻度会把绘图区挤窄、标签互相压住；柱顶的长数字会和相邻柱的标签糊成一团。tooltip 保持完整精度 |
+| **小额柱不写标签，只进 tooltip** | 全员挂标签时柱顶是一排长短不一的数字，最小的几根互相挤压反而看不出重点。低于「最大单项 × 8%」的只在 tooltip 给值。轴触发 tooltip 的完整值始终可读 |
+
+> **轴标签色走 `--text-tertiary-ink`**：轴标签是**文字**（不是描边 / 图形），
+> `--text-tertiary` 白底仅 3.69:1，达不到正文 4.5:1。
+
+> 参考实现：`views/asset/panorama/components/assetWaterfall.ts`（纯计算，不碰 DOM）。
 
 
 ## Voice & Content

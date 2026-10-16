@@ -5,7 +5,8 @@
     1. 结构一致：形状/数量/宽度与真实内容布局高度一致，非装饰性条条；
     2. 轻量化：纯 CSS background 流光（GPU 加速），不占 JS 主线程，动画 1.8s 慢速；
     3. A11y：根节点 aria-hidden="true"，防止读屏软件朗读占位块；
-    4. 阈值控制由使用方负责：请求 ≤200ms 返回时跳过骨架屏（见 detail.vue 示例）。
+    4. 阈值控制由使用方负责：请求 ≤200ms 返回时跳过骨架屏（统一实现
+       src/composables/useSkeletonThreshold.ts；落地见 views/product/detail.vue）。
 -->
 <template>
   <div class="page-skeleton" aria-hidden="true">
@@ -75,6 +76,11 @@ withDefaults(
    记进存量基线，阈值一旦与 _breakpoints.scss 分叉就没人知道。 */
 @use "@/style/breakpoints" as bp;
 
+/* 流光本体单一来源：渐变 / 扫光色（--skeleton-wave 令牌）/ keyframes / 减动效降级
+   都在 _skeleton.scss 的 wave-bar mixin 里，WatchlistTableSkeleton 共用同一份——
+   禁止在本文件另写渐变，否则两处骨架屏的动画节奏会悄悄分叉。 */
+@use "@/style/skeleton" as sk;
+
 .page-skeleton {
   display: flex;
   flex-direction: column;
@@ -121,19 +127,12 @@ withDefaults(
     gap: var(--space-3);
   }
 
-  /* 占位条：纯 CSS 流光（background-size 动画，GPU 合成，不占主线程），1.8s 慢速 */
+  /* 占位条：纯 CSS 流光（background-size 动画，GPU 合成，不占主线程），1.8s 慢速。
+     颜色 / 渐变 / keyframes / prefers-reduced-motion 降级来自 sk.wave-bar（单一来源）。 */
   &__bar {
     height: 14px;
-    background-color: var(--bg-soft);
-    background-image: linear-gradient(
-      90deg,
-      var(--bg-soft) 25%,
-      var(--bg-hover) 37%,
-      var(--bg-soft) 63%
-    );
-    background-size: 400% 100%;
-    border-radius: var(--radius-sm);
-    animation: page-skeleton-wave 1.8s ease-in-out infinite;
+
+    @include sk.wave-bar;
   }
 
   &__bar--label {
@@ -167,16 +166,6 @@ withDefaults(
 
   &__product {
     min-height: 150px;
-  }
-}
-
-@keyframes page-skeleton-wave {
-  0% {
-    background-position: 100% 50%;
-  }
-
-  100% {
-    background-position: 0 50%;
   }
 }
 </style>

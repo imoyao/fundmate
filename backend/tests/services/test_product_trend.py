@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 """产品历史走势取数（#1967 · 详情页走势区块）。
 
-重点覆盖三件事：
+重点覆盖五件事：
 1. 场内取**前复权**（``adj_close``）而非未复权 ``close``——除权日用 close 会画出一条假跳空；
-2. 场外按**裸 6 位码**查 ``daily_worth``（入库侧没有 ``OF.`` 前缀）；
-3. 无序列能力的品类（指数等）返回 ``None``，由端点降级成空序列而不是 404。
+2. 场外按**裸 6 位码**查 ``daily_worth``（入库侧没有 ``OF.`` 前缀），且优先**累计净值**
+   ``acc_nav``、缺失回退 ``unit_nav``（#2171）——单位净值分红除息跳空同样是假跳空；
+3. 无序列能力的品类（经理 / 投顾组合）返回 ``None``，由端点降级成空序列而不是 404；
+4. 指数（#2028）走 ``index_daily``：有日线出曲线，无日线返回 ``None`` 诚实降级。
+5. 端点对无序列品类返回 200 + 空序列（前端空态），默认区间 3M，非法 range 400。
 """
 
 from datetime import date, timedelta
@@ -12,6 +15,7 @@ from datetime import date, timedelta
 import pytest
 
 from app.domains.funds.models import DailyWorth, Fund
+from app.domains.indices.models import IndexDaily
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
 from app.services.product_trend import fetch_product_trend
@@ -46,7 +50,8 @@ def _seed_price_series(db, symbol='SZ000001', points=5, adj_close=None, base_pri
     db.commit()
 
 
-def _seed_nav_series(db, fund_code='004369', points=5):
+def _seed_nav_series(db, fund_code='004369', points=5, acc_nav=None):
+    """造一段场外净值；``acc_nav`` 为 None 时只写单位净值（模拟 acc_nav 缺失的存量行）。"""
     fund = db.query(Fund).filter(Fund.fund_code == fund_code).first()
     if fund is None:
         fund = Fund(fund_code=fund_code, name='测试基金')
@@ -59,6 +64,7 @@ def _seed_nav_series(db, fund_code='004369', points=5):
                 fund_code=fund_code,
                 date=start + timedelta(days=i),
                 unit_nav=2.0 + i * 0.01,
+                acc_nav=None if acc_nav is None else acc_nav + i * 0.01,
             )
         )
     db.commit()
@@ -87,7 +93,7 @@ def test_close_series_falls_back_to_close(db):
     assert result['values'] == [10.0, 11.0, 12.0, 13.0, 14.0]
 
 
-def test_fund_uses_unit_nav_by_bare_code(db):
+def test_fund_uses_nav_by_bare_code(db):
     """场外基金按裸 6 位码查 daily_worth，kind=nav。"""
     _seed_nav_series(db, fund_code='004369')
 
@@ -100,8 +106,34 @@ def test_fund_uses_unit_nav_by_bare_code(db):
 
 
 def test_index_has_no_series(db):
-    """指数没有历史序列数据源 → None（不是空数组，由端点决定怎么降级）。"""
-    assert fetch_product_trend(db, 'SH000300', asset_type='index', range_key='3M') is None
+    """指数库里无该码日线 → None（诚实降级，不是空数组，由端点决定怎么降级）。"""
+    assert fetch_product_trend(db, 'SH999999', asset_type='index', range_key='3M') is None
+
+
+def test_index_series_from_index_daily(db):
+    """指数有日线（index_daily，交易所后缀原生形态）→ 出单线曲线（#2028）。"""
+    start = date.today() - timedelta(days=8)
+    for i in range(5):
+        db.add(
+            IndexDaily(
+                index_code='000300.SH',
+                trade_date=start + timedelta(days=i),
+                close=4000.0 + i * 10,
+                source='tencent',
+            )
+        )
+    db.commit()
+
+    # 入口是裸码 / 带前缀形态，都要能命中 000300.SH
+    result = fetch_product_trend(db, 'SH000300', asset_type='index', range_key='1M')
+
+    assert result is not None
+    assert result['kind'] == 'close'
+    assert result['values'] == [4000.0, 4010.0, 4020.0, 4030.0, 4040.0]
+    # 指数日线无 OHLCV——前端画单线而非 K 线
+    assert result['ohlc'] == []
+    # 来源要出站点名（内部码 tencent → 腾讯）
+    assert result['source'] == '腾讯'
 
 
 def test_invalid_range_raises(db):
@@ -164,7 +196,69 @@ def test_fund_source_is_daily_fund_site(db):
 
     assert result is not None
     assert result['source'] == '天天基金'
-    assert result['basis'] == '单位净值'
+    assert '累计净值' in result['basis']
+
+
+# ── 累计净值口径（#2171）────────────────────────────────────────────
+def test_fund_prefers_acc_nav_over_unit_nav(db):
+    """有 acc_nav 必须用它（#2171）。
+
+    反向验证目标：还原为只查 unit_nav 的旧实现，本条必须转红（values 会变成
+    2.00/2.01…而非 2.50/2.51…）。单位净值遇现金分红除息跳空，画出来是
+    「产品暴跌」的假象；累计净值（分红不再投近似复权）才是持有期间真实涨幅。
+    """
+    _seed_nav_series(db, fund_code='004369', acc_nav=2.5)
+
+    result = fetch_product_trend(db, '004369', asset_type='fund', range_key='3M')
+
+    assert result is not None
+    assert result['values'][0] == 2.5, '每点都该是 acc_nav，而不是 unit_nav=2.0'
+    assert result['values'] == [2.5, 2.51, 2.52, 2.53, 2.54]
+
+
+def test_fund_falls_back_to_unit_nav_when_acc_missing(db):
+    """acc_nav 缺失（存量行）时回退 unit_nav——与 fund_metrics.load_nav_points 同源。"""
+    _seed_nav_series(db, fund_code='004369', acc_nav=None)
+
+    result = fetch_product_trend(db, '004369', asset_type='fund', range_key='3M')
+
+    assert result is not None
+    assert result['values'] == [2.0, 2.01, 2.02, 2.03, 2.04]
+
+
+# ── 建仓期显式起始日（#2171 P1）──────────────────────────────────────
+def test_explicit_start_date_overrides_range(db):
+    """``start_date`` 给定时忽略档位，窗口从起始日算起（建仓期区间）。
+
+    区间长度因人而异（有人持有了三年，有人三天），档位 1M/3M/6M/1Y 表达不了。
+    反向验证目标：删掉 start_date 分支改回只用 RANGE_DAYS，本条转红
+    （requested_days 会变 90、dates 会包含起始日之前的点）。
+    """
+    _seed_nav_series(db, fund_code='004369', points=10, acc_nav=2.5)
+    start = date.today() - timedelta(days=5)
+
+    result = fetch_product_trend(db, '004369', asset_type='fund', range_key='3M', start_date=start)
+
+    assert result is not None
+    assert result['requested_days'] == 6, '跨度按显式起始日算（含今天）'
+    assert all(d >= start.isoformat() for d in result['dates']), '不含起始日之前的点'
+
+
+def test_start_date_in_future_clamps_to_today(db):
+    """起始日晚于今天（首笔买入日就是今天）按今天算：窗口 1 天，不报错。"""
+    _seed_nav_series(db, fund_code='004369', points=5, acc_nav=2.5)
+
+    result = fetch_product_trend(
+        db,
+        '004369',
+        asset_type='fund',
+        range_key='3M',
+        start_date=date.today() + timedelta(days=5),
+    )
+
+    assert result is not None
+    assert result['requested_days'] == 1
+    assert all(d <= date.today().isoformat() for d in result['dates'])
 
 
 # ── K 线数据（#1969）──────────────────────────────────────────────────

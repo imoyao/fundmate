@@ -33,6 +33,7 @@ from app.services.import_records import (
     StandardHoldingRecord,
     compute_position_hash,
 )
+from app.services.importer.orchestrator_commit import refresh_prices_best_effort
 from app.services.importer.registry import get_holding_parser
 from app.services.position_service import PositionService
 
@@ -248,7 +249,14 @@ class HoldingsMixin:
             raise
 
         logger.info(f'持仓入库完成: 导入={imported}, 跳过={filter_skipped}, 错误={len(commit_errors)}')
-        return {'imported': imported, 'skipped': filter_skipped, 'errors': commit_errors}
+        result = {'imported': imported, 'skipped': filter_skipped, 'errors': commit_errors}
+        # 静默回写一次持仓现价（#2232 项 3）：持仓快照里的现价来自文件本身（或成本价），
+        # 不回写一次的话，用户当天看到的盈亏与真实持仓对不上。why 与失败边界见
+        # `refresh_prices_best_effort`（service 层的统一入口，视图不参与）
+        refreshed = refresh_prices_best_effort(self.db)
+        if refreshed is not None:
+            result['price_refresh'] = refreshed
+        return result
 
     def _build_holding_data(self, row: dict) -> dict:
         """前端预览行 → upsert_from_holding 数据字典（含溯源 meta）。"""

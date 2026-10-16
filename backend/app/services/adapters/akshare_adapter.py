@@ -11,6 +11,7 @@ import time
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
+import requests
 from loguru import logger
 
 from app.core.symbol_utils import (
@@ -26,8 +27,60 @@ _FUND_MANAGER_RETRY = 3
 _FUND_MANAGER_RETRY_SLEEP = 3  # 秒
 
 # 日线取数中**不接受日期区间参数**的品类：可转债（bond_zh_hs_cov_daily）与 ETF 的
-# 新浪回退源（fund_etf_hist_sina）都会返回全部历史，必须由调用侧本地裁剪（#1104）
+# 新浪保底源（fund_etf_hist_sina）都会返回全部历史，必须由调用侧本地裁剪（#1104）。
+# ETF 主源（腾讯 stock_zh_a_hist_tx）与备源（东财）虽接受日期参数，但保底路径不接受，
+# 故 etf 保留在名单里统一裁剪（对接受参数的源只是二次裁剪，无副作用）
 _NO_WINDOW_SEC_TYPES = ('bond', 'etf')
+
+# ── 东财 K 线连接级失败熔断器 ────────────────────────────────────────────────
+# WHY：2026-10-14 实测 push2his.eastmoney.com 对本机 IP 级拒绝（RemoteDisconnected，
+# curl 直连同样失败）。东财挂掉期间每只 ETF 仍白烧 adjust='' 与 adjust='qfq' 两轮、
+# 每轮 urllib3 重试 3 次（约 7~10 秒/只）才走到既有回退，8 只持仓 ETF 一轮多耗
+# 约 1.5 分钟并刷屏 WARNING（当日实测 16 条）。
+# 自 2026-10-14 起东财已降为 ETF 日线**备源**（主源切腾讯，见 _fetch_etf_frame），
+# 仅在腾讯失败时才会被尝试；熔断语义不变：
+# 连续 2 次连接级失败后 600s 内跳过东财——adjust='' 直切新浪保底、
+# adjust='qfq' 直接返回 None（adj_close 由 _fetch_adj_close_map 回退 close）；
+# 一次成功即复位；冷却过期后下一次调用即半开试探。仅连接级异常（ConnectionError /
+# Timeout）计数，解析错等业务异常不计。数据自愈仍靠 price_history 缺口回补下次运行。
+_EM_KLINE_FAILURE_THRESHOLD = 2
+_EM_KLINE_BREAKER_COOLDOWN = 600  # 秒
+
+
+class _EmKlineBreaker:
+    """东财 K 线连接级失败熔断器（进程内共享，见模块级常量处的 WHY 说明）。"""
+
+    def __init__(self):
+        self._consecutive = 0
+        self._open_until = 0.0
+
+    def should_skip(self, now: float) -> bool:
+        """熔断是否处于打开期（now 早于冷却截止时间）。"""
+        return now < self._open_until
+
+    def record_success(self) -> None:
+        """一次成功即完全复位（含关闭熔断）。"""
+        self._consecutive = 0
+        self._open_until = 0.0
+
+    def record_connection_failure(self, now: float) -> None:
+        """记录一次连接级失败；达到阈值时打开熔断并打日志。"""
+        self._consecutive += 1
+        if self._consecutive >= _EM_KLINE_FAILURE_THRESHOLD:
+            self._open_until = now + _EM_KLINE_BREAKER_COOLDOWN
+            logger.info(
+                f'东财 K 线连接级失败连续 {self._consecutive} 次，熔断打开 '
+                f'{_EM_KLINE_BREAKER_COOLDOWN}s：期间 ETF 未复权直切新浪回退、'
+                '复权请求直接跳过（adj_close 回退 close）'
+            )
+
+    def reset(self) -> None:
+        """测试用：清零计数并关闭熔断。"""
+        self._consecutive = 0
+        self._open_until = 0.0
+
+
+_em_kline_breaker = _EmKlineBreaker()
 
 # ── 基金持仓明细 / 行业配置（#870）─────────────────────────────────────────────
 # 东财基金档案-投资组合有两个端点，取数语义都是「**报告年份**」，不是日期：
@@ -171,7 +224,9 @@ class AkshareAdapter(DataSourceAdapter):
 
         数据源：
         - 股票：新浪 `stock_zh_a_daily`（沪 `sh600519` / 深 `sz000001`）
-        - ETF：东财 `fund_etf_hist_em`（裸 6 位码，中文列名统一映射）
+        - ETF：腾讯 `stock_zh_a_hist_tx`（主，支持服务端复权）→ 东财 `fund_etf_hist_em`
+          （备，带熔断）→ 新浪 `fund_etf_hist_sina`（保底，无复权）——主源切换依据
+          见 `_fetch_etf_frame` docstring；`source` 按**实际命中**的源打标
         - 可转债：新浪 `bond_zh_hs_cov_daily`，不做复权（转股 / 强赎不改变历史成交价）
 
         Returns:
@@ -194,7 +249,7 @@ class AkshareAdapter(DataSourceAdapter):
 
         sec_type = derive_security_type(code, market) or 'stock'
         try:
-            raw = self._fetch_daily_frame(ak, sec_type, market, code, start_date, end_date, adjust='')
+            raw, raw_source = self._fetch_daily_frame(ak, sec_type, market, code, start_date, end_date, adjust='')
             if raw is None or raw.empty:
                 logger.info(f'{symbol} 在 {start_date} ~ {end_date} 无行情数据')
                 return []
@@ -207,13 +262,19 @@ class AkshareAdapter(DataSourceAdapter):
                 close = self._num(row.get('close'))
                 if trade_date is None or close is None:
                     continue
-                # 本地区间裁剪：可转债接口（bond_zh_hs_cov_daily）与 ETF 的新浪回退
+                # 本地区间裁剪：可转债接口（bond_zh_hs_cov_daily）与 ETF 的新浪保底
                 # **不接受日期参数**，会一次吐回全部历史（实测 1231 行），不裁就会把
-                # 无关历史整段搬去写库；股票与 ETF 东财已由接口按参数过滤。
+                # 无关历史整段搬去写库；股票与 ETF 的腾讯/东财已由接口按参数过滤。
                 if (explicit_window or sec_type in _NO_WINDOW_SEC_TYPES) and (
                     trade_date < start_date or trade_date > end_date
                 ):
                     continue
+                volume = self._num(row.get('volume'))
+                # 东财 ETF K 线的成交量单位是「手」，腾讯/新浪是「股」——统一按「股」
+                # 入库，否则备源切换会在同一序列里留下 ~100 倍断崖（2026-10-14 实测
+                # 三只 ETF 均为 ×100；库里 SH563530 已存在新浪回退写入的「股」行）
+                if volume is not None and sec_type == 'etf' and raw_source == 'akshare_em':
+                    volume *= 100
                 records.append(
                     {
                         'symbol': symbol,
@@ -222,10 +283,12 @@ class AkshareAdapter(DataSourceAdapter):
                         'high': self._num(row.get('high')),
                         'low': self._num(row.get('low')),
                         'close': close,
-                        'volume': self._num(row.get('volume')),
+                        'volume': volume,
                         # 前复权价缺失时回退未复权价，宁可口径降级也不留空
                         'adj_close': adj_map.get(trade_date, close),
-                        'source': 'akshare_em' if sec_type == 'etf' else 'akshare_sina',
+                        # 按实际命中的源打标（此前 ETF 一律硬编码 akshare_em，新浪
+                        # 回退写入的行也被错标，产品详情页脚注会指错数据来源）
+                        'source': raw_source,
                     }
                 )
 
@@ -249,12 +312,17 @@ class AkshareAdapter(DataSourceAdapter):
     def _fetch_daily_frame(
         self, ak, sec_type: str, market: str, code: str, start_date: date, end_date: date, adjust: str
     ):
-        """按品类取日线 DataFrame，列名统一为 date/open/high/low/close/volume（#1104）。"""
+        """按品类取日线 DataFrame，列名统一为 date/open/high/low/close/volume（#1104）。
+
+        返回 ``(df, source)``——source 是实际命中的数据源码（`akshare_tx` /
+        `akshare_em` / `akshare_sina`），供入库打标；取不到数据时为 ``(None, '')``。
+        """
         if sec_type == 'etf':
-            df = self._fetch_etf_frame(ak, market, code, start_date, end_date, adjust)
+            df, source = self._fetch_etf_frame(ak, market, code, start_date, end_date, adjust)
         elif sec_type == 'bond':
             # 可转债接口无复权参数
             df = ak.bond_zh_hs_cov_daily(symbol=f'{market.lower()}{code}')
+            source = 'akshare_sina'
         else:
             df = ak.stock_zh_a_daily(
                 symbol=f'{market.lower()}{code}',
@@ -262,40 +330,79 @@ class AkshareAdapter(DataSourceAdapter):
                 end_date=end_date.strftime('%Y-%m-%d'),
                 adjust=adjust,
             )
+            source = 'akshare_sina'
         # rename 对不存在的列无副作用：新浪两接口本身是英文列，东财是中文列
-        return None if df is None else df.rename(columns=self._EM_DAILY_COLUMN_MAP)
+        return (None if df is None else df.rename(columns=self._EM_DAILY_COLUMN_MAP)), source
 
     def _fetch_etf_frame(self, ak, market: str, code: str, start_date: date, end_date: date, adjust: str):
-        """ETF 日线：东财优先（支持复权），失败回退新浪（无复权）。
+        """ETF 日线：腾讯优先（支持复权），失败回退东财（备源，带熔断），再退新浪（无复权）。
 
-        为什么必须带回退：2026-09-22 实测 push2his.eastmoney.com 对本机直接
-        `RemoteDisconnected`（时通时断），单源会让 8 只 ETF 持仓的日线整体 0 行。
-        新浪源不支持复权参数，故只在取**未复权**数据（adjust=''）时回退；
-        复权请求失败返回 None，由 `_fetch_adj_close_map` 让 adj_close 回退 close。
-        新浪源返回全历史且无日期参数，区间裁剪由 `fetch_stock_price` 统一完成。
+        为什么主源是腾讯（2026-10-14 拍板）：
+        - 东财 push2his 对本机 IP 级封锁反复发作（2026-09-22 时通时断、10-01、
+          10-14 全断，akshare 社区同类 issue 2 年 12+ 条），腾讯源社区 3 年 0 封禁投诉；
+        - 数据质量实测零差异：3 只 ETF × 252 天重叠，close 与 qfq 均与东财逐位一致
+          （2026-10-14 交叉验证）；
+        - 腾讯支持服务端 qfq/hfq、接受日期参数、新鲜度到当日盘中，不输东财。
+
+        回退语义：
+        - 新浪保底（fund_etf_hist_sina）不支持复权参数，仅 adjust='' 时可用；
+          复权请求在腾讯与东财都失败时返回 None，由 `_fetch_adj_close_map` 让
+          adj_close 回退 close；
+        - 新浪源返回全历史且无日期参数，区间裁剪由 `fetch_stock_price` 统一完成；
+        - 东财连续连接级失败会触发模块级熔断（见 `_EmKlineBreaker`）：打开期间
+          跳过东财直接走新浪保底，不再白烧重试。
+
+        腾讯源按年份分页、带 tqdm 进度条输出（增量窗口通常只触发 1~2 次请求），量级可接受。
+        返回 ``(df, source)``；三源皆空时 adjust='' 返回 (空 df 或 None, '')。
         """
+        tx_symbol = f'{market.lower()}{code}'
+        # 1) 腾讯主源（支持 adjust='' / 'qfq' / 'hfq'，YYYYMMDD 窗口）
         try:
-            df = ak.fund_etf_hist_em(
-                symbol=code,
-                period='daily',
+            df = ak.stock_zh_a_hist_tx(
+                symbol=tx_symbol,
                 start_date=start_date.strftime('%Y%m%d'),
                 end_date=end_date.strftime('%Y%m%d'),
                 adjust=adjust,
             )
             if df is not None and not df.empty:
-                return df
+                return df, 'akshare_tx'
         except Exception as e:
-            self.logger.warning(f'东财 ETF 日线失败（{code} adjust={adjust!r}）: {e}')
+            self.logger.warning(f'腾讯 ETF 日线失败（{code} adjust={adjust!r}）: {e}')
+
+        # 2) 东财备源（熔断器管辖）
+        now = time.time()
+        if _em_kline_breaker.should_skip(now):
+            self.logger.debug(f'东财熔断打开中，跳过 {code} adjust={adjust!r} 的东财请求')
+        else:
+            try:
+                df = ak.fund_etf_hist_em(
+                    symbol=code,
+                    period='daily',
+                    start_date=start_date.strftime('%Y%m%d'),
+                    end_date=end_date.strftime('%Y%m%d'),
+                    adjust=adjust,
+                )
+                if df is not None and not df.empty:
+                    _em_kline_breaker.record_success()
+                    return df, 'akshare_em'
+            except Exception as e:
+                # 仅连接级异常计入熔断；解析错等业务异常不影响熔断状态
+                if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+                    _em_kline_breaker.record_connection_failure(now)
+                self.logger.warning(f'东财 ETF 日线失败（{code} adjust={adjust!r}）: {e}')
+
+        # 3) 新浪保底（无复权，仅 adjust=''；异常向上抛，由 fetch_stock_price 统一兜底）
         if adjust:
-            return None
-        return ak.fund_etf_hist_sina(symbol=f'{market.lower()}{code}')
+            return None, ''
+        df = ak.fund_etf_hist_sina(symbol=tx_symbol)
+        return (df, 'akshare_sina') if df is not None else (None, '')
 
     def _fetch_adj_close_map(self, ak, sec_type: str, market: str, code: str, start_date: date, end_date: date) -> dict:
         """前复权收盘价 {trade_date: close}；取不到返回空 dict，由调用方回退 close。"""
         if sec_type == 'bond':
             return {}
         try:
-            df = self._fetch_daily_frame(ak, sec_type, market, code, start_date, end_date, adjust='qfq')
+            df, _source = self._fetch_daily_frame(ak, sec_type, market, code, start_date, end_date, adjust='qfq')
             if df is None or df.empty:
                 return {}
             out = {}
@@ -1275,6 +1382,64 @@ class AkshareAdapter(DataSourceAdapter):
             return out
         except Exception as e:
             self.logger.warning(f'中证指数估值获取失败 {index_code}: {e}')
+            return []
+
+    # 乐咕乐股侧的中文 symbol → 裸 6 位码（#1407 分位基线）。
+    # 2026-10-11 实测（akshare 1.18.91）：这 9 个宽基 PE/PB 双成功；深证成指 / 创业板指 /
+    # 行业类（消费 / 医疗 / 白酒…）乐咕均 KeyError 无覆盖，A500（000510）/ 中证2000（932000）
+    # 同样无源——无源指数不进基线，分位由读路径降级为 None。
+    LG_INDEX_NAMES: dict[str, str] = {
+        '000016': '上证50',
+        '000010': '上证180',
+        '000009': '上证380',
+        '000015': '上证红利',
+        '000300': '沪深300',
+        '000903': '中证100',
+        '000905': '中证500',
+        '000906': '中证800',
+        '000852': '中证1000',
+    }
+
+    def fetch_index_pe_lg(self, index_code: str) -> List[dict]:
+        """乐咕乐股月频 PE 序列（ak.stock_index_pe_lg，#1407 分位基线）。
+
+        返回**全历史**月频序列（实测约 21 年、260 点），近 5 年窗口的裁剪由 Job 负责
+        （窗口是产品口径，不属于数据源层）。只取「滚动市盈率」单列——#1407 拍板的
+        分位口径，其余 7 个口径列（等权 / 静态 / 中位数…）不落库，避免口径堆砌。
+
+        乐咕返回月频（月末采样），**不是日频**；无覆盖的 symbol 会抛 KeyError，
+        由本方法吞掉返回空列表，Job 静默跳过。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        name = self.LG_INDEX_NAMES.get(index_code)
+        if not name:
+            return []
+        ak = get_akshare()
+        try:
+            df = ak.stock_index_pe_lg(symbol=name)
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                d = self._parse_dividend_date(self._cell(row, '日期'))
+                if not d:
+                    continue
+                pe = self._num(self._cell(row, '滚动市盈率'))
+                if pe is None:
+                    continue
+                out.append(
+                    {
+                        'index_code': index_code,
+                        'index_name': name,
+                        'trade_date': d,
+                        'pe_ttm': pe,
+                        'source': 'lg',
+                    }
+                )
+            return out
+        except Exception as e:
+            self.logger.warning(f'乐咕乐股指数 PE 获取失败 {index_code}({name}): {e}')
             return []
 
     def fetch_index_catalog_cni(self) -> List[dict]:

@@ -85,6 +85,8 @@ function onVendorLogoError(e: Event) {
 
 <template>
   <div class="import-mode-wrapper">
+    <!-- #783 P1 步骤①：卡片区引导语，明确这一片是「数据来源」而非账户设置 -->
+    <p class="mode-cards-title">请选择你的数据来源</p>
     <div class="import-mode-cards" :class="{ 'is-locked': !accountSelected }">
       <!-- 这四张卡曾是 div @click：纯键盘用户无法进入导入流程（功能级阻断，#1834）。
            改用真 button —— 自带可聚焦、可访问名称与 Enter/Space 触发，
@@ -161,6 +163,14 @@ function onVendorLogoError(e: Event) {
 <style scoped>
 .import-mode-wrapper {
   margin-top: 8px;
+}
+
+.mode-cards-title {
+  margin: 0;
+  font-size: var(--text-body);
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-align: center;
 }
 
 .import-mode-cards {
