@@ -510,6 +510,199 @@ def migrate_positions_price_columns(engine: Engine) -> str:
     return '[SKIP] positions.prev_close / price_date 已存在'
 
 
+# ── #2239 拆分用的手写 DDL ────────────────────────────────────────────────────
+# 刻意**不** import ``app.domains.funds.models``：core 层不得依赖 domains 层
+# （`tests/core/test_layer_direction.py` R1 守卫：core → 上层一律违规），而这里干的是
+# **建表**——除了 DDL 本身没有别的东西可依赖。代价是结构可能随模型漂移，故迁移末尾
+# **自校验**两件事：任期列是否真的删掉、唯一约束是否真的存在
+# （`_validate_schema` 只查「模型有列而库没列」，查不出「库多列」与「少约束」）。
+_FUND_MANAGERS_NEW_DDL = """
+CREATE TABLE fund_managers_new (
+    id INTEGER NOT NULL,
+    fund_id INTEGER NOT NULL,
+    mgr_id INTEGER NOT NULL,
+    is_classic BOOLEAN,
+    PRIMARY KEY (id),
+    CONSTRAINT uq_fund_managers_fund_mgr UNIQUE (fund_id, mgr_id),
+    FOREIGN KEY(fund_id) REFERENCES funds (id),
+    FOREIGN KEY(mgr_id) REFERENCES managers (id)
+)
+"""
+_MANAGER_TENURES_DDL = """
+CREATE TABLE IF NOT EXISTS manager_tenures (
+    id INTEGER NOT NULL,
+    fund_id INTEGER NOT NULL,
+    mgr_id INTEGER NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE,
+    current BOOLEAN DEFAULT 0,
+    source VARCHAR(20),
+    created_at DATETIME DEFAULT (CURRENT_TIMESTAMP),
+    updated_at DATETIME DEFAULT (CURRENT_TIMESTAMP),
+    PRIMARY KEY (id),
+    CONSTRAINT uq_manager_tenures_fund_mgr_start UNIQUE (fund_id, mgr_id, start_date),
+    FOREIGN KEY(fund_id) REFERENCES funds (id),
+    FOREIGN KEY(mgr_id) REFERENCES managers (id)
+)
+"""
+_MANAGER_TENURES_INDEXES = (
+    'CREATE INDEX IF NOT EXISTS ix_manager_tenures_mgr_id ON manager_tenures (mgr_id)',
+    'CREATE INDEX IF NOT EXISTS ix_manager_tenures_fund_id ON manager_tenures (fund_id)',
+)
+
+
+def migrate_fund_managers_split_tenures(engine: Engine) -> str:
+    """拆分 ``fund_managers``：关联（+唯一约束）归本表，任期归 ``manager_tenures``（#2239）。
+
+    ## 为什么要整表重建
+
+    SQLite 的 ``ALTER TABLE`` **只能加列/改名**，既不能加约束、也不能删列。而本次改造两件
+    都要做：加 ``UNIQUE(fund_id, mgr_id)``、删 ``start_date`` / ``end_date``。故走标准流程
+    **建新表 → 拷贝（顺带去重）→ 删旧 → 改名**（同 :func:`migrate_watchlist_unique_key`）。
+
+    ## 步骤顺序是刻意的：**先搬任期，后重建**
+
+    若先重建（DROP 掉 start_date / end_date）再搬任期，中途失败就**永久丢日期** —— 那两个
+    字段是每次 F10 抓取（每只基金一次 HTTP）才有的，事后补不回来。反过来先搬任期：
+    万一在重建处崩掉，重跑时任期源数据仍在旧表里，迁移整体可重入。
+
+    ## 去重口径
+
+    ``(fund_id, mgr_id)`` 取一行，**优先 ``is_classic=True``** —— 那是「代表作品」标记，
+    丢掉它会让代表作挑选逻辑（``manager_holdings``）在迁移后变差。多出来的行直接丢弃
+    （它们与保留行除了 id 之外没有任何差异，卡内实测：重复组内三列值完全一致）。
+
+    ## 任期写入口径
+
+    只有 ``start_date`` 非空的才写成任期（空起始日的行本来就无法定位一段任期，
+    编一个日期比留空更糟）；``start_date > end_date`` 属脏行，跳过并计数。
+    ``current`` 按 ``end_date IS NULL`` 落 —— **不是**无条件 True：无条件为真等于
+    把所有历史段都标成「在任」，读侧按 ``current`` 筛选代表作时会跨轮次选错人。
+
+    ## 幂等
+
+    三种「已完成」形态都直接跳过：非 SQLite 引擎；``fund_managers`` 不存在（空库，
+    ``create_all`` 会按新模型建）；已无任期列且 ``manager_tenures`` 已存在。
+    任期写入用 ``INSERT OR IGNORE`` 依赖 ``uq_manager_tenures_fund_mgr_start``。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，结构由 ORM 模型/迁移工具负责'
+
+    insp = inspect(engine)
+    tables = set(insp.get_table_names())
+    if 'fund_managers' not in tables:
+        return '[SKIP] fund_managers 不存在（空库，init_db 将按新模型建表）'
+
+    cols = {c['name'] for c in insp.get_columns('fund_managers')}
+    tenure_cols = {'start_date', 'end_date'} & cols
+    if not tenure_cols and 'manager_tenures' in tables:
+        return '[SKIP] 已拆分完成（fund_managers 无任期列，manager_tenures 已存在）'
+
+    # ── 1. 先把任期搬到新表（顺序理由见 docstring）────────────────────────────
+    # 启动期 `create_all` 已按模型建好该表；这里再 `IF NOT EXISTS` 一遍，是为了让
+    # **单独跑这个迁移**也成立（手工修库、或只调迁移的单测）。
+    with engine.connect() as conn:
+        conn.execute(text(_MANAGER_TENURES_DDL))
+        for stmt in _MANAGER_TENURES_INDEXES:
+            conn.execute(text(stmt))
+        conn.commit()
+
+    select_cols = ['id', 'fund_id', 'mgr_id', 'is_classic']
+    select_cols += [c for c in ('start_date', 'end_date') if c in cols]
+    with engine.connect() as conn:
+        rows = [dict(r) for r in conn.execute(text(f'SELECT {", ".join(select_cols)} FROM fund_managers')).mappings()]
+
+    # 按 (fund_id, mgr_id) 去重，优先保留 is_classic=True 的那行
+    best: dict = {}
+    for r in rows:
+        key = (r['fund_id'], r['mgr_id'])
+        cur = best.get(key)
+        if cur is None or (r.get('is_classic') and not cur.get('is_classic')):
+            best[key] = r
+
+    tenures, invalid = [], 0
+    for r in best.values():
+        start = r.get('start_date')
+        end = r.get('end_date')
+        if not start:
+            continue
+        if end and str(start) > str(end):
+            # 起始晚于结束属脏行：宁可少一段任期，也不把倒挂的区间写进库
+            invalid += 1
+            continue
+        tenures.append(
+            {
+                'fund_id': r['fund_id'],
+                'mgr_id': r['mgr_id'],
+                'start_date': str(start),
+                'end_date': str(end) if end else None,
+                'current': 1 if not end else 0,
+                'source': 'legacy_split',
+            }
+        )
+
+    with engine.connect() as conn:
+        if tenures:
+            conn.execute(
+                text(
+                    'INSERT OR IGNORE INTO manager_tenures '
+                    '(fund_id, mgr_id, start_date, end_date, current, source) '
+                    'VALUES (:fund_id, :mgr_id, :start_date, :end_date, :current, :source)'
+                ),
+                tenures,
+            )
+        conn.commit()
+
+    # ── 2. 重建 fund_managers：只留关联列 + 唯一约束 ──────────────────────────
+    # DDL 手写（理由见文件上方常量注释）；列清单必须与 models.FundManager 一致
+    ddl = _FUND_MANAGERS_NEW_DDL
+    new_rows = [
+        {
+            'id': r['id'],
+            'fund_id': r['fund_id'],
+            'mgr_id': r['mgr_id'],
+            'is_classic': r.get('is_classic'),
+        }
+        for r in best.values()
+    ]
+
+    with engine.connect() as conn:
+        conn.execute(text('PRAGMA foreign_keys=OFF'))
+        conn.execute(text('DROP TABLE IF EXISTS fund_managers_new'))
+        conn.execute(text(ddl))
+        if new_rows:
+            conn.execute(
+                text(
+                    'INSERT INTO fund_managers_new (id, fund_id, mgr_id, is_classic) '
+                    'VALUES (:id, :fund_id, :mgr_id, :is_classic)'
+                ),
+                new_rows,
+            )
+        conn.execute(text('DROP TABLE fund_managers'))
+        conn.execute(text('ALTER TABLE fund_managers_new RENAME TO fund_managers'))
+        conn.execute(text('PRAGMA foreign_keys=ON'))
+        conn.commit()
+
+    # ── 3. 迁移后自校验：_validate_schema 只查缺列，查不出「多列 / 少约束」
+    after_cols = {c['name'] for c in inspect(engine).get_columns('fund_managers')}
+    leftover = {'start_date', 'end_date'} & after_cols
+    if leftover:
+        raise RuntimeError(f'fund_managers 重建后仍含任期列 {sorted(leftover)}，迁移失败')
+    # 唯一约束按**列**判定而不是按名：SQLite 不曝露内联约束名（反射回来是 None）
+    uniques = inspect(engine).get_unique_constraints('fund_managers')
+    if not any(sorted(u.get('column_names') or []) == ['fund_id', 'mgr_id'] for u in uniques):
+        raise RuntimeError(f'fund_managers 缺少 (fund_id, mgr_id) 唯一约束，迁移失败：{uniques}')
+
+    merged = len(rows) - len(best)
+    msg = (
+        f'[OK] fund_managers 去重 {len(rows)} → {len(best)} 行（合并 {merged} 行）；'
+        f'manager_tenures 迁入 {len(tenures)} 段任期' + (f'（跳过倒挂脏行 {invalid}）' if invalid else '')
+    )
+    logger.info(msg)
+    return msg
+
+
 # 写路径（#1661）已强制「显式非基金类型 → False」；存量若仍为 True 属历史污染，本迁移清零。
 _NON_FUND_ASSET_TYPES: tuple[str, ...] = ('stock', 'etf', 'bond', 'reverse_repo', 'crypto', 'index')
 # 只有这两类才可能真为货基（与 `core/venues._OTC_ASSET_TYPES` 同族）

@@ -33,7 +33,7 @@ from datetime import date
 from pathlib import Path
 
 from app.core import db_factory
-from app.domains.funds.models import Fund, FundManager, Manager
+from app.domains.funds.models import Fund, FundManager, Manager, ManagerTenure
 from app.services.adapters.manager_tenure import find_tenure
 from app.services.sync.jobs.manager_tenure_job import ManagerTenureSyncJob
 
@@ -71,8 +71,12 @@ def _make_job(adapter, db) -> ManagerTenureSyncJob:
     return ManagerTenureSyncJob(adapter, db)
 
 
-def _seed_rel(mgr_name=MGR_NAME, fund_code=FUND_CODE, start=None, end=None):
-    """造一条 (基金, 经理) 关联，返回 (fund_id, rel_id)。"""
+def _seed_rel(mgr_name=MGR_NAME, fund_code=FUND_CODE):
+    """造一条 (基金, 经理) 关联，返回 (fund_id, mgr_id)。
+
+    #2239 之后 `fund_managers` 只剩关联列（任期已拆去 `manager_tenures`），
+    所以这里不再有 start/end 可传 —— 要预置任期请用 :func:`_seed_tenure`。
+    """
     with closing(db_factory.market_session_factory()()) as db:
         fund = Fund(fund_code=fund_code, name=f'{fund_code} 基金')
         db.add(fund)
@@ -80,16 +84,41 @@ def _seed_rel(mgr_name=MGR_NAME, fund_code=FUND_CODE, start=None, end=None):
         mgr = Manager(mgr_code=f'mgr_{fund_code}', name=mgr_name)
         db.add(mgr)
         db.commit()
-        rel = FundManager(fund_id=fund.id, mgr_id=mgr.id, is_classic=False, start_date=start, end_date=end)
-        db.add(rel)
+        db.add(FundManager(fund_id=fund.id, mgr_id=mgr.id, is_classic=False))
         db.commit()
-        return fund.id, rel.id
+        return fund.id, mgr.id
 
 
-def _rel_tenure(rel_id):
+def _seed_tenure(fund_id, mgr_id, start, end=None, current=None):
+    """直接落一段任期（供「库里已有任期」类用例）。`current` 缺省按是否在任推。"""
     with closing(db_factory.market_session_factory()()) as db:
-        rel = db.query(FundManager).filter(FundManager.id == rel_id).first()
-        return rel.start_date, rel.end_date
+        db.add(
+            ManagerTenure(
+                fund_id=fund_id,
+                mgr_id=mgr_id,
+                start_date=start,
+                end_date=end,
+                current=(end is None) if current is None else current,
+                source='test',
+            )
+        )
+        db.commit()
+
+
+def _tenures(fund_id, mgr_id):
+    """读回该 (基金, 经理) 的任期行，按起始日排序 → `[(start, end, current), ...]`。
+
+    断言落在**任期表**上而不是关联表上：这正是本卡的要害 —— 原实现把任期写在
+    `fund_managers` 上，所以「写对了表」本身就该被钉住（写回旧表会让两条用例同时红）。
+    """
+    with closing(db_factory.market_session_factory()()) as db:
+        rows = (
+            db.query(ManagerTenure)
+            .filter(ManagerTenure.fund_id == fund_id, ManagerTenure.mgr_id == mgr_id)
+            .order_by(ManagerTenure.start_date)
+            .all()
+        )
+        return [(r.start_date, r.end_date, bool(r.current)) for r in rows]
 
 
 def _segment(name=MGR_NAME, start=date(2012, 9, 28), end=None):
@@ -188,9 +217,9 @@ def test_unscheduled_entry_documents_real_reason():
 # ---------------------------------------------------------------------------
 
 
-def test_writes_tenure_into_existing_rel(app):
-    """命中「库内已有的关联」→ 补上 start_date/end_date。"""
-    _, rel_id = _seed_rel()
+def test_writes_tenure_into_tenure_table(app):
+    """命中「库内已有的关联」→ 往 **manager_tenures** 落一段任期（#2239）。"""
+    fund_id, mgr_id = _seed_rel()
     adapter = _StubTenureAdapter({FUND_CODE: [_segment()]})
 
     with closing(db_factory.market_session_factory()()) as db:
@@ -198,15 +227,15 @@ def test_writes_tenure_into_existing_rel(app):
         result = job.run(full_sync=True, targets=[FUND_CODE])
 
     assert result['status'] == 'success'
-    assert _rel_tenure(rel_id) == (date(2012, 9, 28), None)
-    assert result['stats']['tenure']['updated'] == 1
+    assert _tenures(fund_id, mgr_id) == [(date(2012, 9, 28), None, True)]
+    assert result['stats']['tenure']['inserted'] == 1
 
 
 def test_never_inserts_unknown_pair(app):
     """基金在库、但该经理没挂在这只基金上 → **不写、也不造关系**。
 
     关系只由经理全量表（`fund_manager` job）决定。若这里凭任期数据补关系，
-    会凭空长出一批 (基金, 经理) 关联。
+    会凭空长出一批 (基金, 经理) 关联 —— 任期表也会跟着长出对应行。
     """
     _seed_rel()
     # 库里存在的经理，但没有与这只基金建立关联
@@ -214,6 +243,7 @@ def test_never_inserts_unknown_pair(app):
         db.add(Manager(mgr_code='code_other', name='无关经理'))
         db.commit()
         before = db.query(FundManager).count()
+        other_id = db.query(Manager).filter(Manager.mgr_code == 'code_other').first().id
 
     adapter = _StubTenureAdapter({FUND_CODE: [_segment(name='无关经理')]})
     with closing(db_factory.market_session_factory()()) as db:
@@ -222,6 +252,7 @@ def test_never_inserts_unknown_pair(app):
 
     with closing(db_factory.market_session_factory()()) as db:
         assert db.query(FundManager).count() == before, '不该新增关联'
+        assert db.query(ManagerTenure).filter(ManagerTenure.mgr_id == other_id).count() == 0, '不该为无关联的经理写任期'
 
 
 def test_skips_when_fund_absent_from_db(app):
@@ -238,8 +269,8 @@ def test_skips_when_fund_absent_from_db(app):
 
 
 def test_second_run_makes_no_change(app):
-    """幂等：第二次运行同值不写（`unchanged` 计数 +1，`updated` 为 0）。"""
-    _, rel_id = _seed_rel()
+    """幂等：第二次运行同值不写（`unchanged` +1；`inserted` / `updated` 为 0）。"""
+    fund_id, mgr_id = _seed_rel()
     adapter = _StubTenureAdapter({FUND_CODE: [_segment()]})
 
     with closing(db_factory.market_session_factory()()) as db:
@@ -247,32 +278,88 @@ def test_second_run_makes_no_change(app):
     with closing(db_factory.market_session_factory()()) as db:
         second = _make_job(adapter, db).run(full_sync=True, targets=[FUND_CODE])
 
-    assert _rel_tenure(rel_id) == (date(2012, 9, 28), None)
+    assert _tenures(fund_id, mgr_id) == [(date(2012, 9, 28), None, True)]
+    assert second['stats']['tenure']['inserted'] == 0
     assert second['stats']['tenure']['updated'] == 0
     assert second['stats']['tenure']['unchanged'] == 1
 
 
 def test_keeps_existing_value_when_fetch_fails(app):
-    """抓不到（空分段）→ 保留原值、不写占位日期。"""
-    _, rel_id = _seed_rel(start=date(2020, 1, 1), end=None)
+    """抓不到（空分段）→ 保留原任期、不写占位日期。"""
+    fund_id, mgr_id = _seed_rel()
+    _seed_tenure(fund_id, mgr_id, date(2020, 1, 1), None)
     adapter = _StubTenureAdapter({FUND_CODE: []})
 
     with closing(db_factory.market_session_factory()()) as db:
         result = _make_job(adapter, db).run(full_sync=True, targets=[FUND_CODE])
 
     assert result['status'] == 'success'
-    assert _rel_tenure(rel_id) == (date(2020, 1, 1), None), '抓不到时不该改动原值'
+    assert _tenures(fund_id, mgr_id) == [(date(2020, 1, 1), None, True)], '抓不到时不该改动原值'
 
 
 def test_writes_both_dates_for_ended_tenure(app):
-    """已离任的分段照写（end_date 非空）——分段语义由 `find_tenure` 决定。"""
-    _, rel_id = _seed_rel()
+    """已离任的分段照写：`end_date` 非空、`current=False`（分段语义由 `find_tenure` 决定）。"""
+    fund_id, mgr_id = _seed_rel()
     adapter = _StubTenureAdapter({FUND_CODE: [_segment(start=date(2018, 9, 5), end=date(2026, 5, 22))]})
 
     with closing(db_factory.market_session_factory()()) as db:
         _make_job(adapter, db).run(full_sync=True, targets=[FUND_CODE])
 
-    assert _rel_tenure(rel_id) == (date(2018, 9, 5), date(2026, 5, 22))
+    assert _tenures(fund_id, mgr_id) == [(date(2018, 9, 5), date(2026, 5, 22), False)]
+
+
+def test_updates_end_date_when_tenure_ends(app):
+    """**在任 → 卸任**必须能落库（#2239 新增语义）。
+
+    这是「任职起止」这个字段的全部价值所在：只插不改的话卸任永远不生效，
+    前端会一直把已卸任的人显示成在任。
+    """
+    fund_id, mgr_id = _seed_rel()
+    _seed_tenure(fund_id, mgr_id, date(2018, 9, 5), None)  # 先是在任
+
+    adapter = _StubTenureAdapter({FUND_CODE: [_segment(start=date(2018, 9, 5), end=date(2026, 5, 22))]})
+    with closing(db_factory.market_session_factory()()) as db:
+        result = _make_job(adapter, db).run(full_sync=True, targets=[FUND_CODE])
+
+    assert result['stats']['tenure']['updated'] == 1
+    assert result['stats']['tenure']['inserted'] == 0
+    assert _tenures(fund_id, mgr_id) == [(date(2018, 9, 5), date(2026, 5, 22), False)]
+
+
+def test_keeps_multiple_segments(app):
+    """同一 (基金, 经理) 的**多段**任期各占一行 —— 拆表的核心收益，原表根本写不下。
+
+    先有一段已卸任的（2018-09-05 ~ 2026-05-22），再抓到一段在任的（2026-05-23 起）
+    → 应是**两行**，且只有后一段 `current=True`。
+    """
+    fund_id, mgr_id = _seed_rel()
+    _seed_tenure(fund_id, mgr_id, date(2018, 9, 5), date(2026, 5, 22), current=False)
+
+    adapter = _StubTenureAdapter({FUND_CODE: [_segment(start=date(2026, 5, 23), end=None)]})
+    with closing(db_factory.market_session_factory()()) as db:
+        _make_job(adapter, db).run(full_sync=True, targets=[FUND_CODE])
+
+    assert _tenures(fund_id, mgr_id) == [
+        (date(2018, 9, 5), date(2026, 5, 22), False),
+        (date(2026, 5, 23), None, True),
+    ]
+
+
+def test_new_active_segment_demotes_old_current(app):
+    """新段在任 → 旧段的 `current` 必须翻 False（**当前在任段唯一**）。
+
+    否则读侧按 `current` 挑代表段时会在两段之间摇摆（实测会把已卸任那段当成在任）。
+    """
+    fund_id, mgr_id = _seed_rel()
+    _seed_tenure(fund_id, mgr_id, date(2015, 1, 1), None, current=True)  # 旧的「在任」段
+
+    adapter = _StubTenureAdapter({FUND_CODE: [_segment(start=date(2026, 5, 23), end=None)]})
+    with closing(db_factory.market_session_factory()()) as db:
+        _make_job(adapter, db).run(full_sync=True, targets=[FUND_CODE])
+
+    rows = _tenures(fund_id, mgr_id)
+    assert rows == [(date(2015, 1, 1), None, False), (date(2026, 5, 23), None, True)]
+    assert sum(1 for _, _, cur in rows if cur) == 1, '当前在任段必须唯一'
 
 
 # ---------------------------------------------------------------------------

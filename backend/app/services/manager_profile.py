@@ -23,8 +23,7 @@
 ``managers.sum_scale``             0/4267    0%  **全空**
 ``managers.best_return``           0/4267    0%  **全空**
 ``managers.avatar_url``            0/4267    0%  **全空**
-``fund_managers.start_date``       0/34812   0%  **全空**
-``fund_managers.end_date``         0/34812   0%  **全空**
+``manager_tenures``（任期表）        0 行        —  **待 job 回填**（#2239 从 fund_managers 拆出）
 ===========================  ==========  ======  ==========
 
 ## 字段填充率：#1970 的判断已被本轮实测推翻（下方「扩展」节）
@@ -39,8 +38,9 @@
 - ``sum_scale`` / ``best_return`` / tenure天数三列东财接口**本来就返回**，
   是 ``fund_manager_job._save_data`` 只写 ``mgr_code`` / ``name`` / ``company_id``
   **把已拿到的数据丢弃了** —— 根因是**写入侧裁剪**，不是数据源缺失；
-- ``start_date`` / ``end_date`` 来自天天基金 F10 ``jjjl_<code>.html``，
-  此前**根本没接**。
+- 任期（``start_date`` / ``end_date``）来自天天基金 F10 ``jjjl_<code>.html``，
+  此前**根本没接**；#2239 起它落在 ``manager_tenures``（一段一行、可多段），
+  不再挂 ``fund_managers``——那张表已拆成「纯关联 + 唯一约束」。
 
 故本轮起这些字段不再一律 ``None``，改为「有则给、无则降级」。
 
@@ -81,6 +81,11 @@
 （一行关联 = 一行输出），故去重落在 :func:`_managed_funds` 查询层；``fund_count``
 同口径改按 ``distinct fund_id`` 计数，否则「共 N 只」会比去重后的列表虚高、
 与截断提示「仅显示前 M 只」自相矛盾。
+
+**（#2239 补充）** 该业务唯一约束现已补上（``UniqueConstraint(fund_id, mgr_id)`` + 写侧
+``INSERT OR IGNORE``），新库上重复行不再可能产生；上面这层按 ``fund_code`` 的去重
+**保留不动**——它对「迁移前的存量库」与「Postgres 路径（不跑 SQLite 迁移）」仍是必需的，
+成本也只是内存里一次字典比较。
 
 A/C 份额是**不同的 fund_code**（不同的基金行），按代码各自分列展示，不在去重
 范围内——去重只消「同一代码出现多次」。
@@ -234,14 +239,48 @@ def _fund_company_scale(db: Session, company_id: Optional[int]) -> Optional[floa
         return None
 
 
+def pick_effective_tenure(tenures: List[Any]) -> Optional[Any]:
+    """从同一 (基金, 经理) 的**多段**任期里挑「代表那一段」用于展示（#2239）。
+
+    优先级（顺序就是业务含义）：
+
+    1. ``current=True`` —— 在任段优先。这是拆表后新增的表达能力：原表一行一格，
+       根本写不下「两进两出」，更谈不上挑；
+    2. ``end_date IS NULL`` —— 兜底判在任。``current`` 与它正常等价，但数据源只给
+       「截止某日」而 ``current`` 尚未翻转时会短暂分叉（见 :class:`ManagerTenure` 注释），
+       此时以「没写卸任日」为准更保守，不会把在任的人显示成已卸任；
+    3. 都没命中（确实已卸任）→ 取 ``start_date`` **最晚**的一段：用户问「他管这只基金
+       多久」，看到最近那段比看到十年前某一段更接近答案。
+
+    同一优先级内取 ``start_date`` 最晚者，保证结果确定（重复数据下也可复现）。
+    """
+    if not tenures:
+        return None
+
+    def _latest(rows: List[Any]) -> Any:
+        return max(rows, key=lambda t: t.start_date or date.min)
+
+    current = [t for t in tenures if t.current]
+    if current:
+        return _latest(current)
+    open_ended = [t for t in tenures if t.end_date is None]
+    if open_ended:
+        return _latest(open_ended)
+    return _latest(tenures)
+
+
 def _managed_funds(db: Session, mgr_id: int, limit: int, as_of: Optional[date] = None) -> Dict[str, Any]:
     """任职基金列表 + 总数 + 在任数。
 
     关联完整性已实测（孤儿 0 条），故不再逐条判断「基金是否已删除」。
 
-    排序取**基金简称**而非任职起始日：``start_date`` 是本轮才接上的（此前全空），
-    而本轮只对**目标池**回填任期（jjjl 每只基金一次 HTTP，全量回填不现实），
-    大部分行仍为空 → 拿它排序会退化成无序（全表同值）。按名称排至少稳定可读。
+    **任期来自 ``manager_tenures``**（#2239）：一段一行、同一 (基金, 经理) 可能多段，
+    由 :func:`pick_effective_tenure` 挑代表段。原实现读
+    ``fund_managers.start_date / end_date``——那两列已随拆分删除。
+
+    排序取**基金简称**而非任职起始日：任期只对**目标池**回填（jjjl 每只基金一次 HTTP，
+    全量回填不现实），大部分基金还没有任期行 → 拿它排序会退化成无序（大量同值）。
+    按名称排至少稳定可读。
 
     **去重（#2215）**：``fund_managers`` 无 (fund_id, mgr_id) 唯一约束，同一任职
     可能存多行，join 会按关联行扇出（实测「每只基金出现两次」）。这里按
@@ -252,7 +291,7 @@ def _managed_funds(db: Session, mgr_id: int, limit: int, as_of: Optional[date] =
     Args:
         as_of: 年限计算基准日，默认今天（测试注入）。
     """
-    from app.domains.funds.models import Fund, FundManager
+    from app.domains.funds.models import Fund, FundManager, ManagerTenure
 
     # 总数与列表必须同口径（去重后），否则「共 N 只」虚高、与截断提示自相矛盾
     total = db.query(func.count(func.distinct(FundManager.fund_id))).filter(FundManager.mgr_id == mgr_id).scalar() or 0
@@ -262,8 +301,7 @@ def _managed_funds(db: Session, mgr_id: int, limit: int, as_of: Optional[date] =
             Fund.fund_code,
             Fund.name,
             FundManager.is_classic,
-            FundManager.start_date,
-            FundManager.end_date,
+            FundManager.fund_id,
             FundManager.id,
         )
         .join(FundManager, FundManager.fund_id == Fund.id)
@@ -273,12 +311,26 @@ def _managed_funds(db: Session, mgr_id: int, limit: int, as_of: Optional[date] =
         .all()
     )
 
+    # 任期不在关联表上（#2239 拆出）：一次取回该经理的全部任期再按 fund_id 分桶 ——
+    # 逐只相关子查询是 N+1；且下面的取舍 rank 需要任期信息（「任期是否已回填」是它的
+    # 第一顺位），故不按 limit 预截断。
+    by_fund: Dict[int, List[Any]] = {}
+    fund_ids = {row[3] for row in rows}
+    if fund_ids:
+        for t in (
+            db.query(ManagerTenure).filter(ManagerTenure.mgr_id == mgr_id, ManagerTenure.fund_id.in_(fund_ids)).all()
+        ):
+            by_fund.setdefault(t.fund_id, []).append(t)
+
     items: List[Dict[str, Any]] = []
     # 去重：fund_code → (取舍权重, items 下标)。命中更高权重时**原地替换**，
     # 位置保持首次出现处，整体顺序仍由 order_by(Fund.name) 决定。
     picked: Dict[str, Tuple[int, int, int, int]] = {}
 
-    for fund_code, name, is_classic, start_date, end_date, rel_id in rows:
+    for fund_code, name, is_classic, fund_id, rel_id in rows:
+        tenure = pick_effective_tenure(by_fund.get(fund_id, []))
+        start_date = tenure.start_date if tenure else None
+        end_date = tenure.end_date if tenure else None
         item = {
             'fund_code': fund_code,
             'name': name,
