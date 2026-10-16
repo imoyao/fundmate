@@ -73,10 +73,19 @@ jobs:
               - '.github/workflows/ci.yml'
 
   backend:
-    name: 后端测试 + Lint
+    name: 后端测试 + Lint (${{ matrix.shard }})
     needs: changes
     if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
+    # 分片并行（本 PR）：测试按 services / 其余 切两片，各在**独立 runner** 上单进程跑
+    # （每片仍 -p no:xdist 避 OOM；独立 runner = 独立内存/磁盘，两片不相交，合计磁盘≈单跑，
+    # 不触发 #1821 的 TEMP 爆盘；也不像 xdist 多 worker 同机倍增内存）。两片合起来 = 全量。
+    # 用 matrix 而非新增 job：**job 数不变 ⇒ 不用动下面 gate.needs**（#1559/#1560 两次都是
+    # 合并冲突把 gate.needs 里的 job 弄丢）。fail-fast:false 让另一片跑完再判，别早停。
+    strategy:
+      matrix:
+        shard: [services, rest]
+      fail-fast: false
     # 防 pytest 偶发 hang 卡满 GitHub 默认 6h 兜底：单进程后端测试正常 ~19min，给 30min 余量（#1596 排查 CI 卡死）
     timeout-minutes: 30
     defaults:
@@ -169,9 +178,14 @@ jobs:
       - name: 守卫:资产分布图统一复用
         run: python ../scripts/guard_no_duplicate_pie.py
 
-      # 单进程（避 OOM），排除需联网的 slow 测试
-      - name: 运行测试
-        run: pdm run python -m pytest -p no:xdist -m "not slow"
+      # 单进程（避 OOM），排除需联网的 slow 测试；按 matrix.shard 只跑本片（services / 其余，两片不相交）
+      - name: 运行测试 (${{ matrix.shard }})
+        run: |
+          if [ "${{ matrix.shard }}" = "services" ]; then
+            pdm run python -m pytest -p no:xdist -m "not slow" tests/services
+          else
+            pdm run python -m pytest -p no:xdist -m "not slow" tests --ignore=tests/services
+          fi
 
       # 总资产聚合守卫（源 CNB duoduobei/fundmate#478 / GitHub #2154 → imoyao/fundmate#2179）：`family_totals`
       # 被立为唯一聚合出口之后，账户级的 `get_ledger_distributions` 仍把同一套累加
