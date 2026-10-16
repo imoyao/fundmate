@@ -1,0 +1,36 @@
+# 统一行尾：仓库内一律 LF，检出也按 LF。
+#
+# 背景（#2246）：本机 `core.autocrlf=true` 会把工作区检出成 CRLF，而**通过 GitHub API
+# 直接推送文件时读的是原始字节、不套 git 的 clean filter**，于是 CRLF 被原样写进 blob。
+# 实测 dev 上 1777 个文件里有 162 个**文本**文件是 CRLF，直接后果是 `git diff` 出现整文件
+# 重写假象（`ProductTrendSection.vue` 显示 810 插入 / 739 删除，而真实改动只有 78 / 7），
+# 评审时极易误判成「把文件重写了」，也持续掩盖真实改动。
+#
+# `text=auto`：让 Git 自己嗅探哪些是文本（二进制自动豁免）；
+# `eol=lf`    ：文本文件入库与检出都用 LF —— 从根上不再产生 CRLF blob。
+* text=auto eol=lf
+
+# 显式声明二进制：**必须显式**（不能只靠嗅探）。二进制数据里常含 0D 0A 字节对，任何按行尾
+# 处理的脚本都会误伤——本次归一化首版就因此损坏了 8 个字体/图片文件（见 #2246 更正评论）。
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.bmp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.7z binary
+*.xlsx binary
+*.xls binary
+*.db binary
+*.sqlite binary
+*.sqlite3 binary
+*.pyc binary
