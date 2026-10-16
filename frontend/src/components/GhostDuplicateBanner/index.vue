@@ -1,10 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { getGhostDuplicates, type GhostDuplicateGroup } from "@/api/summary";
+import { useRouter } from "vue-router";
+import {
+  listGhostDuplicates,
+  type GhostDuplicateGroupItem
+} from "@/api/reconciliation";
+import { getMe } from "@/api/auth";
 import { formatDate } from "@/utils/date";
 import { txnTypeLabel } from "@/constants";
 
-const groups = ref<GhostDuplicateGroup[]>([]);
+const router = useRouter();
+
+const groups = ref<GhostDuplicateGroupItem[]>([]);
+const ignoredCount = ref(0);
 const loading = ref(true);
 const dismissed = ref(false);
 const expanded = ref(false);
@@ -31,34 +39,88 @@ const hiddenCount = computed(() =>
 /** 只有「展开后仍然很长」才值得限高滚动：5 行以内不需要滚动条 */
 const needsScroll = computed(() => expanded.value && groups.value.length > 12);
 
+/**
+ * 关闭语义：**本次会话忽略**，不是「永久关闭」。
+ *
+ * 原实现是单一永久 key，且 `onMounted` 命中后连请求都不发 —— 于是「关掉一次」
+ * 等于「这条告警从此不存在」，换家庭还共用同一个开关（语义错误）。
+ * 现在告警有了真正的落点（对账工作台域 D），关闭只是「这次先不看」：
+ * 刷新/重进页面即恢复检查，不写持久层。
+ *
+ * 用 `sessionStorage` 而非组件内 `ref`：多标签页之间共享一次会话的「我已看过」意图，
+ * 关掉浏览器即清空，不跨会话残留（也就不需要用户去「重新打开」某个开关）。
+ */
 const STORAGE_KEY = "ghost_dup_banner_dismissed";
 
-function isDismissed(): boolean {
+/** 本次会话是否已关闭（sessionStorage，key 带 family_id）。 */
+function isDismissed(familyId: number | null): boolean {
   try {
-    return localStorage.getItem(STORAGE_KEY) === "1";
+    return sessionStorage.getItem(dismissKey(familyId)) === "1";
   } catch {
     return false;
   }
 }
 
+/**
+ * 按家庭隔离的 dismiss key。
+ *
+ * 卡面验收「localStorage key 必须带 family_id」——此前是单一常量 key，
+ * 换家庭 / 换账号共用同一开关。家庭 id 来自 `GET /api/auth/me/`（`data.family.id`），
+ * 前端没有更轻的同步来源（路由守卫只把展示名写进 localStorage，不含 family）。
+ * 拿不到 family 时退化为无后缀 key：宁可「隔离失效」也不要「开关失效」——
+ * 后者会让用户在拿不到 /me 的异常态下被一条关不掉的横幅一直顶着。
+ */
+function dismissKey(familyId: number | null): string {
+  return familyId == null ? STORAGE_KEY : `${STORAGE_KEY}:${familyId}`;
+}
+
+/** 已登录取到的家庭 id（模块内缓存，避免每张页面都打一次 /me） */
+let cachedFamilyId: number | null | undefined;
+
+async function resolveFamilyId(): Promise<number | null> {
+  if (cachedFamilyId !== undefined) return cachedFamilyId;
+  try {
+    const res = await getMe();
+    cachedFamilyId = res.data?.family?.id ?? null;
+  } catch {
+    cachedFamilyId = null;
+  }
+  return cachedFamilyId;
+}
+
 function dismiss(): void {
   dismissed.value = true;
-  try {
-    localStorage.setItem(STORAGE_KEY, "1");
-  } catch {
-    /* ignore */
-  }
+  void resolveFamilyId().then(fid => {
+    try {
+      sessionStorage.setItem(dismissKey(fid), "1");
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
+/** 去对账工作台域 D 处理（#2151）：跳转带上 `?domain=D`，工作台按 query 落地该域 */
+function goToWorkbench(): void {
+  router.push({
+    path: "/investment/reconcile-workbench",
+    query: { domain: "D" }
+  });
 }
 
 onMounted(async () => {
-  if (isDismissed()) {
+  const familyId = await resolveFamilyId();
+  if (isDismissed(familyId)) {
     loading.value = false;
     return;
   }
   try {
-    const res = await getGhostDuplicates();
-    // http 层已返回 {data,message} 信封，取一次 .data 即为载荷（此前双重解包属类型错误）
-    groups.value = res.data ?? [];
+    // 换用 reconciliation 域的列表端点（而非 summary 域的幽灵扫描）：
+    // ① 只有它返回 `fingerprint` 与组内明细，是「去处理」的定位键；
+    // ② 只有它**已减掉忽略项**——否则横幅报「407 组」而域 D 只剩 401 组，
+    //    用户点过去第一眼就是数字对不上（issue 明确要避免的「新的困惑」）。
+    const res = await listGhostDuplicates();
+    groups.value = res.data?.groups ?? [];
+    ignoredCount.value = res.data?.ignored_count ?? 0;
   } catch {
     groups.value = [];
   } finally {
@@ -124,10 +186,16 @@ onMounted(async () => {
       </ul>
 
       <!-- 处置引导（原先只有「关闭」，用户看到 407 组却无从下手）。
-           这里只给可自行执行的动作，不做跳转：后端尚无 ghost 的 ignore 接口、
-           对账工作台也没有对应域，硬塞一个跳转只会把用户带到看不到这批数据的页面。
-           补齐后的形态见 issue「幽灵重复告警接入对账工作台」。 -->
+           #2151 起后端有 ignore 接口、工作台也有域 D，故这里给出真实的处置出口：
+           「去处理」跳域 D 逐组核对（忽略可撤销），不再是死路。 -->
       <div class="ghost-dup-banner__actions">
+        <button
+          type="button"
+          class="ghost-dup-banner__primary"
+          @click="goToWorkbench"
+        >
+          去对账工作台处理
+        </button>
         <button
           v-if="hiddenCount > 0"
           type="button"
@@ -147,14 +215,18 @@ onMounted(async () => {
       </div>
       <p class="ghost-dup-banner__hint">
         同一笔交易被导入到多个账本会重复计入资产与收益。请到对应账本删除其中一份
-        重复记录（保留真实发生的那一份）。
+        重复记录（保留你认为真实的那一笔，另一份删除）。
+      </p>
+      <p v-if="ignoredCount > 0" class="ghost-dup-banner__ignored">
+        另有 {{ ignoredCount }} 组已忽略，可在对账工作台域 D 撤销。
       </p>
     </div>
 
     <button
       type="button"
       class="ghost-dup-banner__close"
-      aria-label="关闭提示"
+      title="本次会话不再提示（刷新后恢复）"
+      aria-label="本次会话不再提示"
       @click="dismiss"
     >
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none">
@@ -243,9 +315,37 @@ onMounted(async () => {
 
 .ghost-dup-banner__actions {
   display: flex;
-  gap: 8px;
+  gap: 12px;
   align-items: center;
   margin-top: 8px;
+}
+
+/* 主行动（去处理）：与「展开/收起」这类次级链接区分开，是横幅真正的出口 */
+.ghost-dup-banner__primary {
+  padding: 4px 12px;
+  font-size: var(--text-label, 13px);
+  font-weight: 600;
+  color: var(--text-inverse);
+  cursor: pointer;
+
+  /* 实底主按钮：底色走 --brand-solid、文字配 --text-inverse（#1600 约定的唯一组合）。
+     原先想用 --color-rise-ink，但它是「涨」语义的**文字级**令牌，借来当按钮底色
+     既是语义误用，也把「告警」染成「涨」的色相。 */
+  background: var(--brand-solid);
+  border: none;
+  border-radius: var(--radius-sm, 8px);
+  transition: opacity 0.15s ease;
+}
+
+.ghost-dup-banner__primary:hover {
+  opacity: 0.88;
+}
+
+.ghost-dup-banner__ignored {
+  margin: 4px 0 0;
+  font-size: var(--text-label, 13px);
+  color: var(--color-rise-ink);
+  opacity: 0.75;
 }
 
 .ghost-dup-banner__link {
