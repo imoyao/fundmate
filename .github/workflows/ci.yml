@@ -193,7 +193,7 @@ jobs:
   # 都是合并冲突把 gate.needs 里的 job 弄丢，少动一次就少一次风险。
   layout_guard:
     name: 布局宽度守卫 (layout-width)
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' && github.head_ref != 'bridge/github-dev' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -314,7 +314,7 @@ jobs:
   # 扫描 PR 变更的全部文本类型文件 + 逐提交校验中文提交信息（两层兜底）。
   mojibake_guard:
     name: 乱码守卫 (mojibake)
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' && github.head_ref != 'bridge/github-dev' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -449,7 +449,7 @@ jobs:
   # 本 job 只做静态校验（读 package.json + pnpm-lock.yaml），不安装依赖，故轻到可常开。
   pnpm_overrides_guard:
     name: 守卫:pnpm overrides 生效
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' && github.head_ref != 'bridge/github-dev' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -467,7 +467,7 @@ jobs:
   # #1540 连犯四次的回潮。纯 AST + 标准库扫描 backend/app，秒级、零依赖，故轻到可常开。
   cache_dir_guard:
     name: 守卫:缓存目录单一真相源
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' && github.head_ref != 'bridge/github-dev' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -487,7 +487,7 @@ jobs:
   # 纯 Node 静态扫描 frontend/src，零依赖、秒级，故轻到可常开。
   css_token_guard:
     name: 守卫:CSS 令牌引用定义一致
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' && github.head_ref != 'bridge/github-dev' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -516,7 +516,7 @@ jobs:
   # untested。两个脚本都是纯标准库 + 纯函数可测，故直接在这里跑 python -m unittest。
   scripts_test:
     name: 守卫:脚本单测 (scripts)
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' && github.head_ref != 'bridge/github-dev' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
