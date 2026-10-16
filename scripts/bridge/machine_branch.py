@@ -126,11 +126,16 @@ def fetch_ref(url: str, branch: str, dest_ref: str, cwd: str | None = None) -> t
 
 
 def conflict_files(cwd: str | None = None) -> list[str]:
-    """当前工作区未解的冲突文件清单（`--diff-filter=U`）。"""
-    code, out = _git(['diff', '--name-only', '--diff-filter=U'], cwd)
+    """当前工作区未解的冲突文件清单（`git ls-files -u`，比 diff --diff-filter=U 稳）。"""
+    code, out = _git(['ls-files', '-u'], cwd)
     if code != 0:
         return []
-    return [ln for ln in out.splitlines() if ln.strip()]
+    files = set()
+    for ln in out.splitlines():
+        # 每行形如：<mode> <sha> <stage>\t<path>
+        if '\t' in ln:
+            files.add(ln.split('\t', 1)[1].strip())
+    return sorted(files)
 
 
 def build_report(p: dict, *, pushed: bool, conflicts: list[str], pr_url: str | None = None) -> str:
@@ -197,7 +202,7 @@ def run(args: argparse.Namespace) -> int:
     code, out = _git(['merge', '--no-edit', p['merge_ref']], wt)
     conflicts = conflict_files(wt)
     print(build_report(p, pushed=False, conflicts=conflicts))
-    if conflicts:
+    if code != 0 or conflicts:  # merge 退出码 1 = 冲突/失败，比依赖 diff --diff-filter=U 更稳（#2255/#450）
         _git(['merge', '--abort'], wt)
         _git(['worktree', 'remove', '--force', wt], cwd)
         return 1
