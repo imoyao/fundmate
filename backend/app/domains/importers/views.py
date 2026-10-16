@@ -14,7 +14,6 @@ from app.core.exceptions import SBException
 from app.domains.ledgers.models import Ledger
 from app.services.importer.orchestrator import ImportOrchestrator
 from app.services.importer.template_config import get_template_filepath, get_template_info
-from app.services.sync.jobs.position_price_job import refresh_position_prices_after_import
 
 # 蓝图定义
 importers_bp = APIBlueprint('importers', __name__, url_prefix='/api/importers')
@@ -178,14 +177,6 @@ def confirm_import():
         with get_db() as db:
             orch = ImportOrchestrator(db, get_family_id())
             result = orch.commit_from_preview(rows)
-            # 静默回写一次持仓现价（#2232 项 3）：导入落库时现价系用成本价初始化，
-            # 真正的现价要等每日 22:15 的 position_price 才回写 —— 不回写的话，用户
-            # 当天打开「我的持仓」看到的是**盈亏恒为 0**。本 job 纯本地读、不联网、
-            # 幂等；失败**不得影响导入**（已提交成功，回写失败只是价格暂时陈旧）。
-            try:
-                result['price_refresh'] = refresh_position_prices_after_import(db)
-            except Exception as e:  # noqa: BLE001 - 回写失败不阻断导入
-                logger.warning(f'导入后现价回写失败（不影响导入，待下次调度补齐）: {e}')
         return jsonify({'data': result, 'message': 'ok'})
     except Exception as e:
         logger.exception(f'导入确认失败: {e}')
@@ -252,12 +243,6 @@ def confirm_holding_import():
         with get_db() as db:
             orch = ImportOrchestrator(db, get_family_id())
             result = orch.commit_holdings(rows)
-            # 同上（#2232 项 3）：持仓快照导入的 `current_price` 直接用文件里的价或成本价，
-            # 不回写一次的话，用户当天看到的盈亏与真实持仓对不上。
-            try:
-                result['price_refresh'] = refresh_position_prices_after_import(db)
-            except Exception as e:  # noqa: BLE001 - 回写失败不阻断导入
-                logger.warning(f'持仓导入后现价回写失败（不影响导入，待下次调度补齐）: {e}')
         return jsonify({'data': result, 'message': 'ok'})
     except Exception as e:
         logger.exception(f'持仓导入确认失败: {e}')

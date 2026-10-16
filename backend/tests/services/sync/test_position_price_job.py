@@ -379,3 +379,26 @@ def test_refresh_after_import_writes_price_without_waiting_for_schedule(db, make
     assert out['stats']['success'] == 1
     db.refresh(pos)
     assert pos.current_price == Money.yuan_to_price_units(1.2345), '导入后应立刻拿到现价，而不是等调度'
+
+
+def test_refresh_best_effort_swallows_failure(db, monkeypatch):
+    """回写失败**不得穿透**（#2232 项 3）：service 层的入口返回 None，导入照常成功。
+
+    导入此时已经提交成功，价格只是暂时陈旧（下次调度会补）。若让异常冒出去，用户会因为
+    「价格没刷上」看到**整次导入失败** —— 把一次可降级的降级，变成不可恢复的错误。
+
+    这条边界写在 service 层（`refresh_prices_best_effort`）而不是视图：视图层厚度守卫
+    （#1606）把 importers 视图冻结在基线「只减不增」，那段 try/except 写在视图里 CI 直接红灯。
+    """
+    from app.services.importer.orchestrator_commit import refresh_prices_best_effort
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError('回写炸了')
+
+    # 打在 orchestrator_commit 已绑定的名字上：它是 `from ... import` 早绑定的引用，
+    # 打 job 模块上的同名对象不会影响这里
+    monkeypatch.setattr(
+        'app.services.importer.orchestrator_commit.refresh_position_prices_after_import', _boom
+    )
+
+    assert refresh_prices_best_effort(db) is None

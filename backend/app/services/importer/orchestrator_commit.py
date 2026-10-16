@@ -21,12 +21,45 @@ from app.services import async_backfill
 from app.services.import_records import StandardTransactionRecord
 from app.services.importer.mappings import BusinessType
 from app.services.position_service import PositionService
+from app.services.sync.jobs.position_price_job import refresh_position_prices_after_import
 from app.services.trading import TransactionService
 
 # #1882 决策 (a)：勾选保留行绕开 (ledger_id, import_hash) 复合唯一约束的确定性后缀。
 # 确定性（不带随机数）即自幂等——同一行再次「勾选保留」导入时命中已存在的 suffixed hash，
 # 走去重拦截计数，不会叠出第三份记录。
 KEEP_HASH_SUFFIX = ':keep'
+
+
+def refresh_prices_best_effort(db) -> Optional[dict]:
+    """导入落库后**尽力**回写一次持仓现价（#2232 项 3）；失败只记日志、不抛出。
+
+    ## 为什么必须做
+
+    导入落库时持仓的 ``current_price`` 系用成本价初始化，而**真正的现价**由**每日
+    22:15** 的 ``position_price`` job 才回写。于是白天导入的用户，会在「我的持仓」看到
+    **盈亏恒为 0**（市值等于成本），最坏一直错到次日 22:15 —— 该 job 自己的注释就写着
+    这个后果（*「否则「导入时 avg_price == current_price」会让盈亏恒为 0」*）。
+    用户据此会判断「导入没生效 / 这个 App 算错了」。
+
+    ## 为什么落在 service 层（而不是视图）
+
+    这是**业务规则**（「导入之后要把价刷新」），按 `conventions.md` §2.2 / D26 该在
+    services；视图只做 HTTP 编排。而且 `scripts/check_view_thickness.py`（#1606）把
+    `domains/importers/views.py` 冻结在基线（**只减不增**）——第一版把这段写在视图里，
+    CI 的「守卫:视图层厚度」立刻红灯（实测 +15 行、两个函数各拉长）
+
+    ## 边界
+
+    - **失败不得影响导入**：调用方拿到的是 ``None``（导入此时已提交成功，回写失败只是
+      价格暂时陈旧，下次调度会补）；
+    - 只覆盖「库里已有价源」的标的：场外看当天已落库的确认净值、场内看 `price_history`
+      （当日收盘价由 17:30 的 `price_history` job 落库后才可回写），故不联网、无限流风险。
+    """
+    try:
+        return refresh_position_prices_after_import(db)
+    except Exception as e:  # noqa: BLE001 - 回写失败不阻断导入
+        logger.warning(f'导入后现价回写失败（不影响导入，待下次调度补齐）: {e}')
+        return None
 
 
 class CommitMixin:
@@ -110,6 +143,11 @@ class CommitMixin:
         result = self.commit(records)
         result['skipped'] += filter_skipped
         result['cash_transfers_created'] = cash_transfers_created
+        # 静默回写一次持仓现价（#2232 项 3）：见 :func:`refresh_prices_best_effort` 的 why
+        # —— 不回写的话，白天导入的用户当天看到的是**盈亏恒为 0**（现价仍等于成本价）
+        refreshed = refresh_prices_best_effort(self.db)
+        if refreshed is not None:
+            result['price_refresh'] = refreshed
         return result
 
     @staticmethod
