@@ -559,9 +559,13 @@ jobs:
           python-version: "3.12"
 
       # 本 job 的 setup-python 裸环境不含 pyyaml，而 check_cnb_events.py /
-      # guard_secret_imports.py 解析 .cnb.yml 依赖它；不拉其他依赖。
-      - name: 安装 pyyaml
-        run: python -m pip install pyyaml
+      # guard_secret_imports.py 解析 .cnb.yml 依赖它。
+      # pytest：test_machine_branch.py（源 CNB #450，#2255 收敛带回）顶层
+      # `import pytest`，不装则 unittest discover 导入即 ERROR（CI 实测红灯）；
+      # 该文件是 pytest 风格（fixture + 裸函数，无 TestCase），discover 装上后
+      # 只导入不执行——与同 job 其余 unittest 用例互不影响。
+      - name: 安装 pyyaml + pytest
+        run: python -m pip install pyyaml pytest
 
       - name: 跑 scripts/ 下的 Python 守卫/桥接脚本单测
         run: python -m unittest discover -s scripts/tests -p "test_*.py" -v
