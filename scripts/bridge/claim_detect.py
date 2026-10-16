@@ -417,8 +417,25 @@ def _request(
     req.add_header('User-Agent', 'fundmate-cnb-claim')
     for k, v in (headers or {}).items():
         req.add_header(k, v)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read()
+    except urllib.error.HTTPError as exc:
+        # 把 CNB 的响应体并进异常消息：403 的体里写着**缺哪个 scope**
+        # （实测 errcode=10023 "Missing required scopes: repo-issue:r"），
+        # 裸 "HTTP Error 403: Forbidden" 看不出该改什么——2026-10-16 就是因为它，
+        # 一个 token scope 问题来回试了两轮。
+        # ⚠️ **异常类型保持不变**（还是 HTTPError）：调用方有九处
+        # `except urllib.error.HTTPError` 靠它接（list_cnb_issues /
+        # list_cnb_pulls / 各写路径），改抛 RuntimeError 会重演
+        # cnb_github_backfill.py df51d21b 的死代码事故——一处坏调用炸掉整轮。
+        detail = ''
+        try:
+            detail = exc.read(400).decode('utf-8', 'replace').strip()
+        except Exception:  # noqa: BLE001 - 读错误体失败不该盖掉原始错误
+            pass
+        msg = f'{exc.reason} | 响应: {detail[:300]}' if detail else str(exc.reason)
+        raise urllib.error.HTTPError(exc.url, exc.code, msg, exc.headers, exc.fp) from None
 
 
 def cnb_api(path: str) -> Any:
