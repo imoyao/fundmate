@@ -255,9 +255,7 @@ def _managed_funds(db: Session, mgr_id: int, limit: int, as_of: Optional[date] =
     from app.domains.funds.models import Fund, FundManager
 
     # 总数与列表必须同口径（去重后），否则「共 N 只」虚高、与截断提示自相矛盾
-    total = (
-        db.query(func.count(func.distinct(FundManager.fund_id))).filter(FundManager.mgr_id == mgr_id).scalar() or 0
-    )
+    total = db.query(func.count(func.distinct(FundManager.fund_id))).filter(FundManager.mgr_id == mgr_id).scalar() or 0
 
     rows = (
         db.query(
