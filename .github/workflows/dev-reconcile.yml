@@ -2,7 +2,7 @@ name: 跨仓 dev 自动对账（CNB <-> GitHub）
 
 # 把手工收敛自动化：以 GitHub dev 为基线合入 CNB dev，冲突取 GitHub（GitHub 为主、不覆盖人家），
 # 治理文件保持 GitHub 现状（§21 的治理同步是 CNB 侧独立事项，不塞进本 PR，否则会被治理方向守卫拦截）。
-# 源：CNB #269 / #488；与 scripts/bridge/dev_converge.py --base github 同语义。CI 绿灯后由 pr-auto-merge 自动合入。
+# 源：CNB #269 / #488；与 scripts/bridge/dev_converge.py --base github 同语义。CI 绿灯后由 pr-auto-merge 自动合入。 cross-repo-ref-allow
 
 on:
   schedule:
