@@ -72,12 +72,24 @@
 业务唯一键。故入参与路由均按 ``mgr_code``。
 
 由于重名，列表里**必须带公司名**消歧，否则「吴昊」会显示成六个同名的人。
+
+## 同一 (经理, 基金) 存在多行时必须按 fund_code 去重（#2215）
+
+``fund_managers`` 只有自增 ``id`` 主键，**没有 (fund_id, mgr_id) 业务唯一约束**
+（``app/domains/funds/models.py`` 的 ``FundManager``），库内可存在同一任职的多行
+——实测经理详情页「任职基金」列表**每只基金渲染两次**。读侧 join 是按关联行扇出的
+（一行关联 = 一行输出），故去重落在 :func:`_managed_funds` 查询层；``fund_count``
+同口径改按 ``distinct fund_id`` 计数，否则「共 N 只」会比去重后的列表虚高、
+与截断提示「仅显示前 M 只」自相矛盾。
+
+A/C 份额是**不同的 fund_code**（不同的基金行），按代码各自分列展示，不在去重
+范围内——去重只消「同一代码出现多次」。
 """
 
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -231,24 +243,43 @@ def _managed_funds(db: Session, mgr_id: int, limit: int, as_of: Optional[date] =
     而本轮只对**目标池**回填任期（jjjl 每只基金一次 HTTP，全量回填不现实），
     大部分行仍为空 → 拿它排序会退化成无序（全表同值）。按名称排至少稳定可读。
 
+    **去重（#2215）**：``fund_managers`` 无 (fund_id, mgr_id) 唯一约束，同一任职
+    可能存多行，join 会按关联行扇出（实测「每只基金出现两次」）。这里按
+    ``fund_code`` 只保留一条，并且**先去重再截断**——重复行挤占 ``limit`` 名额会
+    让「仅显示前 M 只」少算。单个经理的关联行数量有限（实测在管最多 42 只），
+    全取再截断的开销可忽略。
+
     Args:
         as_of: 年限计算基准日，默认今天（测试注入）。
     """
     from app.domains.funds.models import Fund, FundManager
 
-    total = db.query(FundManager).filter(FundManager.mgr_id == mgr_id).count()
+    # 总数与列表必须同口径（去重后），否则「共 N 只」虚高、与截断提示自相矛盾
+    total = db.query(func.count(func.distinct(FundManager.fund_id))).filter(FundManager.mgr_id == mgr_id).scalar() or 0
 
     rows = (
-        db.query(Fund.fund_code, Fund.name, FundManager.is_classic, FundManager.start_date, FundManager.end_date)
+        db.query(
+            Fund.fund_code,
+            Fund.name,
+            FundManager.is_classic,
+            FundManager.start_date,
+            FundManager.end_date,
+            FundManager.id,
+        )
         .join(FundManager, FundManager.fund_id == Fund.id)
         .filter(FundManager.mgr_id == mgr_id)
-        .order_by(Fund.name)
-        .limit(limit)
+        # 同名（重复关联行）之间再按关联行 id 定序，保证取舍结果稳定
+        .order_by(Fund.name, FundManager.id)
         .all()
     )
 
-    items: List[Dict[str, Any]] = [
-        {
+    items: List[Dict[str, Any]] = []
+    # 去重：fund_code → (取舍权重, items 下标)。命中更高权重时**原地替换**，
+    # 位置保持首次出现处，整体顺序仍由 order_by(Fund.name) 决定。
+    picked: Dict[str, Tuple[int, int, int, int]] = {}
+
+    for fund_code, name, is_classic, start_date, end_date, rel_id in rows:
+        item = {
             'fund_code': fund_code,
             'name': name,
             'is_classic': bool(is_classic),
@@ -264,8 +295,26 @@ def _managed_funds(db: Session, mgr_id: int, limit: int, as_of: Optional[date] =
                 as_of=as_of,
             ),
         }
-        for fund_code, name, is_classic, start_date, end_date in rows
-    ]
+        # 重复关联行的取舍（元组越大越优）。为什么「任期完整性」必须排在
+        # is_active 前面：is_active = (end_date is None) 会把「任期从未回填」
+        # 也读成在任，只按 is_active 优先会选中空行，把已卸任的基金显示成「至今」。
+        rank = (
+            1 if start_date is not None else 0,  # ① 任期已回填的行更完整
+            1 if end_date is None else 0,  # ② 同等完整时保留在任行（is_active 优先）
+            1 if is_classic else 0,  # ③ 代表作标记是信息，True 优先
+            -rel_id,  # ④ 兜底稳定序：先落库的原始行
+        )
+        prev = picked.get(fund_code)
+        if prev is None:
+            picked[fund_code] = (rank, len(items))
+            items.append(item)
+        elif rank > prev[0]:
+            # 替换后同步更新权重，否则后续重复行会与**旧**权重比较
+            picked[fund_code] = (rank, prev[1])
+            items[prev[1]] = item
+
+    # 先去重、后截断：limit 必须作用在去重后的列表上
+    items = items[:limit]
 
     # 在任数单独统计：只统计返回的 limit 条会让「在任 2 只」在有 42 只经理时显得
     # 与真实不符，故标明是「已列出的在任数」而非全量在任数。
