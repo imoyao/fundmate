@@ -13,7 +13,8 @@
     · 最新价    → MoneyDisplay，精度 pricePrecision(asset_type)，
                   无行情 → --；静态价把 price_as_of 挂title 标注数据日期
     · 涨跌幅    → RiseFallText，null → --
-    · 持仓市值  → MoneyWithRatio（金额在上 + 占比在下），金额不带正负号
+    · 持仓市值  → MoneyWithRatio（金额在上 + 占比在下），金额不带正负号，
+                  占比分母 = 投资类产品（投资理财大类）总市值（#2239，与自选页同口径）
     · 持仓收益  → MoneyWithRatio（金额在上 + 收益率在下），金额带正负号、不带 ¥
   刻意**不搬**的三列：「添加自选日」「持有数量」「走势」——对「即时行情摘要」
   信息价值低且会撑宽首页卡片，需要时去自选页看。
@@ -226,6 +227,7 @@
 import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { getHomeSummary, type HomeSummaryItem } from "@/api/watchlist";
+import { useInvestmentTotalMv } from "@/composables/useInvestmentTotalMv";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import MoneyWithRatio from "@/components/MoneyWithRatio/index.vue";
 import { pricePrecision } from "@/utils/pricePrecision";
@@ -271,21 +273,22 @@ function hasHolding(item: HomeSummaryItem): boolean {
 }
 
 /**
- * 持仓市值占比（%）。分母是**本表实际展示行**的市值之和。
- *
- * 两个关键约束：
- * 1. 分母必须是 displayItems 而非 items —— 有置顶时表格只渲染置顶那些行，
- *    拿全量当分母会让「占比之和 ≠ 100%」，用户一眼看出数字不对；
- * 2. 它不是「占总资产比例」—— 本组件只拿到 ≤5 行的摘要数据，拿不到全量自选总市值。
- *    故列头 title 与文案都不宣称占比口径。
+ * 分母 = 投资类产品总市值（GitHub #2239，与自选页同口径，#1954 对齐契约）。
+ * 取数 / 回退语义与单例共享见 composables/useInvestmentTotalMv——
+ * 此前用「本表实际展示行市值之和」当分母，置顶 ≤5 行的摘要占比彼此孤立、
+ * 也与自选页对不上（2026-10-16 用户反馈）。
  */
-const totalMarketValue = computed(() =>
-  displayItems.value.reduce((sum, i) => sum + (i.position_market_value ?? 0), 0)
-);
+const { investmentTotalMv, refreshInvestmentTotalMv } = useInvestmentTotalMv();
 
+/**
+ * 持仓市值占**投资类产品总市值**的比例（%）（#2239）。
+ *
+ * 分母取不到（接口失败 / 无投资类持仓）返回 null，隐藏比例行——
+ * 不回退到「本表合计」等旧口径，错误口径比没有数字更伤。
+ */
 function marketValueRatio(item: HomeSummaryItem): number | null {
-  const total = totalMarketValue.value;
-  if (total <= 0) return null;
+  const total = investmentTotalMv.value;
+  if (total == null || total <= 0) return null;
   return ((item.position_market_value ?? 0) / total) * 100;
 }
 
@@ -312,7 +315,10 @@ async function fetchData() {
   }
 }
 
-onMounted(fetchData);
+onMounted(() => {
+  fetchData();
+  refreshInvestmentTotalMv();
+});
 defineExpose({ hasPinned });
 </script>
 
