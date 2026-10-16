@@ -27,6 +27,9 @@ import { getIndexProfile, type IndexProfileResult } from "@/api/products";
  *
  * 缺官方估值文件的指数（中证只给自有/合作指数发 indicator 文件）：PE / 股息率
  * 逐项降级「—」，名录资料照常展示；整卡不因估值缺失而消失。
+ *
+ * `description`（指数简介）来自中证官网 index-basic-info（后端按需抓+进程内缓存）：
+ * `null` = 官网未收录（399 系等）或抓取失败——散文不是指标，**整段隐藏**而不显示「—」。
  */
 const props = defineProps<{
   /** 指数代码（裸 6 位码或带前缀形态，后端归一） */
@@ -141,6 +144,11 @@ watch(() => props.symbol, load, { immediate: true });
         </div>
       </dl>
 
+      <!-- 指数简介（中证官网原文）：散文段落，无简介时整段隐藏而非占位 -->
+      <p v-if="profile.description" class="index-section__desc">
+        {{ profile.description }}
+      </p>
+
       <!-- 样本不足的定调说明：比一排「—」更诚实（告诉用户为什么没有，而不是假装没数据） -->
       <p v-if="profile.pe_percentile == null" class="index-section__note">
         该指数暂无足够历史样本计算分位（基线需 ≥1
@@ -198,6 +206,13 @@ watch(() => props.symbol, load, { immediate: true });
   font-size: 12px;
   font-weight: 400;
   color: var(--text-tertiary-ink);
+}
+
+.index-section__desc {
+  margin: var(--space-3) 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
 }
 
 .index-section__note {

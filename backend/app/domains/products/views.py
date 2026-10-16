@@ -213,6 +213,9 @@ def index_profile():
 
     分位在读路径现算（乐咕月频近 5 年窗口，#1407 拍板），样本不足或无基线的指数
     回 ``null``，前端诚实降级「—」。股息率分位本期恒为 ``null``（乐咕无该序列）。
+
+    ``description``（指数简介）按需抓自中证官网 ``index-basic-info``，进程内缓存，
+    未收录码族 / 抓取失败回 ``null``——前端整段隐藏（散文不是指标，不显「—」）。
     """
     query: IndexProfileRequest = parse_query(IndexProfileRequest)
 

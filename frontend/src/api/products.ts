@@ -98,6 +98,9 @@ export function getFundProfile(code: string) {
  * 字段缺失一律 null，前端降级「—」。分位是**读路径现算**（乐咕月频近 5 年窗口，
  * #1407 拍板）：样本不足 12 点时 pe_percentile 为 null——那是「样本不够」不是
  * 「分位为 0」，两者语义相反，不可混。股息率分位本期恒为 null（乐咕无该序列）。
+ *
+ * 唯一例外是 `description`（指数简介散文）：null 时前端**整段隐藏**而非显示「—」——
+ * 没有简介是「官网未收录」（399 系等），摆一个破折号占位反而像数据出错。
  */
 export interface IndexProfileResult {
   /** 裸 6 位指数码（service 已归一，带前缀入口也返回裸码） */
@@ -108,6 +111,8 @@ export interface IndexProfileResult {
   publisher_label: string | null;
   /** 核心指数白名单标记（自选分组置顶用，此处仅展示「核心」徽标） */
   is_core: boolean;
+  /** 指数简介原文（中证官网 indexCnDesc，后端按需抓取+进程内缓存）；官网未收录（399 系等）或抓取失败为 null——整段隐藏，不显示「—」 */
+  description: string | null;
   /** 市盈率（中证官方口径 pe_1，最新一期）；无官方估值文件为 null */
   pe: number | null;
   /** 股息率(%)（中证官方口径 dividend_yield_1）；为 null 时不可显示为 0 */
