@@ -325,9 +325,7 @@ class TestRunResilience:
 
         monkeypatch.setattr(wired, 'list_github_comments', fake_list_github_comments)
         posted: list[int] = []
-        monkeypatch.setattr(
-            wired, 'post_github_comment', lambda repo, number, body: posted.append(number) or {}
-        )
+        monkeypatch.setattr(wired, 'post_github_comment', lambda repo, number, body: posted.append(number) or {})
 
         rc = wired.run(dry_run=False, limit=None, since=None)
 
@@ -339,8 +337,18 @@ class TestRunResilience:
         monkeypatch.setattr(wired, 'list_cnb_issues', lambda: [{'number': '2', 'comment_count': 2}])
         monkeypatch.setattr(wired, 'list_github_comments', lambda repo, number: [])
         comments = [
-            {'id': '1', 'body': '甲', 'author': {'username': 'u', 'is_npc': False}, 'created_at': '2026-10-11T00:00:00Z'},
-            {'id': '2', 'body': '乙', 'author': {'username': 'u', 'is_npc': False}, 'created_at': '2026-10-11T01:00:00Z'},
+            {
+                'id': '1',
+                'body': '甲',
+                'author': {'username': 'u', 'is_npc': False},
+                'created_at': '2026-10-11T00:00:00Z',
+            },
+            {
+                'id': '2',
+                'body': '乙',
+                'author': {'username': 'u', 'is_npc': False},
+                'created_at': '2026-10-11T01:00:00Z',
+            },
         ]
         monkeypatch.setattr(wired, 'list_cnb_comments', lambda n: comments)
         sent: list[str] = []
