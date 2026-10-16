@@ -67,6 +67,35 @@ def test_basic_replay_buy_sell(db, make_position, make_transaction):
     # 成本线：三个不同日期各一条
     assert [c['date'] for c in result['cost_line']] == ['2026-01-05', '2026-02-05', '2026-03-05']
     assert result['cost_line'][-1]['cost_yuan'] == 165.0
+    # 单位成本（元/份）——走势图画的是它：165 / 150 = 1.1
+    assert result['cost_line'][-1]['avg_cost_yuan'] == 1.1
+
+
+def test_cost_line_avg_is_price_scale_not_total(db, make_position, make_transaction):
+    """成本线给的两个字段**量纲差几个数量级**，混用会把净值压成一条贴着 0 的直线。
+
+    这条是 #2171 实测教训的回归锚点：首版只有 `cost_yuan`（总成本，元），前端把它画进
+    净值图（y ≈ 元/份），10,000 元的成本线把 y 轴拉到万元级 → 净值曲线看起来是一条平线。
+    """
+    pos = _seed_position(make_position)
+    # 1 元/份 买 10,000 份 → 总成本 10,000 元
+    _txn(
+        make_transaction,
+        pos,
+        txn_type='buy',
+        quantity=10000,
+        price=1.0,
+        amount=10000,
+        trade_date=_day(2026, 1, 5),
+    )
+
+    result = build_trade_timeline(db, symbol='004369', family_id=1)
+
+    last = result['cost_line'][-1]
+    assert last['avg_cost_yuan'] == 1.0, '成本线价格口径 = 元/份'
+    assert last['cost_yuan'] == 10000.0, '金额口径 = 总成本（元）'
+    # 量级差异本身就是缺陷的成因：两者绝不可互换上轴
+    assert last['cost_yuan'] / last['avg_cost_yuan'] == 10000.0
 
 
 def test_cost_includes_fee(db, make_position, make_transaction):

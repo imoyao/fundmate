@@ -41,8 +41,10 @@ import {
  *
  * ## 买卖点 / 成本线叠加（#2171）
  *
- * - **首版只叠场外净值线**：买卖点与成本线都是「元/份」的日序列，与净值曲线同构；
- *   场内 K 线是未复权价格且 tooltip 为 cross 模式，叠加属另一套坐标语义，留 P1；
+ * - **首版只叠场外净值线**：买卖点（锚定当日净值）与成本线（`avg_cost_yuan`，**元/份**）
+ *   都与净值曲线同轴可比；场内 K 线是未复权价格且 tooltip 为 cross 模式，叠加属另一套
+ *   坐标语义，留 P1。成本线**必须**取元/份那个字段——取总成本会让净值被压平（见
+ *   `costSeriesData` 注释）；
  * - **取色避开 rise/fall**：买卖点不是涨跌语义，红绿会让「我买过」被误读成「涨了」。
  *   蓝（info）三角朝上=买入、橙（warning）三角朝下=卖出、中性灰虚线=成本线——
  *   形状主编码，色弱用户也能分辨；
@@ -289,9 +291,16 @@ const markerData = computed(() => {
   return { buy, sell };
 });
 
-/** 成本线：cost_line 前向填充到区间每一天（非交易日延续前值；首笔交易前为 null 不画） */
+/**
+ * 成本线：`cost_line` 前向填充到区间每一天（非交易日延续前值；首笔交易前为 null 不画）。
+ *
+ * **取 `avg_cost_yuan`（元/份），不是 `cost_yuan`（总成本，元）** ——本图与净值共用一根
+ * y 轴，只有「元/份」才可比。首版取了后者：真机一条 10,000 元的成本线把 y 轴拉到万元级，
+ * 净值曲线（~1.x）被压成贴着 0 的直线，用户看到的正是「勾选买卖点后走势变成一条为 0 的
+ * 直线」。#2171 反馈修正。
+ */
 const costSeriesData = computed(() => {
-  const m = new Map(visibleCostLine.value.map(c => [c.date, c.cost_yuan]));
+  const m = new Map(visibleCostLine.value.map(c => [c.date, c.avg_cost_yuan]));
   let last: number | null = null;
   return (trend.value?.dates ?? []).map(d => {
     if (m.has(d)) last = m.get(d) ?? null;
