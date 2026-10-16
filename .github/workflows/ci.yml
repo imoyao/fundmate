@@ -293,6 +293,17 @@ jobs:
       - name: 扫描 python 脚本任务是否自带镜像（阻断）
         run: python scripts/guard_cnb_script_task_python.py
 
+      # git 脚本任务必须自带 git 供给（源 CNB #517，2026-10-16 实测）：
+      # #461 补了 `docker.image: python:3.12-slim`，却没人问「这个镜像里有没有 git」——
+      # 官方 slim 镜像**不含 git**，而 `machine_branch` / `check_branch_divergence` 等
+      # 都是 `subprocess.run(['git', …])` 驱动的 ⇒ 报 `FileNotFoundError: 'git'`，
+      # 报错指向脚本内部某行、**不指向容器**（与 #461 同类，只是深了一层）。
+      # 两种失败形态：dev push 是硬红；镜像 job 的「分支分叉自检」因 `exit 0` **报假绿**
+      # ——自检从未真正跑过（#171 / #450 同族）。判据从源码推导「哪些脚本真调 git」，
+      # 不手写名单（手写的会随新脚本失效）。不新增 job，并入本 job。
+      - name: 扫描 git 脚本任务是否供给 git（阻断）
+        run: python scripts/guard_cnb_script_task_git.py
+
       # git-sync 分支范围守卫（源 CNB #167 / #172 / #269，2026-10-13 ~ 10-14）：
       # ① 插件不写 `branch` 时执行 `git push target --all`，会把 CNB 的 `main` 一并推给
       #    GitHub；而 GitHub 是权威源（`main` 只由发版 PR 推进）⇒ 两侧 `main` 各自长出

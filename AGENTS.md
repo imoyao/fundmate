@@ -1160,6 +1160,25 @@ if known:            # ← 缓存非空就直接 return，CNB 侧一个字都不
   （否则拿到 HTML）；分页参数是**下划线** `page_size`，写成 `page-size` 会被静默忽略。
 - **CNB `create-issue --labels` 会被静默忽略**（HTTP 201 但标签为空）：必须**先建卡、再单独挂标签**。
   标签名只允许中英文 / 数字 / `._:-/\` 与内部空格，长度 ≤50，`&`、`（）`、`#` 一律 400 拒收。
+- ⚠️ **脚本任务的镜像里到底有什么，要逐条问，问到脚本真正用过的东西为止**
+  （源 CNB #517，2026-10-16）。#461 给「跨仓同步（机器分支）」补了  <!-- cross-repo-ref-allow -->
+  `docker.image: python:3.12-slim`，回答了「有没有 python」；但**官方 slim 镜像一律不带 git**，
+  而该 job 跑的 `machine_branch.py` 是 `subprocess.run(['git', …])` 驱动的 ⇒ 报
+  `FileNotFoundError: … 'git'`，**报错指向脚本内部某行、不指向容器**。同一个 job、
+  同一类「执行环境缺失」，两次都以为修完了。
+  - **处置**：凡在 `python:3.12-slim` 上跑 `scripts/**/*.py` 的 stage，脚本开头先自证：
+    `command -v git >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq --no-install-recommends git; }`
+    再 `git --version >/dev/null`（**装失败不吞**）。**不要**改换镜像——会把「python 在哪」
+    这个刚解决的不确定项重新打开。
+  - ⚠️ **同一根因的另一面是「假绿」**：镜像 job 的「分支分叉自检」跑
+    `check_branch_divergence.py`，同样缺 git、**每一轮都崩**，却因 `|| true` + 末尾 `exit 0`
+    而**报绿**——自检**从未真正跑过**（实测 stage 只花 0.4s 即 success）。
+    一处红、一处绿，根因同一个；**只修红的那个，绿的会永远绿着不干活**。
+  - **判据机器化**：`scripts/guard_cnb_script_task_git.py`（并入 `ci.yml` 的 `scripts_test`，阻断）
+    先**从源码推导**「哪些 `scripts/**/*.py` 真调 git」，再要求调用它们的 stage 在同一段
+    script 里供给 git（不手写名单——手写的会随新脚本失效）。回归网
+    `scripts/tests/test_cnb_script_task_git.py`（8 例，含推导假设钉桩 + 重复键遮蔽探针 +
+    真实故障前文件 `7b833c4c` 回退探针）。详见 `docs/dev/github-cnb-mirror.md` §21。
 
 ---
 
