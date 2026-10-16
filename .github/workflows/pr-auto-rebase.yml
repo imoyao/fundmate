@@ -49,14 +49,19 @@ jobs:
       - name: 变基 PR 分支到最新 dev
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # ⚠️ 表达式一律先落 env，再用 $VAR 引用 —— 直接写进 run: 块会与 shell 代码拼接。
+          # pull_request_target 下 head.ref 由外部用户控制（分支名可由任意人建），
+          # 曾被 CodeQL 判为 critical 注入。event_name 同块统一处理，避免一半内插一半引用。
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin dev
 
-          if [ "${{ github.event_name }}" = "pull_request_target" ]; then
-            BRANCHES="${{ github.event.pull_request.head.ref }}"
+          if [ "$EVENT_NAME" = "pull_request_target" ]; then
+            BRANCHES="$PR_HEAD_REF"
           else
             # schedule / workflow_dispatch：列出所有 base=dev 的 open PR 头部分支
             BRANCHES=$(gh pr list --base dev --state open --json headRefName --jq '.[].headRefName')
