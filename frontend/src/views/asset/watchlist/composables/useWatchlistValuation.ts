@@ -1,5 +1,6 @@
 import { ref, computed, watch } from "vue";
 import { getWatchlistTrends } from "@/api/watchlist";
+import { useInvestmentTotalMv } from "@/composables/useInvestmentTotalMv";
 import {
   useRealtimeQuotes,
   type RefreshInterval
@@ -57,14 +58,6 @@ export function useWatchlistValuation(data: WatchlistData) {
     return (cur - (row.price_at_added as number)) * row.holding_quantity;
   }
 
-  /** 全量标的的持仓市值合计（静态价口径），作为占比分母的兜底 */
-  const staticTotalMarketValue = computed(() =>
-    allItems.value.reduce(
-      (sum, item) => sum + Number(item.position_market_value ?? 0),
-      0
-    )
-  );
-
   /**
    * 静态价汇总（未开实时时的展示口径，2026-09-22 用户反馈修复）。
    *
@@ -98,24 +91,39 @@ export function useWatchlistValuation(data: WatchlistData) {
   });
 
   /**
-   * 持仓市值占总市值的比例（%）。
+   * 投资类产品总市值分母（GitHub #2239）：取数、回退语义与单例共享见
+   * `composables/useInvestmentTotalMv`（欢迎页组件共用同一份）。
    *
-   * 分母优先取实时汇总（实时开启时是「盘中最新价」口径的总市值），未开实时 /
-   * 汇总未产出时回退静态价合计——两者都是**全量标的**口径（不是当前页合计，
-   * 翻页不会跳变，#1245）。
+   * **不再用分组合计当分母**（旧行为：allItems 带分组过滤，切分组时同一
+   * 持仓的占比随分组总额跳变，失去「仓位权重」意义，2026-10-16 用户反馈）。
+   */
+  const { investmentTotalMv, refreshInvestmentTotalMv } =
+    useInvestmentTotalMv();
+
+  // 分组 / 视图 / 搜索变化都会重建 allItems（fetchData 的 refreshAll 路径），
+  // 顺带刷新分母；持仓变动后「手动刷新」也走这条路径。
+  watch(allItems, () => {
+    refreshInvestmentTotalMv();
+  });
+
+  /**
+   * 持仓市值占**投资类产品总市值**的比例（%）（#2239）。
    *
-   * 仍算不出（无持仓 / 无市值）返回 null，由 MoneyWithRatio 隐藏比例行：
-   * 原先调用处兜底成 0，把「没有数据」显示成了「占比 0.00%」。
+   * 分母 = 「投资理财」大类总市值（家庭级、跨分组稳定）；取不到时返回
+   * null，由 MoneyWithRatio 隐藏比例行（原先调用处兜底成 0，会把
+   * 「没有数据」显示成「占比 0.00%」）。
    */
   function marketValueRatio(row: {
     position_market_value?: number | null;
   }): number | null {
-    const realtimeTotal = realtime.summary.value?.totalMarketValue ?? 0;
-    const total =
-      realtimeTotal > 0 ? realtimeTotal : staticTotalMarketValue.value;
-    if (!total || total <= 0 || row.position_market_value == null) return null;
+    const total = investmentTotalMv.value;
+    if (total == null || total <= 0 || row.position_market_value == null)
+      return null;
     return (row.position_market_value / total) * 100;
   }
+
+  // 初始拉取分母（不 await，setup 同步返回；失败已在 composable 内兜住）
+  refreshInvestmentTotalMv();
 
   const getHoldings = (): Holding[] => {
     // 估值汇总必须基于全量过滤结果（allItems），而非当前页（items），
