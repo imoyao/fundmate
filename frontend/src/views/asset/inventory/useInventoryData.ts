@@ -5,6 +5,10 @@
  * 大类汇总 / 家庭分布 / 持仓分组 / 投资明细分页 / 按大类的资产明细（带缓存）/ 资产删除，
  * 并统一挂 `usePageRefresh` 全局刷新订阅。
  *
+ * 另含 `useStrategyInsight`（#2237）：「策略洞察」区块的目标配比 / 诊断 / 行为画像读写。
+ * 与上面的大盘点数据彼此独立（不共享 loading、不互相阻塞），故拆成独立 composable
+ * 而非塞进 `useInventoryData` —— 否则「策略引擎接口慢」会把整个盘点页拖成加载态。
+ *
  * 页面只消费本 composable 暴露的响应式状态与动作，不再直连 API。
  */
 
@@ -18,6 +22,19 @@ import {
 } from "@/api/assets";
 import { getPositions } from "@/api/positions";
 import type { Position } from "@/api/types";
+import {
+  getAllocation,
+  getEngineBehavior,
+  getEngineDiagnosis,
+  getEngineStrategies,
+  refreshStrategyReminders,
+  saveAllocation as putAllocation,
+  type AllocationData,
+  type AllocationTargetInput,
+  type BehaviorData,
+  type DiagnosisData,
+  type EngineStrategyMeta
+} from "@/api/strategyEngine";
 import {
   getDistributions,
   getPositionGroups,
@@ -214,5 +231,135 @@ export function useInventoryData(activeCategory: Ref<string>) {
     getCategoryTotal,
     fetchData,
     removeAsset
+  };
+}
+
+/**
+ * 「策略洞察」区块数据层（#2237）：目标配比 + 策略引擎诊断 / 行为反推。
+ *
+ * 为什么独立于 `useInventoryData`：两者的数据源与失败影响面都不同——
+ * 盘点数据挂了整页不可用，策略引擎挂了只该让这两张卡进失败态
+ * （卡片各自 `role="alert"` + 重试，见 `WelcomeXirrTemperature` 的既有口径）。
+ * 合成一个 composable 会把「引擎超时」放大成「整页空」。
+ *
+ * 请求失败时只置 `error` 标志、不写 0 值：0 是「真的为零」的语义，
+ * 拿它当「取不到」会让人误读成「没有偏离 / 没有信号」。
+ */
+export function useStrategyInsight() {
+  /** 目标配比（含当前占比 / 目标 / 偏离 / 越线） */
+  const allocation = ref<AllocationData | null>(null);
+  const allocationLoading = ref(false);
+  const allocationError = ref(false);
+  /** 保存中：只锁保存按钮，不遮挡列表 */
+  const allocationSaving = ref(false);
+
+  const diagnosis = ref<DiagnosisData | null>(null);
+  const behavior = ref<BehaviorData | null>(null);
+  /** 策略元信息：把 `strategy_code` 翻成策略名，避免直接把英文码甩给用户 */
+  const strategies = ref<EngineStrategyMeta[]>([]);
+  const diagnosisLoading = ref(false);
+  const diagnosisError = ref(false);
+
+  /** 「立即检查提醒」进行中 */
+  const reminderRefreshing = ref(false);
+
+  async function loadAllocation() {
+    allocationLoading.value = true;
+    try {
+      const res = await getAllocation();
+      allocation.value = res.data;
+      allocationError.value = false;
+    } catch (e) {
+      console.error("加载目标配比失败", e);
+      allocationError.value = true;
+    } finally {
+      allocationLoading.value = false;
+    }
+  }
+
+  async function loadDiagnosis() {
+    diagnosisLoading.value = true;
+    try {
+      const [strategyRes, diagnosisRes, behaviorRes] = await Promise.all([
+        getEngineStrategies(),
+        getEngineDiagnosis(),
+        getEngineBehavior()
+      ]);
+      strategies.value = strategyRes.data ?? [];
+      diagnosis.value = diagnosisRes.data ?? null;
+      behavior.value = behaviorRes.data ?? null;
+      diagnosisError.value = false;
+    } catch (e) {
+      console.error("加载策略诊断失败", e);
+      diagnosisError.value = true;
+    } finally {
+      diagnosisLoading.value = false;
+    }
+  }
+
+  /** 两张卡并行加载；任一失败只影响自己那张卡 */
+  async function loadStrategyInsight() {
+    await Promise.all([loadAllocation(), loadDiagnosis()]);
+  }
+
+  /**
+   * 保存目标配比（整体覆盖语义）。
+   *
+   * 刻意**不 catch**：失败提示由 http 拦截器统一给出，这里吞掉反而会让人以为保存成功。
+   * `finally` 只负责解锁按钮。
+   */
+  async function saveTargets(items: AllocationTargetInput[]) {
+    allocationSaving.value = true;
+    try {
+      const res = await putAllocation(items);
+      allocation.value = res.data;
+      ElMessage.success(
+        `已保存 ${res.data.saved_count ?? items.length} 条目标配比`
+      );
+    } finally {
+      allocationSaving.value = false;
+    }
+  }
+
+  /**
+   * 立即检查提醒：跑一次偏离扫描并写站内通知。
+   * 同样不 catch —— 失败提示交给拦截器。
+   */
+  async function refreshReminders() {
+    reminderRefreshing.value = true;
+    try {
+      const res = await refreshStrategyReminders();
+      const created = res.data?.created ?? 0;
+      if (created > 0) {
+        ElMessage.success(`新增 ${created} 条提醒，可在右上角铃铛查看`);
+      } else {
+        ElMessage.info("当前没有越线的配比");
+      }
+    } finally {
+      reminderRefreshing.value = false;
+    }
+  }
+
+  // 持仓 / 账户变更后（导入、记账等）目标配比与诊断都要跟着变
+  usePageRefresh(() => {
+    void loadStrategyInsight();
+  });
+
+  return {
+    allocation,
+    allocationLoading,
+    allocationError,
+    allocationSaving,
+    diagnosis,
+    behavior,
+    strategies,
+    diagnosisLoading,
+    diagnosisError,
+    reminderRefreshing,
+    loadStrategyInsight,
+    loadAllocation,
+    loadDiagnosis,
+    saveTargets,
+    refreshReminders
   };
 }
