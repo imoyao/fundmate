@@ -13,6 +13,13 @@ import {
 } from "@/api/products";
 import ProductProfitPanel from "./ProductProfitPanel.vue";
 import {
+  SELL_SIZE_RATIO,
+  UNIFIED_SIZE,
+  markerMaxSize,
+  markerSize,
+  maxAmountOf
+} from "./trendMarkerMetrics";
+import {
   CHART_TOKENS,
   getCssVar,
   useThemeTick
@@ -41,10 +48,16 @@ import {
  *
  * ## 买卖点 / 成本线叠加（#2171）
  *
- * - **首版只叠场外净值线**：买卖点（锚定当日净值）与成本线（`avg_cost_yuan`，**元/份**）
- *   都与净值曲线同轴可比；场内 K 线是未复权价格且 tooltip 为 cross 模式，叠加属另一套
- *   坐标语义，留 P1。成本线**必须**取元/份那个字段——取总成本会让净值被压平（见
+ * - **只叠场外净值线**：买卖点（锚定当日净值）与成本线（`avg_cost_yuan`，**元/份**）
+ *   都与净值曲线同轴可比。成本线**必须**取元/份那个字段——取总成本会让净值被压平（见
  *   `costSeriesData` 注释）；
+ * - **场内 K 线不叠**（决定，非遗漏）：K 线是**未复权价格** + cross tooltip + 双 grid
+ *   （量能副图），叠加等于在同一张图上放第二套坐标语义；而 #2171 需求 §2.1 定稿的主图
+ *   本就是「单位净值折线 + 成本线 + 买卖点」。真要在场内看买卖点，成本最低的**替代方案**
+ *   不是往 K 线上硬叠，而是给场内加一个「折线」视图开关（切到收盘价折线，直接复用本叠加
+ *   层与成本线口径）——届时只需加一个视图切换，不必新写一套坐标。买卖点的复盘场景另有
+ *   更合适的落点：资产复盘页的「调仓时间线」（`docs/features/asset-review.md` 组件 5，
+ *   按周期列出每笔买卖 + 卖出的实现盈亏，比图上几个点信息量大得多）；
  * - **取色避开 rise/fall**：买卖点不是涨跌语义，红绿会让「我买过」被误读成「涨了」。
  *   蓝（info）三角朝上=买入、橙（warning）三角朝下=卖出、中性灰虚线=成本线——
  *   形状主编码，色弱用户也能分辨；
@@ -52,6 +65,12 @@ import {
  *   低吸 / 割肉一眼可辨，tooltip 附偏离度；首笔前无持仓不判（无参照不下结论）。
  *   不引入第三种颜色——那会和涨跌语义打架；
  * - **同日多笔聚合**为一个点（金额合计 + 笔数），tooltip 显示「N 笔合计」；
+ * - **点大小 = 弱金额权重**（#2171 §4.2）：直径 6–16px，`min + (max−min)×√权重`（开方是
+ *   刻意的：金额长尾，线性映射会让一笔大额买入把其余点全压成米粒）；权重按本侧当日聚合
+ *   金额归一，**点数 > 20 自动压低上限**（不按周/月聚合——那会改变「哪天操作的」这个事实）；
+ *   卖点上限再低一档；「统一大小」开关可关掉权重映射。公式与边界住在
+ *   `trendMarkerMetrics`（含单测：开方映射 / 分母为 0 不产生 NaN —— NaN 会让 ECharts
+ *   **默默不画这个点**，等于把交易记录藏了）；
  * - **成本线前向填充**：非交易日延续前值，首笔交易前为 null 不画，清仓日断在最后一笔；
  * - **「历轮」开关**（P1）：清仓后重建仓的用户可关掉旧轮次，只看最近一轮；
  * - **建仓期区间**（P1）：有流水时区间栏追加「建仓」档——首笔买入日至今，
@@ -140,6 +159,14 @@ const timeline = ref<TradeTimelineResult | null>(null);
 
 /** 叠加层开关：默认开（「我买在了哪」是买方核心诉求），信息过载时可关 */
 const showMarkers = ref(true);
+
+/**
+ * 「统一大小」开关（#2171 §4.2）：默认**关**（= 弱金额权重）。
+ *
+ * 两边都是合理需求：想看「大额买入在哪」的人要权重，只想看「我在哪买过」的人嫌点大点小
+ * 让人分心。默认给权重（信息更多），想安静的人自己关。
+ */
+const unifiedSize = ref(false);
 
 async function loadTimeline() {
   if (!props.symbol || props.hasPosition !== true) {
@@ -289,6 +316,38 @@ const markerData = computed(() => {
     (meta.side === "buy" ? buy : sell).push(decorate(meta));
   }
   return { buy, sell };
+});
+
+/**
+ * 买卖点直径（#2171 §4.2）。
+ *
+ * 权重按**本侧当日聚合金额**归一（分母 = 本侧最大金额）：两处同口径是必须的——
+ * 分子用聚合额、分母用单笔最大值会让权重系统性 > 1，所有点顶到上限，「看金额大小」
+ * 这个功能等于没有。买卖分侧各归一：买点 30 个不该把 2 个卖点跟着压小。
+ * 卖点上限再乘一档（「小一号」）。公式与边界见 `trendMarkerMetrics`（含单测）。
+ */
+const sizedMarkers = computed(() => {
+  const { buy, sell } = markerData.value;
+  if (unifiedSize.value) {
+    return {
+      buy: buy.map(m => ({ ...m, symbolSize: UNIFIED_SIZE })),
+      sell: sell.map(m => ({ ...m, symbolSize: UNIFIED_SIZE }))
+    };
+  }
+  const buyMax = maxAmountOf(buy);
+  const sellMax = maxAmountOf(sell);
+  const buyCap = markerMaxSize(buy.length);
+  const sellCap = markerMaxSize(sell.length) * SELL_SIZE_RATIO;
+  return {
+    buy: buy.map(m => ({
+      ...m,
+      symbolSize: markerSize(m.amount, buyMax, buyCap)
+    })),
+    sell: sell.map(m => ({
+      ...m,
+      symbolSize: markerSize(m.amount, sellMax, sellCap)
+    }))
+  };
 });
 
 /**
@@ -564,7 +623,9 @@ const chartOption = computed(() => {
             {
               name: "买入",
               type: "scatter",
-              data: markerData.value.buy.map(m => ({
+              // 直径走**每条数据自带**的 symbolSize（#2171 §4.2 弱金额权重）；
+              // 系列级那个值退化为兜底——写死它等于把整条点大小规格丢掉（首版就是 9）
+              data: sizedMarkers.value.buy.map(m => ({
                 ...m,
                 itemStyle: m.below
                   ? {
@@ -575,13 +636,13 @@ const chartOption = computed(() => {
                   : { color: markerBuyColor }
               })),
               symbol: "triangle",
-              symbolSize: 9,
+              symbolSize: UNIFIED_SIZE,
               z: 5
             },
             {
               name: "卖出",
               type: "scatter",
-              data: markerData.value.sell.map(m => ({
+              data: sizedMarkers.value.sell.map(m => ({
                 ...m,
                 itemStyle: m.below
                   ? {
@@ -593,7 +654,7 @@ const chartOption = computed(() => {
               })),
               symbol: "triangle",
               symbolRotate: 180,
-              symbolSize: 9,
+              symbolSize: UNIFIED_SIZE,
               z: 5
             }
           ]
@@ -657,6 +718,16 @@ watch(firstTradeDate, () => {
           class="trend-section__marker-toggle"
         >
           买卖点
+        </el-checkbox>
+        <!-- 统一大小（#2171 §4.2）：默认关 = 弱金额权重（看得出大额买入）；
+             只想看「我在哪买过」的用户打开它，曲线立刻安静下来。 -->
+        <el-checkbox
+          v-if="hasMarkers && showMarkers"
+          v-model="unifiedSize"
+          size="small"
+          class="trend-section__marker-toggle"
+        >
+          统一大小
         </el-checkbox>
         <!-- 历轮买卖（#2171 P1）：仅清仓后重建仓的用户可见。关掉只看最近一轮——
              旧轮次的点会让「现在的成本线」难以认读。 -->
