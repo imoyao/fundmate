@@ -194,11 +194,13 @@ const hasSupplements = computed(
             </svg>
           </div>
           <div class="supplement-body">
-            <p class="supplement-title">建议检查持仓市价</p>
+            <p class="supplement-title">持仓市价已自动更新</p>
             <p class="supplement-desc">
-              你刚导入了交易记录，持仓数据已更新。为确保资产计算准确，
+              你刚导入了交易记录，持仓数据已更新，市价也已自动刷新（场外按最近确认净值）。
+              若个别标的价格仍显示为上一确认日——场外净值当天未公布、或场内收盘价待当日盘后
+              补齐——可
               <router-link :to="{ name: 'AssetStocks' }" class="link-primary"
-                >前往检查持仓市价</router-link
+                >前往持仓页查看</router-link
               >。
             </p>
           </div>

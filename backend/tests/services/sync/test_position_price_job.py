@@ -351,3 +351,52 @@ def test_never_triggers_remote_fetch(job, db, make_position):
 
     assert result['status'] == 'success'
     assert result['stats']['skip_reasons'].get(SKIP_NO_NAV) == 1
+
+
+# ── 5. 导入后静默回写（#2232 项 3） ─────────────────────────────────────────
+
+
+def test_refresh_after_import_writes_price_without_waiting_for_schedule(db, make_position):
+    """导入提交后**立即**回写现价，不必等每日 22:15 的调度。
+
+    回归锚点：「导入当天盈亏恒为 0」—— 导入落库时 ``current_price`` 用成本价初始化，
+    真正的现价由 22:15 的 ``position_price`` 才回写，于是白天导入的用户整天看到
+    盈亏 0（他会判断「导入没生效 / 这个 App 算错了」）。
+    ``refresh_position_prices_after_import`` 就是给导入路径补的那一次回写。
+
+    本用例只断言「价确实被写进去了」：它是纯本地幂等操作，不涉及网络与调度时序。
+    """
+    from app.services.sync.jobs.position_price_job import refresh_position_prices_after_import
+
+    pos = make_position(symbol='023887', asset_type='fund', quantity=1000, avg_price=1.0, current_price=1.0)
+    _add_nav(db, '023887', 1.2345, days_ago=1)
+
+    out = refresh_position_prices_after_import(db)
+
+    # 返回的是 job 的完整结果（`{status, stats}`）：导入端点把它挂在响应里留痕，
+    # 便于事后回答「这次导入到底有没有把价写进去」
+    assert out['status'] == 'success'
+    assert out['stats']['success'] == 1
+    db.refresh(pos)
+    assert pos.current_price == Money.yuan_to_price_units(1.2345), '导入后应立刻拿到现价，而不是等调度'
+
+
+def test_refresh_best_effort_swallows_failure(db, monkeypatch):
+    """回写失败**不得穿透**（#2232 项 3）：service 层的入口返回 None，导入照常成功。
+
+    导入此时已经提交成功，价格只是暂时陈旧（下次调度会补）。若让异常冒出去，用户会因为
+    「价格没刷上」看到**整次导入失败** —— 把一次可降级的降级，变成不可恢复的错误。
+
+    这条边界写在 service 层（`refresh_prices_best_effort`）而不是视图：视图层厚度守卫
+    （#1606）把 importers 视图冻结在基线「只减不增」，那段 try/except 写在视图里 CI 直接红灯。
+    """
+    from app.services.importer.orchestrator_commit import refresh_prices_best_effort
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError('回写炸了')
+
+    # 打在 orchestrator_commit 已绑定的名字上：它是 `from ... import` 早绑定的引用，
+    # 打 job 模块上的同名对象不会影响这里
+    monkeypatch.setattr('app.services.importer.orchestrator_commit.refresh_position_prices_after_import', _boom)
+
+    assert refresh_prices_best_effort(db) is None
