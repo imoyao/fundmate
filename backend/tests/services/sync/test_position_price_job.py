@@ -397,8 +397,6 @@ def test_refresh_best_effort_swallows_failure(db, monkeypatch):
 
     # 打在 orchestrator_commit 已绑定的名字上：它是 `from ... import` 早绑定的引用，
     # 打 job 模块上的同名对象不会影响这里
-    monkeypatch.setattr(
-        'app.services.importer.orchestrator_commit.refresh_position_prices_after_import', _boom
-    )
+    monkeypatch.setattr('app.services.importer.orchestrator_commit.refresh_position_prices_after_import', _boom)
 
     assert refresh_prices_best_effort(db) is None
