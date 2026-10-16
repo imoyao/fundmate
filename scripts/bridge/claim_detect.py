@@ -21,7 +21,7 @@ CNB 侧的 PR #180 与 PR #181 是同一张卡（CNB #179）的**两套并行解
 | 方向 | 有没有凭据 | 结论 |
 |---|---|---|
 | GitHub **事件** → 反向叫醒 CNB 流水线 | ❌ 本仓没装 GitHub App、无 webhook 中继 | **结构上做不到**——这才是「不实时」的真因 |
-| GitHub Actions → 读 CNB | ✅ `GITHUB_TOKEN` 自动注入（且 CNB 公开仓匿名可读） | **这条通**，但它只由 GitHub 侧的事件 / cron 触发 |
+| GitHub Actions → 读 CNB | ✅ `GITHUB_TOKEN` 自动注入；CNB 侧读需 **`CNB_TOKEN`**（仓库 secret `CNB_READ_TOKEN`） | **这条通**，但它只由 GitHub 侧的事件 / cron 触发 |
 | CNB 构建 → 写 GitHub | ⚠️ **取决于走法**：手工 `git push` / 匿名 POST 不通（`env` 里只有 `CNB_*`，匿名 POST 返 401），但**插件任务 + Secret 仓库 `imports` 取 `GITHUB_PAT` 是通的**——正是本脚本走的路 | CNB **能**写 GitHub，但只能**在 CNB 自己触发的时刻**（本脚本挂在 `$` 段 push 收尾） |
 
 > ⚠️ 本表末行在 2026-10-14 被修正过（源 CNB #269）。此前的写法是
@@ -417,12 +417,34 @@ def _request(
     req.add_header('User-Agent', 'fundmate-cnb-claim')
     for k, v in (headers or {}).items():
         req.add_header(k, v)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read()
+    except urllib.error.HTTPError as exc:
+        # 把 CNB 的响应体并进异常消息：403 的体里写着**缺哪个 scope**
+        # （实测 errcode=10023 "Missing required scopes: repo-issue:r"），
+        # 裸 "HTTP Error 403: Forbidden" 看不出该改什么——2026-10-16 就是因为它，
+        # 一个 token scope 问题来回试了两轮。
+        # ⚠️ **异常类型保持不变**（还是 HTTPError）：调用方有九处
+        # `except urllib.error.HTTPError` 靠它接（list_cnb_issues /
+        # list_cnb_pulls / 各写路径），改抛 RuntimeError 会重演
+        # cnb_github_backfill.py df51d21b 的死代码事故——一处坏调用炸掉整轮。
+        detail = ''
+        try:
+            detail = exc.read(400).decode('utf-8', 'replace').strip()
+        except Exception:  # noqa: BLE001 - 读错误体失败不该盖掉原始错误
+            pass
+        msg = f'{exc.reason} | 响应: {detail[:300]}' if detail else str(exc.reason)
+        raise urllib.error.HTTPError(exc.url, exc.code, msg, exc.headers, exc.fp) from None
 
 
 def cnb_api(path: str) -> Any:
-    """CNB 只读 OpenAPI（公开仓库匿名可读）。细节同 cnb_github_backfill.py。"""
+    """CNB 只读 OpenAPI。**必须带 `CNB_TOKEN`（仓库 secret `CNB_READ_TOKEN`），匿名一律 401。**
+
+    ⚠️ 本函数旧 docstring 写「公开仓库匿名可读」——那是**错的**，2026-10-14 实测：
+    `api.cnb.cool` 对匿名请求一律返回 `{"errcode":16,...}`，与仓库是否公开无关。
+    `claim-sync.yml` 曾因此漏传 token，每次运行都在前三步 401 后红着结束。
+    """
     base = (os.environ.get('CNB_API_ENDPOINT') or 'https://api.cnb.cool').rstrip('/')
     headers = {'Accept': 'application/vnd.cnb.api+json'}
     token = os.environ.get('CNB_TOKEN')
