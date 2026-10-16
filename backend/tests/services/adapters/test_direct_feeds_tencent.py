@@ -187,3 +187,70 @@ class TestSymbolNormalization:
     )
     def test_tencent_symbol(self, given, expected):
         assert direct_feeds._tencent_symbol(given) == expected
+
+
+class TestCsindexDaily:
+    """中证官网日线（#167）。**不打真实网络**：`requests.get` 换成预设响应。"""
+
+    def _patch(self, monkeypatch, payload):
+        calls = []
+
+        def fake_get(url, params=None, headers=None, timeout=None, **kwargs):
+            calls.append(dict(params or {}))
+            return _FakeResp(payload)
+
+        monkeypatch.setattr(direct_feeds.requests, 'get', fake_get)
+        return calls
+
+    def test_parses_and_sorts_ascending(self, monkeypatch):
+        # 源侧给出「YYYYMMDD」；故意反序，验证函数自己排序
+        payload = {
+            'code': '200',
+            'data': [
+                {'tradeDate': '20261013', 'close': 3024.95},
+                {'tradeDate': '20230901', 'close': 3100.0},
+            ],
+        }
+        self._patch(monkeypatch, payload)
+        rows = direct_feeds.fetch_daily_csindex('932000')
+        assert rows == [('2023-09-01', 3100.0), ('2026-10-13', 3024.95)]
+
+    def test_accepts_dashed_date_form(self, monkeypatch):
+        """容错 'YYYY-MM-DD' 形态——源侧日后若改格式，不该静默变成 0 条。"""
+        payload = {'data': [{'tradeDate': '2026-10-13', 'close': 3024.95}]}
+        self._patch(monkeypatch, payload)
+        assert direct_feeds.fetch_daily_csindex('932000') == [('2026-10-13', 3024.95)]
+
+    def test_empty_data_returns_empty_list(self, monkeypatch):
+        """未收录的代码源侧返回空 data（不报错）⇒ 静默返回 []，不抛异常阻断同步。"""
+        self._patch(monkeypatch, {'code': '200', 'data': []})
+        assert direct_feeds.fetch_daily_csindex('999999') == []
+
+    def test_skips_malformed_rows(self, monkeypatch):
+        payload = {
+            'data': [
+                {'tradeDate': '20261013', 'close': 3024.95},
+                {'tradeDate': None, 'close': 1.0},
+                {'tradeDate': '20261012', 'close': None},
+                {'tradeDate': '20261011', 'close': 'not-a-number'},
+                'not-a-dict',
+            ]
+        }
+        self._patch(monkeypatch, payload)
+        assert direct_feeds.fetch_daily_csindex('932000') == [('2026-10-13', 3024.95)]
+
+    def test_http_failure_degrades_silently(self, monkeypatch):
+        """通道异常一律降级为空列表（best-effort，与其余源一致）。"""
+
+        def boom(*args, **kwargs):
+            raise RuntimeError('down')
+
+        monkeypatch.setattr(direct_feeds.requests, 'get', boom)
+        assert direct_feeds.fetch_daily_csindex('932000') == []
+
+    def test_passes_naked_code_and_date_range(self, monkeypatch):
+        calls = self._patch(monkeypatch, {'data': [{'tradeDate': '20261013', 'close': 1.0}]})
+        direct_feeds.fetch_daily_csindex('932000', start_date=date(2023, 8, 1), end_date=date(2026, 10, 14))
+        assert calls[0]['indexCode'] == '932000'
+        assert calls[0]['startDate'] == '20230801'
+        assert calls[0]['endDate'] == '20261014'

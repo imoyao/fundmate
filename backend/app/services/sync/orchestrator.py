@@ -55,6 +55,7 @@ from app.services.sync.jobs.fund_list_job import FundListSyncJob
 from app.services.sync.jobs.fund_manager_job import FundManagerSyncJob
 from app.services.sync.jobs.fund_nav_job import FundNavSyncJob
 from app.services.sync.jobs.fund_position_job import FundPositionSyncJob
+from app.services.sync.jobs.fund_risk_metrics_job import FundRiskMetricsSyncJob
 from app.services.sync.jobs.fund_scale_job import FundScaleSyncJob
 from app.services.sync.jobs.fund_type_job import FundTypeSyncJob
 from app.services.sync.jobs.fund_valuation_reconcile_job import FundValuationReconcileJob
@@ -97,6 +98,10 @@ SYMBOL_BACKFILL_JOBS = frozenset(
         'fund_position',
         'position_price',
         'dividend_split',
+        # #167：风险指标快照也属「逐标的」型——**它不联网**，故不是为了防限流，
+        # 而是因为裸 --full-sync 会对全库 3 万只逐只读 3 年净值（十分钟级），
+        # 明显不是调用方想要的事。要走全库，显式写 `--targets __full__`。
+        'fund_risk_metrics',
     }
 )
 
@@ -239,6 +244,11 @@ class DataSyncOrchestrator:
         self.jobs['dividend_split'] = DividendSplitSyncJob(self.data_sources['akshare'], self.db)
         # #1182：资产快照每日落账（家庭/账户两级，含货基每日收益），无外部数据源
         self.jobs['asset_snapshot'] = AssetSnapshotJob(self.db)
+        # #167：风险收益指标日快照（最大回撤 / 本轮回撤 / 夏普族）。纯计算、**不联网** ——
+        # 只读 daily_worth + fund_types，故 NullAdapter 占位。落它是为了让「按指标横向筛」
+        # 与「回撤序列」可行：逐只现算撑不起全市场排序，且历史不可回溯。
+        # 放在净值类 job 之后执行（见 run_all_jobs 的执行顺序）。
+        self.jobs['fund_risk_metrics'] = FundRiskMetricsSyncJob(self.db)
         # #1104：持仓现价回写（已确认净值 / 货基面值 → positions.current_price）。
         # 只读库内已有净值、不联网，故 NullAdapter 占位；目标池自持仓表（user 域），
         # 不吃 resolve_targets() 的 fund/stock 池，故入参 targets 被忽略。
@@ -583,6 +593,10 @@ class DataSyncOrchestrator:
                 # 快照的市值/盈亏读的正是 positions.current_price，顺序错了快照就还是旧价。
                 # 不联网（只读库内已确认净值），故无请求风暴风险；目标池自持仓表，targets 传空。
                 ('position_price', []),
+                # #167：风险指标快照必须排在净值之后（它读的就是 fund_nav 刚落库的序列），
+                # 又要排在资产快照之前——快照锁的是「当日状态」，指标是状态的一部分。
+                # 不联网，故不占外部请求窗口。
+                ('fund_risk_metrics', fund_targets),
                 # #1182：资产快照落账放最后，确保前面的净值/行情已刷新，快照取到最新值
                 ('asset_snapshot', []),
             ]

@@ -108,6 +108,26 @@ const AssetRouteConfig = {
           component: () => import("@/views/asset/realestate/index.vue"),
           meta: { title: "房产", icon: "ep:house", rank: 4, showLink: true }
         },
+        // #2150 清除：此处原有一份重复的 `/analysis` 声明（#2152 把它移出「投资管理」时
+        // 只在新位置加了一份，旧的没删）。两个同名路由都会被 filterTree 保留，
+        // 侧边栏因此渲染出两个「智能分析」条目。改名/改标题时只改一处会让两者分叉，
+        // 故连根删掉，只留下方「分析与对账」段那一份（唯一真相）。
+        {
+          // #167 收尾：按风险指标横向筛的列表页。端点（fund-risk-types /
+          // fund-risk-ranking）早已上线，缺的是这个入口——能力在、用户看不到。
+          // rank 5.5 插在「智能分析」与「对账单导入」之间；名字与组件
+          // `defineOptions({ name })` 逐字一致（keep-alive 判据）。
+          path: "/asset/fund-ranking",
+          name: "AssetFundRanking",
+          component: () => import("@/views/asset/fund-ranking/index.vue"),
+          meta: {
+            title: "同类风险榜",
+            icon: "ep:histogram",
+            rank: 6,
+            showLink: true,
+            keepAlive: true
+          }
+        },
         {
           path: "/inventory/investment/import",
           name: "InvestmentImport",
@@ -115,7 +135,7 @@ const AssetRouteConfig = {
           meta: {
             title: "对账单导入",
             icon: "ep:document",
-            rank: 6,
+            rank: 7,
             showLink: false,
             hideQuickEntry: true
           }
@@ -128,7 +148,7 @@ const AssetRouteConfig = {
           meta: {
             title: "手动记账",
             icon: "ep:edit",
-            rank: 7,
+            rank: 8,
             showLink: false,
             hideQuickEntry: true
           }
@@ -229,12 +249,17 @@ const AssetRouteConfig = {
     // 移出后不再与「投资管理」孙级共用排序键段（孙级占 200+，见文件头 GRANDCHILD_RANK_BASE）。
     {
       path: "/analysis",
-      // #1798 入口：侧边栏 showLink + 全景页头「智能分析」按钮（panorama/index.vue）；
-      // 原假数据页已与 AssetOverview.vue（#1195 真实数据版，原为无路由死文件）合体
+      // #1798 入口：侧边栏 showLink + 全景页头入口按钮（panorama/index.vue）；
+      // 原假数据页已与 AssetOverview.vue（#1195 真实数据版，原为无路由死文件）合体。
+      // #2150：标题「智能分析」→「复盘」。原名的「智能」二字既没有 AI 能力支撑
+      // （页面全是有数据源的真实计算），又暗示「比别人多算了点什么」；
+      // 而 #2150 重定义后的定位是「时间维度的表现」，中文里对应的词就是「复盘」。
+      // ⚠️ 路由 path 保持 `/analysis` 不动——它是外部可达 URL 与既有书签的锚点，
+      // 改名属另一件事（若要做，须配 301/别名，不在本卡范围）。
       name: "AssetAnalysis",
       component: () => import("@/views/asset/IntelligentAnalysis.vue"),
       meta: {
-        title: "智能分析",
+        title: "复盘",
         icon: "ep:data-analysis",
         rank: 6,
         showLink: true

@@ -1,12 +1,20 @@
 /**
- * 对账工作台三域 Tab 定义（§6.3）
+ * 对账工作台 Tab 定义（§6.3）
  *
  * #980 拆分：自 reconcile-workbench/index.vue 抽出为页面级常量（constants/），
  * 零行为变更——字段与取值与原内联数组逐字一致。
+ * #2151：新增域 D「跨账本重复交易」（幽灵重复），联合类型随之扩展。
+ *
+ * ⚠️ 这里刻意**不导出** `WorkbenchDomainKey = "A" | "B" | "C" | "D"` 之外的东西：
+ * 域标识是「页面级」概念（与 `useReconDraft.ts` 的 `ReconDomain` 是两码事——
+ * 后者是导入草稿的路由标签，只有 A/B/C，本次不动它）。
  */
 
+/** 域标识：A=E账户 / B=持仓快照 / C=对账单导入 / D=跨账本重复交易 */
+export type WorkbenchDomainKey = "A" | "B" | "C" | "D";
+
 export interface WorkbenchDomainTab {
-  key: "A" | "B" | "C";
+  key: WorkbenchDomainKey;
   label: string;
   title: string;
   description: string;
@@ -58,5 +66,17 @@ export const domainTabs: WorkbenchDomainTab[] = [
       // 目的地页面 #1788 已改名「导入持仓快照」，链接文案跟着对齐，避免点过去标题对不上
       { to: "/investment/holding-import", label: "前往导入持仓快照" }
     ]
+  },
+  {
+    key: "D",
+    label: "跨账本重复",
+    title: "跨账本重复交易（域 D）",
+    description: "同一笔交易疑似出现在多个账本",
+    badgeType: "fund",
+    status: "ready",
+    statusLabel: "已接入",
+    placeholderHint: "逐组核对，保留一份",
+    desc: "导入去重按账本隔离后，同一份交割单在多个账本各导一次会让交易与收益翻倍。本域列出疑似重复组及组内明细，供逐组核对。",
+    links: []
   }
 ];

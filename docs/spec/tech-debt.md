@@ -943,6 +943,15 @@ node scripts/axe_contrast_audit.mjs --theme dark \
 | `asset/IntelligentAnalysis.vue` | 「资产分布」环形图 + 同口径卡片 | **开口项**，见下 |
 | `asset/inventory/useInventoryData.ts` | 只取「投资理财」切片做盘点，不画构成图 | 保留 |
 
+> ✅ **已闭环（2026-10-15，#2150）**：按下面三条中的第 3 条处置——整块删除。
+> 该页（原「智能分析」，现更名「复盘」）已重新定义为**只看时间维度的表现**，
+> 与 panorama 同字段同接口同算法的四块（总资产+环比同比、大类占比网格、
+> `category_distribution` 环形图、`getPositionGroups` 持仓表）全部删除。
+> 处置理由与「同一份数据在一个视口里第二次出现，先问能不能去掉」的既有裁决一致
+> （该裁决在 panorama 自己身上已执行过一次：`panorama/index.vue` 删 `AssetInsightPanel`）。
+> 详见 `docs/working-notes/page-split-welcome-vs-panorama-2026-08-13.md` 的 #2150 补记。
+> 下述三条为当时的备选项，保留以记录决策路径。
+
 **开口项**：`IntelligentAnalysis.vue`（路由 `/analysis`，侧边栏「智能分析」）用
 `distributions.category_distribution` 画了一张环形图，且标题写作「资产分布」——
 但该字段的键是**资产大类**（流动资金 / 投资理财 / 房产 / 应收款…），

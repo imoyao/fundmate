@@ -19,6 +19,8 @@
     python scripts/bridge/check_issue_refs.py --issue 2034
 
     # 从文件 / stdin 核对（便于手工粘贴卡面）
+    python scripts/bridge/check_issue_refs.py --file card.md
+    # 需要指定版本时才显式传（例如核对一条明确指向 dev 的引用）
     python scripts/bridge/check_issue_refs.py --file card.md --ref origin/dev
 
     # 要求所有引用都带 @ref，缺了就红灯（写卡时就该带）
@@ -26,9 +28,13 @@
 
 判据
 ----
-- `path:line`：该文件在 `--ref` 下存在，且行数 ≥ line（越界即失效）；
+- `path:line`：该文件在默认核对版本下存在，且行数 ≥ line（越界即失效）；
 - `path:line-end`：同上，取 end；
-- `path@ref:line`：按 `@ref` 指定的版本核对（优先于 `--ref`）。
+- `path@ref:line`：按 `@ref` 指定的版本核对（优先于默认版本）。
+
+默认核对版本 = **远端默认分支**（`default_ref()`，本仓即 `origin/main`），
+**不写死 `dev`**：卡面描述的是默认分支的代码，拿 `dev` 核对会把「`dev` 已删、
+`main` 还在」报成失效（CNB #144 §四）。显式 `--ref` 可覆盖。
 
 只读：本脚本永不改文件、永不改 issue、永不写仓库状态。退出码 0=全部有效，
 1=有失效引用，2=用法错误。
@@ -38,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -51,6 +58,38 @@ REF_RE = re.compile(
     r':(?P<start>\d+)(?:-(?P<end>\d+))?'
     r'(?![\w-])'
 )
+
+# 「默认核对版本」= **被核对对象所描述的那个分支**，不是写死的某一个分支。
+#
+# 卡面（GitHub 原卡 / CNB 镜像卡）描述的都是 **远端默认分支**（本仓 `main`）的代码：
+# 原卡在 GitHub 上写，镜像卡是原卡的建卡快照。拿 `dev` 去核对会把
+# 「`dev` 上已删、`main` 上还在」的东西**报成失效**——CNB #144 §四记的 `#104`
+# （`AssetInsightPanel.vue`）正是这个假阳性。
+#
+# 故默认值改为「远端 HEAD 指向的分支」，解析不到时退回 `origin/main`（本仓
+# `git ls-remote --symref origin HEAD` 实测即 `refs/heads/main`）。显式 `--ref`
+# 仍然优先；单条引用自带的 `@ref` 优先级最高。
+DEFAULT_REF_ENV = 'CHECK_REFS_DEFAULT_REF'
+
+
+def default_ref(cwd: str | None = None) -> str:
+    """解析「默认核对版本」：远端 HEAD → `refs/heads/<名>`。
+
+    解析不出时退回 `origin/main`：本仓的默认分支是 `main`，写死它比写死 `dev`
+    至少方向是对的（见上方注释）。允许 `CHECK_REFS_DEFAULT_REF` 覆盖，便于
+    非本仓布局 / 测试注入。
+    """
+    override = os.environ.get(DEFAULT_REF_ENV)
+    if override:
+        return override
+    code, out = _git(['ls-remote', '--symref', 'origin', 'HEAD'], cwd=cwd)
+    if code == 0:
+        for line in out.splitlines():
+            # 形如：ref: refs/heads/main\tHEAD
+            if line.startswith('ref:') and 'refs/heads/' in line:
+                branch = line.split('refs/heads/', 1)[1].split()[0]
+                return f'origin/{branch}'
+    return 'origin/main'
 
 
 def extract_refs(text: str) -> list[dict[str, object]]:
@@ -195,15 +234,20 @@ def run(args: argparse.Namespace) -> int:
         return 0
 
     missing_ref = [r for r in refs if not r['ref']]
+    # 默认核对版本按需解析（留空 = 远端默认分支），显式 --ref 仍优先。
+    resolved = args.ref or default_ref(cwd=args.cwd)
     # 按 raw 文本做键：同一处引用重复出现时只报一次（extract_refs 已去重，
     # 但 raw 可能撞车，故用「索引 + raw」做稳定键）。
-    checked: list[tuple[dict[str, object], str | None]] = [(r, check_ref(r, args.ref, cwd=args.cwd)) for r in refs]
+    checked: list[tuple[dict[str, object], str | None]] = [(r, check_ref(r, resolved, cwd=args.cwd)) for r in refs]
     failed = [(r, why) for r, why in checked if why]
 
-    print(f'🔍 共 {len(refs)} 条引用（默认版本 {args.ref}）')
+    print(f'🔍 共 {len(refs)} 条引用（默认版本 {resolved}）')
     for r, why in checked:
         mark = '❌' if why else '✅'
-        print(f'  {mark} {r["raw"]}')
+        # 逐条打出**实际核对用的版本**：卡面自带 @ref 时它与默认版本不同，
+        # 不写出来读者会以为都在同一个版本上比（#144 §四 报的正是这处不透明）。
+        used = r['ref'] or resolved
+        print(f'  {mark} {r["raw"]}  [核对版本 {used}]')
         if why:
             print(f'       → {why}')
 
@@ -225,7 +269,11 @@ def main(argv: list[str] | None = None) -> int:
     src = p.add_mutually_exclusive_group()
     src.add_argument('--issue', type=int, help='从 GitHub issue 正文核对（走 gh CLI）')
     src.add_argument('--file', help='从文件核对（不给则读 stdin）')
-    p.add_argument('--ref', default='origin/dev', help='默认核对的版本（默认 origin/dev）')
+    p.add_argument(
+        '--ref',
+        default=None,
+        help='默认核对的版本（留空=远端默认分支，本仓即 origin/main）',
+    )
     p.add_argument('--cwd', default=None, help='git 仓库路径（默认当前目录）')
     p.add_argument('--strict-ref', action='store_true', help='要求每条引用都写 @ref')
     p.add_argument('--json', action='store_true', help='以 JSON 输出，便于机器消费')
@@ -236,7 +284,7 @@ def main(argv: list[str] | None = None) -> int:
         refs = extract_refs(body)
         out = []
         for r in refs:
-            out.append({**r, 'valid': check_ref(r, args.ref, cwd=args.cwd) is None})
+            out.append({**r, 'valid': check_ref(r, args.ref or default_ref(cwd=args.cwd), cwd=args.cwd) is None})
         print(json.dumps(out, ensure_ascii=False, indent=2))
         return 0
 

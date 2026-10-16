@@ -119,7 +119,7 @@ jobs:
             echo "❌ GITHUB_TOKEN 为空（secrets.GH_PAT / secrets.GITHUB_TOKEN 都没拿到），提前失败" >&2
             exit 1
           fi
-          # 同理：CNB 侧缺 token 是**必然 401**，不是偶发。早失败能把「配置缺失」
+          # CNB 侧缺 token 是**必然 401**，不是偶发。早失败能把「配置缺失」
           # 与「CNB 故障」在日志上分开——前者要人去配 secret，后者等重试即可。
           if [ -z "${CNB_READ_TOKEN:-}" ]; then
             echo "❌ CNB_READ_TOKEN 为空，CNB OpenAPI 对匿名请求一律 401，无法降级。" >&2
@@ -128,6 +128,7 @@ jobs:
             echo "           （值 = CNB 侧生成的只读 token）" >&2
             exit 1
           fi
+          # 数组形态构造参数（**不用 eval**，避免把输入拼进命令行）。
           args=(--apply)
           if [ "${DRY_RUN:-}" = "true" ]; then
             args=(--dry-run)

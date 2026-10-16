@@ -4,11 +4,12 @@
 # File : backend/app/services/summary_service.py
 """仪表盘聚合与桑基图数据服务."""
 
+import hashlib
 from collections import defaultdict
 from datetime import date, datetime
 from typing import Any, Type
 
-from sqlalchemy import func, or_
+from sqlalchemy import or_
 
 from app.core.asset_types import normalize_major_category
 from app.core.constants import (
@@ -20,6 +21,7 @@ from app.core.constants import (
 )
 from app.core.database import Session
 from app.core.money import Money
+from app.core.symbol_utils import symbol_identity
 from app.domains.assets.models import Asset
 from app.domains.funds.models import FundValuationDaily
 from app.domains.ledgers.models import Ledger
@@ -62,6 +64,116 @@ def _load_user_assets(db: Session, family_id: int) -> tuple[list[Type[Position]]
     positions = db.query(Position).filter(Position.family_id == family_id, Position.ownership_status == 'active').all()
     assets = db.query(Asset).filter(Asset.family_id == family_id).all()
     return positions, assets
+
+
+# ---------------------------------------------------------------------------
+# 「总资产 / 总负债 / 净资产」唯一口径（#2154 → #2179）：账户级与家庭级共用一份规则
+#
+# WHY 单一出口：此前 `get_summary_data`、`get_distributions`、`get_account_groups`、
+# `get_sankey_data` 四处各自累加，**只有前两处**在 #1174 收口时被改到唯一市值口径
+# `market_value_cents`，`get_account_groups` 漏改、仍在裸算「份额 × 快照价」——
+# balance 模式（无份额无价格、市值靠 `market_value_override`）的持仓在
+# `/api/summary/` 里算 12.3 万、在 `account_groups` 里算 0，同一接口两个数。
+# 修法不是再补一遍累加，而是把「累加规则」本身收敛成下面这一个函数：
+# **任何需要家庭级总资产的调用方都必须委托这里**，禁止再手写 += 循环。
+#
+# 口径（含账外类现金，与账户详情环形图的「是否含账外类现金」问题解耦）：
+#   总资产 = Σ 持仓市值（唯一口径 `market_value_cents`）
+#          + Σ 非负债类通用资产（正数）
+#          + 孤儿货基/逆回购流水净额（本金桶）
+#          + 渠道收益桶（is_income=True）
+#   总负债 = Σ 负债类通用资产（正数）
+#   净资产 = 总资产 − 总负债
+# 「账外类现金」= 后两项孤儿流水（不建持仓、不进市值），**计入总资产**——
+# 它是真实存在的用户资金，只是没有 UI 出口（见 #2154 关联卡）。
+# ---------------------------------------------------------------------------
+
+
+def _empty_bucket() -> dict[str, float]:
+    """一个聚合桶：元、未 round（round 只做在稳定出口，避免累加过程里反复取整漂移）。"""
+    return {'total_assets': 0.0, 'total_liabilities': 0.0, 'net_worth': 0.0}
+
+
+def _per_ledger_buckets(db: Session, family_id: int, positions=None, assets=None) -> dict[int, dict[str, float]]:
+    """**唯一累加实现**：把家庭资产按 `ledger_id` 归组累加（账户级与家庭级共用）。
+
+    无账户归属（`ledger_id` 为 NULL）的条目统一归到哨兵键 **0**。
+
+    WHY 这一层存在（#2179）：`get_ledger_distributions`（账户级快照）曾把
+    `family_totals` 的累加逻辑**逐字重写了一遍**——持仓走 `market_value_cents`、
+    排除非正数资产、负债单独归桶、孤儿流水并入，一模一样。那正是 #2154 要杀的形态本身：
+    **口径一旦再变，这里就是那个「下次漏改的一处」**（#1174 收口市值口径时，
+    `get_account_groups` 与 `get_sankey_data` 就是这么漏掉的）。
+    现在两处共用这一份实现，账户级与家庭级在结构上不可能再分叉：
+    `family_totals` = 所有桶按位相加，故 **Σ账户桶 ≡ 家庭桶** 是构造出来的恒等式，
+    不是靠两边各自算对来维持的。
+
+    调用方可传入已加载的 `positions` / `assets` 复用查询；不传则自行加载。
+    """
+    if positions is None or assets is None:
+        positions, assets = _load_user_assets(db, family_id)
+
+    totals: dict[int, dict[str, float]] = {}
+
+    def _bucket(ledger_id) -> dict[str, float]:
+        key = ledger_id or 0
+        bucket = totals.get(key)
+        if bucket is None:
+            bucket = totals[key] = _empty_bucket()
+        return bucket
+
+    # 1. 持仓市值：唯一口径 market_value_cents（override / balance / nav 三种情形在函数内统一）
+    for p in positions:
+        rate = EXCHANGE_RATES.get(p.currency, 1.0)
+        _bucket(p.ledger_id)['total_assets'] += Money.cents_to_yuan(market_value_cents(p, rate=rate))
+
+    # 2. 通用资产：非正数跳过；负债类单独归桶（保持正数，净资产在出口处才相减）
+    for a in assets:
+        amount = Money.cents_to_yuan(a.amount)
+        if amount <= 0:
+            continue
+        bucket = _bucket(a.ledger_id)
+        if a.major_category == _LIABILITY_KEY:
+            bucket['total_liabilities'] += amount
+        else:
+            bucket['total_assets'] += amount
+
+    # 3. 孤儿货基/逆回购流水：本金净额 + 渠道收益桶（#863 D1）一并计入总资产
+    net_map, income_map = orphan_money_fund_totals_by_ledger(db, family_id)
+    for _lid in set(net_map) | set(income_map):
+        _bucket(_lid)['total_assets'] += Money.cents_to_yuan(net_map.get(_lid, 0) + income_map.get(_lid, 0))
+
+    for bucket in totals.values():
+        bucket['net_worth'] = bucket['total_assets'] - bucket['total_liabilities']
+    return totals
+
+
+def _round_totals(bucket: dict[str, float]) -> dict[str, float]:
+    """出口处统一取整到分（两位小数）。"""
+    return {k: round(v, 2) for k, v in bucket.items()}
+
+
+def family_totals(db: Session, family_id: int, positions=None, assets=None) -> dict[str, float]:
+    """家庭级总资产 / 总负债 / 净资产（元）——**唯一聚合出口**（#2154）。
+
+    调用方可传入已加载的 `positions` / `assets` 复用查询；不传则自行加载
+    （`_load_user_assets`，已含 ownership_status='active' 与 family 隔离）。
+
+    返回 ``{'total_assets', 'total_liabilities', 'net_worth'}``，
+    三者均为元、已 round(2)。
+
+    ⚠️ **禁止**在别处另写一套 `total_assets += ...`：口径一旦分叉，
+    balance 模式持仓会在一处算 0、另一处算实价（#2154 的实测症状）。
+    需要**按账户**看同一套口径时用 `get_ledger_distributions`（它同样委托
+    `_per_ledger_buckets`），不要自己再写一遍循环。
+    """
+    buckets = _per_ledger_buckets(db, family_id, positions=positions, assets=assets)
+    # 家庭桶 = 各账户桶按位相加：与账户级共用同一份累加实现，故 Σ账户 ≡ 家庭（#2179）
+    merged = _empty_bucket()
+    for bucket in buckets.values():
+        for key in merged:
+            merged[key] += bucket[key]
+    return _round_totals(merged)
 
 
 # ---------------------------------------------------------------------------
@@ -141,20 +253,19 @@ def get_summary_data(db: Session, family_id: int = 1) -> dict[str, Any]:
     """
     positions, assets = _load_user_assets(db, family_id)
 
-    total_assets = 0.0
     market_distribution: dict[str, float] = {}
 
     # 两个 map 均按 family 一次性查出；禁止在循环里逐持仓查流水（N+1）
     realized_map = realized_pnl_by_position(db, family_id)
     invested_map = net_invested_by_position(db, family_id)
 
-    # 一次遍历 positions，完成市值、未实现盈亏、市场分布
+    # 一次遍历 positions，完成未实现盈亏、市场分布
+    # （总资产不在此累加：交给唯一出口 family_totals，见函数注释）
     unrealized_cents = 0
     for p in positions:
         rate = EXCHANGE_RATES.get(p.currency, 1.0)
         # 市值（#1174 收口）：委托唯一口径，override / balance / nav 三种情形在函数内统一处理
         market_value = Money.cents_to_yuan(market_value_cents(p, rate=rate))
-        total_assets += market_value
 
         unrealized_cents += position_pnl_cents(
             p,
@@ -166,33 +277,16 @@ def get_summary_data(db: Session, family_id: int = 1) -> dict[str, Any]:
         market = p.market or '其他市场'
         market_distribution[market] = market_distribution.get(market, 0.0) + market_value
 
-    # 一次遍历 assets，区分负债与资产（暂不做汇率转换）
-    total_liabilities = 0.0
-    for a in assets:
-        amount = Money.cents_to_yuan(a.amount)
-        if amount <= 0:
-            continue
-        if a.major_category == _LIABILITY_KEY:
-            total_liabilities += amount
-        else:
-            total_assets += amount
-
-    # 孤儿货基/逆回购流水净额并入总资产（流动资金；净额可为负，按负数处理）
-    # #863 D1 收益桶：渠道 is_income 流水（已确认收益）并入总资产，单独累计、不膨胀本金
-    # #1305 #16/#18：两张表一次查询同时拿到（原为两条 SQL）
-    net_map, income_map = orphan_money_fund_totals_by_ledger(db, family_id)
-    orphan_net = sum(net_map.values())
-    total_assets += Money.cents_to_yuan(orphan_net)
-    income_net = sum(income_map.values())
-    total_assets += Money.cents_to_yuan(income_net)
+    # 总资产 / 总负债 / 净资产 —— 委托唯一聚合出口（#2154），禁止在此另写累加
+    totals = family_totals(db, family_id, positions=positions, assets=assets)
 
     # 已实现盈亏以流水为事实源，含已清仓持仓的结转盈亏与孤儿分红
     realized_cents = family_realized_pnl_cents(db, family_id)
 
     return {
-        'total_assets_cny': round(total_assets, 2),
-        'total_liabilities_cny': round(total_liabilities, 2),
-        'net_assets_cny': round(total_assets - total_liabilities, 2),
+        'total_assets_cny': totals['total_assets'],
+        'total_liabilities_cny': totals['total_liabilities'],
+        'net_assets_cny': totals['net_worth'],
         'realized_pnl_cny': round(Money.cents_to_yuan(realized_cents), 2),
         'unrealized_pnl_cny': round(Money.cents_to_yuan(unrealized_cents), 2),
         'total_pnl_cny': round(Money.cents_to_yuan(realized_cents + unrealized_cents), 2),
@@ -224,10 +318,10 @@ def get_sankey_data(db: Session, family_id: int = 1) -> dict[str, list[dict[str,
             )
 
     # =====================================================================
-    # 数据聚合阶段：一次遍历完成所有统计，并收集负债明细
+    # 数据聚合阶段：一次遍历完成所有分类统计，并收集负债明细
+    # 总资产/总负债不在此累加——交给唯一出口 family_totals（#2154），
+    # 否则这里的裸累加会与 get_summary_data 分叉（历史上正是这么岔的）。
     # =====================================================================
-    total_assets = 0.0
-    total_liabilities = 0.0
     category_totals: dict[str, float] = {k: 0.0 for k in CATEGORY_META}
     liability_details: list[tuple[str, float]] = []  # 收集负债项，避免二次遍历
 
@@ -236,10 +330,8 @@ def get_sankey_data(db: Session, family_id: int = 1) -> dict[str, list[dict[str,
         if amount <= 0:
             continue
         if a.major_category == _LIABILITY_KEY:
-            total_liabilities += amount
             liability_details.append((a.name, amount))
         else:
-            total_assets += amount
             if a.major_category in category_totals:
                 category_totals[a.major_category] += amount
 
@@ -252,7 +344,8 @@ def get_sankey_data(db: Session, family_id: int = 1) -> dict[str, list[dict[str,
 
     for p in positions:
         rate = EXCHANGE_RATES.get(p.currency, 1.0)
-        mv = Money.min_unit_to_shares(p.quantity) * Money.price_units_to_yuan(p.current_price) * rate
+        # 市值唯一口径（#2154）：旧版裸算「份额 × 快照价」，balance 模式恒得 0
+        mv = Money.cents_to_yuan(market_value_cents(p, rate=rate))
         if mv <= 0:
             continue
 
@@ -273,17 +366,18 @@ def get_sankey_data(db: Session, family_id: int = 1) -> dict[str, list[dict[str,
 
     # 将投资理财总额归入大类（扣除现金等价物持仓，货基不占「投资理财」）
     category_totals[_INVESTMENT_KEY] += investment_total - cash_equiv_total
-    total_assets += investment_total
 
     # 现金等价物持仓市值 + 孤儿流水本金净额 + 渠道收益 并入「流动资金/cash」大类
     net_map, income_map = orphan_money_fund_totals_by_ledger(db, family_id)
     orphan_net = sum(net_map.values())
     income_net = sum(income_map.values())
     category_totals['cash'] += cash_equiv_total + Money.cents_to_yuan(orphan_net + income_net)
-    total_assets += Money.cents_to_yuan(orphan_net + income_net)
+
+    # 总资产 / 总负债 / 净资产 —— 委托唯一聚合出口（#2154）
+    totals = family_totals(db, family_id, positions=positions, assets=assets)
 
     # 若无任何资产，返回空数据
-    if total_assets == 0:
+    if totals['total_assets'] == 0:
         return {'nodes': [], 'links': []}
 
     # =====================================================================
@@ -302,7 +396,8 @@ def get_sankey_data(db: Session, family_id: int = 1) -> dict[str, list[dict[str,
             cat_name, _ = CATEGORY_META[cat_key]
             _add_link(cat_name, _CENTER_NODE, total_val)
 
-    net_worth = total_assets - total_liabilities
+    total_liabilities = totals['total_liabilities']
+    net_worth = totals['net_worth']
 
     # 净资产分支（先添加，使其在图表上方）
     if net_worth > 0:
@@ -346,10 +441,13 @@ def get_account_groups(db: Session, family_id: int = 1) -> list[dict]:
     groups: dict[str, dict[str, float | int]] = defaultdict(lambda: {'total': 0.0, 'count': 0})
 
     # 1. 处理持仓 (均为资产)
+    #    市值必须走唯一口径 market_value_cents（#1174）——旧版裸算「份额 × 快照价」，
+    #    balance 模式（无份额无价格、市值靠 market_value_override）恒得 0，
+    #    导致 account_groups 合计与 /api/summary/ 的 total_assets_cny 对不上（#2154）。
     for p in positions:
         acc = p.account_name or '未指定账户'
         rate = EXCHANGE_RATES.get(p.currency, 1.0)
-        market_value = Money.min_unit_to_shares(p.quantity) * Money.price_units_to_yuan(p.current_price) * rate
+        market_value = Money.cents_to_yuan(market_value_cents(p, rate=rate))
         if market_value == 0:
             continue
         groups[acc]['total'] += market_value
@@ -424,8 +522,6 @@ def get_distributions(db: Session, family_id: int = 1) -> dict[str, Any]:
         account_map[p.account_name or '未指定账户'] += mv
 
     # 通用资产按大类聚合；负债单独统计，不进大类分布与总资产
-    total_assets = positions_total_mv
-    total_liabilities = 0.0
     category_map: dict[str, float] = defaultdict(float)
     liability_map: dict[str, float] = defaultdict(float)
     for a in assets:
@@ -433,10 +529,8 @@ def get_distributions(db: Session, family_id: int = 1) -> dict[str, Any]:
         if amount <= 0:
             continue
         if a.major_category == _LIABILITY_KEY:
-            total_liabilities += amount
             liability_map[a.name or '其他负债'] += amount
         else:
-            total_assets += amount
             # #1354：银行理财/投顾/信托/私募/理财型保险归一到「投资理财」，不再各成一档
             label = CATEGORY_META.get(normalize_major_category(a.major_category), (_UNKNOWN_TYPE, None))[0]
             category_map[label] += amount
@@ -444,17 +538,17 @@ def get_distributions(db: Session, family_id: int = 1) -> dict[str, Any]:
     category_map[_INVESTMENT_LABEL] += positions_total_mv - cash_equiv_total
     if cash_equiv_total > 0:
         category_map[CATEGORY_META['cash'][0]] += cash_equiv_total
-    # 孤儿流水本金净额 + 渠道收益（#863 D1 收益桶）并入流动资金分类与总资产
+    # 孤儿流水本金净额 + 渠道收益（#863 D1 收益桶）并入流动资金分类
     net_map, income_map = orphan_money_fund_totals_by_ledger(db, family_id)
-    orphan_net = sum(net_map.values())
-    income_net = sum(income_map.values())
-    cash_flow_yuan = Money.cents_to_yuan(orphan_net + income_net)
+    cash_flow_yuan = Money.cents_to_yuan(sum(net_map.values()) + sum(income_map.values()))
     if cash_flow_yuan != 0:
         category_map[CATEGORY_META['cash'][0]] += cash_flow_yuan
-    total_assets += cash_flow_yuan
 
     def _to_list(d: dict[str, float]) -> list[dict[str, float]]:
         return [{'name': k, 'value': round(v, 2)} for k, v in sorted(d.items(), key=lambda kv: -kv[1]) if v > 0]
+
+    # 总资产 / 总负债 / 净资产 —— 委托唯一聚合出口（#2154），禁止在此另写累加
+    totals = family_totals(db, family_id, positions=positions, assets=assets)
 
     return {
         'type_distribution': _to_list(type_map),
@@ -463,9 +557,9 @@ def get_distributions(db: Session, family_id: int = 1) -> dict[str, Any]:
         'account_distribution': _to_list(account_map),
         'category_distribution': _to_list(category_map),
         'liability_distribution': _to_list(liability_map),
-        'total_assets': round(total_assets, 2),
-        'total_liabilities': round(total_liabilities, 2),
-        'net_worth': round(total_assets - total_liabilities, 2),
+        'total_assets': totals['total_assets'],
+        'total_liabilities': totals['total_liabilities'],
+        'net_worth': totals['net_worth'],
         'positions_total_mv': round(positions_total_mv, 2),
     }
 
@@ -473,47 +567,18 @@ def get_distributions(db: Session, family_id: int = 1) -> dict[str, Any]:
 def get_ledger_distributions(db: Session, family_id: int = 1) -> dict[int, dict[str, float]]:
     """按账户聚合的总资产 / 总负债 / 净资产（元），供账户级快照落库（#1181）。
 
-    口径与家庭级 `get_distributions` 严格对齐：
-    - 持仓市值一律走唯一口径 `position_valuation.market_value_cents`
-      （含 override / balance / nav 三种情形），因此无净值产品能正确计入；
-    - 孤儿货基/逆回购流水净额按 ledger 归组并入对应账户总资产。
+    口径**就是**家庭级那一份：本函数已不再自己累加，而是委托
+    `_per_ledger_buckets`（与 `family_totals` 共用同一实现，#2179）。
+    故「各账户桶合计 == 家庭级总数」是结构上的恒等式，不再靠两边各自算对来维持。
 
     Returns:
         {ledger_id: {'total_assets', 'total_liabilities', 'net_worth'}}；
         无账户归属（ledger_id 为 NULL）的条目统一归到哨兵键 0。
     """
-    positions, assets = _load_user_assets(db, family_id)
-
-    totals: dict[int, dict[str, float]] = {}
-
-    def _bucket(ledger_id):
-        key = ledger_id or 0
-        if key not in totals:
-            totals[key] = {'total_assets': 0.0, 'total_liabilities': 0.0, 'net_worth': 0.0}
-        return totals[key]
-
-    for p in positions:
-        rate = EXCHANGE_RATES.get(p.currency, 1.0)
-        _bucket(p.ledger_id)['total_assets'] += Money.cents_to_yuan(market_value_cents(p, rate=rate))
-
-    for a in assets:
-        amount = Money.cents_to_yuan(a.amount)
-        if amount <= 0:
-            continue
-        bucket = _bucket(a.ledger_id)
-        if a.major_category == _LIABILITY_KEY:
-            bucket['total_liabilities'] += amount
-        else:
-            bucket['total_assets'] += amount
-
-    # 孤儿货基/逆回购流水按账户并入：本金净额 + #863 渠道收益桶（与家庭级口径一致）
-    orphan_map, income_map = orphan_money_fund_totals_by_ledger(db, family_id)
-    for _lid in set(orphan_map) | set(income_map):
-        _bucket(_lid or 0)['total_assets'] += Money.cents_to_yuan(orphan_map.get(_lid, 0) + income_map.get(_lid, 0))
-
-    for bucket in totals.values():
-        bucket['net_worth'] = bucket['total_assets'] - bucket['total_liabilities']
-    return {k: {kk: round(vv, 2) for kk, vv in v.items()} for k, v in totals.items()}
+    # 不再自己累加：委托与 family_totals 共用的唯一实现（#2179），
+    # 故「Σ账户桶 ≡ 家庭桶」是构造出来的恒等式，而不是两边各自算对。
+    buckets = _per_ledger_buckets(db, family_id)
+    return {ledger_id: _round_totals(bucket) for ledger_id, bucket in buckets.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -905,55 +970,126 @@ def scan_cross_ledger_duplicates(db: Session, family_id: int) -> list[dict]:
     - 注意：持仓（positions）不做此扫描——同一标的跨账本持有两个持仓可能是
       合法分散持有，误报率高；重复风险主要在交易流水层。
 
-    返回：每组 {symbol, confirm_date, txn_type, amount_yuan, ledger_ids, ledger_names, count}
+    #2151：返回值扩展 `fingerprint` / `symbol_identity` / `transactions`：
+    - `fingerprint`：稳定 id（见 `build_ghost_fingerprint`），供忽略记录定位；
+    - `symbol_identity`：**归一身份**，同一个标的的不同写法（`600519` / `SH600519`）
+      从此归为一组，不再因写法差异漏报（此前按字面量 symbol 分组，实测漏报）；
+    - `transactions`：组内明细（id / ledger_id / quantity / price / 日期），
+      供对账工作台域 D 直接展示「删掉多余那一份」。
+
+    返回：每组 {fingerprint, symbol, symbol_identity, confirm_date, txn_type,
+              amount_yuan, ledger_ids, ledger_names, count, transactions}
     """
     ledger_name_map = {led.id: led.name for led in db.query(Ledger).filter(Ledger.family_id == family_id).all()}
 
-    # B4 修复：用 SQL 聚合直接出重复组，避免把 family 级全量交易拉进内存再分组
-    # （数据量大时全表 .all() 会 OOM/慢）。SQLite 支持 group_concat(distinct ...)，
-    # 一次性拿到每组的去重 ledger_id 列表。
-    dup_rows = (
+    # #2151：身份归一必须发生在分组**之前**，故这里从「SQL 聚合」退回「Python 分组」。
+    # 为什么非退不可：`GROUP BY symbol` 按**字面量**分组，`600519` 与 `SH600519` 会各成
+    # 一组、各自只有 1 个账本，被 `HAVING >= 2` 滤掉 —— 同一笔跨账本重复就这么**静默消失**。
+    # 而归一函数（`symbol_identity` 走 venue 推断）在 SQL 里表达不了。
+    #
+    # ⚠️ 这**部分回退了 B4 的优化**（B4 原话：「用 SQL 聚合直接出重复组，避免把 family 级
+    # 全量交易拉进内存再分组（数据量大时全表 .all() 会 OOM/慢）」）。取舍是自觉的：
+    # 拉进内存的集合已被 `family_id + ledger_id 非空 + status='success'` 收敛到
+    # 「本家庭自己的交易流水」，与同文件 `get_account_groups` 等已有口径同阶；
+    # 相比「漏报一整类重复」，「多一次内存分组」是更轻的代价。
+    # 若将来该集合真成为瓶颈，正解是给 `transactions` 加一列**持久化的身份键**
+    # （`positions.symbol_norm` 已有先例，#1662），在写入侧落库、SQL 里直接 group by，
+    # 而不是回到按字面量分组。
+    rows = (
         db.query(
+            Transaction.id,
             Transaction.confirm_date,
             Transaction.symbol,
+            Transaction.asset_type,
             Transaction.txn_type,
             Transaction.amount,
-            func.count(Transaction.id).label('cnt'),
-            func.group_concat(func.distinct(Transaction.ledger_id)).label('ledger_ids_csv'),
+            Transaction.quantity,
+            Transaction.price,
+            Transaction.ledger_id,
         )
         .filter(
             Transaction.family_id == family_id,
             Transaction.ledger_id.isnot(None),
             Transaction.status == 'success',
         )
-        .group_by(
-            Transaction.confirm_date,
-            Transaction.symbol,
-            Transaction.txn_type,
-            Transaction.amount,
-        )
-        .having(func.count(func.distinct(Transaction.ledger_id)) >= 2)
         .all()
     )
 
+    grouped: dict[tuple, list[Any]] = defaultdict(list)
+    for row in rows:
+        grouped[
+            (
+                row.confirm_date,
+                symbol_identity(row.symbol or '', row.asset_type),
+                row.txn_type,
+                row.amount,
+            )
+        ].append(row)
+
     result: list[dict] = []
-    for row in dup_rows:
-        ledger_ids = sorted({int(x) for x in (row.ledger_ids_csv or '').split(',') if x})
+    for (confirm_date, identity, txn_type, amount), txns in grouped.items():
+        ledger_ids = sorted({int(t.ledger_id) for t in txns})
+        if len(ledger_ids) < 2:
+            continue
+        symbol = next((t.symbol for t in txns if t.symbol), None)
         result.append(
             {
-                'symbol': row.symbol,
-                'confirm_date': row.confirm_date.isoformat() if row.confirm_date else None,
-                'txn_type': row.txn_type,
-                'amount_yuan': round(Money.cents_to_yuan(row.amount), 2),
+                'fingerprint': build_ghost_fingerprint(confirm_date, identity, txn_type, amount, ledger_ids),
+                'symbol': symbol,
+                'symbol_identity': identity,
+                'confirm_date': confirm_date.isoformat() if confirm_date else None,
+                'txn_type': txn_type,
+                'amount_yuan': round(Money.cents_to_yuan(amount), 2),
                 'ledger_ids': ledger_ids,
                 'ledger_names': [ledger_name_map.get(lid, f'账本{lid}') for lid in ledger_ids],
-                'count': row.cnt,
+                'count': len(txns),
+                'transactions': [
+                    {
+                        'id': t.id,
+                        'ledger_id': t.ledger_id,
+                        'ledger_name': ledger_name_map.get(t.ledger_id, f'账本{t.ledger_id}'),
+                        'quantity': round(Money.min_unit_to_shares(t.quantity), 4),
+                        'price': round(Money.price_units_to_yuan(t.price), 4),
+                        'amount_yuan': round(Money.cents_to_yuan(t.amount), 2),
+                    }
+                    # 组内按账本、流水 id 升序：展示顺序稳定，便于「留一份、删一份」时对上号
+                    for t in sorted(txns, key=lambda t: (t.ledger_id, t.id))
+                ],
             }
         )
 
     # 按涉及账本数、笔数降序，最可疑的排前面
     result.sort(key=lambda x: (len(x['ledger_ids']), x['count']), reverse=True)
     return result
+
+
+def build_ghost_fingerprint(
+    confirm_date: Any, symbol_identity_value: str, txn_type: str, amount: int, ledger_ids: list[int]
+) -> str:
+    """「幽灵重复」组指纹（#2151）：跨账本重复交易的稳定 id。
+
+    WHY 不含字面量 symbol：同一个标的的写法变体（`600519` / `SH600519`）不应产生两个
+    指纹——忽略其一后另一写法又冒出来，正是这次要消灭的形态。
+    用调用方传入的**已归一**身份（`core.symbol_utils.symbol_identity`），本函数不自己解析代码。
+
+    WHY 含 ledger_ids：`#2151` 的关键边界——「忽略了 A、B 两家的重复，后来 C 家又导入了一份」
+    是一组**新的**问题（三家重复），必须重新露面。若指纹只含内容维度，旧忽略会把新问题
+    连同静默吞掉。账本集合升序拼接，保证顺序无关。
+
+    代价（已知假阴性）：同一组「先忽略 → 后来某账本把那份删了」会得到新指纹而重新提示。
+    这是**有意的**方向选择——「重新提示一个已解决的组」是可容忍的噪声，
+    「静默吞掉一个新的重复」是不可容忍的漏报。
+    """
+    payload = '|'.join(
+        [
+            str(confirm_date),
+            symbol_identity_value or '',
+            txn_type or '',
+            str(amount),
+            ','.join(str(x) for x in sorted(set(ledger_ids))),
+        ]
+    )
+    return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
 
 def list_fund_valuation_rows(db: Session, query_date: date, fund_code: str | None = None) -> list[dict]:
