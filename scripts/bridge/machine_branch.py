@@ -197,7 +197,7 @@ def run(args: argparse.Namespace) -> int:
     code, out = _git(['merge', '--no-edit', p['merge_ref']], wt)
     conflicts = conflict_files(wt)
     print(build_report(p, pushed=False, conflicts=conflicts))
-    if conflicts:
+    if code != 0 or conflicts:  # merge 退出码 1 = 冲突/失败，比依赖 diff --diff-filter=U 更稳（#2255/#450）
         _git(['merge', '--abort'], wt)
         _git(['worktree', 'remove', '--force', wt], cwd)
         return 1
