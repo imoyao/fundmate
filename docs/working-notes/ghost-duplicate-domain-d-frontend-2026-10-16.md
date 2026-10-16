@@ -1,6 +1,6 @@
 # 幽灵重复告警接入对账工作台（域 D 前端，2026-10-16）
 
-关联：CNB #477 / GitHub https://github.com/imoyao/fundmate/issues/2151 （域 D 后端为 PR1 / CNB #486）。
+关联：CNB duoduobei/fundmate#477 / GitHub https://github.com/imoyao/fundmate/issues/2151 （域 D 后端为 PR1 / CNB duoduobei/fundmate#486）。
 
 ## 做了什么
 

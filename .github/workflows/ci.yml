@@ -173,7 +173,7 @@ jobs:
       - name: 运行测试
         run: pdm run python -m pytest -p no:xdist -m "not slow"
 
-      # 总资产聚合守卫（源 CNB #478 / GitHub #2154 → #2179）：`family_totals`
+      # 总资产聚合守卫（源 CNB duoduobei/fundmate#478 / GitHub #2154 → imoyao/fundmate#2179）：`family_totals`
       # 被立为唯一聚合出口之后，账户级的 `get_ledger_distributions` 仍把同一套累加
       # 逐字重写了一遍 —— 那正是本卡要杀的形态本身（口径再变时就是「下次漏改的一处」），
       # 当时只靠 `test_account_snapshots.py` 里一条埋着的断言兜着，靠人找。

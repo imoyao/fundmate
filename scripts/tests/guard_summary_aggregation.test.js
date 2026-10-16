@@ -1,5 +1,5 @@
 /**
- * guard_summary_aggregation 回归样本（#2179，源 CNB #478 / GitHub #2154）。
+ * guard_summary_aggregation 回归样本（imoyao/fundmate#2179，源 CNB duoduobei/fundmate#478 / GitHub #2154）。
  *
  * 守卫的职责是**拦「总资产」的又一份手写累加**。它保护的是一个已经真实分叉过的
  * 东西：`get_ledger_distributions` 曾把 `family_totals` 的累加逻辑逐字重写一遍，

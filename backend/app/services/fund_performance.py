@@ -57,6 +57,7 @@ from app.core.time_utils import today_shanghai
 from app.services.fund_benchmark import BENCHMARK_LABELS, load_index_points
 from app.services.fund_benchmark import resolve as resolve_benchmark
 from app.services.fund_metrics import compute_max_drawdown, load_nav_points
+from app.services.fund_nav_on_demand import maybe_trigger_nav_backfill
 from app.services.fund_risk_metrics import (
     RISK_FREE_RATE_ANNUAL,
     WINDOW_3Y,
@@ -66,7 +67,6 @@ from app.services.fund_risk_metrics import (
     shape_gain,
     shape_gain2,
 )
-from app.services.fund_nav_on_demand import maybe_trigger_nav_backfill
 from app.services.money_fund_yield import CALIBER_NOTE, WINDOW_DAYS
 
 # 区间档位（近 N + 今年以来 + 成立以来）。``days`` 为自然数日，用于定位起点；
