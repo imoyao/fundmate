@@ -40,6 +40,11 @@ export interface PortfolioUpdateInput {
   target_amount?: number;
   target_date?: string;
   benchmark?: string;
+  /**
+   * 关联账户完整 ID 集合（#981）：传入即由后端事务内原子替换
+   * （[] = 全部解绑）；不传 = 本次不动关联。前端不再做 diff。
+   */
+  ledger_ids?: number[];
 }
 
 /** 组合持仓明细行（对齐 build_portfolio_holdings；资产行 id = asset.id + 100000） */

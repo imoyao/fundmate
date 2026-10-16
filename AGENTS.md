@@ -109,7 +109,7 @@
   就是**每次都喊狼来了**，红灯随之失去可信度。判据要二分，不要数数。
 
 - **判据机器化**：已固化进 `scripts/bridge/check_branch_divergence.py`
-  （只读本地 git、不联网），并挂进 `.cnb.yml` 的收尾阶段（只报告）：
+  （只读本地 git、不联网），并挂进 `.cnb.yml` 的收尾阶段（**断链即建卡**，stage 不拦构建）：
 
   ```bash
   python scripts/bridge/check_branch_divergence.py --report   # 退出码 1 = 有新形态
@@ -132,6 +132,13 @@
   （`main` 合过 `dev` 后又删了一个 `dev` 里还在的文件、`dev` 再前进 ⇒ 逐文件法报
   「两侧内容一致」，而 `git cherry` 报 `+`，是真违规）。判据只用
   **`git cherry <dev> <main>`（补丁等价）**，详细推导见 `docs/dev/github-cnb-mirror.md` §11。
+
+  **退出码不吞**：分叉时 `.cnb.yml` 用非零退出码触发 `notify_mirror_divergence.py`
+  建一张断链提醒卡（幂等，标题即幂等键）——crontab 的红灯没人盯，
+  只进日志等于静默停摆。stage 整体仍不拦构建（建卡才是主任务）。
+  成因侧另有 `pull_request` 反向守卫挂在 `main:` / `dev:` 之下（CNB 侧只读，直接 `exit 1`）。
+  自检报红时，第一怀疑对象是「有 PR 用错了 base」——CNB #123 实测：base 用错
+  ⇒ 两侧互不包含、且每层判据都可能报红，先查 base 能省掉一整轮排查。
 
 #### git-sync **两个方向**都必须显式指定 `branch`，且不含 `main`（2026-10-13 ~ 10-14，#167 / #172）
 
@@ -165,26 +172,6 @@ stage 在 `get-build-stage` 里**查不到** ⇒ 作业内部推没推成功看�
 `crontab: 30` 因此长期「挂旧 sha、实际没推上去、却报绿」——**假绿比红灯更危险**。
 两条 cron 与 `push:` 一律写成 `- name: <job 名> / stages: [ - name: <stage 名> ]`，
 job 名与 stage 名都要写（后者是查询锚点）。
-
-#### `.cnb.yml` 的事件写在分支下，不写顶层（2026-10-11，#152）
-
-同一条平台限制的另一面，且**更容易踩**：`.cnb.yml` 的**顶层只认分支名**（与 `$`）。
-事件（`push:` / `"crontab: ..."` / `web_trigger:`）必须写在**分支之下**。
-
-写成顶层不会报「位置错」，而是被读成**一个名字叫 `push` 的分支**——随后报错形态全错位：
-
-- `GetFileContent: not found` = **事件无定义**，不是「文件不存在」（平台拿默认分支的定义兜底）；
-- 同一次事故里 `parse yaml failed` 又是另一件事（定义后来长出来、才轮到读文件内容）。
-
-两者看着像「同一件事的两个阶段」，实际是两个独立原因——2026-10-11 连续 7 条流水线全红
-就是被这两句话各带偏一次，注意力全在 `fundmate-secret`（Secret 仓库，API 一律 403），
-而真正要改的是 `.cnb.yml` 的缩进。
-
-- **判据机器化**：`python scripts/check_cnb_events.py`（并入 `ci.yml` 的 `scripts_test` job，
-  阻断），回归网 `scripts/tests/branch_structure.test.js`；完整推导见
-  `docs/dev/github-cnb-mirror.md` §12。
-- **守卫白名单只能是单值键**：把 `main` / `dev` 写进「允许的顶层键」会让任何分支名都合法、
-  判据当场失效。守卫自带自检探针（用真实存在的 `sync/mirror:` 反证）。
 
 #### `.cnb.yml` 的事件写在分支下，不写顶层（2026-10-11，#152）
 
@@ -917,6 +904,32 @@ need_close = auto_close and card['cnb_state'] != 'closed'
 - **边界**：判据是**行级**的（同一文件里 CNB 编号与 GitHub 编号混排时，只会有问题的那些行红），
   因此「一句不带任何 GitHub 词的『另见 #999』」是它的**已知假阴性**<!-- cross-repo-ref-allow -->——脚本尾部会打印
   「裸露高发文件」提示人工复核，那部分是**报告不是判据**。
+
+### 分支 Hygiene 与自动合入机制（2026-10-15，#450）
+
+> 背景：#450 系列 4 个 PR 并行造轮子、基于陈旧 dev 开出，合并时冲突爆炸且过不了质量门禁。
+> 以下约定+自动化用于**从机制上消灭「分支又旧又冲突又过不了门禁」这个反复现象**，而非逐个 PR 救火。
+
+**分支纪律（所有 AI / agent / CNB 分支必须遵守）**：
+
+1. **必须基于最新 `dev` 开出**：开分支前先 `git fetch origin dev` 并 `git rebase origin/dev`，禁止基于数周前的旧 base。这正是「落后 51 提交」巨无霸分支的根因。
+2. **单目标**：一个分支只做一件事，禁止把无关的前端路由 / 后端视图 / 文档改动打包进来。
+3. **不重复治理脚本**：`scripts/bridge/`、`scripts/check_*.py`、`.cnb.yml`、`AGENTS.md` 是全局共享文件，多分支同时改会互相污染基线。**确需改这些文件时，先查是否已有 open PR 在改（见下方重叠守卫），优先接力而非另开一份**。
+
+**三层自动机制（已在 `.github/workflows/` 落地）**：
+
+| 层 | 工作流 | 作用 |
+|---|---|---|
+| ① 自动变基（保新） | `pr-auto-rebase.yml` | PR 有新推送 / 每日定时时，把分支 rebase 到最新 `dev` 并 `--force-with-lease` 推送。冲突即 abort 并留言，绝不半成品强推。 |
+| ② 绿灯自动合并 | `pr-auto-merge.yml` | PR 挂 `automerge` 标签且 base=`dev` 时，门禁「质量门禁汇总」转绿即自动合入。**保护一直开着（质量不丢），合是自动的**，不再需人工点合或临时放松保护。 |
+| ③ 重叠守卫 | `pr-overlap-guard.yml` | PR 打开/同步时，若与其他 open PR 触碰同一批治理文件，提前评论预警，让人先协调。 |
+
+**控制标签**：
+
+- `automerge`：贴到 base=`dev` 的 PR 上即启用 ② 自动合并（opt-in，防误合）。
+- `no-bot-rebase`：贴到 PR 上即禁用 ① 自动变基（人工接管时用）。
+
+> 唯一无法由系统代劳的，仍是「写出能过 CI 的代码」。三层机制把「救火旧分支」的人工动作降到只剩这一件。
 
 ### 「永久记忆」存在哪、什么时候读
 

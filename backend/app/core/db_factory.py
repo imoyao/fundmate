@@ -195,6 +195,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     # ── user 域（Supabase）：含 family_id/user_id 的用户私有数据 ──
     'families': DOMAIN_USER,
     'users': DOMAIN_USER,
+    'user_preferences': DOMAIN_USER,  # 用户私有偏好键值（#1337，按 user_id，非 family）
     'ledgers': DOMAIN_USER,
     'portfolios': DOMAIN_USER,
     'positions': DOMAIN_USER,
@@ -217,6 +218,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'strategy_tags': DOMAIN_USER,
     'position_strategy_tags': DOMAIN_USER,
     'dividend_targets': DOMAIN_USER,  # 家庭股息目标（#872）：用户私有配置，一家庭一条
+    'notifications': DOMAIN_USER,  # 站内通知（#2228）：含 family_id，家庭级消息盒
     'asset_snapshots': DOMAIN_USER,
     'pnl_daily_snapshots': DOMAIN_USER,  # 收益日历逐日物化快照（#1926）：含 family_id
     'user_usage': DOMAIN_USER,

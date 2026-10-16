@@ -52,6 +52,7 @@
 | `--bg-soft` | `#F5F0EB` | 柔和表面 / 毛玻璃基底 |
 | `--bg-subtle` | `#F7F3EE` | 卡片内条目底纹（比 `--bg-soft` 更淡） |
 | `--bg-hover` | `#F2EDE8` | 悬停/高亮底色 |
+| `--skeleton-wave` | `#E2DBD3` | 骨架屏扫光带（vs `--bg-soft` 1.21:1；渐变单一来源 `src/style/_skeleton.scss`） |
 
 ### 品牌色（暖红珊瑚）
 
@@ -151,6 +152,26 @@
 | `--border-light` | `#F0EBE4` | 极浅边框 / 分割线 |
 | `--border-default` | `#E5DDD4` | 默认边框 |
 | `--border-subtle` | `rgba(229, 221, 212, 0.5)` | 卡片内部分割线（降低权重） |
+
+#### 栏间竖向分割线（#2157）
+
+「左栏 ｜ 右栏」这类**分栏**布局的竖向分割线，唯一实现是全局工具类 `.soft-col-divider`
+（`frontend/src/style/index.scss`）——**禁止在业务组件里手写** `border-left: 1px solid var(--border-light)`：
+
+- `lg` 及以上：`padding-left: var(--space-standard)`（24px）+ 1px 线，即「左栏 → 24px → 线 → 24px → 右栏文字」；
+- `lg` 以下：两栏已纵向堆叠，**不画线**。
+
+手写裸 border 会同时踩两个坑：**线贴住邻栏文字**（让文字顶着线读）与**窄屏孤线**
+（border 写在不带断点的类名上，而两栏布局是 `lg:grid-cols-12`）。
+守卫 `scripts/guard_col_divider.py` 阻断新增；存量 4 处冻结在脚本 `BASELINE`（逐处理由见脚本 docstring），只减不增。
+
+以下**不属于**本判据，**有意放行**（别当漏判，也别顺手"统一"掉）：
+
+- **语义强调条**：`3px` / `4px` + `--color-warning` / `--color-danger` / `--color-info` / `--temp-*`——颜色本身就是信息（如机会卡温度条、导入表内语义色竖条），与「栏间分割线」是两回事；
+- **选中指示条**：`2px solid transparent` 占位、选中态只改 `border-left-color`（如目录 TOC）；
+- **卡片内部降权分割线**：用 `--border-subtle`，它约束的是卡片内部，不是栏与栏之间。
+
+若某处确需手写例外，在声明本行或相邻行加注释 `col-divider-allow` 并写明理由（刻意不提供文件级豁免）。
 
 
 ## Typography
@@ -868,6 +889,16 @@ EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰�
 > 的分水岭。**不属以上两类**的手写「多选一」按钮组，一律视为回潮，由守卫拦截。
 > 同页的一级 / 二级分工示例见 `RoadFilterBar.vue`：一级标的类别是 `SegmentedControl`（带数量徽章），
 > 二级状态筛选是水平滑动胶囊栏。
+
+> **裁决（#1449 / #2199）：自选页「类型快捷筛选」归水平滑动胶囊栏，不归分段控制器**。
+> 该条目的选项集由用户偏好决定（`user_preferences.watchlist_quick_filters` 外露类型，默认 4 项），
+> 自定义后可达 11 项（全部 + 10 类型），**超出分段器「选项少（2–6）、平铺」的适用域**，
+> 按分水岭切换为胶囊栏语言，视觉规格与分组胶囊 Tab 逐值对齐（32px 胶囊 / `--radius-pill` /
+> 软按钮选中态）。布局上它是筛选行的**第二个弹性区**：与分组胶囊 Tab 并列（中间以分区分隔线切开），
+> 不打架时按内容宽排布，争夺时两区各限 `max-width: 50%`、各自横滑兜底
+> （隐滚动条 + 滚轮横滑 + 右缘渐变遮罩，同 FilterGroupTabs 模式），右侧操作段固定不参与争夺。
+> **股票、基金为常驻外显（`PINNED_QUICK_TYPES`）**：无论用户如何配置都恒在外露列表最前两位，
+> 自定义弹窗内对应项 disabled 恒勾选。实现见 `views/asset/watchlist/components/QuickTypePills.vue`。
 
 > **编码红线（#1717 收紧）**：分段控制器**只有 `SegmentedControl` 一个实现**。
 > ① 禁止页面使用 `el-segmented`——其选中滑块是 JS 绝对定位的独立子元素

@@ -135,7 +135,7 @@ python scripts/bridge/github_cnb_issues.py --apply --limit 3
 > 改镜像行为时，先确认改动落在 `main`（或已经发版过去），否则它永远不会被执行。
 > 这与 `issue-milestone-guard.yml`「补挂里程碑后不自愈」同族：整改做完了，跑的不是它。
 
-cron 阶段末尾挂了三节**只报告/幂等**的收尾任务：
+cron 阶段末尾挂了三节收尾任务（前两节只报告/幂等，第三节断链即建卡）：
 
 ```yaml
     - name: 状态回流（GitHub 已关闭 → CNB 标记）
@@ -144,13 +144,23 @@ cron 阶段末尾挂了三节**只报告/幂等**的收尾任务：
     - name: 引用时效自检（认评论区更正，只报告）
       script: |
         python scripts/bridge/check_mirror_refs.py --report || true
-    - name: 分支分叉自检（只报告）
+    - name: 分支分叉自检（断链即建卡）
       script: |
-        python scripts/bridge/check_branch_divergence.py --report || true
+        git fetch origin dev main --quiet || true
+        python scripts/bridge/check_branch_divergence.py --report --explain --out report-divergence.md
+        if [ $? -ne 0 ]; then
+          python scripts/bridge/notify_mirror_divergence.py --report report-divergence.md || true
+        fi
 ```
 
-三节都带 `|| true`：**建卡才是主任务**，这些收尾作业是信号，不该把建卡一起拖红。
+前两节带 `|| true`：**建卡才是主任务**，这两节是信号，不该把建卡一起拖红。
 （状态回流自身是幂等的，重复执行只发一次评论。）
+
+第三节**刻意不在检查本身上吞退出码**：分叉是「镜像链路已经坏了」的事实，
+只进日志等于静默停摆（crontab 红了没人盯，2026-10-11 白丢大半天）。
+它的「大声失败」载体不是红灯而是**建卡**——退出码非零即建一张断链提醒卡
+（幂等：已有未关闭同题卡只追加评论，见 §11.1）。stage 整体仍不拦构建：
+建卡 job 才是主任务，分叉自检是挂在它尾部的信号。
 
 
 ## 7. 引用时效自检（#118）
@@ -460,6 +470,9 @@ python scripts/bridge/check_branch_divergence.py --report
 
 # 只看「哪些作业只在单侧」
 python scripts/bridge/check_branch_divergence.py --report --jobs-only
+
+# 报告落盘（供 notify_mirror_divergence.py 拼断链卡面，见 §11.1）
+python scripts/bridge/check_branch_divergence.py --report --explain --out report-divergence.md
 ```
 
 ### 判据（2026-10-14 定型，源 CNB #167 / #179）
@@ -534,7 +547,8 @@ git cherry <right> <left>   # 逐行 `+ <sha>`（right 缺这条改动）/ `- <s
 - 列出两侧互不包含的「决定什么会被执行」的文件（`.cnb.yml` + `.github/workflows/*.yml`）；
 - ⚠️ **提交数不是判据**：交叉合并下两侧会「互不包含」而 `left` 其实零独有内容。
 
-`.cnb.yml` 里带 `|| true`——它是信号，不是门禁。
+`.cnb.yml` 里**不在检查本身上吞退出码**（`|| true` 只加在建卡调用上）——退出码是
+建卡分支的唯一输入，吞了就又静默了（见 §11.1）；stage 整体仍不拦构建，**它是信号，不是门禁**。
 
 #### 内容级的返回字段是契约（不准悄悄改）
 
@@ -548,7 +562,6 @@ git cherry <right> <left>   # 逐行 `+ <sha>`（right 缺这条改动）/ `- <s
 `git cherry` 一并删除 —— 那两个列表**语义互斥**、同时填会让同一路径出现在报告两处、
 **自相矛盾**（本仓 #123 时代 `list_side_only` 就踩过同型 bug）。现在只有一个结论字段，
 矛盾在结构上就不可能出现。
-
 ### 根因诊断：`--explain`（答「为什么分叉」，2026-10-11 补）
 
 首版只报「分叉了几个提交、哪些作业只在单侧」，**答不出「为什么」**。而卡面 §一 建议 3
@@ -591,6 +604,41 @@ python scripts/bridge/check_branch_divergence.py --report --explain
 | **只报告，不改动** | 不 fetch / merge / push | 要不要更新远端视图是调用方的决定；脚本有副作用就不可信 |
 | **方向敏感** | `git diff --name-status left right` 里 `D` = 只在 `left`、`A` = 只在 `right` | 初版把 `A`/`D` 都算「只在 right」，同一文件同时出现在两侧列表（见回归网 `test_side_only_no_duplicate_across_sides`） |
 | **判据选型** | 内容级用 `git cherry`（补丁等价），提交级看 merge 的**第二父** | `git diff` + 祖先关系在交叉合并下假红（#179）；第一父是当前分支自己的历史，取它会误判合规发版 |
+
+### 11.1 断链提醒卡：`notify_mirror_divergence.py`（2026-10-14 补）
+
+分叉自检挂在 **crontab** 上，而 crontab 的红灯没人盯。只把结论写进构建日志，
+等于「报告了一切，没人会看」——2026-10-11 那次分叉白丢大半天，根因就在这。
+故 `.cnb.yml` 里退出码非零时建一张 **CNB 侧的断链提醒卡**（幂等：已有未关闭
+同题卡只追加评论，不重复建）：
+
+```bash
+python scripts/bridge/notify_mirror_divergence.py --report report-divergence.md
+```
+
+卡面四要素缺一不可（**现场 / 修法 / 禁令 / 溯源**）——缺任何一个，读到的人就无从照做：
+
+- **现场**：落盘报告原文（两侧独有提交清单，照抄即可 cherry-pick）；
+- **修法**：把 CNB 独有提交 cherry-pick 成 `rescue/` 分支，走 GitHub PR 合回；
+- **禁令**：**不要 force push、不要删 CNB 侧独有提交**（会静默丢改动）；
+- **溯源**：CNB #118 / #123。
+
+设计取舍：
+
+- **建卡失败不改退出码**（`|| true`）——「提醒失败」不该把真实原因盖掉；
+- **标题就是幂等键**（`[镜像断链] …`）——改标题等于每次运行都建新卡，
+  很快把卡列表刷成噪音，而噪音比没有提醒更糟；
+- **重复断链只追加评论**，不复述「怎么修」——那是卡面的事，评论只给新现场；
+- **零网络单测**：`scripts/tests/test_notify_mirror_divergence.py` 钉模板四要素、
+  幂等键与截断行为。
+
+#### 顺手修掉的静默失效：`--explain` 曾经不存在
+
+`--explain` 的用法 2026-10-11 就写进了本文档，`.cnb.yml` 也早就传了这个参数——
+但脚本当时**根本没有声明它**：argparse 报错、退出码 2，被 stage 的 shell 忽略，
+分叉自检从未真正生效（「看着配了，实际空转」，与 #118 的假绿同族）。
+本次把 `--explain` 落到实现（提交清单 + 离线合并试算），并加了一条**反向断言**钉住
+「`.cnb.yml` 传了 ⇒ 脚本必须真的声明」：`test_cnb_yml_passes_explain_for_both_sides_lists`。
 
 ### 分叉的成因（2026-10-11 实测）
 
@@ -665,6 +713,23 @@ push:
 - **探针要断言「变异真的生效」**。第一轮探针里，往函数体开头插 `return []` 看着像回退，
   实际那是一段**不可达代码**（循环照跑），于是 `--file` 指对文件时守卫仍能报错、
   探针却误判成 `MISSED`。**没有「变异生效」断言的探针，本身就是一个假信号。**
+
+### 层 3：pull_request 反向守卫（2026-10-14 补，CNB #118 / #123）
+
+§11 的自检是**事后**发现分叉；断链的**成因**是「在 CNB 侧合了 PR」。
+故 `main:` 与 `dev:` 之下各挂一份 `pull_request` 守卫：PR 打向哪条长期分支，
+就在哪条的配置里读到它——**本仓 CNB 侧只读，PR 请到 GitHub 开**，
+直接 `exit 1`。
+
+两个写法要点：
+
+- **必须挂分支之下**。挂在顶层会被读成「一个名为 `pull_request` 的不存在分支」
+  （#152 的平台语义），守卫空转还不报错；
+- **只挂 `main` / `dev`**。feature 分支本就不该在 CNB 侧被合入；`$` 兜底只对
+  `web_trigger` 有意义（`pull_request` 需要分支上下文）。
+
+回归网：`scripts/tests/test_notify_mirror_divergence.py::test_cnb_yml_has_reverse_guard_on_pull_request`
+（钉「两条长期分支都挂了」+「`exit 1` 在」——少 `exit 1` 就是喊了口号但放行）。
 
 ## 13. 双向同步的三个故障与「失败形态对照表」（源 CNB #148，2026-10-12）
 

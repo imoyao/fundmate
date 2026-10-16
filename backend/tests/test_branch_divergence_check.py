@@ -8,7 +8,7 @@
 判错方向，给出的就是**反向的安心**——「未分叉」而实际已分叉，下一个照着它发版的人
 会以为没问题。这正是本仓「守门通过 ≠ 守门有效」那一课的同类。
 
-故按三类钉死：
+故按四类钉死：
 
 1. **方向语义**：`git diff --name-status left right` 里 `D` = 只在 `left`、`A` = 只在 `right`。
    这条曾是**真 bug**：初版把 `A` 和 `D` 都算「只在 right」，于是 `.cnb.yml` 与
@@ -16,7 +16,7 @@
 2. **分叉判定（2026-10-14 起改为内容级，源 CNB #167 规则 1）**：
    **`main` 有没有 `dev` 没有的代码**才算分叉——发版 merge commit（内容 diff 为空）
    不算。旧口径「`main` 独有提交 > 0 ⇒ 分叉」会把每次发版都报成假红；
-3. **判据不可用**（拿不到 `git diff`）⇒ 退出码 2，**不得降级成「正常」**（#171 教训）；
+3. **判据不可用**（拿不到 `git cherry` / `git log`）⇒ 红、退出码 1，**不得降级成「正常」**（#171 教训）；
 4. **只读**：出现 `fetch` / `merge` / `push` 即越界。
 
 用例尽量走**真实 git**（本仓自己），只在需要构造「确定的分叉」时才用临时仓库——
@@ -563,7 +563,9 @@ def test_run_returns_1_on_new_shape(mod, diverged_repo):
 def test_run_returns_0_when_same(mod, diverged_repo):
     import argparse
 
-    args = argparse.Namespace(left='dev', right='dev', cwd=str(diverged_repo), out=None, report=True, jobs_only=False)
+    args = argparse.Namespace(
+        left='dev', right='dev', cwd=str(diverged_repo), out=None, report=True, jobs_only=False, explain=False
+    )
     assert mod.run(args) == 0
 
 
@@ -571,7 +573,13 @@ def test_run_returns_2_on_missing_ref(mod, diverged_repo):
     import argparse
 
     args = argparse.Namespace(
-        left='no-such-branch', right='dev', cwd=str(diverged_repo), out=None, report=True, jobs_only=False
+        left='no-such-branch',
+        right='dev',
+        cwd=str(diverged_repo),
+        out=None,
+        report=True,
+        jobs_only=False,
+        explain=False,
     )
     assert mod.run(args) == 2, '取不到分支要用独立退出码，别混进「有新形态」'
 

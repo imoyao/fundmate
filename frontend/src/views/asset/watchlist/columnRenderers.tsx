@@ -123,6 +123,8 @@ export interface RenderCtx {
     openNotesEditor: (row: WatchlistRow) => void;
     /** 打开「加入分组」弹层（多分组管理，#1449）：勾选多个自定义分组 */
     addToGroup: (row: WatchlistRow) => void;
+    /** 「问这个」（#1764）：带该行上下文跳账本精灵页预填提问 */
+    askAbout: (row: WatchlistRow) => void;
   };
   /** 近 N 日收盘价序列（sparkline 列，#990）：symbol → close 数组；无数据的 symbol 键缺省 */
   trends: Record<string, number[]>;
@@ -414,10 +416,12 @@ const renderMoneyRatio: FunctionalComponent<{
       // 添加后收益：金额由 price_at_added 差值计算，是真盈亏 → 带 +/- 号、不带 ¥
       showSign: !isMarketValue,
       showCurrency: isMarketValue,
-      // 「持仓市值」的比例是市值占比（恒为正），非涨跌语义，必须中性色；
-      // 「添加后涨幅」的 % 是真涨跌，保留默认涨红跌绿
+      // 「持仓市值」的比例是市值占比（恒为正的仓位权重），非涨跌语义：必须中性色，
+      // 且不带 +/- 号（showRatioSign 默认 true 会让 RiseFallText 拼出无意义的「+」，#2209）；
+      // 「添加后涨幅」的 % 是真涨跌，保留符号与默认涨红跌绿
       // （components.md MoneyWithRatio：占比等非涨跌语义 ratioAutoColor=false）
-      ratioAutoColor: !isMarketValue
+      ratioAutoColor: !isMarketValue,
+      showRatioSign: !isMarketValue
     });
   }
   // 直接字段列（持仓收益）：value=def.key, ratio=props.ratioKey
@@ -682,6 +686,8 @@ const renderActions: FunctionalComponent<{
               circle: true,
               size: "small",
               disabled,
+              // 图标按钮没有文本可作可访问名：aria-label 与 tooltip 同源（#1764 验收「键盘可达」）
+              "aria-label": tip,
               onClick
             },
             () => [
@@ -740,6 +746,16 @@ const renderActions: FunctionalComponent<{
         (e: Event) => {
           e.stopPropagation();
           a.addToGroup(row);
+        }
+      ),
+      tooltipBtn(
+        "问这个",
+        "ep:chat-dot-square",
+        undefined,
+        !editable,
+        (e: Event) => {
+          e.stopPropagation();
+          a.askAbout(row);
         }
       )
     ]

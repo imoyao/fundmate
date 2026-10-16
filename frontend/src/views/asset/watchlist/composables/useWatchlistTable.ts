@@ -1,5 +1,7 @@
 import { ref, computed, type ComputedRef } from "vue";
+import { useRouter } from "vue-router";
 import type { WatchlistItem } from "@/api/watchlist";
+import { agentAskQuery } from "@/utils/agentAsk";
 import type { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import type { useWatchlistTags } from "@/composables/useWatchlistTags";
 import type { useWatchlistData } from "@/composables/useWatchlistData";
@@ -27,6 +29,7 @@ interface TableRenderOptions {
  */
 export function useWatchlistTable(options: TableRenderOptions) {
   const { groups, tags, toolbar, data, valuation, actions } = options;
+  const router = useRouter(); // 「问这个」跳转用（#1764）
   const { items } = data;
   const { batchMode } = toolbar;
   const {
@@ -150,7 +153,19 @@ export function useWatchlistTable(options: TableRenderOptions) {
       toggleFavorite: data.handleToggleFavorite,
       remove: data.confirmRemove,
       openNotesEditor: data.openNotesEditor,
-      addToGroup: actions.openMultiGroupDialog
+      addToGroup: actions.openMultiGroupDialog,
+      // 「问这个」（#1764）：带行上下文跳账本精灵页；query 由 router 编码，
+      // 接收端 parseAgentAskQuery 消费即摘除（刷新无残留）
+      askAbout: row => {
+        router.push({
+          name: "AgentChat",
+          query: agentAskQuery({
+            symbol: row.symbol,
+            name: row.display_name || row.symbol,
+            from: "watchlist"
+          })
+        });
+      }
     },
     trends: trendMap.value
   }));

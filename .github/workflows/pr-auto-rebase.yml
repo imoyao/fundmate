@@ -1,0 +1,93 @@
+# PR 自动变基（保新，一劳永逸机制 Layer 1）
+#
+# ## 为什么需要它
+#
+# CNB / agent 分支常基于陈旧 dev 开出，同步到 GitHub 时已落后几十个提交，
+# 于是出现「落后 51 提交」的巨无霸分支，合并时冲突爆炸（#450 系列即此典型）。
+# 本工作流在 PR 有新推送、或每日定时时，把 PR 分支 rebase 到最新 dev 并 force-push，
+# 使分支始终基于最新 dev——冲突在源头就很小甚至没有。
+#
+# ## 触发
+#
+# - PR synchronize：CNB/agent 每推一次即变基一次（保持当前）。
+# - 每日定时（UTC 02:17，错峰）：把全部 open 且落后 dev 的 PR 变基一遍。
+# - workflow_dispatch：手动补跑。
+#
+# ## 安全闸门（绝不盲目强推）
+#
+# 1. 仅同仓 PR（head repo = imoyao）；fork PR 无法用本仓 token 推送，跳过。
+# 2. 跳过挂 `no-bot-rebase` 标签的 PR（人工接管时用）。
+# 3. 仅当分支确实落后 dev（dev 不是其祖先）才变基；已最新则跳过。
+# 4. rebase 遇冲突立即 abort，留评论让人处理，绝不 `--abort` 后再强推半成品。
+# 5. 推送用 `--force-with-lease`，避免覆盖他人并发推送。
+
+name: PR 自动变基（保新）
+
+on:
+  pull_request_target:
+    types: [synchronize]
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  rebase:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name != 'pull_request_target' ||
+      github.event.pull_request.base.ref == 'dev'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: 变基 PR 分支到最新 dev
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin dev
+
+          if [ "${{ github.event_name }}" = "pull_request_target" ]; then
+            BRANCHES="${{ github.event.pull_request.head.ref }}"
+          else
+            # schedule / workflow_dispatch：列出所有 base=dev 的 open PR 头部分支
+            BRANCHES=$(gh pr list --base dev --state open --json headRefName --jq '.[].headRefName')
+          fi
+
+          [ -z "${BRANCHES:-}" ] && { echo "无可变基分支"; exit 0; }
+
+          for b in $BRANCHES; do
+            echo "---- 处理 $b ----"
+            # 1) fork 跳过
+            HEAD_OWNER=$(gh pr view "$b" --json headRepositoryOwner --jq '.headRepositoryOwner.login' 2>/dev/null || true)
+            if [ "$HEAD_OWNER" != "imoyao" ]; then
+              echo "跳过 $b（fork 分支，本仓 token 无法推送）"; continue
+            fi
+            # 2) 人工接管标签跳过
+            if gh pr view "$b" --json labels --jq '.labels[].name' | grep -qx "no-bot-rebase"; then
+              echo "跳过 $b（no-bot-rebase 标签）"; continue
+            fi
+            # 3) 已最新则跳过
+            git fetch origin "$b"
+            if git merge-base --is-ancestor origin/dev "origin/$b"; then
+              echo "$b 已包含最新 dev，跳过"; continue
+            fi
+            # 4) 变基，冲突即 abort 并留言
+            git checkout -B "$b" "origin/$b"
+            if git rebase origin/dev "$b"; then
+              git push --force-with-lease origin "$b"
+              echo "✅ $b 已变基到最新 dev"
+            else
+              git rebase --abort || true
+              echo "⚠️ $b 与 dev 存在冲突，放弃自动变基"
+              gh pr comment "$b" --body "🤖 自动变基失败：本分支与 \`dev\` 存在冲突，未能自动 rebase。请手动处理：\`\`\`bash\ngit fetch origin dev && git rebase origin/dev\n\`\`\` 解决冲突后强推本分支。" || true
+            fi
+          done

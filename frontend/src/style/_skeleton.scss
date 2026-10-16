@@ -1,0 +1,50 @@
+// 骨架屏流光 · 单一来源（PageSkeleton 与 WatchlistTableSkeleton 共用）
+// WHY：这两个组件此前**各写一份**同款渐变 + 同款 keyframes（WatchlistTableSkeleton
+// 的注释还自称「PageSkeleton 同款流光」），改一处不改另一处不会有任何报错——只会在
+// 两种骨架屏并存的场景里长出两种动画节奏。流光曲线 / 时长 / 扫光色 / 减动效四件事
+// 收敛到本文件，组件只 @include。
+// 颜色令牌：底色 `--bg-soft`（随主题）；扫光带 `--skeleton-wave`（亮/暗分主题定义于
+// colors.css `:root` 与 dark.scss `:root.dark`，两侧均实测感知差，理由与对比度写在
+// 令牌注释里）。组件里**禁止**再自写这组渐变，也不要把扫光带改回 `--bg-hover`——
+// 旧值与底色对比度仅 1.03:1（亮）/ 1.10:1（暗），扫光物理存在但视觉不可见，
+// 「动画在跑、看起来却是静态遮罩」正是本次修复的起因。
+// 用法（组件 <style lang="scss" scoped> 内）：
+//     @use "@/style/skeleton" as sk;
+//     .xxx-bar {
+//       height: 12px; // 高度属于组件，mixin 不管尺寸
+//       @include sk.wave-bar;
+//     }
+
+/// 占位条流光本体：底色 + 扫光渐变 + 1.8s 慢速动画 + 减动效降级。
+/// 只负责「怎么流光」，不负责尺寸（height / width 由组件自己定）。
+@mixin wave-bar {
+  background-color: var(--bg-soft);
+  background-image: linear-gradient(
+    90deg,
+    var(--bg-soft) 25%,
+    var(--skeleton-wave) 37%,
+    var(--bg-soft) 63%
+  );
+  background-size: 400% 100%;
+  border-radius: var(--radius-sm);
+  animation: skeleton-wave 1.8s ease-in-out infinite;
+
+  // 尊重系统「减少动效」偏好（design.md Motion）：骨架本就是静态占位，
+  // 关掉扫光不损失任何信息，故与动画本体绑在同一 mixin 里，使用方零心智负担。
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+/// 动画关键帧（与 wave-bar 配套）：写在 mixin 外的文件顶层——
+/// @use 引入后会原样进组件样式块，Vue scoped 会对 keyframes 名与 animation
+/// 引用做一致的作用域改写，两个组件各自拿到一份互不冲突的副本。
+@keyframes skeleton-wave {
+  0% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0 50%;
+  }
+}

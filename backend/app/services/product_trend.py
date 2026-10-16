@@ -18,8 +18,10 @@
   缺失时回退 ``close``。同 ``pnl_calendar._collect_price_history`` 的理由——除权日用
   ``close`` 会跳空，画出来的「走势」是假的（``close`` 的口径是未复权收盘价，供最新价
   展示与持仓盈亏用，``adj_close`` 才是前复权、供区间收益与收益率曲线用）；
-- 场外（fund）：``daily_worth.unit_nav``。``fund_code`` 是**裸 6 位码**，入库侧没有
-  ``OF.`` 前缀（见 ``core/venues.py``；该前缀只是 watchlist trends 接口的历史入参约定）；
+- 场外（fund）：``daily_worth`` 的**累计净值** ``acc_nav``（缺失回退 ``unit_nav``，
+  与 ``fund_metrics.load_nav_points`` 同源，#2171 修订）。单位净值遇现金分红除息
+  跳空，画出来是假暴跌；``fund_code`` 是**裸 6 位码**，入库侧没有 ``OF.`` 前缀
+  （见 ``core/venues.py``；该前缀只是 watchlist trends 接口的历史入参约定）；
 - 指数（index，#2028）：``index_daily`` 收盘点位，裸 6 位码按交易所后缀候选匹配
   （``000300`` → ``000300.SH`` / ``000300.SZ``）。**有日线才出曲线**：库里没有该
   指数的日线（覆盖极低，万得系 ``.WI`` 码无法从裸码推导）时返回 ``None``，
@@ -50,6 +52,17 @@ RANGE_DAYS: Dict[str, int] = {
 }
 # 设计 §12 ⑤：默认档 3M
 DEFAULT_RANGE = '3M'
+
+
+def requested_days_for(range_key: str, start_date: Optional[dt.date] = None) -> int:
+    """请求跨度（天）——档位语义，或显式起始日（#2171 建仓期）语义。
+
+    视图层的「无数据降级」分支也要报同一个数，故收口在这里，不两处各算一遍。
+    """
+    if start_date is not None:
+        return (dt.date.today() - min(start_date, dt.date.today())).days + 1
+    return RANGE_DAYS.get(range_key, RANGE_DAYS[DEFAULT_RANGE])
+
 
 # 无历史序列能力的品类：基金经理、投顾组合。指数自 #2028 起走 index_daily（有日线
 # 才出曲线，无日线返回 None，见 _fetch_index_series）。
@@ -131,19 +144,27 @@ def _fetch_ohlc_series(db: Session, symbol: str, start: dt.date) -> List[Dict]:
 
 
 def _fetch_nav_series(db: Session, symbol: str, start: dt.date) -> List[Tuple[dt.date, float]]:
-    """场外基金单位净值序列（``daily_worth.fund_code`` 为裸 6 位码）。"""
+    """场外基金净值序列（``daily_worth.fund_code`` 为裸 6 位码）。
+
+    #2171：优先 **累计净值** ``acc_nav``，缺失回退 ``unit_nav``——与
+    ``fund_metrics.load_nav_points`` / ``fund_performance`` 同源。单位净值在现金分红
+    除息日会向下跳空（分红从净值扣除），画出来是「产品暴跌」的假象；买方视角要看
+    的是持有期间的真实涨幅，累计净值（分红不再投的近似复权序列）才诚实。此前本模块
+    只用 ``unit_nav``，与同页「业绩与风险」卡（acc_nav）口径分裂，属 #2153 一类问题。
+    """
     code = symbol[3:] if symbol.startswith('OF.') else symbol
     rows = (
-        db.query(DailyWorth.date, DailyWorth.unit_nav)
+        db.query(DailyWorth.date, DailyWorth.acc_nav, DailyWorth.unit_nav)
         .filter(DailyWorth.fund_code == code, DailyWorth.date >= start)
         .order_by(DailyWorth.date)
         .all()
     )
     series: List[Tuple[dt.date, float]] = []
-    for nav_date, unit_nav in rows:
-        if unit_nav is None:
+    for nav_date, acc_nav, unit_nav in rows:
+        value = acc_nav if acc_nav is not None else unit_nav
+        if value is None:
             continue
-        series.append((nav_date, round(float(unit_nav), 4)))
+        series.append((nav_date, round(float(value), 4)))
     return series
 
 
@@ -185,6 +206,7 @@ def fetch_product_trend(
     symbol: str,
     asset_type: Optional[str] = None,
     range_key: str = DEFAULT_RANGE,
+    start_date: Optional[dt.date] = None,
 ) -> Optional[Dict]:
     """取单产品的历史序列（含日期轴）。
 
@@ -194,6 +216,8 @@ def fetch_product_trend(
         asset_type: 后端判定的品类（来自 ``resolve_product_identity``）。为空时按
             ``fund`` 之外都走场内路径——**前端不推断品类**，故该值应由后端 resolver 给。
         range_key: ``1M`` / ``3M`` / ``6M`` / ``1Y``。
+        start_date: 显式起始日（#2171「建仓期」：首笔买入日至今）。给定时忽略
+            ``range_key`` 档位；晚于今天按今天算（空序列由前端降级）。
 
     Returns:
         ``{symbol, kind, dates, values, source, basis, ohlc, range, requested_days,
@@ -215,8 +239,15 @@ def fetch_product_trend(
     if normalized_type in _NO_SERIES_TYPES:
         return None
 
-    days = RANGE_DAYS[range_key]
-    start = dt.date.today() - dt.timedelta(days=days)
+    # 窗口起点：默认按档位回看；显式 start_date（建仓期）优先，晚于今天按今天算
+    # （首笔买入日就是今天时窗口为 0 天，空序列由前端降级，不报错）。
+    today = dt.date.today()
+    if start_date is not None:
+        start = min(start_date, today)
+        days = (today - start).days + 1
+    else:
+        days = RANGE_DAYS[range_key]
+        start = today - dt.timedelta(days=days)
 
     if normalized_type == 'fund':
         series = _fetch_nav_series(market_db, code, start)
@@ -226,7 +257,11 @@ def fetch_product_trend(
         # 触发条件用**本次请求的窗口**而非最长档，避免「只看 3M 却为 5Y 回补」。
         maybe_trigger_nav_backfill(code, series, start)
         # 来源与口径分开给：来源是站点名（用户看得懂），口径是「怎么算的」
-        kind, basis, source = 'nav', '单位净值', data_source_label(FUND_NAV_SOURCE_LABEL)
+        kind, basis, source = (
+            'nav',
+            '累计净值（分红不再投近似复权，缺失回退单位净值）',
+            data_source_label(FUND_NAV_SOURCE_LABEL),
+        )
         # 场外基金只有单位净值，没有 OHLCV —— 前端据此画净值线而不是 K 线（品类差异化）
         ohlc: List[Dict] = []
     elif normalized_type == 'index':
@@ -264,4 +299,26 @@ def fetch_product_trend(
         'range': range_key,
         'requested_days': days,
         'available_days': available_days,
+    }
+
+
+def empty_product_trend(symbol: Optional[str], range_key: str, start_date: Optional[dt.date] = None) -> Dict:
+    """品类本身没有序列数据源时的**降级响应**（#2171）。
+
+    「该品类不提供走势」与「产品不存在」是两件事：前者返回空序列而非 404，
+    前端据此渲染空态。字段与 `fetch_product_trend` 的成功响应同构（缺 `basis` /
+    `ohlc`——降级路径没有 K 线与复权口径可讲），避免前端为降级单写一套取值逻辑。
+
+    #1606：本函数原先内联在 `products/views.py` 里（11 行 dict 字面量），
+    属于「响应形态」这种业务规则，按视图层职责边界下沉到 services。
+    """
+    return {
+        'symbol': (symbol or '').strip().upper(),
+        'kind': '',
+        'dates': [],
+        'values': [],
+        'source': '',
+        'range': range_key,
+        'requested_days': requested_days_for(range_key, start_date),
+        'available_days': 0,
     }

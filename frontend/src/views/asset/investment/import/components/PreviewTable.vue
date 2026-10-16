@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { nextTick, ref, watch } from "vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 import TableControls from "./TableControls.vue";
 import RowSelectionCell from "./RowSelectionCell.vue";
@@ -29,6 +30,27 @@ const {
   isFundMode
 } = useImportWizardContext();
 
+/**
+ * 表格滚动宿主的 DOM 引用。
+ * 折叠（showFullTable=false）只会 v-show 内层表格，宿主自身仍在——但内容高度塌陷后
+ * 浏览器会把 scrollTop clamp 回 0，靠 CSS 保不住位置，必须显式记录/还原（#783 §6.5）。
+ */
+const scrollHostRef = ref<HTMLElement | null>(null);
+/** 折叠那一刻的滚动位置，展开时还原 */
+let savedScrollTop = 0;
+
+watch(showFullTable, (visible, wasVisible) => {
+  if (wasVisible && !visible) {
+    savedScrollTop = scrollHostRef.value?.scrollTop ?? 0;
+    return;
+  }
+  if (!wasVisible && visible) {
+    void nextTick(() => {
+      if (scrollHostRef.value) scrollHostRef.value.scrollTop = savedScrollTop;
+    });
+  }
+});
+
 /** 缺数量或价格时返回对应字段名，供操作列「补全」一键定位编辑（基金模式暂不提供该捷径，修正走智能修正面板） */
 function missingField(row: any): "quantity" | "price" | null {
   if (isFundMode.value) return null;
@@ -44,7 +66,7 @@ function missingField(row: any): "quantity" | "price" | null {
 </script>
 
 <template>
-  <div class="step3-right">
+  <div ref="scrollHostRef" class="step3-right">
     <TableControls />
 
     <div v-show="showFullTable" class="table-wrapper">

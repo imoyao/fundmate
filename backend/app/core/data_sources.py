@@ -25,7 +25,8 @@ from __future__ import annotations
 DATA_SOURCE_LABELS: dict[str, str] = {
     # 场内日线（akshare_adapter.fetch_stock_price）
     'akshare_sina': '新浪财经',  # ak.stock_zh_a_daily / bond_zh_hs_cov_daily
-    'akshare_em': '东方财富',  # ak.fund_etf_hist_em
+    'akshare_em': '东方财富',  # ak.fund_etf_hist_em（ETF 日线备源，2026-10-14 起）
+    'akshare_tx': '腾讯财经',  # ak.stock_zh_a_hist_tx（ETF 日线主源，2026-10-14 起）
     'akshare_spot': '东方财富',  # ak.stock_zh_a_spot_em（当日实时兜底）
     'akshare': 'AKShare',  # 早期/未细分来源的存量行
     # 指数与名录

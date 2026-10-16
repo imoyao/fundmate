@@ -61,7 +61,7 @@ title: 核心 API 端点清单（api）
 
 <!-- AUTO-ENDPOINTS:START（由 scripts/check_api_conventions.py --write 生成，勿手改） -->
 
-全量端点清单（共 **154** 条）：由 `scripts/check_api_conventions.py --write` 从
+全量端点清单（共 **164** 条）：由 `scripts/check_api_conventions.py --write` 从
 `backend/app/domains/**/views.py` 的 `@<bp>.<method>(...)` 装饰器静态生成，**禁止手改**——
 改路由后重跑该命令即可；CI 守卫会校验本段与实现逐条一致（不一致即红灯）。
 
@@ -127,6 +127,10 @@ title: 核心 API 端点清单（api）
 | GET | `/api/ledgers/sales-institutions/` | `list_sales_institutions` |
 | GET | `/api/ledgers/securities-aggregation/` | `get_securities_aggregation` |
 | GET | `/api/market/overview/` | `get_market_overview` |
+| GET | `/api/notifications/` | `list_notifications` |
+| PATCH | `/api/notifications/<int:notification_id>/read/` | `mark_notification_read` |
+| POST | `/api/notifications/read-all/` | `mark_all_read` |
+| GET | `/api/notifications/unread-count/` | `get_unread_count` |
 | POST | `/api/ocr/parse/` | `ocr_parse_text` |
 | POST | `/api/ocr/recognize/` | `ocr_recognize` |
 | GET | `/api/performance/money-fund-income/` | `get_money_fund_income` |
@@ -156,6 +160,7 @@ title: 核心 API 端点清单（api）
 | GET | `/api/products/related-symbols/` | `related_symbols` |
 | GET | `/api/products/resolve/` | `resolve_product` |
 | GET | `/api/products/stock-profile/` | `stock_profile` |
+| GET | `/api/products/trade-timeline/` | `product_trade_timeline` |
 | GET | `/api/products/trend/` | `product_trend` |
 | POST | `/api/reconciliation/adjustments/` | `apply_adjustment` |
 | GET | `/api/reconciliation/discrepancies/` | `list_discrepancies` |
@@ -170,6 +175,9 @@ title: 核心 API 端点清单（api）
 | DELETE | `/api/strategy/<int:tag_id>/` | `delete_tag` |
 | DELETE | `/api/strategy/<int:tag_id>/positions/<int:position_id>/` | `unbind_position_tag` |
 | POST | `/api/strategy/<int:tag_id>/positions/<int:position_id>/` | `bind_position_tag` |
+| GET | `/api/strategy/engine/behavior/` | `get_behavior_profile` |
+| GET | `/api/strategy/engine/diagnosis/` | `get_holdings_diagnosis` |
+| GET | `/api/strategy/engine/strategies/` | `list_engine_strategies` |
 | GET | `/api/strategy/overview/` | `get_strategy_overview` |
 | GET | `/api/strategy/relations/` | `get_all_position_tags` |
 | GET | `/api/summary/` | `summary` |
@@ -192,6 +200,8 @@ title: 核心 API 端点清单（api）
 | GET | `/api/usage/<feature>/` | `get_usage` |
 | GET | `/api/users/` | `list_family_members` |
 | PATCH | `/api/users/me/` | `update_me` |
+| GET | `/api/users/preferences/<key>/` | `get_preference` |
+| PUT | `/api/users/preferences/<key>/` | `upsert_preference` |
 | GET | `/api/users/record-stats/` | `record_stats` |
 | GET | `/api/utils/config/` | `get_platform_config` |
 | GET | `/api/utils/enums/` | `get_enums` |

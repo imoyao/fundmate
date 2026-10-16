@@ -194,6 +194,13 @@ const form = ref<any>({});
 // 初始化标记：防止 initForm 赋值时触发 watch 覆盖原始金额
 const isInitializing = ref(false);
 
+// ── 手动份额优先（净值回填的对手语义）──
+// 用户在弹窗里手改过份额后，amount/price/fee 的反算不得再覆盖份额；
+// 后端同款语义：pending 流水被手改份额即清 entry_status（ledger_write_service）。
+const sharesTouched = ref(false);
+// 反算写份额的短暂窗口：窗口内的 quantity 变化是程序写入，不算用户手改
+const recomputeWriting = ref(false);
+
 // 交易日期不允许选未来（#1835）：此前只有新增交易的三张表单禁用了，编辑已入账交易的这张漏了——
 // 同一规则散落三处、漏一处，故规则收在 utils/date，这里只留别名保持模板可读
 const disabledDate = disabledTradeDate;
@@ -268,6 +275,7 @@ function initForm() {
   isInitializing.value = true;
   const t = props.transaction || {};
   isAfter15.value = false;
+  sharesTouched.value = false;
   form.value = {
     quantity: t.quantity,
     price: t.price,
@@ -331,18 +339,31 @@ async function requestClose() {
 // - 股票/可转债：amount = quantity * price + fee（但初始化时不覆盖原始值）
 // 两种模式都在初始化时跳过，防止 initForm 赋值触发 watch 覆盖记录中的原始金额
 
-// 基金：amount / nav / fee 变化 → 反算 shares
+// 基金：amount / nav / fee 变化 → 反算 shares（用户手改过份额则让位，手动优先）
 watch(
   [() => form.value.amount, () => form.value.price, () => form.value.fee],
   ([amount, price, fee]) => {
-    if (isInitializing.value || !isFund.value) return;
+    if (isInitializing.value || !isFund.value || sharesTouched.value) return;
     if (amount != null && price != null && price > 0 && amount >= 0) {
       const calculated =
         Math.round(
           ((Number(amount) - Number(fee || 0)) / Number(price)) * 10000
         ) / 10000;
+      recomputeWriting.value = true;
       form.value.quantity = calculated;
+      nextTick(() => {
+        recomputeWriting.value = false;
+      });
     }
+  }
+);
+
+// 份额被改动（非初始化、非反算写入窗口）→ 视为用户手改，反算从此让位
+watch(
+  () => form.value.quantity,
+  () => {
+    if (isInitializing.value || recomputeWriting.value) return;
+    sharesTouched.value = true;
   }
 );
 

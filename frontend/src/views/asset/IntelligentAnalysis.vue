@@ -30,20 +30,33 @@
     </PageHeaderBar>
 
     <div class="analysis-shell">
+      <!-- #2156：chart-cols 由 3 改 2——风险热力图下线后真实图表区只剩
+           「资产分布 + 资产净值走势」两张卡，骨架屏占位数须与之一致
+           （PageSkeleton 铁律 1「结构一致」，防加载完成时布局跳动）。 -->
       <PageSkeleton
         v-if="initialLoading"
         :cards="4"
-        :chart-cols="3"
+        :chart-cols="2"
         :table-rows="5"
       />
 
       <template v-else>
         <!-- 收益概览（真实 XIRR，无预测） -->
         <section>
-          <SectionHeader
-            title="收益概览"
-            info="XIRR 由已录入的交易现金流真实计算，录入交易后自动生成；本页不做收益预测"
-          />
+          <SectionHeader title="收益概览" :info="xirrScopeInfo">
+            <!-- #2153：口径开关与投资概览（首页）逐字同款——同一时刻两页绑定的
+                 参数一致，数值天然一致；口径说明挂在 info（tooltip），随开关联动 -->
+            <template #action>
+              <el-radio-group
+                v-model="includeCashEquivalents"
+                size="small"
+                @change="loadXirr"
+              >
+                <el-radio-button :value="false">剔除现金</el-radio-button>
+                <el-radio-button :value="true">含现金</el-radio-button>
+              </el-radio-group>
+            </template>
+          </SectionHeader>
           <MetricGrid>
             <!-- value-color：本页主数字统一走品牌文字色 `--brand-ink`
                  （WCAG AA：白底 5.86:1）。默认 `--text-primary` 是中性暖黑 #2d2a24，
@@ -219,8 +232,13 @@
           </CardBlock>
         </section>
 
-        <!-- 图表区：三张真实图（分布 / 快照走势 / 风险评分空态） -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <!-- 图表区：两张真实图（分布 / 快照走势）。
+             #2156：原第三张「风险热力图」整卡是空态（无风险评分数据源，
+             paint 函数只画一行「暂无风险评分数据」文案），与本文件头
+             「无数据源的推测性面板一律不上屏」的承诺自相矛盾，已整卡下线
+             （模板 / ref / paint / lifecycle 四处同步删）。要恢复必须先接
+             真实数据源，详见 welcome 页同款裁决「不动的数据不占首屏」。 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <CardBlock>
             <SectionHeader
               title="资产分布"
@@ -251,30 +269,6 @@
               >
                 暂无资产快照数据
               </p>
-            </div>
-          </CardBlock>
-
-          <CardBlock>
-            <SectionHeader
-              title="风险热力图"
-              info="风险评分数据源尚未接入，仅展示空态（#1195 下线假数据）"
-            />
-            <div class="h-52">
-              <canvas ref="riskHeatmapChartRef" />
-            </div>
-            <div
-              class="mt-3 flex justify-center space-x-4 text-[10px]"
-              :style="{ color: 'var(--text-tertiary-ink)' }"
-            >
-              <span class="flex items-center"
-                ><span class="w-2 h-2 bg-green-500 rounded mr-1" />低风险</span
-              >
-              <span class="flex items-center"
-                ><span class="w-2 h-2 bg-amber-500 rounded mr-1" />中风险</span
-              >
-              <span class="flex items-center"
-                ><span class="w-2 h-2 bg-red-500 rounded mr-1" />高风险</span
-              >
             </div>
           </CardBlock>
         </div>
@@ -396,7 +390,7 @@ import {
   type MoneyFundIncomeData,
   type XirrData
 } from "@/api/performance";
-import { getCssVar } from "@/composables/echarts/theme";
+import { getCssVar, getCssVarWithAlpha } from "@/composables/echarts/theme";
 import { useEchartsLifecycle } from "@/composables/echarts/useEchartsLifecycle";
 import { formatAmount } from "@/utils/currency";
 
@@ -405,7 +399,6 @@ defineOptions({ name: "AssetAnalysis" });
 const router = useRouter();
 
 const profitTrendChartRef = ref<HTMLElement | null>(null);
-const riskHeatmapChartRef = ref<HTMLElement | null>(null);
 
 /** 资产分布喂给统一组件 AssetAllocationDonut 的数据（#2164） */
 const donutData = computed(() =>
@@ -420,6 +413,10 @@ const distributions = ref<DistributionsData | null>(null);
 const latestSnapshot = ref<AssetSnapshotItem | null>(null);
 const positionItems = ref<GroupItem[]>([]);
 const xirr = ref<XirrData | null>(null);
+// #2153：XIRR「是否含现金等价物」口径——与投资概览（welcome）同语义、同默认值
+// （false=剔除现金，与后端 include_cash_equivalents 默认值一致）。两页各自持本地
+// 状态（issue 方案 1「切换后本地生效」），但开关与口径文案逐字一致，任一处可见、语义相同。
+const includeCashEquivalents = ref(false);
 const moneyFundIncome = ref<MoneyFundIncomeData | null>(null);
 
 const initialLoading = ref(true);
@@ -476,6 +473,14 @@ const xirrCaption = computed(() => {
     ? `基于 ${d.cashflow_count} 笔交易现金流`
     : "录入交易流水后自动计算";
 });
+
+/** #2153：收益概览口径说明——沿用首段说明 + 当前口径，后半句与首页
+ *  WelcomeXirrTemperature 的口径小字逐字一致（验收「语义一致」） */
+const xirrScopeInfo = computed(() =>
+  includeCashEquivalents.value
+    ? "XIRR 由已录入的交易现金流真实计算，录入交易后自动生成；本页不做收益预测。当前口径：含货币基金/逆回购/现金，反映账户总收益"
+    : "XIRR 由已录入的交易现金流真实计算，录入交易后自动生成；本页不做收益预测。当前口径：基于主动投资交易，不含货币基金等现金等价物"
+);
 
 const formatYuan = (n: number, p = 0) => `¥${formatAmount(n || 0, p)}`;
 const formatSignedYuan = (n: number) =>
@@ -542,14 +547,22 @@ const paintProfitTrendChart = (chart: echarts.ECharts) => {
         type: "line",
         smooth: true,
         data: profitTrendData.value.map(d => d.net),
+        // 面积渐变按折线主色 --brand-700 派生透明度（#2156：原硬编码
+        // rgba(255,107,0,…) 与 --brand-700(#e34f38) 不是同色，暗色更明显）。
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: "rgba(255, 107, 0, 0.3)" },
-            { offset: 1, color: "rgba(255, 107, 0, 0.05)" }
+            {
+              offset: 0,
+              color: getCssVarWithAlpha("--brand-700", 0.3, "#e34f38")
+            },
+            {
+              offset: 1,
+              color: getCssVarWithAlpha("--brand-700", 0.05, "#e34f38")
+            }
           ])
         },
         // 主色走语义变量（--brand-700），避免硬编码 hex（design.md 红线）
-        itemStyle: { color: getCssVar("--brand-700", "#FF6B00") },
+        itemStyle: { color: getCssVar("--brand-700", "#e34f38") },
         lineStyle: { width: 2 },
         symbol: "circle",
         symbolSize: 4
@@ -558,27 +571,13 @@ const paintProfitTrendChart = (chart: echarts.ECharts) => {
   });
 };
 
-// 风险热力图：当前无真实风险评分数据源，仅展示空态提示（#1195 决策沿用）
-const paintRiskHeatmapChart = (chart: echarts.ECharts) => {
-  chart.setOption({
-    title: {
-      text: "暂无风险评分数据",
-      left: "center",
-      top: "center",
-      textStyle: {
-        color: getCssVar("--text-tertiary", "#999"),
-        fontSize: 12,
-        fontWeight: "normal"
-      }
-    }
-  });
-};
-
-// #2164：三个图表的实例生命周期（init / window resize / 卸载 dispose / 主题重绘 /
+// #2164：图表实例生命周期（init / window resize / 卸载 dispose / 主题重绘 /
 // keepAlive 恢复时 resize）统一交给 useEchartsLifecycle；本文件只负责「往给定实例
 // setOption」。`reuse: true` 保留原先 `chart ?? echarts.init()` 的复用语义——
 // 否则每次刷新都重建实例，动画状态丢失且肉眼可见地闪一下。
 // 主题切换重绘由 composable 内置的 `watch(themeTick, render)` 覆盖（下方不再重复写）。
+// #2156：风险热力图下线后本页仅剩「资产净值走势」一张 ECharts 图，
+// 资产分布已收编到 AssetAllocationDonut 组件（#2164），不走本生命周期。
 const { render: initCharts } = useEchartsLifecycle(
   [
     {
@@ -589,15 +588,6 @@ const { render: initCharts } = useEchartsLifecycle(
         return chart;
       },
       update: paintProfitTrendChart
-    },
-    {
-      ref: riskHeatmapChartRef,
-      build: el => {
-        const chart = echarts.init(el);
-        paintRiskHeatmapChart(chart);
-        return chart;
-      },
-      update: paintRiskHeatmapChart
     }
   ],
   { keepAlive: true, reuse: true, autoRenderOnMount: false }
@@ -644,12 +634,21 @@ const loadPositions = async () => {
   }
 };
 
+// #2153：请求序号——快速切换口径时丢弃过期响应，防止旧口径数据覆盖新口径
+// （否则会出现「开关显示剔除现金、数字却是含现金」的显示与开关失步）。
+let xirrReqSeq = 0;
 const loadXirr = async () => {
+  const seq = ++xirrReqSeq;
   try {
-    const res = await getPortfolioXirr("portfolio");
+    const res = await getPortfolioXirr(
+      "portfolio",
+      undefined,
+      includeCashEquivalents.value
+    );
+    if (seq !== xirrReqSeq) return;
     xirr.value = res?.data ?? null;
   } catch {
-    xirr.value = null;
+    if (seq === xirrReqSeq) xirr.value = null;
   }
 };
 

@@ -85,6 +85,12 @@ diff 也非空 ⇒ 旧版报「`main` 有 7 个文件 `dev` 没有」。**实测
 
     # 换一对分支（例如本地分支）
     python scripts/bridge/check_branch_divergence.py --report --left main --right dev --cwd /path/to/repo
+
+    # 分叉时附带离线合并试算（git merge-tree，回答「发版会不会冲突」）
+    python scripts/bridge/check_branch_divergence.py --report --explain
+
+    # 报告落盘（供 notify_mirror_divergence.py 拼断链卡面）
+    python scripts/bridge/check_branch_divergence.py --report --explain --out report-divergence.md
 """
 
 from __future__ import annotations
@@ -98,7 +104,6 @@ import sys
 # 有意只收这两类 —— 业务代码落后不致命（下次发版跟上即可），
 # 而作业配置落后会让**作业本身**按旧策略跑。
 JOB_PATHSPECS = ('.cnb.yml', '.github/workflows')
-
 
 def _git(args: list[str], cwd: str | None = None) -> tuple[int, str]:
     r = subprocess.run(['git', *args], cwd=cwd, capture_output=True, text=True, encoding='utf-8', errors='replace')
@@ -287,14 +292,17 @@ def classify_commit(commit: dict, right: str, cwd: str | None = None) -> dict:
 def classify_unique_commits(left: str, right: str, cwd: str | None = None) -> dict:
     """把 `left` 独有的提交逐个分类（源 CNB #179）。
 
-    返回 `{commits, violations, unknowns, readable}`：
+    返回 `{commits, violations, unknowns, commits_readable}`：
       - `commits` = 全部独有提交，每条带 `verdict`（`release` / `violation` / `unknown`）；
       - `violations` / `unknowns` = 该报红的两类；
-      - `readable` = 提交清单**取得**到吗（False ⇒ 判据不可用，不得读成「无异常」）。
+      - `commits_readable` = 提交清单**取得**到吗（False ⇒ 判据不可用，不得读成「无异常」）。
+        键名与 `needs_red()` / `build_report()` 的读取点一致（合并时修正了
+        写 `readable` 读 `commits_readable` 的错位——测试手工构 dict 绕过了管道，
+        #171「拿不到 ≠ 没有」在真实 compute() 里曾是死路径）。
     """
     code, out = _git(['log', '--format=%H', f'{right}..{left}'], cwd)
     if code != 0:
-        return {'commits': [], 'violations': [], 'unknowns': [], 'readable': False}
+        return {'commits': [], 'violations': [], 'unknowns': [], 'commits_readable': False}
     commits: list[dict] = []
     for sha in [ln.strip() for ln in out.splitlines() if ln.strip()]:
         commit = parse_commit(sha, cwd)
@@ -314,7 +322,7 @@ def classify_unique_commits(left: str, right: str, cwd: str | None = None) -> di
         'commits': commits,
         'violations': [c for c in commits if c['verdict']['kind'] == 'violation'],
         'unknowns': [c for c in commits if c['verdict']['kind'] == 'unknown'],
-        'readable': True,
+        'commits_readable': True,
     }
 
 

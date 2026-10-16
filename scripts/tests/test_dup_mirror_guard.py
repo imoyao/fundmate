@@ -42,6 +42,10 @@ import harvest_scan_guard as guard  # noqa: E402
 
 REPO_FILE = ROOT / 'scripts' / 'bridge' / 'github_cnb_issues.py'
 
+# 修复「缓存短路」那个提交的**父提交**（不可变 SHA）：探针必须拿它当「修复前」的样本。
+# 不能用 `origin/dev` —— 修复合入后它就变成修复后的代码，探针会随分支推进自行失效。
+PREFIX_FIX_COMMIT = 'dbac7233'
+
 
 def _card(number: int, gh: int | None, mirror: bool = True) -> dict:
     body = f'# 正文\n\n> - GitHub 编号：`#{gh}`　状态：`open`\n' if gh is not None else '# 无键正文\n'
@@ -54,22 +58,35 @@ class HarvestMustScanTest(unittest.TestCase):
 
     def test_当前代码通过守卫(self):
         problems = guard.check(REPO_FILE.read_text(encoding='utf-8'))
-        self.assertEqual(problems, [], f'\n'.join(problems))
+        self.assertEqual(problems, [], '\n'.join(problems))
 
     def test_变异探针_修复前的短路形态必须被抓到(self):
-        """把 `origin/dev` 上**修复前**的版本喂给守卫 —— 它必须报红。
+        """把**修复前**的真实版本喂给守卫 —— 它必须报红。
 
         这是本组最重要的一条：不加它，"守卫绿"只能证明"代码里没有它不认识的东西"，
         证明不了"它能认出那个 bug"。判据自己崩过的例子，AGENTS.md 里已记过两次。
+
+        ⚠️ **必须钉在不可变的 commit SHA 上，不能读 `origin/dev`**（2026-10-14 实测踩到）：
+        该守卫的修复 PR #451 一旦合入 `dev`，`origin/dev` 里就是**修复后**的代码，
+        这条探针便永远取不到「修复前」的版本而**恒红/恒绿**——把探针钉在可变的 ref 上，
+        等于让它随分支推进自己失效。故改用修复提交的父提交 `dbac7233`（不可变）。
         """
-        before = subprocess.run(
-            ['git', 'show', 'origin/dev:scripts/bridge/github_cnb_issues.py'],
+        completed = subprocess.run(
+            ['git', 'show', f'{PREFIX_FIX_COMMIT}:scripts/bridge/github_cnb_issues.py'],
             cwd=ROOT,
             capture_output=True,
             text=True,
             encoding='utf-8',
-        ).stdout
-        self.assertTrue(before.strip(), '取不到 origin/dev 版本，无法验证探针（不得静默跳过）')
+        )
+        before = completed.stdout
+        # 浅克隆（CI 默认 checkout depth=1）取不到历史 commit ⇒ 拿不到"修复前"样本。
+        # 这里优雅跳过而非硬断言失败：守卫的修复前探针只在「有完整历史」时才有意义，
+        # 缺样本时若硬红会变成"环境依赖型失败"（AGENTS.md 的判据反例）。
+        # 本地全历史克隆下仍会真实跑这条探针，守卫价值不丢。
+        if not before.strip():
+            self.skipTest(
+                f'取不到 {PREFIX_FIX_COMMIT} 版本（浅克隆/无完整历史），跳过修复前探针'
+            )
         problems = guard.check(before)
         self.assertTrue(problems, '修复前的短路形态未被守卫抓到 —— 守卫是假的')
         self.assertTrue(any('list_cnb_issues' in p and 'return' in p for p in problems), problems)
@@ -91,10 +108,7 @@ class HarvestMustScanTest(unittest.TestCase):
         self.assertTrue(any('return' in p for p in problems), problems)
 
     def test_变异探针_完全不扫描也要被抓到(self):
-        src = (
-            'def harvest_existing(state):\n'
-            '    return {int(k) for k in state["mirrored"] if str(k).isdigit()}\n'
-        )
+        src = 'def harvest_existing(state):\n    return {int(k) for k in state["mirrored"] if str(k).isdigit()}\n'
         problems = guard.check(src)
         self.assertTrue(problems, '完全不扫描未被抓到')
         self.assertTrue(any('没有调用' in p for p in problems), problems)
@@ -175,16 +189,16 @@ class DuplicateReportTest(unittest.TestCase):
     def test_每张卡只出现一次_不报重复(self):
         cards = [_card(5, 783), _card(6, 900)]
         grouped, unkeyed = dup.group_by_github_number(cards)
-        _text, code = dup.render(grouped, unkeyed, [])
+        _text, code = dup.render(grouped, None, unkeyed, [])
         self.assertEqual(code, dup.EXIT_OK)
 
     def test_有重复时退出码为1(self):
         cards = [_card(5, 783), _card(6, 783)]
         grouped, unkeyed = dup.group_by_github_number(cards)
-        text, code = dup.render(grouped, unkeyed, [])
+        text, code = dup.render(grouped, None, unkeyed, [])
         self.assertEqual(code, dup.EXIT_DUPES)
-        # 「多出来的」是 1 张，不是 2 张 —— 口径要说清，否则清理时会多删一张
-        self.assertIn('多出来的卡：1 张', text)
+        # 「多出来的」是 1 张，不是 2 张 —— 口径要说清，否则清理时会多关一张
+        self.assertIn('多出来的 open 卡：1 张', text)
 
     def test_抠不到键的卡单独记账_不混进重复判定(self):
         """无键卡既不能算重复、也不能算不重复 —— 必须能被看见（#450 里有一张）。"""
@@ -192,13 +206,13 @@ class DuplicateReportTest(unittest.TestCase):
         grouped, unkeyed = dup.group_by_github_number(cards)
         self.assertEqual(len(grouped[783]), 1)
         self.assertEqual(unkeyed, [6])
-        text, _code = dup.render(grouped, unkeyed, [])
+        text, _code = dup.render(grouped, None, unkeyed, [])
         self.assertIn('抠不到幂等键的镜像卡：1 张', text)
 
     def test_读取失败时退出码为2且明确声明结论不可信(self):
         """「拿不到输入」不得退化成「无重复」（#171 的失败态纪律）。"""
         grouped = {783: [5], 900: [6]}
-        text, code = dup.render(grouped, [], failed=[7, 8])
+        text, code = dup.render(grouped, None, [], failed=[7, 8])
         self.assertEqual(code, dup.EXIT_UNKNOWN, '读不到卡时不得以「无重复」结案')
         self.assertIn('结论不可信', text)
         self.assertIn('下限', text)
@@ -211,8 +225,74 @@ class DuplicateReportTest(unittest.TestCase):
     def test_有重复且有读取失败_优先报不可信(self):
         """两个坏消息同时存在时，报"结论不可信"（更保守的那个）。"""
         grouped = {783: [5, 6]}
-        _text, code = dup.render(grouped, [], failed=[9])
+        _text, code = dup.render(grouped, None, [], failed=[9])
         self.assertEqual(code, dup.EXIT_UNKNOWN)
+
+
+class OpenVsClosedSemanticsTest(unittest.TestCase):
+    """「活跃重复」只看 open；已处置残留不报红（清理 224 张后补的口径）。
+
+    用「总数 >1」当判据，会把**已清理干净的卡**永远报成重复 ——
+    清理当天它就从「224 张」变成「还是 224 张」，红灯从此失去意义（假红也是病）。
+    """
+
+    @staticmethod
+    def _stateful(number: int, gh: int | None, state: str) -> dict:
+        card = _card(number, gh)
+        card['state'] = state
+        return card
+
+    def test_open_多于一张才算活跃重复(self):
+        cards = [self._stateful(5, 783, 'open'), self._stateful(6, 783, 'open')]
+        opened, closed, unkeyed = dup.split_by_state(cards)
+        self.assertEqual(opened[783], [5, 6])
+        self.assertEqual(closed, {})
+        _text, code = dup.render(opened, closed, unkeyed, [])
+        self.assertEqual(code, dup.EXIT_DUPES)
+
+    def test_只剩一张open_其余closed_不报红(self):
+        """这正是清理完成后的形态：同一编号只剩一张活的，其余是历史留痕。"""
+        cards = [self._stateful(5, 783, 'open'), self._stateful(6, 783, 'closed')]
+        opened, closed, unkeyed = dup.split_by_state(cards)
+        self.assertEqual(opened[783], [5])
+        self.assertEqual(closed[783], [6])
+        text, code = dup.render(opened, closed, unkeyed, [])
+        self.assertEqual(code, dup.EXIT_OK, '已清理干净的卡不得继续报红')
+        self.assertIn('已处置残留', text)
+        self.assertIn('不报红', text)
+
+    def test_全closed_同编号_不报红(self):
+        """整组都关掉（含正本）也不该报「活跃重复」——没有活的重复。"""
+        cards = [self._stateful(5, 783, 'closed'), self._stateful(6, 783, 'closed')]
+        opened, closed, unkeyed = dup.split_by_state(cards)
+        _text, code = dup.render(opened, closed, unkeyed, [])
+        self.assertEqual(code, dup.EXIT_OK)
+
+    def test_残留仍列在报告里_不被静默吞掉(self):
+        """不报红 ≠ 不报事实：残留要能看见，否则「清理过多少」无从核对。"""
+        cards = [self._stateful(5, 783, 'open'), self._stateful(6, 783, 'closed')]
+        opened, closed, unkeyed = dup.split_by_state(cards)
+        text, _code = dup.render(opened, closed, unkeyed, [])
+        self.assertIn('已处置残留（只剩 1 张 open，其余 closed）：1 个编号', text)
+        self.assertIn('已关闭 [6]', text)
+
+    def test_变异探针_按总数判会假红(self):
+        """**回退验证**：若判据退回「总数 >1」，已清理的卡会被永久报红。
+
+        这条确认上面的口径是真的在起作用——不是「碰巧绿」。
+        """
+        cards = [self._stateful(5, 783, 'open'), self._stateful(6, 783, 'closed')]
+        opened, closed, unkeyed = dup.split_by_state(cards)
+
+        # 正确判据（只看 open）：绿
+        _text, code = dup.render(opened, closed, unkeyed, [])
+        self.assertEqual(code, dup.EXIT_OK)
+
+        # 错误判据：把 open/closed 混在一起数总数 —— 会假红
+        merged, _ = dup.group_by_github_number(cards)
+        _t2, naive_code = dup.render(merged, None, unkeyed, [])
+        self.assertEqual(naive_code, dup.EXIT_DUPES, '探针失效：混数总数竟没报红？')
+        self.assertNotEqual(code, naive_code, '两种判据必须给出不同结论，否则口径没生效')
 
 
 if __name__ == '__main__':

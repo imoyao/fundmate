@@ -9,6 +9,7 @@
     - level: 等级文案，传给 TemperatureLevelBadge（如 "偏低"/"正常"）
     - caption: 副文案（如更新时间、说明）
     - featured: 放大主数字（用于核心指标）
+    - valueColor: 主数字颜色覆盖（可选，默认 --text-primary；见 props JSDoc 的取舍说明）
     - loading/empty 状态由调用方控制，这里只负责空值展示 "--"
 -->
 <template>

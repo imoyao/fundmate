@@ -25,7 +25,6 @@
           placeholder="输入名称搜索，如「远足」「沪深300」"
           :remote-method="remoteSearch"
           :loading="searchLoading"
-          clearable
           class="w-full asset-search"
           popper-class="add-asset-option-popper"
           @change="onAssetSelected"

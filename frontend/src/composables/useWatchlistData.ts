@@ -456,6 +456,35 @@ export function useWatchlistData(
     tags.resetTagFilter();
   }
 
+  /**
+   * 「清除筛选」一键快捷（#2199 ⑥）：清空类型 + 标签，分组切回系统「全部」
+   * （key 与 useWatchlistGroups.fetchGroups 的回退值同源，是「全部」的真实 key；
+   * 不用 resetActiveGroup——它回的是 holding「持仓」不是「全部」）。
+   * 搜索词不清：搜索框用户可见、可自行清，不在本按钮职责内。
+   *
+   * 刷新路径按「谁有 watch 兜底」分流，保证每个场景恰好一次请求：
+   * - 标签由非空清空 → 本文件 watch(selectedFilterTagIds)（约 255 行）兜底刷新；
+   * - 分组从非「全部」切回 → index.vue watch(activeGroup)（约 251 行）兜底刷新；
+   * - 两者都不触发（分组本就是「全部」、标签本就空、只清了类型）→ 显式刷新：
+   *   程序化改 selectedAssetTypes 没有任何 watch 监听，是唯一无人兜底的路径，
+   *   必须显式 currentPage=1 + fetchData()（#2199 用户实测的「条件残留」即此场景）。
+   * 不复用 resetFilters：它回 holding 默认态、清搜索词、且不触发 fetch，语义与
+   * 「清除筛选」均不符（该函数目前无任何消费方，勿据它接线）。
+   */
+  function clearAllFilters() {
+    const hadTags = selectedFilterTagIds.value.length > 0;
+    // 只有已偏离「全部」才需要切回；已在「全部」时不写入，避免空触发分组 watch
+    const groupChanged = activeGroup.value !== "all";
+    selectedAssetTypes.value = [];
+    if (hadTags) tags.resetTagFilter();
+    if (groupChanged) activeGroup.value = "all";
+    // 无人兜底的场景补显式刷新；其余场景交给各自 watch（与用户手动改筛选同一刷新路径）
+    if (!hadTags && !groupChanged) {
+      currentPage.value = 1;
+      fetchData();
+    }
+  }
+
   return {
     // 分页状态
     loading,
@@ -494,6 +523,7 @@ export function useWatchlistData(
     handleBatchDelete,
     handleBatchMoveToGroup,
     exportData,
-    resetFilters
+    resetFilters,
+    clearAllFilters
   };
 }
