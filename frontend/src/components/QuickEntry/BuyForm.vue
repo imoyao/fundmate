@@ -511,6 +511,10 @@ onMounted(() => {
         isAfter15: form.isAfter15
       });
     }
+    // 「重记一笔」的预填是**程序化初始值**，不是用户编辑。不回写脏基线的话，
+    // 页面一挂载 `isDirty` 就是 true —— 用户什么都不填、只切一下操作类型，
+    // 就被弹「记账表单已填写，确定放弃吗？」（#2305 引入的回归）。
+    markFormClean();
   });
 });
 
@@ -1185,6 +1189,10 @@ watch(
         form.price = undefined;
         form.shares = undefined;
       }
+      // 净值是系统回填的派生值。用户还没录入金额/份额时，回填完即视为新的干净基线：
+      // 否则「带预填进入页面、什么都不做就切操作类型」会被判成有未保存修改。
+      // 用户已录入金额/份额时**不能**回写基线，否则那部分编辑会被洗掉。
+      if (form.buyAmount == null && form.shares == null) markFormClean();
     } else {
       navMissing.value = false;
     }

@@ -64,11 +64,12 @@
           </el-select>
         </div>
 
-        <!-- 快捷创建按钮（非卖出/赎回/转换时显示） -->
+        <!-- 快捷创建按钮（非卖出/赎回/转换时显示）
+             次按钮语义：不用 `type="primary" text`——theme.scss 把主按钮文字色定为
+             --text-inverse（白），text 变体又是透明底，白字透明底＝整颗按钮隐身。 -->
         <el-button
           v-if="!showQuickAdd && !isSellLike && fundOpType !== 'convert'"
-          type="primary"
-          text
+          class="account-create-btn"
           size="small"
           @click="showQuickAdd = true"
         >
@@ -115,61 +116,38 @@
         </div>
       </div>
 
-      <!-- ===== 模块二：操作类型切换 ===== -->
+      <!-- ===== 模块二：操作类型切换 =====
+           语义 = 表单取值（`role="radiogroup"`），按 design.md 归「D13 果冻胶囊」：
+           每项一颗独立胶囊（透明底 + 1px 描边），选中态 brand-100 底 / brand-400 描边 /
+           brand-700 字 + 弹性回弹。**不是** iOS 那种「软底轨道 + 白色滑块」的分段控制器——
+           那套语言归 SegmentedControl（`role="tablist"`，切换看什么），两者不可互替。
+           基金组有 6 项，故用 wrap 平铺而不是等分 flex-1：等分到 6 列时
+           「红利再投 / 送股拆分」会被压成两行字。 -->
       <div v-if="selectedLedgerId">
-        <div
-          class="flex flex-wrap gap-1 p-1 rounded-lg"
-          :style="{ backgroundColor: 'var(--bg-soft)' }"
+        <el-radio-group
+          v-if="currentLedgerType === 'stock'"
+          v-model="stockOpType"
+          class="op-switch"
+          aria-label="操作类型"
         >
-          <!-- 股票操作组 -->
-          <template v-if="currentLedgerType === 'stock'">
-            <el-radio-group
-              v-model="stockOpType"
-              size="default"
-              class="flex-1 flex"
-            >
-              <el-radio-button label="buy" class="flex-1">
-                <span class="px-4 py-1.5 block text-center">买入</span>
-              </el-radio-button>
-              <el-radio-button label="sell" class="flex-1">
-                <span class="px-4 py-1.5 block text-center">卖出</span>
-              </el-radio-button>
-              <el-radio-button label="dividend" class="flex-1">
-                <span class="px-4 py-1.5 block text-center">现金分红</span>
-              </el-radio-button>
-              <el-radio-button label="split" class="flex-1">
-                <span class="px-4 py-1.5 block text-center">送股/拆分</span>
-              </el-radio-button>
-            </el-radio-group>
-          </template>
-          <!-- 基金操作组 -->
-          <template v-else-if="['fund', 'bank'].includes(currentLedgerType)">
-            <el-radio-group
-              v-model="fundOpType"
-              size="default"
-              class="flex-1 flex"
-            >
-              <el-radio-button label="subscribe" class="flex-1">
-                <span class="px-4 py-1.5 block text-center">申购</span>
-              </el-radio-button>
-              <el-radio-button label="redeem" class="flex-1">
-                <span class="px-4 py-1.5 block text-center">赎回</span>
-              </el-radio-button>
-              <el-radio-button label="dividend_reinvest" class="flex-1">
-                <span class="px-4 py-1.5 block text-center">红利再投</span>
-              </el-radio-button>
-              <el-radio-button label="split" class="flex-1">
-                <span class="px-4 py-1.5 block text-center">送股/拆分</span>
-              </el-radio-button>
-              <el-radio-button label="convert" class="flex-1">
-                <span class="px-4 py-1.5 block text-center">转换</span>
-              </el-radio-button>
-              <el-radio-button label="drip" class="flex-1">
-                <span class="px-4 py-1.5 block text-center">定投</span>
-              </el-radio-button>
-            </el-radio-group>
-          </template>
-        </div>
+          <el-radio-button label="buy">买入</el-radio-button>
+          <el-radio-button label="sell">卖出</el-radio-button>
+          <el-radio-button label="dividend">现金分红</el-radio-button>
+          <el-radio-button label="split">送股/拆分</el-radio-button>
+        </el-radio-group>
+        <el-radio-group
+          v-else-if="['fund', 'bank'].includes(currentLedgerType)"
+          v-model="fundOpType"
+          class="op-switch"
+          aria-label="操作类型"
+        >
+          <el-radio-button label="subscribe">申购</el-radio-button>
+          <el-radio-button label="redeem">赎回</el-radio-button>
+          <el-radio-button label="dividend_reinvest">红利再投</el-radio-button>
+          <el-radio-button label="split">送股/拆分</el-radio-button>
+          <el-radio-button label="convert">转换</el-radio-button>
+          <el-radio-button label="drip">定投</el-radio-button>
+        </el-radio-group>
       </div>
 
       <!-- ===== 模块三：动态表单 ===== -->
@@ -280,6 +258,7 @@ import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import BuyForm from "@/components/QuickEntry/BuyForm.vue";
 import SellForm from "@/components/QuickEntry/SellForm.vue";
 import DividendForm from "./DividendForm.vue";
+import { createLedger } from "@/api/ledger";
 import {
   useQuickEntry,
   useQuickEntrySubmit
@@ -460,11 +439,54 @@ watch(selectedLedgerId, (newVal, oldVal) => {
   }
 });
 
+/**
+ * 新建账户（账户栏右上角「新建账户」的极简通道）。
+ *
+ * 只收两项：名称 + 渠道分组。提交时必须下发 `channel_category`——后端据它派生
+ * `ledger_type`（#1101）。历史上这里把分组值塞进 `ledger_type` 提交，派生链
+ * 落到 `map_ledger_type_to_channel_category('fund_platform')`，建出来的账户
+ * 渠道分组为空、账本类型也错。
+ *
+ * 需要类现金绑定 / 组合 / 销售机构等完整字段时走账户页的 `CreateAccountDialog`，
+ * 这里刻意保持极简，不复制第二套建账表单。
+ */
 async function quickCreateAccount() {
-  // ... 原逻辑不变，仅调用 loadLedgers() 替换为 loadLedgers()
+  const name = newAccountName.value.trim();
+  const channel = newAccountType.value;
+  if (!name || !channel) return;
+
+  creatingAccount.value = true;
+  try {
+    const payload: {
+      name: string;
+      channel_category: string;
+      fee_config?: Record<string, unknown>;
+    } = { name, channel_category: channel };
+    // 与账户页一致的费率初值：场外基金申购费 1 折，证券佣金万 2.5（免五）
+    if (channel === "fund_platform")
+      payload.fee_config = { subscription_discount: 0.1 };
+    else if (channel === "securities")
+      payload.fee_config = { commission: { rate: 0.00025, min: null } };
+
+    const res = await createLedger(payload);
+    const newLedger = (res as any)?.data ?? res;
+    await loadLedgers();
+    if (newLedger?.id) {
+      selectedLedgerId.value = newLedger.id;
+      resetQuickAdd();
+      ElMessage.success(`已创建账户「${newLedger.name || name}」并自动选中`);
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || "创建账户失败");
+  } finally {
+    creatingAccount.value = false;
+  }
 }
-async function resetQuickAdd() {
-  /* 不变 */
+
+function resetQuickAdd() {
+  showQuickAdd.value = false;
+  newAccountName.value = "";
+  newAccountType.value = "";
 }
 
 async function handleGlobalSubmit() {
@@ -531,46 +553,98 @@ watch([stockOpType, fundOpType], () => {
   );
 }
 
-/* 🔥 单选按钮组：克制、优雅的 Segmented Control + 果冻回弹动画 */
-:deep(.el-radio-button__inner) {
+/* ── 操作类型：D13 果冻胶囊（每项一颗独立胶囊，可换行；不做等分轨道） ── */
+.op-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.op-switch :deep(.el-radio-button) {
+  flex: 0 0 auto;
+}
+
+.op-switch :deep(.el-radio-button__inner) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 74px;
+  height: 34px;
+  padding: 0 16px;
+  font-size: var(--text-label);
   font-weight: 500;
-  color: var(--text-tertiary-ink);
+  line-height: 1;
+  color: var(--text-secondary);
   background: transparent !important;
-  border: none !important;
-  border-radius: 6px;
+  border: 1px solid var(--border-default) !important;
+  border-radius: var(--radius-pill) !important;
   box-shadow: none !important;
 
-  /* 核心动画配置 */
+  /* 果冻回弹：只在 transform 上弹，颜色过渡用线性缓动 */
   transform: translateZ(0);
   transform-origin: center;
   transition:
     transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
-    background-color 0.2s,
-    color 0.2s,
-    box-shadow 0.2s;
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease;
   will-change: transform;
 }
 
+/* Hover：描边提到品牌色，文字提到主色 */
+.op-switch :deep(.el-radio-button__inner:hover) {
+  color: var(--text-primary);
+  border-color: var(--brand-400) !important;
+}
+
 /* 按下时的收缩反馈 */
-:deep(.el-radio-button__inner:active) {
+.op-switch :deep(.el-radio-button__inner:active) {
   transform: scale(0.92) !important;
 }
 
-/* 选中状态时的果冻回弹动画 */
-:deep(.el-radio-button.is-active .el-radio-button__inner) {
+/* 选中：软按钮（brand-100 底 + brand-400 描边 + brand-700 字）+ 果冻回弹 */
+.op-switch :deep(.el-radio-button.is-active .el-radio-button__inner) {
   color: var(--brand-700) !important;
-  background: var(--bg-card) !important;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 6%) !important;
+  background: var(--brand-100) !important;
+  border-color: var(--brand-400) !important;
+  box-shadow: none !important;
   animation: button-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-/* Hover 状态 */
-:deep(.el-radio-button__inner:hover) {
-  color: var(--text-primary);
+.op-switch :deep(.el-radio-button.is-active .el-radio-button__inner:hover) {
+  color: var(--brand-700) !important;
+  background: var(--brand-200) !important;
 }
 
-:deep(.el-radio-button.is-active .el-radio-button__inner:hover) {
-  color: var(--brand-700) !important;
+/* 键盘可达性：EP 把原生 radio 藏在视觉层下，焦点环要补到可视元素上 */
+.op-switch
+  :deep(
+    .el-radio-button__original-radio:focus-visible + .el-radio-button__inner
+  ) {
+  box-shadow: var(--focus-ring) !important;
+  outline: none;
+}
+
+/* 账户栏「新建账户」：次按钮（描边 + 卡片底），不能与主按钮抢焦点 */
+.account-create-btn {
+  flex-shrink: 0;
+  height: 32px;
+  padding: 0 12px;
+  color: var(--text-primary);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.account-create-btn:hover {
+  color: var(--brand-ink);
+  background-color: var(--bg-hover);
+  border-color: var(--brand-400);
 }
 
 /* 🔥 底部按钮物理反馈 */
