@@ -19,10 +19,16 @@
  * 真点进去才发现是空页（集思录就是这么被否掉的：两个 URL 返回**同一个 1410 字节
  * 壳页**）。
  *
- * - 已验证（内容随代码变化）：同花顺 / 东方财富（A股·港股·美股·指数·可转债）/
- *   新浪财经 / 天天基金 / 爱基金 / 且慢
- * - 雪球是 SPA，服务端对任意代码返回同一壳页，**无法离线验证**；此处按其公开的
- *   标准形态拼（`/S/` + 交易所前缀），拼错时雪球自己会提示「未找到」。
+ * - 已验证（内容随代码变化）：同花顺 / 东方财富（A股·港股·美股·可转债；指数为
+ *   `zz/{市场码}.{代码}.html`，2026-10-16 按有效/无效代码对比实测——旧 `zs` 形态
+ *   对 9 系已 404）/ 新浪财经 / 天天基金 / 爱基金 / 且慢
+ * - 雪球是 SPA，服务端对任意代码返回同一壳页，**无法离线验证**；股票/ETF 按其公开的
+ *   标准形态拼（`/S/` + 交易所前缀），拼错时雪球自己会提示「未找到」。**指数前缀已
+ *   浏览器实测页面标题**（2026-10-16：0→SH、399→SZ、899→BJ、9 系→CSI）。
+ * - 中证官网指数页是 SPA hash 路由（`#/indices/family/detail?indexCode=`），服务端对
+ *   任意代码返回同一壳页，离线同样无法验证；收录范围按 `csindex-home/indexInfo/
+ *   index-basic-info/{code}` 实测（0/9/899/H/L 系有收录，399/4/CES/B/8 位 98 系
+ *   返回 data=null）——不在覆盖码族内**不生成链接**（点进去是空页不如不给）。
  * - **不放晨星中国**：它的基金页要 Morningstar 内部 SecId（`0P0000xxxx`），且
  *   `fund/search.aspx` 实测忽略一切查询参数（换 4 个参数名都返回同一只基金），
  *   用基金代码拼不出正确页面。
@@ -100,15 +106,65 @@ export function externalQuoteLinks(input: ExternalLinkInput): ExternalLink[] {
     ];
   }
 
-  // ── 指数：东财用 `zs` 前缀 ──
+  // ── 指数：中证官网（首位）→ 东财 zz → 雪球（前缀按码族）──
   if (type === "index") {
-    return [
-      {
+    // 入参可能是裸码（931151）或带前缀（SH000300）；中证/雪球内部的 CSI 前缀
+    // 不在 splitSymbolForLinks 的拆分范围，手动剥掉
+    const code = bare.replace(/^CSI/, "");
+    const links: ExternalLink[] = [];
+
+    // ① 中证官网详情页（SPA hash 路由，用户指定形态）——放首位。
+    // 覆盖判据（2026-10-16 实测 csindex-home/indexInfo/index-basic-info/{code}）：
+    // 0 系 / 9 系(6 位) / 899 / H / L 系有收录；399 系、4 系(CNH)、CES/B 系、
+    // 8 位 98 系返回 data=null——官网点进去是空页，按本模块「宁可不给」原则不生成
+    if (/^(?:[089]\d{5}|H\d+|L\d+)$/.test(code)) {
+      links.push({
+        key: "csindex",
+        label: "中证官网",
+        url: `https://www.csindex.com.cn/#/indices/family/detail?indexCode=${code}`
+      });
+    }
+
+    // ② 东财：zz/{市场码}.{代码}.html。市场码按裸码首位数字（2026-10-16 有效/
+    // 无效代码对比实测）：0→1（上证）、3/4/8→0（深证/北证/CNH）、9→2（中证）；
+    // 旧 zs/ 形态对 9 系已 404，统一改 zz
+    const EM_MARKET: Record<string, string> = {
+      "0": "1",
+      "3": "0",
+      "4": "0",
+      "8": "0",
+      "9": "2"
+    };
+    if (/^\d{6}$/.test(code) && EM_MARKET[code[0]]) {
+      links.push({
         key: "eastmoney-index",
         label: "东方财富",
-        url: `https://quote.eastmoney.com/zs${bare}.html`
-      }
-    ];
+        url: `https://quote.eastmoney.com/zz/${EM_MARKET[code[0]]}.${code}.html`
+      });
+    }
+
+    // ③ 雪球 /S/{前缀}{码}：指数前缀按码族（2026-10-16 浏览器实测页面标题：
+    //   0→SH、399→SZ、899→BJ、9 系→CSI，均逐一核对标题正确）；其余码族
+    //   未实测 → 不给（拼错雪球只会回「未找到」，不如不放）
+    const xqPrefix =
+      code[0] === "9"
+        ? "CSI"
+        : code.startsWith("399")
+          ? "SZ"
+          : code.startsWith("899")
+            ? "BJ"
+            : code[0] === "0"
+              ? "SH"
+              : "";
+    if (xqPrefix && /^\d{6}$/.test(code)) {
+      links.push({
+        key: "xueqiu",
+        label: "雪球",
+        url: `https://xueqiu.com/S/${xqPrefix}${code}`
+      });
+    }
+
+    return links;
   }
 
   // ── 场内交易品种：股票 / ETF（可转债已在上方单独处理）──

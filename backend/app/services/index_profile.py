@@ -16,6 +16,9 @@
 前端降级「—」（#1407 拍板第 3 条）。
 
 字段缺失一律返回 ``None``，前端降级为「—」，不编造占位值（设计 §10）。
+``description``（指数简介）是唯一的例外：它是散文不是指标，``None`` 时前端
+**整段隐藏**而不显示「—」占位——简介抓自中证官网 ``index-basic-info``
+（``indexCnDesc``，编制方案描述原文），按需取 + 进程内缓存 + 降级 ``None``。
 """
 
 from __future__ import annotations
@@ -23,6 +26,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, Optional
 
+import requests
+from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.domains.indices.models import (
@@ -46,6 +51,35 @@ def _bare_index_code(symbol: str) -> str:
     """
     m = re.search(r'\d{6}', (symbol or '').strip().upper())
     return m.group(0) if m else ''
+
+
+# 中证官网「指数基础信息」接口：indexCnDesc 是官方简介正文（编制方案描述）。
+# 实测覆盖（2026-10-16）：0 系、9 系(6 位)、899、H、L 有简介；399 系、4 系(CNH)、
+# CES/B 系、8 位 98 系返回 data=null——只对覆盖码族发请求，省掉注定扑空的请求。
+_CSI_DESC_CODE_RE = re.compile(r'^(?:[089]\d{5}|H\d+|L\d+)$')
+_CSI_BASIC_INFO_URL = 'https://www.csindex.com.cn/csindex-home/indexInfo/index-basic-info/{code}'
+
+# 进程内简介缓存：code → 简介文本或 None（None = 官网确认无简介的负缓存，
+# 防止同一码每次打开详情页都发一遍请求）；网络异常**不写**缓存——瞬时故障
+# 下次查看时重试，不把故障焊死。编制方案正文极稳定，缓存不设 TTL。
+_csi_desc_cache: Dict[str, Optional[str]] = {}
+
+
+def fetch_csi_index_desc(code: str) -> Optional[str]:
+    """按需抓取中证官网指数简介（L3 参考数据：按需取 + 缓存 + 降级 None）。"""
+    if code in _csi_desc_cache:
+        return _csi_desc_cache[code]
+    if not _CSI_DESC_CODE_RE.match(code):
+        return None  # 未覆盖码族直接降级（不发注定扑空的请求，也不进缓存）
+    try:
+        resp = requests.get(_CSI_BASIC_INFO_URL.format(code=code), timeout=5)
+        resp.raise_for_status()
+        desc = (resp.json().get('data') or {}).get('indexCnDesc') or None
+    except Exception as e:
+        logger.warning(f'中证简介抓取失败 code={code}: {e}')
+        return None  # 瞬时故障不缓存，下次查看时重试
+    _csi_desc_cache[code] = desc
+    return desc
 
 
 def build_index_profile(db: Session, symbol: str) -> Optional[Dict[str, Any]]:
@@ -98,6 +132,8 @@ def build_index_profile(db: Session, symbol: str) -> Optional[Dict[str, Any]]:
         'name': catalog.name,
         'publisher_label': INDEX_PUBLISHER_LABELS.get(catalog.publisher or '', None),
         'is_core': bool(catalog.is_core),
+        # 官方简介（中证官网 indexCnDesc，按需抓取 + 进程内缓存；未收录/失败为 None）
+        'description': fetch_csi_index_desc(code),
         # 官方估值（中证口径，最新一期）
         'pe': float(latest.pe_1) if latest and latest.pe_1 is not None else None,
         'dividend_yield': (float(latest.dividend_yield_1) if latest and latest.dividend_yield_1 is not None else None),
