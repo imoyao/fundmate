@@ -209,3 +209,15 @@ class ProStatusRequest(BaseModel):
 
     symbol: str = Field(..., min_length=1, max_length=50, description='产品代码（大小写不敏感）')
     asset_type: Optional[str] = Field(None, max_length=20, description='入口提示品类；一期仅回显，不参与判定')
+
+
+class ProInsightRequest(BaseModel):
+    """`GET /api/products/pro-insight/` 的查询参数（#994 Phase 2 · 模块一账户级指标）。
+
+    聚合 ``calculate_symbol_xirr``（#1972）+ ``build_symbol_behavior``（Phase 0 FIFO
+    口径 v2），全部按 ``family_id``（登录态注入）+ symbol 收敛口径取数。
+    ``asset_type`` 仅回显（与 `ProStatusRequest` 同约定）。
+    """
+
+    symbol: str = Field(..., min_length=1, max_length=50, description='产品代码（大小写不敏感）')
+    asset_type: Optional[str] = Field(None, max_length=20, description='入口提示品类；仅回显')

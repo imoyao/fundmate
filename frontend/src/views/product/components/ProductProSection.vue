@@ -7,6 +7,7 @@ import {
   type ProductResolveResult,
   type ProStatusResult
 } from "@/api/products";
+import ProductProPerformance from "./ProductProPerformance.vue";
 
 /**
  * 详情页「高级洞察 Pro」占位区块（#2272 · #994 Phase 1）。
@@ -92,6 +93,11 @@ function badgeText(key: string): string | null {
   if (!module) return null;
   return module.available ? "已上线" : `Phase ${module.phase} 建设中`;
 }
+
+/** 模块一内容是否可渲染（后端状态位翻真后挂载 ProductProPerformance，#994 Phase 2） */
+const performanceAvailable = computed(
+  () => status.value?.modules.performance?.available === true
+);
 </script>
 
 <template>
@@ -102,6 +108,15 @@ function badgeText(key: string): string | null {
       info-label="关于高级洞察 Pro"
     />
     <div class="pro-section__body">
+      <!-- 模块一内容区（#994 Phase 2）：状态位翻真才挂载取数；无账户数据时
+           组件内部渲染引导文案——「可用」≠「有数据」由组件自行分化 -->
+      <ProductProPerformance
+        v-if="performanceAvailable"
+        class="pro-section__performance"
+        :symbol="product.symbol"
+        :asset-type="product.asset_type"
+      />
+
       <div class="pro-section__grid">
         <article v-for="meta in MODULE_META" :key="meta.key" class="pro-module">
           <header class="pro-module__head">
@@ -143,6 +158,10 @@ function badgeText(key: string): string | null {
 
 .pro-section__body {
   position: relative;
+}
+
+.pro-section__performance {
+  margin-bottom: var(--space-3);
 }
 
 .pro-section__grid {
