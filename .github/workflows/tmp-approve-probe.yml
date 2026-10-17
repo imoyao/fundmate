@@ -1,0 +1,67 @@
+name: tmp-approve-probe
+on:
+  pull_request:
+    types: [opened]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: 用 GITHUB_TOKEN 创建 draft PR（预期产生 approval-required runs）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B tmp/probe-approve-run origin/dev
+          git commit --allow-empty -m "chore: approve probe (temp, auto-cleaned)"
+          git push --force origin tmp/probe-approve-run
+          gh pr create --draft --base dev --head tmp/probe-approve-run \
+            --title "chore: approve probe" \
+            --body "Temporary probe: PR created by GITHUB_TOKEN; its runs should be approval-required. Auto-closed."
+          echo "PROBE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: 查询 approval-required runs 并用 GITHUB_TOKEN 尝试批准
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          echo "waiting for runs to be created..."
+          sleep 25
+          ids=$(gh api "repos/$REPO/actions/runs?head_sha=$PROBE_SHA&status=action_required" --jq '.workflow_runs[].id' 2>/dev/null || true)
+          echo "action_required ids: [${ids:-none}]"
+          if [ -z "$ids" ]; then
+            echo "all runs for this sha:"
+            gh api "repos/$REPO/actions/runs?head_sha=$PROBE_SHA" --jq '.workflow_runs[] | "\(.id) \(.name) status=\(.status) conclusion=\(.conclusion // "-")"' || true
+          fi
+          ok=0
+          fail=0
+          for id in $ids; do
+            if out=$(gh api -X POST "repos/$REPO/actions/runs/$id/approve" 2>&1); then
+              echo "APPROVE_OK $id"
+              ok=$((ok+1))
+            else
+              echo "APPROVE_FAIL $id: $out"
+              fail=$((fail+1))
+            fi
+          done
+          echo "RESULT ok=$ok fail=$fail"
+
+      - name: cleanup draft PR and branch
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr close tmp/probe-approve-run --delete-branch 2>/dev/null || true
+          git push origin --delete tmp/probe-approve-run 2>/dev/null || true
