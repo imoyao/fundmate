@@ -4,6 +4,7 @@ import VChart from "vue-echarts";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import {
+  CHART_FALLBACKS,
   CHART_TOKENS,
   getCssVar,
   useThemeTick
@@ -62,14 +63,16 @@ const cashedOut = computed(
 
 const chartOption = computed(() => {
   void themeTick.value; // 主题切换时重算，让曲线重读 CSS 变量
-  const rise = getCssVar(CHART_TOKENS.rise, "#e34f38");
-  const fall = getCssVar(CHART_TOKENS.fall, "#287d51");
+  const rise = getCssVar(CHART_TOKENS.rise, CHART_FALLBACKS.rise);
+  const fall = getCssVar(CHART_TOKENS.fall, CHART_FALLBACKS.fall);
   // 盈亏曲线按**末值正负**定色：赚=红、亏=绿（A 股习惯），与涨跌语义一致
   const last = profitLine.value[profitLine.value.length - 1];
   const positive = (last?.realized_yuan ?? 0) >= 0;
   const lineColor = positive ? rise : fall;
   const splitLine = {
-    lineStyle: { color: getCssVar(CHART_TOKENS.borderLight, "#e8e8e8") }
+    lineStyle: {
+      color: getCssVar(CHART_TOKENS.borderLight, CHART_FALLBACKS.borderLight)
+    }
   };
   const isRate = mode.value === "rate";
   const data = isRate
@@ -121,7 +124,12 @@ const chartOption = computed(() => {
         markLine: {
           silent: true,
           symbol: "none",
-          lineStyle: { color: getCssVar(CHART_TOKENS.borderLight, "#e8e8e8") },
+          lineStyle: {
+            color: getCssVar(
+              CHART_TOKENS.borderLight,
+              CHART_FALLBACKS.borderLight
+            )
+          },
           label: { show: false },
           data: [{ yAxis: 0 }]
         }

@@ -338,7 +338,11 @@ function goAllTransactions() {
 
 .transaction-section__error {
   padding: 16px;
-  color: var(--color-fall);
+
+  /* #2314：错误提示原用 --color-fall（跌绿），双重语义错误——错误状态不该用涨跌色，
+     且「绿色错误文字」违反红涨绿跌直觉。改走危险文字级令牌（#1602 已将
+     --color-danger-system 并入 --color-danger，文字级用 -ink，白底 4.74:1）。 */
+  color: var(--color-danger-ink);
   text-align: center;
 }
 

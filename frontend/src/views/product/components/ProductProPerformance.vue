@@ -56,14 +56,20 @@ const metrics = computed(() => {
   const b = behavior.value;
   if (!b) return [];
   return [
-    { key: "win_rate", label: "平仓胜率", value: pctText(b.win_rate) },
+    {
+      key: "win_rate",
+      label: "平仓胜率",
+      value: pctText(b.win_rate),
+      tone: "plain"
+    },
     {
       key: "pl_ratio",
       label: "盈亏比",
       value:
         b.profit_loss_ratio == null
           ? DASH
-          : `${b.profit_loss_ratio.toFixed(2)} 倍`
+          : `${b.profit_loss_ratio.toFixed(2)} 倍`,
+      tone: "plain"
     },
     {
       key: "holding",
@@ -71,9 +77,15 @@ const metrics = computed(() => {
       value:
         b.avg_holding_days == null
           ? DASH
-          : `${b.avg_holding_days.toFixed(0)} 天`
+          : `${b.avg_holding_days.toFixed(0)} 天`,
+      tone: "plain"
     },
-    { key: "closed", label: "平仓笔数", value: `${b.closed_count}` }
+    {
+      key: "closed",
+      label: "平仓笔数",
+      value: `${b.closed_count}`,
+      tone: "plain"
+    }
   ];
 });
 
@@ -168,9 +180,9 @@ watch(() => props.symbol, load, { immediate: true });
 
 <template>
   <section class="pro-perf">
-    <p v-if="loading" class="pro-perf__hint">正在计算你的账户级指标…</p>
+    <p v-if="loading" class="section-footnote">正在计算你的账户级指标…</p>
 
-    <p v-else-if="failed" class="pro-perf__hint">
+    <p v-else-if="failed" class="section-footnote">
       账户级指标暂时取不到，稍后再来看看
     </p>
 
@@ -187,8 +199,15 @@ watch(() => props.symbol, load, { immediate: true });
         <span class="pro-perf__xirr-note">资金加权 · 含你的加减仓时点</span>
       </div>
 
+      <!-- 九项指标合并为一个网格（#2314）：原先是两个独立 dl + auto-fit，
+           第二行 4 项会把空轨塌缩后重新均分成 4 列，与第一行 5 列完全错位。
+           固定 5 列后两行严格对齐；窄屏（<768px）降为 2 列，见下方断点。 -->
       <dl class="pro-perf__grid">
-        <div v-for="cell in amounts" :key="cell.key" class="pro-perf__cell">
+        <div
+          v-for="cell in [...amounts, ...metrics]"
+          :key="cell.key"
+          class="pro-perf__cell"
+        >
           <dt class="pro-perf__label">{{ cell.label }}</dt>
           <dd class="pro-perf__value" :class="`pro-perf__value--${cell.tone}`">
             {{ cell.value }}
@@ -196,14 +215,7 @@ watch(() => props.symbol, load, { immediate: true });
         </div>
       </dl>
 
-      <dl class="pro-perf__grid">
-        <div v-for="cell in metrics" :key="cell.key" class="pro-perf__cell">
-          <dt class="pro-perf__label">{{ cell.label }}</dt>
-          <dd class="pro-perf__value">{{ cell.value }}</dd>
-        </div>
-      </dl>
-
-      <p class="pro-perf__footnote">{{ footnote }}</p>
+      <p class="section-footnote">{{ footnote }}</p>
     </template>
 
     <div v-else class="pro-perf__empty">
@@ -215,21 +227,20 @@ watch(() => props.symbol, load, { immediate: true });
   </section>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
+@use "@/style/breakpoints" as bp;
+
 .pro-perf {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
   padding: var(--space-3);
-  background: var(--bg-muted);
+
+  /* #2314：--bg-muted 是冷灰蓝（#f5f7fa），与暖奶油页面底（#fdfbf7）和
+     规范柔和表面 --bg-soft（#f5f0eb）都不搭，是面板「冷一块」的来源 */
+  background: var(--bg-soft);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
-}
-
-.pro-perf__hint {
-  margin: 0;
-  font-size: 13px;
-  color: var(--text-tertiary-ink);
 }
 
 .pro-perf__xirr {
@@ -245,18 +256,19 @@ watch(() => props.symbol, load, { immediate: true });
 }
 
 .pro-perf__xirr-value {
-  font-size: 22px;
+  font-size: var(--text-num-hero);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }
 
 .pro-perf__xirr-value--rise {
-  color: var(--color-rise);
+  /* #2314：文字色统一 -ink 文字级令牌（图形级 --color-rise 禁作前景文字，design.md:131） */
+  color: var(--color-rise-ink);
 }
 
 .pro-perf__xirr-value--fall {
-  color: var(--color-fall);
+  color: var(--color-fall-ink);
 }
 
 .pro-perf__xirr-note {
@@ -264,13 +276,18 @@ watch(() => props.symbol, load, { immediate: true });
   color: var(--text-tertiary-ink);
 }
 
+/* #2314：固定 5 列（不再 auto-fit 塌轨）+ 真实最小列宽。
+   minmax(0, 1fr) 在 auto-fit 下会塌到几像素逐字竖排（#1969 P0），
+   固定列数 + 上限断点规避；窄屏降 2 列。 */
 .pro-perf__grid {
   display: grid;
-
-  /* auto-fit + 真实最小列宽：minmax(0, 1fr) 会塌轨逐字竖排（#1969 P0 同款规避） */
-  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: var(--space-3) var(--space-4);
   margin: 0;
+
+  @include bp.below("md") {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .pro-perf__cell {
@@ -287,24 +304,21 @@ watch(() => props.symbol, load, { immediate: true });
 
 .pro-perf__value {
   margin: 0;
-  font-size: 15px;
+
+  /* #2314：数字强调三档的 strong 档（18px/600），替换原 15px/400——
+      与 12px 标签只差 3px 且无字重区分，数字层次立不住 */
+  font-size: var(--text-num-strong);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }
 
 .pro-perf__value--rise {
-  color: var(--color-rise);
+  color: var(--color-rise-ink);
 }
 
 .pro-perf__value--fall {
-  color: var(--color-fall);
-}
-
-.pro-perf__footnote {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--text-tertiary-ink);
+  color: var(--color-fall-ink);
 }
 
 .pro-perf__empty {

@@ -221,12 +221,9 @@ watch(() => props.symbol, load, { immediate: true });
   <CardBlock class="performance-section">
     <SectionHeader title="业绩与风险" />
 
-    <p v-if="loading" class="performance-section__hint">正在读取业绩与风险…</p>
+    <p v-if="loading" class="section-footnote">正在读取业绩与风险…</p>
 
-    <p
-      v-else-if="failed || !perf || !perf.applicable"
-      class="performance-section__hint"
-    >
+    <p v-else-if="failed || !perf || !perf.applicable" class="section-footnote">
       暂无可展示的业绩数据
     </p>
 
@@ -306,10 +303,10 @@ watch(() => props.symbol, load, { immediate: true });
           </div>
         </dl>
         <!-- 基准选定但序列缺：显式说明，不退回沪深300 顶替（那会让用户读不到「没比过」） -->
-        <p v-else class="performance-section__hint">
+        <p v-else class="section-footnote">
           {{ perf.benchmark.reason || "基准数据暂不可用" }}
         </p>
-        <p class="performance-section__footnote">
+        <p class="section-footnote">
           基准按基金类型映射（{{ perf.benchmark.matched_by }}）
           <template v-if="perf.benchmark.sample_points">
             · 共同交易日 {{ perf.benchmark.sample_points }} 天</template
@@ -317,7 +314,7 @@ watch(() => props.symbol, load, { immediate: true });
         </p>
       </template>
 
-      <p class="performance-section__footnote">
+      <p class="section-footnote">
         数据来源：{{ perf.source
         }}<template v-if="perf.as_of"> · 截至 {{ perf.as_of }}</template>
         <template v-if="perf.samples != null">
@@ -446,7 +443,7 @@ watch(() => props.symbol, load, { immediate: true });
         </dl>
       </template>
 
-      <p class="performance-section__footnote">
+      <p class="section-footnote">
         数据来源：{{ perf.source
         }}<template v-if="perf.as_of"> · 截至 {{ perf.as_of }}</template>
         <template v-if="perf.risk_free_rate != null">
@@ -479,13 +476,6 @@ watch(() => props.symbol, load, { immediate: true });
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-}
-
-.performance-section__hint,
-.performance-section__footnote {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
 }
 
 /* 令牌口径：`--text-secondary` 在 colors.css:33 有定义（`--text-secondary-ink` 未定义，
