@@ -121,17 +121,24 @@ def _last_index_on_or_before(dates: List[date], target: date) -> Optional[int]:
     return idx - 1 if idx > 0 else None
 
 
-def compute_period_returns(rows: List[Tuple[str, float]], today: Optional[date] = None) -> Optional[Dict[str, Any]]:
-    """由日线序列现算六窗口收益 + 近 1 年年化波动率（自然月口径，纯函数）。
+def compute_period_returns(
+    rows: List[Tuple[str, float]],
+    today: Optional[date] = None,
+    windows: Tuple[Tuple[str, Optional[int]], ...] = _WINDOWS,
+    volatility: bool = True,
+) -> Optional[Dict[str, Any]]:
+    """由日线序列现算窗口收益 + 可选近 1 年年化波动率（自然月口径，纯函数）。
 
     Args:
         rows: ``[(trade_date_iso, close), ...]`` 升序（direct_feeds 输出形态）。
         today: 注入当前日期（测试确定性用）；默认 ``date.today()``。
+        windows: 窗口集 ``[(key, months|None), ...]``；#2275 ETF 对比复用同一口径
+            但只要 m1/m3/m6/y1（无 ytd/y2/y3），故参数化而不复制算法。
+        volatility: 是否计算近 1 年年化波动率（ETF 对比行不需要）。
 
     Returns:
         ``{'index_code': None, 'as_of': str, 'source': None,
-        'returns': {m1,m3,ytd,y1,y2,y3: float%|None},
-        'volatility_y1': float%|None}``；
+        'returns': {<windows keys>: float%|None}, 'volatility_y1': float%|None}``；
         序列少于 2 点（算不出任何收益）→ ``None``。
     """
     today = today or date.today()
@@ -154,7 +161,7 @@ def compute_period_returns(rows: List[Tuple[str, float]], today: Optional[date] 
     # 各窗口基准收盘（None = 历史不足该窗口 → 前端「—」不编数）。
     # 基准锚定「今天」而非最后交易日：近 1 月 = 今天往前 N 个自然月，标准区间收益口径。
     returns: Dict[str, Optional[float]] = {}
-    for key, months in _WINDOWS:
+    for key, months in windows:
         if months is None:  # 今年至今：基期 = 上一自然年最后一个交易日
             base_idx = _last_index_on_or_before(dates, date(today.year - 1, 12, 31))
         else:  # 自然月回溯（月末钳位），基准 = 目标日当日或之前最近交易日
@@ -164,11 +171,12 @@ def compute_period_returns(rows: List[Tuple[str, float]], today: Optional[date] 
     # 年化波动率（近 1 年）：日频简单收益样本标准差 × √252；样本 < 20 → None。
     # 序列整体落在近 1 年内（起点晚于 1 年前）→ 窗口从首点起算，取全部可用收益。
     volatility_y1: Optional[float] = None
-    y1_idx = _last_index_on_or_before(dates, _shift_months(today, -12))
-    start_idx = 0 if y1_idx is None else y1_idx
-    daily_rets = [closes[i] / closes[i - 1] - 1 for i in range(start_idx + 1, len(closes))]
-    if len(daily_rets) >= _VOL_MIN_SAMPLES:
-        volatility_y1 = round(statistics.stdev(daily_rets) * math.sqrt(252) * 100, 2)
+    if volatility:
+        y1_idx = _last_index_on_or_before(dates, _shift_months(today, -12))
+        start_idx = 0 if y1_idx is None else y1_idx
+        daily_rets = [closes[i] / closes[i - 1] - 1 for i in range(start_idx + 1, len(closes))]
+        if len(daily_rets) >= _VOL_MIN_SAMPLES:
+            volatility_y1 = round(statistics.stdev(daily_rets) * math.sqrt(252) * 100, 2)
 
     return {
         'index_code': None,
