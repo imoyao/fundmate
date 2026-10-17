@@ -30,8 +30,9 @@
   跟踪误差（后者需净值与指数逐日对比），作为**购买决策的粗粒度贴合度参考**足够。
 
 缓存：整体结果 30min（盘中新浪快照会变，净值/日线日频不变，取折中）。
-负结果（快照两路全挂 / 单只 hist 全空）不单独缓存——整体结果照常落缓存，
-TTL 过期自然重试。
+负结果（含「两侧全空」的 ``{'data': None}``）同样进缓存——``CacheService`` 以
+``None`` 表示「未命中」，故整体包成 ``{'data': ...}`` 再存，避免每次打开详情页
+都重打一轮外部请求。
 
 边界与降级：任一字段抓取失败 → 该字段 ``None`` 前端「—」，**不阻塞整表**；
 ETF 清单来自本地关系表，永远可用（哪怕外部全挂，表壳 + 名称仍在）。
@@ -167,15 +168,23 @@ def build_etf_compare(db: Session, symbol: str) -> Optional[Dict[str, Any]]:
     Returns:
         结果 dict；**指数不在名录时返回 None**（调用方转 404，与 index-returns 同约定）；
         名录命中但无关联 ETF → 空形态（``rows: []``，不是错误）。
+
+    负结果（含「两侧全空」的 ``{'data': None}``）同样进缓存——``CacheService`` 以
+    ``None`` 表示「未命中」，故整体包成 ``{'data': ...}`` 再存，避免每次打开详情页
+    都重打一轮外部请求。
     """
     entry = _catalog_entry(db, symbol)
     if entry is None:
         return None
     code, _exchange = entry
 
-    return _ETF_COMPARE_CACHE.get_or_set(
-        f'etf_compare:{code}', lambda: _compute(db, code), ttl=_ETF_COMPARE_TTL_SECONDS
-    )
+    key = f'etf_compare:{code}'
+    hit = _ETF_COMPARE_CACHE.get(key)
+    if hit is not None:
+        return hit['data']
+    data = _compute(db, code)
+    _ETF_COMPARE_CACHE.set(key, {'data': data}, ttl=_ETF_COMPARE_TTL_SECONDS)
+    return data
 
 
 def _compute(db: Session, code: str) -> Dict[str, Any]:
@@ -201,16 +210,18 @@ def _compute(db: Session, code: str) -> Dict[str, Any]:
     except Exception as e:  # noqa: BLE001 - akshare 本体起不来：全字段降级
         logger.warning(f'akshare 不可用，ETF 对比表全字段降级: {e}')
 
-    # 指数侧近 1 年收益（跟踪差基准）；build_index_returns 自带 1h 缓存
-    index_y1: Optional[float] = None
+    # 指数侧收益（跟踪差基准 + 对比表基准行）；build_index_returns 自带 1h 缓存
+    index_returns: Optional[Dict[str, Optional[float]]] = None
+    index_as_of: Optional[str] = None
     try:
         from app.services.index_metrics import build_index_returns
 
-        idx_returns = build_index_returns(db, code)
-        if idx_returns is not None:
-            index_y1 = idx_returns['returns'].get('y1')
+        idx = build_index_returns(db, code)
+        if idx is not None:
+            index_returns = idx.get('returns')
+            index_as_of = idx.get('as_of')
     except Exception as e:  # noqa: BLE001
-        logger.warning(f'指数侧收益取数失败（跟踪差降级—）: {e}')
+        logger.warning(f'指数侧收益取数失败（跟踪差/基准行降级—）: {e}')
 
     rows: List[Dict[str, Any]] = []
     for etf in etfs:
@@ -219,7 +230,8 @@ def _compute(db: Session, code: str) -> Dict[str, Any]:
         nav_info = nav_map.get(etf_code, {})
         spot_info = spot_map.get(etf_code, {})
         etf_y1 = (returns or {}).get('y1')
-        tracking_diff = round(etf_y1 - index_y1, 2) if (etf_y1 is not None and index_y1 is not None) else None
+        idx_y1 = (index_returns or {}).get('y1')
+        tracking_diff = round(etf_y1 - idx_y1, 2) if (etf_y1 is not None and idx_y1 is not None) else None
         rows.append(
             {
                 'code': etf_code,
@@ -238,8 +250,16 @@ def _compute(db: Session, code: str) -> Dict[str, Any]:
     rows.sort(key=lambda r: (r['amount'] is None, -(r['amount'] or 0), r['code']))
 
     nav_dates = [r['nav_date'] for r in rows if r.get('nav_date')]
+    etf_latest = max(nav_dates) if nav_dates else None
+    # 共同最新交易日 = 指数序列最新日 与 ETF 侧最新日 的较小者（两侧都有数据的最新一天）；
+    # 单侧缺失取另一侧，双侧全缺 → None（整包降级由调用方决定渲染）
+    if index_as_of and etf_latest:
+        as_of = min(index_as_of, etf_latest)
+    else:
+        as_of = index_as_of or etf_latest
     return {
         'index_code': code,
-        'as_of': max(nav_dates) if nav_dates else None,
+        'as_of': as_of,
+        'index_returns': index_returns,
         'rows': rows,
     }

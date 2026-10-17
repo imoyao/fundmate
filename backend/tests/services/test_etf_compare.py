@@ -197,6 +197,9 @@ def test_compare_full_chain(monkeypatch):
     # 跟踪差 = ETF y1 − 指数 y1（指数侧 stub 给 10.0）
     assert row300['tracking_diff_y1'] == round(row300['returns']['y1'] - 10.0, 2)
     assert data['as_of'] == '2026-10-16'
+    # index_returns 随包返回（对比表基准行数据源）；stub 仅给 y1
+    assert 'index_returns' in data
+    assert data['index_returns'] == {'y1': 10.0}
 
 
 def test_compare_degrades_snapshot_and_hist(monkeypatch):
@@ -232,6 +235,25 @@ def test_compare_tracking_diff_needs_both_sides(monkeypatch):
 
     assert data['rows'][0]['returns']['y1'] is not None
     assert data['rows'][0]['tracking_diff_y1'] is None
+
+
+def test_as_of_common_trade_day_picks_min(monkeypatch):
+    """as_of = 指数序列最新日 与 ETF 侧最新日的较小者（共同最新交易日）。"""
+    _seed_catalog_row()
+    _patch_links(monkeypatch, [_etf_link('510300')])
+    nav_df = pd.DataFrame([{'基金代码': '510300', '2026-10-16-单位净值': 4.01, '增长率': -0.25}])
+    spot_df = pd.DataFrame([{'代码': 'sh510300', '最新价': 4.236, '涨跌幅': -0.141, '成交额': 100.0}])
+    _patch_akshare(monkeypatch, nav_df=nav_df, spot_df=spot_df)
+    hist = _series(date(2025, 8, 1), date(2026, 10, 16))
+    monkeypatch.setattr(ec.direct_feeds, 'fetch_daily_tencent', lambda symbol, **k: list(hist))
+    # 指数侧序列最新日（2026-10-10）早于 ETF 净值日（2026-10-16）→ 取共同最新交易日 10-10
+    monkeypatch.setattr(im, 'build_index_returns', lambda db, symbol: {'as_of': '2026-10-10', 'returns': {'y1': 10.0}})
+
+    with closing(market_session_factory()()) as db:
+        data = build_etf_compare(db, '931151')
+
+    assert data['as_of'] == '2026-10-10'
+    assert data['index_returns'] == {'y1': 10.0}
 
 
 def test_compare_cached(monkeypatch):

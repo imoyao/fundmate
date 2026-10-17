@@ -1,6 +1,18 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
-import { fetchIndexEtfCompare, type IndexEtfCompareRow } from "@/api/products";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch
+} from "vue";
+import {
+  fetchIndexEtfCompare,
+  type IndexEtfCompareResult,
+  type IndexEtfCompareRow,
+  type IndexEtfCompareWindows
+} from "@/api/products";
 import { productRoute } from "@/utils/productIdentity";
 
 /**
@@ -35,14 +47,46 @@ const DASH = "—";
 
 const loading = ref(false);
 const failed = ref(false);
-const data = ref<{ rows: IndexEtfCompareRow[]; as_of: string | null } | null>(
-  null
-);
+const data = ref<IndexEtfCompareResult | null>(null);
 
 const rows = computed(() => data.value?.rows ?? []);
 
 /** 有任何一行存在即渲染（哪怕行情字段全降级，表壳 + 名称/跳转仍有价值） */
 const hasRows = computed(() => rows.value.length > 0);
+
+/** 指数基准行：任一窗口有值才渲染（全 null 时画一行「—」没有信息量） */
+const indexBaseline = computed<IndexEtfCompareWindows | null>(() => {
+  const w = data.value?.index_returns;
+  if (!w) return null;
+  return WINDOWS.some(x => w[x.key] != null) ? w : null;
+});
+
+// ── 横向滚动的右缘渐隐 ───────────────────────────────────────────────
+// 仅在真的可滚且未滚到尽头时显示遮罩：常显的渐隐会让人以为表格被截断。
+const scroller = ref<HTMLElement | null>(null);
+const scrollable = ref(false);
+const atEnd = ref(false);
+
+const showFade = computed(() => scrollable.value && !atEnd.value);
+
+function measure() {
+  const el = scroller.value;
+  if (!el) {
+    scrollable.value = false;
+    return;
+  }
+  const overflow = el.scrollWidth - el.clientWidth;
+  scrollable.value = overflow > 2;
+  atEnd.value = overflow > 2 && el.scrollLeft >= overflow - 2;
+}
+
+onMounted(() => {
+  window.addEventListener("resize", measure);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("resize", measure);
+});
 
 const WINDOWS = [
   { key: "m1", label: "近1月" },
@@ -111,6 +155,8 @@ async function load() {
 }
 
 watch(() => props.symbol, load, { immediate: true });
+// 行挂载后表格宽度才确定，此时再测一次能否横滚
+watch(rows, () => nextTick(measure));
 </script>
 
 <template>
@@ -125,70 +171,97 @@ watch(() => props.symbol, load, { immediate: true });
     </p>
 
     <template v-else>
-      <div class="etf-cmp__scroll">
-        <table class="etf-cmp__table">
-          <thead>
-            <tr>
-              <th class="etf-cmp__th">代码</th>
-              <th class="etf-cmp__th">名称</th>
-              <th class="etf-cmp__th etf-cmp__th--num">最新净值</th>
-              <th class="etf-cmp__th etf-cmp__th--num">当日涨幅</th>
-              <th class="etf-cmp__th etf-cmp__th--num">成交额</th>
-              <th
-                v-for="w in WINDOWS"
-                :key="w.key"
-                class="etf-cmp__th etf-cmp__th--num"
-              >
-                {{ w.label }}
-              </th>
-              <th class="etf-cmp__th etf-cmp__th--num" :title="TRACKING_TITLE">
-                跟踪差（近1年）
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in rows" :key="row.code" class="etf-cmp__row">
-              <td class="etf-cmp__td etf-cmp__td--mono">{{ row.code }}</td>
-              <td class="etf-cmp__td">
-                <RouterLink
-                  v-if="productRoute({ assetType: 'etf', symbol: row.code })"
-                  class="etf-cmp__link"
-                  :to="productRoute({ assetType: 'etf', symbol: row.code })!"
+      <div class="etf-cmp__scroll-wrap">
+        <div ref="scroller" class="etf-cmp__scroll" @scroll="measure">
+          <table class="etf-cmp__table">
+            <thead>
+              <tr>
+                <th class="etf-cmp__th">代码</th>
+                <th class="etf-cmp__th">名称</th>
+                <th class="etf-cmp__th etf-cmp__th--num">最新净值</th>
+                <th class="etf-cmp__th etf-cmp__th--num">当日涨幅</th>
+                <th class="etf-cmp__th etf-cmp__th--num">成交额</th>
+                <th
+                  v-for="w in WINDOWS"
+                  :key="w.key"
+                  class="etf-cmp__th etf-cmp__th--num"
                 >
-                  {{ row.name || row.code }}
-                </RouterLink>
-                <span v-else>{{ row.name || row.code }}</span>
-              </td>
-              <td class="etf-cmp__td etf-cmp__td--num">
-                {{ navText(row) }}
-              </td>
-              <td
-                class="etf-cmp__td etf-cmp__td--num"
-                :class="pctClass(row.change_pct)"
-              >
-                {{ pctText(row.change_pct) }}
-              </td>
-              <td class="etf-cmp__td etf-cmp__td--num">
-                {{ amountText(row) }}
-              </td>
-              <td
-                v-for="w in WINDOWS"
-                :key="w.key"
-                class="etf-cmp__td etf-cmp__td--num"
-                :class="pctClass(row.returns[w.key])"
-              >
-                {{ pctText(row.returns[w.key]) }}
-              </td>
-              <td
-                class="etf-cmp__td etf-cmp__td--num"
-                :class="pctClass(row.tracking_diff_y1)"
-                :title="TRACKING_TITLE"
-              >
-                {{ trackingText(row) }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+                  {{ w.label }}
+                </th>
+                <th
+                  class="etf-cmp__th etf-cmp__th--num"
+                  :title="TRACKING_TITLE"
+                >
+                  跟踪差（近1年）
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in rows" :key="row.code" class="etf-cmp__row">
+                <td class="etf-cmp__td etf-cmp__td--mono">{{ row.code }}</td>
+                <td class="etf-cmp__td">
+                  <RouterLink
+                    v-if="productRoute({ assetType: 'etf', symbol: row.code })"
+                    class="etf-cmp__link"
+                    :to="productRoute({ assetType: 'etf', symbol: row.code })!"
+                  >
+                    {{ row.name || row.code }}
+                  </RouterLink>
+                  <span v-else>{{ row.name || row.code }}</span>
+                </td>
+                <td class="etf-cmp__td etf-cmp__td--num">
+                  {{ navText(row) }}
+                </td>
+                <td
+                  class="etf-cmp__td etf-cmp__td--num"
+                  :class="pctClass(row.change_pct)"
+                >
+                  {{ pctText(row.change_pct) }}
+                </td>
+                <td class="etf-cmp__td etf-cmp__td--num">
+                  {{ amountText(row) }}
+                </td>
+                <td
+                  v-for="w in WINDOWS"
+                  :key="w.key"
+                  class="etf-cmp__td etf-cmp__td--num"
+                  :class="pctClass(row.returns[w.key])"
+                >
+                  {{ pctText(row.returns[w.key]) }}
+                </td>
+                <td
+                  class="etf-cmp__td etf-cmp__td--num"
+                  :class="pctClass(row.tracking_diff_y1)"
+                  :title="TRACKING_TITLE"
+                >
+                  {{ trackingText(row) }}
+                </td>
+              </tr>
+            </tbody>
+            <!-- 指数基准行：跟踪差的比较基准同列摆放，让「差」可逐行验算 -->
+            <tfoot v-if="indexBaseline">
+              <tr>
+                <td class="etf-cmp__td etf-cmp__td--mono">
+                  {{ data?.index_code }}
+                </td>
+                <td class="etf-cmp__td">指数</td>
+                <td class="etf-cmp__td etf-cmp__td--num">{{ DASH }}</td>
+                <td class="etf-cmp__td etf-cmp__td--num">{{ DASH }}</td>
+                <td class="etf-cmp__td etf-cmp__td--num">{{ DASH }}</td>
+                <td
+                  v-for="w in WINDOWS"
+                  :key="w.key"
+                  class="etf-cmp__td etf-cmp__td--num"
+                  :class="pctClass(indexBaseline[w.key])"
+                >
+                  {{ pctText(indexBaseline[w.key]) }}
+                </td>
+                <td class="etf-cmp__td etf-cmp__td--num">{{ DASH }}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <span v-if="showFade" class="etf-cmp__fade" aria-hidden="true" />
       </div>
 
       <p v-if="footnote" class="etf-cmp__footnote">{{ footnote }}</p>
@@ -219,7 +292,13 @@ watch(() => props.symbol, load, { immediate: true });
 }
 
 /* 10 列宽表：窄屏横向滚动（不压缩列宽逐字竖排），滚动条贴卡内边缘 */
+.etf-cmp__scroll-wrap {
+  position: relative;
+  min-width: 0;
+}
+
 .etf-cmp__scroll {
+  min-width: 0;
   overflow-x: auto;
 }
 
@@ -298,5 +377,24 @@ watch(() => props.symbol, load, { immediate: true });
   margin: var(--space-1) 0 0;
   font-size: 12px;
   color: var(--text-tertiary-ink);
+}
+
+/* 右缘渐隐：固定在可视区右缘，不随内容滚动；pointer-events:none 不挡点击 */
+.etf-cmp__fade {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 28px;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--bg-card));
+}
+
+/* 基准行不是「又一只 ETF」：弱化底色区分，避免被当成可买标的 */
+.etf-cmp__table tfoot .etf-cmp__td {
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-muted);
+  border-bottom: none;
 }
 </style>
