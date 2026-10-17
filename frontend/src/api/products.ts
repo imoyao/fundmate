@@ -243,8 +243,10 @@ export interface IndexEtfCompareRow {
  */
 export interface IndexEtfCompareResult {
   index_code: string;
-  /** 最新净值日期（行集内的最大 nav_date）；全降级为 null */
+  /** 共同最新交易日 = 指数序列最新日 与 ETF 侧最新日的较小者；双侧全缺为 null */
   as_of: string | null;
+  /** 指数自身四窗口收益（对比表基准行数据源；任一窗口缺失为 null） */
+  index_returns?: IndexEtfCompareWindows;
   rows: IndexEtfCompareRow[];
 }
 
