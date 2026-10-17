@@ -37,7 +37,7 @@ from __future__ import annotations
 import math
 import statistics
 from bisect import bisect_right
-from datetime import date, timedelta
+from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
@@ -79,19 +79,13 @@ def _catalog_entry(db: Session, symbol: str) -> Optional[Tuple[str, Optional[str
     code = _bare_index_code(symbol)
     if not code:
         raise ValueError('缺少指数代码')
-    row = (
-        db.query(IndexCatalog.index_code, IndexCatalog.exchange)
-        .filter(IndexCatalog.index_code == code)
-        .first()
-    )
+    row = db.query(IndexCatalog.index_code, IndexCatalog.exchange).filter(IndexCatalog.index_code == code).first()
     if row is None:
         return None
     return row.index_code, row.exchange
 
 
-def _fetch_daily_series(
-    code: str, exchange: Optional[str]
-) -> Tuple[List[Tuple[str, float]], Optional[str]]:
+def _fetch_daily_series(code: str, exchange: Optional[str]) -> Tuple[List[Tuple[str, float]], Optional[str]]:
     """拉全历史日线：中证官网优先（全历史一次拿全 + 9 系唯一源），腾讯兜底。
 
     腾讯兜底带交易所后缀（``code.SH``），规避裸码的市场误路由（见模块 docstring）；
@@ -127,9 +121,7 @@ def _last_index_on_or_before(dates: List[date], target: date) -> Optional[int]:
     return idx - 1 if idx > 0 else None
 
 
-def compute_period_returns(
-    rows: List[Tuple[str, float]], today: Optional[date] = None
-) -> Optional[Dict[str, Any]]:
+def compute_period_returns(rows: List[Tuple[str, float]], today: Optional[date] = None) -> Optional[Dict[str, Any]]:
     """由日线序列现算六窗口收益 + 近 1 年年化波动率（自然月口径，纯函数）。
 
     Args:
@@ -283,9 +275,7 @@ def build_index_returns(db: Session, symbol: str) -> Optional[Dict[str, Any]]:
         result['source'] = source
         return result
 
-    return _METRICS_CACHE.get_or_set(
-        f'returns:{code}', _compute, ttl=_RETURNS_TTL_SECONDS
-    )
+    return _METRICS_CACHE.get_or_set(f'returns:{code}', _compute, ttl=_RETURNS_TTL_SECONDS)
 
 
 def build_index_weights(db: Session, symbol: str) -> Optional[Dict[str, Any]]:
@@ -313,6 +303,4 @@ def build_index_weights(db: Session, symbol: str) -> Optional[Dict[str, Any]]:
         picked['frequency'] = 'monthly'
         return picked
 
-    return _METRICS_CACHE.get_or_set(
-        f'weights:{code}', _compute, ttl=_WEIGHTS_TTL_SECONDS
-    )
+    return _METRICS_CACHE.get_or_set(f'weights:{code}', _compute, ttl=_WEIGHTS_TTL_SECONDS)
