@@ -218,7 +218,16 @@
           "
           @submit-success="onSubmitSuccess"
         />
-        <!-- 未实现功能占位 -->
+        <!-- 基金转换：四步步骤条（设计 docs/working-notes/fund-conversion-design-2026-10-17.md §6） -->
+        <ConversionForm
+          v-else-if="fundOpType === 'convert'"
+          ref="conversionFormRef"
+          :ledgers="ledgers"
+          :default-ledger-id="selectedLedgerId"
+          @submit-success="onSubmitSuccess"
+          @positions-loaded="sellableLedgerIds = $event"
+        />
+        <!-- 未实现功能占位（当前仅防御性兜底：股票/基金操作均已分支覆盖） -->
         <div
           v-else
           class="py-8 text-center"
@@ -229,9 +238,11 @@
         </div>
       </div>
 
-      <!-- ===== 模块四：底部操作区 ===== -->
+      <!-- ===== 模块四：底部操作区 =====
+           转换不走全局「确认记账」：它的提交发生在步骤条第 3 步（确认转换），
+           且第 4 步是结果页——全局按钮在那里没有可提交的对象，故整条隐藏。 -->
       <div
-        v-if="selectedLedgerId"
+        v-if="selectedLedgerId && fundOpType !== 'convert'"
         class="pt-4 border-t flex justify-end gap-3"
         :style="{ borderColor: 'var(--border-default)' }"
       >
@@ -258,6 +269,7 @@ import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import BuyForm from "@/components/QuickEntry/BuyForm.vue";
 import SellForm from "@/components/QuickEntry/SellForm.vue";
 import DividendForm from "./DividendForm.vue";
+import ConversionForm from "./ConversionForm.vue";
 import { createLedger } from "@/api/ledger";
 import {
   useQuickEntry,
@@ -314,6 +326,7 @@ const fundOpTypeRaw = ref<
 const buyFormRef = ref<InstanceType<typeof BuyForm>>();
 const sellFormRef = ref<InstanceType<typeof SellForm>>();
 const dividendFormRef = ref<InstanceType<typeof DividendForm>>();
+const conversionFormRef = ref<InstanceType<typeof ConversionForm>>();
 
 // ── 未保存离开保护（#1891）──
 // 本页三个表单各自填到一半时切走，数据会静默丢失且无任何提示。
@@ -322,12 +335,13 @@ const dividendFormRef = ref<InstanceType<typeof DividendForm>>();
 // DividendForm 连 isDirty 都没有，本次一并补上（见该组件内注释）。
 //
 // 三个表单是 v-if / v-else-if / v-else-if 互斥渲染，同时最多挂一个，
-// 所以 || 组合是安全的：未挂载的那两个 ref 为 undefined，判定落到 false。
+// 所以 || 组合是安全的：未挂载的那几个 ref 为 undefined，判定落到 false。
 const isFormDirty = computed(
   () =>
     buyFormRef.value?.isDirty === true ||
     sellFormRef.value?.isDirty === true ||
-    dividendFormRef.value?.isDirty === true
+    dividendFormRef.value?.isDirty === true ||
+    conversionFormRef.value?.isDirty === true
 );
 
 // 守卫内部自己注册 onBeforeRouteLeave，调用方无需接线；
@@ -504,6 +518,7 @@ function onSubmitSuccess() {
       buyFormRef.value?.resetForm();
       sellFormRef.value?.resetForm();
       dividendFormRef.value?.resetForm();
+      conversionFormRef.value?.resetForm();
       ElMessage.success("已重置，请继续录入");
     })
     .catch((action: any) => {
