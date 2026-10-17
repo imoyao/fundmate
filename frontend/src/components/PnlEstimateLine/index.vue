@@ -13,12 +13,20 @@
   「估」徽章（#2143 起为 `ValuationSourceBadge` 统一实现）是唯一视觉锚点：
   完整免责 tooltip（文案 `ESTIMATE_DISCLAIMER`，单一出口）紧贴数字，
   来源 / 数据时间作为元信息缀入 tooltip 与读屏文案（有则显示）。
+
+  视觉层级（#2210）：副行一旦带数字，就是「第二组金额」，必须比主行弱——
+  整行（徽章 + 金额）退到 0.72 强度（`is-weak`）。纯提示文字态（未开启 / 不参与，
+  无数字）不叠加弱化：本就三级色 11px，再降会跌破可读对比度。
 -->
 <template>
   <!-- 既无预估、也无提示文案 → 整行不渲染。
        自选页这种高密度表格不需要逐行复述「未开启实时估值」；
        需要复述的表格（全面盘点 / 账户详情…）由调用方传 `hint`。 -->
-  <span v-if="hasEstimated || hint" class="pnl-estimate-line">
+  <span
+    v-if="hasEstimated || hint"
+    class="pnl-estimate-line"
+    :class="{ 'is-weak': hasEstimated }"
+  >
     <el-tooltip v-if="hasEstimated" :content="tipText" placement="top">
       <ValuationSourceBadge
         status="estimated"
@@ -79,6 +87,14 @@ const tipText = computed(() => {
   gap: 6px;
   align-items: baseline;
   line-height: 1.3;
+}
+
+/* 带数字的副行（#2210 视觉层级）：整行退到 0.72 强度——与 MoneyWithRatio
+   比例行同一弱化档（主行金额 100% > 主行比例 72% ≈ 副行 72%，层级由
+   「组距 + 徽章 + 币值」区分）。opacity 只降强度不改色：涨红跌绿语义保留，
+   不新增任何色值，暗色由令牌自动成立。 */
+.pnl-estimate-line.is-weak {
+  opacity: 0.72;
 }
 
 /* 口径标签：次级文字色，固定 11px（副行恒比主行弱一档，不随 PnlDualLine 的 size 变） */

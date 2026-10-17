@@ -18,6 +18,7 @@ from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.fund_utils import should_exclude_from_investment
 from app.services.nav_service import NavService
+from app.services.pnl_settle import is_settled_today
 from app.services.summary_service import (
     orphan_cash_like_breakdown,
     orphan_money_fund_totals_by_ledger,
@@ -568,11 +569,15 @@ class LedgerService:
             # 价格时点（#2140）：基金行取**实际采用**的最新净值日（与 eff_price 同源）；
             # 其余类型或基金无净值回退快照时，取 22:15 回写的 positions.price_date；
             # 都没有则 None（前端 tooltip 容错省略，不编日期）
+            # settled_today（#2210）：与 price_date **同源**（同一 date 对象）判定「已定型」——
+            # 若拿 isoformat 字符串去比就是另起一套口径，故在此收口前判。
             nav_entry = latest_navs.get(p.symbol) if p.asset_type == 'fund' and p.symbol else None
             if nav_entry and nav_entry[0] > 0:
-                price_date = nav_entry[1].isoformat() if nav_entry[1] else None
+                price_date_obj = nav_entry[1]
             else:
-                price_date = p.price_date.isoformat() if p.price_date else None
+                price_date_obj = p.price_date
+            price_date = price_date_obj.isoformat() if price_date_obj else None
+            settled_today = is_settled_today(price_date_obj)
 
             items.append(
                 {
@@ -590,6 +595,8 @@ class LedgerService:
                     'current_price': Money.price_units_to_yuan(eff_price),
                     # 价格时点（#2140）：已确认口径的「截至日期」，前端 tooltip 消费
                     'price_date': price_date,
+                    # 当日已定型（#2210）：与 price_date 同源判定，true=估值副行冗余（前端隐藏）
+                    'settled_today': settled_today,
                     # 持有时长（天）：基于首次建仓确认日，无确认日返回 None（#862）
                     'holding_days': (today_shanghai() - p.confirm_date).days if p.confirm_date else None,
                     'allocation': p.allocation,

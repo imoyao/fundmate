@@ -1,6 +1,7 @@
 from datetime import date
 
 from app.core.money import Money
+from app.core.time_utils import today_shanghai
 from app.domains.ledgers.models import Ledger
 from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
@@ -38,6 +39,7 @@ def test_portfolio_holdings_with_position(client, db):
         avg_price=Money.yuan_to_price_units(10.0),
         current_price=Money.yuan_to_price_units(12.0),
         confirm_date=date.today(),
+        price_date=today_shanghai(),  # #2210：确认口径已是今日价
     )
     db.add(position)
     db.commit()
@@ -49,6 +51,33 @@ def test_portfolio_holdings_with_position(client, db):
     assert data[0]['symbol'] == '000001'
     assert data[0]['market_value'] == 1200.0
     assert data[0]['pnl'] == 200.0
+    # #2210：持仓行携带 price_date + settled_today（与持仓明细 #2140 同名同义）
+    assert data[0]['price_date'] == today_shanghai().isoformat()
+    assert data[0]['settled_today'] is True
+
+
+def test_portfolio_holdings_asset_rows_have_null_price_date(client, db, make_asset):
+    """#2210：静态资产行无价格日期概念——price_date / settled_today 恒 null。"""
+    portfolio = Portfolio(name='含资产组合')
+    db.add(portfolio)
+    db.commit()
+    ledger = Ledger(name='资产账户', portfolio_id=portfolio.id)
+    db.add(ledger)
+    db.commit()
+    make_asset(
+        major_category='cash',
+        name='家庭现金',
+        amount=5000.0,
+        ledger_id=ledger.id,
+        account_name='资产账户',
+    )
+
+    resp = client.get(f'/api/portfolios/{portfolio.id}/holdings/')
+    assert resp.status_code == 200
+    data = resp.json['data']
+    assert len(data) == 1
+    assert data[0]['price_date'] is None
+    assert data[0]['settled_today'] is None
 
 
 def test_portfolio_holdings_nonexistent(client):

@@ -134,6 +134,11 @@ class PositionOut(BaseModel):
     # **不得当成 0**（0 会被读成「今天没涨没跌」，而真相是没数据）。
     prev_close: Optional[float] = None
     price_date: Optional[date] = None
+    # 当日已定型（#2210）：price_date 是否为今天（Asia/Shanghai）⇒ true=估值副行冗余，前端隐藏。
+    # **派生字段**（Position 上无同名属性）：`model_validate` 只会填默认 None，
+    # 真值由 `position_presenter.enrich_position_dict` 经 `pnl_settle.is_settled_today` 覆写。
+    # 声明在 Out Schema 是为了契约可见（与 price_date 成对消费）；None=无价格日期，前端不隐藏。
+    settled_today: Optional[bool] = None
     valuation_mode: str = 'nav'
     market_value_override: Optional[float] = None
     value_override_at: Optional[datetime] = None

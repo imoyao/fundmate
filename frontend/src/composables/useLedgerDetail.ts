@@ -109,6 +109,11 @@ export interface LedgerHoldingRow {
   current_price?: number;
   /** 价格时点（#2140）：基金=实际采用的最新净值日；其他=快照回写日；缺失为 null */
   price_date?: string | null;
+  /**
+   * 当日确认口径是否已定型（#2210）：true = 估值副行应隐藏；null / 缺省 = 不隐藏。
+   * **状态 = 后端字段契约**，前端禁止按日期自行推断。
+   */
+  settled_today?: boolean | null;
   allocation?: string | null;
   allocation_label?: string;
   quantity?: number;
