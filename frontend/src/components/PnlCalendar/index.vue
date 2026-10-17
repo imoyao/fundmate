@@ -170,7 +170,7 @@
           />
           <span v-else class="pnl-calendar__summary-none">收益率 —</span>
           <span class="pnl-calendar__summary-note">
-            口径：总盈亏日差分，对存取款免疫
+            口径：当日盈亏＝总盈亏变动，存取款不计入
           </span>
         </div>
       </div>

@@ -26,12 +26,15 @@ END = dt.date(2026, 1, 25)
 # 中间故意空掉一天：制造真实的数据断档，让 `partial`（部分断档）也进物化序列。
 # 只测连续数据等于只测 happy path，「缺数据不可画成 0」那条红线根本没被碰到。
 #
-# 日期**刻意选在部分重算的边界上**（前半段读到 01-12，缺口落在 01-13）：缓存
-# 覆盖到 01-12、01-13 起现算，正好压中「前段物化 + 后段现算」的拼接点。
-# 拼接错位的症状会在这里暴露为「拼接结果 ≠ 一次算到底」，是本文件最重要
-# 的一条断言的承重墙。
-GAP_DAY = dt.date(2026, 1, 12)
-PARTIAL_END = dt.date(2026, 1, 12)
+# 日期**刻意选在部分重算的边界上**（前半段读到 01-14，缺口落在 01-15）：缓存
+# 覆盖到 01-14、01-15 起现算，正好压中「前段物化 + 后段现算」的拼接点。
+#
+# #2277 起周末（01-10/11、01-17/18）恒 closed 且差分基准冻结——周末的净值
+# 变动会滚入下一个交易日的差分。故断档日**必须选在周二~周四**这种前后都是
+# 交易日的日子：若挨着周末，周一的差分会混入周末滚动，红线「partial ≠ 0」
+# 就不再是断档语义本身的断言了。
+GAP_DAY = dt.date(2026, 1, 14)
+PARTIAL_END = dt.date(2026, 1, 14)
 # 第二笔流水的原始生效日——编辑它来验证「按生效日精确失效」
 TXN2_DAY = dt.date(2026, 1, 18)
 
@@ -150,10 +153,10 @@ def test_部分重算拼接与全量现算逐位相等(db, make_position, make_t
     基准日（`first_missing - 1`）的水平值与取数窗口无关。任何一处错位都会
     在这里露出来。
 
-    前半段特意读到 `GAP_DAY`：缓存到 01-12 为止，于是 `first_missing = 01-13`、
-    重算从 01-12 起步。基准日的份额/已实现必须与「从 01-04 一路算过来」逐笔
+    前半段特意读到 `GAP_DAY`：缓存到 01-14 为止，于是 `first_missing = 01-15`、
+    重算从 01-14 起步。基准日的份额/已实现必须与「从 01-04 一路算过来」逐笔
     一致（`_build_per_pos` 先注入 `scan_start` 之前的累计、循环再补
-    `[scan_start, A]`，故 `Σ_{d≤A}` 与截断点无关），否则拼接后 01-13 起会拿到
+    `[scan_start, A]`，故 `Σ_{d≤A}` 与截断点无关），否则拼接后 01-15 起会拿到
     跨多天的差分当单日值，`merged != reference` 立刻成立。
     """
     _seed(db, make_position, make_transaction)
@@ -423,9 +426,14 @@ def test_净值停更后沿用到期_之后正确判为no_price(db, make_positio
     assert state_of(dt.date(2026, 3, 2)) == 'zero', '窗口首日应沿用停更前的净值'
     assert pnl_of(dt.date(2026, 3, 2)) == 0.0, '沿用期间价格未变 ⇒ 日盈亏 0（是诚实的 0，不是缺数据）'
     assert state_of(dt.date(2026, 3, 6)) == 'zero', '沿用窗口最后一天仍应出数'
-    # 第 8 天起前值已超出 `_STALE_CARRY_DAYS` ⇒ 必须是 no_price，不是 closed、更不是 0
-    assert state_of(dt.date(2026, 3, 7)) == 'no_price', '沿用到期后应判 no_price'
-    assert pnl_of(dt.date(2026, 3, 7)) is None, '缺数据绝不可画成 0'
+    # 2026-03-07 / 03-08 是周六周日：非开盘日一律 closed（#2277 休市判定前移），
+    # 与「沿用到期」无关——周末先问日历，再问价格。
+    assert state_of(dt.date(2026, 3, 7)) == 'closed', '周末恒报休市（曾因回填耗尽误报 no_price）'
+    assert state_of(dt.date(2026, 3, 8)) == 'closed', '周末恒报休市'
+    # 03-09（周一，开盘日）起前值已超出 `_STALE_CARRY_DAYS` ⇒ 必须 no_price，
+    # 不是 closed、更不是 0
+    assert state_of(dt.date(2026, 3, 9)) == 'no_price', '开盘日沿用到期后应判 no_price'
+    assert pnl_of(dt.date(2026, 3, 9)) is None, '缺数据绝不可画成 0'
 
     # 物化读与全量现算一致
     assert result == _full_recompute(db, start.isoformat(), end.isoformat())
