@@ -70,7 +70,17 @@ class TestGuards:
             list_by_metric(db, fund_type_id=1, metric='as_of')
 
     def test_sortable_metrics_whitelist_covers_the_reported_ones(self):
-        for m in ('max_drawdown', 'current_drawdown', 'calmar', 'sortino', 'sharpe', 'ret_1m', 'ret_3m', 'ret_1y'):
+        for m in (
+            'max_drawdown',
+            'current_drawdown',
+            'calmar',
+            'sortino',
+            'sharpe',
+            'ret_1m',
+            'ret_3m',
+            'ret_1y',
+            'ulcer_index',
+        ):
             assert m in SORTABLE_METRICS
 
     def test_limit_is_clamped(self):
@@ -110,6 +120,14 @@ class TestPeerOnly:
         _add(db, 'low', 1, annual_volatility=5.0)
         out = list_by_metric(db, fund_type_id=1, metric='annual_volatility')
         assert [r['fund_code'] for r in out['rows']] == ['low', 'high']
+        assert out['order'] == 'asc'
+
+    def test_ulcer_index_ascending_puts_lowest_first(self, db):
+        """溃疡指数正数、越低越好 ⇒ 默认升序（前端点 UI 列不再 400 空榜）。"""
+        _add(db, 'calm', 1, ulcer_index=8.0)
+        _add(db, 'painful', 1, ulcer_index=25.0)
+        out = list_by_metric(db, fund_type_id=1, metric='ulcer_index')
+        assert [r['fund_code'] for r in out['rows']] == ['calm', 'painful']
         assert out['order'] == 'asc'
 
     def test_period_return_sort_desc_and_payload(self, db):

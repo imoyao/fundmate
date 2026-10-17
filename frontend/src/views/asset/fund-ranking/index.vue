@@ -44,6 +44,18 @@
   （design.md：盈亏数字走 rise/fall，且配 +/- 符号，不把颜色当唯一信息载体）。
   风险比率列（夏普 / 卡玛 / UI / 波回比 / 最大回撤）**一律中性色**——染红绿等于
   替用户判「好坏」，越合规红线，也违反上面第 3 条纪律。
+
+  ## 第二轮（2026-10-17 用户实测反馈）
+
+  1. **UI 列点击即空榜**：后端 SORTABLE_METRICS 漏登记 `ulcer_index`，请求 400 →
+     前端 catch 置空。已加白名单（默认升序：正数、越低越好），前端 onSort
+     首击方向按列语义（dir）给——low 列首击 asc，不再一律 desc；
+  2. **双层分组表头**：风险调整收益 / 风险 / 收益三组，组内同口径——回答
+     「近1月是涨幅还是夏普」；「窗口」列删（每行同值），口径移脚注；
+  3. **样式对齐 el-table 基线**：表头底 --bg-muted、行 hover --bg-soft、
+     激活列 = 加粗 + 主色文字（去红字灰底——红字读作警告、灰底与全站基线分裂）；
+  4. **删持仓行底纹**：池内持仓占多数，底纹无信号价值，唯一自选行反被读成
+     bug；徽章承载「这是我的」；+/- 符号只给收益列（UI/回撤不带 +）。
 -->
 <template>
   <div class="fund-ranking-page min-h-full">
@@ -125,12 +137,28 @@
           <div v-else class="table-scroll">
             <table class="ranking-table w-full text-sm">
               <thead>
-                <tr>
-                  <th class="col-rank">#</th>
-                  <th class="col-fund">基金</th>
-                  <!-- 指标列即排序入口（#2298）：整块可点，当前排序列高亮 + 实心箭头。
+                <!-- 双层表头（2026-10-17 第二轮）：10 个数值列平铺时，用户分不清
+                     「窗口列是什么」「近1月是涨幅还是夏普」。分组行给结构——
+                     组内同口径、组间不同口径；分组行不可点，hover 讲组口径。 -->
+                <tr class="th-group-row">
+                  <th rowspan="2" class="col-rank">#</th>
+                  <th rowspan="2" class="col-fund">基金</th>
+                  <th
+                    v-for="g in columnGroups"
+                    :key="g.label"
+                    class="th-group"
+                    :colspan="g.keys.length"
+                    :aria-label="g.tip"
+                  >
+                    <el-tooltip placement="top" :content="g.tip">
+                      <span class="th-group__label">{{ g.label }}</span>
+                    </el-tooltip>
+                  </th>
+                </tr>
+                <tr class="th-metric-row">
+                  <!-- 指标列即排序入口（#2298）：整块可点，当前排序列加粗高亮 + 实心箭头。
                        表头 hover 弹指标说明（2026-10-17 去常驻 i 图标降噪），
-                   说明里带「越高/越低越好」——术语不解释，用户读不懂数字。 -->
+                       说明里带「越高/越低越好」——术语不解释，用户读不懂数字。 -->
                   <th
                     v-for="col in tableColumns"
                     :key="col.key"
@@ -166,15 +194,10 @@
                       </span>
                     </el-tooltip>
                   </th>
-                  <th class="col-window">窗口</th>
                 </tr>
               </thead>
               <tbody>
-                <tr
-                  v-for="(row, index) in rows"
-                  :key="row.fund_code"
-                  :class="{ 'is-holding': row.in_holdings }"
-                >
+                <tr v-for="(row, index) in rows" :key="row.fund_code">
                   <td class="col-rank">{{ index + 1 }}</td>
                   <td class="col-fund">
                     <button
@@ -221,16 +244,17 @@
                     />
                     <span class="num-text">{{ formatCell(row, col) }}</span>
                   </td>
-                  <td class="col-window">{{ row.window_label || "—" }}</td>
                 </tr>
               </tbody>
             </table>
           </div>
 
           <p class="footnote">
-            指标口径：{{ rows[0]?.window_label || "—" }} · 样本数
-            {{ sampleRange }} 个交易日 · 口径版本 {{ caliberVersion ?? "—" }}。
-            榜单是同类内的相对排序，**不构成投资建议**。
+            指标窗口「{{ windowLabel }}」：夏普 / 卡玛 / 波回比 / UI / 最大回撤
+            / 年化收益均按该窗口计算；近1月 / 近3月 /
+            近1年为区间净值涨跌幅。样本数 {{ sampleRange }} 个交易日 · 口径版本
+            {{ caliberVersion ?? "—" }} · 数据截至
+            {{ asOfDate }}。榜单是同类内的相对排序，**不构成投资建议**。
           </p>
 
           <!-- 指标说明兜底（2026-10-17）：默认态表头只有文字，深度学习需求
@@ -332,20 +356,20 @@ const tableColumns: RankingColumn[] = [
     desc: "卡玛 = 年化收益 ÷ |最大回撤|。衡量「盈利对最深亏损的覆盖能力」，越高越好。"
   },
   {
-    key: "ulcer_index",
-    label: "UI",
-    kind: "risk",
-    dir: "low",
-    hint: "溃疡指数：回撤的深度与持续时间合成的值。数字越大，持有过程越煎熬",
-    desc: "溃疡指数 UI = √(平均(每日回撤²))，可读作「长期平均回撤幅度」。UI = 18 意味着相当长时间里账户常比前高低约 18%。越低越好。"
-  },
-  {
     key: "return_drawdown_ratio",
     label: "波回比",
     kind: "ratio",
     dir: "high",
     hint: "年化收益 ÷（波动率 × 最大回撤）：平时涨跌的幅度和最深一次亏损都算进分母，数字越大越好",
     desc: "波回比 = 年化收益 ÷（年化波动率 × 最大回撤）。同时惩罚「日常颠簸」与「最深亏损」，越高越好。"
+  },
+  {
+    key: "ulcer_index",
+    label: "UI",
+    kind: "risk",
+    dir: "low",
+    hint: "溃疡指数：回撤的深度与持续时间合成的值。数字越大，持有过程越煎熬",
+    desc: "溃疡指数 UI = √(平均(每日回撤²))，可读作「长期平均回撤幅度」。UI = 18 意味着相当长时间里账户常比前高低约 18%。越低越好。"
   },
   {
     key: "max_drawdown",
@@ -389,6 +413,28 @@ const tableColumns: RankingColumn[] = [
   }
 ];
 
+/** 表头分组（2026-10-17 第二轮）：`keys` 必须与 `tableColumns` 的键**同序全覆盖**——
+ *  分组行 colspan 按 keys 长度展开，与指标行逐列对齐；少一个键表头就会错位。
+ *  列顺序即按组重排（波回比从 UI 之后提前到卡玛之后），分组才连得起来。
+ *  分组是纯展示层：不改排序行为、不改口径。 */
+const columnGroups: { label: string; tip: string; keys: string[] }[] = [
+  {
+    label: "风险调整收益",
+    tip: "把风险与亏损换算掉的收益效率，均按指标窗口计算；只在同类内可比，越高越好",
+    keys: ["sharpe", "calmar", "return_drawdown_ratio"]
+  },
+  {
+    label: "风险",
+    tip: "持有期间的亏损深度与煎熬程度，按指标窗口计算；越低越好",
+    keys: ["ulcer_index", "max_drawdown"]
+  },
+  {
+    label: "收益",
+    tip: "年化收益按指标窗口折算；近1月 / 近3月 / 近1年为对应自然日的区间净值涨跌幅",
+    keys: ["annual_return", "ret_1m", "ret_3m", "ret_1y"]
+  }
+];
+
 type Column = RankingColumn;
 
 const initialLoading = ref(true);
@@ -408,9 +454,9 @@ const selectedTypeName = computed(
     typeOptions.value.find(t => t.fund_type_id === selectedTypeId.value)
       ?.name ?? ""
 );
-const rankingTitle = computed(() =>
-  selectedTypeName.value ? `${selectedTypeName.value} · 同类优选` : "同类优选"
-);
+// 卡片标题只写当前类型（页头已是「同类优选」）——旧版「混合型 · 同类优选」
+// 与页头、筛选器三处重复同一信息。
+const rankingTitle = computed(() => selectedTypeName.value || "同类优选");
 const rankingInfo = computed(() => {
   const label =
     tableColumns.find(c => c.key === metric.value)?.label ?? metric.value;
@@ -426,6 +472,12 @@ const noRowHint = computed(() =>
     ? "该类型下所有基金的指标都因口径可疑被剔除——数据问题，不是没有基金。"
     : "该类型下暂时没有可上榜的数据。"
 );
+// 指标窗口 / 数据截至（2026-10-17 第二轮）：原「窗口」列每行同值（快照全是
+// 近3年），是纯噪音——删列，信息移到这里随脚注讲清口径。
+const windowLabel = computed(() => rows.value[0]?.window_label ?? "—");
+const asOfDate = computed(
+  () => (rows.value[0]?.as_of ?? "").slice(0, 10) || "—"
+);
 const sampleRange = computed(() => {
   if (!rows.value.length) return DASH;
   const values = rows.value.map(r => r.sample_points).filter(v => v != null);
@@ -436,15 +488,14 @@ const sampleRange = computed(() => {
 });
 
 /** 数值格式化：null 一律降级「—」（诚实降级，不编造 0）。
- *  收益列带显式 +/- 符号——design.md：不用颜色作为唯一信息载体。 */
-function formatValue(v: number | null | undefined, digits = 2): string {
+ *  显式 +/- 只给收益列（kind=return，design.md：不用颜色作为唯一信息载体）；
+ *  夏普 / 卡玛 / 波回比 / UI 是比率、最大回撤以负数存储——给它们加「+」会读成
+ *  「收益为正」（UI=+18.5 尤其误导：越高越煎熬，不是利好）。 */
+function formatCell(row: FundRiskRankingRow, col: Column): string {
+  const v = row[col.key as keyof FundRiskRankingRow] as number | null;
   if (v == null) return DASH;
-  const fixed = v.toFixed(digits);
-  return v > 0 ? `+${fixed}` : fixed;
-}
-
-function formatCell(row: FundRiskRankingRow, col: { key: string }): string {
-  return formatValue(row[col.key as keyof FundRiskRankingRow] as number | null);
+  const fixed = v.toFixed(2);
+  return col.kind === "return" && v > 0 ? `+${fixed}` : fixed;
 }
 
 /** 收益列涨跌配色（红涨绿跌，A 股惯例）：文字级 -ink 令牌保 WCAG AA，
@@ -530,15 +581,18 @@ function onTypeChange() {
   loadRanking();
 }
 
-/** 表头点击排序：首次点击 = 该列「从优到劣」（desc），再次点击反向。
- *  六列默认方向统一为降序——含最大回撤：它以负数存储（-8 优于 -25），
- *  降序 = 回撤浅者排前 = 从优到劣；annual_return 后端白名单同为 True。 */
+/** 表头点击排序：首次点击 = 该列「从优到劣」——方向由列语义（dir）决定：
+ *  high（数值大者好；含以负数存储的最大回撤，-8 优于 -25）⇒ desc；
+ *  low（UI：正数、越小越好）⇒ asc。
+ *  旧版一律 desc，点 UI 列会先把「最煎熬」的排前面——从劣到优，语义错。
+ *  后端 SORTABLE_METRICS 的默认方向同此规则（ulcer_index=False 升序）。 */
 function onSort(key: string) {
   if (key === metric.value) {
     order.value = order.value === "desc" ? "asc" : "desc";
   } else {
     metric.value = key;
-    order.value = "desc";
+    order.value =
+      tableColumns.find(c => c.key === key)?.dir === "low" ? "asc" : "desc";
   }
   loadRanking();
 }
@@ -665,11 +719,33 @@ onMounted(async () => {
 
   th {
     position: sticky;
-    top: 0;
     z-index: 2;
     font-size: var(--text-label);
     font-weight: 600;
     color: var(--text-tertiary-ink);
+
+    /* 表头底色对齐 el-table 基线（design.md Table 节：--bg-muted）——
+       页面自建表头不另起炉灶；sticky 单元格必须不透明，--bg-muted 是实色 ✓ */
+    background: var(--bg-muted);
+  }
+
+  /* 双层表头（2026-10-17 第二轮）：分组行吸顶 top:0，指标行下移一行高度。
+     两行都 sticky——纵向滚到长列表底部时，指标名与所属组始终在场。 */
+  .th-group-row th {
+    top: 0;
+    height: 30px;
+    padding: 5px var(--space-3);
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .th-metric-row th {
+    top: 30px; /* = 分组行高度 */
+  }
+
+  .th-group {
+    text-align: center;
+    cursor: help;
   }
 
   td {
@@ -678,8 +754,7 @@ onMounted(async () => {
   }
 
   .col-rank,
-  .col-fund,
-  .col-window {
+  .col-fund {
     text-align: left;
   }
 
@@ -705,32 +780,25 @@ onMounted(async () => {
     z-index: 3;
   }
 
-  /* 行悬停：整行（含 sticky 列）轻微底色 */
+  /* 行悬停：整行（含 sticky 列）轻微底色，对齐 el-table 基线（--bg-soft） */
   tbody tr:hover td {
-    background: var(--bg-hover);
-  }
-
-  /* 持仓行：浅底纹常驻标记「这是我的」；hover 让位给行悬停色 */
-  tbody tr.is-holding td {
-    background: var(--bg-subtle);
-  }
-
-  tbody tr.is-holding:hover td {
-    background: var(--bg-hover);
-  }
-
-  /* 当前排序指标高亮：底色 + 品牌色 + 加粗三管齐下，
-     「这个榜按哪列排的」一眼可辨（不再只靠红色文字，避免误读为警告）。 */
-  .col-active {
-    font-weight: 600;
-    color: var(--brand-700);
-  }
-
-  thead th.col-active {
     background: var(--bg-soft);
   }
 
-  /* 收益列涨跌色（-ink 级：白底 AA 达标；符号同色，见 formatValue） */
+  /* 持仓行底纹已删（2026-10-17 第二轮）：快照池里持仓占多数，常驻底纹没有
+     「找我的那只」的信号价值，唯一一只自选行反而被读成 bug（用户实测反馈）。
+     「持仓 / 自选」徽章在基金名旁，已承载该信息；行视觉回归统一。 */
+
+  /* 当前排序指标高亮（2026-10-17 第二轮，对齐 el-table 基线）：
+     EP 惯例 = 加粗 + 文字提主色 + 箭头变主题色。不用红字——金融表里红字
+     读作警告；不用灰底——全站表头底是 --bg-muted，另起一档灰底即语言分裂。
+     排序列辨识度靠加粗 + 箭头 + 卡片标题的「按X排序」说明，三处互证。 */
+  .col-active {
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  /* 收益列涨跌色（-ink 级：白底 AA 达标；符号同色，见 formatCell） */
   .num--rise {
     color: var(--color-rise-ink);
   }

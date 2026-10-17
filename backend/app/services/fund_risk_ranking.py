@@ -45,6 +45,7 @@ SORTABLE_METRICS: Dict[str, bool] = {
     'max_drawdown': True,  # 负数：越大越浅（-8 优于 -25）⇒ 降序
     'current_drawdown': True,  # 同上
     'annual_volatility': False,  # 正数：越小越好 ⇒ 升序
+    'ulcer_index': False,  # 溃疡指数正数：越小越好 ⇒ 升序（与波动率同向）
     'ret_1m': True,  # 区间收益（#2284）：越大越好 ⇒ 默认降序
     'ret_3m': True,
     'ret_1y': True,
