@@ -40,7 +40,7 @@ MODULE_PHASES = {
 #:   VaR 95%（analytics/var.py）+ 账户级 VaR¥，经 ``GET /api/products/pro-risk/``
 #:   出数。块级自治：基金级指标不依赖账户数据，无持仓时账户级块诚实降级；
 #: - ``allocation`` / ``report``：Phase 3 / 4 待落地，保持占位。
-AVAILABLE_MODULES = frozenset({'performance', 'risk'})
+AVAILABLE_MODULES = frozenset({'performance', 'risk', 'allocation'})
 
 
 def build_pro_status(symbol: str, asset_type: Optional[str] = None) -> dict:

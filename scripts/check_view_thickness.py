@@ -258,8 +258,17 @@ BASELINE: dict[str, dict[str, int]] = {
     # 同族范式）；同卡顺手修 pro-insight 误用 `market_session_factory`（该端点经
     # calculate_symbol_xirr 读 user 域表，双库生产必 500）→ 改路由会话 `get_db()`，
     # 属「接线修正」不推高 max_func。按本文件既有先例以 `--report` 实测回写。
+    # 2026-10-18 七取（#994 Phase 2 **新增 pro-allocation 端点**，非放宽）：给 products
+    # 加 `GET /api/products/pro-allocation/`（当前标的 vs 家庭持仓相关性，聚合在
+    # `services/pro_allocation.py`、计算全在 `analytics/correlation.py`）——视图侧
+    # 只有「parse_query + get_db() + 调服务 + 信封」，`orm_queries` / `commits`
+    # 仍为 **0**、`max_func` 30 不动：相关性口径、60 日样本门槛、零方差降级全在
+    # services/analytics，视图层没有业务规则可下沉。
+    # 行数两笔：610 → 645（本端点 + import + ValueError→400 防御），再因
+    # rebase 到合并后的 dev（#2314 / #2318 等同期改动）落到 **643**——后者不是
+    # 本卡的生长，取 `--report` 实测值，不手工倒推。
     "backend/app/domains/products/views.py": {
-        "lines": 610,
+        "lines": 643,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 30,

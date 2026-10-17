@@ -153,5 +153,5 @@ class TestProStatusFlip:
 
         assert modules['performance'] == {'available': True, 'phase': 2}
         assert modules['risk'] == {'available': True, 'phase': 2}
-        assert modules['allocation'] == {'available': False, 'phase': 3}
+        assert modules['allocation'] == {'available': True, 'phase': 3}
         assert modules['report'] == {'available': False, 'phase': 4}
