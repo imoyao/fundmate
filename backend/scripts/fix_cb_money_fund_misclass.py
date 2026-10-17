@@ -64,6 +64,10 @@ from pathlib import Path
 #: 上市首日临时简称 → 名录名。只放**人工实证过配对关系**的条目，不做任何模糊推广。
 NAME_ALIASES = {'N平煤转': '平煤转债'}
 
+#: 同名多 symbol 的人工裁决（用户 2026-10-17 按成交记录确认）。键为名录名，
+#: 值必须是该名字候选集之一——若某天库里候选变了、值不在候选内，仍走跳过逻辑，不硬写。
+USER_PICKS = {'巨星转债': 'SH113648', '益丰转债': 'SH113682'}
+
 #: 名录 symbol 必须落在转债代码段：沪市 11xxxx / 深市 12xxxx（SH/SZ 前缀式）。
 BOND_SYMBOL_RE = re.compile(r'^(?:SH|SZ)(?:11|12)\d{4}$')
 
@@ -89,6 +93,8 @@ class ScanResult:
     #: 名录外真货基等「禁碰」行：(position_name, 条数)
     untouched: Counter = field(default_factory=Counter)
     alias_hits: Counter = field(default_factory=Counter)
+    #: 用户裁决生效记录：名录名 → 选定 symbol
+    picked: dict[str, str] = field(default_factory=dict)
     mf_total_before: int = 0
 
 
@@ -117,9 +123,15 @@ def scan(cur: sqlite3.Cursor) -> ScanResult:
             result.untouched[pos_name or ''] += 1
             continue
         if len(cands) > 1:
-            amb_by_name.setdefault(sec_name, []).append(txn_id)
-            amb_symbols[sec_name] = cands
-            continue
+            pick = USER_PICKS.get(sec_name)
+            if pick in cands:
+                # 用户已按成交记录裁决，且裁决值仍是合法候选
+                result.picked[sec_name] = pick
+                cands = (pick,)
+            else:
+                amb_by_name.setdefault(sec_name, []).append(txn_id)
+                amb_symbols[sec_name] = cands
+                continue
         if sec_name != (pos_name or ''):
             result.alias_hits[f'{pos_name} → {sec_name}'] += 1
         result.fixes.append(
@@ -252,6 +264,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f'  待修：{len(fixes)} 条 {dict(sorted(by_ledger.items()))}')
         for alias, n in result.alias_hits.items():
             print(f'  [别名] {alias}：{n} 条')
+        for name, symbol in sorted(result.picked.items()):
+            print(f'  [用户裁决] {name} → {symbol}（仍计为歧义名，本次按裁决修复）')
         print(f'  [跳过-歧义] {len(result.ambiguous)} 个名字（同名多 symbol，不猜）：')
         for name, symbols, txn_ids in result.ambiguous:
             print(f'      {name}（{" | ".join(symbols)}）：txn{txn_ids}')
