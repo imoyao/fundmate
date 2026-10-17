@@ -60,6 +60,37 @@ def _clamp_limit(limit: Optional[int]) -> int:
     return min(int(limit), MAX_LIMIT)
 
 
+def user_flags_for_codes(user_db: Session, *, family_id: Optional[int]) -> tuple:
+    """查一个家庭的全部私有标记：``(持仓代码集, 自选代码集)``。
+
+    **user 域**查询（positions / watchlist 与 funds 快照分属不同引擎，无跨域 JOIN），
+    与 ``product_identity.resolve_product_identity`` 的私有状态查询同模式；
+    口径与 ``fund_risk_metrics_job._codes_from_user_scope``（快照目标池）同源——
+    否则榜上标了「持仓」的基金可能压根没进过快照池，标记与数据两套真相。
+
+    不做候选码预过滤：家庭维度持仓 + 自选通常只有几十上百个符号，一次
+    ``distinct`` 查询比「先查榜、再按码查」少一轮往返，也不要求调用方预知码集。
+
+    Args:
+        user_db: user 域会话。
+        family_id: 家庭 ID；为 None（未登录）时两个集均为空。
+
+    Returns:
+        ``(holding_codes, watchlist_codes)``：该家庭出现过的 symbol（strip 后）。
+    """
+    from app.domains.positions.models import Position
+    from app.domains.watchlist.models import WatchlistItem
+
+    if family_id is None:
+        return set(), set()
+
+    def _symbols(model) -> set:
+        rows = user_db.query(model.symbol).filter(model.family_id == family_id).distinct().all()
+        return {(r[0] or '').strip() for r in rows if r[0]}
+
+    return _symbols(Position), _symbols(WatchlistItem)
+
+
 def list_by_metric(
     db: Session,
     *,
@@ -69,6 +100,8 @@ def list_by_metric(
     ascending: Optional[bool] = None,
     include_distorted: bool = False,
     caliber_version: Optional[int] = None,
+    holding_codes: Optional[set] = None,
+    watchlist_codes: Optional[set] = None,
 ) -> Dict[str, Any]:
     """在**同一 `fund_type_id` 内**按某个指标排序取前 N。
 
@@ -80,12 +113,15 @@ def list_by_metric(
         ascending: 强制升降序；不给则用 `SORTABLE_METRICS` 的默认方向。
         include_distorted: 是否把 `basis != 'acc_nav'` 的行也纳入（默认剔除）。
         caliber_version: 口径版本；不给则用当前 `CALIBER_VERSION`。
+        holding_codes: 家庭**持仓**代码集（可选）。给定时每行带 `in_holdings`，
+            让「我持有的那只在同类里排第几」可回答（#167 后续 · 持仓体检定位）。
+        watchlist_codes: 家庭**自选**代码集（可选）。同上，每行带 `in_watchlist`。
 
     Returns:
         ``{'fund_type_id', 'metric', 'order', 'rows', 'excluded_distorted'}``。
-        `rows[]` 每项 = 快照列 + `fund_code` + `fund_name`；`excluded_distorted` 是
-        **因口径被剔除的条数**——不报它的话，「榜上只有 3 只」会被误读成
-        「同类只有 3 只有数据」。
+        `rows[]` 每项 = 快照列 + `fund_code` + `fund_name` + `in_holdings` +
+        `in_watchlist`；`excluded_distorted` 是因口径被剔除的条数——不报它的话，
+        「榜上只有 3 只」会被误读成「同类只有 3 只有数据」。
     """
     from app.domains.funds.models import Fund, FundRiskMetrics
     from app.services.sync.jobs.fund_risk_metrics_job import CALIBER_VERSION
@@ -128,7 +164,15 @@ def list_by_metric(
         'metric': metric,
         'order': 'desc' if order_desc else 'asc',
         'caliber_version': version,
-        'rows': [_row_payload(r, fund_name=name_by_code.get(r.fund_code)) for r in rows],
+        'rows': [
+            _row_payload(
+                r,
+                fund_name=name_by_code.get(r.fund_code),
+                in_holdings=r.fund_code in (holding_codes or set()),
+                in_watchlist=r.fund_code in (watchlist_codes or set()),
+            )
+            for r in rows
+        ],
         'excluded_distorted': excluded,
     }
 
@@ -192,11 +236,17 @@ def list_fund_types(db: Session, *, caliber_version: Optional[int] = None) -> Di
     return {'caliber_version': version, 'types': types}
 
 
-def _row_payload(row, *, fund_name: Optional[str] = None) -> Dict[str, Any]:
+def _row_payload(
+    row, *, fund_name: Optional[str] = None, in_holdings: bool = False, in_watchlist: bool = False
+) -> Dict[str, Any]:
     """快照行 → 榜单条目（数值一律 float，口径字段原样带出）。
 
     ``fund_name`` 来自 ``funds`` 表（调用方两步法查好传入）；缺失为 None，
     前端回退显示代码——不编造名称。
+
+    ``in_holdings`` / ``in_watchlist``：家庭私有标记（未登录 / 未给定时恒 False）。
+    **False 表示「查了，没有」，不是「没查」**——前端据此渲染「持仓 / 自选」徽章，
+    两者皆 False 时不渲染（诚实缺席，不占位）。
     """
 
     def f(name):
@@ -208,6 +258,8 @@ def _row_payload(row, *, fund_name: Optional[str] = None) -> Dict[str, Any]:
         'fund_name': fund_name,
         'fund_type_id': row.fund_type_id,
         'as_of': row.as_of.isoformat() if row.as_of else None,
+        'in_holdings': bool(in_holdings),
+        'in_watchlist': bool(in_watchlist),
         'max_drawdown': f('max_drawdown'),
         'current_drawdown': f('current_drawdown'),
         'drawdown_days': row.drawdown_days,
@@ -302,4 +354,5 @@ __all__ = [
     'list_by_metric',
     'list_fund_types',
     'peer_percentiles_for',
+    'user_flags_for_codes',
 ]

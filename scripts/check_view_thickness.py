@@ -184,7 +184,13 @@ BASELINE: dict[str, dict[str, int]] = {
     # 与同族端点一致的薄编排（入参解析 / 调服务 / 组响应），业务规则全部下沉 etf_compare.py。
     # 2026-10-17 四取（#994 Phase 2 新增 pro-insight 端点）：528 → 548，其余三维不动——
     # 同族薄编排，聚合逻辑全在 pro_insight.py。
-    "backend/app/domains/products/views.py": {"lines": 548, "orm_queries": 0, "commits": 0, "max_func": 30},
+    # 2026-10-17 五取（#167 持仓体检定位，**新增接线、非业务规则进视图**）：给
+    # fund-risk-ranking 端点加「持仓/自选标记」——登录判定 + 双域会话 + 调服务
+    # 收在 `_family_ranking_flags()` 小助手（与 /resolve/、/trade-timeline/ 同模式，
+    # 查询口径全在 services/user_flags_for_codes），端点本身只多一行调用。
+    # orm_queries / commits 仍为 0、max_func 30 不动，唯 lines 548 → 570
+    # （+22：助手 10 行 + 两个入参透传 + import 多行展开）。按 `--report` 实测回写。
+    "backend/app/domains/products/views.py": {"lines": 570, "orm_queries": 0, "commits": 0, "max_func": 30},
     # 2026-10-16：#2255 收敛合并带入 CNB 域 D 对账（duoduobei/fundmate#477/#486）代码，225→311 重取基线（守卫自述「确因合并需要重取基线」场景）
     "backend/app/domains/reconciliation/views.py": {"lines": 311, "orm_queries": 2, "commits": 0, "max_func": 48},
     "backend/app/domains/search/views.py": {"lines": 25, "orm_queries": 0, "commits": 0, "max_func": 7},
