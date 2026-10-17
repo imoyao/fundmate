@@ -1,0 +1,46 @@
+# backend/.dockerignore —— 构建上下文白名单之外的一切（2026-10-17 随 Dockerfile 重写新建）
+#
+# 没有它的代价（按本仓实际体积）：每次 build 上传 ~1.3GB 上下文
+# （invest.db 145MB + snap_pre_cleanup.db 1.1GB + WAL/SHM），且本地 .env（密钥）
+# 会被打进镜像层——这是安全事故级问题，不只是慢。
+
+# ── 密钥与本地配置：绝不进镜像（容器运行时用真实环境变量注入）──
+.env
+.env.*
+.flaskenv
+.flaskenv.sample
+
+# ── 本地数据库 / 快照 / 大文件（*.db 同时覆盖 invest.db、snap_pre_cleanup.db、
+#    .verify_market.db 等）──
+*.db
+*.db-shm
+*.db-wal
+*.sqbpro
+
+# ── 运行期可写目录：容器内由 Dockerfile 预建并 chown，挂卷时也挂这里 ──
+data/
+logs/
+
+# ── Python / 构建缓存与产物 ──
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.pdm-build/
+.pdm-python
+htmlcov/
+.coverage
+*.log
+
+# ── 测试与本地诊断产物：生产镜像不需要 ──
+tests/
+test_output.txt
+
+# ── git 元数据（backend/ 下存在嵌套 .git 目录，历史遗留）──
+.git/
+
+# ── Docker 自身与编辑器无关项 ──
+Dockerfile
+.dockerignore
+docker-compose.yml
