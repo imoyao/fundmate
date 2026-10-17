@@ -120,7 +120,7 @@
            语义 = 表单取值（`role="radiogroup"`），按 design.md 归「D13 果冻胶囊」：
            每项一颗独立胶囊（透明底 + 1px 描边），选中态 brand-100 底 / brand-400 描边 /
            brand-700 字 + 弹性回弹。**不是** iOS 那种「软底轨道 + 白色滑块」的分段控制器——
-           那套语言归 SegmentedControl（`role="tablist"`，切换看什么），两者不可互替。
+           那套语言归 SegmentedControl（Tab 语义，切换的是「看什么」），两者不可互替。
            基金组有 6 项，故用 wrap 平铺而不是等分 flex-1：等分到 6 列时
            「红利再投 / 送股拆分」会被压成两行字。 -->
       <div v-if="selectedLedgerId">

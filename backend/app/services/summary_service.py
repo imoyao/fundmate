@@ -423,6 +423,20 @@ def orphan_cash_like_breakdown_all(db: Session, family_id: int) -> tuple[list[di
     return items, net_cents, income_cents
 
 
+def orphan_cash_like_payload(db: Session, family_id: int) -> dict[str, Any]:
+    """持仓页「类现金」分组的响应体（金额元、已 round(2)）。
+
+    视图只做「调服务 + 组信封」，换算与合计留在这里（#1606 视图层职责边界）。
+    """
+    items, net_cents, income_cents = orphan_cash_like_breakdown_all(db, family_id)
+    return {
+        'items': items,
+        'total_net_amount': round(net_cents / 100, 2),
+        'total_income_amount': round(income_cents / 100, 2),
+        'total_amount': round((net_cents + income_cents) / 100, 2),
+    }
+
+
 def get_summary_data(db: Session, family_id: int = 1) -> dict[str, Any]:
     """返回仪表盘聚合数据（总资产、总负债、净资产、盈亏拆分、市场分布）
 

@@ -24,7 +24,7 @@ from app.services.summary_service import (
     get_snapshots,
     get_summary_data,
     list_fund_valuation_rows,
-    orphan_cash_like_breakdown_all,
+    orphan_cash_like_payload,
     scan_cross_ledger_duplicates,
     write_asset_snapshot,
 )
@@ -48,22 +48,14 @@ def summary():
 
 @bp.get('/summary/cash-like/')
 def cash_like():
-    """家庭级「类现金」逐产品明细（持仓页分组展示用，只读、只展示不加总）。
+    """#2315 家庭级「类现金」逐产品明细（持仓页分组展示）。
 
-    孤儿货基/逆回购流水（`position_id IS NULL`）不建持仓，因此不在持仓明细表里；
-    但它们是真实资产、已计入总资产。本接口把「这些钱分别在哪」摊开给用户看。
-
-    ⚠️ 返回值**不得**再被任何汇总加总一次（`summary_service` 已并入 total_assets）。
+    孤儿货基/逆回购（`position_id IS NULL`）不建持仓、不在持仓明细里，但已计入总资产。
+    ⚠️ 返回值不得再被任何汇总加总一次（`summary_service` 已并入 total_assets）。
     """
     try:
         with get_db() as db:
-            items, net_cents, income_cents = orphan_cash_like_breakdown_all(db, get_family_id())
-        data = {
-            'items': items,
-            'total_net_amount': round(net_cents / 100, 2),
-            'total_income_amount': round(income_cents / 100, 2),
-            'total_amount': round((net_cents + income_cents) / 100, 2),
-        }
+            data = orphan_cash_like_payload(db, get_family_id())
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
         return jsonify({'data': {'items': []}, 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500

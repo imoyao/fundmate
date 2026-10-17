@@ -152,6 +152,11 @@ NEW_FILE_LIMITS = {
 # 是否上线是发布状态而非用户数据），没有任何可下沉的业务规则；docstring 占比高是在写
 # 「为什么一期后端全开 / 为什么路径落 products 域」的决策，值得留。products 437 → 458。
 # 这是本文件 2026-10-16 升入存量冻结后的第一次生长，按自述通道 `--report` 实测回写。
+# 2026-10-17 重取（#2315，**新增端点**，非放宽）：给 summary 加 `GET /summary/cash-like/`
+# （持仓页「类现金」分组：账外货基/逆回购逐产品明细，跨账户按「账户 + 产品」归组）——
+# 视图侧只有「调 orphan_cash_like_payload + 组信封」，金额换算与合集合计全在 services，
+# `orm_queries` / `commits` 仍为 **0**、`max_func` 不变（31）。summary 229 → 245。
+# 按本文件既有先例以 `--report` 实测回写，非手工拍数。
 # 2026-10-17 再取（#2278，**新增端点**，非放宽）：给 products 加 `GET /api/products/index-returns/`
 # 与 `GET /api/products/index-weights/`（详情页指数区块：阶段性收益 + 十大权重）——视图侧
 # 只有「parse_query + 调 services/index_metrics + 信封」，与同族 index-profile 同款薄编排；
@@ -190,7 +195,7 @@ BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/search/views.py": {"lines": 25, "orm_queries": 0, "commits": 0, "max_func": 7},
     "backend/app/domains/securities/views.py": {"lines": 72, "orm_queries": 1, "commits": 0, "max_func": 35},
     "backend/app/domains/strategy/views.py": {"lines": 144, "orm_queries": 5, "commits": 0, "max_func": 22},
-    "backend/app/domains/summary/views.py": {"lines": 229, "orm_queries": 0, "commits": 0, "max_func": 31},
+    "backend/app/domains/summary/views.py": {"lines": 245, "orm_queries": 0, "commits": 0, "max_func": 31},
     "backend/app/domains/temperature/views.py": {"lines": 140, "orm_queries": 0, "commits": 0, "max_func": 38},
     "backend/app/domains/transactions/views.py": {"lines": 138, "orm_queries": 2, "commits": 0, "max_func": 60},
     "backend/app/domains/usage/views.py": {"lines": 68, "orm_queries": 0, "commits": 0, "max_func": 27},
