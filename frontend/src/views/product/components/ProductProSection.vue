@@ -98,7 +98,7 @@ function badgeText(key: string): string | null {
   <CardBlock v-if="enabled" class="pro-section">
     <SectionHeader
       title="高级洞察 Pro"
-      info="深度分析与归因的付费能力位。当前为建设期：四个模块按 Phase 2-4 逐个上线。上线后，基金级指标来自第三方数据源并标注「非账户级」口径；你的账户级指标（XIRR、行为画像）始终基于自己的流水计算。"
+      info="深度绩效归因、风险控制、资产配置与智能报告——四大高级分析模块陆续上线中。与你账户相关的指标（如真实收益率、交易行为画像）始终基于你自己的持仓与流水计算。"
       info-label="关于高级洞察 Pro"
     />
     <div class="pro-section__body">
