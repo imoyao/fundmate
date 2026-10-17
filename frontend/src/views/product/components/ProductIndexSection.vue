@@ -3,6 +3,8 @@ import { computed, ref, watch } from "vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import { getIndexProfile, type IndexProfileResult } from "@/api/products";
+import ProductIndexReturns from "./ProductIndexReturns.vue";
+import ProductIndexWeights from "./ProductIndexWeights.vue";
 
 /**
  * 详情页「指数资料与估值」区块（#2028 · 设计 §6 品类矩阵二期）。
@@ -30,6 +32,11 @@ import { getIndexProfile, type IndexProfileResult } from "@/api/products";
  *
  * `description`（指数简介）来自中证官网 index-basic-info（后端按需抓+进程内缓存）：
  * `null` = 官网未收录（399 系等）或抓取失败——散文不是指标，**整段隐藏**而不显示「—」。
+ *
+ * #2278 扩展：同一份 index-basic-info 顺带取快照字段（发布日期 / 样本数 / 加权方式 /
+ * 币种）并入上方事实格，逐字段降级「—」；卡内追加两个子区块——阶段性收益
+ * （ProductIndexReturns）与十大权重（ProductIndexWeights），各自取数、独立降级，
+ * 仅在名录资料就绪后挂载（避免名录外代码白打外部接口）。
  */
 const props = defineProps<{
   /** 指数代码（裸 6 位码或带前缀形态，后端归一） */
@@ -142,12 +149,42 @@ watch(() => props.symbol, load, { immediate: true });
             </span>
           </dd>
         </div>
+        <!-- 快照字段（#2278，来自中证官网 index-basic-info 同一请求）：逐字段降级「—」 -->
+        <div class="index-section__fact">
+          <dt class="index-section__label">发布日期</dt>
+          <dd class="index-section__value">
+            {{ profile.publish_date || DASH }}
+          </dd>
+        </div>
+        <div class="index-section__fact">
+          <dt class="index-section__label">样本数</dt>
+          <dd class="index-section__value">
+            {{ profile.cons_number != null ? profile.cons_number : DASH }}
+          </dd>
+        </div>
+        <div class="index-section__fact">
+          <dt class="index-section__label">加权方式</dt>
+          <dd class="index-section__value">
+            {{ profile.weighting_type || DASH }}
+          </dd>
+        </div>
+        <div class="index-section__fact">
+          <dt class="index-section__label">币种</dt>
+          <dd class="index-section__value">
+            {{ profile.currency || DASH }}
+          </dd>
+        </div>
       </dl>
 
       <!-- 指数简介（中证官网原文）：散文段落，无简介时整段隐藏而非占位 -->
       <p v-if="profile.description" class="index-section__desc">
         {{ profile.description }}
       </p>
+
+      <!-- 阶段性收益 + 十大权重（#2278）：子组件各自取数、独立降级，
+           仅在名录资料就绪后挂载，避免名录外的代码白打外部接口 -->
+      <ProductIndexReturns v-if="profile" :symbol="symbol" />
+      <ProductIndexWeights v-if="profile" :symbol="symbol" />
 
       <!-- 样本不足的定调说明：比一排「—」更诚实（告诉用户为什么没有，而不是假装没数据） -->
       <p v-if="profile.pe_percentile == null" class="index-section__note">

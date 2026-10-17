@@ -125,6 +125,14 @@ export interface IndexProfileResult {
   percentile_metric: string | null;
   /** 分位基线的最新采样日 YYYY-MM-DD */
   percentile_date: string | null;
+  /** 发布日期（中证官网 publishDate）；官网未填为 null → 显示「—」（#2278） */
+  publish_date: string | null;
+  /** 样本数（consNumber）；官网未填为 null → 显示「—」 */
+  cons_number: number | null;
+  /** 加权方式（weightingType，如「自由流通市值加权」）；官网未填为 null → 显示「—」 */
+  weighting_type: string | null;
+  /** 币种（currencyCn，如「人民币」）；官网未填为 null → 显示「—」 */
+  currency: string | null;
 }
 
 /** 取指数资料聚合。404 = 该代码不在指数名录。 */
@@ -132,6 +140,70 @@ export function getIndexProfile(symbol: string) {
   return http.request<ApiResponse<IndexProfileResult>>(
     "get",
     "/api/products/index-profile/",
+    { params: { symbol } }
+  );
+}
+
+/** 阶段性收益窗口键 → 结果值映射（%）；null = 历史不足该窗口，前端「—」（#2278） */
+export interface IndexReturnsWindows {
+  m1: number | null;
+  m3: number | null;
+  ytd: number | null;
+  y1: number | null;
+  y2: number | null;
+  y3: number | null;
+}
+
+/** 指数阶段性收益 + 年化波动率（`/api/products/index-returns/`，#2278）。
+ * 数据按需抓自公开行情源（中证官网/腾讯），服务端现算即弃、不入库；两路全空时
+ * `as_of`/`source` 为 null 且窗口全 null，前端整块降级，不阻塞页面其余区块。 */
+export interface IndexReturnsResult {
+  index_code: string;
+  /** 最后交易日 YYYY-MM-DD；无数据为 null */
+  as_of: string | null;
+  /** 数据来源：csindex=中证指数官网 / tencent=腾讯行情；无数据为 null */
+  source: string | null;
+  returns: IndexReturnsWindows;
+  /** 近 1 年年化波动率(%)：日频收益样本标准差 × √252；历史不足 1 年为 null */
+  volatility_y1: number | null;
+}
+
+export function fetchIndexReturns(symbol: string) {
+  return http.request<ApiResponse<IndexReturnsResult>>(
+    "get",
+    "/api/products/index-returns/",
+    { params: { symbol } }
+  );
+}
+
+/** 十大权重单行（月频口径）；weight 为 %，保留源侧 3 位小数 */
+export interface IndexWeightRow {
+  code: string;
+  name: string;
+  weight: number;
+  exchange: string | null;
+}
+
+/** 指数十大权重 + 前十大集中度（`/api/products/index-weights/`，#2278）。
+ * 源 = akshare 中证权重接口（月频）；接口失败/码族不适用 → `top10: []` 且
+ * 其余字段 null，前端整块降级「—」。 */
+export interface IndexWeightsResult {
+  index_code: string;
+  /** 权重数据日期 YYYY-MM-DD（月频，须在前端标注口径）；无数据为 null */
+  as_of: string | null;
+  frequency: string;
+  /** 成分股总数（如光伏产业 50 只） */
+  constituent_count: number;
+  total_weight: number | null;
+  /** 前十大权重合计（%），集中度一眼可见 */
+  top10_weight: number | null;
+  top10: IndexWeightRow[];
+}
+
+export function fetchIndexWeights(symbol: string) {
+  return http.request<ApiResponse<IndexWeightsResult>>(
+    "get",
+    "/api/products/index-weights/",
     { params: { symbol } }
   );
 }
