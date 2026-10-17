@@ -36,7 +36,12 @@ from app.services.etf_compare import build_etf_compare
 from app.services.fund_holdings_detail import build_fund_holdings_detail
 from app.services.fund_performance import build_fund_performance
 from app.services.fund_profile import build_fund_profile
-from app.services.fund_risk_ranking import SORTABLE_METRICS, list_by_metric, list_fund_types
+from app.services.fund_risk_ranking import (
+    SORTABLE_METRICS,
+    list_by_metric,
+    list_fund_types,
+    user_flags_for_codes,
+)
 from app.services.index_metrics import build_index_returns, build_index_weights
 from app.services.index_profile import build_index_profile
 from app.services.manager_holdings import build_manager_holdings
@@ -467,6 +472,19 @@ def fund_risk_ranking():
             abort(400, f'order 只能是 asc / desc：{query.order}')
         ascending = order == 'asc'
 
+    # 家庭私有标记（持仓 / 自选）：与 /resolve/ 同模式——双域会话，登录才查 user 库。
+    # 快照目标池本就是「持仓 ∪ 自选」（fund_risk_metrics_job），标记让页面回答
+    # 「我持有的那只排第几」，否则用户对着一池陌生基金不知道与自己何干。
+    authenticated = _is_authenticated()
+    holding_codes: set = set()
+    watchlist_codes: set = set()
+    if authenticated:
+        with closing(user_session_factory()()) as user_db:
+            holding_codes, watchlist_codes = user_flags_for_codes(
+                user_db,
+                family_id=get_family_id(),
+            )
+
     with closing(market_session_factory()()) as db:
         data = list_by_metric(
             db,
@@ -475,6 +493,8 @@ def fund_risk_ranking():
             limit=query.limit,
             ascending=ascending,
             include_distorted=bool(query.include_distorted),
+            holding_codes=holding_codes,
+            watchlist_codes=watchlist_codes,
         )
     return jsonify({'data': data, 'message': 'ok'})
 

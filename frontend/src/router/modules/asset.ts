@@ -121,7 +121,7 @@ const AssetRouteConfig = {
           name: "AssetFundRanking",
           component: () => import("@/views/asset/fund-ranking/index.vue"),
           meta: {
-            title: "同类风险榜",
+            title: "同类优选",
             icon: "ep:histogram",
             rank: 6,
             showLink: true,

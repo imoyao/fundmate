@@ -406,7 +406,7 @@ watch(() => props.symbol, load, { immediate: true });
             class="performance-section__fact"
           >
             <!-- 指标解释（2026-10-17）：原生 title 不显眼且样式不可控，
-                 升级为 el-tooltip + 信息图标（与同类风险榜表头同款交互） -->
+                 升级为 el-tooltip + 信息图标（与同类优选表头同款 tooltip） -->
             <dt class="performance-section__label">
               <span class="performance-section__label-text">
                 {{ row.label }}

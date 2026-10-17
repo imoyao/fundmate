@@ -1027,6 +1027,12 @@ export interface FundRiskRankingRow {
   fund_name?: string | null;
   fund_type_id: number | null;
   as_of: string | null;
+  /**
+   * 家庭私有标记（持仓体检定位，2026-10-17）：快照目标池本就是「持仓 ∪ 自选」，
+   * 这两个字段让页面回答「我持有的那只在同类里排第几」。未登录 / 无此状态恒 false。
+   */
+  in_holdings: boolean;
+  in_watchlist: boolean;
   max_drawdown: number | null;
   current_drawdown: number | null;
   drawdown_days: number | null;

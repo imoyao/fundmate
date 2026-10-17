@@ -17,7 +17,12 @@ from datetime import date
 import pytest
 
 from app.domains.funds.models import FundRiskMetrics
-from app.services.fund_risk_ranking import MAX_LIMIT, SORTABLE_METRICS, list_by_metric
+from app.services.fund_risk_ranking import (
+    MAX_LIMIT,
+    SORTABLE_METRICS,
+    list_by_metric,
+    user_flags_for_codes,
+)
 from app.services.sync.jobs.fund_risk_metrics_job import CALIBER_VERSION
 
 
@@ -222,3 +227,85 @@ class TestFundName:
         _add(db, '999999', 1, sharpe=1.0)
         out = list_by_metric(db, fund_type_id=1, metric='sharpe')
         assert out['rows'][0]['fund_name'] is None
+
+
+class TestUserFlags:
+    """持仓 / 自选标记（持仓体检定位）：榜上要能看出「哪只是我的」。
+
+    快照目标池本就是「持仓 ∪ 自选」（fund_risk_metrics_job），标记与池同源，
+    页面才能回答「我持有的那只在同类里排第几」。
+    """
+
+    def test_rows_carry_in_holdings_and_in_watchlist(self, db):
+        _add(db, '000001', 1, sharpe=2.0)  # 持仓
+        _add(db, '000002', 1, sharpe=1.5)  # 自选
+        _add(db, '000003', 1, sharpe=1.0)  # 都不是
+        out = list_by_metric(
+            db,
+            fund_type_id=1,
+            metric='sharpe',
+            holding_codes={'000001'},
+            watchlist_codes={'000002'},
+        )
+        flags = {r['fund_code']: (r['in_holdings'], r['in_watchlist']) for r in out['rows']}
+        assert flags['000001'] == (True, False)
+        assert flags['000002'] == (False, True)
+        assert flags['000003'] == (False, False)
+
+    def test_flags_default_false_without_user_state(self, db):
+        """未给码集（未登录）⇒ 恒 False，不崩、不猜。"""
+        _add(db, '000001', 1, sharpe=2.0)
+        out = list_by_metric(db, fund_type_id=1, metric='sharpe')
+        r = out['rows'][0]
+        assert r['in_holdings'] is False
+        assert r['in_watchlist'] is False
+
+    def test_user_flags_for_codes_queries_both_tables(self, db):
+        from app.domains.positions.models import Position
+        from app.domains.watchlist.models import WatchlistItem
+
+        db.add(
+            Position(
+                family_id=1,
+                symbol='004369',
+                market='CN_A',
+                asset_type='fund',
+                name='测试持仓基金',
+                quantity=100,
+            )
+        )
+        db.add(
+            WatchlistItem(
+                family_id=1,
+                symbol='005827',
+                market='CN_A',
+                venue='OTC',
+                asset_type='fund',
+                name='测试自选基金',
+                status='WATCHING',
+            )
+        )
+        db.commit()
+
+        holding, watchlist = user_flags_for_codes(db, family_id=1)
+        assert '004369' in holding
+        assert '004369' not in watchlist
+        assert '005827' in watchlist
+        assert '005827' not in holding
+
+    def test_user_flags_for_codes_scoped_by_family(self, db):
+        """别的家庭的持仓 / 自选不算数——私有状态必须家庭隔离。"""
+        from app.domains.positions.models import Position
+
+        db.add(Position(family_id=2, symbol='004369', asset_type='fund', quantity=1))
+        db.commit()
+
+        holding, watchlist = user_flags_for_codes(db, family_id=1)
+        assert '004369' not in holding
+        assert holding == set()
+        assert watchlist == set()
+
+    def test_user_flags_for_codes_anonymous_returns_empty(self, db):
+        holding, watchlist = user_flags_for_codes(db, family_id=None)
+        assert holding == set()
+        assert watchlist == set()
