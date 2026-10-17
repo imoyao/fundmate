@@ -92,8 +92,8 @@ defineProps<{
 .cash-like-footer {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
   gap: 8px;
+  align-items: baseline;
   padding: 10px 12px;
   font-size: var(--text-label);
   color: var(--text-secondary);
@@ -105,8 +105,8 @@ defineProps<{
 }
 
 .cash-like-footer__value {
-  font-variant-numeric: tabular-nums;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }
 

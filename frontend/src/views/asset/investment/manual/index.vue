@@ -622,8 +622,8 @@ watch([stockOpType, fundOpType], () => {
   :deep(
     .el-radio-button__original-radio:focus-visible + .el-radio-button__inner
   ) {
-  box-shadow: var(--focus-ring) !important;
   outline: none;
+  box-shadow: var(--focus-ring) !important;
 }
 
 /* 账户栏「新建账户」：次按钮（描边 + 卡片底），不能与主按钮抢焦点 */
