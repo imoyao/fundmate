@@ -40,11 +40,15 @@ def test_pro_status_returns_skeleton(client):
     assert set(modules) == {'performance', 'risk', 'allocation', 'report'}
     assert modules['performance']['available'] is True  # #994 Phase 2 翻真（模块一）
     assert modules['risk']['available'] is True  # #994 Phase 2 翻真（模块二）
+    assert modules['allocation']['available'] is True  # #994 提前翻真（模块三，见下方 phase 说明）
     for name, module in modules.items():
         assert module['phase'] in (2, 3, 4)
-        if name not in ('performance', 'risk'):
+        if name not in ('performance', 'risk', 'allocation'):
             assert module['available'] is False
-    # Phase 标注与 #994 五阶段排期一致：模块一/二 → P2，模块三 → P3，模块四 → P4
+    # Phase 标注与 #994 五阶段排期一致：模块一/二 → P2，模块三 → P3，模块四 → P4。
+    # ⚠️ 注意：allocation 的 phase **保持 3**（它是 #994 规划的既有事实），与本卡
+    # 「提前做完」两件事互不影响——phase 讲排期归属，available 讲是否已上线。
+    # 提前落地改的是 AVAILABLE_MODULES 一处，不回头改写规划。
     assert modules['performance']['phase'] == 2
     assert modules['risk']['phase'] == 2
     assert modules['allocation']['phase'] == 3

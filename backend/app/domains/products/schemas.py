@@ -199,6 +199,19 @@ class FundRiskRankingRequest(BaseModel):
     include_distorted: bool = Field(False, description='是否纳入口径可疑（净值跳变/样本不足）的行')
 
 
+class ProAllocationRequest(BaseModel):
+    """`GET /api/products/pro-allocation/` 的查询参数（#994 Phase 2 · 模块三资产配置与相关性）。
+
+    「当前标的 vs 家庭其余持仓」的相关系数：基线序列经
+    ``fetch_product_trend('1Y')``，peer 取家庭 active 持仓（按 ``symbol_norm`` 去重），
+    计算全在 ``analytics/correlation.py``。``asset_type`` 是**取数参数**
+    （决定序列走场外净值还是场内前复权），同 ``ProRiskRequest``。
+    """
+
+    symbol: str = Field(..., min_length=1, max_length=50, description='基准产品代码（大小写不敏感）')
+    asset_type: Optional[str] = Field(None, max_length=20, description='品类；决定净值/价格序列口径')
+
+
 class ProStatusRequest(BaseModel):
     """`GET /api/products/pro/` 的查询参数（#2272 · #994 Phase 1 接口骨架）。
 
