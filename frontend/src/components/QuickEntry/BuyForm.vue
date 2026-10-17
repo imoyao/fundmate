@@ -36,7 +36,7 @@
             v-if="!showQuickAdd"
             aria-label="新建账户"
             type="primary"
-            text
+            class="account-create-btn"
             @click="showQuickAdd = true"
           >
             <IconifyIconOffline icon="ep:plus" />
@@ -295,21 +295,23 @@
     </el-form-item>
 
     <!-- 🔥 修改：显示“对应净值”，并用 actualNavDate 替代 form.trade_date -->
-    <!-- 4. 确认净值（弱化展示：只读、小字、带日期） -->
+    <!-- 4. 确认净值（提升视觉层级：净值是基金买入/赎回到账的核心依据，信息层级应与重要性匹配） -->
     <div
       v-if="selectedSecurityOption?.type === 'fund'"
-      class="text-xs flex items-center gap-1 mt-1 pl-[90px]"
-      style="color: var(--text-tertiary-ink)"
+      class="text-sm flex items-center gap-2 mt-2 pl-[90px]"
+      style="color: var(--text-secondary)"
     >
-      <span>对应净值：</span>
-      <span class="font-medium" style="color: var(--text-secondary)">
+      <span>对应净值</span>
+      <span class="font-semibold" style="color: var(--text-primary)">
         {{
           form.price !== undefined && form.price > 0
             ? form.price.toFixed(4)
             : "--"
         }}
       </span>
-      <span>[{{ actualNavDate || form.trade_date || "--" }}]</span>
+      <span class="text-xs" style="color: var(--text-tertiary-ink)">
+        · {{ actualNavDate || form.trade_date || "--" }}
+      </span>
     </div>
 
     <!-- 净值缺失先记账：放行提交的提示（份额可留空，官方净值到位后自动回填） -->
@@ -348,8 +350,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, nextTick } from "vue";
-import { ElMessage } from "element-plus";
+import { ref, reactive, computed, watch, nextTick, onMounted } from "vue";
+import { ElMessage, ElMessageBox } from "element-plus";
 import type { FormInstance, FormRules } from "element-plus";
 import { usePositionSubmit } from "@/composables/usePositionSubmit";
 import { createLedger as createLedgerApi, type LedgerItem } from "@/api/ledger";
@@ -364,6 +366,7 @@ import type { FundSearchItem } from "@/api/funds";
 import { checkTradingDay } from "@/api/utils";
 import { useFundTradeDate } from "@/composables/useFundTradeDate";
 import { IconifyIconOffline } from "@/components/ReIcon";
+import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import {
   ALLOCATION_OPTIONS,
   LEDGER_TYPE_SHORT,
@@ -427,6 +430,90 @@ const defaultForm = () => ({
 const form = reactive(defaultForm());
 const formRef = ref<FormInstance>();
 
+// ── 重记一笔：会话内保留上次提交快照（#2305）──
+// 仅 sessionStorage（刷新即清空），不落盘；预填产品+账户，金额/日期/份额留空。
+const LAST_SUBMITTED_KEY = "fm:buy:last_submitted";
+interface LastSubmitted {
+  ledger_id: number | null;
+  symbol: string;
+  name: string;
+  market: string;
+  type: string;
+  trade_date: string;
+  buyAmount: number | undefined;
+  shares: number | undefined;
+  fee: number | undefined;
+}
+
+function loadLastSubmitted(): LastSubmitted | null {
+  try {
+    const raw = sessionStorage.getItem(LAST_SUBMITTED_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as LastSubmitted;
+    if (!parsed || typeof parsed !== "object") return null;
+    if (parsed.ledger_id == null && !parsed.symbol) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function persistLastSubmitted() {
+  const snapshot: LastSubmitted = {
+    ledger_id: form.ledger_id,
+    symbol: form.symbol,
+    name: form.name,
+    market: form.market,
+    type: form.type,
+    trade_date: form.trade_date,
+    buyAmount: form.buyAmount,
+    shares: form.shares,
+    fee: form.fee
+  };
+  try {
+    sessionStorage.setItem(LAST_SUBMITTED_KEY, JSON.stringify(snapshot));
+  } catch {
+    /* 存储满 / 私有模式：静默忽略，不影响主流程 */
+  }
+}
+
+// 提交成功后写入会话快照（在 handleSubmit 成功分支调用）
+function onPersistLastSubmitted() {
+  persistLastSubmitted();
+}
+
+// 挂载时若有快照，预填产品+账户（金额/日期/份额留空，避免误提交上次金额）
+// 放在 onMounted 里，等 defaultLedgerId 的 immediate watcher 跑完再覆盖，避免被父组件默认值冲掉。
+onMounted(() => {
+  const last = loadLastSubmitted();
+  if (!last) return;
+  form.ledger_id = last.ledger_id;
+  form.symbol = last.symbol;
+  form.name = last.name;
+  form.market = last.market;
+  form.type = last.type;
+  // trade_date 保持默认今天，不回填上次日期
+  // buyAmount / shares / fee 留空
+  selectedSecurityOption.value = {
+    symbol: last.symbol,
+    name: last.name,
+    market: last.market,
+    type: last.type,
+    type_label: last.type === "fund" ? "基金" : "股票"
+  };
+  // 预填后触发一次费用预设与净值计算（watch 在模块加载期尚未挂载，需手动触发）
+  nextTick(() => {
+    applyFeePreset();
+    if (last.type === "fund" && form.trade_date) {
+      calcConfirmAndNav({
+        tradeDate: form.trade_date,
+        symbol: last.symbol,
+        isAfter15: form.isAfter15
+      });
+    }
+  });
+});
+
 // 极简账户创建
 const showQuickAdd = ref(false);
 const newAccountName = ref("");
@@ -473,10 +560,58 @@ const {
   reset: resetTradeDate
 } = useFundTradeDate();
 
+// ── 最近使用账户置顶（#2305）──
+// localStorage 记录最近使用的 ledger_id，下拉列表按此排序置顶。
+const RECENT_LEDGER_KEY = "fm:buy:recent_ledgers";
+
+function loadRecentLedgers(): number[] {
+  try {
+    const raw = localStorage.getItem(RECENT_LEDGER_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((id: unknown) => typeof id === "number");
+  } catch {
+    return [];
+  }
+}
+
+function persistRecentLedgers(ids: number[]) {
+  try {
+    localStorage.setItem(RECENT_LEDGER_KEY, JSON.stringify(ids));
+  } catch {
+    /* 存储满 / 私有模式：静默忽略 */
+  }
+}
+
+// 提交成功后把该账户提到最近列表首位
+function bumpRecentLedger(ledgerId: number) {
+  if (!ledgerId) return;
+  const ids = loadRecentLedgers();
+  const filtered = ids.filter(id => id !== ledgerId);
+  filtered.unshift(ledgerId);
+  // 只保留最近 20 个
+  persistRecentLedgers(filtered.slice(0, 20));
+}
+
 // ── 计算属性 ──
-const selectableLedgers = computed(() =>
-  props.ledgers.filter(l => l.ledger_type !== "property")
-);
+const recentLedgerIds = loadRecentLedgers();
+const selectableLedgers = computed(() => {
+  const base = props.ledgers.filter(l => l.ledger_type !== "property");
+  if (recentLedgerIds.length === 0) return base;
+  const recentSet = new Set(recentLedgerIds);
+  const recent: typeof base = [];
+  const rest: typeof base = [];
+  for (const l of base) {
+    if (recentSet.has(l.id)) recent.push(l);
+    else rest.push(l);
+  }
+  // 按最近列表顺序排列
+  recent.sort(
+    (a, b) => recentLedgerIds.indexOf(a.id) - recentLedgerIds.indexOf(b.id)
+  );
+  return [...recent, ...rest];
+});
 const currentLedger = computed(
   () => props.ledgers.find(l => l.id === form.ledger_id) ?? null
 );
@@ -962,8 +1097,40 @@ async function handleSubmit() {
 
   // 统一提交层（#933）：防抖/错误信封/成功广播单点维护，表单只组装 body
   const { submitPosition } = usePositionSubmit();
+
+  // 防呆：若与上次提交完全一致，先确认是否重复记录（#2305）
+  const last = loadLastSubmitted();
+  if (last) {
+    const same =
+      last.ledger_id === form.ledger_id &&
+      last.symbol === form.symbol &&
+      last.trade_date === form.trade_date &&
+      last.buyAmount === form.buyAmount &&
+      last.shares === form.shares &&
+      last.fee === form.fee;
+    if (same) {
+      const confirmed = await new Promise<boolean>(resolve => {
+        ElMessageBox.confirm(
+          "当前记录与上次提交完全相同，确认要重复记录吗？",
+          "重复记录确认",
+          {
+            confirmButtonText: "继续记录",
+            cancelButtonText: "取消",
+            type: "warning",
+            distinguishCancelAndClose: true
+          }
+        )
+          .then(() => resolve(true))
+          .catch(() => resolve(false));
+      });
+      if (!confirmed) return;
+    }
+  }
+
   const ok = await submitPosition(body);
   if (ok) {
+    onPersistLastSubmitted();
+    if (form.ledger_id) bumpRecentLedger(form.ledger_id);
     emit("submit-success");
   }
 }
@@ -1066,6 +1233,30 @@ defineExpose({ handleSubmit, resetForm, isDirty });
 <style scoped>
 .text-xs {
   font-size: 0.75rem;
+}
+
+/* 新建账户：次按钮语义（辅助操作，不抢主视觉），对齐 design.md 按钮规范 */
+.account-create-btn {
+  flex-shrink: 0;
+  gap: 4px;
+  height: 40px;
+  padding: 0 16px;
+  color: var(--text-primary);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.account-create-btn:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--border-light);
+}
+
+.account-create-btn :deep(.el-icon) {
+  margin-right: 0;
 }
 
 .quick-ratio-btn {
