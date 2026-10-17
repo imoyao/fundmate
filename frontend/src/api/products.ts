@@ -1125,7 +1125,7 @@ export interface FundBenchmark {
 
 /** Pro 单模块可用性位（#2272 · #994 Phase 1 骨架；available 在 Phase 2-4 逐个翻转） */
 export interface ProModuleStatus {
-  /** 模块是否已上线（一期恒 false） */
+  /** 模块是否已上线（performance 已随 Phase 2 翻真） */
   available: boolean;
   /** 落地 Phase（2/2/3/4，见 #994 五阶段排期） */
   phase: number;
@@ -1150,6 +1150,57 @@ export function fetchProStatus(symbol: string, assetType?: string | null) {
   return http.request<ApiResponse<ProStatusResult>>(
     "get",
     "/api/products/pro/",
+    {
+      params: { symbol, asset_type: assetType ?? undefined }
+    }
+  );
+}
+
+/** 账户级 XIRR（#1972 口径：跨账户现金流合并 + 当前市值虚拟卖出；空结构全 0） */
+export interface ProInsightXirr {
+  xirr: number;
+  total_invested: number;
+  current_value: number;
+  total_withdrawn: number;
+  total_return: number;
+  cashflow_count: number;
+}
+
+/** 账户级行为画像（#994 Phase 0 FIFO 口径 v2：盈亏由配对自算，不读 realized_pnl） */
+export interface ProInsightBehavior {
+  /** 全额配对的卖出笔数（胜率/盈亏比样本量） */
+  closed_count: number;
+  win_rate: number | null;
+  avg_win: number | null;
+  avg_loss: number | null;
+  profit_loss_ratio: number | null;
+  /** 平均持有天数（按配对份额加权） */
+  avg_holding_days: number | null;
+  /** Σ 配对盈亏（元），仅全额配对的卖出笔 */
+  realized_pnl_total: number | null;
+  cash_dividend_total: number | null;
+  buy_count: number;
+  sell_count: number;
+  unmatched_sell_count: number;
+  unmatched_sell_shares: number;
+  caveats: string[];
+}
+
+/** `GET /api/products/pro-insight/` 返回（#994 Phase 2 · 模块一账户级指标）。
+ * has_account_data=false 时前端渲染引导文案，不编数字 */
+export interface ProInsightResult {
+  symbol: string;
+  asset_type: string | null;
+  has_account_data: boolean;
+  xirr: ProInsightXirr;
+  behavior: ProInsightBehavior;
+}
+
+/** 拉取 Pro 模块一账户级指标（XIRR + 行为画像；登录态注入 family_id） */
+export function fetchProInsight(symbol: string, assetType?: string | null) {
+  return http.request<ApiResponse<ProInsightResult>>(
+    "get",
+    "/api/products/pro-insight/",
     {
       params: { symbol, asset_type: assetType ?? undefined }
     }

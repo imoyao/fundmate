@@ -19,7 +19,12 @@ PRO_URL = '/api/products/pro/'
 
 
 def test_pro_status_returns_skeleton(client):
-    """带 symbol → 一期骨架：总开关 true、付费墙 false、四模块全不可用。"""
+    """带 symbol → 状态位：总开关 true、付费墙 false、模块按上线节奏逐个翻真。
+
+    Phase 2 起 performance 翻真（内容服务 ``pro_insight.py`` 落地）；
+    其余模块保持「Phase N 建设中」占位，落地时改 ``AVAILABLE_MODULES`` 一处。
+    注意「可用」≠「有数据」：available 与标的是否有用户流水无关。
+    """
     resp = client.get(PRO_URL, query_string={'symbol': '004369'}, headers={'X-User-Id': '1'})
 
     assert resp.status_code == 200
@@ -27,14 +32,16 @@ def test_pro_status_returns_skeleton(client):
     assert body['message'] == 'ok'
     data = body['data']
     assert data['symbol'] == '004369'
-    # 一期后端全开无权益校验；付费墙是前端 feature flag，端点恒 false
+    # 后端全开无权益校验；付费墙是前端 feature flag，端点恒 false
     assert data['pro_enabled'] is True
     assert data['paywall_required'] is False
     modules = data['modules']
     assert set(modules) == {'performance', 'risk', 'allocation', 'report'}
-    for module in modules.values():
-        assert module['available'] is False
+    assert modules['performance']['available'] is True  # #994 Phase 2 翻真
+    for name, module in modules.items():
         assert module['phase'] in (2, 3, 4)
+        if name != 'performance':
+            assert module['available'] is False
     # Phase 标注与 #994 五阶段排期一致：模块一/二 → P2，模块三 → P3，模块四 → P4
     assert modules['performance']['phase'] == 2
     assert modules['risk']['phase'] == 2

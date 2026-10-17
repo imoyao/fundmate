@@ -182,7 +182,9 @@ BASELINE: dict[str, dict[str, int]] = {
     # 2026-10-17 再取（#2278 新增 index-returns/index-weights 端点，详见上方 dated 条目）：458 → 502，其余三维不动。
     # 2026-10-17 三取（#2275 新增 index-etf-compare 端点）：502 → 528，其余三维不动——
     # 与同族端点一致的薄编排（入参解析 / 调服务 / 组响应），业务规则全部下沉 etf_compare.py。
-    "backend/app/domains/products/views.py": {"lines": 528, "orm_queries": 0, "commits": 0, "max_func": 30},
+    # 2026-10-17 四取（#994 Phase 2 新增 pro-insight 端点）：528 → 548，其余三维不动——
+    # 同族薄编排，聚合逻辑全在 pro_insight.py。
+    "backend/app/domains/products/views.py": {"lines": 548, "orm_queries": 0, "commits": 0, "max_func": 30},
     # 2026-10-16：#2255 收敛合并带入 CNB 域 D 对账（duoduobei/fundmate#477/#486）代码，225→311 重取基线（守卫自述「确因合并需要重取基线」场景）
     "backend/app/domains/reconciliation/views.py": {"lines": 311, "orm_queries": 2, "commits": 0, "max_func": 48},
     "backend/app/domains/search/views.py": {"lines": 25, "orm_queries": 0, "commits": 0, "max_func": 7},

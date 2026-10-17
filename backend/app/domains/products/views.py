@@ -26,6 +26,7 @@ from app.domains.products.schemas import (
     ManagerProfileRequest,
     ProductResolveRequest,
     ProductTrendRequest,
+    ProInsightRequest,
     ProStatusRequest,
     RelatedSymbolsRequest,
     StockProfileRequest,
@@ -40,6 +41,7 @@ from app.services.index_metrics import build_index_returns, build_index_weights
 from app.services.index_profile import build_index_profile
 from app.services.manager_holdings import build_manager_holdings
 from app.services.manager_profile import build_manager_profile
+from app.services.pro_insight import build_symbol_pro_insight
 from app.services.product_identity import resolve_product_identity
 from app.services.product_pro_status import build_pro_status
 from app.services.product_trend import empty_product_trend, fetch_product_trend
@@ -526,3 +528,21 @@ def pro_status():
     """
     query: ProStatusRequest = parse_query(ProStatusRequest)
     return jsonify({'data': build_pro_status(query.symbol, query.asset_type), 'message': 'ok'})
+
+
+@bp.get('/pro-insight/')
+def pro_insight():
+    """Pro 模块一「深度绩效与归因」——账户级指标聚合（#994 Phase 2）。
+
+    聚合 ``calculate_symbol_xirr``（#1972，资金加权年化）+ ``build_symbol_behavior``
+    （Phase 0，FIFO 配对自算的行为画像），全部基于**用户自己的**持仓与流水
+    （家庭作用域 ``get_family_id()``）。两服务 symbol 收敛 / 资产类型过滤同一真相源。
+
+    - 无账户数据 → ``has_account_data=false``（正常形态，前端渲染引导，不编数字）；
+    - 不做白名单登记：响应含用户私有数据，生产鉴权门禁下自然要求登录
+      （与 ``/trade-timeline/`` 同模式；开发环境 ``AUTH_ENABLED`` 关闭时匿名可用）。
+    """
+    query: ProInsightRequest = parse_query(ProInsightRequest)
+    with closing(market_session_factory()()) as db:
+        data = build_symbol_pro_insight(db, query.symbol, family_id=get_family_id(), asset_type=query.asset_type)
+    return jsonify({'data': data, 'message': 'ok'})
