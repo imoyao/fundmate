@@ -918,7 +918,9 @@ export function useImportWizard() {
             const nav = navMap[row.symbol];
             if (nav && nav > 0) {
               row.price = nav;
-              row.quantity = row.amount / nav;
+              // 与 cellEditLogic / applyManualFill / batchFixAmount 同一修边口径：
+              // toFixed(4) 后 parseFloat，避免长浮点直接进表格
+              row.quantity = parseFloat((row.amount / nav).toFixed(4));
               row.is_calculated = true;
             }
           }
@@ -1350,6 +1352,23 @@ export function useImportWizard() {
       if (!draft || draft.domain !== draftDomain) return;
       // 回填账本上下文（Step 0 产出，否则预览页丢失账本上下文）
       if (draft.selectedLedgerId != null) {
+        // 账户存在性前置校验：onMounted 先 fetchLedgers 再 checkDraft，
+        // 点恢复时列表已就绪；列表为空（fetch 失败）时不校验，避免误判。
+        // 账户已删除则拒绝恢复并丢弃草稿——否则带着死 ledgerId 一路走到
+        // confirmImport 才报「所选账户无效」，用户修正完数据才发现，
+        // 失败点太晚；且草稿已无归属，保留只会在下次进页面反复踩同一坑。
+        if (
+          ledgers.value.length > 0 &&
+          !ledgers.value.some(l => l.id === draft.selectedLedgerId)
+        ) {
+          await discardDraft().catch(() => {});
+          draftBannerVisible.value = false;
+          pendingDraftMeta.value = null;
+          ElMessage.warning(
+            "草稿关联的账户已被删除，无法恢复，请重新选择账户导入"
+          );
+          return;
+        }
         selectedLedgerId.value = draft.selectedLedgerId;
       }
       if (draft.selectedMode) selectedMode.value = draft.selectedMode;
@@ -1446,17 +1465,25 @@ export function useImportWizard() {
     checked ? selectAllValid() : clearAllSelection();
   }
 
+  /**
+   * 全选 / 恢复忽略行的勾选取止：疑似重复行默认不勾（要导自己手动勾，#1882），
+   * 解析错误 / 数量价格缺失 / 资金划转 / 已忽略行不参与。
+   * selectAllValid 与 toggleIgnoreRow 恢复分支共用，保证两处口径一致。
+   */
+  function isAutoSelectableRow(row: any): boolean {
+    return (
+      !row.is_duplicate &&
+      !row.error &&
+      !isRowBlocked(row) &&
+      !row.is_cash_transfer &&
+      !row._ignored
+    );
+  }
+
   function selectAllValid() {
     const newKeys = new Set<string>();
     previewData.value.forEach(row => {
-      if (
-        !row.is_duplicate &&
-        !row.error &&
-        !isRowBlocked(row) &&
-        !row.is_cash_transfer &&
-        !row._ignored
-      )
-        newKeys.add(row._rowKey);
+      if (isAutoSelectableRow(row)) newKeys.add(row._rowKey);
     });
     selectedKeys.value = newKeys;
     isAllSelected.value = true;
@@ -1479,7 +1506,14 @@ export function useImportWizard() {
   /** 逐行忽略：标记该行不参与导入（与整类跳过 skipCategory 互补，针对单行）；再点一次恢复 */
   function toggleIgnoreRow(row: any) {
     row._ignored = !row._ignored;
-    if (row._ignored) selectedKeys.value.delete(row._rowKey);
+    if (row._ignored) {
+      selectedKeys.value.delete(row._rowKey);
+    } else if (isAutoSelectableRow(row)) {
+      // 恢复忽略 = 回到全选默认态：可勾的重新勾上（#783 终审遗留小问题）。
+      // 只补谓词内的行——重复行要导仍需用户手动勾（#1882），
+      // 解析错误 / 待补全 / 资金划转行本就不可勾，恢复后同样不勾。
+      selectedKeys.value.add(row._rowKey);
+    }
     selectedKeys.value = new Set(selectedKeys.value);
     previewData.value = [...previewData.value];
     updateSelectAllState();
@@ -1521,7 +1555,9 @@ export function useImportWizard() {
             const nav = navMap[row.symbol];
             if (nav && nav > 0) {
               row.price = nav;
-              row.quantity = row.amount / nav;
+              // 修边口径同 fetchAndFillFundNav：toFixed(4) 后 parseFloat，
+              // 避免长浮点直接进表格
+              row.quantity = parseFloat((row.amount / nav).toFixed(4));
               row.is_calculated = true;
             } else {
               row.price = 0;
