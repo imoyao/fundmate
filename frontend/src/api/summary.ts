@@ -434,3 +434,42 @@ export function getFundValuation(params?: {
     { params }
   );
 }
+
+/**
+ * 账外类现金逐产品明细（持仓页「类现金」分组）。
+ *
+ * 货基 / 逆回购按**流水净额**记账（`position_id IS NULL`，不建持仓行），
+ * 所以不会出现在持仓明细表里，但它们在**总资产里已经算过**。
+ *
+ * ⚠️ 这只是展示：**禁止**把这里的金额再加进页面任何合计，否则双计。
+ */
+export type CashLikeItem = {
+  ledger_id: number | null;
+  ledger_name: string;
+  name: string;
+  symbol: string | null;
+  asset_type: string;
+  asset_type_label: string;
+  /** 本金净额（元） */
+  net_amount: number;
+  /** 累计收益（元） */
+  income_amount: number;
+  /** 本金 + 收益（元） */
+  total_amount: number;
+  txn_count: number;
+};
+
+export type CashLikeBreakdown = {
+  items: CashLikeItem[];
+  total_net_amount: number;
+  total_income_amount: number;
+  total_amount: number;
+};
+
+/** 家庭级账外类现金明细（跨账户，按「账户 + 产品」归组） */
+export function getCashLikeBreakdown() {
+  return http.request<ApiResponse<CashLikeBreakdown>>(
+    "get",
+    BASE_URL + "cash-like/"
+  );
+}

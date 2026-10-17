@@ -331,6 +331,98 @@ def orphan_cash_like_breakdown(db: Session, family_id: int, ledger_id: int) -> t
     return items, net_cents, income_cents
 
 
+def orphan_cash_like_breakdown_all(db: Session, family_id: int) -> tuple[list[dict], int, int]:
+    """**家庭级**账外类现金逐产品明细（持仓页「类现金」分组用）。
+
+    与 :func:`orphan_cash_like_breakdown` 同口径、同过滤条件，唯一区别是**不按
+    ledger_id 收窄**，而是把 (账户, 产品) 作为归组键——持仓页是跨账户视图，
+    用户要看到「这些不在持仓里的钱分别躺在哪个账户的哪个产品上」。
+
+    返回 `(items, net_cents, income_cents)`；`items` 每项：
+    `{ledger_id, ledger_name, name, symbol, asset_type, asset_type_label,
+      net_amount, income_amount, total_amount, txn_count}`（金额为元、已 round(2)）。
+
+    ⚠️ 口径红线（与 `orphan_money_fund_totals_by_ledger` 完全一致，改一处必改另一处）：
+    `asset_type IN ('money_fund','reverse_repo')`、`position_id IS NULL`、
+    buy/deposit 记正 / sell/withdraw 记负、dividend/tax 不计、`is_income` 三态切分。
+
+    ⚠️ 调用方只做展示，**禁止**把这里的金额再加进总资产：孤儿货基净额已经由
+    `orphan_money_fund_totals_by_ledger` 并入 `total_assets`（重复加 = 双计）。
+    """
+    rows = (
+        db.query(
+            Transaction.ledger_id,
+            Transaction.txn_type,
+            Transaction.amount,
+            Transaction.is_income,
+            Transaction.symbol,
+            Transaction.position_name,
+            Transaction.asset_type,
+        )
+        .filter(
+            Transaction.family_id == family_id,
+            Transaction.asset_type.in_(_ORPHAN_FLOW_ASSET_TYPES),
+            Transaction.position_id.is_(None),
+        )
+        .all()
+    )
+
+    # 账户名一次查完：持仓页要把「哪个账户」显示出来，逐行反查会变成 N+1
+    ledger_names = dict(db.query(Ledger.id, Ledger.name).filter(Ledger.family_id == family_id).all())
+
+    grouped: dict[tuple, dict] = {}
+    net_cents = 0
+    income_cents = 0
+    for ledger_id, txn_type, amount, is_income, symbol, name, asset_type in rows:
+        amount = amount or 0
+        if txn_type in _ORPHAN_FLOW_POSITIVE_TYPES:
+            delta = amount
+        elif txn_type in _ORPHAN_FLOW_NEGATIVE_TYPES:
+            delta = -amount
+        else:
+            continue
+
+        if is_income:
+            income_cents += delta
+        else:
+            net_cents += delta
+
+        key = (ledger_id or 0, symbol or '', name or '', asset_type or '')
+        bucket = grouped.setdefault(
+            key,
+            {
+                'ledger_id': ledger_id,
+                'ledger_name': ledger_names.get(ledger_id) or '未归属账户',
+                'name': name or '未命名',
+                'symbol': symbol,
+                'asset_type': asset_type,
+                'asset_type_label': TYPE_LABELS.get(asset_type, asset_type or _UNKNOWN_TYPE),
+                'net_amount_cents': 0,
+                'income_amount_cents': 0,
+                'txn_count': 0,
+            },
+        )
+        if is_income:
+            bucket['income_amount_cents'] += delta
+        else:
+            bucket['net_amount_cents'] += delta
+        bucket['txn_count'] += 1
+
+    items = []
+    for bucket in grouped.values():
+        net_yuan = Money.cents_to_yuan(bucket.pop('net_amount_cents'))
+        income_yuan = Money.cents_to_yuan(bucket.pop('income_amount_cents'))
+        bucket['net_amount'] = round(net_yuan, 2)
+        bucket['income_amount'] = round(income_yuan, 2)
+        bucket['total_amount'] = round(net_yuan + income_yuan, 2)
+        items.append(bucket)
+
+    # 金额绝对值降序：先看大头；为 0 的组直接丢弃（已清仓的产品不该占一行）
+    items = [it for it in items if it['total_amount'] != 0]
+    items.sort(key=lambda x: abs(x['total_amount']), reverse=True)
+    return items, net_cents, income_cents
+
+
 def get_summary_data(db: Session, family_id: int = 1) -> dict[str, Any]:
     """返回仪表盘聚合数据（总资产、总负债、净资产、盈亏拆分、市场分布）
 
