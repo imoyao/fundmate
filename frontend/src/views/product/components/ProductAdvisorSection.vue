@@ -280,7 +280,7 @@ watch(() => props.code, load, { immediate: true });
       </div>
 
       <!-- 脚注：来源给平台名（用户看得懂），并附官方页面外链（新窗口打开） -->
-      <p class="section-footnote">
+      <p class="section-footnote section-footnote--spaced">
         数据来源：{{ platformLabel || profile.platform }}
         <template v-if="profile.source_url">
           ·
@@ -295,7 +295,7 @@ watch(() => props.code, load, { immediate: true });
           </a>
         </template>
       </p>
-      <p class="section-footnote">
+      <p class="section-footnote section-footnote--attached">
         组合构成与收益以平台官方披露为准；平台未披露的字段显示「—」
       </p>
     </template>
@@ -403,9 +403,9 @@ watch(() => props.code, load, { immediate: true });
   color: var(--text-tertiary-ink);
 }
 
-.section-footnote:first-of-type {
-  margin-top: var(--space-3);
-}
+/* 脚注间距改由共享变体承担（#2320）：来源行用 --spaced 与上方内容分隔，
+   紧随其后的一行用 --attached 表明同属一组。原先靠 :first-of-type
+   局部改写共享类，等于把「第几条要多少间距」藏在选择器里——迁走后口径显式。 */
 
 .advisor-section__link {
   color: var(--text-secondary);

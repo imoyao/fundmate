@@ -264,8 +264,10 @@ watch(rows, () => nextTick(measure));
         <span v-if="showFade" class="etf-cmp__fade" aria-hidden="true" />
       </div>
 
-      <p v-if="footnote" class="etf-cmp__footnote">{{ footnote }}</p>
-      <p class="etf-cmp__note">
+      <p v-if="footnote" class="section-footnote section-footnote--spaced">
+        {{ footnote }}
+      </p>
+      <p class="section-footnote section-footnote--attached">
         对比表按成交额排序；跟踪差含折溢价噪声、非严格跟踪误差。同指数 ETF
         的费率与规模对比即将上线。
       </p>
@@ -368,17 +370,8 @@ watch(rows, () => nextTick(measure));
   }
 }
 
-.etf-cmp__footnote {
-  margin: var(--space-3) 0 0;
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
-}
-
-.etf-cmp__note {
-  margin: var(--space-1) 0 0;
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
-}
+/* 脚注族已迁至共享类 .section-footnote（#2320）：来源是**分隔型**（--spaced，
+   与上方表格拉开），口径说明是**续接型**（--attached，紧随来源、属同一组信息）。 */
 
 /* 右缘渐隐：固定在可视区右缘，不随内容滚动；pointer-events:none 不挡点击 */
 .etf-cmp__fade {

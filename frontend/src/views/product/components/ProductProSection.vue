@@ -283,7 +283,12 @@ const performanceAvailable = computed(
   color: var(--text-tertiary);
 }
 
-/* 付费墙遮罩：贴住内容区（不遮 SectionHeader），translucent 卡片底 + 轻模糊 */
+/* 付费墙遮罩：贴住内容区（不遮 SectionHeader），高不透明度实底
+   （#2319）去掉 backdrop-filter：design.md 红线是「Glass 毛玻璃仅限全局浮窗」，
+   全站唯一合法用法在 style/index.scss 的全局浮窗层；付费墙是贴住卡片内容区的
+   绝对定位遮罩，不是浮窗，用毛玻璃即违规。原 blur(2px) 叠在 86% 实底之上肉眼
+   几乎不可感知——既没拿到质感，又留下一个每次严格审计都会命中的违规点。
+   去掉后把不透明度提到 92% 补偿失去的模糊分离感，保证被遮内容不干扰遮罩文字可读性。 */
 .pro-paywall {
   position: absolute;
   inset: 0;
@@ -292,9 +297,8 @@ const performanceAvailable = computed(
   gap: var(--space-2);
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--bg-card) 86%, transparent);
+  background: color-mix(in srgb, var(--bg-card) 92%, transparent);
   border-radius: var(--radius-md);
-  backdrop-filter: blur(2px);
 }
 
 .pro-paywall__title {

@@ -187,12 +187,19 @@ watch(() => props.symbol, load, { immediate: true });
       <ProductIndexWeights v-if="profile" :symbol="symbol" />
 
       <!-- 样本不足的定调说明：比一排「—」更诚实（告诉用户为什么没有，而不是假装没数据） -->
-      <p v-if="profile.pe_percentile == null" class="index-section__note">
+      <p
+        v-if="profile.pe_percentile == null"
+        class="section-footnote section-footnote--spaced"
+      >
         该指数暂无足够历史样本计算分位（基线需 ≥1
         年月频数据），估值绝对值仍可参考。
       </p>
 
-      <p v-for="note in footnotes" :key="note" class="index-section__footnote">
+      <p
+        v-for="note in footnotes"
+        :key="note"
+        class="section-footnote section-footnote--spaced"
+      >
         {{ note }}
       </p>
     </template>
@@ -219,15 +226,6 @@ watch(() => props.symbol, load, { immediate: true });
   color: var(--text-secondary);
 }
 
-.index-section__note {
-  margin: var(--space-3) 0 0;
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
-}
-
-.index-section__footnote {
-  margin: var(--space-2) 0 0;
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
-}
+/* 「样本不足」定调说明与脚注同属脚注族，已迁至共享类 .section-footnote--spaced
+   （#2320）。原脚注为 space-2，随口径统一为 space-3。 */
 </style>

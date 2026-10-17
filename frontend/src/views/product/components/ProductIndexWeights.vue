@@ -114,7 +114,9 @@ watch(() => props.symbol, load, { immediate: true });
       <p v-if="concentrationText" class="idx-weights__concentration">
         {{ concentrationText }}
       </p>
-      <p v-if="footnote" class="idx-weights__footnote">{{ footnote }}</p>
+      <p v-if="footnote" class="section-footnote section-footnote--spaced">
+        {{ footnote }}
+      </p>
     </template>
   </section>
 </template>
@@ -212,9 +214,6 @@ watch(() => props.symbol, load, { immediate: true });
   font-variant-numeric: tabular-nums;
 }
 
-.idx-weights__footnote {
-  margin: var(--space-2) 0 0;
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
-}
+/* 脚注已迁至共享类 .section-footnote--spaced（#2320）。原为 space-2，
+   随口径统一为 space-3——两条并列脚注与上方图表之间需要同一条分隔间距。 */
 </style>

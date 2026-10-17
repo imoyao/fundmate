@@ -129,7 +129,7 @@ watch(() => props.symbol, load, { immediate: true });
         </div>
       </dl>
 
-      <p class="idx-returns__footnote">{{ footnote }}</p>
+      <p class="section-footnote section-footnote--spaced">{{ footnote }}</p>
     </template>
   </section>
 </template>
@@ -168,9 +168,5 @@ watch(() => props.symbol, load, { immediate: true });
   color: var(--color-fall-ink);
 }
 
-.idx-returns__footnote {
-  margin: var(--space-3) 0 0;
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
-}
+/* 脚注已迁至共享类 .section-footnote--spaced（#2320） */
 </style>
