@@ -653,6 +653,19 @@ export function useImportWizard() {
   });
 
   /**
+   * #2281：「数据完整」卡内的转账行条数。与 categorizeRow 同口径取子集
+   * （转账行若同时疑似重复则归 duplicate 卡，不计入此处），保证 chips 计数
+   * ≤ 卡片条数；摘要卡据此提示「转账可导入 / 转账待关联」。
+   */
+  const completeTransferCount = computed(() => {
+    let n = 0;
+    previewData.value.forEach(row => {
+      if (row.is_cash_transfer && categorizeRow(row) === "complete") n++;
+    });
+    return n;
+  });
+
+  /**
    * 四分区行源（#1792）：修正面板与 fixBreakdown 共用的唯一分桶。
    * 不变量：某行进入且仅进入一个分区 ⟺ categorizeRow(row) === "fix"——
    * 摘要卡「需要修正」条数 = 四分区行数之和，结构性成立（沿 #1791 验收② 的共谓词纪律）。
@@ -1064,6 +1077,10 @@ export function useImportWizard() {
     tableTypeFilter.value = [];
     tableStatusFilter.value = "";
     duplicatesHandled.value = false;
+    // #2281：转账行横幅关闭态与「可导入」徽章 dismiss 态均为会话级，
+    // 新导入会话（换文件 / 重新导入）重置，确保能力提示重新出现
+    cashBindingBannerDismissed.value = false;
+    dismissedTransferBadgeKeys.value = new Set();
     uploadError.value = "";
     parsing.value = false;
   }
@@ -1871,10 +1888,16 @@ export function useImportWizard() {
    * 解析错误 / 数量价格缺失（isRowBlocked）/ 资金划转行不可勾（表格行复选框同样禁用），
    * _ignored 是用户显式忽略、不参与卡片批量勾选；**疑似重复行可勾**（#1791 验收④）。
    */
+  /**
+   * 行可手动勾选。#2281：转账行在关联现金账户后才可勾（放开前一律禁用，
+   * tooltip 指路「请先关联现金账户」）；其余行沿用错误 / 已忽略 / 待补全排除。
+   * 与 isAutoSelectableRow 的两处语义差异：本谓词允许重复行（卡片可勾），
+   * 且转账行能否勾选取决于现金账户关联状态。
+   */
   function isRowSelectable(row: any): boolean {
-    return (
-      !row.error && !row.is_cash_transfer && !row._ignored && !isRowBlocked(row)
-    );
+    if (row.error || row._ignored || isRowBlocked(row)) return false;
+    if (row.is_cash_transfer) return Boolean(selectedLedgerLinkedCash.value);
+    return true;
   }
 
   /** 卡片复选框三态：该类可勾行全选 / 部分选 / 未选 */
@@ -1890,12 +1913,20 @@ export function useImportWizard() {
     return picked === total ? "all" : "some";
   }
 
-  /** 卡片复选框切换：勾选=选中该类全部可选行，取消=仅取消该类（不动其它类别） */
+  /**
+   * 卡片复选框切换：勾选=选中该类全部可批量纳入行，取消=取消该类全部可勾行。
+   * #2281：勾选方向排除转账行（可勾但不默认勾——批量动作不代替用户做显式决定）；
+   * 取消方向走宽口径，用户手动勾上的转账行随卡片取消一并清除（与重复行同语义）。
+   */
   function toggleCategorySelection(key: SummaryCategory, checked: boolean) {
     previewData.value.forEach(row => {
       if (categorizeRow(row) !== key || !isRowSelectable(row)) return;
-      if (checked) selectedKeys.value.add(row._rowKey);
-      else selectedKeys.value.delete(row._rowKey);
+      if (checked) {
+        if (row.is_cash_transfer) return;
+        selectedKeys.value.add(row._rowKey);
+      } else {
+        selectedKeys.value.delete(row._rowKey);
+      }
     });
     selectedKeys.value = new Set(selectedKeys.value);
     updateSelectAllState();
@@ -2213,12 +2244,64 @@ export function useImportWizard() {
     return l?.linked_cash_ledger_id ?? null;
   });
 
-  /** 步骤3 预览含银证转账、且当前账户未关联现金账户 —— 显示软提示 */
+  /**
+   * #2281 感知层：转账行提示横幅双态。
+   * - 引导态（showCashBindingBanner）：有转账行、未关联现金账户。不可关闭——
+   *   它是关联操作入口，且 RowSelectionCell 的 tooltip 指向本横幅；
+   * - 轻量提示态（showCashTransferHint）：已关联仍告知「转账行可勾选导入」，
+   *   修复关联后横幅立即消失、能力隐身的断点；默认不勾选由用户决定。
+   * 关闭轻量态后本次导入会话不再显示（clearImportState 重置，换文件重现）。
+   */
+  const cashBindingBannerDismissed = ref(false);
+  const hasCashTransferRows = computed(() =>
+    previewData.value.some((r: any) => r.is_cash_transfer)
+  );
+
+  /** 引导态：有转账行、未关联现金账户 */
   const showCashBindingBanner = computed(() => {
     if (currentStep.value !== 2) return false;
     if (selectedLedgerLinkedCash.value) return false;
-    return previewData.value.some((r: any) => r.is_cash_transfer);
+    return hasCashTransferRows.value;
   });
+
+  /** 轻量提示态：已关联现金账户、有转账行、用户未关闭 */
+  const showCashTransferHint = computed(() => {
+    if (currentStep.value !== 2) return false;
+    if (cashBindingBannerDismissed.value) return false;
+    if (!selectedLedgerLinkedCash.value) return false;
+    return hasCashTransferRows.value;
+  });
+
+  /** 关联的现金账户名（轻量提示态展示用） */
+  const linkedCashLedgerName = computed(() => {
+    const id = selectedLedgerLinkedCash.value;
+    if (!id) return "";
+    return ledgers.value.find(l => l.id === id)?.name || "";
+  });
+
+  function dismissCashBindingBanner() {
+    cashBindingBannerDismissed.value = true;
+  }
+
+  /**
+   * #2281 感知层：转账行一次性「可导入」徽章。每行首次渲染时显示，
+   * 与本行有过交互（勾选 / 点击徽章）后本会话不再显示；按 _rowKey 记录，
+   * 翻页 / 过滤导致重新渲染不复发。
+   */
+  const dismissedTransferBadgeKeys = ref(new Set<string>());
+  function showTransferBadge(row: any): boolean {
+    return (
+      Boolean(row.is_cash_transfer) &&
+      !dismissedTransferBadgeKeys.value.has(row._rowKey)
+    );
+  }
+  function dismissTransferBadge(row: any) {
+    if (dismissedTransferBadgeKeys.value.has(row._rowKey)) return;
+    dismissedTransferBadgeKeys.value.add(row._rowKey);
+    dismissedTransferBadgeKeys.value = new Set(
+      dismissedTransferBadgeKeys.value
+    );
+  }
 
   /** 在步骤3 横幅内直接关联现金账户并落库 */
   async function linkCashAccount() {
@@ -2494,6 +2577,12 @@ export function useImportWizard() {
     cashLedgersForImport,
     selectedLedgerLinkedCash,
     showCashBindingBanner,
+    showCashTransferHint,
+    linkedCashLedgerName,
+    dismissCashBindingBanner,
+    showTransferBadge,
+    dismissTransferBadge,
+    completeTransferCount,
     linkCashAccount,
     ledgerTouched,
     activeCategoryFilter,

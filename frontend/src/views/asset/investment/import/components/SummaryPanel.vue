@@ -8,6 +8,8 @@ const {
   showAllocationGroupPanel,
   summaryCounts,
   fixBreakdown,
+  completeTransferCount,
+  selectedLedgerLinkedCash,
   totalRows,
   selectedCount,
   allRowsDuplicate,
@@ -72,6 +74,19 @@ const fixChips = computed(() => {
   return chips;
 });
 
+/**
+ * #2281：「数据完整」卡内的转账行提示 chips——让用户在计数语境里
+ * 感知到「这些行具备导入能力」。未关联时提示待关联，已关联提示可导入。
+ */
+const completeTransferChip = computed(() => {
+  const n = completeTransferCount.value;
+  if (n === 0) return null;
+  return {
+    label: selectedLedgerLinkedCash.value ? "转账可导入" : "转账待关联",
+    count: n
+  };
+});
+
 /** 每卡复选框三态算一次供模板复用（避免每 render 对全表多扫几遍） */
 const cardCheckStates = computed(() => ({
   complete: categoryCheckState("complete"),
@@ -129,6 +144,16 @@ function onCardCheck(key: SummaryCategory, val: string | number | boolean) {
           <div v-if="card.key === 'fix' && fixChips.length" class="card-chips">
             <span v-for="chip in fixChips" :key="chip.label" class="chip">
               {{ chip.label }} {{ chip.count }}
+            </span>
+          </div>
+
+          <!-- #2281：数据完整卡的转账行能力提示（关联前后两种文案） -->
+          <div
+            v-else-if="card.key === 'complete' && completeTransferChip"
+            class="card-chips"
+          >
+            <span class="chip chip--info">
+              {{ completeTransferChip.label }} {{ completeTransferChip.count }}
             </span>
           </div>
 
@@ -294,6 +319,13 @@ function onCardCheck(key: SummaryCategory, val: string | number | boolean) {
   background: var(--color-danger-10);
   border: 1px solid var(--color-danger-30);
   border-radius: 999px;
+}
+
+/* #2281：能力提示 chips 用主色系，与问题统计的红色系区分 */
+.chip--info {
+  color: var(--color-primary-ink);
+  background: var(--color-primary-10);
+  border-color: var(--color-primary-20);
 }
 
 .card-actions {
