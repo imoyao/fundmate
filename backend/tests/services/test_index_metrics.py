@@ -25,10 +25,10 @@ from app.core.db_factory import market_session_factory
 from app.domains.indices.models import IndexCatalog
 from app.services import index_metrics as im
 from app.services.index_metrics import (
+    _shift_months,
     build_index_returns,
     build_index_weights,
     compute_period_returns,
-    _shift_months,
 )
 
 FIXED_TODAY = date(2026, 10, 17)
