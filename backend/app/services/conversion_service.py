@@ -23,9 +23,12 @@ from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
+from loguru import logger
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.constants import CASH_SYMBOL, PositionSource
+from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
 from app.core.symbol_utils import strip_exchange_prefix
 from app.core.utils import get_confirm_date
@@ -55,21 +58,6 @@ _ZERO = Decimal('0')
 
 _REFUND_MODE_MONEY_FUND = 'money_fund'
 _REFUND_MODE_ACCOUNT_CASH = 'account_cash'
-
-
-class ConversionAlreadyRecordedError(Exception):
-    """同幂等键的转换已落库（重复提交 / 网络重发）。
-
-    为什么需要它而不是只靠 import_hash 唯一约束：全部转出会删除转出持仓行，
-    SQLite 可能把该 rowid 复用给新建的转入持仓——重试请求按 position_id 会
-    「找到」一个其实属于本笔转换的持仓，校验信息完全错位（如误报「转入基金
-    不能与转出基金相同」）。在动任何持仓之前先查组是否存在，语义才确定。
-    视图层将其转为 409（与手动记账重复提交同一状态码）。
-    """
-
-    def __init__(self, link_group_id: str):
-        super().__init__(f'该笔转换已记录（组 {link_group_id}），请勿重复提交')
-        self.link_group_id = link_group_id
 
 
 class ConversionService:
@@ -165,7 +153,13 @@ class ConversionService:
         # 复用，不预检会让重试请求拿着已失效的 position_id 走进错位的校验分支。
         dup = db.query(Transaction).filter_by(import_hash=f'{idempotency_key}#conv-out', family_id=family_id).first()
         if dup:
-            raise ConversionAlreadyRecordedError(dup.link_group_id or str(idempotency_key))
+            group_id = dup.link_group_id or str(idempotency_key)
+            raise SBException(
+                code=ErrorCode.DUPLICATE_ENTRY.code,
+                message=f'该笔转换已记录（组 {group_id}），请勿重复提交',
+                status_code=409,
+                detail={'link_group_id': group_id, 'duplicated': True},
+            )
 
         c = ConversionService._compute_conversion(
             db,
@@ -198,148 +192,160 @@ class ConversionService:
         confirm_d = get_confirm_date(trade_d, fund_type='domestic', is_after_15=False)
 
         # ── OUT 腿：卖出（显式关闭自动申购，退款由 REFUND 腿显式落账） ──
-        extra_out = json.dumps(
-            {
-                'conversion': {
-                    'v': 1,
-                    'group_no': group_no,
-                    'role': 'out',
-                    'status': 'pending',
-                    'nav_date': trade_d.isoformat(),
-                    'counter_symbol': c['in_code'],
-                    'fee_breakdown': {
-                        'redeem': float(c['redeem_fee']),
-                        'compensate': float(c['compensate']),
-                    },
-                    'refund_mode': mode or None,
-                    'estimated': True,
-                }
-            },
-            ensure_ascii=False,
-        )
-        out_data = {
-            'position_id': position.id,
-            'op_type': 'sell',
-            'symbol': position.symbol,
-            'asset_type': 'fund',
-            'quantity': float(c['qty']),
-            'avg_price': float(c['out_nav']),
-            'fee': float(c['total_fee']),
-            'trade_date': trade_d,
-            'confirm_date': confirm_d,
-            'link_group_id': link_group_id,
-            'import_hash': f'{link_group_id}#conv-out',
-            'notes': '基金转换-转出',
-            'ledger_id': position.ledger_id,
-            'family_id': family_id,
-            'extra': extra_out,
-            'source': PositionSource.MANUAL.value,
-        }
-        PositionService.process_sell_or_withdraw(db, out_data, auto_purchase=False)
-
-        # ── IN 腿：买入（份额 4 位入库，保证 净值×份额 ≈ 净额） ──
-        extra_in = json.dumps(
-            {
-                'conversion': {
-                    'v': 1,
-                    'group_no': group_no,
-                    'role': 'in',
-                    'status': 'pending',
-                    'nav_date': trade_d.isoformat(),
-                    'counter_symbol': c['out_symbol'],
-                    'estimated': True,
-                }
-            },
-            ensure_ascii=False,
-        )
-        in_data = {
-            'symbol': c['in_code'],
-            'op_type': 'buy',
-            'asset_type': 'fund',
-            'quantity': float(c['in_quantity']),
-            'avg_price': float(c['in_nav']),
-            'fee': 0.0,
-            'trade_date': trade_d,
-            'confirm_date': confirm_d,
-            'link_group_id': link_group_id,
-            'import_hash': f'{link_group_id}#conv-in',
-            'notes': '基金转换-转入',
-            'ledger_id': position.ledger_id,
-            'family_id': family_id,
-            'venue': 'OTC',
-            'extra': extra_in,
-            'source': PositionSource.MANUAL.value,
-        }
-        in_position = PositionService.process_buy_or_deposit(db, in_data, force_create_position=True)
-
-        # ── REFUND 腿（可选）：真实流水，金额唯一真相在流水不在 extra（§3.1） ──
-        refund_txn_id = None
-        if refund_amount > 0:
-            extra_refund = json.dumps(
+        # 并发竞态兜底：两个相同幂等键的请求同时穿过预检时，任一流水的 import_hash
+        # 撞唯一约束即在此收敛为 409（与预检同一信封），避免冒到全局 500。
+        try:
+            extra_out = json.dumps(
                 {
                     'conversion': {
                         'v': 1,
                         'group_no': group_no,
-                        'role': 'refund',
-                        'refund_mode': mode,
+                        'role': 'out',
+                        'status': 'pending',
+                        'nav_date': trade_d.isoformat(),
+                        'counter_symbol': c['in_code'],
+                        'fee_breakdown': {
+                            'redeem': float(c['redeem_fee']),
+                            'compensate': float(c['compensate']),
+                        },
+                        'refund_mode': mode or None,
                         'estimated': True,
                     }
                 },
                 ensure_ascii=False,
             )
-            if mode == _REFUND_MODE_MONEY_FUND:
-                linked: Fund = c['linked_money_fund']
-                txn = TransactionService.create(
-                    db=db,
-                    position_id=None,
-                    symbol=linked.fund_code,
-                    txn_type='buy',
-                    trade_date=trade_d,
-                    confirm_date=confirm_d,
-                    asset_type='money_fund',
-                    quantity=0,
-                    price=0,
-                    fee=0,
-                    amount=Money.yuan_to_cents(refund_amount),
-                    status='success',
-                    position_name=linked.name,
-                    ledger_id=ledger.id,
-                    account_name=ledger.name,
-                    notes='基金转换退款-转入类现金产品',
-                    link_group_id=link_group_id,
-                    import_hash=f'{link_group_id}#conv-refund',
-                    entry_status='orphan',
-                    extra=extra_refund,
-                    family_id=family_id,
-                    source=PositionSource.MANUAL.value,
+            out_data = {
+                'position_id': position.id,
+                'op_type': 'sell',
+                'symbol': position.symbol,
+                'asset_type': 'fund',
+                'quantity': float(c['qty']),
+                'avg_price': float(c['out_nav']),
+                'fee': float(c['total_fee']),
+                'trade_date': trade_d,
+                'confirm_date': confirm_d,
+                'link_group_id': link_group_id,
+                'import_hash': f'{link_group_id}#conv-out',
+                'notes': '基金转换-转出',
+                'ledger_id': position.ledger_id,
+                'family_id': family_id,
+                'extra': extra_out,
+                'source': PositionSource.MANUAL.value,
+            }
+            PositionService.process_sell_or_withdraw(db, out_data, auto_purchase=False)
+
+            # ── IN 腿：买入（份额 4 位入库，保证 净值×份额 ≈ 净额） ──
+            extra_in = json.dumps(
+                {
+                    'conversion': {
+                        'v': 1,
+                        'group_no': group_no,
+                        'role': 'in',
+                        'status': 'pending',
+                        'nav_date': trade_d.isoformat(),
+                        'counter_symbol': c['out_symbol'],
+                        'estimated': True,
+                    }
+                },
+                ensure_ascii=False,
+            )
+            in_data = {
+                'symbol': c['in_code'],
+                'op_type': 'buy',
+                'asset_type': 'fund',
+                'quantity': float(c['in_quantity']),
+                'avg_price': float(c['in_nav']),
+                'fee': 0.0,
+                'trade_date': trade_d,
+                'confirm_date': confirm_d,
+                'link_group_id': link_group_id,
+                'import_hash': f'{link_group_id}#conv-in',
+                'notes': '基金转换-转入',
+                'ledger_id': position.ledger_id,
+                'family_id': family_id,
+                'venue': 'OTC',
+                'extra': extra_in,
+                'source': PositionSource.MANUAL.value,
+            }
+            in_position = PositionService.process_buy_or_deposit(db, in_data, force_create_position=True)
+
+            # ── REFUND 腿（可选）：真实流水，金额唯一真相在流水不在 extra（§3.1） ──
+            refund_txn_id = None
+            if refund_amount > 0:
+                extra_refund = json.dumps(
+                    {
+                        'conversion': {
+                            'v': 1,
+                            'group_no': group_no,
+                            'role': 'refund',
+                            'refund_mode': mode,
+                            'estimated': True,
+                        }
+                    },
+                    ensure_ascii=False,
                 )
-            else:
-                txn = TransactionService.create(
-                    db=db,
-                    position_id=None,
-                    symbol=CASH_SYMBOL,
-                    txn_type='deposit',
-                    trade_date=trade_d,
-                    confirm_date=confirm_d,
-                    asset_type='cash',
-                    quantity=0,
-                    price=0,
-                    fee=0,
-                    amount=Money.yuan_to_cents(refund_amount),
-                    status='success',
-                    position_name='账户现金',
-                    ledger_id=ledger.id,
-                    account_name=ledger.name,
-                    notes='基金转换退款-退回账户现金',
-                    link_group_id=link_group_id,
-                    import_hash=f'{link_group_id}#conv-refund',
-                    entry_status='orphan',
-                    extra=extra_refund,
-                    family_id=family_id,
-                    source=PositionSource.MANUAL.value,
-                )
-            db.flush()
-            refund_txn_id = txn.id
+                if mode == _REFUND_MODE_MONEY_FUND:
+                    linked: Fund = c['linked_money_fund']
+                    txn = TransactionService.create(
+                        db=db,
+                        position_id=None,
+                        symbol=linked.fund_code,
+                        txn_type='buy',
+                        trade_date=trade_d,
+                        confirm_date=confirm_d,
+                        asset_type='money_fund',
+                        quantity=0,
+                        price=0,
+                        fee=0,
+                        amount=Money.yuan_to_cents(refund_amount),
+                        status='success',
+                        position_name=linked.name,
+                        ledger_id=ledger.id,
+                        account_name=ledger.name,
+                        notes='基金转换退款-转入类现金产品',
+                        link_group_id=link_group_id,
+                        import_hash=f'{link_group_id}#conv-refund',
+                        entry_status='orphan',
+                        extra=extra_refund,
+                        family_id=family_id,
+                        source=PositionSource.MANUAL.value,
+                    )
+                else:
+                    txn = TransactionService.create(
+                        db=db,
+                        position_id=None,
+                        symbol=CASH_SYMBOL,
+                        txn_type='deposit',
+                        trade_date=trade_d,
+                        confirm_date=confirm_d,
+                        asset_type='cash',
+                        quantity=0,
+                        price=0,
+                        fee=0,
+                        amount=Money.yuan_to_cents(refund_amount),
+                        status='success',
+                        position_name='账户现金',
+                        ledger_id=ledger.id,
+                        account_name=ledger.name,
+                        notes='基金转换退款-退回账户现金',
+                        link_group_id=link_group_id,
+                        import_hash=f'{link_group_id}#conv-refund',
+                        entry_status='orphan',
+                        extra=extra_refund,
+                        family_id=family_id,
+                        source=PositionSource.MANUAL.value,
+                    )
+                db.flush()
+                refund_txn_id = txn.id
+
+        except IntegrityError as e:
+            logger.warning('转换落库唯一约束冲突（疑似同键并发重复提交）: %s', e)
+            raise SBException(
+                code=ErrorCode.DUPLICATE_ENTRY.code,
+                message='该笔转换已记录，请勿重复提交',
+                status_code=409,
+                detail={'link_group_id': link_group_id, 'duplicated': True},
+            ) from e
 
         db.flush()
         return {

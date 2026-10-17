@@ -15,12 +15,13 @@ from datetime import date, timedelta
 import pytest
 
 from app.core.constants import CASH_SYMBOL
+from app.core.exceptions import SBException
 from app.core.money import Money
 from app.domains.funds.models import DailyWorth, FeeRatio, Fund, PurchaseRule, RedeemRule
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
-from app.services.conversion_service import ConversionAlreadyRecordedError, ConversionService
+from app.services.conversion_service import ConversionService
 
 TRADE_DATE = date(2026, 10, 15)
 BUY_CONFIRM_DATE = TRADE_DATE - timedelta(days=3)
@@ -256,14 +257,19 @@ def test_submit_no_auto_purchase_even_when_enabled(db, make_position, make_trans
 
 
 def test_submit_idempotent_same_key_rejected(db, make_position, make_transaction):
-    """同幂等键重复提交：预检命中，不产生第二组流水（rowid 复用也不误判）。"""
+    """同幂等键重复提交：预检命中抛 SBException(409/1003)，不产生第二组流水。"""
     _seed_two_funds(db)
     pos = _make_out_position(db, make_position, make_transaction)
 
     first = _submit(db, pos)
-    with pytest.raises(ConversionAlreadyRecordedError) as exc_info:
+    with pytest.raises(SBException) as exc_info:
         _submit(db, pos)
-    assert exc_info.value.link_group_id == first['link_group_id']
+    err = exc_info.value
+    assert err.status_code == 409
+    assert err.code == 1003
+    # detail 带原组号：前端重发可直接跳到已落库的那笔结果
+    assert err.detail['link_group_id'] == first['link_group_id']
+    assert err.detail['duplicated'] is True
     # 仍然只有一组两条流水
     assert len(_group_txns(db)) == 2
 
