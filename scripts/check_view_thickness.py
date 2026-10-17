@@ -152,6 +152,12 @@ NEW_FILE_LIMITS = {
 # 是否上线是发布状态而非用户数据），没有任何可下沉的业务规则；docstring 占比高是在写
 # 「为什么一期后端全开 / 为什么路径落 products 域」的决策，值得留。products 437 → 458。
 # 这是本文件 2026-10-16 升入存量冻结后的第一次生长，按自述通道 `--report` 实测回写。
+# 2026-10-17 再取（#2278，**新增端点**，非放宽）：给 products 加 `GET /api/products/index-returns/`
+# 与 `GET /api/products/index-weights/`（详情页指数区块：阶段性收益 + 十大权重）——视图侧
+# 只有「parse_query + 调 services/index_metrics + 信封」，与同族 index-profile 同款薄编排；
+# 名录查询（orm 的 query）在 service 内做（视图层零 db.query 红线不动），`orm_queries` /
+# `commits` 仍为 **0**、`max_func` 不变（30）。docstring 在写「数据链为何中证官网优先 /
+# 降级语义」的口径，值得留。products 458 → 502（`--report` 实测，其余三维不动）。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/assets/views.py": {"lines": 208, "orm_queries": 4, "commits": 0, "max_func": 44},
     "backend/app/domains/auth/views.py": {"lines": 137, "orm_queries": 3, "commits": 0, "max_func": 45},
@@ -173,7 +179,8 @@ BASELINE: dict[str, dict[str, int]] = {
     # 「同时改 LEGACY_VIEWS + BASELINE + 过评审」升入存量冻结集（此后任何端点再生长都会被
     # 「只减不增」拦下），四维实测值取自 `--report`，非手工拍数。
     # 2026-10-17 重取（#2272 新增 pro 端点，详见上方 dated 条目）：437 → 458，其余三维不动。
-    "backend/app/domains/products/views.py": {"lines": 458, "orm_queries": 0, "commits": 0, "max_func": 30},
+    # 2026-10-17 再取（#2278 新增 index-returns/index-weights 端点，详见上方 dated 条目）：458 → 502，其余三维不动。
+    "backend/app/domains/products/views.py": {"lines": 502, "orm_queries": 0, "commits": 0, "max_func": 30},
     # 2026-10-16：#2255 收敛合并带入 CNB 域 D 对账（duoduobei/fundmate#477/#486）代码，225→311 重取基线（守卫自述「确因合并需要重取基线」场景）
     "backend/app/domains/reconciliation/views.py": {"lines": 311, "orm_queries": 2, "commits": 0, "max_func": 48},
     "backend/app/domains/search/views.py": {"lines": 25, "orm_queries": 0, "commits": 0, "max_func": 7},

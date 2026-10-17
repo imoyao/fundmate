@@ -34,6 +34,7 @@ from app.services.fund_holdings_detail import build_fund_holdings_detail
 from app.services.fund_performance import build_fund_performance
 from app.services.fund_profile import build_fund_profile
 from app.services.fund_risk_ranking import SORTABLE_METRICS, list_by_metric, list_fund_types
+from app.services.index_metrics import build_index_returns, build_index_weights
 from app.services.index_profile import build_index_profile
 from app.services.manager_holdings import build_manager_holdings
 from app.services.manager_profile import build_manager_profile
@@ -221,6 +222,49 @@ def index_profile():
     with closing(market_session_factory()()) as db:
         try:
             data = build_index_profile(db, query.symbol)
+        except ValueError as e:
+            abort(400, str(e))
+
+    if data is None:
+        abort(404, f'指数不存在：{query.symbol}')
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/index-returns/')
+def index_returns():
+    """指数阶段性收益 + 年化波动率（#2278 · 详情页指数区块）。
+
+    与 ``/index-profile/`` 同域同规则：服务详情页这一个页面。数据是**按需抓的
+    外部日线**（中证官网优先 / 腾讯兜底，见 ``index_metrics`` 模块说明），服务端
+    现算六窗口收益 + 年化波动后即弃，不入库；TTL 缓存挡重复外部请求。外部源
+    全空 → 200 + 全 ``null``（前端逐项「—」），仅名录未命中才 404。
+    """
+    query: IndexProfileRequest = parse_query(IndexProfileRequest)
+
+    with closing(market_session_factory()()) as db:
+        try:
+            data = build_index_returns(db, query.symbol)
+        except ValueError as e:
+            abort(400, str(e))
+
+    if data is None:
+        abort(404, f'指数不存在：{query.symbol}')
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/index-weights/')
+def index_weights():
+    """指数十大权重 + 前十大集中度（#2278 · 详情页指数区块）。
+
+    数据源 akshare ``index_stock_cons_weight_csindex``（中证月频口径），按需抓 +
+    TTL 缓存 + 不入库。接口失败 / 码族不适用 → 200 + 空权重形态（``top10: []``、
+    其余 ``null``），前端整块降级「—」；仅名录未命中才 404。
+    """
+    query: IndexProfileRequest = parse_query(IndexProfileRequest)
+
+    with closing(market_session_factory()()) as db:
+        try:
+            data = build_index_weights(db, query.symbol)
         except ValueError as e:
             abort(400, str(e))
 
