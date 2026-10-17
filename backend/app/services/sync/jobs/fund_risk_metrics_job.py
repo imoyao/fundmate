@@ -53,7 +53,8 @@ from app.services.job_base import IN_CHUNK_SIZE, JobStatus, SyncJob
 # 口径版本号：改动窗口 / rf / 指标公式（即任何会让同一份净值算出不同数字的改动）时
 # **必须 +1**。读路径按版本过滤，不符即视为无数据回退现算——避免「新旧口径混在一张表里」
 # 这种最坏的形态：看起来都有值，实际不可比。
-CALIBER_VERSION = 1
+# v2（#2284）：新增 ret_1m / ret_3m / ret_1y 区间收益三列（旧行新列为 NULL，靠 bump 强制重算）。
+CALIBER_VERSION = 2
 
 # 全库回填的显式标记（与其它 job 同惯例）。
 FULL_TARGET = '__full__'
@@ -206,6 +207,9 @@ class FundRiskMetricsSyncJob(SyncJob):
                     'drawdown_days': result.drawdown_days,
                     'annual_return': result.annual_return,
                     'annual_volatility': result.annual_volatility,
+                    'ret_1m': result.ret_1m,
+                    'ret_3m': result.ret_3m,
+                    'ret_1y': result.ret_1y,
                     'sharpe': result.sharpe,
                     'sortino': result.sortino,
                     'calmar': result.calmar,

@@ -100,6 +100,10 @@ class RiskMetricsResult:
     win_rate: Optional[float]  # 胜率（%，给定周期）
     win_rate_period: str  # day / week / month
     overlap: bool  # 胜率是否基于重叠滚动窗口（是 → 体验指标，非概率）
+    # ── 区间收益（#2284）：与拟涨幅共用自然日端点取数规则，见 PERIOD_RETURN_SPANS ──
+    ret_1m: Optional[float] = None  # 近1月区间收益率（%）
+    ret_3m: Optional[float] = None  # 近3月区间收益率（%）
+    ret_1y: Optional[float] = None  # 近1年区间收益率（%）
     benchmark: Optional[Dict[str, Any]] = None  # 基准相对指标（未传基准时为 None）
     basis: str = 'acc_nav'
     caveats: List[str] = field(default_factory=list)
@@ -451,6 +455,28 @@ def _shape_gain_ready(
     return _rolling_window_navs(series, spans)
 
 
+#: #2284 区间收益窗口（自然日）→ 结果字段名。30/90/365 与 `SHAPE_GAIN_SPANS` 的
+#: 近1月/近3月/近1年**同界**——同一基金的「近1月」在拟涨幅与榜单里必须是同一段日子；
+#: 拟涨幅另有 180（近6月），不在本次范围。改天数即改口径，必须 bump job 的 CALIBER_VERSION。
+PERIOD_RETURN_SPANS: Tuple[Tuple[str, int], ...] = (('ret_1m', 30), ('ret_3m', 90), ('ret_1y', 365))
+
+
+def _period_return(series: Sequence[Tuple[date, float]], days: int) -> Optional[float]:
+    """近 ``days`` 自然日的区间收益（%）：期末 ÷ 期初 − 1。
+
+    取数规则**复用 `_rolling_window_navs`**（单窗口调用 ⇒ 三列各自独立降级）：
+    分界日取「≥ 该日的首个净值点」，不插值；序列起点晚于分界日 ⇒ None
+    （历史不足该窗口——不缩窗口、不拿成立以来凑数）。``series`` 须已 `_clean`。
+    """
+    if len(series) < 2:
+        return None
+    ready = _rolling_window_navs(series, (days,))
+    if ready is None:
+        return None
+    end_nav, (start_nav,) = ready
+    return round((end_nav / start_nav - 1) * 100, 4)
+
+
 def shape_gain(
     points: Sequence[Tuple[date, Optional[float]]],
     *,
@@ -700,6 +726,11 @@ def compute_risk_metrics(
         result.caveats.append(
             f'检出单日跳变 {len(jumps)} 处（首个 {jumps[0].isoformat()}），疑似份额折算/大额赎回，建议剔除出横向排序'
         )
+
+    # 区间收益（#2284）：只依赖首尾观测点，不受「日收益序列太短」限制——
+    # 故放在样本不足 early-return 之前；空/单点序列由 _period_return 自守为 None。
+    for _field, _days in PERIOD_RETURN_SPANS:
+        setattr(result, _field, _period_return(series, _days))
 
     if len(rets) < _MIN_RETURNS:
         return result

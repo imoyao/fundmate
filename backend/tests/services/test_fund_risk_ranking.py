@@ -44,6 +44,9 @@ def _add(db, code, type_id, *, basis='acc_nav', version=CALIBER_VERSION, **metri
         'upi',
         'return_drawdown_ratio',
         'win_rate',
+        'ret_1m',
+        'ret_3m',
+        'ret_1y',
     ):
         if m in metrics:
             setattr(row, m, metrics[m])
@@ -62,7 +65,7 @@ class TestGuards:
             list_by_metric(db, fund_type_id=1, metric='as_of')
 
     def test_sortable_metrics_whitelist_covers_the_reported_ones(self):
-        for m in ('max_drawdown', 'current_drawdown', 'calmar', 'sortino', 'sharpe'):
+        for m in ('max_drawdown', 'current_drawdown', 'calmar', 'sortino', 'sharpe', 'ret_1m', 'ret_3m', 'ret_1y'):
             assert m in SORTABLE_METRICS
 
     def test_limit_is_clamped(self):
@@ -103,6 +106,18 @@ class TestPeerOnly:
         out = list_by_metric(db, fund_type_id=1, metric='annual_volatility')
         assert [r['fund_code'] for r in out['rows']] == ['low', 'high']
         assert out['order'] == 'asc'
+
+    def test_period_return_sort_desc_and_payload(self, db):
+        """#2284：区间收益可排（默认降序）、payload 带三列，NULL 不进榜。"""
+        _add(db, 'hi', 1, ret_1m=5.0, ret_3m=7.0, ret_1y=12.0)
+        _add(db, 'lo', 1, ret_1m=2.0, ret_3m=3.0, ret_1y=4.0)
+        _add(db, 'none', 1, sharpe=1.0)  # 三列全 NULL ⇒ 不进榜（没算出来 ≠ 排最后）
+        out = list_by_metric(db, fund_type_id=1, metric='ret_1m')
+        assert [r['fund_code'] for r in out['rows']] == ['hi', 'lo']
+        assert out['order'] == 'desc'
+        assert out['rows'][0]['ret_1m'] == 5.0
+        assert out['rows'][0]['ret_3m'] == 7.0
+        assert out['rows'][0]['ret_1y'] == 12.0
 
 
 class TestCaliberFilter:

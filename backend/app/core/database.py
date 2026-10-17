@@ -28,6 +28,7 @@ from app.core.migrations import (
     migrate_channel_link_indexes,
     migrate_fund_equity_position_period,
     migrate_fund_managers_split_tenures,
+    migrate_fund_risk_metrics_period_returns,
     migrate_fund_valuation_official_columns,
     migrate_positions_money_fund_flag,
     migrate_positions_price_columns,
@@ -494,6 +495,9 @@ def init_db():
     migrate_fund_equity_position_period(app_eng)
     # fund_valuation_daily 对照三列（#2142）：create_all 不替存量表加列，同上须先于结构校验
     migrate_fund_valuation_official_columns(app_eng)
+    # fund_risk_metrics 区间收益三列（#2284）：同上，create_all 不替存量表加列；
+    # 迁移只加列不回填，值由 job 按 bump 后的口径（v2）重算写入。
+    migrate_fund_risk_metrics_period_returns(app_eng)
     # fund_managers 拆分任期表（#2239）：本表属 **market** 域，故挂 market 引擎、
     # 且必须早于下面这行结构校验 —— 校验只查「模型有列、库没列」，而本次是
     # 「库多两列 + 缺唯一约束」，漏挂在库上不会报错，表会带着重复行一直跑下去。
@@ -573,6 +577,9 @@ def init_db_split():
     migrate_fund_equity_position_period(app_eng)
     # fund_valuation_daily 对照三列（#2142）：create_all 不替存量表加列，同上须先于结构校验
     migrate_fund_valuation_official_columns(app_eng)
+    # fund_risk_metrics 区间收益三列（#2284）：同上，create_all 不替存量表加列；
+    # 迁移只加列不回填，值由 job 按 bump 后的口径（v2）重算写入。
+    migrate_fund_risk_metrics_period_returns(app_eng)
     # fund_managers 拆分任期表（#2239）：本表属 **market** 域，故挂 market 引擎、
     # 且必须早于下面这行结构校验 —— 校验只查「模型有列、库没列」，而本次是
     # 「库多两列 + 缺唯一约束」，漏挂在库上不会报错，表会带着重复行一直跑下去。
