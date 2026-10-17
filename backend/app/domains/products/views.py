@@ -25,6 +25,7 @@ from app.domains.products.schemas import (
     IndexEtfCompareRequest,
     IndexProfileRequest,
     ManagerProfileRequest,
+    ProAllocationRequest,
     ProductResolveRequest,
     ProductTrendRequest,
     ProInsightRequest,
@@ -48,6 +49,7 @@ from app.services.index_metrics import build_index_returns, build_index_weights
 from app.services.index_profile import build_index_profile
 from app.services.manager_holdings import build_manager_holdings
 from app.services.manager_profile import build_manager_profile
+from app.services.pro_allocation import build_symbol_pro_allocation
 from app.services.pro_insight import build_symbol_pro_insight
 from app.services.pro_risk import build_symbol_pro_risk
 from app.services.product_identity import resolve_product_identity
@@ -606,5 +608,36 @@ def pro_risk():
         except ValueError as e:
             # 空白/纯前缀 symbol（如 'OF.'）过不了 schema 的 min_length，但服务层
             # 归一后为空会抛 ValueError——转 400，不留 500（与 index-returns 同族范式）
+            abort(400, str(e))
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/pro-allocation/')
+def pro_allocation():
+    """Pro 模块三「资产配置与相关性」——当前标的 vs 家庭其余持仓（#994 Phase 2）。
+
+    回答一句话：**你以为分散了吗？** 逐只给出当前标的与家庭其余持仓的日收益
+    Pearson 相关系数（|ρ| 降序），并显示「ρ ≥ 0.8 的只数」——那些才是账面分散、
+    风险仍集中的部分。
+
+    - 计算全在 ``services/pro_allocation.py`` + ``analytics/correlation.py``；
+      相关性按**日收益日期交集**配对（停牌/发布延迟只丢样本，不错配同期）；
+      相关系数的收益率算法与模块二 ``var.py`` 同源，不许出现第二套日收益；
+    - **诚实降级**：同期交易日 <60 天、或某只收益零方差（货基/停牌）⇒ 该只跳过，
+      跳过的只数由 ``skipped_count`` 原样披露——不让它悄悄从结论里消失；
+      一只都算不出 ⇒ ``available=false`` + ``reason``；
+    - 响应含家庭持仓结构（用户私有数据），同 ``/pro-insight/`` ``/pro-risk/``
+      模式，不做白名单登记，生产鉴权门禁下自然要求登录。
+
+    会话跨域同两个兄弟端点：持仓在 user 域 positions、序列在 market 域
+    （daily_worth / price_history），**必须走路由会话 ``get_db()``**——
+    单域会话工厂在双库生产下必 500。
+    """
+    query: ProAllocationRequest = parse_query(ProAllocationRequest)
+    with get_db() as db:
+        try:
+            data = build_symbol_pro_allocation(db, query.symbol, family_id=get_family_id(), asset_type=query.asset_type)
+        except ValueError as e:
+            # 同 pro-risk：空白/纯前缀 symbol 归一为空后的 ValueError 转 400
             abort(400, str(e))
     return jsonify({'data': data, 'message': 'ok'})

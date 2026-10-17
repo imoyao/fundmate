@@ -6,7 +6,7 @@ import { injectSupabaseSession } from "./support/session";
  *
  * 钉四条不变式：
  * 1. **状态位驱动挂载**：`performance.available=true` → 模块徽标「已上线」+
- *    内容区块渲染；risk 同批翻真（#994 Phase 2 模块二），allocation / report
+ *    risk / allocation 同批翻真（#994 Phase 2 模块二、三），report 仍为占位；
  *    保持「Phase N 建设中」占位；
  * 2. **账户级指标诚实渲染**：XIRR 百分比带符号、金额千分位、平仓胜率/盈亏比/
  *    持有天数逐项对齐打桩数据，脚注带 FIFO 口径与样本量；
@@ -77,7 +77,7 @@ async function stubProApis(
           modules: {
             performance: { available: true, phase: 2 },
             risk: { available: true, phase: 2 },
-            allocation: { available: false, phase: 3 },
+            allocation: { available: true, phase: 3 },
             report: { available: false, phase: 4 }
           }
         },
@@ -185,8 +185,7 @@ test.describe("详情页 Pro 模块一账户级指标（#994 Phase 2）", () => 
 
     const pro = page.locator(".pro-section");
     // 状态位驱动：模块一/二徽标翻「已上线」，其余保持建设中占位
-    await expect(pro.getByText("已上线")).toHaveCount(2);
-    await expect(pro.getByText("Phase 3 建设中")).toBeVisible(); // allocation
+    await expect(pro.getByText("已上线")).toHaveCount(3);
     await expect(pro.getByText("Phase 4 建设中")).toBeVisible(); // report
 
     // 内容区：XIRR 小数转百分比 + 符号；金额千分位
@@ -242,7 +241,6 @@ test.describe("详情页 Pro 模块一账户级指标（#994 Phase 2）", () => 
 
     // 独立降级：模块占位卡照常渲染（断网/接口失败不拖垮 Pro 卡）
     const pro = page.locator(".pro-section");
-    await expect(pro.getByText("已上线")).toHaveCount(2);
-    await expect(pro.getByText("Phase 3 建设中")).toBeVisible();
+    await expect(pro.getByText("已上线")).toHaveCount(3);
   });
 });

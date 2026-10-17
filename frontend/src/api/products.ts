@@ -1267,11 +1267,59 @@ export interface ProRiskResult {
   account: ProRiskAccount;
 }
 
+/** Pro 模块三 单只对比对象（当前标的 vs 家庭其余持仓之一） */
+export interface ProAllocationPeer {
+  symbol: string;
+  /** 持仓名称（可能为 null：导入时没拿到名字的那几行） */
+  name: string | null;
+  asset_type: string | null;
+  /** Pearson 相关系数（-1 ~ +1）；这里恒有值——算不出的已被后端跳过 */
+  correlation: number;
+  /** 配对上的同期交易日数（低于 60 天的不出现在结果里） */
+  overlap_days: number;
+}
+
+/** `GET /api/products/pro-allocation/` 返回（#994 Phase 2 · 模块三资产配置与相关性）。
+ * 回答一句话：你以为分散了吗？ */
+export interface ProAllocationResult {
+  symbol: string;
+  asset_type: string | null;
+  /** 序列窗口（1Y） */
+  window: string;
+  /** 配对样本下限（60），前端脚注解释「为什么有持仓没出现在列表里」 */
+  min_overlap: number;
+  available: boolean;
+  /** 不可用时原因（无序列 / 无其他持仓 / 全部 peer 都算不出） */
+  reason: string | null;
+  /** 基准标的序列有效点数 */
+  sample_days: number;
+  /** 序列口径（累计净值/前复权…） */
+  basis: string | null;
+  /** 相关系数列表（|ρ| 降序） */
+  peers: ProAllocationPeer[];
+  /** 因样本不足/无波动被跳过的持仓只数——诚实披露，不静默丢弃 */
+  skipped_count: number;
+  /** ρ ≥ 0.8 的只数：账面分散、风险仍集中的部分 */
+  high_correlation_count: number;
+  caveats: string[];
+}
+
 /** 拉取 Pro 模块二风险指标（BIAS + 波动率 + VaR；登录态注入 family_id） */
 export function fetchProRisk(symbol: string, assetType?: string | null) {
   return http.request<ApiResponse<ProRiskResult>>(
     "get",
     "/api/products/pro-risk/",
+    {
+      params: { symbol, asset_type: assetType ?? undefined }
+    }
+  );
+}
+
+/** 拉取 Pro 模块三相关性分析（当前标的 vs 家庭持仓；登录态注入 family_id） */
+export function fetchProAllocation(symbol: string, assetType?: string | null) {
+  return http.request<ApiResponse<ProAllocationResult>>(
+    "get",
+    "/api/products/pro-allocation/",
     {
       params: { symbol, asset_type: assetType ?? undefined }
     }
