@@ -101,7 +101,49 @@ export function getFundProfile(code: string) {
  *
  * 唯一例外是 `description`（指数简介散文）：null 时前端**整段隐藏**而非显示「—」——
  * 没有简介是「官网未收录」（399 系等），摆一个破折号占位反而像数据出错。
+ *
+ * #2278 追加三块（同一响应，不新增端点，各自独立降级互不拖垮）：
+ * 快照四字段（publish_date / cons_number / weighting_type / currency）平铺、
+ * `period_returns`（6 窗口区间收益 + 近 1 年年化波动，服务端已折算为 %）、
+ * `top_weights`（akshare 月频前 N 大，权重 %）。三块 null = 外部源不可用
+ * 或该码族不覆盖 → 前端对应区块显「—」（不是隐藏，用户要知道这里本该有数据）。
  */
+export interface IndexPeriodReturns {
+  /** 最新交易日 YYYY-MM-DD（收益序列的截止日） */
+  as_of: string;
+  /** 各窗口区间收益率(%)；null = 历史不足以覆盖该窗口 → 前端「—」 */
+  windows: {
+    "1m": number | null;
+    "3m": number | null;
+    ytd: number | null;
+    "1y": number | null;
+    "2y": number | null;
+    "3y": number | null;
+  };
+  /** 近 1 年年化波动率(%)；null = 日收益样本 <20 →「—」 */
+  volatility_1y: number | null;
+}
+
+export interface IndexTopWeightRow {
+  /** 成分券代码（6 位） */
+  symbol: string;
+  /** 成分券名称 */
+  name: string;
+  /** 权重(%)，已按降序前 N 排列 */
+  weight: number;
+}
+
+export interface IndexTopWeights {
+  /** 权重截止日 YYYY-MM-DD（月频数据，与今日可差一期） */
+  as_of: string;
+  /** 权重降序前 N（默认 10）行 */
+  rows: IndexTopWeightRow[];
+  /** 前 N 大合计(%) */
+  top_sum: number;
+  /** 全成分数（不是 rows.length） */
+  total_count: number;
+}
+
 export interface IndexProfileResult {
   /** 裸 6 位指数码（service 已归一，带前缀入口也返回裸码） */
   index_code: string;
@@ -125,6 +167,18 @@ export interface IndexProfileResult {
   percentile_metric: string | null;
   /** 分位基线的最新采样日 YYYY-MM-DD */
   percentile_date: string | null;
+  /** 发布日期 YYYY-MM-DD（中证 basic-info publishDate，#2278 快照字段）；官网无值为 null */
+  publish_date: string | null;
+  /** 成分样本数（basic-info consNumber）；官网无值为 null（实测 931151 即为 null） */
+  cons_number: number | string | null;
+  /** 加权方式（basic-info weightingType）；官网无值为 null（实测 931151 即为 null） */
+  weighting_type: string | null;
+  /** 计价币种（basic-info currencyCn，如「人民币」）；官网无值为 null */
+  currency: string | null;
+  /** 阶段性收益（#2278：6 窗口 + 年化波动，服务端现算不入库）；外部源不可用为 null */
+  period_returns: IndexPeriodReturns | null;
+  /** 十大权重（#2278：akshare 月频，按需抓 + 12h 缓存）；外部源不可用为 null */
+  top_weights: IndexTopWeights | null;
 }
 
 /** 取指数资料聚合。404 = 该代码不在指数名录。 */
