@@ -302,12 +302,13 @@ class TestStandardCSVParse:
                 'currency': 'CNY',
                 'notes': '',
                 'allocation': 'liquid',
-                'is_cash_transfer': True,  # 添加此标记，确保被前端过滤
+                'is_cash_transfer': True,  # 银证转账标记：未关联现金账户时后端计 skipped（#1010）
             }
         ]
         confirm_resp = client.post('/api/importers/confirm', json=fake_rows)
         data = confirm_resp.get_json()['data']
-        # 因为 is_cash_transfer=True，前端会过滤，所以 skipped=1
+        # 本用例直接 POST、未关联现金账户 → 转账行维持旧行为计 skipped；
+        # #2281 放开前端勾选后，「未关联即导入」这条路径依然成立（不会错账）
         assert data['imported'] == 0
         assert data['skipped'] == 1
 
