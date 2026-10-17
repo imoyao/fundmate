@@ -8,8 +8,8 @@
 2. **有数据聚合**：买入持有场景下 XIRR 与行为画像同源自洽（bond 定价规避行情前置，
    与 test_symbol_xirr 同一手法；持有一年 +20% 的 XIRR 期望用相对日期防漂移）；
 3. **symbol 隔离**：别的标的流水不串味（两服务同一 symbol_scope 收敛）；
-4. **状态位翻转**：``build_pro_status`` 的 performance 模块 available=True，
-   其余三模块保持占位（Phase 3/4 落地节奏的钉子）。
+4. **状态位翻转**：``build_pro_status`` 的 performance / risk 模块 available=True
+   （Phase 2 两模块钉子），其余两模块保持占位（Phase 3/4 落地节奏的钉子）。
 
 单位约定（与 conftest 一致）：``make_transaction``/``make_position`` 收**元**、
 库存**分**；behavior 出参一律元。behavior 断言按「分」推期望再除 100。
@@ -148,10 +148,10 @@ class TestWithAccountData:
 
 class TestProStatusFlip:
     def test_performance_module_flipped_available(self):
-        """Phase 2 钉子：performance 可用位翻真，其余模块保持占位。"""
+        """Phase 2 钉子：performance / risk 可用位翻真，其余两模块保持占位。"""
         modules = build_pro_status('000001')['modules']
 
         assert modules['performance'] == {'available': True, 'phase': 2}
-        assert modules['risk'] == {'available': False, 'phase': 2}
+        assert modules['risk'] == {'available': True, 'phase': 2}
         assert modules['allocation'] == {'available': False, 'phase': 3}
         assert modules['report'] == {'available': False, 'phase': 4}

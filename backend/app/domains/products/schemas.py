@@ -221,3 +221,16 @@ class ProInsightRequest(BaseModel):
 
     symbol: str = Field(..., min_length=1, max_length=50, description='产品代码（大小写不敏感）')
     asset_type: Optional[str] = Field(None, max_length=20, description='入口提示品类；仅回显')
+
+
+class ProRiskRequest(BaseModel):
+    """`GET /api/products/pro-risk/` 的查询参数（#994 Phase 2 · 模块二偏离与风险控制）。
+
+    聚合 BIAS（既有 bias 引擎单品种）+ 波动率/VaR 95%（``analytics/var.py``，
+    序列经 ``fetch_product_trend('1Y')``）+ 账户级 VaR¥（``calculate_symbol_xirr``
+    持仓市值 × VaR%）。``asset_type`` 参与取数路径分派（bias 品种类型 / 序列口径），
+    与 ``ProInsightRequest`` 的「仅回显」不同——它是**取数参数**，不是提示。
+    """
+
+    symbol: str = Field(..., min_length=1, max_length=50, description='产品代码（大小写不敏感）')
+    asset_type: Optional[str] = Field(None, max_length=20, description='品类；决定乖离率品种类型与净值/价格序列口径')
