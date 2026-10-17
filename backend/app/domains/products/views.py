@@ -25,6 +25,7 @@ from app.domains.products.schemas import (
     ManagerProfileRequest,
     ProductResolveRequest,
     ProductTrendRequest,
+    ProStatusRequest,
     RelatedSymbolsRequest,
     StockProfileRequest,
 )
@@ -37,6 +38,7 @@ from app.services.index_profile import build_index_profile
 from app.services.manager_holdings import build_manager_holdings
 from app.services.manager_profile import build_manager_profile
 from app.services.product_identity import resolve_product_identity
+from app.services.product_pro_status import build_pro_status
 from app.services.product_trend import empty_product_trend, fetch_product_trend
 from app.services.related_symbols import build_related_symbols
 from app.services.stock_profile import build_stock_profile
@@ -435,3 +437,22 @@ def product_trade_timeline():
         except ValueError as e:
             abort(400, str(e))
     return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/pro/')
+def pro_status():
+    """高级洞察 Pro 状态位（#2272 · #994 Phase 1 接口骨架）。
+
+    **一期只回状态位**：``pro_enabled``（恒 true，全开无权益校验）+ ``paywall_required``
+    （恒 false，付费墙是前端 feature flag）+ 四模块可用性位（恒 false，带落地 Phase 标注）。
+    模块内容在 Phase 2-4 建设（里程碑 #19），届时仅翻转服务里的可用性位，前端无感。
+
+    不查库：骨架没有可查的事实（模块是否上线是发布状态，不是用户数据），
+    开数据库会话只会让视图变厚、拉高延迟。``asset_type`` 仅回显，判定留给 Phase 2。
+
+    路径说明：设计评论字面写的是 ``GET /api/asset/:symbol/pro``，但本仓无 ``/api/asset``
+    蓝图前缀（全部按域划分，见各域 ``url_prefix``），故落 ``/api/products/pro/`` 与
+    同族端点一致；语义与设计一致（单标的 Pro 状态），无功能差异。
+    """
+    query: ProStatusRequest = parse_query(ProStatusRequest)
+    return jsonify({'data': build_pro_status(query.symbol, query.asset_type), 'message': 'ok'})
