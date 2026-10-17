@@ -869,3 +869,46 @@ def migrate_fund_valuation_official_columns(engine: Engine) -> str:
         logger.info(f'[OK] fund_valuation_daily 增加对照列: {added}')
         return f'[OK] 增加列 {added}'
     return '[SKIP] fund_valuation_daily 对照三列已存在'
+
+
+def migrate_fund_risk_metrics_period_returns(engine: Engine) -> str:
+    """fund_risk_metrics 补区间收益三列（#2284）：ret_1m / ret_3m / ret_1y。
+
+    ## 为什么需要
+
+    同类风险榜要展示「近1月 / 近3月 / 近1年」三列区间收益（#2284）；既有快照表
+    没有这三列，读路径无处可取。三列全为**可空**列：SQLite / libsql 对可空列
+    支持直接 ALTER ADD，历史行留 NULL，由读取端降级为「—」。
+
+    ## 只加列、不回填
+
+    区间收益是「由净值序列可复现的派生值」，不是时点对照——但迁移阶段回填会
+    在启动路径里做计算扫描（读全量净值），得不偿失。正确路径是
+    ``fund_risk_metrics_job.CALIBER_VERSION`` bump（v1 → v2）后由 job 重算覆盖，
+    启动期迁移只负责把列建好。幂等：列已存在则跳过；非 SQLite 引擎
+    （Supabase Postgres）由 ORM 模型 / 迁移工具负责，直接跳过。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
+
+    if 'fund_risk_metrics' not in inspect(engine).get_table_names():
+        return '[SKIP] fund_risk_metrics 表不存在（空库，init_db 将按新模型建表）'
+
+    cols = [
+        ('ret_1m', 'NUMERIC(10, 4)'),
+        ('ret_3m', 'NUMERIC(10, 4)'),
+        ('ret_1y', 'NUMERIC(10, 4)'),
+    ]
+    with engine.connect() as conn:
+        existing = {c['name'] for c in inspect(engine).get_columns('fund_risk_metrics')}
+        added = []
+        for name, typ in cols:
+            if name not in existing:
+                conn.execute(text(f'ALTER TABLE fund_risk_metrics ADD COLUMN {name} {typ}'))
+                added.append(name)
+        conn.commit()
+    if added:
+        logger.info(f'[OK] fund_risk_metrics 增加区间收益列: {added}')
+        return f'[OK] 增加列 {added}'
+    return '[SKIP] fund_risk_metrics 区间收益三列已存在'

@@ -1030,6 +1030,13 @@ export interface FundRiskRankingRow {
   drawdown_days: number | null;
   annual_return: number | null;
   annual_volatility: number | null;
+  /**
+   * 区间收益三列（#2284）：近1月/近3月/近1年，自然日端点（30/90/365 天）。
+   * 历史不足该窗口为 null（前端降级「—」，不缩窗口凑数）。
+   */
+  ret_1m: number | null;
+  ret_3m: number | null;
+  ret_1y: number | null;
   sharpe: number | null;
   sortino: number | null;
   calmar: number | null;

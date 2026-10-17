@@ -45,6 +45,9 @@ SORTABLE_METRICS: Dict[str, bool] = {
     'max_drawdown': True,  # 负数：越大越浅（-8 优于 -25）⇒ 降序
     'current_drawdown': True,  # 同上
     'annual_volatility': False,  # 正数：越小越好 ⇒ 升序
+    'ret_1m': True,  # 区间收益（#2284）：越大越好 ⇒ 默认降序
+    'ret_3m': True,
+    'ret_1y': True,
 }
 
 DEFAULT_LIMIT = 20
@@ -210,6 +213,9 @@ def _row_payload(row, *, fund_name: Optional[str] = None) -> Dict[str, Any]:
         'drawdown_days': row.drawdown_days,
         'annual_return': f('annual_return'),
         'annual_volatility': f('annual_volatility'),
+        'ret_1m': f('ret_1m'),
+        'ret_3m': f('ret_3m'),
+        'ret_1y': f('ret_1y'),
         'sharpe': f('sharpe'),
         'sortino': f('sortino'),
         'calmar': f('calmar'),

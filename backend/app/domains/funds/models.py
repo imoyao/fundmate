@@ -629,6 +629,7 @@ class FundRiskMetrics(Base, PrimaryKeyMixin, TimestampMixin):
     - ``sharpe`` / ``sortino`` / ``calmar`` / ``ulcer_index`` / ``upi`` / ``return_drawdown_ratio``
       → 风险指标表（同类内排序，跨类别不比绝对值）；
     - ``win_rate`` / ``win_rate_period`` → 同上；
+    - ``ret_1m`` / ``ret_3m`` / ``ret_1y`` → 同类风险榜「近1月/近3月/近1年」三列（#2284）；
     - ``basis`` / ``sample_points`` / ``as_of`` / ``caliber_version`` → 口径元数据，
       随值下发（不告诉口径的数字不可复核）。
 
@@ -661,6 +662,11 @@ class FundRiskMetrics(Base, PrimaryKeyMixin, TimestampMixin):
     return_drawdown_ratio = Column(SafeNumeric(10, 4), nullable=True, comment='波回比')
     win_rate = Column(SafeNumeric(10, 4), nullable=True, comment='胜率(%)')
     win_rate_period = Column(String(8), nullable=True, comment='胜率周期 day/week/month')
+    # 区间收益（#2284）：自然日端点（30/90/365），与拟涨幅共用取数规则，见
+    # fund_risk_metrics.PERIOD_RETURN_SPANS；可空列，历史不足该窗口为 NULL（诚实降级）。
+    ret_1m = Column(SafeNumeric(10, 4), nullable=True, comment='近1月区间收益率(%)，30 自然日端点')
+    ret_3m = Column(SafeNumeric(10, 4), nullable=True, comment='近3月区间收益率(%)，90 自然日端点')
+    ret_1y = Column(SafeNumeric(10, 4), nullable=True, comment='近1年区间收益率(%)，365 自然日端点')
 
     sample_points = Column(Integer, nullable=False, default=0, comment='参与计算的净值点数')
     basis = Column(String(16), nullable=False, comment='口径/可信度：acc_nav / distorted / insufficient')
@@ -668,8 +674,8 @@ class FundRiskMetrics(Base, PrimaryKeyMixin, TimestampMixin):
     caliber_version = Column(
         Integer,
         nullable=False,
-        default=1,
-        server_default=text('1'),
+        default=2,
+        server_default=text('2'),
         comment='口径版本；与 fund_risk_metrics_job.CALIBER_VERSION 不符即作废（改口径先 bump）',
     )
 
