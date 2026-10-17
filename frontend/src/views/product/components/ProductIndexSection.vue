@@ -327,7 +327,9 @@ watch(() => props.symbol, load, { immediate: true });
   </CardBlock>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
+@use "@/style/breakpoints" as bp;
+
 .index-section__hint {
   margin: 0;
   font-size: 13px;
@@ -520,7 +522,7 @@ watch(() => props.symbol, load, { immediate: true });
   text-align: right;
 }
 
-@media (width <= 640px) {
+@include bp.below("sm") {
   .index-section__wtrack {
     width: 48px;
   }

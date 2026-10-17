@@ -155,7 +155,9 @@ def _clear_returns_cache():
 def test_fetch_uses_csindex_first(monkeypatch):
     """中证官网有数据 → 直接用，不打扰腾讯（降请求量）。"""
     calls = []
-    monkeypatch.setattr(ipr, 'fetch_daily_csindex', lambda c, start_date=None: calls.append(('csi', c)) or [('2026-06-15', 110.0)] * 30)
+    monkeypatch.setattr(
+        ipr, 'fetch_daily_csindex', lambda c, start_date=None: calls.append(('csi', c)) or [('2026-06-15', 110.0)] * 30
+    )
     monkeypatch.setattr(ipr, 'fetch_daily_tencent', lambda c, start_date=None: calls.append(('tx', c)) or [])
 
     result = fetch_period_returns('SH000300')
@@ -186,8 +188,12 @@ def test_fetch_both_sources_empty_not_cached(monkeypatch):
 
 def test_fetch_source_exception_not_cached(monkeypatch):
     """抓取链整体抛异常（两源都炸）→ None 不缓存。"""
-    monkeypatch.setattr(ipr, 'fetch_daily_csindex', lambda c, start_date=None: (_ for _ in ()).throw(RuntimeError('net')))
-    monkeypatch.setattr(ipr, 'fetch_daily_tencent', lambda c, start_date=None: (_ for _ in ()).throw(RuntimeError('net')))
+    monkeypatch.setattr(
+        ipr, 'fetch_daily_csindex', lambda c, start_date=None: (_ for _ in ()).throw(RuntimeError('net'))
+    )
+    monkeypatch.setattr(
+        ipr, 'fetch_daily_tencent', lambda c, start_date=None: (_ for _ in ()).throw(RuntimeError('net'))
+    )
 
     assert fetch_period_returns('000300') is None
     assert '000300' not in ipr._returns_cache
