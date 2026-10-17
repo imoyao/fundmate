@@ -525,6 +525,27 @@ export function useImportWizard() {
 
   const selectedCount = computed(() => selectedKeys.value.size);
 
+  /**
+   * 已隐藏但仍被勾选的重复行数（#2274）。
+   * 「取消显示重复行」只切显隐、不动勾选（导入载荷与「已选择 N 条」均以
+   * selectedKeys 为唯一真相源）：这些行不出现在「只看问题数据」视图里，
+   * 却会随 selectedKeys 进入导入载荷（keep_duplicate 真插入）。
+   * UI 据此给出可见提示，避免「看不见自己要导什么」。
+   */
+  const hiddenSelectedDuplicateCount = computed(() => {
+    if (!duplicatesHandled.value) return 0;
+    let count = 0;
+    for (const row of previewData.value) {
+      if (
+        row.is_duplicate &&
+        row._duplicateHandled &&
+        selectedKeys.value.has(row._rowKey)
+      )
+        count++;
+    }
+    return count;
+  });
+
   const nothingImported = computed(
     () =>
       importedCount.value === 0 &&
@@ -1335,6 +1356,12 @@ export function useImportWizard() {
       // 回填预览数据（行内编辑状态保留）
       previewData.value = addRowKeys(draft.rows);
       totalRows.value = previewData.value.length;
+      // #2274：行级 _duplicateHandled 随草稿行持久化，但 duplicatesHandled
+      // 开关本身不入草稿——恢复时按行标回推，避免按钮文案与实际显隐状态说谎
+      // （隐藏过的重复行恢复后仍处于隐藏态，按钮应显示「恢复查看重复行」）
+      duplicatesHandled.value = previewData.value.some(
+        r => r.is_duplicate && r._duplicateHandled
+      );
       // 回填勾选（数组 → Set）
       selectedKeys.value = new Set(draft.selectedKeySet);
       // 重算统计
@@ -1714,6 +1741,18 @@ export function useImportWizard() {
     return "解析器识别";
   }
 
+  /**
+   * 「取消显示重复行」/「恢复查看重复行」（#2274）：只切显隐，绝不动勾选。
+   *
+   * 导入载荷（confirmImport 按 selectedKeys 取行）与「已选择 N 条」计数
+   * （selectedKeys.size）都以 selectedKeys 为唯一真相源，与显隐解耦——
+   * 用户手动勾选保留的重复行（keep_duplicate 真插入）不应被一个显隐按钮
+   * 悄悄从 selectedKeys 里删掉。历史上该按钮会静默删除勾选且「恢复查看」
+   * 不还原，导致导入意图被丢（#2274）。
+   *
+   * 隐藏行若仍被勾选，由 hiddenSelectedDuplicateCount 暴露给 UI 给出提示，
+   * 避免用户看不见自己要导入的内容。
+   */
   function deselectAllDuplicates() {
     // 1. 先浅拷贝一份（避免直接修改原数组触发大量响应式更新）
     const data = [...previewData.value];
@@ -1725,14 +1764,10 @@ export function useImportWizard() {
       }
       duplicatesHandled.value = false;
     } else {
-      // 隐藏所有重复行
+      // 隐藏所有重复行（仅显隐；勾选原样保留，见函数注释）
       for (const row of data) {
-        if (row.is_duplicate) {
-          row._duplicateHandled = true;
-          selectedKeys.value.delete(row._rowKey);
-        }
+        if (row.is_duplicate) row._duplicateHandled = true;
       }
-      selectedKeys.value = new Set(selectedKeys.value);
       duplicatesHandled.value = true;
     }
 
@@ -1741,9 +1776,13 @@ export function useImportWizard() {
     recalcValidRowsCount();
     updateSelectAllState();
 
+    const hiddenSelected = hiddenSelectedDuplicateCount.value;
     ElMessage.success(
       duplicatesHandled.value
-        ? `已取消 ${duplicateCount.value} 条重复数据的展示`
+        ? `已取消 ${duplicateCount.value} 条重复数据的展示` +
+            (hiddenSelected > 0
+              ? `，其中 ${hiddenSelected} 条已勾选，仍将参与导入`
+              : "")
         : "已恢复全部重复数据"
     );
   }
@@ -2464,6 +2503,8 @@ export function useImportWizard() {
     tableColumns,
     blockedCount,
     selectedCount,
+    // #2274：隐藏但仍勾选的重复行提示（显隐与勾选解耦后的可见性兜底）
+    hiddenSelectedDuplicateCount,
     nothingImported,
     showPriceUpdateTip,
     allocationGroupsByType,
