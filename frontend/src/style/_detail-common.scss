@@ -66,9 +66,24 @@
   grid-column: 1 / -1;
 }
 
-/* 脚注 / 提示行：口径、来源等辅助信息 */
+/* 脚注 / 提示行：口径、来源等辅助信息（12px tertiary-ink）。
+   ⚠️ 色值必须是 `-ink` 文字级：同族的 --text-tertiary 是**图形级**
+   （colors.css 注释：作正文不足 4.5:1），作前景文字违反 design.md:131。 */
 .section-footnote {
   margin: 0;
   font-size: 12px;
   color: var(--text-tertiary-ink);
+}
+
+/* 分隔变体：脚注上方是表格 / 图表等大块内容时，需要一条明确间距才不会被「粘住」。
+   ⚠️ 容器本身带 `display:flex; gap` 时**不要**加本变体——子元素间距已由 gap 提供，
+   叠加即双倍（.holding-section / .industry-section 属此情形，只用基础类）。 */
+.section-footnote--spaced {
+  margin-top: var(--space-3);
+}
+
+/* 续接变体：紧接上一条脚注的补充行。两条属同一组信息，只留极小间距——
+   用 --spaced 会把「一组」拆成「两块」（如 ETF 对比表的口径说明紧随来源脚注）。 */
+.section-footnote--attached {
+  margin-top: var(--space-1);
 }

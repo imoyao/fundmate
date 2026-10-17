@@ -109,7 +109,7 @@ function stockHref(code: string): string {
   <CardBlock class="holding-section">
     <SectionHeader title="持仓明细" />
 
-    <p v-if="!allRows.length" class="holding-section__hint">暂无持仓明细数据</p>
+    <p v-if="!allRows.length" class="section-footnote">暂无持仓明细数据</p>
 
     <template v-else>
       <!-- 口径标注：与表格同屏，不藏在脚注里（用户第一眼就要看到「这是前十大」） -->
@@ -212,7 +212,7 @@ function stockHref(code: string): string {
       <p v-if="isTop10" class="holding-section__caveat">
         ⚠️ 以上为季报披露的前十大重仓，不代表该基金的全部持仓。
       </p>
-      <p class="holding-section__footnote">
+      <p class="section-footnote">
         数据来源：{{ source }} · 持仓为报告期快照（非日期序列）
         <template v-if="holdings?.report_date">
           · 截至 {{ holdings.report_date }}</template
@@ -229,13 +229,13 @@ function stockHref(code: string): string {
   gap: var(--space-3);
 }
 
-.holding-section__hint,
-.holding-section__footnote {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
+/* 脚注与空态提示已迁至共享类 .section-footnote（#2320）。
+   本区块容器带 `gap: var(--space-3)`，子元素间距由 gap 提供，
+   故只用基础类、不加 --spaced（叠加即双倍间距）。
+   迁移前此处用的是图形级 --text-tertiary 作前景文字（不足 4.5:1），已随共享类修正为 -ink。 */
 
+/* 口径说明（披露口径：前十大 / 全量）比脚注高一级，用次级文字色区分。
+   全站仅此一处使用，暂不提升为共享变体——它与脚注的语义不同（口径 vs 来源/补充）。 */
 .holding-section__basis {
   margin: 0;
   font-size: 12px;
