@@ -290,6 +290,11 @@ test.describe("详情页页内导航（#1968）", () => {
             modules: {
               performance: { available: false, phase: 2 },
               risk: { available: false, phase: 2 },
+              // ⚠️ 本用例测的就是「未上线 ⇒ 徽标渲染 Phase N 建设中」这条占位路径，
+              // 故四个模块**全部** false——不要跟着后端状态位去同步成 true，
+              // 那会把本用例的唯一测试意图（徽标来自 status.phase）抹掉。
+              // 已上线的形态由 product-detail-pro-insight / pro-risk / pro-allocation
+              // 三张专项 spec 覆盖。
               allocation: { available: false, phase: 3 },
               report: { available: false, phase: 4 }
             }

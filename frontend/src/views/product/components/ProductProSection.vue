@@ -8,6 +8,7 @@ import {
   type ProStatusResult
 } from "@/api/products";
 import ProductProPerformance from "./ProductProPerformance.vue";
+import ProductProAllocation from "./ProductProAllocation.vue";
 import ProductProRisk from "./ProductProRisk.vue";
 
 /**
@@ -108,6 +109,11 @@ const performanceAvailable = computed(
   () => status.value?.modules.performance?.available === true
 );
 
+/** 模块三内容是否可渲染（后端状态位翻真后挂载 ProductProAllocation，#994 Phase 2） */
+const allocationAvailable = computed(
+  () => status.value?.modules.allocation?.available === true
+);
+
 /** 模块二内容是否可渲染（后端状态位翻真后挂载 ProductProRisk，#994 Phase 2） */
 const riskAvailable = computed(
   () => status.value?.modules.risk?.available === true
@@ -133,6 +139,15 @@ const riskAvailable = computed(
       <ProductProPerformance
         v-if="performanceAvailable"
         class="pro-section__performance"
+        :symbol="product.symbol"
+        :asset-type="product.asset_type"
+      />
+
+      <!-- 模块三内容区（#994 Phase 2）：当前标的 vs 家庭其余持仓的相关性。
+           没有足够持仓时会自行渲染引导文案（「可用」≠「有数据」由组件分化） -->
+      <ProductProAllocation
+        v-if="allocationAvailable"
+        class="pro-section__alloc"
         :symbol="product.symbol"
         :asset-type="product.asset_type"
       />
@@ -229,6 +244,10 @@ const riskAvailable = computed(
 }
 
 .pro-section__performance {
+  margin-bottom: var(--space-3);
+}
+
+.pro-section__alloc {
   margin-bottom: var(--space-3);
 }
 
