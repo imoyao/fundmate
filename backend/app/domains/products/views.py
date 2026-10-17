@@ -455,6 +455,19 @@ def product_trend():
     return jsonify({'data': result, 'message': 'ok'})
 
 
+def _family_ranking_flags() -> tuple[set, set]:
+    """当前家庭的 (持仓代码集, 自选代码集)；未登录两个空集。
+
+    #167 持仓体检定位：快照目标池本就是「持仓 ∪ 自选」（fund_risk_metrics_job），
+    标记让榜单回答「我持有的那只排第几」。登录判定 + 双域会话与 /resolve/、
+    /trade-timeline/ 同模式；查询口径在 services（user_flags_for_codes）。
+    """
+    if not _is_authenticated():
+        return set(), set()
+    with closing(user_session_factory()()) as user_db:
+        return user_flags_for_codes(user_db, family_id=get_family_id())
+
+
 @bp.get('/fund-risk-ranking/')
 def fund_risk_ranking():
     """按风险指标筛同类基金（#167）。口径 / 为什么 `fund_type_id` 必填见
@@ -472,18 +485,7 @@ def fund_risk_ranking():
             abort(400, f'order 只能是 asc / desc：{query.order}')
         ascending = order == 'asc'
 
-    # 家庭私有标记（持仓 / 自选）：与 /resolve/ 同模式——双域会话，登录才查 user 库。
-    # 快照目标池本就是「持仓 ∪ 自选」（fund_risk_metrics_job），标记让页面回答
-    # 「我持有的那只排第几」，否则用户对着一池陌生基金不知道与自己何干。
-    authenticated = _is_authenticated()
-    holding_codes: set = set()
-    watchlist_codes: set = set()
-    if authenticated:
-        with closing(user_session_factory()()) as user_db:
-            holding_codes, watchlist_codes = user_flags_for_codes(
-                user_db,
-                family_id=get_family_id(),
-            )
+    holding_codes, watchlist_codes = _family_ranking_flags()
 
     with closing(market_session_factory()()) as db:
         data = list_by_metric(
