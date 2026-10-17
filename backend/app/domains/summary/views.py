@@ -14,6 +14,7 @@ from flask import jsonify, request
 from app.core.auth import get_family_id
 from app.core.database import get_db
 from app.core.time_utils import today_shanghai
+from app.services.analytics.cleared_cycles import build_cleared_cycles
 from app.services.penetration import SCHEME_LABELS, build_penetration
 from app.services.pnl_calendar import GRANULARITY_DAY, build_pnl_series
 from app.services.summary_service import (
@@ -194,6 +195,38 @@ def pnl_calendar():
         return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400
     except Exception as e:
         return jsonify({'data': None, 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500
+
+
+@bp.get('/summary/cleared-cycles/')
+def cleared_cycles():
+    """#2131 清仓周期统计（账本对齐 A'）——从流水聚合「首买→末卖」周期（只读，现算）。
+
+    查询参数：
+    - `ledger_id`：可选，限定单账户；不传 = 家庭全部账户合并（产品级口径，同 behavior/XIRR）；
+    - `symbol`：可选，单标的过滤（按剥前缀裸码匹配：查 `600519` 可命中 `SH600519` 写法）；
+    - `include_cash_equivalents`：可选，纳入类现金资产（货基/逆回购/cash，默认排除）。
+
+    返回 `{'cycles': [...], 'summary': {...}}`：cycles 按末卖日降序；summary 跨周期汇总
+    胜率/盈亏比/平均持有天数/累计已实现盈亏。口径与诚实降级纪律见
+    services/analytics/cleared_cycles.py（部分配对周期不进胜率样本，pnl_known=False）。
+    """
+    try:
+        ledger_id = request.args.get('ledger_id', type=int)
+        symbol = (request.args.get('symbol') or '').strip() or None
+        include_cash = str(request.args.get('include_cash_equivalents') or '').lower() in ('1', 'true', 'yes')
+        with get_db() as db:
+            data = build_cleared_cycles(
+                db,
+                get_family_id(),
+                ledger_id=ledger_id,
+                symbol=symbol,
+                include_cash_equivalents=include_cash,
+            )
+        return jsonify({'data': data, 'message': 'ok'})
+    except Exception as e:
+        return jsonify(
+            {'data': {'cycles': [], 'summary': {}}, 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}
+        ), 500
 
 
 @bp.get('/summary/fund-valuation/')

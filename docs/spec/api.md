@@ -200,6 +200,7 @@ title: 核心 API 端点清单（api）
 | GET | `/api/strategy/relations/` | `get_all_position_tags` |
 | GET | `/api/summary/` | `summary` |
 | GET | `/api/summary/cash-like/` | `cash_like` |
+| GET | `/api/summary/cleared-cycles/` | `cleared_cycles` |
 | GET | `/api/summary/distributions/` | `distributions` |
 | GET | `/api/summary/fund-valuation/` | `fund_valuation` |
 | GET | `/api/summary/ghost-duplicates/` | `ghost_duplicates` |
