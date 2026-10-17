@@ -36,8 +36,11 @@ MODULE_PHASES = {
 #:   （analytics/behavior，FIFO 口径 v2），经 ``GET /api/products/pro-insight/`` 出数。
 #:   注意「可用」≠「有数据」：标的无用户流水时端点回 ``has_account_data=False``，
 #:   前端渲染引导文案而非空指标；
-#: - ``risk`` / ``allocation`` / ``report``：Phase 2 后段 / 3 / 4 待落地，保持占位。
-AVAILABLE_MODULES = frozenset({'performance'})
+#: - ``risk``（模块二）：#994 Phase 2 落地——BIAS（既有 bias 引擎）+ 波动率 +
+#:   VaR 95%（analytics/var.py）+ 账户级 VaR¥，经 ``GET /api/products/pro-risk/``
+#:   出数。块级自治：基金级指标不依赖账户数据，无持仓时账户级块诚实降级；
+#: - ``allocation`` / ``report``：Phase 3 / 4 待落地，保持占位。
+AVAILABLE_MODULES = frozenset({'performance', 'risk'})
 
 
 def build_pro_status(symbol: str, asset_type: Optional[str] = None) -> dict:

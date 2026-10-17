@@ -267,9 +267,12 @@ test.describe("详情页页内导航（#1968）", () => {
     // ① 区块真的渲染了——#2029 同款静默消失防线：detail.vue 的 import 被删时
     //    Vue 只发 warning，父级透传的 id 静默丢弃，页面无可见报错；
     // ② 徽标（Phase N 建设中）来自后端状态位而非前端硬编码（不编造"已上线"）；
-    // ③ 付费墙遮罩与禁用态升级按钮在（flag 默认开，无支付体系）。
+    // ③ 导航胶囊收录该区块（与锚点同在，无死链）。
     // 反向验证：删 detail.vue 的 import → ①红；把徽标文案改成前端常量 →
     // ②红（本用例改打桩值即红）。
+    // 注：付费墙遮罩的 e2e 断言已随 #994 Phase 2 移除——playwright.config 显式
+    // VITE_PRO_PAYWALL_ENABLED=false（CI 无 .env.local），遮罩是纯 CSS 视觉件，
+    // 由 #2272 当时的验收覆盖；内容渲染断言不该挂在遮罩开关上。
     const pageErrors: string[] = [];
     page.on("pageerror", e => pageErrors.push(e.message));
 
@@ -310,9 +313,8 @@ test.describe("详情页页内导航（#1968）", () => {
       "Phase 4 建设中"
     ]);
 
-    // 付费墙：遮罩在、升级按钮禁用（一期无支付体系，点了不许有幻觉）
-    await expect(pro.locator(".pro-paywall")).toBeVisible();
-    await expect(pro.getByRole("button", { name: "升级 Pro" })).toBeDisabled();
+    // 付费墙遮罩在 e2e 中显式关闭（VITE_PRO_PAYWALL_ENABLED=false，见
+    // playwright.config webServer env 与文件头注释），此处不断言遮罩本体。
 
     // 导航胶囊收录该区块（与锚点同在，无死链）
     await expect(

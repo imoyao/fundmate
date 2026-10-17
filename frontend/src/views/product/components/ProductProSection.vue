@@ -8,6 +8,7 @@ import {
   type ProStatusResult
 } from "@/api/products";
 import ProductProPerformance from "./ProductProPerformance.vue";
+import ProductProRisk from "./ProductProRisk.vue";
 
 /**
  * 详情页「高级洞察 Pro」占位区块（#2272 · #994 Phase 1）。
@@ -106,6 +107,11 @@ function moduleAvailable(key: string): boolean {
 const performanceAvailable = computed(
   () => status.value?.modules.performance?.available === true
 );
+
+/** 模块二内容是否可渲染（后端状态位翻真后挂载 ProductProRisk，#994 Phase 2） */
+const riskAvailable = computed(
+  () => status.value?.modules.risk?.available === true
+);
 </script>
 
 <template>
@@ -127,6 +133,15 @@ const performanceAvailable = computed(
       <ProductProPerformance
         v-if="performanceAvailable"
         class="pro-section__performance"
+        :symbol="product.symbol"
+        :asset-type="product.asset_type"
+      />
+
+      <!-- 模块二内容区（#994 Phase 2）：BIAS + 波动率 + VaR；块级自治，
+           基金级指标不依赖账户数据，无持仓时账户级块自行降级 -->
+      <ProductProRisk
+        v-if="riskAvailable"
+        class="pro-section__risk"
         :symbol="product.symbol"
         :asset-type="product.asset_type"
       />
@@ -214,6 +229,10 @@ const performanceAvailable = computed(
 }
 
 .pro-section__performance {
+  margin-bottom: var(--space-3);
+}
+
+.pro-section__risk {
   margin-bottom: var(--space-3);
 }
 
