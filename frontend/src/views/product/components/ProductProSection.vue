@@ -147,8 +147,8 @@ function badgeText(key: string): string | null {
 
 .pro-section__grid {
   display: grid;
-  gap: var(--space-3);
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
 }
 
 .pro-module {
@@ -194,6 +194,7 @@ function badgeText(key: string): string | null {
 /* 付费墙遮罩：贴住内容区（不遮 SectionHeader），translucent 卡片底 + 轻模糊 */
 .pro-paywall {
   position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -202,7 +203,6 @@ function badgeText(key: string): string | null {
   background: color-mix(in srgb, var(--bg-card) 86%, transparent);
   border-radius: var(--radius-md);
   backdrop-filter: blur(2px);
-  inset: 0;
 }
 
 .pro-paywall__title {

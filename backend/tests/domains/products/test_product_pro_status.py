@@ -57,9 +57,7 @@ def test_pro_status_asset_type_is_echo_only(client):
     without = client.get(PRO_URL, query_string={'symbol': '004369'}, headers={'X-User-Id': '1'})
     assert without.get_json()['data']['asset_type'] is None
 
-    with_hint = client.get(
-        PRO_URL, query_string={'symbol': '004369', 'asset_type': 'fund'}, headers={'X-User-Id': '1'}
-    )
+    with_hint = client.get(PRO_URL, query_string={'symbol': '004369', 'asset_type': 'fund'}, headers={'X-User-Id': '1'})
     assert with_hint.get_json()['data']['asset_type'] == 'fund'
 
 
