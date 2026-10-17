@@ -36,8 +36,10 @@ import {
   type EngineStrategyMeta
 } from "@/api/strategyEngine";
 import {
+  getCashLikeBreakdown,
   getDistributions,
   getPositionGroups,
+  type CashLikeItem,
   type DistributionsData
 } from "@/api/summary";
 import { usePageRefresh } from "@/composables/usePageRefresh";
@@ -66,6 +68,14 @@ export function useInventoryData(activeCategory: Ref<string>) {
   const investmentTotal = ref(0);
   const investmentPage = ref(1);
   const investmentLoading = ref(false);
+
+  /**
+   * 账外类现金（货基 / 逆回购）：按流水净额记账、不建持仓行，故不在持仓明细里。
+   * **只用于展示，不得并入任何合计**——它的金额已经计入总资产。
+   */
+  const cashLikeItems = ref<CashLikeItem[]>([]);
+  const cashLikeTotal = ref(0);
+  const cashLikeLoading = ref(false);
 
   /** 当前大类的资产明细 */
   const currentAssets = ref<AssetRecord[]>([]);
@@ -140,6 +150,26 @@ export function useInventoryData(activeCategory: Ref<string>) {
   }
 
   /**
+   * 拉取「类现金」明细（货基 / 逆回购的账外流水）。
+   *
+   * 独立 try/catch：接口挂了只让该分组不显示，不能拖垮整页盘点。
+   */
+  async function loadCashLike() {
+    cashLikeLoading.value = true;
+    try {
+      const res = await getCashLikeBreakdown();
+      cashLikeItems.value = res?.data?.items ?? [];
+      cashLikeTotal.value = res?.data?.total_amount ?? 0;
+    } catch (e) {
+      console.error("加载类现金明细失败", e);
+      cashLikeItems.value = [];
+      cashLikeTotal.value = 0;
+    } finally {
+      cashLikeLoading.value = false;
+    }
+  }
+
+  /**
    * 只请求基础汇总、分布与投资分组接口（不再全量拉取资产列表）。
    *
    * 资产可能刚被增删改，因此每次都先整体失效分类缓存再拉当前大类，否则列表里还留着已删记录。
@@ -168,6 +198,9 @@ export function useInventoryData(activeCategory: Ref<string>) {
 
       distributions.value = distRes?.data ?? null;
       investmentGroupsRaw.value = groupsRes?.data ?? [];
+
+      // 与盘点主体并行、互不阻塞
+      void loadCashLike();
 
       await loadInvestmentPage(investmentPage.value);
 
@@ -227,6 +260,9 @@ export function useInventoryData(activeCategory: Ref<string>) {
     investmentTotal,
     investmentPage,
     investmentLoading,
+    cashLikeItems,
+    cashLikeTotal,
+    cashLikeLoading,
     currentAssets,
     getCategoryTotal,
     fetchData,
