@@ -17,6 +17,7 @@
 from datetime import date
 
 from app.core.money import Money
+from app.core.time_utils import today_shanghai
 from app.domains.positions.models import Position
 from app.services.position_presenter import enrich_position_dict
 
@@ -120,3 +121,41 @@ def test_existing_pnl_caliber_unchanged():
     d = enrich_position_dict(p)
 
     assert d['pnl'] == 0.1  # (1.1000 − 1.0000) × 1 份
+
+
+def test_settled_today_declared_in_out_schema():
+    """#2210：白名单式 Out Schema 必须声明 `settled_today`——否则契约字段在 schema 层不可见。
+
+    与 `is_money_fund` / `prev_close` 同一条坑：不声明，`model_validate` 后就被静默丢掉。
+    """
+    from app.domains.positions.schemas import PositionOut
+
+    assert 'settled_today' in PositionOut.model_fields
+
+
+def test_settled_today_true_when_price_date_is_today():
+    """#2210：price_date = 今天 ⇒ True——确认值已是今日价，估值副行冗余，前端隐藏。"""
+    p = _pos(prev_close=10000, price_date=today_shanghai())
+
+    d = enrich_position_dict(p)
+
+    assert d['settled_today'] is True
+    assert d['price_date'] == today_shanghai().isoformat()
+
+
+def test_settled_today_false_when_price_date_is_t_minus_1():
+    """#2210：price_date 是 T-1 ⇒ False——22:15 回写前估副行仍有信息量，照常显示（设计内行为）。"""
+    p = _pos(prev_close=10000, price_date=date(2026, 1, 9))
+
+    d = enrich_position_dict(p)
+
+    assert d['settled_today'] is False
+
+
+def test_settled_today_none_when_price_date_missing():
+    """#2210：无价格日期（未回写 / 货基面值）⇒ None，前端按不隐藏处理——不是 False。"""
+    p = _pos(prev_close=None, price_date=None)
+
+    d = enrich_position_dict(p)
+
+    assert d['settled_today'] is None
