@@ -44,9 +44,8 @@ TRADING_DAYS_PER_YEAR = 252
 # 无风险利率（年化）。取「近年一年期国债收益率中枢」的常量近似。
 # 讲究：① 它只决定夏普/UPI 的「及格线」，同窗口内所有基金同减一个数 ⇒ **不改变排序**；
 #       ② 动态取 10 年国债会引入新数据源（撞 #1403 同族限流），而排序收益为零；
-#       ③ 必须随值下发（RISK_FREE_RATE_BASIS），否则用户换一个 rf 就对不上账。
+#       ③ 必须随值下发（caveats 里写明数值与近似依据），否则用户换一个 rf 就对不上账。
 RISK_FREE_RATE_ANNUAL = 0.015
-RISK_FREE_RATE_BASIS = '常量近似（近年一年期国债收益率中枢），非动态曲线；同窗口内不改变排序'
 
 # 窗口（交易日）。近 3 年 ≈ 3×252，近 5 年 ≈ 5×252。
 WINDOW_3Y = 3 * TRADING_DAYS_PER_YEAR
@@ -688,8 +687,12 @@ def compute_risk_metrics(
         win_rate_period=win_rate_period,
         overlap=True,  # 滚动窗口必然重叠，见 win_rate docstring
     )
-    result.caveats.append('acc_nav 为「分红不再投」近似复权口径，非严格分红再投；大额赎回/份额折算会污染序列')
-    result.caveats.append(f'rf={rf_annual:.4f}（{RISK_FREE_RATE_BASIS}）')
+    result.caveats.append(
+        '收益基于累计净值计算（分红不计入再投资）；大额赎回或份额折算可能造成净值跳变，影响指标真实性'
+    )
+    result.caveats.append(
+        f'无风险利率按 {rf_annual * 100:.2f}% 计算（一年期国债收益率的近似常量，用于夏普/索提诺等指标）'
+    )
 
     jumps = detect_jumps(series)
     if jumps:

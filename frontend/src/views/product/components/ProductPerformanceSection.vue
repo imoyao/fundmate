@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { Icon as IconifyIconOffline } from "@iconify/vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
@@ -77,25 +78,25 @@ const riskRows = computed(() => {
     {
       key: "calmar",
       label: "卡玛比率",
-      hint: "年化收益 / 最大回撤",
+      hint: "年化收益 ÷ 最大回撤——赚的比最深一摔多多少。越高说明收益越抗跌",
       value: fmtRatio(p.calmar)
     },
     {
       key: "sortino",
       label: "索提诺",
-      hint: "只罚下跌波动",
+      hint: "只惩罚下跌波动的「夏普」——只罚坏波动，对上行的波动不计较",
       value: fmtRatio(p.sortino)
     },
     {
       key: "sharpe",
       label: "夏普",
-      hint: `(年化 − rf) / 波动，rf=${(p.risk_free_rate ?? 0) * 100}%`,
+      hint: "（年化收益 − 无风险利率）÷ 年化波动率——每承担 1 份波动换来多少超额回报",
       value: fmtRatio(p.sharpe)
     },
     {
       key: "ulcer",
       label: "溃疡指数",
-      hint: "整段煎熬的深度（UI）",
+      hint: "回撤的深度与持续时间合成的值（UI）——越大说明持有过程越煎熬",
       value: fmtPct(p.ulcer_index)
     },
     { key: "upi", label: "UPI", hint: "年化收益 / UI", value: fmtRatio(p.upi) },
@@ -290,8 +291,16 @@ watch(() => props.symbol, load, { immediate: true });
             :key="row.key"
             class="performance-section__fact"
           >
-            <dt class="performance-section__label" :title="row.hint">
-              {{ row.label }}
+            <dt class="performance-section__label">
+              <span class="performance-section__label-text">
+                {{ row.label }}
+              </span>
+              <el-tooltip :content="row.hint" placement="top">
+                <IconifyIconOffline
+                  icon="ep:info-filled"
+                  class="performance-section__tip-icon"
+                />
+              </el-tooltip>
             </dt>
             <dd class="performance-section__value">{{ row.value }}</dd>
           </div>
@@ -396,19 +405,39 @@ watch(() => props.symbol, load, { immediate: true });
             :key="row.key"
             class="performance-section__fact"
           >
-            <dt class="performance-section__label" :title="row.hint">
-              {{ row.label }}
+            <!-- 指标解释（2026-10-17）：原生 title 不显眼且样式不可控，
+                 升级为 el-tooltip + 信息图标（与同类风险榜表头同款交互） -->
+            <dt class="performance-section__label">
+              <span class="performance-section__label-text">
+                {{ row.label }}
+              </span>
+              <el-tooltip :content="row.hint" placement="top">
+                <IconifyIconOffline
+                  icon="ep:info-filled"
+                  class="performance-section__tip-icon"
+                />
+              </el-tooltip>
             </dt>
             <dd class="performance-section__value">{{ row.value }}</dd>
           </div>
           <div class="performance-section__fact">
-            <dt
-              class="performance-section__label"
-              :title="`${PERIOD_LABEL[perf.win_rate_period || 'month'] || ''}频；滚动窗口重叠，是持有体验而非概率`"
-            >
-              胜率（{{
-                PERIOD_LABEL[perf.win_rate_period || "month"] || "月"
-              }}）
+            <dt class="performance-section__label">
+              <span class="performance-section__label-text">
+                胜率（{{
+                  PERIOD_LABEL[perf.win_rate_period || "month"] || "月"
+                }}）
+              </span>
+              <el-tooltip
+                :content="`${
+                  PERIOD_LABEL[perf.win_rate_period || 'month'] || ''
+                }频；滚动窗口重叠，是持有体验而非概率`"
+                placement="top"
+              >
+                <IconifyIconOffline
+                  icon="ep:info-filled"
+                  class="performance-section__tip-icon"
+                />
+              </el-tooltip>
             </dt>
             <dd class="performance-section__value">
               {{ fmtPct(perf.win_rate) }}
@@ -421,7 +450,10 @@ watch(() => props.symbol, load, { immediate: true });
         数据来源：{{ perf.source
         }}<template v-if="perf.as_of"> · 截至 {{ perf.as_of }}</template>
         <template v-if="perf.risk_free_rate != null">
-          · rf={{ (perf.risk_free_rate * 100).toFixed(2) }}%</template
+          · 无风险利率
+          {{
+            (perf.risk_free_rate * 100).toFixed(2)
+          }}%（一年期国债收益率近似，用于夏普等指标）</template
         >
         <template v-if="perf.risk_sample_points">
           · 样本 {{ perf.risk_sample_points }} 个净值点</template
@@ -468,6 +500,17 @@ watch(() => props.symbol, load, { immediate: true });
 .performance-section__label {
   font-size: 12px;
   color: var(--text-tertiary-ink);
+}
+
+/* 指标名 + 解释图标（el-tooltip 锚点）：图标跟随标签色，cursor-help 提示可悬停 */
+.performance-section__label-text {
+  margin-right: 4px;
+}
+
+.performance-section__tip-icon {
+  font-size: 12px;
+  color: var(--text-tertiary-ink);
+  cursor: help;
 }
 
 .performance-section__value {

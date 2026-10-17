@@ -184,3 +184,26 @@ class TestPayload:
             _add(db, f'c{i}', 1, sharpe=float(i))
         out = list_by_metric(db, fund_type_id=1, metric='sharpe', limit=2)
         assert len(out['rows']) == 2
+
+
+class TestFundName:
+    """榜单行带基金名称（2026-10-17）：只显示 6 位代码用户认不出产品。
+
+    名称来自 `funds` 表两步法查（market 域内）；funds 缺该 code 时降级 None，
+    前端回退显示代码——不编造名称。
+    """
+
+    def test_fund_name_joined_from_funds_table(self, db):
+        from app.domains.funds.models import Fund
+
+        db.add(Fund(fund_code='000001', name='测试优选混合'))
+        db.commit()
+        _add(db, '000001', 1, sharpe=1.0)
+        out = list_by_metric(db, fund_type_id=1, metric='sharpe')
+        assert out['rows'][0]['fund_name'] == '测试优选混合'
+
+    def test_fund_name_none_when_funds_row_missing(self, db):
+        """funds 表没有该 code（资料未同步）⇒ None，不编造、不报错。"""
+        _add(db, '999999', 1, sharpe=1.0)
+        out = list_by_metric(db, fund_type_id=1, metric='sharpe')
+        assert out['rows'][0]['fund_name'] is None
