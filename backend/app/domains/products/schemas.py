@@ -159,6 +159,21 @@ class RelatedSymbolsRequest(BaseModel):
     )
 
 
+class IndexEtfCompareRequest(BaseModel):
+    """`GET /api/products/index-etf-compare/` 的查询参数（#2275 · 关联 ETF 对比表）。
+
+    与 `RelatedSymbolsRequest` 同理只需 symbol：指数代码在 ``index_catalog`` 是
+    全局唯一的裸 6 位码，关联 ETF 由 ``channel_links`` 按裸代码查出，无需消歧。
+    """
+
+    symbol: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description='指数代码（裸 6 位码如 931151 或带前缀形态均可，后端归一）',
+    )
+
+
 class FundRiskTypesRequest(BaseModel):
     """`GET /api/products/fund-risk-types/` 的查询参数（#167 · 榜单页类型选择器）。
 

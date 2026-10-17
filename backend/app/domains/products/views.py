@@ -21,6 +21,7 @@ from app.domains.products.schemas import (
     AdvisorProfileRequest,
     FundRiskRankingRequest,
     FundRiskTypesRequest,
+    IndexEtfCompareRequest,
     IndexProfileRequest,
     ManagerProfileRequest,
     ProductResolveRequest,
@@ -30,6 +31,7 @@ from app.domains.products.schemas import (
     StockProfileRequest,
 )
 from app.services.advisor_profile import build_advisor_profile
+from app.services.etf_compare import build_etf_compare
 from app.services.fund_holdings_detail import build_fund_holdings_detail
 from app.services.fund_performance import build_fund_performance
 from app.services.fund_profile import build_fund_profile
@@ -265,6 +267,30 @@ def index_weights():
     with closing(market_session_factory()()) as db:
         try:
             data = build_index_weights(db, query.symbol)
+        except ValueError as e:
+            abort(400, str(e))
+
+    if data is None:
+        abort(404, f'指数不存在：{query.symbol}')
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/index-etf-compare/')
+def index_etf_compare():
+    """指数详情页关联 ETF 对比表（#2275 · P0）：净值 / 当日涨幅 / 成交额 / 区间涨跌幅 / 跟踪差。
+
+    数据策略与 `/index-returns/` 同款：**按需抓 + TTL 缓存 + 不入库 + 可降级**——
+    关联 ETF 清单来自本地 ``channel_links``，净值（``fund_etf_fund_daily_em``）、
+    当日快照（新浪 ``fund_etf_category_sina``）、逐只日线（腾讯）均按需外呼，
+    整体 30min 缓存。任一字段失败 → 该字段 ``null`` 前端「—」，**不阻塞整表**；
+    无关联 ETF → 200 + ``rows: []``（正常情形，覆盖率边界见 #1419）；
+    仅名录未命中才 404。
+    """
+    query: IndexEtfCompareRequest = parse_query(IndexEtfCompareRequest)
+
+    with closing(market_session_factory()()) as db:
+        try:
+            data = build_etf_compare(db, query.symbol)
         except ValueError as e:
             abort(400, str(e))
 

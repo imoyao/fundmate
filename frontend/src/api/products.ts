@@ -208,6 +208,54 @@ export function fetchIndexWeights(symbol: string) {
   );
 }
 
+/** 关联 ETF 对比表窗口收益（#2275）：近 1/3/6/12 月（%）；null = 历史不足 */
+export interface IndexEtfCompareWindows {
+  m1: number | null;
+  m3: number | null;
+  m6: number | null;
+  y1: number | null;
+}
+
+/** 关联 ETF 对比表单行（#2275 · P0）。所有行情字段缺失一律 null，前端降级「—」 */
+export interface IndexEtfCompareRow {
+  code: string;
+  name: string | null;
+  /** 最新单位净值（止于 T-1）；快照源失败为 null */
+  nav: number | null;
+  /** 净值日期 YYYY-MM-DD */
+  nav_date: string | null;
+  /** 净值日增长率(%) */
+  nav_change_pct: number | null;
+  /** 当日涨跌幅(%)（新浪现货快照） */
+  change_pct: number | null;
+  /** 当日成交额（元） */
+  amount: number | null;
+  returns: IndexEtfCompareWindows;
+  /** 跟踪差(%) = ETF 近 1 年涨幅 − 指数近 1 年涨幅；任一侧缺失为 null */
+  tracking_diff_y1: number | null;
+}
+
+/**
+ * 指数详情页关联 ETF 对比表（`/api/products/index-etf-compare/`，#2275）。
+ * ETF 清单来自本地 channel_links（覆盖率约 66.4%，#1419）；`rows: []` 表示
+ * 无关联 ETF（正常情形），整表隐藏。数据按需抓 + 30min 缓存，任一字段失败
+ * 不阻塞整表。
+ */
+export interface IndexEtfCompareResult {
+  index_code: string;
+  /** 最新净值日期（行集内的最大 nav_date）；全降级为 null */
+  as_of: string | null;
+  rows: IndexEtfCompareRow[];
+}
+
+export function fetchIndexEtfCompare(symbol: string) {
+  return http.request<ApiResponse<IndexEtfCompareResult>>(
+    "get",
+    "/api/products/index-etf-compare/",
+    { params: { symbol } }
+  );
+}
+
 /** 区间收益切面条目（`/api/products/fund-performance/` 返回） */
 export interface FundPerformanceInterval {
   /** 档位 key：1w/1m/3m/6m/1y/2y/3y/5y/ytd/since */
