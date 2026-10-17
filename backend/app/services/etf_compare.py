@@ -146,12 +146,17 @@ def _empty_compare(code: str) -> Dict[str, Any]:
     }
 
 
-def _etf_row_returns(etf_code: str, today: date) -> Optional[Dict[str, Optional[float]]]:
-    """单只 ETF 的四窗口收益（腾讯日线 + 自然月口径）；取不到序列 → None。"""
-    rows = direct_feeds.fetch_daily_tencent(etf_code, start_date=today - timedelta(days=_ETF_HIST_LOOKBACK_DAYS))
+def _etf_row_returns(etf_code: str) -> Optional[Dict[str, Optional[float]]]:
+    """单只 ETF 的四窗口收益（腾讯日线 + 自然月口径）；取不到序列 → None。
+
+    **不注入 today**：与指数侧（``build_index_returns`` → ``compute_period_returns``
+    默认锚数据日，#2299 口径）保持一致——周末/节假日若显式锚日历今天，ETF 侧基期
+    会比指数侧前移一个交易日，跟踪差两侧锚点不一致。
+    """
+    rows = direct_feeds.fetch_daily_tencent(etf_code, start_date=date.today() - timedelta(days=_ETF_HIST_LOOKBACK_DAYS))
     if not rows:
         return None
-    result = compute_period_returns(rows, today=today, windows=_ETF_WINDOWS, volatility=False)
+    result = compute_period_returns(rows, windows=_ETF_WINDOWS, volatility=False)
     return result['returns'] if result else None
 
 
@@ -179,7 +184,6 @@ def _compute(db: Session, code: str) -> Dict[str, Any]:
     if not etfs:
         return _empty_compare(code)
 
-    today = date.today()
     nav_map: Dict[str, Dict[str, Any]] = {}
     spot_map: Dict[str, Dict[str, Any]] = {}
     try:
@@ -211,7 +215,7 @@ def _compute(db: Session, code: str) -> Dict[str, Any]:
     rows: List[Dict[str, Any]] = []
     for etf in etfs:
         etf_code = etf['code']
-        returns = _etf_row_returns(etf_code, today)
+        returns = _etf_row_returns(etf_code)
         nav_info = nav_map.get(etf_code, {})
         spot_info = spot_map.get(etf_code, {})
         etf_y1 = (returns or {}).get('y1')

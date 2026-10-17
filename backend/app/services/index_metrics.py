@@ -175,7 +175,9 @@ def compute_period_returns(
     # 序列整体落在近 1 年内（起点晚于 1 年前）→ 窗口从首点起算，取全部可用收益。
     volatility_y1: Optional[float] = None
     if volatility:
-        y1_idx = _last_index_on_or_before(dates, _shift_months(today, -12))
+        # 波动率窗口与收益窗口同锚点（#2299 口径：锚数据日，非日历 today——
+        # 自动变基合并时此处曾遗留 today 引用，CI 实测 _shift_months(None) 炸）
+        y1_idx = _last_index_on_or_before(dates, _shift_months(anchor, -12))
         start_idx = 0 if y1_idx is None else y1_idx
         daily_rets = [closes[i] / closes[i - 1] - 1 for i in range(start_idx + 1, len(closes))]
         if len(daily_rets) >= _VOL_MIN_SAMPLES:
