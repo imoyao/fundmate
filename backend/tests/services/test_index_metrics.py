@@ -2,8 +2,10 @@
 """指数详情页指标（#2278 · 阶段性收益 / 年化波动率 / 十大权重）。
 
 重点覆盖六件事：
-1. **窗口口径**：基期 = 「<= 目标日的最后一个交易日」（自然对齐交易日，节假日天然
-   跳过）；今年至今基期 = 上一年最后一个交易日；历史不足窗口 → 该窗口 null 不编数；
+1. **窗口口径**：锚点 = 序列最新数据日（非日历 today()——2026-10-17 实测锚日历
+   会在周末把基期前移一个交易日，931151 y1 偏中证官网 4.6pp）；基期 = 「<= 锚点
+   回溯 N 自然月的最后一个交易日」（节假日天然跳过）；今年至今基期 = 上一年最后
+   一个交易日；历史不足窗口 → 该窗口 null 不编数；
 2. **数据链路由**：中证官网优先（9 系唯一源），腾讯兜底必须带交易所后缀
    （裸码会把 000300 误路由成 sz——实测坑）；两路全空全字段 null；
 3. **年化波动率**：日频简单收益样本标准差 × √252，历史不足 1 年 → null；
@@ -11,7 +13,8 @@
 5. **权重聚合**：中文列名解析（实测 2026-10-17）、top10 降序、前十大集中度、
    成分码前导零防御（'591' → '000591'）、接口失败/空 df 整块降级；
 6. **聚合测试一律不联网**：direct_feeds 两路与 akshare 全部 monkeypatch，
-   缓存按用例注入 tmp_path 隔离（file_dir），today 固定为 2026-10-17 保证确定性。
+   缓存按用例注入 tmp_path 隔离（file_dir）；date.today() 钉死为周六 2026-10-17，
+   作为「窗口锚点不吃日历」回归用例的判别背景。
 """
 
 from contextlib import closing
@@ -101,7 +104,8 @@ def test_returns_all_windows_computed(monkeypatch):
     assert data['source'] == 'csindex'
 
     latest = rows[-1][1]
-    base_m1 = _close_at(rows, FIXED_TODAY - timedelta(days=30))
+    # m1 基期锚数据最新日 2026-10-16 回溯 1 自然月 = 09-16（非日历 today 10-17 → 09-17）
+    base_m1 = _close_at(rows, _shift_months(date(2026, 10, 16), -1))
     assert data['returns']['m1'] == round((latest / base_m1 - 1) * 100, 2)
     base_ytd = _close_at(rows, date(2025, 12, 31))
     assert data['returns']['ytd'] == round((latest / base_ytd - 1) * 100, 2)
@@ -122,7 +126,7 @@ def test_returns_short_history_nulls(monkeypatch):
     with closing(market_session_factory()()) as db:
         data = build_index_returns(db, '931151')
 
-    latest, base_m1 = rows[-1][1], _close_at(rows, FIXED_TODAY - timedelta(days=30))
+    latest, base_m1 = rows[-1][1], _close_at(rows, _shift_months(date(2026, 10, 16), -1))
     assert data['returns']['m1'] == round((latest / base_m1 - 1) * 100, 2)
     assert data['returns']['m3'] is None
     assert data['returns']['ytd'] is None  # 序列全部在本年内，无上年末基期
@@ -422,6 +426,23 @@ def test_compute_unsorted_input_handled_by_baseline():
     result = compute_period_returns(sorted(_FULL, reverse=True), today=_TODAY)
     assert result is not None
     assert result['returns']['y1'] == pytest.approx(37.5, abs=1e-9)
+
+
+def test_compute_anchor_follows_data_not_calendar():
+    """窗口锚点 = 序列最新数据日，不吃日历 today()（#2278 复测回归）。
+
+    数据止于周五 2026-10-16、date.today() 被夹具钉在周六 2026-10-17 时，
+    m1 基期必须是 2026-09-16（数据日回溯 1 自然月），不是 2026-09-17。
+    2026-10-17 实测：锚日历会让 931151 的 y1 偏离中证官网 4.6pp。
+    """
+    rows = _series(date(2025, 1, 1), date(2026, 10, 16))
+    result = compute_period_returns(rows)  # 不注入 today → 走默认锚点
+    latest = rows[-1][1]
+    base_data = _close_at(rows, _shift_months(date(2026, 10, 16), -1))  # 09-16：正确锚点
+    base_cal = _close_at(rows, _shift_months(date(2026, 10, 17), -1))  # 09-17：日历锚点（错误）
+    assert base_data != base_cal  # 等比序列上两种锚点结果不同 → 判别有效
+    assert result['returns']['m1'] == round((latest / base_data - 1) * 100, 2)
+    assert result['returns']['m1'] != round((latest / base_cal - 1) * 100, 2)
 
 
 def test_volatility_constant_series_zero():

@@ -141,7 +141,6 @@ def compute_period_returns(
         'returns': {<windows keys>: float%|None}, 'volatility_y1': float%|None}``；
         序列少于 2 点（算不出任何收益）→ ``None``。
     """
-    today = today or date.today()
     if len(rows) < 2:
         return None
     # 防御性按交易日升序：direct_feeds 契约保证升序，此处兜底乱序输入（纯函数不依赖调用方顺序）
@@ -149,6 +148,11 @@ def compute_period_returns(
     latest_date, latest_close = rows[-1]
     if latest_close <= 0:
         return None
+
+    # 窗口锚点 = 序列最新数据日（中证官网同口径：终点是最新收盘，不是日历今天）。
+    # 锚 date.today() 会在周末/节假日把非 ytd 窗口的基期整体前移一个交易日：
+    # 2026-10-17（周六）实测 931151 y1 偏离官网 4.6pp、m3 偏 3.5pp——只此一处根因。
+    anchor = today or date.fromisoformat(latest_date)
 
     dates = [date.fromisoformat(d) for d, _ in rows]
     closes = [close for _, close in rows]
@@ -159,13 +163,12 @@ def compute_period_returns(
         return round((latest_close / closes[base_idx] - 1) * 100, 2)
 
     # 各窗口基准收盘（None = 历史不足该窗口 → 前端「—」不编数）。
-    # 基准锚定「今天」而非最后交易日：近 1 月 = 今天往前 N 个自然月，标准区间收益口径。
     returns: Dict[str, Optional[float]] = {}
     for key, months in windows:
         if months is None:  # 今年至今：基期 = 上一自然年最后一个交易日
-            base_idx = _last_index_on_or_before(dates, date(today.year - 1, 12, 31))
+            base_idx = _last_index_on_or_before(dates, date(anchor.year - 1, 12, 31))
         else:  # 自然月回溯（月末钳位），基准 = 目标日当日或之前最近交易日
-            base_idx = _last_index_on_or_before(dates, _shift_months(today, -months))
+            base_idx = _last_index_on_or_before(dates, _shift_months(anchor, -months))
         returns[key] = _ret(base_idx)
 
     # 年化波动率（近 1 年）：日频简单收益样本标准差 × √252；样本 < 20 → None。

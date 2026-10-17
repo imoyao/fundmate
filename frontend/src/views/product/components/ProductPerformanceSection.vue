@@ -498,6 +498,12 @@ watch(() => props.symbol, load, { immediate: true });
 }
 
 .performance-section__label {
+  /* Tailwind v4 preflight 把全站 <svg> 置为 display:block，而
+     IconifyIconOffline 渲染的图标是 <svg>——在普通 block 容器里「标签+图标」
+     会被挤成上下两行（#2283 回归）。inline-flex 与排行榜表头 .th-with-tip
+     同款修法：图标作为 flex item 跟随标签同行。 */
+  display: inline-flex;
+  align-items: center;
   font-size: 12px;
   color: var(--text-tertiary-ink);
 }

@@ -40,7 +40,7 @@
         <CardBlock>
           <SectionHeader
             title="筛选"
-            info="榜单只在一个基金小类内排序；指标越小越好的（如波动率）会自动按升序排"
+            info="榜单只在一个基金小类内排序；点击表头可切换排序指标与方向"
           />
 
           <div class="filter-row">
@@ -62,27 +62,6 @@
                   :label="`${t.name}（${t.count}）`"
                 />
               </el-select>
-            </div>
-
-            <div class="filter-item">
-              <label class="filter-item__label">排序指标</label>
-              <SegmentedControl
-                v-model="metric"
-                :options="metricOptions"
-                aria-label="排序指标切换"
-                @change="loadRanking"
-              />
-            </div>
-
-            <div class="filter-item">
-              <label class="filter-item__label">方向</label>
-              <SegmentedControl
-                v-model="order"
-                :options="orderOptions"
-                size="small"
-                aria-label="排序方向切换"
-                @change="loadRanking"
-              />
             </div>
           </div>
 
@@ -121,10 +100,14 @@
                 <tr>
                   <th class="col-rank">#</th>
                   <th class="col-fund">基金</th>
+                  <!-- 指标列即排序入口（#2298）：整块可点，当前排序列高亮 + 实心箭头 -->
                   <th
                     v-for="col in tableColumns"
                     :key="col.key"
+                    class="col-sortable"
                     :class="{ 'col-active': col.key === metric }"
+                    :aria-sort="ariaSort(col.key)"
+                    @click="onSort(col.key)"
                   >
                     <span class="th-with-tip">
                       <span>{{ col.label }}</span>
@@ -134,6 +117,25 @@
                           class="th-tip-icon"
                         />
                       </el-tooltip>
+                    </span>
+                    <span class="th-sort">
+                      <IconifyIconOffline
+                        v-if="col.key === metric"
+                        :icon="
+                          order === 'desc' ? 'ep:caret-top' : 'ep:caret-bottom'
+                        "
+                        class="th-sort__caret th-sort__caret--active"
+                      />
+                      <template v-else>
+                        <IconifyIconOffline
+                          icon="ep:caret-top"
+                          class="th-sort__caret"
+                        />
+                        <IconifyIconOffline
+                          icon="ep:caret-bottom"
+                          class="th-sort__caret"
+                        />
+                      </template>
                     </span>
                   </th>
                   <th class="col-window">窗口</th>
@@ -191,7 +193,6 @@ import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
-import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import {
   getFundRiskRanking,
   getFundRiskTypes,
@@ -206,25 +207,9 @@ const router = useRouter();
 
 const DASH = "—";
 
-/** 排序指标白名单 —— 与后端 `fund_risk_ranking.SORTABLE_METRICS` 逐项对齐。
- *  这里只放**用户读得懂且有意义**的 6 个；`annual_return` / `annual_volatility`
- *  等仍可传（后端支持），但不进分段控制器（选项 6 个是 SegmentedControl 的上限）。 */
-const METRICS = [
-  { label: "夏普", value: "sharpe" },
-  { label: "卡玛", value: "calmar" },
-  { label: "索提诺", value: "sortino" },
-  { label: "UI", value: "ulcer_index" },
-  { label: "波回比", value: "return_drawdown_ratio" },
-  { label: "最大回撤", value: "max_drawdown" }
-] as const;
-
-const metricOptions = METRICS.map(m => ({ label: m.label, value: m.value }));
-const orderOptions = [
-  { label: "从优到劣", value: "desc" },
-  { label: "从劣到优", value: "asc" }
-] as const;
-
-/** 表格列（固定一套，当前排序指标高亮——避免每次切指标换一套列，用户要重新找列）。
+/** 表格列 = 排序入口（#2298 排序进表头）：每列 key 与后端
+ *  `fund_risk_ranking.SORTABLE_METRICS` 对齐（annual_return 后端亦支持，True=降序）。
+ *  曾经可排、但没有列展示的「索提诺」随分段控制器一并下线——按看不见的列排序没有意义。
  *  hint：面向普通用户的指标解释（2026-10-17 表头 tooltip）——夏普/卡玛这类术语
  *  只摆数字不解释，多数用户读不懂「这个数高好还是低好」。 */
 const tableColumns = [
@@ -279,10 +264,12 @@ const selectedTypeName = computed(
 const rankingTitle = computed(() =>
   selectedTypeName.value ? `${selectedTypeName.value} · 同类榜` : "同类榜"
 );
-const rankingInfo = computed(
-  () =>
-    `按「${METRICS.find(m => m.value === metric.value)?.label ?? metric.value}」排序`
-);
+const rankingInfo = computed(() => {
+  const label =
+    tableColumns.find(c => c.key === metric.value)?.label ?? metric.value;
+  // 沿用旧分段控件的用户语言：desc = 从优到劣（最大回撤以负数存储，降序即回撤浅者前）
+  return `按「${label}」${order.value === "desc" ? "从优到劣" : "从劣到优"}排序`;
+});
 const noRowHint = computed(() =>
   excludedDistorted.value > 0
     ? "该类型下所有基金的指标都因口径可疑被剔除——数据问题，不是没有基金。"
@@ -322,8 +309,12 @@ async function loadTypes() {
   }
 }
 
+/** 请求序号：连续快速点击表头会并发多次请求，过期响应直接丢弃，防止旧数据覆盖新排序 */
+let loadSeq = 0;
+
 async function loadRanking() {
   if (selectedTypeId.value == null) return;
+  const seq = ++loadSeq;
   rankingLoading.value = true;
   try {
     const res = await getFundRiskRanking({
@@ -331,20 +322,41 @@ async function loadRanking() {
       metric: metric.value,
       order: order.value as "asc" | "desc"
     });
+    if (seq !== loadSeq) return;
     const data = res?.data;
     rows.value = data?.rows ?? [];
     excludedDistorted.value = data?.excluded_distorted ?? 0;
     caliberVersion.value = data?.caliber_version ?? null;
   } catch {
+    if (seq !== loadSeq) return;
     rows.value = [];
     excludedDistorted.value = 0;
   } finally {
-    rankingLoading.value = false;
+    if (seq === loadSeq) rankingLoading.value = false;
   }
 }
 
 function onTypeChange() {
   loadRanking();
+}
+
+/** 表头点击排序：首次点击 = 该列「从优到劣」（desc），再次点击反向。
+ *  六列默认方向统一为降序——含最大回撤：它以负数存储（-8 优于 -25），
+ *  降序 = 回撤浅者排前 = 从优到劣；annual_return 后端白名单同为 True。 */
+function onSort(key: string) {
+  if (key === metric.value) {
+    order.value = order.value === "desc" ? "asc" : "desc";
+  } else {
+    metric.value = key;
+    order.value = "desc";
+  }
+  loadRanking();
+}
+
+/** aria-sort：给屏幕阅读器说明当前列的排序状态（未参与排序的列 = none） */
+function ariaSort(key: string): "none" | "ascending" | "descending" {
+  if (key !== metric.value) return "none";
+  return order.value === "desc" ? "descending" : "ascending";
 }
 
 function goDetail(code: string) {
@@ -508,6 +520,42 @@ onMounted(async () => {
   font-size: 13px;
   color: var(--text-tertiary-ink);
   cursor: help;
+}
+
+/* 可排序表头（#2298）：整块可点；未排序列灰双箭头 hover 变深，当前列实心单箭头。
+   注意箭头图标是 <svg>，Tailwind preflight 会把它置为 display:block——
+   放进 inline-flex 容器（.th-sort）作 flex item 才不会从表头掉行（#2297 同款教训）。 */
+.col-sortable {
+  cursor: pointer;
+  user-select: none;
+
+  /* 当前排序列的 brand 高亮优先，hover 不改它 */
+  &:not(.col-active):hover {
+    color: var(--text-primary);
+  }
+}
+
+.th-sort {
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 1;
+  vertical-align: middle;
+
+  &__caret {
+    font-size: 10px;
+    color: var(--text-tertiary-ink);
+    opacity: 0.3;
+    transition: opacity 0.15s ease;
+
+    &--active {
+      color: var(--brand-700);
+      opacity: 1;
+    }
+  }
+}
+
+.col-sortable:hover .th-sort__caret:not(.th-sort__caret--active) {
+  opacity: 0.75;
 }
 
 .table-loading {
