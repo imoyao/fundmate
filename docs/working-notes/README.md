@@ -14,7 +14,7 @@
 
 | 文件 | 内容 |
 |---|---|
-| `fund-conversion-design-2026-10-17.md` | **转换 = 赎回 + 申购的记账方案（先文档后实现）**：结论是 **v1 零新表**——`transactions.link_group_id` 已在红利再投里承载「多腿成组」，转换只需 `sell` + `buy`（+ 可选退款腿）同组；不新增 `txn_type`（否则 XIRR/盈亏/导入/筛选/导出五处同步）。费用只记 OUT 腿、拆分裂进 `extra.conversion.fee_breakdown`，避免成本重复计入；补差费必须两只基金同时乘 `subscription_discount`。**踩坑点**：直接复用 `process_sell_or_withdraw` 会触发 `auto_purchase_money_fund`，转换链路必须显式关闭。份额精度结论：存 4 位 / 录入 4（赎回）或 2（申购）/ 展示 2 位，**不是 bug 是口径不一致**，修法为统一录入 2 位 + 「全部」传精确值，不做数据迁移。含四步步骤条交互（沿用导入页 `el-steps`）、退款/补差三场景、分期与验收、Q1~Q6 待拍板 |
+| `fund-conversion-design-2026-10-17.md` | **转换 = 赎回 + 申购的记账方案（先文档后实现）**：**v1 零新表**——`transactions.link_group_id` 已在红利再投里承载「多腿成组」，转换 = `sell` + `buy`（+ 退款腿）同组。**退款必须落真实流水**（`extra` 只存去向/费用拆分，不承载金额）；退款买货基后**持仓页用「类现金分组」读流水聚合展示、不建 position**（建 position 会与总资产、对账、XIRR、orphan backfill 四处口径打架）。「转换」对用户是**独立交易类型**，但由后端下发 `display_type='convert'` 实现——真正新增 `txn_type` 要同步 8 处白名单，其中 5 处静默失败且仍躲不掉组折叠。撤销/修改**不建表**，按组删除 + 重放（复用 `recompute_position_from_transactions`），约束是「该组之后不能有后续流水」；草稿**只存前端**（复用 `useReconDraft`）。费用只记 OUT 腿；踩坑：直接复用 `process_sell_or_withdraw` 会触发 `auto_purchase_money_fund` 必须显式关闭。份额精度结论：存 4 / 录 4 或 2 / 展示 2，**是口径不一致不是 bug**，统一录入 2 位 + 「全部」传精确值，不做数据迁移。含四步步骤条、D1~D10 决策记录、O1~O3 待定 |
 
 ## 幽灵重复接入对账工作台域 D · 前端（2026-10-16，CNB duoduobei/fundmate#477 / GitHub #2151）
 

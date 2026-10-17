@@ -11,7 +11,11 @@
 | 问题 | 结论 | 一句话理由 |
 |---|---|---|
 | 要不要新建表 | **v1 不建表** | `transactions.link_group_id` 已经能承载「多腿成组」，红利再投已用它配对两条流水 |
-| 要不要新增 `txn_type` | **v1 不新增**，复用 `sell` / `buy` | 新增类型要同步 XIRR、盈亏、导入映射、列表筛选、CSV 导出五处；`extra.conversion` 足够表达语义 |
+| 要不要新增 `txn_type` | **存储层不新增，展示层新增独立类型 `convert`**（后端下发 `display_type`） | 用户看到/筛选/复盘的确实是「转换」一等类型；但落库不必新增枚举——新增枚举要同步 8 处白名单，其中 5 处是静默失败（详见 §3.4） |
+| 退款记在哪 | **必须落真实流水**（第 3 条腿），`extra` 只存元数据 | 只在 `extra` 里记金额＝没有账，与「记一笔」的初衷冲突；金额/份额一律以流水为准 |
+| 退款申购货基后能否在持仓页看到 | **能**，但用「类现金分组」读流水聚合展示，**不给货基建 position** | 总资产已含孤儿货基（`summary_service`），再建 position 会双计；详见 §4.5 |
+| 撤销 / 修改已提交的转换要不要新表 | **不要**，按 `link_group_id` 组内重放 | 现有删除流水已支持「从流水重算持仓」，组级删除 + 重放可复用同一套；约束见 §3.5 |
+| 草稿存哪 | **只存前端**（IndexedDB / localForage），后端不做草稿 | 已有通用 `useReconDraft`（TTL 7 天、版本化、sanitize），导入页在用 |
 | 费用在哪算 | **服务端单一实现**，试算与落库同源 | 赎回费依赖 FIFO 持有期、补差费依赖两只基金的费率阶梯，前端算必然漂移 |
 | 份额精度 4 位是否 bug | **不是 bug，是三处口径不一致**：存 4 / 录 4（赎回）或 2（申购）/ 展示 2 | 建议统一「录入与展示 2 位、存储保持 4 位」，**不做数据迁移** |
 | 交互形态 | **四步步骤条**，沿用导入页 `el-steps` 的视觉与节流方式 | 转换是不可逆的资金操作，一步填完提交没有复核环节 |
@@ -52,11 +56,13 @@
 
 **转换 = 同一 `link_group_id` 下的 2~3 条流水**，这套机制不需要新发明。
 
-### 1.4 类现金产品不是「持仓」
+### 1.4 类现金产品不是「持仓」，但**是真实流水**（当前有个可见性缺口）
 
-`auto_purchase_money_fund()`（`services/position_service.py`）生成的是 **`entry_status='orphan'` 的 `buy` 流水**，`asset_type='money_fund'`，**不建 position**，市值按流水净额计入总资产。
+`auto_purchase_money_fund()`（`services/position_service.py`）生成的是 **`entry_status='orphan'` 的 `buy` 流水**，`asset_type='money_fund'`、`position_id IS NULL`，**不建 position**。
 
-这条事实决定了「退款自动申购货基」在数据层就是一条孤儿流水，不需要货基持仓表。
+净额聚合的唯一口径是 `summary_service.orphan_money_fund_totals_by_ledger()`（判定用 `position_id IS NULL`，不是 `entry_status`），它已经：① 计入总资产；② 在账户详情「类现金」卡片里展示（`LedgerCashLikeCard.vue`，文案明确「不建持仓，故不在环形图内」）；③ 在交易记录列表里可见（列表只按 `family_id` 过滤，不过滤孤儿）。
+
+**缺口只有一个**：持仓页（`views/asset/inventory/index.vue`）只渲染 `positions` 表，所以货基不出现。这正是 §4.5 要补的展示，不是「没记账」。
 
 它还有两个坑：
 
@@ -102,15 +108,24 @@
 | 状态机 `PENDING → CONFIRMED` | **复用 `entry_status`**（`pending` / `confirmed` / `orphan`）+ `confirm_date` | 已有语义完全一致（基金 T+1 待确认） |
 | 未知价法：申请时不写死份额 | **采纳** | 试算只出「预估份额」，确认日再改 `quantity` |
 | 货币基金未付收益单独结转 | **v1 不做**（列边界） | 本仓货基按流水净额计市值（§1.4），没有「未付收益」独立字段；强行加会与 `money_fund_income` 的收益行口径冲突。等货基收益入账口径统一后再议 |
-| 退款去向 `refund_preference` | **采纳，但不落订单表**：落 `extra.conversion.refund_mode` | 与组号同处，够用 |
+| 退款去向 `refund_preference` | **采纳**：去向落 `extra.conversion.refund_mode`，**金额落真实流水** | 与组号同处，够用；金额不能只活在 JSON 里 |
 | 幂等键 | **采纳**：`import_hash` 已存在唯一索引，转换提交用「组号 + leg 角色」派生 hash | 避免重复点击/重试产生两对流水 |
 | 试算与确认两次算费 | **采纳**，且要求同一函数 | 前端只展示服务端返回值 |
 
+**本轮新增的四条拍板（2026-10-17 二次确认）**：
+
+| 议题 | 结论 | 见 |
+|---|---|---|
+| 退款资金怎么记 | **真实流水**（第 3 条腿），`extra` 只存去向/拆分等元数据 | §3.1、§4.5 |
+| 转换的交易类型 | **对用户与前端是独立类型 `convert`**（后端下发 `display_type`），存储仍用 `sell`/`buy` | §3.4 |
+| 撤销 / 修改已提交的转换 | **不新增表**，按 `link_group_id` 组内删除 + 重放 | §3.5 |
+| 草稿 | **只存前端**（IndexedDB），后端不做草稿接口 | §3.6 |
+
 **明确不做（v1）**：
 
-- 不做「申请 → 撤销」的状态回退（手工记账场景，撤销 = 删流水）。
 - 不做跨账户转换（转换必须同账户，跨账户是「赎回 + 申购」两件事）。
 - 不做「超级转换/垫资」类平台的资金占用建模（我们记的是结果，不是渠道的资金流）。
+- 不做「已确认（T+1）之后改金额」的冲正（走 §3.5 的组级更正，前端会提示重新录入）。
 
 ---
 
@@ -134,6 +149,8 @@ link_group_id = <uuid hex>
      · 退账户现金 → txn_type='deposit', asset_type='cash', symbol='__CASH__',
                   entry_status='orphan', amount=退款金额（与导入器现金行同构）
 ```
+
+**退款不是「只记在 extra 里」**：`leg-3` 是一条**真实流水**，`amount` 就是退款金额，会被交易列表、账户现金流、类现金聚合各自读到。`extra.conversion.refund_mode` / `refund_symbol` 只说明「这笔钱去了哪」，不承载金额——金额的唯一真相是流水。
 
 **费用只记在 OUT 腿**：赎回费与补差费都是「从转出金额里扣掉的」，记在 OUT 腿的 `fee` 上，`realized_pnl` 自然减掉总费用；IN 腿 `amount` 记的是净额、`fee=0`，否则成本会被重复加一遍。
 
@@ -164,13 +181,74 @@ link_group_id = <uuid hex>
 
 ### 3.3 什么时候才需要真正建表
 
-只有出现下列需求之一，才值得引入 `fund_conversion_order`：
+`撤销/修改` 不再是建表理由（见 §3.5，组内重放即可）。只剩两条：
 
-1. 转换申请需要在**设备间同步/跨会话编辑**（流水组承载不了草稿）。
-2. 需要**撤销/修改**已提交的申请（需要订单行做状态机，流水只增不减）。
-3. 一条转换的腿数 **> 3**（多基金一进多出），或需要按 leg 记不同确认日与部分确认。
+1. 转换需要在**设备间同步**草稿（前端草稿只在本机，换设备看不到——这是有意的取舍）。
+2. 一条转换的腿数 **> 3**，或需要按 leg 记**不同确认日/部分确认**（流水组没有独立的组级字段）。
 
 当前手工记账场景（一次操作当场落库、腿数 ≤ 3）都不满足。
+
+### 3.4 交易类型：对用户是独立类型，对存储不是
+
+**用户要的是「转换」这个一等类型**：列表里能一眼看到、能筛选、点进去能复盘「这笔转换划不划算」。这一点完全成立，本设计采纳。
+
+但「独立类型」不一定等于「新增 `txn_type` 枚举」。先看新增枚举的真实成本（全仓白名单消费点）：
+
+| # | 位置 | 新增类型后的后果 |
+|---|---|---|
+| 1 | `services/importer/mappings.py` `BusinessType` + `VALID_OP_TYPES` | **硬报错**：导入器遇到未知类型直接判非法 |
+| 2 | `services/performance/xirr_engine.py` 现金流方向 | **静默丢**：`convert_*` 不在 in/out 集合 → 现金流消失、XIRR 虚高 |
+| 3 | `services/pnl_service.py` `_INVEST_TXN_TYPES` / `_DIVEST_TXN_TYPES` | **静默漏**：净投入与成本基数不算 |
+| 4 | `position_service.recompute_position_from_transactions()` | **静默漏**：删/改流水后份额原地不动 |
+| 5 | `domains/transactions/views.py` 删除后的重算白名单 | **静默不重算**：删了转换流水，持仓还是错的 |
+| 6 | `services/reconciliation_service.py` 买卖集合 | **误报**：净份额漏算 → 天天报「孤儿/差异」 |
+| 7 | `services/summary_service.py` 孤儿现金流集合 | **静默 continue**：类现金/现金流漏算 |
+| 8 | `domains/positions/views.py` `_KNOWN_OP_TYPES` | **硬 400**：手工录入直接拒绝 |
+| 9 | 前端 `TXN_TYPE_LABELS` / `TransactionTable.typeClass` | 显示原始英文 code + 中性色 |
+
+注意第 2~7 项的共同点：**不报错、不崩溃、只是少算**。这类缺陷最难发现，也最容易变成"账不对但查不出原因"。
+
+而且新增枚举**并不能省掉显示成本**：转换天然是两条腿，列表仍要按组折叠成一行，否则用户看到「卖出 + 买入」两条。折叠逻辑无论如何都得写。
+
+**裁决（方案 A）**：
+
+- 存储：`sell` + `buy`（+ 退款腿），`extra.conversion` 标记组内角色。
+- 接口：后端为每条流水计算并下发 `display_type`，转换组内两条腿的 `display_type = 'convert'`，其余等于 `txn_type`。
+- 前端：类型标签、颜色、图标、筛选、详情页**只认 `display_type`**；筛选「转换」时后端按 `link_group_id IS NOT NULL AND extra.conversion IS NOT NULL` 过滤。
+- 效果：用户侧「转换」是独立类型、独立筛选、独立详情；工程侧不动任何 txn_type 白名单。
+
+这不是临时 hack，而是本仓既有范式：红利再投就是「存 `dividend` + `buy`，展示折叠成一条『红利再投资』」，`dividend_service` 还靠「同组是否存在 buy」判定它的 kind。
+
+### 3.5 撤销 / 修改：组内重放，不新增表
+
+现有能力已经够用：
+
+- 删除单条流水后，`transactions/views.py` 会调 `PositionService.recompute_position_from_transactions()` **从剩余流水重算持仓**（净份额 ≤ 0 删行；持仓行已被清掉时可依剩余买入流水重建）。
+- 编辑走 `PATCH /api/ledgers/<lid>/transactions/<tid>/`，改数量后同样触发重算。
+
+因此新增两个组级端点即可：
+
+```
+DELETE /api/positions/conversion/<link_group_id>/      # 撤销：删组 → 重算持仓 → 清自选状态
+PUT    /api/positions/conversion/<link_group_id>/      # 修改：删组 → 用新参数重放 → 重算
+```
+
+实现要点：
+
+1. **一个事务**：删组 + 重算 + 重放 + 再重算，任一步失败整体回滚（不能出现"删了没重放"的中间态）。
+2. **重算对象是「涉及到的 position_id 集合」**，不是固定两个：退款腿无持仓，跳过。
+3. **可编辑窗口（必须做）**：该组之后，两只基金若已有后续流水（再买入/赎回/分红），组内重放会让后续流水的成本与份额交错。判定：两标的在该组 `trade_date/created_at` 之后存在任何流水 → **禁止删改**，前端提示「该笔转换之后已有新交易，无法撤销；请用一笔反向转换更正」。
+4. **已确认（`confirmed`）的转换**：允许撤销（物理删除），但要二次确认并提示「确认份额已入账，撤销后持仓将按流水重算」。
+5. **审计**：本仓交易删除本来就是物理删除、无审计表（`TransactionEditDialog` 的删除也是）。转换沿用同一口径，**不为此单独建表**；如将来需要留痕，应该是给 `transactions` 加统一的历史表，而不是转换专用表。
+6. **幂等/防重**：组级接口按 `link_group_id` 操作，天然幂等（第二次调用时组已不存在 → 返回 404 或 `already_revoked`）。
+
+### 3.6 草稿：只在前端
+
+- 复用 `frontend/src/composables/useReconDraft.ts`（localForage/IndexedDB，TTL 7 天，`sanitizeRows` 剥离函数与循环引用，Set↔数组序列化）。
+- 转换需要**独立草稿槽**（现有导入草稿是全局单槽 `recon-draft`）：新增 `conversion:{ledgerId}` 键，避免一次导入把转换草稿冲掉。
+- 存的内容：`step`、`ledger_id`、`out_symbol`/`out_quantity`、`in_symbol`/`in_amount`、`refund_mode`、`trade_date`、`updated_at`；**不存试算结果**（净值会变，恢复后重新试算）。
+- 恢复时校验账户是否仍存在、是否仍有该持仓；不满足则丢弃草稿并提示。
+- 提交成功 / 明确放弃后 `discardDraft()`；离开页面只弹确认，不自动保存到后端。
 
 ---
 
@@ -254,6 +332,30 @@ POST /api/positions/conversion/
 6. 幂等：`idempotency_key` + 组号派生 `import_hash`，重复提交返回同一次结果而不是新增流水。
 7. `auto_purchase_money_fund` **必须关闭**（§1.4 的坑），由转换服务传参显式禁用。
 
+### 4.5 退款买到货基之后，持仓页怎么显示
+
+**前提**：这笔申购一定有一条真实流水（§3.1 的 leg-3），交易记录里能看到；要解决的是「持仓页看不到」。
+
+两条路径：
+
+| | 路径 A：持仓页新增「类现金」分组（**推荐**） | 路径 B：给货基建 position 行 |
+|---|---|---|
+| 数据源 | 复用 `summary_service.orphan_money_fund_totals_by_ledger()` | `positions` 新增 `asset_type='money_fund'` 行，`quantity` 按 1.0000 净值折算 |
+| 总资产 | **不加总**（已含，见 `summary_service` 的 orphan 合并），只展示 | 必须同步改聚合，否则**双计** |
+| 货基收益 | 用既有 `money_fund_income.py`（净额基线 + 万份收益） | 收益基线会与净额叠加，需要重写 `_collect_position_market_value` |
+| 对账 | 无影响 | `reconciliation_service` 会把「有持仓无流水差额」当差异报出 |
+| 其他副作用 | 无 | 进 XIRR 分母（默认排除 money_fund）、被 `orphan_backfill_job` 反向回填、聚合视图多一类 |
+| 成本 | 1 个只读接口 + 1 个展示组件 | 5 处口径同步，风险面最大 |
+
+**裁决：路径 A**。理由：本仓已经把「类现金产品按流水净额计市值」定为口径（`#1137`），总资产、账户详情卡片、现金流三处都按这个口径对齐；为了一个展示位改建 position，会把三处已经对齐的口径重新拆开。
+
+具体落地：
+
+- 后端：`GET /api/positions/cash-like/?ledger_id=` 返回 `{ symbol, name, amount, income_amount, nav_date, income_7d }`，内部直接调 `orphan_money_fund_totals_by_ledger`，**不做任何加总**。
+- 前端：持仓页在持仓表下方新增「类现金」分组（可折叠），行内展示「产品名 / 持有金额 / 昨日收益 / 七日年化」，点击进入产品详情；空态不渲染。
+- 文案必须写明这是**账面口径**（按流水净额计，不是份额×净值），避免与基金持仓的「份额 × 净值」混淆。
+- 该行**不参与**持仓盈亏、不参与持仓占比环图（与账户详情卡片现有口径一致）。
+
 ---
 
 ## 5. 份额精度：结论与修法
@@ -314,7 +416,8 @@ POST /api/positions/conversion/
 7. **费率缺失不静默**：`fee_rates` 为空时第 3 步显示黄色提示「该基金费率数据缺失，费用按 0 计，请以确认单为准」，不阻断提交但留痕。
 8. **退款去向**：默认取账户绑定的类现金产品（`ledger.linked_money_fund`）；未绑定则只能选「退回账户现金」，并提示「可在账户设置里绑定活期+，以后自动申购」。
 9. **提交按钮防重**：提交中禁用 + 幂等键；成功后清空表单并跳到第 4 步，不重复弹「再做一笔」。
-10. **离开守卫**：第 1~3 步有已填内容时，切换操作类型 / 路由离开 / 切换账户都要确认（复用 `useUnsavedChangesGuard`）。第 4 步不拦。
+10. **离开守卫 + 草稿**：第 1~3 步有已填内容时，切换操作类型 / 路由离开 / 切换账户都要确认（复用 `useUnsavedChangesGuard`）；同时按 §3.6 保存前端草稿，下次进入弹「发现未完成的转换草稿，继续？」（Banner，不弹窗打断）。
+11. **撤销入口**：第 4 步与转换详情页提供「撤销这笔转换」，走 §3.5 的组级删除；若该组之后已有新交易则置灰并给出原因。
 
 ### 6.4 视觉规范（对齐 `frontend/design.md`）
 
@@ -336,6 +439,20 @@ POST /api/positions/conversion/
 - `estimateRedeemFee`（赎回费）
 - `AssetTypeBadge` / 产品搜索组件
 
+### 6.6 交易列表与复盘：转换是独立类型
+
+用户要的不只是「能筛选」，而是能复盘这笔决策。因此除列表标签外，还要有一个**转换详情视图**：
+
+| 位置 | 展示 |
+|---|---|
+| 交易列表 | 一行「转换」：`转出 A 5,540 份 → 转入 B（预估 1,510.66 份）`，右侧显示净转入金额；颜色用**中性蓝/品牌中性色**，不套涨红跌绿（转换没有涨跌语义） |
+| 类型筛选 | 一级类型新增「转换」；后端按 `link_group_id` 组过滤（不是按 `txn_type`） |
+| 转换详情 | 四条关键数字：转出金额、费用合计（展开＝赎回费/补差费）、转入金额、退款；下方列出各腿明细（可点进单条流水） |
+| 复盘卡（P3） | 「转换时点对比」：转出基金在本组 T 日净值 vs 转入基金在 T+N 的净值走势，给出「转入后跑赢/跑输转出 X%」的中性描述。**不做买卖建议**，只做事实陈述 |
+| 状态 | 待确认（T+1）/ 已确认 / 已撤销；待确认时金额标「预估」 |
+
+「高卖低买」类判断**不落库**，由复盘卡实时计算（净值都在 `daily_worth`），避免再加一套派生字段。
+
 ---
 
 ## 7. 本轮顺带修掉的三处 UI 缺陷（已实现）
@@ -351,28 +468,44 @@ POST /api/positions/conversion/
 | 期 | 内容 | 验收 |
 |---|---|---|
 | P0 | `estimate` 服务 + 单测（费用、FIFO、补差、份额取整） | 纯函数级用例：2 基金 / 带退款 / 费率缺失 / 全部转出 / 跨类型拒绝 |
-| P1 | `POST /conversion` 落库（2 基金场景）+ 前端步骤条 1~3 步 + 结果页 | 转换后：转出持仓减、转入持仓增、两条流水同 `link_group_id`、资产总额守恒（±费用）、XIRR 不异常 |
-| P2 | 退款（类现金 / 账户现金）+ 补差拦截 + 类现金默认项 | 三条流水场景；退款后总资产与转换前一致（扣费） |
-| P3 | 列表折叠展示「转换」+ 详情页（按组展开各腿、费用明细、状态） | 交易列表不出现两条孤立买卖；组内合计费用 = 各腿费用之和 |
+| P1 | `POST /conversion` 落库（2 基金场景）+ 前端步骤条 1~3 步 + 结果页 | 转出持仓减、转入持仓增、两条流水同 `link_group_id`、资产总额守恒（±费用）、XIRR 不异常 |
+| P2 | 退款腿（类现金 / 账户现金）+ 补差拦截 + 持仓页「类现金」分组 | 三条流水；退款后总资产仍守恒；货基分组**不加总**（与总资产对账相等） |
+| P3 | `display_type` + 列表折叠/筛选 + 转换详情 + 撤销（组级删除） | 列表中不出现两条孤立买卖；筛选「转换」命中整组；撤销后两名持仓均按流水重算正确 |
+| P4 | 复盘卡 + 前端草稿 | 复盘数字可复算（净值直接取 `daily_worth`）；草稿跨刷新恢复、账户删除后自动丢弃 |
 
 每期都要有的回归：
 
-- 转换后 `recompute_position_from_transactions()` 删除任一流水不出负份额；
+- `recompute_position_from_transactions()` 对组内任一流水删除/重放后份额、均价正确（含清仓行重建）；
 - `auto_purchase_money_fund` 不被误触发（断言无额外孤儿流水）；
-- 幂等键重复提交只产生一组流水。
+- 幂等键重复提交只产生一组流水；
+- 转换前后总资产差 = 费用合计（分，精确相等）。
 
 ---
 
-## 9. 待拍板（需要你决定）
+## 9. 决策记录
 
-| # | 问题 | 建议 |
+**已拍板（2026-10-17 用户确认）**：
+
+| # | 问题 | 结论 |
 |---|---|---|
-| Q1 | 转入金额允许**大于**净额（垫资）吗？ | 不允许，v1 直接拦；补款单独记 |
-| Q2 | 退款默认去向：账户绑定的类现金 / 账户现金？ | 绑定优先，未绑定则账户现金 + 引导绑定 |
-| Q3 | 转出「全部」时，是否允许残留 0.01 份（历史 4 位数据的尾差）？ | 允许尾差保留，但清仓判定用精确值，不做强行抹零 |
-| Q4 | 转换是否出现在「交易类型」筛选里（新增 `convert` 虚拟类型）？ | 列表按 `link_group_id` 折叠即可，筛选沿用「买入/卖出」两条真实类型，避免全链路加枚举 |
-| Q5 | 费率缺失时是否允许提交？ | 允许，但必须在确认页显式提示并落 `extra.warnings` |
-| Q6 | 是否需要「转换后自动更新自选状态」？ | 与卖出同口径，复用 `_silent_reconcile_watchlist` |
+| D1 | 退款资金怎么记 | 落**真实流水**；`extra` 只存去向与费用拆分，不承载金额 |
+| D2 | 退款买货基后是否要在持仓页看到 | 要；用「类现金分组」读流水聚合展示，不建 position（§4.5） |
+| D3 | 草稿 | 只在前端（IndexedDB），后端不做草稿 |
+| D4 | 撤销/修改已提交的转换 | 不新增表，按 `link_group_id` 组内删除 + 重放（§3.5） |
+| D5 | 转换的交易类型 | 对用户与前端是**独立类型 `convert`**（后端下发 `display_type`），存储仍用 `sell`/`buy`（§3.4） |
+| D6 | 转入金额 > 净额（垫资） | 不允许，v1 直接拦；补款单独记一笔 |
+| D7 | 退款默认去向 | 优先账户绑定的类现金；未绑定则账户现金 + 引导绑定 |
+| D8 | 「全部」的尾差 | 允许保留（历史 4 位数据），清仓判定用精确值，不抹零 |
+| D9 | 费率缺失能否提交 | 允许，确认页显式提示并落 `extra.warnings` |
+| D10 | 转换后是否同步自选状态 | 与卖出同口径，复用 `_silent_reconcile_watchlist` |
+
+**仍待定（不阻塞 P0/P1）**：
+
+| # | 问题 | 说明 |
+|---|---|---|
+| O1 | 已确认（T+1）后撤销是否需要留痕 | 本仓交易删除本就是物理删除、无审计表；若要做，应是全表级别的历史表，不做转换专用表 |
+| O2 | 货基「类现金分组」是否也要覆盖逆回购 | 建议一起覆盖（同属 `asset_type in ('money_fund','reverse_repo')`），待 UI 确认 |
+| O3 | 转换详情里的「复盘卡」是否需要基准对比（如沪深 300） | 一期先做「转出 vs 转入」两条净值对比即可 |
 
 ---
 
@@ -384,7 +517,7 @@ POST /api/positions/conversion/
 | `status` | `transactions.entry_status`（+ `extra.conversion.status`） |
 | `apply_date` / `confirm_date` | `transactions.trade_date` / `confirm_date` |
 | `total_out_amount` / `total_fee` / `total_net_in_amount` | OUT 腿 `amount` / `fee`，IN 腿 `amount`；合计由组内求和派生，不另存 |
-| `leg.transfer_direction` | `txn_type`（`sell` = OUT，`buy` = IN） |
+| `leg.transfer_direction` | `txn_type`（`sell` = OUT，`buy` = IN）；对外统一由 `display_type='convert'` 呈现 |
 | `leg.application_vol` / `confirmed_vol` | 申请阶段 `quantity`（预估）→ 确认日改写为确认份额 |
 | `leg.nav` / `nav_date` | `price` + `extra.conversion.nav_date` |
 | `leg.redeem_fee` / `recuperate_fee` | OUT 腿 `fee` + `extra.conversion.fee_breakdown` |
