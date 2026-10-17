@@ -345,11 +345,12 @@ watch(rows, () => nextTick(measure));
 }
 
 .etf-cmp__num--rise {
-  color: var(--color-rise);
+  /* #2314：文字色统一 -ink 文字级令牌（图形级 --color-rise 禁作前景文字，design.md:131） */
+  color: var(--color-rise-ink);
 }
 
 .etf-cmp__num--fall {
-  color: var(--color-fall);
+  color: var(--color-fall-ink);
 }
 
 .etf-cmp__link {
@@ -358,7 +359,7 @@ watch(rows, () => nextTick(measure));
 
   &:hover,
   &:focus-visible {
-    color: var(--brand-700);
+    color: var(--brand-ink); /* #2314：前景文字用品牌文字级 */
   }
 
   &:focus-visible {

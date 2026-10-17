@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { RouterLink } from "vue-router";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
+import ProductDisplay from "@/components/ProductDisplay/index.vue";
+import { productRoute } from "@/utils/productIdentity";
 import type { FundHoldingsDetailResult } from "@/api/products";
 
 /**
@@ -78,6 +81,28 @@ const visibleTotalRatio = computed(() => {
     .filter((v): v is number => v != null);
   return vals.length ? vals.reduce((a, b) => a + b, 0) : null;
 });
+
+/**
+ * 持仓行 → 个股详情页路径（#2314）。
+ *
+ * 季报库存的是**裸码**（A 股 6 位 / 港股 5 位，见后端 FundHolding.stock_code
+ * 注释「不做补零」），站内 symbol 则带市场前缀（SH600519）。品类已由
+ * 「基金持仓」确定为 stock，这里只补**市场前缀**、不猜品类——按首位补：
+ * 6→沪、0/3→深；北交所（4/8 开头）与港股（5 位）站内未收录，返回空串
+ * 不建链（纯展示），避免 404 死链。与后端 to_contract_market 同思路。
+ */
+function stockHref(code: string): string {
+  const c = (code || "").trim();
+  if (!/^\d{6}$/.test(c)) return "";
+  const prefix = c.startsWith("6")
+    ? "SH"
+    : c.startsWith("0") || c.startsWith("3")
+      ? "SZ"
+      : "";
+  return prefix
+    ? productRoute({ assetType: "stock", symbol: `${prefix}${c}` })
+    : "";
+}
 </script>
 
 <template>
@@ -107,8 +132,10 @@ const visibleTotalRatio = computed(() => {
           <thead>
             <tr>
               <th scope="col" class="holding-section__num">序号</th>
-              <th scope="col">代码</th>
-              <th scope="col">名称</th>
+              <!-- #2314：原「代码 / 名称」两列合并为产品列，复用全站 ProductDisplay
+                   （自选 / 分红 / 清单同款）：长名称 ellipsis + title 全名，
+                   代码以「# 裸码」弱化小字呈现，省出一个独立列的横向空间 -->
+              <th scope="col" class="holding-section__product">产品</th>
               <th scope="col" class="holding-section__num">占净值比</th>
               <th scope="col" class="holding-section__num">持股数(万股)</th>
               <th scope="col" class="holding-section__num">市值(万元)</th>
@@ -122,10 +149,25 @@ const visibleTotalRatio = computed(() => {
               <td class="holding-section__num">
                 {{ r.rank ?? i + 1 }}
               </td>
-              <td class="holding-section__code">
-                {{ r.stock_code }}
+              <td class="holding-section__product">
+                <RouterLink
+                  v-if="stockHref(r.stock_code)"
+                  :to="stockHref(r.stock_code)"
+                  class="holding-section__product-link"
+                >
+                  <ProductDisplay
+                    compact
+                    :name="r.stock_name || ''"
+                    :symbol="r.stock_code"
+                  />
+                </RouterLink>
+                <ProductDisplay
+                  v-else
+                  compact
+                  :name="r.stock_name || ''"
+                  :symbol="r.stock_code"
+                />
               </td>
-              <td>{{ r.stock_name ?? "—" }}</td>
               <td class="holding-section__num">
                 {{ r.ratio != null ? r.ratio.toFixed(2) + "%" : "—" }}
               </td>
@@ -141,7 +183,7 @@ const visibleTotalRatio = computed(() => {
           </tbody>
           <tfoot v-if="visibleTotalRatio != null">
             <tr>
-              <th scope="row" colspan="3">所示合计</th>
+              <th scope="row" colspan="2">所示合计</th>
               <td class="holding-section__num">
                 {{ visibleTotalRatio.toFixed(2) }}%
               </td>
@@ -254,9 +296,20 @@ const visibleTotalRatio = computed(() => {
   text-align: right;
 }
 
-.holding-section__code {
-  font-variant-numeric: tabular-nums;
-  color: var(--text-secondary);
+/* #2314：产品列（ProductDisplay 两行紧凑）——替代原独立「代码」列 */
+.holding-section__product {
+  min-width: 150px;
+}
+
+/* 可跳转行的链接壳：去下划线、继承文字色，hover 提亮名称到品牌文字级 */
+.holding-section__product-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+
+  &:hover :deep(.product-name) {
+    color: var(--brand-ink);
+  }
 }
 
 .holding-section__more {

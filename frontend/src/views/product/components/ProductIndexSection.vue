@@ -109,40 +109,40 @@ watch(() => props.symbol, load, { immediate: true });
     </p>
 
     <template v-else>
-      <dl class="index-section__facts">
-        <div class="index-section__fact">
-          <dt class="index-section__label">指数名称</dt>
-          <dd class="index-section__value index-section__value--strong">
+      <dl class="facts-grid">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">指数名称</dt>
+          <dd class="facts-grid__value facts-grid__value--strong">
             {{ profile.name || DASH }}
           </dd>
         </div>
-        <div class="index-section__fact">
-          <dt class="index-section__label">发布机构</dt>
-          <dd class="index-section__value">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">发布机构</dt>
+          <dd class="facts-grid__value">
             {{ profile.publisher_label || DASH }}
           </dd>
         </div>
-        <div class="index-section__fact">
-          <dt class="index-section__label">市盈率 PE</dt>
-          <dd class="index-section__value">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">市盈率 PE</dt>
+          <dd class="facts-grid__value">
             <template v-if="profile.pe != null">
               {{ profile.pe.toFixed(2) }}
             </template>
             <template v-else>{{ DASH }}</template>
           </dd>
         </div>
-        <div class="index-section__fact">
-          <dt class="index-section__label">股息率</dt>
-          <dd class="index-section__value">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">股息率</dt>
+          <dd class="facts-grid__value">
             <template v-if="profile.dividend_yield != null">
               {{ profile.dividend_yield.toFixed(2) }}%
             </template>
             <template v-else>{{ DASH }}</template>
           </dd>
         </div>
-        <div class="index-section__fact">
-          <dt class="index-section__label">PE 历史分位</dt>
-          <dd class="index-section__value index-section__value--strong">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">PE 历史分位</dt>
+          <dd class="facts-grid__value facts-grid__value--strong">
             {{ percentileText }}
             <span v-if="percentileHint" class="index-section__sub">
               {{ percentileHint }}
@@ -150,27 +150,27 @@ watch(() => props.symbol, load, { immediate: true });
           </dd>
         </div>
         <!-- 快照字段（#2278，来自中证官网 index-basic-info 同一请求）：逐字段降级「—」 -->
-        <div class="index-section__fact">
-          <dt class="index-section__label">发布日期</dt>
-          <dd class="index-section__value">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">发布日期</dt>
+          <dd class="facts-grid__value">
             {{ profile.publish_date || DASH }}
           </dd>
         </div>
-        <div class="index-section__fact">
-          <dt class="index-section__label">样本数</dt>
-          <dd class="index-section__value">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">样本数</dt>
+          <dd class="facts-grid__value">
             {{ profile.cons_number != null ? profile.cons_number : DASH }}
           </dd>
         </div>
-        <div class="index-section__fact">
-          <dt class="index-section__label">加权方式</dt>
-          <dd class="index-section__value">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">加权方式</dt>
+          <dd class="facts-grid__value">
             {{ profile.weighting_type || DASH }}
           </dd>
         </div>
-        <div class="index-section__fact">
-          <dt class="index-section__label">币种</dt>
-          <dd class="index-section__value">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">币种</dt>
+          <dd class="facts-grid__value">
             {{ profile.currency || DASH }}
           </dd>
         </div>
@@ -204,39 +204,6 @@ watch(() => props.symbol, load, { immediate: true });
   margin: 0;
   font-size: 13px;
   color: var(--text-tertiary-ink);
-}
-
-.index-section__facts {
-  display: grid;
-
-  /* auto-fit + 真实最小列宽：`minmax(0, 1fr)` 会让轨道塌到几像素、标签逐字竖排（#1969 P0） */
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: var(--space-3) var(--space-6);
-  margin: 0;
-}
-
-.index-section__fact {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  min-width: 0;
-}
-
-.index-section__label {
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
-}
-
-.index-section__value {
-  margin: 0;
-  font-size: 14px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
-.index-section__value--strong {
-  font-size: 18px;
-  font-weight: 600;
 }
 
 .index-section__sub {

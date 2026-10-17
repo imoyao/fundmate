@@ -116,16 +116,16 @@ watch(() => props.symbol, load, { immediate: true });
     </p>
 
     <template v-else>
-      <dl class="idx-returns__grid">
+      <dl class="facts-grid">
         <div v-for="cell in cells" :key="cell.key" class="idx-returns__cell">
-          <dt class="idx-returns__label">{{ cell.label }}</dt>
-          <dd class="idx-returns__value" :class="valueClass(cell.value)">
+          <dt class="facts-grid__label">{{ cell.label }}</dt>
+          <dd class="facts-grid__value" :class="valueClass(cell.value)">
             {{ valueText(cell.value) }}
           </dd>
         </div>
         <div class="idx-returns__cell">
-          <dt class="idx-returns__label">年化波动率（近1年）</dt>
-          <dd class="idx-returns__value">{{ valueText(volatility) }}</dd>
+          <dt class="facts-grid__label">年化波动率（近1年）</dt>
+          <dd class="facts-grid__value">{{ valueText(volatility) }}</dd>
         </div>
       </dl>
 
@@ -152,15 +152,6 @@ watch(() => props.symbol, load, { immediate: true });
   color: var(--text-tertiary-ink);
 }
 
-.idx-returns__grid {
-  display: grid;
-
-  /* auto-fit + 真实最小列宽：minmax(0, 1fr) 会塌轨逐字竖排（#1969 P0 同款规避） */
-  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
-  gap: var(--space-3) var(--space-4);
-  margin: 0;
-}
-
 .idx-returns__cell {
   display: flex;
   flex-direction: column;
@@ -168,24 +159,13 @@ watch(() => props.symbol, load, { immediate: true });
   min-width: 0;
 }
 
-.idx-returns__label {
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
-}
-
-.idx-returns__value {
-  margin: 0;
-  font-size: 15px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
 .idx-returns__value--rise {
-  color: var(--color-rise);
+  /* #2314：文字色统一 -ink 文字级令牌（图形级 --color-rise 禁作前景文字，design.md:131） */
+  color: var(--color-rise-ink);
 }
 
 .idx-returns__value--fall {
-  color: var(--color-fall);
+  color: var(--color-fall-ink);
 }
 
 .idx-returns__footnote {

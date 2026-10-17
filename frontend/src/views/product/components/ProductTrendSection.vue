@@ -29,6 +29,7 @@ import {
   maxAmountOf
 } from "./trendMarkerMetrics";
 import {
+  CHART_FALLBACKS,
   CHART_TOKENS,
   getCssVar,
   useThemeTick
@@ -495,14 +496,16 @@ const chartOption = computed(() => {
   void themeTick.value; // 主题切换时重算，让曲线重读 CSS 变量
   const dates = trend.value?.dates ?? [];
   const values = trend.value?.values ?? [];
-  const rise = getCssVar(CHART_TOKENS.rise, "#e34f38");
-  const fall = getCssVar(CHART_TOKENS.fall, "#287d51");
+  const rise = getCssVar(CHART_TOKENS.rise, CHART_FALLBACKS.rise);
+  const fall = getCssVar(CHART_TOKENS.fall, CHART_FALLBACKS.fall);
 
   // 网格线取**真实色值**并用实线：
   // · ECharts 不解析 `var(--x)`，直接给变量字符串等于给了一个无效色（旧版就是）；
   // · 虚线在密集 K 线与影线之间会糊成一片，是「看着杂乱」的一半原因（#1969）。
   const splitLine = {
-    lineStyle: { color: getCssVar(CHART_TOKENS.borderLight, "#e8e8e8") }
+    lineStyle: {
+      color: getCssVar(CHART_TOKENS.borderLight, CHART_FALLBACKS.borderLight)
+    }
   };
 
   if (useCandle.value) {
@@ -582,9 +585,9 @@ const chartOption = computed(() => {
             borderColor0: fall
           }
         },
-        maLine(5, CHART_TOKENS.warning, "#e6a23c"),
-        maLine(10, CHART_TOKENS.info, "#409eff"),
-        maLine(20, CHART_TOKENS.textTertiary, "#9aa0a6"),
+        maLine(5, CHART_TOKENS.warning, CHART_FALLBACKS.warning),
+        maLine(10, CHART_TOKENS.info, CHART_FALLBACKS.info),
+        maLine(20, CHART_TOKENS.textTertiary, CHART_FALLBACKS.textTertiary),
         ...volumeSeries
       ]
     };
@@ -597,11 +600,20 @@ const chartOption = computed(() => {
   // 叠加层取色刻意避开 rise（红）/ fall（绿）：买卖点不是涨跌语义，
   // 涂红涂绿会让用户把「我买过」误读成「涨了」。蓝=买入、橙=卖出、
   // 中性灰虚线=成本线——与净值曲线（动态涨跌色）三层不打架（#2171 定稿）。
-  const markerBuyColor = getCssVar(CHART_TOKENS.info, "#409eff");
-  const markerSellColor = getCssVar(CHART_TOKENS.warning, "#e6a23c");
-  const costLineColor = getCssVar(CHART_TOKENS.textTertiary, "#9aa0a6");
+  const markerBuyColor = getCssVar(CHART_TOKENS.info, CHART_FALLBACKS.info);
+  const markerSellColor = getCssVar(
+    CHART_TOKENS.warning,
+    CHART_FALLBACKS.warning
+  );
+  const costLineColor = getCssVar(
+    CHART_TOKENS.textTertiary,
+    CHART_FALLBACKS.textTertiary
+  );
   // 清仓竖线用**点线**（成本线是虚线）：它标的是「一轮结束」这个事件，不是价格水平
-  const clearingColor = getCssVar(CHART_TOKENS.textTertiary, "#9aa0a6");
+  const clearingColor = getCssVar(
+    CHART_TOKENS.textTertiary,
+    CHART_FALLBACKS.textTertiary
+  );
 
   /** 轴触发 tooltip：净值行 + 当日成本线 + 当日买卖汇总（#2171）。
       同日多笔在 markerData 已聚合，这里直接显示「N 笔合计」；

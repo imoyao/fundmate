@@ -198,6 +198,13 @@
 | `--text-label` | 13px | 500 | 18px | 0 | Inter | 标签 / 表头 / Badge |
 | `--text-mono` | 16px | 400 | 24px | 0 | SF Mono | 金额数字（等宽） |
 | `--text-mono-small` | 14px | 400 | 20px | 0 | SF Mono | 小号金额（等宽） |
+| `--text-num-strong` | 18px | 600 | 24px | 0 | Inter | 指标网格值（常规强调数字） |
+| `--text-num-hero` | 24px | 600 | 32px | 0 | Inter | hero 数字（XIRR / 单指标锚点） |
+
+> **数字强调三档**（#2314）：详情页指标区曾并存 15/17/18/22px 四种自造字号，同语义
+> （「重要数字」）在不同区块长得不一样，页面显杂乱。收敛为三档：
+> **hero 24 / strong 18 / label 12**，标签一律 12px 400 弱化。取值须走令牌，
+> 禁止手写 px——手写字号即「第 N 种档位」复辟。
 
 > **数字等宽对齐**：所有金额数字必须使用 `font-variant-numeric: tabular-nums`，确保小数点对齐。
 
