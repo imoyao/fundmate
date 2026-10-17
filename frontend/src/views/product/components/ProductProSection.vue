@@ -94,6 +94,14 @@ function badgeText(key: string): string | null {
   return module.available ? "已上线" : `Phase ${module.phase} 建设中`;
 }
 
+/** 模块是否已上线（决定徽章档位与卡片是否降权）；状态位未就绪按未上线处理（#2303） */
+function moduleAvailable(key: string): boolean {
+  return (
+    status.value?.modules[key as keyof ProStatusResult["modules"]]
+      ?.available === true
+  );
+}
+
 /** 模块一内容是否可渲染（后端状态位翻真后挂载 ProductProPerformance，#994 Phase 2） */
 const performanceAvailable = computed(
   () => status.value?.modules.performance?.available === true
@@ -103,10 +111,16 @@ const performanceAvailable = computed(
 <template>
   <CardBlock v-if="enabled" class="pro-section">
     <SectionHeader
-      title="高级洞察 Pro"
+      title="高级洞察"
       info="深度绩效归因、风险控制、资产配置与智能报告——四大高级分析模块陆续上线中。与你账户相关的指标（如真实收益率、交易行为画像）始终基于你自己的持仓与流水计算。"
       info-label="关于高级洞察 Pro"
-    />
+    >
+      <!-- Pro 档位胶囊：Badge「品牌」档（#2303）。文字用 --brand-ink（品牌文字级，
+           #1599 batch 3）而非 --brand-700——后者作文字白底仅 3.73:1 不达 AA。 -->
+      <template #badge>
+        <span class="pro-section__pro-badge">Pro</span>
+      </template>
+    </SectionHeader>
     <div class="pro-section__body">
       <!-- 模块一内容区（#994 Phase 2）：状态位翻真才挂载取数；无账户数据时
            组件内部渲染引导文案——「可用」≠「有数据」由组件自行分化 -->
@@ -118,12 +132,24 @@ const performanceAvailable = computed(
       />
 
       <div class="pro-section__grid">
-        <article v-for="meta in MODULE_META" :key="meta.key" class="pro-module">
+        <article
+          v-for="meta in MODULE_META"
+          :key="meta.key"
+          class="pro-module"
+          :class="{ 'pro-module--pending': !moduleAvailable(meta.key) }"
+        >
           <header class="pro-module__head">
             <h3 class="pro-module__title">{{ meta.title }}</h3>
-            <span v-if="badgeText(meta.key)" class="pro-module__badge">{{
-              badgeText(meta.key)
-            }}</span>
+            <span
+              v-if="badgeText(meta.key)"
+              class="pro-module__badge"
+              :class="
+                moduleAvailable(meta.key)
+                  ? 'pro-module__badge--live'
+                  : 'pro-module__badge--wip'
+              "
+              >{{ badgeText(meta.key) }}</span
+            >
           </header>
           <p class="pro-module__desc">{{ meta.desc }}</p>
         </article>
@@ -150,10 +176,37 @@ const performanceAvailable = computed(
 </template>
 
 <style scoped>
+/* 顶部品牌渐变光带（#2303）：Pro 区块的唯一表现力信号。
+   渐变取单一来源令牌 --pro-accent-gradient（colors.css 亮 / dark.scss 暗），
+   禁止手写同款渐变。光带 3px 贴卡片顶缘，overflow:hidden 负责把两端裁进圆角。 */
 .pro-section {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+  overflow: hidden;
+}
+
+.pro-section::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 3px;
+  content: "";
+  background: var(--pro-accent-gradient);
+}
+
+/* Pro 档位胶囊：Badge「品牌」档（--brand-200 底），文字用品牌文字级 --brand-ink */
+.pro-section__pro-badge {
+  flex-shrink: 0;
+  padding: 0 var(--space-2);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--brand-ink);
+  background: var(--brand-200);
+  border-radius: var(--radius-pill);
 }
 
 .pro-section__body {
@@ -194,13 +247,28 @@ const performanceAvailable = computed(
   color: var(--text-primary);
 }
 
+/* 阶段徽章：中性三档语言（#2044 / #2303）——红绿是涨跌语义专用，阶段状态禁用 */
 .pro-module__badge {
   flex-shrink: 0;
-  padding: 0 var(--space-1);
+  padding: 0 var(--space-2);
   font-size: 11px;
-  color: var(--brand-ink);
-  background: color-mix(in srgb, var(--brand-700) 10%, transparent);
-  border-radius: 4px;
+  line-height: 18px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+}
+
+/* 已上线：中档（--bg-soft 底 + 主文字 600），尘埃落定的安静态 */
+.pro-module__badge--live {
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-soft);
+}
+
+/* Phase N 建设中：低档（透明底 + 弱描边），规划中内容不与已上线内容争权重 */
+.pro-module__badge--wip {
+  font-weight: 400;
+  color: var(--text-secondary);
+  border-color: var(--border-subtle);
 }
 
 .pro-module__desc {
@@ -208,6 +276,11 @@ const performanceAvailable = computed(
   font-size: 12px;
   line-height: 1.6;
   color: var(--text-secondary);
+}
+
+/* 未上线模块整体降权：描述文字降到辅助级，让已上线模块承担视觉主体（#2303） */
+.pro-module--pending .pro-module__desc {
+  color: var(--text-tertiary);
 }
 
 /* 付费墙遮罩：贴住内容区（不遮 SectionHeader），translucent 卡片底 + 轻模糊 */
@@ -242,9 +315,11 @@ const performanceAvailable = computed(
   font-size: 13px;
   color: var(--text-inverse);
   cursor: not-allowed;
-  background: var(--brand-700);
+
+  /* #1600 实底阶梯：--brand-700 白字 3.86:1 不达 AA，实底一律走 --brand-solid（800） */
+  background: var(--brand-solid);
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   opacity: 0.6;
 }
 </style>

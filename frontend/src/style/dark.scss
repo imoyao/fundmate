@@ -220,6 +220,12 @@ html.dark {
      src/style/_skeleton.scss；取值理由见 colors.css 同名令牌注释。 */
   --skeleton-wave: #3d3933; /* 暗·扫光带：vs --bg-soft(#2c2926) 1.26:1，ΔL* 7.4 */
 
+  /* Pro 卡片品牌渐变光带（暗，#2303）：亮色定义在 colors.css 同名令牌。
+     取暗色 brand 阶原始值（--brand-400 #7a352b → --brand-700 #d45a44，色相 7.4–9.2° 同族），
+     而非 var() 组合——:root 层渐变里的 var() 按亮色计算后整体继承，暗色子树不重算，
+     必须在此同名覆盖。 */
+  --pro-accent-gradient: linear-gradient(90deg, #7a352b, #d45a44);
+
   /* ===== 资产品种色（暗色，对应 colors.css 同名令牌） =====
      亮度归一化：深卡底 #242120 上 ≥6.5:1。2026-09-18 #1602。 */
   --asset-cat-stock: #b09dc8; /* 股票 */
