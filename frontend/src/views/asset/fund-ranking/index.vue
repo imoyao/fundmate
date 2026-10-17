@@ -221,7 +221,7 @@ const tableColumns = [
   {
     key: "calmar",
     label: "卡玛",
-    hint: "年化收益 ÷ 最大回撤——赚的比最深一摔多多少。越高说明收益越抗跌"
+    hint: "赚的钱抵不抵得过最深的亏损——年化收益 ÷ 最大回撤，数字越大越划算"
   },
   {
     key: "ulcer_index",
@@ -231,7 +231,7 @@ const tableColumns = [
   {
     key: "return_drawdown_ratio",
     label: "波回比",
-    hint: "年化收益 ÷（波动率 × 最大回撤）——同时考虑日常颠簸与最深一摔"
+    hint: "年化收益 ÷（波动率 × 最大回撤）：平时涨跌的幅度和最深一次亏损都算进分母，数字越大越好"
   },
   {
     key: "max_drawdown",

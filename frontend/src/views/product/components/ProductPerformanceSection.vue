@@ -78,13 +78,13 @@ const riskRows = computed(() => {
     {
       key: "calmar",
       label: "卡玛比率",
-      hint: "年化收益 ÷ 最大回撤——赚的比最深一摔多多少。越高说明收益越抗跌",
+      hint: "赚的钱抵不抵得过最深的亏损——年化收益 ÷ 最大回撤，数字越大越划算",
       value: fmtRatio(p.calmar)
     },
     {
       key: "sortino",
       label: "索提诺",
-      hint: "只惩罚下跌波动的「夏普」——只罚坏波动，对上行的波动不计较",
+      hint: "思路和夏普一样，但只把下跌的波动算作风险：涨得猛不会拉低它，跌得又频繁又深才会",
       value: fmtRatio(p.sortino)
     },
     {
@@ -103,7 +103,7 @@ const riskRows = computed(() => {
     {
       key: "rrd",
       label: "波回比",
-      hint: "年化 / (波动 × 最大回撤)",
+      hint: "年化收益 ÷（波动率 × 最大回撤）：平时涨跌的幅度和最深一次亏损都算进分母，数字越大越好",
       value: fmtRatio(p.return_drawdown_ratio)
     },
     {
@@ -111,8 +111,8 @@ const riskRows = computed(() => {
       // 它与上面的比值族不同源（比值族看「风险调整后收益」，它看「多周期收益合成」），
       // 故在 hint 里点明口径，避免被当成「另一个夏普」。历史不足一年时为「—」。
       key: "shape_gain2",
-      label: "拟涨幅2",
-      hint: "近1月/3月/6月/1年四段去重叠后加权合成（越近权重越高）",
+      label: "拟涨幅",
+      hint: "把最近 1 个月、3 个月、6 个月、1 年四段互不重复的涨幅，按越近占比越高合成的参考值",
       value: fmtPct(p.shape_gain2?.shape_gain2)
     }
   ];
