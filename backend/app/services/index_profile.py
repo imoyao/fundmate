@@ -19,6 +19,9 @@
 ``description``（指数简介）是唯一的例外：它是散文不是指标，``None`` 时前端
 **整段隐藏**而不显示「—」占位——简介抓自中证官网 ``index-basic-info``
 （``indexCnDesc``，编制方案描述原文），按需取 + 进程内缓存 + 降级 ``None``。
+#2278 起同一请求顺带取快照字段（publishDate / consNumber / weightingType /
+currencyCn）并入本聚合，缓存与降级语义同简介（整包 None → 逐字段「—」；
+官网对该码没填的键，如 931151 的 consNumber / weightingType，同样逐字段降级）。
 """
 
 from __future__ import annotations
@@ -53,33 +56,53 @@ def _bare_index_code(symbol: str) -> str:
     return m.group(0) if m else ''
 
 
+def _safe_int(value: Any) -> Optional[int]:
+    """官网数值字段宽松转 int（实测 consNumber 可能是 int / 数字串 / None）。"""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 # 中证官网「指数基础信息」接口：indexCnDesc 是官方简介正文（编制方案描述）。
 # 实测覆盖（2026-10-16）：0 系、9 系(6 位)、899、H、L 有简介；399 系、4 系(CNH)、
 # CES/B 系、8 位 98 系返回 data=null——只对覆盖码族发请求，省掉注定扑空的请求。
 _CSI_DESC_CODE_RE = re.compile(r'^(?:[089]\d{5}|H\d+|L\d+)$')
 _CSI_BASIC_INFO_URL = 'https://www.csindex.com.cn/csindex-home/indexInfo/index-basic-info/{code}'
 
-# 进程内简介缓存：code → 简介文本或 None（None = 官网确认无简介的负缓存，
-# 防止同一码每次打开详情页都发一遍请求）；网络异常**不写**缓存——瞬时故障
+# 进程内 basic-info 缓存：code → 官网 data dict 或 None（None = 官网确认无数据的
+# 负缓存，防止同一码每次打开详情页都发一遍请求）；网络异常**不写**缓存——瞬时故障
 # 下次查看时重试，不把故障焊死。编制方案正文极稳定，缓存不设 TTL。
-_csi_desc_cache: Dict[str, Optional[str]] = {}
+# #2278 起缓存整个 data dict：简介（indexCnDesc）与快照字段（publishDate /
+# consNumber / weightingType / currencyCn）同出一请求，多取几个键边际成本≈0。
+_csi_basic_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+# 兼容旧名（部分测试/调用方按此清缓存）：与 _csi_basic_cache 同一容器
+_csi_desc_cache = _csi_basic_cache
 
 
-def fetch_csi_index_desc(code: str) -> Optional[str]:
-    """按需抓取中证官网指数简介（L3 参考数据：按需取 + 缓存 + 降级 None）。"""
-    if code in _csi_desc_cache:
-        return _csi_desc_cache[code]
+def fetch_csi_index_basic(code: str) -> Optional[Dict[str, Any]]:
+    """按需抓取中证官网「指数基础信息」整包（L3 参考数据：按需取 + 缓存 + 降级 None）。"""
+    if code in _csi_basic_cache:
+        return _csi_basic_cache[code]
     if not _CSI_DESC_CODE_RE.match(code):
         return None  # 未覆盖码族直接降级（不发注定扑空的请求，也不进缓存）
     try:
         resp = requests.get(_CSI_BASIC_INFO_URL.format(code=code), timeout=5)
         resp.raise_for_status()
-        desc = (resp.json().get('data') or {}).get('indexCnDesc') or None
+        data = resp.json().get('data') or None
     except Exception as e:
-        logger.warning(f'中证简介抓取失败 code={code}: {e}')
+        logger.warning(f'中证基础信息抓取失败 code={code}: {e}')
         return None  # 瞬时故障不缓存，下次查看时重试
-    _csi_desc_cache[code] = desc
-    return desc
+    _csi_basic_cache[code] = data
+    return data
+
+
+def fetch_csi_index_desc(code: str) -> Optional[str]:
+    """按需抓取中证官网指数简介（``indexCnDesc``；薄封装于 :func:`fetch_csi_index_basic`）。"""
+    basic = fetch_csi_index_basic(code)
+    return (basic or {}).get('indexCnDesc') or None
 
 
 def build_index_profile(db: Session, symbol: str) -> Optional[Dict[str, Any]]:
@@ -99,6 +122,9 @@ def build_index_profile(db: Session, symbol: str) -> Optional[Dict[str, Any]]:
     catalog = db.query(IndexCatalog).filter(IndexCatalog.index_code == code).first()
     if catalog is None:
         return None
+
+    # 简介 + 快照字段：同一份中证官网 basic-info（缓存命中即零请求）
+    basic = fetch_csi_index_basic(code)
 
     # 最新一期官方估值（中证官方口径，pe_1 / dividend_yield_1）
     latest = (
@@ -132,8 +158,13 @@ def build_index_profile(db: Session, symbol: str) -> Optional[Dict[str, Any]]:
         'name': catalog.name,
         'publisher_label': INDEX_PUBLISHER_LABELS.get(catalog.publisher or '', None),
         'is_core': bool(catalog.is_core),
-        # 官方简介（中证官网 indexCnDesc，按需抓取 + 进程内缓存；未收录/失败为 None）
-        'description': fetch_csi_index_desc(code),
+        # 官方简介 + 快照字段（中证官网 index-basic-info，按需抓取 + 进程内缓存；
+        # 同一请求多取几个键边际成本≈0，#2278。未收录/失败整包 None → 逐字段降级）
+        'description': (basic or {}).get('indexCnDesc'),
+        'publish_date': (basic or {}).get('publishDate'),
+        'cons_number': _safe_int((basic or {}).get('consNumber')),
+        'weighting_type': (basic or {}).get('weightingType'),
+        'currency': (basic or {}).get('currencyCn'),
         # 官方估值（中证口径，最新一期）
         'pe': float(latest.pe_1) if latest and latest.pe_1 is not None else None,
         'dividend_yield': (float(latest.dividend_yield_1) if latest and latest.dividend_yield_1 is not None else None),

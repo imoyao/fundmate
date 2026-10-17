@@ -22,7 +22,9 @@ from app.domains.indices.models import IndexCatalog, IndexValuation, IndexValuat
 from app.services import index_profile as ip
 from app.services.index_percentile import PERCENTILE_WINDOW_DAYS
 from app.services.index_profile import build_index_profile
-from app.services.index_profile import fetch_csi_index_desc as _real_fetch_csi_desc
+from app.services.index_profile import (
+    fetch_csi_index_basic as _real_fetch_csi_basic,
+)
 
 PROFILE_URL = '/api/products/index-profile/'
 
@@ -83,15 +85,16 @@ def _seed_baselines(code='000300', points=24, base_pe=10.0, step=0.5):
 
 @pytest.fixture(autouse=True)
 def _no_csi_desc_network(monkeypatch):
-    """本文件默认阻断中证简介抓取（聚合测试不联网）：fetch 换成 None 实现并清空缓存。
+    """本文件默认阻断中证基础信息抓取（聚合测试不联网）：basic 换成 None 实现并清空缓存。
 
-    直测 ``fetch_csi_index_desc`` 的用例自行把 ``_real_fetch_csi_desc`` 换回来
-    （见 ``test_fetch_csi_desc_*``）。缓存是模块级 dict，进出各清一次防跨用例污染。
+    直测 ``fetch_csi_index_desc`` / 快照字段的用例自行把 ``_real_fetch_csi_basic``
+    换回来（见 ``test_fetch_csi_desc_*`` 与快照字段用例）。缓存是模块级 dict，
+    进出各清一次防跨用例污染。
     """
-    monkeypatch.setattr(ip, 'fetch_csi_index_desc', lambda code: None)
-    ip._csi_desc_cache.clear()
+    monkeypatch.setattr(ip, 'fetch_csi_index_basic', lambda code: None)
+    ip._csi_basic_cache.clear()
     yield
-    ip._csi_desc_cache.clear()
+    ip._csi_basic_cache.clear()
 
 
 # ── service 层 ────────────────────────────────────────────────────────
@@ -191,16 +194,72 @@ def test_baseline_outside_window_ignored():
     assert profile['pe_percentile'] == pytest.approx(97.9, abs=0.2)
 
 
-# ── 指数简介（中证官网 indexCnDesc：按需抓取 + 缓存 + 降级）─────────────
+# ── 指数简介 + 快照字段（中证官网 index-basic-info：按需抓取 + 缓存 + 降级）─────────────
 def test_profile_description_passthrough(monkeypatch):
-    """简介走 fetch 注入：命中即原样进 profile。"""
+    """简介走 basic-info 注入：命中即原样进 profile。"""
     _seed_catalog()
-    monkeypatch.setattr(ip, 'fetch_csi_index_desc', lambda code: '测试简介')
+    monkeypatch.setattr(ip, 'fetch_csi_index_basic', lambda code: {'indexCnDesc': '测试简介'})
 
     with closing(_market_db()) as db:
         profile = build_index_profile(db, '000300')
 
     assert profile['description'] == '测试简介'
+
+
+def test_profile_snapshot_fields_passthrough(monkeypatch):
+    """快照字段（#2278）来自同一份 basic-info：四键原样透传，consNumber 宽松转 int。"""
+    _seed_catalog()
+    monkeypatch.setattr(
+        ip,
+        'fetch_csi_index_basic',
+        lambda code: {
+            'indexCnDesc': '简介',
+            'publishDate': '2019-04-22',
+            'consNumber': '50',  # 官网可能给数字串
+            'weightingType': '自由流通市值加权',
+            'currencyCn': '人民币',
+        },
+    )
+
+    with closing(_market_db()) as db:
+        profile = build_index_profile(db, '000300')
+
+    assert profile['publish_date'] == '2019-04-22'
+    assert profile['cons_number'] == 50
+    assert profile['weighting_type'] == '自由流通市值加权'
+    assert profile['currency'] == '人民币'
+
+
+def test_profile_snapshot_fields_partial_degrade(monkeypatch):
+    """官网对部分键没填（实测 931151 的 consNumber/weightingType 为空）→ 逐字段 None。"""
+    _seed_catalog()
+    monkeypatch.setattr(
+        ip,
+        'fetch_csi_index_basic',
+        lambda code: {'indexCnDesc': '简介', 'publishDate': '2019-04-22', 'currencyCn': '人民币'},
+    )
+
+    with closing(_market_db()) as db:
+        profile = build_index_profile(db, '000300')
+
+    assert profile['publish_date'] == '2019-04-22'
+    assert profile['cons_number'] is None
+    assert profile['weighting_type'] is None
+    assert profile['currency'] == '人民币'
+
+
+def test_profile_snapshot_fields_degrade_none():
+    """官网未收录 / 抓取失败 → 快照字段与简介全部 None（前端逐项「—」）。"""
+    _seed_catalog()
+
+    with closing(_market_db()) as db:
+        profile = build_index_profile(db, '000300')
+
+    assert profile['description'] is None
+    assert profile['publish_date'] is None
+    assert profile['cons_number'] is None
+    assert profile['weighting_type'] is None
+    assert profile['currency'] is None
 
 
 def test_profile_description_degrades_none():
@@ -215,7 +274,7 @@ def test_profile_description_degrades_none():
 
 def test_fetch_csi_desc_caches_positive_and_gates(monkeypatch):
     """正结果进缓存（同码第二次不再发请求）；非覆盖码族直接降级且不发请求。"""
-    monkeypatch.setattr(ip, 'fetch_csi_index_desc', _real_fetch_csi_desc)
+    monkeypatch.setattr(ip, 'fetch_csi_index_basic', _real_fetch_csi_basic)
     calls = []
 
     class _FakeResp:
@@ -240,7 +299,7 @@ def test_fetch_csi_desc_caches_positive_and_gates(monkeypatch):
 
 def test_fetch_csi_desc_negative_cached(monkeypatch):
     """官网确认无简介（data 空）也进缓存：负结果不重复请求。"""
-    monkeypatch.setattr(ip, 'fetch_csi_index_desc', _real_fetch_csi_desc)
+    monkeypatch.setattr(ip, 'fetch_csi_index_basic', _real_fetch_csi_basic)
     calls = []
 
     class _EmptyResp:
@@ -263,7 +322,7 @@ def test_fetch_csi_desc_negative_cached(monkeypatch):
 
 def test_fetch_csi_desc_network_error_not_cached(monkeypatch):
     """瞬时网络故障 → None 但**不进缓存**：下次查看要重试，不把故障焊死。"""
-    monkeypatch.setattr(ip, 'fetch_csi_index_desc', _real_fetch_csi_desc)
+    monkeypatch.setattr(ip, 'fetch_csi_index_basic', _real_fetch_csi_basic)
     calls = []
 
     def _boom(url, timeout=None):
