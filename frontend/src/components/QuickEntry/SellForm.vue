@@ -208,21 +208,23 @@
           </el-form-item>
         </template>
 
-        <!-- 5. 对应净值（弱化展示） -->
+        <!-- 5. 对应净值（提升视觉层级：净值是基金买入/赎回到账的核心依据，信息层级应与重要性匹配） -->
         <div
           v-if="form.type === 'fund'"
-          class="text-xs flex items-center gap-1 mt-1 pl-[90px]"
-          style="color: var(--text-tertiary-ink)"
+          class="text-sm flex items-center gap-2 mt-2 pl-[90px]"
+          style="color: var(--text-secondary)"
         >
-          <span>对应净值：</span>
-          <span class="font-medium" style="color: var(--text-secondary)">
+          <span>对应净值</span>
+          <span class="font-semibold" style="color: var(--text-primary)">
             {{
               form.price !== undefined && form.price > 0
                 ? form.price.toFixed(4)
                 : "--"
             }}
           </span>
-          <span>[{{ actualNavDate || form.trade_date || "--" }}]</span>
+          <span class="text-xs" style="color: var(--text-tertiary-ink)">
+            · {{ actualNavDate || form.trade_date || "--" }}
+          </span>
         </div>
 
         <!-- 6. 预估金额 -->
