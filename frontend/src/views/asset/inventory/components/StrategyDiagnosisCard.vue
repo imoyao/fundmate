@@ -22,17 +22,14 @@
         <el-button text size="small" @click="emit('retry')">重试</el-button>
       </div>
 
-      <p
-        v-else-if="!diagnosis || diagnosis.items.length === 0"
-        class="diagnosis-card__hint"
-      >
+      <p v-else-if="!diagnosis?.items?.length" class="diagnosis-card__hint">
         还没有持仓，暂无可诊断的标的。
       </p>
 
       <template v-else>
         <!-- 行为反推总览：先给一句「你实际在怎么做」，再看逐标的细节 -->
         <div
-          v-if="behavior && behavior.summary.symbol_count > 0"
+          v-if="behavior?.summary?.symbol_count > 0"
           class="diagnosis-card__overview"
         >
           <span class="diagnosis-card__overview-label">实际行为</span>

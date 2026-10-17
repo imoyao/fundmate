@@ -50,10 +50,7 @@
       </div>
 
       <!-- 数据态：没有任何持仓 -->
-      <p
-        v-else-if="!data || data.items.length === 0"
-        class="allocation-card__hint"
-      >
+      <p v-else-if="!data?.items?.length" class="allocation-card__hint">
         还没有持仓。录入持仓后，就可以给它们定目标占比了。
       </p>
 

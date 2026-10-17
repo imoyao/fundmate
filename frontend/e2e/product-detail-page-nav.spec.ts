@@ -420,14 +420,17 @@ test.describe("详情页页内导航（#1968）", () => {
     const table = page.locator("#transaction-detail-table");
     await expect(table).toBeVisible({ timeout: 60_000 });
 
-    // compact 列集（顺序即契约）：无产品列/手续费/操作列
+    // compact 列集（顺序即契约）：无产品列/手续费/操作列；
+    // 详情页另经 #extra-columns 注入重放两列（当时成本/收益贡献，#2171 P2）
     await expect(table.locator(".el-table__header th")).toHaveText([
       "交易日期",
       "类型",
       "价格",
       "数量",
       "金额",
-      "账户"
+      "账户",
+      "当时成本",
+      "收益贡献"
     ]);
 
     // 行数与桩一致（证明桩接上；没接上会走 404 错误态，表格根本不渲染）
