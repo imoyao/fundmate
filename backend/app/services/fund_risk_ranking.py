@@ -80,10 +80,11 @@ def list_by_metric(
 
     Returns:
         ``{'fund_type_id', 'metric', 'order', 'rows', 'excluded_distorted'}``。
-        `rows[]` 每项 = 快照列 + `fund_code`；`excluded_distorted` 是**因口径被剔除的
-        条数**——不报它的话，「榜上只有 3 只」会被误读成「同类只有 3 只有数据」。
+        `rows[]` 每项 = 快照列 + `fund_code` + `fund_name`；`excluded_distorted` 是
+        **因口径被剔除的条数**——不报它的话，「榜上只有 3 只」会被误读成
+        「同类只有 3 只有数据」。
     """
-    from app.domains.funds.models import FundRiskMetrics
+    from app.domains.funds.models import Fund, FundRiskMetrics
     from app.services.sync.jobs.fund_risk_metrics_job import CALIBER_VERSION
 
     if metric not in SORTABLE_METRICS:
@@ -110,12 +111,21 @@ def list_by_metric(
     query = query.order_by(column.desc() if order_desc else column.asc())
     rows = query.limit(_clamp_limit(limit)).all()
 
+    # 基金名称（market 域内两步法，不做跨域）：只显示 6 位代码用户认不出产品。
+    # funds 表可能缺该 code（新基金未同步资料）——缺失回退 None，由前端降级显示代码。
+    codes = [r.fund_code for r in rows]
+    name_by_code: Dict[str, str] = {}
+    if codes:
+        name_by_code = {
+            code: name for code, name in db.query(Fund.fund_code, Fund.name).filter(Fund.fund_code.in_(codes)).all()
+        }
+
     return {
         'fund_type_id': int(fund_type_id),
         'metric': metric,
         'order': 'desc' if order_desc else 'asc',
         'caliber_version': version,
-        'rows': [_row_payload(r) for r in rows],
+        'rows': [_row_payload(r, fund_name=name_by_code.get(r.fund_code)) for r in rows],
         'excluded_distorted': excluded,
     }
 
@@ -179,8 +189,12 @@ def list_fund_types(db: Session, *, caliber_version: Optional[int] = None) -> Di
     return {'caliber_version': version, 'types': types}
 
 
-def _row_payload(row) -> Dict[str, Any]:
-    """快照行 → 榜单条目（数值一律 float，口径字段原样带出）。"""
+def _row_payload(row, *, fund_name: Optional[str] = None) -> Dict[str, Any]:
+    """快照行 → 榜单条目（数值一律 float，口径字段原样带出）。
+
+    ``fund_name`` 来自 ``funds`` 表（调用方两步法查好传入）；缺失为 None，
+    前端回退显示代码——不编造名称。
+    """
 
     def f(name):
         v = getattr(row, name, None)
@@ -188,6 +202,7 @@ def _row_payload(row) -> Dict[str, Any]:
 
     return {
         'fund_code': row.fund_code,
+        'fund_name': fund_name,
         'fund_type_id': row.fund_type_id,
         'as_of': row.as_of.isoformat() if row.as_of else None,
         'max_drawdown': f('max_drawdown'),

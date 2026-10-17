@@ -647,7 +647,7 @@ export interface ProductTrendOhlc {
 }
 
 /** 走势区间档位（设计 §5 B 区块；默认 3M 见 §12 ⑤） */
-export type TrendRange = "1M" | "3M" | "6M" | "1Y";
+export type TrendRange = "1M" | "3M" | "6M" | "1Y" | "3Y" | "5Y";
 
 export interface ProductTrendResult {
   symbol: string;
@@ -901,6 +901,8 @@ export function getFundRiskTypes() {
 /** 取同类型基金的风险指标榜（#167）。`fund_type_id` 必填——不做跨类榜。 */
 export interface FundRiskRankingRow {
   fund_code: string;
+  /** 基金简称（funds 表两步法 join；缺失为 null，前端回退显示代码） */
+  fund_name?: string | null;
   fund_type_id: number | null;
   as_of: string | null;
   max_drawdown: number | null;

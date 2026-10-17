@@ -500,7 +500,7 @@ def _open_fund_performance(db: Session, fund, code: str, today: date) -> Dict[st
         'applicable': True,
         'basis': 'acc_nav',
         # acc_nav 是「分红不再投」口径的近似复权序列，非严格分红再投复权净值（fund_metrics §9-11）
-        'acc_nav_caveat': '累计净值口径（分红不再投近似复权），非严格分红再投复权净值',
+        'acc_nav_caveat': '收益按累计净值计算，分红不计入再投资',
         'intervals': intervals,
         'max_drawdown': max_dd,
         'max_drawdown_basis': max_dd_basis,

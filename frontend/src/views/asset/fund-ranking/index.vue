@@ -5,6 +5,12 @@
   `GET /api/products/fund-risk-types/` 已就绪，但前端零调用方——能力已经上线，
   用户却看不到。
 
+  ## 数据范围（2026-10-17 如实化）
+
+  快照池 = **持仓 ∪ 自选**（`fund_risk_metrics_job` 默认目标池），不是全市场——
+  本页回答的是「**你持有/关注的基金**在同类里风险收益比排第几」，即持仓风险体检。
+  全市场同类榜是另一个形态（探市侧 + 净值回填扩容），已另立项，不在本页语义内。
+
   ## 这个页面在回答什么问题
 
   「同类里谁的风险收益比更好」——**限定在同一类内**。风险比跨类别不可比：
@@ -24,7 +30,7 @@
   <div class="fund-ranking-page min-h-full">
     <PageHeaderBar
       title="同类风险榜"
-      subtitle="在同一类基金内按风险收益指标排序——风险比跨类别不可比，故不做全市场榜"
+      subtitle="对比范围：你持仓与自选的基金，在同一类内按风险收益指标排序——风险比跨类别不可比，故不做全市场榜"
     />
 
     <div class="ranking-shell">
@@ -114,13 +120,21 @@
               <thead>
                 <tr>
                   <th class="col-rank">#</th>
-                  <th class="col-code">基金代码</th>
+                  <th class="col-fund">基金</th>
                   <th
                     v-for="col in tableColumns"
                     :key="col.key"
                     :class="{ 'col-active': col.key === metric }"
                   >
-                    {{ col.label }}
+                    <span class="th-with-tip">
+                      <span>{{ col.label }}</span>
+                      <el-tooltip :content="col.hint" placement="top">
+                        <IconifyIconOffline
+                          icon="ep:info-filled"
+                          class="th-tip-icon"
+                        />
+                      </el-tooltip>
+                    </span>
                   </th>
                   <th class="col-window">窗口</th>
                 </tr>
@@ -128,13 +142,21 @@
               <tbody>
                 <tr v-for="(row, index) in rows" :key="row.fund_code">
                   <td class="col-rank">{{ index + 1 }}</td>
-                  <td class="col-code">
+                  <td class="col-fund">
                     <button
                       type="button"
-                      class="code-link"
+                      class="fund-link"
+                      :title="row.fund_name ? row.fund_code : undefined"
                       @click="goDetail(row.fund_code)"
                     >
-                      {{ row.fund_code }}
+                      <span class="fund-link__name">
+                        {{ row.fund_name || row.fund_code }}
+                      </span>
+                      <!-- 名称与代码都显示：跳详情、复核数据都要代码；
+                           funds 资料缺失时名称回退代码，此时不重复显示两遍 -->
+                      <span v-if="row.fund_name" class="fund-link__code">{{
+                        row.fund_code
+                      }}</span>
                     </button>
                   </td>
                   <td
@@ -202,14 +224,40 @@ const orderOptions = [
   { label: "从劣到优", value: "asc" }
 ] as const;
 
-/** 表格列（固定一套，当前排序指标高亮——避免每次切指标换一套列，用户要重新找列） */
+/** 表格列（固定一套，当前排序指标高亮——避免每次切指标换一套列，用户要重新找列）。
+ *  hint：面向普通用户的指标解释（2026-10-17 表头 tooltip）——夏普/卡玛这类术语
+ *  只摆数字不解释，多数用户读不懂「这个数高好还是低好」。 */
 const tableColumns = [
-  { key: "sharpe", label: "夏普" },
-  { key: "calmar", label: "卡玛" },
-  { key: "ulcer_index", label: "UI(%)" },
-  { key: "return_drawdown_ratio", label: "波回比" },
-  { key: "max_drawdown", label: "最大回撤(%)" },
-  { key: "annual_return", label: "年化收益(%)" }
+  {
+    key: "sharpe",
+    label: "夏普",
+    hint: "每承担 1 份年化波动，获得多少超出无风险利率的回报。大于 1 尚可、大于 2 较好；只在同类内可比"
+  },
+  {
+    key: "calmar",
+    label: "卡玛",
+    hint: "年化收益 ÷ 最大回撤——赚的比最深一摔多多少。越高说明收益越抗跌"
+  },
+  {
+    key: "ulcer_index",
+    label: "UI(%)",
+    hint: "溃疡指数：回撤的深度与持续时间合成的值。数字越大，持有过程越煎熬"
+  },
+  {
+    key: "return_drawdown_ratio",
+    label: "波回比",
+    hint: "年化收益 ÷（波动率 × 最大回撤）——同时考虑日常颠簸与最深一摔"
+  },
+  {
+    key: "max_drawdown",
+    label: "最大回撤(%)",
+    hint: "区间内从高点到低点最多亏多少。负值越浅越好"
+  },
+  {
+    key: "annual_return",
+    label: "年化收益(%)",
+    hint: "区间收益折算成的年平均值"
+  }
 ] as const;
 
 const initialLoading = ref(true);
@@ -397,7 +445,7 @@ onMounted(async () => {
   }
 
   .col-rank,
-  .col-code,
+  .col-fund,
   .col-window {
     text-align: left;
   }
@@ -415,16 +463,51 @@ onMounted(async () => {
   }
 }
 
-.code-link {
-  font-variant-numeric: tabular-nums;
-  color: var(--brand-700);
+/* 基金列：名称主显示、代码次要小字（只显 6 位代码用户认不出产品，2026-10-17）。
+   整块可点击跳详情；名称缺失时回退代码，此时不重复显示。 */
+.fund-link {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  max-width: 220px;
+  overflow: hidden;
+  text-align: left;
   cursor: pointer;
   background: none;
   border: none;
 
-  &:hover {
+  &:hover .fund-link__name {
+    color: var(--brand-700);
     text-decoration: underline;
   }
+
+  &__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: var(--text-label);
+    color: var(--text-primary);
+    white-space: nowrap;
+  }
+
+  &__code {
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-tertiary-ink);
+  }
+}
+
+/* 表头指标解释图标（el-tooltip 锚点）：跟随表头文字色，hover 才醒目 */
+.th-with-tip {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.th-tip-icon {
+  font-size: 13px;
+  color: var(--text-tertiary-ink);
+  cursor: help;
 }
 
 .table-loading {

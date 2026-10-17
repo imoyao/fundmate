@@ -10,7 +10,7 @@
 1. **带日期轴**：trends 只返回数值数组（迷你图不画坐标轴），而详情页区块要在
    x 轴上展示、并给出「数据日期」口径脚注，故此处返回 ``dates`` + ``values``；
 2. **单标的 + 区间语义**：trends 是批量 sparkline 数据源（``symbols`` csv、``days``
-   限幅 250 自然日），本模块只服务详情页一个产品，区间用 ``1M/3M/6M/1Y`` 表达。
+   限幅 250 自然日），本模块只服务详情页一个产品，区间用 ``1M/3M/6M/1Y/3Y/5Y`` 表达。
 
 数据口径（与既有实现对齐，**不另起链路**）：
 
@@ -43,12 +43,15 @@ from app.domains.indices.models import IndexDaily
 from app.domains.price_history.models import PriceHistory
 from app.services.fund_nav_on_demand import maybe_trigger_nav_backfill
 
-# 区间 → 自然日天数（设计 §5 B 区块：1M / 3M / 6M / 1Y）
+# 区间 → 自然日天数（设计 §5 B 区块：1M / 3M / 6M / 1Y；3Y / 5Y 为长区间补充档，
+# 数据源按需回看——场外基金 daily_worth 全量留存，长档历史不足由前端降级）
 RANGE_DAYS: Dict[str, int] = {
     '1M': 30,
     '3M': 90,
     '6M': 180,
     '1Y': 365,
+    '3Y': 1095,
+    '5Y': 1825,
 }
 # 设计 §12 ⑤：默认档 3M
 DEFAULT_RANGE = '3M'

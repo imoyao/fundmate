@@ -121,7 +121,9 @@ def test_return_drawdown_ratio_positive_when_return_positive():
 
 def test_rf_is_shipped_in_caveats():
     r = compute_risk_metrics(_series([1.0 + i * 0.001 for i in range(300)]))
-    assert any('rf=' in c for c in r.caveats), 'rf 必须随值下发，否则夏普不可复核'
+    # 文案 2026-10-17 从工程师口吻（rf=0.0150（…））改为用户语言；判据钉语义不钉字面：
+    # 必须同时出现「无风险利率」（告诉用户这是什么）与具体百分比（可复核）。
+    assert any('无风险利率' in c and '%' in c for c in r.caveats), '无风险利率必须随值下发，否则夏普不可复核'
 
 
 def test_higher_rf_lowers_sharpe_but_keeps_order():
