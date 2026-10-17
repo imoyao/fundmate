@@ -4,34 +4,40 @@
   **只服务日粒度**：月 / 年视图没有「日」的概念，走 `PnlCalendarPeriodGrid`
   的方格图（一根柱 = 一月 / 一年的柱状图见 `PnlCalendarBars`）。
 
-  本组件只负责**日历排版**（周一为第一列、首行补空格、列数见下）与把逐日序列
-  摊成格子；格子的七态配色、文案与色深档位全部住在 `PnlCalendarTile.vue`
+  本组件只负责**日历排版**（周一为第一列、首行补空格）与把逐日序列摊成格子；
+  格子的七态配色、文案与色深档位全部住在 `PnlCalendarTile.vue`
   ——#1942 扩状态时不再改这里，避免三套格子各写一份配色。
 
-  **默认 5 列（一~五），周末不占格**（#1942 第二轮反馈：*「盈亏日历似乎没有必要
-  列出周末，周末对我们的数据永远都是空的，这种空 UI 设计有什么价值」*）。
-  A 股交易日只可能落在工作日，周末格既不可点、也无数据、也不承担对齐职责——
-  信息量为 0，却让月份面积膨胀约三分之一、把有数的格子挤窄。周末那两列去掉后，
-  30 天的月份从「7×5 格 + 8 个空位」变成 22 格，每格还能宽出约 40%。
+  **固定 5 列（一~五），周末永不占格**（2026-10-17 用户拍板「周六、周日固定休市」）：
+  A 股交易日历（`core/trading_calendar.is_trading_day`，后端唯一权威）下周末恒为
+  `closed`，日历图不再给周末留列。30 天的月份从「7×5 格 + 8 个空位」变成 22 格，
+  每格宽出约 40%。
 
-  **但「周末永远无数据」是假设，不是事实**——故给了数据驱动的兜底：
-  只要该月存在任何一个周末日**不是** `closed`（真有估值/收益），自动切回 7 列，
-  否则将来口径变化（例如新增周末交易的品种）会被这里静默吞掉。判据用后端
-  下发的 `state`，不在这里二次判断交易日。
+  ── 为什么删掉了「周末有数据就切 7 列」的兜底（#1942 旧逻辑，2026-10-17 作废）──
+  旧兜底为「周末永远无数据只是假设」而设：任一周末日 `state != closed` 即切回
+  7 列。它把判材押在后端逐日状态上，而周末的 `state` 会被两类与 A 股开盘无关的
+  数据形态污染：
+    · 未来周末日前值回填窗耗尽，被判 `no_price`（真实库 2026-10-17 实测 10/24、
+      10/25、10/31）⇒ 用户看到「定好的固定休市没生效，10 月又排出周末」；
+    · 遇周末发布估值的标的（货基），周末被判 `partial`。
+  现在后端状态链把交易日判定前移到最顶（pnl_calendar.py #2277），周末恒
+  `closed`；前端同步删兜底——两边都按「周六、周日固定休市」这一条口径办事，
+  不再让数据 quirk 有机会把两列周末排回日历。周末真发生估值变动（货基）由
+  后端的水平值消化：当日不出数，收益并入下一开盘日的差分。
 -->
 
 <template>
   <div class="pnl-calendar__grid-wrap">
     <div
       class="pnl-calendar__weekdays"
-      :class="`is-cols-${visibleColumns.length}`"
+      :class="`is-cols-${VISIBLE_COLUMNS.length}`"
       aria-hidden="true"
     >
       <span v-for="w in weekdayLabels" :key="w">{{ w }}</span>
     </div>
     <div
       class="pnl-calendar__grid"
-      :class="`is-cols-${visibleColumns.length}`"
+      :class="`is-cols-${VISIBLE_COLUMNS.length}`"
       role="grid"
     >
       <template v-for="cell in calendarCells" :key="cell.key">
@@ -112,10 +118,15 @@ const props = withDefaults(
   { mode: "amount" }
 );
 
-/** 周一~周五：默认列集（周末不占格，见文件头） */
-const WEEKDAY_COLUMNS = [1, 2, 3, 4, 5] as const;
-/** 兜底列集：周末确有数据时才用（含周六、周日，周一为第一列） */
-const FULL_WEEK_COLUMNS = [1, 2, 3, 4, 5, 6, 0] as const;
+/**
+ * 周一~周五：唯一列集（周六、周日固定休市，周末永不占格，见文件头）。
+ *
+ * #1942 曾按「该月有无周末数据」在 5 / 7 列之间切换，2026-10-17 作废：
+ * 周末 `state` 会被未来日回填耗尽（`no_price`）/ 货基周末估值（`partial`）
+ * 污染，兜底因此把 10 月的周六周日又排回日历；后端已保证周末恒 `closed`，
+ * 前端无需再按数据猜。
+ */
+const VISIBLE_COLUMNS = [1, 2, 3, 4, 5] as const;
 
 const dayMap = computed(() => {
   const map = new Map<string, PnlCalendarDay>();
@@ -128,26 +139,7 @@ const maxAbs = computed(() =>
   maxAbsPnl(props.days.map(d => valueIn(props.mode, d.daily_pnl, d.rate)))
 );
 
-/**
- * 该月是否存在「周末却有数据」的日子。
- *
- * 判据用后端下发的 `state`（`closed` 的判据是 A 股开盘日历，见 `services/pnl_calendar`），
- * 不在前端二次判断交易日；`days` 只覆盖请求区间，而请求区间就是这个月，
- * 故遍历 `days` 即可（不需要再算一遍月份天数）。
- */
-const hasWeekendData = computed(() =>
-  props.days.some(d => {
-    const wd = weekdayOf(d.date);
-    return (wd === 0 || wd === 6) && d.state !== "closed";
-  })
-);
-
-/** 本次渲染的可见列（`Date.getDay()` 值序：周一为第一列） */
-const visibleColumns = computed<readonly number[]>(() =>
-  hasWeekendData.value ? FULL_WEEK_COLUMNS : WEEKDAY_COLUMNS
-);
-
-const weekdayLabels = computed(() => visibleColumns.value.map(weekdayLabel));
+const weekdayLabels = VISIBLE_COLUMNS.map(weekdayLabel);
 
 interface CalendarCell {
   key: string;
@@ -168,7 +160,7 @@ interface CalendarCell {
 const calendarCells = computed<CalendarCell[]>(() => {
   const year = props.year;
   const month = props.monthIndex;
-  const cols = visibleColumns.value;
+  const cols: readonly number[] = VISIBLE_COLUMNS;
   const totalDays = new Date(year, month + 1, 0).getDate();
   const todayStr = ymd(new Date());
 
@@ -258,17 +250,13 @@ const calendarCells = computed<CalendarCell[]>(() => {
   gap: 6px;
 }
 
-/* 列数只有两种（5 = 工作日 / 7 = 含周末兜底，见文件头）。写死两条，而不是把列数
-   做成组件内的局部自定义属性再拼 repeat：局部属性不在全站令牌表里，
-   `check_css_vars.mjs` 只认全站令牌，会把它判成「未定义令牌」。
-   （这条注释里也不要写出该属性的 var() 写法，守卫读的是文本、不区分注释。） */
+/* 列数固定 5（一~五，周六、周日固定休市，见文件头）。
+   写死一条，而不是把列数做成组件内的局部自定义属性再拼 repeat：局部属性不在
+   全站令牌表里，`check_css_vars.mjs` 只认全站令牌，会把它判成「未定义令牌」。
+   （这条注释里也不要写出该属性的 var() 写法，守卫读的是文本、不区分注释。）
+   #1942 的 `is-cols-7`（周末兜底列集）已于 2026-10-17 随兜底一并删除。 */
 .pnl-calendar__weekdays.is-cols-5,
 .pnl-calendar__grid.is-cols-5 {
   grid-template-columns: repeat(5, minmax(0, 1fr));
-}
-
-.pnl-calendar__weekdays.is-cols-7,
-.pnl-calendar__grid.is-cols-7 {
-  grid-template-columns: repeat(7, minmax(0, 1fr));
 }
 </style>

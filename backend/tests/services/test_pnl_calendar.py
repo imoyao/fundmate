@@ -545,6 +545,100 @@ def test_非开盘日报道休市_开盘日缺数据报未同步(db, make_positi
     assert _pnl_of(result, tue) is None
 
 
+def test_周末恒报休市_未来日回填耗尽也不是no_price(db, make_position, make_transaction):
+    """#2277 回归 1：周六、周日固定休市——判定前移到状态链最顶。
+
+    形态（真实库 2026-10-17 实测，10/24、10/25、10/31）：**未来周末日**前值
+    回填窗（7 天）耗尽 ⇒ 可计价持仓全部取不到价，而 balance 模式持仓恒在
+    ⇒ 旧状态链命中 `no_price` 分支。它不是「无价格序列」（那是持仓属性），
+    是周六。前端曾据「周末出现非 closed 态」切回 7 列，10 月日历又排出
+    周末两列——与「周六、周日固定休市」的拍板直接冲突。
+    """
+    fri = dt.date(2026, 1, 9)
+    sat = dt.date(2026, 1, 10)  # 距 fri 8 天 > 回填窗 7 天
+    sun = dt.date(2026, 1, 11)
+
+    # 普通基金：净值只到周五（周六起无新行，回填窗在 sat 当天耗尽）
+    pos = make_position(symbol='000081', name='回填耗尽基金', quantity=1000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=dt.date(2025, 12, 1),
+        symbol='000081',
+    )
+    _add_nav(db, '000081', fri, 1.0)
+    # balance 模式持仓：恒无价格序列（旧代码里它正是把周末推进 no_price 的那一个）
+    make_position(
+        symbol='ZH0002',
+        name='银行理财',
+        quantity=0,
+        avg_price=0,
+        asset_type='portfolio',
+        valuation_mode='balance',
+        market_value_override=Money.yuan_to_cents(50000),
+    )
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-09', end_date='2026-01-11')
+
+    for day in (sat, sun):
+        assert _state_of(result, day) == STATE_CLOSED, f'{day} 是周末 ⇒ 必须 closed（曾误报 no_price）'
+        assert _pnl_of(result, day) is None, '休市日不出数'
+
+
+def test_周末有估值行也报休市_不再触发前端7列兜底(db, make_position, make_transaction):
+    """#2277 回归 2：周末发布估值的标的（货基周六也有净值行）不得把周末判成 partial。
+
+    旧状态链把 `partial` 排在交易日判定之前：周末部分标的有真报价、部分没有
+    ⇒ `partial` ⇒ 前端「周末出现非 closed 态 ⇒ 切 7 列」。周六、周日固定休市：
+    水平值照常推进（收益并入下一开盘日差分），当日不出数、不占格。
+    """
+    thu = dt.date(2026, 1, 8)
+    fri = dt.date(2026, 1, 9)
+    sat = dt.date(2026, 1, 10)
+    mon = dt.date(2026, 1, 12)
+
+    # 货基式标的：周六也有净值行（真实库货基周末发布估值）
+    money = make_position(symbol='000082', name='周末估值货基', quantity=1000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=money.id,
+        ledger_id=money.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=dt.date(2025, 12, 1),
+        symbol='000082',
+    )
+    # 普通基金：净值只到周五
+    plain = make_position(symbol='000083', name='普通基金', quantity=1000, avg_price=1.0, asset_type='fund')
+    make_transaction(
+        position_id=plain.id,
+        ledger_id=plain.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=1.0,
+        confirm_date=dt.date(2025, 12, 1),
+        symbol='000083',
+    )
+    _add_nav(db, '000082', thu, 1.0)
+    _add_nav(db, '000082', fri, 1.0)
+    _add_nav(db, '000082', sat, 1.01)  # 周六真有估值行
+    _add_nav(db, '000082', mon, 1.01)
+    _add_nav(db, '000083', thu, 1.0)
+    _add_nav(db, '000083', fri, 1.0)
+    _add_nav(db, '000083', mon, 1.0)
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-09', end_date='2026-01-12')
+
+    assert _state_of(result, sat) == STATE_CLOSED, '周末即使有标的出估值也报休市（曾误报 partial）'
+    assert _pnl_of(result, sat) is None, '休市日不出数；估值变动并入下一开盘日差分'
+    # 周一差分不受影响：仍只反映在场标的的市值变动
+    assert _state_of(result, mon) == STATE_UPDOWN
+    assert _pnl_of(result, mon) == pytest.approx(10.0, abs=0.01)
+
+
 def test_建仓前的日子报无持仓而不是休市(db, make_position, make_transaction):
     """没有持仓 ≠ 休市，也 ≠ 没数据（#1942）。建仓前的一整段应能自证原因。"""
     buy = dt.date(2026, 1, 8)
@@ -970,3 +1064,89 @@ def test_区间前一天为非交易日时单月与宽区间逐日相等(db, mak
         w = _pnl_of(wide, day)
         assert s is not None and w is not None, f'{day} 两区间都应可算'
         assert s == w, f'{day} 单月({s})与宽区间({w})应逐日相等（#1953 区间无关性）'
+
+
+# ── #2277 第三轮：场内停牌冻结在最后成交价 ─────────────────────────────────
+
+
+def test_场内停牌冻结在最后成交价而非消失(db, make_position, make_transaction):
+    """#2277：场内标的停牌期间价格冻结在最后成交价，市值不消失、状态不 partial。
+
+    真实库 SH601198 自 2026-09-14 停牌，修复前两个症状：
+    1. 前值回填窗（7 天）耗尽后 `_price_for` 返回 None ⇒ 持仓市值从总额里
+       整个消失，翻转日的差分吞一次性假跳变（浮盈凭空蒸发）；
+    2. 无真报价的每一天都进缺席集合 ⇒ 整月 partial，观感「9 月数据永远
+       不完整」——而停牌是市场事实，不是数据缺口。
+    修复后：场内取价 = ≤ 当日的最后已知价（bisect，无回看上限）；有价格
+    水平的场内标的恒判「在场」。
+    """
+    from app.domains.price_history.models import PriceHistory
+    from app.domains.securities.models import Security
+
+    sec = Security(symbol='SH600100', name='停牌测试股', market='CN_A', type='stock')
+    db.add(sec)
+    db.commit()
+
+    mon, tue, wed, thu, fri = (
+        dt.date(2026, 1, 12),
+        dt.date(2026, 1, 13),
+        dt.date(2026, 1, 14),
+        dt.date(2026, 1, 15),
+        dt.date(2026, 1, 16),
+    )
+    pos = make_position(symbol='SH600100', name='停牌测试股', quantity=1000, avg_price=10.0, asset_type='stock')
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=10.0,
+        confirm_date=mon,
+        symbol='SH600100',
+    )
+    # 报价只到周二：周三起停牌
+    db.add(PriceHistory(security_id=sec.id, symbol='SH600100', trade_date=mon, close=10.0))
+    db.add(PriceHistory(security_id=sec.id, symbol='SH600100', trade_date=tue, close=10.2))
+    db.commit()
+
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-12', end_date='2026-01-16')
+
+    assert _pnl_of(result, tue) == 200.0, f'周二应有 0.2×1000=200 收益，实得 {_pnl_of(result, tue)}'
+    for day in (wed, thu, fri):
+        state = _state_of(result, day)
+        assert state == STATE_ZERO, f'{day} 停牌冻结日应按 0 收益出数（zero），实得 {state}'
+        assert _pnl_of(result, day) == 0, f'{day} 冻结价 ⇒ 日盈亏 0，实得 {_pnl_of(result, day)}'
+
+
+def test_场内停牌跨窗口仍按锚点冻结出数(db, make_position, make_transaction):
+    """锚点路径：查询窗口内一条报价都没有（停牌已超取价窗口），持仓市值
+    必须仍按窗口前最后一条报价冻结——不得从总额里消失、不得报 no_price。"""
+    from app.domains.price_history.models import PriceHistory
+    from app.domains.securities.models import Security
+
+    sec = Security(symbol='SZ000200', name='长期停牌股', market='CN_A', type='stock')
+    db.add(sec)
+    db.commit()
+
+    mon, tue = dt.date(2026, 1, 12), dt.date(2026, 1, 13)
+    pos = make_position(symbol='SZ000200', name='长期停牌股', quantity=1000, avg_price=10.0, asset_type='stock')
+    make_transaction(
+        position_id=pos.id,
+        ledger_id=pos.ledger_id,
+        txn_type='buy',
+        quantity=1000,
+        price=10.0,
+        confirm_date=mon,
+        symbol='SZ000200',
+    )
+    db.add(PriceHistory(security_id=sec.id, symbol='SZ000200', trade_date=mon, close=10.0))
+    db.add(PriceHistory(security_id=sec.id, symbol='SZ000200', trade_date=tue, close=10.5))
+    db.commit()
+
+    # 窗口 01-26~30：报价全部落在窗口外（fetch_start=01-17 之后无任何行）
+    result = build_daily_pnl_series(db, family_id=1, start_date='2026-01-26', end_date='2026-01-30')
+
+    for day in (dt.date(2026, 1, 26), dt.date(2026, 1, 30)):
+        state = _state_of(result, day)
+        assert state == STATE_ZERO, f'{day} 停牌冻结日应出 0 收益（zero），实得 {state}'
+        assert _pnl_of(result, day) == 0

@@ -22,8 +22,11 @@
 口径（口径唯一，前端不做二次计算）
 ----------------------------------
     shares_asof(pos, D) = Σ transactions.quantity  (confirm_date <= D, buy/deposit +, sell/withdraw −)
-    daily_pnl(D)        = total_pnl_asof(D) − total_pnl_asof(D−1)
-                         其中 total_pnl_asof(D) = Σ_pos [ mv_asof(D) − cost_basis_asof(D) + realized_asof(D) ]
+    daily_pnl(D)        = total_pnl_asof(D) − total_pnl_asof(D−')
+                         其中 D−' = **上一 A 股开盘日**（非开盘日冻结基准，#2277：
+                         周六 / 周日 / 节假日当日不出数，其间估值变动——货基周末
+                         净值行、落在非交易日的当日预估——并入下一开盘日）；
+                         total_pnl_asof(D) = Σ_pos [ mv_asof(D) − cost_basis_asof(D) + realized_asof(D) ]
 
 **为什么用 `total_pnl` 的日差分而不是 `net_worth` 日环比**：
 `total_pnl` 是累计盈亏，买入建仓瞬间 `unrealized = 市值 − 成本 = 0`，追加投入不改变
@@ -41,7 +44,10 @@
                  切到这类账户若不区分，用户会以为功能坏了
     no_data      **A 股开盘日**却一个可用价都取不到（净值未出 / 快照任务没跑）
     no_position  当天没有持仓（建仓前 / 清仓后），与「休市」「没数据」都无关
-    closed       **非 A 股开盘日**（周末 / 法定节假日 / 调休补班的周末）
+    closed       **非 A 股开盘日**（周末 / 法定节假日 / 调休补班的周末）。
+                 判定优先级**最高**：先问交易日历，再问价格（2026-10-17 #2277，
+                 周末曾因 no_price / partial 分支排在前而被误判，前端 7 列兜底
+                 随之把周六周日又排回日历）
 
 `closed` 的判据是 `core/trading_calendar.is_trading_day()`（唯一权威出口，#1217），
 **不是**「当天取不到价格」。#1942 之前，凡净值没同步到的交易日都被压成同一种
@@ -58,12 +64,13 @@
 """
 
 import datetime as dt
+from bisect import bisect_right
 from collections import defaultdict
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from loguru import logger
-from sqlalchemy import func
+from sqlalchemy import func, tuple_
 from sqlalchemy.orm import Session
 
 from app.core.constants import EXCHANGE_RATES
@@ -330,6 +337,40 @@ def _collect_price_history(
     for symbol, trade_date, adj_close, close in rows:
         price = adj_close if adj_close else close
         prices.setdefault(symbol, {})[trade_date] = _to_price_units(price)
+
+    # ── 停牌锚点（#2277）：窗口之前的最后一条报价也并入序列 ──
+    # 场内标的停牌可以停几个月（真实库 SH601198 自 2026-09-14 停牌），取价窗口
+    # 只前扩 8 天，窗口里可能一条报价都没有——没有锚点，该持仓的市值会从
+    # 总资产里整个消失（浮盈随之蒸发，差分吞一次性假跳变）。停牌不改变
+    # 「最后成交价就是当前价」这一事实，故把窗口前最后一条报价并进来，
+    # 场内取价遂退化为「≤ 当日的最后已知价」（见 `price_of` 的 bisect 分支），
+    # 与前值回填窗长无关。锚点只按 (symbol, MAX(trade_date)) 取，每代码一行，
+    # 成本 O(代码数)；物化等价性不受影响——现算尾段的锚点是「尾段窗口前最后
+    # 一条」，对尾段内的任意一天，bisect 结果与整窗现算逐位相同（两条序列里
+    # 「≤ day 的最后一条报价」是同一行）。
+    anchor_days = dict(
+        db.query(PriceHistory.symbol, func.max(PriceHistory.trade_date))
+        .filter(
+            PriceHistory.symbol.in_(symbol_list),
+            PriceHistory.trade_date < start,
+        )
+        .group_by(PriceHistory.symbol)
+        .all()
+    )
+    if anchor_days:
+        anchor_rows = (
+            db.query(
+                PriceHistory.symbol,
+                PriceHistory.trade_date,
+                PriceHistory.adj_close,
+                PriceHistory.close,
+            )
+            .filter(tuple_(PriceHistory.symbol, PriceHistory.trade_date).in_([(s, d) for s, d in anchor_days.items()]))
+            .all()
+        )
+        for symbol, trade_date, adj_close, close in anchor_rows:
+            price = adj_close if adj_close else close
+            prices.setdefault(symbol, {})[trade_date] = _to_price_units(price)
     return prices
 
 
@@ -651,7 +692,8 @@ def build_daily_pnl_series(
     `no_price_ids`/`latest_price_date` 用固定窗口的存在性聚合查询、
     基准日的水平值与窗口起点无关——`_build_per_pos` 先注入 `scan_start` 之前的
     累计、循环再补 `[scan_start, A]`，故 day A 的份额/已实现恒为 `Σ_{d≤A}`
-    （#1917 之后基准无条件推进，也不再有「断档日不能当基准」这回事）。
+    （#1917 起开盘日的基准必推进——断档日照常当基准；#2277 起非开盘日冻结，
+    但扫描首日仍播种，见 `_compute_days` 循环末尾）。
 
     物化窗口比 `start` 多带一天 `start - 1`：`range_rate` 的分母是**区间前一天**
     的净资产，全量命中时若不存它，分母就无处可取。
@@ -701,8 +743,8 @@ def build_daily_pnl_series(
     else:
         # 起点就是第一个缺口，不必再回退找「可用的基准日」：`_build_per_pos` 先注入
         # `scan_start` 之前的累计、循环再补 `[scan_start, A]`，故 `first_missing - 1`
-        # 的水平值与从哪天起算无关（#1917 之后基准也无条件推进，不再有「断档日
-        # 不能当基准」这回事）。回退逻辑连同 `baseline_ok` 列一并移除，见 docstring。
+        # 的水平值与从哪天起算无关（开盘日基准必推进、非开盘日冻结但首日播种，
+        # 断档日照常当基准，#1917/#2277）。回退逻辑连同 `baseline_ok` 列一并移除，见 docstring。
         loop_start = first_missing
         computed = _compute_days(
             db,
@@ -868,6 +910,20 @@ def _compute_days(
     # 持仓集合在整个区间内不变 ⇒ 结果是不变量。判定用家庭级全集
     # （账户级的价值集是它的子集）；coverage 诊断按本作用域报。
     price_series = {p.id: _price_series_of(p, fund_nav, exchange_prices) for p in decision_positions}
+
+    # 场内（EXCHANGE）取价预解析（#2277 停牌冻结）：把每笔场内持仓的价格序列
+    # 排成有序数组，取价退化为「≤ 当日的最后已知价」（bisect，O(log n)）。
+    # 为什么场内不做 7 天截断：场内「没有报价」的唯一常态是**停牌**——最后成交价
+    # 就是当前价（券商 App 同款口径），冻结比缺席诚实；OTC 净值断档才是真
+    # 「没数据」（基金可能停发净值），维持 7 天前值回填 + partial 的旧口径。
+    # 序列为空的场内持仓（从未有过报价）不进 `ex_levels`，照旧走 `_price_for`
+    # 返回 None ⇒ 计入 no_price，与「整段无价格序列」的语义一致。
+    ex_levels: Dict[int, Tuple[List[dt.date], List[int]]] = {}
+    for p in decision_positions:
+        s = price_series.get(p.id)
+        if s and venue_of_row((p.symbol or '').strip(), p.asset_type) == EXCHANGE:
+            ordered = sorted(s)
+            ex_levels[p.id] = (ordered, [s[d] for d in ordered])
     # 整段无价格序列的持仓（balance 模式 / 无场所判定）——整段区间都不可能有日收益。
     # `no_price_ids` 由调用方按**原始窗口**注入（见 `_price_presence`），刻意不在这里
     # 从 `price_series` 推：本函数的取价窗口已前扩 `_STALE_CARRY_DAYS`，推出来的集合
@@ -881,7 +937,13 @@ def _compute_days(
     def price_of(pos: Position, day: dt.date) -> Optional[int]:
         key = pos.id
         if key not in price_cache:
-            price_cache[key] = _price_for(day, price_series.get(pos.id))
+            if key in ex_levels:
+                # 场内：≤ 当日的最后已知价（含停牌冻结，见上方 `ex_levels` 注释）。
+                dates, unit_prices = ex_levels[key]
+                i = bisect_right(dates, day) - 1
+                price_cache[key] = unit_prices[i] if i >= 0 else None
+            else:
+                price_cache[key] = _price_for(day, price_series.get(key))
         return price_cache[key]
 
     # ── 逐日推进：维护每笔持仓的 as-of 份额与累计已实现 ──
@@ -898,6 +960,10 @@ def _compute_days(
 
     while day <= end:
         price_cache.clear()
+        # 当日是否 A 股开盘日（唯一权威 `core/trading_calendar`，#1217）。
+        # 状态判定（休市前置）与差分基准冻结共用同一次调用——每天一次，
+        # µs 级；年视图 5 年 ≈1800 次，相对整窗 DB 取价可忽略。
+        trading_today = is_trading_day(day)
         # #2141：本日是否有持仓用上收盘估值（仅 day==today 可能为 True），
         # 有则当日行附 estimated 标记——前端徽标/开关据此展示，不再前端猜。
         day_uses_estimate = False
@@ -980,7 +1046,7 @@ def _compute_days(
         # 会整月显示「休市」，同样是把「不是交易日」错报成「当天没有仓位」。
         #
         # 注：原 `day_complete`（「本日总额是否完整可用于差分基准」）已随 #1917 的
-        # A 方案删除——基准无条件推进，见循环末尾。
+        # A 方案删除——开盘日推进基准（非开盘日冻结），见循环末尾。
         day_held_count = 0
 
         for state in decision_per_pos.values():
@@ -1003,7 +1069,22 @@ def _compute_days(
             if held:
                 day_held_count += 1
             if held and pos.id not in no_price_ids:
-                if day in (series or {}):
+                if pos.id in ex_levels:
+                    # 场内（#2277）：有价格水平即「在场」。停牌期间价格冻结在最后
+                    # 成交价（`price_of` 的 bisect 分支），市值不缺席、差分贡献为 0，
+                    # 不再日复一日地报 partial——停牌是市场事实，不是数据缺口。
+                    # 代价：场内同步任务整体停摆会被冻结价掩盖（各持仓日收益恒 0），
+                    # 由 sync_logs 与 `latest_price_date` 诊断字段兜底暴露。
+                    # `day <= today` 门：未来日既没有真报价也没有「停牌」可言，
+                    # 冻结判据不得前伸——否则未来日会因「场内在场 + OTC 缺席」
+                    # 变成带值的 partial（实测 2026-10 未来周日报出 +4889 假盈利：
+                    # OTC 市值跌出总额被当成了当日收益）。
+                    dates, _unit_prices = ex_levels[pos.id]
+                    if day <= today and bisect_right(dates, day) > 0:
+                        day_present_count += 1
+                    else:
+                        day_missing_ids.add(pos.id)
+                elif day in (series or {}):
                     day_present_count += 1
                 else:
                     day_missing_ids.add(pos.id)
@@ -1028,6 +1109,8 @@ def _compute_days(
                 day_priced_count += 1
 
         # 状态判定（顺序即优先级）：
+        #  0. **非 A 股开盘日一律 `closed`**（2026-10-17 用户拍板「周六、周日固定休市」，
+        #     判定前移到状态链最顶，见下方注释）
         #  1. 全部可计价持仓当天都无价、且存在无价格序列的持仓 → no_price
         #     （balance 模式账户的整月空白，必须与「0 收益」区分）
         #  2. 当天没有持仓（建仓前 / 清仓后）→ no_position
@@ -1040,7 +1123,27 @@ def _compute_days(
         #
         # 4 与 5 互斥：4 要求 `present == 0`，5 要求 `present > 0`。故「有值但
         # 不完整」永远不会被日历改判成「休市 / 未同步」——丢值就是丢钱。
-        if day_priced_count == 0 and day_unpriced_count > 0:
+        #
+        # ── 为什么「休市」必须排在状态链最顶（2026-10-17，#2277）──
+        # 原顺序把 no_price / partial 排在交易日判定之前，周末因此可能拿到
+        # 非 `closed` 的态，前端「周末出现非 closed ⇒ 切回 7 列」的兜底随之
+        # 触发——10 月日历又排出周六周日两列，用户观感「定好的周六周日固定
+        # 休市没生效」。实测两种真实形态：
+        #   · **未来周末日**：前值回填窗（7 天）耗尽后，全部可计价持仓取不到价，
+        #     而 balance 模式持仓恒在 ⇒ 命中 no_price 分支。真实库 2026-10-17
+        #     实测 10/24、10/25、10/31 三个周末日均为 `no_price`；
+        #   · **周末发布估值的标的**（货基周末也有净值行）：`present > 0` 且
+        #     其余标的当日无行 ⇒ 命中 partial 分支。
+        # 两者都不是「周末有 A 股交易」，而是判定顺序让数据quirks压过了日历。
+        # 交易日判定只有一份权威：`core/trading_calendar.is_trading_day()`
+        # （#1217，含「调休补班的周末照常休市」）。成本：正常出数的日子也
+        # 每天调一次（µs 级，年视图 5 年 ≈1800 次，相对整窗 DB 取价可忽略）。
+        if not trading_today:
+            # 休市日不出数：水平值照常推进（货基周末估值等仍进基准），
+            # 但当日不显示盈亏——「固定休市」是展示口径，不是把收益抹掉。
+            state_code = STATE_CLOSED
+            daily_pnl = None
+        elif day_priced_count == 0 and day_unpriced_count > 0:
             state_code = STATE_NO_PRICE
             daily_pnl = None
         elif day_held_count == 0 and not day_opening:
@@ -1084,14 +1187,17 @@ def _compute_days(
             # 09-19 反而报出一个跨 4 天的假值 4756.40。
             #
             # **本分支不按开 / 闭盘再拆**（#1942 与 #1917 的接缝）：`partial` 是
-            # 「有真报价、只是不全」，值必须给出来——若因为「那天是周末」就改成
-            # closed 并丢掉这个数，周末那几笔真发生的净值变动就永远不进任何一天。
+            # 「有真报价、只是不全」，值必须给出来——若因为「数据不全」就改成
+            # closed 并丢掉这个数，那几笔真发生的净值变动就永远不进任何一天。
             # 按日历分派只发生在**一个可用价都没有**的分支（上面那条）。
+            # #2277 起周末整列不占格（非开盘日已前置判 closed），「周末有真报价」
+            # 的形态不再产生 partial 行；那两天的估值变动由基准冻结并入下一
+            # 开盘日，同样不会丢。
             state_code = STATE_PARTIAL
         elif daily_pnl is None:
             # 只有**扫描首日**会走到这里（`prev_total_pnl` 尚无值）；它不进输出。
-            # #1917 的 A 方案之后基准无条件推进，故后续任何一天都有基准，
-            # 不会因为「前一天数据不全」而整段不可算。
+            # 开盘日的基准必推进（含断档开盘日，#1917 的 A 方案），故后续任何
+            # 一天都有基准，不会因为「前一天数据不全」而整段不可算。
             # #1942 起同样按开 / 闭盘分派，不再一律报「休市」。
             state_code = STATE_NO_DATA if is_trading_day(day) else STATE_CLOSED
             daily_pnl = None
@@ -1131,20 +1237,33 @@ def _compute_days(
                 row['estimated'] = True
             days.append(row)
 
-        # 基准**无条件推进**（#1917 的 A 方案）。
+        # ── 差分基准的推进规则（#2277：非开盘日冻结）──
+        # 开盘日推进；**非开盘日冻结**（基准停在上一开盘日的水平值）。
         #
-        # 旧行为「数据不全就不写基准」造成**差分基准漂移**：基准冻结在更早的日子，
-        # 释放那天的差分就跨越了不连续的多天，把那几天的涨跌一次性算成单日值。
-        # 实测（真实库 2026-09，整月区间）：09-15~09-18 等 11 天判数据不全 ⇒ 基准
-        # 停在 09-17 ⇒ 09-19（周六，全市场休市）报出 4756.40，而它真实值是 0.00；
-        # 同一日在小区间里因起点不同、基准推进次数不同，答案是 0.00。
-        # **同一笔数据两个答案，且取决于查询区间** —— 这就是 #1917 要消灭的缺陷。
+        # 为什么不是 #1917 A 方案的「无条件推进」：「周六、周日固定休市」
+        # 只规定当日**不出数**，不规定那两天的估值变动消失。货基周末确有净值
+        # 行、当日预估也可能落在非交易日（#2141 的 est_date == 今天，今天未必
+        # 是开盘日）——基准一旦照旧推进，这些变动就永远不进任何一天，month_total
+        # 与「净资产这段时间的变动」对不上。冻结后它们并入**下一开盘日**的差分：
+        #   周一盈亏 = level(周一) − level(上一开盘日)
+        # 与「周一收盘 vs 周五收盘」的直觉一致；周末 / 节假日水平值本就持平
+        # （前值回填）的普通组合，两种规则逐位相等。
         #
-        # 断档日推进基准不会让后续差分出错：断档那几笔始终缺席，
-        # 它们对 Σmv 与 Σcost 的影响在基准与当日之间**对称抵消**，
-        # 差分依然只反映「在场标的的市值变动」。
-        prev_total_pnl = day_total_pnl
-        prev_net_worth = day_net_worth
+        # ⚠️ 冻结只适用于**非开盘日**，绝不能再推广到「断档 / 缺数据」的开盘日：
+        # 那正是 #1917 修掉的基准漂移（基准停在更早的开盘日 ⇒ 释放跨多天的
+        # 差分 ⇒ 同一日两个答案）。区别在于：非开盘日的水平值是**完整**的
+        # （该有的价都有，只是市场关门），断档日的水平值缺东西。
+        #
+        # 两个必须推进的例外：
+        #   · 基准尚未播种（`prev_total_pnl is None`，扫描首日）：必须先锚一个
+        #     水平值，否则区间首日永远无基准。月 / 年粒度的 `scan_start` 常落在
+        #     周日（区间首日的前一天），不播这一年视图每周一都不可算；
+        #   · 建仓日（`day_opening`，哪怕落在周末——场外基金周末可确认）：当日
+        #     不出数，但新持仓的整笔浮盈必须锚进基准，否则下一开盘日把建仓浮盈
+        #     算成当日盈利（实测 1/5 建仓当天冒出等于全部市值−成本的假盈亏）。
+        if trading_today or prev_total_pnl is None or day_opening:
+            prev_total_pnl = day_total_pnl
+            prev_net_worth = day_net_worth
         day += dt.timedelta(days=1)
 
     return days
