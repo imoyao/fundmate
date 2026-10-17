@@ -246,6 +246,7 @@ test.describe("详情页页内导航（#1968）", () => {
       "业绩与风险",
       "行业与持仓",
       "关联标的",
+      "高级洞察 Pro",
       "更多数据"
     ]);
 
@@ -257,6 +258,68 @@ test.describe("详情页页内导航（#1968）", () => {
         .length
     }));
     expect(counts.pills).toBe(counts.anchors);
+  });
+
+  test("高级洞察 Pro 占位：区块渲染 + 徽标来自状态位（#2272）", async ({
+    page
+  }) => {
+    // #2272（#994 Phase 1 接口骨架 + 付费墙壳）。钉三件事：
+    // ① 区块真的渲染了——#2029 同款静默消失防线：detail.vue 的 import 被删时
+    //    Vue 只发 warning，父级透传的 id 静默丢弃，页面无可见报错；
+    // ② 徽标（Phase N 建设中）来自后端状态位而非前端硬编码（不编造"已上线"）；
+    // ③ 付费墙遮罩与禁用态升级按钮在（flag 默认开，无支付体系）。
+    // 反向验证：删 detail.vue 的 import → ①红；把徽标文案改成前端常量 →
+    // ②红（本用例改打桩值即红）。
+    const pageErrors: string[] = [];
+    page.on("pageerror", e => pageErrors.push(e.message));
+
+    // beforeEach 的 catch-all 对未打桩路由回 404（组件走降级：无徽标）；
+    // 后注册的 route 优先，这里覆盖 pro 端点给真状态位
+    await page.route("**/api/products/pro/**", route =>
+      route.fulfill({
+        status: 200,
+        json: {
+          data: {
+            symbol: SYMBOL,
+            asset_type: "fund",
+            pro_enabled: true,
+            paywall_required: false,
+            modules: {
+              performance: { available: false, phase: 2 },
+              risk: { available: false, phase: 2 },
+              allocation: { available: false, phase: 3 },
+              report: { available: false, phase: 4 }
+            }
+          },
+          message: "ok"
+        }
+      })
+    );
+
+    await page.goto(`/#/fund/${SYMBOL}`);
+    const pro = page.locator("#nav-pro");
+    await expect(pro).toBeVisible({ timeout: 60_000 });
+
+    // 四模块占位卡 + 徽标文案逐条与打桩的 phase 一致（2/2/3/4，见 #994 排期）——
+    // 校验全部四条而非第一条：只查第一条时，前端把徽标写死成常量同样能绿
+    await expect(pro.locator(".pro-module")).toHaveCount(4);
+    await expect(pro.locator(".pro-module__badge")).toHaveText([
+      "Phase 2 建设中",
+      "Phase 2 建设中",
+      "Phase 3 建设中",
+      "Phase 4 建设中"
+    ]);
+
+    // 付费墙：遮罩在、升级按钮禁用（一期无支付体系，点了不许有幻觉）
+    await expect(pro.locator(".pro-paywall")).toBeVisible();
+    await expect(pro.getByRole("button", { name: "升级 Pro" })).toBeDisabled();
+
+    // 导航胶囊收录该区块（与锚点同在，无死链）
+    await expect(
+      page.locator(".page-nav").getByRole("button", { name: "高级洞察 Pro" })
+    ).toHaveCount(1);
+
+    expect(pageErrors).toEqual([]);
   });
 
   test("无持仓：交易记录不渲染、不进导航、不发请求", async ({ page }) => {

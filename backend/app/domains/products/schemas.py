@@ -182,3 +182,15 @@ class FundRiskRankingRequest(BaseModel):
     limit: Optional[int] = Field(None, ge=1, description='条数上限（默认 20，硬上限 200）')
     order: Optional[str] = Field(None, description='asc / desc；不给则用指标默认方向')
     include_distorted: bool = Field(False, description='是否纳入口径可疑（净值跳变/样本不足）的行')
+
+
+class ProStatusRequest(BaseModel):
+    """`GET /api/products/pro/` 的查询参数（#2272 · #994 Phase 1 接口骨架）。
+
+    ``asset_type`` 语义同 `ProductResolveRequest`：入口提示、可由调用方省略。
+    一期不做任何查库与身份判定（骨架只回状态位），故此处**不强制**与后端判定一致；
+    待 Phase 2 模块内容上线、需要按品类过滤可用模块时，再改为与 resolve 同源的权威判定。
+    """
+
+    symbol: str = Field(..., min_length=1, max_length=50, description='产品代码（大小写不敏感）')
+    asset_type: Optional[str] = Field(None, max_length=20, description='入口提示品类；一期仅回显，不参与判定')

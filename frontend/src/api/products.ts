@@ -991,3 +991,36 @@ export interface FundBenchmark {
   /** 口径标记：ok / insufficient（共同交易日不足） */
   basis?: string;
 }
+
+/** Pro 单模块可用性位（#2272 · #994 Phase 1 骨架；available 在 Phase 2-4 逐个翻转） */
+export interface ProModuleStatus {
+  /** 模块是否已上线（一期恒 false） */
+  available: boolean;
+  /** 落地 Phase（2/2/3/4，见 #994 五阶段排期） */
+  phase: number;
+}
+
+/** `GET /api/products/pro/` 返回（#2272）。一期恒量：后端全开、付费墙在前端 flag */
+export interface ProStatusResult {
+  symbol: string;
+  asset_type: string | null;
+  /** 一期恒 true（全开无权益校验；权益判定后期抽 /api/me/entitlements） */
+  pro_enabled: boolean;
+  /** 一期恒 false（付费墙是前端 feature flag VITE_PRO_PAYWALL_ENABLED 控制的遮罩） */
+  paywall_required: boolean;
+  modules: Record<
+    "performance" | "risk" | "allocation" | "report",
+    ProModuleStatus
+  >;
+}
+
+/** 拉取单标的 Pro 状态位（详情页「高级洞察 Pro」区块挂载即取，失败由组件降级为无徽标） */
+export function fetchProStatus(symbol: string, assetType?: string | null) {
+  return http.request<ApiResponse<ProStatusResult>>(
+    "get",
+    "/api/products/pro/",
+    {
+      params: { symbol, asset_type: assetType ?? undefined }
+    }
+  );
+}

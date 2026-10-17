@@ -146,6 +146,12 @@ NEW_FILE_LIMITS = {
 # （用户私有偏好键值，#993 方案 B 跨设备同步）——视图侧只有「key 长度校验 + 调 ORM upsert +
 # JSON 文本↔对象转换 + 信封」，无业务规则可下沉（upsert 是唯一写语义，合并策略在前端）。
 # 按 `--report` 实测回写：lines 115 → 160、orm_queries 4 → 6（max_func / commits 不动）。
+# 2026-10-17 重取（#2272，**新增端点**，非放宽）：给 products 加 `GET /api/products/pro/`
+# （#994 Phase 1 接口骨架）——视图侧只有「parse_query + 调 services/product_pro_status +
+# 信封」，`orm_queries` / `commits` 仍为 **0**、`max_func` 不变（30）。骨架不查库（模块
+# 是否上线是发布状态而非用户数据），没有任何可下沉的业务规则；docstring 占比高是在写
+# 「为什么一期后端全开 / 为什么路径落 products 域」的决策，值得留。products 437 → 458。
+# 这是本文件 2026-10-16 升入存量冻结后的第一次生长，按自述通道 `--report` 实测回写。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/assets/views.py": {"lines": 208, "orm_queries": 4, "commits": 0, "max_func": 44},
     "backend/app/domains/auth/views.py": {"lines": 137, "orm_queries": 3, "commits": 0, "max_func": 45},
@@ -166,7 +172,8 @@ BASELINE: dict[str, dict[str, int]] = {
     # （守卫正解「搬去 services」在本文件已无标的——每段都只剩薄编排）。按本脚本自述的通道
     # 「同时改 LEGACY_VIEWS + BASELINE + 过评审」升入存量冻结集（此后任何端点再生长都会被
     # 「只减不增」拦下），四维实测值取自 `--report`，非手工拍数。
-    "backend/app/domains/products/views.py": {"lines": 437, "orm_queries": 0, "commits": 0, "max_func": 30},
+    # 2026-10-17 重取（#2272 新增 pro 端点，详见上方 dated 条目）：437 → 458，其余三维不动。
+    "backend/app/domains/products/views.py": {"lines": 458, "orm_queries": 0, "commits": 0, "max_func": 30},
     # 2026-10-16：#2255 收敛合并带入 CNB 域 D 对账（duoduobei/fundmate#477/#486）代码，225→311 重取基线（守卫自述「确因合并需要重取基线」场景）
     "backend/app/domains/reconciliation/views.py": {"lines": 311, "orm_queries": 2, "commits": 0, "max_func": 48},
     "backend/app/domains/search/views.py": {"lines": 25, "orm_queries": 0, "commits": 0, "max_func": 7},
