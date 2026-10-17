@@ -16,8 +16,14 @@ from app.core.retry import retry_on_db_locked
 from app.core.validation import parse_body, parse_query
 from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
-from app.domains.positions.schemas import PositionCreate, PositionListRequest, PositionUpdate
+from app.domains.positions.schemas import (
+    ConversionEstimate,
+    PositionCreate,
+    PositionListRequest,
+    PositionUpdate,
+)
 from app.domains.transactions.models import Transaction
+from app.services.conversion_service import ConversionService
 from app.services.position_presenter import enrich_position_dict
 from app.services.position_service import PositionService
 from app.services.position_valuation import allocate_value
@@ -185,6 +191,33 @@ def create_position():
         wrap_position = enrich_position_dict(position)
         db.flush()
         return jsonify({'data': wrap_position, 'message': 'ok'})
+
+
+@bp.post('/conversion/estimate/')
+def estimate_conversion():
+    """基金转换试算（只读，不落库）。
+
+    设计见 docs/working-notes/fund-conversion-design-2026-10-17.md §4.1：
+    赎回费 FIFO + 补差费（两只基金申购费阶梯 × 折扣），试算与落库同源。
+    费率缺失等非阻断信息进 warnings（D9）；业务校验失败转 400/1001。
+    """
+    payload = parse_body(ConversionEstimate)
+    with get_db() as db:
+        try:
+            data = ConversionService.estimate_conversion(
+                db=db,
+                ledger_id=payload.ledger_id,
+                out_position_id=payload.out_position_id,
+                out_quantity=payload.out_quantity,
+                in_symbol=payload.in_symbol,
+                in_amount=payload.in_amount,
+                trade_date=payload.trade_date,
+                family_id=get_family_id(),
+            )
+        except ValueError as e:
+            logger.exception('转换试算业务校验失败: %s', e)
+            return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400
+    return jsonify({'data': data, 'message': 'ok'})
 
 
 @bp.patch('/<int:id>/')
