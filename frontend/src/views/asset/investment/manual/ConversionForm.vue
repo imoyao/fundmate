@@ -769,30 +769,30 @@ defineExpose({ isDirty, resetForm });
 /* 试算面板：两列键值对齐（左标签 secondary、右数值 tabular-nums；净额加粗） */
 .estimate-panel {
   padding: 16px;
+  background: var(--bg-card);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
-  background: var(--bg-card);
 }
 
 .panel-row {
   display: flex;
+  gap: 16px;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
   font-size: 14px;
 }
 
 .panel-label {
   display: inline-flex;
-  align-items: center;
   gap: 6px;
+  align-items: center;
   color: var(--text-secondary);
   white-space: nowrap;
 }
 
 .panel-value {
-  color: var(--text-primary);
   font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
   text-align: right;
 }
 

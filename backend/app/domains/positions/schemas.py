@@ -100,7 +100,7 @@ class ConversionSubmit(BaseModel):
     in_symbol: str = Field(..., description='转入基金代码（6位裸码）')
     in_amount: Optional[float] = Field(None, description='指定转入金额（元）；缺省 = 净额全部转入')
     refund_mode: Optional[str] = Field(
-        None, description="退款去向：money_fund=账户绑定的类现金产品 / account_cash=退回账户现金；存在退款时必填"
+        None, description='退款去向：money_fund=账户绑定的类现金产品 / account_cash=退回账户现金；存在退款时必填'
     )
     trade_date: Optional[date] = Field(None, description='交易日期，缺省为今天')
     idempotency_key: str = Field(..., min_length=8, description='幂等键（前端生成的 UUID），重复提交返回同一结果')
