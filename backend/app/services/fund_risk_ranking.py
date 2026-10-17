@@ -60,11 +60,7 @@ def _clamp_limit(limit: Optional[int]) -> int:
     return min(int(limit), MAX_LIMIT)
 
 
-def user_flags_for_codes(
-    user_db: Session,
-    *,
-    family_id: Optional[int]
-) -> tuple:
+def user_flags_for_codes(user_db: Session, *, family_id: Optional[int]) -> tuple:
     """查一个家庭的全部私有标记：``(持仓代码集, 自选代码集)``。
 
     **user 域**查询（positions / watchlist 与 funds 快照分属不同引擎，无跨域 JOIN），
@@ -89,12 +85,7 @@ def user_flags_for_codes(
         return set(), set()
 
     def _symbols(model) -> set:
-        rows = (
-            user_db.query(model.symbol)
-            .filter(model.family_id == family_id)
-            .distinct()
-            .all()
-        )
+        rows = user_db.query(model.symbol).filter(model.family_id == family_id).distinct().all()
         return {(r[0] or '').strip() for r in rows if r[0]}
 
     return _symbols(Position), _symbols(WatchlistItem)
@@ -246,11 +237,7 @@ def list_fund_types(db: Session, *, caliber_version: Optional[int] = None) -> Di
 
 
 def _row_payload(
-    row,
-    *,
-    fund_name: Optional[str] = None,
-    in_holdings: bool = False,
-    in_watchlist: bool = False
+    row, *, fund_name: Optional[str] = None, in_holdings: bool = False, in_watchlist: bool = False
 ) -> Dict[str, Any]:
     """快照行 → 榜单条目（数值一律 float，口径字段原样带出）。
 
