@@ -18,12 +18,13 @@ from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
 from app.domains.positions.schemas import (
     ConversionEstimate,
+    ConversionSubmit,
     PositionCreate,
     PositionListRequest,
     PositionUpdate,
 )
 from app.domains.transactions.models import Transaction
-from app.services.conversion_service import ConversionService
+from app.services.conversion_service import ConversionAlreadyRecordedError, ConversionService
 from app.services.position_presenter import enrich_position_dict
 from app.services.position_service import PositionService
 from app.services.position_valuation import allocate_value
@@ -217,6 +218,58 @@ def estimate_conversion():
         except ValueError as e:
             logger.exception('转换试算业务校验失败: %s', e)
             return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.post('/conversion/')
+def submit_conversion():
+    """基金转换提交（落库）。
+
+    设计见 docs/working-notes/fund-conversion-design-2026-10-17.md §4.1：
+    单事务内 OUT 卖出腿（关闭自动申购）→ IN 买入腿 → REFUND 退款腿（可选），
+    2~3 条流水同 link_group_id；幂等键重复提交撞唯一约束 → 409。
+    """
+    payload = parse_body(ConversionSubmit)
+    with get_db() as db:
+        try:
+            data = ConversionService.submit_conversion(
+                db=db,
+                ledger_id=payload.ledger_id,
+                out_position_id=payload.out_position_id,
+                out_quantity=payload.out_quantity,
+                in_symbol=payload.in_symbol,
+                in_amount=payload.in_amount,
+                refund_mode=payload.refund_mode,
+                trade_date=payload.trade_date,
+                idempotency_key=payload.idempotency_key,
+                family_id=get_family_id(),
+            )
+        except ValueError as e:
+            logger.exception('转换提交业务校验失败: %s', e)
+            return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400
+        except ConversionAlreadyRecordedError as e:
+            # 幂等预检命中：同键已落库（重复点击/网络重发），返回原组号便于前端复盘
+            logger.info('转换提交幂等命中: group=%s', e.link_group_id)
+            return (
+                jsonify(
+                    {
+                        'data': {'link_group_id': e.link_group_id, 'duplicated': True},
+                        'message': str(e),
+                        'error_code': 1003,
+                    }
+                ),
+                409,
+            )
+        except IntegrityError as e:
+            # 幂等键重复提交：组内某条流水 import_hash 撞唯一约束（#2316 P1）
+            db.rollback()
+            logger.warning('转换提交唯一约束冲突（疑似重复提交）: %s', e)
+            return jsonify({'data': None, 'message': '该笔转换已记录，请勿重复提交', 'error_code': 1003}), 409
+        except Exception:
+            logger.exception('转换提交未预期异常')
+            db.rollback()
+            abort(500, description='服务器内部错误，请稍后重试')
+        db.flush()
     return jsonify({'data': data, 'message': 'ok'})
 
 
