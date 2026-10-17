@@ -12,8 +12,9 @@ Pro 面板四模块（#994）的指标分两类：
   持仓与流水计算，盈米结构上无法提供——**永不退役的差异化锚点**（#1986
   「结构性例外」条目）。
 
-本包是账户级指标的**唯一落点**；XIRR 引擎在 `services/performance/`（先于本包
-存在，保持原址），新增账户级模块一律进这里。
+本包是**新增分析模块**的落点：账户级指标（XIRR 除外，它在 `services/performance/`）
+与触发条件满足后自建的基金级替代模块（#1986 检查单）都进这里；既有基金级实现
+（fund_risk_metrics 等）保持原址，不搬家。
 
 ## 模块现状映射（2026-10-17 盘点，改动后请同步更新）
 
@@ -25,7 +26,8 @@ Pro 面板四模块（#994）的指标分两类：
 | penetration（持仓穿透） | ✅ 已实现（#870 Step 2） | `services/penetration.py` |
 | XIRR（账户级权益分拆） | ✅ 已实现（position/symbol/portfolio 三 scope） | `services/performance/` |
 | **behavior（交易行为画像）** | ✅ **本包**（账户级核心第一块） | `analytics/behavior.py` |
-| var（风险价值）/ correlation（相关性矩阵） | ❌ 未建——Phase 2/3 实质实现时落这里，**不放占位桩** | （待建） |
+| **var（风险价值 VaR 95%）** | ✅ **本包**（#994 模块二，基金级：吃净值/价格序列，自建不走盈米） | `analytics/var.py` |
+| correlation（相关性矩阵） | ❌ 未建——Phase 3 实质实现时落这里，**不放占位桩** | （待建） |
 
 ## 纪律
 

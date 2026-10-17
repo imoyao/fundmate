@@ -164,17 +164,72 @@ NEW_FILE_LIMITS = {
 # `commits` 仍为 **0**、`max_func` 不变（30）。docstring 在写「数据链为何中证官网优先 /
 # 降级语义」的口径，值得留。products 458 → 502（`--report` 实测，其余三维不动）。
 BASELINE: dict[str, dict[str, int]] = {
-    "backend/app/domains/assets/views.py": {"lines": 208, "orm_queries": 4, "commits": 0, "max_func": 44},
-    "backend/app/domains/auth/views.py": {"lines": 137, "orm_queries": 3, "commits": 0, "max_func": 45},
-    "backend/app/domains/families/views.py": {"lines": 72, "orm_queries": 2, "commits": 0, "max_func": 22},
-    "backend/app/domains/funds/views.py": {"lines": 197, "orm_queries": 2, "commits": 0, "max_func": 39},
-    "backend/app/domains/importers/views.py": {"lines": 249, "orm_queries": 1, "commits": 0, "max_func": 53},
-    "backend/app/domains/ledgers/views.py": {"lines": 728, "orm_queries": 16, "commits": 0, "max_func": 60},
-    "backend/app/domains/market/views.py": {"lines": 37, "orm_queries": 0, "commits": 0, "max_func": 21},
-    "backend/app/domains/ocr/views.py": {"lines": 214, "orm_queries": 1, "commits": 0, "max_func": 48},
-    "backend/app/domains/performance/views.py": {"lines": 86, "orm_queries": 0, "commits": 0, "max_func": 31},
-    "backend/app/domains/portfolios/views.py": {"lines": 161, "orm_queries": 1, "commits": 0, "max_func": 25},
-    "backend/app/domains/positions/views.py": {"lines": 288, "orm_queries": 6, "commits": 0, "max_func": 57},
+    "backend/app/domains/assets/views.py": {
+        "lines": 208,
+        "orm_queries": 4,
+        "commits": 0,
+        "max_func": 44,
+    },
+    "backend/app/domains/auth/views.py": {
+        "lines": 137,
+        "orm_queries": 3,
+        "commits": 0,
+        "max_func": 45,
+    },
+    "backend/app/domains/families/views.py": {
+        "lines": 72,
+        "orm_queries": 2,
+        "commits": 0,
+        "max_func": 22,
+    },
+    "backend/app/domains/funds/views.py": {
+        "lines": 197,
+        "orm_queries": 2,
+        "commits": 0,
+        "max_func": 39,
+    },
+    "backend/app/domains/importers/views.py": {
+        "lines": 249,
+        "orm_queries": 1,
+        "commits": 0,
+        "max_func": 53,
+    },
+    "backend/app/domains/ledgers/views.py": {
+        "lines": 728,
+        "orm_queries": 16,
+        "commits": 0,
+        "max_func": 60,
+    },
+    "backend/app/domains/market/views.py": {
+        "lines": 37,
+        "orm_queries": 0,
+        "commits": 0,
+        "max_func": 21,
+    },
+    "backend/app/domains/ocr/views.py": {
+        "lines": 214,
+        "orm_queries": 1,
+        "commits": 0,
+        "max_func": 48,
+    },
+    "backend/app/domains/performance/views.py": {
+        "lines": 86,
+        "orm_queries": 0,
+        "commits": 0,
+        "max_func": 31,
+    },
+    "backend/app/domains/portfolios/views.py": {
+        "lines": 161,
+        "orm_queries": 1,
+        "commits": 0,
+        "max_func": 25,
+    },
+    "backend/app/domains/positions/views.py": {
+        "lines": 288,
+        "orm_queries": 6,
+        "commits": 0,
+        "max_func": 57,
+    },
     # 2026-10-16 升入存量冻结（#2255 收敛合并，**非放宽**）：CNB 侧 fund-risk 两端点
     # （fund-risk-ranking / fund-risk-types）随收敛移植进本文件（+43 行——两段视图全是
     # 「入参校验 + 调服务 + 信封」的纯编排，orm_queries / commits / max_func 三项实测不动），
@@ -189,25 +244,93 @@ BASELINE: dict[str, dict[str, int]] = {
     # 与同族端点一致的薄编排（入参解析 / 调服务 / 组响应），业务规则全部下沉 etf_compare.py。
     # 2026-10-17 四取（#994 Phase 2 新增 pro-insight 端点）：528 → 548，其余三维不动——
     # 同族薄编排，聚合逻辑全在 pro_insight.py。
-    # 2026-10-17 五取（#167 持仓体检定位，**新增接线、非业务规则进视图**）：给
-    # fund-risk-ranking 端点加「持仓/自选标记」——登录判定 + 双域会话 + 调服务
-    # 收在 `_family_ranking_flags()` 小助手（与 /resolve/、/trade-timeline/ 同模式，
     # 查询口径全在 services/user_flags_for_codes），端点本身只多一行调用。
     # orm_queries / commits 仍为 0、max_func 30 不动，唯 lines 548 → 570
     # （+22：助手 10 行 + 两个入参透传 + import 多行展开）。按 `--report` 实测回写。
-    "backend/app/domains/products/views.py": {"lines": 570, "orm_queries": 0, "commits": 0, "max_func": 30},
+    # 2026-10-17 六取（#994 Phase 2 **新增 pro-risk 端点**，非放宽）：给 products 加
+    # `GET /api/products/pro-risk/`（BIAS + 波动率 + VaR 聚合，计算全在
+    # `services/pro_risk.py` + `services/analytics/var.py`）——视图侧只有
+    # 「parse_query + get_db() + 调服务 + 信封」，570 → **610**（+40），
+    # `orm_queries` / `commits` 仍为 **0**、`max_func` 30 不动（口径与降级 reason
+    # 全在 services，无业务规则可下沉）。增量三处：新端点（含口径 docstring）+
+    # 两条 import + ValueError→400 防御
+    # （防空白/纯前缀 symbol 过 schema 后服务层归一为空时漏 500，与 index-returns
+    # 同族范式）；同卡顺手修 pro-insight 误用 `market_session_factory`（该端点经
+    # calculate_symbol_xirr 读 user 域表，双库生产必 500）→ 改路由会话 `get_db()`，
+    # 属「接线修正」不推高 max_func。按本文件既有先例以 `--report` 实测回写。
+    "backend/app/domains/products/views.py": {
+        "lines": 610,
+        "orm_queries": 0,
+        "commits": 0,
+        "max_func": 30,
+    },
     # 2026-10-16：#2255 收敛合并带入 CNB 域 D 对账（duoduobei/fundmate#477/#486）代码，225→311 重取基线（守卫自述「确因合并需要重取基线」场景）
-    "backend/app/domains/reconciliation/views.py": {"lines": 311, "orm_queries": 2, "commits": 0, "max_func": 48},
-    "backend/app/domains/search/views.py": {"lines": 25, "orm_queries": 0, "commits": 0, "max_func": 7},
-    "backend/app/domains/securities/views.py": {"lines": 72, "orm_queries": 1, "commits": 0, "max_func": 35},
-    "backend/app/domains/strategy/views.py": {"lines": 144, "orm_queries": 5, "commits": 0, "max_func": 22},
-    "backend/app/domains/summary/views.py": {"lines": 245, "orm_queries": 0, "commits": 0, "max_func": 31},
-    "backend/app/domains/temperature/views.py": {"lines": 140, "orm_queries": 0, "commits": 0, "max_func": 38},
-    "backend/app/domains/transactions/views.py": {"lines": 138, "orm_queries": 2, "commits": 0, "max_func": 60},
-    "backend/app/domains/usage/views.py": {"lines": 68, "orm_queries": 0, "commits": 0, "max_func": 27},
-    "backend/app/domains/users/views.py": {"lines": 160, "orm_queries": 6, "commits": 0, "max_func": 38},
-    "backend/app/domains/utils/views.py": {"lines": 128, "orm_queries": 0, "commits": 0, "max_func": 38},
-    "backend/app/domains/watchlist/views.py": {"lines": 622, "orm_queries": 14, "commits": 0, "max_func": 53},
+    "backend/app/domains/reconciliation/views.py": {
+        "lines": 311,
+        "orm_queries": 2,
+        "commits": 0,
+        "max_func": 48,
+    },
+    "backend/app/domains/search/views.py": {
+        "lines": 25,
+        "orm_queries": 0,
+        "commits": 0,
+        "max_func": 7,
+    },
+    "backend/app/domains/securities/views.py": {
+        "lines": 72,
+        "orm_queries": 1,
+        "commits": 0,
+        "max_func": 35,
+    },
+    "backend/app/domains/strategy/views.py": {
+        "lines": 144,
+        "orm_queries": 5,
+        "commits": 0,
+        "max_func": 22,
+    },
+    "backend/app/domains/summary/views.py": {
+        "lines": 245,
+        "orm_queries": 0,
+        "commits": 0,
+        "max_func": 31,
+    },
+    "backend/app/domains/temperature/views.py": {
+        "lines": 140,
+        "orm_queries": 0,
+        "commits": 0,
+        "max_func": 38,
+    },
+    "backend/app/domains/transactions/views.py": {
+        "lines": 138,
+        "orm_queries": 2,
+        "commits": 0,
+        "max_func": 60,
+    },
+    "backend/app/domains/usage/views.py": {
+        "lines": 68,
+        "orm_queries": 0,
+        "commits": 0,
+        "max_func": 27,
+    },
+    "backend/app/domains/users/views.py": {
+        "lines": 160,
+        "orm_queries": 6,
+        "commits": 0,
+        "max_func": 38,
+    },
+    "backend/app/domains/utils/views.py": {
+        "lines": 128,
+        "orm_queries": 0,
+        "commits": 0,
+        "max_func": 38,
+    },
+    "backend/app/domains/watchlist/views.py": {
+        "lines": 622,
+        "orm_queries": 14,
+        "commits": 0,
+        "max_func": 53,
+    },
 }
 
 # 冻结的 legacy 视图集（#1606 批次 1 下沉后、2026-09-19 冻结时存在的 22 个路径）。
@@ -217,31 +340,33 @@ BASELINE: dict[str, dict[str, int]] = {
 #     —— 防有人给新文件塞 fat 基线（如 500 行）绕过 400 行上限（见 #1642 C 块）。
 # 本集合必须与 BASELINE 的键**完全一致**，`test_baseline_covers_every_views_file` 强制校验，
 # 故想给新文件开后门必须同时改这里 + BASELINE + 过评审，无法静默 gaming。
-LEGACY_VIEWS: frozenset[str] = frozenset({
-    "backend/app/domains/assets/views.py",
-    "backend/app/domains/auth/views.py",
-    "backend/app/domains/families/views.py",
-    "backend/app/domains/funds/views.py",
-    "backend/app/domains/importers/views.py",
-    "backend/app/domains/ledgers/views.py",
-    "backend/app/domains/market/views.py",
-    "backend/app/domains/ocr/views.py",
-    "backend/app/domains/performance/views.py",
-    "backend/app/domains/portfolios/views.py",
-    "backend/app/domains/positions/views.py",
-    "backend/app/domains/products/views.py",
-    "backend/app/domains/reconciliation/views.py",
-    "backend/app/domains/search/views.py",
-    "backend/app/domains/securities/views.py",
-    "backend/app/domains/strategy/views.py",
-    "backend/app/domains/summary/views.py",
-    "backend/app/domains/temperature/views.py",
-    "backend/app/domains/transactions/views.py",
-    "backend/app/domains/usage/views.py",
-    "backend/app/domains/users/views.py",
-    "backend/app/domains/utils/views.py",
-    "backend/app/domains/watchlist/views.py",
-})
+LEGACY_VIEWS: frozenset[str] = frozenset(
+    {
+        "backend/app/domains/assets/views.py",
+        "backend/app/domains/auth/views.py",
+        "backend/app/domains/families/views.py",
+        "backend/app/domains/funds/views.py",
+        "backend/app/domains/importers/views.py",
+        "backend/app/domains/ledgers/views.py",
+        "backend/app/domains/market/views.py",
+        "backend/app/domains/ocr/views.py",
+        "backend/app/domains/performance/views.py",
+        "backend/app/domains/portfolios/views.py",
+        "backend/app/domains/positions/views.py",
+        "backend/app/domains/products/views.py",
+        "backend/app/domains/reconciliation/views.py",
+        "backend/app/domains/search/views.py",
+        "backend/app/domains/securities/views.py",
+        "backend/app/domains/strategy/views.py",
+        "backend/app/domains/summary/views.py",
+        "backend/app/domains/temperature/views.py",
+        "backend/app/domains/transactions/views.py",
+        "backend/app/domains/usage/views.py",
+        "backend/app/domains/users/views.py",
+        "backend/app/domains/utils/views.py",
+        "backend/app/domains/watchlist/views.py",
+    }
+)
 
 
 def _rel(path: Path) -> str:
@@ -279,7 +404,9 @@ def _iter_views() -> list[Path]:
 
 
 def _fmt(metrics: dict[str, int]) -> str:
-    return " ".join(f"{k}={metrics[k]}" for k in ("lines", "orm_queries", "commits", "max_func"))
+    return " ".join(
+        f"{k}={metrics[k]}" for k in ("lines", "orm_queries", "commits", "max_func")
+    )
 
 
 def _report(views: list[Path]) -> int:
@@ -293,8 +420,12 @@ def _report(views: list[Path]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="视图层厚度守卫（#1606）")
-    parser.add_argument("--report", action="store_true", help="打印当前指标与可直接粘贴的基线")
-    parser.add_argument("-v", "--verbose", action="store_true", help="打印每个文件的指标")
+    parser.add_argument(
+        "--report", action="store_true", help="打印当前指标与可直接粘贴的基线"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="打印每个文件的指标"
+    )
     args = parser.parse_args(argv)
 
     views = _iter_views()
@@ -305,7 +436,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.report:
         return _report(views)
 
-    violations: list[tuple[str, str, int, int, bool]] = []  # (rel, metric, current, limit, is_baseline)
+    violations: list[
+        tuple[str, str, int, int, bool]
+    ] = []  # (rel, metric, current, limit, is_baseline)
     seen: set[str] = set()
     measured: dict[str, dict[str, int]] = {}
 
@@ -364,7 +497,9 @@ def main(argv: list[str] | None = None) -> int:
             for rel in stale:
                 print(f"  - {rel}")
         if loose:
-            print("提示：以下指标已低于基线，请用 `--report` 收紧 BASELINE（只减不增；不收紧该维度会静默失效）：")
+            print(
+                "提示：以下指标已低于基线，请用 `--report` 收紧 BASELINE（只减不增；不收紧该维度会静默失效）："
+            )
             for rel, metric, current, budget in loose:
                 print(f"  - {rel}: {metric} = {current}（基线 {budget}）")
         return 0

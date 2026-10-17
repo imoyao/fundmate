@@ -1212,3 +1212,68 @@ export function fetchProInsight(symbol: string, assetType?: string | null) {
     }
   );
 }
+
+/** Pro 模块二 BIAS 块（既有 bias 引擎口径：刘晨明 LOGBIAS，EMA20 对数乖离） */
+export interface ProRiskBias {
+  available: boolean;
+  /** 乖离率值（%）；正 = 高于均线 */
+  bias: number | null;
+  /** 引擎信号标签（温度计同款话术） */
+  label: string | null;
+  /** 波段位置 0-100 */
+  position: number | null;
+  /** 最新收盘价/净值 */
+  close: number | null;
+  /** 数据日期（ISO） */
+  data_date: string | null;
+  /** 行情源失败回退旧缓存时为 true */
+  stale: boolean;
+  reason: string | null;
+}
+
+/** Pro 模块二 风险块（波动率 + VaR 95%，analytics/var.py 口径） */
+export interface ProRiskMetrics {
+  available: boolean;
+  /** 年化波动率（%） */
+  annual_volatility: number | null;
+  /** VaR 95%（%，负数 = 单日最大可能亏损） */
+  var_95: number | null;
+  /** 窗口内日收益样本数 */
+  sample_returns: number;
+  window: string;
+  as_of: string | null;
+  /** 序列口径（累计净值/前复权…） */
+  basis: string | null;
+  reason: string | null;
+  caveats: string[];
+}
+
+/** Pro 模块二 账户级块（持仓市值 × VaR%，模块一 XIRR 同源市值） */
+export interface ProRiskAccount {
+  has_position: boolean;
+  /** 持仓市值（元） */
+  position_value: number;
+  /** 95% 置信单日最坏亏损（元，负数）；无持仓或 VaR 缺失为 null */
+  var_95_yuan: number | null;
+}
+
+/** `GET /api/products/pro-risk/` 返回（#994 Phase 2 · 模块二偏离与风险控制）。
+ * 块级自治：基金级指标不依赖账户数据，逐块 available + reason */
+export interface ProRiskResult {
+  symbol: string;
+  asset_type: string | null;
+  bias: ProRiskBias;
+  risk: ProRiskMetrics;
+  account: ProRiskAccount;
+}
+
+/** 拉取 Pro 模块二风险指标（BIAS + 波动率 + VaR；登录态注入 family_id） */
+export function fetchProRisk(symbol: string, assetType?: string | null) {
+  return http.request<ApiResponse<ProRiskResult>>(
+    "get",
+    "/api/products/pro-risk/",
+    {
+      params: { symbol, asset_type: assetType ?? undefined }
+    }
+  );
+}

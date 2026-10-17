@@ -8,7 +8,7 @@
 覆盖 issue 验收的关键断言：
 
 1. 状态位形状：``pro_enabled`` / ``paywall_required`` / 四模块可用性位齐全且取值正确
-   （一期恒 true / false / false，模块带 Phase 标注）；
+   （总开关恒 true / 付费墙恒 false；模块位随 Phase 2-4 逐个翻真，带 Phase 标注）；
 2. 缺 ``symbol`` → 422（pydantic 层校验被 apiflask 拦下，不落视图；统一错误信封）；
 3. ``asset_type`` 入口提示仅回显，不参与判定（给个非法品类也不 400）；
 4. 骨架不查库：任何 symbol（含不存在的产品）都回同一形状——「该产品没有 Pro 数据」
@@ -21,8 +21,9 @@ PRO_URL = '/api/products/pro/'
 def test_pro_status_returns_skeleton(client):
     """带 symbol → 状态位：总开关 true、付费墙 false、模块按上线节奏逐个翻真。
 
-    Phase 2 起 performance 翻真（内容服务 ``pro_insight.py`` 落地）；
-    其余模块保持「Phase N 建设中」占位，落地时改 ``AVAILABLE_MODULES`` 一处。
+    Phase 2 起 performance / risk 翻真（内容服务 ``pro_insight.py`` /
+    ``pro_risk.py`` 落地）；allocation / report 保持「Phase N 建设中」占位，
+    落地时改 ``AVAILABLE_MODULES`` 一处。
     注意「可用」≠「有数据」：available 与标的是否有用户流水无关。
     """
     resp = client.get(PRO_URL, query_string={'symbol': '004369'}, headers={'X-User-Id': '1'})
@@ -37,10 +38,11 @@ def test_pro_status_returns_skeleton(client):
     assert data['paywall_required'] is False
     modules = data['modules']
     assert set(modules) == {'performance', 'risk', 'allocation', 'report'}
-    assert modules['performance']['available'] is True  # #994 Phase 2 翻真
+    assert modules['performance']['available'] is True  # #994 Phase 2 翻真（模块一）
+    assert modules['risk']['available'] is True  # #994 Phase 2 翻真（模块二）
     for name, module in modules.items():
         assert module['phase'] in (2, 3, 4)
-        if name != 'performance':
+        if name not in ('performance', 'risk'):
             assert module['available'] is False
     # Phase 标注与 #994 五阶段排期一致：模块一/二 → P2，模块三 → P3，模块四 → P4
     assert modules['performance']['phase'] == 2

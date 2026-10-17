@@ -15,6 +15,7 @@ from apiflask import APIBlueprint
 from flask import abort, g, jsonify, request
 
 from app.core.auth import get_family_id
+from app.core.database import get_db
 from app.core.db_factory import market_session_factory, user_session_factory
 from app.core.validation import parse_query
 from app.domains.products.schemas import (
@@ -27,6 +28,7 @@ from app.domains.products.schemas import (
     ProductResolveRequest,
     ProductTrendRequest,
     ProInsightRequest,
+    ProRiskRequest,
     ProStatusRequest,
     RelatedSymbolsRequest,
     StockProfileRequest,
@@ -47,6 +49,7 @@ from app.services.index_profile import build_index_profile
 from app.services.manager_holdings import build_manager_holdings
 from app.services.manager_profile import build_manager_profile
 from app.services.pro_insight import build_symbol_pro_insight
+from app.services.pro_risk import build_symbol_pro_risk
 from app.services.product_identity import resolve_product_identity
 from app.services.product_pro_status import build_pro_status
 from app.services.product_trend import empty_product_trend, fetch_product_trend
@@ -563,8 +566,45 @@ def pro_insight():
     - 无账户数据 → ``has_account_data=false``（正常形态，前端渲染引导，不编数字）；
     - 不做白名单登记：响应含用户私有数据，生产鉴权门禁下自然要求登录
       （与 ``/trade-timeline/`` 同模式；开发环境 ``AUTH_ENABLED`` 关闭时匿名可用）。
+
+    会话用**路由会话**（``get_db()``）而非 ``market_session_factory``：#2311 首版
+    误用单域工厂，而本端点经 ``calculate_symbol_xirr`` 同时读 user 域
+    （positions/transactions）与 market 域（securities/price_history/daily_worth）——
+    dev 单库下两域同文件故本地与测试全绿，**双库生产（Turso + Supabase）下
+    market 引擎没有 transactions 表，端点必 500**。路由会话逐语句按
+    ``DATA_DOMAIN_REGISTRY`` 分派引擎（#1608），单/双库都正确。
     """
     query: ProInsightRequest = parse_query(ProInsightRequest)
-    with closing(market_session_factory()()) as db:
+    with get_db() as db:
         data = build_symbol_pro_insight(db, query.symbol, family_id=get_family_id(), asset_type=query.asset_type)
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/pro-risk/')
+def pro_risk():
+    """Pro 模块二「偏离与风险控制」——单标的 BIAS + 波动率 + VaR（#994 Phase 2）。
+
+    聚合三块：**BIAS**（既有 bias 引擎，刘晨明 LOGBIAS，与温度计同口径）、
+    **波动率 + VaR 95%**（``analytics/var.py`` 历史模拟，序列经
+    ``fetch_product_trend('1Y')``，与详情页走势/``volatility_1y`` 同源同窗）、
+    **账户级 VaR¥**（``calculate_symbol_xirr`` 持仓市值 × VaR%）。
+
+    - 块级自治：基金级指标不依赖账户数据，逐块 ``available`` + ``reason``，
+      前端逐块渲染或降级（没有模块一那样的总闸门 ``has_account_data``）；
+    - 无持仓 → ``account.has_position=false``，不出 ``var_95_yuan``（不拿虚构
+      市值乘出个数）；样本不足 → ``insufficient_reason`` 原样透出；
+    - 不做白名单登记：响应含用户私有数据（持仓市值），同 ``/pro-insight/``
+      模式，生产鉴权门禁下自然要求登录。
+
+    会话同 ``/pro-insight/``：跨 user/market 两域（序列在 market、持仓在 user），
+    必须走路由会话 ``get_db()``——单域工厂在双库生产下必坏，见上一条 why。
+    """
+    query: ProRiskRequest = parse_query(ProRiskRequest)
+    with get_db() as db:
+        try:
+            data = build_symbol_pro_risk(db, query.symbol, family_id=get_family_id(), asset_type=query.asset_type)
+        except ValueError as e:
+            # 空白/纯前缀 symbol（如 'OF.'）过不了 schema 的 min_length，但服务层
+            # 归一后为空会抛 ValueError——转 400，不留 500（与 index-returns 同族范式）
+            abort(400, str(e))
     return jsonify({'data': data, 'message': 'ok'})
