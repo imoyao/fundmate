@@ -412,6 +412,10 @@ class FundService:
                     'start_quota': Money.cents_to_yuan(rule.start_quota),
                     'end_quota': Money.cents_to_yuan(rule.end_quota) if rule.end_quota else None,
                     'rate': rate_val,
+                    # 固定金额档（分→元）：与 rate 互斥（ FeeRatio.fee_amount ）。
+                    # 转换补差费按阶梯试算时需要区分「比例档 / 固定档」，否则固定档会被
+                    # 当成 0 费率静默算丢费用（基金转换设计 §4.2）。
+                    'fee_amount': Money.cents_to_yuan(ratio.fee_amount) if ratio.fee_amount else None,
                 }
             )
 

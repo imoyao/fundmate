@@ -224,8 +224,15 @@ BASELINE: dict[str, dict[str, int]] = {
         "commits": 0,
         "max_func": 25,
     },
+    # 2026-10-18 重取（#2326，**新增端点**，非放宽）：基金转换 P0/P1 落地——
+    # 试算 POST /api/positions/conversion/estimate/ 与提交 POST /api/positions/conversion/
+    # （设计 docs/working-notes/fund-conversion-design-2026-10-17.md）。视图侧只有
+    # 「parse_body + 调 conversion_service + 组信封」：业务校验 ValueError 与幂等
+    # SBException(1003/409) 均由全局异常处理器收敛，视图零 try/except；
+    # orm_queries / commits 不变（6/0）、max_func 不变（57）。positions 288 → 320。
+    # 按本文件既有先例以 `--report` 实测回写，非手工拍数。
     "backend/app/domains/positions/views.py": {
-        "lines": 288,
+        "lines": 320,
         "orm_queries": 6,
         "commits": 0,
         "max_func": 57,
