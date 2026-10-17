@@ -365,11 +365,7 @@ def _collect_price_history(
                 PriceHistory.adj_close,
                 PriceHistory.close,
             )
-            .filter(
-                tuple_(PriceHistory.symbol, PriceHistory.trade_date).in_(
-                    [(s, d) for s, d in anchor_days.items()]
-                )
-            )
+            .filter(tuple_(PriceHistory.symbol, PriceHistory.trade_date).in_([(s, d) for s, d in anchor_days.items()]))
             .all()
         )
         for symbol, trade_date, adj_close, close in anchor_rows:
