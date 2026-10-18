@@ -1140,14 +1140,16 @@ defineExpose({ isDirty, resetForm });
 }
 
 /* 输入框内的口径开关：无底无边，只有当前项是实心文字。
-   用小号字 + 细分隔线，读作「单位换算」而不是「一个独立控件」。 */
+   用小号字 + 细分隔线，读作「单位换算」而不是「一个独立控件」。
+   分隔线用 `--border-subtle`（卡片内部降权分割线）而不是 `--border-light`：
+   这是字段内部的软分隔，不是栏与栏之间的分割线（后者唯一走 `.soft-col-divider`）。 */
 .unit-toggle {
   display: inline-flex;
   gap: 2px;
   align-items: center;
   padding-left: 8px;
   margin-left: 4px;
-  border-left: 1px solid var(--border-light);
+  border-left: 1px solid var(--border-subtle);
 }
 
 /* 命中区补到 24px 高（WCAG 2.2 AA 目标尺寸）：12px 字 + 2px 内距只有 20px，
