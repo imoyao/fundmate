@@ -1337,6 +1337,36 @@ if known:            # ← 缓存非空就直接 return，CNB 侧一个字都不
 其中一个是拿 `git show origin/dev:` 上**修复前的真实代码**喂给守卫，确认它真的转红）。
 推导与实测命令见 `docs/dev/github-cnb-mirror.md` §20。
 
+### 定时作业：**挂在哪，就只能推哪**（源 CNB #578，2026-10-18）  <!-- cross-repo-ref-allow -->
+
+`.cnb.yml` 里「作业挂在哪个分支键下」与「它推哪条分支」是**同一件事的两面**，
+runner 的检出口径写死了这一点（构建日志原文）：
+
+```text
+git fetch -v --force --refmap=+refs/heads/*:refs/remotes/origin/* origin "refs/heads/<分支键>"
+git checkout -f -B "<分支键>" <sha>          # 工作区里只有 `<分支键>` 这一条
+```
+
+于是「挂在 `main` 下、却 `settings.branch: dev`」会落在两种坏结局之一，**两个都栽过**：
+
+| 结局 | 长相 | 出处 |
+|---|---|---|
+| **静默跳过**（假绿） | `Warning: Branch dev does not exist locally, skipping push` ⇒ 构建仍 **success** | #269 |
+| **注定失败**（恒红） | `! [rejected] dev -> dev (fetch first)` ⇒ 每小时红一次，一个字节都没推出去 | **#578** |
+
+**判据没说「分叉了才红」——它说的是「位置错了，无论分叉与否都不可能成功」。**
+所以两条处置是分开的：
+
+- **位置**：定时作业的目标分支须等于它所在的分支键 —— 判据
+  `scripts/guard_cron_job_reachability.py`（并入 `ci.yml` 的 `scripts_test`，阻断）。
+- **内容**：两侧 `dev` 是否互相分叉，由
+  `python scripts/bridge/check_cross_repo_dev_divergence.py --report` 回答（联网、只报告）。
+  **不要拿构建颜色代替它**：那条 cron 的红只说明「这一轮没推上去」，
+  而它绿也**不**说明两侧已对齐（#269 就是这样绿了三天）。
+
+排查口诀：**先看 `git fetch` 那行拉的是 `refs/heads/` 哪条**，再谈其它。
+拉的分支与 `settings.branch` 不一致 ⇒ 不用往下看了，改挂载位置。
+
 ### 在 CNB 侧的其它已知边界（实测）
 
 - ⚠️ **「CNB 构建环境没有 GitHub 凭据」是错话，2026-10-14 已纠正**（源 CNB #179）。  <!-- cross-repo-ref-allow -->

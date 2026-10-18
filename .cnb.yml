@@ -342,6 +342,38 @@ dev:
             # 只推 dev；main 不在其列（GitHub 权威源自己推进）
             branch: dev
             push_tags: true
+  # 每小时兜底：**只推 `dev`**，不再 `--all`（CNB #167 / #172）。
+  # cron 事件下没有「被推的功能分支」上下文（`CNB_BRANCH` 恒为该段所挂分支），
+  # 故功能分支不由 cron 兜底 —— 那条路由 `push:` 事件下的 `branch: ${CNB_BRANCH}` 覆盖。
+  #
+  # ⚠️ 这一块**必须留在 `dev:` 分支键下**（源 CNB #578，2026-10-18）。它此前挂在 `main:`
+  # 段里、却推 `dev`，于是每小时红一次、一次一个字节都没推出去（明细见 `main:` 段末尾那条注释）。
+  #
+  # ⚠️ 挂载位置对了 ≠ 就推得上去：两侧 `dev` 若互相分叉，push 仍然是非快进
+  # （2026-10-18 实测：CNB 独有 19 笔 / GitHub 独有 7 笔，但**可无冲突合并**）。
+  # 那条缺口**不在本文件里补**——CNB 侧刻意不开 force（反向护栏），由 GitHub
+  # `.github/workflows/dev-reconcile.yml` 合完、经下一次同步带过来。
+  # 判断「有没有分叉」跑 `python scripts/bridge/check_cross_repo_dev_divergence.py --report`，
+  # **不要**拿本 job 的颜色下结论：它的红只说明「这一轮没推上去」，绿也不说明「两侧已对齐」。
+  "crontab: 30 * * * *":
+    - name: 同步到 GitHub（每小时兜底，仅 dev）
+      # ⚠️ 同上：必须是带 name 的 job，避免 stage 查不到造成假绿。
+      stages:
+        - name: 同步到 GitHub（每小时兜底，仅 dev）
+          image: tencentcom/git-sync
+          # 凭据走**插件任务级** imports（见上方说明：必须与 image 平级，且要用 imports 才能
+          # 让 settings 里的 ${VAR} 解析；不要改回流水线级 imports，也不要改成 settingsFrom）
+          imports:
+            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
+          settings:
+            target_url: https://github.com/imoyao/fundmate.git
+            auth_type: https
+            username: ${GIT_USERNAME}
+            password: ${GITHUB_PAT}
+            # 只推 dev；main 不在其列
+            branch: dev
+            push_tags: true
+
     # ---- 机器分支通道（源 CNB #450，2026-10-14）：上面那条 git-sync 直推会撞两道闸 ----
     #
     # 上面那条是 **fast-forward only** 且**直推裸 ref**，于是撞两件都不是「配置写错」的事：
@@ -474,27 +506,20 @@ dev:
   # `python scripts/bridge/check_cross_repo_dev_divergence.py --report` 报「无分叉」，
   # 否则它一上线就撞回同一批冲突。
 
-  # 每小时兜底：**只推 `dev`**，不再 `--all`（CNB #167 / #172）。
-  # cron 事件下没有「被推的功能分支」上下文（`CNB_BRANCH` 恒为该段所挂分支），
-  # 故功能分支不由 cron 兜底 —— 那条路由 `push:` 事件下的 `branch: ${CNB_BRANCH}` 覆盖。
-  "crontab: 30 * * * *":
-    - name: 同步到 GitHub（每小时兜底，仅 dev）
-      # ⚠️ 同上：必须是带 name 的 job，避免 stage 查不到造成假绿。
-      stages:
-        - name: 同步到 GitHub（每小时兜底，仅 dev）
-          image: tencentcom/git-sync
-          # 凭据走**插件任务级** imports（见上方说明：必须与 image 平级，且要用 imports 才能
-          # 让 settings 里的 ${VAR} 解析；不要改回流水线级 imports，也不要改成 settingsFrom）
-          imports:
-            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
-          settings:
-            target_url: https://github.com/imoyao/fundmate.git
-            auth_type: https
-            username: ${GIT_USERNAME}
-            password: ${GITHUB_PAT}
-            # 只推 dev；main 不在其列
-            branch: dev
-            push_tags: true
+  # ⛔ 「每小时兜底同步到 GitHub（git-sync，`branch: dev`）」**已搬到 `dev:` 段**（源 CNB #578）。  <!-- cross-repo-ref-allow -->
+  #
+  # 它原先就挂在**这一段**（`main:`）下，却 `settings.branch: dev`，于是**每小时红一次**，
+  # 而且红在同一行、形状毫无暗示（构建 `cnb-ri6-1k57q4k9b` 原文）：
+  #
+  #     git fetch -v --force … origin "refs/heads/main"    ← 定时构建的检出里只有分支键那一条
+  #     To https://github.com/imoyao/fundmate.git
+  #      ! [rejected]  dev -> dev  (fetch first)
+  #
+  # runner 的检出口径就是 `git fetch origin refs/heads/<分支键>` + `git checkout -f -B "<分支键>" <sha>`，
+  # 故「作业挂在哪、推哪条分支」必须一致：不一致时要么**静默跳过**
+  # （源 CNB #269 的假绿：`Warning: Branch dev does not exist locally, skipping push` 之后仍报 success），
+  # 要么拿一条注定推不上去的 ref 去推（本卡的恒红）。两个方向都栽过了。
+  # 判据：`scripts/guard_cron_job_reachability.py`（并入 ci.yml 的 scripts_test）。
 
   # PR 打向 dev 时读的是 dev 分支上的这份配置（与 `main:` 段各一份守卫）。
   # ⚠️ 事件必须挂在**分支之下**（#152）：写在顶层会被读成一个不存在分支，守卫空转还不报错。
