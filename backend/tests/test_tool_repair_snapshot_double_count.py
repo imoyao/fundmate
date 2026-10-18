@@ -134,9 +134,7 @@ def test_infeasible_double_count_is_not_confirmed(db, ledger):
     真实库 023887：current 29,551.43、pre 17,086，推算快照 12,465.43 < 17,086。
     若按「确证」写入，会把 2.9 万份改成 1.2 万份。
     """
-    pos = _legacy_position(
-        db, ledger, quantity=29551.43, hash_date=date(2026, 3, 24)
-    )
+    pos = _legacy_position(db, ledger, quantity=29551.43, hash_date=date(2026, 3, 24))
     _add_txn(db, ledger, pos, qty=9000.0, price=1.0, confirm=date(2026, 3, 10))
     _add_txn(db, ledger, pos, qty=4000.0, price=1.0, confirm=date(2026, 3, 23))
     _add_txn(db, ledger, pos, qty=4086.0, price=1.0, confirm=date(2026, 3, 24))
@@ -266,9 +264,7 @@ def test_freeze_keeps_quantity_unchanged_for_snapshot_only_position(db, ledger):
 
     assert pos.quantity == before_qty, 'freeze 不得改变份额'
     assert Money.min_unit_to_shares(pos.snapshot_quantity) == 29551.43
-    assert Money.price_units_to_yuan(pos.avg_price) == pytest.approx(
-        Money.price_units_to_yuan(before_avg), abs=1e-4
-    )
+    assert Money.price_units_to_yuan(pos.avg_price) == pytest.approx(Money.price_units_to_yuan(before_avg), abs=1e-4)
 
 
 # ── 4. 端到端：确证行写库后的份额与成本 ──────────────────────

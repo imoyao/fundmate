@@ -325,9 +325,7 @@ def _reactivate_cleared_position(position: Position, first_flow_date) -> None:
     口径是「首次建仓确认日」（#862 历史口径），改口径需要产品决策，本次不做。
     """
     if position.cleared_at is not None:
-        anchor_date = (
-            position.cleared_at.date() if isinstance(position.cleared_at, datetime) else position.cleared_at
-        )
+        anchor_date = position.cleared_at.date() if isinstance(position.cleared_at, datetime) else position.cleared_at
     elif first_flow_date is None:
         anchor_date = date.today()
     else:
@@ -1601,11 +1599,7 @@ class PositionService:
         # 流水本来就可以为空（纯快照导入的账户，绝大多数持仓没有明细流水）。
         # 2026-10-18 实测：真实库 105 行「有快照日、无流水」的持仓里 79 行零流水，
         # 该早退分支会让它们在任何一次重算中整行消失——锚点模型对这类持仓完全失效。
-        has_anchor = (
-            pos is not None
-            and pos.snapshot_quantity is not None
-            and pos.snapshot_date is not None
-        )
+        has_anchor = pos is not None and pos.snapshot_quantity is not None and pos.snapshot_date is not None
         if not txns and not has_anchor:
             if pos:
                 db.delete(pos)

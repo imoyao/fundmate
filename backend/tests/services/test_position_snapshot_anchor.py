@@ -167,9 +167,7 @@ def test_older_snapshot_is_rejected(db, ledger):
     """更旧的快照拒绝覆盖当前锚点（时间不可倒流）。"""
     PositionService.upsert_from_holding(db, _snapshot(ledger.id, qty=1000.0))
     with pytest.raises(ValueError, match='早于该持仓当前锚点'):
-        PositionService.upsert_from_holding(
-            db, _snapshot(ledger.id, qty=800.0, snap_date=date(2026, 6, 1))
-        )
+        PositionService.upsert_from_holding(db, _snapshot(ledger.id, qty=800.0, snap_date=date(2026, 6, 1)))
 
 
 def test_same_day_external_snapshot_can_overwrite(db, ledger):
@@ -195,9 +193,7 @@ def test_newer_snapshot_overwrites_manual(db, ledger):
         db,
         _snapshot(ledger.id, qty=1000.0, snap_date=date(2026, 8, 1), anchor_kind=AnchorKind.MANUAL.value),
     )
-    pos = PositionService.upsert_from_holding(
-        db, _snapshot(ledger.id, qty=1500.0, snap_date=date(2026, 9, 1))
-    )
+    pos = PositionService.upsert_from_holding(db, _snapshot(ledger.id, qty=1500.0, snap_date=date(2026, 9, 1)))
     assert _shares(pos) == 1500.0
     assert pos.anchor_kind == AnchorKind.EXTERNAL.value
 
@@ -351,9 +347,7 @@ def _sell_all(pos, qty, price, confirm, **overrides):
 def test_clear_keeps_row_and_anchor(db, ledger):
     """清仓不再删行：行保留、cleared 标记、锚点与成本基线原样留存。"""
     pos = PositionService.upsert_from_holding(db, _snapshot(ledger.id, qty=5000.0, price=1.34))
-    result = PositionService.process_sell_or_withdraw(
-        db, _sell_all(pos, 5000.0, 1.50, date(2026, 10, 6))
-    )
+    result = PositionService.process_sell_or_withdraw(db, _sell_all(pos, 5000.0, 1.50, date(2026, 10, 6)))
 
     # 调用方契约不变：清仓仍返回 None
     assert result is None
@@ -434,9 +428,7 @@ def test_cleared_row_accepts_older_snapshot(db, ledger):
     """
     pos = PositionService.upsert_from_holding(db, _snapshot(ledger.id, qty=5000.0, price=1.34))
     with pytest.raises(ValueError, match='拒绝用更旧的数据覆盖'):
-        PositionService.upsert_from_holding(
-            db, _snapshot(ledger.id, qty=800.0, price=2.0, snap_date=date(2026, 7, 1))
-        )
+        PositionService.upsert_from_holding(db, _snapshot(ledger.id, qty=800.0, price=2.0, snap_date=date(2026, 7, 1)))
 
     PositionService.process_sell_or_withdraw(db, _sell_all(pos, 5000.0, 1.50, date(2026, 10, 6)))
     db.flush()

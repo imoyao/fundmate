@@ -373,24 +373,24 @@ def main(argv=None) -> int:
             print('没有需要处理的持仓（全部已带锚点，或无快照日）。')
             return 0
 
-        header = f"{'ID':<6}{'ledger':<7}{'symbol':<10}{'snapshot':<12}{'current':>14}{'pre_flow':>14}{'implied':>14}  verdict"
+        header = f'{"ID":<6}{"ledger":<7}{"symbol":<10}{"snapshot":<12}{"current":>14}{"pre_flow":>14}{"implied":>14}  verdict'
         print(header)
         print('-' * len(header))
         for i in interesting:
             print(
-                f"{i['position_id']:<6}{str(i['ledger_id']):<7}{i['symbol']:<10}"
-                f"{str(i['snapshot_date']):<12}{_fmt_qty(i['current_qty']):>14}"
-                f"{_fmt_qty(i['pre_flow_net']):>14}{_fmt_qty(i['implied_qty']):>14}  {i['verdict']}"
+                f'{i["position_id"]:<6}{str(i["ledger_id"]):<7}{i["symbol"]:<10}'
+                f'{str(i["snapshot_date"]):<12}{_fmt_qty(i["current_qty"]):>14}'
+                f'{_fmt_qty(i["pre_flow_net"]):>14}{_fmt_qty(i["implied_qty"]):>14}  {i["verdict"]}'
             )
 
         print('\n判定依据：')
         for i in interesting:
-            print(f"  · {i['symbol']}: {i['evidence']}")
+            print(f'  · {i["symbol"]}: {i["evidence"]}')
 
         counts = {}
         for i in interesting:
             counts[i['verdict']] = counts.get(i['verdict'], 0) + 1
-        print(f"\n汇总: {counts}")
+        print(f'\n汇总: {counts}')
 
         if not args.apply:
             print('\n（只读模式。确认无误后加 --apply --confirm 写入）')
@@ -416,8 +416,8 @@ def main(argv=None) -> int:
                 # 没把该笔流水算进去（实测 012345 就是这样——快照 5,000 份，之后一笔
                 # 卖出 5,000 未被扣减，反推得到 10,000 份）。这类行交给人工，不自动冻。
                 print(
-                    f"  ! 跳过 {i['symbol']}（id={i['position_id']}）：快照后流水净额 "
-                    f"{_fmt_qty(i['post_flow_net'])} ≠ 0，锚点无法反推"
+                    f'  ! 跳过 {i["symbol"]}（id={i["position_id"]}）：快照后流水净额 '
+                    f'{_fmt_qty(i["post_flow_net"])} ≠ 0，锚点无法反推'
                 )
                 skipped += 1
                 continue
