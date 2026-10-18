@@ -63,11 +63,11 @@ describe("XIRR 口径一致性守卫（#2153）", () => {
   });
 
   it("开关文案逐字一致（#2339 收编后：文案只有一份，两页共用同一组件）", () => {
-    const includeCash = read(
-      "../../../components/IncludeCashSwitch/index.vue"
-    );
+    const includeCash = read("../../../components/IncludeCashSwitch/index.vue");
     // 文案的单一真相源：组件内的选项表
-    expect(includeCash, "组件缺「剔除现金」选项").toContain('label: "剔除现金"');
+    expect(includeCash, "组件缺「剔除现金」选项").toContain(
+      'label: "剔除现金"'
+    );
     expect(includeCash, "组件缺「含现金」选项").toContain('label: "含现金"');
 
     // 两页都接同一个组件，且不再各自手抄 el-radio-button
