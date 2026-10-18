@@ -452,7 +452,7 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
    （<section class="card-block"><slot /></section>），根本没有这个元素。 */
 
 .product-position__body {
-  font-size: 13px;
+  font-size: var(--text-label);
 }
 
 /* 账户名：可点击时给链接态，未归档持仓只读——那里没有落点，链过去是坏的 */
@@ -479,7 +479,7 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
   gap: var(--space-1);
   align-items: center;
   margin-bottom: var(--space-compact);
-  font-size: 13px;
+  font-size: var(--text-label);
 }
 
 .product-position__grid {
@@ -510,7 +510,7 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
 }
 
 .metric__value {
-  font-size: 14px;
+  font-size: var(--text-mono-small);
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
   color: var(--text-primary);
@@ -551,7 +551,7 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
 
 .product-position__table {
   width: 100%;
-  font-size: 13px;
+  font-size: var(--text-label);
   white-space: nowrap;
   border-collapse: collapse;
 }
@@ -612,7 +612,7 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
 /* 空态提示（拉取失败 / 确无记录） */
 .product-position__hint {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 </style>

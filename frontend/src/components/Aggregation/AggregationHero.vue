@@ -243,7 +243,7 @@ const donutOption = computed(() => {
 
 .hero-label {
   margin-bottom: 6px;
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 500;
   color: var(--text-secondary);
 }
@@ -311,7 +311,7 @@ const donutOption = computed(() => {
   display: flex;
   gap: 8px;
   align-items: center;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.2;
   white-space: nowrap;
 }
@@ -404,7 +404,7 @@ const donutOption = computed(() => {
 .stat-hint {
   flex: none;
   margin-left: 4px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   opacity: 0.5;
 }

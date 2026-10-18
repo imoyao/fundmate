@@ -47,7 +47,7 @@ import { Icon as IconifyIconOffline } from "@iconify/vue";
   justify-content: center;
   width: 36px;
   height: 36px;
-  font-size: 18px;
+  font-size: var(--text-num-strong);
   color: var(--brand-700);
   background: var(--brand-100);
   border-radius: 50%;
@@ -60,7 +60,7 @@ import { Icon as IconifyIconOffline } from "@iconify/vue";
 
 .poem-card__text {
   font-family: Georgia, "Songti SC", "Noto Serif SC", serif;
-  font-size: 14px;
+  font-size: var(--text-small);
   font-style: italic;
   line-height: 2;
   color: var(--text-secondary);
@@ -76,7 +76,7 @@ import { Icon as IconifyIconOffline } from "@iconify/vue";
 .poem-card__lead {
   padding-top: 12px;
   margin-top: 12px;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.7;
   color: var(--text-secondary);
   border-top: 1px solid var(--border-subtle);

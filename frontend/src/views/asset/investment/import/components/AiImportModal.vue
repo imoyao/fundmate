@@ -257,7 +257,7 @@ watch(
   &__icon {
     display: flex;
     align-items: center;
-    font-size: 18px;
+    font-size: var(--text-num-strong);
     color: var(--brand-700);
   }
 
@@ -278,7 +278,7 @@ watch(
     color: var(--text-primary);
 
     strong {
-      font-size: 16px;
+      font-size: var(--text-body);
       color: var(--brand-700);
     }
   }

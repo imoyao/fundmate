@@ -54,7 +54,7 @@ const p = reactive(props.page);
 }
 
 .draft-banner__icon {
-  font-size: 16px;
+  font-size: var(--text-body);
   color: var(--brand-700);
 }
 

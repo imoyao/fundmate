@@ -219,13 +219,13 @@
           "
           @submit-success="onSubmitSuccess"
         />
-        <!-- 基金转换：四步步骤条（设计 docs/working-notes/fund-conversion-design-2026-10-17.md §6） -->
+        <!-- 基金转换：三步向导 + 回执页（设计 docs/working-notes/fund-conversion-design-2026-10-17.md §6） -->
         <ConversionForm
           v-else-if="fundOpType === 'convert'"
           ref="conversionFormRef"
           :ledgers="ledgers"
           :default-ledger-id="selectedLedgerId"
-          @submit-success="onSubmitSuccess"
+          @done="onConversionDone"
           @positions-loaded="sellableLedgerIds = $event"
         />
         <!-- 未实现功能占位（当前仅防御性兜底：股票/基金操作均已分支覆盖） -->
@@ -525,6 +525,21 @@ function onSubmitSuccess() {
     .catch((action: any) => {
       if (action === "cancel") router.back();
     });
+}
+
+/**
+ * 转换结果页的收尾（#2348 第四轮）——不走上面的模态框。
+ *
+ * 转换页提交后停在回执页（单号 + 三个数 + 确认时间），本身就是完整的收尾；
+ * 再弹「交易记录已成功保存！」等于把刚说过的话换个框重说一遍。所以这里按
+ * 用户在回执页上明确点的那个出口直接执行，不再追问一次。
+ */
+function onConversionDone(action: "again" | "list") {
+  if (action === "list") {
+    router.push("/transactions");
+    return;
+  }
+  conversionFormRef.value?.resetForm();
 }
 
 // ── 生命周期 ──

@@ -120,7 +120,7 @@ const listUrl = computed(() =>
 .bond-external {
   &__lead {
     margin: 0 0 var(--space-2);
-    font-size: 14px;
+    font-size: var(--text-small);
     line-height: 1.7;
     color: var(--text-secondary);
   }
@@ -128,7 +128,7 @@ const listUrl = computed(() =>
   &__note {
     padding: var(--space-2) var(--space-3);
     margin: 0 0 var(--space-3);
-    font-size: 13px;
+    font-size: var(--text-label);
     line-height: 1.6;
     color: var(--text-tertiary);
 
@@ -150,7 +150,7 @@ const listUrl = computed(() =>
     gap: 4px;
     align-items: center;
     padding: 8px 16px;
-    font-size: 14px;
+    font-size: var(--text-small);
     line-height: 1.4;
     color: var(--el-color-white);
     text-decoration: none;
@@ -172,7 +172,7 @@ const listUrl = computed(() =>
 
   /* 副入口：文字链，弱于主 CTA（与既有外链范式 qwv-link / PageFooter 一致） */
   &__link {
-    font-size: 14px;
+    font-size: var(--text-small);
     color: var(--el-color-primary);
     text-decoration: none;
 
@@ -194,12 +194,12 @@ const listUrl = computed(() =>
   }
 
   &__icon {
-    font-size: 14px;
+    font-size: var(--text-small);
   }
 
   &__empty {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-tertiary);
   }
 }

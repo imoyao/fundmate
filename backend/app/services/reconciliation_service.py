@@ -23,7 +23,7 @@ from datetime import date, datetime
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from app.core.constants import PositionSource
+from app.core.constants import AnchorKind, PositionSource
 from app.core.money import Money
 from app.domains.positions.models import Position, PositionImportMeta
 from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy, ReconciliationRun
@@ -55,6 +55,40 @@ def _txn_net_quantity(txns) -> int:
     buy_qty = sum(_txn_quantity(t) for t in txns if _txn_type(t) in _ADD_TYPES)
     sell_qty = sum(_txn_quantity(t) for t in txns if _txn_type(t) in _SELL_TYPES)
     return buy_qty - sell_qty
+
+
+def _txn_confirm_date(t):
+    return t.confirm_date if not isinstance(t, dict) else t.get('confirm_date')
+
+
+def _theoretical_qty(txns, position) -> int:
+    """锚点口径的理论持仓（**快照基线 + 快照日之后的流水净额**）。
+
+    ## 为什么不能再用「全量流水净额」
+
+    快照是独立绝对值，不是流水的推导结果。加入锚点后
+    `positions.quantity = snapshot_quantity + Σ(confirm_date > snapshot_date)`，
+    若这里仍拿全量流水去比，只要「快照值 ≠ 快照前流水净额」（有分红、有漏录、
+    有手续费尾差都会发生），就会**恒报数量差异**——修复上线即制造一批假红。
+
+    ## 无锚点份额时退回旧口径
+
+    迁移只回填 `snapshot_date`、`snapshot_quantity` 留空（历史份额已丢失，盲猜会
+    改坏另一半账户）。这类持仓退回「全量流水净额」，与修复前行为一致，不制造新红；
+    待修复工具写入锚点后自动切换到锚点口径。
+    """
+    if position is not None and position.snapshot_quantity is not None and position.snapshot_date is not None:
+        total = int(position.snapshot_quantity)
+        for t in txns:
+            d = _txn_confirm_date(t)
+            if d is None or d <= position.snapshot_date:
+                continue
+            if _txn_type(t) in _ADD_TYPES:
+                total += _txn_quantity(t)
+            elif _txn_type(t) in _SELL_TYPES:
+                total -= _txn_quantity(t)
+        return total
+    return _txn_net_quantity(txns)
 
 
 def _find_holding(txns):
@@ -92,18 +126,26 @@ def run_reconciliation(
 
     # 1) 该 family 有流水的 (ledger_id, symbol) 集合（检测范围，§6.1 边界）
     rows = (
-        db.query(Transaction.ledger_id, Transaction.symbol, Transaction.txn_type, Transaction.quantity)
+        db.query(
+            Transaction.ledger_id,
+            Transaction.symbol,
+            Transaction.txn_type,
+            Transaction.quantity,
+            Transaction.confirm_date,
+        )
         .filter(Transaction.family_id == family_id)
         .yield_per(1000)
         .all()
     )  # yield_per 分批拉取，避免家庭流水量大时一次性 .all() 撑爆内存（AI review #5）
-    # 按业务键聚合流水
+    # 按业务键聚合流水（confirm_date 供锚点口径过滤「快照日之前」的流水）
     txn_by_key: dict[tuple, list] = {}
-    for ledger_id, symbol, txn_type, quantity in rows:
+    for ledger_id, symbol, txn_type, quantity, confirm_date in rows:
         if ledger_id is None or not symbol:
             continue
         key = (ledger_id, symbol)
-        txn_by_key.setdefault(key, []).append({'txn_type': txn_type, 'quantity': quantity or 0})
+        txn_by_key.setdefault(key, []).append(
+            {'txn_type': txn_type, 'quantity': quantity or 0, 'confirm_date': confirm_date}
+        )
 
     # 2) 当前持仓 map：业务键 → quantity
     positions = (
@@ -126,8 +168,10 @@ def run_reconciliation(
             if key not in pos_by_key:
                 continue
         ledger_id, symbol = key
-        actual_qty = pos_by_key[key].quantity if key in pos_by_key else 0
-        theoretical_qty = _txn_net_quantity(txns)
+        pos = pos_by_key.get(key)
+        actual_qty = pos.quantity if pos is not None else 0
+        # 锚点口径：快照基线 + 快照日之后的流水；无锚点份额时退回全量流水（见 _theoretical_qty）
+        theoretical_qty = _theoretical_qty(txns, pos)
 
         if key not in pos_by_key:
             # 孤儿：流水推演净额 > 0 但系统无该持仓（§6.1 边界；域 B/C 均检测）
@@ -337,8 +381,14 @@ def apply_decision(
     }
 
     if kind == 'set':
-        # 设定型：SET 语义整条替换（期初建仓 / 直接改数量成本），不建流水
-        position = PositionService.upsert_from_holding(db, data)
+        # 设定型：写**人工锚点**（不是普通快照导入）。
+        # - anchor_kind='manual'：同日外部快照不得覆盖它（见 _assert_anchor_accepts）；
+        # - allow_anchor_rewind=True：用户显式要求设定持仓，不属于「导入旧快照」，
+        #   不受「更旧日期拒绝」约束——这是唯一的合法回退入口；
+        # - snapshot_date 缺省取今天：用户是「以此刻的事实」校准，而非补历史快照。
+        data.setdefault('anchor_kind', AnchorKind.MANUAL.value)
+        data.setdefault('snapshot_date', date.today())
+        position = PositionService.upsert_from_holding(db, data, allow_anchor_rewind=True)
         after = {
             'position_id': position.id,
             'symbol': position.symbol,
@@ -391,11 +441,17 @@ def get_ledger_snapshot_consistency(db: Session, family_id: int, ledger_id: int 
     不写 discrepancies 表（那是工作台域 B 对账的落点），本函数提供按需、轻量的检查视图，
     供前端在账户列表 / 账本详情页以「温柔、非阻断」方式提示快照可能滞后。
 
-    口径（#1133 §4）：
-    - 取 active 持仓 + position_import_meta.snapshot_date（非空）。
-    - 对该 (ledger_id, symbol) 汇聚 transactions：theoretical = Σ(confirm_date <= snapshot_date 的流水净份额)。
+    口径（#1133 §4，2026-10-18 按锚点模型修正）：
+    - 取 active 持仓 + `anchor_date`（positions.snapshot_date，缺失回退
+      position_import_meta.snapshot_date）。
+    - **theoretical = snapshot_quantity + Σ(confirm_date > snapshot_date 的流水净额)**。
+      快照是独立绝对值，不是流水的推导结果——旧口径「只算 <= snapshot_date 的流水」
+      把快照当成流水的结果，与锚点模型正好相反，会对正确数据误报。
+    - `snapshot_quantity IS NULL`（迁移后待修复的存量行）→ **跳过**：没有基线份额
+      就算不出理论值，宁可沉默也不要编造差异。
     - diff = positions.quantity − theoretical。
-    - 边界：该 (ledger_id, symbol) 无任何流水 → 纯快照模式（如 E账户持仓导入不建流水），跳过，禁止误报。
+    - 边界：该 (ledger_id, symbol) 无任何流水 → 纯快照模式（如 E账户持仓导入不建流水），
+      跳过，禁止误报。
     - diff != 0 → 标记「可能对不上」，返回明细（份额换算为可读单位）。
     """
     rows_q = (
@@ -431,23 +487,28 @@ def get_ledger_snapshot_consistency(db: Session, family_id: int, ledger_id: int 
         txn_by_key.setdefault((ledger_id, symbol), []).append((txn_type, quantity or 0, confirm_date))
 
     items: list[dict] = []
-    for pos, snapshot_date in rows:
+    for pos, meta_snapshot_date in rows:
+        # 锚点日以 positions 层为准，缺失才回退 meta（迁移只回填了日期，份额仍是 NULL）
+        anchor_date = pos.snapshot_date or meta_snapshot_date
+        # 没有基线份额 → 算不出理论值。禁止回退「全量流水」蒙一个数字：
+        # 那正是旧口径误报的来源，且会让用户以为持仓真的错了。
+        if pos.snapshot_quantity is None or anchor_date is None:
+            continue
         key = (pos.ledger_id, pos.symbol)
         txns = txn_by_key.get(key)
         if not txns:
             # 纯快照模式（无流水）：跳过，禁止误报（#1133 §4 边界）
             continue
-        theoretical = 0
+        theoretical = int(pos.snapshot_quantity)
         last_txn_date = None
         for txn_type, quantity, confirm_date in txns:
-            # 无确认日期的流水无法定位到快照日之前/之后，跳过以免误算 theoretical（#ai-review）
             if confirm_date is None:
                 continue
             # 记录最新交易日期（用于温柔提醒文案：快照后是否还有交易活动）
             if last_txn_date is None or confirm_date > last_txn_date:
                 last_txn_date = confirm_date
-            # 只看快照日及之前的流水，推演「截至快照日应有持仓」
-            if confirm_date > snapshot_date:
+            # 只看**快照日之后**的流水：之前的已被快照包含，再加一遍就是重复计数
+            if confirm_date <= anchor_date:
                 continue
             if txn_type in _ADD_TYPES:
                 theoretical += quantity
@@ -469,7 +530,7 @@ def get_ledger_snapshot_consistency(db: Session, family_id: int, ledger_id: int 
                     'ledger_id': pos.ledger_id,
                     'symbol': pos.symbol,
                     'name': pos.name,
-                    'snapshot_date': snapshot_date.isoformat(),
+                    'snapshot_date': anchor_date.isoformat(),
                     'last_txn_date': last_txn_date.isoformat() if last_txn_date else None,
                     'expected_qty': Money.min_unit_to_shares(theoretical),
                     'actual_qty': Money.min_unit_to_shares(pos.quantity),

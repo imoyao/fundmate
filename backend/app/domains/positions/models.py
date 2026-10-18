@@ -17,7 +17,14 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import validates
 
-from app.core.constants import POSITION_SOURCE_LABELS, VALUATION_MODE_LABELS, PositionSource, ValuationMode
+from app.core.constants import (
+    ANCHOR_KIND_LABELS,
+    POSITION_SOURCE_LABELS,
+    VALUATION_MODE_LABELS,
+    AnchorKind,
+    PositionSource,
+    ValuationMode,
+)
 from app.core.database import Base, FamilyScopedMixin, PrimaryKeyMixin, TimestampMixin
 from app.core.symbol_utils import symbol_identity
 
@@ -95,6 +102,56 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     confirm_date = Column(Date)
     notes = Column(Text)
     allocation = Column(String(20), default='longterm')
+
+    # ── 快照锚点（修复「份额被快照 + 流水重复累加」）──
+    # 背景：quantity 曾同时承担两种语义——upsert_from_holding 用 SET 写快照绝对值，
+    # process_buy_or_deposit 用 INCR 累加流水。两条路径无时序约束，先导快照再导历史
+    # 流水时快照份额被二次计入（012708 实测精确 2 倍）。
+    #
+    # 现在 quantity 是**派生值**：
+    #     quantity = snapshot_quantity + Σ(confirm_date > snapshot_date 的流水净额)
+    # 锚点为 NULL 时退化为「全量流水净额」（无锚点的纯流水持仓，行为与旧版一致）。
+    #
+    # 三列必须同批写入、同时为 NULL：
+    # - snapshot_quantity：快照份额绝对值（0.0001 份）；
+    # - snapshot_avg_price：快照成本均价（0.0001 元）。**不可省略**——重算时
+    #   quantity 与 avg_price 会被加权覆盖，事后拿不到快照原价，成本会永久偏；
+    # - snapshot_date：锚点日，`confirm_date <= 此日` 的流水视为「已包含在快照里」。
+    #   口径理由：基金份额在确认日（T+1）才真实变动，快照反映的是份额登记状态，
+    #   故按 confirm_date 而非 trade_date 切分（后者会漏掉 T+1 确认的交易）。
+    snapshot_quantity = Column(Integer, nullable=True, comment='快照锚点份额(0.0001份)；NULL=无锚点走全量流水')
+    snapshot_avg_price = Column(
+        Integer, nullable=True, comment='快照锚点成本均价(0.0001元)；与 snapshot_quantity 同批写入'
+    )
+    snapshot_date = Column(Date, nullable=True, comment='快照锚点日期；confirm_date<=此日的流水视为已包含')
+    # anchor_kind 只区分「外部事实」与「人工校准」，不按业务线细分（那是 source 的职责）。
+    # 关键差异：manual 锚点不被**同日**外部快照覆盖——用户当天已显式定了数，
+    # 同一天的外部数据不更权威；只有更新日期（>）的外部快照才能推进锚点。
+    anchor_kind = Column(
+        String(20),
+        nullable=True,
+        comment='锚点来源: 见 app.core.constants.AnchorKind（external/manual）；NULL=无锚点',
+    )
+    # 最近一次清仓的时间（issue #2343）。两个用途，缺一不可：
+    # 1. **清仓不再删行**：`ownership_status='cleared'` 表达「当前已清仓」，
+    #    本列记录**何时**清仓；锚点四列原样留存，删卖出流水触发重建时不会退回全量口径。
+    # 2. **新一轮周期的下界**：同一标的清仓后再买入时，本列是「上一轮在哪里结束」的
+    #    唯一事实源——持有天数 / 已实现盈亏若要按周期切分，只能用它做下界。
+    # **重新激活时刻意不清空本列**：语义是「最近一次清仓于」，不是「当前是否清仓」。
+    # 是否清仓一律看 `ownership_status`，不要用 `cleared_at IS NULL` 判断。
+    cleared_at = Column(DateTime, nullable=True, comment='最近一次清仓时间；重新激活后保留，用作新一轮周期下界')
+
+    @validates('anchor_kind')
+    def _validate_anchor_kind(self, key, value):
+        # 与 source / valuation_mode 同源约束：非法值立即拦截，禁止任意字符串。
+        # 允许 None（无锚点）与空串（迁移期兼容）。
+        if value is None or value == '':
+            return value
+        if isinstance(value, AnchorKind):
+            return value.value
+        if value not in ANCHOR_KIND_LABELS:
+            raise ValueError(f'非法锚点来源 anchor_kind={value!r}，必须是 app.core.constants.AnchorKind 的合法值')
+        return value
 
     # ── 去重与溯源字段（issue #928，参照 transactions.import_hash 治本方案）──
     import_hash = Column(String(64), nullable=True, comment='持仓去重哈希(内容哈希,唯一约束拦截重复)')

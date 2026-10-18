@@ -150,7 +150,7 @@ onUnmounted(() => {
   display: flex;
   gap: var(--space-2);
   align-items: center;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 </style>

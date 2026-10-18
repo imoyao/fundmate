@@ -141,14 +141,14 @@ watch(() => props.symbol, load, { immediate: true });
 
 .idx-returns__title {
   margin: 0 0 var(--space-3);
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .idx-returns__hint {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

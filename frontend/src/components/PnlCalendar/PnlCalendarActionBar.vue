@@ -204,7 +204,7 @@ void props;
 
 /* 年视图的区间标签（替代区间导航按钮组：年视图区间固定，按不动的按钮是骗人的） */
 .pnl-calendar-action-bar__range {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 

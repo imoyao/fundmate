@@ -19,6 +19,7 @@ from app.domains.transactions.models import Transaction
 from app.services.fund_utils import should_exclude_from_investment
 from app.services.nav_service import NavService
 from app.services.pnl_settle import is_settled_today
+from app.services.position_scope import exclude_cleared
 from app.services.summary_service import (
     orphan_cash_like_breakdown,
     orphan_money_fund_totals_by_ledger,
@@ -201,7 +202,8 @@ class LedgerService:
 
         基金持仓使用 DailyWorth 最新净值计算市值/盈亏，非基金用 current_price 快照。
         """
-        positions = db.query(Position).filter(Position.ledger_id == ledger_id).all()
+        # 已清仓行保留在表里但份额为 0，不能进「当前持仓 / 市值」口径（#2343）
+        positions = exclude_cleared(db.query(Position).filter(Position.ledger_id == ledger_id)).all()
 
         if not positions:
             return {
@@ -288,7 +290,8 @@ class LedgerService:
     @staticmethod
     def get_money_fund_stats(db: Session, ledger_id: int) -> dict:
         """计算货基持仓占比及金额"""
-        positions = db.query(Position).filter(Position.ledger_id == ledger_id).all()
+        # 已清仓行保留在表里但份额为 0，不能进「当前持仓 / 市值」口径（#2343）
+        positions = exclude_cleared(db.query(Position).filter(Position.ledger_id == ledger_id)).all()
         # 批量获取基金最新净值（含货基）
         fund_symbols = [p.symbol for p in positions if p.asset_type in ('fund', 'money_fund') and p.symbol]
         latest_navs = LedgerService._batch_fund_latest_navs(db, list(set(fund_symbols)))
@@ -422,7 +425,8 @@ class LedgerService:
             .scalar()
         )
         # 2. 理财/基金持仓
-        positions = db.query(Position).filter(Position.ledger_id == ledger_id).all()
+        # 已清仓行保留在表里但份额为 0，不能进「当前持仓 / 市值」口径（#2343）
+        positions = exclude_cleared(db.query(Position).filter(Position.ledger_id == ledger_id)).all()
         fund_mv = sum(Money.multiply_price_quantity(p.current_price, p.quantity) for p in positions)
         total_balance = current_amount + fund_mv
 
@@ -509,7 +513,7 @@ class LedgerService:
         注意：total_mv_cents 汇总保持账本全量口径（账户级总市值基线），
         不随搜索过滤——搜索只影响列表行，不动汇总分母。
         """
-        query = db.query(Position).filter(Position.ledger_id == ledger_id)
+        query = exclude_cleared(db.query(Position).filter(Position.ledger_id == ledger_id))
         if search:
             like = f'%{search}%'
             query = query.filter(or_(Position.name.ilike(like), Position.symbol.ilike(like)))

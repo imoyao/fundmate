@@ -482,7 +482,7 @@ watch(() => props.symbol, load, { immediate: true });
    写了会让整条 color 声明静默失效 → 回落浏览器默认色，暗色端直接失控）。 */
 .performance-section__block-label {
   margin: var(--space-3) 0 var(--space-1);
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--text-secondary);
 }
@@ -511,7 +511,7 @@ watch(() => props.symbol, load, { immediate: true });
 
 .performance-section__value {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-mono-small);
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }

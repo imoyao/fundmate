@@ -214,7 +214,7 @@ const intervalOptions = [
 }
 
 .metric-value {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
@@ -222,7 +222,7 @@ const intervalOptions = [
 
 /* 主指标（总盈亏）：16px/800 视觉锚点，红涨绿跌走 --color-rise/--color-fall */
 .metric-value--pnl {
-  font-size: 16px;
+  font-size: var(--text-body);
   font-weight: 800;
 }
 

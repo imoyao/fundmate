@@ -101,7 +101,7 @@ defineEmits<{
 
 .road-empty__desc {
   max-width: 420px;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.8;
   color: var(--text-tertiary-ink);
 }

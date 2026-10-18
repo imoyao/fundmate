@@ -184,7 +184,7 @@ function onEntityFilterChange(value: RoadEntityType | "all") {
   align-items: center;
   height: 32px;
   padding: 0 14px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   white-space: nowrap;
   background: transparent;

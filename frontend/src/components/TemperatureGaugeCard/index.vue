@@ -266,7 +266,7 @@ const onClick = () => {
   position: absolute;
   top: 22%;
   right: 22%;
-  font-size: 16px;
+  font-size: var(--text-body);
   font-weight: 500;
   line-height: 1;
   color: var(--text-secondary);
@@ -285,14 +285,14 @@ const onClick = () => {
 }
 
 .gauge-title {
-  font-size: 18px;
+  font-size: var(--text-num-strong);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .gauge-caption {
   margin-top: 6px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -327,7 +327,7 @@ const onClick = () => {
   .gauge-degree {
     top: 16%;
     right: 16%;
-    font-size: 13px;
+    font-size: var(--text-label);
   }
 }
 

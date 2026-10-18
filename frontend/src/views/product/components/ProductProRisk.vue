@@ -224,7 +224,7 @@ watch(() => props.symbol, load, { immediate: true });
 
 .pro-risk__hint {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -340,7 +340,7 @@ watch(() => props.symbol, load, { immediate: true });
 .pro-risk__account {
   padding: var(--space-2) var(--space-3);
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-primary);
   background: var(--bg-card);
   border: 1px solid var(--border-default);
@@ -362,7 +362,7 @@ watch(() => props.symbol, load, { immediate: true });
 
 .pro-risk__empty-title {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 600;
   color: var(--text-primary);
 }

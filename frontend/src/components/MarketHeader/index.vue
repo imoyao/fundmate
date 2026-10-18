@@ -118,12 +118,12 @@ withDefaults(
   }
 
   &__logo {
-    font-size: 20px;
+    font-size: var(--text-heading);
     font-weight: 700;
     color: var(--text-primary);
 
     @include bp.below("sm") {
-      font-size: 18px;
+      font-size: var(--text-num-strong);
     }
   }
 
@@ -148,7 +148,7 @@ withDefaults(
   }
 
   &__btn--link {
-    font-size: 14px;
+    font-size: var(--text-small);
     color: var(--text-secondary);
   }
 }

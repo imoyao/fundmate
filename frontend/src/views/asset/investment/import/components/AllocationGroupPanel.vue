@@ -94,7 +94,7 @@ const hasContent = computed(
   align-items: center;
   justify-content: space-between;
   margin-bottom: 10px;
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 600;
   color: var(--text-primary);
 }
