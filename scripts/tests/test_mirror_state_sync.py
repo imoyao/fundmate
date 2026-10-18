@@ -565,5 +565,98 @@ class TestIncompleteDataNotGreen(unittest.TestCase):
         self.assertEqual(p[9], [])
 
 
+# ---------------------------------------------------------------------------
+# 六、镜像卡的识别不能只靠状态文件（源 CNB #564，2026-10-18）
+# ---------------------------------------------------------------------------
+
+
+class TestMirrorCardDiscovery(unittest.TestCase):
+    """状态文件是**缓存**，不是全集。
+
+    实测（2026-10-18）：CNB 侧 198 张 open 卡里 **48 张**带 `GitHub 同步` 标签却
+    不在 `github_cnb_state.json` 里。它们进不了 `mirrored_cards()`，于是
+    `plan()` 永远看不到它们 —— 一条永远不会被执行的代码，被读成了「已经对齐」。
+    这正是 CNB `#450`（224 张重复卡）的同一形态：缓存被当成了边界。
+    """
+
+    BODY_URL = '> - 来源：https://github.com/imoyao/fundmate/issues/2213\n> - GitHub 编号：`#2213`\n\n---\n\n正文'
+    BODY_NUM_ONLY = '> - GitHub 编号：`#2130`\n\n---\n\n正文'
+    BODY_FAKE_NUMBER = '> - 来源：https://github.com/imoyao/fundmate/issues/888888\n> - GitHub 编号：`#888888`\n'
+
+    def _patch(self, open_items, closed_items=(), bodies=None):
+        bodies = bodies or {}
+        return [
+            mock.patch.object(
+                sync, 'list_cnb_issues', side_effect=lambda st: list(open_items if st == 'open' else closed_items)
+            ),
+            mock.patch.object(sync, 'get_cnb_issue', side_effect=lambda n: {'body': bodies.get(n, '')}),
+        ]
+
+    def test_card_missing_from_state_file_is_still_found(self):
+        item = {'number': 513, 'state': 'open', 'labels': [{'name': sync.MIRROR_LABEL}]}
+        p = self._patch([item], bodies={513: self.BODY_URL})
+        with p[0], p[1]:
+            cards = sync.mirrored_cards(repo=None, state={'mirrored': {}})
+        self.assertEqual([(c['cnb'], c['gh']) for c in cards], [(513, 2213)])
+
+    def test_resolve_body_false_keeps_old_behaviour(self):
+        # 反证：只走状态文件时会漏掉它们——这就是修之前的真实行为，用用例钉住它不再是默认
+        item = {'number': 513, 'state': 'open', 'labels': [{'name': sync.MIRROR_LABEL}]}
+        p = self._patch([item], bodies={513: self.BODY_URL})
+        with p[0], p[1]:
+            cards = sync.mirrored_cards(repo=None, state={'mirrored': {}}, resolve_body=False)
+        self.assertEqual(cards, [])
+
+    def test_number_line_fallback_when_url_missing(self):
+        # 两种卡面形态并存（实测 CNB #187 只有编号行、没有来源 URL）
+        item = {'number': 187, 'state': 'open', 'labels': [{'name': sync.MIRROR_LABEL}]}
+        p = self._patch([item], bodies={187: self.BODY_NUM_ONLY})
+        with p[0], p[1]:
+            cards = sync.mirrored_cards(repo=None, state={'mirrored': {}})
+        self.assertEqual([c['gh'] for c in cards], [2130])
+
+    def test_self_check_card_not_chased_into_nowhere(self):
+        """自检卡（CNB #113）的编号行写着 `#888888`，URL 一致，故仍被认成 888888。
+
+        要点不是「它一定认错」，而是：**认得出就必须能被下游处理**。
+        这里钉的是「URL 与编号行同为假编号时不会抛异常」——真去追它是 `plan()` 的事
+        （GitHub 侧拉不到就跳过，不猜）。
+        """
+        item = {'number': 113, 'state': 'open', 'labels': [{'name': sync.MIRROR_LABEL}]}
+        p = self._patch([item], bodies={113: self.BODY_FAKE_NUMBER})
+        with p[0], p[1]:
+            cards = sync.mirrored_cards(repo=None, state={'mirrored': {}})
+        self.assertEqual([c['gh'] for c in cards], [888888])
+
+    def test_unresolved_card_is_reported_not_silently_dropped(self):
+        import contextlib
+        import io
+
+        item = {'number': 4, 'state': 'open', 'labels': [{'name': sync.MIRROR_LABEL}]}
+        p = self._patch([item], bodies={4: '没有编号的卡'})
+        buf = io.StringIO()
+        with p[0], p[1], contextlib.redirect_stdout(buf):
+            cards = sync.mirrored_cards(repo=None, state={'mirrored': {}})
+        self.assertEqual(cards, [])
+        self.assertIn('认不出 GitHub 编号', buf.getvalue(), '认不出必须说出来，不得静默丢弃')
+
+    def test_closed_unknown_cards_do_not_drown_the_warning(self):
+        import contextlib
+        import io
+
+        open_item = {'number': 4, 'state': 'open', 'labels': [{'name': sync.MIRROR_LABEL}]}
+        closed_items = [
+            {'number': n, 'state': 'closed', 'labels': [{'name': sync.MIRROR_LABEL}]} for n in range(20, 30)
+        ]
+        bodies = {4: '没有编号的卡', **{n: '没有编号的卡' for n in range(20, 30)}}
+        p = self._patch([open_item], closed_items, bodies)
+        buf = io.StringIO()
+        with p[0], p[1], contextlib.redirect_stdout(buf):
+            sync.mirrored_cards(repo=None, state={'mirrored': {}})
+        out = buf.getvalue()
+        self.assertIn('[4]', out)
+        self.assertIn('已关闭', out, '已关的无编号卡只需计数，不该混进待处理清单')
+
+
 if __name__ == '__main__':
     unittest.main()
