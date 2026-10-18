@@ -464,6 +464,123 @@ def migrate_channel_link_indexes(engine: Engine) -> str:
     raise RuntimeError('channel_links.to_symbol 索引创建后校验失败')
 
 
+#: 费率三表的唯一约束 DDL（2026-10-18）。与 ORM 模型 ``__table_args__`` 逐字一致——
+#: 那边让新库由 create_all 建出，这里给存量库补建；两处必须同源，改一处就要改两处。
+_FEE_UNIQUE_INDEX_DDL_ALL = (
+    (
+        'uq_fee_ratios_scope',
+        'CREATE UNIQUE INDEX IF NOT EXISTS uq_fee_ratios_scope ON fee_ratios '
+        '(fund_code, fee_type, COALESCE(purchase_rule_id, -1), COALESCE(redeem_rule_id, -1))',
+    ),
+    (
+        'uq_redeem_rules_range',
+        'CREATE UNIQUE INDEX IF NOT EXISTS uq_redeem_rules_range ON redeem_rules '
+        '(COALESCE(start_day, -1), COALESCE(end_day, -1))',
+    ),
+    (
+        'uq_purchase_rules_quota',
+        'CREATE UNIQUE INDEX IF NOT EXISTS uq_purchase_rules_quota ON purchase_rules '
+        '(COALESCE(start_quota, -1), COALESCE(end_quota, -1))',
+    ),
+)
+
+
+def _fee_duplication_report(engine: Engine) -> list[str]:
+    """统计三张费率表里「会被唯一索引拒掉」的重复组，返回人类可读的问题列表。"""
+    checks = (
+        (
+            'fee_ratios',
+            '同一 (fund_code, fee_type, purchase_rule_id, redeem_rule_id) 存在多行',
+            'SELECT COUNT(*) FROM (SELECT 1 FROM fee_ratios '
+            'GROUP BY fund_code, fee_type, COALESCE(purchase_rule_id, -1), COALESCE(redeem_rule_id, -1) '
+            'HAVING COUNT(*) > 1)',
+        ),
+        (
+            'redeem_rules',
+            '同一 (start_day, end_day) 区间存在多行',
+            'SELECT COUNT(*) FROM (SELECT 1 FROM redeem_rules '
+            'GROUP BY COALESCE(start_day, -1), COALESCE(end_day, -1) HAVING COUNT(*) > 1)',
+        ),
+        (
+            'purchase_rules',
+            '同一 (start_quota, end_quota) 区间存在多行',
+            'SELECT COUNT(*) FROM (SELECT 1 FROM purchase_rules '
+            'GROUP BY COALESCE(start_quota, -1), COALESCE(end_quota, -1) HAVING COUNT(*) > 1)',
+        ),
+    )
+    problems = []
+    with engine.connect() as conn:
+        for table, desc, sql in checks:
+            groups = conn.execute(text(sql)).scalar() or 0
+            if groups:
+                problems.append(f'{table}: {groups} 组重复（{desc}）')
+    return problems
+
+
+def migrate_fee_unique_indexes(engine: Engine) -> str:
+    """费率三表补唯一约束（2026-10-18）。
+
+    ## 为什么补
+
+    ``fee_ratios`` / ``redeem_rules`` / ``purchase_rules`` 此前**一个索引都没有**。
+    2026-05-31 的一次整表复制在库里留下 12,732 组逐字相同的副本行（fee_ratios
+    25,471 行；重复对的 rate/currency/created_at/updated_at 全同 ⇒ 复制而非重写），
+    用户可见表现是「赎回费率分布每档显示两次」。
+
+    应用层已收口为 upsert + 结构校验 + 清残档，但那些闸只在**已知写路径**上生效；
+    唯一约束是最后一道、也是唯一会让错误**当场报错**而不是静默通过的一道。
+
+    ## 为什么必须用表达式索引
+
+    SQLite 里 NULL 不参与唯一性判断，而 ``fee_ratios`` 的 ``purchase_rule_id``
+    （redeem 行恒为 NULL）与 ``redeem_rules`` / ``purchase_rules`` 最后一档的
+    ``end_day`` / ``end_quota`` 都是 NULL——普通唯一索引对它们形同虚设。故一律
+    ``COALESCE(列, -1)`` 之后再比。
+
+    ## 存量库有重复行时
+
+    **fail closed**：直接抛错并指明处置命令，而不是「跳过不建」。跳过等于把刚修好的
+    问题原样放回去，且没人会知道——重复行正是这样静默存在了五个月。
+
+    ``create_all`` 只建新表、不给存量表加索引，故与 watchlist 约束同法由 init_db 兜底。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，唯一约束由 ORM 模型/迁移工具负责'
+
+    present = set(inspect(engine).get_table_names())
+    missing = [t for t in ('fee_ratios', 'redeem_rules', 'purchase_rules') if t not in present]
+    if missing:
+        return f'[SKIP] 表不存在（空库，init_db 将按新模型建表）: {missing}'
+
+    problems = _fee_duplication_report(engine)
+    if problems:
+        raise RuntimeError(
+            '费率三表存在重复行，唯一索引无法建立：\n  - '
+            + '\n  - '.join(problems)
+            + '\n请先清理存量：python backend/scripts/cleanup_fee_ratio_dupes.py --db <库路径>'
+            '（默认 dry-run；确认后加 --apply，会自动写回滚 SQL）'
+        )
+
+    with engine.connect() as conn:
+        for _name, sql in _FEE_UNIQUE_INDEX_DDL_ALL:
+            conn.execute(text(sql))
+        conn.commit()
+
+    with engine.connect() as conn:
+        names = {
+            row[0]
+            for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'uq_%'"))
+        }
+    missing_idx = [name for name, _sql in _FEE_UNIQUE_INDEX_DDL_ALL if name not in names]
+    if missing_idx:
+        raise RuntimeError(f'费率唯一索引创建后校验失败，缺失: {missing_idx}')
+
+    msg = '[OK] 费率三表唯一约束已就绪: ' + ' / '.join(name for name, _ in _FEE_UNIQUE_INDEX_DDL_ALL)
+    logger.info(msg)
+    return msg
+
+
 def migrate_positions_price_columns(engine: Engine) -> str:
     """positions 补「当日盈亏」的基准列（#2007）：`prev_close` + `price_date`。
 
