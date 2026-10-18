@@ -45,6 +45,63 @@ _DEFAULT_APP_DB = 'sqlite:///./invest.db'
 _DEFAULT_DEV_DB = 'sqlite:///./invest.db'
 
 
+#: 参与「应用运行库」解析的环境变量（按环境不同取其一，见 DatabaseConfig.for_app）。
+#: 用于回答两个问题：**解析出的目标是不是「无配置的 cwd 缺省」**，以及
+#: **配了变量却在 development 下被忽略**（#2344 实测事故就栽在后者）。
+APP_DB_ENV_VARS = (
+    'TURSO_DATABASE_URL',
+    'STAGING_DATABASE_URL',
+    'DATABASE_URL',
+    'DEV_DATABASE_URL',
+)
+
+
+def app_database_configured_vars(env: str | None = None) -> list[str]:
+    """当前**生效**的 App Env 下，哪些运行库环境变量被配置了（按解析顺序）。
+
+    用途：让「我明明配了库，程序却连到了别处」这类事故在**启动时**就能被看见，
+    而不是等某个统计口径偶然暴露（#2344：`DEV_DATABASE_URL` 在 APP_ENV 未设时被
+    静默忽略，CLI 连到了 cwd 下的空库，还报 success）。
+    """
+    env = env or get_app_env()
+    if env == 'development':
+        candidates = ('DEV_DATABASE_URL',)
+    elif env == 'staging':
+        candidates = ('STAGING_DATABASE_URL', 'DATABASE_URL')
+    else:
+        candidates = ('TURSO_DATABASE_URL', 'DATABASE_URL')
+    return [name for name in candidates if os.getenv(name)]
+
+
+def app_database_source_var(env: str | None = None) -> str | None:
+    """**实际生效**（解析命中）的库变量名；一个都没配返回 ``None``。
+
+    与 :func:`app_database_configured_vars` 的区别很要紧：production 下
+    ``TURSO_DATABASE_URL or DATABASE_URL`` 两者都参与，但只有排在前面的那个生效。
+    「配了」不等于「生效」——报告里必须说出赢的那个，否则排查会被带偏。
+    """
+    configured = app_database_configured_vars(env)
+    return configured[0] if configured else None
+
+
+def ignored_app_db_env_vars(env: str | None = None) -> list[str]:
+    """被配置了但在当前 App Env 下**不参与解析**的运行库变量（会被静默忽略的那些）。"""
+    env = env or get_app_env()
+    participating = set(app_database_configured_vars(env))
+    return [name for name in APP_DB_ENV_VARS if os.getenv(name) and name not in participating]
+
+
+def app_database_url(env: str | None = None) -> str:
+    """应用运行库（market 域）URL 的**唯一**解析入口。
+
+    任何需要「当前连的是哪个库」的地方——legacy 符号、CLI 启动日志、备份路径推断、
+    测试——都必须走这里。此前 `database.SQLALCHEMY_DATABASE_URL` 自己读了一遍
+    `DATABASE_URL`，与引擎真实解析**并行且不一致**（引擎在 development 下压根不看
+    `DATABASE_URL`），于是读那个符号的人可能拿到一个根本没在用的库（#2344）。
+    """
+    return DatabaseConfig.for_app(env or get_app_env()).url
+
+
 def _development_user_url() -> str:
     """development 下 user 域 URL：显式配置 DEV_USER_DATABASE_URL 优先（独立库，
     本地双库模拟）；未配置时与 market 域同库（DEV_DATABASE_URL，缺省 invest.db）——
