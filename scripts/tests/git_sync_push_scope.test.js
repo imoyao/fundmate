@@ -79,12 +79,13 @@ test("仓库里的 git-sync 任务都显式写了 branch，且不是 --all 的�
   // 的说明、`guard_secret_imports.py` 的注解）不算任务，否则会误报「没写 branch」。
   //
   // ⚠️ 2026-10-14（源 CNB #450）：pull 任务已从 `.cnb.yml` 删除（见本文件头）。
-  // 故此处的下限从 4 降到 3（push dev + 两条 cron），pull 的判据改由合成片段覆盖
-  // （见下一个用例）——**不再要求真实文件里必须有一条 pull**。
+  // ⚠️ 2026-10-19（源 CNB #577）：推 `dev` 的两条 git-sync（push 段 + 每小时 cron）
+  // 也删了 —— 它们必然被非快进拒掉且**永不自愈**。故此处的下限从 3 降到 **1**
+  // （只剩功能分支段）。「必须还剩几条」不是判据，判据是「剩下的都不许直推 dev」（判据 0）。
   const blocks = CNB_YML.split(/\n(?=\s*- name:)/).filter((b) =>
     /^\s*image:\s*tencentcom\/git-sync\s*$/m.test(b)
   );
-  assert.ok(blocks.length >= 3, `git-sync 任务至少应有 3 条（push dev + 两条 cron），实际 ${blocks.length}`);
+  assert.ok(blocks.length >= 1, `git-sync 任务至少应有 1 条（功能分支段），实际 ${blocks.length}`);
   // ⚠️ 只认**真实生效的 YAML 行**：`sync_mode: pull` 出现在注释里（讲述它为什么被删）
   // 不算「又加了 pull」——否则这条判据会被自己的说明文字咬住（本仓「注释里提到代码」
   // 咬过守卫多次，故此处显式按行剥离注释）。
@@ -109,13 +110,35 @@ test("仓库里的 git-sync 任务都显式写了 branch，且不是 --all 的�
 });
 
 test("守卫能抓到三种回退形态（探针：守门通过 ≠ 守门有效）", () => {
+  // ⚠️ 源 CNB #577 起 `.cnb.yml` 里**已经没有**直推 dev 的 git-sync 了（全删），
+  // 故 ①② 不能再在真实文件上做变异（找不到锚点 = 探针空转）。改为先**复刻**一条
+  // 直推 dev 的任务、再对它做变异 —— 问的是「守卫认不认这个形态」，与文件现状解耦。
+  // ⚠️ 必须用**正则**：`String.replace('^dev:\n', …)` 是字面量替换，`^` 不会当锚点，
+  // 于是永远匹配不到、变异静默失效（探针自己报「复刻未生效」，正是本仓最常踩的那一类）。
+  const withPushedDev = CNB_YML.replace(
+    /^dev:\s*$/m,
+    [
+      'dev:',
+      '  push:',
+      '    - name: 复刻·直推 dev',
+      '      stages:',
+      '        - image: tencentcom/git-sync',
+      "          imports: ['x.yml']",
+      '          settings:',
+      '            target_url: https://github.com/o/r.git',
+      '            branch: dev',
+      '',
+    ].join('\n')
+  );
+  assert.notEqual(withPushedDev, CNB_YML, "复刻未生效：测试自身写坏了。");
+
   // ① 删掉 branch（回到 --all）
-  const noBranch = CNB_YML.replace(/\n\s*branch: dev\n/, "\n");
+  const noBranch = withPushedDev.replace(/\n\s*branch: dev\n/, "\n");
   assert.notEqual(noBranch, CNB_YML, "变异 ① 未生效：测试自身写坏了。");
   assert.equal(runGuardOn(noBranch).status, 1, "删掉 branch（= --all，会推 main）后守卫没报错。");
 
   // ② 显式推 main
-  const toMain = CNB_YML.replace(/\n(\s*)branch: dev\n/, "\n$1branch: main\n");
+  const toMain = withPushedDev.replace(/\n(\s*)branch: dev\n/, "\n$1branch: main\n");
   assert.notEqual(toMain, CNB_YML, "变异 ② 未生效：测试自身写坏了。");
   assert.equal(runGuardOn(toMain).status, 1, "把 branch 改成 main 后守卫没报错。");
 
@@ -194,11 +217,13 @@ test("所有 job 都带 name（否则 stage 在详情页查不到 = 假绿）", 
 test("守卫能抓到「裸 stages」的假绿形态（探针）", () => {
   // 把一个命名 job 退回裸 stages（去掉 `- name:` 与 job 缩进层）：
   // 判据 4 必须报红，否则「假绿」这个形态会静默回潮。
+  // ⚠️ 锚点换成「`dev:` 段里那个 `- name:` 开头的 job」再变异：`crontab: 30` 已在
+  // 源 CNB #577 中删除，继续找它 = indexOf 到 -1 = 探针静默空转。
   const bare = CNB_YML.replace(
-    /\n  "_?crontab: 30 \* \* \* \*_?":\n    - name: (.+)\n[\s\S]*?\n      stages:\n/,
-    (m, name) => `\n  "crontab: 30 * * * *":\n      stages:\n`
+    /(\n  push:\n)    - name: [^\n]+\n([\s\S]*?)\n      stages:\n/,
+    "$1      stages:\n"
   );
-  assert.notEqual(bare, CNB_YML, "变异未生效：测试自身写坏了（crontab: 30 块没找到）。");
+  assert.notEqual(bare, CNB_YML, "变异未生效：测试自身写坏了（dev 段的命名 job 没找到）。");
   assert.equal(
     runGuardOn(bare).status,
     1,
@@ -279,6 +304,31 @@ test("`$` 段的 job 仍然必须带 name（假绿形态对 `$` 同样适用）"
 // + `git checkout -f -B "<键>" <sha>`），而插件只推「工作区里存在的分支」。
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * 复刻一条「直推 dev 的 git-sync」进 `dev:` 段（源 CNB #577 起真实文件里已无此类任务）。
+ *
+ * 这些探针问的是「守卫认不认某种**形态**」，不该依赖文件现状 —— 修复把形态从仓库里
+ * 删掉之后，直接在 `CNB_YML` 上做 `replace` 会**静默匹配不到**、探针空转成假绿
+ * （本文件已经踩过一次：`'^dev:\n'` 当字面量替换，永远不生效）。
+ */
+function withPushedDevJob(yml = CNB_YML) {
+  const job = [
+    'dev:',
+    '  push:',
+    '    - name: 复刻·直推 dev',
+    '      stages:',
+    '        - image: tencentcom/git-sync',
+    "          imports: ['x.yml']",
+    '          settings:',
+    '            target_url: https://github.com/o/r.git',
+    '            branch: dev',
+    '',
+  ].join('\n');
+  const out = yml.replace(/^dev:\s*$/m, job);
+  assert.notEqual(out, yml, '复刻未生效：`dev:` 段没找到（测试自身写坏了）。');
+  return out;
+}
+
 test("git-sync 作业挂在 `dev:` 键下（不是 `main:` 键下）", () => {
   // 形态检测：三条 git-sync 任务（push dev / pull dev / cron push dev）都必须在
   // `dev:` 段内。挂在 `main:` 下时，`dev` 的 push 构建里**根本不含这个 job**，
@@ -295,12 +345,16 @@ test("git-sync 作业挂在 `dev:` 键下（不是 `main:` 键下）", () => {
       "（`Warning: Branch dev does not exist locally, skipping push`）却报 success（#269）。"
   );
 
+  // ⚠️ 源 CNB #577 起 `dev:` 段里**不再有** git-sync（直推 dev 必红，已删）。
+  // `dev` 的搬运改由 `machine_branch.py --merge-sync` 的脚本任务承担，故这里断言的是
+  // 「`dev:` 段存在、且它有一条真的会搬代码的作业」，而不是「必须有 git-sync」——
+  // 后者是把**手段**写进判据，正是 #577 之前那条判据误导人的地方。
   const devSeg = CNB_YML.slice(devIdx, CNB_YML.indexOf('\n"**/!(main|dev)":'));
   assert.match(devSeg, /^dev:\s*$/m, "`dev:` 段没找到。");
   assert.match(
     devSeg,
-    /image:\s*tencentcom\/git-sync/,
-    "`dev:` 段里没有 git-sync 任务 —— `dev` 的 push 构建不会包含同步作业。"
+    /machine_branch\.py --apply --push --merge-sync/,
+    "`dev:` 段里没有 merge-sync 搬运作业 —— `dev` 的 push 构建不会把代码送到 GitHub。"
   );
 });
 
@@ -312,26 +366,30 @@ test("守卫能抓到「挂 main 键下推 dev」这一真实形态（探针）"
   // 结果 YAML 解析就失败了 —— 守卫因此报红，**但红在解析而不是判据上**，
   // 「摘掉判据 5 测试仍全绿」就是这么暴露的（判据自己先崩了）。
   // 这里改法：不搬 `dev:` 键本身，只把它下面的 `push:` 事件块缩进到 `main:` 段内。
-  const devKeyIdx = CNB_YML.search(/^dev:\s*$/m);
-  const pushIdx = CNB_YML.indexOf("  push:\n", devKeyIdx);
+  const BASE = withPushedDevJob();
+  const devKeyIdx = BASE.search(/^dev:\s*$/m);
+  const pushIdx = BASE.indexOf("  push:\n", devKeyIdx);
   assert.ok(pushIdx > devKeyIdx, "变异未生效：dev 段里的 push: 没找到。");
   // ⚠️ 边界必须是 push 之后**紧邻的事件键**。历史上这里找的是 `crontab: 0`，
   // 而 #450 删掉 pull 后 `dev:` 段里 push 的下一个事件变成了 `crontab: 30`
   // —— 继续找 `crontab: 0` 会 indexOf 到 -1（或找到别的段），探针当场失效。
-  const pushEnd = CNB_YML.indexOf("  \"crontab: 30 * * * *\":", pushIdx);
+  // ⚠️ 源 CNB #577 起 `dev:` 段里**只剩** `push:` 一个事件（`crontab: 30` 兜底已删），
+  // 于是「push 块的下一个事件键」不存在了 —— 边界改为**下一个顶层键**（`"**/!(main|dev)":`）。
+  // 继续找 `crontab: 30` 会拿到 -1，探针又会静默失效（这个坑已经踩过两次）。
+  const pushEnd = BASE.indexOf('\n"**/!(main|dev)":', pushIdx);
   assert.ok(pushEnd > pushIdx, "变异未生效：dev 段的 push 块边界没找到。");
-  const pushBlock = CNB_YML.slice(pushIdx, pushEnd);
+  const pushBlock = BASE.slice(pushIdx, pushEnd);
 
-  // 1) 从 dev 段里摘掉 push 块（dev 只剩一条 cron，仍合法）
+  // 1) 从 dev 段里摘掉 push 块（dev 段只剩键本身）
   // 2) 把它插进 main 段末尾（main 段结束于 `dev:` 之前）
   const mutated = (
-    CNB_YML.slice(0, devKeyIdx) +        // ... main 段
-    pushBlock +                          // 被搬进来的 push 事件（缩进已在 main 段内）
-    CNB_YML.slice(devKeyIdx, pushIdx) +  // `dev:` 键
-    CNB_YML.slice(pushEnd)               // dev 的其余事件 + 后续
+    BASE.slice(0, devKeyIdx) +        // ... main 段
+    pushBlock +                       // 被搬进来的 push 事件（缩进已在 main 段内）
+    BASE.slice(devKeyIdx, pushIdx) +  // `dev:` 键
+    BASE.slice(pushEnd)               // 后续顶层键
   );
 
-  assert.notEqual(mutated, CNB_YML, "变异未生效：测试自身写坏了。");
+  assert.notEqual(mutated, BASE, "变异未生效：测试自身写坏了。");
   // ⚠️ 先自证变异体是**合法 YAML**，再断守卫报红。
   // 上一版栽在这：整块缩进让 YAML 解析失败，守卫报红**红在解析而不是判据上**，
   // 于是「摘掉判据 5 测试仍全绿」—— 判据自己先崩了，还看起来「咬住了」。
@@ -356,11 +414,12 @@ test("守卫能抓到「挂 main 键下推 dev」这一真实形态（探针）"
 
 test("守卫能抓到「挂 dev 键下推 main」的反向形态（探针）", () => {
   // 反向不变量：即便挂对了位置，目标分支也不能是 main（判据 2 / 5 双重覆盖）。
-  const mutated = CNB_YML.replace(
+  const BASE = withPushedDevJob();
+  const mutated = BASE.replace(
     /(^dev:\n[\s\S]*?)branch:\s*dev\s*$/m,
     "$1branch: main"
   );
-  assert.notEqual(mutated, CNB_YML, "变异未生效：测试自身写坏了。");
+  assert.notEqual(mutated, BASE, "变异未生效：测试自身写坏了。");
   assert.equal(
     runGuardOn(mutated).status,
     1,
@@ -384,5 +443,93 @@ test("守卫能抓到「把 dev: 段整个删掉」的退化（探针）", () =>
   assert.ok(
     /^dev:\s*$/m.test(CNB_YML),
     "`dev:` 段消失了 —— `dev` 的同步会整条不见，而 `**/!(main|dev)` 显式排除了 dev。"
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 判据 0（源 CNB #577，2026-10-19）：git-sync **不得推「对方也会推进的分支」**。
+// cross-repo-ref-allow
+//
+// 事故形态：推 `dev` 的 git-sync 作业每次必红（`! [rejected] dev -> dev (fetch first)`），
+// 而同一构建里的探针报「两侧可无冲突合并」—— 红的是**搬运方式**，不是内容。
+// ---------------------------------------------------------------------------
+
+test("判据 0 真的被 main() 调用（写了判据却没接进去 = 更贵的形态）", () => {
+  // ⚠️ 这条用例的存在理由是**探针实测**：判据 0 的单元形态在 `self_check()` 里已有正反用例，
+  // 但把 `main()` 里那一行调用删掉后，整份测试**一条都不会红**（函数本身照旧正确）。
+  // 「判据写了 ≠ 判据在跑」是本仓 #450 / #171 反复踩的那一类，故用静态断言钉住接线。
+  const src = readFileSync(GUARD, "utf8");
+  assert.match(
+    src,
+    /problems \+= check_no_direct_push_of_bidirectional\(data/,
+    "守卫里找不到 `problems += check_no_direct_push_of_bidirectional(data…)` —— " +
+      "判据 0 没接进 main()，直推 `dev` 的配置会一路绿灯（源 CNB #577）。"
+  );
+});
+
+test("判据 0 咬住「直推 dev」的合成配置（探针）", () => {
+  const pushedDev = [
+    "dev:",
+    "  push:",
+    "    - name: 直推 dev",
+    "      stages:",
+    "        - image: tencentcom/git-sync",
+    "          imports: ['x.yml']",
+    "          settings:",
+    "            target_url: https://github.com/o/r.git",
+    "            branch: dev",
+    "",
+  ].join("\n");
+  const r = runGuardOn(pushedDev);
+  assert.equal(
+    r.status,
+    1,
+    "git-sync 直推 `dev` 没被拦 —— 那正是每次必红、且永不自愈的搬运方式（#577）。"
+  );
+  assert.match(r.stdout, /双向/, `报错文案要说清「为什么不能直推」，实际：${r.stdout}`);
+});
+
+test("判据 0 不误伤功能分支段（`**/!(main|dev)` + ${CNB_BRANCH}）", () => {
+  // 功能分支只由本侧前进、对方不会推同名 ref ⇒ 非快进不可能发生，必须放行。
+  // 若哪天判据被写宽成「dev/main 两个字出现即报错」，这条会红。
+  const feature = [
+    '"**/!(main|dev)":',
+    "  push:",
+    "    - name: 同步当前功能分支到 GitHub",
+    "      stages:",
+    "        - image: tencentcom/git-sync",
+    "          imports: ['x.yml']",
+    "          settings:",
+    "            target_url: https://github.com/o/r.git",
+    '            branch: ${CNB_BRANCH}',
+    "",
+  ].join("\n");
+  const r = runGuardOn(feature);
+  assert.equal(r.status, 0, `功能分支段被误伤（判据写宽了）：${r.stdout}`);
+});
+
+test("当前 `.cnb.yml` 里**没有**任何 git-sync 直推 dev（修复后的形态）", () => {
+  // 修复 = 删掉两处直推（push 段 + cron 兜底）并改用 machine_branch.py --merge-sync。
+  // 这条断言是「存量已清零」的证据：LEGACY_ALLOW 一旦被塞进条目，这里会立刻提醒。
+  const blocks = CNB_YML.split(/\n(?=\s*- name:)/).filter((b) =>
+    /^\s*image:\s*tencentcom\/git-sync\s*$/m.test(b)
+  );
+  for (const block of blocks) {
+    const stripped = block.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
+    const m = stripped.match(/^\s*branch:\s*(.+)$/m);
+    if (!m) continue;
+    assert.notEqual(
+      m[1].trim(),
+      "dev",
+      "又出现了 git-sync 直推 `dev` —— 请改用 `machine_branch.py --apply --push --merge-sync`（#577）。"
+    );
+  }
+});
+
+test("dev 的搬运改用 merge-sync（替代被删的直推 job）", () => {
+  assert.match(
+    CNB_YML,
+    /machine_branch\.py --apply --push --merge-sync/,
+    "`dev` 段里找不到 merge-sync 调用 —— 直推删掉之后必须有替代，否则代码根本不会去 GitHub（#577）。"
   );
 });
