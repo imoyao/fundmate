@@ -60,12 +60,17 @@ sys.path.insert(0, str(BACKEND_DIR))
 from dotenv import load_dotenv  # noqa: E402
 from loguru import logger  # noqa: E402
 
-from app.core.database import get_db, init_db  # noqa: E402
-from app.services.sync.orchestrator import DataSyncOrchestrator, require_full_sync_scope  # noqa: E402
-
 # ✅ 在入口文件顶部加载 .env（相对于 backend/ 目录）
 env_path = BACKEND_DIR / '.env'
 load_dotenv(dotenv_path=env_path)
+
+from app.core.database import (  # noqa: E402
+    check_database_target_ready,
+    describe_database_targets,
+    get_db,
+    init_db,
+)
+from app.services.sync.orchestrator import DataSyncOrchestrator, require_full_sync_scope  # noqa: E402
 
 # `--target-file` 时按 job 决定从 CSV 里取哪一类代码。
 # ⚠️ 漏掉某个 job 的后果不是报错，而是 targets 保持 None → 静默跑成「0 只处理」。
@@ -195,6 +200,17 @@ def main():
         help='导入已下载的快照文件（校验 + 按本地唯一约束幂等去重，不覆盖本地记录）',
     )
     args = parser.parse_args()
+
+    # ── 连接目标可见 + 预检（#2344） ──
+    # 连错库时过去**没有任何提示**：CLI 会静默连到 cwd 下的 ./invest.db（worktree 里
+    # 就是一个空库），作业报 success 却什么都没做；--snapshot 同理会导出一个空快照。
+    # 位置放在「无参数打 help」之后、**所有会碰库的分支之前**（包括快照分支）。
+    if args.all or args.job or args.snapshot or args.import_snapshot:
+        print(describe_database_targets())
+        target_error = check_database_target_ready()
+        if target_error:
+            print(f'错误：{target_error}', file=sys.stderr)
+            return 2
 
     # 快照导出 / 导入（#1776 ⑤）：文件通道，与同步互斥（设计：初始化/重建不再全市场拉取）
     if args.snapshot or args.import_snapshot:
@@ -454,4 +470,6 @@ def format_source_results(result: dict) -> str:
 
 
 if __name__ == '__main__':
-    main()
+    # 退出码必须传出去：#2344 的预检靠 `return 2` 表达「拒绝继续」，若这里忽略返回值，
+    # shell/CI 看到的仍是 0——那和没拦一样。
+    raise SystemExit(main() or 0)
