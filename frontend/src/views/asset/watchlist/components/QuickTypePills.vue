@@ -74,22 +74,29 @@ function updatePillFade() {
     showPillFade.value = false;
     return;
   }
-  // 单行检测：与相邻分组 Tab 容器比较 offsetTop，若差值 > 2px 即视为已拆行（两行布局）
-  const parent =
-    el.closest(".filter-bar__center") || el.parentElement?.parentElement;
+  // 单行检测：与相邻分组 Tab 容器比较垂直中心，若差值 > 2px 即视为已拆行（两行布局）。
+  // #2329：① 选择器由 `.filter-bar__center` 更正为真实存在的 `.filter-row`——该 class
+  //   早已改名为 .filter-row，此前 closest() 恒为 null、一直在走 parentElement 兜底
+  //   （碰巧等价于 .filter-row，故从不出错，也因此从未被发现）；
+  // ② 比较量由 offsetTop 改为**垂直中心**：`align-items: center` 会让不同高度的子项
+  //   （32px 胶囊 vs 20px 分区分割线）即使在同一行也有不同 top，用 offsetTop 判同线
+  //   会在单行时误判成拆行、把渐隐遮罩错误地关掉。
+  const parent = el.closest(".filter-row");
   if (parent) {
     const groupTabs = parent.querySelector(".group-tabs-wrap");
-    if (
-      groupTabs &&
-      Math.abs(
-        el.getBoundingClientRect().top - groupTabs.getBoundingClientRect().top
-      ) > 2
-    ) {
+    if (groupTabs && Math.abs(centerY(el) - centerY(groupTabs)) > 2) {
       showPillFade.value = false; // 已拆行，隐藏遮罩
       return;
     }
   }
   showPillFade.value = true;
+}
+
+/** 元素垂直中心（判「是否同一条 flex 线」用，勿用 offsetTop——见 updatePillFade 注释）
+ *  参数收 Element 而非 HTMLElement：querySelector 的返回类型是 Element | null */
+function centerY(el: Element): number {
+  const r = el.getBoundingClientRect();
+  return r.top + r.height / 2;
 }
 
 /** 滚轮横滑：仅当胶囊区确有溢出时拦截纵向滚轮转为横向，避免干扰页面滚动 */
@@ -123,15 +130,19 @@ watch(
 
 <style scoped>
 /* 胶囊区外框：#2199 布局争夺方案——与分组胶囊区（FilterGroupTabs）并列为
-   两个弹性区，flex 参数与 .group-tabs-wrap 同规格（flex:1 1 auto / min-width
-   保底 / max-width 50% 上限）：不打架按内容宽排布，打架时两区各约 50%、
-   各自横滑兜底；右侧操作段固定不参与争夺。 */
+   两个弹性区。#2329 换行根修：flex-basis 由 auto 改 0，且**去掉 max-width 上限**。
+   - 原因：`flex-basis: auto` 让 hypothetical size = 内容宽，而 flex-wrap 的换行判定
+     发生在收缩之前 ⇒ 判定条件是「两区内容宽 + 右段 > 容器宽」；再叠加两区各
+     `max-width: 50%`，合计恒为 100%，加右段必溢出 ⇒ 用户截图里右段被甩到第二行。
+     推导与逐条实测见 FilterGroupTabs 的 .group-tabs-wrap 注释。
+   - 改法：basis 0 ⇒ hypothetical 恒 0，换行判定永不成立；剩余空间按 2 份分给本区
+     （分组区 3 份），超出交给内层 `overflow-x: auto` 横滑（滚轮手势 + 右缘渐隐已具备）。
+   - `min-width: 120px` 保底保留，窄屏换行兜底不受影响。 */
 .quick-pills-wrap {
   position: relative;
   display: flex;
-  flex: 1 1 auto;
+  flex: 2 1 0%;
   min-width: 120px;
-  max-width: 50%;
 }
 
 /* 横滑容器：滚动条隐藏（而非常驻），横滑由 @wheel 手势承担 */
