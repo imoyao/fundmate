@@ -9,6 +9,7 @@ import type { useWatchlistTags } from "@/composables/useWatchlistTags";
 import type { WatchlistToolbarState } from "@/composables/useWatchlistData";
 import { assetTypeLabel } from "@/composables/useEnumLabels";
 import { useWatchlistQuickFilters } from "@/composables/useWatchlistQuickFilters";
+import { narrowToHolding } from "@/views/asset/watchlist/watchlistAssetTypes";
 import FilterGroupTabs from "@/views/asset/watchlist/components/FilterGroupTabs.vue";
 import QuickTypePills from "@/views/asset/watchlist/components/QuickTypePills.vue";
 import FilterPanelPopover from "@/views/asset/watchlist/components/FilterPanelPopover.vue";
@@ -77,21 +78,52 @@ const selectedAssetTypesModel = computed({
 // 「可转债」对应资产类型 bond（useEnumLabels 已映射）。
 const { quickFilters } = useWatchlistQuickFilters();
 
-const QUICK_TYPE_OPTIONS = computed(() => [
-  { label: "全部", value: "all" },
-  ...quickFilters.value.map(v => ({ label: assetTypeLabel(v), value: v }))
-]);
+/** 当前是否处于「持仓」分组（#2329）。 */
+const isHoldingGroup = computed(
+  () => props.groups.activeGroup.value === "holding"
+);
+
+/**
+ * 快捷胶囊选项：「全部」+ 用户外露类型，**持仓分组下再收窄一层**。
+ *
+ * #2329 用户实测：持仓分组下胶囊栏出现了「基金经理」。根因是本 computed 此前**完全
+ * 不看 activeGroup** —— 外露列表来自用户偏好（`useWatchlistQuickFilters` 是模块级
+ * 单例、跨设备同步），用户一旦把 `manager` 配进去，所有分组下都会露出它。而
+ * `manager` / `portfolio` 按后端 `core/asset_types.py` 的定义是「可自选观察的非交易
+ * 实体，不进 positions」，在持仓视图下永远筛不出东西，点了只得到空列表。
+ *
+ * 与另两处的分工（口径统一到 watchlistAssetTypes.ts 的 HOLDING_ASSET_TYPES）：
+ * - 本文件：**只收窄可见选项**，不改已生效的筛选状态；
+ * - FilterPanelBody：收窄弹层内可选列表；
+ * - index.vue 的 applyHoldingTypeConstraint：把已生效的非持仓类型真正剔除（唯一写入点）。
+ * 三处都不互相写状态，故不会互相触发、也不会成环。
+ *
+ * 注意 `stock` / `fund` 是 PINNED 常驻外露项，收窄不会把它们摘掉。
+ */
+const QUICK_TYPE_OPTIONS = computed(() => {
+  const exposed = isHoldingGroup.value
+    ? narrowToHolding(quickFilters.value)
+    : quickFilters.value;
+  return [
+    { label: "全部", value: "all" },
+    ...exposed.map(v => ({ label: assetTypeLabel(v), value: v }))
+  ];
+});
 
 /**
  * 当前单选激活项派生：
  * - 无类型筛选 → 'all'（高亮「全部」）；
- * - 恰好单选一个外露类型 → 该类型；
- * - 多选 / 选了未外露（Popover 里）的类型 → ''（无高亮，组合态，看「筛选」角标）。
+ * - 恰好单选一个**当前可见**的胶囊 → 该类型；
+ * - 多选 / 选了不可见（未外露或已被持仓分组收窄掉）的类型 → ''（无高亮，组合态，看「筛选」角标）。
+ *
+ * #2329：判据改为对 `QUICK_TYPE_OPTIONS`（实际渲染的那一串）求值，而非裸 `quickFilters`
+ * ——否则可能出现「高亮了一个根本不渲染的胶囊」这种高亮与可见性对不上的状态。
  */
 const quickActive = computed<string>(() => {
   const t = selectedAssetTypesModel.value;
   if (t.length === 0) return "all";
-  if (t.length === 1 && quickFilters.value.includes(t[0])) return t[0];
+  const visible = QUICK_TYPE_OPTIONS.value.map(o => o.value);
+  if (t.length === 1 && visible.includes(t[0])) return t[0];
   return "";
 });
 
