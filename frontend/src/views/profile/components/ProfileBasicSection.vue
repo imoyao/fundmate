@@ -269,7 +269,7 @@ const p = reactive(props.page);
 }
 
 .link-btn__icon {
-  font-size: 14px;
+  font-size: var(--text-small);
   line-height: 1;
 }
 
@@ -298,14 +298,14 @@ const p = reactive(props.page);
 }
 
 .field-block__label {
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 500;
   line-height: 1.4;
   color: var(--text-primary);
 }
 
 .field-block__desc {
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.4;
   color: var(--text-tertiary-ink);
 }

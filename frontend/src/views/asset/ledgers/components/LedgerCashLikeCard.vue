@@ -220,7 +220,7 @@ const rowKey = (row: { symbol?: string | null; name?: string | null }) =>
 
 .cash-like-table {
   width: 100%;
-  font-size: 13px;
+  font-size: var(--text-label);
   border-collapse: collapse;
 
   th,

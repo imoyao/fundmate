@@ -391,7 +391,7 @@ onMounted(() => load());
 }
 
 .search-icon {
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--text-tertiary-ink);
 }
 
@@ -433,12 +433,12 @@ onMounted(() => load());
 }
 
 .state-text {
-  font-size: 16px;
+  font-size: var(--text-body);
   color: var(--text-secondary);
 }
 
 .state-hint {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

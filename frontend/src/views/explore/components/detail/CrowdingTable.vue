@@ -388,7 +388,7 @@ withDefaults(
 
 .empty-state {
   padding: 40px 0;
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--text-tertiary-ink);
   text-align: center;
 }

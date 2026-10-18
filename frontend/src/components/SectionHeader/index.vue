@@ -99,7 +99,7 @@ withDefaults(
     margin: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 16px;
+    font-size: var(--text-body);
     font-weight: 600;
     line-height: 1.4;
     color: var(--text-primary);

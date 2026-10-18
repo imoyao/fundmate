@@ -336,13 +336,13 @@ watch(() => props.mgrCode, load, { immediate: true });
   }
 
   &__name {
-    font-size: 18px;
+    font-size: var(--text-num-strong);
     font-weight: 600;
     color: var(--text-primary);
   }
 
   &__company {
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
   }
 
@@ -353,7 +353,7 @@ watch(() => props.mgrCode, load, { immediate: true });
   /* 涨跌语义：数据不带色，视觉在前端决定（涨红跌绿，见 design.md） */
   &__best-return {
     margin: 0 0 var(--space-3);
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-secondary);
 
     &.is-rise {
@@ -367,14 +367,14 @@ watch(() => props.mgrCode, load, { immediate: true });
 
   &__hint {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-tertiary);
   }
 
   &__note {
     padding: var(--space-2) var(--space-3);
     margin: var(--space-3) 0 0;
-    font-size: 13px;
+    font-size: var(--text-label);
     line-height: 1.6;
     color: var(--text-secondary);
     background: var(--bg-soft);
@@ -388,7 +388,7 @@ watch(() => props.mgrCode, load, { immediate: true });
 
   &__subtitle {
     margin: 0 0 var(--space-2);
-    font-size: 14px;
+    font-size: var(--text-small);
     font-weight: 600;
     color: var(--text-primary);
   }
@@ -411,7 +411,7 @@ watch(() => props.mgrCode, load, { immediate: true });
   }
 
   &__fund-link {
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-primary);
     text-decoration: none;
 

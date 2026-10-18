@@ -321,7 +321,7 @@ onMounted(fetchHealth);
 
   &__title {
     margin: 0;
-    font-size: 18px;
+    font-size: var(--text-num-strong);
     font-weight: 600;
     line-height: 1.4;
     color: var(--text-primary);
@@ -329,7 +329,7 @@ onMounted(fetchHealth);
 
   &__desc {
     margin: 4px 0 0;
-    font-size: 14px;
+    font-size: var(--text-small);
     line-height: 1.5;
     color: var(--text-secondary);
   }
@@ -393,7 +393,7 @@ onMounted(fetchHealth);
 
   &__detail {
     grid-column: 3;
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
     white-space: nowrap;
 
@@ -405,7 +405,7 @@ onMounted(fetchHealth);
 
   &__status {
     justify-self: flex-end;
-    font-size: 14px;
+    font-size: var(--text-small);
     font-weight: 600;
     white-space: nowrap;
 
@@ -433,7 +433,7 @@ onMounted(fetchHealth);
   &__hint {
     grid-column: 1 / -1;
     margin: 6px 0 0;
-    font-size: 13px;
+    font-size: var(--text-label);
     line-height: 1.5;
     color: var(--text-secondary);
   }

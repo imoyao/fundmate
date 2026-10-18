@@ -221,7 +221,7 @@ const p = reactive(props.page);
 
 .parse-done-bar__icon {
   flex-shrink: 0;
-  font-size: 18px;
+  font-size: var(--text-num-strong);
   color: var(--color-success-ink);
 }
 

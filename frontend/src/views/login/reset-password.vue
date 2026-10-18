@@ -530,7 +530,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
 /* 状态提示区 */
 .reset-status-tip {
   margin-top: 12px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   text-align: center;
 }

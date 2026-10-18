@@ -136,7 +136,7 @@ function typeLabelOf(gap: HoldingGap): string {
 .gap-banner__name {
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-primary);
   white-space: nowrap;
 }

@@ -198,12 +198,12 @@ const pendingFixCount = computed(
 }
 
 .banner-icon {
-  font-size: 16px;
+  font-size: var(--text-body);
   color: var(--color-warning-ink);
 }
 
 .banner-text {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -229,7 +229,7 @@ const pendingFixCount = computed(
 }
 
 .hint-icon {
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--color-primary-ink);
 }
 
@@ -311,7 +311,7 @@ const pendingFixCount = computed(
 }
 
 .summary-primary {
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 500;
   color: var(--text-primary);
 }

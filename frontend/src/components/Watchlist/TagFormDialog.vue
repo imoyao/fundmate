@@ -174,7 +174,7 @@ const save = async () => {
 }
 
 .tag-form__label {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 500;
   color: var(--text-secondary);
 }
@@ -224,7 +224,7 @@ const save = async () => {
   display: inline-flex;
   align-items: center;
   padding: 4px 12px;
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 500;
   line-height: 1.2;
   border: 1px solid;

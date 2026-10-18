@@ -356,7 +356,7 @@ function onCardClick() {
   justify-content: center;
   width: 26px;
   height: 26px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   background: var(--glass-bg);
   border-radius: 50%;
@@ -411,7 +411,7 @@ function onCardClick() {
   margin-top: 10px;
   overflow: hidden;
   -webkit-line-clamp: 3;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.65;
   color: var(--text-secondary);
   -webkit-box-orient: vertical;
@@ -447,7 +447,7 @@ function onCardClick() {
 
 .road-metric__value {
   font-family: var(--font-mono, monospace);
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -484,7 +484,7 @@ function onCardClick() {
   justify-content: center;
   width: 26px;
   height: 26px;
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--text-tertiary-ink);
   border-radius: 50%;
   transition:

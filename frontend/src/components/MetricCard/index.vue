@@ -108,7 +108,7 @@ const displayValue = computed(() => {
   }
 
   &__title {
-    font-size: 13px;
+    font-size: var(--text-label);
     font-weight: 500;
     line-height: 1.4;
     color: var(--text-secondary);

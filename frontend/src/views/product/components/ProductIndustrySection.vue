@@ -237,7 +237,7 @@ function barColor(index: number): string {
 
 .industry-section__table {
   width: 100%;
-  font-size: 13px;
+  font-size: var(--text-label);
   border-collapse: collapse;
 }
 
@@ -321,7 +321,7 @@ function barColor(index: number): string {
 }
 
 .industry-section__other-title {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;
@@ -338,7 +338,7 @@ function barColor(index: number): string {
   display: flex;
   gap: var(--space-2);
   justify-content: space-between;
-  font-size: 13px;
+  font-size: var(--text-label);
 }
 
 .industry-section__other-item dt {

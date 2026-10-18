@@ -226,7 +226,7 @@ function round(value: number): number {
   }
 
   &__error-text {
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-secondary);
   }
 
@@ -255,7 +255,7 @@ function round(value: number): number {
   }
 
   &__overview-value {
-    font-size: 13px;
+    font-size: var(--text-label);
     font-weight: 600;
     color: var(--text-primary);
   }
@@ -291,7 +291,7 @@ function round(value: number): number {
   &__name {
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 13px;
+    font-size: var(--text-label);
     font-weight: 600;
     color: var(--text-primary);
     white-space: nowrap;

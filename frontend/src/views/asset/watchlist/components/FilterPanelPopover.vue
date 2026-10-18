@@ -265,7 +265,7 @@ function resetAllFilters() {
 }
 
 .filter-entry-btn__icon {
-  font-size: 14px;
+  font-size: var(--text-small);
 }
 
 /* 条件数角标：品牌实底 + 卡片色字，16px 胶囊（与分组 tab 的数量徽章同为「数字角标」语言）。
@@ -321,7 +321,7 @@ function resetAllFilters() {
    不再靠 flex 撑开居中（自然宽度下 text-align 无实际作用，保留仅作语义）。 */
 .filter-panel__count {
   flex: 1 0 auto;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   text-align: center;
   white-space: nowrap;

@@ -464,7 +464,7 @@ onMounted(startRealtime);
   height: 32px;
   padding: 0 16px;
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 500;
   color: var(--text-secondary);
   cursor: pointer;
@@ -534,7 +534,7 @@ onMounted(startRealtime);
   &__desc {
     max-width: 860px;
     margin-top: 4px;
-    font-size: 13px;
+    font-size: var(--text-label);
     line-height: 1.6;
     color: var(--text-secondary);
   }
@@ -569,7 +569,7 @@ onMounted(startRealtime);
   &__desc {
     max-width: 860px;
     margin-top: 4px;
-    font-size: 13px;
+    font-size: var(--text-label);
     line-height: 1.6;
     color: var(--text-secondary);
   }
@@ -665,7 +665,7 @@ onMounted(startRealtime);
     height: 32px;
     padding: 0 14px;
     font-family: inherit;
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--brand-700);
     cursor: pointer;
     background: var(--brand-100);

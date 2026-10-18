@@ -440,7 +440,7 @@ defineExpose({ hasPinned });
   width: 24px;
   height: 24px;
   padding: 0;
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--text-secondary);
   cursor: pointer;
   background: transparent;

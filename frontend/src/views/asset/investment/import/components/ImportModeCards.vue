@@ -240,7 +240,7 @@ function onVendorLogoError(e: Event) {
 
 .mode-cards-lock-hint {
   margin-top: 16px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   text-align: center;
 }
@@ -254,7 +254,7 @@ function onVendorLogoError(e: Event) {
 }
 
 .vendor-label {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -282,7 +282,7 @@ function onVendorLogoError(e: Event) {
 }
 
 .vendor-name {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 </style>

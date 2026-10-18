@@ -505,7 +505,7 @@ onMounted(() => {
   &__icon {
     display: inline-flex;
     align-self: center;
-    font-size: 14px;
+    font-size: var(--text-small);
     color: var(--text-tertiary-ink);
   }
 
@@ -520,7 +520,7 @@ onMounted(() => {
 
     strong {
       font-family: var(--font-mono);
-      font-size: 14px;
+      font-size: var(--text-mono-small);
       font-weight: 700;
       font-variant-numeric: tabular-nums;
       color: var(--brand-700);
@@ -614,7 +614,7 @@ onMounted(() => {
 .ocr-cancel-btn {
   height: 40px;
   padding: 0 24px;
-  font-size: 14px;
+  font-size: var(--text-small);
   border: none;
   border-radius: 6px;
   transition:

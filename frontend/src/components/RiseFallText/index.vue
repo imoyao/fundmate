@@ -178,26 +178,26 @@ const sizeClass = computed(() => {
 
 /* ===== 尺寸变体 ===== */
 .rise-fall-text.text-sm {
-  font-size: 13px;
+  font-size: var(--text-label);
 }
 
 .rise-fall-text.text-sm .number {
-  font-size: 13px;
+  font-size: var(--text-label);
 }
 
 .rise-fall-text.text-base {
-  font-size: 16px;
+  font-size: var(--text-body);
 }
 
 .rise-fall-text.text-base .number {
-  font-size: 16px;
+  font-size: var(--text-body);
 }
 
 .rise-fall-text.text-lg {
-  font-size: 20px;
+  font-size: var(--text-heading);
 }
 
 .rise-fall-text.text-lg .number {
-  font-size: 20px;
+  font-size: var(--text-heading);
 }
 </style>
