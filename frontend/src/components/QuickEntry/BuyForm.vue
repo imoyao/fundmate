@@ -1140,8 +1140,6 @@ async function handleSubmit() {
 }
 
 function resetForm() {
-  // 未保存离开保护的快照（#1853）：重置后必须重新记快照，否则上一轮的输入会被当成脏
-  markFormClean();
   Object.assign(form, defaultForm());
   selectedSecurityOption.value = null;
   securityOptions.value = [];
@@ -1152,6 +1150,15 @@ function resetForm() {
   if (props.hideAccountSelect && props.defaultLedgerId) {
     form.ledger_id = props.defaultLedgerId;
   }
+
+  // 未保存离开保护的脏基线（#1853）：必须在**全部重置动作之后**再记快照。
+  //
+  // 记在前面（此前的写法）会把「本轮刚填的值」记成基线，紧接着 Object.assign 又把
+  // 表单重置成默认值——基线≠当前，isDirty 于是为 true：提交成功后
+  // TransactionDrawer 走 v-model setter 关闭时读到脏，弹出「交易表单已填写，确定
+  // 放弃吗？」，且点「继续编辑」留下的是一个已被清空的表单。正确范式见
+  // DividendForm.resetForm（先重置、后记快照）。
+  markFormClean();
 }
 
 watch(

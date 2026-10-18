@@ -796,8 +796,6 @@ async function handleSubmit() {
 }
 
 function resetForm() {
-  // 未保存离开保护的快照（#1853）：重置后必须重新记，否则上一轮的输入会被当成脏
-  markFormClean();
   Object.assign(form, defaultForm());
   selectedPosition.value = null;
   positionsByAccount.value = {};
@@ -808,6 +806,12 @@ function resetForm() {
   if (props.hideAccountSelect && props.defaultLedgerId) {
     form.ledger_id = props.defaultLedgerId;
   }
+
+  // 未保存离开保护的脏基线（#1853）：必须在**全部重置动作之后**再记快照。
+  // 记在前面会把「本轮刚填的值」记成基线，紧接着 Object.assign 重置成默认值，
+  // 于是 isDirty 为 true——提交成功后关闭抽屉时被问「确定放弃吗？」。正确范式见
+  // DividendForm.resetForm。
+  markFormClean();
 }
 
 // ---------- 监听 ----------
