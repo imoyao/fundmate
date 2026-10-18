@@ -316,7 +316,13 @@ test.describe("产品详情页去重（页头承担识别信息）", () => {
     // 且首列是「账户」而不是「产品」
     await expect(table.locator("thead")).toHaveCount(1);
     await expect(table.locator("thead th").first()).toHaveText("账户");
-    await expect(page.getByText("产品", { exact: true })).toHaveCount(0);
+    // ⚠️ 这条断言必须**限定在 positions 表内**，不能全页 getByText：
+    // #2314（1c5647d34，详情页设计审计项修复）把**另一张**表——持仓明细
+    // `.holding-section__table`——的「代码 / 名称」两列**有意合并成一个「产品」列**
+    // （ProductHoldingSection.vue:138，代码注释写明「复用全站 ProductDisplay」）。
+    // 全页扫会把那张表的产品列表头一起算进来 ⇒ 期望 0 实得 1。
+    // 原不变式「positions 区块内不出现『产品』字样」本身仍然成立，只是作用域要收窄。
+    await expect(table.getByText("产品", { exact: true })).toHaveCount(0);
 
     // 行标签是账户名——产品名不再以任何形式出现在持仓区块里
     await expect(table.locator("tbody .product-position__account")).toHaveText([
@@ -478,8 +484,19 @@ test.describe("行业配置与持仓明细区块确实挂载（#2029 卡 C）", 
     await expect(section.getByText("前十大（季报）")).toBeVisible();
     await expect(section.getByText("不代表该基金的全部持仓")).toBeVisible();
 
-    // 缺失字段降级「—」（stock_name / shares / market_value 均为 null）
-    await expect(section.getByText("000858")).toBeVisible();
+    // 缺失字段降级（stock_name / shares / market_value 均为 null）
+    // ⚠️ 必须同时锁定「类名」与「行」两层：
+    // ① 类名：#2314 让持仓明细复用 ProductDisplay 的 compact 模式，
+    //    `.product-name` 渲染 `name || symbol || "--"`（ProductDisplay:14-16），
+    //    同时 `.product-code-compact` 渲染 `# ${symbol}`（:27-33）；名称为空时两者
+    //    文本都是 "000858" ⇒ 只限定类名仍会命中 2 个节点（strict mode 报错）。
+    // ② 行：持仓表有 2 行，两行都有 .product-name ⇒ 还得按文本筛出那一行。
+    // （另：旧注释写「降级『—』」与实际不符——名称缺失时实际**回落为代码**而非破折号。）
+    await expect(
+      section.locator(".holding-section__product .product-name", {
+        hasText: "000858"
+      })
+    ).toHaveText("000858");
 
     await expect(section).not.toContainText("暂无持仓明细数据");
 

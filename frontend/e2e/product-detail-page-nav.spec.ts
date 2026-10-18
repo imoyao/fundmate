@@ -480,8 +480,14 @@ test.describe("详情页页内导航（#1968）", () => {
     await expect(fund).toBeVisible();
     await expect(fund.locator(".fund-section__hint")).toHaveCount(0);
 
+    // ⚠️ 选择器由 `.fund-section__fact` 改为 `.facts-grid__cell`：
+    // 「基金经理」行已随 facts-grid 重构从 ProductFundSection 的旧 fact 结构挪进
+    // `<dl class="facts-grid">`（ProductFundSection.vue:125，现为
+    // `<dt class="facts-grid__label">基金经理</dt>`），该区块内只剩「业绩基准」
+    // 一行还带 `.fund-section__fact`（:175）。旧选择器匹配不到 ⇒ 本用例一直红，
+    // 但红的原因是选择器失效、**不是** #2191 回归——降级逻辑完好（:135 `v-else {{ DASH }}`）。
     await expect(
-      fund.locator(".fund-section__fact", { hasText: "基金经理" })
+      fund.locator(".facts-grid__cell", { hasText: "基金经理" })
     ).toContainText("—");
 
     expect(pageErrors).toEqual([]);
