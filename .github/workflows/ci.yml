@@ -324,6 +324,17 @@ jobs:
       - name: 扫描 git 脚本任务是否供给 git（阻断）
         run: python scripts/guard_cnb_script_task_git.py
 
+      # 「同一个 git 询问不许问两遍」守卫（源 CNB #573，2026-10-18）：
+      # `machine_branch.py` 的演练路径曾写 `code, _, _ = _git(merge-tree)` 取退出码、
+      # `if code == 1:` 再跑一遍取输出 —— 两次独立进程被当成「同一个答案的两半」。
+      # 第二遍一旦读空，冲突清单就**恒为空**，报告照样打印「✅ 无冲突，两侧内容可合」，
+      # 而它更响亮、更像结论 ⇒ 没人会怀疑「冲突清单为什么总是空的」。
+      # 判据按**结构形状**比对 `_git` 的参数（只认字面量的版本在真实代码上恒绿，
+      # 这是实测踩过的第一版）；并拿 `origin/dev` 上修复前的真实代码当回归锚点。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      - name: 扫描「同一 git 询问问两遍」形态（阻断）
+        run: python scripts/guard_ask_git_once.py
+
       # git-sync 分支范围守卫（源 CNB #167 / #172 / #269，2026-10-13 ~ 10-14）：
       # ① 插件不写 `branch` 时执行 `git push target --all`，会把 CNB 的 `main` 一并推给
       #    GitHub；而 GitHub 是权威源（`main` 只由发版 PR 推进）⇒ 两侧 `main` 各自长出
@@ -339,6 +350,19 @@ jobs:
       # （含 5 个变异回退探针）。
       - name: 扫描 git-sync push 目标分支回潮（阻断）
         run: python scripts/guard_git_sync_push_scope.py
+
+      # 机器分支「单写者」守卫（源 CNB #574，2026-10-19）：
+      # `bridge/github-dev` 上有两个写者 —— GitHub `.github/workflows/dev-reconcile.yml`
+      # 每日 `--force-with-lease` 重建并开 PR + automerge，而 CNB 的「跨仓同步」stage
+      # 每次推 `dev` 都换一个 base 重新合再普通 push。后果是结构性的：
+      # ① 归一化 base 变了 ⇒ 非快进 ⇒ `! [rejected] … (fetch first)`，推 dev 的构建天天红；
+      # ② 侥幸快进成功也会改写 reconcile 铺好的合并结果，而**它开的那张 PR 还开着**
+      #    ⇒ 内容与分支不符（外观一切正常，比红灯危险）。
+      # 处置：写权归 GitHub reconcile，CNB 降级为**只读探针**（默认 `DEFAULT_WRITER=github`）。
+      # 三条判据：不设 `MACHINE_BRANCH_WRITER=cnb` / 默认值不得翻转 / 对侧必须仍在推。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      - name: 扫描机器分支是否被两侧同时写（阻断）
+        run: python scripts/guard_bridge_machine_branch_single_writer.py
 
   # 乱码守卫（mojibake）：防止任何绕过本地 pre-commit 钩子的提交（--no-verify、
   # 或经 gh api / MCP 直推导致本地钩子不执行）把 GBK 乱码合进 PR。
@@ -611,6 +635,19 @@ jobs:
       - name: 检查 .cnb.yml 的顶层事件是否挂在分支之下（阻断）
         run: python scripts/check_cnb_events.py
 
+      # 定时作业可及性（源 CNB #578，2026-10-18）：构建 `cnb-ri6-1k57q4k9b` 每小时红一次，
+      # `! [rejected] dev -> dev (fetch first)` —— 而那条 cron 挂在 `main:` 段里、却推 `dev`。
+      # runner 的检出口径是 `git fetch origin refs/heads/<分支键>` +
+      # `git checkout -f -B "<分支键>" <sha>` ⇒ 作业挂在哪、推哪条必须一致，否则要么静默跳过
+      # （源 CNB #269 的假绿），要么拿一条注定推不上去的 ref 去推（本卡的恒红）。
+      # 与上一条（`check_cnb_events.py`）是一对：那条管「事件挂在分支之下吗」，
+      # 这条管「挂对了之后，作业的目标分支在不在自己的检出里」。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      # 判据边界（不拉网络、不判断两侧是否真的分叉）见脚本 docstring；
+      # 回归网在 scripts/tests/test_cron_job_reachability.py（含 2 个变异探针 + 缺陷形态 fixture）。
+      - name: 检查定时作业的目标分支是否在它自己的检出里（阻断）
+        run: python scripts/guard_cron_job_reachability.py
+
       # 镜像建卡的「扫描不可短路」守卫（源 CNB #450，2026-10-14）：`harvest_existing()`
       # 曾拿状态文件缓存当前置短路（缓存非空就直接返回），于是状态文件没记的镜像卡
       # 在判定时"不存在" ⇒ 每轮 cron/push 都把 ~140 张 GitHub 卡再建一遍，
@@ -634,6 +671,19 @@ jobs:
       - name: 跨仓同步通道回归网（阻断）
         run: python -m pytest scripts/tests/test_machine_branch.py -q -p no:cacheprovider
 
+      # 「同一 git 询问问两遍」守卫的回归网（源 CNB #573）：最重的一条用例拿
+      # `origin/dev` 上**修复前的真实代码**喂守卫，确认它真的转红——不加这条，
+      # 「守卫绿」只能证明「代码里没有它不认识的东西」，证明不了它能认出那个 bug。
+      - name: 「同一 git 询问问两遍」守卫回归网（阻断）
+        run: python -m pytest scripts/tests/test_ask_git_once_guard.py -q -p no:cacheprovider
+
+      # 机器分支单写者守卫的回归网（源 CNB #574）：含 3 个变异探针
+      # （只读闸门被删 / 默认写者翻转 / `.cnb.yml` 设写者），均已实测转红。
+      # `unittest discover` 已覆盖本文件，此处显式再跑一遍，让「它属于哪条通道」在
+      # CI 日志里看得见。**不新增 job**，也就不必动 `gate.needs`。
+      - name: 机器分支单写者回归网（阻断）
+        run: python scripts/tests/test_bridge_single_writer.py
+
       # 规则登记与生命周期守卫（源：用户问「写进 AGENTS.md 的规则，别的 Agent 不遵守怎么办」）。
       #
       # WHY：本仓有 30+ 个守门脚本，但**从没有人问过「AGENTS.md 里那些『强制 / 禁止』
@@ -646,6 +696,14 @@ jobs:
       # 不新增 job：并入本 job，也就不必动 gate.needs（#1559/#1560 两次事故都是合并冲突弄丢 needs）。
       - name: 守卫:规则登记与生命周期（阻断）
         run: python scripts/guard_rule_registry.py
+
+      # Issue 分诊的派活闸门（源 CNB #564，2026-10-18）：`issue_triage.py` 算出的
+      # `next=dispatch_npc` 是「可以交给 AI 自动推进」的唯一凭据。判据一旦松掉，
+      # AI 就会去动需要人拍板的卡 / 大车汇总卡——那比少做十张卡贵得多。
+      # 本步骤跑的是 `scripts/triage/issue_triage.py` 的回归网（纯离线、不打网络），
+      # 并入本 job，不新增 job 也就不必动 gate.needs。
+      - name: Issue 分诊闸门回归网（阻断） scripts/triage/issue_triage.py
+        run: python -m unittest scripts.tests.test_issue_triage -v
 
   gate:
     name: 质量门禁汇总

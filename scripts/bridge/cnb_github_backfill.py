@@ -22,6 +22,20 @@ CNB 构建内的环境**没有**任何 GitHub 凭证（`env` 里只有 `CNB_*`�
 - **状态只会计数，不会自动关**：GitHub 只接受「有评论提到它」的中转，不替人做
   「这卡到底做完了没」的判断（#1177 用 PR 状态代验收的教训）。
 
+机器人评论的口径（2026-10-18 改，源 CNB #561）
+--------------------------------------------
+旧版把 NPC / `[bot]` 的输出**一律拦掉**，理由是「回声 + 多半是执行日志」。代价是
+**结论也被一起拦掉**：NPC 在 CNB 卡上写下的「这条判据不成立」「原卡数字是错的」，
+GitHub 侧一个字都看不到。
+
+现口径改为**折叠而非丢弃**：
+- 机器人评论照常回写，但一律套 `<details>` 折叠，顶部标 `🤖 CNB NPC 回复`；
+- 带 `<!-- conclusion -->…<!-- /conclusion -->` 标记的**默认展开**（结论是要传给
+  对面的那部分事实）；
+- 真人评论不受影响（长短仍按 `COLLAPSE_THRESHOLD` 判）；
+- **存量不补**：早于 `NPC_INCLUDE_SINCE`（2026-10-18）的评论一律不写，`--since`
+  只能让范围更窄，不能把它撑大。
+
 幂等键
 ------
 每条回写评论末尾带一行隐藏标记：
@@ -84,10 +98,34 @@ MAX_BODY = 60000
 # 超过这个长度的正文会在回写评论里折叠（GitHub 原生 <details>），避免长评论刷屏。
 COLLAPSE_THRESHOLD = 2000
 
-# 机器人账号不回流：两侧各有自己的机器人（CNB 的 OCI / CodeBuddy，GitHub 的
-# github-actions[bot] 等），把它们的输出互相搬运只会造成回声。
+# 机器人账号的回写口径（2026-10-18 改，源 CNB #561）：**放行，但默认折叠**。
+#
+# 旧口径是「机器人一律不回流」，怕 NPC 输出被 GitHub 侧 AI review 再看见形成回声。
+# 代价是**高价值结论一个字都过不去**：NPC 在 CNB 卡上写下的「这条判据不成立」「原卡
+# 数字是错的」，GitHub 侧读者永远看不到——闸门只看作者是谁，不看说了什么。
+#
+# 现口径：机器人评论照常回写，但
+#   1. 一律套 `<details>` 折叠、顶部明写「🤖 CNB NPC 回复」，不淹没真人讨论；
+#   2. 带**结论标记**（见 CONCLUSION_RE）的**默认展开**——结论是唯一非要传过去的东西，
+#      藏起来等于没传。
+# 真人评论完全不受影响（长短仍按 COLLAPSE_THRESHOLD 判）。
+# **存量不补**（D56 口径，2026-10-18 由用户拍板）：只对改版之后新产生的评论生效。
 _BOT_SUFFIXES = ('[bot]',)
 _BOT_NAMES = {'OCI', 'CodeBuddy'}
+
+# 结论标记：NPC 用来声明「这段是结论，别折叠」。两种形态都认：
+#   <!-- conclusion -->…<!-- /conclusion -->
+#   <!-- conclusion: 一句话结论 -->
+# 标记本身渲染不可见，故正文只留结论正文。
+CONCLUSION_RE = re.compile(
+    r'<!--\s*conclusion\s*(?::\s*(?P<inline>.*?)\s*)?-->'
+    r'(?P<rest>.*?)'
+    r'(?:<!--\s*/conclusion\s*-->|\Z)',
+    re.DOTALL,
+)
+
+# 折叠条 summary 上最多展示多少字的结论摘要（再长就只报字数，免得 summary 自己刷屏）。
+SUMMARY_MAX = 120
 
 
 # ---------------------------------------------------------------------------
@@ -134,27 +172,75 @@ def collect_markers(comments: list[dict[str, Any]]) -> set[tuple[int, int]]:
     return found
 
 
+def extract_conclusion(body: str) -> str | None:
+    """抠出正文里的**结论段**（用 `<!-- conclusion -->` 声明）。没有则返回 None。
+
+    这是「高价值内容默认展开」的判据：不是靠猜「这段写得像不像结论」，而是靠作者
+    显式声明——**声明了才展开，没声明就按默认口径折叠**。宁可漏展开，不可把 3000 字
+    执行日志当成结论铺满一屏。
+    """
+    m = CONCLUSION_RE.search(body or '')
+    if not m:
+        return None
+    inline = (m.group('inline') or '').strip()
+    rest = (m.group('rest') or '').strip()
+    text = '\n'.join(p for p in (inline, rest) if p)
+    return text or None
+
+
+def _summary_line(text: str) -> str:
+    """折叠条上的一句话摘要：压平换行、超长截断并标字数。"""
+    flat = ' '.join(line.strip() for line in text.splitlines() if line.strip())
+    if len(flat) > SUMMARY_MAX:
+        return f'{flat[:SUMMARY_MAX]}…（共 {len(text)} 字）'
+    return flat
+
+
+def _strip_conclusion_markers(body: str) -> str:
+    """渲染正文时去掉结论标记本身——标记是给脚本看的，读者只需读到结论。"""
+    return CONCLUSION_RE.sub(
+        lambda m: '\n'.join(p for p in ((m.group('inline') or '').strip(), (m.group('rest') or '').strip()) if p), body
+    )
+
+
 def build_comment(cnb_issue: int, comment: dict[str, Any]) -> str:
     """拼一条回写到 GitHub 的评论。
 
-    形态：来源说明 + 原文（长文折叠）+ 隐藏幂等标记。
-    来源说明里带 CNB 原评论的 id，方便反查；`@{user}` 用原样 grep 得到，
-    不做 @ 提及（避免无意 ping 真人）。
+    形态：来源说明 + 正文（按需折叠）+ 隐藏幂等标记。折叠规则三条，互不覆盖：
+
+    | 作者 | 有结论标记 | 正文 |
+    |---|---|---|
+    | 真人 | — | 超过 COLLAPSE_THRESHOLD 才折叠 |
+    | 机器人 | 有 | **默认展开**（结论优先） |
+    | 机器人 | 无 | **一律折叠**（执行日志不铺屏） |
+
+    来源说明里带 CNB 原评论的 id，方便反查；不做 @ 提及（避免无意 ping 真人）。
     """
     author = comment.get('author') or {}
     who = author.get('nickname') or author.get('username') or 'unknown'
     when = str(comment.get('created_at') or '')[:19].replace('T', ' ')
-    body = comment.get('body') or ''
+    raw_body = comment.get('body') or ''
+    body = _strip_conclusion_markers(raw_body)
+    bot = is_bot(author)
+    conclusion = extract_conclusion(raw_body)
 
     header = (
         f'> 💬 **本评论由 CNB 回写**（来源：CNB #{cnb_issue}，评论 id `{comment.get("id")}`）\n'
         f'>\n'
-        f'> - 作者：{who}　时间：{when} UTC\n'
-        f'>\n'
-        f'> ⚠️ 正文为 CNB 侧原文的副本，仅追加不回改；后续讨论请在**本卡**继续。\n'
+        f'> - 作者：{who}　时间：{when} UTC' + ('　🤖 **CNB NPC 回复，非人类讨论**' if bot else '') + '\n'
+        '>\n'
+        '> ⚠️ 正文为 CNB 侧原文的副本，仅追加不回改；后续讨论请在**本卡**继续。\n'
     )
 
-    if len(body) > COLLAPSE_THRESHOLD:
+    if bot and conclusion:
+        # 结论必须一眼可见：正文照常给全，摘要放在折叠条外。
+        quoted = f'> 🤖 **结论**：{_summary_line(conclusion)}\n\n{body}'
+    elif bot:
+        quoted = (
+            f'<details>\n<summary>🤖 展开 CNB NPC 原文（{len(body)} 字，执行过程为主，非人类讨论）</summary>\n\n'
+            f'{body}\n\n</details>'
+        )
+    elif len(body) > COLLAPSE_THRESHOLD:
         quoted = f'<details>\n<summary>展开 CNB 侧原文（{len(body)} 字）</summary>\n\n{body}\n\n</details>'
     else:
         quoted = body
@@ -226,10 +312,7 @@ def _request(
                     'Settings → Secrets and variables → Actions → New repository secret。'
                 )
             else:
-                hint = (
-                    'GitHub 侧鉴权失败：检查 `GITHUB_TOKEN` 是否有效、'
-                    '权限是否含 `issues: write`。'
-                )
+                hint = 'GitHub 侧鉴权失败：检查 `GITHUB_TOKEN` 是否有效、权限是否含 `issues: write`。'
         elif exc.code == 404:
             hint = '路径或仓库不存在；核对 `CNB_REPO`（当前约定 `duoduobei/fundmate`）。'
         elif exc.code == 429:
@@ -245,8 +328,7 @@ def _request(
         ) from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(
-            f'网络不可达（{what or url}）：{exc.reason}。'
-            '属临时故障；本 workflow 每日定时，会自动重试。'
+            f'网络不可达（{what or url}）：{exc.reason}。属临时故障；本 workflow 每日定时，会自动重试。'
         ) from exc
 
 
@@ -403,17 +485,41 @@ def resolve_github_number(cnb_issue: dict[str, Any]) -> int | None:
     return int(m.group(1)) if m else None
 
 
+# 改版时刻（2026-10-18，源 CNB #561）：在此**之前**产生的评论一律不回写。
+#
+# 为什么写死一个时间戳而不是复用 `--since`：用户口径是「存量不补」——CNB 侧积了
+# 几千条 NPC 评论，一次性全搬到 GitHub 只会把历史卡刷屏；而 `--since` 是**手动调试**
+# 用的入参，忘了带就把存量全放过去，代价是**不可逆**（GitHub 评论发出去就撤不回）。
+# 写死在这里，任何调用路径都绕不过它；真要全量补，得显式改代码并过 review。
+NPC_INCLUDE_SINCE = datetime(2026, 10, 18, 0, 0, tzinfo=UTC)
+
+
+def default_since(explicit: datetime | None = None) -> datetime:
+    """实际生效的时间下界：显式 `--since` 与「存量不补」取**更晚**的那个。
+
+    `--since` 只能让范围更窄，不能把存量放进来。
+    """
+    if explicit is None:
+        return NPC_INCLUDE_SINCE
+    return max(explicit, NPC_INCLUDE_SINCE)
+
+
 def pending_comments(
     cnb_issue_number: int,
     cnb_comments: list[dict[str, Any]],
     existing: set[tuple[int, int]],
     since: datetime | None,
 ) -> list[dict[str, Any]]:
-    """挑出还没回写过的评论（按时间正序）。"""
+    """挑出还没回写过的评论（按时间正序）。
+
+    **机器人评论照收**——它们由 `build_comment` 负责折叠，而不是在这里被丢掉。
+    旧实现第一行就 `is_bot(...)` 跳过，等于拿作者身份代替了内容判断，把结论一并吞掉
+    （CNB #561）。
+    """
     out: list[dict[str, Any]] = []
     for c in cnb_comments:
         cid = c.get('id')
-        if cid is None or is_bot(c.get('author')):
+        if cid is None:
             continue
         if (cnb_issue_number, int(cid)) in existing:
             continue
@@ -427,6 +533,8 @@ def pending_comments(
 
 def run(*, dry_run: bool, limit: int | None, since: datetime | None) -> int:
     github_repo = os.environ.get('GITHUB_REPO') or GITHUB_REPO_DEFAULT
+    since = default_since(since)
+    print(f'⏱️ 时间下界：{since.isoformat()}（早于此刻的评论不回写，存量不补）')
     state = load_state()
     backfilled: dict[str, Any] = state.setdefault('backfilled', {})
 
@@ -510,7 +618,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--apply', action='store_true', help='真正回写（默认 dry-run）')
     parser.add_argument('--dry-run', action='store_true', help='只报告不写入（默认行为）')
     parser.add_argument('--limit', type=int, default=None, help='本次最多回写几条（调试用）')
-    parser.add_argument('--since', type=str, default=None, help='只回写该时间之后的 CNB 评论（ISO8601）')
+    parser.add_argument(
+        '--since',
+        type=str,
+        default=None,
+        help='只回写该时间之后的 CNB 评论（ISO8601）；早于 2026-10-18 的一律不写（存量不补）',
+    )
     args = parser.parse_args(argv)
 
     since = parse_ts(args.since) if args.since else None

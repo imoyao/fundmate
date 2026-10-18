@@ -73,6 +73,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from github_cnb_issues import (
     MIRROR_LABEL,
     cnb_api,
+    extract_github_number,
+    get_cnb_issue,
     list_cnb_issues,
     load_state,
 )
@@ -267,13 +269,33 @@ def plan(cards: list[dict[str, Any]], gh_by_number: dict[int, dict[str, Any]]) -
     return out
 
 
-def mirrored_cards(*, repo: str | None, state: dict[str, Any]) -> list[dict[str, Any]]:
-    """从状态文件 + CNB 列表拼出所有镜像卡的 {cnb, gh, cnb_state}。
+def mirrored_cards(*, repo: str | None, state: dict[str, Any], resolve_body: bool = True) -> list[dict[str, Any]]:
+    """从 CNB 列表 + 状态文件拼出所有镜像卡的 {cnb, gh, cnb_state}。
 
-    状态文件的真权威仍是镜像卡正文里的 `GitHub 编号：#N`，这里用状态文件只是**加速**
-    （它是缓存，删掉可自愈——与 `github_cnb_issues.py` 的口径一致）。
+    **两条路都要认**（2026-10-18 补齐第二路，源 CNB `#564`）：
+
+    1. **状态文件** `github_cnb_state.json`：`github_cnb_issues.py` 写它，是加速路径；
+    2. **卡面正文**：`labels` 含 `GitHub 同步` 但**状态文件没记**的卡，直接抠正文里的
+       `GitHub 编号：#N`。
+
+    为什么必须加第二条：状态文件是**缓存**，只在建卡成功的路径写入。实测（2026-10-18）
+    CNB 侧 **48 张** `GitHub 同步` 标签的 open 卡不在状态文件里 —— 它们**永远进不了
+    `plan()`**，于是一条永远不会被执行的代码被当成了「已经对齐」。这正是本仓反复踩的
+    「缓存当成全集」（CNB `#450` 的 224 张重复卡同因）。
+
+    `resolve_body=False` 时**不**读正文（只走状态文件），供回归网钉住「只认标签不够」。
+
+    两处防御，都被实测数据逼出来：
+
+    - **优先按 `github.com/<repo>/issues/N` 的 URL 抠，抠不到再用 `GitHub 编号：#N`**：
+      实测两种正文形态并存（见 CNB `#113` 与 `#187` 的卡面），只认一种会漏掉一半。
+      但 URL 优先是有理由的：自检卡 `#113` 的编号行写的是 `#888888`（不存在的编号），
+      按它抠会让脚本去追一张永远不存在的卡；按 URL 抠则落进「认不出」，可被报出来。
+    - 认不出 GitHub 编号的镜像卡**不静默跳过**，计数后由 `run()` 报出来。
     """
     cards: list[dict[str, Any]] = []
+    unresolved: list[int] = []
+    open_numbers = {int(i['number']) for i in list_cnb_issues('open')}
     for cnb_state in ('open', 'closed'):
         for item in list_cnb_issues(cnb_state):
             labels = [lb.get('name') if isinstance(lb, dict) else str(lb) for lb in (item.get('labels') or [])]
@@ -281,7 +303,18 @@ def mirrored_cards(*, repo: str | None, state: dict[str, Any]) -> list[dict[str,
                 continue
             number = int(item['number'])
             gh_number = _gh_number_from_state(state, number)
+            if gh_number is None and resolve_body:
+                try:
+                    detail = get_cnb_issue(number)
+                except Exception as exc:  # noqa: BLE001  # 单张读不到不该丢整轮
+                    print(f'  ⚠️ CNB #{number} 正文读取失败，本轮跳过：{exc}')
+                    continue
+                body = detail.get('body')
+                gh_number = _github_url_number_of(body) or extract_github_number(body)
+                if gh_number is not None:
+                    print(f'  ℹ️  CNB #{number} 不在状态文件里，按卡面正文认出 GitHub #{gh_number}')
             if gh_number is None:
+                unresolved.append(number)
                 continue
             cards.append(
                 {
@@ -290,7 +323,28 @@ def mirrored_cards(*, repo: str | None, state: dict[str, Any]) -> list[dict[str,
                     'cnb_state': item.get('state', cnb_state),
                 }
             )
+    if unresolved:
+        # 只报**还开着**的那些：已关的卡不需要任何动作，把它们列出来只会淹没真问题
+        # （实测 198 张 open + 283 张 closed 里，真正「认不出且还开着」的只有 1 张）。
+        still_open = sorted(n for n in unresolved if n in open_numbers)
+        if still_open:
+            print(f'⚠️ {len(still_open)} 张 open 的 `{MIRROR_LABEL}` 卡认不出 GitHub 编号：{still_open}')
+        closed_unknown = len(unresolved) - len(still_open)
+        if closed_unknown:
+            print(f'   （另有 {closed_unknown} 张**已关闭**的卡认不出编号，无需动作）')
     return cards
+
+
+def _github_url_number_of(body: str | None) -> int | None:
+    """从镜像卡正文的**来源 URL** 抠 GitHub 编号（`.../issues/N`）。
+
+    刻意不走「`GitHub 编号：#N`」那一行：自检卡（CNB `#113`）那行里是 `#888888`，
+    按它抠会让脚本去追一张不存在的卡。URL 是建卡脚本按真实编号写的，更可信。
+    """
+    import re as _re
+
+    m = _re.search(r'https://github\.com/[\w.-]+/[\w.-]+/issues/(\d+)', body or '')
+    return int(m.group(1)) if m else None
 
 
 def _gh_repo_name() -> str:

@@ -11,11 +11,13 @@
      而这**不可逆**（GitHub 评论只能编辑，不能由脚本静默撤回）；
   2. **映射猜错编号** → 评论贴到**别人的卡**上。这条最贵：镜像卡正文里的 GitHub 链接
      是唯一依据，所以本文件专门钉「抠不到就不猜，返回 None」；
-  3. **机器人评论回流** → CNB 的 NPC（OCI / CodeBuddy）输出被搬回 GitHub，
-     GitHub 的 AI review 再看见，形成回声。
+  3. **机器人评论刷屏** → CNB 的 NPC（OCI / CodeBuddy）输出被搬回 GitHub 铺满一屏。
 
-故按五类钉死：**幂等标记**、**机器人过滤**、**评论成形**、**编号映射**、**时间过滤**。
-全程**零网络、零写入**，只跑纯函数。
+2026-10-18（源 CNB #561）后，第 3 条从「拦住」改成「折叠」：机器人评论照常回写，
+但默认折叠进 `<details>`；带 `<!-- conclusion -->` 标记的默认展开。故本文件除
+**幂等标记**、**机器人过滤**、**评论成形**、**编号映射**、**时间过滤**五类之外，
+另钉第六类 **NPC 折叠口径**，以及「存量不补」这条硬下界。
+全程**零网络、零写入**；除 `TestStockNotBackfilled` 的一条接线用例（打桩全部 IO）外只跑纯函数。
 """
 
 import importlib.util
@@ -151,9 +153,20 @@ class TestPendingComments:
         todo = bf.pending_comments(2, [c], {(2, 555)}, None)
         assert todo == []
 
-    def test_bot_comments_are_skipped(self, bf):
+    def test_bot_comments_are_pending(self, bf):
+        """**机器人评论不再被跳过**（2026-10-18，源 CNB #561）。
+
+        旧行为是「作者是机器人 ⇒ 不回写」，代价是 NPC 写下的结论一个字都到不了
+        GitHub。现在闸门交给 `build_comment` 的折叠，`pending_comments` 一律放行。
+        """
         npc = _comment(cid=777, author={'username': 'CodeBuddy', 'is_npc': True})
-        assert bf.pending_comments(2, [npc], set(), None) == []
+        todo = bf.pending_comments(2, [npc], set(), None)
+        assert [c['id'] for c in todo] == ['777']
+
+    def test_bot_comment_still_idempotent(self, bf):
+        """放行不等于放弃幂等：已回写过的机器人评论照样不重发。"""
+        npc = _comment(cid=777, author={'username': 'CodeBuddy', 'is_npc': True})
+        assert bf.pending_comments(2, [npc], {(2, 777)}, None) == []
 
     def test_since_filters_old(self, bf):
         """--since 只回写该时刻之后的评论；更早的跳过。"""
@@ -207,6 +220,112 @@ class TestBuildComment:
     def test_missing_author_does_not_crash(self, bf):
         text = bf.build_comment(2, {'id': '9', 'body': 'x', 'author': None, 'created_at': None})
         assert 'unknown' in text
+
+
+# ---------------------------------------------------------------------------
+# 4b. NPC 折叠口径（2026-10-18，源 CNB #561）
+# ---------------------------------------------------------------------------
+
+
+def _npc_body(with_conclusion: bool) -> str:
+    core = '执行日志：跑了 3 条命令、2 个探针。' * 5
+    if not with_conclusion:
+        return core
+    return f'{core}\n\n<!-- conclusion -->\n结论：A 方案的判据不成立。\n<!-- /conclusion -->\n'
+
+
+class TestNpcCollapse:
+    def test_npc_without_conclusion_is_collapsed(self, bf):
+        """无结论标记 ⇒ 折叠。执行日志铺满一屏是这一条要防的唯一后果。"""
+        text = bf.build_comment(
+            561, _comment(cid=1, body=_npc_body(False), author={'username': 'CodeBuddy', 'is_npc': True})
+        )
+        assert '<details>' in text
+        assert 'CNB NPC 回复' in text
+        # 正文仍要完整保留 —— 折叠不是删减
+        assert '执行日志：跑了 3 条命令' in text
+
+    def test_npc_with_conclusion_is_expanded(self, bf):
+        """有结论标记 ⇒ 默认展开，且结论出现在折叠条之外（读者一眼可见）。"""
+        text = bf.build_comment(
+            561, _comment(cid=2, body=_npc_body(True), author={'username': 'CodeBuddy', 'is_npc': True})
+        )
+        outside = text.split('<details>')[0]
+        assert '结论：A 方案的判据不成立。' in outside
+        assert '<details>' not in text
+
+    def test_conclusion_marker_is_invisible(self, bf):
+        """标记本身不能漏进 GitHub 正文（HTML 注释虽不可见，但会把结论正文以外的噪声带过去）。"""
+        text = bf.build_comment(
+            561, _comment(cid=3, body=_npc_body(True), author={'username': 'CodeBuddy', 'is_npc': True})
+        )
+        assert '<!-- conclusion -->' not in text
+        assert '<!-- /conclusion -->' not in text
+
+    def test_inline_conclusion_form(self, bf):
+        """`<!-- conclusion: 一句话 -->` 这种单行形态也要认。"""
+        body = '很多日志\n<!-- conclusion: 应当保留现状 -->'
+        assert bf.extract_conclusion(body) == '应当保留现状'
+
+    def test_human_comment_never_force_collapsed(self, bf):
+        """真人短评不受 NPC 口径影响 —— 不能被误折叠，这是最贵的假阳性。"""
+        text = bf.build_comment(2, _comment(cid=4, body='短评', author={'username': 'imoyao', 'is_npc': False}))
+        assert '<details>' not in text
+        assert 'CNB NPC 回复' not in text
+
+    def test_human_long_comment_follows_threshold(self, bf):
+        """真人长评仍按 COLLAPSE_THRESHOLD 折叠，且不带 NPC 字样。"""
+        body = '字' * (bf.COLLAPSE_THRESHOLD + 1)
+        text = bf.build_comment(2, _comment(cid=5, body=body, author={'username': 'imoyao', 'is_npc': False}))
+        assert '<details>' in text
+        assert 'CNB NPC 回复' not in text
+
+    def test_npc_text_does_not_mention_none_author(self, bf):
+        """作者缺失仍按真人处理（既有契约），不要顺手判成机器人去折叠。"""
+        text = bf.build_comment(2, {'id': '6', 'body': 'x', 'author': None, 'created_at': None})
+        assert '<details>' not in text
+
+
+class TestStockNotBackfilled:
+    """「存量不补」这道下界（2026-10-18 用户拍板）。"""
+
+    def test_default_since_is_frozen(self, bf):
+        """不传 --since 时必须有下界，否则第一次跑就把几千条存量 NPC 评论搬过去。"""
+        assert bf.default_since(None) == bf.NPC_INCLUDE_SINCE
+
+    def test_explicit_since_cannot_widen(self, bf):
+        """--since 只能让范围更窄 —— 传个更早的日期不能把存量放进来。"""
+        assert bf.default_since(datetime(2020, 1, 1, tzinfo=UTC)) == bf.NPC_INCLUDE_SINCE
+
+    def test_explicit_since_can_narrow(self, bf):
+        later = datetime(2026, 11, 1, tzinfo=UTC)
+        assert bf.default_since(later) == later
+
+    def test_run_actually_applies_the_floor(self, bf, monkeypatch, capsys):
+        """**接线层**：`run()` 必须真的把下界用上。
+
+        只测 `default_since()` 的返回值不够——把 `run()` 里那行删掉，纯函数测试照样全绿，
+        而脚本会把存量全搬过去（这条正是探针 P4 咬出来的）。
+        """
+        seen: dict = {}
+
+        def fake_pending(n, cs, ex, since):
+            seen.setdefault('since', since)
+            return []
+
+        def fake_detail(_n):
+            # 正文里带 GitHub 溯源块，才走得到 pending_comments 那一步
+            return {'body': 'https://github.com/imoyao/fundmate/issues/1'}
+
+        monkeypatch.setattr(bf, 'list_cnb_issues', lambda: [{'number': 1, 'comment_count': 3}])
+        monkeypatch.setattr(bf, 'get_cnb_issue', fake_detail)
+        monkeypatch.setattr(bf, 'list_cnb_comments', lambda _n: [_comment(cid=1)])
+        monkeypatch.setattr(bf, 'list_github_comments', lambda _r, _n: [])
+        monkeypatch.setattr(bf, 'load_state', lambda: {'backfilled': {}})
+        monkeypatch.setattr(bf, 'save_state', lambda _s: None)
+        monkeypatch.setattr(bf, 'pending_comments', fake_pending)
+        bf.run(dry_run=True, limit=None, since=None)
+        assert seen['since'] == bf.NPC_INCLUDE_SINCE
 
 
 # ---------------------------------------------------------------------------
