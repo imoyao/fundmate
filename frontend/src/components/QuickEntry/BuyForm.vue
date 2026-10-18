@@ -128,23 +128,20 @@
     <!-- 交易日期与下单时间 -->
     <el-form-item label="交易日期" prop="trade_date">
       <div class="flex items-center gap-3 w-full">
-        <el-date-picker
-          v-model="form.trade_date"
-          type="date"
-          :class="showIsAfter15 ? 'flex-1' : 'w-full'"
-          style="width: 100%"
-          value-format="YYYY-MM-DD"
-          :clearable="false"
-          :disabled-date="disabledDate"
-        />
-        <el-radio-group
-          v-if="showIsAfter15"
-          v-model="form.isAfter15"
-          size="small"
-        >
-          <el-radio-button :value="false">15:00前</el-radio-button>
-          <el-radio-button :value="true">15:00后</el-radio-button>
-        </el-radio-group>
+        <!-- 日期框外层必须自带弹性：DatePicker 是 inheritAttrs:false，写它身上的
+             class（曾用 `:class="showIsAfter15 ? 'flex-1' : 'w-full'"`）根本落不到
+             DOM 上；宽度只能靠内联 width:100% + 外层的 flex-1/min-w-0 给。 -->
+        <div class="min-w-0 flex-1">
+          <el-date-picker
+            v-model="form.trade_date"
+            type="date"
+            style="width: 100%"
+            value-format="YYYY-MM-DD"
+            :clearable="false"
+            :disabled-date="disabledDate"
+          />
+        </div>
+        <TradeSlotSwitch v-if="showIsAfter15" v-model="form.isAfter15" />
       </div>
       <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
         <span
@@ -213,59 +210,19 @@
           </span>
         </div>
 
-        <!-- 第二行：快捷折扣按钮（仅在费率模式下独立一行展示，间距宽松） -->
+        <!-- 第二行：快捷折扣档位（仅费率模式）。
+             「多选一、选项少」→ SegmentedControl（design.md 语言边界），
+             与份额档位/交易时点同一套软按钮选中态，不再手写 el-button 组。 -->
         <div
           v-if="feeMode === 'rate'"
           class="flex flex-wrap items-center gap-2 mt-1"
         >
-          <el-button
-            size="small"
-            plain
-            round
-            class="quick-ratio-btn"
-            :class="{ active: fundFeeDiscount === 1.0 }"
-            @click="
-              fundFeeDiscount = 1.0;
-              onFundFeeDiscountChange();
-            "
-            >原价</el-button
-          >
-          <el-button
-            size="small"
-            plain
-            round
-            class="quick-ratio-btn"
-            :class="{ active: fundFeeDiscount === 0.1 }"
-            @click="
-              fundFeeDiscount = 0.1;
-              onFundFeeDiscountChange();
-            "
-            >1折</el-button
-          >
-          <el-button
-            size="small"
-            plain
-            round
-            class="quick-ratio-btn"
-            :class="{ active: fundFeeDiscount === 0.01 }"
-            @click="
-              fundFeeDiscount = 0.01;
-              onFundFeeDiscountChange();
-            "
-            >0.1折</el-button
-          >
-          <el-button
-            size="small"
-            plain
-            round
-            class="quick-ratio-btn"
-            :class="{ active: fundFeeDiscount === 0 }"
-            @click="
-              fundFeeDiscount = 0;
-              onFundFeeDiscountChange();
-            "
-            >免申购费</el-button
-          >
+          <SegmentedControl
+            v-model="fundFeeDiscount"
+            :options="FEE_DISCOUNT_OPTIONS"
+            aria-label="申购费折扣"
+            @change="onFundFeeDiscountChange"
+          />
         </div>
       </div>
 
@@ -367,6 +324,8 @@ import { checkTradingDay } from "@/api/utils";
 import { useFundTradeDate } from "@/composables/useFundTradeDate";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
+import TradeSlotSwitch from "@/components/TradeSlotSwitch/index.vue";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import {
   ALLOCATION_OPTIONS,
   LEDGER_TYPE_SHORT,
@@ -547,6 +506,14 @@ const isUpdating = ref(false);
 
 // 基金手续费折扣
 const fundFeeDiscount = ref(0.1);
+
+/** 折扣档位：与份额档位同语言（SegmentedControl），值是折扣系数本身 */
+const FEE_DISCOUNT_OPTIONS = [
+  { label: "原价", value: 1 },
+  { label: "1折", value: 0.1 },
+  { label: "0.1折", value: 0.01 },
+  { label: "免申购费", value: 0 }
+];
 
 // ── 净值缺失先记账 ──
 // 当日净值未发布 / 数据源故障拉不到时，不再把用户挡在记账之外：置 navMissing，
@@ -1272,34 +1239,6 @@ defineExpose({ handleSubmit, resetForm, isDirty });
 
 .account-create-btn :deep(.el-icon) {
   margin-right: 0;
-}
-
-.quick-ratio-btn {
-  height: 40px;
-  padding: 0 16px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  background-color: transparent;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  transition:
-    background-color 0.2s,
-    border-color 0.2s,
-    color 0.2s,
-    transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.quick-ratio-btn:hover {
-  color: var(--brand-700);
-  background-color: var(--brand-100);
-  border-color: var(--brand-700);
-}
-
-.quick-ratio-btn:active {
-  color: var(--brand-700);
-  background-color: var(--brand-200);
-  border-color: var(--brand-700);
-  transform: scale(0.92);
 }
 
 :deep(.el-button--primary) {
