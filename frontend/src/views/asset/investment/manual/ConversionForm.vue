@@ -215,35 +215,40 @@
             </el-form-item>
 
             <el-form-item label="转入">
-              <!-- 口径切换独占一行：半屏列宽下与输入框并排会把数字框压到 190px 以内 -->
+              <!-- 口径切换收进输入框右端（#2348 第二轮）：
+                   独立一排的胶囊比它要修饰的输入框更抢眼，读者会先看到「切换器」
+                   再看到「要填什么」。做成输入框内的文字开关后，两级结构变成
+                   一级：先读输入框，需要时再注意右端的口径。 -->
               <div class="in-amount-field">
-                <SegmentedControl
-                  v-model="form.inMode"
-                  :options="inModeOptions"
-                  class="in-amount-field__switch"
-                  aria-label="转入口径"
-                />
                 <el-input-number
-                  v-if="form.inMode === 'amount'"
-                  v-model="form.inAmount"
+                  v-model="inValue"
                   style="width: 100%"
                   :controls="false"
                   :min="0"
                   :step="0.01"
                   :precision="2"
-                  placeholder="留空 = 净额全部转入"
-                />
-                <!-- 份额口径：确认单上写的是份额，按金额反算会差 0.0001（#2348） -->
-                <el-input-number
-                  v-else
-                  v-model="form.inQuantity"
-                  style="width: 100%"
-                  :controls="false"
-                  :min="0"
-                  :step="0.01"
-                  :precision="2"
-                  placeholder="留空 = 净额全部转入"
-                />
+                  :placeholder="
+                    form.inMode === 'amount'
+                      ? '留空 = 净额全部转入'
+                      : '留空 = 净额全部买入'
+                  "
+                >
+                  <template #suffix>
+                    <div class="unit-toggle" role="group" aria-label="转入口径">
+                      <button
+                        v-for="opt in IN_MODE_OPTIONS"
+                        :key="opt.value"
+                        type="button"
+                        class="unit-toggle__item"
+                        :class="{ 'is-on': form.inMode === opt.value }"
+                        :aria-pressed="form.inMode === opt.value"
+                        @click="form.inMode = opt.value"
+                      >
+                        {{ opt.label }}
+                      </button>
+                    </div>
+                  </template>
+                </el-input-number>
                 <div class="helper">
                   {{
                     form.inMode === "amount"
@@ -606,11 +611,28 @@ const form = reactive(defaultForm());
 const feeInputs = reactive({ redeem: 0, compensate: 0 });
 const feeDirty = ref(false);
 
-/** 转入口径切换选项（2 档「多选一」→ SegmentedControl） */
-const inModeOptions = [
+/** 转入口径（2 档「多选一」）。模板里内嵌在输入框右端做文字开关，
+ *  用 `as const` 保住字面量类型，`aria-pressed` / `form.inMode` 比较才不会退化成 string */
+const IN_MODE_OPTIONS = [
   { label: "按金额", value: "amount" },
   { label: "按份额", value: "quantity" }
 ] as const;
+
+/**
+ * 一个输入框承载两种口径（#2348 第二轮）。
+ *
+ * 改动前是两个互斥的 `el-input-number`（`v-if` / `v-else`）：切换口径等于换组件实例，
+ * 光标丢失、输入框回到空态，而占位文案两边还都写着「留空 = 净额全部转入」——
+ * 用户看不出自己现在填的是钱还是份。改成单框 + 读写映射后，切换只换
+ * 「这个数字的含义」，两个口径各留各的值，切回来原数还在。
+ */
+const inValue = computed<number | undefined>({
+  get: () => (form.inMode === "amount" ? form.inAmount : form.inQuantity),
+  set: v => {
+    if (form.inMode === "amount") form.inAmount = v;
+    else form.inQuantity = v;
+  }
+});
 
 /** 「全部」转出：不传 out_quantity，后端按持仓 4 位精确值处理（D8/§5.2） */
 const transferAll = ref(false);
@@ -1023,7 +1045,7 @@ defineExpose({ isDirty, resetForm });
   color: var(--text-secondary);
 }
 
-/* 转入金额区：口径切换独占一行右对齐，输入框整行吃满 */
+/* 转入金额区：输入框整行吃满，口径开关在框内右端 */
 .in-amount-field {
   display: flex;
   flex-direction: column;
@@ -1031,8 +1053,51 @@ defineExpose({ isDirty, resetForm });
   width: 100%;
 }
 
-.in-amount-field__switch {
-  align-self: flex-end;
+/* 输入框内的口径开关：无底无边，只有当前项是实心文字。
+   用小号字 + 细分隔线，读作「单位换算」而不是「一个独立控件」。 */
+.unit-toggle {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+  padding-left: 8px;
+  margin-left: 4px;
+  border-left: 1px solid var(--border-light);
+}
+
+/* 命中区补到 24px 高（WCAG 2.2 AA 目标尺寸）：12px 字 + 2px 内距只有 20px，
+   在触屏上等于要精准点到一行字。 */
+.unit-toggle__item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 24px;
+  padding: 0 4px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-tertiary-ink);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-xs);
+  transition: color 0.15s ease;
+}
+
+/* 焦点环用 inset：外扩的 `--focus-ring` 会被输入框的圆角裁掉一圈，
+   裁剩半环比没有更糟。inset 2px 实环在同一个矩形里，不受裁切影响。 */
+.unit-toggle__item:focus-visible {
+  color: var(--brand-800);
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--brand-700);
+}
+
+.unit-toggle__item:hover {
+  color: var(--text-secondary);
+}
+
+.unit-toggle__item.is-on {
+  font-weight: 500;
+  color: var(--brand-ink);
 }
 
 /* 差额去向提示：与既有告警块同一视觉层级（bg-soft 底、无边框），
