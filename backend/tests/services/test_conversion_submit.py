@@ -121,8 +121,13 @@ def test_submit_two_legs_paired_and_conserved(db, make_position, make_transactio
 
     result = _submit(db, pos)
 
-    # 转出持仓清空（全部转出）
-    assert db.query(Position).filter_by(symbol='000001').first() is None
+    # 转出持仓清空：行保留但标记 cleared（#2343 清仓不删行），不再出现在当前持仓视图
+    out_pos = db.query(Position).filter_by(symbol='000001').first()
+    assert out_pos is not None
+    assert out_pos.id == pos.id
+    assert out_pos.ownership_status == 'cleared'
+    assert Money.min_unit_to_shares(out_pos.quantity) == 0
+    assert out_pos.cleared_at is not None
     # 转入持仓建立，份额 4 位入库（985.12 / 2.0）
     in_pos = db.query(Position).filter_by(symbol='000002').first()
     assert in_pos is not None
