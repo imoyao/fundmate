@@ -371,3 +371,58 @@ def test_script_never_imports_network(mod):
     src = _SCRIPT_PATH.read_text(encoding='utf-8').split('"""', 2)[-1]
     for banned in ('import urllib', 'import requests', 'import socket', 'import http'):
         assert banned not in src, f'脚本出现网络依赖：{banned}'
+
+
+def test_push_failure_surfaces_stderr(mod, tmp_path):
+    """推失败时必须把 **remote 的原话**打出来（源 CNB #567，2026-10-18）。
+
+    事故形态：`_git()` 只收 stdout，而 `git push` 的拒绝原因全在 stderr ⇒
+    构建日志里只剩一句「❌ 推机器分支失败：」，后面是空串。分叉存在了两天、每天红一次，
+    却没有任何一行说得出「被拒 / 非快进 / 远端领先」。**有信号等于没信号。**
+
+    判据钉两件事：
+    1. `_git()` 的返回值里含 stderr（拿本地一条必然失败的命令验证，不联网）；
+    2. 走 `run()` 的失败分支时，被捕获的输出里出现 remote 报的那句话。
+
+    探针：把 `_git()` 改回只收 stdout ⇒ 第 1 条断言转红（实测）。
+    """
+    # ① `_git` 必须把 stderr 带回来。`git show <不存在的 sha>` 必然失败、原因只写 stderr。
+    repo = tmp_path / 'repo'
+    repo.mkdir()
+    _git(repo, 'init', '-q', '-b', 'dev', env=_env())
+    code, out = mod._git(['show', '0' * 40], str(repo))
+    assert code != 0
+    assert out.strip(), '`_git()` 只收 stdout —— stderr 被丢掉了，失败原因会打成空串'
+
+    # ② `run()` 的推失败分支要把原因与目标分支都打出来。
+    #    造一个**能合、但推不上去**的场景：github_url 指向一个不存在的本地路径。
+    work = tmp_path / 'work'
+    work.mkdir()
+    env = _env()
+    _git(work, 'init', '-q', '-b', 'dev', env=env)
+    _git(work, 'config', 'commit.gpgsign', 'false', env=env)
+    (work / 'a.txt').write_text('a\n', encoding='utf-8')
+    _git(work, 'add', '.', env=env)
+    _git(work, 'commit', '-q', '--no-gpg-sign', '-m', 'base', env=env)
+    _git(work, 'checkout', '-q', '-b', 'gh', env=env)
+    (work / 'gh.txt').write_text('gh\n', encoding='utf-8')
+    _git(work, 'add', '.', env=env)
+    _git(work, 'commit', '-q', '--no-gpg-sign', '-m', 'gh', env=env)
+    _git(work, 'checkout', '-q', 'dev', env=env)
+    (work / 'cnb.txt').write_text('cnb\n', encoding='utf-8')
+    _git(work, 'add', '.', env=env)
+    _git(work, 'commit', '-q', '--no-gpg-sign', '-m', 'cnb', env=env)
+
+    args = argparse.Namespace(
+        apply=True,
+        dry_run=False,
+        push=True,
+        base='cnb',
+        branch='dev',
+        machine_branch='bridge/github-dev',
+        cnb_url=str(work),
+        github_url=str(tmp_path / 'does-not-exist.git'),
+        cwd=str(work),
+    )
+    rc = mod.run(args)
+    assert rc == 2, f'推失败应以「结论不可信」退出（2），实际 {rc}'

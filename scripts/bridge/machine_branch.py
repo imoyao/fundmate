@@ -93,7 +93,11 @@ def _git(args: list[str], cwd: str | None = None) -> tuple[int, str]:
     r = subprocess.run(
         ['git', *args], cwd=cwd, capture_output=True, text=True, encoding='utf-8', errors='replace'
     )
-    return r.returncode, (r.stdout or '').strip()
+    # 把 stderr 拼进来（源 CNB #567）：`git push` / `git fetch` 的失败原因**全在 stderr**，
+    # 只收 stdout 会让「推失败」这一行打印出一个空原因 —— 有信号等于没信号。
+    # 成功的路径上 stderr 多为 `To <url>` / ` * [new branch]` 这类无害内容，不影响报告。
+    detail = '\n'.join(x.strip() for x in (r.stdout, r.stderr) if (x or '').strip())
+    return r.returncode, detail
 
 
 def plan(base: str, machine_branch: str, merge_ref: str = 'merge') -> dict:
@@ -213,10 +217,19 @@ def run(args: argparse.Namespace) -> int:
         return 0
 
     code, out = _git(['push', args.github_url, f'HEAD:refs/heads/{p["machine_branch"]}'], wt)
-    _git(['worktree', 'remove', '--force', wt], cwd)
     if code != 0:
-        print(f'❌ 推机器分支失败：{out}', file=sys.stderr)
+        # ⚠️ 必须在 `worktree remove` **之前**把 remote 的原文打出来（源 CNB #567，2026-10-18）。
+        # `_git()` 只收 stdout，而 `git push` 的进展与拒绝原因走 **stderr**
+        # （`! [rejected] … (fetch first)` / `hint: Updates were rejected …` 全在 stderr），
+        # 于是本行原先打印的 `{out}` 是**空串**：构建日志里只剩一句
+        # 「❌ 推机器分支失败：」，后面什么都没有 —— 分叉存在了两天，却没有任何一行说得出
+        # 「GitHub 领先 / 被拒 / 快进不行」。这正是本仓反复踩的「有信号等于没信号」形态。
+        # 返回码 2 保留（「结论不可信」），另起一行点名分支 —— 后面要用它开 PR。
+        print(f'❌ 推机器分支失败：{out or "(stdout 为空，原因见 stderr)"}', file=sys.stderr)
+        print(f'   目标分支：{p["machine_branch"]}（未推上去；下次重跑会覆盖同一 ref）', file=sys.stderr)
+        _git(['worktree', 'remove', '--force', wt], cwd)
         return 2
+    _git(['worktree', 'remove', '--force', wt], cwd)
     print(build_report(p, pushed=True, conflicts=[]))
     return 0
 
