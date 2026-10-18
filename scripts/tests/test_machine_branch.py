@@ -446,7 +446,7 @@ def test_script_never_imports_network(mod):
         assert banned not in src, f'脚本出现网络依赖：{banned}'
 
 
-def test_push_failure_surfaces_stderr(mod, tmp_path, capsys):
+def test_push_failure_surfaces_stderr(mod, tmp_path, capsys, monkeypatch):
     """推失败时必须把 **remote 的原话**打出来（源 CNB #567，2026-10-18）。
 
     事故形态：`_git()` 只收 stdout，而 `git push` 的拒绝原因全在 stderr ⇒
@@ -515,6 +515,9 @@ def test_push_failure_surfaces_stderr(mod, tmp_path, capsys):
         github_url=str(remote),
         cwd=str(work),
     )
+    # 源 CNB #574 起默认**不是**写者（默认只读探针，根本不推）。本用例钉的是「写者身份下推失败
+    # 的报错形态」，故必须显式把自己声明成写者；否则用例会退化成「没调 push、恒绿」。
+    monkeypatch.setenv(mod.WRITER_ENV, 'cnb')
     rc = mod.run(args)
     assert rc == 2, f'推失败应以「结论不可信」退出（2），实际 {rc}'
     # 推失败那一行必须打出 **remote 的原话**（空原因等于没信号），且点名目标分支。
@@ -522,3 +525,104 @@ def test_push_failure_surfaces_stderr(mod, tmp_path, capsys):
     assert '推机器分支失败' in err_out, f'须显式说推失败，实际 stderr：{err_out!r}'
     assert 'rejected' in err_out, f'须把 git 的拒绝原话打出来（非快进/被拒），实际：{err_out!r}'
     assert 'bridge/github-dev' in err_out, f'须点名目标分支，实际：{err_out!r}'
+
+
+# ---------------------------------------------------------------------------
+# 源 CNB #574（2026-10-19，机制说明）：`bridge/github-dev` 只能有**一个写者**。  <!-- cross-repo-ref-allow -->
+# GitHub 侧 `.github/workflows/dev-reconcile.yml` 每日 `--force-with-lease` 重建
+# 并开 PR + automerge；CNB 侧只会每轮换个 base 重推 ⇒ 非快进被拒、且会把
+# reconcile 铺好的合并结果冲掉。故 CNB 侧默认降级为**只读探针**。
+# ---------------------------------------------------------------------------
+
+
+def test_default_writer_is_github(mod, monkeypatch):
+    """默认写者是 GitHub reconcile，不是 CNB —— 这是「降级为只读」的开关本身。
+
+    探针：把 `DEFAULT_WRITER` 改成 `'cnb'` ⇒ 本用例转红。
+    """
+    monkeypatch.delenv(mod.WRITER_ENV, raising=False)
+    assert mod.writer() == 'github', '默认必须**不是** CNB —— 否则两个写者并存（源 CNB #574）'  # cross-repo-ref-allow
+
+
+def test_writer_env_can_hand_over_but_only_explicitly(mod, monkeypatch):
+    """只有显式 `MACHINE_BRANCH_WRITER=cnb` 才接管写权；其余取值一律回到默认（不猜）。"""
+    monkeypatch.setenv(mod.WRITER_ENV, 'cnb')
+    assert mod.writer() == 'cnb'
+    for junk in ('', 'github', 'yes', 'TRUE', 'nonsense'):
+        monkeypatch.setenv(mod.WRITER_ENV, junk)
+        assert mod.writer() == 'github', f'`{junk}` 不该被读成接管写权'
+
+
+def test_readonly_probe_never_pushes(mod, tmp_path, monkeypatch, capsys):
+    """默认身份下：合并照跑、结论照报，但**一次 push 都不发**。
+
+    判据锚在「push 有没有被调用」，而不是「返回了 0」——返回 0 却推过，正是本卡要消灭的形态。
+    探针：把 `run()` 里 `if writer() != 'cnb':` 那段删掉 ⇒ push 会被调用且本用例转红。
+    """
+    repo = tmp_path / 'probe'
+    repo.mkdir()
+    env = _env()
+    _git(repo, 'init', '-q', '-b', 'dev', env=env)
+    _git(repo, 'config', 'commit.gpgsign', 'false', env=env)
+    _git(repo, 'config', 'user.email', 't@e', env=env)
+    _git(repo, 'config', 'user.name', 't', env=env)
+    (repo / 'a.txt').write_text('a\n', encoding='utf-8')
+    _git(repo, 'add', '.', env=env)
+    _git(repo, 'commit', '-q', '--no-gpg-sign', '-m', 'base', env=env)
+    _git(repo, 'checkout', '-q', '-b', 'gh-dev', env=env)
+    (repo / 'gh.txt').write_text('gh\n', encoding='utf-8')
+    _git(repo, 'add', '.', env=env)
+    _git(repo, 'commit', '-q', '--no-gpg-sign', '-m', 'gh adds', env=env)
+    _git(repo, 'checkout', '-q', 'dev', env=env)
+    (repo / 'cnb.txt').write_text('cnb\n', encoding='utf-8')
+    _git(repo, 'add', '.', env=env)
+    _git(repo, 'commit', '-q', '--no-gpg-sign', '-m', 'cnb adds', env=env)
+
+    monkeypatch.delenv(mod.WRITER_ENV, raising=False)
+    # 合并要在临时 worktree 里真的跑起来 ⇒ 需要 git 身份（#2262 的同款前置）。
+    monkeypatch.setenv('GIT_AUTHOR_NAME', 't')
+    monkeypatch.setenv('GIT_AUTHOR_EMAIL', 't@e')
+    monkeypatch.setenv('GIT_COMMITTER_NAME', 't')
+    monkeypatch.setenv('GIT_COMMITTER_EMAIL', 't@e')
+
+    calls: list[list[str]] = []
+    real = mod._git
+
+    def spy(args, cwd=None):
+        calls.append(list(args))
+        return real(args, cwd)
+
+    monkeypatch.setattr(mod, '_git', spy)
+
+    args = argparse.Namespace(
+        apply=True,
+        dry_run=False,
+        push=True,  # 调用方**要求**推，但写者身份不是 CNB ⇒ 仍然不推
+        base='cnb',
+        branch='dev',
+        machine_branch='bridge/github-dev',
+        cnb_url=str(repo),
+        github_url=str(repo),
+        cwd=str(repo),
+    )
+    rc = mod.run(args)
+    out = capsys.readouterr().out
+
+    pushed = [c for c in calls if c and c[0] == 'push']
+    assert not pushed, f'默认（非写者）身份下**一个字节都不该推**，实际：{pushed}'
+    assert rc == 0, f'无冲突应退 0（含义已收窄为「可合（观测）」），实际 {rc}'
+    # 只读态必须**说人话**：报告里不能只写「无冲突」就完事，否则读者会以为已送达。
+    assert '只读探针' in out, f'须明说这是只读探针，实际输出：{out!r}'
+    assert '未推送' in out or '未动' in out, f'须明说没有推送，实际输出：{out!r}'
+
+
+def test_readonly_report_does_not_claim_pushed(mod):
+    """报告文案层面也要区分「可合（观测）」与「已推送」——退 0 的语义已被收窄。"""
+    p = mod.plan('cnb', 'bridge/github-dev')
+    readonly = mod.build_report(p, pushed=False, conflicts=[], dry_run=False)
+    dry = mod.build_report(p, pushed=False, conflicts=[], dry_run=True)
+    pushed = mod.build_report(p, pushed=True, conflicts=[])
+    assert '只做**读探针**' in readonly, readonly
+    assert '只做**读探针**' not in dry, f'演练与只读是两件事，别混：{dry}'
+    assert '已推成' in pushed, pushed
+    assert '已推成' not in readonly, (readonly, pushed)

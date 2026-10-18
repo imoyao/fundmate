@@ -1227,6 +1227,25 @@ pull 又只拉 `dev`，**哪边都拉不动对方** ⇒ **死锁，两边都不�
   - 收敛工具：`python scripts/bridge/dev_converge.py --apply`（建 rescue 分支 + 合 + 列冲突；
     **不**动 `dev`、**不**自动解冲突、**不** push）。回归网
     `backend/tests/test_dev_converge.py`（含 1 个变异探针）。详见 §18。
+- ⚠️ **`bridge/github-dev` 只能有一个写者：GitHub reconcile 写，CNB 只读探针**（2026-10-19，源 CNB #574；守卫 `scripts/guard_bridge_machine_branch_single_writer.py`）。<!-- cross-repo-ref-allow -->
+  这张卡来自一张构建日志：两条 pipeline 同一天都红在 `! [rejected] … (fetch first)`，
+  而它们撞的是**同一条分支被两个写者各写一份**：
+
+  | 写者 | 触发 | 写法 | 开 PR 吗 |
+  |---|---|---|---|
+  | GitHub `.github/workflows/dev-reconcile.yml` | 每日 cron | `push --force-with-lease` + `merge -X ours` | **开**（挂 automerge） |
+  | CNB `.cnb.yml`「跨仓同步」stage | 每次推 `dev` | 每轮换 base 重合、普通 push | 不开 |
+
+  CNB 这侧每轮都必然徒劳：归一化 base 变了 ⇒ 非快进被拒；侥幸快进也会**改写** reconcile
+  刚铺好的合并结果，而**它开的那张 PR 还开着** ⇒ 内容与分支不符（外观正常，比红灯危险）。
+  ⇒ 写权归 GitHub reconcile（唯一写者），CNB 降级为**只读探针**：
+  合并照跑、结论照报（「两侧能不能无冲突合并」每轮都算得出来），但**一次 push 都不发**。
+  要接管时设 `MACHINE_BRANCH_WRITER=cnb`，并**同时停掉** reconcile 的推送步骤 ——
+  两个写者不能并存，且写者身份必须是**配置**不是**时序**（`--force-with-lease` 是原子检验，
+  「先比 SHA 再推」永远是竞态）。
+  判据：`scripts/guard_bridge_machine_branch_single_writer.py`（并入 `ci.yml` 的 `layout_guard`，
+  回归网 `scripts/tests/test_bridge_single_writer.py`，3 个变异探针均实测转红）。
+  推导见 `docs/dev/github-cnb-mirror.md` §23。
 - ⚠️ **「收敛」是动作不是状态：合完不等于成功，且会反复岔开**（2026-10-14 实测，源 CNB #269）。<!-- cross-repo-ref-allow -->
   跨仓分叉**不是一次性故障**。只要「GitHub 侧会推进 `dev`」+「CNB push 刻意不开 `force`」
   两条同时成立，分叉就会复发；#425 收敛完成、#448 再合一次，**30 分钟内又岔开一笔**
