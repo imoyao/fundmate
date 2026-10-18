@@ -28,6 +28,10 @@
   ``build_index_returns``，自带 1h 缓存）。口径注释：两者同为「自然月回溯 12 个月
   的区间收益之差」，ETF 用场内价格（含折溢价噪声）、指数用收盘点位，差值非严格
   跟踪误差（后者需净值与指数逐日对比），作为**购买决策的粗粒度贴合度参考**足够。
+- **规模 / 费率（#2333）**：``scale_yi``（亿元）、``mgmt_fee_pct`` / ``custody_fee_pct``
+  （%/年）三字段，由 ``services/etf_scale_fee`` 独立提供——规模走沪深两所 + 腾讯兜底
+  （12h TTL 缓存），费率走东财 + 同花顺备源 + ``etf_fee_rates`` 小表旧值（30 天内免抓）。
+  两条链各自降级，任一全挂只让对应列「—」。
 
 缓存：整体结果 30min（盘中新浪快照会变，净值/日线日频不变，取折中）。
 负结果（含「两侧全空」的 ``{'data': None}``）同样进缓存——``CacheService`` 以
@@ -49,6 +53,7 @@ from sqlalchemy.orm import Session
 
 from app.core.cache import CacheService
 from app.services.adapters import direct_feeds
+from app.services.etf_scale_fee import build_fee_map, build_scale_map
 from app.services.index_metrics import _catalog_entry, compute_period_returns
 from app.services.related_symbols import build_related_symbols
 
@@ -223,12 +228,27 @@ def _compute(db: Session, code: str) -> Dict[str, Any]:
     except Exception as e:  # noqa: BLE001
         logger.warning(f'指数侧收益取数失败（跟踪差/基准行降级—）: {e}')
 
+    # 规模 + 费率（#2333）：两条链各自独立降级——失败只让对应列「—」，不阻塞整表。
+    # 两者内部自带 TTL 缓存 / 小表读写，异常兜在本函数。
+    scale_map: Dict[str, Optional[float]] = {}
+    fee_map: Dict[str, Dict[str, Optional[float]]] = {}
+    etf_codes = [etf['code'] for etf in etfs]
+    try:
+        scale_map = build_scale_map(etf_codes, nav_map)
+    except Exception as e:  # noqa: BLE001 - 规模失败只降级规模列
+        logger.warning(f'ETF 规模抓取失败（规模列降级—）: {e}')
+    try:
+        fee_map = build_fee_map(db, etf_codes)
+    except Exception as e:  # noqa: BLE001 - 费率失败只降级费率列
+        logger.warning(f'ETF 费率抓取失败（费率列降级—）: {e}')
+
     rows: List[Dict[str, Any]] = []
     for etf in etfs:
         etf_code = etf['code']
         returns = _etf_row_returns(etf_code)
         nav_info = nav_map.get(etf_code, {})
         spot_info = spot_map.get(etf_code, {})
+        fee_info = fee_map.get(etf_code) or {}
         etf_y1 = (returns or {}).get('y1')
         idx_y1 = (index_returns or {}).get('y1')
         tracking_diff = round(etf_y1 - idx_y1, 2) if (etf_y1 is not None and idx_y1 is not None) else None
@@ -243,6 +263,9 @@ def _compute(db: Session, code: str) -> Dict[str, Any]:
                 'amount': spot_info.get('amount'),
                 'returns': returns or {key: None for key, _ in _ETF_WINDOWS},
                 'tracking_diff_y1': tracking_diff,
+                'scale_yi': scale_map.get(etf_code),
+                'mgmt_fee_pct': fee_info.get('mgmt_fee_pct'),
+                'custody_fee_pct': fee_info.get('custody_fee_pct'),
             }
         )
 

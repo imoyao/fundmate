@@ -233,6 +233,12 @@ export interface IndexEtfCompareRow {
   returns: IndexEtfCompareWindows;
   /** 跟踪差(%) = ETF 近 1 年涨幅 − 指数近 1 年涨幅；任一侧缺失为 null */
   tracking_diff_y1: number | null;
+  /** 基金规模(亿元，#2333)：交易所份额×净值，腾讯市价口径兜底；失败为 null */
+  scale_yi: number | null;
+  /** 管理费率(%/年，#2333)：东财 F10 / 同花顺双源 + 小表旧值；失败为 null */
+  mgmt_fee_pct: number | null;
+  /** 托管费率(%/年，#2333)；失败为 null */
+  custody_fee_pct: number | null;
 }
 
 /**

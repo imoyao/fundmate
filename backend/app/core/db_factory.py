@@ -184,6 +184,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'purchase_rules': DOMAIN_MARKET,
     'redeem_rules': DOMAIN_MARKET,
     'fee_ratios': DOMAIN_MARKET,
+    'etf_fee_rates': DOMAIN_MARKET,  # ETF 管理/托管费率缓存小表（#2333：双 HTML 源兜底，etf_compare 读）
     'price_history': DOMAIN_MARKET,  # 历史行情（最大体积表）
     'securities': DOMAIN_MARKET,
     # 个股/可转债 → 行业映射（#1981）。随 securities 同域：公开证券主数据，
