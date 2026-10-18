@@ -77,6 +77,7 @@ def _combine_pools(resolved: dict, keys) -> list:
 def _resolve_targets_from_file(target_file: str) -> list:
     """从 CSV 文件读取标的代码（支持单列或多列，取第一列）。"""
     import csv
+
     with open(target_file, newline='', encoding='utf-8') as f:
         reader = csv.reader(f)
         codes = [row[0].strip() for row in reader if row and row[0].strip()]
@@ -212,6 +213,7 @@ def main():
                         # fund_position 从库内核心池现取（DB_POOL_JOBS）
                         if args.job in DB_POOL_JOBS:
                             from app.services.sync.orchestrator import resolve_targets
+
                             resolved = resolve_targets(db)
                             targets = _combine_pools(resolved, DB_POOL_JOBS[args.job])
                             if not targets:
@@ -240,8 +242,7 @@ def main():
                     # 列表型 / 指数型 / 温度计型 job：单次调用换全市场，裸 --full-sync 为正常模式
                     if args.full_sync and not (args.targets or args.target_file):
                         logger.warning(
-                            f'{args.job} 裸带 --full-sync（列表/指数/温度计型 job 单次即换全市场，'
-                            '目标参数被忽略）。'
+                            f'{args.job} 裸带 --full-sync（列表/指数/温度计型 job 单次即换全市场，目标参数被忽略）。'
                         )
                     result = orchestrator.run_job(args.job, full_sync=args.full_sync)
                     status = '✅' if result.success else '❌'
@@ -267,6 +268,7 @@ def ensure_fund_sync_fields(db):
     这些字段在早期模型里可能不存在（分批加列），老库需补齐。
     """
     from sqlalchemy import inspect, text
+
     inspector = inspect(db.bind)
     cols = {c['name'] for c in inspector.get_columns('funds')}
 

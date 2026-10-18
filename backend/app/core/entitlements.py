@@ -31,18 +31,23 @@ def require_pro_feature(feature: str):
 
             if not result.granted:
                 # 统一错误信封：前端据此渲染付费墙/引导
-                abort(403, description={
-                    'data': None,
-                    'message': 'Pro 功能未开通',
-                    'error_code': 1006,  # FORBIDDEN
-                    'detail': {
-                        'feature': feature,
-                        'reason': result.reason,
-                        'expires_at': result.expires_at,
-                    }
-                })
+                abort(
+                    403,
+                    description={
+                        'data': None,
+                        'message': 'Pro 功能未开通',
+                        'error_code': 1006,  # FORBIDDEN
+                        'detail': {
+                            'feature': feature,
+                            'reason': result.reason,
+                            'expires_at': result.expires_at,
+                        },
+                    },
+                )
             return fn(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
 

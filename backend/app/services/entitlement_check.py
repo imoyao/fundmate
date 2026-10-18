@@ -17,20 +17,23 @@ from app.core.exceptions import ErrorCode, SBException
 from app.domains.entitlements.models import Entitlement
 
 # 白名单：显式登记才放行；新增 Pro 模块必须在此注册，否则默认拒绝
-PRO_FEATURES = frozenset({
-    'pro-insight',
-    'pro-risk',
-    'pro-allocation',
-    'pro-status',
-})
+PRO_FEATURES = frozenset(
+    {
+        'pro-insight',
+        'pro-risk',
+        'pro-allocation',
+        'pro-status',
+    }
+)
 
 
 @dataclass(frozen=True)
 class EntitlementResult:
     """校验结果载体。"""
+
     granted: bool
     expires_at: Optional[str] = None  # ISO8601 or None
-    reason: Optional[str] = None      # 'ok' | 'not_granted' | 'expired'
+    reason: Optional[str] = None  # 'ok' | 'not_granted' | 'expired'
 
 
 def check_entitlement(db: Session, family_id: int, feature: str) -> EntitlementResult:
@@ -54,10 +57,14 @@ def check_entitlement(db: Session, family_id: int, feature: str) -> EntitlementR
             status_code=400,
         )
 
-    row = db.query(Entitlement).filter(
-        Entitlement.family_id == family_id,
-        Entitlement.feature == feature,
-    ).first()
+    row = (
+        db.query(Entitlement)
+        .filter(
+            Entitlement.family_id == family_id,
+            Entitlement.feature == feature,
+        )
+        .first()
+    )
 
     if not row or not row.granted:
         return EntitlementResult(granted=False, reason='not_granted')
@@ -81,10 +88,14 @@ def get_pro_status(db: Session, family_id: int) -> dict:
 
     未登记的 feature 默认 granted=False。
     """
-    rows = db.query(Entitlement).filter(
-        Entitlement.family_id == family_id,
-        Entitlement.feature.in_(PRO_FEATURES),
-    ).all()
+    rows = (
+        db.query(Entitlement)
+        .filter(
+            Entitlement.family_id == family_id,
+            Entitlement.feature.in_(PRO_FEATURES),
+        )
+        .all()
+    )
     granted_map = {r.feature: r for r in rows}
 
     result = {}
