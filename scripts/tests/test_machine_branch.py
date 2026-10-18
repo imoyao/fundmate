@@ -444,7 +444,7 @@ def test_script_never_imports_network(mod):
         assert banned not in src, f'脚本出现网络依赖：{banned}'
 
 
-def test_push_failure_surfaces_stderr(mod, tmp_path, capsys):
+def test_push_failure_surfaces_stderr(mod, tmp_path, capsys, monkeypatch):
     """推失败时必须把 **remote 的原话**打出来（源 CNB #567，2026-10-18）。
 
     事故形态：`_git()` 只收 stdout，而 `git push` 的拒绝原因全在 stderr ⇒
@@ -522,6 +522,12 @@ def test_push_failure_surfaces_stderr(mod, tmp_path, capsys):
     hook.write_text('#!/bin/sh\necho "no writes allowed" >&2\nexit 1\n', encoding='utf-8')
     hook.chmod(0o755)
     args.github_url = str(read_only)
+    # 源 CNB #574 起默认**不是**写者（默认只读探针，根本不推）。本用例钉的是「写者身份下
+    # 推失败」的报错形态，故必须显式把自己声明成写者；否则用例会退化成「没调 push、恒绿」。
+    # ⚠️ 同时保留源 CNB #573 的「让 push 注定失败且原因可读」：远端是只读裸仓，push 带着 remote
+    # 的原话失败（不能用「远端已有一条无关的 bridge/github-dev」那种场景：那是 CNB #573 修复后的）  # cross-repo-ref-allow
+    # **成功**路径。  # cross-repo-ref-allow
+    monkeypatch.setenv(mod.WRITER_ENV, 'cnb')
     rc = mod.run(args)
     assert rc == 2, f'推失败应以「结论不可信」退出（2），实际 {rc}'
     # 推失败那一行必须打出 **remote 的原话**（空原因等于没信号），且点名目标分支。
@@ -638,11 +644,17 @@ def test_report_distinguishes_three_reasons_of_not_pushed(mod):
 
     ① 有冲突 ⇒ 什么都没合；
     ② 试算 / 合并不可用 ⇒ 结论不可信；
-    ③ 合并成功但**推失败** ⇒ 本地好了、远端没收到。
+    ③ 合并成功但**推失败** ⇒ 本地好了、远端没收到；
+    ④ 合并成功但**写者不在本侧**（只读探针）⇒ 结论是观测，不是已送达（源 CNB #574）。
 
-    原先只有 `pushed: bool` 两个状态，③ 落进 ① 的兜底句「演练模式：未推、未开 PR」，
-    于是「推被拒」在报告里长得像「还没执行」——诊断方向被掉包。
-    探针：把 `reason` 分支删掉、只留 `else: 演练模式` ⇒ 本用例转红。
+    「没推」原本只有一句兜底 `（演练模式：未推、未开 PR）`，③ 落进去之后
+    「推被拒」在报告里长得像「还没执行」——诊断方向被掉包；④ 落进去则是**反向**的误导：
+    读者以为「加个 `--apply --push` 就会推」，而本侧根本没写权。
+    故**默认参数不许落到这两句之一**，必须显式声明是哪一种。
+
+    探针（两条，任一即转红）：
+    - 删掉 `elif reason == 'push_failed'` 分支 ⇒ ③ 复用「演练模式」；
+    - 把 `elif dry_run:` 挪到 `else:` 之后（或直接删）⇒ ④ 冒充「演练模式」。
     """
     p = mod.plan('cnb', 'bridge/github-dev')
     push_failed = mod.build_report(p, pushed=False, conflicts=[], reason='push_failed')
@@ -653,9 +665,15 @@ def test_report_distinguishes_three_reasons_of_not_pushed(mod):
     assert '不可信' in inconclusive, f'② 必须声明结论不可信：{inconclusive}'
     assert '演练模式' not in inconclusive, inconclusive
 
-    # ①（真演练）保留原样：这一句本身没错，错的只是被复用给了另外两种原因。
-    dry = mod.build_report(p, pushed=False, conflicts=[])
+    # ④ 只读探针：**想写但写者不在本侧**，不能说成「演练模式」（那会误导人加 `--push`）。
+    readonly = mod.build_report(p, pushed=False, conflicts=[], dry_run=False)
+    assert '演练模式' not in readonly, f'只读探针不是演练，别共用那句：{readonly}'
+    assert '只做**读探针**' in readonly, readonly
+
+    # ①（真演练）保留原样：这一句本身没错，错的只是被复用给了另外三种原因。
+    dry = mod.build_report(p, pushed=False, conflicts=[], dry_run=True)
     assert '演练模式' in dry, f'真演练仍要说「未推、未开 PR」：{dry}'
+    assert '只做**读探针**' not in dry, f'演练与只读是两件事：{dry}'
 
 
 def test_dry_run_conflicts_are_extracted(mod, tmp_path, capsys):
@@ -671,6 +689,42 @@ def test_dry_run_conflicts_are_extracted(mod, tmp_path, capsys):
     - 修复前：退 0 并打印「无冲突」。
     """
     repo = tmp_path / 'dryconflict'
+
+
+
+# ---------------------------------------------------------------------------
+# 源 CNB #574（2026-10-19，机制说明）：`bridge/github-dev` 只能有**一个写者**。  <!-- cross-repo-ref-allow -->
+# GitHub 侧 `.github/workflows/dev-reconcile.yml` 每日 `--force-with-lease` 重建
+# 并开 PR + automerge；CNB 侧只会每轮换个 base 重推 ⇒ 非快进被拒、且会把
+# reconcile 铺好的合并结果冲掉。故 CNB 侧默认降级为**只读探针**。
+# ---------------------------------------------------------------------------
+
+
+def test_default_writer_is_github(mod, monkeypatch):
+    """默认写者是 GitHub reconcile，不是 CNB —— 这是「降级为只读」的开关本身。
+
+    探针：把 `DEFAULT_WRITER` 改成 `'cnb'` ⇒ 本用例转红。
+    """
+    monkeypatch.delenv(mod.WRITER_ENV, raising=False)
+    assert mod.writer() == 'github', '默认必须**不是** CNB —— 否则两个写者并存（源 CNB #574）'  # cross-repo-ref-allow
+
+
+def test_writer_env_can_hand_over_but_only_explicitly(mod, monkeypatch):
+    """只有显式 `MACHINE_BRANCH_WRITER=cnb` 才接管写权；其余取值一律回到默认（不猜）。"""
+    monkeypatch.setenv(mod.WRITER_ENV, 'cnb')
+    assert mod.writer() == 'cnb'
+    for junk in ('', 'github', 'yes', 'TRUE', 'nonsense'):
+        monkeypatch.setenv(mod.WRITER_ENV, junk)
+        assert mod.writer() == 'github', f'`{junk}` 不该被读成接管写权'
+
+
+def test_readonly_probe_never_pushes(mod, tmp_path, monkeypatch, capsys):
+    """默认身份下：合并照跑、结论照报，但**一次 push 都不发**。
+
+    判据锚在「push 有没有被调用」，而不是「返回了 0」——返回 0 却推过，正是本卡要消灭的形态。
+    探针：把 `run()` 里 `if writer() != 'cnb':` 那段删掉 ⇒ push 会被调用且本用例转红。
+    """
+    repo = tmp_path / 'probe'
     repo.mkdir()
     env = _env()
     _git(repo, 'init', '-q', '-b', 'dev', env=env)
@@ -687,30 +741,42 @@ def test_dry_run_conflicts_are_extracted(mod, tmp_path, capsys):
     (repo / 'a.txt').write_text('cnb\n', encoding='utf-8')
     _git(repo, 'commit', '-q', '--no-gpg-sign', '-am', 'cnb', env=env)
 
-    real = mod._git
-    calls: list[list[str]] = []
+    monkeypatch.delenv(mod.WRITER_ENV, raising=False)
+    # 合并要在临时 worktree 里真的跑起来 ⇒ 需要 git 身份（#2262 的同款前置）。
+    monkeypatch.setenv('GIT_AUTHOR_NAME', 't')
+    monkeypatch.setenv('GIT_AUTHOR_EMAIL', 't@e')
+    monkeypatch.setenv('GIT_COMMITTER_NAME', 't')
+    monkeypatch.setenv('GIT_COMMITTER_EMAIL', 't@e')
 
-    def fake(args, cwd=None):
-        # ⚠️ 这里要拦的是**试算**那一次（参数里有 `refs/cross-bridge/…`）。
-        # 而 `run()` 开头的两次 fetch 让别的 `_git` 调用看起来也可以用 `args[:2]` 匹配 ——
-        # 一旦匹配过宽，报告的「无冲突」就来自一个假的空输出，用例测的就不是它想测的东西。
-        if args[:1] == ['merge-tree'] and any('refs/cross-bridge/' in a for a in args):
-            calls.append(args)
-            # 真实冲突（rc 1），但**输出读成空** —— 事故形态。
-            return 1, '', ''
+    calls: list[list[str]] = []
+    real = mod._git
+
+    def spy(args, cwd=None):
+        calls.append(list(args))
         return real(args, cwd)
 
-    saved = mod._git
-    mod._git = fake
-    try:
-        rc = mod.run(_dry_run_args(repo, repo))
-    finally:
-        mod._git = saved
-    assert len(calls) == 1, f'试算只能问一次（问两次就是 #573 的根因形态）：{calls}'
-    assert rc == 2, f'取不出冲突路径必须退 2（结论不可信），**不得**退化成「无冲突」：{rc}'
-    err = capsys.readouterr().err
-    assert '不可信' in err, f'须声明结论不可信，实际 stderr：{err!r}'
+    monkeypatch.setattr(mod, '_git', spy)
 
+    args = argparse.Namespace(
+        apply=True,
+        dry_run=False,
+        push=True,  # 调用方**要求**推，但写者身份不是 CNB ⇒ 仍然不推
+        base='cnb',
+        branch='dev',
+        machine_branch='bridge/github-dev',
+        cnb_url=str(repo),
+        github_url=str(repo),
+        cwd=str(repo),
+    )
+    rc = mod.run(args)
+    out = capsys.readouterr().out
+
+    pushed = [c for c in calls if c and c[0] == 'push']
+    assert not pushed, f'默认（非写者）身份下**一个字节都不该推**，实际：{pushed}'
+    assert rc == 0, f'无冲突应退 0（含义已收窄为「可合（观测）」），实际 {rc}'
+    # 只读态必须**说人话**：报告里不能只写「无冲突」就完事，否则读者会以为已送达。
+    assert '只读探针' in out, f'须明说这是只读探针，实际输出：{out!r}'
+    assert '未推送' in out or '未动' in out, f'须明说没有推送，实际输出：{out!r}'
 
 def test_dry_run_single_merge_tree_call(mod, tmp_path):
     """无论有没有冲突，演练路径**只调一次** `merge-tree`。"""
@@ -751,7 +817,7 @@ def test_dry_run_single_merge_tree_call(mod, tmp_path):
     assert len(calls) == 1, f'演练路径只该跑一次 merge-tree，实际 {len(calls)} 次'
 
 
-def test_existing_machine_branch_is_overwritten_with_lease(mod, tmp_path, capsys):
+def test_existing_machine_branch_is_overwritten_with_lease(mod, tmp_path, monkeypatch, capsys):
     """机器分支已存在且非快进 ⇒ 用 `--force-with-lease` 覆盖（源 CNB #573）。
 
     事故形态：`bridge/github-dev` 是**固定名、一次性、每轮覆盖**的 ref。上一轮没被合掉时，
@@ -807,6 +873,10 @@ def test_existing_machine_branch_is_overwritten_with_lease(mod, tmp_path, capsys
 
     saved = mod._git
     mod._git = spy
+    # ⚠️ 源 CNB #574 起默认**不是**写者（默认只读探针，根本不推）。本用例钉的是「写者身份下
+    # 用 `--force-with-lease` 覆盖自己那条一次性分支」，故必须显式把自己声明成写者；
+    # 否则用例会退化成「没调 push、恒绿」——**探针删掉修复也不会红**。
+    monkeypatch.setenv(mod.WRITER_ENV, 'cnb')
     try:
         args = argparse.Namespace(
             apply=True,
@@ -852,3 +922,15 @@ def test_force_only_allowed_on_machine_branch(mod):
     # 机器分支必须有 lease 保护（一次性分支的覆盖语义），且**只**推机器分支。
     assert '--force-with-lease=' in src and 'machine_branch' in src, '机器分支的覆盖须用 --force-with-lease=<ref>:<sha>'
     assert 'refs/heads/dev' not in src and 'refs/heads/main' not in src, '不得出现推 dev / main 的字面 ref'
+
+
+def test_readonly_report_does_not_claim_pushed(mod):
+    """报告文案层面也要区分「可合（观测）」与「已推送」——退 0 的语义已被收窄。"""
+    p = mod.plan('cnb', 'bridge/github-dev')
+    readonly = mod.build_report(p, pushed=False, conflicts=[], dry_run=False)
+    dry = mod.build_report(p, pushed=False, conflicts=[], dry_run=True)
+    pushed = mod.build_report(p, pushed=True, conflicts=[])
+    assert '只做**读探针**' in readonly, readonly
+    assert '只做**读探针**' not in dry, f'演练与只读是两件事，别混：{dry}'
+    assert '已推成' in pushed, pushed
+    assert '已推成' not in readonly, (readonly, pushed)

@@ -351,6 +351,19 @@ jobs:
       - name: 扫描 git-sync push 目标分支回潮（阻断）
         run: python scripts/guard_git_sync_push_scope.py
 
+      # 机器分支「单写者」守卫（源 CNB #574，2026-10-19）：
+      # `bridge/github-dev` 上有两个写者 —— GitHub `.github/workflows/dev-reconcile.yml`
+      # 每日 `--force-with-lease` 重建并开 PR + automerge，而 CNB 的「跨仓同步」stage
+      # 每次推 `dev` 都换一个 base 重新合再普通 push。后果是结构性的：
+      # ① 归一化 base 变了 ⇒ 非快进 ⇒ `! [rejected] … (fetch first)`，推 dev 的构建天天红；
+      # ② 侥幸快进成功也会改写 reconcile 铺好的合并结果，而**它开的那张 PR 还开着**
+      #    ⇒ 内容与分支不符（外观一切正常，比红灯危险）。
+      # 处置：写权归 GitHub reconcile，CNB 降级为**只读探针**（默认 `DEFAULT_WRITER=github`）。
+      # 三条判据：不设 `MACHINE_BRANCH_WRITER=cnb` / 默认值不得翻转 / 对侧必须仍在推。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      - name: 扫描机器分支是否被两侧同时写（阻断）
+        run: python scripts/guard_bridge_machine_branch_single_writer.py
+
   # 乱码守卫（mojibake）：防止任何绕过本地 pre-commit 钩子的提交（--no-verify、
   # 或经 gh api / MCP 直推导致本地钩子不执行）把 GBK 乱码合进 PR。
   # 扫描 PR 变更的全部文本类型文件 + 逐提交校验中文提交信息（两层兜底）。
@@ -650,6 +663,13 @@ jobs:
       # 「守卫绿」只能证明「代码里没有它不认识的东西」，证明不了它能认出那个 bug。
       - name: 「同一 git 询问问两遍」守卫回归网（阻断）
         run: python -m pytest scripts/tests/test_ask_git_once_guard.py -q -p no:cacheprovider
+
+      # 机器分支单写者守卫的回归网（源 CNB #574）：含 3 个变异探针
+      # （只读闸门被删 / 默认写者翻转 / `.cnb.yml` 设写者），均已实测转红。
+      # `unittest discover` 已覆盖本文件，此处显式再跑一遍，让「它属于哪条通道」在
+      # CI 日志里看得见。**不新增 job**，也就不必动 `gate.needs`。
+      - name: 机器分支单写者回归网（阻断）
+        run: python scripts/tests/test_bridge_single_writer.py
 
       # 规则登记与生命周期守卫（源：用户问「写进 AGENTS.md 的规则，别的 Agent 不遵守怎么办」）。
       #

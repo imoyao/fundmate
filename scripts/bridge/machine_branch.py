@@ -20,6 +20,27 @@
 
 门禁**一个检查都没少**，是**被满足**了。
 
+⚠️ 2026-10-19 起：**本脚本默认是「只读探针」而不是写者**（源 CNB #574）  <!-- cross-repo-ref-allow -->
+------------------------------------------------------------------------------------------
+运行了几天的事实是：**`bridge/github-dev` 有两个写者，而它们互相砸**。
+
+| 写者 | 触发 | 写法 | 会开 PR 吗 |
+|---|---|---|---|
+| GitHub `.github/workflows/dev-reconcile.yml` | 每日 `cron: 37 18 * * *` | `push --force-with-lease`，`git merge -X ours cnb/dev` | **会**（并挂 `automerge`） |
+| 本脚本（CNB `dev` push） | 每次推 `dev` | 每次**换一个 base** 重新合，再普通 `push`（非 force） | 不会 |
+
+于是每一轮 CNB `dev` push 都在做两件必然徒劳的事：
+
+1. 归一化 base 变了 ⇒ 结果不是 GitHub 那条 ref 的快进 ⇒
+   `! [rejected] HEAD -> bridge/github-dev (fetch first)`（构建红，实测每天红）;
+2. 即便侥幸快进成功，也会**改写 reconcile 刚铺好的合并结果**（口味从 `-X ours` 变成
+   默认策略），而**它开的那张 PR 还开着** ⇒ PR 内容与分支内容不符。
+
+⇒ **写权收归 GitHub reconcile**（唯一写者），CNB 侧保留**读**的价值：
+「两侧 dev 能不能无冲突合并」这个结论必须每轮都算，但它**不需要写任何东西**。
+故 `--push` 在默认配置下不推，报告里明说「只读、未推送」。
+要接管时设 `MACHINE_BRANCH_WRITER=cnb`，并**同时停掉** reconcile 的推送步骤。
+
 与「CNBDEV 中转分支」的区别（这是本脚本存在的理由）
 ---------------------------------------------------
 两者长得像，判据完全不同（`docs/dev/github-cnb-mirror.md` §21 / §18.2）：
@@ -55,16 +76,16 @@
     # 演练：只报会怎么合、有没有冲突（不建分支、不联网写）
     python scripts/bridge/machine_branch.py --dry-run
 
-    # 执行：建机器分支并推 GitHub（**不**碰 dev / main）
+    # 执行：合并并在临时 worktree 里验证，**默认只读**（不推 bridge/*，源 CNB #574）
     python scripts/bridge/machine_branch.py --apply
 
-    # 执行并开 PR（需要 GITHUB_TOKEN / GITHUB_PAT）
-    python scripts/bridge/machine_branch.py --apply --open-pr
+    # 只有当本侧确实是写者时才真的推（须同时停掉 GitHub reconcile 的推送步骤）
+    MACHINE_BRANCH_WRITER=cnb python scripts/bridge/machine_branch.py --apply --push
 
     # 反向：以 GitHub dev 为基线，把 CNB dev 合进来
     python scripts/bridge/machine_branch.py --apply --base github
 
-退出码：0 = 就绪（无冲突，已推 / 已开 PR）；
+退出码：0 = 无冲突（只读探针：结论是「可合」，不是「已送达」；写者身份下才是「已推」）；
         1 = 有冲突，需人工解（**什么都没推**）；
         2 = 拿不到输入（fetch / ref 缺失）**或合并没跑起来**（merge 非 0 退出且
             没有冲突清单）——**结论不可信**。#2262 实测（#2259 CI 首次暴露）：
@@ -87,6 +108,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from datetime import date
@@ -102,6 +124,31 @@ DEFAULT_GITHUB_REPO = 'imoyao/fundmate'
 # fetch 落地的临时 ref（不占分支名、不影响工作区之外的任何东西）
 GH_REF = 'refs/cross-bridge/gh-dev'
 CNB_REF = 'refs/cross-bridge/cnb-dev'
+
+# 谁写 `bridge/github-dev`：**只有一个写者**（源 CNB #574，2026-10-19）。  <!-- cross-repo-ref-allow -->
+#
+# GitHub 侧 `.github/workflows/dev-reconcile.yml` 每天用 `--force-with-lease`
+# 重建这条分支，并**开 PR + 挂 automerge** —— 那是完整的一条通道（冲突取 GitHub、
+# 门禁照跑、合完即亡）。故 CNB 侧只把它当**只读探针**用：
+#   - 报「两侧 dev 有没有分叉、能不能无冲突合并」——这部分是**读**，永远跑；
+#   - **不推** `bridge/github-dev`。非快进推本来就会失败，而**强推**更坏：
+#     会把 reconcile 刚铺好的 `-X ours` 合并结果冲掉、留下一张内容与分支不符的 PR。
+#
+# 为什么不是「两个写者协商」：CNB 侧**读不到** GitHub 侧的 lease
+# （`--force-with-lease` 是原子检验，不是可协商的锁），任何「先比 SHA 再推」都是
+# 检查-使用之间的竞态。判据见 `scripts/guard_bridge_machine_branch_single_writer.py`。
+WRITER_ENV = 'MACHINE_BRANCH_WRITER'
+
+# CNB 默认**不是**写者（GitHub reconcile 才是）。要接管时显式设
+# `MACHINE_BRANCH_WRITER=cnb`，且**必须同时停掉** `.github/workflows/dev-reconcile.yml`
+# 的推送步骤——两个写者不能并存。
+DEFAULT_WRITER = 'github'
+
+
+def writer() -> str:
+    """当前谁是 `bridge/github-dev` 的写者：`github`（默认）或 `cnb`。"""
+    v = (os.environ.get(WRITER_ENV) or DEFAULT_WRITER).strip().lower()
+    return 'cnb' if v == 'cnb' else 'github'
 
 
 def _git(args: list[str], cwd: str | None = None) -> tuple[int, str, str]:
@@ -228,6 +275,7 @@ def build_report(
     conflicts: list[str],
     pr_url: str | None = None,
     reason: str = '',
+    dry_run: bool = False,
 ) -> str:
     """生成给人看的结论段。
 
@@ -241,8 +289,12 @@ def build_report(
 
     三种原因原先共用一句「（演练模式：未推、未开 PR）」，于是构建日志里
     「合并成功但推失败」与「根本没跑」长得一模一样 —— 诊断方向被直接掉包。
+
+    `dry_run` 区分「演练 / 没有 `--push`」（真的没打算写）与「只读探针」（想写但
+    写者不在本侧，源 CNB #574）—— 后者必须说清「结论是观测、不是已送达」。
+    `dry_run` 与 `reason` 同时给时，`reason` **优先**：它总是更贵的那种情况。
     """
-    lines = ['## 跨仓同步（机器分支 + PR）', '']
+    lines = ['## 跨仓同步（机器分支 + 读探针）', '']
     lines.append(f'- 基线方向：以 **{p["base_name"]} `dev`** 为基线，合入 **{p["merge_name"]} `dev`**')
     lines.append(f'- 机器分支：`{p["machine_branch"]}`（**一次性**：PR 合完即亡，不是长期分支）')
     lines.append('')
@@ -273,8 +325,16 @@ def build_report(
         lines.append('**自己那条一次性分支**；它都失败，说明远端那条 ref 不是我们能动的。')
     elif reason == 'inconclusive':
         lines.append('⚠️ **合并试算 / 合并本身没跑成** —— 本轮结论不可信，不得读成「无冲突」。')
+    elif dry_run:
+        lines.append('（演练模式：未推、未开 PR。）')
     else:
-        lines.append('（演练模式：未推、未开 PR。加 `--apply` 执行。）')
+        # 只读探针：**读得出结论，但一个字节都不写**（源 CNB #574）。
+        lines.append(
+            f'ℹ️ 本次只做**读探针**：`{p["machine_branch"]}` 的**唯一写者**是 GitHub 侧 '
+            '`.github/workflows/dev-reconcile.yml`（它用 `--force-with-lease` 重建并开 PR + automerge）。'
+        )
+        lines.append('   CNB 侧**不推**这条分支 —— 非快进推必然被拒，而强推会冲掉 reconcile 的合并结果。')
+        lines.append('   ⇒ 上面这份「无冲突」是**观测结论**，不是「已推送」。没有冲突时不需要任何人动手。')
     return '\n'.join(lines)
 
 
@@ -298,7 +358,7 @@ def run(args: argparse.Namespace) -> int:
             print(f'❌ 合并试算不可用：{detail} —— 结论不可信，不得读成「无冲突」', file=sys.stderr)
             print(build_report(p, pushed=False, conflicts=[], reason='inconclusive'), file=sys.stderr)
             return 2
-        print(build_report(p, pushed=False, conflicts=conflicts))
+        print(build_report(p, pushed=False, conflicts=conflicts, dry_run=True))
         return 1 if conflicts else 0
 
     # ---- 执行：在临时 worktree 里合，绝不动当前工作区 ----
@@ -320,8 +380,10 @@ def run(args: argparse.Namespace) -> int:
         _git(['merge', '--abort'], wt)
         _git(['worktree', 'remove', '--force', wt], cwd)
         return 2
-    print(build_report(p, pushed=False, conflicts=conflicts))
+    # ⚠️ 报告只打一次（源 CNB #574 顺带修）：此前这段与下方「无冲突」分支各打一遍，
+    # 同一份报告在日志里出现两次（上面一次、下面又一次），读的人会以为跑了两轮。
     if conflicts:
+        print(build_report(p, pushed=False, conflicts=conflicts, dry_run=not args.apply))
         _git(['merge', '--abort'], wt)
         _git(['worktree', 'remove', '--force', wt], cwd)
         return 1
@@ -332,8 +394,21 @@ def run(args: argparse.Namespace) -> int:
         return 2
 
     if not args.push:
-        print(build_report(p, pushed=False, conflicts=[]))
+        print(build_report(p, pushed=False, conflicts=[], dry_run=True))
         print(f'\n（`--push` 未给：合并结果停在临时 worktree 的 `{sha[:8]}`，未推任何远端。）')
+        return 0
+
+    if writer() != 'cnb':
+        # 只读探针（源 CNB #574，2026-10-19）：合并**真的跑过**（冲突已被上面拦掉），
+        # 于是「两侧可合」这条结论是可信的；但我们**不写** `bridge/github-dev` ——
+        # 它归 GitHub reconcile 所有（`--force-with-lease` + PR + automerge）。
+        # 不推 ≠ 假绿：报告里明写「只读、未推送」，且退出码 0 的含义被收窄成
+        # 「无冲突（观测）」，不是「已送达」。
+        # ⚠️ 也**不要**改成「非快进才不推、能快进就推」：那会让写者随远端状态在两仓之间漂移，
+        # 而漂移期间两边都可能以为自己是唯一写者。写者身份必须是**配置**，不是**时序**。
+        print(build_report(p, pushed=False, conflicts=[], dry_run=False))
+        print(f'\n（只读探针：合并结果 {sha[:8]} 停在本轮临时 worktree，`{p["machine_branch"]}` 未动。）')
+        _git(['worktree', 'remove', '--force', wt], cwd)
         return 0
 
     code, out, err = _git(machine_push_args(args.github_url, p['machine_branch'], wt), wt)
@@ -366,7 +441,11 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description='跨仓同步：机器分支 + PR 通道（源 CNB #450）')  # cross-repo-ref-allow
     ap.add_argument('--apply', action='store_true', help='真正执行（默认演练）')
     ap.add_argument('--dry-run', action='store_true', help='演练（默认行为）')
-    ap.add_argument('--push', action='store_true', help='把合并结果推成机器分支（需 --apply）')
+    ap.add_argument(
+        '--push',
+        action='store_true',
+        help=f'把合并结果推成机器分支（需 --apply；**仅当 {WRITER_ENV}=cnb 时才真的推**，源 CNB #574）',
+    )
     # ⚠️ 开 PR 这一步**没有**实现，故不提供开关。
     # 理由：本脚本的职责是「把可合的结果推成一条一次性分支」，而开 PR / auto-merge
     # 属于 GitHub 侧动作（`POST /repos/{repo}/pulls`，`gh` 或 Actions 里做更顺手）。

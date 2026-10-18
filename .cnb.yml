@@ -405,30 +405,33 @@ dev:
             }
             git --version >/dev/null   # 自证：装失败即报错，**不吞**（#171）
 
-            # 凭据缺失：先自证再跑，免得「所有读都 200、所有写都 401」而没人看见。
-            # ⚠️ 这里**不能**在缺凭据时 exit 0 —— 那会让「机器分支没推上去」表现为绿。
-            if [ -z "${GITHUB_PAT:-}" ]; then
-              echo "❌ GITHUB_PAT 未注入 —— 机器分支通道无法执行"
-              echo "   请在密钥仓库 fundmate-secret 的 claim-sync-env.yml 里配 GITHUB_PAT"
-              echo "   （模板见 docs/ops/claim-sync-secret-env.example.yml；与 vars.yml 里那份同一值）。"
-              exit 1
-            fi
+            # ⚠️ 2026-10-19（源 CNB #574，机制说明）：本 stage 现在是**只读探针**，不再推 `bridge/github-dev`。  <!-- cross-repo-ref-allow -->
+            # 那条分支的唯一写者是 GitHub `.github/workflows/dev-reconcile.yml`
+            # （`--force-with-lease` 重建 + 开 PR + automerge）。两个写者会互相砸：
+            # reconcile 用 `-X ours` 铺好结果、CNB 隔天换个 base 重推 ⇒ PR 内容与分支不符。
+            # 故此处**不再要求 GITHUB_PAT**：探针只读 GitHub 的公开 `dev`，缺凭据不影响结论。
+            # （原来的 `exit 1` 把「我们本来就不该写」误报成「凭据缺失」—— 红灯指向错的方向。）
             set +e
-            python scripts/bridge/machine_branch.py --apply --push \
-              --github-url "https://x-access-token:${GITHUB_PAT}@github.com/${GITHUB_REPO}.git"
+            if [ -n "${GITHUB_PAT:-}" ]; then
+              GH_URL="https://x-access-token:${GITHUB_PAT}@github.com/${GITHUB_REPO}.git"
+            else
+              echo "ℹ️ 未注入 GITHUB_PAT —— 按匿名读 GitHub dev（只读探针不需要写权限）"
+              GH_URL="https://github.com/${GITHUB_REPO}.git"
+            fi
+            python scripts/bridge/machine_branch.py --apply --push --github-url "$GH_URL"
             rc=$?
             if [ $rc -eq 1 ]; then
-              echo "⚠️ 两侧 dev 有冲突 —— 机器分支通道**什么都没推**（脚本刻意不自动解冲突）"
+              echo "⚠️ 两侧 dev 有冲突 —— 本轮**什么都没写**（脚本刻意不自动解冲突）"
               echo "   冲突面多为治理文件（.cnb.yml / AGENTS.md）；口径见 docs/dev/github-cnb-mirror.md §21 / §22"
               echo "   解冲突是人工动作：先跑 \`python scripts/bridge/dev_converge.py --apply\` 看清单"
             elif [ $rc -eq 2 ]; then
               # ⚠️ 退出码 2 覆盖两种**完全不同**的事，别合并叙述（源 CNB #567，2026-10-18）：
               # ① 拿不到输入（fetch / ref 缺失）——「结论不可信」；
-              # ② 推机器分支失败（非快进 / 分支保护 / 凭据）——「结论是准的，但**没送出去**」。
-              # 原先只有一句「拿不到输入」，于是「分叉确实存在、合并也成功了、只是推不上去」
-              # 被判成「数据不全」—— 诊断方向直接错掉两天。
-              echo "⚠️ 退出码 2：要么拿不到输入（fetch/ref 缺失），要么合并成功但**推机器分支失败**"
-              echo "   —— 两种都不得读成「无需同步」；请按上方日志里第一行 ❌ 区分"
+              # ② 合并没跑起来（merge 非 0 且未检出冲突）——同样「结论不可信」。
+              # ③「推机器分支失败」这一态**已随源 CNB #574 消失**：本 stage 不再推那条分支
+              #    （唯一写者是 GitHub reconcile），故不再存在「结论对但没送出去」的第三态。
+              echo "⚠️ 退出码 2：拿不到输入（fetch/ref 缺失）或合并没跑起来 —— 本轮结论不可信"
+              echo "   —— 不得读成「无需同步」；请按上方日志里第一行 ❌ 区分"
             fi
             # 机器分支按「覆盖自己那条一次性 ref」推（`--force-with-lease=<ref>:<sha>`，
             # 源 CNB #573）：上一轮没被合掉的 `bridge/github-dev` 会让本轮非快进被拒，  <!-- cross-repo-ref-allow -->

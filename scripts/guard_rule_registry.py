@@ -375,6 +375,17 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/git_sync_push_scope.test.js',
         'covered': '只读 .cnb.yml；运行期 CNB_BRANCH 的取值不校验',
     },
+    'scripts/guard_bridge_machine_branch_single_writer.py': {
+        'rule': '`bridge/github-dev` 只能有一个写者（GitHub reconcile 写、CNB 只读探针）',
+        'runner': 'ci',
+        'stage': 'default',
+        'tests': 'scripts/tests/test_bridge_single_writer.py',
+        # 边界说清楚：判据是**静态角色分配**，判不了「谁先跑」——
+        # `--force-with-lease` 是原子检验、不是可协商的锁，任何「先比 SHA 再推」都是
+        # 检查-使用之间的竞态，故守卫只认「配置里谁是写者」，不猜时序。
+        # 也读不到 GitHub Actions 的启用状态：只确认那份 workflow 仍表达「推 + 开 PR」语义。
+        'covered': '不判真跑成的结果（不拉网络）；不读 Actions 是否被停用；接管时须人工同步改守卫',
+    },
 }
 
 

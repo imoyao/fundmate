@@ -2318,6 +2318,115 @@ rc=1
 且各自咬在**对应用例**上：冲突清单恒空 / 普通 push（去掉 lease）/ push_failed 复用「演练模式」/
 试算问两次 / 推失败不打 remote 原话 / 「不可信」退化成「无冲突」。
 
+## 23. `bridge/github-dev` 有两个写者，而它们互相砸（源 CNB #574，2026-10-19）  <!-- cross-repo-ref-allow -->
+
+用户拿来的是一张构建日志：`cnb-um5-1k57nplko` 两条 pipeline 都红。
+
+| pipeline | stage | 原文 |
+|---|---|---|
+| `-001` 同步到 GitHub（仅 dev + 标签） | git-sync | `! [rejected] dev -> dev (fetch first)` |
+| `-002` 跨仓同步（机器分支 + PR 通道） | 合并两侧 dev 并推成机器分支 | `❌ 推机器分支失败：… ! [rejected] HEAD -> bridge/github-dev (fetch first)` |
+
+两条都是**非快进被拒**，而两条的成因是同一件事：**同一份内容有两个写者，且它们互相不认识。**
+
+### 23.1 实测（不是推断）
+
+```
+CNB   dev 2251a39f    GitHub dev 3504cb8f
+bridge/github-dev 在 CNB 上 40230822 / 在 GitHub 上 5d24035f  ← 同一条分支、两份内容
+GitHub bridge ref 的父提交：0239301f（CNB #569，机制说明）→ 5d24035f 就是「CNB 为基线合 GitHub」的产物  <!-- cross-repo-ref-allow -->
+```
+
+`bridge/github-dev` 的两个写者：
+
+| 写者 | 触发 | 写法 | 开 PR 吗 |
+|---|---|---|---|
+| GitHub `.github/workflows/dev-reconcile.yml` | 每日 `cron: 37 18 * * *` | `push --force-with-lease`，`git merge -X ours cnb/dev` | **开**（并挂 `automerge`） |
+| CNB `.cnb.yml` 的「跨仓同步」stage | 每次推 `dev` | 每轮**换一个 base** 重新合，普通 `push`（非 force） | 不开 |
+
+所以每一轮 CNB `dev` push 都在做两件必然徒劳的事：① 归一化 base 变了 ⇒ 结果不是那条 ref 的
+快进 ⇒ 被拒（**构建天天红**）；② 即便侥幸快进成功，也会**改写 reconcile 刚铺好的合并结果**
+（口味从 `-X ours` 变成默认策略），而**它开的那张 PR 还开着** ⇒ PR 内容与分支内容不符 ——
+这一种**外观一切正常**，比红灯危险。
+
+### 23.2 为什么不是「两个写者协商」，而是「收归一个」
+
+`--force-with-lease` 是**原子检验**，不是可协商的锁。任何「先比远端 SHA、再决定推不推」都是
+检查-使用之间的竞态（对方在你比对与推送之间推进即可作废）。故写者身份必须是**配置**，
+不是**时序**——`machine_branch.py` 里也写了这句注释，防下一个人再想「能快进就推」。
+
+**写权归 GitHub reconcile**（它是完整的一条通道：冲突取 GitHub、门禁照跑、合完即亡），
+CNB 侧保留**读**的价值：「两侧 dev 能不能无冲突合并」这个结论必须每轮都算，但它**不需要写任何东西**。
+
+于是一个自然的错答案被排除了：CNB 侧光「不推」还不够 —— 而**改推 `dev`** 更错
+（`dev` 有分支保护，`质量门禁汇总` 只在 PR 上产生，直推需要一个根本不存在的检查 ——
+见 `scripts/bridge/machine_branch.py` 文件头那张「两道闸」表）。
+
+### 23.3 修法
+
+- `machine_branch.py`：新增 `writer()`（环境变量 `MACHINE_BRANCH_WRITER`，默认 `github`）。
+  非写者身份下**合并照跑、结论照报，但一次 `git push` 都不发**，报告里明写
+  「只读探针 / 未推送」，退出码 0 的语义收窄成「无冲突（观测）」。
+- `.cnb.yml`：`--push` 保留（写者身份下仍要能推），但**不再要求 `GITHUB_PAT`** ——
+  原来的 `exit 1` 把「我们本来就不该写」误报成「凭据缺失」，**红灯指向了错的方向**。
+  现改为：有 PAT 用鉴权 URL，没有就匿名读 GitHub 的公开 `dev`。
+- 顺带修掉一处：`run()` 的「无冲突」路径此前把报告**打了两遍**（日志里像跑了两轮）。
+
+### 23.4 判据机器化：`scripts/guard_bridge_machine_branch_single_writer.py`
+
+三条静态判据（不拉网络），并入 `ci.yml` 的 `layout_guard` job（**不新增 job**，不动 `gate.needs`）：
+
+1. `.cnb.yml` 里不得设 `MACHINE_BRANCH_WRITER=cnb`（那是「第二个写者」）；
+2. `DEFAULT_WRITER` 必须是 `github` —— **默认值翻转不改任何 `.cnb.yml`**，配置看起来完全正常，
+   只在运行时把写权搬走，是本判据唯一防不住的场景，故必须单独钉；
+3. `dev-reconcile.yml` 必须**仍在推** `bridge/github-dev` —— 被降级的一侧若无对侧接手，
+   就变成「没人写、两边都绿」，与 §20 同族的假绿。
+
+回归网 `scripts/tests/test_bridge_single_writer.py`（8 条），3 个变异探针均已实测转红
+（删只读闸门 / 默认写者翻转 / `.cnb.yml` 设写者）。登记在 `guard_rule_registry.py`。
+
+### 23.5 这次该记进 AGENTS.md 的两句话
+
+> **「不该做的事」也要有判据，不能只写「我们不做」。** 本例里 CNB **不该**写那条分支，
+> 但代码里它一直在写 —— 因为没人问过「这条分支归谁」，写的动作就一直留着。
+>
+> **一条分支两个写者，症状永远长在「被拒」上，成因永远藏在「另一边也在写」。**
+> 看到 `! [rejected] … (fetch first)` 先问：**另一侧是不是也在往这里推？**
+
+---
+
+## 24. §22 / §23 是同一件事的两半：**先问「谁在写」，再问「写成功了吗」**
+
+两节的入手点不同，今天合流了：#22 从「同一事实问两次」进来（pipeline-002 的
+`bridge/github-dev` 被拒），#23 从「两个写者」进来，**同一个构建、同一条分支**。合起来的顺序是：
+
+1. **先问归属**（§23）：这条 ref 归谁写？只有一个写者吗？——归属错了，后面每轮都会红，
+   而且红得很有规律，容易被当成「环境抖动」。
+2. **再问事实**（§22）：写的时候有没有把一次询问问两遍？「没跑成」有没有被读成「没问题」？
+
+顺序反了会怎样：先修「怎么推」（#573 的 `--force-with-lease`）而不先定「谁该推」，
+就是给一个**不该写的写者**配了一把更好的钥匙——它会把另一侧铺好的合并结果覆盖掉，
+而那一侧开的 PR 还开着（§23.1 的第 ② 条，**外观完全正常**，比红灯危险）。
+
+### 24.1 合流后的实际状态（2026-10-19）
+
+| 层 | 现在的行为 | 判据 |
+|---|---|---|
+| 写者身份 | CNB 默认**只读探针**；`MACHINE_BRANCH_WRITER=cnb` 才接手（须同时停掉 reconcile 推送） | `guard_bridge_machine_branch_single_writer.py` |
+| 试算 | `merge_tree_conflicts()` 一次调用同时拿码与输出；取不出路径 ⇒ 不可信（退 2） | `guard_ask_git_once.py` |
+| 推送（写者身份下） | 只对机器分支用 `--force-with-lease=<ref>:<sha>`；`dev` / `main` 永不开 force | `test_machine_branch.py::test_force_only_allowed_on_machine_branch` |
+| 报告 | 「没推」拆成 演练 / 只读探针 / 推失败 / 不可信 四种，**不许共用一句** | `test_report_distinguishes_three_reasons_of_not_pushed` |
+
+### 24.2 通用教训
+
+> **同一份内容有两个写者时，症状永远长在「被拒」上，而成因藏在「另一边也在写」。**
+> 先定归属，再谈手法。给不该写的写者配更强的推送手段，是把一个红问题变成两个绿着的坏问题。
+
+> **报告的状态数 = 事实的状态数。** 少一个状态，就有一类情况会滚进相邻的句子里，
+> 而它滚进的那一边决定了人往哪查方向。（与 §22.5 / §20 同族。）
+
+---
+
 ### 22.5 通用教训
 
 > **「先探测、再执行、再读第二次结果」的结构，都要问一句「两次之间变了会怎样」。**
