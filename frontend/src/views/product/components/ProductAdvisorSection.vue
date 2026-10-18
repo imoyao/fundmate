@@ -314,7 +314,7 @@ watch(() => props.code, load, { immediate: true });
 
 .advisor-section__metrics-title {
   margin: 0 0 var(--space-2);
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -341,7 +341,7 @@ watch(() => props.code, load, { immediate: true });
 }
 
 .advisor-section__metric-value {
-  font-size: 16px;
+  font-size: var(--text-mono);
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }
@@ -357,7 +357,7 @@ watch(() => props.code, load, { immediate: true });
 
 .advisor-section__desc {
   margin: var(--space-3) 0 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-secondary);
 }
@@ -384,7 +384,7 @@ watch(() => props.code, load, { immediate: true });
 }
 
 .advisor-section__holding-name {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-primary);
   overflow-wrap: anywhere;
 }
@@ -398,7 +398,7 @@ watch(() => props.code, load, { immediate: true });
 }
 
 .advisor-section__holding-ratio {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }

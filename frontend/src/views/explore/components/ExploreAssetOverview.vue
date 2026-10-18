@@ -410,7 +410,7 @@ onMounted(() => {
   }
 
   &__text {
-    font-size: 13px;
+    font-size: var(--text-label);
     line-height: 1.6;
     color: var(--text-secondary);
   }
@@ -418,7 +418,7 @@ onMounted(() => {
 
 .state-hint {
   padding: 24px;
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--text-secondary);
   text-align: center;
   background: var(--bg-card);
@@ -441,7 +441,7 @@ onMounted(() => {
     padding: 4px 12px;
     margin-left: 10px;
     font-family: inherit;
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--brand-700);
     cursor: pointer;
     background: var(--brand-100);
@@ -479,13 +479,13 @@ onMounted(() => {
   }
 
   &__title {
-    font-size: 14px;
+    font-size: var(--text-small);
     font-weight: 600;
     color: var(--text-primary);
   }
 
   &__count {
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
   }
 }
@@ -526,7 +526,7 @@ onMounted(() => {
     align-self: flex-start;
     padding: 6px 14px;
     font-family: inherit;
-    font-size: 13px;
+    font-size: var(--text-label);
     font-weight: 500;
     color: var(--brand-700);
     cursor: pointer;
@@ -552,7 +552,7 @@ onMounted(() => {
   align-items: center;
   padding: 4px 12px;
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   cursor: pointer;
   background: transparent;
@@ -606,7 +606,7 @@ onMounted(() => {
 
   &__name {
     min-width: 0; /* 长名称换行而非顶宽（禁截断，故不加 ellipsis） */
-    font-size: 14px;
+    font-size: var(--text-small);
     font-weight: 600;
     color: var(--text-primary);
   }
@@ -618,7 +618,7 @@ onMounted(() => {
     justify-content: center;
     padding: 0 3px;
     margin-left: 4px;
-    font-size: 13px;
+    font-size: var(--text-label);
     line-height: 1.5;
     vertical-align: middle;
     color: var(--brand-700);
@@ -653,7 +653,7 @@ onMounted(() => {
 
   /* 不可用原因说明：真实可读文案，13px 正文级 → 必须 ≥ 4.5:1 */
   &__reason {
-    font-size: 13px;
+    font-size: var(--text-label);
     line-height: 1.5;
     color: var(--text-tertiary-ink);
   }
@@ -661,12 +661,12 @@ onMounted(() => {
   /* 同 &--na：占位「—」 */
   &__nopin {
     font-family: var(--font-mono);
-    font-size: 18px;
+    font-size: var(--text-num-strong);
     color: var(--text-tertiary-ink);
   }
 
   &__caliber-text {
-    font-size: 13px;
+    font-size: var(--text-label);
     line-height: 1.5;
     color: var(--text-tertiary-ink);
   }
@@ -709,12 +709,12 @@ onMounted(() => {
   }
 
   &__basis {
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
   }
 
   &__label {
-    font-size: 13px;
+    font-size: var(--text-label);
     font-weight: 600;
   }
 }
@@ -731,18 +731,18 @@ onMounted(() => {
     gap: 8px;
     align-items: center;
     margin-bottom: 10px;
-    font-size: 14px;
+    font-size: var(--text-small);
     font-weight: 600;
     color: var(--text-primary);
   }
 
   &__icon {
-    font-size: 16px;
+    font-size: var(--text-body);
     color: var(--brand-700);
   }
 
   &__count {
-    font-size: 13px;
+    font-size: var(--text-label);
     font-weight: 400;
     color: var(--text-secondary);
   }
@@ -771,7 +771,7 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: 10px;
   align-items: baseline;
-  font-size: 13px;
+  font-size: var(--text-label);
 
   &__name {
     min-width: 72px;
@@ -800,7 +800,7 @@ onMounted(() => {
 
   &__head {
     margin-bottom: 10px;
-    font-size: 14px;
+    font-size: var(--text-small);
     font-weight: 600;
     color: var(--text-primary);
   }
@@ -819,13 +819,13 @@ onMounted(() => {
   }
 
   &__label {
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-secondary);
   }
 
   &__val {
     font-family: var(--font-mono);
-    font-size: 18px;
+    font-size: var(--text-num-strong);
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     color: var(--text-primary);
@@ -833,13 +833,13 @@ onMounted(() => {
 
   &__bp {
     font-family: var(--font-mono);
-    font-size: 13px;
+    font-size: var(--text-label);
     font-variant-numeric: tabular-nums;
   }
 
   &__hint {
     margin-left: auto;
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
   }
 }
@@ -850,7 +850,7 @@ onMounted(() => {
   gap: 16px;
   align-items: center;
   justify-content: flex-end;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 
   &__time {

@@ -150,7 +150,7 @@ function onSave() {
 }
 
 .road-form__name {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--text-primary);
 }

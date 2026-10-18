@@ -27,7 +27,7 @@ const { fileSize } = useImportWizardContext();
 
 .loading-icon {
   margin-right: 4px;
-  font-size: 16px;
+  font-size: var(--text-body);
   animation: spin 1s linear infinite;
 }
 </style>

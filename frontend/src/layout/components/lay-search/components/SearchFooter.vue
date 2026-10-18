@@ -46,7 +46,7 @@ const { device } = useNav();
   .icon {
     padding: 2px;
     margin-right: 3px;
-    font-size: 20px;
+    font-size: var(--text-heading);
     box-shadow:
       inset 0 -2px #cdcde6,
       inset 0 0 1px 1px var(--text-inverse),

@@ -119,7 +119,7 @@ function close(): void {
 
 .gm-hint {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -146,13 +146,13 @@ function close(): void {
 }
 
 .gm-name {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-primary);
 }
 
 .gm-empty {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   text-align: center;
 }

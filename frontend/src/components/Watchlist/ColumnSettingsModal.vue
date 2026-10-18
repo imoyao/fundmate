@@ -134,7 +134,7 @@ const hiddenCount = computed(() => {
   width: 100%;
   padding: 8px 10px;
   margin-bottom: 4px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   text-align: left;
   cursor: pointer;
@@ -195,6 +195,6 @@ const hiddenCount = computed(() => {
 }
 
 .cs-item :deep(.el-checkbox__label) {
-  font-size: 13px;
+  font-size: var(--text-label);
 }
 </style>

@@ -439,7 +439,7 @@ function fmtShort(d: string | null): string {
 .detail-name {
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 18px;
+  font-size: var(--text-num-strong);
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -448,7 +448,7 @@ function fmtShort(d: string | null): string {
 .detail-code {
   margin-top: 4px;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -470,14 +470,14 @@ function fmtShort(d: string | null): string {
 }
 
 .amount-label {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
 .edit-btn {
   flex: none;
   padding: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
 }
 
 /* ── 编辑态：改总价 + 分摊预览（#1176）── */
@@ -509,7 +509,7 @@ function fmtShort(d: string | null): string {
 }
 
 .preview-title {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -528,7 +528,7 @@ function fmtShort(d: string | null): string {
   align-items: baseline;
   justify-content: space-between;
   padding: 4px 0;
-  font-size: 13px;
+  font-size: var(--text-label);
 }
 
 .preview-name {
@@ -570,7 +570,7 @@ function fmtShort(d: string | null): string {
 .hint-icon {
   flex: none;
   margin-top: 2px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--brand-500, #f69988);
 }
 
@@ -613,12 +613,12 @@ function fmtShort(d: string | null): string {
   gap: 6px;
   align-items: baseline;
   padding: var(--space-3, 12px) 0;
-  font-size: 14px;
+  font-size: var(--text-small);
 }
 
 .meta-icon {
   flex: none;
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--brand-500, #f69988);
 
   /* 与文字基线对齐（图标为 inline-block，需手动微调） */
@@ -654,7 +654,7 @@ function fmtShort(d: string | null): string {
 
 .mono {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--text-label);
 }
 
 /* ── 分渠道持仓详情 ── */
@@ -691,7 +691,7 @@ function fmtShort(d: string | null): string {
 .channel-icon {
   flex: none;
   margin-top: 1px;
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--brand-500, #f69988);
 }
 
@@ -706,7 +706,7 @@ function fmtShort(d: string | null): string {
 .channel-name {
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 500;
   color: var(--text-primary);
   word-break: break-word;
@@ -745,7 +745,7 @@ function fmtShort(d: string | null): string {
 
 .ch-shares {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
 }
@@ -775,7 +775,7 @@ function fmtShort(d: string | null): string {
 .warn-icon {
   flex: none;
   margin-top: 2px;
-  font-size: 13px;
+  font-size: var(--text-label);
   opacity: 0.5;
 }
 </style>

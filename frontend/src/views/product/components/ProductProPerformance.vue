@@ -329,7 +329,7 @@ watch(() => props.symbol, load, { immediate: true });
 
 .pro-perf__empty-title {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 600;
   color: var(--text-primary);
 }

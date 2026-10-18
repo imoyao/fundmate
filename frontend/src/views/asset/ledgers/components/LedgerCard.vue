@@ -455,7 +455,7 @@ const emit = defineEmits<{
 }
 
 .ledger-stale-badge__icon {
-  font-size: 13px;
+  font-size: var(--text-label);
 }
 
 .ledger-card__archived {

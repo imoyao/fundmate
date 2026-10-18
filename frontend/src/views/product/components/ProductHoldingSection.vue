@@ -266,7 +266,7 @@ function stockHref(code: string): string {
 
 .holding-section__table {
   width: 100%;
-  font-size: 13px;
+  font-size: var(--text-label);
   border-collapse: collapse;
 }
 

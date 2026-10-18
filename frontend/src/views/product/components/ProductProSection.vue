@@ -280,7 +280,7 @@ const riskAvailable = computed(
 
 .pro-module__title {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -354,7 +354,7 @@ const riskAvailable = computed(
 
 .pro-paywall__cta {
   padding: var(--space-1) var(--space-4);
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-inverse);
   cursor: not-allowed;
 

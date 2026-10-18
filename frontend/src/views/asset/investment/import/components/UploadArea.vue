@@ -134,7 +134,7 @@ const {
 .upload-btn {
   height: 40px;
   padding: 0 24px;
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--brand-700);
   background: transparent;
   border: 1px solid var(--brand-400);
@@ -156,7 +156,7 @@ const {
 
 .upload-text {
   margin: 0 0 16px;
-  font-size: 16px;
+  font-size: var(--text-body);
   font-weight: 500;
   color: var(--text-primary);
 }
@@ -182,7 +182,7 @@ const {
 .upload-error {
   padding: 12px 16px;
   margin-top: 16px;
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--color-danger);
   text-align: center;
   background: var(--color-danger-10);

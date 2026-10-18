@@ -1125,7 +1125,7 @@ defineExpose({ isDirty, resetForm });
    h3 默认的 margin/字号必须清掉，否则两栏顶端会错开一行 */
 .convert-col__title {
   margin: 0 0 8px;
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   line-height: 1.4;
   color: var(--text-secondary);
@@ -1302,7 +1302,7 @@ defineExpose({ isDirty, resetForm });
   gap: 16px;
   align-items: center;
   justify-content: space-between;
-  font-size: 14px;
+  font-size: var(--text-small);
 }
 
 .panel-label {
@@ -1328,7 +1328,7 @@ defineExpose({ isDirty, resetForm });
 }
 
 .fee-sign {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
 }

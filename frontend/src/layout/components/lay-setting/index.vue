@@ -532,7 +532,7 @@ onUnmounted(() => removeMatchMedia);
 
 <style lang="scss" scoped>
 :deep(.el-divider__text) {
-  font-size: 16px;
+  font-size: var(--text-body);
   font-weight: 700;
 }
 
@@ -641,7 +641,7 @@ onUnmounted(() => removeMatchMedia);
     align-items: center;
     justify-content: space-between;
     padding: 3px 0;
-    font-size: 14px;
+    font-size: var(--text-small);
   }
 }
 </style>
