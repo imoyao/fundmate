@@ -226,6 +226,63 @@ POSITION_SOURCE_LABELS: dict[str, str] = {
 }
 
 
+class AnchorKind(str, Enum):
+    """持仓快照锚点的来源（份额派生的基线，不是展示字段）。
+
+    锚点解决的问题：`positions.quantity` 过去同时承担「快照绝对值（SET）」与
+    「流水累加结果（INCR）」两种语义，两条写路径无时序约束 → 先导快照、后导
+    历史流水时，快照份额被二次累加（实测 012708 精确 2 倍）。
+
+    加入锚点后 quantity 降级为**派生值**：
+        quantity = snapshot_quantity + Σ(confirm_date > snapshot_date 的流水净额)
+
+    只分两种来源，不按业务线细分（E账户同属外部真实数据，记 external）：
+    - EXTERNAL：外部导入的持仓快照（E账户 / 券商导出 / OCR 识别）；
+    - MANUAL：用户在对账工作台显式设定的份额，视为「本地快照」。
+
+    刻意**不**按业务线（E账户 / 天天基金 / 同花顺）拆值：那是 `positions.source`
+    的职责。锚点只回答「这个基线是外部事实还是人工给定」——后者不可被同日外部
+    数据无条件覆盖（见 position_service 的锚点冲突规则）。
+    """
+
+    EXTERNAL = 'external'
+    MANUAL = 'manual'
+
+
+ANCHOR_KIND_LABELS: dict[str, str] = {
+    AnchorKind.EXTERNAL.value: '外部导入',
+    AnchorKind.MANUAL.value: '人工校准',
+}
+
+
+class OwnershipStatus(str, Enum):
+    """`positions.ownership_status` 的取值（持仓行的生命周期状态）。
+
+    - ACTIVE：真实持有，参与持仓列表 / 总资产 / 收益日历；
+    - SHADOW：E账户未归属的快照记录，只用于对账，不参与总资产（#1021）；
+    - CLEARED：**已清仓，行保留**（份额归零，锚点与成本基线原样留存）。
+
+    CLEARED 存在的唯一理由：清仓时删除持仓行会连带丢掉快照锚点四列
+    （`snapshot_quantity` / `snapshot_avg_price` / `snapshot_date` / `anchor_kind`），
+    此后删除该笔卖出流水触发重建，只能退回「全量流水」口径，份额会被二次累加
+    （issue #2343）。行保留后锚点不灭，「历史曾持有」也可追溯。
+
+    **不要**用在以下地方（否则会把历史抹掉）：交易流水查询、`position_import_meta`、
+    对账比对、账户迁移、孤儿流水回填、按主键精确取单行。
+    """
+
+    ACTIVE = 'active'
+    SHADOW = 'shadow'
+    CLEARED = 'cleared'
+
+
+OWNERSHIP_STATUS_LABELS: dict[str, str] = {
+    OwnershipStatus.ACTIVE.value: '持有中',
+    OwnershipStatus.SHADOW.value: '待归属',
+    OwnershipStatus.CLEARED.value: '已清仓',
+}
+
+
 class ValuationMode(str, Enum):
     """持仓计价模式（#1174 / 决策 D1 方案 A）。
 
