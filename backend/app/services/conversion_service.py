@@ -19,6 +19,7 @@
 """
 
 import json
+from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
@@ -56,8 +57,130 @@ _SHARE_STORE_QUANT = Decimal('0.0001')
 _CENT_QUANT = Decimal('0.01')
 _ZERO = Decimal('0')
 
+
+def _positive_decimal(raw) -> Optional[Decimal]:
+    """把可选的金额/份额入参转成 Decimal；``None``、0、负数一律视为「未指定」。
+
+    前端空输入框会序列化成 ``null`` 或 ``0``，两者语义相同（= 按净额全部转入）。
+    不能因为收到 0 就走进「指定 0 元」分支——那会让整笔转换变成全额退款。
+    """
+    if raw is None:
+        return None
+    value = Decimal(str(raw))
+    return value if value > 0 else None
+
+
 _REFUND_MODE_MONEY_FUND = 'money_fund'
 _REFUND_MODE_ACCOUNT_CASH = 'account_cash'
+
+
+@dataclass(frozen=True)
+class ConversionMaths:
+    """转换的纯算术结果（不含持仓/账户/费率阶梯等外部输入）。
+
+    单位一律**元 / 份**，全部 ``Decimal``。字段含义见 ``compute_conversion_maths``。
+    """
+
+    out_amount: Decimal
+    net_amount: Decimal
+    in_amount_used: Decimal
+    in_quantity: Decimal
+    refund_amount: Decimal
+    supplement_amount: Decimal
+
+
+def compute_conversion_maths(
+    *,
+    qty: Decimal,
+    out_nav: Decimal,
+    in_nav: Decimal,
+    total_fee: Decimal,
+    in_amount: Optional[Decimal] = None,
+    in_quantity: Optional[Decimal] = None,
+) -> ConversionMaths:
+    """转换的**纯算术**：金额守恒 + 份额派生，无 DB、无持仓、无费率阶梯。
+
+    单独抽出来是为了让「守恒关系」可以被真实确认单直接校准（#2348）——
+    基金公司 App 的确认单能给出 ``转出金额``、``转入金额``、``差额`` 三个数，
+    三者必须满足 ``out_amount == in_amount_used + refund_amount``。这条恒等式
+    与净值取整口径强相关，放在 DB 测试里跑既慢又难定位，故独立成纯函数。
+
+    口径（与设计文档 §4.2 / §4.3 一致）：
+
+    - ``out_amount = round(qty × out_nav, 2)``
+    - ``net_amount = out_amount − total_fee``（费用只从转出侧扣，§3.1）
+    - 转入口径二选一：``in_amount``（元）或 ``in_quantity``（份，最多 2 位）
+    - ``in_amount_used`` 超出净额 ⇒ 记 ``supplement_amount``（即需垫资，v1 由 submit 拦截）；
+      低于净额 ⇒ 记 ``refund_amount``（差额退货基/账户现金）；相等则都为 0
+    - 份额入库 4 位（§5.2），展示层再降到 2 位
+
+    Args:
+        qty: 转出份额（份），> 0
+        out_nav: 转出基金单位净值（元）
+        in_nav: 转入基金单位净值（元），> 0
+        total_fee: 费用合计（元）= 赎回费 + 补差费，>= 0
+        in_amount: 指定转入金额（元）；与 ``in_quantity`` 二选一
+        in_quantity: 指定转入份额（份，最多 2 位小数）；与 ``in_amount`` 二选一
+
+    Raises:
+        ValueError: 入参非法（份额/净值为非正、费用为负或吃掉全部本金、两者同时指定）
+    """
+    if qty <= 0:
+        raise ValueError('转出份额必须大于 0')
+    if out_nav <= 0 or in_nav <= 0:
+        raise ValueError('净值必须大于 0')
+    if total_fee < 0:
+        raise ValueError('费用合计不能为负数')
+    if in_amount is not None and in_quantity is not None:
+        raise ValueError('转入金额与转入份额只能指定一个')
+
+    out_amount = (qty * out_nav).quantize(_CENT_QUANT, rounding=ROUND_HALF_UP)
+    net_amount = out_amount - total_fee
+    if net_amount <= 0:
+        raise ValueError('转出金额不足以覆盖费用，无法转换')
+
+    # 把「用户指定」统一折算成一个金额，后续三种情形只判一次
+    requested: Optional[Decimal] = None
+    requested_qty: Optional[Decimal] = None
+    if in_quantity is not None:
+        requested_qty = Decimal(str(in_quantity))
+        if requested_qty <= 0:
+            raise ValueError('转入份额必须大于 0')
+        if requested_qty != requested_qty.quantize(_SHARE_QUANT, rounding=ROUND_HALF_UP):
+            raise ValueError('转入份额最多 2 位小数')
+        requested = (requested_qty * in_nav).quantize(_CENT_QUANT, rounding=ROUND_HALF_UP)
+    elif in_amount is not None:
+        requested = Decimal(str(in_amount)).quantize(_CENT_QUANT, rounding=ROUND_HALF_UP)
+        if requested <= 0:
+            raise ValueError('转入金额必须大于 0')
+
+    refund_amount = _ZERO
+    supplement_amount = _ZERO
+    in_amount_used = net_amount
+    if requested is None:
+        # 未指定：净额全部转入
+        pass
+    elif requested > net_amount:
+        # 需垫资：v1 不允许，estimate 照常返回差额供前端提示，submit 拦截（D6）
+        supplement_amount = requested - net_amount
+    else:
+        in_amount_used = requested
+        refund_amount = net_amount - requested
+
+    # 份额：指定份额时以用户输入为准（2 位 → 存 4 位），否则由金额派生
+    if requested_qty is not None and supplement_amount == _ZERO:
+        in_qty_store = requested_qty.quantize(_SHARE_STORE_QUANT, rounding=ROUND_HALF_UP)
+    else:
+        in_qty_store = (in_amount_used / in_nav).quantize(_SHARE_STORE_QUANT, rounding=ROUND_HALF_UP)
+
+    return ConversionMaths(
+        out_amount=out_amount,
+        net_amount=net_amount,
+        in_amount_used=in_amount_used,
+        in_quantity=in_qty_store,
+        refund_amount=refund_amount,
+        supplement_amount=supplement_amount,
+    )
 
 
 class ConversionService:
@@ -75,6 +198,8 @@ class ConversionService:
         ledger_id: Optional[int] = None,
         out_quantity: Optional[float] = None,
         in_amount: Optional[float] = None,
+        in_quantity: Optional[float] = None,
+        fee_override: Optional[dict] = None,
         trade_date: Optional[date] = None,
     ) -> dict:
         """试算一笔基金转换（不落库）。返回结构见设计文档 §4.1（单位：元）。
@@ -90,6 +215,8 @@ class ConversionService:
             ledger_id=ledger_id,
             out_quantity=out_quantity,
             in_amount=in_amount,
+            in_quantity=in_quantity,
+            fee_override=fee_override,
             trade_date=trade_date,
         )
         return {
@@ -104,6 +231,12 @@ class ConversionService:
                     'redeem': float(c['redeem_fee']),
                     'compensate': float(c['compensate']),
                 },
+                # 费用是否被人工修正（#2348）：前端据此显示「已手工修正」并给出原估算值
+                'fee_estimated': {
+                    'redeem': float(c['fee_estimated']['redeem']),
+                    'compensate': float(c['fee_estimated']['compensate']),
+                },
+                'fee_overridden': c['fee_overridden'],
                 'realized_pnl_estimate': Money.cents_to_yuan(c['realized_cents']),
             },
             'in': {
@@ -137,6 +270,8 @@ class ConversionService:
         ledger_id: Optional[int] = None,
         out_quantity: Optional[float] = None,
         in_amount: Optional[float] = None,
+        in_quantity: Optional[float] = None,
+        fee_override: Optional[dict] = None,
         refund_mode: Optional[str] = None,
         trade_date: Optional[date] = None,
     ) -> dict:
@@ -169,6 +304,8 @@ class ConversionService:
             ledger_id=ledger_id,
             out_quantity=out_quantity,
             in_amount=in_amount,
+            in_quantity=in_quantity,
+            fee_override=fee_override,
             trade_date=trade_date,
         )
         if c['supplement_amount'] > 0:
@@ -208,6 +345,13 @@ class ConversionService:
                             'redeem': float(c['redeem_fee']),
                             'compensate': float(c['compensate']),
                         },
+                        # 人工修正留痕（#2348）：估算值与应用值都存，
+                        # 事后能看出哪笔费用不是算法给的
+                        'fee_estimated': {
+                            'redeem': float(c['fee_estimated']['redeem']),
+                            'compensate': float(c['fee_estimated']['compensate']),
+                        },
+                        'fee_override_applied': c['fee_overridden'],
                         'refund_mode': mode or None,
                         'estimated': True,
                     }
@@ -365,6 +509,11 @@ class ConversionService:
                     'redeem': float(c['redeem_fee']),
                     'compensate': float(c['compensate']),
                 },
+                'fee_estimated': {
+                    'redeem': float(c['fee_estimated']['redeem']),
+                    'compensate': float(c['fee_estimated']['compensate']),
+                },
+                'fee_overridden': c['fee_overridden'],
                 'realized_pnl_estimate': Money.cents_to_yuan(c['realized_cents']),
             },
             'in': {
@@ -391,6 +540,8 @@ class ConversionService:
         ledger_id: Optional[int] = None,
         out_quantity: Optional[float] = None,
         in_amount: Optional[float] = None,
+        in_quantity: Optional[float] = None,
+        fee_override: Optional[dict] = None,
         trade_date: Optional[date] = None,
     ) -> dict:
         """校验 + 费用/份额/净额的 Decimal 精确计算（试算与落库的唯一入口）。"""
@@ -481,22 +632,25 @@ class ConversionService:
             warnings.append(f'转入基金 {in_code} 申购费率数据缺失，补差费按 0 预估，请以确认单为准')
         compensate = (max(fee_in - fee_out, _ZERO) * discount).quantize(_CENT_QUANT, rounding=ROUND_HALF_UP)
 
+        estimate_redeem, estimate_compensate = redeem_fee, compensate
+        redeem_fee, compensate = ConversionService._apply_fee_override(redeem_fee, compensate, fee_override, out_amount)
         total_fee = redeem_fee + compensate
-        net_amount = out_amount - total_fee
 
-        # ── 6. 转入金额 / 退款 / 补差（§4.3） ──
-        refund_amount = _ZERO
-        in_amount_used = net_amount
-        supplement_amount = _ZERO
-        if in_amount is not None and float(in_amount) > 0:
-            requested = Decimal(str(in_amount)).quantize(_CENT_QUANT, rounding=ROUND_HALF_UP)
-            if requested > net_amount:
-                # D6：v1 不允许垫资——estimate 照常返回差额，submit 拦截
-                supplement_amount = requested - net_amount
-            elif requested < net_amount:
-                refund_amount = net_amount - requested
-                in_amount_used = requested
-        in_quantity = (in_amount_used / in_nav).quantize(_SHARE_STORE_QUANT, rounding=ROUND_HALF_UP)
+        # ── 6. 金额 / 份额 / 差额（纯算术，#2348 抽出：可用真实确认单校准） ──
+        maths = compute_conversion_maths(
+            qty=qty,
+            out_nav=out_nav,
+            in_nav=in_nav,
+            total_fee=total_fee,
+            in_amount=_positive_decimal(in_amount),
+            in_quantity=_positive_decimal(in_quantity),
+        )
+        out_amount = maths.out_amount
+        net_amount = maths.net_amount
+        in_amount_used = maths.in_amount_used
+        in_quantity_store = maths.in_quantity
+        refund_amount = maths.refund_amount
+        supplement_amount = maths.supplement_amount
 
         # ── 7. 已实现盈亏预估（与卖出落库同公式，保证试算=落库） ──
         realized_cents = compute_sell_realized_cents(
@@ -533,9 +687,11 @@ class ConversionService:
             'redeem_fee': redeem_fee,
             'compensate': compensate,
             'total_fee': total_fee,
+            'fee_estimated': {'redeem': estimate_redeem, 'compensate': estimate_compensate},
+            'fee_overridden': (redeem_fee, compensate) != (estimate_redeem, estimate_compensate),
             'net_amount': net_amount,
             'in_amount_used': in_amount_used,
-            'in_quantity': in_quantity,
+            'in_quantity': in_quantity_store,
             'refund_amount': refund_amount,
             'supplement_amount': supplement_amount,
             'refund_options': refund_options,
@@ -562,6 +718,42 @@ class ConversionService:
         except (ValueError, TypeError, AttributeError):
             pass
         return _DEFAULT_SUBSCRIPTION_DISCOUNT
+
+    @staticmethod
+    def _apply_fee_override(
+        redeem_fee: Decimal,
+        compensate: Decimal,
+        fee_override: Optional[dict],
+        out_amount: Decimal,
+    ) -> tuple[Decimal, Decimal]:
+        """人工修正费用（#2348）。
+
+        真实确认单上的费用常与费率先算值不一致（基金公司活动、钱包垫资、
+        持有期口径差异），此时用户必须能改——否则账实永远差几分钱，`realized_pnl`
+        与 XIRR 都会跟着错。
+
+        约定：`fee_override` 只覆盖**金额**，两项独立、**不级联重算**
+        （改赎回费不会重算补差费的费率阶梯）。想改费率请走费率表，不要在这里塞。
+        """
+        if not fee_override:
+            return redeem_fee, compensate
+
+        def pick(raw, current: Decimal, label: str) -> Decimal:
+            if raw is None:
+                return current
+            try:
+                value = Decimal(str(raw)).quantize(_CENT_QUANT, rounding=ROUND_HALF_UP)
+            except (ArithmeticError, ValueError, TypeError) as e:
+                raise ValueError(f'{label}取值非法：{raw}') from e
+            if value < 0:
+                raise ValueError(f'{label}不能为负数')
+            return value
+
+        new_redeem = pick(fee_override.get('redeem'), redeem_fee, '赎回费')
+        new_compensate = pick(fee_override.get('compensate'), compensate, '补差费')
+        if new_redeem + new_compensate >= out_amount:
+            raise ValueError('费用合计不能大于等于转出金额，请检查手工修正的费用')
+        return new_redeem, new_compensate
 
     @staticmethod
     def _purchase_fee_yuan(tiers: list, amount_yuan: Decimal) -> tuple[Decimal, Optional[str]]:

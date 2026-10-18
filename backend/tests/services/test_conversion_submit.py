@@ -323,3 +323,75 @@ def test_submit_endpoint_contract(client, db, make_position, make_transaction):
     assert body2['error_code'] == 1003
     assert body2['data']['duplicated'] is True
     assert body2['data']['link_group_id'] == IDEMPOTENCY_KEY
+
+
+# ── #2348：按份额转入 / 人工修正费用（落库侧） ──────────────────
+
+
+def test_submit_by_in_quantity_stores_exact_shares(db, make_position, make_transaction):
+    """按份额转入：落库份额与用户输入**完全一致**（不再由金额反算）。
+
+    确认单上写的是份额。若只收金额再反算，4 位取整会让份额差 0.0001，
+    对账时看着像丢了半份——所以份额必须能作为入参直达落库。
+    """
+    _seed_two_funds(db)
+    pos = _make_out_position(db, make_position, make_transaction)
+
+    result = _submit(db, pos, in_quantity=400.00, refund_mode='account_cash')
+
+    in_txn = db.query(Transaction).filter_by(link_group_id=IDEMPOTENCY_KEY, txn_type='buy', asset_type='fund').first()
+    # Transaction.quantity 存的是最小单位（份额 × 10000），断言前必须换算
+    assert Money.min_unit_to_shares(in_txn.quantity) == pytest.approx(400.0, abs=1e-6)
+    assert Money.cents_to_yuan(in_txn.amount) == 800.00
+    # 差额落退款腿，金额守恒
+    refund_txn = db.query(Transaction).filter_by(asset_type='cash').first()
+    assert refund_txn.amount == 18512
+    assert result['in']['quantity'] == pytest.approx(400.0, abs=1e-6)
+    assert result['refund']['amount'] == 185.12
+
+
+def test_submit_fee_override_persisted_in_extra(db, make_position, make_transaction):
+    """人工修正费用：OUT 腿记修正后的费用，`extra` 同时留估算值（可审计）。
+
+    只记修正值 = 事后无法判断「这笔费用是算出来的还是人填的」，
+    出了对账争议就说不清，故两者都存。
+    """
+    _seed_two_funds(db)
+    pos = _make_out_position(db, make_position, make_transaction)
+
+    _submit(db, pos, fee_override={'redeem': 0, 'compensate': 0})
+
+    out_txn = db.query(Transaction).filter_by(link_group_id=IDEMPOTENCY_KEY, txn_type='sell').first()
+    assert Money.cents_to_yuan(out_txn.fee) == 0.00
+    extra = json.loads(out_txn.extra)['conversion']
+    assert extra['fee_override_applied'] is True
+    assert extra['fee_breakdown'] == {'redeem': 0.0, 'compensate': 0.0}
+    assert extra['fee_estimated'] == {'redeem': 13.5, 'compensate': 1.38}
+    # 费用归零后净额 = 转出金额，转入份额按 1000/2.0 计
+    in_txn = db.query(Transaction).filter_by(link_group_id=IDEMPOTENCY_KEY, txn_type='buy', asset_type='fund').first()
+    assert Money.min_unit_to_shares(in_txn.quantity) == pytest.approx(500.0, abs=1e-6)
+
+
+def test_submit_api_accepts_in_quantity_and_fee_override(client, db, make_position, make_transaction):
+    """API 层：新增的两个入参能被 schema 接收并透传到服务（回归网）。"""
+    _seed_two_funds(db)
+    pos = _make_out_position(db, make_position, make_transaction)
+    db.commit()
+
+    payload = {
+        'out_position_id': pos.id,
+        'in_symbol': '000002',
+        'in_quantity': 400.0,
+        'fee_override': {'redeem': 0, 'compensate': 0},
+        'refund_mode': 'account_cash',
+        'trade_date': TRADE_DATE.isoformat(),
+        'idempotency_key': IDEMPOTENCY_KEY,
+    }
+    resp = client.post('/api/positions/conversion/', json=payload)
+    assert resp.status_code == 200, resp.get_json()
+    data = resp.get_json()['data']
+    assert data['in']['quantity'] == pytest.approx(400.0, abs=1e-6)
+    assert data['out']['fee'] == 0.0
+    assert data['out']['fee_overridden'] is True
+    # 费用被修正为 0 ⇒ 净额 1000，400 份 × 2.0 = 800，差额 200
+    assert data['refund']['amount'] == 200.0
