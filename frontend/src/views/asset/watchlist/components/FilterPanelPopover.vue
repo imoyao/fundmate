@@ -279,7 +279,7 @@ function resetAllFilters() {
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
-  font-size: 11px;
+  font-size: var(--text-label);
   font-weight: 500;
   line-height: 1;
   color: var(--text-inverse);

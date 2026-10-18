@@ -160,7 +160,7 @@ watch(() => props.symbol, load, { immediate: true });
   /* 覆盖率说明跟在「—」后面，避免单独一行像报错 */
   &__hint-note {
     margin-left: 4px;
-    font-size: 12px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
   }
 

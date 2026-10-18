@@ -189,8 +189,9 @@
 
 | Token | 字号 | 字重 | 行高 | 字距 | 字体 | 用途 |
 |-------|------|------|------|------|------|------|
-| `--text-hero` | 48px | **600** | 56px | -0.5px | Inter | 总资产数字（加粗锚点） |
-| `--text-display` | 32px | **300** | 40px | -0.3px | Inter | 页面主标题（细体优雅） |
+| `--text-hero` | 57px | **600** | 64px | -0.5px | Inter | 总资产数字（加粗锚点）。2026-10-18 校正：原记 48px，design-tokens.css 实值 57px，以令牌为准 |
+| `--text-display` | 32px | **300** | 40px | -0.3px | Inter | 页面主标题移动档（细体优雅） |
+| `--text-display-lg` | 40px | **300** | 48px | -0.3px | Inter | 页面主标题桌面大档 / 空态大数字 / 大图标（font-design.md §2.2 Display 32/40 双档，2026-10-18 补登） |
 | `--text-title` | 24px | 500 | 32px | 0 | Inter | 区块标题 |
 | `--text-heading` | 20px | 600 | 28px | 0 | Inter | 卡片标题 |
 | `--text-body` | 16px | 400 | 24px | 0 | Inter | 正文 |

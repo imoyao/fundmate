@@ -220,13 +220,13 @@ const intervalOptions = [
 }
 
 .status-text {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 400;
   color: var(--text-secondary);
 }
 
 .update-time {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -257,7 +257,7 @@ const intervalOptions = [
    顶部右侧这三个数字曾占据很大一块视觉重量，与下方表格争抢注意力；
    降档后仍是「label + 等宽数字」结构，可读性不变，视觉重心回到列表。 */
 .metric-label {
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -305,7 +305,7 @@ const intervalOptions = [
 }
 
 .pct {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 400;
   opacity: 0.8;
 }

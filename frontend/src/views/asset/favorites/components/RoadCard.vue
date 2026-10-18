@@ -299,7 +299,7 @@ function onCardClick() {
 .road-chip {
   position: absolute;
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 18px;
   white-space: nowrap;
   border-radius: var(--radius-pill);
@@ -386,7 +386,7 @@ function onCardClick() {
 .road-title {
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 15px;
+  font-size: var(--text-body);
   font-weight: 600;
   line-height: 1.4;
   color: var(--text-primary);
@@ -395,14 +395,14 @@ function onCardClick() {
 
 .road-code {
   margin-top: 2px;
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }
 
 .road-meta {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -430,7 +430,7 @@ function onCardClick() {
 }
 
 .road-metrics--empty {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -441,7 +441,7 @@ function onCardClick() {
 }
 
 .road-metric__label {
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -465,7 +465,7 @@ function onCardClick() {
   display: inline-flex;
   gap: 5px;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

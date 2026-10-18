@@ -261,7 +261,7 @@ onMounted(loadDetailGroups);
 .group-card__nav {
   height: auto;
   padding: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
 }
 
 /* 逐持仓明细区：市值 / 盈亏 两列右对齐定宽，与上方合计行的右缘对齐 */

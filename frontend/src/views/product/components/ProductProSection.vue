@@ -231,7 +231,7 @@ const riskAvailable = computed(
 .pro-section__pro-badge {
   flex-shrink: 0;
   padding: 0 var(--space-2);
-  font-size: 11px;
+  font-size: var(--text-label);
   font-weight: 600;
   line-height: 20px;
   color: var(--brand-ink);
@@ -289,7 +289,7 @@ const riskAvailable = computed(
 .pro-module__badge {
   flex-shrink: 0;
   padding: 0 var(--space-2);
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 18px;
   border: 1px solid transparent;
   border-radius: var(--radius-pill);
@@ -311,7 +311,7 @@ const riskAvailable = computed(
 
 .pro-module__desc {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-secondary);
 }
@@ -341,14 +341,14 @@ const riskAvailable = computed(
 
 .pro-paywall__title {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .pro-paywall__desc {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 

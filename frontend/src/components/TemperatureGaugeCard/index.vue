@@ -255,7 +255,7 @@ const onClick = () => {
 
 .gauge-number {
   font-family: var(--font-mono);
-  font-size: 34px;
+  font-size: var(--text-display);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   line-height: 1;
@@ -298,7 +298,7 @@ const onClick = () => {
 
 .gauge-updated {
   margin-top: 2px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -317,11 +317,11 @@ const onClick = () => {
   }
 
   .gauge-title {
-    font-size: 15px;
+    font-size: var(--text-body);
   }
 
   .gauge-number {
-    font-size: 22px;
+    font-size: var(--text-num-hero);
   }
 
   .gauge-degree {

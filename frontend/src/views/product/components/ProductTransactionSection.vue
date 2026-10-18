@@ -355,7 +355,7 @@ function goAllTransactions() {
 .transaction-section__count,
 .transaction-section__footnote {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary);
 }
 
@@ -363,7 +363,7 @@ function goAllTransactions() {
 .transaction-section__more {
   align-self: flex-start;
   padding: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--brand-700, var(--brand-500));
   cursor: pointer;
   background: none;
@@ -388,7 +388,7 @@ function goAllTransactions() {
 
 .transaction-section__link {
   padding: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--brand-700, var(--brand-500));
   cursor: pointer;
   background: none;

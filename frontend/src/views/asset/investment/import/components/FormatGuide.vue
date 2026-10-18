@@ -36,7 +36,7 @@ const { formatGuides, selectedMode } = useImportWizardContext();
   gap: 6px;
   align-items: center;
   margin-bottom: 16px;
-  font-size: 15px;
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--text-primary);
 }

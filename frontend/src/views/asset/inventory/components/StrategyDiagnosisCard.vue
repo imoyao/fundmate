@@ -214,7 +214,7 @@ function round(value: number): number {
   &__behavior-meta,
   &__overview-meta {
     margin: 0;
-    font-size: 12px;
+    font-size: var(--text-label);
     line-height: 1.6;
     color: var(--text-tertiary-ink);
   }
@@ -250,7 +250,7 @@ function round(value: number): number {
   }
 
   &__overview-label {
-    font-size: 12px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
   }
 
@@ -299,7 +299,7 @@ function round(value: number): number {
 
   &__symbol {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
   }
 
@@ -326,7 +326,7 @@ function round(value: number): number {
   }
 
   &__strategy {
-    font-size: 12px;
+    font-size: var(--text-label);
     font-weight: 500;
     color: var(--text-secondary);
   }
@@ -334,7 +334,7 @@ function round(value: number): number {
   /* 后端保证 reason 是客观陈述，这里只负责排版（不截断、不加前缀） */
   &__reason {
     flex: 1 1 100%;
-    font-size: 12px;
+    font-size: var(--text-label);
     line-height: 1.6;
     color: var(--text-tertiary-ink);
   }
@@ -348,7 +348,7 @@ function round(value: number): number {
   }
 
   &__behavior-label {
-    font-size: 12px;
+    font-size: var(--text-label);
     font-weight: 500;
     color: var(--brand-ink);
   }
@@ -357,7 +357,7 @@ function round(value: number): number {
      ——刻意不用涨跌红绿，避免被读成盈亏 */
   &__pill {
     padding: 0 var(--space-2);
-    font-size: 11px;
+    font-size: var(--text-label);
     line-height: 18px;
     color: var(--text-secondary);
     background: var(--bg-muted);

@@ -100,7 +100,7 @@ const tipText = computed(() => {
 /* 口径标签：次级文字色，固定 11px（副行恒比主行弱一档，不随 PnlDualLine 的 size 变） */
 .pnl-estimate-line__tag {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   white-space: nowrap;
 }
@@ -109,7 +109,7 @@ const tipText = computed(() => {
 
 /* 预估不可用时的提示：比口径标签更弱，避免在表格里抢注意力 */
 .pnl-estimate-line__hint {
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   white-space: nowrap;
 }
