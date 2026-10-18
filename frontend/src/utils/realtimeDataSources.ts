@@ -3,10 +3,11 @@ import { formatDate, formatDateTime } from "./date";
 
 const JSONP_TIMEOUT = 5000;
 const HISTORY_TIMEOUT = 8000; // 历史净值序列较大，单独放宽超时
-// 行情批量并发：每批 5 个、批间 500ms。#808 设计稿写 3，实测 5 稳定无风控拦截，
-// 经 #821 P2-8 裁决以实运行为准收敛为 5（留档见 docs/working-notes/explore-issue808-status-2026-08-19.md）。
-const BATCH_SIZE = 5;
-const BATCH_DELAY = 500; // ms
+
+// #2338 B判据：降级通道总量与并发上限，防「批量超时 → 全量降级 → 逐只串行」放大
+// 实测：持仓 142 只基金全降级时，串行批间延迟 ~14s；设上限后最多处理前 N 个、并发 M 个
+const FALLBACK_MAX_CODES = 50; // 降级通道最多处理的 codes 总数
+const FALLBACK_CONCURRENCY = 3; // 降级通道最大并发数
 
 // 纯文本 GET（带超时），用于 pingzhongdata 这类「JS 变量赋值」接口（非标准 JSONP 回调）。
 async function fetchTextWithTimeout(
@@ -467,21 +468,45 @@ export async function batchFetchQuotes(
 }
 
 // 原逐个抓取逻辑（保留作基金批量未命中的降级通道）。含基金→股票的智能类型重试。
+// #2338 B判据：限制降级通道总量与并发，防批量接口抖动时全量降级成串行放大器
 async function batchFetchQuotesFallback(
   codes: { symbol: string; type: "stock" | "fund" }[]
 ): Promise<Map<string, Quote>> {
   const results = new Map<string, Quote>();
-  for (let i = 0; i < codes.length; i += BATCH_SIZE) {
-    const batch = codes.slice(i, i + BATCH_SIZE);
-    const promises = batch.map(({ symbol, type }) =>
-      fetchQuote(symbol, type).then(quote => {
-        if (quote) results.set(symbol, quote);
-      })
+
+  // 总量上限：只处理前 FALLBACK_MAX_CODES 个，超出部分记录警告并跳过
+  const limitedCodes = codes.slice(0, FALLBACK_MAX_CODES);
+  if (limitedCodes.length < codes.length) {
+    console.warn(
+      `[realtimeDataSources] 降级通道触及总量上限 ${FALLBACK_MAX_CODES}，` +
+        `原 ${codes.length} 个 codes 截断为 ${limitedCodes.length} 个`
     );
-    await Promise.allSettled(promises);
-    if (i + BATCH_SIZE < codes.length) {
-      await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
+  }
+
+  // 并发控制：用简单的信号量模式（最多 FALLBACK_CONCURRENCY 个并发）
+  const concurrency = FALLBACK_CONCURRENCY;
+  let running = 0;
+  let index = 0;
+
+  async function runNext(): Promise<void> {
+    if (index >= limitedCodes.length) return;
+    const current = index++;
+    running++;
+    try {
+      const { symbol, type } = limitedCodes[current];
+      const quote = await fetchQuote(symbol, type);
+      if (quote) results.set(symbol, quote);
+    } finally {
+      running--;
+      if (running < concurrency && index < limitedCodes.length) {
+        await runNext();
+      }
     }
   }
+
+  // 启动初始并发
+  const initial = Math.min(concurrency, limitedCodes.length);
+  await Promise.all(Array.from({ length: initial }, () => runNext()));
+
   return results;
 }
