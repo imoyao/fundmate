@@ -288,6 +288,14 @@
   --bg-soft: #f5f0eb; /* 柔和表面 / 毛玻璃基底 */
   --bg-subtle: #f7f3ee; /* 卡片内条目底纹（比 --bg-soft 更淡）。#1545 补幽灵令牌：此前全仓引用但零定义 */
 
+  /* 禁用态填充（#2348）。为什么不能直接用 --bg-soft：
+     卡片底 --bg-card(#fbfaf6) 与 --bg-soft(#f5f0eb) 只差 6 个色阶（对比 1.08:1），
+     禁用主按钮因此没有「块」，只剩 1px 描边，读起来像一段带框的文字而不是按钮。
+     本令牌比 --bg-soft 深一档（对比 ≈1.28:1），让它重新成为可辨识的实心块。
+     ⚠️ 不要按 design.md「Disabled = 不透明度 50%」把 --brand-solid 半透明化：
+     叠在暖白卡上会算出 #E39B8E 的粉，正是「主按钮像未激活」的原始症因。 */
+  --bg-disabled: #ece5dd;
+
   /* ===== 骨架屏扫光带（PageSkeleton / WatchlistTableSkeleton 流光共用） =====
      渐变与 keyframes 的单一来源是 src/style/_skeleton.scss，本令牌只管扫光带颜色。
      旧实现扫光带直接取 --bg-hover：与底色 --bg-soft 仅 1.03:1（感知差 ΔL*≈1）——

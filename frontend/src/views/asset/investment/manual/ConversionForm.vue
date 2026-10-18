@@ -21,7 +21,7 @@
            （lg 及以上才出现 24px 内距 + 1px 线，lg 以下两栏堆叠不画孤线，
            见 design.md §栏间竖向分割线），不手写 border。 -->
       <div class="convert-grid grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <section class="lg:col-span-7">
+        <section class="lg:col-span-6">
           <!-- 栏头不重复标签里的「转出基金」，而是交代这条腿在后台是什么动作：
                转换 = 赎回 + 申购，这一点用户从界面上看不出来 -->
           <h3 class="convert-col__title">转出（赎回）</h3>
@@ -69,76 +69,84 @@
               </div>
             </el-form-item>
 
-            <template v-if="form.positionId">
-              <el-form-item label="交易日期">
-                <!-- 日期框吃满剩余宽度，右端与上方「转出基金」右边缘对齐；
+            <!-- 未选转出基金时，「交易日期 / 转出份额」照常渲染但整体禁用（#2348 视觉审计）：
+                 原先用 v-if 藏起来，左栏只剩一个下拉框、右栏有四块内容，
+                 grid 拉齐后左栏下方空出 ~370px，整页读起来像「没加载完」。
+                 留着骨架既让两栏等高，也提前告诉用户这里还要填两项。 -->
+            <el-form-item label="交易日期">
+              <!-- 日期框吃满剩余宽度，右端与上方「转出基金」右边缘对齐；
                  时点切换按 design.md「Segmented」走软按钮，不用实底 radio-button
                  （实底品牌色会与主按钮撞脸、抢走页面唯一供能焦点，#1731）。 -->
-                <div class="field-row">
-                  <!-- 外层 div 才是 flex item：EP 的 DatePicker 是 inheritAttrs:false，
+              <div class="field-row">
+                <!-- 外层 div 才是 flex item：EP 的 DatePicker 是 inheritAttrs:false，
                    直接写在它上面的 class 不会落到渲染出来的 `.el-input.el-date-editor` 上
                    （实测宽度仍是写死的 220px）。宽度走内联 100%，与外层 flex 配合。 -->
-                  <div class="field-row__grow">
-                    <el-date-picker
-                      v-model="form.trade_date"
-                      type="date"
-                      style="width: 100%"
-                      value-format="YYYY-MM-DD"
-                      :clearable="false"
-                      :disabled-date="disabledTradeDate"
-                    />
-                  </div>
-                  <TradeSlotSwitch v-model="form.isAfter15" />
+                <div class="field-row__grow">
+                  <el-date-picker
+                    v-model="form.trade_date"
+                    type="date"
+                    style="width: 100%"
+                    value-format="YYYY-MM-DD"
+                    :clearable="false"
+                    :disabled="!form.positionId"
+                    :disabled-date="disabledTradeDate"
+                  />
+                </div>
+                <TradeSlotSwitch
+                  v-model="form.isAfter15"
+                  :disabled="!form.positionId"
+                />
+              </div>
+              <div class="helper">15:00 后提交按下一交易日（T+1）净值计算</div>
+            </el-form-item>
+
+            <el-form-item label="转出份额">
+              <div class="quantity-field">
+                <!-- 宽度必须内联：EP 给 .el-input-number 写死 width:150px，
+                   且其样式在运行时注入、晚于构建产物里的 w-full，类名会被压掉。 -->
+                <el-input-number
+                  v-model="form.quantity"
+                  style="width: 100%"
+                  :controls="false"
+                  :min="0"
+                  :max="maxQuantity"
+                  :step="0.01"
+                  :precision="2"
+                  :disabled="!form.positionId"
+                  :placeholder="
+                    form.positionId ? '输入转出份额' : '请先选择要转出的持仓'
+                  "
+                  @change="onQuantityInput"
+                />
+                <!-- 比例档位：与卖出表单同一组件（档位表 / 取整 / 选中态唯一实现）；
+                   选中态由 quantity 反算，手改数值自动掉高亮 -->
+                <div class="quick-ratio-row">
+                  <QuickRatioPicker
+                    v-model="form.quantity"
+                    :total="maxQuantity"
+                    type="fund"
+                    :disabled="!form.positionId"
+                    aria-label="转出份额比例"
+                    @select="onQuickRatioSelect"
+                  />
+                  <span v-if="form.positionId" class="hold-hint">
+                    持有 {{ maxQuantity.toFixed(4) }} 份
+                  </span>
                 </div>
                 <div class="helper">
-                  15:00 后提交按下一交易日（T+1）净值计算
+                  {{
+                    transferAll
+                      ? "当前为全部转出：按持仓精确值清算，不抹零"
+                      : "份额最多 2 位小数；「全部」按持仓精确值转出"
+                  }}
                 </div>
-              </el-form-item>
-
-              <el-form-item label="转出份额">
-                <div class="quantity-field">
-                  <!-- 宽度必须内联：EP 给 .el-input-number 写死 width:150px，
-                   且其样式在运行时注入、晚于构建产物里的 w-full，类名会被压掉。 -->
-                  <el-input-number
-                    v-model="form.quantity"
-                    style="width: 100%"
-                    :controls="false"
-                    :min="0"
-                    :max="maxQuantity"
-                    :step="0.01"
-                    :precision="2"
-                    placeholder="输入转出份额"
-                    @change="onQuantityInput"
-                  />
-                  <!-- 比例档位：与卖出表单同一组件（档位表 / 取整 / 选中态唯一实现）；
-                   选中态由 quantity 反算，手改数值自动掉高亮 -->
-                  <div class="quick-ratio-row">
-                    <QuickRatioPicker
-                      v-model="form.quantity"
-                      :total="maxQuantity"
-                      type="fund"
-                      aria-label="转出份额比例"
-                      @select="onQuickRatioSelect"
-                    />
-                    <span class="hold-hint">
-                      持有 {{ maxQuantity.toFixed(4) }} 份
-                    </span>
-                  </div>
-                  <div class="helper">
-                    {{
-                      transferAll
-                        ? "当前为全部转出：按持仓精确值清算，不抹零"
-                        : "份额最多 2 位小数；「全部」按持仓精确值转出"
-                    }}
-                  </div>
-                </div>
-              </el-form-item>
-            </template>
+              </div>
+            </el-form-item>
           </el-form>
         </section>
 
         <!-- 右栏：转入 -->
-        <section class="lg:col-span-5 soft-col-divider">
+        <section class="lg:col-span-6 soft-col-divider">
           <h3 class="convert-col__title">转入（申购）</h3>
           <el-form
             label-position="top"
@@ -146,13 +154,17 @@
             class="flex flex-col gap-4"
           >
             <!-- 当前账户已持有的置顶快选（与 BuyForm 同一搜索源；不做两套搜索框） -->
-            <el-form-item v-if="inFundCandidates.length" label="当前持有">
-              <div class="flex flex-wrap gap-2">
+            <!-- 快选用「文字链接」而不是胶囊按钮（#2348 视觉审计）：
+                 白底 + 1px 描边 + 20px 圆角的胶囊在 40px 白底输入框旁边，
+                 读者分不清它是「可点的快捷项」还是「一个没填的空输入框」。 -->
+            <el-form-item v-if="inFundCandidates.length" label="从持仓选择">
+              <div class="pick-links">
                 <el-button
                   v-for="pos in inFundCandidates"
                   :key="pos.id"
+                  text
                   size="small"
-                  round
+                  class="pick-link"
                   :class="{ 'is-picked': form.inSymbol === pos.symbol }"
                   @click="pickInFund(pos.symbol, pos.name || pos.symbol)"
                 >
@@ -241,19 +253,24 @@
                 </div>
               </div>
             </el-form-item>
+
+            <!-- 差额规则紧贴「转入」输入框（#2348 视觉审计）：
+                 原先横跨两栏挂在卡片最底部，离它约束的那个输入框最远，
+                 填表时根本注意不到。金额要试算才知道，所以「选哪一档」
+                 仍留在下一步，但规则本身在这里就该看见。 -->
+            <div class="convert-note">
+              <IconifyIconOffline
+                icon="ep:info-filled"
+                class="convert-note__icon"
+              />
+              <span>
+                转入金额小于「转出金额 −
+                费用」时会产生差额，差额退回账户绑定的货币基金
+                （账户未绑定则退回账户现金），下一步可改——不会凭空消失。
+              </span>
+            </div>
           </el-form>
         </section>
-      </div>
-
-      <!-- 差额去向：金额要试算后才知道，所以「选哪一档」放在下一步；
-           但「差额不会凭空消失」这条规则必须在填写时就看得见（#2348 用户提问）。 -->
-      <div class="convert-note">
-        <IconifyIconOffline icon="ep:info-filled" class="convert-note__icon" />
-        <span>
-          转入金额小于「转出金额 −
-          费用」时会产生差额，差额退回账户绑定的货币基金
-          （账户未绑定则退回账户现金），下一步可改——不会凭空消失。
-        </span>
       </div>
 
       <div class="flex justify-end">
@@ -1022,14 +1039,16 @@ defineExpose({ isDirty, resetForm });
    只是常驻而不是出错才出现 */
 .convert-note {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: flex-start;
-  padding: 12px;
+  padding: 0;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--text-secondary);
-  background: var(--bg-soft);
-  border-radius: var(--radius-md);
+
+  /* 说明文案是次要元素：不铺底、不用 secondary 字色，靠 ⓘ 与缩进表达从属关系。
+     旧实现是一块 --bg-soft 色块，在暖白卡上比输入框还显眼（#2348 视觉审计）。 */
+  color: var(--text-tertiary-ink);
+  background: transparent;
 }
 
 .convert-note__icon {
@@ -1087,16 +1106,34 @@ defineExpose({ isDirty, resetForm });
 }
 
 /* 「当前持有」快选：选中态走软按钮（浅红底 + 红字），不占实底主按钮的供能位 */
+.pick-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+/* 文字链接形态：无底无边，靠颜色与下划线表达「可点」。
+   选中项加下划线而不是加底色——底色会被读成输入框（旧实现的问题）。 */
+.pick-link.el-button {
+  height: auto;
+  padding: 0;
+  font-size: 12px;
+  color: var(--brand-ink);
+}
+
+.pick-link.el-button:hover {
+  color: var(--brand-ink);
+  text-decoration: underline;
+}
+
 .is-picked.el-button {
   color: var(--brand-700);
-  background-color: var(--brand-100);
-  border-color: var(--brand-400);
+  text-decoration: underline;
 }
 
 .is-picked.el-button:hover {
   color: var(--brand-700);
-  background-color: var(--brand-200);
-  border-color: var(--brand-400);
+  background-color: transparent;
 }
 
 /* 试算面板：两列键值对齐（左标签 secondary、右数值 tabular-nums；净额加粗） */

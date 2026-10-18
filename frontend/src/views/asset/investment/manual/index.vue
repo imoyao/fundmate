@@ -13,9 +13,11 @@
       </h2>
     </div>
 
-    <!-- 主体录入卡片 -->
+    <!-- 主体录入卡片：转换是唯一的两栏表单，768px 装两栏会把转入侧压到 279px
+         （实测 #2348），所以转换时放开到 1024px；其余表单是单列，维持 768px。 -->
     <div
-      class="rounded-xl p-6 sm:p-8 max-w-3xl mx-auto flex flex-col gap-8"
+      class="rounded-xl p-6 sm:p-8 mx-auto flex flex-col gap-8"
+      :class="fundOpType === 'convert' ? 'max-w-5xl' : 'max-w-3xl'"
       :style="{
         backgroundColor: 'var(--bg-card)',
         border: '1px solid var(--border-default)',
@@ -591,7 +593,13 @@ watch([stockOpType, fundOpType], () => {
   line-height: 1;
   color: var(--text-secondary);
   background: transparent !important;
-  border: 1px solid var(--border-default) !important;
+
+  /* 描边比 --border-default 再压深一档（#2348）：D13 是「透明底 + 1px 描边」，
+     底色已让位给选中态，未选中项的全部可见性都压在这条线上；
+     原色 #e5ddd4 落在 #fbfaf6 卡片上几乎不可见，六颗胶囊看上去是「散落的文字」。
+     用 color-mix 派生而不是新写一个 hex：暗色下两个端点都会自动跟随。 */
+  border: 1px solid
+    color-mix(in srgb, var(--border-default) 68%, var(--text-secondary)) !important;
   border-radius: var(--radius-pill) !important;
   box-shadow: none !important;
 
