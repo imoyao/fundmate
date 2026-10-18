@@ -17,10 +17,12 @@
             :value="opt.value"
           />
         </el-select>
-        <el-radio-group v-model="freq" size="small">
-          <el-radio-button value="weekly">周度</el-radio-button>
-          <el-radio-button value="monthly">月度</el-radio-button>
-        </el-radio-group>
+        <SegmentedControl
+          v-model="freq"
+          :options="FREQ_OPTIONS"
+          size="small"
+          aria-label="统计频率"
+        />
       </template>
     </SectionHeader>
 
@@ -47,6 +49,7 @@ import VChart from "vue-echarts";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import {
   getCrowdingHistory,
   type CrowdingHistoryResponse
@@ -72,8 +75,14 @@ const INDICATOR_OPTIONS = [
   { value: "big_order", label: "百万大单" }
 ];
 
+/** 统计频率档位（#2339：字符串维度切换，走 SegmentedControl） */
+const FREQ_OPTIONS = [
+  { label: "周度", value: "weekly" },
+  { label: "月度", value: "monthly" }
+] as const;
+
 const indicator = ref("crowding");
-const freq = ref("weekly");
+const freq = ref<"weekly" | "monthly">("weekly");
 const loading = ref(false);
 const chartRef = ref<any>(null);
 const history = ref<CrowdingHistoryResponse["data"]>(null);

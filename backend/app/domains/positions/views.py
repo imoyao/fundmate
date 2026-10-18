@@ -16,8 +16,15 @@ from app.core.retry import retry_on_db_locked
 from app.core.validation import parse_body, parse_query
 from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
-from app.domains.positions.schemas import PositionCreate, PositionListRequest, PositionUpdate
+from app.domains.positions.schemas import (
+    ConversionEstimate,
+    ConversionSubmit,
+    PositionCreate,
+    PositionListRequest,
+    PositionUpdate,
+)
 from app.domains.transactions.models import Transaction
+from app.services.conversion_service import ConversionService
 from app.services.position_presenter import enrich_position_dict
 from app.services.position_service import PositionService
 from app.services.position_valuation import allocate_value
@@ -185,6 +192,31 @@ def create_position():
         wrap_position = enrich_position_dict(position)
         db.flush()
         return jsonify({'data': wrap_position, 'message': 'ok'})
+
+
+@bp.post('/conversion/estimate/')
+def estimate_conversion():
+    """基金转换试算（只读，不落库）；设计：fund-conversion-design-2026-10-17.md §4.1。"""
+    payload = parse_body(ConversionEstimate)
+    # schema 字段与服务 kwargs 同构（刻意保持同名，改字段名需同步服务签名）
+    with get_db() as db:
+        data = ConversionService.estimate_conversion(db=db, family_id=get_family_id(), **payload.model_dump())
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.post('/conversion/')
+def submit_conversion():
+    """基金转换提交（落库）；设计：fund-conversion-design-2026-10-17.md §4.1。
+
+    单事务内 OUT 卖出腿（关闭自动申购）→ IN 买入腿 → REFUND 退款腿（可选），
+    2~3 条流水同 link_group_id；同幂等键重复提交由服务层抛
+    SBException(1003/409) 经全局处理器收敛，detail 带原组号。
+    """
+    payload = parse_body(ConversionSubmit)
+    with get_db() as db:
+        data = ConversionService.submit_conversion(db=db, family_id=get_family_id(), **payload.model_dump())
+        db.flush()
+    return jsonify({'data': data, 'message': 'ok'})
 
 
 @bp.patch('/<int:id>/')

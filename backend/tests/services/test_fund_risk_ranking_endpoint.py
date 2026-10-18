@@ -41,7 +41,7 @@ def _clean_snapshot():
     _purge()
 
 
-def _seed(code, type_id, sharpe, *, basis='acc_nav'):
+def _seed(code, type_id, sharpe, *, basis='acc_nav', ret_1m=None):
     """落一行快照（幂等：先删同 (code, as_of) 再插）。
 
     种子表与端点共用同一个内存库，多个用例反复种同一批代码会撞唯一约束
@@ -57,6 +57,7 @@ def _seed(code, type_id, sharpe, *, basis='acc_nav'):
                 as_of=date(2026, 10, 13),
                 fund_type_id=type_id,
                 sharpe=sharpe,
+                ret_1m=ret_1m,
                 max_drawdown=-10.0,
                 sample_points=700,
                 basis=basis,
@@ -141,6 +142,19 @@ def test_only_same_type_returned(client, db):
 
 
 TYPES_URL = '/api/products/fund-risk-types/'
+
+
+def test_period_return_metric_accepted(client, db):
+    """#2284：ret_1m 在白名单内（200、默认降序返回），payload 带出三新字段。"""
+    _seed('000001', 1, 1.0, ret_1m=5.0)
+    _seed('000002', 1, 2.0, ret_1m=1.5)
+
+    resp = client.get(f'{URL}?fund_type_id=1&metric=ret_1m&order=desc')
+    assert resp.status_code == 200
+    rows = resp.get_json()['data']['rows']
+    assert [r['fund_code'] for r in rows] == ['000001', '000002']
+    assert rows[0]['ret_1m'] == 5.0
+    assert 'ret_3m' in rows[0] and 'ret_1y' in rows[0]
 
 
 def _seed_type(type_id, name):

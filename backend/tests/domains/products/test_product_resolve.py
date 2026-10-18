@@ -19,6 +19,8 @@ from contextlib import closing
 import pytest
 
 from app.core.db_factory import market_session_factory, user_session_factory
+from app.core.symbol_utils import symbol_identity
+from app.domains.funds.models import Fund
 from app.domains.positions.models import Position
 from app.domains.securities.models import Security
 from app.domains.watchlist.models import WatchlistItem
@@ -26,7 +28,8 @@ from app.domains.watchlist.models import WatchlistItem
 RESOLVE_URL = '/api/products/resolve/'
 
 # 本文件会读写的 symbol（跨用例必须清干净，见 _isolate_product_rows）
-_TEST_SYMBOLS = ('SZ000001', 'SZ159915', 'SH601899')
+# '159857' / 'SZ159857'：裸码误判 fund 的回归用例（页面传裸码、持仓存带前缀写法）
+_TEST_SYMBOLS = ('SZ000001', 'SZ159915', 'SH601899', '159857', 'SZ159857')
 
 
 @pytest.fixture(autouse=True)
@@ -39,6 +42,9 @@ def _isolate_product_rows():
     撞约束，也会让「身份来源」判定串味（上个用例加的自选，会把本用例期望的
     ``source == 'position'`` 变成 ``'watchlist'``，看起来像实现错了，其实是脏数据）。
     故在此按 symbol 显式清理，不依赖全局 clean_db 的覆盖面。
+
+    ``funds`` 同理：裸码误判用例种了 ``fund_code='159857'``，不清理会把后续
+    目录反查串味（market 域残留是 clean_db 的已知盲区）。
     """
     with closing(user_session_factory()()) as db:
         db.query(WatchlistItem).filter(WatchlistItem.symbol.in_(_TEST_SYMBOLS)).delete()
@@ -46,6 +52,7 @@ def _isolate_product_rows():
         db.commit()
     with closing(market_session_factory()()) as db:
         db.query(Security).filter(Security.symbol.in_(_TEST_SYMBOLS)).delete()
+        db.query(Fund).filter(Fund.fund_code.in_(('159857',))).delete()
         db.commit()
 
 
@@ -337,3 +344,44 @@ def test_resolve_position_state_survives_contract_market_filter(client):
     data = resp.get_json()['data']
     assert data['has_position'] is True
     assert data['market'] == 'CN_A'
+
+
+# ── 9. 裸码入口命中带前缀持仓：持仓语义压过 funds 裸码目录（走势为空回归）────
+def test_resolve_bare_code_matches_prefixed_position(client):
+    """页面传裸码 ``159857``、持仓存 ``SZ159857`` → 必须命中持仓行判 etf。
+
+    回归锚点（光伏ETF 走势为空）：持仓查询曾写死字面量
+    ``Position.symbol == symbol``，裸码恒不命中 → 落到目录反查，funds 表裸码行
+    ``159857``（场外联接基金，与场内 ETF 同码）先命中 → 误判 ``fund`` → 详情页走
+    ``daily_worth`` 路径（该 ETF 无净值行）→ 走势整条为空。
+    判据：持仓行（用户自录，最可信）必须压过目录反查；``has_position`` 也必须为真。
+    """
+    # 目录陷阱：funds 表有裸码同名行（不种它，目录反查返回 None，测不出压序）
+    with closing(market_session_factory()()) as db:
+        if db.query(Fund.id).filter(Fund.fund_code == '159857').first() is None:
+            db.add(Fund(fund_code='159857', name='光伏ETF天弘'))
+            db.commit()
+    # 持仓存带交易所前缀写法 + 归一身份键（生产库真实形态）
+    with closing(user_session_factory()()) as db:
+        exists = db.query(Position.id).filter(Position.family_id == 1, Position.symbol == 'SZ159857').first()
+        if exists is None:
+            db.add(
+                Position(
+                    family_id=1,
+                    symbol='SZ159857',
+                    symbol_norm=symbol_identity('SZ159857', venue='EXCHANGE'),
+                    market='CN_A',
+                    asset_type='etf',
+                    name='光伏ETF',
+                    quantity=1000,
+                )
+            )
+            db.commit()
+
+    resp = client.get(RESOLVE_URL, query_string={'symbol': '159857'}, headers={'X-User-Id': '1'})
+
+    assert resp.status_code == 200
+    data = resp.get_json()['data']
+    assert data['asset_type'] == 'etf', '裸码必须命中持仓行（etf），不得被 funds 裸码行误判成 fund'
+    assert data['source'] == 'position'
+    assert data['has_position'] is True

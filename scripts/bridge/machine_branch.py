@@ -66,7 +66,11 @@
 
 退出码：0 = 就绪（无冲突，已推 / 已开 PR）；
         1 = 有冲突，需人工解（**什么都没推**）；
-        2 = 拿不到输入（fetch / ref 缺失）——**结论不可信**。
+        2 = 拿不到输入（fetch / ref 缺失）**或合并没跑起来**（merge 非 0 退出且
+            没有冲突清单）——**结论不可信**。#2262 实测（#2259 CI 首次暴露）：
+            runner 上无 git 身份时 `git merge` 直接 rc128「Committer identity
+            unknown」，冲突清单为空，曾被打着「无冲突」照常推送——
+            「没跑成」被读成了「跑成了」。
 """
 
 from __future__ import annotations
@@ -89,11 +93,17 @@ GH_REF = 'refs/cross-bridge/gh-dev'
 CNB_REF = 'refs/cross-bridge/cnb-dev'
 
 
-def _git(args: list[str], cwd: str | None = None) -> tuple[int, str]:
+def _git(args: list[str], cwd: str | None = None) -> tuple[int, str, str]:
+    """跑一条 git，返回 (退出码, stdout, stderr)。
+
+    stderr 一并返回是 #2262 事故的教训：merge 挂掉时（如 runner 无 git 身份 ⇒
+    「Committer identity unknown」），错误信息全在 stderr；只留 stdout 会让调用方
+    看到一个空的 `out`，把「没跑起来」读成「没冲突」。
+    """
     r = subprocess.run(
         ['git', *args], cwd=cwd, capture_output=True, text=True, encoding='utf-8', errors='replace'
     )
-    return r.returncode, (r.stdout or '').strip()
+    return r.returncode, (r.stdout or '').strip(), (r.stderr or '').strip()
 
 
 def plan(base: str, machine_branch: str, merge_ref: str = 'merge') -> dict:
@@ -119,18 +129,23 @@ def plan(base: str, machine_branch: str, merge_ref: str = 'merge') -> dict:
 
 def fetch_ref(url: str, branch: str, dest_ref: str, cwd: str | None = None) -> tuple[bool, str]:
     """把远端某分支抓到本地临时 ref（与 `dev_converge` 同款：不改工作区、不动分支）。"""
-    code, out = _git(['fetch', '--quiet', url, f'{branch}:{dest_ref}'], cwd)
+    code, out, err = _git(['fetch', '--quiet', url, f'{branch}:{dest_ref}'], cwd)
     if code != 0:
-        return False, out or f'git fetch {url} {branch} 失败'
+        return False, err or out or f'git fetch {url} {branch} 失败'
     return True, ''
 
 
 def conflict_files(cwd: str | None = None) -> list[str]:
-    """当前工作区未解的冲突文件清单（`--diff-filter=U`）。"""
-    code, out = _git(['diff', '--name-only', '--diff-filter=U'], cwd)
+    """当前工作区未解的冲突文件清单（`git ls-files -u`，比 diff --diff-filter=U 稳）。"""
+    code, out, _ = _git(['ls-files', '-u'], cwd)
     if code != 0:
         return []
-    return [ln for ln in out.splitlines() if ln.strip()]
+    files = set()
+    for ln in out.splitlines():
+        # 每行形如：<mode> <sha> <stage>\t<path>
+        if '\t' in ln:
+            files.add(ln.split('\t', 1)[1].strip())
+    return sorted(files)
 
 
 def build_report(p: dict, *, pushed: bool, conflicts: list[str], pr_url: str | None = None) -> str:
@@ -174,10 +189,10 @@ def run(args: argparse.Namespace) -> int:
     p = plan(args.base, args.machine_branch)
 
     if args.dry_run or not args.apply:
-        code, _ = _git(['merge-tree', '--write-tree', p['base_ref'], p['merge_ref']], cwd)
+        code, _, _ = _git(['merge-tree', '--write-tree', p['base_ref'], p['merge_ref']], cwd)
         conflicts = []
         if code == 1:
-            _, out = _git(['merge-tree', '--write-tree', p['base_ref'], p['merge_ref']], cwd)
+            _, out, _ = _git(['merge-tree', '--write-tree', p['base_ref'], p['merge_ref']], cwd)
             conflicts = sorted(
                 {ln.split('\t')[1].strip() for ln in out.splitlines() if len(ln.split('\t')) == 2}
             )
@@ -190,19 +205,29 @@ def run(args: argparse.Namespace) -> int:
     # ---- 执行：在临时 worktree 里合，绝不动当前工作区 ----
     wt = f'/tmp/machine-branch-{date.today().isoformat()}'
     _git(['worktree', 'remove', '--force', wt], cwd)
-    code, out = _git(['worktree', 'add', '--detach', wt, p['base_ref']], cwd)
+    code, out, err = _git(['worktree', 'add', '--detach', wt, p['base_ref']], cwd)
     if code != 0:
-        print(f'❌ 建临时 worktree 失败：{out}', file=sys.stderr)
+        print(f'❌ 建临时 worktree 失败：{err or out}', file=sys.stderr)
         return 2
-    code, out = _git(['merge', '--no-edit', p['merge_ref']], wt)
+    code, _, err = _git(['merge', '--no-edit', p['merge_ref']], wt)
     conflicts = conflict_files(wt)
+    if code != 0 and not conflicts:
+        # merge 非 0 退出且没留下冲突清单 ⇒ 合并根本没跑起来（身份缺失 / ref 不可用 / …）。
+        # #2262 实测（#2259 CI 首次暴露）：Linux runner 无 git 身份 ⇒ merge rc128
+        # 「Committer identity unknown」⇒ 冲突清单为空 ⇒ 旧代码读成「无冲突」，
+        # rev-parse + push 照常执行——「没跑成」被当成了「跑成了」。
+        # 与「拿不到输入」同族：结论不可信，什么都不推（#171 / #450 假绿纪律）。
+        print(f'❌ 合并失败（rc{code}）且未检出冲突——结论不可信，什么都没推：{err}', file=sys.stderr)
+        _git(['merge', '--abort'], wt)
+        _git(['worktree', 'remove', '--force', wt], cwd)
+        return 2
     print(build_report(p, pushed=False, conflicts=conflicts))
     if conflicts:
         _git(['merge', '--abort'], wt)
         _git(['worktree', 'remove', '--force', wt], cwd)
         return 1
 
-    sha_code, sha = _git(['rev-parse', 'HEAD'], wt)
+    sha_code, sha, _ = _git(['rev-parse', 'HEAD'], wt)
     if sha_code != 0 or not sha:
         print('❌ 拿不到合并结果 sha——结论不可信', file=sys.stderr)
         return 2
@@ -212,10 +237,10 @@ def run(args: argparse.Namespace) -> int:
         print(f'\n（`--push` 未给：合并结果停在临时 worktree 的 `{sha[:8]}`，未推任何远端。）')
         return 0
 
-    code, out = _git(['push', args.github_url, f'HEAD:refs/heads/{p["machine_branch"]}'], wt)
+    code, _, err = _git(['push', args.github_url, f'HEAD:refs/heads/{p["machine_branch"]}'], wt)
     _git(['worktree', 'remove', '--force', wt], cwd)
     if code != 0:
-        print(f'❌ 推机器分支失败：{out}', file=sys.stderr)
+        print(f'❌ 推机器分支失败：{err}', file=sys.stderr)
         return 2
     print(build_report(p, pushed=True, conflicts=[]))
     return 0
@@ -243,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument('--cwd', default=None, help='git 仓库路径（默认当前目录）')
     args = ap.parse_args(argv)
     if not args.cnb_url:
-        code, url = _git(['remote', 'get-url', 'origin'], args.cwd)
+        code, url, _ = _git(['remote', 'get-url', 'origin'], args.cwd)
         args.cnb_url = url if code == 0 and url else 'https://cnb.cool/duoduobei/fundmate.git'
     return run(args)
 

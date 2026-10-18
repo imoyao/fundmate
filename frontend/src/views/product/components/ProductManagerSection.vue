@@ -416,7 +416,7 @@ watch(() => props.mgrCode, load, { immediate: true });
     text-decoration: none;
 
     &:hover {
-      color: var(--brand-700);
+      color: var(--brand-ink); /* #2314：前景文字用品牌文字级 */
     }
 
     /* 键盘焦点必须可见（#1838 可访问性） */
@@ -443,11 +443,13 @@ watch(() => props.mgrCode, load, { immediate: true });
   }
 
   &__badge {
-    padding: 0 4px;
+    /* #2314：对齐 design.md Badge 规范 pill；文字用品牌文字级 --brand-ink
+       （--brand-700 作文字白底 3.73:1 不达 AA，见 #1599 batch 3） */
+    padding: 0 var(--space-2);
     font-size: 11px;
-    color: var(--brand-700);
+    color: var(--brand-ink);
     background: var(--brand-100);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-pill);
 
     &--muted {
       color: var(--text-tertiary);

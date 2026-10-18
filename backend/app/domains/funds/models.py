@@ -344,6 +344,18 @@ class PurchaseRule(Base, PrimaryKeyMixin, TimestampMixin):
     start_quota = Column(Integer, comment='起始金额(分)，包含')
     end_quota = Column(Integer, comment='结束金额(分)，不包含，NULL表示正无穷')
 
+    # 同一金额区间只能有一条规则（2026-10-18）。**必须用表达式索引**：最后一档的
+    # end_quota 恒为 NULL，而 SQLite 里 NULL 不参与唯一性判断——普通唯一索引对
+    # 「无上限」那一档形同虚设。
+    __table_args__ = (
+        Index(
+            'uq_purchase_rules_quota',
+            text('COALESCE(start_quota, -1)'),
+            text('COALESCE(end_quota, -1)'),
+            unique=True,
+        ),
+    )
+
 
 class RedeemRule(Base, PrimaryKeyMixin, TimestampMixin):
     """赎回费率阶梯的持有天数区间规则"""
@@ -352,6 +364,37 @@ class RedeemRule(Base, PrimaryKeyMixin, TimestampMixin):
 
     start_day = Column(Integer, nullable=False, default=0, comment='起始天数, 包含')
     end_day = Column(Integer, nullable=True, comment='结束天数, 不包含, NULL表示正无穷')
+
+    # 同一持有天数区间只能有一条规则（2026-10-18）。表达式索引的理由同 PurchaseRule：
+    # 最后一档 end_day 恒为 NULL，普通唯一索引管不到它。
+    __table_args__ = (
+        Index(
+            'uq_redeem_rules_range',
+            text('COALESCE(start_day, -1)'),
+            text('COALESCE(end_day, -1)'),
+            unique=True,
+        ),
+    )
+
+
+class EtfFeeRate(Base, PrimaryKeyMixin, TimestampMixin):
+    """ETF 运作费率缓存小表（market 域，#2333）。
+
+    与 ``fee_ratios`` 的区别：那张是场外基金申购/赎回费率阶梯（外键 → funds）；
+    本表只存**场内 ETF 的管理费率 + 托管费率**（%/年），是对比表费率列的
+    「缓存即兜底」——免费 JSON 源经逐一排查实测不存在运作费用字段（#2333），
+    只能走 HTML 双源（东财 F10 / 同花顺），双源都挂时沿用旧值。
+    **只写对比表触达的 ETF**（读路径 = etf_compare 服务），不做全市场回填 job。
+    """
+
+    __tablename__ = 'etf_fee_rates'
+
+    etf_code = Column(String(6), unique=True, nullable=False, comment='ETF 代码（裸 6 位码）')
+    mgmt_fee_pct = Column(SafeNumeric(8, 4), comment='管理费率(%/年)，如 0.15')
+    custody_fee_pct = Column(SafeNumeric(8, 4), comment='托管费率(%/年)，如 0.05')
+    source = Column(String(10), comment='抓取来源: em=东财 F10 / ths=同花顺')
+    # 读取时超 30 天尝试重抓（费率年频变化，30 天窗口足够新），失败沿用旧值
+    fetched_at = Column(DateTime, nullable=False, comment='最近一次成功抓取时间（超 30 天读取时尝试重抓）')
 
 
 class FeeRatio(Base, PrimaryKeyMixin, TimestampMixin):
@@ -366,6 +409,32 @@ class FeeRatio(Base, PrimaryKeyMixin, TimestampMixin):
     currency = Column(String(10), nullable=False, default='CNY', comment='计费币种(ISO 4217)，默认CNY')
     purchase_rule_id = Column(Integer, ForeignKey('purchase_rules.id'), nullable=True)
     redeem_rule_id = Column(Integer, ForeignKey('redeem_rules.id'), nullable=True)
+
+    # 「同一基金 + 同一费率类型 + 同一规则」只能有一条费率（2026-10-18）。
+    #
+    # ## 为什么补这条约束
+    #
+    # 本表此前**一个索引都没有**，于是 2026-05-31 的一次整表复制在库里留下 12,732 组
+    # 逐字相同的副本行（fee_ratios 25,471 行，重复行的 rate/currency/created_at/
+    # updated_at 全同），表现为「赎回费率分布每档显示两次」。应用层已收口为
+    # upsert + 结构校验 + 清残档，但那些闸只在**已知写路径**上生效；唯一约束是最后
+    # 一道、也是唯一会让错误**当场报错**而不是静默通过的一道。
+    #
+    # ## 为什么用表达式索引
+    #
+    # redeem 行的 purchase_rule_id 恒为 NULL、purchase 行的 redeem_rule_id 恒为 NULL，
+    # 而 SQLite 里 NULL 不参与唯一性判断 → 普通唯一索引对一半的行形同虚设。
+    # 故两个 rule id 都先 COALESCE(..., -1) 再比。
+    __table_args__ = (
+        Index(
+            'uq_fee_ratios_scope',
+            'fund_code',
+            'fee_type',
+            text('COALESCE(purchase_rule_id, -1)'),
+            text('COALESCE(redeem_rule_id, -1)'),
+            unique=True,
+        ),
+    )
 
 
 class MoneyFundDailyWorth(Base, PrimaryKeyMixin, TimestampMixin):
@@ -629,6 +698,7 @@ class FundRiskMetrics(Base, PrimaryKeyMixin, TimestampMixin):
     - ``sharpe`` / ``sortino`` / ``calmar`` / ``ulcer_index`` / ``upi`` / ``return_drawdown_ratio``
       → 风险指标表（同类内排序，跨类别不比绝对值）；
     - ``win_rate`` / ``win_rate_period`` → 同上；
+    - ``ret_1m`` / ``ret_3m`` / ``ret_1y`` → 同类风险榜「近1月/近3月/近1年」三列（#2284）；
     - ``basis`` / ``sample_points`` / ``as_of`` / ``caliber_version`` → 口径元数据，
       随值下发（不告诉口径的数字不可复核）。
 
@@ -661,6 +731,11 @@ class FundRiskMetrics(Base, PrimaryKeyMixin, TimestampMixin):
     return_drawdown_ratio = Column(SafeNumeric(10, 4), nullable=True, comment='波回比')
     win_rate = Column(SafeNumeric(10, 4), nullable=True, comment='胜率(%)')
     win_rate_period = Column(String(8), nullable=True, comment='胜率周期 day/week/month')
+    # 区间收益（#2284）：自然日端点（30/90/365），与拟涨幅共用取数规则，见
+    # fund_risk_metrics.PERIOD_RETURN_SPANS；可空列，历史不足该窗口为 NULL（诚实降级）。
+    ret_1m = Column(SafeNumeric(10, 4), nullable=True, comment='近1月区间收益率(%)，30 自然日端点')
+    ret_3m = Column(SafeNumeric(10, 4), nullable=True, comment='近3月区间收益率(%)，90 自然日端点')
+    ret_1y = Column(SafeNumeric(10, 4), nullable=True, comment='近1年区间收益率(%)，365 自然日端点')
 
     sample_points = Column(Integer, nullable=False, default=0, comment='参与计算的净值点数')
     basis = Column(String(16), nullable=False, comment='口径/可信度：acc_nav / distorted / insufficient')
@@ -668,8 +743,8 @@ class FundRiskMetrics(Base, PrimaryKeyMixin, TimestampMixin):
     caliber_version = Column(
         Integer,
         nullable=False,
-        default=1,
-        server_default=text('1'),
+        default=2,
+        server_default=text('2'),
         comment='口径版本；与 fund_risk_metrics_job.CALIBER_VERSION 不符即作废（改口径先 bump）',
     )
 

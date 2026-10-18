@@ -244,6 +244,10 @@ def test_dedup_keeps_existing_manager_so_profile_can_be_backfilled():
         job = _make_job(db)
         validated = job._validate_data(rows)
         code = validated[0]['mgr_code']
+        # 幂等清场：本用例会把合成行 commit 进共享库且不回滚（无 app 夹具），
+        # 上一轮全量跑的残留会让本轮种子撞唯一约束（IntegrityError，2026-10-17 实测）。
+        db.query(Manager).filter(Manager.name == '回填经理').delete(synchronize_session=False)
+        db.commit()
         # 先造一行「已存在但档案全空」的经理 —— 模拟生产库的存量行
         db.add(Manager(mgr_code=code, name='回填经理'))
         db.commit()

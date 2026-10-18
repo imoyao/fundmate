@@ -8,10 +8,11 @@
   >
     <el-form label-width="80px" size="default">
       <el-form-item label="补充方式">
-        <el-radio-group v-model="supplementForm.kind">
-          <el-radio-button value="increment">补一笔交易</el-radio-button>
-          <el-radio-button value="set">设定持仓</el-radio-button>
-        </el-radio-group>
+        <SegmentedControl
+          v-model="supplementForm.kind"
+          :options="KIND_OPTIONS"
+          aria-label="补充方式"
+        />
       </el-form-item>
 
       <template v-if="supplementForm.kind === 'increment'">
@@ -79,11 +80,18 @@
 <script setup lang="ts">
 import { ref, reactive, watch } from "vue";
 import { ElMessage } from "element-plus";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import {
   applyAdjustment,
   type DiscrepancyItem,
   type AdjustmentPayload
 } from "@/api/reconciliation";
+
+/** 补充方式档位（#2339：切换后表单结构不同，本质是「方式选择」，属分段器适用域） */
+const KIND_OPTIONS = [
+  { label: "补一笔交易", value: "increment" },
+  { label: "设定持仓", value: "set" }
+] as const;
 
 /** 就地补充弹窗（§6.4，#980 拆分自 index.vue，零行为变更）：
  *  工作台内直接补录（调 apply_decision），绝不跳「记一笔」。

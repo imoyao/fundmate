@@ -11,7 +11,8 @@ WHY 下沉
     - 不碰 ``g`` / ``request``：family_id 由调用方显式传入，可脱离请求上下文单测；
     - 查询组装为只读；关联维护（``replace_portfolio_ledger_links``）只做批量 UPDATE、
       不 commit——提交权在调用方会话；
-    - 对外 API 契约零变更（``conventions.md`` §2.4）：返回字段名、嵌套结构与下沉前逐字一致。
+    - 对外 API 契约零变更（``conventions.md`` §2.4）：返回字段名、嵌套结构与下沉前逐字一致
+      （此后按需**只增不改**追加行级字段——#2210 的 ``price_date`` / ``settled_today``）；
 """
 
 from sqlalchemy import and_, or_, update
@@ -23,6 +24,7 @@ from app.domains.ledgers.models import Ledger
 from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
 from app.services.fund_utils import should_exclude_from_investment
+from app.services.pnl_settle import is_settled_today
 
 
 def build_portfolio_holdings(db, family_id: int, portfolio_id: int) -> list[dict]:
@@ -33,7 +35,9 @@ def build_portfolio_holdings(db, family_id: int, portfolio_id: int) -> list[dict
     - 主路径 ``positions.portfolio_id == portfolio_id``；继承路径仅当持仓未显式指定组合时
       继承其账户(ledger)的默认组合（显式 portfolio_id 必须覆盖 ledger 继承）；
     - 类现金由 ``should_exclude_from_investment`` 排除（尊重 count_as_investment 覆盖）；
-    - 账户级资产（现金，非负债）并入同一 holdings 列表，以 ``asset.id + 100000`` 区分。
+    - 账户级资产（现金，非负债）并入同一 holdings 列表，以 ``asset.id + 100000`` 区分；
+    - holdings 行为 **dict 直出**（无视图 Out schema），#2210 起持仓行增发
+      ``price_date`` / ``settled_today``（只增不改，原字段逐字不变）。
     """
     portfolio = (
         db.query(Portfolio)
@@ -110,6 +114,11 @@ def build_portfolio_holdings(db, family_id: int, portfolio_id: int) -> list[dict
                 'pnl_rate': round((pos.current_price - pos.avg_price) / pos.avg_price * 100, 2)
                 if pos.avg_price
                 else 0.0,
+                # 价格时点 + 当日已定型（#2210，与持仓明细 #2140 同名同义）：组合页持仓行同样
+                # 要能隐藏估值副行——判据是 price_date 是否今天，比较收口 `pnl_settle`。
+                # 本查询是全量 ORM 实体（db.query(Position)），price_date 未被 select 裁剪，可直接取。
+                'price_date': pos.price_date.isoformat() if pos.price_date else None,
+                'settled_today': is_settled_today(pos.price_date),
             }
         )
 
@@ -129,6 +138,9 @@ def build_portfolio_holdings(db, family_id: int, portfolio_id: int) -> list[dict
                 'market_value': Money.cents_to_yuan(asset.amount),
                 'pnl': 0.0,
                 'pnl_rate': 0.0,
+                # 静态资产无价格日期概念（不随行情定型，也没有估值副行）→ 两字段恒 None（#2210）
+                'price_date': None,
+                'settled_today': None,
             }
         )
 

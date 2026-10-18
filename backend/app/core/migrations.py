@@ -12,6 +12,7 @@
 - 失败显式抛错（不静默吞掉，避免带病启动）。
 """
 
+import os
 import re
 
 from loguru import logger
@@ -464,6 +465,140 @@ def migrate_channel_link_indexes(engine: Engine) -> str:
     raise RuntimeError('channel_links.to_symbol 索引创建后校验失败')
 
 
+#: 费率三表的唯一约束 DDL（2026-10-18）。与 ORM 模型 ``__table_args__`` 逐字一致——
+#: 那边让新库由 create_all 建出，这里给存量库补建；两处必须同源，改一处就要改两处。
+_FEE_UNIQUE_INDEX_DDL_ALL = (
+    (
+        'uq_fee_ratios_scope',
+        'CREATE UNIQUE INDEX IF NOT EXISTS uq_fee_ratios_scope ON fee_ratios '
+        '(fund_code, fee_type, COALESCE(purchase_rule_id, -1), COALESCE(redeem_rule_id, -1))',
+    ),
+    (
+        'uq_redeem_rules_range',
+        'CREATE UNIQUE INDEX IF NOT EXISTS uq_redeem_rules_range ON redeem_rules '
+        '(COALESCE(start_day, -1), COALESCE(end_day, -1))',
+    ),
+    (
+        'uq_purchase_rules_quota',
+        'CREATE UNIQUE INDEX IF NOT EXISTS uq_purchase_rules_quota ON purchase_rules '
+        '(COALESCE(start_quota, -1), COALESCE(end_quota, -1))',
+    ),
+)
+
+
+def _fee_duplication_report(engine: Engine) -> list[str]:
+    """统计三张费率表里「会被唯一索引拒掉」的重复组，返回人类可读的问题列表。"""
+    checks = (
+        (
+            'fee_ratios',
+            '同一 (fund_code, fee_type, purchase_rule_id, redeem_rule_id) 存在多行',
+            'SELECT COUNT(*) FROM (SELECT 1 FROM fee_ratios '
+            'GROUP BY fund_code, fee_type, COALESCE(purchase_rule_id, -1), COALESCE(redeem_rule_id, -1) '
+            'HAVING COUNT(*) > 1)',
+        ),
+        (
+            'redeem_rules',
+            '同一 (start_day, end_day) 区间存在多行',
+            'SELECT COUNT(*) FROM (SELECT 1 FROM redeem_rules '
+            'GROUP BY COALESCE(start_day, -1), COALESCE(end_day, -1) HAVING COUNT(*) > 1)',
+        ),
+        (
+            'purchase_rules',
+            '同一 (start_quota, end_quota) 区间存在多行',
+            'SELECT COUNT(*) FROM (SELECT 1 FROM purchase_rules '
+            'GROUP BY COALESCE(start_quota, -1), COALESCE(end_quota, -1) HAVING COUNT(*) > 1)',
+        ),
+    )
+    problems = []
+    with engine.connect() as conn:
+        for table, desc, sql in checks:
+            groups = conn.execute(text(sql)).scalar() or 0
+            if groups:
+                problems.append(f'{table}: {groups} 组重复（{desc}）')
+    return problems
+
+
+def migrate_fee_unique_indexes(engine: Engine) -> str:
+    """费率三表补唯一约束（2026-10-18）。
+
+    ## 为什么补
+
+    ``fee_ratios`` / ``redeem_rules`` / ``purchase_rules`` 此前**一个索引都没有**。
+    2026-05-31 的一次整表复制在库里留下 12,732 组逐字相同的副本行（fee_ratios
+    25,471 行；重复对的 rate/currency/created_at/updated_at 全同 ⇒ 复制而非重写），
+    用户可见表现是「赎回费率分布每档显示两次」。
+
+    应用层已收口为 upsert + 结构校验 + 清残档，但那些闸只在**已知写路径**上生效；
+    唯一约束是最后一道、也是唯一会让错误**当场报错**而不是静默通过的一道。
+
+    ## 为什么必须用表达式索引
+
+    SQLite 里 NULL 不参与唯一性判断，而 ``fee_ratios`` 的 ``purchase_rule_id``
+    （redeem 行恒为 NULL）与 ``redeem_rules`` / ``purchase_rules`` 最后一档的
+    ``end_day`` / ``end_quota`` 都是 NULL——普通唯一索引对它们形同虚设。故一律
+    ``COALESCE(列, -1)`` 之后再比。
+
+    ## 存量库有重复行时
+
+    **fail closed**：直接抛错并指明处置命令，而不是「跳过不建」。跳过等于把刚修好的
+    问题原样放回去，且没人会知道——重复行正是这样静默存在了五个月。
+
+    ## 但修复窗口必须能启动应用（实测踩到）
+
+    「同区间两个费率」这类重复行，正确的修复方式是**用修好的解析重新同步**，
+    而重新同步要跑 ``sync_metadata.py``——它启动时就调 ``init_db``，于是 fail closed
+    会把**修复路径自己**堵死（2026-10-18 实测：CLI 直接 RuntimeError 退出，一只都没跑）。
+
+    故提供显式开关 ``ALLOW_FEE_DUPLICATES=1``：只在该环境下放行（记ERROR 日志、
+    不建索引、继续启动），供「清理 / 重同步」这个窗口使用。默认不放行。
+
+    ``create_all`` 只建新表、不给存量表加索引，故与 watchlist 约束同法由 init_db 兜底。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，唯一约束由 ORM 模型/迁移工具负责'
+
+    present = set(inspect(engine).get_table_names())
+    missing = [t for t in ('fee_ratios', 'redeem_rules', 'purchase_rules') if t not in present]
+    if missing:
+        return f'[SKIP] 表不存在（空库，init_db 将按新模型建表）: {missing}'
+
+    problems = _fee_duplication_report(engine)
+    if problems:
+        detail = '\n  - '.join(problems)
+        remediation = (
+            'python backend/scripts/cleanup_fee_ratio_dupes.py --db <库路径>'
+            '（默认 dry-run；确认后加 --apply，会自动写回滚 SQL）'
+        )
+        if os.getenv('ALLOW_FEE_DUPLICATES') == '1':
+            msg = (
+                '[BLOCKED] 费率三表仍有重复行，未建唯一索引（ALLOW_FEE_DUPLICATES=1 显式放行，'
+                f'仅供清理/重同步窗口使用）:\n  - {detail}\n处理完成后请去掉该环境变量重启，'
+                f'索引会自动补建。处置：{remediation}'
+            )
+            logger.error(msg)
+            return msg
+        raise RuntimeError(f'费率三表存在重复行，唯一索引无法建立：\n  - {detail}\n请先清理存量：{remediation}')
+
+    with engine.connect() as conn:
+        for _name, sql in _FEE_UNIQUE_INDEX_DDL_ALL:
+            conn.execute(text(sql))
+        conn.commit()
+
+    with engine.connect() as conn:
+        names = {
+            row[0]
+            for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'uq_%'"))
+        }
+    missing_idx = [name for name, _sql in _FEE_UNIQUE_INDEX_DDL_ALL if name not in names]
+    if missing_idx:
+        raise RuntimeError(f'费率唯一索引创建后校验失败，缺失: {missing_idx}')
+
+    msg = '[OK] 费率三表唯一约束已就绪: ' + ' / '.join(name for name, _ in _FEE_UNIQUE_INDEX_DDL_ALL)
+    logger.info(msg)
+    return msg
+
+
 def migrate_positions_price_columns(engine: Engine) -> str:
     """positions 补「当日盈亏」的基准列（#2007）：`prev_close` + `price_date`。
 
@@ -869,3 +1004,46 @@ def migrate_fund_valuation_official_columns(engine: Engine) -> str:
         logger.info(f'[OK] fund_valuation_daily 增加对照列: {added}')
         return f'[OK] 增加列 {added}'
     return '[SKIP] fund_valuation_daily 对照三列已存在'
+
+
+def migrate_fund_risk_metrics_period_returns(engine: Engine) -> str:
+    """fund_risk_metrics 补区间收益三列（#2284）：ret_1m / ret_3m / ret_1y。
+
+    ## 为什么需要
+
+    同类风险榜要展示「近1月 / 近3月 / 近1年」三列区间收益（#2284）；既有快照表
+    没有这三列，读路径无处可取。三列全为**可空**列：SQLite / libsql 对可空列
+    支持直接 ALTER ADD，历史行留 NULL，由读取端降级为「—」。
+
+    ## 只加列、不回填
+
+    区间收益是「由净值序列可复现的派生值」，不是时点对照——但迁移阶段回填会
+    在启动路径里做计算扫描（读全量净值），得不偿失。正确路径是
+    ``fund_risk_metrics_job.CALIBER_VERSION`` bump（v1 → v2）后由 job 重算覆盖，
+    启动期迁移只负责把列建好。幂等：列已存在则跳过；非 SQLite 引擎
+    （Supabase Postgres）由 ORM 模型 / 迁移工具负责，直接跳过。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
+
+    if 'fund_risk_metrics' not in inspect(engine).get_table_names():
+        return '[SKIP] fund_risk_metrics 表不存在（空库，init_db 将按新模型建表）'
+
+    cols = [
+        ('ret_1m', 'NUMERIC(10, 4)'),
+        ('ret_3m', 'NUMERIC(10, 4)'),
+        ('ret_1y', 'NUMERIC(10, 4)'),
+    ]
+    with engine.connect() as conn:
+        existing = {c['name'] for c in inspect(engine).get_columns('fund_risk_metrics')}
+        added = []
+        for name, typ in cols:
+            if name not in existing:
+                conn.execute(text(f'ALTER TABLE fund_risk_metrics ADD COLUMN {name} {typ}'))
+                added.append(name)
+        conn.commit()
+    if added:
+        logger.info(f'[OK] fund_risk_metrics 增加区间收益列: {added}')
+        return f'[OK] 增加列 {added}'
+    return '[SKIP] fund_risk_metrics 区间收益三列已存在'

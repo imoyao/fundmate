@@ -17,6 +17,7 @@ from app.core.constants import ALLOCATION_LABELS, MARKET_LABELS, TYPE_LABELS
 from app.core.money import Money
 from app.domains.positions.models import Position
 from app.domains.positions.schemas import PositionOut
+from app.services.pnl_settle import is_settled_today
 from app.services.position_valuation import market_value_cents
 
 
@@ -51,6 +52,9 @@ def enrich_position_dict(p: Position) -> dict:
     # 所以这里只负责算，不负责凑。
     d['prev_close'] = Money.price_units_to_yuan(p.prev_close) if p.prev_close is not None else None
     d['price_date'] = p.price_date.isoformat() if p.price_date else None
+    # 当日已定型（#2210）：确认口径价格日期是否为今天 ⇒ true 时估值副行冗余，前端隐藏。
+    # 判据是数据可用性（price_date 是否今天）而非时钟；比较收口 `pnl_settle`，此处不手写日期比较。
+    d['settled_today'] = is_settled_today(p.price_date)
     if p.prev_close:
         d['day_pnl'] = Money.cents_to_yuan(Money.multiply_price_quantity(p.current_price - p.prev_close, p.quantity))
         # 单位与既有 `pnl_rate` 逐字一致：**百分数**（×100，两位小数），前端不再做换算

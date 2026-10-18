@@ -73,10 +73,20 @@ jobs:
               - '.github/workflows/ci.yml'
 
   backend:
-    name: 后端测试 + Lint
+    name: 后端测试 + Lint (${{ matrix.shard }})
     needs: changes
     if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
+    # 分片并行 + xdist（激进试跑，源 PR #2266）：2 片 × 每片 -n auto（4 worker）≈ 8 路。
+    # 线上 runner 4C/16G/14G盘：两片各在独立 runner（独立内存/磁盘）+ 每片 4 worker 跑不相交子集；
+    # 磁盘合计≈单跑（#1821 的 TEMP 爆盘是「保留全部×3 会话」所致，已被 retention 治住，非 xdist 之过）。
+    # 本地 OOM/磁盘顾虑 ≠ 线上成立——先激进跑通，有报错再按实际调（真 OOM 就 -n 2 / 加细片）。
+    # 用 matrix 而非新增 job：**job 数不变 ⇒ 不用动下面 gate.needs**（#1559/#1560 两次都是
+    # 合并冲突把 gate.needs 里的 job 弄丢）。fail-fast:false 让另一片跑完再判，别早停。
+    strategy:
+      matrix:
+        shard: [services, rest]
+      fail-fast: false
     # 防 pytest 偶发 hang 卡满 GitHub 默认 6h 兜底：单进程后端测试正常 ~19min，给 30min 余量（#1596 排查 CI 卡死）
     timeout-minutes: 30
     defaults:
@@ -121,6 +131,11 @@ jobs:
           # 用环境变量局部设置，避免 `pdm config` 改写 runner 全局配置
           PDM_VENV_IN_PROJECT: "true"
         run: pdm install -G dev
+
+      # CI 并行（激进试跑，源 PR #2266）：把 pytest-xdist 装进同一 venv，测试用 -n auto 多 worker。
+      # 不写进 pyproject/pdm.lock（免锁重算）：这是 CI 提速实验，稳了再决定是否固化成项目依赖。
+      - name: 安装 pytest-xdist（CI 并行用）
+        run: pdm run python -m pip install -q pytest-xdist
 
       - name: Ruff 检查
         run: pdm run ruff check .
@@ -169,9 +184,14 @@ jobs:
       - name: 守卫:资产分布图统一复用
         run: python ../scripts/guard_no_duplicate_pie.py
 
-      # 单进程（避 OOM），排除需联网的 slow 测试
-      - name: 运行测试
-        run: pdm run python -m pytest -p no:xdist -m "not slow"
+      # 排除需联网的 slow 测试；按 matrix.shard 只跑本片（两片不相交），片内 -n auto 多 worker 并行
+      - name: 运行测试 (${{ matrix.shard }})
+        run: |
+          if [ "${{ matrix.shard }}" = "services" ]; then
+            pdm run python -m pytest -n auto -m "not slow" tests/services
+          else
+            pdm run python -m pytest -n auto -m "not slow" tests --ignore=tests/services
+          fi
 
       # 总资产聚合守卫（源 CNB duoduobei/fundmate#478 / GitHub #2154 → imoyao/fundmate#2179）：`family_totals`
       # 被立为唯一聚合出口之后，账户级的 `get_ledger_distributions` 仍把同一套累加

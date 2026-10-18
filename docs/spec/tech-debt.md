@@ -984,3 +984,24 @@ node scripts/axe_contrast_audit.mjs --theme dark \
 
 详案：`docs/working-notes/manager-profile-card-phase1-design-2026-10-10.md`
 （含数据源台账、三个实测坑、转换层设计、头像防盗链 567 硬阻断的实测证据）。
+
+## 2026-10-18 `ClearedPosition` 表废弃（#2131 · 账本对齐 A' 拍板 7）
+
+**背景**：`cleared_positions` 表（`domains/watchlist/models.py`）字段齐全但**自建立起零写入、零读者**（frontend 零命中、无端点），踩数据策略硬规则「新表必须有读路径」。
+
+**拍板结论：废弃，不改造为缓存表。** 清仓周期统计改由 `services/analytics/cleared_cycles.py` 从流水**实时聚合**（`GET /api/summary/cleared-cycles/`，复盘页消费），不新增写入方。不改缓存的理由：聚合成本≈0（family 级千行流水、毫秒级），而缓存表要引入清仓时 upsert 写入方 + 存量回填 + 与流水的一致性维护，违背 #2131 自己的验收「不新增写入方」。
+
+**落地形态（非删表）**：
+
+- 模型定义保留，类 docstring 标注「已废弃 + 禁止新增读写」——**避免破坏性删表**（`WatchlistItem.source_cycle_id` / `next_review_date` 仍引用其语义，删列属另一决策）；
+- 无任何迁移；无数据变更。
+
+**遗留开口项**：
+
+| # | 事项 | 说明 |
+|---|---|---|
+| 1 | `WatchlistItem.source_cycle_id` 悬空 | 该列语义「关联的清仓周期ID」指向已废弃表；新周期只有聚合结果没有行 ID。待自选/复盘链路真要「跳转到某轮周期」时，改用 `symbol + cycle_number` 定位，届时评估删列 |
+| 2 | 自选「已清仓」检测仍走 `SUM(quantity)==0` | `watchlist_service.py` 的 cleared 分组依赖**残留的零份额持仓行**，而 app 清仓是 `db.delete` 整行——已全删的标的反而匹配不到。清仓周期聚合（流水口径）是更可靠的「已清仓标的」来源，收敛属另一张卡，本卡只登记 |
+| 3 | 生产库 `cleared_positions` 表空转 | 表存在但无行无读者，不阻塞；如需回收可在后续迁移中 drop（须先完成开口项 1） |
+
+**验收对应**：#2131 三项验收——周期级盈亏/胜率可查（端点 + 复盘页「清仓周期复盘」区块）、不新增写入方（纯读聚合）、`ClearedPosition` 去留结论落代码 docstring + 本条登记。

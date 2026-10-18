@@ -59,7 +59,10 @@ export default defineConfig({
       VITE_SUPABASE_URL: E2E_SUPABASE_URL,
       VITE_SUPABASE_ANON_KEY: E2E_SUPABASE_ANON_KEY,
       // 钉住 hash 模式：与生产 .env.production 一致，深链形态确定（/#/explore）
-      VITE_ROUTER_HISTORY: "hash"
+      VITE_ROUTER_HISTORY: "hash",
+      // 关付费墙遮罩（#994 Phase 2）：e2e 断言 Pro 模块内容渲染；本地 .env.local
+      // 被 gitignore（CI 上不存在），不定这个值会让内容断言在遮罩下时有时无
+      VITE_PRO_PAYWALL_ENABLED: "false"
     }
   }
 });
