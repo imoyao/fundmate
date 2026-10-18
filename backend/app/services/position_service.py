@@ -998,7 +998,8 @@ class PositionService:
                 family_id=family_id,
                 # #1232 决策 11：流水来源与持仓同源（记一笔默认 manual，交易导入/对账补录按 data.source）
                 source=data.get('source') or PositionSource.MANUAL.value,
-                # 净值缺失先记账：pending 标记 + 元数据（nav_date/shares_manual）供 nav_backfill 消费
+                # 净值缺失先记账：pending 标记 + 元数据（nav_date/shares_manual）供 nav_backfill 消费；
+                # 非 pending 场景透传调用方 extra（如基金转换的 extra.conversion，§3.2）
                 entry_status='pending_nav' if nav_pending else None,
                 extra=(
                     json.dumps(
@@ -1006,7 +1007,7 @@ class PositionService:
                         ensure_ascii=False,
                     )
                     if nav_pending
-                    else None
+                    else data.get('extra')
                 ),
             )
 
@@ -1025,10 +1026,19 @@ class PositionService:
             raise
 
     @staticmethod
-    def process_sell_or_withdraw(db: Session, data: dict, skip_lot_check: bool = False) -> Optional[Position]:
+    def process_sell_or_withdraw(
+        db: Session, data: dict, skip_lot_check: bool = False, auto_purchase: bool = True
+    ) -> Optional[Position]:
         """
         执行卖出或取出操作。
         成功返回更新后的持仓，若数量减至 0 则删除持仓并返回 None。
+
+        auto_purchase（#1137 的显式开关，默认 True 保持既有行为）：
+        - True：普通卖出走「回款自动申购账户绑定的类现金产品」；
+        - False：**基金转换**专用——转换的退款去向由 conversion_service 自行落
+          第三条腿（类现金或账户现金，用户显式选择），若此处再自动申购一笔，
+          同一笔回款会被记两次（资产虚增）。关掉的是「代劳副作用」，不是任何
+          校验（validate_sell 照跑）。
         """
         position_id = data['position_id']
         op_type = data['op_type']
@@ -1110,11 +1120,14 @@ class PositionService:
                 family_id=_resolve_family_id(data),
                 # #1232 决策 11：流水来源透传（记一笔默认 manual）
                 source=data.get('source') or PositionSource.MANUAL.value,
+                # 转换等成组交易经 data 透传 extra.conversion 元数据（§3.2）
+                extra=data.get('extra'),
             )
 
             # #1137 卖出回款自动申购账户绑定的类现金产品（余额宝）。
             # 净额 = 成交额 - 手续费；货基/逆回购自身的卖出不触发，避免「赎回 → 自动申购」死循环。
-            if _get_asset_type(data) not in ('money_fund', 'reverse_repo'):
+            # 基金转换传 auto_purchase=False：退款腿由转换服务按用户选择显式落账（见 docstring）。
+            if auto_purchase and _get_asset_type(data) not in ('money_fund', 'reverse_repo'):
                 gross_cents = Money.multiply_price_quantity(price_units, qty_units)
                 auto_purchase_money_fund(
                     db,

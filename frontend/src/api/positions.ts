@@ -142,3 +142,98 @@ export function validateTradeOrder(data: {
     data
   });
 }
+
+// ── 基金转换（设计：docs/working-notes/fund-conversion-design-2026-10-17.md） ──
+
+/** 转换试算 / 提交的公共入参 */
+export interface ConversionBaseParams {
+  /** 账户 ID；缺省取转出持仓所属账户（传入则校验一致） */
+  ledger_id?: number | null;
+  /** 转出持仓 ID */
+  out_position_id: number;
+  /** 转出份额（份）；缺省或 <=0 = 全部转出（后端按持仓 4 位精确值） */
+  out_quantity?: number | null;
+  /** 转入基金代码（6 位裸码） */
+  in_symbol: string;
+  /** 指定转入金额（元）；缺省 = 净额全部转入 */
+  in_amount?: number | null;
+  /** 交易日期 YYYY-MM-DD，缺省今天 */
+  trade_date?: string | null;
+}
+
+export interface ConversionSubmitParams extends ConversionBaseParams {
+  /** 退款去向：money_fund=账户绑定的类现金产品 / account_cash=退回账户现金；有退款时必填 */
+  refund_mode?: "money_fund" | "account_cash" | null;
+  /** 幂等键（每次提交意图一个 UUID，重发沿用同键） */
+  idempotency_key: string;
+}
+
+/** 试算结果（金额单位：元；预估份额 2 位展示） */
+export interface ConversionEstimateResult {
+  out: {
+    symbol: string;
+    name: string | null;
+    quantity: number;
+    nav: number;
+    amount: number;
+    fee: number;
+    fee_breakdown: { redeem: number; compensate: number };
+    realized_pnl_estimate: number;
+  };
+  in: {
+    symbol: string;
+    name: string | null;
+    nav: number;
+    amount: number;
+    quantity: number;
+  };
+  net_amount: number;
+  refund: {
+    amount: number;
+    options: {
+      type: "money_fund" | "account_cash";
+      symbol: string | null;
+      name: string;
+    }[];
+  };
+  supplement: { amount: number; required: boolean };
+  trade_date: string;
+  warnings: string[];
+}
+
+/** 提交结果（落库后回执） */
+export interface ConversionSubmitResult {
+  link_group_id: string;
+  group_no: string;
+  status: string;
+  trade_date: string;
+  confirm_date: string;
+  out: ConversionEstimateResult["out"];
+  in: ConversionEstimateResult["in"] & { position_id: number | null };
+  refund: { amount: number; mode: string | null; txn_id: number | null };
+  warnings: string[];
+}
+
+/** 基金转换试算（只读，不落库） */
+export function estimateConversion(params: ConversionBaseParams) {
+  return http.request<ApiResponse<ConversionEstimateResult>>(
+    "post",
+    `${BASE_URL}conversion/estimate/`,
+    {
+      data: params,
+      headers: { "Content-Type": "application/json" }
+    }
+  );
+}
+
+/** 基金转换提交（落库：2~3 条流水同 link_group_id） */
+export function submitConversion(params: ConversionSubmitParams) {
+  return http.request<ApiResponse<ConversionSubmitResult>>(
+    "post",
+    `${BASE_URL}conversion/`,
+    {
+      data: params,
+      headers: { "Content-Type": "application/json" }
+    }
+  );
+}

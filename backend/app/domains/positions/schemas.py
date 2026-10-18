@@ -73,6 +73,39 @@ class PositionCreate(BaseModel):
     model_config = ConfigDict(extra='allow')
 
 
+class ConversionEstimate(BaseModel):
+    """基金转换试算入参（只读，不落库）。
+
+    设计见 ``docs/working-notes/fund-conversion-design-2026-10-17.md`` §4.1。
+    """
+
+    ledger_id: Optional[int] = Field(None, description='账户ID；缺省取转出持仓所属账户（传入则校验一致）')
+    out_position_id: int = Field(..., description='转出持仓ID')
+    out_quantity: Optional[float] = Field(None, description='转出份额（份）；缺省或 <=0 = 全部转出')
+    in_symbol: str = Field(..., description='转入基金代码（6位裸码）')
+    in_amount: Optional[float] = Field(None, description='指定转入金额（元）；缺省 = 净额全部转入')
+    trade_date: Optional[date] = Field(None, description='交易日期，缺省为今天')
+
+
+class ConversionSubmit(BaseModel):
+    """基金转换提交入参（落库，2~3 条流水同 link_group_id）。
+
+    幂等键由前端按「一次提交意图」生成（UUID），网络重发沿用同键——
+    服务端按 组号+leg角色 派生各流水 import_hash，撞唯一约束即 409。
+    """
+
+    ledger_id: Optional[int] = Field(None, description='账户ID；缺省取转出持仓所属账户（传入则校验一致）')
+    out_position_id: int = Field(..., description='转出持仓ID')
+    out_quantity: Optional[float] = Field(None, description='转出份额（份）；缺省或 <=0 = 全部转出（按持仓精确值）')
+    in_symbol: str = Field(..., description='转入基金代码（6位裸码）')
+    in_amount: Optional[float] = Field(None, description='指定转入金额（元）；缺省 = 净额全部转入')
+    refund_mode: Optional[str] = Field(
+        None, description='退款去向：money_fund=账户绑定的类现金产品 / account_cash=退回账户现金；存在退款时必填'
+    )
+    trade_date: Optional[date] = Field(None, description='交易日期，缺省为今天')
+    idempotency_key: str = Field(..., min_length=8, description='幂等键（前端生成的 UUID），重复提交返回同一结果')
+
+
 class PositionUpdate(BaseModel):
     name: Optional[str] = Field(None, description='名称')
     account_name: Optional[str] = Field(None, description='所属账户')
