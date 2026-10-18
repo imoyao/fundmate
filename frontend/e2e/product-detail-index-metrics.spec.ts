@@ -171,7 +171,12 @@ test.describe("详情页指数信息增强（#2278）", () => {
     await page.goto(`/#/index/${SYMBOL}`);
 
     // 快照字段：官网有值的键原样渲染，没填的键（样本数/加权方式）逐字段「—」
-    const facts = page.locator(".index-section__facts");
+    // ⚠️ 选择器是 .facts-grid（不是 .index-section__facts）：快照字段渲染在
+    // ProductIndexSection 的 <dl class="facts-grid"> 里，.index-section 上只有
+    // __hint / __sub / __desc 三个修饰类，**从来没有 __facts**。
+    // 本用例此前一直红就是这么来的——断言挂在一个不存在的 class 上，
+    // 而「选择器失效」与「产品没渲染」在报错上都表现为元素不可见，肉眼分不开。
+    const facts = page.locator(".facts-grid");
     await expect(facts.getByText("发布日期")).toBeVisible();
     await expect(facts.getByText("2019-04-22")).toBeVisible();
     await expect(facts.getByText("样本数")).toBeVisible();
@@ -224,7 +229,7 @@ test.describe("详情页指数信息增强（#2278）", () => {
 
     // 快照字段不受影响（同一张指数卡内的另一组数据源）
     await expect(
-      page.locator(".index-section__facts").getByText("2019-04-22")
+      page.locator(".facts-grid").getByText("2019-04-22")
     ).toBeVisible();
   });
 });
