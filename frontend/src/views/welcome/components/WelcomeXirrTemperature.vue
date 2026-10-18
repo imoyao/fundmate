@@ -10,15 +10,11 @@
             <span class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }"
               >年化收益率（XIRR）</span
             >
-            <el-radio-group
+            <IncludeCashSwitch
               :model-value="includeCashEquivalents"
-              size="small"
               @update:model-value="onIncludeCashChange"
               @change="emit('change')"
-            >
-              <el-radio-button :value="false">剔除现金</el-radio-button>
-              <el-radio-button :value="true">含现金</el-radio-button>
-            </el-radio-group>
+            />
           </div>
           <!-- 失败态（#1832）：年化请求失败时不显示 0.00% 与 ¥0 —— 与资产看板同一原则 -->
           <div v-if="error" class="flex items-center gap-2" role="alert">
@@ -148,6 +144,7 @@ import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
+import IncludeCashSwitch from "@/components/IncludeCashSwitch/index.vue";
 import type {
   CompositeTemperature,
   TemperatureBands

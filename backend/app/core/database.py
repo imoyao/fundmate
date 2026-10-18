@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from loguru import logger
 from sqlalchemy import Column, DateTime, Engine, Integer, func, inspect
 from sqlalchemy import exc as sa_exc
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from sqlalchemy.sql import visitors
 from sqlalchemy.sql.annotation import Annotated
@@ -20,6 +21,11 @@ from app.core.db_factory import (
     DOMAIN_APP,
     DOMAIN_USER,
     DatabaseFactory,
+    app_database_configured_vars,
+    app_database_source_var,
+    app_database_url,
+    get_app_env,
+    ignored_app_db_env_vars,
 )
 from app.core.migrations import (
     migrate_advisor_portfolio_metadata,
@@ -42,7 +48,13 @@ from app.core.migrations import (
 
 # 保留历史符号：部分模块（如 sync/orchestrator 备份路径）仍引用，
 # 指向当前应用运行库的 URL，供文件库路径推断使用。
-SQLALCHEMY_DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./invest.db')
+#
+# #2344 起它**不再自己读一遍环境变量**，改走 db_factory 的唯一解析入口
+# （`app_database_url()`），与引擎真实连接的目标一致。旧写法
+# `os.getenv('DATABASE_URL', 'sqlite:///./invest.db')` 与引擎解析**并行且不一致**：
+# development 下引擎只看 `DEV_DATABASE_URL`、压根不看 `DATABASE_URL`，于是读这个
+# 符号的人可能拿到一个根本没在用的库——实测排查时被它带偏过。
+SQLALCHEMY_DATABASE_URL = app_database_url()
 
 # ⚠️ engine / user_engine **不再在导入期构造**（#1513）。
 #
@@ -76,7 +88,74 @@ def _engine_for(domain: str) -> Engine:
     module = sys.modules[__name__]
     attr = 'user_engine' if domain == DOMAIN_USER else 'engine'
     eng = vars(module).get(attr)
-    return eng if eng is not None else DatabaseFactory.create(domain)
+    if eng is not None:
+        return eng
+    _log_database_targets_once(domain)
+    return DatabaseFactory.create(domain)
+
+
+#: 已打印过连接目标的域——避免每次取引擎都刷一遍（#2344）。
+_LOGGED_TARGET_DOMAINS: set[str] = set()
+
+
+def describe_database_targets() -> str:
+    """「当前连的是哪个库」的可读报告（CLI 启动时打印，也被引擎首次创建时打印）。
+
+    #2344 实测事故的教训：连错库时**没有任何提示**，作业报success 却什么都没做。
+    解析口径只有一处（:func:`app_database_url`），这里只负责把结果讲清楚。
+    """
+    env = get_app_env()
+    configured = app_database_configured_vars(env)
+    winner = app_database_source_var(env)
+    shadowed = [name for name in configured if name != winner]
+    source = f'   ← 来自 {winner}' if winner else '   ← 未配置任何库变量，使用 cwd 缺省'
+    if shadowed:
+        source += f'（已配置但被覆盖、不生效: {"、".join(shadowed)}）'
+    lines = [
+        f'运行库目标（APP_ENV={env}）:',
+        f'  market 域: {app_database_url(env)}{source}',
+    ]
+    ignored = ignored_app_db_env_vars(env)
+    if ignored:
+        lines.append(f'  ⚠️ 已配置但当前 APP_ENV 下**不参与解析**（会被静默忽略）: {"、".join(ignored)}')
+    return '\n'.join(lines)
+
+
+def check_database_target_ready() -> str | None:
+    """运行库目标预检：返回错误信息；``None`` 表示通过。
+
+    判据（#2344 实测事故）：**显式配置了库变量、但目标 SQLite 文件不存在** → 几乎
+    一定是路径写错或连错了环境。此时若继续，SQLite 会**静默建一个空库**，于是作业
+    报成功而实际什么都没做——这正是那次334 只「enriched 0 / errors 0」的成因。
+
+    只有「配了变量且文件不存在」才拦；「什么都没配 + 文件不存在」是全新环境，交给
+    ``init_db`` 建表，放行。
+    """
+    env = get_app_env()
+    url = app_database_url(env)
+    if not url.startswith('sqlite'):
+        return None  # 远端库（Turso / Postgres）无法在本地判断存在性
+    path = make_url(url).database
+    configured = app_database_configured_vars(env)
+    if configured and path and not os.path.exists(path):
+        return (
+            f'配置的运行库文件不存在: {path}（来自 {"、".join(configured)}）。拒绝继续——'
+            f'否则 SQLite 会静默新建空库，作业会「成功」但什么都没做。'
+            f'请修正路径，或去掉该环境变量让程序使用默认库并自行建表。'
+        )
+    return None
+
+
+def _log_database_targets_once(domain: str) -> None:
+    """首次为某域创建引擎时打印连接目标（#2344：连接目标必须看得见）。"""
+    if domain in _LOGGED_TARGET_DOMAINS:
+        return
+    _LOGGED_TARGET_DOMAINS.add(domain)
+    report = describe_database_targets()
+    if ignored_app_db_env_vars():
+        logger.warning(report)
+    else:
+        logger.info(report)
 
 
 def __getattr__(name: str):

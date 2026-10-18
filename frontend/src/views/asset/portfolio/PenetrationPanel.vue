@@ -9,10 +9,13 @@
       "
     >
       <template #action>
-        <el-radio-group v-model="scheme" size="small" @change="load">
-          <el-radio-button value="csrc">证监会门类</el-radio-button>
-          <el-radio-button value="gics">GICS</el-radio-button>
-        </el-radio-group>
+        <SegmentedControl
+          v-model="scheme"
+          :options="SCHEME_OPTIONS"
+          size="small"
+          aria-label="穿透口径"
+          @change="load"
+        />
       </template>
     </SectionHeader>
 
@@ -199,8 +202,15 @@ import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import { getPenetration, type PenetrationData } from "@/api/summary";
 import { formatAmount } from "@/utils/currency";
+
+/** 穿透口径档位（#2339：字符串维度的「多选一」，走 SegmentedControl 而非实底 radio） */
+const SCHEME_OPTIONS = [
+  { label: "证监会门类", value: "csrc" },
+  { label: "GICS", value: "gics" }
+] as const;
 
 const scheme = ref<"csrc" | "gics">("csrc");
 const data = ref<PenetrationData | null>(null);

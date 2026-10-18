@@ -310,4 +310,6 @@ def _run_snapshot_command(args):
 
 
 if __name__ == '__main__':
-    main()
+    # 退出码必须传出去：#2344 的预检靠 `return 2` 表达「拒绝继续」，若这里忽略返回值，
+    # shell/CI 看到的仍是 0——那和没拦一样。
+    raise SystemExit(main() or 0)
