@@ -57,31 +57,34 @@
 
         <template v-if="form.positionId">
           <el-form-item label="交易日期">
-            <div class="flex items-center gap-3 w-full">
+            <!-- 日期框吃满剩余宽度，右端与上方「转出基金」右边缘对齐；
+                 时点切换按 design.md「Segmented」走软按钮，不用实底 radio-button
+                 （实底品牌色会与主按钮撞脸、抢走页面唯一供能焦点，#1731）。 -->
+            <div class="field-row">
               <el-date-picker
                 v-model="form.trade_date"
                 type="date"
-                class="flex-1"
-                style="width: 100%"
+                class="field-row__grow"
                 value-format="YYYY-MM-DD"
                 :clearable="false"
                 :disabled-date="disabledTradeDate"
               />
-              <el-radio-group v-model="form.isAfter15" size="small">
-                <el-radio-button :value="false">15:00前</el-radio-button>
-                <el-radio-button :value="true">15:00后</el-radio-button>
-              </el-radio-group>
+              <SegmentedControl
+                v-model="tradeSlot"
+                :options="tradeSlotOptions"
+                aria-label="交易时点"
+              />
             </div>
-            <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
-              15:00 后提交按下一交易日（T+1）净值计算
-            </div>
+            <div class="helper">15:00 后提交按下一交易日（T+1）净值计算</div>
           </el-form-item>
 
           <el-form-item label="转出份额">
-            <div class="flex flex-col gap-2 w-full">
+            <div class="quantity-field">
+              <!-- 宽度必须内联：EP 给 .el-input-number 写死 width:150px，
+                   且其样式在运行时注入、晚于构建产物里的 w-full，类名会被压掉。 -->
               <el-input-number
                 v-model="form.quantity"
-                class="w-full"
+                style="width: 100%"
                 :controls="false"
                 :min="0"
                 :max="maxQuantity"
@@ -90,20 +93,25 @@
                 placeholder="输入转出份额"
                 @change="onQuantityInput"
               />
-              <div class="flex items-center justify-between w-full">
-                <el-button
-                  v-for="ratio in TRANSFER_QUICK_RATIOS"
-                  :key="ratio.label"
-                  size="small"
-                  plain
-                  round
-                  @click="applyQuickRatio(ratio.value)"
-                >
-                  {{ ratio.label }}
-                </el-button>
+              <!-- 比例档位：紧凑贴输入框左下，选中态由 quantity 反算派生
+                   （手改数值自动掉高亮），不拉满整行 -->
+              <div class="quick-ratio-row">
+                <SegmentedControl
+                  :model-value="activeQuickIndex"
+                  :options="ratioOptions"
+                  aria-label="转出份额比例"
+                  @change="onQuickRatioChange"
+                />
+                <span class="hold-hint">
+                  持有 {{ maxQuantity.toFixed(4) }} 份
+                </span>
               </div>
-              <div class="text-xs" style="color: var(--text-tertiary-ink)">
-                持有 {{ maxQuantity.toFixed(4) }} 份；「全部」按持仓精确值转出
+              <div class="helper">
+                {{
+                  transferAll
+                    ? "当前为全部转出：按持仓精确值清算，不抹零"
+                    : "份额最多 2 位小数；「全部」按持仓精确值转出"
+                }}
               </div>
             </div>
           </el-form-item>
@@ -126,8 +134,8 @@
               v-for="pos in inFundCandidates"
               :key="pos.id"
               size="small"
-              :type="form.inSymbol === pos.symbol ? 'primary' : 'default'"
               round
+              :class="{ 'is-picked': form.inSymbol === pos.symbol }"
               @click="pickInFund(pos.symbol, pos.name || pos.symbol)"
             >
               {{ pos.name || pos.symbol }}
@@ -167,14 +175,14 @@
         <el-form-item label="转入金额">
           <el-input-number
             v-model="form.inAmount"
-            class="w-full"
+            style="width: 100%"
             :controls="false"
             :min="0"
             :step="0.01"
             :precision="2"
             placeholder="留空 = 净额全部转入"
           />
-          <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
+          <div class="helper">
             留空表示净额（转出金额 −
             费用）全部买入转入基金；指定更小金额时，差额需选退款去向
           </div>
@@ -262,16 +270,12 @@
           size="large"
         >
           <el-form-item label="退款去向" required>
-            <el-radio-group v-model="form.refundMode">
-              <el-radio-button
-                v-for="opt in estimate.refund.options"
-                :key="opt.type"
-                :value="opt.type"
-              >
-                {{ opt.name }}
-              </el-radio-button>
-            </el-radio-group>
-            <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
+            <SegmentedControl
+              v-model="form.refundMode"
+              :options="refundOptions"
+              aria-label="退款去向"
+            />
+            <div class="helper">
               指定转入金额小于净额，差额 ¥{{
                 estimate.refund.amount.toFixed(2)
               }}
@@ -385,6 +389,7 @@
 import { ref, reactive, computed, onMounted, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import {
   estimateConversion,
   submitConversion,
@@ -416,6 +421,26 @@ const TRANSFER_QUICK_RATIOS = [
   { label: "75%", value: 0.75 },
   { label: "全部", value: 1 }
 ];
+
+/** 比例档位的分段控制器选项：值用下标，选中态由 quantity 反算派生 */
+const ratioOptions = TRANSFER_QUICK_RATIOS.map((r, index) => ({
+  label: r.label,
+  value: index
+}));
+
+// 交易时点：2 档「多选一」→ SegmentedControl（design.md 语言边界），
+// 不用实底 radio-button（会与主按钮撞脸）。form.isAfter15 仍是布尔真相源。
+type TradeSlot = "before" | "after";
+const tradeSlotOptions: { label: string; value: TradeSlot }[] = [
+  { label: "15:00 前", value: "before" },
+  { label: "15:00 后", value: "after" }
+];
+const tradeSlot = computed<TradeSlot>({
+  get: () => (form.isAfter15 ? "after" : "before"),
+  set: v => {
+    form.isAfter15 = v === "after";
+  }
+});
 
 // ── 持仓（按账户分组拉取，与 SellForm 同源） ──
 const positionsByAccount = ref<Record<string, Position[]>>({});
@@ -499,6 +524,33 @@ function onQuantityInput() {
   transferAll.value = false;
 }
 
+/**
+ * 当前命中的快捷档位下标；`-1` = 手填且未命中任何比例（不高亮）。
+ * 必须用与 `applyQuickRatio()` **同一个**取整函数反算，否则 25% 点完会被判成未命中
+ * （份额按 1 份向下取整，浮点比值并不等于 0.25×持仓）。
+ */
+const activeQuickIndex = computed(() => {
+  if (!selectedPosition.value) return -1;
+  if (transferAll.value) return TRANSFER_QUICK_RATIOS.length - 1;
+  const q = form.quantity;
+  if (!q || q <= 0) return -1;
+  for (let i = 0; i < TRANSFER_QUICK_RATIOS.length - 1; i++) {
+    const expected = calcSellQuantityByRatio(
+      TRANSFER_QUICK_RATIOS[i].value,
+      maxQuantity.value,
+      "fund",
+      1
+    );
+    if (Math.abs(q - expected) < 1e-6) return i;
+  }
+  return -1;
+});
+
+function onQuickRatioChange(index: number) {
+  const ratio = TRANSFER_QUICK_RATIOS[index];
+  if (ratio) applyQuickRatio(ratio.value);
+}
+
 function applyQuickRatio(ratio: number) {
   if (!selectedPosition.value) return;
   if (ratio >= 1) {
@@ -557,6 +609,13 @@ function onInFundChange(code: string) {
 const estimating = ref(false);
 const estimate = ref<ConversionEstimateResult | null>(null);
 const estimateError = ref("");
+/** 退款去向选项：2 档「多选一」→ SegmentedControl（design.md 语言边界） */
+const refundOptions = computed(() =>
+  (estimate.value?.refund.options ?? []).map(opt => ({
+    label: opt.name,
+    value: opt.type
+  }))
+);
 let estimateSeq = 0;
 let estimateTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -762,8 +821,90 @@ defineExpose({ isDirty, resetForm });
 </script>
 
 <style scoped>
+/* 步骤条收窄：卡片内通栏 4 步连线过长会显得空旷（设计 §6.4 只统一视觉与语义） */
 .conversion-steps {
-  margin-bottom: 8px;
+  max-width: 560px;
+  margin: 0 auto 8px;
+}
+
+/* 当前步必须有"起点"：EP 默认 is-process 是深灰描边 + 深灰字，
+   四步排开时没有任何一步像"正在进行"。改为品牌实底 + 反白数字。 */
+.conversion-steps :deep(.el-step__head.is-process) {
+  color: var(--brand-solid);
+  border-color: var(--brand-solid);
+}
+
+.conversion-steps :deep(.el-step__head.is-process .el-step__icon) {
+  color: var(--text-inverse);
+  background-color: var(--brand-solid);
+  border-color: var(--brand-solid);
+}
+
+.conversion-steps :deep(.el-step__title.is-process) {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.conversion-steps :deep(.el-step__title.is-wait) {
+  color: var(--text-tertiary-ink);
+}
+
+/* ===== 表单栅格 ===== */
+
+/* 一期一列的弹性行：右端控件贴住与其它输入框同一条垂直线 */
+.field-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+}
+
+.field-row__grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.quantity-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+/* 快捷比例：紧凑贴左，右侧挂"持有"读数，不拉满整行 */
+.quick-ratio-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.hold-hint {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary-ink);
+}
+
+/* 辅助说明：与主文案拉开行高，避免贴脸；宽度 100% 保证在 form-item 内换行 */
+.helper {
+  width: 100%;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-tertiary-ink);
+}
+
+/* 「当前持有」快选：选中态走软按钮（浅红底 + 红字），不占实底主按钮的供能位 */
+.is-picked.el-button {
+  color: var(--brand-700);
+  background-color: var(--brand-100);
+  border-color: var(--brand-400);
+}
+
+.is-picked.el-button:hover {
+  color: var(--brand-700);
+  background-color: var(--brand-200);
+  border-color: var(--brand-400);
 }
 
 /* 试算面板：两列键值对齐（左标签 secondary、右数值 tabular-nums；净额加粗） */
