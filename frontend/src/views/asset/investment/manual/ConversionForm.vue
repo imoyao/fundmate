@@ -1,18 +1,26 @@
 <template>
-  <div class="conversion-form flex flex-col gap-6">
-    <!-- 四步步骤条（视觉与导入页一致：el-steps align-center + finish-status success） -->
-    <el-steps
-      :active="step"
-      finish-status="success"
-      align-center
-      class="conversion-steps"
-    >
-      <el-step
-        v-for="(title, index) in stepTitles"
-        :key="index"
-        :title="title"
-      />
-    </el-steps>
+  <div class="conversion-form flex flex-col gap-5">
+    <!-- 进度改成卡头一行文字（#2348 第三轮）。原先是 `el-steps` 三圆点轨道：
+         它和上面那排 D13 果冻胶囊长得都是「横向导航」，两排叠在一起互相抢位；
+         而且给最不可交互的信息单独一条轨道，权重与功能是反的。
+         步骤语义只留「第几步 / 共几步」一句话，推进交给按钮。 -->
+    <div class="conversion-head">
+      <span class="conversion-head__where">
+        {{ stepTitles[currentStep] }}
+        <span class="conversion-head__count">
+          · 第 {{ currentStep + 1 }} 步 / 共 {{ stepTitles.length }} 步
+        </span>
+      </span>
+      <button
+        v-if="step === 1"
+        type="button"
+        class="conversion-head__back"
+        :disabled="submitting"
+        @click="step = 0"
+      >
+        上一步
+      </button>
+    </div>
 
     <!-- ===== 第 1 步：填写转出与转入（两栏并置，#2348） ===== -->
     <div v-if="step === 0" class="flex flex-col gap-5">
@@ -285,133 +293,197 @@
       </div>
     </div>
 
-    <!-- ===== 第 2 步：费用与确认 ===== -->
+    <!-- ===== 第 2 步：费用与确认 =====
+         排版按「一眼看到重点」（#2348 第三轮）：先用一句话说清这笔在做什么，
+         再给三个数（转出 / 费用 / 净转入），其余下沉。
+         原来 9 行等权键值对（转出、转出金额、赎回费、补差费、费用合计、净转入、
+         预估份额、确认日）没有重点——用户得自己把结论拼出来；两个 el-input-number
+         常驻又让复核页看起来像编辑页。 -->
     <div v-else-if="step === 1" class="flex flex-col gap-4">
       <div
         v-if="estimating"
-        class="p-6 text-center text-sm"
+        class="py-10 text-center text-sm"
         :style="{ color: 'var(--text-secondary)' }"
       >
         正在试算费用与份额…
       </div>
       <template v-else-if="estimate">
-        <!-- 摘要两列键值对齐（design.md：左标签 secondary、右数值 tabular-nums） -->
-        <div class="estimate-panel flex flex-col gap-3">
-          <div class="panel-row">
-            <span class="panel-label">转出</span>
-            <span class="panel-value">
-              {{ estimate.out.name || estimate.out.symbol }} ·
-              {{ estimate.out.quantity.toFixed(2) }} 份 ×
+        <!-- 一句话指令：动词用「换成」，主语是用户手上的钱，不是系统里的字段 -->
+        <p class="confirm-sentence">
+          用「{{ estimate.out.name || estimate.out.symbol }}」的
+          <span class="confirm-sentence__num">{{
+            estimate.out.quantity.toFixed(2)
+          }}</span>
+          份，换成「{{ estimate.in.name || estimate.in.symbol }}」
+        </p>
+
+        <!-- 三个数：核对时真正要比对的就是这三个，字号拉开才有主次 -->
+        <div class="confirm-figures">
+          <div class="confirm-figure">
+            <div class="confirm-figure__label">转出金额</div>
+            <div class="confirm-figure__value">
+              ¥{{ estimate.out.amount.toFixed(2) }}
+            </div>
+            <div class="confirm-figure__aside">
+              {{ estimate.out.quantity.toFixed(2) }} 份 × 净值
               {{ estimate.out.nav.toFixed(4) }}
-            </span>
-          </div>
-          <div class="panel-row">
-            <span class="panel-label">转出金额</span>
-            <span class="panel-value"
-              >¥{{ estimate.out.amount.toFixed(2) }}</span
-            >
-          </div>
-          <!-- 费用行可编辑（#2348）：确认单上的费用常与费率表算出值不一致，
-               只读会让账实永远差几分钱。改后由服务端重算净额/份额/差额。 -->
-          <div class="panel-row">
-            <span class="panel-label">赎回费</span>
-            <div class="fee-cell">
-              <span class="fee-sign">−¥</span>
-              <el-input-number
-                v-model="feeInputs.redeem"
-                class="fee-input"
-                aria-label="赎回费（可修正）"
-                :controls="false"
-                :min="0"
-                :step="0.01"
-                :precision="2"
-                @change="onFeeEdit"
-              />
             </div>
           </div>
-          <div class="panel-row">
-            <span class="panel-label">补差费</span>
-            <div class="fee-cell">
-              <span class="fee-sign">−¥</span>
-              <el-input-number
-                v-model="feeInputs.compensate"
-                class="fee-input"
-                aria-label="补差费（可修正）"
-                :controls="false"
-                :min="0"
-                :step="0.01"
-                :precision="2"
-                @change="onFeeEdit"
-              />
+          <div class="confirm-figure">
+            <div class="confirm-figure__label">费用合计</div>
+            <div class="confirm-figure__value">
+              <!-- 0 费用不写成「−¥0.00」：负零在中文界面上读作「倒扣了零头」 -->
+              {{ estimate.out.fee > 0 ? "−" : "" }}¥{{
+                estimate.out.fee.toFixed(2)
+              }}
+            </div>
+            <div class="confirm-figure__aside">
+              赎回 {{ estimate.out.fee_breakdown.redeem.toFixed(2) }} · 补差
+              {{ estimate.out.fee_breakdown.compensate.toFixed(2) }}
             </div>
           </div>
-          <!-- 已手工修正时给出原估算值 + 一键还原，避免「改过但忘了改成多少」 -->
-          <div v-if="feeDirty" class="panel-row fee-hint-row">
-            <span class="fee-hint">
-              已手工修正 · 原估算 赎回
-              {{ (estimate.out.fee_estimated?.redeem ?? 0).toFixed(2) }}
-              / 补差
-              {{ (estimate.out.fee_estimated?.compensate ?? 0).toFixed(2) }}
-            </span>
-            <el-button
-              link
-              type="primary"
-              size="small"
-              @click="resetFeeOverride"
-            >
-              还原
-            </el-button>
-          </div>
-          <div class="panel-row panel-row-total">
-            <span class="panel-label">费用合计</span>
-            <span class="panel-value">−¥{{ estimate.out.fee.toFixed(2) }}</span>
-          </div>
-          <div class="panel-row">
-            <span class="panel-label">净转入金额</span>
-            <span class="panel-value"
-              >¥{{ estimate.net_amount.toFixed(2) }}</span
-            >
-          </div>
-          <div class="panel-row">
-            <span class="panel-label">
-              预估份额
-              <el-tag size="small" type="info" effect="plain">预估</el-tag>
-            </span>
-            <span class="panel-value">
-              {{ estimate.in.name || estimate.in.symbol }} ·
-              {{ estimate.in.quantity.toFixed(2) }} 份（净值
-              {{ estimate.in.nav.toFixed(4) }}）
-            </span>
-          </div>
-          <div class="panel-row">
-            <span class="panel-label">预计确认日</span>
-            <span class="panel-value"
-              >{{ estimate.trade_date }} 提交 · T+1 确认</span
-            >
+          <div class="confirm-figure confirm-figure--net">
+            <div class="confirm-figure__label">净转入</div>
+            <div class="confirm-figure__value">
+              ¥{{ estimate.net_amount.toFixed(2) }}
+            </div>
+            <div class="confirm-figure__aside">
+              预估 {{ estimate.in.quantity.toFixed(2) }} 份
+            </div>
           </div>
         </div>
 
-        <!-- 差额去向（有差额时必选；默认取账户绑定的类现金产品）
-             命名与右栏提示保持一致：这里选的是「差额」去哪儿，不是「退多少钱」 -->
-        <el-form
-          v-if="estimate.refund.amount > 0"
-          label-width="90px"
-          size="large"
+        <div class="confirm-meta">
+          <el-tag size="small" type="info" effect="plain">预估</el-tag>
+          <span>{{ estimate.trade_date }} 提交 · T+1 确认 · T+2 可赎回</span>
+        </div>
+
+        <!-- D6 垫资拦截：submitValid 会因此变 false。原先只禁用按钮、不给原因，
+             用户看到的是一个点不动的「确认转换」。 -->
+        <div
+          v-if="estimate.supplement.required"
+          class="confirm-blocker"
+          role="alert"
         >
-          <el-form-item label="差额去向" required>
-            <SegmentedControl
-              v-model="form.refundMode"
-              :options="refundOptions"
-              aria-label="差额去向"
-            />
-            <div class="helper">
-              指定转入金额小于净额，差额 ¥{{
-                estimate.refund.amount.toFixed(2)
-              }}
-              需退回到以下位置，不允许凭空消失
+          <IconifyIconOffline
+            icon="ep:warning-filled"
+            class="confirm-blocker__icon"
+          />
+          <span>
+            转入金额超出净额 ¥{{
+              estimate.supplement.amount.toFixed(2)
+            }}，本平台不垫资，请回上一步调小转入金额
+          </span>
+        </div>
+
+        <!-- 差额去向是阻断项（submitValid 依赖它），所以既不折叠也不降级 -->
+        <div v-if="estimate.refund.amount > 0" class="confirm-refund">
+          <div class="confirm-refund__head">
+            <span class="confirm-refund__title">
+              差额
+              <span class="confirm-refund__amount"
+                >¥{{ estimate.refund.amount.toFixed(2) }}</span
+              >
+              的去向
+            </span>
+            <span class="confirm-refund__req">必选</span>
+          </div>
+          <SegmentedControl
+            v-model="form.refundMode"
+            :options="refundOptions"
+            aria-label="差额去向"
+          />
+          <div class="confirm-refund__hint">
+            指定转入金额小于净额时，差额不允许凭空消失
+          </div>
+        </div>
+
+        <!-- 可折叠的只有「明细与修正」，金额不折：合计已经在上面的三个数里。
+             费率表算出的费用与确认单常差几分钱，所以要能改，但那是 1% 的场景，
+             常驻两个输入框会让 99% 的人以为这里有东西要填。 -->
+        <div class="fee-fold">
+          <button
+            type="button"
+            class="fee-fold__head"
+            :aria-expanded="showFeeDetail"
+            aria-controls="conversion-fee-detail"
+            @click="showFeeDetail = !showFeeDetail"
+          >
+            <span>
+              费用明细，可修正
+              <span v-if="feeDirty" class="fee-fold__dirty">已修正</span>
+            </span>
+            <span class="fee-fold__action">
+              {{ showFeeDetail ? "收起" : "展开" }}
+              <IconifyIconOffline
+                :icon="showFeeDetail ? 'ep:arrow-up' : 'ep:arrow-down'"
+              />
+            </span>
+          </button>
+          <div
+            v-show="showFeeDetail"
+            id="conversion-fee-detail"
+            class="fee-fold__body"
+          >
+            <div class="panel-row">
+              <span class="panel-label">赎回费</span>
+              <div class="fee-cell">
+                <span class="fee-sign">−¥</span>
+                <el-input-number
+                  v-model="feeInputs.redeem"
+                  class="fee-input"
+                  aria-label="赎回费（可修正）"
+                  :controls="false"
+                  :min="0"
+                  :step="0.01"
+                  :precision="2"
+                  @change="onFeeEdit"
+                />
+              </div>
             </div>
-          </el-form-item>
-        </el-form>
+            <div class="panel-row">
+              <span class="panel-label">补差费</span>
+              <div class="fee-cell">
+                <span class="fee-sign">−¥</span>
+                <el-input-number
+                  v-model="feeInputs.compensate"
+                  class="fee-input"
+                  aria-label="补差费（可修正）"
+                  :controls="false"
+                  :min="0"
+                  :step="0.01"
+                  :precision="2"
+                  @change="onFeeEdit"
+                />
+              </div>
+            </div>
+            <div v-if="feeDirty" class="panel-row fee-hint-row">
+              <span class="fee-hint">
+                已手工修正 · 原估算 赎回
+                {{ (estimate.out.fee_estimated?.redeem ?? 0).toFixed(2) }}
+                / 补差
+                {{ (estimate.out.fee_estimated?.compensate ?? 0).toFixed(2) }}
+              </span>
+              <el-button
+                link
+                type="primary"
+                size="small"
+                @click="resetFeeOverride"
+              >
+                还原
+              </el-button>
+            </div>
+            <div class="panel-row">
+              <span class="panel-label">份额换算</span>
+              <span class="panel-value">
+                {{ estimate.in.quantity.toFixed(2) }} 份 × 净值
+                {{ estimate.in.nav.toFixed(4) }} = ¥{{
+                  estimate.in.amount.toFixed(2)
+                }}
+              </span>
+            </div>
+          </div>
+        </div>
 
         <!-- 费率缺失等非阻断告警（D9：显式提示，不静默） -->
         <div
@@ -426,30 +498,20 @@
           <IconifyIconOffline icon="ep:warning-filled" class="mt-0.5" />
           <span>{{ w }}</span>
         </div>
-
-        <!-- 固定说明：预估口径 -->
-        <div
-          class="p-3 rounded-lg text-xs"
-          :style="{
-            color: 'var(--text-secondary)',
-            backgroundColor: 'var(--bg-soft)'
-          }"
-        >
-          以上金额按 {{ estimate.trade_date }} 净值预估，实际以 T
-          日净值确认结果为准，T+1 确认、T+2 可赎回。
-        </div>
       </template>
       <div
         v-else
-        class="p-6 text-center text-sm flex flex-col items-center gap-3"
+        class="py-10 flex flex-col items-center gap-3 text-sm"
         :style="{ color: 'var(--color-danger)' }"
       >
         <span>{{ estimateError || "试算失败" }}</span>
         <el-button size="small" @click="runEstimate">重试</el-button>
       </div>
 
-      <div class="flex justify-between">
-        <el-button :disabled="submitting" @click="step = 0">上一步</el-button>
+      <div class="confirm-actions">
+        <span class="confirm-actions__note">
+          实际以 T 日净值确认结果为准；提交后可在交易记录里撤销
+        </span>
         <el-button
           type="primary"
           :loading="submitting"
@@ -549,6 +611,10 @@ const emit = defineEmits<{
  */
 const stepTitles = ["填写转换", "费用与确认", "结果"];
 const step = ref(0);
+/** 提交成功后 `step` 置 3（全流程走完），落在「结果」这一步 —— 索引要夹住 */
+const currentStep = computed(() => Math.min(step.value, stepTitles.length - 1));
+/** 费用明细默认收起：常驻两个可编辑输入框会把复核页读成编辑页 */
+const showFeeDetail = ref(false);
 
 // ── 持仓（按账户分组拉取，与 SellForm 同源） ──
 const positionsByAccount = ref<Record<string, Position[]>>({});
@@ -1002,35 +1068,55 @@ defineExpose({ isDirty, resetForm });
 </script>
 
 <style scoped>
-/* 步骤条收窄：卡片内通栏 4 步连线过长会显得空旷（设计 §6.4 只统一视觉与语义）。
-   ⚠️ `width:100%` 不能省：父级是 flex column，本元素的 `margin:0 auto` 会让交叉轴
-   的 `align-self:stretch` 失效，宽度收缩到内容宽（实测 240px），四步标题被挤成两行。 */
-.conversion-steps {
-  width: 100%;
-  max-width: 560px;
-  margin: 0 auto 8px;
+/* 卡头进度行：一行 12px 文字代替三圆点轨道（#2348 第三轮）。
+   它只承担「走到哪了」，不承担导航——所以不给描边、不给底色，
+   让它读起来像卡片的一句附注，而不是又一条横条。 */
+.conversion-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 24px;
+  margin-bottom: -4px;
 }
 
-/* 当前步必须有"起点"：EP 默认 is-process 是深灰描边 + 深灰字，
-   四步排开时没有任何一步像"正在进行"。改为品牌实底 + 反白数字。 */
-.conversion-steps :deep(.el-step__head.is-process) {
-  color: var(--brand-solid);
-  border-color: var(--brand-solid);
+.conversion-head__where {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
 }
 
-.conversion-steps :deep(.el-step__head.is-process .el-step__icon) {
-  color: var(--text-inverse);
-  background-color: var(--brand-solid);
-  border-color: var(--brand-solid);
-}
-
-.conversion-steps :deep(.el-step__title.is-process) {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.conversion-steps :deep(.el-step__title.is-wait) {
+.conversion-head__count {
   color: var(--text-tertiary-ink);
+}
+
+/* 上一步改成卡头文字链：确认页只有一屏，「返回校对」离得近比离得远好；
+   底部那排只留主按钮，避免两个「上一步」 */
+.conversion-head__back {
+  padding: 2px 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-xs);
+}
+
+.conversion-head__back:hover:not(:disabled) {
+  color: var(--brand-ink);
+  text-decoration: underline;
+}
+
+.conversion-head__back:focus-visible {
+  color: var(--brand-800);
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--brand-700);
+}
+
+.conversion-head__back:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 /* ===== 两栏并置（第 1 步，#2348） ===== */
@@ -1231,10 +1317,6 @@ defineExpose({ isDirty, resetForm });
   text-align: right;
 }
 
-.panel-row-total .panel-value {
-  font-weight: 600;
-}
-
 /* ── 费用可编辑（#2348） ──
    输入框贴右、与上面的金额列右对齐；tab 数字等宽避免抖动。 */
 .fee-cell {
@@ -1266,6 +1348,205 @@ defineExpose({ isDirty, resetForm });
 .fee-hint {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary-ink);
+}
+
+/* ===== 确认页（第 2 步，#2348 第三轮） ===== */
+
+/* 一句话指令：整页的主语。字号只比正文大一档、行高放宽，
+   两行以内读完；基金名不加粗，长名字里不会出现几段加粗在打架 */
+.confirm-sentence {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.65;
+  color: var(--text-primary);
+}
+
+.confirm-sentence__num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 三个数：核对时真正要比的就是这三个，字号拉开才有主次 */
+.confirm-figures {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.confirm-figure {
+  padding: 12px 14px;
+  background: var(--bg-soft);
+  border-radius: var(--radius-md);
+}
+
+.confirm-figure__label {
+  margin-bottom: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.confirm-figure__value {
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
+}
+
+/* 净转入 = 这笔操作到手的结果，用品牌文字色标出来。
+   不用 --color-rise：红涨绿跌是行情语义，这里表达的是金额层级 */
+.confirm-figure--net .confirm-figure__value {
+  color: var(--brand-ink);
+}
+
+.confirm-figure__aside {
+  margin-top: 4px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  color: var(--text-tertiary-ink);
+}
+
+.confirm-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* 阻断项（垫资）：与 warnings 同一视觉族，但图标在前，读作「按钮点不动的原因」 */
+.confirm-blocker {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-warning-ink);
+  background: var(--bg-soft);
+  border-radius: var(--radius-md);
+}
+
+.confirm-blocker__icon {
+  margin-top: 2px;
+}
+
+/* 差额去向是阻断项，所以给它一个框：框的存在本身就是「这里有个必须做的选择」 */
+.confirm-refund {
+  padding: 12px 14px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.confirm-refund__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.confirm-refund__title {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.confirm-refund__amount {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.confirm-refund__req {
+  font-size: 12px;
+  color: var(--text-tertiary-ink);
+}
+
+.confirm-refund__hint {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-tertiary-ink);
+}
+
+/* 费用折叠：一行可点开，主体只在展开时出现 */
+.fee-fold {
+  border-top: 1px solid var(--border-light);
+}
+
+.fee-fold__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 12px 2px 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-xs);
+}
+
+.fee-fold__head:hover {
+  color: var(--brand-ink);
+}
+
+/* 焦点环用 inset：外扩的 `--focus-ring` 会被卡片圆角裁掉一圈 */
+.fee-fold__head:focus-visible {
+  color: var(--brand-800);
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--brand-700);
+}
+
+.fee-fold__action {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  color: var(--brand-ink);
+}
+
+.fee-fold__dirty {
+  padding: 0 6px;
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--color-warning-ink);
+  background: var(--bg-soft);
+  border-radius: var(--radius-xs);
+}
+
+.fee-fold__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 0 2px;
+}
+
+/* 展开区里的键值行不铺满整卡：958px 的宽度会把「赎回费」和它的输入框
+   拉到两端，读起来像两件无关的东西。这里改成左对齐的紧凑行。 */
+.fee-fold__body .panel-row {
+  gap: 12px;
+  justify-content: flex-start;
+}
+
+.fee-fold__body .panel-label {
+  min-width: 56px;
+}
+
+/* 底部动作行：说明在左、主按钮在右；上一步在卡头，这里只有一颗主按钮 */
+.confirm-actions {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 4px;
+}
+
+.confirm-actions__note {
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--text-tertiary-ink);
 }
 </style>
