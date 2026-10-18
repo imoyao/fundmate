@@ -354,7 +354,8 @@ def build_cleared_cycles(
         transactions = [
             t
             for t in transactions
-            if _group_key(t) == wanted_identity or strip_exchange_prefix(getattr(t, 'symbol', None) or '') == wanted_stripped
+            if _group_key(t) == wanted_identity
+            or strip_exchange_prefix(getattr(t, 'symbol', None) or '') == wanted_stripped
         ]
     logger.debug(f'清仓周期聚合(family={family_id}, ledger={ledger_id})：候选流水 {len(transactions)} 笔')
     cycles = compute_cleared_cycles(transactions)
