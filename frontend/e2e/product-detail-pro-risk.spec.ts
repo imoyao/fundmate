@@ -6,7 +6,7 @@ import { injectSupabaseSession } from "./support/session";
  *
  * 钉四条不变式：
  * 1. **状态位驱动挂载**：`risk.available=true` → 模块徽标「已上线」+ 内容区块渲染；
- *    allocation / report 保持「Phase N 建设中」占位；
+ *    allocation 已翻真（#994 Phase 2 模块三提前落地），report 仍为 Phase 4 占位；
  * 2. **风险指标诚实渲染**：BIAS 带符号（正=高于均线）+ 引擎信号标签 + |BIAS|≥5 的
  *    克制提示（只讲波动风险、不做买卖建议）；年化波动率 / VaR 95% / 日收益样本
  *    逐项对齐打桩数据；账户级并示行 = 持仓市值 × VaR%；
@@ -107,7 +107,7 @@ async function stubProApis(
           modules: {
             performance: { available: true, phase: 2 },
             risk: { available: true, phase: 2 },
-            allocation: { available: false, phase: 3 },
+            allocation: { available: true, phase: 3 },
             report: { available: false, phase: 4 }
           }
         },
@@ -225,8 +225,7 @@ test.describe("详情页 Pro 模块二风险指标（#994 Phase 2）", () => {
 
     const pro = page.locator(".pro-section");
     // 状态位驱动：模块一/二徽标翻「已上线」，其余保持建设中占位
-    await expect(pro.getByText("已上线")).toHaveCount(2);
-    await expect(pro.getByText("Phase 3 建设中")).toBeVisible(); // allocation
+    await expect(pro.getByText("已上线")).toHaveCount(3);
     await expect(pro.getByText("Phase 4 建设中")).toBeVisible(); // report
 
     // BIAS：带符号（正 = 高于均线）+ 引擎信号标签 + 数据日期 + 克制提示
@@ -289,7 +288,6 @@ test.describe("详情页 Pro 模块二风险指标（#994 Phase 2）", () => {
 
     // 独立降级：模块徽标与占位卡照常渲染（断网/接口失败不拖垮 Pro 卡）
     const pro = page.locator(".pro-section");
-    await expect(pro.getByText("已上线")).toHaveCount(2);
-    await expect(pro.getByText("Phase 3 建设中")).toBeVisible();
+    await expect(pro.getByText("已上线")).toHaveCount(3);
   });
 });
