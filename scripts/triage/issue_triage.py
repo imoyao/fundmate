@@ -80,6 +80,14 @@ MIRROR_LABEL = 'GitHub 同步'
 LOCAL_LABEL = 'CNB 本地'
 
 # 单轮派活上限：用户 2026-10-18 拍板「每次 3 个，每天两轮」。
+#
+# ⚠️ 「3」这个数**在用户 2026-10-18 当天第二次拍板前**的语义是「规模必须 S」的替代口径：
+# 那天实测 198 张卡里可派 **0** 张（低风险且有验收的 17 张**全部卡在 size=M**）。
+# 当时的判断是「不得为了跑满额度降标准」，于是整条派活通道一直空转——
+# **按标准的派活吞吐 = 0**，而「每轮 3 张」的前提（存在可派的卡）从未成立。
+# 用户随后明确要放开那条规模限制：M 也可以派，**但容量与验收口径照旧**。
+# 故现在的形状是「准入放宽 + 额度不变 + 每张 PR 仍要人 review」：
+# 放宽的是**能进候场的资格**，不是**同时能跑多少**。
 DEFAULT_BATCH = 3
 # 分诊每轮最多写**多少张卡的评论**。与派活件数解耦：分诊是「贴标签 + 一条评论」，
 # 无副作用、可随时改判；派活要开分支写码，才需要卡在 3 张/轮。
@@ -317,11 +325,35 @@ def whole_card_bold(body: str | None, title: str | None = None) -> bool:
     return bool(WHOLE_BOLD_TITLE_RE.search((body or '')[:400]))
 
 
-def classify(card: Card) -> Verdict:
+# 派活准入档：`S` / `M`（`S` = 小改动，`M` = 中等改动）。
+#
+# 为什么 `L` 不在枚举里（这是唯一剩下的规模限制，且**只能由人放宽**）：
+# 实测（2026-10-18，198 张）`L` 的两条判据是「正文引用 ≥2 张其他卡」与「正文 >4000 字」
+# ——前者在那张卡被判成 `tracker` 之前就已经拦下了，所以**落到 `L` 且 kind=task 的卡，
+# 几乎只有「正文超长」这一种**。超长正文恰恰是「一件事写不清、还挂了五件事」的卡，
+# 派 AI 去做它 = 让 AI 替人补写范围，与「不替人做决定」直接冲突。
+# 故 `L` 不自动放开；要放得由人在卡面上说清楚「就是这一小块」（写进验收标准即可降为可派）。
+#
+# ⚠️ 档位名就是 `size_of()` 的取值（`S` / `M` / `L`），**不要**发明 `SM` 这种组合名：
+#    首版写成 `('S', 'SM')` 的时候，`size_of()` 只会返回 `'M'`，于是**没有一张卡命中**，
+#    而看板上表现为「已放开限制、可派仍然是 0」——一个不会红的假信号。
+DISPATCH_SIZE_ALLOWED = ('S', 'M')
+
+# 派活准入的**默认**口径（`classify` / `plan` 的默认参数）：仍然最严。
+# 放开是**显式动作**（调用点传 `DISPATCH_SIZE_ALLOWED` 或 `--sizes`），不是默认行为——
+# 判据的默认值一旦松掉，下次没人记得「它曾经是严的」，也就没人知道该不该改回去。
+DEFAULT_DISPATCH_SIZES = ('S',)
+
+
+def classify(card: Card, *, sizes: tuple[str, ...] = DEFAULT_DISPATCH_SIZES) -> Verdict:
     """一张卡 → 固定枚举结论。**顺序有意义**：先判「该不该关」，再判「该不该动」。
 
     判据一律读 `strip_mirror_header(card.body)`（正文），不读镜像溯源块——
     否则模板文字会污染每一个结论。
+
+    `sizes` 是**派活准入档**（默认最严 `('S',)`），只影响 `next` 是否落到
+    `dispatch_npc`，不影响 kind / size / risk 三个事实判据——准入放宽不能改变
+    「这张卡是什么」，只改变「这一轮允不允许派」。
     """
     body = strip_mirror_header(card.body)
     reasons: list[str] = []
@@ -383,30 +415,55 @@ def classify(card: Card) -> Verdict:
         reasons=reasons,
     )
 
-    # ⑤ 派活闸门：只有「明确任务 + S + 低风险 + 无护栏文件」才允许自动推进
-    if verdict.next == 'dispatch_npc' and not can_dispatch(card, verdict):
-        verdict.next = 'human_review'
-        verdict.reasons.append('派活闸门未通过（规模/风险面/护栏文件任一命中即转人工）')
+    # ⑤ 派活闸门：明确任务 + 准入规模 + 低风险 + 无护栏文件，四条全过才允许自动推进。
+    #    拒绝理由要**逐条写出来**：布尔只说「没派」，说不出是规模卡住还是风险卡住。
+    if verdict.next == 'dispatch_npc':
+        rejects = dispatch_rejects(card, verdict, sizes=sizes)
+        if rejects:
+            verdict.next = 'human_review'
+            verdict.reasons.extend(f'派活闸门未通过：{r}' for r in rejects)
     return verdict
 
 
-def can_dispatch(card: Card, verdict: Verdict) -> bool:
-    """**派活闸门**（布尔，不掺感觉）。
+def dispatch_rejects(card: Card, verdict: Verdict, *, sizes: tuple[str, ...]) -> list[str]:
+    """准入判据 → **被拒理由清单**（空 = 放行）。
 
-    四问全过才允许交给 NPC 自动推进：
+    返回理由而不是布尔，是因为「为什么没派」与「派了」一样需要能被复核：
+    布尔只能告诉你没派，说不出是规模卡住、风险卡住，还是护栏文件卡住。
 
-    1. 结论是「明确任务」（有验收标准）；
-    2. `size == S`（改动面小到能在一屏内 review）；
+    准入（顺序即优先级）：
+
+    1. 结论是「明确任务」（有可逐条对照的验收标准）；
+    2. `size` ∈ `sizes`（默认只有 `S`；放开后为 `S` + `M`；`L` 见 `DISPATCH_SIZE_ALLOWED` 上方说明）；
     3. `risk == low`（不碰钱 / 契约 / 数据域 / 守卫）；
-    4. 卡面与标题里**不出现** `DISPATCH_FORBIDDEN_PATHS` 任何一个。
+    4. 卡面与标题里**不出现** `DISPATCH_FORBIDDEN_PATHS` 任何一个；
+    5. 不碰 `design.md` 那类**产品口径**（改文案 / 改视觉属于品味，AI 猜口味等于把设计债
+       换成审美债）。
     """
-    if verdict.kind != 'task' or verdict.size != 'S' or verdict.risk != 'low':
-        return False
+    reasons: list[str] = []
+    if verdict.kind != 'task':
+        reasons.append(f'不是明确任务（kind={verdict.kind}）')
+    if verdict.size not in sizes:
+        reasons.append(f'规模 {verdict.size} 超出本轮准入 {"/".join(sizes)}')
+    if verdict.risk != 'low':
+        reasons.append(f'风险面 {verdict.risk}（碰钱 / 契约 / 数据域 / 守卫）')
     text = f'{card.title}\n{strip_mirror_header(card.body)}\n{" ".join(card.labels)}'
-    if any(p in text for p in DISPATCH_FORBIDDEN_PATHS):
-        return False
-    # 改文案 / 改视觉要同步 design.md，属于「产品口径」，不是规模问题 ⇒ 一律转人工。
-    return not DESIGN_HINT_RE.search(text)
+    hits = [p for p in DISPATCH_FORBIDDEN_PATHS if p in text]
+    if hits:
+        reasons.append(f'卡面出现护栏文件 {hits}')
+    elif DESIGN_HINT_RE.search(text):
+        reasons.append('改文案 / 改视觉属于产品口径（需同步 design.md），不自动派')
+    return reasons
+
+
+def can_dispatch(card: Card, verdict: Verdict, *, sizes: tuple[str, ...] = ('S',)) -> bool:
+    """**派活闸门**（布尔，不掺感觉）：严格的四问全过。
+
+    默认仍取 `sizes=('S',)`（最严口径）；运行时想放开规模时，请用
+    `dispatch_rejects(..., sizes=DISPATCH_SIZE_ALLOWED)`——**放开只发生在调用点**，
+    这样「今天凭什么多派了一类」写在一处、可被 diff 审出来，而不是散进判据里。
+    """
+    return not dispatch_rejects(card, verdict, sizes=sizes)
 
 
 def plan(
@@ -414,6 +471,7 @@ def plan(
     *,
     per_run: int = DEFAULT_TRIAGE_PER_RUN,
     dispatch_cap: int = DEFAULT_BATCH,
+    sizes: tuple[str, ...] = DEFAULT_DISPATCH_SIZES,
 ) -> tuple[list[tuple[Card, Verdict]], int]:
     """算出这一轮要写哪些卡，`(todo, skipped_by_quota)`。
 
@@ -429,7 +487,7 @@ def plan(
     `skipped_by_quota` 必须被调用方**报出来**：被额度挡掉不等于「没有更多要分诊的卡」
     ——把两者混为一谈，就是「拿不到 ≠ 没有」的又一个变体。
     """
-    todo = [(c, classify(c)) for c in cards if c.state == 'open']
+    todo = [(c, classify(c, sizes=sizes)) for c in cards if c.state == 'open']
     todo.sort(key=lambda cv: cv[0].number)
     dispatched = 0
     picked: list[tuple[Card, Verdict]] = []
@@ -672,7 +730,15 @@ def build_cards(*, only: int | None, limit: int, with_body: bool = True) -> tupl
     return cards, complete
 
 
-def run(*, dry_run: bool, only: int | None, batch: int, per_run: int) -> int:
+def run(
+    *,
+    dry_run: bool,
+    only: int | None,
+    batch: int,
+    per_run: int,
+    sizes: tuple[str, ...] = DEFAULT_DISPATCH_SIZES,
+    stamp_labels: bool = False,
+) -> int:
     cards, complete = build_cards(only=only, limit=10_000)
     if not cards:
         # ⚠️ 这里**不能**说「全部干净」：要么真的没有 open 卡，要么是拉取失败。
@@ -684,7 +750,14 @@ def run(*, dry_run: bool, only: int | None, batch: int, per_run: int) -> int:
 
     written = 0
     printed = 0
-    todo, skipped = plan(cards, per_run=per_run, dispatch_cap=batch)
+    todo, skipped = plan(cards, per_run=per_run, dispatch_cap=batch, sizes=sizes)
+    # 被闸门（不是额度）挡掉的明确任务：**必须报数**。放开规模限制这件事的意义全在这里 ——
+    # 「可派 0」与「有 17 张但全被规模挡住」看起来都是 0，只有报出后者才知道该不该动判据。
+    blocked = [
+        (c, v)
+        for c, v in todo
+        if v.kind == 'task' and v.next == 'human_review' and f'规模 {v.size}' in ' '.join(v.reasons)
+    ]
     for card, verdict in todo:
         if dry_run:
             printed += 1
@@ -701,12 +774,17 @@ def run(*, dry_run: bool, only: int | None, batch: int, per_run: int) -> int:
         if not needs_write(card, verdict, marks):
             print(f'  ⏭️  #{card.number} 结论未变，跳过')
             continue
-        for lbl in verdict.labels():
+        labels = verdict.labels()
+        if stamp_labels and verdict.next == 'dispatch_npc':
+            # `已派活` 是**排队标记**：额度用尽被降级的卡不挂（它还没排上），
+            # 派出去之后下一轮仍会命中（标签不会让结论变，`needs_write` 因此把它算作「已写」）。
+            labels = [*labels, TAG_DISPATCHED]
+        for lbl in labels:
             ensure_label(lbl)
-        add_labels(card.number, verdict.labels())
+        add_labels(card.number, labels)
         post_comment(card.number, render_comment(card, verdict))
         written += 1
-        print(f'  ✅ #{card.number} 已挂 {verdict.labels()} 并留分诊评论')
+        print(f'  ✅ #{card.number} 已挂 {labels} 并留分诊评论')
 
     if dry_run:
         print(f'[DRY-RUN] 本轮检查 {len(cards)} 张，可分诊 {printed} 张（--apply 才会真写）')
@@ -715,10 +793,44 @@ def run(*, dry_run: bool, only: int | None, batch: int, per_run: int) -> int:
     if skipped:
         # 必须说出来：被额度挡掉 ≠ 没有更多要分诊的卡
         print(f'⏸️  另有 {skipped} 张因额度未处理（不是「已分诊完」，下一轮继续）')
+    if blocked:
+        # 与「额度」分开报：额度是排队，闸门是判据。混在一起读，永远分不清该加人还是改判据。
+        detail = '；'.join(f'#{c.number}({v.size})' for c, v in blocked[:10])
+        more = '' if len(blocked) <= 10 else f' …共 {len(blocked)} 张'
+        print(f'🚧 另有 {len(blocked)} 张明确任务被**派活闸门**挡下（非额度）：{detail}{more}')
+        print(f'   本轮准入规模 = {" / ".join(sizes)}（`--sizes` 可调；L 需要人逐张判断，不自动放开）')
     if not complete:
         print('⚠️ 数据不完整，本次结论不可信（上方有拉取失败记录）')
         return 2
     return 0
+
+
+# 规模档的合法取值。**`L` 不在默认准入里**，但允许显式传入（人逐张判断时用）。
+_ALL_SIZES = ('S', 'M', 'L')
+
+
+def parse_sizes(raw: str) -> tuple[str, ...]:
+    """`'S/SM'` → `('S','SM')`；`'S/M'` → `('S','M')`（兼容逐档写法）。
+
+    非法值**直接抛**而不是静默忽略：`--sizes=S,X` 若被忽略成 `S`，调用方会以为放开了，
+    实际一张都没多派——那正是「拿不到 ≠ 没有」的同族形态（#171 / CNB #450）。
+    """
+    out: list[str] = []
+    for token in str(raw or '').replace(',', '/').split('/'):
+        t = token.strip().upper()
+        if not t:
+            continue
+        if t in _ALL_SIZES:
+            out.append(t)
+        elif set(t) <= set(_ALL_SIZES):
+            # `SM` / `LSM` 这类组合写法：拆成单档。**拆完必须是单字符档位**
+            # （`size_of()` 的取值域），否则放开会静默不生效（见 DISPATCH_SIZE_ALLOWED 注释）。
+            out.extend(sorted(set(t), key=_ALL_SIZES.index))
+        else:
+            raise ValueError(f'未知的规模档 `{t}`（只允许 S / M / L 或其组合，如 S、S/M、SM）')
+    if not out:
+        raise ValueError('`--sizes` 不能为空（空 = 一张都不许派，通常不是本意）')
+    return tuple(dict.fromkeys(out))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -734,8 +846,29 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_TRIAGE_PER_RUN,
         help=f'单轮**分诊写入**上限（默认 {DEFAULT_TRIAGE_PER_RUN}）',
     )
+    parser.add_argument(
+        '--sizes',
+        default='/'.join(DEFAULT_DISPATCH_SIZES),
+        help=(
+            '派活准入的规模档，`/` 分隔（默认 '
+            f'{" / ".join(DEFAULT_DISPATCH_SIZES)}；可选 S / M / L）。'
+            '`L` 需要人逐张判断，**不要**在流水线里打开'
+        ),
+    )
+    parser.add_argument(
+        '--stamp-dispatched',
+        action='store_true',
+        help=f'给本轮放行派活的卡挂 `{TAG_DISPATCHED}` 标签（排队标记，默认不挂）',
+    )
     args = parser.parse_args(argv)
-    return run(dry_run=not args.apply, only=args.cnb, batch=args.batch, per_run=args.per_run)
+    return run(
+        dry_run=not args.apply,
+        only=args.cnb,
+        batch=args.batch,
+        per_run=args.per_run,
+        sizes=parse_sizes(args.sizes),
+        stamp_labels=args.stamp_dispatched,
+    )
 
 
 if __name__ == '__main__':

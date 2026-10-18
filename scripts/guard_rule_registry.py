@@ -349,12 +349,14 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'covered': '只校验 .cnb.yml 的引用形态；Secret 仓库内容读不到（403）',
     },
     'scripts/triage/issue_triage.py': {
-        'rule': 'Issue 分诊的派活闸门（task + size=S + risk=low + 不碰护栏文件）与单轮额度',
+        'rule': 'Issue 分诊的派活闸门（task + 准入规模 + risk=low + 不碰护栏文件）与单轮额度',
         'runner': 'ci',
         'tests': 'scripts/tests/test_issue_triage.py',
         'covered': (
             '判据全机械（正则/计数），**不判卡面说得清不清**；也只在 CNB 侧写标签与评论，'
-            '写 GitHub 仍走 claim_detect / mirror_correction。回归网含 3 个变异探针。'
+            '写 GitHub 仍走 claim_detect / mirror_correction。'
+            '准入规模是**参数**（默认只有 S，`.cnb.yml` 传 S/M），故「准入档是否被真的用上」'
+            '只能靠 P4 探针咬，不靠读默认值。回归网含 4 个变异探针。'
         ),
     },
     'scripts/guard_git_sync_push_scope.py': {

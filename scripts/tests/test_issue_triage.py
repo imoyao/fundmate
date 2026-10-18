@@ -197,6 +197,121 @@ class TestDispatchGate(unittest.TestCase):
             self.assertFalse(triage.can_dispatch(card(title='修个笔误', body='一处 typo 修正'), bad))
 
 
+class TestDispatchAdmission(unittest.TestCase):
+    """准入档：规模限制被**用户**放开（2026-10-18），但放开的是资格，不是别的三条。
+
+    背景（#564 实测）：198 张卡里可派 **0** 张，17 张「低风险 + 有验收」的全部卡在
+    `size=M`。当时的判断是「不得为了跑满额度降标准」，于是派活通道吞吐 = 0。
+    用户随后明确要放开这条规模限制——但**风险面 / 护栏文件 / 产品口径三条一条没松**。
+    """
+
+    M_OK = '## 验收\n\n- [ ] 一条'
+
+    def test_default_stays_strict(self):
+        # 默认口径**不许**被悄悄放宽：改默认值等于让下一个读代码的人无从察觉
+        self.assertEqual(triage.DEFAULT_DISPATCH_SIZES, ('S',))
+        v = triage.classify(card(body=self.M_OK))
+        self.assertEqual(v.size, 'M')
+        self.assertNotEqual(v.next, 'dispatch_npc', '默认档下 M 仍然不派')
+
+    def test_medium_passes_when_admitted(self):
+        v = triage.classify(card(body=self.M_OK), sizes=triage.DISPATCH_SIZE_ALLOWED)
+        self.assertEqual(v.next, 'dispatch_npc')
+
+    def test_relaxing_size_does_not_relax_risk(self):
+        # 放开规模 ≠ 放开风险：碰钱/契约的 M 卡依然转人工（这是本条的**核心断言**）
+        for hint in ('app/core/money.py', 'AGENTS.md', 'scripts/guard_all_pb.py'):
+            v = triage.classify(card(body=f'{self.M_OK}\n改 {hint}'), sizes=triage.DISPATCH_SIZE_ALLOWED)
+            self.assertEqual(v.risk, 'high', hint)
+            self.assertNotEqual(v.next, 'dispatch_npc', hint)
+
+    def test_relaxing_size_does_not_relax_design_gate(self):
+        v = triage.classify(
+            card(title='调间距', body=f'改文案：按钮措辞。\n\n{self.M_OK}'),
+            sizes=triage.DISPATCH_SIZE_ALLOWED,
+        )
+        rejects = triage.dispatch_rejects(
+            card(title='调间距', body=f'改文案：按钮措辞。\n\n{self.M_OK}'),
+            triage.Verdict(kind='task', size='M', risk='low', next='dispatch_npc', need_decision=False),
+            sizes=triage.DISPATCH_SIZE_ALLOWED,
+        )
+        self.assertNotEqual(v.next, 'dispatch_npc')
+        self.assertTrue(any('产品口径' in r for r in rejects), rejects)
+
+    def test_large_is_not_in_the_shipped_admission(self):
+        """`L` 不在**随仓发布的**准入档里：它几乎只意味着「正文超长 = 一件事写不清」，
+        派 AI 去做等于让 AI 替人补写范围。要派得由人在卡面写清「就是这一小块」。
+
+        ⚠️ 判据是「默认值与流水线传入的值都不含 L」，**不是**「函数层硬拒 L」——
+        后者会把「人临时想派一张 L」也一起禁掉，而那是人的决定，不是判据该替他做的。
+        所以这条只钉两件事：常量不含 L，且判据确实按传入的档位走（下面那条 P4 探针）。
+        """
+        self.assertNotIn('L', triage.DISPATCH_SIZE_ALLOWED)
+        big = '正文' * 2500
+        self.assertEqual(triage.size_of(big, None), 'L')
+        v = triage.classify(card(body=f'{big}\n\n{self.M_OK}'), sizes=triage.DISPATCH_SIZE_ALLOWED)
+        self.assertNotEqual(v.next, 'dispatch_npc', '随仓准入档不得放行 L')
+
+    def test_rejects_say_why(self):
+        # 布尔只说「没派」；理由清单才回答「是什么卡住的」——这是放开规模的判定依据
+        v = triage.Verdict(kind='task', size='L', risk='medium', next='dispatch_npc', need_decision=False)
+        rejects = triage.dispatch_rejects(
+            card(body='改 frontend/ 的 views.py'), v, sizes=triage.DISPATCH_SIZE_ALLOWED
+        )
+        joined = ' '.join(rejects)
+        self.assertIn('L', joined)
+        self.assertIn('medium', joined)
+
+    def test_blocked_by_gate_is_not_blocked_by_quota(self):
+        """被**闸门**挡掉 ≠ 被**额度**挡掉：两者必须分开报（#564 的核心结论）。
+
+        混在一起的后果很具体：看板上只看到「可派 0」，读的人分不清是该加人、还是该改判据
+        —— 而真实情况是「有 17 张，全被规模条件挡着」，正是这次放开限制的由来。
+        """
+        big = '正文' * 2500
+        cards = [
+            card(number=1, title='大车', body=f'{big}\n\n## 验收\n\n- [ ] 一条'),
+            card(number=2, title='普通', body=self.M_OK),
+        ]
+        picked, _ = triage.plan(cards, per_run=10, dispatch_cap=3)
+        gate_blocked = [c.number for c, v in picked if f'规模 {v.size}' in ' '.join(v.reasons)]
+        self.assertEqual(gate_blocked, [1, 2], '被闸门挡掉的卡必须能在 plan 输出里被认出来')
+        dispatched = [c.number for c, v in picked if v.next == 'dispatch_npc']
+        self.assertNotIn(1, dispatched, 'L 档即使被列入准入也要能降级')
+
+        # 同一批卡在准入放开后：M 的那张转为可派，L 的仍被挡 —— 这才是「闸门与额度分开」的证据：
+        picked2, _ = triage.plan(
+            cards, per_run=10, dispatch_cap=3, sizes=triage.DISPATCH_SIZE_ALLOWED
+        )
+        self.assertEqual([c.number for c, v in picked2 if v.next == 'dispatch_npc'], [2])
+        self.assertEqual(
+            [c.number for c, v in picked2 if '规模 L' in ' '.join(v.reasons)], [1], 'L 仍被挡'
+        )
+
+    def test_admitted_tiers_are_size_values(self):
+        """准入档必须是 `size_of()` 真会返回的值 —— 否则放开**静默不生效**。
+
+        实测踩过（2026-10-18 首版）：写成 `('S', 'SM')`，而 `size_of()` 只返回 `S/M/L`，
+        于是 `'M' not in ('S','SM')` ⇒ **一张卡都没多派**，看板上却表现为
+        「限制已放开、可派仍然是 0」。这是一个不会红的假信号，与 #171 同族
+        （空 ≠ 没拿到；这里的变体是「放宽 ≠ 生效」）。
+        """
+        self.assertTrue(set(triage.DISPATCH_SIZE_ALLOWED) <= set(triage._ALL_SIZES))
+        for tier in triage.DISPATCH_SIZE_ALLOWED:
+            self.assertEqual(len(tier), 1, f'准入档 {tier!r} 不是单档位')
+
+    def test_parse_sizes(self):
+        self.assertEqual(triage.parse_sizes('S'), ('S',))
+        self.assertEqual(triage.parse_sizes('S/M'), ('S', 'M'))
+        self.assertEqual(triage.parse_sizes('s,m'), ('S', 'M'))
+        # 组合写法拆成单档：`SM` 不能作为一个值传下去（那正是上面那条用例的事故）
+        self.assertEqual(triage.parse_sizes('SM'), ('S', 'M'))
+        self.assertEqual(triage.parse_sizes('LSM'), ('S', 'M', 'L'))
+        for bad in ('', 'X', 'S,X'):
+            with self.assertRaises(ValueError, msg=bad):
+                triage.parse_sizes(bad)
+
+
 class TestQuota(unittest.TestCase):
     """两条上限分开：分诊能多写，派活必须少派。"""
 
@@ -379,10 +494,20 @@ class TestMutationProbes(unittest.TestCase):
         self.assertTrue(raised, 'MISSED：模板文字仍能污染风险判据')
 
     def test_probe_p2_gate_drops_size_check(self):
-        """P2：闸门里去掉 `size == S`（只看 kind/risk）⇒ 必须被咬住。"""
+        """P2：闸门里去掉**规模检查**（只看 kind/risk）⇒ 必须被咬住。
+
+        ⚠️ 本探针在 2026-10-18 用户放开规模限制后**改写过**：原来守的是
+        `size == S` 那一行字面量，而现在规模是**参数**（`sizes`），字面量没了 ——
+        照原样改写点会「没命中」而报红（这本身是对的，探针的职责就是钉住漂移）。
+
+        但它守的**事实**必须留着：不管准入档取什么，闸门都必须真的拿规模去比。
+        故改写点换成 `dispatch_rejects` 里那行比较，探针改为「L 在任何档下都不许放行」
+         —— 这是放开之后唯一**结构性**还站得住的规模断言（`L` 是唯一被刻意留在门外的档，
+        见 `DISPATCH_SIZE_ALLOWED` 上方的说明）。
+        """
         src = self._original().replace(
-            "if verdict.kind != 'task' or verdict.size != 'S' or verdict.risk != 'low':",
-            "if verdict.kind != 'task' or verdict.risk != 'low':",
+            '    if verdict.size not in sizes:',
+            '    if False and verdict.size not in sizes:',
         )
         self.assertNotEqual(src, self._original(), '探针改写点没命中')
         mod = self._load_variant(src)
@@ -391,10 +516,31 @@ class TestMutationProbes(unittest.TestCase):
         # 正文必须**不含** design 护栏词，否则 P2 会因为另一条闸门而假通过（MISSED 的真因）
         raised = False
         try:
-            self.assertFalse(mod.can_dispatch(c, v))
+            self.assertFalse(mod.can_dispatch(c, v, sizes=mod.DEFAULT_DISPATCH_SIZES))
         except AssertionError:
             raised = True
-        self.assertTrue(raised, 'MISSED：规模不是 S 的卡也能通过派活闸门')
+        self.assertTrue(raised, 'MISSED：规模检查被去掉后，L 档的卡也能通过派活闸门')
+
+    def test_probe_p4_admission_ignores_sizes_param(self):
+        """P4：`dispatch_rejects` 无视传入的 `sizes`（把准入档写死成 S）⇒ 必须被咬住。
+
+        这条守的是「放开规模真的会生效」：若参数被无视，`--sizes S/SM` 会静默不管用，
+        看板上仍然可派 0，而调用方以为已经放开了（同族：`--sizes=S,X` 非法值被静默忽略）。
+        """
+        src = self._original().replace(
+            '    if verdict.size not in sizes:',
+            "    if verdict.size not in ('S',):",
+        )
+        self.assertNotEqual(src, self._original(), '探针改写点没命中')
+        mod = self._load_variant(src)
+        c = mod.Card(number=1, title='普通', body='## 验收\n\n- [ ] 一条', labels=[])
+        v = mod.Verdict(kind='task', size='M', risk='low', next='dispatch_npc', need_decision=False)
+        raised = False
+        try:
+            self.assertTrue(mod.can_dispatch(c, v, sizes=mod.DISPATCH_SIZE_ALLOWED))
+        except AssertionError:
+            raised = True
+        self.assertTrue(raised, 'MISSED：准入档参数被无视，放开规模静默失效')
 
     def test_probe_p3_quota_batch_mixes_two_caps(self):
         """P3：把分诊上限也压成派活上限（3）⇒ 大车上千张卡永远分不完，必须被咬住。"""
