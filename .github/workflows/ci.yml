@@ -635,6 +635,19 @@ jobs:
       - name: 检查 .cnb.yml 的顶层事件是否挂在分支之下（阻断）
         run: python scripts/check_cnb_events.py
 
+      # 定时作业可及性（源 CNB #578，2026-10-18）：构建 `cnb-ri6-1k57q4k9b` 每小时红一次，
+      # `! [rejected] dev -> dev (fetch first)` —— 而那条 cron 挂在 `main:` 段里、却推 `dev`。
+      # runner 的检出口径是 `git fetch origin refs/heads/<分支键>` +
+      # `git checkout -f -B "<分支键>" <sha>` ⇒ 作业挂在哪、推哪条必须一致，否则要么静默跳过
+      # （源 CNB #269 的假绿），要么拿一条注定推不上去的 ref 去推（本卡的恒红）。
+      # 与上一条（`check_cnb_events.py`）是一对：那条管「事件挂在分支之下吗」，
+      # 这条管「挂对了之后，作业的目标分支在不在自己的检出里」。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      # 判据边界（不拉网络、不判断两侧是否真的分叉）见脚本 docstring；
+      # 回归网在 scripts/tests/test_cron_job_reachability.py（含 2 个变异探针 + 缺陷形态 fixture）。
+      - name: 检查定时作业的目标分支是否在它自己的检出里（阻断）
+        run: python scripts/guard_cron_job_reachability.py
+
       # 镜像建卡的「扫描不可短路」守卫（源 CNB #450，2026-10-14）：`harvest_existing()`
       # 曾拿状态文件缓存当前置短路（缓存非空就直接返回），于是状态文件没记的镜像卡
       # 在判定时"不存在" ⇒ 每轮 cron/push 都把 ~140 张 GitHub 卡再建一遍，

@@ -330,6 +330,22 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/test_cnb_yml_duplicate_keys.py',
         'covered': '只查重复键；同名 stage 出现在不同 job 下不算',
     },
+    'scripts/guard_cron_job_reachability.py': {
+        'rule': '定时作业的目标分支必须在它自己的检出里（挂载位置与目标一致）',
+        # 只在 CI 里跑：`.cnb.yml` 只有一份、判据纯静态（不拉网络、不读运行时），
+        # 没必要再挂本地钩子——挂多了反而让「谁负责」变模糊。
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_cron_job_reachability.py',
+        # 边界说清楚：判据只看「作业挂在哪、推哪条」，**不判断两侧内容有没有分叉**——
+        # 后者要联网（`scripts/bridge/check_cross_repo_dev_divergence.py`），
+        # 且分叉时 push 非快进属于「正确的红」，不是配置写错。
+        # 也读不到分支保护 / 凭据：本守卫只保证「不因为挂错位置而注定失败」。
+        'covered': (
+            '不判「这一轮推成功了没有」（不拉网络）；不判分支保护与凭据；'
+            '只认 `settings.branch` 与 `--branch <名>` 两种目标形态，'
+            '`${CNB_BRANCH}` 这类动态值刻意不猜'
+        ),
+    },
     'scripts/guard_cnb_script_task_python.py': {
         'rule': '跑 python 的脚本任务必须自带 docker.image',
         'runner': 'ci',
