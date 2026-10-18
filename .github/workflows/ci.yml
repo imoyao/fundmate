@@ -627,6 +627,14 @@ jobs:
       - name: 守卫:规则登记与生命周期（阻断）
         run: python scripts/guard_rule_registry.py
 
+      # Issue 分诊的派活闸门（源 CNB #564，2026-10-18）：`issue_triage.py` 算出的
+      # `next=dispatch_npc` 是「可以交给 AI 自动推进」的唯一凭据。判据一旦松掉，
+      # AI 就会去动需要人拍板的卡 / 大车汇总卡——那比少做十张卡贵得多。
+      # 本步骤跑的是 `scripts/triage/issue_triage.py` 的回归网（纯离线、不打网络），
+      # 并入本 job，不新增 job 也就不必动 gate.needs。
+      - name: Issue 分诊闸门回归网（阻断） scripts/triage/issue_triage.py
+        run: python -m unittest scripts.tests.test_issue_triage -v
+
   gate:
     name: 质量门禁汇总
     if: ${{ always() && github.event_name == 'pull_request' }}
