@@ -433,6 +433,10 @@ dev:
               echo "⚠️ 退出码 2：拿不到输入（fetch/ref 缺失）或合并没跑起来 —— 本轮结论不可信"
               echo "   —— 不得读成「无需同步」；请按上方日志里第一行 ❌ 区分"
             fi
+            # 机器分支按「覆盖自己那条一次性 ref」推（`--force-with-lease=<ref>:<sha>`，
+            # 源 CNB #573）：上一轮没被合掉的 `bridge/github-dev` 会让本轮非快进被拒，  <!-- cross-repo-ref-allow -->
+            # 于是每小时红一次却**一个字节都没推出去**。这只针对那条一次性分支，
+            # `dev` / `main` 仍然永不开 force（`scripts/tests/test_machine_branch.py` 双向钉住）。
             exit $rc
   # ---- 触发器结构：`crontab` / `push` 一律写成「job 列表 + 命名 stage」----
   # ⚠️ CNB #167 实测：把 `stages:` **直接**挂在 `"crontab: ..."` 下（没有 `- name:` 包一层的

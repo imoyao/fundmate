@@ -92,6 +92,17 @@
             runner 上无 git 身份时 `git merge` 直接 rc128「Committer identity
             unknown」，冲突清单为空，曾被打着「无冲突」照常推送——
             「没跑成」被读成了「跑成了」。
+
+两处「同一事实问两次」的坑（源 CNB #573，2026-10-18 构建 `cnb-um5-1k57nplko`）
+-------------------------------------------------------------------------------
+① **试算只跑一次**：演练路径原先调两遍 `git merge-tree`（先取退出码、再取输出），
+   而第二遍的输出被读成空 ⇒ 冲突清单**恒为空** ⇒ 有冲突也打印「✅ 无冲突」。
+   一次调用同时拿码与输出（`merge_tree_conflicts()`），且「取不出路径」按**不可信**
+   处理而不是「没冲突」。
+② **机器分支的推送方式**：`bridge/github-dev` 是**固定名、一次性、每轮覆盖**的 ref。
+   上一轮没被合掉时，本轮合并结果不含它 ⇒ 非快进被拒 ⇒ 每小时红一次却一个字节都没推。
+   故**只对这一条分支**用 `--force-with-lease`（`dev` / `main` 永不开 force —— 那是
+   共享事实，冲掉别人的提交不可接受）。lease 保证：万一有人在它上面动了手，仍然失败。
 """
 
 from __future__ import annotations
@@ -199,14 +210,90 @@ def conflict_files(cwd: str | None = None) -> list[str]:
     return sorted(files)
 
 
+def merge_tree_conflicts(base_ref: str, merge_ref: str, cwd: str | None = None) -> tuple[list[str] | None, str]:
+    """离线试算「把 `merge_ref` 合进 `base_ref`」的冲突文件清单。
+
+    返回 `(conflicts, detail)`：
+      - `conflicts` 为 `None` ⇒ **试算本身没跑成**（git 异常 / 输出读不懂）；
+        调用方必须退 2 并声明「结论不可信」，**不得**把 `None` 读成「没有冲突」（#171 纪律）。
+      - `conflicts == []` ⇒ 试算成功且无冲突。
+
+    ⚠️ 只有**一份** merge-tree 调用（源 CNB #573，2026-10-18）：此前这里跑了两遍 ——
+    先取退出码，再取一次输出，而两遍之间的输出被读成了「空」⇒ 冲突清单**恒为空**，
+    于是「有冲突」与「无冲突」在报告里长得一模一样（都打印「✅ 无冲突，两侧内容可合」）。
+    一次调用同时拿码与输，这类「同一事实问两次、取第二次」的形态就不再有机会出错。
+
+    `--write-tree` 的首行是 40 位 tree hash，其余 `… \t<path>` 行才是冲突路径；
+    按 NUL 之后的 tab 取 `rsplit('\t', 1)` —— 路径本身可能含 tab，用 `split('\t')[1]`
+    会在那种路径上取错。
+    """
+    code, out, _ = _git(['merge-tree', '--write-tree', base_ref, merge_ref], cwd)
+    if code not in (0, 1):
+        return None, f'git merge-tree 异常退出（rc{code}）'
+    if code == 0:
+        return [], ''
+    conflicts = sorted({ln.rsplit('\t', 1)[1].strip() for ln in out.splitlines() if ln.strip().count('\t') == 1})
+    if not conflicts:
+        # 退出码说「有冲突」，输出里却一条路径都取不出来 —— **读不懂就不猜**：
+        # 退化成「无冲突」正是 #573 那个 bug 的结论形态（报告照打印「✅ 无冲突」）。
+        return None, 'git merge-tree 报有冲突，但取不出冲突路径'
+    return conflicts, ''
+
+
+def machine_push_args(github_url: str, machine_branch: str, cwd: str | None = None) -> list[str]:
+    """机器分支的 push 参数：**只对这一条一次性 ref** 用 `--force-with-lease`。
+
+    为什么是 lease 而不是普通 push（源 CNB #573，构建 `cnb-um5-1k57nplko`）：
+    `bridge/github-dev` 是**固定名、一次性、每轮覆盖**的 ref。上一轮若还没被合掉，
+    本轮合并结果的祖先里就没有它 ⇒ 非快进被拒 ⇒ 每小时红一次，却**一个字节都没推出去**。
+    这与「推 `dev` 绝不开 force」不冲突：`dev` 是**共享事实**，冲掉别人的提交不可接受；
+    机器分支是**本次合并结果的快照**，名字固定即为了幂等地覆盖。
+
+    为什么 lease 还要**显式指定期望值**：`git push --force-with-lease` 的裸形态依赖
+    「本地有那个 ref 的 remote-tracking 信息」，而我们从不 fetch 这条分支
+    （`refs/cross-bridge/*` 才是我们抓的），于是它退化成 `(stale info)` 被拒 ——
+    实测（2026-10-18，临时仓复现）：裸 lease 推已存在的分支 = `stale info`；
+    `--force-with-lease=<ref>:<sha>` 才真的按预期值比对。
+
+    期望值取**本轮刚 push 前**远端那条 ref 的 sha（现取 `ls-remote`）。取不到 ⇒ **不带**
+    lease 值，按普通 push 走：宁可被拒报红，也不拿「不知道远端是什么」当覆盖依据。
+    """
+    ref = f'refs/heads/{machine_branch}'
+    code, out, _ = _git(['ls-remote', github_url, ref], cwd)
+    expected = ''
+    if code == 0 and out:
+        expected = out.split()[0].strip()
+    if not expected:
+        return ['push', github_url, f'HEAD:{ref}']
+    return ['push', f'--force-with-lease={ref}:{expected}', github_url, f'HEAD:{ref}']
+
+
 def build_report(
     p: dict,
     *,
     pushed: bool,
     conflicts: list[str],
     pr_url: str | None = None,
+    reason: str = '',
     dry_run: bool = False,
 ) -> str:
+    """生成给人看的结论段。
+
+    `reason` 把「**没推**」拆成三种**完全不同**的结论（源 CNB #573，2026-10-18）：
+
+    | reason | 发生了什么 | 下一步 |
+    |---|---|---|
+    | `''`（默认） | 演练模式，没执行 | 加 `--apply --push` |
+    | `'push_failed'` | **合好了，推被拒 / 推不通** | 看 remote 原话、清掉远端那条旧分支 |
+    | `'inconclusive'` | 试算 / 合并没跑起来 | 结论不可信，别读成「无冲突」 |
+
+    三种原因原先共用一句「（演练模式：未推、未开 PR）」，于是构建日志里
+    「合并成功但推失败」与「根本没跑」长得一模一样 —— 诊断方向被直接掉包。
+
+    `dry_run` 区分「演练 / 没有 `--push`」（真的没打算写）与「只读探针」（想写但
+    写者不在本侧，源 CNB #574）—— 后者必须说清「结论是观测、不是已送达」。
+    `dry_run` 与 `reason` 同时给时，`reason` **优先**：它总是更贵的那种情况。
+    """
     lines = ['## 跨仓同步（机器分支 + 读探针）', '']
     lines.append(f'- 基线方向：以 **{p["base_name"]} `dev`** 为基线，合入 **{p["merge_name"]} `dev`**')
     lines.append(f'- 机器分支：`{p["machine_branch"]}`（**一次性**：PR 合完即亡，不是长期分支）')
@@ -228,6 +315,16 @@ def build_report(
         if pr_url:
             lines.append('')
             lines.append(f'PR 已开：{pr_url}')
+    elif reason == 'push_failed':
+        # 「合好了但没送出去」——**最贵的一种**：分叉是真的、合并也成功了，只是推被拒。
+        # 若这里沿用「演练模式」，读日志的人会以为这一轮压根没执行（#573 实测踩过）。
+        lines.append(f'⚠️ **两侧已合并成功，但没推上去**（目标分支 `{p["machine_branch"]}` 未更新）。')
+        lines.append('')
+        lines.append('三种可能，按上面的报错原文区分：远端那条机器分支已存在且分叉（非快进）、')
+        lines.append('分支保护拒绝、或凭据失效。正常路径下脚本会先用 `--force-with-lease` 覆盖')
+        lines.append('**自己那条一次性分支**；它都失败，说明远端那条 ref 不是我们能动的。')
+    elif reason == 'inconclusive':
+        lines.append('⚠️ **合并试算 / 合并本身没跑成** —— 本轮结论不可信，不得读成「无冲突」。')
     elif dry_run:
         lines.append('（演练模式：未推、未开 PR。）')
     else:
@@ -255,13 +352,11 @@ def run(args: argparse.Namespace) -> int:
     p = plan(args.base, args.machine_branch)
 
     if args.dry_run or not args.apply:
-        code, _, _ = _git(['merge-tree', '--write-tree', p['base_ref'], p['merge_ref']], cwd)
-        conflicts = []
-        if code == 1:
-            _, out, _ = _git(['merge-tree', '--write-tree', p['base_ref'], p['merge_ref']], cwd)
-            conflicts = sorted({ln.split('\t')[1].strip() for ln in out.splitlines() if len(ln.split('\t')) == 2})
-        elif code not in (0, 1):
-            print('❌ 合并试算不可用（git merge-tree 异常）——结论不可信', file=sys.stderr)
+        conflicts, detail = merge_tree_conflicts(p['base_ref'], p['merge_ref'], cwd)
+        if conflicts is None:
+            # 「试算没跑成」≠「没有冲突」（#171 / #450 的假绿纪律）：退 2 且明说结论不可信。
+            print(f'❌ 合并试算不可用：{detail} —— 结论不可信，不得读成「无冲突」', file=sys.stderr)
+            print(build_report(p, pushed=False, conflicts=[], reason='inconclusive'), file=sys.stderr)
             return 2
         print(build_report(p, pushed=False, conflicts=conflicts, dry_run=True))
         return 1 if conflicts else 0
@@ -316,7 +411,7 @@ def run(args: argparse.Namespace) -> int:
         _git(['worktree', 'remove', '--force', wt], cwd)
         return 0
 
-    code, out, err = _git(['push', args.github_url, f'HEAD:refs/heads/{p["machine_branch"]}'], wt)
+    code, out, err = _git(machine_push_args(args.github_url, p['machine_branch'], wt), wt)
     if code != 0:
         # ⚠️ 必须在 `worktree remove` **之前**把 remote 的原文打出来（源 CNB #567，2026-10-18）。
         # `git push` 的进展与拒绝原因走 **stderr**（`! [rejected] … (fetch first)` /
@@ -325,6 +420,16 @@ def run(args: argparse.Namespace) -> int:
         # 返回码 2 保留（「结论不可信」），另起一行点名分支 —— 后面要用它开 PR。
         print(f'❌ 推机器分支失败：{out or err or "(git 没有任何输出)"}', file=sys.stderr)
         print(f'   目标分支：{p["machine_branch"]}（未推上去；下次重跑会覆盖同一 ref）', file=sys.stderr)
+        if '(fetch first)' in out or 'stale info' in out:
+            # ⚠️ 这一条在 #573 之后**不应再出现**：机器分支已按「覆盖自己那条一次性分支」
+            # 推送（`--force-with-lease`）。真出现 = 远端那条 ref 不是我们能动的
+            # （被人动过 ⇒ lease 拒绝，或分支保护规则显式禁止 force）。
+            print('   ⇒ 这一条按理不该再出现：机器分支已用 --force-with-lease 覆盖自己那条 ref。', file=sys.stderr)
+            print('      出现它说明「远端那条 ref 不是我们能覆盖的」——先看它的保护规则。', file=sys.stderr)
+        # 失败也要把「本地合好了什么」说出来：没推上去时，人得知道合并结果停在哪、
+        # 下一步该干什么，否则日志只剩一句报错（源 CNB #573）。
+        print(build_report(p, pushed=False, conflicts=[], reason='push_failed'), file=sys.stderr)
+        print(f'\n（合并结果停在临时 worktree 的 `{sha[:8]}`，未推任何远端。）', file=sys.stderr)
         _git(['worktree', 'remove', '--force', wt], cwd)
         return 2
     _git(['worktree', 'remove', '--force', wt], cwd)

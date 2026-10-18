@@ -324,6 +324,17 @@ jobs:
       - name: 扫描 git 脚本任务是否供给 git（阻断）
         run: python scripts/guard_cnb_script_task_git.py
 
+      # 「同一个 git 询问不许问两遍」守卫（源 CNB #573，2026-10-18）：
+      # `machine_branch.py` 的演练路径曾写 `code, _, _ = _git(merge-tree)` 取退出码、
+      # `if code == 1:` 再跑一遍取输出 —— 两次独立进程被当成「同一个答案的两半」。
+      # 第二遍一旦读空，冲突清单就**恒为空**，报告照样打印「✅ 无冲突，两侧内容可合」，
+      # 而它更响亮、更像结论 ⇒ 没人会怀疑「冲突清单为什么总是空的」。
+      # 判据按**结构形状**比对 `_git` 的参数（只认字面量的版本在真实代码上恒绿，
+      # 这是实测踩过的第一版）；并拿 `origin/dev` 上修复前的真实代码当回归锚点。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      - name: 扫描「同一 git 询问问两遍」形态（阻断）
+        run: python scripts/guard_ask_git_once.py
+
       # git-sync 分支范围守卫（源 CNB #167 / #172 / #269，2026-10-13 ~ 10-14）：
       # ① 插件不写 `branch` 时执行 `git push target --all`，会把 CNB 的 `main` 一并推给
       #    GitHub；而 GitHub 是权威源（`main` 只由发版 PR 推进）⇒ 两侧 `main` 各自长出
@@ -646,6 +657,12 @@ jobs:
       # （失败时不必再推断归属）。**不新增 job**，也就不必动 `gate.needs`。
       - name: 跨仓同步通道回归网（阻断）
         run: python -m pytest scripts/tests/test_machine_branch.py -q -p no:cacheprovider
+
+      # 「同一 git 询问问两遍」守卫的回归网（源 CNB #573）：最重的一条用例拿
+      # `origin/dev` 上**修复前的真实代码**喂守卫，确认它真的转红——不加这条，
+      # 「守卫绿」只能证明「代码里没有它不认识的东西」，证明不了它能认出那个 bug。
+      - name: 「同一 git 询问问两遍」守卫回归网（阻断）
+        run: python -m pytest scripts/tests/test_ask_git_once_guard.py -q -p no:cacheprovider
 
       # 机器分支单写者守卫的回归网（源 CNB #574）：含 3 个变异探针
       # （只读闸门被删 / 默认写者翻转 / `.cnb.yml` 设写者），均已实测转红。

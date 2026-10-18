@@ -359,6 +359,16 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             '只能靠 P4 探针咬，不靠读默认值。回归网含 4 个变异探针。'
         ),
     },
+    'scripts/guard_ask_git_once.py': {
+        'rule': 'git 的同一次询问不许问两遍再取第二遍的输出（一次调用同时拿码与输出）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_ask_git_once_guard.py',
+        'covered': (
+            '只判**结构形状**（同一函数内同一个 `_git` 参数形状出现两次、且第二遍丢退出码）；'
+            '跨函数复用同一查询（有意的缓存）不判；「两次结果是否真的不一致」要跑起来才知道，'
+            '静态判据只保证「不许有这种形状」。'
+        ),
+    },
     'scripts/guard_git_sync_push_scope.py': {
         'rule': 'git-sync 两个方向都只能作用在 dev / 功能分支',
         'runner': 'ci',
