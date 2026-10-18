@@ -176,12 +176,12 @@ def main():
     # 不误伤 fresh clone 首跑就地建库。
     strict = bool(args.targets or args.target_file or args.snapshot or args.import_snapshot)
     db_problem = app_db_startup_check(strict=strict)
-    
+
     # 无论 strict 与否，都把目标信息打印到 stdout（供 test_cli_prints_target_before_running 断言）
     env = os.getenv('APP_ENV', 'development')
     url, source = resolve_app_db(env)
     print(f'运行库目标（APP_ENV={env}）: market 域: {url}（解析来源: {source}）')
-    
+
     if db_problem:
         # 显式配置了数据库（source != 'default'）但文件不存在：配置错误，直接报错（无论 strict）
         # strict=True 的场景也走这儿（返回码 2）
