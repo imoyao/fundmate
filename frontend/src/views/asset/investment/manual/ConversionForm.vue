@@ -1033,8 +1033,8 @@ defineExpose({ isDirty, resetForm });
 
 .fee-sign {
   font-size: 13px;
-  color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
 }
 
 .fee-input {
@@ -1053,7 +1053,7 @@ defineExpose({ isDirty, resetForm });
 
 .fee-hint {
   font-size: 12px;
-  color: var(--text-tertiary-ink);
   font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary-ink);
 }
 </style>
