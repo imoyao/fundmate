@@ -44,6 +44,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.asset_types import is_valid_asset_type
@@ -53,6 +54,7 @@ from app.domains.indices.models import IndexCatalog
 from app.domains.positions.models import Position
 from app.domains.securities.models import ConvertibleBondTerm, Security
 from app.domains.watchlist.models import WatchlistItem
+from app.services.symbol_scope import build_position_symbol_conditions
 from app.services.watchlist_service import (
     bare_code_of,
     looks_like_exchange_code,
@@ -202,9 +204,15 @@ def resolve_product_identity(
             wl_query = wl_query.filter(WatchlistItem.venue == venue)
         wl = wl_query.first()
 
+        # 持仓符号匹配**必须**走 symbol_scope 单一真相源（字面量 + symbol_norm 归一
+        # 变体）：页面传裸码 ``159857`` 而持仓存 ``SZ159857`` 时，纯字面量
+        # ``Position.symbol == symbol`` 恒不命中 → 落到目录反查命中 funds 表裸码行 →
+        # 品类误判成 fund → 走 daily_worth 路径（ETF 无净值行）→ 走势为空。
+        # 归一变体由 build_position_symbol_conditions 生成（``159857`` 在 EXCHANGE
+        # venue 下即归一为 ``EXCHANGE:SZ159857``，与持仓行 symbol_norm 对上）。
         pos_query = user_db.query(Position).filter(
             Position.family_id == family_id,
-            Position.symbol == symbol,
+            or_(*build_position_symbol_conditions(symbol)),
         )
         if market_in:
             pos_query = pos_query.filter(Position.market.in_(market_in))

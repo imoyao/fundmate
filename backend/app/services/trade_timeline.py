@@ -12,7 +12,9 @@
   仅 45%（#2009 实测），靠它收敛等于漏掉一半流水；
 - **``ledger_id`` 可选过滤**：不传 = 该家庭该产品**全部账户合并**（产品级视角，
   与 ``calculate_symbol_xirr`` 同源）；传入 = 单账户（分渠道展示时接）；
-- **重放按 ``trade_date`` 升序**：买方视角是「我哪天操作的」（#2171 定稿），
+- **重放按 ``COALESCE(trade_date, confirm_date)`` 升序**：买方视角是「我哪天操作的」
+  （#2171 定稿），历史导入流水大量只填确认日，排序与定位必须与列表接口
+  ``transaction_service`` 的屏上日期同口径（否则整批沉底 / 被跳过）；
   确认日（``confirm_date``）随交易点返回供悬浮展示，不错位曲线；
 - **成本含手续费**：买入 / 转入 / 红利再投 成本 = 成交金额（``amount``，分）+
   手续费（``fee``，分）；卖出 / 取出按**移动加权比例缩减**剩余成本（成本率不变），
@@ -55,6 +57,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Dict, List, Optional
 
+from sqlalchemy import String, cast, func
 from sqlalchemy.orm import Session
 
 from app.domains.positions.models import Position
@@ -101,8 +104,17 @@ def _avg_cost_yuan(cost_cents: int, qty_units: int) -> Optional[float]:
 
 
 def _trade_day(txn: Transaction) -> Optional[dt.date]:
-    """交易日（T 日）。``trade_date`` 是 DateTime，确认日 ``confirm_date`` 是 Date。"""
+    """交易日（T 日）。``trade_date`` 是 DateTime，确认日 ``confirm_date`` 是 Date。
+
+    **trade_date 为空时兜底 confirm_date**（``COALESCE`` 语义）：历史导入流水大量只填
+    确认日（列表接口 ``transaction_service`` 实测 1,921 笔里 1,211 笔 ``trade_date``
+    为空，本重放路径的持仓同样如此），只认 ``trade_date`` 会把它们全部计入
+    ``no_date`` 跳过——成本线 / 收益贡献 / 买卖点整条曲线静默变空。两处必须同口径：
+    屏上显示哪天，曲线就按哪天重放。两列都没有才返回 None（真正无法定位）。
+    """
     value = txn.trade_date
+    if value is None:
+        value = txn.confirm_date
     if value is None:
         return None
     return value.date() if isinstance(value, dt.datetime) else value
@@ -176,7 +188,12 @@ def build_trade_timeline(
     )
     if ledger_id is not None:
         query = query.filter(Transaction.ledger_id == ledger_id)
-    transactions = query.order_by(Transaction.trade_date.asc(), Transaction.id.asc()).all()
+    # 排序键 = 有效交易日（trade_date 兜底 confirm_date，与 _trade_day 同口径）：
+    # 只按 trade_date 排会把「只有确认日」的流水整批沉底，而重放/屏上用的却是确认日
+    # （两列类型不同，转文本再 COALESCE，理由同 transaction_service 的 effective_day——
+    # SQLite 对 DATETIME CAST 走 NUMERIC 亲和性会把日期排错位）。
+    effective_day = func.coalesce(cast(Transaction.trade_date, String), cast(Transaction.confirm_date, String))
+    transactions = query.order_by(effective_day.asc(), Transaction.id.asc()).all()
 
     qty_units = 0  # 份额（最小单位）
     cost_cents = 0  # 持仓成本（分）
