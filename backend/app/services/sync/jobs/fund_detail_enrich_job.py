@@ -12,14 +12,13 @@
 import time
 import traceback
 from datetime import date
-from decimal import Decimal
 from typing import Any, Dict, List
 
 from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.core.time_utils import now_shanghai
-from app.domains.funds.models import FeeRatio, Fund, FundType, PurchaseRule, RedeemRule
+from app.domains.funds.models import Fund, FundType
 from app.services.fund_service import FundService
 from app.services.job_base import BATCH_SIZE_DETAIL_ENRICH, JobStatus, SyncJob
 from app.services.sync.company_resolver import get_or_create_fund_company
@@ -191,7 +190,16 @@ class FundDetailEnrichJob(SyncJob):
     # ── 费率更新 ──
 
     def _update_fund_fees(self, fund_code: str, fee_info: Dict[str, Any]) -> None:
-        """根据 xalpha 返回的费率信息创建/关联费率规则"""
+        """按上游费率信息**镜像**更新 fee_ratios（申购 + 赎回）。
+
+        全部委托 `FundService.apply_purchase_fee` / `apply_redeem_schedule`——结构校验
+        （阶梯非法即拒写）、upsert（费率变了要能改回来）、删除上游已不存在的档位，
+        三件事都在那一处实现。
+
+        本文件此前**自己抄了一份**写入逻辑，与 `FundService.sync_fund_fees` 各改各的：
+        两份实现都只有「查不到才插」，于是解析缺陷写进去的错误费率没有任何路径会
+        自愈（2026-10-18 查实：本机 245 只基金的赎回阶梯结构已损坏）。
+        """
         if not fee_info:
             return
 
@@ -199,101 +207,20 @@ class FundDetailEnrichJob(SyncJob):
         fund = self.db.query(Fund).filter_by(fund_code=fund_code).first()
         currency = FundService.infer_fund_currency(full_name=fund.full_name, name=fund.name) if fund else 'CNY'
 
-        # 申购费率
-        purchase_rate = fee_info.get('purchase_rate')
-        if purchase_rate is not None:
-            self._save_single_fee(
-                fund_code, 'purchase', rate=purchase_rate, start_quota=0, end_quota=None, currency=currency
-            )
+        FundService.apply_purchase_fee(self.db, fund_code, fee_info.get('purchase_rate'), currency)
 
-        # 🔥 关键修复：赎回费率阶梯可能是多个对象的列表，必须循环保存
         redemption_schedule = fee_info.get('redemption_schedule', [])
         if isinstance(redemption_schedule, list):
-            for item in redemption_schedule:
-                if isinstance(item, dict):  # 确保只处理字典类型的费率数据
-                    self._save_single_fee(
-                        fund_code,
-                        'redeem',
-                        rate=item.get('rate'),
-                        start_day=item.get('start_day'),
-                        end_day=item.get('end_day'),
-                        currency=currency,
-                    )
-
-    def _save_single_fee(self, fund_code: str, fee_type: str, **kwargs) -> None:
-        """保存单条费率记录，自动复用已有规则
-
-        上游数据为百分数（如 1.5），需转为小数（0.015）存入 Decimal 列。
-        """
-        rate_raw = kwargs.get('rate')
-        fee_amount_raw = kwargs.get('fee_amount')
-
-        # ── 安全的 rate 转换 (小数) ──
-        safe_rate = None
-        if rate_raw is not None:
-            try:
-                # 先转为 Decimal，再除以 100 得到小数
-                safe_rate = Decimal(str(rate_raw)) / Decimal('100')
-            except Exception:
-                safe_rate = Decimal('0')
-
-        # ── 安全的 fee_amount 转换 ──
-        safe_fee_amount = None
-        if fee_amount_raw is not None:
-            try:
-                safe_fee_amount = int(fee_amount_raw)  # Integer 列
-            except (ValueError, TypeError):
-                safe_fee_amount = None
-
-        # 复用或创建规则
-        if fee_type == 'purchase':
-            rule = self._get_or_create_purchase_rule(kwargs.get('start_quota', 0), kwargs.get('end_quota'))
-            purchase_rule_id = rule.id if rule else None
-            redeem_rule_id = None
-        else:
-            rule = self._get_or_create_redeem_rule(kwargs.get('start_day', 0), kwargs.get('end_day'))
-            purchase_rule_id = None
-            redeem_rule_id = rule.id if rule else None
-
-        # 查重
-        existing = (
-            self.db.query(FeeRatio)
-            .filter_by(
-                fund_code=fund_code,
-                fee_type=fee_type,
-                purchase_rule_id=purchase_rule_id,
-                redeem_rule_id=redeem_rule_id,
+            outcome = FundService.apply_redeem_schedule(
+                self.db,
+                fund_code,
+                [item for item in redemption_schedule if isinstance(item, dict)],
+                currency,
             )
-            .first()
-        )
-
-        if not existing:
-            fee_ratio = FeeRatio(
-                fund_code=fund_code,
-                fee_type=fee_type,
-                rate=safe_rate,  # Decimal 小数
-                fee_amount=safe_fee_amount,
-                currency=kwargs.get('currency', 'CNY'),
-                purchase_rule_id=purchase_rule_id,
-                redeem_rule_id=redeem_rule_id,
-            )
-            self.db.add(fee_ratio)
-
-    def _get_or_create_purchase_rule(self, start_quota: float, end_quota: float = None):
-        rule = self.db.query(PurchaseRule).filter_by(start_quota=start_quota, end_quota=end_quota).first()
-        if not rule:
-            rule = PurchaseRule(start_quota=start_quota, end_quota=end_quota)
-            self.db.add(rule)
-            self.db.flush()
-        return rule
-
-    def _get_or_create_redeem_rule(self, start_day: int, end_day: int = None):
-        rule = self.db.query(RedeemRule).filter_by(start_day=start_day, end_day=end_day).first()
-        if not rule:
-            rule = RedeemRule(start_day=start_day, end_day=end_day)
-            self.db.add(rule)
-            self.db.flush()
-        return rule
+            if outcome.get('skipped'):
+                logger.warning(
+                    f'基金 {fund_code} 赎回费率阶梯结构非法，已拒写（既有数据不动）: ' + '; '.join(outcome['skipped'])
+                )
 
     def _get_or_create_company(self, company_name: str) -> int:
         # 唯一写入口（company_resolver）：归一化匹配既有行，杜绝为同一主体建第二行
