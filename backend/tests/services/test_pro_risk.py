@@ -45,9 +45,10 @@ FIXED_DATA_DATE = date(2026, 9, 30)
 @pytest.fixture(autouse=True)
 def _grant_pro_features(db):
     """为测试家庭（family_id=1）授予所有 Pro 功能权益。"""
+    from datetime import datetime
+
     from app.domains.entitlements.models import Entitlement
     from app.services.entitlement_check import PRO_FEATURES
-    from datetime import datetime
 
     for feature in PRO_FEATURES:
         db.merge(

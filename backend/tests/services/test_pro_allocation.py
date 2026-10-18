@@ -44,9 +44,10 @@ def _grant_pro_features(db):
     require_pro_feature 装饰器默认使用 family_id=1，测试需预先开通权益，
     否则端点会返回 403 而非预期的验证错误码。
     """
+    from datetime import datetime
+
     from app.domains.entitlements.models import Entitlement
     from app.services.entitlement_check import PRO_FEATURES
-    from datetime import datetime
 
     for feature in PRO_FEATURES:
         db.merge(
