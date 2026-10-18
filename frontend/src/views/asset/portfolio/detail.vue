@@ -57,14 +57,10 @@
       <CardBlock class="mb-6">
         <SectionHeader title="组合收益 (XIRR)">
           <template #action>
-            <el-radio-group
+            <IncludeCashSwitch
               v-model="includeCashEquivalents"
-              size="small"
               @change="fetchXirr"
-            >
-              <el-radio-button :value="false">剔除现金</el-radio-button>
-              <el-radio-button :value="true">含现金</el-radio-button>
-            </el-radio-group>
+            />
             <el-button size="small" :loading="xirrLoading" @click="fetchXirr">
               <IconifyIconOffline icon="ep:refresh" class="mr-1" /> 刷新
             </el-button>
@@ -209,6 +205,8 @@
                 :confirmed="confirmedPnl(row as PortfolioHolding)"
                 :estimated="estimatedPnl(row as PortfolioHolding)"
                 :hint="estimateHint(row as PortfolioHolding)"
+                :price-date="(row as PortfolioHolding).price_date"
+                :settled-today="(row as PortfolioHolding).settled_today"
               />
             </template>
           </el-table-column>
@@ -400,6 +398,7 @@ import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
+import IncludeCashSwitch from "@/components/IncludeCashSwitch/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
@@ -437,6 +436,13 @@ interface PortfolioHolding {
   quantity?: number | null;
   current_price?: number | null;
   avg_price?: number | null;
+  /** 价格时点（#2140 / #2210）：后端行级 price_date，部分路径缺省为 null */
+  price_date?: string | null;
+  /**
+   * 当日确认口径是否已定型（#2210）：true = 估值副行应隐藏；null / 缺省 = 不隐藏。
+   * **状态 = 后端字段契约**，前端禁止拿 price_date 自己跟今天比对推断。
+   */
+  settled_today?: boolean | null;
 }
 
 /** 关联账户：账户 + 组合关联字段 */

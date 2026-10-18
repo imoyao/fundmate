@@ -16,7 +16,9 @@
          由名称 + 平台/主理人承担（见 @/constants/advisorPlatform）。 -->
     <el-form label-width="0px" class="asset-form">
       <el-form-item>
+        <!-- #2214：不加 clearable——清除图标会把输入一并抹掉，与「关键字应保留」相悖。 -->
         <el-select
+          ref="searchSelectRef"
           v-model="selectedAsset"
           value-key="symbol"
           remote
@@ -28,6 +30,8 @@
           class="w-full asset-search"
           popper-class="add-asset-option-popper"
           @change="onAssetSelected"
+          @blur="onSearchBlur"
+          @visible-change="onSearchDropdownToggle"
         >
           <el-option
             v-for="item in searchResults"
@@ -323,6 +327,9 @@ const visible = computed({
 const searchLoading = ref(false);
 const searchResults = ref<SearchAssetOption[]>([]);
 const selectedAsset = ref<SearchAssetOption | null>(null);
+const searchSelectRef = ref<ComponentPublicInstance | null>(null);
+/** 最近一次真正发起远程搜索的关键字（#2214 回填用，见 restoreSearchKeyword） */
+const searchKeyword = ref("");
 const addReason = ref("");
 const pinToTop = ref(false);
 const submitting = ref(false);
@@ -490,6 +497,8 @@ const checkAssetExists = async (symbol: string, seq: number) => {
 const { search: runUnifiedSearch, results: unifiedResults } = useAssetSearch();
 
 const remoteSearch = async (query: string) => {
+  // 关键字留档：下拉关闭后 EP 会清空输入框显示值，回填靠这份副本（#2214）
+  searchKeyword.value = query || "";
   if (!query) {
     searchResults.value = [];
     return;
@@ -512,6 +521,34 @@ const remoteSearch = async (query: string) => {
     searchLoading.value = false;
   }
 };
+
+// ── #2214：下拉关闭 / 失焦后保留搜索关键字 ──
+// 根因：el-select 在下拉收起时（watch expanded → false）会把内部显示值
+// states.inputValue 清空；单选且未选中任何标的时，输入框就退回 placeholder，
+// 用户刚敲的关键字凭空消失——「搜了没结果、想回来改两个字」这条路径直接断掉。
+// （reserve-keyword 只作用于多选分支，挡不住这次清空。）
+// 对策：关闭后把关键字副本回填进 select 的显示值。已选中标的时显示由
+// selectedLabel 接管，不回填，否则会盖住资产名。
+function restoreSearchKeyword() {
+  const el = searchSelectRef.value as unknown as {
+    states?: { inputValue?: string };
+  } | null;
+  if (!el?.states) return;
+  // 选中态 / 无关键字：保持 EP 默认显示
+  if (selectedAsset.value || !searchKeyword.value) return;
+  el.states.inputValue = searchKeyword.value;
+}
+
+/** 下拉收起（点击外部、ESC、无结果失焦）后回填；nextTick 保证排在 EP 清空之后 */
+function onSearchDropdownToggle(open: boolean) {
+  if (open) return;
+  nextTick(restoreSearchKeyword);
+}
+
+/** 失焦路径兜底：EP 的 click-outside 是在 nextTick 里触发 blur 的 */
+function onSearchBlur() {
+  nextTick(restoreSearchKeyword);
+}
 
 const onAssetSelected = async (option: SearchAssetOption | null) => {
   if (!option) return;
@@ -681,6 +718,8 @@ watch(
 const resetForm = () => {
   selectedAsset.value = null;
   searchResults.value = [];
+  // 关键字副本一并清：否则下次打开弹窗，失焦回填会把上一轮的关键字塞回空输入框
+  searchKeyword.value = "";
   markClean();
   addReason.value = "";
   pinToTop.value = false;

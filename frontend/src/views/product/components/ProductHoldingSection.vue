@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { RouterLink } from "vue-router";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
+import ProductDisplay from "@/components/ProductDisplay/index.vue";
+import { productRoute } from "@/utils/productIdentity";
 import type { FundHoldingsDetailResult } from "@/api/products";
 
 /**
@@ -78,13 +81,35 @@ const visibleTotalRatio = computed(() => {
     .filter((v): v is number => v != null);
   return vals.length ? vals.reduce((a, b) => a + b, 0) : null;
 });
+
+/**
+ * 持仓行 → 个股详情页路径（#2314）。
+ *
+ * 季报库存的是**裸码**（A 股 6 位 / 港股 5 位，见后端 FundHolding.stock_code
+ * 注释「不做补零」），站内 symbol 则带市场前缀（SH600519）。品类已由
+ * 「基金持仓」确定为 stock，这里只补**市场前缀**、不猜品类——按首位补：
+ * 6→沪、0/3→深；北交所（4/8 开头）与港股（5 位）站内未收录，返回空串
+ * 不建链（纯展示），避免 404 死链。与后端 to_contract_market 同思路。
+ */
+function stockHref(code: string): string {
+  const c = (code || "").trim();
+  if (!/^\d{6}$/.test(c)) return "";
+  const prefix = c.startsWith("6")
+    ? "SH"
+    : c.startsWith("0") || c.startsWith("3")
+      ? "SZ"
+      : "";
+  return prefix
+    ? productRoute({ assetType: "stock", symbol: `${prefix}${c}` })
+    : "";
+}
 </script>
 
 <template>
   <CardBlock class="holding-section">
     <SectionHeader title="持仓明细" />
 
-    <p v-if="!allRows.length" class="holding-section__hint">暂无持仓明细数据</p>
+    <p v-if="!allRows.length" class="section-footnote">暂无持仓明细数据</p>
 
     <template v-else>
       <!-- 口径标注：与表格同屏，不藏在脚注里（用户第一眼就要看到「这是前十大」） -->
@@ -107,8 +132,10 @@ const visibleTotalRatio = computed(() => {
           <thead>
             <tr>
               <th scope="col" class="holding-section__num">序号</th>
-              <th scope="col">代码</th>
-              <th scope="col">名称</th>
+              <!-- #2314：原「代码 / 名称」两列合并为产品列，复用全站 ProductDisplay
+                   （自选 / 分红 / 清单同款）：长名称 ellipsis + title 全名，
+                   代码以「# 裸码」弱化小字呈现，省出一个独立列的横向空间 -->
+              <th scope="col" class="holding-section__product">产品</th>
               <th scope="col" class="holding-section__num">占净值比</th>
               <th scope="col" class="holding-section__num">持股数(万股)</th>
               <th scope="col" class="holding-section__num">市值(万元)</th>
@@ -122,10 +149,25 @@ const visibleTotalRatio = computed(() => {
               <td class="holding-section__num">
                 {{ r.rank ?? i + 1 }}
               </td>
-              <td class="holding-section__code">
-                {{ r.stock_code }}
+              <td class="holding-section__product">
+                <RouterLink
+                  v-if="stockHref(r.stock_code)"
+                  :to="stockHref(r.stock_code)"
+                  class="holding-section__product-link"
+                >
+                  <ProductDisplay
+                    compact
+                    :name="r.stock_name || ''"
+                    :symbol="r.stock_code"
+                  />
+                </RouterLink>
+                <ProductDisplay
+                  v-else
+                  compact
+                  :name="r.stock_name || ''"
+                  :symbol="r.stock_code"
+                />
               </td>
-              <td>{{ r.stock_name ?? "—" }}</td>
               <td class="holding-section__num">
                 {{ r.ratio != null ? r.ratio.toFixed(2) + "%" : "—" }}
               </td>
@@ -141,7 +183,7 @@ const visibleTotalRatio = computed(() => {
           </tbody>
           <tfoot v-if="visibleTotalRatio != null">
             <tr>
-              <th scope="row" colspan="3">所示合计</th>
+              <th scope="row" colspan="2">所示合计</th>
               <td class="holding-section__num">
                 {{ visibleTotalRatio.toFixed(2) }}%
               </td>
@@ -170,7 +212,7 @@ const visibleTotalRatio = computed(() => {
       <p v-if="isTop10" class="holding-section__caveat">
         ⚠️ 以上为季报披露的前十大重仓，不代表该基金的全部持仓。
       </p>
-      <p class="holding-section__footnote">
+      <p class="section-footnote">
         数据来源：{{ source }} · 持仓为报告期快照（非日期序列）
         <template v-if="holdings?.report_date">
           · 截至 {{ holdings.report_date }}</template
@@ -187,13 +229,13 @@ const visibleTotalRatio = computed(() => {
   gap: var(--space-3);
 }
 
-.holding-section__hint,
-.holding-section__footnote {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
+/* 脚注与空态提示已迁至共享类 .section-footnote（#2320）。
+   本区块容器带 `gap: var(--space-3)`，子元素间距由 gap 提供，
+   故只用基础类、不加 --spaced（叠加即双倍间距）。
+   迁移前此处用的是图形级 --text-tertiary 作前景文字（不足 4.5:1），已随共享类修正为 -ink。 */
 
+/* 口径说明（披露口径：前十大 / 全量）比脚注高一级，用次级文字色区分。
+   全站仅此一处使用，暂不提升为共享变体——它与脚注的语义不同（口径 vs 来源/补充）。 */
 .holding-section__basis {
   margin: 0;
   font-size: 12px;
@@ -254,9 +296,20 @@ const visibleTotalRatio = computed(() => {
   text-align: right;
 }
 
-.holding-section__code {
-  font-variant-numeric: tabular-nums;
-  color: var(--text-secondary);
+/* #2314：产品列（ProductDisplay 两行紧凑）——替代原独立「代码」列 */
+.holding-section__product {
+  min-width: 150px;
+}
+
+/* 可跳转行的链接壳：去下划线、继承文字色，hover 提亮名称到品牌文字级 */
+.holding-section__product-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+
+  &:hover :deep(.product-name) {
+    color: var(--brand-ink);
+  }
 }
 
 .holding-section__more {

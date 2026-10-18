@@ -14,7 +14,7 @@ title: 开发指南
 
     * **环境搭建**：需要 Python 3.12+、PDM、Node.js、pnpm，以及怎么一步到位启动开发环境。
 
-    * **项目结构**：核心目录（`backend/app/api`, `backend/app/models`）的职责说明。
+    * **项目结构**：核心目录（`backend/app/domains/<域>/{views,schemas,models}.py`、`backend/app/services/`、`backend/app/core/`）的职责说明。
 
     * **开发流程**：我们的 API-First 工作流 (Spec -> Schema -> Model -> API -> Test)。
 
@@ -82,54 +82,54 @@ pnpm serve # 也可以使用 pnpm dev
 ### 后端
 
 * 安装开发环境
-目前使用[pip-compile-multi](https://pip-compile-multi.readthedocs.io/en/latest/migration.html) 管理项目依赖的更新。
+
+依赖统一由 [PDM](https://pdm-project.org/) 管理，声明在 `backend/pyproject.toml`、锁文件为 `backend/pdm.lock`。**仓库没有 `requirements/*.txt`，也不再使用 pip-compile-multi**（历史方案，已随依赖迁移到 PDM 而废除）。
 
 ```bash
 cd backend
-python3 -m venv fmp
-source fmp/bin/activate
-pip install -Ur requirements/dev.txt
+pdm install -G dev      # 含测试 / invoke 等开发依赖
 ```
 
 :::tip
-如果使用默认源不够快可以考虑换源：
+如果默认 PyPI 源不够快可以换源（PDM 机器级配置，不改仓库文件）：
 
 ```shell
-pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/
-
-pip config set install.trusted-host mirrors.aliyun.com
-
+pdm config pypi.url https://mirrors.aliyun.com/pypi/simple/
+# 一键切回官方源（镜像滞后时用）
+pdm config pypi.url https://pypi.org/simple/
 ```
 
 :::
 
-* 修改环境变量`.env`
-
-```plain
-flask run --host=0.0.0.0
-```
-
-* 安装生产环境依赖
-
-```plain
-# fundmate/backend
-pip install -Ur requirements/base.txt
-```
-
-* 更新依赖
+* 修改环境变量 `.env`（模板见 `backend/.env.example`），启动 API：
 
 ```bash
-pip-compile-multi
+pdm run flask --app app.main:app run --debug --host 0.0.0.0 --port 8000
 ```
 
-如果报错`UnicodeDecodeError: 'gbk' codec can't decode byte 0xaf in position 87: illegal multibyte sequence`，可能是编码问题，需要配置`set PYTHONUTF8=1`然后重新执行。
+* 安装生产依赖（不含 dev 组）：
+
+```bash
+# fundmate/backend
+pdm install --prod
+```
+
+* 更新依赖（重解并更新 `pdm.lock`）：
+
+```bash
+pdm update
+```
+
+如果执行 Python 工具时遇到 `UnicodeDecodeError: 'gbk' codec can't decode byte ...`，是 Windows 控制台编码问题，先设置 `PYTHONUTF8=1` 再重新执行。
 
 ### 启动数据库
 
 * 初始化数据库
 
+建表由应用启动时的 `init_db()` 完成（`backend/app/main.py` 的 `create_app()` 内调用），实现为 `Base.metadata.create_all()` + 增量列/索引迁移（`backend/app/core/database.py::init_db`），**没有 flask-migrate / Alembic 迁移链**，因此不存在 `flask db migrate / upgrade` 一类命令：
+
 ```bash
-flask init-db # 更多命令执行flask --help 查看
+pdm run flask --app app.main:app run   # 启动即自动建表 / 补列
 ```
 
 ## 数据来源
@@ -141,6 +141,8 @@ flask init-db # 更多命令执行flask --help 查看
 * 更新基金相关数据
 
 ```bash
-# 默认只更新基金信息
-flask update-db
+# 全市场基金名录（默认只更新基金信息）
+pdm run sync --job fund_list
+# 或经 invoke 入口
+pdm run invoke grab.job fund_list
 ```

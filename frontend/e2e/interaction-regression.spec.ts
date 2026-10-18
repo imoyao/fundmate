@@ -85,20 +85,22 @@ test.describe("交互修复的运行时行为", () => {
     // 会打开「默认第一条 / 鼠标最后悬停的那条」——一个连着的 bug。
     await page.goto("/#/watchlist");
     await page.getByRole("button", { name: "搜索" }).first().click();
-    const item = page.locator(".result-item").first();
-    await expect(item).toBeVisible({ timeout: 30_000 });
-    const before = await page
-      .locator(".result-item.is-active, .result-item[aria-selected='true']")
-      .count();
-    await item.focus();
-    // 聚焦后 active 类应落到该条目上（而不是留在别处）
-    const activePaths = await page.evaluate(() =>
-      Array.from(document.querySelectorAll(".result-item"))
-        .map((el, i) => (el.className.includes("is-active") ? i : -1))
-        .filter(i => i >= 0)
-    );
-    expect(activePaths.length).toBeGreaterThanOrEqual(1);
-    expect(before).toBeGreaterThanOrEqual(0);
+    // .result-item 只在 keyword 非空且有命中时渲染（SearchModal 的 showSearchResult），
+    // 空关键词只显示历史或 el-empty——必须先输入关键词。
+    const input = page.getByLabel("搜索菜单");
+    await input.fill("总览");
+    const items = page.locator(".result-item");
+    await expect(items.first()).toBeVisible({ timeout: 30_000 });
+    // active 由内联 style 表达（SearchResult 的 itemStyle：fontSize 16px + 主题色背景），
+    // 没有 is-active class——判据必须走真实机制。
+    // search() 默认把 active 落在第一条；聚焦第二条，active 必须跟着焦点走。
+    const count = await items.count();
+    const target = count > 1 ? items.nth(1) : items.first();
+    await target.focus();
+    await expect(target).toHaveCSS("font-size", "16px");
+    if (count > 1) {
+      await expect(items.first()).toHaveCSS("font-size", "14px");
+    }
   });
   test("#1842 守门覆盖到的三类模式在页面上确实存在（守门不是空转）", async ({
     page

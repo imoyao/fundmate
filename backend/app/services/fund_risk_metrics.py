@@ -44,9 +44,8 @@ TRADING_DAYS_PER_YEAR = 252
 # 无风险利率（年化）。取「近年一年期国债收益率中枢」的常量近似。
 # 讲究：① 它只决定夏普/UPI 的「及格线」，同窗口内所有基金同减一个数 ⇒ **不改变排序**；
 #       ② 动态取 10 年国债会引入新数据源（撞 #1403 同族限流），而排序收益为零；
-#       ③ 必须随值下发（RISK_FREE_RATE_BASIS），否则用户换一个 rf 就对不上账。
+#       ③ 必须随值下发（caveats 里写明数值与近似依据），否则用户换一个 rf 就对不上账。
 RISK_FREE_RATE_ANNUAL = 0.015
-RISK_FREE_RATE_BASIS = '常量近似（近年一年期国债收益率中枢），非动态曲线；同窗口内不改变排序'
 
 # 窗口（交易日）。近 3 年 ≈ 3×252，近 5 年 ≈ 5×252。
 WINDOW_3Y = 3 * TRADING_DAYS_PER_YEAR
@@ -101,6 +100,10 @@ class RiskMetricsResult:
     win_rate: Optional[float]  # 胜率（%，给定周期）
     win_rate_period: str  # day / week / month
     overlap: bool  # 胜率是否基于重叠滚动窗口（是 → 体验指标，非概率）
+    # ── 区间收益（#2284）：与拟涨幅共用自然日端点取数规则，见 PERIOD_RETURN_SPANS ──
+    ret_1m: Optional[float] = None  # 近1月区间收益率（%）
+    ret_3m: Optional[float] = None  # 近3月区间收益率（%）
+    ret_1y: Optional[float] = None  # 近1年区间收益率（%）
     benchmark: Optional[Dict[str, Any]] = None  # 基准相对指标（未传基准时为 None）
     basis: str = 'acc_nav'
     caveats: List[str] = field(default_factory=list)
@@ -452,6 +455,28 @@ def _shape_gain_ready(
     return _rolling_window_navs(series, spans)
 
 
+#: #2284 区间收益窗口（自然日）→ 结果字段名。30/90/365 与 `SHAPE_GAIN_SPANS` 的
+#: 近1月/近3月/近1年**同界**——同一基金的「近1月」在拟涨幅与榜单里必须是同一段日子；
+#: 拟涨幅另有 180（近6月），不在本次范围。改天数即改口径，必须 bump job 的 CALIBER_VERSION。
+PERIOD_RETURN_SPANS: Tuple[Tuple[str, int], ...] = (('ret_1m', 30), ('ret_3m', 90), ('ret_1y', 365))
+
+
+def _period_return(series: Sequence[Tuple[date, float]], days: int) -> Optional[float]:
+    """近 ``days`` 自然日的区间收益（%）：期末 ÷ 期初 − 1。
+
+    取数规则**复用 `_rolling_window_navs`**（单窗口调用 ⇒ 三列各自独立降级）：
+    分界日取「≥ 该日的首个净值点」，不插值；序列起点晚于分界日 ⇒ None
+    （历史不足该窗口——不缩窗口、不拿成立以来凑数）。``series`` 须已 `_clean`。
+    """
+    if len(series) < 2:
+        return None
+    ready = _rolling_window_navs(series, (days,))
+    if ready is None:
+        return None
+    end_nav, (start_nav,) = ready
+    return round((end_nav / start_nav - 1) * 100, 4)
+
+
 def shape_gain(
     points: Sequence[Tuple[date, Optional[float]]],
     *,
@@ -688,8 +713,12 @@ def compute_risk_metrics(
         win_rate_period=win_rate_period,
         overlap=True,  # 滚动窗口必然重叠，见 win_rate docstring
     )
-    result.caveats.append('acc_nav 为「分红不再投」近似复权口径，非严格分红再投；大额赎回/份额折算会污染序列')
-    result.caveats.append(f'rf={rf_annual:.4f}（{RISK_FREE_RATE_BASIS}）')
+    result.caveats.append(
+        '收益基于累计净值计算（分红不计入再投资）；大额赎回或份额折算可能造成净值跳变，影响指标真实性'
+    )
+    result.caveats.append(
+        f'无风险利率按 {rf_annual * 100:.2f}% 计算（一年期国债收益率的近似常量，用于夏普/索提诺等指标）'
+    )
 
     jumps = detect_jumps(series)
     if jumps:
@@ -697,6 +726,11 @@ def compute_risk_metrics(
         result.caveats.append(
             f'检出单日跳变 {len(jumps)} 处（首个 {jumps[0].isoformat()}），疑似份额折算/大额赎回，建议剔除出横向排序'
         )
+
+    # 区间收益（#2284）：只依赖首尾观测点，不受「日收益序列太短」限制——
+    # 故放在样本不足 early-return 之前；空/单点序列由 _period_return 自守为 None。
+    for _field, _days in PERIOD_RETURN_SPANS:
+        setattr(result, _field, _period_return(series, _days))
 
     if len(rets) < _MIN_RETURNS:
         return result

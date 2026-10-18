@@ -29,6 +29,7 @@ import {
   maxAmountOf
 } from "./trendMarkerMetrics";
 import {
+  CHART_FALLBACKS,
   CHART_TOKENS,
   getCssVar,
   useThemeTick
@@ -38,7 +39,8 @@ import {
  * 详情页「走势」区块（#1967 · 设计 §5 B 区块）。
  *
  * 口径与红线：
- * - 区间 `1M/3M/6M/1Y`，**默认 3M**（设计 §12 ⑤）；历史不够长时由 `available_days`
+ * - 区间 `1M/3M/6M/1Y/3Y/5Y`，**默认 3M**（设计 §12 ⑤；3Y/5Y 为 2026-10-17 长区间
+ *   补充档——短期收益不代表长期收益）；历史不够长时由 `available_days`
  *   判断并提示收敛，不画一条只有几天的曲线假装是 3M；
  * - **品类差异化**（#1969）：场内有 OHLCV → K 线 + 成交量 + MA5/10/20（口径未复权，
  *   与持仓成本可比）；场外基金只有净值 → 净值线（#2171 起为**累计净值**，
@@ -111,7 +113,11 @@ const RANGE_BASE_OPTIONS: { label: string; value: RangeValue }[] = [
   { label: "1月", value: "1M" },
   { label: "3月", value: "3M" },
   { label: "6月", value: "6M" },
-  { label: "1年", value: "1Y" }
+  { label: "1年", value: "1Y" },
+  // 长区间补充档（2026-10-17）：短期收益不代表长期收益，1 年看不出跨周期能力；
+  // 历史不足时由 available_days 降级（前端收敛可用档），不编造曲线。
+  { label: "3年", value: "3Y" },
+  { label: "5年", value: "5Y" }
 ];
 
 /**
@@ -490,14 +496,16 @@ const chartOption = computed(() => {
   void themeTick.value; // 主题切换时重算，让曲线重读 CSS 变量
   const dates = trend.value?.dates ?? [];
   const values = trend.value?.values ?? [];
-  const rise = getCssVar(CHART_TOKENS.rise, "#e34f38");
-  const fall = getCssVar(CHART_TOKENS.fall, "#287d51");
+  const rise = getCssVar(CHART_TOKENS.rise, CHART_FALLBACKS.rise);
+  const fall = getCssVar(CHART_TOKENS.fall, CHART_FALLBACKS.fall);
 
   // 网格线取**真实色值**并用实线：
   // · ECharts 不解析 `var(--x)`，直接给变量字符串等于给了一个无效色（旧版就是）；
   // · 虚线在密集 K 线与影线之间会糊成一片，是「看着杂乱」的一半原因（#1969）。
   const splitLine = {
-    lineStyle: { color: getCssVar(CHART_TOKENS.borderLight, "#e8e8e8") }
+    lineStyle: {
+      color: getCssVar(CHART_TOKENS.borderLight, CHART_FALLBACKS.borderLight)
+    }
   };
 
   if (useCandle.value) {
@@ -577,9 +585,9 @@ const chartOption = computed(() => {
             borderColor0: fall
           }
         },
-        maLine(5, CHART_TOKENS.warning, "#e6a23c"),
-        maLine(10, CHART_TOKENS.info, "#409eff"),
-        maLine(20, CHART_TOKENS.textTertiary, "#9aa0a6"),
+        maLine(5, CHART_TOKENS.warning, CHART_FALLBACKS.warning),
+        maLine(10, CHART_TOKENS.info, CHART_FALLBACKS.info),
+        maLine(20, CHART_TOKENS.textTertiary, CHART_FALLBACKS.textTertiary),
         ...volumeSeries
       ]
     };
@@ -592,11 +600,20 @@ const chartOption = computed(() => {
   // 叠加层取色刻意避开 rise（红）/ fall（绿）：买卖点不是涨跌语义，
   // 涂红涂绿会让用户把「我买过」误读成「涨了」。蓝=买入、橙=卖出、
   // 中性灰虚线=成本线——与净值曲线（动态涨跌色）三层不打架（#2171 定稿）。
-  const markerBuyColor = getCssVar(CHART_TOKENS.info, "#409eff");
-  const markerSellColor = getCssVar(CHART_TOKENS.warning, "#e6a23c");
-  const costLineColor = getCssVar(CHART_TOKENS.textTertiary, "#9aa0a6");
+  const markerBuyColor = getCssVar(CHART_TOKENS.info, CHART_FALLBACKS.info);
+  const markerSellColor = getCssVar(
+    CHART_TOKENS.warning,
+    CHART_FALLBACKS.warning
+  );
+  const costLineColor = getCssVar(
+    CHART_TOKENS.textTertiary,
+    CHART_FALLBACKS.textTertiary
+  );
   // 清仓竖线用**点线**（成本线是虚线）：它标的是「一轮结束」这个事件，不是价格水平
-  const clearingColor = getCssVar(CHART_TOKENS.textTertiary, "#9aa0a6");
+  const clearingColor = getCssVar(
+    CHART_TOKENS.textTertiary,
+    CHART_FALLBACKS.textTertiary
+  );
 
   /** 轴触发 tooltip：净值行 + 当日成本线 + 当日买卖汇总（#2171）。
       同日多笔在 markerData 已聚合，这里直接显示「N 笔合计」；

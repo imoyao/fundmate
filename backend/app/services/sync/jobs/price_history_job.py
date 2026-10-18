@@ -21,6 +21,9 @@ SZ000568 停在 7/20、SZ000001 停在 7/03、SZ000008 停在 5/29。本机调�
   只拿到 T-1；缺口回补会在下一次运行时把缺的那天补上，这正是本口径的价值。
 - 依赖 securities 表存在对应 symbol（`_get_security_map`），查不到即静默跳过——
   名录缺失是历史坑，见 StockListSyncJob.fetch_security_catalog。
+- 增量窗口非空但取回 0 条的 symbol 记入 `stats['empty_symbols']`（#2277）：
+  停牌 / 上游无数据与「今天没新行情」在日志里必须可辨，否则收益日历的
+  partial 标注无法归因（真实库 SH601198 09-15 起停牌即此形态）。
 """
 
 from datetime import date, datetime, timedelta
@@ -91,6 +94,17 @@ class PriceHistorySyncJob(SyncJob):
 
             if not isinstance(price_list, list):
                 continue
+
+            # #2277：增量窗口非空却一条都没取回 ⇒ 记入 stats，让「停牌 / 上游
+            # 无数据」在 sync_logs 里可见。没有这条记录时，停牌股与「今天没有
+            # 新行情」在日志里长得一模一样（`success` 只数写入行数），收益日历
+            # 上标 partial 也无从判断是同步没跑、还是标的自己不开盘——真实库
+            # 2026-09 的 partial 曾这样被误判成「同步漏跑」，实为 SH601198
+            # 09-15 起停牌（东财 / 新浪双源均无 09-15 后行情）。
+            # 只记**增量窗口非空**的：`start_date > end_date`（库内已最新，
+            # 多为当日 K 线未发布）不是缺数据，别混进来。
+            if not price_list and start_date <= end_date:
+                self.stats.setdefault('empty_symbols', []).append(symbol)
 
             # 关联 security_id
             for item in price_list:

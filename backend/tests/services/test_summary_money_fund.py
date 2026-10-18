@@ -298,6 +298,122 @@ class TestCashEquivalentClassification:
         assert CATEGORY_META['investment'][0] not in cat
 
 
+class TestFamilyCashLikeBreakdown:
+    """家庭级账外类现金明细（持仓页「类现金」分组，2026-10-17）。
+
+    这张表是**只读展示**：不得把它的金额再加进总资产（孤儿净额已并入）。
+    因此关键断言有两条：① 与 `orphan_money_fund_totals_by_ledger` 的合计严格相等；
+    ② 有持仓的货基（position_id 非空）不出现，避免与持仓表重复。
+    """
+
+    def test_grouped_by_ledger_and_product(self, db, make_transaction):
+        from app.services.summary_service import orphan_cash_like_breakdown_all
+
+        ledger = _make_bank_ledger(db)
+        _make_orphan_txn(make_transaction, ledger.id, 'buy', 100)
+        _make_orphan_txn(make_transaction, ledger.id, 'sell', 30)
+        items, net_cents, income_cents = orphan_cash_like_breakdown_all(db, 1)
+
+        assert len(items) == 1
+        item = items[0]
+        assert item['ledger_id'] == ledger.id
+        assert item['ledger_name'] == '招商银行'
+        assert item['net_amount'] == 70.0
+        assert item['total_amount'] == 70.0
+        assert item['txn_count'] == 2
+        assert net_cents == 7000
+        assert income_cents == 0
+
+    def test_income_bucket_kept_separate(self, db, make_transaction):
+        """收益行只进收益桶，合计 = 本金 + 收益（三态切分与汇总函数一致）。"""
+        from app.services.summary_service import orphan_cash_like_breakdown_all
+
+        ledger = _make_bank_ledger(db)
+        _make_orphan_txn(make_transaction, ledger.id, 'buy', 100)
+        make_transaction(
+            None,
+            ledger.id,
+            txn_type='buy',
+            amount=5,
+            asset_type='money_fund',
+            entry_status='orphan',
+            is_income=True,
+        )
+        items, net_cents, income_cents = orphan_cash_like_breakdown_all(db, 1)
+
+        assert items[0]['net_amount'] == 100.0
+        assert items[0]['income_amount'] == 5.0
+        assert items[0]['total_amount'] == 105.0
+        assert (net_cents, income_cents) == (10000, 500)
+
+    def test_zero_net_product_dropped(self, db, make_transaction):
+        """买卖冲平的产品的组应被丢弃（已清仓不占一行）。"""
+        from app.services.summary_service import orphan_cash_like_breakdown_all
+
+        ledger = _make_bank_ledger(db)
+        _make_orphan_txn(make_transaction, ledger.id, 'buy', 100)
+        _make_orphan_txn(make_transaction, ledger.id, 'sell', 100)
+        items, _, _ = orphan_cash_like_breakdown_all(db, 1)
+        assert items == []
+
+    def test_position_backed_money_fund_excluded(self, db, make_transaction, make_position):
+        """有持仓的货基走 positions 口径，不能在「类现金」分组里再出现一次。"""
+        from app.services.summary_service import orphan_cash_like_breakdown_all
+
+        ledger = _make_bank_ledger(db)
+        make_position(
+            symbol='MF001',
+            name='货基',
+            ledger_id=ledger.id,
+            account_name='招商银行',
+            quantity=1000,
+            avg_price=1.0,
+            current_price=1.0,
+            asset_type='money_fund',
+        )
+        _make_orphan_txn(make_transaction, ledger.id, 'buy', 100)
+        items, _, _ = orphan_cash_like_breakdown_all(db, 1)
+        assert len(items) == 1
+        assert items[0]['symbol'] != 'MF001'
+        assert items[0]['total_amount'] == 100.0
+
+    def test_api_envelope(self, client, db, make_transaction):
+        """接口契约：`{data:{items,total_*},message}`，金额为元。"""
+        ledger = _make_bank_ledger(db, '天天基金')
+        _make_orphan_txn(make_transaction, ledger.id, 'buy', 88)
+        db.commit()  # 接口走独立 session，未提交的行读不到
+        resp = client.get('/api/summary/cash-like/')
+
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body['message'] == 'ok'
+        data = body['data']
+        assert data['total_amount'] == 88.0
+        assert data['total_net_amount'] == 88.0
+        assert data['items'][0]['ledger_name'] == '天天基金'
+        assert data['items'][0]['asset_type_label'] == '货币基金'
+
+    def test_totals_match_summary_aggregation(self, db, make_transaction):
+        """与 `orphan_money_fund_totals_by_ledger` 同源同值——两条口径漂移必红。"""
+        from app.services.summary_service import (
+            orphan_cash_like_breakdown_all,
+            orphan_money_fund_totals_by_ledger,
+        )
+
+        l1 = _make_bank_ledger(db, '招商银行')
+        l2 = _make_bank_ledger(db, '天天基金')
+        _make_orphan_txn(make_transaction, l1.id, 'buy', 100)
+        _make_orphan_txn(make_transaction, l2.id, 'buy', 50)
+        _make_orphan_txn(make_transaction, l2.id, 'sell', 20)
+
+        items, net_cents, income_cents = orphan_cash_like_breakdown_all(db, 1)
+        net_map, income_map = orphan_money_fund_totals_by_ledger(db, 1)
+
+        assert len(items) == 2
+        assert net_cents == sum(net_map.values())
+        assert income_cents == sum(income_map.values())
+
+
 class TestOrphanFlowReattach:
     """#863 口径 A 写入层互斥：建货基持仓时把同 (ledger, symbol) 孤儿流水挂回持仓"""
 

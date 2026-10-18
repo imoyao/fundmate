@@ -95,7 +95,7 @@ const emit = defineEmits<{
 
   &.is-active {
     font-weight: 600;
-    color: var(--brand-700);
+    color: var(--brand-ink); /* #2314：前景文字用品牌文字级 */
     border-left-color: var(--brand-700);
   }
 }

@@ -11,7 +11,9 @@
    position_id 覆盖率仅 45%（#2009 实测），流水不填也必须收敛到；
 6. ledger_id 可选过滤：不传=全部账户合并，传=单账户；
 7. 未识别类型计数跳过，不静默丢弃；
-8. trade_date 锚定 T 日，confirm_date 随点返回；
+8. trade_date 锚定 T 日、confirm_date 随点返回；**trade_date 为空时兜底 confirm_date**
+   （COALESCE 口径，与列表接口一致——否则只有确认日的历史流水整批进 no_date 跳过，
+   成本线/收益贡献全空）；
 9. 累计收益曲线 = **累计已实现盈亏**（分红 + 落袋 − 释放成本），不做市值估计——
    浮动盈亏在「我的持仓」卡（unit_nav 口径），同页不造第二个收益数字（#2171 决策）。
 """
@@ -304,6 +306,65 @@ def test_trade_date_anchors_point(db, make_position, make_transaction):
     point = result['points'][0]
     assert point['date'] == '2026-01-05', '锚 T 日'
     assert point['confirm_date'] == '2026-01-06', '确认日供悬浮展示'
+
+
+# ── trade_date 为空时兜底 confirm_date（COALESCE 口径）────────────────────
+def test_confirm_date_fallback_replays_txn(db, make_position, make_transaction):
+    """只有确认日（trade_date=NULL）的流水必须参与重放，不得进 no_date。
+
+    历史导入流水大量只填确认日（列表接口实测 1,921 笔里 1,211 笔 trade_date 为空），
+    重放只认 trade_date 会把它们全部计入 ``no_date`` 跳过——详情页成本线 / 收益贡献 /
+    买卖点整条曲线静默变空，而列表页日期列（COALESCE 口径）显示正常，两处口径分裂。
+    """
+    pos = _seed_position(make_position)
+    txn = _txn(
+        make_transaction,
+        pos,
+        txn_type='buy',
+        quantity=100,
+        price=1.0,
+        amount=100,
+        trade_date=None,
+        allow_null_trade_date=True,
+        confirm_date=date(2026, 2, 5),
+    )
+
+    result = build_trade_timeline(db, symbol='004369', family_id=1)
+
+    assert 'no_date' not in result['summary']['ignored_types'], '确认日兜底后不再有无法定位的流水'
+    assert result['summary']['buy_count'] == 1
+    assert result['points'][0]['date'] == '2026-02-05', '锚确认日'
+    assert result['cost_line'][0]['date'] == '2026-02-05'
+    # P2 两列的数据源也要有这笔（详情页「当时成本 / 收益贡献」的连接键）
+    assert {c['txn_id'] for c in result['contributions']} == {txn.id}
+    assert result['summary']['first_trade_date'] == '2026-02-05'
+
+
+def test_replay_orders_by_effective_day(db, make_position, make_transaction):
+    """排序按 COALESCE(trade_date, confirm_date)，与屏上日期一致。
+
+    只按 trade_date 排（NULL 在 SQLite ASC 里最小、整批沉最前）会把「只有确认日、
+    但日期更晚」的流水排到更早的流水前面——重放顺序与列表页显示顺序不一致，
+    成本线的时间轴就错位。
+    """
+    pos = _seed_position(make_position)
+    # A：只有确认日 2026-03-05；B：交易日 2026-01-05。有效日序 = B → A
+    _txn(
+        make_transaction,
+        pos,
+        txn_type='buy',
+        quantity=100,
+        price=1.0,
+        amount=100,
+        trade_date=None,
+        allow_null_trade_date=True,
+        confirm_date=date(2026, 3, 5),
+    )
+    _txn(make_transaction, pos, txn_type='buy', quantity=100, price=1.2, amount=120, trade_date=_day(2026, 1, 5))
+
+    result = build_trade_timeline(db, symbol='004369', family_id=1)
+
+    assert [p['date'] for p in result['points']] == ['2026-01-05', '2026-03-05']
 
 
 # ── 端点 ───────────────────────────────────────────────────────────

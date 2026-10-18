@@ -3,6 +3,8 @@ import { computed, ref, watch } from "vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import { getIndexProfile, type IndexProfileResult } from "@/api/products";
+import ProductIndexReturns from "./ProductIndexReturns.vue";
+import ProductIndexWeights from "./ProductIndexWeights.vue";
 
 /**
  * 详情页「指数资料与估值」区块（#2028 · 设计 §6 品类矩阵二期）。
@@ -27,6 +29,14 @@ import { getIndexProfile, type IndexProfileResult } from "@/api/products";
  *
  * 缺官方估值文件的指数（中证只给自有/合作指数发 indicator 文件）：PE / 股息率
  * 逐项降级「—」，名录资料照常展示；整卡不因估值缺失而消失。
+ *
+ * `description`（指数简介）来自中证官网 index-basic-info（后端按需抓+进程内缓存）：
+ * `null` = 官网未收录（399 系等）或抓取失败——散文不是指标，**整段隐藏**而不显示「—」。
+ *
+ * #2278 扩展：同一份 index-basic-info 顺带取快照字段（发布日期 / 样本数 / 加权方式 /
+ * 币种）并入上方事实格，逐字段降级「—」；卡内追加两个子区块——阶段性收益
+ * （ProductIndexReturns）与十大权重（ProductIndexWeights），各自取数、独立降级，
+ * 仅在名录资料就绪后挂载（避免名录外代码白打外部接口）。
  */
 const props = defineProps<{
   /** 指数代码（裸 6 位码或带前缀形态，后端归一） */
@@ -99,55 +109,97 @@ watch(() => props.symbol, load, { immediate: true });
     </p>
 
     <template v-else>
-      <dl class="index-section__facts">
-        <div class="index-section__fact">
-          <dt class="index-section__label">指数名称</dt>
-          <dd class="index-section__value index-section__value--strong">
+      <dl class="facts-grid">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">指数名称</dt>
+          <dd class="facts-grid__value facts-grid__value--strong">
             {{ profile.name || DASH }}
           </dd>
         </div>
-        <div class="index-section__fact">
-          <dt class="index-section__label">发布机构</dt>
-          <dd class="index-section__value">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">发布机构</dt>
+          <dd class="facts-grid__value">
             {{ profile.publisher_label || DASH }}
           </dd>
         </div>
-        <div class="index-section__fact">
-          <dt class="index-section__label">市盈率 PE</dt>
-          <dd class="index-section__value">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">市盈率 PE</dt>
+          <dd class="facts-grid__value">
             <template v-if="profile.pe != null">
               {{ profile.pe.toFixed(2) }}
             </template>
             <template v-else>{{ DASH }}</template>
           </dd>
         </div>
-        <div class="index-section__fact">
-          <dt class="index-section__label">股息率</dt>
-          <dd class="index-section__value">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">股息率</dt>
+          <dd class="facts-grid__value">
             <template v-if="profile.dividend_yield != null">
               {{ profile.dividend_yield.toFixed(2) }}%
             </template>
             <template v-else>{{ DASH }}</template>
           </dd>
         </div>
-        <div class="index-section__fact">
-          <dt class="index-section__label">PE 历史分位</dt>
-          <dd class="index-section__value index-section__value--strong">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">PE 历史分位</dt>
+          <dd class="facts-grid__value facts-grid__value--strong">
             {{ percentileText }}
             <span v-if="percentileHint" class="index-section__sub">
               {{ percentileHint }}
             </span>
           </dd>
         </div>
+        <!-- 快照字段（#2278，来自中证官网 index-basic-info 同一请求）：逐字段降级「—」 -->
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">发布日期</dt>
+          <dd class="facts-grid__value">
+            {{ profile.publish_date || DASH }}
+          </dd>
+        </div>
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">样本数</dt>
+          <dd class="facts-grid__value">
+            {{ profile.cons_number != null ? profile.cons_number : DASH }}
+          </dd>
+        </div>
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">加权方式</dt>
+          <dd class="facts-grid__value">
+            {{ profile.weighting_type || DASH }}
+          </dd>
+        </div>
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">币种</dt>
+          <dd class="facts-grid__value">
+            {{ profile.currency || DASH }}
+          </dd>
+        </div>
       </dl>
 
+      <!-- 指数简介（中证官网原文）：散文段落，无简介时整段隐藏而非占位 -->
+      <p v-if="profile.description" class="index-section__desc">
+        {{ profile.description }}
+      </p>
+
+      <!-- 阶段性收益 + 十大权重（#2278）：子组件各自取数、独立降级，
+           仅在名录资料就绪后挂载，避免名录外的代码白打外部接口 -->
+      <ProductIndexReturns v-if="profile" :symbol="symbol" />
+      <ProductIndexWeights v-if="profile" :symbol="symbol" />
+
       <!-- 样本不足的定调说明：比一排「—」更诚实（告诉用户为什么没有，而不是假装没数据） -->
-      <p v-if="profile.pe_percentile == null" class="index-section__note">
+      <p
+        v-if="profile.pe_percentile == null"
+        class="section-footnote section-footnote--spaced"
+      >
         该指数暂无足够历史样本计算分位（基线需 ≥1
         年月频数据），估值绝对值仍可参考。
       </p>
 
-      <p v-for="note in footnotes" :key="note" class="index-section__footnote">
+      <p
+        v-for="note in footnotes"
+        :key="note"
+        class="section-footnote section-footnote--spaced"
+      >
         {{ note }}
       </p>
     </template>
@@ -161,54 +213,19 @@ watch(() => props.symbol, load, { immediate: true });
   color: var(--text-tertiary-ink);
 }
 
-.index-section__facts {
-  display: grid;
-
-  /* auto-fit + 真实最小列宽：`minmax(0, 1fr)` 会让轨道塌到几像素、标签逐字竖排（#1969 P0） */
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: var(--space-3) var(--space-6);
-  margin: 0;
-}
-
-.index-section__fact {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  min-width: 0;
-}
-
-.index-section__label {
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
-}
-
-.index-section__value {
-  margin: 0;
-  font-size: 14px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
-.index-section__value--strong {
-  font-size: 18px;
-  font-weight: 600;
-}
-
 .index-section__sub {
   font-size: 12px;
   font-weight: 400;
   color: var(--text-tertiary-ink);
 }
 
-.index-section__note {
+.index-section__desc {
   margin: var(--space-3) 0 0;
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
 }
 
-.index-section__footnote {
-  margin: var(--space-2) 0 0;
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
-}
+/* 「样本不足」定调说明与脚注同属脚注族，已迁至共享类 .section-footnote--spaced
+   （#2320）。原脚注为 space-2，随口径统一为 space-3。 */
 </style>

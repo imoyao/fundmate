@@ -63,6 +63,13 @@ export interface PortfolioHoldingItem {
   market_value: number;
   pnl: number;
   pnl_rate: number;
+  /** 价格时点（#2140）：基金=实际采用的最新净值日；其他=快照回写日；部分路径缺省为 null */
+  price_date?: string | null;
+  /**
+   * 当日确认口径是否已定型（#2210）：true = price_date 即今天，行内估值副行应隐藏；
+   * null / 缺省 = 未知，不隐藏。**状态 = 后端字段契约**，前端禁止按日期自行推断。
+   */
+  settled_today?: boolean | null;
 }
 
 /** 获取组合列表（仅 id/name/purpose/created_at） */

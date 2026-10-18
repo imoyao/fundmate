@@ -105,7 +105,7 @@ function barColor(index: number): string {
       </template>
     </SectionHeader>
 
-    <p v-if="!hasData" class="industry-section__hint">暂无行业配置数据</p>
+    <p v-if="!hasData" class="section-footnote">暂无行业配置数据</p>
 
     <template v-else>
       <table class="industry-section__table">
@@ -190,7 +190,7 @@ function barColor(index: number): string {
         </details>
       </div>
 
-      <p class="industry-section__footnote">
+      <p class="section-footnote">
         数据来源：{{ source }} · 行业配置为报告期快照（非日期序列）
       </p>
     </template>
@@ -206,12 +206,9 @@ function barColor(index: number): string {
   gap: var(--space-3);
 }
 
-.industry-section__hint,
-.industry-section__footnote {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
+/* 脚注与空态提示已迁至共享类 .section-footnote（#2320）；本区块容器带
+   `gap: var(--space-3)`，故只用基础类、不加 --spaced。迁移前此处用图形级
+   --text-tertiary 作前景文字（不足 4.5:1），已随共享类修正为 -ink。 */
 
 /* 「不可相加」是**跨体系硬口径**，不是普通脚注：csrc / gics 加总得出的是荒谬结论。
    沿用持仓明细 caveat 的同一套警告视觉，避免两处硬口径长得不一样。

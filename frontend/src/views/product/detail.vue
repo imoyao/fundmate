@@ -12,6 +12,7 @@ import { resolveProduct, type ProductResolveResult } from "@/api/products";
 import { isDetailAssetType, parseProductRef } from "@/utils/productIdentity";
 import ProductAdvisorSection from "./components/ProductAdvisorSection.vue";
 import ProductExternalLinksSection from "./components/ProductExternalLinksSection.vue";
+import ProductProSection from "./components/ProductProSection.vue";
 // #2029：此前模板用了本组件但漏掉 import，Vue 只发「Failed to resolve component」
 // warning 就静默不渲染 —— 基金详情页从上线起就没有基金资料区块，且 e2e 未打桩
 // fund-profile（落到兜底 404）反向掩盖。e2e 已补断言，勿再删这一行。
@@ -303,7 +304,7 @@ watch(productRef, loadProduct, { immediate: true });
                故不按asset_type 过滤（持仓里的债券/基金同样可能有联接基金）。
                无关联降级「—」并附覆盖率说明；关系覆盖率约 66.4%（缺口见 #1419）。 -->
           <ProductRelatedSection id="nav-related" :symbol="product.symbol" />
-
+          <ProductProSection id="nav-pro" :product="product" />
           <!-- 后续区块槽位：走势 / 基金资料 等由 #1967-#1971 各自注入。
                刻意不渲染 mock 占位（设计 §10「不用 mock / 演示数据占位」）。 -->
           <slot name="sections" />
