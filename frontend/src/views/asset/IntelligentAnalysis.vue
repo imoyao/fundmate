@@ -93,14 +93,10 @@
           <!-- #2153：口径开关与投资概览（首页）逐字同款——同一时刻两页绑定的
                参数一致，数值天然一致；口径说明挂在 info（tooltip），随开关联动 -->
           <template #action>
-            <el-radio-group
+            <IncludeCashSwitch
               v-model="includeCashEquivalents"
-              size="small"
               @change="loadXirr"
-            >
-              <el-radio-button :value="false">剔除现金</el-radio-button>
-              <el-radio-button :value="true">含现金</el-radio-button>
-            </el-radio-group>
+            />
           </template>
         </SectionHeader>
         <MetricGrid>
@@ -199,6 +195,7 @@ import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
+import IncludeCashSwitch from "@/components/IncludeCashSwitch/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import ClearedCyclesSection from "@/views/asset/cleared-cycles/ClearedCyclesSection.vue";
