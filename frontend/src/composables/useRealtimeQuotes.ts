@@ -171,7 +171,7 @@ export function useRealtimeQuotes(
       const isTd = (res as any)?.data?.is_trading_day === true;
       tradingDayCache.set(dateStr, {
         isTradingDay: isTd,
-        timestamp: Date.now(),
+        timestamp: Date.now()
       });
       return isTd;
     } catch {
