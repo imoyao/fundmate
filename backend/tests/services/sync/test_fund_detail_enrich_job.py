@@ -129,3 +129,68 @@ class TestFundDetailEnrichJob:
 
         assert job.akshare_adapter.fetch_fund_detail.call_count == 0
         assert job.stats['skipped'] == 1
+
+    # ── 费率写入的三条硬规则（2026-10-18 缺陷修复的回归网） ──
+
+    def test_fee_rate_is_upserted_not_duplicated(self, job, db):
+        """上游费率变了必须能改回来（旧实现只插不更新，错的费率永不自愈）"""
+        db.add(Fund(fund_code='000001', name='华夏成长'))
+        db.commit()
+
+        job._update_fund_fees('000001', {'redemption_schedule': [{'start_day': 0, 'end_day': 7, 'rate': 1.5}]})
+        job._update_fund_fees('000001', {'redemption_schedule': [{'start_day': 0, 'end_day': 7, 'rate': 0.75}]})
+        db.commit()
+
+        rows = db.query(FeeRatio).filter_by(fund_code='000001', fee_type='redeem').all()
+        assert len(rows) == 1, '同一档位重复同步不应新增行'
+        assert float(rows[0].rate) == 0.0075, '费率应被更新为上游的新值'
+
+    def test_stale_fee_tier_is_removed(self, job, db):
+        """上游不再给出的档位要删除（阶梯是上游镜像，不是只增不减的日志）"""
+        db.add(Fund(fund_code='000001', name='华夏成长'))
+        db.commit()
+
+        job._update_fund_fees(
+            '000001',
+            {
+                'redemption_schedule': [
+                    {'start_day': 0, 'end_day': 7, 'rate': 1.5},
+                    {'start_day': 7, 'end_day': None, 'rate': 0.5},
+                ]
+            },
+        )
+        db.commit()
+        assert len(db.query(FeeRatio).filter_by(fund_code='000001', fee_type='redeem').all()) == 2
+
+        job._update_fund_fees('000001', {'redemption_schedule': [{'start_day': 0, 'end_day': 7, 'rate': 1.5}]})
+        db.commit()
+
+        rows = db.query(FeeRatio).filter_by(fund_code='000001', fee_type='redeem').all()
+        assert len(rows) == 1, '上游已不存在的档位应被删除'
+        assert float(rows[0].rate) == 0.015
+
+    def test_invalid_schedule_is_refused(self, job, db):
+        """结构非法的阶梯必须拒写，且**不动既有数据**（宁可缺费率，也不要错的费率）
+
+        这里喂的正是 000513 曾经落库的形态：同区间两行 + end_day 小于 start_day。
+        """
+        db.add(Fund(fund_code='000001', name='华夏成长'))
+        db.commit()
+        job._update_fund_fees('000001', {'redemption_schedule': [{'start_day': 0, 'end_day': 7, 'rate': 1.5}]})
+        db.commit()
+
+        job._update_fund_fees(
+            '000001',
+            {
+                'redemption_schedule': [
+                    {'start_day': 0, 'end_day': 7, 'rate': 1.5},
+                    {'start_day': 0, 'end_day': 7, 'rate': 0.75},
+                    {'start_day': 7, 'end_day': 1, 'rate': 0.3},
+                ]
+            },
+        )
+        db.commit()
+
+        rows = db.query(FeeRatio).filter_by(fund_code='000001', fee_type='redeem').all()
+        assert len(rows) == 1, '拒写时不得新增任何行'
+        assert float(rows[0].rate) == 0.015, '拒写时既有数据必须原样保留'
