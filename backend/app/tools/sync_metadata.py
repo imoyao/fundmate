@@ -46,6 +46,9 @@ from app.services.sync.orchestrator import DataSyncOrchestrator  # noqa: E402
 # ⚠️ 漏掉某个 job 的后果不是报错，而是 targets 保持 None → 静默跑成「0 只处理」。
 FUND_TARGET_JOBS = ('fund_nav', 'fund_detail_enrich', 'fund_manager', 'fund_position')
 
+# Stock 类 job（--target-file 走 stock 池）。
+STOCK_TARGET_JOBS = ('price_history', 'fund_position_legacy')
+
 # 受限目标池 job：**未给任何显式目标时，从库内核心池（持仓 + 自选）现取**。
 #
 # 为什么必须单独列：`targets=None` 在 `job_base.SyncJob.run()` 里的语义是
@@ -68,6 +71,8 @@ DB_POOL_JOBS = {'fund_position': ('fund', 'etf')}
 
 def _combine_pools(resolved: dict, keys) -> list:
     """把 resolve_targets() 返回的多个池合并成列表（去重）。"""
+    if isinstance(keys, str):
+        keys = (keys,)
     out = []
     for k in keys:
         out.extend(resolved.get(k, []))
@@ -82,6 +87,38 @@ def _resolve_targets_from_file(target_file: str) -> list:
         reader = csv.reader(f)
         codes = [row[0].strip() for row in reader if row and row[0].strip()]
     return codes
+
+
+def resolve_job_targets(orch, job: str, targets: str | None, target_file: str | None) -> list | None:
+    """根据 job 与显式参数解析目标池。
+
+    优先级：显式 --targets > --target-file > DB_POOL_JOBS 从库内核心池取 > None（交给 job 处理）
+
+    - DB_POOL_JOBS 里的 job（fund_position）：None 会被当成显式跳过，必须显式解析核心池
+    - 其他 job：None 保持原有「子类自取核心池」语义
+    """
+    # 1. 显式 --targets 直接用
+    if targets:
+        return [code.strip() for code in targets.split(',') if code.strip()]
+
+    # 2. --target-file：走 orchestrator 的 resolve_targets() 组合对应池（不读文件，文件读取在 CLI 层）
+    if target_file:
+        resolved = orch.resolve_targets()
+        if job in FUND_TARGET_JOBS:
+            # fund_nav 等只吃 fund 池；fund_position 吃 fund + etf（_combine_pools 统一）
+            return _combine_pools(resolved, DB_POOL_JOBS.get(job, 'fund'))
+        if job in STOCK_TARGET_JOBS:
+            # stock 分支（price_history 等）
+            return resolved.get('stock', [])
+        # 未知 job：不处理 target-file，返回 None
+        return None
+
+    # 3. 无显式目标：DB_POOL_JOBS 里的 job 必须从库内核心池取
+    if job in DB_POOL_JOBS:
+        return _combine_pools(orch.resolve_targets(), DB_POOL_JOBS[job])
+
+    # 4. 其他 job 保持 None 语义（子类自取）
+    return None
 
 
 def main():

@@ -42,6 +42,26 @@ ONE_YEAR_AGO = TODAY - timedelta(days=365)
 FIXED_DATA_DATE = date(2026, 9, 30)
 
 
+@pytest.fixture(autouse=True)
+def _grant_pro_features(db):
+    """为测试家庭（family_id=1）授予所有 Pro 功能权益。"""
+    from app.domains.entitlements.models import Entitlement
+    from app.services.entitlement_check import PRO_FEATURES
+    from datetime import datetime
+
+    for feature in PRO_FEATURES:
+        db.merge(
+            Entitlement(
+                family_id=1,
+                feature=feature,
+                granted=True,
+                granted_at=datetime.utcnow(),
+                source='test',
+            )
+        )
+    db.commit()
+
+
 class _FixedDate(date):
     """``date`` 替身：``today()`` 恒为 :data:`FIXED_DATA_DATE`，让断言时区无关、确定。"""
 

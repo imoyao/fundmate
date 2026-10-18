@@ -37,6 +37,30 @@ from app.services.product_pro_status import build_pro_status
 TODAY = date.today()
 
 
+@pytest.fixture(autouse=True)
+def _grant_pro_features(db):
+    """为测试家庭（family_id=1）授予所有 Pro 功能权益。
+
+    require_pro_feature 装饰器默认使用 family_id=1，测试需预先开通权益，
+    否则端点会返回 403 而非预期的验证错误码。
+    """
+    from app.domains.entitlements.models import Entitlement
+    from app.services.entitlement_check import PRO_FEATURES
+    from datetime import datetime
+
+    for feature in PRO_FEATURES:
+        db.merge(
+            Entitlement(
+                family_id=1,
+                feature=feature,
+                granted=True,
+                granted_at=datetime.utcnow(),
+                source='test',
+            )
+        )
+    db.commit()
+
+
 def _reference_pearson(xs, ys):
     """独立于被测实现的 Pearson：**不同公式**（``cov = E[xy] − E[x]E[y]``）。
 
