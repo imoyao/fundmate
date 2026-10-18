@@ -57,14 +57,10 @@
       <CardBlock class="mb-6">
         <SectionHeader title="组合收益 (XIRR)">
           <template #action>
-            <el-radio-group
+            <IncludeCashSwitch
               v-model="includeCashEquivalents"
-              size="small"
               @change="fetchXirr"
-            >
-              <el-radio-button :value="false">剔除现金</el-radio-button>
-              <el-radio-button :value="true">含现金</el-radio-button>
-            </el-radio-group>
+            />
             <el-button size="small" :loading="xirrLoading" @click="fetchXirr">
               <IconifyIconOffline icon="ep:refresh" class="mr-1" /> 刷新
             </el-button>
@@ -402,6 +398,7 @@ import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
+import IncludeCashSwitch from "@/components/IncludeCashSwitch/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";

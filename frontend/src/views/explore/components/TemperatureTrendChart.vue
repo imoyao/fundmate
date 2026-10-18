@@ -8,11 +8,12 @@
   <CardBlock class="chart-section">
     <SectionHeader title="综合温度趋势">
       <template #action>
-        <el-radio-group v-model="historyDays" size="small">
-          <el-radio-button :value="30">30天</el-radio-button>
-          <el-radio-button :value="90">90天</el-radio-button>
-          <el-radio-button :value="180">半年</el-radio-button>
-        </el-radio-group>
+        <SegmentedControl
+          v-model="historyDays"
+          :options="HISTORY_RANGE_OPTIONS"
+          size="small"
+          aria-label="历史区间"
+        />
       </template>
     </SectionHeader>
     <div class="chart-wrapper">
@@ -32,6 +33,7 @@ import VChart from "vue-echarts";
 import { getTemperatureHistory } from "@/api/temperature";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import { getCssVar, useThemeTick } from "@/composables/echarts/theme";
 
 defineOptions({
@@ -68,7 +70,14 @@ const historyData = ref<{
   values: (number | null)[];
   levels?: string[];
 }>({ dates: [], values: [] });
-const historyDays = ref(90);
+/** 历史区间档位（#2339：数字档位，走 SegmentedControl；真相源仍是天数） */
+const HISTORY_RANGE_OPTIONS = [
+  { label: "30天", value: 30 },
+  { label: "90天", value: 90 },
+  { label: "半年", value: 180 }
+] as const;
+
+const historyDays = ref<30 | 90 | 180>(90);
 const chartRef = ref<any>(null);
 
 const fetchHistory = async () => {
