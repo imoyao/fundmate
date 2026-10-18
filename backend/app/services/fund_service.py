@@ -30,7 +30,39 @@ from app.domains.funds.models import (
 )
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
-from app.services.adapters.xalpha_adapter import XalphaAdapter
+from app.services.adapters.xalpha_adapter import XalphaAdapter, validate_redemption_schedule
+
+
+def _dedupe_rows_by(rows: List[Any], key_of: Callable[[Any], tuple]) -> List[Any]:
+    """按 ``key_of`` 折叠重复行，保留首次出现（入参顺序即输出顺序）。
+
+    ## 为什么需要它
+
+    ``fee_ratios`` 表**没有任何索引，也没有唯一约束**（2026-10-17 实测该表在
+    ``sqlite_master`` 里的索引集为空），而库里存在一次整表复制留下的
+    **逐字相同**副本行：重复对的 ``rate`` / ``currency`` / ``created_at`` /
+    ``updated_at`` 全同，3410/3412 只基金的每一档都带一份副本。
+
+    读取侧按行拼「赎回费率分布」时不去重，用户看到的就是**每一档出现两次、
+    份额数一模一样**（已实测复现）。写入侧两个入口（``sync_fund_fees`` 与
+    ``fund_detail_enrich_job._save_single_fee``）都带查重，所以这不是反复同步
+    造成的，而是历史一次性复制的存量——读侧必须能自愈，否则存量清理前一直脏。
+
+    ## 只折叠完全相同的行
+
+    同一区间出现**不同**费率是真实歧义（不同份额类别混在同一个 ``fund_code``，
+    如 000513 的 0~7 天既有 1.5% 又有 0.75%），那不是重复行——不在这里替用户
+    选一个费率，留给数据侧确认。
+    """
+    seen: set = set()
+    out: List[Any] = []
+    for row in rows:
+        key = key_of(row)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
 
 
 class FundService:
@@ -412,6 +444,10 @@ class FundService:
                     'start_quota': Money.cents_to_yuan(rule.start_quota),
                     'end_quota': Money.cents_to_yuan(rule.end_quota) if rule.end_quota else None,
                     'rate': rate_val,
+                    # 固定金额档（分→元）：与 rate 互斥（ FeeRatio.fee_amount ）。
+                    # 转换补差费按阶梯试算时需要区分「比例档 / 固定档」，否则固定档会被
+                    # 当成 0 费率静默算丢费用（基金转换设计 §4.2）。
+                    'fee_amount': Money.cents_to_yuan(ratio.fee_amount) if ratio.fee_amount else None,
                 }
             )
 
@@ -422,6 +458,11 @@ class FundService:
             .join(RedeemRule, FeeRatio.redeem_rule_id == RedeemRule.id)
             .filter(FeeRatio.fund_code == fund_code, FeeRatio.fee_type == 'redeem')
             .all()
+        )
+        # 折叠逐字相同的副本行（存量一次性复制所致），否则同一档会返回两条
+        redeem_rows = _dedupe_rows_by(
+            redeem_rows,
+            lambda pair: (pair[1].start_day, pair[1].end_day, float(pair[0].rate or 0)),
         )
         for ratio, rule in redeem_rows:
             try:
@@ -474,6 +515,11 @@ class FundService:
         )
         if not redeem_rules:
             raise ValueError('该基金暂无赎回费率规则')
+
+        # 折叠逐字相同的副本行：fee_ratios 无唯一约束，存量里每档都带一份副本，
+        # 不去重则 hold_details / sell_details 每档输出两次（用户可见的表格重复）。
+        # 只折叠 (区间, 费率) 完全一致的；区间相同费率不同的属真实歧义，保留原样。
+        redeem_rules = _dedupe_rows_by(redeem_rules, lambda r: (r.start_day, r.end_day, float(r.rate)))
 
         # 获取买入记录（FIFO），限本家庭
         buy_txns = (
@@ -567,6 +613,137 @@ class FundService:
             'sell': sell_details,
         }
 
+    # ─── 费率落库（申购 / 赎回共用，两个写入入口都走这里） ─────────────
+
+    @staticmethod
+    def _get_or_create_purchase_rule(db: Session, start_quota=0, end_quota=None) -> PurchaseRule:
+        # filter_by(end_quota=None) 生成 `end_quota IS NULL`，正是「无上限」语义
+        rule = db.query(PurchaseRule).filter_by(start_quota=start_quota, end_quota=end_quota).first()
+        if not rule:
+            rule = PurchaseRule(start_quota=start_quota, end_quota=end_quota)
+            db.add(rule)
+            db.flush()
+        return rule
+
+    @staticmethod
+    def _get_or_create_redeem_rule(db: Session, start_day: int, end_day: Optional[int] = None) -> RedeemRule:
+        rule = db.query(RedeemRule).filter(RedeemRule.start_day == start_day, RedeemRule.end_day == end_day).first()
+        if not rule:
+            rule = RedeemRule(start_day=start_day, end_day=end_day)
+            db.add(rule)
+            db.flush()
+        return rule
+
+    @staticmethod
+    def _upsert_fee_ratio(
+        db: Session,
+        fund_code: str,
+        fee_type: str,
+        rate_percent,
+        currency: str = 'CNY',
+        purchase_rule_id: Optional[int] = None,
+        redeem_rule_id: Optional[int] = None,
+    ) -> str:
+        """写入或更新一条费率，返回 ``inserted`` / ``updated`` / ``unchanged``。
+
+        ## 为什么必须是 upsert
+
+        旧写法是「查不到才插」，于是**上游改了费率、库里错了的费率就永不自愈**——
+        这正是 2026-10-18 查出的那批数据能烂过半年的原因：解析缺陷写进去的值，
+        没有任何路径会把它改回来（重复同步多少次都一样）。
+
+        去重键必须包含两个 rule id：同一 (fund, fee_type) 下申购与赎回各挂自己的规则，
+        只按 (fund_code, fee_type) 查会把两个不同档位互相覆盖。
+        """
+        new_rate = Decimal(str(rate_percent)) / Decimal('100')
+        # 必须显式 flush 再查：本仓测试会话是 autoflush=False（backend/tests/conftest.py），
+        # 同一轮里刚 add 的行对后续查询不可见——不 flush 就会把「已存在」判成「不存在」，
+        # 同一档位于是被插入第二次（upsert 退化成 insert）。
+        db.flush()
+        row = (
+            db.query(FeeRatio)
+            .filter(
+                FeeRatio.fund_code == fund_code,
+                FeeRatio.fee_type == fee_type,
+                FeeRatio.purchase_rule_id == purchase_rule_id,
+                FeeRatio.redeem_rule_id == redeem_rule_id,
+            )
+            .first()
+        )
+        if row is None:
+            db.add(
+                FeeRatio(
+                    fund_code=fund_code,
+                    fee_type=fee_type,
+                    rate=new_rate,
+                    currency=currency,
+                    purchase_rule_id=purchase_rule_id,
+                    redeem_rule_id=redeem_rule_id,
+                )
+            )
+            return 'inserted'
+        if float(row.rate or 0) != float(new_rate) or row.currency != currency:
+            row.rate = new_rate
+            row.currency = currency
+            return 'updated'
+        return 'unchanged'
+
+    @staticmethod
+    def apply_purchase_fee(db: Session, fund_code: str, rate_percent, currency: str = 'CNY') -> str:
+        """申购费率是单值（无阶梯），落一条 (0, 无上限) 的规则即可。"""
+        if rate_percent is None:
+            return 'skipped'
+        rule = FundService._get_or_create_purchase_rule(db, 0, None)
+        return FundService._upsert_fee_ratio(
+            db, fund_code, 'purchase', rate_percent, currency, purchase_rule_id=rule.id
+        )
+
+    @staticmethod
+    def apply_redeem_schedule(
+        db: Session, fund_code: str, schedule: List[Dict[str, Any]], currency: str = 'CNY'
+    ) -> Dict[str, Any]:
+        """把一份赎回阶梯**镜像**进 fee_ratios。
+
+        ## 两条硬规则
+
+        1. **结构非法 → 拒写**（返回 ``skipped`` 里带问题清单，库内既有数据保持不动）。
+           费率缺失最多让用户手填；而一份内部矛盾、会把赎回费算成 0 的阶梯一旦落库
+           就成了「权威数据」——界面看不出异常，错的只有金额。
+        2. **上游已不存在的档位要删**。阶梯是上游的镜像，只增不减会让修正后的阶梯与
+           旧档并存（正是同区间多行的另一条来路）。
+        """
+        result: Dict[str, Any] = {'inserted': 0, 'updated': 0, 'unchanged': 0, 'removed': 0, 'skipped': None}
+        if not schedule:
+            return result
+
+        problems = validate_redemption_schedule(schedule)
+        if problems:
+            result['skipped'] = problems
+            return result
+
+        kept_rule_ids = []
+        for item in schedule:
+            raw_end = item.get('end_day')
+            rule = FundService._get_or_create_redeem_rule(
+                db, int(item['start_day']), None if raw_end is None else int(raw_end)
+            )
+            kept_rule_ids.append(rule.id)
+            outcome = FundService._upsert_fee_ratio(
+                db, fund_code, 'redeem', item['rate'], currency, redeem_rule_id=rule.id
+            )
+            result[outcome] += 1
+
+        stale = (
+            db.query(FeeRatio)
+            .filter(FeeRatio.fund_code == fund_code, FeeRatio.fee_type == 'redeem')
+            .filter(~FeeRatio.redeem_rule_id.in_(kept_rule_ids))
+            .all()
+        )
+        for row in stale:
+            db.delete(row)
+        result['removed'] = len(stale)
+        return result
+
     @staticmethod
     def sync_fund_fees(db: Session, fund_code: str) -> bool:
         """
@@ -587,77 +764,23 @@ class FundService:
                 name=fund.name if fund else '',
             )
 
-            # 申购费率
-            purchase_rate = fee_info.get('purchase_rate')
-            if purchase_rate is not None:
-                # 复用规则查找/创建逻辑（避免重复代码，这里直接内联简化版）
-                rule = (
-                    db.query(PurchaseRule)
-                    .filter(PurchaseRule.start_quota == 0, PurchaseRule.end_quota.is_(None))
-                    .first()
-                )
-                if not rule:
-                    rule = PurchaseRule(start_quota=0, end_quota=None)
-                    db.add(rule)
-                    db.flush()
-                existing = (
-                    db.query(FeeRatio)
-                    .filter(
-                        FeeRatio.fund_code == fund_code,
-                        FeeRatio.fee_type == 'purchase',
-                        FeeRatio.purchase_rule_id == rule.id,
-                    )
-                    .first()
-                )
-                if not existing:
-                    safe_rate = Decimal(str(purchase_rate)) / Decimal('100')
-                    db.add(
-                        FeeRatio(
-                            fund_code=fund_code,
-                            fee_type='purchase',
-                            rate=safe_rate,
-                            purchase_rule_id=rule.id,
-                            currency=currency,
-                        )
-                    )
+            # 申购费率是单值（无阶梯）
+            FundService.apply_purchase_fee(db, fund_code, fee_info.get('purchase_rate'), currency)
 
-            # 赎回费率阶梯
+            # 赎回费率阶梯：结构非法 → 拒写并告警，库里既有数据保持不动
             redemption_schedule = fee_info.get('redemption_schedule', [])
             if isinstance(redemption_schedule, list):
-                for item in redemption_schedule:
-                    if not isinstance(item, dict):
-                        continue
-                    start_day = item.get('start_day', 0)
-                    end_day = item.get('end_day')
-                    rule = (
-                        db.query(RedeemRule)
-                        .filter(RedeemRule.start_day == start_day, RedeemRule.end_day == end_day)
-                        .first()
+                outcome = FundService.apply_redeem_schedule(
+                    db,
+                    fund_code,
+                    [item for item in redemption_schedule if isinstance(item, dict)],
+                    currency,
+                )
+                if outcome.get('skipped'):
+                    logger.warning(
+                        f'基金 {fund_code} 赎回费率阶梯结构非法，已拒写（既有数据不动）: '
+                        + '; '.join(outcome['skipped'])
                     )
-                    if not rule:
-                        rule = RedeemRule(start_day=start_day, end_day=end_day)
-                        db.add(rule)
-                        db.flush()
-                    existing = (
-                        db.query(FeeRatio)
-                        .filter(
-                            FeeRatio.fund_code == fund_code,
-                            FeeRatio.fee_type == 'redeem',
-                            FeeRatio.redeem_rule_id == rule.id,
-                        )
-                        .first()
-                    )
-                    if not existing:
-                        safe_rate = Decimal(str(item.get('rate'))) / Decimal('100')
-                        db.add(
-                            FeeRatio(
-                                fund_code=fund_code,
-                                fee_type='redeem',
-                                rate=safe_rate,
-                                redeem_rule_id=rule.id,
-                                currency=currency,
-                            )
-                        )
             db.commit()
             return True
         except Exception:

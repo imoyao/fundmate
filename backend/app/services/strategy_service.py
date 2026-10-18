@@ -8,7 +8,8 @@ WHY 下沉
 边界
     - 不碰 ``g`` / ``request``：family_id 由调用方显式传入，可脱离请求上下文单测；
     - 只读组装：不写库、不提交事务；
-    - 对外 API 契约零变更（``conventions.md`` §2.4）：返回字段名、嵌套结构与下沉前逐字一致。
+    - 对外 API 契约零变更（``conventions.md`` §2.4）：返回字段名、嵌套结构与下沉前逐字一致
+      （此后按需**只增不改**追加行级字段——#2210 的 ``price_date`` / ``settled_today``）。
 """
 
 from app.core.constants import ASSET_CATEGORY_LABELS, TYPE_LABELS
@@ -16,6 +17,7 @@ from app.core.money import Money
 from app.domains.assets.models import Asset
 from app.domains.positions.models import Position
 from app.domains.strategy.models import PositionStrategyTag, StrategyTag
+from app.services.pnl_settle import is_settled_today
 
 
 def build_strategy_overview(db, family_id: int) -> dict:
@@ -25,6 +27,8 @@ def build_strategy_overview(db, family_id: int) -> dict:
     （资产 id+100000 偏移）；标签按创建时间升序；关联映射 {position_id: [tag_name]}。
     """
     # 1. 所有持仓（只取必要列），按家庭隔离
+    # price_date 必须查出来（#2210）：行级 price_date/settled_today 依赖它——
+    # 这是列裁剪式 select，不补列则 ORM 行上根本没这个属性。
     positions = (
         db.query(
             Position.id,
@@ -35,6 +39,7 @@ def build_strategy_overview(db, family_id: int) -> dict:
             Position.current_price,
             Position.avg_price,
             Position.account_name,
+            Position.price_date,
         )
         .filter(Position.family_id == family_id, Position.quantity > 0)
         .all()
@@ -85,6 +90,10 @@ def build_strategy_overview(db, family_id: int) -> dict:
                 'current_price': Money.price_units_to_yuan(p.current_price),
                 'avg_price': Money.price_units_to_yuan(p.avg_price),
                 'account_name': p.account_name,
+                # 价格时点 + 当日已定型（#2210，与持仓明细 #2140 同名同义）：策略页持仓行
+                # 同样要能隐藏估值副行——判据是 price_date 是否今天，比较收口 `pnl_settle`。
+                'price_date': p.price_date.isoformat() if p.price_date else None,
+                'settled_today': is_settled_today(p.price_date),
             }
         )
     for a in assets:
@@ -99,6 +108,9 @@ def build_strategy_overview(db, family_id: int) -> dict:
                 'current_price': a.amount,
                 'avg_price': a.amount,
                 'account_name': a.account_name,
+                # 静态资产无价格日期概念（不随行情定型，也没有估值副行）→ 两字段恒 None（#2210）
+                'price_date': None,
+                'settled_today': None,
             }
         )
 

@@ -13,6 +13,9 @@
     - infoLabel: 信息图标的可访问名（可选，默认取 `info`）。
                  **富内容（`#info` 插槽）必须传**：插槽内容读屏读不到「这是什么」，
                  靠它给图标一个说得清的名字。
+    - badge:     标题右侧的徽标插槽（可选，#2303 新增）。用于「Pro」这类档位胶囊——
+                 跟着标题走（放 title-group 内），不占右侧操作槽；
+                 徽章样式由调用方按 design.md Badge 规范自带。
     - icon:      信息图标名（可选，默认 ep:info-filled）
   slots:
     - info:  信息图标的**富内容**（可选）。给了就用插槽、忽略 `info` 字符串，
@@ -48,6 +51,7 @@
           <slot name="info" />
         </template>
       </el-tooltip>
+      <slot name="badge" />
     </div>
     <div v-if="$slots.action" class="section-header__action">
       <slot name="action" />

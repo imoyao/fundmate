@@ -36,6 +36,7 @@
             :estimated="valuation.estimatedPnl(row as Position)"
             :hint="valuation.estimateHint(row as Position)"
             :price-date="(row as Position).price_date"
+            :settled-today="(row as Position).settled_today"
           />
         </template>
       </el-table-column>

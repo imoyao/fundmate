@@ -246,6 +246,7 @@ test.describe("详情页页内导航（#1968）", () => {
       "业绩与风险",
       "行业与持仓",
       "关联标的",
+      "高级洞察 Pro",
       "更多数据"
     ]);
 
@@ -257,6 +258,75 @@ test.describe("详情页页内导航（#1968）", () => {
         .length
     }));
     expect(counts.pills).toBe(counts.anchors);
+  });
+
+  test("高级洞察 Pro 占位：区块渲染 + 徽标来自状态位（#2272）", async ({
+    page
+  }) => {
+    // #2272（#994 Phase 1 接口骨架 + 付费墙壳）。钉三件事：
+    // ① 区块真的渲染了——#2029 同款静默消失防线：detail.vue 的 import 被删时
+    //    Vue 只发 warning，父级透传的 id 静默丢弃，页面无可见报错；
+    // ② 徽标（Phase N 建设中）来自后端状态位而非前端硬编码（不编造"已上线"）；
+    // ③ 导航胶囊收录该区块（与锚点同在，无死链）。
+    // 反向验证：删 detail.vue 的 import → ①红；把徽标文案改成前端常量 →
+    // ②红（本用例改打桩值即红）。
+    // 注：付费墙遮罩的 e2e 断言已随 #994 Phase 2 移除——playwright.config 显式
+    // VITE_PRO_PAYWALL_ENABLED=false（CI 无 .env.local），遮罩是纯 CSS 视觉件，
+    // 由 #2272 当时的验收覆盖；内容渲染断言不该挂在遮罩开关上。
+    const pageErrors: string[] = [];
+    page.on("pageerror", e => pageErrors.push(e.message));
+
+    // beforeEach 的 catch-all 对未打桩路由回 404（组件走降级：无徽标）；
+    // 后注册的 route 优先，这里覆盖 pro 端点给真状态位
+    await page.route("**/api/products/pro/**", route =>
+      route.fulfill({
+        status: 200,
+        json: {
+          data: {
+            symbol: SYMBOL,
+            asset_type: "fund",
+            pro_enabled: true,
+            paywall_required: false,
+            modules: {
+              performance: { available: false, phase: 2 },
+              risk: { available: false, phase: 2 },
+              // ⚠️ 本用例测的就是「未上线 ⇒ 徽标渲染 Phase N 建设中」这条占位路径，
+              // 故四个模块**全部** false——不要跟着后端状态位去同步成 true，
+              // 那会把本用例的唯一测试意图（徽标来自 status.phase）抹掉。
+              // 已上线的形态由 product-detail-pro-insight / pro-risk / pro-allocation
+              // 三张专项 spec 覆盖。
+              allocation: { available: false, phase: 3 },
+              report: { available: false, phase: 4 }
+            }
+          },
+          message: "ok"
+        }
+      })
+    );
+
+    await page.goto(`/#/fund/${SYMBOL}`);
+    const pro = page.locator("#nav-pro");
+    await expect(pro).toBeVisible({ timeout: 60_000 });
+
+    // 四模块占位卡 + 徽标文案逐条与打桩的 phase 一致（2/2/3/4，见 #994 排期）——
+    // 校验全部四条而非第一条：只查第一条时，前端把徽标写死成常量同样能绿
+    await expect(pro.locator(".pro-module")).toHaveCount(4);
+    await expect(pro.locator(".pro-module__badge")).toHaveText([
+      "Phase 2 建设中",
+      "Phase 2 建设中",
+      "Phase 3 建设中",
+      "Phase 4 建设中"
+    ]);
+
+    // 付费墙遮罩在 e2e 中显式关闭（VITE_PRO_PAYWALL_ENABLED=false，见
+    // playwright.config webServer env 与文件头注释），此处不断言遮罩本体。
+
+    // 导航胶囊收录该区块（与锚点同在，无死链）
+    await expect(
+      page.locator(".page-nav").getByRole("button", { name: "高级洞察 Pro" })
+    ).toHaveCount(1);
+
+    expect(pageErrors).toEqual([]);
   });
 
   test("无持仓：交易记录不渲染、不进导航、不发请求", async ({ page }) => {
@@ -357,14 +427,17 @@ test.describe("详情页页内导航（#1968）", () => {
     const table = page.locator("#transaction-detail-table");
     await expect(table).toBeVisible({ timeout: 60_000 });
 
-    // compact 列集（顺序即契约）：无产品列/手续费/操作列
+    // compact 列集（顺序即契约）：无产品列/手续费/操作列；
+    // 详情页另经 #extra-columns 注入重放两列（当时成本/收益贡献，#2171 P2）
     await expect(table.locator(".el-table__header th")).toHaveText([
       "交易日期",
       "类型",
       "价格",
       "数量",
       "金额",
-      "账户"
+      "账户",
+      "当时成本",
+      "收益贡献"
     ]);
 
     // 行数与桩一致（证明桩接上；没接上会走 404 错误态，表格根本不渲染）
@@ -407,8 +480,14 @@ test.describe("详情页页内导航（#1968）", () => {
     await expect(fund).toBeVisible();
     await expect(fund.locator(".fund-section__hint")).toHaveCount(0);
 
+    // ⚠️ 选择器由 `.fund-section__fact` 改为 `.facts-grid__cell`：
+    // 「基金经理」行已随 facts-grid 重构从 ProductFundSection 的旧 fact 结构挪进
+    // `<dl class="facts-grid">`（ProductFundSection.vue:125，现为
+    // `<dt class="facts-grid__label">基金经理</dt>`），该区块内只剩「业绩基准」
+    // 一行还带 `.fund-section__fact`（:175）。旧选择器匹配不到 ⇒ 本用例一直红，
+    // 但红的原因是选择器失效、**不是** #2191 回归——降级逻辑完好（:135 `v-else {{ DASH }}`）。
     await expect(
-      fund.locator(".fund-section__fact", { hasText: "基金经理" })
+      fund.locator(".facts-grid__cell", { hasText: "基金经理" })
     ).toContainText("—");
 
     expect(pageErrors).toEqual([]);

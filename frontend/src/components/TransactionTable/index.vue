@@ -53,6 +53,9 @@ export interface TransactionRow {
   position_name?: string;
   symbol?: string;
   account_name?: string;
+  /** 账户 ID：非空时账户名可点击跳转账户详情（/asset/ledgers/:id）；
+      空 = 未归档（如探市录入），保持纯文本——那里没有落点，链过去是坏的 */
+  ledger_id?: number | null;
 }
 
 const props = withDefaults(
@@ -193,9 +196,20 @@ function typeClass(type: string): string {
       min-width="100"
       show-overflow-tooltip
     >
-      <template #default="{ row }">{{
-        row.account_name || "未知账户"
-      }}</template>
+      <!-- 账户名可点击跳账户详情（与 ProductPositionSection 的账户链接同款：
+           ledger_id 有值才给落点，未归档流水保持纯文本） -->
+      <template #default="{ row }">
+        <router-link
+          v-if="(row as TransactionRow).ledger_id"
+          class="txn-table__account"
+          :to="`/asset/ledgers/${(row as TransactionRow).ledger_id}`"
+        >
+          {{ row.account_name || "未知账户" }}
+        </router-link>
+        <span v-else class="txn-table__account txn-table__account--plain">{{
+          row.account_name || "未知账户"
+        }}</span>
+      </template>
     </el-table-column>
     <!-- 扩展列 slot（#2171 P2）：调用方注入**完整的 el-table-column**（如详情页的
          「当时成本 / 收益贡献」重放列）。**可选**：三端既有调用（账本 Tab / 持仓抽屉）
@@ -245,6 +259,23 @@ function typeClass(type: string): string {
 
 .txn-type--info {
   color: var(--color-info);
+}
+
+/* 账户链接：与 ProductPositionSection 的 .product-position__account 同款口径
+   （可点击给链接态 hover，未归档无落点保持纯文本），禁硬编码色值 */
+.txn-table__account {
+  color: var(--text-primary);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+
+.txn-table__account:not(.txn-table__account--plain):hover {
+  color: var(--color-primary-ink);
+  border-bottom-color: currentColor;
+}
+
+.txn-table__account--plain {
+  cursor: default;
 }
 
 /* 行内操作 hover 淡入（design.md「行内操作交互规范」：默认 opacity 0，

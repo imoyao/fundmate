@@ -11,6 +11,9 @@
    fetch 失败时报「已对齐」是同族事故里最常见的那一款；
 4. **机器分支是一次性语义**：默认名固定（幂等），且**不得**被建成 `CNBDEV` 那种长期分支
    —— 由 `test_default_machine_branch_is_not_a_long_lived_name` 钉住命名形态。
+5. **merge 没跑起来 ≠ 没冲突**（#2262，2026-10-16）：merge 非 0 退出且没有冲突清单时
+   必须退 2、什么都不推。实测形态：runner 无 git 身份 ⇒ merge rc128
+   「Committer identity unknown」⇒ 未合并条目为空 ⇒ 曾被打着「无冲突」照常推送。
 
 变异探针（每条都实测确认会转红）见各用例 docstring；探针必须钉在**不可变来源**上，
 不能读可变 ref（那是 #450 第一版探针自己失效的根因，见 `test_dup_mirror_guard.py`）。
@@ -21,9 +24,9 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import os
+import pathlib
 import subprocess
 import sys
-import pathlib
 
 import pytest
 
@@ -60,12 +63,20 @@ def _env():
 
 
 def _mk_side_repos(tmp_path, name, *, same_file: bool):
-    """两侧仓库，`gh` 从 `cnb` clone 出来 ⇒ 共享同一历史（这样 fetch+merge 才有意义）。"""
+    """两侧仓库，`gh` 从 `cnb` clone 出来 ⇒ 共享同一历史（这样 fetch+merge 才有意义）。
+
+    ⚠️ 两侧仓库都**自备** committer 身份（#2262）：脚本的 merge 在 cnb 侧 worktree 里跑，
+    不继承本测试的 `_env()`，只读仓库/全局配置。曾经只给 gh 配、cnb 蹭开发者全局 config
+    （本地有、runner 没有）⇒ Linux 上 merge rc128「Committer identity unknown」⇒
+    冲突路径整个失灵。fixture 不许有这种环境依赖——它是假绿之源。
+    """
     cnb = tmp_path / f'{name}-cnb'
     cnb.mkdir()
     env = _env()
     _git(cnb, 'init', '-q', '-b', 'dev', env=env)
     _git(cnb, 'config', 'commit.gpgsign', 'false', env=env)
+    _git(cnb, 'config', 'user.name', 't', env=env)
+    _git(cnb, 'config', 'user.email', 't@e', env=env)
     (cnb / 'a.txt').write_text('base\n', encoding='utf-8')
     (cnb / 'shared.txt').write_text('base\n', encoding='utf-8')
     _git(cnb, 'add', '.', env=env)
@@ -174,17 +185,23 @@ def test_conflicts_mean_nothing_is_pushed(mod, tmp_path):
     def spy(args, cwd=None):
         # 探针（#2255）：退出码一并记账——「推没推」是结果，merge/diff 的码才是根因
         # （Linux runner 上冲突路径失灵，账里只有 push 结果时无从诊断）。
-        code, out = real(args, cwd)
+        code, out, err = real(args, cwd)
         calls.append([*args, f'rc{code}'])
-        return code, out
+        return code, out, err
 
     saved = mod._git
     mod._git = spy
     try:
         args = argparse.Namespace(
-            apply=True, dry_run=False, push=True,
-            base='cnb', branch='dev', machine_branch='bridge/github-dev',
-            cnb_url=str(cnb), github_url=str(gh), cwd=str(cnb),
+            apply=True,
+            dry_run=False,
+            push=True,
+            base='cnb',
+            branch='dev',
+            machine_branch='bridge/github-dev',
+            cnb_url=str(cnb),
+            github_url=str(gh),
+            cwd=str(cnb),
         )
         rc = mod.run(args)
     finally:
@@ -208,16 +225,22 @@ def test_worktree_is_cleaned_up_on_conflict(mod, tmp_path):
     def spy(args, cwd=None):
         # 探针（#2255）：退出码一并记账——「推没推」是结果，merge/diff 的码才是根因
         # （Linux runner 上冲突路径失灵，账里只有 push 结果时无从诊断）。
-        code, out = real(args, cwd)
+        code, out, err = real(args, cwd)
         calls.append([*args, f'rc{code}'])
-        return code, out
+        return code, out, err
 
     mod._git = spy
     try:
         args = argparse.Namespace(
-            apply=True, dry_run=False, push=True,
-            base='cnb', branch='dev', machine_branch='bridge/github-dev',
-            cnb_url=str(cnb), github_url=str(gh), cwd=str(cnb),
+            apply=True,
+            dry_run=False,
+            push=True,
+            base='cnb',
+            branch='dev',
+            machine_branch='bridge/github-dev',
+            cnb_url=str(cnb),
+            github_url=str(gh),
+            cwd=str(cnb),
         )
         mod.run(args)
     finally:
@@ -226,6 +249,59 @@ def test_worktree_is_cleaned_up_on_conflict(mod, tmp_path):
     aborts = [c for c in calls if c[:2] == ['merge', '--abort']]
     assert removes, f'冲突路径必须收掉临时 worktree，实际调用：{calls}'
     assert aborts, f'冲突路径必须先 abort 再收 —— 留着冲突现场会让下次跑失败：{calls}'
+
+
+def test_merge_fatal_means_nothing_is_pushed(mod, tmp_path, monkeypatch, capsys):
+    """merge 非 0 退出且无冲突清单 ⇒ 退 2、**什么都不推**（#2262）。
+
+    实测事故（#2259 CI 首次暴露）：runner 无 git 身份 ⇒ `git merge` rc128
+    「Committer identity unknown」⇒ `conflict_files()` 为空 ⇒ 旧代码读成
+    「无冲突」⇒ rev-parse + push 照常执行。「没跑成」被当成了「跑成了」——
+    与 #171 / #450「拿不到输入报已对齐」同族，但这次直接推了条未合并的分支。
+    判据锚在「merge 的退出码 + 冲突清单」这对组合上，单看任何一半都会漏：
+    光看清单为空分不清「真没冲突」和「根本没跑」，光看退出码分不清
+    「冲突（rc1）」和「致命（rc128）」。
+    """
+    cnb, gh = _mk_side_repos(tmp_path, 'fatal', same_file=True)
+    env = _env()
+    _git(cnb, 'remote', 'add', 'gh', str(gh), env=env)
+    _git(cnb, 'fetch', '-q', 'gh', 'dev', env=env)
+    _git(cnb, 'branch', 'gh-dev', 'FETCH_HEAD', env=env)
+
+    real = mod._git
+    calls: list[list[str]] = []
+
+    def fake(args, cwd=None):
+        if args[:2] == ['merge', '--no-edit']:
+            # 忠实复现 runner 实测形态：merge 直接致命、**根本没跑起来**，
+            # 因此不会留下任何未合并条目（diff-filter=U 为空）。
+            calls.append([*args, 'rc128'])
+            return 128, '', 'fatal: unable to auto-detect email address'
+        code, out, err = real(args, cwd)
+        calls.append([*args, f'rc{code}'])
+        return code, out, err
+
+    monkeypatch.setattr(mod, '_git', fake)
+    args = argparse.Namespace(
+        apply=True,
+        dry_run=False,
+        push=True,
+        base='cnb',
+        branch='dev',
+        machine_branch='bridge/github-dev',
+        cnb_url=str(cnb),
+        github_url=str(gh),
+        cwd=str(cnb),
+    )
+    rc = mod.run(args)
+
+    pushed = [c for c in calls if c and c[0] == 'push']
+    assert not pushed, f'merge 没跑起来时**一个字节都不该推**：{pushed}；全程：{calls}'
+    assert rc == 2, f'合并没跑起来必须退 2（结论不可信），实际 {rc}；全程：{calls}'
+    removes = [c for c in calls if c[:2] == ['worktree', 'remove']]
+    assert len(removes) >= 2, f'致命路径也要收掉临时 worktree（预清理 + 收尾）：{calls}'
+    err = capsys.readouterr().err
+    assert '不可信' in err, f'必须明说结论不可信，实际 stderr：{err!r}'
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +321,6 @@ def test_fetch_failure_is_exit_2_not_zero(mod, tmp_path, monkeypatch):
         apply=False,
         dry_run=True,
         push=False,
-
         base='cnb',
         branch='dev',
         machine_branch='bridge/github-dev',
@@ -265,7 +340,6 @@ def test_fetch_failure_message_says_inconclusive(mod, tmp_path, monkeypatch, cap
         apply=False,
         dry_run=True,
         push=False,
-
         base='cnb',
         branch='dev',
         machine_branch='bridge/github-dev',
@@ -310,7 +384,6 @@ def test_no_conflict_reports_ok(mod, tmp_path, monkeypatch):
         apply=False,
         dry_run=False,  # 走「演练」的 merge-tree 试算分支（不建 worktree）
         push=False,
-
         base='cnb',
         branch='dev',
         machine_branch='bridge/github-dev',
@@ -373,7 +446,7 @@ def test_script_never_imports_network(mod):
         assert banned not in src, f'脚本出现网络依赖：{banned}'
 
 
-def test_push_failure_surfaces_stderr(mod, tmp_path):
+def test_push_failure_surfaces_stderr(mod, tmp_path, capsys):
     """推失败时必须把 **remote 的原话**打出来（源 CNB #567，2026-10-18）。
 
     事故形态：`_git()` 只收 stdout，而 `git push` 的拒绝原因全在 stderr ⇒
@@ -390,12 +463,16 @@ def test_push_failure_surfaces_stderr(mod, tmp_path):
     repo = tmp_path / 'repo'
     repo.mkdir()
     _git(repo, 'init', '-q', '-b', 'dev', env=_env())
-    code, out = mod._git(['show', '0' * 40], str(repo))
+    # `_git()` 返回三值（#2262 起），失败原因须落在**第二个**返回值里 —— 推失败那一行打的就是它。
+    code, out, err = mod._git(['show', '0' * 40], str(repo))
     assert code != 0
-    assert out.strip(), '`_git()` 只收 stdout —— stderr 被丢掉了，失败原因会打成空串'
+    assert err.strip(), '`git show` 失败时 stderr 不该为空（判据自身失去了锚点）'
+    assert err.strip() in out, '`_git()` 只收 stdout —— stderr 被丢掉了，失败原因会打成空串'
 
     # ② `run()` 的推失败分支要把原因与目标分支都打出来。
-    #    造一个**能合、但推不上去**的场景：github_url 指向一个不存在的本地路径。
+    #    造一个**能合、但推不上去**的场景：远端是个**合法仓库**（否则死在前面的 fetch 上，
+    #    走的是「拿不到输入」分支），但预置一条同名分支，于是 push 是**非快进**被拒 ——
+    #    这正是 #567 事故里真实的失败形态。
     work = tmp_path / 'work'
     work.mkdir()
     env = _env()
@@ -413,6 +490,20 @@ def test_push_failure_surfaces_stderr(mod, tmp_path):
     _git(work, 'add', '.', env=env)
     _git(work, 'commit', '-q', '--no-gpg-sign', '-m', 'cnb', env=env)
 
+    # 远端：同一条仓库，且**已有一条内容无关的 `bridge/github-dev`**（孤立提交）⇒
+    # 推合并结果必然被判非快进而拒 —— 这正是 #567 事故里真实的失败形态。
+    # 注意**不能**让远端那条分支等于 `dev`：合并结果包含 `dev`，推上去就是快进，会被接受。
+    _git(work, 'checkout', '-q', '--orphan', 'unrelated', env=env)
+    (work / 'gh.txt').unlink(missing_ok=True)
+    (work / 'cnb.txt').unlink(missing_ok=True)
+    (work / 'a.txt').write_text('unrelated\n', encoding='utf-8')
+    _git(work, 'add', '-A', env=env)
+    _git(work, 'commit', '-q', '--no-gpg-sign', '-m', 'unrelated', env=env)
+    _git(work, 'checkout', '-q', 'dev', env=env)
+    remote = tmp_path / 'remote.git'
+    _git(tmp_path, 'clone', '-q', '--bare', str(work), str(remote), env=env)
+    _git(remote, 'branch', 'bridge/github-dev', 'unrelated', env=env)
+
     args = argparse.Namespace(
         apply=True,
         dry_run=False,
@@ -421,8 +512,13 @@ def test_push_failure_surfaces_stderr(mod, tmp_path):
         branch='dev',
         machine_branch='bridge/github-dev',
         cnb_url=str(work),
-        github_url=str(tmp_path / 'does-not-exist.git'),
+        github_url=str(remote),
         cwd=str(work),
     )
     rc = mod.run(args)
     assert rc == 2, f'推失败应以「结论不可信」退出（2），实际 {rc}'
+    # 推失败那一行必须打出 **remote 的原话**（空原因等于没信号），且点名目标分支。
+    err_out = capsys.readouterr().err
+    assert '推机器分支失败' in err_out, f'须显式说推失败，实际 stderr：{err_out!r}'
+    assert 'rejected' in err_out, f'须把 git 的拒绝原话打出来（非快进/被拒），实际：{err_out!r}'
+    assert 'bridge/github-dev' in err_out, f'须点名目标分支，实际：{err_out!r}'

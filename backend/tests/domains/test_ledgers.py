@@ -2026,14 +2026,17 @@ class TestLedgerDetailSearch:
         assert qty_map['000001'] == 200
 
     def test_positions_paginated_includes_price_date(self, client, db, make_position):
-        """持仓明细行必须携带 price_date（#2140 时点标注）。
+        """持仓明细行必须携带 price_date（#2140 时点标注）与 settled_today（#2210 当日已定型）。
 
         - 基金行取**实际采用**的最新净值日（多条净值时取最新一条），而非快照
           `positions.price_date`（22:15 才回写，会低估新鲜度）；
-        - 非基金行取快照回写日；两者皆缺为 None（前端 tooltip 容错省略）。
+        - 非基金行取快照回写日；两者皆缺为 None（前端 tooltip 容错省略）；
+        - settled_today 与同行 price_date 同源判定：今天 ⇒ True（前端隐藏估副行），
+          T-1 ⇒ False（照常显示），无日期 ⇒ None（按不隐藏处理）。
         """
         from datetime import date as date_cls
 
+        from app.core.time_utils import today_shanghai
         from app.domains.funds.models import DailyWorth
 
         ledger = Ledger(name='时点测试', ledger_type='mixed')
@@ -2076,6 +2079,17 @@ class TestLedgerDetailSearch:
             avg_price=10,
             current_price=11,
         )  # 无任何时点 → None
+        # #2210：22:15 position_price job 回写后，确认口径已是今日价——settled_today=True
+        today_pos = make_position(
+            symbol='601318',
+            name='中国平安',
+            ledger_id=ledger.id,
+            account_name='时点测试',
+            quantity=100,
+            avg_price=10,
+            current_price=11,
+        )
+        today_pos.price_date = today_shanghai()
         db.commit()
 
         resp = client.get(f'/api/ledgers/{ledger.id}/positions/')
@@ -2083,6 +2097,11 @@ class TestLedgerDetailSearch:
         assert items['110011']['price_date'] == '2026-01-12'
         assert items['600519']['price_date'] == '2026-01-11'
         assert items['000001']['price_date'] is None
+        # #2210：settled_today 与同行 price_date **同源**判定——基金行取实际采用的净值日
+        assert items['110011']['settled_today'] is False  # 净值日 2026-01-12，非今天
+        assert items['600519']['settled_today'] is False  # 快照日 2026-01-11，非今天
+        assert items['000001']['settled_today'] is None  # 无价格日期 → null，前端不隐藏
+        assert items['601318']['settled_today'] is True  # 确认口径已是今日价 → 前端隐藏估副行
 
 
 class TestSalesInstitutionsAPI:

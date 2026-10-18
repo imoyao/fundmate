@@ -102,23 +102,12 @@ const batchMoveGroupId = computed({
         <el-input
           v-model="searchKeyword"
           aria-label="搜索自选"
-          placeholder="搜索自选..."
+          placeholder="在当前自选列表中按代码或名称过滤"
           clearable
           :prefix-icon="Search"
           class="watchlist-search"
           @input="data.debounceSearch"
         />
-        <el-tooltip
-          content="在当前自选列表中按代码或名称过滤"
-          placement="bottom-start"
-          :offset="8"
-        >
-          <IconifyIconOffline
-            icon="ep:info-filled"
-            class="search-hint text-sm cursor-help transition-opacity"
-            :style="{ color: 'var(--text-tertiary-ink)' }"
-          />
-        </el-tooltip>
       </div>
       <div class="head-primary__actions">
         <!-- 快捷工具图标组（原 WatchlistFilterBar #actions，2026-09-05 上移本行）：

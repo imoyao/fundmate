@@ -66,7 +66,11 @@
 
 退出码：0 = 就绪（无冲突，已推 / 已开 PR）；
         1 = 有冲突，需人工解（**什么都没推**）；
-        2 = 拿不到输入（fetch / ref 缺失）——**结论不可信**。
+        2 = 拿不到输入（fetch / ref 缺失）**或合并没跑起来**（merge 非 0 退出且
+            没有冲突清单）——**结论不可信**。#2262 实测（#2259 CI 首次暴露）：
+            runner 上无 git 身份时 `git merge` 直接 rc128「Committer identity
+            unknown」，冲突清单为空，曾被打着「无冲突」照常推送——
+            「没跑成」被读成了「跑成了」。
 """
 
 from __future__ import annotations
@@ -89,15 +93,21 @@ GH_REF = 'refs/cross-bridge/gh-dev'
 CNB_REF = 'refs/cross-bridge/cnb-dev'
 
 
-def _git(args: list[str], cwd: str | None = None) -> tuple[int, str]:
-    r = subprocess.run(
-        ['git', *args], cwd=cwd, capture_output=True, text=True, encoding='utf-8', errors='replace'
-    )
-    # 把 stderr 拼进来（源 CNB #567）：`git push` / `git fetch` 的失败原因**全在 stderr**，
-    # 只收 stdout 会让「推失败」这一行打印出一个空原因 —— 有信号等于没信号。
-    # 成功的路径上 stderr 多为 `To <url>` / ` * [new branch]` 这类无害内容，不影响报告。
-    detail = '\n'.join(x.strip() for x in (r.stdout, r.stderr) if (x or '').strip())
-    return r.returncode, detail
+def _git(args: list[str], cwd: str | None = None) -> tuple[int, str, str]:
+    """跑一条 git，返回 (退出码, stdout, stderr)。
+
+    stderr 一并返回是 #2262 事故的教训：merge 挂掉时（如 runner 无 git 身份 ⇒
+    「Committer identity unknown」），错误信息全在 stderr；只留 stdout 会让调用方
+    看到一个空的 `out`，把「没跑起来」读成「没冲突」。
+    """
+    r = subprocess.run(['git', *args], cwd=cwd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+    # stderr 照旧第三个返回（#2262 的调用方靠它区分「没跑成 / 没冲突」），
+    # **另把 stderr 拼进第二个返回值**（源 CNB #567）：`git push` / `git fetch` 的拒绝原因
+    # **全在 stderr**，只把 stdout 当“输出”会让「推失败」那一行打印出空原因 —— 有信号等于没信号。
+    # 三值返回与「stdout 里含 stderr」是两条不同的调用约定，别把其中一条读成另一条的回归。
+    out = (r.stdout or '').strip()
+    err = (r.stderr or '').strip()
+    return r.returncode, '\n'.join(x for x in (out, err) if x), err
 
 
 def plan(base: str, machine_branch: str, merge_ref: str = 'merge') -> dict:
@@ -123,18 +133,23 @@ def plan(base: str, machine_branch: str, merge_ref: str = 'merge') -> dict:
 
 def fetch_ref(url: str, branch: str, dest_ref: str, cwd: str | None = None) -> tuple[bool, str]:
     """把远端某分支抓到本地临时 ref（与 `dev_converge` 同款：不改工作区、不动分支）。"""
-    code, out = _git(['fetch', '--quiet', url, f'{branch}:{dest_ref}'], cwd)
+    code, out, err = _git(['fetch', '--quiet', url, f'{branch}:{dest_ref}'], cwd)
     if code != 0:
-        return False, out or f'git fetch {url} {branch} 失败'
+        return False, err or out or f'git fetch {url} {branch} 失败'
     return True, ''
 
 
 def conflict_files(cwd: str | None = None) -> list[str]:
-    """当前工作区未解的冲突文件清单（`--diff-filter=U`）。"""
-    code, out = _git(['diff', '--name-only', '--diff-filter=U'], cwd)
+    """当前工作区未解的冲突文件清单（`git ls-files -u`，比 diff --diff-filter=U 稳）。"""
+    code, out, _ = _git(['ls-files', '-u'], cwd)
     if code != 0:
         return []
-    return [ln for ln in out.splitlines() if ln.strip()]
+    files = set()
+    for ln in out.splitlines():
+        # 每行形如：<mode> <sha> <stage>\t<path>
+        if '\t' in ln:
+            files.add(ln.split('\t', 1)[1].strip())
+    return sorted(files)
 
 
 def build_report(p: dict, *, pushed: bool, conflicts: list[str], pr_url: str | None = None) -> str:
@@ -178,13 +193,11 @@ def run(args: argparse.Namespace) -> int:
     p = plan(args.base, args.machine_branch)
 
     if args.dry_run or not args.apply:
-        code, _ = _git(['merge-tree', '--write-tree', p['base_ref'], p['merge_ref']], cwd)
+        code, _, _ = _git(['merge-tree', '--write-tree', p['base_ref'], p['merge_ref']], cwd)
         conflicts = []
         if code == 1:
-            _, out = _git(['merge-tree', '--write-tree', p['base_ref'], p['merge_ref']], cwd)
-            conflicts = sorted(
-                {ln.split('\t')[1].strip() for ln in out.splitlines() if len(ln.split('\t')) == 2}
-            )
+            _, out, _ = _git(['merge-tree', '--write-tree', p['base_ref'], p['merge_ref']], cwd)
+            conflicts = sorted({ln.split('\t')[1].strip() for ln in out.splitlines() if len(ln.split('\t')) == 2})
         elif code not in (0, 1):
             print('❌ 合并试算不可用（git merge-tree 异常）——结论不可信', file=sys.stderr)
             return 2
@@ -194,19 +207,29 @@ def run(args: argparse.Namespace) -> int:
     # ---- 执行：在临时 worktree 里合，绝不动当前工作区 ----
     wt = f'/tmp/machine-branch-{date.today().isoformat()}'
     _git(['worktree', 'remove', '--force', wt], cwd)
-    code, out = _git(['worktree', 'add', '--detach', wt, p['base_ref']], cwd)
+    code, out, err = _git(['worktree', 'add', '--detach', wt, p['base_ref']], cwd)
     if code != 0:
-        print(f'❌ 建临时 worktree 失败：{out}', file=sys.stderr)
+        print(f'❌ 建临时 worktree 失败：{err or out}', file=sys.stderr)
         return 2
-    code, out = _git(['merge', '--no-edit', p['merge_ref']], wt)
+    code, _, err = _git(['merge', '--no-edit', p['merge_ref']], wt)
     conflicts = conflict_files(wt)
+    if code != 0 and not conflicts:
+        # merge 非 0 退出且没留下冲突清单 ⇒ 合并根本没跑起来（身份缺失 / ref 不可用 / …）。
+        # #2262 实测（#2259 CI 首次暴露）：Linux runner 无 git 身份 ⇒ merge rc128
+        # 「Committer identity unknown」⇒ 冲突清单为空 ⇒ 旧代码读成「无冲突」，
+        # rev-parse + push 照常执行——「没跑成」被当成了「跑成了」。
+        # 与「拿不到输入」同族：结论不可信，什么都不推（#171 / #450 假绿纪律）。
+        print(f'❌ 合并失败（rc{code}）且未检出冲突——结论不可信，什么都没推：{err}', file=sys.stderr)
+        _git(['merge', '--abort'], wt)
+        _git(['worktree', 'remove', '--force', wt], cwd)
+        return 2
     print(build_report(p, pushed=False, conflicts=conflicts))
     if conflicts:
         _git(['merge', '--abort'], wt)
         _git(['worktree', 'remove', '--force', wt], cwd)
         return 1
 
-    sha_code, sha = _git(['rev-parse', 'HEAD'], wt)
+    sha_code, sha, _ = _git(['rev-parse', 'HEAD'], wt)
     if sha_code != 0 or not sha:
         print('❌ 拿不到合并结果 sha——结论不可信', file=sys.stderr)
         return 2
@@ -216,16 +239,14 @@ def run(args: argparse.Namespace) -> int:
         print(f'\n（`--push` 未给：合并结果停在临时 worktree 的 `{sha[:8]}`，未推任何远端。）')
         return 0
 
-    code, out = _git(['push', args.github_url, f'HEAD:refs/heads/{p["machine_branch"]}'], wt)
+    code, out, err = _git(['push', args.github_url, f'HEAD:refs/heads/{p["machine_branch"]}'], wt)
     if code != 0:
         # ⚠️ 必须在 `worktree remove` **之前**把 remote 的原文打出来（源 CNB #567，2026-10-18）。
-        # `_git()` 只收 stdout，而 `git push` 的进展与拒绝原因走 **stderr**
-        # （`! [rejected] … (fetch first)` / `hint: Updates were rejected …` 全在 stderr），
-        # 于是本行原先打印的 `{out}` 是**空串**：构建日志里只剩一句
-        # 「❌ 推机器分支失败：」，后面什么都没有 —— 分叉存在了两天，却没有任何一行说得出
-        # 「GitHub 领先 / 被拒 / 快进不行」。这正是本仓反复踩的「有信号等于没信号」形态。
+        # `git push` 的进展与拒绝原因走 **stderr**（`! [rejected] … (fetch first)` /
+        # `hint: Updates were rejected …`），只打 stdout 就是一句空的「❌ 推机器分支失败：」——
+        # 分叉存在了两天，日志里却没有任何一行说得出「被拒 / 非快进 / 远端领先」。
         # 返回码 2 保留（「结论不可信」），另起一行点名分支 —— 后面要用它开 PR。
-        print(f'❌ 推机器分支失败：{out or "(stdout 为空，原因见 stderr)"}', file=sys.stderr)
+        print(f'❌ 推机器分支失败：{out or err or "(git 没有任何输出)"}', file=sys.stderr)
         print(f'   目标分支：{p["machine_branch"]}（未推上去；下次重跑会覆盖同一 ref）', file=sys.stderr)
         _git(['worktree', 'remove', '--force', wt], cwd)
         return 2
@@ -256,7 +277,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument('--cwd', default=None, help='git 仓库路径（默认当前目录）')
     args = ap.parse_args(argv)
     if not args.cnb_url:
-        code, url = _git(['remote', 'get-url', 'origin'], args.cwd)
+        code, url, _ = _git(['remote', 'get-url', 'origin'], args.cwd)
         args.cnb_url = url if code == 0 and url else 'https://cnb.cool/duoduobei/fundmate.git'
     return run(args)
 
