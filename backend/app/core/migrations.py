@@ -12,6 +12,7 @@
 - 失败显式抛错（不静默吞掉，避免带病启动）。
 """
 
+import os
 import re
 
 from loguru import logger
@@ -542,6 +543,15 @@ def migrate_fee_unique_indexes(engine: Engine) -> str:
     **fail closed**：直接抛错并指明处置命令，而不是「跳过不建」。跳过等于把刚修好的
     问题原样放回去，且没人会知道——重复行正是这样静默存在了五个月。
 
+    ## 但修复窗口必须能启动应用（实测踩到）
+
+    「同区间两个费率」这类重复行，正确的修复方式是**用修好的解析重新同步**，
+    而重新同步要跑 ``sync_metadata.py``——它启动时就调 ``init_db``，于是 fail closed
+    会把**修复路径自己**堵死（2026-10-18 实测：CLI 直接 RuntimeError 退出，一只都没跑）。
+
+    故提供显式开关 ``ALLOW_FEE_DUPLICATES=1``：只在该环境下放行（记ERROR 日志、
+    不建索引、继续启动），供「清理 / 重同步」这个窗口使用。默认不放行。
+
     ``create_all`` 只建新表、不给存量表加索引，故与 watchlist 约束同法由 init_db 兜底。
     """
     url = str(getattr(engine, 'url', '') or '')
@@ -555,12 +565,20 @@ def migrate_fee_unique_indexes(engine: Engine) -> str:
 
     problems = _fee_duplication_report(engine)
     if problems:
-        raise RuntimeError(
-            '费率三表存在重复行，唯一索引无法建立：\n  - '
-            + '\n  - '.join(problems)
-            + '\n请先清理存量：python backend/scripts/cleanup_fee_ratio_dupes.py --db <库路径>'
+        detail = '\n  - '.join(problems)
+        remediation = (
+            'python backend/scripts/cleanup_fee_ratio_dupes.py --db <库路径>'
             '（默认 dry-run；确认后加 --apply，会自动写回滚 SQL）'
         )
+        if os.getenv('ALLOW_FEE_DUPLICATES') == '1':
+            msg = (
+                '[BLOCKED] 费率三表仍有重复行，未建唯一索引（ALLOW_FEE_DUPLICATES=1 显式放行，'
+                f'仅供清理/重同步窗口使用）:\n  - {detail}\n处理完成后请去掉该环境变量重启，'
+                f'索引会自动补建。处置：{remediation}'
+            )
+            logger.error(msg)
+            return msg
+        raise RuntimeError(f'费率三表存在重复行，唯一索引无法建立：\n  - {detail}\n请先清理存量：{remediation}')
 
     with engine.connect() as conn:
         for _name, sql in _FEE_UNIQUE_INDEX_DDL_ALL:

@@ -701,7 +701,7 @@ class TestFeeUniqueConstraints:
             db.commit()
         db.rollback()
 
-    def test_migration_is_fail_closed_on_legacy_duplicates(self, db):
+    def test_migration_is_fail_closed_on_legacy_duplicates(self, db, monkeypatch):
         """存量库有重复行时迁移必须报错并指明清理命令，不许静默跳过
 
         跳过等于把刚修好的问题原样放回去，且没人会知道——重复行正是这样静默存在了五个月。
@@ -719,14 +719,22 @@ class TestFeeUniqueConstraints:
             )
             db.commit()
 
+            monkeypatch.delenv('ALLOW_FEE_DUPLICATES', raising=False)
             with pytest.raises(RuntimeError) as exc:
                 migrate_fee_unique_indexes(db.get_bind())
             assert 'cleanup_fee_ratio_dupes' in str(exc.value), '报错必须指明处置命令'
 
+            # 修复窗口的显式放行：只放行启动，不建索引，且必须说清是放行
+            monkeypatch.setenv('ALLOW_FEE_DUPLICATES', '1')
+            blocked = migrate_fee_unique_indexes(db.get_bind())
+            assert 'BLOCKED' in blocked and 'ALLOW_FEE_DUPLICATES' in blocked
+            assert 'uq_fee_ratios_scope' not in {
+                row[0] for row in db.execute(text("SELECT name FROM sqlite_master WHERE type='index'"))
+            }
+
             # 清掉重复行后迁移应能通过（顺带验证 finally 里索引能被恢复）
-            for row in db.query(FeeRatio).filter_by(fund_code='000001').order_by(FeeRatio.id.desc()).limit(1):
-                db.delete(row)
-            db.commit()
+            _delete_duplicate_fee_ratios(db)
+            monkeypatch.delenv('ALLOW_FEE_DUPLICATES', raising=False)
             assert 'uq_fee_ratios_scope' in migrate_fee_unique_indexes(db.get_bind())
 
     def test_migration_is_idempotent(self, db):
