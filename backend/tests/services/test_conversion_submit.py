@@ -40,18 +40,16 @@ def _seed_fund(db, code, name, *, purchase_rate=None, redeem_rules=None, fund_ty
     db.add(fund)
     db.flush()
     if purchase_rate is not None:
-        rule = (
-            db.query(PurchaseRule).filter(PurchaseRule.start_quota == 0, PurchaseRule.end_quota.is_(None)).first()
-            or PurchaseRule(start_quota=0, end_quota=None)
-        )
+        rule = db.query(PurchaseRule).filter(
+            PurchaseRule.start_quota == 0, PurchaseRule.end_quota.is_(None)
+        ).first() or PurchaseRule(start_quota=0, end_quota=None)
         db.add(rule)
         db.flush()
         db.add(FeeRatio(fund_code=code, fee_type='purchase', rate=purchase_rate, purchase_rule_id=rule.id))
     for start_day, end_day, rate in redeem_rules or []:
-        rule = (
-            db.query(RedeemRule).filter(RedeemRule.start_day == start_day, RedeemRule.end_day == end_day).first()
-            or RedeemRule(start_day=start_day, end_day=end_day)
-        )
+        rule = db.query(RedeemRule).filter(
+            RedeemRule.start_day == start_day, RedeemRule.end_day == end_day
+        ).first() or RedeemRule(start_day=start_day, end_day=end_day)
         db.add(rule)
         db.flush()
         db.add(FeeRatio(fund_code=code, fee_type='redeem', rate=rate, redeem_rule_id=rule.id))

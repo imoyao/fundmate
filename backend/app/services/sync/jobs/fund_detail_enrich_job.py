@@ -127,9 +127,7 @@ class FundDetailEnrichJob(SyncJob):
         self._post_run()
         # 目标一个都没匹配上：判 FAILED。「跑完了」不等于「做对了」——旧实现这里静默成功，
         # 而调用方（含 get_last_sync_time 的增量基线）会把假成功当依据。
-        all_targets_missing = bool(self.stats['not_found']) and not (
-            self.stats['enriched'] or self.stats['skipped']
-        )
+        all_targets_missing = bool(self.stats['not_found']) and not (self.stats['enriched'] or self.stats['skipped'])
         if all_targets_missing:
             sample = ', '.join(self.stats['not_found'][:10])
             logger.error(
