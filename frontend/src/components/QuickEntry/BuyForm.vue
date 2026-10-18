@@ -36,7 +36,7 @@
             v-if="!showQuickAdd"
             aria-label="新建账户"
             type="primary"
-            text
+            class="account-create-btn"
             @click="showQuickAdd = true"
           >
             <IconifyIconOffline icon="ep:plus" />
@@ -128,23 +128,20 @@
     <!-- 交易日期与下单时间 -->
     <el-form-item label="交易日期" prop="trade_date">
       <div class="flex items-center gap-3 w-full">
-        <el-date-picker
-          v-model="form.trade_date"
-          type="date"
-          :class="showIsAfter15 ? 'flex-1' : 'w-full'"
-          style="width: 100%"
-          value-format="YYYY-MM-DD"
-          :clearable="false"
-          :disabled-date="disabledDate"
-        />
-        <el-radio-group
-          v-if="showIsAfter15"
-          v-model="form.isAfter15"
-          size="small"
-        >
-          <el-radio-button :value="false">15:00前</el-radio-button>
-          <el-radio-button :value="true">15:00后</el-radio-button>
-        </el-radio-group>
+        <!-- 日期框外层必须自带弹性：DatePicker 是 inheritAttrs:false，写它身上的
+             class（曾用 `:class="showIsAfter15 ? 'flex-1' : 'w-full'"`）根本落不到
+             DOM 上；宽度只能靠内联 width:100% + 外层的 flex-1/min-w-0 给。 -->
+        <div class="min-w-0 flex-1">
+          <el-date-picker
+            v-model="form.trade_date"
+            type="date"
+            style="width: 100%"
+            value-format="YYYY-MM-DD"
+            :clearable="false"
+            :disabled-date="disabledDate"
+          />
+        </div>
+        <TradeSlotSwitch v-if="showIsAfter15" v-model="form.isAfter15" />
       </div>
       <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
         <span
@@ -213,59 +210,19 @@
           </span>
         </div>
 
-        <!-- 第二行：快捷折扣按钮（仅在费率模式下独立一行展示，间距宽松） -->
+        <!-- 第二行：快捷折扣档位（仅费率模式）。
+             「多选一、选项少」→ SegmentedControl（design.md 语言边界），
+             与份额档位/交易时点同一套软按钮选中态，不再手写 el-button 组。 -->
         <div
           v-if="feeMode === 'rate'"
           class="flex flex-wrap items-center gap-2 mt-1"
         >
-          <el-button
-            size="small"
-            plain
-            round
-            class="quick-ratio-btn"
-            :class="{ active: fundFeeDiscount === 1.0 }"
-            @click="
-              fundFeeDiscount = 1.0;
-              onFundFeeDiscountChange();
-            "
-            >原价</el-button
-          >
-          <el-button
-            size="small"
-            plain
-            round
-            class="quick-ratio-btn"
-            :class="{ active: fundFeeDiscount === 0.1 }"
-            @click="
-              fundFeeDiscount = 0.1;
-              onFundFeeDiscountChange();
-            "
-            >1折</el-button
-          >
-          <el-button
-            size="small"
-            plain
-            round
-            class="quick-ratio-btn"
-            :class="{ active: fundFeeDiscount === 0.01 }"
-            @click="
-              fundFeeDiscount = 0.01;
-              onFundFeeDiscountChange();
-            "
-            >0.1折</el-button
-          >
-          <el-button
-            size="small"
-            plain
-            round
-            class="quick-ratio-btn"
-            :class="{ active: fundFeeDiscount === 0 }"
-            @click="
-              fundFeeDiscount = 0;
-              onFundFeeDiscountChange();
-            "
-            >免申购费</el-button
-          >
+          <SegmentedControl
+            v-model="fundFeeDiscount"
+            :options="FEE_DISCOUNT_OPTIONS"
+            aria-label="申购费折扣"
+            @change="onFundFeeDiscountChange"
+          />
         </div>
       </div>
 
@@ -295,21 +252,23 @@
     </el-form-item>
 
     <!-- 🔥 修改：显示“对应净值”，并用 actualNavDate 替代 form.trade_date -->
-    <!-- 4. 确认净值（弱化展示：只读、小字、带日期） -->
+    <!-- 4. 确认净值（提升视觉层级：净值是基金买入/赎回到账的核心依据，信息层级应与重要性匹配） -->
     <div
       v-if="selectedSecurityOption?.type === 'fund'"
-      class="text-xs flex items-center gap-1 mt-1 pl-[90px]"
-      style="color: var(--text-tertiary-ink)"
+      class="text-sm flex items-center gap-2 mt-2 pl-[90px]"
+      style="color: var(--text-secondary)"
     >
-      <span>对应净值：</span>
-      <span class="font-medium" style="color: var(--text-secondary)">
+      <span>对应净值</span>
+      <span class="font-semibold" style="color: var(--text-primary)">
         {{
           form.price !== undefined && form.price > 0
             ? form.price.toFixed(4)
             : "--"
         }}
       </span>
-      <span>[{{ actualNavDate || form.trade_date || "--" }}]</span>
+      <span class="text-xs" style="color: var(--text-tertiary-ink)">
+        · {{ actualNavDate || form.trade_date || "--" }}
+      </span>
     </div>
 
     <!-- 净值缺失先记账：放行提交的提示（份额可留空，官方净值到位后自动回填） -->
@@ -348,8 +307,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, nextTick } from "vue";
-import { ElMessage } from "element-plus";
+import { ref, reactive, computed, watch, nextTick, onMounted } from "vue";
+import { ElMessage, ElMessageBox } from "element-plus";
 import type { FormInstance, FormRules } from "element-plus";
 import { usePositionSubmit } from "@/composables/usePositionSubmit";
 import { createLedger as createLedgerApi, type LedgerItem } from "@/api/ledger";
@@ -364,6 +323,9 @@ import type { FundSearchItem } from "@/api/funds";
 import { checkTradingDay } from "@/api/utils";
 import { useFundTradeDate } from "@/composables/useFundTradeDate";
 import { IconifyIconOffline } from "@/components/ReIcon";
+import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
+import TradeSlotSwitch from "@/components/TradeSlotSwitch/index.vue";
+import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import {
   ALLOCATION_OPTIONS,
   LEDGER_TYPE_SHORT,
@@ -427,6 +389,94 @@ const defaultForm = () => ({
 const form = reactive(defaultForm());
 const formRef = ref<FormInstance>();
 
+// ── 重记一笔：会话内保留上次提交快照（#2305）──
+// 仅 sessionStorage（刷新即清空），不落盘；预填产品+账户，金额/日期/份额留空。
+const LAST_SUBMITTED_KEY = "fm:buy:last_submitted";
+interface LastSubmitted {
+  ledger_id: number | null;
+  symbol: string;
+  name: string;
+  market: string;
+  type: string;
+  trade_date: string;
+  buyAmount: number | undefined;
+  shares: number | undefined;
+  fee: number | undefined;
+}
+
+function loadLastSubmitted(): LastSubmitted | null {
+  try {
+    const raw = sessionStorage.getItem(LAST_SUBMITTED_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as LastSubmitted;
+    if (!parsed || typeof parsed !== "object") return null;
+    if (parsed.ledger_id == null && !parsed.symbol) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function persistLastSubmitted() {
+  const snapshot: LastSubmitted = {
+    ledger_id: form.ledger_id,
+    symbol: form.symbol,
+    name: form.name,
+    market: form.market,
+    type: form.type,
+    trade_date: form.trade_date,
+    buyAmount: form.buyAmount,
+    shares: form.shares,
+    fee: form.fee
+  };
+  try {
+    sessionStorage.setItem(LAST_SUBMITTED_KEY, JSON.stringify(snapshot));
+  } catch {
+    /* 存储满 / 私有模式：静默忽略，不影响主流程 */
+  }
+}
+
+// 提交成功后写入会话快照（在 handleSubmit 成功分支调用）
+function onPersistLastSubmitted() {
+  persistLastSubmitted();
+}
+
+// 挂载时若有快照，预填产品+账户（金额/日期/份额留空，避免误提交上次金额）
+// 放在 onMounted 里，等 defaultLedgerId 的 immediate watcher 跑完再覆盖，避免被父组件默认值冲掉。
+onMounted(() => {
+  const last = loadLastSubmitted();
+  if (!last) return;
+  form.ledger_id = last.ledger_id;
+  form.symbol = last.symbol;
+  form.name = last.name;
+  form.market = last.market;
+  form.type = last.type;
+  // trade_date 保持默认今天，不回填上次日期
+  // buyAmount / shares / fee 留空
+  selectedSecurityOption.value = {
+    symbol: last.symbol,
+    name: last.name,
+    market: last.market,
+    type: last.type,
+    type_label: last.type === "fund" ? "基金" : "股票"
+  };
+  // 预填后触发一次费用预设与净值计算（watch 在模块加载期尚未挂载，需手动触发）
+  nextTick(() => {
+    applyFeePreset();
+    if (last.type === "fund" && form.trade_date) {
+      calcConfirmAndNav({
+        tradeDate: form.trade_date,
+        symbol: last.symbol,
+        isAfter15: form.isAfter15
+      });
+    }
+    // 「重记一笔」的预填是**程序化初始值**，不是用户编辑。不回写脏基线的话，
+    // 页面一挂载 `isDirty` 就是 true —— 用户什么都不填、只切一下操作类型，
+    // 就被弹「记账表单已填写，确定放弃吗？」（#2305 引入的回归）。
+    markFormClean();
+  });
+});
+
 // 极简账户创建
 const showQuickAdd = ref(false);
 const newAccountName = ref("");
@@ -457,6 +507,14 @@ const isUpdating = ref(false);
 // 基金手续费折扣
 const fundFeeDiscount = ref(0.1);
 
+/** 折扣档位：与份额档位同语言（SegmentedControl），值是折扣系数本身 */
+const FEE_DISCOUNT_OPTIONS = [
+  { label: "原价", value: 1 },
+  { label: "1折", value: 0.1 },
+  { label: "0.1折", value: 0.01 },
+  { label: "免申购费", value: 0 }
+];
+
 // ── 净值缺失先记账 ──
 // 当日净值未发布 / 数据源故障拉不到时，不再把用户挡在记账之外：置 navMissing，
 // 份额允许留空（后端按金额与最近净值占位暂算、标 pending_nav），
@@ -473,10 +531,58 @@ const {
   reset: resetTradeDate
 } = useFundTradeDate();
 
+// ── 最近使用账户置顶（#2305）──
+// localStorage 记录最近使用的 ledger_id，下拉列表按此排序置顶。
+const RECENT_LEDGER_KEY = "fm:buy:recent_ledgers";
+
+function loadRecentLedgers(): number[] {
+  try {
+    const raw = localStorage.getItem(RECENT_LEDGER_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((id: unknown) => typeof id === "number");
+  } catch {
+    return [];
+  }
+}
+
+function persistRecentLedgers(ids: number[]) {
+  try {
+    localStorage.setItem(RECENT_LEDGER_KEY, JSON.stringify(ids));
+  } catch {
+    /* 存储满 / 私有模式：静默忽略 */
+  }
+}
+
+// 提交成功后把该账户提到最近列表首位
+function bumpRecentLedger(ledgerId: number) {
+  if (!ledgerId) return;
+  const ids = loadRecentLedgers();
+  const filtered = ids.filter(id => id !== ledgerId);
+  filtered.unshift(ledgerId);
+  // 只保留最近 20 个
+  persistRecentLedgers(filtered.slice(0, 20));
+}
+
 // ── 计算属性 ──
-const selectableLedgers = computed(() =>
-  props.ledgers.filter(l => l.ledger_type !== "property")
-);
+const recentLedgerIds = loadRecentLedgers();
+const selectableLedgers = computed(() => {
+  const base = props.ledgers.filter(l => l.ledger_type !== "property");
+  if (recentLedgerIds.length === 0) return base;
+  const recentSet = new Set(recentLedgerIds);
+  const recent: typeof base = [];
+  const rest: typeof base = [];
+  for (const l of base) {
+    if (recentSet.has(l.id)) recent.push(l);
+    else rest.push(l);
+  }
+  // 按最近列表顺序排列
+  recent.sort(
+    (a, b) => recentLedgerIds.indexOf(a.id) - recentLedgerIds.indexOf(b.id)
+  );
+  return [...recent, ...rest];
+});
 const currentLedger = computed(
   () => props.ledgers.find(l => l.id === form.ledger_id) ?? null
 );
@@ -962,15 +1068,45 @@ async function handleSubmit() {
 
   // 统一提交层（#933）：防抖/错误信封/成功广播单点维护，表单只组装 body
   const { submitPosition } = usePositionSubmit();
+
+  // 防呆：若与上次提交完全一致，先确认是否重复记录（#2305）
+  const last = loadLastSubmitted();
+  if (last) {
+    const same =
+      last.ledger_id === form.ledger_id &&
+      last.symbol === form.symbol &&
+      last.trade_date === form.trade_date &&
+      last.buyAmount === form.buyAmount &&
+      last.shares === form.shares &&
+      last.fee === form.fee;
+    if (same) {
+      const confirmed = await new Promise<boolean>(resolve => {
+        ElMessageBox.confirm(
+          "当前记录与上次提交完全相同，确认要重复记录吗？",
+          "重复记录确认",
+          {
+            confirmButtonText: "继续记录",
+            cancelButtonText: "取消",
+            type: "warning",
+            distinguishCancelAndClose: true
+          }
+        )
+          .then(() => resolve(true))
+          .catch(() => resolve(false));
+      });
+      if (!confirmed) return;
+    }
+  }
+
   const ok = await submitPosition(body);
   if (ok) {
+    onPersistLastSubmitted();
+    if (form.ledger_id) bumpRecentLedger(form.ledger_id);
     emit("submit-success");
   }
 }
 
 function resetForm() {
-  // 未保存离开保护的快照（#1853）：重置后必须重新记快照，否则上一轮的输入会被当成脏
-  markFormClean();
   Object.assign(form, defaultForm());
   selectedSecurityOption.value = null;
   securityOptions.value = [];
@@ -981,6 +1117,15 @@ function resetForm() {
   if (props.hideAccountSelect && props.defaultLedgerId) {
     form.ledger_id = props.defaultLedgerId;
   }
+
+  // 未保存离开保护的脏基线（#1853）：必须在**全部重置动作之后**再记快照。
+  //
+  // 记在前面（此前的写法）会把「本轮刚填的值」记成基线，紧接着 Object.assign 又把
+  // 表单重置成默认值——基线≠当前，isDirty 于是为 true：提交成功后
+  // TransactionDrawer 走 v-model setter 关闭时读到脏，弹出「交易表单已填写，确定
+  // 放弃吗？」，且点「继续编辑」留下的是一个已被清空的表单。正确范式见
+  // DividendForm.resetForm（先重置、后记快照）。
+  markFormClean();
 }
 
 watch(
@@ -1018,6 +1163,10 @@ watch(
         form.price = undefined;
         form.shares = undefined;
       }
+      // 净值是系统回填的派生值。用户还没录入金额/份额时，回填完即视为新的干净基线：
+      // 否则「带预填进入页面、什么都不做就切操作类型」会被判成有未保存修改。
+      // 用户已录入金额/份额时**不能**回写基线，否则那部分编辑会被洗掉。
+      if (form.buyAmount == null && form.shares == null) markFormClean();
     } else {
       navMissing.value = false;
     }
@@ -1068,32 +1217,28 @@ defineExpose({ handleSubmit, resetForm, isDirty });
   font-size: 0.75rem;
 }
 
-.quick-ratio-btn {
+/* 新建账户：次按钮语义（辅助操作，不抢主视觉），对齐 design.md 按钮规范 */
+.account-create-btn {
+  flex-shrink: 0;
+  gap: 4px;
   height: 40px;
   padding: 0 16px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  background-color: transparent;
+  color: var(--text-primary);
+  background-color: var(--bg-card);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   transition:
-    background-color 0.2s,
-    border-color 0.2s,
-    color 0.2s,
-    transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+    background-color 150ms ease,
+    border-color 150ms ease;
 }
 
-.quick-ratio-btn:hover {
-  color: var(--brand-700);
-  background-color: var(--brand-100);
-  border-color: var(--brand-700);
+.account-create-btn:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--border-light);
 }
 
-.quick-ratio-btn:active {
-  color: var(--brand-700);
-  background-color: var(--brand-200);
-  border-color: var(--brand-700);
-  transform: scale(0.92);
+.account-create-btn :deep(.el-icon) {
+  margin-right: 0;
 }
 
 :deep(.el-button--primary) {

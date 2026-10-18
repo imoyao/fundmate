@@ -852,3 +852,73 @@ class TestSnapshotsEndpoint:
         """非法日期格式的 snapshot_date 拒绝写入"""
         resp = client.post('/api/summary/snapshots/', json={'snapshot_date': '2026/08/10'})
         assert resp.status_code == 400
+
+
+class TestClearedCyclesEndpoint:
+    """#2131 清仓周期统计端点（GET /api/summary/cleared-cycles/）"""
+
+    def test_empty_returns_envelope(self, client):
+        """无流水：空形态 + 标准信封，比率为 null 不画 0。"""
+        resp = client.get('/api/summary/cleared-cycles/')
+        assert resp.status_code == 200
+        payload = resp.get_json()
+        assert payload['message'] == 'ok'
+        data = payload['data']
+        assert data['cycles'] == []
+        assert data['summary']['cycle_count'] == 0
+        assert data['summary']['win_rate'] is None
+        assert data['summary']['realized_pnl_total'] is None
+
+    def test_cycle_visible_after_full_sell(self, client):
+        """买入 → 清仓卖出：周期可查（信封 + 周期字段 + 汇总胜率）。
+
+        走真实写入口（POST /api/positions/ op_type=buy/sell），覆盖
+        「持仓行清仓即删、盈亏只能从流水聚合」这条端到端路径。
+        """
+        _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': '00700.HK',
+                'name': '腾讯',
+                'type': 'stock',
+                'market': 'CN_HK',
+                'account_name': '富途',
+                'quantity': 100,
+                'avg_price': 350,
+                'currency': 'HKD',
+                'trade_date': '2026-05-01',
+            },
+        )
+        list_resp = client.get('/api/positions/')
+        pos_id = list_resp.get_json()['data'][0]['id']
+        sell_resp = _post(
+            client,
+            '/api/positions/',
+            {
+                'position_id': pos_id,
+                'op_type': 'sell',
+                'symbol': '00700.HK',
+                'quantity': 100,
+                'avg_price': 400,
+                'trade_date': '2026-06-01',
+            },
+        )
+        assert sell_resp.status_code == 200
+
+        resp = client.get('/api/summary/cleared-cycles/')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert len(data['cycles']) == 1
+        c = data['cycles'][0]
+        assert c['symbol'] == '00700.HK'
+        assert c['first_buy_date'] == '2026-05-01'
+        assert c['last_sell_date'] == '2026-06-01'
+        assert c['trade_count'] == 2
+        # 100 股 × (400−350) = 5000（流水币种原值，不折汇率——与 pnl_service 口径一致）
+        assert c['realized_pnl'] == 5000.0
+        assert c['pnl_pct'] == 14.29  # 5000 / 35000
+        assert c['pnl_known'] is True
+        assert data['summary']['cycle_count'] == 1
+        assert data['summary']['win_rate'] == 100.0
+        assert data['summary']['realized_pnl_total'] == 5000.0

@@ -81,8 +81,8 @@ test.describe("实时轮询生命周期（#1104 公共层回归）", () => {
     await injectSupabaseSession(context, baseURL!);
 
     await context.addInitScript(() => {
-      localStorage.setItem("showbuy_realtime_quotes_enabled", "true");
-      localStorage.setItem("showbuy_realtime_quotes_interval", "15");
+      localStorage.setItem("duoduobei_realtime_quotes_enabled", "true");
+      localStorage.setItem("duoduobei_realtime_quotes_interval", "15");
     });
     // 先平移系统时间到交易时段，再 resume：`setSystemTime` 会把定时器切到「手动推进」态，
     // 不 resume 的话路由守卫里的异步等待永远不 resolve、页面根本不渲染（实测 sidebar 不可见）。

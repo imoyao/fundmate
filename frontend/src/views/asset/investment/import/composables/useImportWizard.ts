@@ -525,6 +525,27 @@ export function useImportWizard() {
 
   const selectedCount = computed(() => selectedKeys.value.size);
 
+  /**
+   * 已隐藏但仍被勾选的重复行数（#2274）。
+   * 「取消显示重复行」只切显隐、不动勾选（导入载荷与「已选择 N 条」均以
+   * selectedKeys 为唯一真相源）：这些行不出现在「只看问题数据」视图里，
+   * 却会随 selectedKeys 进入导入载荷（keep_duplicate 真插入）。
+   * UI 据此给出可见提示，避免「看不见自己要导什么」。
+   */
+  const hiddenSelectedDuplicateCount = computed(() => {
+    if (!duplicatesHandled.value) return 0;
+    let count = 0;
+    for (const row of previewData.value) {
+      if (
+        row.is_duplicate &&
+        row._duplicateHandled &&
+        selectedKeys.value.has(row._rowKey)
+      )
+        count++;
+    }
+    return count;
+  });
+
   const nothingImported = computed(
     () =>
       importedCount.value === 0 &&
@@ -629,6 +650,19 @@ export function useImportWizard() {
     const counts = { complete: 0, duplicate: 0, fix: 0 };
     previewData.value.forEach(row => counts[categorizeRow(row)]++);
     return counts;
+  });
+
+  /**
+   * #2281：「数据完整」卡内的转账行条数。与 categorizeRow 同口径取子集
+   * （转账行若同时疑似重复则归 duplicate 卡，不计入此处），保证 chips 计数
+   * ≤ 卡片条数；摘要卡据此提示「转账可导入 / 转账待关联」。
+   */
+  const completeTransferCount = computed(() => {
+    let n = 0;
+    previewData.value.forEach(row => {
+      if (row.is_cash_transfer && categorizeRow(row) === "complete") n++;
+    });
+    return n;
   });
 
   /**
@@ -897,7 +931,9 @@ export function useImportWizard() {
             const nav = navMap[row.symbol];
             if (nav && nav > 0) {
               row.price = nav;
-              row.quantity = row.amount / nav;
+              // 与 cellEditLogic / applyManualFill / batchFixAmount 同一修边口径：
+              // toFixed(4) 后 parseFloat，避免长浮点直接进表格
+              row.quantity = parseFloat((row.amount / nav).toFixed(4));
               row.is_calculated = true;
             }
           }
@@ -1041,6 +1077,10 @@ export function useImportWizard() {
     tableTypeFilter.value = [];
     tableStatusFilter.value = "";
     duplicatesHandled.value = false;
+    // #2281：转账行横幅关闭态与「可导入」徽章 dismiss 态均为会话级，
+    // 新导入会话（换文件 / 重新导入）重置，确保能力提示重新出现
+    cashBindingBannerDismissed.value = false;
+    dismissedTransferBadgeKeys.value = new Set();
     uploadError.value = "";
     parsing.value = false;
   }
@@ -1329,12 +1369,35 @@ export function useImportWizard() {
       if (!draft || draft.domain !== draftDomain) return;
       // 回填账本上下文（Step 0 产出，否则预览页丢失账本上下文）
       if (draft.selectedLedgerId != null) {
+        // 账户存在性前置校验：onMounted 先 fetchLedgers 再 checkDraft，
+        // 点恢复时列表已就绪；列表为空（fetch 失败）时不校验，避免误判。
+        // 账户已删除则拒绝恢复并丢弃草稿——否则带着死 ledgerId 一路走到
+        // confirmImport 才报「所选账户无效」，用户修正完数据才发现，
+        // 失败点太晚；且草稿已无归属，保留只会在下次进页面反复踩同一坑。
+        if (
+          ledgers.value.length > 0 &&
+          !ledgers.value.some(l => l.id === draft.selectedLedgerId)
+        ) {
+          await discardDraft().catch(() => {});
+          draftBannerVisible.value = false;
+          pendingDraftMeta.value = null;
+          ElMessage.warning(
+            "草稿关联的账户已被删除，无法恢复，请重新选择账户导入"
+          );
+          return;
+        }
         selectedLedgerId.value = draft.selectedLedgerId;
       }
       if (draft.selectedMode) selectedMode.value = draft.selectedMode;
       // 回填预览数据（行内编辑状态保留）
       previewData.value = addRowKeys(draft.rows);
       totalRows.value = previewData.value.length;
+      // #2274：行级 _duplicateHandled 随草稿行持久化，但 duplicatesHandled
+      // 开关本身不入草稿——恢复时按行标回推，避免按钮文案与实际显隐状态说谎
+      // （隐藏过的重复行恢复后仍处于隐藏态，按钮应显示「恢复查看重复行」）
+      duplicatesHandled.value = previewData.value.some(
+        r => r.is_duplicate && r._duplicateHandled
+      );
       // 回填勾选（数组 → Set）
       selectedKeys.value = new Set(draft.selectedKeySet);
       // 重算统计
@@ -1419,17 +1482,25 @@ export function useImportWizard() {
     checked ? selectAllValid() : clearAllSelection();
   }
 
+  /**
+   * 全选 / 恢复忽略行的勾选取止：疑似重复行默认不勾（要导自己手动勾，#1882），
+   * 解析错误 / 数量价格缺失 / 资金划转 / 已忽略行不参与。
+   * selectAllValid 与 toggleIgnoreRow 恢复分支共用，保证两处口径一致。
+   */
+  function isAutoSelectableRow(row: any): boolean {
+    return (
+      !row.is_duplicate &&
+      !row.error &&
+      !isRowBlocked(row) &&
+      !row.is_cash_transfer &&
+      !row._ignored
+    );
+  }
+
   function selectAllValid() {
     const newKeys = new Set<string>();
     previewData.value.forEach(row => {
-      if (
-        !row.is_duplicate &&
-        !row.error &&
-        !isRowBlocked(row) &&
-        !row.is_cash_transfer &&
-        !row._ignored
-      )
-        newKeys.add(row._rowKey);
+      if (isAutoSelectableRow(row)) newKeys.add(row._rowKey);
     });
     selectedKeys.value = newKeys;
     isAllSelected.value = true;
@@ -1452,7 +1523,14 @@ export function useImportWizard() {
   /** 逐行忽略：标记该行不参与导入（与整类跳过 skipCategory 互补，针对单行）；再点一次恢复 */
   function toggleIgnoreRow(row: any) {
     row._ignored = !row._ignored;
-    if (row._ignored) selectedKeys.value.delete(row._rowKey);
+    if (row._ignored) {
+      selectedKeys.value.delete(row._rowKey);
+    } else if (isAutoSelectableRow(row)) {
+      // 恢复忽略 = 回到全选默认态：可勾的重新勾上（#783 终审遗留小问题）。
+      // 只补谓词内的行——重复行要导仍需用户手动勾（#1882），
+      // 解析错误 / 待补全 / 资金划转行本就不可勾，恢复后同样不勾。
+      selectedKeys.value.add(row._rowKey);
+    }
     selectedKeys.value = new Set(selectedKeys.value);
     previewData.value = [...previewData.value];
     updateSelectAllState();
@@ -1494,7 +1572,9 @@ export function useImportWizard() {
             const nav = navMap[row.symbol];
             if (nav && nav > 0) {
               row.price = nav;
-              row.quantity = row.amount / nav;
+              // 修边口径同 fetchAndFillFundNav：toFixed(4) 后 parseFloat，
+              // 避免长浮点直接进表格
+              row.quantity = parseFloat((row.amount / nav).toFixed(4));
               row.is_calculated = true;
             } else {
               row.price = 0;
@@ -1714,6 +1794,18 @@ export function useImportWizard() {
     return "解析器识别";
   }
 
+  /**
+   * 「取消显示重复行」/「恢复查看重复行」（#2274）：只切显隐，绝不动勾选。
+   *
+   * 导入载荷（confirmImport 按 selectedKeys 取行）与「已选择 N 条」计数
+   * （selectedKeys.size）都以 selectedKeys 为唯一真相源，与显隐解耦——
+   * 用户手动勾选保留的重复行（keep_duplicate 真插入）不应被一个显隐按钮
+   * 悄悄从 selectedKeys 里删掉。历史上该按钮会静默删除勾选且「恢复查看」
+   * 不还原，导致导入意图被丢（#2274）。
+   *
+   * 隐藏行若仍被勾选，由 hiddenSelectedDuplicateCount 暴露给 UI 给出提示，
+   * 避免用户看不见自己要导入的内容。
+   */
   function deselectAllDuplicates() {
     // 1. 先浅拷贝一份（避免直接修改原数组触发大量响应式更新）
     const data = [...previewData.value];
@@ -1725,14 +1817,10 @@ export function useImportWizard() {
       }
       duplicatesHandled.value = false;
     } else {
-      // 隐藏所有重复行
+      // 隐藏所有重复行（仅显隐；勾选原样保留，见函数注释）
       for (const row of data) {
-        if (row.is_duplicate) {
-          row._duplicateHandled = true;
-          selectedKeys.value.delete(row._rowKey);
-        }
+        if (row.is_duplicate) row._duplicateHandled = true;
       }
-      selectedKeys.value = new Set(selectedKeys.value);
       duplicatesHandled.value = true;
     }
 
@@ -1741,9 +1829,13 @@ export function useImportWizard() {
     recalcValidRowsCount();
     updateSelectAllState();
 
+    const hiddenSelected = hiddenSelectedDuplicateCount.value;
     ElMessage.success(
       duplicatesHandled.value
-        ? `已取消 ${duplicateCount.value} 条重复数据的展示`
+        ? `已取消 ${duplicateCount.value} 条重复数据的展示` +
+            (hiddenSelected > 0
+              ? `，其中 ${hiddenSelected} 条已勾选，仍将参与导入`
+              : "")
         : "已恢复全部重复数据"
     );
   }
@@ -1796,10 +1888,16 @@ export function useImportWizard() {
    * 解析错误 / 数量价格缺失（isRowBlocked）/ 资金划转行不可勾（表格行复选框同样禁用），
    * _ignored 是用户显式忽略、不参与卡片批量勾选；**疑似重复行可勾**（#1791 验收④）。
    */
+  /**
+   * 行可手动勾选。#2281：转账行在关联现金账户后才可勾（放开前一律禁用，
+   * tooltip 指路「请先关联现金账户」）；其余行沿用错误 / 已忽略 / 待补全排除。
+   * 与 isAutoSelectableRow 的两处语义差异：本谓词允许重复行（卡片可勾），
+   * 且转账行能否勾选取决于现金账户关联状态。
+   */
   function isRowSelectable(row: any): boolean {
-    return (
-      !row.error && !row.is_cash_transfer && !row._ignored && !isRowBlocked(row)
-    );
+    if (row.error || row._ignored || isRowBlocked(row)) return false;
+    if (row.is_cash_transfer) return Boolean(selectedLedgerLinkedCash.value);
+    return true;
   }
 
   /** 卡片复选框三态：该类可勾行全选 / 部分选 / 未选 */
@@ -1815,12 +1913,20 @@ export function useImportWizard() {
     return picked === total ? "all" : "some";
   }
 
-  /** 卡片复选框切换：勾选=选中该类全部可选行，取消=仅取消该类（不动其它类别） */
+  /**
+   * 卡片复选框切换：勾选=选中该类全部可批量纳入行，取消=取消该类全部可勾行。
+   * #2281：勾选方向排除转账行（可勾但不默认勾——批量动作不代替用户做显式决定）；
+   * 取消方向走宽口径，用户手动勾上的转账行随卡片取消一并清除（与重复行同语义）。
+   */
   function toggleCategorySelection(key: SummaryCategory, checked: boolean) {
     previewData.value.forEach(row => {
       if (categorizeRow(row) !== key || !isRowSelectable(row)) return;
-      if (checked) selectedKeys.value.add(row._rowKey);
-      else selectedKeys.value.delete(row._rowKey);
+      if (checked) {
+        if (row.is_cash_transfer) return;
+        selectedKeys.value.add(row._rowKey);
+      } else {
+        selectedKeys.value.delete(row._rowKey);
+      }
     });
     selectedKeys.value = new Set(selectedKeys.value);
     updateSelectAllState();
@@ -2138,12 +2244,64 @@ export function useImportWizard() {
     return l?.linked_cash_ledger_id ?? null;
   });
 
-  /** 步骤3 预览含银证转账、且当前账户未关联现金账户 —— 显示软提示 */
+  /**
+   * #2281 感知层：转账行提示横幅双态。
+   * - 引导态（showCashBindingBanner）：有转账行、未关联现金账户。不可关闭——
+   *   它是关联操作入口，且 RowSelectionCell 的 tooltip 指向本横幅；
+   * - 轻量提示态（showCashTransferHint）：已关联仍告知「转账行可勾选导入」，
+   *   修复关联后横幅立即消失、能力隐身的断点；默认不勾选由用户决定。
+   * 关闭轻量态后本次导入会话不再显示（clearImportState 重置，换文件重现）。
+   */
+  const cashBindingBannerDismissed = ref(false);
+  const hasCashTransferRows = computed(() =>
+    previewData.value.some((r: any) => r.is_cash_transfer)
+  );
+
+  /** 引导态：有转账行、未关联现金账户 */
   const showCashBindingBanner = computed(() => {
     if (currentStep.value !== 2) return false;
     if (selectedLedgerLinkedCash.value) return false;
-    return previewData.value.some((r: any) => r.is_cash_transfer);
+    return hasCashTransferRows.value;
   });
+
+  /** 轻量提示态：已关联现金账户、有转账行、用户未关闭 */
+  const showCashTransferHint = computed(() => {
+    if (currentStep.value !== 2) return false;
+    if (cashBindingBannerDismissed.value) return false;
+    if (!selectedLedgerLinkedCash.value) return false;
+    return hasCashTransferRows.value;
+  });
+
+  /** 关联的现金账户名（轻量提示态展示用） */
+  const linkedCashLedgerName = computed(() => {
+    const id = selectedLedgerLinkedCash.value;
+    if (!id) return "";
+    return ledgers.value.find(l => l.id === id)?.name || "";
+  });
+
+  function dismissCashBindingBanner() {
+    cashBindingBannerDismissed.value = true;
+  }
+
+  /**
+   * #2281 感知层：转账行一次性「可导入」徽章。每行首次渲染时显示，
+   * 与本行有过交互（勾选 / 点击徽章）后本会话不再显示；按 _rowKey 记录，
+   * 翻页 / 过滤导致重新渲染不复发。
+   */
+  const dismissedTransferBadgeKeys = ref(new Set<string>());
+  function showTransferBadge(row: any): boolean {
+    return (
+      Boolean(row.is_cash_transfer) &&
+      !dismissedTransferBadgeKeys.value.has(row._rowKey)
+    );
+  }
+  function dismissTransferBadge(row: any) {
+    if (dismissedTransferBadgeKeys.value.has(row._rowKey)) return;
+    dismissedTransferBadgeKeys.value.add(row._rowKey);
+    dismissedTransferBadgeKeys.value = new Set(
+      dismissedTransferBadgeKeys.value
+    );
+  }
 
   /** 在步骤3 横幅内直接关联现金账户并落库 */
   async function linkCashAccount() {
@@ -2419,6 +2577,12 @@ export function useImportWizard() {
     cashLedgersForImport,
     selectedLedgerLinkedCash,
     showCashBindingBanner,
+    showCashTransferHint,
+    linkedCashLedgerName,
+    dismissCashBindingBanner,
+    showTransferBadge,
+    dismissTransferBadge,
+    completeTransferCount,
     linkCashAccount,
     ledgerTouched,
     activeCategoryFilter,
@@ -2464,6 +2628,8 @@ export function useImportWizard() {
     tableColumns,
     blockedCount,
     selectedCount,
+    // #2274：隐藏但仍勾选的重复行提示（显隐与勾选解耦后的可见性兜底）
+    hiddenSelectedDuplicateCount,
     nothingImported,
     showPriceUpdateTip,
     allocationGroupsByType,

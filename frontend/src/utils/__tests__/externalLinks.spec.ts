@@ -124,12 +124,86 @@ describe("externalQuoteLinks", () => {
     ).toEqual([]);
   });
 
-  it("指数走东财 zs 前缀", () => {
-    const urls = urlsOf(
-      externalQuoteLinks({ symbol: "SH000300", assetType: "index" })
-    );
+  describe("指数（assetType=index）", () => {
+    it("9 系：中证官网放首位 + 东财 zz/2 + 雪球 CSI", () => {
+      const links = externalQuoteLinks({
+        symbol: "931151",
+        assetType: "index"
+      });
 
-    expect(urls).toEqual(["https://quote.eastmoney.com/zs000300.html"]);
+      expect(links[0]!.key).toBe("csindex");
+      expect(urlsOf(links)).toEqual([
+        "https://www.csindex.com.cn/#/indices/family/detail?indexCode=931151",
+        "https://quote.eastmoney.com/zz/2.931151.html",
+        "https://xueqiu.com/S/CSI931151"
+      ]);
+    });
+
+    it("0 系带前缀：中证官网吃归一后的裸码，东财市场码 1、雪球 SH", () => {
+      const links = externalQuoteLinks({
+        symbol: "SH000300",
+        assetType: "index"
+      });
+
+      expect(urlsOf(links)).toEqual([
+        "https://www.csindex.com.cn/#/indices/family/detail?indexCode=000300",
+        "https://quote.eastmoney.com/zz/1.000300.html",
+        "https://xueqiu.com/S/SH000300"
+      ]);
+    });
+
+    it("399 系：中证无收录不给官网链接，东财 zz/0 + 雪球 SZ", () => {
+      const links = externalQuoteLinks({
+        symbol: "399006",
+        assetType: "index"
+      });
+
+      expect(urlsOf(links)).toEqual([
+        "https://quote.eastmoney.com/zz/0.399006.html",
+        "https://xueqiu.com/S/SZ399006"
+      ]);
+    });
+
+    it("899 北证：官网 + 东财 zz/0 + 雪球 BJ", () => {
+      const links = externalQuoteLinks({
+        symbol: "899050",
+        assetType: "index"
+      });
+
+      expect(urlsOf(links)).toEqual([
+        "https://www.csindex.com.cn/#/indices/family/detail?indexCode=899050",
+        "https://quote.eastmoney.com/zz/0.899050.html",
+        "https://xueqiu.com/S/BJ899050"
+      ]);
+    });
+
+    it("H 系：只给中证官网（东财/雪球无实测形态）", () => {
+      const links = externalQuoteLinks({
+        symbol: "H11100",
+        assetType: "index"
+      });
+
+      expect(urlsOf(links)).toEqual([
+        "https://www.csindex.com.cn/#/indices/family/detail?indexCode=H11100"
+      ]);
+    });
+
+    it("4 系 CNH：只给东财（中证无收录）", () => {
+      const links = externalQuoteLinks({
+        symbol: "470006",
+        assetType: "index"
+      });
+
+      expect(urlsOf(links)).toEqual([
+        "https://quote.eastmoney.com/zz/0.470006.html"
+      ]);
+    });
+
+    it("8 位 98 系：三源均未实测有 → 空数组（整卡不渲染）", () => {
+      expect(
+        externalQuoteLinks({ symbol: "98000600", assetType: "index" })
+      ).toEqual([]);
+    });
   });
 
   it("没有对应站点的品类返回空数组（不硬凑一个财经首页）", () => {

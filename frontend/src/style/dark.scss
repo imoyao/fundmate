@@ -212,6 +212,7 @@ html.dark {
   --bg-hover: #33302c;
   --bg-muted: #2c2926;
   --bg-subtle: #2a2724; /* #1545 补幽灵令牌（暗色） */
+  --bg-disabled: #2f2c29; /* #2348 禁用态填充（比 --bg-card 亮一档，才看得出是个块） */
   --radius-xs: 4px;
 
   /* 骨架屏扫光带（暗）：与 --bg-soft 的感知差与亮色对齐（ΔL*≈7.4，1.26:1）。
@@ -219,6 +220,12 @@ html.dark {
      1.10:1 / ΔL*≈3.2，观感同为静态遮罩）。渐变与 keyframes 的单一来源是
      src/style/_skeleton.scss；取值理由见 colors.css 同名令牌注释。 */
   --skeleton-wave: #3d3933; /* 暗·扫光带：vs --bg-soft(#2c2926) 1.26:1，ΔL* 7.4 */
+
+  /* Pro 卡片品牌渐变光带（暗，#2303）：亮色定义在 colors.css 同名令牌。
+     取暗色 brand 阶原始值（--brand-400 #7a352b → --brand-700 #d45a44，色相 7.4–9.2° 同族），
+     而非 var() 组合——:root 层渐变里的 var() 按亮色计算后整体继承，暗色子树不重算，
+     必须在此同名覆盖。 */
+  --pro-accent-gradient: linear-gradient(90deg, #7a352b, #d45a44);
 
   /* ===== 资产品种色（暗色，对应 colors.css 同名令牌） =====
      亮度归一化：深卡底 #242120 上 ≥6.5:1。2026-09-18 #1602。 */

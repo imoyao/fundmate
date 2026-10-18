@@ -2,6 +2,16 @@
 title: 再一次，认识注册、登录功能
 ---
 
+:::warning 本文是早期选型笔记，不描述当前实现（#898 核对，2026-10-17）
+本文写于 Flask 扩展选型阶段，下方的扩展对比（Flask-HTTPAuth / Flask-JWT-Extended / Flask-praetorian / Flask-Security …）均为**历史调研记录**，V1 已于 2026-08-01 退役。当前 V2 鉴权实况：
+
+- **登录 / 注册 / 登出**：前端走 **Supabase Auth**（`frontend/package.json` 的 `@supabase/supabase-js`、`@supabase/ssr`），后端不自造 JWT、不托管密码；
+- **后端只做验签 + 白名单**：`backend/app/core/auth.py` —— `decode_supabase_token()`（Supabase JWKS / ES256 验签）、`PUBLIC_PREFIXES` / `PUBLIC_EXACT` 免登录白名单、`auth_before_request()` 请求前中间件，登录态相关端点在 `backend/app/domains/auth/views.py`（`/api/auth/resolve/`、`/api/auth/me/`、`/api/auth/logout/`）；
+- **仓库未安装 Flask-praetorian**（`backend/pyproject.toml` 无此依赖），也不存在 `guard.init_app(...)` 之类初始化代码。
+
+方向性决策见 `docs/spec/decisions.md`（D2 后端为唯一信任边界）与根 `AGENTS.md`「数据分级与登录门禁」。本页仅作历史留档，**不要照它实现**。
+:::
+
 ## 厘清概念
 
 首先需要厘清 token 和 cookie 的区别
@@ -134,9 +144,11 @@ JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/12
 
 最终，我们决定先使用 Flask-HTTPAuth 实现最基本的认证（apiflask 内置），之后再考虑在 Flask-JWT-Extended 和 Flask-praetorian 之间抉择。
 
-::: tip UPDATE
+::: tip UPDATE（V1 历史记录，已不成立）
 
-目前已实现基于`Flask-praetorian`的认证、登录、找回、重置密码，更新 token 的操作；大致记录一下需要注意的点：
+> ⚠️ 以下「目前已实现 Flask-praetorian …」描述的是 **V1 时期**的实现，随 V1 于 2026-08-01 退役已不成立（V2 见文首状态说明）。原文保留仅供追溯。
+
+V1 曾实现基于`Flask-praetorian`的认证、登录、找回、重置密码，更新 token 的操作；大致记录一下需要注意的点：
 
 1. 在`register_extensions`函数中初始化`Flask-praetorian`时**必须**传入`model.py`中定义的`User`，否则报错`flask_praetorian.exceptions.PraetorianError: The user_class must have a lookup class method`。此外，用户必须定义相应的`lookup`、`identity`等方法；
 

@@ -121,7 +121,9 @@ def test_return_drawdown_ratio_positive_when_return_positive():
 
 def test_rf_is_shipped_in_caveats():
     r = compute_risk_metrics(_series([1.0 + i * 0.001 for i in range(300)]))
-    assert any('rf=' in c for c in r.caveats), 'rf 必须随值下发，否则夏普不可复核'
+    # 文案 2026-10-17 从工程师口吻（rf=0.0150（…））改为用户语言；判据钉语义不钉字面：
+    # 必须同时出现「无风险利率」（告诉用户这是什么）与具体百分比（可复核）。
+    assert any('无风险利率' in c and '%' in c for c in r.caveats), '无风险利率必须随值下发，否则夏普不可复核'
 
 
 def test_higher_rf_lowers_sharpe_but_keeps_order():
@@ -610,3 +612,30 @@ def test_shape_gain_respects_as_of():
     truncated = shape_gain(pts, as_of=pts[-61][0])
     assert full is not None and truncated is not None
     assert full['shape_gain'] != truncated['shape_gain']
+
+
+# ── 区间收益（#2284）──────────────────────────────────────────────────────────
+
+
+def test_period_returns_follow_natural_day_endpoints():
+    """近1月/3月/1年 = 30/90/365 自然日端点，分界日取「≥ 该日的首个点」（不插值）。"""
+    vals = [1.001**i for i in range(400)]  # D0 .. D0+399d，各分界日恰有净值点
+    r = compute_risk_metrics(_series(vals))
+    assert r.ret_1m == round((vals[399] / vals[369] - 1) * 100, 4)  # 分界 D0+399-30d
+    assert r.ret_3m == round((vals[399] / vals[309] - 1) * 100, 4)  # 分界 D0+399-90d
+    assert r.ret_1y == round((vals[399] / vals[34] - 1) * 100, 4)  # 分界 D0+399-365d
+    assert r.ret_1m > 0 and r.ret_3m > 0 and r.ret_1y > 0
+
+
+def test_period_returns_degrade_independently():
+    """三列各自独立降级：60 天历史只够近1月，3月/1年为 None——不缩窗口凑数。"""
+    r = compute_risk_metrics(_series([1.0] * 60))
+    assert r.ret_1m == 0.0  # 净值持平 ⇒ 诚实的 0，不是缺数据
+    assert r.ret_3m is None
+    assert r.ret_1y is None
+
+
+def test_period_returns_none_for_empty_and_single_point():
+    assert compute_risk_metrics([]).ret_1m is None
+    one = compute_risk_metrics(_series([1.0]))
+    assert (one.ret_1m, one.ret_3m, one.ret_1y) == (None, None, None)

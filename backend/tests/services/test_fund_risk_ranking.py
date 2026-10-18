@@ -17,7 +17,12 @@ from datetime import date
 import pytest
 
 from app.domains.funds.models import FundRiskMetrics
-from app.services.fund_risk_ranking import MAX_LIMIT, SORTABLE_METRICS, list_by_metric
+from app.services.fund_risk_ranking import (
+    MAX_LIMIT,
+    SORTABLE_METRICS,
+    list_by_metric,
+    user_flags_for_codes,
+)
 from app.services.sync.jobs.fund_risk_metrics_job import CALIBER_VERSION
 
 
@@ -44,6 +49,9 @@ def _add(db, code, type_id, *, basis='acc_nav', version=CALIBER_VERSION, **metri
         'upi',
         'return_drawdown_ratio',
         'win_rate',
+        'ret_1m',
+        'ret_3m',
+        'ret_1y',
     ):
         if m in metrics:
             setattr(row, m, metrics[m])
@@ -62,7 +70,17 @@ class TestGuards:
             list_by_metric(db, fund_type_id=1, metric='as_of')
 
     def test_sortable_metrics_whitelist_covers_the_reported_ones(self):
-        for m in ('max_drawdown', 'current_drawdown', 'calmar', 'sortino', 'sharpe'):
+        for m in (
+            'max_drawdown',
+            'current_drawdown',
+            'calmar',
+            'sortino',
+            'sharpe',
+            'ret_1m',
+            'ret_3m',
+            'ret_1y',
+            'ulcer_index',
+        ):
             assert m in SORTABLE_METRICS
 
     def test_limit_is_clamped(self):
@@ -103,6 +121,26 @@ class TestPeerOnly:
         out = list_by_metric(db, fund_type_id=1, metric='annual_volatility')
         assert [r['fund_code'] for r in out['rows']] == ['low', 'high']
         assert out['order'] == 'asc'
+
+    def test_ulcer_index_ascending_puts_lowest_first(self, db):
+        """溃疡指数正数、越低越好 ⇒ 默认升序（前端点 UI 列不再 400 空榜）。"""
+        _add(db, 'calm', 1, ulcer_index=8.0)
+        _add(db, 'painful', 1, ulcer_index=25.0)
+        out = list_by_metric(db, fund_type_id=1, metric='ulcer_index')
+        assert [r['fund_code'] for r in out['rows']] == ['calm', 'painful']
+        assert out['order'] == 'asc'
+
+    def test_period_return_sort_desc_and_payload(self, db):
+        """#2284：区间收益可排（默认降序）、payload 带三列，NULL 不进榜。"""
+        _add(db, 'hi', 1, ret_1m=5.0, ret_3m=7.0, ret_1y=12.0)
+        _add(db, 'lo', 1, ret_1m=2.0, ret_3m=3.0, ret_1y=4.0)
+        _add(db, 'none', 1, sharpe=1.0)  # 三列全 NULL ⇒ 不进榜（没算出来 ≠ 排最后）
+        out = list_by_metric(db, fund_type_id=1, metric='ret_1m')
+        assert [r['fund_code'] for r in out['rows']] == ['hi', 'lo']
+        assert out['order'] == 'desc'
+        assert out['rows'][0]['ret_1m'] == 5.0
+        assert out['rows'][0]['ret_3m'] == 7.0
+        assert out['rows'][0]['ret_1y'] == 12.0
 
 
 class TestCaliberFilter:
@@ -184,3 +222,108 @@ class TestPayload:
             _add(db, f'c{i}', 1, sharpe=float(i))
         out = list_by_metric(db, fund_type_id=1, metric='sharpe', limit=2)
         assert len(out['rows']) == 2
+
+
+class TestFundName:
+    """榜单行带基金名称（2026-10-17）：只显示 6 位代码用户认不出产品。
+
+    名称来自 `funds` 表两步法查（market 域内）；funds 缺该 code 时降级 None，
+    前端回退显示代码——不编造名称。
+    """
+
+    def test_fund_name_joined_from_funds_table(self, db):
+        from app.domains.funds.models import Fund
+
+        db.add(Fund(fund_code='000001', name='测试优选混合'))
+        db.commit()
+        _add(db, '000001', 1, sharpe=1.0)
+        out = list_by_metric(db, fund_type_id=1, metric='sharpe')
+        assert out['rows'][0]['fund_name'] == '测试优选混合'
+
+    def test_fund_name_none_when_funds_row_missing(self, db):
+        """funds 表没有该 code（资料未同步）⇒ None，不编造、不报错。"""
+        _add(db, '999999', 1, sharpe=1.0)
+        out = list_by_metric(db, fund_type_id=1, metric='sharpe')
+        assert out['rows'][0]['fund_name'] is None
+
+
+class TestUserFlags:
+    """持仓 / 自选标记（持仓体检定位）：榜上要能看出「哪只是我的」。
+
+    快照目标池本就是「持仓 ∪ 自选」（fund_risk_metrics_job），标记与池同源，
+    页面才能回答「我持有的那只在同类里排第几」。
+    """
+
+    def test_rows_carry_in_holdings_and_in_watchlist(self, db):
+        _add(db, '000001', 1, sharpe=2.0)  # 持仓
+        _add(db, '000002', 1, sharpe=1.5)  # 自选
+        _add(db, '000003', 1, sharpe=1.0)  # 都不是
+        out = list_by_metric(
+            db,
+            fund_type_id=1,
+            metric='sharpe',
+            holding_codes={'000001'},
+            watchlist_codes={'000002'},
+        )
+        flags = {r['fund_code']: (r['in_holdings'], r['in_watchlist']) for r in out['rows']}
+        assert flags['000001'] == (True, False)
+        assert flags['000002'] == (False, True)
+        assert flags['000003'] == (False, False)
+
+    def test_flags_default_false_without_user_state(self, db):
+        """未给码集（未登录）⇒ 恒 False，不崩、不猜。"""
+        _add(db, '000001', 1, sharpe=2.0)
+        out = list_by_metric(db, fund_type_id=1, metric='sharpe')
+        r = out['rows'][0]
+        assert r['in_holdings'] is False
+        assert r['in_watchlist'] is False
+
+    def test_user_flags_for_codes_queries_both_tables(self, db):
+        from app.domains.positions.models import Position
+        from app.domains.watchlist.models import WatchlistItem
+
+        db.add(
+            Position(
+                family_id=1,
+                symbol='004369',
+                market='CN_A',
+                asset_type='fund',
+                name='测试持仓基金',
+                quantity=100,
+            )
+        )
+        db.add(
+            WatchlistItem(
+                family_id=1,
+                symbol='005827',
+                market='CN_A',
+                venue='OTC',
+                asset_type='fund',
+                name='测试自选基金',
+                status='WATCHING',
+            )
+        )
+        db.commit()
+
+        holding, watchlist = user_flags_for_codes(db, family_id=1)
+        assert '004369' in holding
+        assert '004369' not in watchlist
+        assert '005827' in watchlist
+        assert '005827' not in holding
+
+    def test_user_flags_for_codes_scoped_by_family(self, db):
+        """别的家庭的持仓 / 自选不算数——私有状态必须家庭隔离。"""
+        from app.domains.positions.models import Position
+
+        db.add(Position(family_id=2, symbol='004369', asset_type='fund', quantity=1))
+        db.commit()
+
+        holding, watchlist = user_flags_for_codes(db, family_id=1)
+        assert '004369' not in holding
+        assert holding == set()
+        assert watchlist == set()
+
+    def test_user_flags_for_codes_anonymous_returns_empty(self, db):
+        holding, watchlist = user_flags_for_codes(db, family_id=None)
+        assert holding == set()
+        assert watchlist == set()

@@ -6,7 +6,6 @@ import SectionHeader from "@/components/SectionHeader/index.vue";
 import TransactionTable from "@/components/TransactionTable/index.vue";
 import { getTransactions, type TransactionRecord } from "@/api/transactions";
 import { getTradeTimeline, type TradeContribution } from "@/api/products";
-import { formatQuantity } from "@/utils/format";
 import {
   PREVIEW_SIZE,
   EXPAND_SIZE,
@@ -216,22 +215,6 @@ function rowField(
   return contributionMap.value.get(id)?.[field] ?? null;
 }
 
-/** 操作类型中文映射 */
-const txnTypeLabel: Record<string, string> = {
-  buy: "买入",
-  sell: "卖出",
-  dividend: "分红",
-  dividend_reinvest: "红利再投资",
-  deposit: "存入",
-  withdraw: "取出",
-  split: "拆分"
-};
-
-function formatTradeDate(date: string | null): string {
-  if (!date) return "—";
-  return date;
-}
-
 function goAllTransactions() {
   void router.push(allTransactionsLink.value);
 }
@@ -278,41 +261,10 @@ function goAllTransactions() {
         :max-height="expanded && needToggleBtn ? TABLE_MAX_HEIGHT : undefined"
       >
         <!-- #2171 P2 扩展列：TransactionTable 是公共组件（#2104 统一），不带这两列；
-             经其 #extra-columns slot 注入。字段口径归本容器（交易时间线重放）。 -->
+             经其 #extra-columns slot 注入。字段口径归本容器（交易时间线重放）。
+             注意：交易日期/类型/数量/价格/金额/账户六列由 TransactionTable 基础列
+             无条件渲染，此处不得重复注入（重复曾致详情页 14 列、6 列双份）。 -->
         <template #extra-columns>
-          <el-table-column prop="trade_date" label="交易日期" width="100">
-            <template #default="{ row }">
-              {{ formatTradeDate(row.trade_date) }}
-            </template>
-          </el-table-column>
-          <el-table-column prop="type" label="操作" width="60">
-            <template #default="{ row }">
-              {{ txnTypeLabel[row.type] || row.type }}
-            </template>
-          </el-table-column>
-          <el-table-column prop="quantity" label="数量" width="100">
-            <template #default="{ row }">
-              {{ formatQuantity(row.quantity) }}
-            </template>
-          </el-table-column>
-          <el-table-column prop="price" label="价格" width="100">
-            <template #default="{ row }">
-              <MoneyDisplay
-                :value="row.price"
-                :decimals="2"
-                :auto-color="false"
-              />
-            </template>
-          </el-table-column>
-          <el-table-column prop="amount" label="金额" width="100">
-            <template #default="{ row }">
-              <MoneyDisplay
-                :value="row.amount"
-                :decimals="2"
-                :auto-color="false"
-              />
-            </template>
-          </el-table-column>
           <!-- 当时成本 / 收益贡献（#2171 P2）：由交易时间线重放得出（与走势卡
              同源口径），无重放数据的类型（拆分等）显示 — -->
           <el-table-column label="当时成本" width="100">
@@ -333,11 +285,6 @@ function goAllTransactions() {
                 :decimals="2"
                 :show-sign="true"
               />
-            </template>
-          </el-table-column>
-          <el-table-column prop="account_name" label="账户" min-width="100">
-            <template #default="{ row }">
-              {{ row.account_name || "未知账户" }}
             </template>
           </el-table-column>
         </template>
@@ -391,7 +338,11 @@ function goAllTransactions() {
 
 .transaction-section__error {
   padding: 16px;
-  color: var(--color-fall);
+
+  /* #2314：错误提示原用 --color-fall（跌绿），双重语义错误——错误状态不该用涨跌色，
+     且「绿色错误文字」违反红涨绿跌直觉。改走危险文字级令牌（#1602 已将
+     --color-danger-system 并入 --color-danger，文字级用 -ink，白底 4.74:1）。 */
+  color: var(--color-danger-ink);
   text-align: center;
 }
 
