@@ -26,6 +26,7 @@ Pro 面板四模块（#994）的指标分两类：
 | penetration（持仓穿透） | ✅ 已实现（#870 Step 2） | `services/penetration.py` |
 | XIRR（账户级权益分拆） | ✅ 已实现（position/symbol/portfolio 三 scope） | `services/performance/` |
 | **behavior（交易行为画像）** | ✅ **本包**（账户级核心第一块） | `analytics/behavior.py` |
+| **cleared_cycles（清仓周期统计）** | ✅ **本包**（#2131 账本对齐 A'，周期级汇总） | `analytics/cleared_cycles.py` |
 | **var（风险价值 VaR 95%）** | ✅ **本包**（#994 模块二，基金级：吃净值/价格序列，自建不走盈米） | `analytics/var.py` |
 | correlation（相关性矩阵） | ❌ 未建——Phase 3 实质实现时落这里，**不放占位桩** | （待建） |
 

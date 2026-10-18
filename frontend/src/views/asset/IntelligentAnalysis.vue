@@ -77,14 +77,13 @@
     </p>
 
     <!-- #2156 铁律 1「结构一致」：删掉风险热力图与 #2150 重复四块后，真实区块
-         只剩「收益概览 / 货币基金收益 / 资产净值走势」三段，且**已无表格区**
-         （原「近期持仓表现」随 #2150 删除，故显式 table-rows=0——省略该属性会
-         落回组件默认值 6，给一个不存在的表格画占位）。 -->
+         为「收益概览 / 清仓周期复盘 / 货币基金收益 / 资产净值走势」四段
+         （#2131 新增清仓周期复盘区块，含表格，故 table-rows=5 与真实行数匹配）。 -->
     <PageSkeleton
       v-if="initialLoading"
       :cards="3"
       :chart-cols="2"
-      :table-rows="0"
+      :table-rows="5"
     />
 
     <template v-else>
@@ -161,6 +160,10 @@
         </MetricGrid>
       </section>
 
+      <!-- 清仓周期复盘（#2131：已落袋表现的时间维度——与本页「表现从哪来」同主题）。
+           自加载自降级：接口失败渲染空态表格，不影响上方 XIRR 与下方净值走势。 -->
+      <ClearedCyclesSection />
+
       <!-- 资产净值走势：本页的**独占项**（welcome 让出、panorama 只取快照做环比同比）。
            原先与「资产分布」环形图并排成两列，环形图删掉后满宽 —— 时间序列本来就
            该宽（横轴是日期），挤在半屏里读不出趋势。 -->
@@ -198,6 +201,7 @@ import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
+import ClearedCyclesSection from "@/views/asset/cleared-cycles/ClearedCyclesSection.vue";
 import { getSnapshots, type AssetSnapshotItem } from "@/api/summary";
 import {
   getMoneyFundIncome,

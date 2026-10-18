@@ -473,3 +473,81 @@ export function getCashLikeBreakdown() {
     BASE_URL + "cash-like/"
   );
 }
+
+/* ───────────────────────清仓周期统计（#2131 · 账本对齐 A'）───────────────────────
+ * 后端 services/analytics/cleared_cycles.py 的出参逐字段照抄，前端不做二次计算：
+ * 盈亏由后端 FIFO 配对自算（不读流水 realized_pnl 列——存量库该列全 0），
+ * 周期 = 首买 → 份额归零；数据末尾仍持有的标的未完结、不产出。
+ *
+ * ⚠️ `realized_pnl` / `pnl_pct` / `avg_holding_days` 为 **null = 不可算**
+ * （部分配对：先卖后买 / 无买入流水），**不是 0**——展示占位「--」，
+ * 且该周期不进汇总的胜率/盈亏比样本（pnl_known=false）。
+ */
+
+/** 单个清仓周期（首买 → 末卖；金额单位元，日期 ISO） */
+export type ClearedCycle = {
+  symbol: string;
+  name: string | null;
+  /** 该标的第几次清仓（同一标的可有多轮周期） */
+  cycle_number: number;
+  first_buy_date: string | null;
+  last_sell_date: string | null;
+  buy_count: number;
+  sell_count: number;
+  trade_count: number;
+  total_buy_amount: number;
+  total_sell_amount: number;
+  /** 周期已实现盈亏（元）；null = 部分配对不可算，非 0 */
+  realized_pnl: number | null;
+  /** 盈亏率（%）= 盈亏 / 配对成本；null = 不可算 */
+  pnl_pct: number | null;
+  /** 份额加权平均持有天数；null = 无有效配对 */
+  avg_holding_days: number | null;
+  /** 周期内现金分红合计（元）；无分红为 null，不进盈亏样本 */
+  dividend_total: number | null;
+  /** false = 部分配对，不进汇总胜率/盈亏比样本 */
+  pnl_known: boolean;
+  caveats: string[];
+};
+
+/** 跨周期汇总（样本仅含 pnl_known 周期；零盈亏计样本不计胜负） */
+export type ClearedCyclesSummary = {
+  cycle_count: number;
+  sample_count: number;
+  win_count: number;
+  loss_count: number;
+  /** 胜率（%）；无样本为 null，非 0 */
+  win_rate: number | null;
+  /** 盈亏比 = 平均盈利 / 平均亏损；无亏损笔时为 null（不输出 Infinity） */
+  profit_loss_ratio: number | null;
+  avg_holding_days: number | null;
+  /** 累计已实现盈亏（元，仅样本周期） */
+  realized_pnl_total: number | null;
+  total_trade_count: number;
+  caveats: string[];
+};
+
+export type ClearedCyclesData = {
+  cycles: ClearedCycle[];
+  summary: ClearedCyclesSummary;
+};
+
+/**
+ * 查询清仓周期统计（#2131，只读现算）。
+ *
+ * 不传 `ledger_id` = 家庭全部账户合并（产品级口径，与 XIRR/行为画像一致）；
+ * `include_cash_equivalents` 默认 false（剔除货基/逆回购/cash，与复盘页 XIRR 同默认）。
+ */
+export function getClearedCycles(params?: {
+  ledger_id?: number;
+  symbol?: string;
+  include_cash_equivalents?: boolean;
+}) {
+  return http.request<ApiResponse<ClearedCyclesData>>(
+    "get",
+    BASE_URL + "cleared-cycles/",
+    {
+      params
+    }
+  );
+}
