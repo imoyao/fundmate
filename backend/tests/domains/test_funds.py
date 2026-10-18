@@ -3,6 +3,7 @@
 # Date : 2026/5/11 19:34
 # File : test_funds.py
 from datetime import date, timedelta
+from unittest.mock import MagicMock, patch
 
 from app.core.money import Money
 from app.domains.funds.models import DailyWorth, FeeRatio, Fund, Manager, PurchaseRule, RedeemRule
@@ -407,9 +408,7 @@ class TestRedeemFeeEstimate:
         assert len(data['holdings']) == 1
         assert data['holdings'][0]['shares'] == 600
 
-    def test_estimate_redeem_fee_dedupes_identical_fee_ratio_rows(
-        self, client, db, make_position, make_transaction
-    ):
+    def test_estimate_redeem_fee_dedupes_identical_fee_ratio_rows(self, client, db, make_position, make_transaction):
         """存量脏数据防线：同档逐字相同的副本行不得让费率分布每档出现两次
 
         ``fee_ratios`` 无唯一约束，库里存在一次整表复制留下的逐字相同副本
@@ -435,12 +434,7 @@ class TestRedeemFeeEstimate:
         db.commit()
 
         # 本用例的前提：库里确实存在重复行（否则断言的是空前提）
-        assert (
-            db.query(FeeRatio)
-            .filter(FeeRatio.fund_code == '000004', FeeRatio.fee_type == 'redeem')
-            .count()
-            == 3
-        )
+        assert db.query(FeeRatio).filter(FeeRatio.fund_code == '000004', FeeRatio.fee_type == 'redeem').count() == 3
 
         position = make_position(
             symbol='000004',
@@ -501,9 +495,7 @@ class TestRedeemFeeEstimate:
         db.add(FeeRatio(fund_code='000005', fee_type='redeem', rate=0.0075, redeem_rule_id=rule.id))
         db.commit()
 
-        position = make_position(
-            symbol='000005', name='费率歧义基金', asset_type='fund', quantity=1000, avg_price=1.0
-        )
+        position = make_position(symbol='000005', name='费率歧义基金', asset_type='fund', quantity=1000, avg_price=1.0)
         db.flush()
         txn = make_transaction(
             position_id=position.id,
@@ -527,6 +519,64 @@ class TestRedeemFeeEstimate:
         assert len(data['holdings']) == 2
         assert sorted(d['rate'] for d in data['holdings']) == [0.0075, 0.015]
         assert sum(d['shares'] for d in data['holdings']) == 1000
+
+
+class TestSyncFundFeesRepairsBadTiers:
+    """`sync_fund_fees` 是存量错误阶梯的修复入口（前端「更新费率」按钮走的就是它）
+
+    旧实现只有「查不到才插」，所以库里那批被解析缺陷写坏的数据**同步多少次都不会变**
+    （2026-10-18 查实：本机 245 只基金的赎回阶梯结构损坏）。修复后它是 upsert + 清残档。
+    """
+
+    def test_sync_repairs_wrong_tier(self, db):
+        fund = Fund(fund_code='000001', name='测试基金')
+        db.add(fund)
+        db.flush()
+
+        # 存量形态：区间 (0,7) 上挂着 0.75%（000513 曾经就是这个错值）
+        bad_rule = RedeemRule(start_day=0, end_day=7)
+        db.add(bad_rule)
+        db.flush()
+        db.add(FeeRatio(fund_code='000001', fee_type='redeem', rate=0.0075, redeem_rule_id=bad_rule.id))
+        db.commit()
+
+        adapter = MagicMock()
+        adapter.fetch_fund_fee.return_value = {
+            'redemption_schedule': [{'start_day': 0, 'end_day': 8, 'rate': 1.5}],
+        }
+        with patch('app.services.fund_service.XalphaAdapter', return_value=adapter):
+            assert FundService.sync_fund_fees(db, '000001') is True
+
+        rows = db.query(FeeRatio).filter_by(fund_code='000001', fee_type='redeem').all()
+        assert len(rows) == 1, '旧档应被删除、新档写入，只剩一行'
+        assert float(rows[0].rate) == 0.015
+        kept = db.query(RedeemRule).filter(RedeemRule.id == rows[0].redeem_rule_id).one()
+        assert (kept.start_day, kept.end_day) == (0, 8)
+
+    def test_sync_keeps_existing_data_when_schedule_invalid(self, db):
+        """上游阶梯结构非法 → 拒写，既有数据原样保留（费率缺失优于金额算错）"""
+        fund = Fund(fund_code='000001', name='测试基金')
+        db.add(fund)
+        db.flush()
+        rule = RedeemRule(start_day=0, end_day=7)
+        db.add(rule)
+        db.flush()
+        db.add(FeeRatio(fund_code='000001', fee_type='redeem', rate=0.015, redeem_rule_id=rule.id))
+        db.commit()
+
+        adapter = MagicMock()
+        adapter.fetch_fund_fee.return_value = {
+            'redemption_schedule': [
+                {'start_day': 0, 'end_day': 7, 'rate': 1.5},
+                {'start_day': 0, 'end_day': 7, 'rate': 0.75},
+            ],
+        }
+        with patch('app.services.fund_service.XalphaAdapter', return_value=adapter):
+            assert FundService.sync_fund_fees(db, '000001') is True
+
+        rows = db.query(FeeRatio).filter_by(fund_code='000001', fee_type='redeem').all()
+        assert len(rows) == 1
+        assert float(rows[0].rate) == 0.015
 
     def test_estimate_redeem_fee_insufficient_shares(self, client, db, make_position, make_transaction):
         """测试卖出份额超过持仓时返回 400"""
