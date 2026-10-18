@@ -162,6 +162,12 @@ html[data-theme="showbuy"] .sidebar-logo-container .sidebar-title {
   --el-color-primary-light-9: var(--brand-100);
   --el-color-primary-dark-2: var(--brand-800);
 
+  /* 禁用态控件底色走暖色令牌（#2348）：EP 默认取 --el-fill-color-light(#f5f7fa)，
+     是冷灰蓝，落在暖色系统里像从别的产品抠过来的方块。
+     令牌级覆盖（不是页面 `:deep` 改色），暗色由 --bg-disabled 的暗色取值承接。 */
+  --el-disabled-bg-color: var(--bg-disabled);
+  --el-disabled-border-color: var(--border-default);
+
   /* Element Plus 组件字体基线：走多多贝字体栈（Inter + MiSans），
      否则 EP 默认回退 Helvetica/系统字体与全站不一致；
      兜底栈与 reset.scss 保持一致，防变量未定义时静默回退（评审 2026-09-04） */
@@ -192,4 +198,21 @@ html[data-theme="showbuy"] .sidebar-logo-container .sidebar-title {
   --el-button-active-bg-color: var(--brand-solid-active);
   --el-button-active-border-color: var(--brand-solid-active);
   --el-button-active-text-color: var(--text-inverse);
+}
+
+/* 禁用态主按钮：design.md「交互状态映射」把 Disabled 定义为「不透明度 50% + 灰度 30%」。
+   EP 默认走 --el-color-primary-light-5（= --brand-400 #fabdb0）淡粉底 + 白字——
+   与可用态只差饱和度，用户读成「弱化的可点按钮」而不是「不可用」，
+   反过来怀疑品牌红没给足（#2335 截图实测：「下一步」看着像未激活的粉按钮）。
+   这里按规范置灰：灰底 + 灰边 + 正文级灰字（不用 --text-disabled，
+   它在 #f5f0eb 上不足 2:1，按钮文案会读不出；禁用态豁免 AA 不等于可以不给人看）。
+   填充走 --bg-disabled 而不是 --bg-soft：后者与卡片底只差 6 个色阶（1.08:1），
+   按钮看上去没有「块」，只剩一条 1px 描边，反而更像「没做完」（#2348 实测）。 */
+.el-button.el-button--primary.is-disabled,
+.el-button.el-button--primary.is-disabled:hover,
+.el-button.el-button--primary.is-disabled:focus,
+.el-button.el-button--primary.is-disabled:active {
+  --el-button-disabled-bg-color: var(--bg-disabled);
+  --el-button-disabled-border-color: var(--border-default);
+  --el-button-disabled-text-color: var(--text-secondary);
 }

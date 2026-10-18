@@ -11,6 +11,9 @@
    fetch 失败时报「已对齐」是同族事故里最常见的那一款；
 4. **机器分支是一次性语义**：默认名固定（幂等），且**不得**被建成 `CNBDEV` 那种长期分支
    —— 由 `test_default_machine_branch_is_not_a_long_lived_name` 钉住命名形态。
+5. **merge 没跑起来 ≠ 没冲突**（#2262，2026-10-16）：merge 非 0 退出且没有冲突清单时
+   必须退 2、什么都不推。实测形态：runner 无 git 身份 ⇒ merge rc128
+   「Committer identity unknown」⇒ 未合并条目为空 ⇒ 曾被打着「无冲突」照常推送。
 
 变异探针（每条都实测确认会转红）见各用例 docstring；探针必须钉在**不可变来源**上，
 不能读可变 ref（那是 #450 第一版探针自己失效的根因，见 `test_dup_mirror_guard.py`）。
@@ -60,12 +63,20 @@ def _env():
 
 
 def _mk_side_repos(tmp_path, name, *, same_file: bool):
-    """两侧仓库，`gh` 从 `cnb` clone 出来 ⇒ 共享同一历史（这样 fetch+merge 才有意义）。"""
+    """两侧仓库，`gh` 从 `cnb` clone 出来 ⇒ 共享同一历史（这样 fetch+merge 才有意义）。
+
+    ⚠️ 两侧仓库都**自备** committer 身份（#2262）：脚本的 merge 在 cnb 侧 worktree 里跑，
+    不继承本测试的 `_env()`，只读仓库/全局配置。曾经只给 gh 配、cnb 蹭开发者全局 config
+    （本地有、runner 没有）⇒ Linux 上 merge rc128「Committer identity unknown」⇒
+    冲突路径整个失灵。fixture 不许有这种环境依赖——它是假绿之源。
+    """
     cnb = tmp_path / f'{name}-cnb'
     cnb.mkdir()
     env = _env()
     _git(cnb, 'init', '-q', '-b', 'dev', env=env)
     _git(cnb, 'config', 'commit.gpgsign', 'false', env=env)
+    _git(cnb, 'config', 'user.name', 't', env=env)
+    _git(cnb, 'config', 'user.email', 't@e', env=env)
     (cnb / 'a.txt').write_text('base\n', encoding='utf-8')
     (cnb / 'shared.txt').write_text('base\n', encoding='utf-8')
     _git(cnb, 'add', '.', env=env)
@@ -174,9 +185,9 @@ def test_conflicts_mean_nothing_is_pushed(mod, tmp_path):
     def spy(args, cwd=None):
         # 探针（#2255）：退出码一并记账——「推没推」是结果，merge/diff 的码才是根因
         # （Linux runner 上冲突路径失灵，账里只有 push 结果时无从诊断）。
-        code, out = real(args, cwd)
+        code, out, err = real(args, cwd)
         calls.append([*args, f'rc{code}'])
-        return code, out
+        return code, out, err
 
     saved = mod._git
     mod._git = spy
@@ -208,9 +219,9 @@ def test_worktree_is_cleaned_up_on_conflict(mod, tmp_path):
     def spy(args, cwd=None):
         # 探针（#2255）：退出码一并记账——「推没推」是结果，merge/diff 的码才是根因
         # （Linux runner 上冲突路径失灵，账里只有 push 结果时无从诊断）。
-        code, out = real(args, cwd)
+        code, out, err = real(args, cwd)
         calls.append([*args, f'rc{code}'])
-        return code, out
+        return code, out, err
 
     mod._git = spy
     try:
@@ -226,6 +237,53 @@ def test_worktree_is_cleaned_up_on_conflict(mod, tmp_path):
     aborts = [c for c in calls if c[:2] == ['merge', '--abort']]
     assert removes, f'冲突路径必须收掉临时 worktree，实际调用：{calls}'
     assert aborts, f'冲突路径必须先 abort 再收 —— 留着冲突现场会让下次跑失败：{calls}'
+
+
+def test_merge_fatal_means_nothing_is_pushed(mod, tmp_path, monkeypatch, capsys):
+    """merge 非 0 退出且无冲突清单 ⇒ 退 2、**什么都不推**（#2262）。
+
+    实测事故（#2259 CI 首次暴露）：runner 无 git 身份 ⇒ `git merge` rc128
+    「Committer identity unknown」⇒ `conflict_files()` 为空 ⇒ 旧代码读成
+    「无冲突」⇒ rev-parse + push 照常执行。「没跑成」被当成了「跑成了」——
+    与 #171 / #450「拿不到输入报已对齐」同族，但这次直接推了条未合并的分支。
+    判据锚在「merge 的退出码 + 冲突清单」这对组合上，单看任何一半都会漏：
+    光看清单为空分不清「真没冲突」和「根本没跑」，光看退出码分不清
+    「冲突（rc1）」和「致命（rc128）」。
+    """
+    cnb, gh = _mk_side_repos(tmp_path, 'fatal', same_file=True)
+    env = _env()
+    _git(cnb, 'remote', 'add', 'gh', str(gh), env=env)
+    _git(cnb, 'fetch', '-q', 'gh', 'dev', env=env)
+    _git(cnb, 'branch', 'gh-dev', 'FETCH_HEAD', env=env)
+
+    real = mod._git
+    calls: list[list[str]] = []
+
+    def fake(args, cwd=None):
+        if args[:2] == ['merge', '--no-edit']:
+            # 忠实复现 runner 实测形态：merge 直接致命、**根本没跑起来**，
+            # 因此不会留下任何未合并条目（diff-filter=U 为空）。
+            calls.append([*args, 'rc128'])
+            return 128, '', 'fatal: unable to auto-detect email address'
+        code, out, err = real(args, cwd)
+        calls.append([*args, f'rc{code}'])
+        return code, out, err
+
+    monkeypatch.setattr(mod, '_git', fake)
+    args = argparse.Namespace(
+        apply=True, dry_run=False, push=True,
+        base='cnb', branch='dev', machine_branch='bridge/github-dev',
+        cnb_url=str(cnb), github_url=str(gh), cwd=str(cnb),
+    )
+    rc = mod.run(args)
+
+    pushed = [c for c in calls if c and c[0] == 'push']
+    assert not pushed, f'merge 没跑起来时**一个字节都不该推**：{pushed}；全程：{calls}'
+    assert rc == 2, f'合并没跑起来必须退 2（结论不可信），实际 {rc}；全程：{calls}'
+    removes = [c for c in calls if c[:2] == ['worktree', 'remove']]
+    assert len(removes) >= 2, f'致命路径也要收掉临时 worktree（预清理 + 收尾）：{calls}'
+    err = capsys.readouterr().err
+    assert '不可信' in err, f'必须明说结论不可信，实际 stderr：{err!r}'
 
 
 # ---------------------------------------------------------------------------

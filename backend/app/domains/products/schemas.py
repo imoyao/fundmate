@@ -159,6 +159,21 @@ class RelatedSymbolsRequest(BaseModel):
     )
 
 
+class IndexEtfCompareRequest(BaseModel):
+    """`GET /api/products/index-etf-compare/` 的查询参数（#2275 · 关联 ETF 对比表）。
+
+    与 `RelatedSymbolsRequest` 同理只需 symbol：指数代码在 ``index_catalog`` 是
+    全局唯一的裸 6 位码，关联 ETF 由 ``channel_links`` 按裸代码查出，无需消歧。
+    """
+
+    symbol: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description='指数代码（裸 6 位码如 931151 或带前缀形态均可，后端归一）',
+    )
+
+
 class FundRiskTypesRequest(BaseModel):
     """`GET /api/products/fund-risk-types/` 的查询参数（#167 · 榜单页类型选择器）。
 
@@ -182,3 +197,53 @@ class FundRiskRankingRequest(BaseModel):
     limit: Optional[int] = Field(None, ge=1, description='条数上限（默认 20，硬上限 200）')
     order: Optional[str] = Field(None, description='asc / desc；不给则用指标默认方向')
     include_distorted: bool = Field(False, description='是否纳入口径可疑（净值跳变/样本不足）的行')
+
+
+class ProAllocationRequest(BaseModel):
+    """`GET /api/products/pro-allocation/` 的查询参数（#994 Phase 2 · 模块三资产配置与相关性）。
+
+    「当前标的 vs 家庭其余持仓」的相关系数：基线序列经
+    ``fetch_product_trend('1Y')``，peer 取家庭 active 持仓（按 ``symbol_norm`` 去重），
+    计算全在 ``analytics/correlation.py``。``asset_type`` 是**取数参数**
+    （决定序列走场外净值还是场内前复权），同 ``ProRiskRequest``。
+    """
+
+    symbol: str = Field(..., min_length=1, max_length=50, description='基准产品代码（大小写不敏感）')
+    asset_type: Optional[str] = Field(None, max_length=20, description='品类；决定净值/价格序列口径')
+
+
+class ProStatusRequest(BaseModel):
+    """`GET /api/products/pro/` 的查询参数（#2272 · #994 Phase 1 接口骨架）。
+
+    ``asset_type`` 语义同 `ProductResolveRequest`：入口提示、可由调用方省略。
+    一期不做任何查库与身份判定（骨架只回状态位），故此处**不强制**与后端判定一致；
+    待 Phase 2 模块内容上线、需要按品类过滤可用模块时，再改为与 resolve 同源的权威判定。
+    """
+
+    symbol: str = Field(..., min_length=1, max_length=50, description='产品代码（大小写不敏感）')
+    asset_type: Optional[str] = Field(None, max_length=20, description='入口提示品类；一期仅回显，不参与判定')
+
+
+class ProInsightRequest(BaseModel):
+    """`GET /api/products/pro-insight/` 的查询参数（#994 Phase 2 · 模块一账户级指标）。
+
+    聚合 ``calculate_symbol_xirr``（#1972）+ ``build_symbol_behavior``（Phase 0 FIFO
+    口径 v2），全部按 ``family_id``（登录态注入）+ symbol 收敛口径取数。
+    ``asset_type`` 仅回显（与 `ProStatusRequest` 同约定）。
+    """
+
+    symbol: str = Field(..., min_length=1, max_length=50, description='产品代码（大小写不敏感）')
+    asset_type: Optional[str] = Field(None, max_length=20, description='入口提示品类；仅回显')
+
+
+class ProRiskRequest(BaseModel):
+    """`GET /api/products/pro-risk/` 的查询参数（#994 Phase 2 · 模块二偏离与风险控制）。
+
+    聚合 BIAS（既有 bias 引擎单品种）+ 波动率/VaR 95%（``analytics/var.py``，
+    序列经 ``fetch_product_trend('1Y')``）+ 账户级 VaR¥（``calculate_symbol_xirr``
+    持仓市值 × VaR%）。``asset_type`` 参与取数路径分派（bias 品种类型 / 序列口径），
+    与 ``ProInsightRequest`` 的「仅回显」不同——它是**取数参数**，不是提示。
+    """
+
+    symbol: str = Field(..., min_length=1, max_length=50, description='产品代码（大小写不敏感）')
+    asset_type: Optional[str] = Field(None, max_length=20, description='品类；决定乖离率品种类型与净值/价格序列口径')

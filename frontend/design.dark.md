@@ -398,6 +398,8 @@
 > 新增页面表格直接用 `<el-table>` 即可自动继承基线。
 > 横向滚动支持浏览器原生 `Shift + 滚轮`，禁止引入拖拽滚动库（金融表格复制数字场景易误触）。行高 44px 由基线统一（页面级例外统一登记在亮色 `design.md`「Table · 行高例外」，当前为自选页 56px 双行信息，页面 `:deep` 覆盖对暗色同样生效），暗色无需单独覆盖。
 
+> **盈亏双线列的视觉层级（#2210）暗色适配**：主副层级只靠字重（600）、透明度（0.72）与组距（`var(--space-1)`）三个手段，不引入任何新色值——涨跌文字仍走暗色专调 `--color-rise-ink` / `--color-fall-ink`（`dark.scss` 保对比度）。「估」徽章沿用 `--brand-100` / `--brand-700`（0.72 弱化后仍是副行内最亮锚点），口径标签走 `--text-secondary`，**无专属覆写规则**；规格详见亮色 `design.md`「Table · 盈亏双线列的视觉层级」。
+
 > **分组胶囊 Tab（Group Tab）暗色适配**：与亮色共用同一套类名与结构，选中态软按钮（`--brand-100` 底 / `--brand-700` 字 / `--brand-400` 边框）与未选中态（`--text-secondary` / hover `--bg-hover`）均由暗色 token 自动适配（暗色 `--brand-100` 为极暗红灰 `#2D1612`，作为选中底色成立），**无需单独覆盖**。行内图标 / hover 浮现机制同理，全部走语义 token。
 
 > **导入预览问题摘要三卡片（#1791）暗色适配**：面板底 `--bg-card`、卡片底 `--bg-subtle`、边框 `--border-default` 均为暗色专调 token；三类语义色直接用文字级 `-ink` 族（`--color-success-ink` / `--color-warning-ink` / `--color-danger-ink`，暗色下由 `dark.scss` 提亮保对比），细分 chips 底 / 边用 `--color-danger-10` / `--color-danger-30` 半透明叠加、字用 `--color-danger-ink`，**无需单独覆盖**。**批量修正面板（#1792）暗色适配**：面板底 `--bg-card`、分区 / 逐条卡片底 `--bg-subtle`、边框 `--border-default`，形态标签次级文字 `--text-secondary`、分区说明 / 元信息 `--text-tertiary-ink`，警示计数 `--color-warning-ink`、错误文字 `--color-danger-ink`——均为暗色专调 token，**同样无需单独覆盖**。

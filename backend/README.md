@@ -2,6 +2,20 @@
 
 a web app to manage your funds
 
+> ⚠️ **本文为早期脚手架模板留档，所述流程已不适用（#898 核对，2026-10-17）**
+>
+> 本文成于模板脚手架时期，正文的以下内容**均不反映当前实况**，不要照它操作：
+>
+> | 文中说法 | 当前实况 |
+> |---|---|
+> | 标题 `FMP`（及历史包名 `showbuy`） | 产品名为**多多贝**（`showbuy` 仅是 `backend/pyproject.toml` 的历史项目名，见根 `AGENTS.md`） |
+> | `flask db init / migrate / upgrade`（flask-migrate / Alembic） | **无迁移链**：建表走 `init_db()` = `Base.metadata.create_all()` + 增量列/索引迁移（`backend/app/core/database.py`），由 `create_app()` 启动时执行（`backend/app/main.py`） |
+> | `pip install -r requirements/dev.txt` | 依赖在 `backend/pyproject.toml` + PDM（`pdm install -G dev`），**仓库无 `requirements/` 目录** |
+> | `npm install / npm run build`（webpack） | 前端独立于 `frontend/`（Vite + pnpm，见根 `README.md`） |
+> | `flask init-db` / `flask test` / `flask lint` | `pdm run pytest -p no:xdist` / `pdm run ruff check .`，日常指令见 `backend/tasks.py`（invoke） |
+>
+> 当前的安装、启动、同步与测试命令以**仓库根 `README.md`** 与 **`docs/dev/index.md`** 为准。
+
 ## Docker Quickstart
 
 This app can be run completely using `Docker` and `docker-compose`. **Using Docker is recommended, as it guarantees the application is run using compatible versions of Python and Node**.

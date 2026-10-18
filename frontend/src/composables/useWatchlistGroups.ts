@@ -54,7 +54,16 @@ export function useWatchlistGroups() {
     return undefined;
   });
 
-  async function fetchGroups() {
+  /**
+   * 拉取分组列表。
+   *
+   * @returns 是否成功。**失败时必须让调用方知道**（#2329）：系统分组的过滤语义
+   *          挂在 allGroups 上（见 useWatchlistData.fetchParams），allGroups 为空时
+   *          请求会**静默退化成「不带分组过滤」**，于是「持仓」Tab 高亮着、列表却是
+   *          「全部」的内容。调用方据此回退 activeGroup，宁可显示「全部」也不谎报
+   *          「持仓」——「拿不到」与「就是空的」必须能被区分。
+   */
+  async function fetchGroups(): Promise<boolean> {
     try {
       const res = await getWatchlistGroups();
       const data: WatchlistGroup[] = res.data ?? [];
@@ -105,8 +114,10 @@ export function useWatchlistGroups() {
       if (!system.some(g => g.key === activeGroup.value)) {
         activeGroup.value = "all";
       }
+      return true;
     } catch (e) {
       console.error("获取分组失败：", e);
+      return false;
     }
   }
 

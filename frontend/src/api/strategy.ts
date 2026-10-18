@@ -19,6 +19,13 @@ export interface StrategyOverviewHolding {
   current_price: number;
   avg_price: number;
   account_name: string | null;
+  /** 价格时点（#2140 / #2210）：基金=实际采用的最新净值日；其他=快照回写日；缺省为 null */
+  price_date?: string | null;
+  /**
+   * 当日确认口径是否已定型（#2210）：true = 行内估值副行应隐藏；
+   * null / 缺省 = 不隐藏。**状态 = 后端字段契约**，前端禁止按日期自行推断。
+   */
+  settled_today?: boolean | null;
 }
 
 /** 策略视图全局数据（对齐 build_strategy_overview 返回 dict） */

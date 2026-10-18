@@ -1,0 +1,63 @@
+# backend/Dockerfile 的构建验证：本机开发环境无 Docker，镜像链路的验证入口在 CI——
+# 构建镜像 + 启动容器 + /api/health 探活（覆盖 gunicorn 启动、instance_guard、
+# init_db、非 root 权限、挂卷可写性等本地无法实测的环节）。
+name: Docker 镜像构建
+
+on:
+  pull_request:
+    paths:
+      - "backend/Dockerfile"
+      - "backend/.dockerignore"
+      - "backend/pyproject.toml"
+      - "backend/pdm.lock"
+      - ".github/workflows/docker-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build-and-smoke:
+    name: 构建镜像 + 容器冒烟
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          load: true
+          tags: fundmate-backend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test（gunicorn 启动 + /api/health 探活）
+        run: |
+          docker run -d --name fm-smoke -p 8000:8000 \
+            -e APP_ENV=development \
+            -e DEV_DATABASE_URL=sqlite:////app/data/invest.db \
+            -e DATABASE_URL=sqlite:////app/data/invest.db \
+            fundmate-backend:ci
+          ok=0
+          # 首次启动 worker 需 import akshare/scipy 等重依赖，给足 90s
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:8000/api/health; then
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ok" != "1" ]; then
+            echo "::error::冒烟失败：/api/health 探活未通过，容器日志如下"
+            docker logs fm-smoke
+            exit 1
+          fi
+          echo ""
+          echo "冒烟通过：/api/health 可用"
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f fm-smoke || true

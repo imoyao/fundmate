@@ -59,6 +59,21 @@
           />
         </section>
 
+        <!-- 3.5 类现金（账外货基 / 逆回购，按流水净额记账、不建持仓行）
+             它不属于「持仓」，但属于「我有什么」，所以放在持仓明细之后单列；
+             金额已计入总资产，这里只展示、不再加总（见组件头注释）。 -->
+        <section v-if="cashLikeItems.length > 0" class="inventory-section">
+          <SectionHeader
+            title="类现金"
+            info="货币基金 / 逆回购按流水净额记账，不建持仓，因此不在持仓明细里；金额已包含在总资产中，此处仅为明细展示。"
+          />
+          <CashLikeTable
+            :items="cashLikeItems"
+            :total="cashLikeTotal"
+            :loading="cashLikeLoading"
+          />
+        </section>
+
         <!-- 4. 其他投资（非交易类投资理财资产，#1354：银行理财/信托等存量大类并入此处） -->
         <section v-if="currentAssets.length > 0" class="inventory-section">
           <SectionHeader title="其他投资" />
@@ -66,6 +81,34 @@
             :assets="currentAssets"
             @edit="openEditAssetDialog"
             @remove="removeAsset"
+          />
+        </section>
+
+        <!-- 5. 策略洞察（#2237）：目标配比 + 策略诊断。
+             放在持仓明细之后：两张卡读的都是上面这些持仓，先看见「持了什么」
+             再看「规则对这些持仓说了什么」。
+             两卡各自加载/失败/重试，引擎接口慢或挂都不会拖垮上面的盘点内容。 -->
+        <section class="inventory-section">
+          <AllocationTargetCard
+            :data="allocation"
+            :loading="allocationLoading"
+            :error="allocationError"
+            :saving="allocationSaving"
+            :reminder-refreshing="reminderRefreshing"
+            @save="saveTargets"
+            @refresh-reminders="refreshReminders"
+            @retry="loadAllocation"
+          />
+        </section>
+
+        <section class="inventory-section">
+          <StrategyDiagnosisCard
+            :diagnosis="diagnosis"
+            :behavior="behavior"
+            :strategies="strategies"
+            :loading="diagnosisLoading"
+            :error="diagnosisError"
+            @retry="loadDiagnosis"
           />
         </section>
       </template>
@@ -123,7 +166,7 @@ import {
   INVENTORY_CATEGORIES,
   type QuickActionItem
 } from "./constants";
-import { useInventoryData } from "./useInventoryData";
+import { useInventoryData, useStrategyInsight } from "./useInventoryData";
 import {
   PNL_DUAL_SCOPE_TIP,
   usePositionValuation
@@ -135,8 +178,11 @@ import QuickActionGrid from "./components/QuickActionGrid.vue";
 import InvestmentPositionTable from "./components/InvestmentPositionTable.vue";
 import RealtimeEstimateToggle from "@/components/RealtimeEstimateToggle/index.vue";
 import OtherInvestmentTable from "./components/OtherInvestmentTable.vue";
+import CashLikeTable from "./components/CashLikeTable.vue";
 import CategoryAssetTable from "./components/CategoryAssetTable.vue";
 import AssetEditDialog from "./components/AssetEditDialog.vue";
+import AllocationTargetCard from "./components/AllocationTargetCard.vue";
+import StrategyDiagnosisCard from "./components/StrategyDiagnosisCard.vue";
 
 // 与路由 `router/modules/home.ts` 的 name 保持一致，保证 keep-alive 命中
 defineOptions({ name: "Inventory" });
@@ -152,11 +198,40 @@ const {
   investmentTotal,
   investmentPage,
   investmentLoading,
+  cashLikeItems,
+  cashLikeTotal,
+  cashLikeLoading,
   currentAssets,
   getCategoryTotal,
   fetchData,
   removeAsset
 } = useInventoryData(activeCategory);
+
+/**
+ * 「策略洞察」区块（#2237）：目标配比 + 策略诊断 / 行为反推。
+ *
+ * 与 usePositionValuation 同理，必须在 setup 顶层**同步**调用：
+ * `useStrategyInsight` 内部注册了 `usePageRefresh` 全局刷新订阅，
+ * 晚于 await 调用会脱离组件实例。其加载失败只影响两张卡自身，
+ * 不会阻塞上面的盘点数据（两者数据源与 failure 影响面都不同）。
+ */
+const {
+  allocation,
+  allocationLoading,
+  allocationError,
+  allocationSaving,
+  reminderRefreshing,
+  diagnosis,
+  behavior,
+  strategies,
+  diagnosisLoading,
+  diagnosisError,
+  loadStrategyInsight,
+  loadAllocation,
+  loadDiagnosis,
+  saveTargets,
+  refreshReminders
+} = useStrategyInsight();
 
 /**
  * 持仓明细的盈亏双线估值接线（#1104）。
@@ -285,6 +360,8 @@ onMounted(() => {
     activeCategory.value = tab;
   }
   fetchData();
+  // 策略洞察与盘点数据并行发起，互不等待（引擎慢不拖首屏，盘点失败不影响卡片）
+  void loadStrategyInsight();
 });
 </script>
 

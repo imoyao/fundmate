@@ -110,20 +110,20 @@
       <!-- 交易日期 + 15:00前/后（基金） -->
       <el-form-item label="交易日期" prop="trade_date">
         <div class="flex items-center gap-3 w-full">
-          <el-date-picker
-            v-model="form.trade_date"
-            type="date"
-            class="flex-1"
-            style="width: 100%"
-            value-format="YYYY-MM-DD"
-            placeholder="选择日期"
-            clearable
-            :disabled-date="disabledDate"
-          />
-          <el-radio-group v-if="isFund" v-model="isAfter15" size="small">
-            <el-radio-button :value="false">15:00前</el-radio-button>
-            <el-radio-button :value="true">15:00后</el-radio-button>
-          </el-radio-group>
+          <!-- 日期框外层自带弹性：DatePicker 是 inheritAttrs:false，写它身上的
+               `class="flex-1"` 落不到 DOM。 -->
+          <div class="min-w-0 flex-1">
+            <el-date-picker
+              v-model="form.trade_date"
+              type="date"
+              style="width: 100%"
+              value-format="YYYY-MM-DD"
+              placeholder="选择日期"
+              clearable
+              :disabled-date="disabledDate"
+            />
+          </div>
+          <TradeSlotSwitch v-if="isFund" v-model="isAfter15" />
         </div>
         <div
           v-if="isFund"
@@ -163,6 +163,7 @@ import {
   type LedgerTransactionUpdateInput
 } from "@/api/ledger";
 import { useFundTradeDate } from "@/composables/useFundTradeDate";
+import TradeSlotSwitch from "@/components/TradeSlotSwitch/index.vue";
 import {
   useSecurityPriceRange,
   createStockPriceValidator

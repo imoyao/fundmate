@@ -22,12 +22,80 @@ Xalpha 数据源适配器（基金净值、费率）。
 import json
 import re
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 from loguru import logger
 
 from app.services.adapters.base import DataSourceAdapter
+
+
+def validate_redemption_schedule(schedule: List[dict]) -> List[str]:
+    """赎回阶梯**结构校验**：返回问题清单，空列表表示阶梯可用。
+
+    ## 为什么是模块级函数、不是类方法
+
+    写侧（``FundService.apply_redeem_schedule``）需要它，而测试会整体替换
+    ``XalphaAdapter`` 类符号；校验挂在类上时，那次替换会把校验也变成 Mock——
+    返回值 truthy，于是「合法阶梯被拒写」这种假失败会伪装成代码 bug。
+    校验是纯函数，跟适配器的网络能力无关，不该挂在会被替换的类上。
+
+    ## 判定口径（2026-10-18 实测根因）
+
+    写侧**失败即拒写**（fail closed）：费率缺失最多让用户手填，而一份内部矛盾、
+    会把赎回费算成 0 的阶梯一旦落库就成了「权威数据」——界面看起来完全正常，
+    错的只有金额（本机 245 只基金正是这么坏的）。
+
+    拒写的情形：
+      · 同区间出现两次（旧解析缺陷的直接产物，界面表现为「每档显示两次」）；
+      · ``end_day <= start_day``（持有天数永远匹配不上，等于费率 0）；
+      · 阶梯没覆盖 0 天起（持有 0 天的份额落到空档）；
+      · 区间互相重叠（取哪个档取决于行序，金额不确定）。
+    """
+    problems: List[str] = []
+    if not schedule:
+        return problems  # 空阶梯 = 上游没给，调用方直接跳过写入，不算错误
+
+    normalized: List[Tuple[int, Optional[int]]] = []
+    for idx, item in enumerate(schedule):
+        try:
+            start = int(item['start_day'])
+            raw_end = item.get('end_day')
+            end = None if raw_end is None else int(raw_end)
+            rate = float(item['rate'])
+        except (KeyError, TypeError, ValueError):
+            problems.append(f'第 {idx} 档字段缺失或类型非法: {item!r}')
+            continue
+        if start < 0:
+            problems.append(f'第 {idx} 档起始天数为负: {start}')
+        if end is not None and end <= start:
+            problems.append(f'第 {idx} 档区间非法（end_day <= start_day）: {item!r}')
+        if not (0 <= rate <= 100):
+            problems.append(f'第 {idx} 档费率不在 0~100% 内: {rate}')
+        normalized.append((start, end))
+
+    if not normalized:
+        return problems
+
+    if min(s for s, _ in normalized) != 0:
+        problems.append('阶梯未覆盖 0 天起：持有 0 天的份额匹配不到档位，赎回费会被算成 0')
+
+    seen_ranges = set()
+    for start, end in normalized:
+        if (start, end) in seen_ranges:
+            problems.append(f'区间重复: [{start}, {end})')
+        seen_ranges.add((start, end))
+
+    ordered = sorted(normalized, key=lambda t: (t[0], t[1] if t[1] is not None else float('inf')))
+    prev_end: Optional[float] = None
+    for start, end in ordered:
+        if prev_end is not None and start < prev_end:
+            problems.append(f'区间与上一档重叠（上界 {int(prev_end)} > 本档起点 {start}）')
+            break
+        prev_end = float('inf') if end is None else float(end)
+
+    return problems
+
 
 # 东财历史净值 JSON 接口：支持 pageIndex/pageSize 分页与 startDate/endDate 日期过滤
 _LSJZ_API_URL = 'https://api.fund.eastmoney.com/f10/lsjz'
@@ -399,50 +467,91 @@ class XalphaAdapter(DataSourceAdapter):
             self.logger.warning(f'基金 {fund_code} 赎回费率解析失败: {e}')
             return []
 
+    # 持有期限单位 → 天。天天基金费率页混用「天」与「年」（个别用「月」），
+    # 旧解析只认纯数字，于是「大于30天，小于等于2年」被当成「0~2天」——2 年变 2 天。
+    _HOLD_UNIT_DAYS = {'年': 365, '个月': 30, '月': 30, '天': 1, '日': 1}
+    _NUM_UNIT_RE = re.compile(r'(\d+)\s*(个月|年|月|天|日)')
+
+    @classmethod
+    def _parse_holding_range(cls, desc: str) -> Optional[Tuple[int, Optional[int]]]:
+        """把费率页的「适用期限」文案解析成半开区间 ``[start_day, end_day)``（单位：天）。
+
+        ## 为什么整段重写（2026-10-18 实测根因）
+
+        页面写法有两种，旧版只认其中一种：
+
+        - 旧写法「大于等于7天，小于30天」→ 命中 ``大于等于`` + ``小于`` 分支，正确；
+        - **现写法「大于7天，小于等于30天」** → 含「小于」却不含「大于等于」，落进
+          ``elif '小于' in desc`` 分支，起点被抹成 0，写成了 ``(0, 30)``。
+
+        后果有两层，都不是显示层的小毛病：
+
+        1. ``(0, 7, 1.5%)`` 与 ``(0, 7, 0.75%)`` 同时存在 → 费率分布弹窗每档显示两次；
+        2. 正确档位被覆盖，而 ``estimate_redeem_fee._calc`` 取**首个匹配**——持有
+           200 天的份额匹配不到任何档，赎回费被估成 **0**。本机实测 245 只基金的
+           阶梯在结构上已经损坏（12 只同区间多行、7 只「年」被当「天」）。
+
+        ## 上界语义
+
+        本仓 ``end_day`` 是**不含**上界（界面文案「0~7天(不含)」），而页面写「小于等于N」，
+        所以 ``小于等于N`` 要落成 ``end_day = N + 1``，``小于N`` 才是 ``N``。
+        """
+        text = desc.replace(' ', '').replace('（', '(').replace('）', ')')
+        start: Optional[int] = None
+        end: Optional[int] = None
+        for part in re.split(r'[，,、]', text):
+            m = cls._NUM_UNIT_RE.search(part)
+            if not m:
+                continue
+            value = int(m.group(1)) * cls._HOLD_UNIT_DAYS[m.group(2)]
+            # 顺序要紧：「大于等于」必须排在「大于」之前，「小于等于」排在「小于」之前
+            if '大于等于' in part:
+                start = value
+            elif '大于' in part:
+                start = value + 1
+            elif '小于等于' in part:
+                end = value + 1
+            elif '小于' in part or '不满' in part or '少于' in part:
+                end = value
+        if start is None and end is None:
+            return None
+        return (0 if start is None else start, end)
+
     @staticmethod
     def _parse_redemption_schedule(feeinfo) -> List[dict]:
-        """
-        将赎回费率列表解析为结构化阶梯。
+        """将赎回费率列表解析为结构化阶梯（``rate`` 保持**百分数**，由写入侧除以 100）。
 
-        格式: ['小于7天', '1.50%', '大于等于7天，小于30天', '0.75%', ...]
-        解析后: [{"start_day": 0, "end_day": 7, "rate": 1.5}, ...]
+        输入是费率页「适用期限 / 赎回费率」两列拍平后的序列::
+
+            ['小于等于7天', '1.50%', '大于7天，小于等于30天', '0.75%', ...]
+
+        区间与单位的坑见 :meth:`_parse_holding_range`（2026-10-18 实测根因）。
         """
-        schedule = list()
+        schedule: List[dict] = []
         if not isinstance(feeinfo, list) or len(feeinfo) < 2:
             return schedule
 
-        import re
-
-        for i in range(0, len(feeinfo), 2):
-            if i + 1 >= len(feeinfo):
-                break
-
-            desc = feeinfo[i]
-            rate_str = feeinfo[i + 1]
-
-            # 解析费率百分比
+        for i in range(0, len(feeinfo) - 1, 2):
+            desc = str(feeinfo[i])
             try:
-                rate = float(rate_str.rstrip('%'))
-            except (ValueError, AttributeError):
+                rate = float(str(feeinfo[i + 1]).rstrip('%').strip())
+            except ValueError:
                 continue
-
-            # 解析天数区间
-            numbers = re.findall(r'\d+', desc)
-            if not numbers:
+            parsed = XalphaAdapter._parse_holding_range(desc)
+            if parsed is None:
+                logger.debug(f'费率页持有期限无法解析，跳过该档: {desc!r}')
                 continue
+            start_day, end_day = parsed
+            schedule.append({'start_day': start_day, 'end_day': end_day, 'rate': rate})
 
-            if '大于等于' in desc and '小于' in desc:
-                start = int(numbers[0])
-                end = int(numbers[1]) if len(numbers) > 1 else None
-            elif '小于' in desc:
-                start = 0
-                end = int(numbers[0])
-            elif '大于等于' in desc:
-                start = int(numbers[0])
-                end = None
-            else:
-                continue
-
-            schedule.append({'start_day': start, 'end_day': end, 'rate': rate})
+        # 首档下界归一：不少基金的页面首档写「大于等于1天，小于7天」（T+1 确认，最短
+        # 持有 1 天，如 001678 / 001741 / 001880）。它的语义就是「不满 7 天的惩罚档」，
+        # 若原样按 start_day=1 落库，持有 0 天的份额匹配不到任何档 → 赎回费算成 0。
+        # 故把「首档且下界为 1」归一到 0；下界 ≥2（定开型等）不动，那属于产品规则，
+        # 由 validate_redemption_schedule 判为不可用并拒写。
+        if schedule:
+            first = min(range(len(schedule)), key=lambda i: schedule[i]['start_day'])
+            if schedule[first]['start_day'] == 1:
+                schedule[first]['start_day'] = 0
 
         return schedule

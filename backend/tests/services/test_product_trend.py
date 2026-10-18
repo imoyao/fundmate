@@ -137,8 +137,20 @@ def test_index_series_from_index_daily(db):
 
 
 def test_invalid_range_raises(db):
+    # 2026-10-17：3Y/5Y 已转为合法档（长区间补充），非法反例改用 7Y。
     with pytest.raises(ValueError):
-        fetch_product_trend(db, 'SZ000001', asset_type='stock', range_key='5Y')
+        fetch_product_trend(db, 'SZ000001', asset_type='stock', range_key='7Y')
+
+
+def test_long_ranges_3y_5y_accepted(db):
+    """3Y / 5Y 档合法且 requested_days 正确（2026-10-17 长区间补充档）。"""
+    _seed_price_series(db, points=5)
+
+    r3 = fetch_product_trend(db, 'SZ000001', asset_type='stock', range_key='3Y')
+    r5 = fetch_product_trend(db, 'SZ000001', asset_type='stock', range_key='5Y')
+
+    assert r3['requested_days'] == 1095
+    assert r5['requested_days'] == 1825
 
 
 def test_available_days_reflects_real_span(db):
@@ -163,7 +175,8 @@ def test_endpoint_returns_empty_series_for_index(client, db):
 
 
 def test_endpoint_invalid_range_returns_400(client, db):
-    resp = client.get(TREND_URL, query_string={'symbol': 'SZ000001', 'range': '5Y'})
+    # 2026-10-17：5Y 已转合法档，非法反例改用 7Y。
+    resp = client.get(TREND_URL, query_string={'symbol': 'SZ000001', 'range': '7Y'})
 
     assert resp.status_code == 400
     assert resp.get_json()['error_code'] == 1001  # ErrorCode.INVALID_PARAMS

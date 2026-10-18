@@ -185,3 +185,28 @@ def test_nav_row_shape_matches_load_nav_points_contract():
     row = _NavRow(date(2024, 1, 2), None, 1.5)
     assert row.acc_nav is None and row.unit_nav == 1.5
     assert row.date == date(2024, 1, 2)
+
+
+# ── 区间收益落库（#2284）─────────────────────────────────────────────────────
+
+
+def test_writes_period_returns():
+    """近1月落值；90/365 天窗口在 43 天历史下够不到 ⇒ 诚实 NULL（不缩窗口凑数）。"""
+    values = [1.0 + i * 0.01 for i in range(40)]
+    values += [values[-1] * 0.7, values[-1] * 0.72, values[-1] * 0.68]
+    db = _FakeDb(position_symbols=['110020'], nav={'110020': _series(values)}, funds={'110020': 3})
+    job = _job(db)
+    result = job.run()
+    assert result['status'] == 'success'
+    rec = db.last_added
+    assert rec.ret_1m is not None
+    assert rec.ret_3m is None
+    assert rec.ret_1y is None
+    assert rec.caliber_version == CALIBER_VERSION
+
+
+def test_model_default_tracks_caliber_version():
+    """模型列默认值必须与 job 版本同步——只 bump 一半会让隐式插入的行立刻作废。"""
+    from app.domains.funds.models import FundRiskMetrics
+
+    assert FundRiskMetrics.__table__.c.caliber_version.default.arg == CALIBER_VERSION

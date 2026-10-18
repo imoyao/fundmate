@@ -119,6 +119,14 @@ test.describe("「问这个」行内入口（#1764）", () => {
               }
             });
           }
+          // 策略端点：消费方是 `!data || data.items.length` 判空（数组会让
+          // data.items 为 undefined → render 抛 TypeError → 整页崩溃），
+          // 桩必须回 data: null 的信封形状。
+          if (p.startsWith("/api/strategy/")) {
+            return route.fulfill({
+              json: { data: null, total: 0, message: "" }
+            });
+          }
           return route.fulfill({ json: { data: [], total: 0, message: "" } });
         }
       )

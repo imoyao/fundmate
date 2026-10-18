@@ -78,6 +78,11 @@
   --text-body: 16px;
   --text-small: 14px;
   --text-label: 13px;
+
+  /* 数字强调三档（#2314）：详情页指标区曾并存 15/17/18/22px 自造字号，收敛为
+     hero 24 / strong 18 / label 12 三档，规格见 design.md「字阶系统」 */
+  --text-num-strong: 18px; /* 指标网格值（常规强调数字） */
+  --text-num-hero: 24px; /* hero 数字（XIRR / 单指标锚点） */
   --text-mono: 16px;
   --text-mono-small: 14px;
 }

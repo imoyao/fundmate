@@ -4,6 +4,7 @@
 # File : test_strategy.py
 from datetime import date
 
+from app.core.time_utils import today_shanghai
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 
@@ -168,7 +169,7 @@ class TestOverviewEndpoint:
         assert data['tags'] == []
         assert data['relations'] == {}
 
-    def test_overview_with_data(self, client, db):
+    def test_overview_with_data(self, client, db, make_asset):
         # 创建标签、持仓、资产（不含负债）、绑定
         tag1 = client.post('/api/strategy/', json={'name': 'OV标签'}).json['data']
         ledger = Ledger(name='ov账户', portfolio_id=None)
@@ -184,19 +185,29 @@ class TestOverviewEndpoint:
             avg_price=10.0,
             current_price=12.0,
             confirm_date=date.today(),
+            price_date=today_shanghai(),  # #2210：确认口径已是今日价
         )
         db.add(pos)
         db.commit()
+        # #2210：资产行无价格日期概念——price_date / settled_today 恒 null
+        make_asset(major_category='cash', name='ov现金', amount=100.0, ledger_id=ledger.id, account_name='ov账户')
         client.post(f'/api/strategy/{tag1["id"]}/positions/{pos.id}/')
 
         resp = client.get('/api/strategy/overview/')
         assert resp.status_code == 200
         data = resp.json['data']
-        assert len(data['holdings']) >= 1
+        assert len(data['holdings']) >= 2
         # 检查持仓内容
         holding = next(h for h in data['holdings'] if h['id'] == pos.id)
         assert holding['name'] == 'ov股'
         assert holding['type'] == 'stock'
+        # #2210：持仓行携带 price_date + settled_today（与持仓明细 #2140 同名同义）
+        assert holding['price_date'] == today_shanghai().isoformat()
+        assert holding['settled_today'] is True
+        # 资产行两字段恒 None
+        asset_row = next(h for h in data['holdings'] if h['id'] != pos.id)
+        assert asset_row['price_date'] is None
+        assert asset_row['settled_today'] is None
         # 检查标签和关联
         assert len(data['tags']) == 1
         assert data['relations'][str(pos.id)] == ['OV标签']
