@@ -22,13 +22,12 @@
         boxShadow: 'var(--shadow-raised)'
       }"
     >
-      <!-- ===== 模块一：账户选择区（独立通栏分组） ===== -->
+      <!-- ===== 模块一：账户选择区（下边框分区，不铺整块底色） =====
+           原先用 --bg-soft 大色块铺底，在本页「卡片 + 表单」的层级里像一块补丁：
+           账户是上下文、不是内容容器。改用一条 --border-subtle 分隔线划开，
+           select 回到输入基线契约的常规外观（不再 :deep 清底色/描边，见 design.md #1772）。 -->
       <div
-        class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-lg"
-        :style="{
-          backgroundColor: 'var(--bg-soft)',
-          border: '1px solid var(--border-default)'
-        }"
+        class="account-bar flex flex-col sm:flex-row sm:items-center justify-between gap-4"
       >
         <div class="flex-1 flex items-center gap-3">
           <span
@@ -662,7 +661,12 @@ watch([stockOpType, fundOpType], () => {
   border-color: var(--brand-400);
 }
 
-/* 🔥 底部按钮物理反馈 */
+/* 账户栏：不加底色，用一条分割线与表单区划开（design.md「边框与分割线」） */
+.account-bar {
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
 .action-btn {
   transition:
     transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
@@ -674,17 +678,9 @@ watch([stockOpType, fundOpType], () => {
   transform: translateY(1px) scale(0.96);
 }
 
-/* 🔥 修复：删除影响全局下拉框的样式，只对最顶层的交易账户生效 */
-:deep(.account-select .el-select__wrapper) {
-  padding: 0 12px 0 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-}
-
-:deep(.account-select .el-select__selected-item) {
-  font-weight: 500;
-}
-
+/* 账户下拉回到输入基线契约的常规外观（design.md #1772）：
+   旧版在这里用 :deep 清掉底色 / 描边 / 阴影，把 select 变成"一片无边界文字"，
+   与同屏其它输入框不是同一种东西——「页面侧只允许覆盖令牌或纯几何 :deep」。 */
 :deep(.el-button--primary) {
   height: 40px;
 }
