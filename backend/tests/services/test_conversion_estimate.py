@@ -26,17 +26,32 @@ BUY_CONFIRM_DATE = TRADE_DATE - timedelta(days=3)
 
 
 def _seed_fund(db, code, name, *, purchase_rate=None, redeem_rules=None):
-    """建基金行 + 费率阶梯。金额档单位为分（PurchaseRule.start_quota）。"""
+    """建基金行 + 费率阶梯。金额档单位为分（PurchaseRule.start_quota）。
+
+    ## 规则行必须复用，不能每只基金各建一份
+
+    ``purchase_rules`` / ``redeem_rules`` 是**全局**区间表：生产侧写入口一律走
+    ``FundService._get_or_create_purchase_rule`` / ``_get_or_create_redeem_rule``，
+    同一区间只存在一行；``uq_purchase_rules_quota`` / ``uq_redeem_rules_range``
+    （2026-10-18）把这条契约落到了数据库层。此前夹具给每只基金都新建一份同样的
+    区间行，转换类用例一多只基金就撞唯一约束——那说明夹具本就不反映生产口径。
+    """
     fund = Fund(fund_code=code, name=name)
     db.add(fund)
     db.flush()
     if purchase_rate is not None:
-        rule = PurchaseRule(start_quota=0, end_quota=None)  # 0 元起、无上限
+        rule = (
+            db.query(PurchaseRule).filter(PurchaseRule.start_quota == 0, PurchaseRule.end_quota.is_(None)).first()
+            or PurchaseRule(start_quota=0, end_quota=None)  # 0 元起、无上限
+        )
         db.add(rule)
         db.flush()
         db.add(FeeRatio(fund_code=code, fee_type='purchase', rate=purchase_rate, purchase_rule_id=rule.id))
     for start_day, end_day, rate in redeem_rules or []:
-        rule = RedeemRule(start_day=start_day, end_day=end_day)
+        rule = (
+            db.query(RedeemRule).filter(RedeemRule.start_day == start_day, RedeemRule.end_day == end_day).first()
+            or RedeemRule(start_day=start_day, end_day=end_day)
+        )
         db.add(rule)
         db.flush()
         db.add(FeeRatio(fund_code=code, fee_type='redeem', rate=rate, redeem_rule_id=rule.id))

@@ -2,12 +2,75 @@
 # Author : imoyao
 # Date : 2026/5/11 19:34
 # File : test_funds.py
+from contextlib import contextmanager
 from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
+import pytest
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.schema import CreateIndex
+
+from app.core.migrations import migrate_fee_unique_indexes
 from app.core.money import Money
 from app.domains.funds.models import DailyWorth, FeeRatio, Fund, Manager, PurchaseRule, RedeemRule
 from app.services.fund_service import FundService
+
+#: 费率三表的唯一约束（2026-10-18）。与 app.core.migrations / 模型 __table_args__ 同名。
+FEE_UNIQUE_INDEX_NAMES = ('uq_fee_ratios_scope', 'uq_redeem_rules_range', 'uq_purchase_rules_quota')
+
+
+@contextmanager
+def _allow_legacy_dirty_fee_rows(db):
+    """临时摘掉费率唯一索引，用于构造**存量脏数据**形态。
+
+    ## 为什么还需要这种用例
+
+    唯一约束上线后，新写入不可能再产生重复行——那正是它存在的意义。但读侧的容错
+    仍必须保留：存量库、快照导入、人工修数都可能带进这种行（2026-05-31 那次整表
+    复制就是这么进来的）。本上下文让用例能造出「约束之前的世界」，钉住那份容错。
+
+    ## 用法约定
+
+    调用方**必须在块内**把造出来的重复行删掉（``_delete_duplicate_fee_ratios``）：
+    脏行还在时恢复唯一索引必然失败（UNIQUE constraint failed），那正是约束在起作用。
+    恢复语句带 ``IF NOT EXISTS``，因此块内若已自行建过索引也不会撞车。
+    """
+    engine = db.get_bind()
+    ddl: dict[str, str] = {}
+    for table in (FeeRatio, RedeemRule, PurchaseRule):
+        for idx in table.__table__.indexes:
+            if idx.name in FEE_UNIQUE_INDEX_NAMES:
+                ddl[idx.name] = str(CreateIndex(idx).compile(dialect=engine.dialect))
+    for name in ddl:
+        db.execute(text(f'DROP INDEX IF EXISTS {name}'))
+    db.commit()
+    try:
+        yield
+    finally:
+        for sql in ddl.values():
+            db.execute(text(sql.replace('CREATE UNIQUE INDEX', 'CREATE UNIQUE INDEX IF NOT EXISTS', 1)))
+        db.commit()
+
+
+def _delete_duplicate_fee_ratios(db) -> int:
+    """删掉「同一 (fund, type, rule) 多行」里的多余行（保留 MIN(id)），返回删除行数。"""
+    ids = [
+        row[0]
+        for row in db.execute(
+            text(
+                'SELECT id FROM fee_ratios WHERE id NOT IN ('
+                '  SELECT MIN(id) FROM fee_ratios'
+                '  GROUP BY fund_code, fee_type, COALESCE(purchase_rule_id, -1), COALESCE(redeem_rule_id, -1)'
+                ')'
+            )
+        ).fetchall()
+    ]
+    for fid in ids:
+        db.execute(text('DELETE FROM fee_ratios WHERE id = :i'), {'i': fid})
+    if ids:
+        db.commit()
+    return len(ids)
 
 
 def test_infer_fund_currency_default_cny():
@@ -424,63 +487,70 @@ class TestRedeemFeeEstimate:
 
         r1 = RedeemRule(start_day=0, end_day=7)
         r2 = RedeemRule(start_day=7, end_day=None)
-        db.add_all([r1, r2])
-        db.flush()
 
         # 第 1 档故意写两行逐字相同的副本（第 2 档只有一行）
-        db.add(FeeRatio(fund_code='000004', fee_type='redeem', rate=0.015, redeem_rule_id=r1.id))
-        db.add(FeeRatio(fund_code='000004', fee_type='redeem', rate=0.015, redeem_rule_id=r1.id))
-        db.add(FeeRatio(fund_code='000004', fee_type='redeem', rate=0.0, redeem_rule_id=r2.id))
-        db.commit()
+        # 唯一约束已于 2026-10-18 上线，这种行新写入进不来，故临时摘掉约束来复现存量形态
+        with _allow_legacy_dirty_fee_rows(db):
+            db.add_all([r1, r2])
+            db.flush()
+            db.add(FeeRatio(fund_code='000004', fee_type='redeem', rate=0.015, redeem_rule_id=r1.id))
+            db.add(FeeRatio(fund_code='000004', fee_type='redeem', rate=0.015, redeem_rule_id=r1.id))
+            db.add(FeeRatio(fund_code='000004', fee_type='redeem', rate=0.0, redeem_rule_id=r2.id))
+            db.commit()
 
-        # 本用例的前提：库里确实存在重复行（否则断言的是空前提）
-        assert db.query(FeeRatio).filter(FeeRatio.fund_code == '000004', FeeRatio.fee_type == 'redeem').count() == 3
+            # 本用例的前提：库里确实存在重复行（否则断言的是空前提）
+            assert db.query(FeeRatio).filter(FeeRatio.fund_code == '000004', FeeRatio.fee_type == 'redeem').count() == 3
 
-        position = make_position(
-            symbol='000004',
-            name='副本行测试基金',
-            asset_type='fund',
-            quantity=1000,
-            avg_price=1.0,
-        )
-        db.flush()
-        txn = make_transaction(
-            position_id=position.id,
-            ledger_id=position.ledger_id,
-            txn_type='buy',
-            quantity=1000,
-            price=1.0,
-            confirm_date=sell_date - timedelta(days=3),  # 落在 0~7 天档
-        )
-        db.add(txn)
-        db.commit()
+            try:
+                position = make_position(
+                    symbol='000004',
+                    name='副本行测试基金',
+                    asset_type='fund',
+                    quantity=1000,
+                    avg_price=1.0,
+                )
+                db.flush()
+                txn = make_transaction(
+                    position_id=position.id,
+                    ledger_id=position.ledger_id,
+                    txn_type='buy',
+                    quantity=1000,
+                    price=1.0,
+                    confirm_date=sell_date - timedelta(days=3),  # 落在 0~7 天档
+                )
+                db.add(txn)
+                db.commit()
 
-        resp = client.post(
-            '/api/funds/redeem-fee/estimate/',
-            json={'position_id': position.id, 'sell_date': sell_date.strftime('%Y-%m-%d')},
-        )
-        assert resp.status_code == 200
-        data = resp.get_json()['data']
+                resp = client.post(
+                    '/api/funds/redeem-fee/estimate/',
+                    json={'position_id': position.id, 'sell_date': sell_date.strftime('%Y-%m-%d')},
+                )
+                assert resp.status_code == 200
+                data = resp.get_json()['data']
 
-        # 每档只出现一次，且顺序按持有天数
-        assert len(data['holdings']) == 2, f'档位重复或缺失: {data["holdings"]}'
-        assert [d['range'] for d in data['holdings']] == ['0~7天(不含)', '≥7天']
-        assert data['holdings'][0]['shares'] == 1000
-        # 费率不被重复行放大：1000 份 * 1.0 元 * 1.5% = 15.0
-        assert data['total_fee'] == 15.0
+                # 每档只出现一次，且顺序按持有天数
+                assert len(data['holdings']) == 2, f'档位重复或缺失: {data["holdings"]}'
+                assert [d['range'] for d in data['holdings']] == ['0~7天(不含)', '≥7天']
+                assert data['holdings'][0]['shares'] == 1000
+                # 费率不被重复行放大：1000 份 * 1.0 元 * 1.5% = 15.0
+                assert data['total_fee'] == 15.0
 
-        # 费率查询接口同样要去重（同一份脏数据，两个读取口）
-        rates_resp = client.get(f'/api/funds/{fund.fund_code}/fee-rates/')
-        assert rates_resp.status_code == 200
-        assert len(rates_resp.get_json()['data']['redeem']) == 2
+                # 费率查询接口同样要去重（同一份脏数据，两个读取口）
+                rates_resp = client.get(f'/api/funds/{fund.fund_code}/fee-rates/')
+                assert rates_resp.status_code == 200
+                assert len(rates_resp.get_json()['data']['redeem']) == 2
+            finally:
+                # 收尾必须清掉脏行：脏行还在时恢复唯一索引必然失败
+                _delete_duplicate_fee_ratios(db)
 
     def test_estimate_redeem_fee_keeps_conflicting_rates_in_same_range(
         self, client, db, make_position, make_transaction
     ):
-        """区间相同但费率不同 = 真实歧义（份额类别混同 fund_code），不得被静默折叠
+        """区间相同但费率不同 = 真实歧义（解析缺陷产物），读侧不得静默折叠
 
         真实数据里 000513 的 0~7 天同时存在 1.5% 与 0.75%。这不是重复行，
         读侧无权替用户选一个——折叠掉会让费率分布少一档、并改变取到的费率。
+        唯一约束上线后这种行同样进不来（同一 rule 只能有一条费率），故临时摘掉约束复现。
         """
         sell_date = date(2026, 7, 10)
 
@@ -491,34 +561,41 @@ class TestRedeemFeeEstimate:
         rule = RedeemRule(start_day=0, end_day=7)
         db.add(rule)
         db.flush()
-        db.add(FeeRatio(fund_code='000005', fee_type='redeem', rate=0.015, redeem_rule_id=rule.id))
-        db.add(FeeRatio(fund_code='000005', fee_type='redeem', rate=0.0075, redeem_rule_id=rule.id))
-        db.commit()
 
-        position = make_position(symbol='000005', name='费率歧义基金', asset_type='fund', quantity=1000, avg_price=1.0)
-        db.flush()
-        txn = make_transaction(
-            position_id=position.id,
-            ledger_id=position.ledger_id,
-            txn_type='buy',
-            quantity=1000,
-            price=1.0,
-            confirm_date=sell_date - timedelta(days=3),
-        )
-        db.add(txn)
-        db.commit()
+        with _allow_legacy_dirty_fee_rows(db):
+            db.add(FeeRatio(fund_code='000005', fee_type='redeem', rate=0.015, redeem_rule_id=rule.id))
+            db.add(FeeRatio(fund_code='000005', fee_type='redeem', rate=0.0075, redeem_rule_id=rule.id))
+            db.commit()
 
-        resp = client.post(
-            '/api/funds/redeem-fee/estimate/',
-            json={'position_id': position.id, 'sell_date': sell_date.strftime('%Y-%m-%d')},
-        )
-        assert resp.status_code == 200
-        data = resp.get_json()['data']
+            try:
+                position = make_position(
+                    symbol='000005', name='费率歧义基金', asset_type='fund', quantity=1000, avg_price=1.0
+                )
+                db.flush()
+                txn = make_transaction(
+                    position_id=position.id,
+                    ledger_id=position.ledger_id,
+                    txn_type='buy',
+                    quantity=1000,
+                    price=1.0,
+                    confirm_date=sell_date - timedelta(days=3),
+                )
+                db.add(txn)
+                db.commit()
 
-        # 两个费率都在表里：份额按各自费率分列，合计等于全部持有
-        assert len(data['holdings']) == 2
-        assert sorted(d['rate'] for d in data['holdings']) == [0.0075, 0.015]
-        assert sum(d['shares'] for d in data['holdings']) == 1000
+                resp = client.post(
+                    '/api/funds/redeem-fee/estimate/',
+                    json={'position_id': position.id, 'sell_date': sell_date.strftime('%Y-%m-%d')},
+                )
+                assert resp.status_code == 200
+                data = resp.get_json()['data']
+
+                # 两个费率都在表里：份额按各自费率分列，合计等于全部持有
+                assert len(data['holdings']) == 2
+                assert sorted(d['rate'] for d in data['holdings']) == [0.0075, 0.015]
+                assert sum(d['shares'] for d in data['holdings']) == 1000
+            finally:
+                _delete_duplicate_fee_ratios(db)
 
 
 class TestSyncFundFeesRepairsBadTiers:
@@ -577,6 +654,85 @@ class TestSyncFundFeesRepairsBadTiers:
         rows = db.query(FeeRatio).filter_by(fund_code='000001', fee_type='redeem').all()
         assert len(rows) == 1
         assert float(rows[0].rate) == 0.015
+
+
+class TestFeeUniqueConstraints:
+    """费率三表的唯一约束（2026-10-18）
+
+    这是本轮修复的**最后一道、也是唯一会让错误当场报错**的一道：应用层的
+    upsert / 结构校验 / 清残档都只在已知写路径上生效，而这三张表此前一个索引都没有，
+    12,732 组重复副本行因此能静默存在五个月。
+    """
+
+    def test_duplicate_tier_is_rejected_by_database(self, db):
+        """同一 (fund, fee_type, rule) 的重复费率必须被数据库拒绝"""
+        rule = RedeemRule(start_day=0, end_day=7)
+        db.add(rule)
+        db.flush()
+        db.add(FeeRatio(fund_code='000001', fee_type='redeem', rate=0.015, redeem_rule_id=rule.id))
+        db.commit()
+
+        db.add(FeeRatio(fund_code='000001', fee_type='redeem', rate=0.015, redeem_rule_id=rule.id))
+        with pytest.raises(IntegrityError):
+            db.commit()
+        db.rollback()
+
+    def test_duplicate_range_rule_is_rejected(self, db):
+        """同一持有天数区间的第二条规则行必须被拒绝"""
+        db.add(RedeemRule(start_day=0, end_day=7))
+        db.commit()
+
+        db.add(RedeemRule(start_day=0, end_day=7))
+        with pytest.raises(IntegrityError):
+            db.commit()
+        db.rollback()
+
+    def test_last_tier_with_null_end_day_still_constrained(self, db):
+        """末档 end_day IS NULL 也必须被约束住
+
+        这是必须用表达式索引（COALESCE）的原因：普通唯一索引在 SQLite 下对 NULL
+        不生效，「无上限」那一档会完全不受约束。
+        """
+        db.add(RedeemRule(start_day=7, end_day=None))
+        db.commit()
+
+        db.add(RedeemRule(start_day=7, end_day=None))
+        with pytest.raises(IntegrityError):
+            db.commit()
+        db.rollback()
+
+    def test_migration_is_fail_closed_on_legacy_duplicates(self, db):
+        """存量库有重复行时迁移必须报错并指明清理命令，不许静默跳过
+
+        跳过等于把刚修好的问题原样放回去，且没人会知道——重复行正是这样静默存在了五个月。
+        """
+        rule = RedeemRule(start_day=0, end_day=7)
+        db.add(rule)
+        db.flush()
+
+        with _allow_legacy_dirty_fee_rows(db):
+            db.add_all(
+                [
+                    FeeRatio(fund_code='000001', fee_type='redeem', rate=0.015, redeem_rule_id=rule.id),
+                    FeeRatio(fund_code='000001', fee_type='redeem', rate=0.015, redeem_rule_id=rule.id),
+                ]
+            )
+            db.commit()
+
+            with pytest.raises(RuntimeError) as exc:
+                migrate_fee_unique_indexes(db.get_bind())
+            assert 'cleanup_fee_ratio_dupes' in str(exc.value), '报错必须指明处置命令'
+
+            # 清掉重复行后迁移应能通过（顺带验证 finally 里索引能被恢复）
+            for row in db.query(FeeRatio).filter_by(fund_code='000001').order_by(FeeRatio.id.desc()).limit(1):
+                db.delete(row)
+            db.commit()
+            assert 'uq_fee_ratios_scope' in migrate_fee_unique_indexes(db.get_bind())
+
+    def test_migration_is_idempotent(self, db):
+        """重复执行不应报错（init_db 每次启动都会跑）"""
+        assert 'uq_fee_ratios_scope' in migrate_fee_unique_indexes(db.get_bind())
+        assert 'uq_fee_ratios_scope' in migrate_fee_unique_indexes(db.get_bind())
 
     def test_estimate_redeem_fee_insufficient_shares(self, client, db, make_position, make_transaction):
         """测试卖出份额超过持仓时返回 400"""

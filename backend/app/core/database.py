@@ -26,6 +26,7 @@ from app.core.migrations import (
     migrate_advisor_portfolio_metrics,
     migrate_advisor_portfolio_provenance,
     migrate_channel_link_indexes,
+    migrate_fee_unique_indexes,
     migrate_fund_equity_position_period,
     migrate_fund_managers_split_tenures,
     migrate_fund_risk_metrics_period_returns,
@@ -491,6 +492,9 @@ def init_db():
     migrate_advisor_portfolio_provenance(app_eng)
     # channel_links.to_symbol 索引（#1491 评审）：create_all 只建新表、不给存量表加索引
     migrate_channel_link_indexes(app_eng)
+    # 费率三表唯一约束（2026-10-18）：同理只补存量；库里有重复行时迁移会 fail closed
+    # 并指明清理命令（scripts/cleanup_fee_ratio_dupes.py），不静默跳过。
+    migrate_fee_unique_indexes(app_eng)
     # funds.equity_position_period 列（#870）：create_all 不替存量表加列，同上须先于结构校验
     migrate_fund_equity_position_period(app_eng)
     # fund_valuation_daily 对照三列（#2142）：create_all 不替存量表加列，同上须先于结构校验
@@ -573,6 +577,8 @@ def init_db_split():
     migrate_advisor_portfolio_provenance(app_eng)
     # channel_links.to_symbol 索引（#1491 评审）
     migrate_channel_link_indexes(app_eng)
+    # 费率三表唯一约束（2026-10-18）：与上方同理只补存量；重复行存在时 fail closed
+    migrate_fee_unique_indexes(app_eng)
     # funds.equity_position_period 列（#870）：create_all 不替存量表加列，同上须先于结构校验
     migrate_fund_equity_position_period(app_eng)
     # fund_valuation_daily 对照三列（#2142）：create_all 不替存量表加列，同上须先于结构校验
