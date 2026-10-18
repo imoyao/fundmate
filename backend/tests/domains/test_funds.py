@@ -407,6 +407,127 @@ class TestRedeemFeeEstimate:
         assert len(data['holdings']) == 1
         assert data['holdings'][0]['shares'] == 600
 
+    def test_estimate_redeem_fee_dedupes_identical_fee_ratio_rows(
+        self, client, db, make_position, make_transaction
+    ):
+        """存量脏数据防线：同档逐字相同的副本行不得让费率分布每档出现两次
+
+        ``fee_ratios`` 无唯一约束，库里存在一次整表复制留下的逐字相同副本
+        （重复对的 rate/currency/created_at/updated_at 全同，2026-10-17 实测
+        3410/3412 只基金中招）。读取侧不去重时「赎回费率分布」弹窗每一档都
+        显示两遍、份额数一模一样——即用户报的「表格显示两次」。
+        """
+        sell_date = date(2026, 7, 10)
+
+        fund = Fund(fund_code='000004', name='副本行测试基金')
+        db.add(fund)
+        db.flush()
+
+        r1 = RedeemRule(start_day=0, end_day=7)
+        r2 = RedeemRule(start_day=7, end_day=None)
+        db.add_all([r1, r2])
+        db.flush()
+
+        # 第 1 档故意写两行逐字相同的副本（第 2 档只有一行）
+        db.add(FeeRatio(fund_code='000004', fee_type='redeem', rate=0.015, redeem_rule_id=r1.id))
+        db.add(FeeRatio(fund_code='000004', fee_type='redeem', rate=0.015, redeem_rule_id=r1.id))
+        db.add(FeeRatio(fund_code='000004', fee_type='redeem', rate=0.0, redeem_rule_id=r2.id))
+        db.commit()
+
+        # 本用例的前提：库里确实存在重复行（否则断言的是空前提）
+        assert (
+            db.query(FeeRatio)
+            .filter(FeeRatio.fund_code == '000004', FeeRatio.fee_type == 'redeem')
+            .count()
+            == 3
+        )
+
+        position = make_position(
+            symbol='000004',
+            name='副本行测试基金',
+            asset_type='fund',
+            quantity=1000,
+            avg_price=1.0,
+        )
+        db.flush()
+        txn = make_transaction(
+            position_id=position.id,
+            ledger_id=position.ledger_id,
+            txn_type='buy',
+            quantity=1000,
+            price=1.0,
+            confirm_date=sell_date - timedelta(days=3),  # 落在 0~7 天档
+        )
+        db.add(txn)
+        db.commit()
+
+        resp = client.post(
+            '/api/funds/redeem-fee/estimate/',
+            json={'position_id': position.id, 'sell_date': sell_date.strftime('%Y-%m-%d')},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+
+        # 每档只出现一次，且顺序按持有天数
+        assert len(data['holdings']) == 2, f'档位重复或缺失: {data["holdings"]}'
+        assert [d['range'] for d in data['holdings']] == ['0~7天(不含)', '≥7天']
+        assert data['holdings'][0]['shares'] == 1000
+        # 费率不被重复行放大：1000 份 * 1.0 元 * 1.5% = 15.0
+        assert data['total_fee'] == 15.0
+
+        # 费率查询接口同样要去重（同一份脏数据，两个读取口）
+        rates_resp = client.get(f'/api/funds/{fund.fund_code}/fee-rates/')
+        assert rates_resp.status_code == 200
+        assert len(rates_resp.get_json()['data']['redeem']) == 2
+
+    def test_estimate_redeem_fee_keeps_conflicting_rates_in_same_range(
+        self, client, db, make_position, make_transaction
+    ):
+        """区间相同但费率不同 = 真实歧义（份额类别混同 fund_code），不得被静默折叠
+
+        真实数据里 000513 的 0~7 天同时存在 1.5% 与 0.75%。这不是重复行，
+        读侧无权替用户选一个——折叠掉会让费率分布少一档、并改变取到的费率。
+        """
+        sell_date = date(2026, 7, 10)
+
+        fund = Fund(fund_code='000005', name='费率歧义基金')
+        db.add(fund)
+        db.flush()
+
+        rule = RedeemRule(start_day=0, end_day=7)
+        db.add(rule)
+        db.flush()
+        db.add(FeeRatio(fund_code='000005', fee_type='redeem', rate=0.015, redeem_rule_id=rule.id))
+        db.add(FeeRatio(fund_code='000005', fee_type='redeem', rate=0.0075, redeem_rule_id=rule.id))
+        db.commit()
+
+        position = make_position(
+            symbol='000005', name='费率歧义基金', asset_type='fund', quantity=1000, avg_price=1.0
+        )
+        db.flush()
+        txn = make_transaction(
+            position_id=position.id,
+            ledger_id=position.ledger_id,
+            txn_type='buy',
+            quantity=1000,
+            price=1.0,
+            confirm_date=sell_date - timedelta(days=3),
+        )
+        db.add(txn)
+        db.commit()
+
+        resp = client.post(
+            '/api/funds/redeem-fee/estimate/',
+            json={'position_id': position.id, 'sell_date': sell_date.strftime('%Y-%m-%d')},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+
+        # 两个费率都在表里：份额按各自费率分列，合计等于全部持有
+        assert len(data['holdings']) == 2
+        assert sorted(d['rate'] for d in data['holdings']) == [0.0075, 0.015]
+        assert sum(d['shares'] for d in data['holdings']) == 1000
+
     def test_estimate_redeem_fee_insufficient_shares(self, client, db, make_position, make_transaction):
         """测试卖出份额超过持仓时返回 400"""
         fund = Fund(fund_code='000003', name='份额不足基金')
