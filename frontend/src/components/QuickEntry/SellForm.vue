@@ -91,23 +91,19 @@
         <!-- 1. 交易日期 -->
         <el-form-item label="交易日期" prop="trade_date">
           <div class="flex items-center gap-3 w-full">
-            <el-date-picker
-              v-model="form.trade_date"
-              type="date"
-              :class="showIsAfter15 ? 'flex-1' : 'w-full'"
-              style="width: 100%"
-              value-format="YYYY-MM-DD"
-              :clearable="false"
-              :disabled-date="disabledDate"
-            />
-            <el-radio-group
-              v-if="showIsAfter15"
-              v-model="form.isAfter15"
-              size="small"
-            >
-              <el-radio-button :value="false">15:00前</el-radio-button>
-              <el-radio-button :value="true">15:00后</el-radio-button>
-            </el-radio-group>
+            <!-- 日期框外层自带弹性：DatePicker 是 inheritAttrs:false，写它身上的
+                 `:class` 落不到 DOM（曾用 `showIsAfter15 ? 'flex-1' : 'w-full'`）。 -->
+            <div class="min-w-0 flex-1">
+              <el-date-picker
+                v-model="form.trade_date"
+                type="date"
+                style="width: 100%"
+                value-format="YYYY-MM-DD"
+                :clearable="false"
+                :disabled-date="disabledDate"
+              />
+            </div>
+            <TradeSlotSwitch v-if="showIsAfter15" v-model="form.isAfter15" />
           </div>
           <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
             <span v-if="form.isAfter15 && selectedPosition?.type === 'fund'">
@@ -136,18 +132,15 @@
               :placeholder="placeholderText"
               @blur="qtyTouched = true"
             />
+            <!-- 快捷档位：与转换表单同一组件（档位表 / 取整 / 选中态唯一实现） -->
             <div class="flex items-center justify-between w-full">
-              <template v-for="ratio in SELL_QUICK_RATIOS" :key="ratio.label">
-                <el-button
-                  size="small"
-                  plain
-                  round
-                  class="quick-ratio-btn"
-                  @click="applySellQuickRatio(ratio.value)"
-                >
-                  {{ ratio.label }}
-                </el-button>
-              </template>
+              <QuickRatioPicker
+                v-model="form.quantity"
+                :total="maxQuantity"
+                :type="form.type"
+                :step="stepForSecurity"
+                aria-label="卖出份额比例"
+              />
             </div>
             <div
               v-if="showQtyHint"
@@ -343,14 +336,12 @@ import { IconifyIconOffline } from "@/components/ReIcon";
 import { LEDGER_TYPE_SHORT } from "@/constants";
 import { getLedgerColor } from "@/utils/ledger";
 import { disabledTradeDate } from "@/utils/date";
-import {
-  getStep,
-  SELL_QUICK_RATIOS,
-  calcSellQuantityByRatio
-} from "@/utils/trading";
+import { getStep } from "@/utils/trading";
 import { estimateRedeemFee, syncFundFees } from "@/api/funds";
 import { useFundTradeDate } from "@/composables/useFundTradeDate";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
+import TradeSlotSwitch from "@/components/TradeSlotSwitch/index.vue";
+import QuickRatioPicker from "@/components/QuickRatioPicker/index.vue";
 
 const props = defineProps<{
   ledgers: any[];
@@ -539,15 +530,6 @@ async function fetchPositionsByAccount() {
 }
 
 // ---------- 交互方法 ----------
-function applySellQuickRatio(ratio: number) {
-  form.quantity = calcSellQuantityByRatio(
-    ratio,
-    maxQuantity.value,
-    form.type,
-    stepForSecurity.value
-  );
-}
-
 function clearFormData() {
   qtyTouched.value = false;
   showPositionSelect.value = false;
@@ -885,35 +867,6 @@ defineExpose({ handleSubmit, resetForm, isDirty });
 <style scoped>
 .text-xs {
   font-size: 0.75rem;
-}
-
-.quick-ratio-btn {
-  height: 28px;
-  padding: 0 8px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-  background-color: transparent;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  transition:
-    background-color 0.2s,
-    border-color 0.2s,
-    color 0.2s,
-    transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.quick-ratio-btn:hover {
-  color: var(--brand-700);
-  background-color: var(--brand-100);
-  border-color: var(--brand-700);
-}
-
-.quick-ratio-btn:active {
-  color: var(--brand-700);
-  background-color: var(--brand-200);
-  border-color: var(--brand-700);
-  transform: scale(0.92);
 }
 
 :deep(.el-button--primary) {

@@ -74,11 +74,7 @@
                   :disabled-date="disabledTradeDate"
                 />
               </div>
-              <SegmentedControl
-                v-model="tradeSlot"
-                :options="tradeSlotOptions"
-                aria-label="交易时点"
-              />
+              <TradeSlotSwitch v-model="form.isAfter15" />
             </div>
             <div class="helper">15:00 后提交按下一交易日（T+1）净值计算</div>
           </el-form-item>
@@ -98,14 +94,15 @@
                 placeholder="输入转出份额"
                 @change="onQuantityInput"
               />
-              <!-- 比例档位：紧凑贴输入框左下，选中态由 quantity 反算派生
-                   （手改数值自动掉高亮），不拉满整行 -->
+              <!-- 比例档位：与卖出表单同一组件（档位表 / 取整 / 选中态唯一实现）；
+                   选中态由 quantity 反算，手改数值自动掉高亮 -->
               <div class="quick-ratio-row">
-                <SegmentedControl
-                  :model-value="activeQuickIndex"
-                  :options="ratioOptions"
+                <QuickRatioPicker
+                  v-model="form.quantity"
+                  :total="maxQuantity"
+                  type="fund"
                   aria-label="转出份额比例"
-                  @change="onQuickRatioChange"
+                  @select="onQuickRatioSelect"
                 />
                 <span class="hold-hint">
                   持有 {{ maxQuantity.toFixed(4) }} 份
@@ -395,6 +392,8 @@ import { ref, reactive, computed, onMounted, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
+import TradeSlotSwitch from "@/components/TradeSlotSwitch/index.vue";
+import QuickRatioPicker from "@/components/QuickRatioPicker/index.vue";
 import {
   estimateConversion,
   submitConversion,
@@ -405,7 +404,6 @@ import {
 import { searchFunds, type FundSearchItem } from "@/api/funds";
 import type { Position } from "@/api/types";
 import { disabledTradeDate } from "@/utils/date";
-import { calcSellQuantityByRatio } from "@/utils/trading";
 
 const props = defineProps<{
   ledgers: any[];
@@ -418,34 +416,6 @@ const emit = defineEmits<{
 
 const stepTitles = ["选择转出", "选择转入", "费用与确认", "结果"];
 const step = ref(0);
-
-// 25/50/75/100% 快捷比例（与 SellForm 同一工具；100% 走后端「全部转出」精确值语义）
-const TRANSFER_QUICK_RATIOS = [
-  { label: "25%", value: 0.25 },
-  { label: "50%", value: 0.5 },
-  { label: "75%", value: 0.75 },
-  { label: "全部", value: 1 }
-];
-
-/** 比例档位的分段控制器选项：值用下标，选中态由 quantity 反算派生 */
-const ratioOptions = TRANSFER_QUICK_RATIOS.map((r, index) => ({
-  label: r.label,
-  value: index
-}));
-
-// 交易时点：2 档「多选一」→ SegmentedControl（design.md 语言边界），
-// 不用实底 radio-button（会与主按钮撞脸）。form.isAfter15 仍是布尔真相源。
-type TradeSlot = "before" | "after";
-const tradeSlotOptions: { label: string; value: TradeSlot }[] = [
-  { label: "15:00 前", value: "before" },
-  { label: "15:00 后", value: "after" }
-];
-const tradeSlot = computed<TradeSlot>({
-  get: () => (form.isAfter15 ? "after" : "before"),
-  set: v => {
-    form.isAfter15 = v === "after";
-  }
-});
 
 // ── 持仓（按账户分组拉取，与 SellForm 同源） ──
 const positionsByAccount = ref<Record<string, Position[]>>({});
@@ -530,42 +500,14 @@ function onQuantityInput() {
 }
 
 /**
- * 当前命中的快捷档位下标；`-1` = 手填且未命中任何比例（不高亮）。
- * 必须用与 `applyQuickRatio()` **同一个**取整函数反算，否则 25% 点完会被判成未命中
- * （份额按 1 份向下取整，浮点比值并不等于 0.25×持仓）。
+ * 快捷档位点击后的**附加语义**：`ratio >= 1` 即「全部转出」——
+ * 后端按持仓 4 位精确值清算、不抹零（见 `ConversionBaseParams.out_quantity`）。
+ *
+ * 档位表、取整、选中态反算都在 `QuickRatioPicker` 内部（与卖出表单同一实现），
+ * 这里只接「全部」这一个语义差异，不再重复算份额。
  */
-const activeQuickIndex = computed(() => {
-  if (!selectedPosition.value) return -1;
-  if (transferAll.value) return TRANSFER_QUICK_RATIOS.length - 1;
-  const q = form.quantity;
-  if (!q || q <= 0) return -1;
-  for (let i = 0; i < TRANSFER_QUICK_RATIOS.length - 1; i++) {
-    const expected = calcSellQuantityByRatio(
-      TRANSFER_QUICK_RATIOS[i].value,
-      maxQuantity.value,
-      "fund",
-      1
-    );
-    if (Math.abs(q - expected) < 1e-6) return i;
-  }
-  return -1;
-});
-
-function onQuickRatioChange(index: number) {
-  const ratio = TRANSFER_QUICK_RATIOS[index];
-  if (ratio) applyQuickRatio(ratio.value);
-}
-
-function applyQuickRatio(ratio: number) {
-  if (!selectedPosition.value) return;
-  if (ratio >= 1) {
-    transferAll.value = true;
-    form.quantity = maxQuantity.value;
-    return;
-  }
-  transferAll.value = false;
-  // 基金份额步长 1（份），向下取整到 2 位由输入框精度约束
-  form.quantity = calcSellQuantityByRatio(ratio, maxQuantity.value, "fund", 1);
+function onQuickRatioSelect({ ratio }: { ratio: number; quantity: number }) {
+  transferAll.value = ratio >= 1;
 }
 
 // ── 转入基金搜索（与 BuyForm 同源：基金账户走 searchFunds） ──
