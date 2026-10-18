@@ -148,7 +148,7 @@ const {
 
 .edit-hint {
   margin: -4px 0 8px;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-tertiary-ink);
 }
@@ -159,7 +159,7 @@ const {
   gap: 16px;
   align-items: center;
   margin: -4px 0 8px;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-tertiary-ink);
 }
@@ -196,7 +196,7 @@ const {
   height: 16px;
   padding: 0 4px;
   margin-left: 2px;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 1;
   color: var(--text-primary);
   background: var(--color-warning);

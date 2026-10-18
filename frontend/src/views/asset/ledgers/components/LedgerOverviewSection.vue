@@ -232,7 +232,7 @@ const p = reactive(props.page);
 .liability-warning-badge {
   display: inline-block;
   padding: 2px 8px;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 18px;
   color: var(--color-warning-ink);
   background: var(--color-warning-20);

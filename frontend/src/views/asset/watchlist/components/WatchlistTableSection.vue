@@ -280,7 +280,7 @@ onMounted(() => {
 
 .watchlist-empty__hint {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

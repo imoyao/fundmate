@@ -40,7 +40,7 @@
   height: 18px;
   padding: 0 7px;
   overflow: hidden;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 1;
   color: var(--text-secondary);
   white-space: nowrap;
@@ -90,7 +90,7 @@
   align-items: center;
   height: 18px;
   padding: 0 6px;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 1;
   color: var(--text-tertiary-ink);
   border: 1px dashed var(--border-default);
@@ -136,7 +136,7 @@
   display: block;
   max-width: 100%;
   overflow: hidden;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.4;
   color: var(--text-secondary);
   white-space: nowrap;
@@ -149,7 +149,7 @@
 }
 
 .el-table .add-note-btn {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   cursor: pointer;
 }
@@ -165,7 +165,7 @@
   align-items: center;
   height: 18px;
   padding: 0 6px;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 1;
   color: var(--text-tertiary-ink);
   border: 1px dashed var(--border-default);
@@ -216,7 +216,7 @@
 
 /* ── 可转债品类列（#1285/#1393）── */
 .el-table .bond-num {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }
@@ -226,7 +226,7 @@
 }
 
 .el-table .bond-rating {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -235,7 +235,7 @@
   display: inline-block;
   max-width: 100%;
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -248,7 +248,7 @@
 
 /* ── 指数估值列（#1285/#1394）── */
 .el-table .index-val {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }
@@ -259,7 +259,7 @@
 
 /* ── 基金最大回撤列（#1285/§3.10）── */
 .el-table .dd-val {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   /* 回撤是风险指标而非涨跌：用中性色，不套涨红跌绿（否则被误读为「今日下跌」） */
   color: var(--text-primary);
@@ -273,7 +273,7 @@
 .el-table .link-badge {
   display: inline-block;
   padding: 0 6px;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 18px;
   color: var(--brand-700);
   background: var(--bg-soft);

@@ -192,7 +192,7 @@ const textColor = computed(() =>
 }
 
 .pnl-calendar__day {
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 1;
   color: var(--text-tertiary-ink);
 }
@@ -331,7 +331,7 @@ const textColor = computed(() =>
 }
 
 .pnl-calendar__tag {
-  font-size: 10px;
+  font-size: var(--text-label);
   line-height: 1;
   color: var(--text-tertiary-ink);
 }
@@ -390,7 +390,7 @@ const textColor = computed(() =>
   }
 
   .pnl-calendar__day {
-    font-size: 10px;
+    font-size: var(--text-label);
   }
 }
 </style>

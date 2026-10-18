@@ -127,14 +127,14 @@ const hasContent = computed(
 }
 
 .allocation-group-label {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 500;
   color: var(--text-primary);
 }
 
 .allocation-group-empty {
   padding: 6px 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   text-align: center;
 }

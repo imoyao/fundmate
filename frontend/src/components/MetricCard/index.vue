@@ -124,7 +124,7 @@ const displayValue = computed(() => {
 
   &__value {
     font-family: var(--font-mono);
-    font-size: 30px;
+    font-size: var(--text-display);
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     line-height: 1.05;
@@ -133,7 +133,7 @@ const displayValue = computed(() => {
   }
 
   &__unit {
-    font-size: 15px;
+    font-size: var(--text-num-strong);
     font-weight: 500;
     color: var(--text-tertiary-ink);
   }
@@ -143,7 +143,7 @@ const displayValue = computed(() => {
   }
 
   &__caption {
-    font-size: 12px;
+    font-size: var(--text-label);
     line-height: 1.4;
     color: var(--text-tertiary-ink);
   }
@@ -154,11 +154,11 @@ const displayValue = computed(() => {
     padding: 22px 24px;
 
     .metric-card__value {
-      font-size: 40px;
+      font-size: var(--text-display-lg);
     }
 
     .metric-card__unit {
-      font-size: 17px;
+      font-size: var(--text-num-strong);
     }
   }
 }
@@ -179,11 +179,11 @@ const displayValue = computed(() => {
 @media (width <= 480px) /* breakpoint-allow: 卡片内字号阈值（内容级） */ {
   /* 说明（已上移到 @media 同行）：卡片内字号阈值（内容级），非页面布局断点 */
   .metric-card__value {
-    font-size: 26px;
+    font-size: var(--text-num-hero);
   }
 
   .metric-card--featured .metric-card__value {
-    font-size: 34px;
+    font-size: var(--text-display);
   }
 }
 </style>

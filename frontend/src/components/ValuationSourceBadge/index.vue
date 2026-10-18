@@ -87,7 +87,7 @@ const aria = computed(() => {
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
-  font-size: 11px;
+  font-size: var(--text-label);
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
@@ -99,7 +99,7 @@ const aria = computed(() => {
   min-width: 14px;
   height: 14px;
   padding: 0 3px;
-  font-size: 10px;
+  font-size: var(--text-label);
 }
 
 /* 预估：品牌软按钮语言（与 SegmentedControl 选中态同族）——「非确认值」的警示锚点 */

@@ -903,7 +903,7 @@ watch(firstTradeDate, () => {
 
 .trend-section__footnote {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }

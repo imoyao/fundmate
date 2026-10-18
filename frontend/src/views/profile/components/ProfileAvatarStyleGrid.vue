@@ -156,7 +156,7 @@ defineEmits<{ select: [style: AvatarStyle] }>();
 .style-card--animated .style-card__name::after {
   display: inline-block;
   margin-left: 3px;
-  font-size: 8px;
+  font-size: var(--text-label);
   vertical-align: super;
   color: var(--brand-ink);
   content: "●";
@@ -188,7 +188,7 @@ defineEmits<{ select: [style: AvatarStyle] }>();
   place-items: center;
   width: 16px;
   height: 16px;
-  font-size: 10px;
+  font-size: var(--text-label);
   color: var(--text-inverse);
   background: var(--brand-500);
   border-radius: 50%;

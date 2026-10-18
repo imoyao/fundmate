@@ -417,7 +417,7 @@ onMounted(() => {
 }
 
 .summary-card__delta-label {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

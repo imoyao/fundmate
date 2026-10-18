@@ -423,7 +423,7 @@ watch(rows, () => nextTick(measure));
 
 .etf-cmp__th {
   padding: 0 var(--space-2) var(--space-2);
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 500;
   color: var(--text-tertiary-ink);
   text-align: left;
@@ -545,7 +545,7 @@ watch(rows, () => nextTick(measure));
 .etf-cmp__pick-rank {
   align-self: flex-start;
   padding: 0 var(--space-2);
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 500;
   line-height: 18px;
   color: var(--text-tertiary-ink);
@@ -582,7 +582,7 @@ watch(rows, () => nextTick(measure));
 }
 
 .etf-cmp__pick-code {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
 }
@@ -595,7 +595,7 @@ watch(rows, () => nextTick(measure));
 }
 
 .etf-cmp__pick-tracking-label {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -607,7 +607,7 @@ watch(rows, () => nextTick(measure));
 
 .etf-cmp__picks-note {
   margin: var(--space-2) 0 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -627,7 +627,7 @@ watch(rows, () => nextTick(measure));
 
 /* 基准行不是「又一只 ETF」：弱化底色区分，避免被当成可买标的 */
 .etf-cmp__table tfoot .etf-cmp__td {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   background: var(--bg-muted);
   border-bottom: none;

@@ -129,7 +129,7 @@ const strokeColor = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -139,7 +139,7 @@ const strokeColor = computed(() => {
   bottom: 10px;
   left: 10px;
   padding: 1px 7px;
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   background: var(--glass-bg);
   border: 1px solid var(--border-default);

@@ -398,7 +398,7 @@ onMounted(() => {
   display: inline-flex;
   gap: 5px;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.4;
 }
 
@@ -416,7 +416,7 @@ onMounted(() => {
 
 :deep(.temp-band__pill) {
   padding: 1px 7px;
-  font-size: 11px;
+  font-size: var(--text-label);
   font-weight: 500;
   white-space: nowrap;
   border-radius: 999px;

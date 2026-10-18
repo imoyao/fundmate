@@ -100,7 +100,7 @@ const LEGEND: { state: PnlCalendarState; note: string }[] = [
 }
 
 .caliber-tip__title {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -112,7 +112,7 @@ const LEGEND: { state: PnlCalendarState; note: string }[] = [
 .caliber-tip__list {
   padding-left: 16px;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-secondary);
   list-style: disc;
@@ -138,7 +138,7 @@ const LEGEND: { state: PnlCalendarState; note: string }[] = [
   flex-shrink: 0;
   min-width: 44px;
   padding: 1px 6px;
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   text-align: center;
   background: var(--bg-card);

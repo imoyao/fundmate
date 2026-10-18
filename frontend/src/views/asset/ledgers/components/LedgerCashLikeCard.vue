@@ -195,7 +195,7 @@ const rowKey = (row: { symbol?: string | null; name?: string | null }) =>
 
   &__line {
     margin: 0;
-    font-size: 12px;
+    font-size: var(--text-label);
     line-height: 1.6;
 
     /* 说明文字用 --text-secondary，不用 tertiary：tertiary 是「占位/次要」级，
@@ -231,7 +231,7 @@ const rowKey = (row: { symbol?: string | null; name?: string | null }) =>
   }
 
   th {
-    font-size: 12px;
+    font-size: var(--text-label);
     font-weight: 500;
     color: var(--text-tertiary-ink);
     white-space: nowrap;
@@ -252,7 +252,7 @@ const rowKey = (row: { symbol?: string | null; name?: string | null }) =>
   }
 
   &__symbol {
-    font-size: 12px;
+    font-size: var(--text-label);
     font-variant-numeric: tabular-nums;
     color: var(--text-tertiary-ink);
   }

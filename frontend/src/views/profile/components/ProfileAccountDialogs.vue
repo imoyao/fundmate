@@ -110,7 +110,7 @@ const passwordFormRef = computed({
 <style scoped>
 .dialog-hint {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 </style>

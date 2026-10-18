@@ -93,6 +93,6 @@ const links = computed(() =>
 }
 
 .ext-links__icon {
-  font-size: 12px;
+  font-size: var(--text-label);
 }
 </style>

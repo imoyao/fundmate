@@ -146,7 +146,7 @@ watch(() => props.symbol, load, { immediate: true });
 
 .idx-weights__th {
   padding: 0 var(--space-2) var(--space-2);
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 500;
   color: var(--text-tertiary-ink);
   text-align: left;

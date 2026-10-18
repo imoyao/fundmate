@@ -172,7 +172,7 @@ function formatQty(q: number): string {
 }
 
 .ghost-group__identity {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

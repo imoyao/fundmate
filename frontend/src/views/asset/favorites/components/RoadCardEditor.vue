@@ -157,7 +157,7 @@ function onSave() {
 
 .road-form__hint {
   margin-top: 2px;
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -168,7 +168,7 @@ function onSave() {
 .road-form__label {
   display: block;
   margin-bottom: 6px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 

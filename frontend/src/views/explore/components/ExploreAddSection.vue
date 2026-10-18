@@ -304,7 +304,7 @@ const addHotAsset = (item: (typeof hotAssets)[0]) => {
 
   .suggestion-tag {
     margin-left: auto;
-    font-size: 11px;
+    font-size: var(--text-label);
   }
 }
 
@@ -351,7 +351,7 @@ const addHotAsset = (item: (typeof hotAssets)[0]) => {
     }
 
     .hot-code {
-      font-size: 11px;
+      font-size: var(--text-label);
       color: var(--text-tertiary-ink);
     }
   }
