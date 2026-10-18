@@ -114,9 +114,7 @@ def _tool_list_position_pnl(params: dict) -> dict:
       （聚合页对应显示 "--"，不参与排序、沉底）。
     """
     with database.get_session() as db:
-        positions = exclude_cleared(
-            db.query(Position).filter(Position.family_id == _server_family_id(params))
-        ).all()
+        positions = exclude_cleared(db.query(Position).filter(Position.family_id == _server_family_id(params))).all()
 
     items = []
     for p in positions:

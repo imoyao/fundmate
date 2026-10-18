@@ -120,7 +120,9 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     #   口径理由：基金份额在确认日（T+1）才真实变动，快照反映的是份额登记状态，
     #   故按 confirm_date 而非 trade_date 切分（后者会漏掉 T+1 确认的交易）。
     snapshot_quantity = Column(Integer, nullable=True, comment='快照锚点份额(0.0001份)；NULL=无锚点走全量流水')
-    snapshot_avg_price = Column(Integer, nullable=True, comment='快照锚点成本均价(0.0001元)；与 snapshot_quantity 同批写入')
+    snapshot_avg_price = Column(
+        Integer, nullable=True, comment='快照锚点成本均价(0.0001元)；与 snapshot_quantity 同批写入'
+    )
     snapshot_date = Column(Date, nullable=True, comment='快照锚点日期；confirm_date<=此日的流水视为已包含')
     # anchor_kind 只区分「外部事实」与「人工校准」，不按业务线细分（那是 source 的职责）。
     # 关键差异：manual 锚点不被**同日**外部快照覆盖——用户当天已显式定了数，
