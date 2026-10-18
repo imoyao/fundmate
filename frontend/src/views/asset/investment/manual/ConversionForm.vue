@@ -61,14 +61,19 @@
                  时点切换按 design.md「Segmented」走软按钮，不用实底 radio-button
                  （实底品牌色会与主按钮撞脸、抢走页面唯一供能焦点，#1731）。 -->
             <div class="field-row">
-              <el-date-picker
-                v-model="form.trade_date"
-                type="date"
-                class="field-row__grow"
-                value-format="YYYY-MM-DD"
-                :clearable="false"
-                :disabled-date="disabledTradeDate"
-              />
+              <!-- 外层 div 才是 flex item：EP 的 DatePicker 是 inheritAttrs:false，
+                   直接写在它上面的 class 不会落到渲染出来的 `.el-input.el-date-editor` 上
+                   （实测宽度仍是写死的 220px）。宽度走内联 100%，与外层 flex 配合。 -->
+              <div class="field-row__grow">
+                <el-date-picker
+                  v-model="form.trade_date"
+                  type="date"
+                  style="width: 100%"
+                  value-format="YYYY-MM-DD"
+                  :clearable="false"
+                  :disabled-date="disabledTradeDate"
+                />
+              </div>
               <SegmentedControl
                 v-model="tradeSlot"
                 :options="tradeSlotOptions"
@@ -821,8 +826,11 @@ defineExpose({ isDirty, resetForm });
 </script>
 
 <style scoped>
-/* 步骤条收窄：卡片内通栏 4 步连线过长会显得空旷（设计 §6.4 只统一视觉与语义） */
+/* 步骤条收窄：卡片内通栏 4 步连线过长会显得空旷（设计 §6.4 只统一视觉与语义）。
+   ⚠️ `width:100%` 不能省：父级是 flex column，本元素的 `margin:0 auto` 会让交叉轴
+   的 `align-self:stretch` 失效，宽度收缩到内容宽（实测 240px），四步标题被挤成两行。 */
 .conversion-steps {
+  width: 100%;
   max-width: 560px;
   margin: 0 auto 8px;
 }
@@ -859,8 +867,11 @@ defineExpose({ isDirty, resetForm });
   width: 100%;
 }
 
+/* 日期框吃满剩余宽度。`flex-basis` 必须是 **0%**：EP 给 `.el-date-editor.el-input`
+   写死 `width:220px`（(0,2,0) 压过本类的 (0,1,0)），而 `flex:1 1 auto` 会退回那个
+   width 当基准——grow 分不到额外空间，实测仍是 220px；`1 1 0%` 才与 width 脱钩。 */
 .field-row__grow {
-  flex: 1 1 auto;
+  flex: 1 1 0%;
   min-width: 0;
 }
 
