@@ -614,6 +614,19 @@ jobs:
       - name: 跨仓同步通道回归网（阻断）
         run: python -m pytest scripts/tests/test_machine_branch.py -q -p no:cacheprovider
 
+      # 规则登记与生命周期守卫（源：用户问「写进 AGENTS.md 的规则，别的 Agent 不遵守怎么办」）。
+      #
+      # WHY：本仓有 30+ 个守门脚本，但**从没有人问过「AGENTS.md 里那些『强制 / 禁止』
+      # 到底有几条真的有人在执行」**。实测普查（2026-10-16）：91 条硬约束条目里只有 3 条
+      # 挂了判据，其余 88 条只靠「读到的人愿意遵守」；更贵的一类是**写了守卫却没接进会
+      # 拦住合并的地方**——比没有守卫更像已治理。
+      # 本守卫把「登记（rule / runner / tests / 边界）+ 生命周期（挂的钩子真的会跑）
+      # + 纯文字预算（只减不增）」机械化。判据边界见脚本 docstring；
+      # 回归网在 scripts/tests/test_rule_registry_guard.py（含 4 个变异探针）。
+      # 不新增 job：并入本 job，也就不必动 gate.needs（#1559/#1560 两次事故都是合并冲突弄丢 needs）。
+      - name: 守卫:规则登记与生命周期（阻断）
+        run: python scripts/guard_rule_registry.py
+
   gate:
     name: 质量门禁汇总
     if: ${{ always() && github.event_name == 'pull_request' }}
