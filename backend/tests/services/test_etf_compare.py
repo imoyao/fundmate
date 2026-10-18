@@ -9,7 +9,8 @@
 3. **行集来源**：``channel_links`` 只取 ``peer_role == 'etf'``（feeder 不进对比表）；
 4. **跟踪差口径**：ETF 近 1 年 − 指数近 1 年（指数侧 monkeypatch），单边缺失 → None；
 5. **降级矩阵**：快照两路全挂（名称仍在）/ 逐只日线全挂（returns 全 null）/
-   无关联 ETF（rows=[] 不是错误）/ 名录未命中（None → 404）；
+   无关联 ETF（rows=[] 不是错误）/ 名录未命中（None → 404）/
+   规模/费率链各自独立降级（#2333，一链挂不拖累另一链）；
 6. **TTL 缓存**：同码第二次构建零外部请求；聚合测试一律不联网（monkeypatch 全量）。
 """
 
@@ -48,6 +49,9 @@ def _isolated(monkeypatch, tmp_path):
     monkeypatch.setattr(ec.direct_feeds, 'fetch_daily_tencent', lambda symbol, **k: [])
     # 指数侧收益默认给确定值（跟踪差基准）；具体用例可覆写
     monkeypatch.setattr(im, 'build_index_returns', lambda db, symbol: {'returns': {'y1': 10.0}})
+    # 规模/费率（#2333）默认打空：聚合测试一律不联网，具体用例再覆写
+    monkeypatch.setattr(ec, 'build_scale_map', lambda codes, nav_map: {})
+    monkeypatch.setattr(ec, 'build_fee_map', lambda db, codes: {})
     yield
 
 
@@ -217,6 +221,7 @@ def test_compare_degrades_snapshot_and_hist(monkeypatch):
     assert row['nav'] is None and row['change_pct'] is None and row['amount'] is None
     assert row['returns'] == {'m1': None, 'm3': None, 'm6': None, 'y1': None}
     assert row['tracking_diff_y1'] is None
+    assert row['scale_yi'] is None and row['mgmt_fee_pct'] is None and row['custody_fee_pct'] is None  # #2333
     assert data['as_of'] is None
 
 
@@ -294,3 +299,80 @@ def test_index_windows_parameterized():
     result = ec.compute_period_returns(rows, today=FIXED_TODAY, windows=ec._ETF_WINDOWS, volatility=False)
     assert set(result['returns']) == {'m1', 'm3', 'm6', 'y1'}
     assert result['volatility_y1'] is None  # 关闭后不计算，诚实 null
+
+
+# ── 规模 / 费率接入（#2333）────────────────────────────────────────────
+def test_compare_scale_fee_wired(monkeypatch):
+    """规模/费率两链结果落行字段；codes 与 nav_map 正确传给规模链。"""
+    _seed_catalog_row()
+    _patch_links(monkeypatch, [_etf_link('510300')])
+    _patch_akshare(
+        monkeypatch,
+        nav_df=pd.DataFrame([{'基金代码': '510300', '2026-10-16-单位净值': 4.01, '增长率': -0.25}]),
+        spot_df=pd.DataFrame(),
+    )
+    seen = {}
+
+    def _fake_scale(codes, nav_map):
+        seen['codes'] = list(codes)
+        seen['nav'] = (nav_map.get('510300') or {}).get('nav')
+        return {'510300': 1209.5}
+
+    def _fake_fee(db, codes):
+        seen['fee_codes'] = list(codes)
+        return {'510300': {'mgmt_fee_pct': 0.15, 'custody_fee_pct': 0.05}}
+
+    monkeypatch.setattr(ec, 'build_scale_map', _fake_scale)
+    monkeypatch.setattr(ec, 'build_fee_map', _fake_fee)
+
+    with closing(market_session_factory()()) as db:
+        data = build_etf_compare(db, '931151')
+
+    row = data['rows'][0]
+    assert row['scale_yi'] == 1209.5
+    assert row['mgmt_fee_pct'] == 0.15
+    assert row['custody_fee_pct'] == 0.05
+    assert seen['codes'] == ['510300']
+    assert seen['fee_codes'] == ['510300']
+    assert seen['nav'] == 4.01  # 规模链拿到对比表净值链（沪市份额×净值口径需要）
+
+
+def test_compare_scale_fee_independent_degrade(monkeypatch):
+    """规模/费率各自独立降级：一链抛异常只让对应列 None，另一链照常落值。"""
+    _seed_catalog_row()
+    _patch_links(monkeypatch, [_etf_link('510300')])
+    _patch_akshare(monkeypatch, nav_df=pd.DataFrame(), spot_df=pd.DataFrame())
+
+    def _boom_scale(codes, nav_map):
+        raise RuntimeError('exchange down')
+
+    monkeypatch.setattr(ec, 'build_scale_map', _boom_scale)
+    monkeypatch.setattr(
+        ec, 'build_fee_map', lambda db, codes: {'510300': {'mgmt_fee_pct': 0.5, 'custody_fee_pct': 0.1}}
+    )
+
+    with closing(market_session_factory()()) as db:
+        data = build_etf_compare(db, '931151')
+
+    row = data['rows'][0]
+    assert row['scale_yi'] is None  # 规模链挂 → 规模列 —
+    assert row['mgmt_fee_pct'] == 0.5  # 费率链不受规模链拖累
+    assert row['custody_fee_pct'] == 0.1
+
+
+def test_compare_scale_fee_both_down_null(monkeypatch):
+    """两链全挂：行字段 None（前端 —），整表不阻塞。"""
+    _seed_catalog_row()
+    _patch_links(monkeypatch, [_etf_link('510300')])
+    _patch_akshare(monkeypatch, nav_df=pd.DataFrame(), spot_df=pd.DataFrame())
+    monkeypatch.setattr(ec, 'build_scale_map', lambda codes, nav_map: (_ for _ in ()).throw(RuntimeError('all down')))
+    monkeypatch.setattr(ec, 'build_fee_map', lambda db, codes: (_ for _ in ()).throw(RuntimeError('all down')))
+
+    with closing(market_session_factory()()) as db:
+        data = build_etf_compare(db, '931151')
+
+    row = data['rows'][0]
+    assert row['scale_yi'] is None
+    assert row['mgmt_fee_pct'] is None
+    assert row['custody_fee_pct'] is None
+    assert row['code'] == '510300'  # 表壳仍在

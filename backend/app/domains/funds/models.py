@@ -354,6 +354,26 @@ class RedeemRule(Base, PrimaryKeyMixin, TimestampMixin):
     end_day = Column(Integer, nullable=True, comment='结束天数, 不包含, NULL表示正无穷')
 
 
+class EtfFeeRate(Base, PrimaryKeyMixin, TimestampMixin):
+    """ETF 运作费率缓存小表（market 域，#2333）。
+
+    与 ``fee_ratios`` 的区别：那张是场外基金申购/赎回费率阶梯（外键 → funds）；
+    本表只存**场内 ETF 的管理费率 + 托管费率**（%/年），是对比表费率列的
+    「缓存即兜底」——免费 JSON 源经逐一排查实测不存在运作费用字段（#2333），
+    只能走 HTML 双源（东财 F10 / 同花顺），双源都挂时沿用旧值。
+    **只写对比表触达的 ETF**（读路径 = etf_compare 服务），不做全市场回填 job。
+    """
+
+    __tablename__ = 'etf_fee_rates'
+
+    etf_code = Column(String(6), unique=True, nullable=False, comment='ETF 代码（裸 6 位码）')
+    mgmt_fee_pct = Column(SafeNumeric(8, 4), comment='管理费率(%/年)，如 0.15')
+    custody_fee_pct = Column(SafeNumeric(8, 4), comment='托管费率(%/年)，如 0.05')
+    source = Column(String(10), comment='抓取来源: em=东财 F10 / ths=同花顺')
+    # 读取时超 30 天尝试重抓（费率年频变化，30 天窗口足够新），失败沿用旧值
+    fetched_at = Column(DateTime, nullable=False, comment='最近一次成功抓取时间（超 30 天读取时尝试重抓）')
+
+
 class FeeRatio(Base, PrimaryKeyMixin, TimestampMixin):
     """基金费率与规则的关联表"""
 

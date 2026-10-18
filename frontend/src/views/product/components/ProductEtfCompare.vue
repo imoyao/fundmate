@@ -21,9 +21,9 @@ import { productRoute } from "@/utils/productIdentity";
  * ## 为什么是表
  *
  * 同跟踪一只指数的 ETF 收益几乎同质，**费率差即净收益差、规模决定冲击成本**；
- * 用户此前只能逐只跳第三方比较（#2275 背景）。P0 先给：最新净值 / 当日涨幅 /
- * 成交额 / 近 1·3·6·12 月涨跌幅 / 跟踪差；规模与运行费率（P1，需自建东财 F10
- * 解析）与推荐徽章（P2）后续上线。
+ * 用户此前只能逐只跳第三方比较（#2275 背景）。P0 给：最新净值 / 当日涨幅 /
+ * 成交额 / 近 1·3·6·12 月涨跌幅 / 跟踪差；#2333 补上规模与运行费率两列
+ * （东财 F10 + 同花顺双源 + 小表缓存，后端 etf_scale_fee 服务）；推荐徽章（P2）后续上线。
  *
  * ## 口径与降级
  *
@@ -127,8 +127,31 @@ function trackingText(row: IndexEtfCompareRow): string {
     : `${row.tracking_diff_y1 > 0 ? "+" : ""}${row.tracking_diff_y1.toFixed(2)}%`;
 }
 
+/** 规模文本（#2333）：后端已给亿元；腾讯兜底口径为市价（title 标注） */
+function scaleText(row: IndexEtfCompareRow): string {
+  return row.scale_yi == null ? DASH : `${row.scale_yi.toFixed(2)}亿`;
+}
+
+/** 费率文本（#2333）：管理费 / 托管费（%/年），单缺只显不缺的那只，双缺「—」 */
+function feeText(row: IndexEtfCompareRow): string {
+  const mgmt = row.mgmt_fee_pct;
+  const custody = row.custody_fee_pct;
+  if (mgmt == null && custody == null) return DASH;
+  const parts = [
+    mgmt == null ? null : `管理 ${mgmt.toFixed(2)}%`,
+    custody == null ? null : `托管 ${custody.toFixed(2)}%`
+  ].filter((x): x is string => x != null);
+  return parts.join(" / ");
+}
+
 const TRACKING_TITLE =
   "ETF 近 1 年涨幅 − 指数近 1 年涨幅；含折溢价噪声，非严格跟踪误差，仅作贴合度参考";
+
+const SCALE_TITLE =
+  "基金规模 = 交易所份额 × 净值（深市源自带净值，沪市复用净值列）；交易所源不可用时以腾讯行情市价口径兜底，可能与资产净值有小幅偏差";
+
+const FEE_TITLE =
+  "运作费率（%/年）：管理费率 / 托管费率，来自东财 F10 与同花顺，双源失败沿用最近 30 天内缓存";
 
 const footnote = computed(() => {
   const d = data.value;
@@ -181,6 +204,12 @@ watch(rows, () => nextTick(measure));
                 <th class="etf-cmp__th etf-cmp__th--num">最新净值</th>
                 <th class="etf-cmp__th etf-cmp__th--num">当日涨幅</th>
                 <th class="etf-cmp__th etf-cmp__th--num">成交额</th>
+                <th class="etf-cmp__th etf-cmp__th--num" :title="SCALE_TITLE">
+                  规模
+                </th>
+                <th class="etf-cmp__th etf-cmp__th--num" :title="FEE_TITLE">
+                  费率（年）
+                </th>
                 <th
                   v-for="w in WINDOWS"
                   :key="w.key"
@@ -221,6 +250,12 @@ watch(rows, () => nextTick(measure));
                 <td class="etf-cmp__td etf-cmp__td--num">
                   {{ amountText(row) }}
                 </td>
+                <td class="etf-cmp__td etf-cmp__td--num" :title="SCALE_TITLE">
+                  {{ scaleText(row) }}
+                </td>
+                <td class="etf-cmp__td etf-cmp__td--num" :title="FEE_TITLE">
+                  {{ feeText(row) }}
+                </td>
                 <td
                   v-for="w in WINDOWS"
                   :key="w.key"
@@ -248,6 +283,8 @@ watch(rows, () => nextTick(measure));
                 <td class="etf-cmp__td etf-cmp__td--num">{{ DASH }}</td>
                 <td class="etf-cmp__td etf-cmp__td--num">{{ DASH }}</td>
                 <td class="etf-cmp__td etf-cmp__td--num">{{ DASH }}</td>
+                <td class="etf-cmp__td etf-cmp__td--num">{{ DASH }}</td>
+                <td class="etf-cmp__td etf-cmp__td--num">{{ DASH }}</td>
                 <td
                   v-for="w in WINDOWS"
                   :key="w.key"
@@ -268,8 +305,8 @@ watch(rows, () => nextTick(measure));
         {{ footnote }}
       </p>
       <p class="section-footnote section-footnote--attached">
-        对比表按成交额排序；跟踪差含折溢价噪声、非严格跟踪误差。同指数 ETF
-        的费率与规模对比即将上线。
+        对比表按成交额排序；跟踪差含折溢价噪声、非严格跟踪误差；规模与费率为
+        按需抓取的第三方公开数据，缺失时显示「—」。
       </p>
     </template>
   </section>
@@ -293,7 +330,7 @@ watch(rows, () => nextTick(measure));
   color: var(--text-tertiary-ink);
 }
 
-/* 10 列宽表：窄屏横向滚动（不压缩列宽逐字竖排），滚动条贴卡内边缘 */
+/* 12 列宽表（#2333 补规模/费率两列）：窄屏横向滚动（不压缩列宽逐字竖排），滚动条贴卡内边缘 */
 .etf-cmp__scroll-wrap {
   position: relative;
   min-width: 0;
@@ -306,7 +343,7 @@ watch(rows, () => nextTick(measure));
 
 .etf-cmp__table {
   width: 100%;
-  min-width: 640px;
+  min-width: 760px;
   border-collapse: collapse;
 }
 
