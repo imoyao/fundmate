@@ -30,8 +30,10 @@ from app.core.migrations import (
     migrate_fund_managers_split_tenures,
     migrate_fund_risk_metrics_period_returns,
     migrate_fund_valuation_official_columns,
+    migrate_positions_cleared_at,
     migrate_positions_money_fund_flag,
     migrate_positions_price_columns,
+    migrate_positions_snapshot_anchor,
     migrate_positions_symbol_norm,
     migrate_watchlist_family_scoped_unique_key,
     migrate_watchlist_name_snapshot,
@@ -518,6 +520,12 @@ def init_db():
     migrate_positions_money_fund_flag(user_eng)
     # positions.prev_close / price_date（#2007）：当日盈亏的基准列，同上须先于结构校验
     migrate_positions_price_columns(user_eng)
+    # positions 快照锚点四列：quantity 从「真相源」降级为「派生值」的前置列。
+    # 只加列 + 回填 snapshot_date，份额列留空（历史值已丢失，盲猜会改坏另一半账户）
+    migrate_positions_snapshot_anchor(user_eng)
+    # positions.cleared_at（#2343）：清仓不再删行，需要「何时清仓」作为周期下界。
+    # 只加列不回填（历史清仓行已被删除，无可靠数据源），同上须先于结构校验。
+    migrate_positions_cleared_at(user_eng)
     _validate_schema(user_eng, user_meta, label='user')
     # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键 (symbol, venue)
     # → (symbol, market, venue) 防跨市场同码冲突。create_all 只增表不改表，旧库
@@ -600,6 +608,10 @@ def init_db_split():
         migrate_positions_money_fund_flag(user_eng)
         # positions.prev_close / price_date（#2007）：当日盈亏基准列，同上须先于结构校验
         migrate_positions_price_columns(user_eng)
+        # positions 快照锚点四列：只加列 + 回填 snapshot_date，份额列留空（见迁移 docstring）
+        migrate_positions_snapshot_anchor(user_eng)
+        # positions.cleared_at（#2343）：只加列不回填，幂等（见迁移 docstring）
+        migrate_positions_cleared_at(user_eng)
         _validate_schema(user_eng, user_meta, label='user')
         # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键回归基线，
         # 双库模式同样按 user 域引擎自动执行，幂等。

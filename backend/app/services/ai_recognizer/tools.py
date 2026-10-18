@@ -31,6 +31,7 @@ from app.core.money import Money
 from app.domains.positions.models import Position
 from app.services.nav_service import NavService
 from app.services.performance.calculators import calculate_portfolio_xirr
+from app.services.position_scope import exclude_cleared
 from app.services.position_valuation import market_value_cents
 from app.services.summary_service import get_summary_data
 from app.services.thermometer.service import TemperatureService
@@ -113,7 +114,9 @@ def _tool_list_position_pnl(params: dict) -> dict:
       （聚合页对应显示 "--"，不参与排序、沉底）。
     """
     with database.get_session() as db:
-        positions = db.query(Position).filter(Position.family_id == _server_family_id(params)).all()
+        positions = exclude_cleared(
+            db.query(Position).filter(Position.family_id == _server_family_id(params))
+        ).all()
 
     items = []
     for p in positions:
