@@ -152,6 +152,9 @@ python scripts/bridge/cnb_github_backfill.py --apply --limit 3
 `api.cnb.cool` 对匿名请求返回 `{"errcode":16,...}`，与仓库是否公开无关。本文档旧版
 「匿名即可（公开仓库）」的说法是错的，正是它让三次定时运行全挂在第一步。
 
+> 两侧措辞是同一事实（「匿名 401，与公开与否无关」）的两种写法，冲突时**保留其一**：
+> 取 GitHub 侧版本（多写了 secret 配在哪，对读者更有用）。
+
 ## 8. 流水线
 
 `.github/workflows/cnb-github-backfill.yml`：**每日 18:30 UTC**（北京次日 02:30）+
