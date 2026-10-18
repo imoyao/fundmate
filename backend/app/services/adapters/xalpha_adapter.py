@@ -544,4 +544,14 @@ class XalphaAdapter(DataSourceAdapter):
             start_day, end_day = parsed
             schedule.append({'start_day': start_day, 'end_day': end_day, 'rate': rate})
 
+        # 首档下界归一：不少基金的页面首档写「大于等于1天，小于7天」（T+1 确认，最短
+        # 持有 1 天，如 001678 / 001741 / 001880）。它的语义就是「不满 7 天的惩罚档」，
+        # 若原样按 start_day=1 落库，持有 0 天的份额匹配不到任何档 → 赎回费算成 0。
+        # 故把「首档且下界为 1」归一到 0；下界 ≥2（定开型等）不动，那属于产品规则，
+        # 由 validate_redemption_schedule 判为不可用并拒写。
+        if schedule:
+            first = min(range(len(schedule)), key=lambda i: schedule[i]['start_day'])
+            if schedule[first]['start_day'] == 1:
+                schedule[first]['start_day'] = 0
+
         return schedule

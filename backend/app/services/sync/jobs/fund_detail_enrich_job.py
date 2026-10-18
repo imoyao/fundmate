@@ -55,7 +55,7 @@ class FundDetailEnrichJob(SyncJob):
         self._pre_run()
         self.logger.info('开始补充基金详情')
 
-        self.stats = {'enriched': 0, 'skipped': 0, 'not_found': [], 'errors': []}
+        self.stats = {'enriched': 0, 'skipped': 0, 'not_found': [], 'fee_refused': [], 'errors': []}
 
         if not targets:
             self.logger.info('无基金需要补充详情')
@@ -92,10 +92,14 @@ class FundDetailEnrichJob(SyncJob):
                     self._update_fund_basics(fund, akshare_detail)
                     # 更新费率
                     try:
-                        self._update_fund_fees(code, xalpha_fee)
+                        refused = self._update_fund_fees(code, xalpha_fee)
                     except Exception as e:
                         logger.warning(f'更新基金 {code} 费率失败: {e}\n{traceback.format_exc()}')
                     else:  # ✅ 只有没报错，才执行这行统计和标记
+                        if refused == 'fee_refused':
+                            # 拒写不是失败（刻意保住了旧数据），但也**不是**成功——
+                            # 混进 enriched 就等于把「这只的费率没更新」藏起来
+                            self.stats['fee_refused'].append(code)
                         fund.last_nav_check = now_shanghai()
                         self.stats['enriched'] += 1
 
@@ -144,12 +148,20 @@ class FundDetailEnrichJob(SyncJob):
                 f'{len(self.stats["not_found"])} 个目标代码在 funds 表里不存在，已跳过'
                 f'（样本: {", ".join(self.stats["not_found"][:10])}）'
             )
+        if self.stats['fee_refused']:
+            # 拒写= 保住旧数据而不是写入新数据，需要被看见：否则费率会停在错误值上，
+            # 而日志只显示 enriched=N，看不出其中有多少根本没更新
+            logger.warning(
+                f'{len(self.stats["fee_refused"])} 只基金的赎回费率阶梯结构非法被拒写'
+                f'（既有费率保持不变，需修好上游解析后重跑修复）'
+                f'（样本: {", ".join(self.stats["fee_refused"][:10])}）'
+            )
         # 有 errors 就判 FAILED：不能一边记录错误一边宣称成功（#1833）
         self.status = JobStatus.FAILED if self.stats.get('errors') else JobStatus.SUCCESS
         self.logger.info(
             f'基金详情补充完成: 新增 {self.stats["enriched"]}, '
             f'跳过 {self.stats["skipped"]}, 未匹配 {len(self.stats["not_found"])}, '
-            f'错误 {len(self.stats["errors"])}'
+            f'费率拒写 {len(self.stats["fee_refused"])}, 错误 {len(self.stats["errors"])}'
         )
         return self._build_result()
 
@@ -218,7 +230,7 @@ class FundDetailEnrichJob(SyncJob):
 
     # ── 费率更新 ──
 
-    def _update_fund_fees(self, fund_code: str, fee_info: Dict[str, Any]) -> None:
+    def _update_fund_fees(self, fund_code: str, fee_info: Dict[str, Any]) -> str:
         """按上游费率信息**镜像**更新 fee_ratios（申购 + 赎回）。
 
         全部委托 `FundService.apply_purchase_fee` / `apply_redeem_schedule`——结构校验
@@ -227,10 +239,15 @@ class FundDetailEnrichJob(SyncJob):
 
         本文件此前**自己抄了一份**写入逻辑，与 `FundService.sync_fund_fees` 各改各的：
         两份实现都只有「查不到才插」，于是解析缺陷写进去的错误费率没有任何路径会
-        自愈（2026-10-18 查实：本机 245 只基金的赎回阶梯结构已损坏）。
+        自愈（2026-10-18 查实：本机 334 只基金的赎回阶梯结构已损坏）。
+
+        返回 ``'fee_refused'`` 表示阶梯结构非法、**被拒写**（库内既有数据保持不动）。
+        调用方必须把它单独记账：拒写是刻意保数据，不是「这只处理成功了」——旧实现
+        只 warning 不抛异常，于是 `enriched` 把被拒的基金也算成功，日志里
+        `enriched=100` 混着 29 只拒写，看日志的人完全看不出来。
         """
         if not fee_info:
-            return
+            return 'ok'
 
         # 费率币种：按基金份额名称特征推导（无结构化币种字段可依赖）
         fund = self.db.query(Fund).filter_by(fund_code=fund_code).first()
@@ -250,6 +267,8 @@ class FundDetailEnrichJob(SyncJob):
                 logger.warning(
                     f'基金 {fund_code} 赎回费率阶梯结构非法，已拒写（既有数据不动）: ' + '; '.join(outcome['skipped'])
                 )
+                return 'fee_refused'
+        return 'ok'
 
     def _get_or_create_company(self, company_name: str) -> int:
         # 唯一写入口（company_resolver）：归一化匹配既有行，杜绝为同一主体建第二行
