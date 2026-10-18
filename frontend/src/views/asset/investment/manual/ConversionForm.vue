@@ -14,216 +14,257 @@
       />
     </el-steps>
 
-    <!-- ===== 第 1 步：选择转出 ===== -->
+    <!-- ===== 第 1 步：填写转出与转入（两栏并置，#2348） ===== -->
     <div v-if="step === 0" class="flex flex-col gap-5">
-      <el-form label-width="90px" size="large" class="flex flex-col gap-5">
-        <el-form-item label="转出基金">
-          <el-select
-            v-model="form.positionId"
-            class="w-full"
-            filterable
-            placeholder="选择要转出的持仓"
-            @change="onOutPositionChange"
+      <!-- 转换是 1→1 的双腿操作：拆成两步问会让用户来回翻页核对「卖的和买的是不是同一笔」，
+           券商确认页也都是同屏左右对照。栏间分割线走全局工具类 `.soft-col-divider`
+           （lg 及以上才出现 24px 内距 + 1px 线，lg 以下两栏堆叠不画孤线，
+           见 design.md §栏间竖向分割线），不手写 border。 -->
+      <div class="convert-grid grid grid-cols-1 gap-6 lg:grid-cols-12">
+        <section class="lg:col-span-7">
+          <!-- 栏头不重复标签里的「转出基金」，而是交代这条腿在后台是什么动作：
+               转换 = 赎回 + 申购，这一点用户从界面上看不出来 -->
+          <h3 class="convert-col__title">转出（赎回）</h3>
+          <!-- 半屏列宽放不下 90px 横排标签（输入框会被压成一条缝），故标签在上 -->
+          <el-form
+            label-position="top"
+            size="large"
+            class="flex flex-col gap-4"
           >
-            <el-option
-              v-for="pos in accountPositions"
-              :key="pos.id"
-              :value="pos.id"
-              :label="pos.name || pos.symbol"
-            >
-              <div class="flex justify-between items-center w-full">
-                <span
-                  class="truncate"
-                  :style="{ color: 'var(--text-primary)' }"
-                  >{{ pos.name || pos.symbol }}</span
+            <el-form-item label="转出基金">
+              <el-select
+                v-model="form.positionId"
+                class="w-full"
+                filterable
+                placeholder="选择要转出的持仓"
+                @change="onOutPositionChange"
+              >
+                <el-option
+                  v-for="pos in accountPositions"
+                  :key="pos.id"
+                  :value="pos.id"
+                  :label="pos.name || pos.symbol"
                 >
-                <span
-                  class="text-xs whitespace-nowrap"
-                  :style="{ color: 'var(--text-tertiary-ink)' }"
-                >
-                  可用 {{ Number(pos.quantity).toFixed(2) }} 份
-                </span>
+                  <div class="flex justify-between items-center w-full">
+                    <span
+                      class="truncate"
+                      :style="{ color: 'var(--text-primary)' }"
+                      >{{ pos.name || pos.symbol }}</span
+                    >
+                    <span
+                      class="text-xs whitespace-nowrap"
+                      :style="{ color: 'var(--text-tertiary-ink)' }"
+                    >
+                      可用 {{ Number(pos.quantity).toFixed(2) }} 份
+                    </span>
+                  </div>
+                </el-option>
+              </el-select>
+              <div
+                v-if="!loadingPositions && accountPositions.length === 0"
+                class="text-xs mt-1"
+                style="color: var(--text-tertiary-ink)"
+              >
+                当前账户暂无基金持仓，无法转换。请先切换账户或记一笔申购。
               </div>
-            </el-option>
-          </el-select>
-          <div
-            v-if="!loadingPositions && accountPositions.length === 0"
-            class="text-xs mt-1"
-            style="color: var(--text-tertiary-ink)"
-          >
-            当前账户暂无基金持仓，无法转换。请先切换账户或记一笔申购。
-          </div>
-        </el-form-item>
+            </el-form-item>
 
-        <template v-if="form.positionId">
-          <el-form-item label="交易日期">
-            <!-- 日期框吃满剩余宽度，右端与上方「转出基金」右边缘对齐；
+            <template v-if="form.positionId">
+              <el-form-item label="交易日期">
+                <!-- 日期框吃满剩余宽度，右端与上方「转出基金」右边缘对齐；
                  时点切换按 design.md「Segmented」走软按钮，不用实底 radio-button
                  （实底品牌色会与主按钮撞脸、抢走页面唯一供能焦点，#1731）。 -->
-            <div class="field-row">
-              <!-- 外层 div 才是 flex item：EP 的 DatePicker 是 inheritAttrs:false，
+                <div class="field-row">
+                  <!-- 外层 div 才是 flex item：EP 的 DatePicker 是 inheritAttrs:false，
                    直接写在它上面的 class 不会落到渲染出来的 `.el-input.el-date-editor` 上
                    （实测宽度仍是写死的 220px）。宽度走内联 100%，与外层 flex 配合。 -->
-              <div class="field-row__grow">
-                <el-date-picker
-                  v-model="form.trade_date"
-                  type="date"
-                  style="width: 100%"
-                  value-format="YYYY-MM-DD"
-                  :clearable="false"
-                  :disabled-date="disabledTradeDate"
-                />
-              </div>
-              <TradeSlotSwitch v-model="form.isAfter15" />
-            </div>
-            <div class="helper">15:00 后提交按下一交易日（T+1）净值计算</div>
-          </el-form-item>
+                  <div class="field-row__grow">
+                    <el-date-picker
+                      v-model="form.trade_date"
+                      type="date"
+                      style="width: 100%"
+                      value-format="YYYY-MM-DD"
+                      :clearable="false"
+                      :disabled-date="disabledTradeDate"
+                    />
+                  </div>
+                  <TradeSlotSwitch v-model="form.isAfter15" />
+                </div>
+                <div class="helper">
+                  15:00 后提交按下一交易日（T+1）净值计算
+                </div>
+              </el-form-item>
 
-          <el-form-item label="转出份额">
-            <div class="quantity-field">
-              <!-- 宽度必须内联：EP 给 .el-input-number 写死 width:150px，
+              <el-form-item label="转出份额">
+                <div class="quantity-field">
+                  <!-- 宽度必须内联：EP 给 .el-input-number 写死 width:150px，
                    且其样式在运行时注入、晚于构建产物里的 w-full，类名会被压掉。 -->
-              <el-input-number
-                v-model="form.quantity"
-                style="width: 100%"
-                :controls="false"
-                :min="0"
-                :max="maxQuantity"
-                :step="0.01"
-                :precision="2"
-                placeholder="输入转出份额"
-                @change="onQuantityInput"
-              />
-              <!-- 比例档位：与卖出表单同一组件（档位表 / 取整 / 选中态唯一实现）；
+                  <el-input-number
+                    v-model="form.quantity"
+                    style="width: 100%"
+                    :controls="false"
+                    :min="0"
+                    :max="maxQuantity"
+                    :step="0.01"
+                    :precision="2"
+                    placeholder="输入转出份额"
+                    @change="onQuantityInput"
+                  />
+                  <!-- 比例档位：与卖出表单同一组件（档位表 / 取整 / 选中态唯一实现）；
                    选中态由 quantity 反算，手改数值自动掉高亮 -->
-              <div class="quick-ratio-row">
-                <QuickRatioPicker
-                  v-model="form.quantity"
-                  :total="maxQuantity"
-                  type="fund"
-                  aria-label="转出份额比例"
-                  @select="onQuickRatioSelect"
-                />
-                <span class="hold-hint">
-                  持有 {{ maxQuantity.toFixed(4) }} 份
-                </span>
-              </div>
-              <div class="helper">
-                {{
-                  transferAll
-                    ? "当前为全部转出：按持仓精确值清算，不抹零"
-                    : "份额最多 2 位小数；「全部」按持仓精确值转出"
-                }}
-              </div>
-            </div>
-          </el-form-item>
-        </template>
-      </el-form>
-      <div class="flex justify-end">
-        <el-button type="primary" :disabled="!step1Valid" @click="step = 1">
-          下一步
-        </el-button>
-      </div>
-    </div>
+                  <div class="quick-ratio-row">
+                    <QuickRatioPicker
+                      v-model="form.quantity"
+                      :total="maxQuantity"
+                      type="fund"
+                      aria-label="转出份额比例"
+                      @select="onQuickRatioSelect"
+                    />
+                    <span class="hold-hint">
+                      持有 {{ maxQuantity.toFixed(4) }} 份
+                    </span>
+                  </div>
+                  <div class="helper">
+                    {{
+                      transferAll
+                        ? "当前为全部转出：按持仓精确值清算，不抹零"
+                        : "份额最多 2 位小数；「全部」按持仓精确值转出"
+                    }}
+                  </div>
+                </div>
+              </el-form-item>
+            </template>
+          </el-form>
+        </section>
 
-    <!-- ===== 第 2 步：选择转入 ===== -->
-    <div v-else-if="step === 1" class="flex flex-col gap-5">
-      <el-form label-width="90px" size="large" class="flex flex-col gap-5">
-        <!-- 当前账户已持有的置顶快选（与 BuyForm 同一搜索源；不做两套搜索框） -->
-        <el-form-item v-if="inFundCandidates.length" label="当前持有">
-          <div class="flex flex-wrap gap-2">
-            <el-button
-              v-for="pos in inFundCandidates"
-              :key="pos.id"
-              size="small"
-              round
-              :class="{ 'is-picked': form.inSymbol === pos.symbol }"
-              @click="pickInFund(pos.symbol, pos.name || pos.symbol)"
-            >
-              {{ pos.name || pos.symbol }}
-            </el-button>
-          </div>
-        </el-form-item>
-
-        <el-form-item label="转入基金">
-          <el-select
-            v-model="form.inSymbol"
-            class="w-full"
-            filterable
-            remote
-            :remote-method="remoteSearchFunds"
-            :loading="searchLoading"
-            placeholder="搜索基金代码或名称"
-            @change="onInFundChange"
+        <!-- 右栏：转入 -->
+        <section class="lg:col-span-5 soft-col-divider">
+          <h3 class="convert-col__title">转入（申购）</h3>
+          <el-form
+            label-position="top"
+            size="large"
+            class="flex flex-col gap-4"
           >
-            <el-option
-              v-for="f in inFundOptions"
-              :key="f.code"
-              :value="f.code"
-              :label="`${f.name}（${f.code}）`"
-            >
-              <div class="flex justify-between items-center w-full">
-                <span class="truncate">{{ f.name }}</span>
-                <span
-                  class="text-xs"
-                  :style="{ color: 'var(--text-tertiary-ink)' }"
-                  >{{ f.code }}</span
+            <!-- 当前账户已持有的置顶快选（与 BuyForm 同一搜索源；不做两套搜索框） -->
+            <el-form-item v-if="inFundCandidates.length" label="当前持有">
+              <div class="flex flex-wrap gap-2">
+                <el-button
+                  v-for="pos in inFundCandidates"
+                  :key="pos.id"
+                  size="small"
+                  round
+                  :class="{ 'is-picked': form.inSymbol === pos.symbol }"
+                  @click="pickInFund(pos.symbol, pos.name || pos.symbol)"
                 >
+                  {{ pos.name || pos.symbol }}
+                </el-button>
               </div>
-            </el-option>
-          </el-select>
-        </el-form-item>
+            </el-form-item>
 
-        <el-form-item label="转入">
-          <div class="field-row">
-            <div class="field-row__grow">
-              <el-input-number
-                v-if="form.inMode === 'amount'"
-                v-model="form.inAmount"
-                style="width: 100%"
-                :controls="false"
-                :min="0"
-                :step="0.01"
-                :precision="2"
-                placeholder="留空 = 净额全部转入"
-              />
-              <!-- 份额口径：确认单上写的是份额，按金额反算会差 0.0001（#2348） -->
-              <el-input-number
-                v-else
-                v-model="form.inQuantity"
-                style="width: 100%"
-                :controls="false"
-                :min="0"
-                :step="0.01"
-                :precision="2"
-                placeholder="留空 = 净额全部转入"
-              />
-            </div>
-            <SegmentedControl
-              v-model="form.inMode"
-              :options="inModeOptions"
-              aria-label="转入口径"
-            />
-          </div>
-          <div class="helper">
-            {{
-              form.inMode === "amount"
-                ? "留空表示净额（转出金额 − 费用）全部买入转入基金；指定更小金额时，差额需选去向"
-                : "按份额转入：金额由「份额 × 转入净值」派生，差额同样需选去向"
-            }}
-          </div>
-        </el-form-item>
-      </el-form>
-      <div class="flex justify-between">
-        <el-button @click="step = 0">上一步</el-button>
-        <el-button type="primary" :disabled="!step2Valid" @click="gotoStep3">
+            <el-form-item label="转入基金">
+              <el-select
+                v-model="form.inSymbol"
+                class="w-full"
+                filterable
+                remote
+                :remote-method="remoteSearchFunds"
+                :loading="searchLoading"
+                placeholder="搜索基金代码或名称"
+                @change="onInFundChange"
+              >
+                <!-- 「当前持有」快选不经过搜索结果，选项里没有它 ⇒ el-select 会把
+                     绑定的代码原样显示成「002340」。补一个只含标签的选项把它接住，
+                     不伪造 `FundSearchItem` 的 type / subscription_rate 字段。 -->
+                <el-option
+                  v-if="
+                    pickedInOption &&
+                    !inFundOptions.some(f => f.code === pickedInOption?.value)
+                  "
+                  :key="pickedInOption.value"
+                  :value="pickedInOption.value"
+                  :label="pickedInOption.label"
+                />
+                <el-option
+                  v-for="f in inFundOptions"
+                  :key="f.code"
+                  :value="f.code"
+                  :label="`${f.name}（${f.code}）`"
+                >
+                  <div class="flex justify-between items-center w-full">
+                    <span class="truncate">{{ f.name }}</span>
+                    <span
+                      class="text-xs"
+                      :style="{ color: 'var(--text-tertiary-ink)' }"
+                      >{{ f.code }}</span
+                    >
+                  </div>
+                </el-option>
+              </el-select>
+            </el-form-item>
+
+            <el-form-item label="转入">
+              <!-- 口径切换独占一行：半屏列宽下与输入框并排会把数字框压到 190px 以内 -->
+              <div class="in-amount-field">
+                <SegmentedControl
+                  v-model="form.inMode"
+                  :options="inModeOptions"
+                  class="in-amount-field__switch"
+                  aria-label="转入口径"
+                />
+                <el-input-number
+                  v-if="form.inMode === 'amount'"
+                  v-model="form.inAmount"
+                  style="width: 100%"
+                  :controls="false"
+                  :min="0"
+                  :step="0.01"
+                  :precision="2"
+                  placeholder="留空 = 净额全部转入"
+                />
+                <!-- 份额口径：确认单上写的是份额，按金额反算会差 0.0001（#2348） -->
+                <el-input-number
+                  v-else
+                  v-model="form.inQuantity"
+                  style="width: 100%"
+                  :controls="false"
+                  :min="0"
+                  :step="0.01"
+                  :precision="2"
+                  placeholder="留空 = 净额全部转入"
+                />
+                <div class="helper">
+                  {{
+                    form.inMode === "amount"
+                      ? "留空表示净额（转出金额 − 费用）全部买入转入基金；指定更小金额时，差额需选去向"
+                      : "按份额转入：金额由「份额 × 转入净值」派生，差额同样需选去向"
+                  }}
+                </div>
+              </div>
+            </el-form-item>
+          </el-form>
+        </section>
+      </div>
+
+      <!-- 差额去向：金额要试算后才知道，所以「选哪一档」放在下一步；
+           但「差额不会凭空消失」这条规则必须在填写时就看得见（#2348 用户提问）。 -->
+      <div class="convert-note">
+        <IconifyIconOffline icon="ep:info-filled" class="convert-note__icon" />
+        <span>
+          转入金额小于「转出金额 −
+          费用」时会产生差额，差额退回账户绑定的货币基金
+          （账户未绑定则退回账户现金），下一步可改——不会凭空消失。
+        </span>
+      </div>
+
+      <div class="flex justify-end">
+        <el-button type="primary" :disabled="!inputValid" @click="gotoConfirm">
           下一步
         </el-button>
       </div>
     </div>
 
-    <!-- ===== 第 3 步：费用与确认 ===== -->
-    <div v-else-if="step === 2" class="flex flex-col gap-4">
+    <!-- ===== 第 2 步：费用与确认 ===== -->
+    <div v-else-if="step === 1" class="flex flex-col gap-4">
       <div
         v-if="estimating"
         class="p-6 text-center text-sm"
@@ -315,7 +356,7 @@
               <el-tag size="small" type="info" effect="plain">预估</el-tag>
             </span>
             <span class="panel-value">
-              {{ estimate.in.symbol }} ·
+              {{ estimate.in.name || estimate.in.symbol }} ·
               {{ estimate.in.quantity.toFixed(2) }} 份（净值
               {{ estimate.in.nav.toFixed(4) }}）
             </span>
@@ -328,17 +369,18 @@
           </div>
         </div>
 
-        <!-- 退款去向（有差额时必选；默认取账户绑定的类现金产品） -->
+        <!-- 差额去向（有差额时必选；默认取账户绑定的类现金产品）
+             命名与右栏提示保持一致：这里选的是「差额」去哪儿，不是「退多少钱」 -->
         <el-form
           v-if="estimate.refund.amount > 0"
           label-width="90px"
           size="large"
         >
-          <el-form-item label="退款去向" required>
+          <el-form-item label="差额去向" required>
             <SegmentedControl
               v-model="form.refundMode"
               :options="refundOptions"
-              aria-label="退款去向"
+              aria-label="差额去向"
             />
             <div class="helper">
               指定转入金额小于净额，差额 ¥{{
@@ -385,7 +427,7 @@
       </div>
 
       <div class="flex justify-between">
-        <el-button :disabled="submitting" @click="step = 1">上一步</el-button>
+        <el-button :disabled="submitting" @click="step = 0">上一步</el-button>
         <el-button
           type="primary"
           :loading="submitting"
@@ -397,7 +439,7 @@
       </div>
     </div>
 
-    <!-- ===== 第 4 步：结果 ===== -->
+    <!-- ===== 第 3 步：结果 ===== -->
     <div v-else class="flex flex-col items-center gap-4 py-4">
       <IconifyIconOffline
         icon="ep:success-filled"
@@ -477,7 +519,13 @@ const emit = defineEmits<{
   (e: "positions-loaded", ledgerIds: number[]): void;
 }>();
 
-const stepTitles = ["选择转出", "选择转入", "费用与确认", "结果"];
+/**
+ * 三步：填写 → 确认 → 结果。
+ *
+ * 原为四步（选出/选入分开），合并成两栏并置后少一步（#2348）——
+ * 转出与转入是同一笔双腿操作，分两屏问会让用户来回翻页核对。
+ */
+const stepTitles = ["填写转换", "费用与确认", "结果"];
 const step = ref(0);
 
 // ── 持仓（按账户分组拉取，与 SellForm 同源） ──
@@ -535,7 +583,7 @@ const form = reactive(defaultForm());
  * 费用人工修正（#2348）。
  *
  * 真实确认单的费用常与费率先算值不一致（基金公司活动免赎回费、钱包垫资口径），
- * 所以第 3 步的两个费用行是可编辑的。`feeDirty` 用来判「用户是否动过」：
+ * 所以确认页的两个费用行是可编辑的。`feeDirty` 用来判「用户是否动过」：
  * 没动过就跟着试算结果刷新，动过就**不再覆盖**用户输入（否则每敲一位就被回填）。
  */
 const feeInputs = reactive({ redeem: 0, compensate: 0 });
@@ -557,7 +605,8 @@ const maxQuantity = computed(() =>
   Number(selectedPosition.value?.quantity ?? 0)
 );
 
-const step1Valid = computed(() => {
+/** 转出腿是否填完（原 step1Valid） */
+const outLegValid = computed(() => {
   if (!form.positionId || !form.trade_date) return false;
   if (transferAll.value) return true;
   return (
@@ -567,10 +616,14 @@ const step1Valid = computed(() => {
   );
 });
 
-const step2Valid = computed(() => {
+/** 转入腿是否填完（原 step2Valid）；转入基金不得等于转出基金 */
+const inLegValid = computed(() => {
   if (!form.inSymbol) return false;
   return form.inSymbol !== (selectedPosition.value?.symbol ?? "");
 });
+
+/** 两栏并置后的单一进入条件：任一腿没填完都不让进确认页 */
+const inputValid = computed(() => outLegValid.value && inLegValid.value);
 
 function onOutPositionChange() {
   transferAll.value = false;
@@ -621,12 +674,25 @@ async function remoteSearchFunds(query: string) {
   }
 }
 
-/** 第 2 步「当前持有」快选：排除转出基金本身 */
+/** 第 1 步「当前持有」快选：排除转出基金本身 */
 const inFundCandidates = computed(() =>
   accountPositions.value.filter(
     p => p.symbol !== selectedPosition.value?.symbol
   )
 );
+
+/**
+ * 已选转入基金的「标签兜底」。
+ *
+ * 快选按钮把 `form.inSymbol` 直接写成持仓代码，而它不在 `inFundOptions`（搜索结果）里，
+ * el-select 找不到同名选项就把值原样显示成「002340」。这里只造一个**纯标签**选项
+ * 把它接住——不伪造 `FundSearchItem` 的 type / subscription_rate，避免编数据。
+ */
+const pickedInOption = computed(() => {
+  const code = form.inSymbol;
+  if (!code) return null;
+  return { value: code, label: `${form.inName || code}（${code}）` };
+});
 
 function pickInFund(symbol: string, name: string) {
   form.inSymbol = symbol;
@@ -703,13 +769,13 @@ function scheduleEstimate() {
   estimateTimer = setTimeout(runEstimate, 400);
 }
 
-// 进入第 3 步：清掉旧试算并立即重算（避免展示上一批参数的数字）
-function gotoStep3() {
-  if (!step2Valid.value) return;
+// 进入确认页（第 2 步）：清掉旧试算并立即重算（避免展示上一批参数的数字）
+function gotoConfirm() {
+  if (!inputValid.value) return;
   if (estimateTimer) clearTimeout(estimateTimer);
   estimate.value = null;
   estimateError.value = "";
-  step.value = 2;
+  step.value = 1;
   void runEstimate();
 }
 
@@ -734,7 +800,7 @@ function resetFeeOverride() {
   scheduleEstimate();
 }
 
-// 第 3 步内任何参数变化 → 防抖重算
+// 确认页内任何参数变化 → 防抖重算
 watch(
   [
     () => form.positionId,
@@ -748,8 +814,8 @@ watch(
     transferAll
   ],
   () => {
-    if (step.value !== 2) return;
-    if (!step2Valid.value) return;
+    if (step.value !== 1) return;
+    if (!inputValid.value) return;
     scheduleEstimate();
   }
 );
@@ -925,6 +991,50 @@ defineExpose({ isDirty, resetForm });
 }
 
 .conversion-steps :deep(.el-step__title.is-wait) {
+  color: var(--text-tertiary-ink);
+}
+
+/* ===== 两栏并置（第 1 步，#2348） ===== */
+
+/* 栏头：比输入框标签更轻，只交代"这一栏在做什么"；
+   h3 默认的 margin/字号必须清掉，否则两栏顶端会错开一行 */
+.convert-col__title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+/* 转入金额区：口径切换独占一行右对齐，输入框整行吃满 */
+.in-amount-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.in-amount-field__switch {
+  align-self: flex-end;
+}
+
+/* 差额去向提示：与既有告警块同一视觉层级（bg-soft 底、无边框），
+   只是常驻而不是出错才出现 */
+.convert-note {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: var(--bg-soft);
+  border-radius: var(--radius-md);
+}
+
+.convert-note__icon {
+  flex: none;
+  margin-top: 1px;
   color: var(--text-tertiary-ink);
 }
 
