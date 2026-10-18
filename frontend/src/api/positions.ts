@@ -155,8 +155,20 @@ export interface ConversionBaseParams {
   out_quantity?: number | null;
   /** 转入基金代码（6 位裸码） */
   in_symbol: string;
-  /** 指定转入金额（元）；缺省 = 净额全部转入 */
+  /** 指定转入金额（元）；缺省 = 净额全部转入。与 in_quantity 二选一 */
   in_amount?: number | null;
+  /**
+   * 指定转入份额（份，最多 2 位）；与 in_amount 二选一。
+   *
+   * 为什么需要它：确认单上写的是份额，按金额反算会因 4 位取整差 0.0001，
+   * 对账时看着像丢了半份（#2348）。
+   */
+  in_quantity?: number | null;
+  /**
+   * 人工修正费用（元）。真实确认单的费用常与费率先算值不一致
+   * （基金公司活动、钱包垫资口径），不能只读。
+   */
+  fee_override?: { redeem?: number | null; compensate?: number | null } | null;
   /** 交易日期 YYYY-MM-DD，缺省今天 */
   trade_date?: string | null;
 }
@@ -178,6 +190,10 @@ export interface ConversionEstimateResult {
     amount: number;
     fee: number;
     fee_breakdown: { redeem: number; compensate: number };
+    /** 未修正时的算法估算值（人工修正后用于提示「原估算」） */
+    fee_estimated?: { redeem: number; compensate: number };
+    /** 本次费用是否被人工修正 */
+    fee_overridden?: boolean;
     realized_pnl_estimate: number;
   };
   in: {

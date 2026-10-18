@@ -174,19 +174,43 @@
           </el-select>
         </el-form-item>
 
-        <el-form-item label="转入金额">
-          <el-input-number
-            v-model="form.inAmount"
-            style="width: 100%"
-            :controls="false"
-            :min="0"
-            :step="0.01"
-            :precision="2"
-            placeholder="留空 = 净额全部转入"
-          />
+        <el-form-item label="转入">
+          <div class="field-row">
+            <div class="field-row__grow">
+              <el-input-number
+                v-if="form.inMode === 'amount'"
+                v-model="form.inAmount"
+                style="width: 100%"
+                :controls="false"
+                :min="0"
+                :step="0.01"
+                :precision="2"
+                placeholder="留空 = 净额全部转入"
+              />
+              <!-- 份额口径：确认单上写的是份额，按金额反算会差 0.0001（#2348） -->
+              <el-input-number
+                v-else
+                v-model="form.inQuantity"
+                style="width: 100%"
+                :controls="false"
+                :min="0"
+                :step="0.01"
+                :precision="2"
+                placeholder="留空 = 净额全部转入"
+              />
+            </div>
+            <SegmentedControl
+              v-model="form.inMode"
+              :options="inModeOptions"
+              aria-label="转入口径"
+            />
+          </div>
           <div class="helper">
-            留空表示净额（转出金额 −
-            费用）全部买入转入基金；指定更小金额时，差额需选退款去向
+            {{
+              form.inMode === "amount"
+                ? "留空表示净额（转出金额 − 费用）全部买入转入基金；指定更小金额时，差额需选去向"
+                : "按份额转入：金额由「份额 × 转入净值」派生，差额同样需选去向"
+            }}
           </div>
         </el-form-item>
       </el-form>
@@ -224,17 +248,56 @@
               >¥{{ estimate.out.amount.toFixed(2) }}</span
             >
           </div>
+          <!-- 费用行可编辑（#2348）：确认单上的费用常与费率表算出值不一致，
+               只读会让账实永远差几分钱。改后由服务端重算净额/份额/差额。 -->
           <div class="panel-row">
             <span class="panel-label">赎回费</span>
-            <span class="panel-value">
-              −¥{{ estimate.out.fee_breakdown.redeem.toFixed(2) }}
-            </span>
+            <div class="fee-cell">
+              <span class="fee-sign">−¥</span>
+              <el-input-number
+                v-model="feeInputs.redeem"
+                class="fee-input"
+                aria-label="赎回费（可修正）"
+                :controls="false"
+                :min="0"
+                :step="0.01"
+                :precision="2"
+                @change="onFeeEdit"
+              />
+            </div>
           </div>
           <div class="panel-row">
             <span class="panel-label">补差费</span>
-            <span class="panel-value">
-              −¥{{ estimate.out.fee_breakdown.compensate.toFixed(2) }}
+            <div class="fee-cell">
+              <span class="fee-sign">−¥</span>
+              <el-input-number
+                v-model="feeInputs.compensate"
+                class="fee-input"
+                aria-label="补差费（可修正）"
+                :controls="false"
+                :min="0"
+                :step="0.01"
+                :precision="2"
+                @change="onFeeEdit"
+              />
+            </div>
+          </div>
+          <!-- 已手工修正时给出原估算值 + 一键还原，避免「改过但忘了改成多少」 -->
+          <div v-if="feeDirty" class="panel-row fee-hint-row">
+            <span class="fee-hint">
+              已手工修正 · 原估算 赎回
+              {{ (estimate.out.fee_estimated?.redeem ?? 0).toFixed(2) }}
+              / 补差
+              {{ (estimate.out.fee_estimated?.compensate ?? 0).toFixed(2) }}
             </span>
+            <el-button
+              link
+              type="primary"
+              size="small"
+              @click="resetFeeOverride"
+            >
+              还原
+            </el-button>
           </div>
           <div class="panel-row panel-row-total">
             <span class="panel-label">费用合计</span>
@@ -461,9 +524,28 @@ const defaultForm = () => ({
   inSymbol: "",
   inName: "",
   inAmount: undefined as number | undefined,
+  /** 转入口径：金额 or 份额（二选一，后端 `in_amount` / `in_quantity` 互斥） */
+  inMode: "amount" as "amount" | "quantity",
+  inQuantity: undefined as number | undefined,
   refundMode: "" as "" | "money_fund" | "account_cash"
 });
 const form = reactive(defaultForm());
+
+/**
+ * 费用人工修正（#2348）。
+ *
+ * 真实确认单的费用常与费率先算值不一致（基金公司活动免赎回费、钱包垫资口径），
+ * 所以第 3 步的两个费用行是可编辑的。`feeDirty` 用来判「用户是否动过」：
+ * 没动过就跟着试算结果刷新，动过就**不再覆盖**用户输入（否则每敲一位就被回填）。
+ */
+const feeInputs = reactive({ redeem: 0, compensate: 0 });
+const feeDirty = ref(false);
+
+/** 转入口径切换选项（2 档「多选一」→ SegmentedControl） */
+const inModeOptions = [
+  { label: "按金额", value: "amount" },
+  { label: "按份额", value: "quantity" }
+] as const;
 
 /** 「全部」转出：不传 out_quantity，后端按持仓 4 位精确值处理（D8/§5.2） */
 const transferAll = ref(false);
@@ -493,6 +575,10 @@ const step2Valid = computed(() => {
 function onOutPositionChange() {
   transferAll.value = false;
   form.quantity = undefined;
+  // 换转出基金 = 换一套费用，人工修正不再适用
+  feeDirty.value = false;
+  feeInputs.redeem = 0;
+  feeInputs.compensate = 0;
 }
 
 function onQuantityInput() {
@@ -577,11 +663,22 @@ async function runEstimate() {
       out_position_id: form.positionId,
       out_quantity: transferAll.value ? null : (form.quantity ?? null),
       in_symbol: form.inSymbol,
-      in_amount: form.inAmount ?? null,
+      // 金额 / 份额二选一：只发当前口径的那个，后端对同时传两者直接拒绝
+      in_amount: form.inMode === "amount" ? (form.inAmount ?? null) : null,
+      in_quantity:
+        form.inMode === "quantity" ? (form.inQuantity ?? null) : null,
+      fee_override: feeDirty.value
+        ? { redeem: feeInputs.redeem, compensate: feeInputs.compensate }
+        : null,
       trade_date: form.trade_date
     });
     if (my !== estimateSeq) return; // 过期响应丢弃
     estimate.value = (res?.data ?? null) as ConversionEstimateResult | null;
+    // 费用行未手工修正时跟随试算刷新；修正过就保留用户输入，不回填
+    if (estimate.value && !feeDirty.value) {
+      feeInputs.redeem = estimate.value.out.fee_breakdown.redeem;
+      feeInputs.compensate = estimate.value.out.fee_breakdown.compensate;
+    }
     // 退款去向默认值：优先账户绑定的类现金产品（D7）
     if (
       estimate.value &&
@@ -616,6 +713,27 @@ function gotoStep3() {
   void runEstimate();
 }
 
+/**
+ * 手工修正费用：标记 dirty 并按新费用重算。
+ *
+ * 净额 = 转出金额 − 费用，所以改费用会连带改「净额 / 转入份额 / 差额」——
+ * 这些都由服务端重算（前端不算账，§4.2 单一实现）。
+ */
+function onFeeEdit() {
+  feeDirty.value = true;
+  scheduleEstimate();
+}
+
+/** 还原为算法估算值（把人工修正撤回） */
+function resetFeeOverride() {
+  feeDirty.value = false;
+  if (estimate.value) {
+    feeInputs.redeem = estimate.value.out.fee_breakdown.redeem;
+    feeInputs.compensate = estimate.value.out.fee_breakdown.compensate;
+  }
+  scheduleEstimate();
+}
+
 // 第 3 步内任何参数变化 → 防抖重算
 watch(
   [
@@ -625,6 +743,8 @@ watch(
     () => form.isAfter15,
     () => form.inSymbol,
     () => form.inAmount,
+    () => form.inQuantity,
+    () => form.inMode,
     transferAll
   ],
   () => {
@@ -671,7 +791,12 @@ async function submit() {
       out_position_id: form.positionId,
       out_quantity: transferAll.value ? null : (form.quantity ?? null),
       in_symbol: form.inSymbol,
-      in_amount: form.inAmount ?? null,
+      in_amount: form.inMode === "amount" ? (form.inAmount ?? null) : null,
+      in_quantity:
+        form.inMode === "quantity" ? (form.inQuantity ?? null) : null,
+      fee_override: feeDirty.value
+        ? { redeem: feeInputs.redeem, compensate: feeInputs.compensate }
+        : null,
       refund_mode: form.refundMode || null,
       trade_date: form.trade_date,
       idempotency_key: idempotencyKey
@@ -743,12 +868,16 @@ const isDirty = computed(
       !!form.quantity ||
       !!form.inSymbol ||
       !!form.inAmount ||
+      !!form.inQuantity ||
       !!form.refundMode)
 );
 
 function resetForm() {
   Object.assign(form, defaultForm());
   transferAll.value = false;
+  feeDirty.value = false;
+  feeInputs.redeem = 0;
+  feeInputs.compensate = 0;
   estimate.value = null;
   estimateError.value = "";
   result.value = null;
@@ -892,5 +1021,39 @@ defineExpose({ isDirty, resetForm });
 
 .panel-row-total .panel-value {
   font-weight: 600;
+}
+
+/* ── 费用可编辑（#2348） ──
+   输入框贴右、与上面的金额列右对齐；tab 数字等宽避免抖动。 */
+.fee-cell {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.fee-sign {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.fee-input {
+  width: 96px;
+}
+
+.fee-input :deep(.el-input__inner) {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* 修正提示行：说明「已改过」并给出原估算值，不抢主信息的层级 */
+.fee-hint-row {
+  margin-top: -4px;
+}
+
+.fee-hint {
+  font-size: 12px;
+  color: var(--text-tertiary-ink);
+  font-variant-numeric: tabular-nums;
 }
 </style>
