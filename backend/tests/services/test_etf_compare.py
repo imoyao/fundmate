@@ -11,7 +11,9 @@
 5. **降级矩阵**：快照两路全挂（名称仍在）/ 逐只日线全挂（returns 全 null）/
    无关联 ETF（rows=[] 不是错误）/ 名录未命中（None → 404）/
    规模/费率链各自独立降级（#2333，一链挂不拖累另一链）；
-6. **TTL 缓存**：同码第二次构建零外部请求；聚合测试一律不联网（monkeypatch 全量）。
+6. **TTL 缓存**：同码第二次构建零外部请求；聚合测试一律不联网（monkeypatch 全量）；
+7. **优选排名（#2334）**：参评门槛边界（成交额 1000 万 / 规模 2 亿均为闭区间、
+   跟踪差降级 None 不参评）、参评行按跟踪差降序取 Top3 且名次唯一、全不参评全 null。
 """
 
 from contextlib import closing
@@ -376,3 +378,134 @@ def test_compare_scale_fee_both_down_null(monkeypatch):
     assert row['mgmt_fee_pct'] is None
     assert row['custody_fee_pct'] is None
     assert row['code'] == '510300'  # 表壳仍在
+
+
+# ── 优选排名（#2334）──────────────────────────────────────────────────
+def _compare_case(monkeypatch, specs, idx_y1=10.0):
+    """全链路跑一版对比表（复用本文件既有 mock/fixture 风格），``specs`` 每项四键：
+
+    - ``amount``：当日成交额（元）；None → 该 ETF 不进 spot 行 → amount 降级 None；
+    - ``scale_yi``：规模（亿元）；None → 规模链降级（#2333 全挂形态）；
+    - ``growth``：日线日增长率；None → 该 ETF 日线取不到 → 跟踪差 None；
+      值越大 → 近 1 年收益越高 → 跟踪差越大（参评行的排序因此可控）。
+    """
+    _seed_catalog_row()
+    _patch_links(monkeypatch, [_etf_link(spec['code']) for spec in specs])
+    spot_df = pd.DataFrame(
+        [
+            {
+                '代码': ('sh' if spec['code'].startswith('5') else 'sz') + spec['code'],
+                '最新价': 1.0,
+                '涨跌幅': 0.0,
+                '成交额': spec['amount'],
+            }
+            for spec in specs
+            if spec['amount'] is not None
+        ]
+    )
+    _patch_akshare(monkeypatch, nav_df=pd.DataFrame(), spot_df=spot_df)
+    growths = {spec['code']: spec['growth'] for spec in specs}
+    monkeypatch.setattr(
+        ec.direct_feeds,
+        'fetch_daily_tencent',
+        lambda symbol, **k: (
+            []
+            if growths.get(symbol) is None
+            else _series(date(2025, 8, 1), date(2026, 10, 16), daily_growth=growths[symbol])
+        ),
+    )
+    monkeypatch.setattr(im, 'build_index_returns', lambda db, symbol: {'returns': {'y1': idx_y1}})
+    monkeypatch.setattr(
+        ec,
+        'build_scale_map',
+        lambda codes, nav_map: {spec['code']: spec['scale_yi'] for spec in specs if spec['scale_yi'] is not None},
+    )
+    with closing(market_session_factory()()) as db:
+        return build_etf_compare(db, '931151')
+
+
+def test_recommend_amount_boundary(monkeypatch):
+    """成交额门槛闭区间：恰 1000 万参评；差 1 元（9_999_999）不参评——哪怕它的跟踪差最大。"""
+    data = _compare_case(
+        monkeypatch,
+        [
+            {'code': '510301', 'amount': 9_999_999, 'scale_yi': 5.0, 'growth': 1.005},
+            {'code': '510302', 'amount': 10_000_000, 'scale_yi': 5.0, 'growth': 1.001},
+        ],
+    )
+    ranks = {row['code']: row['recommend_rank'] for row in data['rows']}
+    assert ranks['510302'] == 1  # 恰 1000 万 → 参评，唯一合格者
+    assert ranks['510301'] is None  # 9_999_999 差 1 元 → 不参评（growth 更高也没用）
+
+
+def test_recommend_scale_boundary(monkeypatch):
+    """规模门槛闭区间：恰 2 亿参评；1.99 亿不参评——哪怕它的跟踪差最大。"""
+    data = _compare_case(
+        monkeypatch,
+        [
+            {'code': '510301', 'amount': 1e8, 'scale_yi': 1.99, 'growth': 1.005},
+            {'code': '510302', 'amount': 1e8, 'scale_yi': 2.0, 'growth': 1.001},
+        ],
+    )
+    ranks = {row['code']: row['recommend_rank'] for row in data['rows']}
+    assert ranks['510302'] == 1  # 恰 2 亿 → 参评，唯一合格者
+    assert ranks['510301'] is None  # 1.99 亿差 0.01 → 不参评
+
+
+def test_recommend_excluded_when_gate_field_degrades(monkeypatch):
+    """门槛字段降级 None 即不参评：跟踪差 None（日线挂）、scale_yi None（#2333 降级）。"""
+    data = _compare_case(
+        monkeypatch,
+        [
+            {'code': '510301', 'amount': 1e8, 'scale_yi': 5.0, 'growth': None},
+            {'code': '510302', 'amount': 1e8, 'scale_yi': None, 'growth': 1.005},
+            {'code': '510303', 'amount': 1e8, 'scale_yi': 5.0, 'growth': 1.001},
+        ],
+    )
+    by_code = {row['code']: row for row in data['rows']}
+    assert by_code['510301']['tracking_diff_y1'] is None  # 前提自证：日线挂 → 跟踪差 None
+    assert by_code['510302']['scale_yi'] is None  # 前提自证：规模链降级
+    ranks = {code: row['recommend_rank'] for code, row in by_code.items()}
+    assert ranks == {'510301': None, '510302': None, '510303': 1}
+
+
+def test_recommend_top3_ranking_and_truncation(monkeypatch):
+    """5 只全参评：rank 1..3 归 tracking_diff 最大三只（降序），其余 null；名次唯一不重复。"""
+    data = _compare_case(
+        monkeypatch,
+        [
+            {'code': '510301', 'amount': 5e7, 'scale_yi': 5.0, 'growth': 1.001},
+            {'code': '510302', 'amount': 6e7, 'scale_yi': 5.0, 'growth': 1.002},
+            {'code': '510303', 'amount': 7e7, 'scale_yi': 5.0, 'growth': 1.003},
+            {'code': '510304', 'amount': 8e7, 'scale_yi': 5.0, 'growth': 1.004},
+            {'code': '510305', 'amount': 9e7, 'scale_yi': 5.0, 'growth': 1.005},
+        ],
+    )
+    assert len(data['rows']) == 5  # 排名不增删行
+    assert all('recommend_rank' in row for row in data['rows'])  # 前端契约：每行必有键
+    ranks = {row['code']: row['recommend_rank'] for row in data['rows']}
+    # growth 越大跟踪差越大 → 510305/04/03 是跟踪差最大三只
+    assert ranks == {'510305': 1, '510304': 2, '510303': 3, '510302': None, '510301': None}
+    awarded = sorted(rank for rank in ranks.values() if rank is not None)
+    assert awarded == [1, 2, 3]  # 名次唯一不重复（不出现 1,1,2 之类）
+    # 跟踪差降序确实是授予依据（直接对行断言，不依赖 growth 映射假设）
+    diffs = [row['tracking_diff_y1'] for row in data['rows'] if row['recommend_rank'] is not None]
+    assert diffs == sorted(diffs, reverse=True)
+    assert len(diffs) == 3
+
+
+def test_recommend_all_ineligible_all_null(monkeypatch):
+    """门槛全不满足 → 全 null；接口其余行为完全不变（行数与成交额序照常）。"""
+    data = _compare_case(
+        monkeypatch,
+        [
+            {'code': '510301', 'amount': 1e8, 'scale_yi': None, 'growth': 1.005},  # 规模降级
+            {'code': '510302', 'amount': None, 'scale_yi': 5.0, 'growth': 1.004},  # 成交额降级
+            {'code': '510303', 'amount': 100.0, 'scale_yi': 5.0, 'growth': 1.003},  # 成交额不足
+            {'code': '510304', 'amount': 1e8, 'scale_yi': 5.0, 'growth': None},  # 跟踪差降级
+        ],
+    )
+    assert len(data['rows']) == 4
+    # 既有成交额降序不受排名影响（None 沉底、同额按代码稳定）
+    assert [row['code'] for row in data['rows']] == ['510301', '510304', '510303', '510302']
+    assert all(row['recommend_rank'] is None for row in data['rows'])

@@ -7,6 +7,7 @@ import {
   ref,
   watch
 } from "vue";
+import { RouterLink } from "vue-router";
 import {
   fetchIndexEtfCompare,
   type IndexEtfCompareResult,
@@ -23,7 +24,11 @@ import { productRoute } from "@/utils/productIdentity";
  * 同跟踪一只指数的 ETF 收益几乎同质，**费率差即净收益差、规模决定冲击成本**；
  * 用户此前只能逐只跳第三方比较（#2275 背景）。P0 给：最新净值 / 当日涨幅 /
  * 成交额 / 近 1·3·6·12 月涨跌幅 / 跟踪差；#2333 补上规模与运行费率两列
- * （东财 F10 + 同花顺双源 + 小表缓存，后端 etf_scale_fee 服务）；推荐徽章（P2）后续上线。
+ * （东财 F10 + 同花顺双源 + 小表缓存，后端 etf_scale_fee 服务）。
+ *
+ * #2334（形态 B）：对比表**上方**加「优选 ETF」小卡区块——后端按跟踪差降序、
+ * 门槛内取前三算好 `recommend_rank`（1/2/3），前端最多展示 3 只、第 1 名品牌色
+ * 突出；`recommend_rank` 全为 null 时**整块不渲染**（不是空壳标题）。
  *
  * ## 口径与降级
  *
@@ -34,6 +39,7 @@ import { productRoute } from "@/utils/productIdentity";
  *   （东财 spot 实测 push2delay 不可靠，2026-10-17 三连挂）；
  * - **跟踪差 = ETF 近 1 年涨幅 − 指数近 1 年涨幅**：ETF 用场内价格（含折溢价
  *   噪声），是购买决策的粗粒度贴合度参考，**非严格跟踪误差**（title 标注）；
+ * - 优选小卡的跟踪差与表内同源同口径，缺失显「—」；
  * - 任一字段失败 → 「—」，不阻塞整表。
  *
  * 本组件是 ProductRelatedSection 的**子区块**（同卡内渲染）。
@@ -53,6 +59,35 @@ const rows = computed(() => data.value?.rows ?? []);
 
 /** 有任何一行存在即渲染（哪怕行情字段全降级，表壳 + 名称/跳转仍有价值） */
 const hasRows = computed(() => rows.value.length > 0);
+
+// ── 优选小卡（#2334 形态 B）────────────────────────────────────────
+// 后端按「跟踪差降序、门槛内 Top3」算好 recommend_rank（1/2/3）；null = 不参评。
+
+/** 优选行：参评行按名次升序、至多 3 只（后端契约本就是 Top3，截断是防御） */
+const recommendRows = computed(() => {
+  const picks = rows.value
+    .filter(
+      (row): row is IndexEtfCompareRow & { recommend_rank: number } =>
+        row.recommend_rank != null
+    )
+    .sort((a, b) => a.recommend_rank - b.recommend_rank)
+    .slice(0, 3);
+  return picks.map(row => ({
+    code: row.code,
+    name: row.name,
+    rank: row.recommend_rank,
+    tracking: row.tracking_diff_y1,
+    route: productRoute({ assetType: "etf", symbol: row.code })
+  }));
+});
+
+/** 渲染门禁（失败态铁律）：至少一行参评才画整块；全 null 时整块消失、不留空壳标题 */
+const hasRecommend = computed(() => recommendRows.value.length > 0);
+
+/** 名次称谓：第 1 名带「优选」前缀突出，2/3 名只标名次 */
+function recommendLabel(rank: number): string {
+  return rank === 1 ? "优选 · 第 1" : `第 ${rank}`;
+}
 
 /** 指数基准行：任一窗口有值才渲染（全 null 时画一行「—」没有信息量） */
 const indexBaseline = computed<IndexEtfCompareWindows | null>(() => {
@@ -120,11 +155,9 @@ function amountText(row: IndexEtfCompareRow): string {
   return amount.toFixed(0);
 }
 
-/** 跟踪差文本：非严格跟踪误差，title 必须带口径警示 */
-function trackingText(row: IndexEtfCompareRow): string {
-  return row.tracking_diff_y1 == null
-    ? DASH
-    : `${row.tracking_diff_y1 > 0 ? "+" : ""}${row.tracking_diff_y1.toFixed(2)}%`;
+/** 跟踪差文本：非严格跟踪误差，title 必须带口径警示（表内与优选小卡同源复用） */
+function trackingText(value: number | null): string {
+  return value == null ? DASH : `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
 /** 规模文本（#2333）：后端已给亿元；腾讯兜底口径为市价（title 标注） */
@@ -194,6 +227,47 @@ watch(rows, () => nextTick(measure));
     </p>
 
     <template v-else>
+      <!-- 优选小卡（#2334 形态 B）：hasRecommend 门禁——recommend_rank 全为
+           null 时整块不出现（不渲染空壳标题）；整卡可点进 ETF 详情（与表内
+           名称跳转同一路由惯例，无路由时退化为只读卡片） -->
+      <div v-if="hasRecommend" class="etf-cmp__picks">
+        <p class="etf-cmp__picks-title">优选 ETF</p>
+        <ul class="etf-cmp__picks-list">
+          <li
+            v-for="pick in recommendRows"
+            :key="pick.code"
+            class="etf-cmp__pick"
+            :class="{ 'etf-cmp__pick--first': pick.rank === 1 }"
+          >
+            <component
+              :is="pick.route ? RouterLink : 'span'"
+              :to="pick.route || undefined"
+              class="etf-cmp__pick-link"
+            >
+              <span class="etf-cmp__pick-rank">
+                {{ recommendLabel(pick.rank) }}
+              </span>
+              <span class="etf-cmp__pick-name" :title="pick.name || pick.code">
+                {{ pick.name || pick.code }}
+              </span>
+              <span class="etf-cmp__pick-meta">
+                <span class="etf-cmp__pick-code">{{ pick.code }}</span>
+                <span class="etf-cmp__pick-tracking" :title="TRACKING_TITLE">
+                  <span class="etf-cmp__pick-tracking-label">跟踪差</span>
+                  <span
+                    class="etf-cmp__pick-tracking-value"
+                    :class="pctClass(pick.tracking)"
+                  >
+                    {{ trackingText(pick.tracking) }}
+                  </span>
+                </span>
+              </span>
+            </component>
+          </li>
+        </ul>
+        <p class="etf-cmp__picks-note">按跟踪差（近1年）排序，门槛内取前三。</p>
+      </div>
+
       <div class="etf-cmp__scroll-wrap">
         <div ref="scroller" class="etf-cmp__scroll" @scroll="measure">
           <table class="etf-cmp__table">
@@ -269,7 +343,7 @@ watch(rows, () => nextTick(measure));
                   :class="pctClass(row.tracking_diff_y1)"
                   :title="TRACKING_TITLE"
                 >
-                  {{ trackingText(row) }}
+                  {{ trackingText(row.tracking_diff_y1) }}
                 </td>
               </tr>
             </tbody>
@@ -405,6 +479,136 @@ watch(rows, () => nextTick(measure));
     outline: 2px solid var(--brand-700);
     outline-offset: 2px;
   }
+}
+
+/* ── 优选小卡（#2334 形态 B）────────────────────────────────────────
+   对比表上方的速览层：小卡视觉与表卡同族（同命名空间、同文字级令牌）。
+   第 1 名用品牌软底 + 品牌边框（软按钮「选中态」同款语言）拉开层级，
+   2/3 名为中性小卡——不引入表外新色，暗色由 token 自动切换。 */
+.etf-cmp__picks {
+  margin-bottom: var(--space-3);
+}
+
+.etf-cmp__picks-title {
+  margin: 0 0 var(--space-2);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.etf-cmp__picks-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-2);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.etf-cmp__pick {
+  min-width: 0;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+}
+
+/* 第 1 名：品牌软底 + 品牌边框，强调层级明显高于 2/3 名的中性卡 */
+.etf-cmp__pick--first {
+  background: var(--brand-100);
+  border-color: var(--brand-400);
+}
+
+.etf-cmp__pick-link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  color: inherit;
+  text-decoration: none;
+  border-radius: inherit;
+
+  &:hover {
+    background: var(--bg-soft);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--brand-700);
+    outline-offset: 2px;
+  }
+}
+
+.etf-cmp__pick--first .etf-cmp__pick-link:hover {
+  background: var(--brand-200);
+}
+
+.etf-cmp__pick-rank {
+  align-self: flex-start;
+  padding: 0 var(--space-2);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  color: var(--text-tertiary-ink);
+  background: var(--bg-muted);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+}
+
+/* 第 1 名名次标：品牌文字级令牌（--brand-ink，AA 达标），勿用图形级 --brand-700 */
+.etf-cmp__pick--first .etf-cmp__pick-rank {
+  color: var(--brand-ink);
+  border-color: var(--brand-400);
+}
+
+.etf-cmp__pick-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.etf-cmp__pick--first .etf-cmp__pick-name {
+  font-weight: 600;
+}
+
+.etf-cmp__pick-meta {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.etf-cmp__pick-code {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.etf-cmp__pick-tracking {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: baseline;
+  min-width: 0;
+}
+
+.etf-cmp__pick-tracking-label {
+  font-size: 12px;
+  color: var(--text-tertiary-ink);
+}
+
+.etf-cmp__pick-tracking-value {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.etf-cmp__picks-note {
+  margin: var(--space-2) 0 0;
+  font-size: 12px;
+  color: var(--text-tertiary-ink);
 }
 
 /* 脚注族已迁至共享类 .section-footnote（#2320）：来源是**分隔型**（--spaced，

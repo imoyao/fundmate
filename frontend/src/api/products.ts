@@ -239,6 +239,8 @@ export interface IndexEtfCompareRow {
   mgmt_fee_pct: number | null;
   /** 托管费率(%/年，#2333)；失败为 null */
   custody_fee_pct: number | null;
+  /** 优选排名(#2334)：1~3 = 进入优选小卡的名次（参评门槛内按跟踪差降序）；不参评为 null */
+  recommend_rank: number | null;
 }
 
 /**
