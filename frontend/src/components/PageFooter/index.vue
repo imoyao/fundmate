@@ -168,7 +168,7 @@ withDefaults(
 
   .revisit-text {
     margin: 0 0 12px;
-    font-size: 14px;
+    font-size: var(--text-small);
     line-height: 1.6;
     color: var(--text-primary);
   }
@@ -176,7 +176,7 @@ withDefaults(
   .revisit-list {
     padding-left: 18px;
     margin: 0 0 14px;
-    font-size: 13px;
+    font-size: var(--text-label);
     line-height: 1.9;
     color: var(--text-secondary);
   }
@@ -233,7 +233,7 @@ withDefaults(
 
     &__title {
       margin: 0 0 4px;
-      font-size: 14px;
+      font-size: var(--text-small);
       font-weight: 600;
       color: var(--text-primary);
     }

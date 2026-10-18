@@ -256,7 +256,7 @@ const groupsContainer = props.page.groupsContainer;
 }
 
 .ghost-add__icon {
-  font-size: 14px;
+  font-size: var(--text-small);
 }
 
 /* 视觉隐藏但保留给屏幕阅读器（#1841）。

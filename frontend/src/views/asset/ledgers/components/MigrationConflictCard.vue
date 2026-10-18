@@ -92,7 +92,7 @@ const resolutionProxy = computed({
 }
 
 .mig-conflict__name {
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -123,7 +123,7 @@ const resolutionProxy = computed({
 
 .mig-compare > span {
   padding: 6px 10px;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 20px;
   border-top: 1px solid var(--border-subtle);
 }

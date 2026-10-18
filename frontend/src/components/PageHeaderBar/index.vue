@@ -101,7 +101,7 @@ withDefaults(
   &__subtitle {
     max-width: 640px;
     margin: 6px 0 0;
-    font-size: 14px;
+    font-size: var(--text-small);
     line-height: 1.5;
     color: var(--text-secondary);
   }

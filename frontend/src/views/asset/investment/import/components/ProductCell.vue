@@ -31,7 +31,7 @@ const { getFundTypeColor } = useImportWizardContext();
 }
 
 .product-name {
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 500;
   color: var(--text-primary);
 }

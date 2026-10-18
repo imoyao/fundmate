@@ -703,7 +703,7 @@ const showRepoDialog = ref(false);
 }
 
 .bf-section-label {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -752,7 +752,7 @@ const showRepoDialog = ref(false);
 }
 
 .bf-single-title {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -782,7 +782,7 @@ const showRepoDialog = ref(false);
 }
 
 .bf-card-name {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--text-primary);
 }

@@ -245,13 +245,13 @@ const forgotFormRef = props.page.forgotFormRef;
   }
 
   .privacy-text {
-    font-size: 14px;
+    font-size: var(--text-small);
     line-height: 1.5;
     color: var(--text-secondary);
 
     .el-link {
       padding: 0 2px;
-      font-size: 14px;
+      font-size: var(--text-small);
       vertical-align: baseline;
     }
 
@@ -270,7 +270,7 @@ const forgotFormRef = props.page.forgotFormRef;
 }
 
 .login-forgot .el-link {
-  font-size: 13px;
+  font-size: var(--text-label);
 }
 
 /* 忘记密码弹窗：对齐登录卡片视觉（半透明边框 + 品牌柔影） */
@@ -299,7 +299,7 @@ const forgotFormRef = props.page.forgotFormRef;
     }
 
     .privacy-text {
-      font-size: 13px;
+      font-size: var(--text-label);
     }
   }
 }

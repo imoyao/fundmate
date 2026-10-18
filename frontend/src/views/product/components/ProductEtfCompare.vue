@@ -393,14 +393,14 @@ watch(rows, () => nextTick(measure));
 
 .etf-cmp__title {
   margin: 0 0 var(--space-3);
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .etf-cmp__hint {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -442,7 +442,7 @@ watch(rows, () => nextTick(measure));
 
 .etf-cmp__td {
   padding: var(--space-2);
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-primary);
   white-space: nowrap;
 }
@@ -491,7 +491,7 @@ watch(rows, () => nextTick(measure));
 
 .etf-cmp__picks-title {
   margin: 0 0 var(--space-2);
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -563,7 +563,7 @@ watch(rows, () => nextTick(measure));
 .etf-cmp__pick-name {
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
@@ -600,7 +600,7 @@ watch(rows, () => nextTick(measure));
 }
 
 .etf-cmp__pick-tracking-value {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }

@@ -281,7 +281,7 @@ const addHotAsset = (item: (typeof hotAssets)[0]) => {
 }
 
 .input-prefix {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -292,13 +292,13 @@ const addHotAsset = (item: (typeof hotAssets)[0]) => {
   padding: 4px 0;
 
   .suggestion-code {
-    font-size: 14px;
+    font-size: var(--text-small);
     font-weight: 600;
     color: var(--text-primary);
   }
 
   .suggestion-name {
-    font-size: 14px;
+    font-size: var(--text-small);
     color: var(--text-secondary);
   }
 
@@ -317,7 +317,7 @@ const addHotAsset = (item: (typeof hotAssets)[0]) => {
   border-top: 1px solid var(--border-light);
 
   .hot-label {
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
     white-space: nowrap;
   }
@@ -333,7 +333,7 @@ const addHotAsset = (item: (typeof hotAssets)[0]) => {
     gap: 6px;
     align-items: center;
     padding: 4px 14px;
-    font-size: 13px;
+    font-size: var(--text-label);
     cursor: pointer;
     background: var(--bg-soft);
     border: 1px solid var(--border-light);

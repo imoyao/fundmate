@@ -553,7 +553,7 @@ onMounted(() => {
 .amount-input :deep(.el-input-number__decrease),
 .amount-input :deep(.el-input-number__increase) {
   width: 44px;
-  font-size: 18px;
+  font-size: var(--text-num-strong);
   color: var(--text-secondary);
   background-color: var(--bg-muted);
   border: none;
@@ -576,7 +576,7 @@ onMounted(() => {
 .form-tip {
   padding-left: 2px;
   margin-top: 6px;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-secondary);
 }
@@ -655,7 +655,7 @@ onMounted(() => {
 }
 
 :deep(.el-dialog__title) {
-  font-size: 18px;
+  font-size: var(--text-num-strong);
   font-weight: 600;
   color: var(--text-primary);
 }

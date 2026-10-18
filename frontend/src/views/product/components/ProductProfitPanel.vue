@@ -214,7 +214,7 @@ function hexToRgba(hex: string, alpha: number): string {
 }
 
 .profit-panel__title {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--text-primary);
 }

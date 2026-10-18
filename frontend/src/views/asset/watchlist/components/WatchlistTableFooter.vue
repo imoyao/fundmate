@@ -88,7 +88,7 @@ const currentPage = computed({
 }
 
 .page-size-select__label {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   white-space: nowrap;
 }
@@ -98,7 +98,7 @@ const currentPage = computed({
 }
 
 .table-footer__total {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
 }

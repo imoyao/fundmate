@@ -534,7 +534,7 @@ onMounted(() => {
   align-items: flex-start;
   padding: 10px 14px;
   margin-bottom: 12px;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--color-warning-ink);
   background: color-mix(
@@ -658,7 +658,7 @@ onMounted(() => {
 }
 
 .opportunity-name {
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -684,7 +684,7 @@ onMounted(() => {
 
 .opportunity-desc {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-secondary);
 }

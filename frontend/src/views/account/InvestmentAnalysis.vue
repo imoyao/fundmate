@@ -33,7 +33,7 @@ const EMPTY_DESC = "投资分析正在建设中";
 }
 
 .placeholder-page__note {
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.7;
   color: var(--text-tertiary-ink);
 }

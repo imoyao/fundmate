@@ -356,7 +356,7 @@ onMounted(() => {
   justify-content: center;
   height: 40px;
   padding: 8px 20px;
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 500;
   line-height: 1;
   color: var(--text-inverse);
@@ -426,7 +426,7 @@ onMounted(() => {
 :deep(.temp-conclusion) {
   padding: 8px 12px;
   margin-top: 8px;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-secondary);
   background: var(--bg-soft);

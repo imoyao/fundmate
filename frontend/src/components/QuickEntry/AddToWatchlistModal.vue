@@ -754,7 +754,7 @@ onMounted(async () => {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 600;
   line-height: 20px;
   color: var(--text-primary);

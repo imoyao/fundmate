@@ -191,14 +191,14 @@ function updateResolution(key: string, value: MigrationAction) {
 }
 
 .mig-route__arrow {
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--text-tertiary-ink);
 }
 
 /* 总数右对齐：等宽数字保证跳动时不抖 */
 .mig-route__total {
   margin-left: auto;
-  font-size: 13px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
 }
@@ -229,7 +229,7 @@ function updateResolution(key: string, value: MigrationAction) {
 }
 
 .mig-section__title {
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -270,7 +270,7 @@ function updateResolution(key: string, value: MigrationAction) {
 }
 
 .mig-row__name {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-primary);
 }
 
@@ -291,7 +291,7 @@ function updateResolution(key: string, value: MigrationAction) {
 
 .mig-empty {
   padding: var(--space-loose) 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   text-align: center;
 }
