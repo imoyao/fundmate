@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.domains.funds.models import FeeRatio, Fund, PurchaseRule, RedeemRule
+from app.services.job_base import JobStatus
 from app.services.sync.jobs.fund_detail_enrich_job import FundDetailEnrichJob
 
 
@@ -194,3 +195,33 @@ class TestFundDetailEnrichJob:
         rows = db.query(FeeRatio).filter_by(fund_code='000001', fee_type='redeem').all()
         assert len(rows) == 1, '拒写时不得新增任何行'
         assert float(rows[0].rate) == 0.015, '拒写时既有数据必须原样保留'
+
+    # ── 「静默空跑」防线（2026-10-18 实测踩到） ──
+
+    def test_all_targets_missing_is_reported_and_failed(self, job, db):
+        """目标代码一个都没匹配上 → 必须记账 + 判 FAILED
+
+        实测事故：用 `--target-file` 跑修复性重同步时 `DATABASE_URL` 没生效、连到了另一个库，
+        334 只全部走 `if not fund: continue` 静默跳过，整轮报
+        `enriched 0 / skipped 0 / errors 0` 的**假成功**——看起来跑完了，实际什么都没做。
+        """
+        job.akshare_adapter.fetch_fund_detail.return_value = {}
+        job.xalpha_adapter.fetch_fund_fee.return_value = {}
+
+        job.run(targets=['999998', '999999'])
+
+        assert job.stats['not_found'] == ['999998', '999999']
+        assert job.stats['enriched'] == 0
+        assert job.stats.get('errors'), '全部未匹配时必须留下错误，不能宣称成功'
+        assert job.status == JobStatus.FAILED
+
+    def test_partial_missing_is_warned_but_succeeds(self, job, funds):
+        """部分未匹配 → 记账 + 告警，但不算失败（真实同步仍完成了）"""
+        job.akshare_adapter.fetch_fund_detail.return_value = {}
+        job.xalpha_adapter.fetch_fund_fee.return_value = {}
+
+        job.run(targets=['000001', '999999'])
+
+        assert job.stats['not_found'] == ['999999']
+        assert job.stats['enriched'] == 1
+        assert job.status == JobStatus.SUCCESS
