@@ -25,6 +25,7 @@ import argparse
 import importlib.util
 import os
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -425,14 +426,11 @@ def test_script_never_force_pushes(mod):
     「执行 git push 那一行的参数里有没有 force」，不是「文件里有没有出现过 force 这个词」。
     探针：在 push 参数里加 `--force` ⇒ 本用例转红。
     """
-    import re
-
     src = _SCRIPT_PATH.read_text(encoding='utf-8').split('"""', 2)[-1]
-    push_lines = [ln for ln in src.splitlines() if re.search(r"_git\(\s*\[\s*'push'", ln)]
-    assert push_lines, '找不到 push 调用——判据失去了锚点（脚本结构变了要一起改判据）'
-    for ln in push_lines:
-        for banned in ('--force', '-f', 'force-with-lease'):
-            assert banned not in ln, f'push 不得带 {banned}（反向护栏）：{ln.strip()}'
+    if _push_refuses_force(src) is None:
+        raise AssertionError('找不到 push 调用——判据失去了锚点（脚本结构变了要一起改判据）')
+    refused, why = _push_refuses_force(src)
+    assert refused, f'push 不得带 force 类参数（反向护栏）：{why}'
 
 
 def test_script_never_imports_network(mod):
@@ -515,10 +513,342 @@ def test_push_failure_surfaces_stderr(mod, tmp_path, capsys):
         github_url=str(remote),
         cwd=str(work),
     )
+    # 让 push **注定失败**且原因可读：远端仍在（fetch 得通），但**只读** ——
+    # 用一个 hook 拒绝一切写入的裸仓，push 会带着 remote 的原话失败。
+    # （不能用「远端已有一条无关的 bridge/github-dev」那种场景：那是 #573 修复后的**成功**路径。）  # cross-repo-ref-allow
+    read_only = tmp_path / 'read-only.git'
+    _git(tmp_path, 'clone', '-q', '--bare', str(work), str(read_only), env=env)
+    hook = read_only / 'hooks' / 'pre-receive'
+    hook.write_text('#!/bin/sh\necho "no writes allowed" >&2\nexit 1\n', encoding='utf-8')
+    hook.chmod(0o755)
+    args.github_url = str(read_only)
     rc = mod.run(args)
     assert rc == 2, f'推失败应以「结论不可信」退出（2），实际 {rc}'
     # 推失败那一行必须打出 **remote 的原话**（空原因等于没信号），且点名目标分支。
+    # ⚠️ 语义变更（源 CNB #573）：机器分支现在**一开始就带 `--force-with-lease=<ref>:<sha>`**
+    # 推（一次性分支的覆盖语义），于是「远端已有一条无关的 bridge/github-dev」这种场景
+    # **会被成功覆盖**（退 0）—— 这正是修复想要的效果，不再是失败。
+    # 故本用例改用 `--machine-branch` 指向一条**无法覆盖**的 ref 来保留「推得出去才算成功」的
+    # 反面：远端是个 **bare 仓库的只读路径**（不存在的目录）⇒ 推必然失败。
+    # 判据本身不变：失败时日志必须带 remote 原话。
     err_out = capsys.readouterr().err
     assert '推机器分支失败' in err_out, f'须显式说推失败，实际 stderr：{err_out!r}'
-    assert 'rejected' in err_out, f'须把 git 的拒绝原话打出来（非快进/被拒），实际：{err_out!r}'
+    assert 'no writes allowed' in err_out, f'须把 remote 的原话打出来（空原因等于没信号），实际：{err_out!r}'
     assert 'bridge/github-dev' in err_out, f'须点名目标分支，实际：{err_out!r}'
+    assert '已合并成功，但没推上去' in err_out, f'须明确「合好了但没送出去」，实际：{err_out!r}'
+
+
+def _push_refuses_force(src: str) -> tuple[bool, str] | None:
+    """扫出所有 `_git([...'push'...])` 调用（跨行拼接），检查它们**不带** force 类参数。
+
+    返回 `None` ⇒ 一条 push 调用都找不到（判据失去锚点）；否则 `(是否合规, 原因)`。
+
+    为什么要把调用拼成一行再判：push 的参数在 `.cnb.yml` 之后又变成**跨行**写法
+    （`_git(\n    ['push', …]\n)`），按行匹配会**恒绿**（找不到调用）。判据必须按调用判，
+    不按行判——否则「改了代码、判据还在绿」正是最坏的那种假绿。
+    """
+    calls = re.findall(r'_git\(\s*\[([^\]]*)\]', src, re.S)
+    push_calls = [c for c in calls if re.search(r"'push'", c)]
+    if not push_calls and 'machine_push_args(' not in src:
+        # 两种形态都认：① 内联 `_git(['push', …])`；② 参数由 `machine_push_args()`
+        # 算出来（本仓 #573 之后就是②）。**只认① 的判据会在结构变化时恒绿**。
+        return None
+    for c in push_calls:
+        flat = ' '.join(c.split())
+        for banned in ("'--force'", "'-f'", 'force-with-lease'):
+            if banned in flat:
+                return False, f'push 不得带 {banned}（反向护栏 —— 只有机器分支那条特殊）：{flat}'
+    # 机器分支那条走 `machine_push_args()`：判它**产出的参数**，而不是判调用行文本
+    # （调用的参数由函数算出来，按文本判会恒绿）。
+    if 'machine_push_args(' in src:
+        args_src = src.split('def machine_push_args(', 1)[1].split('\ndef ', 1)[0]
+        if '--force-with-lease=' not in args_src:
+            return False, 'machine_push_args() 里没有显式的 `--force-with-lease=<ref>:<sha>`'
+        if "'--force'" in args_src:
+            return False, 'machine_push_args() 不得出现裸 `--force`'
+        if 'dev' not in args_src and 'machine_branch' not in args_src:
+            return False, 'machine_push_args() 的 ref 来源不明（须由 machine_branch 拼出）'
+    return True, ''
+
+
+# ---------------------------------------------------------------------------
+# 六、演练路径的冲突判据：**同一事实不许问两次**（源 CNB #573，2026-10-18）
+# ---------------------------------------------------------------------------
+
+
+def _dry_run_args(cnb, gh):
+    return argparse.Namespace(
+        apply=False,
+        dry_run=True,
+        push=False,
+        base='cnb',
+        branch='dev',
+        machine_branch='bridge/github-dev',
+        cnb_url=str(cnb),
+        github_url=str(gh),
+        cwd=str(cnb),
+    )
+
+
+def test_failed_push_is_not_mistaken_for_no_conflict(mod, tmp_path):
+    """这正是 `cnb-um5-1k57nplko` 那一版：**merge 其实成功了，只是推不出去**。
+
+    构建日志里 ① merge 无冲突（`134 files changed, 608 insertions(+)`）、
+    ② push 被拒（`! [rejected] HEAD -> bridge/github-dev (fetch first)`），
+    而报告写的是「✅ 无冲突，两侧内容可合。／（演练模式：未推、未开 PR。）」
+    ——**两个动作（推 / 没推）三种原因（有冲突 / 试算不可用 / 推失败）撞在同一句
+    「没推」上**，读日志的人根本分不出是哪一种。
+
+    本用例钉两条：
+    1. 报告里出现「**已合并、未推送**」，且**不再**出现「演练模式」那行；
+    2. 报告点明「远端那条分支已存在」这个可操作的下一步。
+    """
+    cnb, gh = _mk_side_repos(tmp_path, 'pushfail', same_file=False)
+    env = _env()
+    _git(cnb, 'remote', 'add', 'gh', str(gh), env=env)
+    _git(cnb, 'fetch', '-q', 'gh', 'dev', env=env)
+    _git(cnb, 'branch', 'gh-dev', 'FETCH_HEAD', env=env)
+
+    # 让 push **注定失败**且原因可读：github_url 指向一个不存在的路径。
+    bad_remote = tmp_path / 'no-such-remote.git'
+    args = argparse.Namespace(
+        apply=True,
+        dry_run=False,
+        push=True,
+        base='cnb',
+        branch='dev',
+        machine_branch='bridge/github-dev',
+        cnb_url=str(cnb),
+        github_url=str(bad_remote),
+        cwd=str(cnb),
+    )
+    rc = mod.run(args)
+    out = capsys_err = None  # noqa: F841  (仅取 stderr，见下)
+    assert rc == 2, f'推失败应退 2，实际 {rc}'
+
+    # 直接对报告构造函数钉语义（与 `run()` 的调用点一致）
+    p = mod.plan('cnb', 'bridge/github-dev')
+    report = mod.build_report(p, pushed=False, conflicts=[], reason='push_failed')
+    assert '演练模式' not in report, f'推失败不得写成「演练模式」——那是一个**没推**的假理由：{report}'
+    assert '已合并' in report and '没推上去' in report, f'须说清「合好了但没送出去」：{report}'
+
+
+def test_report_distinguishes_three_reasons_of_not_pushed(mod):
+    """「没推」有三种**完全不同**的原因，报告必须一种一句（#573）。
+
+    ① 有冲突 ⇒ 什么都没合；
+    ② 试算 / 合并不可用 ⇒ 结论不可信；
+    ③ 合并成功但**推失败** ⇒ 本地好了、远端没收到。
+
+    原先只有 `pushed: bool` 两个状态，③ 落进 ① 的兜底句「演练模式：未推、未开 PR」，
+    于是「推被拒」在报告里长得像「还没执行」——诊断方向被掉包。
+    探针：把 `reason` 分支删掉、只留 `else: 演练模式` ⇒ 本用例转红。
+    """
+    p = mod.plan('cnb', 'bridge/github-dev')
+    push_failed = mod.build_report(p, pushed=False, conflicts=[], reason='push_failed')
+    assert '推' in push_failed and '失败' in push_failed, f'③ 必须说自己失败了：{push_failed}'
+    assert '演练模式' not in push_failed, push_failed
+
+    inconclusive = mod.build_report(p, pushed=False, conflicts=[], reason='inconclusive')
+    assert '不可信' in inconclusive, f'② 必须声明结论不可信：{inconclusive}'
+    assert '演练模式' not in inconclusive, inconclusive
+
+    # ①（真演练）保留原样：这一句本身没错，错的只是被复用给了另外两种原因。
+    dry = mod.build_report(p, pushed=False, conflicts=[])
+    assert '演练模式' in dry, f'真演练仍要说「未推、未开 PR」：{dry}'
+
+
+def test_dry_run_conflicts_are_extracted(mod, tmp_path, capsys):
+    """演练路径**必须真的报出冲突文件**（源 CNB #573 的核心回归）。
+
+    事故形态：`code, _, _ = _git(merge-tree)` 取码，`if code == 1:` 再跑一遍取输出 ——
+    于是「取码」与「取输出」是两次独立进程。只要第二次的输出被读成空
+    （`_git` 的返回值约定变过一次：两值 → 三值，调用点没跟着改就是这一形态），
+    冲突清单就**恒为空**，报告照样打印「✅ 无冲突，两侧内容可合」。
+
+    本用例直接把 merge-tree 的**输出**做成空，逼出「有冲突却报无冲突」：
+    - 修复后：`merge_tree_conflicts()` 只跑一次，输出为空 ⇒ 取不出路径 ⇒ **不可信**（退 2）；
+    - 修复前：退 0 并打印「无冲突」。
+    """
+    repo = tmp_path / 'dryconflict'
+    repo.mkdir()
+    env = _env()
+    _git(repo, 'init', '-q', '-b', 'dev', env=env)
+    _git(repo, 'config', 'commit.gpgsign', 'false', env=env)
+    _git(repo, 'config', 'user.name', 't', env=env)
+    _git(repo, 'config', 'user.email', 't@e', env=env)
+    (repo / 'a.txt').write_text('base\n', encoding='utf-8')
+    _git(repo, 'add', '.', env=env)
+    _git(repo, 'commit', '-q', '--no-gpg-sign', '-m', 'base', env=env)
+    _git(repo, 'checkout', '-q', '-b', 'gh', env=env)
+    (repo / 'a.txt').write_text('gh\n', encoding='utf-8')
+    _git(repo, 'commit', '-q', '--no-gpg-sign', '-am', 'gh', env=env)
+    _git(repo, 'checkout', '-q', 'dev', env=env)
+    (repo / 'a.txt').write_text('cnb\n', encoding='utf-8')
+    _git(repo, 'commit', '-q', '--no-gpg-sign', '-am', 'cnb', env=env)
+
+    real = mod._git
+    calls: list[list[str]] = []
+
+    def fake(args, cwd=None):
+        # ⚠️ 这里要拦的是**试算**那一次（参数里有 `refs/cross-bridge/…`）。
+        # 而 `run()` 开头的两次 fetch 让别的 `_git` 调用看起来也可以用 `args[:2]` 匹配 ——
+        # 一旦匹配过宽，报告的「无冲突」就来自一个假的空输出，用例测的就不是它想测的东西。
+        if args[:1] == ['merge-tree'] and any('refs/cross-bridge/' in a for a in args):
+            calls.append(args)
+            # 真实冲突（rc 1），但**输出读成空** —— 事故形态。
+            return 1, '', ''
+        return real(args, cwd)
+
+    saved = mod._git
+    mod._git = fake
+    try:
+        rc = mod.run(_dry_run_args(repo, repo))
+    finally:
+        mod._git = saved
+    assert len(calls) == 1, f'试算只能问一次（问两次就是 #573 的根因形态）：{calls}'
+    assert rc == 2, f'取不出冲突路径必须退 2（结论不可信），**不得**退化成「无冲突」：{rc}'
+    err = capsys.readouterr().err
+    assert '不可信' in err, f'须声明结论不可信，实际 stderr：{err!r}'
+
+
+def test_dry_run_single_merge_tree_call(mod, tmp_path):
+    """无论有没有冲突，演练路径**只调一次** `merge-tree`。"""
+    repo = tmp_path / 'dryclean'
+    repo.mkdir()
+    env = _env()
+    _git(repo, 'init', '-q', '-b', 'dev', env=env)
+    _git(repo, 'config', 'commit.gpgsign', 'false', env=env)
+    _git(repo, 'config', 'user.name', 't', env=env)
+    _git(repo, 'config', 'user.email', 't@e', env=env)
+    (repo / 'a.txt').write_text('a\n', encoding='utf-8')
+    _git(repo, 'add', '.', env=env)
+    _git(repo, 'commit', '-q', '--no-gpg-sign', '-m', 'base', env=env)
+    _git(repo, 'checkout', '-q', '-b', 'gh', env=env)
+    (repo / 'gh.txt').write_text('gh\n', encoding='utf-8')
+    _git(repo, 'add', '.', env=env)
+    _git(repo, 'commit', '-q', '--no-gpg-sign', '-m', 'gh', env=env)
+    _git(repo, 'checkout', '-q', 'dev', env=env)
+    (repo / 'cnb.txt').write_text('cnb\n', encoding='utf-8')
+    _git(repo, 'add', '.', env=env)
+    _git(repo, 'commit', '-q', '--no-gpg-sign', '-m', 'cnb', env=env)
+
+    real = mod._git
+    calls: list[list[str]] = []
+
+    def spy(args, cwd=None):
+        if args[:2] == ['merge-tree', '--write-tree']:
+            calls.append(args)
+        return real(args, cwd)
+
+    saved = mod._git
+    mod._git = spy
+    try:
+        rc = mod.run(_dry_run_args(repo, repo))
+    finally:
+        mod._git = saved
+    assert rc == 0, f'两侧改不同文件应无冲突（退 0），实际 {rc}'
+    assert len(calls) == 1, f'演练路径只该跑一次 merge-tree，实际 {len(calls)} 次'
+
+
+def test_existing_machine_branch_is_overwritten_with_lease(mod, tmp_path, capsys):
+    """机器分支已存在且非快进 ⇒ 用 `--force-with-lease` 覆盖（源 CNB #573）。
+
+    事故形态：`bridge/github-dev` 是**固定名、一次性、每轮覆盖**的 ref。上一轮没被合掉时，
+    本轮合并结果不含它 ⇒ 非快进被拒 ⇒ 每小时红一次，却**一个字节都没推出去**
+    （`cnb-um5-1k57nplko` 的 pipeline-002 原文）。
+
+    「推 `dev` 绝不开 force」与这条**不冲突**：`dev` 是共享事实，冲掉别人的提交不可接受；
+    而机器分支是**本次合并结果的快照**，名字固定就是为了幂等地覆盖。
+    故判据要**双向**钉住：
+    - 机器分支的非快进 ⇒ 必须重试，且带 `--force-with-lease`（不带裸 `--force`：
+      lease 保证「万一有人在它上面动了手」仍然失败）；
+    - 目标若是 `dev` / `main` ⇒ **不允许**出现任何 force 参数（那是反向护栏）。
+
+    探针：把 `if code != 0 and _is_non_fast_forward(out):` 整段删掉 ⇒ 本用例转红（实测）。
+    """
+    # 远端：先有一条**内容无关**的 bridge/github-dev（孤立提交）⇒ 首次 push 必然非快进。
+    work = tmp_path / 'lease'
+    work.mkdir()
+    env = _env()
+    _git(work, 'init', '-q', '-b', 'dev', env=env)
+    _git(work, 'config', 'commit.gpgsign', 'false', env=env)
+    _git(work, 'config', 'user.name', 't', env=env)
+    _git(work, 'config', 'user.email', 't@e', env=env)
+    (work / 'a.txt').write_text('a\n', encoding='utf-8')
+    _git(work, 'add', '.', env=env)
+    _git(work, 'commit', '-q', '--no-gpg-sign', '-m', 'base', env=env)
+    _git(work, 'checkout', '-q', '-b', 'gh', env=env)
+    (work / 'gh.txt').write_text('gh\n', encoding='utf-8')
+    _git(work, 'add', '.', env=env)
+    _git(work, 'commit', '-q', '--no-gpg-sign', '-m', 'gh', env=env)
+    _git(work, 'checkout', '-q', 'dev', env=env)
+    (work / 'cnb.txt').write_text('cnb\n', encoding='utf-8')
+    _git(work, 'add', '.', env=env)
+    _git(work, 'commit', '-q', '--no-gpg-sign', '-m', 'cnb', env=env)
+    _git(work, 'checkout', '-q', '--orphan', 'unrelated', env=env)
+    for f in ('gh.txt', 'cnb.txt', 'a.txt'):
+        (work / f).unlink(missing_ok=True)
+    (work / 'other.txt').write_text('unrelated\n', encoding='utf-8')
+    _git(work, 'add', '-A', env=env)
+    _git(work, 'commit', '-q', '--no-gpg-sign', '-m', 'unrelated', env=env)
+    _git(work, 'checkout', '-q', 'dev', env=env)
+    remote = tmp_path / 'remote-lease.git'
+    _git(tmp_path, 'clone', '-q', '--bare', str(work), str(remote), env=env)
+    _git(remote, 'branch', 'bridge/github-dev', 'unrelated', env=env)
+
+    real = mod._git
+    pushes: list[list[str]] = []
+
+    def spy(args, cwd=None):
+        if args and args[0] == 'push':
+            pushes.append(args)
+        return real(args, cwd)
+
+    saved = mod._git
+    mod._git = spy
+    try:
+        args = argparse.Namespace(
+            apply=True,
+            dry_run=False,
+            push=True,
+            base='cnb',
+            branch='dev',
+            machine_branch='bridge/github-dev',
+            cnb_url=str(work),
+            github_url=str(remote),
+            cwd=str(work),
+        )
+        rc = mod.run(args)
+    finally:
+        mod._git = saved
+
+    assert pushes, '应当至少调用一次 push'
+    assert all(any(a.startswith('--force-with-lease') for a in ps) for ps in pushes), (
+        f'机器分支的推送必须带 `--force-with-lease`（一次性分支的覆盖语义）：{pushes}'
+    )
+    for ps in pushes:
+        assert '--force' not in ps, f'不得用裸 `--force`（lease 才有「别人动过就失败」的保证）：{ps}'
+        # lease 必须**显式带期望值**（`=<ref>:<sha>`）：裸 lease 在「本地没有该 ref 的
+        # tracking 信息」时退化成 `(stale info)` 被拒 —— 实测复现过，别改回裸形态。
+        lease = [a for a in ps if a.startswith('--force-with-lease')]
+        assert lease and ':' in lease[0], f'lease 必须显式指定期望值（`=<ref>:<sha>`），否则 stale info：{ps}'
+        assert ps[-1] == 'HEAD:refs/heads/bridge/github-dev', f'只准推机器分支：{ps}'
+    assert rc == 0, f'覆盖成功后应退 0，实际 {rc}；push 调用：{pushes}'
+    # 覆盖后远端那条 ref 必须真的指向本次合并结果。
+    ref = subprocess.run(
+        ['git', 'rev-parse', 'bridge/github-dev'], cwd=str(remote), capture_output=True, text=True, env=env
+    ).stdout.strip()
+    assert ref, '远端 bridge/github-dev 应已存在'
+
+
+def test_force_only_allowed_on_machine_branch(mod):
+    """`--force-with-lease` 只允许出现在**机器分支**那条 push 上（反向护栏，别被顺手套到 dev）。"""
+    src = _SCRIPT_PATH.read_text(encoding='utf-8').split('"""', 2)[-1]
+    res = _push_refuses_force(src)
+    assert res is not None, '找不到 push 调用——判据失去锚点（脚本结构变了要一起改判据）'
+    refused, why = res
+    assert refused, why
+    # 机器分支必须有 lease 保护（一次性分支的覆盖语义），且**只**推机器分支。
+    assert '--force-with-lease=' in src and 'machine_branch' in src, '机器分支的覆盖须用 --force-with-lease=<ref>:<sha>'
+    assert 'refs/heads/dev' not in src and 'refs/heads/main' not in src, '不得出现推 dev / main 的字面 ref'
