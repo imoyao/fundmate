@@ -209,7 +209,7 @@ watch(() => props.symbol, load, { immediate: true });
 <style scoped>
 .index-section__hint {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -221,7 +221,7 @@ watch(() => props.symbol, load, { immediate: true });
 
 .index-section__desc {
   margin: var(--space-3) 0 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-secondary);
 }

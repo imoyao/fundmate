@@ -163,7 +163,7 @@ const rowClassName = ({ row }: { row: any }) => (row?.stale ? "is-stale" : "");
 
 .empty-state {
   padding: 40px 0;
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--text-tertiary-ink);
   text-align: center;
 }

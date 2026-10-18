@@ -214,7 +214,7 @@ const allTimeCaption = computed(() => {
 }
 
 .overview__hero-label {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -238,7 +238,7 @@ const allTimeCaption = computed(() => {
 }
 
 .overview__col-label {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -247,7 +247,7 @@ const allTimeCaption = computed(() => {
 }
 
 .overview__empty {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary);
 }
 </style>

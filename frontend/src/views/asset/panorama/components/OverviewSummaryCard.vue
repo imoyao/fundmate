@@ -399,7 +399,7 @@ onMounted(() => {
 
 .summary-card__label {
   margin: 0 0 6px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -422,7 +422,7 @@ onMounted(() => {
 }
 
 .summary-card__delta-none {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -455,7 +455,7 @@ onMounted(() => {
 
 .summary-card__metric-label {
   margin: 0 0 4px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

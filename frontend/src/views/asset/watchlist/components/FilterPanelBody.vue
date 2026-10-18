@@ -217,7 +217,7 @@ function chipStyle(tag: WatchlistTag) {
   justify-content: space-between;
   width: 100%;
   padding: 10px 12px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   text-align: left;
   cursor: pointer;
@@ -302,7 +302,7 @@ function chipStyle(tag: WatchlistTag) {
   align-items: center;
   height: 28px;
   padding: 0 12px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   cursor: pointer;
   background-color: var(--bg-card);

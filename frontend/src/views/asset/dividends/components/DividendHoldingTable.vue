@@ -151,7 +151,7 @@ const summaryText = computed(
 .holding-table__pct,
 .holding-table__date {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }

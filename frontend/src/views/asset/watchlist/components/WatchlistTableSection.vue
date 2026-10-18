@@ -274,7 +274,7 @@ onMounted(() => {
 
 .watchlist-empty__title {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--text-secondary);
 }
 
@@ -293,7 +293,7 @@ onMounted(() => {
   gap: var(--space-2);
   align-items: center;
   padding: 8px 16px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   cursor: pointer;
   background-color: transparent;

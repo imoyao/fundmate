@@ -357,7 +357,7 @@ function close(): void {
 }
 
 .gi-col__title {
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -419,7 +419,7 @@ function close(): void {
 .gi-name {
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-primary);
   white-space: nowrap;
 }
@@ -458,7 +458,7 @@ function close(): void {
 .gi-empty {
   padding: var(--space-3) 0;
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   text-align: center;
 }

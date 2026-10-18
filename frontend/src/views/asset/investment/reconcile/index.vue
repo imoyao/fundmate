@@ -474,7 +474,7 @@ onMounted(fetchData);
 }
 
 .data-date-capsule__icon {
-  font-size: 13px;
+  font-size: var(--text-label);
 }
 
 /* ===== 指标卡区 ===== */

@@ -60,7 +60,7 @@ defineEmits<{
 }
 
 .road-batch__count {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 

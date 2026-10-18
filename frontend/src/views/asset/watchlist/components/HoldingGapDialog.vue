@@ -82,7 +82,7 @@ const emit = defineEmits<{
 <style scoped>
 .gap-dialog__hint {
   margin: 0 0 12px;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-secondary);
 }
@@ -92,7 +92,7 @@ const emit = defineEmits<{
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-primary);
   white-space: nowrap;
 }

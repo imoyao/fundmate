@@ -65,7 +65,7 @@ const {
 }
 
 .mode-label {
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--text-secondary);
 }
 
@@ -83,7 +83,7 @@ const {
   gap: 4px;
   align-items: center;
   padding: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   cursor: pointer;
   background: transparent;
@@ -101,7 +101,7 @@ const {
 }
 
 .download-icon {
-  font-size: 16px;
+  font-size: var(--text-body);
 }
 
 .mode-option {

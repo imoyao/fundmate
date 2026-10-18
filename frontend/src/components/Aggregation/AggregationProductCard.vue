@@ -330,7 +330,7 @@ function handleClick() {
 .return-badge {
   flex-shrink: 0;
   padding: 2px 10px;
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1.6;

@@ -131,7 +131,7 @@ function save() {
 /* hint 段：两行说明（外露语义 + 常驻语义）纵向排列，行距交给段落默认 margin */
 .qf-hint {
   margin-bottom: 8px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 

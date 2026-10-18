@@ -42,7 +42,7 @@
 
 .facts-grid__value {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-mono-small);
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }

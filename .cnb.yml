@@ -324,59 +324,35 @@ main:
 # 精确推**当前**分支，不像 `--all` 那样把 `main` 一起带上。
 dev:
   push:
-    - name: 同步到 GitHub（仅 dev + 标签）
-      # ⚠️ 必须是带 name 的 job（列表 + `- name:`），不要退回裸 `stages:`：
-      # 裸 stages 的 job 在构建详情页查不到 stage，绿了也不知道推没推上去（假绿，CNB #172）。
-      stages:
-        - name: 同步到 GitHub（仅 dev + 标签）
-          image: tencentcom/git-sync
-          # 凭据走**插件任务级** imports（见上方说明：必须与 image 平级，且要用 imports 才能
-          # 让 settings 里的 ${VAR} 解析；不要改回流水线级 imports，也不要改成 settingsFrom）
-          imports:
-            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
-          settings:
-            target_url: https://github.com/imoyao/fundmate.git
-            auth_type: https
-            username: ${GIT_USERNAME}
-            password: ${GITHUB_PAT}
-            # 只推 dev；main 不在其列（GitHub 权威源自己推进）
-            branch: dev
-            push_tags: true
-  # 每小时兜底：**只推 `dev`**，不再 `--all`（CNB #167 / #172）。
-  # cron 事件下没有「被推的功能分支」上下文（`CNB_BRANCH` 恒为该段所挂分支），
-  # 故功能分支不由 cron 兜底 —— 那条路由 `push:` 事件下的 `branch: ${CNB_BRANCH}` 覆盖。
-  #
-  # ⚠️ 这一块**必须留在 `dev:` 分支键下**（源 CNB #578，2026-10-18）。它此前挂在 `main:`
-  # 段里、却推 `dev`，于是每小时红一次、一次一个字节都没推出去（明细见 `main:` 段末尾那条注释）。
-  #
-  # ⚠️ 挂载位置对了 ≠ 就推得上去：两侧 `dev` 若互相分叉，push 仍然是非快进
-  # （2026-10-18 实测：CNB 独有 19 笔 / GitHub 独有 7 笔，但**可无冲突合并**）。
-  # 那条缺口**不在本文件里补**——CNB 侧刻意不开 force（反向护栏），由 GitHub
-  # `.github/workflows/dev-reconcile.yml` 合完、经下一次同步带过来。
-  # 判断「有没有分叉」跑 `python scripts/bridge/check_cross_repo_dev_divergence.py --report`，
-  # **不要**拿本 job 的颜色下结论：它的红只说明「这一轮没推上去」，绿也不说明「两侧已对齐」。
-  "crontab: 30 * * * *":
-    - name: 同步到 GitHub（每小时兜底，仅 dev）
-      # ⚠️ 同上：必须是带 name 的 job，避免 stage 查不到造成假绿。
-      stages:
-        - name: 同步到 GitHub（每小时兜底，仅 dev）
-          image: tencentcom/git-sync
-          # 凭据走**插件任务级** imports（见上方说明：必须与 image 平级，且要用 imports 才能
-          # 让 settings 里的 ${VAR} 解析；不要改回流水线级 imports，也不要改成 settingsFrom）
-          imports:
-            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
-          settings:
-            target_url: https://github.com/imoyao/fundmate.git
-            auth_type: https
-            username: ${GIT_USERNAME}
-            password: ${GITHUB_PAT}
-            # 只推 dev；main 不在其列
-            branch: dev
-            push_tags: true
-
+    # ⛔ 「同步到 GitHub（仅 dev + 标签）」这条 **git-sync 直推 job 已删除**
+    #    （源 CNB #577，2026-10-19；构建 `cnb-nrk-1k57pnn3h` 的 `pipeline-001` 就是它红的）。  # cross-repo-ref-allow
+    #
+    # 删除理由与下方「每小时兜底」那条 cron 相同（那里有完整推导）：**它是一个必红的作业**。
+    #
+    #   - 直推裸 ref + fast-forward only ⇒ GitHub 侧多一笔就永久被拒
+    #     （`! [rejected] dev -> dev (fetch first)`）；
+    #   - 它**没有任何拉取动作** ⇒ 被拒之后不会自愈，下一次 push 仍撞同一面墙；
+    #   - 于是每次推 `dev` 都多出一条永远红、且**修不了**的 pipeline，
+    #     而「代码到底搬过去没有」这个问题被埋在噪音里（2026-10-19 实测就是如此）。
+    #
+    # 「git-sync 推 `dev`」这条路本身与同步语义冲突：同步要的是「两侧内容都能过去」，
+    # 而 fast-forward 直推只能实现「我比你新」。要保留 git-sync，就只剩
+    # 「开 force」（会冲掉 GitHub 的提交，反向上是护栏，`guard_git_sync_push_scope.py`
+    # 判据 5 明令禁止）或「先 merge 再推」（git-sync 插件不提供，需自己写）两条，
+    # 前者不可接受、后者就是下面那条 job。
+    #
+    # 标签没有丢：`push_tags: true` 只影响 git-sync 推 ref 时**顺带**推标签，
+    # 而不推 ref 也就无所谓顺带。删掉它之后标签同步改由
+    # 「人工 / 发版时手动推」（`git push --tags`）承担——本仓目前**没有**自动推标签的作业，
+    # 这是这次取舍里明确放弃的那一半（想恢复就单开一条只推标签的 git-sync：标签不可变，
+    # 非快进不可能发生，那条 cron 是安全的）。
+    #
+    # ⚠️ 别把「git-sync 插件」整个判死：功能分支（`"**/!(main|dev)"` 段）仍在用它——
+    #    那里推的是 `CNB_BRANCH`（只由本侧前进，对方不会推同名 ref），非快进不可能发生。
     # ---- 机器分支通道（源 CNB #450，2026-10-14）：上面那条 git-sync 直推会撞两道闸 ----
     #
-    # 上面那条是 **fast-forward only** 且**直推裸 ref**，于是撞两件都不是「配置写错」的事：
+    # 上面那条是 **fast-forward only** 且**直推裸 ref**（已于 2026-10-19 按 #577 删除），
+    # 它会撞两件都不是「配置写错」的事：
     #   ① 非快进：`! [rejected] dev -> dev (fetch first)` —— GitHub 多一笔就永久被拒；
     #   ② 分支保护：`GH006 … Required status check "质量门禁汇总" is expected` ——
     #      而这条检查**只在 PR 上产生**（`ci.yml` 的 `gate`：`on: pull_request` +
@@ -415,13 +391,13 @@ dev:
     # 是**解释器不存在**。本仓所有跑 `python scripts/...` 的脚本任务都必须自带
     # `docker.image`（`.mirror-job` / `&claim-job` 都有，本 job 漏了）。
     # 判据已机械化：`scripts/guard_cnb_script_task_python.py`（并入 ci.yml 的 scripts_test）。
-    - name: 跨仓同步（机器分支 + PR 通道，仅 dev）
+    - name: 跨仓同步（dev：合并两侧后快进搬运 + 只读探针）
       docker:
         # 脚本任务的 image 只是**运行环境**（跑 script 的容器），不是插件镜像；
         # 与被引密钥文件是否声明 allow_images 无关（判据见 guard_secret_imports.py）。
         image: python:3.12-slim
       stages:
-        - name: 合并两侧 dev 并推成机器分支
+        - name: 合并两侧 dev 后快进搬运到 GitHub（merge-sync）
           imports:
             - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/claim-sync-env.yml
           env:
@@ -450,25 +426,25 @@ dev:
               echo "ℹ️ 未注入 GITHUB_PAT —— 按匿名读 GitHub dev（只读探针不需要写权限）"
               GH_URL="https://github.com/${GITHUB_REPO}.git"
             fi
-            python scripts/bridge/machine_branch.py --apply --push --github-url "$GH_URL"
+            # `--merge-sync`（源 CNB #577，2026-10-19）：推的是**两侧合并结果**，不是裸 ref。  <!-- cross-repo-ref-allow -->
+            # 这就是被删掉的那条 git-sync 直推 job 的替代——直推是「我比你新」，
+            # 而 GitHub 侧每笔合入都推进 `dev` ⇒ 非快进必然被拒且**永不自愈**；
+            # 合并结果是「你有的我都有」⇒ 快进必然成立，且**仍然绝不开 force**。
+            python scripts/bridge/machine_branch.py --apply --push --merge-sync --github-url "$GH_URL"
             rc=$?
             if [ $rc -eq 1 ]; then
               echo "⚠️ 两侧 dev 有冲突 —— 本轮**什么都没写**（脚本刻意不自动解冲突）"
               echo "   冲突面多为治理文件（.cnb.yml / AGENTS.md）；口径见 docs/dev/github-cnb-mirror.md §21 / §22"
               echo "   解冲突是人工动作：先跑 \`python scripts/bridge/dev_converge.py --apply\` 看清单"
             elif [ $rc -eq 2 ]; then
-              # ⚠️ 退出码 2 覆盖两种**完全不同**的事，别合并叙述（源 CNB #567，2026-10-18）：
+              # ⚠️ 退出码 2 覆盖三种**完全不同**的事，别合并叙述（源 CNB #567，2026-10-18）：
               # ① 拿不到输入（fetch / ref 缺失）——「结论不可信」；
-              # ② 合并没跑起来（merge 非 0 且未检出冲突）——同样「结论不可信」。
-              # ③「推机器分支失败」这一态**已随源 CNB #574 消失**：本 stage 不再推那条分支
-              #    （唯一写者是 GitHub reconcile），故不再存在「结论对但没送出去」的第三态。
-              echo "⚠️ 退出码 2：拿不到输入（fetch/ref 缺失）或合并没跑起来 —— 本轮结论不可信"
-              echo "   —— 不得读成「无需同步」；请按上方日志里第一行 ❌ 区分"
+              # ② 合并没跑起来（merge 非 0 且未检出冲突）——同样「结论不可信」；
+              # ③ **合并成功但快进推被拒**——结论有效、失败的是搬运（源 CNB #577 起重新可能出现：
+              #    本 stage 现在真的推 `dev` 了）。③ 会自己打印「重跑一次即可」，不吞。
+              echo "⚠️ 退出码 2：拿不到输入 / 合并没跑起来 / 合好了但没推上去 —— 看上方第一行 ❌"
+              echo "   —— 前两种不得读成「无需同步」；第三种重跑一次即可（本轮不 force）"
             fi
-            # 机器分支按「覆盖自己那条一次性 ref」推（`--force-with-lease=<ref>:<sha>`，
-            # 源 CNB #573）：上一轮没被合掉的 `bridge/github-dev` 会让本轮非快进被拒，  <!-- cross-repo-ref-allow -->
-            # 于是每小时红一次却**一个字节都没推出去**。这只针对那条一次性分支，
-            # `dev` / `main` 仍然永不开 force（`scripts/tests/test_machine_branch.py` 双向钉住）。
             exit $rc
   # ---- 触发器结构：`crontab` / `push` 一律写成「job 列表 + 命名 stage」----
   # ⚠️ CNB #167 实测：把 `stages:` **直接**挂在 `"crontab: ..."` 下（没有 `- name:` 包一层的
@@ -520,6 +496,35 @@ dev:
   # （源 CNB #269 的假绿：`Warning: Branch dev does not exist locally, skipping push` 之后仍报 success），
   # 要么拿一条注定推不上去的 ref 去推（本卡的恒红）。两个方向都栽过了。
   # 判据：`scripts/guard_cron_job_reachability.py`（并入 ci.yml 的 scripts_test）。
+
+  # ⛔ 「每小时兜底推 dev（git-sync）」这条 cron **已删除**（源 CNB #577，2026-10-19）。  # cross-repo-ref-allow
+  #    它此前已按 #578 搬到 `dev:` 段（挂载位置先修对了），**随后又按 #577 整条删掉**
+  #    —— 位置对了也没用：直推 `dev` 这种通行方式本身必红。两条教训不互相替代，故都留。
+  #
+  # WHY 删而不是修（实测，不是判断）：
+  #   - git-sync 的推 = **裸 ref 直推、fast-forward only**，**永不开 force**（反向上是护栏，
+  #     `guard_git_sync_push_scope.py` 判据 5 也钉着）；
+  #   - 而 GitHub 侧每一笔合入都推进 `dev` ⇒ 只要运维节奏快于「CNB 已被合并回来」，
+  #     这条 cron 就**必然**报 `! [rejected] dev -> dev (fetch first)`；
+  #   - 它**不会修好自己**：CNB 的 `dev` 在推送被拒后没有任何机制去拉 GitHub 的新提交，
+  #     于是每小时红一次、**一个字节都推不出去**，与 #450 删掉 pull cron 是同一形态
+  #     （那次是 rebase 79 处冲突，这次是 push 非快进）。
+  #
+  # 实测（2026-10-19，构建 `cnb-nrk-1k57pnn3h`）：`pipeline-001` 唯一的失败点就是它
+  #   （`Error: Failed to push branch dev` / exit 1），而同一构建的 `pipeline-002`
+  #   探针报「两侧 dev 可无冲突合并」。**红的那条从来不是「合不了」，是「合完没被搬过去」。**
+  #
+  # 取而代之（不新增 cron）：搬运动作由
+  #   ① `push:` 段里那条「跨仓同步」job 的 **merge-sync 模式**（源 CNB #577，2026-10-19）——  <!-- cross-repo-ref-allow -->
+  #      先把两侧 `dev` 合成一个 **merge commit**（非快进就此消失），快进时直推、非快进时推
+  #      `fix/cnb-dev-merge` 开 PR；`dev` 仍永不开 force，且**合并结果永远包含两侧**；
+  #   ② GitHub 侧 `.github/workflows/dev-reconcile.yml` 反向对账（它的基线是 GitHub）。
+  # 两者都只在 `push:` 上触发、都不开 force：一个红了的构建会当场告诉你「没搬过去」，
+  # 而不是像这条 cron 那样每小时红一次却**没人能修**（没有新提交可推、也没有拉的动作）。
+  #
+  # ⚠️ 回退姿势：要恢复它时**不要**只把这段贴回来——先确认
+  # `python scripts/bridge/check_cross_repo_dev_divergence.py --report` 报「无分叉」，
+  # 否则它一上线就撞回同一批非快进。
 
   # PR 打向 dev 时读的是 dev 分支上的这份配置（与 `main:` 段各一份守卫）。
   # ⚠️ 事件必须挂在**分支之下**（#152）：写在顶层会被读成一个不存在分支，守卫空转还不报错。

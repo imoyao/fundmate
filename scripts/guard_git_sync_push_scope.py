@@ -15,8 +15,16 @@ CNB `main` 只由 CNB 自己的发版 PR 推进，不是 GitHub `main` 的镜像
   ⇒ **把 GitHub 的 `main` force 覆盖到 CNB 的 `main`**（不看是否 fast-forward）。
   「pull 只拉不推、不会分叉」是**直觉错误**：它会 force 写回本地 origin。
 
-判据（四条，静态、不拉网络）
-----------------------------
+判据（五条，静态、不拉网络）
+--------------------------
+0. **git-sync 不得推「对方也会推进的分支」**（源 CNB #577，2026-10-19）。`dev` 是
+   **双向**同步的分支，而 git-sync 推裸 ref 且 **fast-forward only** ⇒ GitHub 侧多一笔
+   就永久被拒，且它**没有任何拉取动作**（被拒后不会自愈）。实测 `cnb-nrk-1k57pnn3h`：
+   推 `dev` 的 job 每次必红，而同一构建里「两侧可无冲突合并」的结论是绿的 —— 红的是
+   搬运方式，不是内容。`dev` 的搬运必须走「先 merge 再推」（`machine_branch.py --merge-sync`）。
+   本判据**冻结一份存量白名单**：今天仍存在的违规只报「应删除」，新增导入即报红，
+   清单清空后随时可改成硬性禁止。
+
 1. **两个方向的插件任务都必须显式写 `branch`**。不写 = `--all`（push）或「全分支
    force 写回 origin」（pull），两者都会碰 `main`，一律报错。
 2. **`branch` 的值不得是 `main` / `*` / `--all`**（等价于推/覆盖 main 的几种写法）。
@@ -75,13 +83,41 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cnb_yml_loader import describe_yaml_error, load_cnb_yml  # noqa: E402
 
 # git-sync 插件任务的识别：用了这个镜像，或调用同名插件。
-GIT_SYNC_IMAGE = 'tencentcom/git-sync'
+GIT_SYNC_IMAGE = "tencentcom/git-sync"
 
 # 能表达「推 main」的几种写法。`branch` 命中即报错。
-FORBIDDEN_BRANCHES = {'main', '*', '--all', 'refs/heads/main'}
+FORBIDDEN_BRANCHES = {"main", "*", "--all", "refs/heads/main"}
+
+# 判据 0（源 CNB #577，2026-10-19）：git-sync **不得推「对方也会推进的分支」**。  <!-- cross-repo-ref-allow -->
+#
+# ⚠️ 这条判据**不写 `_xxx(data)` 形式的名字、也不进 `problems` 之外的分支**：
+#    它必须真的被 `main()` 调用 —— 「写了判据却没接进去」是比没写更贵的形态
+#    （前者看起来已治理）。`self_check()` 里有一条用例直接喂「直推 dev」的配置，
+#    吃的是 `main()` 里那一次调用；探针实测（2026-10-19）：把 `main()` 里那行删掉，
+#    这条用例**不会**转红（它走的是函数本身）——故另由 `test_git_sync_push_scope`
+#    的静态用例钉住「判据 0 在 main 里被调用」。
+#
+# git-sync 的推 = 裸 ref + **fast-forward only + 永不开 force**。而 `dev` 是**双向**同步的
+# 分支（GitHub 侧每笔 PR 合入都会推进它）⇒ 只要 GitHub 那边快一点，直推就必然被拒：
+#     ! [rejected]  dev -> dev (fetch first)
+# 关键是它**不会自愈**：被拒之后没有任何拉取动作，下一次 push 仍撞同一面墙，
+# 于是「每次推 dev 都多一条永远红、且修不了的 pipeline」。
+#
+# 实测（2026-10-19，构建 `cnb-nrk-1k57pnn3h`）：`pipeline-001` 唯一的失败点就是它
+# （`Error: Failed to push branch dev`），而同一构建的 `pipeline-002` 报「两侧可无冲突合并」。
+# **红的是搬运方式，不是内容。** 搬运 `dev` 必须「先 merge 再推」（`machine_branch.py --merge-sync`）。
+#
+# 存量白名单：今天仍存在的违规只报「应删除」，**新增导入即报红**。清单空了以后
+# 本判据就可以去掉白名单、变成硬性禁止。
+BIDIRECTIONAL_BRANCHES = {"dev"}
+
+# 存量白名单：`(挂载分支键, 目标分支)`。**只减不增**，清空后本判据即硬性禁止。
+# 2026-10-19（源 CNB #577 同 PR）：两处（`dev` 段的 push 与 `crontab: 30 兜底`）
+# 已删除，故这里**现在是空的** —— 保留容器是为了让下一个人知道「曾经有过豁免怎么写的」。
+LEGACY_ALLOW: tuple[tuple[str, str], ...] = ()
 
 # glob 段里显式排除 main 的形态（`**/!(main|dev)` 等）。顶层键命中即认为「已排除 main」。
-EXCLUDE_HINT = '!(main'
+EXCLUDE_HINT = "!(main"
 
 
 def _load(path: Path) -> dict:
@@ -94,37 +130,37 @@ def _load(path: Path) -> dict:
 def _walk_stage_items(data: dict):
     """产出 (顶层分支键, 事件名, 插件任务对象)。与 guard_secret_imports.py 同形。"""
     for branch, events in (data or {}).items():
-        if not isinstance(events, dict) or branch in ('.mirror-job',):
+        if not isinstance(events, dict) or branch in (".mirror-job",):
             continue
         for event, jobs in events.items():
             for job in jobs or []:
                 if not isinstance(job, dict):
                     continue
-                for stage in job.get('stages') or []:
+                for stage in job.get("stages") or []:
                     if isinstance(stage, dict):
                         yield branch, event, stage
 
 
 def _is_git_sync(stage: dict) -> bool:
-    return GIT_SYNC_IMAGE in str(stage.get('image') or '')
+    return GIT_SYNC_IMAGE in str(stage.get("image") or "")
 
 
 def _is_pull(stage: dict) -> bool:
-    return str((stage.get('settings') or {}).get('sync_mode') or '').lower() == 'pull'
+    return str((stage.get("settings") or {}).get("sync_mode") or "").lower() == "pull"
 
 
 # 两个方向的「不写 branch 会怎样」——报错文案要各自说清，别让读者猜。
 _NO_BRANCH_REASON = {
-    'push': (
-        '插件在不指定时执行 `git push target --all`，会把 `main` 一并推给 GitHub，'
-        '而 `main` 的权威源是 GitHub（只由发版 PR 推进）⇒ 两侧 `main` 分叉（#172）。'
-        '请显式写明要推的分支（本仓为 `dev` / `${CNB_BRANCH}`）。'
+    "push": (
+        "插件在不指定时执行 `git push target --all`，会把 `main` 一并推给 GitHub，"
+        "而 `main` 的权威源是 GitHub（只由发版 PR 推进）⇒ 两侧 `main` 分叉（#172）。"
+        "请显式写明要推的分支（本仓为 `dev` / `${CNB_BRANCH}`）。"
     ),
-    'pull': (
-        '插件在不指定时取 target 的**全部**分支，逐个 `git pull --rebase` 后执行 '
-        '`git push origin <b> --force` —— 会**把 GitHub 的 `main` force 覆盖到 CNB 的 `main`**'
-        '（不看是否 fast-forward）。而 CNB 的 `main` 与 GitHub 的 `main` 没有任何关系'
-        '（用户口径，CNB #167）。请显式写 `branch: dev`，只拉 dev。'
+    "pull": (
+        "插件在不指定时取 target 的**全部**分支，逐个 `git pull --rebase` 后执行 "
+        "`git push origin <b> --force` —— 会**把 GitHub 的 `main` force 覆盖到 CNB 的 `main`**"
+        "（不看是否 fast-forward）。而 CNB 的 `main` 与 GitHub 的 `main` 没有任何关系"
+        "（用户口径，CNB #167）。请显式写 `branch: dev`，只拉 dev。"
     ),
 }
 
@@ -139,23 +175,57 @@ def check_push_scope(data: dict) -> list[str]:
     for branch_key, event, stage in _walk_stage_items(data):
         if not _is_git_sync(stage):
             continue
-        settings = stage.get('settings') or {}
+        settings = stage.get("settings") or {}
         if not isinstance(settings, dict):
             continue
-        direction = 'pull' if _is_pull(stage) else 'push'
-        target = str(settings.get('branch') or '').strip()
+        direction = "pull" if _is_pull(stage) else "push"
+        target = str(settings.get("branch") or "").strip()
         if not target:
             problems.append(
-                f'`{branch_key}` → `{event}` 的 git-sync {direction} 任务**没有指定 `branch`**。'
+                f"`{branch_key}` → `{event}` 的 git-sync {direction} 任务**没有指定 `branch`**。"
                 + _NO_BRANCH_REASON[direction]
             )
             continue
         if target in FORBIDDEN_BRANCHES:
             problems.append(
-                f'`{branch_key}` → `{event}` 的 git-sync {direction} 目标分支是 `{target}`，'
-                '而 `main` 不得由 CNB 侧外推、也不得被 GitHub 侧覆盖'
-                '（CNB `main` 与 GitHub `main` 无关系，见 AGENTS.md「双端协作」）。'
+                f"`{branch_key}` → `{event}` 的 git-sync {direction} 目标分支是 `{target}`，"
+                "而 `main` 不得由 CNB 侧外推、也不得被 GitHub 侧覆盖"
+                "（CNB `main` 与 GitHub `main` 无关系，见 AGENTS.md「双端协作」）。"
             )
+    return problems
+
+
+def check_no_direct_push_of_bidirectional(
+    data: dict, allow: set[tuple[str, str]] | None = None
+) -> list[str]:
+    """判据 0：git-sync push 不得直推「对方也会推进的分支」（如 `dev`）。
+
+    `allow` 是**存量白名单**（`(文件标识, 分支模式)` 的集合），命中的组合只报「应删除」时
+    由调用方降级为观察，不阻断 —— 判据宁可窄：今天还没清完的存量不该把整个 PR 门禁涂红，
+    但**新增**一处就必须当场红，否则这条规则会像 #577 之前那样，写了也没人执行。
+    """
+    allow = allow or set()
+    problems: list[str] = []
+    for branch_key, event, stage in _walk_stage_items(data):
+        if not _is_git_sync(stage) or _is_pull(stage):
+            continue
+        settings = stage.get("settings") or {}
+        if not isinstance(settings, dict):
+            continue
+        target = str(settings.get("branch") or "").strip()
+        if target not in BIDIRECTIONAL_BRANCHES:
+            continue
+        if (branch_key, target) in allow:
+            continue
+        problems.append(
+            f"`{branch_key}` → `{event}` 的 git-sync push 直推 `{target}`，"
+            f"而 `{target}` 是**双向**同步的分支（对方每笔合入都会推进它）。"
+            "git-sync 的推是裸 ref + fast-forward only + 永不开 force ⇒ 对方快一步就必然被拒"
+            "（`! [rejected] … (fetch first)`），而且**没有拉取动作、被拒后不会自愈**："
+            "每次推送都多一条永远红、修不了的 pipeline（源 CNB #577 实测）。"
+            f"搬运 `{target}` 请用「先 merge 再推」："
+            "`python scripts/bridge/machine_branch.py --apply --push --merge-sync`。"
+        )
     return problems
 
 
@@ -167,20 +237,24 @@ def check_top_level_main(data: dict) -> list[str]:
     判据 1/2 可能被 `branch: ${CNB_BRANCH}` 绕过——故这里单独拦「`main` 键 + push 插件」。
     """
     problems: list[str] = []
-    main_node = data.get('main')
+    main_node = data.get("main")
     if not isinstance(main_node, dict):
         return problems
     for event, jobs in main_node.items():
         for job in jobs or []:
             if not isinstance(job, dict):
                 continue
-            for stage in job.get('stages') or []:
-                if isinstance(stage, dict) and _is_git_sync(stage) and not _is_pull(stage):
-                    settings = stage.get('settings') or {}
-                    if str(settings.get('branch') or '').strip() == '${CNB_BRANCH}':
+            for stage in job.get("stages") or []:
+                if (
+                    isinstance(stage, dict)
+                    and _is_git_sync(stage)
+                    and not _is_pull(stage)
+                ):
+                    settings = stage.get("settings") or {}
+                    if str(settings.get("branch") or "").strip() == "${CNB_BRANCH}":
                         problems.append(
-                            f'`main` → `{event}` 的 git-sync push 用了 `branch: ${{CNB_BRANCH}}`。'
-                            '该值在 `main` 键下解析为 `main` 本身，等于把 `main` 推给 GitHub。'
+                            f"`main` → `{event}` 的 git-sync push 用了 `branch: ${{CNB_BRANCH}}`。"
+                            "该值在 `main` 键下解析为 `main` 本身，等于把 `main` 推给 GitHub。"
                             '功能分支的推送请放到 `"**/!(main|dev)"` 段（#172）。'
                         )
     return problems
@@ -189,7 +263,7 @@ def check_top_level_main(data: dict) -> list[str]:
 def _walk_jobs(data: dict):
     """产出 (顶层分支键, 事件名, job 对象, job 是否带 name)。"""
     for branch, events in (data or {}).items():
-        if not isinstance(events, dict) or branch in ('.mirror-job',):
+        if not isinstance(events, dict) or branch in (".mirror-job",):
             continue
         for event, jobs in events.items():
             if not isinstance(jobs, list):
@@ -198,7 +272,7 @@ def _walk_jobs(data: dict):
                 continue
             for job in jobs:
                 if isinstance(job, dict):
-                    yield branch, event, job, bool(str(job.get('name') or '').strip())
+                    yield branch, event, job, bool(str(job.get("name") or "").strip())
 
 
 def check_named_jobs(data: dict) -> list[str]:
@@ -211,12 +285,12 @@ def check_named_jobs(data: dict) -> list[str]:
         if named:
             continue
         # 只对真正带 stages 的节点报错，避免误伤 `.mirror-job:` 之类锚点（已在 _walk_jobs 跳过）。
-        has_stages = isinstance(job, dict) and 'stages' in job
+        has_stages = isinstance(job, dict) and "stages" in job
         if not isinstance(job, dict) or has_stages:
             problems.append(
-                f'`{branch_key}` → `{event}` 的 job **没有 `name`**（`stages:` 直接裸挂在事件下）。'
-                '这种形态的 job 在构建详情页查不到 stage：外部显示绿也无从判断实际有没有跑/推成功'
-                '—— 即「假绿」（CNB #172）。请改成列表形态：`- name: <作业名>` 换行缩进 `stages:`。'
+                f"`{branch_key}` → `{event}` 的 job **没有 `name`**（`stages:` 直接裸挂在事件下）。"
+                "这种形态的 job 在构建详情页查不到 stage：外部显示绿也无从判断实际有没有跑/推成功"
+                "—— 即「假绿」（CNB #172）。请改成列表形态：`- name: <作业名>` 换行缩进 `stages:`。"
             )
     return problems
 
@@ -228,13 +302,13 @@ def _glob_covers_branch(branch_key: str, target: str) -> bool:
     if key == target:
         return True
     # `**/!(main|dev)` 形态：排除 main/dev ⇒ 功能分支（含 feat/*、fix/*）都在其内。
-    if '!(' in key and ')' in key:
-        inner = key.split('!(', 1)[1].split(')', 1)[0]
-        excluded = {x.strip() for x in inner.split('|') if x.strip()}
+    if "!(" in key and ")" in key:
+        inner = key.split("!(", 1)[1].split(")", 1)[0]
+        excluded = {x.strip() for x in inner.split("|") if x.strip()}
         if target not in excluded:
             return True
     # `**` / `*` 兜底：覆盖一切。
-    if key in ('**', '*', '$'):
+    if key in ("**", "*", "$"):
         return True
     return False
 
@@ -256,24 +330,24 @@ def check_branch_key_matches_target(data: dict) -> list[str]:
     for branch_key, event, stage in _walk_stage_items(data):
         if not _is_git_sync(stage):
             continue
-        settings = stage.get('settings') or {}
+        settings = stage.get("settings") or {}
         if not isinstance(settings, dict):
             continue
-        target = str(settings.get('branch') or '').strip()
+        target = str(settings.get("branch") or "").strip()
         # `${VAR}` / 空值由判据 1 负责，这里只比「字面目标分支 vs 挂载分支键」。
-        if not target or target.startswith('${'):
+        if not target or target.startswith("${"):
             continue
         if _glob_covers_branch(branch_key, target):
             continue
-        direction = 'pull' if _is_pull(stage) else 'push'
+        direction = "pull" if _is_pull(stage) else "push"
         problems.append(
-            f'`{branch_key}` → `{event}` 的 git-sync {direction} 要操作 `{target}`，'
-            f'但作业**挂在 `{branch_key}` 分支键下** —— runner 只检出「挂载分支键」对应的分支'
+            f"`{branch_key}` → `{event}` 的 git-sync {direction} 要操作 `{target}`，"
+            f"但作业**挂在 `{branch_key}` 分支键下** —— runner 只检出「挂载分支键」对应的分支"
             f'（`git fetch origin refs/heads/{branch_key}` + `git checkout -f -B "{branch_key}"`），'
-            f'工作区里没有 `{target}` ⇒ 插件打一行 '
-            f'`Warning: Branch {target} does not exist locally, skipping push` 就跳过，'
-            f'**而构建仍报 success**；若挂错的是 `main`，则 `{target}` 的 push 构建里'
-            f'**根本不含这个 job**（`get-build-stage` 查不到 stage）。'
+            f"工作区里没有 `{target}` ⇒ 插件打一行 "
+            f"`Warning: Branch {target} does not exist locally, skipping push` 就跳过，"
+            f"**而构建仍报 success**；若挂错的是 `main`，则 `{target}` 的 push 构建里"
+            f"**根本不含这个 job**（`get-build-stage` 查不到 stage）。"
             f'请把作业挂到 `{target}:` 键下（或能覆盖它的 glob，如 `"**/!(main|dev)"`）。'
         )
     return problems
@@ -283,18 +357,22 @@ def self_check() -> list[str]:
     """探针：判据写坏了守卫会全绿，故用最小真实形态一正一反验证。"""
     errors: list[str] = []
 
-    def push_task(branch=None, sync_mode=None, key='dev'):
-        settings = {'target_url': 'https://github.com/o/r.git'}
+    def push_task(branch=None, sync_mode=None, key="dev"):
+        settings = {"target_url": "https://github.com/o/r.git"}
         if branch is not None:
-            settings['branch'] = branch
+            settings["branch"] = branch
         if sync_mode:
-            settings['sync_mode'] = sync_mode
+            settings["sync_mode"] = sync_mode
         return {
             key: {
-                'push': [
+                "push": [
                     {
-                        'stages': [
-                            {'image': GIT_SYNC_IMAGE, 'imports': ['x.yml'], 'settings': settings}
+                        "stages": [
+                            {
+                                "image": GIT_SYNC_IMAGE,
+                                "imports": ["x.yml"],
+                                "settings": settings,
+                            }
                         ]
                     }
                 ]
@@ -302,94 +380,129 @@ def self_check() -> list[str]:
         }
 
     # 合法：显式只推 dev。
-    if check_push_scope(push_task('dev')):
-        errors.append('自检探针失败：合法的 `branch: dev` 被判为不合规。')
+    if check_push_scope(push_task("dev")):
+        errors.append("自检探针失败：合法的 `branch: dev` 被判为不合规。")
     # 合法：pull 显式只拉 dev（#167 起 pull 也必须写 branch）。
-    if check_push_scope(push_task('dev', 'pull')):
-        errors.append('自检探针失败：`sync_mode: pull` + `branch: dev` 被判为不合规。')
+    if check_push_scope(push_task("dev", "pull")):
+        errors.append("自检探针失败：`sync_mode: pull` + `branch: dev` 被判为不合规。")
     # 合法：glob 段里用 ${CNB_BRANCH}。
-    if check_push_scope(push_task('${CNB_BRANCH}', key='**/!(main|dev)')):
-        errors.append('自检探针失败：glob 段的 `${CNB_BRANCH}` 被判为不合规。')
+    if check_push_scope(push_task("${CNB_BRANCH}", key="**/!(main|dev)")):
+        errors.append("自检探针失败：glob 段的 `${CNB_BRANCH}` 被判为不合规。")
     # 判据 1：不写 branch（push）。
     if not check_push_scope(push_task(None)):
-        errors.append('自检探针失败：push 任务不写 `branch`（= `--all`，会推 main）没被拦。')
-    # 判据 1（#167）：不写 branch（pull）—— 会「GitHub main force 覆盖 CNB main」。
-    if not check_push_scope(push_task(None, 'pull')):
         errors.append(
-            '自检探针失败：pull 任务不写 `branch`（= 全分支 `push origin --force`，'
-            '会覆盖 CNB main）没被拦 —— CNB #167 的病。'
+            "自检探针失败：push 任务不写 `branch`（= `--all`，会推 main）没被拦。"
+        )
+    # 判据 1（#167）：不写 branch（pull）—— 会「GitHub main force 覆盖 CNB main」。
+    if not check_push_scope(push_task(None, "pull")):
+        errors.append(
+            "自检探针失败：pull 任务不写 `branch`（= 全分支 `push origin --force`，"
+            "会覆盖 CNB main）没被拦 —— CNB #167 的病。"
         )
     # 判据 2：显式推 main。
-    for bad in ('main', '*', '--all'):
+    for bad in ("main", "*", "--all"):
         if not check_push_scope(push_task(bad)):
-            errors.append(f'自检探针失败：`branch: {bad}` 没被拦。')
+            errors.append(f"自检探针失败：`branch: {bad}` 没被拦。")
     # 判据 2（#167）：pull 方向也不得显式写 main。
-    if not check_push_scope(push_task('main', 'pull')):
-        errors.append('自检探针失败：pull 方向 `branch: main` 没被拦。')
+    if not check_push_scope(push_task("main", "pull")):
+        errors.append("自检探针失败：pull 方向 `branch: main` 没被拦。")
     # 判据 3：main 键 + ${CNB_BRANCH}。
-    if not check_top_level_main(push_task('${CNB_BRANCH}', key='main')):
-        errors.append('自检探针失败：`main` 键下用 `${CNB_BRANCH}` 推分支没被拦。')
+    if not check_top_level_main(push_task("${CNB_BRANCH}", key="main")):
+        errors.append("自检探针失败：`main` 键下用 `${CNB_BRANCH}` 推分支没被拦。")
     # 判据 4：命名 job 合法；裸 stages 报错。
-    if check_named_jobs({'dev': {'push': [{'name': 'x', 'stages': []}]}}):
-        errors.append('自检探针失败：带 name 的 job 被判为不合规。')
-    if not check_named_jobs({'dev': {'push': {'stages': []}}}):
-        errors.append('自检探针失败：裸 `stages:`（无 name 的 job）没被拦——假绿形态漏网。')
+    if check_named_jobs({"dev": {"push": [{"name": "x", "stages": []}]}}):
+        errors.append("自检探针失败：带 name 的 job 被判为不合规。")
+    if not check_named_jobs({"dev": {"push": {"stages": []}}}):
+        errors.append(
+            "自检探针失败：裸 `stages:`（无 name 的 job）没被拦——假绿形态漏网。"
+        )
+
+    # 判据 0（CNB #577）：直推 dev 必须红；推功能分支/标签不受影响。
+    if not check_no_direct_push_of_bidirectional(push_task("dev", key="dev")):
+        errors.append(
+            "自检探针失败：git-sync 直推 `dev` 没被拦 —— 正是 #577 那条必红的搬运方式。"
+        )
+    if check_no_direct_push_of_bidirectional(
+        push_task("${CNB_BRANCH}", key="**/!(main|dev)")
+    ):
+        errors.append("自检探针失败：功能分支段的 `${CNB_BRANCH}` 被判为直推双向分支。")
+    # 白名单只放行被点名的组合，放行范围不得外溢。
+    if check_no_direct_push_of_bidirectional(
+        push_task("dev", key="dev"), allow={("dev", "dev")}
+    ):
+        errors.append("自检探针失败：存量白名单没生效。")
+    if not check_no_direct_push_of_bidirectional(
+        push_task("dev", key="dev"), allow={("main", "dev")}
+    ):
+        errors.append(
+            "自检探针失败：白名单放行了未被点名的组合（应只认 `(分支键, 目标分支)` 精确对）。"
+        )
 
     # 判据 5（CNB #269）：挂载分支键必须与 settings.branch 一致，否则 runner 检不出目标分支。
     # 合法：挂在 dev 下、推 dev。
-    if check_branch_key_matches_target(push_task('dev', key='dev')):
-        errors.append('自检探针失败：`dev` 键下推 `dev` 被判为不合规。')
+    if check_branch_key_matches_target(push_task("dev", key="dev")):
+        errors.append("自检探针失败：`dev` 键下推 `dev` 被判为不合规。")
     # 合法：glob 段（排除 main/dev）推功能分支。
-    if check_branch_key_matches_target(push_task('${CNB_BRANCH}', key='**/!(main|dev)')):
-        errors.append('自检探针失败：glob 段的 `${CNB_BRANCH}` 被判为不合规。')
+    if check_branch_key_matches_target(
+        push_task("${CNB_BRANCH}", key="**/!(main|dev)")
+    ):
+        errors.append("自检探针失败：glob 段的 `${CNB_BRANCH}` 被判为不合规。")
     # ❌ 本仓真实形态：挂在 main 下、推 dev（绿了三天的那个）。
-    if not check_branch_key_matches_target(push_task('dev', key='main')):
+    if not check_branch_key_matches_target(push_task("dev", key="main")):
         errors.append(
-            '自检探针失败：作业挂在 `main` 键下却推 `dev` 没被拦 —— 正是 CNB #269 的病'
-            '（runner 只检出 main，插件找不到 dev，跳过却报 success）。'
+            "自检探针失败：作业挂在 `main` 键下却推 `dev` 没被拦 —— 正是 CNB #269 的病"
+            "（runner 只检出 main，插件找不到 dev，跳过却报 success）。"
         )
     # ❌ pull 方向同理。
-    if not check_branch_key_matches_target(push_task('dev', 'pull', key='main')):
-        errors.append('自检探针失败：挂 `main` 键下 pull `dev` 没被拦。')
+    if not check_branch_key_matches_target(push_task("dev", "pull", key="main")):
+        errors.append("自检探针失败：挂 `main` 键下 pull `dev` 没被拦。")
     # ❌ 挂 dev 下推 main（判据 2 也会拦，这里保证判据 5 同样认得）。
-    if not check_branch_key_matches_target(push_task('main', key='dev')):
-        errors.append('自检探针失败：挂 `dev` 键下推 `main` 没被拦。')
+    if not check_branch_key_matches_target(push_task("main", key="dev")):
+        errors.append("自检探针失败：挂 `dev` 键下推 `main` 没被拦。")
     return errors
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
-        description='检查 git-sync 两个方向都只作用在 dev/功能分支，main 不被外推也不被覆盖（CNB #167/#172）'
+        description="检查 git-sync 两个方向都只作用在 dev/功能分支，main 不被外推也不被覆盖（CNB #167/#172）"
     )
-    ap.add_argument('--file', default=None, help='待检查文件（默认仓库根 .cnb.yml）')
+    ap.add_argument("--file", default=None, help="待检查文件（默认仓库根 .cnb.yml）")
     args = ap.parse_args(argv)
 
     root = Path(__file__).resolve().parent.parent
-    path = Path(args.file) if args.file else root / '.cnb.yml'
+    path = Path(args.file) if args.file else root / ".cnb.yml"
     if not path.exists():
-        print(f'⚠️ 找不到 {path}，跳过')
+        print(f"⚠️ 找不到 {path}，跳过")
         return 0
 
     problems = self_check()
     try:
         data = _load(path)
     except yaml.YAMLError as exc:
-        print(f'❌ {path} 不是合法 YAML：{describe_yaml_error(exc)}')
+        print(f"❌ {path} 不是合法 YAML：{describe_yaml_error(exc)}")
         return 1
 
+    problems += check_no_direct_push_of_bidirectional(data, allow=set(LEGACY_ALLOW))
     problems += check_push_scope(data)
     problems += check_top_level_main(data)
     problems += check_named_jobs(data)
     problems += check_branch_key_matches_target(data)
 
+    # 存量白名单里还有条目 ⇒ 明说「它还红着，只是没拦你」，别让它变成永远豁免（#577）。
+    for branch_key, target in LEGACY_ALLOW:
+        print(
+            f"⚠️ 存量待清：`{branch_key}` 下 git-sync 直推 `{target}` 仍在，"
+            f"应删除（判据 0 已冻结它，新增即红）。源 CNB #577。"
+        )
+
     if problems:
-        print(f'❌ {path} 的 git-sync 分支范围检查未通过：')
+        print(f"❌ {path} 的 git-sync 分支范围检查未通过：")
         for p in problems:
-            print(f'  - {p}')
+            print(f"  - {p}")
         return 1
-    print('✅ git-sync 两个方向的分支范围合规（main 不外推、也不被覆盖）')
+    print("✅ git-sync 两个方向的分支范围合规（main 不外推、也不被覆盖）")
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

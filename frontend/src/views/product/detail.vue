@@ -380,20 +380,20 @@ watch(productRef, loadProduct, { immediate: true });
 }
 
 .product-detail__empty-icon {
-  font-size: 32px;
+  font-size: var(--text-display);
   color: var(--text-tertiary-ink);
 }
 
 .product-detail__empty-title {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .product-detail__empty-text {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 </style>

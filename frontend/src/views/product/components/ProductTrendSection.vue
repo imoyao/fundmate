@@ -897,7 +897,7 @@ watch(firstTradeDate, () => {
 
 .trend-section__hint {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

@@ -253,7 +253,7 @@ onMounted(loadAll);
   gap: 8px;
   align-items: center;
   padding: 10px 14px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   background: var(--bg-soft);
   border: 1px solid var(--border-light);
@@ -277,7 +277,7 @@ onMounted(loadAll);
 }
 
 .empty-icon {
-  font-size: 32px;
+  font-size: var(--text-display);
   color: var(--text-tertiary-ink);
 }
 </style>

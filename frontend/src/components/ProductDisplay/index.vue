@@ -94,7 +94,7 @@ defineProps({
 .product-name {
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
@@ -129,7 +129,7 @@ defineProps({
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 500;
   line-height: 20px;
   color: var(--text-primary);

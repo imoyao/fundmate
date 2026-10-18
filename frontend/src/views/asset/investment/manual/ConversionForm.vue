@@ -318,36 +318,36 @@
         </p>
 
         <!-- 三个数：核对时真正要比对的就是这三个，字号拉开才有主次 -->
-        <div class="confirm-figures">
-          <div class="confirm-figure">
-            <div class="confirm-figure__label">转出金额</div>
-            <div class="confirm-figure__value">
+        <div class="figure-grid">
+          <div class="figure">
+            <div class="figure__label">转出金额</div>
+            <div class="figure__value">
               ¥{{ estimate.out.amount.toFixed(2) }}
             </div>
-            <div class="confirm-figure__aside">
+            <div class="figure__aside">
               {{ estimate.out.quantity.toFixed(2) }} 份 × 净值
               {{ estimate.out.nav.toFixed(4) }}
             </div>
           </div>
-          <div class="confirm-figure">
-            <div class="confirm-figure__label">费用合计</div>
-            <div class="confirm-figure__value">
+          <div class="figure">
+            <div class="figure__label">费用合计</div>
+            <div class="figure__value">
               <!-- 0 费用不写成「−¥0.00」：负零在中文界面上读作「倒扣了零头」 -->
               {{ estimate.out.fee > 0 ? "−" : "" }}¥{{
                 estimate.out.fee.toFixed(2)
               }}
             </div>
-            <div class="confirm-figure__aside">
+            <div class="figure__aside">
               赎回 {{ estimate.out.fee_breakdown.redeem.toFixed(2) }} · 补差
               {{ estimate.out.fee_breakdown.compensate.toFixed(2) }}
             </div>
           </div>
-          <div class="confirm-figure confirm-figure--net">
-            <div class="confirm-figure__label">净转入</div>
-            <div class="confirm-figure__value">
+          <div class="figure figure--net">
+            <div class="figure__label">净转入</div>
+            <div class="figure__value">
               ¥{{ estimate.net_amount.toFixed(2) }}
             </div>
-            <div class="confirm-figure__aside">
+            <div class="figure__aside">
               预估 {{ estimate.in.quantity.toFixed(2) }} 份
             </div>
           </div>
@@ -524,58 +524,115 @@
     </div>
 
     <!-- ===== 第 3 步：结果 ===== -->
-    <div v-else class="flex flex-col items-center gap-4 py-4">
-      <IconifyIconOffline
-        icon="ep:success-filled"
-        class="text-5xl"
-        :style="{ color: 'var(--color-success)' }"
-      />
-      <div
-        class="text-base font-medium"
-        :style="{ color: 'var(--text-primary)' }"
-      >
-        转换已提交
+    <!-- 结果页是「回执」，不是把确认页再念一遍：确认页回答「对不对」，
+         结果页回答「成了吗、接下来等什么、去哪看」。
+         原先是居中 5xl 对勾 + 四行等权键值对：居中大图标是空状态/弹窗的语言，
+         与前两步的左对齐表单语言打架；四行等权又是改版前确认页那个毛病——
+         看上去什么都有，实际没有重点。三个数与确认页同字段同版式，
+         用户在这里核对的正是「和刚才确认的那三个数一不一样」。 -->
+    <div v-else class="flex flex-col gap-4" role="status" aria-live="polite">
+      <div class="result-status">
+        <IconifyIconOffline
+          icon="ep:success-filled"
+          class="result-status__icon"
+        />
+        <span class="result-status__title">转换已提交</span>
+        <span class="result-status__no">
+          申请单号 {{ result?.group_no || "--" }}
+        </span>
       </div>
-      <div class="text-sm" :style="{ color: 'var(--text-secondary)' }">
-        申请单号 {{ result?.group_no || "--" }} · 待确认（T+1）
-      </div>
-      <div v-if="result" class="estimate-panel w-full flex flex-col gap-3">
-        <div class="panel-row">
-          <span class="panel-label">转出</span>
-          <span class="panel-value">
-            {{ result.out.name || result.out.symbol }} ·
-            {{ result.out.quantity.toFixed(2) }} 份
+
+      <template v-if="result">
+        <p class="confirm-sentence">
+          用「{{ result.out.name || result.out.symbol }}」的
+          <span class="confirm-sentence__num">{{
+            result.out.quantity.toFixed(2)
+          }}</span>
+          份，换成了「{{ result.in.name || result.in.symbol }}」
+        </p>
+
+        <div class="figure-grid">
+          <div class="figure">
+            <div class="figure__label">转出金额</div>
+            <div class="figure__value">¥{{ result.out.amount.toFixed(2) }}</div>
+            <div class="figure__aside">
+              {{ result.out.quantity.toFixed(2) }} 份 × 净值
+              {{ result.out.nav.toFixed(4) }}
+            </div>
+          </div>
+          <div class="figure">
+            <div class="figure__label">费用合计</div>
+            <div class="figure__value">
+              <!-- 与确认页同一处修法：0 费用不写「−¥0.00」 -->
+              {{ result.out.fee > 0 ? "−" : "" }}¥{{
+                result.out.fee.toFixed(2)
+              }}
+            </div>
+            <div class="figure__aside">
+              赎回 {{ result.out.fee_breakdown.redeem.toFixed(2) }} · 补差
+              {{ result.out.fee_breakdown.compensate.toFixed(2) }}
+            </div>
+          </div>
+          <div class="figure figure--net">
+            <div class="figure__label">净转入</div>
+            <div class="figure__value">¥{{ result.in.amount.toFixed(2) }}</div>
+            <div class="figure__aside">
+              预估 {{ result.in.quantity.toFixed(2) }} 份
+            </div>
+          </div>
+        </div>
+
+        <div class="confirm-meta">
+          <el-tag size="small" type="info" effect="plain">待确认</el-tag>
+          <span>
+            {{ result.trade_date }} 提交 · T+1 确认 · T+2 可赎回
+            <!-- 幂等命中（409）走的是拼装结果，confirm_date 可能为空 -->
+            <template v-if="result.confirm_date">
+              · 预计 {{ result.confirm_date }} 确认
+            </template>
           </span>
         </div>
-        <div class="panel-row">
-          <span class="panel-label">费用合计</span>
-          <span class="panel-value">−¥{{ result.out.fee.toFixed(2) }}</span>
-        </div>
-        <div class="panel-row">
-          <span class="panel-label">转入</span>
-          <span class="panel-value">
-            {{ result.in.name || result.in.symbol }} ·
-            {{ result.in.quantity.toFixed(2) }} 份（预估）
-          </span>
-        </div>
-        <div v-if="result.refund.amount > 0" class="panel-row">
-          <span class="panel-label">退款</span>
-          <span class="panel-value">
-            ¥{{ result.refund.amount.toFixed(2) }} ·
+
+        <!-- 差额已经落定了，只需告知去向，不再提供选项（确认页才有得选） -->
+        <div v-if="result.refund.amount > 0" class="result-refund">
+          <span class="result-refund__label">差额</span>
+          <span class="result-refund__amount"
+            >¥{{ result.refund.amount.toFixed(2) }}</span
+          >
+          <span class="result-refund__text">
+            已回到
             {{
               result.refund.mode === "money_fund" ? "类现金产品" : "账户现金"
             }}
           </span>
         </div>
+
+        <!-- 提交前给过的提醒，在这里只是复述：确认页的 blocker 是「按钮点不动的原因」，
+             有底色、有 role=alert；这里若沿用那套样式，两条提示会变成第三、第四个
+             数据块，比三个数还显眼。降成无底色的一行字，权重回到「附带说明」。 -->
+        <ul v-if="result.warnings.length" class="result-warnings">
+          <li v-for="w in result.warnings" :key="w" class="result-warning">
+            <IconifyIconOffline
+              icon="ep:warning-filled"
+              class="result-warning__icon"
+            />
+            <span>{{ w }}</span>
+          </li>
+        </ul>
+      </template>
+
+      <div class="confirm-actions">
+        <span class="confirm-actions__note">
+          已记入交易流水；份额以 T 日净值清算结果为准
+        </span>
+        <div class="result-actions">
+          <el-button text @click="finish">继续记一笔</el-button>
+          <el-button type="primary" @click="viewLedger">查看交易流水</el-button>
+        </div>
       </div>
-      <div class="text-xs" style="color: var(--text-tertiary-ink)">
-        确认后份额以 T 日净值清算结果为准，可在交易记录中查看本组流水。
-      </div>
-      <el-button type="primary" @click="finish">完成</el-button>
     </div>
   </div>
 </template>
-
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from "vue";
 import { ElMessage } from "element-plus";
@@ -599,7 +656,8 @@ const props = defineProps<{
   defaultLedgerId?: number | null;
 }>();
 const emit = defineEmits<{
-  (e: "submit-success"): void;
+  /** 结果页收尾：again=再记一笔、list=去交易流水（见 finish 的注释） */
+  (e: "done", action: "again" | "list"): void;
   (e: "positions-loaded", ledgerIds: number[]): void;
 }>();
 
@@ -1027,8 +1085,20 @@ async function submit() {
   }
 }
 
+/**
+ * 结果页收尾走 `done` 而不是 `submit-success`（#2348 第四轮）。
+ *
+ * `submit-success` 在父页会弹一个「交易记录已成功保存！」的模态框，可那是
+ * 无回执表单的收尾方式：转换页已经是一张回执（单号 + 三个数 + 后续时间），
+ * 再弹一次「记账成功」等于把刚说过的话换个框再说一遍，还把用户的视线
+ * 从结果页赶走。这里改成两个明确出口，由父页直接执行。
+ */
 function finish() {
-  emit("submit-success");
+  emit("done", "again");
+}
+
+function viewLedger() {
+  emit("done", "list");
 }
 
 // ── 未保存守卫（#1891）：第 1~3 步有已填内容即视为脏 ──
@@ -1125,7 +1195,7 @@ defineExpose({ isDirty, resetForm });
    h3 默认的 margin/字号必须清掉，否则两栏顶端会错开一行 */
 .convert-col__title {
   margin: 0 0 8px;
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   line-height: 1.4;
   color: var(--text-secondary);
@@ -1289,20 +1359,13 @@ defineExpose({ isDirty, resetForm });
   background-color: transparent;
 }
 
-/* 试算面板：两列键值对齐（左标签 secondary、右数值 tabular-nums；净额加粗） */
-.estimate-panel {
-  padding: 16px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-}
-
+/* 键值行（费用明细里的可编辑行；结果页改版后已不再使用 .estimate-panel） */
 .panel-row {
   display: flex;
   gap: 16px;
   align-items: center;
   justify-content: space-between;
-  font-size: 14px;
+  font-size: var(--text-small);
 }
 
 .panel-label {
@@ -1328,7 +1391,7 @@ defineExpose({ isDirty, resetForm });
 }
 
 .fee-sign {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
 }
@@ -1359,7 +1422,7 @@ defineExpose({ isDirty, resetForm });
    两行以内读完；基金名不加粗，长名字里不会出现几段加粗在打架 */
 .confirm-sentence {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--text-body);
   font-weight: 500;
   line-height: 1.65;
   color: var(--text-primary);
@@ -1369,28 +1432,30 @@ defineExpose({ isDirty, resetForm });
   font-variant-numeric: tabular-nums;
 }
 
-/* 三个数：核对时真正要比的就是这三个，字号拉开才有主次 */
-.confirm-figures {
+/* 三个数：核对时真正要比的就是这三个，字号拉开才有主次。
+   确认页与结果页共用（结果页是「刚才那三个数的回执」，版式必须一模一样）。
+   数字字号走字阶令牌 --text-num-hero，不写 22px 这类字面值（#2323）。 */
+.figure-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
-.confirm-figure {
+.figure {
   padding: 12px 14px;
   background: var(--bg-soft);
   border-radius: var(--radius-md);
 }
 
-.confirm-figure__label {
+.figure__label {
   margin-bottom: 6px;
   font-size: 12px;
   line-height: 1.4;
   color: var(--text-secondary);
 }
 
-.confirm-figure__value {
-  font-size: 22px;
+.figure__value {
+  font-size: var(--text-num-hero);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
@@ -1400,11 +1465,11 @@ defineExpose({ isDirty, resetForm });
 
 /* 净转入 = 这笔操作到手的结果，用品牌文字色标出来。
    不用 --color-rise：红涨绿跌是行情语义，这里表达的是金额层级 */
-.confirm-figure--net .confirm-figure__value {
+.figure--net .figure__value {
   color: var(--brand-ink);
 }
 
-.confirm-figure__aside {
+.figure__aside {
   margin-top: 4px;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -1550,5 +1615,87 @@ defineExpose({ isDirty, resetForm });
   font-size: 12px;
   line-height: 1.5;
   color: var(--text-tertiary-ink);
+}
+
+/* ===== 结果页（第 3 步，#2348 第四轮） ===== */
+
+/* 状态行：一行说清「成没成 + 单号是多少」。
+   原先是居中 5xl 对勾，那是空状态/弹窗的语言——它假设页面里没有别的信息，
+   而这里是三步向导的收尾，前面两步都是左对齐的表单，插入一个居中大图标
+   等于把整页的对齐轴打断。图标降到 18px 内联，标题与单号共用一条基线。 */
+.result-status {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 24px;
+}
+
+/* 图标尺寸写 18px 字面值：本文件整体登记在 #2323 的存量例外清单里，
+   随 #2362/#2363 清理字阶时一并令牌化 */
+.result-status__icon {
+  font-size: 18px;
+  color: var(--color-success-ink);
+}
+
+.result-status__title {
+  font-size: var(--text-body);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.result-status__no {
+  margin-left: auto;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary-ink);
+}
+
+/* 提交后提示：无底色的一行字，权重低于三个数 */
+.result-warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.result-warning {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-tertiary-ink);
+}
+
+.result-warning__icon {
+  margin-top: 2px;
+  color: var(--color-warning-ink);
+}
+
+/* 差额去向：确认页要选，这里只需告知已落在哪，所以是一行文字而非带框的控件 */
+.result-refund {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 12px;
+  color: var(--text-tertiary-ink);
+}
+
+.result-refund__label {
+  color: var(--text-secondary);
+}
+
+.result-refund__amount {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.result-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 </style>

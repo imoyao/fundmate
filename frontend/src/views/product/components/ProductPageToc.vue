@@ -79,7 +79,7 @@ const emit = defineEmits<{
   width: 100%;
   padding: 5px var(--space-3);
   margin-left: -1px; /* 让选中指示条压在 1px 轨道上，不留双线 */
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-secondary);
   text-align: left;
