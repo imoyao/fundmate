@@ -24,9 +24,9 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import os
+import pathlib
 import subprocess
 import sys
-import pathlib
 
 import pytest
 
@@ -193,9 +193,15 @@ def test_conflicts_mean_nothing_is_pushed(mod, tmp_path):
     mod._git = spy
     try:
         args = argparse.Namespace(
-            apply=True, dry_run=False, push=True,
-            base='cnb', branch='dev', machine_branch='bridge/github-dev',
-            cnb_url=str(cnb), github_url=str(gh), cwd=str(cnb),
+            apply=True,
+            dry_run=False,
+            push=True,
+            base='cnb',
+            branch='dev',
+            machine_branch='bridge/github-dev',
+            cnb_url=str(cnb),
+            github_url=str(gh),
+            cwd=str(cnb),
         )
         rc = mod.run(args)
     finally:
@@ -226,9 +232,15 @@ def test_worktree_is_cleaned_up_on_conflict(mod, tmp_path):
     mod._git = spy
     try:
         args = argparse.Namespace(
-            apply=True, dry_run=False, push=True,
-            base='cnb', branch='dev', machine_branch='bridge/github-dev',
-            cnb_url=str(cnb), github_url=str(gh), cwd=str(cnb),
+            apply=True,
+            dry_run=False,
+            push=True,
+            base='cnb',
+            branch='dev',
+            machine_branch='bridge/github-dev',
+            cnb_url=str(cnb),
+            github_url=str(gh),
+            cwd=str(cnb),
         )
         mod.run(args)
     finally:
@@ -271,9 +283,15 @@ def test_merge_fatal_means_nothing_is_pushed(mod, tmp_path, monkeypatch, capsys)
 
     monkeypatch.setattr(mod, '_git', fake)
     args = argparse.Namespace(
-        apply=True, dry_run=False, push=True,
-        base='cnb', branch='dev', machine_branch='bridge/github-dev',
-        cnb_url=str(cnb), github_url=str(gh), cwd=str(cnb),
+        apply=True,
+        dry_run=False,
+        push=True,
+        base='cnb',
+        branch='dev',
+        machine_branch='bridge/github-dev',
+        cnb_url=str(cnb),
+        github_url=str(gh),
+        cwd=str(cnb),
     )
     rc = mod.run(args)
 
@@ -303,7 +321,6 @@ def test_fetch_failure_is_exit_2_not_zero(mod, tmp_path, monkeypatch):
         apply=False,
         dry_run=True,
         push=False,
-
         base='cnb',
         branch='dev',
         machine_branch='bridge/github-dev',
@@ -323,7 +340,6 @@ def test_fetch_failure_message_says_inconclusive(mod, tmp_path, monkeypatch, cap
         apply=False,
         dry_run=True,
         push=False,
-
         base='cnb',
         branch='dev',
         machine_branch='bridge/github-dev',
@@ -368,7 +384,6 @@ def test_no_conflict_reports_ok(mod, tmp_path, monkeypatch):
         apply=False,
         dry_run=False,  # 走「演练」的 merge-tree 试算分支（不建 worktree）
         push=False,
-
         base='cnb',
         branch='dev',
         machine_branch='bridge/github-dev',
@@ -429,3 +444,81 @@ def test_script_never_imports_network(mod):
     src = _SCRIPT_PATH.read_text(encoding='utf-8').split('"""', 2)[-1]
     for banned in ('import urllib', 'import requests', 'import socket', 'import http'):
         assert banned not in src, f'脚本出现网络依赖：{banned}'
+
+
+def test_push_failure_surfaces_stderr(mod, tmp_path, capsys):
+    """推失败时必须把 **remote 的原话**打出来（源 CNB #567，2026-10-18）。
+
+    事故形态：`_git()` 只收 stdout，而 `git push` 的拒绝原因全在 stderr ⇒
+    构建日志里只剩一句「❌ 推机器分支失败：」，后面是空串。分叉存在了两天、每天红一次，
+    却没有任何一行说得出「被拒 / 非快进 / 远端领先」。**有信号等于没信号。**
+
+    判据钉两件事：
+    1. `_git()` 的返回值里含 stderr（拿本地一条必然失败的命令验证，不联网）；
+    2. 走 `run()` 的失败分支时，被捕获的输出里出现 remote 报的那句话。
+
+    探针：把 `_git()` 改回只收 stdout ⇒ 第 1 条断言转红（实测）。
+    """
+    # ① `_git` 必须把 stderr 带回来。`git show <不存在的 sha>` 必然失败、原因只写 stderr。
+    repo = tmp_path / 'repo'
+    repo.mkdir()
+    _git(repo, 'init', '-q', '-b', 'dev', env=_env())
+    # `_git()` 返回三值（#2262 起），失败原因须落在**第二个**返回值里 —— 推失败那一行打的就是它。
+    code, out, err = mod._git(['show', '0' * 40], str(repo))
+    assert code != 0
+    assert err.strip(), '`git show` 失败时 stderr 不该为空（判据自身失去了锚点）'
+    assert err.strip() in out, '`_git()` 只收 stdout —— stderr 被丢掉了，失败原因会打成空串'
+
+    # ② `run()` 的推失败分支要把原因与目标分支都打出来。
+    #    造一个**能合、但推不上去**的场景：远端是个**合法仓库**（否则死在前面的 fetch 上，
+    #    走的是「拿不到输入」分支），但预置一条同名分支，于是 push 是**非快进**被拒 ——
+    #    这正是 #567 事故里真实的失败形态。
+    work = tmp_path / 'work'
+    work.mkdir()
+    env = _env()
+    _git(work, 'init', '-q', '-b', 'dev', env=env)
+    _git(work, 'config', 'commit.gpgsign', 'false', env=env)
+    (work / 'a.txt').write_text('a\n', encoding='utf-8')
+    _git(work, 'add', '.', env=env)
+    _git(work, 'commit', '-q', '--no-gpg-sign', '-m', 'base', env=env)
+    _git(work, 'checkout', '-q', '-b', 'gh', env=env)
+    (work / 'gh.txt').write_text('gh\n', encoding='utf-8')
+    _git(work, 'add', '.', env=env)
+    _git(work, 'commit', '-q', '--no-gpg-sign', '-m', 'gh', env=env)
+    _git(work, 'checkout', '-q', 'dev', env=env)
+    (work / 'cnb.txt').write_text('cnb\n', encoding='utf-8')
+    _git(work, 'add', '.', env=env)
+    _git(work, 'commit', '-q', '--no-gpg-sign', '-m', 'cnb', env=env)
+
+    # 远端：同一条仓库，且**已有一条内容无关的 `bridge/github-dev`**（孤立提交）⇒
+    # 推合并结果必然被判非快进而拒 —— 这正是 #567 事故里真实的失败形态。
+    # 注意**不能**让远端那条分支等于 `dev`：合并结果包含 `dev`，推上去就是快进，会被接受。
+    _git(work, 'checkout', '-q', '--orphan', 'unrelated', env=env)
+    (work / 'gh.txt').unlink(missing_ok=True)
+    (work / 'cnb.txt').unlink(missing_ok=True)
+    (work / 'a.txt').write_text('unrelated\n', encoding='utf-8')
+    _git(work, 'add', '-A', env=env)
+    _git(work, 'commit', '-q', '--no-gpg-sign', '-m', 'unrelated', env=env)
+    _git(work, 'checkout', '-q', 'dev', env=env)
+    remote = tmp_path / 'remote.git'
+    _git(tmp_path, 'clone', '-q', '--bare', str(work), str(remote), env=env)
+    _git(remote, 'branch', 'bridge/github-dev', 'unrelated', env=env)
+
+    args = argparse.Namespace(
+        apply=True,
+        dry_run=False,
+        push=True,
+        base='cnb',
+        branch='dev',
+        machine_branch='bridge/github-dev',
+        cnb_url=str(work),
+        github_url=str(remote),
+        cwd=str(work),
+    )
+    rc = mod.run(args)
+    assert rc == 2, f'推失败应以「结论不可信」退出（2），实际 {rc}'
+    # 推失败那一行必须打出 **remote 的原话**（空原因等于没信号），且点名目标分支。
+    err_out = capsys.readouterr().err
+    assert '推机器分支失败' in err_out, f'须显式说推失败，实际 stderr：{err_out!r}'
+    assert 'rejected' in err_out, f'须把 git 的拒绝原话打出来（非快进/被拒），实际：{err_out!r}'
+    assert 'bridge/github-dev' in err_out, f'须点名目标分支，实际：{err_out!r}'

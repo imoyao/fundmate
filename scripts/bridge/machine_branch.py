@@ -100,10 +100,14 @@ def _git(args: list[str], cwd: str | None = None) -> tuple[int, str, str]:
     「Committer identity unknown」），错误信息全在 stderr；只留 stdout 会让调用方
     看到一个空的 `out`，把「没跑起来」读成「没冲突」。
     """
-    r = subprocess.run(
-        ['git', *args], cwd=cwd, capture_output=True, text=True, encoding='utf-8', errors='replace'
-    )
-    return r.returncode, (r.stdout or '').strip(), (r.stderr or '').strip()
+    r = subprocess.run(['git', *args], cwd=cwd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+    # stderr 照旧第三个返回（#2262 的调用方靠它区分「没跑成 / 没冲突」），
+    # **另把 stderr 拼进第二个返回值**（源 CNB #567）：`git push` / `git fetch` 的拒绝原因
+    # **全在 stderr**，只把 stdout 当“输出”会让「推失败」那一行打印出空原因 —— 有信号等于没信号。
+    # 三值返回与「stdout 里含 stderr」是两条不同的调用约定，别把其中一条读成另一条的回归。
+    out = (r.stdout or '').strip()
+    err = (r.stderr or '').strip()
+    return r.returncode, '\n'.join(x for x in (out, err) if x), err
 
 
 def plan(base: str, machine_branch: str, merge_ref: str = 'merge') -> dict:
@@ -193,9 +197,7 @@ def run(args: argparse.Namespace) -> int:
         conflicts = []
         if code == 1:
             _, out, _ = _git(['merge-tree', '--write-tree', p['base_ref'], p['merge_ref']], cwd)
-            conflicts = sorted(
-                {ln.split('\t')[1].strip() for ln in out.splitlines() if len(ln.split('\t')) == 2}
-            )
+            conflicts = sorted({ln.split('\t')[1].strip() for ln in out.splitlines() if len(ln.split('\t')) == 2})
         elif code not in (0, 1):
             print('❌ 合并试算不可用（git merge-tree 异常）——结论不可信', file=sys.stderr)
             return 2
@@ -237,11 +239,18 @@ def run(args: argparse.Namespace) -> int:
         print(f'\n（`--push` 未给：合并结果停在临时 worktree 的 `{sha[:8]}`，未推任何远端。）')
         return 0
 
-    code, _, err = _git(['push', args.github_url, f'HEAD:refs/heads/{p["machine_branch"]}'], wt)
-    _git(['worktree', 'remove', '--force', wt], cwd)
+    code, out, err = _git(['push', args.github_url, f'HEAD:refs/heads/{p["machine_branch"]}'], wt)
     if code != 0:
-        print(f'❌ 推机器分支失败：{err}', file=sys.stderr)
+        # ⚠️ 必须在 `worktree remove` **之前**把 remote 的原文打出来（源 CNB #567，2026-10-18）。
+        # `git push` 的进展与拒绝原因走 **stderr**（`! [rejected] … (fetch first)` /
+        # `hint: Updates were rejected …`），只打 stdout 就是一句空的「❌ 推机器分支失败：」——
+        # 分叉存在了两天，日志里却没有任何一行说得出「被拒 / 非快进 / 远端领先」。
+        # 返回码 2 保留（「结论不可信」），另起一行点名分支 —— 后面要用它开 PR。
+        print(f'❌ 推机器分支失败：{out or err or "(git 没有任何输出)"}', file=sys.stderr)
+        print(f'   目标分支：{p["machine_branch"]}（未推上去；下次重跑会覆盖同一 ref）', file=sys.stderr)
+        _git(['worktree', 'remove', '--force', wt], cwd)
         return 2
+    _git(['worktree', 'remove', '--force', wt], cwd)
     print(build_report(p, pushed=True, conflicts=[]))
     return 0
 
