@@ -33,6 +33,38 @@ from app.domains.transactions.models import Transaction
 from app.services.adapters.xalpha_adapter import XalphaAdapter
 
 
+def _dedupe_rows_by(rows: List[Any], key_of: Callable[[Any], tuple]) -> List[Any]:
+    """按 ``key_of`` 折叠重复行，保留首次出现（入参顺序即输出顺序）。
+
+    ## 为什么需要它
+
+    ``fee_ratios`` 表**没有任何索引，也没有唯一约束**（2026-10-17 实测该表在
+    ``sqlite_master`` 里的索引集为空），而库里存在一次整表复制留下的
+    **逐字相同**副本行：重复对的 ``rate`` / ``currency`` / ``created_at`` /
+    ``updated_at`` 全同，3410/3412 只基金的每一档都带一份副本。
+
+    读取侧按行拼「赎回费率分布」时不去重，用户看到的就是**每一档出现两次、
+    份额数一模一样**（已实测复现）。写入侧两个入口（``sync_fund_fees`` 与
+    ``fund_detail_enrich_job._save_single_fee``）都带查重，所以这不是反复同步
+    造成的，而是历史一次性复制的存量——读侧必须能自愈，否则存量清理前一直脏。
+
+    ## 只折叠完全相同的行
+
+    同一区间出现**不同**费率是真实歧义（不同份额类别混在同一个 ``fund_code``，
+    如 000513 的 0~7 天既有 1.5% 又有 0.75%），那不是重复行——不在这里替用户
+    选一个费率，留给数据侧确认。
+    """
+    seen: set = set()
+    out: List[Any] = []
+    for row in rows:
+        key = key_of(row)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
+
+
 class FundService:
     """基金领域服务：净值获取、搜索、费率查询、赎回费估算"""
 
@@ -427,6 +459,11 @@ class FundService:
             .filter(FeeRatio.fund_code == fund_code, FeeRatio.fee_type == 'redeem')
             .all()
         )
+        # 折叠逐字相同的副本行（存量一次性复制所致），否则同一档会返回两条
+        redeem_rows = _dedupe_rows_by(
+            redeem_rows,
+            lambda pair: (pair[1].start_day, pair[1].end_day, float(pair[0].rate or 0)),
+        )
         for ratio, rule in redeem_rows:
             try:
                 rate_val = float(ratio.rate) if ratio.rate is not None else 0.0
@@ -478,6 +515,13 @@ class FundService:
         )
         if not redeem_rules:
             raise ValueError('该基金暂无赎回费率规则')
+
+        # 折叠逐字相同的副本行：fee_ratios 无唯一约束，存量里每档都带一份副本，
+        # 不去重则 hold_details / sell_details 每档输出两次（用户可见的表格重复）。
+        # 只折叠 (区间, 费率) 完全一致的；区间相同费率不同的属真实歧义，保留原样。
+        redeem_rules = _dedupe_rows_by(
+            redeem_rules, lambda r: (r.start_day, r.end_day, float(r.rate))
+        )
 
         # 获取买入记录（FIFO），限本家庭
         buy_txns = (
