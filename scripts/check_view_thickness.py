@@ -305,8 +305,14 @@ BASELINE: dict[str, dict[str, int]] = {
         "commits": 0,
         "max_func": 22,
     },
+    # 2026-10-18 重取（#2131，**新增端点**，非放宽）：给 summary 加 `GET /summary/cleared-cycles/`
+    # （清仓周期统计，账本对齐 A' 卡）——从流水聚合「首买→末卖」周期与跨周期汇总，
+    # 计算全在 `services/analytics/cleared_cycles.py`，视图侧只有「入参解析 + 调服务 + 信封」，
+    # `orm_queries` / `commits` 仍为 **0**、`max_func` 不变（31）。summary 245 → 272 行
+    # （+27，含端点签名与 3 行 docstring——口径说明留在 service，视图不重复）。
+    # 同 #2141「新增功能但视图变薄」先例：无可下沉的业务规则，按 `--report` 实测回写。
     "backend/app/domains/summary/views.py": {
-        "lines": 245,
+        "lines": 272,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 31,

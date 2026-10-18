@@ -199,16 +199,10 @@ def pnl_calendar():
 
 @bp.get('/summary/cleared-cycles/')
 def cleared_cycles():
-    """#2131 清仓周期统计（账本对齐 A'）——从流水聚合「首买→末卖」周期（只读，现算）。
+    """#2131 清仓周期统计（只读现算）：从流水聚合「首买→末卖」周期 + 跨周期汇总。
 
-    查询参数：
-    - `ledger_id`：可选，限定单账户；不传 = 家庭全部账户合并（产品级口径，同 behavior/XIRR）；
-    - `symbol`：可选，单标的过滤（按剥前缀裸码匹配：查 `600519` 可命中 `SH600519` 写法）；
-    - `include_cash_equivalents`：可选，纳入类现金资产（货基/逆回购/cash，默认排除）。
-
-    返回 `{'cycles': [...], 'summary': {...}}`：cycles 按末卖日降序；summary 跨周期汇总
-    胜率/盈亏比/平均持有天数/累计已实现盈亏。口径与诚实降级纪律见
-    services/analytics/cleared_cycles.py（部分配对周期不进胜率样本，pnl_known=False）。
+    参数 ledger_id / symbol / include_cash_equivalents、返回结构与口径详见
+    services/analytics/cleared_cycles.py（视图层不重复口径说明）。
     """
     try:
         ledger_id = request.args.get('ledger_id', type=int)
