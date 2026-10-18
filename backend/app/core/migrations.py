@@ -1047,3 +1047,134 @@ def migrate_fund_risk_metrics_period_returns(engine: Engine) -> str:
         logger.info(f'[OK] fund_risk_metrics 增加区间收益列: {added}')
         return f'[OK] 增加列 {added}'
     return '[SKIP] fund_risk_metrics 区间收益三列已存在'
+
+
+def migrate_positions_snapshot_anchor(engine: Engine) -> str:
+    """positions 补「快照锚点」四列，并回填日期/来源（不猜份额）。
+
+    ## 为什么需要
+
+    `quantity` 过去同时是「快照绝对值」与「流水累加结果」：持仓快照导入用 SET 写，
+    交易落库用 INCR 加，两条路径无时序约束。先导快照、后导历史流水的账户会被
+    二次计入（实测 012708 精确 2 倍：11,083.22 → 22,166.44）。
+
+    加入锚点后 `quantity` 降级为派生值：
+        quantity = snapshot_quantity + Σ(confirm_date > snapshot_date 的流水净额)
+
+    ## 回填策略：**只回填日期，不回填份额**
+
+    `snapshot_quantity` 的历史真实值已经丢失（导入时直接写进 quantity，随后被流水
+    加权）。同一个 `quantity = 22,166.44` 可能是两种截然相反的历史：
+
+    - 先流水后快照（正确）：quantity 就是快照值；
+    - 先快照后流水（错误）：quantity = 快照值 + 快照前流水。
+
+    盲猜任一方向都会把另一半账户改错，故本迁移**只**做两件无歧义的事：
+    1. 加列；
+    2. 从 `position_import_meta.snapshot_date` 回填 `snapshot_date`（`anchor_kind`
+       置 `external`），份额列保持 NULL。
+
+    `snapshot_quantity IS NULL` 的持仓继续走「全量流水净额」旧口径，**不会因迁移
+    改坏**。具体修复由 `app/tools/repair_snapshot_double_count.py` 扫描出报告，
+    人工确认后才写入锚点。
+
+    幂等：列已存在则跳过；回填只填 `snapshot_date IS NULL` 的行。
+    非 SQLite 引擎（Supabase Postgres）由 ORM 模型 / 迁移工具负责，直接跳过。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
+
+    tables = set(inspect(engine).get_table_names())
+    if 'positions' not in tables:
+        return '[SKIP] positions 表不存在（空库，init_db 将按新模型建表）'
+
+    cols = [
+        ('snapshot_quantity', 'INTEGER'),
+        ('snapshot_avg_price', 'INTEGER'),
+        ('snapshot_date', 'DATE'),
+        ('anchor_kind', 'VARCHAR(20)'),
+    ]
+    added = []
+    with engine.connect() as conn:
+        existing = {c['name'] for c in inspect(engine).get_columns('positions')}
+        for name, typ in cols:
+            if name not in existing:
+                conn.execute(text(f'ALTER TABLE positions ADD COLUMN {name} {typ}'))
+                added.append(name)
+        conn.commit()
+
+    # 回填：日期 + 来源。份额不填（见 docstring）。
+    backfilled = 0
+    if 'position_import_meta' in tables:
+        with engine.connect() as conn:
+            result = conn.execute(
+                text(
+                    """
+                    UPDATE positions
+                       SET snapshot_date = (
+                               SELECT pim.snapshot_date FROM position_import_meta pim
+                                WHERE pim.position_id = positions.id
+                                  AND pim.snapshot_date IS NOT NULL
+                                LIMIT 1
+                           ),
+                           anchor_kind = 'external'
+                     WHERE snapshot_date IS NULL
+                       AND EXISTS (
+                               SELECT 1 FROM position_import_meta pim
+                                WHERE pim.position_id = positions.id
+                                  AND pim.snapshot_date IS NOT NULL
+                           )
+                    """
+                )
+            )
+            backfilled = result.rowcount or 0
+            conn.commit()
+
+    if added or backfilled:
+        logger.info(f'[OK] positions 锚点列: 新增={added}, 回填日期={backfilled}')
+        return f'[OK] 新增列 {added}，回填 snapshot_date {backfilled} 行（份额列留空待人工确认）'
+    return '[SKIP] positions 锚点四列已存在且无待回填行'
+
+
+def migrate_positions_cleared_at(engine: Engine) -> str:
+    """positions 补 `cleared_at` 一列（issue #2343 第二步）。
+
+    ## 为什么需要
+
+    清仓（整笔卖出）过去是 `db.delete(position)`，持仓行连同快照锚点四列一起消失。
+    此后删除该笔卖出流水触发重建，只能退回「全量流水」口径，份额会被二次累加
+    （与 2026-10-18 修复的快照锚点 bug 同源）。同时「历史曾持有」也彻底不可追溯。
+
+    改为保留行后需要两件事实：
+    - 当前是否已清仓 → `ownership_status='cleared'`（本轮第一步已落地枚举与过滤器）；
+    - **何时**清仓 → 本列。它是「清仓后再买入」时新一轮周期的下界，也是
+      持有天数 / 已实现盈亏能按周期切分的唯一依据。
+
+    ## 回填策略：**不回填**
+
+    历史清仓行的持仓记录已经被删掉了，没有任何可靠数据源能反推它们的清仓时间
+    （`transactions` 里的卖出流水无 `position_id` 或指向已删行，且无法区分
+    「整笔清仓」与「部分卖出」）。因此本迁移只加列，历史行保持 NULL。
+
+    NULL 的语义是「无已知清仓时间」，等同于「从未清仓」，与现存数据完全一致。
+
+    幂等：列已存在则跳过；非 SQLite 引擎由 ORM 模型 / 迁移工具负责。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
+
+    tables = set(inspect(engine).get_table_names())
+    if 'positions' not in tables:
+        return '[SKIP] positions 表不存在（空库，init_db 将按新模型建表）'
+
+    with engine.connect() as conn:
+        existing = {c['name'] for c in inspect(engine).get_columns('positions')}
+        if 'cleared_at' in existing:
+            return '[SKIP] positions.cleared_at 已存在'
+        conn.execute(text('ALTER TABLE positions ADD COLUMN cleared_at DATETIME'))
+        conn.commit()
+
+    logger.info('[OK] positions.cleared_at 已新增（历史清仓行无法反推，保持 NULL）')
+    return '[OK] 新增列 cleared_at（不回填：历史清仓行已删除，无可靠数据源）'
