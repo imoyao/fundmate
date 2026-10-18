@@ -29,16 +29,27 @@ IDEMPOTENCY_KEY = 'a' * 32
 
 
 def _seed_fund(db, code, name, *, purchase_rate=None, redeem_rules=None, fund_type_id=None):
+    """建基金行 + 费率阶梯。
+
+    规则行必须**复用**：``purchase_rules`` / ``redeem_rules`` 是全局区间表，生产侧一律走
+    ``FundService._get_or_create_*``，同一区间只有一行；``uq_purchase_rules_quota`` /
+    ``uq_redeem_rules_range``（2026-10-18）把这条契约落到了数据库层。夹具若给每只基金
+    各建一份同样的区间行，多只基金的用例就会撞唯一约束——那说明夹具不反映生产口径。
+    """
     fund = Fund(fund_code=code, name=name, fund_type_id=fund_type_id)
     db.add(fund)
     db.flush()
     if purchase_rate is not None:
-        rule = PurchaseRule(start_quota=0, end_quota=None)
+        rule = db.query(PurchaseRule).filter(
+            PurchaseRule.start_quota == 0, PurchaseRule.end_quota.is_(None)
+        ).first() or PurchaseRule(start_quota=0, end_quota=None)
         db.add(rule)
         db.flush()
         db.add(FeeRatio(fund_code=code, fee_type='purchase', rate=purchase_rate, purchase_rule_id=rule.id))
     for start_day, end_day, rate in redeem_rules or []:
-        rule = RedeemRule(start_day=start_day, end_day=end_day)
+        rule = db.query(RedeemRule).filter(
+            RedeemRule.start_day == start_day, RedeemRule.end_day == end_day
+        ).first() or RedeemRule(start_day=start_day, end_day=end_day)
         db.add(rule)
         db.flush()
         db.add(FeeRatio(fund_code=code, fee_type='redeem', rate=rate, redeem_rule_id=rule.id))

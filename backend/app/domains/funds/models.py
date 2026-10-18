@@ -344,6 +344,18 @@ class PurchaseRule(Base, PrimaryKeyMixin, TimestampMixin):
     start_quota = Column(Integer, comment='起始金额(分)，包含')
     end_quota = Column(Integer, comment='结束金额(分)，不包含，NULL表示正无穷')
 
+    # 同一金额区间只能有一条规则（2026-10-18）。**必须用表达式索引**：最后一档的
+    # end_quota 恒为 NULL，而 SQLite 里 NULL 不参与唯一性判断——普通唯一索引对
+    # 「无上限」那一档形同虚设。
+    __table_args__ = (
+        Index(
+            'uq_purchase_rules_quota',
+            text('COALESCE(start_quota, -1)'),
+            text('COALESCE(end_quota, -1)'),
+            unique=True,
+        ),
+    )
+
 
 class RedeemRule(Base, PrimaryKeyMixin, TimestampMixin):
     """赎回费率阶梯的持有天数区间规则"""
@@ -352,6 +364,17 @@ class RedeemRule(Base, PrimaryKeyMixin, TimestampMixin):
 
     start_day = Column(Integer, nullable=False, default=0, comment='起始天数, 包含')
     end_day = Column(Integer, nullable=True, comment='结束天数, 不包含, NULL表示正无穷')
+
+    # 同一持有天数区间只能有一条规则（2026-10-18）。表达式索引的理由同 PurchaseRule：
+    # 最后一档 end_day 恒为 NULL，普通唯一索引管不到它。
+    __table_args__ = (
+        Index(
+            'uq_redeem_rules_range',
+            text('COALESCE(start_day, -1)'),
+            text('COALESCE(end_day, -1)'),
+            unique=True,
+        ),
+    )
 
 
 class EtfFeeRate(Base, PrimaryKeyMixin, TimestampMixin):
@@ -386,6 +409,32 @@ class FeeRatio(Base, PrimaryKeyMixin, TimestampMixin):
     currency = Column(String(10), nullable=False, default='CNY', comment='计费币种(ISO 4217)，默认CNY')
     purchase_rule_id = Column(Integer, ForeignKey('purchase_rules.id'), nullable=True)
     redeem_rule_id = Column(Integer, ForeignKey('redeem_rules.id'), nullable=True)
+
+    # 「同一基金 + 同一费率类型 + 同一规则」只能有一条费率（2026-10-18）。
+    #
+    # ## 为什么补这条约束
+    #
+    # 本表此前**一个索引都没有**，于是 2026-05-31 的一次整表复制在库里留下 12,732 组
+    # 逐字相同的副本行（fee_ratios 25,471 行，重复行的 rate/currency/created_at/
+    # updated_at 全同），表现为「赎回费率分布每档显示两次」。应用层已收口为
+    # upsert + 结构校验 + 清残档，但那些闸只在**已知写路径**上生效；唯一约束是最后
+    # 一道、也是唯一会让错误**当场报错**而不是静默通过的一道。
+    #
+    # ## 为什么用表达式索引
+    #
+    # redeem 行的 purchase_rule_id 恒为 NULL、purchase 行的 redeem_rule_id 恒为 NULL，
+    # 而 SQLite 里 NULL 不参与唯一性判断 → 普通唯一索引对一半的行形同虚设。
+    # 故两个 rule id 都先 COALESCE(..., -1) 再比。
+    __table_args__ = (
+        Index(
+            'uq_fee_ratios_scope',
+            'fund_code',
+            'fee_type',
+            text('COALESCE(purchase_rule_id, -1)'),
+            text('COALESCE(redeem_rule_id, -1)'),
+            unique=True,
+        ),
+    )
 
 
 class MoneyFundDailyWorth(Base, PrimaryKeyMixin, TimestampMixin):

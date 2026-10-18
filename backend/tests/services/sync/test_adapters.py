@@ -165,6 +165,37 @@ class TestXalphaAdapter:
         ]
         assert validate_redemption_schedule(schedule) == []
 
+    def test_parse_first_tier_starting_at_one_day_is_normalized(self, adapter):
+        """首档写「大于等于1天」的页面必须归一到 0 天起（001678 实测页面）
+
+        否则持有 0 天的份额匹配不到任何档 → 赎回费被算成 0；校验器也会判「未覆盖
+        0 天起」而拒写（2026-10-18 实测：这批 29 只曾因此全部被拒）。
+        """
+        feeinfo = [
+            '大于等于1天，小于7天',
+            '1.50%',
+            '大于等于7天，小于30天',
+            '0.75%',
+            '大于等于30天，小于365天',
+            '0.50%',
+            '大于等于730天',
+            '0.00%',
+        ]
+        schedule = adapter._parse_redemption_schedule(feeinfo)
+        assert schedule == [
+            {'start_day': 0, 'end_day': 7, 'rate': 1.5},
+            {'start_day': 7, 'end_day': 30, 'rate': 0.75},
+            {'start_day': 30, 'end_day': 365, 'rate': 0.5},
+            {'start_day': 730, 'end_day': None, 'rate': 0.0},
+        ]
+        assert validate_redemption_schedule(schedule) == []
+
+    def test_first_tier_starting_beyond_one_day_is_left_alone(self, adapter):
+        """首档下界 ≥2（定开型等）不做归一：那是产品规则，交给校验器拒写"""
+        schedule = adapter._parse_redemption_schedule(['大于等于30天', '0.00%'])
+        assert schedule == [{'start_day': 30, 'end_day': None, 'rate': 0.0}]
+        assert any('未覆盖 0 天' in p for p in validate_redemption_schedule(schedule))
+
     def test_validate_rejects_broken_schedules(self, adapter):
         """四类坏阶梯都必须判为不可用（写侧据此拒写）"""
         dup = [{'start_day': 0, 'end_day': 7, 'rate': 1.5}, {'start_day': 0, 'end_day': 7, 'rate': 0.75}]
