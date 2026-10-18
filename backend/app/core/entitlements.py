@@ -5,7 +5,7 @@ from functools import wraps
 
 from flask import abort, g
 
-from app.core.database import get_session
+from app.core import database
 from app.services.entitlement_check import PRO_FEATURES, check_entitlement, get_pro_status
 
 
@@ -26,7 +26,7 @@ def require_pro_feature(feature: str):
         @wraps(fn)
         def wrapper(*args, **kwargs):
             family_id = getattr(g, 'family_id', 1)
-            with get_session() as db:
+            with database.get_session() as db:
                 result = check_entitlement(db, family_id, feature)
 
             if not result.granted:
@@ -53,5 +53,5 @@ def require_pro_feature(feature: str):
 
 def get_pro_status_for_family(family_id: int) -> dict:
     """供 /pro/ 端点调用：一次性返回所有 feature 的状态位。"""
-    with get_session() as db:
+    with database.get_session() as db:
         return get_pro_status(db, family_id)
