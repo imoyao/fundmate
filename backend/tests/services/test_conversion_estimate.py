@@ -255,3 +255,87 @@ def test_estimate_rejects_money_fund_as_target(db, make_position, make_transacti
 
     with pytest.raises(ValueError, match='不能转换至货币基金'):
         _estimate(db, pos, in_symbol='000198')
+
+
+# ── #2348：按份额转入 / 人工修正费用 ──────────────────────────────
+
+
+def test_estimate_by_in_quantity(db, make_position, make_transaction):
+    """指定转入**份额**：金额由净值派生，差额进退款（真实确认单的主路径）。
+
+    确认单上写的是份额（用户申购时看到的也是份额），按金额反算会差几分钱。
+    """
+    _seed_two_funds(db)
+    pos = _make_out_position(db, make_position, make_transaction)
+
+    result = _estimate(db, pos, in_quantity=400.00)
+
+    assert result['in']['quantity'] == 400.00
+    # 400 份 × 净值 2.0 = 800.00 元
+    assert result['in']['amount'] == 800.00
+    assert result['refund']['amount'] == 185.12  # 985.12 − 800.00
+    # 守恒：转出金额 − 费用 = 转入金额 + 差额
+    assert round(result['out']['amount'] - result['out']['fee'], 2) == round(
+        result['in']['amount'] + result['refund']['amount'], 2
+    )
+
+
+def test_estimate_rejects_amount_and_quantity_together(db, make_position, make_transaction):
+    """金额与份额二选一，同时给直接拒绝（不让算法猜真相源）。"""
+    _seed_two_funds(db)
+    pos = _make_out_position(db, make_position, make_transaction)
+
+    with pytest.raises(ValueError, match='只能指定一个'):
+        _estimate(db, pos, in_amount=800.00, in_quantity=400.00)
+
+
+def test_estimate_fee_override(db, make_position, make_transaction):
+    """人工修正费用：覆盖估算值、重算净额与份额，并回报原估算值。
+
+    真实场景：基金公司活动免赎回费 / 钱包垫资口径不同，确认单上就是 0，
+    而费率表算出 13.50——此时账要跟确认单走，否则 realized_pnl 与 XIRR 全错。
+    """
+    _seed_two_funds(db)
+    pos = _make_out_position(db, make_position, make_transaction)
+
+    result = _estimate(db, pos, fee_override={'redeem': 0, 'compensate': 0})
+
+    assert result['out']['fee'] == 0.0
+    assert result['out']['fee_breakdown'] == {'redeem': 0.0, 'compensate': 0.0}
+    assert result['out']['fee_overridden'] is True
+    # 原估算值仍要回报，前端才能显示「已手工修正（原估算 13.50）」
+    assert result['out']['fee_estimated'] == {'redeem': 13.5, 'compensate': 1.38}
+    assert result['net_amount'] == 1000.00
+    assert result['in']['quantity'] == 500.00
+
+
+def test_estimate_partial_fee_override_keeps_other(db, make_position, make_transaction):
+    """只改一项：另一项沿用估算值（两项独立，不级联重算费率）。"""
+    _seed_two_funds(db)
+    pos = _make_out_position(db, make_position, make_transaction)
+
+    result = _estimate(db, pos, fee_override={'redeem': 10.00})
+
+    assert result['out']['fee_breakdown'] == {'redeem': 10.0, 'compensate': 1.38}
+    assert result['out']['fee'] == 11.38
+    assert result['out']['fee_overridden'] is True
+
+
+def test_estimate_rejects_fee_override_over_amount(db, make_position, make_transaction):
+    """手工费用 >= 转出金额：账没有意义，拒绝而不是算出负份额。"""
+    _seed_two_funds(db)
+    pos = _make_out_position(db, make_position, make_transaction)
+
+    with pytest.raises(ValueError, match='不能大于等于转出金额'):
+        _estimate(db, pos, fee_override={'redeem': 1000.00, 'compensate': 0})
+
+
+def test_estimate_no_override_reports_estimated(db, make_position, make_transaction):
+    """未修正时 `fee_overridden=False`，且 `fee_estimated` 与实收一致。"""
+    _seed_two_funds(db)
+    pos = _make_out_position(db, make_position, make_transaction)
+
+    result = _estimate(db, pos)
+
+    assert result['out']['fee_overridden'] is False
+    assert result['out']['fee_estimated'] == {'redeem': 13.5, 'compensate': 1.38}

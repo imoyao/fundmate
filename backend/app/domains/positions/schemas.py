@@ -73,6 +73,19 @@ class PositionCreate(BaseModel):
     model_config = ConfigDict(extra='allow')
 
 
+class ConversionFeeOverride(BaseModel):
+    """人工修正费用（#2348）。
+
+    真实确认单上的费用常与费率先算值不一致（基金公司活动、钱包垫资、持有期口径），
+    用户必须能改，否则账实永远差几分钱。约定：只覆盖**金额**，两项独立、
+    **不级联重算**（改赎回费不会重算补差费的费率阶梯）。
+    """
+
+    redeem: Optional[float] = Field(None, ge=0, description='赎回费（元）；缺省=沿用估算值')
+    compensate: Optional[float] = Field(None, ge=0, description='补差费（元）；缺省=沿用估算值')
+    model_config = ConfigDict(extra='forbid')
+
+
 class ConversionEstimate(BaseModel):
     """基金转换试算入参（只读，不落库）。
 
@@ -84,6 +97,10 @@ class ConversionEstimate(BaseModel):
     out_quantity: Optional[float] = Field(None, description='转出份额（份）；缺省或 <=0 = 全部转出')
     in_symbol: str = Field(..., description='转入基金代码（6位裸码）')
     in_amount: Optional[float] = Field(None, description='指定转入金额（元）；缺省 = 净额全部转入')
+    in_quantity: Optional[float] = Field(
+        None, description='指定转入份额（份，最多2位小数）；与 in_amount 二选一，缺省 = 净额全部转入'
+    )
+    fee_override: Optional[ConversionFeeOverride] = Field(None, description='人工修正赎回费/补差费（元）')
     trade_date: Optional[date] = Field(None, description='交易日期，缺省为今天')
 
 
@@ -99,6 +116,10 @@ class ConversionSubmit(BaseModel):
     out_quantity: Optional[float] = Field(None, description='转出份额（份）；缺省或 <=0 = 全部转出（按持仓精确值）')
     in_symbol: str = Field(..., description='转入基金代码（6位裸码）')
     in_amount: Optional[float] = Field(None, description='指定转入金额（元）；缺省 = 净额全部转入')
+    in_quantity: Optional[float] = Field(
+        None, description='指定转入份额（份，最多2位小数）；与 in_amount 二选一，缺省 = 净额全部转入'
+    )
+    fee_override: Optional[ConversionFeeOverride] = Field(None, description='人工修正赎回费/补差费（元）')
     refund_mode: Optional[str] = Field(
         None, description='退款去向：money_fund=账户绑定的类现金产品 / account_cash=退回账户现金；存在退款时必填'
     )
