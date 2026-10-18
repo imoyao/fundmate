@@ -55,7 +55,7 @@ class FundDetailEnrichJob(SyncJob):
         self._pre_run()
         self.logger.info('开始补充基金详情')
 
-        self.stats = {'enriched': 0, 'skipped': 0, 'errors': []}
+        self.stats = {'enriched': 0, 'skipped': 0, 'not_found': [], 'errors': []}
 
         if not targets:
             self.logger.info('无基金需要补充详情')
@@ -73,6 +73,11 @@ class FundDetailEnrichJob(SyncJob):
                 try:
                     fund = self.db.query(Fund).filter_by(fund_code=code).first()
                     if not fund:
+                        # 目标代码在库里不存在 → 必须显式记账。旧写法是静默 continue，
+                        # 于是「一个都没匹配上」会跑成 enriched 0 / skipped 0 / errors 0
+                        # 的假成功（2026-10-18 实测：指向了另一个库时整轮静默空跑）。
+                        # 空 ≠ 没拿到：拿不到就得说拿不到。
+                        self.stats['not_found'].append(code)
                         continue
                     # 今日已处理则跳过
                     if fund.last_nav_check and fund.last_nav_check.date() == date.today():
@@ -116,11 +121,35 @@ class FundDetailEnrichJob(SyncJob):
             time.sleep(1)  # 避免请求过快
 
         self._post_run()
+        # 目标一个都没匹配上：判 FAILED。「跑完了」不等于「做对了」——旧实现这里静默成功，
+        # 而调用方（含 get_last_sync_time 的增量基线）会把假成功当依据。
+        all_targets_missing = bool(self.stats['not_found']) and not (
+            self.stats['enriched'] or self.stats['skipped']
+        )
+        if all_targets_missing:
+            sample = ', '.join(self.stats['not_found'][:10])
+            logger.error(
+                f'{len(self.stats["not_found"])} 个目标代码在 funds 表里全部找不到'
+                f'（样本: {sample}）——本轮什么也没做。请确认目标是已入库基金，'
+                f'且连接的是预期数据库。'
+            )
+            self.stats['errors'].append(
+                {
+                    'stage': 'resolve_targets',
+                    'error': f'{len(self.stats["not_found"])} 个目标代码在 funds 表里不存在',
+                }
+            )
+        elif self.stats['not_found']:
+            logger.warning(
+                f'{len(self.stats["not_found"])} 个目标代码在 funds 表里不存在，已跳过'
+                f'（样本: {", ".join(self.stats["not_found"][:10])}）'
+            )
         # 有 errors 就判 FAILED：不能一边记录错误一边宣称成功（#1833）
         self.status = JobStatus.FAILED if self.stats.get('errors') else JobStatus.SUCCESS
         self.logger.info(
             f'基金详情补充完成: 新增 {self.stats["enriched"]}, '
-            f'跳过 {self.stats["skipped"]}, 错误 {len(self.stats["errors"])}'
+            f'跳过 {self.stats["skipped"]}, 未匹配 {len(self.stats["not_found"])}, '
+            f'错误 {len(self.stats["errors"])}'
         )
         return self._build_result()
 
