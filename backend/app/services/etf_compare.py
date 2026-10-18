@@ -32,6 +32,13 @@
   （%/年）三字段，由 ``services/etf_scale_fee`` 独立提供——规模走沪深两所 + 腾讯兜底
   （12h TTL 缓存），费率走东财 + 同花顺备源 + ``etf_fee_rates`` 小表旧值（30 天内免抓）。
   两条链各自降级，任一全挂只让对应列「—」。
+- **优选排名（#2334）**：rows 排序后**纯计算**追加 ``recommend_rank``（1~3 = 进优选小卡的
+  名次，不参评为 ``null``），零外部请求，只用 rows 已有字段。参评门槛三条全满足才参评：
+  ``tracking_diff_y1`` 非 null；``amount``（当日成交额，元）非 null 且 ``>= 10_000_000``
+  （恰 1000 万参评）；``scale_yi`` 非 null 且 ``>= 2``（恰 2 亿参评，#2333 降级导致 null
+  则不参评）。参评行按 ``tracking_diff_y1`` **降序**（大在前，稳定排序——跟踪差并列时保持
+  已排好的成交额序），前 3 名依次 1/2/3；**失败态**：其余所有行（未参评、落榜、全不参评）
+  一律 ``null``，全不参评时接口其余行为完全不变——门槛字段降级为 null 即不参评，宁缺勿滥不编数。
 
 缓存：整体结果 30min（盘中新浪快照会变，净值/日线日频不变，取折中）。
 负结果（含「两侧全空」的 ``{'data': None}``）同样进缓存——``CacheService`` 以
@@ -66,6 +73,16 @@ _ETF_COMPARE_CACHE = CacheService(namespace='index_detail')
 _ETF_COMPARE_TTL_SECONDS = 1800
 # 逐只日线回看天数：覆盖近 1 年窗口（12 个自然月 ≈ 366 天）+ 节假日余量
 _ETF_HIST_LOOKBACK_DAYS = 430
+
+# ── 优选排名门槛（#2334，用户拍板口径）──────────────────────────────
+# 当日成交额下限（元）：低于 1000 万的 ETF 流动性不足，买卖冲击成本高，不进优选小卡；
+# 恰 1000 万**参评**（边界闭区间）
+_RECOMMEND_MIN_AMOUNT = 10_000_000
+# 规模下限（亿元）：低于 2 亿有清盘风险，不进优选小卡；恰 2 亿**参评**（闭区间）。
+# #2333 规模链降级时该字段为 None → 判不满足（不参评），不按 0 也不编数
+_RECOMMEND_MIN_SCALE_YI = 2
+# 授予名次数：优选小卡只展示 3 只
+_RECOMMEND_TOP_N = 3
 
 
 # ── 纯函数：快照解析（便于确定性单测）──────────────────────────────────
@@ -164,6 +181,48 @@ def _etf_row_returns(etf_code: str) -> Optional[Dict[str, Optional[float]]]:
         return None
     result = compute_period_returns(rows, windows=_ETF_WINDOWS, volatility=False)
     return result['returns'] if result else None
+
+
+# ── 优选排名（#2334）：纯计算，零外部请求 ─────────────────────────────
+def _is_recommend_eligible(row: Dict[str, Any]) -> bool:
+    """参评门槛：三条全满足才参评（缺一即不参评）。
+
+    为什么逐条判 ``is not None`` 而不是直接比较：门槛字段都是**可降级**的
+    （快照挂 → amount None、规模链挂 → scale_yi None、日线/指数侧挂 → tracking_diff None），
+    None 与 0 是两回事——降级代表「不知道」，必须判不满足，绝不能让 None 蒙混过关。
+    """
+    tracking = row.get('tracking_diff_y1')
+    amount = row.get('amount')
+    scale = row.get('scale_yi')
+    return (
+        tracking is not None
+        and amount is not None
+        and amount >= _RECOMMEND_MIN_AMOUNT  # 恰 1000 万参评（闭区间）
+        and scale is not None
+        and scale >= _RECOMMEND_MIN_SCALE_YI  # 恰 2 亿参评（闭区间）
+    )
+
+
+def _assign_recommend_ranks(rows: List[Dict[str, Any]]) -> None:
+    """就地为 rows 写入 ``recommend_rank``（#2334 · ETF 对比表优选排名）。
+
+    判据（用户拍板口径，纯计算、不发任何外部请求，只用 rows 已有字段）：
+
+    - **参评门槛**（三条全满足才参评）：``tracking_diff_y1`` 非 null；``amount``
+      （当日成交额，元）非 null 且 ``>= 10_000_000``（恰 1000 万参评）；``scale_yi``
+      非 null 且 ``>= 2``（恰 2 亿参评，#2333 降级导致 null 则不参评）。
+    - **排序与授予**：参评行按 ``tracking_diff_y1`` **降序**（大在前）——Python sort 稳定，
+      跟踪差并列时保持调用方已排好的成交额序；前 3 名依次 ``recommend_rank = 1 / 2 / 3``。
+    - **失败态**：其余所有行（未参评、落榜）先铺底为 ``None``；全不参评 → 全 ``None``，
+      接口其余行为完全不变。
+    """
+    eligible = [row for row in rows if _is_recommend_eligible(row)]
+    # 降序（负号取反；tracking_diff 已排除 None，比较安全）；稳定排序保住并列时的成交额序
+    eligible.sort(key=lambda row: -row['tracking_diff_y1'])
+    for row in rows:
+        row['recommend_rank'] = None  # 先铺底：未参评/落榜一律 null
+    for rank, row in enumerate(eligible[:_RECOMMEND_TOP_N], start=1):
+        row['recommend_rank'] = rank
 
 
 # ── 编排层：关联清单 + 快照 + 逐只日线 + 跟踪差 ─────────────────────────
@@ -271,6 +330,11 @@ def _compute(db: Session, code: str) -> Dict[str, Any]:
 
     # 排序：成交额降序（活跃优先，None 沉底）；同额按代码稳定
     rows.sort(key=lambda r: (r['amount'] is None, -(r['amount'] or 0), r['code']))
+
+    # 优选排名（#2334）：在既有成交额序之上追加，纯计算零外部请求；
+    # 为什么放排序之后——排名自身会按 tracking_diff 重排参评子集，铺底 None 则保证
+    # 未参评行也有键（前端契约 recommend_rank: number | null，每行必有该键）
+    _assign_recommend_ranks(rows)
 
     nav_dates = [r['nav_date'] for r in rows if r.get('nav_date')]
     etf_latest = max(nav_dates) if nav_dates else None
