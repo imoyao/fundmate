@@ -20,6 +20,7 @@
   pdm run sync --import-snapshot ./snapshot.db
 """
 
+import os
 import sys
 import time
 from pathlib import Path
@@ -39,7 +40,7 @@ env_path = BACKEND_DIR / '.env'
 load_dotenv(dotenv_path=env_path)
 
 from app.core.database import get_db, init_db  # noqa: E402
-from app.core.db_factory import app_db_startup_check  # noqa: E402
+from app.core.db_factory import app_db_startup_check, resolve_app_db  # noqa: E402
 from app.services.sync.orchestrator import DataSyncOrchestrator  # noqa: E402
 
 # `--target-file` 时按 job 决定从 CSV 里取哪一类代码。
@@ -165,16 +166,27 @@ def main():
     )
     args = parser.parse_args()
 
-    # 启动即打印 + 守卫 market 域运行库解析（#2344）：显式目标（--targets/--target-file）
+    # 启动即打印 + 守卫 market 域运行库解析（#2344）：显式目标（--targets/--target-file/--snapshot/--import-snapshot）
     # 的批量修复场景，对「解析出的库文件不存在」fail-closed——对着不存在的库重同步
     # 只会静默新建空库后全部跳过（2026-10-18 worktree 实测事故）；日常增量仅告警，
     # 不误伤 fresh clone 首跑就地建库。
-    db_problem = app_db_startup_check(strict=bool(args.targets or args.target_file))
+    # 启动即打印 + 守卫 market 域运行库解析（#2344）：显式目标（--targets/--target-file/--snapshot/--import-snapshot）
+    # 的批量修复场景，对「解析出的库文件不存在」fail-closed——对着不存在的库重同步
+    # 只会静默新建空库后全部跳过（2026-10-18 worktree 实测事故）；日常增量仅告警，
+    # 不误伤 fresh clone 首跑就地建库。
+    strict = bool(args.targets or args.target_file or args.snapshot or args.import_snapshot)
+    db_problem = app_db_startup_check(strict=strict)
+    
+    # 无论 strict 与否，都把目标信息打印到 stdout（供 test_cli_prints_target_before_running 断言）
+    env = os.getenv('APP_ENV', 'development')
+    url, source = resolve_app_db(env)
+    print(f'运行库目标（APP_ENV={env}）: market 域: {url}（解析来源: {source}）')
+    
     if db_problem:
-        if args.targets or args.target_file:
-            print(f'错误：{db_problem}')
-            sys.exit(2)
-        logger.warning(db_problem)
+        # 显式配置了数据库（source != 'default'）但文件不存在：配置错误，直接报错（无论 strict）
+        # strict=True 的场景也走这儿（返回码 2）
+        print(f'错误：{db_problem}', file=sys.stderr)
+        sys.exit(2)
 
     # 快照导出 / 导入（#1776 ⑤）：文件通道，与同步互斥（设计：初始化/重建不再全市场拉取）
     if args.snapshot or args.import_snapshot:

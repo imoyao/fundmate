@@ -379,10 +379,11 @@ def app_db_startup_check(*, strict: bool) -> Optional[str]:
     1. **启动即打印**：当前连的是哪个库（URL + 决定它的环境变量 + APP_ENV），
        让「连错库」在日志首行即可见，而不是等统计口径偶然暴露；
     2. **分级守卫**：解析出的 SQLite 文件库不存在时——
-       - ``strict=True``（显式 ``--targets`` / ``--target-file`` 的批量修复场景）
-         返回**错误消息**（调用方应退出）：对着一个不存在的库做「修复性重同步」
-         没有第二种解释，绝不静默新建空库后跑成全部跳过；
-       - ``strict=False``（日常 ``--all`` / 单 job 增量）返回**告警消息**
+       - 显式配置了数据库（source != 'default'）但文件不存在：**直接报错**（配置错误，
+         非 fresh clone 场景，不应静默新建空库）；
+       - ``strict=True``（显式 ``--targets`` / ``--target-file`` / ``--snapshot`` 的批量修复场景）
+         且 source == 'default'：返回**错误消息**（调用方应退出）；
+       - ``strict=False`` 且 source == 'default'（fresh clone 首跑）：返回**告警消息**
          （调用方记 WARNING 后继续）：fresh clone 首跑本就要就地建库，不能误伤。
 
     返回 None 表示放行。Turso / Postgres 等非本地文件库无法判存在性，直接放行。
@@ -402,14 +403,22 @@ def app_db_startup_check(*, strict: bool) -> Optional[str]:
     if db_path.exists():
         return None
     resolved = db_path.resolve()
+    # 显式配置了数据库（source != 'default'）但文件不存在：配置错误，直接报错
+    if source != 'default':
+        return (
+            f'配置的运行库文件不存在（空库）：{resolved}（解析来源: {source}）。'
+            '配置的数据库文件不存在，请检查 APP_ENV / DEV_DATABASE_URL / DATABASE_URL / STAGING_DATABASE_URL / '
+            'TURSO_DATABASE_URL / DATABASE_URL 后重试。'
+        )
+    # source == 'default'：fresh clone 场景，按 strict 分级
     if strict:
         return (
-            f'market 域运行库文件不存在: {resolved}（解析来源: {source}）。'
-            '对着不存在的库跑显式目标同步，只会静默新建空库后全部跳过（#2344 事故形态）；'
+            f'配置的运行库文件不存在（空库）：{resolved}（解析来源: {source}）。'
+            '对着不存在的库跑显式目标同步/快照导出，只会静默新建空库后全部跳过（#2344 事故形态）；'
             '如本意是连既有库，请检查 APP_ENV / DEV_DATABASE_URL / DATABASE_URL 后重试。'
         )
     return (
-        f'market 域运行库文件不存在，将就地新建空库: {resolved}（解析来源: {source}）。'
+        f'运行库目标文件不存在，将就地新建空库: {resolved}（解析来源: {source}）。'
         '若你本意是连既有库（如在 worktree / 非 backend 目录下运行），'
         '请检查 APP_ENV / DEV_DATABASE_URL / DATABASE_URL（#2344）。'
     )

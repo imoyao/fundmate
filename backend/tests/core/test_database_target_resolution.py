@@ -52,6 +52,7 @@ def _neutral_env(**overrides: str) -> dict[str, str]:
     不中和的后果（#1727 同一教训）：子进程继承真 Turso / 真 dev 串，断言全部失去意义。
     """
     base = {k: v for k, v in os.environ.items() if k not in DB_ENV_VARS}
+    base['PYTHONUTF8'] = '1'  # 强制子进程用 UTF-8 输出，避免 Windows cp936 导致捕获乱码
     return {**base, **overrides}
 
 
