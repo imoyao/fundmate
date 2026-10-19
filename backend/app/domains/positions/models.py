@@ -14,6 +14,7 @@ from sqlalchemy import (
     UniqueConstraint,
     and_,
     event,
+    select,
 )
 from sqlalchemy.orm import validates
 
@@ -264,6 +265,41 @@ def _fill_position_symbol_norm(mapper, connection, target: Position) -> None:
     （全仓 grep 确认），若日后新增需一并处理（`bulk_*` 不触发 mapper 事件）。
     """
     target.symbol_norm = symbol_identity(target.symbol, target.asset_type)
+
+
+@event.listens_for(Position, 'before_insert')
+@event.listens_for(Position, 'before_update')
+def _fill_position_account_name(mapper, connection, target: Position) -> None:
+    """落库前用 `ledger_id` 补齐 `account_name` 冗余快照（账户的唯一真相是 `ledger_id`）。
+
+    ## 为什么需要
+
+    `account_name` 只是 `ledgers.name` 的冗余快照（供明细展示与「按账户分组」使用，
+    账户改名由 `ledger_write_service.sync_account_name_snapshots` 级联刷新）。它此前
+    **由各写入路径各自传递**——基金转换「转入腿」只传了 `ledger_id`、漏传
+    `account_name`，于是落成 NULL（2026-10-18 实测 position 618 / transaction 3001）。
+
+    NULL 一旦成为「按账户分组」的字典键，`flask.jsonify(sort_keys=True)` 会在
+    `str` 与 `None` 比较时抛 `TypeError`，整个持仓列表 500。问题不在排序，在于
+    数据本身就违反了「有账户就该有账户名」。
+
+    ## 为什么挂在 mapper 事件
+
+    与 `_fill_position_symbol_norm` 同因同解：本仓写持仓的入口有多处，靠调用方自觉
+    传冗余字段必然漏；事件挂在这里，写入路径无论怎么绕都会经过。
+
+    只补空值（`None` / 空串），**不覆盖**调用方显式传入的名字：导入解析出的机构展示名
+    可能与 ledger 名不同，那是有意的。`ledger_id` 为空（未归档持仓 / 导入影子行）时
+    也无从补齐，保持原值——它们确实没有账户，显示层兜底为「未指定账户」。
+    """
+    if not target.ledger_id or target.account_name:
+        return
+    # 延迟导入：ledgers 与 positions 同属 user 域，但模块加载期避免交叉导入。
+    from app.domains.ledgers.models import Ledger
+
+    name = connection.execute(select(Ledger.name).where(Ledger.id == target.ledger_id)).scalar()
+    if name:
+        target.account_name = name
 
 
 class PositionImportMeta(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):

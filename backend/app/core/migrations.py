@@ -1178,3 +1178,62 @@ def migrate_positions_cleared_at(engine: Engine) -> str:
 
     logger.info('[OK] positions.cleared_at 已新增（历史清仓行无法反推，保持 NULL）')
     return '[OK] 新增列 cleared_at（不回填：历史清仓行已删除，无可靠数据源）'
+
+
+def migrate_account_name_snapshot(engine: Engine) -> str:
+    """回填 `positions` / `transactions` 的 `account_name` 冗余快照空值。
+
+    ## 为什么需要
+
+    `account_name` 是 `ledgers.name` 的**冗余快照**（供明细展示与「按账户分组」使用，
+    账户改名由 `ledger_write_service.sync_account_name_snapshots` 级联刷新）。它的唯一
+    真相是 `ledger_id`，但历史上由各写入路径**分别传递**：基金转换「转入腿」只传了
+    `ledger_id`、漏传 `account_name`，于是落成 NULL（2026-10-18 实测 position 618 /
+    transaction 3001）。
+
+    NULL 一旦成为「按账户分组」的字典键，`flask.jsonify(sort_keys=True)` 会在
+    `str` 与 `None` 比较时抛 `TypeError`，整个持仓列表 500 —— 问题不在排序，
+    在数据本身违反了「有账户就该有账户名」。
+
+    代码侧已由 `Position` 的 `before_insert` / `before_update` 事件兜住**新写入**；
+    本迁移收编**存量**行，否则「新数据按新规矩、老数据按老规矩」两套真相会长期并存
+    （改口径时存量必须一起收编，见 AGENTS.md）。
+
+    ## 口径
+
+    只补 `ledger_id IS NOT NULL` 且 `account_name` 为 `NULL` / 空串的行；`ledger_id`
+    为空（未归档持仓 / 导入影子行）的保持原样 —— 它们确实没有账户，显示层的
+    「未指定账户」是对这类行的正确兜底。逐行 `UPDATE ... WHERE` 而非全表覆盖，
+    幂等、可重复跑。
+
+    非 SQLite 引擎跳过（由 ORM 模型 / 迁移工具负责）。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，冗余快照由 ORM 模型/迁移工具负责'
+
+    tables = set(inspect(engine).get_table_names())
+    missing = [t for t in ('positions', 'transactions', 'ledgers') if t not in tables]
+    if missing:
+        return f'[SKIP] 缺表 {missing}（空库，init_db 将按新模型建表）'
+
+    actions: list[str] = []
+    with engine.begin() as conn:
+        for table in ('positions', 'transactions'):
+            res = conn.execute(
+                text(
+                    f'UPDATE {table} '
+                    f'SET account_name = (SELECT name FROM ledgers WHERE ledgers.id = {table}.ledger_id) '
+                    f'WHERE ledger_id IS NOT NULL '
+                    f"  AND (account_name IS NULL OR account_name = '') "
+                    f'  AND EXISTS (SELECT 1 FROM ledgers '
+                    f'              WHERE ledgers.id = {table}.ledger_id '
+                    f"                AND ledgers.name IS NOT NULL AND ledgers.name != '')"
+                )
+            )
+            if res.rowcount:
+                actions.append(f'{table}: 回填 {res.rowcount} 行')
+    if not actions:
+        return '[OK] account_name 快照无空值'
+    logger.info('[OK] account_name 冗余快照已回填: {}', '; '.join(actions))
+    return '[OK] ' + '; '.join(actions)
