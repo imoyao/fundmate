@@ -65,11 +65,17 @@
 
 ## 保留判据只认**人类**评论（2026-10-19，源 CNB #552 / #564）
 
-首版数的是 `comment_count`（总评论数），于是**分诊机器人给谁先贴结论，谁就成了正本**
-（GitHub #2285 那一组：06:34 贴 `CNB #535`、06:35 贴 `CNB #552`，用户 06:58 的追问恰好
-落在 `CNB #552` 上，旧判据便把 `CNB #552` 当正本、反去关 `CNB #535`）。
-现改用 `human_comment_count()`（见上方「机器人评论不算讨论」），
-评论列表读不到 ⇒ 记读取失败、`--apply` 直接拒绝动手（#171）。
+首版数的是 `comment_count`（总评论数）。2026-10-19 起分诊作业给**每一张**镜像卡各贴一条
+「分诊结论」评论 ⇒ 同一编号下十几张重复卡**同时**变成「有 1 条评论」⇒ 判据 1 对整组失效，
+退化成「编号最小」，而**留哪张取决于分诊评论先贴到谁头上**。
+
+实测后果：CNB `#196`（GitHub `#2139`，编号最小的正本）被留成 `#551`、`#196` 反被关闭；
+`#552`（GitHub `#2285`）同样被误关——那一组 06:34 贴 `CNB #535`、06:35 贴 `CNB #552`，
+用户 06:58 的追问恰好落在 `CNB #552` 上，旧判据便把 `CNB #552` 当正本、反去关 `CNB #535`。
+
+故判据 1 收紧为：**只有「人类评论」算讨论**（`human_comment_count()`，
+NPC / `github-actions` / `*-bot` 一律不计）。评论列表读不到 ⇒ 记读取失败、
+`--apply` 直接拒绝动手 —— **不得**退化成「没有人类评论」，那正是误关的方向（#171）。
 
 ## 失败态（#171 的纪律）
 
@@ -115,7 +121,7 @@ def _comment_count(detail: dict[str, Any]) -> int:
 
 
 def human_comment_count(comments: list[dict[str, Any]]) -> int:
-    """只数「人类」评论：机器人评论（分诊结论 / CI 通知）不算讨论。
+    """只数「人类」评论：机器人评论（分诊结论 / CI 通知）不算讨论（CNB #564）。
 
     判据必须是**评论的产出者**，不是条数 —— 分诊作业会给每张镜像卡贴同一条结论，
     于是「有评论」在重复卡里**全部同时成立**，用它选保留卡等于随机挑一张。
@@ -123,6 +129,8 @@ def human_comment_count(comments: list[dict[str, Any]]) -> int:
     """
     count = 0
     for c in comments:
+        if not isinstance(c, dict):
+            continue
         author = c.get('author') or {}
         name = str(author.get('username') or '')
         if author.get('is_npc') or name.endswith('bot') or name in BOT_AUTHORS:
