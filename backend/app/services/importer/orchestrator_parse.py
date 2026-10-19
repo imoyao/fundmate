@@ -415,7 +415,7 @@ class ParsingMixin:
         if isinstance(trade_date, datetime):
             trade_date = trade_date.date()
 
-        is_dividend = record.business_type in ('dividend_cash', 'dividend_reinvest')
+        is_dividend = record.business_type in ('dividend_cash', 'dividend_reinvest', 'dividend')
         # 金融口径收口（#1375 阶段二）：record 全部金额字段均为 Decimal，
         # 数据字典全程 Decimal 直传，禁止塌缩到 float 域中转；Money 各入口原生接受 Decimal
         avg_price = record.amount if is_dividend else (record.nav if record.nav else Decimal('0'))
@@ -447,7 +447,9 @@ class ParsingMixin:
             'confirm_date': confirm_date,
             'trade_date': trade_date,
             'fee': fee_val,  # 原始元
-            'notes': '',
+            # raw_text 承载上游说明（自动抓取的分红/配股会把「10派2元 × 持有1000股」写在这里）：
+            # 自动记账的流水没有人工输入，notes 空着等于用户看不懂这笔钱从哪来（#541）。
+            'notes': record.raw_text or '',
             'import_hash': record.import_hash,
             'allocation': 'liquid' if record.asset_type in ('money_fund', 'reverse_repo') else 'longterm',
             'op_type': record.business_type,
@@ -455,4 +457,6 @@ class ParsingMixin:
             'dividend_amount': record.amount if is_dividend else Decimal('0'),  # 原始元
             'net_amount': net_amount_val,  # 原始元
             'family_id': self.family_id,
+            # 配股缴款数量由比例算出，不走「一手起买」申报校验（#541）
+            'skip_lot_check': getattr(record, 'raw_op_type', '') == '配股缴款',
         }

@@ -1192,10 +1192,15 @@ class PositionService:
             if price <= 0:
                 raise ValueError('价格必须大于 0')
 
-            # lot check：买入仅校验本次数量合法（起买单位/步长），与当前持有量无关
-            valid, err_msg = validate_buy(symbol, data.get('market', ''), asset_type, qty)
-            if not valid:
-                raise ValueError(err_msg)
+            # lot check：买入仅校验本次数量合法（起买单位/步长），与当前持有量无关。
+            # #541 豁免：配股缴款不是**申报**买入，数量由配股比例算出（11 股这种非整手
+            # 结果完全正常），拿「一手起买」去卡它会把真实配股判成非法交易。
+            if data.get('skip_lot_check'):
+                pass
+            else:
+                valid, err_msg = validate_buy(symbol, data.get('market', ''), asset_type, qty)
+                if not valid:
+                    raise ValueError(err_msg)
 
             if price <= 0:
                 raise SBException(
