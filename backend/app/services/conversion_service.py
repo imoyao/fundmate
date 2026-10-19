@@ -406,6 +406,12 @@ class ConversionService:
                 'import_hash': f'{link_group_id}#conv-in',
                 'notes': '基金转换-转入',
                 'ledger_id': position.ledger_id,
+                # account_name 是 ledger 的冗余快照，必须与 ledger_id 一起落库：
+                # 只传 ledger_id 会让 positions.account_name 落成 NULL，按账户分组
+                # 时以 None 作字典键 → jsonify(sort_keys=True) 抛 TypeError（实测
+                # position 618 / transaction 3001）。模型层另有 mapper 事件兜底，
+                # 这里显式传入是为了让意图在调用点可见，也不依赖兜底。
+                'account_name': c['ledger'].name,
                 'family_id': family_id,
                 'venue': 'OTC',
                 'extra': extra_in,

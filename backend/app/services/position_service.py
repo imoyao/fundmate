@@ -2052,7 +2052,13 @@ class PositionService:
                 first_buy_dates = {row.position_id: row.confirm_date for row in buy_dates_query}
 
             for p in positions:
-                account = p.account_name
+                # 分组键必须是字符串：`account_name` 在**有账户**时已由模型层 mapper
+                # 事件按 ledger_id 补齐（见 domains/positions/models.py），不再可能为 NULL；
+                # 但 `ledger_id` 为空的持仓（探市迁移 / 导入影子行）确实没有账户，
+                # 其 account_name 仍为 None，作字典键会撞上 flask.jsonify 的
+                # sort_keys=True（str 与 None 不可比）→ TypeError。
+                # 回退文案与 summary_service 的账户汇总口径一致（'未指定账户'）。
+                account = p.account_name or '未指定账户'
                 if account not in result:
                     result[account] = []
 
