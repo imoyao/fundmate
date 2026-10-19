@@ -395,9 +395,10 @@ class TestFetchDegradation(unittest.TestCase):
     """
 
     def _page(self, items):
+        """一页响应 = `(body, headers)` —— 翻页读 `Link` 头（源 CNB #586）。"""
         import json as _json
 
-        return _json.dumps(items).encode()
+        return _json.dumps(items).encode(), {}
 
     def test_限额用尽返回已抓到的部分(self):
         import urllib.error
@@ -420,7 +421,7 @@ class TestFetchDegradation(unittest.TestCase):
 
         with (
             mock.patch.object(sync, '_github_headers', return_value={}),
-            mock.patch('github_cnb_issues._request', side_effect=fake_request),
+            mock.patch('github_cnb_issues._request_with_headers', side_effect=fake_request),
         ):
             got, complete = sync.fetch_github_issues_by_number()
         self.assertEqual(sorted(got), list(range(1, 101)), '限额中断时应返回已拿到的部分，而不是抛异常')
@@ -431,7 +432,7 @@ class TestFetchDegradation(unittest.TestCase):
 
         with (
             mock.patch.object(sync, '_github_headers', return_value={}),
-            mock.patch('github_cnb_issues._request', return_value=page),
+            mock.patch('github_cnb_issues._request_with_headers', return_value=page),
         ):
             got, complete = sync.fetch_github_issues_by_number()
         self.assertEqual(sorted(got), [1], 'GitHub 的 /issues 会混入 PR，必须剔除')
@@ -443,7 +444,7 @@ class TestFetchDegradation(unittest.TestCase):
         err = urllib.error.HTTPError('u', 500, 'boom', {}, None)
         with (
             mock.patch.object(sync, '_github_headers', return_value={}),
-            mock.patch('github_cnb_issues._request', side_effect=err),
+            mock.patch('github_cnb_issues._request_with_headers', side_effect=err),
         ):
             got, complete = sync.fetch_github_issues_by_number()
         self.assertEqual(got, {}, '一次性网络错不该把作业带崩')

@@ -29,6 +29,10 @@ GUARD = REPO / 'scripts' / 'guard_cnb_script_task_git.py'
 # 探针会随分支推进自己失效（恒绿）。
 BEFORE_SHA = '7b833c4c1f39e87a9c51335039332609ff1ece04'
 
+# 「引用时效自检」缺 git 的那一版（源 CNB #586）：`dev` 上 `f91ef1ab` 的 `.cnb.yml`。
+# 同样钉不可变 SHA —— 修复合入后 `origin/dev` 就是好的，探针会自己失效（恒绿）。
+MIRROR_REFS_BEFORE_SHA = 'f91ef1ab815fb0c62f95589de6a728a7c9b82015'
+
 PROBE_BAD = (
     'dev:\n'
     '  push:\n'
@@ -138,6 +142,27 @@ class TestGuardCnbScriptTaskGit(unittest.TestCase):
         )
         self.assertIn('scripts/bridge/check_branch_divergence.py', found)
 
+    def test_transitive_git_dependency_is_derived(self) -> None:
+        """**传递依赖**必须被认出来（源 CNB #586，2026-10-19 实测漏网）。
+
+        `check_mirror_refs.py` 自己一行 git 都没有 —— git 是经 `check_issue_refs.py`
+        调进去的（`importlib` 按路径加载，刻意不 import 模块）。首版判据只认「自己写了
+        `subprocess.run(['git'…])`」，于是漏掉它：镜像 job 的「引用时效自检」自上线起
+        每轮都崩在 `FileNotFoundError: 'git'`，而守卫报「✅ 均自带 git 供给」。
+
+        探针：把 `_local_deps` 的 importlib 分支去掉（只认 `from/import`）⇒ 本用例转红。
+        """
+        g = _import_guard()
+        found = g.git_driven_scripts(REPO)
+        self.assertIn(
+            'scripts/bridge/check_mirror_refs.py',
+            found,
+            'git_driven_scripts() 没做传递闭包 —— 经 importlib 复用 git 驱动脚本的'
+            ' `check_mirror_refs.py` 会漏网，它的 stage 崩了也没人知道（#586）',
+        )
+        # 反向：纯 python、不碰 git 的脚本不得被误判（防判据过宽）。
+        self.assertNotIn('scripts/bridge/github_cnb_issues.py', found)
+
     def test_self_check_passes(self) -> None:
         r = subprocess.run(
             [sys.executable, str(GUARD), '--file', str(REPO / '.cnb.yml')],
@@ -172,6 +197,26 @@ class TestGuardCnbScriptTaskGit(unittest.TestCase):
         """修复后的真实 `.cnb.yml` 必须是绿的（防修复没接上判据）。"""
         r = run_guard((REPO / '.cnb.yml').read_text(encoding='utf-8'), self.tmp)
         self.assertEqual(r.returncode, 0, f'修复后的配置仍报红：{r.stdout}{r.stderr}')
+
+    def test_before_fix_mirror_refs_stage_turns_red(self) -> None:
+        """回退探针：修复前的 `dev`（`f91ef1ab`）上那条自检 stage 必须转红。
+
+        钉**不可变 SHA**，不读 `origin/dev`：修复一合入那里就是好的，探针会自己失效（恒绿）。
+        """
+        r = subprocess.run(
+            ['git', 'show', f'{MIRROR_REFS_BEFORE_SHA}:.cnb.yml'],
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+        )
+        if r.returncode != 0:
+            self.skipTest(f'取不到 {MIRROR_REFS_BEFORE_SHA}（浅克隆）—— 跳过回退探针')
+        g = run_guard(r.stdout, self.tmp)
+        self.assertEqual(
+            g.returncode, 1, f'修复前那条 stage 没被转红（判据恒绿）：{g.stdout}{g.stderr}'
+        )
+        self.assertIn('check_mirror_refs.py', g.stdout + g.stderr)
 
 
 if __name__ == '__main__':

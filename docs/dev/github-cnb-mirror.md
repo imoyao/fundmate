@@ -344,9 +344,21 @@ D48 时代已有 **13 张卡**发过回流评论、却仍是 `open`（旧口径�
 **修复后复跑立刻露出第二个独立的坑**：GitHub 已对**大结果集禁用 page 参数**——
 page 9/10 正常（各 100 条）、**page 11 直接 422**（阈值 1000 条），
 报 `Pagination with the page parameter is not supported for large datasets, please use cursor based pagination`。
-而镜像卡是 `#783`~`#2050` 的**老卡**，`sort=updated` 会把它们排到 1000 名之外 ⇒
-**靠后的镜像卡永远落在可达窗口之外**。故「按编号直查（`GET /issues/{n}`）替代翻全量列表」
-不是优化项，而是**前置必修**；在此之前，`complete=False` 会如实报出这个不完整。
+
+**已修（源 CNB #586，2026-10-19）**：游标就在**同一份响应的 `Link` 头**里
+（`rel="next"` 那段 URL 带 `after=…`），而代码只读 body ⇒ 只能继续拼 `page=` ⇒ 永远撞墙。
+现在两处翻页（建卡 `fetch_github_open_issues` + 回流 `fetch_github_issues_by_number`）
+**收敛成一处** `fetch_github_issues()`，跟着 `Link` 翻。实测差异不是「少几张」：
+
+| | 修复前 | 修复后 |
+|---|---|---|
+| 状态回流判定出的漂移 | **1 张** | **19 张**（`--report` 本地复算） |
+
+`422` 且**没给** `Link` 时明说「拿不到后续页」并置 `complete=False`，
+**不得**退化成「就这么多」（#171 的失败态纪律）。
+
+> 「按编号直查（`GET /issues/{n}`）替代翻全量列表」仍是可选的优化项，但**不再是前置必修**
+> —— 游标分页已经能把 1000 名之后的卡取回来。
 
 ### 幂等键带上 GitHub 的 `updated_at`
 
@@ -2780,3 +2792,83 @@ stage: machine_branch.py --apply --push --merge-sync   → rc=3（结果已落�
 
 > **每次看到「合并成功、推送失败」，先看推送的**目标**是不是共享分支。**
 > 一次性分支随便覆盖，共享分支永远要过门禁——这两件事必须用两套通道。
+
+---
+
+## 28. 同一次排查里另外三处「一直绿着没干活」（源 CNB #586，2026-10-19）  <!-- cross-repo-ref-allow -->
+
+§27 修的是「必红」，本节修的是**反过来**的那类：**stage 报 success，但那件事从来没跑成。**
+两类同样贵——红灯至少有人去修。
+
+### 28.1 `.cnb.yml` 的 shell 段行尾挂了 HTML 注释 ⇒ 整个 `if` 块解析失败
+
+```yaml
+script: |
+  if [ $rc -eq 1 ]; then
+    echo "   解冲突见 §26.4 …"  <!-- cross-repo-ref-allow -->     # ← 这一行
+  elif [ $rc -eq 2 ]; then
+    echo "结论不可信"
+  fi
+  exit $rc
+```
+
+`<!-- … -->` 在 shell 里**不是注释**。`dash` / `bash` 都报：
+
+```text
+sh: 48: Syntax error: newline unexpected
+```
+
+后果比「少打一行日志」重得多：**整个 `if / elif` 块不执行**，于是
+
+- `rc=1`（两侧有冲突）时，冲突清单与处置指引**一句都不打**；
+- `rc=2`（拿不到输入）时，「结论不可信」那句**也不打**；
+- 只剩最后的 `exit $rc`。
+
+而这行注释原本是**给跨仓引用守卫的豁免标记**（`cross-repo-ref-allow`）——
+为了让守卫别误报，把构建日志里唯一的人话给干掉了。实测 `cnb-0rc-1k58p671h`
+的 stage 日志里那条 `Syntax error` 就排在 `❌ 推 dev 失败` 之后，
+**读的人会以为语法错误是 push 失败的结果**，方向直接反了。
+
+修法：豁免标记改成**行尾 shell 注释** `# cross-repo-ref-allow`（守卫按「行内含」判定，
+shell 也当它是注释，两边都满足）。
+
+> 判据：本仓目前没有「shell 段语法」的静态守卫。**加一条并不难**（把每段 `script`
+> 抽出来喂 `dash -n`），但那是另一件事，故本次只修现场；`docs` 里留这条是为了让下一个人
+> 知道「YAML 能解析 ≠ shell 能解析」。
+
+### 28.2 「引用时效自检」自上线起每轮都崩，但报 success
+
+```text
+FileNotFoundError: [Errno 2] No such file or directory: 'git'
+  File "check_issue_refs.py", line 122, in _git
+```
+
+`python:3.12-slim` 不含 git（CNB #517 记过一次）。这次漏的是**间接调用**：
+`check_mirror_refs.py` 自己**一行 git 都没有**，git 是经 `check_issue_refs.py` 调进去的
+（`importlib.spec_from_file_location` 按路径加载，刻意不 import 模块以避开
+`github_cnb_issues` 的依赖）。而 `guard_cnb_script_task_git.py` 首版只认
+「自己写了 `subprocess.run(['git'…])` / `_git(`」的脚本 ⇒ **看不见它**，报「✅ 均自带 git 供给」。
+
+判据改成**传递闭包**：从 `scripts/**/*.py` 里认出三种本仓内引用
+（`import x` / `from x import y` / `spec_from_file_location(…, 'x.py')`），
+谁引用了 git 驱动脚本，它自己也算 git 驱动。改完立刻报出两条真实缺陷
+（`dev` 的 cron 与 `$` 的 web_trigger 各一处）。
+
+> 这正是本仓反复踩的那一类：**判据只看得见它认识的东西。** 凡「扫调用点」的判据都要问
+> 一句：**有没有一种方式绕过这个调用点？** 这里的方式是 `importlib`。
+
+### 28.3 GitHub 422：结论被砍成 1/42
+
+见 §8「修复后复跑立刻露出第二个独立的坑」那一节末尾的对照表。
+
+### 28.4 三条的共性
+
+| | 失败态 | 谁在报绿 |
+|---|---|---|
+| 28.1 | shell 语法错 | stage 末尾的 `exit $rc`（前两句没执行） |
+| 28.2 | `FileNotFoundError` | `\|\| true` |
+| 28.3 | 只拿到前 1000 张 | 脚本自己（把 422 当「拉不全」而非「请求错了」） |
+
+> **「跑了」与「跑对了」是两个问题，而 CI 只回答第一个。** 三者都跑过了，都绿着，
+> 都什么也没干成。所以每一条自动作业都该配一句「**怎么证明它这次真的干了活**」——
+> 对 28.2 是「装完 `git --version` 自证」，对 28.3 是「判定的漂移数与本地 `--report` 对得上」。
