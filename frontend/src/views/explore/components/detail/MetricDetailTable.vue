@@ -127,7 +127,7 @@ const rowClassName = ({ row }: { row: any }) => (row?.stale ? "is-stale" : "");
 .source-tag {
   display: inline-block;
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 1.4;
   color: var(--text-secondary);
   background: var(--bg-soft);

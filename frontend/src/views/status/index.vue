@@ -299,7 +299,7 @@ onMounted(fetchHealth);
 
   &__icon {
     flex: 0 0 auto;
-    font-size: 28px;
+    font-size: var(--text-display);
   }
 
   &--ok &__icon {
@@ -336,7 +336,7 @@ onMounted(fetchHealth);
 
   &__meta {
     margin: 4px 0 0;
-    font-size: 12px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
   }
 }
@@ -387,7 +387,7 @@ onMounted(fetchHealth);
   }
 
   &__name {
-    font-size: 15px;
+    font-size: var(--text-body);
     color: var(--text-primary);
   }
 

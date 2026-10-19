@@ -286,7 +286,7 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
 /* 涨跌额跟在涨跌幅后面（+1.23）：次要信息，字号与色都退一档 */
 .stock-section__delta {
   margin-left: var(--space-1);
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 </style>

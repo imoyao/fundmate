@@ -274,14 +274,14 @@ watch(() => props.symbol, load, { immediate: true });
   display: flex;
   gap: var(--space-2);
   justify-content: space-between;
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .pro-alloc__skipped,
 .pro-alloc__footnote {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-tertiary-ink);
 }
@@ -301,7 +301,7 @@ watch(() => props.symbol, load, { immediate: true });
 
 .pro-alloc__empty-desc {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-secondary);
 }

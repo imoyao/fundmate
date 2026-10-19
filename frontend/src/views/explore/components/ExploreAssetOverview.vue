@@ -402,7 +402,7 @@ onMounted(() => {
   &__icon {
     flex-shrink: 0;
     margin-top: 2px;
-    font-size: 15px;
+    font-size: var(--text-body);
 
     /* audit-text-contrast: exempt 非文本图形（图标字形），按 WCAG 1.4.11 需 3:1，本令牌在页底 / 卡片底实测 3.57~3.69:1，达标；
        若改用 -ink 会与相邻正文同权，反而压平层级。登记见 docs/spec/tech-debt.md（#1586） */
@@ -630,7 +630,7 @@ onMounted(() => {
   &__caliber {
     flex-shrink: 0;
     padding: 1px 6px;
-    font-size: 12px;
+    font-size: var(--text-label);
     color: var(--text-secondary);
     cursor: help;
     background: var(--bg-soft);
@@ -645,7 +645,7 @@ onMounted(() => {
        不适用 WCAG 对 inactive component 的豁免，故改用文字级令牌（5.78:1）。 */
     &--na {
       font-family: var(--font-mono);
-      font-size: 28px;
+      font-size: var(--text-display);
       font-weight: 700;
       color: var(--text-tertiary-ink);
     }
@@ -759,7 +759,7 @@ onMounted(() => {
   &__foot {
     padding-top: 10px;
     margin-top: 10px;
-    font-size: 12px;
+    font-size: var(--text-label);
     line-height: 1.6;
     color: var(--text-secondary);
     border-top: 1px solid var(--color-warning);

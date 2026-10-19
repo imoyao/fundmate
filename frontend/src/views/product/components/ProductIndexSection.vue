@@ -214,7 +214,7 @@ watch(() => props.symbol, load, { immediate: true });
 }
 
 .index-section__sub {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 400;
   color: var(--text-tertiary-ink);
 }

@@ -665,7 +665,7 @@ onMounted(() => {
 
 .opportunity-tag {
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   white-space: nowrap;
   background: var(--border-light);
@@ -699,14 +699,14 @@ onMounted(() => {
 }
 
 .rank-updated {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .rank-stale-pill {
   padding: 2px 8px;
   margin-left: 8px;
-  font-size: 11px;
+  font-size: var(--text-label);
   font-weight: 500;
   line-height: 1.4;
   color: var(--color-warning-ink);
@@ -772,7 +772,7 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: 14px;
   margin-bottom: 10px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

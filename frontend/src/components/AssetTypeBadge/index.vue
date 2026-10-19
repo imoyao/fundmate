@@ -68,7 +68,7 @@ const lightStyle = computed(() => ({
   align-items: center;
   justify-content: center;
   padding: 1px 6px; /* 左右稍微多一点空间 */
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 500;
   white-space: nowrap;
   border-radius: 8px; /* 更圆的胶囊 */
@@ -77,7 +77,7 @@ const lightStyle = computed(() => ({
 /* 标签模式（el-tag）保持 Element Plus 原生结构，仅调整内部样式 */
 .asset-type-badge--tag {
   padding: 1px 6px !important;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.4 !important;
   border-radius: 8px !important;
 }

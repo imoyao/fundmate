@@ -494,7 +494,7 @@ watch(() => props.symbol, load, { immediate: true });
      同款修法：图标作为 flex item 跟随标签同行。 */
   display: inline-flex;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -504,7 +504,7 @@ watch(() => props.symbol, load, { immediate: true });
 }
 
 .performance-section__tip-icon {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   cursor: help;
 }
@@ -534,7 +534,7 @@ watch(() => props.symbol, load, { immediate: true });
 /* 标签旁的次要说明（「已 3 个月」「近3年 · 同类内可比」）：12px 三级色，不抢主信息 */
 .performance-section__aside {
   margin-left: var(--space-1);
-  font-size: 11px;
+  font-size: var(--text-label);
   font-weight: 400;
   color: var(--text-tertiary-ink);
 }
@@ -542,14 +542,14 @@ watch(() => props.symbol, load, { immediate: true });
 /* 口径副行（高点/低点日期）：比正文再小一档 */
 .performance-section__sub {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 /* 口径告警：暖沙金文字级（--color-warning 只许作底/边，禁作前景，见 #1545） */
 .performance-section__caveat {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--color-warning-ink);
 }
 

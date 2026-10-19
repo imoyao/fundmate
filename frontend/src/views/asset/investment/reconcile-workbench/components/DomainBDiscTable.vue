@@ -103,7 +103,7 @@ const emit = defineEmits<{
 
 .disc-type {
   padding: 1px 8px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   background: var(--bg-soft);
   border-radius: 4px;
@@ -123,7 +123,7 @@ const emit = defineEmits<{
 
 .disc-status {
   padding: 1px 8px;
-  font-size: 12px;
+  font-size: var(--text-label);
   border-radius: 999px;
 }
 
@@ -143,7 +143,7 @@ const emit = defineEmits<{
 }
 
 .disc-muted {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 </style>

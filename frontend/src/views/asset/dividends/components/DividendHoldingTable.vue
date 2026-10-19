@@ -144,7 +144,7 @@ const summaryText = computed(
 }
 
 .holding-table__summary {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary);
 }
 

@@ -304,7 +304,7 @@ watch(() => props.code, load, { immediate: true });
 
 <style scoped>
 .advisor-section__sub {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -336,7 +336,7 @@ watch(() => props.code, load, { immediate: true });
 }
 
 .advisor-section__metric-label {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

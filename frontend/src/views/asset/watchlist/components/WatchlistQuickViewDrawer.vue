@@ -481,7 +481,7 @@ function ratioText(it: AdvisorAdjustItem): string {
   display: flex;
   gap: 8px;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -531,7 +531,7 @@ function ratioText(it: AdvisorAdjustItem): string {
 
 .wqv-label {
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -596,7 +596,7 @@ function ratioText(it: AdvisorAdjustItem): string {
   align-items: baseline;
   justify-content: space-between;
   padding: 2px 0;
-  font-size: 12px;
+  font-size: var(--text-label);
 }
 
 .wqv-li__name {
@@ -644,7 +644,7 @@ function ratioText(it: AdvisorAdjustItem): string {
 }
 
 .wqv-hint {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 </style>

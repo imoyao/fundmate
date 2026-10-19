@@ -131,7 +131,7 @@ function toggle() {
 
 .institution-sub {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -187,7 +187,7 @@ function toggle() {
 .item-code {
   flex: none;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

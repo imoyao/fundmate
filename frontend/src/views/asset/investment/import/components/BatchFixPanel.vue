@@ -646,7 +646,7 @@ const showRepoDialog = ref(false);
 
 .bf-mode {
   padding: 2px 8px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   background: var(--bg-subtle);
   border: 1px solid var(--border-default);
@@ -711,13 +711,13 @@ const showRepoDialog = ref(false);
 .bf-section-desc {
   flex: 1;
   min-width: 0;
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .bf-section-meta {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--color-warning-ink);
 }
 
@@ -788,19 +788,19 @@ const showRepoDialog = ref(false);
 }
 
 .bf-card-meta {
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .bf-card-error {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--color-danger-ink, var(--color-warning-ink));
 }
 
 .bf-card-diff {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -822,7 +822,7 @@ const showRepoDialog = ref(false);
 
 .bf-empty {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -835,7 +835,7 @@ const showRepoDialog = ref(false);
 
 .bf-dialog-note {
   margin: 8px 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 </style>

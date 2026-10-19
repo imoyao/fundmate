@@ -149,7 +149,7 @@ const migrationBindingHint = computed(() => {
 .mig-option__inst {
   flex-shrink: 0;
   padding: 0 8px;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 20px;
   color: var(--text-secondary);
   background: var(--bg-soft);
@@ -165,6 +165,6 @@ const migrationBindingHint = computed(() => {
 /* 未绑定销售机构的提示文案 */
 .mig-bind-hint {
   margin: var(--space-1) 0 0;
-  font-size: 12px;
+  font-size: var(--text-label);
 }
 </style>

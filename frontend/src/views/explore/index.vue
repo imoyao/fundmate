@@ -453,7 +453,7 @@ onMounted(startRealtime);
 
   &__hint {
     margin-left: auto;
-    font-size: 12px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
     white-space: nowrap;
   }
@@ -526,7 +526,7 @@ onMounted(startRealtime);
   }
 
   &__title {
-    font-size: 15px;
+    font-size: var(--text-body);
     font-weight: 600;
     color: var(--text-primary);
   }
@@ -561,7 +561,7 @@ onMounted(startRealtime);
   }
 
   &__title {
-    font-size: 15px;
+    font-size: var(--text-body);
     font-weight: 600;
     color: var(--text-primary);
   }
@@ -588,7 +588,7 @@ onMounted(startRealtime);
     width: 28px;
     height: 28px;
     padding: 0;
-    font-size: 15px;
+    font-size: var(--text-body);
 
     /* audit-text-contrast: exempt 非文本图形（图标字形），按 WCAG 1.4.11 需 3:1，本令牌在页底 / 卡片底实测 3.57~3.69:1，达标；
        若改用 -ink 会与相邻正文同权，反而压平层级。登记见 docs/spec/tech-debt.md（#1586） */
@@ -631,7 +631,7 @@ onMounted(startRealtime);
   }
 
   &__title {
-    font-size: 15px;
+    font-size: var(--text-body);
     font-weight: 600;
     color: var(--text-primary);
   }
@@ -647,7 +647,7 @@ onMounted(startRealtime);
     display: inline-flex;
     gap: 4px;
     align-items: center;
-    font-size: 12px;
+    font-size: var(--text-label);
     color: var(--text-secondary);
   }
 

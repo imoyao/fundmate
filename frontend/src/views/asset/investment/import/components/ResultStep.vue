@@ -320,7 +320,7 @@ const hasSupplements = computed(
 }
 
 .metric-value {
-  font-size: 40px;
+  font-size: var(--text-display-lg);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   line-height: 1;

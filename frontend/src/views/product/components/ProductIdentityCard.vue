@@ -99,7 +99,7 @@ onMounted(() => {
 }
 
 .product-detail__fact-label {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

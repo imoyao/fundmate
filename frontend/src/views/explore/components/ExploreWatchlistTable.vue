@@ -477,7 +477,7 @@ const getAvailableTools = (type: string) => {
   }
 
   .metric-label {
-    font-size: 12px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
   }
 }

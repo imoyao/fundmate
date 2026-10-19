@@ -219,7 +219,7 @@ const allTimeCaption = computed(() => {
 }
 
 .overview__hero-range {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary);
 }
 

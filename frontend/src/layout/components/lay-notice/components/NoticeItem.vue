@@ -177,7 +177,7 @@ function hoverDescription(event, description) {
 
   &__description,
   &__datetime {
-    font-size: 12px;
+    font-size: var(--text-label);
     line-height: 1.5715;
   }
 

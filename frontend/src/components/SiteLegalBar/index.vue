@@ -63,7 +63,7 @@ const SYSTEM_STATUS_TO = "/status";
   gap: 4px 8px;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-tertiary-ink);
   text-align: center;

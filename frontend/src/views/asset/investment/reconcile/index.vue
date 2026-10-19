@@ -465,7 +465,7 @@ onMounted(fetchData);
   gap: 6px;
   align-items: center;
   padding: 4px 10px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   white-space: nowrap;
   background: var(--bg-soft);
@@ -530,7 +530,7 @@ onMounted(fetchData);
 }
 
 .fund-cell__symbol {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -561,7 +561,7 @@ onMounted(fetchData);
   display: inline-flex;
   align-items: center;
   padding: 1px 8px;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 18px;
   color: var(--brand-700);
   cursor: help;
@@ -650,7 +650,7 @@ onMounted(fetchData);
 
 .reconcile-empty__icon {
   margin-bottom: 6px;
-  font-size: 40px;
+  font-size: var(--text-display-lg);
   color: var(--text-tertiary);
   opacity: 0.4;
 }
@@ -669,7 +669,7 @@ onMounted(fetchData);
 
 .reconcile-empty__hint {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

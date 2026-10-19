@@ -99,7 +99,7 @@ const emit = defineEmits<{
 
 .gap-table__code {
   font-family: var(--font-number);
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }

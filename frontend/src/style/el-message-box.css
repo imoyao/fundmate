@@ -38,7 +38,7 @@
   --el-messagebox-font-size: var(--el-font-size-large);
   --el-messagebox-content-font-size: var(--el-font-size-base);
   --el-messagebox-content-color: var(--el-text-color-regular);
-  --el-messagebox-error-font-size: 12px;
+  --el-messagebox-error-font-size: var(--text-label);
   --el-messagebox-padding-primary: 12px;
   --el-messagebox-font-line-height: var(--el-font-line-height-primary);
   max-width: var(--el-messagebox-width);
@@ -134,7 +134,7 @@
   border-color: var(--el-color-error);
 }
 .el-message-box__status {
-  font-size: 24px;
+  font-size: var(--text-title);
 }
 .el-message-box__status.el-message-box-icon--primary {
   --el-messagebox-color: var(--el-color-primary);
