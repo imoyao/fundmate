@@ -34,8 +34,16 @@ sys.path.insert(0, str(ROOT / 'scripts' / 'bridge'))
 import cleanup_duplicate_mirrors as cleanup  # noqa: E402
 
 
-def _detail(number: int, comments: int = 0, state: str = 'open') -> dict:
-    return {'number': str(number), 'comment_count': comments, 'state': state}
+def _detail(number: int, comments: int = 0, state: str = 'open', human_comments: int | None = None) -> dict:
+    """`comments` 是**总**评论数（含机器人），`human_comments` 只在显式给定时才记。"""
+    d = {'number': str(number), 'comment_count': comments, 'state': state}
+    if human_comments is not None:
+        d['human_comment_count'] = human_comments
+    return d
+
+
+def _comment(author: str = 'imoyao', is_npc: bool = False) -> dict:
+    return {'author': {'username': author, 'is_npc': is_npc}, 'body': 'x'}
 
 
 class PickKeeperTest(unittest.TestCase):
@@ -48,12 +56,12 @@ class PickKeeperTest(unittest.TestCase):
 
     def test_有评论的优先_即使编号更大(self):
         """评论是不可再生的信息 —— 留带评论的那张，哪怕它编号更大。"""
-        keeper, removed = cleanup.pick_keeper([_detail(186), _detail(214, comments=38), _detail(243)])
+        keeper, removed = cleanup.pick_keeper([_detail(186), _detail(214, human_comments=38), _detail(243)])
         self.assertEqual(keeper, 214, '有评论的卡必须被保留（关了就没讨论可读了）')
         self.assertEqual(removed, [186, 243])
 
     def test_多张都有评论_取评论多的(self):
-        keeper, _removed = cleanup.pick_keeper([_detail(1, comments=2), _detail(2, comments=9)])
+        keeper, _removed = cleanup.pick_keeper([_detail(1, human_comments=2), _detail(2, human_comments=9)])
         self.assertEqual(keeper, 2)
 
     def test_变异探针_拿掉评论维度后会保留错卡(self):
@@ -65,7 +73,7 @@ class PickKeeperTest(unittest.TestCase):
         注意本探针特意让**有评论的卡编号更大**（214 带 38 条评论 vs 186 空），
         否则「编号最小」与「有评论」会指向同一张卡，探针咬不住。
         """
-        cards = [_detail(186), _detail(214, comments=38), _detail(243)]
+        cards = [_detail(186), _detail(214, human_comments=38), _detail(243)]
 
         # 正确判据：留带评论的 214
         keeper, _ = cleanup.pick_keeper(cards)
@@ -78,9 +86,79 @@ class PickKeeperTest(unittest.TestCase):
 
     def test_变异探针_按状态open优先会保留错卡(self):
         """按 `state=open` 优先是**错的**判据（#167 是 closed 却是正本）。"""
-        cards = [_detail(186, state='open'), _detail(167, comments=38, state='closed')]
+        cards = [_detail(186, state='open'), _detail(167, human_comments=38, state='closed')]
         keeper, _ = cleanup.pick_keeper(cards)
         self.assertEqual(keeper, 167, '不得因原卡是 closed 就改留空的 open 重复卡')
+
+
+class HumanCommentCountTest(unittest.TestCase):
+    """「机器人评论不算讨论」—— 2026-10-19 分诊评论把判据 1 抹平，误关了 CNB #196 / #552。
+
+    真实形态：同一 GitHub 编号下十几张重复卡，**每张**都被分诊作业贴了同一条
+    「分诊结论」评论 ⇒ 总评论数一律为 1 ⇒ 判据 1「有评论优先」对整组同时成立 ⇒
+    退化成「编号最小」，而留哪张取决于分诊贴到谁头上（实测 #196 被关、#551 被留）。
+    """
+
+    def test_机器人评论不计入(self):
+        comments = [_comment('CodeBuddy', is_npc=True), _comment('github-actions'), _comment('release-bot')]
+        self.assertEqual(cleanup.human_comment_count(comments), 0)
+
+    def test_人类评论计入(self):
+        self.assertEqual(cleanup.human_comment_count([_comment('imoyao'), _comment('CodeBuddy', True)]), 1)
+
+    def test_空列表为0(self):
+        self.assertEqual(cleanup.human_comment_count([]), 0)
+
+    def test_分诊评论不改变保留判据(self):
+        """整组都被贴了分诊评论时，仍然按「编号最小」选 —— 而不是按谁被贴过。"""
+        cards = [
+            _detail(164, comments=1, human_comments=0),
+            _detail(464, comments=1, human_comments=0),
+            _detail(542, comments=1, human_comments=0),
+        ]
+        keeper, removed = cleanup.pick_keeper(cards)
+        self.assertEqual(keeper, 164)
+        self.assertEqual(removed, [464, 542])
+
+    def test_人类评论仍然压过编号(self):
+        """收紧后不得把「有真讨论」这条判据一起丢掉。"""
+        cards = [_detail(186, comments=1, human_comments=0), _detail(214, comments=1, human_comments=1)]
+        keeper, _ = cleanup.pick_keeper(cards)
+        self.assertEqual(keeper, 214)
+
+    def test_变异探针_用总评论数会选错卡(self):
+        """回退到「按总评论数」必须给出不同结论 —— 否则这条判据根本没在测。
+
+        真实样本取自 CNB #196 那组：196 是编号最小、但只有分诊评论；
+        551 编号更大、也只有分诊评论。用总评论数时两者打平（都 1），
+        谁被分诊先贴谁就被留下 —— 结论与「留最早创建」相反。
+        """
+        cards = [
+            _detail(196, comments=1, human_comments=0),
+            _detail(551, comments=2, human_comments=0),  # 551 多了 1 条分诊重跑评论
+        ]
+        self.assertEqual(cleanup.pick_keeper(cards)[0], 196, '正确判据：两个都没人讨论 ⇒ 留编号最小')
+
+        naive = sorted(cards, key=lambda d: (-int(d['comment_count']), int(d['number'])))[0]
+        self.assertEqual(int(naive['number']), 551)
+        self.assertNotEqual(cleanup.pick_keeper(cards)[0], int(naive['number']), '探针失效：用总数结论没变')
+
+    def test_评论读不到时记失败_不猜成没有讨论(self):
+        """#171 的纪律：读不到 ⇒ 结论不可信，不得退化成「无人讨论」然后照样关卡。"""
+        cards = [
+            {'number': '196', 'body': '> GitHub 编号：`#2139`', 'labels': [{'name': 'GitHub 同步'}], 'title': 'a'},
+            {'number': '551', 'body': '> GitHub 编号：`#2139`', 'labels': [{'name': 'GitHub 同步'}], 'title': 'b'},
+        ]
+        with (
+            mock.patch.object(cleanup, 'collect', return_value=(cards, [])),
+            mock.patch.object(cleanup, 'get_cnb_issue', side_effect=lambda n: _detail(n, comments=1)),
+            mock.patch.object(cleanup, 'fetch_human_comment_count', side_effect=RuntimeError('403')),
+            mock.patch.object(cleanup, 'close_issue') as fake_close,
+        ):
+            code = cleanup.main(['--apply'])
+
+        self.assertEqual(code, cleanup.EXIT_UNKNOWN)
+        fake_close.assert_not_called()
 
 
 class PlanTest(unittest.TestCase):
@@ -96,7 +174,7 @@ class PlanTest(unittest.TestCase):
 
     def test_统计被关闭卡上的评论数(self):
         grouped = {783: [5, 6]}
-        details = {5: _detail(5, comments=3), 6: _detail(6, comments=4)}
+        details = {5: _detail(5, human_comments=3), 6: _detail(6, human_comments=4)}
         plans = cleanup.plan(grouped, details)
         # 有评论优先 ⇒ 留评论多的 6，关闭 5（带 3 条评论）—— 账必须体现出来
         self.assertEqual(plans[783]['keep'], 6)
@@ -127,7 +205,7 @@ class RenderTest(unittest.TestCase):
 
     def test_零丢评论是显式的(self):
         text, _ = cleanup.render(self._plans(), [], applied=False)
-        self.assertIn('被关闭卡上的评论总数：0 张', text)
+        self.assertIn('被关闭卡上的人类评论总数：0 条', text)
 
     def test_动作在报告里写明是关闭(self):
         text, _ = cleanup.render(self._plans(), [], applied=False)
@@ -147,7 +225,7 @@ class KeeperStateTest(unittest.TestCase):
         return {2118: {'keep': 167, 'remove': [186], 'keep_comments': 38, 'removed_comments': 0}}
 
     def test_保留卡是closed且GitHub仍open_要重开(self):
-        details = {167: _detail(167, comments=38, state='closed')}
+        details = {167: _detail(167, human_comments=38, state='closed')}
         fixes = cleanup.keeper_state_fixes(self._plans(), details, github_open={2118})
         self.assertEqual(fixes, {2118: 167})
 
@@ -158,7 +236,7 @@ class KeeperStateTest(unittest.TestCase):
 
     def test_GitHub已关_不动(self):
         """GitHub 关了的话，保留卡是 closed 反而是对的（那是状态回流的正常形态）。"""
-        details = {167: _detail(167, comments=38, state='closed')}
+        details = {167: _detail(167, human_comments=38, state='closed')}
         fixes = cleanup.keeper_state_fixes(self._plans(), details, github_open=set())
         self.assertEqual(fixes, {})
 
@@ -167,7 +245,7 @@ class KeeperStateTest(unittest.TestCase):
 
         这里用「GitHub 已关」那组来证伪：正确判据不动手，摘掉维度会误动手。
         """
-        details = {167: _detail(167, comments=38, state='closed')}
+        details = {167: _detail(167, human_comments=38, state='closed')}
         # 正确：GitHub 关了 ⇒ 不重开
         self.assertEqual(cleanup.keeper_state_fixes(self._plans(), details, github_open=set()), {})
         # 错误（摘掉维度，恒当真）：会去重开一张 GitHub 已关的卡

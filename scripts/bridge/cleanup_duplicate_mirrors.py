@@ -17,6 +17,20 @@
 > ⚠️ 但「零评论」是**当前实测**，不是**结构性保证**。若某张重复卡日后被人工评论过，
 > 本脚本的判据（见下）会**优先保留有评论的那张**——所以判据是可重放的，不是一次性特例。
 
+## ⚠️ 「机器人评论」不算讨论（2026-10-19 实测踩到，CNB #196 被误关）
+
+判据 1 依赖「评论数」区分「带讨论的正本」与「空的重复卡」。但 2026-10-19 起分诊作业
+（`scripts/triage/issue_triage.py`）会给**每一张**镜像卡各贴一条「分诊结论」评论 ——
+于是同一编号下十几张重复卡**同时**变成「有 1 条评论」，判据 1 对这些卡**全部失效**，
+退化成「按编号最小」，**而留哪张从此取决于分诊评论贴到谁头上**。
+
+实测后果：CNB `#196`（GitHub `#2139`，本该保留 `#196` 因为它是编号最小的正本）
+被留成 `#551`、`#196` 反被关闭；`#552`（GitHub `#2285`）同样被误关。
+
+故判据 1 收紧为：**只有「人类评论」算讨论**。判法见 `human_comment_count()`
+（NPC / `github-actions` / `*-bot` 一律不计）。拿不到评论列表 ⇒ 记读取失败
+（#171 的纪律：读不到不得退化成「没有人类评论」，那正是误关的方向）。
+
 ## 保留判据（可重放，逐条带依据）
 
 1. **有评论的卡优先**——评论是重复卡里唯一「关了也难看全」的东西（虽然关闭不删评论，
@@ -73,9 +87,44 @@ EXIT_OK = 0
 EXIT_ACTIONED = 1  # dry-run 下有可清理项（便于 CI 判红），或 apply 后有失败
 EXIT_UNKNOWN = 2
 
+_CNB_REPO = 'duoduobei/fundmate'
+BOT_AUTHORS = {'github-actions', 'cnb', 'oci', 'codebuddy'}
+
 
 def _comment_count(detail: dict[str, Any]) -> int:
     return int(detail.get('comment_count') or 0)
+
+
+def human_comment_count(comments: list[dict[str, Any]]) -> int:
+    """只数「人类」评论：机器人评论（分诊结论 / CI 通知）不算讨论。
+
+    判据必须是**评论的产出者**，不是条数 —— 分诊作业会给每张镜像卡贴同一条结论，
+    于是「有评论」在重复卡里**全部同时成立**，用它选保留卡等于随机挑一张。
+    实测（2026-10-19）：CNB #196 / #552 就是这样被误关的。
+    """
+    count = 0
+    for c in comments:
+        author = c.get('author') or {}
+        name = str(author.get('username') or '')
+        if author.get('is_npc') or name.endswith('bot') or name in BOT_AUTHORS:
+            continue
+        count += 1
+    return count
+
+
+def fetch_human_comment_count(number: int) -> int:
+    """读一张卡的人类评论数。读不到就抛 —— 调用方记读取失败，不猜。"""
+    comments = cnb_api(f'/{_CNB_REPO}/-/issues/{number}/comments') or []
+    return human_comment_count(comments)
+
+
+def _human_count(detail: dict[str, Any]) -> int:
+    """选保留卡 / 记账时统一用「人类评论数」。
+
+    `human_comment_count` 由 main() 从评论接口取得；纯函数场景（单测）没取到时
+    退回 0 —— 即「没有人类讨论」，与「编号最小」同一条退路，不会凭空造出讨论。
+    """
+    return int(detail.get('human_comment_count') or 0)
 
 
 def pick_keeper(details: list[dict[str, Any]]) -> tuple[int, list[int]]:
@@ -86,8 +135,8 @@ def pick_keeper(details: list[dict[str, Any]]) -> tuple[int, list[int]]:
     """
 
     def sort_key(d: dict[str, Any]) -> tuple[int, int]:
-        # 第一维降序（有评论优先）用 -count；第二维升序用 number
-        return (-_comment_count(d), int(d['number']))
+        # 第一维降序（有**人类**评论优先）用 -count；第二维升序用 number
+        return (-_human_count(d), int(d['number']))
 
     ordered = sorted(details, key=sort_key)
     keeper = int(ordered[0]['number'])
@@ -105,8 +154,8 @@ def plan(grouped: dict[int, list[int]], details: dict[int, dict[str, Any]]) -> d
         out[gh] = {
             'keep': keeper,
             'remove': extras,
-            'keep_comments': _comment_count(details[keeper]),
-            'removed_comments': sum(_comment_count(details[n]) for n in extras),
+            'keep_comments': _human_count(details[keeper]),
+            'removed_comments': sum(_human_count(details[n]) for n in extras),
         }
     return out
 
@@ -177,7 +226,7 @@ def render(
     lines.append(f'- 重复的 GitHub 编号：{len(plans)} 个')
     lines.append(f'- 将关闭的卡：{total} 张')
     lines.append(
-        f'- 被关闭卡上的评论总数：{lost_comments} 张'
+        f'- 被关闭卡上的人类评论总数：{lost_comments} 条'
         + ('' if lost_comments == 0 else '　⚠️ 非零即违反保留判据，应停下核实')
     )
     lines.append(f'- 读取失败的卡：{len(failed)} 张' + (f'（{failed[:20]}）' if failed else ''))
@@ -191,9 +240,9 @@ def render(
         lines.append('## 清单（GitHub 编号 → 保留 / 关闭，附保留依据）')
         lines.append('')
         for gh, p in plans.items():
-            why = '有评论' if p['keep_comments'] else '编号最小'
+            why = '有人类评论' if p['keep_comments'] else '编号最小'
             lines.append(
-                f'- GitHub #{gh}：保留 CNB #{p["keep"]}（{why}，{p["keep_comments"]} 条评论）；关闭 {p["remove"]}'
+                f'- GitHub #{gh}：保留 CNB #{p["keep"]}（{why}，{p["keep_comments"]} 条人类评论）；关闭 {p["remove"]}'
             )
         lines.append('')
 
@@ -237,6 +286,22 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:  # noqa: BLE001  读不到 ⇒ 记失败，不猜
             failed.append(n)
             print(f'  ⚠️ 读取 CNB #{n} 详情失败：{exc}', file=sys.stderr)
+
+    # 判据 1 用的是「人类评论数」而非总评论数：分诊作业会给每张重复卡各贴一条结论，
+    # 用总数会让「有评论」在整组里同时成立（2026-10-19 CNB #196 / #552 就是这么被误关的）。
+    # 只在**真正重复**的组上取，省掉几百次 API 调用；读不到 ⇒ 记失败，不猜。
+    for numbers in grouped.values():
+        if len(numbers) < 2:
+            continue
+        for n in numbers:
+            if n not in details:
+                continue
+            try:
+                details[n]['human_comment_count'] = fetch_human_comment_count(n)
+            except Exception as exc:  # noqa: BLE001  读不到评论 ⇒ 同样按「结论不可信」处理
+                if n not in failed:
+                    failed.append(n)
+                print(f'  ⚠️ 读取 CNB #{n} 评论失败：{exc}', file=sys.stderr)
 
     plans = plan(grouped, details)
 
