@@ -551,10 +551,52 @@ dev:
 
 
 # ⚠️ **「CNB 侧只读」守卫已并入上方 `dev:` 段**（源 CNB #564，2026-10-18）。
-# 本文件现在**只有一处** `pull_request.mergeable:` —— 与 cron 同一口径：作业挂一块、
-# 不复制两份；PR 打向哪条长期分支，就在哪条分支的配置里读到它。
+# 本文件现在**只有两处**外层键：`dev:`（cron + 只读守卫）与紧随其后的 glob 段
+# （功能分支的代码同步 + 只读守卫）。口径不变：作业挂一块、不复制两份；
+# PR 打向哪条长期分支，就在哪条分支的配置里读到只读守卫。
+# ⚠️ 功能分支的 git-sync **必须**留在 glob 段里（源 CNB #585）：它原先被误写进 `dev:` 段，
+#    于是功能分支的 push 构建检出的是 `dev`，`${CNB_BRANCH}` 解成 `dev` 去顶别人的名字 ⇒ 必拒。
 # 同一层出现**两个 `dev:` 键**会被平台严格解析器拒收（#458），这条纪律不变。
+# =============================================================================
+# 功能分支 → GitHub 同名分支：**必须挂在这里，不能挂在 `dev:` 下**（源 CNB #585，2026-10-19）  <!-- cross-repo-ref-allow -->
+# =============================================================================
+#
+# 这段是 `"**/!(main|dev)"` 段的 `push:`，与上方 `pull_request.mergeable:` 同级。
+# 它原先写在上方 `dev:` 段里（缩进深一层）—— 于是 `.cnb.yml` 里**再也没有任何一处**
+# 功能分支的 sync ⇒ `feat/*` / `fix/*` 上的提交**一个字节都没被搬去 GitHub**。
+#
+# 实测（2026-10-19，构建 `cnb-til-1k58q1t3j`，本卡）：`chore/564-cron-on-dev` 的 `push`
+# 构建里，job/stage 名都叫「同步当前功能分支到 GitHub」，看起来完全对；红的却是：
+#
+#     $ git push … target chore/564-cron-on-dev
+#      ! [rejected]  chore/564-cron-on-dev -> chore/564-cron-on-dev (fetch first)
+#
+# 根因不在插件参数，在**检出**：runner 只 fetch 分支键那一条（构建日志原文
+# `git fetch -v --force … origin "refs/heads/dev"`），工作区里根本没有
+# `chore/564-cron-on-dev`，于是 `${CNB_BRANCH}` 解出来的是本地唯一那条 `dev`。
+# 等于拿 `dev` 去顶功能分支的名字 —— 非快进，必拒。
+#
+# 这是 CNB #578 那一类（「挂在哪，就只能推哪」）的**镜像形态**，而静态判据当时漏了它：
+# `scripts/guard_cron_job_reachability.py` 只管**定时**事件，且它明确写着
+# 「`${CNB_BRANCH}` 这类动态值不猜运行时值」⇒ 这条 push 两重豁免，一直没被咬住。
+# 判据已补：定时事件以外的 job 里，`${CNB_BRANCH}` 必须挂在**多分支**的键下
+# （`$` 或 glob 段），挂在具体分支键下即报红。
 "**/!(main|dev)":
+  push:
+    - name: 同步当前功能分支到 GitHub
+      # ⚠️ 带 name 的 job 才在构建详情页可见。
+      stages:
+        - name: 同步当前功能分支到 GitHub
+          image: tencentcom/git-sync
+          imports:
+            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
+          settings:
+            target_url: https://github.com/imoyao/fundmate.git
+            auth_type: https
+            username: ${GIT_USERNAME}
+            password: ${GITHUB_PAT}
+            # 只推「触发本次构建的那条分支」；cron 不走此段，故不会误推 dev/main
+            branch: ${CNB_BRANCH}
 # ===== CNB `dev` ↔ GitHub `dev` 双向同步（git-sync 插件）=====
 # ⚠️ **必须挂在 `dev:` 分支键下**（CNB #269，2026-10-14）。这里的「挂在哪个分支键下」
 # 不是风格问题，它决定 runner 检出哪个分支 —— 而插件只推「工作区里存在的分支」：
@@ -621,22 +663,6 @@ dev:
             再由同步带到 CNB。详见 AGENTS.md「双端协作（CNB ↔ GitHub，强制）」。
             MSG
             exit 1
-  push:
-    - name: 同步当前功能分支到 GitHub
-      # ⚠️ 同上：带 name 的 job 才在构建详情页可见。
-      stages:
-        - name: 同步当前功能分支到 GitHub
-          image: tencentcom/git-sync
-          imports:
-            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
-          settings:
-            target_url: https://github.com/imoyao/fundmate.git
-            auth_type: https
-            username: ${GIT_USERNAME}
-            password: ${GITHUB_PAT}
-            # 只推「触发本次构建的那条分支」；cron 不走此段，故不会误推 dev/main
-            branch: ${CNB_BRANCH}
-
 # =============================================================================
 # 兜底挂载：`$` 段 —— **任何分支**上的变更都跑一次建卡作业
 # =============================================================================
