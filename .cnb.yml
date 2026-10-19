@@ -413,12 +413,25 @@ dev:
             }
             git --version >/dev/null   # 自证：装失败即报错，**不吞**（#171）
 
-            # ⚠️ 2026-10-19（源 CNB #574，机制说明）：本 stage 现在是**只读探针**，不再推 `bridge/github-dev`。  <!-- cross-repo-ref-allow -->
-            # 那条分支的唯一写者是 GitHub `.github/workflows/dev-reconcile.yml`
-            # （`--force-with-lease` 重建 + 开 PR + automerge）。两个写者会互相砸：
-            # reconcile 用 `-X ours` 铺好结果、CNB 隔天换个 base 重推 ⇒ PR 内容与分支不符。
-            # 故此处**不再要求 GITHUB_PAT**：探针只读 GitHub 的公开 `dev`，缺凭据不影响结论。
-            # （原来的 `exit 1` 把「我们本来就不该写」误报成「凭据缺失」—— 红灯指向错的方向。）
+            # ⚠️ 2026-10-19（源 CNB #574，机制说明）：`bridge/github-dev` 的唯一写者是  <!-- cross-repo-ref-allow -->
+            # GitHub `.github/workflows/dev-reconcile.yml`（`--force-with-lease` 重建 +
+            # 开 PR + automerge）。两个写者会互相砸：reconcile 用 `-X ours` 铺好结果、
+            # CNB 隔天换个 base 重推 ⇒ PR 内容与分支不符 ⇒ 写权收归 reconcile。
+            #
+            # 但本 stage **仍然是写者，只是写的是 `dev`**（源 CNB #577 起的 `--merge-sync`）：
+            # 推的是「两侧合并结果」，非快进必然消失，故 `dev` 仍永不开 force。
+            # ⚠️ 别把上面那条「只有一个写者」读成「本 stage 只读」—— 它只针对
+            #    `bridge/github-dev` 这一条机器分支（守卫 `guard_bridge_machine_branch_single_writer.py`
+            #    判的也是那条分支）。说成本 stage 不写，就会把下面 `exit $rc`（构建真红）
+            #    误读成「探针红了无所谓」——#582 的构建 `cnb-0rc-1k58p671h` 正是这么被误读的。
+            #
+            # ⚠️ 凭据缺失**不在这里拦**：本脚本在缺 `GITHUB_PAT` 时会**匿名读** GitHub
+            # （公开仓可读），只有真到推的那一步才会失败。原先的 `exit 1` 把
+            # 「我们本来就不该写那条分支」误报成「凭据缺失」—— 红灯指向错的方向。
+            #
+            # ⚠️ 退出码 1 = **两侧 `dev` 有冲突**（不是凭据问题、不是 `bridge/github-dev` 的问题）。
+            # 脚本刻意不自动解：冲突面是业务文件，解错等于悄悄改掉别人的实现。
+            # 处置见下一段的回声说明，或跑 `python scripts/bridge/dev_converge.py --apply` 看清单。
             set +e
             if [ -n "${GITHUB_PAT:-}" ]; then
               GH_URL="https://x-access-token:${GITHUB_PAT}@github.com/${GITHUB_REPO}.git"
@@ -434,8 +447,10 @@ dev:
             rc=$?
             if [ $rc -eq 1 ]; then
               echo "⚠️ 两侧 dev 有冲突 —— 本轮**什么都没写**（脚本刻意不自动解冲突）"
-              echo "   冲突面多为治理文件（.cnb.yml / AGENTS.md）；口径见 docs/dev/github-cnb-mirror.md §21 / §22"
-              echo "   解冲突是人工动作：先跑 \`python scripts/bridge/dev_converge.py --apply\` 看清单"
+              echo "   冲突面是**业务文件**（#582 实测：ConversionForm.vue / stylelint.config.js），"
+              echo "   不是凭据问题、也不是 bridge/github-dev 的问题 —— 上列文件即冲突清单。"
+              echo "   解冲突是人工动作：跑 \`python scripts/bridge/dev_converge.py --apply\` 看清单，"
+              echo "   或按 docs/dev/github-cnb-mirror.md §26.4 手工合一次（merge 不自愈，见 CNB #582）。"  <!-- cross-repo-ref-allow -->
             elif [ $rc -eq 2 ]; then
               # ⚠️ 退出码 2 覆盖三种**完全不同**的事，别合并叙述（源 CNB #567，2026-10-18）：
               # ① 拿不到输入（fetch / ref 缺失）——「结论不可信」；
