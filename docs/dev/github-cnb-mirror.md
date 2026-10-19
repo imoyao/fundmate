@@ -2915,3 +2915,97 @@ FileNotFoundError: [Errno 2] No such file or directory: 'git'
 
 > **`ref: main` 与「没写 ref」是同一件事。** `schedule` 下默认就检出默认分支，
 > 显式写成它等于没写；判据对两者一视同仁。
+
+---
+
+## 29. 功能分支同步静默失败：凭据**读到了名字，却没读到值**（源 CNB #598，2026-10-19）<!-- cross-repo-ref-allow -->
+
+### 29.1 现场：报错里没有一个字提到凭据
+
+构建 `cnb-6kb-1k59g1tc6`（分支 `fix/552-bridge-sync-reachable`，`push` 事件）红的只有一步：
+
+```text
+Configuring Git...
+Initializing Git LFS...                       ← 「Set up authentication」整段消失
+No Git LFS files found, skipping LFS operations
+Target remote repositories: origin …, target https://github.com/imoyao/fundmate.git
+Checking if branch fix/552-bridge-sync-reachable exists locally...
+Pushing specified branch: fix/552-bridge-sync-reachable
+ ! [remote rejected]   fix/552-bridge-sync-reachable -> fix/552-bridge-sync-reachable (failed)
+Error: Failed to push branch fix/552-bridge-sync-reachable
+```
+
+**没有任何一行提到 token / 401 / vars.yml / allow_branches。** 它和「GitHub 侧分支保护」
+「网络抖动」长得一模一样 —— 这是本节最贵的部分：**报错的方向是错的**。
+
+### 29.2 对照实验：同一时刻别的功能分支推成功了
+
+排查时不要把「同一个 job 昨天成功过」当证据（配置没变，环境变了）。有效的对照是**同时段**：
+
+| 构建 | 分支 | 结果 | 日志里的关键行 |
+|---|---|---|---|
+| `cnb-b4j-1k59g7th0` | `fix/552-resolve-conflict` | ✅ | `* [new branch]` |
+| `cnb-f3k-1k59g1sib` | `fix/552-close-must-carry-criterion` | ✅ | `* [new branch]` |
+| **`cnb-6kb-1k59g1tc6`** | **`fix/552-bridge-sync-reachable`** | ❌ | `! [remote rejected] … (failed)` |
+
+三条跑的是**同一段** `.cnb.yml`、同一个插件、同一份凭据文件。
+
+### 29.3 根因：`allow_branches` 白名单按 `CNB_BRANCH` 逐条匹配
+
+`.cnb.yml` 的功能分支段推的是动态分支：
+
+```yaml
+"**/!(main|dev)":
+  push:
+    - name: 同步当前功能分支到 GitHub
+      stages:
+        - image: tencentcom/git-sync
+          imports:
+            - https://cnb.cool/duoduobei/fundmate-secret/-/blob/main/vars.yml
+          settings:
+            branch: ${CNB_BRANCH}      # ← 值随分支而变
+```
+
+而 `vars.yml`（模板 `docs/ops/git-sync-secret-vars.example.yml`）当时写的是：
+
+```yaml
+allow_branches:
+  - main
+  - dev
+```
+
+CNB 读密钥文件时按 **`CNB_BRANCH` 的运行时值**逐条匹配 `allow_branches` ⇒
+`fix/*` / `feat/*` **一律不命中** ⇒ 插件拿不到 `GIT_USERNAME` / `GITHUB_PAT`
+⇒ 它跳过 `Set up authentication()`（所以那一段日志整体消失），
+带着**字面量** `${GIT_USERNAME}` 去请求 ⇒ GitHub 侧拒绝。
+
+「另外两条为什么成功」的诚实答案是：**我不知道**，只能说它们是同一份配置下
+**没有被拦**的那些轮次。把这句写出来，是为了别让下一个人照抄一个没验证过的机制解释。
+
+### 29.4 修法与判据
+
+| 面 | 动作 | 谁管得住 |
+|---|---|---|
+| 模板 | `allow_branches: ["*"]` | `scripts/guard_secret_imports.py` **判据 4**（本次新增，阻断） |
+| 线上密钥文件 | **人工**在 CNB Web 界面改 `fundmate-secret/vars.yml` | 无（Secret 仓对本仓 API/token 一律 403） |
+| 回归网 | `scripts/tests/guard_secret_imports.test.js` 末条 | `ci.yml` 的 `scripts_test` |
+
+判据 4 的形态：`.cnb.yml` 里存在 `settings.branch` 含 `${CNB_BRANCH}` 的 stage ⇒
+模板的 `allow_branches` 必须含 `*`；不含即报红，报错文案**直接指向 `allow_branches`**，
+不让人再去查 token。模板读不到时**说「读不到」并红**，不退化成「没问题」（#171）。
+
+> 判据只判**模板**，不判线上那份 —— 这是可判与不可判的界线：模板是「照着配一次」的唯一依据，
+> 它写着收紧白名单，下一个配密钥仓库的人就会照抄。线上那份只能人工核对，**别写成已核验**。
+
+### 29.5 通用教训
+
+- **「凭据错了」和「凭据没被读到」是两件事。** 前者的日志里有 401 / auth 字样；
+  后者什么都不打印 —— 插件干脆跳过认证段。看到「认证段消失」，先去查**准入条件**
+  （`allow_*` / 事件 / 镜像 / 分支），别去重配 token。
+- **白名单型字段遇上看门的又是动态值，就是定时炸弹。** `allow_branches` 与
+  `branch: ${CNB_BRANCH}` 各自都合理，组合起来在**功能分支上恒失败**。
+  凡「契约里有一条固定清单」，而「调用方传的是变量」，都要问一句：清单覆盖得了变量的全部取值吗？
+- **判据要指向「下一步该改哪个文件」。** 本次报错文案里必须出现 `allow_branches`，
+  否则读者会沿着 `! [remote rejected]` 一路去查分支保护（本仓 §28 正有一份那样的坑）。
+- **写「我不知道」比编机制便宜。** 对照实验中两条成功、一条失败，机制解释无法自洽 ——
+  记下来，好过让下一个人拿一个假解释去排查真问题。
