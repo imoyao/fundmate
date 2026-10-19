@@ -151,32 +151,65 @@ def _find_position_by_identity(
     name: str = '',
     active_only: bool = False,
 ) -> Optional[Position]:
-    """导入 / 孤儿链路按**身份键**查找持仓（#2372：账户 ID 优先，名称不再做跨账户键）。
+    """导入 / 孤儿链路按**身份键**查找持仓（#2372：账户 ID 优先，名称不做跨账户键）。
 
-    优先级：
+    匹配优先级（#2372 一级键 + #1920 名称兜底的安全重建）：
     1. ``ledger_id`` 有值 → 按 ``(ledger_id, symbol)`` 精确匹配；symbol 缺失时按
        ``(ledger_id, name)`` 兜底（#1920 交割单无代码场景——账户 ID 已把范围收敛到
        单账户，名称只在账户内做键，不再跨账户猜）；
-    2. ``ledger_id`` 为空 → 只匹配同属未归档（``ledger_id IS NULL``）的同代码持仓。
+    2. ``ledger_id`` 为空 → 只匹配同属未归档（``ledger_id IS NULL``）的同代码持仓；
+    3. 仍未命中且入参带 ``account_name`` → 按 ``(account_name, symbol|name)`` 在
+       **全家庭**范围内兜底（#1920 名称回查；覆盖只带账户名、无 ledger_id 的遗留
+       导入数据），**唯一命中才关联**。
 
-    为什么不再按 ``(symbol, account_name)`` 匹配：``account_name`` 是**可编辑字段**
-    的快照，改名即失配；真库存在重名账户（支付宝×2 / 天天基金×2），按名称匹配会把
-    卖出 / 分红 / 送股记到**另一个账户**的持仓上，甚至改错别人的份额（#2372）。
+    为什么名称不能直接做一级键、重名也不许任取一个：``account_name`` 是**可编辑
+    字段**的快照，改名即失配；真库存在重名账户（支付宝×2 / 天天基金×2），按名称
+    匹配会把卖出 / 分红 / 送股记到**另一个账户**的持仓上，甚至改错别人的份额
+    （#2372）。三级兜底命中多个时返回 None 落孤儿（安全降级：孤儿链路有告警，
+    串账户则是静默错账，两者不可兼得时选前者）。
     """
     family_id = _resolve_family_id(data)
-    ledger_id = data.get('ledger_id')
+    if not symbol and not name:
+        return None
+    key_field = Position.symbol if symbol else Position.name
+    key = symbol or name
     query = db.query(Position).filter(Position.family_id == family_id)
     if active_only:
         query = query.filter(Position.ownership_status == OwnershipStatus.ACTIVE.value)
+    ledger_id = data.get('ledger_id')
     if ledger_id is not None:
-        query = query.filter(Position.ledger_id == ledger_id)
-    else:
-        # 未归档数据：只在同属未归档的持仓里匹配，不拿账户名跨账户猜
-        query = query.filter(Position.ledger_id.is_(None))
-    if symbol:
-        return query.filter(Position.symbol == symbol).first()
-    if name:
-        return query.filter(Position.name == name).first()
+        # 一级：账户 ID 已把范围收敛到单账户，symbol/name 只在账户内做键
+        return query.filter(Position.ledger_id == ledger_id, key_field == key).first()
+    # 二级：未归档数据优先匹配未归档持仓，不拿账户名跨账户猜
+    hit = query.filter(Position.ledger_id.is_(None), key_field == key).first()
+    if hit is not None:
+        return hit
+    # 三级兜底（#1920 名称回查 / 只带 account_name 的遗留导入数据）
+    account_name = data.get('account_name')
+    if not account_name:
+        return None
+    rows = query.filter(Position.account_name == account_name, key_field == key).all()
+    if len(rows) == 1:
+        # 兜底命中必须留痕：数据侧缺 ledger_id 是**待回补**的脏数据，
+        # 静默关联会让「快照缺失」隐形（#2372 的教训），日志即回补工单。
+        logger.info(
+            '身份键按账户名唯一兜底关联（ledger_id 缺失，待回补）: family={} account_name={} {}={} → position_id={}',
+            family_id,
+            account_name,
+            'symbol' if symbol else 'name',
+            key,
+            rows[0].id,
+        )
+        return rows[0]
+    if rows:
+        logger.warning(
+            '身份键兜底命中多个重名持仓，拒绝跨账户猜疑（#2372）: family={} account_name={} {}={} n={}',
+            family_id,
+            account_name,
+            'symbol' if symbol else 'name',
+            key,
+            len(rows),
+        )
     return None
 
 
@@ -2067,7 +2100,9 @@ class PositionService:
             position_name=existing.name or _resolve_fund_name_by_code(db, existing.symbol),
             ledger_id=existing.ledger_id,
             account_name=(
-                existing.account_name or _resolve_ledger_name_by_id(db, existing.ledger_id) or data.get('account_name', '')
+                existing.account_name
+                or _resolve_ledger_name_by_id(db, existing.ledger_id)
+                or data.get('account_name', '')
             ),
             notes=data.get('notes') or '送股/拆分入账',
             import_hash=data.get('import_hash'),

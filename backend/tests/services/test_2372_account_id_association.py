@@ -18,7 +18,9 @@ position_id=618 都有值；621 笔流水 position_id 悬空；48 笔 position_n
 修复口径（本文件逐条回归）：
 - 写入侧：快照缺失时按 ID 回填（symbol→基金名录 / ledger_id→ledgers）+ 存量行自愈；
 - 读取侧：``resolve_transaction_display_names`` 三级回解析，快照缺失不再显示「未知」；
-- 查询侧：``(symbol, account_name)`` 兜底全部改身份键 ``(ledger_id, symbol)``；
+- 查询侧：``(symbol, account_name)`` 兜底改身份键 ``(ledger_id, symbol)``；无 ledger_id
+  时保留 ``(account_name, symbol|name)`` **唯一命中**兜底（#1920 语义安全重建），
+  重名账户绝不猜（任取一个正是 #2372 串账户 bug 的机制）；
 - 同步任务：分红/送股逐持仓行发记录并带 ``ledger_id``，去重键 ``(ledger_id, import_hash)``；
 - 更新路径：``ledger_id`` 变更时同步 ``account_name`` 快照；
 - 分组：``group_by=account`` 键为 ``str(ledger_id)``（None → ``'unfiled'``）。
@@ -35,11 +37,9 @@ from app.domains.transactions.models import Transaction
 from app.services.position_service import PositionService, _find_position_by_identity
 from app.services.transaction_service import build_transaction_list
 from app.services.txn_name_resolver import resolve_transaction_display_names
-
 from tests.services.sync.test_dividend_split_job import _FakeAdapter
 from tests.services.test_conversion_submit import (
     IDEMPOTENCY_KEY,
-    _group_txns,
     _make_out_position,
     _seed_two_funds,
     _submit,
@@ -101,19 +101,26 @@ def test_existing_position_snapshot_self_heals_on_buy(db, make_position):
 
     真库 618 号持仓 ``name`` 为 NULL 的修复路径：不需要用户手工改，任何一次
     正常买入都应当把缺失快照补上（仅在缺失时写，已有快照不动）。
+
+    与 #2404 的分工（本用例同时把这条边界钉住）：``account_name`` 已由模型层
+    mapper 事件在**写入时**按 ``ledger_id`` 兜底，故这里造不出
+    ``account_name IS NULL`` 的存量行——它本就该是 '自愈账户'。``name``（产品名）
+    不在 #2404 兜底范围内，仍是漏写高发字段，自愈要保证的正是它。
     """
     _seed_fund(db, '000301', '自愈基金')
     ledger_id = _make_ledger(db, '自愈账户')
     pos = make_position(
         symbol='000301',
-        name=None,  # 存量坏行：快照漏写
+        name=None,  # 存量坏行：产品名快照漏写（#2404 不兜此项）
         ledger_id=ledger_id,
         asset_type='fund',
         quantity=100,
         avg_price=1.0,
         current_price=1.0,
     )
-    assert pos.name is None and pos.account_name is None
+    # #2404 写侧兜底已生效：有 ledger_id 就有 account_name，造不出 NULL
+    assert pos.name is None
+    assert pos.account_name == '自愈账户'
 
     PositionService.process_buy_or_deposit(
         db,
@@ -447,6 +454,107 @@ def test_find_position_by_identity_name_fallback_within_ledger(db, make_position
     assert hit is not None and hit.id == pos_b.id
     # 换个账户 ID 同样的名字不得命中（旧代码按 account_name 匹配会串）
     assert _find_position_by_identity(db, {'family_id': 1, 'ledger_id': ledger_a}, name='某某证券') is None
+
+
+def test_find_position_by_identity_unfiled_precedes_account_name(db, make_position):
+    """无 ledger_id：未归档持仓优先于账户名兜底（层级顺序锁定，防兜底抢挂）。"""
+    ledger = _make_ledger(db, '且慢')
+    filed = make_position(
+        symbol='000605',
+        name='已归档E',
+        account_name='且慢',
+        ledger_id=ledger,
+        asset_type='fund',
+        quantity=100,
+        avg_price=1.0,
+        current_price=1.0,
+    )
+    unfiled = make_position(
+        symbol='000605',
+        name='未归档E',
+        account_name='且慢',
+        ledger_id=None,  # 显式未归档（只传 account_name 会被夹具自动建账本）
+        asset_type='fund',
+        quantity=100,
+        avg_price=1.0,
+        current_price=1.0,
+    )
+    db.commit()
+
+    hit = _find_position_by_identity(db, {'family_id': 1, 'account_name': '且慢'}, symbol='000605')
+    assert hit is not None and hit.id == unfiled.id  # 未归档优先，哪怕账户名也唯一
+    assert hit.id != filed.id
+
+
+def test_find_position_by_identity_account_name_unique_fallback(db, make_position):
+    """未归档未命中且账户名唯一：按 (account_name, symbol) 全家庭兜底（#1920 语义安全重建）。"""
+    ledger = _make_ledger(db, '且慢')
+    filed = make_position(
+        symbol='000605',
+        name='基金E',
+        account_name='且慢',
+        ledger_id=ledger,
+        asset_type='fund',
+        quantity=100,
+        avg_price=1.0,
+        current_price=1.0,
+    )
+    db.commit()
+
+    hit = _find_position_by_identity(db, {'family_id': 1, 'account_name': '且慢'}, symbol='000605')
+    assert hit is not None and hit.id == filed.id
+    # 账户名对不上：不猜；data 无账户名同样不触发三级（绝不退回按名称跨账户匹配）
+    assert _find_position_by_identity(db, {'family_id': 1, 'account_name': '蚂蚁财富'}, symbol='000605') is None
+    assert _find_position_by_identity(db, {'family_id': 1}, symbol='000605') is None
+
+
+def test_find_position_by_identity_account_name_fallback_by_name(db, make_position):
+    """无 symbol 的交割单（#1920）：未归档未命中时按 (account_name, name) 唯一兜底。"""
+    ledger = _make_ledger(db, '华泰证券')
+    pos = make_position(
+        symbol='',
+        name='某某ETF',
+        account_name='华泰证券',
+        ledger_id=ledger,
+        asset_type='stock',
+        quantity=10,
+        avg_price=1.0,
+        current_price=1.0,
+    )
+    db.commit()
+
+    hit = _find_position_by_identity(db, {'family_id': 1, 'account_name': '华泰证券'}, name='某某ETF')
+    assert hit is not None and hit.id == pos.id
+
+
+def test_find_position_by_identity_account_name_ambiguous_never_guesses(db, make_position):
+    """重名账户各持同代码：无 ledger_id 时任取一个正是 #2372 串账户机制——必须落孤儿。"""
+    ledger_a = _make_ledger(db, '支付宝')
+    ledger_b = _make_ledger(db, '支付宝')
+    make_position(
+        symbol='000606',
+        name='基金F1',
+        account_name='支付宝',
+        ledger_id=ledger_a,
+        asset_type='fund',
+        quantity=100,
+        avg_price=1.0,
+        current_price=1.0,
+    )
+    make_position(
+        symbol='000606',
+        name='基金F2',
+        account_name='支付宝',
+        ledger_id=ledger_b,
+        asset_type='fund',
+        quantity=100,
+        avg_price=1.0,
+        current_price=1.0,
+    )
+    db.commit()
+
+    # 两个重名账户下同代码持仓并存：三级兜底拒绝猜，返回 None 由孤儿链路降级 + 告警
+    assert _find_position_by_identity(db, {'family_id': 1, 'account_name': '支付宝'}, symbol='000606') is None
 
 
 def test_orphan_sell_lands_on_ledger_matched_position(db, make_position):

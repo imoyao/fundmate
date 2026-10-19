@@ -13,6 +13,7 @@
 import pytest
 
 from app.core.constants import POSITION_SOURCE_LABELS, PositionSource
+from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta
 
 
@@ -128,16 +129,22 @@ def test_list_positions_unarchived_filter(client, make_position):
     assert rows[0]['ledger_id'] is None
 
 
-def test_archive_unarchived_position(client, make_position):
+def test_archive_unarchived_position(client, make_position, db):
     pos = make_position(symbol='000001', name='探市A', asset_type='fund', source='explore')
     # 归档前在未归档列表
     before = client.get('/api/positions/?ledger_id=null').get_json()['data']
     assert any(r['id'] == pos.id for r in before)
 
-    # PATCH 绑定 ledger_id 完成归档
-    patch = client.patch(f'/api/positions/{pos.id}/', json={'ledger_id': 1})
+    # PATCH 绑定 ledger_id 完成归档。
+    # #2372：update_position 校验目标账户必须存在（不允许绑定幽灵账本），
+    # 故先建账户行——旧用例直接 PATCH ledger_id=1 会 404，是测试没建账本。
+    ledger = Ledger(name='归档目标账户', ledger_type='bank', family_id=1)
+    db.add(ledger)
+    db.commit()
+
+    patch = client.patch(f'/api/positions/{pos.id}/', json={'ledger_id': ledger.id})
     assert patch.status_code == 200
-    assert patch.get_json()['data']['ledger_id'] == 1
+    assert patch.get_json()['data']['ledger_id'] == ledger.id
 
     # 归档后不再出现在未归档列表
     after = client.get('/api/positions/?ledger_id=null').get_json()['data']
