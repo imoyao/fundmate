@@ -36,6 +36,23 @@ WHY：2026-10-12 两条形态都实测踩过，报错完全不同，把人带向
 3. **同一份 URL 同时出现在 `imports` 与 `settingsFrom`** ⇒ 报错。
    平台不允许同一引用对象两种语义并存，且这是过渡期最容易留下的半吊子改动。
 
+判据 4（2026-10-19 补，源 CNB #598）：「`${CNB_BRANCH}` 的前提是 vars.yml 放开全部分支」
+------------------------------------------------------------------------------
+git-sync 功能分支段（`"**/!(main|dev)"`）的 settings 写着 `branch: ${CNB_BRANCH}`，
+而它引用的 `vars.yml` **只 `allow_branches: main / dev`** ⇒ 功能分支一 push，
+密钥文件读取就被平台按分支拒绝（`allow_branches` 是按 `CNB_BRANCH` 逐条匹配的白名单）。
+实测（构建 `cnb-6kb-1k59g1tc6`，分支 `fix/552-bridge-sync-reachable`）：
+
+    Initializing Git LFS...            ← 「Set up authentication」一段整体消失
+     ! [remote rejected]   fix/552-bridge-sync-reachable -> … (failed)
+
+**报错不指向凭据**：没有任何一行提到 token / 401 / vars.yml / allow_branches ——
+它与「分支在 GitHub 侧受保护」「网络问题」长得一模一样，这是本判据存在的全部理由。
+根因在**密钥仓库里那份文件的 `allow_branches`**（模板在 `docs/ops/git-sync-secret-vars.example.yml`），
+而密钥仓库对本仓 API / token 一律 403 ⇒ 静态判据只能判「模板有没有放开」，判不了线上那份。
+故：模板里 `vars.yml` 的 `allow_branches` 必须是 `*`（glob 全匹配），且本仓 `.cnb.yml`
+里凡用 `${CNB_BRANCH}` 当 `branch` 的 git-sync stage，都必须是这个约定的适用范围。
+
 不做什么
 --------
 **不拉网络、不校验 URL 可达性**：`fundmate-secret` 对 API / token 一律 403
@@ -196,6 +213,62 @@ def _is_gitsync_vars_url(value: str) -> bool:
     low = value.lower().strip()
     tail = low.rstrip('/').rsplit('/', 1)[-1].split('?')[0]
     return tail == 'vars.yml' or (tail.endswith('.vars.yml') and not tail.endswith('.example.vars.yml'))
+
+
+GITSYNC_VARS_TEMPLATE = 'docs/ops/git-sync-secret-vars.example.yml'
+
+
+def check_cnb_branch_allow_branches(data: dict, template=None) -> list[str]:
+    """判据 4：功能分支段用 `${CNB_BRANCH}` 推 git-sync ⇒ 模板的 `allow_branches` 必须放开全部。
+
+    ⚠️ 这条判的是**模板**（`docs/ops/git-sync-secret-vars.example.yml`），不是线上密钥文件
+    —— 后者对本仓 API / token 一律 403，读不到也不该读。它的作用是「别再照着一份
+    收紧白名单的模板去配密钥仓库」：模板写着 `allow_branches: [main, dev]`，
+    照着配一次，功能分支的同步就**永久静默失败**（源 CNB #598）。
+
+    判据只看**静态形态**：`.cnb.yml` 里是否存在「`branch: ${CNB_BRANCH}`」的 git-sync stage。
+    存在 ⇒ 模板的 `allow_branches` 必须包含 `*`（glob 全匹配）。
+    不存在 ⇒ 不判（那时收紧白名单是对的）。
+    """
+    problems: list[str] = []
+    uses_dynamic_branch: list[str] = []
+    for branch, event, stage in _iter_plugin_stages(data):
+        settings = stage.get('settings') if isinstance(stage.get('settings'), dict) else {}
+        raw = str(settings.get('branch') or '')
+        if '${CNB_BRANCH}' not in raw:
+            continue
+        name = stage.get('name') or '（无名 stage）'
+        uses_dynamic_branch.append(f'{branch}.{event} 的 `{name}`')
+    if not uses_dynamic_branch:
+        return problems
+
+    if template is None:
+        template = Path(__file__).resolve().parent.parent / GITSYNC_VARS_TEMPLATE
+    try:
+        if isinstance(template, dict):
+            doc = template
+        else:
+            doc = yaml.safe_load(Path(template).read_text(encoding='utf-8')) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        # 拿不到模板 ⇒ **说「拿不到」，不说「没问题」**（#171：空 ≠ 没拿到）。
+        problems.append(
+            f'判据 4 无法自证：读不到 {GITSYNC_VARS_TEMPLATE}（{exc}）。'
+            '而 `.cnb.yml` 里确实有 ' + '、'.join(uses_dynamic_branch) + ' 在用 `${CNB_BRANCH}`'
+            ' —— 「拿不到模板」不等于「模板没问题」，请人工核对 `allow_branches`。'
+        )
+        return problems
+
+    allowed = doc.get('allow_branches')
+    allowed_list = [str(x) for x in (allowed if isinstance(allowed, list) else [allowed] if allowed else [])]
+    if '*' not in allowed_list:
+        problems.append(
+            '判据 4：' + '、'.join(uses_dynamic_branch) + ' 用 `${CNB_BRANCH}` 推功能分支，'
+            f'但 {GITSYNC_VARS_TEMPLATE} 的 `allow_branches` 是 {allowed_list}（不含 `*`）。'
+            'CNB 按 `CNB_BRANCH` 逐条匹配白名单 ⇒ 功能分支一律被拒读密钥，'
+            '同步**静默失败**且报错里不提凭据（`! [remote rejected] … (failed)`，源 CNB #598）。'
+            '把模板改成 `allow_branches: ["*"]`，并同步改密钥仓库里那份 vars.yml。'
+        )
+    return problems
 
 
 def check_secret_ref_on_script_task(data: dict) -> list[str]:
@@ -604,6 +677,29 @@ def self_check() -> list[str]:
     if not check_pipeline_level_secret_refs(bad3):
         errors.append('自检探针失败：imports 与 settingsFrom 并存（判据 3）没被报错。')
 
+    # 判据 4：`${CNB_BRANCH}` + 收紧的 allow_branches（源 CNB #598）。
+    bad4 = {
+        '**/!(main|dev)': {
+            'push': [
+                {
+                    'stages': [
+                        {
+                            'image': 'tencentcom/git-sync',
+                            'imports': ['https://cnb.cool/o/secret/-/blob/main/vars.yml'],
+                            'settings': {'branch': '${CNB_BRANCH}'},
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+    tight_template = {'allow_branches': ['main', 'dev']}
+    if not check_cnb_branch_allow_branches(bad4, template=tight_template):
+        errors.append('自检探针失败：${CNB_BRANCH} + allow_branches 收紧（判据 4）没被报错。')
+    # 反向探针：收紧白名单但**没有**动态分支 ⇒ 不误报（那时收紧是对的）。
+    if check_cnb_branch_allow_branches({'dev': {'push': []}}, template=tight_template):
+        errors.append('自检探针失败：判据 4 在无 `${CNB_BRANCH}` 时误报了。')
+
     return errors
 
 
@@ -632,13 +728,14 @@ def main() -> int:
     problems += check_pipeline_level_secret_refs(data)
     problems += check_settingsfrom_var_substitution(data)
     problems += check_secret_ref_on_script_task(data)
+    problems += check_cnb_branch_allow_branches(data)
 
     if problems:
         print(f'❌ {path} 密钥引用位置检查未通过：')
         for p in problems:
             print(f'  - {p}')
         return 1
-    print('✅ git-sync 密钥引用合规（插件任务级 imports）')
+    print('✅ git-sync 密钥引用合规（插件任务级 imports；`${CNB_BRANCH}` 的 allow_branches 已放开）')
     return 0
 
 
