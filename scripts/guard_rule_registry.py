@@ -222,6 +222,15 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'backend/tests/test_branch_divergence_check.py',
         'covered': '只报告，不阻断（跨仓分叉是另一条判据），属「观测」不属「闸」',
     },
+    'scripts/guard_bridge_sync_reachable.py': {
+        'rule': '回流 / 认领通道必须真的会跑（两段跑同一套脚本 + 失败态 + 凭据注入顺序）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_bridge_sync_reachable.py',
+        'covered': (
+            '只判「挂在哪 / 失败态还在不在 / token 怎么注入」；作业这一轮是否成功、'
+            '回流结论对不对都要联网才能知道，不在判据内'
+        ),
+    },
     'scripts/bridge/check_cross_repo_dev_divergence.py': {
         'rule': '跨仓 dev 分叉必须可见（两侧都有独有提交即告警）',
         'runner': 'cnb',

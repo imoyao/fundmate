@@ -17,6 +17,20 @@
 > ⚠️ 但「零评论」是**当前实测**，不是**结构性保证**。若某张重复卡日后被人工评论过，
 > 本脚本的判据（见下）会**优先保留有评论的那张**——所以判据是可重放的，不是一次性特例。
 
+## ⚠️ 「机器人评论」不算讨论（2026-10-19 实测踩到，CNB #196 被误关）
+
+判据 1 依赖「评论数」区分「带讨论的正本」与「空的重复卡」。但 2026-10-19 起分诊作业
+（`scripts/triage/issue_triage.py`）会给**每一张**镜像卡各贴一条「分诊结论」评论 ——
+于是同一编号下十几张重复卡**同时**变成「有 1 条评论」，判据 1 对这些卡**全部失效**，
+退化成「按编号最小」，**而留哪张从此取决于分诊评论贴到谁头上**。
+
+实测后果：CNB `#196`（GitHub `#2139`，本该保留 `#196` 因为它是编号最小的正本）
+被留成 `#551`、`#196` 反被关闭；`#552`（GitHub `#2285`）同样被误关。
+
+故判据 1 收紧为：**只有「人类评论」算讨论**。判法见 `human_comment_count()`
+（NPC / `github-actions` / `*-bot` 一律不计）。拿不到评论列表 ⇒ 记读取失败
+（#171 的纪律：读不到不得退化成「没有人类评论」，那正是误关的方向）。
+
 ## 保留判据（可重放，逐条带依据）
 
 1. **有评论的卡优先**——评论是重复卡里唯一「关了也难看全」的东西（虽然关闭不删评论，
@@ -54,7 +68,9 @@
 首版数的是 `comment_count`（总评论数），于是**分诊机器人给谁先贴结论，谁就成了正本**——
 实测 GitHub #2285 那一组，06:34 分诊贴 `CNB #535`、06:35 贴 `CNB #552`，用户 06:58 的追问恰好
 落在 `CNB #552` 上，旧判据便把 `CNB #552` 当成正本、反去关 `CNB #535`。现改用 `human_comment_count()`
-（只数 `author.is_npc == False`）；拿不到评论结构时退回总数——**宁可保留也不误关**。
+（只数人类评论：`author.is_npc` / `*-bot` / 已知 CI 账号都不计）；评审时两处实现各自落地过一版，
+合流后取「评论接口（`fetch_human_comment_count`）优先 + 详情结构兜底 + 总数兜底」，
+拿不到声音时一律按「不计入」处理——**宁可保留也不误关**。
 
 ## 失败态（#171 的纪律）
 
@@ -91,31 +107,65 @@ EXIT_OK = 0
 EXIT_ACTIONED = 1  # dry-run 下有可清理项（便于 CI 判红），或 apply 后有失败
 EXIT_UNKNOWN = 2
 
+_CNB_REPO = 'duoduobei/fundmate'
+BOT_AUTHORS = {'github-actions', 'cnb', 'oci', 'codebuddy'}
+
 
 def _comment_count(detail: dict[str, Any]) -> int:
     return int(detail.get('comment_count') or 0)
 
 
-def human_comment_count(detail: dict[str, Any]) -> int:
+def _comment_author_name(comment: dict[str, Any]) -> str:
+    author = comment.get('author') or {}
+    return str(author.get('username') or '')
+
+
+def _is_bot_comment(comment: dict[str, Any]) -> bool:
+    """这条评论是不是机器产出的（NPC / `*-bot` / 已知 CI 账号）。"""
+    author = comment.get('author') or {}
+    name = _comment_author_name(comment)
+    return bool(author.get('is_npc')) or name.endswith('bot') or name in BOT_AUTHORS
+
+
+def _human_count_from_list(comments: list[dict[str, Any]]) -> int:
+    return sum(1 for c in comments if isinstance(c, dict) and not _is_bot_comment(c))
+
+
+def human_comment_count(detail: dict[str, Any] | list[dict[str, Any]]) -> int:
     """**人类**评论条数——保留判据只认这一维（CNB #552）。
 
-    为什么不能直接数 `comment_count`：机器人 / 分诊作业每轮都会往卡上贴一条
-    「分诊结论」，那条评论**不证明有人在读这张卡**。实测（2026-10-19）：
+    为什么不数 `comment_count`：机器人 / 分诊作业每轮都会往卡上贴一条「分诊结论」，
+    那条评论**不证明有人在读这张卡**。实测（2026-10-19）：
 
         GitHub #2285 在 CNB 侧有两张重复卡：`CNB #535` 与 `CNB #552`；
         06:34 分诊先给 `CNB #535` 贴结论、06:35 又给 `CNB #552` 贴一条；
         用户 06:58 的追问恰好落在 `CNB #552` 上。
 
-    旧判据（总评论数）于是把 `CNB #552` 当成「正本」，反去关掉 `CNB #535` —— **留哪张完全取决于
-    分诊作业先把结论贴到谁头上**，一件事被掷了次骰子。
+    旧判据（总评论数）于是把 `CNB #552` 当成「正本」，反去关掉 `CNB #535` —— **留哪张完全
+    取决于分诊作业先把结论贴到谁头上**，一件事被掷了次骰子。
 
-    故只数 `author.is_npc == False` 的评论。拿不到 author 结构的（老接口 / 打桩数据）
-    按 `comment_count` 兜底——**宁可误判成「有评论」而保留，也不误关一张带着讨论的卡**。
+    判据必须是**评论的产出者**，不是条数。入参兼容两种形态：
+    - 详情 dict（`main()` 从评论接口取回后挂在 `human_comment_count` 上）；
+    - 评论列表（单测 / 直接调用）。
+    拿不到评论结构的（老接口 / 打桩数据）按 `comment_count` 兜底——
+    **宁可误判成「有评论」而保留，也不误关一张带着讨论的卡**。
     """
+    if isinstance(detail, list):
+        return _human_count_from_list(detail)
+    if detail.get('human_comment_count') is not None:
+        return int(detail['human_comment_count'])
     comments = detail.get('comments')
     if not isinstance(comments, list) or not comments:
         return _comment_count(detail)
-    return sum(1 for c in comments if isinstance(c, dict) and not (c.get('author') or {}).get('is_npc'))
+    return _human_count_from_list(comments)
+
+
+def fetch_human_comment_count(number: int) -> int:
+    """读一张卡的人类评论数。读不到就抛 —— 调用方记读取失败，不猜。"""
+    comments = cnb_api(f'/{_CNB_REPO}/-/issues/{number}/comments') or []
+    if not isinstance(comments, list):
+        raise ValueError(f'CNB #{number} 评论接口返回结构异常：{type(comments).__name__}')
+    return _human_count_from_list(comments)
 
 
 def pick_keeper(details: list[dict[str, Any]]) -> tuple[int, list[int]]:
@@ -275,7 +325,7 @@ def render(
     lines.append(f'- 重复的 GitHub 编号：{len(plans)} 个')
     lines.append(f'- 将关闭的卡：{total} 张')
     lines.append(
-        f'- 被关闭卡上的评论总数：{lost_comments} 张'
+        f'- 被关闭卡上的人类评论总数：{lost_comments} 条'
         + ('' if lost_comments == 0 else '　⚠️ 非零即违反保留判据，应停下核实')
     )
     lines.append(f'- 读取失败的卡：{len(failed)} 张' + (f'（{failed[:20]}）' if failed else ''))
@@ -289,9 +339,9 @@ def render(
         lines.append('## 清单（GitHub 编号 → 保留 / 关闭，附保留依据）')
         lines.append('')
         for gh, p in plans.items():
-            why = '有评论' if p['keep_comments'] else '编号最小'
+            why = '有人类评论' if p['keep_comments'] else '编号最小'
             lines.append(
-                f'- GitHub #{gh}：保留 CNB #{p["keep"]}（{why}，{p["keep_comments"]} 条评论）；关闭 {p["remove"]}'
+                f'- GitHub #{gh}：保留 CNB #{p["keep"]}（{why}，{p["keep_comments"]} 条人类评论）；关闭 {p["remove"]}'
             )
         lines.append('')
 
@@ -335,6 +385,22 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:  # noqa: BLE001  读不到 ⇒ 记失败，不猜
             failed.append(n)
             print(f'  ⚠️ 读取 CNB #{n} 详情失败：{exc}', file=sys.stderr)
+
+    # 判据 1 用的是「人类评论数」而非总评论数：分诊作业会给每张重复卡各贴一条结论，
+    # 用总数会让「有评论」在整组里同时成立（2026-10-19 CNB #196 / #552 就是这么被误关的）。
+    # 只在**真正重复**的组上取，省掉几百次 API 调用；读不到 ⇒ 记失败，不猜。
+    for numbers in grouped.values():
+        if len(numbers) < 2:
+            continue
+        for n in numbers:
+            if n not in details:
+                continue
+            try:
+                details[n]['human_comment_count'] = fetch_human_comment_count(n)
+            except Exception as exc:  # noqa: BLE001  读不到评论 ⇒ 同样按「结论不可信」处理
+                if n not in failed:
+                    failed.append(n)
+                print(f'  ⚠️ 读取 CNB #{n} 评论失败：{exc}', file=sys.stderr)
 
     plans = plan(grouped, details)
 
