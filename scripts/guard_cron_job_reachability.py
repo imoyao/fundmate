@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""守门：定时作业的目标分支必须在**它自己的**检出里存在（源 CNB #578，2026-10-18）。  <!-- cross-repo-ref-allow -->
+"""守门：作业的目标分支必须在**它自己的**检出里存在（源 CNB #578 / #585）。  <!-- cross-repo-ref-allow -->
 
 WHY（实测，不是推断）
 ---------------------
@@ -62,6 +62,26 @@ CNB 独有 19 笔、GitHub 独有 7 笔（2026-10-18 实测，`git cherry` 补�
 - **不校验事件是否触发**：那是 `scripts/check_cnb_events.py`（挂载位置）的事。
 - 重复键遮蔽 ⇒ 直接判「输入不可信」（`safe_load` 会把被覆盖段的 job 吃掉，本守卫会对它一无所知）。
 
+判据 4（`push` / `pull_request` 等**非定时**事件，源 CNB #585，2026-10-19）  <!-- cross-repo-ref-allow -->
+----------------------------------------------------------------------------------------------
+`${CNB_BRANCH}` **只能**挂在多分支的键下（`$` 或 glob 段）。挂在 `dev:` / `main:` 这类
+**单分支**键下时，runner 只检出那一条分支（同判据 1 的检出口径），于是：
+
+    $ git fetch -v --force … origin "refs/heads/dev"     ← 分支键是 dev
+    $ git push … target chore/564-cron-on-dev
+     ! [rejected]  chore/564-cron-on-dev -> … (fetch first)
+
+`CNB_BRANCH` 此刻解析成**本地唯一存在的那条 `dev`**，等于拿 `dev` 去顶功能分支的名字——
+非快进，必拒。而 job/stage 名仍叫「同步当前功能分支到 GitHub」，读起来完全对（实测即此）。
+
+> 判据 1 当时只管 `crontab:`，判据 4 补的是**同一个「挂在哪就只能推哪」**在 push 事件上的形态。
+> `"**/!(main|dev)"` 这样的 glob 键与 `$` 一样是多分支的，故放行。
+
+判据 5（glob 段里**不许推固定分支**）  <!-- cross-repo-ref-allow -->
+-----------------------------------------------------------------
+这条是对判据 2 的补洞：glob 段检出的可能是**任何**分支，若那里把 `branch` 写死成 `dev`，
+推的仍是「拿 dev 顶当前分支」——形态与判据 4 等价，只是方向相反。
+
 用法
 ----
     python scripts/guard_cron_job_reachability.py            # 检查仓库根 .cnb.yml
@@ -89,7 +109,9 @@ _CRON_KEY = re.compile(r'^\s*[\'\"]?\s*((?:crontab|cron)\s*:.*)$', re.IGNORECASE
 ANY_BRANCH_KEYS = {'$', '*'}
 
 # 脚本任务里的 `--branch <名>`（machine_branch.py / check_*_divergence.py 都是这个形态）。
-_CLI_BRANCH = re.compile(r'--branch[=\s]+([\w./-]+)')
+# ⚠️ 取值字符集必须含 `$` `{` `}`：`--branch ${CNB_BRANCH}` 首版被截成 `${CNB_BRANCH`
+# （停在 `{` 前），判据 4 于是看不见它 —— 「拿不到输入」被读成「没有动态值」。
+_CLI_BRANCH = re.compile(r'--branch[=\s]+([\w./${}-]+)')
 
 
 class _DupKeyLoader(yaml.SafeLoader):
@@ -176,6 +198,102 @@ def target_branches(job: dict) -> list[tuple[str, str]]:
     return out
 
 
+def dynamic_branch_origins(job: dict) -> list[tuple[str, str]]:
+    """抽出「用了动态分支变量」的位置：`[(说明, 变量名), …]`。
+
+    动态值不能在这里求值，但**它能被挂在哪**是静态可判的（见判据 4）：
+    runner 只检出分支键那一条，`$` 与 glob 键则是「任何分支」。
+    """
+    out: list[tuple[str, str]] = []
+    for stage in job.get('stages') or []:
+        if not isinstance(stage, dict):
+            continue
+        settings = stage.get('settings')
+        if isinstance(settings, dict):
+            branch = settings.get('branch')
+            if isinstance(branch, str) and '$' in branch:
+                out.append((f'stage「{stage.get("name") or "?"}」的 settings.branch', branch.strip()))
+        for key in ('script', 'commands'):
+            body = stage.get(key)
+            if not isinstance(body, str):
+                continue
+            for m in _CLI_BRANCH.finditer(body):
+                if '$' in m.group(1):
+                    out.append((f'stage「{stage.get("name") or "?"}」的 `--branch`', m.group(1)))
+    return out
+
+
+def check_dynamic_scope(data: dict) -> list[str]:
+    """判据 4：`${CNB_BRANCH}` 只能挂在**多分支**的键下（`$` / glob 段）。
+
+    挂在 `dev:` / `main:` 这类单分支键下 ⇒ 检出里只有那一条，`CNB_BRANCH` 解析成本地
+    仅有的分支名，推出去就是「拿 `dev` 顶别人名字」⇒ 非快进必拒（源 CNB #585）。  <!-- cross-repo-ref-allow -->
+    """
+    problems: list[str] = []
+    if not isinstance(data, dict):
+        return problems
+    for branch_key, events in data.items():
+        if is_multibranch_key(branch_key) or not isinstance(events, dict):
+            continue
+        for event_key, jobs in events.items():
+            if not isinstance(jobs, list):
+                continue
+            for job in jobs:
+                if not isinstance(job, dict):
+                    continue
+                job_name = job.get('name') or '?'
+                for origin, expr in dynamic_branch_origins(job):
+                    where = f'`{branch_key}` / `{event_key}` / job「{job_name}」/ {origin}'
+                    problems.append(
+                        f'{where} 用了 `{expr}`，而该事件挂在**单分支**键 `{branch_key}` 下。'
+                        f'runner 只检出 `{branch_key}` 这一条（`git fetch origin refs/heads/{branch_key}` + '
+                        f'`git checkout -f -B "{branch_key}"`），于是 `{expr}` 解析成本地仅有的 `{branch_key}`，'
+                        '推出去就是「拿它顶别人的分支名」⇒ 非快进必拒'
+                        '（源 CNB #585 实测：`! [rejected] chore/564-cron-on-dev -> … (fetch first)`）。'
+                        '动态分支只允许挂在 `$` 或 glob 段（如 `"**/!(main|dev)"`）；'
+                        '若本意就是推固定分支，请写成字面量并挂到同名分支键下。'
+                    )
+    return problems
+
+
+def check_multibranch_fixed_target(data: dict) -> list[str]:
+    """判据 5：glob 段（`**/!(main|dev)`）里的同步作业**不得**推固定分支。
+
+    glob 段检出的可能是任何分支；把 `branch` 写死成 `dev` 就变成「拿 dev 顶当前分支」，
+    与判据 4 等价（方向相反）。`$` 段已有同款判据（判据 3），这里补上 glob 段。
+    """
+    problems: list[str] = []
+    if not isinstance(data, dict):
+        return problems
+    for branch_key, events in data.items():
+        if not is_multibranch_key(branch_key) or branch_key in ANY_BRANCH_KEYS:
+            continue
+        if not isinstance(events, dict):
+            continue
+        for event_key, jobs in events.items():
+            if not isinstance(jobs, list):
+                continue
+            for job in jobs:
+                if not isinstance(job, dict):
+                    continue
+                for origin, target in target_branches(job):
+                    problems.append(
+                        f'`{branch_key}` / `{event_key}` / job「{job.get("name") or "?"}」/ {origin}'
+                        f' 指向固定分支 `{target}`，而该段的检出可能是**任何**分支。'
+                        '推固定分支会拿它去顶当前分支的名字 ⇒ 非快进必拒（源 CNB #585）。'
+                        '这里应写 `${CNB_BRANCH}`（推当前分支），固定分支的同步请挂到同名分支键下。'
+                    )
+    return problems
+
+
+def is_multibranch_key(branch_key: str) -> bool:
+    """`$` / `*` / 含 glob 的键（`**/!(main|dev)`）都表示「不止一条分支」。"""
+    key = str(branch_key or '').strip()
+    if key in ANY_BRANCH_KEYS:
+        return True
+    return '*' in key or '?' in key or '!' in key or '[' in key
+
+
 def check_data(data: dict, cron_keys: dict[str, str] | None = None) -> list[str]:
     """判据：定时事件下的作业，目标分支必须等于该事件所挂的分支键。
 
@@ -218,6 +336,8 @@ def check_data(data: dict, cron_keys: dict[str, str] | None = None) -> list[str]
                             f'`! [rejected] {target} -> {target} (fetch first)`）。'
                             f'改法：把该作业挂到 `{target}:` 分支键下（“定时任务必须挂在具体分支下”）。'
                         )
+    problems.extend(check_dynamic_scope(data))
+    problems.extend(check_multibranch_fixed_target(data))
     return problems
 
 
@@ -279,15 +399,39 @@ def self_check() -> list[str]:
     if not check_data(dollar):
         errors.append('自检失败：`$` 段里指向具体分支没被拦。')
 
-    dynamic = {
+    # ⚠️ 2026-10-19 修正（源 CNB #585）：`dev:` + `${CNB_BRANCH}` 由「放行」改为**报红**。
+    # 旧探针把「不猜运行时值」理解成「一律放行」，于是功能分支的 git-sync 被写进 `dev:`
+    # 段这一形态**两重豁免**（非 cron + 动态值），一条 push 构建红了却没人知道原因。
+    # 不猜值 ≠ 不管挂在哪：`dev:` 下检出里只有 `dev`，`CNB_BRANCH` 必然解成 `dev`。
+    dynamic_bad = {
         'dev': {
             'crontab: 30 * * * *': [
                 {'name': 'j', 'stages': [{'name': 's', 'settings': {'branch': '${CNB_BRANCH}'}}]}
             ]
         }
     }
-    if check_data(dynamic):
-        errors.append('自检失败：`${CNB_BRANCH}` 这类动态值被误报（不该猜运行时值）。')
+    if not check_dynamic_scope(dynamic_bad):
+        errors.append('自检失败：单分支键下用 `${CNB_BRANCH}` 没被拦（源 CNB #585 的形态）。')
+
+    dynamic_good = {
+        'dev': {
+            'crontab: 30 * * * *': [
+                {'name': 'j', 'stages': [{'name': 's', 'settings': {'branch': '${CNB_BRANCH}'}}]}
+            ]
+        }
+    }
+    # 同一份数据，键换成 glob 就是合法的（功能分支同步的正确挂法）。
+    dynamic_good = {'**/!(main|dev)': dynamic_good['dev']}
+    if check_dynamic_scope(dynamic_good):
+        errors.append('自检失败：glob 段里的 `${CNB_BRANCH}` 被误报（判据过宽）。')
+
+    glob_fixed = {
+        '**/!(main|dev)': {
+            'push': [{'name': '功能分支同步', 'stages': [{'name': 's', 'settings': {'branch': 'dev'}}]}]
+        }
+    }
+    if not check_multibranch_fixed_target(glob_fixed):
+        errors.append('自检失败：glob 段里写死推 `dev` 没被拦（判据 5）。')
 
     # 非 cron 事件不该被本判据管（那是 check_cnb_events 的职责）。
     not_cron = {'main': {'push': [{'name': 'j', 'stages': [{'name': 's', 'settings': {'branch': 'dev'}}]}]}}

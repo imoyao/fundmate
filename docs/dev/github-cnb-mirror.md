@@ -2621,10 +2621,74 @@ python scripts/bridge/dev_converge.py --apply --base cnb
 > **「同一批次」不等于「同一份内容」。** 两侧都有 `(#2323)` 的提交、标题还都叫「批次一」，
 > 但一侧是「登记 138 个例外」、另一侧是「清完 138 个例外」——**判据必须是内容，不是标题**。
 
+---
 
-## 27. 分叉被治好的那一刻，搬运反而被拒：GH006 是「通行方式」问题（源 CNB #586，2026-10-19）<!-- cross-repo-ref-allow -->
+## 27. 功能分支的代码同步被搬进 `dev:` 段 ⇒ 拿 `dev` 顶别人的名字（源 CNB #585，2026-10-19）  <!-- cross-repo-ref-allow -->
 
-### 27.1 现场
+用户拿来的是构建 `cnb-til-1k58q1t3j`（`chore/564-cron-on-dev` 的 `push`）。红的那一段
+**名字完全正确**：
+
+```
+Job 「同步当前功能分支到 GitHub」 / Stage 「同步当前功能分支到 GitHub」
+$ git fetch -v --force … origin "refs/heads/dev"          ← 检出的是 dev
+$ git push … target chore/564-cron-on-dev
+ ! [rejected]  chore/564-cron-on-dev -> chore/564-cron-on-dev (fetch first)
+Error: Failed to push branch chore/564-cron-on-dev
+```
+
+### 27.1 根因：这个 job 挂在 `dev:` 键下，不是 glob 段
+
+`.cnb.yml` 的 `dev:` 段里躺着一条 `push:`（job 名「同步当前功能分支到 GitHub」）。
+runner 的检出口径是 `git fetch origin refs/heads/<分支键>` + `git checkout -f -B "<分支键>"`
+⇒ 工作区里**只有 `dev`**，于是 `settings.branch: ${CNB_BRANCH}` 解出来是 `dev`，
+推出去等于拿 `dev` 去顶 `chore/564-cron-on-dev` 的名字 —— 非快进，必拒。
+
+它属于 §25 / §26.5 说的「挂在哪，就只能推哪」同一族，只是长在 `push` 事件上：
+
+| 形态 | 症状 | 判据 |
+|---|---|---|
+| cron 挂 `main`、推 `dev` | 假绿（ skipped）或恒红（`fetch first`） | §25 / `guard_cron_job_reachability.py` 判据 1 |
+| **功能分支 sync 挂 `dev:`、用 `${CNB_BRANCH}`** | **恒红**（本卡） | 同守卫**判据 4**（新增） |
+
+引入点：`chore/564-cron-on-dev`（"定时作业从 main 搬到 dev"）合并时，glob 段整块被搬进
+`dev:` 段——一次**位置**错误，而所有名字、参数、注释都还在描述「功能分支」。
+
+### 27.2 为什么静态判据当时没咬住
+
+判据 1 只管 `crontab:`；判据 3 明写「`${CNB_BRANCH}` 这类动态值不猜运行时值」。
+两条各自都合理，叠在一起就是**双豁免**：非定时 + 动态值 ⇒ 谁都不管。
+
+> **「不猜值」不等于「不管挂在哪」。** 值要运行时才知道，但**它能被挂在哪**是静态可判的：
+> 单分支键下 `CNB_BRANCH` 必然解析成那一条，多分支键（`$` / glob）下才是「当前分支」。
+
+同类警惕：`_CLI_BRANCH` 正则首版字符集不含 `{` `}`，把 `--branch ${CNB_BRANCH}` 截成
+`${CNB_BRANCH` ⇒ 判据看不见它，「拿不到输入」被读成「没有动态值」。#171 的老形态。
+
+### 27.3 修法
+
+| 面 | 动作 | 判据 |
+|---|---|---|
+| 配置 | 该 job 搬回 `"**/!(main|dev)":` 段（多分支键） | 人工 review |
+| 静态判据 4 | 非多分支键下出现 `${CNB_BRANCH}` ⇒ 报红；`settings.branch` 与 `--branch` 两种形态都认 | `guard_cron_job_reachability.py` |
+| 静态判据 5 | glob 段里**写死**推固定分支 ⇒ 报红（反向同族：拿固定分支顶当前分支） | 同上 |
+| 回归网 | 新增 7 条用例 + 一条「取当前 `dev` 配置、把 glob 的 push 搬回 `dev:`」的回退探针 | `scripts/tests/test_cron_job_reachability.py` |
+
+回退探针拿**真实配置**而不是固定 sha，因为这次缺陷**曾进过 `dev`**（会随修复消失），
+钉 sha 在修复上线后就失效了。
+
+### 27.4 通用教训
+
+> **合并冲突解完，要重新读一遍「这段属于谁的语境」。** `#564` 那次合并把两个段落的
+> 边界揉平了：内容一字没改，位置错了一层，于是同一条 job 从「推当前分支」变成
+> 「拿 dev 顶当前分支」。**缩进在这类文件里是语义，不是排版。**
+
+> **判据的豁免条款要成对检查。** 单看「不猜运行时值」是对的，单看「只管 cron」也是对的；
+> 两条一起用，就把一整类配置放走了。加豁免时顺手问一句：**两个豁免的交集会漏掉什么？**
+
+
+## 28. 分叉被治好的那一刻，搬运反而被拒：GH006 是「通行方式」问题（源 CNB #586，2026-10-19）<!-- cross-repo-ref-allow -->
+
+### 28.1 现场
 
 构建 `cnb-68p-1k58q97a8`（`9f56f209`，`dev` 的 push）唯一的失败点，stage-0 原文：
 
@@ -2639,7 +2703,7 @@ remote: - Required status check "质量门禁汇总" is expected.
 三条同批构建（`cnb-sor-1k58prgc9` / `cnb-68p-1k58q97a8` / `cnb-uve-1k57sotc0`）是**同一个
 形态**。所以它不是「这一轮运气不好」——按 merge-sync 的定义，**它每次都会这样**。
 
-### 27.2 根因：门禁检查只在 PR 上产生
+### 28.2 根因：门禁检查只在 PR 上产生
 
 `质量门禁汇总` 是 `ci.yml` 的 `gate` job，条件是
 `if: github.event_name == 'pull_request'`。于是：
@@ -2651,7 +2715,7 @@ remote: - Required status check "质量门禁汇总" is expected.
 **推一次性分支 + 开 PR**。§26 把「合起来」修通之后，这个一直藏在后面的问题才浮出来
 （§26.5「每修掉一个形式问题，就露出一个内容问题」的第三层：这次露出来的是**通道**）。
 
-### 27.3 为什么它恰好在这一轮才炸
+### 28.3 为什么它恰好在这一轮才炸
 
 时间线（全是实测，不是推测）：
 
@@ -2665,7 +2729,7 @@ remote: - Required status check "质量门禁汇总" is expected.
 分叉还在时，脚本走的是「推 `bridge/github-dev` + 开 PR」那条路（门禁能被满足）；
 分叉被治好的那一刻，唯一没被满足的检查反而挡在了面前。
 
-### 27.4 修法：`exit 3` ⇒ 换通道，不是重跑
+### 28.4 修法：`exit 3` ⇒ 换通道，不是重跑
 
 `machine_branch.py` 现在按 **推送失败的原话** 分三类，处置各不相同：
 
@@ -2686,7 +2750,7 @@ stage: machine_branch.py --apply --push --merge-sync   → rc=3（结果已落�
      → 门禁**照跑**，绿了 automerge 合入；合完删掉那条分支
 ```
 
-### 27.5 两个刻意的边界
+### 28.5 两个刻意的边界
 
 - **脚本不自己开 PR**：`machine_branch.py` 零网络依赖（判据
   `test_script_never_imports_network` 钉着：判定不该依赖网络，否则「网络不通 = 报告绿」）。
@@ -2695,7 +2759,7 @@ stage: machine_branch.py --apply --push --merge-sync   → rc=3（结果已落�
 - **兜底**只在「分支保护拒绝」时触发：把「推失败就开 PR」写成无条件分支，
   每轮非快进都会往看板添一张重复卡（`test_non_protection_failure_still_exits_2` 钉着）。
 
-### 27.6 判据与回归网
+### 28.6 判据与回归网
 
 | 判据 | 钉住了什么 |
 |---|---|
@@ -2708,7 +2772,7 @@ stage: machine_branch.py --apply --push --merge-sync   → rc=3（结果已落�
 8 个变异探针全部实测转红（含「删掉 `GH006` 一条标记」「把 `return 3` 改回 2」
 「stage 写死分支名」），还原后全绿。
 
-### 27.7 通用教训
+### 28.7 通用教训
 
 > **「能快进」不等于「能被接受」。** 快进是 git 的判据，分支保护是平台的判据；
 > 前者成立时后者照样能拒，而且拒绝理由会**伪装成配置错误**（`Protected branch update failed`）。
