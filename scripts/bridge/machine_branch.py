@@ -139,6 +139,29 @@ CNB_REF = "refs/cross-bridge/cnb-dev"
 # 检查-使用之间的竞态。判据见 `scripts/guard_bridge_machine_branch_single_writer.py`。
 WRITER_ENV = "MACHINE_BRANCH_WRITER"
 
+# 被分支保护拒绝时，合并结果落在这条**一次性分支**上（源 CNB #586，2026-10-19）：
+# 固定名而不是带日期 —— 带日期会攒出 `…-2026-10-19` 这种分支列表垃圾，
+# 而这条 ref 的语义是「本轮合并结果的快照」，幂等覆盖才对。
+# **只在这里定义一次**：`.cnb.yml` 用 `--print-fallback-target` 读它，别再抄第二份
+# （抄一份就是两处真相，改了一处另一处不会红）。
+FALLBACK_BRANCH = "fix/cnb-dev-merge"
+
+
+def print_fallback_target() -> str:
+    """给 stage 用的「拿走即用」输出：`FALLBACK_BRANCH=fix/cnb-dev-merge`。"""
+    return f"FALLBACK_BRANCH={FALLBACK_BRANCH}"
+
+
+# 分支保护拒绝的原话（源 CNB #586，构建 `cnb-68p-1k58q97a8` 原文）：
+#     GH006: Protected branch update failed for refs/heads/dev.
+#       - Required status check "质量门禁汇总" is expected.
+# 三种失败形态**不得**互相冒充：处置完全不同（换通道 / 重跑 / 换 token）。
+PROTECTION_REJECTION_MARKERS = (
+    "GH006",
+    "protected branch hook declined",
+    "Required status check",
+)
+
 # CNB 默认**不是**写者（GitHub reconcile 才是）。要接管时显式设
 # `MACHINE_BRANCH_WRITER=cnb`，且**必须同时停掉** `.github/workflows/dev-reconcile.yml`
 # 的推送步骤——两个写者不能并存。
@@ -257,6 +280,15 @@ def merge_tree_conflicts(
     return conflicts, ""
 
 
+def _with_target(p: dict, branch: str) -> dict:
+    """把「推哪条分支、被拒时开哪条一次性分支」并进报告上下文。
+
+    只影响**报告文案**（`pr_pending` 那一支要说出目标分支名），不改 `plan()` 的纯函数
+    契约 —— 回归网对 `plan()` 的断言因此保持原样。
+    """
+    return {**p, "branch": branch, "fallback_branch": FALLBACK_BRANCH}
+
+
 def machine_push_args(
     github_url: str, machine_branch: str, cwd: str | None = None
 ) -> list[str]:
@@ -295,6 +327,7 @@ def build_report(
     pr_url: str | None = None,
     reason: str = "",
     dry_run: bool = False,
+    detail: str = "",
 ) -> str:
     """生成给人看的结论段。
 
@@ -304,6 +337,7 @@ def build_report(
     |---|---|---|
     | `''`（默认） | 演练模式，没执行 | 加 `--apply --push` |
     | `'push_failed'` | **合好了，推被拒 / 推不通** | 看 remote 原话、清掉远端那条旧分支 |
+    | `'pr_pending'` | 合好了，**被分支保护拒绝**，结果已落到一次性分支 | 开 PR（门禁照跑） |
     | `'inconclusive'` | 试算 / 合并没跑起来 | 结论不可信，别读成「无冲突」 |
 
     三种原因原先共用一句「（演练模式：未推、未开 PR）」，于是构建日志里
@@ -362,6 +396,22 @@ def build_report(
         lines.append(
             "**自己那条一次性分支**；它都失败，说明远端那条 ref 不是我们能动的。"
         )
+    elif reason == "pr_pending":
+        # 分支保护拒绝 ⇒ 改走 PR 通道（源 CNB #586）。这一支必须与「推失败」分开写：
+        # 两者都「没推上去」，但**下一步完全不同**（等 PR 合并 vs 重跑）。
+        lines.append(
+            f"✅ **两侧已合并成功**；直推被 `{p.get('branch', 'dev')}` 的分支保护拒绝"
+            "（`Required status check` 只在 PR 上产生），已把合并结果落到"
+            f"**一次性分支 `{p.get('fallback_branch')}`**。"
+        )
+        lines.append("")
+        lines.append(
+            "   ⇒ 下一步（stage 自动做）：用它开 PR → 门禁**照跑**，绿了自动合入"
+            "（是「被满足」不是「被绕过」）。合完把那条分支删掉即可，**不需要重跑本脚本**。"
+        )
+        if detail:
+            lines.append("")
+            lines.append(f"```\n{detail.strip()}\n```")
     elif reason == "inconclusive":
         lines.append(
             "⚠️ **合并试算 / 合并本身没跑成** —— 本轮结论不可信，不得读成「无冲突」。"
@@ -470,10 +520,62 @@ def run(args: argparse.Namespace) -> int:
         # 万一不成立（远端在我们合并之后又被推进）就**如实报红**、让人重跑，
         # 不允许用 force 把它盖掉（`dev` 是共享事实，判据见 test_machine_branch.py）。
         ok_push, push_out = _push_merge_sync(args.github_url, args.branch, wt)
-        _git(["worktree", "remove", "--force", wt], cwd)
         if not ok_push:
             # ⚠️ 「合好了但没送出去」与「没合」是两种结论，必须是两种输出（源 CNB #573）。
             print(f"❌ 推 `{args.branch}` 失败：{push_out}", file=sys.stderr)
+
+            # 分支保护拒绝 ⇒ **改走 PR 通道**（源 CNB #586，2026-10-19）
+            # ------------------------------------------------------------
+            # 实测（构建 `cnb-68p-1k58q97a8` / `cnb-sor-1k58prgc9`）：
+            # 合并是**成功**的（报告打印「✅ 无冲突」），被拒的只有推：
+            #     GH006: Protected branch update failed for refs/heads/dev.
+            #       - Required status check "质量门禁汇总" is expected.
+            # 「推合并结果」在有保护规则的分支上**恒不可达** —— 那条检查只在 PR 上产生
+            # （`ci.yml` 的 `if: event_name == 'pull_request'`），直推永远满足不了它。
+            # 这与 CNB #450 当年给 `bridge/github-dev` 下的判断是同一条：  <!-- cross-repo-ref-allow -->
+            # **不是门禁太严，是「直推」这种通行方式需要一个不可能存在的检查。**  <!-- cross-repo-ref-allow -->
+            #
+            # 现场时序也值得记住：GitHub 侧刚把 `bridge/github-dev` 合进 `dev`；
+            # 我们 5 秒后 fetch，拿到的仍是无那笔的旧 `dev` ⇒ 分叉「消失」⇒ 快进成立
+            # ⇒ 直推 ⇒ 撞保护。**分叉恰好被治好的那一刻，唯一被做过的搬运反而被拒。**
+            #
+            # 本脚本**不自己开 PR**（它刻意零网络依赖，判据
+            # `test_script_never_imports_network` 钉着）。它只把合并结果落到一次性分支，
+            # 再把该开的 PR 交给 stage 调 `scripts/bridge/branch_protection_pr.py`。
+            if is_protection_rejection(push_out):
+                ctx = _with_target(p, args.branch)
+                ok_ref, ref_detail = push_fallback_ref(
+                    args.github_url, ctx["fallback_branch"], wt
+                )
+                _git(["worktree", "remove", "--force", wt], cwd)
+                if not ok_ref:
+                    print(
+                        build_report(
+                            ctx,
+                            pushed=False,
+                            conflicts=[],
+                            reason="push_failed",
+                            detail=f"连一次性分支都没推上去：{ref_detail}",
+                        ),
+                        file=sys.stderr,
+                    )
+                    return 2
+                # 给 stage 的「拿走即用」输出（分支名只有一处真相）。
+                print(f"FALLBACK_HEAD={ctx['fallback_branch']}")
+                print(f"FALLBACK_BASE={args.branch}")
+                print(
+                    build_report(
+                        ctx,
+                        pushed=False,
+                        conflicts=[],
+                        reason="pr_pending",
+                        detail=ref_detail,
+                    ),
+                    file=sys.stderr,
+                )
+                # 3 = 「合并成功、被分支保护拒绝、结果已落到一次性分支」。
+                # 与 2（结论不可信）分开：这一支结论**是有效的**，只是通道不对。
+                return 3
             print(
                 "   ⇒ 合并本身是成功的、结论有效；失败的是**搬运**。"
                 "最常见原因是本脚本 fetch 之后 GitHub 侧又被推进了一笔 —— 重跑一次即可"
@@ -484,7 +586,9 @@ def run(args: argparse.Namespace) -> int:
                 build_report(p, pushed=False, conflicts=[], reason="push_failed"),
                 file=sys.stderr,
             )
+            _git(["worktree", "remove", "--force", wt], cwd)
             return 2
+        _git(["worktree", "remove", "--force", wt], cwd)
         print(build_report(p, pushed=True, conflicts=[]))
         print(
             f"\n（merge-sync：已把两侧合并结果 `{sha[:8]}` 快进推到 GitHub `{args.branch}`，未开 PR。）"
@@ -551,6 +655,46 @@ def run(args: argparse.Namespace) -> int:
     return 0
 
 
+def is_protection_rejection(push_out: str) -> bool:
+    """推送失败是不是**分支保护**造成的（而不是非快进 / 凭据失效）。
+
+    判据只认 GitHub 自己的原话，不猜：
+
+    | 形态 | 原话 | 下一步 |
+    |---|---|---|
+    | **分支保护** | `GH006` / `protected branch hook declined` / `Required status check` | **换通行方式**（开 PR） |
+    | 非快进 | `(fetch first)` / `stale info` | 重跑一次即可 |
+    | 凭据失效 | `Authentication failed` / `could not read Username` | 换 token |
+
+    三者处置完全不同，合并叙述就会把红灯指向错的方向 —— 这正是 #567 / #573 反复踩过的。
+    """
+    text = push_out or ""
+    return any(m in text for m in PROTECTION_REJECTION_MARKERS)
+
+
+def push_fallback_ref(
+    github_url: str, head_ref: str, cwd: str | None = None
+) -> tuple[bool, str]:
+    """把合并结果（`HEAD`）推到一次性分支 `head_ref`，供开 PR 用。
+
+    先普通 push；被拒（分支已存在且分叉）再对**这一条** ref 用 `--force-with-lease`。
+    只对这一条开 force 与「`dev` 永不开 force」不冲突：它是**本轮合并结果的快照**，
+    固定名即为了幂等覆盖；`dev` 是共享事实，别人的提交不可覆盖。
+    """
+    ref = f"refs/heads/{head_ref}"
+    code, out, err = _git(["push", "--no-verify", github_url, f"HEAD:{ref}"], cwd)
+    if code == 0:
+        return True, ""
+    first = out or err
+    lease = f"--force-with-lease={ref}:"
+    code, out, err = _git(
+        ["push", "--no-verify", lease, github_url, f"HEAD:{ref}"], cwd
+    )
+    if code == 0:
+        return True, ""
+    return False, f"{out or err or '(git push 没有任何输出)'}（首次尝试：{first}）"
+
+
 def _push_merge_sync(github_url: str, branch: str, cwd: str | None) -> tuple[bool, str]:
     """把 `HEAD` 快进推到 GitHub 的同名分支（`--no-verify`，绝不 force）。
 
@@ -590,6 +734,11 @@ def main(argv: list[str] | None = None) -> int:
     # 声明一个不干事的 `--open-pr` 等于谎报能力 —— 本仓 #118 的教训就是「契约要与行为一致」。
     # 要接的话：`claim_detect.py` 的 `github_api()` 是现成通道（插件任务 + Secret imports）。
     ap.add_argument(
+        "--print-fallback-target",
+        action="store_true",
+        help="只打印被拒时用的一次性分支名（`FALLBACK_BRANCH=…`），供 stage 拼命令用（源 CNB #586）",
+    )
+    ap.add_argument(
         "--merge-sync",
         action="store_true",
         # cross-repo-ref-allow
@@ -613,6 +762,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--github-url", default=DEFAULT_GITHUB_URL, help="GitHub 远程 URL")
     ap.add_argument("--cwd", default=None, help="git 仓库路径（默认当前目录）")
     args = ap.parse_args(argv)
+    if args.print_fallback_target:
+        # 分支名只有一处真相：`FALLBACK_BRANCH` 常量。stage 读这里而不是再抄一份。
+        print(print_fallback_target())
+        return 0
     if not args.cnb_url:
         code, url, _ = _git(["remote", "get-url", "origin"], args.cwd)
         args.cnb_url = (
