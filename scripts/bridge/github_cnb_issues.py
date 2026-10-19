@@ -678,6 +678,36 @@ def harvest_existing(state: dict[str, Any]) -> set[int]:
 
     扫描成本：CNB 列表接口 100/页，逐张拉详情抠幂等键。实测 365 张镜像卡
     约 370 次请求，可接受 —— 相比「重复建 140 张卡」的代价，这个成本必须付。
+
+    ## 第二层（源 CNB #6，2026-10-19）：**跳过的代价是「明天再建一张」**
+
+    上面那条只治了「扫描被缓存短路」。第二层更贵，而且**当前就在发生**：
+
+    ```text
+    @CodeBuddy 怎么一直在重复刷？肯定是出 bug 了            ← 用户在同一个 bug 上喊了 37 遍
+    分诊作业每轮会给每张卡贴一条评论
+      → 08:57 贴到重复卡 #6 上 ⇒ #6 有了「有人类评论」的假象（分诊评论是 NPC 的，
+        但清理脚本 08:57 之前的判据数的是**总评论数**）
+      → 清理脚本按「有评论优先」保留 #6、关掉正本 #5
+      → 建卡作业只问 `open`，**没有「已关闭的算不算建过」这一问** ⇒ 下一轮把
+        GitHub #783 再建一张（#164 / #468 这些都是这么长出来的）
+      → 新卡的评论区空空如也 ⇒ 分诊再贴一条 ⇒ 再关、再建……
+    ```
+
+    两个洞，都必须补：
+
+    - **判重必须问全部 state**：`closed` 的镜像卡同样证明「这张 GitHub 卡建过」。
+      只问 `open` 时，清理动作（关卡）直接把幂等键**匿名掉**，于是「关卡」变成
+      「下一轮重建」的开关 —— 清理与重建互相喂饭。
+      ⚠️ 只补这一条还不够：人**确实想**看一张仍然 open 的 GitHub 卡的镜像卡时，
+      手动关掉后会被永久钉死（再也建不出来）。所以还缺下面一条闸。
+    - **最近被关的卡不重建**（`RECENTLY_CLOSED_HOURS`）：同一幂等键在窗口内被关过
+      ⇒ 本轮**跳过建卡**并打印一行人话。判据刻意用「时间窗」而不是「关闭原因」：
+      CNB 侧关闭动作至少有四条来源（重复卡清理 / 状态回流 / 人手动 / NPC 误关），
+      逐条识别等于拟合历史；时间窗一视同仁，且 60 天后自动放飞，不会永久死锁。
+
+    一句话：**「建过」与「开着」是两件事。** 把前者按后者判，就等于让「关一张卡」
+    成了「下一轮再建一张」的许可证。
     """
     mirrored: dict[str, Any] = state.setdefault('mirrored', {})
     # 状态文件的键就是 GitHub 编号（str），值只存 CNB 编号与标题快照。
@@ -695,6 +725,7 @@ def harvest_existing(state: dict[str, Any]) -> set[int]:
     )
 
     seen: set[int] = set()
+    closed_groups: dict[int, list[dict[str, Any]]] = {}
     for card in mirror_cards:
         try:
             detail = get_cnb_issue(int(card['number']))
@@ -704,12 +735,85 @@ def harvest_existing(state: dict[str, Any]) -> set[int]:
         gh = extract_github_number(detail.get('body'))
         if not gh:
             continue
+        # **全部 state 都算「建过」**（源 CNB #6）：只认 open 时，清理动作（关卡）
+        # 等于把幂等键匿名掉 ⇒ 下一轮原地重建一张空卡，再被分诊贴评论、再被关……
+        # 「建过」与「开着」是两件事，判重只能问前者。
         seen.add(gh)
+        if (detail.get('state') or 'open') != 'open':
+            closed_groups.setdefault(gh, []).append(detail)
+            continue
         mirrored[str(gh)] = {'cnb': int(card['number']), 'title': card['title'][:80]}
+
+    _remember_recently_closed(mirrored, closed_groups)
 
     # 并集：缓存里有、CNB 侧已找不到的也保留（可能只是本轮读取失败），
     # **宁可漏建也不重复建** —— 漏建能被下一轮扫描补上，重复建会污染看板且不可逆。
     return cached | seen
+
+
+# 同一幂等键在这么久之内被关过 ⇒ 本轮**不重建**。60 天足够覆盖任何人工清理节奏，
+# 又不至于把「用户想重开」永久钉死（到期后自动放飞，不需要谁去改配置）。
+RECENTLY_CLOSED_HOURS = 24 * 60
+
+
+def _parse_cnb_time(value: Any) -> datetime | None:
+    """解析 CNB 的时间串（`2026-10-19T09:17:28Z` 这类）。解析不了返回 None，不猜。"""
+    text = str(value or '').strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace('Z', '+00:00')).astimezone(UTC)
+    except ValueError:
+        return None
+
+
+def _remember_recently_closed(
+    mirrored: dict[str, Any],
+    closed_groups: dict[int, list[dict[str, Any]]],
+    *,
+    now: datetime | None = None,
+    window_hours: int = RECENTLY_CLOSED_HOURS,
+) -> dict[int, str]:
+    """把「最近被关过」的幂等键记进缓存，返回 `{GitHub 编号: 关闭时刻}`。
+
+    纯函数（`now` 可注入），供单测直接用。三个刻意的选择：
+
+    - **只记时间点，不记原因**：关闭来源至少有重复卡清理 / 状态回流 / 人手动 / NPC 误关
+      四种，逐条识别等于拟合历史；时间窗一视同仁。
+    - **同一键有多张 closed 卡时取最新那张**：重建出来的卡一定是后来那张。
+    - **解析不了时间就不记**：宁可多建一张，也不用一个猜出来的时间当判据
+      （#171：「拿不到」不等于「没有」—— 但它在这里的正确处置是**不动手**，不是编一个值）。
+    """
+    now = now or datetime.now(UTC)
+    fresh: dict[int, str] = {}
+    for gh, cards in closed_groups.items():
+        latest: datetime | None = None
+        for card in cards:
+            ts = _parse_cnb_time(card.get('closed_at')) or _parse_cnb_time(card.get('updated_at'))
+            if ts and (latest is None or ts > latest):
+                latest = ts
+        if latest is None:
+            continue
+        if (now - latest).total_seconds() <= window_hours * 3600:
+            fresh[gh] = latest.strftime('%Y-%m-%dT%H:%M:%SZ')
+    mirrored['_recently_closed'] = {str(k): v for k, v in sorted(fresh.items())}
+    return fresh
+
+
+def recently_closed(state: dict[str, Any], *, now: datetime | None = None) -> dict[int, str]:
+    """从缓存里取「最近被关过」的键 → 关闭时刻（供 `run()` 判「要不要跳过建卡」）。"""
+    now = now or datetime.now(UTC)
+    raw = (state.get('mirrored') or {}).get('_recently_closed') or {}
+    out: dict[int, str] = {}
+    for key, value in raw.items():
+        if not str(key).isdigit():
+            continue
+        ts = _parse_cnb_time(value)
+        if ts is None:
+            continue
+        if (now - ts).total_seconds() <= RECENTLY_CLOSED_HOURS * 3600:
+            out[int(key)] = str(value)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -765,8 +869,37 @@ def run(dry_run: bool, limit: int | None) -> int:
     gh_issues, complete = fetch_github_open_issues()
     print(f'📥 GitHub open issue {len(gh_issues)} 张；CNB 已镜像 {len(already)} 张')
 
-    pending = [i for i in gh_issues if i['number'] not in already]
-    pending.sort(key=lambda i: i['number'])
+    # ⚠️ 这里**不再**按 `already` 过滤：`recently_closed()` 是同一份判据的**子集**，
+    # 下面只过滤一次，免得「先滤掉、再滤一次」写成两处真相（第二次漏了就没人发现）。
+    pending = sorted(gh_issues, key=lambda i: i['number'])
+
+    # 闸门 ①：已经建过的（**含已关闭的**）不再重建。
+    # 「开着」与「建过」是两件事（源 CNB #6）：只认 open 时，关一张卡 =
+    # 下一轮再建一张，清理动作反而成了重建开关。
+    skipped_mirrored = [i for i in pending if i['number'] in already]
+    pending = [i for i in pending if i['number'] not in already]
+    if skipped_mirrored:
+        print(f'⏭️ {len(skipped_mirrored)} 张已建过（含已关闭的镜像卡），跳过')
+
+    # 闸门 ②：**最近被关过的镜像卡不重建**（源 CNB #6，2026-10-19）。
+    #
+    # 为什么需要它（上面那层只管住了「缓存短路」）：判重改问全部 state 之后，
+    # 一张被人**手动关掉**、而 GitHub 侧仍 open 的卡就再也建不出来了。把它恢复成
+    # 「能建」又会让清理动作重新变成「明天再建一张」的开关。二者之间的那条线是时间：
+    # 窗口内（`RECENTLY_CLOSED_HOURS`）当「刚处置过、别碰」，到期后自动放飞。
+    fresh_closed = recently_closed(state)
+    if fresh_closed:
+        held = [i for i in pending if i['number'] in fresh_closed]
+        if held:
+            pending = [i for i in pending if i['number'] not in fresh_closed]
+            print(
+                f'⏸️ {len(held)} 张 GitHub 卡在 CNB 侧的镜像卡**最近被关过**'
+                f'（{RECENTLY_CLOSED_HOURS // 24} 天内），本轮不重建：'
+                f'{[i["number"] for i in held][:10]}'
+                f'{"…" if len(held) > 10 else ""}'
+            )
+            print('   判据见 harvest_existing 的 docstring（「建过」≠「开着」）；要立刻重建请直接跑 --limit 或手工建卡。')
+
     if limit:
         pending = pending[:limit]
 
