@@ -261,14 +261,20 @@
         # 装不上就**显式红**，绝不静默跳过（源 CNB #171：空 ≠ 没拿到）。
         if ! python -c 'import yaml' >/dev/null 2>&1; then
           echo "· 缺 pyyaml，安装中（结构类判据要用）"
-          python -m pip install --quiet --disable-pip-version-check pyyaml || {
-            echo "❌ pyyaml 装不上 —— 结构类判据**本轮没跑**，结论不可信"
-            exit 1
-          }
+          # 先走默认 index（海外 PyPI），不通再走国内镜像 —— CNB 构建在境内，
+          # 只试一条路会把「网络到不了 PyPI」变成「每次 push 都红」。
+          python -m pip install --quiet --disable-pip-version-check pyyaml \
+            || python -m pip install --quiet --disable-pip-version-check \
+                 -i https://mirrors.aliyun.com/pypi/simple/ pyyaml \
+            || {
+              echo "❌ pyyaml 装不上（默认 index 与阿里云镜像都不通）—— 结构类判据**本轮没跑**，结论不可信"
+              exit 1
+            }
         fi
         if ! command -v node >/dev/null 2>&1; then
           echo "· 缺 node，安装中（跨仓引用判据是 node 脚本）"
-          apt-get update -qq && apt-get install -y -qq --no-install-recommends nodejs || true
+          apt-get update -qq && apt-get install -y -qq --no-install-recommends nodejs \
+            || echo "· nodejs 安装失败（见上方 apt 输出）"
         fi
         if ! node --version >/dev/null 2>&1; then
           echo "❌ node 装不上 —— 跨仓引用判据**本轮没跑**，结论不可信"
