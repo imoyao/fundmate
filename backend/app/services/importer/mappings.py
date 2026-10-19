@@ -24,6 +24,7 @@ class BusinessType(Enum):
 
     BUY = ('buy', '买入')
     SELL = ('sell', '卖出')
+    DIVIDEND = ('dividend', '分红')
     DIVIDEND_CASH = ('dividend_cash', '现金分红')
     DIVIDEND_REINVEST = ('dividend_reinvest', '红利再投资')
     DEPOSIT = ('deposit', '存入')

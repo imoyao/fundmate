@@ -436,6 +436,10 @@ class CommitMixin:
                         result = PositionService.process_orphan_dividend_reinvest(self.db, data)
                     elif bt == BusinessType.SPLIT.code:
                         result = PositionService.process_orphan_split(self.db, data)
+                    elif bt == BusinessType.DIVIDEND.code:
+                        # #541：自动抓取路径用的通用「分红」码（与手动导入的
+                        # dividend_cash 同落 txn_type='dividend'，只是不带再投语义）
+                        result = PositionService.process_orphan_dividend(self.db, data)
                     else:
                         skipped += 1
                         continue

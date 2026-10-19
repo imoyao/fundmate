@@ -648,6 +648,20 @@ jobs:
       - name: 检查定时作业的目标分支是否在它自己的检出里（阻断）
         run: python scripts/guard_cron_job_reachability.py
 
+      # 定时作业挂错**整整一个分支**（源 CNB #564，2026-10-18）：用户问「直接在 DEV 分支上面
+      # 进行分诊不行吗？为什么非得在 main 分支上面？」——当时整组 cron（建卡 / 状态回流 /
+      # 分诊 / 三节自检）都挂在 `main:` 下，理由只有一句「cron 只能挂具体分支，故这里显式写 main」。
+      # 那句话说的是「必须是个**具体**分支」，从没说「必须是 `main`」；读偏一格的代价是
+      # ① 在 `dev` 上验过的脚本修复要等下一次发版才执行；② 为「让它生效」而逼出以 `main`
+      # 为 base 的提交（CNB #114 / #122 / #124 / #126），把两侧 `main` 岔成互不包含。
+      # 与上一条是一对：那条管「挂对了之后目标分支在不在检出里」，这条管「挂对分支了吗」。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      # 判据边界（不判作业内容、不判 push/PR 事件）见脚本 docstring；
+      # 回归网在 scripts/tests/test_cron_covers_active_branch.py（含回退探针：
+      # 拿修复前的真实 `.cnb.yml` 喂守卫，确认它真的转红）。
+      - name: 检查定时作业是否挂在活跃分支上（阻断）
+        run: python scripts/guard_cron_covers_active_branch.py
+
       # 镜像建卡的「扫描不可短路」守卫（源 CNB #450，2026-10-14）：`harvest_existing()`
       # 曾拿状态文件缓存当前置短路（缓存非空就直接返回），于是状态文件没记的镜像卡
       # 在判定时"不存在" ⇒ 每轮 cron/push 都把 ~140 张 GitHub 卡再建一遍，
@@ -670,6 +684,14 @@ jobs:
       # （失败时不必再推断归属）。**不新增 job**，也就不必动 `gate.needs`。
       - name: 跨仓同步通道回归网（阻断）
         run: python -m pytest scripts/tests/test_machine_branch.py -q -p no:cacheprovider
+
+      # PR 兜底通道的回归网（源 CNB #586）：合并成功、直推被分支保护拒绝时，
+      # 合并结果落到一次性分支后由 `branch_protection_pr.py` 幂等地开 PR。
+      # 三条最容易写反的事：同 head 有 open PR 必须复用（否则每轮一张卡）、
+      # 列 PR 失败必须退 2（不得读成「不需要开」）、没 token 要说清「结果已在分支上」。
+      # `unittest discover` 已覆盖本文件，此处显式再跑一遍只为让归属在日志里看得见。
+      - name: PR 兜底通道回归网（阻断）
+        run: python -m pytest scripts/tests/test_branch_protection_pr.py -q -p no:cacheprovider
 
       # 「同一 git 询问问两遍」守卫的回归网（源 CNB #573）：最重的一条用例拿
       # `origin/dev` 上**修复前的真实代码**喂守卫，确认它真的转红——不加这条，

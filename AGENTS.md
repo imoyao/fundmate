@@ -90,13 +90,18 @@
 #### CNB 镜像链路的挂钩分支纪律（2026-10-11，#123）
 
 `duoduobei/fundmate` 的镜像作业由 `.cnb.yml` 的 cron 驱动，而 **CNB 的 `crontab` 事件只能挂在具体分支下**
-（不能放 `$` 兜底）。这条平台限制带来一个真实约束，但它**不改变 base 的填法**：
+（不能放 `$` 兜底）。**注意这句话说的是「必须是个具体分支」，从来没说「必须是 `main`」**——
+2026-10-18 起本仓整组定时作业挂在 **`dev:`** 下（源 CNB #564，用户拍板），因为 `dev` 就是具体分支，
+而且它是唯一活跃的那条：
 
-- **改动照常提 `dev`**（`docs(bridge):` / `feat(bridge):` 等），不因为「要跑 cron」而改 base；
-- **要生效就得发版**：cron 读的是 `main` 上的那版脚本，所以功能分支合入 `dev` 后，
-  需要另开一张 `dev` → `main` 的**发布 PR**，让镜像改动真正落地；
-- **发版前镜像作业跑的是旧脚本**，这是需接受的窗口，**不是**「所以我要直连 `main`」的许可证。
-  改 base 只会把「旧脚本还跑着」变成「新旧代码在两处、且互不包含」——更难收拾；
+- **改动照常提 `dev`**（`docs(bridge):` / `feat(bridge):` 等），合入即对 cron 生效，**不必等发版**；
+- **不再需要「为了跑 cron 而发版」**：cron 读 `dev` 上那一版脚本；
+- `main` 上**不挂 cron**，也不复制第二份（两份 = 每轮跑两遍、标签与评论重复，
+  且「哪份才是真的」没人说得清）。判据：`scripts/guard_cron_covers_active_branch.py`
+  （并入 `ci.yml` 的 `scripts_test`，阻断；含回退探针——拿修复前的真实 `.cnb.yml` 喂守卫确认它转红）。
+- **历史代价（为什么这条要写死）**：cron 曾经挂 `main`，于是「改了脚本要等发版」，
+  又为了「让它生效」而连续 5 个 PR 以 `main` 为 base（CNB #114 / #122 / #124 / #126），
+  把两侧 `main` 岔成互不包含。「cron 挂在哪」**永远**不是绕过 `dev` 的理由。
 - **判据（2026-10-14 二次修正，源 CNB #179）**：**发版滞后本身不是故障**。
 
   | 形态 | 判定 |
@@ -1133,7 +1138,7 @@ NPC 没有跨会话记忆，**每一次开工都是新进程**。所谓「记住
 #### 五、护栏
 
 - **挂上 cron**（2026-10-18）：此前 `issue_triage.py` 只在本地手工跑过，于是「可派 0」
-  只出现在一次性终端输出里。现挂在 `main` 的 `crontab: 0 18 * * *` 里、
+  只出现在一次性终端输出里。现挂在 **`dev`** 的 `crontab: 0 18 * * *` 里、
   **排在「状态回流」之后**（先关掉 GitHub 已关的卡，再对剩下的贴结论，
   否则会去给一张马上要关的卡写标签），`--apply --sizes S/M --batch 3`，退出码回声不吞（#171）。
 - 回归网 `scripts/tests/test_issue_triage.py`（46 条，含 **4 个变异探针**：模板当判据 /
@@ -1366,6 +1371,31 @@ git checkout -f -B "<分支键>" <sha>          # 工作区里只有 `<分支键
 
 排查口诀：**先看 `git fetch` 那行拉的是 `refs/heads/` 哪条**，再谈其它。
 拉的分支与 `settings.branch` 不一致 ⇒ 不用往下看了，改挂载位置。
+
+### 搬运到共享分支：**能快进 ≠ 能被接受**（源 CNB #586，2026-10-19）  <!-- cross-repo-ref-allow -->
+
+`dev` 是**共享事实**、且挂了 required status check，所以「把合并结果推过去」这条路
+**不可能靠推送成功**——`质量门禁汇总` 只在 PR 上产生（`ci.yml` 的
+`if: github.event_name == 'pull_request'`），直推时它根本不跑，GitHub 于是判
+`Expected but missing`：
+
+```text
+GitHub: GH006: Protected branch update failed for refs/heads/dev.
+GitHub: - Required status check "质量门禁汇总" is expected.
+ ! [remote rejected]   HEAD -> dev (protected branch hook declined)
+```
+
+- **判据**：看到 `GH006` / `Protected branch update failed` / `Required status check`，
+  先问「这条检查是不是只在某类事件上产生」，**别去查凭据、别去查分叉**。
+  它与 `(fetch first)`（非快进）和 `Authentication failed`（凭据）是三种事，处置完全不同。
+- **处置**：落到一次性分支 `fix/cnb-dev-merge`（**一次性、固定名、PR 合完即删**）→
+  `scripts/bridge/branch_protection_pr.py --head … --base dev --apply` 开 PR（幂等：
+  同 head 有 open PR 就复用）→ 门禁**照跑**、绿了 automerge 合入。
+  `machine_branch.py` 这一支**退 3**（结论有效、通道不对），2 仍只表示「结论不可信」。
+- **`dev` 仍永不开 force**：「换通道」发生在**被拒之后**，不是把推变成覆盖。
+- **别把「推失败就开 PR」写成无条件分支**：那会让每一轮非快进都往看板添一张重复卡。
+  判据 `test_non_protection_failure_still_exits_2` 钉着。
+- 细节与推导见 `docs/dev/github-cnb-mirror.md` §27。
 
 ### 在 CNB 侧的其它已知边界（实测）
 

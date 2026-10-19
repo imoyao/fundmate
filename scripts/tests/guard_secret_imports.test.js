@@ -192,17 +192,21 @@ test(".cnb.yml 不得有流水线级 imports 引用密钥文件（#148 ① 回�
 
 test("三条 git-sync 作业都用插件任务级 imports 挂凭据（默认 settingsFrom 是错的）", () => {
   // 判据是「按作业数」而不是「文件里有没有出现过」——只改一条等于没改。
-  // 3 条 = push（推 dev）+ 一条 crontab（每小时的兜底推 dev）+ `"**/!(main|dev)"` 段
-  // （推当前功能分支，源 CNB #167）。
-  // ⚠️ 2026-10-14（源 CNB #450）：第 4 条（pull，拉 GitHub dev）已删除 ——  // cross-repo-ref-allow
-  // 插件的 pull = `git pull --rebase`，而 CNB dev 比 GitHub dev 多 83 笔独有提交、
-  // 逐笔 rebase 79 笔冲突（同对分支用 merge 则零冲突）⇒ 它必然红且一字节都拉不动。
+  // 1 条 = `"**/!(main|dev)"` 段（推当前功能分支，源 CNB #167）。
+  //
+  // 另外三条都**已删除**，各有各的必然失败形态（保留溯源，别再贴回来）：
+  //   - pull（拉 GitHub dev，2026-10-14 源 CNB #450）：插件 pull = `git pull --rebase`，  // cross-repo-ref-allow
+  //     CNB dev 比 GitHub dev 多 83 笔独有提交 ⇒ 逐笔 rebase 79 笔冲突，一字节拉不动；
+  //   - push 直推 dev（2026-10-19 源 CNB #577）：裸 ref + fast-forward only ⇒ GitHub 多一笔就永久被拒；  // cross-repo-ref-allow
+  //   - 每小时的兜底 cron 推 dev（同上，同一条命令，同一面墙）。
+  // 直推 dev 的位置改由 `dev:` 段里的 `machine_branch.py --merge-sync` 脚本任务承担。
+  //
   // 作业增减时**本条判据要一起改**（就是这么设计的：按数不按名）。
   const stages = CNB_YML.split("image: tencentcom/git-sync").slice(1);
   assert.equal(
     stages.length,
-    3,
-    `期望 3 条 git-sync 作业（push + 兜底 crontab + 功能分支段），实际 ${stages.length} 条——作业增减时本判据要一起改。`
+    1,
+    `期望 1 条 git-sync 作业（仅功能分支段），实际 ${stages.length} 条——作业增减时本判据要一起改。`
   );
   stages.forEach((chunk, i) => {
     const head = chunk.split("settings:")[0];
