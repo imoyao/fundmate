@@ -275,14 +275,14 @@ class TestRealConfigRegression(unittest.TestCase):
         用 fixture 而不是 `git show` 不可变 sha，是因为那条缺陷**从未**进过 `dev`
         （修复与发现同批），钉 sha 会钉到一条不存在的历史。
         """
+        # ⚠️ 夹具**必须只留一条 cron**（2026-10-19 修，源 CNB #585）。
+        # 原先这里还有一条合法的「GitHub issue 增量镜像」cron（挂在 `main` 下、
+        # 不推任何分支）——而 `TestRealConfigDynamicScope` 会把本夹具**搬回 `dev:` 段**
+        # 再断言「必须转红」。多一条合法 cron 时它确实会红，但红的那条是**搬移后的旧一条**，
+        # 与判据 4（`${CNB_BRANCH}` 挂在单分支键下）无关 —— 探针在谎报战功。
+        # 删掉它，夹具就**只有**缺陷本身，红就只能来自判据 1。
         text = (
             'main:\n'
-            '  # daily mirror\n'
-            '  "crontab: 0 18 * * *":\n'
-            '    - name: GitHub issue 增量镜像\n'
-            '      stages:\n'
-            '        - name: s\n'
-            '          script: echo hi\n'
             '  # hourly fallback sync\n'
             '  "crontab: 30 * * * *":\n'
             '    - name: 同步到 GitHub（每小时兜底，仅 dev）\n'
