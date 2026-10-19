@@ -1395,7 +1395,7 @@ GitHub: - Required status check "质量门禁汇总" is expected.
 - **`dev` 仍永不开 force**：「换通道」发生在**被拒之后**，不是把推变成覆盖。
 - **别把「推失败就开 PR」写成无条件分支**：那会让每一轮非快进都往看板添一张重复卡。
   判据 `test_non_protection_failure_still_exits_2` 钉着。
-- 细节与推导见 `docs/dev/github-cnb-mirror.md` §27。
+- 细节与推导见 `docs/dev/github-cnb-mirror.md` §28。
 
 ### 在 CNB 侧的其它已知边界（实测）
 

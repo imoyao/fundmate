@@ -130,9 +130,81 @@ class TestScriptTaskBranch(unittest.TestCase):
         data = {'dev': {'crontab: 0 18 * * *': [_job('探针', script='python x.py --branch dev')]}}
         self.assertEqual(self.g.check_data(data), [])
 
-    def test_cli_branch_dynamic_is_skipped(self):
-        data = {'dev': {'crontab: 0 18 * * *': [_job('探针', script='python x.py --branch ${CNB_BRANCH}')]}}
-        self.assertEqual(self.g.check_data(data), [])
+    def test_cli_branch_dynamic_is_judged_by_scope(self):
+        """动态分支**不在判据 2 里猜值**，但受判据 4 约束（源 CNB #585 修正）。
+
+        旧版这里断言「一律放行」——那正是 #585 漏网的原因：`dev:` 段底下的
+        功能分支同步同时满足了「非 cron」与「动态值」两条豁免，于是没人拦。
+        现在的口径是「不猜值 ≠ 不管挂在哪」：`$` / glob 段放行，单分支键报红。
+        """
+        under_dev = {'dev': {'crontab: 0 18 * * *': [_job('探针', script='python x.py --branch ${CNB_BRANCH}')]}}
+        self.assertTrue(self.g.check_data(under_dev))
+        under_glob = {
+            '**/!(main|dev)': {
+                'push': [_job('探针', script='python x.py --branch ${CNB_BRANCH}')]
+            }
+        }
+        self.assertEqual(self.g.check_data(under_glob), [])
+
+
+class TestDynamicBranchScope(unittest.TestCase):
+    """判据 4/5：`${CNB_BRANCH}` 与它所在的键必须互相匹配（源 CNB #585）。  <!-- cross-repo-ref-allow -->
+
+    实测（构建 `cnb-til-1k58q1t3j`）：功能分支的 git-sync 被写进 `dev:` 段，
+    job/stage 名仍是「同步当前功能分支到 GitHub」，红的却是
+    `! [rejected] chore/564-cron-on-dev -> … (fetch first)` —— 因为检出里只有 `dev`，
+    `${CNB_BRANCH}` 解成 `dev`，等于拿它去顶别人的分支名。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.g = _load()
+
+    def test_dynamic_branch_under_dev_is_red(self):
+        """判据 4 的正体：`dev:` 下的 push 用 `${CNB_BRANCH}` ⇒ 报红。
+
+        探针：删掉 `check_data` 里 `check_dynamic_scope` 那行 ⇒ 本用例转红。
+        """
+        data = {'dev': {'push': [_job('同步当前功能分支', '${CNB_BRANCH}')]}}
+        problems = self.g.check_dynamic_scope(data)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn('`dev`', problems[0])
+        self.assertIn('CNB_BRANCH', problems[0])
+
+    def test_dynamic_branch_under_glob_is_green(self):
+        """判据不过宽：glob 段（任何分支）里用 `${CNB_BRANCH}` 是正确的挂法。"""
+        data = {'**/!(main|dev)': {'push': [_job('同步当前功能分支', '${CNB_BRANCH}')]}}
+        self.assertEqual(self.g.check_dynamic_scope(data), [])
+
+    def test_dynamic_branch_under_dollar_is_green(self):
+        """`$` 段同属多分支键。"""
+        data = {'$': {'push': [_job('认领同步（任何分支，幂等）', '${CNB_BRANCH}')]}}
+        self.assertEqual(self.g.check_dynamic_scope(data), [])
+
+    def test_fixed_branch_under_glob_is_red(self):
+        """判据 5：glob 段里写死推 `dev`，同样是「拿 dev 顶当前分支」。"""
+        data = {'**/!(main|dev)': {'push': [_job('同步当前功能分支', 'dev')]}}
+        problems = self.g.check_multibranch_fixed_target(data)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn('`dev`', problems[0])
+
+    def test_fixed_branch_under_dev_is_still_green(self):
+        """`dev:` 下推字面量 `dev` 是合法的（判据 5 只管多分支键）。"""
+        data = {'dev': {'push': [_job('同步 dev', 'dev')]}}
+        self.assertEqual(self.g.check_multibranch_fixed_target(data), [])
+
+    def test_cli_branch_dynamic_under_dev_is_red(self):
+        """`--branch ${CNB_BRANCH}` 同样受限（脚本任务不是法外之地）。
+
+        这条同时钉住正则**: 首版字符集不含 `{`，`--branch ${CNB_BRANCH}` 被截成
+        `${CNB_BRANCH`，判据 4 于是看不见它——「拿不到输入」被读成「没有动态值」。
+        """
+        data = {'dev': {'push': [_job('探针', script='python x.py --branch ${CNB_BRANCH}')]}}
+        self.assertTrue(self.g.check_dynamic_scope(data))
+
+    def test_cli_branch_dynamic_under_glob_is_green(self):
+        data = {'**/!(main|dev)': {'push': [_job('探针', script='python x.py --branch ${CNB_BRANCH}')]}}
+        self.assertEqual(self.g.check_dynamic_scope(data), [])
 
 
 class TestInputTrust(unittest.TestCase):
@@ -222,6 +294,51 @@ class TestRealConfigRegression(unittest.TestCase):
         problems = self.g.check_text(text)
         self.assertTrue(problems, '修复前的形态必须被咬住（否则本守卫等于没装）')
         self.assertTrue(any('`main`' in p and '`dev`' in p for p in problems), problems)
+
+
+class TestRealConfigDynamicScope(unittest.TestCase):
+    """回退验证：把 `origin/dev` 上的真实配置**搬回修复前的形态**，确认判据转红。
+
+    为什么不用固定 sha：这次缺陷**曾进过 `dev`**（#564 合入时），但它随时会被修掉；
+    钉 sha 会在修复上线后失效。改为「取当前 `dev` 的真实配置 + 一处定向搬移」，
+    这样它既能咬住缺陷形态，又不会因为后续文档改动而失效。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.g = _load()
+
+    def _current(self) -> str | None:
+        r = subprocess.run(
+            ['git', 'show', 'origin/dev:.cnb.yml'],
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            check=False,
+        )
+        return r.stdout if r.returncode == 0 and r.stdout else None
+
+    def test_glob_sync_moved_into_dev_is_caught(self):
+        text = self._current()
+        if not text:
+            self.skipTest('取不到 origin/dev:.cnb.yml（浅克隆 / 无 origin）')
+        lines = text.split('\n')
+        start = next(
+            (i for i, line in enumerate(lines) if line.startswith('  push:') and '同步当前功能分支' in '\n'.join(lines[i : i + 4])),
+            None,
+        )
+        if start is None:
+            self.skipTest('当前 .cnb.yml 里功能分支的 push 已有别的形态，本探针不再适用')
+        block = []
+        i = start
+        while i < len(lines) and (not lines[i].strip() or lines[i].startswith('  ')):
+            block.append(lines[i])
+            i += 1
+        rest = lines[:start] + lines[i:]
+        anchor = next(j for j, line in enumerate(rest) if line.startswith('  # ===== 层 3：反向守卫'))
+        broken = '\n'.join(rest[:anchor] + block + rest[anchor:])
+        self.assertTrue(self.g.check_text(broken), '修复前的形态必须被咬住（否则判据 4 等于没装）')
 
 
 if __name__ == '__main__':
