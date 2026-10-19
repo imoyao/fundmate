@@ -156,9 +156,9 @@ void props;
 }
 
 .tax-note {
-  margin: 0 0 12px;
   padding: 10px 12px;
-  font-size: 13px;
+  margin: 0 0 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--el-text-color-regular);
   background: var(--el-fill-color-lighter);
@@ -191,7 +191,7 @@ void props;
 
 .tax-item__meta {
   margin: 6px 0 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--el-text-color-regular);
 }
 
@@ -206,13 +206,13 @@ void props;
 }
 
 .tax-item__hint {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--el-text-color-secondary);
 }
 
 .tax-total {
   margin: 12px 0 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--el-text-color-secondary);
 }
 </style>
