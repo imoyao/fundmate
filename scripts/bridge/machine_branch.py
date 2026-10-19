@@ -146,6 +146,12 @@ WRITER_ENV = "MACHINE_BRANCH_WRITER"
 # （抄一份就是两处真相，改了一处另一处不会红）。
 FALLBACK_BRANCH = "fix/cnb-dev-merge"
 
+# 推之前**重新抓两侧**用的临时 ref（不改工作区、不动分支，与 GH_REF 同款语义）。
+# ⚠️ 不能用上面那对常量：它们是**本轮开头**抓的，推完之后已经不代表两侧现状了
+# （源 CNB #600 实测：复用它们导致基线停在上一轮的合并结果，本侧独有提交被静默丢掉）。
+PUSH_CNB_REF = "refs/cross-bridge/push-cnb"
+PUSH_GH_REF = "refs/cross-bridge/push-gh"
+
 
 def print_fallback_target() -> str:
     """给 stage 用的「拿走即用」输出：`FALLBACK_BRANCH=fix/cnb-dev-merge`。"""
@@ -198,21 +204,32 @@ def _git(args: list[str], cwd: str | None = None) -> tuple[int, str, str]:
     return r.returncode, "\n".join(x for x in (out, err) if x), err
 
 
-def plan(base: str, machine_branch: str, merge_ref: str = "merge") -> dict:
-    """把「以谁为基线、推哪条分支、合并结果从哪来」算清楚。**纯函数**，便于钉回归网。"""
+def plan(
+    base: str,
+    machine_branch: str,
+    merge_ref: str = "merge",
+    cnb_ref: str = CNB_REF,
+    gh_ref: str = GH_REF,
+) -> dict:
+    """把「以谁为基线、推哪条分支、合并结果从哪来」算清楚。**纯函数**，便于钉回归网。
+
+    `cnb_ref` / `gh_ref` 可覆盖：merge-sync 路径在推之前会**重新抓一次两侧**
+    （源 CNB #600），那之后的 `plan()` 必须指向新抓到的 ref，而默认值仍是常量
+    （回归网对 `plan()` 的纯函数断言因此不变）。
+    """
     if base == "github":
         return {
-            "base_ref": GH_REF,
+            "base_ref": gh_ref,
             "base_name": "GitHub",
-            "merge_ref": CNB_REF,
+            "merge_ref": cnb_ref,
             "merge_name": "CNB",
             "machine_branch": machine_branch,
             "settle": merge_ref,
         }
     return {
-        "base_ref": CNB_REF,
+        "base_ref": cnb_ref,
         "base_name": "CNB",
-        "merge_ref": GH_REF,
+        "merge_ref": gh_ref,
         "merge_name": "GitHub",
         "machine_branch": machine_branch,
         "settle": merge_ref,
@@ -463,36 +480,55 @@ def run(args: argparse.Namespace) -> int:
         return 1 if conflicts else 0
 
     # ---- 执行：在临时 worktree 里合，绝不动当前工作区 ----
+    def _fresh_merge() -> tuple[int, list[str], str, dict]:
+        """建临时 worktree，从 `base_ref` 起，合入 `merge_ref`。返回 (rc, 冲突, 错误, 本次用的 plan)。
+
+        ⚠️ `p` 在 merge-sync 路径里会**重新规划**（推之前要再抓一次，源 CNB #600），
+        而报告里写的基线/目标必须与真正合的那一次一致 —— 故这里把它一并返回，
+        调用方一律用返回值，不要回头读外层的 `p`（那是两处真相）。
+        """
+        _git(["worktree", "remove", "--force", wt], cwd)
+        code_, out_, err_ = _git(
+            ["worktree", "add", "--detach", wt, p["base_ref"]], cwd
+        )
+        if code_ != 0:
+            return 2, [], f"建临时 worktree 失败：{err_ or out_}", p
+        code_, _, err_ = _git(["merge", "--no-edit", p["merge_ref"]], wt)
+        return code_, conflict_files(wt), err_, p
+
+    def _bail_on_failure(code: int, conflicts_: list[str], err_: str) -> int | None:
+        """合并没跑成 / 有冲突 ⇒ 收尾并返回退出码；正常 ⇒ None（继续往下）。"""
+        if code != 0 and not conflicts_:
+            # merge 非 0 退出且没留下冲突清单 ⇒ 合并根本没跑起来（身份缺失 / ref 不可用 / …）。
+            # #2262 实测（#2259 CI 首次暴露）：Linux runner 无 git 身份 ⇒ merge rc128
+            # 「Committer identity unknown」⇒ 冲突清单为空 ⇒ 旧代码读成「无冲突」，
+            # rev-parse + push 照常执行——「没跑成」被当成了「跑成了」。
+            # 与「拿不到输入」同族：结论不可信，什么都不推（#171 / #450 假绿纪律）。
+            print(
+                f"❌ 合并失败（rc{code}）且未检出冲突——结论不可信，什么都没推：{err_}",
+                file=sys.stderr,
+            )
+            _git(["merge", "--abort"], wt)
+            _git(["worktree", "remove", "--force", wt], cwd)
+            return 2
+        # ⚠️ 报告只打一次（源 CNB #574 顺带修）：此前这段与下方「无冲突」分支各打一遍，
+        # 同一份报告在日志里出现两次（上面一次、下面又一次），读的人会以为跑了两轮。
+        if conflicts_:
+            print(
+                build_report(
+                    p, pushed=False, conflicts=conflicts_, dry_run=not args.apply
+                )
+            )
+            _git(["merge", "--abort"], wt)
+            _git(["worktree", "remove", "--force", wt], cwd)
+            return 1
+        return None
+
     wt = f"/tmp/machine-branch-{date.today().isoformat()}"
-    _git(["worktree", "remove", "--force", wt], cwd)
-    code, out, err = _git(["worktree", "add", "--detach", wt, p["base_ref"]], cwd)
-    if code != 0:
-        print(f"❌ 建临时 worktree 失败：{err or out}", file=sys.stderr)
-        return 2
-    code, _, err = _git(["merge", "--no-edit", p["merge_ref"]], wt)
-    conflicts = conflict_files(wt)
-    if code != 0 and not conflicts:
-        # merge 非 0 退出且没留下冲突清单 ⇒ 合并根本没跑起来（身份缺失 / ref 不可用 / …）。
-        # #2262 实测（#2259 CI 首次暴露）：Linux runner 无 git 身份 ⇒ merge rc128
-        # 「Committer identity unknown」⇒ 冲突清单为空 ⇒ 旧代码读成「无冲突」，
-        # rev-parse + push 照常执行——「没跑成」被当成了「跑成了」。
-        # 与「拿不到输入」同族：结论不可信，什么都不推（#171 / #450 假绿纪律）。
-        print(
-            f"❌ 合并失败（rc{code}）且未检出冲突——结论不可信，什么都没推：{err}",
-            file=sys.stderr,
-        )
-        _git(["merge", "--abort"], wt)
-        _git(["worktree", "remove", "--force", wt], cwd)
-        return 2
-    # ⚠️ 报告只打一次（源 CNB #574 顺带修）：此前这段与下方「无冲突」分支各打一遍，
-    # 同一份报告在日志里出现两次（上面一次、下面又一次），读的人会以为跑了两轮。
-    if conflicts:
-        print(
-            build_report(p, pushed=False, conflicts=conflicts, dry_run=not args.apply)
-        )
-        _git(["merge", "--abort"], wt)
-        _git(["worktree", "remove", "--force", wt], cwd)
-        return 1
+    code, conflicts, err, p = _fresh_merge()
+    bail = _bail_on_failure(code, conflicts, err)
+    if bail is not None:
+        return bail
 
     sha_code, sha, _ = _git(["rev-parse", "HEAD"], wt)
     if sha_code != 0 or not sha:
@@ -507,6 +543,42 @@ def run(args: argparse.Namespace) -> int:
         return 0
 
     if getattr(args, "merge_sync", False):
+        # ---- 推之前**重新抓一次**两侧，再重做一次合并（源 CNB #600，2026-10-19） ----
+        # 少了这一步，「推合并结果」会退化成「推**本轮开头 fetch 时刻**的快照」：
+        # 合并确实成功，只是合并的那一侧已经旧了 ⇒ 非快进被拒 ⇒ 每轮红、且不自愈。
+        # 实测两次：`dev`（CNB #577 的 `(fetch first)`）与**功能分支**
+        # （CNB #600 的 `cnb-32g-1k59n02e8`：`fix/552-…` 被 GitHub 侧 rebase 成另一个 sha，
+        # 本地检出仍是旧的）。同一个根因，换一条分支又演一遍。
+        #
+        # ⚠️ 判据是「**推之前**重算」而不是「推失败后重试」：后者多花一轮构建，
+        #    而且失败态已经在日志里留下了一条误导性的红（会把人引去查分叉）。
+        # ⚠️ 也不只是「再合一次远端 HEAD」：上一轮 push 之后，本地那条
+        #    `refs/cross-bridge/*` 已经不代表两侧现状了（实测：只补合远端 HEAD 时，
+        #    基线仍是上一轮的合并结果，本侧独有提交会被静默丢掉）。故**两侧都重抓、重规划**。
+        ok_cnb2, err_cnb2 = fetch_ref(args.cnb_url, args.branch, PUSH_CNB_REF, cwd)
+        ok_gh2, err_gh2 = fetch_ref(args.github_url, args.branch, PUSH_GH_REF, cwd)
+        if not (ok_cnb2 and ok_gh2):
+            detail = ") / (".join(e for e in (err_cnb2, err_gh2) if e)
+            print(
+                f"❌ 推之前抓不到两侧 `{args.branch}` 的最新内容：{detail}\n"
+                "   ⚠️ 不拿旧快照去推 —— 那样必然非快进被拒，而报错会指向「分叉」。",
+                file=sys.stderr,
+            )
+            _git(["worktree", "remove", "--force", wt], cwd)
+            return 2
+        p = plan(
+            args.base, args.machine_branch, cnb_ref=PUSH_CNB_REF, gh_ref=PUSH_GH_REF
+        )
+        code, conflicts, err, p = _fresh_merge()
+        bail = _bail_on_failure(code, conflicts, err)
+        if bail is not None:
+            return bail
+        sha_code, sha, _ = _git(["rev-parse", "HEAD"], wt)
+        if sha_code != 0 or not sha:
+            print("❌ 拿不到合并结果 sha——结论不可信", file=sys.stderr)
+            _git(["worktree", "remove", "--force", wt], cwd)
+            return 2
+
         # **merge-sync 模式**（源 CNB #577，2026-10-19）：直接把「两侧合并结果」快进推到
         # GitHub 的**同名分支**（`dev`），不经任何机器分支、不开 PR、**绝不开 force**。
         #
@@ -519,6 +591,8 @@ def run(args: argparse.Namespace) -> int:
         # 本模式推的是**合并结果**（`你有的我都有`），于是快进必然成立；
         # 万一不成立（远端在我们合并之后又被推进）就**如实报红**、让人重跑，
         # 不允许用 force 把它盖掉（`dev` 是共享事实，判据见 test_machine_branch.py）。
+        # ⚠️ 推送用**本轮刚抓的那对 ref 重建**（`wt` 现在是「两侧最新值的合并结果」）。
+        # 只重抓不重合，等于拿旧工作区去验收新 ref —— 那样「重抓」就成了摆设。
         ok_push, push_out = _push_merge_sync(args.github_url, args.branch, wt)
         if not ok_push:
             # ⚠️ 「合好了但没送出去」与「没合」是两种结论，必须是两种输出（源 CNB #573）。
