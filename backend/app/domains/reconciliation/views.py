@@ -12,6 +12,9 @@
 - DELETE /api/reconciliation/ghost-duplicates/<fingerprint>/ignore/ 撤销忽略
 - GET    /api/reconciliation/ghost-duplicates/ignored/             已忽略清单（可撤销）
 
+域 E（分红未记扣税提醒，#541）：
+- GET    /api/reconciliation/dividend-tax/                        列出「有现金分红、该年无扣税流水」的标的
+
 域 B 算法（设计文档 §6.1）：
     理论持仓 = 期初快照份额 + 期后流水净变化（confirm_date > snapshot_date）
     差异     = 实际持仓（positions.quantity）− 理论持仓
@@ -28,6 +31,7 @@ from app.core.auth import get_family_id
 from app.core.database import user_session
 from app.core.money import Money
 from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy
+from app.services.dividend_tax_service import refresh_reminders, scan_pending_tax
 from app.services.ghost_duplicate_service import (
     ignore_group,
     list_ignores,
@@ -299,6 +303,38 @@ def undo_ghost_duplicate_ignore_by_fingerprint(fingerprint: str):
     with user_session() as db:
         deleted = undo_ignore(db, family_id, fingerprint)
         return jsonify({'data': {'deleted': deleted}, 'message': 'ok'})
+
+
+@bp.get('/dividend-tax/')
+def list_dividend_tax_pending():
+    """域 E：现金分红「未记扣税」清单（#541）。
+
+    这一域不是「差异」——账内没有两处数字对不上，缺的是账外那笔券商扣税。
+    故不落 `reconciliation_discrepancies`（它描述的是「应然 vs 实然」的差额，
+    这里没有应然值可算），实时从 `transactions` 派生，与域 D 同一形态。
+
+    为什么不自动算税：见 `services/dividend_tax_service` 模块 docstring——
+    税率取决于买入批次持有期，本系统只有聚合持仓，反推出来的是会被券商否掉的猜数。
+    """
+    family_id = get_family_id()
+    with user_session() as db:
+        items = scan_pending_tax(db, family_id)
+        # 顺带把提醒写进站内通知：对账台是用户主动来查差异的地方，也是「提醒该去哪看」
+        # 唯一的自然触发点。写在 GET 里是**有意的例外**——它不改变对账结果，只落一条
+        # 幂等通知（dedup_key 含年份，同标的同年只留一条），代价远小于「用户根本不知道
+        # 有这回事」。真正的写操作仍然只有用户手动补记。
+        created = refresh_reminders(db, family_id)
+        return jsonify(
+            {
+                'data': {
+                    'items': [i.to_dict() for i in items],
+                    'count': len(items),
+                    'total_cents': sum(i.dividend_cents for i in items),
+                    'reminders_created': created,
+                },
+                'message': 'ok',
+            }
+        )
 
 
 def _parse_summary(raw: str | None) -> dict:

@@ -243,3 +243,41 @@ export function undoGhostDuplicateIgnore(
     `/reconciliation/ghost-duplicates/${fingerprint}/ignore/`
   );
 }
+
+// ── 域 E：分红未记扣税（#541）───────────────────────────────────────────────
+//
+// 这不是「差异」：账内没有两处数字对不上，缺的是账外那笔券商扣税。
+// 后端刻意**不自动算税**（税率取决于买入批次持有期，本系统只有聚合持仓），
+// 所以这里只列「有现金分红、该标的该年没有扣税流水」的项，由用户去交割单核对后补记。
+
+/** 一项「现金分红未记扣税」（后端 `dividend_tax_service.PendingTaxItem`） */
+export interface DividendTaxPendingItem {
+  symbol: string;
+  name: string;
+  account_name: string;
+  /** 分红所属自然年（税按年合并申报，故按年匹配） */
+  year: number;
+  /** 该年该标的现金分红合计（分） */
+  dividend_cents: number;
+  /** 最近一笔分红的除权/确认日（YYYY-MM-DD） */
+  last_dividend_on: string | null;
+  dividend_count: number;
+}
+
+/** `GET /api/reconciliation/dividend-tax/` 的 data 信封 */
+export interface DividendTaxPendingData {
+  items: DividendTaxPendingItem[];
+  count: number;
+  total_cents: number;
+  /** 本次读取顺带写入的站内通知条数（幂等，重复读为 0） */
+  reminders_created?: number;
+}
+
+/** 列出「有现金分红、该年无扣税流水」的标的（顺带幂等写一条站内提醒） */
+export function listDividendTaxPending(): Promise<
+  ApiResponse<DividendTaxPendingData>
+> {
+  return http.get<ApiResponse<DividendTaxPendingData>, unknown>(
+    "/reconciliation/dividend-tax/"
+  );
+}
