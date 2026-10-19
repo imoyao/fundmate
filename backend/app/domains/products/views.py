@@ -17,6 +17,7 @@ from flask import abort, g, jsonify, request
 from app.core.auth import get_family_id
 from app.core.database import get_db
 from app.core.db_factory import market_session_factory, user_session_factory
+from app.core.entitlements import get_pro_status_for_family, require_pro_feature
 from app.core.validation import parse_query
 from app.domains.products.schemas import (
     AdvisorProfileRequest,
@@ -540,34 +541,29 @@ def product_trade_timeline():
 
 @bp.get('/pro/')
 def pro_status():
-    """高级洞察 Pro 状态位（#2272 · #994 Phase 1 接口骨架）。
+    """高级洞察 Pro 状态位（#2272 骨架 → #2324 接入权益）。
 
-    **一期只回状态位**：``pro_enabled``（恒 true，全开无权益校验）+ ``paywall_required``
-    （恒 false，付费墙是前端 feature flag）+ 四模块可用性位（恒 false，带落地 Phase 标注）。
-    模块内容在 Phase 2-4 建设（里程碑 #19），届时仅翻转服务里的可用性位，前端无感。
-
-    不查库：骨架没有可查的事实（模块是否上线是发布状态，不是用户数据），
-    开数据库会话只会让视图变厚、拉高延迟。``asset_type`` 仅回显，判定留给 Phase 2。
-
-    路径说明：设计评论字面写的是 ``GET /api/asset/:symbol/pro``，但本仓无 ``/api/asset``
-    蓝图前缀（全部按域划分，见各域 ``url_prefix``），故落 ``/api/products/pro/`` 与
-    同族端点一致；语义与设计一致（单标的 Pro 状态），无功能差异。
+    形状沿用一期契约（见 ``services/product_pro_status.py``），
+    ``paywall_required`` 由家庭权益驱动；骨架/权益合并/契约说明都在 service。
     """
     query: ProStatusRequest = parse_query(ProStatusRequest)
-    return jsonify({'data': build_pro_status(query.symbol, query.asset_type), 'message': 'ok'})
+    family_id = get_family_id() if _is_authenticated() else None
+    entitlements = get_pro_status_for_family(family_id) if family_id else None
+    data = build_pro_status(query.symbol, query.asset_type, entitlements)
+    return jsonify({'data': data, 'message': 'ok'})
 
 
 @bp.get('/pro-insight/')
+@require_pro_feature('pro-insight')
 def pro_insight():
-    """Pro 模块一「深度绩效与归因」——账户级指标聚合（#994 Phase 2）。
+    """Pro 模块一「深度绩效与归因」——账户级指标聚合（#994 Phase 2 → #2324 接入权益校验）。
 
     聚合 ``calculate_symbol_xirr``（#1972，资金加权年化）+ ``build_symbol_behavior``
     （Phase 0，FIFO 配对自算的行为画像），全部基于**用户自己的**持仓与流水
     （家庭作用域 ``get_family_id()``）。两服务 symbol 收敛 / 资产类型过滤同一真相源。
 
     - 无账户数据 → ``has_account_data=false``（正常形态，前端渲染引导，不编数字）；
-    - 不做白名单登记：响应含用户私有数据，生产鉴权门禁下自然要求登录
-      （与 ``/trade-timeline/`` 同模式；开发环境 ``AUTH_ENABLED`` 关闭时匿名可用）。
+    - 权益校验：装饰器 @require_pro_feature('pro-insight') 拦截未开通家庭（403 统一信封）。
 
     会话用**路由会话**（``get_db()``）而非 ``market_session_factory``：#2311 首版
     误用单域工厂，而本端点经 ``calculate_symbol_xirr`` 同时读 user 域
@@ -583,8 +579,9 @@ def pro_insight():
 
 
 @bp.get('/pro-risk/')
+@require_pro_feature('pro-risk')
 def pro_risk():
-    """Pro 模块二「偏离与风险控制」——单标的 BIAS + 波动率 + VaR（#994 Phase 2）。
+    """Pro 模块二「偏离与风险控制」——单标的 BIAS + 波动率 + VaR（#994 Phase 2 → #2324 接入权益校验）。
 
     聚合三块：**BIAS**（既有 bias 引擎，刘晨明 LOGBIAS，与温度计同口径）、
     **波动率 + VaR 95%**（``analytics/var.py`` 历史模拟，序列经
@@ -595,8 +592,7 @@ def pro_risk():
       前端逐块渲染或降级（没有模块一那样的总闸门 ``has_account_data``）；
     - 无持仓 → ``account.has_position=false``，不出 ``var_95_yuan``（不拿虚构
       市值乘出个数）；样本不足 → ``insufficient_reason`` 原样透出；
-    - 不做白名单登记：响应含用户私有数据（持仓市值），同 ``/pro-insight/``
-      模式，生产鉴权门禁下自然要求登录。
+    - 权益校验：装饰器 @require_pro_feature('pro-risk') 拦截未开通家庭（403 统一信封）。
 
     会话同 ``/pro-insight/``：跨 user/market 两域（序列在 market、持仓在 user），
     必须走路由会话 ``get_db()``——单域工厂在双库生产下必坏，见上一条 why。
@@ -613,21 +609,21 @@ def pro_risk():
 
 
 @bp.get('/pro-allocation/')
+@require_pro_feature('pro-allocation')
 def pro_allocation():
-    """Pro 模块三「资产配置与相关性」——当前标的 vs 家庭其余持仓（#994 Phase 2）。
+    """Pro 模块三「资产配置与相关性」——当前标的 vs 家庭其余持仓（#994 Phase 2 → #2324 接入权益校验）。
 
     回答一句话：**你以为分散了吗？** 逐只给出当前标的与家庭其余持仓的日收益
     Pearson 相关系数（|ρ| 降序），并显示「ρ ≥ 0.8 的只数」——那些才是账面分散、
     风险仍集中的部分。
 
     - 计算全在 ``services/pro_allocation.py`` + ``analytics/correlation.py``；
-      相关性按**日收益日期交集**配对（停牌/发布延迟只丢样本，不错配同期）；
+      相关性按**日收益日期交集**配对（停牌/发布延迟只丢样本、不错配同期）；
       相关系数的收益率算法与模块二 ``var.py`` 同源，不许出现第二套日收益；
     - **诚实降级**：同期交易日 <60 天、或某只收益零方差（货基/停牌）⇒ 该只跳过，
       跳过的只数由 ``skipped_count`` 原样披露——不让它悄悄从结论里消失；
       一只都算不出 ⇒ ``available=false`` + ``reason``；
-    - 响应含家庭持仓结构（用户私有数据），同 ``/pro-insight/`` ``/pro-risk/``
-      模式，不做白名单登记，生产鉴权门禁下自然要求登录。
+    - 权益校验：装饰器 @require_pro_feature('pro-allocation') 拦截未开通家庭（403 统一信封）。
 
     会话跨域同两个兄弟端点：持仓在 user 域 positions、序列在 market 域
     （daily_worth / price_history），**必须走路由会话 ``get_db()``**——

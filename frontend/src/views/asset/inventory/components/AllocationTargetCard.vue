@@ -428,7 +428,7 @@ function signedPct(value: number): string {
 
     &--head {
       padding-top: 0;
-      font-size: 12px;
+      font-size: var(--text-label);
       color: var(--text-tertiary-ink);
       border-bottom-color: var(--border-default);
     }
@@ -487,7 +487,7 @@ function signedPct(value: number): string {
 
   &__symbol {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
   }
 

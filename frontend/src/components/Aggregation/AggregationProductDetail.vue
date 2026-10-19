@@ -488,7 +488,7 @@ function fmtShort(d: string | null): string {
 
 .edit-hint {
   margin: 8px 0 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-tertiary-ink);
 }
@@ -518,7 +518,7 @@ function fmtShort(d: string | null): string {
   display: inline-flex;
   gap: 4px;
   align-items: baseline;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -542,7 +542,7 @@ function fmtShort(d: string | null): string {
 .preview-ratio {
   flex: none;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }
@@ -560,7 +560,7 @@ function fmtShort(d: string | null): string {
   align-items: flex-start;
   padding: var(--space-3, 12px);
   margin-top: var(--space-compact);
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.7;
   color: var(--text-tertiary-ink);
   background: var(--bg-soft, var(--bg-page));
@@ -595,13 +595,13 @@ function fmtShort(d: string | null): string {
 }
 
 .cell-label {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .cell-value {
   font-family: var(--font-mono);
-  font-size: 17px;
+  font-size: var(--text-num-strong);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
@@ -638,7 +638,7 @@ function fmtShort(d: string | null): string {
 
 /* 机构别名：辅助提示，弱化显示 */
 .meta-alias {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -648,7 +648,7 @@ function fmtShort(d: string | null): string {
 }
 
 .link-icon {
-  font-size: 12px;
+  font-size: var(--text-label);
   vertical-align: middle;
 }
 
@@ -664,7 +664,7 @@ function fmtShort(d: string | null): string {
 
 .section-title {
   margin-bottom: var(--space-3, 12px);
-  font-size: 15px;
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -716,13 +716,13 @@ function fmtShort(d: string | null): string {
   display: inline-flex;
   gap: 4px;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
 .ledger-icon {
   flex: none;
-  font-size: 12px;
+  font-size: var(--text-label);
   opacity: 0.65;
 }
 
@@ -730,7 +730,7 @@ function fmtShort(d: string | null): string {
   flex: none;
   padding: 2px 8px;
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   background: var(--bg-card);
   border-radius: var(--radius-sm);
@@ -765,7 +765,7 @@ function fmtShort(d: string | null): string {
   align-items: flex-start;
   padding: var(--space-3, 12px);
   margin-top: var(--space-6);
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 1.7;
   color: var(--text-tertiary-ink);
   background: var(--bg-soft, var(--bg-page));

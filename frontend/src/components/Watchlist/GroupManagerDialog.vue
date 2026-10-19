@@ -263,7 +263,7 @@ const deleteGroup = async (groupId: number) => {
 .group-badge {
   flex-shrink: 0;
   padding: 2px 8px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   background-color: var(--bg-soft);
   border: 1px solid var(--border-light);

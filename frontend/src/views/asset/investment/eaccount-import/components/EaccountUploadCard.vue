@@ -125,7 +125,7 @@ const p = reactive(props.page);
 
 .upload-icon {
   margin-bottom: 16px;
-  font-size: 56px;
+  font-size: var(--text-hero);
   color: var(--brand-700);
 }
 
@@ -157,13 +157,13 @@ const p = reactive(props.page);
 
 .upload-hint {
   margin: 12px 0 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .upload-format-info {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -180,7 +180,7 @@ const p = reactive(props.page);
 
 .upload-error-detail {
   margin-top: 8px;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   text-align: left;
 }

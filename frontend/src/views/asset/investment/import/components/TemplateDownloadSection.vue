@@ -23,7 +23,7 @@ const { isStandardMode, accountType, templateFields } =
 .download-hint {
   max-width: 700px;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-tertiary-ink);
   text-align: left;

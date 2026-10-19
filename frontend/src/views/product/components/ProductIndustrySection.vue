@@ -216,7 +216,7 @@ function barColor(index: number): string {
 .industry-section__other-note {
   padding: var(--space-2) var(--space-3);
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-secondary);
   background: var(--bg-subtle, var(--bg-card));
@@ -225,13 +225,13 @@ function barColor(index: number): string {
 }
 
 .industry-section__scheme {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
 .industry-section__period {
   margin-left: var(--space-2);
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary);
 }
 

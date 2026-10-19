@@ -272,10 +272,10 @@ BASELINE: dict[str, dict[str, int]] = {
     # 仍为 **0**、`max_func` 30 不动：相关性口径、60 日样本门槛、零方差降级全在
     # services/analytics，视图层没有业务规则可下沉。
     # 行数两笔：610 → 645（本端点 + import + ValueError→400 防御），再因
-    # rebase 到合并后的 dev（#2314 / #2318 等同期改动）落到 **643**——后者不是
+    # rebase 到合并后的 dev（#2314 / #2318 等同期改动）落到 **639**——后者不是
     # 本卡的生长，取 `--report` 实测值，不手工倒推。
     "backend/app/domains/products/views.py": {
-        "lines": 643,
+        "lines": 639,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 30,

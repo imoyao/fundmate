@@ -127,7 +127,7 @@ withDefaults(
     gap: 6px;
     align-items: center;
     padding: 4px 10px;
-    font-size: 12px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
     white-space: nowrap;
     background: var(--bg-soft);

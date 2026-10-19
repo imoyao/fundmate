@@ -337,7 +337,7 @@ defineExpose({ hasPinned });
 
 .wl-th {
   padding: 0 0 10px;
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 400;
   line-height: 1.4;
   color: var(--text-tertiary-ink);
@@ -426,7 +426,7 @@ defineExpose({ hasPinned });
 /* 空值占位：与 el-table.css 的 .cell-pending 同一语言（灰字，不用胶囊——
    胶囊是「可点击去补全」的语义，这里只是「没有数据」，不能误导）。 */
 .wl-empty {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

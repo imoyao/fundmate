@@ -160,7 +160,7 @@ const hiddenCount = computed(() => {
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
-  font-size: 10px;
+  font-size: var(--text-label);
   line-height: 16px;
   color: var(--el-color-white);
   text-align: center;
@@ -176,7 +176,7 @@ const hiddenCount = computed(() => {
 
 .cs-content__desc {
   margin-bottom: 12px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

@@ -280,7 +280,7 @@ const p = reactive(props.page);
 
 .soft-reconcile-banner__detail {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

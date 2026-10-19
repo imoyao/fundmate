@@ -92,7 +92,7 @@ const sizeClass = computed(() => `size-${props.size}`);
 
 .temperature-level-badge.size-sm {
   padding: 1px 8px;
-  font-size: 12px;
+  font-size: var(--text-label);
 }
 
 /* ===== 低温·机会区（绿） ===== */

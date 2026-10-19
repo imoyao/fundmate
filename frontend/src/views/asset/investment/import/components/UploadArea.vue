@@ -124,7 +124,7 @@ const {
 
 .upload-icon {
   margin-bottom: 16px;
-  font-size: 64px;
+  font-size: var(--text-hero);
   color: var(--brand-700);
   transition:
     color 0.2s,
@@ -163,19 +163,19 @@ const {
 
 .upload-hint {
   margin: 12px 0 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .upload-format-info {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .upload-flow-hint {
   margin-top: 10px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -192,7 +192,7 @@ const {
 
 .upload-error-detail {
   margin-top: 8px;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   text-align: left;
 }

@@ -69,7 +69,7 @@ import { Icon as IconifyIconOffline } from "@iconify/vue";
 
 .poem-card__source {
   margin-top: 8px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

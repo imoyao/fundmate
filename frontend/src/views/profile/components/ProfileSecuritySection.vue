@@ -121,7 +121,7 @@ const p = reactive(props.page);
 }
 
 .setting-row__desc {
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.4;
   color: var(--text-tertiary-ink);
 }
@@ -197,7 +197,7 @@ const p = reactive(props.page);
 }
 
 .danger-zone__desc {
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.4;
   color: var(--text-tertiary-ink);
 }

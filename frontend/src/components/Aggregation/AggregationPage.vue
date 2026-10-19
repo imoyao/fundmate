@@ -428,7 +428,7 @@ onMounted(() => load());
 }
 
 .state-icon {
-  font-size: 48px;
+  font-size: var(--text-display-lg);
   opacity: 0.3;
 }
 

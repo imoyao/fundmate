@@ -69,7 +69,7 @@ const emit = defineEmits<{
   align-items: center;
   height: 28px;
   padding: 0 12px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   white-space: nowrap;
   background: var(--bg-soft);

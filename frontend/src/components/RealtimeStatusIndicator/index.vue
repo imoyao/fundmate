@@ -66,7 +66,7 @@ const statusText = computed(() => {
   display: inline-flex;
   gap: 6px;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--text-label);
 }
 
 .status-dot {

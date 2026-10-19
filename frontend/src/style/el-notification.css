@@ -10,7 +10,7 @@
   --el-notification-group-margin-right: 8px;
   --el-notification-content-font-size: var(--el-font-size-base);
   --el-notification-content-color: var(--el-text-color-regular);
-  --el-notification-title-font-size: 16px;
+  --el-notification-title-font-size: var(--text-body);
   --el-notification-title-color: var(--el-text-color-primary);
   --el-notification-close-color: var(--el-text-color-secondary);
   --el-notification-close-hover-color: var(--el-text-color-regular);

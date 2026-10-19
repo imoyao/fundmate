@@ -291,12 +291,12 @@ const donutOption = computed(() => {
 }
 
 .donut-center-label {
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .donut-center-count {
-  font-size: 15px;
+  font-size: var(--text-num-strong);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -377,7 +377,7 @@ const donutOption = computed(() => {
 }
 
 .stat-icon {
-  font-size: 15px;
+  font-size: var(--text-body);
   color: var(--brand-500, #f69988);
 }
 
@@ -389,13 +389,13 @@ const donutOption = computed(() => {
 }
 
 .stat-label {
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   white-space: nowrap;
 }
 
 .stat-value {
-  font-size: 15px;
+  font-size: var(--text-num-strong);
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;

@@ -233,7 +233,7 @@ const calendarCells = computed<CalendarCell[]>(() => {
   gap: 6px;
 
   span {
-    font-size: 11px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
     text-align: center;
   }
