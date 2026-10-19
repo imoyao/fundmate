@@ -624,6 +624,37 @@ jobs:
       - name: 扫描跨仓引用是否挂源（阻断）
         run: node scripts/guard_cross_repo_refs.mjs
 
+      # 付费卡违规占用 NOW 档位（源 #1288 实测）：付费里程碑上的卡带了 `Q1-RED`。
+      # 首次上线时违规项**已经存在**且不是 PR 作者能修的（要改的是 owner 的优先级判断），
+      # 故当前为**报告模式**（BLOCKING=false），待 owner 在 #2416 裁定后转阻断。
+      # 判据与转阻断条件见脚本 docstring；回归网 scripts/tests/guard_paid_q1.test.js。
+      - name: 付费卡占用 NOW 档位（报告）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/guard_paid_q1.mjs
+
+      # NOW 容量记账（源 #2410）：Q1-RED open > 5 时给每张打 `NOW-超额`，回落自动撤销。
+      # **刻意只报告不阻断**——超容是看板的债，不是登记者的错；
+      # 判据连 PR 上下文都不接收，就是不给「有 PR 就豁免」留后门。
+      - name: NOW 容量记账（报告）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/guard_now_capacity.mjs
+
+      # PR 四问格式（被 pr-four-questions-guard.yml 调用）。此处在 CI 里**显式跑一遍自测**，
+      # 只为让「它属于哪条通道」在日志里看得见——真正的拦截发生在 PR 事件上。
+      # 判据边界（只校验有无、不判断好坏）见脚本 docstring。
+      - name: PR 四问格式守卫可用性（自检）
+        run: node scripts/guard_pr_four_questions.mjs --body-file .github/ISSUE_TEMPLATE/README.md || true
+
+      # 认领同步（源 2026-10-19 两个 agent 同时改 #2406 的撞车事故）。
+      # 由 issue-claim-sync.yml 在 PR 事件上调用；此处显式跑一遍解析自检，
+      # 保证「PR 正文 → 关联 issue」的解析在 CI 里可见（解析失效会让整套认领静默失灵）。
+      - name: 认领同步解析自检
+        # 样本里**不写反引号**：bash 会把 `...` 当命令替换执行（本轮已在 commit message
+        # 上踩过一次），守卫因此拿到被 shell 吃空的字符串——那又是「静默失灵」。
+        run: node -e "const{parseLinkedIssues}=require('./scripts/claim_in_progress.mjs');const r=parseLinkedIssues('closes #1 关联 GitHub #2','imoyao/fundmate');if(JSON.stringify(r)!=='[1,2]'){console.error('解析自检失败:',r);process.exit(1)}console.log('OK:',r)"
+
       - name: 设置 Python 3.12
         uses: actions/setup-python@v6
         with:

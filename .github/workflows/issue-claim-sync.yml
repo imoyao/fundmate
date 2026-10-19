@@ -1,0 +1,101 @@
+# 认领同步（GitHub 本仓侧）：PR 正在做哪张卡 → 那张卡挂 `in-progress`
+#
+# ## WHY（源：2026-10-19 真实撞车）
+#
+# 当晚两个 agent 会话**同时改 `#2406` 的同一处代码**（转入腿 in_data），
+# 而三个既有机制全部落空：
+#
+#   1. `pr-overlap-guard.yml` **只守 4 类治理文件**（`scripts/bridge/`、
+#      `scripts/check_*.py`、`.cnb.yml`、`AGENTS.md`）；#2415 改的是
+#      `backend/app/services/conversion_service.py` —— 业务代码不在它视野里；
+#   2. `claim-sync.yml` 同步的是 **CNB 侧**在做什么（`CNB 处理中`），方向 CNB → GitHub。
+#      **GitHub 自己这侧的 PR 不会给自己的卡打任何标记**；
+#   3. `#2406` 当时标签只有 `bug, Q1-RED`，**没有任何「有人在做」的信号**。
+#
+# 于是踩出一个讽刺的结论：**我们为「另一端仓库在改什么」建了实时认领，
+# 却没为本仓库自己建。** 跨端协作的可见性做得比本地协作还好。
+#
+# ## 为什么是「自动投影到标签」而不是「开工前记得查 PR」
+#
+# 用户给的约束决定了形状（原话）：
+# 「**只能打 label，因为我们有时候会有多个 agent AI 修改代码。**」
+#
+# 多个 agent 并行是常态，而 agent 拿到一张卡就去改，**不会主动去查 open PR**。
+# 所以「开工前先查」是软约束，会被绕开（本轮治理已反复证明：
+# 写进 AGENTS.md 的规则对人和 AI 都不可靠）。
+#
+# 唯一可靠的形状：**把 PR 的存在自动投影到 issue 标签上**——
+# 标签是 agent 看 issue 时**顺带就能看到**的信息，不需要它额外做一次查询。
+# 判据也是客观的（PR 存在与否是事实），不依赖任何人的自觉。
+#
+# ## 判据（见 `scripts/claim_in_progress.mjs`）
+#
+#   1. PR 打开 / 转正式 → 给正文关联的每个 issue 打 `in-progress`；
+#   2. PR 关闭（合并或放弃）→ **仅当该 issue 不再被任何 open PR 关联时**才摘；
+#   3. 同一 issue 被 **≥2 个 open PR** 关联 → 判为撞车，在 issue 下评论告警（幂等）。
+#
+# ## 第 3 条为什么不阻断
+#
+# 阻止会**惩罚先动手的人**（他什么都没做错）。并行 agent 各自只看得到自己那一半，
+# 所以正确做法是**把信息写到双方共享的 issue 上让它可发现**，而不是拦住第二个。
+# 与 `pr-overlap-guard` 同构：只预警、不阻断，让人先协调。
+#
+# ## 与 `claim-sync.yml` 的分工
+#
+# | 工作流 | 方向 | 标签 |
+# |---|---|---|
+# | `claim-sync.yml` | CNB 侧在做什么 → GitHub 镜像卡留痕 | `CNB 处理中` |
+# | **本工作流** | **GitHub 自己的 PR → GitHub 自己的卡** | `in-progress` |
+#
+# 两个方向合起来才是完整的「谁在动这张卡」。
+
+name: 认领同步（本仓 PR → issue）
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, closed]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  # 按 PR 串行即可：同一 PR 的连续事件不该互相覆盖标签
+  group: claim-in-progress-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  claim:
+    name: 同步 in-progress 标记
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出脚本（不检出 PR 代码）
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: false
+
+      - name: 判定并同步标签
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_ACTION: ${{ github.event.action }}
+        run: |
+          set -euo pipefail
+
+          # closed 事件下要把自己排除掉（自己已经关了，不算「还有 PR 在做」）
+          # ——脚本内按 event == 'closed' 处理，这里只负责传事件名。
+          if [ "$PR_ACTION" = "closed" ]; then
+            event=closed
+          else
+            event=opened
+          fi
+
+          node scripts/claim_in_progress.mjs \
+            --pr "$PR_NUMBER" --event "$event" --json | tee /tmp/claim.json
+
+          # 撞车时把结论显式打到日志（不阻断，理由见文件头）
+          if grep -q '"collision":true' /tmp/claim.json; then
+            echo "::warning::检测到多个 open PR 关联同一张卡，已在对应 issue 下评论告警（未阻断）。"
+          fi

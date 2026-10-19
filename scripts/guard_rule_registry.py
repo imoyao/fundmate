@@ -464,6 +464,44 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         # 也读不到 GitHub Actions 的启用状态：只确认那份 workflow 仍表达「推 + 开 PR」语义。
         'covered': '不判真跑成的结果（不拉网络）；不读 Actions 是否被停用；接管时须人工同步改守卫',
     },
+    'scripts/guard_paid_q1.mjs': {
+        'rule': '付费相关卡不得挂 Q1-RED（唯一例外 #2324）',
+        'runner': 'ci',
+        'stage': 'default',
+        'tests': 'scripts/tests/guard_paid_q1.test.js',
+        # 首次上线时违规项已存在（#1288），且**不是 PR 作者能修的**（要改的是 owner 的
+        # 优先级判断，不是代码）⇒ 立刻阻断会让此后每个 PR 都红而归因不到作者，
+        # 又变成「天天响的假信号」。故当前为**报告模式**（BLOCKING=false），
+        # 待 owner 在 #2416 裁定后转阻断。
+        'covered': '不判「这张卡重不重要」（那是 owner 的判断）；只看里程碑+标签两个客观字段',
+    },
+    'scripts/guard_now_capacity.mjs': {
+        'rule': 'NOW 档位（Q1-RED）容量记账：>5 张时给每张打 NOW-超额，回落自动撤销',
+        'runner': 'ci',
+        'stage': 'default',
+        'tests': 'scripts/tests/guard_now_capacity.test.js',
+        # 刻意**不阻断**：超容是看板的债，不是登记者的错；判据连 PR 上下文都不接收，
+        # 就是不给「有 PR 就豁免」留后门。
+        'covered': '不评价单卡重要性（判据无重要性入参）；降档不等于降优先级',
+    },
+    'scripts/guard_pr_four_questions.mjs': {
+        'rule': 'PR 描述须含四问（谁的什么问题/验收标准/风险/替代方案）',
+        'runner': 'ci',
+        'stage': 'default',
+        'tests': 'scripts/tests/guard_pr_four_questions.test.js',
+        # 只校验「有没有写」，**不判断写得对不对**——主观判断进 CI 必然被绕开，
+        # 存在性检查不会。豁免面（机器人/draft/skip 标记）收得很窄以保存活率。
+        'covered': '不判内容质量；正文里提及关键词不算命中（按标题切分）',
+    },
+    'scripts/claim_in_progress.mjs': {
+        'rule': 'PR 正在做哪张卡 → 该卡自动挂 in-progress（防并行 agent 撞车）',
+        'runner': 'ci',
+        'stage': 'default',
+        'tests': 'scripts/tests/claim_in_progress.test.js',
+        # 只预警不阻断：阻止会惩罚先动手的人，要的是**可发现**不是禁止。
+        # 取数失败时**什么都不做**——误标占用比没标记更糟。
+        'covered': '不判「谁该做」；只把 PR 的客观存在投影到 issue 标签上',
+    },
 }
 
 
