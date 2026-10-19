@@ -548,6 +548,12 @@ class TestReconciliationAPI:
         )
         db.add(pos)
         db.flush()
+        # 锚点份额：理论持仓 = 1000（快照）+ 快照后流水（无）= 1000，实际 1200 → diff 200。
+        # 缺这一列时函数会跳过（算不出基线），接口返回空列表。
+        pos.snapshot_quantity = Money.shares_to_min_unit(1000)
+        pos.snapshot_avg_price = Money.yuan_to_price_units(10)
+        pos.snapshot_date = date(2026, 6, 12)
+        pos.anchor_kind = 'external'
         db.add(
             PositionImportMeta(
                 position_id=pos.id,
@@ -708,8 +714,22 @@ class TestInContextSupplement:
 class TestLedgerSnapshotConsistency:
     """账户持仓快照一致性（#1133 §4 温柔提醒数据源）：只读、不写 discrepancies 表。"""
 
-    def _add_meta(self, db, position, snapshot_date):
+    def _add_meta(self, db, position, snapshot_date, anchor_qty=None):
+        """写溯源 meta；`anchor_qty` 非空时同时写 positions 层锚点。
+
+        锚点模型下理论持仓 = `snapshot_quantity + Σ(快照日之后的流水)`。只有
+        `position_import_meta.snapshot_date`、没有 `snapshot_quantity` 的持仓算不出
+        基线（迁移后的存量行就是这种），函数会**跳过**而不是退回全量流水蒙一个数。
+        所以「要报差异」的用例必须显式给 anchor_qty。
+        """
         from app.domains.positions.models import PositionImportMeta
+
+        if anchor_qty is not None:
+            position.snapshot_quantity = Money.shares_to_min_unit(anchor_qty)
+            position.snapshot_avg_price = position.avg_price or Money.yuan_to_price_units(10)
+            position.snapshot_date = snapshot_date
+            position.anchor_kind = 'external'
+            db.flush()
 
         meta = PositionImportMeta(
             position_id=position.id,
@@ -744,21 +764,26 @@ class TestLedgerSnapshotConsistency:
         )
         db.add(pos)
         db.flush()
-        self._add_meta(db, pos, date(2026, 6, 12))
+        self._add_meta(db, pos, date(2026, 6, 12), anchor_qty=1000)
         db.commit()
         items = get_ledger_snapshot_consistency(db, 1)
         assert items == []
 
     def test_snapshot_stale_flagged(self, db):
-        """快照之后有交易使持仓变化 → 标记滞后（diff != 0）。"""
+        """锚点 + 快照后流水 ≠ 实际持仓 → 标记滞后（diff != 0）。
+
+        锚点口径：theoretical = 1000（快照）+ 200（快照后买入）= 1200。
+        实际 1300 才说明「账对不上」；若实际正好 1200 则是对齐的（见 test_match_not_flagged）。
+        旧口径会把「快照前买入 1000」再算一遍当理论值，与本模型正好相反。
+        """
         from app.domains.ledgers.models import Ledger
 
         ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
         db.add(ledger)
         db.flush()
-        # 快照前买入 1000（截至快照日应有 1000）
+        # 快照前买入 1000（已被快照包含，不再计入理论值）
         _buy_txn(db, ledger.id, 'S1', 1000, date(2026, 6, 1))
-        # 持仓实际 1200（模拟快照后又有买入已更新持仓）
+        # 持仓实际 1300：锚点 1000 + 快照后买入 200 = 1200，差 100
         pos = Position(
             symbol='S1',
             name='股1',
@@ -766,7 +791,7 @@ class TestLedgerSnapshotConsistency:
             market='CN_A',
             ledger_id=ledger.id,
             family_id=1,
-            quantity=Money.shares_to_min_unit(1200),
+            quantity=Money.shares_to_min_unit(1300),
             avg_price=Money.yuan_to_price_units(10),
             current_price=Money.yuan_to_price_units(10),
             source='manual',
@@ -774,7 +799,7 @@ class TestLedgerSnapshotConsistency:
         )
         db.add(pos)
         db.flush()
-        self._add_meta(db, pos, date(2026, 6, 12))
+        self._add_meta(db, pos, date(2026, 6, 12), anchor_qty=1000)
         # 快照后买入 200（确认存在期后活动）
         _buy_txn(db, ledger.id, 'S1', 200, date(2026, 8, 15))
         db.commit()
@@ -783,10 +808,10 @@ class TestLedgerSnapshotConsistency:
         it = items[0]
         assert it['symbol'] == 'S1'
         assert it['ledger_id'] == ledger.id
-        # 截至快照日理论 = 1000，实际 = 1200，diff = +200
-        assert it['expected_qty'] == 1000
-        assert it['actual_qty'] == 1200
-        assert it['diff_qty'] == 200
+        # 理论 = 快照 1000 + 快照后 200 = 1200，实际 = 1300，diff = +100
+        assert it['expected_qty'] == 1200
+        assert it['actual_qty'] == 1300
+        assert it['diff_qty'] == 100
         assert it['snapshot_date'] == '2026-06-12'
         assert it['last_txn_date'] == '2026-08-15'
 
@@ -813,7 +838,7 @@ class TestLedgerSnapshotConsistency:
         )
         db.add(pos)
         db.flush()
-        self._add_meta(db, pos, date(2026, 6, 12))
+        self._add_meta(db, pos, date(2026, 6, 12), anchor_qty=1000)
         db.commit()
         items = get_ledger_snapshot_consistency(db, 1)
         assert items == []
@@ -842,7 +867,7 @@ class TestLedgerSnapshotConsistency:
         )
         db.add(pos)
         db.flush()
-        self._add_meta(db, pos, date(2026, 6, 12))
+        self._add_meta(db, pos, date(2026, 6, 12), anchor_qty=1000)
         # 一笔 confirm_date=None 的流水（不应被计入 theoretical）
         db.add(
             Transaction(

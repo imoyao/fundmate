@@ -86,7 +86,7 @@ const props = withDefaults(defineProps<Props>(), {
    实测两个数字并排主次不清、列内拥挤，已移除（不要再加回来）。 */
 .money-with-ratio__ratio {
   margin-top: 2px;
-  font-size: 12px;
+  font-size: var(--text-label);
   opacity: 0.72;
 }
 </style>

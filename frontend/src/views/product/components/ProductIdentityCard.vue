@@ -99,13 +99,13 @@ onMounted(() => {
 }
 
 .product-detail__fact-label {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .product-detail__fact-value {
   margin: 4px 0 0;
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--text-primary);
 }
 

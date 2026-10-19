@@ -13,6 +13,7 @@ import {
 } from "@/utils/valuationEngine";
 import { http } from "@/utils/http";
 import { formatDate } from "@/utils/date";
+import { shouldFetchRealtimeQuotes } from "@/utils/marketHours";
 
 const STORAGE_KEY = "duoduobei_realtime_quotes_enabled";
 const REFRESH_INTERVAL_KEY = "duoduobei_realtime_quotes_interval";
@@ -146,6 +147,41 @@ export function useRealtimeQuotes(
   const localDateStr = (d: Date): string => formatDate(d);
 
   /**
+   * 交易日/时段判定结果缓存（#2338）：避免同一天内重复请求交易日历接口。
+   * key = YYYY-MM-DD，value = { isTradingDay: boolean; timestamp: number }
+   * TTL = 当日 23:59 过期（跨天自然失效）。
+   */
+  const tradingDayCache = new Map<
+    string,
+    {
+      isTradingDay: boolean;
+      timestamp: number;
+    }
+  >();
+
+  /**
+   * 获取交易日判定（带缓存）。
+   * 成功时写入缓存；失败时不写缓存（下次重试），保守返回 false。
+   */
+  const getTradingDayStatus = async (dateStr: string): Promise<boolean> => {
+    const cached = tradingDayCache.get(dateStr);
+    if (cached) return cached.isTradingDay;
+
+    try {
+      const res = await http.get(`/api/utils/trading-days/${dateStr}/`);
+      const isTd = (res as any)?.data?.is_trading_day === true;
+      tradingDayCache.set(dateStr, {
+        isTradingDay: isTd,
+        timestamp: Date.now()
+      });
+      return isTd;
+    } catch {
+      // 接口失败：不写缓存，保守返回 false（避免把休市日误判为交易日）
+      return false;
+    }
+  };
+
+  /**
    * 统一的「能否取数」门控（#2338 A判据）：
    * - 非交易日（含法定假日）不可取
    * - 交易日但非交易时段（9:30-15:00）不可取
@@ -156,41 +192,16 @@ export function useRealtimeQuotes(
    * 的休市判断口径完全一致（#2338 根因正是四条路径各自判断、口径不一）。
    */
   const canFetch = async (): Promise<boolean> => {
-    try {
-      const today = localDateStr(new Date());
-      const res = await http.get(`/api/utils/trading-days/${today}/`);
-      if ((res as any)?.data?.is_trading_day !== true) {
-        return false;
-      }
-    } catch {
-      // 交易日历接口失败：保守返回 false，避免把休市日误判为交易日
-      return false;
-    }
-    // 交易日内再判时段（9:30-15:00）
-    const now = new Date();
-    const hour = now.getHours();
-    const minute = now.getMinutes();
-    if (
-      hour < 9 ||
-      hour > 15 ||
-      (hour === 9 && minute < 30) ||
-      (hour === 15 && minute > 0)
-    ) {
-      return false;
-    }
-    return true;
+    const today = localDateStr(new Date());
+    const isTd = await getTradingDayStatus(today);
+    // 时段判定走 utils/marketHours 的纯函数：与单测同源，避免本文件再长一份
+    // 内联的小时判断（#2338 的四条绕过路径就是各写一份写歪的）。
+    return shouldFetchRealtimeQuotes({ now: new Date(), isTradingDay: isTd });
   };
 
   const isTradingDay = async (): Promise<boolean> => {
-    try {
-      const today = localDateStr(new Date());
-      const res = await http.get(`/api/utils/trading-days/${today}/`);
-      return (res as any)?.data?.is_trading_day === true;
-    } catch {
-      // 兼容旧兜底：仅周末判定，不再把工作日当交易日
-      const day = new Date().getDay();
-      return day !== 0 && day !== 6;
-    }
+    const today = localDateStr(new Date());
+    return getTradingDayStatus(today);
   };
 
   // 按当前档位启动盘中轮询（tick 内自行判断交易日/时段并停止）

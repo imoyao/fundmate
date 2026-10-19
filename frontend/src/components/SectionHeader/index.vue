@@ -99,7 +99,7 @@ withDefaults(
     margin: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 16px;
+    font-size: var(--text-body);
     font-weight: 600;
     line-height: 1.4;
     color: var(--text-primary);
@@ -111,7 +111,7 @@ withDefaults(
     flex-shrink: 0;
     align-items: center;
     justify-content: center;
-    font-size: 15px;
+    font-size: var(--text-body);
     color: var(--text-tertiary-ink);
     cursor: help;
     transition: color 0.15s ease;

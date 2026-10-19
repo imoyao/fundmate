@@ -134,7 +134,7 @@ const hiddenCount = computed(() => {
   width: 100%;
   padding: 8px 10px;
   margin-bottom: 4px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   text-align: left;
   cursor: pointer;
@@ -160,7 +160,7 @@ const hiddenCount = computed(() => {
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
-  font-size: 10px;
+  font-size: var(--text-label);
   line-height: 16px;
   color: var(--el-color-white);
   text-align: center;
@@ -176,7 +176,7 @@ const hiddenCount = computed(() => {
 
 .cs-content__desc {
   margin-bottom: 12px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -195,6 +195,6 @@ const hiddenCount = computed(() => {
 }
 
 .cs-item :deep(.el-checkbox__label) {
-  font-size: 13px;
+  font-size: var(--text-label);
 }
 </style>

@@ -28,7 +28,7 @@ const { getTypeColor } = useImportWizardContext();
 }
 
 .op-type-label {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-primary);
   white-space: nowrap;
 }
@@ -36,7 +36,7 @@ const { getTypeColor } = useImportWizardContext();
 .type-tag-inline {
   height: 20px;
   padding: 0 6px;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 20px;
   color: var(--text-inverse);
   border: none;

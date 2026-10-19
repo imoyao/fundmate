@@ -251,7 +251,7 @@ watch(() => props.symbol, load, { immediate: true });
 }
 
 .pro-perf__xirr-label {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -272,7 +272,7 @@ watch(() => props.symbol, load, { immediate: true });
 }
 
 .pro-perf__xirr-note {
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -298,7 +298,7 @@ watch(() => props.symbol, load, { immediate: true });
 }
 
 .pro-perf__label {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -329,14 +329,14 @@ watch(() => props.symbol, load, { immediate: true });
 
 .pro-perf__empty-title {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .pro-perf__empty-desc {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-secondary);
 }

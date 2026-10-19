@@ -217,7 +217,7 @@ function chipStyle(tag: WatchlistTag) {
   justify-content: space-between;
   width: 100%;
   padding: 10px 12px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   text-align: left;
   cursor: pointer;
@@ -260,7 +260,7 @@ function chipStyle(tag: WatchlistTag) {
   height: 16px;
   padding: 0 4px;
   margin-left: 6px;
-  font-size: 11px;
+  font-size: var(--text-label);
   font-weight: 500;
   line-height: 1;
   color: var(--text-inverse);
@@ -302,7 +302,7 @@ function chipStyle(tag: WatchlistTag) {
   align-items: center;
   height: 28px;
   padding: 0 12px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   cursor: pointer;
   background-color: var(--bg-card);
@@ -345,7 +345,7 @@ function chipStyle(tag: WatchlistTag) {
 
 .filter-panel__empty {
   margin: 4px 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -356,7 +356,7 @@ function chipStyle(tag: WatchlistTag) {
 
 .filter-panel__hint {
   margin: 8px 0 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 </style>

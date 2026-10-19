@@ -224,7 +224,7 @@ watch(() => props.symbol, load, { immediate: true });
 
 .pro-risk__hint {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -242,12 +242,12 @@ watch(() => props.symbol, load, { immediate: true });
 }
 
 .pro-risk__bias-label {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .pro-risk__bias-value {
-  font-size: 22px;
+  font-size: var(--text-num-hero);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
@@ -276,7 +276,7 @@ watch(() => props.symbol, load, { immediate: true });
 
 .pro-risk__bias-tag {
   padding: 0 var(--space-1);
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   background: var(--bg-card);
   border: 1px solid var(--border-default);
@@ -285,7 +285,7 @@ watch(() => props.symbol, load, { immediate: true });
 
 .pro-risk__stale {
   padding: 0 var(--space-1);
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--color-warning-ink);
   cursor: help;
   background: color-mix(
@@ -298,13 +298,13 @@ watch(() => props.symbol, load, { immediate: true });
 
 .pro-risk__bias-date {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .pro-risk__warning {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--color-warning-ink);
 }
@@ -326,13 +326,13 @@ watch(() => props.symbol, load, { immediate: true });
 }
 
 .pro-risk__label {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .pro-risk__value {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--text-num-strong);
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }
@@ -340,7 +340,7 @@ watch(() => props.symbol, load, { immediate: true });
 .pro-risk__account {
   padding: var(--space-2) var(--space-3);
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-primary);
   background: var(--bg-card);
   border: 1px solid var(--border-default);
@@ -349,7 +349,7 @@ watch(() => props.symbol, load, { immediate: true });
 
 .pro-risk__footnote {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-tertiary-ink);
 }
@@ -362,14 +362,14 @@ watch(() => props.symbol, load, { immediate: true });
 
 .pro-risk__empty-title {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .pro-risk__empty-desc {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-secondary);
 }

@@ -116,7 +116,7 @@ function handleCreateLedger() {
 
 .account-hint {
   margin-top: 12px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

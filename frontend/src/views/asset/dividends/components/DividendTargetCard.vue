@@ -214,7 +214,7 @@ async function onClear() {
 }
 
 .target-editor__label {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -223,13 +223,13 @@ async function onClear() {
 }
 
 .target-editor__unit {
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--text-tertiary);
 }
 
 .target-editor__hint {
   margin-top: var(--space-2);
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary);
 }
 
@@ -250,19 +250,19 @@ async function onClear() {
 }
 
 .target-view__label {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
 .target-view__value {
   font-family: var(--font-mono);
-  font-size: 24px;
+  font-size: var(--text-num-hero);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 
   small {
-    font-size: 14px;
+    font-size: var(--text-small);
     font-weight: 500;
     color: var(--text-tertiary);
   }
@@ -286,13 +286,13 @@ async function onClear() {
   gap: var(--space-2);
   align-items: center;
   margin-top: var(--space-2);
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary);
 }
 
 .target-view__tag {
   padding: 1px 8px;
-  font-size: 12px;
+  font-size: var(--text-label);
   border-radius: var(--radius-pill);
 
   &--reached {

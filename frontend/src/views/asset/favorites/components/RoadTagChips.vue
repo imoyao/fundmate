@@ -54,7 +54,7 @@ defineEmits<{ (e: "remove", tagId: number): void }>();
   gap: 4px;
   align-items: center;
   padding: 1px 9px;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 18px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-pill);
@@ -65,7 +65,7 @@ defineEmits<{ (e: "remove", tagId: number): void }>();
 }
 
 .road-tag__close {
-  font-size: 10px;
+  font-size: var(--text-label);
   cursor: pointer;
   opacity: 0.7;
 }

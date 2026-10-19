@@ -57,7 +57,7 @@ const emit = defineEmits<{
 
 .domain-status-tag {
   padding: 2px 10px;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   border-radius: 999px;
 }
@@ -73,13 +73,13 @@ const emit = defineEmits<{
 }
 
 .domain-placeholder__hint {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .domain-placeholder__desc {
   margin: 0 0 12px;
-  font-size: 14px;
+  font-size: var(--text-small);
   line-height: 1.6;
   color: var(--text-secondary);
 }

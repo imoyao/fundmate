@@ -29,7 +29,7 @@
 
   .sub-menu-icon {
     margin-right: 5px;
-    font-size: 18px;
+    font-size: var(--text-num-strong);
 
     svg {
       width: 18px;
@@ -201,7 +201,7 @@
     .el-menu .el-menu--inline .el-sub-menu__title,
     & .el-sub-menu .el-menu-item {
       min-width: $sideBarWidth !important;
-      font-size: 14px;
+      font-size: var(--text-small);
       background-color: var(--pure-theme-sub-menu-bg) !important;
     }
 
@@ -255,7 +255,7 @@
 
       .el-menu-item {
         span {
-          font-size: 14px;
+          font-size: var(--text-small);
         }
       }
     }
@@ -275,7 +275,7 @@
     /* 子菜单中还有子菜单 */
     .el-menu .el-sub-menu__title {
       min-width: $sideBarWidth !important;
-      font-size: 14px;
+      font-size: var(--text-small);
       background-color: var(--pure-theme-sub-menu-bg) !important;
     }
 
@@ -313,7 +313,7 @@
     .el-menu-item,
     .el-sub-menu {
       .iconfont {
-        font-size: 18px;
+        font-size: var(--text-num-strong);
       }
 
       .el-menu-tooltip__trigger {
@@ -347,7 +347,7 @@
         background-color: var(--pure-theme-sub-menu-bg);
 
         span {
-          font-size: 14px;
+          font-size: var(--text-small);
         }
       }
 
@@ -359,7 +359,7 @@
     /* 子菜单中还有子菜单 */
     .el-menu .el-sub-menu__title {
       min-width: $sideBarWidth !important;
-      font-size: 14px;
+      font-size: var(--text-small);
       background-color: var(--pure-theme-sub-menu-bg) !important;
 
       &:hover {
@@ -428,7 +428,7 @@
         margin: 2px 0 0 12px;
         overflow: hidden;
         text-overflow: ellipsis;
-        font-size: 18px;
+        font-size: var(--text-num-strong);
         font-weight: 600;
         line-height: 32px;
         color: var(--pure-theme-sub-menu-active-text);
@@ -480,7 +480,7 @@
         cursor: pointer;
 
         p {
-          font-size: 14px;
+          font-size: var(--text-small);
         }
 
         /* 头像外框：品牌 n=3 超椭圆（Superellipse 组件承载，勿改回 border-radius 圆形） */

@@ -534,7 +534,7 @@ onMounted(() => {
   align-items: flex-start;
   padding: 10px 14px;
   margin-bottom: 12px;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--color-warning-ink);
   background: color-mix(
@@ -658,14 +658,14 @@ onMounted(() => {
 }
 
 .opportunity-name {
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .opportunity-tag {
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   white-space: nowrap;
   background: var(--border-light);
@@ -684,7 +684,7 @@ onMounted(() => {
 
 .opportunity-desc {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-secondary);
 }
@@ -699,14 +699,14 @@ onMounted(() => {
 }
 
 .rank-updated {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .rank-stale-pill {
   padding: 2px 8px;
   margin-left: 8px;
-  font-size: 11px;
+  font-size: var(--text-label);
   font-weight: 500;
   line-height: 1.4;
   color: var(--color-warning-ink);
@@ -772,7 +772,7 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: 14px;
   margin-bottom: 10px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

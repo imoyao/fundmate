@@ -505,7 +505,7 @@ onMounted(() => {
 
 /* 标签与输入框完美居中对齐（匹配Element Plus large尺寸44px高度） */
 .entry-form :deep(.el-form-item__label) {
-  font-size: 15px;
+  font-size: var(--text-body);
   line-height: 44px;
   color: var(--text-primary);
 }
@@ -530,7 +530,7 @@ onMounted(() => {
 .entry-form :deep(.el-input__inner) {
   padding-right: 14px;
   padding-left: 14px;
-  font-size: 15px;
+  font-size: var(--text-body);
   color: var(--text-primary);
   background-color: var(--bg-card);
   border-color: var(--border-default);
@@ -538,7 +538,7 @@ onMounted(() => {
 
 .entry-form :deep(.el-textarea__inner) {
   padding: 12px 14px;
-  font-size: 15px;
+  font-size: var(--text-body);
   color: var(--text-primary);
   resize: vertical;
   background-color: var(--bg-card);
@@ -553,7 +553,7 @@ onMounted(() => {
 .amount-input :deep(.el-input-number__decrease),
 .amount-input :deep(.el-input-number__increase) {
   width: 44px;
-  font-size: 18px;
+  font-size: var(--text-num-strong);
   color: var(--text-secondary);
   background-color: var(--bg-muted);
   border: none;
@@ -576,7 +576,7 @@ onMounted(() => {
 .form-tip {
   padding-left: 2px;
   margin-top: 6px;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-secondary);
 }
@@ -620,7 +620,7 @@ onMounted(() => {
 
 .submit-btn {
   padding: 12px 40px;
-  font-size: 15px;
+  font-size: var(--text-body);
   font-weight: 500;
   background-color: var(--color-primary);
   border-color: var(--color-primary);
@@ -634,7 +634,7 @@ onMounted(() => {
 
 .reset-btn {
   padding: 12px 40px;
-  font-size: 15px;
+  font-size: var(--text-body);
   color: var(--text-primary);
   background-color: var(--bg-card);
   border: 1px solid var(--border-default);
@@ -655,7 +655,7 @@ onMounted(() => {
 }
 
 :deep(.el-dialog__title) {
-  font-size: 18px;
+  font-size: var(--text-num-strong);
   font-weight: 600;
   color: var(--text-primary);
 }

@@ -2139,3 +2139,99 @@ return cached | seen        # 并集；扫描结果回写缓存
 > **④ 修复根因只解决未来，存量必须被发现。** 改完 `harvest_existing`，
 > 那 224 张重复卡**还在那儿**。口径变更/根因修复时都要单独答一句：
 > 「按旧规则已经产生的数据，会被新规则重新处理一遍吗？」（AGENTS.md 已有同款，源 CNB #171）
+
+---
+
+## 21. `python:3.12-slim` 里没有 git：CNB 的 #461 只答了一半（源 CNB #517，2026-10-16）  <!-- cross-repo-ref-allow -->
+
+### 21.1 现象：同一类错，深了一层
+
+`cnb-bb7-1k522fu78` 的 `dev` push 构建红，`pipeline-002`「跨仓同步（机器分支 + PR 通道）」
+的 stage「合并两侧 dev 并推成机器分支」原文：
+
+```text
+Traceback (most recent call last):
+  File "/workspace/scripts/bridge/machine_branch.py", line 252, in <module>
+    sys.exit(main())
+  ...
+  File "/workspace/scripts/bridge/machine_branch.py", line 246, in main
+    code, url = _git(['remote', 'get-url', 'origin'], args.cwd)
+  ...
+FileNotFoundError: [Errno 2] No such file or directory: 'git'
+```
+
+**报错指向脚本第 246 行，但不指向「容器里没有 git」。** 这与 #461
+（`sh: line 10: python: command not found`）是**同一类「执行环境缺失」**：
+#461 补了 `docker.image: python:3.12-slim`，回答了「有没有 python」，
+却**没人问「这个镜像里有没有 git」**——官方 `python:*-slim` 一律不带 git。
+
+### 21.2 更坏的是：同一根因还有一处**假绿**
+
+不只机器分支通道。镜像 job（`main` 的 `crontab: 0 18 * * *`）里的
+「分支分叉自检」跑的是 `check_branch_divergence.py`，同样 `subprocess.run(['git', …])`。
+实测构建 `cnb-3qr-1k522f3ls` 的 `stage-3`：
+
+```text
+python scripts/bridge/check_branch_divergence.py --report --explain || true
+FileNotFoundError: [Errno 2] No such file or directory: 'git'
+Finished, code: 0, duration: 0.4s        ← 0.4 秒，且报 success
+```
+
+**它自上线起每一轮都崩在缺 git，却因为 `|| true` + 末尾 `exit 0` 而报绿**
+—— 分叉自检**从未真正跑过**。与 #171 / #450 同族：不是缺功能，
+是缺一条能问出「这段代码跑得起来吗」的判据。
+
+> ⚠️ 一处红、一处绿，根因同一个。**只修红的那个，绿的会永远绿着不干活。**
+
+### 21.3 影响面（从源码推导，不手写名单）
+
+`subprocess.run(['git', …])` / `_git(` 驱动的脚本：
+`machine_branch.py` / `check_branch_divergence.py` /
+`check_cross_repo_dev_divergence.py` / `dev_converge.py` / `check_issue_refs.py`。
+
+在 `.cnb.yml` 里被调用的有 **3 处 stage**（全在 `python:3.12-slim` 上）：
+
+| 分支 / 事件 | stage | 脚本 |
+|---|---|---|
+| `dev` / `push` | 合并两侧 dev 并推成机器分支 | `machine_branch.py`（+ 提示里的 `dev_converge.py`） |
+| `main` / `crontab: 0 18 * * *` | 分支分叉自检 | `check_branch_divergence.py` |
+| `$` / `web_trigger` | 分支分叉自检 | 同上 |
+
+### 21.4 修法：脚本里自证 git 存在（不换镜像）
+
+```sh
+command -v git >/dev/null 2>&1 || {
+  echo "· 容器无 git，安装中（python:3.12-slim 不含 git）"
+  apt-get update -qq && apt-get install -y -qq --no-install-recommends git
+}
+git --version >/dev/null   # 自证：装失败即报错，不吞（#171）
+```
+
+为什么**不换镜像**：`python:3.12-slim` 与本仓其它脚本任务一致；换镜像会把
+「python 在哪」这个刚被 #461 解决的不确定项重新打开。为什么**在脚本里装**而不是
+新起一个 setup stage：CNB 各 stage 的执行环境不保证共享，跨 stage 推断一旦猜错，
+就是另一个假绿。
+
+「分支分叉自检」那处额外把装失败**显式报红**（`echo ❌ … 本轮没跑，结论不可信`），
+否则它末尾的 `exit 0` 会把安装失败也一起吞掉。
+
+### 21.5 判据机器化
+
+- `scripts/guard_cnb_script_task_git.py`（并入 `ci.yml` 的 `scripts_test` job，阻断）：
+  先扫 `scripts/**/*.py` **从源码推导**「哪些脚本真调 git」（不手写名单，手写的会随新脚本失效），
+  再扫 `.cnb.yml`，凡调用这些脚本的 stage 必须在同一段 script 里供给 git。
+- 回归网 `scripts/tests/test_cnb_script_task_git.py`（8 例），含唯一一条**推导假设**的钉桩
+  （`git_driven_scripts()` 必须认出 `machine_branch.py`——它失效则整张网恒绿）、
+  重复键遮蔽探针（源 #463），以及拿**修复前的真实 `.cnb.yml`**（不可变 SHA `7b833c4c`）喂守卫
+  必须转红。
+- 变异探针实测：删掉 `.cnb.yml` 里的 git 供给 ⇒ 探针转红；还原 ⇒ 退 0。
+
+### 21.6 通用教训
+
+> **「环境齐不齐」要一层一层问，问到脚本真正用过的东西为止。**
+> #461 问「有没有 python」，本卡问「有没有 git」——**同一个 job、同一次事故、
+> 报错形态不同，而两次都以为修完了**。判断某个环境缺件时，
+> 先 `grep subprocess` 把脚本**实际调用的外部命令**列出来，逐条问一句「镜像里有吗」。
+>
+> **一处红的、一处绿的，往往同一个根因。** 绿的更贵：它不会催人去查，
+> 只会让人以为「这条自检一直在跑」。（与 §20 的「作业成功证明不了作业做对了」同族。）

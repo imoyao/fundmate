@@ -89,7 +89,7 @@ const note = computed(() => {
 }
 
 .pnl-tip__head {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -103,13 +103,13 @@ const note = computed(() => {
 /* 收益率不可算 / 非盈亏态：与正文同级但更轻，不抢数字的位置 */
 .pnl-tip__none,
 .pnl-tip__tag {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
 .pnl-tip__note {
   max-width: 260px;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-secondary);
 }

@@ -356,7 +356,7 @@ onMounted(() => {
   justify-content: center;
   height: 40px;
   padding: 8px 20px;
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 500;
   line-height: 1;
   color: var(--text-inverse);
@@ -398,7 +398,7 @@ onMounted(() => {
   display: inline-flex;
   gap: 5px;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.4;
 }
 
@@ -416,7 +416,7 @@ onMounted(() => {
 
 :deep(.temp-band__pill) {
   padding: 1px 7px;
-  font-size: 11px;
+  font-size: var(--text-label);
   font-weight: 500;
   white-space: nowrap;
   border-radius: 999px;
@@ -426,7 +426,7 @@ onMounted(() => {
 :deep(.temp-conclusion) {
   padding: 8px 12px;
   margin-top: 8px;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-secondary);
   background: var(--bg-soft);

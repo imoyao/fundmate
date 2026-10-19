@@ -238,7 +238,7 @@ function stockHref(code: string): string {
    全站仅此一处使用，暂不提升为共享变体——它与脚注的语义不同（口径 vs 来源/补充）。 */
 .holding-section__basis {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -246,7 +246,7 @@ function stockHref(code: string): string {
 .holding-section__caveat {
   padding: var(--space-2) var(--space-3);
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-secondary);
   background: var(--bg-subtle, var(--bg-card));
@@ -266,7 +266,7 @@ function stockHref(code: string): string {
 
 .holding-section__table {
   width: 100%;
-  font-size: 13px;
+  font-size: var(--text-label);
   border-collapse: collapse;
 }
 
@@ -315,7 +315,7 @@ function stockHref(code: string): string {
 .holding-section__more {
   align-self: flex-start;
   padding: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--brand-700, var(--brand-500));
   cursor: pointer;
   background: none;

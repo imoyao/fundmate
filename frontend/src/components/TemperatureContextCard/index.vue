@@ -145,7 +145,7 @@ function tempColor(v: number | null) {
 }
 
 .context-card__title {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 500;
   color: var(--text-secondary);
 }
@@ -161,7 +161,7 @@ function tempColor(v: number | null) {
 .context-item__label {
   display: block;
   margin-bottom: 6px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -173,21 +173,21 @@ function tempColor(v: number | null) {
 
 .context-item__value {
   font-family: var(--font-mono, "SF Mono", "JetBrains Mono", monospace);
-  font-size: 28px;
+  font-size: var(--text-display);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }
 
 .context-item__unit {
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 500;
   color: var(--text-tertiary-ink);
 }
 
 .context-item__hint {
   margin-left: 4px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -213,13 +213,13 @@ function tempColor(v: number | null) {
 }
 
 .context-period__label {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
 .context-period__value {
   font-family: var(--font-mono, "SF Mono", "JetBrains Mono", monospace);
-  font-size: 14px;
+  font-size: var(--text-mono-small);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
@@ -227,7 +227,7 @@ function tempColor(v: number | null) {
 
 .context-card__caption {
   margin-top: 14px;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-tertiary-ink);
 }

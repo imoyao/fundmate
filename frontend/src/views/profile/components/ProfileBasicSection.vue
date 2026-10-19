@@ -269,7 +269,7 @@ const p = reactive(props.page);
 }
 
 .link-btn__icon {
-  font-size: 14px;
+  font-size: var(--text-small);
   line-height: 1;
 }
 
@@ -298,14 +298,14 @@ const p = reactive(props.page);
 }
 
 .field-block__label {
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 500;
   line-height: 1.4;
   color: var(--text-primary);
 }
 
 .field-block__desc {
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.4;
   color: var(--text-tertiary-ink);
 }
@@ -344,7 +344,7 @@ const p = reactive(props.page);
 /* ===== 输入框字数统计 ===== */
 .char-count,
 .field-count {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }
@@ -352,7 +352,7 @@ const p = reactive(props.page);
 /* ===== 敏感词提示 ===== */
 .field-hint {
   margin: var(--space-2) 0 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.4;
 }
 

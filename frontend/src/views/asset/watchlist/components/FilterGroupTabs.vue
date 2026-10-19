@@ -255,7 +255,7 @@ watch(
 }
 
 .group-tab-count {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }

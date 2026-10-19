@@ -76,7 +76,7 @@ const links = computed(() =>
   gap: var(--space-1);
   align-items: center;
   padding: var(--space-1) var(--space-3);
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   text-decoration: none;
   border: 1px solid var(--border-default);
@@ -93,6 +93,6 @@ const links = computed(() =>
 }
 
 .ext-links__icon {
-  font-size: 12px;
+  font-size: var(--text-label);
 }
 </style>

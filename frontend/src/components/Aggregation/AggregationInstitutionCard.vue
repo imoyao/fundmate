@@ -123,7 +123,7 @@ function toggle() {
 .institution-name {
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 16px;
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -131,7 +131,7 @@ function toggle() {
 
 .institution-sub {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -143,7 +143,7 @@ function toggle() {
 }
 
 .expand-icon {
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--text-tertiary-ink);
   transition: transform 0.2s ease;
 }
@@ -179,7 +179,7 @@ function toggle() {
 .item-name {
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--text-primary);
   white-space: nowrap;
 }
@@ -187,7 +187,7 @@ function toggle() {
 .item-code {
   flex: none;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -200,7 +200,7 @@ function toggle() {
 
 .item-shares {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 

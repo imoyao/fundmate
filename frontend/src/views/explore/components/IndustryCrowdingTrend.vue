@@ -250,7 +250,7 @@ watch([indicator, freq, () => props.category], fetchTrend);
   gap: 8px;
   align-items: flex-start;
   padding: 6px 12px;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-secondary);
   background: color-mix(in srgb, var(--brand-400) 10%, transparent);

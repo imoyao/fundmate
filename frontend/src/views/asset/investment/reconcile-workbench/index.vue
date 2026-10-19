@@ -359,7 +359,7 @@ onMounted(() => {
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 1;
   color: var(--text-inverse);
   background: var(--brand-600, #d98b2b);
@@ -367,7 +367,7 @@ onMounted(() => {
 }
 
 .workbench-banner__icon {
-  font-size: 16px;
+  font-size: var(--text-body);
   color: var(--brand-700);
 }
 

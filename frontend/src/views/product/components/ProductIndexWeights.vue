@@ -128,14 +128,14 @@ watch(() => props.symbol, load, { immediate: true });
 
 .idx-weights__title {
   margin: 0 0 var(--space-3);
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .idx-weights__hint {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -146,7 +146,7 @@ watch(() => props.symbol, load, { immediate: true });
 
 .idx-weights__th {
   padding: 0 var(--space-2) var(--space-2);
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 500;
   color: var(--text-tertiary-ink);
   text-align: left;
@@ -170,7 +170,7 @@ watch(() => props.symbol, load, { immediate: true });
 
 .idx-weights__td {
   padding: var(--space-2);
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-primary);
 }
 
@@ -206,7 +206,7 @@ watch(() => props.symbol, load, { immediate: true });
 
 .idx-weights__concentration {
   margin: var(--space-3) 0 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-primary);
 }
 

@@ -220,7 +220,7 @@ function onVendorLogoError(e: Event) {
 
 .mode-icon {
   margin-bottom: 12px;
-  font-size: 36px;
+  font-size: var(--text-display);
   color: var(--brand-700);
 }
 
@@ -233,14 +233,14 @@ function onVendorLogoError(e: Event) {
 
 .mode-desc {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-tertiary-ink);
 }
 
 .mode-cards-lock-hint {
   margin-top: 16px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   text-align: center;
 }
@@ -254,7 +254,7 @@ function onVendorLogoError(e: Event) {
 }
 
 .vendor-label {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -282,7 +282,7 @@ function onVendorLogoError(e: Event) {
 }
 
 .vendor-name {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 </style>

@@ -185,27 +185,27 @@ function updateResolution(key: string, value: MigrationAction) {
 }
 
 .mig-route__name {
-  font-size: 15px;
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .mig-route__arrow {
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--text-tertiary-ink);
 }
 
 /* 总数右对齐：等宽数字保证跳动时不抖 */
 .mig-route__total {
   margin-left: auto;
-  font-size: 13px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
 }
 
 .mig-note {
   margin-top: var(--space-1);
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -229,14 +229,14 @@ function updateResolution(key: string, value: MigrationAction) {
 }
 
 .mig-section__title {
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .mig-section__count {
   padding: 0 8px;
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   line-height: 20px;
   color: var(--text-secondary);
@@ -246,7 +246,7 @@ function updateResolution(key: string, value: MigrationAction) {
 
 .mig-section__hint {
   margin-left: auto;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -270,20 +270,20 @@ function updateResolution(key: string, value: MigrationAction) {
 }
 
 .mig-row__name {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-primary);
 }
 
 .mig-row__symbol {
   margin-left: 6px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: normal;
   color: var(--text-tertiary-ink);
 }
 
 .mig-row__values {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
   text-align: right;
@@ -291,7 +291,7 @@ function updateResolution(key: string, value: MigrationAction) {
 
 .mig-empty {
   padding: var(--space-loose) 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   text-align: center;
 }
@@ -306,7 +306,7 @@ function updateResolution(key: string, value: MigrationAction) {
 }
 
 .mig-footer__status {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 </style>

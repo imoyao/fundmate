@@ -216,7 +216,7 @@ function barColor(index: number): string {
 .industry-section__other-note {
   padding: var(--space-2) var(--space-3);
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-secondary);
   background: var(--bg-subtle, var(--bg-card));
@@ -225,19 +225,19 @@ function barColor(index: number): string {
 }
 
 .industry-section__scheme {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
 .industry-section__period {
   margin-left: var(--space-2);
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary);
 }
 
 .industry-section__table {
   width: 100%;
-  font-size: 13px;
+  font-size: var(--text-label);
   border-collapse: collapse;
 }
 
@@ -321,7 +321,7 @@ function barColor(index: number): string {
 }
 
 .industry-section__other-title {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;
@@ -338,7 +338,7 @@ function barColor(index: number): string {
   display: flex;
   gap: var(--space-2);
   justify-content: space-between;
-  font-size: 13px;
+  font-size: var(--text-label);
 }
 
 .industry-section__other-item dt {

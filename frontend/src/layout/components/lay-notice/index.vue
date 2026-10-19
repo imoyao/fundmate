@@ -210,7 +210,7 @@ onMounted(() => {
   cursor: pointer;
 
   &__icon {
-    font-size: 18px;
+    font-size: var(--text-num-strong);
   }
 }
 
@@ -233,14 +233,14 @@ onMounted(() => {
   }
 
   &__title {
-    font-size: 14px;
+    font-size: var(--text-small);
     font-weight: 600;
     color: var(--text-primary);
   }
 
   &__action {
     padding: 0;
-    font-size: 12px;
+    font-size: var(--text-label);
     color: var(--brand-ink);
     cursor: pointer;
     background: none;
@@ -262,7 +262,7 @@ onMounted(() => {
     align-items: center;
     justify-content: center;
     padding: var(--space-6) var(--space-standard);
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-secondary);
   }
 

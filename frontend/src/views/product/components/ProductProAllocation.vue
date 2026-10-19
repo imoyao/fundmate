@@ -183,13 +183,13 @@ watch(() => props.symbol, load, { immediate: true });
 
 .pro-alloc__hint {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .pro-alloc__summary {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-primary);
 }
@@ -220,14 +220,14 @@ watch(() => props.symbol, load, { immediate: true });
 .pro-alloc__name {
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-primary);
   white-space: nowrap;
 }
 
 .pro-alloc__rho {
   flex-shrink: 0;
-  font-size: 14px;
+  font-size: var(--text-mono-small);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
@@ -274,14 +274,14 @@ watch(() => props.symbol, load, { immediate: true });
   display: flex;
   gap: var(--space-2);
   justify-content: space-between;
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .pro-alloc__skipped,
 .pro-alloc__footnote {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-tertiary-ink);
 }
@@ -294,14 +294,14 @@ watch(() => props.symbol, load, { immediate: true });
 
 .pro-alloc__empty-title {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .pro-alloc__empty-desc {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-secondary);
 }

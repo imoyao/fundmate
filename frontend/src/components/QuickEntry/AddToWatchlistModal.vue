@@ -754,7 +754,7 @@ onMounted(async () => {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 600;
   line-height: 20px;
   color: var(--text-primary);
@@ -764,7 +764,7 @@ onMounted(async () => {
 /* 次要锚点：编码 / 平台·主理人 / 市场；灰色小字、不占空间、无则不渲染 */
 .asset-option__sub {
   flex: 0 0 auto;
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   line-height: 20px;
   color: var(--text-tertiary-ink);
@@ -774,7 +774,7 @@ onMounted(async () => {
 .asset-option__type {
   flex-shrink: 0;
   padding: 0 6px;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 18px;
   color: var(--text-secondary);
   background-color: var(--bg-soft);
@@ -852,7 +852,7 @@ onMounted(async () => {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 15px;
+  font-size: var(--text-body);
   font-weight: 600;
   line-height: 22px;
   color: var(--text-primary);
@@ -861,7 +861,7 @@ onMounted(async () => {
 
 .selected-asset-card__sub {
   flex: 0 0 auto;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 22px;
   color: var(--text-tertiary-ink);
   white-space: nowrap;
@@ -870,7 +870,7 @@ onMounted(async () => {
 .selected-asset-card__type {
   flex-shrink: 0;
   padding: 0 6px;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 18px;
   color: var(--text-secondary);
   background-color: var(--bg-soft);
@@ -940,7 +940,7 @@ onMounted(async () => {
   gap: 6px;
   align-items: baseline;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 18px;
 }
 
@@ -973,7 +973,7 @@ onMounted(async () => {
 .reason-input :deep(.el-input__count) {
   right: 8px;
   bottom: 4px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -984,7 +984,7 @@ onMounted(async () => {
 
 .add-watchlist-dialog :deep(.el-dialog__body) {
   padding: 20px;
-  font-size: 15px;
+  font-size: var(--text-body);
 }
 
 /* 标签选中样式：使用品牌色系统 */

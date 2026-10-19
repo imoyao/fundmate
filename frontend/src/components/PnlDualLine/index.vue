@@ -138,7 +138,7 @@ const priceDateTip = computed(() =>
    字号随档位（11/12px），不参与涨跌着色 */
 .pnl-dual-line__tag {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   white-space: nowrap;
 }
@@ -156,6 +156,6 @@ const priceDateTip = computed(() =>
 }
 
 .pnl-dual-line--md .pnl-dual-line__tag {
-  font-size: 12px;
+  font-size: var(--text-label);
 }
 </style>

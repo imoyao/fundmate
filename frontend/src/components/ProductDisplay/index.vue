@@ -94,7 +94,7 @@ defineProps({
 .product-name {
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
@@ -107,7 +107,7 @@ defineProps({
 }
 
 .product-code {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -129,7 +129,7 @@ defineProps({
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 500;
   line-height: 20px;
   color: var(--text-primary);
@@ -141,7 +141,7 @@ defineProps({
 .product-cell--compact .product-submeta {
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 16px;
   color: var(--text-secondary);
   white-space: nowrap;
@@ -163,7 +163,7 @@ defineProps({
 .product-code-compact {
   flex-shrink: 0;
   font-family: var(--font-number);
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   line-height: 20px;
   color: var(--text-tertiary-ink);
@@ -173,7 +173,7 @@ defineProps({
 .product-type-compact {
   flex-shrink: 0;
   padding: 0 4px;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 20px;
   color: var(--text-tertiary-ink);
   background-color: var(--bg-soft);
@@ -184,7 +184,7 @@ defineProps({
 .type-tag-inline {
   height: 20px;
   padding: 0 8px;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 20px;
   color: var(--text-secondary);
   background-color: var(--bg-page);

@@ -365,7 +365,7 @@ function signedPct(value: number): string {
   &__sum,
   &__footnote {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--text-label);
     line-height: 1.6;
     color: var(--text-tertiary-ink);
   }
@@ -392,7 +392,7 @@ function signedPct(value: number): string {
   }
 
   &__error-text {
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-secondary);
   }
 
@@ -428,7 +428,7 @@ function signedPct(value: number): string {
 
     &--head {
       padding-top: 0;
-      font-size: 12px;
+      font-size: var(--text-label);
       color: var(--text-tertiary-ink);
       border-bottom-color: var(--border-default);
     }
@@ -446,7 +446,7 @@ function signedPct(value: number): string {
   &__cell {
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-secondary);
     white-space: nowrap;
 
@@ -480,14 +480,14 @@ function signedPct(value: number): string {
   &__title {
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-primary);
     white-space: nowrap;
   }
 
   &__symbol {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
   }
 

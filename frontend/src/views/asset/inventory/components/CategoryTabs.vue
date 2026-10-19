@@ -103,12 +103,12 @@ function tabStyle(cat: InventoryCategory) {
 }
 
 .category-tab-label {
-  font-size: 14px;
+  font-size: var(--text-small);
   color: inherit;
 }
 
 .category-tab-amount {
-  font-size: 18px;
+  font-size: var(--text-num-strong);
   font-weight: 700;
   color: var(--text-primary);
 }
@@ -118,7 +118,7 @@ function tabStyle(cat: InventoryCategory) {
   align-items: center;
   justify-content: center;
   margin-top: 2px;
-  font-size: 16px;
+  font-size: var(--text-body);
   color: var(--text-tertiary-ink);
 }
 </style>

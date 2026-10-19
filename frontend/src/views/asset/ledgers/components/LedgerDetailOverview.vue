@@ -262,7 +262,7 @@ const p = reactive(props.page);
 .soft-reconcile-banner__icon {
   flex: none;
   margin-top: 2px;
-  font-size: 18px;
+  font-size: var(--text-num-strong);
   color: var(--el-color-info);
 }
 
@@ -273,14 +273,14 @@ const p = reactive(props.page);
 
 .soft-reconcile-banner__title {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-small);
   line-height: 22px;
   color: var(--text-primary);
 }
 
 .soft-reconcile-banner__detail {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

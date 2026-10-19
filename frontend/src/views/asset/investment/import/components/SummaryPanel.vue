@@ -227,7 +227,7 @@ function onCardCheck(key: SummaryCategory, val: string | number | boolean) {
 }
 
 .summary-title {
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -236,7 +236,7 @@ function onCardCheck(key: SummaryCategory, val: string | number | boolean) {
 .summary-alert {
   padding: 8px 10px;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--color-warning-ink);
   background: var(--color-warning-20);
@@ -267,7 +267,7 @@ function onCardCheck(key: SummaryCategory, val: string | number | boolean) {
 }
 
 .card-icon {
-  font-size: 16px;
+  font-size: var(--text-body);
 }
 
 .card-icon.is-complete {
@@ -283,26 +283,26 @@ function onCardCheck(key: SummaryCategory, val: string | number | boolean) {
 }
 
 .card-label {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .card-count {
-  font-size: 18px;
+  font-size: var(--text-num-strong);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }
 
 .card-unit {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .card-desc {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -314,7 +314,7 @@ function onCardCheck(key: SummaryCategory, val: string | number | boolean) {
 
 .chip {
   padding: 1px 8px;
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--color-danger-ink);
   background: var(--color-danger-10);
   border: 1px solid var(--color-danger-30);
@@ -345,7 +345,7 @@ function onCardCheck(key: SummaryCategory, val: string | number | boolean) {
 }
 
 .foot-selected {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 

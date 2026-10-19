@@ -673,7 +673,7 @@ function resetSession(): void {
 
 .chat-hero__q-icon {
   flex: 0 0 auto;
-  font-size: 16px;
+  font-size: var(--text-body);
   color: var(--brand-700);
 }
 
@@ -710,7 +710,7 @@ function resetSession(): void {
   justify-content: center;
   width: 24px;
   height: 24px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--brand-700);
   background-color: var(--brand-100);
   border-radius: 50%;

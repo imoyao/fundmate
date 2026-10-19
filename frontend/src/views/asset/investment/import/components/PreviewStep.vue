@@ -198,12 +198,12 @@ const pendingFixCount = computed(
 }
 
 .banner-icon {
-  font-size: 16px;
+  font-size: var(--text-body);
   color: var(--color-warning-ink);
 }
 
 .banner-text {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -229,12 +229,12 @@ const pendingFixCount = computed(
 }
 
 .hint-icon {
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--color-primary-ink);
 }
 
 .hint-text {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -244,14 +244,14 @@ const pendingFixCount = computed(
 }
 
 .header-ledger {
-  font-size: 15px;
+  font-size: var(--text-body);
   font-weight: 500;
   color: var(--text-primary);
 }
 
 /* 草稿状态文案（#783 §一/§8.1）：次级信息，不让它跟账户名抢注意力 */
 .header-draft {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -311,13 +311,13 @@ const pendingFixCount = computed(
 }
 
 .summary-primary {
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 500;
   color: var(--text-primary);
 }
 
 .summary-secondary {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 </style>

@@ -150,7 +150,7 @@ onMounted(() => {
   .navbar-brand-name {
     display: inline-flex;
     align-items: baseline;
-    font-size: 16px;
+    font-size: var(--text-body);
     font-weight: 600;
     color: var(--el-text-color-primary);
 

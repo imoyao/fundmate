@@ -712,18 +712,18 @@ onMounted(async () => {
 }
 
 .xirr-label {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .xirr-value {
-  font-size: 16px;
+  font-size: var(--text-body);
   font-weight: 700;
   color: var(--text-primary);
 }
 
 .xirr-value--lg {
-  font-size: 32px;
+  font-size: var(--text-display);
   font-weight: 700;
   line-height: 1.1;
 }

@@ -214,7 +214,7 @@ function hexToRgba(hex: string, alpha: number): string {
 }
 
 .profit-panel__title {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -223,7 +223,7 @@ function hexToRgba(hex: string, alpha: number): string {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2) var(--space-4);
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -238,7 +238,7 @@ function hexToRgba(hex: string, alpha: number): string {
 
 .profit-panel__footnote {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 </style>

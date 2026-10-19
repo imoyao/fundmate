@@ -352,7 +352,7 @@ const getAvailableTools = (type: string) => {
   }
 
   .summary-count {
-    font-size: 14px;
+    font-size: var(--text-small);
     font-weight: 500;
     color: var(--text-primary);
   }
@@ -363,16 +363,16 @@ const getAvailableTools = (type: string) => {
   }
 
   .summary-value {
-    font-size: 14px;
+    font-size: var(--text-small);
     color: var(--text-secondary);
   }
 
   .summary-pnl {
-    font-size: 14px;
+    font-size: var(--text-small);
   }
 
   .summary-hint {
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
   }
 
@@ -380,7 +380,7 @@ const getAvailableTools = (type: string) => {
     display: flex;
     gap: 12px;
     align-items: center;
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
   }
 
@@ -432,7 +432,7 @@ const getAvailableTools = (type: string) => {
 /* 移动端列表项卡片（非区块卡，故不走 CardBlock）：外观 token 化，禁字面量圆角（#1547 T3.1） */
 .cards-empty {
   padding: 32px 16px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   text-align: center;
   background: var(--bg-card);
@@ -473,11 +473,11 @@ const getAvailableTools = (type: string) => {
     gap: 8px;
     align-items: baseline;
     justify-content: space-between;
-    font-size: 14px;
+    font-size: var(--text-small);
   }
 
   .metric-label {
-    font-size: 12px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
   }
 }

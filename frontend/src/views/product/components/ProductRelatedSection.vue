@@ -153,14 +153,14 @@ watch(() => props.symbol, load, { immediate: true });
 .rel-section {
   &__hint {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-tertiary);
   }
 
   /* 覆盖率说明跟在「—」后面，避免单独一行像报错 */
   &__hint-note {
     margin-left: 4px;
-    font-size: 12px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
   }
 
@@ -172,7 +172,7 @@ watch(() => props.symbol, load, { immediate: true });
 
   &__subtitle {
     margin: 0 0 var(--space-2);
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-secondary);
   }
 
@@ -189,7 +189,7 @@ watch(() => props.symbol, load, { immediate: true });
     display: inline-flex;
     align-items: center;
     padding: 4px 10px;
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-primary);
     text-decoration: none;
     background: var(--bg-muted);

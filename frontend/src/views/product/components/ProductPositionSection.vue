@@ -452,7 +452,7 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
    （<section class="card-block"><slot /></section>），根本没有这个元素。 */
 
 .product-position__body {
-  font-size: 13px;
+  font-size: var(--text-label);
 }
 
 /* 账户名：可点击时给链接态，未归档持仓只读——那里没有落点，链过去是坏的 */
@@ -479,7 +479,7 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
   gap: var(--space-1);
   align-items: center;
   margin-bottom: var(--space-compact);
-  font-size: 13px;
+  font-size: var(--text-label);
 }
 
 .product-position__grid {
@@ -504,13 +504,13 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
 }
 
 .metric__label {
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.3;
   color: var(--text-tertiary-ink);
 }
 
 .metric__value {
-  font-size: 14px;
+  font-size: var(--text-mono-small);
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
   color: var(--text-primary);
@@ -519,14 +519,14 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
 
 /* 盈亏两项是这一页的核心，字号提一档；不改颜色，颜色仍由 RiseFallText / MoneyDisplay 按语义变量给 */
 .metric--hero .metric__value {
-  font-size: 17px;
+  font-size: var(--text-num-strong);
 }
 
 /* 当日盈亏的基准日注脚（#2007）：它说明「这个『当日』是哪一天」，属标签的一部分，
    故弱化，不与数值争注意力 */
 .metric__hint {
   margin-left: var(--space-1);
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -539,7 +539,7 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
 /* 多账户表格下方的基准日说明：把「当日」的日期口径说在表格外，不额外占一列 */
 .product-position__asof {
   margin: var(--space-2) 0 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-tertiary-ink);
 }
@@ -551,7 +551,7 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
 
 .product-position__table {
   width: 100%;
-  font-size: 13px;
+  font-size: var(--text-label);
   white-space: nowrap;
   border-collapse: collapse;
 }
@@ -564,7 +564,7 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
 }
 
 .product-position__table th {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 400;
   color: var(--text-tertiary-ink);
   border-bottom: 1px solid var(--border-light);
@@ -601,7 +601,7 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
 }
 
 .product-position__xirr-label {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -612,7 +612,7 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
 /* 空态提示（拉取失败 / 确无记录） */
 .product-position__hint {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 </style>

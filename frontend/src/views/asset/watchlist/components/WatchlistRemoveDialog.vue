@@ -82,7 +82,7 @@ const holding = computed(() => props.removingItem?.status === "HOLDING");
    禁止硬编码 hex（design.md 设计语言）。 */
 .remove-scope-warn {
   margin: 12px 0 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--color-danger-ink);
 }
@@ -90,7 +90,7 @@ const holding = computed(() => props.removingItem?.status === "HOLDING");
 /* 持仓禁删的能力边界说明：不是错误态，用中性弱化文字与上方警示区分。 */
 .remove-scope-hint {
   margin: 8px 0 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-tertiary-ink);
 }

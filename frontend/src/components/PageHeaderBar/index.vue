@@ -101,7 +101,7 @@ withDefaults(
   &__subtitle {
     max-width: 640px;
     margin: 6px 0 0;
-    font-size: 14px;
+    font-size: var(--text-small);
     line-height: 1.5;
     color: var(--text-secondary);
   }
@@ -127,7 +127,7 @@ withDefaults(
     gap: 6px;
     align-items: center;
     padding: 4px 10px;
-    font-size: 12px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
     white-space: nowrap;
     background: var(--bg-soft);

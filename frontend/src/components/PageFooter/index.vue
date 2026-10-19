@@ -168,7 +168,7 @@ withDefaults(
 
   .revisit-text {
     margin: 0 0 12px;
-    font-size: 14px;
+    font-size: var(--text-small);
     line-height: 1.6;
     color: var(--text-primary);
   }
@@ -176,7 +176,7 @@ withDefaults(
   .revisit-list {
     padding-left: 18px;
     margin: 0 0 14px;
-    font-size: 13px;
+    font-size: var(--text-label);
     line-height: 1.9;
     color: var(--text-secondary);
   }
@@ -186,7 +186,7 @@ withDefaults(
     flex-wrap: wrap;
     gap: 4px;
     align-items: center;
-    font-size: 12px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
   }
 
@@ -233,14 +233,14 @@ withDefaults(
 
     &__title {
       margin: 0 0 4px;
-      font-size: 14px;
+      font-size: var(--text-small);
       font-weight: 600;
       color: var(--text-primary);
     }
 
     &__desc {
       margin: 0;
-      font-size: 12px;
+      font-size: var(--text-label);
       line-height: 1.5;
       color: var(--text-tertiary-ink);
     }

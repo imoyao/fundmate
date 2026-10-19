@@ -92,7 +92,7 @@ const resolutionProxy = computed({
 }
 
 .mig-conflict__name {
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -100,13 +100,13 @@ const resolutionProxy = computed({
 .mig-conflict__symbol {
   margin-left: 6px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: normal;
   color: var(--text-tertiary-ink);
 }
 
 .mig-conflict__fields {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -123,7 +123,7 @@ const resolutionProxy = computed({
 
 .mig-compare > span {
   padding: 6px 10px;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 20px;
   border-top: 1px solid var(--border-subtle);
 }
@@ -133,13 +133,13 @@ const resolutionProxy = computed({
 }
 
 .mig-compare__tag {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   background: var(--bg-soft);
 }
 
 .mig-compare__label {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   background: var(--bg-soft);
 }
@@ -164,7 +164,7 @@ const resolutionProxy = computed({
 
 .mig-action-note {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }

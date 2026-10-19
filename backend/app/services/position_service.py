@@ -16,7 +16,7 @@
 
 import json
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from flask import has_app_context
@@ -25,7 +25,15 @@ from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.constants import ALLOCATION_LABELS, MARKET_LABELS, TYPE_LABELS, PositionSource, ValuationMode
+from app.core.constants import (
+    ALLOCATION_LABELS,
+    MARKET_LABELS,
+    TYPE_LABELS,
+    AnchorKind,
+    OwnershipStatus,
+    PositionSource,
+    ValuationMode,
+)
 from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
 from app.core.symbol_utils import derive_security_type, normalize_by_venue, split_symbol, strip_exchange_prefix
@@ -40,6 +48,7 @@ from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_money_fund_s
 from app.services.import_records import compute_position_hash
 from app.services.pnl_service import compute_sell_realized_cents
 from app.services.position_presenter import enrich_position_dict
+from app.services.position_scope import exclude_cleared
 from app.services.symbol_scope import build_position_symbol_conditions
 from app.services.trading import TransactionService, validate_buy, validate_sell
 from app.services.watchlist_service import (
@@ -203,6 +212,136 @@ def _get_asset_type(data: dict, default: str = 'stock') -> str:
     market, code = split_symbol(symbol)
     derived = derive_security_type(code, market)
     return derived or (explicit or default)
+
+
+def _resolve_confirm_date(data: dict, asset_type: str):
+    """解析本笔交易的**确认日**（锚点判定与流水落库共用同一口径）。
+
+    从 `process_buy_or_deposit` 内联逻辑抽出，原因：锚点判定（这笔交易是否已被快照包含）
+    必须发生在合并持仓**之前**，而原实现把确认日计算放在创建流水时（合并之后）。
+    两处各算一遍必然分叉——这正是本类 bug 的成因模式（同一语义两份实现）。
+
+    场外基金：前端给了 confirm_date 时按 `get_confirm_date(trade_date, ...)` 重算
+    （T+1 确认、15:00 后顺延）；计算失败降级用前端传入值，不阻断记账。
+    """
+    confirm_date = data.get('confirm_date')
+    if asset_type == 'fund' and data.get('confirm_date'):
+        try:
+            trade_date = data.get('trade_date')
+            if isinstance(trade_date, str):
+                trade_date = datetime.strptime(trade_date, '%Y-%m-%d').date()
+            is_after_15 = data.get('isAfter15', False)
+            fund_type = data.get('fund_type', 'domestic')
+            confirm_date = get_confirm_date(trade_date, fund_type=fund_type, is_after_15=is_after_15)
+        except Exception:
+            logger.warning('确认日计算失败，使用前端传入值')
+    return confirm_date
+
+
+def _is_covered_by_anchor(position: Position, effective_date) -> bool:
+    """这笔流水是否已包含在持仓快照锚点里（包含则**不得**再驱动 quantity）。
+
+    判定：`归属日 <= 快照日` → 已包含。按 confirm_date 而非 trade_date：
+    基金份额在确认日（T+1）才真实变动，快照反映份额登记状态。
+
+    边界：日期无法解析 → 视为「未包含」（保持旧行为，宁可多算也不静默丢流水），
+    由对账工作台暴露差异。这与 `compute_anchored_state` 的「排除 + 告警」不同：
+    那里是派生（必须唯一），这里是写入（不能吞掉用户刚录的交易）。
+    """
+    if position is None or position.snapshot_quantity is None or position.snapshot_date is None:
+        return False
+    if position.ownership_status != 'active':
+        return False
+    if effective_date is None:
+        return False
+    if isinstance(effective_date, str):
+        # 卖出/导入路径可能直接透传 ISO 字符串（未经 _resolve_confirm_date 归一）
+        try:
+            day = datetime.strptime(effective_date[:10], '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            return False
+    elif hasattr(effective_date, 'date'):
+        day = effective_date.date()
+    else:
+        day = effective_date
+    return day <= position.snapshot_date
+
+
+def _mark_position_cleared(position: Position, when=None) -> None:
+    """把持仓标记为**已清仓**（行保留，issue #2343 第二步）。
+
+    取代过去的 `db.delete(position)`。行保留后三样东西不会随清仓消失：
+    - 快照锚点四列（`snapshot_quantity / snapshot_avg_price / snapshot_date / anchor_kind`）
+      ——删除卖出流水触发重建时仍走锚点口径，不会退回「全量流水」二次累加；
+    - `avg_price`（上一轮的成本基线，「历史曾持有」可追溯）；
+    - 名下流水（本来就不级联，但持仓行在，`position_id` 归属不断链）。
+
+    `cleared_at` 记录**何时**清仓，取**清仓流水的确认日**（业务事实，可测试、可回放），
+    不是墙钟时间——「系统何时处理的」没有业务意义，且会让「清仓日 < 再买入日」的
+    常规时间线在补录场景下倒挂。`when` 接受 str/date/datetime，解析失败退墙钟。
+
+    重新激活时**保留不清**本列——它是「清仓后再买入」新一轮周期的下界，
+    「当前是否已清仓」一律看 `ownership_status`。
+    """
+    position.quantity = 0
+    position.ownership_status = OwnershipStatus.CLEARED.value
+    if when is None:
+        position.cleared_at = datetime.now()
+    elif isinstance(when, datetime):
+        position.cleared_at = when
+    elif isinstance(when, date):
+        position.cleared_at = datetime(when.year, when.month, when.day)
+    else:
+        try:
+            position.cleared_at = datetime.strptime(str(when)[:10], '%Y-%m-%d')
+        except ValueError:
+            position.cleared_at = datetime.now()
+
+
+def _reactivate_cleared_position(position: Position, first_flow_date) -> None:
+    """把已清仓持仓重新激活为**新一轮周期**（#2343）。
+
+    同账户同标的受 `uq_positions_ledger_symbol(_norm)` 双唯一约束，清仓行保留后
+    再次买入**必然**复用同一行——「新建一行」在数据库层面不可行（2026-10-18 实测
+    INSERT 直接撞约束）。
+
+    复用的关键动作是**重置锚点**，而不是只把状态改回 active：
+
+        锚点 = (0 份, 0 成本额, 清仓日, manual)
+
+    不重置的后果（同日实测）：旧锚点的成本额按卖出比例核销后仍有残留，新一轮
+    3000 份 @1.60 会被派生成 **1.4375**（虚低 10.2% ⇒ 浮盈虚高）——上一轮的利润
+    悄悄漏进这一轮的成本里。重置后 quantity = 0 + Σ(归属日 > 清仓日)，只认本轮流水。
+
+    锚点日直接取**清仓日**（`cleared_at.date()`）：
+    - 常规（买入在清仓之后）：清仓卖出 `== 锚点日` 被 `> anchor` 规则排除，本笔买入计入 ✓；
+    - `cleared_at` 为 NULL（历史清仓行无清仓时间）：退「本笔归属日前一天」，
+      保证本笔自身不被锚点吞掉；
+    - **清仓当天又买入**（confirm_date == 清仓日）：买入同样被 `>` 排除 → 0 份。
+      已知边界，日粒度数据无法区分同日先卖后买；刻意**不**退到前一日——那会把
+      清仓卖出也计入，净额变负（比 0 份更糟）。0 份由对账工作台暴露，宁可不算不算错。
+
+    `cleared_at` 保留不清空（周期下界），`confirm_date` 同样不动——持有天数
+    口径是「首次建仓确认日」（#862 历史口径），改口径需要产品决策，本次不做。
+    """
+    if position.cleared_at is not None:
+        anchor_date = position.cleared_at.date() if isinstance(position.cleared_at, datetime) else position.cleared_at
+    elif first_flow_date is None:
+        anchor_date = date.today()
+    else:
+        if isinstance(first_flow_date, datetime):
+            day = first_flow_date.date()
+        elif isinstance(first_flow_date, date):
+            day = first_flow_date
+        else:
+            day = datetime.strptime(str(first_flow_date)[:10], '%Y-%m-%d').date()
+        anchor_date = day - timedelta(days=1)
+
+    position.ownership_status = OwnershipStatus.ACTIVE.value
+    position.snapshot_quantity = 0
+    position.snapshot_avg_price = 0
+    position.snapshot_date = anchor_date
+    position.anchor_kind = AnchorKind.MANUAL.value
 
 
 def _get_default_notes(op_type: str, is_new: bool) -> str:
@@ -450,6 +589,157 @@ def _resolve_money_fund_flag(symbol: str, asset_type: str | None, hint=None) -> 
     return is_money_fund_symbol(symbol)
 
 
+def _txn_effective_date(txn: Transaction):
+    """流水的「归属日」：优先 confirm_date，缺失降级 trade_date 的日期部分。
+
+    WHY 需要降级：锚点判定必须给每条流水一个可比较的日期。`confirm_date` 为 NULL 的
+    份额类流水（部分导入格式 / 手工补录）若直接跳过，会在锚点重算里**静默丢掉份额**；
+    若无条件计入，又会与快照重复。用 trade_date 兜底是两者之间唯一可解释的选择。
+    两者都没有 → 返回 None，由调用方决定（当前口径：排除并告警，宁可少算不重复计）。
+    """
+    if txn.confirm_date is not None:
+        return txn.confirm_date
+    if txn.trade_date is not None:
+        return txn.trade_date.date() if hasattr(txn.trade_date, 'date') else txn.trade_date
+    return None
+
+
+def _derive_state_from_txns(txns, base_qty: int, base_cost_cents: int) -> tuple[int, int]:
+    """纯函数：给定基线份额/成本额，叠加流水推导 (净份额, 成本均价)。
+
+    抽成纯函数是为了让「持仓行已被删除、需要从流水重建」的分支复用同一套加减口径，
+    避免重算引擎出现第二份实现（两份实现必然分叉，正是本 bug 的成因之一）。
+    """
+    buy_qty = 0
+    buy_cost = 0
+    sell_qty = 0
+    for t in txns:
+        if t.txn_type in ('buy', 'deposit'):
+            buy_qty += t.quantity
+            buy_cost += Money.multiply_price_quantity(t.price, t.quantity)
+        elif t.txn_type == 'split':
+            # 送股/拆分：份额增加、成本不变（仅稀释均价）
+            buy_qty += t.quantity
+        elif t.txn_type in ('sell', 'withdraw'):
+            sell_qty += t.quantity
+
+    net_qty = base_qty + buy_qty - sell_qty
+    base_and_buy_qty = base_qty + buy_qty
+    avg_price = 0
+    if base_and_buy_qty > 0:
+        avg_price = Money.yuan_to_price_units(
+            round(Money.cents_to_yuan(base_cost_cents + buy_cost) / Money.min_unit_to_shares(base_and_buy_qty), 4)
+        )
+    return net_qty, avg_price
+
+
+def compute_anchored_state(db: Session, position: Position) -> tuple[int, int]:
+    """按锚点推导持仓份额与成本均价（**唯一**的份额派生入口）。
+
+    口径：
+        有锚点 → quantity = snapshot_quantity + Σ(归属日 > snapshot_date 的流水净额)
+        无锚点 → quantity = Σ(全部流水净额)          # 旧口径，保持向后兼容
+
+    成本：`快照成本额 + 锚点后买入成本额`，除以 `快照份额 + 锚点后买入份额`。
+    卖出/取出不改成本额（移动加权，与 `process_buy_or_deposit` 一致）。
+
+    ## 为什么必须是「唯一入口」
+
+    份额有三条写路径（快照导入 SET / 买卖 INCR / 净值回填后重算），只要有一条不认锚点，
+    它就会把另外两条的结果覆盖掉。`nav_backfill_job` 就是活例子：它调
+    `recompute_position_from_transactions`，若那里走旧口径，用户修好的份额会在下一次
+    官方净值回填时被静默打回「全量流水」——修复当场失效且无报错。
+
+    ## 锚点的边界（刻意保守）
+
+    - 归属日 `<= snapshot_date` 的流水视为「已被快照包含」，不再计入。按 `confirm_date`
+      而非 `trade_date` 切分：基金份额在确认日（T+1）才真实变动，快照反映的是份额登记
+      状态，用下单日会把 T+1 确认的交易误判为「未包含」而重复加一次。
+    - 归属日无法判定的流水：排除 + WARNING。宁可少算（可由对账工作台兜底），
+      也不要重复计（用户看不出来）。
+    - `ownership_status == 'shadow'`（E账户影子行）**不走锚点**：影子记录只写
+      `position_import_meta`，没有 positions 层锚点，走锚点会把对账链路搅乱。
+      `cleared`（已清仓保留行，#2343）**要走锚点**——锚点是它唯一残存的份额事实源，
+      排除它等于清仓后删行旧病复发。
+
+    返回 (净份额 min_unit, 成本均价 price_unit)。净份额可为 0 或负（由调用方决定删行）。
+    """
+    has_anchor = (
+        position.ownership_status != OwnershipStatus.SHADOW.value
+        and position.snapshot_quantity is not None
+        and position.snapshot_date is not None
+    )
+    query = db.query(Transaction).filter(Transaction.position_id == position.id)
+    if not has_anchor:
+        txns = query.order_by(Transaction.trade_date, Transaction.id).all()
+        return _derive_state_from_txns(txns, 0, 0)
+
+    base_qty = int(position.snapshot_quantity)
+    # 快照成本额（分）：份额 × 快照均价。snapshot_avg_price 必须与份额同批落库，
+    # 否则拿 avg_price 顶替会得到「被流水加权过」的价，成本永久偏。
+    base_cost = Money.multiply_price_quantity(int(position.snapshot_avg_price or 0), base_qty)
+    included = []
+    for t in query.order_by(Transaction.trade_date, Transaction.id).all():
+        d = _txn_effective_date(t)
+        if d is None:
+            if t.quantity:
+                logger.warning(
+                    '锚点重算忽略无日期的份额流水: position={} txn={} type={} qty={}',
+                    position.id,
+                    t.id,
+                    t.txn_type,
+                    t.quantity,
+                )
+            continue
+        if d > position.snapshot_date:
+            included.append(t)
+    return _derive_state_from_txns(included, base_qty, base_cost)
+
+
+def _assert_anchor_accepts(
+    existing: Position,
+    snapshot_date,
+    incoming_kind: str,
+    *,
+    allow_rewind: bool = False,
+) -> None:
+    """锚点时间轴守卫：**时间不可倒流**，同日人工值不被同日外部数据覆盖。
+
+    规则来源（2026-10-18 讨论定稿）：
+    - `<` 更旧的快照一律拒绝 —— 允许回退会让当前准确的锚点被历史数据打回旧值，
+      中间这段流水差异会变成无从归因的噪声；
+    - `==` 同日：external 可覆盖（用户发现导错了重导一次），但 **manual 优先**——
+      用户当天已显式校准过，同日的外部数据不更权威，否则「手工校正」会被
+      下一次同日导入静默抹掉；
+    - `>` 更新：正常推进锚点。
+
+    `allow_rewind=True` 仅供对账工作台 `kind='set'` 使用：那是用户显式要求设定持仓，
+    语义是「人工校准」而非「导入旧快照」，不属于本条守卫的管辖范围。
+    """
+    if allow_rewind or existing.snapshot_date is None:
+        return
+    # 已清仓行（#2343）的旧锚点只是上一轮的历史残留，对新一轮周期没有「当前值」
+    # 意义（quantity 已为 0）。重新导入快照 = 开启新一轮，不参与时间轴比较——
+    # 否则用户无法为新周期导入比上一轮更早的快照（如清仓后导一份 7 月的补录快照）。
+    # active 行不受影响，时间不可倒流的守卫照常生效。
+    if existing.ownership_status == OwnershipStatus.CLEARED.value:
+        return
+    if snapshot_date < existing.snapshot_date:
+        raise ValueError(
+            f'快照日 {snapshot_date} 早于该持仓当前锚点 {existing.snapshot_date}，拒绝用更旧的数据覆盖。'
+            '如需按历史快照重算，请先清空/重置该账户后再导入。'
+        )
+    if (
+        snapshot_date == existing.snapshot_date
+        and existing.anchor_kind == AnchorKind.MANUAL.value
+        and incoming_kind != AnchorKind.MANUAL.value
+    ):
+        raise ValueError(
+            f'该持仓在 {snapshot_date} 已有「人工校准」锚点，同日的外部快照不会覆盖人工值。'
+            '如需以外部数据为准，请导入更新日期的快照。'
+        )
+
+
 def _find_existing_position(
     db: Session,
     ledger_id,
@@ -572,27 +862,45 @@ class PositionService:
     # ── 公开方法 ──────────────────────────────────────────
 
     @staticmethod
-    def upsert_from_holding(db: Session, data: dict, ownership_status: str = 'active') -> Position:
-        """持仓快照 upsert（#1012 核心新方法）：以 (ledger_id, symbol) 为业务键，SET 语义整条替换。
+    def upsert_from_holding(
+        db: Session,
+        data: dict,
+        ownership_status: str = 'active',
+        allow_anchor_rewind: bool = False,
+    ) -> Position:
+        """持仓快照 upsert（#1012）：以 (ledger_id, symbol) 为业务键写**锚点**，不直接写份额。
 
         与 process_buy_or_deposit 的本质区别（持仓 vs 交易流水）：
-        - 快照是某日点位的绝对值：quantity / avg_price / current_price 按快照**整条替换**，
-          不累加（用户已确认 SET 语义，快照比手动录更权威）；
+        - 快照是某日点位的绝对值：`snapshot_quantity / snapshot_avg_price / snapshot_date`
+          按快照**整条替换**，不累加；
+        - `quantity` 不再是「快照值」本身，而是 `compute_anchored_state` 派生出来的结果
+          （快照 + 快照日之后的流水）。这正是修复「份额被快照与流水重复累加」的关键：
+          快照值只作为基线存在，不再与流水共享同一个变量；
         - **绝不调用 TransactionService.create** —— 导入持仓不产生交易流水；
-        - 溯源元数据（基金管理人/平台账号/分红方式/市值等）写入 position_import_meta（1:1 upsert），
-          保证 E账户样本信息不丢失。
+        - 溯源元数据（基金管理人/平台账号/分红方式/市值等）写入 position_import_meta（1:1 upsert）。
+
+        ## 锚点时间轴规则（时间不可倒流）
+
+        | 新快照日 vs 现有锚点 | external 来源 | manual 来源 |
+        |---|---|---|
+        | `<`（更旧） | **拒绝**（除非 allow_anchor_rewind） | 同左 |
+        | `==`（同日） | 允许覆盖 | **拒绝**（同日人工值优先于同日外部数据） |
+        | `>`（更新） | 接纳并推进锚点 | 接纳并推进锚点 |
+
+        开放 `allow_anchor_rewind` 的唯一场景是对账工作台的 `kind='set'`：用户显式要求把
+        持仓设成某个值，这属于「人工校准」，不是「导入旧快照」。
 
         ownership_status 参数（E账户对账扩展，#1021）：
         - 'active'（默认）：参与总资产，渠道正常持仓；
         - 'shadow'：仅对账不参与总资产（影子记录走专用 upsert，不调用本方法）。
-        现有调用方不传则默认 'active'，行为不变。
 
         data 关键字段：
             symbol / name / asset_type / ledger_id / account_name / quantity(份) /
             avg_price(元,缺失降级为 current_price 近似) / current_price(元) /
-            snapshot_date(date,缺失降级为落库当日) / currency / source / source_broker /
-            source_import_id / family_id / meta(dict: fund_manager/share_class/fund_account/
-            trade_account/dividend_preference/market_value)
+            snapshot_date(date,缺失降级为落库当日) / anchor_kind(external|manual) /
+            currency / source / source_broker / source_import_id / family_id /
+            meta(dict: fund_manager/share_class/fund_account/trade_account/
+            dividend_preference/market_value)
         """
         symbol = data.get('symbol', '')
         ledger_id = data.get('ledger_id')
@@ -624,6 +932,10 @@ class PositionService:
         raw_snap = data.get('snapshot_date') or date.today()
         snapshot_date = raw_snap if isinstance(raw_snap, date) else datetime.fromisoformat(str(raw_snap)).date()
 
+        incoming_kind = data.get('anchor_kind') or AnchorKind.EXTERNAL.value
+        if isinstance(incoming_kind, AnchorKind):
+            incoming_kind = incoming_kind.value
+
         src = data.get('source', PositionSource.E_ACCOUNT.value)
         import_hash = data.get('import_hash') or compute_position_hash(src, ledger_id, symbol, snapshot_date)
 
@@ -631,7 +943,19 @@ class PositionService:
         existing = _find_existing_position(db, ledger_id=ledger_id, family_id=family_id, symbol=symbol, venue=venue)
 
         if existing:
-            # SET 语义：整条替换快照字段（数量/成本/市价/快照日/溯源）
+            _assert_anchor_accepts(
+                existing,
+                snapshot_date,
+                incoming_kind,
+                allow_rewind=allow_anchor_rewind,
+            )
+            # 锚点 SET：份额/成本价/日期三者必须同批写入（缺 snapshot_avg_price 会让
+            # 重算拿不到快照原价，成本被永久稀释）。
+            existing.snapshot_quantity = qty_units
+            existing.snapshot_avg_price = price_units
+            existing.snapshot_date = snapshot_date
+            existing.anchor_kind = incoming_kind
+            # quantity 先按快照值占位；下方 reattach 孤儿流水后用锚点重算覆盖。
             existing.quantity = qty_units
             existing.avg_price = price_units
             existing.current_price = price_units
@@ -647,6 +971,9 @@ class PositionService:
                 existing.ownership_status = ownership_status
             position = existing
         else:
+            # 影子行（ownership_status != active）不落锚点：它只在 position_import_meta 层
+            # 有日期，若写 positions 层锚点，重算会把对账影子链路搅进派生逻辑。
+            write_anchor = ownership_status == 'active'
             position = Position(
                 symbol=symbol,
                 name=data.get('name') or symbol,
@@ -665,6 +992,10 @@ class PositionService:
                 source_broker=data.get('source_broker'),
                 ownership_status=ownership_status,
                 family_id=family_id,
+                snapshot_quantity=qty_units if write_anchor else None,
+                snapshot_avg_price=price_units if write_anchor else None,
+                snapshot_date=snapshot_date if write_anchor else None,
+                anchor_kind=incoming_kind if write_anchor else None,
             )
             db.add(position)
 
@@ -700,6 +1031,31 @@ class PositionService:
         # 同 (ledger, symbol) 孤儿货基/逆回购流水（幂等；非货基持仓无对应孤儿流水则无操作），
         # 避免快照 is_money_fund 判定不一致时漏挂回导致资金双计。
         _reattach_orphan_flows(db, ledger_id, symbol, position.id, family_id)
+
+        # 锚点派生：quantity 不再等于快照值，而是「快照 + 快照日之后的流水」。
+        # 必须在 _reattach_orphan_flows **之后**：刚挂回的孤儿流水也要参与派生，
+        # 否则它们在下一轮重算时才会被计入，中间这一段时间市值偏小。
+        if position.snapshot_quantity is not None:
+            net_qty, derived_avg = compute_anchored_state(db, position)
+            if net_qty < 0:
+                # 语义矛盾：快照说还有份额，但快照日之后的流水已把它卖成负数。
+                # 导入路径不做「删行」这种激进动作（那是卖出路径的职责），钳到 0 并告警，
+                # 由对账工作台暴露给用户。
+                logger.warning(
+                    '快照锚点派生出负份额，已钳为 0: position={} symbol={} net={} anchor={} date={}',
+                    position.id,
+                    symbol,
+                    Money.min_unit_to_shares(net_qty),
+                    Money.min_unit_to_shares(position.snapshot_quantity),
+                    position.snapshot_date,
+                )
+                net_qty = 0
+            position.quantity = net_qty
+            # 成本只在能派生出正份额时采用；0 份额保留快照成本价，避免 avg_price 被清成 0
+            # 后前端显示「成本 0 元」。
+            if net_qty > 0:
+                position.avg_price = derived_avg
+            db.flush()
 
         try:
             async_backfill.trigger_backfill('fund', symbol)
@@ -854,6 +1210,27 @@ class PositionService:
         price_units = 0 if is_balance else Money.yuan_to_price_units(price)
         amount_cents = Money.yuan_to_cents(amount) if is_balance else 0
 
+        # 锚点判定必须在合并**之前**：确认日决定这笔流水是否已被快照包含。
+        # 提前算一次并复用到下方创建流水，避免「合并处用一套日期、流水用另一套」。
+        effective_confirm_date = _resolve_confirm_date(data, asset_type)
+
+        # 清仓后再次买入（#2343）：同账户同标的受 `uq_positions_ledger_symbol(_norm)`
+        # 双唯一约束，「新建一行」物理不可行，只能复用清仓保留的同一行。
+        # 复用的核心动作是**重置锚点**为新一轮起点（0 份 / 0 成本额 / 清仓日 / manual），
+        # 否则上一轮的成本额残留会把本轮成本派生错（实测 1.60 → 1.4375，虚低 10.2%，
+        # 上一轮利润漏进本轮成本，浮盈虚高且用户无从察觉）。
+        # 重置后本笔归属日 > 清仓日 → 必然「未被锚点包含」，走下方正常合并逻辑。
+        if same is not None and same.ownership_status == OwnershipStatus.CLEARED.value:
+            _reactivate_cleared_position(same, effective_confirm_date)
+            logger.info(
+                '已清仓持仓重新激活（新一轮周期）: position={} symbol={} 新锚点日={}',
+                same.id,
+                same.symbol,
+                same.snapshot_date,
+            )
+
+        covered_by_anchor = _is_covered_by_anchor(same, effective_confirm_date)
+
         try:
             if same:
                 if is_balance:
@@ -861,6 +1238,18 @@ class PositionService:
                     # 只累加可写市值并刷新覆写时间
                     same.market_value_override = (same.market_value_override or 0) + amount_cents
                     same.value_override_at = datetime.now()
+                elif covered_by_anchor:
+                    # 这笔交易已包含在快照里（confirm_date <= 锚点日）：**只写流水，不动份额**。
+                    # 快照本身已经反映了它，再加一次就是本次修复要解决的重复累加。
+                    # 不更新 import_hash：持仓的「最后写入」仍是那张快照，锚点溯源不能被
+                    # 一条历史流水改写成交易日期。
+                    logger.debug(
+                        '交易已含在快照锚点内，仅落流水: position={} symbol={} confirm={} anchor={}',
+                        same.id,
+                        final_symbol,
+                        effective_confirm_date,
+                        same.snapshot_date,
+                    )
                 else:
                     # 合并持仓
                     total_qty_units = same.quantity + qty_units
@@ -879,11 +1268,12 @@ class PositionService:
                     same.source = data['source']
                 if 'source_broker' in data:
                     same.source_broker = data['source_broker']
-                raw_snap = data.get('confirm_date') or date.today()
-                snap = raw_snap if isinstance(raw_snap, date) else datetime.fromisoformat(raw_snap).date()
-                same.import_hash = compute_position_hash(
-                    source=same.source, ledger_id=ledger_id, symbol=final_symbol, snapshot_date=snap
-                )
+                if not covered_by_anchor:
+                    raw_snap = data.get('confirm_date') or date.today()
+                    snap = raw_snap if isinstance(raw_snap, date) else datetime.fromisoformat(raw_snap).date()
+                    same.import_hash = compute_position_hash(
+                        source=same.source, ledger_id=ledger_id, symbol=final_symbol, snapshot_date=snap
+                    )
                 db.flush()
                 position = same
                 is_new = False
@@ -929,6 +1319,15 @@ class PositionService:
                         # 同 B1：balance 模式只累加可写市值，不碰份额/均价
                         existing.market_value_override = (existing.market_value_override or 0) + amount_cents
                         existing.value_override_at = datetime.now()
+                    elif covered_by_anchor or _is_covered_by_anchor(existing, effective_confirm_date):
+                        # 撞 key 撞到的持仓若已有锚点、且本笔已被快照包含 → 同样只写流水。
+                        # 这里必须再判一次：`existing` 是撞 key 后**重新查出**的行，可能
+                        # 不是入口处的 `same`（two rows same import_hash 的历史数据）。
+                        logger.debug(
+                            '撞 key 转 upsert：交易已含在锚点内，仅落流水: position={} symbol={}',
+                            existing.id,
+                            final_symbol,
+                        )
                     else:
                         total_qty_units = existing.quantity + qty_units
                         old_cost = Money.multiply_price_quantity(existing.avg_price, existing.quantity)
@@ -963,17 +1362,8 @@ class PositionService:
             txn_type = op_type if op_type in ('buy', 'deposit') else 'buy'
             notes = data.get('notes') or _get_default_notes(op_type, is_new)
 
-            confirm_date = data.get('confirm_date')
-            if asset_type == 'fund' and data.get('confirm_date'):
-                try:
-                    trade_date = data.get('trade_date')
-                    if isinstance(trade_date, str):
-                        trade_date = datetime.strptime(trade_date, '%Y-%m-%d').date()
-                    is_after_15 = data.get('isAfter15', False)
-                    fund_type = data.get('fund_type', 'domestic')
-                    confirm_date = get_confirm_date(trade_date, fund_type=fund_type, is_after_15=is_after_15)
-                except Exception:
-                    logger.warning('确认日计算失败，使用前端传入值')
+            # 复用入口处已算好的确认日（与锚点判定同一口径，不重算第二遍）
+            confirm_date = effective_confirm_date
 
             TransactionService.create(
                 db=db,
@@ -1031,7 +1421,10 @@ class PositionService:
     ) -> Optional[Position]:
         """
         执行卖出或取出操作。
-        成功返回更新后的持仓，若数量减至 0 则删除持仓并返回 None。
+        成功返回更新后的持仓；清仓（份额减至 0）时**行保留**（#2343：改为
+        `ownership_status='cleared'` + `cleared_at`，锚点与成本基线原样留存），
+        但本方法仍返回 None——与既有调用方「None = 已清仓」的契约保持一致，
+        调用方零改动。行已不在「当前持仓」视图（`exclude_cleared` 过滤）。
 
         auto_purchase（#1137 的显式开关，默认 True 保持既有行为）：
         - True：普通卖出走「回款自动申购账户绑定的类现金产品」；
@@ -1053,27 +1446,35 @@ class PositionService:
             raise ValueError('指定的持仓不存在')
         if qty_units <= 0:
             raise ValueError('操作数量必须大于 0')
-        if existing.quantity < qty_units:
-            raise ValueError(
-                f'持仓数量不足：当前持有 {Money.min_unit_to_shares(existing.quantity)}，拟操作 {qty_shares}'
-            )
 
-        if not skip_lot_check:
-            symbol = existing.symbol or ''
-            valid, err_msg = validate_sell(
-                symbol,
-                existing.market or '',
-                existing.asset_type or 'stock',
-                Money.min_unit_to_shares(existing.quantity),  # 转回份
-                Money.min_unit_to_shares(qty_units),
-            )
-            if not valid:
-                raise ValueError(err_msg)
+        # 锚点判定：这笔卖出若已包含在快照里（confirm_date <= 锚点日），快照份额已经
+        # 反映了它，**不再扣减** quantity，否则会把快照值减成「快照 - 已含卖出」。
+        # 同时跳过数量校验：被包含的卖出不该受当前派生份额约束（它已经发生过了）。
+        covered_by_anchor = _is_covered_by_anchor(existing, data.get('confirm_date'))
+
+        if not covered_by_anchor:
+            if existing.quantity < qty_units:
+                raise ValueError(
+                    f'持仓数量不足：当前持有 {Money.min_unit_to_shares(existing.quantity)}，拟操作 {qty_shares}'
+                )
+
+            if not skip_lot_check:
+                symbol = existing.symbol or ''
+                valid, err_msg = validate_sell(
+                    symbol,
+                    existing.market or '',
+                    existing.asset_type or 'stock',
+                    Money.min_unit_to_shares(existing.quantity),  # 转回份
+                    Money.min_unit_to_shares(qty_units),
+                )
+                if not valid:
+                    raise ValueError(err_msg)
 
         try:
             position_name = existing.name
             account_name = existing.account_name
-            # 卖出清空持仓时会 delete，ledger_id 需提前取出（#1137 自动申购要用）
+            # 清仓不再删行（#2343），ledger_id 提前取出保留（#1137 自动申购要用）——
+            # 防御性写法：即使行保留，也避免依赖「事后仍可读 existing」的顺序耦合。
             ledger_id = existing.ledger_id
 
             # ── 已实现盈亏结转（#1183）──
@@ -1088,14 +1489,25 @@ class PositionService:
                 fee_cents=fee_cents,
             )
 
-            existing.quantity -= qty_units
-
-            is_cleared = existing.quantity == 0
-            if is_cleared:
-                db.delete(existing)
-                db.flush()
+            is_cleared = False
+            if not covered_by_anchor:
+                existing.quantity -= qty_units
+                is_cleared = existing.quantity == 0
+                if is_cleared:
+                    # 清仓不再删行（#2343）：行保留 = 锚点不灭 + 成本基线可追溯。
+                    # 过去的 `db.delete(existing)` 是「锚点随行消失 → 删卖出流水后
+                    # 重建退回全量口径 → 二次累加复发」这条链的源头。
+                    # cleared_at 取清仓流水的确认日（业务事实），不是墙钟时间。
+                    _mark_position_cleared(existing, data.get('confirm_date') or data.get('trade_date'))
             else:
-                db.flush()
+                logger.debug(
+                    '卖出已含在快照锚点内，仅落流水: position={} symbol={} confirm={} anchor={}',
+                    existing.id,
+                    existing.symbol,
+                    data.get('confirm_date'),
+                    existing.snapshot_date,
+                )
+            db.flush()
 
             TransactionService.create(
                 db=db,
@@ -1159,8 +1571,21 @@ class PositionService:
         - 能正确处理部分卖出（剩余流水仍有买入，净份额>0，更新现有持仓）；
         - 也能在「整笔卖出清空持仓」后删除该卖出流水时（持仓行已被 process_sell 删掉）
           依据剩余买入流水重建持仓，避免份额彻底丢失。
-        净份额 = Σ买入/存入 - Σ卖出/取出；净份额<=0 则删除（或保持不存在）持仓行。
-        成本均价按买入加权（与 process_buy_or_deposit 一致），卖出/取出不改变成本均价。
+
+        **份额与成本一律委托 `compute_anchored_state`**（锚点感知）：本函数历史上自己
+        实现了一套「全量流水净额」循环，与快照导入的 SET 语义并存，正是份额被重复
+        累加的成因。现在只保留一个派生入口，避免第二份实现再次分叉。
+
+        **「无流水即删行」必须以无锚点为前提**（2026-10-18）：纯快照导入的持仓本来就没有
+        明细流水，早退删行会让它们在任意一次重算中消失（真实库实测 79 行）。
+        有锚点时走正常派生：`snapshot_quantity` 即基线份额。
+
+        **净份额归零不再删行**（#2343 第二步，2026-10-18）：改为 `_mark_position_cleared`
+        （`quantity=0` + `ownership_status='cleared'` + `cleared_at`），锚点原样留存。
+        反向对称：`cleared` 行派生出正份额（典型：删除了那笔清仓卖出流水）时自动
+        重新激活回 `active`——持仓「复活」，锚点与流水全程无断链。
+        例外：`not txns and not has_anchor` 的空壳行仍删行——那不是清仓历史，
+        是无任何数据支撑的孤儿行，标记成 cleared 反而会伪造一段「曾持有」。
         """
         txns = (
             db.query(Transaction)
@@ -1170,44 +1595,64 @@ class PositionService:
         )
         pos = db.query(Position).filter_by(id=position_id).first()
 
-        if not txns:
+        # 「无流水即删行」只能在**无锚点**时成立。有锚点的持仓其份额来自快照，
+        # 流水本来就可以为空（纯快照导入的账户，绝大多数持仓没有明细流水）。
+        # 2026-10-18 实测：真实库 105 行「有快照日、无流水」的持仓里 79 行零流水，
+        # 该早退分支会让它们在任何一次重算中整行消失——锚点模型对这类持仓完全失效。
+        has_anchor = pos is not None and pos.snapshot_quantity is not None and pos.snapshot_date is not None
+        if not txns and not has_anchor:
             if pos:
                 db.delete(pos)
                 db.flush()
             return None
 
-        buy_qty = 0
-        buy_cost = 0  # 分
-        sell_qty = 0
-        for t in txns:
-            if t.txn_type in ('buy', 'deposit'):
-                buy_qty += t.quantity
-                buy_cost += Money.multiply_price_quantity(t.price, t.quantity)
-            elif t.txn_type == 'split':
-                # 送股/拆分（#P2-2）：份额增加、成本不变，仅稀释均价
-                buy_qty += t.quantity
-            elif t.txn_type in ('sell', 'withdraw'):
-                sell_qty += t.quantity
+        if pos is not None:
+            net_qty, avg_price_units = compute_anchored_state(db, pos)
+        else:
+            # 持仓行已被清空删除：无锚点可用，退回全量流水口径（见 docstring 已知边界）
+            net_qty, avg_price_units = _derive_state_from_txns(txns, 0, 0)
 
-        net_qty = buy_qty - sell_qty
         if net_qty <= 0:
             if pos:
-                db.delete(pos)
+                # 归零不再删行（#2343）：标记清仓、锚点留存。负份额钳为 0
+                # （负数是脏数据，真实份额不可能为负，保留负值会让市值算出负数）。
+                if net_qty < 0:
+                    logger.warning(
+                        '[Recompute] 派生份额为负，钳为 0 并标记清仓: position={} symbol={} net={}',
+                        pos.id,
+                        pos.symbol,
+                        Money.min_unit_to_shares(net_qty),
+                    )
+                _mark_position_cleared(pos)
                 db.flush()
             return None
 
-        avg_price_units = (
-            Money.yuan_to_price_units(
-                # buy_cost 是「分」、buy_qty 是「最小单位」：须先换算成份额再除，
-                # 否则均价被缩小 1e4（与 process_buy_or_deposit 两处合并公式的
-                # total_qty = min_unit_to_shares(...) 同口径）
-                round(Money.cents_to_yuan(buy_cost) / Money.min_unit_to_shares(buy_qty), 4)
-            )
-            if buy_qty > 0
-            else 0
-        )
-
         if pos:
+            # 清仓行派生出正份额 → 持仓复活（典型：删除了那笔清仓卖出流水）。
+            # 锚点与 cleared_at 原样保留：锚点仍是上一轮快照口径（删除卖出后全量流水
+            # 恰好等于锚点+流入，两者自洽），cleared_at 是历史周期下界，不是当前状态。
+            if pos.ownership_status == OwnershipStatus.CLEARED.value:
+                pos.ownership_status = OwnershipStatus.ACTIVE.value
+                logger.info(
+                    '[Recompute] 已清仓持仓复活: position={} symbol={} qty={}',
+                    pos.id,
+                    pos.symbol,
+                    Money.min_unit_to_shares(net_qty),
+                )
+            # 锚点重算的可观测性（2026-10-18 评审）：重算覆盖是本类 bug 最隐蔽的复发形态
+            # ——净值回填/删流水都会静默改写 quantity。只记日志不抛错：重算本来就会正常
+            # 变化（补录/修正历史流水），抛错会打断 nav_backfill 的任务链。
+            if pos.quantity != net_qty and pos.snapshot_quantity is not None:
+                logger.warning(
+                    '[Recompute] 锚点持仓份额变更: position={} symbol={} {} -> {} (anchor={} date={} kind={})',
+                    pos.id,
+                    pos.symbol,
+                    Money.min_unit_to_shares(pos.quantity),
+                    Money.min_unit_to_shares(net_qty),
+                    Money.min_unit_to_shares(pos.snapshot_quantity),
+                    pos.snapshot_date,
+                    pos.anchor_kind,
+                )
             pos.quantity = net_qty
             pos.avg_price = avg_price_units
             if pos.current_price in (None, 0):
@@ -1563,6 +2008,9 @@ class PositionService:
         **下推到 SQL**——取全表后内存筛违反数据策略硬约束 §6。
         """
         query = db.query(Position).filter(Position.family_id == family_id)
+        # 已清仓行保留在表里（锚点/成本基线不灭），但不属于「当前持仓」视图。
+        # 库里还没有 cleared 行时这是恒等变换，见 services/position_scope.py。
+        query = exclude_cleared(query)
         # 未归档过滤：ledger_id 显式传 'null' 时仅返回未绑定账户的持仓
         if ledger_id_raw == 'null':
             query = query.filter(Position.ledger_id.is_(None))

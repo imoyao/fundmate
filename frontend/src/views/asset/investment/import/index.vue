@@ -179,7 +179,7 @@ const withMock = ref(false);
 }
 
 .draft-banner-icon {
-  font-size: 16px;
+  font-size: var(--text-body);
   color: var(--brand-700);
 }
 

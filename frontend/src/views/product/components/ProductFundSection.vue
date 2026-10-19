@@ -213,7 +213,7 @@ watch(() => props.symbol, load, { immediate: true });
 
 .fund-section__tier {
   margin-left: var(--space-1);
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -223,7 +223,7 @@ watch(() => props.symbol, load, { immediate: true });
 .fund-section__badge {
   padding: 0 var(--space-2);
   margin-left: var(--space-1);
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 18px;
   color: var(--color-info-ink);
   background: color-mix(in srgb, var(--color-info) 12%, transparent);

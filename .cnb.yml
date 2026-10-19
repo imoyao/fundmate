@@ -108,6 +108,20 @@
     # docs/dev/github-cnb-mirror.md §11。
     - name: 分支分叉自检（断链即建卡）
       script: |
+        # ⚠️ 本脚本是 git 驱动的（`git rev-parse` / `cherry` / `merge-tree`），而
+        # `python:3.12-slim` **不含 git**。实测它自上线起每轮都崩在 `FileNotFoundError: 'git'`，
+        # 却因为下面 `exit 0` 而**报绿**（假绿，源 CNB 本卡 #517）—— 分叉自检从未真正跑过。
+        # 故先自证 git 存在。判据见 guard_cnb_script_task_git.py。
+        command -v git >/dev/null 2>&1 || {
+          echo "· 容器无 git，安装中（python:3.12-slim 不含 git）"
+          apt-get update -qq && apt-get install -y -qq --no-install-recommends git || true
+        }
+        # 装失败要**可见**：本 stage 末尾有 `exit 0`（信号不是门禁），若不在这儿显式报红，
+        # 就会退化成「又一轮静默没跑」——那正是本卡要消灭的形态。
+        if ! git --version >/dev/null 2>&1; then
+          echo "❌ 容器无 git 且安装失败 —— 分叉自检**本轮没跑**，结论不可信"
+          exit 0
+        fi
         set +e
         python scripts/bridge/check_branch_divergence.py --report --explain --out report-divergence.md
         rc=$?
@@ -345,6 +359,15 @@ dev:
             # 非敏感参数走 env；凭据一律来自上面的 imports（**不要**写成字面量）。
             GITHUB_REPO: imoyao/fundmate
           script: |
+            # ⚠️ `python:3.12-slim` **不含 git**，而本脚本是 git 驱动的（`subprocess.run(['git',…])`）。
+            # 缺 git 时报 `FileNotFoundError: … 'git'`，报错指向脚本内部某行、**不指向容器** ——
+            # 与 CNB #461（默认镜像没 python）同类，只是深了一层。判据见 guard_cnb_script_task_git.py。
+            command -v git >/dev/null 2>&1 || {
+              echo "· 容器无 git，安装中（python:3.12-slim 不含 git）"
+              apt-get update -qq && apt-get install -y -qq --no-install-recommends git
+            }
+            git --version >/dev/null   # 自证：装失败即报错，**不吞**（#171）
+
             # 凭据缺失：先自证再跑，免得「所有读都 200、所有写都 401」而没人看见。
             # ⚠️ 这里**不能**在缺凭据时 exit 0 —— 那会让「机器分支没推上去」表现为绿。
             if [ -z "${GITHUB_PAT:-}" ]; then

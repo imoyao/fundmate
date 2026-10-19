@@ -336,13 +336,13 @@ watch(() => props.mgrCode, load, { immediate: true });
   }
 
   &__name {
-    font-size: 18px;
+    font-size: var(--text-num-strong);
     font-weight: 600;
     color: var(--text-primary);
   }
 
   &__company {
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
   }
 
@@ -353,7 +353,7 @@ watch(() => props.mgrCode, load, { immediate: true });
   /* 涨跌语义：数据不带色，视觉在前端决定（涨红跌绿，见 design.md） */
   &__best-return {
     margin: 0 0 var(--space-3);
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-secondary);
 
     &.is-rise {
@@ -367,14 +367,14 @@ watch(() => props.mgrCode, load, { immediate: true });
 
   &__hint {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-tertiary);
   }
 
   &__note {
     padding: var(--space-2) var(--space-3);
     margin: var(--space-3) 0 0;
-    font-size: 13px;
+    font-size: var(--text-label);
     line-height: 1.6;
     color: var(--text-secondary);
     background: var(--bg-soft);
@@ -388,7 +388,7 @@ watch(() => props.mgrCode, load, { immediate: true });
 
   &__subtitle {
     margin: 0 0 var(--space-2);
-    font-size: 14px;
+    font-size: var(--text-small);
     font-weight: 600;
     color: var(--text-primary);
   }
@@ -411,7 +411,7 @@ watch(() => props.mgrCode, load, { immediate: true });
   }
 
   &__fund-link {
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-primary);
     text-decoration: none;
 
@@ -431,7 +431,7 @@ watch(() => props.mgrCode, load, { immediate: true });
     flex-wrap: wrap;
     gap: var(--space-2);
     align-items: center;
-    font-size: 12px;
+    font-size: var(--text-label);
 
     /* 数字用等宽，避免日期/百分比在列内跳动 */
     font-variant-numeric: tabular-nums;
@@ -446,7 +446,7 @@ watch(() => props.mgrCode, load, { immediate: true });
     /* #2314：对齐 design.md Badge 规范 pill；文字用品牌文字级 --brand-ink
        （--brand-700 作文字白底 3.73:1 不达 AA，见 #1599 batch 3） */
     padding: 0 var(--space-2);
-    font-size: 11px;
+    font-size: var(--text-label);
     color: var(--brand-ink);
     background: var(--brand-100);
     border-radius: var(--radius-pill);
@@ -474,7 +474,7 @@ watch(() => props.mgrCode, load, { immediate: true });
   }
 
   &__styles-label {
-    font-size: 12px;
+    font-size: var(--text-label);
     color: var(--text-tertiary);
   }
 
@@ -494,7 +494,7 @@ watch(() => props.mgrCode, load, { immediate: true });
     display: inline-flex;
     align-items: center;
     padding: 1px 8px;
-    font-size: 11px;
+    font-size: var(--text-label);
     line-height: 1.6;
     color: var(--text-secondary);
     cursor: help;
@@ -523,7 +523,7 @@ watch(() => props.mgrCode, load, { immediate: true });
   }
 
   &__holdings-fund {
-    font-size: 12px;
+    font-size: var(--text-label);
     color: var(--text-tertiary);
   }
 
