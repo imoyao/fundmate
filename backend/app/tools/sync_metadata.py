@@ -170,10 +170,6 @@ def main():
     # 的批量修复场景，对「解析出的库文件不存在」fail-closed——对着不存在的库重同步
     # 只会静默新建空库后全部跳过（2026-10-18 worktree 实测事故）；日常增量仅告警，
     # 不误伤 fresh clone 首跑就地建库。
-    # 启动即打印 + 守卫 market 域运行库解析（#2344）：显式目标（--targets/--target-file/--snapshot/--import-snapshot）
-    # 的批量修复场景，对「解析出的库文件不存在」fail-closed——对着不存在的库重同步
-    # 只会静默新建空库后全部跳过（2026-10-18 worktree 实测事故）；日常增量仅告警，
-    # 不误伤 fresh clone 首跑就地建库。
     strict = bool(args.targets or args.target_file or args.snapshot or args.import_snapshot)
     db_problem = app_db_startup_check(strict=strict)
 

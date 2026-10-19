@@ -55,6 +55,7 @@ from app.services.pro_allocation import build_symbol_pro_allocation
 from app.services.pro_insight import build_symbol_pro_insight
 from app.services.pro_risk import build_symbol_pro_risk
 from app.services.product_identity import resolve_product_identity
+from app.services.product_pro_status import build_pro_status
 from app.services.product_trend import empty_product_trend, fetch_product_trend
 from app.services.related_symbols import build_related_symbols
 from app.services.stock_profile import build_stock_profile
@@ -543,14 +544,29 @@ def product_trade_timeline():
 def pro_status():
     """高级洞察 Pro 状态位（#2272 · #994 Phase 1 接口骨架 → #2324 接入权益校验）。
 
-    登录后回家庭实际权益位（granted/expires_at）；未登录回全 false。
-    前端据此渲染付费墙、模块可用性、过期提醒。
+    **响应形状与一期契约一致**（``services/product_pro_status.py`` 的口径契约：
+    「后期接入付费时本文件的形状不变」）。#2324 只把状态位改成由后端权益驱动：
+
+    - ``paywall_required``：未登录、或家庭一份 Pro 权益都没开通 ⇒ true；
+    - **新增** ``entitlements``：逐 feature 的 ``granted`` / ``expires_at``
+      （前端付费墙与到期提醒的数据源）。旧字段一个不删。
+
+    为什么不换成纯权益映射：``ProductProSection.vue`` 读的是
+    ``data.modules[*].available``（前端付费墙迁移是 P1 跟进项，尚未落地），
+    删字段会让详情页 Pro 区块在渲染期 TypeError；且 #2324 验收第 3 条与
+    AGENTS.md「API 契约冻结」都不允许私改字段。
     """
     query: ProStatusRequest = parse_query(ProStatusRequest)
+    data = build_pro_status(query.symbol, query.asset_type)
     family_id = get_family_id() if _is_authenticated() else None
-    if not family_id:
-        return jsonify({'data': {f: {'granted': False} for f in PRO_FEATURES}, 'message': 'ok'})
-    return jsonify({'data': get_pro_status_for_family(family_id), 'message': 'ok'})
+    entitlements = (
+        get_pro_status_for_family(family_id)
+        if family_id
+        else {f: {'granted': False, 'expires_at': None} for f in PRO_FEATURES}
+    )
+    data['entitlements'] = entitlements
+    data['paywall_required'] = not any(item['granted'] for item in entitlements.values())
+    return jsonify({'data': data, 'message': 'ok'})
 
 
 @bp.get('/pro-insight/')
