@@ -48,7 +48,6 @@ def _make_job(db, held='1000', reinvest=False):
     # 桩在 _holding_shares 上会绕不过去——那正是本文件第一次跑红的原因。
     job._position_context = lambda s: {
         'shares': Decimal(held),
-        'account_name': '默认证券账户',
         'ledger_id': 1,
     }
     job._is_reinvest = lambda s: reinvest

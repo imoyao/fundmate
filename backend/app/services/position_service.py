@@ -783,6 +783,44 @@ def _find_existing_position(
     return query.order_by(Position.id.desc()).first()
 
 
+def _find_position_for_import(db: Session, data: dict) -> Optional["Position"]:
+    """导入路径定位持仓：**按 ledger_id（Account ID）**，仅在其缺失时才退回 account_name。
+
+    WHY 不能继续用 account_name 做主键（#541 复审）：`ledgers.name` 是用户随时可改的
+    显示名，而 `positions.account_name` 是建仓时抄下来的**快照字符串**。用户给账户改个名，
+    历史持仓仍带着旧名字，于是
+    - 按账户名匹配：改名前建的持仓一条也匹配不上 ⇒ 分红/送转/红利再投全部降级成孤儿流水，
+      而且**不抛错**（流水照样落库，只是挂不到持仓，成本与份额都不重算）；
+    - 更糟的是两个账户同名时会互相串账。
+
+    `ledger_id` 是不变量（持仓的 `UNIQUE(ledger_id, symbol)` 就是按它定义的），故一律以它为准。
+    只有调用方没给 ledger_id（历史导入路径）时才退回账户名匹配——那是**降级**，不是常态。
+
+    定位复用 `_find_existing_position`（#1662 写入层查重的唯一入口），由它做 venue 感知的
+    symbol 归一与场所过滤；此处只负责选出用的账户键，不另写一套匹配规则。
+    """
+    family_id = _resolve_family_id(data)
+    symbol = data.get('symbol', '')
+    if not symbol:
+        return None
+    venue = resolve_venue(data.get('venue'), data.get('asset_type'))
+
+    ledger_id = data.get('ledger_id')
+    if ledger_id:
+        return _find_existing_position(db, ledger_id=ledger_id, family_id=family_id, symbol=symbol, venue=venue)
+
+    account = data.get('account_name', '')
+    if not account:
+        return None
+    # 降级路径：老调用方只给了账户名。账户名不是唯一键，同名多账本取最新一行（与原行为一致）。
+    return (
+        db.query(Position)
+        .filter_by(symbol=symbol, account_name=account, family_id=family_id)
+        .order_by(Position.id.desc())
+        .first()
+    )
+
+
 def find_orphan_cash_flows(db: Session, ledger_id, symbol: str, family_id: int) -> list[Transaction]:
     """#863 口径 A：同 (ledger_id, family_id, symbol) 的**未挂回**货基 / 逆回购流水（非收益行）。
 
@@ -1784,26 +1822,30 @@ class PositionService:
         price = data.get('avg_price', 0)
         name = (data.get('name') or data.get('position_name') or '').strip()
 
-        # 尝试查找现有持仓（家庭维度）
-        existing = None
-        if symbol:
-            existing = (
-                db.query(Position)
-                .filter_by(symbol=symbol, account_name=account, family_id=_resolve_family_id(data))
-                .first()
-            )
+        # 尝试查找现有持仓（家庭维度）：ledger_id（Account ID）优先，账户名只在缺 ID 时降级
+        existing = _find_position_for_import(db, data)
         if existing is None and name:
             # **symbol 缺失时的兜底关联**（#1920）
             # 券商交割单里「证券名称」常有而「证券代码」为空（实测真实库 1348/2051 笔
             # 无 symbol）。此前只按 symbol 匹配 ⇒ 必然查不到持仓 ⇒ 卖出退化成孤儿流水
             # ⇒ `realized_pnl` 无从计算而**静默丢 0**（真实库 649 笔卖出如此）。
             # 名称 + 账户在单个账户内足以唯一定位持仓，退化风险远低于丢成本基准。
-            existing = (
-                db.query(Position)
-                .filter_by(name=name, account_name=account, family_id=_resolve_family_id(data))
-                .filter(Position.ownership_status == 'active')
-                .first()
-            )
+            # 账户键与上面同口径：给了 ledger_id 就不再拿可改的账户名当身份。
+            ledger_id = data.get('ledger_id')
+            if ledger_id:
+                existing = (
+                    db.query(Position)
+                    .filter_by(name=name, ledger_id=ledger_id, family_id=_resolve_family_id(data))
+                    .filter(Position.ownership_status == 'active')
+                    .first()
+                )
+            elif account:
+                existing = (
+                    db.query(Position)
+                    .filter_by(name=name, account_name=account, family_id=_resolve_family_id(data))
+                    .filter(Position.ownership_status == 'active')
+                    .first()
+                )
             if existing is not None:
                 logger.info(
                     '卖出/取出按名称兜底关联到持仓：symbol=%r name=%r account=%r → position_id=%s',
@@ -1857,16 +1899,11 @@ class PositionService:
         使持仓份额真正增加；此前它与现金分红合并进同一分支，份额恒为 0，语义丢失。
         数据不全（缺份额或净值）时降级为现金分红，不阻断整批导入。
         """
-        symbol = data.get('symbol', '')
-        account = data.get('account_name', '')
         dividend_amount = data.get('dividend_amount', data.get('avg_price', 0))
         is_reinvest = _is_reinvest(data)
 
-        existing = (
-            db.query(Position)
-            .filter_by(symbol=symbol, account_name=account, family_id=_resolve_family_id(data))
-            .first()
-        )
+        # 按 ledger_id（Account ID）定位，不用 account_name：账户名可改，改名即失配（#541）
+        existing = _find_position_for_import(db, data)
 
         common = {
             'dividend_amount': dividend_amount,
@@ -1902,10 +1939,7 @@ class PositionService:
         - 有持仓但缺份额：降级为现金分红（单笔），不阻断整批导入。
         - 无关联持仓：记孤儿现金分红流水（notes 标明红利再投资），返回 None。
         """
-        family_id = _resolve_family_id(data)
-        symbol = data.get('symbol', '')
-        account = data.get('account_name', '')
-        existing = db.query(Position).filter_by(symbol=symbol, account_name=account, family_id=family_id).first()
+        existing = _find_position_for_import(db, data)
         link_group_id = data.get('link_group_id') or uuid.uuid4().hex
         if not existing:
             # 无关联持仓：红利再投资无法落地，记孤儿现金分红流水（notes 标明）
@@ -1924,7 +1958,8 @@ class PositionService:
 
         送股/拆分本质是「零成本的份额增加」：持仓份额 +quantity、总成本不变，均价由
         recompute_position_from_transactions 自动稀释（与买入/卖出回滚同一口径，避免再添分支）。
-        手动记账传 position_id 直接定位；导入路径按 (symbol, account_name, family_id) 匹配。
+        手动记账传 position_id 直接定位；导入路径按 ledger_id（Account ID）+ symbol 定位——
+        **不再用 account_name**：它是建仓时的名字快照，账户一改名就永久失配（#541）。
         """
         family_id = _resolve_family_id(data)
         qty = data.get('quantity') or 0
@@ -1947,9 +1982,7 @@ class PositionService:
         if position_id:
             existing = db.query(Position).filter_by(id=position_id, family_id=family_id).first()
         else:
-            symbol = data.get('symbol', '')
-            account = data.get('account_name', '')
-            existing = db.query(Position).filter_by(symbol=symbol, account_name=account, family_id=family_id).first()
+            existing = _find_position_for_import(db, data)
 
         if not existing:
             # 无关联持仓：送股/拆分无法落地，记孤儿流水（notes 标明），返回 None

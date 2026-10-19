@@ -69,12 +69,16 @@ class DividendSplitSyncJob(SyncJob):
         return getattr(self, 'family_id', 1)
 
     def _position_context(self, symbol: str) -> Optional[dict]:
-        """该标的的持仓上下文：持有份额 + 归属账户。
+        """该标的的持仓上下文：持有份额 + 归属账户（**ledger_id / Account ID**）。
 
-        **必须带上 account_name**：下游 `process_orphan_dividend/split` 按
-        `(symbol, account_name, family_id)` 找持仓，account_name 为空串就一条也匹配不上，
-        于是每笔分红都被记成「孤儿」——账上看得见流水、却挂不到持仓，也不会重算成本与份额
-        （#541 实测：`imported=1, orphan=1` 正是这个形态）。
+        **必须带上归属账户**：下游 `process_orphan_dividend/split` 靠它找持仓，为空就
+        一条也匹配不上，于是每笔分红都被记成「孤儿」——账上看得见流水、却挂不到持仓，
+        也不会重算成本与份额（#541 实测：`imported=1, orphan=1` 正是这个形态）。
+
+        账户键用 `ledger_id` 而不是 `account_name`：`ledgers.name` 是用户随时可改的显示名，
+        而 `positions.account_name` 是建仓时抄下的快照字符串。用户改一次账户名，按名字匹配
+        就永久失配，且**不抛错**（流水照落，挂不到持仓）；两个账户同名时还会互相串账。
+        `ledger_id` 是不变量（`UNIQUE(ledger_id, symbol)` 就是按它定义的）。
 
         持仓跨多账户时取份额最大的那个账户：分红按账户结算，混记会让单账户口径失真。
         """
@@ -82,12 +86,11 @@ class DividendSplitSyncJob(SyncJob):
         if rows is None:
             return None
         if not rows:
-            return {'shares': Decimal('0'), 'account_name': '', 'ledger_id': None}
+            return {'shares': Decimal('0'), 'ledger_id': None}
         total = sum(Money.min_unit_to_shares(r.quantity) for r in rows)
         primary = max(rows, key=lambda r: r.quantity or 0)
         return {
             'shares': Decimal(str(total)),
-            'account_name': primary.account_name or '',
             'ledger_id': primary.ledger_id,
         }
 
@@ -252,7 +255,6 @@ class DividendSplitSyncJob(SyncJob):
         nav: Decimal = Decimal('0'),
         notes: str = '',
         source: str = 'akshare_dividend',
-        account_name: str = '',
         ledger_id: Optional[int] = None,
     ) -> StandardTransactionRecord:
         rec = StandardTransactionRecord(
@@ -264,15 +266,15 @@ class DividendSplitSyncJob(SyncJob):
             amount=amount,
             shares=shares,
             nav=nav,
-            # 账户归属不是可选装饰：下游按 (symbol, account_name, family_id) 关联持仓，
-            # 留空就匹配不上，分红会被静默降级成孤儿流水（#541）。
-            account_name=account_name,
+            # 账户归属不是可选装饰：下游按 ledger_id + symbol 关联持仓，留空就匹配不上，
+            # 分红会被静默降级成孤儿流水（#541）。此处**只给 ledger_id**——账户名可改，
+            # 拿它当身份键，用户改个名字这批流水就全挂不上持仓了。
             ledger_id=ledger_id,
             source=source,
         )
         # venue 必须显式声明（#541 / #1662）：`_build_import_data` 在 venue 缺失时按
         # asset_type 推断，`asset_type='fund'` 会被推成 OTC，于是 symbol 被剥掉交易所前缀
-        # （`SH600000` → `600000`），下游按 (symbol, account_name) 一条也匹配不上，
+        # （`SH600000` → `600000`），下游按 (symbol, ledger_id) 一条也匹配不上，
         # 每笔分红都降级成孤儿流水。股票的除权/配股事件只发生在场内，基金与之相反。
         rec.venue = EXCHANGE if asset_type != 'fund' else OTC
         rec.transaction_id = self._event_key(ex_date, symbol, kind, ratio_key)
@@ -307,7 +309,7 @@ class DividendSplitSyncJob(SyncJob):
             # 持仓查询失败 ≠ 持有 0 股：写 0 金额流水会被幂等键锁死（#1833）
             return []
         held = ctx['shares']
-        acct = {'account_name': ctx['account_name'], 'ledger_id': ctx['ledger_id']}
+        acct = {'ledger_id': ctx['ledger_id']}
         asset_type = self._asset_type_of(ev)
         name = ev.get('desc') or ev.get('title') or ''
 

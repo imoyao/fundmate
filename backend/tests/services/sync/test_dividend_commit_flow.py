@@ -151,3 +151,26 @@ def test_zero_holding_records_nothing_rather_than_zero_amount(db):
     _job, validated, fresh = _run(db, [{'symbol': 'SH600000', 'ex_date': d, 'cash_ratio': 2.0, 'desc': '10派2元'}])
     assert validated == [] and fresh == []
     assert db.query(Transaction).filter_by(symbol='SH600000').count() == 0
+
+
+def test_ledger_rename_does_not_orphan_dividend(db):
+    """账户改名后，分红仍要挂到持仓上（判据：用 ledger_id 而不是 account_name 定位）。
+
+    账户名是用户随时能改的显示名，`positions.account_name` 只是建仓那一刻抄下的快照字符串。
+    改名之后，凡按名字匹配的路径都会**静默**失配：流水照样落库、金额也对，但 `position_id`
+    为空、`entry_status='orphan'`，成本与份额都不重算。用户看到的是「分红记了，但持仓没变」。
+    本条钉住的是账户身份键必须是 ledger_id。
+    """
+    ledger, pos = _seed_position(db)
+    d = date.today() - timedelta(days=10)
+
+    # 用户改账户名；持仓上的 account_name 仍是建仓时的旧名字（不改写历史）
+    old_name = pos.account_name
+    ledger.name = '改过名的证券账户'
+    db.commit()
+
+    _run(db, [{'symbol': 'SH600000', 'ex_date': d, 'cash_ratio': 2.0, 'desc': '10派2元'}])
+
+    t = db.query(Transaction).filter_by(txn_type='dividend').one()
+    assert t.position_id == pos.id, f'账户改名（{old_name} → {ledger.name}）后分红仍须挂到持仓'
+    assert t.entry_status != 'orphan', '账户改名不该把分红降级成孤儿流水'
