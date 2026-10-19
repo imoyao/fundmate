@@ -1372,6 +1372,31 @@ git checkout -f -B "<分支键>" <sha>          # 工作区里只有 `<分支键
 排查口诀：**先看 `git fetch` 那行拉的是 `refs/heads/` 哪条**，再谈其它。
 拉的分支与 `settings.branch` 不一致 ⇒ 不用往下看了，改挂载位置。
 
+### 搬运到共享分支：**能快进 ≠ 能被接受**（源 CNB #586，2026-10-19）  <!-- cross-repo-ref-allow -->
+
+`dev` 是**共享事实**、且挂了 required status check，所以「把合并结果推过去」这条路
+**不可能靠推送成功**——`质量门禁汇总` 只在 PR 上产生（`ci.yml` 的
+`if: github.event_name == 'pull_request'`），直推时它根本不跑，GitHub 于是判
+`Expected but missing`：
+
+```text
+GitHub: GH006: Protected branch update failed for refs/heads/dev.
+GitHub: - Required status check "质量门禁汇总" is expected.
+ ! [remote rejected]   HEAD -> dev (protected branch hook declined)
+```
+
+- **判据**：看到 `GH006` / `Protected branch update failed` / `Required status check`，
+  先问「这条检查是不是只在某类事件上产生」，**别去查凭据、别去查分叉**。
+  它与 `(fetch first)`（非快进）和 `Authentication failed`（凭据）是三种事，处置完全不同。
+- **处置**：落到一次性分支 `fix/cnb-dev-merge`（**一次性、固定名、PR 合完即删**）→
+  `scripts/bridge/branch_protection_pr.py --head … --base dev --apply` 开 PR（幂等：
+  同 head 有 open PR 就复用）→ 门禁**照跑**、绿了 automerge 合入。
+  `machine_branch.py` 这一支**退 3**（结论有效、通道不对），2 仍只表示「结论不可信」。
+- **`dev` 仍永不开 force**：「换通道」发生在**被拒之后**，不是把推变成覆盖。
+- **别把「推失败就开 PR」写成无条件分支**：那会让每一轮非快进都往看板添一张重复卡。
+  判据 `test_non_protection_failure_still_exits_2` 钉着。
+- 细节与推导见 `docs/dev/github-cnb-mirror.md` §28。
+
 ### 在 CNB 侧的其它已知边界（实测）
 
 - ⚠️ **「CNB 构建环境没有 GitHub 凭据」是错话，2026-10-14 已纠正**（源 CNB #179）。  <!-- cross-repo-ref-allow -->

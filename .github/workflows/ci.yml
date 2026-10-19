@@ -685,6 +685,14 @@ jobs:
       - name: 跨仓同步通道回归网（阻断）
         run: python -m pytest scripts/tests/test_machine_branch.py -q -p no:cacheprovider
 
+      # PR 兜底通道的回归网（源 CNB #586）：合并成功、直推被分支保护拒绝时，
+      # 合并结果落到一次性分支后由 `branch_protection_pr.py` 幂等地开 PR。
+      # 三条最容易写反的事：同 head 有 open PR 必须复用（否则每轮一张卡）、
+      # 列 PR 失败必须退 2（不得读成「不需要开」）、没 token 要说清「结果已在分支上」。
+      # `unittest discover` 已覆盖本文件，此处显式再跑一遍只为让归属在日志里看得见。
+      - name: PR 兜底通道回归网（阻断）
+        run: python -m pytest scripts/tests/test_branch_protection_pr.py -q -p no:cacheprovider
+
       # 「同一 git 询问问两遍」守卫的回归网（源 CNB #573）：最重的一条用例拿
       # `origin/dev` 上**修复前的真实代码**喂守卫，确认它真的转红——不加这条，
       # 「守卫绿」只能证明「代码里没有它不认识的东西」，证明不了它能认出那个 bug。

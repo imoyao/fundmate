@@ -2684,3 +2684,99 @@ runner 的检出口径是 `git fetch origin refs/heads/<分支键>` + `git check
 
 > **判据的豁免条款要成对检查。** 单看「不猜运行时值」是对的，单看「只管 cron」也是对的；
 > 两条一起用，就把一整类配置放走了。加豁免时顺手问一句：**两个豁免的交集会漏掉什么？**
+
+
+## 28. 分叉被治好的那一刻，搬运反而被拒：GH006 是「通行方式」问题（源 CNB #586，2026-10-19）<!-- cross-repo-ref-allow -->
+
+### 28.1 现场
+
+构建 `cnb-68p-1k58q97a8`（`9f56f209`，`dev` 的 push）唯一的失败点，stage-0 原文：
+
+```text
+✅ 无冲突，两侧内容可合。
+❌ 推 `dev` 失败：remote: error: GH006: Protected branch update failed for refs/heads/dev.
+remote: - Required status check "质量门禁汇总" is expected.
+ ! [remote rejected]   HEAD -> dev (protected branch hook declined)
+   ⇒ 合并本身是成功的、结论有效；失败的是**搬运**。
+```
+
+三条同批构建（`cnb-sor-1k58prgc9` / `cnb-68p-1k58q97a8` / `cnb-uve-1k57sotc0`）是**同一个
+形态**。所以它不是「这一轮运气不好」——按 merge-sync 的定义，**它每次都会这样**。
+
+### 28.2 根因：门禁检查只在 PR 上产生
+
+`质量门禁汇总` 是 `ci.yml` 的 `gate` job，条件是
+`if: github.event_name == 'pull_request'`。于是：
+
+- 直推 `dev` ⇒ 没有 PR 事件 ⇒ 那条检查**根本不跑** ⇒ GitHub 认为「Expected but missing」⇒ GH006；
+- 与内容无关、与分叉无关、与凭据无关。**「直推」这种通行方式需要一个不可能存在的检查。**
+
+这正是 CNB #450 当年给 `bridge/github-dev` 下的判断，那次的解法也不是关掉门禁，而是  <!-- cross-repo-ref-allow -->
+**推一次性分支 + 开 PR**。§26 把「合起来」修通之后，这个一直藏在后面的问题才浮出来
+（§26.5「每修掉一个形式问题，就露出一个内容问题」的第三层：这次露出来的是**通道**）。
+
+### 28.3 为什么它恰好在这一轮才炸
+
+时间线（全是实测，不是推测）：
+
+| 时刻（UTC） | 发生了什么 |
+|---|---|
+| 00:37:04 | GitHub 侧把 `bridge/github-dev` 合进 `dev` ⇒ 分叉**刚被治好** |
+| 00:51:49 | CNB 侧 `push` 构建起身，fetch 两侧 `dev` |
+| 00:51:5x | 两侧已无分叉 ⇒ 快进成立 ⇒ 不再开兜底分支 ⇒ **直推** ⇒ GH006 |
+
+也就是说：**分叉一旦消失，「推合并结果」就退化成「推裸 ref」，而后者永远过不了保护。**
+分叉还在时，脚本走的是「推 `bridge/github-dev` + 开 PR」那条路（门禁能被满足）；
+分叉被治好的那一刻，唯一没被满足的检查反而挡在了面前。
+
+### 28.4 修法：`exit 3` ⇒ 换通道，不是重跑
+
+`machine_branch.py` 现在按 **推送失败的原话** 分三类，处置各不相同：
+
+| 原话 | 分类 | 处置 |
+|---|---|---|
+| `GH006` / `protected branch hook declined` / `Required status check` | **分支保护** | 落到一次性分支 `fix/cnb-dev-merge`，**退 3** |
+| `(fetch first)` / `stale info` | 非快进 | 退 2，**重跑一次即可**（不开 PR，否则每轮添一张卡） |
+| `Authentication failed` | 凭据 | 退 2，换 token |
+
+退 3 是**新增**语义：2 表示「结论不可信」，而这一支结论**是有效的**（无冲突、合成了），
+只是通道不对。两者混成一个数，读日志的人只能靠猜（#567 / #573 的教训）。
+
+`--merge-sync` 那条直推路径**不变**：`dev` 仍永不开 force。「换通道」发生在**被拒之后**：
+
+```text
+stage: machine_branch.py --apply --push --merge-sync   → rc=3（结果已落到一次性分支）
+     → branch_protection_pr.py --head "$headref" --base dev --apply   （幂等，已有 open PR 就复用）
+     → 门禁**照跑**，绿了 automerge 合入；合完删掉那条分支
+```
+
+### 28.5 两个刻意的边界
+
+- **脚本不自己开 PR**：`machine_branch.py` 零网络依赖（判据
+  `test_script_never_imports_network` 钉着：判定不该依赖网络，否则「网络不通 = 报告绿」）。
+  开 PR 的失败语义（网络 / 凭据 / 幂等）与 git push 完全不同，故拆成
+  `scripts/bridge/branch_protection_pr.py`。
+- **兜底**只在「分支保护拒绝」时触发：把「推失败就开 PR」写成无条件分支，
+  每轮非快进都会往看板添一张重复卡（`test_non_protection_failure_still_exits_2` 钉着）。
+
+### 28.6 判据与回归网
+
+| 判据 | 钉住了什么 |
+|---|---|
+| `test_protection_markers_cover_the_real_logline` | 分类认得住 `GH006` **原文**，且三种失败形态不互相冒充 |
+| `test_protection_rejection_pushes_fallback_ref_and_exits_3` | 退回 3 + 兜底分支真的被推上远端 |
+| `test_non_protection_failure_still_exits_2` | 非快进**不开** PR（防「每轮一张卡」） |
+| `test_stage_reads_branch_name_from_script` | `.cnb.yml` 的分支名从脚本读，不抄第二份 |
+| `test_branch_protection_pr.py` ×4 | PR 幂等 / 无 token 说清「结果在哪」/ 列失败退 2 / dry-run 不发 POST |
+
+8 个变异探针全部实测转红（含「删掉 `GH006` 一条标记」「把 `return 3` 改回 2」
+「stage 写死分支名」），还原后全绿。
+
+### 28.7 通用教训
+
+> **「能快进」不等于「能被接受」。** 快进是 git 的判据，分支保护是平台的判据；
+> 前者成立时后者照样能拒，而且拒绝理由会**伪装成配置错误**（`Protected branch update failed`）。
+> 看到它，先问「这条检查是不是只在某类事件上产生」，别去查凭据。
+
+> **每次看到「合并成功、推送失败」，先看推送的**目标**是不是共享分支。**
+> 一次性分支随便覆盖，共享分支永远要过门禁——这两件事必须用两套通道。

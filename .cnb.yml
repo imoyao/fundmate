@@ -404,6 +404,35 @@ dev:
             # 合并结果是「你有的我都有」⇒ 快进必然成立，且**仍然绝不开 force**。
             python scripts/bridge/machine_branch.py --apply --push --merge-sync --github-url "$GH_URL"
             rc=$?
+            if [ $rc -eq 3 ]; then
+              # 退出码 3 = **合并成功、但直推被分支保护拒绝**（源 CNB #586，2026-10-19）。
+              # 实测原文（构建 `cnb-68p-1k58q97a8`）：
+              #     GH006: Protected branch update failed for refs/heads/dev.
+              #       - Required status check "质量门禁汇总" is expected.
+              # 根因不是分叉没解 —— 是「直推」这种通行方式在**有保护规则的分支上恒不可达**：
+              # `质量门禁汇总` 只在 PR 上产生（`ci.yml` 的 `if: event_name == 'pull_request'`）。
+              # 与 #450 同一条结论：**换通行方式，不关掉门禁**。
+              #
+              # 故这一支不是红灯，而是「换个通道送达」：合并结果已被脚本落到一次性分支
+              # （stdout 里的 `FALLBACK_HEAD=`），接着开 PR —— 门禁**照跑**，绿了自动合。
+              # ⚠️ 分支名从脚本读，不在 shell 里再抄一份：抄一份就是两处真相，
+              #    改了一处另一处不会红（#118 的契约谎言）。
+              headref=$(
+                python scripts/bridge/machine_branch.py --print-fallback-target \
+                  | sed -n 's/^FALLBACK_BRANCH=//p'
+              )
+              echo "ℹ️ 直推被分支保护拒绝 → 改走 PR 通道（head=${headref}）"
+              python scripts/bridge/branch_protection_pr.py \
+                --repo "$GITHUB_REPO" --head "${headref}" --base dev \
+                --sha "$(git rev-parse HEAD)" \
+                --reason "直推被 GH006 拒绝（Required status check \"质量门禁汇总\" 只在 PR 上产生）" \
+                --apply
+              prc=$?
+              if [ $prc -ne 0 ]; then
+                echo "⚠️ 开 PR 返回 $prc —— 合并结果已落在 ${headref}，请人工开 PR（#586）"
+              fi
+              exit 0
+            fi
             if [ $rc -eq 1 ]; then
               echo "⚠️ 两侧 dev 有冲突 —— 本轮**什么都没写**（脚本刻意不自动解冲突）"
               echo "   冲突面是**业务文件**（#582 实测：ConversionForm.vue / stylelint.config.js），"
