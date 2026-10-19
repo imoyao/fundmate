@@ -424,7 +424,7 @@ class OpenVsClosedSemanticsTest(unittest.TestCase):
         self.assertNotIn('✅ GitHub #2096', text, '判据不可信时不得打勾')
 
     def test_open的是全组最小_即使跨度大也是确定留痕(self):
-        """实测形态（GitHub #2096）：open 的 CNB #164 确实是同组**最早创建**的那张。
+        """实测形态（GitHub #2096 对应的 CNB 组）：open 的 CNB `#164` 确实是同组**最早创建**的那张。
 
         「跨度大 ⇒ 不下结论」不能把这种**本来确定**的事实一起降级 —— 那会让真正
         最早的那张看起来可疑。判据是「open 的编号是否严格大于某张 closed 卡」，不是跨度本身。

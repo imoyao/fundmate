@@ -1390,7 +1390,7 @@ def test_merge_sync_refetches_both_sides_before_pushing(mod, tmp_path, monkeypat
     cnb_hits = fetch_calls.count(mod.CNB_REF) + fetch_calls.count(mod.PUSH_CNB_REF)
     gh_hits = fetch_calls.count(mod.GH_REF) + fetch_calls.count(mod.PUSH_GH_REF)
     assert cnb_hits >= 2, f"推之前没有重新抓 CNB 侧（旧快照推 dev 必然非快进）：{fetch_calls}"
-    assert gh_hits >= 2, f"推之前没有重新抓 GitHub 侧（源 CNB #600 的根因）：{fetch_calls}"
+    assert gh_hits >= 2, f"推之前没有重新抓 GitHub 侧（源 CNB `#600` 的根因）：{fetch_calls}"
 
     # ② 最后一次合并必须用**推之前抓的那对 ref** —— 否则「重抓」只是摆设。
     assert merge_refs and merge_refs[-1] in {mod.PUSH_CNB_REF, mod.PUSH_GH_REF}, (
