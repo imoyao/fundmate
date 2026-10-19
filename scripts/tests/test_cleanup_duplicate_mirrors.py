@@ -182,6 +182,89 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(plans[783]['removed_comments'], 3)
 
 
+class CloseNoteNotDiscussionTest(unittest.TestCase):
+    """清理记录不算讨论（源 CNB #6，2026-10-19）。
+
+    `--apply` **先写判据、再关卡**，判据落在被关那张卡的评论区（刻意的）。
+    于是第二轮按「有人类评论优先」选保留卡时，**被关的那张**成了唯一带人类评论的卡
+    ⇒ 判据掉头：把正本关掉、把重复卡留在看板上。用户看到的就是「同一件事反复刷」。
+    """
+
+    def _note(self, number: int, note_for: int) -> dict:
+        return {
+            'number': str(number),
+            'state': 'closed',
+            'comments': [{'author': {'username': 'imoyao', 'is_npc': False}, 'body': '（首条人类评论）'}, {}],
+            'human_comment_count': 1,
+        }
+
+    def test_清理记录不计入人类评论(self):
+        note_body = cleanup.build_close_note(
+            gh_number=783, keeper=5, remove=6,
+            p={'keep': 5, 'remove': [6], 'keep_comments': 0, 'removed_comments': 0},
+            repo='imoyao/fundmate', today='2026-10-19',
+        )
+        comments = [{'author': {'username': 'imoyao', 'is_npc': False}, 'body': note_body}]
+        self.assertEqual(cleanup.human_comment_count(comments), 0, '自己写的清理记录不是讨论')
+
+    def test_第二轮不会掉头关掉正本(self):
+        """第一轮关掉 6（写下了清理记录）；第二轮必须仍然留 5、关 6 —— 不能翻。"""
+        note = {
+            'author': {'username': 'imoyao', 'is_npc': False},
+            'body': cleanup.build_close_note(
+                gh_number=783, keeper=5, remove=6,
+                p={'keep': 5, 'remove': [6], 'keep_comments': 0, 'removed_comments': 0},
+                repo='imoyao/fundmate', today='2026-10-19',
+            ),
+        }
+        keeper_card = {'number': '5', 'state': 'open', 'comments': [], 'human_comment_count': 0}
+        removed_card = {'number': '6', 'state': 'closed', 'comments': [note], 'human_comment_count': 0}
+        keeper, removed = cleanup.pick_keeper([keeper_card, removed_card])
+        self.assertEqual(keeper, 5, '被关的那张带着清理记录，不能被当成「有讨论的正本」')
+        self.assertEqual(removed, [6], '第二轮必须收敛，而不是把正本关掉')
+
+    def test_变异探针_把清理记录算成讨论就会掉头(self):
+        """**回退验证**：判据里不排除清理记录时，结论必须反过来（否则用例没在测这件事）。"""
+        body = cleanup.build_close_note(
+            gh_number=783, keeper=5, remove=6,
+            p={'keep': 5, 'remove': [6], 'keep_comments': 0, 'removed_comments': 0},
+            repo='imoyao/fundmate', today='2026-10-19',
+        )
+        comments = [{'author': {'username': 'imoyao', 'is_npc': False}, 'body': body}]
+        self.assertEqual(cleanup.human_comment_count(comments), 0)
+        naive = len([c for c in comments if not (c['author'] or {}).get('is_npc')])
+        self.assertEqual(naive, 1, '旧判据会把这条记录算成 1 条人类评论 ⇒ 第二轮掉头')
+
+    def test_只清理同时open的组(self):
+        """只剩 1 张 open 的组**不许动**（源 CNB #6）。
+
+        这类组的判据依赖创建序号，而 `collect()` 不返回 `created_at`；
+        `#164` 那批又是整轮重划前的重建产物（编号小 ≠ 建卡早）。照着编号去「修」，
+        会把最早那张关掉、把重复卡留在看板上 —— `#883` 的现状就是这么来的。
+        """
+        grouped = {783: [5, 6, 7]}
+        details = {5: _detail(5, state='closed'), 6: _detail(6, state='open'), 7: _detail(7, state='closed')}
+        self.assertEqual(cleanup.plan(grouped, details), {}, '只剩 1 张 open 时不下结论')
+
+    def test_变异探针_去掉_open_过滤就会去动留痕组(self):
+        """**回退验证**：不检查 open 张数时，`plan()` 会给出方案，而且**方向是反的**。
+
+        它按「有评论优先、否则编号最小」选保留卡 —— 在「只剩 1 张 open」的组里，
+        最小的那张往往正是**已经被关掉**的（掉头的产物），于是它会把「重开 5 + 关 7」
+        当成清理方案：既没修好掉头，又白写一条判据。
+        """
+        grouped = {783: [5, 6, 7]}
+        details = {5: _detail(5, state='closed'), 6: _detail(6, state='open'), 7: _detail(7, state='closed')}
+
+        # 正确行为：整组跳过
+        self.assertEqual(cleanup.plan(grouped, details), {}, '只剩 1 张 open 时不下结论')
+
+        # 旧行为（不检查 open 张数）：会产出方案，且保留卡是**已关闭**的那张
+        keeper, removed = cleanup.pick_keeper([details[n] for n in grouped[783]])
+        self.assertEqual(keeper, 5)
+        self.assertEqual(removed, [6, 7], '旧版会把 open 的那张列进「关闭」，方向反了')
+
+
 class RenderTest(unittest.TestCase):
     """报告语义与退出码。"""
 

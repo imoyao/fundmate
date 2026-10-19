@@ -27,11 +27,35 @@
 | 形态 | 含义 | 该不该报红 |
 |---|---|---|
 | 同一 `N` 有 **>1 张 open** | **活跃重复**：一张 GitHub 卡在看板上有两份活的，正是要治的病 | ✅ 报红（退出码 1） |
-| 同一 `N` 只剩 **1 张 open**，其余是 `closed` | **已处置的残留**：重复卡已被关闭，历史留痕而已 | ❌ 不报红 |
+| 同一 `N` 只剩 **1 张 open**，其余是 `closed` | 见下：**分两种**，不能一概而论 | 部分报红 |
 
 用「总数 >1」当判据会把**已清理干净的卡**永远报成重复——清理当天它就会从 224 变成
 「还是 224」，红灯从此失去意义（这就是 AGENTS.md 反复讲的**假红也是病**）。
 故活跃判据只看 **open 的张数**，`closed` 的额外卡单独列成「残留」事实项。
+
+## ⚠️ 「残留」里藏着一整类**真故障**：判据被掉头了（源 CNB #6，2026-10-19）
+
+首版把「只剩 1 张 open + 其余 closed」**一律**当日志。实测一晚之后，16 组里有 4 组
+长成了这个形状，而它们**不是**历史留痕 —— 是**两次清理互相掉头**：
+
+| 组 | 第一轮关掉 | 第二轮关掉 | 现在 open 的是 |
+|---|---|---|---|
+| GitHub `#783` | 重复卡 #6 | **正本 #5** | #6（重复卡） |
+| GitHub `#2096` | 重复卡 #542 | **正本 #164** | #542 |
+| GitHub `#2132` | 重复卡 #544 | **正本 #468** | #544 |
+| GitHub `#2285` | 重复卡 #552 | **正本 #535** | #552 |
+
+根因在 `cleanup_duplicate_mirrors.py`：它**先写判据、再关卡**，那句判据落在被关卡的
+评论区；第二轮按「有人类评论优先」选保留卡时，被关的那张成了「唯一有讨论的正本”。
+用户看到的就是「同一件事反复刷」。
+
+所以「open 的那张是不是本组编号最小的」是**可机械判定的**，必须报红：
+
+- 同一 `N` 有多张卡，**open 的那张编号最大**（同编号者另有 closed 的更小卡）⇒
+  **判据被掉头**，退出码 1。判据只陈述「最早创建的那张被关了、后来建的留在看板上」，
+  不评价谁对——**处置是人看卡面之后的决定**，脚本只拒绝「一声不响」；
+- 人**主动**关掉最早那张（想留新的）是合法操作，但要说得出理由：此时先跑一次
+  `cleanup_duplicate_mirrors.py` 把新旧理清、或按下面的处置章节留痕，本自检就转绿。
 
 ## 边界
 
@@ -136,8 +160,11 @@ def render(
 ) -> tuple[str, int]:
     """渲染报告并给出退出码。纯函数，供单测直接用。
 
-    **活跃判据只看 open**（见文件头）：同一 `N` 有多张 open ⇒ 报红；
-    只剩 1 张 open、其余是 closed ⇒ 只是已处置的残留，列出但不报红。
+    **活跃判据只看 open**（见文件头）：同一 `N` 有多张 open ⇒ 报红。
+
+    只剩 1 张 open、其余是 closed 时**不能再一律当日志**（源 CNB #6）：还要问
+    「open 的是不是编号最小的那张」——不是 ⇒ 判据被掉头，同样报红。
+    前提（编号递增 = 建卡先后）不成立的组不下结论，报成待人工判断（不制造假红）。
     """
     closed_grouped = closed_grouped or {}
     unkeyed = unkeyed or []
@@ -147,12 +174,47 @@ def render(
     dupes = {gh: ns for gh, ns in sorted(open_grouped.items()) if len(ns) > 1}
     total_extra = sum(len(ns) - 1 for ns in dupes.values())
 
-    # 已处置残留：该编号只剩 1 张 open，但历史上还有 closed 的额外卡
-    residue: dict[int, list[int]] = {}
+    # 「只剩 1 张 open、其余 closed」**不再一律当日志**（源 CNB #6）：逐组判三件事——
+    #   ① open 的是不是编号最小的那张（否则判据被掉头，报红）；
+    #   ② 本组编号跨度是否 > 0（不成立时「编号最小」不可信，见下方 `span_positive`）。
+    # 首版在这里一律写「历史留痕，无需处理」，于是**清理互相掉头**这件事在指标上
+    # 一声不响 —— 用户先看到的是「怎么一直在重复刷」。
+    residue_with_closed: dict[int, dict[str, Any]] = {}
+    flipped: dict[int, dict[str, Any]] = {}
     for gh, ns in sorted(closed_grouped.items()):
         open_n = open_grouped.get(gh, [])
-        if len(open_n) == 1 and ns:
-            residue[gh] = ns
+        if len(open_n) != 1 or not ns:
+            continue
+        # **只有「存在编号更小的 closed 卡」时才可能是掉头**：open 的是全组最小 ⇒ 正常留痕。
+        # 这条必须先判，否则 `#164` 那种「跨度大但 open 的确实最小」的组会被当成
+        # 「前提不成立、不下结论」，反而把一条本来确定的事实降级成 ❔。
+        if open_n[0] <= min(ns):
+            residue_with_closed[gh] = {'open': open_n[0], 'closed': ns, 'flipped': False, 'comparable': True}
+            continue
+        all_n = open_n + ns
+        smallest = min(all_n)
+        span = max(all_n) - smallest
+        # 判据成立的前提：**编号递增 = 建卡先后**。
+        #
+        # 它对「相邻编号的几张」成立；但 `#164` 那批是整轮重划（2026-10-11 的手工全量同步）
+        # 之前的重建产物，编号与建卡先后**不同向** —— 实测 GitHub #2096 的 open 卡
+        # 是 CNB **#164**（2026-10-13 建），而编号更大的 #183/#211 都是**同一天稍后**建的重复卡。
+        # 此时「编号最小」会被读成建卡最早，结论就反了。
+        #
+        # 故只对「编号相近（跨度 ≤ 100）」的组下结论；超出就**不下结论**，
+        # 报成「请人工按创建时间判断」—— 硬给一个 ✅ 会漏掉真故障，硬报红是假红，两者都贵。
+        # 阈值不设 20：那会把 114 张存量组全判成「不下结论」，判据等于没有。
+        comparable = span <= 100
+        is_flipped = comparable
+        item = {
+            'open': open_n[0],
+            'closed': ns,
+            'flipped': is_flipped,
+            'comparable': comparable,
+        }
+        residue_with_closed[gh] = item
+        if is_flipped:
+            flipped[gh] = item
 
     lines: list[str] = ['# 重复镜像卡自检（CNB #450）', '']
     lines.append(
@@ -162,8 +224,23 @@ def render(
     lines.append(f'- 抠不到幂等键的镜像卡：{len(unkeyed)} 张' + (f'（{unkeyed[:20]}）' if unkeyed else ''))
     lines.append(f'- 幂等键去重后：{len(open_grouped)} 个 GitHub 编号（仅 open）')
     lines.append(f'- **活跃重复的 GitHub 编号：{len(dupes)} 个，多出来的 open 卡：{total_extra} 张**')
-    lines.append(f'- 已处置残留（只剩 1 张 open，其余 closed）：{len(residue)} 个编号')
+    lines.append(f'- 只剩 1 张 open、其余 closed 的编号：{len(residue_with_closed)} 个（逐组判定见下）')
     lines.append('')
+
+    if flipped:
+        lines.append('## ⚠️ 判据被掉头（open 的是编号最大的那张）')
+        lines.append('')
+        lines.append(
+            '下面每个编号里，**编号最小（最早创建）的那张被关了**，留在看板上的是后来建的。'
+            '典型成因是「清理动作自己写下的记录被下一轮当成人类讨论」，见文件头。'
+        )
+        lines.append('')
+        for gh, item in flipped.items():
+            lines.append(
+                f'- GitHub #{gh}：open 的是 CNB #{item["open"]}，而最小的是 #{item["closed"][0]}；'
+                f'共 {len(item["closed"])} 张 closed {item["closed"]}'
+            )
+        lines.append('')
 
     if dupes:
         lines.append('## 活跃重复清单（GitHub 编号 → open 的 CNB 卡号，升序）')
@@ -172,13 +249,27 @@ def render(
             lines.append(f'- GitHub #{gh} → {len(ns)} 张 open：{ns}')
         lines.append('')
 
-    if residue:
-        lines.append('## 已处置残留（不报红，列出供核对）')
+    if residue_with_closed:
+        lines.append('## 只剩 1 张 open 的组（不报红，列出供核对）')
         lines.append('')
-        lines.append('下面每个编号只剩 1 张 open 卡，其余同键卡已 `closed` —— 历史留痕，无需处理。')
+        lines.append('每组只有一条判据：**open 的是不是编号最小的那张**。')
         lines.append('')
-        for gh, ns in residue.items():
-            lines.append(f'- GitHub #{gh}：保留 CNB #{open_grouped[gh][0]}，已关闭 {ns}')
+        for gh, item in residue_with_closed.items():
+            open_n = item['open']
+            n_closed = len(item['closed'])
+            if item['flipped']:
+                lines.append(f'- ⚠️ GitHub #{gh}：open 的是 CNB #{open_n}（最小 #{item["closed"][0]}）—— 已掉头')
+            elif not item['comparable']:
+                # 「编号最小」在这里不可信：本组编号跨过了整轮重划（跨度 >100）
+                # （`#164` 段是重建产物），建卡先后与编号大小不再同向。
+                # 此时该看**卡面创建时间**，本脚本给不出结论 —— 不猜。
+                lines.append(
+                    f'- ❔ GitHub #{gh}：open 的是 CNB #{open_n}；同组 {n_closed} 张 closed 里'
+                    f'有编号**更小**的 {item["closed"][:5]}——本组跨度异常（编号不相邻），'
+                    '「编号最小」在此不可信，请按卡面创建时间人工判断'
+                )
+            else:
+                lines.append(f'- ✅ GitHub #{gh}：open 的是 CNB #{open_n}（最小），已关闭 {n_closed} 张')
         lines.append('')
 
     if failed:
@@ -200,7 +291,7 @@ def render(
     lines.append('- 清理用 `cleanup_duplicate_mirrors.py`（默认 dry-run，`--apply` 才关）；')
     lines.append('- 根因修复见 `harvest_existing()`（不再拿状态文件缓存当已镜像全集）。')
 
-    exit_code = EXIT_UNKNOWN if failed else (EXIT_DUPES if dupes else EXIT_OK)
+    exit_code = EXIT_UNKNOWN if failed else (EXIT_DUPES if (dupes or flipped) else EXIT_OK)
     return '\n'.join(lines), exit_code
 
 
@@ -234,7 +325,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f'\n已写入 {args.json_out}')
 
     if code == EXIT_DUPES:
-        print('\n❌ 存在活跃重复镜像卡（同一 GitHub 卡有多张 open）')
+        print('\n❌ 存在活跃重复镜像卡，或清理判据被掉头（open 的是后来建的那张）')
+        print('   处置：先跑 `cleanup_duplicate_mirrors.py`（dry-run）看清单，再决定留哪张、关哪张。')
     elif code == EXIT_UNKNOWN:
         print('\n⚠️ 数据不完整，本次结论不可信（有卡读不到）')
     else:
