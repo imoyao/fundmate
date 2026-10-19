@@ -8,6 +8,21 @@
 #   真要把某类 PR 也纳入，建议按 label 触发（如 `e2e`），不要全量开。
 #
 # 本地跑法：`cd frontend && pnpm test:e2e`（自带 dev server，端口 8849，不依赖后端与真实 Supabase）。
+#
+# ── ⚠️ 定时跑的是 `dev`，不是 `main`（源 CNB #586，2026-10-19 实测）──
+#
+# `schedule` 事件只读取**默认分支（main）**上的本文件，而 `actions/checkout` 在
+# `schedule` 下默认检出的也是那个分支 ⇒ **每夜跑的是 `main` 的代码**。
+# 而 `main` 只由发版 PR（`dev` → `main`）推进，实测 2026-10-19 它落后 `dev` **124 个提交**
+# ——于是「每夜捕捉悄悄回归」这件事，捕捉的是**一个月前的代码**。
+#
+# 证据：连续三次失败（10-16 / 10-17 / 10-18）的 `head_sha` 都是 `1068135f`
+# （`main` 的 tip，2026-10-16），而那几天 `dev` 上已经有 #2346 / #2288 / #8dc80e7c
+# 三轮 E2E 修复**没进 `main`** ⇒ 每夜都在重跑同一个已被修好的失败。
+# 这与 `daily-snapshot.yml` 的 #1434 是同一类：**workflow 定义读 main，执行代码必须显式取 dev**。
+#
+# 故下面 checkout 显式 `ref: ${{ env.E2E_REF }}`（默认 `dev`）。`workflow_dispatch` 时
+# 想跑别的分支，改这个 env 即可。
 
 name: 前端 E2E（Playwright）
 
@@ -25,6 +40,10 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # 实际执行代码的分支（`main` 只承载 workflow 定义）——见文件头那段实测说明。
+  E2E_REF: dev
+
 jobs:
   e2e:
     name: 前端 E2E（Chromium）
@@ -35,6 +54,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          # ⚠️ 必须显式取 `dev`（源 CNB #586）：`schedule` 下 checkout 默认落在 `main`，
+          # 而 `main` 落后 `dev` 上百个提交 ⇒ 每夜在重跑已修好的失败。
+          ref: ${{ env.E2E_REF }}
 
       - name: 设置 pnpm
         uses: pnpm/action-setup@v4
