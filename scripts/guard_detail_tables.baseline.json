@@ -1,0 +1,10 @@
+{
+  "_comment": "存量手抄表格基线（file → 理由）。键是文件；只要该文件里仍有「width + border-collapse + padding」三件套就算命中，收编后自动消失。",
+  "files": {
+    "frontend/src/views/agent/index.vue": "存量：自有样式里手抄了一份表格基线（收编前先判定该表语义）",
+    "frontend/src/views/asset/investment/eaccount-import/components/EaccountManualPanel.vue": "存量：自有样式里手抄了一份表格基线（收编前先判定该表语义）",
+    "frontend/src/views/asset/ledgers/components/LedgerCashLikeCard.vue": "存量：自有样式里手抄了一份表格基线（收编前先判定该表语义）",
+    "frontend/src/views/asset/portfolio/PenetrationPanel.vue": "存量：自有样式里手抄了一份表格基线（收编前先判定该表语义）",
+    "frontend/src/views/explore/components/ExploreTemperatureDashboard.vue": "存量：自有样式里手抄了一份表格基线（收编前先判定该表语义）"
+  }
+}

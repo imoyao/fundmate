@@ -482,6 +482,22 @@ jobs:
       - name: 页面规模门禁（行数检查）
         run: node ../scripts/check_vue_size.mjs --threshold 400 --mode warn
 
+      # 详情页表格约定守卫（源 CNB #553）：产品详情页 5 处手写 <table> 曾各写各的
+      # padding / 分隔线 / 表头 / 数字列对齐，收进 `style/_detail-table.scss` 后，本守卫
+      # 负责让「第六处」长不出来。存量另 5 个文件按基线冻结（只减不增）。
+      # 并入本 job 而非新增 job：不新增 job 就不必动 gate.needs。
+      - name: 详情页表格约定守卫
+        run: python ../scripts/guard_detail_tables.py
+
+      # 上面那条守卫的回归网（含 4 个变异探针：摘共享类 / 删 RULE 3 / 短路详情页判定 /
+      # 新增第二份基线，均已实测转红）。本 job 的 defaults 把 cwd 设成 frontend/，
+      # 故 work-directory 显式回到仓库根——否则 `python -m unittest scripts.tests...`
+      # 会找成 `frontend/scripts/`，报的却是「模块不存在」，与真失败容易混淆。
+      - name: 详情页表格守卫回归网
+        if: ${{ always() }}
+        run: python -m unittest scripts.tests.test_detail_tables_guard -v
+        working-directory: ${{ github.workspace }}
+
       - name: 构建
         run: pnpm build
 
@@ -648,6 +664,22 @@ jobs:
       - name: 检查定时作业的目标分支是否在它自己的检出里（阻断）
         run: python scripts/guard_cron_job_reachability.py
 
+      # 回流 / 认领两条通道的可及性（源 CNB #552，2026-10-19）：用户原话「分诊侧不用做，
+      # 回流侧需要做。就是说你关卡或者是说留下评论的时候，一定要判有判据」。
+      # 分诊侧已有 `guard_triage_reachable.py`；这条管的是**有副作用的另一半**：
+      #   ① `dev:` 的 cron 与 `$:` 的 `web_trigger` 必须跑**同一套** `scripts/` 脚本
+      #      （`.cnb.yml` 现状是 `$:` 下只有 `web_trigger`、没有 push，建卡/回流/分诊
+      #      全在 18:00 UTC 那条 cron 里；段落一旦挪错，跑的会是默认分支上的旧配置，
+      #      而构建一律报绿）；
+      #   ② `mirror_state_sync` / `claim_detect` 的「数据不完整 ⇒ 非 0 退出」必须还在
+      #      —— 删掉它没有任何测试会红，而那是 #171 假绿的唯一起点；
+      #   ③ `GITHUB_TOKEN` 的第一次赋值必须来自 `GITHUB_PAT`（空串占位会静默盖掉 PAT）。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      # 判据边界（不拉网络、不判结论对不对）见脚本 docstring；
+      # 回归网在 scripts/tests/test_bridge_sync_reachable.py（含真实源码回退探针）。
+      - name: 检查回流 / 认领通道是否可及（阻断）
+        run: python scripts/guard_bridge_sync_reachable.py
+
       # 定时作业挂错**整整一个分支**（源 CNB #564，2026-10-18）：用户问「直接在 DEV 分支上面
       # 进行分诊不行吗？为什么非得在 main 分支上面？」——当时整组 cron（建卡 / 状态回流 /
       # 分诊 / 三节自检）都挂在 `main:` 下，理由只有一句「cron 只能挂具体分支，故这里显式写 main」。
@@ -661,6 +693,20 @@ jobs:
       # 拿修复前的真实 `.cnb.yml` 喂守卫，确认它真的转红）。
       - name: 检查定时作业是否挂在活跃分支上（阻断）
         run: python scripts/guard_cron_covers_active_branch.py
+
+      # 「分诊到底会不会跑」（源 CNB #564，2026-10-19）：用户问过两次「做了没有」，
+      # 两次答案都是「没做」——脚本合进 `dev`、单测全绿，而**看板上一张标签都没落**。
+      # 根因不是判据错，是分诊 stage 不在 cron 里（PR #584 搬迁时只搬了建卡），
+      # 而那次唯一的 cron 运行里三个自检还全崩在 slim 镜像缺 git 上、外层 `exit 0` 报绿。
+      # 「脚本在仓库里 + 有测试」都不等于「会跑」——这条把它机械化：活跃分支的 cron 里
+      # 必须真的有 job 调用 `scripts/triage/issue_triage.py`，stage 必须带 name（#167），
+      # 且 GitHub 兜底通道必须有自己的 `schedule`。
+      # 与上面三条是一组：那条管 cron 挂哪个分支、这条管「挂对了之后会不会真跑到它」。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      # 判据边界（不判作业成功与否、不判结论对不对）见脚本 docstring；
+      # 回归网在 scripts/tests/test_triage_reachable.py（12 条，含 3 个回退探针）。
+      - name: 检查分诊作业是否真的会跑（阻断）
+        run: python scripts/guard_triage_reachable.py
 
       # 定时作业的**检出分支**（源 CNB #586，2026-10-19）：`schedule` 只读默认分支上的
       # workflow 定义，`actions/checkout` 默认也落在默认分支 —— 而本仓 `main` 只由发版 PR

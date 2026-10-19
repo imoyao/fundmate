@@ -222,6 +222,15 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'backend/tests/test_branch_divergence_check.py',
         'covered': '只报告，不阻断（跨仓分叉是另一条判据），属「观测」不属「闸」',
     },
+    'scripts/guard_bridge_sync_reachable.py': {
+        'rule': '回流 / 认领通道必须真的会跑（两段跑同一套脚本 + 失败态 + 凭据注入顺序）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_bridge_sync_reachable.py',
+        'covered': (
+            '只判「挂在哪 / 失败态还在不在 / token 怎么注入」；作业这一轮是否成功、'
+            '回流结论对不对都要联网才能知道，不在判据内'
+        ),
+    },
     'scripts/bridge/check_cross_repo_dev_divergence.py': {
         'rule': '跨仓 dev 分叉必须可见（两侧都有独有提交即告警）',
         'runner': 'cnb',
@@ -361,6 +370,24 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             '不判作业跑起来是否成功（那是构建本身的事）'
         ),
     },
+    'scripts/guard_triage_reachable.py': {
+        'rule': '分诊作业必须真的会跑（活跃分支的 cron 里真的调了它）',
+        # 与上面三条是一组：`guard_cron_covers_active_branch`（挂哪条分支）、
+        # `guard_cron_job_reachability`（目标分支在不在检出里）、
+        # `guard_schedule_checkout_ref`（checkout 哪条分支）都问「配置对不对」，
+        # 这一条问的是「**会不会真的跑到它**」——2026-10-18 合进 dev 之后，
+        # 就是因为分诊 stage 不在 cron 里，看板一张标签都没落，而所有人都以为已经实现了。
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_triage_reachable.py',
+        # 边界：不判作业跑起来成不成功（那要联网 + 凭据，PR 门禁不该依赖外网）；
+        # 不判结论判得对不对（那是 test_issue_triage.py 的事）；
+        # 兜底 workflow 的 checkout 分支**刻意不在这里判**——`guard_schedule_checkout_ref.py`
+        # 已管且本文件在它扫描范围内，两处判据对同一件事迟早各说各话。
+        'covered': (
+            '不判「作业有没有真跑成功」与「结论对不对」；'
+            '不判 `<<: *anchor` 之外的动态拼接（如用环境变量拼出脚本路径）'
+        ),
+    },
     'scripts/guard_cnb_script_task_python.py': {
         'rule': '跑 python 的脚本任务必须自带 docker.image',
         'runner': 'ci',
@@ -414,6 +441,17 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'runner': 'ci',
         'tests': 'scripts/tests/git_sync_push_scope.test.js',
         'covered': '只读 .cnb.yml；运行期 CNB_BRANCH 的取值不校验',
+    },
+    'scripts/guard_detail_tables.py': {
+        'rule': '详情页 dense 表格唯一走 `.detail-table` 共享约定',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_detail_tables_guard.py',
+        'covered': (
+            '只判「有没有走共享类 / 有没有手抄第二份基线 / 有没有自写数字列对齐」三件事；'
+            '不判视觉是否正确、不判列宽、不判该不该用表格。`:class` 动态类名刻意放行'
+            '（静态判据看不见运行时类名，猜它会误报）。全仓另外 5 处手抄基线按文件冻结，'
+            '收编前须先判定该表语义（资产 / 探市 / 自选是另一种密度语义）。'
+        ),
     },
     'scripts/guard_bridge_machine_branch_single_writer.py': {
         'rule': '`bridge/github-dev` 只能有一个写者（GitHub reconcile 写、CNB 只读探针）',
