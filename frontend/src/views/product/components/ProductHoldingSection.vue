@@ -128,17 +128,28 @@ function stockHref(code: string): string {
           'holding-section__table-wrap--scroll': expanded && needToggle
         }"
       >
-        <table id="holding-detail-table" class="holding-section__table">
+        <!-- 表口径见 `_detail-table.scss`（#553）：`--fixed` 让数字列不折行，
+             横滚由外层 `.holding-section__table-wrap` 兜底；长表（上百行）另加高度上限
+             与吸附表头，那是「长表」语义，不属于样式约定。 -->
+        <table
+          id="holding-detail-table"
+          class="detail-table detail-table--fixed holding-section__table"
+        >
           <thead>
             <tr>
-              <th scope="col" class="holding-section__num">序号</th>
+              <th scope="col" class="detail-table__num">序号</th>
               <!-- #2314：原「代码 / 名称」两列合并为产品列，复用全站 ProductDisplay
                    （自选 / 分红 / 清单同款）：长名称 ellipsis + title 全名，
                    代码以「# 裸码」弱化小字呈现，省出一个独立列的横向空间 -->
-              <th scope="col" class="holding-section__product">产品</th>
-              <th scope="col" class="holding-section__num">占净值比</th>
-              <th scope="col" class="holding-section__num">持股数(万股)</th>
-              <th scope="col" class="holding-section__num">市值(万元)</th>
+              <th
+                scope="col"
+                class="detail-table__product holding-section__product"
+              >
+                产品
+              </th>
+              <th scope="col" class="detail-table__num">占净值比</th>
+              <th scope="col" class="detail-table__num">持股数(万股)</th>
+              <th scope="col" class="detail-table__num">市值(万元)</th>
             </tr>
           </thead>
           <tbody>
@@ -146,10 +157,10 @@ function stockHref(code: string): string {
               v-for="(r, i) in visibleRows"
               :key="r.stock_code + '-' + (r.rank ?? i)"
             >
-              <td class="holding-section__num">
+              <td class="detail-table__num">
                 {{ r.rank ?? i + 1 }}
               </td>
-              <td class="holding-section__product">
+              <td class="detail-table__product holding-section__product">
                 <RouterLink
                   v-if="stockHref(r.stock_code)"
                   :to="stockHref(r.stock_code)"
@@ -168,13 +179,13 @@ function stockHref(code: string): string {
                   :symbol="r.stock_code"
                 />
               </td>
-              <td class="holding-section__num">
+              <td class="detail-table__num">
                 {{ r.ratio != null ? r.ratio.toFixed(2) + "%" : "—" }}
               </td>
-              <td class="holding-section__num">
+              <td class="detail-table__num">
                 {{ r.shares != null ? r.shares.toLocaleString() : "—" }}
               </td>
-              <td class="holding-section__num">
+              <td class="detail-table__num">
                 {{
                   r.market_value != null ? r.market_value.toLocaleString() : "—"
                 }}
@@ -183,12 +194,14 @@ function stockHref(code: string): string {
           </tbody>
           <tfoot v-if="visibleTotalRatio != null">
             <tr>
-              <th scope="row" colspan="2">所示合计</th>
-              <td class="holding-section__num">
+              <th scope="row" colspan="2" class="detail-table__product">
+                所示合计
+              </th>
+              <td class="detail-table__num">
                 {{ visibleTotalRatio.toFixed(2) }}%
               </td>
-              <td class="holding-section__num">—</td>
-              <td class="holding-section__num">—</td>
+              <td class="detail-table__num">—</td>
+              <td class="detail-table__num">—</td>
             </tr>
           </tfoot>
         </table>
@@ -264,36 +277,15 @@ function stockHref(code: string): string {
   overflow-y: auto;
 }
 
-.holding-section__table {
-  width: 100%;
-  font-size: var(--text-label);
-  border-collapse: collapse;
-}
-
-.holding-section__table th,
-.holding-section__table td {
-  padding: var(--space-2) var(--space-2);
-  text-align: left;
-  white-space: nowrap;
-  border-bottom: 1px solid var(--border-light);
-}
-
-.holding-section__table thead th {
-  font-weight: 500;
-  color: var(--text-tertiary);
-}
+/* 表格的宽度 / 字号 / padding / 分隔线 / 表头 / 表尾 / 数字列来自 `.detail-table`（#553）。
+   本组件只剩「长表」两件事：整表高度上限与吸附表头。 */
 
 /* 表头必须带底色：否则滚动时表格行会从 th 的透明缝隙里透出来 */
-.holding-section__table-wrap--scroll thead th {
+.holding-section__table-wrap--scroll :deep(thead th) {
   position: sticky;
   top: 0;
   z-index: 1;
   background: var(--bg-card);
-}
-
-.holding-section__num {
-  font-variant-numeric: tabular-nums;
-  text-align: right;
 }
 
 /* #2314：产品列（ProductDisplay 两行紧凑）——替代原独立「代码」列 */
