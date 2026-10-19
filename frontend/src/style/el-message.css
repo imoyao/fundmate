@@ -109,7 +109,7 @@
 }
 .el-message__content {
   padding: 0;
-  font-size: 14px;
+  font-size: var(--text-small);
   line-height: 1;
 }
 .el-message__content:focus {

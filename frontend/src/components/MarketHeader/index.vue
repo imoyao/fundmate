@@ -129,7 +129,7 @@ withDefaults(
 
   &__badge {
     padding: 2px 10px;
-    font-size: 12px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
     white-space: nowrap;
     background: var(--bg-soft);

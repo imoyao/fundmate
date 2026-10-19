@@ -431,7 +431,7 @@ watch(() => props.mgrCode, load, { immediate: true });
     flex-wrap: wrap;
     gap: var(--space-2);
     align-items: center;
-    font-size: 12px;
+    font-size: var(--text-label);
 
     /* 数字用等宽，避免日期/百分比在列内跳动 */
     font-variant-numeric: tabular-nums;
@@ -446,7 +446,7 @@ watch(() => props.mgrCode, load, { immediate: true });
     /* #2314：对齐 design.md Badge 规范 pill；文字用品牌文字级 --brand-ink
        （--brand-700 作文字白底 3.73:1 不达 AA，见 #1599 batch 3） */
     padding: 0 var(--space-2);
-    font-size: 11px;
+    font-size: var(--text-label);
     color: var(--brand-ink);
     background: var(--brand-100);
     border-radius: var(--radius-pill);
@@ -474,7 +474,7 @@ watch(() => props.mgrCode, load, { immediate: true });
   }
 
   &__styles-label {
-    font-size: 12px;
+    font-size: var(--text-label);
     color: var(--text-tertiary);
   }
 
@@ -494,7 +494,7 @@ watch(() => props.mgrCode, load, { immediate: true });
     display: inline-flex;
     align-items: center;
     padding: 1px 8px;
-    font-size: 11px;
+    font-size: var(--text-label);
     line-height: 1.6;
     color: var(--text-secondary);
     cursor: help;
@@ -523,7 +523,7 @@ watch(() => props.mgrCode, load, { immediate: true });
   }
 
   &__holdings-fund {
-    font-size: 12px;
+    font-size: var(--text-label);
     color: var(--text-tertiary);
   }
 

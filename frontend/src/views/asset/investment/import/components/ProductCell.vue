@@ -43,14 +43,14 @@ const { getFundTypeColor } = useImportWizardContext();
 }
 
 .product-code {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .type-tag-inline {
   height: 20px;
   padding: 0 6px;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 20px;
   color: var(--text-inverse);
   border: none;

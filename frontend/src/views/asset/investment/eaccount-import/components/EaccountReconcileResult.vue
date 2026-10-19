@@ -182,7 +182,7 @@ const p = reactive(props.page);
 }
 
 .done-card__icon {
-  font-size: 40px;
+  font-size: var(--text-display-lg);
   color: var(--color-success-ink);
 }
 
@@ -235,7 +235,7 @@ const p = reactive(props.page);
 }
 
 .conflict-list__symbol {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -266,7 +266,7 @@ const p = reactive(props.page);
 }
 
 .failed-list__line {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

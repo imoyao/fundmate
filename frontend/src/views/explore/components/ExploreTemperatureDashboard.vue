@@ -263,7 +263,7 @@ onMounted(() => {
 .primary-link {
   display: inline-block;
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--color-rise-ink);
   white-space: nowrap;
   cursor: pointer;

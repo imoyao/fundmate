@@ -73,6 +73,10 @@
   /* ===== 字阶系统 ===== */
   --text-hero: 57px;
   --text-display: 32px;
+  /* Display 桌面大档（2026-10-18 #2363 收口补档）：docs/design/font-design.md §2.2
+     字阶表载明 Display「32px（移动）/ 40px（桌面）」双档，原令牌只有 32 档；
+     空态大数字 / 大图标落此档（该批存量原为 40/48px 裸值） */
+  --text-display-lg: 40px;
   --text-title: 24px;
   --text-heading: 20px;
   --text-body: 16px;

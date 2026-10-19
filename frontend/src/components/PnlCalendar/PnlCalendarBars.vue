@@ -306,7 +306,7 @@ const ariaLabel = computed(() => {
 .pnl-calendar-bars__label {
   flex: 1;
   min-width: 0;
-  font-size: 9px;
+  font-size: var(--text-label);
   line-height: 1;
   color: var(--text-tertiary-ink);
   text-align: center;
@@ -315,7 +315,7 @@ const ariaLabel = computed(() => {
 /* 下钻提示：一行小字，不占纵向空间（Voice & Content 规范） */
 .pnl-calendar-bars__drill-hint {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 1.4;
   color: var(--text-tertiary-ink);
   text-align: center;

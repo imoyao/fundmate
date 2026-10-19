@@ -13,6 +13,7 @@ import {
 } from "@/utils/valuationEngine";
 import { http } from "@/utils/http";
 import { formatDate } from "@/utils/date";
+import { shouldFetchRealtimeQuotes } from "@/utils/marketHours";
 
 const STORAGE_KEY = "duoduobei_realtime_quotes_enabled";
 const REFRESH_INTERVAL_KEY = "duoduobei_realtime_quotes_interval";
@@ -193,21 +194,9 @@ export function useRealtimeQuotes(
   const canFetch = async (): Promise<boolean> => {
     const today = localDateStr(new Date());
     const isTd = await getTradingDayStatus(today);
-    if (!isTd) return false;
-
-    // 交易日内再判时段（9:30-15:00）
-    const now = new Date();
-    const hour = now.getHours();
-    const minute = now.getMinutes();
-    if (
-      hour < 9 ||
-      hour > 15 ||
-      (hour === 9 && minute < 30) ||
-      (hour === 15 && minute > 0)
-    ) {
-      return false;
-    }
-    return true;
+    // 时段判定走 utils/marketHours 的纯函数：与单测同源，避免本文件再长一份
+    // 内联的小时判断（#2338 的四条绕过路径就是各写一份写歪的）。
+    return shouldFetchRealtimeQuotes({ now: new Date(), isTradingDay: isTd });
   };
 
   const isTradingDay = async (): Promise<boolean> => {
