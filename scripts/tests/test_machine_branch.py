@@ -1332,3 +1332,67 @@ def test_stage_reads_branch_name_from_script(mod):
     assert "--print-fallback-target" in yml, "stage 应通过 --print-fallback-target 取分支名"
     assert "branch_protection_pr.py" in yml, "stage 应调用 PR 兜底脚本"
     assert '--head "${headref}"' in yml, "开 PR 的 head 必须取自脚本输出，不得写死"
+
+
+def test_merge_sync_refetches_both_sides_before_pushing(mod, tmp_path, monkeypatch, capsys):
+    """推之前必须**重新抓两侧**，并据此重做合并（源 CNB #600，构建 `cnb-32g-1k59n02e8`）。
+
+    现场：功能分支 `fix/552-…` 的 push 构建红在
+
+        ! [rejected]  fix/552-close-must-carry-criterion -> … (non-fast-forward)
+
+    而同一分支 15 分钟前推成功过。差别只有一处：GitHub 侧那条分支此后被推前了一笔
+    （`1484d348` → `276cf875`，同一个提交 rebase 成另一个 sha），而插件推的是
+    **本地检出**、从不 fetch 目标分支 ⇒ 永远追不上，被拒之后也不会自愈。
+
+    ⚠️ **判据直接钉「有没有重抓」，不绕道远端内容。** 这条路试错过两次，记下来：
+    ① 「远端树里必须有 cnb-only.txt」——探针不红：被测代码从工作区推 HEAD，只要工作区
+       是对的，合一次两次都能把内容送上去，那是**假判据**；
+    ② 「用本地非裸仓库模拟远端被推前」——`fetch` / `worktree add` / 追踪分支三者会互相
+       带偏本地 ref，被测代码「不重抓」也能歪打正着，同样不红。
+    git 的本地语义模拟不出「远端单独前进」，那就别模拟：直接观测脚本**有没有真的去抓**，
+    以及**合并用的是不是刚抓到的那对 ref**。这一条同时挡住两种退化 ——
+    删掉重抓、或重抓了却仍拿旧 ref 去合。
+    """
+    cnb, gh = _mk_side_repos(tmp_path, "mergesync-refetch", same_file=False)
+    _git(gh, "config", "receive.denyCurrentBranch", "ignore", env=_env())
+
+    real_fetch = mod.fetch_ref
+    fetch_calls: list[str] = []
+
+    def spy_fetch(url, branch, dest_ref, cwd=None):
+        fetch_calls.append(dest_ref)
+        return real_fetch(url, branch, dest_ref, cwd)
+
+    monkeypatch.setattr(mod, "fetch_ref", spy_fetch)
+
+    real_git = mod._git
+    pushes: list[list[str]] = []
+    merge_refs: list[str] = []
+
+    def spy_git(args, wd=None):
+        if args and args[0] == "push":
+            pushes.append(list(args))
+        if args and args[0] == "merge" and len(args) > 1:
+            merge_refs.append(args[-1])
+        return real_git(args, wd)
+
+    monkeypatch.setattr(mod, "_git", spy_git)
+
+    rc, _, err, _ = _run_merge_sync(
+        mod, tmp_path, remote=gh, cwd=cnb, monkeypatch=monkeypatch, capsys=capsys
+    )
+    assert rc == 0, f"merge-sync 应成功，实际 rc={rc} / {err}"
+    assert pushes, "本轮必须真的推过（否则是空转的假绿）"
+
+    # ① 推之前必须再抓一次**两侧**。第一轮开头那两次是既有行为，故看「总数」：
+    #    两侧各 ≥2 次。用计数而非「最后一条 == PUSH_*」是为了不钉死实现细节。
+    cnb_hits = fetch_calls.count(mod.CNB_REF) + fetch_calls.count(mod.PUSH_CNB_REF)
+    gh_hits = fetch_calls.count(mod.GH_REF) + fetch_calls.count(mod.PUSH_GH_REF)
+    assert cnb_hits >= 2, f"推之前没有重新抓 CNB 侧（旧快照推 dev 必然非快进）：{fetch_calls}"
+    assert gh_hits >= 2, f"推之前没有重新抓 GitHub 侧（源 CNB `#600` 的根因）：{fetch_calls}"
+
+    # ② 最后一次合并必须用**推之前抓的那对 ref** —— 否则「重抓」只是摆设。
+    assert merge_refs and merge_refs[-1] in {mod.PUSH_CNB_REF, mod.PUSH_GH_REF}, (
+        f"最后一次合并用的仍是旧 ref，重抓了却没重做合并：merge_refs={merge_refs}"
+    )

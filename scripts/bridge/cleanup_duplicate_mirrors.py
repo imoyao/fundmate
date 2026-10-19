@@ -77,6 +77,31 @@
 NPC / `github-actions` / `*-bot` 一律不计）。评论列表读不到 ⇒ 记读取失败、
 `--apply` 直接拒绝动手 —— **不得**退化成「没有人类评论」，那正是误关的方向（#171）。
 
+## 只清理「有 >1 张 open」的组，其余一律不动（2026-10-19，源 CNB #6）
+
+`collect()` 拉的是**全部**镜像卡（open + closed），所以 `plan()` 也会看到
+「只剩 1 张 open、其余 closed」的组。这种组**必须跳过**：
+
+它的判据依赖 `collect()` 不返回的**创建时间**——`#164` 那批是整轮重划前的重建产物，
+「编号最小」与「建卡最早」**不同向**（实测 GitHub `#2096`：open 的 `#164` 最早创建，
+编号更大的 `#183` 反而是同一天稍后建的重复卡）。照着编号去「修」，会把最早那张关掉、
+把重复卡留在看板上 —— 正是本脚本夜里翻车两轮的形态（`#883` 现在就是这个样子）。
+
+判据一句话：**看不到创建序号时，不下结论**。要处理这类组，先补 `created_at` 进判据。
+
+## 清理记录不算讨论（2026-10-19，源 CNB #6）
+
+`--apply` **先写判据、再关卡**，判据落在**被关那张卡**的评论区（这是刻意的，见上节）。
+于是同一组跑第二轮时，「被关的那张」成了唯一带人类评论的卡 ⇒ 判据 1 掉头：
+**把正本关掉、把重复卡留在看板上**。实测这一夜在四组上翻了两轮
+（GitHub `#783` / `#2096` / `#2132` / `#2285`），用户看到的就是「同一件事反复刷」。
+
+处置：`human_comment_count()` 用 `CLOSE_NOTE_MARKER` 把这类记录排除掉——
+**它是处置痕迹，不是有人在读这张卡**。
+
+> 同族气味：任何「写下的动作」被下一轮**当成输入**读回去的循环，都要问一句
+> 「这条记录会不会改变它自己的判据」。
+
 ## 失败态（#171 的纪律）
 
 拿不到输入（CNB 列表 / 详情读取失败）⇒ **退出码 2 并声明结论不可信**，
@@ -115,6 +140,11 @@ EXIT_UNKNOWN = 2
 _CNB_REPO = 'duoduobei/fundmate'
 BOT_AUTHORS = {'github-actions', 'cnb', 'oci', 'codebuddy'}
 
+# 本脚本写在被关卡评论区的清理记录（`build_close_note` 的第一行）的固定前缀。
+# 它既是「为什么关它」的判据载体，也必须是**判据 1 的排除项** —— 否则第二轮清理
+# 会把「被关的那张」当成「有讨论的正本」掉头关别人（CNB #6 实测）。
+CLOSE_NOTE_MARKER = '## 重复镜像卡清理（'
+
 
 def _comment_count(detail: dict[str, Any]) -> int:
     return int(detail.get('comment_count') or 0)
@@ -130,6 +160,11 @@ def human_comment_count(comments: list[dict[str, Any]]) -> int:
     count = 0
     for c in comments:
         if not isinstance(c, dict):
+            continue
+        body = c.get('body') or ''
+        # 本脚本自己写的清理记录不算讨论（源 CNB #6）：它是**处置痕迹**，不是有人在读这张卡。
+        # 若把它算进判据 1，`--apply` 跑第二轮就会掉头 —— 详见 `pick_keeper` 的 docstring。
+        if CLOSE_NOTE_MARKER in body:
             continue
         author = c.get('author') or {}
         name = str(author.get('username') or '')
@@ -157,8 +192,16 @@ def _human_count(detail: dict[str, Any]) -> int:
 def pick_keeper(details: list[dict[str, Any]]) -> tuple[int, list[int]]:
     """给定同一 GitHub 编号下的多张卡详情，返回 `(保留卡号, 其余卡号)`。
 
-    判据（见文件头）：**有评论的优先，其余按编号升序取最小**。
-    纯函数，供单测直接用。
+    判据（见文件头）：
+    1. **有（人类）评论的优先**——评论不可再生；
+    2. **本脚本自己写的记录不算讨论**（源 CNB #6，2026-10-19）；
+    3. 其余按编号升序取最小。
+
+    第 2 条是 `--apply` 之后才会暴露的形态：清理**先写判据、再关卡**，那条判据落在
+    被关卡的评论区（那是刻意的）。于是同一组跑第二轮时，「被关的那张」反而成了
+    **唯一有人类评论的卡** ⇒ 判据 1 掉头把正本关掉、把重复卡留在看板上。
+    实测（2026-10-19）CNB #6 / #164 / #468 / #535 四组正是这么翻的：第一轮关对了，
+    第二轮把留下来的那张关掉、把已经关掉的那张当成「有讨论的正本」。
     """
 
     def sort_key(d: dict[str, Any]) -> tuple[int, int]:
@@ -175,6 +218,11 @@ def plan(grouped: dict[int, list[int]], details: dict[int, dict[str, Any]]) -> d
     out: dict[int, dict[str, Any]] = {}
     for gh, numbers in sorted(grouped.items()):
         if len(numbers) < 2:
+            continue
+        # 只处理**同时 open 的**重复卡（见文件头「只清理有 >1 张 open 的组」）：
+        # 只剩 1 张 open 的组里，「编号最小」与「建卡最早」可能不同向，
+        # 照着编号去修会把最早那张关掉、把重复卡留在看板上（#883 的现状就是这么来的）。
+        if sum(1 for n in numbers if (details.get(n) or {}).get('state', 'open') == 'open') < 2:
             continue
         cards = [details[n] for n in numbers]
         keeper, extras = pick_keeper(cards)
@@ -223,7 +271,9 @@ def build_close_note(
     date = today or datetime.now(UTC).strftime('%Y-%m-%d')
     return '\n'.join(
         [
-            f'## 重复镜像卡清理（{date}）',
+            # ⚠️ 第一行是 `CLOSE_NOTE_MARKER` —— `human_comment_count()` 靠它把
+            # 「本脚本的处置痕迹」排除在「有人类讨论」之外（CNB #6：否则第二轮清理会掉头）。
+            f'{CLOSE_NOTE_MARKER}{date}）',
             '',
             f'- **关的是什么**：CNB #{remove} —— GitHub #{gh_number} 的重复镜像卡',
             f'- **为什么关它**：同一 GitHub 卡在 CNB 侧建了多张，本组保留 #{keeper}',
