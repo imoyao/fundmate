@@ -159,12 +159,13 @@ def _load_cnb_yml():
 def _divergence_stage_script():
     """dev 版 `.cnb.yml` 里「分支分叉自检」stage 的脚本。
 
-    位置：`main` 的每日 cron → `<<: *mirror-job` 锚点展开后的 stages。
-    （CNB 侧原版在 `sync/mirror` 分支的自定义同步脚本里，两条 lineage，
-    见 docs/dev/github-cnb-mirror.md §12；合并进 dev 后断言对象随架构改，意图不变。）
+    位置：**`dev`** 的每日 cron → `<<: *mirror-job` 锚点展开后的 stages。
+    （源 CNB #564，2026-10-18：整组定时作业从 `main:` 搬进 `dev:`；`main` 只在发版时前进，
+    cron 挂那里等于「改了脚本要等一次发版」。CNB 侧原版在 `sync/mirror` 分支的自定义同步
+    脚本里，两条 lineage，见 docs/dev/github-cnb-mirror.md §12；断言对象随架构改，意图不变。）
     """
     cfg = _load_cnb_yml()
-    stages = cfg['main']['crontab: 0 18 * * *'][0]['stages']
+    stages = cfg['dev']['crontab: 0 18 * * *'][0]['stages']
     return [s for s in stages if '分叉' in s['name']][0]['script']
 
 
@@ -223,11 +224,14 @@ def test_cnb_yml_has_reverse_guard_on_pull_request():
 
     与 CNB 侧原版的差别只在**挂法**：原版把事件写在文件顶层，
     按 #152 的平台语义那会被读成一个**不存在分支**——守卫空转。
-    dev 版改挂在仅有的两条长期分支（`main:` / `dev:`）之下：
-    PR 打向哪条，就在哪条的配置里读到守卫。
+    dev 版改挂在长期分支之下：PR 打向哪条，就在哪条的配置里读到守卫。
+    2026-10-18（源 CNB #564）起本文件**只保留 `dev:` 这一份**（与 cron 同一条口径：
+    作业挂一块、不复制两份）。故这里断言的是「`dev:` 下挂着它」，
+    **不再要求 `main:` 段存在** —— 旧断言会让「把 `main:` 段整段删掉」这种修复被判红，
+    而那正是这次要的形态。
     """
     cfg = _load_cnb_yml()
-    for branch in ('main', 'dev'):
+    for branch in ('dev',):
         assert branch in cfg, f'{branch} 分支下没有挂任何事件'
         events = cfg[branch]
         assert 'pull_request.mergeable' in events, (

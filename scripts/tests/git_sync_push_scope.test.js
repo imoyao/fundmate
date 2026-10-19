@@ -334,16 +334,21 @@ test("git-sync 作业挂在 `dev:` 键下（不是 `main:` 键下）", () => {
   // `dev:` 段内。挂在 `main:` 下时，`dev` 的 push 构建里**根本不含这个 job**，
   // 而 `main` 的 cron 里工作区只有 `main` ⇒ 插件跳过、构建报 success。
   const devIdx = CNB_YML.search(/^dev:\s*$/m);
-  const mainIdx = CNB_YML.search(/^main:\s*$/m);
   assert.ok(devIdx > 0, "`.cnb.yml` 里没有 `dev:` 分支段 —— git-sync 无处安放。");
-  assert.ok(mainIdx > 0, "`.cnb.yml` 里没有 `main:` 分支段。");
 
-  const mainSeg = CNB_YML.slice(mainIdx, devIdx);
-  assert.ok(
-    !/image:\s*tencentcom\/git-sync/.test(mainSeg),
-    "`main:` 段里出现了 git-sync 任务 —— runner 只会检出 `main`，推 `dev` 必然被跳过" +
-      "（`Warning: Branch dev does not exist locally, skipping push`）却报 success（#269）。"
-  );
+  // ⚠️ 源 CNB #564（2026-10-18）起本文件**根本没有 `main:` 段**：cron 与 PR 守卫
+  // 都收进 `dev:` 里了（见 `scripts/guard_cron_covers_active_branch.py`）。
+  // 故这里**不再要求 `main:` 存在**（原断言会让「删掉 main 段」这种修复被判红），
+  // 但「万一有人把 `main:` 加回来」时仍要保证它里面没有 git-sync。
+  const mainIdx = CNB_YML.search(/^main:\s*$/m);
+  if (mainIdx > 0) {
+    const mainSeg = CNB_YML.slice(mainIdx, devIdx > mainIdx ? devIdx : undefined);
+    assert.ok(
+      !/image:\s*tencentcom\/git-sync/.test(mainSeg),
+      "`main:` 段里出现了 git-sync 任务 —— runner 只会检出 `main`，推 `dev` 必然被跳过" +
+        "（`Warning: Branch dev does not exist locally, skipping push`）却报 success（#269）。"
+    );
+  }
 
   // ⚠️ 源 CNB #577 起 `dev:` 段里**不再有** git-sync（直推 dev 必红，已删）。
   // `dev` 的搬运改由 `machine_branch.py --merge-sync` 的脚本任务承担，故这里断言的是
