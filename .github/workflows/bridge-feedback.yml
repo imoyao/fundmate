@@ -74,6 +74,12 @@ jobs:
         uses: actions/checkout@v5
         with:
           token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          # ⚠️ 必须显式取 `dev`（源 CNB #586，2026-10-19）：`schedule` 只读默认分支上的
+          # workflow 定义，`actions/checkout` 默认也落在默认分支 —— 而本仓 `main` 只由
+          # 发版 PR（`dev` → `main`）推进，实测落后 `dev` 上百个提交。
+          # 不写这一行 ⇒ 定时跑的 `scripts/bridge/feedlog_bridge.py` 是很久以前那版。
+          # 判据 `guard_schedule_checkout_ref.py`。
+          ref: dev
 
 
       # 恢复上一次的状态文件（必须在跑脚本之前）：脚本读它判断「哪条已同步过」。
@@ -129,6 +135,12 @@ jobs:
     steps:
       - name: Checkout 仓库
         uses: actions/checkout@v5
+        with:
+          # ⚠️ 必须显式取 `dev`（源 CNB #586，2026-10-19）：`schedule` 只读默认分支上的
+          # workflow 定义，`actions/checkout` 默认也落在默认分支 —— 而本仓 `main` 只由
+          # 发版 PR（`dev` → `main`）推进，实测落后 `dev` 上百个提交。
+          # 不写这一行 ⇒ 每夜跑的是很久以前的 `scripts/`。判据 `guard_schedule_checkout_ref.py`。
+          ref: dev
 
 
       # 恢复上一次的状态文件（必须在跑脚本之前）：脚本读它判断「哪条已同步过」。
@@ -240,6 +252,12 @@ jobs:
         uses: actions/checkout@v5
         with:
           token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          # ⚠️ 必须显式取 `dev`（源 CNB #586，2026-10-19）：`schedule` 只读默认分支上的
+          # workflow 定义，`actions/checkout` 默认也落在默认分支 —— 而本仓 `main` 只由
+          # 发版 PR（`dev` → `main`）推进，实测落后 `dev` 上百个提交。
+          # 不写这一行 ⇒ 定时跑的 `scripts/bridge/feedlog_bridge.py` 是很久以前那版。
+          # 判据 `guard_schedule_checkout_ref.py`。
+          ref: dev
 
 
       # 恢复上一次的状态文件（必须在跑脚本之前）：脚本读它判断「哪条已同步过」。
@@ -308,6 +326,12 @@ jobs:
       # 故刻意**不**插入状态文件 restore —— 少一次无意义的 cache 恢复。
       - name: Checkout 仓库
         uses: actions/checkout@v5
+        with:
+          # ⚠️ 必须显式取 `dev`（源 CNB #586，2026-10-19）：`schedule` 只读默认分支上的
+          # workflow 定义，`actions/checkout` 默认也落在默认分支 —— 而本仓 `main` 只由
+          # 发版 PR（`dev` → `main`）推进，实测落后 `dev` 上百个提交。
+          # 不写这一行 ⇒ 每夜跑的是很久以前的 `scripts/`。判据 `guard_schedule_checkout_ref.py`。
+          ref: dev
 
       - name: 安装 Python
         uses: actions/setup-python@v6
