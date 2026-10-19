@@ -1,6 +1,13 @@
 # backend/tests/services/sync/test_dividend_split_job.py
 """#1179 / #541 回归：分红、送转、配股抓取 Job 的转换、幂等与降级。
 
+#2372 起口径变更（本文件同步更新）：
+- 记录按持仓行**逐户**发出（``_events_to_records`` 内层循环），各带该行自己的
+  ``ledger_id`` / ``account_name``；份额/金额按该行持仓测算，不再取家庭汇总的
+  单一主账户；
+- 去重键 ``import_hash`` → ``(ledger_id, import_hash)``（跨账户同 hash 是两笔）；
+- 测试桩从 ``_position_context``（家庭汇总单账户）改打 ``_position_rows``（逐行）。
+
 #541 修的是「链路在跑、数据静默丢」的三段，因此用例的重点不在「跑通」，而在
 **每段丢失路径都有一条红灯用例**：
 - 基金分红必须带每份金额（否则整批被导入校验剔除）；
@@ -12,6 +19,7 @@
 from datetime import date, timedelta
 from decimal import Decimal
 
+from app.core.money import Money
 from app.services.sync.jobs.dividend_split_job import DividendSplitSyncJob
 
 TODAY = date.today()
@@ -41,16 +49,27 @@ class _FakeAdapter:
         return []
 
 
-def _make_job(db, held='1000', reinvest=False):
+class _FakePosition:
+    """假持仓行：只带 _events_to_records 逐户循环用到的三个字段。"""
+
+    def __init__(self, quantity, account_name='默认证券账户', ledger_id=1):
+        self.quantity = quantity
+        self.account_name = account_name
+        self.ledger_id = ledger_id
+
+
+def _make_job(db, held='1000', reinvest=False, account_name='默认证券账户', ledger_id=1):
     job = DividendSplitSyncJob(_FakeAdapter(), db)
     job.stats = {'total': 0, 'success': 0, 'skipped': 0, 'failed': 0, 'errors': []}
-    # 桩打在 _position_context 上（生产代码取份额/账户的唯一入口），
-    # 桩在 _holding_shares 上会绕不过去——那正是本文件第一次跑红的原因。
-    job._position_context = lambda s: {
-        'shares': Decimal(held),
-        'account_name': '默认证券账户',
-        'ledger_id': 1,
-    }
+    # 桩打在 _position_rows 上（逐户口径下生产代码取持仓行的唯一入口）。
+    # #2372 前桩打在 _position_context（家庭汇总单账户）——合并后代码不再走它，
+    # 桩在那儿会绕不过去：_position_rows 直接查库，空库返回 []，一条记录都不发。
+    row = _FakePosition(
+        quantity=Money.shares_to_min_unit(Decimal(held)),
+        account_name=account_name,
+        ledger_id=ledger_id,
+    )
+    job._position_rows = lambda s: [row]
     job._is_reinvest = lambda s: reinvest
     return job
 
@@ -322,3 +341,16 @@ def test_rights_import_hash_stable_across_position_changes(db):
     after = _make_job(db, held='2000')._events_to_records(event)[0]
     assert before.shares != after.shares
     assert before.import_hash == after.import_hash, '配股的幂等键不得随持有份额漂移'
+
+
+# ── ⑧ 查询成功但无持仓：不产记录、不算错误（#2372 逐户口径） ──────────────
+
+
+def test_no_holding_yields_no_records_and_no_error(db):
+    """持仓查询成功但确实没有持仓行：不产生记录，也不算错误。"""
+    job = _make_job(db)
+    job._position_rows = lambda s: []
+    job.stats = {}
+    records = job._events_to_records({'symbol': 'SH600000', 'ex_date': RECENT, 'cash_ratio': 2.0})
+    assert records == []
+    assert job.stats.get('errors', []) == []
