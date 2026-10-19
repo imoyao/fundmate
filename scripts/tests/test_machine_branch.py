@@ -1189,3 +1189,146 @@ def test_merge_sync_conflict_still_pushes_nothing(mod, tmp_path, monkeypatch, ca
         .strip()
     )
     assert before == after, "冲突时远端 dev 不得被改动"
+
+
+# ---------------------------------------------------------------------------
+# 十、分支保护拒绝 ⇒ 改走 PR 通道（源 CNB #586，2026-10-19 构建 cnb-68p-1k58q97a8）
+# ---------------------------------------------------------------------------
+#
+# 现场原文（照抄构建日志）：
+#     ❌ 推 `dev` 失败：remote: error: GH006: Protected branch update failed for refs/heads/dev.
+#        remote: - Required status check "质量门禁汇总" is expected.
+#      ! [remote rejected]   HEAD -> dev (protected branch hook declined)
+#
+# 合并**是成功的**，被拒的只有推。根因不是分叉没解——是「直推」在有保护规则的分支上
+# 恒不可达（`质量门禁汇总` 只在 PR 上产生）。故这一支要**换通道**，不是重跑。
+
+
+def _run_merge_sync_with_fake_push(mod, tmp_path, monkeypatch, capsys, push_result):
+    """跑 merge-sync，但把 `_push_merge_sync` 换成「直接返回给定结果」。
+
+    刻意不走真实 remote：本组用例要钉的是**推送被拒之后的处置**，
+    真 remote 造不出「GH006 分支保护」这种远端行为。
+    """
+    cnb, gh = _mk_side_repos(tmp_path, "protect", same_file=False)
+    pushed_refs: list[str] = []
+
+    def fake_push(github_url, branch, cwd):
+        pushed_refs.append(branch)
+        return push_result
+
+    monkeypatch.setattr(mod, "_push_merge_sync", fake_push)
+    args = argparse.Namespace(
+        apply=True,
+        dry_run=False,
+        push=True,
+        merge_sync=True,
+        base="cnb",
+        branch="dev",
+        machine_branch=mod.DEFAULT_MACHINE_BRANCH,
+        cnb_url=str(cnb),
+        github_url=str(gh),
+        cwd=str(cnb),
+    )
+    rc = mod.run(args)
+    out = capsys.readouterr()
+    return rc, out, pushed_refs, gh
+
+
+GH006 = (
+    "remote: error: GH006: Protected branch update failed for refs/heads/dev.\n"
+    'remote: - Required status check "质量门禁汇总" is expected.\n'
+    " ! [remote rejected]   HEAD -> dev (protected branch hook declined)"
+)
+
+
+def test_protection_markers_cover_the_real_logline(mod):
+    """分类判据必须认得住**构建日志里的原话**，而不是我们想象中的措辞。
+
+    探针：从 `PROTECTION_REJECTION_MARKERS` 里删掉 `GH006` ⇒ 本用例转红
+    （单独断言它，是为免别的标记把它的缺失掩盖掉——第一版就是这样 MISSED 的）。
+    """
+    assert "GH006" in mod.PROTECTION_REJECTION_MARKERS, (
+        "GH006 是现场原文（构建 cnb-68p-1k58q97a8），不得从判据里删掉"
+    )
+    for marker in mod.PROTECTION_REJECTION_MARKERS:
+        assert mod.is_protection_rejection(f"remote: {marker} ..."), marker
+    # 三种失败形态**不得**互相冒充（处置完全不同：换通道 / 重跑 / 换 token）。
+    assert not mod.is_protection_rejection(
+        "! [rejected]  dev -> dev  (fetch first)"
+    ), "非快进不是分支保护问题，开 PR 只会往看板添重复卡"
+    assert not mod.is_protection_rejection(
+        "fatal: Authentication failed for 'https://github.com/x/y.git'"
+    ), "凭据失效不该被当成分支保护"
+
+
+def test_protection_rejection_pushes_fallback_ref_and_exits_3(
+    mod, tmp_path, monkeypatch, capsys
+):
+    """GH006 ⇒ 合并结果落到**一次性分支**、退 3，并把 head 印给 stage（不自己开 PR）。
+
+    为什么退 3 而不是 2：2 的语义是「结论不可信」，而这一支结论**是有效的**
+    （两侧确实无冲突、合成了）。两者混成一个数，日志里的人就只能靠猜（#567 的教训）。
+
+    探针：把 `run()` 里 `return 3` 改成 `return 2` ⇒ 第一条断言转红；
+    删掉 `push_fallback_ref` 调用 ⇒ 第二条断言转红。
+    """
+    rc, out, pushed_refs, gh = _run_merge_sync_with_fake_push(
+        mod, tmp_path, monkeypatch, capsys, (False, GH006)
+    )
+    assert rc == 3, f"分支保护拒绝应退 3（结论有效、通道不对），实际 {rc}"
+    assert f"FALLBACK_HEAD={mod.FALLBACK_BRANCH}" in out.out, out.out
+    assert "FALLBACK_BASE=dev" in out.out, out.out
+    assert "分支保护" in out.err, out.err
+    # 一次性分支**真的被推了**（否则 stage 拿去开 PR 只会 404）。
+    refs = subprocess.run(
+        ["git", "ls-remote", str(gh), "refs/heads/" + mod.FALLBACK_BRANCH],
+        capture_output=True,
+        text=True,
+        env=_env(),
+    ).stdout
+    assert refs.strip(), f"兜底分支应已推上远端，实际：{refs!r}"
+    # merge-sync 的直推只试了一次 `dev`，之后就换通道 —— 不该对着 `dev` 反复重试。
+    assert pushed_refs == ["dev"], pushed_refs
+
+
+def test_non_protection_failure_still_exits_2(mod, tmp_path, monkeypatch, capsys):
+    """**非快进 / 凭据失效照旧退 2**，不得顺手开 PR。
+
+    探针：把判据改成「只要推失败就走 PR」⇒ 本用例转红
+    （那时会退 3 并推出一条 `fix/cnb-dev-merge`，正是要防的「每轮都开 PR」）。
+    """
+    rc, out, _, gh = _run_merge_sync_with_fake_push(
+        mod, tmp_path, monkeypatch, capsys, (False, "! [rejected]  dev -> dev  (fetch first)")
+    )
+    assert rc == 2, f"非快进应退 2，实际 {rc}"
+    assert "FALLBACK_HEAD=" not in out.out, "非快进不该开 PR 兜底"
+    refs = subprocess.run(
+        ["git", "ls-remote", str(gh), "refs/heads/" + mod.FALLBACK_BRANCH],
+        capture_output=True,
+        text=True,
+        env=_env(),
+    ).stdout
+    assert not refs.strip(), "非快进时不得推兜底分支"
+
+
+def test_fallback_branch_name_has_no_date(mod):
+    """兜底分支名**不得带日期**：带日期会攒出 `…-2026-10-19` 这种分支列表垃圾。
+
+    （与 `test_default_machine_branch_is_not_a_long_lived_name` 同源。）
+    """
+    assert not re.search(r"\d{4}-\d{2}-\d{2}", mod.FALLBACK_BRANCH), mod.FALLBACK_BRANCH
+
+
+def test_stage_reads_branch_name_from_script(mod):
+    """`.cnb.yml` 里的兜底分支名必须**从脚本读**，不得自己再抄一份。
+
+    两处真相的代价很具体：改了一处，另一处不会红，于是 stage 拿着旧分支名去开 PR ⇒
+    PR 里的 head 是一条不存在的分支（#118 的契约谎言同族）。
+
+    探针：把 stage 里的 `${headref}` 换成字面量 `fix/cnb-dev-merge` ⇒ 本用例转红。
+    """
+    yml = (_REPO_ROOT / ".cnb.yml").read_text(encoding="utf-8")
+    assert "--print-fallback-target" in yml, "stage 应通过 --print-fallback-target 取分支名"
+    assert "branch_protection_pr.py" in yml, "stage 应调用 PR 兜底脚本"
+    assert '--head "${headref}"' in yml, "开 PR 的 head 必须取自脚本输出，不得写死"
