@@ -516,6 +516,7 @@ class TestDividendReinvest:
                 'asset_type': 'fund',
                 'quantity': 100,
                 'account_name': '测试账户',
+                'ledger_id': 1,  # #2372：身份键 (ledger_id, symbol)，与持仓同账本才关联
                 'family_id': 1,
                 'trade_date': datetime(2026, 6, 1),
                 'confirm_date': date(2026, 6, 1),
@@ -578,6 +579,7 @@ class TestDividendReinvest:
                 'asset_type': 'fund',
                 'quantity': 100,
                 'account_name': '测试账户',
+                'ledger_id': 1,  # #2372：身份键 (ledger_id, symbol)，与持仓同账本才关联
                 'family_id': 1,
                 'trade_date': datetime(2026, 6, 1),
                 'confirm_date': date(2026, 6, 1),

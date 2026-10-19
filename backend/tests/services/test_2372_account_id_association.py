@@ -24,7 +24,7 @@ position_id=618 都有值；621 笔流水 position_id 悬空；48 笔 position_n
 - 分组：``group_by=account`` 键为 ``str(ledger_id)``（None → ``'unfiled'``）。
 """
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from app.core.money import Money
@@ -46,6 +46,9 @@ from tests.services.test_conversion_submit import (
 )
 
 TODAY = date(2026, 10, 20)
+# #541 起分红/送转事件有 400 天回看窗口（EVENT_LOOKBACK_DAYS）：用例事件日期
+# 必须落在窗口内，否则先被过期过滤、压根走不到逐户逻辑（测了个寂寞）。
+RECENT = TODAY - timedelta(days=30)
 
 
 def _make_ledger(db, name):
@@ -544,10 +547,10 @@ def test_dividend_event_records_per_position_with_ledger_id(db, make_position):
     db.commit()
 
     job = _make_dividend_job(db)
-    records = job._event_to_records(
+    records = job._events_to_records(
         {
             'symbol': 'SH600000',
-            'ex_date': date(2024, 6, 1),
+            'ex_date': RECENT,
             'bonus_ratio': 0.0,
             'transfer_ratio': 0.0,
             'cash_ratio': 2.0,
@@ -610,13 +613,13 @@ def test_dividend_holding_query_failure_still_skips(db):
 
     job.db = _Boom()
     job.stats = {}
-    assert job._holding_positions('SH600000') is None
+    assert job._position_rows('SH600000') is None
     assert any(e.get('stage') == 'holding_query' for e in job.stats['errors'])
 
-    records = job._event_to_records(
+    records = job._events_to_records(
         {
             'symbol': 'SH600000',
-            'ex_date': date(2024, 6, 1),
+            'ex_date': RECENT,
             'cash_ratio': 2.0,
             'desc': '10派2',
         }
@@ -628,11 +631,11 @@ def test_dividend_no_positions_yields_no_records(db):
     """查询成功但无持仓（含 0 份额）：不产生记录，也不算错误。"""
     job = _make_dividend_job(db)
     job.stats = {}
-    assert job._holding_positions('SH600000') == []
-    records = job._event_to_records(
+    assert job._position_rows('SH600000') == []
+    records = job._events_to_records(
         {
             'symbol': 'SH600000',
-            'ex_date': date(2024, 6, 1),
+            'ex_date': RECENT,
             'cash_ratio': 2.0,
             'desc': '10派2',
         }
