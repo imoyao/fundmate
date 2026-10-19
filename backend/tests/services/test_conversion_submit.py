@@ -400,3 +400,29 @@ def test_submit_api_accepts_in_quantity_and_fee_override(client, db, make_positi
     assert data['out']['fee_overridden'] is True
     # 费用被修正为 0 ⇒ 净额 1000，400 份 × 2.0 = 800，差额 200
     assert data['refund']['amount'] == 200.0
+
+
+def test_submit_in_leg_fills_account_name(db, make_position, make_transaction):
+    """转入腿必须带 account_name，不能只传 ledger_id。
+
+    根因回归（2026-10-18 实测 position 618 / transaction 3001）：转换「转入腿」
+    只传 ledger_id，positions/transactions 的 account_name 落成 NULL；按账户分组时
+    None 作字典键让 flask.jsonify(sort_keys=True) 抛 TypeError，整个持仓列表 500。
+    """
+    _seed_two_funds(db)
+    pos = _make_out_position(db, make_position, make_transaction)
+
+    _submit(db, pos)
+
+    in_pos = db.query(Position).filter_by(symbol='000002').first()
+    assert in_pos is not None
+    assert in_pos.ledger_id == pos.ledger_id
+    assert in_pos.account_name == '转换测试账户'
+
+    in_txn = (
+        db.query(Transaction)
+        .filter(Transaction.link_group_id == IDEMPOTENCY_KEY, Transaction.txn_type == 'buy')
+        .first()
+    )
+    assert in_txn is not None
+    assert in_txn.account_name == '转换测试账户'

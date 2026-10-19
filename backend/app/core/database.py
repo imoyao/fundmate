@@ -28,6 +28,7 @@ from app.core.db_factory import (
     ignored_app_db_env_vars,
 )
 from app.core.migrations import (
+    migrate_account_name_snapshot,
     migrate_advisor_portfolio_metadata,
     migrate_advisor_portfolio_metrics,
     migrate_advisor_portfolio_provenance,
@@ -609,6 +610,10 @@ def init_db():
     # positions.cleared_at（#2343）：清仓不再删行，需要「何时清仓」作为周期下界。
     # 只加列不回填（历史清仓行已被删除，无可靠数据源），同上须先于结构校验。
     migrate_positions_cleared_at(user_eng)
+    # positions / transactions 的 account_name 冗余快照空值回填：基金转换「转入腿」
+    # 只传 ledger_id 漏传 account_name，存量行会留 NULL（按账户分组时 jsonify 崩）。
+    # 只补数据、不动结构，故放在结构校验之前也无副作用。
+    migrate_account_name_snapshot(user_eng)
     _validate_schema(user_eng, user_meta, label='user')
     # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键 (symbol, venue)
     # → (symbol, market, venue) 防跨市场同码冲突。create_all 只增表不改表，旧库
@@ -697,6 +702,8 @@ def init_db_split():
         migrate_positions_snapshot_anchor(user_eng)
         # positions.cleared_at（#2343）：只加列不回填，幂等（见迁移 docstring）
         migrate_positions_cleared_at(user_eng)
+        # account_name 冗余快照空值回填：与单库模式同口径，双库模式也必须收编存量行
+        migrate_account_name_snapshot(user_eng)
         _validate_schema(user_eng, user_meta, label='user')
         # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键回归基线，
         # 双库模式同样按 user 域引擎自动执行，幂等。
