@@ -3009,3 +3009,132 @@ CNB 读密钥文件时按 **`CNB_BRANCH` 的运行时值**逐条匹配 `allow_br
   否则读者会沿着 `! [remote rejected]` 一路去查分支保护（本仓 §28 正有一份那样的坑）。
 - **写「我不知道」比编机制便宜。** 对照实验中两条成功、一条失败，机制解释无法自洽 ——
   记下来，好过让下一个人拿一个假解释去排查真问题。
+
+## 30. 判据前移 + 回向快进：分叉的两个根因是「作者看不见」与「没人往回搬」（源 CNB #601，2026-10-19）  <!-- cross-repo-ref-allow -->
+
+### 30.1 先把问题拆成两半
+
+跨仓 `dev` 分叉（§17 / §19）此前一直按「搬运没写对」在修：`merge-sync` 治好了「合起来再搬」（§26），
+`GH006` 治好了「通行方式」（§28）。但两侧仍会岔开，因为剩下两件事跟搬运本身无关：
+
+| 半 | 现象 | 真正缺的东西 |
+|---|---|---|
+| ① 作者侧 | 在 CNB 侧写的内容，判据只在 GitHub CI 上红 | **反馈位置**不在作者写的地方 |
+| ② 回向侧 | `merge-sync` 只从 CNB 侧发起；GitHub 侧新合入要等下一次 CNB push 才被合进来 | **没人往回搬**，且「落后多少」两侧都没有信号 |
+
+于是本轮各补一半：**判据前移到 CNB 的 push 构建**（30.2）、**回向只做快进**（30.3）。
+两条都不新增 GitHub job、不动 `gate.needs`（#1559 / #1560 两次事故都是合并冲突把 `needs` 弄丢）。  <!-- cross-repo-ref-allow -->
+
+### 30.2 P1 判据前移：把 `ci.yml` 的判据搬到 CNB 的 push 上
+
+挂载点是功能分支段的 `push`：
+
+```yaml
+"**/!(main|dev)":
+  push:
+    - name: 同步当前功能分支到 GitHub     # 原有：把分支搬过去（PR 才有内容）
+      stages: [...]
+    - name: 判据自检（与 GitHub 门禁同一批）  # 新增：作者当场看见红
+      <<: *judge-job
+```
+
+**跑的是 `ci.yml` 里同一批脚本，不是另写一份判据。** 两份判据 = 两个真相源，
+改一处漏一处，而两边各自报绿（§13 的失败形态）。当前清单（14 条 python + 1 条 node）：
+
+```text
+scripts/check_cnb_events.py                        scripts/guard_cron_covers_active_branch.py
+scripts/guard_cnb_yml_duplicate_keys.py            scripts/guard_bridge_sync_reachable.py
+scripts/guard_cnb_script_task_python.py            scripts/guard_triage_reachable.py
+scripts/guard_cnb_script_task_git.py               scripts/guard_schedule_checkout_ref.py
+scripts/guard_secret_imports.py                    scripts/guard_workflow_inputs_interpolation.py
+scripts/guard_git_sync_push_scope.py               scripts/bridge/harvest_scan_guard.py
+scripts/guard_cron_job_reachability.py             scripts/guard_rule_registry.py
+scripts/guard_cross_repo_refs.mjs   ← node
+```
+
+几条刻意选择：
+
+| 选择 | 理由 |
+|---|---|
+| **排除 `guard_mojibake.py`** | 它没有 CLI 参数，按 `git diff-tree` / `git rev-list` 的**提交范围**取文件。CNB 构建的检出形态（浅克隆 / 单分支 / merge 后的 sha）不可控 ⇒ 这条会变成**恒红**。乱码仍由 GitHub 的 `mojibake_guard` job（PR 变更文件口径）守。 |
+| **单个 `python:3.12-slim`**，现场装 git / nodejs / pyyaml | 本仓现有镜像只有 `python:3.12-slim` 与 `tencentcom/git-sync`，引 `node:22-slim` 是新变量；而两条 node 判据实测**零 git 依赖**、node18 可跑。 |
+| 装不上就 **`exit 1`** | pyyaml / node 缺失时若「跳过并报绿」，等于把 3 条判据静默关掉（#171 的形态：空 ≠ 没拿到）。 |
+| 挂在同步 job **之后** | 搬运是主任务（分支必须先到 GitHub，PR 才有内容），判据只负责「让作者当场看见红」，不拦搬运。 |
+| **`dev: push` 不挂判据** | 进 `dev` 的内容已在功能分支上跑过；再跑一次只会让 `dev` 构建为「已经合入的内容」变红，噪声大于信号。 |
+
+边界：CNB 侧判据是**提前看见**，不替代 GitHub 的 required check —— 它红了，GitHub 侧的门禁仍然独立记账；
+反过来，CNB 构建红也**不阻止** GitHub 合并（那是两套系统，别把其一当另一套的备份）。
+
+### 30.3 P2a 回向快进：只 FF、永不 force
+
+脚本 `scripts/bridge/ffback_cnb_dev.py`（取数与报告复用 `check_cross_repo_dev_divergence.py`）：
+
+| 形态 | 判定 | 动作 | rc |
+|---|---|---|---|
+| 两侧 sha 相同 | `same` | 无 | 0 |
+| CNB 是 GitHub 的祖先 | `ff` | `git push <cnb> <gh-sha>:refs/heads/dev`（**不带任何 force 参数**） | 0 / 推成之后 |
+| GitHub 是 CNB 的祖先 | `cnb_ahead` | 无动作（等 push 作业搬运） | 0 |
+| 互不包含 | `diverged` | **不推**，指向 `dev_converge.py` | **1** |
+| 祖先关系判不出来（对象缺失 / 不是 git 仓） | `unknown` | 说「结论不可信」 | **2** |
+| 推送被拒（无写权限 / 分支保护） | — | 说「改权限或换通道」 | **3** |
+
+三处刻意分开的退出码：
+
+- **`2` 与 `0` 分开**（#171）：`git merge-base --is-ancestor` 的 128 是「对象缺失」，
+  把它当成「不是祖先」就会把「读不到」静默成一条正常结论。
+- **`1` 与 `3` 分开**：真分叉要**人来合**，推不上去要**人去开权限** —— 下一步动作完全不同。
+  合并成一个码，值班的人只能重跑一遍。
+- **永不 force**：回向 force 会冲掉 GitHub 侧尚未搬进 CNB 的提交，是**静默丢改动**；
+  这与 push 方向「裸 ref + FF-only」是同一条护栏的两面（`guard_git_sync_push_scope.py`）。
+
+挂载三处，用的是同一个 `&ffback-job` 锚点：
+
+| 位置 | 作用 |
+|---|---|
+| `dev: push:`（merge-sync 之后） | 搬完立刻补齐：一次构建内闭合「合起来 → 搬到 GitHub → 回向 CNB」 |
+| `dev: "crontab: 0 18 * * *"` | 每日兜底：GitHub 侧有合入而 CNB 当天没 push 时（周末 / 冻结期）也能追上 |
+| `$: web_trigger` | 手动入口 —— 不是为了方便，而是 `guard_bridge_sync_reachable.py` 判的就是「两条通道跑同一套命令」 |
+
+收敛性：回向推成功后 CNB 会再吃一次 `dev` push，那一轮判出 `same`（rc 0）、什么都不做 ⇒ 一次收敛，不循环。
+
+> ⚠️ **未实测**：CNB 构建身份能否推**自己仓库的** `dev`（历史上只有人工 push 的成功记录）。
+> 首次运行若报 `rc=3`，处置是二选一：给作业写权限，或把回向搬到 GitHub 侧推送；
+> **不要**改成 force。这一条写在 `.cnb.yml` 的注释里，也写在这里，免得下次被当成「已经验证过」。
+
+### 30.4 本轮踩到的四个判据坑（都是真跑出来的）
+
+1. **判据自检 job 被 `guard_cnb_script_task_git.py` 判红**：它把自己源码里的
+   `subprocess.run(['git', …])` 字面量识别成「这个脚本是 git 驱动的」，于是要求**调用它的 stage** 供 git。
+   处置：照 `dev:` 段 merge-sync 的写法在 stage 开头装 git。同族教训见 §21 ——
+   报错指向脚本内部某行、**不指向容器**。
+2. **`guard_bridge_sync_reachable.py` 的判据是「集合等价」**：`dev:` 的 cron 脚本集合必须 ≡
+   `$:` 的 web_trigger 集合。加了「每天回向」就**必须**同时在 `$:` 的 `web_trigger` 加手动入口。
+   这正是它要防的形态：两条通道跑不同命令 ⇒ 两边各自报绿。
+3. **同一个守卫按「文本」收脚本名**：回向 stage 里 `echo … python scripts/bridge/dev_converge.py`
+   这一行也被算进集合。不是 bug，但它意味着「提示文案里提到脚本」也会进入判据输入 —— 改文案前先想到这一点。
+4. **跨仓引用判据对新写的注释同样生效**：`.cnb.yml` 顶部两行「源 CNB #601」**同一行**里出现  <!-- cross-repo-ref-allow -->
+   GitHub 字样 ⇒ 报红（行级判据），须加 `# cross-repo-ref-allow`。两个锚点各一行。
+
+### 30.5 回归网与变异探针
+
+`backend/tests/test_ffback_cnb_dev.py`：**11 例**，用**真的 git 仓**（两个 bare + 工作仓）端到端跑，
+因为被测逻辑的绝大部分就是 git 本身（fetch / `merge-base --is-ancestor` / push 的快进判定）——
+mock 掉 git 等于把最该验的东西替掉。覆盖：两侧一致、dry-run 不推、`--apply` 真前进、
+真分叉两侧都不动、rc 2、**rc 3**。
+
+两个变异探针，均实测 `MUTATION-CAUGHT`：
+
+| 把什么改坏 | 哪条用例转红 |
+|---|---|
+| `plan()` 的 `diverged` 分支改成返回 `'ff'` | `test_真分叉_rc1_且不推送` |
+| `push_fast_forward` 被拒时的 `return 3` 改成 `return 1` | `test_推送被拒_rc3_且不改远端` |
+
+### 30.6 通用教训
+
+- **「纪律问题」常常是「反馈位置问题」。** 桥 PR 上那 16 处裸引用不是「不会写」，是作者在 CNB 侧
+  根本收不到反馈。把判据搬到作者所在的地方，比反复强调纪律便宜。
+- **回向只允许 FF。** 任何 force 都在丢「还没搬走的那部分」，而这恰恰是分叉解不开时最容易被
+  当成「解决办法」的那个动作。
+- **加一条定时命令，要同时问「手动通道有吗」。** 两条通道跑不同命令 = 两边各自报绿（#171 的形态）。  <!-- cross-repo-ref-allow -->
+- **未实测的部分写进配置里。** §30.3 的 rc=3 与「构建身份能否推 dev」都标着「未实测」，
+  比写成既有事实便宜 —— 后者会让下一个人照着假前提排查。
