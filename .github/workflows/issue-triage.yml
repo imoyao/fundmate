@@ -1,0 +1,111 @@
+# Issue 分诊（GitHub 侧兜底通道，源 CNB #564）  <!-- cross-repo-ref-allow -->
+#
+# ## 为什么要有它
+#
+# 分诊脚本 2026-10-18 就合进了 `dev`，但到 10-19 为止**看板上一个标签都没落**。
+# 根因不是判据错，是**调度链断了**：CNB 的 cron 只剩「增量建卡」一个 stage
+# （分诊 / 回流 / 自检随 PR #584 搬进 `dev:` 段后没跟过去），而 CNB 的 cron
+# **只能挂一个分支、只有一条链路**——断一次，全部作业一起停，且报绿。
+#
+# 卡面数据在 **GitHub 主仓**，分诊结论落在哪一侧不影响判据。所以这里补一条
+# **独立于 CNB** 的通道：`--backend github` 只改「往哪写」，结论与指纹完全一致
+# （两侧靠 `<!-- cnb-triage: hash -->` 各自幂等）。
+#
+# ## 边界（一条都不许越）
+#
+# - **只贴标签 + 写一条评论**：不改代码、不建分支、不开 PR、不贴 automerge；
+# - 派活闸门的结论只写在评论里，**合入永远是人**（用户 2026-10-18 拍板）；
+# - 判据全机械（`scripts/triage/issue_triage.py`），不调 LLM。
+#
+# ## 与既有作业的分工
+#
+# | 作业 | 做什么 | 落在哪 |
+# |---|---|---|
+# | `issue-health-scan.yml`（周一） | A/B/C/D/E 五类候选，只报告 | 跟踪卡评论 |
+# | CNB `.cnb.yml` cron（每日 02:00） | 建卡 / 回流 / 分诊 | CNB 镜像卡 |
+# | 本 workflow（每日） | 分诊（兜底通道） | **GitHub 原卡** |
+
+name: Issue 分诊（GitHub 侧）
+
+on:
+  schedule:
+    # 每天 UTC 19:00（北京时间次日 03:00）—— 排在 CNB 的 cron（02:00 北京）之后，
+    # 让 CNB 侧先跑；那边断掉时这一条补上，两边都活着时也不会互相覆盖（各自幂等）。
+    - cron: '0 19 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 只打印不写入（true / false）
+        required: false
+        default: 'false'
+      per_run:
+        description: 单轮分诊写入上限
+        required: false
+        default: '50'
+
+concurrency:
+  group: issue-triage
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  # ⚠️ `schedule` 只读**默认分支（main）**上的 workflow 定义，而本仓的活跃分支是 `dev`。
+  # 与 `daily-snapshot.yml`(#1434) / `issue-health-scan.yml` 同一处理：定义留在这里，
+  # **实际执行的代码显式 checkout `dev`** —— 否则脚本永远是发版那一刻的旧版。
+  TRIAGE_REF: dev
+  # ⚠️ `inputs.*` **不得**直接插值进 `run:`（本 workflow 有 `schedule`，而 `inputs` 只在
+  # workflow_dispatch / workflow_call 下才定义 ⇒ schedule 触发时表达式不被求值，
+  # 字面量 `${{ inputs.dry_run }}` 落进 shell，`bash: bad substitution` 首行即挂
+  # （源 CNB #148 实测：每天红、只花 9 秒）。故经 `env:` 转一手，脚本里只读环境变量。
+  DRY_RUN: ${{ inputs.dry_run || 'false' }}
+  PER_RUN: ${{ inputs.per_run || '50' }}
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: 检出代码（ref=dev）
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TRIAGE_REF }}
+
+      - name: 凭据自证（缺失即失败，不静默）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 与 `.cnb.yml` 的「认领同步」同一条纪律：写不出去要让构建红，
+          # 不要退化成「日志一路 ✅、实际一个 401 都没发出去」的假绿。
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "❌ GITHUB_TOKEN 未注入 —— 分诊无法写入标签/评论"
+            exit 1
+          fi
+          echo "· token 已注入（长度 ${#GH_TOKEN}）"
+
+      - name: 分诊（报告）
+        if: env.DRY_RUN == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/triage/issue_triage.py --report --backend github --per-run 500
+
+      - name: 分诊（写入标签 + 评论）
+        if: env.DRY_RUN != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          python scripts/triage/issue_triage.py --apply --backend github \
+            --per-run "${PER_RUN:-50}" --batch 3 --sizes S/M
+          rc=$?
+          # 退出码 2 = 「拿不到完整数据」。**不得**当成「没有卡需要分诊」（#171 的失败态纪律）：
+          # 让它红，比让它绿着空转便宜得多。
+          if [ $rc -eq 2 ]; then
+            echo "❌ 分诊拿不到完整数据（退出码 2）—— 本轮结论不可信，不得读成「没有卡需要分诊」"
+            exit 1
+          elif [ $rc -ne 0 ]; then
+            echo "❌ 分诊返回 $rc —— 请查上方日志"
+            exit 1
+          fi

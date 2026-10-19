@@ -361,6 +361,24 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             '不判作业跑起来是否成功（那是构建本身的事）'
         ),
     },
+    'scripts/guard_triage_reachable.py': {
+        'rule': '分诊作业必须真的会跑（活跃分支的 cron 里真的调了它）',
+        # 与上面三条是一组：`guard_cron_covers_active_branch`（挂哪条分支）、
+        # `guard_cron_job_reachability`（目标分支在不在检出里）、
+        # `guard_schedule_checkout_ref`（checkout 哪条分支）都问「配置对不对」，
+        # 这一条问的是「**会不会真的跑到它**」——2026-10-18 合进 dev 之后，
+        # 就是因为分诊 stage 不在 cron 里，看板一张标签都没落，而所有人都以为已经实现了。
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_triage_reachable.py',
+        # 边界：不判作业跑起来成不成功（那要联网 + 凭据，PR 门禁不该依赖外网）；
+        # 不判结论判得对不对（那是 test_issue_triage.py 的事）；
+        # 兜底 workflow 的 checkout 分支**刻意不在这里判**——`guard_schedule_checkout_ref.py`
+        # 已管且本文件在它扫描范围内，两处判据对同一件事迟早各说各话。
+        'covered': (
+            '不判「作业有没有真跑成功」与「结论对不对」；'
+            '不判 `<<: *anchor` 之外的动态拼接（如用环境变量拼出脚本路径）'
+        ),
+    },
     'scripts/guard_cnb_script_task_python.py': {
         'rule': '跑 python 的脚本任务必须自带 docker.image',
         'runner': 'ci',

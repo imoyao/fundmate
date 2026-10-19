@@ -678,6 +678,20 @@ jobs:
       - name: 检查定时作业是否挂在活跃分支上（阻断）
         run: python scripts/guard_cron_covers_active_branch.py
 
+      # 「分诊到底会不会跑」（源 CNB #564，2026-10-19）：用户问过两次「做了没有」，
+      # 两次答案都是「没做」——脚本合进 `dev`、单测全绿，而**看板上一张标签都没落**。
+      # 根因不是判据错，是分诊 stage 不在 cron 里（PR #584 搬迁时只搬了建卡），
+      # 而那次唯一的 cron 运行里三个自检还全崩在 slim 镜像缺 git 上、外层 `exit 0` 报绿。
+      # 「脚本在仓库里 + 有测试」都不等于「会跑」——这条把它机械化：活跃分支的 cron 里
+      # 必须真的有 job 调用 `scripts/triage/issue_triage.py`，stage 必须带 name（#167），
+      # 且 GitHub 兜底通道必须有自己的 `schedule`。
+      # 与上面三条是一组：那条管 cron 挂哪个分支、这条管「挂对了之后会不会真跑到它」。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      # 判据边界（不判作业成功与否、不判结论对不对）见脚本 docstring；
+      # 回归网在 scripts/tests/test_triage_reachable.py（12 条，含 3 个回退探针）。
+      - name: 检查分诊作业是否真的会跑（阻断）
+        run: python scripts/guard_triage_reachable.py
+
       # 定时作业的**检出分支**（源 CNB #586，2026-10-19）：`schedule` 只读默认分支上的
       # workflow 定义，`actions/checkout` 默认也落在默认分支 —— 而本仓 `main` 只由发版 PR
       # 推进，实测落后 `dev` **124 个提交**。于是「每夜捕捉回归」捕捉的是很久以前的代码。

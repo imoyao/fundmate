@@ -252,7 +252,13 @@ def strip_mirror_header(body: str | None) -> str:
 
 
 def count_refs(body: str | None, own: int) -> int:
-    """正文里引用了**其他卡**的个数（排除自己）。系列卡的判据之一。"""
+    """正文里引用了**其他卡**的个数（排除自己）。系列卡的判据之一。
+
+    `own` 的取值域随卡号空间而变，调用方必须传对（否则「排除自己」会失效）：
+    - CNB 卡（镜像卡）：正文是 GitHub 卡的副本 ⇒ 里面的 `#N` 是 **GitHub** 编号，
+      故 `own` 传 `github_number`（见 `Card.is_mirror` 与 `classify`）；
+    - 非镜像卡：传自己的 CNB 编号，排除 `-1`（不排除任何卡）。
+    """
     return len({int(m.group(1)) for m in REF_RE.finditer(body or '')} - {own})
 
 
@@ -279,17 +285,20 @@ def looks_stale(card_body: str, title: str, labels: list[str]) -> bool:
 ANYWHERE_SIZE_S_RE = re.compile(r'单(?:文件|点改动)|只(?:需)?改(?:一|单|个)处?|一行改动|typo|笔误')
 
 
-def size_of(body: str | None, title: str | None) -> str:
+def size_of(body: str | None, title: str | None, *, own: int = -1) -> str:
     """粗粒度规模：只用来决定「能不能派」，不追求精确。
 
     S 的判据是「卡面自己说了是改一处」——`单行` / `一处` / `一行` / 明确写了单文件路径。
     **刻意不从行数估**：卡面里的行号引用（`views.py:214`）是**引用**不是**改动面**，
     实测里两者经常差一个数量级（本仓 CNB #56 引用的文件只有 166 行）。
+
+    `own` 与 `count_refs` 的排除对象同源（见其 docstring）——`size_of` 是唯一
+    调用它的非 `classify` 路径，两处必须传同一个值，否则 `size` 与 `refs` 会各说各话。
     """
     text = f'{title or ""}\n{body or ""}'
     if ANYWHERE_SIZE_S_RE.search(text):
         return 'S'
-    if count_refs(body, -1) >= 2:
+    if count_refs(body, own) >= 2:
         return 'L'
     if len(body or '') > 4000:
         return 'L'
@@ -357,7 +366,14 @@ def classify(card: Card, *, sizes: tuple[str, ...] = DEFAULT_DISPATCH_SIZES) -> 
     """
     body = strip_mirror_header(card.body)
     reasons: list[str] = []
-    refs = count_refs(body, card.number)
+    # 卡号空间：镜像卡正文是 GitHub 卡的副本，`#N` 是 GitHub 编号；
+    # GitHub 卡自己就是 GitHub 编号。只有「非镜像的 CNB 卡」才用 CNB 编号排除自己。
+    # 判错的后果是具体的：镜像卡若拿 CNB 编号去排除，正文里那句 `#N` 会被当成
+    # 「引用了另一张卡」⇒ 系列卡误判 + 规模虚高到 L。
+    # ⚠️ `or card.number`：镜像卡若**认不出** GitHub 编号（正文里没写幂等键），
+    # 退化成 CNB 编号——宁可「排除对象可能不对」，也不要 `None`（那会让排除失效）。
+    own = (card.github_number or card.number) if card.is_mirror else card.number
+    refs = count_refs(body, own)
     need_decision = explicit_decision(body)
 
     # ① 疑似过时：先排除「已经在归档里的」，否则永远有人去动一张死卡
@@ -391,7 +407,7 @@ def classify(card: Card, *, sizes: tuple[str, ...] = DEFAULT_DISPATCH_SIZES) -> 
     if need_decision:
         return Verdict(
             kind='decision',
-            size=size_of(body, card.title),
+            size=size_of(body, card.title, own=own),
             risk=risk_of(body, card.title, card.labels),
             next='product_gate',
             need_decision=True,
@@ -408,7 +424,7 @@ def classify(card: Card, *, sizes: tuple[str, ...] = DEFAULT_DISPATCH_SIZES) -> 
 
     verdict = Verdict(
         kind=kind,
-        size=size_of(body, card.title),
+        size=size_of(body, card.title, own=own),
         risk=risk_of(body, card.title, card.labels),
         next=nxt,
         need_decision=False,
@@ -472,8 +488,9 @@ def plan(
     per_run: int = DEFAULT_TRIAGE_PER_RUN,
     dispatch_cap: int = DEFAULT_BATCH,
     sizes: tuple[str, ...] = DEFAULT_DISPATCH_SIZES,
-) -> tuple[list[tuple[Card, Verdict]], int]:
-    """算出这一轮要写哪些卡，`(todo, skipped_by_quota)`。
+    written: set[int] | None = None,
+) -> tuple[list[tuple[Card, Verdict]], int, int]:
+    """算出这一轮要写哪些卡，`(todo, skipped_by_quota, skipped_already_written)`。
 
     两条上限**分开**（这是本条口径的关键）：
 
@@ -481,19 +498,44 @@ def plan(
     - `dispatch_cap`：**派活**的卡数上限（默认 3，用户拍板「每次 3 个」）——
       派活要开分支写码，且每张 PR 都要人 review，超了就变成无差别接受。
 
-    排序按编号升序：老的卡拖得最久；反过来也天然保证多轮之间不重复
-    （写过评论的卡指纹已存在，下一轮会被 `needs_write` 排除）。
+    `written`：**卡面上已有结论**（评论里带着指纹 + 标签齐全）的卡号集合。
+    传了它，额度就按「**真正要写的张数**」计，而不是按「挑了几张」计。
+
+    排序按编号升序：老的卡拖得最久。
 
     `skipped_by_quota` 必须被调用方**报出来**：被额度挡掉不等于「没有更多要分诊的卡」
     ——把两者混为一谈，就是「拿不到 ≠ 没有」的又一个变体。
+
+    ⚠️ 为什么额度必须按**写入**计（2026-10-19 实测踩过）
+    ---------------------------------------------------
+    首版按「挑了几张」计，于是：第一批卡写完之后，下一轮仍从编号最小的 50 张挑起，
+    它们全部「结论未变，跳过」⇒ `picked` 已经满 50 ⇒ **后面所有卡都被判「因额度未处理」**，
+    而实际写入是 0。实测输出：
+
+        🎉 本轮检查 153 张，写入 0 张（分诊上限 50、派活上限 3）
+        ⏸️  另有 103 张因额度未处理（不是「已分诊完」，下一轮继续）
+
+    这行字**每个字都是真的**，结论却是假的：卡住的不是额度，是「回头挑已经写过的卡」。
+    看板从此永远停在 50 张，而那 103 张永远不会被处理——与 CNB #450「缓存当判据」
+    同一形态：**判据错的时候，输出只会更响亮地复述错结论。**
+
+    另：被「结论未变」跳过的卡不该算进 `skipped_by_quota`——那是排队与实质的分界，
+    混在一起就分不清「该加额度」还是「该修判据」。
     """
+    done = written or set()
     todo = [(c, classify(c, sizes=sizes)) for c in cards if c.state == 'open']
     todo.sort(key=lambda cv: cv[0].number)
     dispatched = 0
+    wrote = 0
     picked: list[tuple[Card, Verdict]] = []
     skipped = 0
+    already = 0
     for card, verdict in todo:
-        if len(picked) >= per_run:
+        if card.number in done:
+            # 已写过：不占额度，也不必排队——它下一轮根本不会被写。
+            already += 1
+            continue
+        if wrote >= per_run:
             # 先判分诊上限，再判派活上限：被分诊额度挡掉的卡**还没被写**，
             # 若先给派活计数，下一轮它会既没写入又占掉一个派活名额。
             skipped += 1
@@ -504,7 +546,8 @@ def plan(
             else:
                 dispatched += 1
         picked.append((card, verdict))
-    return picked, skipped
+        wrote += 1
+    return picked, skipped, already
 
 
 def _downgrade_for_quota(verdict: Verdict, *, reason: str) -> Verdict:
@@ -662,6 +705,151 @@ def _write(path: str, payload: dict[str, Any] | None = None) -> None:
         resp.read()
 
 
+# ---------------------------------------------------------------------------
+# GitHub 侧（兜底通道；`--backend github`）
+# ---------------------------------------------------------------------------
+#
+# WHY 要有第二条通道（2026-10-19）
+# --------------------------------
+# 看板上「一张标签都没落」的原因是**调度链断了**（cron 只剩建卡），不是判据错。
+# 而 CNB 的 cron 只能挂一个分支、只能在 cnb.cool 跑——断一次就静默停摆，且它挂着的
+# 全部作业一起停。分诊的输入（卡面正文）在 **GitHub 主仓**，输出（标签 / 评论）落在
+# **CNB 镜像卡**，所以真正必要的只有「标签落在某处」。两条通道各自独立：
+#
+#   - `--backend cnb`（默认）：写给 CNB 镜像卡，给人在这里读；
+#   - `--backend github`：写给 GitHub 原卡，**同一个指纹、同一份内容**，靠
+#     `<!-- cnb-triage: hash -->` 去重（两侧各写一次，互不影响）。
+#
+# 边界不变：**只写标签与评论，绝不改代码、不建分支、不贴 automerge。**
+
+
+def _gh_repo() -> str:
+    return os.environ.get('GITHUB_REPO') or GH_REPO_DEFAULT
+
+
+def gh_api(path: str, *, method: str = 'GET', payload: dict[str, Any] | None = None) -> Any:
+    """调 GitHub REST。分页参数是 GitHub 自己的 `page` / `per_page`。
+
+    **读不要凭据、写必须要凭据**（与 `--apply` 的语义一致）：
+    - 没有 token 时只允许 GET（匿名 60 次/时/IP）——`--report` 才能在本地/CI 上跑；
+    - 要写（POST）而没 token ⇒ **显式报错**，不静默降级成「读到了、没写」。
+      `--apply --backend github` 少了这个检查，会变成「贴了标签」的假绿：日志一路 ✅，
+      实际一个 401 都没发出去。
+    """
+    token = os.environ.get('GITHUB_TOKEN')
+    if method != 'GET' and not token:
+        raise RuntimeError('缺少 GITHUB_TOKEN：`--apply --backend github` 需要写凭据')
+    url = f'https://api.github.com{path}'
+    data = json.dumps(payload).encode('utf-8') if payload is not None else None
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header('Accept', 'application/vnd.github+json')
+    req.add_header('User-Agent', 'fundmate-issue-triage')
+    if token:
+        req.add_header('Authorization', f'Bearer {token}')
+    if data is not None:
+        req.add_header('Content-Type', 'application/json')
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        raw = resp.read()
+    return json.loads(raw) if raw else None
+
+
+def list_github_open_cards() -> list[dict[str, Any]]:
+    """列 GitHub open issue（分页拉全）。**任何一页失败都要抛**——见 `list_open_cards()`。"""
+    repo = _gh_repo()
+    out: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        batch = gh_api(f'/repos/{repo}/issues?state=open&per_page=100&page={page}') or []
+        # ⚠️ GitHub 的 `issues` 端点**把 PR 也当 issue 返回**：只留真卡。
+        batch = [it for it in batch if 'pull_request' not in it]
+        out.extend(batch)
+        if len(batch) < 100:
+            break
+        page += 1
+        if page > 50:  # 5000 张上限，防跑飞
+            print('⚠️ GitHub open 卡超过 5000 张，本轮只处理前 5000 张 —— 结论不完整')
+            raise RuntimeError('too many github issues')
+    return out
+
+
+def _github_number_in(body: str | None) -> int | None:
+    """镜像卡正文里的 `GitHub 编号：#N`（建卡脚本写的幂等键）。
+
+    ⚠️ 实际正文是 ``GitHub 编号：`#2348` `` —— 编号外面套着**反引号**。
+    首版只写 ``GitHub 编号：\\s*#(\\d+)``，于是**一张都认不出来**（实测 0/106），
+    而认不出的后果是静默的：`is_mirror` 退化成看标签、卡号空间拿错、
+    `check_duplicate_mirrors` / 回流也一起失效。故这里容一个可选的 `` ` ``。
+    """
+    m = re.search(r'GitHub 编号：\s*`?#(\d+)', body or '')
+    return int(m.group(1)) if m else None
+
+
+def build_github_cards(*, only: int | None = None, limit: int = 10_000) -> tuple[list[Card], bool]:
+    """把 GitHub issue 装成同一套 `Card`，让他们走**同一份判据**。
+
+    两个必须对齐的点，否则结论会和 CNB 侧不同（那就成两套真话）：
+
+    1. **引用号归一**：镜像卡正文是 GitHub 卡的副本，里面的 `#N` **就是 GitHub 编号**；
+       而 CNB 卡里写的是 CNB 编号（同一个 `#N` 在两侧指向不同卡）。故这里用
+       `github_number` 做参照（`count_refs` 的排除对象）。
+    2. **正文原样**：镜像卡切过溯源块，GitHub 原卡本来就没有，不需要补。
+    """
+    cards: list[Card] = []
+    complete = True
+    for item in list_github_open_cards():
+        number = int(item['number'])
+        if only is not None and number != only:
+            continue
+        labels = [str(lbl.get('name') or '') for lbl in (item.get('labels') or [])]
+        cards.append(
+            Card(
+                number=number,
+                title=item.get('title') or '',
+                body=item.get('body') or '',
+                labels=labels,
+                state=str(item.get('state') or 'open'),
+                comments=int(item.get('comments') or 0),
+                github_number=number,
+            )
+        )
+        if len(cards) >= limit:
+            break
+    return cards, complete
+
+
+def _markers(card: Card, backend: str) -> set[str]:
+    """卡面上已写过的结论指纹：CNB 读 CNB 评论，GitHub 读 GitHub 评论。"""
+    if backend != 'github':
+        return existing_markers(list_comments(card.number))
+    out: set[str] = set()
+    for page in (1, 2):
+        batch = gh_api(f'/repos/{_gh_repo()}/issues/{card.number}/comments?per_page=100&page={page}') or []
+        for c in batch:
+            out |= existing_markers([c])
+        if len(batch) < 100:
+            break
+    return out
+
+
+def gh_ensure_labels(names: list[str]) -> None:
+    """标签不存在就建（平台对已存在的标签返 422，忽略即可）。"""
+    for name in names:
+        try:
+            gh_api(f'/repos/{_gh_repo()}/labels', method='POST', payload={'name': name})
+        except urllib.error.HTTPError as exc:
+            if exc.code != 422:
+                raise
+
+
+def gh_add_labels(number: int, labels: list[str]) -> None:
+    if labels:
+        gh_api(f'/repos/{_gh_repo()}/issues/{number}/labels', method='POST', payload={'labels': labels})
+
+
+def gh_post_comment(number: int, body: str) -> None:
+    gh_api(f'/repos/{_gh_repo()}/issues/{number}/comments', method='POST', payload={'body': body})
+
+
 def ensure_label(name: str) -> None:
     """标签不存在就建（CNB 拒绝重复建时返回错误，忽略即可）。"""
     try:
@@ -723,6 +911,7 @@ def build_cards(*, only: int | None, limit: int, with_body: bool = True) -> tupl
                 labels=labels,
                 state=item.get('state') or 'open',
                 comments=int(item.get('comments') or 0),
+                github_number=_github_number_in(body),
             )
         )
         if len(cards) >= limit:
@@ -738,8 +927,13 @@ def run(
     per_run: int,
     sizes: tuple[str, ...] = DEFAULT_DISPATCH_SIZES,
     stamp_labels: bool = False,
+    backend: str = 'cnb',
 ) -> int:
-    cards, complete = build_cards(only=only, limit=10_000)
+    gh = backend == 'github'
+    if gh:
+        cards, complete = build_github_cards(only=only, limit=10_000)
+    else:
+        cards, complete = build_cards(only=only, limit=10_000)
     if not cards:
         # ⚠️ 这里**不能**说「全部干净」：要么真的没有 open 卡，要么是拉取失败。
         if complete:
@@ -750,7 +944,23 @@ def run(
 
     written = 0
     printed = 0
-    todo, skipped = plan(cards, per_run=per_run, dispatch_cap=batch, sizes=sizes)
+    # 先扫一遍「卡面上已有结论」的卡：额度必须按**实际要写的张数**计（见 `plan()` 的注释）。
+    # 一次额外的评论读取换掉「永远回头挑同一批已写过的卡」——不扫就必然复现那个死循环。
+    done: set[int] = set()
+    if not dry_run:
+        for c in cards:
+            if c.state != 'open':
+                continue
+            try:
+                if not needs_write(c, classify(c, sizes=sizes), _markers(c, backend)):
+                    done.add(c.number)
+            except (urllib.error.HTTPError, urllib.error.URLError):
+                # 读不到评论 ⇒ 不当成「已写过」（宁可重写一条幂等评论，也不让它永远不处理），
+                # 但整轮结论要标为不完整。
+                complete = False
+    todo, skipped, already = plan(
+        cards, per_run=per_run, dispatch_cap=batch, sizes=sizes, written=done
+    )
     # 被闸门（不是额度）挡掉的明确任务：**必须报数**。放开规模限制这件事的意义全在这里 ——
     # 「可派 0」与「有 17 张但全被规模挡住」看起来都是 0，只有报出后者才知道该不该动判据。
     blocked = [
@@ -767,7 +977,7 @@ def run(
             )
             continue
         try:
-            marks = existing_markers(list_comments(card.number))
+            marks = _markers(card, backend)
         except (urllib.error.HTTPError, urllib.error.URLError):
             complete = False
             continue
@@ -779,17 +989,26 @@ def run(
             # `已派活` 是**排队标记**：额度用尽被降级的卡不挂（它还没排上），
             # 派出去之后下一轮仍会命中（标签不会让结论变，`needs_write` 因此把它算作「已写」）。
             labels = [*labels, TAG_DISPATCHED]
-        for lbl in labels:
-            ensure_label(lbl)
-        add_labels(card.number, labels)
-        post_comment(card.number, render_comment(card, verdict))
+        if gh:
+            gh_ensure_labels(labels)
+            gh_add_labels(card.number, labels)
+            gh_post_comment(card.number, render_comment(card, verdict))
+        else:
+            for lbl in labels:
+                ensure_label(lbl)
+            add_labels(card.number, labels)
+            post_comment(card.number, render_comment(card, verdict))
         written += 1
-        print(f'  ✅ #{card.number} 已挂 {labels} 并留分诊评论')
+        tag = 'GitHub #' if gh else '#'
+        print(f'  ✅ {tag}{card.number} 已挂 {labels} 并留分诊评论')
 
     if dry_run:
         print(f'[DRY-RUN] 本轮检查 {len(cards)} 张，可分诊 {printed} 张（--apply 才会真写）')
     else:
         print(f'🎉 本轮检查 {len(cards)} 张，写入 {written} 张（分诊上限 {per_run}、派活上限 {batch}）')
+    if already:
+        # 与「额度」分开报：这三种「没动它」的原因完全不同，混在一起就分不清该加额度还是改判据。
+        print(f'✅ 另有 {already} 张结论已在卡上，本轮无需重写')
     if skipped:
         # 必须说出来：被额度挡掉 ≠ 没有更多要分诊的卡
         print(f'⏸️  另有 {skipped} 张因额度未处理（不是「已分诊完」，下一轮继续）')
@@ -838,7 +1057,16 @@ def main(argv: list[str] | None = None) -> int:
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--report', action='store_true', help='只报告（默认）')
     group.add_argument('--apply', action='store_true', help='真正贴标签 + 写评论')
-    parser.add_argument('--cnb', type=int, default=None, help='只看这张 CNB 卡（调试）')
+    parser.add_argument('--cnb', type=int, default=None, help='只看这张卡（调试；编号按 --backend 解释）')
+    parser.add_argument(
+        '--backend',
+        choices=('cnb', 'github'),
+        default='cnb',
+        help=(
+            '写哪一侧（默认 cnb）：`cnb` 写 CNB 镜像卡（人在这里读），`github` 写 GitHub 原卡'
+            '（CNB 调度断掉时的兜底通道）。判据与指纹两侧完全一致，互不覆盖。'
+        ),
+    )
     parser.add_argument('--batch', type=int, default=DEFAULT_BATCH, help=f'单轮**派活**上限（默认 {DEFAULT_BATCH}）')
     parser.add_argument(
         '--per-run',
@@ -868,6 +1096,7 @@ def main(argv: list[str] | None = None) -> int:
         per_run=args.per_run,
         sizes=parse_sizes(args.sizes),
         stamp_labels=args.stamp_dispatched,
+        backend=args.backend,
     )
 
 
