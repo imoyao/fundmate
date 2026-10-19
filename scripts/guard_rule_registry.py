@@ -400,6 +400,15 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             '静态判据只保证「不许有这种形状」。'
         ),
     },
+    'scripts/guard_schedule_checkout_ref.py': {
+        'rule': '定时作业跑仓库代码时必须显式检出活跃分支（schedule 默认落 main）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_schedule_checkout_ref.py',
+        'covered': (
+            '只判 `on.schedule` 的 job；`ref: ${{ … }}` 放行（静态判据不猜运行时值），'
+            '故「表达式其实等于 main」看不见'
+        ),
+    },
     'scripts/guard_git_sync_push_scope.py': {
         'rule': 'git-sync 两个方向都只能作用在 dev / 功能分支',
         'runner': 'ci',

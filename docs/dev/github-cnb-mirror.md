@@ -2872,3 +2872,46 @@ FileNotFoundError: [Errno 2] No such file or directory: 'git'
 > **「跑了」与「跑对了」是两个问题，而 CI 只回答第一个。** 三者都跑过了，都绿着，
 > 都什么也没干成。所以每一条自动作业都该配一句「**怎么证明它这次真的干了活**」——
 > 对 28.2 是「装完 `git --version` 自证」，对 28.3 是「判定的漂移数与本地 `--report` 对得上」。
+
+### 28.4 定时作业跑的是**旧代码**：`schedule` 只读默认分支（源 CNB #586，2026-10-19）  <!-- cross-repo-ref-allow -->
+
+前端 E2E 连续三夜失败，而 `head_sha` 三次都是 `1068135f` —— `main` 的 tip（2026-10-16）：
+
+| 日期 | 结论 | `head_sha` |
+|---|---|---|
+| 10-16 | failure | `1068135f` |
+| 10-17 | failure | `1068135f` |
+| 10-18 | failure | `1068135f` |
+
+那三天 `dev` 上已经合了 **#2346 / #2288** 两轮 E2E 修复（`bdb96223` / `8dc80e7c` / `a070c071`），
+**一次都没进 `main`**（`main` 只由发版 PR 推进，实测落后 `dev` **124 个提交**）
+⇒ 每夜都在重跑同一个**已被修好**的失败。
+
+根因是 `schedule` 的两个默认行为叠在一起：
+
+1. GitHub **只读取默认分支（`main`）上的 workflow 定义**；
+2. `actions/checkout` 在 `schedule` 下**默认检出的也是那个分支**。
+
+同一形态在 `daily-snapshot.yml`（#1434）已经记过一次，那次只是**手工修好一条**
+（`ref: ${{ env.SCHEDULER_REF }}`），没有判据 ⇒ 换了个文件又犯一次。
+
+**修法与判据**：`scripts/guard_schedule_checkout_ref.py`（并入 `ci.yml` 的 `scripts_test`）。
+扫 `on.schedule` 存在的 workflow，凡 step 里跑**仓库内代码**的 job，其 `actions/checkout`
+必须显式写 `with.ref`，且值不得是默认分支（`main` / `master` / `refs/heads/main` …）。
+「跑仓库内代码」认三类：
+
+| 形态 | 例 |
+|---|---|
+| 入仓脚本 | `python scripts/bridge/xxx.py` |
+| 包脚本 | `pnpm test:e2e`（**排除** `install` / `ci` / `exec`） |
+| 本地 composite action | `uses: ./.github/actions/save-bridge-state` |
+
+判据上线时**立刻报出 6 处**同类问题（`bridge-edited-sync` / `bridge-feedback` ×4 /
+`cnb-github-backfill`），全部补上 `ref: dev`。
+
+> ⚠️ 判据首版**只认 `scripts/`**，于是漏掉了 `pnpm test:e2e` —— 而那恰恰是本次最贵的那个
+> 实例（前端 E2E）。**判据漏掉自己的第一个案例，是最难发现的一种空转。**
+> 故 `_PKG_SCRIPT` 与 `_LOCAL_ACTION` 两类补进判据，并在 `self_check()` 里各放一条探针。
+
+> **`ref: main` 与「没写 ref」是同一件事。** `schedule` 下默认就检出默认分支，
+> 显式写成它等于没写；判据对两者一视同仁。
