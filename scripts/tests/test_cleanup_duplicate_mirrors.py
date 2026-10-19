@@ -412,7 +412,7 @@ class CloseMustCarryCriterionTest(unittest.TestCase):
         import inspect
 
         src = inspect.getsource(cleanup.main)
-        body = src[src.index('for gh, p in plans.items()'):]
+        body = src[src.index('for gh, p in plans.items()') :]
         i_note = body.index('post_close_note(')
         i_close = body.index('close_issue(')
         self.assertLess(
@@ -526,7 +526,7 @@ class HumanCommentOnlyTest(unittest.TestCase):
         human = {'author': {'is_npc': False}}
         cards = [self._card(535, [bot]), self._card(552, [bot, human])]
         self.assertEqual(cleanup.pick_keeper(cards)[0], 552)
-        naive = min(cards, key=lambda d: (-cleanup._comment_count(d), int(d['number'])))[ 'number']
+        naive = min(cards, key=lambda d: (-cleanup._comment_count(d), int(d['number'])))['number']
         self.assertEqual(int(naive), 552, '两种判据在这组数据上恰好一致 —— 探针咬不住，换数据')
         # 换成「都只有机器人评论」：总评论数判据看不出差别，人类评论判据则明确留编号最小
         bot_only = [self._card(535, [bot]), self._card(552, [bot, bot])]
