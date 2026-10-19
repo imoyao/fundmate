@@ -1,0 +1,76 @@
+name: 缺陷报告（bug）
+description: 功能与预期不符、报错、线上故障、性能异常。适用于「现在能复现，但应该是另一个样子」。
+title: '[bug] '
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **只需填前两节。**「谁的什么问题」和「不修会怎样」填不出来，说明这个卡还没想清楚——
+        那就先别提，等想清楚了再提（这也是 Q1-RED 准入标准的一部分）。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 谁的什么问题
+      description: |
+        谁遇到了什么、期望是什么、实际是什么。
+        **关键在「谁」**——是用户、是运营、还是你自己开发时被卡住？
+        写「我觉得需要」不算，因为那是判断不是事实。
+      placeholder: |
+        例如：账本用户在「转换记账」时选了一个月，保存后金额对不上（实际 1234.56，期望 1234.00），导致账本总额不可信。
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: 不修会怎样
+      description: |
+        代价是什么：影响多少用户、数据会不会错、能撑多久。
+        **这张卡要挂 Q1-RED（阻塞当前阶段）时，这一栏就是准入判据**——
+        写不出代价 ⇒ 它其实是 Q2，不是 Q1。
+      placeholder: |
+        例如：涉及金额计算错误，用户对账本失去信任；上线后每笔转换记账都要人工核对。
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      description: 能复现就填；暂时复现不了也提，标注「未复现」。
+      placeholder: |
+        1. 打开 账本 → 转换记账
+        2. 选择任意月份
+        3. 保存
+        实际：…
+        期望：…
+    validations:
+      required: false
+
+  - type: textarea
+    id: env
+    attributes:
+      label: 环境
+      description: 站点（fundmate / app / jigu / feedback）、浏览器、是否只在某个环境出现。
+      placeholder: app.duoduobei.com / Chrome 131 / 仅 dev 环境
+    validations:
+      required: false
+
+  - type: input
+    id: logs
+    attributes:
+      label: 相关日志 / 报错
+      description: 贴关键行即可，不用贴完整日志。
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: precheck
+    attributes:
+      label: 提交前自检
+      options:
+        - label: 已搜索现有 issue，确认没有重复卡
+        - label: 若要挂 Q1-RED，已在上一栏写明「不修会怎样」
+          required: false

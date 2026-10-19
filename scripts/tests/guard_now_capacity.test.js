@@ -111,6 +111,28 @@ test('标签常量拼写正确（写错就静默失效——标签名错了只�
   assert.equal(Q1_LABEL, 'Q1-RED');
 });
 
+test('语义边界：`NOW-超额` 不评价单卡重要性（挂到全部存量卡，含最不紧急的）', () => {
+  // 这条钉住最容易滑向的误读：把「全都超着」读成「这张最急」。
+  // planOverflowLabels 的形状本身就是答案——它对每张卡一视同仁，
+  // 不接收任何「这张卡多重要」的输入，所以它**不可能**做出优先级判断。
+  const cards = [
+    { number: 1, hasOverflow: false }, // 可能极重要
+    { number: 2, hasOverflow: false }, // 可能极次要
+  ];
+  const plan = planOverflowLabels({ count: 7, limit: 5 }, cards);
+  assert.deepEqual(plan.toLabel, [1, 2], '两张一视同仁挂上，不区分重要性');
+  // 判据里不允许出现任何「重要性/优先级」输入
+  assert.equal(planOverflowLabels.length, 2, '判据只吃 (capacity, cards)，没有重要性入参');
+});
+
+test('降档不改变卡片自身的排期归属（摘 Q1 后它仍在原里程碑里）', () => {
+  // 语义护栏：容量回落只影响 Q1 标签，不产生「降优先级」副作用。
+  // plan 的输出里没有任何「移动里程碑 / 改优先级」的动作类型。
+  const plan = planOverflowLabels({ count: 3, limit: 5 }, [{ number: 9, hasOverflow: true }]);
+  assert.deepEqual(Object.keys(plan).sort(), ['overCapacity', 'toLabel', 'toUnlabel']);
+  assert.ok(!('toDemote' in plan) && !('toReschedule' in plan), '不应产生降优先级类动作');
+});
+
 test('CLI 源码里不得对超容 exit 1（守住「不阻塞」这条设计承诺）', () => {
   const src = readFileSync('scripts/guard_now_capacity.mjs', 'utf8');
   const cli = src.slice(src.indexOf('async function main'));
