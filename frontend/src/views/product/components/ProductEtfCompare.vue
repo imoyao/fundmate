@@ -270,29 +270,31 @@ watch(rows, () => nextTick(measure));
 
       <div class="etf-cmp__scroll-wrap">
         <div ref="scroller" class="etf-cmp__scroll" @scroll="measure">
-          <table class="etf-cmp__table">
+          <!-- 表口径见 `_detail-table.scss`（#553）：`--fixed` + 下面的 min-width 一起管横滚；
+               涨跌色仍由 `etf-cmp__num--rise/fall` 按语义令牌给，共享类只管对齐与字宽。 -->
+          <table class="detail-table detail-table--fixed etf-cmp__table">
             <thead>
               <tr>
                 <th class="etf-cmp__th">代码</th>
                 <th class="etf-cmp__th">名称</th>
-                <th class="etf-cmp__th etf-cmp__th--num">最新净值</th>
-                <th class="etf-cmp__th etf-cmp__th--num">当日涨幅</th>
-                <th class="etf-cmp__th etf-cmp__th--num">成交额</th>
-                <th class="etf-cmp__th etf-cmp__th--num" :title="SCALE_TITLE">
+                <th class="detail-table__num etf-cmp__th">最新净值</th>
+                <th class="detail-table__num etf-cmp__th">当日涨幅</th>
+                <th class="detail-table__num etf-cmp__th">成交额</th>
+                <th class="detail-table__num etf-cmp__th" :title="SCALE_TITLE">
                   规模
                 </th>
-                <th class="etf-cmp__th etf-cmp__th--num" :title="FEE_TITLE">
+                <th class="detail-table__num etf-cmp__th" :title="FEE_TITLE">
                   费率（年）
                 </th>
                 <th
                   v-for="w in WINDOWS"
                   :key="w.key"
-                  class="etf-cmp__th etf-cmp__th--num"
+                  class="detail-table__num etf-cmp__th"
                 >
                   {{ w.label }}
                 </th>
                 <th
-                  class="etf-cmp__th etf-cmp__th--num"
+                  class="detail-table__num etf-cmp__th"
                   :title="TRACKING_TITLE"
                 >
                   跟踪差（近1年）
@@ -300,9 +302,11 @@ watch(rows, () => nextTick(measure));
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in rows" :key="row.code" class="etf-cmp__row">
-                <td class="etf-cmp__td etf-cmp__td--mono">{{ row.code }}</td>
-                <td class="etf-cmp__td">
+              <tr v-for="row in rows" :key="row.code">
+                <td class="detail-table__num etf-cmp__td etf-cmp__td--mono">
+                  {{ row.code }}
+                </td>
+                <td class="detail-table__product etf-cmp__td">
                   <RouterLink
                     v-if="productRoute({ assetType: 'etf', symbol: row.code })"
                     class="etf-cmp__link"
@@ -312,34 +316,34 @@ watch(rows, () => nextTick(measure));
                   </RouterLink>
                   <span v-else>{{ row.name || row.code }}</span>
                 </td>
-                <td class="etf-cmp__td etf-cmp__td--num">
+                <td class="detail-table__num etf-cmp__td">
                   {{ navText(row) }}
                 </td>
                 <td
-                  class="etf-cmp__td etf-cmp__td--num"
+                  class="detail-table__num etf-cmp__td"
                   :class="pctClass(row.change_pct)"
                 >
                   {{ pctText(row.change_pct) }}
                 </td>
-                <td class="etf-cmp__td etf-cmp__td--num">
+                <td class="detail-table__num etf-cmp__td">
                   {{ amountText(row) }}
                 </td>
-                <td class="etf-cmp__td etf-cmp__td--num" :title="SCALE_TITLE">
+                <td class="detail-table__num etf-cmp__td" :title="SCALE_TITLE">
                   {{ scaleText(row) }}
                 </td>
-                <td class="etf-cmp__td etf-cmp__td--num" :title="FEE_TITLE">
+                <td class="detail-table__num etf-cmp__td" :title="FEE_TITLE">
                   {{ feeText(row) }}
                 </td>
                 <td
                   v-for="w in WINDOWS"
                   :key="w.key"
-                  class="etf-cmp__td etf-cmp__td--num"
+                  class="detail-table__num etf-cmp__td"
                   :class="pctClass(row.returns[w.key])"
                 >
                   {{ pctText(row.returns[w.key]) }}
                 </td>
                 <td
-                  class="etf-cmp__td etf-cmp__td--num"
+                  class="detail-table__num etf-cmp__td"
                   :class="pctClass(row.tracking_diff_y1)"
                   :title="TRACKING_TITLE"
                 >
@@ -350,24 +354,24 @@ watch(rows, () => nextTick(measure));
             <!-- 指数基准行：跟踪差的比较基准同列摆放，让「差」可逐行验算 -->
             <tfoot v-if="indexBaseline">
               <tr>
-                <td class="etf-cmp__td etf-cmp__td--mono">
+                <td class="detail-table__num etf-cmp__td etf-cmp__td--mono">
                   {{ data?.index_code }}
                 </td>
                 <td class="etf-cmp__td">指数</td>
-                <td class="etf-cmp__td etf-cmp__td--num">{{ DASH }}</td>
-                <td class="etf-cmp__td etf-cmp__td--num">{{ DASH }}</td>
-                <td class="etf-cmp__td etf-cmp__td--num">{{ DASH }}</td>
-                <td class="etf-cmp__td etf-cmp__td--num">{{ DASH }}</td>
-                <td class="etf-cmp__td etf-cmp__td--num">{{ DASH }}</td>
+                <td class="detail-table__num etf-cmp__td">{{ DASH }}</td>
+                <td class="detail-table__num etf-cmp__td">{{ DASH }}</td>
+                <td class="detail-table__num etf-cmp__td">{{ DASH }}</td>
+                <td class="detail-table__num etf-cmp__td">{{ DASH }}</td>
+                <td class="detail-table__num etf-cmp__td">{{ DASH }}</td>
                 <td
                   v-for="w in WINDOWS"
                   :key="w.key"
-                  class="etf-cmp__td etf-cmp__td--num"
+                  class="detail-table__num etf-cmp__td"
                   :class="pctClass(indexBaseline[w.key])"
                 >
                   {{ pctText(indexBaseline[w.key]) }}
                 </td>
-                <td class="etf-cmp__td etf-cmp__td--num">{{ DASH }}</td>
+                <td class="detail-table__num etf-cmp__td">{{ DASH }}</td>
               </tr>
             </tfoot>
           </table>
@@ -415,46 +419,18 @@ watch(rows, () => nextTick(measure));
   overflow-x: auto;
 }
 
+/* 宽度 / 字号 / padding / 分隔线 / 表头 / 表尾 / 数字列来自 `.detail-table`（#553）。
+   本组件只剩两件这张表独有的：最小宽度（决定何时开始横滚）与代码列的弱色。 */
 .etf-cmp__table {
-  width: 100%;
   min-width: 760px;
-  border-collapse: collapse;
-}
-
-.etf-cmp__th {
-  padding: 0 var(--space-2) var(--space-2);
-  font-size: var(--text-label);
-  font-weight: 500;
-  color: var(--text-tertiary-ink);
-  text-align: left;
-  white-space: nowrap;
-  border-bottom: 1px solid var(--border-default);
-}
-
-.etf-cmp__th--num {
-  text-align: right;
-}
-
-.etf-cmp__row {
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--border-default) 45%, transparent);
 }
 
 .etf-cmp__td {
-  padding: var(--space-2);
-  font-size: var(--text-label);
   color: var(--text-primary);
-  white-space: nowrap;
 }
 
 .etf-cmp__td--mono {
-  font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
-}
-
-.etf-cmp__td--num {
-  font-variant-numeric: tabular-nums;
-  text-align: right;
 }
 
 .etf-cmp__num--rise {
@@ -625,11 +601,10 @@ watch(rows, () => nextTick(measure));
   background: linear-gradient(to right, transparent, var(--bg-card));
 }
 
-/* 基准行不是「又一只 ETF」：弱化底色区分，避免被当成可买标的 */
+/* 基准行不是「又一只 ETF」：弱化底色区分，避免被当成可买标的。
+   字号 / 上边线已由 `.detail-table tfoot` 给，这里只补底色与更弱的文字色。 */
 .etf-cmp__table tfoot .etf-cmp__td {
-  font-size: var(--text-label);
   color: var(--text-secondary);
   background: var(--bg-muted);
-  border-bottom: none;
 }
 </style>

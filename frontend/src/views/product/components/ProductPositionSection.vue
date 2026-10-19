@@ -312,24 +312,26 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
       </template>
 
       <!-- 多账户：一个表头管全部行；产品列与每组表头都已去掉 -->
+      <!-- 表口径见 `_detail-table.scss`（#553）：分隔 / 表头 / 表尾 / 数字列不由本组件决定。
+           多列且列宽固定 → 加 `--fixed`，窄屏横滚（`.product-position__scroll`）。 -->
       <div v-else class="product-position__scroll">
-        <table class="product-position__table">
+        <table class="detail-table detail-table--fixed product-position__table">
           <thead>
             <tr>
-              <th class="is-account">账户</th>
-              <th>持有份额</th>
-              <th>持仓成本</th>
-              <th>持有金额</th>
-              <th>持有盈亏</th>
-              <th>盈亏率</th>
-              <th>当日盈亏</th>
-              <th>当日盈亏率</th>
-              <th>持仓天数</th>
+              <th class="detail-table__product">账户</th>
+              <th class="detail-table__num">持有份额</th>
+              <th class="detail-table__num">持仓成本</th>
+              <th class="detail-table__num">持有金额</th>
+              <th class="detail-table__num">持有盈亏</th>
+              <th class="detail-table__num">盈亏率</th>
+              <th class="detail-table__num">当日盈亏</th>
+              <th class="detail-table__num">当日盈亏率</th>
+              <th class="detail-table__num">持仓天数</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="g in groups" :key="g.key">
-              <td class="is-account">
+              <td class="detail-table__product">
                 <router-link
                   v-if="g.ledgerId"
                   class="product-position__account"
@@ -344,28 +346,30 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
                   {{ g.name }}
                 </span>
               </td>
-              <td>{{ formatQuantity(g.quantity) }}</td>
-              <td>
+              <td class="detail-table__num">
+                {{ formatQuantity(g.quantity) }}
+              </td>
+              <td class="detail-table__num">
                 <MoneyDisplay
                   :value="g.cost"
                   :auto-color="false"
                   :show-sign="false"
                 />
               </td>
-              <td>
+              <td class="detail-table__num">
                 <MoneyDisplay
                   :value="g.marketValue"
                   :auto-color="false"
                   :show-sign="false"
                 />
               </td>
-              <td>
+              <td class="detail-table__num">
                 <MoneyDisplay :value="g.pnl" :precision="2" />
               </td>
-              <td>
+              <td class="detail-table__num">
                 <RiseFallText :value="pnlRate(g)" suffix="%" />
               </td>
-              <td>
+              <td class="detail-table__num">
                 <MoneyDisplay
                   v-if="g.dayPnl != null"
                   :value="g.dayPnl"
@@ -373,7 +377,7 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
                 />
                 <span v-else class="product-position__empty">—</span>
               </td>
-              <td>
+              <td class="detail-table__num">
                 <RiseFallText
                   v-if="dayPnlRate(g) !== null"
                   :value="dayPnlRate(g) ?? 0"
@@ -381,34 +385,34 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
                 />
                 <span v-else class="product-position__empty">—</span>
               </td>
-              <td>{{ daysText(g.holdingDays) }}</td>
+              <td class="detail-table__num">{{ daysText(g.holdingDays) }}</td>
             </tr>
           </tbody>
           <tfoot>
             <tr>
-              <td class="is-account">合计</td>
-              <td />
-              <td>
+              <td class="detail-table__product">合计</td>
+              <td class="detail-table__num" />
+              <td class="detail-table__num">
                 <MoneyDisplay
                   :value="totals.cost"
                   :auto-color="false"
                   :show-sign="false"
                 />
               </td>
-              <td>
+              <td class="detail-table__num">
                 <MoneyDisplay
                   :value="totals.marketValue"
                   :auto-color="false"
                   :show-sign="false"
                 />
               </td>
-              <td>
+              <td class="detail-table__num">
                 <MoneyDisplay :value="totals.pnl" :precision="2" />
               </td>
-              <td>
+              <td class="detail-table__num">
                 <RiseFallText :value="pnlRate(totals)" suffix="%" />
               </td>
-              <td>
+              <td class="detail-table__num">
                 <MoneyDisplay
                   v-if="totals.dayPnl != null"
                   :value="totals.dayPnl"
@@ -416,7 +420,7 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
                 />
                 <span v-else class="product-position__empty">—</span>
               </td>
-              <td>
+              <td class="detail-table__num">
                 <RiseFallText
                   v-if="dayPnlRate(totals) !== null"
                   :value="dayPnlRate(totals) ?? 0"
@@ -424,7 +428,7 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
                 />
                 <span v-else class="product-position__empty">—</span>
               </td>
-              <td />
+              <td class="detail-table__num" />
             </tr>
           </tfoot>
         </table>
@@ -549,47 +553,10 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
   overflow-x: auto;
 }
 
-.product-position__table {
-  width: 100%;
-  font-size: var(--text-label);
-  white-space: nowrap;
-  border-collapse: collapse;
-}
-
-.product-position__table th,
-.product-position__table td {
-  padding: 6px var(--space-2);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.product-position__table th {
-  font-size: var(--text-label);
-  font-weight: 400;
-  color: var(--text-tertiary-ink);
-  border-bottom: 1px solid var(--border-light);
-}
-
-.product-position__table tbody tr + tr td {
-  border-top: 1px solid var(--border-subtle);
-}
-
-.product-position__table .is-account {
-  padding-left: 0;
-  text-align: left;
-}
-
-.product-position__table tfoot td {
-  padding-top: var(--space-2);
-  font-weight: 500;
-  color: var(--text-primary);
-  border-top: 1px solid var(--border-light);
-}
-
-.product-position__table tfoot td:first-child {
-  font-weight: 400;
-  color: var(--text-tertiary-ink);
-}
+/* 表格自身的 padding / 分隔线 / 表头 / 表尾 / 数字列已全部由共享约定
+   `.detail-table` 提供（#553，#2320 同一条延长线），此处不保留任何覆盖——
+   原先那份把 `tabular-nums` 加在整张表上（含中文列），既无意义，
+   又让「数字列唯一写法」失去单一来源。 */
 
 /* 产品级持有年化（#1972）：挂在区块标题右侧，不占表格列 */
 .product-position__xirr {

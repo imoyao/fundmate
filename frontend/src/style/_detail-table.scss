@@ -1,0 +1,99 @@
+/* ============================================
+   详情页 dense 表格共享约定（#2322 / CNB #553）
+
+   背景：产品详情页 5 个组件（持仓明细 / 行业配置 / 多账户持仓 /
+   ETF 对比 / 指数十大权重）各自手写 <table>，字号与 padding 本就接近，
+   但分隔线、表头字重与颜色、数字列对齐各有各的写法。结果是「看起来像
+   一家人，改起来是五家人」——调一次表头对比度要改五处，漏一处就是看得见的不齐。
+
+   为什么是**约定**而不是共享组件：这 5 张表的数据形状完全不同
+   （{行业, 占比} / {排名, 股票, 占比, 持股, 市值} / {代码, 净值, 多窗口收益}），
+   共享组件只能退化成「只有边框和 padding 的壳」，还多一层 slot 模板噪声。
+   真正的共性是样式，不是接口。
+
+   - .detail-table          ：容器（宽度 / 字号 / 分隔线 / 单元格间距）
+   - .detail-table--fixed   ：列宽由业务定（如 ETF 对比表），单元格默认不折行
+   - .detail-table__num     ：数字列（右对齐 + 等宽数字）——**唯一写法**
+   - .detail-table__product ：产品名那一列（允许折行，不参与撑宽）
+   - .detail-table__empty   ：整行空态
+
+   ⚠️ 三类共用口径钉在这里，组件内不要重写：
+   1. 单元格 padding 一律 `var(--space-2)`（#553 拍板：Position 当年为多列挤出的
+      6px 作废——横 6px / 纵 8px 只差 2px，读起来不是「更紧凑」而是「没对齐」）；
+   2. 分隔线只有一种：`tbody tr + tr` 加 1px 上边线。表头用 500 字重 + 弱色代替实线，
+      表尾用一条上边线与数据分开——每行一条 border-bottom 在表尾处会多出一道，
+      三处并存看起来就不像一家人；
+   3. 等宽数字（tabular-nums）只给数字列，**不要加在整张表上**——中文没有等宽意义，
+      加在 `td` 上等于给产品名也套了数字语义。
+   ============================================ */
+
+.detail-table {
+  width: 100%;
+  font-size: var(--text-label);
+  border-collapse: collapse;
+}
+
+/* 行分隔线：只有一种策略（相邻行之间一条）。首行不加——它紧贴表头，
+   再加一条就成了「表头下面两道线」。 */
+.detail-table tbody tr + tr {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.detail-table th,
+.detail-table td {
+  padding: var(--space-2);
+  font-weight: 400;
+  text-align: left;
+}
+
+/* 表头：弱色 + 500。刻意不加底色、不加实线——详情页是阅读型页面，
+   表头不该比数据更响。 */
+.detail-table thead th {
+  font-weight: 500;
+  color: var(--text-tertiary-ink);
+}
+
+/* 表尾：合计 / 基准行。一条上边线把它与数据分开；首列（「合计」「指数」这类行标签）
+   回落到弱色，避免与数值抢注意力。 */
+.detail-table tfoot td,
+.detail-table tfoot th {
+  font-weight: 500;
+  color: var(--text-primary);
+  border-top: 1px solid var(--border-light);
+}
+
+.detail-table tfoot tr > :first-child {
+  font-weight: 400;
+  color: var(--text-tertiary-ink);
+}
+
+/* 数字列唯一写法：右对齐 + 等宽数字。`RiseFallText` / `MoneyDisplay` 自带涨跌色，
+   这里只管对齐与字宽，不碰颜色。 */
+.detail-table__num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* 产品名 / 名称列：唯一允许折行的列。数字列不折行（见 --fixed），
+   所以窄屏时是「名称换行、数字不动」，横向空间先给数字。 */
+.detail-table__product {
+  white-space: normal;
+}
+
+/* 列宽由业务定（min-width / 固定 px）的变体：单元格默认不折行，
+   由容器 `overflow-x: auto` 兜底横滚。⚠️ 横滚是详情页 dense 表的**唯一**降级策略，
+   不要另写「窄屏卡片化」——5 张表各写一套卡片形态，比现在更碎。 */
+.detail-table--fixed th,
+.detail-table--fixed td {
+  white-space: nowrap;
+}
+
+.detail-table--fixed .detail-table__product {
+  white-space: normal;
+}
+
+/* 整行提示（空态 / 该报告期无记录）：横跨全表居中、弱色，不参与数字列对齐 */
+.detail-table__empty {
+  color: var(--text-tertiary-ink);
+  text-align: center;
+}

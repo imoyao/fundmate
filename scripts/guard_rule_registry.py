@@ -415,6 +415,17 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/git_sync_push_scope.test.js',
         'covered': '只读 .cnb.yml；运行期 CNB_BRANCH 的取值不校验',
     },
+    'scripts/guard_detail_tables.py': {
+        'rule': '详情页 dense 表格唯一走 `.detail-table` 共享约定',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_detail_tables_guard.py',
+        'covered': (
+            '只判「有没有走共享类 / 有没有手抄第二份基线 / 有没有自写数字列对齐」三件事；'
+            '不判视觉是否正确、不判列宽、不判该不该用表格。`:class` 动态类名刻意放行'
+            '（静态判据看不见运行时类名，猜它会误报）。全仓另外 5 处手抄基线按文件冻结，'
+            '收编前须先判定该表语义（资产 / 探市 / 自选是另一种密度语义）。'
+        ),
+    },
     'scripts/guard_bridge_machine_branch_single_writer.py': {
         'rule': '`bridge/github-dev` 只能有一个写者（GitHub reconcile 写、CNB 只读探针）',
         'runner': 'ci',
