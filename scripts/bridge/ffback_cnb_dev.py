@@ -36,6 +36,10 @@ CNB ↔ GitHub 之间的**搬运动作是单向的**：CNB 侧改动 → `merge-
 ⚠️ `2` 与 `0` 必须分得开：「拿不到」不等于「已对齐」（源 CNB #171 的失败态纪律）。
    把 2 读成 0，就是「一直绿、一直没干活」那种假绿。
 
+⚠️ **两侧输入源同仓也判 2**：`--cnb-url` 默认取 `origin`，而本地克隆的 origin 通常指
+   GitHub —— 两侧都从 GitHub 拉，sha 必然一致，于是打印「无需回向」。这是 #269 §附 记录过的  <!-- cross-repo-ref-allow -->
+   假绿（判据拿错输入源，结论是反的且看不出错）。本地手动跑必须显式传 `--cnb-url`。
+
 ⚠️ **永不 force**：回向 force 会冲掉 GitHub 侧尚未搬进 CNB 的提交，是**静默丢改动**。
    真分叉时的正确动作是**人工收敛**（`python scripts/bridge/dev_converge.py --apply` 列清单），
    不是抹平。
@@ -50,6 +54,7 @@ CNB ↔ GitHub 之间的**搬运动作是单向的**：CNB 侧改动 → `merge-
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -84,6 +89,29 @@ def _ancestor_state(older_sha: str, newer_sha: str, cwd: str | None = None) -> b
     return None
 
 
+def normalize_remote(url: str) -> str:
+    """把 git 远程 URL 规整成 `host/path`（去 scheme、去凭据、去 `.git`、统一小写）。
+
+    WHY 要有它（源 CNB #269 §附 那条假绿）：`--cnb-url` 默认取 `origin` 的 URL。
+    在 **origin 指向 GitHub** 的本地克隆里跑，两侧都从 GitHub 拉 ⇒ 两侧永远一致 ⇒
+    打印「未分叉」。判据**拿错输入源**时结论是**反的**，且看不出错。故先比输入源，
+    同源直接判「结论不可信」，不进入 sha 比较。
+    """
+    s = url.strip()
+    m = re.match(r'^[a-zA-Z][\w+.-]*://(?:[^@/]*@)?([^/]+)(/.*)?$', s)
+    if m:
+        host, path = m.group(1), m.group(2) or ''
+    else:  # scp 风格 `git@host:path`，或本地路径
+        m2 = re.match(r'^(?:[^@/]+@)?([^:/]+)[:/](.*)$', s)
+        if not m2:
+            return s.lower().rstrip('/')
+        host, path = m2.group(1), '/' + m2.group(2)
+    path = path.rstrip('/')
+    if path.endswith('.git'):
+        path = path[: -len('.git')]
+    return f'{host.lower()}{path}'.lower()
+
+
 def plan(cnb_sha: str, gh_sha: str, cwd: str | None = None) -> str:
     """给出动作：`same` / `ff` / `cnb_ahead` / `diverged` / `unknown`。
 
@@ -112,6 +140,16 @@ def push_fast_forward(target_url: str, branch: str, cwd: str | None = None) -> t
 
 def run(args: argparse.Namespace) -> int:
     cwd = args.cwd
+    cnb_src, gh_src = normalize_remote(args.cnb_url), normalize_remote(args.github_url)
+    if cnb_src == gh_src:
+        print(
+            f'⚠️ 两侧输入源**是同一个仓库**（{cnb_src}）—— **本轮结论不可信**，不进入 sha 比较。\n'
+            '   成因：`--cnb-url` 默认取 `origin` 的 URL，而本地克隆的 origin 通常指 GitHub。\n'
+            '   处置：显式传 `--cnb-url https://cnb.cool/<owner>/<repo>.git`。',
+            file=sys.stderr,
+        )
+        print('FFBACK_DECISION=unknown')
+        return 2
     ok_cnb, err_cnb = fetch_branch(args.cnb_url, args.branch, CNB_REF, cwd)
     ok_gh, err_gh = fetch_branch(args.github_url, args.branch, GH_REF, cwd)
     if not ok_cnb or not ok_gh:

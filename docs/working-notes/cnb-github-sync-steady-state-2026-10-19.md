@@ -177,3 +177,46 @@ CNB 侧 cron：`fetch <github> dev` → `merge --ff-only` → `push origin dev`�
 - 冲突 2 处：`DomainEDividendTaxTable.vue` 取 GitHub 版（＝CNB 版 + GitHub #2383 字阶修复，blob 相同）；`scripts/bridge/cleanup_duplicate_mirrors.py` 取 CNB 版（含 `CLOSE_NOTE_MARKER`）。
 - 验证：`scripts/tests` **410 tests OK**；`ci.yml` 里 19 个 Python 守卫全部 `rc=0`。
 - 过程副产品（**假绿**）：`scripts/bridge/check_cross_repo_dev_divergence.py` 的 `--cnb-url` **默认取 `origin` 的 URL**；在 origin 指向 GitHub 的本地克隆里跑，两侧都从 GitHub 拉 ⇒ 打印「✅ 未分叉」。本地必须显式传 `--cnb-url https://cnb.cool/duoduobei/fundmate.git`。**判据拿错输入源 ⇒ 结论反了**，应单独修。
+
+---
+
+## 12. 2026-10-20 更新：Step 3 已落地（回向只 FF）+ 顺手补了「判据前移」
+
+§10 的 Step 3 **已实现**；同时补了 §10 没写、但对「NPC 改出问题」更直接的一半：把门禁判据搬到 CNB 侧，
+让作者在**推的当场**看见红，而不是等搬运到 GitHub 之后。
+
+### 12.1 回向：`scripts/bridge/ffback_cnb_dev.py`
+
+- 判定 `same` / `ff` / `cnb_ahead` / `diverged` / `unknown`，取数与 `check_cross_repo_dev_divergence.py` **同一套**（不重写判据）。
+- 退出码 **0 / 1（真分叉）/ 2（拿不到输入）/ 3（推送被拒）**；**永不 force**。1 与 3 分开，因为处置完全不同：分叉要人来合（`dev_converge.py`），推不上去要人开权限。
+- 挂三处（同一个 `&ffback-job` 锚点）：`dev: push`（搬完立刻补齐）、`dev:` 每日 cron（兜底）、`$: web_trigger`（手动）。三处共用锚点，`guard_bridge_sync_reachable.py` 的集合等价判据自动成立。
+- 前置条件（§10 Step 3 那条）**已满足**：GitHub #2412（head `fix/cnb-dev-merge`）已于 2026-10-20 00:16 合入 GitHub `dev`，bridge 搬运通道本身是通的。
+
+### 12.2 判据前移：`"**/!(main|dev)": push` 上的 `&judge-job`
+
+跑与 `ci.yml` 的 `scripts_test` **同一批**脚本（14 条 python 守卫 + `guard_cross_repo_refs.mjs`），
+现场装 git / nodejs / pyyaml；**装不上即 `exit 1`**（不静默跳过，源 CNB #171 的失败态纪律）。
+排除 `guard_mojibake.py`：它按提交范围取文件，CNB 检出形态下会恒红，乱码仍由 GitHub 侧 job 守。
+
+为什么是这一批：桥 PR 上那 16 处跨仓裸引用不是「不会写」，是**作者在 CNB 侧收不到反馈**。
+
+### 12.3 §11 四条未决，现在的状态
+
+| # | 状态 |
+|---|---|
+| 1 CNB `dev` 保护：构建身份能否 push | **仍未实测**（CNB 构建日志本机读不到，需在 CNB 侧看首次回向的退出码；`rc=3` 的处置写在 `.cnb.yml` 注释里） |
+| 2 `GITHUB_PAT` 能否自动开 PR | **已由证据回答**：GitHub #2412 就是桥自动开出来的 PR，并已合并 ⇒ 有 `pull_requests: write` |
+| 3 NPC 工作形态 | 与本轮无关（未变） |
+| 4 分叉余量 | 已收敛并与 GitHub `dev` 同基；本轮回向就是防它再岔开 |
+
+### 12.4 §附 那条「假绿」的处置边界
+
+`ffback_cnb_dev.py` 里**已挡**：两侧输入源归一后相同 ⇒ 直接 `rc 2` 并打印「结论不可信」，不进入 sha 比较。
+但 `check_cross_repo_dev_divergence.py` 自己的默认值**没改**（本轮不动它，避免把两件事混在一个提交里）——
+单独跑那个脚本时**仍须显式传** `--cnb-url`，建议另开一张卡修它的默认值。
+
+### 12.5 未实测的部分（别读成「已验证」）
+
+本机读不到 CNB 构建结果（`api.cnb.cool` 匿名一律 `errcode 16`，`/-/builds` 也 404），所以
+「判据 stage 在 `python:3.12-slim` 里装得上 nodejs / pyyaml」与「回向首次推送的退出码」都**只是设计与本地实证**，
+需要在 CNB 侧首跑之后回填结论。机制与本地证据见 `docs/dev/github-cnb-mirror.md` §30。

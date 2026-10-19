@@ -184,6 +184,32 @@ def test_拿不到输入_rc2_而不是_rc0(m, world, capsys):
     assert '结论不可信' in err
 
 
+def test_两侧输入源同仓_rc2_且不推送(m, world, capsys):
+    """#269 §附 那条假绿：`--cnb-url` 默认取 origin，而本地克隆的 origin 常指 GitHub。  # cross-repo-ref-allow
+
+    两侧都从 GitHub 拉 ⇒ sha 必然一致 ⇒ 打印「无需回向」。**结论是反的且看不出错**，
+    所以必须在比 sha 之前就挡掉（rc 2 = 结论不可信）。
+    """
+    args = _args(world, apply=True)
+    args.cnb_url = args.github_url = str(world.gh)
+    assert m.run(args) == 2
+    err = capsys.readouterr().err
+    assert '同一个仓库' in err
+    assert '结论不可信' in err
+    assert _remote_sha(world.gh) == world.base
+
+
+def test_normalize_remote_同仓不同写法归一到一起(m):
+    same = [
+        'https://cnb.cool/duoduobei/fundmate.git',
+        'https://cnb.cool/duoduobei/fundmate',
+        'https://user:token@cnb.cool/duoduobei/fundmate.git',
+        'git@cnb.cool:duoduobei/fundmate.git',
+    ]
+    assert len({m.normalize_remote(u) for u in same}) == 1
+    assert m.normalize_remote('https://github.com/imoyao/fundmate.git') == 'github.com/imoyao/fundmate'
+
+
 def test_推送被拒_rc3_且不改远端(m, world, capsys, monkeypatch):
     """目标仓只读（模拟「构建身份无写权限」）时，rc 必须是 3，且不能声称成功。"""
     gh_sha = _gh_ahead(world)
