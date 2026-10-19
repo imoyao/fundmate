@@ -412,6 +412,16 @@ class ConversionService:
                 # position 618 / transaction 3001）。模型层另有 mapper 事件兜底，
                 # 这里显式传入是为了让意图在调用点可见，也不依赖兜底。
                 'account_name': c['ledger'].name,
+                # #2406：name / market 与 account_name 同属「必须显式传」的展示快照。
+                # 缺 name 时 process_buy_or_deposit 退回 `name=data.get('name') or symbol`
+                # ——持仓明细显示 6 位编码而非基金名；缺 market 时该列落 NULL，展示层
+                # position_presenter 兜 'UNKNOWN'，MARKET_LABELS 查不到 → 前端「未知资产」
+                # （本地库实证 position 618：name=NULL / market='UNKNOWN'，转入腿所建）。
+                # name 取 _compute_conversion 已查到的 in_name（funds 名录权威）；
+                # market 按场外基金项目惯例取 'CN_A'（导入路径 _build_import_data 同值，
+                # 全库 151/152 行实证），不新造枚举。
+                'name': c['in_name'],
+                'market': 'CN_A',
                 'family_id': family_id,
                 'venue': 'OTC',
                 'extra': extra_in,

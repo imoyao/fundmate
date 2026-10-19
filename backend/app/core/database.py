@@ -33,6 +33,7 @@ from app.core.migrations import (
     migrate_advisor_portfolio_metrics,
     migrate_advisor_portfolio_provenance,
     migrate_channel_link_indexes,
+    migrate_conversion_in_leg_snapshot,
     migrate_fee_unique_indexes,
     migrate_fund_equity_position_period,
     migrate_fund_managers_split_tenures,
@@ -614,6 +615,9 @@ def init_db():
     # 只传 ledger_id 漏传 account_name，存量行会留 NULL（按账户分组时 jsonify 崩）。
     # 只补数据、不动结构，故放在结构校验之前也无副作用。
     migrate_account_name_snapshot(user_eng)
+    # 同一份 in_data dict 的 name / market 漏传（#2406）：存量行 name 按基金名录回填、
+    # market 收编为契约值（'UNKNOWN' 系 presenter 旧变异落库的污染值，已修读函数写库）。
+    migrate_conversion_in_leg_snapshot(user_eng)
     _validate_schema(user_eng, user_meta, label='user')
     # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键 (symbol, venue)
     # → (symbol, market, venue) 防跨市场同码冲突。create_all 只增表不改表，旧库
@@ -704,6 +708,8 @@ def init_db_split():
         migrate_positions_cleared_at(user_eng)
         # account_name 冗余快照空值回填：与单库模式同口径，双库模式也必须收编存量行
         migrate_account_name_snapshot(user_eng)
+        # 转入腿 name / market 漏传的存量收编（#2406），与单库模式同口径
+        migrate_conversion_in_leg_snapshot(user_eng)
         _validate_schema(user_eng, user_meta, label='user')
         # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键回归基线，
         # 双库模式同样按 user 域引擎自动执行，幂等。
