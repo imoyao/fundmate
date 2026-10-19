@@ -1451,6 +1451,17 @@ GitHub: - Required status check "质量门禁汇总" is expected.
   判据 `test_non_protection_failure_still_exits_2` 钉着。
 - 细节与推导见 `docs/dev/github-cnb-mirror.md` §28。
 
+### 回向通道：CNB 的 `dev` 靠「只 FF」追上 GitHub（2026-10-19，源 CNB #601）  <!-- cross-repo-ref-allow -->
+
+搬运此前只有单向（CNB 改动 → merge-sync → GitHub `dev`），GitHub 侧新合入要等下一次 CNB push 才被带回来，
+于是「CNB 落后多少」两侧都没有信号。现在补了回向：`dev:` 每次 push、每日 18:00 UTC 的 cron、
+以及 `$:` 的 web_trigger（手动）都跑 `scripts/bridge/ffback_cnb_dev.py`，它只做快进、永不 force。
+真双向分叉退 1 并指向 `scripts/bridge/dev_converge.py`；推送被拒退 3（构建身份无写权限 / 分支保护）；
+拿不到输入退 2（把它读成「已对齐」就是假绿）。首次运行能否推开**尚未实测**，rc=3 的处置写在 `.cnb.yml` 注释里。
+同一批判据也提前到了 CNB 侧的 push 构建上（与 `ci.yml` 的 scripts_test 同一批，共 15 条），
+作者在 CNB 侧就能看见 GitHub 门禁会报的红，而不是等桥 PR 上才发现。推导、退出码表与两个变异探针见
+`docs/dev/github-cnb-mirror.md` §30。
+
 ### 在 CNB 侧的其它已知边界（实测）
 
 - ⚠️ **「CNB 构建环境没有 GitHub 凭据」是错话，2026-10-14 已纠正**（源 CNB #179）。  <!-- cross-repo-ref-allow -->
