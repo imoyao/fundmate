@@ -209,7 +209,7 @@ function onEntityFilterChange(value: RoadEntityType | "all") {
 .road-pill--soft {
   height: 28px;
   padding: 0 12px;
-  font-size: 12px;
+  font-size: var(--text-label);
   background: var(--bg-soft);
 }
 
@@ -219,7 +219,7 @@ function onEntityFilterChange(value: RoadEntityType | "all") {
 
 .road-pill__count {
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }

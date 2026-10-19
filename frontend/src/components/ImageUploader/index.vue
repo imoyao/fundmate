@@ -169,7 +169,7 @@ const handlePaste = (e: ClipboardEvent) => {
 
 .image-uploader__icon {
   margin-bottom: var(--space-3);
-  font-size: 40px;
+  font-size: var(--text-display-lg);
   color: var(--brand-700);
 }
 

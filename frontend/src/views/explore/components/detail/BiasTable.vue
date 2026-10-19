@@ -174,7 +174,7 @@ withDefaults(
 }
 
 .bias-updated {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -186,7 +186,7 @@ withDefaults(
 .bias-stale-pill {
   padding: 2px 8px;
   margin-left: 8px;
-  font-size: 11px;
+  font-size: var(--text-label);
   font-weight: 500;
   line-height: 1.4;
   color: var(--color-warning-ink);
@@ -267,7 +267,7 @@ withDefaults(
 .bias-cell-labels {
   display: flex;
   justify-content: space-between;
-  font-size: 10px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

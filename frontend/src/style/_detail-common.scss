@@ -36,7 +36,7 @@
 }
 
 .facts-grid__label {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -71,7 +71,7 @@
    （colors.css 注释：作正文不足 4.5:1），作前景文字违反 design.md:131。 */
 .section-footnote {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

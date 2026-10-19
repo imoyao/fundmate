@@ -191,7 +191,7 @@ function select(value: T) {
    字号取「同级标签 −1px」：`default` 档标签 13px → 徽章 12px（与分组胶囊 Tab 的 12px 对齐），
    `small` 档标签 12px → 徽章 11px。 */
 .segmented-control__count {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }
@@ -245,11 +245,11 @@ function select(value: T) {
 .segmented-control--small .segmented-control__item {
   height: 20px;
   padding: 0 10px;
-  font-size: 12px;
+  font-size: var(--text-label);
 }
 
 /* small 档标签降到 12px，徽章同步降一档（见上方 `.segmented-control__count` 字号规则） */
 .segmented-control--small .segmented-control__count {
-  font-size: 11px;
+  font-size: var(--text-label);
 }
 </style>

@@ -161,7 +161,7 @@ function tempColor(v: number | null) {
 .context-item__label {
   display: block;
   margin-bottom: 6px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -173,7 +173,7 @@ function tempColor(v: number | null) {
 
 .context-item__value {
   font-family: var(--font-mono, "SF Mono", "JetBrains Mono", monospace);
-  font-size: 28px;
+  font-size: var(--text-display);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
@@ -213,7 +213,7 @@ function tempColor(v: number | null) {
 }
 
 .context-period__label {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -227,7 +227,7 @@ function tempColor(v: number | null) {
 
 .context-card__caption {
   margin-top: 14px;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-tertiary-ink);
 }

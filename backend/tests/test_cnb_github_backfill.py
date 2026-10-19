@@ -428,7 +428,7 @@ class TestRunResilience:
                     'id': str(1000 + int(n)),
                     'body': '结论：按方案 A 落地。',
                     'author': {'username': 'cnb.user', 'is_npc': False},
-                    'created_at': '2026-10-11T00:00:00Z',
+                    'created_at': '2026-10-19T00:00:00Z',
                 }
             ],
         )
@@ -460,13 +460,13 @@ class TestRunResilience:
                 'id': '1',
                 'body': '甲',
                 'author': {'username': 'u', 'is_npc': False},
-                'created_at': '2026-10-11T00:00:00Z',
+                'created_at': '2026-10-19T00:00:00Z',
             },
             {
                 'id': '2',
                 'body': '乙',
                 'author': {'username': 'u', 'is_npc': False},
-                'created_at': '2026-10-11T01:00:00Z',
+                'created_at': '2026-10-19T01:00:00Z',
             },
         ]
         monkeypatch.setattr(wired, 'list_cnb_comments', lambda n: comments)

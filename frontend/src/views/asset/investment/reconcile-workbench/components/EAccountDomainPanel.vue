@@ -86,12 +86,12 @@ const emit = defineEmits<{
 
 .disc-status {
   padding: 1px 8px;
-  font-size: 12px;
+  font-size: var(--text-label);
   border-radius: 999px;
 }
 
 .disc-muted {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 </style>

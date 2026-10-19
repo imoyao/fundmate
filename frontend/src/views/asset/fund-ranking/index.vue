@@ -662,7 +662,7 @@ onMounted(async () => {
 }
 
 .unit-note {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -671,7 +671,7 @@ onMounted(async () => {
   gap: 4px;
   align-items: center;
   padding: 2px 8px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--color-warning-ink);
   white-space: nowrap;
   cursor: help;
@@ -735,7 +735,7 @@ onMounted(async () => {
     top: 0;
     height: 30px;
     padding: 5px var(--space-3);
-    font-size: 12px;
+    font-size: var(--text-label);
     font-weight: 500;
   }
 
@@ -863,7 +863,7 @@ onMounted(async () => {
   }
 
   &__code {
-    font-size: 11px;
+    font-size: var(--text-label);
     font-variant-numeric: tabular-nums;
     color: var(--text-tertiary-ink);
   }
@@ -874,7 +874,7 @@ onMounted(async () => {
 .fund-tag {
   flex-shrink: 0;
   padding: 0 6px;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 16px;
   border-radius: var(--radius-pill);
 
@@ -920,7 +920,7 @@ onMounted(async () => {
   vertical-align: middle;
 
   &__caret {
-    font-size: 10px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
     opacity: 0.3;
     transition: opacity 0.15s ease;
@@ -942,7 +942,7 @@ onMounted(async () => {
 
 .footnote {
   margin-top: var(--space-4);
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.7;
   color: var(--text-tertiary-ink);
 }
@@ -989,7 +989,7 @@ onMounted(async () => {
   }
 
   &__dir {
-    font-size: 11px;
+    font-size: var(--text-label);
     font-weight: 400;
     color: var(--text-tertiary-ink);
   }

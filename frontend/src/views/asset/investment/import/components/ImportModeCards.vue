@@ -220,7 +220,7 @@ function onVendorLogoError(e: Event) {
 
 .mode-icon {
   margin-bottom: 12px;
-  font-size: 36px;
+  font-size: var(--text-display);
   color: var(--brand-700);
 }
 
@@ -233,7 +233,7 @@ function onVendorLogoError(e: Event) {
 
 .mode-desc {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-tertiary-ink);
 }

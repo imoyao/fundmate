@@ -524,7 +524,7 @@ defineExpose({ reload: load });
   gap: 10px;
   align-items: baseline;
   padding: 8px 10px;
-  font-size: 12px;
+  font-size: var(--text-label);
   background: var(--bg-subtle);
   border-radius: var(--radius-sm);
 }
@@ -541,13 +541,13 @@ defineExpose({ reload: load });
 
 /* 「收益率 —」：不可算（缺区间前一天基准）时的占位，与 0.00% 严格区分 */
 .pnl-calendar__summary-none {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .pnl-calendar__summary-note {
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

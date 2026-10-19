@@ -364,7 +364,7 @@ function close(): void {
 
 /* 计数：tabular-nums 防止数字变化时宽度抖动 */
 .gi-count {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }
@@ -429,7 +429,7 @@ function close(): void {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
   white-space: nowrap;

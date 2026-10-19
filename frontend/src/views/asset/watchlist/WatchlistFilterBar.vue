@@ -191,8 +191,10 @@ const hasActiveQuickFilters = computed(
            #1281 + max-width 50% 上限 #2199），此处不重复声明。 -->
       <FilterGroupTabs :groups="groups" />
 
-      <!-- 分组操作：新建分组「+」+ 管理分组「📁」——放在分组列表之后，
-           符合「分组列表 → 管理分组 → 筛选条件 → 筛选入口」的认知顺序（issue #2354）。 -->
+      <!-- 分组操作：新建分组「+」+ 管理分组「📁」+ 管理本组产品「🗂」——放在分组列表之后，
+           符合「分组列表 → 分组的图标 → 筛选条件 → 筛选入口」的认知顺序（issue #2354）。
+           三个入口管的都是「分组」，故同区同规格；此前「管理本组产品」挂在右段筛选区，
+           与它自己的语义（分组维度）分离，是 #2354 顺序诉求里剩下的最后一项错位。 -->
       <div class="group-actions">
         <el-tooltip content="新建分组" placement="bottom">
           <el-button
@@ -214,6 +216,22 @@ const hasActiveQuickFilters = computed(
             <el-icon><Folder /></el-icon>
           </el-button>
         </el-tooltip>
+        <!-- 「管理本组产品」（issue #987）：仅当前选中**自定义**分组时出现——
+             与「管理分组」是两件事：后者管分组本身（新建/改名/删除），本入口管
+             「这个组里有哪些产品」；系统分组由后端规律维护，故不提供。
+             显隐沿用「常驻 DOM + .is-hidden」：分组操作区紧邻弹性横滑的分组 Tab，
+             条件渲染会让该区宽度随选中分组变化，切换分组时整行抖动（同 .clear-filters-btn）。 -->
+        <el-tooltip content="管理本组产品" placement="bottom">
+          <el-button
+            class="manage-group-items-btn"
+            :class="{ 'is-hidden': !groups.currentIsCustom.value }"
+            circle
+            aria-label="管理本组产品"
+            @click="emit('manage-group-items')"
+          >
+            <el-icon><Files /></el-icon>
+          </el-button>
+        </el-tooltip>
       </div>
 
       <!-- 分区分隔线：分组导航（主导航）与类型快捷（筛选维度）之间的分区语言
@@ -230,29 +248,10 @@ const hasActiveQuickFilters = computed(
         @select="selectQuickType"
       />
 
-      <!-- 第三段（固定）：复杂筛选入口 + 清除筛选，不随左侧两区滚动 -->
+      <!-- 第三段（固定）：清除筛选 + 复杂筛选入口，不随左侧两区滚动。
+           （#2354：「管理本组产品」已按语义归入上一段分组操作区，本段只剩筛选维度，
+           原先隔在它与清除筛选之间的 .right-divider 随之删除——无对象可隔的孤立竖线。） -->
       <div class="filter-bar__right">
-        <!-- 「管理本组产品」：仅当前选中自定义分组时出现（issue #987）。
-             与上方「管理分组」（管分组本身的新建/改名/删除）是两件事——本入口
-             管「这个组里有哪些产品」，系统分组由后端规律维护故不展示。 -->
-        <el-tooltip
-          v-if="groups.currentIsCustom.value"
-          content="管理本组产品"
-          placement="bottom"
-        >
-          <el-button
-            class="manage-group-items-btn"
-            circle
-            aria-label="管理本组产品"
-            @click="emit('manage-group-items')"
-          >
-            <el-icon><Files /></el-icon>
-          </el-button>
-        </el-tooltip>
-
-        <!-- 右段分隔线：管理本组产品 与 清除筛选/筛选入口 之间的视觉分隔 -->
-        <div class="right-divider" />
-
         <!-- 清除筛选（#2199 ⑥ + 本版跳动修复）：类型 / 标签任一生效时才「可见」。
              用户实测痛点：面板勾了条件 + 点过分组 Tab 后无快捷清除入口，且分组
              切换不清类型条件（胶囊持续高亮）造成「条件残留」错觉。点击清空
@@ -349,14 +348,6 @@ const hasActiveQuickFilters = computed(
   background-color: var(--border-default);
 }
 
-/* 右段分隔线：管理本组产品 与 清除筛选/筛选入口 之间的视觉分隔 */
-.right-divider {
-  width: 1px;
-  height: 20px;
-  margin: 0 4px;
-  background-color: var(--border-default);
-}
-
 .filter-bar__right :deep(.el-popover__reference),
 .filter-bar__right :deep(.el-popover) {
   display: inline-flex;
@@ -370,7 +361,7 @@ const hasActiveQuickFilters = computed(
 
    恒定槽位（跳动修复核心）：本按钮常驻 DOM，无筛选时进 .is-hidden（只隐不撤）——
    若沿用 v-if 条件渲染，按钮出现的瞬间右段变宽、超过容器余量，
-   flex-wrap 会把整个右段（+ / 📁 / 清除 / 筛选）甩到第二行，
+   flex-wrap 会把整个右段（清除 / 筛选）甩到第二行，
    用户施加筛选的一瞬间页面跳动。占位恒定后，换行与否只取决于容器宽度，与筛选状态无关。 */
 .clear-filters-btn {
   position: relative; /* ::after 热区的定位锚点（同 WatchlistHeadPrimary 的 icon-tool-btn） */
@@ -464,7 +455,8 @@ const hasActiveQuickFilters = computed(
 }
 
 /* 管理本组产品按钮（#987）：与「管理分组」同尺寸同语言（28×28 圆形线框），
-   仅图标不同（多文件 = 组内产品清单，文件夹 = 分组本身），避免两个入口混淆 */
+   仅图标不同（多文件 = 组内产品清单，文件夹 = 分组本身），避免两个入口混淆。
+   #2354：随语义从「右段筛选区」移入「分组操作区」，与 + / 📁 同排。 */
 .manage-group-items-btn {
   flex-shrink: 0;
   width: 28px;
@@ -474,15 +466,32 @@ const hasActiveQuickFilters = computed(
   background-color: transparent;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-pill);
+
+  /* 含 opacity / visibility：与下方 .is-hidden 配成双向过渡（同 .clear-filters-btn），
+     否则从隐藏恢复时走的是本条（无 opacity 过渡），淡入不生效 */
   transition:
+    opacity 150ms ease,
     color 150ms ease,
     background-color 150ms ease,
-    border-color 150ms ease;
+    border-color 150ms ease,
+    visibility 0s linear 0s;
 }
 
 .manage-group-items-btn:hover {
   color: var(--brand-700);
   background-color: var(--bg-hover);
   border-color: var(--brand-400);
+}
+
+/* 非自定义分组（系统分组 / 全部）下的隐藏态：与 .clear-filters-btn.is-hidden
+   同机制（常驻 DOM、只隐不撤）——切换分组时分组操作区宽度恒定，整行不抖。
+   ⚠️ 禁止改回 v-if / display:none：槽位塌缩会让右侧类型胶囊区整体左移。 */
+.manage-group-items-btn.is-hidden {
+  visibility: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    opacity 150ms ease,
+    visibility 0s linear 150ms;
 }
 </style>

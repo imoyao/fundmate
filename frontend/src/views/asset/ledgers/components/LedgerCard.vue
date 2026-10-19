@@ -463,7 +463,7 @@ const emit = defineEmits<{
   align-items: center;
   padding: 1px 8px;
   margin-bottom: var(--space-2);
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 18px;
   color: var(--text-tertiary-ink);
   background: var(--bg-page);

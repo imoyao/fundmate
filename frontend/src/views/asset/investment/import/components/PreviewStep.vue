@@ -234,7 +234,7 @@ const pendingFixCount = computed(
 }
 
 .hint-text {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -244,14 +244,14 @@ const pendingFixCount = computed(
 }
 
 .header-ledger {
-  font-size: 15px;
+  font-size: var(--text-body);
   font-weight: 500;
   color: var(--text-primary);
 }
 
 /* 草稿状态文案（#783 §一/§8.1）：次级信息，不让它跟账户名抢注意力 */
 .header-draft {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -317,7 +317,7 @@ const pendingFixCount = computed(
 }
 
 .summary-secondary {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 </style>

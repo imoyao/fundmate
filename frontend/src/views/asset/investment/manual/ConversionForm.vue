@@ -1151,7 +1151,7 @@ defineExpose({ isDirty, resetForm });
 }
 
 .conversion-head__where {
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-secondary);
 }
@@ -1164,7 +1164,7 @@ defineExpose({ isDirty, resetForm });
    底部那排只留主按钮，避免两个「上一步」 */
 .conversion-head__back {
   padding: 2px 4px;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-secondary);
   cursor: pointer;
@@ -1231,7 +1231,7 @@ defineExpose({ isDirty, resetForm });
   min-width: 44px;
   min-height: 24px;
   padding: 0 4px;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1;
   color: var(--text-tertiary-ink);
   cursor: pointer;
@@ -1265,7 +1265,7 @@ defineExpose({ isDirty, resetForm });
   gap: 6px;
   align-items: flex-start;
   padding: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.5;
 
   /* 说明文案是次要元素：不铺底、不用 secondary 字色，靠 ⓘ 与缩进表达从属关系。
@@ -1314,7 +1314,7 @@ defineExpose({ isDirty, resetForm });
 }
 
 .hold-hint {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }
@@ -1323,7 +1323,7 @@ defineExpose({ isDirty, resetForm });
 .helper {
   width: 100%;
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-tertiary-ink);
 }
@@ -1340,7 +1340,7 @@ defineExpose({ isDirty, resetForm });
 .pick-link.el-button {
   height: auto;
   padding: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--brand-ink);
 }
 
@@ -1411,7 +1411,7 @@ defineExpose({ isDirty, resetForm });
 }
 
 .fee-hint {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }
@@ -1449,7 +1449,7 @@ defineExpose({ isDirty, resetForm });
 
 .figure__label {
   margin-bottom: 6px;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.4;
   color: var(--text-secondary);
 }
@@ -1471,7 +1471,7 @@ defineExpose({ isDirty, resetForm });
 
 .figure__aside {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
   color: var(--text-tertiary-ink);
@@ -1481,7 +1481,7 @@ defineExpose({ isDirty, resetForm });
   display: flex;
   gap: 8px;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -1491,7 +1491,7 @@ defineExpose({ isDirty, resetForm });
   gap: 8px;
   align-items: flex-start;
   padding: 12px 14px;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--color-warning-ink);
   background: var(--bg-soft);
@@ -1517,7 +1517,7 @@ defineExpose({ isDirty, resetForm });
 }
 
 .confirm-refund__title {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-primary);
 }
 
@@ -1527,13 +1527,13 @@ defineExpose({ isDirty, resetForm });
 }
 
 .confirm-refund__req {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .confirm-refund__hint {
   margin-top: 8px;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-tertiary-ink);
 }
@@ -1549,7 +1549,7 @@ defineExpose({ isDirty, resetForm });
   justify-content: space-between;
   width: 100%;
   padding: 12px 2px 4px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   cursor: pointer;
   background: none;
@@ -1578,7 +1578,7 @@ defineExpose({ isDirty, resetForm });
 .fee-fold__dirty {
   padding: 0 6px;
   margin-left: 6px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--color-warning-ink);
   background: var(--bg-soft);
   border-radius: var(--radius-xs);
@@ -1612,7 +1612,7 @@ defineExpose({ isDirty, resetForm });
 }
 
 .confirm-actions__note {
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-tertiary-ink);
 }
@@ -1633,7 +1633,7 @@ defineExpose({ isDirty, resetForm });
 /* 图标尺寸写 18px 字面值：本文件整体登记在 #2323 的存量例外清单里，
    随 #2362/#2363 清理字阶时一并令牌化 */
 .result-status__icon {
-  font-size: 18px;
+  font-size: var(--text-num-strong);
   color: var(--color-success-ink);
 }
 
@@ -1645,7 +1645,7 @@ defineExpose({ isDirty, resetForm });
 
 .result-status__no {
   margin-left: auto;
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }
@@ -1664,7 +1664,7 @@ defineExpose({ isDirty, resetForm });
   display: flex;
   gap: 6px;
   align-items: flex-start;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-tertiary-ink);
 }
@@ -1679,7 +1679,7 @@ defineExpose({ isDirty, resetForm });
   display: flex;
   gap: 6px;
   align-items: baseline;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

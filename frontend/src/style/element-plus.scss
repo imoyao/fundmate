@@ -150,13 +150,13 @@
      阈值刻意保留（760/940/470 是本组件内的视口区间，非页面级断点）。 */
   @media screen and (width > 760px) and (width <= 940px) /* breakpoint-allow: 双向区间，bp mixin 无法表达 */ {
     .el-input__inner {
-      font-size: 12px;
+      font-size: var(--text-label);
     }
   }
 
   @media screen and (width <= 470px) /* breakpoint-allow: 470px 不在断点表，且与上方块共同覆盖窄屏+中屏两档 */ {
     .el-input__inner {
-      font-size: 12px;
+      font-size: var(--text-label);
     }
   }
   /* stylelint-enable order/order */

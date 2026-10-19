@@ -344,7 +344,7 @@ const p = reactive(props.page);
 /* ===== 输入框字数统计 ===== */
 .char-count,
 .field-count {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }
@@ -352,7 +352,7 @@ const p = reactive(props.page);
 /* ===== 敏感词提示 ===== */
 .field-hint {
   margin: var(--space-2) 0 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.4;
 }
 

@@ -72,7 +72,7 @@ function dismiss() {
   justify-content: space-between;
   padding: 4px 12px;
   margin-bottom: 4px;
-  font-size: 12px;
+  font-size: var(--text-label);
   border-radius: 8px;
 }
 
