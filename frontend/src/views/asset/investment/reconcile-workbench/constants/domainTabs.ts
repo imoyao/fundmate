@@ -10,8 +10,8 @@
  * 后者是导入草稿的路由标签，只有 A/B/C，本次不动它）。
  */
 
-/** 域标识：A=E账户 / B=持仓快照 / C=对账单导入 / D=跨账本重复交易 */
-export type WorkbenchDomainKey = "A" | "B" | "C" | "D";
+/** 域标识：A=E账户 / B=持仓快照 / C=对账单导入 / D=跨账本重复交易 / E=分红未记扣税 */
+export type WorkbenchDomainKey = "A" | "B" | "C" | "D" | "E";
 
 export interface WorkbenchDomainTab {
   key: WorkbenchDomainKey;
@@ -77,6 +77,20 @@ export const domainTabs: WorkbenchDomainTab[] = [
     statusLabel: "已接入",
     placeholderHint: "逐组核对，保留一份",
     desc: "导入去重按账本隔离后，同一份交割单在多个账本各导一次会让交易与收益翻倍。本域列出疑似重复组及组内明细，供逐组核对。",
+    links: []
+  },
+  {
+    key: "E",
+    label: "分红未扣税",
+    title: "分红未记扣税（域 E）",
+    description: "有现金分红，该年账上却没有扣税流水",
+    badgeType: "fund",
+    status: "ready",
+    statusLabel: "已接入",
+    placeholderHint: "去交割单核对后补记",
+    // 措辞注意：本域不做「替你算税」，只指出哪几笔对不上账。税率取决于买入批次持有期，
+    // 本系统只有聚合持仓，反推出来的是会被券商否掉的猜测（见后端 dividend_tax_service）。
+    desc: "A 股红利税按持股期在卖出时补扣，本系统不自动推算。这里列出「该标的该年有现金分红、却没有扣税流水」的项，供你去券商交割单核对后补记一笔「扣税」。",
     links: []
   }
 ];

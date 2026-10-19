@@ -8,6 +8,8 @@ import {
   listGhostDuplicateIgnores,
   ignoreGhostDuplicate,
   undoGhostDuplicateIgnoreById,
+  listDividendTaxPending,
+  type DividendTaxPendingItem,
   type DiscrepancyItem,
   type GhostDuplicateGroupItem,
   type GhostDuplicateIgnore,
@@ -55,6 +57,11 @@ export function useWorkbenchDomains() {
   const ghostDeletingId = ref<number | null>(null);
   const ghostUndoingId = ref<number | null>(null);
 
+  /** 域 E：分红未记扣税（#541）——有现金分红、该年却没有扣税流水的标的 */
+  const taxItems = ref<DividendTaxPendingItem[]>([]);
+  const taxTotalCents = ref(0);
+  const taxLoading = ref(false);
+
   /** 域 A：E账户对账数据（P2 迁入） */
   const eItems = ref<ReconciliationItem[]>([]);
   const eLoading = ref(false);
@@ -70,8 +77,8 @@ export function useWorkbenchDomains() {
   const totalPending = computed(() => {
     const fromDiscs = discs.value.filter(d => d.status === "pending").length;
     const fromE = eItems.value.filter(i => i.status === "pending").length;
-    // 域 D 是实时派生扫描，不进 discrepancies 表，单独计数
-    return fromDiscs + fromE + ghostGroups.value.length;
+    // 域 D/E 是实时派生扫描，不进 discrepancies 表，单独计数
+    return fromDiscs + fromE + ghostGroups.value.length + taxItems.value.length;
   });
   /** 数据日期：最近一次差异的 updated_at 或今日 */
   const dataDateLabel = computed(() => {
@@ -93,6 +100,8 @@ export function useWorkbenchDomains() {
       return eItems.value.filter(i => i.status === "pending").length;
     // 域 D 不走 discrepancies 表（它是实时派生扫描），待处理数即未忽略的组数
     if (key === "D") return ghostGroups.value.length;
+    // 域 E 同理：待补记项实时派生，没有「已忽略」概念（记完税即自然消失）
+    if (key === "E") return taxItems.value.length;
     return discs.value.filter(d => d.domain === key && d.status === "pending")
       .length;
   }
@@ -100,6 +109,7 @@ export function useWorkbenchDomains() {
     if (key === "A")
       return eItems.value.filter(i => i.status === "ignored").length;
     if (key === "D") return ghostIgnored.value.length;
+    if (key === "E") return 0;
     return discs.value.filter(d => d.domain === key && d.status === "ignored")
       .length;
   }
@@ -175,6 +185,26 @@ export function useWorkbenchDomains() {
       discs.value = [];
     } finally {
       loading.value = false;
+    }
+  }
+
+  /** 加载域 E：分红未记扣税（#541）。
+   *
+   * 这个 GET 顺带幂等写一条站内提醒（后端 `dedup_key` 含年份，同标的同年只留一条），
+   * 因此它也是「首页消息条能看到这条提醒」的触发点——用户不必专门来对账台，
+   * 只要打开过任意一次工作台，铃铛就会有东西。失败静默：本域不是首屏主体，
+   * 一次超时不该把整个工作台带崩。 */
+  async function loadDividendTax(): Promise<void> {
+    taxLoading.value = true;
+    try {
+      const res = await listDividendTaxPending();
+      taxItems.value = res.data?.items ?? [];
+      taxTotalCents.value = res.data?.total_cents ?? 0;
+    } catch {
+      taxItems.value = [];
+      taxTotalCents.value = 0;
+    } finally {
+      taxLoading.value = false;
     }
   }
 
@@ -254,7 +284,9 @@ export function useWorkbenchDomains() {
     try {
       await runReconciliation("B");
       ElMessage.success("对账完成");
-      await loadDiscrepancies();
+      // 域 B 是「算差异」，域 E 是「看有没有漏记税」——两件事但同一入口，
+      // 一起刷新才符合用户对「运行对账」的预期（跑完看到的都是最新）。
+      await Promise.all([loadDiscrepancies(), loadDividendTax()]);
     } catch (e: any) {
       ElMessage.error(e?.response?.data?.message || "对账失败");
     } finally {
@@ -371,6 +403,10 @@ export function useWorkbenchDomains() {
     ghostLoading,
     ghostDeletingId,
     ghostUndoingId,
+    taxItems,
+    taxTotalCents,
+    taxLoading,
+    loadDividendTax,
     loadDiscrepancies,
     loadEAccount,
     loadGhostDuplicates,
