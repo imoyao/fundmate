@@ -267,6 +267,20 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/test_rule_registry_guard.py',
         'covered': '只做集合差；调度进去但每次都失败的 job 不报',
     },
+    'scripts/guard_scheduler_env_example.py': {
+        'rule': '每日调度的每个 job 都必须在 backend/.env.example 里有开关（#1186）',
+        # 只在 CI 里跑：两张清单都在仓库内、判据纯静态（不拉网络、不读运行时），
+        # 没必要再挂本地钩子——挂多了反而让「谁负责」变模糊（同 guard_cron_job_reachability）。
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_scheduler_env_example_guard.py',
+        # 边界：只判「变量名出现没出现」。cron 值 / 默认值合不合理、开关在 `.env.example`
+        # 里是不是被注释掉了（示例文件本来就全是注释形式）都读不出来——
+        # 它守的是「两张清单不再各长各的」，不是「调度时刻排得对不对」。
+        'covered': (
+            '只判变量名是否出现；cron 取值 / 默认值与调度合理性不在判据内；'
+            '全局开关（SCHEDULER_ENABLED 等）不带 _CRON 后缀，反向判据不覆盖它们'
+        ),
+    },
     'scripts/guard_no_duplicate_pie.py': {
         'rule': '资产分布图唯一实现（禁止新写 pie option）',
         'runner': 'ci',
