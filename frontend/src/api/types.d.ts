@@ -103,7 +103,10 @@ export interface PositionListResponse {
   message: string;
 }
 
-/** group_by=account 响应（对齐后端 { data: {账户名: [position_dict]}, message }） */
+/**
+ * group_by=account 响应（#2372：键为 ledger_id 字符串，"unfiled"=未归档持仓，
+ * 对齐后端 { data: {ledger_id: [position_dict]}, message }；账户名是可编辑字段，不做键）
+ */
 export interface PositionGroupedResponse {
   data: Record<string, Position[]>;
   message: string;

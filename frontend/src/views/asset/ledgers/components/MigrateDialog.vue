@@ -107,7 +107,10 @@ async function handleMigrate() {
   if (!ledger) return;
   try {
     if (migratingItem.value.id > 100000) {
+      // #2372：资产迁移必须带 ledger_id（真外键）——只传 account_name 时后端只改
+      // 快照不改 FK，资产实际没迁移；且任一侧账户改名后快照会被刷回旧账户。
       await updateAsset(migratingItem.value.id - 100000, {
+        ledger_id: ledger.id,
         account_name: ledger.name
       });
     } else {
