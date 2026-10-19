@@ -1237,3 +1237,101 @@ def migrate_account_name_snapshot(engine: Engine) -> str:
         return '[OK] account_name 快照无空值'
     logger.info('[OK] account_name 冗余快照已回填: {}', '; '.join(actions))
     return '[OK] ' + '; '.join(actions)
+
+
+def migrate_conversion_in_leg_snapshot(engine: Engine) -> str:
+    """回填转换「转入腿」持仓的 `name` / `market` 快照空值与污染值（#2406）。
+
+    ## 为什么需要
+
+    手动基金转换的转入腿 `in_data` 只传了 `symbol`，漏传 `name` / `market`
+    （`account_name` 已由 PR #2404 收口，同一份 dict 的同一缺陷族）。后果：
+
+    - `name` 缺省时 `process_buy_or_deposit` 退回 `name=data.get('name') or symbol`
+      → 持仓明细显示 6 位编码而非基金名；
+    - `market` 落 NULL → 展示层 `position_presenter` 兜 `'UNKNOWN'`，
+      `MARKET_LABELS` 查不到 → 前端「未知资产」。
+
+    本地库实证 position 618（519771，转入腿所建）：`name=NULL`、
+    `market='UNKNOWN'`——其中 'UNKNOWN' 还是 presenter 旧实现直接改 ORM 对象、
+    被同 session 的 flush 落进库的污染值（#2406 已修读函数写库的病根）。
+
+    代码侧已由 #2406 的调用点显式传值 + presenter 停变异收口**新写入**；本迁移收编
+    **存量**行，否则「新数据按新规矩、老数据按老规矩」两套真相长期并存。
+
+    ## 口径（宁漏不误，与 `resolve_fund_names` 的 None 语义对齐）
+
+    - `name`：NULL / 空串、`symbol` 有值、`asset_type` 属基金类 → 按 market 域
+      `funds` 名录回填；名录无记录 / market 域不可达 → **保持原值**，不编造；
+    - `market`：NULL 或非契约值（实证污染值 'UNKNOWN'）→ 基金类行按场外惯例
+      写 `'CN_A'`（`process_buy_or_deposit` 写入缺省与导入路径同值，全库 151/152
+      行实证）；非基金类行不动（股票市场推断另有权威入口，不在此越权）；
+
+    只补数据不动结构，逐行 `UPDATE ... WHERE`，幂等可重复跑。
+    非 SQLite 引擎跳过（新写入由 mapper 事件/写路径收口，存量由迁移工具负责）。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，转入腿快照由 ORM 模型/迁移工具负责'
+
+    tables = set(inspect(engine).get_table_names())
+    if 'positions' not in tables:
+        return '[SKIP] positions 表不存在（空库，init_db 将按新模型建表）'
+    cols = {c['name'] for c in inspect(engine).get_columns('positions')}
+    missing = [c for c in ('name', 'market', 'symbol', 'type') if c not in cols]
+    if missing:
+        return f'[SKIP] positions 缺列 {missing}（空库，新录入由写路径直接落正确值）'
+
+    # 契约市场集合（core/markets 的唯一真相；延迟导入避免 core 层环）
+    from app.core.markets import CONTRACT_MARKETS
+
+    contract_list = ', '.join(f"'{m}'" for m in CONTRACT_MARKETS)
+
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                'SELECT id, symbol, type, name, market FROM positions '
+                "WHERE symbol IS NOT NULL AND symbol != '' "
+                "  AND type IN ('fund', 'money_fund') "
+                "  AND ((name IS NULL OR name = '') "
+                '       OR market IS NULL OR market NOT IN (' + contract_list + '))'
+            )
+        ).fetchall()
+    if not rows:
+        return '[OK] 转入腿快照无空值/污染值'
+
+    # 延迟导入：core 层不在导入期依赖 services，且避免与 domains 模型形成环
+    from app.services.fund_utils import normalize_fund_code, resolve_fund_names
+
+    names = resolve_fund_names([r.symbol for r in rows])
+
+    updates: list[tuple[int, str | None, str | None]] = []
+    filled_name = undecidable = 0
+    for rid, symbol, _atype, name, market in rows:
+        new_name = name
+        if not name:
+            resolved = names.get(normalize_fund_code(symbol))
+            if resolved:
+                new_name = resolved
+                filled_name += 1
+            else:
+                undecidable += 1  # 名录无记录/不可达：保持原值，不编造
+        new_market = market if market in CONTRACT_MARKETS else 'CN_A'
+        if new_name != name or new_market != market:
+            updates.append((rid, new_name, new_market))
+
+    if not updates:
+        return '[OK] 转入腿快照无空值/污染值'
+
+    with engine.begin() as conn:
+        for rid, new_name, new_market in updates:
+            conn.execute(
+                text('UPDATE positions SET name = :n, market = :m WHERE id = :i'),
+                {'n': new_name, 'm': new_market, 'i': rid},
+            )
+    msg = f'回填 {len(updates)} 行（name 补 {filled_name} 行'
+    if undecidable:
+        msg += f'，{undecidable} 行名录无记录/不可达保持原名'
+    msg += '，market 收编为契约值）'
+    logger.info('[OK] 转换转入腿快照存量收编：{}', msg)
+    return '[OK] ' + msg

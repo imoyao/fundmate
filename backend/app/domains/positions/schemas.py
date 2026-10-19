@@ -167,7 +167,11 @@ class PositionOut(BaseModel):
     id: int
     symbol: str
     name: Optional[str] = None
-    market: str
+    # #2406：列本身可空（存量导入/迁移行可能没有 market）。此前为必填，逼得
+    # position_presenter 在 validate 前把 'UNKNOWN' 写回 ORM 对象（读函数写库，
+    # 兜底值被 flush 落进 positions.market）。放宽后兜底下沉到 presenter 的
+    # dict 层，wire 格式不变（仍输出 'UNKNOWN'）。
+    market: Optional[str] = None
     type: str = Field(validation_alias='asset_type', serialization_alias='type')
     # #1305 #11：三态冗余判定（True=货基 / False=非货基 / None=未判定）。
     # 列在 `positions.is_money_fund`（#863 引入）。**必须在 Out Schema 里声明**，
