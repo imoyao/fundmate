@@ -31,6 +31,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts' / 'bridge'))
 
+import check_duplicate_mirrors as check_dup  # noqa: E402
 import cleanup_duplicate_mirrors as cleanup  # noqa: E402
 
 
@@ -312,3 +313,223 @@ class ApplyTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class _Stderr:
+    """把 stderr 收进 StringIO —— 失败态必须留在日志里，故要能断言它。"""
+
+    def __init__(self):
+        import io
+        from contextlib import redirect_stderr
+
+        self.buf = io.StringIO()
+        self._ctx = redirect_stderr(self.buf)
+
+    def __enter__(self):
+        self._ctx.__enter__()
+        return self.buf
+
+    def __exit__(self, *exc):
+        return self._ctx.__exit__(*exc)
+
+
+class CloseMustCarryCriterionTest(unittest.TestCase):
+    """关闭时必须当场写下判据（CNB #552）。
+
+    用户原话：「你关卡或者是说留下评论的时候，一定要判有判据，不然我会感觉到很困惑。」
+    #552 被关时活动记录里只有 `closed/not_planned`、**零附言**，用户只能追问才知道
+    发生了什么 —— 这一组用例钉住「这种形态不再可能出现」。
+    """
+
+    def _plan(self, keeper_comments=0, remove_comments=0):
+        details = {
+            535: {'number': '535', 'comment_count': keeper_comments, 'state': 'open', 'comments': []},
+            552: {'number': '552', 'comment_count': remove_comments, 'state': 'open', 'comments': []},
+        }
+        if keeper_comments:
+            details[535]['comments'] = [{'author': {'is_npc': False}}] * keeper_comments
+        if remove_comments:
+            details[552]['comments'] = [{'author': {'is_npc': False}}] * remove_comments
+        grouped, _ = check_dup.group_by_github_number(
+            [
+                {'number': '535', 'body': 'GitHub 编号：`#2285`'},
+                {'number': '552', 'body': 'GitHub 编号：`#2285`'},
+            ]
+        )
+        return cleanup.plan(grouped, details)
+
+    def test_判据四段俱全(self):
+        """关的是什么 / 为什么关 / 依据在哪 / 不管什么——四段缺一不可。"""
+        p = self._plan()[2285]
+        note = cleanup.build_close_note(gh_number=2285, keeper=535, remove=552, p=p, repo=cleanup.GITHUB_REPO)
+        for field in ('关的是什么', '为什么关它', '保留依据', '依据在哪', '这条判据不管什么'):
+            self.assertIn(field, note, f'判据缺了「{field}」这一段')
+        self.assertIn('保留 #535', note)
+        self.assertIn('https://github.com/duoduobei/fundmate/issues/2285', note)
+
+    def test_保留依据必须是人话(self):
+        """不能只写「脚本判定」，要写清是哪条判据、数到了几条评论。"""
+        with_comments = cleanup.keeper_reason({'keep_comments': 3})
+        self.assertIn('3 条人类评论', with_comments)
+        without = cleanup.keeper_reason({'keep_comments': 0})
+        self.assertIn('编号最小', without)
+
+    def test_判据写不进去就不许关(self):
+        """**这是本组的核心判据**：先写判据、再关卡；写不进就跳过这张卡。
+
+        顺序反了（先关后写）的话，写失败时卡片已经关了 —— 又回到「关了却没说为什么」。
+        """
+        plans = self._plan()
+        closed: list[int] = []
+        with (
+            mock.patch.object(cleanup, 'collect', return_value=([], [])),
+            mock.patch.object(
+                cleanup,
+                'group_by_github_number',
+                return_value=({2285: [535, 552]}, []),
+            ),
+            mock.patch.object(
+                cleanup,
+                'get_cnb_issue',
+                side_effect=lambda n: {'number': str(n), 'comment_count': 0, 'state': 'open', 'body': ''},
+            ),
+            mock.patch.object(cleanup, 'plan', return_value=plans),
+            mock.patch.object(cleanup, 'post_close_note', side_effect=RuntimeError('500')),
+            mock.patch.object(cleanup, 'close_issue', side_effect=lambda n: closed.append(n)),
+        ):
+            rc = cleanup.main(['--apply'])
+        self.assertEqual(closed, [], '判据没写进去，就绝不能关这张卡')
+        self.assertNotEqual(rc, cleanup.EXIT_OK, '有卡没按判据处理，退出码不能报成功')
+
+    def test_变异探针_先关后写的顺序会被抓住(self):
+        """回退验证：把 `main()` 里的顺序换成「先关后写」，判据就白写了 —— 必须能抓住。
+
+        **为什么要真改一遍生产代码**：只在测试里模拟「写失败」是咬不住顺序的
+        （实测：首版探针记 `post_close_note` 的调用次数，而它本来就该被调用一次，
+        断言恒定失败 —— 探针自己坏了）。AGENTS.md 记的就是这一类：探针要问
+        「改掉这段，行为到底变没变」。
+        """
+        import inspect
+
+        src = inspect.getsource(cleanup.main)
+        body = src[src.index('for gh, p in plans.items()'):]
+        i_note = body.index('post_close_note(')
+        i_close = body.index('close_issue(')
+        self.assertLess(
+            i_note,
+            i_close,
+            '写判据必须在关卡**之前**：先关后写的话，写失败时卡已经关了，判据白写（#552 的形态）',
+        )
+
+    def test_写失败时不关卡(self):
+        """上面的结构性判据之外，再钉一次行为：判据写不进去 ⇒ `close_issue` 一次都不调。"""
+        closed: list[int] = []
+        with (
+            mock.patch.object(cleanup, 'collect', return_value=([], [])),
+            mock.patch.object(cleanup, 'group_by_github_number', return_value=({2285: [535, 552]}, [])),
+            mock.patch.object(
+                cleanup,
+                'get_cnb_issue',
+                side_effect=lambda n: {'number': str(n), 'comment_count': 0, 'state': 'open', 'body': ''},
+            ),
+            mock.patch.object(cleanup, 'plan', return_value=self._plan()),
+            mock.patch.object(cleanup, 'post_close_note', side_effect=RuntimeError('500')),
+            mock.patch.object(cleanup, 'close_issue', side_effect=lambda n: closed.append(n)),
+            _Stderr() as err,
+        ):
+            cleanup.main(['--apply'])
+        self.assertEqual(closed, [], '判据没写进去，就绝不能关这张卡')
+        self.assertIn('不关它', err.getvalue(), '跳过原因要留在 stderr，构建日志才看得出')
+
+    def test_判据写成功后照常关闭(self):
+        """不能因为加了判据就变成「一张都不敢关」——那是另一种假绿。"""
+        closed: list[int] = []
+        notes: list[int] = []
+        with (
+            mock.patch.object(cleanup, 'collect', return_value=([], [])),
+            mock.patch.object(cleanup, 'group_by_github_number', return_value=({2285: [535, 552]}, [])),
+            mock.patch.object(
+                cleanup,
+                'get_cnb_issue',
+                side_effect=lambda n: {'number': str(n), 'comment_count': 0, 'state': 'open', 'body': ''},
+            ),
+            mock.patch.object(cleanup, 'plan', return_value=self._plan()),
+            mock.patch.object(cleanup, 'post_close_note', side_effect=lambda n, b: notes.append(n)),
+            mock.patch.object(cleanup, 'close_issue', side_effect=lambda n: closed.append(n)),
+        ):
+            rc = cleanup.main(['--apply'])
+        self.assertEqual(notes, [552], '先把判据写到被关的那张卡上')
+        self.assertEqual(closed, [552])
+        self.assertEqual(rc, cleanup.EXIT_OK)
+
+
+class HumanCommentOnlyTest(unittest.TestCase):
+    """保留判据只认**人类**评论（CNB #552 的根因）。
+
+    分诊作业会给每张卡贴「分诊结论」评论，它不证明有人在读这张卡；
+    把机器人评论计入「有评论优先」，等于让**分诊先贴到谁头上**决定留哪张。
+    """
+
+    def _card(self, number, comments):
+        # 与 main() 同构：详情接口取到评论列表后，把「人类评论数」记回详情里，
+        # pick_keeper / plan 只读这一维（`_human_count`）。总评论数一并留着，
+        # 好让下面那条变异探针能用「旧判据」重算一遍。
+        return {
+            'number': str(number),
+            'comment_count': len(comments),
+            'state': 'open',
+            'comments': comments,
+            'human_comment_count': cleanup.human_comment_count(comments),
+        }
+
+    def test_机器人评论不计入保留判据(self):
+        # #552 有 1 条分诊机器人评论 + 1 条用户追问；#535 有 1 条分诊评论
+        bot = {'author': {'is_npc': True}}
+        human = {'author': {'is_npc': False}}
+        keeper, removed = cleanup.pick_keeper(
+            [
+                self._card(535, [bot]),
+                self._card(552, [bot, human]),
+            ]
+        )
+        self.assertEqual(keeper, 552, '有人类评论的那张才是正本')
+        self.assertEqual(removed, [535])
+
+    def test_只有机器人评论时退回编号最小(self):
+        """**#552 的真实形态**：两张都只有分诊机器人评论 ⇒ 不该按「谁先被贴」来决定。"""
+        bot = {'author': {'is_npc': True}}
+        keeper, removed = cleanup.pick_keeper(
+            [
+                self._card(535, [bot]),
+                self._card(552, [bot]),
+            ]
+        )
+        self.assertEqual(keeper, 535, '都没人类评论 ⇒ 留编号最小（最早创建）')
+        self.assertEqual(removed, [552])
+
+    def test_评论列表取不到时不冒充人类评论(self):
+        """空列表 ⇒ 0 条人类评论。
+
+        注意这里**不是**「拿不到就退回总数」：`human_comment_count` 收的是**评论列表**，
+        列表读不到由调用方（`fetch_human_comment_count`）抛错、记读取失败，
+        `--apply` 直接拒绝动手（#171）。退回总数会把分诊评论算成讨论，正是误关的方向。
+        """
+        self.assertEqual(cleanup.human_comment_count([]), 0)
+        self.assertEqual(cleanup.human_comment_count([_comment('github-actions'), _comment('x-bot')]), 0)
+
+    def test_变异探针_数总评论数会留错卡(self):
+        """回退验证：把 `human_comment_count` 换回 `_comment_count`，结论必须不同。
+
+        否则说明本组用例根本没在测「人类评论」这一维。
+        """
+        bot = {'author': {'is_npc': True}}
+        human = {'author': {'is_npc': False}}
+        cards = [self._card(535, [bot]), self._card(552, [bot, human])]
+        self.assertEqual(cleanup.pick_keeper(cards)[0], 552)
+        naive = min(cards, key=lambda d: (-cleanup._comment_count(d), int(d['number'])))[ 'number']
+        self.assertEqual(int(naive), 552, '两种判据在这组数据上恰好一致 —— 探针咬不住，换数据')
+        # 换成「都只有机器人评论」：总评论数判据看不出差别，人类评论判据则明确留编号最小
+        bot_only = [self._card(535, [bot]), self._card(552, [bot, bot])]
+        self.assertEqual(cleanup.pick_keeper(bot_only)[0], 535, '人类评论判据：留编号最小')
+        naive_bot = min(bot_only, key=lambda d: (-cleanup._comment_count(d), int(d['number'])))['number']
+        self.assertEqual(int(naive_bot), 552, '总评论数判据会留错卡（多一条机器人评论就赢）')
