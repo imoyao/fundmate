@@ -664,6 +664,22 @@ jobs:
       - name: 检查定时作业的目标分支是否在它自己的检出里（阻断）
         run: python scripts/guard_cron_job_reachability.py
 
+      # 回流 / 认领两条通道的可及性（源 CNB #552，2026-10-19）：用户原话「分诊侧不用做，
+      # 回流侧需要做。就是说你关卡或者是说留下评论的时候，一定要判有判据」。
+      # 分诊侧已有 `guard_triage_reachable.py`；这条管的是**有副作用的另一半**：
+      #   ① `dev:` 的 cron 与 `$:` 的 `web_trigger` 必须跑**同一套** `scripts/` 脚本
+      #      （`.cnb.yml` 现状是 `$:` 下只有 `web_trigger`、没有 push，建卡/回流/分诊
+      #      全在 18:00 UTC 那条 cron 里；段落一旦挪错，跑的会是默认分支上的旧配置，
+      #      而构建一律报绿）；
+      #   ② `mirror_state_sync` / `claim_detect` 的「数据不完整 ⇒ 非 0 退出」必须还在
+      #      —— 删掉它没有任何测试会红，而那是 #171 假绿的唯一起点；
+      #   ③ `GITHUB_TOKEN` 的第一次赋值必须来自 `GITHUB_PAT`（空串占位会静默盖掉 PAT）。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      # 判据边界（不拉网络、不判结论对不对）见脚本 docstring；
+      # 回归网在 scripts/tests/test_bridge_sync_reachable.py（含真实源码回退探针）。
+      - name: 检查回流 / 认领通道是否可及（阻断）
+        run: python scripts/guard_bridge_sync_reachable.py
+
       # 定时作业挂错**整整一个分支**（源 CNB #564，2026-10-18）：用户问「直接在 DEV 分支上面
       # 进行分诊不行吗？为什么非得在 main 分支上面？」——当时整组 cron（建卡 / 状态回流 /
       # 分诊 / 三节自检）都挂在 `main:` 下，理由只有一句「cron 只能挂具体分支，故这里显式写 main」。
