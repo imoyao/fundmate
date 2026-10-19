@@ -346,6 +346,21 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             '`${CNB_BRANCH}` 这类动态值刻意不猜'
         ),
     },
+    'scripts/guard_cron_covers_active_branch.py': {
+        'rule': '定时作业必须挂在活跃分支（`dev`）上，不得挂 `main`、也不得两份各挂一份',
+        # 与上一条判据（`guard_cron_job_reachability.py`）是一对：那条管「作业的目标分支在不在
+        # 自己的检出里」，这条管「作业挂错了整整一个分支」。#564 之前整组 cron 挂 `main` 下。
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_cron_covers_active_branch.py',
+        # 边界：只判「挂在哪个分支键下」，不判作业内容；不判 `pull_request` / `push` 事件
+        # （它们按事件发生的分支取配置，不按时间重复执行）。
+        # 活跃分支名是**常量**（`ACTIVE_BRANCH`）：分支改名时它会先红，这是有意的——
+        # 拿不到输入不等于输入为空（#171）。
+        'covered': (
+            '不判 `main` 上是否真的没有 cron 的等价形态（如把 cron 写成 `push` + 自判时间）；'
+            '不判作业跑起来是否成功（那是构建本身的事）'
+        ),
+    },
     'scripts/guard_cnb_script_task_python.py': {
         'rule': '跑 python 的脚本任务必须自带 docker.image',
         'runner': 'ci',
