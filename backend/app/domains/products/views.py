@@ -36,7 +36,6 @@ from app.domains.products.schemas import (
     StockProfileRequest,
 )
 from app.services.advisor_profile import build_advisor_profile
-from app.services.entitlement_check import PRO_FEATURES
 from app.services.etf_compare import build_etf_compare
 from app.services.fund_holdings_detail import build_fund_holdings_detail
 from app.services.fund_performance import build_fund_performance
@@ -542,30 +541,15 @@ def product_trade_timeline():
 
 @bp.get('/pro/')
 def pro_status():
-    """高级洞察 Pro 状态位（#2272 · #994 Phase 1 接口骨架 → #2324 接入权益校验）。
+    """高级洞察 Pro 状态位（#2272 骨架 → #2324 接入权益）。
 
-    **响应形状与一期契约一致**（``services/product_pro_status.py`` 的口径契约：
-    「后期接入付费时本文件的形状不变」）。#2324 只把状态位改成由后端权益驱动：
-
-    - ``paywall_required``：未登录、或家庭一份 Pro 权益都没开通 ⇒ true；
-    - **新增** ``entitlements``：逐 feature 的 ``granted`` / ``expires_at``
-      （前端付费墙与到期提醒的数据源）。旧字段一个不删。
-
-    为什么不换成纯权益映射：``ProductProSection.vue`` 读的是
-    ``data.modules[*].available``（前端付费墙迁移是 P1 跟进项，尚未落地），
-    删字段会让详情页 Pro 区块在渲染期 TypeError；且 #2324 验收第 3 条与
-    AGENTS.md「API 契约冻结」都不允许私改字段。
+    形状沿用一期契约（见 ``services/product_pro_status.py``），
+    ``paywall_required`` 由家庭权益驱动；骨架/权益合并/契约说明都在 service。
     """
     query: ProStatusRequest = parse_query(ProStatusRequest)
-    data = build_pro_status(query.symbol, query.asset_type)
     family_id = get_family_id() if _is_authenticated() else None
-    entitlements = (
-        get_pro_status_for_family(family_id)
-        if family_id
-        else {f: {'granted': False, 'expires_at': None} for f in PRO_FEATURES}
-    )
-    data['entitlements'] = entitlements
-    data['paywall_required'] = not any(item['granted'] for item in entitlements.values())
+    entitlements = get_pro_status_for_family(family_id) if family_id else None
+    data = build_pro_status(query.symbol, query.asset_type, entitlements)
     return jsonify({'data': data, 'message': 'ok'})
 
 
