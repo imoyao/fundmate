@@ -662,6 +662,23 @@ jobs:
       - name: 检查定时作业是否挂在活跃分支上（阻断）
         run: python scripts/guard_cron_covers_active_branch.py
 
+      # 定时作业的**检出分支**（源 CNB #586，2026-10-19）：`schedule` 只读默认分支上的
+      # workflow 定义，`actions/checkout` 默认也落在默认分支 —— 而本仓 `main` 只由发版 PR
+      # 推进，实测落后 `dev` **124 个提交**。于是「每夜捕捉回归」捕捉的是很久以前的代码。
+      #
+      # 实证：前端 E2E 连续三夜（10-16 / 10-17 / 10-18）失败，`head_sha` 全是 `1068135f`
+      # （`main` 的 tip），而那几天 `dev` 上已经合了两轮 E2E 修复 —— **每夜都在重跑同一个
+      # 已被修好的失败**。同一形态在 `daily-snapshot.yml`（#1434）记过一次，那次只是手工修好
+      # 一条、没有判据，于是换了个文件又犯。本条把它机械化。
+      #
+      # 与上两条是一组：那条管「cron 挂对分支了吗」，这条管「checkout 检出对分支了吗」。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      # 判据边界（只判定时作业；不猜 `${{ … }}` 的运行时值）见脚本 docstring；
+      # 回归网在 scripts/tests/test_schedule_checkout_ref.py（含回退探针：拿修复前的真实
+      # `e2e.yml` 喂守卫，确认它真的转红）。
+      - name: 检查定时作业是否检出了活跃分支（阻断）
+        run: python scripts/guard_schedule_checkout_ref.py
+
       # 镜像建卡的「扫描不可短路」守卫（源 CNB #450，2026-10-14）：`harvest_existing()`
       # 曾拿状态文件缓存当前置短路（缓存非空就直接返回），于是状态文件没记的镜像卡
       # 在判定时"不存在" ⇒ 每轮 cron/push 都把 ~140 张 GitHub 卡再建一遍，
