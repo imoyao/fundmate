@@ -386,6 +386,11 @@ class ApplyTest(unittest.TestCase):
         with (
             mock.patch.object(cleanup, 'collect', return_value=(cards, [])),
             mock.patch.object(cleanup, 'get_cnb_issue', side_effect=lambda n: _detail(n)),
+            # `main()` 判据 1 会读「人类评论数」；不桩它会打真实 CNB 接口，
+            # 无 token 时抛错 ⇒ 计入读取失败 ⇒ 本用例退化成 EXIT_UNKNOWN（#171 的失败态）。
+            mock.patch.object(cleanup, 'fetch_human_comment_count', return_value=0),
+            # 关闭前写的判据也要桩：否则会真往 CNB 发评论（有 token 的机器上就是真写入）。
+            mock.patch.object(cleanup, 'post_close_note'),
             mock.patch.object(cleanup, 'close_issue') as fake_close,
         ):
             code = cleanup.main(['--apply'])
