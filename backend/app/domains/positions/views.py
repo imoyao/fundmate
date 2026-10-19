@@ -14,6 +14,7 @@ from app.core.database import get_db
 from app.core.money import Money
 from app.core.retry import retry_on_db_locked
 from app.core.validation import parse_body, parse_query
+from app.domains.ledgers.models import Ledger
 from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
 from app.domains.positions.schemas import (
@@ -71,9 +72,17 @@ def get_position_transactions(id: int):
                 .all()
             )
         else:
+            # #2372：兜底匹配必须带 ledger_id——account_name 是**可编辑字段**的快照，
+            # 真库存在重名账户（支付宝×2 / 天天基金×2），按 (symbol, account_name)
+            # 匹配会串出别的账户的交易。position.ledger_id 为 NULL（未归档持仓）时
+            # 只匹配同属未归档（ledger_id IS NULL）的流水，不拿名称猜。
+            txn_query = db.query(Transaction).filter(Transaction.symbol == position.symbol)
+            if position.ledger_id is not None:
+                txn_query = txn_query.filter(Transaction.ledger_id == position.ledger_id)
+            else:
+                txn_query = txn_query.filter(Transaction.ledger_id.is_(None))
             transactions = (
-                db.query(Transaction)
-                .filter(Transaction.symbol == position.symbol, Transaction.account_name == position.account_name)
+                txn_query
                 .order_by(
                     Transaction.confirm_date.desc().nullslast(),
                     Transaction.created_at.desc(),
@@ -239,6 +248,16 @@ def update_position(id):
             if not target:
                 abort(404, description='目标组合不存在或无权访问')
 
+        # #2372：ledger_id 变更时同步 account_name 快照（与创建/资产迁移同口径）——
+        # 归档/迁移只传 ledger_id 是常见形态（见 portfolio/detail.vue 的 confirmArchive），
+        # 不同步会留下「FK 是新账户、快照是旧名字」的漂移行，账户改名后
+        # sync_account_name_snapshots 会把显示名刷回旧账户。
+        if update_data.get('ledger_id') is not None and update_data['ledger_id'] != position.ledger_id:
+            new_ledger = db.query(Ledger).filter_by(id=update_data['ledger_id'], family_id=get_family_id()).first()
+            if not new_ledger:
+                abort(404, description='目标账户不存在')
+            position.account_name = new_ledger.name
+
         for field, value in update_data.items():
             # 金额/份额字段转换为内部单位
             if field in ('current_price', 'avg_price'):
@@ -266,10 +285,16 @@ def delete_position(id):
             # 优先使用 position_id 删除
             deleted = db.query(Transaction).filter(Transaction.position_id == id).delete()
             if deleted == 0:
-                # 兜底：无 position_id 时用 symbol + account_name 匹配
-                db.query(Transaction).filter(
-                    Transaction.symbol == position.symbol, Transaction.account_name == position.account_name
-                ).delete()
+                # #2372：兜底删除必须按 ledger_id 收敛——account_name 是可编辑字段的
+                # 快照，真库存在重名账户（支付宝×2 / 天天基金×2），按
+                # (symbol, account_name) 删会**误删别的账户的交易**（不可恢复）。
+                # position.ledger_id 为 NULL（未归档持仓）时只删同属未归档的流水。
+                txn_query = db.query(Transaction).filter(Transaction.symbol == position.symbol)
+                if position.ledger_id is not None:
+                    txn_query = txn_query.filter(Transaction.ledger_id == position.ledger_id)
+                else:
+                    txn_query = txn_query.filter(Transaction.ledger_id.is_(None))
+                txn_query.delete()
 
         db.delete(position)
         db.flush()

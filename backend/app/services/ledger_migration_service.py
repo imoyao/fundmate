@@ -28,6 +28,7 @@ from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 from app.domains.transactions.models import Transaction
 from app.services import pnl_snapshot_store
+from app.services.txn_name_resolver import resolve_transaction_display_names
 
 # 决议动作白名单：持仓支持 merge，资产无 merge（金额无「加权平均」语义）
 _POSITION_ACTIONS = ('keep_source', 'keep_target', 'merge')
@@ -621,12 +622,15 @@ def build_orphan_detail(db, family_id: int) -> dict:
         )
         .all()
     )
+    # #2372：孤儿流水的 position_name 快照漏写时按 position_id/symbol 回解析，
+    # 不把「快照没写」显示成「未知资产」（account_name 不解析：孤儿定义即悬空）。
+    pos_names, _ledger_names = resolve_transaction_display_names(db, orphan_txns)
     transactions = []
     for t in orphan_txns:
         transactions.append(
             {
                 'id': t.id,
-                'position_name': t.position_name or '未知资产',
+                'position_name': t.position_name or pos_names.get(t.id) or '未知资产',
                 # txn_type 保持后端原始枚举值（buy/sell/dividend…），翻译交给前端
                 'txn_type': t.txn_type,
                 'amount': Money.cents_to_yuan(t.amount),

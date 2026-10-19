@@ -109,6 +109,77 @@ def _silent_reconcile_watchlist(db: Session, family_id: int, symbol: str) -> Non
         logger.warning('持仓状态对齐自选失败（已静默）: family={} symbol={}', family_id, symbol)
 
 
+def _resolve_fund_name_by_code(db: Session, symbol: Optional[str]) -> Optional[str]:
+    """按代码反查基金名称（market 域名录**点查**，非 JOIN）。
+
+    WHY（#2372）：``Position.name`` / ``Transaction.position_name`` 是**冗余快照**，
+    多个写入路径（基金转换转入腿、部分导入器）只传 ``ledger_id`` 不传名称，
+    快照落 NULL 后交易列表显示「未知资产」、持仓明细退化成 6 位编码
+    （真库实测：转换建的持仓 618 ``name=NULL``，流水 3001 两个快照全 NULL）。
+    ``symbol``（→ ``funds.fund_code``）才是权威键，快照缺失时按 ID 反查回填，
+    不依赖调用方自觉传名称。
+
+    只做单行点查：双库架构下 market / user 分引擎，路由会话按表分发，
+    点查安全；查不到返回 None（由调用方兜底），不猜、不建行。
+    """
+    if not symbol:
+        return None
+    code = strip_exchange_prefix(str(symbol))
+    if not code:
+        return None
+    fund = db.query(Fund).filter(Fund.fund_code == code).first()
+    return fund.name if fund else None
+
+
+def _resolve_ledger_name_by_id(db: Session, ledger_id: Optional[int]) -> Optional[str]:
+    """按账户 ID 反查账户名（user 域 ``ledgers`` 点查）。
+
+    同 ``_resolve_fund_name_by_code``：``account_name`` 是**可编辑字段**的快照，
+    快照缺失/漂移时按 ``ledger_id``（真外键）反查——前端据此显示真实账户名而非
+    「未知账户」，下游也不得再拿名称当匹配键（真库存在重名账户：#2372）。
+    """
+    if not ledger_id:
+        return None
+    ledger = db.get(Ledger, ledger_id)
+    return ledger.name if ledger else None
+
+
+def _find_position_by_identity(
+    db: Session,
+    data: dict,
+    symbol: str = '',
+    name: str = '',
+    active_only: bool = False,
+) -> Optional[Position]:
+    """导入 / 孤儿链路按**身份键**查找持仓（#2372：账户 ID 优先，名称不再做跨账户键）。
+
+    优先级：
+    1. ``ledger_id`` 有值 → 按 ``(ledger_id, symbol)`` 精确匹配；symbol 缺失时按
+       ``(ledger_id, name)`` 兜底（#1920 交割单无代码场景——账户 ID 已把范围收敛到
+       单账户，名称只在账户内做键，不再跨账户猜）；
+    2. ``ledger_id`` 为空 → 只匹配同属未归档（``ledger_id IS NULL``）的同代码持仓。
+
+    为什么不再按 ``(symbol, account_name)`` 匹配：``account_name`` 是**可编辑字段**
+    的快照，改名即失配；真库存在重名账户（支付宝×2 / 天天基金×2），按名称匹配会把
+    卖出 / 分红 / 送股记到**另一个账户**的持仓上，甚至改错别人的份额（#2372）。
+    """
+    family_id = _resolve_family_id(data)
+    ledger_id = data.get('ledger_id')
+    query = db.query(Position).filter(Position.family_id == family_id)
+    if active_only:
+        query = query.filter(Position.ownership_status == OwnershipStatus.ACTIVE.value)
+    if ledger_id is not None:
+        query = query.filter(Position.ledger_id == ledger_id)
+    else:
+        # 未归档数据：只在同属未归档的持仓里匹配，不拿账户名跨账户猜
+        query = query.filter(Position.ledger_id.is_(None))
+    if symbol:
+        return query.filter(Position.symbol == symbol).first()
+    if name:
+        return query.filter(Position.name == name).first()
+    return None
+
+
 # 允许写入持仓模型的字段白名单（防止注入无效字段）
 _ALLOWED_POSITION_FIELDS = {
     'symbol',
@@ -1238,6 +1309,14 @@ class PositionService:
 
         try:
             if same:
+                # 自愈回填（#2372）：存量持仓行可能因上游漏写快照而 name/account_name
+                # 为 NULL（实测基金转换转入腿建的持仓两个快照全空）。按 ID 反查补上，
+                # 否则交易列表显示「未知资产/未知账户」、持仓明细退化成 6 位编码。
+                # 仅在缺失时写，已有快照不动（快照是展示冗余，ID 才是权威）。
+                if not same.name:
+                    same.name = _resolve_fund_name_by_code(db, same.symbol)
+                if not same.account_name and same.ledger_id:
+                    same.account_name = _resolve_ledger_name_by_id(db, same.ledger_id)
                 if is_balance:
                     # balance 合并：份额/均价无意义（quantity 恒为 0，直接除会 ZeroDivisionError），
                     # 只累加可写市值并刷新覆写时间
@@ -1292,6 +1371,13 @@ class PositionService:
                 position_data['symbol'] = final_symbol
                 position_data['ledger_id'] = ledger_id
                 position_data['family_id'] = family_id
+                # 快照回填（#2372）：调用方（如基金转换转入腿）只传 ledger_id 不传
+                # 名称时，按 ID 反查补 name/account_name——它们是展示快照不是查询键，
+                # 但空快照会让交易列表出「未知资产/未知账户」、持仓明细只剩 6 位编码。
+                if not position_data.get('name'):
+                    position_data['name'] = _resolve_fund_name_by_code(db, final_symbol)
+                if not position_data.get('account_name'):
+                    position_data['account_name'] = _resolve_ledger_name_by_id(db, ledger_id)
                 # #1174 双态计价：显式落计价模式；balance 模式把金额直接写成可写市值
                 position_data['valuation_mode'] = mode
                 if is_balance:
@@ -1385,8 +1471,11 @@ class PositionService:
                 # balance 模式没有 price×qty 可算，流水金额直接取用户录入的金额
                 amount=amount_cents if is_balance else Money.multiply_price_quantity(price_units, qty_units),
                 status='success',
-                position_name=position.name,
-                account_name=position.account_name,
+                # #2372：快照缺失时按 ID 兜底反查（position 行刚回填也可能失败，
+                # 如 market 名录缺该代码）——绝不留 NULL 让前端显示「未知资产/未知账户」。
+                # `or` 短路：快照已在时零额外查询。
+                position_name=position.name or _resolve_fund_name_by_code(db, symbol),
+                account_name=position.account_name or _resolve_ledger_name_by_id(db, ledger_id),
                 notes=notes,
                 ledger_id=ledger_id,
                 import_hash=data.get('import_hash'),
@@ -1476,8 +1565,16 @@ class PositionService:
                     raise ValueError(err_msg)
 
         try:
-            position_name = existing.name
-            account_name = existing.account_name
+            # 自愈回填（#2372）：存量持仓快照缺失时按 ID 反查补上（与买入路径同口径），
+            # 修复上游漏写导致的「未知资产/未知账户」。仅在缺失时写。
+            if not existing.name:
+                existing.name = _resolve_fund_name_by_code(db, existing.symbol)
+            if not existing.account_name and existing.ledger_id:
+                existing.account_name = _resolve_ledger_name_by_id(db, existing.ledger_id)
+            # #2372：快照仍缺失（如 market 名录无该代码）时按 ID 兜底反查，
+            # 绝不留 NULL 让前端显示「未知资产/未知账户」。
+            position_name = existing.name or _resolve_fund_name_by_code(db, existing.symbol)
+            account_name = existing.account_name or _resolve_ledger_name_by_id(db, existing.ledger_id)
             # 清仓不再删行（#2343），ledger_id 提前取出保留（#1137 自动申购要用）——
             # 防御性写法：即使行保留，也避免依赖「事后仍可读 existing」的顺序耦合。
             ledger_id = existing.ledger_id
@@ -1779,37 +1876,28 @@ class PositionService:
             return None
 
         symbol = data.get('symbol', '')
-        account = data.get('account_name', '')
         qty = data.get('quantity', 0)
         price = data.get('avg_price', 0)
         name = (data.get('name') or data.get('position_name') or '').strip()
 
-        # 尝试查找现有持仓（家庭维度）
+        # 尝试查找现有持仓（家庭维度）——身份键 (ledger_id, symbol)，无代码时才按
+        # (ledger_id, name) 兜底（#1920 + #2372：账户 ID 收敛范围，名称不做跨账户键）
         existing = None
         if symbol:
-            existing = (
-                db.query(Position)
-                .filter_by(symbol=symbol, account_name=account, family_id=_resolve_family_id(data))
-                .first()
-            )
+            existing = _find_position_by_identity(db, data, symbol=symbol)
         if existing is None and name:
             # **symbol 缺失时的兜底关联**（#1920）
             # 券商交割单里「证券名称」常有而「证券代码」为空（实测真实库 1348/2051 笔
             # 无 symbol）。此前只按 symbol 匹配 ⇒ 必然查不到持仓 ⇒ 卖出退化成孤儿流水
             # ⇒ `realized_pnl` 无从计算而**静默丢 0**（真实库 649 笔卖出如此）。
-            # 名称 + 账户在单个账户内足以唯一定位持仓，退化风险远低于丢成本基准。
-            existing = (
-                db.query(Position)
-                .filter_by(name=name, account_name=account, family_id=_resolve_family_id(data))
-                .filter(Position.ownership_status == 'active')
-                .first()
-            )
+            # 名称 + 账户 ID 在单个账户内足以唯一定位持仓，退化风险远低于丢成本基准。
+            existing = _find_position_by_identity(db, data, name=name, active_only=True)
             if existing is not None:
                 logger.info(
-                    '卖出/取出按名称兜底关联到持仓：symbol=%r name=%r account=%r → position_id=%s',
+                    '卖出/取出按名称兜底关联到持仓：symbol=%r name=%r ledger_id=%r → position_id=%s',
                     symbol,
                     name,
-                    account,
+                    data.get('ledger_id'),
                     existing.id,
                 )
 
@@ -1858,15 +1946,11 @@ class PositionService:
         数据不全（缺份额或净值）时降级为现金分红，不阻断整批导入。
         """
         symbol = data.get('symbol', '')
-        account = data.get('account_name', '')
         dividend_amount = data.get('dividend_amount', data.get('avg_price', 0))
         is_reinvest = _is_reinvest(data)
 
-        existing = (
-            db.query(Position)
-            .filter_by(symbol=symbol, account_name=account, family_id=_resolve_family_id(data))
-            .first()
-        )
+        # #2372：按身份键 (ledger_id, symbol) 匹配，不再拿可编辑的 account_name 跨账户猜
+        existing = _find_position_by_identity(db, data, symbol=symbol)
 
         common = {
             'dividend_amount': dividend_amount,
@@ -1904,8 +1988,8 @@ class PositionService:
         """
         family_id = _resolve_family_id(data)
         symbol = data.get('symbol', '')
-        account = data.get('account_name', '')
-        existing = db.query(Position).filter_by(symbol=symbol, account_name=account, family_id=family_id).first()
+        # #2372：按身份键 (ledger_id, symbol) 匹配，不再拿可编辑的 account_name 跨账户猜
+        existing = _find_position_by_identity(db, data, symbol=symbol)
         link_group_id = data.get('link_group_id') or uuid.uuid4().hex
         if not existing:
             # 无关联持仓：红利再投资无法落地，记孤儿现金分红流水（notes 标明）
@@ -1924,7 +2008,8 @@ class PositionService:
 
         送股/拆分本质是「零成本的份额增加」：持仓份额 +quantity、总成本不变，均价由
         recompute_position_from_transactions 自动稀释（与买入/卖出回滚同一口径，避免再添分支）。
-        手动记账传 position_id 直接定位；导入路径按 (symbol, account_name, family_id) 匹配。
+        手动记账传 position_id 直接定位；导入路径按身份键 (ledger_id, symbol) 匹配
+        （#2372：不再按可编辑的 account_name 跨账户匹配）。
         """
         family_id = _resolve_family_id(data)
         qty = data.get('quantity') or 0
@@ -1947,9 +2032,8 @@ class PositionService:
         if position_id:
             existing = db.query(Position).filter_by(id=position_id, family_id=family_id).first()
         else:
-            symbol = data.get('symbol', '')
-            account = data.get('account_name', '')
-            existing = db.query(Position).filter_by(symbol=symbol, account_name=account, family_id=family_id).first()
+            # #2372：身份键 (ledger_id, symbol)；ledger_id 为空时只匹配未归档持仓
+            existing = _find_position_by_identity(db, data, symbol=data.get('symbol', ''))
 
         if not existing:
             # 无关联持仓：送股/拆分无法落地，记孤儿流水（notes 标明），返回 None
@@ -1979,9 +2063,12 @@ class PositionService:
             amount=0,
             status='success',
             entry_status='success',
-            position_name=existing.name,
+            # #2372：快照缺失时按 ID 兜底反查，不留 NULL 前端显示「未知资产/未知账户」
+            position_name=existing.name or _resolve_fund_name_by_code(db, existing.symbol),
             ledger_id=existing.ledger_id,
-            account_name=data.get('account_name', existing.account_name),
+            account_name=(
+                existing.account_name or _resolve_ledger_name_by_id(db, existing.ledger_id) or data.get('account_name', '')
+            ),
             notes=data.get('notes') or '送股/拆分入账',
             import_hash=data.get('import_hash'),
             link_group_id=data.get('link_group_id'),
@@ -2006,7 +2093,8 @@ class PositionService:
         """list_positions 的核心：过滤 + 按账户分组 / 分页组装（#1642 B 块，从 views 下沉）。
 
         与下沉前逐字段一致：``ledger_id='null'`` 仅取未归档持仓；``group_by='account'`` 按
-        account_name 分组并补首次买入确认日（优先交易流水，回退 position.confirm_date）；否则分页
+        **ledger_id** 分组（#2372：可编辑的 account_name 不做分组键；None 归 'unfiled'）并补
+        首次买入确认日（优先交易流水，回退 position.confirm_date）；否则分页
         + enrich_position_dict。返回原 jsonify 的「内层 data 字典」（视图负责补 message）。
 
         ``symbol`` / ``market``（#1966）：产品维度过滤，供详情页「我的持仓」区块用。
@@ -2052,22 +2140,25 @@ class PositionService:
                 first_buy_dates = {row.position_id: row.confirm_date for row in buy_dates_query}
 
             for p in positions:
-                # 分组键必须是字符串：`account_name` 在**有账户**时已由模型层 mapper
-                # 事件按 ledger_id 补齐（见 domains/positions/models.py），不再可能为 NULL；
-                # 但 `ledger_id` 为空的持仓（探市迁移 / 导入影子行）确实没有账户，
-                # 其 account_name 仍为 None，作字典键会撞上 flask.jsonify 的
-                # sort_keys=True（str 与 None 不可比）→ TypeError。
-                # 回退文案与 summary_service 的账户汇总口径一致（'未指定账户'）。
-                account = p.account_name or '未指定账户'
-                if account not in result:
-                    result[account] = []
+                # #2372：分组键用 ledger_id（真外键）而非 account_name（可编辑快照）——
+                # 重名账户按名称会并成一组（真库：支付宝×2 / 天天基金×2），账户改名后
+                # 前端按名回查整组落空。None（未归档持仓）归哨兵键 'unfiled'。
+                # 行内仍带 ledger_id + account_name 快照供展示，键才是关联依据。
+                #
+                # 与 #2404 的 `p.account_name or '未指定账户'` 兜底同源同目的（避开
+                # jsonify sort_keys 对 None 键的 TypeError），但用哨兵键把它**结构性
+                # 消除**：None 根本不会成为键，无需靠文案兜底；且键与账户一一对应，
+                # 不再受改名 / 重名影响——故保留本实现，移除 #2404 兜底。
+                key = str(p.ledger_id) if p.ledger_id is not None else 'unfiled'
+                if key not in result:
+                    result[key] = []
 
                 # 获取首次买入确认日
                 buy_confirm = first_buy_dates.get(p.id)
                 if buy_confirm is None:
                     buy_confirm = p.confirm_date  # 兼容无交易记录的回退
 
-                result[account].append(
+                result[key].append(
                     {
                         'id': p.id,
                         'symbol': p.symbol,
@@ -2084,6 +2175,7 @@ class PositionService:
                         'current_price': Money.price_units_to_yuan(p.current_price),
                         'confirm_date': buy_confirm.isoformat() if buy_confirm else None,
                         'ledger_id': p.ledger_id,
+                        'account_name': p.account_name,
                     }
                 )
             return {'data': result}

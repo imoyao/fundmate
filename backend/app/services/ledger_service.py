@@ -24,6 +24,7 @@ from app.services.summary_service import (
     orphan_cash_like_breakdown,
     orphan_money_fund_totals_by_ledger,
 )
+from app.services.txn_name_resolver import resolve_transaction_display_names
 
 
 class LedgerService:
@@ -636,6 +637,9 @@ class LedgerService:
             .all()
         )
 
+        # #2372：position_name 快照漏写时按 position_id/symbol 回解析，不直接显示「未知资产」
+        pos_names, _ledger_names = resolve_transaction_display_names(db, txn_list)
+
         items = []
         for t in txn_list:
             items.append(
@@ -645,7 +649,7 @@ class LedgerService:
                     'trade_date': t.trade_date.isoformat() if t.trade_date else None,
                     'txn_type': t.txn_type,
                     'asset_type': t.asset_type,
-                    'position_name': t.position_name or '未知资产',
+                    'position_name': t.position_name or pos_names.get(t.id) or '未知资产',
                     'symbol': t.symbol or '',
                     'price': Money.price_units_to_yuan(t.price),
                     'quantity': Money.min_unit_to_shares(t.quantity),

@@ -140,6 +140,11 @@ def update_asset(id):
                     }
                 ), 400
 
+            # #2372：ledger_id 变更时同步 account_name 快照（与创建路径同口径）——
+            # 不同步会留下「FK 是新账户、快照是旧名字」的漂移行，账户改名后
+            # sync_account_name_snapshots 还会把显示名刷回旧账户，「迁移」静默还原。
+            update_data['account_name'] = new_ledger.name
+
         if 'amount' in update_data:
             update_data['amount'] = Money.yuan_to_cents(update_data['amount'])
         for field, value in update_data.items():

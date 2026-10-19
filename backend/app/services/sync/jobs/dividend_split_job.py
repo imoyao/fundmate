@@ -284,8 +284,13 @@ class DividendSplitSyncJob(SyncJob):
     def _events_to_records(self, ev: dict) -> List[StandardTransactionRecord]:
         """一条上游事件 → 0~N 条流水。
 
-        股票混合方案（「10送3股派0.6元」）会拆成两条：现金分红 + 送转股。
+        股票混合方案（「10送3股派0.6元」）会拆成两条：现金分红 + 送转股（#541）。
         此前折叠成一条，现金那半分被整笔吞掉。
+
+        同一事件按持仓行**逐户**发出（#2372）：每条记录携带该持仓行的
+        ``ledger_id`` / ``account_name``——账户 ID 才是归属权威键；份额/金额按
+        **该行自己的持仓**测算（家庭汇总口径会把 A 账户的分红记到 B 账户头上）。
+        0 份额持仓行跳过（不写 0 金额流水）。
         """
         symbol = ev.get('symbol')
         ex_date = ev.get('ex_date') or ev.get('ann_date')
@@ -302,28 +307,34 @@ class DividendSplitSyncJob(SyncJob):
         if ex_date < today - timedelta(days=EVENT_LOOKBACK_DAYS):
             return []
 
-        ctx = self._position_context(symbol)
-        if ctx is None:
+        positions = self._position_rows(symbol)
+        if positions is None:
             # 持仓查询失败 ≠ 持有 0 股：写 0 金额流水会被幂等键锁死（#1833）
             return []
-        held = ctx['shares']
-        acct = {'account_name': ctx['account_name'], 'ledger_id': ctx['ledger_id']}
         asset_type = self._asset_type_of(ev)
         name = ev.get('desc') or ev.get('title') or ''
+        reinvest = self._is_reinvest(symbol)
 
         records: List[StandardTransactionRecord] = []
+        for p in positions:
+            # Decimal(str(...)) 包装不能丢：``min_unit_to_shares`` 返回 float，
+            # float × Decimal 直接 TypeError（旧 _holding_shares 正是这样包的，
+            # 逐行化时曾漏掉——回归测试用真实持仓行抓到，#2372）。
+            held = Decimal(str(Money.min_unit_to_shares(p.quantity)))
+            if held <= 0:
+                continue  # 0 份额持仓行：不写 0 金额流水
+            acct = {'account_name': p.account_name or '', 'ledger_id': p.ledger_id}
 
-        # ① 配股：缴款 + 股份增加，两条流水挂在同一个事件键上
-        if ev.get('rights_ratio'):
-            ratio = self._num(ev.get('rights_ratio'))
-            price = self._num(ev.get('rights_price'))
-            if ratio > 0 and price > 0 and held > 0:
-                sub_shares = (held * ratio / Decimal('10')).quantize(Decimal('0.0001'))
-                amount = (sub_shares * price).quantize(Decimal('0.01'))
-                pay_date = ev.get('pay_end') or ev.get('pay_start') or ex_date
-                ratio_key = f'10配{ratio}@{price}'
-                records.append(
-                    self._build_record(
+            # ① 配股：缴款 + 股份增加，两条流水挂在同一个事件键上
+            if ev.get('rights_ratio'):
+                ratio = self._num(ev.get('rights_ratio'))
+                price = self._num(ev.get('rights_price'))
+                if ratio > 0 and price > 0:
+                    sub_shares = (held * ratio / Decimal('10')).quantize(Decimal('0.0001'))
+                    amount = (sub_shares * price).quantize(Decimal('0.01'))
+                    pay_date = ev.get('pay_end') or ev.get('pay_start') or ex_date
+                    ratio_key = f'10配{ratio}@{price}'
+                    rec = self._build_record(
                         symbol=symbol,
                         asset_type=asset_type,
                         ex_date=pay_date,
@@ -337,92 +348,93 @@ class DividendSplitSyncJob(SyncJob):
                         source='akshare_rights',
                         **acct,
                     )
-                )
-                records[-1].raw_op_type = '配股缴款'
-            return records
+                    rec.raw_op_type = '配股缴款'
+                    records.append(rec)
+                continue
 
-        # ② 基金拆分：每 1 份 → ratio 份，零成本份额增加
-        if ev.get('split_ratio'):
-            ratio = self._num(ev.get('split_ratio'))
-            if ratio > 0 and held > 0:
-                add = (held * (ratio - 1)).quantize(Decimal('0.0001'))
-                if add > 0:
-                    records.append(
-                        self._build_record(
-                            symbol=symbol,
-                            asset_type='fund',
-                            ex_date=ex_date,
-                            kind='split',
-                            ratio_key=f'1:{ratio}',
-                            name=name,
-                            shares=add,
-                            notes=f'基金拆分 1:{ratio}，份额增加 {add}',
-                            source='akshare_fund_split',
-                            **acct,
+            # ② 基金拆分：每 1 份 → ratio 份，零成本份额增加
+            if ev.get('split_ratio'):
+                ratio = self._num(ev.get('split_ratio'))
+                if ratio > 0:
+                    add = (held * (ratio - 1)).quantize(Decimal('0.0001'))
+                    if add > 0:
+                        records.append(
+                            self._build_record(
+                                symbol=symbol,
+                                asset_type='fund',
+                                ex_date=ex_date,
+                                kind='split',
+                                ratio_key=f'1:{ratio}',
+                                name=name,
+                                shares=add,
+                                notes=f'基金拆分 1:{ratio}，份额增加 {add}',
+                                source='akshare_fund_split',
+                                **acct,
+                            )
                         )
+                continue
+
+            # 上游缺失值用 NaN 表达（pandas），`str(nan)` 会让 Decimal 直接抛 InvalidOperation，
+            # 故一律经 _num 收口：非有限值 → 0（「没有这一项」，而非「这一项是 0」）。
+            cash_ratio = self._num(ev.get('cash_ratio'))  # 股票：每 10 股派息元
+            per_share = self._num(ev.get('per_share'))  # 基金：每 1 份分红元
+
+            # ③ 基金分红：现金分红 / 红利再投
+            if per_share > 0:
+                amount = (held * per_share).quantize(Decimal('0.01'))
+                kind = 'dividend_reinvest' if reinvest else 'dividend_cash'
+                records.append(
+                    self._build_record(
+                        symbol=symbol,
+                        asset_type='fund',
+                        ex_date=ex_date,
+                        kind=kind,
+                        ratio_key=f'每份{per_share}',
+                        name=name,
+                        amount=amount,
+                        notes=f'基金分红 每份 {per_share} 元 × {held} 份',
+                        source='akshare_fund_fh',
+                        **acct,
                     )
-            return records
-
-        # 上游缺失值用 NaN 表达（pandas），`str(nan)` 会让 Decimal 直接抛 InvalidOperation，
-        # 故一律经 _num 收口：非有限值 → 0（「没有这一项」，而非「这一项是 0」）。
-        cash_ratio = self._num(ev.get('cash_ratio'))  # 股票：每 10 股派息元
-        per_share = self._num(ev.get('per_share'))  # 基金：每 1 份分红元
-
-        # ③ 基金分红：现金分红 / 红利再投
-        if per_share > 0:
-            amount = (held * per_share).quantize(Decimal('0.01'))
-            kind = 'dividend_reinvest' if self._is_reinvest(symbol) else 'dividend_cash'
-            rec = self._build_record(
-                symbol=symbol,
-                asset_type='fund',
-                ex_date=ex_date,
-                kind=kind,
-                ratio_key=f'每份{per_share}',
-                name=name,
-                amount=amount,
-                notes=f'基金分红 每份 {per_share} 元 × {held} 份',
-                source='akshare_fund_fh',
-                **acct,
-            )
-            records.append(rec)
-            return records
-
-        # ④ 股票现金分红：每 10 股派息
-        if cash_ratio > 0:
-            amount = (held * cash_ratio / Decimal('10')).quantize(Decimal('0.01'))
-            records.append(
-                self._build_record(
-                    symbol=symbol,
-                    asset_type=asset_type,
-                    ex_date=ex_date,
-                    kind='dividend_cash',
-                    ratio_key=f'10派{cash_ratio}',
-                    name=name,
-                    amount=amount,
-                    notes=f'现金分红 10派{cash_ratio}元 × 持有{held}股',
-                    **acct,
                 )
-            )
+                continue
 
-        # ⑤ 股票送股 / 转增：零成本份额增加（均价自动稀释）
-        bonus = self._num(ev.get('bonus_ratio'))
-        transfer = self._num(ev.get('transfer_ratio'))
-        if bonus > 0 or transfer > 0:
-            add = (held * (bonus + transfer) / Decimal('10')).quantize(Decimal('0.0001'))
-            if add > 0:
+            # ④ 股票现金分红：每 10 股派息
+            if cash_ratio > 0:
+                amount = (held * cash_ratio / Decimal('10')).quantize(Decimal('0.01'))
                 records.append(
                     self._build_record(
                         symbol=symbol,
                         asset_type=asset_type,
                         ex_date=ex_date,
-                        kind='split',
-                        ratio_key=f'送{bonus}转{transfer}',
+                        kind='dividend_cash',
+                        ratio_key=f'10派{cash_ratio}',
                         name=name,
-                        shares=add,
-                        notes=f'送转股 10送{bonus}转{transfer} × 持有{held}股，份额增加 {add}',
+                        amount=amount,
+                        notes=f'现金分红 10派{cash_ratio}元 × 持有{held}股',
                         **acct,
                     )
                 )
+
+            # ⑤ 股票送股 / 转增：零成本份额增加（均价自动稀释）
+            bonus = self._num(ev.get('bonus_ratio'))
+            transfer = self._num(ev.get('transfer_ratio'))
+            if bonus > 0 or transfer > 0:
+                add = (held * (bonus + transfer) / Decimal('10')).quantize(Decimal('0.0001'))
+                if add > 0:
+                    records.append(
+                        self._build_record(
+                            symbol=symbol,
+                            asset_type=asset_type,
+                            ex_date=ex_date,
+                            kind='split',
+                            ratio_key=f'送{bonus}转{transfer}',
+                            name=name,
+                            shares=add,
+                            notes=f'送转股 10送{bonus}转{transfer} × 持有{held}股，份额增加 {add}',
+                            **acct,
+                        )
+                    )
         return records
 
     # ── 校验 ──
@@ -449,18 +461,23 @@ class DividendSplitSyncJob(SyncJob):
         seen = set()
         batch_unique = []
         for r in data:
-            h = r.import_hash
-            if h in seen:
+            # #2372：去重键含 ledger_id——同一分红事件按持仓行逐户发出，跨账户同 hash
+            # 是**不同账户的两笔**，不是重复（DB 侧唯一约束同为 (ledger_id, hash) 作用域）。
+            key = (r.ledger_id, r.import_hash)
+            if key in seen:
                 continue
-            seen.add(h)
+            seen.add(key)
             batch_unique.append(r)
         hashes = [r.import_hash for r in batch_unique if r.import_hash]
         if not hashes:
             return batch_unique
         existing = set(
-            h for (h,) in self.db.query(Transaction.import_hash).filter(Transaction.import_hash.in_(hashes)).all()
+            (lid, h)
+            for (lid, h) in self.db.query(Transaction.ledger_id, Transaction.import_hash)
+            .filter(Transaction.import_hash.in_(hashes))
+            .all()
         )
-        return [r for r in batch_unique if r.import_hash not in existing]
+        return [r for r in batch_unique if (r.ledger_id, r.import_hash) not in existing]
 
     # ── 落库 ──
 
