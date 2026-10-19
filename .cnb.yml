@@ -639,6 +639,24 @@ dev:
             password: ${GITHUB_PAT}
             # 只推「触发本次构建的那条分支」；cron 不走此段，故不会误推 dev/main
             branch: ${CNB_BRANCH}
+            # ⚠️ 本段推的是**裸 ref + fast-forward only + 永不开 force**，所以它有一个
+            #    **插件参数修不了**的失败态（源 CNB #600，2026-10-19 实测）：
+            #        ! [rejected]  fix/552-close-must-carry-criterion -> … (non-fast-forward)
+            #    本次构建 `cnb-32g-1k59n02e8` 就是这么红的，而**同一分支 15 分钟前推成功过**
+            #    （`cnb-n0j-1k59m3q1f`）。差别只有一处：GitHub 侧那条分支此后被推前了一笔
+            #    （`1484d348` → `276cf875`，同一提交 rebase 成另一个 sha），而插件推的是
+            #    **本地检出、从不 fetch 目标分支** ⇒ 永远追不上，且**被拒之后不会自愈**。
+            #
+            #    判据：看到 `(non-fast-forward)` / `(fetch first)` 先比较**两侧同名 ref 的 sha**
+            #    （`git ls-remote` 两边各一次）。**别把它当成分叉**——分叉要人合；
+            #    这里只是「本侧这份快照已经旧了」，重跑一次（新一轮检出）即可。
+            #
+            #    为什么不在这里加「先合再推」：git-sync 插件的参数只有
+            #    `branch/target_url/auth_type/username/password/push_tags/squash`，
+            #    **没有**任何 hook 能在 push 之前做 merge。要机器化这一步，就得把功能分支
+            #    从本段搬到脚本任务（`machine_branch.py --merge-sync` 已经在 `dev:` 段这么做了，
+            #    源 CNB #577 / #600）。那是**改动面涉及全部功能分支同步**的取舍，
+            #    留给用户拍板，本次不擅自搬——`.cnb.yml` 的注释里写清边界，比悄悄改通道安全。
 # ===== CNB `dev` ↔ GitHub `dev` 双向同步（git-sync 插件）=====
 # ⚠️ **必须挂在 `dev:` 分支键下**（CNB #269，2026-10-14）。这里的「挂在哪个分支键下」
 # 不是风格问题，它决定 runner 检出哪个分支 —— 而插件只推「工作区里存在的分支」：
