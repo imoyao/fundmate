@@ -36,6 +36,20 @@ D48（CNB #117 硬要求 ②）原口径是**标记不关**：说清楚、但不
 - **只认镜像卡**：拒绝往人工卡写（与 `mirror_correction.py` 同一条闸门）；
 - **纯标准库**：复用 `github_cnb_issues.py` 的 `cnb_api`，无需 pip install。
 
+## 关卡必须带判据（2026-10-19，源 CNB #552）
+
+**关闭一张卡时，必须当场说清「为什么关」，且这段说明要写进卡面评论。**
+这不是附言，而是关卡的**入场券**：判据拼不出来就不许关（`evidence_is_complete()`）。
+
+- 四段判据缺一不可：**关的是什么 / 依据在哪 / 观测到什么 / 这条判据不管什么**；
+- `观测到什么` 必须带**时刻**——「那一刻的状态」不是「此刻的状态」（AGENTS.md 看时态）；
+- `这条判据不管什么` 划出边界，让人一眼看出这条判据管到哪；
+- **关卡失败时补一条更正**：评论已声称「已关闭」而实际没关，那条评论是**假话**，
+  不能只把失败 print 进构建日志。
+
+教训来自实况：#552 被关闭时活动记录里只有 `closed/not_planned`，**零附言**，
+用户只能追问才知道发生了什么。
+
 **「评论已发过」不阻断「关卡」**：D48 时代已有 13 张卡发过回流评论却仍是 `open`，
 本口径切换后它们**必须被补关**——否则口径改了、那些卡还漂着，等于换了个说法继续不一致。
 故 `run()` 里评论走幂等键、关卡走 `cnb_state`，两条判据**分开**。
@@ -107,6 +121,7 @@ def build_state_comment(
     repo: str,
     today: str | None = None,
     closed: bool = True,
+    evidence: dict[str, str] | None = None,
 ) -> str:
     """拼状态回流评论：固定标题 + 事实 + 「本卡已随之关闭」的明示 + 隐藏幂等键。
 
@@ -115,6 +130,17 @@ def build_state_comment(
     """
     date = today or datetime.now(UTC).strftime('%Y-%m-%d')
     verb = {'closed': '已关闭', 'open': '已重新打开'}.get(gh_state, f'状态为 `{gh_state}`')
+
+    # 关闭判据必须先写进评论，再谈关不关（CNB #552）。
+    # 缺一段就别在这里编：调用方已用 `evidence_is_complete()` 拦过，
+    # 这里再断言一次，是为了让「正文说已关闭、却没有判据」永远拼不出来。
+    if closed:
+        if not evidence_is_complete(evidence or {}):
+            raise ValueError('关闭判据不完整，拒绝生成「已关闭」的评论正文')
+        evidence_block = ['', render_close_evidence(evidence or {}), '', CLOSE_EVIDENCE_LINE.format('complete')]
+    else:
+        evidence_block = []
+
     if closed:
         tail = [
             '> ✅ 本卡**已随 GitHub 同步关闭**（B 口径，CNB `#171` 用户拍板）。',
@@ -131,6 +157,7 @@ def build_state_comment(
         '',
         f'- GitHub 原卡 #{gh_number} **{verb}**（GitHub 侧最后更新：{_as_date(gh_updated)}）',
         f'- 依据：https://github.com/{repo}/issues/{gh_number}',
+        *evidence_block,
         '',
         *tail,
         '',
@@ -142,6 +169,68 @@ def build_state_comment(
 def _as_date(value: str) -> str:
     """把 GitHub 的 ISO 时间截成日期；空值给「未知」，不要静默留空。"""
     return value[:10] if value else '未知'
+
+
+CLOSE_EVIDENCE_LINE = '<!-- 关卡判据：{} -->'
+
+# 关闭判据的「字段名」：只要有一条为空，就说明这次关闭**说不出理由**。
+CLOSE_EVIDENCE_FIELDS = ('what', 'source', 'observed', 'missing')
+
+
+def build_close_evidence(
+    *,
+    gh_number: int,
+    gh_state: str,
+    gh_updated: str,
+    repo: str,
+    cnb_number: int,
+) -> dict[str, str]:
+    """构造「为什么关这张卡」的四段判据。**这是关卡的前置条件，不是附言。**
+
+    CNB #552（2026-10-19）的教训：卡片被关掉时活动记录里只有
+    `closed/not_planned`，**没有一句附言**，用户只能靠追问才知道发生了什么。
+    「关卡不说理由」本身就是缺陷——它把一次机械动作变成了一场考古。
+
+    故四段缺一不可：
+
+    | 字段 | 回答的问题 |
+    |---|---|
+    | `what` | 关的是什么（CNB 编号 + 对应的 GitHub 编号） |
+    | `source` | 从哪看到的（GitHub 原卡 URL，可点开自证） |
+    | `observed` | 什么时候看到的、看到的状态是什么（**带时刻**，见 AGENTS.md「看时态」） |
+    | `missing` | 没覆盖什么（本脚本只看两侧状态，不评价讨论是否有价值） |
+
+    `missing` 不是免责声明：它划出判据的**边界**，让人一眼看出「这条判据管到哪」。
+    """
+    return {
+        'what': f'CNB 镜像卡 #{cnb_number} ← GitHub #{gh_number}',
+        'source': f'https://github.com/{repo}/issues/{gh_number}',
+        'observed': f'{_as_date(gh_updated)}（GitHub 侧最后更新）状态为 `{gh_state}`，CNB 侧仍为 `open`',
+        'missing': '本判据只比较两侧**状态**，不判断该卡上的讨论是否已经结束',
+    }
+
+
+def evidence_is_complete(evidence: dict[str, str]) -> bool:
+    """四段判据必须**逐段非空**。任一为空 ⇒ 说不出理由 ⇒ 不得关闭。
+
+    刻意不看「够不够长 / 写得好不好」：那只能人判。这里只守一条机械底线——
+    **有没有把话说出来**。
+    """
+    return all(str(evidence.get(f) or '').strip() for f in CLOSE_EVIDENCE_FIELDS)
+
+
+def render_close_evidence(evidence: dict[str, str]) -> str:
+    """把判据渲染成卡面可见的 Markdown 段（插在回流评论里，不是只写进日志）。"""
+    return '\n'.join(
+        [
+            '### 关闭判据',
+            '',
+            f'- **关的是什么**：{evidence["what"]}',
+            f'- **依据在哪**：{evidence["source"]}',
+            f'- **观测到什么**：{evidence["observed"]}',
+            f'- **这条判据不管什么**：{evidence["missing"]}',
+        ]
+    )
 
 
 def parse_comments(raw: Any) -> list[dict[str, str]]:
@@ -416,6 +505,22 @@ def _github_headers() -> dict[str, str]:
     return headers
 
 
+def _report_close_failure(cnb_number: int, exc: Exception, *, repo: str | None = None) -> None:
+    """关卡失败时在卡面补一条更正——评论说「已关闭」而实际没关，是**说了等于没说**的反面：
+    它是**说了假话**。失败要留在读者看得见的地方，不能只躺在构建日志里。
+    """
+    try:
+        post_comment(
+            cnb_number,
+            '## 状态回流失败\n\n'
+            f'- 上面的回流评论声称「已随 GitHub 同步关闭」，但关闭请求失败了：`{exc}`\n'
+            '- 本卡**当前仍为 open**，与 GitHub 侧不一致。以本卡状态为准，不要相信上一条评论的措辞。',
+            repo=repo,
+        )
+    except Exception as post_exc:  # noqa: BLE001  更正也发不出去时，至少要吼一声
+        print(f'  ❌ CNB #{cnb_number} 关闭失败且更正评论也发不出去：{post_exc}')
+
+
 def run(*, apply: bool, only_cnb: int | None, repo: str | None, auto_close: bool = True) -> int:
     state = load_state()
     cards = mirrored_cards(repo=repo, state=state)
@@ -456,9 +561,30 @@ def run(*, apply: bool, only_cnb: int | None, repo: str | None, auto_close: bool
         # 而 `state_drift()` 的定义已经排除「两侧都关」。加一道等价判断是**死代码**：
         # 它永远不会为假，守门也咬不住它（实测 S5 探针 MISSED），留着只会让人以为
         # 它承担了「不重复关」的职责。真正保证幂等的地方在 `plan()`，回归网钉在那边。
-        need_close = auto_close
+        # 关卡的前置条件：**判据必须能完整写出来**（CNB #552）。
+        # 「说出理由」不是关掉之后的附言，而是关掉的入场券——写不出来就不许关。
+        # 这不是防脚本 bug（`state_drift` 已排除两侧都关），而是防**结论正确但无法解释**：
+        # #552 那次被关时活动记录里只有 `closed/not_planned`，用户只能追问才知道发生了什么。
+        evidence = build_close_evidence(
+            gh_number=card['gh'],
+            gh_state=card['gh_state'],
+            gh_updated=card['gh_updated'],
+            repo=_gh_repo_name(),
+            cnb_number=card['cnb'],
+        )
+        evidence_ok = evidence_is_complete(evidence)
+        need_close = auto_close and evidence_ok
+        if auto_close and not evidence_ok:
+            missing = [f for f in CLOSE_EVIDENCE_FIELDS if not str(evidence.get(f) or '').strip()]
+            print(f'  ⛔ CNB #{card["cnb"]} 判据不完整（缺 {missing}），本轮只标记不关闭')
         body = build_state_comment(
-            card['gh'], card['gh_state'], card['gh_updated'], key, repo=_gh_repo_name(), closed=need_close
+            card['gh'],
+            card['gh_state'],
+            card['gh_updated'],
+            key,
+            repo=_gh_repo_name(),
+            closed=need_close,
+            evidence=evidence,
         )
 
         if not need_comment and not need_close:
@@ -489,7 +615,10 @@ def run(*, apply: bool, only_cnb: int | None, repo: str | None, auto_close: bool
                 close_issue(card['cnb'], repo=repo)
                 closed += 1
             except Exception as exc:  # noqa: BLE001  # 关卡失败要显式报，不能静默
+                # 评论里已经写了「本卡已随 GitHub 同步关闭」，而关卡其实失败了 ——
+                # 那条评论此刻是**假的**。必须在卡面追加更正，不能让假话留在那儿。
                 print(f'  ❌ CNB #{card["cnb"]} 关闭失败：{exc}')
+                _report_close_failure(card['cnb'], exc, repo=repo)
                 continue
         marks = []
         if need_comment:
