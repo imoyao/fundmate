@@ -10,10 +10,12 @@
 
 根因不是排序，而是数据违反了「有账户就该有账户名」。真正的账户标识是 `ledger_id`，
 `account_name` 只是它的冗余快照（改名由 `sync_account_name_snapshots` 级联刷新）。
-本文件钉住模型层 mapper 事件兜底后的四条语义。
+本文件钉住模型层 mapper 事件兜底后的四条语义，另有一条**部分表结构库**的边界
+（补不了要出声，但不能打断写入）。
 """
 
-from sqlalchemy import text
+from sqlalchemy import create_engine, select, text
+from sqlalchemy.orm import Session
 
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
@@ -94,3 +96,35 @@ def test_unassigned_position_keeps_empty_account_name(db):
 
     db.refresh(position)
     assert position.account_name is None
+
+
+def test_partial_schema_db_skips_fill_without_breaking_insert(tmp_path):
+    """只有部分表结构的库（没有 `ledgers`）不参与回填，但**不得打断写入**。
+
+    `scripts/fix_orphan_money_fund_reattach.py` 及其单测夹具只建
+    `positions` / `transactions` 两张真表。事件若直接查 `ledgers`，会在这里抛
+    `OperationalError: no such table: ledgers`，把一次**正常写入**打断
+    （2026-10-19 CI 实测：该脚本单测 15 failed / 5 errors）。
+
+    判据两条：**不抛异常**（写入照常落库）、且**不伪造账户名**——
+    补不了就保持空，不得写成空串或猜一个名字出来。
+    """
+    engine = create_engine(f'sqlite:///{(tmp_path / "partial.db").as_posix()}')
+    Position.__table__.create(engine)
+    try:
+        with Session(engine) as session:
+            session.add(
+                Position(
+                    symbol='519771',
+                    name='测试基金',
+                    asset_type='fund',
+                    family_id=1,
+                    quantity=100,
+                    source='manual',
+                    ledger_id=16,
+                )
+            )
+            session.commit()  # 抛异常即失败
+            assert session.execute(select(Position.account_name)).scalar() is None
+    finally:
+        engine.dispose()

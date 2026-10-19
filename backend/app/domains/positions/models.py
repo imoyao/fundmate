@@ -1,6 +1,7 @@
 from datetime import date
 from typing import Optional
 
+from loguru import logger
 from sqlalchemy import (
     Boolean,
     Column,
@@ -14,6 +15,7 @@ from sqlalchemy import (
     UniqueConstraint,
     and_,
     event,
+    inspect,
     select,
 )
 from sqlalchemy.orm import validates
@@ -291,11 +293,39 @@ def _fill_position_account_name(mapper, connection, target: Position) -> None:
     只补空值（`None` / 空串），**不覆盖**调用方显式传入的名字：导入解析出的机构展示名
     可能与 ledger 名不同，那是有意的。`ledger_id` 为空（未归档持仓 / 导入影子行）时
     也无从补齐，保持原值——它们确实没有账户，显示层兜底为「未指定账户」。
+
+    ## 边界：只有部分表结构的库不参与回填（但要出声）
+
+    `positions` 会被**只建了部分表**的库写入——例如
+    `scripts/fix_orphan_money_fund_reattach.py` 及其单测夹具只建
+    `positions` / `transactions`（该脚本确实只需要这两张表）。在那里查 `ledgers`
+    会抛 `OperationalError: no such table: ledgers`，把一次**正常写入**打断
+    （2026-10-19 CI 实测：`tests/scripts/test_fix_orphan_money_fund_reattach.py`
+    15 failed / 5 errors）。
+
+    故先问一句「本引擎有没有这张表」（`inspect(connection).has_table`），
+    没有就**跳过并告警**：这是「补不了」，不是「补出来是空的」，两者不得混为一谈
+    —— 静默跳过会让这张网从此不干活，而日志里什么也看不见。
+
+    刻意**不**用 `try/except OperationalError` 兜：那会把「表不存在」与
+    「库被锁 / 连接坏了」混成一类一起吞掉；`has_table` 先问清楚，
+    真正的查询失败仍然照常抛出。
+
+    同一先例：`services/pnl_snapshot_store.py:306` 的 `_snapshot_table_missing`
+    —— 它也挂在 flush 事件里，也先 `inspect(session.connection()).has_table(...)`
+    再决定动不动，理由相同（脚本自建 sessionmaker + 夹具的部分表库）。
     """
     if not target.ledger_id or target.account_name:
         return
     # 延迟导入：ledgers 与 positions 同属 user 域，但模块加载期避免交叉导入。
     from app.domains.ledgers.models import Ledger
+
+    if not inspect(connection).has_table('ledgers'):
+        logger.warning(
+            'positions.account_name 冗余快照无法回填：本引擎无 ledgers 表（ledger_id={}，仅部分表结构的库）',
+            target.ledger_id,
+        )
+        return
 
     name = connection.execute(select(Ledger.name).where(Ledger.id == target.ledger_id)).scalar()
     if name:
