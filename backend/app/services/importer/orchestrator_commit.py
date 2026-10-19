@@ -461,6 +461,10 @@ class CommitMixin:
                 commit_errors.append({'symbol': record.symbol, 'name': record.name, 'error': str(e)})
 
         self._safe_commit()
+        # #541：导入完成是「用户刚刚面对过交割单」的时刻，也是红利税提醒最该出现的时刻
+        # ——第二天再由定时任务冒出来，用户早想不起那张单子长什么样了。
+        # 只对「本批真正被分红的标的」跑复核，不做全库扫描；任何异常都不影响已完成的导入。
+        self._refresh_dividend_tax_reminders(records)
 
         logger.info(
             f'入库完成: 导入={imported}, 跳过={skipped}, 孤立={orphan_count}, '
@@ -474,6 +478,46 @@ class CommitMixin:
             'kept_duplicates': kept_duplicates,
             'kept_duplicates_blocked': kept_duplicates_blocked,
         }
+
+    # ── 红利税提醒（#541）──
+
+    def _refresh_dividend_tax_reminders(self, records: List[StandardTransactionRecord]) -> None:
+        """导入后立刻复核「这次分红有没有配到税」，并写站内提醒。
+
+        判据与对账台完全同一份（`dividend_tax_service.scan_pending_tax`），
+        不在这里另写一套——两处口径分叉是「提醒说 A、账面是 B」的经典成因。
+
+        两个刻意约束：
+
+        - **只扫本批出现过的标的**，不做全库扫描（导入路径不许有全表派生）；
+        - **本批自己就带了扣税行的标的跳过**：用户刚导入的正是那笔税，
+          「刚记完就说你没记」比不提醒更伤人。
+        """
+        from app.services import dividend_tax_service, notification_service  # noqa: PLC0415
+
+        if not records:
+            return
+        # 只对「本批出现了**现金分红**流入」的标的复核。判据用导入侧自己的业务类型，
+        # 不从落库后的 `txn_type` 反推——那条路要再查一次库，且在再投双流水上容易判错。
+        # 再投（`DIVIDEND_REINVEST`）刻意不收：它的分笔与申购配对，不产生现金、
+        # 也就没有「该扣的现金税」，放过它只会把用户推去补一笔不存在的支出。
+        dividend_codes = {
+            (r.symbol or '').strip()
+            for r in records
+            if r.business_type in (BusinessType.DIVIDEND_CASH.code, BusinessType.DIVIDEND.code)
+        }
+        tax_codes = {(r.symbol or '').strip() for r in records if r.business_type == BusinessType.TAX.code}
+        targets = [code for code in dividend_codes if code and code not in tax_codes]
+        if not targets:
+            return
+        try:
+            items = [i for i in dividend_tax_service.scan_pending_tax(self.db, self.family_id) if i.symbol in targets]
+            candidates = dividend_tax_service.build_notification_candidates(items)
+            if candidates:
+                notification_service.emit_many(self.db, self.family_id, candidates)
+                self._safe_commit()
+        except Exception:  # pragma: no cover - 提醒失败绝不能连累已完成的导入
+            logger.exception('导入后红利税复核失败（不影响本次导入结果）')
 
     # ── 元数据更新 ──
 
