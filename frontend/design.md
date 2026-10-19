@@ -741,6 +741,24 @@ sessionStorage，其生命周期仅单标签页会话，重启浏览器 / 新开
 
 **横向滚动**：表格横向滚动支持浏览器原生 `Shift + 滚轮`（无需任何代码，Element Plus 表格默认支持），**禁止引入拖拽滚动库**（金融表格复制数字场景易误触）。行高统一 44px（`el-table.css` 基线，见上），页面禁止用 `size` / `:row-style` 单独覆盖。
 
+#### 稠密阅读表（`.detail-table`，源 CNB #553）
+
+`el-table` 管的是**业务表**（44px 行高、可排序、冻结列）；产品详情页这类
+**阅读型稠密表**（13px 字号、无交互、一行十来列）走 `src/style/_detail-table.scss`。
+两套基线各有归属，不许互相覆盖，也不许在页面里手抄第三套。
+
+| 口径 | 值 |
+|------|-----|
+| 单元格间距 | `padding: var(--space-2)`——**横纵同值**，`6px` 那类为挤列临时缩的值作废 |
+| 行分隔线 | `tbody tr + tr` 一条 1px `--border-subtle`（只有这一种策略） |
+| 表头 | 500 字重 + `--text-tertiary-ink`，不加底色、不加实线（阅读页表头不该比数据更响） |
+| 表尾 | 一条 1px `--border-light` 与数据分开；首列回落到弱色 |
+| 数字列 | `.detail-table__num`：右对齐 + `tabular-nums`，**唯一写法**；不加在整张表上 |
+| 窄屏 | 容器 `overflow-x: auto` 横滚，**不做卡片化** |
+
+判据机械化：`scripts/guard_detail_tables.py`（CI 的 `frontend` job）。
+约定细节见 `docs/design/components.md`「稠密表格」一节。
+
 #### 盈亏双线列的视觉层级（#2210）
 
 「盈亏」列的 `PnlDualLine`（已确认 / 估值两行同显）必须**层级分明**：真实（已确认）收益为主，估值副行不得读成「并列的第二组数字」。

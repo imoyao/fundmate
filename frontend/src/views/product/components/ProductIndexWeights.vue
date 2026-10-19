@@ -84,23 +84,27 @@ watch(() => props.symbol, load, { immediate: true });
     </p>
 
     <template v-else>
-      <table class="idx-weights__table">
+      <!-- 表口径见 `_detail-table.scss`（#553）：宽度 / 分隔线 / 表头 / 数字列走共享约定；
+           本组件只留列宽、代码列弱色与「权重条」的几何。 -->
+      <table class="detail-table idx-weights__table">
         <thead>
           <tr>
-            <th class="idx-weights__th idx-weights__th--rank">#</th>
+            <th class="detail-table__num idx-weights__th--rank">#</th>
             <th class="idx-weights__th">代码</th>
-            <th class="idx-weights__th">名称</th>
-            <th class="idx-weights__th idx-weights__th--weight">权重</th>
+            <th class="detail-table__product idx-weights__th">名称</th>
+            <th class="detail-table__num idx-weights__th--weight">权重</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(row, i) in rows" :key="row.code" class="idx-weights__row">
-            <td class="idx-weights__td idx-weights__td--rank">{{ i + 1 }}</td>
-            <td class="idx-weights__td idx-weights__td--mono">
+          <tr v-for="(row, i) in rows" :key="row.code">
+            <td class="detail-table__num idx-weights__td--rank">{{ i + 1 }}</td>
+            <td class="detail-table__num idx-weights__td--mono">
               {{ row.code }}
             </td>
-            <td class="idx-weights__td">{{ row.name }}</td>
-            <td class="idx-weights__td idx-weights__td--weight">
+            <td class="detail-table__product idx-weights__td">
+              {{ row.name }}
+            </td>
+            <td class="detail-table__num idx-weights__td--weight">
               <span class="idx-weights__pct">{{ row.weight.toFixed(3) }}%</span>
               <span
                 class="idx-weights__bar"
@@ -139,19 +143,8 @@ watch(() => props.symbol, load, { immediate: true });
   color: var(--text-tertiary-ink);
 }
 
-.idx-weights__table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.idx-weights__th {
-  padding: 0 var(--space-2) var(--space-2);
-  font-size: var(--text-label);
-  font-weight: 500;
-  color: var(--text-tertiary-ink);
-  text-align: left;
-  border-bottom: 1px solid var(--border-default);
-}
+/* 宽度 / 字号 / padding / 分隔线 / 表头 / 数字列来自 `.detail-table`（#553）。
+   本组件只剩列宽、两处弱色与「权重条」的几何。 */
 
 .idx-weights__th--rank,
 .idx-weights__td--rank {
@@ -163,38 +156,30 @@ watch(() => props.symbol, load, { immediate: true });
   width: 45%;
 }
 
-.idx-weights__row {
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--border-default) 45%, transparent);
-}
-
-.idx-weights__td {
-  padding: var(--space-2);
-  font-size: var(--text-label);
-  color: var(--text-primary);
-}
-
 .idx-weights__td--rank {
-  font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }
 
 .idx-weights__td--mono {
-  font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
 }
 
+/* 权重单元格是「数值 + 条」复合结构：本列不参与表格的单元格对齐，
+   改由 flex 自己排。`justify-content: flex-end` 就是把 `--num` 的右对齐
+   在 flex 语义里重述一次（文本对齐管不到 flex 子项的排布），
+   数值的右端仍由 `.idx-weights__pct` 的定宽保证各行一致。 */
 .idx-weights__td--weight {
   display: flex;
   gap: var(--space-2);
   align-items: center;
+  justify-content: flex-end;
 }
 
+/* 数值在复合单元格内单独定宽：条按比例伸缩，数值宽度固定，
+   各行数值右端才对得齐（对齐来自 `.detail-table__num` 继承，不再重复声明）。 */
 .idx-weights__pct {
   flex-shrink: 0;
   min-width: 64px;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
 }
 
 .idx-weights__bar {
