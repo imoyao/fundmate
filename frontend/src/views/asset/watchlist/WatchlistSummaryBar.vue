@@ -233,7 +233,7 @@ const intervalOptions = [
 /* 休市说明（#2338）：与状态文案同级字号，避免「少了一行」被读成数据出错。
    用 --text-secondary（5.77:1）而非 --text-tertiary —— 后者作正文不足 4.5:1。 */
 .closed-hint {
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   white-space: nowrap;
 }
