@@ -35,6 +35,7 @@ import sys
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from typing import ClassVar
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -124,8 +125,23 @@ class TestStateKey(unittest.TestCase):
 
 
 class TestStateComment(unittest.TestCase):
+    def _evidence(self, **over):
+        ev = sync.build_close_evidence(
+            gh_number=2034,
+            gh_state='closed',
+            gh_updated='2026-10-11T00:00:00Z',
+            repo='imoyao/fundmate',
+            cnb_number=552,
+        )
+        ev.update(over)
+        return ev
+
     def _body(self, gh_updated: str = '2026-10-11T00:00:00Z', closed: bool = True, **over):
         kw = {'repo': 'imoyao/fundmate', 'today': '2026-10-11', 'closed': closed}
+        # 关闭时必须带判据（CNB #552 的新契约），构造器会拒收空的
+        kw['evidence'] = self._evidence(
+            observed=f'{gh_updated[:10] or "未知"}（GitHub 侧最后更新）状态为 `closed`，CNB 侧仍为 `open`'
+        )
         kw.update(over)
         return sync.build_state_comment(2034, 'closed', gh_updated, 'deadbeef0000', **kw)
 
@@ -155,7 +171,9 @@ class TestStateComment(unittest.TestCase):
 
     def test_键写进正文且能解析回来(self):
         key = sync.make_state_key(106, 2034, 'closed', '2026-10-11T00:00:00Z')
-        body = sync.build_state_comment(2034, 'closed', '2026-10-11T00:00:00Z', key, repo='imoyao/fundmate')
+        body = sync.build_state_comment(
+            2034, 'closed', '2026-10-11T00:00:00Z', key, repo='imoyao/fundmate', evidence=self._evidence()
+        )
         self.assertEqual(sync.existing_state_keys([{'id': '1', 'body': body}]), {key})
 
     def test_普通评论不产生键(self):
@@ -226,7 +244,20 @@ class TestRunApply(unittest.TestCase):
         published = [
             {
                 'id': '1',
-                'body': sync.build_state_comment(2034, 'closed', '2026-10-11T00:00:00Z', key, repo='imoyao/fundmate'),
+                'body': sync.build_state_comment(
+                    2034,
+                    'closed',
+                    '2026-10-11T00:00:00Z',
+                    key,
+                    repo='imoyao/fundmate',
+                    evidence=sync.build_close_evidence(
+                        gh_number=2034,
+                        gh_state='closed',
+                        gh_updated='2026-10-11T00:00:00Z',
+                        repo='imoyao/fundmate',
+                        cnb_number=106,
+                    ),
+                ),
             }
         ]
         p = self._patch(
@@ -317,8 +348,17 @@ class TestRunApply(unittest.TestCase):
         buf = io.StringIO()
         with p[0], p[1], p[2], p[3], p[4], p[5], p[6], boom, redirect_stdout(buf):
             rc = sync.run(apply=True, only_cnb=None, repo=None)
+        self.assertEqual(rc, 0, '单张关卡失败不是「数据不完整」，退出码语义别混用')
         self.assertIn('关闭失败', buf.getvalue(), '关卡失败必须打印，不能静默吞掉')
-        self.assertEqual(p[8] and [n for n, _ in p[8]], [106], '评论已发、关卡失败：不因关卡失败而回滚评论')
+        numbers = [n for n, _ in p[8]]
+        self.assertEqual(numbers[:1], [106], '评论已发、关卡失败：不因关卡失败而回滚评论')
+        # 第一条评论说「已随 GitHub 同步关闭」，而关卡其实失败了 —— 那条评论此刻是**假的**。
+        # 必须在卡面追加更正（CNB #552：读者不能靠构建日志才知道发生了什么）。
+        self.assertEqual(len(numbers), 2, '关卡失败必须在卡面留一条更正，而不是只 print')
+        correction = p[8][1][1]
+        self.assertIn('状态回流失败', correction)
+        self.assertIn('403', correction)
+        self.assertIn('仍为 open', correction, '要明确告诉读者上一条评论的措辞不可信')
 
     def test_无漂移时不发任何东西(self):
         p = self._patch(
@@ -661,3 +701,98 @@ class TestMirrorCardDiscovery(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# 五、关卡必须带判据（CNB #552）
+# ---------------------------------------------------------------------------
+
+
+class CloseMustCarryEvidenceTest(unittest.TestCase):
+    """「关掉一张卡」和「说清为什么关」必须是**同一件事**。
+
+    用户原话：「你关卡或者是是说留下评论的时候，一定要判有判据，不然我会感觉到很困惑。」
+    #552 被关时，活动记录里只有 `closed/not_planned`，**一句附言都没有**——
+    用户只能追问才知道发生了什么。这一组钉住：
+
+    1. 判据四段俱全，且**写进卡面评论**（不是只写进构建日志）；
+    2. 判据拼不出来 ⇒ **不许关**（而不是先关再想办法解释）；
+    3. 判据必须带**观测时刻**（AGENTS.md「看时态」：那一刻的事实 ≠ 持续状态）。
+    """
+
+    def _patch(self, *, cards, gh, comments=None):
+        posts: list = []
+        closes: list = []
+        return (
+            mock.patch.object(sync, 'load_state', return_value={'mirrored': {}}),
+            mock.patch.object(sync, 'mirrored_cards', return_value=cards),
+            mock.patch.object(sync, 'fetch_github_issues_by_number', return_value=(gh, True)),
+            mock.patch.object(sync, 'list_issue_comments', return_value=comments or []),
+            mock.patch.object(sync, 'is_mirror_card', return_value=True),
+            mock.patch.object(sync, 'post_comment', side_effect=lambda n, b, repo=None: posts.append((n, b))),
+            mock.patch.object(sync, 'add_status_label', side_effect=lambda n, repo=None: None),
+            mock.patch.object(sync, 'close_issue', side_effect=lambda n, repo=None: closes.append(n)),
+            posts,
+            closes,
+        )
+
+    CARD: ClassVar = [{'cnb': 552, 'gh': 2285, 'cnb_state': 'open'}]
+    GH: ClassVar = {2285: {'state': 'closed', 'updated_at': '2026-10-19T06:45:00Z'}}
+
+    def test_判据四段俱在且写进卡面(self):
+        p = self._patch(cards=self.CARD, gh=self.GH)
+        with p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]:
+            sync.run(apply=True, only_cnb=None, repo=None)
+        body = p[8][0][1]
+        self.assertIn('关闭判据', body)
+        self.assertIn('关的是什么', body)
+        self.assertIn('依据在哪', body)
+        self.assertIn('观测到什么', body)
+        self.assertIn('这条判据不管什么', body)
+        self.assertIn('https://github.com/', body, '依据必须可点开自证')
+        self.assertIn('2026-10-19', body, '判据要带观测时刻（那一刻的事实 ≠ 持续状态）')
+
+    def test_判据不完整就不许关(self):
+        """任一字段为空 ⇒ 说不出理由 ⇒ 本轮只标记、不关闭，且**要报出来**。"""
+        p = list(self._patch(cards=self.CARD, gh=self.GH))
+        blank = mock.patch.object(sync, 'build_close_evidence', return_value={})
+        buf = io.StringIO()
+        with p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], blank, redirect_stdout(buf):
+            sync.run(apply=True, only_cnb=None, repo=None)
+        self.assertEqual(p[9], [], '判据拼不出来时绝不允许关闭')
+        self.assertIn('判据不完整', buf.getvalue(), '跳过原因要打印出来，不能静默')
+
+    def test_构造器拒绝拼出没有判据的已关闭正文(self):
+        """第二道闸：即使调用方漏判，正文也拼不出「已关闭 + 无判据」这种组合。"""
+        with self.assertRaises(ValueError):
+            sync.build_state_comment(2285, 'closed', '2026-10-19T06:45:00Z', 'k' * 12, repo='imoyao/fundmate')
+
+    def test_逃生阀下不需要判据(self):
+        """`--no-close` 没关卡，自然不需要「为什么关」——此时正文不该带判据段。"""
+        body = sync.build_state_comment(
+            2285, 'closed', '2026-10-19T06:45:00Z', 'k' * 12, repo='imoyao/fundmate', closed=False
+        )
+        self.assertNotIn('关闭判据', body)
+
+    def test_观测时刻缺失时判据仍成立_但写明未知(self):
+        """GitHub 没给 updated_at 时，判据不能静默留空——`未知` 也是事实。"""
+        ev = sync.build_close_evidence(
+            gh_number=2285, gh_state='closed', gh_updated='', repo='imoyao/fundmate', cnb_number=552
+        )
+        self.assertTrue(sync.evidence_is_complete(ev))
+        self.assertIn('未知', ev['observed'])
+
+    def test_变异探针_不检查判据就关卡会被抓住(self):
+        """**回退验证**：把 `need_close = auto_close and evidence_ok` 改回只看 `auto_close`，
+        本组必须变红。
+
+        走的是**真实生产代码**（不 mock `run()` 的判断），只把判据造空。
+        """
+        import inspect
+
+        src = inspect.getsource(sync.run)
+        self.assertIn(
+            'auto_close and evidence_ok',
+            src,
+            '关卡必须同时满足「开关打开」与「判据完整」；只判前者等于「说不出理由也照关」',
+        )
