@@ -1,289 +1,218 @@
-# 工作记录索引（2026-07-31 ~ 2026-09-13）
-
-本目录归集了各轮会话中产生的工作文档，避免散落于仓库根目录 `docs/`。
-本目录经 `docs/.vitepress/config.mjs` 的 `srcExclude: ['working-notes/**']` 屏蔽出文档站构建，**不对外公开**。
-
-## 命名规范（强制）
-
-- 文件名一律英文 kebab-case + 日期后缀：`{topic}-{YYYY-MM-DD}.md`（如 `deployment-implementation-guide-2026-08-04.md`）。
-- **禁止中文文件名 / 中文路径**。历史中文命名（`多多贝_*.md`）已于 2026-08-09 全部重构并删除（原文备份于本机 Temp）。
-- 正文标题用中文（如 `# 部署实施指南（2026-08-04）`），文件名只作定位键。
-- 交叉引用一律用相对链接 `./{english-name}.md`，不用书名号 / 全中文名。
-
-## 基金转换功能设计（2026-10-17）
-
-| 文件 | 内容 |
-|---|---|
-| `fund-conversion-design-2026-10-17.md` | **转换 = 赎回 + 申购的记账方案（先文档后实现）**：**v1 零新表**——`transactions.link_group_id` 已在红利再投里承载「多腿成组」，转换 = `sell` + `buy`（+ 退款腿）同组。**退款必须落真实流水**（`extra` 只存去向/费用拆分，不承载金额）；退款买货基后**持仓页用「类现金分组」读流水聚合展示、不建 position**（建 position 会与总资产、对账、XIRR、orphan backfill 四处口径打架）。「转换」对用户是**独立交易类型**，但由后端下发 `display_type='convert'` 实现——真正新增 `txn_type` 要同步 8 处白名单，其中 5 处静默失败且仍躲不掉组折叠。撤销/修改**不建表**，按组删除 + 重放（复用 `recompute_position_from_transactions`），约束是「该组之后不能有后续流水」；草稿**只存前端**（复用 `useReconDraft`）。费用只记 OUT 腿；踩坑：直接复用 `process_sell_or_withdraw` 会触发 `auto_purchase_money_fund` 必须显式关闭。份额精度结论：存 4 / 录 4 或 2 / 展示 2，**是口径不一致不是 bug**，统一录入 2 位 + 「全部」传精确值，不做数据迁移。含四步步骤条、D1~D10 决策记录、O1~O3 待定。**交割单导入**（§10）：平台可能拆成同日一卖一买、也可能只给一行转换——解析器只落原始 buy/sell，转换组是派生可重算关系；L1 关键词（转换/转换转入…）才自动成组，L2 同日一卖一买**只出「疑似」候选不自动合并**（与正常调仓同构，误判代价更大），缺转入腿时**不合成**。**持仓页**同步新增「类现金」分组（`GET /api/summary/cash-like/`，与账户页同口径、不重复加总） |
-
-## Issue 分诊与派活闸门（2026-10-18，CNB duoduobei/fundmate#564）
-
-| 文件 | 内容 |
-|---|---|
-| `issue-triage-dispatch-2026-10-18.md` | **分诊/派活的判据与实测**：198 张 open 卡里约 197 张的 GitHub 原卡早已关闭（回流不全）；48 张 `GitHub 同步` 卡不在状态文件里 ⇒ 永远进不了 `plan()`（缓存当全集，同 CNB #450 / GH #2131<!-- cross-repo-ref-allow -->）；分诊结论全机械枚举；派活闸门四问全过才允许，**当前可派数量为 0**；分诊与派活的额度**分两条**；合入不贴 automerge |
-
-## 分红未记扣税提醒（2026-10-19，CNB duoduobei/fundmate#541）
-
-| 文件 | 内容 |
-|---|---|
-| `dividend-tax-reminder-2026-10-19.md` | **不自动算税，改为提醒 + 用户补记**：A 股红利税按实际持股期在卖出时补扣，算准它需要 lot 级批次账（本系统只有聚合持仓），反推出来的是会被券商按先进先出否掉的猜数 ⇒ **宁可账上少一笔税，也不要多一笔假税**。判据只问「该标的该年记没记过税」（按年合并申报，逐笔必误报），排除红利再投、400 天窗口。落在对账台**域 E**（实时派生，不入差异表——本域没有应然值）+ 站内通知 P1。含一个刻意的例外：GET 里幂等写通知，以及 8 个回退探针（其中「dedup_key 去年份」首版 MISSED，因断言用了 `'2026' in key` 而 key 末尾本就有今天日期） |
-| `dividend-tax-timely-2026-10-19.md` | **把「按年一次」的提醒改成「逐笔 + 导入即提醒」**（同一张卡的第二轮）：用户原话要求「及时性 + 幂等性，不能重复提醒也不能漏提醒」。① 判据从按年改为**逐笔配对**（同标的同账户、扣税日 ∈ [分红日, +30 天]、一笔税只用一次、优先贴大额），修掉「一年分两次只提醒一次」；② `dedup_key` 去掉「今天」（原键含今天 ⇒ 同一笔分红每天一条新消息），改为钉在**分红日**；③ 新增**导入完成即复核**钩子（只扫本批标的；本批自带扣税行则不发）；④ 排除利息/债券兑息/退款（`txn_type='dividend'` 是大杂烩，同花顺把「利息归本」「债券兑息」全落成它）；⑤ 「已记税但比例 > 20%」单列 `已记-比例异常` 供核对；⑥ 域 E 加「补记」按钮（`POST .../record/`，savepoint 幂等）。10 个回退探针 CAUGHT，2 个首版 MISSED 已记在案 |
-
-## 幽灵重复接入对账工作台域 D · 前端（2026-10-16，CNB duoduobei/fundmate#477 / GitHub #2151）
-
-
-| 文件 | 内容 |
-|---|---|
-| `ghost-duplicate-domain-d-frontend-2026-10-16.md` | **域 D 前端（PR2）**：三个判断——① 横幅换用 reconciliation 端点（`summary` 版**未减忽略项**，报 407 而域 D 只剩 401，正是 issue 要避免的「新的困惑」）；② dismiss 从「永久」改「本次会话」而不是只换 key（原 `onMounted` 命中后**连请求都不发**，「关掉一次」= 「从此不存在」，换 key 治不了这个）；③ 删除文案不写「保留真实的那一份」（`transactions.source` 为 NULL 时后端无法指出哪份权威）。含已知边界：§6.5 跨域已忽略清单未做、`WorkbenchDomainKey` 与 `ReconDomain` 刻意不合并 |
-
-## 总资产聚合收敛（2026-10-15，CNB duoduobei/fundmate#478 / GitHub #2154）
-
-| 文件 | 内容 |
-|---|---|
-| `summary-aggregation-convergence-2026-10-15.md` | **D59 收尾：账户级快照并入唯一累加实现 + 累加守卫**。D59 把「总资产」收敛到 `family_totals` 时留了第六处——`get_ledger_distributions` 把同一套累加**逐字重写了一遍**，而它的保护网埋在 `test_account_snapshots.py`（靠人找）。修法是抽 `_per_ledger_buckets` 唯一实现，`family_totals` 改为**把各账户桶按位相加**，使「Σ账户 ≡ 家庭」从「两边各自算对」变成**构造出来的恒等式**。含：契约测试为何用「逐桶按位相等」而非「总数相等」（总数可以靠碰巧抵消）；守卫首版第二判据**报 4 处全是误报**（碰同一批数据是常态，累加同一个桶才是信号）⇒ 已删除；真实文件的回退探针 + 一处「cp 还原没生效被读成守卫恒红」的踩坑 |
-
-## 分叉判据二分（2026-10-14，CNB #179）
-
-| 文件 | 内容 |
-|---|---|
-| `divergence-criterion-bifurcation-2026-10-14.md` | **把「喊狼来了」的假红改掉 + 交叉合并假阳性**：旧判据「`main` 独有提交数 > 0 ⇒ 分叉」在本仓**恒为真**（`dev` 发完版继续走），实测 2 个独有提交**全是合规发版** ⇒ 每次发版都红。修法：两层判据（提交级二分：merge 的**第二父**是 `dev` 的祖先 = 合规发版；普通提交 / 来路不明的 merge / 读不出 = 红。内容级：`git cherry` 补丁等价，**不是** `git diff` —— 后者在交叉合并下假红，实测 7 个文件全是假阳性）。7 个变异探针**全 CAUGHT**（M1/M4/M5 首轮 MISSED，逐个查清后补的是用例设计而非改断言迎合）。同轮修掉 #179 其余验收：`allow_branches` 模板补齐、`_is_secret_url` 最小合法化（判据不再依赖仓库叫 `*-secret`）、**发现并修掉第二处「拿不到 ⇒ 报正常」**（`fetch_github_open_issues()` 分页中断/触顶与真 0 张无从区分 ⇒ 会报「已对齐」，是 #171 同族复发）、`AGENTS.md` 里与真实正常态相反的判据段改写 |
-
-## 账本能力对齐复核（2026-10-13，#2018）
-
-| 文件 | 内容 |
-|---|---|
-| `ledger-alignment-review-2026-10-13.md` | **#2018 × 同花顺调研合集的精读复核与拍板落地**：10 条承重结论逐条 grep 复核（8 成立 / 1 反转为「D21 有意排除」/ 1 已过期——#1969 已修）；五处开卡前必须对齐的矛盾（B 与 D21 冲突、TWR 三处口径打架、A 降级为流水聚合、`ClearedPosition` 零读者表、P0 过期）；修正后 13 卡清单 + 独立里程碑开卡方案；7 条拍板记录（独立表 / F·I 单独排期 / B·C·清仓表先立卡记录再议）；明确不做清单（券商自动同步、接口逆向、国密·Lua·推送全家桶等） |
-
-## 基金经理风格标签阈值标定（2026-10-12，#2044）
-
-| 文件 | 内容 |
-|---|---|
-| `manager-style-tags-calibration-2026-10-12.md` | **风格标签三维度的全库分布标定 + 阈值定档**（issue #2044 验收「阈值必须附标定过程」的载体）。①样本：持仓池 101 只、每只取各自最新报告期（不全局取 max，与 penetration 硬口径 5 同纪律），`holding_basis` full 占 100 只；②三档阈值全部来自真实分位——持仓集中度按前十大占净值比 P50/P80 → 50/66（n=100，剔除 top10 口径仅 4 行的不完整样本 161115，运行时同规则回 null），行业集中度按 csrc 第一大行业占比 P50/P80 → 60/81，市值风格按「沪深300 成分占已覆盖持仓比」P25/P75 → 36.5/67.4（成分来自 `index_constituents` 000300/000905/000852 归属分桶，覆盖率 <60% 即回 `null`——30 只港股/QDII 基金诚实降级）；③**成长/价值维度不实现**（穿透只有行业/个股两层，`securities` 无市值/风格字段，全库按 `%style%` 检索 0 命中——比 10-12 评论的「实现后回 null」更进一步，不产出没有读路径的字段）；④换手率放弃（无调仓数据，fundfof 也无基金级换手端点）；⑤边界事实：债基会得到「持仓分散」字面成立的标签，不做基金类型豁免（豁免=主观例外，违反可复算），如需屏蔽展示应另立卡在展示层过滤；⑥复现伪码 + 数据准入四问附文末，阈值建议随「持仓多期回填」落地后复标 |
-
-## 自选切分组性能重设计（2026-10-11）
-
-| 文件 | 内容 |
-|---|---|
-| `watchlist-group-switch-perf-2026-10-11.md` | **切分组卡数秒 → 六场景全部 <300ms**（all-full 4325→288ms ×15）的完整重设计记录。不新增端点：`fields` 升级为稳定投影选择器（full/lite）+ 后端 `BatchContext` 批量预取（`daily_worth` 兜底 CTE+索引点查替代 708ms 窗口物化、展示字段独立段 + 页级 ctx 只算页内 20 行）+ 前端两请求 `Promise.all`。含 12 场景 A/B 逐字段 0 diff 的语义保真验证，及两处批量路径语义漂移的踩坑记录（回撤识别按 asset_type 反查不能按前缀猜；持仓虚拟行 `price_at_added` 恒 None） |
-
-## 镜像卡状态回流（2026-10-11，CNB #117 硬要求 ②）
-
-| 文件 | 内容 |
-|---|---|
-| `mirror-state-backflow-2026-10-11.md` | **GitHub 关了原卡、CNB 镜像卡还开着** ⇒ 回流状态评论 + 挂 `GitHub 已关闭` 标签 + **关闭卡片**（2026-10-13 起 B 口径，源 `#171`；D48 的「标记不关」见 §3 已废止留档）。含：#117 两条要求的既有边界核对（硬要求 ① 已由 `#120` 收尾，本次只补 ②）、裁决理由（「标记不关」既让状态可见、又不埋掉 CNB 侧追问）、**漂移只认一个方向**的四象限（`GitHub open + CNB closed ⇒ 不回流`，否则等于取消人工回路）、幂等键带 `updated_at`（关→开→再关各发一条）、5 轮反向探针全 CAUGHT。**§12 上线后失效复盘（#171）**：该作业上线后一直报「已对齐」却一次都没干活——匿名限额耗尽使 GitHub 返回 0 张，而 `run()` 把「拉不到」当成了「没漂移」（假绿）。修法：抓取函数返回 `(映射, 是否完整)`，不完整时禁止宣称对齐并以退出码 1 结束；新增 3 条回归用例 + 2 轮反向探针 CAUGHT。**§13 口径变更（#171 用户拍板 B）**：漂移卡改为「标记 + **自动关闭**」（`PATCH /-/issues/{n}`，`state_reason=completed`）、`--no-close` 逃生阀；**评论幂等与关卡分离**，D48 存量 13 张「评论已发、卡没关」的卡被补关；9 轮反向探针全 CAUGHT（S5 首次 MISSED，暴露 `need_close` 里一段恒真死代码，已删除并把幂等契约钉到 `plan()`）；真实写入实测 CNB `#35` 关成功且二次执行 0 漂移 |
-| `mirror-state-backflow-2026-10-11.md` | **GitHub 关了原卡、CNB 镜像卡还开着** ⇒ 在镜像卡评论区回流一条状态评论 + 挂 `GitHub 已关闭` 标签，**不自动关卡**。含：#117 两条要求的既有边界核对（硬要求 ① 已由 #120 收尾，本次只补 ②）、裁决理由（「标记不关」既让状态可见、又不埋掉 CNB 侧追问）、**漂移只认一个方向**的四象限（`GitHub open + CNB closed ⇒ 不回流`，否则等于取消人工回路）、幂等键带 `updated_at`（关→开→再关各发一条）、5 轮反向探针全 CAUGHT <!-- cross-repo-ref-allow --> |
-
-## Issue 看板体检（2026-10-11，#106）
-
-| 文件 | 内容 |
-|---|---|
-| `issue-board-audit-2026-10-11.md` | **一次只读体检**：114 张开口卡里，约 110 张是 GitHub 镜像（在 CNB 只读），仅 8 张是本仓能动手的；107 张（94%）零评论。核心判断：**「提了问题没解决多少」不是因为提得多，而是入口一次涌入 110 张、出口却没有决定「下一张做哪个」的机制**——今天真正落地的 CNB `#106` / `#119` 都是「被盯着做」的。含两类卡（参考类 / 动手类）的区分与五条收敛动作（按来源分家、参考类降级为文档、WIP 上限 1~3、关闭跟上验收、月度体检），**均未执行，等拍板** |
-
-## CNB ↔ GitHub 双向镜像路线（2026-10-11，CNB `#118`）
-
-| 文件 | 内容 |
-|---|---|
-| `cnb-dev-ahead-rescue-2026-10-11.md` | **CNB `dev` 领先 GitHub 的 6 个提交逐条核验与救援口径**：结论是「CNB 侧领先的不是新功能，而是同一张卡的另一种最终状态」——只有 `fix/2034-category-dedup`（CNB PR `#125`）内容独有且已合入，其余多是镜像产物。含 `dc3feb28`/`49272b6a` 一半内容与 GitHub 重复的**内容级**判定依据（不是标题像）、#2032 在 GitHub 侧**原样成立**的实测（`AssetInsightPanel.vue` 还在、`welcome_structure_dedup.test.js` 404）、以及一处 `git ls-tree` 在合并提交上给出**与对象读取相反**结果的坑（判文件去向必须读 tree 对象）|
-| `cnb-github-mirror-route-2026-10-11.md` | **「CNB 造的东西要不要回流 GitHub」的路线决策**：结论是要，但正确形态不是双向同步而是**单源（GitHub）+ 两条单向管道**（代码镜像 GitHub→CNB 走 fast-forward；讨论回写 CNB→GitHub 由 GitHub 定时拉）。含**全量 fetch 下的四分支实测**（`dev` 真分叉/各 6 与 8 个独有；`main` 是 CNB 单方面领先 408、其中仅 2 个自造）、三层「断链大声失败」修法、分三步落点，以及**本轮踩过的三个探测陷阱**：`--dry-run` 对 cnb.cool 恒返 0、共用对象库时 `cat-file -e` 分不清远端（导致结论反转）、**浅克隆会给出虚假分叉读数（布尔判定都会翻）**。附「不建议做」四项（真双向同步 / CNB 存 GitHub PAT / 加 `--force` / 把镜像配置写进 `dev`·`main`） |
-
-## 展示名反查 / 投顾组合错标（2026-10-10，#2029）
-
-| 文件 | 内容 |
-|---|---|
-| `display-name-portfolio-bare-code-hijack-2026-10-10.md` | **数据没坏、错在读取端**：`resolve_display_name` 的裸码回退（#1497）没有形态闸门 + 基金分支排在 `AdvisorPortfolio` 之前，把 `ZH012926`（且慢「远足」）压成 `012926` 命中真实基金「民生加银中证500指数增强A」——**114 个组合 18 个裸码撞基金**，`MGR_` 经理码同样暴露；讽刺点是 `product_identity` 早有同名闸门注释（「两处实现必然漂移」的又一次实证）。含三处修法（判据收口 `watchlist_service` / 裸码套闸门 / 组合分支上提）、六断言单元 + 端到端用例、**回退探针 CAUGHT/GREEN**；同场附带依赖源「索引列了、文件 404」的实测证据与根治卡 #2031 |
-
-## 产品详情页通篇设计（2026-10-08，#1909）
-
-| 文件 | 内容 |
-|---|---|
-| `product-detail-page-design-2026-10-08.md` | **产品详情页（#1133 暂缓项）与自选产品详情的统一设计初稿**：一个详情页、两个入口（自选抽屉 + 聚合抽屉）、按品类分层区块。含十条现状实证（全仓无产品路由 / 两套互不复用抽屉 / 3 处 `#1909` 接线点 / `positions` 无 symbol 过滤 / XIRR 无标的存在级 scope / funds 域无详情端点）、路由方案 A–D 比较与推荐、`productIdentity` 单一 resolver、七入口矩阵、信息架构与取数编排、品类差异化分期矩阵（基金一期 / 股票·指数·可转债二期 / 组合·经理三期）、抽屉职责边界（不瘦身、停止生长）、C0–C8 拆卡草案与六项待拍板 |
-
-## 指数日线 / 数据源补强（2026-10-01，#870-A）
-
-| 文件 | 内容 |
-|---|---|
-| `index-daily-tencent-source-2026-10-01.md` | 交易所宽基基准落库的**源选型实证**：东财 `push2his` 首次 200、其后连续 RemoteDisconnected（否决）→ 腾讯采纳（12/12 命中、可分页翻全历史）；**新浪 hq 逐只交叉核对代码↔名称 12/12**（腾讯不返回指数名，错配无自动报警）；增量口径踩坑（沿用固定跨页会把「近 12 月」变成 3200 天 / 800 条）；中证全债 H11001 无公开通道的诚实缺口；`direct_feeds` 由 `bias/` 上提 `adapters/` 的架构顺带项 |
-
-## 基金持仓穿透（2026-10-01，#870 Step 2 / PR B1）
-
-| 文件 | 内容 |
-|---|---|
-| `fund-penetration-design-2026-10-01.md` | **设计与实施**：把 `fund_industry_allocs` / `fund_holdings` 从「只写不读」变成组合真实暴露（新增 `services/penetration.py` + `GET /api/summary/penetration/`）。**四处实测认知修正**：① **gics 不是平行分类而是「港股那一块敞口」**——参与基金市值 182,220.93 但行业合计仅 17,314.32（占 9.5%），当独立口径会得出「港股占 0.5%」；② **同码多名只出现在跨基金之间**（唯一键不含 scheme，同基金同期不可能两行同 code，初版测试被约束拦下）；③ **ratio 合计 86%~95% 的差额是债券/现金，不是误差**（字段改名 `industry_non_equity_cny`，禁归一化）；④ **覆盖率 46.5% 是硬上限**（直持股票无行业映射 35.9% + 场内 ETF 无底层持仓 13.3%）。另附**数据卫生发现**：本机库混入 3 只「示例*」演示基金（约 14.2 万元），其中一只货基被标成 `fund` 并穿透出「制造业 10.61%」，建议单独开卡清洗 |
-
-## 定时任务 / 数据刷新（2026-09-13，#1467）
-
-| 文件 | 内容 |
-|---|---|
-| `data-refresh-implementation-plan-2026-09-13.md` | **实施蓝图（落地）**：承接 v2 待拍板，把 9 条事实核证转化为**设计 + PR 拆分（PR-B~PR-H）**，含各 PR 根因（`currency_boc_sina` 硬编码 2023 窗口 / `turso://` 缺 `sqlalchemy-libsql` 方言 / 本机 misfire 6h 过短 / 07:30 净值补漏 / 温度历史回填 / 部署+通知 / 抓取范围文档化）、上线顺序与依赖、验收标准、60 分钟议程；PR #1481（汇率窗口修复）已先行合入 dev |
-| `data-refresh-scheduling-plan-2026-09-13.md` | **待讨论**：第一阶段（本机常驻调度，PR #1476）已完成项的对照 + **全量数据项盘点**（探市 20 资产 / 温度计 9 源 + JSL 保活 / 账本持仓 / 元数据 D1~D16）+ **三类结构性问题**（`run_all_jobs` 漏 4 个 job、探市页数据未进任何调度、交易日口径一刀切致海外数据停更）+ 待拍板 9 项 + 40 分钟议程 |
-
-## 市场页面收束 / issue 核查（2026-09-11）
-
-| 文件 | 内容 |
-|---|---|
-| `market-pages-consolidation-2026-09-11.md` | 探市 / 温度计页面收束评估 + #891/#892/#918 实证核查：两页重叠矩阵与四方案对比（推荐单入口两档视图）、**温度计数据链路断点**（本地库停更 2026-08-02 / daily-snapshot 连续失败 / 拥挤度零数据）、#918 三块状态、fundfof 借鉴边界、竞品 LLM 调用立场 |
-
-## 数据源 / 抓取系列（2026-08-03）
-
-| 文件 | 内容 |
-|---|---|
-| `external-datasource-reference-2026-08-03.md` | **端点清单 SSOT**：全部外部数据源 host/端点/参数/Token/实时状态（东财 push2/push2his、腾讯 gtimg、xalpha、集思录、且慢、有知有行、韭圈儿、akshare 宏观、Supabase Auth、Playwright） |
-| `datasource-priority-plan-2026-08-03.md` | 通用数据源优先级方案（防依赖腐烂）：诊断树、Tier0-3 优先级分层、能力→Provider 矩阵、wrapper→上游映射、熔断/缓存机制；配套代码沙箱 `DataSourceRouter` 已实跑验证 |
-| `bias-datasource-replacement-2026-08-03.md` | 乖离度数据源替换方案（借鉴 daily_stock_analysis）：绕过 akshare 直连腾讯/东财，含实测结果与可粘贴代码 |
-| `eastmoney-antiscrape-2026-08-05.md` | 东财反爬：akshare 腐烂 / 大智慧 中转，行情数据链路修复 |
-
-## 投顾组合数据系列（2026-09-08，#1167）
-
-> 来源：2026-07-22 会话调研产物（fund_advisor_holdings.py + 4 份文档），2026-09-08 集成入库。
-
-| 文件 | 内容 |
-|---|---|
-| `advisor-ttfund-holdings-api-2026-09-08.md` | **权威决策记录**：天天基金投顾持仓接口契约（uni-fundts/dataapi 双 host、零鉴权结论、getAdjustWarehouse tag=0/1 当前/历史基金级持仓、healthcheck H1-H6 设计、路线表） |
-| `advisor-ttfund-id-research-2026-09-08.md` | 天天基金投顾 ID 获取调研：App 搜索不可复现、GitHub 无现成方案、tgCode 走一次性分享链接（越海 XCOVSEX / 万家非凡新质驱动 JY48YPE / 省心投步步盈 UFPW1GJ） |
-| `advisor-holdings-research-2026-09-08.md` | 且慢落地调研：MCP BatchGetStrategiesComposition 实测（远足 ZH012926 / 成长五剑 ZH030684 持仓全量），含原始 JSON 结构说明 |
-| `advisor-platform-landscape-2026-09-08.md` | 天天基金/且慢/蛋卷/好买四平台投顾组合数据源 landscape 对比 |
-| `qieman-strategy-catalog-2026-09-13.md` | **且慢组合元数据注册表（#1468）**：100 只调研清单 → `advisor_catalog.py`（102 条单一真相源）+ MCP `GetStrategyDetails` 实时抓取接入；含 2 个真 bug（`ZH` 前缀误判 8 个非 ZH 且慢码 / 适配器缺 `get_name` 致 job 整体失败）、且慢无历史调仓接口故由**快照序列推导**调仓明细、11 个新列迁移、格式选 Python 常量的理由 |
-
-## 后端架构 / 部署系列（2026-08-03 ~ 2026-08-04）
-
-| 文件 | 内容 |
-|---|---|
-| `backend-hosting-fetch-selection-2026-08-03.md` | 后端托管与 fetch 落点选型：腾讯云 SCF / EdgeOne / Oracle 免费 VM 对比，推荐栈 = SCF Web 函数 + EdgeOne Pages |
-| `scheduling-options-research-2026-08-04.md` | 定时调度方案调研：调度与计算解耦原则、APScheduler / GitHub Actions / Supabase Edge cron 对比、EdgeOne 无原生 cron 的触发框架 |
-| `deployment-implementation-guide-2026-08-04.md` | 部署实施指南（确定性方案）：前端 EdgeOne Pages + 后端 SCF Web 函数 + SCF 原生定时触发器，含 scf_bootstrap / serverless.yml / 官方定价复核 |
-| `tech-baseline-roadmap-2026-08-04.md` | 技术基线与路线图：技术栈、领域分层、已实现/进行中/远期路线、技术债清单（按严重性排序） |
-| `db-cost-decision-2026-08-04.md` | 其余项目评估与数据库成本决策（市场验证中）：腾讯云 PG vs Supabase 免费档 |
-| `doc-code-discrepancy-2026-08-03.md` | 文档与代码误差追踪（会议纪要）：9 条误差表 + 决策 + 待办 |
-
-## 前端 / 产品系列（2026-08-03 ~ 2026-08-04）
-
-| 文件 | 内容 |
-|---|---|
-| `frontend-architecture-mobile-eval-2026-08-04.md` | 前端架构与移动端评估（未来可选方案）：Vant / uni-app / RN 对比与迁移成本 |
-| `fundfof-borrowing-analysis-2026-08-03.md` | fundfof 功能借鉴分析（v3 源码复核版）：源码已实现能力清单、真实问题（mock 分析页 / 无回撤计算 / 多用户隔离）、值得借鉴功能 |
-| `brand-landing-plan-2026-08-04.md` | 品牌与落地页规划：命名、slogan、品牌色（珊瑚红 #E34F38）、logo 执行、落地页结构、公开路线图 |
-| `landing-login-sso-2026-08-04.md` | 落地页登录与 SSO 设计决策（MVP）：只做跳板、不做 SSO、落地页与工具站不共享登录态 |
-| `frontend-api-reorg-2026-08-09.md` | 前端 API 层重组方案（接口按域集中 `src/api`、类型收敛 `types.d.ts`） |
-
-## 其它记录
-
-| 文件 | 内容 |
-|---|---|
-| `code-audit-and-remediation-2026-08-01.md` | 合并的 6 份代码审计与架构整改记录：① 代码问题审查（初版 2026-07-31）② 代码问题审查（深化版 2026-08-01）③ V1（`backend/fundmate/`）退役清除分析 ④ `data/` 接口可用性评估 ⑤ `libs/cal` 与测试目录瘦身 ⑥ FastAPI 解耦规划 |
-| `erniao-fetcher-redesign-2026-08-01.md` | 二鸟说手抄报 自动维护（v2.0）：fetcher 重构设计 |
-| `build-oom-fix-2026-08-04.md` | 前端 Build OOM 修复：构建内存参数 |
-| `industry-crowding-baostock-fallback-2026-08-07.md` | 行业拥挤度 baostock 兜底实现方案 |
-| `industry-crowding-multidim-2026-08-08.md` | 行业拥挤度多维方案设计 |
-| `supabase-jwks-es256-verification-2026-08-08.md` | Supabase JWT 验签改造为 JWKS+ES256（HS256 已失效）；含 3 条踩坑教训 |
-| `brandsub-beta-pending-2026-08-08.md` | **悬挂问题**：SidebarLogo/NavHorizontal 的 brand-sub/beta 改动被误删，待重建（有完整 diff 可恢复） |
-| `explore-watchlist-replan-2026-08-08.md` | 探市 / 自选 页重新规划 |
-| `db-download-import-2026-08-09.md` | DB 下载与导入规划 |
-| `free-cloud-services-2026-08-09.md` | 免费产品清单 |
-| `launch-plan-2026-08-09.md` | 上线计划（含动态 静态 / Turso 双数据源 / 日志追踪选型） |
-| `feedlog-setup-cn-2026-08-09.md` | FeedLog (dbb-feedback) 中文环境初始化指南：Cloudflare Workers + R2 + Hyperdrive 部署全流程，含环境变量/品牌定制/AI 配置 |
-| `opencode-github-issue-utf8-rule-2026-08-09.md` | OpenCode/GitHub Issue 创建 UTF-8 环境规则（复盘 #859-#862 乱码事故） |
-| `money-fund-income-plan-2026-08-09.md` | 货基收益入账方案设计 |
-| `ai-recognizer-architecture-2026-08-13.md` | **AI 识别导入分层架构**：识别域对称模板导入（BaseRecognizer 抽象 + registry + guards/llm/catalog），自选/持仓两场景统一；P1-P4 已实施，P5 管线级共享落地 |
-| `asset-snapshot-yoy-plan-2026-08-09.md` | 资产总览同比真实化：历史快照方案（asset_snapshots 表 + 惰性 upsert + 同比计算，2026-08-10 已落地） |
-| `worktile-migration-map-2026-08-09.md` | Worktile 看板迁移 GitHub 对照表：16 张 2021 年卡片的逐条处置（新建 4 / 合并 8 / 归档 3 / 丢弃 1），含代码核查证据 |
-| `watchlist-feature-gap-audit-2026-08-13.md` | 自选功能 Issue 实现缺口核验：对照 #661/#807/#826/#860 与代码，列出真正未做项（备注编辑 UI+分享、品种维度、平台级估值开关、探市沙箱缺陷），并纠正 #860 文档漂移 |
-| `page-split-welcome-vs-panorama-2026-08-13.md` | **页面分工决策**：投资概览(welcome)=理想/目标(心理账户/Portfolio+表现)，资产总览(panorama)=生活/方法(五笔钱/产品类型/账户/资产负债)；五笔钱归 panorama 的论证；分页原则修正为"拆解 vs 表现+目标"。#2034 补记（welcome 结构图收尾）、**#2150 补记（第三页「复盘」=/analysis 定位与去重）** |
-| `concept-explainer-five-buckets-and-goals-2026-08-13.md` | **用户科普文草稿**：用"理想 vs 生活/方法"比喻讲清五笔钱/心理账户/账户/自选分组；待晋升为公开文档页 |
-| `welcome-message-layer-2026-08-13.md` | **Welcome 首页消息层改造**：顶部 ticker 播报 + 近期动态真实 feed + 财务晴雨表/收益趋势空态；死数据清理清单；投资人格雷达落点修订（复盘页）；遗留待办 |
-| `watchlist-paid-features-discussion-2026-08-14.md` | **自选付费化方向讨论（远期规划）**：数据清理与提醒（扫描/提醒/回撤配额）、持仓穿透分层、持仓建议推荐的合规与品牌边界分析（不荐股承诺冲突，倾向客观数据洞察替代观点推荐） |
-| `import-page-ux-and-monetization-review-2026-08-15.md` | **导入页 UX 与商业化评审**：核对已上线的 OCR 成本护栏（#823/guards.py）与 `pricing-tier.md` 规范，判定讨论中的"Pro 硬墙"应后置；内联拆出 5 个原子 issue 草案（卡片联动/动态文案/步骤条冗余/图片压缩/付费锚点决策），引用 #823/#826/#786/#935 |
-| `monetization-strategy-plan-2026-08-15.md` | **商业化策略计划（仅商业化）**：以"防背叛 + 覆盖成本"为双主轴，承接 `pricing-tier.md` 与导入页评审；定两档（免费+Pro）、早鸟锁定价（9.9/月·99/年→正式 19.9/月·199/年，网关侧锁价不写自研逻辑）、软配额非硬墙、冷启动早鸟码/反馈奖励、支付对接 0→1、家庭版/Ultra 暂缓决策、礼品卡兑换码无社交；§8 校正粘贴讨论与仓库偏差（5 次/天 vs 5 次/月、定价未定稿、支付未接入），§9 内联 M-1~M-5 原子 issue 草案，引用 #1000/#994/#823/#826/#939 |
-| `account-channel-and-fee-design-2026-08-16.md` | **账户渠道概念与费率分层设计**：渠道做轻量惰性可选（不枚举全市场机构，关联导入模板+佣金默认值）；费率拆「监管费常量(系统级) / 券商佣金(账户级 2~3 值) / 导入读实际费用」三层，差异落 `services/fees/calculator.py` 纯函数，复用 `symbol_utils.normalize()` 判定市场/品种；与导入关系=导入验证后再落地，最小切入点先做监管费常量+计算纯函数；记录判定缺口（北交所可转债/ETF 未识别） |
-| `e-account-import-data-decentralization-plan-2026-08-16.md` | **基金 E 账户导入 + 数据去中心化评估**：三阶段计划（P0 基础数据中枢 / P1 Pro 组合体检 / P2 分享快照）对照仓库现状（#928/#929/#994/#1000/AssetAllocationDonut 现成）；三处修正（E 账户=持仓快照非流水、仅覆盖公募、防爆降本已被架构吸收）；新增"前端开源拉取降本"评估——净值/用户数据留后端、分类/行业/风格/拼音/费率科普下沉前端静态源，呼应"自动化不靠谱+存储成本"痛点；含排期表与 I-新 1~I-新 8 原子 issue 草案 |
-| `unified-import-entry-evaluation-2026-08-16.md` | **数据导入「统一入口」必要性与难度评估**：确认四入口散落（侧栏均 showLink:false、托盘隐藏）+ 后端 ImportOrchestrator 已成熟；#936 引导矩阵(UX 统一入口)与 #933 前端统一提交层(数据收敛)已把"统一"拆清；结论=基础已备、方案已定，技术难度中低，主成本是 #933 收敛改造 + 与 refactor/split-import-wizard 协调；不建议另起孤立导入中心页 |
-| `cross-ledger-import-dedup-scope-2026-08-16.md` | **跨账本重导与去重作用域降级设计**：当前 family 级去重 + 唯一约束双重卡死跨账户重导（迁移死结）；决策降级到 ledger 级；落地 5 步（账本软退役→约束降级→family 级幽灵扫描→现金兼容→NULL 哈希回填），含 UI 软提示/归档语义/同账本覆盖事务；纠正"加复合约束会因历史数据炸"误解（真正雷点是 NULL 行回填） |
-| `frontend-holding-import-plan-2026-08-16.md` | **前端持仓导入与对账设计（#1013，已确认）**：导入向导新增「导入持仓快照」模式（后端 PR #1021 + 对账/归因设计已定稿）；入口第四张卡片 + 持仓页「对账」入口、3 步流程（上传/核对与冲突处理/结果）、对账中心视图、独立 `useHoldingImport.ts` composable、design.md 逐条对照清单、6 个已确认决策点 |
-| `e-account-reconciliation-design-2026-08-16.md` | **E 账户对账与归因设计（v1.0 终版，已确认）**：Ledger=销售平台语义、融合方案（空则自动归因/一致已核对/冲突留决策）、影子记录+ownership_status+is_attributed 防复活、position_import_meta 独立列（source_broker/fund_manager/is_attributed/is_ignored/attributed_at/attributed_to_ledger_id/import_error）、无状态 API（parse/reconcile/attribution/reconciliation）、销售机构映射表、P1-P6 语义细节锁定 |
-| `amac-encoding-incident-2026-08-17.md` | **AMAC 名录乱码事故复盘**：接口实为 UTF-8 却硬编码 gbk 解码致 394+165 条乱码入库；排查误区（全仓库只有一个 invest.db，勿臆测多库）；处置（删编码假设 + U+FFFD 入库守卫 + 清空重跑）；编码纪律（禁猜编码、入库前校验、写后抽查） |
-| `investment-agent-brainstorm-2026-08-17.md` | **投资/账本精灵 对话 Agent 头脑风暴（非最终方案）**：四功能可行性（基于代码核查）+ 用户补充的防幻觉/不手搓 CoT/LangGraph/RAG/合规原则 + 关键洞察（现有 ai_recognizer 已 embody "模型聊逻辑、Python 算数字"）+ 6 条边界问题 + 三阶段路线图映射 + 待确认 Q1~Q4 |
-| `agent-guardrail-layer-design-2026-08-17.md` | **账本精灵对话 Agent 护栏层设计（正式）**：汇总头脑风暴第十~十七轮与同花顺对标结论；五层护栏（L0 代码隔离/L1 Prompt 铁律/L2 工具可用性/输入侧意图护栏 A~E/L3 输出侧词法过滤）；L3 细化为 10 条拦截规则表（R1~R10）；模块落点 `ai_recognizer/safety/` + G1~G7 实施计划 |
-| `agent-issues-2026-08-17.md` | **账本精灵原子 Issue 草稿**：7 个原子 issue 模板（护栏 G1~G7 拆 4 个 + 快速记账/持仓查询 NL 层/行为解读），含象限 Q2、反链、验收标准，可直接粘贴建 GitHub issue；对应决策 D19 与 roadmap §2.7 |
-| `sales-institution-common-group-2026-08-24.md` | **销售机构常用分组 + 账户类型感知设计（#1081/#1082，已对齐）**：15 家常用名单（中基协排名为 sort）、代码声明幂等应用（迁移零负担）、org_type 11→4 组标识、stock/fund 机构过滤、决策记录 D1~D8 |
-| `portfolio-strategy-unification-2026-08-24.md` | **组合体系殊途同归实施计划（D20，设计定稿）**：组合收敛为持仓级概念（positions.portfolio_id + 账户「默认组合」语义）、三层 XIRR 口径（持仓/账户/组合）、策略标签正交保留、页面合一方案、分期实施与迁移回滚、概念精简评估 |
-| `portfolio-lot-attribution-design-2026-08-25.md` | **组合批次级（Lot）归因立项设计（#1095 远期方案）**：b 否决/c 为唯一路径；现金按 lot 归属；排序先 D20 一期后 #1095。展开 4 项前置依赖为可执行设计（lots/lot_consumptions 模型、现金归属细则、XIRR 引擎重写+清理 xirr_engine.py:349 死代码、历史回填），附代码锚点与分期/测试/回滚 |
-| `ledger-detail-info-redesign-plan-2026-08-27.md` | **账户详情页信息重构计划（方向 C + 配置目标可编辑）**：移除无意义环形图/盈亏走势占位，规划基金账户深度分析（持仓集中度/行业分布/收益日历等）与持仓级配置目标编辑，分期 P0~P3 落地 |
-| `e-account-aggregation-design-2026-08-28.md` | **基金 E 账户与聚合器/券商数据模型设计草案（#1101，待评审）**：概念澄清（实体账本/销售机构/券商/聚合器/E 账户）、现状实证、方案 A/B、broker_aggregator_links+trading_frontend、银行卡绑定约束、前端聚合页维度、D1~D6 待决、P0~P2 分期 |
-| `ledger-channel-category-redesign-2026-08-28.md` | **账本渠道分类（channel_category）重设计方案（#1101 后续）**：双字段模型（ledger_type 内部资产类键 vs channel_category 用户可见分组）、org_type→channel_category 映射、派生/回归规则、与 #1100 机构绑定基数层正交；配套后端常量+迁移回填已落地 |
-| `ledger-cash-like-product-binding-2026-08-29.md` | **账户绑定类现金产品（「余额宝」）设计（#1137 B）**：类现金口径=现金+货基+逆回购（复用 XIRR `EXCLUDED_ASSET_TYPES`，债券不归入）、Ledger 新增 `linked_money_fund_id`+`auto_purchase_money_fund`（默认关）、自动申购仅覆盖卖出/赎回回款、每账户单独控制+批量应用、UI 借鉴支付宝但主次反转（中高风险 `--text-hero` 为主 / 类现金 `--text-small` 为辅且单独成块）、B1~B3 分期；含 C 取消论证（滑坡+维度混淆） |
-| `securities-aggregation-design-2026-08-29.md` | **场内证券（股票/ETF/可转债）聚合卡片设计（#1132，已确认）**：镜像 #1101 场外基金 position 级聚合范式，新增 securities_aggregation 服务+端点+前端卡片/下钻页，零 schema 迁移；范围含 stock/etf/bond，不建虚拟账本 |
-| `road-not-taken-revive-2026-08-30.md` | **未竟之蹊（/the-road-not-taken）页面复活**：旧页问题诊断（v3-waterfall v1 参数误用/卡片空壳/类型失真/hex 硬编码）、数据接口可行性表（favorites/trends/tags/cleared 真实可用，经理为占位）、后端补 `next_review_date` 复盘字段+迁移、前端重写为三列 Masonry 卡片流（诗句卡/两级胶囊/三态卡片/鹦鹉螺空态）、后续待办 |
-| `index-catalog-sources-research-2026-09-08.md` | **指数名录数据源调研**：sina/中证/国证三源实测（930950/932000 仅中证源、399303/399317 仅国证源、881001 万得系无免费源→399317/000985 替代）、韭圈儿 API 已收口不逆向、`index_stock_info_sina` 不存在的踩坑、三源合并实施记录（#1365） |
-| `eastmoney-datasource-and-account-linkage-design-2026-08-30.md` | **天天基金/东财数据源适配器 与 基金账户归一化设计（待评审）**：设计 A 建 `EastmoneyAdapter` 去硬编码选源＋回填基金公司权威 code；设计 B `PositionImportMeta.sales_institution_id` 外键归一化基金账户，个人昵称保留自由文本 |
-| `asset-management-gap-analysis-2026-08-30.md` | **对照真实用户六条需求的资产记账能力 Gap 分析**：取证到代码行号的六条判定（①自定义资产免净值份额 ②多账户区分成员 ③购买渠道 ④账户走势盈亏 ⑤分红送股自动化 ⑥按占比批量更新总价）；竞品对照（同花顺投资账本/有知有行/钱往的功能与定价）；核心结论=竞品「份额×净值」单一模型结构性做不到无净值产品，是 fundmate 的差异化窗口 |
-| `asset-management-gap-roadmap-2026-08-30.md` | **资产管理记账能力补齐开发计划（待评审）**：D1~D4 四项待拍板决策（双态计价模型 / 进 positions 还是 assets / balance 盈亏口径 / 聚合入口归属）、P0~P4 五期计划表（含文件锚点与依赖）、风险与测试纪律、14 条原子 issue 草案 |
-| `fund-metadata-arch-issue-1155-research-2026-08-29.md` | **#1155 基金元数据架构核查（研究交付物）**：fund_type_id 全量回填可行性 + 基金公司/基金经理数据架构现状与三处域归属不一致决策 |
-| `ai-code-review-deepseek-dual-line-2026-08-23.md` | **AI Code Review 双线路接入（DeepSeek 火山方舟实测）**：ARK_API_KEY_DEEPSEEK 可用性与模型权限核查（feat/ghost-duplicate-scan） |
-| `mock-service-data-isolation-2026-08-30.md` | **Mock 服务与数据隔离方案调研**：前端 mock 避免污染本地 SQLite + 独立 Supabase 环境实现 dev/test/prod 隔离 |
-| `fund-company-backfill-1199-2026-08-30.md` | **基金公司 code 回填实测与归一化增强（#1199 收尾）**：127 占位基线、迭代剥离归一化（修复只剥最短后缀 bug）、命中率 81.1%→92.9%、实际回填 116 条、剩余 11 条分类（9 不在列表 + 2 code 冲突）、`full_name`/`scale` 正式降级结论 |
-| `holding-days-semantics-2026-09-02.md` | **持仓「持有时长」计算口径决策（#862/PR #1284）**：核实 `confirm_date` 行为（清仓删行+重买建新行→自动从最新一轮计日起，非 2021 累加），`holding_days` 为实时派生 property 不落库；决策不引入 FIFO 批次表，附 E 账户快照覆写 confirm_date 等边界与 tech-debt |
-| `cash-equivalent-classification-design-2026-09-07.md` | **现金等价物分类与收益口径（单一事实文档，#863/#1137/#1354 合并）**：取代 money-fund-caliber-reconcile-replan（已删除并入）；主分类归现金 + 子分类透视、per-asset `count_as_investment` 覆盖项、统一 `effective_count_as_investment()` 真相函数、INTEREST/CAPITAL_GAIN 收益分家、分账户/分策略强制排除、场内货基识别缺口 |
-| `font-plan-review-2026-09-04.md` | **字体方案（方案 B：Inter + Mi Sans）决策评审**：核清现状=仓库无任何 Inter webfont，全站实为系统字体（reset.scss 硬编码栈），本次实为「首次引入自托管 webfont」；结论=方案方向可用但需先明确适用范围（仅应用站 frontend/）并跑通 Inter 获取 + Mi Sans 子集化；Mi Sans 本地全量 ~47MB / VF.ttf ~19.2MB 必须子集化；不需要第三方字体 CDN，自托管入 `frontend/public/fonts/` 由 EdgeOne/Cloudflare/Vercel 分发 |
-| `pr1362-review-closure-2026-09-09.md` | **PR #1362 复审收束报告**：owner 自评 6 条 + AI 行内评审 18 条逐条处置（修 8 / 驳 5 误报）、万得指数覆盖确认与补齐（实测韭圈儿 8 个全可取、原仅抓 3，补 881003/881007/8841425/8841431/889033，全量历史 1999 年起已核库）、遗留项（PE 分位未落库等） |
-
-## Agent 工程化课程 / 任务计划（2026-09-25 ~ 09-26，#1121）
-
-| 文件 | 内容 |
-|---|---|
-| `agent-dev-progress-2026-09-26.md` | **执行记录 + 步骤边界卡（本组的总控文件）**：S1-A~S6 步骤总表（每步「做/不做」边界）+ 逐步骤卡（改动面、验收、≤0.5h 学习任务三问）；一步 = 一 PR 一卡，防止单步膨胀；含 S1-A 通电最小闭环卡（端点 + P1 越权修复 + `response_format` 接线修复 + 5 真实只读工具 + 单测） |
-| `gitee-ai-reference-audit-2026-09-26.md` | **Gitee 参考项目（ai_black_ma/ai）实证审计**：定级「骨架真、皮肉虚、测试是装饰、文档跑在代码前面」，附三层证据（Jenkinsfile 测试门禁自降级 / git 三段式活动期与整块灌入 / 公开仓泄两把真实 API key）；可借鉴 3 条（上下文预算制、题库分层组织、noqa 留痕纪律）与红线 4 条（规模数字、Celery/分片选型、其话术原文、装饰工程做法）；含金量分层回答 |
-| `agent-dev-learning-plan-2026-09-25.md` | **账本精灵 Agent 工程化：边学边做课程 + 任务计划**（承接 #1121，目标改为「产出一条端到端跑通 + 可被面试追问三轮不倒的链路」）：① 现状盘点附 file:line——`run_agent()` **零生产调用方**、工具表仅 1 个 demo 占位、前端零入口、`mcp>=2.0.0` 已声明未使用；② **审计出 5 个真问题**（P1 前端回传 `collected_params` 被信任→潜在越权 / P2 轮次上限可换 `session_id` 绕过 + 内存泄漏 / P3 限流与 token 预算进程内多实例击穿 / P4 `history` 无界 + prompt injection 通道 / P5 只有语义重试无传输退避）；③ 定位纠偏＝**工具型 Agent 而非 RAG Agent**，含「为什么不做 RAG」答法；④ 参考项目（gitee ai_black_ma/ai）**能抄/不能抄对照表**（Celery、MySQL 分片、Redis、One API、10 万 DAU 指标一律不抄）；⑤ 六阶段课程（S1 工具层通电 1.5d / S2 记忆层 1d / S3 护栏成本 1d / S4 可观测评估 0.5d / S5 MCP+Skill+多模型 1d / S6 面试收口 0.5d，合计 5.5d，最小 3.4d）；⑥ 12 条追问压力测试清单 + 单 Agent 自研状态机替代 LangGraph 的论证 + 只学不做理论清单 + 反过度设计清单 + 4 个待拍板决策（端点归属/会话落库/issue 拆法/是否公开） |
-| `agent-interview-prep-plan-2026-09-25.md` | **面试线配套件（简历 + 题库 + 摸底，与主线分工不重复）**：① 简历层——两段式结构（集简云 2023 广度 / fundmate 2025-2026 深度）+ 缝合话术 + **时间线合规术语白名单**（MCP/LangGraph/上下文工程等 2024+ 词禁入 2023 段）+ 集简云段真实边界（不写推断数字）；② **题库地图**——Gitee `docs/07-面试准备/` 各文件（ReAct 题 20 / 题题 19 / 线上案例等）→ 主线 S1~S6 逐阶段映射 + 三条使用规则（只借结构不抄数字）；③ S0 摸底阶段（题库自测弱项清单 + 简历草案，~1.5h，开课前）；④ 融合结论（总量 6 人日、砍单项记录防复活、对主线 4 个拍板项 D-A~D-D 的立场） |
-| `agent-s6-interview-final-2026-09-28.md` | **S6 面试收口交付物（#1755 / 步骤卡 #10）**：30 秒自介定稿（逐句溯源表；计划草稿 ~350 字按 30 秒口径压缩，非实际工具词已按 `TOOLS_METADATA` 六工具修正）+ 12 条压力测试口述稿（每条 ≈90 秒、证据 `file:line` 在 `a072eb68c` 实测（#1759 刷新））+ P1 越权 / P3 多实例击穿两个「我改过的东西」故事（现象→定位→根因→修复→防御）+ 六阶段三段式改稿 + **简历定稿**（7 条 bullet 挂证据、集简云口径引用、缝合话术、时间线合规自检、技能栏不含 LangGraph）+ 用户侧未尽事项（真机截图 / 开口练习 / 模拟复盘） |
-
-## 测试环境 / 本机跑测（2026-09-27，#1701 / #1727）
-
-| 文件 | 内容 |
-|---|---|
-| `win-local-pytest-env-prereqs-2026-09-27.md` | **Windows 本机 pytest 环境前提收拢**：把散在各处的三类「测试依赖调用方环境」环境性失败并到一处——① 需 `PYTHONUTF8=1`（子进程 GBK 输出）；② 新 venv 需手装 `psycopg2-binary`（平台标记在 win32 剔除，但迁移测试要建 postgres 引擎）；③ `.env` 带 `TURSO_DATABASE_URL` 时 `test_db_factory` / `test_db_lazy_engine` 3 例必红（`sqlite.libsql` 方言在 Windows 装不了，#1727）。含「CI 绿而本机红」的机制、修复口径（**测试侧中和，不碰生产路由 / 不动平台标记**）、复现与验证命令、以及「基础设施级不变量必须自己有用例钉住」的要求 |
-
-## 火山方舟模型可用性（2026-09-28）
-
-| 文件 | 内容 |
-|---|---|
-| `ark-model-availability-2026-09-28.md` | **可用模型列表（快照 + 维护规则）**：三层判读（注册面 status / 账号限额 429 / 实测为最终答案）+ 2026-09-28 十模型实测快照（2.0 Pro Retiring→404、2.1 Pro 账号限额 429、deepseek-ga 系已恢复）+ 仓内三消费点（`llm.py` `ARK_MODEL` / `llm_health_probe` 池 / `ai-review.yml` 注释）+ 过时注释留痕 + 维护规则三条；配套复跑脚本 `scripts/ark_model_probe.py`（纯标准库） |
-
-## 基金持仓落库 / 外部数据准入（2026-09-30，#870）
-
-| 文件 | 内容 |
-|---|---|
-| `fund-holdings-probe-2026-09-30.md` | **`fund_holdings` 落库前的取数打点报告**：主仓真实环境（akshare 1.18.91）直调 `ak.fund_portfolio_hold_em`，实测四个缺陷——D1 未传 `date` 拿到的是 **2024 年**数据（真根因：上游默认值 `date: str = "2024"` 硬编码、两年未更新）；D2 `holdings[:10]` 取的是**最老季度**（返回 df 按季度升序拼接，`[:10]` 命中第一期）；D3 以「前十大合计」当「股票仓位」**系统性低估**（000001 43.72% vs 全量 79.96%，−36.2pp；越分散越失真）；D4 接口**硬截断 100 条**（`topline` 扫描 10/20/50/80/100 线性生效、>100 静默降级回 10 行 → 东财服务端上限）。第二批打点的重要发现：东财**直接提供基金级行业配置**（`api.fund.eastmoney.com/f10/HYPZ/`），其**合计 ≡ 持仓全量合计**（110022: 87.18% vs 87.19%；005827: 76.42% vs 76.43%）→ `equity_position` 改取行业合计。附三个必须处理的坑（证监会门类与 GICS 两套体系混用 / `市值` 单位不一致不可用 / QDII 触发 akshare 17 列硬编码崩溃）与 `序号` 带星（`11*` / `12*`）不能 `int()` 直转 |
-| `data-persistence-criteria-2026-09-30.md` | **外部数据「落库 vs 现调」准入判据**：结论先行——判据不是「分析 vs 展示」而是三问（**是否需跨标的聚合 / 是否需跨期累积 / 接口是否稳定可得**），任一为「是」即落库；点出「**现在用不上 ≠ 不该抓**」（跨期数据今天不抓、两年后就没有基线，**不可逆**）；含 9 项数据逐项判定表；澄清「直接调 JSONP」与「走 akshare」**同源同解析成本**，差别只在封装层（akshare 的坑全是「默认值/硬编码」类、可绕过），故继续用 akshare 但显式传参；给出**行业穿透不需要「股票→行业」映射**这一架构简化与其三个坑 |
-| `issue-870-activation-comment-2026-09-30.md` | **#870 激活评论草稿（已发布并摘除 `归档` 标签）**：`归档` 标签与 2026-08-12 治理复核留痕冲突 → 建议摘除；正文两个「现状证据」的复核结论（`importer/` 下无基金底层持仓解析；`fund_position_job` 存在且在调 adapter，但 `sync_logs` 记录数 = 0，**从未执行过一次**）；D1~D4 实测表；修正后的 Step 1~6 实现方案（两表唯一键、行业归一化、**建议不进每日调度、改周级**）；既有卡联动（#866 / #1286 / `data-strategy.md` §4.2） |
-
-## 基金持仓生产回填 / 跳过路径缺陷（2026-10-01，#870 收尾）
-
-| 文件 | 内容 |
-|---|---|
-| `fund-position-skip-path-triage-2026-10-01.md` | **#870 合并后首次生产回填失败的三处缺陷复盘 + 回填结果**：CLI 报「同步失败」的真因不是数据源，而是 ①`FundPositionSyncJob` 覆写 `run()` 时**漏赋 `snapshot_time`**（本仓既有约定：另 4 个覆写 `run()` 的 job 都在开头显式赋值），空池早退后 `run_job` 的 `now - snapshot_time` 抛 `TypeError`，一次干净的显式跳过被报成失败并 exit 1；②CLI 不给 `--targets`/`--target-file` 时**不会解析库内核心池**（`daily_scheduler` 会，故周任务一直正常，只有手工 CLI 踩坑），修好 ① 后它退化成更危险的「静默 success + 0 只」；③`--target-file` 的基金分支元组漏了 `fund_position`。三处已修（含 orchestrator 侧双保险 + `resolve_job_targets()` 抽出以便单测）。**生产回填已完成并核验**：备份至 `H:/fundmate-backups/invest-prod-before-870-20261001.db`，117 只 → 101 只有数据 / `fund_holdings` 6,423 条 + `fund_industry_allocs` 830 条，`equity_position` 与行业合计 **101/101 零偏差**、中位偏差 0.020pp；偏差 Top5 **恰好全部是 100 条持仓（东财硬截断）**，反向证明「取行业合计」口径正确（若按持仓求和，约 19% 的池内基金被系统性低估，最高 62.6pp）。附「git 元数据不可信」误判的更正（实为 D: 满盘 + 自己的探针残留） |
-
-## fundfof（见基行事）借鉴分析 / 外部源准入（2026-09-30，#870 / #1502）
-
-> ⚠️ 本组三份含 fundfof 字样。**如实记录，不隐藏来源**——理由见 `external-source-policy-2026-09-30.md`：
-> 本仓为 public，且 `fundfof_crowding.py`（已在库的生产代码）本就把域名/端点/「未授权」写在 docstring 里，
-> 「代码里不暴露来源」在事实上做不到；正确边界是**对内诚实、对外克制**（产品文案不提）。
-
-| 文件 | 内容 |
-|---|---|
-| `fundfof-gap-analysis-2026-09-30.md` | **第一轮：功能全景 + 我方缺口分析 + 优先级重构**。实证材料（首页快照 / 前端 bundle 的 tab 与路由 / 195 端点清单）+ 我方代码复核。核心结论：①**你的 P0/P1 排序「轴」选错了**——真正的成本瓶颈只有**一处数据**（基金×报告期×股票×占比），这张表一落，重仓股/行业穿透/重叠度/完整归因**四件事同时解锁**，它们不是四个功能而是同一份数据的四种展示；② fundfof 抄不走的两件事（**账户级**溃疡回撤、**零录入**组合穿透）恰是我们的地基；③ 修正用户原表 2 处事实错误（市场拥挤度**已有**、A/C 平衡线被**严重低估**）；④ 反向压力测试砍掉「事件中心/产业链/今日快讯」（最热闹最不挣钱）。含 G1~G9 缺口清单与被低估项（溃疡指数、A/C 平衡线、持仓重叠度） |
-| `fundfof-round2-db-issue-2026-09-30.md` | **第二轮：真库实证 + Issue 激活清单 + 基准映射三层结构**。全部结论来自**真库直读**（只读连接）。三条结论：①**撤回第一轮误判**——基金经理数据**早已落盘**（`managers` 4,264 / `fund_managers` 34,809），真因是**字段没抓**（`appointment_date`=0、`end_date` 100% NULL），修复路径从「补数据源」改为「补字段抓取」；②**落 `fund_holdings` 是「接线未通」不是「没有线」**——适配器/job/注册/编排全在，只有调度没注册，铁证是 `sync_logs` 里 `fund_position` 记录数 = **0（从未执行）**；③**基准超额的第一阻塞点不是「映射」而是「基准指数根本没日线」**——`index_daily` 只有 10 个 `.WI` 指数，沪深 300/中证 500/中证全债**均 0 条**，建映射表也救不了。另含 `归档` label 定义实证、16 张既有 issue 的 update 而非新建清单、`885000.WI` 零成本超额口径（#275 误关可复活）、与 #1015 的边界划分 |
-| `external-source-policy-2026-09-30.md` | **外部数据源接入规范（fundfof 类）+ 语义收敛**。①**纠正前提**：「不要暴露在代码/PR 里」在 public 仓**做不到**（且已发生）→ 改为**分层**：代码/内部文档**明写来源与风险**、对外产品文案**不提**、对外发布前**必须换源**；②复用 `fundfof_crowding.py` 的现成工程手法（一键关停 / 长 TTL 缓存 / 失败静默降级 / **不绕鉴权** / 不混进 `akshare_adapter.py`）；③给出比现有实现更严的「礼貌」参数（串行 / ≥3–5s 抖动间隔 / 硬上限 / **失败不重试** / 可识别 UA / 避开高峰）；④法律风险诚实评估（自用低风险，商业化有明确司法路径）；⑤**2026-10-01 收敛结论：无需新增 fundfof 抓取**——#870 落库后复核，穿透**我们自己已能算**（`fund_industry_allocs` 覆盖 101 只，其中 **98 只命中 `positions`**），归因卡在**自建**基准日线缺口（沪深 300 = 0 条，**该结论已被 2026-10-10 实测推翻，见下条**），风格漂移是「算」不是「抓」→ 剩下的是补我们自己的两张表，不是拿它的数据 |
-| `fundfof-detail-impl-research-2026-10-10.md` | **第三轮（#1973）：详情页「它怎么实现的」——13 tab 全量反编译 + 照抄/不做清单**。补上前两轮缺的第三格。①**13 个 tab 共 30 个组件，每个组件只发 1–4 个 GET**，复杂度不在前端而在**后端预计算 + 一堆派生表**；去重后只剩 **8 个数据家族**（F1 净值 / F2 区间收益 / F3 持仓 / F4 行业 / F5 基准日线 / F6 规模经理 / F7 派生统计 / F8 概念资金流），**真正的分界线不是 tab 名而是「有没有 F7」**；②**照抄 6 项**（业绩表现·相似走势·持股分析·行业分析·新高观察·相关性，其中「新高观察」零新数据）、**先自建算法 3 项**（超额观察·业绩归因·情景适应）、**明确不做 5 项**（言行一致要解季报 PDF / 调仓跟踪+大类资产缺持仓多期 / ETF 资金无源 / 概念含量与定位冲突）；③**撤回一条过期结论**——`index_daily` 已从「10 个 .WI 指数、沪深 300 = 0 条」涨到 **113,143 行 / 22 个指数**（`000300.SH` 5,223 条），**「超额/归因」的最大物理障碍已解除**；④识别出**最高杠杆单点**：`fund_holdings` 6,423 行覆盖 101 只，但**每只仅 1 期**（期数分布 `[(1, 101)]`），这一条同时否决 4 个 tab，且它是**排期问题不是可行性问题**（适配器/job 全在，`sync_logs` 里 `fund_position` = 0 条）；⑤**可照抄的三件工程做法**：tab 状态同步 URL query + 非法值静默回落、切 tab 埋点带 `from_tab`、切 tab 自动滚到区块标题；⑥**不该照抄**：ECharts 全量内联进单文件 3.8MB（`import("./")` 0 次、无代码分割）、`lazy(` 0 次、错误只 `console.error`、详情页无 AbortController/重试；⑦**方法学**：窗口法提端点**6/27 组件串扰**（方向全是「相邻组件端点漏进来」），必须用花括号配对定位组件函数体——已做反向验证；⑧**policy 结论维持不新增抓取**，新增依据是「它前端 30 个组件全调同源 `/api/*`，照抄界面不需要它的数据」 |
-
-
-## CNB 镜像卡治理（2026-10-11，#120）
-
-| 文件 | 内容 |
-|---|---|
-| `mirror-correction-channel-2026-10-11.md` | **镜像卡正文失实的更正通道**：①问题定性——镜像链路缺的不是同步能力而是「更正」这个动作，活证据是镜像卡 `#106` 正文引用的行号 `WelcomeAssetBoard.vue:119-130` 早随 `#980` 删除，而溯源块的「评论数：0」也是建卡快照；②方案 A（溯源块加**时效声明**：生成时刻 + 「这是快照、以 GitHub 为准」+ 更正路径），判据只截**溯源块**断言（整篇搜关键词会假绿，原文正文自己也提「更正」）；③方案 B（新增 `scripts/bridge/mirror_correction.py`，把「在镜像卡评论区写更正」从纪律变成命令：单向只增、幂等键写进隐藏 HTML 注释、拒写人工卡、零新依赖）；④**为什么不做方案 C**（正文改「快照 + 更正日志」等于推翻「只增不覆盖」，评论台账用零正文改动拿到同样可读性）；⑤**真实演练**：`#106` 首次更正已发布（更正键 `410f1bcc4da1`），原样复跑输出「跳过」——幂等在真实接口上验证过；⑥守卫接线：`scripts_test` job 原本只跑 node 测试，覆盖不到 `scripts/bridge/` 的 Python 侧，本卡补 `python -m unittest`；⑦边界：不管评论同步（`#117` 硬要求 ②）/ 不管状态同步 / 不追溯存量卡正文 |
-
-## 子目录归档
-
-| 目录 | 内容 |
-|---|---|
-| `legacy/` | Worktile 2021 年看板归档：`legacy/worktile-archive-2021-2026-08-09.md`（晨星爬虫方案、开源金融数据对比、监控组合竞品，及雪球 IRR/XIRR/Modified Dietz 论证全文存档；原始卡片「不适合建 issue 但有长期参考价值」）。原前端重构系列 27 个文件（batches / codebooks / reference / guides）已因**入库前即乱码、不可逆且已被后续实现取代**于 2026-10-11 整批删除（Issue #2042），处置依据见 `legacy/README.md` |
-| `issue-triage/` | Issue 看板分拣依据：`triage-report.md`（24 个活跃 issue 分拣报告）、`triage-matrix.csv`（优先级矩阵）。`_tmp_bodies/` 为分拣中间产物，不入库；`auto/` 为按期归档的《Issue 验收清单代码实证复核》系列，**按期入库**（2026-08-14 / 09-11 / 09-19 / 09-28 / 10-16），单期报告是后续复查的对照基线，不应视作临时产物 |
+# 工作备忘索引（working-notes）
+
+> 共 **149 张**，2026-10-19 按主题归类。**一张未删**——本表只解决「找不到」，不解决「该不该留」。
+> 归位与归档的判断依据见 [docs-audit-2026-10-19.md](./docs-audit-2026-10-19.md)。
+
+## 图例
+
+| 标记 | 含义 | 机械判据 |
+|---|---|---|
+| 📌 | 被其他文档引用 | 文件名在其他 md 中出现 |
+| ✅ | **已完全落地** | 卡内 ≥3 个代码标识符全部仍存在于代码 → 卡已无增量信息 |
+| ◐ | **部分落地** | 标识符缺失 <50% |
+| · | 疑似过时/孤儿 | 全仓无任何文件引用 |
+
+
+## 账本与记账（23 张）
+
+| 卡片 | 行 | 标记 | 摘要 |
+|:---|---:|:---:|---|
+| [portfolio-strategy-unification-2026-08-24](./portfolio-strategy-unification-2026-08-24.md) | 80 | ✅ 📌 | - 「投资组合」（账户级绑定，XIRR 口径）与「策略视图」（持仓级标签，展示口径）回答同一问题——「我的钱按目的分 |
+| [ledger-cash-like-product-binding-2026-08-29](./ledger-cash-like-product-binding-2026-08-29.md) | 178 | ✅ 📌 | 用户在证券 / 基金账户卖出后，资金应留在投资账户内（账户现金，或账户绑定的类现金产品）， |
+| [dividend-tax-reminder-2026-10-19](./dividend-tax-reminder-2026-10-19.md) | 80 | ✅ 📌 | 即：不自动算税，改为提醒 + 让用户自己补记。这一条把「要不要做」定死了， |
+| [dividend-tax-timely-2026-10-19](./dividend-tax-timely-2026-10-19.md) | 118 | ✅ | 原判据是「同标的同一年有 dividend_tax ⇒ 视为已结清」。实测后果： |
+| [holding-days-semantics-2026-09-02](./holding-days-semantics-2026-09-02.md) | 56 | ✅ | 当前实现已经正确：持仓详情页的「持有时长」按 positions.confirm_date（本轮建仓日）到今天计日； |
+| [product-detail-research-2026-10-12](./product-detail-research-2026-10-12.md) | 163 | ✅ | 走势已上首屏（#2107）；数据分层按「持仓本地持久 + 非持仓后端代理 + 冷热分层缓存」做，前端不直连第三方；持 |
+| [summary-aggregation-convergence-2026-10-15](./summary-aggregation-convergence-2026-10-15.md) | 112 | ✅ | D59 把「总资产」收敛到 family_totals 一个出口，验收三项达成。但那一轮的正文里留了一句边界： |
+| [cash-equivalent-classification-design-2026-09-07](./cash-equivalent-classification-design-2026-09-07.md) | 115 | ◐ 📌 | - 理财 / 投资导向：买货基是为了赚 ~3% 年化，希望看到收益贡献，倾向归「投资」。 |
+| [jigu-migration-plan-2026-08-11](./jigu-migration-plan-2026-08-11.md) | 142 | ◐ 📌 | - 用户部署并拥有自己的基估宝实例，核心数据在 Supabase user_configs 表的 data JSON |
+| [asset-management-gap-analysis-2026-08-30](./asset-management-gap-analysis-2026-08-30.md) | 160 | ◐ 📌 | 这份报告把一位资深用户提出的六条硬需求，逐条对齐到 fundmate 现有代码，得出的结论是：产品的「壳」已经搭起来 |
+| [advisor-ttfund-id-research-2026-09-08](./advisor-ttfund-id-research-2026-09-08.md) | 190 | ◐ 📌 | 一句话：App 搜索确实能呈现投顾，但其接口不可复现；GitHub 帮不上投顾持仓的忙，却意外给了 validmar |
+| [asset-management-gap-roadmap-2026-08-30](./asset-management-gap-roadmap-2026-08-30.md) | 108 | ◐ 📌 | 那位用户提的六条需求不是功能清单，而是一个模型主张：资产的记账粒度应该由"能不能拿到净值"决定，而不是由产品形态决定 |
+| [frontend-holding-import-plan-2026-08-16](./frontend-holding-import-plan-2026-08-16.md) | 151 | 📌 | E 账户（中国结算基金 E 账户）持仓快照导入。用户上传平台导出的持仓 Excel，系统解析后自动归因到渠道账户（天 |
+| [2026-08-24-ledger-merge-spike](./2026-08-24-ledger-merge-spike.md) | 54 | ◐ | 迁移持仓撞 UNIQUE(ledger_id, symbol)： |
+| [advisor-ttfund-holdings-api-2026-09-08](./advisor-ttfund-holdings-api-2026-09-08.md) | 245 | ◐ | 按既定优先级继续逆向签名/鉴权系统，并从 tradeh5 的 funda91a99886abf7e 包（App.js |
+| [branch-convergence-assessment-2026-08-19](./branch-convergence-assessment-2026-08-19.md) | 42 | · | 现状（frontend/src/views/explore/index.vue 的 handleAdd / addH |
+| [cross-ledger-import-dedup-scope-2026-08-16](./cross-ledger-import-dedup-scope-2026-08-16.md) | 68 | ◐ | 导入向导第三步预览页当前对「同一份交割单重复导入」在两层同时卡死，即使切换账本（LEDGER）也无法重导： |
+| [fund-conversion-design-2026-10-17](./fund-conversion-design-2026-10-17.md) | 605 | ◐ | - 前端：frontend/src/views/asset/investment/manual/index.vue  |
+| [ledger-alignment-review-2026-10-13](./ledger-alignment-review-2026-10-13.md) | 94 | · | 调研大方向全部成立，无系统性走偏。账本主干（成本/流水/分红/估值链路/导入）已完整，多项比同花顺更深（盈亏三段口径 |
+| [ledger-capability-backlog-2026-10-10](./ledger-capability-backlog-2026-10-10.md) | 157 | ◐ | 1. 账本主干已齐：持仓/成本/浮动盈亏/已实现盈亏/流水/多账户/收益日历（日·月·年·自定义区间）/XIRR/分 |
+| [pnl-calendar-design-2026-10-06](./pnl-calendar-design-2026-10-06.md) | 304 | ◐ | #1812 原方案（读 asset_snapshots 画日历）不可行，因asset_snapshots |
+| [portfolio-lot-attribution-design-2026-08-25](./portfolio-lot-attribution-design-2026-08-25.md) | 180 | ◐ | - 同标的分批分属不同组合的场景，现有 positions 聚合行（同账户同标的 = 一行，总量 + 摊薄成本）在  |
+| [reconciliation-framework-design-2026-08-31](./reconciliation-framework-design-2026-08-31.md) | 423 | ◐ | 手动导入是投资记账的核心场景，数据源头在用户手里，系统永远无法 100% 自动正确。现有三套流程各自独立、形态不一： |
+
+## 数据源与落库（35 张）
+
+| 卡片 | 行 | 标记 | 摘要 |
+|:---|---:|:---:|---|
+| [external-source-policy-2026-09-30](./external-source-policy-2026-09-30.md) | 192 | ✅ 📌 | 结论：没有任何一项「高价值且只能从 fundfof 取」的数据。 剩下的两件事 |
+| [bias-datasource-replacement-2026-08-03](./bias-datasource-replacement-2026-08-03.md) | 124 | ✅ 📌 | backend/app/services/bias/calculator.py 的 PriceFetcher.fet |
+| [eastmoney-antiscrape-2026-08-05](./eastmoney-antiscrape-2026-08-05.md) | 162 | ✅ 📌 | akshare 取东方财富数据在本机失败，有两个叠加的、性质不同的根因： |
+| [fundfof-borrowing-analysis-2026-08-03](./fundfof-borrowing-analysis-2026-08-03.md) | 99 | ✅ 📌 | 我之前的版本把 多账户聚合、全交易类型、XIRR+回撤、自选/提醒、手动记账、统一资产模型 列为"待实现/已规划"， |
+| [db-download-import-2026-08-09](./db-download-import-2026-08-09.md) | 78 | ✅ 📌 | - 同步入口现状（backend/app/tools/sync_metadata.py + sync_cli.py  |
+| [fundfof-round2-db-issue-2026-09-30](./fundfof-round2-db-issue-2026-09-30.md) | 398 | ✅ 📌 | ① 第一轮有一处判断错了，必须撤回：基金经理数据"未落盘"是错的。 |
+| [manager-profile-card-phase1-design-2026-10-10](./manager-profile-card-phase1-design-2026-10-10.md) | 326 | ✅ 📌 | #1970 的降级判断是错的，根因不是数据源没有，而是 job 把已拿到的数据丢在了地上。 |
+| [eastmoney-datasource-and-account-linkage-design-2026-08-30](./eastmoney-datasource-and-account-linkage-design-2026-08-30.md) | 87 | ✅ 📌 | 用户提到的「头部数据」「MCP 抓取」「天天基金代码」经核查如下，均为已存在事实： |
+| [index-daily-tencent-source-2026-10-01](./index-daily-tencent-source-2026-10-01.md) | 76 | ✅ 📌 | index_daily 原本只有万得系（韭圈儿 .WI，10 个目标），而绩效对比最常用的基准 |
+| [industry-crowding-baostock-fallback-2026-08-07](./industry-crowding-baostock-fallback-2026-08-07.md) | 75 | ✅ 📌 | 行业拥挤度 crowding_pct 的分母 = 全 A 中位 PB，由 industry_crowding.py: |
+| [display-name-portfolio-bare-code-hijack-2026-10-10](./display-name-portfolio-bare-code-hijack-2026-10-10.md) | 79 | ✅ | 详情页副标题仍是「投顾组合 / QIEMAN · 基民柠檬」，标题却是基金名 —— 说明 |
+| [fund-position-skip-path-triage-2026-10-01](./fund-position-skip-path-triage-2026-10-01.md) | 158 | ✅ | 12:50:07 | INFO    | orchestrator:run_job:371 - 开始执行 fund_ |
+| [index-catalog-sources-research-2026-09-08](./index-catalog-sources-research-2026-09-08.md) | 91 | ✅ | 对高价值指数在三大名录源的覆盖实测： |
+| [industry-crowding-multidim-2026-08-08](./industry-crowding-multidim-2026-08-08.md) | 110 | ✅ | 现有行业拥挤度 industry_crowding.py 只输出单维 =「PB 倍数 / 全 A 中位 PB」的历史 |
+| [money-fund-income-plan-2026-08-09](./money-fund-income-plan-2026-08-09.md) | 210 | ✅ | 1. 本金口径混乱（两条并行的货币基金记账路径）： |
+| [external-datasource-reference-2026-08-03](./external-datasource-reference-2026-08-03.md) | 155 | ◐ 📌 | ① 新浪行情（经 akshare stock_zh_a_daily） |
+| [datasource-priority-plan-2026-08-03](./datasource-priority-plan-2026-08-03.md) | 131 | ◐ 📌 | A 股数据的真实上游只有几家：东财 / 腾讯 / 新浪 / 天天基金 / 集思录。 |
+| [scheduling-options-research-2026-08-04](./scheduling-options-research-2026-08-04.md) | 169 | 📌 | 不要让"定时器"去跑 Python 重活。 正确姿势： |
+| [fundfof-gap-analysis-2026-09-30](./fundfof-gap-analysis-2026-09-30.md) | 331 | ◐ 📌 | 1. 你的 P0/P1 方向是对的，但排序的「轴」选错了。 你按功能排序，而真正的成本瓶颈只有一处数据：基金季报持仓 |
+| [worktile-archive-2021-2026-08-09](./legacy/worktile-archive-2021-2026-08-09.md) | 353 | 📌 | 本文件收录不适合建 issue、但有长期参考价值的卡片原文：数据源调研、竞品观察、算法论证。 |
+| [fund-holdings-probe-2026-09-30](./fund-holdings-probe-2026-09-30.md) | 298 | ◐ 📌 | 用主仓真实环境（D:/codes/fundmate/backend/.venv，Python 3.12.0，aksh |
+| [investment-strategy-engine-requirements-2026-10-15](./investment-strategy-engine-requirements-2026-10-15.md) | 834 | ◐ 📌 | 值得做，但必须先换掉成功标准。 |
+| [advisor-platform-landscape-2026-09-08](./advisor-platform-landscape-2026-09-08.md) | 207 | 📌 | 且慢提供官方 MCP 服务（盈米且慢 MCP），共 72 个金融工具，分五大模块。与你的需求直接对应的工具如下： |
+| [data-persistence-criteria-2026-09-30](./data-persistence-criteria-2026-09-30.md) | 166 | ◐ 📌 | - 结论能脱离账本成立 —— 别人也能算，且我们做不过有全市场数据的对手； |
+| [investment-ledger-gap-analysis-2026-10-10](./investment-ledger-gap-analysis-2026-10-10.md) | 185 | ◐ 📌 | 账本主干已经齐了——持仓/成本/浮动盈亏/已实现盈亏/流水/多账户/收益日历/XIRR 都在跑。 |
+| [pr1362-review-closure-2026-09-09](./pr1362-review-closure-2026-09-09.md) | 86 | ◐ 📌 | PR #1362 上的评审意见分两批：owner 自评 6 条（第一轮收束，见 commit b86d4b2）与 A |
+| [advisor-holdings-research-2026-09-08](./advisor-holdings-research-2026-09-08.md) | 177 | ◐ | 你要的是前者。下面所有内容都围绕"投顾组合持仓比例"。 |
+| [ark-model-availability-2026-09-28](./ark-model-availability-2026-09-28.md) | 61 | · | 纪律：写「可用」必须是第 3 层实测 OK。Retiring 模型的 404 报文是 |
+| [fund-detail-second-expansion-2026-10-10](./fund-detail-second-expansion-2026-10-10.md) | 403 | ◐ | 做。但做的不是「照抄报告版式」，是三件事： |
+| [fund-metadata-arch-issue-1155-research-2026-08-29](./fund-metadata-arch-issue-1155-research-2026-08-29.md) | 97 | ◐ | 根因已明确：fund_type_id 字段本身就存在于 funds 表（backend/app/domains/fu |
+| [fund-penetration-design-2026-10-01](./fund-penetration-design-2026-10-01.md) | 282 | ◐ | 1. 数据底座早已齐备、读侧为零。 fund_industry_allocs（830 行 / 101 基金）与 fu |
+| [manager-style-tags-calibration-2026-10-12](./manager-style-tags-calibration-2026-10-12.md) | 101 | ◐ | 阈值取整说明：集中度/行业档位取全库 P50 / P80 并四舍五入到整数——集中度按剔除不完整样本后的 n=100 |
+| [release-notes-v0.1.0-body](./release-notes-v0.1.0-body.md) | 23 | · | 把散落在不同平台的钱，合成一你自己看得懂的账。 |
+| [sw-industry-source-plan-2026-09-14](./sw-industry-source-plan-2026-09-14.md) | 150 | ◐ | 结论：申万宏源官网通道在本机可用且数据到当日，调研包「不碰东财、纯申万单源」的路线在数据源侧成立。 |
+| [watchlist-type-dimensions-design-2026-09-10](./watchlist-type-dimensions-design-2026-09-10.md) | 264 | ◐ | - #1286 就绪：统一编码/唯一键、聚合搜索、指数名录、天天投顾抓取、fund 元数据回填。 |
+
+## 账户与渠道（9 张）
+
+| 卡片 | 行 | 标记 | 摘要 |
+|:---|---:|:---:|---|
+| [ledger-channel-category-redesign-2026-08-28](./ledger-channel-category-redesign-2026-08-28.md) | 179 | ✅ 📌 | - 两层正交：ledger_type（内部资产类键，计算用，用户不可见） ⊥ channel_category（用户 |
+| [e-account-reconciliation-design-2026-08-16](./e-account-reconciliation-design-2026-08-16.md) | 428 | ✅ 📌 | PR #1021 已合入 E 账户持仓快照导入：解析 → 预览 → 确认 → 落 e_account 聚合账户（up |
+| [securities-aggregation-design-2026-08-29](./securities-aggregation-design-2026-08-29.md) | 68 | ✅ 📌 | 本功能（#1132）是 #1101 场外基金聚合的互补集：把跨多个券商/股票账本持有的 股票 + ETF + 可转债 |
+| [e-account-import-data-decentralization-plan-2026-08-16](./e-account-import-data-decentralization-plan-2026-08-16.md) | 205 | ◐ 📌 | 两张参考截图构成了本次评估的起点：图 1 是第三方工具面向普通投资者的「全平台资产分析攻略」，解决"多账户分散看不清 |
+| [sales-institution-common-group-2026-08-24](./sales-institution-common-group-2026-08-24.md) | 105 | ◐ 📌 | - 创建账户时销售机构下拉为 394 项平铺列表（AMAC 名录同步），按 org_name 字典序排序，用户找不到 |
+| [account-channel-and-fee-design-2026-08-16](./account-channel-and-fee-design-2026-08-16.md) | 13 | 📌 |  |
+| [e-account-aggregation-design-2026-08-28](./e-account-aggregation-design-2026-08-28.md) | 89 | ◐ 📌 | 1. E 账户不当普通账户显示 → 账户列表过滤掉它（保留 ledger_type='e_account' 作为内部 |
+| [concept-explainer-five-buckets-and-goals-2026-08-13](./concept-explainer-five-buckets-and-goals-2026-08-13.md) | 64 | · | 你打开多多贝，会看到两个主页面：投资概览 和 资产总览。它们说的不是同一件事，用一个比喻就通了： |
+| [ledger-detail-info-redesign-plan-2026-08-27](./ledger-detail-info-redesign-plan-2026-08-27.md) | 41 | · | 用户在使用账户详情页时发现三处体验问题，经讨论确定方向： |
+
+## 自选与探市（14 张）
+
+| 卡片 | 行 | 标记 | 摘要 |
+|:---|---:|:---:|---|
+| [data-refresh-scheduling-plan-2026-09-13](./data-refresh-scheduling-plan-2026-09-13.md) | 345 | ✅ 📌 | 状态：待拍板（v2）。v1 只列现状与待决项；v2 按评审意见补了四块——① 事实核证（能查的全查了，会上只确认不争 |
+| [explore-watchlist-enhancement-2026-08-12](./explore-watchlist-enhancement-2026-08-12.md) | 211 | ✅ 📌 | - 不是必须：OCR 是便利性功能，解决「从券商/天天基金 App 截屏 → 导入自选」的录入痛点；不引入则用户手动 |
+| [explore-watchlist-replan-2026-08-08](./explore-watchlist-replan-2026-08-08.md) | 293 | ◐ 📌 | 架构要点（CLAUDE.md 确认）：localStorage（storageStore）是主数据库，Supabas |
+| [watchlist-paid-features-discussion-2026-08-14](./watchlist-paid-features-discussion-2026-08-14.md) | 54 | 📌 | 用户提出自选功能可做付费功能，三大方向： |
+| [page-split-welcome-vs-panorama-2026-08-13](./page-split-welcome-vs-panorama-2026-08-13.md) | 159 | ◐ 📌 | welcome/index.vue（投资概览 / 「家庭资产看板」首屏）与 AssetPanorama.vue（资产 |
+| [ai-recognizer-architecture-2026-08-13](./ai-recognizer-architecture-2026-08-13.md) | 217 | ◐ 📌 | 现有 AI 识别（backend/app/services/ocr_service.py）是单场景硬编码： |
+| [free-cloud-services-2026-08-09](./free-cloud-services-2026-08-09.md) | 26 | 📌 | - 用户域（身份、家庭账本）→ Supabase 云端权威 + 本地 SQLite 缓存；市场域（净值/估值大数据， |
+| [watchlist-group-switch-perf-2026-10-11](./watchlist-group-switch-perf-2026-10-11.md) | 67 | ◐ 📌 | 三层叠加，缺一不会「卡好几秒」： |
+| [explore-issue808-status-2026-08-19](./explore-issue808-status-2026-08-19.md) | 105 | · | 「探市」体验版——免登录沙盒，看实时收益、零门槛添加（≤2 步）、注册引导（迁移本地持仓）。 |
+| [launch-plan-2026-08-09](./launch-plan-2026-08-09.md) | 157 | · | - 后端 API + 前端工具站部署到云上，公网可用； |
+| [market-pages-consolidation-2026-09-11](./market-pages-consolidation-2026-09-11.md) | 336 | ◐ | 1. 数据链路断了，「基础数据不够」的直觉是对的，但根因不在算法。 本地库温度数据停更于 2026-08-02（40 |
+| [mvp-launch-blockers-2026-08-18](./mvp-launch-blockers-2026-08-18.md) | 94 | ◐ | 用户定义的 MVP 红线：探市页可用、温度计页可用、注册功能可用，并且要能从「本机 localhost」走到「部署上 |
+| [qieman-strategy-catalog-2026-09-13](./qieman-strategy-catalog-2026-09-13.md) | 179 | ◐ | 此前系统只建档 2 只且慢组合（scripts/seed_advisors.py 里手写的 SEED 列表）， |
+| [watchlist-feature-gap-audit-2026-08-13](./watchlist-feature-gap-audit-2026-08-13.md) | 64 | · | 逐条核对 #661 / #807 / #826 / #860 四个自选相关 issue，对照当前 backend/a |
+
+## 产品详情页（1 张）
+
+| 卡片 | 行 | 标记 | 摘要 |
+|:---|---:|:---:|---|
+| [product-detail-page-design-2026-10-08](./product-detail-page-design-2026-10-08.md) | 434 | ✅ 📌 | 一套详情页体系：按品类分 URL、两个入口、Epic 汇总卡带分项子卡。 |
+
+## 前端与设计（19 张）
+
+| 卡片 | 行 | 标记 | 摘要 |
+|:---|---:|:---:|---|
+| [unified-import-entry-evaluation-2026-08-16](./unified-import-entry-evaluation-2026-08-16.md) | 119 | ✅ 📌 | 数据导入功能目前确实散落在四个入口，且都未进入侧边栏（showLink:false），托盘入口又默认隐藏，可发现性存 |
+| [frontend-api-reorg-2026-08-09](./frontend-api-reorg-2026-08-09.md) | 110 | ✅ | - AssetPanorama 瀑布图：initWaterfallChart（L691-780）硬编码（上期末 28 |
+| [ghost-duplicate-domain-d-frontend-2026-10-16](./ghost-duplicate-domain-d-frontend-2026-10-16.md) | 64 | ✅ | 关联：CNB duoduobei/fundmate#477 / GitHub https://github.com/ |
+| [supabase-jwks-es256-verification-2026-08-08](./supabase-jwks-es256-verification-2026-08-08.md) | 63 | ✅ | app/core/auth.py 的 decode_supabase_token 用 HS256 + SUPABAS |
+| [tech-baseline-roadmap-2026-08-04](./tech-baseline-roadmap-2026-08-04.md) | 94 | ✅ | - 每域一个 APIBlueprint，路由在 views.py： |
+| [build-oom-fix-2026-08-04](./build-oom-fix-2026-08-04.md) | 214 | 📌 | tech-debt.md 第 56 条： |
+| [landing-login-sso-2026-08-04](./landing-login-sso-2026-08-04.md) | 48 | 📌 | - 静态落地页只做跳板：导航栏右上角放「登录」「免费开始」两个按钮，均为跳转链接，指向工具站 /app/login  |
+| [frontend-architecture-mobile-eval-2026-08-04](./frontend-architecture-mobile-eval-2026-08-04.md) | 95 | 📌 | - 技术栈：Vue3 ＋ Vite ＋ TypeScript ＋ Pinia ＋ ECharts，UI 用 Elem |
+| [fundfof-detail-impl-research-2026-10-10](./fundfof-detail-impl-research-2026-10-10.md) | 305 | ◐ 📌 | ① fundfof 的 13 个 tab 没有一个「重实现」，全是同一个骨架换参数。 |
+| [font-plan-review-2026-09-04](./font-plan-review-2026-09-04.md) | 111 | 📌 | title: 字体方案（方案 B：Inter + Mi Sans）决策评审 |
+| [asset-insight-panel-2026-08-28](./asset-insight-panel-2026-08-28.md) | 106 | ◐ | 可以做，且无需新增后端接口。 |
+| [brand-landing-plan-2026-08-04](./brand-landing-plan-2026-08-04.md) | 93 | · | - 主标题：多多贝；副标题：投资账本；站点全名/SEO：多多贝投资账本。 |
+| [brandsub-beta-pending-2026-08-08](./brandsub-beta-pending-2026-08-08.md) | 35 | · | 已解除（RESOLVED，2026-08-10）。按「恢复方案」重建两文件并提交（commit e56e838，对应 |
+| [entry-points-consolidation-2026-08-14](./entry-points-consolidation-2026-08-14.md) | 137 | ◐ | - 手动记账壳 manual/index.vue 已抽出 useQuickEntrySubmit（composabl |
+| [ocr-import-validation-issue-2026-08-21](./ocr-import-validation-issue-2026-08-21.md) | 48 | ◐ | 标题：feat(ocr): 粘贴文本导入增加产品存在性校验，未识别行返回行级错误 |
+| [road-not-taken-revive-2026-08-30](./road-not-taken-revive-2026-08-30.md) | 68 | ◐ | views/asset/favorites/index.vue 原实现处于「呆萌」状态，主要问题： |
+| [trading-personality-h5-plan-2026-08-10](./trading-personality-h5-plan-2026-08-10.md) | 182 | ◐ | 「多多贝」投资产品以海洋投资生态为隐喻，核心是投资认知闭环：人格测试（自报）→ 交易复盘（实测）→ 对比打脸（闭环） |
+| [username-sensitive-word-2026-08-14](./username-sensitive-word-2026-08-14.md) | 78 | ◐ | - 后端 app/domains/users/schemas.py：ProfileUpdate 已对 usernam |
+| [welcome-message-layer-2026-08-13](./welcome-message-layer-2026-08-13.md) | 40 | · | 投资概览（welcome）此前叠了多处死数据（风险热力图、收益趋势、资产变动趋势、财务晴雨表四项），且时间线重复、无 |
+
+## 后端与架构（9 张）
+
+| 卡片 | 行 | 标记 | 摘要 |
+|:---|---:|:---:|---|
+| [backend-architecture-audit-2026-09-19](./backend-architecture-audit-2026-09-19.md) | 278 | ✅ 📌 | title: 后端架构审查（结构性问题分级 · 2026-09-19） |
+| [amac-encoding-incident-2026-08-17](./amac-encoding-incident-2026-08-17.md) | 51 | ✅ 📌 | amac_institution 同步 job 首次验证时，库中 AMAC 销售机构（394 条）/ 公募基金管理人 |
+| [doc-code-discrepancy-2026-08-03](./doc-code-discrepancy-2026-08-03.md) | 34 | ✅ | - 鉴权方向：用户要求单用户→家庭成员多用户，且拒绝写死变量。建议继续用 Supabase Auth + Flask |
+| [deployment-implementation-guide-2026-08-04](./deployment-implementation-guide-2026-08-04.md) | 216 | 📌 | [用户/前端] --HTTPS--> [EdgeOne Pages：Vue SPA，免费全球 CDN] |
+| [backend-hosting-fetch-selection-2026-08-03](./backend-hosting-fetch-selection-2026-08-03.md) | 100 | ◐ 📌 | 1. EdgeOne 不只是前端：EdgeOne Pages＝前端静态 + Node Functions（JS 后端 |
+| [code-audit-and-remediation-2026-08-01](./code-audit-and-remediation-2026-08-01.md) | 1124 | ◐ 📌 | 1. [代码问题审查（初版 2026-07-31）](#sec1) |
+| [db-cost-decision-2026-08-04](./db-cost-decision-2026-08-04.md) | 102 | 📌 | - 腾讯云 PostgreSQL：无免费档，必产生费用（最小实例约 ¥100–300/月，按量更贵）。与你"验证期零 |
+| [erniao-fetcher-redesign-2026-08-01](./erniao-fetcher-redesign-2026-08-01.md) | 319 | 📌 | 日期: 2026-08-01 |
+| [mock-service-data-isolation-2026-08-30](./mock-service-data-isolation-2026-08-30.md) | 102 | · | 可以为 fundmate 引入 mock 服务来实现你的两个目标，而且绝大多数核心方案都是免费的。你的诉求其实分两层 |
+
+## AI 与Agent（10 张）
+
+| 卡片 | 行 | 标记 | 摘要 |
+|:---|---:|:---:|---|
+| [agent-guardrail-layer-design-2026-08-17](./agent-guardrail-layer-design-2026-08-17.md) | 148 | ✅ 📌 | 账本精灵（对话 Agent）要对用户账本做「查询 / 表现分析 / 行为解读 / 快速记账」。其最大风险不是技术，而 |
+| [agent-issues-2026-08-17](./agent-issues-2026-08-17.md) | 182 | ✅ 📌 | 标题：feat(guard): ai_recognizer/safety 包骨架 + L3 输出词法过滤 |
+| [win-local-pytest-env-prereqs-2026-09-27](./win-local-pytest-env-prereqs-2026-09-27.md) | 73 | ✅ | 1. .env 不入库（gitignored），CI 上没有 TURSO_DATABASE_URL → for_ap |
+| [agent-dev-learning-plan-2026-09-25](./agent-dev-learning-plan-2026-09-25.md) | 463 | ◐ 📌 | 1. 你缺的不是 Agent 名词，是一条能自证的链路。 面试官那篇帖子的核心不是知识点，是「有没有被生产环境验证过 |
+| [investment-agent-brainstorm-2026-08-17](./investment-agent-brainstorm-2026-08-17.md) | 386 | ◐ 📌 | 四个功能成熟度差异大，且都不是从零开始： |
+| [agent-interview-prep-plan-2026-09-25](./agent-interview-prep-plan-2026-09-25.md) | 158 | 📌 | 缝合话术（承前启后，两段不重复的关键句）： |
+| [agent-s6-interview-final-2026-09-28](./agent-s6-interview-final-2026-09-28.md) | 359 | ◐ 📌 | 计划 §S6 给的草稿约 350 字（常速 ≈70 秒），本稿按 30 秒口径压缩，零新增事实、逐句可溯源： |
+| [mineru-alipay-ocr-eval-2026-08-14](./mineru-alipay-ocr-eval-2026-08-14.md) | 126 | ◐ 📌 | 用户从支付宝导出交割单往往只截图（手机截图 / 长图），而非规整 PDF。现有截图路径依赖火山方舟 ARK visi |
+| [agent-dev-progress-2026-09-26](./agent-dev-progress-2026-09-26.md) | 630 | ◐ 📌 | - #1717 资产总览闪烁 + 按钮组样式（你提的，挂 M0 上线）——独立处理，不排入 Agent 主线。 |
+| [ai-code-review-deepseek-dual-line-2026-08-23](./ai-code-review-deepseek-dual-line-2026-08-23.md) | 54 | · | 日期：2026-08-23。分支：feat/ghost-duplicate-scan（提交 9918f05，已推送） |
+
+## 运营与发布（5 张）
+
+| 卡片 | 行 | 标记 | 摘要 |
+|:---|---:|:---:|---|
+| [asset-snapshot-yoy-plan-2026-08-09](./asset-snapshot-yoy-plan-2026-08-09.md) | 123 | ✅ | frontend/src/views/asset/AssetPanorama.vue 顶部总览大卡片存在硬编码假数据 |
+| [feedlog-setup-cn-2026-08-09](./feedlog-setup-cn-2026-08-09.md) | 151 | 📌 | 1. Cloudflare 账号（Workers 免费额度足以支撑中小流量） |
+| [feedback-changelog-rollout-2026-10-09](./feedback-changelog-rollout-2026-10-09.md) | 103 | · | 要，但只要一个 token 端点；且这个端点不该在主站。 |
+| [gitee-ai-reference-audit-2026-09-26](./gitee-ai-reference-audit-2026-09-26.md) | 48 | · | 一句话定级：骨架真、皮肉虚、测试是装饰，文档跑在代码前面。 |
+| [release-notes-v0.1.0-draft-2026-10-09](./release-notes-v0.1.0-draft-2026-10-09.md) | 55 | · | 第一版 changelog 不是「变更记录」，是「产品介绍」。 |
+
+## 双库与同步（10 张）
+
+| 卡片 | 行 | 标记 | 摘要 |
+|:---|---:|:---:|---|
+| [mirror-state-backflow-2026-10-11](./mirror-state-backflow-2026-10-11.md) | 318 | ✅ 📌 | title: 镜像卡状态回流：GitHub 已关闭 → CNB 标记并自动关闭（B 口径） |
+| [fund-company-backfill-1199-2026-08-30](./fund-company-backfill-1199-2026-08-30.md) | 71 | ✅ | #1199 承接 #1168（PR #1190）的范围外遗留： |
+| [issue-triage-dispatch-2026-10-18](./issue-triage-dispatch-2026-10-18.md) | 110 | ✅ | 源：CNB #564。用户拍板四件事——先回流已关的 → 分诊/打标签/写评论 → 派活每轮 3 张、 |
+| [mirror-correction-channel-2026-10-11](./mirror-correction-channel-2026-10-11.md) | 83 | ✅ | github_cnb_issues.py 的取舍是「只增不覆盖」——CNB 侧人工调过的正文不会被覆盖，理由正当。 |
+| [mirror-false-red-and-divergence-2026-10-11](./mirror-false-red-and-divergence-2026-10-11.md) | 81 | ✅ | 日期：2026-10-11　关联：CNB #118 / #120 / #123　状态：待合入 dev |
+| [worktile-migration-map-2026-08-09](./worktile-migration-map-2026-08-09.md) | 122 | 📌 | 导出文件仅 1 个 sheet、10 个字段（标题/编号/状态/优先级/需求分类/需求来源/需求类型/创建人/创建时 |
+| [cnb-github-mirror-route-2026-10-11](./cnb-github-mirror-route-2026-10-11.md) | 250 | 📌 | 要。 理由不是「统一好看」，而是三条已经真实付过代价的： |
+| [issue-board-audit-2026-10-11](./issue-board-audit-2026-10-11.md) | 97 | 📌 | 这张表里最刺眼的一行是最后一行：仓库这个阶段只关掉过 3 张卡，且都不是「解决了」； |
+| [cnb-dev-ahead-rescue-2026-10-11](./cnb-dev-ahead-rescue-2026-10-11.md) | 88 | · | 路线决策文件（cnb-github-mirror-route-2026-10-11.md）给出的是口径：单源 + 两 |
+| [divergence-criterion-bifurcation-2026-10-14](./divergence-criterion-bifurcation-2026-10-14.md) | 106 | ◐ | 日期：2026-10-14　关联：CNB #179 / #167 / #171 / #123 / #148　状态：待 |
+
+## 项目管理（14 张）
+
+| 卡片 | 行 | 标记 | 摘要 |
+|:---|---:|:---:|---|
+| [2026-09-28](./issue-triage/auto/2026-09-28.md) | 98 | ✅ 📌 | - 日期：2026-09-28 |
+| [import-page-ux-and-monetization-review-2026-08-15](./import-page-ux-and-monetization-review-2026-08-15.md) | 113 | ✅ 📌 | 这份优化讨论写得不错，但它是在不了解已上线的 OCR 成本护栏与既有付费分层规范的前提下写的。 |
+| [2026-09-11](./issue-triage/auto/2026-09-11.md) | 83 | ✅ 📌 | - 日期：2026-09-11 |
+| [2026-10-16](./issue-triage/auto/2026-10-16.md) | 111 | ✅ | - 对比基线：本目录下最近一次落盘报告是 2026-09-28.md。⚠️ 流程异常：记忆中记录的 2026-10- |
+| [product-roadmap-audit-2026-08-09](./product-roadmap-audit-2026-08-09.md) | 253 | ✅ | - 已有 issue 覆盖、无需新建：#429 导出、#785 同步、#796 XIRR、#588 温度计、#823 |
+| [2026-08-14](./issue-triage/auto/2026-08-14.md) | 89 | ◐ 📌 | - 日期：2026-08-14 |
+| [2026-09-19](./issue-triage/auto/2026-09-19.md) | 99 | ◐ 📌 | - 日期：2026-09-19 |
+| [monetization-strategy-plan-2026-08-15](./monetization-strategy-plan-2026-08-15.md) | 149 | 📌 | 当前没有商业化计划，但开发阶段就要给功能打"付费/免费"标签。驱动这次规划的只有两件事： |
+| [triage-report](./issue-triage/triage-report.md) | 113 | 📌 | 1. 文档 ↔ issue 交叉引用：文档和 issue 处于交叉状态时必须互相链接，否则后期无法关联。 |
+| [data-refresh-implementation-plan-2026-09-13](./data-refresh-implementation-plan-2026-09-13.md) | 253 | ◐ | 状态：方案设计 + 实施规划（本轮在 v2「待拍板」底稿之上，把 9 项需求转成可落地的设计与 PR 拆分）。 |
+| [issue-783-import-checklist-audit-2026-10-15](./issue-783-import-checklist-audit-2026-10-15.md) | 158 | · | 一句话：这张卡已不具备「待办清单」的功能——它的勾选状态不可信、条目大面积被后续产品演进替代或重置，继续挂着只会重复 |
+| [issue-870-activation-comment-2026-09-30](./issue-870-activation-comment-2026-09-30.md) | 167 | ◐ | 可直接粘贴到 GitHub。建议同时执行：摘掉 归档 标签 + 粘贴下方正文。 |
+| [jigu-migration-to-duoduobei-plan-2026-08-18](./jigu-migration-to-duoduobei-plan-2026-08-18.md) | 171 | ◐ | 你记忆里"找不到的文档"就是 docs/spec/site-architecture-and-traffic-rou |
+| [opencode-github-issue-utf8-rule-2026-08-09](./opencode-github-issue-utf8-rule-2026-08-09.md) | 25 | · | - 标题/正文里的中文在提交到 GitHub 之前就已经损坏（GitHub 服务端不会把中文变 ?）。 |
