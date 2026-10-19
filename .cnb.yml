@@ -127,6 +127,19 @@
     # **只报告不拦构建**（`|| true`）：建卡才是主任务，自检是信号，不该把建卡一起拖红。
     - name: 引用时效自检（认评论区更正，只报告）
       script: |
+        # ⚠️ 本 stage 调的是 `check_mirror_refs.py`，而它自己**一行 git 都没有** ——
+        # git 是经 `check_issue_refs.py` 调进去的（`importlib` 按路径加载，刻意不 import
+        # 模块以避开 `github_cnb_issues` 的依赖）。于是 `guard_cnb_script_task_git.py`
+        # 首版看不见它，只认「自己写了 `subprocess.run(['git'…])`」的脚本。
+        # 实测（源 CNB #586，构建 `cnb-9k8-1k5778cg0` 的 stage-2）：自上线起每轮都崩在
+        #     FileNotFoundError: [Errno 2] No such file or directory: 'git'
+        # 而 `|| true` 让 stage 报 success —— **引用时效自检从未真正跑过**，
+        # 与 CNB #517 的「分支分叉自检从未真正跑过」是同一个根因、同一种假绿。
+        command -v git >/dev/null 2>&1 || {
+          echo "· 容器无 git，安装中（python:3.12-slim 不含 git）"
+          apt-get update -qq && apt-get install -y -qq --no-install-recommends git
+        }
+        git --version >/dev/null   # 自证：装失败即报错，**不吞**（#171）
         python scripts/bridge/check_mirror_refs.py --report || true
     # 分支分叉自检（CNB #123 §一「中等」建议）：`main` 与 `dev` 若互不包含，
     # 就会出现「整改代码在 dev、会被执行的代码在 main」——**写完了，跑的不是它**，
@@ -438,7 +451,7 @@ dev:
               echo "   冲突面是**业务文件**（#582 实测：ConversionForm.vue / stylelint.config.js），"
               echo "   不是凭据问题、也不是 bridge/github-dev 的问题 —— 上列文件即冲突清单。"
               echo "   解冲突是人工动作：跑 \`python scripts/bridge/dev_converge.py --apply\` 看清单，"
-              echo "   或按 docs/dev/github-cnb-mirror.md §26.4 手工合一次（merge 不自愈，见 CNB #582）。"  <!-- cross-repo-ref-allow -->
+              echo "   或按 docs/dev/github-cnb-mirror.md §26.4 手工合一次（merge 不自愈，见 CNB #582）。"  # cross-repo-ref-allow
             elif [ $rc -eq 2 ]; then
               # ⚠️ 退出码 2 覆盖三种**完全不同**的事，别合并叙述（源 CNB #567，2026-10-18）：
               # ① 拿不到输入（fetch / ref 缺失）——「结论不可信」；

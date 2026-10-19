@@ -388,6 +388,33 @@ def _cnb_repo() -> str:
     return os.environ.get('CNB_REPO') or os.environ.get('CNB_REPO_SLUG') or CNB_REPO_DEFAULT
 
 
+def _request_with_headers(
+    url: str,
+    *,
+    method: str = 'GET',
+    data: bytes | None = None,
+    headers: dict[str, str] | None = None,
+    timeout: int = 30,
+) -> tuple[bytes, dict[str, str]]:
+    """同 `_request`，但**连响应头一起返回**。
+
+    WHY 需要头（源 CNB #586，2026-10-19 实测）：GitHub 对**大结果集**关掉了 `page` 分页，  # cross-repo-ref-allow
+    第 11 页起直接 422：
+
+        Pagination with the page parameter is not supported for large datasets,
+        please use cursor based pagination (after/before)
+
+    而游标就在响应的 `Link` 头里（`rel="next"` 那段 URL 带 `after=…`）。只读 body 就
+    拿不到游标，只能继续拼 `page=` ⇒ 永远撞同一面墙。故翻页必须读头。
+    """
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header('User-Agent', 'fundmate-github-cnb-mirror')
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read(), dict(resp.headers.items())
+
+
 def _request(
     url: str,
     *,
@@ -396,17 +423,120 @@ def _request(
     headers: dict[str, str] | None = None,
     timeout: int = 30,
 ) -> bytes:
-    req = urllib.request.Request(url, data=data, method=method)
-    req.add_header('User-Agent', 'fundmate-github-cnb-mirror')
-    for k, v in (headers or {}).items():
-        req.add_header(k, v)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read()
+    """只关心 body 的调用方走这里（保留旧签名，不必为了头把每个调用点都改一遍）。"""
+    return _request_with_headers(
+        url, method=method, data=data, headers=headers, timeout=timeout
+    )[0]
 
 
 # 单次拉取的最大页数（防无限翻页 / 打爆限额）。100/页 ⇒ 上限 3000 张卡。
 # 达到它说明仓库规模已超出「匿名限额够用」的前提，**必须显式报警**、不得当成拉全了。
 MAX_ISSUE_PAGES = 30
+
+
+def _link_next(headers: dict[str, str]) -> str | None:
+    """从响应的 `Link` 头里取 `rel="next"` 的 URL（没有就 None）。
+
+    GitHub 对大结果集（本仓已超 1000 张卡）**关掉了 `page` 分页**：
+    第 11 页起直接返回 422 `Pagination with the page parameter is not supported
+    for large datasets, please use cursor based pagination (after/before)`。
+    而游标就藏在这个头里，形如：
+
+        Link: <https://api.github.com/repositories/296191288/issues?state=all&per_page=100
+               &page=11&sort=updated&after=Y3Vyc29yOnYyOpLPAAABoJW4oGDPAAAAAUPO_yc%3D>; rel="next"
+
+    ⇒ **翻页只能跟着它走**。只读 body 的实现（本函数上线前的两个 fetch）在 page 11
+    必然 422，而错误被当成「数据不完整」⇒ 状态回流实际只处理了 1/42 张（源 CNB #586）。
+    """
+    raw = headers.get('Link') or headers.get('link') or ''
+    for part in raw.split(','):
+        if 'rel="next"' not in part:
+            continue
+        url = part.split(';')[0].strip()
+        return url.strip('<>').strip() or None
+    return None
+
+
+def fetch_github_issues(
+    state: str,
+    *,
+    sort: str = 'created',
+    direction: str | None = 'asc',
+    max_pages: int = MAX_ISSUE_PAGES,
+) -> tuple[list[dict[str, Any]], bool, str]:
+    """拉 GitHub 仓库的 issue 列表（跨页，**PR 也一并返回**，由调用方剔除）。
+
+    返回 `(items, complete, note)`：
+      - `items`：已拿到的卡（含 PR，调用方按 `pull_request` 字段过滤）；
+      - `complete`：这次拉取是否可信；
+      - `note`：失败原因（空串 = 没出问题）。**`complete=False` 时调用方必须把它喊出来**
+        ——「拉不到」不等于「没有」，这是本仓 #171 / #179 反复踩的假绿。
+
+    翻页跟 `Link` 头走（`_link_next`）；拿不到头时才退回 `page=` 递增，这样
+    「GitHub 没给 Link」这种退化不会变成「只拉了一页却报完整」。
+    """
+    headers: dict[str, str] = {'Accept': 'application/vnd.github+json'}
+    token = os.environ.get('GITHUB_TOKEN')
+    if token:
+        headers['Authorization'] = f'Bearer {token}'
+
+    def page_url(n: int) -> str:
+        params = {'state': state, 'per_page': 100, 'page': n, 'sort': sort}
+        if direction:
+            params['direction'] = direction
+        qs = urllib.parse.urlencode(params)
+        return f'https://api.github.com/repos/{_github_repo()}/issues?{qs}'
+
+    out: list[dict[str, Any]] = []
+    complete = True
+    note = ''
+    page = 1
+    url = page_url(1)
+    last_full = False
+    while True:
+        if page > max_pages:
+            # 触顶 = 数据不完整，**显式**记下来（由调用方报警），不静默当成拉全了。
+            complete = False
+            note = f'翻页触顶（>{max_pages} 页）'
+            break
+        try:
+            raw, resp_headers = _request_with_headers(url, headers=headers)
+        except urllib.error.HTTPError as exc:
+            complete = False
+            if exc.code == 403:
+                note = 'GitHub 限额用尽（403）'
+            elif exc.code == 422:
+                # 大结果集不支持 page 分页。走到这里说明 **Link 头也没给** ——
+                # 那就真的拿不全了，必须如实说，不得退化成「就这么多」。
+                note = (
+                    'GitHub 拒绝 page 分页（422，大结果集只支持游标分页），'
+                    '且本次响应未给 Link 头 —— 拿不到后续页'
+                )
+            else:
+                note = f'GitHub 返回 {exc.code}'
+            note = f'{note}（中断在 page {page}）'
+            break
+        batch = json.loads(raw)
+        if not batch:
+            # 空页：若此前已满页，说明分页中途断了（正常翻到尾时上一页不满页），
+            # 这种情况数据不完整，必须记下来。
+            if page > 1 and last_full:
+                complete = False
+                note = f'分页中断：page {page} 返回空，但上一页是满页'
+            break
+        out.extend(batch)
+        last_full = len(batch) >= 100
+        if not last_full:
+            break
+        nxt = _link_next(resp_headers)
+        if nxt:
+            url = nxt
+        else:
+            page += 1
+            url = page_url(page)
+            continue
+        page += 1
+    return out, complete, note
 
 
 def fetch_github_open_issues() -> tuple[list[dict[str, Any]], bool]:
@@ -417,47 +547,15 @@ def fetch_github_open_issues() -> tuple[list[dict[str, Any]], bool]:
 
     返回 `(issues, complete)`：**`complete` 是这次拉取是否可信**（源 CNB #179）。
     调用方**不得**在 `complete=False` 时报「无新增，两侧已对齐」——
-    「拉不到」不是「没有」。两个形态会让数据不完整：
+    「拉不到」不是「没有」。两种形态会让数据不完整：翻页触顶、分页中断。
 
-      - **翻页触顶**（`MAX_ISSUE_PAGES`）：仓库长到匿名限额撑不住；
-      - **分页中断**（某页返回空但前面已满页）：GitHub 偶发的空页。
-
-    与 `mirror_state_sync.fetch_github_issues_by_number()` 同一条纪律
-    （那是 #171 的修复），这里原先缺了它 —— 因为建卡作业「少拉只是少建」看起来没那么贵，
-    但「少拉 ⇒ 报已对齐 ⇒ 没人发现漏建」是**同一个假绿**。
+    翻页实现收敛到 `fetch_github_issues()`（源 CNB #586）：这里原先自己拼 `page=`，
+    而 GitHub 对**大结果集**已关闭 `page` 分页（第 11 页起 422），必须跟 `Link` 头走。
+    同一份翻页逻辑原来抄了两遍（本函数 + `mirror_state_sync`），于是同一个 bug 修了两次
+    —— 现在只有一处。
     """
-    repo = _github_repo()
-    headers: dict[str, str] = {'Accept': 'application/vnd.github+json'}
-    token = os.environ.get('GITHUB_TOKEN')
-    if token:
-        headers['Authorization'] = f'Bearer {token}'
-
-    out: list[dict[str, Any]] = []
-    page = 1
-    complete = True
-    last_batch: list[dict[str, Any]] = []
-    while True:
-        if page > MAX_ISSUE_PAGES:
-            # 触顶 = 数据不完整，**显式**记下来（由调用方报警），不静默当成拉全了。
-            complete = False
-            break
-        qs = urllib.parse.urlencode(
-            {'state': 'open', 'per_page': 100, 'page': page, 'sort': 'created', 'direction': 'asc'}
-        )
-        raw = _request(f'https://api.github.com/repos/{repo}/issues?{qs}', headers=headers)
-        batch = json.loads(raw)
-        if not batch:
-            # 空页：若此前已满页，说明分页中途断了（正常翻到尾时上一页不满页），
-            # 这种情况数据不完整，必须记下来。
-            if page > 1 and len(last_batch) >= 100:
-                complete = False
-            break
-        last_batch = batch
-        out.extend(i for i in batch if 'pull_request' not in i)
-        if len(batch) < 100:
-            break
-        page += 1
-    return out, complete
+    items, complete, _note = fetch_github_issues('open', sort='created', direction='asc')
+    return [i for i in items if 'pull_request' not in i], complete
 
 
 def cnb_api(path: str, *, method: str = 'GET', payload: dict | None = None) -> Any:

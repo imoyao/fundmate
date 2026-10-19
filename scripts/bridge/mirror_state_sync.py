@@ -381,40 +381,27 @@ def fetch_github_issues_by_number() -> dict[int, dict[str, Any]]:
     故现在**把「完整性」作为一等返回值交出去**：调用方在拿不全时不得宣称对齐。
     之所以仍然不抛异常（而是返回部分结果），是为了让「能做的回流照做」——
     `plan()` 对拿不到的卡是**跳过而不是猜**，故部分结果只会少标记、不会误标。
+
+    ⚠️ 翻页**跟 `Link` 头走**（源 CNB #586，2026-10-19 实测）：本函数原先自己拼 `page=`，
+    而 GitHub 对**大结果集**（本仓已超 1000 张卡）已关闭 `page` 分页，第 11 页直接 422：
+
+        Pagination with the page parameter is not supported for large datasets,
+        please use cursor based pagination (after/before)
+
+    后果不是「少几张」，而是**只剩前 1000 张**：实测那一轮判定出 1 张漂移，
+    而本地 `--report` 是 **42 张** —— 422 把结论砍成了 1/42。现在统一走
+    `github_cnb_issues.fetch_github_issues()`，那条路径读 `Link` 头、跟着游标翻。
     """
-    import json
-    import urllib.error
+    from github_cnb_issues import fetch_github_issues
 
-    from github_cnb_issues import _github_repo, _request
-
+    items, complete, note = fetch_github_issues('all', sort='updated', direction=None)
+    if not complete:
+        print(f'❌ {note}；本轮已拿 {len(items)} 张 —— 数据不完整。')
+        print('   根因多为未注入 GITHUB_TOKEN（匿名 60 次/时/IP）；本轮结论不可信。')
     out: dict[int, dict[str, Any]] = {}
-    complete = True
-    page = 1
-    while True:
-        qs = urllib.parse.urlencode({'state': 'all', 'per_page': 100, 'page': page, 'sort': 'updated'})
-        url = f'https://api.github.com/repos/{_github_repo()}/issues?{qs}'
-        try:
-            batch = json.loads(_request(url, headers=_github_headers()))
-        except urllib.error.HTTPError as exc:
-            complete = False
-            if exc.code == 403:
-                print(f'❌ GitHub 限额用尽（403），只拿到前 {page - 1} 页共 {len(out)} 张 —— 数据不完整。')
-                print('   根因多为未注入 GITHUB_TOKEN（匿名 60 次/时/IP）；本轮结论不可信。')
-            else:
-                print(f'❌ GitHub 返回 {exc.code}，中断在 page {page}；本轮已拿 {len(out)} 张 —— 数据不完整。')
-            break
-        if not batch:
-            break
-        for item in batch:
-            if 'pull_request' not in item:
-                out[int(item['number'])] = item
-        if len(batch) < 100:
-            break
-        page += 1
-        if page > 20:  # 2000 张卡的天花板，防呆
-            complete = False
-            print(f'❌ 分页超过 {page - 1} 页天花板 —— 数据可能不完整。')
-            break
+    for item in items:
+        if 'pull_request' not in item:
+            out[int(item['number'])] = item
     return out, complete
 
 

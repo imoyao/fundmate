@@ -79,19 +79,77 @@ _GIT_INSTALL = re.compile(
 _GIT_PROBE = re.compile(r'command\s+-v\s+git\b')
 
 
+# 「本仓内的脚本引用」三种写法：`import x` / `from x import y` / importlib 按路径加载。
+# 第三种是本仓的惯例（`check_mirror_refs` 用 `spec_from_file_location` 复用 `check_issue_refs`
+# 的判据，刻意不 import 模块，以免触发 `github_cnb_issues` 的依赖）。
+_LOCAL_IMPORT = re.compile(
+    r'^\s*(?:from|import)\s+(?P<mod>[A-Za-z_][\w.]*)'
+    r"|spec_from_file_location\(\s*['\"][^'\"]+['\"]\s*,\s*[A-Za-z_][\w]*\s*/\s*['\"](?P<file>[\w.-]+)\.py['\"]",
+    re.MULTILINE,
+)
+
+
+def _local_deps(py: Path, by_stem: dict[str, str]) -> set[str]:
+    """某个脚本**直接**引用到的同目录 / 同仓脚本（仓库相对路径）。"""
+    try:
+        text = py.read_text(encoding='utf-8')
+    except (OSError, UnicodeDecodeError):
+        return set()
+    deps: set[str] = set()
+    for m in _LOCAL_IMPORT.finditer(text):
+        name = m.group('mod') or m.group('file')
+        if not name:
+            continue
+        stem = name.split('.')[0]
+        if stem in by_stem:
+            deps.add(by_stem[stem])
+    return deps
+
+
 def git_driven_scripts(root: Path) -> set[str]:
-    """从 `scripts/**/*.py` 里推导出「真的调用 git」的脚本（仓库相对路径，正斜杠）。"""
+    """从 `scripts/**/*.py` 里推导出「**直接或间接**调用 git」的脚本（仓库相对路径）。
+
+    ⚠️ **必须做传递闭包**（源 CNB #586，2026-10-19 实测）：本判据首版只认「自己写了
+    `subprocess.run(['git'…])` / `_git(`」的脚本，于是漏掉了 `check_mirror_refs.py` ——
+    它自己一行 git 都没有，git 是**经 `check_issue_refs.py` 调进去的**
+    （`importlib` 按路径加载，刻意不 import 模块）。实测后果：镜像 job 的「引用时效自检」
+    自上线起每轮都崩在 `FileNotFoundError: 'git'`，而守卫报「✅ 均自带 git 供给」。
+
+    这正是本仓反复踩的那一类：**判据只看见它认识的东西**，看不见的就当不存在。
+    传递闭包的成本是几行代码，漏一个的代价是「自检从未跑过、却每轮报绿」。
+    """
     found: set[str] = set()
     scripts_dir = root / 'scripts'
     if not scripts_dir.is_dir():
         return found
+    by_stem: dict[str, str] = {}
+    for py in scripts_dir.rglob('*.py'):
+        by_stem.setdefault(py.stem, py.relative_to(root).as_posix())
+
+    direct: set[str] = set()
     for py in scripts_dir.rglob('*.py'):
         try:
             text = py.read_text(encoding='utf-8')
         except (OSError, UnicodeDecodeError):
             continue
         if _GIT_IN_SCRIPT.search(text):
-            found.add(py.relative_to(root).as_posix())
+            direct.add(py.relative_to(root).as_posix())
+
+    # 反向边：谁引用了 git 驱动脚本，它自己也就是 git 驱动的。
+    rev: dict[str, set[str]] = {}
+    for py in scripts_dir.rglob('*.py'):
+        rel = py.relative_to(root).as_posix()
+        for dep in _local_deps(py, by_stem):
+            rev.setdefault(dep, set()).add(rel)
+
+    found = set(direct)
+    queue = list(direct)
+    while queue:
+        cur = queue.pop()
+        for parent in rev.get(cur, ()):  # noqa: B007 - 只需遍历
+            if parent not in found:
+                found.add(parent)
+                queue.append(parent)
     return found
 
 
