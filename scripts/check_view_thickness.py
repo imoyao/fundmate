@@ -281,8 +281,12 @@ BASELINE: dict[str, dict[str, int]] = {
         "max_func": 30,
     },
     # 2026-10-16：#2255 收敛合并带入 CNB 域 D 对账（duoduobei/fundmate#477/#486）代码，225→311 重取基线（守卫自述「确因合并需要重取基线」场景）
+    # 2026-10-19：#541 域 E 由「只读列表」扩为「列表 + 补记」，311→390 重取基线。
+    #   已按本守卫的正解先下沉业务规则：金额/日期解析与落库全在
+    #   `services/dividend_tax_service.record_tax_from_payload`，视图只剩参数校验与组响应。
+    #   增量是**两个新端点**（GET 扩字段 + POST 补记）的拆包与注释，不是业务规则回流。
     "backend/app/domains/reconciliation/views.py": {
-        "lines": 311,
+        "lines": 390,
         "orm_queries": 2,
         "commits": 0,
         "max_func": 48,
