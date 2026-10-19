@@ -12,8 +12,9 @@
 - DELETE /api/reconciliation/ghost-duplicates/<fingerprint>/ignore/ 撤销忽略
 - GET    /api/reconciliation/ghost-duplicates/ignored/             已忽略清单（可撤销）
 
-域 E（分红未记扣税提醒，#541）：
-- GET    /api/reconciliation/dividend-tax/                        列出「有现金分红、该年无扣税流水」的标的
+域 E（红利税提醒，#541）：
+- GET    /api/reconciliation/dividend-tax/                        列出「哪笔分红还没记扣税 / 扣税比例异常」
+- POST   /api/reconciliation/dividend-tax/record/                 一键补记一笔红利税（幂等）
 
 域 B 算法（设计文档 §6.1）：
     理论持仓 = 期初快照份额 + 期后流水净变化（confirm_date > snapshot_date）
@@ -31,7 +32,11 @@ from app.core.auth import get_family_id
 from app.core.database import user_session
 from app.core.money import Money
 from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy
-from app.services.dividend_tax_service import refresh_reminders, scan_pending_tax
+from app.services.dividend_tax_service import (
+    record_tax_from_payload,
+    refresh_reminders,
+    scan_pending_tax,
+)
 from app.services.ghost_duplicate_service import (
     ignore_group,
     list_ignores,
@@ -307,7 +312,13 @@ def undo_ghost_duplicate_ignore_by_fingerprint(fingerprint: str):
 
 @bp.get('/dividend-tax/')
 def list_dividend_tax_pending():
-    """域 E：现金分红「未记扣税」清单（#541）。
+    """域 E：红利税待办清单（#541）。
+
+    行的粒度是**一笔分红**，`status` 只有两种：
+
+    - `未扣`：这笔分红没有配到扣税流水 ⇒ 该补记（或确认持股超一年、无需补）；
+    - `已记-比例异常`：配到了，但金额占分红比例超过 20%（红利税的上限）⇒ 该核对
+      是不是把别的费用记成了红利税（典型误判源：同花顺把「债券兑息兑付」也映射成扣税）。
 
     这一域不是「差异」——账内没有两处数字对不上，缺的是账外那笔券商扣税。
     故不落 `reconciliation_discrepancies`（它描述的是「应然 vs 实然」的差额，
@@ -321,20 +332,52 @@ def list_dividend_tax_pending():
         items = scan_pending_tax(db, family_id)
         # 顺带把提醒写进站内通知：对账台是用户主动来查差异的地方，也是「提醒该去哪看」
         # 唯一的自然触发点。写在 GET 里是**有意的例外**——它不改变对账结果，只落一条
-        # 幂等通知（dedup_key 含年份，同标的同年只留一条），代价远小于「用户根本不知道
-        # 有这回事」。真正的写操作仍然只有用户手动补记。
+        # 幂等通知（dedup_key = 来源:标的:分红日，同一笔分红只留一条），代价远小于
+        # 「用户根本不知道有这回事」。真正的写操作仍然只有用户手动补记。
         created = refresh_reminders(db, family_id)
         return jsonify(
             {
                 'data': {
                     'items': [i.to_dict() for i in items],
                     'count': len(items),
-                    'total_cents': sum(i.dividend_cents for i in items),
+                    'pending_count': sum(1 for i in items if i.status == '未扣'),
+                    'total_cents': sum(i.dividend_cents for i in items if i.status == '未扣'),
                     'reminders_created': created,
                 },
                 'message': 'ok',
             }
         )
+
+
+@bp.post('/dividend-tax/record/')
+def record_dividend_tax():
+    """补记一笔红利税流水（#541，幂等）。
+
+    body: { symbol, amount_cents?, amount?, tax_on?, account_name? }
+
+    - `amount_cents` 与 `amount`（元）二选一，前端传元更自然；
+    - `tax_on` 缺省今天。同标的同一天重复提交 ⇒ 返回既有那笔，不报错、不重复记
+      —— 这是「不能双重记账」这条要求的落点。
+
+    为什么不放在通知里直接写：通知是「提醒」，记账是「用户动作」。
+    两者合一时点一次按钮就悄悄改了账，用户再也分不清哪笔是自己记的。
+    金额/日期口径与落库都交给 `dividend_tax_service.record_tax_from_payload`（视图只做编排）。
+    """
+    payload = request.get_json(silent=True)
+    if payload is None:
+        payload = {}
+    elif not isinstance(payload, dict):
+        abort(400, description='请求体必须是 JSON 对象')
+    if not str(payload.get('symbol') or '').strip():
+        abort(400, description='缺少 symbol')
+
+    family_id = get_family_id()
+    with user_session() as db:
+        try:
+            data = record_tax_from_payload(db, family_id, payload)
+        except ValueError as e:
+            abort(400, description=str(e))
+        return jsonify({'data': data, 'message': 'ok'})
 
 
 def _parse_summary(raw: str | None) -> dict:

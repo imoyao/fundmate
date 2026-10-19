@@ -244,40 +244,80 @@ export function undoGhostDuplicateIgnore(
   );
 }
 
-// ── 域 E：分红未记扣税（#541）───────────────────────────────────────────────
+// ── 域 E：红利税（#541）─────────────────────────────────────────────────────
 //
 // 这不是「差异」：账内没有两处数字对不上，缺的是账外那笔券商扣税。
 // 后端刻意**不自动算税**（税率取决于买入批次持有期，本系统只有聚合持仓），
-// 所以这里只列「有现金分红、该标的该年没有扣税流水」的项，由用户去交割单核对后补记。
+// 所以这里只列「哪一笔分红还没配到扣税流水 / 扣税金额看着不像红利税」，
+// 由用户核对交割单后补记。
 
-/** 一项「现金分红未记扣税」（后端 `dividend_tax_service.PendingTaxItem`） */
+/** 域 E 一行的状态：未扣（该补记） / 已记但比例异常（该核对） */
+export type DividendTaxStatus = "未扣" | "已记-比例异常";
+
+/** 一项红利税待办（后端 `dividend_tax_service.PendingTaxItem`，粒度 = **一笔分红**） */
 export interface DividendTaxPendingItem {
   symbol: string;
   name: string;
   account_name: string;
-  /** 分红所属自然年（税按年合并申报，故按年匹配） */
+  /** 分红所属自然年 */
   year: number;
-  /** 该年该标的现金分红合计（分） */
+  status: DividendTaxStatus;
+  /** 这笔现金分红的金额（分） */
   dividend_cents: number;
-  /** 最近一笔分红的除权/确认日（YYYY-MM-DD） */
-  last_dividend_on: string | null;
-  dividend_count: number;
+  /** 这笔分红的确认/除权日（YYYY-MM-DD） */
+  dividend_on: string | null;
+  /** 已配到的扣税金额（正数，分）；未扣时恒为 0 */
+  tax_cents: number;
+  /** 已配到的扣税日（YYYY-MM-DD）；未扣时为 null */
+  tax_on: string | null;
+  /** 已记税占分红的百分比；未扣时为 null */
+  ratio_pct: number | null;
 }
 
 /** `GET /api/reconciliation/dividend-tax/` 的 data 信封 */
 export interface DividendTaxPendingData {
   items: DividendTaxPendingItem[];
   count: number;
+  /** 其中「未扣」的条数（比例异常的项不计入待补记总数） */
+  pending_count: number;
+  /** 待补记的分红金额合计（分） */
   total_cents: number;
   /** 本次读取顺带写入的站内通知条数（幂等，重复读为 0） */
   reminders_created?: number;
 }
 
-/** 列出「有现金分红、该年无扣税流水」的标的（顺带幂等写一条站内提醒） */
+/** 列出红利税待办（顺带幂等写站内提醒） */
 export function listDividendTaxPending(): Promise<
   ApiResponse<DividendTaxPendingData>
 > {
   return http.get<ApiResponse<DividendTaxPendingData>, unknown>(
     "/reconciliation/dividend-tax/"
   );
+}
+
+/** 补记一笔红利税（幂等：同标的同一天重复提交返回既有那笔） */
+export function recordDividendTax(payload: {
+  symbol: string;
+  /** 税额（元，正数；后端转分并存为负数） */
+  amount: number;
+  /** 扣税日 YYYY-MM-DD，缺省今天 */
+  tax_on?: string;
+  account_name?: string;
+}): Promise<
+  ApiResponse<{
+    id: number;
+    symbol: string;
+    amount_cents: number;
+    confirm_date: string | null;
+  }>
+> {
+  return http.post<
+    ApiResponse<{
+      id: number;
+      symbol: string;
+      amount_cents: number;
+      confirm_date: string | null;
+    }>,
+    unknown
+  >("/reconciliation/dividend-tax/record/", { data: payload });
 }

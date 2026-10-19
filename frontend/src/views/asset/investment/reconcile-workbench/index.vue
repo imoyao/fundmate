@@ -123,13 +123,15 @@
               @delete-txn="handleGhostDeleteTxn"
             />
 
-            <!-- 域 E：分红未记扣税（#541）——不是「差异」而是「账外缺一笔」，
-                 故不做补录弹窗，只陈述事实并让用户去交割单核对 -->
+            <!-- 域 E：红利税待办（#541）——不是「差异」而是「账外缺一笔」，
+                 故不复用域 B 的差异表；每行陈述事实，并把补记做成一个按钮 -->
             <DomainEDividendTaxTable
               v-else-if="tab.key === 'E'"
               :items="taxItems"
               :total-cents="taxTotalCents"
+              :pending-count="taxPendingCount"
               :loading="taxLoading"
+              @recorded="loadDividendTax"
             />
 
             <!-- 域 C：占位内容 -->
@@ -205,6 +207,7 @@ const {
   ghostUndoingId,
   taxItems,
   taxTotalCents,
+  taxPendingCount,
   taxLoading,
   loadDividendTax,
   recognizerCandidates,

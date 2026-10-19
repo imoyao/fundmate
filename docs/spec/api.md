@@ -61,7 +61,7 @@ title: 核心 API 端点清单（api）
 
 <!-- AUTO-ENDPOINTS:START（由 scripts/check_api_conventions.py --write 生成，勿手改） -->
 
-全量端点清单（共 **185** 条）：由 `scripts/check_api_conventions.py --write` 从
+全量端点清单（共 **186** 条）：由 `scripts/check_api_conventions.py --write` 从
 `backend/app/domains/**/views.py` 的 `@<bp>.<method>(...)` 装饰器静态生成，**禁止手改**——
 改路由后重跑该命令即可；CI 守卫会校验本段与实现逐条一致（不一致即红灯）。
 
@@ -175,6 +175,7 @@ title: 核心 API 端点清单（api）
 | GET | `/api/reconciliation/discrepancies/` | `list_discrepancies` |
 | POST | `/api/reconciliation/discrepancies/<int:discrepancy_id>/ignore/` | `ignore_discrepancy` |
 | GET | `/api/reconciliation/dividend-tax/` | `list_dividend_tax_pending` |
+| POST | `/api/reconciliation/dividend-tax/record/` | `record_dividend_tax` |
 | GET | `/api/reconciliation/ghost-duplicates/` | `list_ghost_duplicates` |
 | DELETE | `/api/reconciliation/ghost-duplicates/<fingerprint>/ignore/` | `undo_ghost_duplicate_ignore_by_fingerprint` |
 | POST | `/api/reconciliation/ghost-duplicates/<fingerprint>/ignore/` | `ignore_ghost_duplicate` |

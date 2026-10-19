@@ -57,9 +57,11 @@ export function useWorkbenchDomains() {
   const ghostDeletingId = ref<number | null>(null);
   const ghostUndoingId = ref<number | null>(null);
 
-  /** 域 E：分红未记扣税（#541）——有现金分红、该年却没有扣税流水的标的 */
+  /** 域 E：红利税待办（#541）——粒度是「一笔分红」，每行要么该补记、要么该核对 */
   const taxItems = ref<DividendTaxPendingItem[]>([]);
   const taxTotalCents = ref(0);
+  /** 其中「未扣」的笔数（比例异常的项不算待补记，但仍列出来供核对） */
+  const taxPendingCount = ref(0);
   const taxLoading = ref(false);
 
   /** 域 A：E账户对账数据（P2 迁入） */
@@ -100,7 +102,7 @@ export function useWorkbenchDomains() {
       return eItems.value.filter(i => i.status === "pending").length;
     // 域 D 不走 discrepancies 表（它是实时派生扫描），待处理数即未忽略的组数
     if (key === "D") return ghostGroups.value.length;
-    // 域 E 同理：待补记项实时派生，没有「已忽略」概念（记完税即自然消失）
+    // 域 E 同理：待办项实时派生，没有「已忽略」概念（记完税即自然消失）
     if (key === "E") return taxItems.value.length;
     return discs.value.filter(d => d.domain === key && d.status === "pending")
       .length;
@@ -200,9 +202,11 @@ export function useWorkbenchDomains() {
       const res = await listDividendTaxPending();
       taxItems.value = res.data?.items ?? [];
       taxTotalCents.value = res.data?.total_cents ?? 0;
+      taxPendingCount.value = res.data?.pending_count ?? 0;
     } catch {
       taxItems.value = [];
       taxTotalCents.value = 0;
+      taxPendingCount.value = 0;
     } finally {
       taxLoading.value = false;
     }
@@ -405,6 +409,7 @@ export function useWorkbenchDomains() {
     ghostUndoingId,
     taxItems,
     taxTotalCents,
+    taxPendingCount,
     taxLoading,
     loadDividendTax,
     loadDiscrepancies,
