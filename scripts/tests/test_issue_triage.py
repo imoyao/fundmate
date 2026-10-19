@@ -57,14 +57,30 @@ MIRROR_HEADER = """\
 """
 
 
-def card(number: int = 100, *, title: str = '一张普通的卡', body: str = '', labels=None, state='open') -> triage.Card:
+def card(
+    number: int = 100, *, title: str = '一张普通的卡', body: str = '', labels=None, state='open'
+) -> triage.Card:
+    """造一张 **CNB 编号空间**的卡：`number` 是 CNB 编号，正文里的 `#N` 也按 CNB 编号算。
+
+    默认**不带** `GitHub 同步` 标签 —— 镜像卡的正文是 GitHub 卡的副本，里面的 `#N`
+    是 **GitHub 编号**，与 CNB 卡号不是一个空间（见 `count_refs` 的 docstring）。
+    要造镜像卡请用 `mirror_card()`。
+    """
     return triage.Card(
         number=number,
         title=title,
         body=body,
-        labels=list(labels or [triage.MIRROR_LABEL]),
+        labels=list(labels or []),
         state=state,
     )
+
+
+def mirror_card(
+    number: int = 100, *, github: int = 9001, title: str = '一张镜像卡', body: str = '', **kw
+) -> triage.Card:
+    """造一张**镜像卡**：CNB `number` 对应 GitHub `github`，正文里的 `#N` 是 GitHub 编号。"""
+    kw.setdefault('labels', [triage.MIRROR_LABEL])
+    return triage.Card(number=number, github_number=github, title=title, body=body, **kw)
 
 
 class TestEnumsAreClosed(unittest.TestCase):
@@ -273,14 +289,14 @@ class TestDispatchAdmission(unittest.TestCase):
             card(number=1, title='大车', body=f'{big}\n\n## 验收\n\n- [ ] 一条'),
             card(number=2, title='普通', body=self.M_OK),
         ]
-        picked, _ = triage.plan(cards, per_run=10, dispatch_cap=3)
+        picked, _, __ = triage.plan(cards, per_run=10, dispatch_cap=3)
         gate_blocked = [c.number for c, v in picked if f'规模 {v.size}' in ' '.join(v.reasons)]
         self.assertEqual(gate_blocked, [1, 2], '被闸门挡掉的卡必须能在 plan 输出里被认出来')
         dispatched = [c.number for c, v in picked if v.next == 'dispatch_npc']
         self.assertNotIn(1, dispatched, 'L 档即使被列入准入也要能降级')
 
         # 同一批卡在准入放开后：M 的那张转为可派，L 的仍被挡 —— 这才是「闸门与额度分开」的证据：
-        picked2, _ = triage.plan(
+        picked2, _, __ = triage.plan(
             cards, per_run=10, dispatch_cap=3, sizes=triage.DISPATCH_SIZE_ALLOWED
         )
         self.assertEqual([c.number for c, v in picked2 if v.next == 'dispatch_npc'], [2])
@@ -322,7 +338,7 @@ class TestQuota(unittest.TestCase):
         return out
 
     def test_triage_cap_limits_writes(self):
-        picked, skipped = triage.plan(self._cards(10), per_run=3, dispatch_cap=3)
+        picked, skipped, __ = triage.plan(self._cards(10), per_run=3, dispatch_cap=3)
         self.assertEqual(len(picked), 3)
         self.assertEqual(skipped, 7)
 
@@ -332,7 +348,7 @@ class TestQuota(unittest.TestCase):
         small = [
             card(number=i, title='调间距', body='单点改动：修一处笔误。\n\n## 验收\n\n- [ ] 一条') for i in range(1, 6)
         ]
-        picked, _ = triage.plan(small, per_run=10, dispatch_cap=1)
+        picked, _, __ = triage.plan(small, per_run=10, dispatch_cap=1)
         self.assertEqual(len(picked), 5)
         dispatched = [v for _, v in picked if v.next == 'dispatch_npc']
         self.assertLessEqual(len(dispatched), 1)
@@ -356,16 +372,105 @@ class TestQuota(unittest.TestCase):
         2. 派活数量被 `dispatch_cap` 单独封顶 —— 这是用户拍板的「每轮 3 张」。
         """
         cards = [card(number=i, title='修个笔误', body='一处 typo 修正\n\n## 验收\n\n- [ ] 一条') for i in range(1, 9)]
-        picked, skipped = triage.plan(cards, per_run=5, dispatch_cap=2)
+        picked, skipped, __ = triage.plan(cards, per_run=5, dispatch_cap=2)
         self.assertEqual(len(picked), 5, '分诊上限必须严格封顶写出数量')
         self.assertEqual(skipped, 3, '被挡掉的卡必须计数（不得冒充「已分诊完」）')
         dispatched = [c.number for c, v in picked if v.next == 'dispatch_npc']
         self.assertLessEqual(len(dispatched), 2, '派活额度必须独立生效（用户拍板 3 张/轮）')
         self.assertEqual(dispatched, [1, 2], '按编号升序先处理老的卡')
 
+    def test_written_cards_do_not_eat_the_quota(self):
+        """已写在卡上的卡**不占分诊额度** —— 否则看板永远停在第一批（2026-10-19 实测）。
+
+        事故现场：首版按「挑了几张」计额度，第二批跑起来时又从编号最小的卡挑起，
+        它们全部「结论未变，跳过」，而 `picked` 已满 50 ⇒ 后面 103 张全部被判
+        「因额度未处理」。实际写入 **0**，输出却是：
+
+            🎉 本轮检查 153 张，写入 0 张（分诊上限 50）
+            ⏸️  另有 103 张因额度未处理（不是「已分诊完」，下一轮继续）
+
+        每个字都真，结论全错：卡住的不是额度，是「回头挑已经写过的卡」。
+        与 CNB #450「缓存当判据」同一形态 —— 判据错时，输出只会更响亮地复述错结论。
+        """
+        cards = self._cards(10)
+        # 前 5 张已在卡上写过结论
+        picked, skipped, already = triage.plan(cards, per_run=3, dispatch_cap=3, written={1, 2, 3, 4, 5})
+        self.assertEqual(already, 5, '已写过的卡必须单独计数')
+        self.assertEqual([c.number for c, _ in picked], [6, 7, 8], '额度要花在**还没写**的卡上')
+        self.assertEqual(skipped, 2, '第 9、10 张才是真正被额度挡下的')
+        self.assertFalse({1, 2, 3, 4, 5} & {c.number for c, _ in picked}, '已写过的卡不得再占名额')
+
     def test_plan_skips_closed_cards(self):
-        picked, _ = triage.plan([card(number=1, body='## 验收\n\n- [ ] 一条', state='closed')])
+        picked, _, __ = triage.plan([card(number=1, body='## 验收\n\n- [ ] 一条', state='closed')])
         self.assertEqual(picked, [])
+
+
+class TestCardNumberSpace(unittest.TestCase):
+    """卡号空间：CNB 编号与 GitHub 编号是**两个独立空间**，混用会让判据各说各话。
+
+    镜像卡的正文是 GitHub 卡的**副本**，里面的 `#N` 指 GitHub 卡；CNB 卡里的 `#N` 指 CNB 卡。
+    实测背景（2026-10-19）：同一份判据跑在两侧，若镜像卡拿 CNB 编号去「排除自己」，
+    正文里那句引用自己的 `#N` 会被当成「引用了另一张卡」——`refs` 多 1、`size` 虚高到 L，
+    于是同一张卡在 CNB 侧判成 `tracker/L`、在 GitHub 侧判成 `task/M`。**两套真话。**
+    """
+
+    def test_mirror_card_uses_github_number_for_self_exclusion(self):
+        # CNB 侧编号 100 ↔ GitHub 侧编号 9001；正文只引用自己（GitHub 编号 9001）⇒ 不算引用其他卡
+        c = mirror_card(number=100, github=9001, body='见 GitHub #9001 的补充')
+        self.assertEqual(triage.count_refs(c.body, 9001), 0)
+        self.assertNotEqual(triage.classify(c).kind, 'tracker')
+
+    def test_cnb_card_uses_cnb_number_for_self_exclusion(self):
+        c = card(number=7, body='本卡 #7 的补充：见 #8')
+        self.assertEqual(triage.count_refs(c.body, 7), 1, '只引用自己时，排除后应为 0 个「其他卡」')
+        self.assertNotEqual(triage.classify(c).kind, 'tracker')
+        # 反向证据：用**错的**排除对象（GitHub 编号空间）时，自己那句会被算成「引用了别的卡」
+        self.assertEqual(triage.count_refs(c.body, 9001), 2)
+
+    def test_size_of_takes_same_self(self):
+        """`size_of` 与 `count_refs` 必须用**同一个**排除对象，否则 size 与 refs 各说各话。"""
+        # 引用两张**其他**卡 ⇒ L
+        self.assertEqual(triage.size_of('见 #9002 与 #9003', 't', own=9001), 'L')
+        # 引用两张卡、其中一张是自己 ⇒ 排除自己后只剩 1 个 ⇒ 不是系列规模（M）
+        self.assertEqual(triage.size_of('见 #9001 与 #9002', 't', own=9001), 'M')
+        self.assertEqual(triage.size_of('见 #9001 与 #9002', 't'), 'L', '不排除时是 L（默认 own=-1）')
+
+
+class TestGithubBackend(unittest.TestCase):
+    """GitHub 兜底通道：**换的是落点，不是判据**。
+
+    WHY 要有它（2026-10-19）：看板「一张标签都没落」的根因是 CNB 调度断了
+    （cron 只剩建卡），不是判据错。CNB 的 cron 只能挂一个分支、只有一条链路，
+    断一次全部作业一起停。故补一条**落在 GitHub 原卡**的通道：
+    `--backend github` 只改「往哪写」，结论与指纹两侧完全一致。
+    """
+
+    def test_backend_is_wired_into_run(self):
+        import inspect
+
+        sig = inspect.signature(triage.run)
+        self.assertIn('backend', sig.parameters)
+        self.assertEqual(sig.parameters['backend'].default, 'cnb', '默认仍是 CNB 侧，兜底要显式选')
+
+    def test_cli_exposes_backend(self):
+        with self.assertRaises(SystemExit):
+            triage.main(['--backend', 'nope'])  # argparse 拒收非法值
+
+    def test_github_cards_share_the_same_classifier(self):
+        """两侧跑的必须是**同一份 `classify`**：否则「GitHub 上说可执行、CNB 上说需讨论」。"""
+        import inspect
+
+        src = inspect.getsource(triage.run)
+        self.assertIn('classify(c, sizes=sizes)', src)
+        # 只允许一处 classify 调用（写回分支里不许再分叉出第二套判据）
+        self.assertEqual(src.count('classify('), 1, '写回路径不得绕过同一份判据')
+
+    def test_github_listing_filters_pull_requests(self):
+        """GitHub 的 `/issues` **把 PR 也当 issue 返回**，不过滤就会把 PR 挂上分诊标签。"""
+        import inspect
+
+        src = inspect.getsource(triage.list_github_open_cards)
+        self.assertIn("'pull_request' not in it", src)
 
 
 class TestIdempotency(unittest.TestCase):
@@ -551,7 +656,7 @@ class TestMutationProbes(unittest.TestCase):
         self.assertNotEqual(src, self._original(), '探针改写点没命中')
         mod = self._load_variant(src)
         cards = [mod.Card(number=i, title='t', body='## 验收\n\n- [ ] a', labels=[]) for i in range(1, 11)]
-        picked, skipped = mod.plan(cards, per_run=mod.DEFAULT_TRIAGE_PER_RUN, dispatch_cap=3)
+        picked, skipped, __ = mod.plan(cards, per_run=mod.DEFAULT_TRIAGE_PER_RUN, dispatch_cap=3)
         raised = False
         try:
             self.assertGreater(len(picked), 3)
