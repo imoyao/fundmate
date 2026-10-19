@@ -20,6 +20,8 @@
 
 from typing import Optional
 
+from app.services.entitlement_check import PRO_FEATURES
+
 #: 模块键 → 落地 Phase（#994 五阶段排期：P2 模块一/二、P3 模块三、P4 模块四）。
 #: 新增模块必须在此登记，否则前端拿不到可用性位、也不会渲染占位卡。
 MODULE_PHASES = {
@@ -43,23 +45,38 @@ MODULE_PHASES = {
 AVAILABLE_MODULES = frozenset({'performance', 'risk', 'allocation'})
 
 
-def build_pro_status(symbol: str, asset_type: Optional[str] = None) -> dict:
-    """构造 Pro 状态位负载（Phase 2 起 performance 模块翻真）。
+def build_pro_status(
+    symbol: str,
+    asset_type: Optional[str] = None,
+    entitlements: Optional[dict] = None,
+) -> dict:
+    """构造 Pro 状态位负载（Phase 2 起 performance 模块翻真；#2324 接入权益驱动）。
 
     Args:
         symbol: 产品代码（调用方已做非空校验，见 ``ProStatusRequest``）。
         asset_type: 入口提示品类；仅回显，不参与任何判定。
+        entitlements: 家庭权益位 ``{feature: {'granted': bool, 'expires_at': str|None}}``；
+            ``None`` 表示未登录（按全未开通处理）。
 
     Returns:
-        直接进响应信封 ``data`` 的 dict：
-        ``pro_enabled`` / ``paywall_required`` / ``modules{available, phase}``。
+        直接进响应信封 ``data`` 的 dict：``symbol`` / ``asset_type`` /
+        ``pro_enabled`` / ``paywall_required`` / ``modules{available, phase}`` /
+        ``entitlements``。
+
+    ``paywall_required`` 由权益驱动（#2324）：家庭一份 Pro 权益都没开通 ⇒ ``True``。
+    **形状不变**：``entitlements`` 只是附加字段，既有字段与语义一个不动——
+    ``ProductProSection.vue`` 仍按 ``modules[*].available`` 渲染，删字段会让它在
+    渲染期 TypeError（前端付费墙迁移是 P1 跟进项）。
     """
+    if entitlements is None:
+        entitlements = {feature: {'granted': False, 'expires_at': None} for feature in PRO_FEATURES}
     return {
         'symbol': symbol,
         'asset_type': asset_type,
         'pro_enabled': True,
-        'paywall_required': False,
+        'paywall_required': not any(item['granted'] for item in entitlements.values()),
         'modules': {
             name: {'available': name in AVAILABLE_MODULES, 'phase': phase} for name, phase in MODULE_PHASES.items()
         },
+        'entitlements': entitlements,
     }

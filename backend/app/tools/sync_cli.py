@@ -24,6 +24,7 @@
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -62,6 +63,7 @@ import app.domains.users.models  # noqa: E402,F401
 import app.domains.watchlist.models  # noqa: E402,F401
 import app.models.sync_log  # noqa: E402,F401
 from app.core.database import get_db, init_db  # noqa: E402
+from app.core.db_factory import app_db_startup_check, resolve_app_db  # noqa: E402
 
 # 加载 .env（backend/ 目录）
 env_path = BACKEND_DIR / '.env'
@@ -182,6 +184,22 @@ def main():
     p_verify.set_defaults(func=cmd_verify_jisilu)
 
     args = parser.parse_args()
+
+    # 预检（#2344，与 sync_metadata.main() 同源）：显式目标（--targets/--target-file）
+    # 的批量修复场景对「解析出的库文件不存在」fail-closed；日常增量仅告警，
+    # 不误伤 fresh clone 首跑就地建库。只接 sync_metadata 的话，`pdm run sync --job xxx`
+    # 仍会静默连到空库/错库并报 success——正是 #2344 要防的形态。
+    strict = bool(getattr(args, 'targets', None) or getattr(args, 'target_file', None))
+    db_problem = app_db_startup_check(strict=strict)
+
+    env = os.getenv('APP_ENV', 'development')
+    url, source = resolve_app_db(env)
+    print(f'运行库目标（APP_ENV={env}）: market 域: {url}（解析来源: {source}）')
+
+    if db_problem:
+        print(f'错误：{db_problem}', file=sys.stderr)
+        sys.exit(2)
+
     sys.exit(args.func(args))
 
 

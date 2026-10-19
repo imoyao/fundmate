@@ -52,6 +52,7 @@ def _neutral_env(**overrides: str) -> dict[str, str]:
     不中和的后果（#1727 同一教训）：子进程继承真 Turso / 真 dev 串，断言全部失去意义。
     """
     base = {k: v for k, v in os.environ.items() if k not in DB_ENV_VARS}
+    base['PYTHONUTF8'] = '1'  # 强制子进程用 UTF-8 输出，避免 Windows cp936 导致捕获乱码
     return {**base, **overrides}
 
 
@@ -215,6 +216,39 @@ class TestCliPreflightExitCode:
             cwd=str(backend_dir),
             env=_neutral_env(**env),
         )
+
+    @staticmethod
+    def _run_sync_cli(env: dict[str, str], extra_args: list[str] | None = None) -> subprocess.CompletedProcess:
+        backend_dir = BACKEND_DIR
+        return subprocess.run(
+            [sys.executable, str(backend_dir / 'app' / 'tools' / 'sync_cli.py'), *(extra_args or [])],
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            cwd=str(backend_dir),
+            env=_neutral_env(**env),
+        )
+
+    def test_sync_cli_is_preflighted_too(self, tmp_path):
+        """`pdm run sync`（sync_cli.py）也必须预检（#2344）。
+
+        预检只接 sync_metadata 时，`pdm run sync --job xxx` 仍会静默连到错库/空库
+        并报 success——本用例就是这条缺口的判据，漏接即红。
+        """
+        missing = tmp_path / 'no-such-market.db'
+        proc = self._run_sync_cli(
+            {
+                'APP_ENV': 'development',
+                'DEV_DATABASE_URL': f'sqlite:///{missing.as_posix()}',
+            },
+            extra_args=['job', '__no_such_job__'],
+        )
+        assert proc.returncode == 2, (
+            f'预检失败必须退出码 2，实际 {proc.returncode}。stdout={proc.stdout[-500:]} stderr={proc.stderr[-500:]}'
+        )
+        assert '配置的运行库文件不存在' in proc.stderr, proc.stderr[-500:]
+        assert not missing.exists(), '预检必须在 SQLite 建库之前拦下'
 
     def test_missing_target_exits_non_zero_and_explains(self, tmp_path):
         missing = tmp_path / 'definitely-not-here.db'
