@@ -139,7 +139,9 @@ class TestStateComment(unittest.TestCase):
     def _body(self, gh_updated: str = '2026-10-11T00:00:00Z', closed: bool = True, **over):
         kw = {'repo': 'imoyao/fundmate', 'today': '2026-10-11', 'closed': closed}
         # 关闭时必须带判据（CNB #552 的新契约），构造器会拒收空的
-        kw['evidence'] = self._evidence(observed=f'{gh_updated[:10] or "未知"}（GitHub 侧最后更新）状态为 `closed`，CNB 侧仍为 `open`')
+        kw['evidence'] = self._evidence(
+            observed=f'{gh_updated[:10] or "未知"}（GitHub 侧最后更新）状态为 `closed`，CNB 侧仍为 `open`'
+        )
         kw.update(over)
         return sync.build_state_comment(2034, 'closed', gh_updated, 'deadbeef0000', **kw)
 
