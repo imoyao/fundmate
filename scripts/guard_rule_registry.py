@@ -330,6 +330,22 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/test_cnb_yml_duplicate_keys.py',
         'covered': '只查重复键；同名 stage 出现在不同 job 下不算',
     },
+    'scripts/guard_cron_job_reachability.py': {
+        'rule': '定时作业的目标分支必须在它自己的检出里（挂载位置与目标一致）',
+        # 只在 CI 里跑：`.cnb.yml` 只有一份、判据纯静态（不拉网络、不读运行时），
+        # 没必要再挂本地钩子——挂多了反而让「谁负责」变模糊。
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_cron_job_reachability.py',
+        # 边界说清楚：判据只看「作业挂在哪、推哪条」，**不判断两侧内容有没有分叉**——
+        # 后者要联网（`scripts/bridge/check_cross_repo_dev_divergence.py`），
+        # 且分叉时 push 非快进属于「正确的红」，不是配置写错。
+        # 也读不到分支保护 / 凭据：本守卫只保证「不因为挂错位置而注定失败」。
+        'covered': (
+            '不判「这一轮推成功了没有」（不拉网络）；不判分支保护与凭据；'
+            '只认 `settings.branch` 与 `--branch <名>` 两种目标形态，'
+            '`${CNB_BRANCH}` 这类动态值刻意不猜'
+        ),
+    },
     'scripts/guard_cnb_script_task_python.py': {
         'rule': '跑 python 的脚本任务必须自带 docker.image',
         'runner': 'ci',
@@ -348,11 +364,43 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/guard_secret_imports.test.js',
         'covered': '只校验 .cnb.yml 的引用形态；Secret 仓库内容读不到（403）',
     },
+    'scripts/triage/issue_triage.py': {
+        'rule': 'Issue 分诊的派活闸门（task + 准入规模 + risk=low + 不碰护栏文件）与单轮额度',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_issue_triage.py',
+        'covered': (
+            '判据全机械（正则/计数），**不判卡面说得清不清**；也只在 CNB 侧写标签与评论，'
+            '写 GitHub 仍走 claim_detect / mirror_correction。'
+            '准入规模是**参数**（默认只有 S，`.cnb.yml` 传 S/M），故「准入档是否被真的用上」'
+            '只能靠 P4 探针咬，不靠读默认值。回归网含 4 个变异探针。'
+        ),
+    },
+    'scripts/guard_ask_git_once.py': {
+        'rule': 'git 的同一次询问不许问两遍再取第二遍的输出（一次调用同时拿码与输出）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_ask_git_once_guard.py',
+        'covered': (
+            '只判**结构形状**（同一函数内同一个 `_git` 参数形状出现两次、且第二遍丢退出码）；'
+            '跨函数复用同一查询（有意的缓存）不判；「两次结果是否真的不一致」要跑起来才知道，'
+            '静态判据只保证「不许有这种形状」。'
+        ),
+    },
     'scripts/guard_git_sync_push_scope.py': {
         'rule': 'git-sync 两个方向都只能作用在 dev / 功能分支',
         'runner': 'ci',
         'tests': 'scripts/tests/git_sync_push_scope.test.js',
         'covered': '只读 .cnb.yml；运行期 CNB_BRANCH 的取值不校验',
+    },
+    'scripts/guard_bridge_machine_branch_single_writer.py': {
+        'rule': '`bridge/github-dev` 只能有一个写者（GitHub reconcile 写、CNB 只读探针）',
+        'runner': 'ci',
+        'stage': 'default',
+        'tests': 'scripts/tests/test_bridge_single_writer.py',
+        # 边界说清楚：判据是**静态角色分配**，判不了「谁先跑」——
+        # `--force-with-lease` 是原子检验、不是可协商的锁，任何「先比 SHA 再推」都是
+        # 检查-使用之间的竞态，故守卫只认「配置里谁是写者」，不猜时序。
+        # 也读不到 GitHub Actions 的启用状态：只确认那份 workflow 仍表达「推 + 开 PR」语义。
+        'covered': '不判真跑成的结果（不拉网络）；不读 Actions 是否被停用；接管时须人工同步改守卫',
     },
 }
 

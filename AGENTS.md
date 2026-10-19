@@ -558,6 +558,34 @@ need_close = auto_close and card['cnb_state'] != 'closed'
 
 推导与实测命令见 `docs/dev/github-cnb-mirror.md` §16.10。
 
+### 三之六、**同一事实问两次，然后取第二次**：静默翻转结论的那一类（2026-10-18，源 CNB #573）
+
+`machine_branch.py` 的演练路径这么写：
+
+```python
+code, _, _ = _git(['merge-tree', '--write-tree', base, merge])      # ① 取退出码
+if code == 1:
+    _, out, _ = _git(['merge-tree', '--write-tree', base, merge])   # ② 再跑一遍取输出
+```
+
+读起来毫无问题——「先看有没有冲突，有的话把冲突文件列出来」。**但它问了两次。**
+只要 ② 的输出（或它对返回值的解包）与 ① 对不上，冲突清单就**恒为空**，
+于是「有冲突」与「无冲突」打印的是同一句 **「✅ 无冲突，两侧内容可合。」**
+
+- **失败形态是静默且更响亮的**：判据错的时候，报告给出的结论不但不消失，反而更像结论。
+  这次是「每小时红一次、每次都说两边无冲突」，而根因（推不上去）被另一行日志盖住。
+- **判据**：`python scripts/guard_ask_git_once.py`（并入 `ci.yml` 的 `scripts_test`，阻断）。
+  同一函数内同一个 `_git` **参数形状**出现两次、且第二遍丢掉退出码 ⇒ 红。
+  回归网 `scripts/tests/test_ask_git_once_guard.py` 里最重的一条拿 `origin/dev` 上
+  **修复前的真实代码**喂守卫，确认它真会红（守卫绿 ≠ 守卫有效）。
+- **写「自己回退验证」时也要小心同款**：为了确认守门咬得住，我用脚本把 bug 重新注入再跑测试；
+  **第一次我把守卫里那句 `if not conflicts:` 本身删掉了**，于是「读不懂就报不可信」的保护一起没了，
+  用例红在一个我没预期的地方。**探针是在改生产代码，不是在改测试数据**——改完要看它红
+  *在哪一条*、*因为什么*，而不是只看「红了」。
+
+> 推而广之：**任何「先探测、再执行、再读第二次结果」的结构都要问一句「两次之间变了会怎样」。**
+> 能一次调用同时拿码与输出，就别分两次问。
+
 ### 四、正则/字符串类判据的两个常见错
 
 - **按缩进截取函数体会截错**：`async function f() { if (x) { … } … }` 里第一个 `\n  }` 闭的是
@@ -1028,6 +1056,93 @@ NPC 没有跨会话记忆，**每一次开工都是新进程**。所谓「记住
 任何分支的 push 都跑一轮**幂等**建卡 + 状态回流——补的是「有人在 `feat/*` 上开卡、
 却永远扫不到」这个缺口（原作业只挂 `main` 的 cron）。两个作业都幂等，故重复跑无副作用。
 
+### Issue 分诊与派活：判据机械化，合入永远是人（D58，源 CNB #564）  <!-- cross-repo-ref-allow -->
+
+> 📍 用户 2026-10-18 拍板四件事（先回流已关的 → 分诊/打标签/写评论 → 派活每轮 3 张、
+> 每天两轮 → 合入不打 automerge，人工验证后合并）。本节把这四条写成可执行判据。
+
+**为什么先做回流而不是先派活**：实测 2026-10-18，CNB 侧 open 卡 **198 张**，其中
+约 **197 张**的 GitHub 原卡早已关闭——看板脏的时候，任何「扫全部 open 卡」的作业读到的
+都是假库存。**脏看板上做出的判断不值钱**，所以顺序不能反。
+
+#### 一、回流（`scripts/bridge/mirror_state_sync.py`）
+
+- 判据是**单向**的：GitHub 已关 + CNB 还开 ⇒ 回流并关闭（B 口径，CNB `#171` 拍板）；
+- **镜像卡不能只靠状态文件识别**：状态文件是缓存，只在建卡成功的路径写入。实测
+  **48 张** `GitHub 同步` 卡不在里面，它们永远进不了 `plan()`——一条永远不执行的代码
+  被读成「已经对齐」（与 CNB `#450` 的 224 张重复卡同因）。现改为**缓存优先、卡面正文兜底**；
+- 认不出 GitHub 编号的卡**不静默跳过**：open 的逐张列出来，已关的只计数。
+
+#### 二、分诊（`scripts/triage/issue_triage.py`）
+
+一卡一次，产出**固定枚举**，只贴标签 + 写一条评论，**绝不改代码**：
+
+| 字段 | 取值 | 判据（全机械，不调 LLM） |
+|---|---|---|
+| `kind` | `stale` | 归档标签 / 正文写着「不再做 / 已被替代」 |
+| | `tracker` | 引用了 **≥2 张其他卡** / 标题含「系列」/ 卡面整段加粗（议题式写法） |
+| | `decision` | 卡面**明写**「需拍板 / 待决策」 |
+| | `task` | 有可逐条对照的验收标准（checkbox / 「验收」小标题） |
+| | `discuss` | 以上都不是 —— **先讨论清楚范围，别动手** |
+| `size` | `S`/`M`/`L` | S = 卡面自述「单点 / 一处 / typo」；L = 引用多卡或正文超 4000 字 |
+| `risk` | `low`/`medium`/`high` | high = 卡面出现钱 / 契约 / 数据域 / 守卫文件名 |
+| `next` | `close`/`archive`/`product_gate`/`dispatch_npc`/`human_review` | 见下 |
+
+- **判据顺序有意义**：过时 > 系列卡 > 需决策 > 可执行/讨论。顺序变了结论就变。
+- **镜像溯源块不参与判据**（`strip_mirror_header`）：它是建卡脚本写的模板，内含
+  `AGENTS.md` / `scripts/bridge/…`，不切掉会让 10+ 张无关的卡一起判成 high（实测踩过）。
+- 结论变了（指纹变）或标签被摘掉才重新写；同结论不刷屏。
+
+#### 三、派活闸门（`dispatch_rejects`，不掺感觉）
+
+四问**全过**才允许交给 NPC 自动推进：`kind=task` + `size` ∈ **准入档** + `risk=low` + 卡面不出现
+`money.py` / `db_factory.py` / `conventions.md` / `AGENTS.md` / `.cnb.yml` / `scripts/guard_*` /
+`migrations/`。**改文案 / 改视觉另有一条**：要同步 `design.md`，属于产品口径 ⇒ 一律转人工。
+
+**规模档是参数，不是判据里的字面量**（2026-10-18 用户拍板放开，判据见 `test_issue_triage.py`）：
+
+| 档 | 含义 | 谁决定 |
+|---|---|---|
+| 默认 `('S',)` | 只有「卡面自述改一处」的卡可派 | 代码默认值；改宽它等于偷偷放宽判据，`test_default_stays_strict` 会红 |
+| `.cnb.yml` 传 `--sizes S/M` | `M` 也进候场 | **用户 2026-10-18 明确放开**（见下） |
+| `L` | 永不随仓放开 | 几乎只意味着「正文超长 = 一件事写不清」，派 AI 去做等于替人补写范围；要派得由人在卡面写清验收标准 |
+
+**为什么放开 M**：实测 198 张卡可派 **0** 张，而「低风险 + 有验收」的 17 张**全部卡在 M**——
+按原标准，派活吞吐恒为 0，而「每轮 3 张」的额度从未被用上过。用户的原话是
+「放开这个限制」——**放开的是准入资格，不是同时能跑的量**：额度仍 3 张/轮，
+风险面 / 护栏文件 / 产品口径三条**一条没松**，PR 仍要人 review。
+
+⚠️ 两条踩过的坑，都由回归网钉住：
+
+- **准入档名要取 `size_of()` 真会返回的值**（`S`/`M`/`L`）。首版写成 `('S','SM')`，
+  而判据比较的是 `'M'` ⇒ **一张都没多派**，看板上却表现为「已放开、可派仍是 0」。
+  这是「放宽 ≠ 生效」型的假信号，与 #171 同族。
+- **被闸门挡掉 ≠ 被额度挡掉**，分开报（`🚧 另有 N 张被派活闸门挡下（非额度）`）。
+  混在一起时，「可派 0」读起来像「没有活」，而这 17 张正是被同一个条件挡着的活。
+
+#### 四、额度与合入（用户拍板，别再问第二遍）
+
+- **分诊写入**与**派活件数**是**两条上限**，不许合并：分诊只贴标签写评论、无副作用
+  （默认每轮 50 张）；派活要开分支写码、每张 PR 都要人 review（**每轮 ≤3 张、每天 ≤2 轮**）。
+  合并成一个数的话，130+ 张待分诊的卡要跑三周，期间看板一直是脏的。
+- 被额度挡掉的卡要**报出来**（`⏸️ 另有 N 张因额度未处理`），不许冒充「已分诊完」
+  ——这条由 `test_issue_triage.py` 的额度用例钉住（见下方护栏）。
+- **不贴 `automerge`**。绿灯 ≠ 审查通过：`.ai-review-deep.yaml` 在 `upstream_unavailable`
+  时把判定 job 判成 skipped（不是 pass），门禁分不清「通过」与「没跑」。**合入永远是人**。
+
+#### 五、护栏
+
+- **挂上 cron**（2026-10-18）：此前 `issue_triage.py` 只在本地手工跑过，于是「可派 0」
+  只出现在一次性终端输出里。现挂在 `main` 的 `crontab: 0 18 * * *` 里、
+  **排在「状态回流」之后**（先关掉 GitHub 已关的卡，再对剩下的贴结论，
+  否则会去给一张马上要关的卡写标签），`--apply --sizes S/M --batch 3`，退出码回声不吞（#171）。
+- 回归网 `scripts/tests/test_issue_triage.py`（46 条，含 **4 个变异探针**：模板当判据 /
+  规模检查被删 / 准入档被硬写 / 两条额度混一），并入 `ci.yml` 的 `scripts_test` job，
+  **不新增 job**（不新增就不必动 `gate.needs`）；
+- 守卫登记在 `guard_rule_registry.py` 的 `RULE_REGISTRY`；
+- 写 GitHub（标签 / 评论）仍只走 `claim_detect.py` / `mirror_correction.py`，**本脚本不写 GitHub**
+  ——双端写入的闸门不重开第二份。
+
 ### 认领同步：两边不要同时改同一张卡（D57，源 CNB #179）  <!-- cross-repo-ref-allow -->
 
 > 📍 这一节回答的是：「我们在 CNB 上修某张卡，GitHub 那边怎么知道？应该有一套约束。」
@@ -1140,6 +1255,25 @@ pull 又只拉 `dev`，**哪边都拉不动对方** ⇒ **死锁，两边都不�
   - 收敛工具：`python scripts/bridge/dev_converge.py --apply`（建 rescue 分支 + 合 + 列冲突；
     **不**动 `dev`、**不**自动解冲突、**不** push）。回归网
     `backend/tests/test_dev_converge.py`（含 1 个变异探针）。详见 §18。
+- ⚠️ **`bridge/github-dev` 只能有一个写者：GitHub reconcile 写，CNB 只读探针**（2026-10-19，源 CNB #574；守卫 `scripts/guard_bridge_machine_branch_single_writer.py`）。<!-- cross-repo-ref-allow -->
+  这张卡来自一张构建日志：两条 pipeline 同一天都红在 `! [rejected] … (fetch first)`，
+  而它们撞的是**同一条分支被两个写者各写一份**：
+
+  | 写者 | 触发 | 写法 | 开 PR 吗 |
+  |---|---|---|---|
+  | GitHub `.github/workflows/dev-reconcile.yml` | 每日 cron | `push --force-with-lease` + `merge -X ours` | **开**（挂 automerge） |
+  | CNB `.cnb.yml`「跨仓同步」stage | 每次推 `dev` | 每轮换 base 重合、普通 push | 不开 |
+
+  CNB 这侧每轮都必然徒劳：归一化 base 变了 ⇒ 非快进被拒；侥幸快进也会**改写** reconcile
+  刚铺好的合并结果，而**它开的那张 PR 还开着** ⇒ 内容与分支不符（外观正常，比红灯危险）。
+  ⇒ 写权归 GitHub reconcile（唯一写者），CNB 降级为**只读探针**：
+  合并照跑、结论照报（「两侧能不能无冲突合并」每轮都算得出来），但**一次 push 都不发**。
+  要接管时设 `MACHINE_BRANCH_WRITER=cnb`，并**同时停掉** reconcile 的推送步骤 ——
+  两个写者不能并存，且写者身份必须是**配置**不是**时序**（`--force-with-lease` 是原子检验，
+  「先比 SHA 再推」永远是竞态）。
+  判据：`scripts/guard_bridge_machine_branch_single_writer.py`（并入 `ci.yml` 的 `layout_guard`，
+  回归网 `scripts/tests/test_bridge_single_writer.py`，3 个变异探针均实测转红）。
+  推导见 `docs/dev/github-cnb-mirror.md` §23。
 - ⚠️ **「收敛」是动作不是状态：合完不等于成功，且会反复岔开**（2026-10-14 实测，源 CNB #269）。<!-- cross-repo-ref-allow -->
   跨仓分叉**不是一次性故障**。只要「GitHub 侧会推进 `dev`」+「CNB push 刻意不开 `force`」
   两条同时成立，分叉就会复发；#425 收敛完成、#448 再合一次，**30 分钟内又岔开一笔**
@@ -1202,6 +1336,36 @@ if known:            # ← 缓存非空就直接 return，CNB 侧一个字都不
 回归网 `scripts/tests/test_dup_mirror_guard.py`（16 条，含 **3 个变异探针**，
 其中一个是拿 `git show origin/dev:` 上**修复前的真实代码**喂给守卫，确认它真的转红）。
 推导与实测命令见 `docs/dev/github-cnb-mirror.md` §20。
+
+### 定时作业：**挂在哪，就只能推哪**（源 CNB #578，2026-10-18）  <!-- cross-repo-ref-allow -->
+
+`.cnb.yml` 里「作业挂在哪个分支键下」与「它推哪条分支」是**同一件事的两面**，
+runner 的检出口径写死了这一点（构建日志原文）：
+
+```text
+git fetch -v --force --refmap=+refs/heads/*:refs/remotes/origin/* origin "refs/heads/<分支键>"
+git checkout -f -B "<分支键>" <sha>          # 工作区里只有 `<分支键>` 这一条
+```
+
+于是「挂在 `main` 下、却 `settings.branch: dev`」会落在两种坏结局之一，**两个都栽过**：
+
+| 结局 | 长相 | 出处 |
+|---|---|---|
+| **静默跳过**（假绿） | `Warning: Branch dev does not exist locally, skipping push` ⇒ 构建仍 **success** | #269 |
+| **注定失败**（恒红） | `! [rejected] dev -> dev (fetch first)` ⇒ 每小时红一次，一个字节都没推出去 | **#578** |
+
+**判据没说「分叉了才红」——它说的是「位置错了，无论分叉与否都不可能成功」。**
+所以两条处置是分开的：
+
+- **位置**：定时作业的目标分支须等于它所在的分支键 —— 判据
+  `scripts/guard_cron_job_reachability.py`（并入 `ci.yml` 的 `scripts_test`，阻断）。
+- **内容**：两侧 `dev` 是否互相分叉，由
+  `python scripts/bridge/check_cross_repo_dev_divergence.py --report` 回答（联网、只报告）。
+  **不要拿构建颜色代替它**：那条 cron 的红只说明「这一轮没推上去」，
+  而它绿也**不**说明两侧已对齐（#269 就是这样绿了三天）。
+
+排查口诀：**先看 `git fetch` 那行拉的是 `refs/heads/` 哪条**，再谈其它。
+拉的分支与 `settings.branch` 不一致 ⇒ 不用往下看了，改挂载位置。
 
 ### 在 CNB 侧的其它已知边界（实测）
 
