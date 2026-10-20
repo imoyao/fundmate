@@ -7,7 +7,8 @@
 
 本文件钉住三条验收标准 + 几条设计约束：
   1. 定时扫描并按 symbol/family 关联既有持仓；
-  2. **只补 `position_id`**，不改写金额/确认日；
+  2. 补 `position_id` 后**必须重算派生份额**（017074 实测：只补链接不重算会让
+     已清仓持仓残留 2350 元幽灵市值），但流水金额/确认日一律不改写；
   3. 幂等（重复跑不重复关联），并能观测到回填前后的孤儿计数变化。
 """
 
@@ -16,6 +17,7 @@ import datetime as dt
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.adapters.null_adapter import NullAdapter
+from app.services.position_service import PositionService
 from app.services.sync.jobs.orphan_backfill_job import OrphanBackfillJob
 
 DAY = dt.date(2026, 10, 8)
@@ -25,7 +27,7 @@ def _job(db) -> OrphanBackfillJob:
     return OrphanBackfillJob(NullAdapter(), db)
 
 
-def _position(db, symbol, asset_type='stock', ledger_id=1, family_id=1):
+def _position(db, symbol, asset_type='stock', ledger_id=1, family_id=1, quantity=0):
     """建持仓。`symbol_norm` 由落库前的事件钩子自动填（#1662），故这里不传。"""
     pos = Position(
         symbol=symbol,
@@ -33,10 +35,44 @@ def _position(db, symbol, asset_type='stock', ledger_id=1, family_id=1):
         ledger_id=ledger_id,
         family_id=family_id,
         name=symbol,
+        quantity=quantity,
     )
     db.add(pos)
     db.commit()
     return pos
+
+
+def _flow(
+    db,
+    position_id,
+    symbol,
+    txn_type='buy',
+    asset_type='stock',
+    ledger_id=1,
+    family_id=1,
+    is_income=None,
+    amount=100000,
+    confirm_date=DAY,
+    quantity=0,
+):
+    """建一条已关联持仓的流水。"""
+    txn = Transaction(
+        position_id=position_id,
+        symbol=symbol,
+        txn_type=txn_type,
+        amount=amount,
+        confirm_date=confirm_date,
+        trade_date=dt.datetime.combine(confirm_date, dt.time(10, 0)),
+        asset_type=asset_type,
+        ledger_id=ledger_id,
+        family_id=family_id,
+        is_income=is_income,
+        quantity=quantity,
+        status='success',
+    )
+    db.add(txn)
+    db.commit()
+    return txn
 
 
 def _orphan(
@@ -48,12 +84,14 @@ def _orphan(
     is_income=None,
     amount=100000,
     confirm_date=DAY,
+    txn_type='buy',
+    quantity=0,
 ):
     """建一条孤儿流水（position_id 缺省即 NULL）。"""
     txn = Transaction(
         position_id=None,
         symbol=symbol,
-        txn_type='buy',
+        txn_type=txn_type,
         amount=amount,
         confirm_date=confirm_date,
         trade_date=dt.datetime.combine(confirm_date, dt.time(10, 0)),
@@ -61,6 +99,7 @@ def _orphan(
         ledger_id=ledger_id,
         family_id=family_id,
         is_income=is_income,
+        quantity=quantity,
         status='success',
     )
     db.add(txn)
@@ -326,3 +365,114 @@ def test_literal_fallback_no_position_when_no_matching_holder(db):
     assert txn.position_id is None
     assert result['stats']['no_position'] == 1
     assert result['stats']['attached'] == 0
+
+
+# ── 挂回后必须重算派生份额（017074 幽灵持仓回归）──
+
+
+def test_full_sell_orphan_attach_marks_position_cleared(db):
+    """017074 实测回归：整笔卖出孤儿挂回后，持仓必须清零并标记已清仓。
+
+    场景还原（支付宝先导卖出、后建持仓）：
+      - 持仓 28573100（两笔买入已关联，quantity 与流水一致）；
+      - 一笔 28580000 的卖出降级为孤儿（position_id=NULL）；
+      - 旧行为只补 position_id ⇒ 份额仍 2858.29 份、市值虚增约 2350 元，
+        对账 quantity 差异记了三个月对不平；
+      - 新行为：挂回 + 重算 ⇒ 净额为负（超卖脏数据）钳 0 并标记 cleared。
+    """
+    pos = _position(db, '017074', asset_type='fund', quantity=28573100)
+    _flow(
+        db,
+        pos.id,
+        '017074',
+        txn_type='buy',
+        asset_type='fund',
+        quantity=9433100,
+        confirm_date=dt.date(2025, 11, 25),
+    )
+    _flow(
+        db,
+        pos.id,
+        '017074',
+        txn_type='buy',
+        asset_type='fund',
+        quantity=19140000,
+        confirm_date=dt.date(2025, 12, 17),
+    )
+    txn = _orphan(
+        db,
+        '017074',
+        txn_type='sell',
+        asset_type='fund',
+        quantity=28580000,
+        confirm_date=dt.date(2026, 1, 20),
+    )
+
+    result = _job(db).run()
+
+    assert result['status'] == 'success'
+    assert result['stats']['recomputed'] == 1
+    db.refresh(txn)
+    assert txn.position_id == pos.id
+    db.refresh(pos)
+    assert pos.quantity == 0, '整笔卖出挂回后份额必须清零'
+    assert pos.ownership_status == 'cleared', '清仓不得删行，标记 cleared 即可（#2343）'
+    assert pos.cleared_at is not None
+
+
+def test_partial_sell_orphan_attach_recomputes_remaining_shares(db):
+    """部分卖出：挂回后只扣减卖出份额，持仓仍是 active。"""
+    pos = _position(db, '159915', quantity=10000000)
+    _flow(db, pos.id, '159915', txn_type='buy', quantity=10000000)
+    txn = _orphan(db, '159915', txn_type='sell', quantity=4000000)
+
+    result = _job(db).run()
+
+    db.refresh(txn)
+    assert txn.position_id == pos.id
+    db.refresh(pos)
+    assert pos.quantity == 6000000
+    assert pos.ownership_status == 'active'
+    assert result['stats']['recomputed'] == 1
+
+
+def test_second_run_does_not_recompute_without_new_attach(db):
+    """幂等：没有新挂回就不触发重算（重算同样必须是幂等的）。"""
+    pos = _position(db, '159915', quantity=10000000)
+    _flow(db, pos.id, '159915', txn_type='buy', quantity=10000000)
+    txn = _orphan(db, '159915', txn_type='sell', quantity=4000000)
+
+    first = _job(db).run()
+    assert first['stats']['attached'] == 1
+    assert first['stats']['recomputed'] == 1
+
+    second = _job(db).run()
+    assert second['stats']['attached'] == 0
+    assert second['stats']['recomputed'] == 0, '无新挂回不得重复重算'
+    db.refresh(pos)
+    assert pos.quantity == 6000000, '重跑后份额不得漂移'
+
+
+def test_recompute_failure_does_not_rollback_attach(db, monkeypatch):
+    """单个持仓重算失败只记 errors，不阻断挂回，整体仍成功。
+
+    回填是维护任务：一个持仓算错（典型：锚点与流水互相矛盾的脏数据）
+    不该让整批挂回的事务回滚——那会让本来能修好的链接也修不上。
+    """
+
+    def _boom(db, position_id):
+        raise RuntimeError('boom')
+
+    monkeypatch.setattr(PositionService, 'recompute_position_from_transactions', _boom)
+    pos = _position(db, '159915', quantity=10000000)
+    _flow(db, pos.id, '159915', txn_type='buy', quantity=10000000)
+    txn = _orphan(db, '159915', txn_type='sell', quantity=4000000)
+
+    result = _job(db).run()
+
+    assert result['status'] == 'success'
+    db.refresh(txn)
+    assert txn.position_id == pos.id, '挂回不得因重算失败而回滚'
+    assert result['stats']['recomputed'] == 0
+    assert len(result['stats']['errors']) == 1
+    assert result['stats']['errors'][0]['position_id'] == pos.id
