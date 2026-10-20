@@ -25,6 +25,12 @@
 #    则 CI 挂死零 job。push 后按新 head_sha 轮询并自动批准（#2289）。
 #    轮询逻辑在 `scripts/pr_autorebase_approve.py`（#2419）：内联的「3 轮 × 10s +
 #    status=action_required」窗口实测太短，且把「还没索引到」读成「无需批准」。
+# 7. ⚠️ **生效前提**：`pull_request_target` 的 workflow **定义**取自默认分支 `main`
+#    （实测见 docs/dev/github-action.md：main 33/33 行命中日志、dev 的批准循环 0 行），
+#    所以本文件合入 `dev` 只是第一步 —— 要等发版 PR（dev → main）才会真正执行。
+#    在那之前 bot 推送的分支仍会卡在 approval-required，需人工点 Approve。
+#    检出用 `ref: dev` + `git show origin/dev:<脚本>`，只能保证**执行内容**是新的，
+#    保证不了**定义**是新的。
 
 name: PR 自动变基（保新）
 

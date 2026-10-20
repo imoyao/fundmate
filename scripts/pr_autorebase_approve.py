@@ -9,18 +9,24 @@ workflow runs 标成 `action_required`：**没人点 Approve 就零 job、永远
 （GitHub #2289 记的就是这件事）。
 
 旧实现（内联在 workflow 里的 shell）在 push 之后紧接 3 轮 × `sleep 10` 去查
-`status=action_required`，**窗口太短**。实测（2026-10-20，PR #2418 被自动变基）：
+`status=action_required`，两个独立缺陷：
 
-    16:59:23  push 完成
-    16:59:28  4 个 run 创建，且 conclusion 直接就是 action_required
-    16:59:24 / :34 / :44   三轮查询**全部返回空**
-    次日 01:30 用同一条件复测 ⇒ total_count=4（查得到那 4 个）
+**(a) 它根本没被执行过。** `pull_request_target` 的 workflow **定义**取自默认分支 `main`，
+而该逻辑（GitHub #2289）只合进了 `dev` ⇒ `main` 上那份脚本里没有这段循环。
+实测（2026-10-19 run `39290214996`）：`main` 的 33 行脚本在日志里 33 行全中，
+`dev` 的批准循环 10 行一行未现。详见 `docs/dev/github-action.md`。
 
-空结果又被当成「没有待批 run」**静默通过** —— 与 AGENTS.md「空 ≠ 没拿到」同族：
-作业是绿的，机制没干活，PR 的 checks 永远凑不齐，`automerge` 也就永远不触发。
+**(b) 一旦真的跑起来，它会把「空」读成「无需批准」。** 窗口只有 30s，
+且用 `status=action_required` 过滤 —— 过滤后为空时，「还没索引到」与「没有待批」
+长得一模一样，作业绿、机制没干活（与 AGENTS.md「空 ≠ 没拿到」同族）。
 
-本脚本把那一段抽出来，做三件旧实现做不到的事
-=============================================
+所以本脚本既修 (b) 的判据，也让 (a) 可自证：脚本与 workflow 都显式取 `dev`
+（`ref: dev` + `git show origin/dev:<脚本>`），并打印 `AUTOREBASE_APPROVE …`
+一行汇总 —— 发版后看日志里有没有这行，就知道新逻辑有没有真的跑。`docs/dev/github-action.md`
+里给了核实命令。
+
+本脚本做三件旧实现做不到的事
+============================
 1. **先看全量 runs 再筛**（不带 `status=` 过滤）：能区分「一条 run 都没有（索引滞后 /
    该 head 没触发任何 workflow）」与「有 run 但不需要批准」。旧实现把两者读成同一句话，
    而这两者的处置完全相反。
