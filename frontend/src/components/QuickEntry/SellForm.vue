@@ -400,15 +400,17 @@ const {
   reset: resetTradeDate
 } = useFundTradeDate();
 
+// #2372：持仓分组键是 ledger_id（后端 group_by=account 按真外键分组）——
+// 账户名可编辑且真库有重名，按名回查会落空或串到别的账户
 const availableAccounts = computed(() =>
-  props.ledgers.filter(l => positionsByAccount.value[l.name]?.length > 0)
+  props.ledgers.filter(l => positionsByAccount.value[String(l.id)]?.length > 0)
 );
 const currentLedger = computed(
   () => props.ledgers.find(l => l.id === form.ledger_id) ?? null
 );
 const accountPositions = computed(() => {
   if (!currentLedger.value) return [];
-  return positionsByAccount.value[currentLedger.value.name] || [];
+  return positionsByAccount.value[String(currentLedger.value.id)] || [];
 });
 const maxQuantity = computed(() => selectedPosition.value?.quantity ?? 1);
 const stepForSecurity = computed(() => {

@@ -24,7 +24,9 @@ export function getPositions(params?: PositionListParams) {
 
 /**
  * 按账户分组获取全部持仓。
- * 对齐后端 group_by=account 返回：{ data: {账户名: [position_dict]}, message }。
+ * 对齐后端 group_by=account 返回：{ data: {ledger_id字符串: [position_dict]}, message }。
+ * #2372：分组键是 **ledger_id**（String(id)，未归档持仓为 "unfiled"）而非账户名——
+ * 账户名是可编辑字段，重名会并组、改名会令按名回查落空；行内仍带 account_name 快照供展示。
  * 独立函数而非给 getPositions 传 { group_by }，保证两条路径的信封类型互不混淆。
  */
 export function getPositionsGroupedByAccount() {

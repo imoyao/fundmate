@@ -210,9 +210,11 @@ const {
 const currentLedger = computed(
   () => props.ledgers.find(l => l.id === props.defaultLedgerId) ?? null
 );
+// #2372：持仓分组键是 ledger_id（后端 group_by=account 按真外键分组）——
+// 账户名可编辑且真库有重名，按名回查会落空或串到别的账户
 const accountPositions = computed(() => {
   if (!currentLedger.value) return [];
-  return positionsByAccount.value[currentLedger.value.name] || [];
+  return positionsByAccount.value[String(currentLedger.value.id)] || [];
 });
 const showIsAfter15 = computed(() => selectedPosition.value?.type === "fund");
 const computedShares = computed(() => {

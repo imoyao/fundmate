@@ -26,7 +26,7 @@ from app.domains.positions.schemas import (
 from app.domains.transactions.models import Transaction
 from app.services.conversion_service import ConversionService
 from app.services.position_presenter import enrich_position_dict
-from app.services.position_service import PositionService
+from app.services.position_service import PositionService, query_transactions_by_identity, resolve_ledger_change
 from app.services.position_valuation import allocate_value
 from app.services.price_range_service import resolve_security_price_range
 from app.services.trading import TradeService
@@ -56,9 +56,8 @@ def get_position_transactions(id: int):
         if not position:
             abort(404, '持仓不存在')
 
-        # 优先用 position_id，若为空则用 symbol + account_name。
-        # 排序：确认日倒序（NULL 沉底）+ 创建时间倒序——用户最关注最近交易（#982 排查修正，
-        # 原 asc() 让最早的 2023 年记录排在最前）
+        # 优先用 position_id；兜底走身份键 (ledger_id, symbol)（#2372）。
+        # 排序：确认日倒序（NULL 沉底）+ 创建时间倒序——用户最关注最近交易（#982）
         if position.id and db.query(Transaction).filter(Transaction.position_id == position.id).first() is not None:
             transactions = (
                 db.query(Transaction)
@@ -72,8 +71,7 @@ def get_position_transactions(id: int):
             )
         else:
             transactions = (
-                db.query(Transaction)
-                .filter(Transaction.symbol == position.symbol, Transaction.account_name == position.account_name)
+                query_transactions_by_identity(db, position)
                 .order_by(
                     Transaction.confirm_date.desc().nullslast(),
                     Transaction.created_at.desc(),
@@ -239,6 +237,11 @@ def update_position(id):
             if not target:
                 abort(404, description='目标组合不存在或无权访问')
 
+        # #2372：ledger_id 变更的账户存在性校验与 account_name 快照同步下沉到 service
+        ledger_err = resolve_ledger_change(db, position, update_data, get_family_id())
+        if ledger_err:
+            abort(404, description=ledger_err)
+
         for field, value in update_data.items():
             # 金额/份额字段转换为内部单位
             if field in ('current_price', 'avg_price'):
@@ -266,10 +269,7 @@ def delete_position(id):
             # 优先使用 position_id 删除
             deleted = db.query(Transaction).filter(Transaction.position_id == id).delete()
             if deleted == 0:
-                # 兜底：无 position_id 时用 symbol + account_name 匹配
-                db.query(Transaction).filter(
-                    Transaction.symbol == position.symbol, Transaction.account_name == position.account_name
-                ).delete()
+                query_transactions_by_identity(db, position).delete()
 
         db.delete(position)
         db.flush()
