@@ -11,10 +11,14 @@ workflow runs 标成 `action_required`：**没人点 Approve 就零 job、永远
 旧实现（内联在 workflow 里的 shell）在 push 之后紧接 3 轮 × `sleep 10` 去查
 `status=action_required`，两个独立缺陷：
 
-**(a) 它根本没被执行过。** `pull_request_target` 的 workflow **定义**取自默认分支 `main`，
-而该逻辑（GitHub #2289）只合进了 `dev` ⇒ `main` 上那份脚本里没有这段循环。
-实测（2026-10-19 run `39290214996`）：`main` 的 33 行脚本在日志里 33 行全中，
-`dev` 的批准循环 10 行一行未现。详见 `docs/dev/github-action.md`。
+**(a)【2026-10-20 实测更正——原判据已过时】**「定义取自旧 main、逻辑只在 dev」不再成立：
+现 main 与 dev 上本 workflow 及本脚本同版（`.github/workflows/pr-auto-rebase.yml`
+两边 len 5755 一致，`AUTOREBASE_APPROVE` 循环 main 亦有），`pull_request_target`
+取 main 定义即新逻辑。但**机制两侧就位 ≠ 验证过**——本脚本直到 2026-10-19 仍从未
+在真实变基推送后执行过（当日 4 条历史 `action_required` run + 3 次变基作业均未产生
+批准调用）。首次端到端验证见 2026-10-20 PR #2436 / run `39439384514`：
+bot 变基推送后真实执行，`AUTOREBASE_APPROVE seen=5 approved=4 failed=0`，
+新 head 的 runs 自动由 `action_required` 转为正常执行。验收记录见 #2428。
 
 **(b) 一旦真的跑起来，它会把「空」读成「无需批准」。** 窗口只有 30s，
 且用 `status=action_required` 过滤 —— 过滤后为空时，「还没索引到」与「没有待批」
