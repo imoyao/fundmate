@@ -21,11 +21,14 @@ from __future__ import annotations
 import importlib.util
 import pathlib
 import sys
-import types
 import unittest
 
+# 共享的桩与假连接（见 feedlog_test_support.py 的说明：为什么需要它）
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
+from feedlog_test_support import FakeConn, load_bridge_module  # noqa: E402
+
 REPO = pathlib.Path(__file__).resolve().parents[2]
-BRIDGE = REPO / 'scripts' / 'bridge' / 'feedlog_bridge.py'
 SLUG_MODULE = REPO / 'scripts' / 'bridge' / 'changelog_slug.py'
 
 
@@ -38,65 +41,8 @@ def _load_slug_module():
 
 
 def _load_bridge_module():
-    """导入真实 ``feedlog_bridge``，用最小桩顶掉 psycopg2 / PyGithub。
-
-    这不是「假装跑过」：被测函数只用 ``conn.cursor()/execute()/fetchone()/commit()``
-    这套 DB-API 形状，假连接如实记录每条 SQL 与参数，断言就落在 SQL 上。
-    """
-    if 'psycopg2' not in sys.modules:
-        psycopg2 = types.ModuleType('psycopg2')
-        extras = types.ModuleType('psycopg2.extras')
-        extras.RealDictCursor = object
-        psycopg2.extras = extras  # type: ignore[attr-defined]
-        sys.modules['psycopg2'] = psycopg2
-        sys.modules['psycopg2.extras'] = extras
-    if 'github' not in sys.modules:
-        github = types.ModuleType('github')
-        github.Github = object  # type: ignore[attr-defined]
-        github.UnknownObjectException = type('UnknownObjectException', (Exception,), {})  # type: ignore[attr-defined]
-        sys.modules['github'] = github
-
-    spec = importlib.util.spec_from_file_location('feedlog_bridge_under_test', BRIDGE)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
-
-
-class _FakeCursor:
-    def __init__(self, conn):
-        self.conn = conn
-        self._row = None
-
-    def execute(self, sql, params=None):
-        self.conn.queries.append((sql, params))
-        keyword = sql.lstrip().split(None, 1)[0].upper()
-        if keyword == 'SELECT':
-            self._row = self.conn.existing
-        elif keyword == 'INSERT':
-            # INSERT ... RETURNING id
-            self._row = {'id': f'entry-{len(self.conn.queries)}'}
-        else:
-            self._row = None
-
-    def fetchone(self):
-        return self._row
-
-
-class _FakeConn:
-    def __init__(self):
-        self.queries: list[tuple[str, tuple | None]] = []
-        self.existing = None
-        self.commits = 0
-
-    def cursor(self):
-        return _FakeCursor(self)
-
-    def commit(self):
-        self.commits += 1
-
-    def statements(self, keyword: str):
-        return [q for q in self.queries if q[0].lstrip().split(None, 1)[0].upper() == keyword]
+    """导入真实 ``feedlog_bridge``（psycopg2 / PyGithub 由 support 模块打桩）。"""
+    return load_bridge_module()
 
 
 class SlugifyTest(unittest.TestCase):
@@ -151,7 +97,7 @@ class CreateChangelogEntryTest(unittest.TestCase):
         self.bridge = _load_bridge_module()
 
     def test_release_retrigger_updates_instead_of_inserting(self) -> None:
-        conn = _FakeConn()
+        conn = FakeConn()
         expected_slug = self.bridge.changelog_slug('v0.1.0', 'v0.1.0')
 
         first_id = self.bridge.create_changelog_entry(
@@ -185,7 +131,7 @@ class CreateChangelogEntryTest(unittest.TestCase):
         self.assertEqual(selects[-1][1][1], expected_slug, '第二次查询用的 slug 变了')
 
     def test_without_stable_key_query_uses_fresh_slug(self) -> None:
-        conn = _FakeConn()
+        conn = FakeConn()
         self.bridge.create_changelog_entry(conn, 'org-1', '手动条目', '内容', None)
         self.bridge.create_changelog_entry(conn, 'org-1', '手动条目', '内容', None)
         slugs = [q[1][1] for q in conn.statements('SELECT')]
