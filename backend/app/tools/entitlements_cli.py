@@ -35,6 +35,9 @@ python -m app.tools.entitlements_cli revoke --family-id 1 --all --apply
 
 `--family-id` 默认 1，与 ``app/core/auth.py::get_family_id()`` 在未鉴权 / 单用户
 场景下的回退值一致。幂等：重复执行只更新既有行，不会重复插入。
+
+个人用户同样是「一条 family 记录」（单人家族），权益只认 ``family_id``、不区分成员数——
+所以这条命令对个人与多成员家庭完全一致，不存在「个人不能开通」的分支。
 """
 
 import argparse
