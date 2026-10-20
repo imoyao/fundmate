@@ -17,6 +17,10 @@
  *
  * 文案纪律：讲边界、不营销。「开通 Pro 后可见」是事实；「限时 / 抢先 / 升级即省」
  * 是话术，两者都不该出现在一个说明权益范围的小块里。
+ *
+ * 只说「开通 Pro」，**不写「家庭」**：家庭账户是远期规划，当前用户默认是个人场景，
+ * 对个人说「家庭开通」只会让他以为自己走错了入口（#2324 反馈）。权益按 `family_id`
+ * 存储，个人用户就是单人家族，可开通范围与多成员家庭完全一致——所以文案也不必区分。
  */
 defineProps<{
   /**
@@ -32,7 +36,7 @@ defineProps<{
 <template>
   <div class="pro-entitlement" role="note">
     <p class="pro-entitlement__title">Pro 功能未开通</p>
-    <p class="pro-entitlement__desc">家庭开通 Pro 后即可查看{{ subject }}。</p>
+    <p class="pro-entitlement__desc">开通 Pro 后即可查看{{ subject }}。</p>
   </div>
 </template>
 
