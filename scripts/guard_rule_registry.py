@@ -335,6 +335,14 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/guard_workflow_inputs_interpolation.test.js',
         'covered': '只扫 .github/workflows；`.cnb.yml` 里同型写法不在判据内',
     },
+    'scripts/guard_dependabot_lockfile_regen.py': {
+        'rule': 'dependabot 的 pnpm 锁必须能被自动重生成并推回',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_dependabot_lockfile_regen.py',
+        # 只查「通道会不会真的发生」（调用 / --apply / push / 不吞失败态 / 设闸）。
+        # 锁生成得对不对要 pnpm + 网络，属端到端验证，不在这里假装。
+        'covered': '不校验重生成产出的锁内容；workflow 实际能否推送成功取决于 GitHub 侧权限',
+    },
     'scripts/guard_cross_repo_refs.mjs': {
         'rule': '提到 GitHub 的 issue / PR 编号必须挂源',
         'runner': 'ci',
