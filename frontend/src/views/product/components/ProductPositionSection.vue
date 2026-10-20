@@ -7,6 +7,7 @@ import SectionHeader from "@/components/SectionHeader/index.vue";
 import { getPositions } from "@/api/positions";
 import { getSymbolXirr } from "@/api/performance";
 import type { Position } from "@/api/types";
+import { pricePrecision } from "@/utils/pricePrecision";
 import { formatQuantity } from "@/utils/format";
 // 计算口径单独成模块，由 __tests__/productPositionMetrics.spec.ts 钉住：
 // 尤其「盈亏率必须是百分数」这条——旧实现给了比值却拼上 "%"，小了 100 倍
@@ -72,6 +73,11 @@ const props = defineProps<{
   symbol: string;
   /** 市场消歧：同码跨市场时由详情页 resolve 结果带下来 */
   market?: string;
+  /**
+   * 资产类型。**价格类字段的精度由它决定**（基金/ETF/货币基金 4 位，其余 2 位）——
+   * 不传就没有判断依据，只能写死位数，于是股票成本也会被显示成 4 位。
+   */
+  assetType?: string;
 }>();
 
 const loading = ref(false);
@@ -298,7 +304,7 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
                 :value="single.avgPrice"
                 :auto-color="false"
                 :show-sign="false"
-                :precision="4"
+                :precision="pricePrecision(props.assetType)"
               />
             </span>
           </div>
