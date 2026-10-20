@@ -144,6 +144,17 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/guard_col_divider.test.js',
         'covered': '只认 1px + --border-light 的形态；3px 语义强调条有意放行',
     },
+    'scripts/guard_db_backup_ignored.py': {
+        'rule': '数据库/备份文件必须被 gitignore 忽略（`*.db` 只匹配以 .db 结尾的名字）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_db_backup_ignored.py',
+        'covered': (
+            '只判**文件名模式**与 ignore 规则命中与否；不判文件内容、不管已跟踪文件、'
+            '不处理 GitHub 侧历史（已推上去的备份要人工清历史）。'
+            '探针覆盖 .db / .db-wal / .db-shm / .db.bak* / .db.backup* / .sqbpro，'
+            '根目录与 backend/ 两个位置都测。'
+        ),
+    },
     'scripts/forbid_bp_input.py': {
         'rule': '禁止 @bp.input() 自动范式',
         'runner': 'both',

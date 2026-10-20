@@ -290,6 +290,16 @@ jobs:
       - name: 扫描密钥引用位置回潮（阻断）
         run: python scripts/guard_secret_imports.py
 
+      # 数据库/备份文件必须受 gitignore 保护（2026-10-19 实测事故）：
+      # `*.db` 只匹配「以 .db 结尾」的文件名 ⇒ `invest.db.bak_20261018_anchor`
+      # 这类备份**不被任何规则命中**（实测 git check-ignore 退出码 1），
+      # 而一个 145MB 的备份曾以未跟踪文件躺在 backend/，一次 `git add -A`
+      # 就会把**用户私有数据**（持仓 / 流水 / 账户）提交进公开仓库。
+      # 本步骤做两件事：① 合成探针必须全部被忽略；② 工作区里不得有漏网的未跟踪 db 文件。
+      # 回归网在 scripts/tests/test_guard_db_backup_ignored.py（含回退探针）。
+      - name: 校验数据库备份文件受 ignore 保护（阻断）
+        run: python scripts/guard_db_backup_ignored.py
+
       # .cnb.yml 重复键守卫（源 CNB #458，2026-10-15）<!-- cross-repo-ref-allow -->：跨仓收敛合并把两侧各写一份的
       # `main:` / `dev:` / `pull_request:` 并进了同一层 ⇒ 两个 `dev:` 键、两个 `pull_request`
       # 键。YAML 规范允许重复键（后者覆盖前者），所以 PyYAML safe_load 与本仓全部
