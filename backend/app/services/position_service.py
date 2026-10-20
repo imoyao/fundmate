@@ -213,6 +213,60 @@ def _find_position_by_identity(
     return None
 
 
+def query_transactions_by_identity(db: Session, position: Position):
+    """按**身份键**构造流水查询（#2372）：``(ledger_id, symbol)``，未归档持仓只匹配未归档流水。
+
+    ## 为什么不是 ``(symbol, account_name)``
+
+    ``account_name`` 是 ``ledgers.name`` 的**可编辑快照**——账户改名后，改名前落库的
+    流水与新名字天然对不上；真库还存在重名账户（支付宝×2 / 天天基金×2），按名称过滤会
+    把**另一个账户**的交易一并卷进来。持仓明细页的兜底查询因此必须按 ``ledger_id`` 收敛。
+
+    ``ledger_id`` 为 NULL（未归档持仓 / 探市迁移行）时，只匹配同属未归档的流水——
+    宁可少查，也不拿名字去猜（猜错的表现是明细里混入别人账户的交易，且不会报错）。
+
+    ## 为什么放在 service 而不是视图层
+
+    视图层的判据是「只做 HTTP 编排」（``decisions.md`` 2026-09-19），且
+    ``scripts/check_view_thickness.py`` 会按行数拦截视图层变厚。同一段兜底过滤在
+    ``get_position_transactions`` 与 ``delete_position`` 两处都需要，下沉后一处定义、两处复用。
+    """
+    query = db.query(Transaction).filter(Transaction.symbol == position.symbol)
+    if position.ledger_id is not None:
+        return query.filter(Transaction.ledger_id == position.ledger_id)
+    return query.filter(Transaction.ledger_id.is_(None))
+
+
+def resolve_ledger_change(
+    db: Session,
+    position: Position,
+    update_data: dict,
+    family_id: int,
+) -> Optional[str]:
+    """处理持仓的 `ledger_id` 变更：校验目标账户存在，并同步 `account_name` 快照。
+
+    返回 ``None`` 表示通过；返回字符串是**给调用方 abort(404) 的文案**（HTTP 语义留在
+    视图层，本方法不 import flask）。原地修改 ``update_data`` 补上快照字段。
+
+    ## 为什么两件事必须一起做
+
+    只校验不同步 ⇒ 归档 / 迁移后留下「外键指向新账户、展示名还是旧账户」的漂移行，
+    账户改名时 `sync_account_name_snapshots` 按 `ledger_id` 级联刷新，把用户刚迁走的
+    持仓显示名**刷回旧账户**——一次「迁移」在界面上被静默还原（#2372 症状 3 同构）。
+    只同步不校验 ⇒ 允许绑定一个不存在的幽灵账本，外键失去意义。
+
+    幂等：`ledger_id` 未变化（含未传）时直接返回，不写任何字段。
+    """
+    new_id = update_data.get('ledger_id')
+    if new_id is None or new_id == position.ledger_id:
+        return None
+    ledger = db.query(Ledger).filter_by(id=new_id, family_id=family_id).first()
+    if not ledger:
+        return '目标账户不存在'
+    update_data['account_name'] = ledger.name
+    return None
+
+
 # 允许写入持仓模型的字段白名单（防止注入无效字段）
 _ALLOWED_POSITION_FIELDS = {
     'symbol',

@@ -231,9 +231,15 @@ BASELINE: dict[str, dict[str, int]] = {
     # SBException(1003/409) 均由全局异常处理器收敛，视图零 try/except；
     # orm_queries / commits 不变（6/0）、max_func 不变（57）。positions 288 → 320。
     # 按本文件既有先例以 `--report` 实测回写，非手工拍数。
+    # 2026-10-20 重取（#2372，**下沉**而非放宽）：持仓明细 / 删除的兜底流水匹配原按
+    # (symbol, account_name)——account_name 是可编辑快照，真库重名账户（支付宝×2 /
+    # 天天基金×2）下会把别家流水串进明细、甚至误删别家流水（删除不可恢复）。现下沉为
+    # `query_transactions_by_identity` 按 (ledger_id, symbol) 收敛，两处共用同一份判据；
+    # 视图层因此少了 2 处 `db.query(Transaction)` ⇒ orm_queries 6 → 4（**收紧**）。
+    # lines 320、commits 0、max_func 57 均不动。按本文件既有先例以 `--report` 实测回写。
     "backend/app/domains/positions/views.py": {
         "lines": 320,
-        "orm_queries": 6,
+        "orm_queries": 4,
         "commits": 0,
         "max_func": 57,
     },

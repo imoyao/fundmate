@@ -279,7 +279,9 @@ def _fill_position_account_name(mapper, connection, target: Position) -> None:
     `account_name` 只是 `ledgers.name` 的冗余快照（供明细展示与「按账户分组」使用，
     账户改名由 `ledger_write_service.sync_account_name_snapshots` 级联刷新）。它此前
     **由各写入路径各自传递**——基金转换「转入腿」只传了 `ledger_id`、漏传
-    `account_name`，于是落成 NULL（2026-10-18 实测 position 618 / transaction 3001）。
+    `account_name`，于是落成 NULL（2026-10-18 实测 position 618 / transaction 3001）；
+    反过来，改 `ledger_id`（归档 / 迁移）却不改快照，则会留下「外键指向新账户、
+    展示名还是旧账户」的**漂移行**。
 
     NULL 一旦成为「按账户分组」的字典键，`flask.jsonify(sort_keys=True)` 会在
     `str` 与 `None` 比较时抛 `TypeError`，整个持仓列表 500。问题不在排序，在于
@@ -290,9 +292,17 @@ def _fill_position_account_name(mapper, connection, target: Position) -> None:
     与 `_fill_position_symbol_norm` 同因同解：本仓写持仓的入口有多处，靠调用方自觉
     传冗余字段必然漏；事件挂在这里，写入路径无论怎么绕都会经过。
 
-    只补空值（`None` / 空串），**不覆盖**调用方显式传入的名字：导入解析出的机构展示名
-    可能与 ledger 名不同，那是有意的。`ledger_id` 为空（未归档持仓 / 导入影子行）时
-    也无从补齐，保持原值——它们确实没有账户，显示层兜底为「未指定账户」。
+    ## 覆盖规则（#2372）
+
+    - **创建**：只补空值，**不覆盖**调用方显式传入的名字——导入解析出的机构展示名
+      可能与 ledger 名不同，那是有意的；
+    - **更新且 `ledger_id` 确实变了**：**覆盖**为新账户名。此时旧快照已失效，留着就
+      是漂移——账户改名后 `sync_account_name_snapshots` 会按 `ledger_id` 级联刷新，
+      把用户刚迁走的持仓显示名刷回旧账户，一次「迁移」在界面上被静默还原；
+    - **更新但 `ledger_id` 未变**：不动（同创建路径，保护显式传入的名字）。
+
+    `ledger_id` 为空（未归档持仓 / 导入影子行）时无从补齐，保持原值——它们确实没有
+    账户，显示层兜底为「未指定账户」。
 
     ## 边界：只有部分表结构的库不参与回填（但要出声）
 
@@ -315,7 +325,7 @@ def _fill_position_account_name(mapper, connection, target: Position) -> None:
     —— 它也挂在 flush 事件里，也先 `inspect(session.connection()).has_table(...)`
     再决定动不动，理由相同（脚本自建 sessionmaker + 夹具的部分表库）。
     """
-    if not target.ledger_id or target.account_name:
+    if not target.ledger_id:
         return
     # 延迟导入：ledgers 与 positions 同属 user 域，但模块加载期避免交叉导入。
     from app.domains.ledgers.models import Ledger
@@ -325,6 +335,11 @@ def _fill_position_account_name(mapper, connection, target: Position) -> None:
             'positions.account_name 冗余快照无法回填：本引擎无 ledgers 表（ledger_id={}，仅部分表结构的库）',
             target.ledger_id,
         )
+        return
+
+    # 已有快照 ⇒ 仅在「持久化对象 + ledger_id 本条发生变更」时覆盖，其余情况保护显式传入的值
+    state = inspect(target)
+    if target.account_name and not (state.persistent and bool(state.attrs.ledger_id.history.has_changes())):
         return
 
     name = connection.execute(select(Ledger.name).where(Ledger.id == target.ledger_id)).scalar()
