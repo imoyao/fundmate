@@ -5,12 +5,14 @@
 模块内容随 Phase 2-4（里程碑 #19）逐个上线：内容服务落地时把模块加进
 ``AVAILABLE_MODULES``，前端按位渲染，无感切换。
 
-口径契约（#994 定稿评论，2026-10-08）：
-- **一期后端全开无权益校验**：``pro_enabled`` 恒 true、``paywall_required`` 恒 false。
-  付费墙是纯前端 feature flag（``VITE_PRO_PAYWALL_ENABLED``）控制的遮罩，与本端点
-  解耦——后端先全开，避免「功能还没建、权益先卡住」的倒置；
-- 后期接入付费时，权益判定抽成独立接口 ``GET /api/me/entitlements``（不绑平台），
-  到那时 ``paywall_required`` 才由该接口的结果驱动，本文件的形状不变；
+口径契约（#2324 修订；原文「一期后端全开无权益校验、paywall_required 恒 false」已作废）：
+- **``paywall_required`` 由家庭权益驱动**：``entitlements`` 里一条 ``granted=True``
+  都没有 ⇒ ``True``；未登录（``entitlements=None``）同样按全未开通处理。
+  前端据此渲染遮罩；env ``VITE_PRO_PAYWALL_ENABLED`` 只作**显式覆盖**，不是真相来源；
+- 三条内容端点（``pro-insight`` / ``pro-risk`` / ``pro-allocation``）由
+  ``@require_pro_feature`` 拦截未开通家庭，返回 403 + ``error_code=1007``
+  （``PRO_NOT_ENTITLED``，刻意不复用通用 403/1006，前端才能区分「该升级」与
+  「没权限做这件事」）；
 - 模块可用性位与「非账户级」标注联动：盈米过渡数据源上线的模块，前端按
   ``available=false`` + ``phase`` 标注渲染占位（口径说明见 #1986 改写后的正文）。
 

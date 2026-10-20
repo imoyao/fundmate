@@ -3,9 +3,10 @@
 
 from functools import wraps
 
-from flask import abort, g
+from flask import g
 
 from app.core import database
+from app.core.exceptions import ErrorCode, SBException
 from app.services.entitlement_check import PRO_FEATURES, check_entitlement, get_pro_status
 
 
@@ -17,7 +18,14 @@ def require_pro_feature(feature: str):
 
     Raises:
         ValueError: feature 未登记（开发期拦截）
-        403: 权益未开通或已过期，响应统一错误信封
+        SBException: 权益未开通或已过期（403 / error_code=1007）
+
+    为什么用独立错误码而不是复用 FORBIDDEN（#2324 收口）：403 在本仓还承载
+    「viewer 只读」等语义，前端只凭状态码分不清「该升级」与「没权限做这件事」。
+    独立码让前端能直接渲染权益态；``detail`` 走响应信封的 ``data`` 字段，
+    ``message`` 保持字符串——旧实现把整个 dict 塞进 ``abort(description=...)``，
+    经 ``main.py`` 的 HTTPException 处理器后会让 ``message`` 变成对象，违反
+    ``{data, message, error_code}`` 契约。
     """
     if feature not in PRO_FEATURES:
         raise ValueError(f'未登记的 Pro 功能：{feature}（需先加入 PRO_FEATURES 白名单）')
@@ -30,18 +38,14 @@ def require_pro_feature(feature: str):
                 result = check_entitlement(db, family_id, feature)
 
             if not result.granted:
-                # 统一错误信封：前端据此渲染付费墙/引导
-                abort(
-                    403,
-                    description={
-                        'data': None,
-                        'message': 'Pro 功能未开通',
-                        'error_code': 1006,  # FORBIDDEN
-                        'detail': {
-                            'feature': feature,
-                            'reason': result.reason,
-                            'expires_at': result.expires_at,
-                        },
+                raise SBException(
+                    code=ErrorCode.PRO_NOT_ENTITLED.code,
+                    message=ErrorCode.PRO_NOT_ENTITLED.msg,
+                    status_code=ErrorCode.PRO_NOT_ENTITLED.http_status,
+                    detail={
+                        'feature': feature,
+                        'reason': result.reason,
+                        'expires_at': result.expires_at,
                     },
                 )
             return fn(*args, **kwargs)
