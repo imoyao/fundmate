@@ -26,9 +26,9 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 import traceback
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -36,6 +36,12 @@ from typing import Any
 import psycopg2
 from github import Github, UnknownObjectException
 from psycopg2.extras import RealDictCursor
+
+# 同目录的纯函数模块（直接以脚本运行时没有包上下文，故先补 sys.path；
+# 与 mirror_state_sync.py / ffback_cnb_dev.py 同一写法）。
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from changelog_slug import changelog_slug  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # 配置
@@ -103,12 +109,6 @@ def save_state(state: dict[str, Any]) -> None:
 def now_iso() -> str:
     # PostgreSQL timestamptz 接受 'Z' 后缀，故保持 UTC 'Z' 格式
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def slugify(text: str, max_len: int = 80) -> str:
-    """生成 FeedLog 所需的 slug（小写、连字符、截断）。"""
-    slug = re.sub(r"[^\w一-龥]+", "-", (text or "").strip().lower()).strip("-")
-    return slug[:max_len] or "item"
 
 
 def ensure_label(repo, name: str) -> None:
@@ -407,24 +407,31 @@ def create_post_from_issue(
 
 
 def create_changelog_entry(
-    conn, org_id: str, title: str, content: str, published_at: str | None = None
+    conn,
+    org_id: str,
+    title: str,
+    content: str,
+    published_at: str | None = None,
+    stable_key: str | None = None,
 ) -> str:
     """创建 FeedLog Changelog 条目。
 
     对齐真实 schema：author_id / slug / org_id 均为 NOT NULL，且 slug 按 org 唯一；
     title 列 varchar(70) 需截断；published 时同步 published_* 字段。
 
-    幂等：若同 slug 条目已存在（同一 Release 重复触发），则更新而非重复插入。
+    幂等（#1996 反向验证项 3 修正）：**只有传了 ``stable_key`` 才幂等**。
+    发布路径传 Release tag，同一 Release 重复触发得到同一 slug，命中已有条目走 UPDATE；
+    不传时 slug 带随机后缀，每次都是新条目——旧版注释把这句话说反了：
+    它当时的 slug 每次都带 uuid，``SELECT ... slug = %s`` 永远查不到，
+    「更新而非重复插入」实际从未发生。
     """
-    import uuid as _uuid
-
     # title 列 varchar(70)，强制截断避免超长
     title = (title or "未命名更新")[:70]
     status = "published" if published_at else "draft"
-    slug = f"{slugify(title)}-{str(_uuid.uuid4())[:8]}"
+    slug = changelog_slug(title, stable_key)
 
     cur = conn.cursor()
-    # 幂等：先查是否已存在（同一 Release 重复触发时不报错）
+    # 幂等：先查是否已存在（同一 Release 重复触发时走 UPDATE；无 stable_key 时必然查不到）
     cur.execute(
         """SELECT id FROM "changelog" WHERE org_id = %s AND slug = %s""",
         (org_id, slug),
@@ -454,7 +461,7 @@ def create_changelog_entry(
         conn.commit()
         return entry_id
 
-    entry_id = str(_uuid.uuid4())
+    entry_id = str(uuid.uuid4())
     cur.execute(
         """
         INSERT INTO "changelog"
@@ -616,7 +623,11 @@ def sync_release_to_changelog(
     """将 GitHub Release 创建为 FeedLog Changelog 条目"""
     org_id = get_org_id(conn)
     title = release_name or release_tag
-    entry_id = create_changelog_entry(conn, org_id, title, release_body, published_at)
+    # stable_key=release_tag：同一 Release 重复触发（重新发布 / 重跑 workflow）
+    # 必须落到同一 slug 走 UPDATE，否则 changelog 会出现多条同版本条目（#1996）。
+    entry_id = create_changelog_entry(
+        conn, org_id, title, release_body, published_at, stable_key=release_tag
+    )
     print(f"  ✅ FeedLog Changelog 已创建: {entry_id} → {title}")
 
 
