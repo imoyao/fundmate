@@ -34,6 +34,19 @@
  * 匹配方式为「标题行 + 冒号/井号」的宽松匹配，**且该行下方必须非空**——
  * 只写「风险：无风险」算通过（有结论），但写「## 风险」后一片空白算失败（有标题没思考）。
  *
+ * ## 第二层判据：验收标准每条须带判据引用（#2449）
+ *
+ * 落地第一版四问守卫后，实际观察到的失败模式不是「四问没写」，而是
+ * **「验收标准写成了愿望清单」**——「界面更清爽了」「大账户不卡了」这类
+ * 条目既无测试名也无走查点，收口时只能靠回忆判断过没过。owner 的原话：
+ * 「如果每张新卡在开写前就要求先列这条验收用什么测试钉，会比收口时补课更省力」。
+ *
+ * 于是 acceptance 节再加一层**存在性**检查：每条验收项必须带「拿什么验」的
+ * 引用——反引号里的测试名/文件/命令，或 `测试：` / `判据：` / `走查：` 等
+ * 冒号前缀标记。判据形态刻意放宽（走查、人工截图都算）：**检查的是
+ * 「有没有想清楚怎么验」，不是「验得够不够」**——后者是主观判断，
+ * 放进 CI 就是 #2410 那类必然被绕开的软约束换马甲，本守卫不重蹈。
+ *
  * ## 豁免（**必须**有，否则第一天就会把仓库堵死）
  *
  *   - **机器人作者**：dependabot / github-actions / cnblogs-ci / Claude / Codex 等
@@ -104,6 +117,63 @@ const SECTION_LABELS = {
 };
 
 /**
+ * 判据引用的识别形态（#2449）。
+ *
+ * 刻意放宽到「存在性」而非「质量」：
+ *   - 反引号内容：测试名 / 文件 / 命令（`test_x.py::test_y`、`pnpm typecheck`）；
+ *   - 冒号前缀标记：测试：/判据：/走查：/验证：/复算：/人工：/截图：…
+ *     （真机走查类验收没有测试名，`走查：dev 环境点击截图` 就是合格判据）；
+ *   - 直角/全角引号：「test_xxx」。
+ *
+ * **不检查**引用指向的测试是否真实存在、走查点是否覆盖全——那是主观判断，
+ * 放进 CI 就会变成天天误伤、最后没人看的软约束（见文件头 WHY）。
+ */
+const EVIDENCE_PATTERNS = [
+  /`[^`]+`/, // 反引号引用
+  /「[^」]+」/, // 直角引号引用
+  /(?:测试|判据|走查|验证|复算|人工|截图|观察|留痕)[:：]/, // 中文冒号前缀标记
+  /(?:test|evidence|verified|manual|walkthrough)[:：]/i, // 英文冒号前缀标记
+];
+
+/** 单条文本是否带判据引用。 */
+export function hasEvidence(text) {
+  const s = String(text || '');
+  return EVIDENCE_PATTERNS.some((re) => re.test(s));
+}
+
+/**
+ * 找出验收节里**不带判据引用**的条目（#2449）。
+ *
+ * 清单前缀（`- [x] ` / `- ` / `* ` / `1. `）与表格行（`| … |`）先剥掉再判断，
+ * 避免把 markdown 语法当正文。纯文字段（无列表）也按一条计——
+ * 「跑一下测试」同样需要说清拿什么验。
+ *
+ * @param {string[]|null} lines splitSections 返回的 acceptance 节正文行
+ * @returns {string[]} 缺判据的条目原文（用于报错定位）
+ */
+export function acceptanceItemsWithoutEvidence(lines) {
+  if (!Array.isArray(lines)) return [];
+  const out = [];
+  // 表格形态预处理：分隔行（|---|---|）与其前一行（表头）不是验收项，跳过。
+  const isDivider = (l) => /^\|?[\s\-:|]+\|?$/.test(l) && l.includes('-');
+  const skip = new Set();
+  lines.forEach((raw, i) => {
+    if (isDivider(String(raw).trim()) && i > 0) skip.add(i - 1);
+  });
+  lines.forEach((raw, i) => {
+    const line = String(raw).trim();
+    if (!line || skip.has(i) || isDivider(line)) return;
+    const text = line
+      .replace(/^[-*+]\s*(?:\[[ xX]\]\s*)?/, '') // 清单前缀
+      .replace(/^\|(.+)\|$/, '$1') // 表格行首尾管道
+      .trim();
+    if (!text) return;
+    if (!hasEvidence(text)) out.push(text);
+  });
+  return out;
+}
+
+/**
  * 解析小节切分：返回「小节键 → 该小节下的正文行（找不到标题时为 null）」。
  *
  * 形状选择说明：用「标题行 + 后随正文」而不是「全局正则找关键词」，
@@ -148,20 +218,20 @@ export function splitSections(body) {
 }
 
 /**
- * 主判据：检查 PR 描述是否四问齐备。
+ * 主判据：检查 PR 描述是否四问齐备，且验收标准每条带判据引用（#2449）。
  *
  * @param {object} input
  * @param {string} [input.body] PR 描述
  * @param {string} [input.author] PR 作者登录名
  * @param {boolean} [input.draft] 是否 draft PR
- * @returns {{ok: boolean, missing: string[], skipped: string|null, message: string}}
+ * @returns {{ok: boolean, missing: string[], missing_evidence: string[], skipped: string|null, message: string}}
  */
 export function checkFourQuestions(input = {}) {
   const body = input.body || '';
   const author = String(input.author || '').toLowerCase();
   const skipReason = skipReasonFor(body, author, input.draft);
   if (skipReason) {
-    return { ok: true, missing: [], skipped: skipReason, message: `跳过四问检查：${skipReason}` };
+    return { ok: true, missing: [], missing_evidence: [], skipped: skipReason, message: `跳过四问检查：${skipReason}` };
   }
 
   const sections = splitSections(body);
@@ -170,20 +240,40 @@ export function checkFourQuestions(input = {}) {
     return !Array.isArray(content) || content.length === 0;
   });
 
-  if (missing.length === 0) {
-    return { ok: true, missing: [], skipped: null, message: 'OK: 四问齐备。' };
+  const missingEvidence =
+    missing.length === 0 ? acceptanceItemsWithoutEvidence(sections.acceptance) : [];
+
+  if (missing.length === 0 && missingEvidence.length === 0) {
+    return { ok: true, missing: [], missing_evidence: [], skipped: null, message: 'OK: 四问齐备，验收标准每条均带判据引用。' };
   }
 
-  const lines = [
-    'PR 描述缺少四问的以下部分（本守卫只检查「有没有写」，不判断写得对不对）：',
-    ...missing.map((key) => `  - ${SECTION_LABELS[key]}`),
-    '',
+  const lines = [];
+  if (missing.length > 0) {
+    lines.push(
+      'PR 描述缺少四问的以下部分（本守卫只检查「有没有写」，不判断写得对不对）：',
+      ...missing.map((key) => `  - ${SECTION_LABELS[key]}`),
+      '',
+    );
+  }
+  if (missingEvidence.length > 0) {
+    lines.push(
+      '「验收标准」里有条目没写「拿什么验」（判据引用缺失）。每条验收项须带：',
+      '  - 反引号里的测试名 / 文件 / 命令（如 `test_x.py::test_y`、`pnpm typecheck`）；',
+      '  - 或冒号前缀标记：`测试：` / `判据：` / `走查：` / `验证：` / `复算：` / `人工：`；',
+      '  - 真机走查类验收没有测试名，写「走查：dev 环境点击截图」即合格。',
+      '',
+      '缺判据的条目：',
+      ...missingEvidence.map((t) => `  - ${t.length > 80 ? `${t.slice(0, 80)}…` : t}`),
+      '',
+    );
+  }
+  lines.push(
     '在 PR 描述里补上对应小节即可，每个小节写一两句即可。',
     `「风险」若确实没有，写「无风险」也算通过；但不能留空标题。`,
     `需要豁免时在描述里写 \`${SKIP_MARKER}\`（豁免会留在描述里可追溯）。`,
-  ].join('\n');
+  );
 
-  return { ok: false, missing, skipped: null, message: lines };
+  return { ok: false, missing, missing_evidence: missingEvidence, skipped: null, message: lines.join('\n') };
 }
 
 /** 豁免判定，返回豁免理由（未豁免返回 null）。 */
