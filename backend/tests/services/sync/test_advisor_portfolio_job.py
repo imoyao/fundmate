@@ -702,3 +702,97 @@ def test_job_rejects_single_platform_adapter(db):
     """#1392 起一任务多平台：把单平台适配器塞进 adapter 槽位应报错（否则审计口径会失真）。"""
     with pytest.raises(TypeError):
         AdvisorPortfolioSyncJob(TiantianAdvisorAdapter(), db)
+
+
+# ── 批量数据面（#1876） ──
+
+
+class _BatchSource(_FakeSource):
+    """记录批量调用次数的假适配器（用于断言 job 走批量而非逐只）。"""
+
+    def __init__(self, platform: str = 'QIEMAN', **kwargs) -> None:
+        super().__init__(platform, **kwargs)
+        self.overview_batches: List[List[str]] = []
+        self.holdings_batches: List[List[str]] = []
+        self.single_overview_calls: List[str] = []
+        self.single_holdings_calls: List[str] = []
+
+    def fetch_overviews(self, codes: List[str]) -> Dict[str, Dict[str, Any]]:
+        self.overview_batches.append(list(codes))
+        return {c: self.overview for c in codes}
+
+    def fetch_holdings_batch(self, codes: List[str]) -> Dict[str, Dict[str, Any]]:
+        self.holdings_batches.append(list(codes))
+        return {c: self.holdings for c in codes}
+
+    def fetch_overview(self, code: str) -> dict:  # 不应被调用
+        self.single_overview_calls.append(code)
+        return self.overview
+
+    def fetch_holdings(self, code: str) -> dict:  # 不应被调用
+        self.single_holdings_calls.append(code)
+        return self.holdings
+
+
+def test_job_fetches_per_platform_in_one_batch(db):
+    """同一平台的组合**合批**抓取：3 只 = 1 次概览 + 1 次持仓，而不是各 3 次。"""
+    src = _BatchSource(
+        'QIEMAN',
+        overview={'name': '批量组合'},
+        holdings={'as_of_date': '2026-10-20', 'funds': [{'fund_code': '110011', 'after_ratio': 10.0}]},
+        derive_rebalances=True,
+        has_official_rebalances=False,
+    )
+    codes = ['ZH000001', 'ZH000002', 'ZH000003']
+    for c in codes:
+        db.add(AdvisorPortfolio(platform='QIEMAN', code=c, name=c))
+    db.commit()
+
+    _make_job(db, QIEMAN=src).run(full_sync=True, targets=codes)
+
+    assert src.overview_batches == [codes], '同一平台应一次批量取概览'
+    assert src.holdings_batches == [codes], '同一平台应一次批量取持仓'
+    assert src.single_overview_calls == [] and src.single_holdings_calls == [], '不得逐只回退'
+    assert db.query(AdvisorHolding).count() == 3  # 3 只组合各 1 条持仓，语义未变
+
+
+def test_job_splits_batches_by_platform(db):
+    """跨平台各自合批（平台之间不混批，避免把 A 平台的 code 发给 B 的接口）。"""
+    qieman = _BatchSource('QIEMAN', overview={'name': '且慢'}, holdings=TIANTIAN_HOLDINGS)
+    tiantian = _BatchSource(
+        'TIANTIAN',
+        overview=TIANTIAN_OVERVIEW,
+        holdings=TIANTIAN_HOLDINGS,
+        industries=TIANTIAN_INDUSTRIES,
+        rebalances=TIANTIAN_REBALANCES,
+    )
+    db.add(AdvisorPortfolio(platform='QIEMAN', code='ZH000001', name='q'))
+    db.add(AdvisorPortfolio(platform='TIANTIAN', code='XCOVSEX', name='t'))
+    db.commit()
+
+    _make_job(db, QIEMAN=qieman, TIANTIAN=tiantian).run(full_sync=True, targets=['ZH000001', 'XCOVSEX'])
+
+    assert qieman.overview_batches == [['ZH000001']]
+    assert tiantian.overview_batches == [['XCOVSEX']]
+    assert qieman.holdings_batches == [['ZH000001']]
+    assert tiantian.holdings_batches == [['XCOVSEX']]
+
+
+def test_default_batch_methods_degrade_to_per_code():
+    """Port 基类的默认批量实现 = 逐只回退：没实现批量的适配器行为不变。"""
+    src = _FakeSource('TIANTIAN', overview=TIANTIAN_OVERVIEW, holdings=TIANTIAN_HOLDINGS)
+
+    assert src.fetch_overviews(['A', 'B']) == {'A': TIANTIAN_OVERVIEW, 'B': TIANTIAN_OVERVIEW}
+    hold = src.fetch_holdings_batch(['A', 'B'])
+    assert set(hold) == {'A', 'B'} and all(v == TIANTIAN_HOLDINGS for v in hold.values())
+
+
+def test_job_unknown_platform_batch_skip_logs_each_code(db):
+    """无适配器平台：整批跳过且每个 code 各留一条告警（原逐只实现的日志口径不变）。"""
+    db.add(AdvisorPortfolio(platform='DANJUAN', code='CSI1001', name='蛋卷1'))
+    db.add(AdvisorPortfolio(platform='DANJUAN', code='CSI1002', name='蛋卷2'))
+    db.commit()
+
+    result = _make_job(db).run(full_sync=True, targets=['CSI1001', 'CSI1002'])
+    assert result['status'] == 'success'
+    assert db.query(AdvisorHolding).count() == 0

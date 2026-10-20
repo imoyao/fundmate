@@ -63,10 +63,25 @@ class QiemanAdvisorAdapter(AdvisorPortfolioSource):
         （管理人简介 / 头像 / 实名认证等）进 ``extra``，不做丢弃。
         无 key / 无效 code → ``{}``（落库层不会因此清空已有数据）。
         """
-        rows = self._fetcher.fetch_strategy_details([str(strategy_code)])
-        raw = rows[0] if rows else None
-        if not isinstance(raw, dict):
+        code = str(strategy_code).strip()
+        return self.fetch_overviews([code]).get(code) or {}
+
+    def fetch_overviews(self, strategy_codes: list) -> dict:
+        """批量概览（且慢优化）：一次 ``GetStrategyDetails`` 拿多只，按 code 切分。
+
+        底层 ``fetch_strategy_details`` 已按 ``QIEMAN_STRATEGY_BATCH_SIZE``（50）分批，
+        故 111 只组合 = 3 次工具调用（原实现逐只调 = 111 次）。
+        只返回拿到的 code（缺失即缺席），语义与 ``fetch_overview`` 的 ``{}`` 一致。
+        """
+        codes = [str(c).strip() for c in (strategy_codes or []) if str(c).strip()]
+        if not codes:
             return {}
+        rows = self._fetcher.fetch_strategy_details(codes)
+        by_code = {str(r.get('code')): r for r in rows if isinstance(r, dict) and str(r.get('code') or '').strip()}
+        return {c: self._to_canonical_overview(by_code[c]) for c in codes if c in by_code}
+
+    def _to_canonical_overview(self, raw: dict) -> dict:
+        """单条 fetcher 概览 → canonical（含 extra / desc 回退）。"""
         ov = {self._OVERVIEW_ALIASES.get(k, k): v for k, v in raw.items() if k != 'code'}
         # 策略描述缺失时回退策略简介：详情抽屉需要一段可读描述（既有行为，勿丢）
         if not ov.get('strategy_desc') and ov.get('strategy_summary'):
@@ -83,7 +98,24 @@ class QiemanAdvisorAdapter(AdvisorPortfolioSource):
         （日期解析交给落库层）。且慢无调仓前占比，``pre_ratio`` / 操作类型留空。
         无 key / 无效 code → ``{'as_of_date': None, 'funds': []}``。
         """
-        rows = self._fetcher.fetch_strategy_composition(str(strategy_code))
+        code = str(strategy_code).strip()
+        return self.fetch_holdings_batch([code]).get(code) or {'as_of_date': None, 'funds': []}
+
+    def fetch_holdings_batch(self, strategy_codes: list) -> dict:
+        """批量持仓（且慢优化）：一次 ``BatchGetStrategiesComposition`` 传多只。
+
+        降级逐只的判据在 fetcher 内（批量响应缺某 code 的键 ⇒ 该 code 单只重取），
+        因此这里拿到的每只都是「有值或确认为空」，不会把批量失败写成空快照。
+        """
+        codes = [str(c).strip() for c in (strategy_codes or []) if str(c).strip()]
+        if not codes:
+            return {}
+        rows_by_code = self._fetcher.fetch_strategy_composition_batch(codes)
+        return {c: self._to_canonical_holdings(rows_by_code.get(c) or []) for c in codes}
+
+    @staticmethod
+    def _to_canonical_holdings(rows: list) -> dict:
+        """单只归一化持仓列表 → canonical 快照字典。"""
         funds = []
         adj_times = []
         for h in rows or []:
