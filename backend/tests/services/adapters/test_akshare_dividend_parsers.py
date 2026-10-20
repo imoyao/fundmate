@@ -80,3 +80,57 @@ class TestStockDividendSymbolForm:
         assert seen['symbol'] == '600000', '传给上游的必须是裸 6 位码'
         assert out and out[0]['cash_ratio'] == 4.2
         assert out[0]['symbol'] == 'SH600000', '回来的事件仍要带前缀，与持仓同形态'
+
+
+class TestUpstreamFailureIsNotSilenced:
+    """#1179：上游异常必须向上抛，不能降级成空列表。
+
+    空列表 = 「这只标的确实没有分红」；异常 = 「接口坏了」。两者在 job 层
+    必须能区分——旧写法一律 `return []`，于是接口腐烂时 job 天天报 success。
+    """
+
+    def test_fund_dividend_raises_instead_of_returning_empty(self, monkeypatch):
+        import sys
+
+        import app.services.adapters.akshare_adapter as mod
+
+        class _BoomAk:
+            @staticmethod
+            def fund_open_fund_info_em(**kwargs):
+                raise RuntimeError('upstream broken')
+
+        monkeypatch.setitem(
+            sys.modules,
+            'app.core.akshare_lazy',
+            type('m', (), {'get_akshare': staticmethod(lambda: _BoomAk)}),
+        )
+
+        import pytest
+
+        adapter = mod.AkshareAdapter()
+        with pytest.raises(RuntimeError):
+            adapter.fetch_fund_dividend('000001')
+        with pytest.raises(RuntimeError):
+            adapter.fetch_fund_split('000001')
+
+    def test_stock_dividend_raises_instead_of_returning_empty(self, monkeypatch):
+        import sys
+
+        import pytest
+
+        import app.services.adapters.akshare_adapter as mod
+
+        class _BoomAk:
+            @staticmethod
+            def stock_dividend_cninfo(symbol):
+                raise RuntimeError('upstream broken')
+
+        monkeypatch.setitem(
+            sys.modules,
+            'app.core.akshare_lazy',
+            type('m', (), {'get_akshare': staticmethod(lambda: _BoomAk)}),
+        )
+
+        adapter = mod.AkshareAdapter()
+        with pytest.raises(RuntimeError):
+            adapter.fetch_stock_dividend('600000')
