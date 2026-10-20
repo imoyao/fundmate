@@ -65,7 +65,7 @@ import app.domains.summary.models  # noqa: E402,F401
 import app.domains.transactions.models  # noqa: E402,F401
 import app.domains.users.models  # noqa: E402,F401
 import app.domains.watchlist.models  # noqa: E402,F401
-from app.core.database import get_session, init_db  # noqa: E402
+from app.core import database  # noqa: E402
 from app.domains.entitlements.models import Entitlement  # noqa: E402
 from app.domains.families.models import Family  # noqa: E402
 from app.services.entitlement_check import PRO_FEATURES  # noqa: E402
@@ -128,9 +128,9 @@ def _plan(action: str, family_id: int, features: list[str], expires) -> list[dic
 
 def _apply(plan: list[dict]) -> tuple[int, int]:
     """按计划 upsert，返回 (新增数, 更新数)。"""
-    init_db()
+    database.init_db()
     created = updated = 0
-    with get_session() as db:
+    with database.get_session() as db:
         _ensure_family(db, plan[0]['family_id'] if plan else 1)
         for item in plan:
             row = (
@@ -179,8 +179,8 @@ def _print_plan(plan: list[dict]) -> None:
 
 
 def _list(family_id: int) -> int:
-    init_db()
-    with get_session() as db:
+    database.init_db()
+    with database.get_session() as db:
         rows = db.query(Entitlement).filter(Entitlement.family_id == family_id).order_by(Entitlement.feature).all()
         if not rows:
             print(f'家庭 {family_id} 没有任何权益记录（这解释了为什么 Pro 端点返回 403 / error_code=1007）。')

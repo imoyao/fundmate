@@ -20,8 +20,13 @@ from app.tools import entitlements_cli as cli
 
 @pytest.fixture(autouse=True)
 def _no_real_init_db(monkeypatch):
-    """测试库已建表，禁止 CLI 再跑真实 init_db（否则会连真实库）。"""
-    monkeypatch.setattr(cli, 'init_db', lambda: None)
+    """测试库已建表，禁止 CLI 再跑真实 init_db（否则会连真实库）。
+
+    按 #1608 的晚绑定口径改的是**模块属性**（``cli.database`` 就是
+    ``app.core.database``），不是 ``cli.init_db`` 这种早绑定别名——后者在
+    ``tests/test_late_binding_get_session.py`` 里是被明令禁止的形态。
+    """
+    monkeypatch.setattr(cli.database, 'init_db', lambda: None)
 
 
 def _rows(db, family_id=1):
