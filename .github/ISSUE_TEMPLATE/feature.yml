@@ -1,0 +1,82 @@
+name: 功能 / 改进需求
+description: 新功能、体验改进、重构、性能优化。适用于「现在没坏，但应该更好」。
+title: '[feat] '
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **只需填前两节。**其余字段留空不影响提卡。
+
+        ⚠️ **不要在这里选优先级。** Q1-RED 的准入标准是「不做就阻塞当前阶段目标」，
+        这是需要判断的题，放进下拉框会变成无脑选一个值。
+        要挂 Q1-RED 请在正文写明「不修会怎样」，由 owner 在巡检时确认档位。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 谁的什么问题
+      description: |
+        谁遇到了什么、现在有多难受、期望变成什么。
+        区分「用户需要」和「我觉得该有」——前者是事实，后者是判断，
+        两者都写，但要让它们可分辨。
+      placeholder: |
+        例如：账本用户想按月看到分类占比，但现在只能看总额，无法判断该削哪一类支出。
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: 不修会怎样
+      description: |
+        代价是什么。**这张卡要挂 Q1-RED 时，这一栏就是准入判据。**
+        写不出代价 ⇒ 它是 Q2 或 Q3，不是 Q1。
+      placeholder: |
+        例如：用户只能凭感觉决定削减比例，可能持续超支；不影响数据正确性。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 类型
+      options:
+        - 新功能（此前不存在的能力）
+        - 体验改进（已有能力，但不好用）
+        - 重构（行为不变，结构变）
+        - 性能 / 稳定性
+        - 技术债
+    validations:
+      required: false
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: 边界（不做什么）
+      description: |
+        明确写出「这张卡不包含什么」。这一栏是给未来的自己看的——
+        范围蔓延最常见的起点就是「顺手加一点」。
+      placeholder: |
+        例如：不含数据导出；不含历史月份的回溯计算（另开卡）。
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 考虑过的其他方案
+      description: |
+        为什么不用更简单的做法。这一栏能挡掉大量「其实有更省事办法」的卡。
+      placeholder: |
+        例如：想过用前端本地计算，但历史月份口径变更后无法复算，故必须落库。
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: precheck
+    attributes:
+      label: 提交前自检
+      options:
+        - label: 已搜索现有 issue，确认没有重复卡
+        - label: 已确认里程碑归属（挂错了会导致 CI 红灯提醒）
