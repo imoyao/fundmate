@@ -299,7 +299,7 @@ function onCardClick() {
 .road-chip {
   position: absolute;
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 18px;
   white-space: nowrap;
   border-radius: var(--radius-pill);
@@ -356,7 +356,7 @@ function onCardClick() {
   justify-content: center;
   width: 26px;
   height: 26px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   background: var(--glass-bg);
   border-radius: 50%;
@@ -386,7 +386,7 @@ function onCardClick() {
 .road-title {
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 15px;
+  font-size: var(--text-body);
   font-weight: 600;
   line-height: 1.4;
   color: var(--text-primary);
@@ -395,14 +395,14 @@ function onCardClick() {
 
 .road-code {
   margin-top: 2px;
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }
 
 .road-meta {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -411,7 +411,7 @@ function onCardClick() {
   margin-top: 10px;
   overflow: hidden;
   -webkit-line-clamp: 3;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.65;
   color: var(--text-secondary);
   -webkit-box-orient: vertical;
@@ -430,7 +430,7 @@ function onCardClick() {
 }
 
 .road-metrics--empty {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -441,13 +441,13 @@ function onCardClick() {
 }
 
 .road-metric__label {
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .road-metric__value {
   font-family: var(--font-mono, monospace);
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -465,7 +465,7 @@ function onCardClick() {
   display: inline-flex;
   gap: 5px;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -484,7 +484,7 @@ function onCardClick() {
   justify-content: center;
   width: 26px;
   height: 26px;
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--text-tertiary-ink);
   border-radius: 50%;
   transition:

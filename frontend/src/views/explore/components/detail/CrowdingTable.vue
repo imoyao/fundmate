@@ -353,7 +353,7 @@ withDefaults(
 }
 
 .bias-updated {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -365,19 +365,14 @@ withDefaults(
 .bias-stale-pill {
   padding: 2px 8px;
   margin-left: 8px;
-  font-size: 11px;
+  font-size: var(--text-label);
   font-weight: 500;
   line-height: 1.4;
   color: var(--color-warning-ink);
   white-space: nowrap;
   cursor: help;
-  background: color-mix(
-    in srgb,
-    var(--color-warning, #d97706) 12%,
-    transparent
-  );
-  border: 1px solid
-    color-mix(in srgb, var(--color-warning, #d97706) 35%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
   border-radius: 6px 6px 6px 0;
 }
 
@@ -388,7 +383,7 @@ withDefaults(
 
 .empty-state {
   padding: 40px 0;
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--text-tertiary-ink);
   text-align: center;
 }
@@ -457,7 +452,7 @@ withDefaults(
 
 .dim-rank {
   min-width: 42px;
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }

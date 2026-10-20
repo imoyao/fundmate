@@ -94,14 +94,14 @@ defineEmits<{
 
 .road-empty__slogan {
   font-family: Georgia, "Songti SC", "Noto Serif SC", serif;
-  font-size: 15px;
+  font-size: var(--text-body);
   color: var(--text-primary);
   letter-spacing: 0.02em;
 }
 
 .road-empty__desc {
   max-width: 420px;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.8;
   color: var(--text-tertiary-ink);
 }

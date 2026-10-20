@@ -102,23 +102,12 @@ const batchMoveGroupId = computed({
         <el-input
           v-model="searchKeyword"
           aria-label="搜索自选"
-          placeholder="搜索自选..."
+          placeholder="按代码或名称过滤，如 000001、易方达"
           clearable
           :prefix-icon="Search"
           class="watchlist-search"
           @input="data.debounceSearch"
         />
-        <el-tooltip
-          content="在当前自选列表中按代码或名称过滤"
-          placement="bottom-start"
-          :offset="8"
-        >
-          <IconifyIconOffline
-            icon="ep:info-filled"
-            class="search-hint text-sm cursor-help transition-opacity"
-            :style="{ color: 'var(--text-tertiary-ink)' }"
-          />
-        </el-tooltip>
       </div>
       <div class="head-primary__actions">
         <!-- 快捷工具图标组（原 WatchlistFilterBar #actions，2026-09-05 上移本行）：
@@ -214,18 +203,28 @@ const batchMoveGroupId = computed({
   margin-bottom: var(--space-3);
 }
 
-/* 搜索区：固定 240px（2026-09-05 修订）。
-   此前设为 flex:1 + max-width 560，输入框被拉得过长、与右侧按钮组失衡，
-   且「搜索自选」只是 4~6 字提示，240px 已足够容纳代码/名称输入。 */
+/* 搜索区：理想宽 360px，容器紧张时可收缩（#2354）。
+   宽度要跟着 placeholder 长度走，不是跟着「够不够打字」走：
+   - 2026-09-05 定 240px，当时 placeholder 只有「搜索自选...」4~6 字；
+   - #2354 把提示与示例整体写进 placeholder，240px 会把文案截断成
+     「按代码或名称过…」——提示等于没写。故放宽到 360px（14px 字，扣掉
+     前缀图标与内距后约 313px 可用，当前文案约 256px，留 ~55px 余量）。
+   **不用** flex:1 + max-width：那会把输入框拉到 560px、与右侧按钮组失衡
+   （2026-09-05 已否定过一次，不回退）。改为「理想宽固定 + 允许收缩」：
+   容器不够时（窄屏 / 侧栏展开）输入框变窄，而不是把右侧按钮组挤出容器。
+   `max-width: 100%` 必须由输入框自己承担——外层 flex-shrink 只让 .head-primary__search
+   收缩，不负责裁子元素。 */
 .head-primary__search {
   display: flex;
-  flex-shrink: 0;
+  flex: 0 1 auto;
   gap: 8px;
   align-items: center;
+  min-width: 0;
 }
 
 .watchlist-search {
-  width: 240px;
+  width: 360px;
+  max-width: 100%;
 }
 
 /* 核心操作按钮组：次级（管理）32px + 主按钮（添加自选）36px，同一垂直基线居中。
@@ -312,12 +311,6 @@ const batchMoveGroupId = computed({
 .icon-tool-btn.is-active:hover {
   background-color: var(--brand-solid-hover);
   border-color: var(--brand-solid-hover);
-}
-
-/* 说明图标：默认可见，滚动进入紧凑态时淡出（规则见下「紧凑态」） */
-.search-hint {
-  opacity: 1;
-  transition: opacity 150ms ease;
 }
 
 /* 批量模式：移动到分组下拉。

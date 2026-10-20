@@ -72,7 +72,10 @@ defineOptions({ name: "PnlCalendarCaliberTip" });
  */
 const LEGEND: { state: PnlCalendarState; note: string }[] = [
   { state: "zero", note: "当天真实为零（不是缺数据）" },
-  { state: "partial", note: "部分标的未更新估值：数字可信，但不完整" },
+  {
+    state: "partial",
+    note: "部分标的没更新估值：金额只算了已更新的部分（也可能是持仓停牌）"
+  },
   { state: "no_data", note: "开盘日却没取到当天估值，该去跑同步任务了" },
   { state: "no_position", note: "建仓前 / 清仓后" },
   { state: "closed", note: "非 A 股开盘日（日历只列工作日，周末不占格）" },
@@ -97,7 +100,7 @@ const LEGEND: { state: PnlCalendarState; note: string }[] = [
 }
 
 .caliber-tip__title {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -109,7 +112,7 @@ const LEGEND: { state: PnlCalendarState; note: string }[] = [
 .caliber-tip__list {
   padding-left: 16px;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-secondary);
   list-style: disc;
@@ -135,7 +138,7 @@ const LEGEND: { state: PnlCalendarState; note: string }[] = [
   flex-shrink: 0;
   min-width: 44px;
   padding: 1px 6px;
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   text-align: center;
   background: var(--bg-card);

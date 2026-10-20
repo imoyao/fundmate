@@ -4,6 +4,8 @@
 @use "sidebar";
 @use "dark";
 @use "breakpoints" as bp;
+@use "detail-common";
+@use "detail-table";
 
 /* 多多贝设计令牌：plain CSS @import 必须位于除 @charset/@layer/@use 之外的
    所有规则之前，否则会触发 no-invalid-position-at-import-rule。

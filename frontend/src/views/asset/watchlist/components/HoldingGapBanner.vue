@@ -136,7 +136,7 @@ function typeLabelOf(gap: HoldingGap): string {
 .gap-banner__name {
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-primary);
   white-space: nowrap;
 }
@@ -144,7 +144,7 @@ function typeLabelOf(gap: HoldingGap): string {
 .gap-banner__code {
   flex-shrink: 0;
   font-family: var(--font-number);
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }

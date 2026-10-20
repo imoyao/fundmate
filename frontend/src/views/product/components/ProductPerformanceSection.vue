@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { Icon as IconifyIconOffline } from "@iconify/vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
@@ -77,32 +78,32 @@ const riskRows = computed(() => {
     {
       key: "calmar",
       label: "卡玛比率",
-      hint: "年化收益 / 最大回撤",
+      hint: "赚的钱抵不抵得过最深的亏损——年化收益 ÷ 最大回撤，数字越大越划算",
       value: fmtRatio(p.calmar)
     },
     {
       key: "sortino",
       label: "索提诺",
-      hint: "只罚下跌波动",
+      hint: "思路和夏普一样，但只把下跌的波动算作风险：涨得猛不会拉低它，跌得又频繁又深才会",
       value: fmtRatio(p.sortino)
     },
     {
       key: "sharpe",
       label: "夏普",
-      hint: `(年化 − rf) / 波动，rf=${(p.risk_free_rate ?? 0) * 100}%`,
+      hint: "（年化收益 − 无风险利率）÷ 年化波动率——每承担 1 份波动换来多少超额回报",
       value: fmtRatio(p.sharpe)
     },
     {
       key: "ulcer",
       label: "溃疡指数",
-      hint: "整段煎熬的深度（UI）",
+      hint: "回撤的深度与持续时间合成的值（UI）——越大说明持有过程越煎熬",
       value: fmtPct(p.ulcer_index)
     },
     { key: "upi", label: "UPI", hint: "年化收益 / UI", value: fmtRatio(p.upi) },
     {
       key: "rrd",
       label: "波回比",
-      hint: "年化 / (波动 × 最大回撤)",
+      hint: "年化收益 ÷（波动率 × 最大回撤）：平时涨跌的幅度和最深一次亏损都算进分母，数字越大越好",
       value: fmtRatio(p.return_drawdown_ratio)
     },
     {
@@ -110,8 +111,8 @@ const riskRows = computed(() => {
       // 它与上面的比值族不同源（比值族看「风险调整后收益」，它看「多周期收益合成」），
       // 故在 hint 里点明口径，避免被当成「另一个夏普」。历史不足一年时为「—」。
       key: "shape_gain2",
-      label: "拟涨幅2",
-      hint: "近1月/3月/6月/1年四段去重叠后加权合成（越近权重越高）",
+      label: "拟涨幅",
+      hint: "把最近 1 个月、3 个月、6 个月、1 年四段互不重复的涨幅，按越近占比越高合成的参考值",
       value: fmtPct(p.shape_gain2?.shape_gain2)
     }
   ];
@@ -220,12 +221,9 @@ watch(() => props.symbol, load, { immediate: true });
   <CardBlock class="performance-section">
     <SectionHeader title="业绩与风险" />
 
-    <p v-if="loading" class="performance-section__hint">正在读取业绩与风险…</p>
+    <p v-if="loading" class="section-footnote">正在读取业绩与风险…</p>
 
-    <p
-      v-else-if="failed || !perf || !perf.applicable"
-      class="performance-section__hint"
-    >
+    <p v-else-if="failed || !perf || !perf.applicable" class="section-footnote">
       暂无可展示的业绩数据
     </p>
 
@@ -290,17 +288,25 @@ watch(() => props.symbol, load, { immediate: true });
             :key="row.key"
             class="performance-section__fact"
           >
-            <dt class="performance-section__label" :title="row.hint">
-              {{ row.label }}
+            <dt class="performance-section__label">
+              <span class="performance-section__label-text">
+                {{ row.label }}
+              </span>
+              <el-tooltip :content="row.hint" placement="top">
+                <IconifyIconOffline
+                  icon="ep:info-filled"
+                  class="performance-section__tip-icon"
+                />
+              </el-tooltip>
             </dt>
             <dd class="performance-section__value">{{ row.value }}</dd>
           </div>
         </dl>
         <!-- 基准选定但序列缺：显式说明，不退回沪深300 顶替（那会让用户读不到「没比过」） -->
-        <p v-else class="performance-section__hint">
+        <p v-else class="section-footnote">
           {{ perf.benchmark.reason || "基准数据暂不可用" }}
         </p>
-        <p class="performance-section__footnote">
+        <p class="section-footnote">
           基准按基金类型映射（{{ perf.benchmark.matched_by }}）
           <template v-if="perf.benchmark.sample_points">
             · 共同交易日 {{ perf.benchmark.sample_points }} 天</template
@@ -308,7 +314,7 @@ watch(() => props.symbol, load, { immediate: true });
         </p>
       </template>
 
-      <p class="performance-section__footnote">
+      <p class="section-footnote">
         数据来源：{{ perf.source
         }}<template v-if="perf.as_of"> · 截至 {{ perf.as_of }}</template>
         <template v-if="perf.samples != null">
@@ -396,19 +402,39 @@ watch(() => props.symbol, load, { immediate: true });
             :key="row.key"
             class="performance-section__fact"
           >
-            <dt class="performance-section__label" :title="row.hint">
-              {{ row.label }}
+            <!-- 指标解释（2026-10-17）：原生 title 不显眼且样式不可控，
+                 升级为 el-tooltip + 信息图标（与同类优选表头同款 tooltip） -->
+            <dt class="performance-section__label">
+              <span class="performance-section__label-text">
+                {{ row.label }}
+              </span>
+              <el-tooltip :content="row.hint" placement="top">
+                <IconifyIconOffline
+                  icon="ep:info-filled"
+                  class="performance-section__tip-icon"
+                />
+              </el-tooltip>
             </dt>
             <dd class="performance-section__value">{{ row.value }}</dd>
           </div>
           <div class="performance-section__fact">
-            <dt
-              class="performance-section__label"
-              :title="`${PERIOD_LABEL[perf.win_rate_period || 'month'] || ''}频；滚动窗口重叠，是持有体验而非概率`"
-            >
-              胜率（{{
-                PERIOD_LABEL[perf.win_rate_period || "month"] || "月"
-              }}）
+            <dt class="performance-section__label">
+              <span class="performance-section__label-text">
+                胜率（{{
+                  PERIOD_LABEL[perf.win_rate_period || "month"] || "月"
+                }}）
+              </span>
+              <el-tooltip
+                :content="`${
+                  PERIOD_LABEL[perf.win_rate_period || 'month'] || ''
+                }频；滚动窗口重叠，是持有体验而非概率`"
+                placement="top"
+              >
+                <IconifyIconOffline
+                  icon="ep:info-filled"
+                  class="performance-section__tip-icon"
+                />
+              </el-tooltip>
             </dt>
             <dd class="performance-section__value">
               {{ fmtPct(perf.win_rate) }}
@@ -417,11 +443,14 @@ watch(() => props.symbol, load, { immediate: true });
         </dl>
       </template>
 
-      <p class="performance-section__footnote">
+      <p class="section-footnote">
         数据来源：{{ perf.source
         }}<template v-if="perf.as_of"> · 截至 {{ perf.as_of }}</template>
         <template v-if="perf.risk_free_rate != null">
-          · rf={{ (perf.risk_free_rate * 100).toFixed(2) }}%</template
+          · 无风险利率
+          {{
+            (perf.risk_free_rate * 100).toFixed(2)
+          }}%（一年期国债收益率近似，用于夏普等指标）</template
         >
         <template v-if="perf.risk_sample_points">
           · 样本 {{ perf.risk_sample_points }} 个净值点</template
@@ -449,30 +478,40 @@ watch(() => props.symbol, load, { immediate: true });
   gap: var(--space-3);
 }
 
-.performance-section__hint,
-.performance-section__footnote {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
-}
-
 /* 令牌口径：`--text-secondary` 在 colors.css:33 有定义（`--text-secondary-ink` 未定义，
    写了会让整条 color 声明静默失效 → 回落浏览器默认色，暗色端直接失控）。 */
 .performance-section__block-label {
   margin: var(--space-3) 0 var(--space-1);
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--text-secondary);
 }
 
 .performance-section__label {
-  font-size: 12px;
+  /* Tailwind v4 preflight 把全站 <svg> 置为 display:block，而
+     IconifyIconOffline 渲染的图标是 <svg>——在普通 block 容器里「标签+图标」
+     会被挤成上下两行（#2283 回归）。inline-flex 与排行榜表头 .th-with-tip
+     同款修法：图标作为 flex item 跟随标签同行。 */
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
+}
+
+/* 指标名 + 解释图标（el-tooltip 锚点）：图标跟随标签色，cursor-help 提示可悬停 */
+.performance-section__label-text {
+  margin-right: 4px;
+}
+
+.performance-section__tip-icon {
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink);
+  cursor: help;
 }
 
 .performance-section__value {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-mono-small);
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }
@@ -495,7 +534,7 @@ watch(() => props.symbol, load, { immediate: true });
 /* 标签旁的次要说明（「已 3 个月」「近3年 · 同类内可比」）：12px 三级色，不抢主信息 */
 .performance-section__aside {
   margin-left: var(--space-1);
-  font-size: 11px;
+  font-size: var(--text-label);
   font-weight: 400;
   color: var(--text-tertiary-ink);
 }
@@ -503,14 +542,14 @@ watch(() => props.symbol, load, { immediate: true });
 /* 口径副行（高点/低点日期）：比正文再小一档 */
 .performance-section__sub {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 /* 口径告警：暖沙金文字级（--color-warning 只许作底/边，禁作前景，见 #1545） */
 .performance-section__caveat {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--color-warning-ink);
 }
 

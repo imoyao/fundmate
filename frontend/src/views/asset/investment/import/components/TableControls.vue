@@ -8,6 +8,7 @@ const {
   tableTypeFilter,
   duplicateCount,
   duplicatesHandled,
+  hiddenSelectedDuplicateCount,
   deselectAllDuplicates,
   toggleFullTable,
   showFullTable,
@@ -53,7 +54,7 @@ const {
         />
       </el-select>
     </div>
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-2 flex-wrap">
       <el-tooltip
         content="请切换到“只看问题数据”视图后使用"
         :disabled="showProblemOnly"
@@ -69,6 +70,18 @@ const {
             {{ duplicatesHandled ? "恢复查看重复行" : "取消显示重复行" }}
           </el-button>
         </span>
+      </el-tooltip>
+      <!-- #2274：显隐与勾选解耦后，隐藏但仍勾选的重复行仍会导入——给出可见提示，
+           避免「看不见自己要导什么」；仅在问题视图成立（全部数据视图下重复行本就可见） -->
+      <el-tooltip
+        v-if="showProblemOnly && hiddenSelectedDuplicateCount > 0"
+        content="这些行不出现在当前视图，但会随「已选择」一起导入；点「恢复查看重复行」可重新显示并核对"
+        placement="bottom"
+      >
+        <el-tag type="warning" size="small" class="hidden-selected-hint">
+          已有 {{ hiddenSelectedDuplicateCount }}
+          条勾选的重复行被隐藏，仍将导入
+        </el-tag>
       </el-tooltip>
       <el-button
         v-if="blockedCount + errorCount > 0"
@@ -125,9 +138,17 @@ const {
   flex-shrink: 0;
 }
 
+/* #2274 隐藏勾选提示：允许在窄断面折行，不撑破控件行 */
+.hidden-selected-hint {
+  max-width: 240px;
+  height: auto;
+  line-height: 1.5;
+  white-space: normal;
+}
+
 .edit-hint {
   margin: -4px 0 8px;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-tertiary-ink);
 }
@@ -138,7 +159,7 @@ const {
   gap: 16px;
   align-items: center;
   margin: -4px 0 8px;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-tertiary-ink);
 }
@@ -175,7 +196,7 @@ const {
   height: 16px;
   padding: 0 4px;
   margin-left: 2px;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 1;
   color: var(--text-primary);
   background: var(--color-warning);

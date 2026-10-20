@@ -73,6 +73,60 @@ class PositionCreate(BaseModel):
     model_config = ConfigDict(extra='allow')
 
 
+class ConversionFeeOverride(BaseModel):
+    """人工修正费用（#2348）。
+
+    真实确认单上的费用常与费率先算值不一致（基金公司活动、钱包垫资、持有期口径），
+    用户必须能改，否则账实永远差几分钱。约定：只覆盖**金额**，两项独立、
+    **不级联重算**（改赎回费不会重算补差费的费率阶梯）。
+    """
+
+    redeem: Optional[float] = Field(None, ge=0, description='赎回费（元）；缺省=沿用估算值')
+    compensate: Optional[float] = Field(None, ge=0, description='补差费（元）；缺省=沿用估算值')
+    model_config = ConfigDict(extra='forbid')
+
+
+class ConversionEstimate(BaseModel):
+    """基金转换试算入参（只读，不落库）。
+
+    设计见 ``docs/working-notes/fund-conversion-design-2026-10-17.md`` §4.1。
+    """
+
+    ledger_id: Optional[int] = Field(None, description='账户ID；缺省取转出持仓所属账户（传入则校验一致）')
+    out_position_id: int = Field(..., description='转出持仓ID')
+    out_quantity: Optional[float] = Field(None, description='转出份额（份）；缺省或 <=0 = 全部转出')
+    in_symbol: str = Field(..., description='转入基金代码（6位裸码）')
+    in_amount: Optional[float] = Field(None, description='指定转入金额（元）；缺省 = 净额全部转入')
+    in_quantity: Optional[float] = Field(
+        None, description='指定转入份额（份，最多2位小数）；与 in_amount 二选一，缺省 = 净额全部转入'
+    )
+    fee_override: Optional[ConversionFeeOverride] = Field(None, description='人工修正赎回费/补差费（元）')
+    trade_date: Optional[date] = Field(None, description='交易日期，缺省为今天')
+
+
+class ConversionSubmit(BaseModel):
+    """基金转换提交入参（落库，2~3 条流水同 link_group_id）。
+
+    幂等键由前端按「一次提交意图」生成（UUID），网络重发沿用同键——
+    服务端按 组号+leg角色 派生各流水 import_hash，撞唯一约束即 409。
+    """
+
+    ledger_id: Optional[int] = Field(None, description='账户ID；缺省取转出持仓所属账户（传入则校验一致）')
+    out_position_id: int = Field(..., description='转出持仓ID')
+    out_quantity: Optional[float] = Field(None, description='转出份额（份）；缺省或 <=0 = 全部转出（按持仓精确值）')
+    in_symbol: str = Field(..., description='转入基金代码（6位裸码）')
+    in_amount: Optional[float] = Field(None, description='指定转入金额（元）；缺省 = 净额全部转入')
+    in_quantity: Optional[float] = Field(
+        None, description='指定转入份额（份，最多2位小数）；与 in_amount 二选一，缺省 = 净额全部转入'
+    )
+    fee_override: Optional[ConversionFeeOverride] = Field(None, description='人工修正赎回费/补差费（元）')
+    refund_mode: Optional[str] = Field(
+        None, description='退款去向：money_fund=账户绑定的类现金产品 / account_cash=退回账户现金；存在退款时必填'
+    )
+    trade_date: Optional[date] = Field(None, description='交易日期，缺省为今天')
+    idempotency_key: str = Field(..., min_length=8, description='幂等键（前端生成的 UUID），重复提交返回同一结果')
+
+
 class PositionUpdate(BaseModel):
     name: Optional[str] = Field(None, description='名称')
     account_name: Optional[str] = Field(None, description='所属账户')
@@ -113,7 +167,11 @@ class PositionOut(BaseModel):
     id: int
     symbol: str
     name: Optional[str] = None
-    market: str
+    # #2406：列本身可空（存量导入/迁移行可能没有 market）。此前为必填，逼得
+    # position_presenter 在 validate 前把 'UNKNOWN' 写回 ORM 对象（读函数写库，
+    # 兜底值被 flush 落进 positions.market）。放宽后兜底下沉到 presenter 的
+    # dict 层，wire 格式不变（仍输出 'UNKNOWN'）。
+    market: Optional[str] = None
     type: str = Field(validation_alias='asset_type', serialization_alias='type')
     # #1305 #11：三态冗余判定（True=货基 / False=非货基 / None=未判定）。
     # 列在 `positions.is_money_fund`（#863 引入）。**必须在 Out Schema 里声明**，
@@ -134,6 +192,11 @@ class PositionOut(BaseModel):
     # **不得当成 0**（0 会被读成「今天没涨没跌」，而真相是没数据）。
     prev_close: Optional[float] = None
     price_date: Optional[date] = None
+    # 当日已定型（#2210）：price_date 是否为今天（Asia/Shanghai）⇒ true=估值副行冗余，前端隐藏。
+    # **派生字段**（Position 上无同名属性）：`model_validate` 只会填默认 None，
+    # 真值由 `position_presenter.enrich_position_dict` 经 `pnl_settle.is_settled_today` 覆写。
+    # 声明在 Out Schema 是为了契约可见（与 price_date 成对消费）；None=无价格日期，前端不隐藏。
+    settled_today: Optional[bool] = None
     valuation_mode: str = 'nav'
     market_value_override: Optional[float] = None
     value_override_at: Optional[datetime] = None

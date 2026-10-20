@@ -32,6 +32,7 @@ from app.domains.positions.models import Position
 from app.domains.strategy.models import TargetAllocation
 from app.services.nav_service import NavService
 from app.services.notification_service import build_dedup_key
+from app.services.position_scope import exclude_cleared
 from app.services.position_valuation import market_value_cents
 
 # 偏离阈值（百分点）：超出即视为「越过了你自己定的线」。
@@ -102,7 +103,7 @@ def clear_targets(db: Session, family_id: int) -> int:
 
 def _position_weights(db: Session, family_id: int) -> tuple[int, dict[str, dict[str, Any]]]:
     """按 symbol 聚合市值（分，已折 CNY）与展示名，返回 (总市值, {symbol: 聚合行})。"""
-    positions = db.query(Position).filter(Position.family_id == family_id).all()
+    positions = exclude_cleared(db.query(Position).filter(Position.family_id == family_id)).all()
     if not positions:
         return 0, {}
 

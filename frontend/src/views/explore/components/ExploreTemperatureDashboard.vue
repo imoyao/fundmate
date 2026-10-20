@@ -207,16 +207,11 @@ onMounted(() => {
   align-items: flex-start;
   padding: 10px 14px;
   margin-bottom: 12px;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--color-warning-ink);
-  background: color-mix(
-    in srgb,
-    var(--color-warning, #d97706) 12%,
-    transparent
-  );
-  border: 1px solid
-    color-mix(in srgb, var(--color-warning, #d97706) 35%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
   border-radius: 8px;
 }
 
@@ -263,7 +258,7 @@ onMounted(() => {
 .primary-link {
   display: inline-block;
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--color-rise-ink);
   white-space: nowrap;
   cursor: pointer;
@@ -274,7 +269,7 @@ onMounted(() => {
    统一由 CardBlock 承载，本类不再自定义外壳。 */
 .snapshot-title {
   margin-bottom: 8px;
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--text-secondary);
 }
@@ -289,7 +284,7 @@ onMounted(() => {
   th,
   td {
     padding: 5px 0;
-    font-size: 14px;
+    font-size: var(--text-small);
     line-height: 1.5;
     vertical-align: baseline;
   }
@@ -317,6 +312,6 @@ onMounted(() => {
 
 .snapshot-change {
   width: 88px;
-  font-size: 13px;
+  font-size: var(--text-label);
 }
 </style>

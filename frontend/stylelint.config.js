@@ -72,6 +72,23 @@ export default {
       }
     ],
     "unit-no-unknown": [true, { ignoreUnits: ["rpx"] }],
+    // 禁裸 `font-size` 绝对 px 字面值（#2323，2026-10-18）：字阶一律走
+    // design-tokens.css 的 `--text-*` 令牌（`var(--text-body)` 等）。
+    // 背景：detail 页 23 个组件 131 处 + 全仓其他页面另有存量，数值虽与 design.md
+    // 字阶一致（纯写法债、零视觉收益），但每处都是绕过令牌体系的暗记——调字阶时
+    // grep 不到它们。按 #2323 既定策略：不批量替换（为 131 处赌一次全量回归不划算），
+    // 而是加规则守住新增代码；存量登记进下方 overrides 的例外清单，随组件改动
+    // 自然消化（清完一个组件，从清单移除其条目，该组件即重新受规则约束）。
+    // 放行：`var(--text-*)` 令牌值、关键字（inherit 等）、相对单位（em/rem/%——
+    // 后者是「相对父级缩放」惯用法，如 MoneyDisplay / RiseFallText / reset.scss，
+    // 与绝对字阶债不同类，本期不收，避免误伤）。
+    // 2026-10-18 终态（#2323 / #2362 / #2363 收口）：存量 720 处已全部清零——
+    // 批次一（PR #2357）清 354 处等值替换，收口批次（#2362/#2363）清余下 366 处
+    // （子 13px 下限 330 处升 --text-label；偏离字阶 52 处就近归一，另补
+    // --text-display-lg 令牌）。例外登记 override 已整体移除，本规则现对全仓生效。
+    "declaration-property-value-disallowed-list": {
+      "font-size": ["/^[0-9]+(\\.[0-9]+)?px$/i"]
+    },
     "value-keyword-case": [
       "lower",
       {

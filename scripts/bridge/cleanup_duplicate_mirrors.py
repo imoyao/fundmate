@@ -17,6 +17,20 @@
 > ⚠️ 但「零评论」是**当前实测**，不是**结构性保证**。若某张重复卡日后被人工评论过，
 > 本脚本的判据（见下）会**优先保留有评论的那张**——所以判据是可重放的，不是一次性特例。
 
+## ⚠️ 「机器人评论」不算讨论（2026-10-19 实测踩到，CNB #196 被误关）
+
+判据 1 依赖「评论数」区分「带讨论的正本」与「空的重复卡」。但 2026-10-19 起分诊作业
+（`scripts/triage/issue_triage.py`）会给**每一张**镜像卡各贴一条「分诊结论」评论 ——
+于是同一编号下十几张重复卡**同时**变成「有 1 条评论」，判据 1 对这些卡**全部失效**，
+退化成「按编号最小」，**而留哪张从此取决于分诊评论贴到谁头上**。
+
+实测后果：CNB `#196`（GitHub `#2139`，本该保留 `#196` 因为它是编号最小的正本）
+被留成 `#551`、`#196` 反被关闭；`#552`（GitHub `#2285`）同样被误关。
+
+故判据 1 收紧为：**只有「人类评论」算讨论**。判法见 `human_comment_count()`
+（NPC / `github-actions` / `*-bot` 一律不计）。拿不到评论列表 ⇒ 记读取失败
+（#171 的纪律：读不到不得退化成「没有人类评论」，那正是误关的方向）。
+
 ## 保留判据（可重放，逐条带依据）
 
 1. **有评论的卡优先**——评论是重复卡里唯一「关了也难看全」的东西（虽然关闭不删评论，
@@ -41,6 +55,53 @@
 > 实测：本仓（CNB）编号 `167` 那张卡是 `closed`（人工拆卡转移），而 GitHub 侧对应编号 `2118`
 > 仍 `open`。清理后我手工重开了它，本脚本补上这条之后就不再依赖人工发现。
 
+## 关卡必须带判据（2026-10-19，源 CNB #552）
+
+**每关一张，就当场把「为什么是它」写进该卡的评论区**（`build_close_note`）。顺序是
+**先写判据、成功后才关卡**——反过来（先关后写）时写失败已经晚了，卡片关了却零附言，
+正是 #552 的形态。判据写不进去 ⇒ 这张卡本轮**不关**（下轮补得上，误关补不回）。
+
+判据四段固定：**关的是什么 / 为什么关它 / 保留依据 / 这条判据不管什么**。
+
+## 保留判据只认**人类**评论（2026-10-19，源 CNB #552 / #564）
+
+首版数的是 `comment_count`（总评论数）。2026-10-19 起分诊作业给**每一张**镜像卡各贴一条
+「分诊结论」评论 ⇒ 同一编号下十几张重复卡**同时**变成「有 1 条评论」⇒ 判据 1 对整组失效，
+退化成「编号最小」，而**留哪张取决于分诊评论先贴到谁头上**。
+
+实测后果：CNB `#196`（GitHub `#2139`，编号最小的正本）被留成 `#551`、`#196` 反被关闭；
+`#552`（GitHub `#2285`）同样被误关——那一组 06:34 贴 `CNB #535`、06:35 贴 `CNB #552`，
+用户 06:58 的追问恰好落在 `CNB #552` 上，旧判据便把 `CNB #552` 当正本、反去关 `CNB #535`。
+
+故判据 1 收紧为：**只有「人类评论」算讨论**（`human_comment_count()`，
+NPC / `github-actions` / `*-bot` 一律不计）。评论列表读不到 ⇒ 记读取失败、
+`--apply` 直接拒绝动手 —— **不得**退化成「没有人类评论」，那正是误关的方向（#171）。
+
+## 只清理「有 >1 张 open」的组，其余一律不动（2026-10-19，源 CNB #6）
+
+`collect()` 拉的是**全部**镜像卡（open + closed），所以 `plan()` 也会看到
+「只剩 1 张 open、其余 closed」的组。这种组**必须跳过**：
+
+它的判据依赖 `collect()` 不返回的**创建时间**——`#164` 那批是整轮重划前的重建产物，
+「编号最小」与「建卡最早」**不同向**（实测 GitHub `#2096`：open 的 `#164` 最早创建，
+编号更大的 `#183` 反而是同一天稍后建的重复卡）。照着编号去「修」，会把最早那张关掉、
+把重复卡留在看板上 —— 正是本脚本夜里翻车两轮的形态（`#883` 现在就是这个样子）。
+
+判据一句话：**看不到创建序号时，不下结论**。要处理这类组，先补 `created_at` 进判据。
+
+## 清理记录不算讨论（2026-10-19，源 CNB #6）
+
+`--apply` **先写判据、再关卡**，判据落在**被关那张卡**的评论区（这是刻意的，见上节）。
+于是同一组跑第二轮时，「被关的那张」成了唯一带人类评论的卡 ⇒ 判据 1 掉头：
+**把正本关掉、把重复卡留在看板上**。实测这一夜在四组上翻了两轮
+（GitHub `#783` / `#2096` / `#2132` / `#2285`），用户看到的就是「同一件事反复刷」。
+
+处置：`human_comment_count()` 用 `CLOSE_NOTE_MARKER` 把这类记录排除掉——
+**它是处置痕迹，不是有人在读这张卡**。
+
+> 同族气味：任何「写下的动作」被下一轮**当成输入**读回去的循环，都要问一句
+> 「这条记录会不会改变它自己的判据」。
+
 ## 失败态（#171 的纪律）
 
 拿不到输入（CNB 列表 / 详情读取失败）⇒ **退出码 2 并声明结论不可信**，
@@ -60,6 +121,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -69,25 +131,82 @@ sys.path.insert(0, str(SCRIPT_DIR))
 from check_duplicate_mirrors import collect, group_by_github_number  # noqa: E402
 from github_cnb_issues import cnb_api, fetch_github_open_issues, get_cnb_issue  # noqa: E402
 
+GITHUB_REPO = 'duoduobei/fundmate'
+
 EXIT_OK = 0
 EXIT_ACTIONED = 1  # dry-run 下有可清理项（便于 CI 判红），或 apply 后有失败
 EXIT_UNKNOWN = 2
+
+_CNB_REPO = 'duoduobei/fundmate'
+BOT_AUTHORS = {'github-actions', 'cnb', 'oci', 'codebuddy'}
+
+# 本脚本写在被关卡评论区的清理记录（`build_close_note` 的第一行）的固定前缀。
+# 它既是「为什么关它」的判据载体，也必须是**判据 1 的排除项** —— 否则第二轮清理
+# 会把「被关的那张」当成「有讨论的正本」掉头关别人（CNB #6 实测）。
+CLOSE_NOTE_MARKER = '## 重复镜像卡清理（'
 
 
 def _comment_count(detail: dict[str, Any]) -> int:
     return int(detail.get('comment_count') or 0)
 
 
+def human_comment_count(comments: list[dict[str, Any]]) -> int:
+    """只数「人类」评论：机器人评论（分诊结论 / CI 通知）不算讨论（CNB #564）。
+
+    判据必须是**评论的产出者**，不是条数 —— 分诊作业会给每张镜像卡贴同一条结论，
+    于是「有评论」在重复卡里**全部同时成立**，用它选保留卡等于随机挑一张。
+    实测（2026-10-19）：CNB #196 / #552 就是这样被误关的。
+    """
+    count = 0
+    for c in comments:
+        if not isinstance(c, dict):
+            continue
+        body = c.get('body') or ''
+        # 本脚本自己写的清理记录不算讨论（源 CNB #6）：它是**处置痕迹**，不是有人在读这张卡。
+        # 若把它算进判据 1，`--apply` 跑第二轮就会掉头 —— 详见 `pick_keeper` 的 docstring。
+        if CLOSE_NOTE_MARKER in body:
+            continue
+        author = c.get('author') or {}
+        name = str(author.get('username') or '')
+        if author.get('is_npc') or name.endswith('bot') or name in BOT_AUTHORS:
+            continue
+        count += 1
+    return count
+
+
+def fetch_human_comment_count(number: int) -> int:
+    """读一张卡的人类评论数。读不到就抛 —— 调用方记读取失败，不猜。"""
+    comments = cnb_api(f'/{_CNB_REPO}/-/issues/{number}/comments') or []
+    return human_comment_count(comments)
+
+
+def _human_count(detail: dict[str, Any]) -> int:
+    """选保留卡 / 记账时统一用「人类评论数」。
+
+    `human_comment_count` 由 main() 从评论接口取得；纯函数场景（单测）没取到时
+    退回 0 —— 即「没有人类讨论」，与「编号最小」同一条退路，不会凭空造出讨论。
+    """
+    return int(detail.get('human_comment_count') or 0)
+
+
 def pick_keeper(details: list[dict[str, Any]]) -> tuple[int, list[int]]:
     """给定同一 GitHub 编号下的多张卡详情，返回 `(保留卡号, 其余卡号)`。
 
-    判据（见文件头）：**有评论的优先，其余按编号升序取最小**。
-    纯函数，供单测直接用。
+    判据（见文件头）：
+    1. **有（人类）评论的优先**——评论不可再生；
+    2. **本脚本自己写的记录不算讨论**（源 CNB #6，2026-10-19）；
+    3. 其余按编号升序取最小。
+
+    第 2 条是 `--apply` 之后才会暴露的形态：清理**先写判据、再关卡**，那条判据落在
+    被关卡的评论区（那是刻意的）。于是同一组跑第二轮时，「被关的那张」反而成了
+    **唯一有人类评论的卡** ⇒ 判据 1 掉头把正本关掉、把重复卡留在看板上。
+    实测（2026-10-19）CNB #6 / #164 / #468 / #535 四组正是这么翻的：第一轮关对了，
+    第二轮把留下来的那张关掉、把已经关掉的那张当成「有讨论的正本」。
     """
 
     def sort_key(d: dict[str, Any]) -> tuple[int, int]:
-        # 第一维降序（有评论优先）用 -count；第二维升序用 number
-        return (-_comment_count(d), int(d['number']))
+        # 第一维降序（有**人类**评论优先）用 -count；第二维升序用 number
+        return (-_human_count(d), int(d['number']))
 
     ordered = sorted(details, key=sort_key)
     keeper = int(ordered[0]['number'])
@@ -100,15 +219,77 @@ def plan(grouped: dict[int, list[int]], details: dict[int, dict[str, Any]]) -> d
     for gh, numbers in sorted(grouped.items()):
         if len(numbers) < 2:
             continue
+        # 只处理**同时 open 的**重复卡（见文件头「只清理有 >1 张 open 的组」）：
+        # 只剩 1 张 open 的组里，「编号最小」与「建卡最早」可能不同向，
+        # 照着编号去修会把最早那张关掉、把重复卡留在看板上（#883 的现状就是这么来的）。
+        if sum(1 for n in numbers if (details.get(n) or {}).get('state', 'open') == 'open') < 2:
+            continue
         cards = [details[n] for n in numbers]
         keeper, extras = pick_keeper(cards)
         out[gh] = {
             'keep': keeper,
             'remove': extras,
-            'keep_comments': _comment_count(details[keeper]),
-            'removed_comments': sum(_comment_count(details[n]) for n in extras),
+            'keep_comments': _human_count(details[keeper]),
+            'removed_comments': sum(_human_count(details[n]) for n in extras),
         }
     return out
+
+
+def keeper_reason(p: dict[str, Any]) -> str:
+    """保留判据的**一句话人话**——逐条落到卡面，不留「脚本说它该留」这种话。
+
+    判据只有两条（见文件头），故理由也只有两种：
+    - 有（人类）评论 ⇒ 评论不可再生，留它；
+    - 都没评论 ⇒ 留编号最小的（最早创建，一般是原卡）。
+    """
+    if p['keep_comments']:
+        return f'有 {p["keep_comments"]} 条人类评论（评论不可再生，故保留本卡）'
+    return '编号最小（最早创建，一般是原卡）；本组各卡均无人类评论'
+
+
+def build_close_note(
+    *,
+    gh_number: int,
+    keeper: int,
+    remove: int,
+    p: dict[str, Any],
+    repo: str,
+    today: str | None = None,
+) -> str:
+    """关闭重复卡时**当场写下的判据**（CNB #552）。
+
+    用户的原话：「你关卡或者是说留下评论的时候，一定要判有判据，不然我会感觉到很困惑。」
+    关闭动作本身不带任何说明，读者只能靠追问才知道发生了什么——这条评论就是为了
+    让**这一次**的关闭自我解释。
+
+    四段固定，缺一不可：
+    1. **这张卡是什么**（重复卡，对应哪个 GitHub 编号）；
+    2. **为什么关它**（本组保留了哪张）；
+    3. **保留依据是什么**（`keeper_reason`）；
+    4. **这条判据不管什么**（不评价讨论价值；判错可重开）。
+    """
+    date = today or datetime.now(UTC).strftime('%Y-%m-%d')
+    return '\n'.join(
+        [
+            # ⚠️ 第一行是 `CLOSE_NOTE_MARKER` —— `human_comment_count()` 靠它把
+            # 「本脚本的处置痕迹」排除在「有人类讨论」之外（CNB #6：否则第二轮清理会掉头）。
+            f'{CLOSE_NOTE_MARKER}{date}）',
+            '',
+            f'- **关的是什么**：CNB #{remove} —— GitHub #{gh_number} 的重复镜像卡',
+            f'- **为什么关它**：同一 GitHub 卡在 CNB 侧建了多张，本组保留 #{keeper}',
+            f'- **保留依据**：{keeper_reason(p)}',
+            (
+                f'- **依据在哪**：https://github.com/{repo}/issues/{gh_number}'
+                f'（同一编号下 CNB 侧的重复卡：{[keeper, *p["remove"]]}）'
+            ),
+            (
+                '- **这条判据不管什么**：不判断各卡上的讨论是否有价值；判错可一键重开'
+                f'（`cnb issues open --number {remove}`），评论不会删除。'
+            ),
+            '',
+            f'> 有异议请直接在评论区说，或重开本卡。正本在 CNB #{keeper}。',
+        ]
+    )
 
 
 def close_issue(number: int) -> None:
@@ -118,9 +299,8 @@ def close_issue(number: int) -> None:
     `DELETE /{repo}/-/issues/{n}` 对真实存在的卡一律返 404（2026-10-14 实测），
     而 `PATCH state=closed` 返 200 生效。见文件头「为什么是关而不是删」。
     """
-    repo = 'duoduobei/fundmate'
     cnb_api(
-        f'/{repo}/-/issues/{number}',
+        f'/{GITHUB_REPO}/-/issues/{number}',
         method='PATCH',
         payload={'state': 'closed', 'state_reason': 'not_planned'},
     )
@@ -148,11 +328,15 @@ def keeper_state_fixes(
     return fixes
 
 
+def post_close_note(number: int, body: str) -> None:
+    """把「为什么关它」写进被关卡的评论区（关闭前调用 —— 关了就没人读了）。"""
+    cnb_api(f'/{GITHUB_REPO}/-/issues/{number}/comments', method='POST', payload={'body': body})
+
+
 def reopen_issue(number: int) -> None:
     """重开一张被误关的保留卡（GitHub 侧仍 open 时用）。"""
-    repo = 'duoduobei/fundmate'
     cnb_api(
-        f'/{repo}/-/issues/{number}',
+        f'/{GITHUB_REPO}/-/issues/{number}',
         method='PATCH',
         payload={'state': 'open', 'state_reason': 'reopened'},
     )
@@ -177,7 +361,7 @@ def render(
     lines.append(f'- 重复的 GitHub 编号：{len(plans)} 个')
     lines.append(f'- 将关闭的卡：{total} 张')
     lines.append(
-        f'- 被关闭卡上的评论总数：{lost_comments} 张'
+        f'- 被关闭卡上的人类评论总数：{lost_comments} 条'
         + ('' if lost_comments == 0 else '　⚠️ 非零即违反保留判据，应停下核实')
     )
     lines.append(f'- 读取失败的卡：{len(failed)} 张' + (f'（{failed[:20]}）' if failed else ''))
@@ -191,9 +375,9 @@ def render(
         lines.append('## 清单（GitHub 编号 → 保留 / 关闭，附保留依据）')
         lines.append('')
         for gh, p in plans.items():
-            why = '有评论' if p['keep_comments'] else '编号最小'
+            why = '有人类评论' if p['keep_comments'] else '编号最小'
             lines.append(
-                f'- GitHub #{gh}：保留 CNB #{p["keep"]}（{why}，{p["keep_comments"]} 条评论）；关闭 {p["remove"]}'
+                f'- GitHub #{gh}：保留 CNB #{p["keep"]}（{why}，{p["keep_comments"]} 条人类评论）；关闭 {p["remove"]}'
             )
         lines.append('')
 
@@ -238,6 +422,22 @@ def main(argv: list[str] | None = None) -> int:
             failed.append(n)
             print(f'  ⚠️ 读取 CNB #{n} 详情失败：{exc}', file=sys.stderr)
 
+    # 判据 1 用的是「人类评论数」而非总评论数：分诊作业会给每张重复卡各贴一条结论，
+    # 用总数会让「有评论」在整组里同时成立（2026-10-19 CNB #196 / #552 就是这么被误关的）。
+    # 只在**真正重复**的组上取，省掉几百次 API 调用；读不到 ⇒ 记失败，不猜。
+    for numbers in grouped.values():
+        if len(numbers) < 2:
+            continue
+        for n in numbers:
+            if n not in details:
+                continue
+            try:
+                details[n]['human_comment_count'] = fetch_human_comment_count(n)
+            except Exception as exc:  # noqa: BLE001  读不到评论 ⇒ 同样按「结论不可信」处理
+                if n not in failed:
+                    failed.append(n)
+                print(f'  ⚠️ 读取 CNB #{n} 评论失败：{exc}', file=sys.stderr)
+
     plans = plan(grouped, details)
 
     # GitHub 侧仍 open 的编号：用于判断保留卡是否该重开（见文件头「状态必须跟 GitHub 对齐」）
@@ -271,9 +471,22 @@ def main(argv: list[str] | None = None) -> int:
                 print(f'  ❌ GitHub #{gh}：重开 CNB #{keeper} 失败：{exc}', file=sys.stderr)
         for gh, p in plans.items():
             for n in p['remove']:
+                # 先写判据、再关卡（CNB #552）：关闭动作本身不带说明，
+                # 读者只能靠追问才知道发生了什么。**判据写不进去就不许关**——
+                # 「关掉一张说不出理由的卡」比「少关一张」贵得多（后者下轮补得上）。
+                note = build_close_note(gh_number=gh, keeper=p['keep'], remove=n, p=p, repo=GITHUB_REPO)
+                try:
+                    post_close_note(n, note)
+                except Exception as exc:  # noqa: BLE001
+                    actions_failed.append(n)
+                    print(
+                        f'  ⛔ GitHub #{gh}：CNB #{n} 的关闭判据写不进去（{exc}），**不关它**',
+                        file=sys.stderr,
+                    )
+                    continue
                 try:
                     close_issue(n)
-                    print(f'  ✅ GitHub #{gh}：已关闭 CNB #{n}')
+                    print(f'  ✅ GitHub #{gh}：已关闭 CNB #{n}（判据已写进该卡评论区）')
                 except Exception as exc:  # noqa: BLE001  单张失败不掩盖其余
                     actions_failed.append(n)
                     print(f'  ❌ GitHub #{gh}：关闭 CNB #{n} 失败：{exc}', file=sys.stderr)

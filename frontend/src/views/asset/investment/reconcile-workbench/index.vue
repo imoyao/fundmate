@@ -123,6 +123,17 @@
               @delete-txn="handleGhostDeleteTxn"
             />
 
+            <!-- 域 E：红利税待办（#541）——不是「差异」而是「账外缺一笔」，
+                 故不复用域 B 的差异表；每行陈述事实，并把补记做成一个按钮 -->
+            <DomainEDividendTaxTable
+              v-else-if="tab.key === 'E'"
+              :items="taxItems"
+              :total-cents="taxTotalCents"
+              :pending-count="taxPendingCount"
+              :loading="taxLoading"
+              @recorded="loadDividendTax"
+            />
+
             <!-- 域 C：占位内容 -->
             <template v-else>
               <!-- 识别候选（txn → 域 C，#1251）：AI 识别结果落草稿，确认后入库并触发域 C 对账 -->
@@ -171,6 +182,7 @@ import DomainBDiscTable from "./components/DomainBDiscTable.vue";
 import EAccountDomainPanel from "./components/EAccountDomainPanel.vue";
 import RecognizerCandidatesPanel from "./components/RecognizerCandidatesPanel.vue";
 import DomainDGhostTable from "./components/DomainDGhostTable.vue";
+import DomainEDividendTaxTable from "./components/DomainEDividendTaxTable.vue";
 import DomainPlaceholder from "./components/DomainPlaceholder.vue";
 import SupplementDialog from "./components/SupplementDialog.vue";
 import { domainTabs, type WorkbenchDomainKey } from "./constants/domainTabs";
@@ -193,6 +205,11 @@ const {
   ghostLoading,
   ghostDeletingId,
   ghostUndoingId,
+  taxItems,
+  taxTotalCents,
+  taxPendingCount,
+  taxLoading,
+  loadDividendTax,
   recognizerCandidates,
   committing,
   totalPending,
@@ -247,7 +264,7 @@ function goTo(to: string | { name: string }): void {
 
 /** Banner 点击：切换到第一个有待处理差异的域并定位到表格区（#1259） */
 function focusFirstPendingDomain(): void {
-  const order: WorkbenchDomainKey[] = ["B", "C", "A", "D"];
+  const order: WorkbenchDomainKey[] = ["B", "C", "A", "D", "E"];
   const target = order.find(k => domainPending(k) > 0);
   if (!target) return;
   activeDomain.value = target;
@@ -280,6 +297,7 @@ onMounted(() => {
   loadDiscrepancies();
   loadEAccount();
   loadGhostDuplicates();
+  loadDividendTax();
   loadRecognizerCandidates();
 });
 </script>
@@ -359,7 +377,7 @@ onMounted(() => {
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 1;
   color: var(--text-inverse);
   background: var(--brand-600, #d98b2b);
@@ -367,7 +385,7 @@ onMounted(() => {
 }
 
 .workbench-banner__icon {
-  font-size: 16px;
+  font-size: var(--text-body);
   color: var(--brand-700);
 }
 

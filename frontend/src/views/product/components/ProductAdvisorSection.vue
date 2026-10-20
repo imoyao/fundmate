@@ -144,56 +144,56 @@ watch(() => props.code, load, { immediate: true });
   <CardBlock class="advisor-section">
     <SectionHeader title="投顾组合" />
 
-    <p v-if="loading" class="advisor-section__hint">正在读取投顾组合资料…</p>
+    <p v-if="loading" class="section-footnote">正在读取投顾组合资料…</p>
 
-    <p v-else-if="failed || !profile" class="advisor-section__hint">
+    <p v-else-if="failed || !profile" class="section-footnote">
       暂无可展示的投顾组合资料
     </p>
 
     <template v-else>
       <!-- 识别信息：不展示代码（设计 §2.6），靠名称 + 平台 + 机构 -->
-      <dl class="advisor-section__facts">
-        <div class="advisor-section__fact">
-          <dt class="advisor-section__label">组合名称</dt>
-          <dd class="advisor-section__value advisor-section__value--strong">
+      <dl class="facts-grid">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">组合名称</dt>
+          <dd class="facts-grid__value facts-grid__value--strong">
             {{ profile.name || DASH }}
           </dd>
         </div>
-        <div class="advisor-section__fact">
-          <dt class="advisor-section__label">平台</dt>
-          <dd class="advisor-section__value">{{ platformLabel || DASH }}</dd>
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">平台</dt>
+          <dd class="facts-grid__value">{{ platformLabel || DASH }}</dd>
         </div>
-        <div class="advisor-section__fact">
-          <dt class="advisor-section__label">机构</dt>
-          <dd class="advisor-section__value advisor-section__value--wrap">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">机构</dt>
+          <dd class="facts-grid__value facts-grid__value--wrap">
             {{ profile.org_name || DASH }}
           </dd>
         </div>
-        <div class="advisor-section__fact">
-          <dt class="advisor-section__label">主理人</dt>
-          <dd class="advisor-section__value">{{ profile.host || DASH }}</dd>
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">主理人</dt>
+          <dd class="facts-grid__value">{{ profile.host || DASH }}</dd>
         </div>
-        <div class="advisor-section__fact">
-          <dt class="advisor-section__label">风险等级</dt>
-          <dd class="advisor-section__value">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">风险等级</dt>
+          <dd class="facts-grid__value">
             {{ profile.risk_level || DASH }}
           </dd>
         </div>
-        <div class="advisor-section__fact">
-          <dt class="advisor-section__label">产品类型</dt>
-          <dd class="advisor-section__value">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">产品类型</dt>
+          <dd class="facts-grid__value">
             {{ profile.product_type || DASH }}
           </dd>
         </div>
-        <div class="advisor-section__fact">
-          <dt class="advisor-section__label">成立日期</dt>
-          <dd class="advisor-section__value">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">成立日期</dt>
+          <dd class="facts-grid__value">
             {{ profile.estab_date || DASH }}
           </dd>
         </div>
-        <div class="advisor-section__fact">
-          <dt class="advisor-section__label">最新净值</dt>
-          <dd class="advisor-section__value">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">最新净值</dt>
+          <dd class="facts-grid__value">
             <template v-if="profile.nav != null">
               {{ profile.nav.toFixed(4) }}
             </template>
@@ -280,7 +280,7 @@ watch(() => props.code, load, { immediate: true });
       </div>
 
       <!-- 脚注：来源给平台名（用户看得懂），并附官方页面外链（新窗口打开） -->
-      <p class="advisor-section__footnote">
+      <p class="section-footnote section-footnote--spaced">
         数据来源：{{ platformLabel || profile.platform }}
         <template v-if="profile.source_url">
           ·
@@ -295,7 +295,7 @@ watch(() => props.code, load, { immediate: true });
           </a>
         </template>
       </p>
-      <p class="advisor-section__footnote">
+      <p class="section-footnote section-footnote--attached">
         组合构成与收益以平台官方披露为准；平台未披露的字段显示「—」
       </p>
     </template>
@@ -303,45 +303,8 @@ watch(() => props.code, load, { immediate: true });
 </template>
 
 <style scoped>
-.advisor-section__facts {
-  display: grid;
-
-  /* auto-fit + 真实最小列宽：`minmax(0, 1fr)` 会让轨道塌到几像素、标签逐字竖排（#1969 P0） */
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: var(--space-3) var(--space-6);
-  margin: 0;
-}
-
-.advisor-section__fact {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  min-width: 0;
-}
-
-.advisor-section__label {
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
-}
-
-.advisor-section__value {
-  margin: 0;
-  font-size: 14px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
-.advisor-section__value--strong {
-  font-size: 18px;
-  font-weight: 600;
-}
-
-.advisor-section__value--wrap {
-  overflow-wrap: anywhere;
-}
-
 .advisor-section__sub {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -351,7 +314,7 @@ watch(() => props.code, load, { immediate: true });
 
 .advisor-section__metrics-title {
   margin: 0 0 var(--space-2);
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -373,12 +336,12 @@ watch(() => props.code, load, { immediate: true });
 }
 
 .advisor-section__metric-label {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .advisor-section__metric-value {
-  font-size: 16px;
+  font-size: var(--text-mono);
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }
@@ -394,7 +357,7 @@ watch(() => props.code, load, { immediate: true });
 
 .advisor-section__desc {
   margin: var(--space-3) 0 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-secondary);
 }
@@ -421,7 +384,7 @@ watch(() => props.code, load, { immediate: true });
 }
 
 .advisor-section__holding-name {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-primary);
   overflow-wrap: anywhere;
 }
@@ -435,21 +398,14 @@ watch(() => props.code, load, { immediate: true });
 }
 
 .advisor-section__holding-ratio {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }
 
-.advisor-section__hint,
-.advisor-section__footnote {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
-}
-
-.advisor-section__footnote:first-of-type {
-  margin-top: var(--space-3);
-}
+/* 脚注间距改由共享变体承担（#2320）：来源行用 --spaced 与上方内容分隔，
+   紧随其后的一行用 --attached 表明同属一组。原先靠 :first-of-type
+   局部改写共享类，等于把「第几条要多少间距」藏在选择器里——迁走后口径显式。 */
 
 .advisor-section__link {
   color: var(--text-secondary);

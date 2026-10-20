@@ -1,0 +1,89 @@
+/* ============================================
+   详情页 facts 网格 / 脚注共享实现（#2314）
+
+   背景：产品详情页 6 个组件各自手写了一份「label: value」信息网格，
+   11 个组件逐字复制了同一段脚注规则——每次调字号 / 间距 / 对比度要改
+   6~11 处，且 #1969 的塌轨教训注释在 6 个文件里各写一遍。
+   收敛到此单一来源；组件内不再自写同款规则。
+
+   - .facts-grid：label(12px tertiary-ink) / value(14px tabular-nums) 两行结构
+   - .facts-grid--narrow：窄容器变体（原 minmax(96px) 实现）
+   - .section-footnote：脚注 / 提示行（12px tertiary-ink）
+   ============================================ */
+
+.facts-grid {
+  display: grid;
+
+  /* auto-fit + 真实最小列宽（#1969 P0）：`minmax(0, 1fr)` 会让轨道塌到
+     几像素、标签逐字竖排；`auto-fill` 不折叠空轨，`auto-fit` 才会把
+     剩余列拉伸填满。本规则是全站唯一副本，改这里即全站生效。 */
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-3) var(--space-6);
+  margin: 0;
+}
+
+/* 窄容器变体：指标多而密的网格（原各组件 minmax(96px) 手写版） */
+.facts-grid--narrow {
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: var(--space-3) var(--space-4);
+}
+
+.facts-grid__cell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.facts-grid__label {
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink);
+}
+
+.facts-grid__value {
+  margin: 0;
+  font-size: var(--text-mono-small);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+/* 强调值变体（如组合名称）：仅提字重，不换字号 */
+.facts-grid__value--strong {
+  font-weight: 600;
+}
+
+/* 长整句值允许折行（基金经理代表作品、业绩基准等）。
+   `overflow-wrap: anywhere` 而非 `word-break: break-all`：后者在**任意字符**处断行，
+   会把「沪深300」「85%」劈开——中文长句读起来像乱码；`anywhere` 只在放不下时才断，
+   且优先在词 / 短语边界断。 */
+.facts-grid__value--wrap {
+  overflow-wrap: anywhere;
+}
+
+/* 整句型字段跨列占满整行（业绩基准）。网格是 `minmax(140px, 1fr)`，业绩基准那类
+   整句描述挤在 140px 里只能疯狂换行——它本是段落不是指标卡，让它独占一行。 */
+.facts-grid__cell--wide {
+  grid-column: 1 / -1;
+}
+
+/* 脚注 / 提示行：口径、来源等辅助信息（12px tertiary-ink）。
+   ⚠️ 色值必须是 `-ink` 文字级：同族的 --text-tertiary 是**图形级**
+   （colors.css 注释：作正文不足 4.5:1），作前景文字违反 design.md:131。 */
+.section-footnote {
+  margin: 0;
+  font-size: var(--text-label);
+  color: var(--text-tertiary-ink);
+}
+
+/* 分隔变体：脚注上方是表格 / 图表等大块内容时，需要一条明确间距才不会被「粘住」。
+   ⚠️ 容器本身带 `display:flex; gap` 时**不要**加本变体——子元素间距已由 gap 提供，
+   叠加即双倍（.holding-section / .industry-section 属此情形，只用基础类）。 */
+.section-footnote--spaced {
+  margin-top: var(--space-3);
+}
+
+/* 续接变体：紧接上一条脚注的补充行。两条属同一组信息，只留极小间距——
+   用 --spaced 会把「一组」拆成「两块」（如 ETF 对比表的口径说明紧随来源脚注）。 */
+.section-footnote--attached {
+  margin-top: var(--space-1);
+}

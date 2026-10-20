@@ -1,0 +1,92 @@
+# PR 四问格式守卫
+#
+# 依据 AGENTS.md「Issue 全局治理」与 2026-10-19 治理诊断：
+#   AGENTS.md 里早有「纳入四问」机制，但它拦不住任何东西。用户原话：
+#   「它会去看这个需求是不是合理的，但是没有强制性。也就是说，AI 有时候读到
+#    Agent 的 MD 里面会去看，但有时候又会把这块绕开，并不会每一个都做这个分析。」
+#
+#   这条判断准确，而根因决定了本守卫的设计形状：
+#     - 「需求是否合理」是**主观判断** → 写进文档 = 软约束，AI 可绕；
+#     - 「描述里有没有这四行」是**客观存在性** → 可以挂 CI，绕不过。
+#
+# 所以本守卫**不是**把四问变成更强的判断，而是把判断**降级**成存在性检查：
+# 逼 AI 每次停下来把四件事写出来（谁的什么问题 / 验收标准 / 风险 / 替代方案）。
+# 写的过程本身就是 AI 自我约束的一遍——**约束的是「不许跳过思考」，
+# 而不是「不许做出错误判断」**。后者永远做不到，也不该假装能做到。
+#
+# 换句话说：四问格式守卫不提升判断质量，只保证**判断发生过并留下痕迹**。
+#
+# ## 关于「Q1 容量」为什么不在本文件里
+#
+# 2026-10-19 曾在此加过「Q1 容量」job（PR 新增 Q1 且超上限 → 红灯），**已废止**：
+#   1. 判据错位——它只拦「PR 开着时给卡提优先级」，完全拦不到「新提一张紧急卡」；
+#   2. 设计错位——真拦住了也等于把资源排序强加在紧急时刻，惩罚做正确动作的人。
+#   改由 `now-capacity-ledger.yml` 承担（超容打标签、回落自动撤，零摩擦不阻断）。
+#
+# ## 豁免面（必须有，否则第一天就被 dependabot 堵死）
+#
+#   机器人作者 / draft PR / 描述含 `four-questions-skip`。
+#   守卫一旦频繁误伤真实工作，就再也没有人看它——这是它能否长期活下来的前提。
+#
+# ## 为什么用 pull_request_target
+#
+# 需要 issues: read 读关联 issue，且 fork PR 的 secrets 不注入。
+# **不 checkout PR 代码**（只 sparse-checkout `scripts/`），故无注入面。
+
+name: PR 四问格式守卫
+
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pr-four-questions-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  four-questions:
+    name: 四问格式检查
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出守卫脚本（不检出 PR 代码）
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: false
+
+      - name: 判定（只检查有没有写，不判断写得对不对）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.body // ""' > /tmp/pr-body.md
+
+          # 作者 / draft 豁免是脚本的可选入参，这里显式传入，
+          # 保证实际豁免面与 guard_pr_four_questions.mjs 文件头的设计一致。
+          set +e
+          node -e '
+            const fs = require("node:fs");
+            const { checkFourQuestions } = require("./scripts/guard_pr_four_questions.mjs");
+            const v = checkFourQuestions({
+              body: fs.readFileSync("/tmp/pr-body.md", "utf8"),
+              author: process.env.PR_AUTHOR,
+              draft: process.env.PR_DRAFT === "true",
+            });
+            fs.writeFileSync("/tmp/fq.json", JSON.stringify(v));
+            process.exit(v.ok ? 0 : 1);
+          '
+          rc=$?
+          set -e
+
+          cat /tmp/fq.json
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::四问格式守卫未通过，详见上方 JSON 的 message 字段。"
+          fi
+          exit $rc

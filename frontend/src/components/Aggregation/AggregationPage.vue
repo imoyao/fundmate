@@ -391,7 +391,7 @@ onMounted(() => load());
 }
 
 .search-icon {
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--text-tertiary-ink);
 }
 
@@ -428,17 +428,17 @@ onMounted(() => load());
 }
 
 .state-icon {
-  font-size: 48px;
+  font-size: var(--text-display-lg);
   opacity: 0.3;
 }
 
 .state-text {
-  font-size: 16px;
+  font-size: var(--text-body);
   color: var(--text-secondary);
 }
 
 .state-hint {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

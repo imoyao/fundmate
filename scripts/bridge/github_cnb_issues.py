@@ -388,6 +388,33 @@ def _cnb_repo() -> str:
     return os.environ.get('CNB_REPO') or os.environ.get('CNB_REPO_SLUG') or CNB_REPO_DEFAULT
 
 
+def _request_with_headers(
+    url: str,
+    *,
+    method: str = 'GET',
+    data: bytes | None = None,
+    headers: dict[str, str] | None = None,
+    timeout: int = 30,
+) -> tuple[bytes, dict[str, str]]:
+    """同 `_request`，但**连响应头一起返回**。
+
+    WHY 需要头（源 CNB #586，2026-10-19 实测）：GitHub 对**大结果集**关掉了 `page` 分页，  # cross-repo-ref-allow
+    第 11 页起直接 422：
+
+        Pagination with the page parameter is not supported for large datasets,
+        please use cursor based pagination (after/before)
+
+    而游标就在响应的 `Link` 头里（`rel="next"` 那段 URL 带 `after=…`）。只读 body 就
+    拿不到游标，只能继续拼 `page=` ⇒ 永远撞同一面墙。故翻页必须读头。
+    """
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header('User-Agent', 'fundmate-github-cnb-mirror')
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read(), dict(resp.headers.items())
+
+
 def _request(
     url: str,
     *,
@@ -396,17 +423,120 @@ def _request(
     headers: dict[str, str] | None = None,
     timeout: int = 30,
 ) -> bytes:
-    req = urllib.request.Request(url, data=data, method=method)
-    req.add_header('User-Agent', 'fundmate-github-cnb-mirror')
-    for k, v in (headers or {}).items():
-        req.add_header(k, v)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read()
+    """只关心 body 的调用方走这里（保留旧签名，不必为了头把每个调用点都改一遍）。"""
+    return _request_with_headers(
+        url, method=method, data=data, headers=headers, timeout=timeout
+    )[0]
 
 
 # 单次拉取的最大页数（防无限翻页 / 打爆限额）。100/页 ⇒ 上限 3000 张卡。
 # 达到它说明仓库规模已超出「匿名限额够用」的前提，**必须显式报警**、不得当成拉全了。
 MAX_ISSUE_PAGES = 30
+
+
+def _link_next(headers: dict[str, str]) -> str | None:
+    """从响应的 `Link` 头里取 `rel="next"` 的 URL（没有就 None）。
+
+    GitHub 对大结果集（本仓已超 1000 张卡）**关掉了 `page` 分页**：
+    第 11 页起直接返回 422 `Pagination with the page parameter is not supported
+    for large datasets, please use cursor based pagination (after/before)`。
+    而游标就藏在这个头里，形如：
+
+        Link: <https://api.github.com/repositories/296191288/issues?state=all&per_page=100
+               &page=11&sort=updated&after=Y3Vyc29yOnYyOpLPAAABoJW4oGDPAAAAAUPO_yc%3D>; rel="next"
+
+    ⇒ **翻页只能跟着它走**。只读 body 的实现（本函数上线前的两个 fetch）在 page 11
+    必然 422，而错误被当成「数据不完整」⇒ 状态回流实际只处理了 1/42 张（源 CNB #586）。
+    """
+    raw = headers.get('Link') or headers.get('link') or ''
+    for part in raw.split(','):
+        if 'rel="next"' not in part:
+            continue
+        url = part.split(';')[0].strip()
+        return url.strip('<>').strip() or None
+    return None
+
+
+def fetch_github_issues(
+    state: str,
+    *,
+    sort: str = 'created',
+    direction: str | None = 'asc',
+    max_pages: int = MAX_ISSUE_PAGES,
+) -> tuple[list[dict[str, Any]], bool, str]:
+    """拉 GitHub 仓库的 issue 列表（跨页，**PR 也一并返回**，由调用方剔除）。
+
+    返回 `(items, complete, note)`：
+      - `items`：已拿到的卡（含 PR，调用方按 `pull_request` 字段过滤）；
+      - `complete`：这次拉取是否可信；
+      - `note`：失败原因（空串 = 没出问题）。**`complete=False` 时调用方必须把它喊出来**
+        ——「拉不到」不等于「没有」，这是本仓 #171 / #179 反复踩的假绿。
+
+    翻页跟 `Link` 头走（`_link_next`）；拿不到头时才退回 `page=` 递增，这样
+    「GitHub 没给 Link」这种退化不会变成「只拉了一页却报完整」。
+    """
+    headers: dict[str, str] = {'Accept': 'application/vnd.github+json'}
+    token = os.environ.get('GITHUB_TOKEN')
+    if token:
+        headers['Authorization'] = f'Bearer {token}'
+
+    def page_url(n: int) -> str:
+        params = {'state': state, 'per_page': 100, 'page': n, 'sort': sort}
+        if direction:
+            params['direction'] = direction
+        qs = urllib.parse.urlencode(params)
+        return f'https://api.github.com/repos/{_github_repo()}/issues?{qs}'
+
+    out: list[dict[str, Any]] = []
+    complete = True
+    note = ''
+    page = 1
+    url = page_url(1)
+    last_full = False
+    while True:
+        if page > max_pages:
+            # 触顶 = 数据不完整，**显式**记下来（由调用方报警），不静默当成拉全了。
+            complete = False
+            note = f'翻页触顶（>{max_pages} 页）'
+            break
+        try:
+            raw, resp_headers = _request_with_headers(url, headers=headers)
+        except urllib.error.HTTPError as exc:
+            complete = False
+            if exc.code == 403:
+                note = 'GitHub 限额用尽（403）'
+            elif exc.code == 422:
+                # 大结果集不支持 page 分页。走到这里说明 **Link 头也没给** ——
+                # 那就真的拿不全了，必须如实说，不得退化成「就这么多」。
+                note = (
+                    'GitHub 拒绝 page 分页（422，大结果集只支持游标分页），'
+                    '且本次响应未给 Link 头 —— 拿不到后续页'
+                )
+            else:
+                note = f'GitHub 返回 {exc.code}'
+            note = f'{note}（中断在 page {page}）'
+            break
+        batch = json.loads(raw)
+        if not batch:
+            # 空页：若此前已满页，说明分页中途断了（正常翻到尾时上一页不满页），
+            # 这种情况数据不完整，必须记下来。
+            if page > 1 and last_full:
+                complete = False
+                note = f'分页中断：page {page} 返回空，但上一页是满页'
+            break
+        out.extend(batch)
+        last_full = len(batch) >= 100
+        if not last_full:
+            break
+        nxt = _link_next(resp_headers)
+        if nxt:
+            url = nxt
+        else:
+            page += 1
+            url = page_url(page)
+            continue
+        page += 1
+    return out, complete, note
 
 
 def fetch_github_open_issues() -> tuple[list[dict[str, Any]], bool]:
@@ -417,47 +547,15 @@ def fetch_github_open_issues() -> tuple[list[dict[str, Any]], bool]:
 
     返回 `(issues, complete)`：**`complete` 是这次拉取是否可信**（源 CNB #179）。
     调用方**不得**在 `complete=False` 时报「无新增，两侧已对齐」——
-    「拉不到」不是「没有」。两个形态会让数据不完整：
+    「拉不到」不是「没有」。两种形态会让数据不完整：翻页触顶、分页中断。
 
-      - **翻页触顶**（`MAX_ISSUE_PAGES`）：仓库长到匿名限额撑不住；
-      - **分页中断**（某页返回空但前面已满页）：GitHub 偶发的空页。
-
-    与 `mirror_state_sync.fetch_github_issues_by_number()` 同一条纪律
-    （那是 #171 的修复），这里原先缺了它 —— 因为建卡作业「少拉只是少建」看起来没那么贵，
-    但「少拉 ⇒ 报已对齐 ⇒ 没人发现漏建」是**同一个假绿**。
+    翻页实现收敛到 `fetch_github_issues()`（源 CNB #586）：这里原先自己拼 `page=`，
+    而 GitHub 对**大结果集**已关闭 `page` 分页（第 11 页起 422），必须跟 `Link` 头走。
+    同一份翻页逻辑原来抄了两遍（本函数 + `mirror_state_sync`），于是同一个 bug 修了两次
+    —— 现在只有一处。
     """
-    repo = _github_repo()
-    headers: dict[str, str] = {'Accept': 'application/vnd.github+json'}
-    token = os.environ.get('GITHUB_TOKEN')
-    if token:
-        headers['Authorization'] = f'Bearer {token}'
-
-    out: list[dict[str, Any]] = []
-    page = 1
-    complete = True
-    last_batch: list[dict[str, Any]] = []
-    while True:
-        if page > MAX_ISSUE_PAGES:
-            # 触顶 = 数据不完整，**显式**记下来（由调用方报警），不静默当成拉全了。
-            complete = False
-            break
-        qs = urllib.parse.urlencode(
-            {'state': 'open', 'per_page': 100, 'page': page, 'sort': 'created', 'direction': 'asc'}
-        )
-        raw = _request(f'https://api.github.com/repos/{repo}/issues?{qs}', headers=headers)
-        batch = json.loads(raw)
-        if not batch:
-            # 空页：若此前已满页，说明分页中途断了（正常翻到尾时上一页不满页），
-            # 这种情况数据不完整，必须记下来。
-            if page > 1 and len(last_batch) >= 100:
-                complete = False
-            break
-        last_batch = batch
-        out.extend(i for i in batch if 'pull_request' not in i)
-        if len(batch) < 100:
-            break
-        page += 1
-    return out, complete
+    items, complete, _note = fetch_github_issues('open', sort='created', direction='asc')
+    return [i for i in items if 'pull_request' not in i], complete
 
 
 def cnb_api(path: str, *, method: str = 'GET', payload: dict | None = None) -> Any:
@@ -580,6 +678,36 @@ def harvest_existing(state: dict[str, Any]) -> set[int]:
 
     扫描成本：CNB 列表接口 100/页，逐张拉详情抠幂等键。实测 365 张镜像卡
     约 370 次请求，可接受 —— 相比「重复建 140 张卡」的代价，这个成本必须付。
+
+    ## 第二层（源 CNB #6，2026-10-19）：**跳过的代价是「明天再建一张」**
+
+    上面那条只治了「扫描被缓存短路」。第二层更贵，而且**当前就在发生**：
+
+    ```text
+    @CodeBuddy 怎么一直在重复刷？肯定是出 bug 了            ← 用户在同一个 bug 上喊了 37 遍
+    分诊作业每轮会给每张卡贴一条评论
+      → 08:57 贴到重复卡 #6 上 ⇒ #6 有了「有人类评论」的假象（分诊评论是 NPC 的，
+        但清理脚本 08:57 之前的判据数的是**总评论数**）
+      → 清理脚本按「有评论优先」保留 #6、关掉正本 #5
+      → 建卡作业只问 `open`，**没有「已关闭的算不算建过」这一问** ⇒ 下一轮把
+        GitHub #783 再建一张（`#164` / `#468` 这些都是这么长出来的）
+      → 新卡的评论区空空如也 ⇒ 分诊再贴一条 ⇒ 再关、再建……
+    ```
+
+    两个洞，都必须补：
+
+    - **判重必须问全部 state**：`closed` 的镜像卡同样证明「这张 GitHub 卡建过」。
+      只问 `open` 时，清理动作（关卡）直接把幂等键**匿名掉**，于是「关卡」变成
+      「下一轮重建」的开关 —— 清理与重建互相喂饭。
+      ⚠️ 只补这一条还不够：人**确实想**看一张仍然 open 的 GitHub 卡的镜像卡时，
+      手动关掉后会被永久钉死（再也建不出来）。所以还缺下面一条闸。
+    - **最近被关的卡不重建**（`RECENTLY_CLOSED_HOURS`）：同一幂等键在窗口内被关过
+      ⇒ 本轮**跳过建卡**并打印一行人话。判据刻意用「时间窗」而不是「关闭原因」：
+      CNB 侧关闭动作至少有四条来源（重复卡清理 / 状态回流 / 人手动 / NPC 误关），
+      逐条识别等于拟合历史；时间窗一视同仁，且 60 天后自动放飞，不会永久死锁。
+
+    一句话：**「建过」与「开着」是两件事。** 把前者按后者判，就等于让「关一张卡」
+    成了「下一轮再建一张」的许可证。
     """
     mirrored: dict[str, Any] = state.setdefault('mirrored', {})
     # 状态文件的键就是 GitHub 编号（str），值只存 CNB 编号与标题快照。
@@ -597,6 +725,7 @@ def harvest_existing(state: dict[str, Any]) -> set[int]:
     )
 
     seen: set[int] = set()
+    closed_groups: dict[int, list[dict[str, Any]]] = {}
     for card in mirror_cards:
         try:
             detail = get_cnb_issue(int(card['number']))
@@ -606,12 +735,85 @@ def harvest_existing(state: dict[str, Any]) -> set[int]:
         gh = extract_github_number(detail.get('body'))
         if not gh:
             continue
+        # **全部 state 都算「建过」**（源 CNB #6）：只认 open 时，清理动作（关卡）
+        # 等于把幂等键匿名掉 ⇒ 下一轮原地重建一张空卡，再被分诊贴评论、再被关……
+        # 「建过」与「开着」是两件事，判重只能问前者。
         seen.add(gh)
+        if (detail.get('state') or 'open') != 'open':
+            closed_groups.setdefault(gh, []).append(detail)
+            continue
         mirrored[str(gh)] = {'cnb': int(card['number']), 'title': card['title'][:80]}
+
+    _remember_recently_closed(mirrored, closed_groups)
 
     # 并集：缓存里有、CNB 侧已找不到的也保留（可能只是本轮读取失败），
     # **宁可漏建也不重复建** —— 漏建能被下一轮扫描补上，重复建会污染看板且不可逆。
     return cached | seen
+
+
+# 同一幂等键在这么久之内被关过 ⇒ 本轮**不重建**。60 天足够覆盖任何人工清理节奏，
+# 又不至于把「用户想重开」永久钉死（到期后自动放飞，不需要谁去改配置）。
+RECENTLY_CLOSED_HOURS = 24 * 60
+
+
+def _parse_cnb_time(value: Any) -> datetime | None:
+    """解析 CNB 的时间串（`2026-10-19T09:17:28Z` 这类）。解析不了返回 None，不猜。"""
+    text = str(value or '').strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace('Z', '+00:00')).astimezone(UTC)
+    except ValueError:
+        return None
+
+
+def _remember_recently_closed(
+    mirrored: dict[str, Any],
+    closed_groups: dict[int, list[dict[str, Any]]],
+    *,
+    now: datetime | None = None,
+    window_hours: int = RECENTLY_CLOSED_HOURS,
+) -> dict[int, str]:
+    """把「最近被关过」的幂等键记进缓存，返回 `{GitHub 编号: 关闭时刻}`。
+
+    纯函数（`now` 可注入），供单测直接用。三个刻意的选择：
+
+    - **只记时间点，不记原因**：关闭来源至少有重复卡清理 / 状态回流 / 人手动 / NPC 误关
+      四种，逐条识别等于拟合历史；时间窗一视同仁。
+    - **同一键有多张 closed 卡时取最新那张**：重建出来的卡一定是后来那张。
+    - **解析不了时间就不记**：宁可多建一张，也不用一个猜出来的时间当判据
+      （#171：「拿不到」不等于「没有」—— 但它在这里的正确处置是**不动手**，不是编一个值）。
+    """
+    now = now or datetime.now(UTC)
+    fresh: dict[int, str] = {}
+    for gh, cards in closed_groups.items():
+        latest: datetime | None = None
+        for card in cards:
+            ts = _parse_cnb_time(card.get('closed_at')) or _parse_cnb_time(card.get('updated_at'))
+            if ts and (latest is None or ts > latest):
+                latest = ts
+        if latest is None:
+            continue
+        if (now - latest).total_seconds() <= window_hours * 3600:
+            fresh[gh] = latest.strftime('%Y-%m-%dT%H:%M:%SZ')
+    mirrored['_recently_closed'] = {str(k): v for k, v in sorted(fresh.items())}
+    return fresh
+
+
+def recently_closed(state: dict[str, Any], *, now: datetime | None = None) -> dict[int, str]:
+    """从缓存里取「最近被关过」的键 → 关闭时刻（供 `run()` 判「要不要跳过建卡」）。"""
+    now = now or datetime.now(UTC)
+    raw = (state.get('mirrored') or {}).get('_recently_closed') or {}
+    out: dict[int, str] = {}
+    for key, value in raw.items():
+        if not str(key).isdigit():
+            continue
+        ts = _parse_cnb_time(value)
+        if ts is None:
+            continue
+        if (now - ts).total_seconds() <= RECENTLY_CLOSED_HOURS * 3600:
+            out[int(key)] = str(value)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -667,8 +869,37 @@ def run(dry_run: bool, limit: int | None) -> int:
     gh_issues, complete = fetch_github_open_issues()
     print(f'📥 GitHub open issue {len(gh_issues)} 张；CNB 已镜像 {len(already)} 张')
 
-    pending = [i for i in gh_issues if i['number'] not in already]
-    pending.sort(key=lambda i: i['number'])
+    # ⚠️ 这里**不再**按 `already` 过滤：`recently_closed()` 是同一份判据的**子集**，
+    # 下面只过滤一次，免得「先滤掉、再滤一次」写成两处真相（第二次漏了就没人发现）。
+    pending = sorted(gh_issues, key=lambda i: i['number'])
+
+    # 闸门 ①：已经建过的（**含已关闭的**）不再重建。
+    # 「开着」与「建过」是两件事（源 CNB #6）：只认 open 时，关一张卡 =
+    # 下一轮再建一张，清理动作反而成了重建开关。
+    skipped_mirrored = [i for i in pending if i['number'] in already]
+    pending = [i for i in pending if i['number'] not in already]
+    if skipped_mirrored:
+        print(f'⏭️ {len(skipped_mirrored)} 张已建过（含已关闭的镜像卡），跳过')
+
+    # 闸门 ②：**最近被关过的镜像卡不重建**（源 CNB #6，2026-10-19）。
+    #
+    # 为什么需要它（上面那层只管住了「缓存短路」）：判重改问全部 state 之后，
+    # 一张被人**手动关掉**、而 GitHub 侧仍 open 的卡就再也建不出来了。把它恢复成
+    # 「能建」又会让清理动作重新变成「明天再建一张」的开关。二者之间的那条线是时间：
+    # 窗口内（`RECENTLY_CLOSED_HOURS`）当「刚处置过、别碰」，到期后自动放飞。
+    fresh_closed = recently_closed(state)
+    if fresh_closed:
+        held = [i for i in pending if i['number'] in fresh_closed]
+        if held:
+            pending = [i for i in pending if i['number'] not in fresh_closed]
+            print(
+                f'⏸️ {len(held)} 张 GitHub 卡在 CNB 侧的镜像卡**最近被关过**'
+                f'（{RECENTLY_CLOSED_HOURS // 24} 天内），本轮不重建：'
+                f'{[i["number"] for i in held][:10]}'
+                f'{"…" if len(held) > 10 else ""}'
+            )
+            print('   判据见 harvest_existing 的 docstring（「建过」≠「开着」）；要立刻重建请直接跑 --limit 或手工建卡。')
+
     if limit:
         pending = pending[:limit]
 

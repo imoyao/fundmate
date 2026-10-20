@@ -141,7 +141,15 @@ class WatchlistAlert(Base, PrimaryKeyMixin, TimestampMixin):
 
 
 class ClearedPosition(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
-    """清仓周期快照表"""
+    """清仓周期快照表。
+
+    ⚠️ **已废弃（2026-10-18，#2131 拍板）**：本表自建立起零写入、零读者，踩数据策略
+    硬规则「新表必须有读路径」。清仓周期统计改由 `services/analytics/cleared_cycles.py`
+    从流水实时聚合（不新增写入方），故本表不再作为缓存表启用——缓存会引入回填与
+    一致性成本，而聚合成本≈0。保留表定义仅为避免破坏性删表（`WatchlistItem.
+    source_cycle_id` 仍引用其语义），去留登记见 `docs/spec/tech-debt.md`。
+    **禁止新增任何读写本表的代码。**
+    """
 
     __tablename__ = 'cleared_positions'
 

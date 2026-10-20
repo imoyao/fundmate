@@ -198,7 +198,7 @@ jobs:
         id: review_1
         # 失败不终局：本轮是否真产出由下方校验判定；零产出则由「第 2 轮」换模型重试
         continue-on-error: true
-        uses: Nikita-Filonov/ai-review@v0.76.0
+        uses: Nikita-Filonov/ai-review@v0.77.0
         with:
           review-command: run
         env:
@@ -265,7 +265,7 @@ jobs:
         id: review_2
         if: ${{ github.event_name == 'pull_request' && steps.verify_1.outputs.verdict != 'audited' }}
         continue-on-error: true
-        uses: Nikita-Filonov/ai-review@v0.76.0
+        uses: Nikita-Filonov/ai-review@v0.77.0
         with:
           review-command: run
         env:

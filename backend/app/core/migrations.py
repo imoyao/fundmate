@@ -12,6 +12,7 @@
 - 失败显式抛错（不静默吞掉，避免带病启动）。
 """
 
+import os
 import re
 
 from loguru import logger
@@ -464,6 +465,140 @@ def migrate_channel_link_indexes(engine: Engine) -> str:
     raise RuntimeError('channel_links.to_symbol 索引创建后校验失败')
 
 
+#: 费率三表的唯一约束 DDL（2026-10-18）。与 ORM 模型 ``__table_args__`` 逐字一致——
+#: 那边让新库由 create_all 建出，这里给存量库补建；两处必须同源，改一处就要改两处。
+_FEE_UNIQUE_INDEX_DDL_ALL = (
+    (
+        'uq_fee_ratios_scope',
+        'CREATE UNIQUE INDEX IF NOT EXISTS uq_fee_ratios_scope ON fee_ratios '
+        '(fund_code, fee_type, COALESCE(purchase_rule_id, -1), COALESCE(redeem_rule_id, -1))',
+    ),
+    (
+        'uq_redeem_rules_range',
+        'CREATE UNIQUE INDEX IF NOT EXISTS uq_redeem_rules_range ON redeem_rules '
+        '(COALESCE(start_day, -1), COALESCE(end_day, -1))',
+    ),
+    (
+        'uq_purchase_rules_quota',
+        'CREATE UNIQUE INDEX IF NOT EXISTS uq_purchase_rules_quota ON purchase_rules '
+        '(COALESCE(start_quota, -1), COALESCE(end_quota, -1))',
+    ),
+)
+
+
+def _fee_duplication_report(engine: Engine) -> list[str]:
+    """统计三张费率表里「会被唯一索引拒掉」的重复组，返回人类可读的问题列表。"""
+    checks = (
+        (
+            'fee_ratios',
+            '同一 (fund_code, fee_type, purchase_rule_id, redeem_rule_id) 存在多行',
+            'SELECT COUNT(*) FROM (SELECT 1 FROM fee_ratios '
+            'GROUP BY fund_code, fee_type, COALESCE(purchase_rule_id, -1), COALESCE(redeem_rule_id, -1) '
+            'HAVING COUNT(*) > 1)',
+        ),
+        (
+            'redeem_rules',
+            '同一 (start_day, end_day) 区间存在多行',
+            'SELECT COUNT(*) FROM (SELECT 1 FROM redeem_rules '
+            'GROUP BY COALESCE(start_day, -1), COALESCE(end_day, -1) HAVING COUNT(*) > 1)',
+        ),
+        (
+            'purchase_rules',
+            '同一 (start_quota, end_quota) 区间存在多行',
+            'SELECT COUNT(*) FROM (SELECT 1 FROM purchase_rules '
+            'GROUP BY COALESCE(start_quota, -1), COALESCE(end_quota, -1) HAVING COUNT(*) > 1)',
+        ),
+    )
+    problems = []
+    with engine.connect() as conn:
+        for table, desc, sql in checks:
+            groups = conn.execute(text(sql)).scalar() or 0
+            if groups:
+                problems.append(f'{table}: {groups} 组重复（{desc}）')
+    return problems
+
+
+def migrate_fee_unique_indexes(engine: Engine) -> str:
+    """费率三表补唯一约束（2026-10-18）。
+
+    ## 为什么补
+
+    ``fee_ratios`` / ``redeem_rules`` / ``purchase_rules`` 此前**一个索引都没有**。
+    2026-05-31 的一次整表复制在库里留下 12,732 组逐字相同的副本行（fee_ratios
+    25,471 行；重复对的 rate/currency/created_at/updated_at 全同 ⇒ 复制而非重写），
+    用户可见表现是「赎回费率分布每档显示两次」。
+
+    应用层已收口为 upsert + 结构校验 + 清残档，但那些闸只在**已知写路径**上生效；
+    唯一约束是最后一道、也是唯一会让错误**当场报错**而不是静默通过的一道。
+
+    ## 为什么必须用表达式索引
+
+    SQLite 里 NULL 不参与唯一性判断，而 ``fee_ratios`` 的 ``purchase_rule_id``
+    （redeem 行恒为 NULL）与 ``redeem_rules`` / ``purchase_rules`` 最后一档的
+    ``end_day`` / ``end_quota`` 都是 NULL——普通唯一索引对它们形同虚设。故一律
+    ``COALESCE(列, -1)`` 之后再比。
+
+    ## 存量库有重复行时
+
+    **fail closed**：直接抛错并指明处置命令，而不是「跳过不建」。跳过等于把刚修好的
+    问题原样放回去，且没人会知道——重复行正是这样静默存在了五个月。
+
+    ## 但修复窗口必须能启动应用（实测踩到）
+
+    「同区间两个费率」这类重复行，正确的修复方式是**用修好的解析重新同步**，
+    而重新同步要跑 ``sync_metadata.py``——它启动时就调 ``init_db``，于是 fail closed
+    会把**修复路径自己**堵死（2026-10-18 实测：CLI 直接 RuntimeError 退出，一只都没跑）。
+
+    故提供显式开关 ``ALLOW_FEE_DUPLICATES=1``：只在该环境下放行（记ERROR 日志、
+    不建索引、继续启动），供「清理 / 重同步」这个窗口使用。默认不放行。
+
+    ``create_all`` 只建新表、不给存量表加索引，故与 watchlist 约束同法由 init_db 兜底。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，唯一约束由 ORM 模型/迁移工具负责'
+
+    present = set(inspect(engine).get_table_names())
+    missing = [t for t in ('fee_ratios', 'redeem_rules', 'purchase_rules') if t not in present]
+    if missing:
+        return f'[SKIP] 表不存在（空库，init_db 将按新模型建表）: {missing}'
+
+    problems = _fee_duplication_report(engine)
+    if problems:
+        detail = '\n  - '.join(problems)
+        remediation = (
+            'python backend/scripts/cleanup_fee_ratio_dupes.py --db <库路径>'
+            '（默认 dry-run；确认后加 --apply，会自动写回滚 SQL）'
+        )
+        if os.getenv('ALLOW_FEE_DUPLICATES') == '1':
+            msg = (
+                '[BLOCKED] 费率三表仍有重复行，未建唯一索引（ALLOW_FEE_DUPLICATES=1 显式放行，'
+                f'仅供清理/重同步窗口使用）:\n  - {detail}\n处理完成后请去掉该环境变量重启，'
+                f'索引会自动补建。处置：{remediation}'
+            )
+            logger.error(msg)
+            return msg
+        raise RuntimeError(f'费率三表存在重复行，唯一索引无法建立：\n  - {detail}\n请先清理存量：{remediation}')
+
+    with engine.connect() as conn:
+        for _name, sql in _FEE_UNIQUE_INDEX_DDL_ALL:
+            conn.execute(text(sql))
+        conn.commit()
+
+    with engine.connect() as conn:
+        names = {
+            row[0]
+            for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'uq_%'"))
+        }
+    missing_idx = [name for name, _sql in _FEE_UNIQUE_INDEX_DDL_ALL if name not in names]
+    if missing_idx:
+        raise RuntimeError(f'费率唯一索引创建后校验失败，缺失: {missing_idx}')
+
+    msg = '[OK] 费率三表唯一约束已就绪: ' + ' / '.join(name for name, _ in _FEE_UNIQUE_INDEX_DDL_ALL)
+    logger.info(msg)
+    return msg
+
+
 def migrate_positions_price_columns(engine: Engine) -> str:
     """positions 补「当日盈亏」的基准列（#2007）：`prev_close` + `price_date`。
 
@@ -869,3 +1004,334 @@ def migrate_fund_valuation_official_columns(engine: Engine) -> str:
         logger.info(f'[OK] fund_valuation_daily 增加对照列: {added}')
         return f'[OK] 增加列 {added}'
     return '[SKIP] fund_valuation_daily 对照三列已存在'
+
+
+def migrate_fund_risk_metrics_period_returns(engine: Engine) -> str:
+    """fund_risk_metrics 补区间收益三列（#2284）：ret_1m / ret_3m / ret_1y。
+
+    ## 为什么需要
+
+    同类风险榜要展示「近1月 / 近3月 / 近1年」三列区间收益（#2284）；既有快照表
+    没有这三列，读路径无处可取。三列全为**可空**列：SQLite / libsql 对可空列
+    支持直接 ALTER ADD，历史行留 NULL，由读取端降级为「—」。
+
+    ## 只加列、不回填
+
+    区间收益是「由净值序列可复现的派生值」，不是时点对照——但迁移阶段回填会
+    在启动路径里做计算扫描（读全量净值），得不偿失。正确路径是
+    ``fund_risk_metrics_job.CALIBER_VERSION`` bump（v1 → v2）后由 job 重算覆盖，
+    启动期迁移只负责把列建好。幂等：列已存在则跳过；非 SQLite 引擎
+    （Supabase Postgres）由 ORM 模型 / 迁移工具负责，直接跳过。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
+
+    if 'fund_risk_metrics' not in inspect(engine).get_table_names():
+        return '[SKIP] fund_risk_metrics 表不存在（空库，init_db 将按新模型建表）'
+
+    cols = [
+        ('ret_1m', 'NUMERIC(10, 4)'),
+        ('ret_3m', 'NUMERIC(10, 4)'),
+        ('ret_1y', 'NUMERIC(10, 4)'),
+    ]
+    with engine.connect() as conn:
+        existing = {c['name'] for c in inspect(engine).get_columns('fund_risk_metrics')}
+        added = []
+        for name, typ in cols:
+            if name not in existing:
+                conn.execute(text(f'ALTER TABLE fund_risk_metrics ADD COLUMN {name} {typ}'))
+                added.append(name)
+        conn.commit()
+    if added:
+        logger.info(f'[OK] fund_risk_metrics 增加区间收益列: {added}')
+        return f'[OK] 增加列 {added}'
+    return '[SKIP] fund_risk_metrics 区间收益三列已存在'
+
+
+def migrate_positions_snapshot_anchor(engine: Engine) -> str:
+    """positions 补「快照锚点」四列，并回填日期/来源（不猜份额）。
+
+    ## 为什么需要
+
+    `quantity` 过去同时是「快照绝对值」与「流水累加结果」：持仓快照导入用 SET 写，
+    交易落库用 INCR 加，两条路径无时序约束。先导快照、后导历史流水的账户会被
+    二次计入（实测 012708 精确 2 倍：11,083.22 → 22,166.44）。
+
+    加入锚点后 `quantity` 降级为派生值：
+        quantity = snapshot_quantity + Σ(confirm_date > snapshot_date 的流水净额)
+
+    ## 回填策略：**只回填日期，不回填份额**
+
+    `snapshot_quantity` 的历史真实值已经丢失（导入时直接写进 quantity，随后被流水
+    加权）。同一个 `quantity = 22,166.44` 可能是两种截然相反的历史：
+
+    - 先流水后快照（正确）：quantity 就是快照值；
+    - 先快照后流水（错误）：quantity = 快照值 + 快照前流水。
+
+    盲猜任一方向都会把另一半账户改错，故本迁移**只**做两件无歧义的事：
+    1. 加列；
+    2. 从 `position_import_meta.snapshot_date` 回填 `snapshot_date`（`anchor_kind`
+       置 `external`），份额列保持 NULL。
+
+    `snapshot_quantity IS NULL` 的持仓继续走「全量流水净额」旧口径，**不会因迁移
+    改坏**。具体修复由 `app/tools/repair_snapshot_double_count.py` 扫描出报告，
+    人工确认后才写入锚点。
+
+    幂等：列已存在则跳过；回填只填 `snapshot_date IS NULL` 的行。
+    非 SQLite 引擎（Supabase Postgres）由 ORM 模型 / 迁移工具负责，直接跳过。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
+
+    tables = set(inspect(engine).get_table_names())
+    if 'positions' not in tables:
+        return '[SKIP] positions 表不存在（空库，init_db 将按新模型建表）'
+
+    cols = [
+        ('snapshot_quantity', 'INTEGER'),
+        ('snapshot_avg_price', 'INTEGER'),
+        ('snapshot_date', 'DATE'),
+        ('anchor_kind', 'VARCHAR(20)'),
+    ]
+    added = []
+    with engine.connect() as conn:
+        existing = {c['name'] for c in inspect(engine).get_columns('positions')}
+        for name, typ in cols:
+            if name not in existing:
+                conn.execute(text(f'ALTER TABLE positions ADD COLUMN {name} {typ}'))
+                added.append(name)
+        conn.commit()
+
+    # 回填：日期 + 来源。份额不填（见 docstring）。
+    backfilled = 0
+    if 'position_import_meta' in tables:
+        with engine.connect() as conn:
+            result = conn.execute(
+                text(
+                    """
+                    UPDATE positions
+                       SET snapshot_date = (
+                               SELECT pim.snapshot_date FROM position_import_meta pim
+                                WHERE pim.position_id = positions.id
+                                  AND pim.snapshot_date IS NOT NULL
+                                LIMIT 1
+                           ),
+                           anchor_kind = 'external'
+                     WHERE snapshot_date IS NULL
+                       AND EXISTS (
+                               SELECT 1 FROM position_import_meta pim
+                                WHERE pim.position_id = positions.id
+                                  AND pim.snapshot_date IS NOT NULL
+                           )
+                    """
+                )
+            )
+            backfilled = result.rowcount or 0
+            conn.commit()
+
+    if added or backfilled:
+        logger.info(f'[OK] positions 锚点列: 新增={added}, 回填日期={backfilled}')
+        return f'[OK] 新增列 {added}，回填 snapshot_date {backfilled} 行（份额列留空待人工确认）'
+    return '[SKIP] positions 锚点四列已存在且无待回填行'
+
+
+def migrate_positions_cleared_at(engine: Engine) -> str:
+    """positions 补 `cleared_at` 一列（issue #2343 第二步）。
+
+    ## 为什么需要
+
+    清仓（整笔卖出）过去是 `db.delete(position)`，持仓行连同快照锚点四列一起消失。
+    此后删除该笔卖出流水触发重建，只能退回「全量流水」口径，份额会被二次累加
+    （与 2026-10-18 修复的快照锚点 bug 同源）。同时「历史曾持有」也彻底不可追溯。
+
+    改为保留行后需要两件事实：
+    - 当前是否已清仓 → `ownership_status='cleared'`（本轮第一步已落地枚举与过滤器）；
+    - **何时**清仓 → 本列。它是「清仓后再买入」时新一轮周期的下界，也是
+      持有天数 / 已实现盈亏能按周期切分的唯一依据。
+
+    ## 回填策略：**不回填**
+
+    历史清仓行的持仓记录已经被删掉了，没有任何可靠数据源能反推它们的清仓时间
+    （`transactions` 里的卖出流水无 `position_id` 或指向已删行，且无法区分
+    「整笔清仓」与「部分卖出」）。因此本迁移只加列，历史行保持 NULL。
+
+    NULL 的语义是「无已知清仓时间」，等同于「从未清仓」，与现存数据完全一致。
+
+    幂等：列已存在则跳过；非 SQLite 引擎由 ORM 模型 / 迁移工具负责。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
+
+    tables = set(inspect(engine).get_table_names())
+    if 'positions' not in tables:
+        return '[SKIP] positions 表不存在（空库，init_db 将按新模型建表）'
+
+    with engine.connect() as conn:
+        existing = {c['name'] for c in inspect(engine).get_columns('positions')}
+        if 'cleared_at' in existing:
+            return '[SKIP] positions.cleared_at 已存在'
+        conn.execute(text('ALTER TABLE positions ADD COLUMN cleared_at DATETIME'))
+        conn.commit()
+
+    logger.info('[OK] positions.cleared_at 已新增（历史清仓行无法反推，保持 NULL）')
+    return '[OK] 新增列 cleared_at（不回填：历史清仓行已删除，无可靠数据源）'
+
+
+def migrate_account_name_snapshot(engine: Engine) -> str:
+    """回填 `positions` / `transactions` 的 `account_name` 冗余快照空值。
+
+    ## 为什么需要
+
+    `account_name` 是 `ledgers.name` 的**冗余快照**（供明细展示与「按账户分组」使用，
+    账户改名由 `ledger_write_service.sync_account_name_snapshots` 级联刷新）。它的唯一
+    真相是 `ledger_id`，但历史上由各写入路径**分别传递**：基金转换「转入腿」只传了
+    `ledger_id`、漏传 `account_name`，于是落成 NULL（2026-10-18 实测 position 618 /
+    transaction 3001）。
+
+    NULL 一旦成为「按账户分组」的字典键，`flask.jsonify(sort_keys=True)` 会在
+    `str` 与 `None` 比较时抛 `TypeError`，整个持仓列表 500 —— 问题不在排序，
+    在数据本身违反了「有账户就该有账户名」。
+
+    代码侧已由 `Position` 的 `before_insert` / `before_update` 事件兜住**新写入**；
+    本迁移收编**存量**行，否则「新数据按新规矩、老数据按老规矩」两套真相会长期并存
+    （改口径时存量必须一起收编，见 AGENTS.md）。
+
+    ## 口径
+
+    只补 `ledger_id IS NOT NULL` 且 `account_name` 为 `NULL` / 空串的行；`ledger_id`
+    为空（未归档持仓 / 导入影子行）的保持原样 —— 它们确实没有账户，显示层的
+    「未指定账户」是对这类行的正确兜底。逐行 `UPDATE ... WHERE` 而非全表覆盖，
+    幂等、可重复跑。
+
+    非 SQLite 引擎跳过（由 ORM 模型 / 迁移工具负责）。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，冗余快照由 ORM 模型/迁移工具负责'
+
+    tables = set(inspect(engine).get_table_names())
+    missing = [t for t in ('positions', 'transactions', 'ledgers') if t not in tables]
+    if missing:
+        return f'[SKIP] 缺表 {missing}（空库，init_db 将按新模型建表）'
+
+    actions: list[str] = []
+    with engine.begin() as conn:
+        for table in ('positions', 'transactions'):
+            res = conn.execute(
+                text(
+                    f'UPDATE {table} '
+                    f'SET account_name = (SELECT name FROM ledgers WHERE ledgers.id = {table}.ledger_id) '
+                    f'WHERE ledger_id IS NOT NULL '
+                    f"  AND (account_name IS NULL OR account_name = '') "
+                    f'  AND EXISTS (SELECT 1 FROM ledgers '
+                    f'              WHERE ledgers.id = {table}.ledger_id '
+                    f"                AND ledgers.name IS NOT NULL AND ledgers.name != '')"
+                )
+            )
+            if res.rowcount:
+                actions.append(f'{table}: 回填 {res.rowcount} 行')
+    if not actions:
+        return '[OK] account_name 快照无空值'
+    logger.info('[OK] account_name 冗余快照已回填: {}', '; '.join(actions))
+    return '[OK] ' + '; '.join(actions)
+
+
+def migrate_conversion_in_leg_snapshot(engine: Engine) -> str:
+    """回填转换「转入腿」持仓的 `name` / `market` 快照空值与污染值（#2406）。
+
+    ## 为什么需要
+
+    手动基金转换的转入腿 `in_data` 只传了 `symbol`，漏传 `name` / `market`
+    （`account_name` 已由 PR #2404 收口，同一份 dict 的同一缺陷族）。后果：
+
+    - `name` 缺省时 `process_buy_or_deposit` 退回 `name=data.get('name') or symbol`
+      → 持仓明细显示 6 位编码而非基金名；
+    - `market` 落 NULL → 展示层 `position_presenter` 兜 `'UNKNOWN'`，
+      `MARKET_LABELS` 查不到 → 前端「未知资产」。
+
+    本地库实证 position 618（519771，转入腿所建）：`name=NULL`、
+    `market='UNKNOWN'`——其中 'UNKNOWN' 还是 presenter 旧实现直接改 ORM 对象、
+    被同 session 的 flush 落进库的污染值（#2406 已修读函数写库的病根）。
+
+    代码侧已由 #2406 的调用点显式传值 + presenter 停变异收口**新写入**；本迁移收编
+    **存量**行，否则「新数据按新规矩、老数据按老规矩」两套真相长期并存。
+
+    ## 口径（宁漏不误，与 `resolve_fund_names` 的 None 语义对齐）
+
+    - `name`：NULL / 空串、`symbol` 有值、`asset_type` 属基金类 → 按 market 域
+      `funds` 名录回填；名录无记录 / market 域不可达 → **保持原值**，不编造；
+    - `market`：NULL 或非契约值（实证污染值 'UNKNOWN'）→ 基金类行按场外惯例
+      写 `'CN_A'`（`process_buy_or_deposit` 写入缺省与导入路径同值，全库 151/152
+      行实证）；非基金类行不动（股票市场推断另有权威入口，不在此越权）；
+
+    只补数据不动结构，逐行 `UPDATE ... WHERE`，幂等可重复跑。
+    非 SQLite 引擎跳过（新写入由 mapper 事件/写路径收口，存量由迁移工具负责）。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，转入腿快照由 ORM 模型/迁移工具负责'
+
+    tables = set(inspect(engine).get_table_names())
+    if 'positions' not in tables:
+        return '[SKIP] positions 表不存在（空库，init_db 将按新模型建表）'
+    cols = {c['name'] for c in inspect(engine).get_columns('positions')}
+    missing = [c for c in ('name', 'market', 'symbol', 'type') if c not in cols]
+    if missing:
+        return f'[SKIP] positions 缺列 {missing}（空库，新录入由写路径直接落正确值）'
+
+    # 契约市场集合（core/markets 的唯一真相；延迟导入避免 core 层环）
+    from app.core.markets import CONTRACT_MARKETS
+
+    contract_list = ', '.join(f"'{m}'" for m in CONTRACT_MARKETS)
+
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                'SELECT id, symbol, type, name, market FROM positions '
+                "WHERE symbol IS NOT NULL AND symbol != '' "
+                "  AND type IN ('fund', 'money_fund') "
+                "  AND ((name IS NULL OR name = '') "
+                '       OR market IS NULL OR market NOT IN (' + contract_list + '))'
+            )
+        ).fetchall()
+    if not rows:
+        return '[OK] 转入腿快照无空值/污染值'
+
+    # 延迟导入：core 层不在导入期依赖 services，且避免与 domains 模型形成环
+    from app.services.fund_utils import normalize_fund_code, resolve_fund_names
+
+    names = resolve_fund_names([r.symbol for r in rows])
+
+    updates: list[tuple[int, str | None, str | None]] = []
+    filled_name = undecidable = 0
+    for rid, symbol, _atype, name, market in rows:
+        new_name = name
+        if not name:
+            resolved = names.get(normalize_fund_code(symbol))
+            if resolved:
+                new_name = resolved
+                filled_name += 1
+            else:
+                undecidable += 1  # 名录无记录/不可达：保持原值，不编造
+        new_market = market if market in CONTRACT_MARKETS else 'CN_A'
+        if new_name != name or new_market != market:
+            updates.append((rid, new_name, new_market))
+
+    if not updates:
+        return '[OK] 转入腿快照无空值/污染值'
+
+    with engine.begin() as conn:
+        for rid, new_name, new_market in updates:
+            conn.execute(
+                text('UPDATE positions SET name = :n, market = :m WHERE id = :i'),
+                {'n': new_name, 'm': new_market, 'i': rid},
+            )
+    msg = f'回填 {len(updates)} 行（name 补 {filled_name} 行'
+    if undecidable:
+        msg += f'，{undecidable} 行名录无记录/不可达保持原名'
+    msg += '，market 收编为契约值）'
+    logger.info('[OK] 转换转入腿快照存量收编：{}', msg)
+    return '[OK] ' + msg

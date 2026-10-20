@@ -263,13 +263,13 @@ function handleClose() {
 <style lang="scss" scoped>
 .ledger-free {
   margin-left: 8px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .ledger-hint {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.5;
   color: var(--text-tertiary-ink);
 }

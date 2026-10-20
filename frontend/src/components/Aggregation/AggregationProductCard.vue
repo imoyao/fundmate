@@ -265,7 +265,7 @@ function handleClick() {
 .product-name {
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 15px;
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -276,7 +276,7 @@ function handleClick() {
   gap: 6px;
   align-items: center;
   margin-top: 3px;
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -290,7 +290,7 @@ function handleClick() {
 }
 
 .sub-icon {
-  font-size: 11px;
+  font-size: var(--text-label);
   opacity: 0.7;
 }
 
@@ -319,7 +319,7 @@ function handleClick() {
 }
 
 .primary-amount :deep(.money-display) {
-  font-size: 19px;
+  font-size: var(--text-num-strong);
   font-weight: 700;
   color: var(--brand-600, #f06b57) !important;
 }
@@ -330,7 +330,7 @@ function handleClick() {
 .return-badge {
   flex-shrink: 0;
   padding: 2px 10px;
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1.6;
@@ -359,7 +359,7 @@ function handleClick() {
   gap: var(--space-3, 12px);
   align-items: baseline;
   justify-content: space-between;
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -378,7 +378,7 @@ function handleClick() {
 
 .secondary-label {
   flex: none;
-  font-size: 10px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   white-space: nowrap;
 }
@@ -402,7 +402,7 @@ function handleClick() {
   gap: 12px;
   align-items: center;
   padding-top: var(--space-2, 8px);
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   border-top: 1px solid var(--border-subtle, var(--border-light));
 }
@@ -414,7 +414,7 @@ function handleClick() {
 }
 
 .foot-icon {
-  font-size: 11px;
+  font-size: var(--text-label);
   opacity: 0.6;
 }
 
@@ -431,7 +431,7 @@ function handleClick() {
 @media (width <= 520px) /* breakpoint-allow: 卡片内金额字号（内容级） */ {
   /* 说明（已上移到 @media 同行）：这是**卡片内金额字号**（内容级阈值），不是页面布局断点 */
   .primary-amount :deep(.money-display) {
-    font-size: 17px;
+    font-size: var(--text-num-strong);
   }
 }
 

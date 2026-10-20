@@ -70,7 +70,7 @@ const { title } = useNav();
     margin: 2px 0 0 12px;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 18px;
+    font-size: var(--text-num-strong);
     font-weight: 600;
     line-height: 32px;
     color: var(--brand-ink);

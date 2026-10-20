@@ -5,6 +5,7 @@
 # -*- coding: utf-8 -*-
 """通用资产模型 — 覆盖除交易性金融资产外的所有资产/负债."""
 
+from loguru import logger
 from sqlalchemy import (
     JSON,
     Column,
@@ -14,7 +15,10 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    event,
     func,
+    inspect,
+    select,
 )
 
 from app.core.database import Base
@@ -79,3 +83,60 @@ class Asset(Base):
         Index('idx_assets_ledger_id', 'ledger_id'),
         Index('idx_assets_account_name', 'account_name'),
     )
+
+
+@event.listens_for(Asset, 'before_insert')
+@event.listens_for(Asset, 'before_update')
+def _fill_asset_account_name(mapper, connection, target: Asset) -> None:
+    """落库前用 `ledger_id` 补齐 `account_name` 冗余快照（与 Position 同口径，#2372）。
+
+    ## 为什么需要
+
+    `account_name` 只是 `ledgers.name` 的冗余快照，账户的**唯一真相是 `ledger_id`**。
+    `update_asset` 若只改 `ledger_id` 而不动快照，就会留下「外键已指向新账户、
+    展示名仍是旧账户」的漂移行。此时账户改名会按 `ledger_id` 级联刷新快照，
+    把用户刚迁走的资产显示名**刷回旧账户名**——一次「迁移」在界面上被静默还原，
+    而库里外键早已搬走（#2372 症状 3 的同构形态）。
+
+    ## 为什么挂在 mapper 事件而不是视图层
+
+    视图层的判据是「只做 HTTP 编排」（`decisions.md` 2026-09-19，执行者
+    `scripts/check_view_thickness.py`）。把快照同步写进 `update_asset` 会让
+    `assets/views.py` 变厚并直接触发该守卫红灯——那不是绕开守卫的理由，
+    而是这条逻辑本就不属于视图层的信号。挂在事件上则**一处覆盖全部写入路径**
+    （创建 / 更新 / 脚本直写），与 Position 的 `_fill_position_account_name` 同因同解。
+
+    ## 覆盖规则（与 Position 的 `_fill_position_account_name` 同口径）
+
+    - **创建**：只补空值，**不覆盖**调用方显式传入的名字；
+    - **更新且 `ledger_id` 确实变了**：**覆盖**为新账户名（否则就是漂移行）；
+    - **更新但 `ledger_id` 未变**：不动，保护显式传入的名字。
+
+    `ledger_id` 为空（未归档资产）时无从补齐，保持原值——它确实没有账户。
+
+    ## 边界：只有部分表结构的库不参与回填（但要出声）
+
+    与 Position 同一先例：先 `inspect(connection).has_table('ledgers')` 再决定动不动。
+    刻意**不**用 `try/except OperationalError` 兜——那会把「表不存在」与「库被锁 /
+    连接坏了」混成一类一起吞掉。
+    """
+    if not target.ledger_id:
+        return
+    # 延迟导入：ledgers 与 assets 同属 user 域，但模块加载期避免交叉导入。
+    from app.domains.ledgers.models import Ledger
+
+    if not inspect(connection).has_table('ledgers'):
+        logger.warning(
+            'assets.account_name 冗余快照无法回填：本引擎无 ledgers 表（ledger_id={}，仅部分表结构的库）',
+            target.ledger_id,
+        )
+        return
+
+    # 已有快照 ⇒ 仅在「持久化对象 + ledger_id 本条发生变更」时覆盖，其余情况保护显式传入的值
+    state = inspect(target)
+    if target.account_name and not (state.persistent and bool(state.attrs.ledger_id.history.has_changes())):
+        return
+
+    name = connection.execute(select(Ledger.name).where(Ledger.id == target.ledger_id)).scalar()
+    if name:
+        target.account_name = name

@@ -152,16 +152,19 @@ class TestPartialSell:
 
 class TestClearPosition:
     def test_cleared_position_keeps_realized_pnl(self, db, make_position):
-        """清仓会删除持仓行，但已实现盈亏记在流水上，必须仍然查得到。"""
+        """清仓后持仓行保留（#2343：不再删行），已实现盈亏记在流水上，必须仍然查得到。"""
         pos = _buy(db, make_position, quantity=1000.0, price=1.0, current_price=1.5)
         _sell(db, pos.id, quantity=1000.0, price=1.5)
 
-        assert db.query(Position).filter_by(id=pos.id).first() is None  # 持仓已删除
+        cleared = db.query(Position).filter_by(id=pos.id).first()
+        assert cleared is not None  # 行保留（#2343），不再是删除
+        assert cleared.ownership_status == 'cleared'
+        assert Money.min_unit_to_shares(cleared.quantity) == 0
         assert family_realized_pnl_cents(db, 1) == 50000  # (1.5−1.0)×1000 = 500元
 
         summary = get_summary_data(db, 1)
         assert summary['realized_pnl_cny'] == 500.0
-        assert summary['unrealized_pnl_cny'] == 0.0  # 无在库持仓，浮动为 0
+        assert summary['unrealized_pnl_cny'] == 0.0  # 已清仓行份额 0，浮动为 0
         assert summary['total_pnl_cny'] == 500.0
 
 

@@ -141,7 +141,7 @@ function hoverDescription(event, description) {
     gap: var(--space-2);
     align-items: center;
     margin-bottom: var(--space-2);
-    font-size: 14px;
+    font-size: var(--text-small);
     font-weight: 400;
     line-height: 1.5715;
   }
@@ -177,7 +177,7 @@ function hoverDescription(event, description) {
 
   &__description,
   &__datetime {
-    font-size: 12px;
+    font-size: var(--text-label);
     line-height: 1.5715;
   }
 

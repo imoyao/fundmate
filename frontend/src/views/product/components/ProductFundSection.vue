@@ -80,9 +80,9 @@ watch(() => props.symbol, load, { immediate: true });
   <CardBlock class="fund-section">
     <SectionHeader title="基金资料" />
 
-    <p v-if="loading" class="fund-section__hint">正在读取基金资料…</p>
+    <p v-if="loading" class="section-footnote">正在读取基金资料…</p>
 
-    <p v-else-if="failed || !profile" class="fund-section__hint">
+    <p v-else-if="failed || !profile" class="section-footnote">
       暂无可展示的基金资料
     </p>
 
@@ -90,14 +90,14 @@ watch(() => props.symbol, load, { immediate: true });
       <!-- 首屏：单位净值 + 日涨跌 + 净值日期 -->
       <dl class="fund-section__nav">
         <div class="fund-section__nav-item">
-          <dt class="fund-section__label">单位净值</dt>
-          <dd class="fund-section__value">
+          <dt class="facts-grid__label">单位净值</dt>
+          <dd class="facts-grid__value">
             {{ profile.unit_nav != null ? profile.unit_nav.toFixed(4) : DASH }}
           </dd>
         </div>
         <div class="fund-section__nav-item">
-          <dt class="fund-section__label">日涨跌</dt>
-          <dd class="fund-section__value">
+          <dt class="facts-grid__label">日涨跌</dt>
+          <dd class="facts-grid__value">
             <RiseFallText
               v-if="profile.change_pct != null"
               :value="profile.change_pct"
@@ -107,23 +107,23 @@ watch(() => props.symbol, load, { immediate: true });
           </dd>
         </div>
         <div class="fund-section__nav-item">
-          <dt class="fund-section__label">净值日期</dt>
-          <dd class="fund-section__value">{{ profile.nav_date || DASH }}</dd>
+          <dt class="facts-grid__label">净值日期</dt>
+          <dd class="facts-grid__value">{{ profile.nav_date || DASH }}</dd>
         </div>
       </dl>
 
-      <dl class="fund-section__facts">
-        <div class="fund-section__fact">
-          <dt class="fund-section__label">基金类型</dt>
-          <dd class="fund-section__value">{{ profile.fund_type || DASH }}</dd>
+      <dl class="facts-grid">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">基金类型</dt>
+          <dd class="facts-grid__value">{{ profile.fund_type || DASH }}</dd>
         </div>
-        <div class="fund-section__fact">
-          <dt class="fund-section__label">基金公司</dt>
-          <dd class="fund-section__value">{{ profile.company || DASH }}</dd>
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">基金公司</dt>
+          <dd class="facts-grid__value">{{ profile.company || DASH }}</dd>
         </div>
-        <div class="fund-section__fact">
-          <dt class="fund-section__label">基金经理</dt>
-          <dd class="fund-section__value fund-section__value--wrap">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">基金经理</dt>
+          <dd class="facts-grid__value facts-grid__value--wrap">
             <template v-if="managerList.length">
               <template v-for="(m, i) in managerList" :key="m.mgr_code">
                 <span v-if="i > 0" aria-hidden="true">、</span>{{ m.name
@@ -135,22 +135,22 @@ watch(() => props.symbol, load, { immediate: true });
             <template v-else>{{ DASH }}</template>
           </dd>
         </div>
-        <div class="fund-section__fact">
-          <dt class="fund-section__label">规模</dt>
-          <dd class="fund-section__value">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">规模</dt>
+          <dd class="facts-grid__value">
             <template v-if="profile.scale != null">
               {{ profile.scale.toFixed(2) }} 亿元
             </template>
             <template v-else>{{ DASH }}</template>
           </dd>
         </div>
-        <div class="fund-section__fact">
-          <dt class="fund-section__label">成立日期</dt>
-          <dd class="fund-section__value">{{ profile.create_time || DASH }}</dd>
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">成立日期</dt>
+          <dd class="facts-grid__value">{{ profile.create_time || DASH }}</dd>
         </div>
-        <div class="fund-section__fact">
-          <dt class="fund-section__label">申购费率</dt>
-          <dd class="fund-section__value">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">申购费率</dt>
+          <dd class="facts-grid__value">
             <template v-if="purchaseRate">
               {{ purchaseRate.text
               }}<span v-if="purchaseRate.tiered" class="fund-section__tier"
@@ -160,9 +160,9 @@ watch(() => props.symbol, load, { immediate: true });
             <template v-else>{{ DASH }}</template>
           </dd>
         </div>
-        <div class="fund-section__fact">
-          <dt class="fund-section__label">赎回费率</dt>
-          <dd class="fund-section__value">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">赎回费率</dt>
+          <dd class="facts-grid__value">
             <template v-if="redeemRate">
               {{ redeemRate.text
               }}<span class="fund-section__tier"
@@ -172,16 +172,16 @@ watch(() => props.symbol, load, { immediate: true });
             <template v-else>{{ DASH }}</template>
           </dd>
         </div>
-        <div class="fund-section__fact fund-section__fact--wide">
-          <dt class="fund-section__label">业绩基准</dt>
-          <dd class="fund-section__value fund-section__value--wrap">
+        <div class="fund-section__fact facts-grid__cell--wide">
+          <dt class="facts-grid__label">业绩基准</dt>
+          <dd class="facts-grid__value facts-grid__value--wrap">
             {{ profile.benchmark || DASH }}
           </dd>
         </div>
       </dl>
 
       <!-- 来源给站点名：净值 / 费率 / 基础资料整条链路都走天天基金（#1969） -->
-      <p class="fund-section__footnote">数据来源：{{ profile.source }}</p>
+      <p class="section-footnote">数据来源：{{ profile.source }}</p>
     </template>
   </CardBlock>
 </template>
@@ -206,73 +206,27 @@ watch(() => props.symbol, load, { immediate: true });
   gap: var(--space-1);
 }
 
-.fund-section__label {
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
-}
-
-.fund-section__value {
-  margin: 0;
-  font-size: 14px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
-.fund-section__value--wrap {
-  /* `overflow-wrap: anywhere` 而非 `word-break: break-all`：后者在**任意字符**处
-     断行，会把「沪深300」「85%」劈开——中文长句读起来像乱码。
-     `anywhere` 只在放不下时才断，且优先在词/短语边界断。
-     （另一条兜底：业绩基准已跨列，见 `fund-section__fact--wide`。） */
-  overflow-wrap: anywhere;
-}
-
-.fund-section__facts {
-  display: grid;
-
-  /* auto-fit + 真实最小列宽（#1969 P0，与 ProductStockSection 同因）：
-     · `minmax(0, 1fr)` 让轨道收缩到 0 → 列宽塌成几像素，标签逐字竖排；
-     · `auto-fill` 不折叠空轨道，`auto-fit` 才会把剩余列拉伸填满。 */
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: var(--space-3) var(--space-6);
-  margin: 0;
-}
-
-.fund-section__fact {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  min-width: 0;
-}
-
 /* 整句型字段跨列占满整行（业绩基准）。网格是 `minmax(140px, 1fr)`，
    业绩基准那类「沪深300指数收益率*85% + 中证500指数收益率*15%」的整句描述
    挤在 140px 里只能疯狂换行——不是「必要的折行」，是被窄格逼出来的逐字断行。
    它本来就是一个段落，不是指标卡，让它独占一行。 */
-.fund-section__fact--wide {
-  grid-column: 1 / -1;
-}
 
 .fund-section__tier {
   margin-left: var(--space-1);
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
-/* 代表作品徽标（#1968）：标记该经理在此基金上是代表作品，数据来自 fund_managers.is_classic */
+/* 代表作品徽标（#1968）：标记该经理在此基金上是代表作品，数据来自 fund_managers.is_classic。
+   #2314：对齐 design.md Badge 规范（pill + 11px），文字改 info 文字级令牌（原 --color-info
+   作文字仅 2.90:1，#1599 batch 3 已立 -ink）。 */
 .fund-section__badge {
-  padding: 0 var(--space-1);
+  padding: 0 var(--space-2);
   margin-left: var(--space-1);
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 18px;
-  color: var(--color-info);
+  color: var(--color-info-ink);
   background: color-mix(in srgb, var(--color-info) 12%, transparent);
-  border-radius: 4px;
-}
-
-.fund-section__hint,
-.fund-section__footnote {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
+  border-radius: var(--radius-pill);
 }
 </style>

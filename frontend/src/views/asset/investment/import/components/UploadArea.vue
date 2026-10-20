@@ -124,7 +124,7 @@ const {
 
 .upload-icon {
   margin-bottom: 16px;
-  font-size: 64px;
+  font-size: var(--text-hero);
   color: var(--brand-700);
   transition:
     color 0.2s,
@@ -134,7 +134,7 @@ const {
 .upload-btn {
   height: 40px;
   padding: 0 24px;
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--brand-700);
   background: transparent;
   border: 1px solid var(--brand-400);
@@ -156,33 +156,33 @@ const {
 
 .upload-text {
   margin: 0 0 16px;
-  font-size: 16px;
+  font-size: var(--text-body);
   font-weight: 500;
   color: var(--text-primary);
 }
 
 .upload-hint {
   margin: 12px 0 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .upload-format-info {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .upload-flow-hint {
   margin-top: 10px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .upload-error {
   padding: 12px 16px;
   margin-top: 16px;
-  font-size: 14px;
+  font-size: var(--text-small);
   color: var(--color-danger);
   text-align: center;
   background: var(--color-danger-10);
@@ -192,7 +192,7 @@ const {
 
 .upload-error-detail {
   margin-top: 8px;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   text-align: left;
 }

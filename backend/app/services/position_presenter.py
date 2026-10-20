@@ -17,16 +17,27 @@ from app.core.constants import ALLOCATION_LABELS, MARKET_LABELS, TYPE_LABELS
 from app.core.money import Money
 from app.domains.positions.models import Position
 from app.domains.positions.schemas import PositionOut
+from app.services.pnl_settle import is_settled_today
 from app.services.position_valuation import market_value_cents
 
 
 def enrich_position_dict(p: Position) -> dict:
-    """把 `Position` 序列化为接口返回字典（含枚举标签与展示单位换算）。"""
-    if not p.market:
-        p.market = 'UNKNOWN'
+    """把 `Position` 序列化为接口返回字典（含枚举标签与展示单位换算）。
+
+    #2406：market 空值的兜底**只进返回字典，绝不写回 ORM 对象**。旧实现
+    `p.market = 'UNKNOWN'` 改的是持久化实体——同一 session 后续任何一次 flush
+    都会把这个展示兜底值落进库（本地库实证 position 618：market 列字面值
+    'UNKNOWN'，全库唯一一行），此后 MARKET_LABELS 查不到，前端恒显「未知资产」。
+    读函数写库是病根：兜底可以有，但必须死在 dict 层。线上 wire 格式不变
+    （`d['market']` 仍为 'UNKNOWN'），故 PositionOut.market 相应放宽为可空，
+    由本函数在字典层补齐。
+    """
+    market = p.market or 'UNKNOWN'
     d = PositionOut.model_validate(p).model_dump()
+    if not d.get('market'):
+        d['market'] = market
     d['type_label'] = TYPE_LABELS.get(p.asset_type, p.asset_type)
-    d['market_label'] = MARKET_LABELS.get(p.market, p.market)
+    d['market_label'] = MARKET_LABELS.get(market, market)
     d['allocation_label'] = ALLOCATION_LABELS.get(p.allocation, p.allocation or '未分类')
     # 转换内部单位到展示单位
     d['quantity'] = Money.min_unit_to_shares(p.quantity)
@@ -51,6 +62,9 @@ def enrich_position_dict(p: Position) -> dict:
     # 所以这里只负责算，不负责凑。
     d['prev_close'] = Money.price_units_to_yuan(p.prev_close) if p.prev_close is not None else None
     d['price_date'] = p.price_date.isoformat() if p.price_date else None
+    # 当日已定型（#2210）：确认口径价格日期是否为今天 ⇒ true 时估值副行冗余，前端隐藏。
+    # 判据是数据可用性（price_date 是否今天）而非时钟；比较收口 `pnl_settle`，此处不手写日期比较。
+    d['settled_today'] = is_settled_today(p.price_date)
     if p.prev_close:
         d['day_pnl'] = Money.cents_to_yuan(Money.multiply_price_quantity(p.current_price - p.prev_close, p.quantity))
         # 单位与既有 `pnl_rate` 逐字一致：**百分数**（×100，两位小数），前端不再做换算

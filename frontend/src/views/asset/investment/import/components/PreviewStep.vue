@@ -25,6 +25,9 @@ const {
   importing,
   confirmImport,
   showCashBindingBanner,
+  showCashTransferHint,
+  linkedCashLedgerName,
+  dismissCashBindingBanner,
   cashLedgersForImport,
   bannerCashLedgerId,
   linkCashAccount,
@@ -63,12 +66,13 @@ const pendingFixCount = computed(
       </div>
     </div>
 
+    <!-- #2281 引导态：能力宣告 + 关联入口（未关联现金账户时；不可关闭，tooltip 指向此处） -->
     <div v-if="showCashBindingBanner" class="cash-binding-banner">
       <IconifyIconOffline icon="ep:warning" class="banner-icon" />
       <span class="banner-text">
-        检测到转账交易（银证转账）。当前账户「{{
+        检测到银证转账交易，支持导入：勾选转账行后，现金账户将自动生成反向流水（银行↔证券两本账自动配平）。请先为当前账户「{{
           selectedLedgerName
-        }}」未选择现金账户，建议选择以便记录资金流向：
+        }}」关联现金账户：
       </span>
       <el-select
         v-model="bannerCashLedgerId"
@@ -92,6 +96,24 @@ const pendingFixCount = computed(
         type="primary"
         @click="openCreateCashFromBanner"
         >+ 新建现金账户</el-button
+      >
+    </div>
+
+    <!-- #2281 轻量提示态：已关联仍告知能力存在（默认不勾选，由用户决定），可关闭 -->
+    <div v-else-if="showCashTransferHint" class="cash-transfer-hint">
+      <IconifyIconOffline icon="ep:info-filled" class="hint-icon" />
+      <span class="hint-text">
+        已为「{{ selectedLedgerName }}」关联现金账户「{{
+          linkedCashLedgerName
+        }}」。转账行可勾选导入（默认不勾选，由你决定），导入后现金账户自动生成反向流水。
+      </span>
+      <el-button
+        class="hint-close-btn"
+        size="small"
+        text
+        type="primary"
+        @click="dismissCashBindingBanner"
+        >知道了</el-button
       >
     </div>
 
@@ -176,12 +198,12 @@ const pendingFixCount = computed(
 }
 
 .banner-icon {
-  font-size: 16px;
+  font-size: var(--text-body);
   color: var(--color-warning-ink);
 }
 
 .banner-text {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -193,15 +215,43 @@ const pendingFixCount = computed(
   font-weight: 500;
 }
 
+/* #2281 轻量提示态：主色系弱化样式，与引导态的警示态区分 */
+.cash-transfer-hint {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 14px;
+  margin: 12px 16px 0;
+  background: var(--color-primary-10);
+  border: 1px solid var(--color-primary-20);
+  border-radius: var(--radius-sm);
+}
+
+.hint-icon {
+  font-size: var(--text-small);
+  color: var(--color-primary-ink);
+}
+
+.hint-text {
+  font-size: var(--text-label);
+  color: var(--text-secondary);
+}
+
+.hint-close-btn {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
 .header-ledger {
-  font-size: 15px;
+  font-size: var(--text-body);
   font-weight: 500;
   color: var(--text-primary);
 }
 
 /* 草稿状态文案（#783 §一/§8.1）：次级信息，不让它跟账户名抢注意力 */
 .header-draft {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -261,13 +311,13 @@ const pendingFixCount = computed(
 }
 
 .summary-primary {
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 500;
   color: var(--text-primary);
 }
 
 .summary-secondary {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 </style>

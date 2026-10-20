@@ -69,7 +69,7 @@ const emit = defineEmits<{
   align-items: center;
   height: 28px;
   padding: 0 12px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   white-space: nowrap;
   background: var(--bg-soft);
@@ -85,7 +85,7 @@ const emit = defineEmits<{
   }
 
   &.is-active {
-    color: var(--brand-700);
+    color: var(--brand-ink); /* #2314：前景文字用品牌文字级 */
     background: var(--brand-100);
     border-color: var(--brand-400);
   }

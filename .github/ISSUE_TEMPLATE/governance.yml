@@ -1,0 +1,84 @@
+name: 治理 / 机制提案
+description: 流程、规则、自动化、文档治理、路线图变更。适用于「项目本身的运作方式要不要改」。
+title: '[治理] '
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ⚠️ **这一类是最容易失控的**：本轮治理诊断发现，历史上 96 张 open issue 里有
+        14 个里程碑、大量「想法记录」卡，且**没有一个收口机制**。
+        所以这一类需要额外两道自检，填完请确认下面那两个勾选项。
+
+        如果你想提的其实是**一个 bug 或一个功能**，请改用 bug / 功能模板——
+        治理模板会额外要求你说明「这是需要长期维护的机制」，成本更高是故意的。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 谁的什么问题
+      description: |
+        具体到「谁在什么场景下、因为什么、付出了什么代价」。
+        **「流程不顺畅」「有点乱」不算**——这类描述会导致无法验证是否解决。
+      placeholder: |
+        例如：owner 每周手工统计看板要花 1 小时，且统计结果第二天就过期；每周扫描产出的是报告，无人执行。
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: 不修会怎样
+      description: 代价是什么、持续多久、影响面有多大。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: enforceability
+    attributes:
+      label: 这条机制靠什么生效
+      description: |
+        **这是本模板最重要的一栏。** 本轮治理的一条核心教训：
+        写进文档的规则会被绕开（AI 与人都会），只有机器判据才算机制。
+        所以「靠自觉」应当是一个警示信号——它意味着这条提案大概率不会生效。
+      options:
+        - CI 守卫 / 提交钩子（机器判据，绕不过）
+        - 定时自动执行（无需人记得）
+        - 需要 owner 每次手动做（⚠️ 靠自觉，稳定性低）
+        - 不确定
+    validations:
+      required: true
+
+  - type: textarea
+    id: closure
+    attributes:
+      label: 怎么算「收口了」
+      description: |
+        什么现象出现就算完成、可关闭这张卡？
+        **填不出来 ⇒ 这条机制没有收口判据，大概率会烂尾。**
+      placeholder: |
+        例如：连续 4 周 issue-health-scan 无新增待清理项，且 M6 Backlog open 稳定低于 30 张。
+    validations:
+      required: true
+
+  - type: textarea
+    id: reversibility
+    attributes:
+      label: 撤回成本
+      description: |
+        如果这条机制方向错了，怎么撤销、需要多久？
+        **改动机制前先想好怎么退**，是这类提案的必备项。
+      placeholder: |
+        例如：删掉新增的工作流与标签定义，守卫测试同步删除；约 10 分钟，无数据影响。
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: precheck
+    attributes:
+      label: 提交前自检（这一类请务必逐项确认）
+      options:
+        - label: 已搜索现有 issue，确认没有重复卡（治理类重复率最高）
+        - label: 已确认这张卡是「需要长期维护的机制」而非一次性调整
+        - label: 若答案是「需要 owner 每次手动做」，我已知道它很可能会烂尾
+        - label: 已确认里程碑归属（挂错了会导致 CI 红灯提醒）

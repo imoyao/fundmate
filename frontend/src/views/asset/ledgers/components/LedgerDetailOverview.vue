@@ -199,6 +199,12 @@
     </div>
   </CardBlock>
 
+  <!-- #2155 / CNB #479：账外类现金出口。
+       它必须**独立成块、并列展示**，不能并进上面的环形图：环形图两片是
+       「持仓市值的划分」（合计 = 总资产），账外类现金不建持仓、不在其中
+       （并进去会重演 #1606 的「投资资产 -63.2%」负数 bug，口径解耦见 D59）。 -->
+  <LedgerCashLikeCard :summary="p.summaryData" />
+
   <!-- #1812：收益日历已落地（账户级，传 ledgerId 走该账户的 as-of 派生序列）。
        与 welcome 第三排 / panorama「资产大类 ⇄ 收益日历」原地切换是**同一组件的三处容器**，
        口径唯一；#1925 起三处都带日 / 月 / 年粒度切换。 -->
@@ -228,6 +234,7 @@ import SectionHeader from "@/components/SectionHeader/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import PnlCalendar from "@/components/PnlCalendar/index.vue";
 import AssetAllocationDonut from "@/components/Charts/AssetAllocationDonut.vue";
+import LedgerCashLikeCard from "./LedgerCashLikeCard.vue";
 import type { useLedgerDetailPage } from "../composables/useLedgerDetailPage";
 
 defineOptions({ name: "LedgerDetailOverview" });
@@ -255,7 +262,7 @@ const p = reactive(props.page);
 .soft-reconcile-banner__icon {
   flex: none;
   margin-top: 2px;
-  font-size: 18px;
+  font-size: var(--text-num-strong);
   color: var(--el-color-info);
 }
 
@@ -266,14 +273,14 @@ const p = reactive(props.page);
 
 .soft-reconcile-banner__title {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-small);
   line-height: 22px;
   color: var(--text-primary);
 }
 
 .soft-reconcile-banner__detail {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

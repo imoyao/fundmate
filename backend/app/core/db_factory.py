@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 from loguru import logger
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import Engine, create_engine, event, make_url
 from sqlalchemy.orm import sessionmaker
 
 # --------------------------------------------------------------------------- #
@@ -43,6 +43,63 @@ _DEFAULT_APP_DB = 'sqlite:///./invest.db'
 # 既有数据零迁移。历史曾为独立 `invest.dev.db`，导致无 .env 的克隆另建一个空库、
 # 看不到 invest.db 里的存量数据；统一为 invest.db 后该坑消除。
 _DEFAULT_DEV_DB = 'sqlite:///./invest.db'
+
+
+#: 参与「应用运行库」解析的环境变量（按环境不同取其一，见 DatabaseConfig.for_app）。
+#: 用于回答两个问题：**解析出的目标是不是「无配置的 cwd 缺省」**，以及
+#: **配了变量却在 development 下被忽略**（#2344 实测事故就栽在后者）。
+APP_DB_ENV_VARS = (
+    'TURSO_DATABASE_URL',
+    'STAGING_DATABASE_URL',
+    'DATABASE_URL',
+    'DEV_DATABASE_URL',
+)
+
+
+def app_database_configured_vars(env: str | None = None) -> list[str]:
+    """当前**生效**的 App Env 下，哪些运行库环境变量被配置了（按解析顺序）。
+
+    用途：让「我明明配了库，程序却连到了别处」这类事故在**启动时**就能被看见，
+    而不是等某个统计口径偶然暴露（#2344：`DEV_DATABASE_URL` 在 APP_ENV 未设时被
+    静默忽略，CLI 连到了 cwd 下的空库，还报 success）。
+    """
+    env = env or get_app_env()
+    if env == 'development':
+        candidates = ('DEV_DATABASE_URL',)
+    elif env == 'staging':
+        candidates = ('STAGING_DATABASE_URL', 'DATABASE_URL')
+    else:
+        candidates = ('TURSO_DATABASE_URL', 'DATABASE_URL')
+    return [name for name in candidates if os.getenv(name)]
+
+
+def app_database_source_var(env: str | None = None) -> str | None:
+    """**实际生效**（解析命中）的库变量名；一个都没配返回 ``None``。
+
+    与 :func:`app_database_configured_vars` 的区别很要紧：production 下
+    ``TURSO_DATABASE_URL or DATABASE_URL`` 两者都参与，但只有排在前面的那个生效。
+    「配了」不等于「生效」——报告里必须说出赢的那个，否则排查会被带偏。
+    """
+    configured = app_database_configured_vars(env)
+    return configured[0] if configured else None
+
+
+def ignored_app_db_env_vars(env: str | None = None) -> list[str]:
+    """被配置了但在当前 App Env 下**不参与解析**的运行库变量（会被静默忽略的那些）。"""
+    env = env or get_app_env()
+    participating = set(app_database_configured_vars(env))
+    return [name for name in APP_DB_ENV_VARS if os.getenv(name) and name not in participating]
+
+
+def app_database_url(env: str | None = None) -> str:
+    """应用运行库（market 域）URL 的**唯一**解析入口。
+
+    任何需要「当前连的是哪个库」的地方——legacy 符号、CLI 启动日志、备份路径推断、
+    测试——都必须走这里。此前 `database.SQLALCHEMY_DATABASE_URL` 自己读了一遍
+    `DATABASE_URL`，与引擎真实解析**并行且不一致**（引擎在 development 下压根不看
+    `DATABASE_URL`），于是读那个符号的人可能拿到一个根本没在用的库（#2344）。
+    """
+    return DatabaseConfig.for_app(env or get_app_env()).url
 
 
 def _development_user_url() -> str:
@@ -184,6 +241,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'purchase_rules': DOMAIN_MARKET,
     'redeem_rules': DOMAIN_MARKET,
     'fee_ratios': DOMAIN_MARKET,
+    'etf_fee_rates': DOMAIN_MARKET,  # ETF 管理/托管费率缓存小表（#2333：双 HTML 源兜底，etf_compare 读）
     'price_history': DOMAIN_MARKET,  # 历史行情（最大体积表）
     'securities': DOMAIN_MARKET,
     # 个股/可转债 → 行业映射（#1981）。随 securities 同域：公开证券主数据，
@@ -231,6 +289,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'reconciliation_runs': DOMAIN_USER,  # 对账运行记录
     'adjustment_logs': DOMAIN_USER,  # 对账审计日志（仅用户主动操作）
     'ghost_duplicate_ignores': DOMAIN_USER,  # 幽灵重复忽略（域 D；FamilyScopedMixin 含 family_id）
+    'entitlements': DOMAIN_USER,  # 家庭级 Pro 功能权益（含 family_id，随 user 域）
 }
 
 # 规划中但尚未建表的域归属（提前登记，防止模型落地时漏声明）。
@@ -281,6 +340,88 @@ def get_app_env() -> str:
     if env in ('staging', 'stage', 'test'):
         return 'staging'
     return 'production'
+
+
+def resolve_app_db(env: Optional[str] = None) -> Tuple[str, str]:
+    """解析 market 域运行库 URL，并报告它由哪个环境变量决定（#2344）。
+
+    与 :meth:`DatabaseConfig.for_app` 同一套优先级（本函数是它的「可解释」镜像），
+    但额外返回来源变量名——2026-10-18 事故里，使用者在 worktree 设了
+    ``DEV_DATABASE_URL``，却因 ``APP_ENV`` 缺省为 production 被静默忽略，
+    CLI 连到 cwd 相对的 ``./invest.db`` 空库，批量同步跑成「0 只处理」还报
+    success。没有「来源」信息时，这类错配在日志里完全不可见。
+
+    返回 ``(url, source)``：``source`` 为环境变量名；命中内置缺省时为 ``'default'``。
+    """
+    env = env or get_app_env()
+    if env == 'development':
+        url = os.getenv('DEV_DATABASE_URL')
+        return (url, 'DEV_DATABASE_URL') if url else (_DEFAULT_DEV_DB, 'default')
+    if env == 'staging':
+        url = os.getenv('STAGING_DATABASE_URL')
+        if url:
+            return url, 'STAGING_DATABASE_URL'
+        url = os.getenv('DATABASE_URL')
+        return (url, 'DATABASE_URL') if url else (_DEFAULT_APP_DB, 'default')
+    # production：TURSO_DATABASE_URL 优先，回退 DATABASE_URL（与 for_app 一致）
+    url = os.getenv('TURSO_DATABASE_URL')
+    if url:
+        return url, 'TURSO_DATABASE_URL'
+    url = os.getenv('DATABASE_URL')
+    return (url, 'DATABASE_URL') if url else (_DEFAULT_APP_DB, 'default')
+
+
+def app_db_startup_check(*, strict: bool) -> Optional[str]:
+    """CLI 启动期：打印 market 域运行库解析结果，并守卫「连到不存在的库」（#2344）。
+
+    两件事：
+
+    1. **启动即打印**：当前连的是哪个库（URL + 决定它的环境变量 + APP_ENV），
+       让「连错库」在日志首行即可见，而不是等统计口径偶然暴露；
+    2. **分级守卫**：解析出的 SQLite 文件库不存在时——
+       - 显式配置了数据库（source != 'default'）但文件不存在：**直接报错**（配置错误，
+         非 fresh clone 场景，不应静默新建空库）；
+       - ``strict=True``（显式 ``--targets`` / ``--target-file`` / ``--snapshot`` 的批量修复场景）
+         且 source == 'default'：返回**错误消息**（调用方应退出）；
+       - ``strict=False`` 且 source == 'default'（fresh clone 首跑）：返回**告警消息**
+         （调用方记 WARNING 后继续）：fresh clone 首跑本就要就地建库，不能误伤。
+
+    返回 None 表示放行。Turso / Postgres 等非本地文件库无法判存在性，直接放行。
+    """
+    env = get_app_env()
+    url, source = resolve_app_db(env)
+    logger.info(f'[DB] APP_ENV={env}，market 域运行库: {url}（解析来源: {source}）')
+    if not str(url).startswith('sqlite'):
+        return None
+    try:
+        database = make_url(str(url)).database
+    except Exception:  # noqa: BLE001 - URL 解析失败不阻断启动，按放行处理
+        return None
+    if not database or database == ':memory:':
+        return None
+    db_path = Path(database)
+    if db_path.exists():
+        return None
+    resolved = db_path.resolve()
+    # 显式配置了数据库（source != 'default'）但文件不存在：配置错误，直接报错
+    if source != 'default':
+        return (
+            f'配置的运行库文件不存在（空库）：{resolved}（解析来源: {source}）。'
+            '配置的数据库文件不存在，请检查 APP_ENV / DEV_DATABASE_URL / DATABASE_URL / STAGING_DATABASE_URL / '
+            'TURSO_DATABASE_URL / DATABASE_URL 后重试。'
+        )
+    # source == 'default'：fresh clone 场景，按 strict 分级
+    if strict:
+        return (
+            f'配置的运行库文件不存在（空库）：{resolved}（解析来源: {source}）。'
+            '对着不存在的库跑显式目标同步/快照导出，只会静默新建空库后全部跳过（#2344 事故形态）；'
+            '如本意是连既有库，请检查 APP_ENV / DEV_DATABASE_URL / DATABASE_URL 后重试。'
+        )
+    return (
+        f'运行库目标文件不存在，将就地新建空库: {resolved}（解析来源: {source}）。'
+        '若你本意是连既有库（如在 worktree / 非 backend 目录下运行），'
+        '请检查 APP_ENV / DEV_DATABASE_URL / DATABASE_URL（#2344）。'
+    )
 
 
 @dataclass

@@ -24,7 +24,12 @@ export function usePositionMigration(
     if (!ledger) return;
     try {
       if (itemId > 100000) {
-        await updateAsset(itemId - 100000, { account_name: ledger.name });
+        // #2372：资产归入必须带 ledger_id（真外键）——只传 account_name 时后端只改
+        // 快照不改 FK，资产实际没归入；且任一侧账户改名后快照会被刷回旧账户。
+        await updateAsset(itemId - 100000, {
+          ledger_id: targetLedgerId,
+          account_name: ledger.name
+        });
       } else {
         // 归属迁移走 positions 域端点（PATCH /api/positions/<id>/ 接受 ledger_id）；
         // 原调 ledgers 域 updateLedgerPosition 传 account_name 会被后端静默丢弃（#965 修复）。

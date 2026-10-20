@@ -50,10 +50,7 @@
       </div>
 
       <!-- 数据态：没有任何持仓 -->
-      <p
-        v-else-if="!data || data.items.length === 0"
-        class="allocation-card__hint"
-      >
+      <p v-else-if="!data?.items?.length" class="allocation-card__hint">
         还没有持仓。录入持仓后，就可以给它们定目标占比了。
       </p>
 
@@ -368,7 +365,7 @@ function signedPct(value: number): string {
   &__sum,
   &__footnote {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--text-label);
     line-height: 1.6;
     color: var(--text-tertiary-ink);
   }
@@ -395,7 +392,7 @@ function signedPct(value: number): string {
   }
 
   &__error-text {
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-secondary);
   }
 
@@ -431,7 +428,7 @@ function signedPct(value: number): string {
 
     &--head {
       padding-top: 0;
-      font-size: 12px;
+      font-size: var(--text-label);
       color: var(--text-tertiary-ink);
       border-bottom-color: var(--border-default);
     }
@@ -449,7 +446,7 @@ function signedPct(value: number): string {
   &__cell {
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-secondary);
     white-space: nowrap;
 
@@ -483,14 +480,14 @@ function signedPct(value: number): string {
   &__title {
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-primary);
     white-space: nowrap;
   }
 
   &__symbol {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
   }
 

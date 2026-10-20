@@ -1,6 +1,7 @@
 from datetime import date
 from typing import Optional
 
+from loguru import logger
 from sqlalchemy import (
     Boolean,
     Column,
@@ -14,10 +15,19 @@ from sqlalchemy import (
     UniqueConstraint,
     and_,
     event,
+    inspect,
+    select,
 )
 from sqlalchemy.orm import validates
 
-from app.core.constants import POSITION_SOURCE_LABELS, VALUATION_MODE_LABELS, PositionSource, ValuationMode
+from app.core.constants import (
+    ANCHOR_KIND_LABELS,
+    POSITION_SOURCE_LABELS,
+    VALUATION_MODE_LABELS,
+    AnchorKind,
+    PositionSource,
+    ValuationMode,
+)
 from app.core.database import Base, FamilyScopedMixin, PrimaryKeyMixin, TimestampMixin
 from app.core.symbol_utils import symbol_identity
 
@@ -95,6 +105,56 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     confirm_date = Column(Date)
     notes = Column(Text)
     allocation = Column(String(20), default='longterm')
+
+    # ── 快照锚点（修复「份额被快照 + 流水重复累加」）──
+    # 背景：quantity 曾同时承担两种语义——upsert_from_holding 用 SET 写快照绝对值，
+    # process_buy_or_deposit 用 INCR 累加流水。两条路径无时序约束，先导快照再导历史
+    # 流水时快照份额被二次计入（012708 实测精确 2 倍）。
+    #
+    # 现在 quantity 是**派生值**：
+    #     quantity = snapshot_quantity + Σ(confirm_date > snapshot_date 的流水净额)
+    # 锚点为 NULL 时退化为「全量流水净额」（无锚点的纯流水持仓，行为与旧版一致）。
+    #
+    # 三列必须同批写入、同时为 NULL：
+    # - snapshot_quantity：快照份额绝对值（0.0001 份）；
+    # - snapshot_avg_price：快照成本均价（0.0001 元）。**不可省略**——重算时
+    #   quantity 与 avg_price 会被加权覆盖，事后拿不到快照原价，成本会永久偏；
+    # - snapshot_date：锚点日，`confirm_date <= 此日` 的流水视为「已包含在快照里」。
+    #   口径理由：基金份额在确认日（T+1）才真实变动，快照反映的是份额登记状态，
+    #   故按 confirm_date 而非 trade_date 切分（后者会漏掉 T+1 确认的交易）。
+    snapshot_quantity = Column(Integer, nullable=True, comment='快照锚点份额(0.0001份)；NULL=无锚点走全量流水')
+    snapshot_avg_price = Column(
+        Integer, nullable=True, comment='快照锚点成本均价(0.0001元)；与 snapshot_quantity 同批写入'
+    )
+    snapshot_date = Column(Date, nullable=True, comment='快照锚点日期；confirm_date<=此日的流水视为已包含')
+    # anchor_kind 只区分「外部事实」与「人工校准」，不按业务线细分（那是 source 的职责）。
+    # 关键差异：manual 锚点不被**同日**外部快照覆盖——用户当天已显式定了数，
+    # 同一天的外部数据不更权威；只有更新日期（>）的外部快照才能推进锚点。
+    anchor_kind = Column(
+        String(20),
+        nullable=True,
+        comment='锚点来源: 见 app.core.constants.AnchorKind（external/manual）；NULL=无锚点',
+    )
+    # 最近一次清仓的时间（issue #2343）。两个用途，缺一不可：
+    # 1. **清仓不再删行**：`ownership_status='cleared'` 表达「当前已清仓」，
+    #    本列记录**何时**清仓；锚点四列原样留存，删卖出流水触发重建时不会退回全量口径。
+    # 2. **新一轮周期的下界**：同一标的清仓后再买入时，本列是「上一轮在哪里结束」的
+    #    唯一事实源——持有天数 / 已实现盈亏若要按周期切分，只能用它做下界。
+    # **重新激活时刻意不清空本列**：语义是「最近一次清仓于」，不是「当前是否清仓」。
+    # 是否清仓一律看 `ownership_status`，不要用 `cleared_at IS NULL` 判断。
+    cleared_at = Column(DateTime, nullable=True, comment='最近一次清仓时间；重新激活后保留，用作新一轮周期下界')
+
+    @validates('anchor_kind')
+    def _validate_anchor_kind(self, key, value):
+        # 与 source / valuation_mode 同源约束：非法值立即拦截，禁止任意字符串。
+        # 允许 None（无锚点）与空串（迁移期兼容）。
+        if value is None or value == '':
+            return value
+        if isinstance(value, AnchorKind):
+            return value.value
+        if value not in ANCHOR_KIND_LABELS:
+            raise ValueError(f'非法锚点来源 anchor_kind={value!r}，必须是 app.core.constants.AnchorKind 的合法值')
+        return value
 
     # ── 去重与溯源字段（issue #928，参照 transactions.import_hash 治本方案）──
     import_hash = Column(String(64), nullable=True, comment='持仓去重哈希(内容哈希,唯一约束拦截重复)')
@@ -207,6 +267,84 @@ def _fill_position_symbol_norm(mapper, connection, target: Position) -> None:
     （全仓 grep 确认），若日后新增需一并处理（`bulk_*` 不触发 mapper 事件）。
     """
     target.symbol_norm = symbol_identity(target.symbol, target.asset_type)
+
+
+@event.listens_for(Position, 'before_insert')
+@event.listens_for(Position, 'before_update')
+def _fill_position_account_name(mapper, connection, target: Position) -> None:
+    """落库前用 `ledger_id` 补齐 `account_name` 冗余快照（账户的唯一真相是 `ledger_id`）。
+
+    ## 为什么需要
+
+    `account_name` 只是 `ledgers.name` 的冗余快照（供明细展示与「按账户分组」使用，
+    账户改名由 `ledger_write_service.sync_account_name_snapshots` 级联刷新）。它此前
+    **由各写入路径各自传递**——基金转换「转入腿」只传了 `ledger_id`、漏传
+    `account_name`，于是落成 NULL（2026-10-18 实测 position 618 / transaction 3001）；
+    反过来，改 `ledger_id`（归档 / 迁移）却不改快照，则会留下「外键指向新账户、
+    展示名还是旧账户」的**漂移行**。
+
+    NULL 一旦成为「按账户分组」的字典键，`flask.jsonify(sort_keys=True)` 会在
+    `str` 与 `None` 比较时抛 `TypeError`，整个持仓列表 500。问题不在排序，在于
+    数据本身就违反了「有账户就该有账户名」。
+
+    ## 为什么挂在 mapper 事件
+
+    与 `_fill_position_symbol_norm` 同因同解：本仓写持仓的入口有多处，靠调用方自觉
+    传冗余字段必然漏；事件挂在这里，写入路径无论怎么绕都会经过。
+
+    ## 覆盖规则（#2372）
+
+    - **创建**：只补空值，**不覆盖**调用方显式传入的名字——导入解析出的机构展示名
+      可能与 ledger 名不同，那是有意的；
+    - **更新且 `ledger_id` 确实变了**：**覆盖**为新账户名。此时旧快照已失效，留着就
+      是漂移——账户改名后 `sync_account_name_snapshots` 会按 `ledger_id` 级联刷新，
+      把用户刚迁走的持仓显示名刷回旧账户，一次「迁移」在界面上被静默还原；
+    - **更新但 `ledger_id` 未变**：不动（同创建路径，保护显式传入的名字）。
+
+    `ledger_id` 为空（未归档持仓 / 导入影子行）时无从补齐，保持原值——它们确实没有
+    账户，显示层兜底为「未指定账户」。
+
+    ## 边界：只有部分表结构的库不参与回填（但要出声）
+
+    `positions` 会被**只建了部分表**的库写入——例如
+    `scripts/fix_orphan_money_fund_reattach.py` 及其单测夹具只建
+    `positions` / `transactions`（该脚本确实只需要这两张表）。在那里查 `ledgers`
+    会抛 `OperationalError: no such table: ledgers`，把一次**正常写入**打断
+    （2026-10-19 CI 实测：`tests/scripts/test_fix_orphan_money_fund_reattach.py`
+    15 failed / 5 errors）。
+
+    故先问一句「本引擎有没有这张表」（`inspect(connection).has_table`），
+    没有就**跳过并告警**：这是「补不了」，不是「补出来是空的」，两者不得混为一谈
+    —— 静默跳过会让这张网从此不干活，而日志里什么也看不见。
+
+    刻意**不**用 `try/except OperationalError` 兜：那会把「表不存在」与
+    「库被锁 / 连接坏了」混成一类一起吞掉；`has_table` 先问清楚，
+    真正的查询失败仍然照常抛出。
+
+    同一先例：`services/pnl_snapshot_store.py:306` 的 `_snapshot_table_missing`
+    —— 它也挂在 flush 事件里，也先 `inspect(session.connection()).has_table(...)`
+    再决定动不动，理由相同（脚本自建 sessionmaker + 夹具的部分表库）。
+    """
+    if not target.ledger_id:
+        return
+    # 延迟导入：ledgers 与 positions 同属 user 域，但模块加载期避免交叉导入。
+    from app.domains.ledgers.models import Ledger
+
+    if not inspect(connection).has_table('ledgers'):
+        logger.warning(
+            'positions.account_name 冗余快照无法回填：本引擎无 ledgers 表（ledger_id={}，仅部分表结构的库）',
+            target.ledger_id,
+        )
+        return
+
+    # 已有快照 ⇒ 仅在「持久化对象 + ledger_id 本条发生变更」时覆盖，其余情况保护显式传入的值
+    state = inspect(target)
+    if target.account_name and not (state.persistent and bool(state.attrs.ledger_id.history.has_changes())):
+        return
+
+    name = connection.execute(select(Ledger.name).where(Ledger.id == target.ledger_id)).scalar()
+    if name:
+        target.account_name = name
 
 
 class PositionImportMeta(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):

@@ -254,7 +254,7 @@ watch(allMatched, val => {
 
 .match-desc {
   margin-bottom: 20px;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-secondary);
 }
@@ -275,7 +275,7 @@ watch(allMatched, val => {
 }
 
 .match-fund-name {
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -301,12 +301,12 @@ watch(allMatched, val => {
   display: flex;
   gap: 8px;
   align-items: center;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-primary);
 }
 
 .matched-icon {
-  font-size: 16px;
+  font-size: var(--text-body);
   color: var(--color-success-ink);
 }
 

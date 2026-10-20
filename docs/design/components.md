@@ -238,7 +238,7 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
   那就是「已确认」口径本身）、`holding_cost_price > 0`（成本价缺失时引擎的 `pnl` 会退化成「市值全额」）；
 - **不复述提示**：高密度表格不逐行写「未开启实时估值」（该页汇总条上本就有开关与状态）；
   拿不到预估就只渲染原来的两行；
-- 该列会因此变成**三行**，行高 +约 13px（`.el-table__row` 的 height 是最小高度语义）。
+- 该列会因此变成**三行**，行高 +约 15px（主副组距改用 `var(--space-1)` 后 +2px，#2210；`.el-table__row` 的 height 是最小高度语义）。
   这是「开启实时估值」这一 opt-in 模式的代价，默认态不受影响。
 
 ## CardBlock · 区块卡片容器（强制复用）
@@ -448,6 +448,34 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
   - 颜色沿用 `--chart-01~08` 循环，不引入新色；**颜色不承担分类职责**
     （分类名就在同一行，长度才是唯一的比例通道）。
 - 参考实现：`frontend/src/views/product/components/ProductIndustrySection.vue`（行业配置）。
+
+## 稠密表格：共享样式约定，不建共享组件（源 CNB #553）
+
+- 先划边界：**`el-table` 是「业务表」的实现**（44px 行高、可排序、冻结列，
+  见 `style/el-table.css`）；**`.detail-table` 是「阅读表」的样式约定**
+  （13px 字号、dense 行高、无交互）。两者不互相替代，也不许混写。
+- 为什么是约定不是组件：详情页 5 张表的数据形状完全不同
+  （`{行业, 占比}` / `{排名, 股票, 占比, 持股, 市值}` / `{代码, 净值, 多窗口收益}`），
+  共享组件只能退化成「只有边框和 padding 的壳」，还多一层 slot 模板噪声。
+  **长得像的东西用 CSS 约定收，算得一样的才用组件收。**
+- 单一来源：`frontend/src/style/_detail-table.scss`（与 `_detail-common.scss` 同族）。
+  可用的类只有四组——`.detail-table` / `--fixed` / `__num` / `__product` / `__empty`：
+  - 单元格 `padding` 一律 `var(--space-2)`（#553 拍板：为了多列挤出的 `6px` 作废——
+    横 6px / 纵 8px 读起来不是「更紧凑」而是「没对齐」）；
+  - 分隔线只有一种：`tbody tr + tr` 一条 1px `--border-subtle`。表头用 500 字重 + 弱色
+    代替实线，表尾用一条上边线与数据分开；
+  - 数字列对齐唯一走 `.detail-table__num`（右对齐 + `tabular-nums`）。
+    **不许把 `tabular-nums` 加在整张表上**——中文没有等宽意义；
+  - 横滚（容器 `overflow-x: auto`）是稠密表**唯一**的窄屏降级策略，
+    不写「窄屏卡片化」（5 张表各一套卡片形态比现在更碎）。
+- 守卫：`scripts/guard_detail_tables.py`（并入 `ci.yml` 的 `frontend` job）。
+  三条判据：详情页 `<table>` 必须带 `detail-table`；不得手抄第二份表格基线
+  （`width + border-collapse + padding` 三件套）；不得自写数字列 `text-align: right`。
+  存量另有 5 处手抄基线按文件冻结（只减不增，收编前先判定该表语义）。
+- 已知边界：`:class` 动态类名放行（静态判据看不见运行时类名，猜它会误报）；
+  守卫不判视觉、不判列宽、不判该不该用表格。
+- 落地：`ProductPositionSection` / `ProductIndustrySection` / `ProductHoldingSection` /
+  `ProductEtfCompare` / `ProductIndexWeights`。
 
 ## TemperatureGaugeCard · 温度环形卡（三页复用）
 

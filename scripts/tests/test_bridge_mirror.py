@@ -223,18 +223,23 @@ class TestFetchCompleteness(unittest.TestCase):
     """
 
     def _fake(self, batches):
+        """按顺序吐出 `(body, headers)` —— 翻页现在读 `Link` 头（源 CNB #586）。"""
         it = iter(batches)
 
         def fake(url, **kw):
             try:
-                return json.dumps(next(it)).encode('utf-8')
+                item = next(it)
             except StopIteration:
-                return b'[]'
+                return b'[]', {}
+            if isinstance(item, tuple):
+                body, headers = item
+                return json.dumps(body).encode('utf-8'), headers
+            return json.dumps(item).encode('utf-8'), {}
 
         return fake
 
     def test_空仓库_零张且可信(self):
-        with mock.patch.object(mirror, '_request', self._fake([[]])):
+        with mock.patch.object(mirror, '_request_with_headers', self._fake([[]])):
             issues, complete = mirror.fetch_github_open_issues()
         self.assertEqual(issues, [])
         self.assertTrue(complete, '空仓库是「真的没有」，不能报成不完整')
@@ -242,13 +247,15 @@ class TestFetchCompleteness(unittest.TestCase):
     def test_满页后接空页_判为不完整(self):
         """满页之后又来一个空页 ⇒ 分页中途断了，**不得**当成拉全了。"""
         full = [{'number': i, 'title': 'x'} for i in range(100)]
-        with mock.patch.object(mirror, '_request', self._fake([full, []])):
+        with mock.patch.object(mirror, '_request_with_headers', self._fake([full, []])):
             issues, complete = mirror.fetch_github_open_issues()
         self.assertEqual(len(issues), 100)
         self.assertFalse(complete, '满页后空页说明分页中断，必须报不完整')
 
     def test_不满页收尾_判为完整(self):
-        with mock.patch.object(mirror, '_request', self._fake([[{'number': 1, 'title': 'x'}], []])):
+        with mock.patch.object(
+            mirror, '_request_with_headers', self._fake([[{'number': 1, 'title': 'x'}], []])
+        ):
             issues, complete = mirror.fetch_github_open_issues()
         self.assertEqual(len(issues), 1)
         self.assertTrue(complete)
@@ -257,9 +264,64 @@ class TestFetchCompleteness(unittest.TestCase):
         """每页都满 ⇒ 翻到 `MAX_ISSUE_PAGES` 仍未收尾 ⇒ 触顶，必须报不完整。"""
         full = [{'number': i, 'title': 'x'} for i in range(100)]
         batches = [full] * (mirror.MAX_ISSUE_PAGES + 5)
-        with mock.patch.object(mirror, '_request', self._fake(batches)):
+        with mock.patch.object(mirror, '_request_with_headers', self._fake(batches)):
             _issues, complete = mirror.fetch_github_open_issues()
         self.assertFalse(complete, '翻页触顶说明数据被截断，必须报不完整')
+
+    def test_大结果集422_跟着Link头翻页(self):
+        """GitHub 对**大结果集**关闭了 `page` 分页（源 CNB #586，2026-10-19 实测）。  # cross-repo-ref-allow
+
+        第 11 页起直接 422：
+
+            Pagination with the page parameter is not supported for large datasets,
+            please use cursor based pagination (after/before)
+
+        游标就在响应的 `Link` 头里。实测后果不是「少几张」，是**只剩前 1000 张**：
+        那一轮状态回流判定出 1 张漂移，而本地 `--report` 是 **42 张** —— 422 把结论砍成 1/42。
+
+        探针：把 `fetch_github_issues()` 里的 `_link_next` 分支删掉（退回自己拼 `page=`）
+        ⇒ 第二页请求的 URL 里没有 `after=` ⇒ 本用例转红。
+        """
+        full = [{'number': i, 'title': 'x'} for i in range(100)]
+        cursor = (
+            '<https://api.github.com/repositories/1/issues?state=all&per_page=100'
+            '&page=11&sort=updated&after=CURSOR%3D>; rel="next"'
+        )
+        seen: list[str] = []
+
+        def fake(url, **kw):
+            seen.append(url)
+            if len(seen) == 1:
+                return json.dumps(full).encode('utf-8'), {'Link': cursor}
+            return json.dumps([{'number': 999, 'title': 'y'}]).encode('utf-8'), {}
+
+        with mock.patch.object(mirror, '_request_with_headers', fake):
+            issues, complete = mirror.fetch_github_open_issues()
+        self.assertTrue(complete)
+        self.assertEqual(len(issues), 101, issues[-3:])
+        self.assertIn(
+            'after=CURSOR',
+            seen[1],
+            '第二页没跟 Link 头走 —— GitHub 会 422（大结果集不支持 page 分页）',
+        )
+
+    def test_422且无Link_明说拿不到后续页(self):
+        """`422` 且**没给** Link 时，必须说「拿不到后续页」，**不得**退化成「就这么多」。"""
+        import urllib.error
+
+        full = [{'number': i, 'title': 'x'} for i in range(100)]
+        calls = {'n': 0}
+
+        def fake(url, **kw):
+            calls['n'] += 1
+            if calls['n'] == 1:
+                return json.dumps(full).encode('utf-8'), {}
+            raise urllib.error.HTTPError('u', 422, 'cursor required', {}, None)
+
+        with mock.patch.object(mirror, '_request_with_headers', fake):
+            issues, complete = mirror.fetch_github_open_issues()
+        self.assertFalse(complete, '422 = 拿不全，不得报成完整')
+        self.assertEqual(len(issues), 100, '已拿到的部分要保留（能做的照做）')
 
     def test_无新增但不完整_退回码1且不宣称对齐(self):
         """`run()` 在「零待建 + 数据不完整」时**不得**打印「无新增，两侧已对齐」。"""

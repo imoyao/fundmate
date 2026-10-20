@@ -76,22 +76,23 @@ const links = computed(() =>
   gap: var(--space-1);
   align-items: center;
   padding: var(--space-1) var(--space-3);
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   text-decoration: none;
   border: 1px solid var(--border-default);
-  border-radius: 4px;
+  border-radius: var(--radius-sm); /* #2314：字面 4px 归位令牌 */
   transition:
     color 0.15s,
     border-color 0.15s;
 }
 
 .ext-links__item:hover {
-  color: var(--brand-700);
+  /* #2314：前景文字用品牌文字级（--brand-700 作文字不达 AA） */
+  color: var(--brand-ink);
   border-color: var(--brand-700);
 }
 
 .ext-links__icon {
-  font-size: 12px;
+  font-size: var(--text-label);
 }
 </style>

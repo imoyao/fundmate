@@ -91,23 +91,19 @@
         <!-- 1. 交易日期 -->
         <el-form-item label="交易日期" prop="trade_date">
           <div class="flex items-center gap-3 w-full">
-            <el-date-picker
-              v-model="form.trade_date"
-              type="date"
-              :class="showIsAfter15 ? 'flex-1' : 'w-full'"
-              style="width: 100%"
-              value-format="YYYY-MM-DD"
-              :clearable="false"
-              :disabled-date="disabledDate"
-            />
-            <el-radio-group
-              v-if="showIsAfter15"
-              v-model="form.isAfter15"
-              size="small"
-            >
-              <el-radio-button :value="false">15:00前</el-radio-button>
-              <el-radio-button :value="true">15:00后</el-radio-button>
-            </el-radio-group>
+            <!-- 日期框外层自带弹性：DatePicker 是 inheritAttrs:false，写它身上的
+                 `:class` 落不到 DOM（曾用 `showIsAfter15 ? 'flex-1' : 'w-full'`）。 -->
+            <div class="min-w-0 flex-1">
+              <el-date-picker
+                v-model="form.trade_date"
+                type="date"
+                style="width: 100%"
+                value-format="YYYY-MM-DD"
+                :clearable="false"
+                :disabled-date="disabledDate"
+              />
+            </div>
+            <TradeSlotSwitch v-if="showIsAfter15" v-model="form.isAfter15" />
           </div>
           <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
             <span v-if="form.isAfter15 && selectedPosition?.type === 'fund'">
@@ -136,18 +132,15 @@
               :placeholder="placeholderText"
               @blur="qtyTouched = true"
             />
+            <!-- 快捷档位：与转换表单同一组件（档位表 / 取整 / 选中态唯一实现） -->
             <div class="flex items-center justify-between w-full">
-              <template v-for="ratio in SELL_QUICK_RATIOS" :key="ratio.label">
-                <el-button
-                  size="small"
-                  plain
-                  round
-                  class="quick-ratio-btn"
-                  @click="applySellQuickRatio(ratio.value)"
-                >
-                  {{ ratio.label }}
-                </el-button>
-              </template>
+              <QuickRatioPicker
+                v-model="form.quantity"
+                :total="maxQuantity"
+                :type="form.type"
+                :step="stepForSecurity"
+                aria-label="卖出份额比例"
+              />
             </div>
             <div
               v-if="showQtyHint"
@@ -208,21 +201,23 @@
           </el-form-item>
         </template>
 
-        <!-- 5. 对应净值（弱化展示） -->
+        <!-- 5. 对应净值（提升视觉层级：净值是基金买入/赎回到账的核心依据，信息层级应与重要性匹配） -->
         <div
           v-if="form.type === 'fund'"
-          class="text-xs flex items-center gap-1 mt-1 pl-[90px]"
-          style="color: var(--text-tertiary-ink)"
+          class="text-sm flex items-center gap-2 mt-2 pl-[90px]"
+          style="color: var(--text-secondary)"
         >
-          <span>对应净值：</span>
-          <span class="font-medium" style="color: var(--text-secondary)">
+          <span>对应净值</span>
+          <span class="font-semibold" style="color: var(--text-primary)">
             {{
               form.price !== undefined && form.price > 0
                 ? form.price.toFixed(4)
                 : "--"
             }}
           </span>
-          <span>[{{ actualNavDate || form.trade_date || "--" }}]</span>
+          <span class="text-xs" style="color: var(--text-tertiary-ink)">
+            · {{ actualNavDate || form.trade_date || "--" }}
+          </span>
         </div>
 
         <!-- 6. 预估金额 -->
@@ -341,14 +336,12 @@ import { IconifyIconOffline } from "@/components/ReIcon";
 import { LEDGER_TYPE_SHORT } from "@/constants";
 import { getLedgerColor } from "@/utils/ledger";
 import { disabledTradeDate } from "@/utils/date";
-import {
-  getStep,
-  SELL_QUICK_RATIOS,
-  calcSellQuantityByRatio
-} from "@/utils/trading";
+import { getStep } from "@/utils/trading";
 import { estimateRedeemFee, syncFundFees } from "@/api/funds";
 import { useFundTradeDate } from "@/composables/useFundTradeDate";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
+import TradeSlotSwitch from "@/components/TradeSlotSwitch/index.vue";
+import QuickRatioPicker from "@/components/QuickRatioPicker/index.vue";
 
 const props = defineProps<{
   ledgers: any[];
@@ -407,15 +400,17 @@ const {
   reset: resetTradeDate
 } = useFundTradeDate();
 
+// #2372：持仓分组键是 ledger_id（后端 group_by=account 按真外键分组）——
+// 账户名可编辑且真库有重名，按名回查会落空或串到别的账户
 const availableAccounts = computed(() =>
-  props.ledgers.filter(l => positionsByAccount.value[l.name]?.length > 0)
+  props.ledgers.filter(l => positionsByAccount.value[String(l.id)]?.length > 0)
 );
 const currentLedger = computed(
   () => props.ledgers.find(l => l.id === form.ledger_id) ?? null
 );
 const accountPositions = computed(() => {
   if (!currentLedger.value) return [];
-  return positionsByAccount.value[currentLedger.value.name] || [];
+  return positionsByAccount.value[String(currentLedger.value.id)] || [];
 });
 const maxQuantity = computed(() => selectedPosition.value?.quantity ?? 1);
 const stepForSecurity = computed(() => {
@@ -537,15 +532,6 @@ async function fetchPositionsByAccount() {
 }
 
 // ---------- 交互方法 ----------
-function applySellQuickRatio(ratio: number) {
-  form.quantity = calcSellQuantityByRatio(
-    ratio,
-    maxQuantity.value,
-    form.type,
-    stepForSecurity.value
-  );
-}
-
 function clearFormData() {
   qtyTouched.value = false;
   showPositionSelect.value = false;
@@ -794,8 +780,6 @@ async function handleSubmit() {
 }
 
 function resetForm() {
-  // 未保存离开保护的快照（#1853）：重置后必须重新记，否则上一轮的输入会被当成脏
-  markFormClean();
   Object.assign(form, defaultForm());
   selectedPosition.value = null;
   positionsByAccount.value = {};
@@ -806,6 +790,12 @@ function resetForm() {
   if (props.hideAccountSelect && props.defaultLedgerId) {
     form.ledger_id = props.defaultLedgerId;
   }
+
+  // 未保存离开保护的脏基线（#1853）：必须在**全部重置动作之后**再记快照。
+  // 记在前面会把「本轮刚填的值」记成基线，紧接着 Object.assign 重置成默认值，
+  // 于是 isDirty 为 true——提交成功后关闭抽屉时被问「确定放弃吗？」。正确范式见
+  // DividendForm.resetForm。
+  markFormClean();
 }
 
 // ---------- 监听 ----------
@@ -879,35 +869,6 @@ defineExpose({ handleSubmit, resetForm, isDirty });
 <style scoped>
 .text-xs {
   font-size: 0.75rem;
-}
-
-.quick-ratio-btn {
-  height: 28px;
-  padding: 0 8px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-  background-color: transparent;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  transition:
-    background-color 0.2s,
-    border-color 0.2s,
-    color 0.2s,
-    transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.quick-ratio-btn:hover {
-  color: var(--brand-700);
-  background-color: var(--brand-100);
-  border-color: var(--brand-700);
-}
-
-.quick-ratio-btn:active {
-  color: var(--brand-700);
-  background-color: var(--brand-200);
-  border-color: var(--brand-700);
-  transform: scale(0.92);
 }
 
 :deep(.el-button--primary) {

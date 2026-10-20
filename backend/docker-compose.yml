@@ -1,58 +1,36 @@
-version: "3.6"
-
-x-build-args: &build_args
-  INSTALL_PYTHON_VERSION: 3.7
-  INSTALL_NODE_VERSION: 12
-
-x-default-volumes: &default_volumes
-  volumes:
-    - ./:/app
-    - node-modules:/app/node_modules
-    - ./dev.db:/tmp/dev.db
+# docker-compose.yml —— 本地镜像冒烟 / 单机自托管最小可运行编排
+# （2026-10-17 随 backend/Dockerfile 重写；旧版是 V1 遗留：Python 3.7 / Node 12
+#  构建参数、flask 5000 端口、dev.db 挂载、flask-dev/manage 服务，V1 退役后全部失效）
+#
+# 用法：
+#   docker compose up --build      # 构建 + 启动；探活 http://localhost:8000/api/health
+#
+# 定位：镜像能跑的最小编排，不是生产部署方案。生产（Turso 市场域 + Supabase
+# 用户域）按平台注入环境变量即可，见 docs/ops/deployment.md。
 
 services:
-  flask-dev:
+  backend:
     build:
       context: .
-      target: development
       args:
-        <<: *build_args
-    image: "fundmate-development"
+        PYTHON_VERSION: "3.12"
+    image: fundmate-backend:local
     ports:
-      - "5000:5000"
-      - "2992:2992"
-    <<: *default_volumes
-
-  flask-prod:
-    build:
-      context: .
-      target: production
-      args:
-        <<: *build_args
-    image: "fundmate-production"
-    ports:
-      - "5000:5000"
+      - "8000:8000"
     environment:
-      FLASK_ENV: production
-      FLASK_DEBUG: 0
-      LOG_LEVEL: info
-      GUNICORN_WORKERS: 4
-    <<: *default_volumes
-
-  manage:
-    build:
-      context: .
-      target: development
-      args:
-        <<: *build_args
-    entrypoint: flask
-    environment:
-      FLASK_ENV: production
-      FLASK_DEBUG: 0
-    image: "fundmate-manage"
-    stdin_open: true
-    tty: true
-    <<: *default_volumes
+      # 单库 SQLite（与本地开发同语义：dev 下 user 域未显式配置则与 market 同库）
+      APP_ENV: development
+      DEV_DATABASE_URL: sqlite:////app/data/invest.db
+      DATABASE_URL: sqlite:////app/data/invest.db
+      TZ: Asia/Shanghai
+      # 调度默认关闭（与本地开发一致）；需要自动更新时改为 "1"，
+      # 且建议改为独立进程/容器跑 `python app/tools/scheduler_daemon.py`
+      SCHEDULER_ENABLED: "0"
+      # gthread 线程数（单 worker 是硬约束，见 Dockerfile 注释）
+      GUNICORN_THREADS: "8"
+    volumes:
+      - backend-data:/app/data
+    restart: unless-stopped
 
 volumes:
-  node-modules:
+  backend-data:

@@ -68,6 +68,32 @@ export const CHART_TOKENS = {
   bgCard: "--bg-card"
 } as const;
 
+/**
+ * 上述 token 的**亮色回退值**（单一来源，#2314）。
+ *
+ * 为什么需要：ECharts 不解析 `var(--x)`，颜色必须命令式读取后传入；CSS 变量
+ * 偶发取不到时（首帧 / 卸载竞态） fallback 是唯一兜底。原实现各组件各自手写
+ * fallback，且用的是 Element 旧色板（#409eff / #e6a23c / #9aa0a6 / #287d51）——
+ * 一旦真触发，暖色页面里会跳出冷蓝橙灰。本表取值 = colors.css 亮色现值，
+ * 改令牌时回来同步；暗色由 getCssVar 读到的暗色值承担，不走本表。
+ */
+export const CHART_FALLBACKS: Record<keyof typeof CHART_TOKENS, string> = {
+  rise: "#e34f38",
+  fall: "#7bc49a",
+  brand700: "#e34f38",
+  info: "#7a9aa8",
+  neutral: "#8e8b82",
+  warning: "#d4c898",
+  success: "#81b29a",
+  accent: "#b88a8a",
+  textPrimary: "#2d2a24",
+  textSecondary: "#6b655c",
+  textTertiary: "#8c8478",
+  borderLight: "#f0ebe4",
+  borderDefault: "#e5ddd4",
+  bgCard: "#ffffff"
+};
+
 /** 图表分类配色板（8 色，与 design.md Data Visualization 对齐），调用时实时读取当前主题变量 */
 export function getChartPalette(): string[] {
   return [

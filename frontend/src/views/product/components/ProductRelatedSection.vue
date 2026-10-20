@@ -8,6 +8,7 @@ import {
   type RelatedSymbolsResult
 } from "@/api/products";
 import { productRoute } from "@/utils/productIdentity";
+import ProductEtfCompare from "./ProductEtfCompare.vue";
 
 /**
  * 详情页「关联标的」区块（#1976 · 设计 §6 / 数据策略 L4 关联关系类）。
@@ -51,6 +52,13 @@ const grouped = computed(() => {
     }))
     .filter(g => g.items.length > 0);
 });
+
+/** 有关联 ETF 才挂对比表（#2275）：feeder 不进对比，避免无意义的空块与外部请求 */
+const hasEtfLinks = computed(() =>
+  (related.value?.links ?? []).some(
+    (x: RelatedSymbolLink) => x.peer_role === "etf"
+  )
+);
 
 /**
  * 对端角色 → 详情页路径段（#1974）。`index` 故意保留为 `index`：它不在
@@ -132,6 +140,12 @@ watch(() => props.symbol, load, { immediate: true });
         </ul>
       </div>
     </div>
+
+    <!-- #2275 · P0：同标的 ETF 的购买决策对比表（无关联 ETF 时不挂载不请求） -->
+    <ProductEtfCompare
+      v-if="!loading && !failed && hasEtfLinks"
+      :symbol="symbol"
+    />
   </CardBlock>
 </template>
 
@@ -139,14 +153,14 @@ watch(() => props.symbol, load, { immediate: true });
 .rel-section {
   &__hint {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-tertiary);
   }
 
   /* 覆盖率说明跟在「—」后面，避免单独一行像报错 */
   &__hint-note {
     margin-left: 4px;
-    font-size: 12px;
+    font-size: var(--text-label);
     color: var(--text-tertiary-ink);
   }
 
@@ -158,7 +172,7 @@ watch(() => props.symbol, load, { immediate: true });
 
   &__subtitle {
     margin: 0 0 var(--space-2);
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-secondary);
   }
 
@@ -175,7 +189,7 @@ watch(() => props.symbol, load, { immediate: true });
     display: inline-flex;
     align-items: center;
     padding: 4px 10px;
-    font-size: 13px;
+    font-size: var(--text-label);
     color: var(--text-primary);
     text-decoration: none;
     background: var(--bg-muted);

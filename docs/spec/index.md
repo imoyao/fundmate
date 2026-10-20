@@ -32,7 +32,7 @@ title: 多多贝 项目规范体系（文档枢纽）
 | [data-model.md](./data-model.md) | 核心数据模型完整规范 | 随代码演进 | 事实标准 |
 | [api.md](./api.md) | 核心 API 端点清单 | 随代码演进 | 事实标准 |
 | [frontend-ui.md](./frontend-ui.md) | 通用业务组件规范、前端区域布局与交互规范 | 随前端演进 | 硬约束 |
-| [roadmap.md](./roadmap.md) | 四象限路线图与进度表 | 易腐烂（标核实日期） | 进度追踪 |
+| [roadmap.md](./roadmap.md) | 四象限定义 + 里程碑映射 + issue 反链 | 低（导航层，不含进度） | 查「某编号对应哪张卡」 |
 | [tech-debt.md](./tech-debt.md) | 技术债务与开口项明细 | 易腐烂（标核实日期） | 进度追踪 |
 | [decisions.md](./decisions.md) | 重要决策完整记录表 | append-only | 永久回溯 |
 | [pricing-tier.md](./pricing-tier.md) | 付费/免费分层规范（判定准则、功能归属、双层估值开关、前端直连约束） | 低频 | 事实标准 |

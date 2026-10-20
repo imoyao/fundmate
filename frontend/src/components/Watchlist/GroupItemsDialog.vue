@@ -357,14 +357,14 @@ function close(): void {
 }
 
 .gi-col__title {
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 /* 计数：tabular-nums 防止数字变化时宽度抖动 */
 .gi-count {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }
@@ -419,7 +419,7 @@ function close(): void {
 .gi-name {
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-primary);
   white-space: nowrap;
 }
@@ -429,7 +429,7 @@ function close(): void {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
   white-space: nowrap;
@@ -458,7 +458,7 @@ function close(): void {
 .gi-empty {
   padding: var(--space-3) 0;
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
   text-align: center;
 }

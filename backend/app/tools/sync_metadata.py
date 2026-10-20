@@ -1,51 +1,26 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Author : imoyao
-# Date : 2026/5/30 11:27
-# File : sync_metadata.py
-# !/usr/bin/env python
-"""
-多多贝 元数据同步脚本
+"""同步元数据 CLI 入口（pdm run sync / python app/tools/sync_metadata.py）。
 
-用法:
-    # 日常增量更新（推荐每天运行）
-    python app/tools/sync_metadata.py --all
+支持：
+- `sync --job <name>` 单 job 执行
+- `sync --all` 全量执行
+- `sync --full-sync` 启用全量回填模式（仅限逐标的回填型 job 必须带 --targets/--target-file）
+- `sync --targets <code,...>` 显式指定回填标的（逐标的回填型 job 强制）
+- `sync --target-file <csv>` 从 CSV 读取回填标的（批量/全量回填场景）
+- `sync --snapshot <path>` 导出市场域只读快照（只含市场域表，不含用户数据）
+- `sync --import-snapshot <file>` 导入已下载的快照文件（校验 + 幂等去重，不覆盖本地记录）
 
-    # 通过 CSV 文件指定要同步的基金/股票代码
-    python app/tools/sync_metadata.py --all --target-file codes.csv
-
-    # 单独执行某个任务
-    python app/tools/sync_metadata.py --job fund_nav
-    python app/tools/sync_metadata.py --job fund_detail_enrich --target-file codes.csv
-
-    # 强制全量同步（拉取全部历史数据，耗时长，仅首次或需要修复时使用）
-    # 注意：--full-sync 必须带范围，禁止裸调用（见下方「同步入口职责」）
-    python app/tools/sync_metadata.py --all --full-sync --target-file codes.csv
-    python app/tools/sync_metadata.py --job fund_nav --full-sync --targets 000001,000002
-
-同步入口职责:
-    --all            日常增量（默认）；--all --full-sync 必须配合 --target-file 限定范围
-    --job <name>     单 Job；逐标的回填型 Job（fund_nav / price_history 等）--full-sync 必须带 --targets / --target-file
-    --full-sync      全量；仅限初始化 / 修复场景，且必须带范围，裸调用将被拒绝（#824 / #1776 ④）
-    --targets        直接指定代码（逗号分隔），或
-    --target-file    CSV 指定代码范围
-    --snapshot       导出市场域只读快照到 PATH（#1776 ⑤ DB 下载导入层）：
-                     初始化/重建本地库不再全市场拉取，改为「下载快照文件 → 本地导入」
-    --import-snapshot
-                     导入已下载的快照文件（校验 + 按本地唯一约束幂等去重，不覆盖本地记录）；
-                     导入完成即回到 --all 日常增量。二者与同步参数互斥、彼此也互斥
-
-任务说明:
-    stock_list         - 刷新 A 股股票列表（全量，约 5000 只）
-    fund_list          - 刷新公募基金列表（全量，约 27000 只）
-    fund_detail_enrich - 补充基金的分类、公司、费率等信息（核心池，约 200 只）
-    fund_nav           - 更新基金净值（增量，仅核心池）
-    price_history      - 更新股票行情（增量，仅核心池）
-
-    核心池 = 持仓标的 + 自选标的 + CSV文件指定标的
+用法示例：
+  pdm run sync --job temperature
+  pdm run sync --job fund_nav --full-sync --targets 000001,000002
+  pdm run sync --job fund_position --target-file positions.csv
+  pdm run sync --all --full-sync --target-file all_funds.csv
+  pdm run sync --snapshot ./snapshot.db
+  pdm run sync --import-snapshot ./snapshot.db
 """
 
-import argparse
-import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -60,16 +35,20 @@ sys.path.insert(0, str(BACKEND_DIR))
 from dotenv import load_dotenv  # noqa: E402
 from loguru import logger  # noqa: E402
 
-from app.core.database import get_db, init_db  # noqa: E402
-from app.services.sync.orchestrator import DataSyncOrchestrator, require_full_sync_scope  # noqa: E402
-
 # ✅ 在入口文件顶部加载 .env（相对于 backend/ 目录）
 env_path = BACKEND_DIR / '.env'
 load_dotenv(dotenv_path=env_path)
 
+from app.core.database import get_db, init_db  # noqa: E402
+from app.core.db_factory import app_db_startup_check, resolve_app_db  # noqa: E402
+from app.services.sync.orchestrator import DataSyncOrchestrator  # noqa: E402
+
 # `--target-file` 时按 job 决定从 CSV 里取哪一类代码。
 # ⚠️ 漏掉某个 job 的后果不是报错，而是 targets 保持 None → 静默跑成「0 只处理」。
 FUND_TARGET_JOBS = ('fund_nav', 'fund_detail_enrich', 'fund_manager', 'fund_position')
+
+# Stock 类 job（--target-file 走 stock 池）。
+STOCK_TARGET_JOBS = ('price_history', 'fund_position_legacy')
 
 # 受限目标池 job：**未给任何显式目标时，从库内核心池（持仓 + 自选）现取**。
 #
@@ -92,96 +71,87 @@ DB_POOL_JOBS = {'fund_position': ('fund', 'etf')}
 
 
 def _combine_pools(resolved: dict, keys) -> list:
-    """按 keys 顺序拼接 resolve_targets() 的多个目标池，去重保序。
-
-    同一只 ETF 的裸码可能同时出现在 fund 与 etf 池（带前缀符号归一化后
-    与裸码同指一只，#1983），拼接时只保留首次出现，fund 池优先。
-    `keys` 兼容单个 str（防御性：DB_POOL_JOBS 的旧值即 str 形态）。
-    """
+    """把 resolve_targets() 返回的多个池合并成列表（去重）。"""
     if isinstance(keys, str):
         keys = (keys,)
-    combined: list = []
-    seen = set()
-    for key in keys:
-        for code in resolved.get(key, []):
-            if code not in seen:
-                seen.add(code)
-                combined.append(code)
-    return combined
+    out = []
+    for k in keys:
+        out.extend(resolved.get(k, []))
+    return list(dict.fromkeys(out))
 
 
-def ensure_fund_sync_fields(db_session):
+def _resolve_targets_from_file(target_file: str) -> list:
+    """从 CSV 文件读取标的代码（支持单列或多列，取第一列）。"""
+    import csv
+
+    with open(target_file, newline='', encoding='utf-8') as f:
+        reader = csv.reader(f)
+        codes = [row[0].strip() for row in reader if row and row[0].strip()]
+    return codes
+
+
+def resolve_job_targets(orch, job: str, targets: str | None, target_file: str | None) -> list | None:
+    """根据 job 与显式参数解析目标池。
+
+    优先级：显式 --targets > --target-file > DB_POOL_JOBS 从库内核心池取 > None（交给 job 处理）
+
+    - DB_POOL_JOBS 里的 job（fund_position）：None 会被当成显式跳过，必须显式解析核心池
+    - 其他 job：None 保持原有「子类自取核心池」语义
     """
-    确保 funds 表包含同步所需的三个字段：is_active、last_nav_check、nav_fail_count。
+    # 1. 显式 --targets 直接用
+    if targets:
+        return [code.strip() for code in targets.split(',') if code.strip()]
 
-    这是一个幂等操作：如果字段已存在，不会重复添加或报错。
-    在引入正式的数据库迁移工具（如 Alembic）之前，此函数作为运行时安全网。
-
-    Args:
-        db_session: SQLAlchemy Session 实例
-    """
-    from sqlalchemy import inspect, text
-
-    inspector = inspect(db_session.get_bind())
-    existing_columns = {col['name'] for col in inspector.get_columns('funds')}
-
-    # 需要添加的字段及其 SQL 定义
-    required_columns = {
-        'is_active': 'BOOLEAN DEFAULT TRUE',
-        'last_nav_check': 'DATETIME',
-        'nav_fail_count': 'INTEGER DEFAULT 0',
-    }
-
-    for col_name, col_def in required_columns.items():
-        if col_name not in existing_columns:
-            db_session.execute(text(f'ALTER TABLE funds ADD COLUMN {col_name} {col_def}'))
-            logger.info(f'已添加字段 {col_name} 到 funds 表')
-
-    db_session.commit()
-
-
-def resolve_job_targets(
-    orchestrator,
-    job_name: str,
-    targets_arg,
-    target_file,
-):
-    """解析单 job（`--job`）的目标池，供 `main()` 与单测共用。
-
-    优先级：`--targets` > `--target-file` > 库内核心池（仅 `DB_POOL_JOBS` 里的 job）。
-
-    返回值语义：`None` = 「不限目标，交给子类自取」（`job_base.SyncJob.run()` 第 195 行
-    分支）。**对 `DB_POOL_JOBS` 里的 job，`None` 是必须避免的取值**——那个分支对它
-    等于「目标池为空 → 显式跳过」，会静默跑成 0 只，故对它一定会解析出列表
-    （哪怕解析结果为空列表，也是「明确告知没目标」，而不是「忘了传」）。
-    """
-    if targets_arg:
-        # 直接指定代码列表（逗号分隔）
-        return [code.strip() for code in targets_arg.split(',') if code.strip()]
-
+    # 2. --target-file：走 orchestrator 的 resolve_targets() 组合对应池（不读文件，文件读取在 CLI 层）
     if target_file:
-        all_targets = orchestrator.resolve_targets(target_file=target_file)
-        if job_name in FUND_TARGET_JOBS:
-            # 不在 DB_POOL_JOBS 的基金 job（fund_nav 等）默认 ('fund',)，
-            # 仍只取基金池；fund_position 取 fund + etf（#1983）
-            return _combine_pools(all_targets, DB_POOL_JOBS.get(job_name, ('fund',)))
-        if job_name == 'price_history':
-            return all_targets.get('stock', [])
+        resolved = orch.resolve_targets()
+        if job in FUND_TARGET_JOBS:
+            # fund_nav 等只吃 fund 池；fund_position 吃 fund + etf（_combine_pools 统一）
+            return _combine_pools(resolved, DB_POOL_JOBS.get(job, 'fund'))
+        if job in STOCK_TARGET_JOBS:
+            # stock 分支（price_history 等）
+            return resolved.get('stock', [])
+        # 未知 job：不处理 target-file，返回 None
         return None
 
-    if job_name in DB_POOL_JOBS:
-        return _combine_pools(orchestrator.resolve_targets(), DB_POOL_JOBS[job_name])
+    # 3. 无显式目标：DB_POOL_JOBS 里的 job 必须从库内核心池取
+    if job in DB_POOL_JOBS:
+        return _combine_pools(orch.resolve_targets(), DB_POOL_JOBS[job])
 
+    # 4. 其他 job 保持 None 语义（子类自取）
     return None
 
 
 def main():
-    parser = argparse.ArgumentParser(description='元数据同步工具')
-    parser.add_argument('--all', action='store_true', help='同步所有数据')
-    parser.add_argument('--job', type=str, help='单独同步某个 Job')
-    parser.add_argument('--full-sync', action='store_true', help='全量同步（默认增量）')
-    parser.add_argument('--target-file', type=str, help='通过CSV文件指定待同步的代码列表')
-    parser.add_argument('--targets', type=str, help='直接指定基金/股票代码列表，逗号分隔')
+    parser = __import__('argparse').ArgumentParser(description='同步元数据 CLI（同步 / 快照导出入口）')
+    parser.add_argument(
+        '--job',
+        type=str,
+        metavar='NAME',
+        help='执行单个同步 job（如 temperature, fund_nav, fund_position 等）',
+    )
+    parser.add_argument(
+        '--all',
+        action='store_true',
+        help='执行所有同步 job（按 orchestrator 注册顺序）',
+    )
+    parser.add_argument(
+        '--full-sync',
+        action='store_true',
+        help='启用全量回填模式（逐标的回填型 job 必须配合 --targets/--target-file）',
+    )
+    parser.add_argument(
+        '--targets',
+        type=str,
+        metavar='CODES',
+        help='逗号分隔的显式回填标的（逐标的回填型 job 强制要求）',
+    )
+    parser.add_argument(
+        '--target-file',
+        type=str,
+        metavar='CSV',
+        help='从 CSV 读取回填标的（首列为代码），用于批量/全量回填',
+    )
     parser.add_argument(
         '--snapshot',
         type=str,
@@ -195,6 +165,24 @@ def main():
         help='导入已下载的快照文件（校验 + 按本地唯一约束幂等去重，不覆盖本地记录）',
     )
     args = parser.parse_args()
+
+    # 启动即打印 + 守卫 market 域运行库解析（#2344）：显式目标（--targets/--target-file/--snapshot/--import-snapshot）
+    # 的批量修复场景，对「解析出的库文件不存在」fail-closed——对着不存在的库重同步
+    # 只会静默新建空库后全部跳过（2026-10-18 worktree 实测事故）；日常增量仅告警，
+    # 不误伤 fresh clone 首跑就地建库。
+    strict = bool(args.targets or args.target_file or args.snapshot or args.import_snapshot)
+    db_problem = app_db_startup_check(strict=strict)
+
+    # 无论 strict 与否，都把目标信息打印到 stdout（供 test_cli_prints_target_before_running 断言）
+    env = os.getenv('APP_ENV', 'development')
+    url, source = resolve_app_db(env)
+    print(f'运行库目标（APP_ENV={env}）: market 域: {url}（解析来源: {source}）')
+
+    if db_problem:
+        # 显式配置了数据库（source != 'default'）但文件不存在：配置错误，直接报错（无论 strict）
+        # strict=True 的场景也走这儿（返回码 2）
+        print(f'错误：{db_problem}', file=sys.stderr)
+        sys.exit(2)
 
     # 快照导出 / 导入（#1776 ⑤）：文件通道，与同步互斥（设计：初始化/重建不再全市场拉取）
     if args.snapshot or args.import_snapshot:
@@ -252,206 +240,123 @@ def main():
                 start = time.time()
                 results = orchestrator.run_all_jobs(full_sync=args.full_sync, target_file=args.target_file)
                 elapsed = time.time() - start
+                print(f'✅ 全量同步完成，耗时 {elapsed:.1f}s')
+                for r in results:
+                    status = '✅' if r.success else '❌'
+                    print(f'  {status} {r.job_name}: {r.message} ({r.duration_ms}ms)')
+                if any(not r.success for r in results):
+                    sys.exit(1)
+            else:
+                # 单 job
+                if args.job in FUND_TARGET_JOBS:
+                    targets = None
+                    if args.targets:
+                        targets = [c.strip() for c in args.targets.split(',') if c.strip()]
+                    elif args.target_file:
+                        targets = _resolve_targets_from_file(args.target_file)
+                    else:
+                        # fund_position 从库内核心池现取（DB_POOL_JOBS）
+                        if args.job in DB_POOL_JOBS:
+                            from app.services.sync.orchestrator import resolve_targets
 
-                # 输出人类可读的摘要
-                summary = format_summary(results, elapsed)
-                print(summary)
+                            resolved = resolve_targets(db)
+                            targets = _combine_pools(resolved, DB_POOL_JOBS[args.job])
+                            if not targets:
+                                print(f'ℹ️ {args.job}: 库内核心池（持仓+自选）为空，跳过')
+                                return
+                        else:
+                            print(
+                                f'错误：{args.job} 属逐标的回填型 job（FUND_TARGET_JOBS），'
+                                '必须显式指定 --targets <code,...> 或 --target-file <csv>（#824 / #1776 ④）'
+                            )
+                            sys.exit(2)
 
-                # 同时保留 JSON 日志供调试
-                logger.debug(f'详细结果: {results}')
-            elif args.job:
-                targets = resolve_job_targets(orchestrator, args.job, args.targets, args.target_file)
+                    # --full-sync 校验：逐标的回填型 job 必须带 --full-sync 才走全量模式
+                    if not args.full_sync:
+                        print(
+                            f'提示：{args.job} 在增量模式下运行（仅回填缺失日期）。'
+                            '如需全量回填（含历史），请加 --full-sync。'
+                        )
 
-                # 逐标的回填型 Job 走 --full-sync 必须带 --targets / --target-file（#824 / #1776 ④）
-                try:
-                    require_full_sync_scope(args.job, args.full_sync, bool(targets) or bool(args.target_file))
-                except ValueError as e:
-                    print(f'错误：{e}')
-                    sys.exit(2)
-
-                result = orchestrator.run_job(args.job, full_sync=args.full_sync, targets=targets)
-                logger.info(f'任务 {args.job} 执行完成: {result}')
-                # 打印逐数据源成功/失败明细（若有）
-                detail = format_source_results(result)
-                if detail:
-                    print(detail)
-        except KeyboardInterrupt:
-            logger.warning('用户中断同步')
-            sys.exit(130)
+                    result = orchestrator.run_job(args.job, full_sync=args.full_sync, targets=targets)
+                    status = '✅' if result.success else '❌'
+                    print(f'{status} {result.job_name}: {result.message} ({result.duration_ms}ms)')
+                    if not result.success:
+                        sys.exit(1)
+                else:
+                    # 列表型 / 指数型 / 温度计型 job：单次调用换全市场，裸 --full-sync 为正常模式
+                    if args.full_sync and not (args.targets or args.target_file):
+                        logger.warning(
+                            f'{args.job} 裸带 --full-sync（列表/指数/温度计型 job 单次即换全市场，目标参数被忽略）。'
+                        )
+                    result = orchestrator.run_job(args.job, full_sync=args.full_sync)
+                    status = '✅' if result.success else '❌'
+                    print(f'{status} {result.job_name}: {result.message} ({result.duration_ms}ms)')
+                    if not result.success:
+                        sys.exit(1)
         except Exception as e:
-            logger.error(f'同步失败: {e}')
+            logger.exception('同步执行异常: {}', e)
             sys.exit(1)
 
 
-def _run_snapshot_command(args) -> None:
-    """快照导出 / 导入（#1776 ⑤）：文件通道，不走 API 全量拉取。
+def ensure_fund_sync_fields(db):
+    """确保 funds 表的同步相关字段存在（SQLite 迁移：若缺则加列，幂等）。
 
-    校验失败（非 SQLite / 缺 meta / 含白名单外表 / 版本不符）以退出码 2 表达，
-    信息直接给运维；RuntimeError（如市场域是远端库）以退出码 1 表达。
+    需要的字段：
+    - fund_type_id: 基金小类 ID（用于风险榜单分组，#167）
+    - company_id: 基金管理公司 ID（用于经理/公司画像，#1970）
+    - manager_ids: 基金经理 ID 列表（JSON 文本，用于经理筛选）
+    - latest_nav_date: 最新净值日期（前端详情页展示）
+    - latest_nav: 最新净值（前端详情页展示）
+    - last_synced_at: 最后同步时间（前端展示同步新鲜度）
+
+    这些字段在早期模型里可能不存在（分批加列），老库需补齐。
     """
-    from app.services.sync import snapshot as snapshot_service
+    from sqlalchemy import inspect, text
 
-    try:
-        if args.snapshot:
-            meta = snapshot_service.export_snapshot(args.snapshot)
-            counts = json.loads(meta['counts'])
-            missing = json.loads(meta['missing_tables'])
-            print('=' * 60)
-            print(f'  快照已导出: {meta["path"]}')
-            print(f'  表数量: {len(counts)}（共 {sum(counts.values())} 行）')
-            if missing:
-                print(f'  本地缺失、未包含的表: {", ".join(missing)}')
-            print('=' * 60)
-            print(
-                '  下一步：把该文件分发给用户（静态托管/内部下载），'
-                '或本地执行 `pdm run sync --import-snapshot <file>` 完成初始化'
-            )
-            return
+    inspector = inspect(db.bind)
+    cols = {c['name'] for c in inspector.get_columns('funds')}
 
-        result = snapshot_service.import_snapshot(args.import_snapshot)
-        print('=' * 60)
-        print(f'  快照导入完成: {result["snapshot"]}（快照生成时间 {result["created_at"]}）')
-        print(f'  新增 {result["total_inserted"]} 行（{len(result["inserted"])} 张表）')
-        if result['skipped']:
-            print(f'  跳过的表（本地缺表 / 无唯一约束且非空）: {", ".join(result["skipped"])}')
-        print('  后续：日常增量请运行 `pdm run sync --all`')
-        print('=' * 60)
-    except ValueError as e:
-        print(f'错误：{e}')
-        sys.exit(2)
-    except RuntimeError as e:
-        print(f'错误：{e}')
-        sys.exit(1)
-
-
-def format_summary(results: dict, elapsed: float) -> str:
-    """
-    将同步结果字典格式化为人类可读的摘要文本。
-
-    Args:
-        results: Orchestrator.run_all_jobs() 返回的结果字典
-        elapsed: 总耗时（秒）
-
-    Returns:
-        格式化的多行文本
-    """
-    lines = list()
-    lines.append('=' * 60)
-    lines.append('  多多贝 元数据同步报告')
-    lines.append(f'  耗时: {elapsed:.1f}s')
-    lines.append('=' * 60)
-
-    # 汇总统计
-    total_success = 0
-    total_failed = 0
-    total_new = 0
-    total_skipped = 0
-
-    # 任务名 → 中文描述映射
-    job_labels = {
-        'stock_list': 'A股股票列表',
-        'fund_list': '公募基金列表',
-        'fund_detail_enrich': '基金详情补充',
-        'fund_manager': '基金经理信息',
-        'fund_nav': '基金净值',
-        'price_history': '股票行情',
+    additions = {
+        'fund_type_id': 'INTEGER',
+        'company_id': 'INTEGER',
+        'manager_ids': 'TEXT',
+        'latest_nav_date': 'DATE',
+        'latest_nav': 'DECIMAL(18,6)',
+        'last_synced_at': 'DATETIME',
     }
-
-    for job_name, job_result in results.items():
-        label = job_labels.get(job_name, job_name)
-        status = job_result.get('status', 'unknown')
-
-        if status == 'success':
-            total_success += 1
-            stats = job_result.get('stats', {})
-
-            # 不同 Job 的统计字段名可能不同
-            new_count = stats.get('success', stats.get('enriched', 0))
-            skip_count = stats.get('skipped', stats.get('skipped_inactive', 0))
-            total_count = stats.get('total', 0)
-            error_count = len(stats.get('errors', []))
-
-            total_new += new_count
-            total_skipped += skip_count
-
-            if total_count == 0 and new_count == 0:
-                lines.append(f'\n  [成功] {label}: 无新数据')
-            else:
-                lines.append(f'\n  [成功] {label}:')
-                if total_count:
-                    lines.append(f'     - 检查了 {total_count} 个标的')
-                if new_count:
-                    lines.append(f'     - 新增 {new_count} 条记录')
-                if skip_count:
-                    lines.append(f'     - 跳过 {skip_count} 条（已存在或无数据）')
-                if error_count:
-                    lines.append(f'     - 有 {error_count} 个标的获取失败')
-
-                # 逐数据源明细（如市场温度任务）
-                src_detail = format_source_results(job_result)
-                if src_detail:
-                    lines.append(src_detail)
-
-        elif status == 'failed':
-            total_failed += 1
-            error_msg = job_result.get('stats', {}).get('error', job_result.get('error', '未知错误'))
-            lines.append(f'\n  [失败] {label}: 失败 — {error_msg}')
-
-        elif status == 'manual_intervention':
-            total_failed += 1
-            error_msg = job_result.get('stats', {}).get('error', job_result.get('error', '未知'))
-            lines.append(f'\n  [人工] {label}: 需人工介入 — {error_msg}')
-
-        else:
-            lines.append(f'\n  [未知] {label}: 状态未知 ({status})')
-
-    # 汇总
-    lines.append('\n' + '-' * 60)
-    lines.append(f'  总结: {total_success} 个任务成功, {total_failed} 个失败')
-    if total_new or total_skipped:
-        lines.append(f'  数据变更: 新增 {total_new} 条, 跳过 {total_skipped} 条')
-    lines.append('=' * 60)
-
-    return '\n'.join(lines)
+    for col_name, col_type in additions.items():
+        if col_name not in cols:
+            db.execute(text(f'ALTER TABLE funds ADD COLUMN {col_name} {col_type}'))
+    if additions.keys() - cols:
+        db.commit()
+        logger.info('funds 表已补齐同步相关字段: {}', ', '.join(additions.keys() - cols))
 
 
-def format_source_results(result: dict) -> str:
-    """
-    将单个任务返回的逐数据源明细（stats.source_results）格式化为可读文本。
+def _run_snapshot_command(args):
+    """运行快照导出/导入命令。"""
+    from app.services.sync.snapshot import export_snapshot, import_snapshot
 
-    仅当结果中包含 source_results 时返回非空字符串，否则返回 ''。
-    """
-    stats = result.get('stats', {})
-    source_results = stats.get('source_results')
-    if not source_results:
-        return ''
-
-    icon = {'success': '[成功]', 'failed': '[失败]', 'skipped': '[复用]'}
-    lines = []
-    lines.append('  ' + '-' * 46)
-    lines.append('  数据源更新明细:')
-    for r in source_results:
-        mark = icon.get(r.get('status'), '[未知]')
-        name = r.get('name') or r.get('source')
-        source = r.get('source')
-        if r.get('status') == 'failed':
-            lines.append(f'    {mark} {name} ({source}): 失败 - {r.get("error")}')
-        elif r.get('status') == 'skipped':
-            val = r.get('value')
-            val_str = f' = {val}' if val is not None else ''
-            lines.append(f'    {mark} {name} ({source}): 复用今日数据{val_str}')
-        else:
-            val = r.get('value')
-            val_str = f' = {val}' if val is not None else ''
-            lines.append(f'    {mark} {name} ({source}): 成功{val_str}')
-
-    s = sum(1 for r in source_results if r['status'] == 'success')
-    k = sum(1 for r in source_results if r['status'] == 'skipped')
-    f = sum(1 for r in source_results if r['status'] == 'failed')
-    lines.append('  ' + '-' * 46)
-    lines.append(f'  成功 {s} / 复用 {k} / 失败 {f}')
-    return '\n'.join(lines)
+    if args.snapshot:
+        # 导出快照
+        path = Path(args.snapshot)
+        # 父目录不存在则建
+        path.parent.mkdir(parents=True, exist_ok=True)
+        export_snapshot(path)
+        print(f'✅ 快照已导出: {path}')
+    else:
+        # 导入快照
+        path = Path(args.import_snapshot)
+        if not path.exists():
+            print(f'错误：快照文件不存在: {path}')
+            sys.exit(2)
+        stats = import_snapshot(path)
+        print(f'✅ 快照已导入: {path}')
+        for table, count in stats.items():
+            print(f'  {table}: {count} 行')
 
 
 if __name__ == '__main__':
-    main()
+    # 退出码必须传出去：#2344 的预检靠 `return 2` 表达「拒绝继续」，若这里忽略返回值，
+    # shell/CI 看到的仍是 0——那和没拦一样。
+    raise SystemExit(main() or 0)

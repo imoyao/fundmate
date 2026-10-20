@@ -371,3 +371,65 @@ test("#1902：业务组件不得手写 pie option，统一走 AssetAllocationDon
     );
   }
 });
+
+/** 按花括号配对提取同步函数体（resetForm 不是 async，async 版找不到它）。 */
+function extractFunctionBody(src, name) {
+  const start = src.search(new RegExp(`function ${name}\\s*\\(`));
+  if (start === -1) return null;
+  const open = src.indexOf("{", start);
+  if (open === -1) return null;
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}") {
+      depth--;
+      if (depth === 0) return src.slice(open, i + 1);
+    }
+  }
+  return null;
+}
+
+/**
+ * resetForm 必须「先重置表单、后记脏基线」——顺序反了会造出**用户从未提交过**的拦截。
+ *
+ * ## 现象（2026-10-17 用户实测）
+ *
+ * 快速记账抽屉点「确认记账」成功后，弹出「未保存的修改／交易表单已填写，确定放弃吗？」；
+ * 点「继续编辑」留下的是一个**已被清空**的表单。
+ *
+ * ## 根因
+ *
+ * `BuyForm` / `SellForm` 的 `resetForm()` 把 `markFormClean()` 写在
+ * `Object.assign(form, defaultForm())` **之前**：快照记下「本轮刚填的值」，
+ * 紧接着表单被重置成默认值 → 基线 ≠ 当前 → `isDirty` 恒为 true。
+ * 提交成功后 `TransactionDrawer.onSubmitSuccess` 走 `visible.value = false`
+ * （v-model setter 那一路），读到脏就弹框。
+ *
+ * ## 为什么判据盯「顺序」而不是「有没有 markFormClean」
+ *
+ * #1884 那条只断言「`resetForm` 里出现过 `markFormClean`」，对本 bug 完全无感，
+ * 于是错了一个月没被拦住。同页 `DividendForm` 顺序本就正确（先重置后记快照），
+ * 所以只有抽屉入口复现——也就是用户说的「有时候」。
+ *
+ * 提取函数体靠花括号配对，不按缩进截取（#1891 踩过的坑：`if` 块会被误闭）。
+ */
+test("resetForm 必须先重置表单再记脏基线（否则提交成功后误弹「未保存的修改」）", () => {
+  for (const f of [
+    "frontend/src/components/QuickEntry/BuyForm.vue",
+    "frontend/src/components/QuickEntry/SellForm.vue",
+    "frontend/src/views/asset/investment/manual/DividendForm.vue"
+  ]) {
+    const t = stripComments(readFileSync(join(process.cwd(), f), "utf8"));
+    const body = extractFunctionBody(t, "resetForm");
+    assert.ok(body, `${f} 应能提取 function resetForm 的函数体`);
+    const resetAt = body.search(/Object\.assign\(\s*form/);
+    const markAt = body.search(/markFormClean\(\)/);
+    assert.ok(resetAt !== -1, `${f} 的 resetForm 应有 Object.assign(form, defaultForm()) 重置动作`);
+    assert.ok(markAt !== -1, `${f} 的 resetForm 应复位脏基线（markFormClean）`);
+    assert.ok(
+      markAt > resetAt,
+      `${f} 的 resetForm 必须「先重置表单、后 markFormClean()」——记在前面会把本轮填写值记成基线，` +
+        `重置后 isDirty 反而为 true，用户提交成功后仍被问「确定放弃吗」`
+    );
+  }
+});

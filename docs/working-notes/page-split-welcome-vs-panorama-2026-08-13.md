@@ -112,14 +112,14 @@
 
 ### 判定依据不是「我觉得重复」，是本文已有的裁决
 
-`panorama/index.vue:63-69` 删 `AssetInsightPanel` 时写的理由是
+`panorama/index.vue:66-72` 删 `AssetInsightPanel` 时写的理由是
 「同一份数据在首屏重复第二遍」——**同一条裁决当时没有应用到 /analysis 上**。
 #2150 做的就是把它补齐。所以本文开头那句
 「先问能不能去掉，再问怎么命名」，在这里同样是判据。
 
 ### 保留的独占项
 
-- **资产净值走势**：welcome 已明确让出（`WelcomeAssetBoard.vue:129-136`
+- **资产净值走势**：welcome 已明确让出（`WelcomeAssetBoard.vue:131-138`
   「净值曲线归复盘页规划」），panorama 用 `getSnapshots()` **只取最新一条做环比/同比、
   不画曲线**。⇒ 全站唯一的净值曲线出口，是这一页存在的理由。
 - 收益概览（XIRR 四数）与货基收益：与 welcome 的 XIRR **同口径同开关**
@@ -145,7 +145,7 @@
 ### 留给后续
 
 - 幽灵重复告警（`GhostDuplicateBanner`）仍挂在本页，属**对账**范畴
-  （后端注释自带定性：`summary_service.py:894-896`）。待对账工作台开出
+  （后端注释自带定性：`summary_service.py:1045-1066`）。待对账工作台开出
   「跨账本重复交易」域后迁走（#2151）。域 D 存在之前留着，是「异常要看得见」的权宜。
 - `routeRankGuard.spec.ts` 里「投资管理可见子级」那条断言，此前停在
   `["贵金属","房产"]` 而实际还有 `同类风险榜`（rank 6、showLink:true），

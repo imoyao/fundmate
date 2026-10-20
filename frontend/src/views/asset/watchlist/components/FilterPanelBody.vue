@@ -103,7 +103,10 @@ import type { useWatchlistTags } from "@/composables/useWatchlistTags";
 import type { WatchlistTag } from "@/api/watchlist";
 import { DEFAULT_TAG_COLOR } from "@/constants/watchlist";
 import { assetTypeLabel } from "@/composables/useEnumLabels";
-import { WATCHLIST_ASSET_TYPE_OPTIONS } from "@/views/asset/watchlist/watchlistAssetTypes";
+import {
+  WATCHLIST_ASSET_TYPE_OPTIONS,
+  narrowToHolding
+} from "@/views/asset/watchlist/watchlistAssetTypes";
 
 /**
  * 筛选弹层主体（#980 P0-b 拆分自 FilterPanelPopover，零行为变更）：
@@ -136,20 +139,32 @@ function updateActivePanel(value: "type" | "tag"): void {
 // 中文标签统一走 useEnumLabels.assetTypeLabel（后端 /enums/asset_type 唯一真相源，禁止手抄映射）。
 const ASSET_TYPE_OPTIONS = WATCHLIST_ASSET_TYPE_OPTIONS;
 
-/** 持仓分组（activeGroup === 'holding'）下可筛选的资产类型：仅股票与基金。
- *  经理 / 组合 / 指数 / ETF / 可转债等在「持仓」语义下不存在（持仓只来自 positions 表，
- *  其 asset_type 实际为 stock/fund 类），禁止选择，从根上杜绝
- *  「持仓分组筛经理却显示股票、表头却变」的 bug（用户反馈，问题 2）。 */
-const HOLDING_ALLOWED_TYPES = ["stock", "fund"] as const;
+/**
+ * 持仓分组下弹层内可筛选的资产类型（收窄动作见下方 visibleTypeOptions）。
+ *
+ * 经理 / 组合等在「持仓」语义下不存在（持仓只来自 positions 表，而 manager /
+ * portfolio 按后端 core/asset_types.py 的定义是「可自选观察的非交易实体，不进
+ * positions」），禁止选择，从根上杜绝「持仓分组筛经理却显示股票、表头却变」的 bug。
+ *
+ * ⚠️ #2329：本文件**不再自带类型清单**。口径统一由 watchlistAssetTypes.ts 的
+ * `narrowToHolding` 提供，与 index.vue 的切组过滤、快捷胶囊栏的选项过滤共用
+ * **同一个被调用的纯函数**（此前三处各写一份：切组过滤 6 项、本弹层 2 项、
+ * 胶囊栏完全不判，互相漂移）。
+ *
+ * 分工：本文件只收窄**弹层内的可选列表**，不改已生效的筛选状态；
+ * 真正的剔除由 index.vue 的 `applyHoldingTypeConstraint` 单点执行。 */
 
-// 当前是否在「持仓」分组：持仓分组只有真实持仓（股票 / 基金类），
-// 经理 / 组合 / 指数等无持仓语义的类型在此视图下不可选。
+// 当前是否在「持仓」分组：分组维度上的唯一判据
 const isHoldingGroup = computed(
   () => props.groups.activeGroup.value === "holding"
 );
-// 弹层内展示的类型选项：持仓分组下收窄为仅股票 / 基金，避免误选无持仓语义的类型。
+// 弹层内展示的类型选项：持仓分组下收窄为仅持仓语义成立的类型，避免误选无持仓语义的类型。
+// #2329：收窄统一走 watchlistAssetTypes.narrowToHolding —— 与 index.vue 的切组过滤、
+// 快捷胶囊栏的选项过滤是**同一个被调用的纯函数**，不是三份各写一份的表达式。
 const visibleTypeOptions = computed<string[]>(() =>
-  isHoldingGroup.value ? [...HOLDING_ALLOWED_TYPES] : [...ASSET_TYPE_OPTIONS]
+  isHoldingGroup.value
+    ? narrowToHolding(ASSET_TYPE_OPTIONS)
+    : [...ASSET_TYPE_OPTIONS]
 );
 
 // 标签过多时面板内搜索（标签会随使用无限增长，见用户反馈）。
@@ -202,7 +217,7 @@ function chipStyle(tag: WatchlistTag) {
   justify-content: space-between;
   width: 100%;
   padding: 10px 12px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   text-align: left;
   cursor: pointer;
@@ -245,7 +260,7 @@ function chipStyle(tag: WatchlistTag) {
   height: 16px;
   padding: 0 4px;
   margin-left: 6px;
-  font-size: 11px;
+  font-size: var(--text-label);
   font-weight: 500;
   line-height: 1;
   color: var(--text-inverse);
@@ -287,7 +302,7 @@ function chipStyle(tag: WatchlistTag) {
   align-items: center;
   height: 28px;
   padding: 0 12px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
   cursor: pointer;
   background-color: var(--bg-card);
@@ -330,7 +345,7 @@ function chipStyle(tag: WatchlistTag) {
 
 .filter-panel__empty {
   margin: 4px 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
@@ -341,7 +356,7 @@ function chipStyle(tag: WatchlistTag) {
 
 .filter-panel__hint {
   margin: 8px 0 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 </style>

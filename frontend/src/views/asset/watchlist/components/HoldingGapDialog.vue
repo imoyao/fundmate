@@ -82,7 +82,7 @@ const emit = defineEmits<{
 <style scoped>
 .gap-dialog__hint {
   margin: 0 0 12px;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-secondary);
 }
@@ -92,14 +92,14 @@ const emit = defineEmits<{
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-primary);
   white-space: nowrap;
 }
 
 .gap-table__code {
   font-family: var(--font-number);
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }

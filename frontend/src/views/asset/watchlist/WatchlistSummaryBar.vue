@@ -42,6 +42,20 @@ const statusText = computed(() => {
   if (status === "idle") return "静态价（未开启实时）";
   return "休市/收盘";
 });
+
+/**
+ * 休市 / 收盘（#2338）：此时 `manualRefresh()` 与轮询 tick 都会被 `canFetch()`
+ * 挡下，点了也不会取数。两个控件继续可点就是「静默无反应」，用户只会理解成
+ * 「数据坏了」——故整组置灰 + 给出为什么，而不是让它看起来能点。
+ *
+ * 只认 `closed`（休市/收盘）：`idle`（用户主动关实时）时整组本来就 v-if 掉不渲染，
+ * `error`（交易日历接口之外的原因取数失败）**不禁用** —— 那种情况下手动刷新正是
+ * 用户自救的手段，禁用等于把故障坐实。
+ */
+const marketClosed = computed(() => props.realtime.status.value === "closed");
+
+/** 置灰控件的原因说明：tooltip（鼠标）+ aria-label（读屏）共用一份文案 */
+const closedHint = "休市 / 收盘：暂停抓取实时估值，下方为最近已确认净值";
 const hasValid = computed(
   () => !!summary.value && (summary.value.totalMarketValue ?? 0) > 0
 );
@@ -74,28 +88,47 @@ const intervalOptions = [
         </span>
         <!-- 刷新档位与手动刷新都只对实时轮询有意义：未开启实时时整体不渲染，
              避免点了没反应（manualRefresh 在 enabled=false 时直接 return） -->
+        <span v-if="marketClosed" class="closed-hint">
+          休市不抓取 · 数值为已确认净值
+        </span>
         <template v-if="realtime.enabled.value">
-          <!-- 刷新档位：SegmentedControl small 档（design.md「Segmented」唯一实现，
-               见 docs/design/components.md）。轨道用 --bg-soft 暖米色衬托 --brand-100
-               （近白）选中底，否则近白选中胶囊在灰轨道上不可见 -->
-          <SegmentedControl
-            :model-value="realtime.refreshInterval.value"
-            :options="intervalOptions"
-            size="small"
-            aria-label="刷新频率"
-            @change="emit('interval-change', $event)"
-          />
-          <el-button
-            text
-            circle
-            :loading="refreshing"
-            aria-label="手动刷新行情"
-            class="refresh-icon-btn"
-            :style="{ color: 'var(--text-secondary)' }"
-            @click="emit('manual-refresh')"
+          <!-- 刷新档位与手动刷新：休市时整组置灰（#2338）。
+               两者 disabled 后不再派发鼠标事件，tooltip 必须落在外层包裹元素上，
+               否则「为什么点不了」对用户完全不可见。 -->
+          <el-tooltip
+            :disabled="!marketClosed"
+            :content="closedHint"
+            placement="bottom"
           >
-            <el-icon v-if="!refreshing"><Refresh /></el-icon>
-          </el-button>
+            <span class="refresh-controls">
+              <SegmentedControl
+                :model-value="realtime.refreshInterval.value"
+                :options="intervalOptions"
+                :disabled="marketClosed"
+                size="small"
+                :aria-label="
+                  marketClosed ? `刷新频率（${closedHint}）` : '刷新频率'
+                "
+                @change="emit('interval-change', $event)"
+              />
+              <el-button
+                text
+                circle
+                :loading="refreshing"
+                :disabled="marketClosed"
+                :aria-label="
+                  marketClosed
+                    ? `手动刷新行情（${closedHint}）`
+                    : '手动刷新行情'
+                "
+                class="refresh-icon-btn"
+                :style="{ color: 'var(--text-secondary)' }"
+                @click="emit('manual-refresh')"
+              >
+                <el-icon v-if="!refreshing"><Refresh /></el-icon>
+              </el-button>
+            </span>
+          </el-tooltip>
         </template>
       </div>
 
@@ -187,14 +220,29 @@ const intervalOptions = [
 }
 
 .status-text {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 400;
   color: var(--text-secondary);
 }
 
 .update-time {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
+}
+
+/* 休市说明（#2338）：与状态文案同级字号，避免「少了一行」被读成数据出错。
+   用 --text-secondary（5.77:1）而非 --text-tertiary —— 后者作正文不足 4.5:1。 */
+.closed-hint {
+  font-size: var(--text-label);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* 刷新控件组：休市时整组置灰，tooltip 落在本包裹层（disabled 控件自身不派发事件） */
+.refresh-controls {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
 }
 
 /* 汇总指标紧凑数据组：label 12px 次级 + value 等宽数字，细分隔线分区 */
@@ -209,12 +257,12 @@ const intervalOptions = [
    顶部右侧这三个数字曾占据很大一块视觉重量，与下方表格争抢注意力；
    降档后仍是「label + 等宽数字」结构，可读性不变，视觉重心回到列表。 */
 .metric-label {
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
 .metric-value {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
@@ -222,7 +270,7 @@ const intervalOptions = [
 
 /* 主指标（总盈亏）：16px/800 视觉锚点，红涨绿跌走 --color-rise/--color-fall */
 .metric-value--pnl {
-  font-size: 16px;
+  font-size: var(--text-body);
   font-weight: 800;
 }
 
@@ -257,7 +305,7 @@ const intervalOptions = [
 }
 
 .pct {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 400;
   opacity: 0.8;
 }

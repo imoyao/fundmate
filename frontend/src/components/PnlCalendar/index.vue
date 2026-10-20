@@ -170,7 +170,7 @@
           />
           <span v-else class="pnl-calendar__summary-none">收益率 —</span>
           <span class="pnl-calendar__summary-note">
-            口径：总盈亏日差分，对存取款免疫
+            口径：当日盈亏＝总盈亏变动，存取款不计入
           </span>
         </div>
       </div>
@@ -510,7 +510,7 @@ defineExpose({ reload: load });
 
 /* 年视图的区间标签（替代区间导航按钮组：年视图区间固定，按不动的按钮是骗人的） */
 .pnl-calendar__range {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
@@ -524,7 +524,7 @@ defineExpose({ reload: load });
   gap: 10px;
   align-items: baseline;
   padding: 8px 10px;
-  font-size: 12px;
+  font-size: var(--text-label);
   background: var(--bg-subtle);
   border-radius: var(--radius-sm);
 }
@@ -541,13 +541,13 @@ defineExpose({ reload: load });
 
 /* 「收益率 —」：不可算（缺区间前一天基准）时的占位，与 0.00% 严格区分 */
 .pnl-calendar__summary-none {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .pnl-calendar__summary-note {
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 

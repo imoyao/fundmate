@@ -73,10 +73,20 @@ jobs:
               - '.github/workflows/ci.yml'
 
   backend:
-    name: 后端测试 + Lint
+    name: 后端测试 + Lint (${{ matrix.shard }})
     needs: changes
     if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
+    # 分片并行 + xdist（激进试跑，源 PR #2266）：2 片 × 每片 -n auto（4 worker）≈ 8 路。
+    # 线上 runner 4C/16G/14G盘：两片各在独立 runner（独立内存/磁盘）+ 每片 4 worker 跑不相交子集；
+    # 磁盘合计≈单跑（#1821 的 TEMP 爆盘是「保留全部×3 会话」所致，已被 retention 治住，非 xdist 之过）。
+    # 本地 OOM/磁盘顾虑 ≠ 线上成立——先激进跑通，有报错再按实际调（真 OOM 就 -n 2 / 加细片）。
+    # 用 matrix 而非新增 job：**job 数不变 ⇒ 不用动下面 gate.needs**（#1559/#1560 两次都是
+    # 合并冲突把 gate.needs 里的 job 弄丢）。fail-fast:false 让另一片跑完再判，别早停。
+    strategy:
+      matrix:
+        shard: [services, rest]
+      fail-fast: false
     # 防 pytest 偶发 hang 卡满 GitHub 默认 6h 兜底：单进程后端测试正常 ~19min，给 30min 余量（#1596 排查 CI 卡死）
     timeout-minutes: 30
     defaults:
@@ -121,6 +131,11 @@ jobs:
           # 用环境变量局部设置，避免 `pdm config` 改写 runner 全局配置
           PDM_VENV_IN_PROJECT: "true"
         run: pdm install -G dev
+
+      # CI 并行（激进试跑，源 PR #2266）：把 pytest-xdist 装进同一 venv，测试用 -n auto 多 worker。
+      # 不写进 pyproject/pdm.lock（免锁重算）：这是 CI 提速实验，稳了再决定是否固化成项目依赖。
+      - name: 安装 pytest-xdist（CI 并行用）
+        run: pdm run python -m pip install -q pytest-xdist
 
       - name: Ruff 检查
         run: pdm run ruff check .
@@ -169,9 +184,14 @@ jobs:
       - name: 守卫:资产分布图统一复用
         run: python ../scripts/guard_no_duplicate_pie.py
 
-      # 单进程（避 OOM），排除需联网的 slow 测试
-      - name: 运行测试
-        run: pdm run python -m pytest -p no:xdist -m "not slow"
+      # 排除需联网的 slow 测试；按 matrix.shard 只跑本片（两片不相交），片内 -n auto 多 worker 并行
+      - name: 运行测试 (${{ matrix.shard }})
+        run: |
+          if [ "${{ matrix.shard }}" = "services" ]; then
+            pdm run python -m pytest -n auto -m "not slow" tests/services
+          else
+            pdm run python -m pytest -n auto -m "not slow" tests --ignore=tests/services
+          fi
 
       # 总资产聚合守卫（源 CNB duoduobei/fundmate#478 / GitHub #2154 → imoyao/fundmate#2179）：`family_totals`
       # 被立为唯一聚合出口之后，账户级的 `get_ledger_distributions` 仍把同一套累加
@@ -293,6 +313,28 @@ jobs:
       - name: 扫描 python 脚本任务是否自带镜像（阻断）
         run: python scripts/guard_cnb_script_task_python.py
 
+      # git 脚本任务必须自带 git 供给（源 CNB #517，2026-10-16 实测）：
+      # #461 补了 `docker.image: python:3.12-slim`，却没人问「这个镜像里有没有 git」——
+      # 官方 slim 镜像**不含 git**，而 `machine_branch` / `check_branch_divergence` 等
+      # 都是 `subprocess.run(['git', …])` 驱动的 ⇒ 报 `FileNotFoundError: 'git'`，
+      # 报错指向脚本内部某行、**不指向容器**（与 #461 同类，只是深了一层）。
+      # 两种失败形态：dev push 是硬红；镜像 job 的「分支分叉自检」因 `exit 0` **报假绿**
+      # ——自检从未真正跑过（#171 / #450 同族）。判据从源码推导「哪些脚本真调 git」，
+      # 不手写名单（手写的会随新脚本失效）。不新增 job，并入本 job。
+      - name: 扫描 git 脚本任务是否供给 git（阻断）
+        run: python scripts/guard_cnb_script_task_git.py
+
+      # 「同一个 git 询问不许问两遍」守卫（源 CNB #573，2026-10-18）：
+      # `machine_branch.py` 的演练路径曾写 `code, _, _ = _git(merge-tree)` 取退出码、
+      # `if code == 1:` 再跑一遍取输出 —— 两次独立进程被当成「同一个答案的两半」。
+      # 第二遍一旦读空，冲突清单就**恒为空**，报告照样打印「✅ 无冲突，两侧内容可合」，
+      # 而它更响亮、更像结论 ⇒ 没人会怀疑「冲突清单为什么总是空的」。
+      # 判据按**结构形状**比对 `_git` 的参数（只认字面量的版本在真实代码上恒绿，
+      # 这是实测踩过的第一版）；并拿 `origin/dev` 上修复前的真实代码当回归锚点。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      - name: 扫描「同一 git 询问问两遍」形态（阻断）
+        run: python scripts/guard_ask_git_once.py
+
       # git-sync 分支范围守卫（源 CNB #167 / #172 / #269，2026-10-13 ~ 10-14）：
       # ① 插件不写 `branch` 时执行 `git push target --all`，会把 CNB 的 `main` 一并推给
       #    GitHub；而 GitHub 是权威源（`main` 只由发版 PR 推进）⇒ 两侧 `main` 各自长出
@@ -308,6 +350,19 @@ jobs:
       # （含 5 个变异回退探针）。
       - name: 扫描 git-sync push 目标分支回潮（阻断）
         run: python scripts/guard_git_sync_push_scope.py
+
+      # 机器分支「单写者」守卫（源 CNB #574，2026-10-19）：
+      # `bridge/github-dev` 上有两个写者 —— GitHub `.github/workflows/dev-reconcile.yml`
+      # 每日 `--force-with-lease` 重建并开 PR + automerge，而 CNB 的「跨仓同步」stage
+      # 每次推 `dev` 都换一个 base 重新合再普通 push。后果是结构性的：
+      # ① 归一化 base 变了 ⇒ 非快进 ⇒ `! [rejected] … (fetch first)`，推 dev 的构建天天红；
+      # ② 侥幸快进成功也会改写 reconcile 铺好的合并结果，而**它开的那张 PR 还开着**
+      #    ⇒ 内容与分支不符（外观一切正常，比红灯危险）。
+      # 处置：写权归 GitHub reconcile，CNB 降级为**只读探针**（默认 `DEFAULT_WRITER=github`）。
+      # 三条判据：不设 `MACHINE_BRANCH_WRITER=cnb` / 默认值不得翻转 / 对侧必须仍在推。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      - name: 扫描机器分支是否被两侧同时写（阻断）
+        run: python scripts/guard_bridge_machine_branch_single_writer.py
 
   # 乱码守卫（mojibake）：防止任何绕过本地 pre-commit 钩子的提交（--no-verify、
   # 或经 gh api / MCP 直推导致本地钩子不执行）把 GBK 乱码合进 PR。
@@ -426,6 +481,22 @@ jobs:
       # 待存量大页面拆分完成后再切 --mode fail 冻结增量（避免误伤既有 PR）。
       - name: 页面规模门禁（行数检查）
         run: node ../scripts/check_vue_size.mjs --threshold 400 --mode warn
+
+      # 详情页表格约定守卫（源 CNB #553）：产品详情页 5 处手写 <table> 曾各写各的
+      # padding / 分隔线 / 表头 / 数字列对齐，收进 `style/_detail-table.scss` 后，本守卫
+      # 负责让「第六处」长不出来。存量另 5 个文件按基线冻结（只减不增）。
+      # 并入本 job 而非新增 job：不新增 job 就不必动 gate.needs。
+      - name: 详情页表格约定守卫
+        run: python ../scripts/guard_detail_tables.py
+
+      # 上面那条守卫的回归网（含 4 个变异探针：摘共享类 / 删 RULE 3 / 短路详情页判定 /
+      # 新增第二份基线，均已实测转红）。本 job 的 defaults 把 cwd 设成 frontend/，
+      # 故 work-directory 显式回到仓库根——否则 `python -m unittest scripts.tests...`
+      # 会找成 `frontend/scripts/`，报的却是「模块不存在」，与真失败容易混淆。
+      - name: 详情页表格守卫回归网
+        if: ${{ always() }}
+        run: python -m unittest scripts.tests.test_detail_tables_guard -v
+        working-directory: ${{ github.workspace }}
 
       - name: 构建
         run: pnpm build
@@ -553,6 +624,44 @@ jobs:
       - name: 扫描跨仓引用是否挂源（阻断）
         run: node scripts/guard_cross_repo_refs.mjs
 
+      # 付费卡违规占用 NOW 档位（源 #1288 实测）：付费里程碑上的卡带了 `Q1-RED`。
+      # 首次上线时违规项**已经存在**且不是 PR 作者能修的（要改的是 owner 的优先级判断），
+      # 故当前为**报告模式**（BLOCKING=false），待 owner 在 #2416 裁定后转阻断。
+      # 判据与转阻断条件见脚本 docstring；回归网 scripts/tests/guard_paid_q1.test.js。
+      - name: 付费卡占用 NOW 档位（报告）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/guard_paid_q1.mjs
+
+      # NOW 容量记账（源 #2410）：Q1-RED open > 5 时给每张打 `NOW-超额`，回落自动撤销。
+      # **刻意只报告不阻断**——超容是看板的债，不是登记者的错；
+      # 判据连 PR 上下文都不接收，就是不给「有 PR 就豁免」留后门。
+      - name: NOW 容量记账（报告）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/guard_now_capacity.mjs
+
+      # PR 四问格式（被 pr-four-questions-guard.yml 调用）。此处在 CI 里**显式跑一遍自测**，
+      # 只为让「它属于哪条通道」在日志里看得见——真正的拦截发生在 PR 事件上。
+      # 判据边界（只校验有无、不判断好坏）见脚本 docstring。
+      - name: PR 四问格式守卫可用性（自检）
+        run: node scripts/guard_pr_four_questions.mjs --body-file .github/ISSUE_TEMPLATE/README.md || true
+
+      # 认领同步（源 2026-10-19 两个 agent 同时改 #2406 的撞车事故）。
+      # 由 issue-claim-sync.yml 在 PR 事件上调用；此处显式跑一遍解析自检，
+      # 保证「PR 正文 → 关联 issue」的解析在 CI 里可见（解析失效会让整套认领静默失灵）。
+      - name: 认领同步解析自检
+        # 样本里**不写反引号**：bash 会把 `...` 当命令替换执行（本轮已在 commit message
+        # 上踩过一次），守卫因此拿到被 shell 吃空的字符串——那又是「静默失灵」。
+        # 样本也不带 GitHub 标记词：自检行本身不该被 guard_cross_repo_refs 判红
+        # （`GitHub #N` 与裸 `#N` 同行即视为「该挂源却裸写」），限定形态由
+        # scripts/tests/claim_in_progress.test.js 覆盖。
+        # ⚠️ 整个值必须用双引号包成 YAML **双引号标量**：plain scalar 里
+        # 「空格 + #」会被 YAML 当成注释起点，把 run 从 `'closes` 处截断
+        # → bash 双引号永不闭合 → exit 2（本 PR 首轮 CI 实测，此前一直
+        # 被上游红灯挡住没跑到这步，故此前从未暴露）。双引号标量内 `#` 是字面量。
+        run: "node -e \"const{parseLinkedIssues}=require('./scripts/claim_in_progress.mjs');const r=parseLinkedIssues('closes #1 关联 #2','imoyao/fundmate');if(JSON.stringify(r)!=='[1,2]'){console.error('解析自检失败:',r);process.exit(1)}console.log('OK:',r)\""
+
       - name: 设置 Python 3.12
         uses: actions/setup-python@v6
         with:
@@ -580,6 +689,80 @@ jobs:
       - name: 检查 .cnb.yml 的顶层事件是否挂在分支之下（阻断）
         run: python scripts/check_cnb_events.py
 
+      # 定时作业可及性（源 CNB #578，2026-10-18）：构建 `cnb-ri6-1k57q4k9b` 每小时红一次，
+      # `! [rejected] dev -> dev (fetch first)` —— 而那条 cron 挂在 `main:` 段里、却推 `dev`。
+      # runner 的检出口径是 `git fetch origin refs/heads/<分支键>` +
+      # `git checkout -f -B "<分支键>" <sha>` ⇒ 作业挂在哪、推哪条必须一致，否则要么静默跳过
+      # （源 CNB #269 的假绿），要么拿一条注定推不上去的 ref 去推（本卡的恒红）。
+      # 与上一条（`check_cnb_events.py`）是一对：那条管「事件挂在分支之下吗」，
+      # 这条管「挂对了之后，作业的目标分支在不在自己的检出里」。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      # 判据边界（不拉网络、不判断两侧是否真的分叉）见脚本 docstring；
+      # 回归网在 scripts/tests/test_cron_job_reachability.py（含 2 个变异探针 + 缺陷形态 fixture）。
+      - name: 检查定时作业的目标分支是否在它自己的检出里（阻断）
+        run: python scripts/guard_cron_job_reachability.py
+
+      # 回流 / 认领两条通道的可及性（源 CNB #552，2026-10-19）：用户原话「分诊侧不用做，
+      # 回流侧需要做。就是说你关卡或者是说留下评论的时候，一定要判有判据」。
+      # 分诊侧已有 `guard_triage_reachable.py`；这条管的是**有副作用的另一半**：
+      #   ① `dev:` 的 cron 与 `$:` 的 `web_trigger` 必须跑**同一套** `scripts/` 脚本
+      #      （`.cnb.yml` 现状是 `$:` 下只有 `web_trigger`、没有 push，建卡/回流/分诊
+      #      全在 18:00 UTC 那条 cron 里；段落一旦挪错，跑的会是默认分支上的旧配置，
+      #      而构建一律报绿）；
+      #   ② `mirror_state_sync` / `claim_detect` 的「数据不完整 ⇒ 非 0 退出」必须还在
+      #      —— 删掉它没有任何测试会红，而那是 #171 假绿的唯一起点；
+      #   ③ `GITHUB_TOKEN` 的第一次赋值必须来自 `GITHUB_PAT`（空串占位会静默盖掉 PAT）。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      # 判据边界（不拉网络、不判结论对不对）见脚本 docstring；
+      # 回归网在 scripts/tests/test_bridge_sync_reachable.py（含真实源码回退探针）。
+      - name: 检查回流 / 认领通道是否可及（阻断）
+        run: python scripts/guard_bridge_sync_reachable.py
+
+      # 定时作业挂错**整整一个分支**（源 CNB #564，2026-10-18）：用户问「直接在 DEV 分支上面
+      # 进行分诊不行吗？为什么非得在 main 分支上面？」——当时整组 cron（建卡 / 状态回流 /
+      # 分诊 / 三节自检）都挂在 `main:` 下，理由只有一句「cron 只能挂具体分支，故这里显式写 main」。
+      # 那句话说的是「必须是个**具体**分支」，从没说「必须是 `main`」；读偏一格的代价是
+      # ① 在 `dev` 上验过的脚本修复要等下一次发版才执行；② 为「让它生效」而逼出以 `main`
+      # 为 base 的提交（CNB #114 / #122 / #124 / #126），把两侧 `main` 岔成互不包含。
+      # 与上一条是一对：那条管「挂对了之后目标分支在不在检出里」，这条管「挂对分支了吗」。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      # 判据边界（不判作业内容、不判 push/PR 事件）见脚本 docstring；
+      # 回归网在 scripts/tests/test_cron_covers_active_branch.py（含回退探针：
+      # 拿修复前的真实 `.cnb.yml` 喂守卫，确认它真的转红）。
+      - name: 检查定时作业是否挂在活跃分支上（阻断）
+        run: python scripts/guard_cron_covers_active_branch.py
+
+      # 「分诊到底会不会跑」（源 CNB #564，2026-10-19）：用户问过两次「做了没有」，
+      # 两次答案都是「没做」——脚本合进 `dev`、单测全绿，而**看板上一张标签都没落**。
+      # 根因不是判据错，是分诊 stage 不在 cron 里（PR #584 搬迁时只搬了建卡），
+      # 而那次唯一的 cron 运行里三个自检还全崩在 slim 镜像缺 git 上、外层 `exit 0` 报绿。
+      # 「脚本在仓库里 + 有测试」都不等于「会跑」——这条把它机械化：活跃分支的 cron 里
+      # 必须真的有 job 调用 `scripts/triage/issue_triage.py`，stage 必须带 name（#167），
+      # 且 GitHub 兜底通道必须有自己的 `schedule`。
+      # 与上面三条是一组：那条管 cron 挂哪个分支、这条管「挂对了之后会不会真跑到它」。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      # 判据边界（不判作业成功与否、不判结论对不对）见脚本 docstring；
+      # 回归网在 scripts/tests/test_triage_reachable.py（12 条，含 3 个回退探针）。
+      - name: 检查分诊作业是否真的会跑（阻断）
+        run: python scripts/guard_triage_reachable.py
+
+      # 定时作业的**检出分支**（源 CNB #586，2026-10-19）：`schedule` 只读默认分支上的
+      # workflow 定义，`actions/checkout` 默认也落在默认分支 —— 而本仓 `main` 只由发版 PR
+      # 推进，实测落后 `dev` **124 个提交**。于是「每夜捕捉回归」捕捉的是很久以前的代码。
+      #
+      # 实证：前端 E2E 连续三夜（10-16 / 10-17 / 10-18）失败，`head_sha` 全是 `1068135f`
+      # （`main` 的 tip），而那几天 `dev` 上已经合了两轮 E2E 修复 —— **每夜都在重跑同一个
+      # 已被修好的失败**。同一形态在 `daily-snapshot.yml`（#1434）记过一次，那次只是手工修好
+      # 一条、没有判据，于是换了个文件又犯。本条把它机械化。
+      #
+      # 与上两条是一组：那条管「cron 挂对分支了吗」，这条管「checkout 检出对分支了吗」。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      # 判据边界（只判定时作业；不猜 `${{ … }}` 的运行时值）见脚本 docstring；
+      # 回归网在 scripts/tests/test_schedule_checkout_ref.py（含回退探针：拿修复前的真实
+      # `e2e.yml` 喂守卫，确认它真的转红）。
+      - name: 检查定时作业是否检出了活跃分支（阻断）
+        run: python scripts/guard_schedule_checkout_ref.py
+
       # 镜像建卡的「扫描不可短路」守卫（源 CNB #450，2026-10-14）：`harvest_existing()`
       # 曾拿状态文件缓存当前置短路（缓存非空就直接返回），于是状态文件没记的镜像卡
       # 在判定时"不存在" ⇒ 每轮 cron/push 都把 ~140 张 GitHub 卡再建一遍，
@@ -602,6 +785,62 @@ jobs:
       # （失败时不必再推断归属）。**不新增 job**，也就不必动 `gate.needs`。
       - name: 跨仓同步通道回归网（阻断）
         run: python -m pytest scripts/tests/test_machine_branch.py -q -p no:cacheprovider
+
+      # PR 兜底通道的回归网（源 CNB #586）：合并成功、直推被分支保护拒绝时，
+      # 合并结果落到一次性分支后由 `branch_protection_pr.py` 幂等地开 PR。
+      # 三条最容易写反的事：同 head 有 open PR 必须复用（否则每轮一张卡）、
+      # 列 PR 失败必须退 2（不得读成「不需要开」）、没 token 要说清「结果已在分支上」。
+      # `unittest discover` 已覆盖本文件，此处显式再跑一遍只为让归属在日志里看得见。
+      - name: PR 兜底通道回归网（阻断）
+        run: python -m pytest scripts/tests/test_branch_protection_pr.py -q -p no:cacheprovider
+
+      # 「同一 git 询问问两遍」守卫的回归网（源 CNB #573）：最重的一条用例拿
+      # `origin/dev` 上**修复前的真实代码**喂守卫，确认它真的转红——不加这条，
+      # 「守卫绿」只能证明「代码里没有它不认识的东西」，证明不了它能认出那个 bug。
+      - name: 「同一 git 询问问两遍」守卫回归网（阻断）
+        run: python -m pytest scripts/tests/test_ask_git_once_guard.py -q -p no:cacheprovider
+
+      # 机器分支单写者守卫的回归网（源 CNB #574）：含 3 个变异探针
+      # （只读闸门被删 / 默认写者翻转 / `.cnb.yml` 设写者），均已实测转红。
+      # `unittest discover` 已覆盖本文件，此处显式再跑一遍，让「它属于哪条通道」在
+      # CI 日志里看得见。**不新增 job**，也就不必动 `gate.needs`。
+      - name: 机器分支单写者回归网（阻断）
+        run: python scripts/tests/test_bridge_single_writer.py
+
+      # 规则登记与生命周期守卫（源：用户问「写进 AGENTS.md 的规则，别的 Agent 不遵守怎么办」）。
+      #
+      # WHY：本仓有 30+ 个守门脚本，但**从没有人问过「AGENTS.md 里那些『强制 / 禁止』
+      # 到底有几条真的有人在执行」**。实测普查（2026-10-16）：91 条硬约束条目里只有 3 条
+      # 挂了判据，其余 88 条只靠「读到的人愿意遵守」；更贵的一类是**写了守卫却没接进会
+      # 拦住合并的地方**——比没有守卫更像已治理。
+      # 本守卫把「登记（rule / runner / tests / 边界）+ 生命周期（挂的钩子真的会跑）
+      # + 纯文字预算（只减不增）」机械化。判据边界见脚本 docstring；
+      # 回归网在 scripts/tests/test_rule_registry_guard.py（含 4 个变异探针）。
+      # 不新增 job：并入本 job，也就不必动 gate.needs（#1559/#1560 两次事故都是合并冲突弄丢 needs）。
+      - name: 守卫:规则登记与生命周期（阻断）
+        run: python scripts/guard_rule_registry.py
+
+      # Issue 分诊的派活闸门（源 CNB #564，2026-10-18）：`issue_triage.py` 算出的
+      # `next=dispatch_npc` 是「可以交给 AI 自动推进」的唯一凭据。判据一旦松掉，
+      # AI 就会去动需要人拍板的卡 / 大车汇总卡——那比少做十张卡贵得多。
+      # 本步骤跑的是 `scripts/triage/issue_triage.py` 的回归网（纯离线、不打网络），
+      # 并入本 job，不新增 job 也就不必动 gate.needs。
+      - name: Issue 分诊闸门回归网（阻断） scripts/triage/issue_triage.py
+        run: python -m unittest scripts.tests.test_issue_triage -v
+
+      # 每日调度开关与 `.env.example` 一致（源 #1186，2026-10-19）：`daily_scheduler._JOB_TEMPLATES`
+      # 与 `backend/.env.example` 是两张**互不引用**的清单，忘了同步不会报错。实证：
+      # 清单已有 15 个 job、示例只登记了 8 个，漏掉的 7 个里包含 **`price_history`
+      # （场内日线 OHLC）**——正是 #1186 点名要的那一项：本机**天天在跑**，
+      # 而用户既调不了它的开关、也看不出它被调度了。
+      # ⚠️ 失败态是重点（AGENTS.md 三之二）：解析不到 `_JOB_TEMPLATES` / 常量表 /
+      # `.env.example` 变量时**必须报红**，不得退化成「没有可检查的项 ⇒ 绿」。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      # 判据边界（只做「变量名出现没出现」）见脚本 docstring；
+      # 回归网在 scripts/tests/test_scheduler_env_example_guard.py
+      # （12 条，含失败态 + 真实文件删行探针 + 修复前 baseline 回退探针）。
+      - name: 检查每日调度开关是否都登记在 .env.example（阻断）
+        run: python scripts/guard_scheduler_env_example.py
 
   gate:
     name: 质量门禁汇总

@@ -192,17 +192,21 @@ test(".cnb.yml 不得有流水线级 imports 引用密钥文件（#148 ① 回�
 
 test("三条 git-sync 作业都用插件任务级 imports 挂凭据（默认 settingsFrom 是错的）", () => {
   // 判据是「按作业数」而不是「文件里有没有出现过」——只改一条等于没改。
-  // 3 条 = push（推 dev）+ 一条 crontab（每小时的兜底推 dev）+ `"**/!(main|dev)"` 段
-  // （推当前功能分支，源 CNB #167）。
-  // ⚠️ 2026-10-14（源 CNB #450）：第 4 条（pull，拉 GitHub dev）已删除 ——  // cross-repo-ref-allow
-  // 插件的 pull = `git pull --rebase`，而 CNB dev 比 GitHub dev 多 83 笔独有提交、
-  // 逐笔 rebase 79 笔冲突（同对分支用 merge 则零冲突）⇒ 它必然红且一字节都拉不动。
+  // 1 条 = `"**/!(main|dev)"` 段（推当前功能分支，源 CNB #167）。
+  //
+  // 另外三条都**已删除**，各有各的必然失败形态（保留溯源，别再贴回来）：
+  //   - pull（拉 GitHub dev，2026-10-14 源 CNB #450）：插件 pull = `git pull --rebase`，  // cross-repo-ref-allow
+  //     CNB dev 比 GitHub dev 多 83 笔独有提交 ⇒ 逐笔 rebase 79 笔冲突，一字节拉不动；
+  //   - push 直推 dev（2026-10-19 源 CNB #577）：裸 ref + fast-forward only ⇒ GitHub 多一笔就永久被拒；  // cross-repo-ref-allow
+  //   - 每小时的兜底 cron 推 dev（同上，同一条命令，同一面墙）。
+  // 直推 dev 的位置改由 `dev:` 段里的 `machine_branch.py --merge-sync` 脚本任务承担。
+  //
   // 作业增减时**本条判据要一起改**（就是这么设计的：按数不按名）。
   const stages = CNB_YML.split("image: tencentcom/git-sync").slice(1);
   assert.equal(
     stages.length,
-    3,
-    `期望 3 条 git-sync 作业（push + 兜底 crontab + 功能分支段），实际 ${stages.length} 条——作业增减时本判据要一起改。`
+    1,
+    `期望 1 条 git-sync 作业（仅功能分支段），实际 ${stages.length} 条——作业增减时本判据要一起改。`
   );
   stages.forEach((chunk, i) => {
     const head = chunk.split("settings:")[0];
@@ -533,4 +537,92 @@ test("`claim-sync-env.yml` 模板必须**不含** allow_images（本仓约定的
   );
   assert.match(tpl, /^allow_slugs\s*:/m, "claim-sync-env.yml 模板缺少 allow_slugs。");
   assert.match(tpl, /^GITHUB_PAT\s*:/m, "claim-sync-env.yml 模板缺少 GITHUB_PAT。");
+});
+
+// ---------------------------------------------------------------------------
+// #598（2026-10-19）：`${CNB_BRANCH}` 的前提是 vars.yml 的 `allow_branches` 放开全部分支
+// ---------------------------------------------------------------------------
+//
+// 现场（构建 `cnb-6kb-1k59g1tc6`，分支 `fix/552-bridge-sync-reachable`）：
+//
+//     Initializing Git LFS...
+//      ! [remote rejected]   fix/552-bridge-sync-reachable -> … (failed)
+//
+// 「Set up authentication」那一段整体消失了 —— 凭据根本没被加载。根因不在 `.cnb.yml`
+// （插件任务级 imports 的形态是对的），而在**密钥文件的 `allow_branches` 只写 main/dev**：
+// 平台按 `CNB_BRANCH` 逐条匹配白名单 ⇒ `fix/*` / `feat/*` 一律被拒。
+//
+// 这条判据判的是**模板**（线上那份读不到：Secret 仓 403）——模板是「照着配一次」的唯一依据，
+// 它写着收紧白名单，下一个配密钥仓库的人就会照抄，功能分支同步永久静默失败。
+
+const BRANCH_TEMPLATE = "docs/ops/git-sync-secret-vars.example.yml";
+
+/** 带 `${CNB_BRANCH}` 的功能分支段（本仓真实形态的骨架）。 */
+function dynamicBranchCnb() {
+  return [
+    '"**/!(main|dev)":',
+    "  push:",
+    "    - name: 同步当前功能分支到 GitHub",
+    "      stages:",
+    "        - name: 同步当前功能分支到 GitHub",
+    "          image: tencentcom/git-sync",
+    "          imports:",
+    `            - https://cnb.cool/duoduobei/${SECRET_URL}/-/blob/main/vars.yml`,
+    "          settings:",
+    "            target_url: https://github.com/imoyao/fundmate.git",
+    "            username: ${GIT_USERNAME}",
+    "            password: ${GITHUB_PAT}",
+    "            branch: ${CNB_BRANCH}",
+    "",
+  ].join("\n");
+}
+
+test("模板的 allow_branches 必须放开全部分支（功能分支用 ${CNB_BRANCH} 推，源 CNB #598）", () => {
+  // ① 结构断言：模板里 `allow_branches` 必须是 `*`。收窄成 [main, dev] = 功能分支静默失败。
+  const branchBlock = TEMPLATE.split(/^allow_branches\s*:\s*$/m)[1] || "";
+  assert.match(
+    branchBlock.split(/^\S/m)[0],
+    /^\s*-\s*["']?\*["']?\s*$/m,
+    `模板 ${BRANCH_TEMPLATE} 的 allow_branches 没有 \`*\`：平台按 CNB_BRANCH 逐条匹配，` +
+      "fix/* / feat/* 会读不到密钥，而报错只有一句 `! [remote rejected] … (failed)`（#598）。"
+  );
+
+  // ② 行为断言：把模板临时收紧，守卫必须转红（判据真的在跑）。
+  const tplPath = join(ROOT, BRANCH_TEMPLATE);
+  const original = readFileSync(tplPath, "utf8");
+  try {
+    writeFileSync(tplPath, original.replace(/^\s*-\s*["']?\*["']?\s*$/m, "  - main\n  - dev"), "utf8");
+    const r = runGuardOnCnb(dynamicBranchCnb());
+    assert.equal(
+      r.status,
+      1,
+      "把 allow_branches 收紧成 [main, dev] 后守卫仍报绿 —— 判据 4 没在跑（#598）。" +
+        r.stdout +
+        r.stderr
+    );
+    assert.match(r.stdout, /allow_branches/, "报错文案没指向 allow_branches，读者会被引去查凭据。");
+  } finally {
+    writeFileSync(tplPath, original, "utf8");
+  }
+
+  // ③ 反向：收紧白名单但**没有** ${CNB_BRANCH} 时不报（那时收紧是对的，不许误报）。
+  try {
+    writeFileSync(tplPath, original.replace(/^\s*-\s*["']?\*["']?\s*$/m, "  - main\n  - dev"), "utf8");
+    const r = runGuardOnCnb([
+      "dev:",
+      "  push:",
+      "    - name: 同步 dev",
+      "      stages:",
+      "        - name: 同步 dev",
+      "          image: tencentcom/git-sync",
+      "          imports:",
+      `            - https://cnb.cool/duoduobei/${SECRET_URL}/-/blob/main/vars.yml`,
+      "          settings:",
+      "            branch: dev",
+      "",
+    ].join("\n"));
+    assert.equal(r.status, 0, `判据 4 在无 \${CNB_BRANCH} 时误报了：${r.stdout}${r.stderr}`);
+  } finally {
+    writeFileSync(tplPath, original, "utf8");
+  }
 });

@@ -143,9 +143,9 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
   <CardBlock class="stock-section">
     <SectionHeader :title="sectionTitle" />
 
-    <p v-if="loading" class="stock-section__hint">{{ loadingHint }}</p>
+    <p v-if="loading" class="section-footnote">{{ loadingHint }}</p>
 
-    <p v-else-if="failed || !profile" class="stock-section__hint">
+    <p v-else-if="failed || !profile" class="section-footnote">
       {{ emptyHint }}
     </p>
 
@@ -154,17 +154,17 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
       <template v-if="hasQuote">
         <dl class="stock-section__quote">
           <div class="stock-section__quote-item">
-            <dt class="stock-section__label">最新收盘</dt>
+            <dt class="facts-grid__label">最新收盘</dt>
             <dd
-              class="stock-section__value stock-section__value--strong"
+              class="facts-grid__value facts-grid__value--strong"
               :class="trendClass"
             >
               {{ formatPrice(profile.close) }}
             </dd>
           </div>
           <div class="stock-section__quote-item">
-            <dt class="stock-section__label">当日涨跌</dt>
-            <dd class="stock-section__value">
+            <dt class="facts-grid__label">当日涨跌</dt>
+            <dd class="facts-grid__value">
               <template v-if="profile.day_change_pct != null">
                 <RiseFallText :value="profile.day_change_pct" size="sm" />
                 <span class="stock-section__delta">{{
@@ -175,8 +175,8 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
             </dd>
           </div>
           <div class="stock-section__quote-item">
-            <dt class="stock-section__label">区间涨跌</dt>
-            <dd class="stock-section__value">
+            <dt class="facts-grid__label">区间涨跌</dt>
+            <dd class="facts-grid__value">
               <RiseFallText
                 v-if="profile.change_pct != null"
                 :value="profile.change_pct"
@@ -186,64 +186,64 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
             </dd>
           </div>
           <div class="stock-section__quote-item">
-            <dt class="stock-section__label">行情日期</dt>
-            <dd class="stock-section__value">
+            <dt class="facts-grid__label">行情日期</dt>
+            <dd class="facts-grid__value">
               {{ profile.quote_date || DASH }}
             </dd>
           </div>
         </dl>
 
-        <dl class="stock-section__facts">
-          <div class="stock-section__fact">
-            <dt class="stock-section__label">区间最高</dt>
-            <dd class="stock-section__value">
+        <dl class="facts-grid">
+          <div class="facts-grid__cell">
+            <dt class="facts-grid__label">区间最高</dt>
+            <dd class="facts-grid__value">
               {{ formatPrice(profile.high) }}
             </dd>
           </div>
-          <div class="stock-section__fact">
-            <dt class="stock-section__label">区间最低</dt>
-            <dd class="stock-section__value">{{ formatPrice(profile.low) }}</dd>
+          <div class="facts-grid__cell">
+            <dt class="facts-grid__label">区间最低</dt>
+            <dd class="facts-grid__value">{{ formatPrice(profile.low) }}</dd>
           </div>
-          <div class="stock-section__fact">
-            <dt class="stock-section__label">区间窗口</dt>
-            <dd class="stock-section__value">
+          <div class="facts-grid__cell">
+            <dt class="facts-grid__label">区间窗口</dt>
+            <dd class="facts-grid__value">
               近 {{ profile.trading_days }} 个交易日
             </dd>
           </div>
         </dl>
       </template>
 
-      <p v-else class="stock-section__hint">暂无行情数据，区间统计不可用</p>
+      <p v-else class="section-footnote">暂无行情数据，区间统计不可用</p>
 
       <!-- 基本资料：与行情独立，行情缺失也该看得到 -->
-      <dl class="stock-section__facts">
-        <div class="stock-section__fact">
-          <dt class="stock-section__label">品类</dt>
-          <dd class="stock-section__value">
+      <dl class="facts-grid">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">品类</dt>
+          <dd class="facts-grid__value">
             {{ assetTypeLabel(profile.asset_type) || DASH }}
           </dd>
         </div>
-        <div class="stock-section__fact">
-          <dt class="stock-section__label">市场</dt>
-          <dd class="stock-section__value">
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">市场</dt>
+          <dd class="facts-grid__value">
             {{ marketLabel(profile.market) || DASH }}
           </dd>
         </div>
-        <div class="stock-section__fact">
-          <dt class="stock-section__label">币种</dt>
-          <dd class="stock-section__value">{{ profile.currency || DASH }}</dd>
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">币种</dt>
+          <dd class="facts-grid__value">{{ profile.currency || DASH }}</dd>
         </div>
-        <div v-if="!isEtf" class="stock-section__fact">
-          <dt class="stock-section__label">行业</dt>
-          <dd class="stock-section__value">{{ profile.sector || DASH }}</dd>
+        <div v-if="!isEtf" class="facts-grid__cell">
+          <dt class="facts-grid__label">行业</dt>
+          <dd class="facts-grid__value">{{ profile.sector || DASH }}</dd>
         </div>
       </dl>
 
       <!-- 来源给站点名（用户看得懂），不再写 price_history 这类表名（#1969） -->
-      <p v-if="profile.source" class="stock-section__footnote">
+      <p v-if="profile.source" class="section-footnote">
         数据来源：{{ profile.source }}（{{ profile.basis }}）
       </p>
-      <p v-if="shortHistory" class="stock-section__footnote">
+      <p v-if="shortHistory" class="section-footnote">
         历史仅 {{ profile.trading_days }} 个交易日（不足
         {{ profile.window_days }} 日窗口），按实际可用数据统计
       </p>
@@ -271,23 +271,6 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
   gap: var(--space-1);
 }
 
-.stock-section__label {
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
-}
-
-.stock-section__value {
-  margin: 0;
-  font-size: 14px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
-.stock-section__value--strong {
-  font-size: 18px;
-  font-weight: 600;
-}
-
 /* 现价随当日涨跌着色（trendClass）。
    用**文字级** `--color-rise-ink / --color-fall-ink`（AA 对比度）而非图形级
    `--color-rise / --color-fall` —— 与 ProductAdvisorSection / ProductManagerSection
@@ -303,32 +286,7 @@ watch(() => [props.symbol, props.market], load, { immediate: true });
 /* 涨跌额跟在涨跌幅后面（+1.23）：次要信息，字号与色都退一档 */
 .stock-section__delta {
   margin-left: var(--space-1);
-  font-size: 12px;
-  color: var(--text-tertiary-ink);
-}
-
-.stock-section__facts {
-  display: grid;
-
-  /* auto-fit + 真实最小列宽（#1969 P0 截图修复）：
-     · `minmax(0, 1fr)` 让轨道可收缩到 0 → 列宽塌成几像素，标签逐字竖排、数值被截断；
-     · `auto-fill` 不折叠空轨道，项少时右侧留大片空白；`auto-fit` 才会把剩余列拉伸填满。 */
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: var(--space-3) var(--space-6);
-  margin: 0;
-}
-
-.stock-section__fact {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  min-width: 0;
-}
-
-.stock-section__hint,
-.stock-section__footnote {
-  margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 </style>

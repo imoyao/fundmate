@@ -50,23 +50,19 @@
       <!-- 交易日期 -->
       <el-form-item label="交易日期" prop="trade_date">
         <div class="flex items-center gap-3 w-full">
-          <el-date-picker
-            v-model="form.trade_date"
-            type="date"
-            :class="showIsAfter15 ? 'flex-1' : 'w-full'"
-            style="width: 100%"
-            value-format="YYYY-MM-DD"
-            :clearable="false"
-            :disabled-date="disabledDate"
-          />
-          <el-radio-group
-            v-if="showIsAfter15"
-            v-model="form.isAfter15"
-            size="small"
-          >
-            <el-radio-button :value="false">15:00前</el-radio-button>
-            <el-radio-button :value="true">15:00后</el-radio-button>
-          </el-radio-group>
+          <!-- 日期框外层自带弹性：DatePicker 是 inheritAttrs:false，写它身上的
+               `:class` 落不到 DOM（曾用 `showIsAfter15 ? 'flex-1' : 'w-full'`）。 -->
+          <div class="min-w-0 flex-1">
+            <el-date-picker
+              v-model="form.trade_date"
+              type="date"
+              style="width: 100%"
+              value-format="YYYY-MM-DD"
+              :clearable="false"
+              :disabled-date="disabledDate"
+            />
+          </div>
+          <TradeSlotSwitch v-if="showIsAfter15" v-model="form.isAfter15" />
         </div>
         <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
           <span
@@ -174,6 +170,7 @@ import type { FormInstance, FormRules } from "element-plus";
 import { getPositionsGroupedByAccount } from "@/api/positions";
 import { usePositionSubmit } from "@/composables/usePositionSubmit";
 import { useFundTradeDate } from "@/composables/useFundTradeDate";
+import TradeSlotSwitch from "@/components/TradeSlotSwitch/index.vue";
 import type { Position } from "@/api/types";
 import { disabledTradeDate } from "@/utils/date";
 
@@ -213,9 +210,11 @@ const {
 const currentLedger = computed(
   () => props.ledgers.find(l => l.id === props.defaultLedgerId) ?? null
 );
+// #2372：持仓分组键是 ledger_id（后端 group_by=account 按真外键分组）——
+// 账户名可编辑且真库有重名，按名回查会落空或串到别的账户
 const accountPositions = computed(() => {
   if (!currentLedger.value) return [];
-  return positionsByAccount.value[currentLedger.value.name] || [];
+  return positionsByAccount.value[String(currentLedger.value.id)] || [];
 });
 const showIsAfter15 = computed(() => selectedPosition.value?.type === "fund");
 const computedShares = computed(() => {

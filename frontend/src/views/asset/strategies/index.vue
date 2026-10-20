@@ -184,6 +184,8 @@
                 :confirmed="confirmedPnl(row as EnrichedHolding)"
                 :estimated="estimatedPnl(row as EnrichedHolding)"
                 :hint="estimateHint(row as EnrichedHolding)"
+                :price-date="(row as EnrichedHolding).price_date"
+                :settled-today="(row as EnrichedHolding).settled_today"
               />
             </template>
           </el-table-column>
@@ -381,6 +383,13 @@ interface EnrichedHolding {
   pnl: number;
   pnlRate: number;
   _tags: string[];
+  /** 价格时点（#2140 / #2210）：行数据来自 getStrategyOverview，后端行级 price_date */
+  price_date?: string | null;
+  /**
+   * 当日确认口径是否已定型（#2210）：true = 估值副行应隐藏；null / 缺省 = 不隐藏。
+   * **状态 = 后端字段契约**，前端禁止按日期自行推断。
+   */
+  settled_today?: boolean | null;
   [key: string]: any;
 }
 
@@ -655,7 +664,7 @@ onMounted(() => {
 }
 
 .product-name {
-  font-size: 14px;
+  font-size: var(--text-small);
   font-weight: 500;
   color: var(--text-primary);
 }
@@ -667,14 +676,14 @@ onMounted(() => {
 }
 
 .product-code {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
 .type-tag-inline {
   height: 20px;
   padding: 0 6px;
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 20px;
   color: var(--text-inverse);
   background-color: var(--bg-page);

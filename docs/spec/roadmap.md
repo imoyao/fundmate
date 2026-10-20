@@ -4,233 +4,121 @@ title: 项目路线图与进度表（roadmap）
 
 # 项目路线图与进度表（roadmap）
 
-> ⚠️ **易腐烂内容**：本文件随项目进展频繁变化。最后核实日期：**2026-08-17**。每次更新进度或新增 / 完成 P 级任务时，必须同步更新本文件顶部"最后核实日期"。
+> 📌 **本文件是导航层，不是进度表。**
 >
-> 📌 **issue 反链**：GitHub open issue 与本文件 / 各设计文档的对应关系见本文末尾 **§3 GitHub issue ↔ 文档反链索引**。
+> **进度以 GitHub 为唯一事实源**（里程碑 + issue）。本文件只回答三个问题：
+> ① 优先级怎么定义；② 某个里程碑/编号对应哪个 issue；③ 当前 NOW/NEXT/LATER 在哪张卡上。
+>
+> 最后核实：**2026-10-19**（治理修订 R1）。历史逐卡进度表已移除，完整盘点见
+> `docs/working-notes/roadmap-realign-2026-10-19.md`。
 
-## 1. 项目四象限路线图 & 完整进度表（原 SPEC 第 9 章）
+## 1. 四象限优先级定义（永久标准）
 
-### 1.1 四象限优先级定义（永久标准）
-
-- **第一象限｜重要且紧急**：阻塞核心流程、产生数据错误、影响上线的任务，48 小时内闭环
+- **第一象限｜重要且紧急**：阻塞核心流程、产生数据错误、影响当前阶段目标的任务，48 小时内闭环
 - **第二象限｜重要不紧急**：决定产品核心价值、长期能力的功能，固定排期迭代
 - **第三象限｜不重要但紧急**：临时环境、依赖、报错问题，极简快速修复
 - **第四象限｜不重要不紧急**：UI 美化、细节打磨、远期创意，统一延后归档
 
-### 1.2 完整 P1 任务进度总表
+**象限标签的维护节奏**（防标签漂移）：
 
-| 编号 | 任务名称 | 状态 | 重要度 | 紧急度 | 象限 | 说明 |
-|------|---------|------|--------|--------|------|------|
-| P1-03 | 全面盘点导入页面 | **⚠️ 已完成（与 #783 验收清单存在冲突，待核）** | ⭐⭐⭐⭐⭐ | 🔴 | Ⅰ | UI 重构、批量修正、配置目标分组全部完成，**已落地按需加载与轻量汇总 API，全局数据同步使用组合式函数实现**。**2026-08-08 triage 发现文档↔issue 冲突**：issue [#783](https://github.com/imoyao/fundmate/issues/783)（导入工作台第 3 步验收清单 v1.0）中 P0 核心交互（分类批量修正面板、行内键盘编辑 Enter/Esc/Tab、草稿保存与恢复、配置目标分组面板、底部双按钮、边界场景处理、§十二 现有代码差异改造）整节未勾选。本行「已完成」与该清单不一致，**以 #783 逐条验收为准**，核对后回填本行状态 |
-| P1-04 | 股票/基金元数据填充 | **✅ 已完成** | ⭐⭐⭐⭐⭐ | 🔴 | Ⅰ | 搜索接口可用 |
-| P1-02 | 简记弹窗强化 | **✅ 已完成** | ⭐⭐⭐⭐⭐ | 🔴 | Ⅰ | 架构拆分完成：BuyForm/SellForm + 壳层，逻辑解耦 |
-| — | 债券利息+扣税关联 | **✅ 已完成** | ⭐⭐⭐⭐⭐ | 🔴 | Ⅰ | link_group_id + 树形展示 |
-| — | 现金管理产品识别 | **✅ 已完成** | ⭐⭐⭐⭐ | 🔴 | Ⅰ | money_fund / reverse_repo |
-| — | 导入事务一致性修复 | **✅ 已完成** | ⭐⭐⭐⭐⭐ | 🔴 | Ⅰ | 全部成功或全部回滚 |
-| — | 后端标签统一 | **✅ 已完成** | ⭐⭐⭐⭐ | 🟡 | Ⅰ | type_label / allocation_label 后端化 |
-| — | Ledger 模型扩展 | **✅ 已完成** | ⭐⭐⭐⭐ | 🟡 | Ⅱ | ledger_type + fee_config JSON + linked_cash_ledger_id |
-| — | 交易日校验与基金确认日 API | **✅ 已完成** | ⭐⭐⭐⭐ | 🟡 | Ⅱ | trading-days/{date} / fund-confirm-dates/ |
-| P1-07 | price_history 历史行情填充 | **✅ 已完成** | ⭐⭐⭐⭐⭐ | 🟡 | Ⅱ | 已实现全量/增量同步、分批写入、断点续传 |
-| — | 元数据同步系统重构 | **✅ 已完成** | ⭐⭐⭐⭐⭐ | 🔴 | Ⅰ | 基类统一流程、分层更新、费率规则表、静默回填、人类可读摘要、货币基金独立表 |
-| **P1-09** | **基金交割单导入模板 + 解析器** | **✅ 已完成** | ⭐⭐⭐⭐⭐ | 🔴 | Ⅰ | 全部解析器稳定，余额宝现金处理、基金代码匹配、净值自动填充、PDF 解析器、持仓不足转孤儿交易均已实现 |
-| **P1-10** | **组合年化收益率计算（XIRR）** | **✅ 已完成** | ⭐⭐⭐⭐⭐ | 🟡 | Ⅱ | XIRR 计算引擎上线，组合维度支持；`asset_type` 过滤；前端仪表盘卡片展示 |
-| **P1-12** | **投资组合 (Portfolio) CRUD** | **✅ 已完成** | ⭐⭐⭐⭐ | 🟢 | Ⅱ | 后端与策略视图完成；账户管理重构完成；金融精度改造完成；剩余接口性能优化已完成 |
-| P1-20 | 定时任务体系 (APScheduler) | ⏸️ 未开始 | ⭐⭐⭐ | 🟢 | Ⅱ | 统一管理净值、行情、异动，以及孤儿交易自动回填 |
-| P1-08 | 特别关注页面功能增强 | 基础完成 | ⭐⭐⭐ | 🟢 | Ⅳ | 暂缓优化。关联 issue：[#807](https://github.com/imoyao/fundmate/issues/807)（自选页实时估值设计文档 v2.0，**实时估值核心(成功标准 1–7)已交付并关闭**，成功标准 8–11 转 [#821](https://github.com/imoyao/fundmate/issues/821)）、[#821](https://github.com/imoyao/fundmate/issues/821)（探市页即免登录沙盒，**已上线但有 2 个 P0 缺陷**）、[#273](https://github.com/imoyao/fundmate/issues/273)（自选拖拽排序，未实现） |
-| P1-06 | 全局 UI 细节微调 | **✅ 已完成** | ⭐⭐ | 🟢 | Ⅳ | 永久停止投入 |
-| P1-13 | 移动端响应式 / PWA | 未开始 | ⭐⭐ | 🟢 | Ⅳ | 长期规划 |
-| **P1-21** | **乖离率（BIAS）模块** | **✅ 已放开（SKIP_BIAS=False，待实网验证）** | ⭐⭐⭐⭐ | 🟡 | Ⅱ | 计算/存储/API 已实现（31 行业+6 宽基，存 `market_multi_items`）。2026-08-02 起曾临时跳过（`SKIP_BIAS=True`）；**2026-08-05 起数据源改为直连（腾讯行情/东财 push2his，见 `adapters/direct_feeds.py`），已放开 `SKIP_BIAS=False`**。直连+兜底失败时单品种标 `stale` 或整批为空，不阻断主流程。待实网同步验证 `market_multi_items` 正常落库。详见 §2.1 与 `docs/working-notes/eastmoney-antiscrape-2026-08-05.md`。 |
-| **P1-22** | **登录认证（后端 JWT 鉴权 + 前端登录收敛）** | **✅ 已完成（2026-08-07）** | ⭐⭐⭐⭐ | 🟡 | Ⅱ | 后端：Supabase JWT 本地验签中间件（`core/auth.py`）+ users/families 域 + `GET /api/auth/me` + 探市免登录白名单 + **首次登录 JIT 自动建本地用户**（默认家庭 1 / member）；前端：清 mock 死路径、守卫以 Supabase session 为准、`/temperature` 探市免登录、401/403 全局拦截、token 来源修复、新增 `api/auth.ts`/`api/family.ts` 契约。见 decisions D2/D4。 |
-| **P1-23** | **多用户家庭隔离地基** | 🚧 进行中（Phase 1） | ⭐⭐⭐⭐ | 🟢 | Ⅱ | 核心表 `family_id` 迁移 + 服务层过滤补齐 + `CURRENT_USER_ID` 退役 + admin/member/viewer 三档分权。见 decisions D1/D3。 |
+- 每月**第一个周一**复查 open 的 Q1-RED 全量；
+- open 的 Q1-RED **超过 5 张即视为标签漂移**，强制重新裁定；
+- 挂 Q1-RED 必须在正文写明「阻塞哪件事」，否则降 Q2；
+- 跟流程见 issue #2410。
 
-### 1.3 新增 P2 功能规划（基于 Quicken Classic 对标分析）
+> **Q1-RED 的准入标准会跟随「当前阶段目标」变化。** 当前阶段目标是**基础可用 + 免费功能跑起来**（不是付费验证——R0 口径已被推翻），所以「阻塞免费层上线与日常可用」的卡才进 Q1。
 
-| 编号 | 任务名称 | 说明 | 对标 Quicken 功能 |
-|------|---------|------|-------------------|
-| P2-1 | 完整手动记账页面 | 股票/基金/可转债/ETF 专用表单 | — |
-| P2-2 | 基金净值自动获取 | 确认日后自动回填净值（已通过静默更新实现） | — |
-| P2-8 | 资金划转导入处理 | 调用 LedgerService.transfer() | 全能中枢 |
-| P2-9 | 对账模式 | 差异对比 + 确认 | 对账工具 |
-| P2-10 | 资产配置穿透分析 | 场外基金穿透到底层股票，行业分布，重叠度检测 | Morningstar X-Ray |
-| P2-11 | 贷款与应收款管理 | LOAN_OUT / LOAN_IN 类型支持，还款进度追踪 | Loan to Others |
-| P2-12 | 税务成本估算 | 美股/港股资本利得税简易估算 | Capital Gain Estimator |
-| P2-13 | 财务目标追踪 | 用户设定目标金额与日期，计算缺口 | Lifetime Planner |
-| P2-14 | 按平台分组统计盈亏 | 按 source 字段分组展示各平台（支付宝/同花顺/天天基金）的盈亏汇总，支持与平台账单对账 | 全能中枢 |
-| P2-15 | 交易记录全量导出备份 | 交易记录页面增加"导出 CSV"按钮，复用 StandardTransactionRecord 逻辑 | 数据备份 |
-| P2-16 | 隐私保护（隐藏金额） | 一键隐藏所有金额，适合公共场合使用 | 隐私保护 |
-| **P2-17** | **二鸟说每周行情 AI 研判** | 数据已迁至独立项目 **WeChatRSS**（`data/er-niao/index.json`，由可插拔分析器 `src/analyzers/erniao.py` 产出）。基于该结构化数据 + 联网搜索（Ark/搜索引擎），生成每周投资市场风格、情绪、板块与操作建议的专业综述；输出需带引用来源与置信标注，降低幻觉；可自动化推送或前端展示 | — |
-| P2-21 | 个人中心 | **✅ 已落地（2026-08-08）**：资料编辑（昵称/用户名/头像，D9 生成式头像 + 果冻胶囊画风选择）、改邮箱/改密码、退出登录；单栏居中设置页风格（D13 定 680 → D15 覆写 960 → **D17 回覆写 680px 定稿**），入口收敛到头像下拉；成功反馈语义隔离 + 头像 n=3 超椭圆（D15）。偏好设置（对接 `user_preferences`、修复主题双 key）与真实姓名/家人称呼（D11→P2-22）待后续 | — |
-| P2-22 | 家庭成员管理 | admin 邀请/改角色（member/viewer）/移除成员，成员列表展示；含每家庭显示名/家人称呼（D11） | — |
-| P2-23 | 云端同步引擎 | 本地 SQLite 缓存 ↔ Supabase Postgres 权威的增量双向同步 + 冲突处理（LWW）+ Supabase RLS 兜底；多设备验证 | — |
-| P2-24 | 销售机构/基金管理人主数据表 | E 账户对账当前以字符串三元组 `(symbol, source_broker, fund_manager)` 为自然主键（`position_import_meta`，§3.2 设计决策）；远期建 `fund_companies`/`fund_sales_orgs` 主数据表 + 外键关联替换字符串字段，与 edgeone 双库重构（市场域 Turso，`backend-restructure-edgeone-dualengine.md`）重叠。**2026-08-17 部分落地**：销售机构侧已建 `sales_institutions`（AMAC 名录，`amac_institution` job 全量刷新）+ `Ledger.sales_institution_id` 可选外键（渠道匹配/账户关联），旧 `sales_broker_mappings` 已 DROP；**2026-09-10 基金管理人侧收束**：`fund_management_companies`（user 域死表，实测零读者/零外键/零接口）已删除，AMAC 公示信息（全称/注册地址/办公地址/官网/客服电话）enrich 进公司主数据表 `fund_companies`（新增 `register_addr`/`office_addr`/`website`/`phone`/`is_active` 列，全称入 `full_name`）；配套 `company_resolver.get_or_create_fund_company` 收口公司行写入（修 8 组「简称行 + 全称行」重复实体）、迁移脚本 `scripts/migrate_fund_company_merge.py`。**仍待后续**：`position_import_meta.fund_manager` / `source_broker` 字符串字段替换为外键；公司名中含「资管/证券」的券商资管系（东方红/中泰/华泰等）与 AMAC 全称无法归一化匹配（实测 4 条），需补 `company_resolver._MANUAL_MAPPING` 或数据源 | — |
+## 2. 当前阶段与路线图
 
-### 1.4 当前进度总览
+**当前阶段（2026-10 → 11 月底）：基础可用 + 免费功能跑起来。**
 
-| 模块 | 完成度 | 剩余核心任务 |
-|------|--------|------------|
-| 导入模块（股票） | **100%** | ✅ 已完成 |
-| 导入模块（基金） | **95%** | 支付宝 PDF 解析器完成，天天基金稳定，腾讯理财通待支持（P2） |
-| 导入模块（通用） | **95%** | 解析器架构稳定，事务安全加固，持仓不足自动转为孤儿交易 |
-| 简记弹窗 | **100%** | ✅ 架构拆分完成，买卖表单完全解耦 |
-| 手动记账（完整页面） | 0% | 全部待开发（P2-1） |
-| **仪表盘** | **90%** | 年化收益率卡片上线；资产配置环形图已实现；盈亏走势图基础占位铺设（P1-20 数据接入后可激活）。 |
-| **数据基建** | **99%** | `confirm_date`/`type` 污染源已堵，存量干净；`ledger_id` 外键链路贯通 |
-| **全局 UI** | **94%** | 页面布局重构、色彩规范及移动端适配基础完成；提取 `ProductDisplay` 全局组件统一复合列 |
-| **投资组合** | **95%** | 后端与策略视图完成；账户管理重构完成；技术债清理完毕 |
-| **账户管理** | **98%** | 资产录入 `ledger_id` 已修复；详情页 UI 重构、布局规范与负债展示 `linked_liability` 完成闭环 |
-| **全面盘点** | **98%** | **资产分类按需加载与轻量汇总接口已上线；操作入口前置优化；各章节间距与呼吸感统一完成。** |
-| **设计语言体系** | **100%** | ✅ 亮色模式 v2.3.2 与暗色模式 v1.4 已完成封箱 |
-| **通用业务组件** | **100%** | ✅ `MoneyDisplay`、`RiseFallText`、`ProductDisplay`、`usePageRefresh` 封装完成 |
-| **乖离率模块** | **✅ 已放开** | 计算/存储/API 已实现；2026-08-05 数据源改直连（`adapters/direct_feeds.py`）并放开 `SKIP_BIAS=False`，待实网落库验证 |
+判据：*一个真实用户能连续用一个月，不踩坑、数据不骗人、数字说得通*。
 
----
+- 完整 NOW / NEXT / LATER 排序与依赖：**issue #2409**（唯一真源，含每档启动条件）
+- 可视化路线图：`artifacts/roadmap-2026-10-19.html`
 
-## 2. 未来支持计划（2026-08-02 确立）
+不复制内容到本文件——排序一改这里就会失真，这是本文件被瘦身的直接原因。
 
-> **当前聚焦原则**：先完成 `temperature-architecture-plan.md` 的 P1（B4/B2/B1 已完成）+ P3（概览页三连已落地）+ 后续 **B3（文案后端归集）** 与 **B5（资金流向接入）**。乖离率修复等列入下方支持计划，**暂不分散精力**，待主线收尾后再逐项处理。
+## 3. 里程碑 ↔ issue 映射
 
-### 2.1 乖离率（P1-21）当前状态
+### 3.1 ⚠️ 命名陷阱（引用前必读）
 
-- **已放开（2026-08-05）**：`thermometer/jobs.py` 顶部 `SKIP_BIAS = False`；数据源由 akshare/东财改为**直连**（腾讯行情 `web.ifzq.gtimg.cn` / 东财 `push2his`，见 `adapters/direct_feeds.py`），绕开 akshare 上游东财限流/IP 封。
-- **降级策略**：直连 + 兜底均失败时，单品种标 `stale` 或整批为空，**不阻断主流程**（`jobs.py` 内已按此实现）。
-- **待办**：实网跑一次温度同步，验证 `market_multi_items`（`source='bias'`）正常落库且 `/overview` 返回乖离率；前端如有依赖乖离率的展示需同步回归。
-- **注意**：放开不影响 `sync_cli.py` 用法。
+**标题里的 M 编号 ≠ 里程碑内部编号。** 两者是历史错位造成的，引用时一律用内部编号。
 
-### 2.2 温度模块剩余项（来自 temperature-architecture-plan.md）
+| 内部编号 | 标题 | 说明 |
+|---|---|---|
+| #13 | M0 上线 Launch | 标题 M0，内部是 13 |
+| #4 | **M1** 付费验证 Paid Validation | 标题 M1，内部是 4 |
+| #5 | **M2** 免费核心 Free Core | 标题 M2，内部是 5；**当前阶段里程碑** |
+| #6 | **M3** 量化分析 Quant Analysis | 标题 M3，内部是 6 |
+| #8 | M5 安全与体验 Security UX | 内部无 M4 对应里程碑 |
+| #18 | M7 策略与纪律 Strategy & Discipline | 2026-10-15 新立 |
+| #2 | 基础数据 Base Data | 主题容器，无 M 编号 |
+| #12 | 自选增强 Watchlist Enhancement | 主题容器 |
+| #14 | 双库架构 DB Multi-Engine | 主题容器；有专项治理规则（见 AGENTS.md） |
+| #15 | 产品详情页 Product Detail | 主题容器（#1909 拆分） |
+| #16 | 反馈与更新日志闭环 Feedback & Changelog | 主题容器；Q1-RED 三卡在此 |
+| #17 | 账本能力对齐 | 主题容器（#2018 拆分） |
+| #19 | 高级洞察 Pro 面板 Pro Insight Panel | 主题容器 |
+| #9 | M6 待办积压 Backlog | **仅作远期兜底，不得再当垃圾桶** |
 
-- **B3 文案后端归集**：✅ **已落地（2026-08-07）**。`/overview` 新增 `insights`（`name`/`desc`/`tone`，后端语义派生，前端仅保留 `tone→颜色令牌/类名` 映射）与 `conclusion`（综合温度环下方结论副文案，由 `temperature_bands` 档位拼接）；前端删除 `store.buildOpportunities` 改消费后端 `insights`。B3 边界（颜色令牌留前端、禁下发颜色码）未破坏。
-- **B5 资金流向接入**：**已列入技术债务（2026-08-07）**。`sector_flow` 无任何 job/fetcher 在抓数据，`get_multi_items('sector_flow')` 恒空；需先建设数据源（akshare `fund_flow_industry` 等公开市场资金流）再接入 `/multi` 可视化，属独立数据源建设，另行排期（见 `tech-debt.md`）。
-- **B1「长期」映射复核**：当前取股债利差估值分位原值（高=贵=热），待产品确认是否改第三方长周期源或反向表达。
+### 3.2 里程碑归属规则（治理修订 R1）
 
-### 2.3 其它待定项
+- **当前阶段执行级**：M2 免费核心（#5）、M16 反馈闭环（#16）、M0 上线（#13，只出不进）；
+- **主题容器**：M17 账本对齐（#17）、M18 策略引擎（#18）、M19 Pro 面板（#19，仅 Phase 0 数据底座）、双库架构（#14）、基础数据（#2）；
+- **冻结**：M1 付费验证（#4）整块冻结至免费层稳定——**卡保持原样，不清零**；
+- **M6 Backlog（#9）**：只接收「永不承诺」的远期卡。战略卡（「债务:」前缀、Q4-GRAY 之外的付费主线）一律迁出。
 
-- 前端 `service.py` 早绑定 `SessionLocal` 导致测试隔离隐患（详见 `test_thermometer_overview.py` 的 `_patch_thermo_session` 备注），后续可统一改为动态引用。
-- **开发任务集合（invoke + rich）已落地**（`backend/tasks.py`）：已封装抓取（grab.*）、测试（test）、启动（serve）、文档（docs.*）。**后续后端接口级任务**（单接口冒烟、mock 数据生成、按接口批量回归）列为远期项，待主线（B3/B5）收尾后逐步补进 `tasks.py`，避免分散精力。优先级：第四象限（不重要不紧急，纯工具打磨）。
+详见 issue #2407 / #2408。
 
-### 2.4 复盘能力差异化计划（来自同花顺投资账本体验痛点 · 2026-08-03）
+## 4. GitHub issue ↔ 文档反链索引
 
-> **背景**：资深投资者（EarlETF）体验同花顺"投资账本"后指出两大痛点：① 收益率计算黑盒（显示 12.69% 但不解释算法，与作者自算的时间加权 13.01% / 资金加权 12.8% / Modified Dietz 12.79% 均对不上）；② 回撤分析仅标"最大回撤"极值，无连续回撤曲线。这两点曾落地于 `landing.html` 的「专业复盘」区块与对比表。
-> **当前状态（2026-08-07 对齐收敛）**：XIRR 已上线（P1-10）。多算法同屏 + 连续回撤曲线**尚未开发**；本轮（D6）已将落地页宣称收敛为「XIRR 资金加权、精确到日」，**不再宣传**未实现的三种收益率与回撤曲线，避免虚假宣传。以下功能仍作为二期差异化路线保留。
-> **二期落地位置约定**：回撤曲线等功能做在**账户 / 持仓详情页**，不单独做编辑页。
+> **两条铁律**：① **文档↔issue 双向交叉引用**——issue 评论区标注关联文档，文档侧回链 issue；② **文档↔历史差异必须拉平**——文档描述与代码现状不符时，要么改文档、要么开 issue 跟踪，不留悬空描述。
 
-| 编号 | 功能 | 说明 | 对应痛点 | 优先级 |
-|------|------|------|---------|--------|
-| P2-18 | 多算法收益率同屏展示 | 组合维度同屏展示 XIRR（资金加权）/ 时间加权 / Modified Dietz，并展开每笔现金流与每日资产变动明细 | 收益率黑盒 | Ⅱ（重要不紧急） |
-| P2-19 | 连续回撤分布曲线 | 绘制组合连续回撤曲线（放在账户/持仓详情页），呈现每次颠簸的分布轮廓，而非仅标最大回撤 | 回撤只给极值 | Ⅱ（重要不紧急） |
-| P2-20 | 免券商密码的交割单导入 | 用户自主上传交割单（CSV / PDF 解析），不输入券商账号密码，规避隐私顾虑（依赖 P1-09 解析器） | 依赖券商凭证授权 | Ⅲ（已有基础，强化叙事） |
-
-### 2.5 落地页 ↔ 代码对齐（D6，2026-08-07）
-
-> **背景**：不虚构能力、不强卖地下页亮点的双向对齐。落地页曾宣称而后端尚未实现：三种收益率同屏、回撤曲线、穿透持仓、一键导出全部、东方财富导入。本期已收敛文案，并将仍然空缺但值得做的项登记在此，后续再排期，不急于挖坑。
-
-| 编号 | 功能 | 说明 | 优先级 |
-|------|------|------|--------|
-| P2-24 | 东方财富交割单导入 | 新增 eastmoney 解析器注册进 `registry.py` + 前端导入模式入口，使落地页「更多平台，敬请期待」成为现实 | Ⅲ |
-| P2-25 | 持仓穿透（基金下探到底层） | 基金→重仓股揭露需新建公开数据源（季报十大重仓股），属独立数据建设；现状仅「多账户合并」已实现 | Ⅱ（需数据源可行性调研） |
-| P2-26 | 持仓 / 行业分布分析 | 复用现有行业映射 + 市值计算，做持仓占比/集中度/行业分布/重叠度，投资分析主线，无需新数据源 | Ⅱ |
-| P2-27 | 探市付费分层（D8） | 基础公开数据免登录；自建洞察（行业拥挤度/乖离率/估值分位）登录可见 + 免费预览样本，后续演进付费订阅 | Ⅱ |
-| P2-30 | 用户凭证加密存储 + 通用 MCP/Skill 调用 + 审计日志（家庭共享） | 原「AI Key 加密存储（D12）」扩展升级。规划见 `docs/spec/integrations-plan.md`，跟踪 issue [#922](https://github.com/imoyao/fundmate/issues/922)。必选：凭证 AES-256-GCM 信封加密（MASTER_KEY 取 env，遵守 D12 轻量起步）+ 家庭作用域 CRUD + 通用 `GenericMCPClient`（迁移 QiemanFetcher 验证）+ 系统/用户隔离（env key 与 family 凭证共用调用逻辑、数据面分离）+ 审计日志 L1（`@audit` 装饰器）+ 前端凭证管理页/skill 列表。可选：L2 哈希链（仅计费时）、按量计费、异步落库、KMS、多 auth 适配。⚠️ 待裁决：凭证归属 family_id（建议，与核心账本一致）vs D1 的 user_id 私有；MASTER_KEY 来源；是否计费 | Ⅱ |
-| P2-31 | 账本精灵对话 Agent | 在现有 `ai_recognizer` 上新增对话模式（查询/表现分析/行为解读/快速记账），耦合进后端不独立建站；L0 代码隔离 + L1 prompt 铁律 + 输入侧意图护栏 + L3 词法过滤四层硬护栏（设计见 `docs/working-notes/agent-guardrail-layer-design-2026-08-17.md`）；不引 LangGraph，轻量封装 + JSON Schema 重试兜底；图表仍独立建设不替代。优先级 Q2，排 #937/#933/#934 等 Q1 闭环之后 | 同花顺「账本精灵」对标差异化 |
-
-### 2.6 交易流水导出（P2-15 · 2026-08-07 ✅ 已完成）
-
-- 后端：`GET /api/transactions/export/`（`Money` 精度换算，列与导入模板对齐）。
-- 前端：交易流水页新增「导出」按钮（`http` 携带鉴权头 + blob 下载）。
-- 定位：数据主权承诺锚点，**永久免费**（D7）。
-
----
-
-## 2.7 账本精灵对话 Agent 立项（2026-08-17）
-
-> 来源：决策 D19（2026-08-17「账本精灵对话 Agent 定位与排期确定」）；护栏分层设计见 `docs/working-notes/agent-guardrail-layer-design-2026-08-17.md`；思维链与同花顺对标见 `docs/working-notes/investment-agent-brainstorm-2026-08-17.md`。
-> 优先级：**Q2（重要不紧急）**。排期前提：须待 #937（导入持仓快照）、#933（前端统一提交层）、#934（截图导入入口）等 Q1 核心闭环收口后再启动功能开发；**护栏层 G1~G7 与功能优先级正交，可立即独立开做**。
-
-### 2.7.1 四个功能与落地顺序（ROI 由便宜先落）
-
-| 功能 | 现状缺口 | 落点 | 排期 |
-|------|---------|------|------|
-| 快速记账（对话入口） | 后端识别已 ~80%，缺前端「精灵输入框」+ 逐行确认 | `ai_recognizer` 识别模式 + 前端对话入口，写仍走 importer + 前端核对（L0 硬约束） | Q2 早赢（低风险） |
-| 持仓/表现自然语言查询 | 数据 ~60% 齐（`summary_service`/`performance`），缺 NL 查询层 | NL→工具链（查持仓/算 XIRR/查净值），数值全走代码算 | Q2 早赢（低风险） |
-| 行为解读 / 持仓诊断 | 全新 ~20%，投入最大 | 拉数据→拼 prompt→llm 叙事；工具函数取数，仅传算好的指标 | Q2 排后（最高投入） |
-| （图表仍独立建设） | 路线图中 P2-18/19/26 等高维分析 | ECharts 图表，非精灵替代项 | 不受影响，照常推进 |
-
-### 2.7.2 护栏层 G1~G7 与原子 Issue 映射
-
-护栏设计与功能优先级正交，拆为 4 个原子 Issue（详见 §3 反链索引与 `docs/working-notes/agent-issues-2026-08-17.md`）：
-
-| Issue | 覆盖阶段 | 内容 |
-|------|---------|------|
-| （已实施 PR #1729）账本精灵护栏子包骨架 + L3 输出词法过滤 | G1+G2 | 新建 `ai_recognizer/safety/`（intent_guard/output_filter/repeat_tracker 纯函数骨架）+ `output_filter.py` R1–R10 规则 + 白名单豁免 + 免责模板常量 |
-| （已实施 PR #1729）输入侧意图护栏 + 会话内重复追问检测 | G3+G4 | `intent_guard.py` A/B/D + E 协同（意图分类 + 正则模式 + 情绪复合）+ `repeat_tracker.py` 归一化问答 N 次阈值 + 标准话术 |
-| （暂缓，#1739 四问留痕）per-user token 配额 + Serverless 限流 | G5 | `guards.py` 加 per-user 配额表 + 网关层拦截；**限流计数禁用 SCF 实例内存字典**（多实例击穿），须走 API 网关或 Redis |
-| （G6+G7 均已实施：PR #1743 / PR #1730）registry 意图路由 + system prompt 注入 L1 铁律 | G6+G7 | `registry.py` 引入 A 前置分类驱动对话精灵路由；精灵 system prompt 注入 L1 数据真实性铁律 + can/cannot 清单（复用同花顺原文） |
-
-### 2.7.3 隐蔽坑登记（落地前必读）
-
-- **Serverless 限流**：per-user token 计数不能写在 SCF 实例变量（并发多实例计数器互相独立会击穿），必须在 SCF 前挂 API 网关或用云 Redis 存消耗；本地字典变量记录调用次数在高并发下必然超额。
-- **上下文不持久化全量历史**：行为解读需结合历史持仓，但每次对话重传几百上千条交易记录会打爆 token。原则「对话只做索引，工具函数取数」——用户问「半年表现」，Agent 调 Python 函数到 `summary_service` 算好年化/最大回撤/波动率等 4~5 个指标值再传给模型，既控成本又不破「数值靠代码算」铁律。
-- **无编排框架兜底**：不引 LangGraph，LLM 自吐 JSON 调用指令的可靠性靠封装层 `tenacity`/重试循环 + JSON Schema 校验；参数缺失/不符合 Schema 时把错误原因拼回 prompt 让模型重生成，不直通报错。
-
----
-
-## 3. GitHub issue ↔ 文档反链索引（2026-08-08 triage）
-
-> **背景**：2026-08-08 对全量 GitHub issue 做了一轮治理复盘（open 26 → 14），复盘明细见 `docs/working-notes/issue-triage/`（内部备忘，不进文档站）。
->
-> **两条铁律**：① **文档↔issue 双向交叉引用**——issue 评论区标注关联文档，文档侧回链 issue（即本表）；② **文档↔历史差异必须拉平**——文档描述与代码现状不符时，要么改文档、要么开 issue 跟踪，不留悬空描述。
->
-> 每条 issue 已在 GitHub 评论区标注对应文档/代码路径；本表为反方向索引。新增或关闭 issue 时须同步维护本表。
-
-| issue | 标题 | 象限 | 状态判定 | 对应文档 / 代码 |
-|:---|:---|:---|:---|:---|
-| [#783](https://github.com/imoyao/fundmate/issues/783) | 记账功能需求检查单 | **Ⅰ 重要且紧急** | 部分实现 / 验收清单未达成 | 本文件 §1.2 P1-03；`docs/dev/import-trade-records.md`；清单正文在 issue 内 |
-| [#807](https://github.com/imoyao/fundmate/issues/807) | 自选页面实时估值功能设计文档 | **Ⅰ 重要且紧急（已收窄关闭）** | 核心已交付（成功标准 1–7 落地，与文档架构一致）；沙盒子系统 8–11 拆至 #821 | 本文件 §1.2 P1-08；`docs/features/watchlist.md`；`docs/design/my-favrivate.md`；沙盒见 [#821](https://github.com/imoyao/fundmate/issues/821) |
-| [#821](https://github.com/imoyao/fundmate/issues/821) | 探市页（免登录沙盒）缺陷与缺口跟踪 | **Ⅰ 重要且紧急** | **已上线但有缺陷**：沙盒即探市页 `/explore`；P0 免登录搜索 401（白名单缺 securities/funds）、P0 热门卡片硬编码假成本价；P1 无迁移预览、底部转化区缺失 | `frontend/src/views/explore/index.vue`；`frontend/src/composables/useLocalHoldings.ts`；`backend/app/core/auth.py`；设计基线 [#808](https://github.com/imoyao/fundmate/issues/808)；实证 `docs/working-notes/explore-watchlist-replan-2026-08-08.md` |
-| [#229](https://github.com/imoyao/fundmate/issues/229) | 基本数据抓取及组织 | Ⅱ 重要不紧急 | 部分实现 / 基础数据缺口（净值已落盘、基金经理未落盘） | `docs/spec/tech-debt.md`；`backend/app/services/sync/jobs/fund_manager_job.py`（里程碑 base-data） |
-| [#275](https://github.com/imoyao/fundmate/issues/275) | 对比基准增加普通股票型基金指数（885000.WI） | Ⅱ 重要不紧急 | 未实现 / 数据 | 里程碑 base-data |
-| [#253](https://github.com/imoyao/fundmate/issues/253) | 基金评分，可能需要创建新表 | Ⅱ 重要不紧急 | 未实现 / 功能 | 待设计（暂无专门文档） |
-| [#427](https://github.com/imoyao/fundmate/issues/427) | 基于 dataklasses 实现 choices 类型 | Ⅱ 重要不紧急（技术债） | 技术债 / 重构 | `docs/dev/choices-for-sqlalchemy.md` |
-| [#508](https://github.com/imoyao/fundmate/issues/508) | 消息推送机制 | Ⅱ 重要不紧急（远期） | backlog 功能设想 | 暂无专门文档（远期，保留待产品明确） |
-| [#782](https://github.com/imoyao/fundmate/issues/782) | 资产简记和投资记录页面设计 | Ⅱ 重要不紧急 | 设计文档基线 | `docs/features/holding-record.md`；设计正文在 issue 内 |
-| [#808](https://github.com/imoyao/fundmate/issues/808) | 自选「探市」体验版设计文档与任务计划 | Ⅱ 重要不紧急 | 设计文档基线 | `docs/spec/temperature-architecture-plan.md`；`docs/features/watchlist.md` |
-| [#809](https://github.com/imoyao/fundmate/issues/809) | 数据库存储选择 | Ⅱ 重要不紧急 | 决策已定 / 待落地（Supabase 云端未集成） | `docs/spec/decisions.md` D3/D2；`docs/dev/db-choice.md`；本文件 P2-23 |
-| [#819](https://github.com/imoyao/fundmate/issues/819) | 交割单导出功能跟踪 | Ⅱ 重要不紧急 | 导出侧跟踪（由 #429 拆分） | §2.6 交易流水导出；`backend/app/services/importer/` |
-| [#820](https://github.com/imoyao/fundmate/issues/820) | FeeRatio 增加币种（currency）字段并落库 | Ⅱ 重要不紧急 | **已实现**（2026-08-10，见下方说明） | `docs/dev/fund-fee-ratio.md`；`backend/app/domains/funds/models.py` |
-| [#273](https://github.com/imoyao/fundmate/issues/273) | 自选基金拖拽排序 | Ⅳ 不重要不紧急 | 未实现 / 功能 | `frontend/src/views/asset/watchlist/index.vue` |
-| [#817](https://github.com/imoyao/fundmate/issues/817) | 鹦鹉螺 nautilus 作为 logo | Ⅳ 不重要不紧急 | 部分实现 / 与文档偏离（正式稿未产出） | `docs/design/brand-v1.7.md`；`docs/design/index.md` |
-| [#899](https://github.com/imoyao/fundmate/issues/899) | 代码审计与架构整改记录（2026-07-31 ~ 2026-08-01） | — | **已归档（2026-08-10 盘点分流）**：已闭环项（H1 错误契约/V1 退役/data 源/libs-cal/FastAPI 解耦/L5 .gitignore/§2 SPEC 偏差）见 `docs/spec/tech-debt.md`；未闭环项 #912/#913 已于 2026-08-11 收口关闭，仅剩 #911 待办 | `docs/spec/tech-debt.md`；`docs/working-notes/code-audit-and-remediation-2026-08-01.md` |
-| [#911](https://github.com/imoyao/fundmate/issues/911) | 后端持仓身份统一键与列表性能整改（#899 未闭环 M3/M4） | Ⅱ 重要不紧急 | 未实现 / 功能 | `backend/app/services/position_service.py`（M3 dual lookup）；`backend/app/services/ledger_service.py`（M4 全量加载） |
-| [#912](https://github.com/imoyao/fundmate/issues/912) | 后端生产配置与日志收口（#899 未闭环 L1/L3） | Ⅲ 不重要但紧急 | **已实现（2026-08-11 OpenCode 收口，已关闭）**：L1 改用 `logger.exception`、L3 DEBUG/CORS 改读环境变量 | `backend/app/main.py`（DEBUG/CORS）；`backend/app/domains/positions/views.py`、`portfolios/views.py`（traceback） |
-| [#913](https://github.com/imoyao/fundmate/issues/913) | 前端规范收口（#899 未闭环 M1/L4/M2 残留） | Ⅳ 不重要不紧急 | **已实现（2026-08-11 OpenCode 收口，已关闭）**：M1 裸涨跌色改统一组件、L4 detil.vue 去直连后端；M2 于 2026-08-12 扩展收口——资产/负债列表金额列与指数快照价格统一改走 `MoneyDisplay`（commit `d79cfa4`），图表 tooltip/表单 input/份额/百分比/净值等非金额数值不在适用范围内 | `frontend/src/views/account/InvestmentAnalysis.vue`（M1）；`frontend/src/views/asset/portfolio/detail.vue`（L4）；`frontend/src/views/asset/Overview.vue`、`explore/index.vue`（M2 金额统一） |
-| [#898](https://github.com/imoyao/fundmate/issues/898) | 文档与代码误差追踪（会议纪要） | — | open / 机制未落地（待办未回流 tech-debt，本轮 2026-08-14 登记） | `docs/spec/tech-debt.md` §14-B |
-| [#937](https://github.com/imoyao/fundmate/issues/937) | 导入持仓快照（position_import） | Ⅰ 重要且紧急 | open / 代码未落地（解析器 + `/inventory` 卡片缺失） | `docs/spec/tech-debt.md` §14-B；`frontend/src/views/asset/inventory/index.vue` |
-| [#933](https://github.com/imoyao/fundmate/issues/933) | 前端统一提交层（ImportOrchestrator） | Ⅰ 重要且紧急 | open / 未收敛（仍双轨直写 `createPosition`） | `docs/spec/tech-debt.md` §14-B；`composables/useQuickEntry.ts` |
-| [#934](https://github.com/imoyao/fundmate/issues/934) | 资产简记截图导入入口 | Ⅰ 重要且紧急 | open / 未接入（OCR 能力已存在） | `docs/spec/tech-debt.md` §14-B |
-| [#825](https://github.com/imoyao/fundmate/issues/825) | DB 快照导出/导入层 | Ⅱ 重要不紧急 | open / 核心能力缺失（仅 CSV） | `docs/spec/tech-debt.md` §14-B；`sync/orchestrator.py` |
-| [#869](https://github.com/imoyao/fundmate/issues/869) | 韭圈儿 fetcher 修复 | Ⅱ 重要不紧急 | closed / 代码已修但文档未记（本轮补反链） | `docs/spec/tech-debt.md` §14-B；`thermometer/jobs.py` |
-| [#894](https://github.com/imoyao/fundmate/issues/894) | 上线计划（Turso / EdgeOne） | Ⅱ 重要不紧急 | open / **规划态（代码零落地）**，非已实现 | `docs/spec/tech-debt.md` §14-B；`auth.py` |
-
-> 另：open 导入集群 #919/#921/#928/#929/#936/#932/#931/#930 目前均无 issue↔文档反链，本轮仅登记高红旗；其余低中危项建议后续补反链（见 `tech-debt.md` §14-B 与本复核报告）。
-
-**已关闭但需留意的文档差异**：
-
-- [#820](https://github.com/imoyao/fundmate/issues/820) 费率币种：`FeeRatio.currency` 已于 2026-08-10 落库（模型 + 推导规则 + 一次性迁移脚本 `backend/scripts/migrate_fee_ratio_currency.py` 回填既有库 12551 行）；因东财/同花顺无结构化币种字段，采用基金份额名称特征推导（含外汇字样 → 对应 ISO 码，否则 CNY）。自动汇率换算仍未做（见 roadmap 多币种小节）。
-- [#460](https://github.com/imoyao/fundmate/issues/460) 费率信息处理：V2（xalpha）已实现并落盘，原 `docs/dev/fund-fee-ratio.md` 描述的是**已退役的 V1 方案**，已于 2026-08-08 重写拉平；遗留币种缺口转 #820 跟踪。
-- [#230](https://github.com/imoyao/fundmate/issues/230) 数据信息来源整合：双适配器（akshare + xalpha）整合框架已跑通并落盘，个别数据源缺口在 `docs/spec/tech-debt.md` 登记。
-- [#807](https://github.com/imoyao/fundmate/issues/807) 实时估值：2026-08-08 v3 实证更正 v2 误判（核心 7/11 已落地，含 `RealtimeWarningBanner`/`RealtimeStatusIndicator`）；**v4 再次更正 v3** —— 「沙盒」并非未实现，它就是已上线的探市页 `/explore`（`useLocalHoldings.ts` 承担 localStorage 持久化），成功标准 8–11 为「部分达成 + 有缺陷」，转 #821 跟踪。#807 已收窄关闭。
-- [#796](https://github.com/imoyao/fundmate/issues/796) 年化收益：功能已交付；§8.3 的 11 个单测用例原仅约 6/11 覆盖，**2026-08-08 已补齐**（单笔买入/单笔卖出/定投后全赎/部分卖出续持/资金转入转出与内部划转/极端收益率与区间截断/货基与逆回购排除），`tests/services/performance/test_xirr_engine.py` 共 23 条全通过。
-- [#661](https://github.com/imoyao/fundmate/issues/661) 自选功能：核心完成，正文 checklist 2 项 `[ ]`（分享备注、品种维度描述）未做，登记于 `docs/spec/tech-debt.md` §14。
-- [#429](https://github.com/imoyao/fundmate/issues/429) 交割单导入：导入主体完成；导出→#819；天天基金无数据/卖出份额推算/查重为已知限制。
-- [#507](https://github.com/imoyao/fundmate/issues/507) 定时任务清单：笔记关闭，但其待办（基金经理信息更新等）与 #229 重叠且未做，已双向交叉引用。
-
-**账本精灵对话 Agent 待建 issue（2026-08-17 立项，详见 §2.7 与 `docs/working-notes/agent-issues-2026-08-17.md`）**：
-
-| 拟标题 | 象限 | 对应文档 / 代码 | 状态 |
+| issue | 标题 | 象限 | 对应文档 / 代码 |
 |:---|:---|:---|:---|
-| 账本精灵护栏子包骨架 + L3 输出词法过滤（G1+G2） | Q2 | `agent-guardrail-layer-design-2026-08-17.md` §7/§8；`ai_recognizer/safety/` | 已实施（PR #1729） |
-| 输入侧意图护栏 + 会话内重复追问检测（G3+G4） | Q2 | 同上 §6；`intent_guard.py`/`repeat_tracker.py` | 已实施（PR #1729） |
-| per-user token 配额 + Serverless 限流（G5） | Q2 | 同上 §8；`guards.py` | 暂缓（#1739 四问判定，触发条件见卡） |
-| registry 意图路由 + system prompt 注入 L1 铁律（G6+G7） | Q2 | 同上 §8；`registry.py` | G7 已实施（PR #1730）；G6 已实施（PR #1743，2026-09-28） |
-| 快速记账对话入口（NLP→importer + 前端逐行确认） | Q2 | `ai_recognizer`；前端精灵输入框 | 待建（Q2 早赢） |
-| 持仓/表现自然语言查询层（NL→工具链） | Q2 | `summary_service`/`performance` | 待建（Q2 早赢） |
-| 持仓行为解读 / 诊断叙事 | Q2 | 拉数据→拼 prompt→llm 叙事 | 待建（排后） |
+| [#2407](https://github.com/imoyao/fundmate/issues/2407) | 里程碑收敛 14 → 7 | — | 本文 §3；`docs/working-notes/roadmap-realign-2026-10-19.md` §5.1 |
+| [#2408](https://github.com/imoyao/fundmate/issues/2408) | M6 Backlog 大扫除 | — | 本文 §3.2；同上 §5.2 |
+| [#2409](https://github.com/imoyao/fundmate/issues/2409) | R1 路线图排序（免费优先） | Q1 | 本文 §2；同上 §3/§4 |
+| [#2410](https://github.com/imoyao/fundmate/issues/2410) | Q 标签月度复查机制 | — | 本文 §1 |
+| [#2411](https://github.com/imoyao/fundmate/issues/2411) | 事实源统一（本文瘦身） | — | 本文抬头 |
+| [#783](https://github.com/imoyao/fundmate/issues/783) | 记账功能需求检查单 | Ⅰ | `docs/dev/import-trade-records.md`；清单正文在 issue 内 |
+| [#807](https://github.com/imoyao/fundmate/issues/807) | 自选页面实时估值功能设计文档 | Ⅰ（已收窄关闭） | `docs/features/watchlist.md`；`docs/design/my-favrivate.md` |
+| [#821](https://github.com/imoyao/fundmate/issues/821) | 探市页（免登录沙盒）缺陷与缺口跟踪 | Ⅰ | `frontend/src/views/explore/index.vue`；`backend/app/core/auth.py` |
+| [#229](https://github.com/imoyao/fundmate/issues/229) | 基本数据抓取及组织 | Ⅱ | `docs/spec/tech-debt.md`（里程碑 基础数据 `#2`） |
+| [#427](https://github.com/imoyao/fundmate/issues/427) | 基于 dataclasses 实现 choices 类型 | Ⅱ（技术债） | `docs/dev/choices-for-sqlalchemy.md` |
+| [#508](https://github.com/imoyao/fundmate/issues/508) | 消息推送机制 | Ⅱ（远期） | 暂无专门文档 |
+| [#782](https://github.com/imoyao/fundmate/issues/782) | 资产简记和投资记录页面设计 | Ⅱ | `docs/features/holding-record.md` |
+| [#808](https://github.com/imoyao/fundmate/issues/808) | 自选「探市」体验版设计文档与任务计划 | Ⅱ | `docs/spec/temperature-architecture-plan.md`；`docs/features/watchlist.md` |
+| [#809](https://github.com/imoyao/fundmate/issues/809) | 数据库存储选择 | Ⅱ | `docs/spec/decisions.md` D3/D2；`docs/dev/db-choice.md` |
+| [#819](https://github.com/imoyao/fundmate/issues/819) | 交割单导出功能跟踪 | Ⅱ | `backend/app/services/importer/` |
+| [#820](https://github.com/imoyao/fundmate/issues/820) | FeeRatio 增加币种字段并落库 | Ⅱ | `docs/dev/fund-fee-ratio.md`；`backend/app/domains/funds/models.py` |
+| [#273](https://github.com/imoyao/fundmate/issues/273) | 自选基金拖拽排序 | Ⅳ | `frontend/src/views/asset/watchlist/index.vue` |
+| [#817](https://github.com/imoyao/fundmate/issues/817) | 鹦鹉螺 nautilus 作为 logo | Ⅳ | `docs/design/brand-v1.7.md` |
+| [#911](https://github.com/imoyao/fundmate/issues/911) | 后端持仓身份统一键与列表性能整改 | Ⅱ | `backend/app/services/position_service.py`；`ledger_service.py` |
+| [#898](https://github.com/imoyao/fundmate/issues/898) | 文档与代码误差追踪（会议纪要） | — | `docs/spec/tech-debt.md` §14-B |
+| [#937](https://github.com/imoyao/fundmate/issues/937) | 导入持仓快照（position_import） | Ⅰ | `frontend/src/views/asset/inventory/index.vue` |
+| [#933](https://github.com/imoyao/fundmate/issues/933) | 前端统一提交层（ImportOrchestrator） | Ⅰ | `composables/useQuickEntry.ts` |
+| [#934](https://github.com/imoyao/fundmate/issues/934) | 资产简记截图导入入口 | Ⅰ | `docs/spec/tech-debt.md` §14-B |
+| [#825](https://github.com/imoyao/fundmate/issues/825) | DB 快照导出/导入层 | Ⅱ | `sync/orchestrator.py` |
+| [#894](https://github.com/imoyao/fundmate/issues/894) | 上线计划（Turso / EdgeOne） | Ⅱ | `docs/spec/tech-debt.md` §14-B；里程碑 双库架构 `#14` |
+| [#1028](https://github.com/imoyao/fundmate/issues/1028) | 独立 dev Supabase 项目 + .env 隔离 | Ⅰ（NOW N2） | 里程碑 双库架构 `#14` |
+| [#2001](https://github.com/imoyao/fundmate/issues/2001) | feedback 站间歇性 503 | Ⅰ（NOW N4） | 里程碑 M16 `#16` |
+| [#2130](https://github.com/imoyao/fundmate/issues/2130) | 账本对齐汇总卡（13 卡推进与拍板） | Ⅱ | 里程碑 M17 `#17` |
+| [#2132](https://github.com/imoyao/fundmate/issues/2132) | 账本对齐 B' 快照体系收口 | Ⅰ（NOW N5） | 里程碑 M17 `#17`；所有口径计算的前置 |
+| [#2136](https://github.com/imoyao/fundmate/issues/2136) | 账本对齐 F 现金闭环 | Ⅰ（NOW N5） | 里程碑 M17 `#17` |
+| [#2133](https://github.com/imoyao/fundmate/issues/2133) | 账本对齐 C TWR 时间加权收益率 | Ⅰ（NOW N5） | 里程碑 M17 `#17` |
+| [#2324](https://github.com/imoyao/fundmate/issues/2324) | Pro 端点缺后端权益校验 | LATER（Pro 对外可见前必做） | 里程碑 M19 `#19` |
+
+新增或关闭 issue 时须同步维护本表。
+
+## 5. 历史进度表去向
+
+原 §1.2 完整 P1 任务进度总表、§1.3 P2 功能规划、§1.4 进度总览、§2 支持计划（含 2.7 账本精灵立项）已移除。
+
+- **逐卡状态** → GitHub issue（唯一真源）
+- **技术债台账** → `docs/spec/tech-debt.md`
+- **2026-10-19 全量盘点与分流表** → `docs/working-notes/roadmap-realign-2026-10-19.md`
+- **历史差异已闭环项** → 本文件 §4 与 `docs/spec/tech-debt.md`
+
+需要恢复某条历史上下文时，从 GitHub issue 时间线与对应 working-notes 找，不要在本文件重新维护状态列。

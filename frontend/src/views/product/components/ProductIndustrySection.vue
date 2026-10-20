@@ -105,14 +105,17 @@ function barColor(index: number): string {
       </template>
     </SectionHeader>
 
-    <p v-if="!hasData" class="industry-section__hint">暂无行业配置数据</p>
+    <p v-if="!hasData" class="section-footnote">暂无行业配置数据</p>
 
     <template v-else>
-      <table class="industry-section__table">
+      <!-- 表口径见 `_detail-table.scss`（#553）。名称列是行标题（<th scope="row">），
+           故用 `__product`（允许折行）；比例列是「条 + 数值」复合单元格，
+           条宽由本组件的 bp 断点控制，只借共享类的右对齐与等宽数字。 -->
+      <table class="detail-table industry-section__table">
         <thead>
           <tr>
             <th scope="col">行业</th>
-            <th scope="col" class="industry-section__ratio-head">占净值比</th>
+            <th scope="col" class="detail-table__num">占净值比</th>
           </tr>
         </thead>
         <tbody>
@@ -120,10 +123,13 @@ function barColor(index: number): string {
             v-for="(it, i) in primary?.items ?? []"
             :key="it.industry_code || it.industry_name"
           >
-            <th scope="row" class="industry-section__name">
+            <th
+              scope="row"
+              class="detail-table__product industry-section__name"
+            >
               {{ it.industry_name }}
             </th>
-            <td class="industry-section__ratio">
+            <td class="detail-table__num industry-section__ratio">
               <span
                 v-if="hasBar(it.ratio)"
                 class="industry-section__track"
@@ -143,15 +149,15 @@ function barColor(index: number): string {
             </td>
           </tr>
           <tr v-if="!primary?.items?.length">
-            <td class="industry-section__empty" colspan="2">
+            <td class="detail-table__empty" colspan="2">
               该报告期无行业配置记录
             </td>
           </tr>
         </tbody>
         <tfoot v-if="primary?.total_ratio != null">
           <tr>
-            <th scope="row">合计</th>
-            <td class="industry-section__ratio">
+            <th scope="row" class="detail-table__product">合计</th>
+            <td class="detail-table__num industry-section__ratio">
               <span class="industry-section__value">
                 {{ primary.total_ratio.toFixed(2) }}%
               </span>
@@ -190,7 +196,7 @@ function barColor(index: number): string {
         </details>
       </div>
 
-      <p class="industry-section__footnote">
+      <p class="section-footnote">
         数据来源：{{ source }} · 行业配置为报告期快照（非日期序列）
       </p>
     </template>
@@ -206,12 +212,9 @@ function barColor(index: number): string {
   gap: var(--space-3);
 }
 
-.industry-section__hint,
-.industry-section__footnote {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
+/* 脚注与空态提示已迁至共享类 .section-footnote（#2320）；本区块容器带
+   `gap: var(--space-3)`，故只用基础类、不加 --spaced。迁移前此处用图形级
+   --text-tertiary 作前景文字（不足 4.5:1），已随共享类修正为 -ink。 */
 
 /* 「不可相加」是**跨体系硬口径**，不是普通脚注：csrc / gics 加总得出的是荒谬结论。
    沿用持仓明细 caveat 的同一套警告视觉，避免两处硬口径长得不一样。
@@ -219,7 +222,7 @@ function barColor(index: number): string {
 .industry-section__other-note {
   padding: var(--space-2) var(--space-3);
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-secondary);
   background: var(--bg-subtle, var(--bg-card));
@@ -228,33 +231,18 @@ function barColor(index: number): string {
 }
 
 .industry-section__scheme {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-secondary);
 }
 
 .industry-section__period {
   margin-left: var(--space-2);
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--text-tertiary);
 }
 
-.industry-section__table {
-  width: 100%;
-  font-size: 13px;
-  border-collapse: collapse;
-}
-
-.industry-section__table th,
-.industry-section__table td {
-  padding: var(--space-2) var(--space-1);
-  text-align: left;
-  border-bottom: 1px solid var(--border-light);
-}
-
-.industry-section__table thead th {
-  font-weight: 500;
-  color: var(--text-tertiary);
-}
+/* 表格的宽度 / 字号 / padding / 分隔线 / 表头 / 表尾 / 数字列全部来自
+   `.detail-table`（#553）。本组件只留列宽与「条」的几何——那些是这张表独有的。 */
 
 /* 名称列不设宽度：剩余空间全给它，长行业名换行而不是截断
    （旧图表 y 轴 96px 会把「电力、热力、燃气及水生产…」切掉） */
@@ -263,15 +251,10 @@ function barColor(index: number): string {
   color: var(--text-primary);
 }
 
-/* 比例列定宽 + 不换行：各行条长左端对齐、数值右端对齐，
-   条与条之间才可比（长度是本区块唯一的比例通道） */
+/* 比例列定宽：条长左端对齐、数值右端对齐，条与条之间才可比（长度是本区块唯一的比例通道） */
 .industry-section__ratio {
   width: 190px;
   white-space: nowrap;
-}
-
-.industry-section__ratio-head {
-  text-align: right;
 }
 
 .industry-section__track {
@@ -302,11 +285,6 @@ function barColor(index: number): string {
   text-align: right;
 }
 
-.industry-section__empty {
-  color: var(--text-tertiary);
-  text-align: center;
-}
-
 @include bp.below("sm") {
   /* 窄屏先让出名称空间：条缩到 48px，仍可比，只是分辨率下降 */
   .industry-section__ratio {
@@ -324,7 +302,7 @@ function barColor(index: number): string {
 }
 
 .industry-section__other-title {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;
@@ -341,7 +319,7 @@ function barColor(index: number): string {
   display: flex;
   gap: var(--space-2);
   justify-content: space-between;
-  font-size: 13px;
+  font-size: var(--text-label);
 }
 
 .industry-section__other-item dt {

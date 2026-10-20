@@ -73,7 +73,8 @@ const NAV_LABELS: Record<string, string> = {
   "nav-advisor": "投顾组合",
   "nav-bond": "深度分析",
   "nav-related": "关联标的",
-  "nav-external": "更多数据"
+  "nav-external": "更多数据",
+  "nav-pro": "高级洞察 Pro"
 };
 
 const ANCHOR_PREFIX = "nav-";

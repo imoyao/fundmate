@@ -88,6 +88,7 @@
             :estimated="p.valuation.estimatedPnl(row as LedgerHoldingRow)"
             :hint="p.valuation.estimateHint(row as LedgerHoldingRow)"
             :price-date="(row as LedgerHoldingRow).price_date"
+            :settled-today="(row as LedgerHoldingRow).settled_today"
           />
         </template>
       </el-table-column>

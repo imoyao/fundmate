@@ -21,6 +21,7 @@ from app.core.utils import paginate
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.symbol_scope import collect_transaction_symbol_variants, query_positions_by_symbol
+from app.services.txn_name_resolver import resolve_transaction_display_names
 
 
 def build_transaction_list(db, family_id: int, page: int, per_page: int, filters: dict) -> dict:
@@ -108,6 +109,11 @@ def build_transaction_list(db, family_id: int, page: int, per_page: int, filters
     query = query.order_by(effective_day.desc(), Transaction.id.desc())
     items, total = paginate(query, page=page, per_page=per_page)
 
+    # #2372：position_name/account_name 是冗余快照，漏写时按**真外键**回解析
+    # （position_id→持仓名 / ledger_id→账户名，悬空 position_id 再按 symbol 兜底），
+    # 不再把「快照没写」直接显示成「未知资产/未知账户」。
+    pos_names, ledger_names = resolve_transaction_display_names(db, items)
+
     results = []
     for t in items:
         results.append(
@@ -115,7 +121,7 @@ def build_transaction_list(db, family_id: int, page: int, per_page: int, filters
                 'id': t.id,
                 'ledger_id': t.ledger_id,
                 'position_id': t.position_id,
-                'position_name': t.position_name or '未知资产',
+                'position_name': t.position_name or pos_names.get(t.id) or '未知资产',
                 'type': t.txn_type,
                 'asset_type': t.asset_type,
                 'symbol': t.symbol,
@@ -126,7 +132,7 @@ def build_transaction_list(db, family_id: int, page: int, per_page: int, filters
                 'fee': Money.cents_to_yuan(t.fee),
                 'amount': Money.cents_to_yuan(t.amount),
                 'status': t.status,
-                'account_name': t.account_name or '未知账户',
+                'account_name': t.account_name or ledger_names.get(t.id) or '未知账户',
                 'notes': t.notes,
                 'source': t.source,
                 'created_at': t.created_at.isoformat() if t.created_at else None,

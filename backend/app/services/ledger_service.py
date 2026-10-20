@@ -18,7 +18,13 @@ from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.fund_utils import should_exclude_from_investment
 from app.services.nav_service import NavService
-from app.services.summary_service import orphan_money_fund_totals_by_ledger
+from app.services.pnl_settle import is_settled_today
+from app.services.position_scope import exclude_cleared
+from app.services.summary_service import (
+    orphan_cash_like_breakdown,
+    orphan_money_fund_totals_by_ledger,
+)
+from app.services.txn_name_resolver import resolve_transaction_display_names
 
 
 class LedgerService:
@@ -197,7 +203,8 @@ class LedgerService:
 
         基金持仓使用 DailyWorth 最新净值计算市值/盈亏，非基金用 current_price 快照。
         """
-        positions = db.query(Position).filter(Position.ledger_id == ledger_id).all()
+        # 已清仓行保留在表里但份额为 0，不能进「当前持仓 / 市值」口径（#2343）
+        positions = exclude_cleared(db.query(Position).filter(Position.ledger_id == ledger_id)).all()
 
         if not positions:
             return {
@@ -284,7 +291,8 @@ class LedgerService:
     @staticmethod
     def get_money_fund_stats(db: Session, ledger_id: int) -> dict:
         """计算货基持仓占比及金额"""
-        positions = db.query(Position).filter(Position.ledger_id == ledger_id).all()
+        # 已清仓行保留在表里但份额为 0，不能进「当前持仓 / 市值」口径（#2343）
+        positions = exclude_cleared(db.query(Position).filter(Position.ledger_id == ledger_id)).all()
         # 批量获取基金最新净值（含货基）
         fund_symbols = [p.symbol for p in positions if p.asset_type in ('fund', 'money_fund') and p.symbol]
         latest_navs = LedgerService._batch_fund_latest_navs(db, list(set(fund_symbols)))
@@ -331,6 +339,18 @@ class LedgerService:
         - 账户内现金（Asset.major_category='current'）。
 
         债券基金**不计入**：它有净值波动、XIRR 也未排除，属中低风险投资而非现金。
+
+        #2155 起另出**分项**（不改上面这个合计口径，只把已经在算的三项各自说清）：
+
+        - `cash_like_in_positions_amount`：持仓内那一项（= 货基持仓市值），是
+          `total_market_value` 的**子集**；环形图两片必须用它。
+        - `orphan_amount`：孤儿流水**本金净额**（不建持仓、不进总市值）。
+        - `orphan_income_amount`：孤儿流水里的渠道**收益桶**（#863 D1）——它同样不建持仓，
+          但**已计入家庭总资产**。⚠️ 它**不在** `cash_like_amount` 的加总里（合计口径
+          维持 #1137 原样不变）；列出来是因为「账外类现金对总资产的贡献」= 本金 + 收益。
+        - `account_cash_amount`：账户现金（`Asset.major_category='current'`）。
+        - `cash_like_breakdown`：账外孤儿流水按**产品**归组的明细，供页面解释
+          「这笔钱是什么、为什么不在持仓里」。
         """
         money_fund_amount = LedgerService.get_money_fund_stats(db, ledger_id).get('money_fund_amount', 0.0)
         # 孤儿流水净额（分）→ 元
@@ -345,10 +365,26 @@ class LedgerService:
         )
         cash_amount = Money.cents_to_yuan(cash_cents)
 
+        # 账外类现金逐产品明细（#2155）：只给一个汇总数，用户问的还是同一个问题
+        # （「这笔钱是什么、为什么不在持仓里」）。明细与上面孤儿净额同源同口径。
+        items, _net_cents, income_cents = orphan_cash_like_breakdown(db, family_id, ledger_id)
+
         return {
             'money_fund_amount': round(money_fund_amount, 2),
             'cash_amount': round(cash_amount, 2),
             'cash_like_amount': round(money_fund_amount + orphan_amount + cash_amount, 2),
+            # ---- 账外 / 持仓内的**分项出口**（#2155）----
+            # 拆分不是「新口径」，只是把已经在算的三项各自说出名字：
+            # 「持仓内」是 total_market_value 的子集，另两项不建持仓、不进总市值。
+            # ⚠️ 前端做环形图时必须用 `cash_like_in_positions_amount`（两片之和 = 总市值），
+            # 用 `cash_like_amount` 会把账外那部分减两遍、把「投资资产」算成负数（#1606）。
+            'cash_like_in_positions_amount': round(money_fund_amount, 2),
+            'orphan_amount': round(orphan_amount, 2),
+            # 孤儿流水里的渠道收益桶（#863 D1）：它同样不建持仓，但**已计入家庭总资产**，
+            # 故与本金净额分开列——两者相加才是「账外类现金」在总资产里的全部贡献。
+            'orphan_income_amount': round(Money.cents_to_yuan(income_cents), 2),
+            'account_cash_amount': round(cash_amount, 2),
+            'cash_like_breakdown': items,
         }
 
     @staticmethod
@@ -390,7 +426,8 @@ class LedgerService:
             .scalar()
         )
         # 2. 理财/基金持仓
-        positions = db.query(Position).filter(Position.ledger_id == ledger_id).all()
+        # 已清仓行保留在表里但份额为 0，不能进「当前持仓 / 市值」口径（#2343）
+        positions = exclude_cleared(db.query(Position).filter(Position.ledger_id == ledger_id)).all()
         fund_mv = sum(Money.multiply_price_quantity(p.current_price, p.quantity) for p in positions)
         total_balance = current_amount + fund_mv
 
@@ -477,7 +514,7 @@ class LedgerService:
         注意：total_mv_cents 汇总保持账本全量口径（账户级总市值基线），
         不随搜索过滤——搜索只影响列表行，不动汇总分母。
         """
-        query = db.query(Position).filter(Position.ledger_id == ledger_id)
+        query = exclude_cleared(db.query(Position).filter(Position.ledger_id == ledger_id))
         if search:
             like = f'%{search}%'
             query = query.filter(or_(Position.name.ilike(like), Position.symbol.ilike(like)))
@@ -537,11 +574,15 @@ class LedgerService:
             # 价格时点（#2140）：基金行取**实际采用**的最新净值日（与 eff_price 同源）；
             # 其余类型或基金无净值回退快照时，取 22:15 回写的 positions.price_date；
             # 都没有则 None（前端 tooltip 容错省略，不编日期）
+            # settled_today（#2210）：与 price_date **同源**（同一 date 对象）判定「已定型」——
+            # 若拿 isoformat 字符串去比就是另起一套口径，故在此收口前判。
             nav_entry = latest_navs.get(p.symbol) if p.asset_type == 'fund' and p.symbol else None
             if nav_entry and nav_entry[0] > 0:
-                price_date = nav_entry[1].isoformat() if nav_entry[1] else None
+                price_date_obj = nav_entry[1]
             else:
-                price_date = p.price_date.isoformat() if p.price_date else None
+                price_date_obj = p.price_date
+            price_date = price_date_obj.isoformat() if price_date_obj else None
+            settled_today = is_settled_today(price_date_obj)
 
             items.append(
                 {
@@ -559,6 +600,8 @@ class LedgerService:
                     'current_price': Money.price_units_to_yuan(eff_price),
                     # 价格时点（#2140）：已确认口径的「截至日期」，前端 tooltip 消费
                     'price_date': price_date,
+                    # 当日已定型（#2210）：与 price_date 同源判定，true=估值副行冗余（前端隐藏）
+                    'settled_today': settled_today,
                     # 持有时长（天）：基于首次建仓确认日，无确认日返回 None（#862）
                     'holding_days': (today_shanghai() - p.confirm_date).days if p.confirm_date else None,
                     'allocation': p.allocation,
@@ -594,6 +637,9 @@ class LedgerService:
             .all()
         )
 
+        # #2372：position_name 快照漏写时按 position_id/symbol 回解析，不直接显示「未知资产」
+        pos_names, _ledger_names = resolve_transaction_display_names(db, txn_list)
+
         items = []
         for t in txn_list:
             items.append(
@@ -603,7 +649,7 @@ class LedgerService:
                     'trade_date': t.trade_date.isoformat() if t.trade_date else None,
                     'txn_type': t.txn_type,
                     'asset_type': t.asset_type,
-                    'position_name': t.position_name or '未知资产',
+                    'position_name': t.position_name or pos_names.get(t.id) or '未知资产',
                     'symbol': t.symbol or '',
                     'price': Money.price_units_to_yuan(t.price),
                     'quantity': Money.min_unit_to_shares(t.quantity),

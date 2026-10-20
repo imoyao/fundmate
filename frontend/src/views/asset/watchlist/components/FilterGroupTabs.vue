@@ -92,22 +92,27 @@ function updateGroupFade() {
     showGroupFade.value = false;
     return;
   }
-  // 单行检测：与相邻类型胶囊容器比较 offsetTop，若差值 > 2px 即视为已拆行（两行布局）
-  const parent =
-    el.closest(".filter-bar__center") || el.parentElement?.parentElement;
+  // 单行检测：与相邻类型胶囊容器比较垂直中心，若差值 > 2px 即视为已拆行（两行布局）。
+  // #2329：① 选择器由 `.filter-bar__center` 更正为真实存在的 `.filter-row`——该 class
+  //   早已改名为 .filter-row，此前 closest() 恒为 null、一直在走 parentElement 兜底；
+  // ② 比较量由 offsetTop 改为**垂直中心**：`align-items: center` 下不同高度子项即使
+  //   同行也有不同 top，用 offsetTop 判同线会在单行时误判成拆行、错误关掉渐隐遮罩。
+  const parent = el.closest(".filter-row");
   if (parent) {
     const quickPills = parent.querySelector(".quick-pills-wrap");
-    if (
-      quickPills &&
-      Math.abs(
-        el.getBoundingClientRect().top - quickPills.getBoundingClientRect().top
-      ) > 2
-    ) {
+    if (quickPills && Math.abs(centerY(el) - centerY(quickPills)) > 2) {
       showGroupFade.value = false; // 已拆行，隐藏遮罩
       return;
     }
   }
   showGroupFade.value = true;
+}
+
+/** 元素垂直中心（判「是否同一条 flex 线」用，勿用 offsetTop——见 updateGroupFade 注释）
+ *  参数收 Element 而非 HTMLElement：querySelector 的返回类型是 Element | null */
+function centerY(el: Element): number {
+  const r = el.getBoundingClientRect();
+  return r.top + r.height / 2;
 }
 
 /** 滚轮横滑：仅当分组区确有溢出时拦截纵向滚轮转为横向，避免干扰行内其它滚动。
@@ -147,16 +152,26 @@ watch(
 /* 分组区外框：持有 flex 弹性与最小宽度，承载内层滚动区与右缘遮罩。
    min-width 保证分组区不被右侧操作区挤没（#1281 第四轮：本行多了搜索框与按钮组，
    极端窄屏下宁可让整行换行，也要给分组 tab 留 120px 可见区）。
-   #2199 布局争夺：本区与类型快捷胶囊区（QuickTypePills 的 .quick-pills-wrap）
-   并列为两个弹性区，flex/上限规格保持一致——flex:1 1 auto 让不打架时按内容宽
-   排布，max-width:50% 保证打架时两区各限约一半、各自横滑兜底；
-   右侧操作段（.filter-bar__right）flex-shrink:0 固定，不参与争夺。 */
+
+   #2329 换行根修：flex-basis 由 auto 改 0（此前 `flex: 1 1 auto` + `max-width: 50%`）。
+   - 原因：`flex-wrap: wrap` 的换行判定发生在**收缩之前**——flexbox 先按每个 item 的
+     hypothetical size（= flex-basis 按 min/max 夹紧后的值）决定放哪一行，放不下就换行，
+     压根不会先尝试收缩。而 `flex-basis: auto` ⇒ hypothetical size = **内容宽**，
+     于是判定条件成了「两区内容宽 + 右段 > 容器宽」。加上两区各 `max-width: 50%`
+     把它们钉成各占一半，合计 100% 再加右段 206px ⇒ **必然溢出、必然换行**
+     （实测容器 1568→528px 全宽度区间稳定两行，与用户截图一致）。
+   - 改法：basis 归零 ⇒ hypothetical 恒为 0，换行判定永不成立；剩余空间由
+     flex-grow 按 3:2 分给分组区与品类区（本区 3 份：分组是主导航、项更宽），
+     内容超出交给内层 `overflow-x: auto` 横滑兜底（滚轮手势 + 右缘渐隐已具备）。
+   - `min-width: 120px` 保底**保留**：容器窄到连两个 120px 保底 + 右段都放不下时
+     （实测 < 约 470px），flex-wrap 仍会换行——#1281「宁可换行也不挤没分组」的兜底不受影响。
+   - 不可改回 `max-width` 上限：两区同为一个上限时，合计必然占满 100%，
+     这正是换行的直接成因。 */
 .group-tabs-wrap {
   position: relative;
   display: flex;
-  flex: 1 1 auto;
+  flex: 3 1 0%;
   min-width: 120px;
-  max-width: 50%;
 }
 
 /* 分组区横滑容器。
@@ -240,7 +255,7 @@ watch(
 }
 
 .group-tab-count {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary-ink);
 }

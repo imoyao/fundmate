@@ -46,7 +46,7 @@ defineOptions({ name: "PnlCalendarCaliberIcon" });
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
+  font-size: var(--text-body);
   color: var(--text-tertiary-ink);
   cursor: help;
   transition: color 0.15s ease;

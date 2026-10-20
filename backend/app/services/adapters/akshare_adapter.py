@@ -849,13 +849,56 @@ class AkshareAdapter(DataSourceAdapter):
         except (TypeError, ValueError):
             return 0.0
 
+    # 基金分红指标的正则：「每10份派现金0.0500元」→ 0.05（每份）。
+    # 上游把口径写进**字符串**而不是数值列，故只能解析；解析失败必须返回 None
+    # 让调用方跳过该事件，**绝不能当成 0**——0 会在下游被当成「不分红」静默丢弃。
+    _FUND_DIV_PER_SHARE_RE = re.compile(r'派(?:发现金|现金|发)?([\d.]+)元')
+    # 股票配股比例：「10配3.0」→ 每 10 股配 3 股
+    _RIGHTS_RATIO_RE = re.compile(r'10\s*配\s*([\d.]+)')
+
+    @classmethod
+    def _parse_fund_div_per_share(cls, text) -> Optional[float]:
+        """「每10份派现金0.0500元」→ 0.05（每份分红，元）。解析不出来返回 None。"""
+        if text is None:
+            return None
+        m = cls._FUND_DIV_PER_SHARE_RE.search(str(text))
+        if not m:
+            return None
+        try:
+            return float(m.group(1)) / 10.0
+        except ValueError:
+            return None
+
+    @classmethod
+    def _parse_rights_ratio(cls, text) -> Optional[float]:
+        """「10配3.0」→ 3.0（每 10 股可配股数）。解析不出来返回 None。"""
+        if text is None:
+            return None
+        m = cls._RIGHTS_RATIO_RE.search(str(text).replace(' ', ''))
+        if not m:
+            return None
+        try:
+            return float(m.group(1))
+        except ValueError:
+            return None
+
     def fetch_stock_dividend(self, symbol: str) -> List[dict]:
-        """股票分红/送股实施方案（ak.stock_dividend_cninfo）。"""
+        """股票分红/送转实施方案（ak.stock_dividend_cninfo）。
+
+        一条方案可能**同时**含派息与送转（「10送3股派0.6元」实测常见），故这里不再
+        折算成一个 ratio 组，而是把它拆成 `cash_ratio` / `bonus_ratio` /
+        `transfer_ratio` 三个独立比例原样带出，由 job 决定拆几条流水（#541）。
+        """
         from app.core.akshare_lazy import get_akshare
 
         ak = get_akshare()
+        # 巨潮接口只认**裸 6 位码**：传 `SH600000` 会返回一张缺列的空表，
+        # 报错还写成 `'实施方案公告日期'`（KeyError），完全指不到「代码带了前缀」这个真因
+        # ——#541 实测踩到，表现为「这只股票的历年分红一条都抓不到」。
+        bare_code = str(symbol or '').strip().upper()
+        bare_code = bare_code[2:] if bare_code[:2] in ('SH', 'SZ', 'BJ') else bare_code
         try:
-            df = ak.stock_dividend_cninfo(symbol=symbol)
+            df = ak.stock_dividend_cninfo(symbol=bare_code)
             if df is None or df.empty:
                 return []
             normalizer = get_normalizer()
@@ -865,13 +908,19 @@ class AkshareAdapter(DataSourceAdapter):
                 ex_date = self._parse_dividend_date(row.get('除权日'))
                 if not ex_date:
                     continue
+                bonus = self._to_ratio(row.get('送股比例'))
+                transfer = self._to_ratio(row.get('转增比例'))
+                cash = self._to_ratio(row.get('派息比例'))
+                if bonus <= 0 and transfer <= 0 and cash <= 0:
+                    # 三项全空 = 这一行没有可记账内容（股改分红等），别落一条 0 值流水
+                    continue
                 out.append(
                     {
                         'symbol': norm or symbol,
                         'dividend_type': str(row.get('分红类型', '')),
-                        'bonus_ratio': self._to_ratio(row.get('送股比例')),
-                        'transfer_ratio': self._to_ratio(row.get('转增比例')),
-                        'cash_ratio': self._to_ratio(row.get('派息比例')),
+                        'bonus_ratio': bonus,
+                        'transfer_ratio': transfer,
+                        'cash_ratio': cash,
                         'regist_date': self._parse_dividend_date(row.get('股权登记日')),
                         'ex_date': ex_date,
                         'pay_date': self._parse_dividend_date(row.get('派息日')),
@@ -886,31 +935,127 @@ class AkshareAdapter(DataSourceAdapter):
             return []
 
     def fetch_fund_dividend(self, fund_code: str) -> List[dict]:
-        """基金分红公告（ak.fund_announcement_dividend_em）。"""
+        """基金分红送配详情（ak.fund_open_fund_info_em，indicator='分红送配详情'）。
+
+        为什么换源（#541）：原先用的 `fund_announcement_dividend_em` 只给**公告日期 + 标题**，
+        既无除息日也无每份分红额，下游 `amount=0` 被导入校验剔除——基金分红一条都到不了库。
+        本接口给「权益登记日 / 除息日 / 每10份分红 / 发放日」，可按份额算出真实金额。
+        """
         from app.core.akshare_lazy import get_akshare
 
         ak = get_akshare()
         try:
-            df = ak.fund_announcement_dividend_em(symbol=fund_code)
-            if df is None or df.empty:
+            df = ak.fund_open_fund_info_em(symbol=fund_code, indicator='分红送配详情')
+            if df is None or df.empty or '除息日' not in df.columns:
                 return []
             out = []
             for _, row in df.iterrows():
-                d = self._parse_dividend_date(row.get('公告日期'))
-                if not d:
+                per_share = self._parse_fund_div_per_share(row.get('每10份分红'))
+                if per_share is None or per_share <= 0:
+                    # 解析不出每份分红 → 跳过：落 0 金额流水等于假数据（见同名回归用例）
+                    self.logger.debug(f'基金 {fund_code} 分红无每份金额，跳过: {row.get("每10份分红")}')
+                    continue
+                ex_date = self._parse_dividend_date(row.get('除息日')) or self._parse_dividend_date(
+                    row.get('权益登记日')
+                )
+                if not ex_date:
                     continue
                 out.append(
                     {
                         'symbol': fund_code,
-                        'ann_title': str(row.get('公告标题', '')),
-                        'ann_date': d,
-                        'report_id': str(row.get('报告ID', '')),
-                        'source': 'akshare_fund_ann',
+                        'ex_date': ex_date,
+                        'regist_date': self._parse_dividend_date(row.get('权益登记日')),
+                        'pay_date': self._parse_dividend_date(row.get('分红发放日')),
+                        'per_share': per_share,
+                        'desc': str(row.get('每10份分红', '')),
+                        'source': 'akshare_fund_fh',
                     }
                 )
             return out
         except Exception as e:
-            self.logger.error(f'获取基金 {fund_code} 分红公告失败: {e}')
+            self.logger.error(f'获取基金 {fund_code} 分红失败: {e}')
+            return []
+
+    def fetch_fund_split(self, fund_code: str) -> List[dict]:
+        """基金拆分（ak.fund_open_fund_info_em，indicator='基金拆分'）。
+
+        拆分与分红是两件事：分红是现金落袋，拆分是份额按比例放大、净值同比例缩小
+        （成本不变）。落库走 `split`（零成本份额增加），与送股同口径。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.fund_open_fund_info_em(symbol=fund_code, indicator='基金拆分')
+            if df is None or df.empty or '拆分折算日' not in df.columns:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                d = self._parse_dividend_date(row.get('拆分折算日'))
+                ratio = self._to_ratio(row.get('拆分折算比例'))
+                if not d or ratio <= 0:
+                    continue
+                out.append(
+                    {
+                        'symbol': fund_code,
+                        'ex_date': d,
+                        'split_ratio': ratio,  # 每 1 份 → ratio 份
+                        'desc': f'基金拆分 1:{ratio}',
+                        'source': 'akshare_fund_split',
+                    }
+                )
+            return out
+        except Exception as e:
+            self.logger.error(f'获取基金 {fund_code} 拆分失败: {e}')
+            return []
+
+    def fetch_stock_rights_issue(self, symbols: Optional[List[str]] = None) -> List[dict]:
+        """配股方案（ak.stock_pg_em，单次返回全市场全历史）。
+
+        一次请求拿全市场，故**必须由调用方按持仓过滤**（数据策略：抓取目标池显式）。
+        返回项含「配股比例 / 配股价 / 股权登记日 / 缴款起止 / 上市日」——这四项正好够
+        算出「该缴多少钱」与「该到多少股」，无需再找第二源。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.stock_pg_em()
+            if df is None or df.empty:
+                return []
+            wanted = {str(s).strip() for s in symbols} if symbols else None
+            normalizer = get_normalizer()
+            out = []
+            for _, row in df.iterrows():
+                code = str(row.get('股票代码', '')).strip()
+                if not code:
+                    continue
+                if wanted is not None and code not in wanted and f'{code}' not in {w[-6:] for w in wanted}:
+                    continue
+                ratio = self._parse_rights_ratio(row.get('配股比例'))
+                price = self._to_ratio(row.get('配股价'))
+                regist = self._parse_dividend_date(row.get('股权登记日'))
+                if not ratio or not price or not regist:
+                    # 三项缺一都无法算出缴款金额，跳过——宁可漏记也不写猜出来的数字
+                    continue
+                norm, _, _ = normalizer.normalize(code)
+                out.append(
+                    {
+                        'symbol': norm or code,
+                        'name': str(row.get('股票简称', '')),
+                        'rights_ratio': ratio,  # 每 10 股配 ratio 股
+                        'rights_price': price,  # 配股价（元/股）
+                        'regist_date': regist,
+                        'pay_start': self._parse_dividend_date(row.get('缴款起始日期')),
+                        'pay_end': self._parse_dividend_date(row.get('缴款截止日期')),
+                        'list_date': self._parse_dividend_date(row.get('上市日')),
+                        'desc': f'10配{ratio}，配股价{price}元',
+                        'source': 'akshare_pg',
+                    }
+                )
+            return out
+        except Exception as e:
+            self.logger.error(f'获取配股方案失败: {e}')
             return []
 
     # ── 基金规模 / 近似股票仓位（#1286 数据底座，复用 akshare 现成接口） ──

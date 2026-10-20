@@ -12,14 +12,13 @@
 import time
 import traceback
 from datetime import date
-from decimal import Decimal
 from typing import Any, Dict, List
 
 from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.core.time_utils import now_shanghai
-from app.domains.funds.models import FeeRatio, Fund, FundType, PurchaseRule, RedeemRule
+from app.domains.funds.models import Fund, FundType
 from app.services.fund_service import FundService
 from app.services.job_base import BATCH_SIZE_DETAIL_ENRICH, JobStatus, SyncJob
 from app.services.sync.company_resolver import get_or_create_fund_company
@@ -56,7 +55,7 @@ class FundDetailEnrichJob(SyncJob):
         self._pre_run()
         self.logger.info('开始补充基金详情')
 
-        self.stats = {'enriched': 0, 'skipped': 0, 'errors': []}
+        self.stats = {'enriched': 0, 'skipped': 0, 'not_found': [], 'fee_refused': [], 'errors': []}
 
         if not targets:
             self.logger.info('无基金需要补充详情')
@@ -74,6 +73,11 @@ class FundDetailEnrichJob(SyncJob):
                 try:
                     fund = self.db.query(Fund).filter_by(fund_code=code).first()
                     if not fund:
+                        # 目标代码在库里不存在 → 必须显式记账。旧写法是静默 continue，
+                        # 于是「一个都没匹配上」会跑成 enriched 0 / skipped 0 / errors 0
+                        # 的假成功（2026-10-18 实测：指向了另一个库时整轮静默空跑）。
+                        # 空 ≠ 没拿到：拿不到就得说拿不到。
+                        self.stats['not_found'].append(code)
                         continue
                     # 今日已处理则跳过
                     if fund.last_nav_check and fund.last_nav_check.date() == date.today():
@@ -88,10 +92,14 @@ class FundDetailEnrichJob(SyncJob):
                     self._update_fund_basics(fund, akshare_detail)
                     # 更新费率
                     try:
-                        self._update_fund_fees(code, xalpha_fee)
+                        refused = self._update_fund_fees(code, xalpha_fee)
                     except Exception as e:
                         logger.warning(f'更新基金 {code} 费率失败: {e}\n{traceback.format_exc()}')
                     else:  # ✅ 只有没报错，才执行这行统计和标记
+                        if refused == 'fee_refused':
+                            # 拒写不是失败（刻意保住了旧数据），但也**不是**成功——
+                            # 混进 enriched 就等于把「这只的费率没更新」藏起来
+                            self.stats['fee_refused'].append(code)
                         fund.last_nav_check = now_shanghai()
                         self.stats['enriched'] += 1
 
@@ -117,11 +125,41 @@ class FundDetailEnrichJob(SyncJob):
             time.sleep(1)  # 避免请求过快
 
         self._post_run()
+        # 目标一个都没匹配上：判 FAILED。「跑完了」不等于「做对了」——旧实现这里静默成功，
+        # 而调用方（含 get_last_sync_time 的增量基线）会把假成功当依据。
+        all_targets_missing = bool(self.stats['not_found']) and not (self.stats['enriched'] or self.stats['skipped'])
+        if all_targets_missing:
+            sample = ', '.join(self.stats['not_found'][:10])
+            logger.error(
+                f'{len(self.stats["not_found"])} 个目标代码在 funds 表里全部找不到'
+                f'（样本: {sample}）——本轮什么也没做。请确认目标是已入库基金，'
+                f'且连接的是预期数据库。'
+            )
+            self.stats['errors'].append(
+                {
+                    'stage': 'resolve_targets',
+                    'error': f'{len(self.stats["not_found"])} 个目标代码在 funds 表里不存在',
+                }
+            )
+        elif self.stats['not_found']:
+            logger.warning(
+                f'{len(self.stats["not_found"])} 个目标代码在 funds 表里不存在，已跳过'
+                f'（样本: {", ".join(self.stats["not_found"][:10])}）'
+            )
+        if self.stats['fee_refused']:
+            # 拒写= 保住旧数据而不是写入新数据，需要被看见：否则费率会停在错误值上，
+            # 而日志只显示 enriched=N，看不出其中有多少根本没更新
+            logger.warning(
+                f'{len(self.stats["fee_refused"])} 只基金的赎回费率阶梯结构非法被拒写'
+                f'（既有费率保持不变，需修好上游解析后重跑修复）'
+                f'（样本: {", ".join(self.stats["fee_refused"][:10])}）'
+            )
         # 有 errors 就判 FAILED：不能一边记录错误一边宣称成功（#1833）
         self.status = JobStatus.FAILED if self.stats.get('errors') else JobStatus.SUCCESS
         self.logger.info(
             f'基金详情补充完成: 新增 {self.stats["enriched"]}, '
-            f'跳过 {self.stats["skipped"]}, 错误 {len(self.stats["errors"])}'
+            f'跳过 {self.stats["skipped"]}, 未匹配 {len(self.stats["not_found"])}, '
+            f'费率拒写 {len(self.stats["fee_refused"])}, 错误 {len(self.stats["errors"])}'
         )
         return self._build_result()
 
@@ -190,110 +228,45 @@ class FundDetailEnrichJob(SyncJob):
 
     # ── 费率更新 ──
 
-    def _update_fund_fees(self, fund_code: str, fee_info: Dict[str, Any]) -> None:
-        """根据 xalpha 返回的费率信息创建/关联费率规则"""
+    def _update_fund_fees(self, fund_code: str, fee_info: Dict[str, Any]) -> str:
+        """按上游费率信息**镜像**更新 fee_ratios（申购 + 赎回）。
+
+        全部委托 `FundService.apply_purchase_fee` / `apply_redeem_schedule`——结构校验
+        （阶梯非法即拒写）、upsert（费率变了要能改回来）、删除上游已不存在的档位，
+        三件事都在那一处实现。
+
+        本文件此前**自己抄了一份**写入逻辑，与 `FundService.sync_fund_fees` 各改各的：
+        两份实现都只有「查不到才插」，于是解析缺陷写进去的错误费率没有任何路径会
+        自愈（2026-10-18 查实：本机 334 只基金的赎回阶梯结构已损坏）。
+
+        返回 ``'fee_refused'`` 表示阶梯结构非法、**被拒写**（库内既有数据保持不动）。
+        调用方必须把它单独记账：拒写是刻意保数据，不是「这只处理成功了」——旧实现
+        只 warning 不抛异常，于是 `enriched` 把被拒的基金也算成功，日志里
+        `enriched=100` 混着 29 只拒写，看日志的人完全看不出来。
+        """
         if not fee_info:
-            return
+            return 'ok'
 
         # 费率币种：按基金份额名称特征推导（无结构化币种字段可依赖）
         fund = self.db.query(Fund).filter_by(fund_code=fund_code).first()
         currency = FundService.infer_fund_currency(full_name=fund.full_name, name=fund.name) if fund else 'CNY'
 
-        # 申购费率
-        purchase_rate = fee_info.get('purchase_rate')
-        if purchase_rate is not None:
-            self._save_single_fee(
-                fund_code, 'purchase', rate=purchase_rate, start_quota=0, end_quota=None, currency=currency
-            )
+        FundService.apply_purchase_fee(self.db, fund_code, fee_info.get('purchase_rate'), currency)
 
-        # 🔥 关键修复：赎回费率阶梯可能是多个对象的列表，必须循环保存
         redemption_schedule = fee_info.get('redemption_schedule', [])
         if isinstance(redemption_schedule, list):
-            for item in redemption_schedule:
-                if isinstance(item, dict):  # 确保只处理字典类型的费率数据
-                    self._save_single_fee(
-                        fund_code,
-                        'redeem',
-                        rate=item.get('rate'),
-                        start_day=item.get('start_day'),
-                        end_day=item.get('end_day'),
-                        currency=currency,
-                    )
-
-    def _save_single_fee(self, fund_code: str, fee_type: str, **kwargs) -> None:
-        """保存单条费率记录，自动复用已有规则
-
-        上游数据为百分数（如 1.5），需转为小数（0.015）存入 Decimal 列。
-        """
-        rate_raw = kwargs.get('rate')
-        fee_amount_raw = kwargs.get('fee_amount')
-
-        # ── 安全的 rate 转换 (小数) ──
-        safe_rate = None
-        if rate_raw is not None:
-            try:
-                # 先转为 Decimal，再除以 100 得到小数
-                safe_rate = Decimal(str(rate_raw)) / Decimal('100')
-            except Exception:
-                safe_rate = Decimal('0')
-
-        # ── 安全的 fee_amount 转换 ──
-        safe_fee_amount = None
-        if fee_amount_raw is not None:
-            try:
-                safe_fee_amount = int(fee_amount_raw)  # Integer 列
-            except (ValueError, TypeError):
-                safe_fee_amount = None
-
-        # 复用或创建规则
-        if fee_type == 'purchase':
-            rule = self._get_or_create_purchase_rule(kwargs.get('start_quota', 0), kwargs.get('end_quota'))
-            purchase_rule_id = rule.id if rule else None
-            redeem_rule_id = None
-        else:
-            rule = self._get_or_create_redeem_rule(kwargs.get('start_day', 0), kwargs.get('end_day'))
-            purchase_rule_id = None
-            redeem_rule_id = rule.id if rule else None
-
-        # 查重
-        existing = (
-            self.db.query(FeeRatio)
-            .filter_by(
-                fund_code=fund_code,
-                fee_type=fee_type,
-                purchase_rule_id=purchase_rule_id,
-                redeem_rule_id=redeem_rule_id,
+            outcome = FundService.apply_redeem_schedule(
+                self.db,
+                fund_code,
+                [item for item in redemption_schedule if isinstance(item, dict)],
+                currency,
             )
-            .first()
-        )
-
-        if not existing:
-            fee_ratio = FeeRatio(
-                fund_code=fund_code,
-                fee_type=fee_type,
-                rate=safe_rate,  # Decimal 小数
-                fee_amount=safe_fee_amount,
-                currency=kwargs.get('currency', 'CNY'),
-                purchase_rule_id=purchase_rule_id,
-                redeem_rule_id=redeem_rule_id,
-            )
-            self.db.add(fee_ratio)
-
-    def _get_or_create_purchase_rule(self, start_quota: float, end_quota: float = None):
-        rule = self.db.query(PurchaseRule).filter_by(start_quota=start_quota, end_quota=end_quota).first()
-        if not rule:
-            rule = PurchaseRule(start_quota=start_quota, end_quota=end_quota)
-            self.db.add(rule)
-            self.db.flush()
-        return rule
-
-    def _get_or_create_redeem_rule(self, start_day: int, end_day: int = None):
-        rule = self.db.query(RedeemRule).filter_by(start_day=start_day, end_day=end_day).first()
-        if not rule:
-            rule = RedeemRule(start_day=start_day, end_day=end_day)
-            self.db.add(rule)
-            self.db.flush()
-        return rule
+            if outcome.get('skipped'):
+                logger.warning(
+                    f'基金 {fund_code} 赎回费率阶梯结构非法，已拒写（既有数据不动）: ' + '; '.join(outcome['skipped'])
+                )
+                return 'fee_refused'
+        return 'ok'
 
     def _get_or_create_company(self, company_name: str) -> int:
         # 唯一写入口（company_resolver）：归一化匹配既有行，杜绝为同一主体建第二行

@@ -140,7 +140,7 @@ const router = useRouter();
       cursor: pointer;
 
       p {
-        font-size: 14px;
+        font-size: var(--text-small);
       }
 
       /* 头像外框：品牌 n=3 超椭圆（Superellipse 组件承载，勿改回 border-radius 圆形） */

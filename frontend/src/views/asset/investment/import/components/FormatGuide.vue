@@ -36,13 +36,13 @@ const { formatGuides, selectedMode } = useImportWizardContext();
   gap: 6px;
   align-items: center;
   margin-bottom: 16px;
-  font-size: 15px;
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .format-guide-icon {
-  font-size: 18px;
+  font-size: var(--text-num-strong);
   color: var(--color-primary-ink);
 }
 
@@ -57,7 +57,7 @@ const { formatGuides, selectedMode } = useImportWizardContext();
   display: flex;
   align-items: baseline;
   margin-bottom: 16px;
-  font-size: 13px;
+  font-size: var(--text-label);
   line-height: 1.6;
   color: var(--text-secondary);
   counter-increment: step-counter;

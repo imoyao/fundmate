@@ -13,6 +13,7 @@ import {
 } from "@/utils/valuationEngine";
 import { http } from "@/utils/http";
 import { formatDate } from "@/utils/date";
+import { shouldFetchRealtimeQuotes } from "@/utils/marketHours";
 
 const STORAGE_KEY = "duoduobei_realtime_quotes_enabled";
 const REFRESH_INTERVAL_KEY = "duoduobei_realtime_quotes_interval";
@@ -145,33 +146,71 @@ export function useRealtimeQuotes(
   // 与 realtimeDataSources.isToday 的修复保持一致；统一走公共 formatDate。
   const localDateStr = (d: Date): string => formatDate(d);
 
-  const isTradingDay = async (): Promise<boolean> => {
+  /**
+   * 交易日/时段判定结果缓存（#2338）：避免同一天内重复请求交易日历接口。
+   * key = YYYY-MM-DD，value = { isTradingDay: boolean; timestamp: number }
+   * TTL = 当日 23:59 过期（跨天自然失效）。
+   */
+  const tradingDayCache = new Map<
+    string,
+    {
+      isTradingDay: boolean;
+      timestamp: number;
+    }
+  >();
+
+  /**
+   * 获取交易日判定（带缓存）。
+   * 成功时写入缓存；失败时不写缓存（下次重试），保守返回 false。
+   */
+  const getTradingDayStatus = async (dateStr: string): Promise<boolean> => {
+    const cached = tradingDayCache.get(dateStr);
+    if (cached) return cached.isTradingDay;
+
     try {
-      const today = localDateStr(new Date());
-      const res = await http.get(`/api/utils/trading-days/${today}/`);
-      return (res as any)?.data?.is_trading_day === true;
+      const res = await http.get(`/api/utils/trading-days/${dateStr}/`);
+      const isTd = (res as any)?.data?.is_trading_day === true;
+      tradingDayCache.set(dateStr, {
+        isTradingDay: isTd,
+        timestamp: Date.now()
+      });
+      return isTd;
     } catch {
-      const day = new Date().getDay();
-      return day !== 0 && day !== 6;
+      // 接口失败：不写缓存，保守返回 false（避免把休市日误判为交易日）
+      return false;
     }
   };
 
-  // 按当前档位启动盘中轮询（tick 内自行判断收盘/休市并停止）
+  /**
+   * 统一的「能否取数」门控（#2338 A判据）：
+   * - 非交易日（含法定假日）不可取
+   * - 交易日但非交易时段（9:30-15:00）不可取
+   * - 交易日历接口失败时**不把工作日当交易日**（保守策略：返回 false，
+   *   避免接口抖动把休市日误判为交易日导致空跑）
+   *
+   * 供 start() / manualRefresh() / schedulePolling tick 共用，保证所有入口
+   * 的休市判断口径完全一致（#2338 根因正是四条路径各自判断、口径不一）。
+   */
+  const canFetch = async (): Promise<boolean> => {
+    const today = localDateStr(new Date());
+    const isTd = await getTradingDayStatus(today);
+    // 时段判定走 utils/marketHours 的纯函数：与单测同源，避免本文件再长一份
+    // 内联的小时判断（#2338 的四条绕过路径就是各写一份写歪的）。
+    return shouldFetchRealtimeQuotes({ now: new Date(), isTradingDay: isTd });
+  };
+
+  const isTradingDay = async (): Promise<boolean> => {
+    const today = localDateStr(new Date());
+    return getTradingDayStatus(today);
+  };
+
+  // 按当前档位启动盘中轮询（tick 内自行判断交易日/时段并停止）
   const schedulePolling = () => {
     stopPolling();
     timer = window.setInterval(async () => {
-      const now = new Date();
-      const hour = now.getHours();
-      const minute = now.getMinutes();
-      const day = now.getDay();
-      if (
-        day === 0 ||
-        day === 6 ||
-        hour >= 15 ||
-        hour < 9 ||
-        (hour === 9 && minute < 30)
-      ) {
-        // 收盘/休市：停止轮询并标记状态，但保留最近一次行情数据（收盘价 / 基金预估值）
+      // #2338：统一用 canFetch 门控，替代原有 inline 时间判断（它不查交易日历，
+      // 法定假日会被误判为交易日；且与 manualRefresh/start 口径不一）
+      if (!(await canFetch())) {
         stopPolling();
         status.value = "closed";
         return;
@@ -229,14 +268,13 @@ export function useRealtimeQuotes(
   const start = async () => {
     stopPolling();
 
-    await fetchAndUpdate();
-
-    const trading = await isTradingDay();
-    if (!trading) {
+    // #2338：先判能否取数，不能则直接返回（不启动轮询、不改 enabled）
+    if (!(await canFetch())) {
       status.value = "closed";
-      return; // 这里直接返回，不启动轮询，但绝不改变 enabled.value
+      return;
     }
 
+    await fetchAndUpdate();
     schedulePolling();
   };
 
@@ -251,6 +289,11 @@ export function useRealtimeQuotes(
 
   const manualRefresh = async () => {
     if (!enabled.value) return;
+    // #2338：手动刷新也要受休市闸门管制，避免休市日手动点击仍发请求
+    if (!(await canFetch())) {
+      status.value = "closed";
+      return;
+    }
     await fetchAndUpdate();
   };
 

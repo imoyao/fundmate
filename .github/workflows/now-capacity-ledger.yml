@@ -1,0 +1,88 @@
+# NOW 容量记账：Q1-RED 超上限时打「NOW-超额」标签，回落时自动撤掉
+#
+# 依据 AGENTS.md「优先级标签（Q1-RED）」与 2026-10-19 治理诊断。
+#
+# ## 这个工作流「不做什么」比「做什么」更重要
+#
+# 它**不拦截任何东西**。没有 `if: failure()`，没有评论催办，不阻断 PR。
+#
+# 上一版曾把它做成 PR 拦截（「本 PR 新增 Q1 且超容 → 红灯」），已废止。废止理由：
+#   那个判据的实际拦截面只有「PR 开着开着给卡提优先级」这一个动作，
+#   而真正的目标场景——**新提一张紧急卡**——完全不被它覆盖。
+#   一个看起来像闸门、实际不设防的东西比没有闸门更糟：owner 会以为这里有闸门。
+#
+#   而且即使把它做对了（真能拦住第 6 张 Q1），设计也是错的——
+#   发现生产事故 → 提卡 → 被拦 → 「先关一张再提」，这时候唯一能关的那张
+#   只能是「另一张同样紧急的」。于是它把资源排序决策强加在紧急时刻，
+#   并诱发绕行（先提普通卡再补标签 / 拆成两张卡），数据变脏而闸门形同虚设。
+#   **紧急性不是可以用配额排队的东西；容量上限挂在登记环节，惩罚的是做正确动作的人。**
+#
+# ## 那它做什么
+#
+# 让超容状态**持续可见，直到被还清**：
+#   - 超容时：每张 open Q1-RED 卡带 `NOW-超额` 标签（绑定到卡，不是匿名数字）；
+#   - 回落时：标签**自动撤掉**，不留「记得清一下」的维护债。
+#
+# 登记新紧急卡零摩擦——这与 owner 的既有习惯一致（发现就记 issue），不需要改。
+#
+# ## 触发时机：每日定时 + 手动
+#
+# 不订阅 issue 事件：`labeled` 事件驱动会在每次贴标签时跑一遍 API，
+# 而 Q1 变动是低频动作（治理诊断：30 天累计清零 305 张，日均个位数）。
+# 每日一次足够，且**漏跑一次的后果只是标签晚一天出现**，没有正确性风险。
+#
+# 为什么仍要有 workflow 而不是让 owner 手动跑：
+# 本轮治理的一条硬教训是 **写进 AGENTS.md 的软约束会被绕开**
+# （用户原话：「AI 有时候读到 Agent 的 MD 里面会去看，但有时候又会把这块绕开」）。
+# 记忆是最不可靠的一环，所以能自动结清的事就不该靠记得。
+
+name: NOW 容量记账
+
+on:
+  schedule:
+    # 每日 04:17 UTC（北京时间 12:17）。刻意不用整点：整点是全网定时任务最拥挤的时刻。
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+  # Q1 标签变动后立刻同步一次，省得等到第二天
+  issues:
+    types: [labeled, unlabeled, closed, reopened, transferred, deleted]
+
+permissions:
+  issues: write
+
+concurrency:
+  group: now-capacity-ledger
+  cancel-in-progress: false
+
+jobs:
+  ledger:
+    name: 标记 / 撤销 NOW-超额
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出守卫脚本（不检出业务代码）
+        uses: actions/checkout@v4
+        with:
+          # `schedule` 只读**默认分支（main）**上的 workflow 定义，而本仓活跃分支是 `dev`
+          # （`main` 只由发版 PR 推进，实测落后 `dev` 上百个提交）。不写这一行 ⇒ 每日跑的是
+          # 很久以前的 `scripts/guard_now_capacity.mjs`。判据 `guard_schedule_checkout_ref.py`。
+          ref: dev
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: false
+
+      - name: 容量记账（超容打标签，回落撤标签）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          node scripts/guard_now_capacity.mjs --apply
+
+      - name: 结果摘要
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "open Q1-RED 现状："
+          gh issue list --label Q1-RED --state open --limit 50 \
+            --json number,title,labels \
+            --jq '.[] | "  #\(.number)\t\(.title)\(if ([.labels[].name] | index("NOW-超额")) then "  [NOW-超额]" else "" end)"'

@@ -67,6 +67,12 @@ export interface Position {
   /** `current_price` 对应的交易日（`YYYY-MM-DD`）；`null` = 未知（#2007） */
   price_date?: string | null;
   /**
+   * 当日确认口径是否已定型（#2210）：true = `price_date` 即今天，「已确认」已是当日值，
+   * 展示层据此隐藏估值副行；`null` / 缺省 = 未知，不隐藏。
+   * **状态 = 后端字段契约**，前端禁止拿 `price_date` 与今天比对自行推断。
+   */
+  settled_today?: boolean | null;
+  /**
    * 持仓天数：后端 `PositionOut.holding_days` 的派生字段（#862）。
    * 此前前端类型漏声明，导致详情页「我的持仓」拿不到、也就一直没展示（#2005 补）。
    */
@@ -97,7 +103,10 @@ export interface PositionListResponse {
   message: string;
 }
 
-/** group_by=account 响应（对齐后端 { data: {账户名: [position_dict]}, message }） */
+/**
+ * group_by=account 响应（#2372：键为 ledger_id 字符串，"unfiled"=未归档持仓，
+ * 对齐后端 { data: {ledger_id: [position_dict]}, message }；账户名是可编辑字段，不做键）
+ */
 export interface PositionGroupedResponse {
   data: Record<string, Position[]>;
   message: string;

@@ -146,18 +146,103 @@ NEW_FILE_LIMITS = {
 # （用户私有偏好键值，#993 方案 B 跨设备同步）——视图侧只有「key 长度校验 + 调 ORM upsert +
 # JSON 文本↔对象转换 + 信封」，无业务规则可下沉（upsert 是唯一写语义，合并策略在前端）。
 # 按 `--report` 实测回写：lines 115 → 160、orm_queries 4 → 6（max_func / commits 不动）。
+# 2026-10-17 重取（#2272，**新增端点**，非放宽）：给 products 加 `GET /api/products/pro/`
+# （#994 Phase 1 接口骨架）——视图侧只有「parse_query + 调 services/product_pro_status +
+# 信封」，`orm_queries` / `commits` 仍为 **0**、`max_func` 不变（30）。骨架不查库（模块
+# 是否上线是发布状态而非用户数据），没有任何可下沉的业务规则；docstring 占比高是在写
+# 「为什么一期后端全开 / 为什么路径落 products 域」的决策，值得留。products 437 → 458。
+# 这是本文件 2026-10-16 升入存量冻结后的第一次生长，按自述通道 `--report` 实测回写。
+# 2026-10-17 重取（#2315，**新增端点**，非放宽）：给 summary 加 `GET /summary/cash-like/`
+# （持仓页「类现金」分组：账外货基/逆回购逐产品明细，跨账户按「账户 + 产品」归组）——
+# 视图侧只有「调 orphan_cash_like_payload + 组信封」，金额换算与合集合计全在 services，
+# `orm_queries` / `commits` 仍为 **0**、`max_func` 不变（31）。summary 229 → 245。
+# 按本文件既有先例以 `--report` 实测回写，非手工拍数。
+# 2026-10-17 再取（#2278，**新增端点**，非放宽）：给 products 加 `GET /api/products/index-returns/`
+# 与 `GET /api/products/index-weights/`（详情页指数区块：阶段性收益 + 十大权重）——视图侧
+# 只有「parse_query + 调 services/index_metrics + 信封」，与同族 index-profile 同款薄编排；
+# 名录查询（orm 的 query）在 service 内做（视图层零 db.query 红线不动），`orm_queries` /
+# `commits` 仍为 **0**、`max_func` 不变（30）。docstring 在写「数据链为何中证官网优先 /
+# 降级语义」的口径，值得留。products 458 → 502（`--report` 实测，其余三维不动）。
 BASELINE: dict[str, dict[str, int]] = {
-    "backend/app/domains/assets/views.py": {"lines": 208, "orm_queries": 4, "commits": 0, "max_func": 44},
-    "backend/app/domains/auth/views.py": {"lines": 137, "orm_queries": 3, "commits": 0, "max_func": 45},
-    "backend/app/domains/families/views.py": {"lines": 72, "orm_queries": 2, "commits": 0, "max_func": 22},
-    "backend/app/domains/funds/views.py": {"lines": 197, "orm_queries": 2, "commits": 0, "max_func": 39},
-    "backend/app/domains/importers/views.py": {"lines": 249, "orm_queries": 1, "commits": 0, "max_func": 53},
-    "backend/app/domains/ledgers/views.py": {"lines": 728, "orm_queries": 16, "commits": 0, "max_func": 60},
-    "backend/app/domains/market/views.py": {"lines": 37, "orm_queries": 0, "commits": 0, "max_func": 21},
-    "backend/app/domains/ocr/views.py": {"lines": 214, "orm_queries": 1, "commits": 0, "max_func": 48},
-    "backend/app/domains/performance/views.py": {"lines": 86, "orm_queries": 0, "commits": 0, "max_func": 31},
-    "backend/app/domains/portfolios/views.py": {"lines": 161, "orm_queries": 1, "commits": 0, "max_func": 25},
-    "backend/app/domains/positions/views.py": {"lines": 288, "orm_queries": 6, "commits": 0, "max_func": 57},
+    "backend/app/domains/assets/views.py": {
+        "lines": 208,
+        "orm_queries": 4,
+        "commits": 0,
+        "max_func": 44,
+    },
+    "backend/app/domains/auth/views.py": {
+        "lines": 137,
+        "orm_queries": 3,
+        "commits": 0,
+        "max_func": 45,
+    },
+    "backend/app/domains/families/views.py": {
+        "lines": 72,
+        "orm_queries": 2,
+        "commits": 0,
+        "max_func": 22,
+    },
+    "backend/app/domains/funds/views.py": {
+        "lines": 197,
+        "orm_queries": 2,
+        "commits": 0,
+        "max_func": 39,
+    },
+    "backend/app/domains/importers/views.py": {
+        "lines": 249,
+        "orm_queries": 1,
+        "commits": 0,
+        "max_func": 53,
+    },
+    "backend/app/domains/ledgers/views.py": {
+        "lines": 728,
+        "orm_queries": 16,
+        "commits": 0,
+        "max_func": 60,
+    },
+    "backend/app/domains/market/views.py": {
+        "lines": 37,
+        "orm_queries": 0,
+        "commits": 0,
+        "max_func": 21,
+    },
+    "backend/app/domains/ocr/views.py": {
+        "lines": 214,
+        "orm_queries": 1,
+        "commits": 0,
+        "max_func": 48,
+    },
+    "backend/app/domains/performance/views.py": {
+        "lines": 86,
+        "orm_queries": 0,
+        "commits": 0,
+        "max_func": 31,
+    },
+    "backend/app/domains/portfolios/views.py": {
+        "lines": 161,
+        "orm_queries": 1,
+        "commits": 0,
+        "max_func": 25,
+    },
+    # 2026-10-18 重取（#2326，**新增端点**，非放宽）：基金转换 P0/P1 落地——
+    # 试算 POST /api/positions/conversion/estimate/ 与提交 POST /api/positions/conversion/
+    # （设计 docs/working-notes/fund-conversion-design-2026-10-17.md）。视图侧只有
+    # 「parse_body + 调 conversion_service + 组信封」：业务校验 ValueError 与幂等
+    # SBException(1003/409) 均由全局异常处理器收敛，视图零 try/except；
+    # orm_queries / commits 不变（6/0）、max_func 不变（57）。positions 288 → 320。
+    # 按本文件既有先例以 `--report` 实测回写，非手工拍数。
+    # 2026-10-20 重取（#2372，**下沉**而非放宽）：持仓明细 / 删除的兜底流水匹配原按
+    # (symbol, account_name)——account_name 是可编辑快照，真库重名账户（支付宝×2 /
+    # 天天基金×2）下会把别家流水串进明细、甚至误删别家流水（删除不可恢复）。现下沉为
+    # `query_transactions_by_identity` 按 (ledger_id, symbol) 收敛，两处共用同一份判据；
+    # 视图层因此少了 2 处 `db.query(Transaction)` ⇒ orm_queries 6 → 4（**收紧**）。
+    # lines 320、commits 0、max_func 57 均不动。按本文件既有先例以 `--report` 实测回写。
+    "backend/app/domains/positions/views.py": {
+        "lines": 320,
+        "orm_queries": 4,
+        "commits": 0,
+        "max_func": 57,
+    },
     # 2026-10-16 升入存量冻结（#2255 收敛合并，**非放宽**）：CNB 侧 fund-risk 两端点
     # （fund-risk-ranking / fund-risk-types）随收敛移植进本文件（+43 行——两段视图全是
     # 「入参校验 + 调服务 + 信封」的纯编排，orm_queries / commits / max_func 三项实测不动），
@@ -166,19 +251,118 @@ BASELINE: dict[str, dict[str, int]] = {
     # （守卫正解「搬去 services」在本文件已无标的——每段都只剩薄编排）。按本脚本自述的通道
     # 「同时改 LEGACY_VIEWS + BASELINE + 过评审」升入存量冻结集（此后任何端点再生长都会被
     # 「只减不增」拦下），四维实测值取自 `--report`，非手工拍数。
-    "backend/app/domains/products/views.py": {"lines": 437, "orm_queries": 0, "commits": 0, "max_func": 30},
+    # 2026-10-17 重取（#2272 新增 pro 端点，详见上方 dated 条目）：437 → 458，其余三维不动。
+    # 2026-10-17 再取（#2278 新增 index-returns/index-weights 端点，详见上方 dated 条目）：458 → 502，其余三维不动。
+    # 2026-10-17 三取（#2275 新增 index-etf-compare 端点）：502 → 528，其余三维不动——
+    # 与同族端点一致的薄编排（入参解析 / 调服务 / 组响应），业务规则全部下沉 etf_compare.py。
+    # 2026-10-17 四取（#994 Phase 2 新增 pro-insight 端点）：528 → 548，其余三维不动——
+    # 同族薄编排，聚合逻辑全在 pro_insight.py。
+    # 查询口径全在 services/user_flags_for_codes），端点本身只多一行调用。
+    # orm_queries / commits 仍为 0、max_func 30 不动，唯 lines 548 → 570
+    # （+22：助手 10 行 + 两个入参透传 + import 多行展开）。按 `--report` 实测回写。
+    # 2026-10-17 六取（#994 Phase 2 **新增 pro-risk 端点**，非放宽）：给 products 加
+    # `GET /api/products/pro-risk/`（BIAS + 波动率 + VaR 聚合，计算全在
+    # `services/pro_risk.py` + `services/analytics/var.py`）——视图侧只有
+    # 「parse_query + get_db() + 调服务 + 信封」，570 → **610**（+40），
+    # `orm_queries` / `commits` 仍为 **0**、`max_func` 30 不动（口径与降级 reason
+    # 全在 services，无业务规则可下沉）。增量三处：新端点（含口径 docstring）+
+    # 两条 import + ValueError→400 防御
+    # （防空白/纯前缀 symbol 过 schema 后服务层归一为空时漏 500，与 index-returns
+    # 同族范式）；同卡顺手修 pro-insight 误用 `market_session_factory`（该端点经
+    # calculate_symbol_xirr 读 user 域表，双库生产必 500）→ 改路由会话 `get_db()`，
+    # 属「接线修正」不推高 max_func。按本文件既有先例以 `--report` 实测回写。
+    # 2026-10-18 七取（#994 Phase 2 **新增 pro-allocation 端点**，非放宽）：给 products
+    # 加 `GET /api/products/pro-allocation/`（当前标的 vs 家庭持仓相关性，聚合在
+    # `services/pro_allocation.py`、计算全在 `analytics/correlation.py`）——视图侧
+    # 只有「parse_query + get_db() + 调服务 + 信封」，`orm_queries` / `commits`
+    # 仍为 **0**、`max_func` 30 不动：相关性口径、60 日样本门槛、零方差降级全在
+    # services/analytics，视图层没有业务规则可下沉。
+    # 行数两笔：610 → 645（本端点 + import + ValueError→400 防御），再因
+    # rebase 到合并后的 dev（#2314 / #2318 等同期改动）落到 **639**——后者不是
+    # 本卡的生长，取 `--report` 实测值，不手工倒推。
+    "backend/app/domains/products/views.py": {
+        "lines": 639,
+        "orm_queries": 0,
+        "commits": 0,
+        "max_func": 30,
+    },
     # 2026-10-16：#2255 收敛合并带入 CNB 域 D 对账（duoduobei/fundmate#477/#486）代码，225→311 重取基线（守卫自述「确因合并需要重取基线」场景）
-    "backend/app/domains/reconciliation/views.py": {"lines": 311, "orm_queries": 2, "commits": 0, "max_func": 48},
-    "backend/app/domains/search/views.py": {"lines": 25, "orm_queries": 0, "commits": 0, "max_func": 7},
-    "backend/app/domains/securities/views.py": {"lines": 72, "orm_queries": 1, "commits": 0, "max_func": 35},
-    "backend/app/domains/strategy/views.py": {"lines": 144, "orm_queries": 5, "commits": 0, "max_func": 22},
-    "backend/app/domains/summary/views.py": {"lines": 229, "orm_queries": 0, "commits": 0, "max_func": 31},
-    "backend/app/domains/temperature/views.py": {"lines": 140, "orm_queries": 0, "commits": 0, "max_func": 38},
-    "backend/app/domains/transactions/views.py": {"lines": 138, "orm_queries": 2, "commits": 0, "max_func": 60},
-    "backend/app/domains/usage/views.py": {"lines": 68, "orm_queries": 0, "commits": 0, "max_func": 27},
-    "backend/app/domains/users/views.py": {"lines": 160, "orm_queries": 6, "commits": 0, "max_func": 38},
-    "backend/app/domains/utils/views.py": {"lines": 128, "orm_queries": 0, "commits": 0, "max_func": 38},
-    "backend/app/domains/watchlist/views.py": {"lines": 622, "orm_queries": 14, "commits": 0, "max_func": 53},
+    # 2026-10-19：#541 域 E 由「只读列表」扩为「列表 + 补记」，311→390 重取基线。
+    #   已按本守卫的正解先下沉业务规则：金额/日期解析与落库全在
+    #   `services/dividend_tax_service.record_tax_from_payload`，视图只剩参数校验与组响应。
+    #   增量是**两个新端点**（GET 扩字段 + POST 补记）的拆包与注释，不是业务规则回流。
+    "backend/app/domains/reconciliation/views.py": {
+        "lines": 390,
+        "orm_queries": 2,
+        "commits": 0,
+        "max_func": 48,
+    },
+    "backend/app/domains/search/views.py": {
+        "lines": 25,
+        "orm_queries": 0,
+        "commits": 0,
+        "max_func": 7,
+    },
+    "backend/app/domains/securities/views.py": {
+        "lines": 72,
+        "orm_queries": 1,
+        "commits": 0,
+        "max_func": 35,
+    },
+    "backend/app/domains/strategy/views.py": {
+        "lines": 144,
+        "orm_queries": 5,
+        "commits": 0,
+        "max_func": 22,
+    },
+    # 2026-10-18 重取（#2131，**新增端点**，非放宽）：给 summary 加 `GET /summary/cleared-cycles/`
+    # （清仓周期统计，账本对齐 A' 卡）——从流水聚合「首买→末卖」周期与跨周期汇总，
+    # 计算全在 `services/analytics/cleared_cycles.py`，视图侧只有「入参解析 + 调服务 + 信封」，
+    # `orm_queries` / `commits` 仍为 **0**、`max_func` 不变（31）。summary 245 → 272 行
+    # （+27，含端点签名与 3 行 docstring——口径说明留在 service，视图不重复）。
+    # 同 #2141「新增功能但视图变薄」先例：无可下沉的业务规则，按 `--report` 实测回写。
+    "backend/app/domains/summary/views.py": {
+        "lines": 272,
+        "orm_queries": 0,
+        "commits": 0,
+        "max_func": 31,
+    },
+    "backend/app/domains/temperature/views.py": {
+        "lines": 140,
+        "orm_queries": 0,
+        "commits": 0,
+        "max_func": 38,
+    },
+    "backend/app/domains/transactions/views.py": {
+        "lines": 138,
+        "orm_queries": 2,
+        "commits": 0,
+        "max_func": 60,
+    },
+    "backend/app/domains/usage/views.py": {
+        "lines": 68,
+        "orm_queries": 0,
+        "commits": 0,
+        "max_func": 27,
+    },
+    "backend/app/domains/users/views.py": {
+        "lines": 160,
+        "orm_queries": 6,
+        "commits": 0,
+        "max_func": 38,
+    },
+    "backend/app/domains/utils/views.py": {
+        "lines": 128,
+        "orm_queries": 0,
+        "commits": 0,
+        "max_func": 38,
+    },
+    "backend/app/domains/watchlist/views.py": {
+        "lines": 622,
+        "orm_queries": 14,
+        "commits": 0,
+        "max_func": 53,
+    },
 }
 
 # 冻结的 legacy 视图集（#1606 批次 1 下沉后、2026-09-19 冻结时存在的 22 个路径）。
@@ -188,31 +372,33 @@ BASELINE: dict[str, dict[str, int]] = {
 #     —— 防有人给新文件塞 fat 基线（如 500 行）绕过 400 行上限（见 #1642 C 块）。
 # 本集合必须与 BASELINE 的键**完全一致**，`test_baseline_covers_every_views_file` 强制校验，
 # 故想给新文件开后门必须同时改这里 + BASELINE + 过评审，无法静默 gaming。
-LEGACY_VIEWS: frozenset[str] = frozenset({
-    "backend/app/domains/assets/views.py",
-    "backend/app/domains/auth/views.py",
-    "backend/app/domains/families/views.py",
-    "backend/app/domains/funds/views.py",
-    "backend/app/domains/importers/views.py",
-    "backend/app/domains/ledgers/views.py",
-    "backend/app/domains/market/views.py",
-    "backend/app/domains/ocr/views.py",
-    "backend/app/domains/performance/views.py",
-    "backend/app/domains/portfolios/views.py",
-    "backend/app/domains/positions/views.py",
-    "backend/app/domains/products/views.py",
-    "backend/app/domains/reconciliation/views.py",
-    "backend/app/domains/search/views.py",
-    "backend/app/domains/securities/views.py",
-    "backend/app/domains/strategy/views.py",
-    "backend/app/domains/summary/views.py",
-    "backend/app/domains/temperature/views.py",
-    "backend/app/domains/transactions/views.py",
-    "backend/app/domains/usage/views.py",
-    "backend/app/domains/users/views.py",
-    "backend/app/domains/utils/views.py",
-    "backend/app/domains/watchlist/views.py",
-})
+LEGACY_VIEWS: frozenset[str] = frozenset(
+    {
+        "backend/app/domains/assets/views.py",
+        "backend/app/domains/auth/views.py",
+        "backend/app/domains/families/views.py",
+        "backend/app/domains/funds/views.py",
+        "backend/app/domains/importers/views.py",
+        "backend/app/domains/ledgers/views.py",
+        "backend/app/domains/market/views.py",
+        "backend/app/domains/ocr/views.py",
+        "backend/app/domains/performance/views.py",
+        "backend/app/domains/portfolios/views.py",
+        "backend/app/domains/positions/views.py",
+        "backend/app/domains/products/views.py",
+        "backend/app/domains/reconciliation/views.py",
+        "backend/app/domains/search/views.py",
+        "backend/app/domains/securities/views.py",
+        "backend/app/domains/strategy/views.py",
+        "backend/app/domains/summary/views.py",
+        "backend/app/domains/temperature/views.py",
+        "backend/app/domains/transactions/views.py",
+        "backend/app/domains/usage/views.py",
+        "backend/app/domains/users/views.py",
+        "backend/app/domains/utils/views.py",
+        "backend/app/domains/watchlist/views.py",
+    }
+)
 
 
 def _rel(path: Path) -> str:
@@ -250,7 +436,9 @@ def _iter_views() -> list[Path]:
 
 
 def _fmt(metrics: dict[str, int]) -> str:
-    return " ".join(f"{k}={metrics[k]}" for k in ("lines", "orm_queries", "commits", "max_func"))
+    return " ".join(
+        f"{k}={metrics[k]}" for k in ("lines", "orm_queries", "commits", "max_func")
+    )
 
 
 def _report(views: list[Path]) -> int:
@@ -264,8 +452,12 @@ def _report(views: list[Path]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="视图层厚度守卫（#1606）")
-    parser.add_argument("--report", action="store_true", help="打印当前指标与可直接粘贴的基线")
-    parser.add_argument("-v", "--verbose", action="store_true", help="打印每个文件的指标")
+    parser.add_argument(
+        "--report", action="store_true", help="打印当前指标与可直接粘贴的基线"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="打印每个文件的指标"
+    )
     args = parser.parse_args(argv)
 
     views = _iter_views()
@@ -276,7 +468,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.report:
         return _report(views)
 
-    violations: list[tuple[str, str, int, int, bool]] = []  # (rel, metric, current, limit, is_baseline)
+    violations: list[
+        tuple[str, str, int, int, bool]
+    ] = []  # (rel, metric, current, limit, is_baseline)
     seen: set[str] = set()
     measured: dict[str, dict[str, int]] = {}
 
@@ -335,7 +529,9 @@ def main(argv: list[str] | None = None) -> int:
             for rel in stale:
                 print(f"  - {rel}")
         if loose:
-            print("提示：以下指标已低于基线，请用 `--report` 收紧 BASELINE（只减不增；不收紧该维度会静默失效）：")
+            print(
+                "提示：以下指标已低于基线，请用 `--report` 收紧 BASELINE（只减不增；不收紧该维度会静默失效）："
+            )
             for rel, metric, current, budget in loose:
                 print(f"  - {rel}: {metric} = {current}（基线 {budget}）")
         return 0
