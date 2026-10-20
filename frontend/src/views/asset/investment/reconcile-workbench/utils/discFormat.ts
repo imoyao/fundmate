@@ -4,15 +4,11 @@
  * 与页面结构无关的纯函数：差异类型 / 状态中文映射、差异值格式与着色类名。
  */
 
-/** 差异类型中文 */
+import { discrepancyTypeLabel } from "@/constants";
+
+/** 差异类型中文（映射表已收归 `@/constants`，此处保留导出以兼容既有调用方） */
 export function typeLabel(t: string): string {
-  const map: Record<string, string> = {
-    quantity: "数量",
-    cost: "成本",
-    cash: "资金",
-    orphan: "孤儿"
-  };
-  return map[t] || t;
+  return discrepancyTypeLabel(t);
 }
 
 /** 状态中文 */

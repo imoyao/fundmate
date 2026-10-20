@@ -7,6 +7,7 @@ import BackTopIcon from "@/assets/svg/back_top.svg?component";
 import { h, computed, Transition, defineComponent } from "vue";
 import { useRoute } from "vue-router";
 import { usePermissionStoreHook } from "@/store/modules/permission";
+import DiscrepancyBanner from "@/components/DiscrepancyBanner/index.vue";
 
 const props = defineProps({
   fixedHeader: Boolean
@@ -173,6 +174,10 @@ const transitionMain = defineComponent({
               >
                 <BackTopIcon />
               </el-backtop>
+              <!-- 对账差异提醒（#2438）：域 B 的 pending 差异若只待在工作台里，
+                   用户就永远看不到（017074 那条挂了 7 周无人察觉即此）。横幅挂在
+                   布局层 ⇒ 除工作台自身外的所有页面都能看见。 -->
+              <DiscrepancyBanner />
               <div class="grow">
                 <transitionMain :route="route">
                   <keep-alive
@@ -198,6 +203,8 @@ const transitionMain = defineComponent({
               <LayFooter v-if="!hideFooter" />
             </el-scrollbar>
             <div v-else class="grow">
+              <!-- 同上：非 fixedHeader 分支也要有提醒位（两条分支互斥，只有一处会渲染） -->
+              <DiscrepancyBanner />
               <transitionMain :route="route">
                 <keep-alive
                   v-if="isKeepAlive"
