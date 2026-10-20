@@ -475,6 +475,17 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             '收编前须先判定该表语义（资产 / 探市 / 自选是另一种密度语义）。'
         ),
     },
+    'scripts/guard_pro_endpoint_registry.py': {
+        'rule': 'Pro 端点必须挂 @require_pro_feature，权益位必须登记在 PRO_FEATURES',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_pro_endpoint_registry.py',
+        'covered': (
+            '只认 `bp.get/post/put/delete/patch/route` 的静态路由；`add_url_rule` 动态注册、'
+            '自定义装饰器别名不在判据内。不判断响应里有没有 Pro 数据（那是业务逻辑），'
+            '也不判断装饰器实现是否正确（交由 test_pro_entitlement_gate.py）。'
+            '`PUBLIC_PRO_ROUTES` 的豁免是**逐条带理由**的，不是按目录/前缀批量放行。'
+        ),
+    },
     'scripts/guard_bridge_machine_branch_single_writer.py': {
         'rule': '`bridge/github-dev` 只能有一个写者（GitHub reconcile 写、CNB 只读探针）',
         'runner': 'ci',
