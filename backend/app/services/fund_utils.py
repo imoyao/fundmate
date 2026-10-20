@@ -231,6 +231,38 @@ def resolve_money_fund_flags_strict(symbols: Iterable[str]) -> dict[str, bool | 
     return out
 
 
+def resolve_fund_names(symbols: Iterable[str]) -> dict[str, str | None]:
+    """存量回填专用（#2406）：批量查 market 域 funds 名录的基金名，不猜、不兜底。
+
+    返回 `{归一化代码: 基金名}`：
+
+    - 名录**有**该代码 → `Fund.name`（可能为 NULL，原样返回，由调用方决定）；
+    - 名录**无**该代码 / market 域不可达 → `None`（**无法判定**，调用方应保持原值，
+      不得编造名称——与 `resolve_money_fund_flags_strict` 同一条硬边界）。
+
+    用于回填 `positions.name` 空值（转换转入腿等漏传 name 的写入路径所建行）。
+    单行查询请用 `position_service._resolve_fund_name_by_code`（写路径自愈，走路由会话）。
+    """
+    codes = {normalize_fund_code(s) for s in symbols if s}
+    codes.discard('')
+    if not codes:
+        return {}
+    from app.core.db_factory import market_session_factory
+    from app.domains.funds.models import Fund
+
+    try:
+        session = market_session_factory()()
+        try:
+            rows = session.query(Fund.fund_code, Fund.name).filter(Fund.fund_code.in_(sorted(codes))).all()
+        finally:
+            session.close()
+    except Exception as exc:  # market 域不可达（名录未初始化 / 跨域读异常）
+        logger.warning(f'[fund_utils] 名录不可达，基金名回填跳过（不改动任何行）: {exc}')
+        return {c: None for c in codes}
+    found = {row[0]: row[1] for row in rows}
+    return {c: found.get(c) for c in codes}
+
+
 def _trim_cache(now: float) -> None:
     """容量上限：长生命周期进程下避免 _cache 无界增长（过期键优先淘汰，其次 FIFO）。"""
     if len(_cache) <= _CACHE_MAX_SIZE:

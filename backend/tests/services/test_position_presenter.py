@@ -12,6 +12,12 @@
    给 0 会被读成「今天一分没涨没跌」——那是编造一个用户会信的结论；
 3. **`prev_close = 0` 也走 None**：除零要拦住，不能让 `ratio` 变成 inf；
 4. **货基**（按面值计价、基准留 NULL）同样落 None，不因「价格恒为 1」而显示 0 涨跌。
+
+#2406 追加「不副作用」守门（第 5 条红线）：`enrich_position_dict` 是**读**函数，
+market 空值的兜底只进返回 dict，**不许写回 ORM 对象**。旧实现为过
+`PositionOut.market` 必填校验直接 `p.market = 'UNKNOWN'`，同 session 后续 flush
+把这个展示兜底值落进库（position 618 实证），前端恒显「未知资产」。持久化对象
+（session 附着）的改动才会被 flush，故守门用例必须走真实 session。
 """
 
 from datetime import date
@@ -159,3 +165,75 @@ def test_settled_today_none_when_price_date_missing():
     d = enrich_position_dict(p)
 
     assert d['settled_today'] is None
+
+
+# ── #2406：不副作用守门（market 兜底只进 dict，读函数不写库）────────────
+
+
+def test_null_market_fallback_stays_in_dict_transient():
+    """瞬时对象（不过库）：market=NULL → dict 兜 'UNKNOWN'，对象本身不被改。"""
+    p = _pos(market=None)
+
+    d = enrich_position_dict(p)
+
+    assert d['market'] == 'UNKNOWN'
+    assert d['market_label'] == 'UNKNOWN'  # MARKET_LABELS 无此键 → 回落原值
+    assert p.market is None
+
+
+def test_null_market_fallback_stays_in_dict_only(db, make_position):
+    """持久化对象：兜底死在 dict 层——实体零改动、session 干净、随后 commit 也不落库。
+
+    旧实现在这里会把 `p.market` 写成 'UNKNOWN'：`db.is_modified` 为真、
+    session.dirty 非空，且下一次 flush 把它写进 `positions.market`。
+    """
+    pos = make_position(
+        symbol='519771',
+        name='测试基金',
+        asset_type='fund',
+        family_id=1,
+        quantity=1000,
+        avg_price=1.0,
+        current_price=2.0,
+        market=None,
+    )
+    db.expire_all()
+    pos = db.get(Position, pos.id)
+    assert pos.market is None  # 模型列可空，夹具原样落库
+
+    d = enrich_position_dict(pos)
+
+    # 1. wire 格式不变：dict 层兜底
+    assert d['market'] == 'UNKNOWN'
+    assert d['market_label'] == 'UNKNOWN'
+    # 2. 实体零改动
+    assert pos.market is None
+    assert db.is_modified(pos) is False
+    assert pos not in db.dirty
+    # 3. 调用方随后 commit 也不落库（旧实现会在这次 flush 里污染该行）
+    db.commit()
+    db.expire_all()
+    assert db.get(Position, pos.id).market is None
+
+
+def test_repeated_calls_do_not_accumulate_changes(db, make_position):
+    """列表页逐行调用多次，不累积任何脏状态。"""
+    pos = make_position(
+        symbol='519771',
+        name='测试基金',
+        asset_type='fund',
+        family_id=1,
+        quantity=1000,
+        avg_price=1.0,
+        current_price=2.0,
+        market=None,
+    )
+    db.expire_all()
+    pos = db.get(Position, pos.id)
+
+    for _ in range(3):
+        assert enrich_position_dict(pos)['market'] == 'UNKNOWN'
+
+    assert pos.market is None
+    assert db.is_modified(pos) is False
+    assert not db.dirty

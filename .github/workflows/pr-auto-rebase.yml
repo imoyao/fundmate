@@ -23,6 +23,14 @@
 # 6. 变基 push 由 GITHUB_TOKEN 发出 ⇒ 该分支 pull_request 的新 runs 进入
 #    approval-required（GitHub 官方递归防护，docs: GITHUB_TOKEN 页），不批准
 #    则 CI 挂死零 job。push 后按新 head_sha 轮询并自动批准（#2289）。
+#    轮询逻辑在 `scripts/pr_autorebase_approve.py`（#2419）：内联的「3 轮 × 10s +
+#    status=action_required」窗口实测太短，且把「还没索引到」读成「无需批准」。
+# 7. ⚠️ **生效前提**：`pull_request_target` 的 workflow **定义**取自默认分支 `main`
+#    （实测见 docs/dev/github-action.md：main 33/33 行命中日志、dev 的批准循环 0 行），
+#    所以本文件合入 `dev` 只是第一步 —— 要等发版 PR（dev → main）才会真正执行。
+#    在那之前 bot 推送的分支仍会卡在 approval-required，需人工点 Approve。
+#    检出用 `ref: dev` + `git show origin/dev:<脚本>`，只能保证**执行内容**是新的，
+#    保证不了**定义**是新的。
 
 name: PR 自动变基（保新）
 
@@ -47,6 +55,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          # `schedule` 下 `checkout` 默认落在**默认分支 `main`**（只由发版 PR 推进，
+          # 落后 dev 上百个提交），而本 job 现在要跑 `scripts/pr_autorebase_approve.py`。
+          # 显式写 dev：否则每夜那次跑的是很久以前的脚本（源 CNB #586，
+          # 判据 scripts/guard_schedule_checkout_ref.py）。
+          ref: dev
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
 
@@ -64,6 +77,20 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin dev
+
+          # 自动批准（#2419）的两项前置：解释器在、逻辑脚本在。
+          # 两者缺任一个都是「机制完全没跑」，不是「偶尔查不到」——显式红，别静默降级。
+          command -v python3 >/dev/null 2>&1 || {
+            echo "::error::runner 上没有 python3 —— 变基后的自动批准无法执行，该 PR 的 CI 会挂死"
+            exit 1
+          }
+          # 脚本从**基分支 dev** 取一份落盘：下面的循环会 checkout 到各 PR 分支，
+          # 老分支上可能根本没有这个文件，不能就地引用。
+          APPROVE_SCRIPT=$(mktemp)
+          if ! git show "origin/dev:scripts/pr_autorebase_approve.py" > "$APPROVE_SCRIPT" 2>/dev/null; then
+            echo "::error::origin/dev 上缺 scripts/pr_autorebase_approve.py —— 变基后的自动批准无法执行，该 PR 的 CI 会挂死"
+            exit 1
+          fi
 
           if [ "$EVENT_NAME" = "pull_request_target" ]; then
             BRANCHES="$PR_HEAD_REF"
@@ -95,27 +122,21 @@ jobs:
             if git rebase origin/dev "$b"; then
               git push --force-with-lease origin "$b"
               echo "✅ $b 已变基到最新 dev"
-              # 自动批准变基产生的 approval-required runs（#2289）：
-              # 查询条件 status=action_required 天然幂等——已批准的下一轮查不到，
-              # 不会重复批。3 轮 × 10s 覆盖 runs 创建窗口；查询失败按红报出，
-              # 不得吞成「没有待批 run」（AGENTS.md 判据失败态纪律）。
+              # 自动批准变基产生的 approval-required runs（#2289；逻辑抽到脚本见 #2419）：
+              # 旧实现内联在此，3 轮 × sleep 10 + `status=action_required` 过滤 —— 窗口太短，
+              # 且过滤后为空时「没有待批」与「还没索引到」长得一模一样（AGENTS.md「空 ≠ 没拿到」）。
+              # 脚本改为取全量 runs 再筛、窗口 180s、命中即收工，并按失败态分码：
+              #   rc 2 拿不到输入 / rc 3 批准失败 / seen=0 打 ::warning:: 注解。
               NEW_SHA=$(git rev-parse HEAD)
-              for round in 1 2 3; do
-                if ids=$(gh api "repos/$REPO/actions/runs?head_sha=$NEW_SHA&status=action_required" --jq '.workflow_runs[].id' 2>/dev/null); then
-                  :
-                else
-                  echo "⚠️ 第 $round 轮查询 approval-required runs 失败——结果不可信，请人工检查 Actions 页"
-                  ids=""
-                fi
-                for id in $ids; do
-                  if gh api -X POST "repos/$REPO/actions/runs/$id/approve" >/dev/null 2>&1; then
-                    echo "✅ 已自动批准 run $id（$b 变基触发）"
-                  else
-                    echo "⚠️ 自动批准 run $id 失败——请到 Actions 页人工批准，否则该 CI 挂死"
-                  fi
-                done
-                sleep 10
-              done
+              set +e
+              python3 "$APPROVE_SCRIPT" --repo "$REPO" --sha "$NEW_SHA"
+              APPROVE_RC=$?
+              set -e
+              # 2 / 3 不把整个变基判红（分支已经推好了，报「变基失败」是失实），
+              # 但必须以注解浮到 run 页面上 —— 只写进日志就等于没写。
+              if [ "$APPROVE_RC" -ne 0 ]; then
+                echo "::warning::变基后自动批准未完成（rc=$APPROVE_RC）——$b 的 CI 可能挂死，请到 Actions 页人工批准"
+              fi
             else
               git rebase --abort || true
               echo "⚠️ $b 与 dev 存在冲突，放弃自动变基"

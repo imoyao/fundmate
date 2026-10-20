@@ -821,6 +821,20 @@ jobs:
       - name: Issue 分诊闸门回归网（阻断） scripts/triage/issue_triage.py
         run: python -m unittest scripts.tests.test_issue_triage -v
 
+      # 每日调度开关与 `.env.example` 一致（源 #1186，2026-10-19）：`daily_scheduler._JOB_TEMPLATES`
+      # 与 `backend/.env.example` 是两张**互不引用**的清单，忘了同步不会报错。实证：
+      # 清单已有 15 个 job、示例只登记了 8 个，漏掉的 7 个里包含 **`price_history`
+      # （场内日线 OHLC）**——正是 #1186 点名要的那一项：本机**天天在跑**，
+      # 而用户既调不了它的开关、也看不出它被调度了。
+      # ⚠️ 失败态是重点（AGENTS.md 三之二）：解析不到 `_JOB_TEMPLATES` / 常量表 /
+      # `.env.example` 变量时**必须报红**，不得退化成「没有可检查的项 ⇒ 绿」。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      # 判据边界（只做「变量名出现没出现」）见脚本 docstring；
+      # 回归网在 scripts/tests/test_scheduler_env_example_guard.py
+      # （12 条，含失败态 + 真实文件删行探针 + 修复前 baseline 回退探针）。
+      - name: 检查每日调度开关是否都登记在 .env.example（阻断）
+        run: python scripts/guard_scheduler_env_example.py
+
   gate:
     name: 质量门禁汇总
     if: ${{ always() && github.event_name == 'pull_request' }}

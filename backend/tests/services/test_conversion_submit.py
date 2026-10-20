@@ -133,6 +133,13 @@ def test_submit_two_legs_paired_and_conserved(db, make_position, make_transactio
     assert in_pos is not None
     assert Money.min_unit_to_shares(in_pos.quantity) == 492.56
     assert in_pos.ledger_id == pos.ledger_id
+    # #2406：转入腿必须显式带 name / market / account_name 三张展示快照。
+    # 历史缺陷（#2406 本体）：in_data 只传 symbol，name 退回 6 位编码、market 落
+    # NULL（presenter 兜 'UNKNOWN' → 前端「未知资产」）、account_name 落 NULL
+    # （PR #2404 已修）。这条断言就是验收标准「持仓显示基金名而非编码」的回归网。
+    assert in_pos.name == '转入基金'
+    assert in_pos.market == 'CN_A'
+    assert in_pos.account_name == '转换测试账户'
 
     txns = _group_txns(db)
     assert len(txns) == 2  # 无自动申购孤儿流水（§4.4.7）
@@ -143,6 +150,8 @@ def test_submit_two_legs_paired_and_conserved(db, make_position, make_transactio
     assert out_txn.fee == 1488
     assert in_txn.fee == 0
     assert in_txn.amount == 98512
+    # #2406：转入腿流水的 position_name 同源自 name 快照（历史缺传 → 交易列表「未知资产」）
+    assert in_txn.position_name == '转入基金'
     # 已实现盈亏落 OUT 腿
     assert out_txn.realized_pnl == 8512
     # extra.conversion 元数据：同组号、角色互为对手方
