@@ -62,6 +62,10 @@ jobs:
       - name: 检出守卫脚本（不检出业务代码）
         uses: actions/checkout@v4
         with:
+          # `schedule` 只读**默认分支（main）**上的 workflow 定义，而本仓活跃分支是 `dev`
+          # （`main` 只由发版 PR 推进，实测落后 `dev` 上百个提交）。不写这一行 ⇒ 每日跑的是
+          # 很久以前的 `scripts/guard_now_capacity.mjs`。判据 `guard_schedule_checkout_ref.py`。
+          ref: dev
           sparse-checkout: scripts
           sparse-checkout-cone-mode: false
 
