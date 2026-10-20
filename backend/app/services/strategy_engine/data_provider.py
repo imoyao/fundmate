@@ -19,13 +19,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Iterable, Sequence
 
 from sqlalchemy.orm import Session
 
 from app.core.money import Money
-from app.domains.funds.models import DailyWorth
+from app.domains.funds.models import DailyWorth, Fund
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.transactions.models import Transaction
@@ -98,6 +98,67 @@ class DataProvider:
             .all()
         )
         return tuple(SeriesPoint(date=r[0], value=float(r[1])) for r in reversed(rows) if r[0] and r[1] is not None)
+
+    # ── 同类分组（#2382 buy_percentile 用） ──
+
+    def fund_type_id_of(self, fund_code: str) -> int | None:
+        """基金小类 id（`funds.fund_type_id`）；查不到返回 None。
+
+        分步查询：funds 表在 market 域，与 daily_worth 同库，无 join。
+        """
+        row = self.market_db.query(Fund.fund_type_id).filter(Fund.fund_code == fund_code).first()
+        return int(row[0]) if row and row[0] is not None else None
+
+    def peer_year_returns(
+        self,
+        fund_code: str,
+        as_of: date,
+        window_days: int = 365,
+    ) -> tuple[float, ...] | None:
+        """as_of 回看 window_days，同 `fund_type_id` 基金的区间收益率集合（%，含自身）。
+
+        用于 `buy_percentile`（#2382）：判断买入时点该基金在同类中的分位。
+
+        口径
+            - 每只同类基金取窗口内**最早**与**最晚**两条净值算区间收益
+              （不要求同一起止日，诚实按各自可得数据）；
+            - 窗口内无净值 / 起点为 0 的基金不计入（宁缺勿假）；
+            - 返回集合**含自身**（`percentile_rank` 的中位秩口径要求 peers 含自身）；
+            - 自身不在窗口内（新基金）仍返回同类集合，由调用方降级。
+
+        性能：`daily_worth` 的 `(fund_code, date)` 唯一索引覆盖窗口查询；
+        编排层应按 (fund_code, 买入日) 去重后调用，避免同窗口重复扫库。
+        """
+        type_id = self.fund_type_id_of(fund_code)
+        if type_id is None:
+            return None
+        peer_codes = [
+            r[0] for r in self.market_db.query(Fund.fund_code).filter(Fund.fund_type_id == type_id).all() if r[0]
+        ]
+        if not peer_codes:
+            return None
+
+        window_start = as_of - timedelta(days=window_days)
+        rows = (
+            self.market_db.query(DailyWorth.fund_code, DailyWorth.date, DailyWorth.unit_nav)
+            .filter(
+                DailyWorth.fund_code.in_(peer_codes),
+                DailyWorth.date >= window_start,
+                DailyWorth.date <= as_of,
+            )
+            .order_by(DailyWorth.fund_code.asc(), DailyWorth.date.asc())
+            .all()
+        )
+        firsts: dict[str, float] = {}
+        lasts: dict[str, float] = {}
+        for code, day, nav in rows:
+            if day is None or nav is None:
+                continue
+            value = float(nav)
+            if code not in firsts:
+                firsts[code] = value
+            lasts[code] = value
+        return tuple((lasts[c] - firsts[c]) / firsts[c] * 100.0 for c in firsts if firsts[c] != 0 and c in lasts)
 
     # ── 持仓 / 流水 ──
 
