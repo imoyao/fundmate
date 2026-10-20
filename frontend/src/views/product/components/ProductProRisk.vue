@@ -304,7 +304,7 @@ watch(() => props.symbol, load, { immediate: true });
   cursor: help;
   background: color-mix(
     in srgb,
-    var(--color-warning, #d97706) 12%,
+    var(--color-warning) 12%,
     transparent
   );
   border-radius: 4px;

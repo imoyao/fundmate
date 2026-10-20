@@ -212,11 +212,11 @@ onMounted(() => {
   color: var(--color-warning-ink);
   background: color-mix(
     in srgb,
-    var(--color-warning, #d97706) 12%,
+    var(--color-warning) 12%,
     transparent
   );
   border: 1px solid
-    color-mix(in srgb, var(--color-warning, #d97706) 35%, transparent);
+    color-mix(in srgb, var(--color-warning) 35%, transparent);
   border-radius: 8px;
 }
 
