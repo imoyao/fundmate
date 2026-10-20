@@ -1667,6 +1667,7 @@ GitHub: - Required status check "质量门禁汇总" is expected.
 工作流 `.github/workflows/pr-four-questions-guard.yml`（`pull_request_target`，不检出 PR 代码）：
 
 - 判据脚本 `scripts/guard_pr_four_questions.mjs`：PR 描述须含四问小节——**谁的什么问题 / 验收标准 / 风险 / 替代方案**；
+- **验收标准每条须带判据引用**（`scripts/guard_pr_four_questions.mjs` 第二层判据）：反引号里的测试名 / 文件 / 命令，或 `测试：` / `判据：` / `走查：` / `验证：` 等冒号前缀标记；真机走查类验收没有测试名，写「走查：dev 环境点击截图」即合格。这拦的是「验收标准写成愿望清单」——条目既无测试名也无走查点，收口时只能靠回忆判断过没过（#2449）；
 - **只检查「有没有写」，不判断「写得对不对」**。这是有意的降级：「需求是否合理」是主观判断（写进文档就会被绕开），「有没有写这四行」是客观存在性（CI 拦得住）。守卫保证的是**判断发生过并留下痕迹**，四问内容是否成立仍由 owner 评审时判断；
 - 「风险」写「无风险」算通过，**留空标题不算**（有标题没思考是最常见的假通过）；
 - 豁免：机器人作者（dependabot / github-actions / claude …）/ draft PR / 描述含 `four-questions-skip`（豁免留痕）。**豁免面收得越紧，守卫活得越久**——天天误伤真实工作就没人看它了；
