@@ -2,17 +2,25 @@ import { expect, test } from "@playwright/test";
 import { injectSupabaseSession } from "./support/session";
 
 /**
- * 详情页 Pro 模块三「资产配置与相关性」回归网（#994 Phase 2：组合相关性接线）。
+ * 详情页 Pro 模块三「资产配置与相关性」回归网（#994 Phase 2 接线；#2400 画法修订）。
  *
- * 钉四条不变式：
+ * 钉五条不变式：
  * 1. **状态位驱动挂载**：`allocation.available=true` → 该模块徽标「已上线」+
  *    内容区块渲染（注意：phase 仍是 3，徽标看的是 available 不是 phase）；
- * 2. **相关系数诚实渲染**：ρ 带符号 + |ρ| 降序 + 联动强度条；ρ ≥ 0.8 的标的
- *    必须触发「账面分散、风险未必」的总结句——这是本模块唯一真正要讲的话；
- * 3. **配色纪律**：这里不用红绿（红绿是涨跌语义专用），ρ ≥ 0.8 走警示色，
- *    负相关弱化到辅助文字级——「走势相反」不是问题，是对冲；
- * 4. **诚实披露 skipped_count**：因样本不足/无波动被跳过的持仓要讲出来，
+ * 2. **相关系数诚实渲染**：ρ 带符号 + |ρ| 降序；ρ ≥ 0.8 的标的必须触发
+ *    「账面分散、风险未必」的总结句——这是本模块唯一真正要讲的话；
+ * 3. **配色纪律（#2400 的核心修复）**：档位→颜色的映射被断言成**具体色值**。
+ *    旧实现把文字级沙金 `--color-warning-ink` 当条形填充（= 褐色）、中间档用
+ *    `--brand-ink`（亮色即红），层级反转。此处钉死四档实际取值：
+ *    危险 #d4364a / 警示 #cc7000 / 反向 #6f8f9d / 弱关联 #e5ddd4。
+ *    改色必然要改测试——这是有意的：色值是「语义」不是「样式」。
+ * 4. **方向由几何表达（#2400）**：正相关条向右、负相关条向左（0 轴居中）。
+ *    原实现一律向右，−0.42 与 +0.61 同观感、只差一个负号，属误导。
+ * 5. **诚实披露 skipped_count**：因样本不足/无波动被跳过的持仓要讲出来，
  *    不让它悄悄从结论里消失；接口失败则整块降级。
+ *
+ * 另钉「名称用于阅读、编码用于记录」：每行都要露出 peer 的 symbol，加自选 /
+ * 搜索时用户靠编码定位，不能只给名称。
  *
  * 接口全部 page.route 打桩，不依赖后端（docs/dev/frontend-e2e.md §7）。
  */
@@ -248,10 +256,37 @@ test.describe("详情页 Pro 模块三相关性（#994 Phase 2）", () => {
     await expect(alloc.getByText("+0.61")).toBeVisible();
     await expect(alloc.getByText("-0.42")).toBeVisible();
 
-    // 定性描述：高度相关 / 明显联动 / 负相关=有对冲作用
-    await expect(alloc.getByText("基本同步涨跌")).toBeVisible();
-    await expect(alloc.getByText("明显联动")).toBeVisible();
-    await expect(alloc.getByText(/走势相反（有对冲作用）/)).toBeVisible();
+    // 定性描述已收进图例（#2400），行内不再逐行重复——避免每行都写一遍套话
+    const legend = page.locator(".pro-alloc__legend");
+    await expect(legend.getByText("风险集中 ρ ≥ 0.8")).toBeVisible();
+    await expect(legend.getByText("明显联动")).toBeVisible();
+    await expect(legend.getByText("反向对冲")).toBeVisible();
+    await expect(legend.getByText("关联很弱")).toBeVisible();
+
+    // 配色纪律（#2400）：四档钉死实际色值，见文件头说明
+    const rows = alloc.locator(".pro-alloc__row");
+    const barOf = (i: number) => rows.nth(i).locator(".pro-alloc__bar");
+    await expect(barOf(0)).toHaveCSS("background-color", "rgb(212, 54, 74)"); // danger #d4364a
+    await expect(barOf(1)).toHaveCSS("background-color", "rgb(204, 112, 0)"); // warn   #cc7000
+    await expect(barOf(2)).toHaveCSS("background-color", "rgb(111, 143, 157)"); // hedge  #6f8f9d
+
+    // 方向由几何表达：负相关的条落在 0 轴左侧（box.x 小于轨道中点）
+    const track2 = await rows.nth(2).locator(".pro-alloc__track").boundingBox();
+    const bar2 = await barOf(2).boundingBox();
+    expect(track2).not.toBeNull();
+    expect(bar2).not.toBeNull();
+    expect(bar2!.x).toBeLessThan(track2!.x + track2!.width / 2);
+    // 正相关在右侧
+    const bar0 = await barOf(0).boundingBox();
+    expect(bar0!.x).toBeGreaterThan(track2!.x + track2!.width / 2);
+
+    // 名称用于阅读、编码用于记录（#2400）：每行都要露出 symbol
+    await expect(alloc.getByText("易方达沪深300ETF联接A")).toBeVisible();
+    await expect(alloc.locator(".pro-alloc__code").first()).toHaveText(
+      "110020"
+    );
+    await expect(alloc.locator(".pro-alloc__code").nth(1)).toHaveText("000478");
+    await expect(alloc.locator(".pro-alloc__code").nth(2)).toHaveText("000216");
 
     // 每行的配对样本数都要出现
     await expect(alloc.getByText("240 个同期交易日")).toBeVisible();
