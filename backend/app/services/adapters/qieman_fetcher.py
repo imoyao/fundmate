@@ -7,6 +7,17 @@
 thermometer 家族反过来依赖本模块（合法方向），方向自洽。
 
 包含：``QIEMAN_*`` 常量、3 个归一化助手、``QiemanFetcher``（自原文件**逐字搬运**）。
+
+调用量（2026-10 实测量级）：且慢投顾 job 每晚抓 111 只 QIEMAN 组合的持仓 + 概览。
+原始实现每只组合**各调一次**工具、且**每次调用都重新握手**（initialize + initialized +
+tools/call = 3 个 HTTP 请求），于是 111×2 = 222 次工具调用 = 666 个请求。本模块有三处收敛：
+
+1. **会话复用**：``Mcp-Session-Id`` 缓存在 fetcher 实例上（且慢服务端**不回**该响应头，
+   实测 2026-10-20）——故「已握手」本身也要缓存，否则连续调用会退回逐次握手；
+2. **概览批量**：:meth:`QiemanFetcher.fetch_strategy_details` 本就按 ``batch_size`` 分批，
+   适配器改为一次传入全部 code ⇒ 111 只 = 3 次调用；
+3. **持仓批量**：``strategyCodes`` 传多只，响应 ``{code: {...}}`` 按 code 切分；
+   批量语义未被上游文档保证，故**缺键即该批降级逐只**（批量拿不到 ≠ 数据变空）。
 """
 
 import json
@@ -19,7 +30,7 @@ from typing import Any, Dict, List, Optional
 import requests
 from loguru import logger
 
-from app.core.constants import USER_AGENT
+from app.core.constants import DEFAULT_REQUEST_TIMEOUT, USER_AGENT
 from app.core.utils import to_float as _to_float
 from app.services.adapters.fetcher_base import SingleValueFetcher
 
@@ -167,12 +178,105 @@ def _normalize_strategy_detail(item: dict) -> Optional[dict]:
     return rec
 
 
+def _normalize_codes(strategy_codes: Any) -> List[str]:
+    """组合代码去空、去重、保序（批量调用前统一口径，避免空串污染 ``strategyCodes``）。"""
+    out: List[str] = []
+    seen: set = set()
+    for c in strategy_codes or []:
+        s = str(c).strip()
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
+def _flat_holding_rows(parsed: Any) -> Optional[list]:
+    """取扁平形态的持仓数组（顶层 list / ``{result|data: [...]}``）；无则 None。
+
+    用「键是否存在 + 是否 list」判定，不用真值判定：``{'result': []}`` 是合法的空持仓，
+    而 ``[] or None`` 会把它误判成「认不出这个 code」，白白多打一次批量外的单只请求。
+    """
+    if isinstance(parsed, list):
+        return parsed
+    if isinstance(parsed, dict):
+        for key in ('result', 'data'):
+            rows = parsed.get(key)
+            if isinstance(rows, list):
+                return rows
+    return None
+
+
+def _flatten_flat_holdings(rows: Any) -> List[dict]:
+    """扁平形态（旧版 / 单组合响应）：无类别信息，逐条归一化。"""
+    out: List[dict] = []
+    for item in rows or []:
+        if not isinstance(item, dict):
+            continue
+        rec = _normalize_holding(item)
+        if rec:
+            out.append(rec)
+    return out
+
+
+def _flatten_category_block(block: dict) -> List[dict]:
+    """真实结构 ``{基金类别: {持有成分: [...], 分类占比}}``：遍历类别打平并保留类别归属。"""
+    out: List[dict] = []
+    for category, body in block.items():
+        if not isinstance(body, dict):
+            continue
+        for item in body.get('持有成分') or []:
+            if not isinstance(item, dict):
+                continue
+            rec = _normalize_holding(item, category)
+            if rec:
+                out.append(rec)
+    return out
+
+
+def _parse_composition(parsed: Any, code: str) -> Optional[List[dict]]:
+    """解析响应中 ``code`` 的持仓；返回 ``None`` 表示**响应里认不出该 code**。
+
+    调用方据此决定是否降级逐只（``None`` = 缺键，``[]`` = 确认没有持仓）——
+    这两种情况必须分开，否则「批量拿不到」会被静默写成「持仓变空」。
+    """
+    rows = _flat_holding_rows(parsed)
+    if rows is not None:
+        return _flatten_flat_holdings(rows)
+    if isinstance(parsed, dict):
+        block = parsed.get(code)
+        if isinstance(block, dict):
+            return _flatten_category_block(block)
+        if block is not None:
+            # 键在但不是对象（脏数据）：该组合确认为空，不触发降级
+            return []
+    return None
+
+
+class _McpSessionInvalid(RuntimeError):
+    """MCP 会话已失效（服务端不认当前 ``Mcp-Session-Id``）。
+
+    仅由 :meth:`QiemanFetcher._tool_call_once` 抛出，由 :meth:`QiemanFetcher._call_tool`
+    捕获后**重新握手一次**再重试；重试仍失败则转成普通 ``RuntimeError`` 抛出（不吞错）。
+    """
+
+
 class QiemanFetcher(SingleValueFetcher):
     """且慢：市场温度计（中证全A），通过 MCP Streamable HTTP 协议获取。"""
 
     source = 'qieman'
     name = '市场温度计(中证全A)'
     unit = '%'
+
+    def __init__(self, timeout: int = DEFAULT_REQUEST_TIMEOUT):
+        super().__init__(timeout)
+        #: MCP 会话（Streamable HTTP 的 ``Mcp-Session-Id``）缓存——见 :meth:`_ensure_session`
+        self._session_id: Optional[str] = None
+        #: 缓存会话对应的 API key（换 key 必须重新握手，不能沿用旧会话）
+        self._session_api_key: Optional[str] = None
+        #: 本实例是否已完成过一次握手。**且慢服务端不回 Mcp-Session-Id**（实测 2026-10-20，
+        #: nginx 无状态网关：initialize 200 但无该响应头），此时也必须记住「已握手」，
+        #: 否则「无会话可缓存」会退化成「每次调用都重新握手」，复用等于没做。
+        self._handshake_done: bool = False
 
     # ---- 且慢 MCP（Streamable HTTP）----
     def _mcp_post(self, payload: dict, sid: Optional[str]) -> requests.Response:
@@ -191,7 +295,8 @@ class QiemanFetcher(SingleValueFetcher):
     def _mcp_handshake(self, api_key: str) -> Optional[str]:
         """MCP 握手（initialize + notifications/initialized），返回会话 sid。
 
-        且慢 Streamable HTTP：tools/call 必须在同会话（同一 Mcp-Session-Id）内调用。
+        注意（实测 2026-10-20）：且慢当前**不返回** ``Mcp-Session-Id``，此方法返回 None
+        也属正常；会话复用由 :meth:`_ensure_session` 的 ``_handshake_done`` 记位承担。
         """
         self.session.headers['x-api-key'] = api_key
         sid: Optional[str] = None
@@ -213,17 +318,62 @@ class QiemanFetcher(SingleValueFetcher):
         return r.headers.get('Mcp-Session-Id') or sid
 
     def _call_tool(self, api_key: str, tool: str, arguments: dict) -> str:
-        """完成 MCP 握手并调用任意工具，返回解析出的文本片段（兼容 SSE / JSON 两种响应）。
+        """调用任意 MCP 工具，返回解析出的文本片段（兼容 SSE / JSON 两种响应）。
 
-        #1392 扩展点：原 `_call_mcp` 只调 `GetLatestQuotations`；抽成通用方法后，
-        且慢组合持仓（BatchGetStrategiesComposition）等可复用同一传输，无需重复握手逻辑。
+        ``#1392`` 扩展点：原 `_call_mcp` 只调 `GetLatestQuotations`；抽成通用方法后，
+        且慢组合持仓（BatchGetStrategiesComposition）等可复用同一传输。
+
+        **会话复用**（2026-10-20）：``Mcp-Session-Id`` 缓存在实例上，正常路径下连续 N 次
+        调用**只握手一次**（原实现每次调用都握手 = 3 个 HTTP 请求）。仅当服务端明确不认
+        当前会话（400/404/非 JSON）时**重新握手一次**再重试同一次调用，仍失败则抛错——
+        不做无限重试，也不把失败吞成空结果（空结果会被上层读成「这组合没持仓」）。
         """
-        sid = self._mcp_handshake(api_key)
-        r2 = self._mcp_post({'jsonrpc': '2.0', 'method': 'notifications/initialized'}, sid)
-        if r2.status_code >= 400:
-            raise RuntimeError(f'MCP initialized 通知失败: HTTP {r2.status_code}')
-        sid = r2.headers.get('Mcp-Session-Id') or sid
+        last_err: Optional[_McpSessionInvalid] = None
+        for attempt in (1, 2):
+            sid = self._ensure_session(api_key)
+            try:
+                return self._tool_call_once(sid, tool, arguments)
+            except _McpSessionInvalid as e:
+                # 不论第几次，先把坏会话丢掉：下一次循环（重试）会重新握手
+                self._reset_session()
+                last_err = e
+                if attempt == 2:
+                    break
+                logger.warning(f'MCP 会话失效，重新握手后重试一次（{tool}）: {e}')
+        raise RuntimeError(f'MCP 会话重握后仍失败（{tool}）: {last_err}') from last_err
 
+    def _ensure_session(self, api_key: str) -> Optional[str]:
+        """取/建 MCP 会话：实例内缓存 sid，apikey 变了才重新握手。
+
+        **服务端不回 ``Mcp-Session-Id`` 时同样跳过后续握手**（实测 2026-10-20）：
+        且慢网关是无状态的，initialize 只回 200、无该响应头，且不带任何会话头直接
+        ``tools/call`` 依然 200 有数据 ⇒ 「无 sid」不等于「无会话」。
+        若上游日后真要求先握手，退路是 :meth:`_call_tool` 的会话失效分支——
+        失败即重握一次再重试（已在真实链路上验证过重试路径，见测试）。
+        """
+        if self._session_api_key == api_key and (self._session_id or self._handshake_done):
+            # 复用旧会话时仍要保证 header 在位（_mcp_post 从 session.headers 取 key）
+            self.session.headers['x-api-key'] = api_key
+            return self._session_id
+
+        sid = self._mcp_handshake(api_key)
+        r = self._mcp_post({'jsonrpc': '2.0', 'method': 'notifications/initialized'}, sid)
+        if r.status_code >= 400:
+            raise RuntimeError(f'MCP initialized 通知失败: HTTP {r.status_code}')
+        sid = r.headers.get('Mcp-Session-Id') or sid
+        self._session_id = sid
+        self._session_api_key = api_key
+        self._handshake_done = True
+        return sid
+
+    def _reset_session(self) -> None:
+        """丢弃缓存会话（下次 ``_ensure_session`` 会重新握手）。"""
+        self._session_id = None
+        self._session_api_key = None
+        self._handshake_done = False
+
+    def _tool_call_once(self, sid: Optional[str], tool: str, arguments: dict) -> str:
+        """在既有会话内发一次 ``tools/call``；会话失效抛 :class:`_McpSessionInvalid`。"""
         r3 = self._mcp_post(
             {
                 'jsonrpc': '2.0',
@@ -233,6 +383,8 @@ class QiemanFetcher(SingleValueFetcher):
             },
             sid,
         )
+        if r3.status_code in (400, 404):
+            raise _McpSessionInvalid(f'HTTP {r3.status_code}')
         if r3.status_code != 200:
             raise RuntimeError(f'MCP tools/call 失败: HTTP {r3.status_code}')
 
@@ -254,7 +406,8 @@ class QiemanFetcher(SingleValueFetcher):
             try:
                 msg = r3.json()
             except ValueError:
-                raise RuntimeError('MCP tools/call 返回非 JSON（疑似 WAF 拦截）')
+                # 非 JSON：会话失效或被 WAF 拦截。两者都值得先重握一次再判死（不吞错）。
+                raise _McpSessionInvalid('返回非 JSON（疑似会话失效或被 WAF 拦截）')
             if 'error' in msg:
                 raise RuntimeError(f'MCP tools/call 返回错误: {msg["error"]}')
             content = msg.get('result', {}).get('content', [])
@@ -264,7 +417,7 @@ class QiemanFetcher(SingleValueFetcher):
         return text
 
     def fetch_strategy_composition(self, strategy_code: str) -> List[dict]:
-        """且慢组合持仓（#1392）：BatchGetStrategiesComposition。
+        """且慢组合持仓（#1392）：BatchGetStrategiesComposition（单只入口）。
 
         真实返回结构（实测 2026-09）：
             {"<code>": {"<基金类别>": {"持有成分":[{"基金代码","基金名称","持仓占比":"4.54%",
@@ -272,47 +425,92 @@ class QiemanFetcher(SingleValueFetcher):
         即**按基金类别分桶**，故需遍历每个类别的 ``持有成分`` 列表并打平，
         这样单靠外层 code 取不到任何持仓（早期按扁平结构解析会静默返回空列表）。
 
-        另保留两种扁平形态兜底（旧版/其他版本工具）：顶层 list，或 ``{result|data: [...]}``。
+        实现委托给 :meth:`fetch_strategy_composition_batch`（单只即长度为 1 的批量），
+        保证单只与批量走**同一条解析/回退路径**，不会各修一半。
 
         返回归一化列表：[{code, name, ratio, category, nav, nav_date, adj_time, fund_type}]。
         ratio 由 "4.54%" 解析为 float(4.54)；字段缺失一律置 None。
         无 key / code 不存在 / 结构不可识别时返回 []。
         """
+        code = str(strategy_code).strip()
+        return self.fetch_strategy_composition_batch([code]).get(code, [])
+
+    def fetch_strategy_composition_batch(
+        self, strategy_codes: List[str], batch_size: int = QIEMAN_STRATEGY_BATCH_SIZE
+    ) -> Dict[str, List[dict]]:
+        """批量抓取组合持仓：一次 ``tools/call`` 传多个 ``strategyCodes``。
+
+        **按 ``batch_size`` 分批**（与概览同一常量 50）：单请求的 code 上限未被上游文档
+        或实测覆盖（只证实了 2 只可同批返回），分批把「未知上限」的风险限制在一批之内，
+        且 111 只 = 3 次调用，相对逐只仍是 37 倍收敛。
+
+        **批量语义的防御性回退**：响应按 code 分键（``{code: {...}}``）。逐只看：
+        - 键在且是对象 ⇒ 按类别打平（正常路径）；
+        - 键在但不是对象 ⇒ 该组合确认为空（``[]``），**不**降级；
+        - **键不在 ⇒ 该 code 进降级名单**，整批解析完后逐只重取一次，
+          避免「批量拿不到」被静默读成「这只组合没有持仓」。
+        扁平形态（顶层 list / ``{result|data: [...]}``，旧版只支持单只）在多 code 时
+        无法归属，同样全部降级逐只。
+
+        返回 ``{code: [归一化持仓]}``，键覆盖**全部请求的 code**（拿不到的为 ``[]``）。
+        """
+        codes = _normalize_codes(strategy_codes)
+        if not codes:
+            return {}
+
         api_key = os.getenv('QIEMAN_API_KEY')
         if not api_key:
             logger.warning('QIEMAN_API_KEY 未配置，跳过且慢组合持仓')
-            return []
+            return {c: [] for c in codes}
+
+        out: Dict[str, List[dict]] = {}
+        for i in range(0, len(codes), batch_size):
+            out.update(self._fetch_composition_chunk(api_key, codes[i : i + batch_size]))
+        return out
+
+    def _fetch_composition_chunk(self, api_key: str, codes: List[str]) -> Dict[str, List[dict]]:
+        """单批持仓（含缺键降级逐只）。"""
         try:
-            text = self._call_tool(api_key, QIEMAN_STRATEGY_COMPOSITION_TOOL, {'strategyCodes': [strategy_code]})
+            text = self._call_tool(api_key, QIEMAN_STRATEGY_COMPOSITION_TOOL, {'strategyCodes': codes})
             parsed = json.loads(text)
         except Exception as e:  # noqa: BLE001
-            logger.error(f'且慢组合持仓获取失败 {strategy_code}: {e}')
-            return []
+            logger.error(f'且慢组合持仓获取失败（{len(codes)} 个，如 {codes[:3]}）: {e}')
+            return {c: [] for c in codes}
 
-        # 收集 (原始记录, 所属类别)；扁平形态没有类别信息，故为 None
-        raw_items: List[tuple] = []
-        if isinstance(parsed, list):
-            raw_items.extend((i, None) for i in parsed if isinstance(i, dict))
-        elif isinstance(parsed, dict):
-            code_block = parsed.get(strategy_code)
-            if isinstance(code_block, dict):
-                # 主路径：{strategy_code: {类别: {持有成分: [...]}}}
-                for category, body in code_block.items():
-                    if not isinstance(body, dict):
-                        continue
-                    raw_items.extend((i, category) for i in body.get('持有成分') or [] if isinstance(i, dict))
+        out: Dict[str, List[dict]] = {}
+        missing: List[str] = []
+        flat_rows = _flat_holding_rows(parsed)
+        if flat_rows is not None:
+            # 扁平形态（旧版/单组合响应）没有 code 归属信息：单只采信，多只无法归属 ⇒ 全部降级
+            if len(codes) == 1:
+                out[codes[0]] = _flatten_flat_holdings(flat_rows)
             else:
-                # 兜底：{result|data: [...]} 扁平容器
-                flat = parsed.get('result') or parsed.get('data') or []
-                if isinstance(flat, list):
-                    raw_items.extend((i, None) for i in flat if isinstance(i, dict))
+                missing = list(codes)
+        else:
+            for code in codes:
+                items = _parse_composition(parsed, code)
+                if items is None:
+                    missing.append(code)
+                else:
+                    out[code] = items
 
-        out = []
-        for raw, category in raw_items:
-            rec = _normalize_holding(raw, category)
-            if rec:
-                out.append(rec)
+        if missing:
+            logger.warning(
+                f'且慢组合持仓批量响应里认不出 {len(missing)}/{len(codes)} 个组合（如 {missing[:3]}），降级逐只重取'
+            )
+            for code in missing:
+                out[code] = self._fetch_composition_single(api_key, code)
         return out
+
+    def _fetch_composition_single(self, api_key: str, code: str) -> List[dict]:
+        """单只重取（批量响应缺键时的兜底）；失败返回 ``[]`` 并记日志。"""
+        try:
+            text = self._call_tool(api_key, QIEMAN_STRATEGY_COMPOSITION_TOOL, {'strategyCodes': [code]})
+            parsed = json.loads(text)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f'且慢组合持仓获取失败 {code}: {e}')
+            return []
+        return _parse_composition(parsed, code) or []
 
     def fetch_strategy_details(
         self, strategy_codes: List[str], batch_size: int = QIEMAN_STRATEGY_BATCH_SIZE
@@ -338,7 +536,7 @@ class QiemanFetcher(SingleValueFetcher):
             logger.warning('QIEMAN_API_KEY 未配置，跳过且慢组合概览')
             return []
 
-        codes = [str(c).strip() for c in (strategy_codes or []) if str(c).strip()]
+        codes = _normalize_codes(strategy_codes)
         if not codes:
             return []
 
