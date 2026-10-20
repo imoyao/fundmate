@@ -10,6 +10,7 @@ from datetime import date, datetime
 from typing import Any, Type
 
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 
 from app.core.asset_types import normalize_major_category
 from app.core.constants import (
@@ -1015,6 +1016,22 @@ def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | N
     金额从 get_distributions 聚合而来（元），落库转为整数分（Money 精度）。
     snapshot_date 可选，默认上海时区当日；用于历史回填，须为 YYYY-MM-DD。
     #863 P1-5：家庭/账户行同批写入当日货基收益（money_fund_income_cents，展示用）。
+
+    并发写同一天会撞唯一索引 ``uq_asset_snapshots_scope``（family + COALESCE(ledger,-1) + date）。
+    两个写入者都可能同时存在：
+
+    - CI 的每日通道（``.github/workflows/daily-snapshot.yml``）；
+    - 前端进全景页时的兜底补写（``frontend/src/views/asset/panorama/index.vue``，
+      按本地日去重——**两台设备各去重一次，仍会同时打**）；
+    - 用户手动点「记录快照」。
+
+    撞上时后提交的一方 INSERT 违反唯一约束 ⇒ ``IntegrityError``，旧实现直接抛给调用方
+    ⇒ 手动 API 返回 500、job 计 failed（#2132 修）。
+
+    修法：**回滚后重试一次**。重试时先前的写入者多半已提交，upsert 走 UPDATE 覆盖，
+    幂等语义不变；再失败则照旧抛出——不吞问题、不假装成功。
+    回滚而非 SAVEPOINT：SQLite 的读事务在回滚前看不到对方已提交的行，
+    整段回滚才能让重试读到新事实（且本函数本就自己 commit，事务归它所有）。
     """
     from app.core.time_utils import now_shanghai
 
@@ -1030,39 +1047,51 @@ def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | N
     mf_income_by_ledger: dict[int, int] = {
         lid: _money_fund_daily_income_cents(db, family_id, target, lid) for lid in mf_ledgers
     }
-
-    # 家庭级快照（ledger_id 为 NULL）：既有行为，支撑总资产走势 + 盈亏序列
-    family_row = _upsert_snapshot(db, family_id=family_id, ledger_id=None, snapshot_date=target)
-    family_row.total_assets = Money.yuan_to_cents(dist['total_assets'])
-    family_row.total_liabilities = Money.yuan_to_cents(dist['total_liabilities'])
-    family_row.net_worth = Money.yuan_to_cents(dist['net_worth'])
-    family_row.realized_pnl_cents = family_pnl['realized_pnl_cents']
-    family_row.unrealized_pnl_cents = family_pnl['unrealized_pnl_cents']
-    family_row.total_pnl_cents = family_pnl['total_pnl_cents']
-    family_row.money_fund_income_cents = sum(mf_income_by_ledger.values()) if mf_ledgers else None
-
-    # 账户级快照（#1181）：同一天为每个有数据的账户各落一行，支撑账户维度走势
     ledger_pnl = get_ledger_pnl(db, family_id)
-    for ledger_id, totals in get_ledger_distributions(db, family_id).items():
-        if not ledger_id:
-            # 哨兵键 0 = 无账户归属（游离资产/持仓）。0 不是合法账户 id，落行会
-            # 污染账户维度序列；这部分金额已计入家庭级快照，故跳过不单独立行。
-            continue
-        row = _upsert_snapshot(db, family_id=family_id, ledger_id=ledger_id, snapshot_date=target)
-        row.total_assets = Money.yuan_to_cents(totals['total_assets'])
-        row.total_liabilities = Money.yuan_to_cents(totals['total_liabilities'])
-        row.net_worth = Money.yuan_to_cents(totals['net_worth'])
-        lp = ledger_pnl.get(
-            ledger_id,
-            {'realized_pnl_cents': 0, 'unrealized_pnl_cents': 0, 'total_pnl_cents': 0},
-        )
-        row.realized_pnl_cents = lp['realized_pnl_cents']
-        row.unrealized_pnl_cents = lp['unrealized_pnl_cents']
-        row.total_pnl_cents = lp['total_pnl_cents']
-        row.money_fund_income_cents = mf_income_by_ledger.get(ledger_id)
+    ledger_distributions = get_ledger_distributions(db, family_id)
 
-    db.commit()
-    return _snapshot_payload(family_row)
+    def _write_rows() -> AssetSnapshot:
+        """写入家庭级 + 账户级快照行（不 commit，由调用方决定事务边界）。"""
+        # 家庭级快照（ledger_id 为 NULL）：既有行为，支撑总资产走势 + 盈亏序列
+        family_row = _upsert_snapshot(db, family_id=family_id, ledger_id=None, snapshot_date=target)
+        family_row.total_assets = Money.yuan_to_cents(dist['total_assets'])
+        family_row.total_liabilities = Money.yuan_to_cents(dist['total_liabilities'])
+        family_row.net_worth = Money.yuan_to_cents(dist['net_worth'])
+        family_row.realized_pnl_cents = family_pnl['realized_pnl_cents']
+        family_row.unrealized_pnl_cents = family_pnl['unrealized_pnl_cents']
+        family_row.total_pnl_cents = family_pnl['total_pnl_cents']
+        family_row.money_fund_income_cents = sum(mf_income_by_ledger.values()) if mf_ledgers else None
+
+        # 账户级快照（#1181）：同一天为每个有数据的账户各落一行，支撑账户维度走势
+        for ledger_id, totals in ledger_distributions.items():
+            if not ledger_id:
+                # 哨兵键 0 = 无账户归属（游离资产/持仓）。0 不是合法账户 id，落行会
+                # 污染账户维度序列；这部分金额已计入家庭级快照，故跳过不单独立行。
+                continue
+            row = _upsert_snapshot(db, family_id=family_id, ledger_id=ledger_id, snapshot_date=target)
+            row.total_assets = Money.yuan_to_cents(totals['total_assets'])
+            row.total_liabilities = Money.yuan_to_cents(totals['total_liabilities'])
+            row.net_worth = Money.yuan_to_cents(totals['net_worth'])
+            lp = ledger_pnl.get(
+                ledger_id,
+                {'realized_pnl_cents': 0, 'unrealized_pnl_cents': 0, 'total_pnl_cents': 0},
+            )
+            row.realized_pnl_cents = lp['realized_pnl_cents']
+            row.unrealized_pnl_cents = lp['unrealized_pnl_cents']
+            row.total_pnl_cents = lp['total_pnl_cents']
+            row.money_fund_income_cents = mf_income_by_ledger.get(ledger_id)
+        return family_row
+
+    for attempt in (1, 2):
+        try:
+            family_row = _write_rows()
+            db.commit()
+            return _snapshot_payload(family_row)
+        except IntegrityError:
+            db.rollback()
+            if attempt == 2:
+                raise
+    raise RuntimeError('unreachable: 重试循环已穷尽')  # pragma: no cover
 
 
 def _snapshot_payload(s: AssetSnapshot) -> dict[str, Any]:
