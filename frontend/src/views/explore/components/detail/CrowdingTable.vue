@@ -371,13 +371,8 @@ withDefaults(
   color: var(--color-warning-ink);
   white-space: nowrap;
   cursor: help;
-  background: color-mix(
-    in srgb,
-    var(--color-warning) 12%,
-    transparent
-  );
-  border: 1px solid
-    color-mix(in srgb, var(--color-warning) 35%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
   border-radius: 6px 6px 6px 0;
 }
 

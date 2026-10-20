@@ -280,6 +280,7 @@ html.dark {
      亮色对应的深色版本在深底不可读，故暗色改用提亮同色系；
      对比度为估算于 --bg-card(#242120) 的值。 */
   --color-warning-ink: #e0c98a; /* 暗卡 9.81:1 */
+
   /* 警示**图形**级（#2400，与 colors.css 同名成对定义）：暗底需提亮，
      否则亮色值在暗轨上几乎不可见。实测 vs 暗轨道底 --bg-soft(#2c2926) 7.4:1。 */
   --color-warning-fill: #e8a33d;
@@ -292,6 +293,7 @@ html.dark {
   --color-primary-ink: #aab0d8; /* 暗卡 7.55 / 暗页 8.27 */
   --color-success-ink: #7fc49a; /* 暗卡 7.82 / 暗页 8.56 */
   --color-info-ink: #9ecad6; /* 暗卡 9.04 / 暗页 9.90 */
+
   /* 信息**图形**级（#2400，与 colors.css 同名成对定义）：亮色值 #6f8f9d 是为亮底
      3:1 门槛调的，深底会偏闷；暗底提亮到 6.46:1（vs 暗轨道底 --bg-soft #2c2926）。 */
   --color-info: #8fb3c2;

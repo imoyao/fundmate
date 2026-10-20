@@ -288,11 +288,7 @@ watch(() => props.symbol, load, { immediate: true });
   font-size: var(--text-label);
   color: var(--color-warning-ink);
   cursor: help;
-  background: color-mix(
-    in srgb,
-    var(--color-warning) 12%,
-    transparent
-  );
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
   border-radius: 4px;
 }
 
