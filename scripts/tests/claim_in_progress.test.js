@@ -76,10 +76,19 @@ test('解析：closing 关键字（Closes / Fixes / Resolves）', () => {
   assert.ok(issues.includes(100));
 });
 
-test('解析：非 closing 的显式关联（关联 / 相关 / Refs / Part of）', () => {
-  const issues = parseLinkedIssues('关联 `GitHub #2406`\nRefs #99\nPart of #88');
-  assert.ok(issues.includes(2406), '关联应被识别——很多 PR 只引用不关闭');
+test('解析：GitHub 限定形态（GitHub #N）', () => {
+  assert.ok(
+    parseLinkedIssues('关联 `GitHub #2406`').includes(2406),
+    '限定形态应被识别——很多 PR 只引用不关闭',
+  );
+});
+
+// 裸编号样本单独成行：守卫按「行内有无 GitHub 标记词」判红，
+// 把 `GitHub #2406` 与裸 `#99` 混在一行会让这行被判成「该挂源却裸写」。
+test('解析：非 closing 的显式关联（Refs / Part of）', () => {
+  const issues = parseLinkedIssues('Refs #99\nPart of #88');
   assert.ok(issues.includes(99));
+  assert.ok(issues.includes(88));
 });
 
 test('解析：行内代码裸编号 `` `#N` ``（挂源形态）', () => {

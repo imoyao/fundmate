@@ -653,7 +653,10 @@ jobs:
       - name: 认领同步解析自检
         # 样本里**不写反引号**：bash 会把 `...` 当命令替换执行（本轮已在 commit message
         # 上踩过一次），守卫因此拿到被 shell 吃空的字符串——那又是「静默失灵」。
-        run: node -e "const{parseLinkedIssues}=require('./scripts/claim_in_progress.mjs');const r=parseLinkedIssues('closes #1 关联 GitHub #2','imoyao/fundmate');if(JSON.stringify(r)!=='[1,2]'){console.error('解析自检失败:',r);process.exit(1)}console.log('OK:',r)"
+        # 样本也不带 GitHub 标记词：自检行本身不该被 guard_cross_repo_refs 判红
+        # （`GitHub #N` 与裸 `#N` 同行即视为「该挂源却裸写」），限定形态由
+        # scripts/tests/claim_in_progress.test.js 覆盖。
+        run: node -e "const{parseLinkedIssues}=require('./scripts/claim_in_progress.mjs');const r=parseLinkedIssues('closes #1 关联 #2','imoyao/fundmate');if(JSON.stringify(r)!=='[1,2]'){console.error('解析自检失败:',r);process.exit(1)}console.log('OK:',r)"
 
       - name: 设置 Python 3.12
         uses: actions/setup-python@v6
