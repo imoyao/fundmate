@@ -31,7 +31,9 @@ from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 
 
-def resolve_transaction_display_names(db: Session, txns: Iterable[Transaction]) -> Tuple[Dict[int, str], Dict[int, str]]:
+def resolve_transaction_display_names(
+    db: Session, txns: Iterable[Transaction]
+) -> Tuple[Dict[int, str], Dict[int, str]]:
     """批解析流水行的展示名称。
 
     Args:
@@ -53,7 +55,9 @@ def resolve_transaction_display_names(db: Session, txns: Iterable[Transaction]) 
     pos_ids = {t.position_id for t in missing_pos if t.position_id}
     if pos_ids:
         id_to_name = {
-            pid: pname for pid, pname in db.query(Position.id, Position.name).filter(Position.id.in_(pos_ids)).all() if pname
+            pid: pname
+            for pid, pname in db.query(Position.id, Position.name).filter(Position.id.in_(pos_ids)).all()
+            if pname
         }
         for t in missing_pos:
             name = id_to_name.get(t.position_id) if t.position_id else None
@@ -67,7 +71,9 @@ def resolve_transaction_display_names(db: Session, txns: Iterable[Transaction]) 
         codes.discard('')
         if codes:
             code_to_name = {
-                code: name for code, name in db.query(Fund.fund_code, Fund.name).filter(Fund.fund_code.in_(codes)).all() if name
+                code: name
+                for code, name in db.query(Fund.fund_code, Fund.name).filter(Fund.fund_code.in_(codes)).all()
+                if name
             }
             for t in dangling:
                 name = code_to_name.get(strip_exchange_prefix(str(t.symbol)))
@@ -79,7 +85,9 @@ def resolve_transaction_display_names(db: Session, txns: Iterable[Transaction]) 
     if missing_ledger:
         ledger_ids = {t.ledger_id for t in missing_ledger}
         id_to_name = {
-            lid: lname for lid, lname in db.query(Ledger.id, Ledger.name).filter(Ledger.id.in_(ledger_ids)).all() if lname
+            lid: lname
+            for lid, lname in db.query(Ledger.id, Ledger.name).filter(Ledger.id.in_(ledger_ids)).all()
+            if lname
         }
         for t in missing_ledger:
             name = id_to_name.get(t.ledger_id)
