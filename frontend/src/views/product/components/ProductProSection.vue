@@ -10,6 +10,7 @@ import {
 import ProductProPerformance from "./ProductProPerformance.vue";
 import ProductProAllocation from "./ProductProAllocation.vue";
 import ProductProRisk from "./ProductProRisk.vue";
+import { resolvePaywallEnabled } from "./proEntitlement";
 
 /**
  * 详情页「高级洞察 Pro」占位区块（#2272 · #994 Phase 1）。
@@ -23,10 +24,14 @@ import ProductProRisk from "./ProductProRisk.vue";
  * 其余品类（stock / bond / index / manager / portfolio）接入是 Phase 2+
  * 的品类扩展决策，届时改 PRO_ASSET_TYPES 一处白名单，不动挂载点。
  *
- * 两条已拍板约束（#994 评论，2026-10-08）：
- * 1. **付费墙是纯前端 feature flag**：env `VITE_PRO_PAYWALL_ENABLED` 控制遮罩，
- *    未配置时默认开启（"Pro 只作后期功能墙"）；后端接口一期全开无权益校验，
- *    权益判定后期抽 `GET /api/me/entitlements`，与本组件解耦；
+ * 两条已拍板约束（#994 评论 2026-10-08；第 1 条已随 #2324 权益落地改写）：
+ * 1. **付费墙由后端权益驱动，env 只是显式覆盖**：`GET /api/products/pro/` 的
+ *    `paywall_required` 已按家庭权益算（`backend/app/services/product_pro_status.py`），
+ *    未配置 `VITE_PRO_PAYWALL_ENABLED` 时以它为准；env 传 "true" / "false" 可强制开 / 关
+ *    （e2e 与本地预览用，见 `playwright.config.ts` 的 webServer env）。状态位取不到
+ *    （null）时**不显示遮罩**——「还没问出来」不等于「未开通」。三态实现见
+ *    `proEntitlement.ts` 的 `resolvePaywallEnabled`；三个内容端点在未开通时回
+ *    `403 + error_code=1007`，各内容块自行渲染权益未开通态（块级自治，互不阻塞）；
  * 2. **不用 mock / 演示数据占位**：徽标（Phase N 建设中）来自后端状态位，
  *    取不到就不显示徽标，绝不编造"已上线"。
  *
@@ -70,10 +75,17 @@ const MODULE_META = [
   }
 ] as const;
 
-/** 付费墙遮罩开关（未配置默认开启；显式传 "false" 关闭） */
-const paywallEnabled = import.meta.env.VITE_PRO_PAYWALL_ENABLED !== "false";
-
 const status = ref<ProStatusResult | null>(null);
+
+/**
+ * 付费墙开关（三态）：env 显式覆盖优先，未配置时用后端 `paywall_required`；
+ * 状态位未回来 / 取不到 ⇒ 不显示遮罩。判定逻辑与单测见 `proEntitlement.ts`。
+ */
+const PAYWALL_ENV_FLAG = import.meta.env.VITE_PRO_PAYWALL_ENABLED;
+
+const paywallEnabled = computed(() =>
+  resolvePaywallEnabled(PAYWALL_ENV_FLAG, status.value?.paywall_required)
+);
 
 onMounted(async () => {
   if (!enabled.value) return;
@@ -185,7 +197,7 @@ const riskAvailable = computed(
         </article>
       </div>
 
-      <!-- 付费墙遮罩（VITE_PRO_PAYWALL_ENABLED 控制）：只遮内容区不遮标题，
+      <!-- 付费墙遮罩（三态：env 显式覆盖 / 后端 paywall_required）：只遮内容区不遮标题，
            且不阻断详情页其他区块——「克制不打扰」（#994 付费墙交互）。 -->
       <div v-if="paywallEnabled" class="pro-paywall">
         <p class="pro-paywall__title">解锁高级风险指标与交易行为分析</p>

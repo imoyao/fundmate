@@ -1,6 +1,6 @@
 # 工作备忘索引（working-notes）
 
-> 共 **150 张**，2026-10-19 按主题归类。**一张未删**——本表只解决「找不到」，不解决「该不该留」。
+> 共 **151 张**，2026-10-19 按主题归类。**一张未删**——本表只解决「找不到」，不解决「该不该留」。
 > 归位与归档的判断依据见 [docs-audit-2026-10-19.md](./docs-audit-2026-10-19.md)。
 > 「摘要」列是卡片开头若干字符的**机械截取**，不是结论——结论以卡片本体为准。
 
@@ -201,7 +201,7 @@
 | [cnb-dev-ahead-rescue-2026-10-11](./cnb-dev-ahead-rescue-2026-10-11.md) | 88 | · | 路线决策文件（cnb-github-mirror-route-2026-10-11.md）给出的是口径：单源 + 两 |
 | [divergence-criterion-bifurcation-2026-10-14](./divergence-criterion-bifurcation-2026-10-14.md) | 106 | ◐ | 日期：2026-10-14　关联：CNB #179 / #167 / #171 / #123 / #148　状态：待 |
 
-## 项目管理（14 张）
+## 项目管理（15 张）
 
 | 卡片 | 行 | 标记 | 摘要 |
 |:---|---:|:---:|---|
@@ -219,6 +219,7 @@
 | [issue-870-activation-comment-2026-09-30](./issue-870-activation-comment-2026-09-30.md) | 167 | ◐ | 可直接粘贴到 GitHub。建议同时执行：摘掉 归档 标签 + 粘贴下方正文。 |
 | [jigu-migration-to-duoduobei-plan-2026-08-18](./jigu-migration-to-duoduobei-plan-2026-08-18.md) | 171 | ◐ | 你记忆里"找不到的文档"就是 docs/spec/site-architecture-and-traffic-rou |
 | [opencode-github-issue-utf8-rule-2026-08-09](./opencode-github-issue-utf8-rule-2026-08-09.md) | 25 | · | - 标题/正文里的中文在提交到 GitHub 之前就已经损坏（GitHub 服务端不会把中文变 ?）。 |
+| [roadmap-realign-2026-10-19](./roadmap-realign-2026-10-19.md) | 281 | — 📌 | 失控的不是执行力，是结构。近 30 天关闭 305 个 issue，吞吐非常健康；但 14 个开放里程碑、96 个 open issue、 |
 
 ## 命名规范（强制）
 

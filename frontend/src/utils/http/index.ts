@@ -13,6 +13,7 @@ import { stringify } from "qs";
 import { formatToken } from "@/utils/auth";
 import { supabase } from "@/utils/supabase";
 import { message } from "@/utils/message";
+import { PRO_NOT_ENTITLED_CODE } from "@/constants/errorCodes";
 
 // 相关配置请参考：www.axios-js.com/zh-cn/docs/#axios-request-config-1
 const defaultConfig: AxiosRequestConfig = {
@@ -99,8 +100,17 @@ class PureHttp {
         }
         // 无权限（viewer 只读 / 角色不足）→ 统一提示
         if ($error.response?.status === 403) {
-          const backendMessage = ($error.response.data as any)?.message;
-          message(backendMessage || "没有权限执行此操作", { type: "warning" });
+          const payload = $error.response.data as
+            { message?: string; error_code?: number } | undefined;
+          // Pro 权益边界（error_code=1007）**不弹全局 toast**：Pro 各内容块会就地
+          // 渲染「未开通」说明卡（`views/product/components/ProductProEntitlementNotice.vue`）。
+          // 一个页面三块同时被挡时会叠三条一模一样的警告，把「讲边界」变成刷屏；
+          // 付费墙开着时更不该再打扰一次。
+          if (payload?.error_code !== PRO_NOT_ENTITLED_CODE) {
+            message(payload?.message || "没有权限执行此操作", {
+              type: "warning"
+            });
+          }
         }
         // 所有的响应异常 区分来源为取消请求/非取消请求
         return Promise.reject($error);

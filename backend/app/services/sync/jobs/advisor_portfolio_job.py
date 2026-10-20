@@ -121,7 +121,7 @@ def flatten_qieman_composition(data: dict, strategy_code: Optional[str] = None) 
 class AdvisorPortfolioSyncJob(SyncJob):
     """投顾组合概览 + 持仓/行业/调仓历史同步（多平台，Ports & Adapters）。"""
 
-    batch_size = 10  # 每批组合数（每个组合 4 个接口请求，batch 过大拉长单事务）
+    batch_size = 10  # 每批组合数（批量抓取后每个平台每轮 2 次工具调用；batch 过大拉长单事务）
 
     def __init__(
         self,
@@ -196,39 +196,56 @@ class AdvisorPortfolioSyncJob(SyncJob):
     # ── 抓取 ──
 
     def _fetch_data(self, full_sync: bool, targets: List[str]) -> List[dict]:
-        """按平台取适配器抓四个数据面——本方法**不含任何平台分支**。"""
+        """按平台**分组批量**抓取四个数据面——本方法**不含任何平台分支**。
+
+        按平台批量而不是逐只：且慢 MCP 的概览与持仓接口都天然收多个 code，
+        逐只调等于把 111 只的 3 次调用放大成 111 次（#1876 的调用量根因）。
+        批量能力是「可选数据面」：适配器没实现批量方法时由 Port 基类
+        （``AdvisorPortfolioSource.fetch_overviews`` / ``fetch_holdings_batch``）
+        逐只回退，故新增平台零改动、也不会因为没实现批量而漏抓。
+        """
         pairs = self._resolve_targets(targets)
         if not pairs:
             return []
-        payloads = []
+
+        # 平台 → 本轮 code 列表（保序去重由适配器侧兜底；这里保留原始顺序与重复，语义同原逐只实现）
+        by_platform: Dict[str, List[str]] = {}
         for code, platform in pairs:
             code = (code or '').strip()
             if not code:
                 continue
+            by_platform.setdefault(platform, []).append(code)
+
+        payloads = []
+        for platform, codes in by_platform.items():
             try:
                 src = self._source(platform)
             except UnknownAdvisorPlatform as e:
                 # 库内可能存在尚无适配器的平台（如蛋卷）：跳过该组合即可，不炸整轮同步
-                self.logger.warning(f'跳过投顾组合 {code}：{e}')
+                for code in codes:
+                    self.logger.warning(f'跳过投顾组合 {code}：{e}')
                 continue
-            overview = src.fetch_overview(code)
-            holdings = src.fetch_holdings(code)
-            self.logger.info(
-                f'抓取投顾组合 {code}({platform})：概览 {"有" if overview else "无"} / '
-                f'持仓 {len((holdings or {}).get("funds") or [])} 条'
-            )
-            payloads.append(
-                {
-                    'code': code,
-                    'platform': platform,
-                    # 能力位随 payload 走：落库层无需再回查注册表
-                    'derive_rebalances': src.derive_rebalances_from_snapshots,
-                    'overview': overview,
-                    'holdings': holdings,
-                    'industries': src.fetch_industries(code),
-                    'rebalances': src.fetch_rebalances(code),
-                }
-            )
+            overviews = src.fetch_overviews(codes) or {}
+            holdings_by_code = src.fetch_holdings_batch(codes) or {}
+            for code in codes:
+                overview = overviews.get(code) or {}
+                holdings = holdings_by_code.get(code) or {}
+                self.logger.info(
+                    f'抓取投顾组合 {code}({platform})：概览 {"有" if overview else "无"} / '
+                    f'持仓 {len(holdings.get("funds") or [])} 条'
+                )
+                payloads.append(
+                    {
+                        'code': code,
+                        'platform': platform,
+                        # 能力位随 payload 走：落库层无需再回查注册表
+                        'derive_rebalances': src.derive_rebalances_from_snapshots,
+                        'overview': overview,
+                        'holdings': holdings,
+                        'industries': src.fetch_industries(code),
+                        'rebalances': src.fetch_rebalances(code),
+                    }
+                )
         return payloads
 
     # ── 校验 / 去重 ──

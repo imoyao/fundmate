@@ -25,13 +25,29 @@
 
 ## 三条硬约束
 
-1. **只补 `position_id`**：不改写 `amount` / `confirm_date` / `trade_date`。
-   回填是「补链接」而非「修数据」，否则就成了数据污染源（验收标准第 2 条）。
+1. **补 `position_id` + 重算派生份额**：挂回后必须对受影响持仓调
+   `recompute_position_from_transactions`（份额派生的唯一入口，与 nav_backfill /
+   删流水重算同源）。只补链接不重算是本类 bug 的根因——真实库实测（017074
+   嘉实清洁能源C）：支付宝先导卖出、后导买入，两笔卖出降级为孤儿，本 job 挂回后
+   `position_id` 补上了，份额却从未扣减 ⇒ 账面 2858.29 份 / 市值 2350 元，
+   实际早已清仓，对账 quantity 差异白记三个月没人能对平。流水的
+   `amount` / `confirm_date` / `trade_date` 仍**一律不改写**——回填是
+   「补链接 + 让派生份额跟上」，不是「修流水数据」。
 2. **幂等**：只捞 `position_id IS NULL` 的行，挂过即离开候选集，重跑不重复关联
-   （验收标准第 3 条）。不依赖任何「上次跑到哪」的记账。
+   （验收标准第 3 条）。不依赖任何「上次跑到哪」的记账。重算同样幂等
+   （全量流水派生，非增量加减）。
 3. **宁可不挂，也不挂错**：同 `(family_id, ledger_id, symbol_norm)` 命中多个持仓时
    跳过并计入 `ambiguous`。`ledger_id` 可为 NULL（未归档持仓 / 探市迁移），
    这种情况下同一身份可能对应多行，静默取第一条等于随机挂错。
+
+## 重算的边界（刻意保守）
+
+- 净额派生出 **0 / 负份额**（超卖）⇒ `recompute` 钳 0 并标记
+  `ownership_status='cleared'`（#2343 清仓不删行），负值是脏数据不是持仓。
+- 有快照锚点的持仓走锚点口径：归属日 `<= snapshot_date` 的流水视为已被快照
+  包含，不重复扣减——重算不会把快照值减穿。
+- 单个持仓重算失败（异常）只记 `errors` 不抛出：回填是维护任务，
+  一个持仓算错不该让整批挂回的事务回滚。
 
 ## 为什么排除收益行
 
@@ -47,6 +63,7 @@ from app.core.time_utils import now_shanghai
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.job_base import IN_CHUNK_SIZE, JobStatus, SyncJob
+from app.services.position_service import PositionService
 
 # ledger_id 可为 NULL，而 `NULL == NULL` 在 SQL 里为假——索引键统一用哨兵 -1，
 # 与 `transactions` 上那个 `COALESCE(ledger_id, -1)` 函数式唯一索引同一套约定。
@@ -95,6 +112,7 @@ class OrphanBackfillJob(SyncJob):
             'no_identity': 0,
             'no_position': 0,
             'ambiguous': 0,
+            'recomputed': 0,
             'errors': [],
         }
         self.logger.info('开始回填孤儿交易（position_id IS NULL → 按身份挂回持仓）')
@@ -113,7 +131,7 @@ class OrphanBackfillJob(SyncJob):
         self.logger.info(
             f'孤儿交易回填完成: 扫描 {self.stats["scanned"]},挂回 {self.stats["attached"]}, '
             f'无身份 {self.stats["no_identity"]}, 无匹配持仓 {self.stats["no_position"]}, '
-            f'候选歧义跳过 {self.stats["ambiguous"]}'
+            f'候选歧义跳过 {self.stats["ambiguous"]}, 份额重算 {self.stats["recomputed"]}'
         )
         return self._build_result()
 
@@ -154,6 +172,7 @@ class OrphanBackfillJob(SyncJob):
         lit_index = self._load_literal_index(identities, families)
 
         # 第三步：逐条挂回，只写 position_id
+        attached_positions: set = set()
         for txn, identity in pending:
             key = (
                 txn.family_id,
@@ -164,15 +183,45 @@ class OrphanBackfillJob(SyncJob):
             if len(candidates) == 1:
                 txn.position_id = candidates[0]
                 self.stats['attached'] += 1
+                attached_positions.add(candidates[0])
                 continue
             if len(candidates) > 1:
                 # 同一身份命中多个持仓：无法判断该挂哪一个，跳过而不是随机取第一条
                 self.stats['ambiguous'] += 1
                 continue
             # 身份路径未命中 → 字面量回退（见 _try_attach_by_literal）
-            self._try_attach_by_literal(txn, lit_index)
+            pos_id = self._try_attach_by_literal(txn, lit_index)
+            if pos_id is not None:
+                attached_positions.add(pos_id)
+
+        # 第四步：份额重算。挂回只是补了链接，若不再生份额，被挂回的卖出/取出流水
+        # 永远不会扣减持仓数量——「先导卖出、后建持仓」的导入顺序会留下账面有份额、
+        # 实际已清仓的幽灵持仓（017074 实测市值虚增 2350 元，见模块 docstring）。
+        # 口径与 nav_backfill / 删流水重算完全同源（compute_anchored_state）。
+        self._recompute_attached(attached_positions)
 
         self.db.commit()
+
+    def _recompute_attached(self, attached_positions: set) -> None:
+        """对挂回流水涉及的持仓逐个重算份额（第四步，见模块 docstring 硬约束 1）。
+
+        单个持仓失败只记 `errors` 不抛出：回填是维护任务，一个持仓算错
+        （典型：锚点与流水互相矛盾的脏数据）不该让整批挂回的事务回滚。
+        """
+        if not attached_positions:
+            return
+        # 先把挂回落库再重算：`SessionLocal` 是 autoflush=False（database.py），
+        # 循环里 `txn.position_id = ...` 只是内存赋值，recompute 内部的流水查询
+        # 看不到未 flush 的挂回——「挂回的卖出」会被当成不存在，份额一点不减
+        # （017074 实测形态：recomputed=1 但 quantity 原样）。
+        self.db.flush()
+        for pos_id in sorted(attached_positions):
+            try:
+                PositionService.recompute_position_from_transactions(self.db, pos_id)
+                self.stats['recomputed'] += 1
+            except Exception as e:
+                self.logger.exception(f'挂回后份额重算失败: position_id={pos_id}, error={e}')
+                self.stats['errors'].append({'position_id': pos_id, 'error': str(e)})
 
     def _load_position_index(self, identities: set, families: set) -> Dict[tuple, Tuple[int, ...]]:
         """按身份批量取持仓，建 `(family_id, ledger_id, symbol_norm) -> (position_id, ...)` 索引。
@@ -220,7 +269,7 @@ class OrphanBackfillJob(SyncJob):
 
     def _try_attach_by_literal(
         self, txn: Transaction, lit_index: Dict[tuple, Tuple[Tuple[int, Optional[str], str], ...]]
-    ) -> None:
+    ) -> Optional[int]:
         """身份路径未命中时的回退：按去前缀字面量在同一 (family, ledger) 下找持仓。
 
         只挂「持仓自身 `asset_type` 能让孤儿 `symbol` 复算出该持仓 `symbol_norm`」的那一条——
@@ -228,6 +277,8 @@ class OrphanBackfillJob(SyncJob):
         通过才挂。这样既不凭空发明身份键，也不会因孤儿 `asset_type` 缺失而漏挂本可挂的持仓
         （真实库实测：大量 legacy 流水 `asset_type` 为 NULL，但同 (family, ledger) 下确有字面量
         相同的持仓；而 `SZ011341` 这类带错前缀的脏 symbol，其真实 venue 只能由持仓侧定）。
+
+        返回挂上的 `position_id`（未挂返回 None），供调用方纳入份额重算集合。
         """
         lk = (
             txn.family_id,
@@ -243,7 +294,9 @@ class OrphanBackfillJob(SyncJob):
         if len(valid) == 1:
             txn.position_id = valid[0]
             self.stats['attached'] += 1
+            return valid[0]
         elif len(valid) > 1:
             self.stats['ambiguous'] += 1
         else:
             self.stats['no_position'] += 1
+        return None

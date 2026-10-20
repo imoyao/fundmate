@@ -1145,13 +1145,26 @@ export interface ProModuleStatus {
   phase: number;
 }
 
-/** `GET /api/products/pro/` 返回（#2272）。一期恒量：后端全开、付费墙在前端 flag */
+/**
+ * `GET /api/products/pro/` 返回（#2272 骨架；#2324 起由家庭权益驱动）。
+ *
+ * `paywall_required` **不再是恒量**：后端按家庭权益位现算
+ * （`backend/app/services/product_pro_status.py` 的 `build_pro_status`），
+ * 前端仅在 `VITE_PRO_PAYWALL_ENABLED` 未配置时采信它（三态判定见
+ * `views/product/components/proEntitlement.ts` 的 `resolvePaywallEnabled`）。
+ */
 export interface ProStatusResult {
   symbol: string;
   asset_type: string | null;
-  /** 一期恒 true（全开无权益校验；权益判定后期抽 /api/me/entitlements） */
+  /** Pro 总开关；当前恒 true（模块级可用性由 `modules[*].available` 决定） */
   pro_enabled: boolean;
-  /** 一期恒 false（付费墙是前端 feature flag VITE_PRO_PAYWALL_ENABLED 控制的遮罩） */
+  /**
+   * 是否必须挂付费墙遮罩：家庭一份 Pro 权益都没开通 ⇒ true。
+   *
+   * 与「模块可用性」是两件事：`available` 说的是**这个模块建好没有**，
+   * 本字段说的是**这户人家能不能看**。付费墙开着时内容端点会回 403，
+   * 故前端不应把它当展示位来读。
+   */
   paywall_required: boolean;
   modules: Record<
     "performance" | "risk" | "allocation" | "report",
