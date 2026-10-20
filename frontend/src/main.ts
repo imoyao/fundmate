@@ -4,6 +4,7 @@ import { setupStore } from "@/store";
 import { getPlatformConfig } from "./config";
 import { MotionPlugin } from "@vueuse/motion";
 import { useEcharts } from "@/plugins/echarts";
+import { initFeedlogWidget } from "@/plugins/feedlog";
 import { createApp, type Directive } from "vue";
 import { useElementPlus } from "@/plugins/elementPlus";
 import { injectResponsiveStorage } from "@/utils/responsive";
@@ -75,4 +76,8 @@ getPlatformConfig(app).then(async config => {
   app.use(MotionPlugin).use(useElementPlus).use(Table).use(useEcharts);
   // .use(PureDescriptions)
   app.mount("#app");
+  // FeedLog 反馈 widget（#1997）：必须在 mount 之后、且 injectResponsiveStorage
+  // 已应用存储的主题偏好之后调——插件初值读 <html> 的 dark class，早于它会拿到
+  // 系统偏好而不是用户偏好。游客模式，无后端依赖。
+  initFeedlogWidget();
 });

@@ -11,6 +11,9 @@ importers:
       '@element-plus/icons-vue':
         specifier: ^2.3.2
         version: 2.3.2(vue@3.5.44(typescript@5.9.3))
+      '@feedlog/widget':
+        specifier: ^0.2.0
+        version: 0.2.0
       '@pureadmin/descriptions':
         specifier: ^1.2.1
         version: 1.2.1(echarts@6.1.0)(element-plus@2.14.7(vue@3.5.44(typescript@5.9.3)))(typescript@5.9.3)
@@ -1070,6 +1073,10 @@ packages:
   '@faker-js/faker@10.6.0':
     resolution: {integrity: sha512-3RQHgEtvL1Frl/d1cSreo7qhJ3Gk1OdNUai/CtZ8G+wYeRQnJih3s9xJ9/kgYekPQRdwgh0HXRPqMlzWGwivIQ==}
     engines: {node: ^20.19.0 || ^22.13.0 || ^23.5.0 || >=24.0.0, npm: '>=10'}
+
+  '@feedlog/widget@0.2.0':
+    resolution: {integrity: sha512-YT1p9cdLkHdOyzTYDXqzdVr7pWbMhVvAbl/VQI8HIzcmOdOHLVNaruUfQfdvYSQrJ4zTRymdDklXCk8ThcWHDg==}
+    engines: {node: '>=18'}
 
   '@floating-ui/core@1.8.0':
     resolution: {integrity: sha512-0CIZ5itps/8x7BG8dEIhs53BvCUH2PCoogtakwRTut+Arm58sJooJ0AuZhLw2HJYIR5cMLNPBSS728sPho2khQ==}
@@ -4953,6 +4960,8 @@ snapshots:
       levn: 0.4.1
 
   '@faker-js/faker@10.6.0': {}
+
+  '@feedlog/widget@0.2.0': {}
 
   '@floating-ui/core@1.8.0':
     dependencies:
