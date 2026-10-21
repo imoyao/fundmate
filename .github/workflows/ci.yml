@@ -508,6 +508,20 @@ jobs:
         run: python -m unittest scripts.tests.test_detail_tables_guard -v
         working-directory: ${{ github.workspace }}
 
+      # 价格 / 净值精度契约守卫（用户实测：走势图 y 轴没设 formatter，净值 4.8124
+      # 在轴上只剩 4.8）。契约 `pricePrecision` 早就在，问题是只有表格类组件遵守，
+      # 其它出口各写各的 `.toFixed(n)`——写进 AGENTS.md 的软约束管不住，故做成判据：
+      # 新增硬编码一律拦，存量 13 处冻结为基线（只减不增）。
+      - name: 守卫:价格/净值精度契约
+        run: node ../scripts/guard_price_precision.mjs
+
+      # 上条的回归网（含反向验证：喂一处新增硬编码必须转红）。
+      # 与表格守卫同理，cwd 要回到仓库根。
+      - name: 价格精度守卫回归网
+        if: ${{ always() }}
+        run: node --test scripts/tests/guard_price_precision.test.js
+        working-directory: ${{ github.workspace }}
+
       - name: 构建
         run: pnpm build
 

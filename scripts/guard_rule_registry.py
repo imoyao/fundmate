@@ -316,6 +316,16 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/check_css_vars.test.js',
         'covered': '存量 12 处幽灵令牌冻结为基线，只拦新增',
     },
+    'scripts/guard_price_precision.mjs': {
+        'rule': '价格 / 净值展示一律走 @/utils/pricePrecision 契约（禁止硬编码 toFixed）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/guard_price_precision.test.js',
+        'covered': (
+            '只拦**新增**硬编码；存量 13 处冻结为基线（只减不增）。'
+            '运算回写 / 金额 / 份额 / 百分比形态靠正则豁免，形态写怪了会漏；'
+            '位数写对与否不判（那是代码审查的事，守卫只保证新增处被人看过一眼）'
+        ),
+    },
     'scripts/check_router_links.mjs': {
         'rule': '路由目标必须存在（无死链）',
         'runner': 'ci',

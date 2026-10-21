@@ -197,6 +197,7 @@ watch(productRef, loadProduct, { immediate: true });
             id="nav-position"
             :symbol="product.symbol"
             :market="product.market"
+            :asset-type="product.asset_type"
           />
 
           <!-- 走势（#1967）：默认 3M、无数据显空态、口径脚注写明数据日期与来源。

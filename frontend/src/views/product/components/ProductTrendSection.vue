@@ -35,6 +35,7 @@ import {
   getCssVar,
   useThemeTick
 } from "@/composables/echarts/theme";
+import { formatPrice, priceAxisLabelFormatter } from "@/utils/pricePrecision";
 
 /**
  * 详情页「走势」区块（#1967 · 设计 §5 B 区块）。
@@ -590,7 +591,14 @@ const chartOption = computed(() => {
         }
       ],
       yAxis: [
-        { scale: true, axisLabel: { fontSize: 11 }, splitLine },
+        {
+          scale: true,
+          axisLabel: {
+            fontSize: 11,
+            formatter: priceAxisLabelFormatter(props.assetType)
+          },
+          splitLine
+        },
         {
           gridIndex: 1,
           splitNumber: 2,
@@ -668,7 +676,7 @@ const chartOption = computed(() => {
       } else {
         const v = Array.isArray(p.value) ? Number(p.value[1]) : Number(p.value);
         rows.push(
-          `${p.marker ?? ""}${seriesName}：${Number.isFinite(v) ? v.toFixed(4) : "—"}`
+          `${p.marker ?? ""}${seriesName}：${formatPrice(v, props.assetType)}`
         );
       }
     }
@@ -687,7 +695,12 @@ const chartOption = computed(() => {
     yAxis: {
       type: "value",
       scale: true,
-      axisLabel: { fontSize: 11 },
+      // 净值 4 位、股价 2 位：不设 formatter 时 echarts 默认只给 1 位，
+      // 净值 4.8124 在轴上会显示成 4.8（用户实测反馈）
+      axisLabel: {
+        fontSize: 11,
+        formatter: priceAxisLabelFormatter(props.assetType)
+      },
       splitLine
     },
     series: [

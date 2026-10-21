@@ -788,6 +788,7 @@ if code == 1:
 - 份额：最小单位（份×10000）。
 - 净值：`DECIMAL(18,6)`。
 - 换算必须走 `app/core/money.py` 的 `Money`（`yuan_to_cents`/`shares_to_min_unit`），业务代码禁止直接乘除 float。
+- **前端价格 / 净值展示的位数一律走 `@/utils/pricePrecision`**（基金 / ETF / 货币基金 4 位，其余 2 位）；组件用 `:precision="pricePrecision(assetType)"`，echarts 轴标签 / tooltip / 标注这类非组件出口用 `formatPrice(v, assetType)`。禁止在各处手写 `.toFixed(n)`——契约早在，但只有表格类组件遵守，走势图 y 轴就因此只剩 1 位（净值 4.8124 显示成 4.8）。判据：`scripts/guard_price_precision.mjs`（存量 13 处冻结为基线，只拦新增）。
 
 ### 资产正负
 
