@@ -17,6 +17,7 @@
 import pytest
 
 from app.services.mcp import McpTransport
+from app.services.mcp.errors import McpBadResponse, McpUnavailable
 
 
 class _Resp:
@@ -106,21 +107,30 @@ def test_sse_response_is_parsed():
 
 
 def test_sse_without_matching_message_raises():
-    """SSE 里没有匹配消息 ⇒ 视为空结果，抛错而不是静默返回空串。"""
+    """SSE 里没有匹配消息 ⇒ 视为空结果，抛**类型化**错误而不是静默返回空串。
+
+    S2 起断言类型而不只是文案：``McpBadResponse`` 是「重试无意义、要人看」的那一类，
+    正是这条路径的语义（原断言只钉了字符串，换文案就会静默通过）。
+    """
     post = _Post([_Resp(headers={'content-type': 'text/event-stream'}, lines=['data: {"id":9}'])])
     transport = McpTransport(post, _Provider())
 
-    with pytest.raises(RuntimeError, match='MCP 调用返回为空'):
+    with pytest.raises(McpBadResponse):
         transport.call_tool('SomeTool', {}, token='k')
 
 
 def test_initialized_notification_failure_raises_without_retry():
-    """``notifications/initialized`` 失败：抛错且**不重试**（重试只服务于会话失效）。"""
+    """``notifications/initialized`` 失败：抛错且**不重试**（重试只服务于会话失效）。
+
+    S2 起错误带上 ``http_status``：``500`` ⇒ ``McpUnavailable``（可重试的那一类，
+    由 job 层决定是否重试，而不是在传输层循环）。
+    """
     post = _Post([_json_ok('never')], notify_status=500)
     transport = McpTransport(post, _Provider())
 
-    with pytest.raises(RuntimeError, match='MCP initialized 通知失败: HTTP 500'):
+    with pytest.raises(McpUnavailable) as excinfo:
         transport.call_tool('SomeTool', {}, token='k')
+    assert excinfo.value.http_status == 500
     assert post.methods == ['initialize', 'notifications/initialized']
 
 

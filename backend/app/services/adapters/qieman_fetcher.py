@@ -25,7 +25,6 @@ tools/call = 3 个 HTTP 请求），于是 111×2 = 222 次工具调用 = 666 �
 """
 
 import json
-import os
 import re
 import time
 from datetime import datetime
@@ -38,6 +37,8 @@ from app.core.constants import DEFAULT_REQUEST_TIMEOUT, USER_AGENT
 from app.core.utils import to_float as _to_float
 from app.services.adapters.fetcher_base import SingleValueFetcher
 from app.services.mcp import McpTransport, get_provider
+from app.services.mcp.credentials import resolve_token
+from app.services.mcp.errors import McpBadResponse, McpError, classify_exception
 from app.services.mcp.providers.qieman import (  # noqa: F401  兼容再导出：既有导入点（含测试）不必改
     QIEMAN_CLIENT_INFO,
     QIEMAN_MCP_URL,
@@ -51,6 +52,15 @@ from app.services.mcp.providers.qieman import (  # noqa: F401  兼容再导出�
 # 服务地址 / 协议版本 / 客户端信息 / 工具名已搬去 ``app/services/mcp/providers/qieman.py``
 # （2026-10-21，MCP S1）：它们描述「这家服务长什么样」，不属于取数逻辑，Wind 接入时同理。
 # 上面那行 import 是**兼容再导出** —— 旧导入点（含测试）取到的仍是同一批值。
+
+#: 工具名 → 能力名（S2 记账用）。能力名是业务侧稳定词，工具名可能随上游变化（§4.2），
+#: 故 ``mcp_call_logs.capability`` 落前者。反查表放在这里而不是 provider 上：它是
+#: 「记账口径」，不是「服务长什么样」。
+_TOOL_CAPABILITY: Dict[str, str] = {
+    QIEMAN_TOOL: 'latest_quotations',
+    QIEMAN_STRATEGY_DETAIL_TOOL: 'strategy_details',
+    QIEMAN_STRATEGY_COMPOSITION_TOOL: 'strategy_composition',
+}
 
 # 且慢组合概览（GetStrategyDetails）中文字段 → 归一化英文键（实测 2026-09）。
 # 集中在此便于接口扩字段时只改一处，勿散落到 fetcher / job。
@@ -318,9 +328,33 @@ class QiemanFetcher(SingleValueFetcher):
         （空结果会被上层读成「这组合没持仓」）。
 
         本方法是本模块**唯一**的工具调用入口，且保持同名可替换：测试与适配器都
-        monkeypatch 它。
+        monkeypatch 它。S2 起同时承担**记账**（``mcp_call_logs``）：能力名由工具名反查，
+        数据归属由 provider 声明 —— 调用点不需要各自记得写审计。
+
+        Raises:
+            McpError: 类型化失败（授权 / 额度 / 服务不可用 / 结构异常）。
         """
-        return self._transport.call_tool(tool, arguments, token=api_key)
+        capability = _TOOL_CAPABILITY.get(tool)
+        return self._transport.call_tool(
+            tool,
+            arguments,
+            token=api_key,
+            capability=capability,
+            scope=self._provider.scope_of(capability) if capability else None,
+        )
+
+    def _system_token(self, capability: str) -> str:
+        """取该能力对应的凭据（S2：原先散在三处的 ``os.getenv('QIEMAN_API_KEY')`` 收口到这里）。
+
+        数据归属由 provider 声明（且慢三类能力均为 ``PLATFORM_PUBLIC``），故这里
+        **只问归属、不写 if/else**：将来同一家服务出现用户私有能力时，凭据路由自动分流，
+        不需要在取数方法里加分支。
+
+        Raises:
+            McpTokenMissing: 未配置（可选组件不可用，不是故障 —— health 报 ``disabled``）。
+            McpUserTokenMissing: 能力归属用户私有但用户没配 Token（**绝不回退系统 Token**）。
+        """
+        return resolve_token(self._provider.name, self._provider.scope_of(capability))
 
     def fetch_strategy_composition(self, strategy_code: str) -> List[dict]:
         """且慢组合持仓（#1392）：BatchGetStrategiesComposition（单只入口）。
@@ -359,15 +393,19 @@ class QiemanFetcher(SingleValueFetcher):
         无法归属，同样全部降级逐只。
 
         返回 ``{code: [归一化持仓]}``，键覆盖**全部请求的 code**（拿不到的为 ``[]``）。
+
+        Raises:
+            McpTokenMissing: 未配置 Token（S2 起**不再静默返回空字典**：空字典会被上层读成
+                「这些组合没有持仓」，而事实是「这次根本没调成」）。
+            McpError: 传输 / 协议层失败，由 job 按平台隔离并记 ``degraded``。
         """
         codes = _normalize_codes(strategy_codes)
         if not codes:
             return {}
 
-        api_key = os.getenv('QIEMAN_API_KEY')
-        if not api_key:
-            logger.warning('QIEMAN_API_KEY 未配置，跳过且慢组合持仓')
-            return {c: [] for c in codes}
+        # 未配置 ⇒ McpTokenMissing（health 报 disabled）；配了但失效 ⇒ McpAuthError。
+        # 「没配」与「配错」在类型上分开，故障现场才分得清该改哪个。
+        api_key = self._system_token('strategy_composition')
 
         out: Dict[str, List[dict]] = {}
         for i in range(0, len(codes), batch_size):
@@ -375,13 +413,24 @@ class QiemanFetcher(SingleValueFetcher):
         return out
 
     def _fetch_composition_chunk(self, api_key: str, codes: List[str]) -> Dict[str, List[dict]]:
-        """单批持仓（含缺键降级逐只）。"""
+        """单批持仓（含缺键降级逐只）。
+
+        **失败语义（S2 收口）**：调用失败不再 ``return {c: [] for c in codes}``。
+        旧行为把「这批没调成」写成了「这些组合没有持仓」——上层据此落库空持仓，
+        ``sync_logs`` 全绿，故障零信号（#1179 / #171 同族形态）。现在一律上抛：
+        传输失败是 ``McpError`` 子类，响应不是 JSON 是 ``McpBadResponse``，
+        由 job 按平台隔离并记 ``degraded``。
+
+        注意区分两种「拿到空」：**缺键**（响应里认不出该 code）仍按原逻辑降级逐只，
+        那是「批量语义未被上游保证」（数据形态问题），不是失败。
+        """
         try:
             text = self._call_tool(api_key, self._provider.tool_for('strategy_composition'), {'strategyCodes': codes})
             parsed = json.loads(text)
-        except Exception as e:  # noqa: BLE001
-            logger.error(f'且慢组合持仓获取失败（{len(codes)} 个，如 {codes[:3]}）: {e}')
-            return {c: [] for c in codes}
+        except McpError:
+            raise
+        except json.JSONDecodeError as e:
+            raise McpBadResponse(f'持仓批量响应不是合法 JSON: {e}', provider=self._provider.name) from e
 
         out: Dict[str, List[dict]] = {}
         missing: List[str] = []
@@ -409,13 +458,20 @@ class QiemanFetcher(SingleValueFetcher):
         return out
 
     def _fetch_composition_single(self, api_key: str, code: str) -> List[dict]:
-        """单只重取（批量响应缺键时的兜底）；失败返回 ``[]`` 并记日志。"""
+        """单只重取（批量响应缺键时的兜底）。
+
+        Raises:
+            McpError: 调用失败一律上抛（S2 前是「返回 ``[]`` + 记日志」，等于把一次失败
+                伪装成「该组合已清仓」）。缺键降级本来就是**很少发生**的兜底路径，
+                它失败时更不该静默。
+        """
         try:
             text = self._call_tool(api_key, self._provider.tool_for('strategy_composition'), {'strategyCodes': [code]})
             parsed = json.loads(text)
-        except Exception as e:  # noqa: BLE001
-            logger.error(f'且慢组合持仓获取失败 {code}: {e}')
-            return []
+        except McpError:
+            raise
+        except json.JSONDecodeError as e:
+            raise McpBadResponse(f'持仓响应不是合法 JSON（{code}）: {e}', provider=self._provider.name) from e
         return _parse_composition(parsed, code) or []
 
     def fetch_strategy_details(
@@ -434,13 +490,18 @@ class QiemanFetcher(SingleValueFetcher):
               ...],"status":"查询成功","hasMoreRows":false}
 
         归一化交给 :func:`_normalize_strategy_detail`（中文键 → 英文键 + 百分号剥除）。
-        按 ``batch_size`` 分批调用（接口 pageSize 上限 100，且显式传 pageSize 避免默认 20 截断），
-        单批失败只跳过该批、不影响其余批次；无 key 或全部失败时返回 []，不抛错。
+        按 ``batch_size`` 分批调用（接口 pageSize 上限 100，且显式传 pageSize 避免默认 20 截断）。
+
+        **失败语义（S2 收口）**：任一批调用失败即上抛，不再 ``continue`` 静默跳过
+        （旧行为的后果是「今晚少了 37 只组合的概览」，而 sync_logs 全绿）。代价是
+        一批抖动会让该平台本轮整体重试——但组合概览是**覆盖式更新**，漏掉的那批
+        下轮补上，且不会被写成空数据；用「可能少一次更新」换「故障可见」，是本轮的取舍。
+
+        Raises:
+            McpTokenMissing: 未配置 Token。
+            McpError: 传输 / 协议层失败。
         """
-        api_key = os.getenv('QIEMAN_API_KEY')
-        if not api_key:
-            logger.warning('QIEMAN_API_KEY 未配置，跳过且慢组合概览')
-            return []
+        api_key = self._system_token('strategy_details')
 
         codes = _normalize_codes(strategy_codes)
         if not codes:
@@ -457,9 +518,10 @@ class QiemanFetcher(SingleValueFetcher):
                     {'strategyCodes': chunk, 'pageSize': min(len(chunk), 100)},
                 )
                 parsed = json.loads(text)
-            except Exception as e:  # noqa: BLE001
-                logger.error(f'且慢组合概览获取失败（{len(chunk)} 个，如 {chunk[:3]}）: {e}')
-                continue
+            except McpError:
+                raise
+            except json.JSONDecodeError as e:
+                raise McpBadResponse(f'组合概览响应不是合法 JSON: {e}', provider=self._provider.name) from e
             rows = parsed.get('rows') if isinstance(parsed, dict) else parsed
             for raw in rows or []:
                 rec = _normalize_strategy_detail(raw)
@@ -470,10 +532,17 @@ class QiemanFetcher(SingleValueFetcher):
         return out
 
     def fetch(self) -> Optional[Dict[str, Any]]:
-        api_key = os.getenv('QIEMAN_API_KEY')
-        if not api_key:
-            logger.warning('QIEMAN_API_KEY 未配置，跳过且慢温度')
-            return None
+        """市场温度（中证全A）。
+
+        两次尝试是**本地退避**（且慢偶发 502 / 会话失效），仍失败则上抛而不是返回 ``None``：
+        ``None`` 在调用方（``TemperatureJob``）的语义是「这个源今天没有数据」，与「调不通」
+        在展示层是同一句话——正是需要分开的两件事。真正的「调通了但没有记录」仍返回 ``None``。
+
+        Raises:
+            McpTokenMissing: 未配置 Token（可选组件不可用）。
+            McpError: 两次尝试后仍失败（含网络 / 授权 / 额度 / 结构异常）。
+        """
+        api_key = self._system_token('latest_quotations')
 
         records = updated = None
         last_err: Optional[Exception] = None
@@ -493,14 +562,15 @@ class QiemanFetcher(SingleValueFetcher):
                     )
                 if records:
                     break
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 - 逐次尝试都要记下原因，最后一次决定抛什么
                 last_err = e
                 logger.warning(f'且慢 MCP 第 {attempt + 1} 次尝试失败: {e}')
                 time.sleep(2 * (attempt + 1))
 
         if not records:
             if last_err:
-                logger.error(f'且慢温度获取失败: {last_err}')
+                # 失败不再伪装成「今天没有温度」：类型化上抛，由 TemperatureJob 按数据源隔离上报
+                raise classify_exception(last_err, provider=self._provider.name)
             return None
 
         main = next((r for r in records if r.get('temperatureIndexCode') == '000985'), records[0])

@@ -13,8 +13,11 @@ WAF 拦截返回非 JSON、会话失效后必须重握一次。重写等于把�
   换 HTTP 客户端 / 加代理不需要改这里；
 - **不碰凭据来源**：``token`` 只用于「换 key 必须重新握手」的缓存键；鉴权头由 ``auth``
   回调落地（adapter 写进 ``session.headers``）。传输层既不读环境变量，也不记录 token；
-- **不碰错误上报与记账**：``mcp_call_logs`` / ``/api/health`` / job 终态在 S2 接入。
-  当下失败仍以 ``RuntimeError`` 上抛、由调用方决定降级 —— 与抽取前逐字一致。
+- **记账在这里，不在各 adapter**（S2）：:meth:`McpTransport.call_tool` 是**所有** provider
+  的唯一调用入口，故 ``mcp_call_logs`` 的写入也放在这里 —— 让每家的 adapter 各自记账，
+  接第 N 家时必然有一家忘记（#171 同族：漏一处 = 该服务永远无痕）。
+  ``capability`` 由调用方传入（能力名稳定，工具名会变）；不传则**不记账**，
+  这样纯协议单测不会触碰数据库。
 
 ``provider`` 按**鸭子类型**使用（只读 ``protocol_version`` / ``client_info`` / ``_wire``），
 本模块不 import :mod:`app.services.mcp.base`：基类要 import 本模块来构造传输，
@@ -26,6 +29,16 @@ import json
 from typing import Any, Callable, Dict, Optional
 
 from loguru import logger
+
+from app.services.mcp.call_log import record_call
+from app.services.mcp.errors import (
+    McpBadResponse,
+    McpError,
+    classify_exception,
+    classify_http,
+    classify_payload,
+    sanitize,
+)
 
 #: ``post(payload, sid) -> 响应对象``。响应只需支持
 #: ``status_code`` / ``headers``（dict 语义）/ ``json()`` / ``iter_lines(decode_unicode=True)``。
@@ -49,6 +62,18 @@ def _token_fingerprint(token: str) -> str:
     return hashlib.sha256(token.encode('utf-8')).hexdigest()
 
 
+def _body_excerpt(resp: Any, limit: int = 200) -> str:
+    """响应体摘要（喂给错误分类）。
+
+    测试替身可能没有 ``.text``；取不到就返回空串 —— 分类退化为「按状态码判」，
+    不允许因为读不到 body 就把错误吞掉。
+    """
+    try:
+        return sanitize(getattr(resp, 'text', '') or '', limit)
+    except Exception:  # noqa: BLE001 - 摘要失败不影响分类
+        return ''
+
+
 class McpTransport:
     """一个实例服务**一个** provider（会话缓存与重试策略的唯实现）。
 
@@ -65,6 +90,8 @@ class McpTransport:
     ) -> None:
         self._post = post
         self._provider = provider
+        #: provider 标识（记账与报错归属）；鸭子类型取，缺失时退回 'mcp'
+        self._name = getattr(provider, 'name', '') or 'mcp'
         self._auth = auth
         #: MCP 会话（Streamable HTTP 的 ``Mcp-Session-Id``）缓存
         self._sid: Optional[str] = None
@@ -76,30 +103,70 @@ class McpTransport:
         self._handshake_done: bool = False
 
     # ── 公开入口 ──
-    def call_tool(self, tool: str, arguments: dict, *, token: str) -> str:
+    def call_tool(
+        self,
+        tool: str,
+        arguments: dict,
+        *,
+        token: str,
+        capability: Optional[str] = None,
+        scope: Any = None,
+    ) -> str:
         """调用任意 MCP 工具，返回解析出的文本片段（兼容 SSE / JSON 两种响应）。
 
         **会话复用**：``Mcp-Session-Id`` 缓存在实例上，正常路径下连续 N 次调用
         **只握手一次**（原实现每次调用都握手 = 3 个 HTTP 请求）。仅当服务端明确不认
         当前会话（400/404/非 JSON）时**重新握手一次**再重试同一次调用，仍失败则抛错 ——
         不做无限重试，也不把失败吞成空结果（空结果会被上层读成「这组合没持仓」）。
+
+        Args:
+            capability: 能力名（如 ``strategy_composition``）。传了才记 ``mcp_call_logs``：
+                纯协议层单测不传，因此不会触碰数据库。
+            scope: 数据归属（落审计表，便于回答「这次调用烧的是谁的额度」）。
+
+        Raises:
+            McpError: 失败一律类型化上抛（``McpAuthError`` / ``McpQuotaExceeded`` /
+                ``McpUnavailable`` / ``McpBadResponse`` …），由 job 层决定降级与终态。
+        """
+        if capability is None:
+            return self._call_tool_inner(tool, arguments, token=token)
+        # 一次"能力调用"一行审计（含重握重试，失败同样落库），不是一次 HTTP 一行
+        with record_call(self._name, capability, scope=scope):
+            return self._call_tool_inner(tool, arguments, token=token)
+
+    def _call_tool_inner(self, tool: str, arguments: dict, *, token: str) -> str:
+        """``call_tool`` 的重试骨架（记账在调用方，不在这里）。
+
+        **异常归一化（S2）**：本方法出口的异常**一律**是 :class:`McpError` 家族。
+        ``_post`` 是调用方注入的回调，抛出的 ``requests.ConnectionError`` /
+        ``Timeout`` / 以及任何未知异常都不经过状态码分支 —— 若原样漏出去，job 层的
+        ``except McpError``（按平台隔离）就抓不到它，一个平台抖动会重新升级成整轮失败。
+        在唯一入口收口，是「失败必须可分类」这条承诺的实现位置。
         """
         if self._auth is not None:
             self._auth(token)
 
-        last_err: Optional[McpSessionInvalid] = None
-        for attempt in (1, 2):
-            sid = self._ensure_session(token)
-            try:
-                return self._call_once(sid, tool, arguments)
-            except McpSessionInvalid as e:
-                # 不论第几次，先把坏会话丢掉：下一次循环（重试）会重新握手
-                self.reset_session()
-                last_err = e
-                if attempt == 2:
-                    break
-                logger.warning(f'MCP 会话失效，重新握手后重试一次（{tool}）: {e}')
-        raise RuntimeError(f'MCP 会话重握后仍失败（{tool}）: {last_err}') from last_err
+        try:
+            last_err: Optional[McpSessionInvalid] = None
+            for attempt in (1, 2):
+                sid = self._ensure_session(token)
+                try:
+                    return self._call_once(sid, tool, arguments)
+                except McpSessionInvalid as e:
+                    # 不论第几次，先把坏会话丢掉：下一次循环（重试）会重新握手
+                    self.reset_session()
+                    last_err = e
+                    if attempt == 2:
+                        break
+                    logger.warning(f'MCP 会话失效，重新握手后重试一次（{tool}）: {e}')
+            raise McpBadResponse(
+                f'会话重握后仍失败（{tool}）: {last_err}',
+                provider=self._name,
+            ) from last_err
+        except McpError:
+            raise
+        except Exception as e:  # noqa: BLE001 - 网络/未知异常统一分类（失败不得以裸异常形态漏出）
+            raise classify_exception(e, provider=self._name) from e
 
     def reset_session(self) -> None:
         """丢弃缓存会话（下次 :meth:`_ensure_session` 会重新握手）。"""
@@ -124,7 +191,7 @@ class McpTransport:
         sid = self._handshake()
         r = self._post({'jsonrpc': '2.0', 'method': 'notifications/initialized'}, sid)
         if r.status_code >= 400:
-            raise RuntimeError(f'MCP initialized 通知失败: HTTP {r.status_code}')
+            raise classify_http(r.status_code, _body_excerpt(r), provider=self._name)
         sid = r.headers.get('Mcp-Session-Id') or sid
         self._sid = sid
         self._token_fp = fp
@@ -151,7 +218,7 @@ class McpTransport:
             None,
         )
         if r.status_code != 200:
-            raise RuntimeError(f'MCP initialize 失败: HTTP {r.status_code}')
+            raise classify_http(r.status_code, _body_excerpt(r), provider=self._name)
         return r.headers.get('Mcp-Session-Id')
 
     # ── 调用 ──
@@ -161,7 +228,9 @@ class McpTransport:
         if r3.status_code in (400, 404):
             raise McpSessionInvalid(f'HTTP {r3.status_code}')
         if r3.status_code != 200:
-            raise RuntimeError(f'MCP tools/call 失败: HTTP {r3.status_code}')
+            # 401/403 → 授权失效；429 → 频控/额度；5xx → 服务不可用。全部类型化上抛，
+            # 让 job 层能区分「该换 Token」与「等一会儿再试」。
+            raise classify_http(r3.status_code, _body_excerpt(r3), provider=self._name)
 
         content_type = (r3.headers.get('content-type') or '').lower()
         if 'text/event-stream' in content_type:
@@ -173,10 +242,10 @@ class McpTransport:
                 # 非 JSON：会话失效或被 WAF 拦截。两者都值得先重握一次再判死（不吞错）。
                 raise McpSessionInvalid('返回非 JSON（疑似会话失效或被 WAF 拦截）') from None
             if 'error' in msg:
-                raise RuntimeError(f'MCP tools/call 返回错误: {msg["error"]}')
+                raise classify_payload(msg['error'], provider=self._name)
             text = self._text_from_result(msg.get('result', {}))
         if not text:
-            raise RuntimeError('MCP 调用返回为空')
+            raise McpBadResponse('调用返回为空', provider=self._name)
         return text
 
     @staticmethod

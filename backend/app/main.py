@@ -54,6 +54,7 @@ from app.domains.users.seed import seed_default_identity  # noqa: E402
 from app.domains.users.views import users_bp  # noqa: E402
 from app.domains.utils.views import utils_bp  # noqa: E402
 from app.domains.watchlist.views import watchlist_bp  # noqa: E402
+from app.models.mcp_call_log import McpCallLog  # noqa: F401, E402  # 确保 mcp_call_logs 表随 init_db 建表
 from app.models.sync_log import SyncLog  # noqa: F401, E402  # 确保 sync_logs 表随 init_db 建表
 from app.services.daily_scheduler import start_daily_scheduler  # noqa: E402
 
