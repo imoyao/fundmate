@@ -210,10 +210,11 @@ BASELINE: dict[str, dict[str, int]] = {
     # 2026-10-21 重取（#2481，**新增端点**，非放宽）：加 `GET /api/market/industry-pbroe/`
     # （探市行业 PB-ROE 散点，日频快照由 sync/jobs/industry_pbroe_job.py 写入）——
     # 视图侧只有「get_db() + 调 services/industry_pbroe_service + 信封」，orm_queries /
-    # commits / max_func 三项实测不动（0/0/21），唯 lines 37 → 61（+24，含端点签名与
-    # 负 ROE / update_time 口径 docstring）。按 `--report` 实测回写。
+    # commits / max_func 三项实测不动（0/0/21），唯 lines 61 → 85（+24，新增
+    # /industry-emotion/ 端点，纯 HTTP 编排：开 db → 调 service → jsonify，无内联
+    # 业务逻辑；增长来自端点签名与口径 docstring）。按 `--report` 实测回写。
     "backend/app/domains/market/views.py": {
-        "lines": 61,
+        "lines": 85,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 21,
