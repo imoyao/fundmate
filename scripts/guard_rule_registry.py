@@ -556,6 +556,22 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         # 取数失败时**什么都不做**——误标占用比没标记更糟。
         'covered': '不判「谁该做」；只把 PR 的客观存在投影到 issue 标签上',
     },
+    'scripts/guard_no_hardcoded_secrets.py': {
+        'rule': 'Token / API Key 一律走环境变量，仓库文件里不得出现密钥字面量',
+        # 源 #2486（MCP 接入 S0）。上位约束是 `docs/dev/mcp-integration.md` §1 红线一。
+        # 在它之前，「别把 Token 写进仓库」只有一道防线：**记得别写**——而它失败时不可逆
+        # （Token 进了历史，删文件不够，要改写历史或轮换）。故把它机械化。
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_no_hardcoded_secrets.py',
+        # 边界写清楚，避免下一个人以为它在管提交信息或历史。
+        'covered': (
+            '只看工作区里的**跟踪文件**：提交信息 / PR 正文 / issue 不在仓库里，读不到'
+            '（同 guard_mojibake 的边界）；历史提交不追（要清历史得人工）；'
+            '二进制与 >512KB 文件、锁文件跳过；运行时拼接的密钥（`ak_` + 变量）静态看不见'
+            '——那正是测试夹具构造假 Token 的办法，也是本守卫能自洽的前提。'
+            '白名单只认语义（占位值 + Supabase anon JWT），不按路径放行'
+        ),
+    },
 }
 
 

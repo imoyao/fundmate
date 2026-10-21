@@ -1919,6 +1919,12 @@ GitHub: - Required status check "质量门禁汇总" is expected.
 - **禁止 `git commit -m "中文..."` 内联写法**（PowerShell 等控制台会把中文按 GBK 传给 git 造成永久乱码历史）。一律用 `git commit -F <utf8文件>` 或 `scripts/commit_changes.py --message-file <...>`。
 - 本地 `guard_mojibake.py`（文件）与 `guard-mojibake-commit-msg`（提交信息）会拦截疑似乱码，禁止 `--no-verify` 绕过。
 
+### AI 编码防密钥硬编码（强制，2026-10-21）
+
+- **Token / API Key / Cookie 一律禁止写进仓库文件**（文档、代码、注释、测试夹具、提交信息、PR 正文），只能读环境变量（如 `WIND_MCP_TOKEN` / `QIEMAN_API_KEY`）；示例一律写 `xxxx`。判据 `scripts/guard_no_hardcoded_secrets.py`（并入 `ci.yml` 的 `scripts_test`，阻断）。
+- 白名单只认**语义**、不按路径开口子：占位值（含 `test` / `fake` / `xxxx` 等）与 Supabase `anon` key（JWT payload `role=anon`，公开是设计如此）放行，同形的 `service_role` key 必须报。判据同上（`scripts/guard_no_hardcoded_secrets.py`）。
+- 边界（**不覆盖**提交信息 / PR 正文 / 历史提交 / 运行时拼接）见该守卫 docstring；凭据分层（系统 Token vs 用户 Token）与上位设计见 `docs/dev/mcp-integration.md` §1、§5。
+
 ---
 
 ## 常用命令速查
