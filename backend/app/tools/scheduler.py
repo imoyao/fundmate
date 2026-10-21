@@ -65,6 +65,8 @@ from app.core.db_factory import (  # noqa: E402
     DatabaseConfig,
     DatabaseFactory,
     get_app_env,
+    normalized_app_db_url_preview,
+    turso_auth_token,
 )
 from app.core.jitter import (  # noqa: E402
     apply_jitter,
@@ -104,7 +106,8 @@ def _diagnose_db() -> None:
     env = get_app_env()
     logger.info(f'[DB诊断] APP_ENV={env}')
 
-    app_parsed = urllib.parse.urlparse(DatabaseConfig.for_app(env).url)
+    app_url = DatabaseConfig.for_app(env).url
+    app_parsed = urllib.parse.urlparse(app_url)
     user_parsed = urllib.parse.urlparse(DatabaseConfig.for_user(env).url)
 
     def _describe(label: str, parsed: 'urllib.parse.ParseResult') -> bool:
@@ -122,6 +125,24 @@ def _diagnose_db() -> None:
     # 仅对走 Hrana(HTTP) 的 market 域做轻量连接探测（本地 SQLite 无需、也避免开文件锁）
     if not is_app_turso:
         return
+
+    # 缺 authToken 的 Turso 连接串**必然连不上**（服务端回 308 / 401），
+    # 而这两种状态码都看不出「压根没配 token」——#1490 实测：每日调度连续 25 天全红，
+    # 根因就是注入的 secret 里的连接串只有 host、没有 ?authToken=。
+    # **先查这一条**：它比「host 被服务端重定向」常见得多，修法也只是补一个 query 参数。
+    if turso_auth_token(app_url) is None:
+        logger.error(
+            '[DB诊断] market 域的 Turso 连接串里**没有 authToken**，必然连不上。'
+            '生产下生效的变量是 TURSO_DATABASE_URL（优先）或 DATABASE_URL，'
+            '请确认注入的 secret 是 Turso 控制台给出的**完整**连接串'
+            '（形如 turso://<host>?authToken=<token>），而不是只有 host。'
+        )
+        raise RuntimeError('Turso 连接串缺少 authToken（详见上一行日志）')
+
+    # 实际会用哪条 URL 连（token 已打码）：`secure=true` 决定走 https 还是明文 http，
+    # 明文 http 会被 Turso 边缘 308 跳 https 而失败（#1490 根因之一）。
+    logger.info(f'[DB诊断] 归一后的 market 域连接串: {normalized_app_db_url_preview(env)}')
+
     engine = DatabaseFactory.create(DOMAIN_APP)
     try:
         with engine.connect() as conn:
@@ -132,10 +153,11 @@ def _diagnose_db() -> None:
         if '308' in msg or 'Hrana' in msg or 'Permanent Redirect' in msg:
             logger.error(
                 '[DB诊断] market 域 Hrana 连接收到 HTTP 308 永久重定向。'
-                '通常意味着 TURSO_DATABASE_URL/DATABASE_URL 指向的 host 已被服务端重定向'
-                '（旧地址 / 应为 https / 区域或组织后缀变更）。请到仓库 Settings → Secrets'
-                ' 核对该 secret 的真实 host，改用 Turso 当前要求的地址'
-                '（如 libsql://<db>.turso.io?authToken=...）。原始错误：' + msg
+                '两种可能，**先查前者**（成本最低、修法最简单）：'
+                '(1) 连接串缺 authToken——上面已单独检查过，若补了 token 仍 308 请重跑；'
+                '(2) Turso 侧 host 确实变更（区域 / 组织后缀）——'
+                '到 Turso 控制台取当前地址后更新注入的 secret。'
+                '原始错误：' + msg
             )
         raise
 
