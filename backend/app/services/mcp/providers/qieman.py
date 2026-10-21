@@ -7,13 +7,15 @@
 ``adapters → mcp`` 是合法方向，``mcp → adapters`` 由守卫 R7 拦截。
 
 数据面归属：且慢的组合持仓 / 概览都是**平台公开**数据（用户只需一个平台 key，
-不涉及账户私有数据），凭据路由在 S2 实现，届时本类补 ``data_scope()``。
+不涉及账户私有数据），故 :meth:`QiemanProvider.scope_of` 显式声明为
+``PLATFORM_PUBLIC``；基类默认是 ``USER_PRIVATE``（归属未知时保守，§5.1）。
 """
 
 import os
 from typing import Dict
 
 from app.services.mcp.base import McpProvider
+from app.services.mcp.credentials import DataScope
 from app.services.mcp.registry import register_provider
 
 #: 默认服务地址；``QIEMAN_MCP_URL`` 可覆盖（设计文档 §8 的「本地 mock / 一键切换」预留点，
@@ -63,3 +65,11 @@ class QiemanProvider(McpProvider):
             return _CAPABILITY_TOOLS[capability]
         except KeyError:
             raise KeyError(f'且慢没有能力 {capability}（已知：{", ".join(sorted(_CAPABILITY_TOOLS))}）') from None
+
+    def scope_of(self, capability: str) -> DataScope:
+        """且慢三类能力都是平台公开数据（系统 Token 共享）。
+
+        未登记的能力落到基类默认 ``USER_PRIVATE``：新加能力时若忘了声明，
+        后果是「调用抛 McpUserTokenMissing」——**响亮地失败**，而不是悄悄烧系统额度。
+        """
+        return DataScope.PLATFORM_PUBLIC if capability in _CAPABILITY_TOOLS else DataScope.USER_PRIVATE

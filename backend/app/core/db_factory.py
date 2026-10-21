@@ -333,6 +333,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'market_composites': DOMAIN_MARKET,
     'market_multi_items': DOMAIN_MARKET,
     'sync_logs': DOMAIN_MARKET,  # 系统同步审计（随市场同步任务）
+    'mcp_call_logs': DOMAIN_MARKET,  # MCP 调用审计（与 sync_logs 同域、同写方，S2 #2490）
     # ── user 域（Supabase）：含 family_id/user_id 的用户私有数据 ──
     'families': DOMAIN_USER,
     'users': DOMAIN_USER,

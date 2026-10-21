@@ -59,7 +59,7 @@
 | 1 | **东财·全市场成交额** | 公开行情 JSON | ✅ 已验证（无需 key） | 高 | 极低 |
 | 2 | **韭圈儿·恐贪+中长期温度** | Playwright 渲染官方页 | ✅ 已解决（读已发布 DOM，规避 AES 逆向） | 中高 | 中(依赖 Chromium) |
 | 3 | **集思录·可转债温度** | 免登录 `cb_list_new` | ✅ 已解决（未登录仅 30 只样本） | 中 | 低 |
-| 4 | **且慢·指数温度** | 官方 MCP `GetLatestQuotations` | ✅ 已解决（内置 key 可用） | 高 | 低(需 key) |
+| 4 | **且慢·指数温度** | 官方 MCP `GetLatestQuotations` | ✅ 已解决（需配 `QIEMAN_API_KEY`） | 高 | 低(需 key) |
 | 5 | **有知有行·全市场温度** | 网页 SSR | ✅ 已解决（纯静态页） | 高 | 极低 |
 | 6 | **富来智投·资金面/强弱** | 微信 OAuth token（`FULAI_TOKEN`） | ✅ 真实 schema 已校正（资金利率+板块强弱可用；龙虎榜路径待补） | 低(token 易过期) | 中 |
 | 7 | **自算·股债利差分位** | akshare 免费 | ✅ 已跑通（沪深300/中证500） | 高 | 低 |
@@ -71,7 +71,7 @@
 - **东财成交额**：`push2.eastmoney.com`，上证`1.000001`+深证`0.399001`+北证`1.899050` 的 `f48` 求和得全市场成交（亿）。>12000亿=放量，<8000亿=缩量。零凭据零维护。
 - **韭圈儿**：原接口返回 AES 密文（逆向脆弱），改为 Playwright 无头渲染 `app.jiucaishuo.com` 读已发布 DOM。每次聚合启动一次 Chromium（每日推送可接受）。恐贪收盘后更新，盘中取最近交易日值。
 - **集思录**：`www.jisilu.cn/data/cbnew/cb_list_new/` 免登录。温度代理 `0.5×价格分位 + 0.5×溢价率分位`。未登录 `total=30`（有偏）；会员 cookie 可获全量。
-- **且慢**：公开网页已下线，但官方 MCP `stargate.yingmi.com/mcp/sse` 的 `GetLatestQuotations` 可用（内置 key 或 `QIEMAN_API_KEY`）。轻量 MCP-SSE 客户端按 `\n\n` 切事件、拼接多 `data` 行。
+- **且慢**：公开网页已下线，但官方 MCP `stargate.yingmi.com/mcp/sse` 的 `GetLatestQuotations` 可用（**必须**配 `QIEMAN_API_KEY`；未配置 ⇒ 该源不更新，`degraded` 可见但不判红，#2490）。轻量 MCP-SSE 客户端按 `\n\n` 切事件、拼接多 `data` 行。
 - **有知有行**：`youzhiyouxing.cn/thermometer` 服务端渲染，数字直接进 HTML。含「债市温度」「各指数温度」字段（债市温度当前未抓取）。
 - **富来智投（指数宝）**：电脑版 `etf.fulaizhitou.com` = 手机版 `tools.fulaizhitou.com`，同源同后端 `api.fulaizhitou.com`、同微信 OAuth。`fetch_fulai()` 只抓**增量**（避开与现有源重叠的温度/恐贪）：`index/money`→资金利率/货基收益、`markets/strong`→板块强弱（越低=轮动越弱）、`out/dlzc`→龙虎榜（路径/参数待确认，暂标灰）。**做成可选源**：不配 `FULAI_TOKEN` 就跳过，不影响主链路。已知成功码为整型 `10000`；`code:20000` 表示未登录、`10001 wrong` 表示路径/参数错误。
 - **自算·股债利差**：`利差 = 1/PE − 10Y国债 + 0.3×CPI同比`，今日利差在 2005+ 历史的百分位 = 估值分位。免费数据：沪深300 PE(`stock_index_pe_lg`)、10Y 国债(`bond_zh_us_rate`，9302 行)、CPI(`macro_china_cpi`)。阈值 <30% 低估 / 30–70% 正常 / >70% 高估。复刻"韭菜投资学"思路（其原表为付费图片+OCR，不可结构化抓取，故自算）。
@@ -337,7 +337,7 @@ python3.11 -m http.server 8080   # 浏览器开 http://localhost:8080/index.html
 |---|---|---|
 | `PUSHPLUS_TOKEN` | 微信推送 token | 无（不推送） |
 | `PUSHPLUS_TOPIC` | 群组/分享码 | 无 |
-| `QIEMAN_API_KEY` | 且慢 MCP key（覆盖内置） | 无（用内置） |
+| `QIEMAN_API_KEY` | 且慢 MCP key（**唯一来源**，代码内无内置 key） | 无（该源不更新，`degraded`） |
 | `FULAI_TOKEN` | 富来智投登录态 | 无（跳过） |
 | `TUSHARE_TOKEN` | Tushare（全行业拥挤度） | 无（走 baostock/legulegu） |
 

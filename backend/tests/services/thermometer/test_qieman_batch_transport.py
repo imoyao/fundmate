@@ -22,6 +22,7 @@ from app.services.adapters.qieman_fetcher import (
     QIEMAN_STRATEGY_DETAIL_TOOL,
     QiemanFetcher,
 )
+from app.services.mcp.errors import McpBadResponse, McpUnavailable
 
 
 @pytest.fixture(autouse=True)
@@ -182,11 +183,14 @@ def test_session_invalid_non_json_rehandshakes_once(monkeypatch):
 
 
 def test_session_still_invalid_raises_after_one_retry(monkeypatch):
-    """重握后仍失效 ⇒ 抛错（不无限重试、不吞成空结果）。"""
+    """重握后仍失效 ⇒ 抛错（不无限重试、不吞成空结果）。
+
+    S2 起类型为 ``McpBadResponse``（协议层判定死掉，重试无意义），文案保留「会话重握后仍失败」。
+    """
     t = _Transport([_FakeResp(status_code=404)])
     f = _fetcher_with(monkeypatch, t)
 
-    with pytest.raises(RuntimeError, match='会话重握后仍失败'):
+    with pytest.raises(McpBadResponse, match='会话重握后仍失败'):
         f._call_tool('k', QIEMAN_STRATEGY_DETAIL_TOOL, {})
 
     assert t.handshakes == 2, '只允许重握一次（不得循环重试）'
@@ -194,12 +198,17 @@ def test_session_still_invalid_raises_after_one_retry(monkeypatch):
 
 
 def test_non_session_error_not_retried(monkeypatch):
-    """500 不是会话失效：直接抛，不做无意义的重握。"""
+    """500 不是会话失效：直接抛，不做无意义的重握。
+
+    S2 起断言的判据是 ``http_status`` 而不是文案里的「HTTP 500」——
+    文案是给人看的、会变；``http_status`` 是给分类与 ``mcp_call_logs`` 采样用的。
+    """
     t = _Transport([_FakeResp(status_code=500)])
     f = _fetcher_with(monkeypatch, t)
 
-    with pytest.raises(RuntimeError, match='HTTP 500'):
+    with pytest.raises(McpUnavailable) as excinfo:
         f._call_tool('k', QIEMAN_STRATEGY_DETAIL_TOOL, {})
+    assert excinfo.value.http_status == 500
     assert t.handshakes == 1
     assert len(t.tool_calls) == 1
 
@@ -374,17 +383,22 @@ def test_composition_batch_flat_shape_multi_codes_also_falls_back(monkeypatch):
     assert [h['code'] for h in out['B']] == ['FUND-B']
 
 
-def test_composition_batch_single_call_failure_returns_empty_per_code(monkeypatch):
-    """整批调用抛错：每个 code 返回空列表（与单只实现的「失败即空」口径一致）。"""
+def test_composition_batch_call_failure_propagates_instead_of_empty(monkeypatch):
+    """整批调用失败：**上抛**，不再「每个 code 返回空列表」。
+
+    这是 S2 的核心口径变更：旧行为把一次失败写成「这些组合没有持仓」，上层据此落库空持仓、
+    ``sync_logs`` 全绿——故障与「真的清仓」在数据上不可区分（#1179 / CNB #171 同族）。
+    现在由 job 层按平台隔离并记 ``degraded``。
+    """
 
     def _boom(*_a, **_kw):
-        raise RuntimeError('MCP 调用返回为空')
+        raise McpUnavailable('MCP 服务暂时不可用', provider='qieman')
 
     f = QiemanFetcher()
     monkeypatch.setattr(f, '_call_tool', _boom)
 
-    out = f.fetch_strategy_composition_batch(['A', 'B'])
-    assert out == {'A': [], 'B': []}
+    with pytest.raises(McpUnavailable):
+        f.fetch_strategy_composition_batch(['A', 'B'])
 
 
 def test_holdings_batch_adapter_preserves_as_of_date(monkeypatch):

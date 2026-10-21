@@ -16,9 +16,10 @@
 
 S1 **有意不做**的事（不是遗漏，是没有读者）：
 
-- ``data_scope()`` / 凭据路由：S2 的「系统 Token 还是用户 Token」判定才消费它，
-  现在写出来只会是一条无人调用的分支；
-- 采集 / 记账 / 缓存：S2（``mcp_call_logs`` 与 ``/api/health`` 是它的第一批读者）；
+- ``data_scope()`` / 凭据路由：S2 已补 —— ``scope_of()`` 默认 **``USER_PRIVATE``**
+  （归属未知时保守，§5.1），由 :mod:`app.services.mcp.credentials` 消费；
+- 采集 / 记账 / 缓存：``mcp_call_logs`` 与 ``/api/health`` 已在 S2 接入（记账在
+  :class:`~app.services.mcp.transport.McpTransport` 的唯一入口，不在各 adapter）；
 - ``extract()``（表格 → canonical）：S3 只有 Wind 需要，且慢这边就是 ``json``。
 
 判定抽象是否成立的三条见设计文档 §10；任何一步都可以独立合并 / 回滚。
@@ -27,6 +28,7 @@ S1 **有意不做**的事（不是遗漏，是没有读者）：
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, Optional
 
+from app.services.mcp.credentials import DataScope
 from app.services.mcp.transport import McpTransport, PostCallable
 
 
@@ -55,6 +57,14 @@ class McpProvider(ABC):
     @abstractmethod
     def tool_for(self, capability: str) -> str:
         """能力名 → 工具名（静态映射）。未知能力应抛 ``KeyError``，不猜。"""
+
+    def scope_of(self, capability: str) -> DataScope:
+        """该能力的数据归属（决定用系统 Token 还是用户 Token）。
+
+        **默认 ``USER_PRIVATE``**：新接一家服务时，判不清归属就按用户私有处理 ——
+        宁可少一个功能，也不许误用系统额度（§5.1）。公开能力必须在子类里显式覆盖。
+        """
+        return DataScope.USER_PRIVATE
 
     def _wire(self, tool: str, arguments: dict) -> Dict[str, Any]:
         """``tools/call`` 请求体（JSON-RPC 2.0 默认形状）。

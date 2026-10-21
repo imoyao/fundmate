@@ -10,14 +10,14 @@ title: MCP 接入层设计
 ## 0. 一句话结论
 
 **不新建一套 MCP 客户端**：把 `QiemanFetcher` 里已经跑在生产上的传输实现上提为唯一的
-`transport`，用「基类 + 每服务子类」组织服务差异，凭据按 `data_scope` 自动路由到
+`transport`，用「基类 + 每服务子类」组织服务差异，凭据按 `scope_of()` 自动路由到
 系统 Token 或用户 Token，故障走显性上报而不是静默降级成空数据。
 
 ## 1. 红线（违反即打回）
 
 1. **Token / API Key / Cookie 一律不得出现在文档、代码、注释、提交信息、PR 正文与测试夹具里**，
-   只能从环境变量读取（`WIND_MCP_TOKEN` / `QIEMAN_API_KEY` 等）。日志、异常文本、`sync_logs.message`
-   一律脱敏（`ak_***`）。示例值一律写 `xxxx`。
+   只能从环境变量读取（`WIND_MCP_TOKEN` / `QIEMAN_API_KEY` 等）。日志、异常文本、
+   `sync_logs.stats` / `error_detail` 与 `mcp_call_logs.message` 一律脱敏（`key=***`）。示例值一律写 `xxxx`。
    判据：`scripts/guard_no_hardcoded_secrets.py`（源 #2486，并入 `ci.yml` 的 `scripts_test`，阻断；
    边界是「只看工作区里的跟踪文件」——提交信息 / 历史提交 / 运行时拼接不覆盖）。
 2. **MCP 故障必须显性**。额度用尽、欠费、鉴权失效不得被 `except Exception: return []` 吞掉后
@@ -54,6 +54,14 @@ title: MCP 接入层设计
 > **凭据仍走 `os.getenv('QIEMAN_API_KEY')`，散落 3 处**（`:367` / `:440` / `:473`），
 > 凭据路由、记账与 health 段在 S2。
 > 上表行号是**搬迁前**的位置，保留它是为了让「为什么这么设计」可追溯。
+>
+> **2026-10-21（S2 已落地，`#2490`）**：上表第 4 行「凭据散落 3 处、缺则 warning + 跳过」
+> **已消除**——三处 `os.getenv('QIEMAN_API_KEY')` 收口到 `mcp/credentials.py:system_token`
+> （`_TOKEN_ENV` 注册表，未登记的 provider 抛错、不猜变量名），且**缺 Token 不再静默跳过**：
+> `qieman_fetcher._system_token` 抛 `McpTokenMissing`，由 job 按平台隔离成
+> `degraded`（不进 `errors`、不判红）。新增 `mcp/errors.py`（8 类 `McpErrorKind` + 分类函数 +
+> `sanitize`）、`mcp/call_log.py` 与 `models/mcp_call_log.py`（调用审计）、
+> `domains/health.py` 的 `mcp` 段。`transport._call_tool_inner` 出口**一律** `McpError` 家族。
 
 由此得出第一个设计决定：**传输层只能抽取，不能新写**。且慢那 6 个方法已经踩完 SSE、
 无会话头、WAF 拦截、非 JSON 等坑，重写等于把已知结论再试错一遍。
@@ -146,6 +154,14 @@ class McpProvider(ABC):
         return out
 ```
 
+> **S2 实现到哪了（2026-10-21，#2490）**：`DataScope` 与 `scope_of()` **已落地**
+> （`mcp/credentials.py` / `mcp/base.py`，基类默认 `USER_PRIVATE`、且慢显式 `PLATFORM_PUBLIC`）；
+> 而上面这个 `invoke()` **尚未实现**——S2 的记账落在 `McpTransport.call_tool` 的**唯一入口**
+> （`capability=` 传了才记），没有借道 `invoke()`：一次调用只经一个门，多一层转发器
+> 就多一个可能漏记的位置。同理 `self._cache` / `self._budget`
+> 在 S2 **不存在**（见 §9 的偏离表：cache 归 S4、budget 不建模块）。
+> 即：本节是**目标形状**，读它时对着 §9 的偏离表看当前实况。
+
 ### 4.3 两个子类
 
 ```python
@@ -179,7 +195,7 @@ class WindProvider(McpProvider):            # 网关型：先检索再调用
 
 ## 5. 凭据路由与错误上报
 
-### 5.1 由 `data_scope()` 决定，不由 if/else 决定
+### 5.1 由 `scope_of()` 决定，不由 if/else 决定
 
 | capability 类别 | scope | 取谁 | 例子 |
 |---|---|---|---|
@@ -189,54 +205,99 @@ class WindProvider(McpProvider):            # 网关型：先检索再调用
 | 归属未知 | — | **默认 `USER_PRIVATE`** | 新接 MCP 判断不了时保守处理，不许误用系统额度 |
 
 ```python
-def resolve_token(provider, scope, user_id):
+def resolve_token(provider, scope, user_id=None):
+    scope = DataScope(scope)                      # 未知 scope 当场 ValueError，不默认成公开
     if scope is DataScope.USER_PRIVATE:
-        cred = load_user_credential(provider, user_id)
+        cred = load_user_credential(provider, user_id)   # S5
         if cred is None:
-            raise McpUserTokenMissing(provider)   # 绝不回退系统 Token
+            raise McpUserTokenMissing(provider)       # 绝不回退系统 Token
         return cred
-    return system_credential(provider)            # env；缺失 → McpSystemTokenMissing
+    return system_token(provider)                 # env；缺失 → McpTokenMissing
 ```
 
-这一处替换掉现在散在 `qieman_fetcher.py:461/:534/:567` 的三处 `os.getenv`。
+这一处**已替换掉**散在 `qieman_fetcher.py` 的三处 `os.getenv`（S2/#2490，
+原位置 `:461/:534/:567` → 落 `mcp/credentials.py` 的 `_TOKEN_ENV` 注册表）。
 「用户没配 Token 就不提供该功能」在这里是**类型级保证**，不是注释级约定。
+`DataScope` 的三档：`PUBLIC_MARKET` / `PLATFORM_PUBLIC` / `USER_PRIVATE`（值即落库契约）。
 
 ### 5.2 错误模型
 
 ```python
-class McpError(Exception):
-    kind: str            # 见下表
+class McpError(RuntimeError):   # 继承 RuntimeError：既有 `except RuntimeError` 与
+    kind: McpErrorKind          # `pytest.raises(RuntimeError)` 的调用点零改动
     provider: str
     retryable: bool
     action: str          # 'configure_token' | 'wait' | 'contact' | 'report'
-    user_message: str    # 中文人话，已脱敏
+    user_message: str    # 中文人话，已脱敏（detail 也脱敏后才落库/落日志）
 ```
 
-| 子类 | 触发 | 可重试 | `action` | 用户可见文案（示例） |
-|---|---|---|---|---|
-| `McpAuthError` | 401 / 403 | 否 | `configure_token` | Wind 授权已失效，请更新 Token |
-| `McpQuotaExceeded` | 额度用尽 / 429 配额语义 | 否 | `wait`（或改用自有 Token） | Wind 今日调用额度已用尽，数据暂停更新 |
-| `McpBillingError` | 欠费 / 未订阅 / 到期 | 否 | `contact` | Wind 账户欠费或服务已到期 |
-| `McpRateLimited` | 频控 429 | 是（退避） | `wait` | 调用过于频繁，稍后自动重试 |
-| `McpUnavailable` | 5xx / 超时 / 网络 | 是 | `wait` | Wind 服务暂时不可用 |
-| `McpBadResponse` | 结构不符 / 空结果 | 否 | `report` | 返回结构异常，已记录 |
+`McpErrorKind`（8 类，**值是落库契约**，改名即破坏 `mcp_call_logs` 存量数据）：
+
+| 子类 | `kind` | 触发 | 可重试 | `action` | 用户可见文案（示例） |
+|---|---|---|---|---|---|
+| `McpTokenMissing` | `token_missing` | 本地 env 没配 Token | 否 | `configure_token` | 且慢 未配置 Token，相关数据不更新（可选组件，不影响主流程） |
+| `McpUserTokenMissing` | `user_token_missing` | 用户私有能力但用户没配（S5） | 否 | `configure_token` | Wind 需要你本人配置 Token 后才能使用（不使用系统凭据代取） |
+| `McpAuthError` | `auth` | 401 / 403 | 否 | `configure_token` | Wind 授权已失效，请更新 Token |
+| `McpQuotaExceeded` | `quota` | 额度用尽 / 429 配额语义 | 否 | `wait`（或改用自有 Token） | Wind 今日调用额度已用尽，数据暂停更新 |
+| `McpBillingError` | `billing` | 欠费 / 未订阅 / 到期 | 否 | `contact` | Wind 账户欠费或服务已到期 |
+| `McpRateLimited` | `rate_limit` | 频控 429 | 是（退避） | `wait` | 调用过于频繁，稍后自动重试 |
+| `McpUnavailable` | `unavailable` | 5xx / 超时 / 网络 | 是 | `wait` | Wind 服务暂时不可用 |
+| `McpBadResponse` | `bad_response` | 结构不符 / 空结果 | 否 | `report` | 返回结构异常，已记录 |
 
 > ⚠️ Wind 的「额度用尽 / 欠费」真实报文形态**尚未采样**（探测阶段未触发限额）。
 > S3 的探针必须把第一次真实报文的 `status + body` 落到 `mcp_call_logs.error_kind` 映射表，
 > 不得凭猜写分类。
 
+**429 的默认口味**（`errors.classify_http`）：默认按**频控**（`rate_limit`、可重试），
+仅当报文命中额度词 / 欠费词才升级为不可重试；**欠费词优先于额度词**（同时出现时人要做的事更重：
+联系服务商而不是等）。这是「未采样前不猜死分类」的落点——猜错会把可恢复的抖动判成死局。
+
+**失败一律类型化**（`transport._call_tool_inner` 唯一出口）：`except McpError: raise`
+＋ `except Exception → classify_exception`。若让 `requests.ConnectionError` 这类裸异常漏出去，
+job 层的 `except McpError`（按平台隔离）就抓不到，一个平台抖动会重新升级成整轮失败。
+`classify_exception` 按**异常类名**判网络类（不 import `requests`：mcp 层不该硬依赖它）。
+
 ### 5.3 上报链（五段，缺一段就不算「让用户感知」）
 
-1. `mcp_call_logs` 落库：`provider / capability / scope / user_id / ok / error_kind / http_status / duration_ms / cached`；
+1. `mcp_call_logs` 落库：`provider / capability / scope / ok / error_kind / http_status / duration_ms / message / called_at`；
 2. job 终态：全挂 → `FAILED`（复用 `job_base._decide_final_status`），部分成功 → `SUCCESS` + `stats['degraded']`；
-3. `sync_logs.message` 写人话（脱敏）；
-4. `/api/health`（`backend/app/domains/health.py:32` 已有 db / scheduler / llm 三段）增 `mcp` 段：
-   每 provider 的 `status`、`last_error_kind`、`quota_used / quota_limit`；
+3. **`stats`** 落 `sync_logs.stats`——注意 `sync_logs` **没有 `message` 列**，
+   写入端只有 `stats`（JSON 串）与 `error_detail`（`:643` 写的是 `stats['errors']` 的串形），
+   故降级原因落 `stats['degraded']`（多少个组合没更新）与 `stats['degraded_reasons']`（为什么，
+   已按原因去重，避免 111 个组合同一句话淹没日志）；`error_detail` 只在有 `errors` 时有内容，
+   「未配置 Token」这类**不进 errors** 的降级只体现在 `stats` 里；
+4. `/api/health`（`backend/app/domains/health.py` 已有 db / scheduler / llm 三段）增 `mcp` 段：
+   每 provider 的 `status` / `configured` / `last_error_kind` / `last_error_at` / `last_ok_at` /
+   `calls_today` / `errors_24h` / `message`；本段**只读内部审计表，禁实时外部探测**（免登录端点）；
 5. 前端：该数据区块顶部提示「数据可能不是最新：Wind 额度已用尽（YYYY-MM-DD）」，
-   **不允许**渲染成 `—` 后无任何提示。
+   **不允许**渲染成 `—` 后无任何提示。（banner 归 S4，S2 只到第 4 段。）
+
+`calls_today / errors_24h / last_*` 三问分别回答「今天调了几次 / 最近 24h 错了几次 / 最后一次是什么时候、什么错」。
+**读不到审计表 ⇒ `available=False`**（`provider_snapshot`）⇒ health 报 `unknown` 并拉低整体状态；
+**不得退化成「没有错误」**（拿不到输入却输出正常结论，即 CNB #171 那类假绿）。
+
+`health` 的 MCP 段状态口径（`_mcp_component`）：
+
+| 状态 | 判据 | 是否拉低整体 |
+|---|---|---|
+| `disabled` | 该 provider 未配置 Token（**全部** provider 都未配置时整段也是 `disabled`） | 否（可选组件关闭，#1720 同口径） |
+| `unhealthy` | 24h 内有 `auth` / `quota` / `billing` 失败 —— 必须人介入 | **是** |
+| `degraded` | 24h 内有其它失败（5xx / 频控 / 结构异常） | 否（偶发抖动常态化报红会淹没真故障） |
+| `healthy` | 已配置且 24h 无失败 | 否 |
+| `unknown` | **读不到审计表** | **是** |
+
+> 全部未配置为什么是 `disabled` 而不是 `healthy`：「一个都没启用」与「都正常」是两件事，
+> 报 `healthy` 就是拿不到输入却输出正常结论。两者都不拉低整体，区别只在**说的是不是实话**。
 
 **回归判据**：注入 `McpQuotaExceeded` ⇒ job 带 `degraded` 计数、health 转 `degraded`；
 若实现变成「成功 + 空列表」，用例必须红。
+
+S2 落地时判据写成 8 条**变异探针**（改生产代码 → 用例必须转红 → 还原）：
+`tests/services/sync/test_advisor_portfolio_job.py`（token_missing 不进 `errors`、全挂判 FAILED）、
+`tests/domains/test_health_mcp.py`（`unknown` 拉低整体、全未配置 ⇒ `disabled`）、
+`tests/services/mcp/test_mcp_errors.py`（429 默认频控、凭据脱敏覆盖 dict repr / header 回显）、
+`tests/services/mcp/test_mcp_transport_errors.py`（网络异常必须类型化）、
+`tests/services/mcp/test_mcp_call_log.py`（读不到审计表不得退化成「没有错误」）——实测 8/8 全部咬住。
 
 ## 6. 数据分级与 Wind 接入要点
 
@@ -299,7 +360,7 @@ def clamp_since(since: date, *, allow_full: bool = False) -> date: ...
 |---|---|---|
 | **S0** | 新增 `scripts/guard_no_hardcoded_secrets.py` 并入 `ci.yml` 的 `scripts_test`；登记 `RULE_REGISTRY`；`AGENTS.md` 落一条带判据的红线 | 守卫在真实仓库跑出 0 命中；回退探针（把假 Token 写进真实文件）必须转红；拿不到输入退 2 |
 | **S1** | 抽 `transport` + `base` + `QiemanProvider`，且慢切过去 | `tests/services/thermometer/test_qieman_fetcher.py`、`test_qieman_batch_transport.py` 全绿；握手仍只 1 次；请求数不增 |
-| **S2** | `credentials` + `errors` + `cache` + `budget` 接入 | 注入额度异常 ⇒ health 转 `degraded`（不是「成功 + 空」） |
+| **S2** ✅ | `credentials` + `errors` + 调用落库（`mcp_call_logs`）+ `health` 段 | 注入额度异常 ⇒ health 转 `degraded`（不是「成功 + 空」） |
 | **S3** | `WindProvider` + 只读探针 + 真实错误报文采样 | 接第二家（Wind）**不改 `transport.py`** |
 | **S4** | 第一个 Wind job（业绩比较基准回填）+ 展示窗口策略 | API 默认 ≤5 年；基准数据与 Wind 一致 |
 | **S5** | `user_mcp_credentials` + `PRO_FEATURES` 门禁 | 用户无 Token ⇒ 明确提示，不回退系统 Token |
@@ -312,6 +373,21 @@ def clamp_since(since: date, *, allow_full: bool = False) -> date: ...
 > （`qieman_fetcher.source = 'qieman'` 写进的是库里的 `source` 列，不上屏）。
 > 等哪个页面真的要带来源脚注时再加——`docs/spec/data-strategy.md` 的准入四问第一条
 > 「谁在用」答不出来，就不该加。
+
+> **S2 落地偏离了 §9 原表四处（2026-10-21，源 #2490）**，四处都是同一判据
+> 「**只做有读者的抽象**」（与 S0 收窄同源）：
+>
+> | 原计划 | 实际 | 为什么 |
+> |---|---|---|
+> | `cache` 接入 | 移到 **S4** | 目前唯一的读者是 Wind 指数查询（S3/S4 才有），S2 阶段接了没人用 |
+> | `budget` 独立模块 | **不建模块** | 「当日调用数」由 `mcp_call_logs` 直接派生（`calls_today`），再建一份计数就是第二个真相来源 |
+> | `user_mcp_credentials` | 移到 **S5** | 依赖付费化（PRO 门禁），S2 阶段无读者 |
+> | 前端 banner（第 5 段） | 移到 **S4** | 与展示窗口策略同一批改；S2 的可见性由 `health` 段 + `stats['degraded']` 承担 |
+>
+> 另有一处**实现上的差异**：`sync_logs` 表没有 `message` 列（写入端只有 `stats` 与
+> `error_detail`，后者装的还是 `stats['errors']` 的串形），故「降级原因写人话」落
+> `stats['degraded']` 与 `stats['degraded_reasons']`，而非新加列——
+> 新增列须先答准入四问，而 `stats` 现有结构本就够用（详见 §5.3 第 3 段）。
 
 方法搬移清单（S1 的施工单）：
 
@@ -341,7 +417,11 @@ def clamp_since(since: date, *, allow_full: bool = False) -> date: ...
 
 ## 12. 待办与已知缺口
 
-- Wind 的额度 / 欠费报文形态待采样（S3）；
-- `backend/app/services/thermometer/README.md:337` 称 `QIEMAN_API_KEY` 缺省「用内置 key」，
-  与代码 `:461/:534/:567`（缺则 warning + 跳过）冲突，需确认后拉平；
+- Wind 的额度 / 欠费报文形态待采样（S3）；采样前 429 一律按**频控**（可重试），不猜死分类；
+- ✅ **已拉平（2026-10-21，S2/#2490）**：`backend/app/services/thermometer/README.md`
+  原称 `QIEMAN_API_KEY` 缺省「用内置 key」/「覆盖内置」，与代码冲突。代码内**从无内置 key**
+  （`credentials._TOKEN_ENV` 是唯一来源，S0 的 `guard_no_hardcoded_secrets` 守着这条），
+  三处 README 表述已改为「必须配置 / 无内置 key，未配置 ⇒ 该源不更新（`degraded`）」；
+- 额度用量 / 上限（原计划的 `quota_used / quota_limit`）**尚未纳入 health 段**：
+  且慢无额度语义、Wind 待 S3 采样，现在建字段就是「没有读者的列」；
 - `core/data_sources.DATA_SOURCE_LABELS` 暂无 `qieman`，若且慢数据上屏带来源脚注需补登。

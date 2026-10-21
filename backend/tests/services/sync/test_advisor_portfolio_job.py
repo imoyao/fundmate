@@ -32,6 +32,7 @@ from app.services.adapters.advisor_source import (
 )
 from app.services.adapters.qieman_advisor_adapter import QiemanAdvisorAdapter
 from app.services.adapters.tiantian_advisor_adapter import TiantianAdvisorAdapter
+from app.services.mcp.errors import McpAuthError, McpTokenMissing, McpUnavailable
 from app.services.sync.jobs.advisor_portfolio_job import (
     AdvisorPortfolioSyncJob,
     flatten_qieman_composition,
@@ -796,3 +797,99 @@ def test_job_unknown_platform_batch_skip_logs_each_code(db):
     result = _make_job(db).run(full_sync=True, targets=['CSI1001', 'CSI1002'])
     assert result['status'] == 'success'
     assert db.query(AdvisorHolding).count() == 0
+
+
+# ── MCP 故障：按平台隔离 + 终态（S2，#2490）──
+#
+# S2 之前本任务根本走不到这些分支：fetcher 把失败吞成 []/{}，这里看到的是
+# 「这些组合没有持仓」—— 故障零信号不是疏忽，是被上游吞掉了。现在四条口径：
+#   未配置 Token ⇒ degraded（可选组件关闭，不进 errors、不判红）
+#   其它 MCP 错 ⇒ errors + degraded，该平台本轮跳过
+#   部分平台挂 ⇒ 另一平台照常落库，job 仍 SUCCESS
+#   全部平台挂 ⇒ FAILED（一条 success 都没有却报绿就是假绿）
+
+
+class _FailingSource(_FakeSource):
+    """取数即抛错的适配器（模拟授权失效 / 服务不可用 / 未配置 Token）。"""
+
+    def __init__(self, platform: str, exc: Exception, **kwargs: Any) -> None:
+        super().__init__(platform, **kwargs)
+        self._exc = exc
+        self.fetch_calls = 0
+
+    def fetch_overviews(self, codes: List[str]) -> Dict[str, Any]:
+        self.fetch_calls += 1
+        raise self._exc
+
+
+def _seed_portfolio(db, platform: str, code: str) -> None:
+    """显式 targets 需先建档，否则 ``_infer_platform`` 会按天天基金兜底。"""
+    db.add(AdvisorPortfolio(platform=platform, code=code, name=code))
+    db.commit()
+
+
+def test_mcp_failure_on_one_platform_degrades_without_failing_the_job(db):
+    """一个平台挂掉不再炸整轮：另一平台照常落库，故障以 degraded + errors 可见。"""
+    _seed_portfolio(db, 'QIEMAN', 'ZH000001')
+    _seed_portfolio(db, 'TIANTIAN', 'XCOVSEX')
+    job = _make_job(
+        db,
+        QIEMAN=_FailingSource('QIEMAN', McpUnavailable('503', provider='qieman', http_status=503)),
+        TIANTIAN=_FakeSource('TIANTIAN', overview=TIANTIAN_OVERVIEW, holdings=TIANTIAN_HOLDINGS),
+    )
+
+    result = job.run(full_sync=True, targets=['ZH000001', 'XCOVSEX'])
+
+    assert result['status'] == 'success'
+    assert job.stats['degraded'] == 1
+    assert job.stats['degraded_reasons'], '「本轮为什么没更新」必须留人话'
+    assert len(job.stats['errors']) == 1
+    assert 'QIEMAN' in job.stats['errors'][0]
+    # 隔离的判据：另一个平台的数据真的落地了
+    assert db.query(AdvisorPortfolio).filter_by(platform='TIANTIAN', code='XCOVSEX').one().name == '越海'
+
+
+def test_all_platforms_failed_marks_job_failed(db):
+    """全挂必须判 FAILED：一条 success 都没有却报绿，就是本项目最忌讳的假绿。"""
+    _seed_portfolio(db, 'QIEMAN', 'ZH000001')
+    job = _make_job(
+        db,
+        QIEMAN=_FailingSource('QIEMAN', McpAuthError('401', provider='qieman', http_status=401)),
+    )
+
+    result = job.run(full_sync=True, targets=['ZH000001'])
+
+    assert result['status'] == 'failed'
+    assert job.stats['degraded'] == 1
+
+
+def test_missing_token_is_degraded_but_not_an_error(db):
+    """未配置 Token = 可选组件关闭：可见（degraded）但不进 errors、不判红（#1720 同口径）。"""
+    _seed_portfolio(db, 'QIEMAN', 'ZH000001')
+    job = _make_job(
+        db,
+        QIEMAN=_FailingSource('QIEMAN', McpTokenMissing('未设置环境变量 QIEMAN_API_KEY', provider='qieman')),
+    )
+
+    result = job.run(full_sync=True, targets=['ZH000001'])
+
+    assert result['status'] == 'success'
+    assert job.stats['errors'] == []
+    assert job.stats['degraded'] == 1
+
+
+def test_failing_platform_does_not_abort_other_platforms_in_same_batch(db):
+    """同批内隔离：失败平台不影响后序平台（不靠异常冒泡"跳过"）。"""
+    _seed_portfolio(db, 'QIEMAN', 'ZH000001')
+    _seed_portfolio(db, 'TIANTIAN', 'XCOVSEX')
+    job = _make_job(
+        db,
+        QIEMAN=_FailingSource('QIEMAN', McpUnavailable('boom', provider='qieman')),
+        TIANTIAN=_FakeSource('TIANTIAN', overview=TIANTIAN_OVERVIEW, holdings=TIANTIAN_HOLDINGS),
+    )
+
+    result = job.run(full_sync=True, targets=['ZH000001', 'XCOVSEX'])
+
+    assert result['status'] == 'success'
+    assert result['stats']['success'] == 1
+    assert result['stats']['failed'] == 1
