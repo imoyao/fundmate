@@ -115,8 +115,8 @@ def _resolve_ip_families(host: str, port: int) -> set:
 def _user_domain_failure_message(parsed: 'urllib.parse.ParseResult', exc: Exception) -> str:
     """把 user 域连接失败翻译成**可操作**的结论（纯函数，便于单测钉住）。
 
-    #2462：Supabase 的直连端口 5432 **只提供 IPv6**，而 GitHub Actions runner
-    没有 IPv6 出口 ⇒ libpq 报 `Network is unreachable`。这句话看不出
+    #2462：Supabase 的直连端口 5432 **只提供 IPv6**，而 CI runner 没有 IPv6 出口
+    ⇒ libpq 报 `Network is unreachable`。这句话看不出
     「该换 pooler 端点」或「该把调度换到有 IPv6 的机器上」，于是排查只能靠猜。
     """
     msg = ' '.join(str(exc).split())
