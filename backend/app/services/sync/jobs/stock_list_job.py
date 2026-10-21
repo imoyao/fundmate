@@ -25,7 +25,7 @@ class StockListSyncJob(SyncJob):
         而 `PriceHistorySyncJob` 按 symbol 查 securities，查不到即 continue，
         这些品种的日线因此永远为 0 行，自选页最新价只能回落到导入快照。
         """
-        return self.adapter.fetch_security_catalog()
+        return self._require_non_empty(self.adapter.fetch_security_catalog(), source='证券名录')
 
     # ── 数据校验 ──
 

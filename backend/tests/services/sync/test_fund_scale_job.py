@@ -85,10 +85,17 @@ def test_no_local_match_skips_without_error(job, db):
     assert db.query(Fund).count() == 0
 
 
-def test_empty_source_allowed(job, db):
+def test_empty_source_is_failure(job, db):
+    """上游一条都没返回 ⇒ **失败**，不是成功。
+
+    口径变更（#1179 同族收口）：全市场列表类 job 抓不到任何记录，
+    只可能是上游结构变更 / 接口异常 / 解析失配——不可能是「今天没有数据」。
+    旧行为把它当 success，于是市场底座静默停更、日志一片绿。
+    """
     job.adapter.fetch_fund_scale.return_value = []
     result = job.run(full_sync=True, targets=['__full__'])
-    assert result['status'] == 'success'
+    assert result['status'] == 'failed'
+    assert '空数据' in str(result.get('stats', {}).get('error', ''))
 
 
 def test_in_query_is_chunked_beyond_sqlite_variable_limit(job, db):
