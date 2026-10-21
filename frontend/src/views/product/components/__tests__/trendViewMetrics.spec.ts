@@ -55,7 +55,7 @@ describe("effectiveUseCandle：当前实际在画什么", () => {
   });
 
   it("无 OHLCV（场外基金）→ 无论选中值是什么都画折线", () => {
-    // ⚠️ 这条是 #2446 的核心：场外切换器不渲染，选中值恒为初值 'candle'，
+    // ⚠️ 这条是 #2453 的核心：场外切换器不渲染，选中值恒为初值 'candle'，
     // **没有语义**。判定只能落在「实际在画什么」上。
     expect(effectiveUseCandle(0, "candle")).toBe(false);
     expect(effectiveUseCandle(0, "line")).toBe(false);
@@ -72,14 +72,14 @@ describe("overlayAvailable：买卖点 / 成本线叠加层", () => {
     expect(overlayAvailable(true)).toBe(false);
   });
 
-  it("#2446 回归：场外基金（无 OHLCV）的叠加层必须可用", () => {
+  it("#2453 回归：场外基金（无 OHLCV）的叠加层必须可用", () => {
     // 反例 = 拿「切换器选中值」当判据：选中值在切换器不渲染时没有语义，
     // 会得到「画的是折线、叠加层却不可用」→ 勾选框可见但买卖点一个都不画。
     expect(showViewToggle(0)).toBe(false); // 前置：切换器不渲染
     expect(overlayAvailable(effectiveUseCandle(0, "candle"))).toBe(true);
   });
 
-  it("#2446 回归：场内 K 线视图下叠加层不可用（要看就切折线）", () => {
+  it("#2453 回归：场内 K 线视图下叠加层不可用（要看就切折线）", () => {
     expect(effectiveUseCandle(60, "candle")).toBe(true);
     expect(overlayAvailable(effectiveUseCandle(60, "candle"))).toBe(false);
     expect(overlayAvailable(effectiveUseCandle(60, "line"))).toBe(true);
