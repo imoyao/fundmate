@@ -257,7 +257,7 @@ class TestAssetLedgerBinding:
         create_resp = client.post(
             '/api/assets/',
             json={
-                'major_category': 'vehicle',  # 测试 vehicle 类型
+                'major_category': 'fixed',  # 现行口径：车辆归「固定资产」，细分走 minor_category
                 'name': '家用SUV',
                 'amount': 300000,
                 'ledger_id': prop1_id,

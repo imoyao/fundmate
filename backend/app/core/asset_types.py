@@ -70,6 +70,22 @@ ASSET_CATEGORY_LABELS: dict[str, str] = {
     'wealth_insurance': '理财型保险',
 }
 
+# ── 账户现金的大类取值：写入口径与读侧过滤的唯一来源 ──
+# 历史读侧（ledger_service 的三处账户现金查询）曾用 'current'，但它既不在上面的
+# 权威词表内，也不是任何写入路径会产出的值（前端录入表单写的是 'cash'）⇒
+# 账户现金恒读成 0，活期余额与类现金合计静默漏算（#2136 裁决：以词表 'cash' 为准）。
+MAJOR_CATEGORY_CASH: str = 'cash'
+
+# 写入侧允许的大类取值集合（= 词表全量）。存量历史细分大类同样放行，避免旧客户端
+# 写入被拒；#1354「新建禁止再写这五类」由写入入口收敛，不在本白名单里收紧。
+MAJOR_CATEGORY_VALUES: frozenset[str] = frozenset(ASSET_CATEGORY_LABELS.keys())
+
+
+def is_valid_major_category(major_category: str | None) -> bool:
+    """大类取值是否在权威词表内（空值不放行，交由必填约束处理）。"""
+    return bool(major_category) and major_category in MAJOR_CATEGORY_VALUES
+
+
 # ── 投资理财的细分子类（#1354 大类收敛）──
 # 历史背景：银行理财 / 投顾 / 信托 / 私募 / 理财型保险 曾被建成与「投资理财」平级的
 # major_category，但它们本质同属投资理财，副作用有三：

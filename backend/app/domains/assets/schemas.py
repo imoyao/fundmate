@@ -8,7 +8,23 @@
 from datetime import date, datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.core.asset_types import MAJOR_CATEGORY_VALUES
+
+
+def _validate_major_category(value: str | None) -> str | None:
+    """大类取值必须在权威词表内（#2136）。
+
+    此前写入侧完全不校验，于是任何字符串都能落库；而读侧按词表过滤
+    ⇒ 词表外的值（如历史上误用的 'current'）会变成**谁都读不到**的隐形行——
+    账户现金恒为 0 就是这么来的。这里早失败，把错误挡在入库之前。
+    """
+    if value is None:
+        return None
+    if value not in MAJOR_CATEGORY_VALUES:
+        raise ValueError(f'major_category 非法：{value!r}；合法取值见 /api/utils/enums/ 的 asset_category')
+    return value
 
 
 class AssetCreate(BaseModel):
@@ -28,6 +44,8 @@ class AssetCreate(BaseModel):
     notes: Optional[str] = Field(None, max_length=500)
     extra: Optional[dict] = None
 
+    _check_major_category = field_validator('major_category')(_validate_major_category)
+
 
 class AssetUpdate(BaseModel):
     """更新通用资产（PATCH，所有字段可选）."""
@@ -45,6 +63,8 @@ class AssetUpdate(BaseModel):
     end_date: Optional[date] = None
     notes: Optional[str] = None
     extra: Optional[dict] = None
+
+    _check_major_category = field_validator('major_category')(_validate_major_category)
 
 
 class AssetOut(BaseModel):

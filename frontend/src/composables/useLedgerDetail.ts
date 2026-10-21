@@ -72,7 +72,7 @@ export interface LedgerSummaryData {
    * 它**不在** `cash_like_amount` 的加总里，单列是为了说清「账外对总资产的贡献」。
    */
   orphan_income_amount?: number;
-  /** 账户现金（`Asset.major_category='current'`），账外项之一 */
+  /** 账户现金（`Asset.major_category='cash'`），账外项之一 */
   account_cash_amount?: number;
   linked_liability?: number;
   type_distribution?: Record<string, number>;

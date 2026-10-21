@@ -1335,3 +1335,40 @@ def migrate_conversion_in_leg_snapshot(engine: Engine) -> str:
     msg += '，market 收编为契约值）'
     logger.info('[OK] 转换转入腿快照存量收编：{}', msg)
     return '[OK] ' + msg
+
+
+def migrate_asset_major_category_current_to_cash(engine: Engine) -> str:
+    """assets.major_category 归一：历史错值 ``'current'`` → ``'cash'``（#2136）。
+
+    ## 为什么
+
+    #2136 裁决：账户现金的大类取值以权威词表 ``ASSET_CATEGORY_LABELS`` 为准，
+    即 ``'cash'``。读侧三处此前按 ``'current'`` 过滤——那是个**词表外**的值，
+    写入侧从来不会产出它，于是账户现金恒读成 0。读侧已改回 ``'cash'``，
+    但**存量行**若历史上被写成 ``'current'``，改完读侧它们依然读不到
+    （= 隐形行：钱在库里，页面上没有）。
+
+    ## 做什么
+
+    只把 ``major_category='current'`` 的行改成 ``'cash'``，不改表结构、
+    不动其他取值。语义上这是**把错值改回词表里的那个值**，不涉及任何口径变更。
+
+    ## 幂等与跳过
+
+    - 幂等：重复执行影响 0 行；
+    - 库表不存在 → 跳过；
+    - 非 SQLite 引擎（Supabase Postgres）→ 跳过，由对应引擎的迁移工具负责
+      （与本模块其余迁移同口径，不在启动路径上误跑 SQLite 专属 SQL）。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，数据归一由对应引擎的迁移工具负责'
+
+    if 'assets' not in inspect(engine).get_table_names():
+        return '[SKIP] assets 表不存在'
+
+    with engine.begin() as conn:
+        n = conn.execute(text("UPDATE assets SET major_category='cash' WHERE major_category='current'")).rowcount
+    msg = f'major_category 归一 current→cash：{n} 行'
+    logger.info('[OK] {}', msg)
+    return '[OK] ' + msg

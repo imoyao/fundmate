@@ -1452,7 +1452,7 @@ class TestLedgerSummary:
         )
         # 为关联的 bank 创建活期资产
         asset = Asset(
-            user_id=1, major_category='current', name='活期', amount=50000, account_name='招商银行', ledger_id=bank.id
+            user_id=1, major_category='cash', name='活期', amount=50000, account_name='招商银行', ledger_id=bank.id
         )
         db.add(asset)
         db.commit()
@@ -1513,7 +1513,7 @@ class TestLedgerSummary:
         db.add(bank)
         db.commit()
 
-        make_asset(major_category='current', name='活期', amount=30000, ledger_id=bank.id, account_name='微众银行')
+        make_asset(major_category='cash', name='活期', amount=30000, ledger_id=bank.id, account_name='微众银行')
         make_position(
             symbol='LC001',
             name='理财A',
@@ -1725,7 +1725,7 @@ class TestOrphanDetail:
             current_price=4.0,
         )
         # 孤儿资产：ledger_id 为空
-        make_asset(major_category='current', name='某银行卡', amount=5000.0)
+        make_asset(major_category='cash', name='某银行卡', amount=5000.0)
         # 孤儿交易：position_id/ledger_id 均为空
         make_transaction(
             position_id=None,
@@ -1759,7 +1759,7 @@ class TestOrphanDetail:
         asset = data['assets'][0]
         assert asset['name'] == '某银行卡'
         assert asset['amount'] == 5000.0
-        assert asset['major_category'] == 'current'
+        assert asset['major_category'] == 'cash'
 
         # 交易明细：txn_type 保持后端原始枚举值，confirm_date 为纯日期
         assert len(data['transactions']) == 1
@@ -1872,7 +1872,7 @@ class TestLedgerArchiveAndUpdate:
             avg_price=10,
             current_price=12,
         )
-        make_asset(major_category='current', name='活期', amount=1000, ledger_id=ledger.id, account_name='正常账户')
+        make_asset(major_category='cash', name='活期', amount=1000, ledger_id=ledger.id, account_name='正常账户')
         make_transaction(position_id=pos.id, ledger_id=ledger.id, txn_type='buy', quantity=100, price=10, amount=1000)
         # make_transaction 内部只 flush 不 commit，显式提交保证数据落库
         db.commit()
@@ -1901,7 +1901,7 @@ class TestLedgerArchiveAndUpdate:
             current_price=12,
         )
         # 孤儿资产
-        make_asset(major_category='current', name='某银行卡', amount=5000.0)
+        make_asset(major_category='cash', name='某银行卡', amount=5000.0)
         # 孤儿交易：position_id 指向孤儿持仓且 ledger_id 悬空（migrate 会一并归入）
         make_transaction(
             position_id=pos.id,

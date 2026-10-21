@@ -32,6 +32,7 @@ from app.core.migrations import (
     migrate_advisor_portfolio_metadata,
     migrate_advisor_portfolio_metrics,
     migrate_advisor_portfolio_provenance,
+    migrate_asset_major_category_current_to_cash,
     migrate_channel_link_indexes,
     migrate_conversion_in_leg_snapshot,
     migrate_fee_unique_indexes,
@@ -595,6 +596,9 @@ def init_db():
     for t in grouped[DOMAIN_USER]:
         t.to_metadata(user_meta)
     user_meta.create_all(bind=user_eng)
+    # assets.major_category 归一 current→cash（#2136）：读侧已改回词表里的 'cash'，
+    # 存量 'current' 行否则仍是隐形行（钱在库里、页面读不到）。只改数据不改结构、幂等。
+    migrate_asset_major_category_current_to_cash(user_eng)
     # watchlist.name 名称快照列（#1508）：create_all 不替存量表加列，迁移须先于结构校验，
     # 否则 _validate_schema 会因模型列多于库表而报错阻断启动（与下方投顾列同因）。
     migrate_watchlist_name_snapshot(user_eng)
@@ -693,6 +697,8 @@ def init_db_split():
         for t in grouped[DOMAIN_USER]:
             t.to_metadata(user_meta)
         user_meta.create_all(bind=user_eng)
+        # assets.major_category 归一 current→cash（#2136）：只改数据、幂等，同上须先于结构校验
+        migrate_asset_major_category_current_to_cash(user_eng)
         # watchlist.name 名称快照列（#1508）：同上，须先于结构校验
         migrate_watchlist_name_snapshot(user_eng)
         # positions.symbol_norm 归一身份列 + 唯一索引（#1662 后续）：create_all 不替存量表加列，
