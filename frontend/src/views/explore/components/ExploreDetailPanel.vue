@@ -144,6 +144,7 @@
         :items="activeCrowdingItems"
         :loading="activeCrowdingLoading"
         :name-column-label="rankCategory === 'track' ? '赛道' : '行业'"
+        :show-bias-columns="rankCategory === 'sw'"
       />
       <BiasTable
         v-if="rankCategory === 'sw'"

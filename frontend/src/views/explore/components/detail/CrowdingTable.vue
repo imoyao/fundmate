@@ -264,9 +264,11 @@
         </template>
       </el-table-column>
       <!-- 行业乖离率 BIASn（简单 MA 口径，#1431）：正=偏离均线上方、负=下方。
-           与「行业乖离度排行」表的 LOGBIAS（对数 EMA20）口径不同，故分列展示、互不混淆 -->
+           与「行业乖离度排行」表的 LOGBIAS（对数 EMA20）口径不同，故分列展示、互不混淆。
+           `showBiasColumns` 为 false 时不渲染这三列（见 prop 注释）：赛道分类拿不到 BIASn，
+           硬保留就是整列 `--`，用户会读成「数据坏了」，而不是「该维度不适用」。 -->
       <el-table-column
-        v-for="n in BIAS_WINDOWS"
+        v-for="n in showBiasColumns ? BIAS_WINDOWS : []"
         :key="`bias${n}`"
         :prop="`data.bias${n}`"
         :label="`乖离${n}日`"
@@ -330,13 +332,23 @@ withDefaults(
     embedded?: boolean;
     /** 首列名称：行业视图为「行业」、赛道视图为「赛道」 */
     nameColumnLabel?: string;
+    /**
+     * 是否展示行业乖离率三列（乖离6 / 20 / 60 日）。
+     * WHY：后端 BIASn 只对 `category='sw'` 补齐（`_merge_sw_bias` 不处理 track，
+     * `fundfof_crowding.py` 亦注明「赛道维度无 BIASn，该维度不适用」），赛道记录的 data 里
+     * 没有 bias6/20/60 三个键 —— 保留这三列就是整列 `--`，看起来像数据故障。
+     * 默认 true：申万行业路径（以及任何未传该 prop 的旧用法）表现零变化。
+     * 赛道为何不额外加「不适用」标注：父级标题的 info 已写明该口径，不另造第二套说法。
+     */
+    showBiasColumns?: boolean;
   }>(),
   {
     date: "",
     stale: false,
     loading: false,
     embedded: false,
-    nameColumnLabel: "行业"
+    nameColumnLabel: "行业",
+    showBiasColumns: true
   }
 );
 </script>

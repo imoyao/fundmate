@@ -460,7 +460,7 @@ class BiasCalculator:
         data_date: Optional[date] = None,
         max_workers: int = 4,
         request_interval: float = 3.0,
-    ) -> List[BiasResult]:
+    ) -> Tuple[List[BiasResult], List[dict]]:
         """
         批量计算乖离率
 
@@ -471,10 +471,18 @@ class BiasCalculator:
             request_interval: 相邻请求间隔（秒），限速用，缓解连续请求断连
 
         Returns:
-            BiasResult 列表（失败的品种被过滤，并在日志汇总透出）
+            ``(成功结果列表, 失败明细列表)``。失败明细每项形如
+            ``{'symbol': ..., 'item_type': ..., 'name': ...}``。
+
+        为什么要**把失败明细返回给调用方**，而不是像以前那样只拼一行 warning 日志
+        （#2475 同族，本卡）：逐标的失败一旦只进日志，调用方就拿不到量纲，
+        于是「37 个标的全挂」与「今天没有品种要算」在 job 终态上完全同形
+        （都是 SUCCESS + failed=0 + errors=[]），上游坏了也没人知道。
+        失败原因（无价格 / 数据不足）仍由 `calculate_item` 的 logger 透出，
+        这里只负责交给调用方**按标的粒度记账**所需的身份信息。
         """
         results: List[BiasResult] = []
-        failures: List[Tuple[str, str, str]] = []
+        failures: List[dict] = []
         total = len(products)
 
         for idx, (symbol, item_type, name) in enumerate(products, 1):
@@ -485,7 +493,7 @@ class BiasCalculator:
             if result:
                 results.append(result)
             else:
-                failures.append((symbol, item_type, name))
+                failures.append({'symbol': symbol, 'item_type': item_type, 'name': name})
 
             # 限速：相邻请求随机间隔，缓解东方财富连续请求断连(RemoteDisconnected)
             if idx < total and request_interval > 0:
@@ -493,6 +501,6 @@ class BiasCalculator:
 
         logger.info(f'乖离率计算完成: 成功 {len(results)}/{total}，失败 {len(failures)}')
         if failures:
-            detail = ', '.join(f'{s}({t})' for s, t, _ in failures)
+            detail = ', '.join(f'{f["symbol"]}({f["item_type"]})' for f in failures)
             logger.warning(f'乖离率失败品种({len(failures)}): {detail}')
-        return results
+        return results, failures

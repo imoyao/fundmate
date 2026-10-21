@@ -4,10 +4,10 @@
 统一数据同步 CLI —— 把日常要跑的同步指令集中到一个入口。
 
 用法:
-    # 跑市场温度（含集思录估值温度、韭圈儿、自算估值分位；乖离率已临时跳过）
+    # 跑市场温度（含集思录估值温度、韭圈儿、自算估值分位、乖离率）
     pdm run python -m app.tools.sync_cli temperature
 
-    # 跑全部同步任务（元数据 + 温度；乖离率跳过）
+    # 跑全部同步任务（元数据 + 温度；温度内已含乖离率）
     pdm run python -m app.tools.sync_cli all
 
     # 单独跑某个 Job（透传到 DataSyncOrchestrator.run_job）
@@ -18,8 +18,9 @@
     pdm run python -m app.tools.sync_cli verify-jisilu
 
 说明:
-    - temperature 任务目前跳过乖离率（SKIP_BIAS=True，见 thermometer/jobs.py），
-      待后期修复后放开，放开不影响本 CLI 用法。
+    - temperature 任务已放开乖离率（SKIP_BIAS=False，见 thermometer/jobs.py）：
+      数据源改为直连后不再依赖 akshare/东财限流。乖离率按标的粒度记账，
+      逐标的失败会以一条 summary 进入温度任务的 errors。
     - 所有命令均走 DataSyncOrchestrator，与 sync_metadata.py 同一套调度。
 """
 
