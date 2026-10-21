@@ -6,7 +6,7 @@
 --------------------------------------------------------------------------------
     core  ←  domains.<域>.models / schemas  ←  services  ←  domains.<域>.views
 
-本守卫把下面四条**非法边**变成红灯（AST 静态可判、零误报面）：
+本守卫把下面七条**非法边**变成红灯（AST 静态可判、零误报面）：
 
 | 规则 | 非法边 | 为什么 |
 |---|---|---|
@@ -16,12 +16,14 @@
 | R4 | `app.domains.A.views` → `app.domains.B.views`（A≠B） | 跨域引用对方视图（HTTP 细节外溢到另一域） |
 | R5 | `app.services.adapters.*` / `job_base` / `import_records` → `app.services.{sync,importer,thermometer,bias,ai_recognizer}.*` | services 顶层**共享件**反向依赖家族包（共享件必须是叶子，否则又长回「寄生」） |
 | R6 | **领域服务**（模块名 `*_service` / `service`）→ `app.services.{sync.orchestrator, thermometer.jobs, importer.orchestrator*, daily_scheduler}` | services 内部方向：**编排 / 注册类**（orchestrator / jobs / scheduler）可依赖其它领域的服务与 job，**领域服务不得反向依赖编排层**（批次 5 机器化，见 `decisions.md` D25 定调 / D32 落地） |
+| R7 | `app.services.mcp.*` → `app.services.{adapters,sync,importer,thermometer,bias,ai_recognizer}.*` | **MCP 接入层是共享件**（#2488）：家族包与 `adapters` 依赖它，它不得认识任何一家业务适配器 —— 否则「接第二家 MCP 服务时复用传输层」会退化成「MCP 层认识且慢」 |
 
 **不判的（刻意）**：`views → services`、`services → domains.models/schemas`、
 `domains.A.models ↔ domains.B.models`、`家族包 → 共享件` 等**合法边**；
 以及「包级双向依赖对」——它多数由 `views→services` 与 `services→models` 两条合法边叠加而成
 （如 `domains.positions` ↔ `services.position_service`），不构成违规。
 `services` 内部方向（编排层 vs 领域服务）由 **R6** 机器化（#1607 批次 5，`decisions.md` D25 定调 / D32 落地）。
+MCP 接入层（`app.services.mcp`）与业务适配器的方向由 **R7** 机器化（#2488，MCP S1）。
 
 检测策略（AST，纯标准库）：import 语句 + 动态 import 字面量
 （`importlib.import_module('app.domains...')` / `__import__('app.models...')`）。
@@ -74,6 +76,12 @@ ORCHESTRATION_MODULES = (
     'app.services.importer.orchestrator_holdings',
     'app.services.daily_scheduler',
 )
+# R7：MCP 接入层（共享件，与 adapters 同层）。它要能被家族包与 adapters 依赖，
+# 因此**不得**反过来依赖 adapters（业务适配器）或家族包 —— 否则「Wind 复用传输层」
+# 会退化成「MCP 层认识且慢」，接第二家服务时必然分叉。
+MCP_SERVICE_PACKAGE = 'app.services.mcp'
+#: R7 禁止的目标：业务适配器 + 家族包
+MCP_FORBIDDEN_TARGETS = SERVICE_FAMILY_PACKAGES + ('app.services.adapters',)
 
 
 def _matches(module: str, packages: tuple[str, ...]) -> bool:
@@ -144,6 +152,11 @@ def _violation(module_name: str, target_module: str) -> str | None:
             return (
                 'R5 services 顶层共享件不得反向依赖家族包（共享件必须是叶子：家族实现依赖共享件，'
                 '不能反过来；否则又长成「寄生」）'
+            )
+        if _matches(module_name, (MCP_SERVICE_PACKAGE,)) and _matches(target_module, MCP_FORBIDDEN_TARGETS):
+            return (
+                'R7 MCP 接入层不得依赖业务适配器 / 家族包（MCP 层是共享件：家族包与 adapters 依赖它，'
+                '它不得认识任何一家业务适配器，否则接第二家服务时必然分叉）'
             )
         if _is_domain_service_module(module_name) and _matches(target_module, ORCHESTRATION_MODULES):
             return (
@@ -261,7 +274,7 @@ def main() -> int:
         )
         return 1
 
-    print(f'OK: 分层依赖方向无违规（扫描 {len(list(app_dir.rglob("*.py")))} 个文件，R1~R6 全绿）')
+    print(f'OK: 分层依赖方向无违规（扫描 {len(list(app_dir.rglob("*.py")))} 个文件，R1~R7 全绿）')
     return 0
 
 

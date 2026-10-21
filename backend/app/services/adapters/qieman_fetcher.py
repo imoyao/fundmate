@@ -18,6 +18,10 @@ tools/call = 3 个 HTTP 请求），于是 111×2 = 222 次工具调用 = 666 �
    适配器改为一次传入全部 code ⇒ 111 只 = 3 次调用；
 3. **持仓批量**：``strategyCodes`` 传多只，响应 ``{code: {...}}`` 按 code 切分；
    批量语义未被上游文档保证，故**缺键即该批降级逐只**（批量拿不到 ≠ 数据变空）。
+
+2026-10-21（MCP S1）：上面第 1 条的**实现**（会话缓存 / 握手 / 失效重握 / SSE 解析）已抽到
+``app/services/mcp/``（传输层与 provider 基类），本模块只保留业务解析与批量策略；
+调用量收敛的三条结论不变，且 Wind 接入不再需要照抄这份传输。
 """
 
 import json
@@ -33,14 +37,20 @@ from loguru import logger
 from app.core.constants import DEFAULT_REQUEST_TIMEOUT, USER_AGENT
 from app.core.utils import to_float as _to_float
 from app.services.adapters.fetcher_base import SingleValueFetcher
+from app.services.mcp import McpTransport, get_provider
+from app.services.mcp.providers.qieman import (  # noqa: F401  兼容再导出：既有导入点（含测试）不必改
+    QIEMAN_CLIENT_INFO,
+    QIEMAN_MCP_URL,
+    QIEMAN_PROTOCOL_VERSION,
+    QIEMAN_STRATEGY_COMPOSITION_TOOL,
+    QIEMAN_STRATEGY_DETAIL_TOOL,
+    QIEMAN_TOOL,
+)
 
 # ─── 且慢 MCP（Streamable HTTP）───
-QIEMAN_MCP_URL = 'https://stargate.yingmi.com/mcp/v2'
-QIEMAN_PROTOCOL_VERSION = '2024-11-05'
-QIEMAN_CLIENT_INFO = {'name': 'fundmate', 'version': '1.0.0'}
-QIEMAN_TOOL = 'GetLatestQuotations'  # 市场温度计
-QIEMAN_STRATEGY_DETAIL_TOOL = 'GetStrategyDetails'  # 投顾组合概览/风险收益指标
-QIEMAN_STRATEGY_COMPOSITION_TOOL = 'BatchGetStrategiesComposition'  # 投顾组合持仓
+# 服务地址 / 协议版本 / 客户端信息 / 工具名已搬去 ``app/services/mcp/providers/qieman.py``
+# （2026-10-21，MCP S1）：它们描述「这家服务长什么样」，不属于取数逻辑，Wind 接入时同理。
+# 上面那行 import 是**兼容再导出** —— 旧导入点（含测试）取到的仍是同一批值。
 
 # 且慢组合概览（GetStrategyDetails）中文字段 → 归一化英文键（实测 2026-09）。
 # 集中在此便于接口扩字段时只改一处，勿散落到 fetcher / job。
@@ -252,16 +262,14 @@ def _parse_composition(parsed: Any, code: str) -> Optional[List[dict]]:
     return None
 
 
-class _McpSessionInvalid(RuntimeError):
-    """MCP 会话已失效（服务端不认当前 ``Mcp-Session-Id``）。
-
-    仅由 :meth:`QiemanFetcher._tool_call_once` 抛出，由 :meth:`QiemanFetcher._call_tool`
-    捕获后**重新握手一次**再重试；重试仍失败则转成普通 ``RuntimeError`` 抛出（不吞错）。
-    """
-
-
 class QiemanFetcher(SingleValueFetcher):
-    """且慢：市场温度计（中证全A），通过 MCP Streamable HTTP 协议获取。"""
+    """且慢：市场温度计（中证全A），通过 MCP Streamable HTTP 协议获取。
+
+    传输（会话缓存 / 握手 / SSE 解析 / 失效重握）自 2026-10-21（MCP S1）起由
+    :class:`app.services.mcp.McpTransport` 承担；本类保留「这家服务怎么调」——
+    地址与请求头来自 :class:`app.services.mcp.providers.qieman.QiemanProvider`，
+    业务解析（归一化助手、批量与降级）仍全部在本模块。
+    """
 
     source = 'qieman'
     name = '市场温度计(中证全A)'
@@ -269,53 +277,34 @@ class QiemanFetcher(SingleValueFetcher):
 
     def __init__(self, timeout: int = DEFAULT_REQUEST_TIMEOUT):
         super().__init__(timeout)
-        #: MCP 会话（Streamable HTTP 的 ``Mcp-Session-Id``）缓存——见 :meth:`_ensure_session`
-        self._session_id: Optional[str] = None
-        #: 缓存会话对应的 API key（换 key 必须重新握手，不能沿用旧会话）
-        self._session_api_key: Optional[str] = None
-        #: 本实例是否已完成过一次握手。**且慢服务端不回 Mcp-Session-Id**（实测 2026-10-20，
-        #: nginx 无状态网关：initialize 200 但无该响应头），此时也必须记住「已握手」，
-        #: 否则「无会话可缓存」会退化成「每次调用都重新握手」，复用等于没做。
-        self._handshake_done: bool = False
+        self._provider = get_provider('qieman')
+        #: 传输对象**惰性构造**：构造时才捕获 ``self._mcp_post``（测试会 monkeypatch 它）。
+        #: 若在 ``__init__`` 里就绑定，被替换掉的替身不会被看到，测试会静默失效。
+        self._transport_obj: Optional[McpTransport] = None
 
     # ---- 且慢 MCP（Streamable HTTP）----
+    @property
+    def _transport(self) -> McpTransport:
+        """本实例的传输（首次调用时构造，理由见 :meth:`__init__`）。"""
+        if self._transport_obj is None:
+            self._transport_obj = self._provider.build_transport(self._mcp_post, auth=self._apply_token)
+        return self._transport_obj
+
     def _mcp_post(self, payload: dict, sid: Optional[str]) -> requests.Response:
+        """且慢网关的 HTTP 细节：地址、来源头、会话头、超时。"""
         headers = {
-            'x-api-key': self.session.headers.get('x-api-key'),
+            **self._provider.auth_headers(self.session.headers.get('x-api-key') or ''),
             'Accept': 'application/json, text/event-stream',
             'Content-Type': 'application/json',
             'User-Agent': USER_AGENT,
-            'Origin': QIEMAN_MCP_URL,
-            'Referer': QIEMAN_MCP_URL + '/',
         }
         if sid:
             headers['Mcp-Session-Id'] = sid
-        return self.session.post(QIEMAN_MCP_URL, json=payload, headers=headers, timeout=20)
+        return self.session.post(self._provider.base_url(), json=payload, headers=headers, timeout=20)
 
-    def _mcp_handshake(self, api_key: str) -> Optional[str]:
-        """MCP 握手（initialize + notifications/initialized），返回会话 sid。
-
-        注意（实测 2026-10-20）：且慢当前**不返回** ``Mcp-Session-Id``，此方法返回 None
-        也属正常；会话复用由 :meth:`_ensure_session` 的 ``_handshake_done`` 记位承担。
-        """
-        self.session.headers['x-api-key'] = api_key
-        sid: Optional[str] = None
-        r = self._mcp_post(
-            {
-                'jsonrpc': '2.0',
-                'id': 1,
-                'method': 'initialize',
-                'params': {
-                    'protocolVersion': QIEMAN_PROTOCOL_VERSION,
-                    'capabilities': {},
-                    'clientInfo': QIEMAN_CLIENT_INFO,
-                },
-            },
-            sid,
-        )
-        if r.status_code != 200:
-            raise RuntimeError(f'MCP initialize 失败: HTTP {r.status_code}')
-        return r.headers.get('Mcp-Session-Id') or sid
+    def _apply_token(self, token: str) -> None:
+        """把 token 写进 session 头（:meth:`_mcp_post` 从中取 ``x-api-key``）。"""
+        self.session.headers['x-api-key'] = token
 
     def _call_tool(self, api_key: str, tool: str, arguments: dict) -> str:
         """调用任意 MCP 工具，返回解析出的文本片段（兼容 SSE / JSON 两种响应）。
@@ -323,98 +312,15 @@ class QiemanFetcher(SingleValueFetcher):
         ``#1392`` 扩展点：原 `_call_mcp` 只调 `GetLatestQuotations`；抽成通用方法后，
         且慢组合持仓（BatchGetStrategiesComposition）等可复用同一传输。
 
-        **会话复用**（2026-10-20）：``Mcp-Session-Id`` 缓存在实例上，正常路径下连续 N 次
-        调用**只握手一次**（原实现每次调用都握手 = 3 个 HTTP 请求）。仅当服务端明确不认
-        当前会话（400/404/非 JSON）时**重新握手一次**再重试同一次调用，仍失败则抛错——
-        不做无限重试，也不把失败吞成空结果（空结果会被上层读成「这组合没持仓」）。
+        **会话复用 / 失效重握**（2026-10-20 落地，S1 搬进传输层）：正常路径下连续 N 次
+        调用**只握手一次**；仅当服务端明确不认当前会话（400/404/非 JSON）时**重新握手
+        一次**再重试同一次调用，仍失败则抛错——不做无限重试，也不把失败吞成空结果
+        （空结果会被上层读成「这组合没持仓」）。
+
+        本方法是本模块**唯一**的工具调用入口，且保持同名可替换：测试与适配器都
+        monkeypatch 它。
         """
-        last_err: Optional[_McpSessionInvalid] = None
-        for attempt in (1, 2):
-            sid = self._ensure_session(api_key)
-            try:
-                return self._tool_call_once(sid, tool, arguments)
-            except _McpSessionInvalid as e:
-                # 不论第几次，先把坏会话丢掉：下一次循环（重试）会重新握手
-                self._reset_session()
-                last_err = e
-                if attempt == 2:
-                    break
-                logger.warning(f'MCP 会话失效，重新握手后重试一次（{tool}）: {e}')
-        raise RuntimeError(f'MCP 会话重握后仍失败（{tool}）: {last_err}') from last_err
-
-    def _ensure_session(self, api_key: str) -> Optional[str]:
-        """取/建 MCP 会话：实例内缓存 sid，apikey 变了才重新握手。
-
-        **服务端不回 ``Mcp-Session-Id`` 时同样跳过后续握手**（实测 2026-10-20）：
-        且慢网关是无状态的，initialize 只回 200、无该响应头，且不带任何会话头直接
-        ``tools/call`` 依然 200 有数据 ⇒ 「无 sid」不等于「无会话」。
-        若上游日后真要求先握手，退路是 :meth:`_call_tool` 的会话失效分支——
-        失败即重握一次再重试（已在真实链路上验证过重试路径，见测试）。
-        """
-        if self._session_api_key == api_key and (self._session_id or self._handshake_done):
-            # 复用旧会话时仍要保证 header 在位（_mcp_post 从 session.headers 取 key）
-            self.session.headers['x-api-key'] = api_key
-            return self._session_id
-
-        sid = self._mcp_handshake(api_key)
-        r = self._mcp_post({'jsonrpc': '2.0', 'method': 'notifications/initialized'}, sid)
-        if r.status_code >= 400:
-            raise RuntimeError(f'MCP initialized 通知失败: HTTP {r.status_code}')
-        sid = r.headers.get('Mcp-Session-Id') or sid
-        self._session_id = sid
-        self._session_api_key = api_key
-        self._handshake_done = True
-        return sid
-
-    def _reset_session(self) -> None:
-        """丢弃缓存会话（下次 ``_ensure_session`` 会重新握手）。"""
-        self._session_id = None
-        self._session_api_key = None
-        self._handshake_done = False
-
-    def _tool_call_once(self, sid: Optional[str], tool: str, arguments: dict) -> str:
-        """在既有会话内发一次 ``tools/call``；会话失效抛 :class:`_McpSessionInvalid`。"""
-        r3 = self._mcp_post(
-            {
-                'jsonrpc': '2.0',
-                'id': 2,
-                'method': 'tools/call',
-                'params': {'name': tool, 'arguments': arguments},
-            },
-            sid,
-        )
-        if r3.status_code in (400, 404):
-            raise _McpSessionInvalid(f'HTTP {r3.status_code}')
-        if r3.status_code != 200:
-            raise RuntimeError(f'MCP tools/call 失败: HTTP {r3.status_code}')
-
-        content_type = (r3.headers.get('content-type') or '').lower()
-        if 'text/event-stream' in content_type:
-            text = ''
-            for line in r3.iter_lines(decode_unicode=True):
-                if line and line.startswith('data:'):
-                    data = line[len('data:') :].strip()
-                    try:
-                        msg = json.loads(data)
-                    except json.JSONDecodeError:
-                        continue
-                    if msg.get('id') == 2 and 'result' in msg:
-                        content = msg['result'].get('content', [])
-                        text = ''.join(c.get('text', '') for c in content if c.get('type') == 'text')
-                        break
-        else:
-            try:
-                msg = r3.json()
-            except ValueError:
-                # 非 JSON：会话失效或被 WAF 拦截。两者都值得先重握一次再判死（不吞错）。
-                raise _McpSessionInvalid('返回非 JSON（疑似会话失效或被 WAF 拦截）')
-            if 'error' in msg:
-                raise RuntimeError(f'MCP tools/call 返回错误: {msg["error"]}')
-            content = msg.get('result', {}).get('content', [])
-            text = ''.join(c.get('text', '') for c in content if c.get('type') == 'text')
-        if not text:
-            raise RuntimeError('MCP 调用返回为空')
-        return text
+        return self._transport.call_tool(tool, arguments, token=api_key)
 
     def fetch_strategy_composition(self, strategy_code: str) -> List[dict]:
         """且慢组合持仓（#1392）：BatchGetStrategiesComposition（单只入口）。
@@ -471,7 +377,7 @@ class QiemanFetcher(SingleValueFetcher):
     def _fetch_composition_chunk(self, api_key: str, codes: List[str]) -> Dict[str, List[dict]]:
         """单批持仓（含缺键降级逐只）。"""
         try:
-            text = self._call_tool(api_key, QIEMAN_STRATEGY_COMPOSITION_TOOL, {'strategyCodes': codes})
+            text = self._call_tool(api_key, self._provider.tool_for('strategy_composition'), {'strategyCodes': codes})
             parsed = json.loads(text)
         except Exception as e:  # noqa: BLE001
             logger.error(f'且慢组合持仓获取失败（{len(codes)} 个，如 {codes[:3]}）: {e}')
@@ -505,7 +411,7 @@ class QiemanFetcher(SingleValueFetcher):
     def _fetch_composition_single(self, api_key: str, code: str) -> List[dict]:
         """单只重取（批量响应缺键时的兜底）；失败返回 ``[]`` 并记日志。"""
         try:
-            text = self._call_tool(api_key, QIEMAN_STRATEGY_COMPOSITION_TOOL, {'strategyCodes': [code]})
+            text = self._call_tool(api_key, self._provider.tool_for('strategy_composition'), {'strategyCodes': [code]})
             parsed = json.loads(text)
         except Exception as e:  # noqa: BLE001
             logger.error(f'且慢组合持仓获取失败 {code}: {e}')
@@ -547,7 +453,7 @@ class QiemanFetcher(SingleValueFetcher):
             try:
                 text = self._call_tool(
                     api_key,
-                    QIEMAN_STRATEGY_DETAIL_TOOL,
+                    self._provider.tool_for('strategy_details'),
                     {'strategyCodes': chunk, 'pageSize': min(len(chunk), 100)},
                 )
                 parsed = json.loads(text)
@@ -573,7 +479,7 @@ class QiemanFetcher(SingleValueFetcher):
         last_err: Optional[Exception] = None
         for attempt in range(2):
             try:
-                text = self._call_tool(api_key, QIEMAN_TOOL, {})
+                text = self._call_tool(api_key, self._provider.tool_for('latest_quotations'), {})
                 parsed = json.loads(text)
                 if isinstance(parsed, dict):
                     records = parsed.get('temperatureList') or parsed.get('result') or []

@@ -5,7 +5,7 @@
 
     core ← domains.{models,schemas} ← services ← domains.{views}
 
-本文件把六条**非法边**（R1~R6）钉进 pytest，与 `scripts/guard_layer_direction.py`
+本文件把七条**非法边**（R1~R7）钉进 pytest，与 `scripts/guard_layer_direction.py`
 共用同一份判定逻辑（按路径加载脚本，不重复实现）——本地跑 `pytest` 即可发现回潮，
 不必等 CI 守卫。
 
@@ -66,6 +66,10 @@ _PROBES = [
     ('services/fund_service.py', 'from app.services.sync.orchestrator import DataSyncOrchestrator\n', 'R6'),
     ('services/thermometer/service.py', 'from app.services.importer.orchestrator import ImportOrchestrator\n', 'R6'),
     ('services/position_service.py', 'from app.services.thermometer.jobs import TemperatureJob\n', 'R6'),
+    # ── R7：MCP 接入层反向依赖业务适配器 / 家族包（#2488，MCP S1） ──
+    ('services/mcp/providers/probe.py', 'from app.services.adapters.qieman_fetcher import QiemanFetcher\n', 'R7'),
+    ('services/mcp/transport.py', 'from app.services.adapters.fetcher_base import SingleValueFetcher\n', 'R7'),
+    ('services/mcp/providers/probe.py', 'from app.services.thermometer.constants import X\n', 'R7'),
     # ── 合法边（反向保护）：以下写法必须放行 ──
     ('domains/ledgers/views.py', 'from app.services.position_presenter import enrich_position_dict\n', None),
     ('domains/positions/views.py', 'from app.domains.positions.schemas import PositionOut\n', None),
@@ -91,6 +95,12 @@ _PROBES = [
     # 领域服务之间互引与「领域服务 → 共享件」不受 R6 约束
     ('services/fund_service.py', 'from app.services.position_service import PositionService\n', None),
     ('services/fund_service.py', 'from app.services.adapters.akshare_adapter import AkshareAdapter\n', None),
+    # R7 合法边（反向保护）：MCP 层依赖 core / 自身子包、以及 adapters → mcp 都是正确方向
+    ('services/mcp/transport.py', 'from app.core.constants import DEFAULT_REQUEST_TIMEOUT\n', None),
+    ('services/mcp/providers/qieman.py', 'from app.services.mcp.base import McpProvider\n', None),
+    ('services/mcp/registry.py', 'from app.services.mcp.providers import qieman\n', None),
+    ('services/adapters/qieman_fetcher.py', 'from app.services.mcp import McpTransport, get_provider\n', None),
+    ('services/thermometer/jobs.py', 'from app.services.mcp import get_provider\n', None),
     ('services/adapters/probe.py', 'from app.services.adapters.base import DataSourceAdapter\n', None),
     ('services/adapters/probe.py', 'from app.domains.funds.models import FundCompany\n', None),
     # 批次 4 后：adapters 反向依赖 thermometer 已消除 → 该写法现在应报 R5（冻结基线已清空）
