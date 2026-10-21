@@ -18,6 +18,8 @@ title: MCP 接入层设计
 1. **Token / API Key / Cookie 一律不得出现在文档、代码、注释、提交信息、PR 正文与测试夹具里**，
    只能从环境变量读取（`WIND_MCP_TOKEN` / `QIEMAN_API_KEY` 等）。日志、异常文本、`sync_logs.message`
    一律脱敏（`ak_***`）。示例值一律写 `xxxx`。
+   判据：`scripts/guard_no_hardcoded_secrets.py`（源 #2486，并入 `ci.yml` 的 `scripts_test`，阻断；
+   边界是「只看工作区里的跟踪文件」——提交信息 / 历史提交 / 运行时拼接不覆盖）。
 2. **MCP 故障必须显性**。额度用尽、欠费、鉴权失效不得被 `except Exception: return []` 吞掉后
    渲染成「无数据 / —」——那会让用户误判成我们自己的服务坏了。见 §5。
 3. **用户私有数据只能用用户自己的 Token**，不得用系统 Token 代取，也不得跨用户共享。
@@ -280,12 +282,21 @@ def clamp_since(since: date, *, allow_full: bool = False) -> date: ...
 
 | 阶段 | 内容 | 完成判据 |
 |---|---|---|
-| **S0** | env 化（`WIND_MCP_TOKEN` / `WIND_MCP_URL` / `QIEMAN_API_KEY`）；新增 `scripts/guard_no_hardcoded_secrets.py` 并入 `ci.yml` 的 `scripts_test`；`DATA_SOURCE_LABELS` 补 `qieman` / `wind`；`backend/.env.example` 补占位 | 守卫用真 Token 形态自测能红；`.env.example` 只有 `xxxx` 占位 |
+| **S0** | 新增 `scripts/guard_no_hardcoded_secrets.py` 并入 `ci.yml` 的 `scripts_test`；登记 `RULE_REGISTRY`；`AGENTS.md` 落一条带判据的红线 | 守卫在真实仓库跑出 0 命中；回退探针（把假 Token 写进真实文件）必须转红；拿不到输入退 2 |
 | **S1** | 抽 `transport` + `base` + `QiemanProvider`，且慢切过去 | `tests/services/thermometer/test_qieman_fetcher.py`、`test_qieman_batch_transport.py` 全绿；握手仍只 1 次；请求数不增 |
 | **S2** | `credentials` + `errors` + `cache` + `budget` 接入 | 注入额度异常 ⇒ health 转 `degraded`（不是「成功 + 空」） |
 | **S3** | `WindProvider` + 只读探针 + 真实错误报文采样 | 接第二家（Wind）**不改 `transport.py`** |
 | **S4** | 第一个 Wind job（业绩比较基准回填）+ 展示窗口策略 | API 默认 ≤5 年；基准数据与 Wind 一致 |
 | **S5** | `user_mcp_credentials` + `PRO_FEATURES` 门禁 | 用户无 Token ⇒ 明确提示，不回退系统 Token |
+
+> **S0 收窄过（2026-10-21，源 #2486）**：S0 原本还包含「`WIND_MCP_TOKEN` / `WIND_MCP_URL`
+> 写进 `backend/.env.example`」与「`DATA_SOURCE_LABELS` 补 `qieman` / `wind`」。两者都被
+> **推后**，理由是同一个——**没有读者的配置与常量就是在攒垃圾**：
+> Wind 的 env 要到 S3 有 provider 才有人读；`DATA_SOURCE_LABELS` 的读者只有
+> `fund_holdings_detail` / `product_trend` / `stock_profile`，投顾与温度计链路目前不读它
+> （`qieman_fetcher.source = 'qieman'` 写进的是库里的 `source` 列，不上屏）。
+> 等哪个页面真的要带来源脚注时再加——`docs/spec/data-strategy.md` 的准入四问第一条
+> 「谁在用」答不出来，就不该加。
 
 方法搬移清单（S1 的施工单）：
 

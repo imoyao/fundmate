@@ -884,6 +884,19 @@ jobs:
       - name: 检查每日调度开关是否都登记在 .env.example（阻断）
         run: python scripts/guard_scheduler_env_example.py
 
+      # 硬编码密钥守卫（源 #2486，2026-10-21）：接 MCP（Wind / 且慢）后 Token 会以三种
+      # 最平常的方式进仓库——适配器常量、测试夹具、文档示例——而现有守卫没有一条看**值**：
+      # `guard_secret_imports.py` 管 `.cnb.yml` 的引用**方式**，`guard_mojibake.py` 管编码，
+      # `guard_scheduler_env_example.py` 管开关有没有登记。于是那条红线此前只有一道防线：
+      # 「记得别写」——而它失败时不可逆（Token 进了历史就得改写历史或轮换）。
+      # 白名单只认语义（占位值、Supabase `anon` JWT），不按路径开口子；
+      # 拿不到输入（不是 git 仓库 / 跟踪文件读不了）退 2，**不得**当成通过。
+      # 不新增 job：并入本 job，也就不必动 gate.needs（#1559/#1560 两次事故都是合并冲突弄丢 needs）。
+      # 判据边界（不覆盖提交信息 / PR 正文 / 历史提交 / 拆分拼接的密钥）见脚本 docstring；
+      # 回归网在 scripts/tests/test_no_hardcoded_secrets.py（含临时仓库灵敏度探针 + 失败态用例）。
+      - name: 检查仓库里是否写死了密钥（阻断）
+        run: python scripts/guard_no_hardcoded_secrets.py
+
   gate:
     name: 质量门禁汇总
     if: ${{ always() && github.event_name == 'pull_request' }}
