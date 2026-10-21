@@ -108,6 +108,10 @@ ENV_ADVISOR_ENABLED = 'SCHEDULER_ADVISOR_ENABLED'
 ENV_ADVISOR_CRON = 'SCHEDULER_ADVISOR_CRON'
 ENV_FUND_HOLDING_ENABLED = 'SCHEDULER_FUND_HOLDING_ENABLED'
 ENV_FUND_HOLDING_CRON = 'SCHEDULER_FUND_HOLDING_CRON'
+ENV_FUND_STYLE_ENABLED = 'SCHEDULER_FUND_STYLE_ENABLED'
+ENV_FUND_STYLE_CRON = 'SCHEDULER_FUND_STYLE_CRON'
+ENV_INDUSTRY_PBROE_ENABLED = 'SCHEDULER_INDUSTRY_PBROE_ENABLED'
+ENV_INDUSTRY_PBROE_CRON = 'SCHEDULER_INDUSTRY_PBROE_CRON'
 # --- #1934：以下四个 job 早已注册进编排器与全量执行计划，却从未进本机每日调度 ---
 ENV_INDEX_VALUATION_ENABLED = 'SCHEDULER_INDEX_VALUATION_ENABLED'
 ENV_INDEX_VALUATION_CRON = 'SCHEDULER_INDEX_VALUATION_CRON'
@@ -183,6 +187,13 @@ DEFAULT_ADVISOR_CRON = '0 22 * * *'
 # ⚠️ 星期必须写 `mon` 而不是数字：APScheduler 的 `day_of_week` 是 **0 = 周一**，
 # 与 crontab 的 0 = 周日**相反**——实测写 `* * 1` 排出来的是周二。
 DEFAULT_FUND_HOLDING_CRON = '0 23 * * mon'
+# 基金风格箱（#2478）：**每月一次，不进每日**。
+# 上游（韭圈儿 get-style-history）按月更新：月末点 + 当月最新点，日变更量为 0，
+# 每日跑纯属浪费（同 fund_position 的季报逻辑，只是频率换成月）。
+# 选每月 2 日 22:30：确保当月首个时点（上游约月中刷新）已被覆盖，且错开
+# 22:00 advisor / 22:15 position_price 的窗口。job 内按复合键去重做增量，
+# 漏跑的日子下次全量去重自愈（但断档时点永久缺失，见 job docstring）。
+DEFAULT_FUND_STYLE_CRON = '30 22 2 * *'
 
 # --- #1934：四个「已注册却从未被调度」的 job 的默认 cron ---
 #
@@ -195,6 +206,10 @@ DEFAULT_FUND_HOLDING_CRON = '0 23 * * mon'
 # 17:10 探市快照：场内收盘后（15:00）尽早落库，让 overview 读库优先生效；
 # 不联网（NullAdapter，只读已落库的指数/基金数据），无请求风暴风险。
 DEFAULT_MARKET_ASSET_DAILY_CRON = '10 17 * * *'
+# 18:40 行业 PB-ROE（#2481）：韭圈儿上游随收盘更新（ROE 为 TTM、PB 随价），
+# 排在 index_valuation(18:20) 之后、temperature(20:00) 之前，错开同时段；
+# 探市行业比较读库即回，上游侧只此一次请求/天。
+DEFAULT_INDUSTRY_PBROE_CRON = '40 18 * * *'
 # 18:20 指数估值：中证官方收盘后约 1 小时下发，排在 index_daily(18:00) 之后
 # 拉当日日线，再取同日估值，避免拿到「昨日日线 + 今日估值」的错配口径。
 DEFAULT_INDEX_VALUATION_CRON = '20 18 * * *'
@@ -378,6 +393,18 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[Union[str, Tuple[str, .
         ('fund', 'etf'),
         '基金持仓明细 + 行业配置（季报口径，每周一次；#870 / #1983）',
     ),
+    (
+        # 基金风格箱（#2478）。target_kind=('fund', 'etf') 同 fund_position：
+        # 目标池 = 场外基金裸码 + 场内 ETF 裸码（ETF 也有风格箱，510300 实测
+        # 大盘成长 45.6 / 大盘价值 18.0，宽基映射有效）。**月度 cron**，见
+        # DEFAULT_FUND_STYLE_CRON 注释；job 侧 MAX_TARGETS=500 硬上限。
+        'fund_style',
+        ENV_FUND_STYLE_ENABLED,
+        ENV_FUND_STYLE_CRON,
+        DEFAULT_FUND_STYLE_CRON,
+        ('fund', 'etf'),
+        '基金投资风格箱（韭圈儿 8 分类，月度增量；#2478）',
+    ),
     # --- #1934：以下四条是「已注册进编排器与全量执行计划、却从未进本机调度」的 job ---
     # 探市快照（#1460）：target_kind=None，因其目标池就是「要落快照的大类资产」，
     # 不是 fund/stock 代码池，套resolve_targets() 只会拿到不相干的代码。
@@ -389,6 +416,17 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[Union[str, Tuple[str, .
         DEFAULT_MARKET_ASSET_DAILY_CRON,
         None,
         '探市大类资产日频快照（overview 读库优先的库源；#1460）',
+    ),
+    # 行业 PB-ROE（#2481）：target_kind=None —— 目标池是「全行业矩阵」而非
+    # fund/stock 代码池（一次请求拿申万一级全部行业），套 resolve_targets()
+    # 只会拿到不相干的代码。日频快照落 market_composites，探市读库即回。
+    (
+        'industry_pbroe',
+        ENV_INDUSTRY_PBROE_ENABLED,
+        ENV_INDUSTRY_PBROE_CRON,
+        DEFAULT_INDUSTRY_PBROE_CRON,
+        None,
+        '行业 PB-ROE 散点日频快照（申万一级全行业矩阵；#2481）',
     ),
     # 指数估值（#1397）：target_kind=None —— 目标池是固定指数清单
     # （INDEX_VALUATION_TARGETS），与用户持仓/自选无关。中证官方约收盘后 1 小时下发。

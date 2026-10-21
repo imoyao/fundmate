@@ -61,7 +61,7 @@ title: 核心 API 端点清单（api）
 
 <!-- AUTO-ENDPOINTS:START（由 scripts/check_api_conventions.py --write 生成，勿手改） -->
 
-全量端点清单（共 **186** 条）：由 `scripts/check_api_conventions.py --write` 从
+全量端点清单（共 **191** 条）：由 `scripts/check_api_conventions.py --write` 从
 `backend/app/domains/**/views.py` 的 `@<bp>.<method>(...)` 装饰器静态生成，**禁止手改**——
 改路由后重跑该命令即可；CI 守卫会校验本段与实现逐条一致（不一致即红灯）。
 
@@ -90,12 +90,16 @@ title: 核心 API 端点清单（api）
 | GET | `/api/funds/<string:fund_code>/fee-rates/` | `get_fund_fee_rates` |
 | POST | `/api/funds/<string:fund_code>/fee-sync/` | `sync_fund_fees` |
 | GET | `/api/funds/<string:fund_code>/nav/` | `get_fund_nav` |
+| GET | `/api/funds/<string:fund_code>/similar/` | `get_similar_funds_view` |
+| GET | `/api/funds/<string:fund_code>/style/history/` | `get_fund_style_history_view` |
+| GET | `/api/funds/<string:fund_code>/style/latest/` | `get_fund_style_latest` |
 | GET | `/api/funds/advisors/<string:code>/adjusts/` | `get_advisor_adjusts` |
 | GET | `/api/funds/advisors/<string:code>/holdings/` | `get_advisor_holdings` |
 | GET | `/api/funds/managers/search/` | `search_managers` |
 | POST | `/api/funds/nav/` | `get_fund_nav_by_date` |
 | POST | `/api/funds/redeem-fee/estimate/` | `estimate_redeem_fee` |
 | GET | `/api/funds/search/` | `search_funds` |
+| GET | `/api/funds/style/portfolio/` | `get_portfolio_style` |
 | GET | `/api/health` | `health_check` |
 | POST | `/api/importers/confirm/` | `confirm_import` |
 | POST | `/api/importers/holdings/confirm/` | `confirm_holding_import` |
@@ -126,6 +130,7 @@ title: 核心 API 端点清单（api）
 | PATCH | `/api/ledgers/reorder/` | `reorder_ledgers` |
 | GET | `/api/ledgers/sales-institutions/` | `list_sales_institutions` |
 | GET | `/api/ledgers/securities-aggregation/` | `get_securities_aggregation` |
+| GET | `/api/market/industry-pbroe/` | `get_industry_pbroe` |
 | GET | `/api/market/overview/` | `get_market_overview` |
 | GET | `/api/notifications/` | `list_notifications` |
 | PATCH | `/api/notifications/<int:notification_id>/read/` | `mark_notification_read` |

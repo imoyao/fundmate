@@ -183,11 +183,18 @@ BASELINE: dict[str, dict[str, int]] = {
         "max_func": 22,
     },
     "backend/app/domains/funds/views.py": {
-        "lines": 197,
+        "lines": 263,
         "orm_queries": 2,
         "commits": 0,
         "max_func": 39,
     },
+    # 2026-10-21 重取（#2478 / #2480，**新增端点**，非放宽）：基金域加 4 个只读端点——
+    # 风格箱 3 个（style/latest、style/history、style/portfolio，#2478，日频快照由
+    # sync/jobs/fund_style_job.py 写入，视图只做 normalize_fund_code + 调
+    # services/fund_style_service + 信封）+ 相似基金 1 个（similar/，#2480，
+    # 降级契约在 services/similar_fund_service，视图零 try/except）。orm_queries /
+    # commits / max_func 三项实测不动（2/0/39），唯 lines 197 → 263（+66，含端点签名与
+    # 口径 docstring）。无可下沉的业务规则，按 `--report` 实测回写。
     "backend/app/domains/importers/views.py": {
         "lines": 249,
         "orm_queries": 1,
@@ -200,8 +207,13 @@ BASELINE: dict[str, dict[str, int]] = {
         "commits": 0,
         "max_func": 60,
     },
+    # 2026-10-21 重取（#2481，**新增端点**，非放宽）：加 `GET /api/market/industry-pbroe/`
+    # （探市行业 PB-ROE 散点，日频快照由 sync/jobs/industry_pbroe_job.py 写入）——
+    # 视图侧只有「get_db() + 调 services/industry_pbroe_service + 信封」，orm_queries /
+    # commits / max_func 三项实测不动（0/0/21），唯 lines 37 → 61（+24，含端点签名与
+    # 负 ROE / update_time 口径 docstring）。按 `--report` 实测回写。
     "backend/app/domains/market/views.py": {
-        "lines": 37,
+        "lines": 61,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 21,

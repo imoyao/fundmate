@@ -314,6 +314,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'advisor_adjust_histories': DOMAIN_MARKET,  # 投顾组合历史调仓明细（#1167）
     'fund_holdings': DOMAIN_MARKET,  # 基金持仓明细（#870：报告期快照，前十大与全量并存）
     'fund_industry_allocs': DOMAIN_MARKET,  # 基金行业配置（#870：csrc/gics 双体系分区）
+    'fund_style_exposures': DOMAIN_MARKET,  # 基金风格箱暴露（#2478：韭圈儿 8 分类，月度，公开无家庭字段）
     'convertible_bond_terms': DOMAIN_MARKET,  # 可转债条款（#1285/#1393：强赎/回售/转股）
     'daily_worth': DOMAIN_MARKET,  # 基金净值（最大体积表）
     'fund_valuation_daily': DOMAIN_MARKET,  # 场外基金收盘估值定格（#2141）

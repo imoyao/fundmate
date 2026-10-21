@@ -39,6 +39,7 @@ from app.core.migrations import (
     migrate_fund_equity_position_period,
     migrate_fund_managers_split_tenures,
     migrate_fund_risk_metrics_period_returns,
+    migrate_fund_style_columns,
     migrate_fund_valuation_official_columns,
     migrate_positions_cleared_at,
     migrate_positions_money_fund_flag,
@@ -590,6 +591,9 @@ def init_db():
     # 且必须早于下面这行结构校验 —— 校验只查「模型有列、库没列」，而本次是
     # 「库多两列 + 缺唯一约束」，漏挂在库上不会报错，表会带着重复行一直跑下去。
     migrate_fund_managers_split_tenures(app_eng)
+    # funds.dominant_style / style_period 列（#2478）：create_all 不替存量表加列，
+    # 同上须先于结构校验；fund_style_exposures 新表由 create_all 建，无需迁移。
+    migrate_fund_style_columns(app_eng)
     _validate_schema(app_eng, market_meta, label='market')
     # user 域表 → 用户引擎
     user_meta = MetaData()
@@ -690,6 +694,9 @@ def init_db_split():
     # 且必须早于下面这行结构校验 —— 校验只查「模型有列、库没列」，而本次是
     # 「库多两列 + 缺唯一约束」，漏挂在库上不会报错，表会带着重复行一直跑下去。
     migrate_fund_managers_split_tenures(app_eng)
+    # funds.dominant_style / style_period 列（#2478）：create_all 不替存量表加列，
+    # 同上须先于结构校验；fund_style_exposures 新表由 create_all 建，无需迁移。
+    migrate_fund_style_columns(app_eng)
     _validate_schema(app_eng, market_meta, label='market')
     # user 域表 → 用户引擎（若已配置）
     if user_eng is not None:

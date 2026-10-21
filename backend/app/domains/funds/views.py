@@ -8,6 +8,8 @@ from app.core.database import get_db
 from app.core.validation import parse_body
 from app.domains.funds.schemas import FundNavRequest
 from app.services.fund_service import FundService
+from app.services.fund_style_service import get_fund_style_box, get_fund_style_history, portfolio_style_exposure
+from app.services.similar_fund_service import get_similar_funds
 
 bp = APIBlueprint('funds', __name__, url_prefix='/api/funds')
 
@@ -154,6 +156,70 @@ def sync_fund_fees(fund_code: str):
 # advisor_holdings / advisor_adjust_histories 此前一直是「只写不读」：同步任务落库，
 # 但全后端没有任何接口暴露，调仓与持仓数据事实上锁在库里。这里补两个只读口子，
 # 供自选「投顾组合」速览抽屉消费（market 域公开参照数据，无需登录）。
+
+
+# ── 基金投资风格箱只读接口（#2478）──
+# 数据来自 fund_style_exposures（韭圈儿 get-style-history，月度）。三个口子对应
+# 三个消费场景：详情页风格箱 / 漂移序列 / 组合加权透视。风格箱只覆盖基金与 ETF，
+# 股票持仓不在口径内；QDII 上游映射存疑（270042 纳指100 实测「固收风格 81.28」），
+# 透出原值，由前端按需注明来源。
+
+
+@bp.get('/style/portfolio/')
+def get_portfolio_style():
+    """组合加权风格暴露（持仓透视，家庭作用域）。
+
+    无持仓 / 全无风格箱数据时 styles 为空数组、coverage_pct=0——
+    前端据此显示「暂无数据」，不显示全零箱体（「0 暴露」与「没有数据」是两件事）。
+    """
+    with get_db() as db:
+        data = portfolio_style_exposure(db, get_family_id())
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/<string:fund_code>/style/latest/')
+def get_fund_style_latest(fund_code: str):
+    """最新风格箱（详情页首屏）。无数据返回 data=null，前端降级「—」。"""
+    with get_db() as db:
+        data = get_fund_style_box(db, fund_code)
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+@bp.get('/<string:fund_code>/style/history/')
+def get_fund_style_history_view(fund_code: str):
+    """风格漂移序列（月度倒序，wide 形态）。
+
+    `?limit=` 时点数，默认 60（≈5 年），硬上限 500（上游实测最长 283 点）。
+    非法值静默回退默认——展示接口不该因一个查询参数 400。
+    """
+    raw = request.args.get('limit')
+    limit = None
+    if raw:
+        try:
+            limit = int(raw)
+        except ValueError:
+            limit = None
+    with get_db() as db:
+        data = get_fund_style_history(db, fund_code, limit)
+    return jsonify({'data': data, 'message': 'ok'})
+
+
+# ── 相似基金只读接口（#2480）──
+# 按需取韭圈儿相似度名单（不落库，缓存在 service 侧）。上游失败走降级：
+# data.items 为空 + degraded=true，不 500——展示接口不该因一个外部源整体挂掉。
+
+
+@bp.get('/<string:fund_code>/similar/')
+def get_similar_funds_view(fund_code: str):
+    """相似基金列表（详情页「相似基金」块）。
+
+    返回 ``{fund_code, items: [{fund_code, fund_name, similarity,
+    income_1y_pct, window}], degraded, error, source, fetched_at}``；
+    degraded=true 表示上游取数失败（items 为空），前端显示「暂时取不到」。
+    相似度口径为上游黑盒，前端须注明「数据来源：韭圈儿」。
+    """
+    data = get_similar_funds(fund_code)
+    return jsonify({'data': data, 'message': 'ok'})
 
 
 @bp.get('/advisors/<string:code>/holdings/')

@@ -57,6 +57,7 @@ from app.services.sync.jobs.fund_nav_job import FundNavSyncJob
 from app.services.sync.jobs.fund_position_job import FundPositionSyncJob
 from app.services.sync.jobs.fund_risk_metrics_job import FundRiskMetricsSyncJob
 from app.services.sync.jobs.fund_scale_job import FundScaleSyncJob
+from app.services.sync.jobs.fund_style_job import FundStyleSyncJob
 from app.services.sync.jobs.fund_type_job import FundTypeSyncJob
 from app.services.sync.jobs.fund_valuation_reconcile_job import FundValuationReconcileJob
 from app.services.sync.jobs.fund_valuation_snapshot_job import FundValuationSnapshotJob
@@ -65,6 +66,7 @@ from app.services.sync.jobs.index_constituent_job import INDEX_TARGETS, IndexCon
 from app.services.sync.jobs.index_daily_job import IndexDailySyncJob
 from app.services.sync.jobs.index_valuation_job import IndexValuationSyncJob
 from app.services.sync.jobs.index_valuation_lg_job import IndexValuationLgSyncJob
+from app.services.sync.jobs.industry_pbroe_job import IndustryPbroeSyncJob
 from app.services.sync.jobs.manager_tenure_job import ManagerTenureSyncJob
 from app.services.sync.jobs.market_asset_daily_job import MarketAssetDailySyncJob
 from app.services.sync.jobs.nav_backfill_job import NavBackfillJob
@@ -96,6 +98,7 @@ SYMBOL_BACKFILL_JOBS = frozenset(
         'fund_type',
         'fund_company_backfill',
         'fund_position',
+        'fund_style',
         'position_price',
         'dividend_split',
         # #167：风险指标快照也属「逐标的」型——**它不联网**，故不是为了防限流，
@@ -198,6 +201,10 @@ class DataSyncOrchestrator:
         self.jobs['orphan_backfill'] = OrphanBackfillJob(NullAdapter(), self.db)
         self.jobs['fund_scale'] = FundScaleSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['fund_position'] = FundPositionSyncJob(self.data_sources['akshare'], self.db)
+        # #2478：基金风格箱（韭圈儿免登录 API）。逐只 1 次请求，同 fund_position
+        # 按目标池限量；JiucaishuoAdapter 直接实例化（同 manager_tenure 的处理，
+        # 不进 data_sources 字典——韭圈儿适配器只服务风格箱/行业恐贪两个消费方）。
+        self.jobs['fund_style'] = FundStyleSyncJob(JiucaishuoAdapter(), self.db)
         self.jobs['fund_type'] = FundTypeSyncJob(self.data_sources['akshare'], self.db)
         # 投顾组合：一任务多平台（天天公开接口 + 且慢 MCP，Port 契约见 #1392）。
         # job 不认识具体平台，按 AdvisorPortfolio.platform 从注册表取适配器；
@@ -236,6 +243,10 @@ class DataSyncOrchestrator:
         # #1460：探市大类资产日频快照（数据经 market_service 直连 akshare，不经过 adapter，
         # 故 NullAdapter 占位；落库后 /api/market/overview 由实时现算改为读库组装）
         self.jobs['market_asset_daily'] = MarketAssetDailySyncJob(NullAdapter(), self.db)
+        # #2481：行业 PB-ROE 日频快照（韭圈儿免登录 API，一次请求拿全行业矩阵）。
+        # 与 market_asset_daily 同范式：数据经 adapter 自取（不走 data_sources），
+        # 无外部目标池依赖（targets 传空）；落 market_composites 供探市读库即回。
+        self.jobs['industry_pbroe'] = IndustryPbroeSyncJob(JiucaishuoAdapter(), self.db)
         self.jobs['temperature'] = TemperatureJob(NullAdapter(), self.db)
         # AMAC 名录为 HTTP JSON 直抓（非 akshare/xalpha 数据源），NullAdapter 占位；
         # 此前仅 invoke grab.* 通道可达，注册后 pdm run sync --job 亦可直达（#1081 策展应用入口）
@@ -572,6 +583,9 @@ class DataSyncOrchestrator:
                     'fund_position',
                     fund_targets + etf_targets,
                 ),  # 空 targets 显式跳过，不退化为全库（#1983：含场内 ETF 裸码）
+                # #2478：风格箱与持仓明细同目标池（持仓+自选，含场内 ETF 裸码）；
+                # 上游月度更新，job 内按 (fund_code, style_name, stat_date) 去重做增量。
+                ('fund_style', fund_targets + etf_targets),
                 ('fund_manager', fund_targets),  # 回填基金经理并关联基金公司（核心池）
                 # 导入侧观察值 → funds.company_id（不联网、幂等、只填空缺）：
                 # 紧跟基金公司相关任务，且 funds 已由 fund_list 建好
@@ -584,6 +598,10 @@ class DataSyncOrchestrator:
                 # #1460：探市大类资产日频快照（20 资产 + 债券收益率轨）—— 每日落库一次，
                 # 让 /api/market/overview 读库即回（毫秒级）；无外部目标池依赖，targets 传空。
                 ('market_asset_daily', []),
+                # #2481：行业 PB-ROE 日频快照（一次请求拿申万一级全行业矩阵）——
+                # 同 market_asset_daily 的日频快照范式，落 market_composites；
+                # 探市行业比较读库即回，不每次请求打上游。
+                ('industry_pbroe', []),
                 ('dividend_split', stock_targets + fund_targets),  # 分红/送股抓取（#1179）
                 # 孤儿交易回填（#950）：只补 position_id，不碰金额/确认日，故与外部数据源无关，
                 # 排在分红拆分之后即可（它自己查库，不依赖任何 target池）。

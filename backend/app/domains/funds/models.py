@@ -128,6 +128,14 @@ class Fund(Base, PrimaryKeyMixin, TimestampMixin):
         SafeNumeric(5, 2), comment='近似股票仓位(%)=行业配置合计，来源 fund_portfolio_industry_allocs（全量口径）'
     )
     equity_position_period = Column(String(8), comment='上述仓位对应的报告期，如 2026Q2（口径与版本留痕）')
+    # ── #2478 风格箱维度：当前主导风格（派生标量，明细是 FundStyleExposure）──
+    # 口径 = FundStyleExposure 最新 stat_date 时点暴露值最大的风格名（上游原文，
+    # 如 '大盘成长' / '固收风格'）。同 equity_position 的「无源即不派生」：
+    # 抓不到风格箱的基金保持 NULL，不用 '未知' 或旧值冒充新值。
+    # QDII 不适用：韭圈儿对海外资产映射存疑（270042 纳指100 实测固收风格 81.28，
+    # 见 fund_style_tag_feasibility.md §4），筛选场景应排除 QDII 后使用本字段。
+    dominant_style = Column(String(20), comment='当前主导风格（韭圈儿风格箱暴露值最大项，上游原文）')
+    style_period = Column(String(10), comment='上述主导风格对应的时点，如 2026-10-16（口径与版本留痕）')
     risk_level = Column(Integer, comment='风险等级 1-5')
     is_fe_charge = Column(Boolean, default=False, comment='前端收费')
     benchmark = Column(String(200), comment='业绩比较基准')
@@ -665,6 +673,40 @@ class FundIndustryAlloc(Base, PrimaryKeyMixin, TimestampMixin):
     __table_args__ = (
         UniqueConstraint('fund_code', 'report_period', 'industry_code', name='uq_fund_industry_code_period'),
         Index('ix_fund_industry_period_scheme', 'report_period', 'scheme'),
+    )
+
+
+class FundStyleExposure(Base, PrimaryKeyMixin, TimestampMixin):
+    """基金投资风格箱暴露明细（#2478，来源：韭圈儿免登录 API `get-style-history`）。
+
+    晨星式 8 分类（大盘成长/大盘价值/中盘成长/中盘价值/小盘成长/小盘价值/港股风格/
+    固收风格），**月度频率**，每时点 8 个风格值合计 = 100（百分比暴露）。
+
+    **long 格式（每风格一行）而非 wide（8 列一行）**：风格名保留上游原文、
+    上游增删分类时免迁移表结构；与 `MarketSingleValue`（温度计）同构。
+
+    **append-only**：某 stat_date 的上游值落库后不修改（上游按月重算，历史点不变），
+    故 job 侧按 `(fund_code, style_name, stat_date)` 去重后纯插入。
+
+    **无清理策略**：与 composite/multi 的 1 年保留不同——风格漂移历史是「自建历史」
+    的唯一来源（上游不提供回补），断档即永久缺口，故无限保留。
+
+    ⚠️ QDII 口径存疑：韭圈儿对海外资产映射不合理（270042 纳指100 实测
+    「固收风格 81.28」），落库原值但展示层须注明来源；风格筛选应排除 QDII
+    （评估文档：fund_style_tag_feasibility.md §4）。
+    """
+
+    __tablename__ = 'fund_style_exposures'
+
+    fund_code = Column(String(6), nullable=False, index=True, comment='基金代码（业务键）')
+    stat_date = Column(Date, nullable=False, index=True, comment='上游时点（月末或当月最新日，原样保留）')
+    style_name = Column(String(20), nullable=False, comment='风格名（上游原文，如 大盘成长/固收风格）')
+    value = Column(SafeNumeric(6, 2), comment='该风格暴露值(%)，每时点 8 风格合计=100')
+    source = Column(String(30), nullable=False, default='jiucaishuo_style', comment='数据来源: jiucaishuo_style')
+
+    __table_args__ = (
+        UniqueConstraint('fund_code', 'style_name', 'stat_date', name='uq_fund_style_code_name_date'),
+        Index('ix_fund_style_code_date', 'fund_code', 'stat_date'),
     )
 
 

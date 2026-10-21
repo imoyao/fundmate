@@ -6,7 +6,7 @@
 市场温度同步任务（SyncJob）
 
 每日定时拉取所有数据源，写入数据库
-调度建议：每日 21:30
+调度时间：每日 20:00（见 daily_scheduler.py `DEFAULT_TEMPERATURE_CRON = '0 20 * * *'`）
 """
 
 from datetime import datetime
@@ -155,6 +155,43 @@ class TemperatureJob(SyncJob):
         except Exception as e:
             logger.error(f'韭圈儿异常: {e}')
             errors.append({'source': 'jiucaishuo', 'error': str(e)})
+
+        # ---- 2b. 韭圈儿·行业恐贪 PH/TF（ins-emotion，免登录；落 single 保历史） ----
+        # 落 single（每行业一条）而非 multi：cleanup_old_data 只清理 composite/multi 的
+        # 超 1 年数据，single 无限保留，后续才能做行业恐贪历史分位（设计文档见
+        # temperature_industry_emotion_design.md §3）。
+        try:
+            from app.services.adapters.jiucaishuo_adapter import JiucaishuoAdapter
+
+            emotion_rows = JiucaishuoAdapter().fetch_industry_emotion()
+            emotion_count = 0
+            for row in emotion_rows:
+                name = row.get('name')
+                num = row.get('num')
+                if not name or num is None:
+                    continue
+                try:
+                    value = float(num)
+                except (TypeError, ValueError):
+                    logger.warning(f'行业恐贪数值无法解析: {name}={num!r}，跳过')
+                    continue
+                records.append(
+                    {
+                        'kind': 'single',
+                        'source': 'jiucaishuo_industry',
+                        'name': name,
+                        'value': value,
+                        'label': '',
+                        'unit': '',
+                        'collected_at': collected_at,
+                        'stale': False,
+                    }
+                )
+                emotion_count += 1
+            logger.info(f'行业恐贪获取成功: {emotion_count} 个行业')
+        except Exception as e:
+            logger.error(f'行业恐贪异常: {e}')
+            errors.append({'source': 'jiucaishuo_industry', 'error': str(e)})
 
         # ---- 3. 复合指标 ----
         for source, fetcher in COMPOSITE_FETCHERS.items():

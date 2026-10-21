@@ -53,6 +53,8 @@ class TestRequireFullSyncScope:
             'dividend_split',
             # #167：风险指标快照也按逐标的算（不联网，但裸 full-sync 会对全库逐只读 3 年净值）
             'fund_risk_metrics',
+            # #2478：风格箱逐只抓取（1 请求/只），同 fund_position 必须限量
+            'fund_style',
         }
         assert SYMBOL_BACKFILL_JOBS == expected
 
