@@ -41,6 +41,7 @@ from psycopg2.extras import RealDictCursor
 # 与 mirror_state_sync.py / ffback_cnb_dev.py 同一写法）。
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from changelog_categories import CATEGORY_VALUES, categories_from_messages  # noqa: E402
 from changelog_slug import changelog_slug  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -413,6 +414,7 @@ def create_changelog_entry(
     content: str,
     published_at: str | None = None,
     stable_key: str | None = None,
+    categories: list[str] | None = None,
 ) -> str:
     """创建 FeedLog Changelog 条目。
 
@@ -424,11 +426,20 @@ def create_changelog_entry(
     不传时 slug 带随机后缀，每次都是新条目——旧版注释把这句话说反了：
     它当时的 slug 每次都带 uuid，``SELECT ... slug = %s`` 永远查不到，
     「更新而非重复插入」实际从未发生。
+
+    categories（#1996）：分类徽章，取值见 ``changelog_categories.CATEGORY_VALUES``；
+    两列都写（``categories`` 与 ``published_categories``）——FeedLog 的列表接口读的是
+    ``published_categories``（``server/api/changelogs/index.get.ts``），只写一列会看不到徽章。
     """
     # title 列 varchar(70)，强制截断避免超长
     title = (title or "未命名更新")[:70]
     status = "published" if published_at else "draft"
     slug = changelog_slug(title, stable_key)
+    # 只写白名单内的取值（推导在 changelog_categories 里做，这里再兜一层）
+    categories_json = json.dumps(
+        [value for value in (categories or []) if value in CATEGORY_VALUES],
+        ensure_ascii=False,
+    )
 
     cur = conn.cursor()
     # 幂等：先查是否已存在（同一 Release 重复触发时走 UPDATE；无 stable_key 时必然查不到）
@@ -453,7 +464,7 @@ def create_changelog_entry(
                 status,
                 title if status == "published" else None,
                 content if status == "published" else None,
-                "[]",
+                categories_json,
                 published_at,
                 entry_id,
             ),
@@ -479,10 +490,10 @@ def create_changelog_entry(
             status,
             title,
             content,
-            "[]",
+            categories_json,
             title if status == "published" else None,
             content if status == "published" else None,
-            "[]",
+            categories_json,
             published_at,
         ),
     )
@@ -612,6 +623,51 @@ def sync_recent_edited(conn, state: dict[str, Any], hours: int = 24) -> None:
         print(f"🎉 回灌完成，更新 {handled} 条 FeedLog 帖子")
 
 
+def _previous_release_tag(repo, current_tag: str) -> str | None:
+    """取「上一个 Release 的 tag」——分类徽章要按两版之间的 commit 推导。
+
+    找不到就返回 None（首个 Release 没有可比基线 ⇒ 徽章留空，不猜）。
+    """
+    try:
+        candidates = [
+            release
+            for release in repo.get_releases()
+            if release.tag_name
+            and release.tag_name != current_tag
+            # 草稿不是「上一版」——用户看不到它，拿它当基线会把未发布的改动算进徽章
+            and not getattr(release, 'draft', False)
+        ]
+    except Exception as exc:  # noqa: BLE001 - 取不到就当作没有基线，不阻断发版
+        print(f"  ⚠️ 读取历史 Release 失败（分类徽章将留空）：{exc}")
+        return None
+    if not candidates:
+        return None
+    # 按创建时间倒序取最近的一个；created_at 可能为 None，用布尔位避免与 datetime 比较
+    candidates.sort(key=lambda release: (release.created_at is not None, release.created_at))
+    return candidates[-1].tag_name
+
+
+def release_categories(repo, release_tag: str) -> list[str]:
+    """由「上一个 Release → 当前 Release」之间的 commit 推导分类徽章。
+
+    推导不出（无基线 / API 失败 / commit 全是非规范格式）⇒ 返回空列表，
+    **绝不**把不确定的东西写进生产库。
+    """
+    base_tag = _previous_release_tag(repo, release_tag)
+    if not base_tag:
+        print("  ℹ️ 没有可比的上一版 Release，分类徽章留空")
+        return []
+    try:
+        comparison = repo.compare(base_tag, release_tag)
+        messages = [item.commit.message for item in comparison.commits]
+    except Exception as exc:  # noqa: BLE001 - 徽章失败不阻断 changelog 创建
+        print(f"  ⚠️ 取 commit 失败（分类徽章将留空）：{exc}")
+        return []
+    categories = categories_from_messages(messages)
+    print(f"  🏷️ 分类徽章：{categories or '（无）'}（{base_tag}..{release_tag}，{len(messages)} 个 commit）")
+    return categories
+
+
 def sync_release_to_changelog(
     conn,
     repo,
@@ -623,10 +679,18 @@ def sync_release_to_changelog(
     """将 GitHub Release 创建为 FeedLog Changelog 条目"""
     org_id = get_org_id(conn)
     title = release_name or release_tag
+    # 分类徽章（#1996）：由两版之间的 commit 推导；推导不出就留空，不猜。
+    categories = release_categories(repo, release_tag)
     # stable_key=release_tag：同一 Release 重复触发（重新发布 / 重跑 workflow）
     # 必须落到同一 slug 走 UPDATE，否则 changelog 会出现多条同版本条目（#1996）。
     entry_id = create_changelog_entry(
-        conn, org_id, title, release_body, published_at, stable_key=release_tag
+        conn,
+        org_id,
+        title,
+        release_body,
+        published_at,
+        stable_key=release_tag,
+        categories=categories,
     )
     print(f"  ✅ FeedLog Changelog 已创建: {entry_id} → {title}")
 
