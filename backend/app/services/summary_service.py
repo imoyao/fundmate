@@ -1014,8 +1014,22 @@ def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | N
     """记录当日资产快照（幂等 upsert）。
 
     金额从 get_distributions 聚合而来（元），落库转为整数分（Money 精度）。
-    snapshot_date 可选，默认上海时区当日；用于历史回填，须为 YYYY-MM-DD。
+    snapshot_date 可选，默认上海时区当日；须为 YYYY-MM-DD。
     #863 P1-5：家庭/账户行同批写入当日货基收益（money_fund_income_cents，展示用）。
+
+    ── 关于 snapshot_date 与「回填」（#2132 裁决）──
+    本函数记的是「**落库那一刻**的当前状态」，``snapshot_date`` 是**标签**、不是数据时点：
+    取数链没有日期过滤，也没有失效/重算钩子。故：
+
+    - **禁止回填**：``snapshot_date`` 传过去某日 = 把今天的值贴到历史日期，
+      造出「看起来有历史、实则不可信」的序列。需要「截至某日」的可回溯时点序列，
+      请用 ``pnl_snapshot_store``（``PnlDailySnapshot``，#1926）——它按日物化、
+      有三道失效机制，改持仓后历史自动跟着变。
+    - 本函数留下的四列（``realized_pnl_cents`` / ``unrealized_pnl_cents`` /
+      ``total_pnl_cents`` / ``money_fund_income_cents``）读的是**流水
+      ``transactions.realized_pnl``**（存量库该列全 0，与真零盈亏不可区分），
+      与前端「已落袋表现」用的 **FIFO 配对自算**口径**并存但不等价**，
+      故这四列暂不得直接展示给用户（见 docs/spec/tech-debt.md）。
 
     并发写同一天会撞唯一索引 ``uq_asset_snapshots_scope``（family + COALESCE(ledger,-1) + date）。
     两个写入者都可能同时存在：
@@ -1134,6 +1148,18 @@ def get_snapshots(
     基准取「对应基准日当天或之前最近一条」快照，找不到则为 None：
     - monthly_change_pct：以上月同日为基准
     - yearly_change_pct：以去年同期为基准
+
+    ── 读这批数据前必读（#2132 裁决）──
+    本表记的是「**落库那一刻**的当前状态」，``snapshot_date`` 只是**标签**：
+    改持仓后历史**不会**更新，回填还会把今天的值贴到历史日期上。故：
+
+    - 这里的同比/环比是「**两次落库时刻**的账面值之比」，不是「两个时点之间的收益」；
+    - 要「截至某日」的可回溯时点序列，改用 ``get_pnl_calendar``（``pnl_snapshot_store``，
+      #1926）——前端收益日历走的就是那条链，两者不可混用；
+    - 返回体里的 ``realized_pnl`` / ``unrealized_pnl`` / ``total_pnl`` /
+      ``money_fund_income`` 读的是**流水 realized_pnl 列**（存量库全 0），
+      与前端「已落袋表现」的 FIFO 自算口径**不等价**，故前端至今未消费这四列
+      （见 docs/spec/tech-debt.md）。
     """
     q = db.query(AssetSnapshot).filter(AssetSnapshot.family_id == family_id)
     # 家庭级与账户级快照共存一张表，靠 ledger_id 是否为 NULL 区分。

@@ -85,7 +85,18 @@ export function getPositionGroups(dimension: GroupDimension) {
   );
 }
 
-/** 资产快照单条（金额元；同比百分比后端计算，无历史为 null） */
+/**
+ * 资产快照单条（金额元；同比百分比后端计算，无历史为 null）
+ *
+ * #2132：快照记的是「**落库那一刻**的当前状态」，`snapshot_date` 只是标签——
+ * 改持仓后历史不会更新，回填还会把今天的值贴到历史日期上。要「截至某日」的
+ * 可回溯时点序列用 `getPnlCalendar`（后端 `pnl_snapshot_store`），两者不可混用。
+ *
+ * 本类型**只声明被消费的字段**：后端还返回 `realized_pnl` / `unrealized_pnl` /
+ * `total_pnl` / `money_fund_income` 四列，但它们读的是流水 `realized_pnl` 列
+ * （存量库全 0，与真零盈亏不可区分），与「已落袋表现」的 FIFO 自算口径不等价，
+ * 故**刻意不声明、不消费**（见 docs/spec/tech-debt.md）。
+ */
 export type AssetSnapshotItem = {
   id: number;
   /** 账户ID；null=家庭级快照，非 null=该账户的账户级快照（#1181） */

@@ -26,6 +26,20 @@ class AssetSnapshot(Base, PrimaryKeyMixin, TimestampMixin):
     幂等 upsert 作用域 `(family_id, COALESCE(ledger_id, -1), snapshot_date)`：
     NULL 在唯一约束中互不冲突，故用 COALESCE 落哨兵 -1，让家庭级行也参与去重
     （与 `transactions.uq_txn_import_hash` 同范式）。
+
+    ── 正式定位（#2132 裁决，append-only 记入 docs/spec/decisions.md D62）──
+    本表记的是「**落库那一刻**的当前状态」，``snapshot_date`` 只是**一个标签**
+    （取数链无日期过滤、全仓无失效/重算钩子），**不是数据时点**。因此：
+
+    1. **禁止回填**：``write_asset_snapshot(..., snapshot_date=<过去某日>)`` 等于
+       「把今天的值贴到历史日期上」，制造出**看起来有历史、实则不可信**的序列。
+    2. 需要「**截至某日**」的可回溯时点序列时，用 :class:`PnlDailySnapshot`
+       （本文件下方，#1926）：它按日物化、有三道失效机制，改持仓后历史会自动跟着变。
+    3. 读侧注意：本表的 ``realized_pnl_cents`` / ``unrealized_pnl_cents`` /
+       ``total_pnl_cents`` / ``money_fund_income_cents`` 四列**读的是流水
+       ``transactions.realized_pnl``**（存量库该列全 0，与真零盈亏不可区分），
+       而「已落袋表现」等前端页面用的是**FIFO 配对自算**口径——**两套口径并存**，
+       故这四列不得直接展示给用户（详见 docs/spec/tech-debt.md 对应条目）。
     """
 
     __tablename__ = 'asset_snapshots'
