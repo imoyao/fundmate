@@ -80,7 +80,7 @@ from app.core.database import get_db
 from app.core.file_lock import acquire_lock, release_lock
 from app.core.jitter import apply_jitter, random_gap, resolve_jitter_seconds
 from app.core.time_utils import today_shanghai
-from app.core.trading_calendar import is_trading_day
+from app.core.trading_calendar import calendar_coverage, calendar_covers, is_trading_day
 from app.models.sync_log import SyncLog
 
 # ── 环境变量名（集中在此，便于 .env.example 与文档对齐） ──────────────────
@@ -583,8 +583,24 @@ def is_rest_day(today: Optional[date] = None) -> bool:
 
     口径唯一来自 `app.core.trading_calendar`：非开盘日净值与温度都不会更新，
     按点空跑只会白送一批请求 + 留下失败的 sync_log，故直接跳过。
+
+    **但日历未覆盖该年份时不在这里跳过**（2027 陷阱，#2139）：
+    `is_trading_day` 会把未覆盖年份保守判成「休市」⇒ 整年静默跳过 = 静默停摆。
+    这里改成「**照常跑 + ERROR 留痕**」：多跑几次最多白送几个请求，
+    而整年跳过会让净值、温度、指数估值全部停更且没有任何报错。
     """
-    return not is_trading_day(today or today_shanghai())
+    target = today or today_shanghai()
+    if not calendar_covers(target):
+        low, high = calendar_coverage()
+        logger.error(
+            '[每日调度] 交易日历未覆盖 {} 年（当前覆盖 {}-{}）：今天**不按休市跳过**，照常执行'
+            '（否则整年静默停摆）。请升级 chinese_calendar 或改用市场日历（#2139）。',
+            target.year,
+            low,
+            high,
+        )
+        return False
+    return not is_trading_day(target)
 
 
 # 休市日仍要运行的 job（#2016）：它们按**缺口增量回补**，休市日跑是为了补齐上一个
