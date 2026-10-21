@@ -174,7 +174,7 @@ const canToggleView = computed(() =>
  * 当前**真的**在画 K 线 = 具备能力 **且** 选的是 K 线视图。
  *
  * 走 `effectiveUseCandle`（含单测）而不是在组件里再拼一次 `isCandle && view === 'candle'`：
- * 拼漏、或改用「切换器选中值」代替「实际视图」，都会让叠加层判定与画面脱节（#2446）。
+ * 拼漏、或改用「切换器选中值」代替「实际视图」，都会让叠加层判定与画面脱节（#2453）。
  */
 const useCandle = computed(() =>
   effectiveUseCandle(trend.value?.ohlc?.length ?? 0, candleView.value)
@@ -430,7 +430,7 @@ const costSeriesData = computed(() => {
 });
 
 /**
- * 叠加层在当前**实际**视图下是否可用（#2446 修复）。
+ * 叠加层在当前**实际**视图下是否可用（#2453 修复）。
  *
  * 传 `useCandle`（真的在画 K 线）而不是 `candleView`（切换器选中值）：场外基金没有
  * OHLCV，切换器根本不渲染，而选中值初值是 `'candle'` —— 按选中值判就成了「画的是
@@ -888,7 +888,7 @@ watch(firstTradeDate, () => {
         class="trend-section__chart"
       />
       <p v-if="spanNotice" class="trend-section__hint">{{ spanNotice }}</p>
-      <!-- 买卖点开关被视图挡住时给一句明话（#2446）：开关不渲染 + 一句话解释，
+      <!-- 买卖点开关被视图挡住时给一句明话（#2453）：开关不渲染 + 一句话解释，
            比留一个点了没反应的勾选框诚实，也让「折线视图为什么存在」有答案。 -->
       <p v-if="tradesHiddenByView" class="trend-section__hint">
         买卖点与成本线在「折线」视图中叠加显示
