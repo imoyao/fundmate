@@ -36,7 +36,22 @@ title: MCP 接入层设计
 | 服务地址 / 协议版本 / 工具名硬编码在业务适配器 | `:38-43` |
 | Wind MCP 未落地（仅协议探测，零代码） | 仓库内 `git grep -i mcp` 无 Wind 痕迹 |
 | 投顾服务已有 Ports & Adapters 先例可对齐 | `services/adapters/advisor_source.py:90-189` |
-| 分层方向受守卫约束 | `backend/tests/core/test_layer_direction.py:44-68`（R1–R6） |
+| 分层方向受守卫约束 | `backend/tests/core/test_layer_direction.py:44-68`（R1–R7，R7 由 S1 新增） |
+
+> **2026-10-21（S1 已落地，`#2488`）**：上表第 2~5 行的实现已搬到 `backend/app/services/mcp/`：
+> `transport.py`（握手 / 会话缓存 / 失效重握 / SSE 解析）、`base.py`（`McpProvider` 模板方法）、
+> `providers/qieman.py`（服务地址 / 协议版本 / 工具名）、`registry.py`（名字 → provider 实例）。
+> `qieman_fetcher.py` 只保留两个入口：`_mcp_post`（HTTP 细节，`:293`）与 `_call_tool`
+> （`:309`，测试按名 monkeypatch 它）。
+>
+> 与 §9 施工单的**两处偏离**，均为「不留没有读者的抽象」（理由写在对应模块 docstring）：
+> ① `_mcp_post` 没有搬进 transport，而是作为 `post` 回调注入 —— 它持有适配器的
+> `requests.Session` 与鉴权头，搬走就得把连接管理一起搬，且会让测试的替换点失效；
+> ② 会话缓存不单独建 `SessionCache` 类，收敛在 `McpTransport` 内部（键 = token 指纹）——
+> 单 provider 单实例下多一层对象只剩转发。
+> **凭据仍走 `os.getenv('QIEMAN_API_KEY')`，散落 3 处**（`:367` / `:440` / `:473`），
+> 凭据路由、记账与 health 段在 S2。
+> 上表行号是**搬迁前**的位置，保留它是为了让「为什么这么设计」可追溯。
 
 由此得出第一个设计决定：**传输层只能抽取，不能新写**。且慢那 6 个方法已经踩完 SSE、
 无会话头、WAF 拦截、非 JSON 等坑，重写等于把已知结论再试错一遍。
