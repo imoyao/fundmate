@@ -342,9 +342,16 @@ yarn-error.log
 migrations/
 
 # 数据库文件
+*.db
 backend/invest.db-shm
 backend/invest.db-wal
 backend/invest.sqbpro
+# 备份类数据库文件（*.db 只匹配「以 .db 结尾」的名字，`.db.bak_<日期>_<标签>` 这类
+# **不被命中**；实测 2026-10-19 有 145MB 的 invest.db.bak_20261018_anchor 以未跟踪文件
+# 躺在 backend/，一次 `git add -A` 就会把用户私有数据提交进仓库）
+*.db.bak*
+*.db.backup*
+*.sqbpro
 fundmate/
 data/
 # 温度计历史基线数据必须入库（非运行时缓存，禁止删除，见 AGENTS.md 关键约束）
