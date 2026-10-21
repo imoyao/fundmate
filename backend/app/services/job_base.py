@@ -119,6 +119,29 @@ class SyncJob(ABC):
 
     # ── 通用工具 ──
 
+    def _require_non_empty(self, rows: List[dict], *, source: str) -> List[dict]:
+        """全市场列表类抓取：**0 条一律当上游异常**（抛错 ⇒ job 失败）。
+
+        为什么需要它：这类 job 的目标是**全市场**（基金上万只、证券数千只），
+        「一条都没抓到」只可能是上游结构变更 / 接口异常 / 解析失配，
+        绝不可能是「今天没有数据」。
+
+        旧行为是「空 ⇒ success」（``_allow_empty_data=True``），
+        于是上游一坏，市场底座就静默停更、且日志一片绿——
+        与 #1179（分红 job 把抓取失败吞成空列表）同族：
+        **空 ≠ 没拿到**。
+
+        注意区分：「今天没有**新**基金」是**去重之后**的概念（``skipped``），
+        与这里的「抓取阶段一条都没有」不是一回事。
+        """
+        if rows:
+            return rows
+        raise SBException(
+            code=ErrorCode.DATA_SOURCE_ERROR.code,
+            message=f'{source} 返回空数据：全市场列表类 job 抓不到任何记录，判定为上游异常',
+            status_code=503,
+        )
+
     def _deduplicate_by_unique_key(self, data: List[dict], model, unique_key: str) -> List[dict]:
         """根据单一唯一键去重"""
         if not data:

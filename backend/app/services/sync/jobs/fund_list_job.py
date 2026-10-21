@@ -33,7 +33,8 @@ class FundListSyncJob(SyncJob):
 
     def _fetch_data(self, full_sync: bool, targets: List[str]) -> List[dict]:
         """全量获取所有公募基金基本信息（忽略传入的 targets）"""
-        return self.adapter.fetch_fund_list()
+        # 全市场名录：抓不到一条就是上游异常，不是「今天没有基金」（#1179 同族）
+        return self._require_non_empty(self.adapter.fetch_fund_list(), source='基金列表')
 
     # ── 数据校验 ──
 
