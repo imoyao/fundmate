@@ -56,7 +56,9 @@ describe("formatPrice：与位数同源的格式化", () => {
     expect(formatPrice(null, "fund")).toBe(PRICE_PLACEHOLDER);
     expect(formatPrice(undefined, "fund")).toBe(PRICE_PLACEHOLDER);
     expect(formatPrice(Number.NaN, "fund")).toBe(PRICE_PLACEHOLDER);
-    expect(formatPrice(Number.POSITIVE_INFINITY, "fund")).toBe(PRICE_PLACEHOLDER);
+    expect(formatPrice(Number.POSITIVE_INFINITY, "fund")).toBe(
+      PRICE_PLACEHOLDER
+    );
   });
 
   it("0 是有效价格，不能被当成 falsy 吞掉", () => {
