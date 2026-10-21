@@ -27,11 +27,13 @@ SCF cron / 系统 cron）每日触发本脚本，复用 DataSyncOrchestrator 跑
 """
 
 import argparse
+import json
 import os
 import sys
 import time
 import urllib.parse
 from pathlib import Path
+from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -73,6 +75,7 @@ from app.core.jitter import (  # noqa: E402
     random_gap,
     resolve_jitter_seconds,
 )
+from app.core.time_utils import now_shanghai  # noqa: E402
 from app.services.jsl_session import keepalive_jsl_session  # noqa: E402
 from app.services.sync.orchestrator import DataSyncOrchestrator  # noqa: E402
 
@@ -162,6 +165,58 @@ def _diagnose_db() -> None:
         raise
 
 
+# ── 每日调度的退出码与运行摘要（#2457）────────────────────────────────────
+#
+# 0 = 全部 job 成功；1 = 调度过程崩溃（未捕获异常）；2 = 跑完了，但有 job 失败。
+# 区分 1 与 2，是为了让看日志的人一眼分清「调度本身炸了」与「某个任务/数据源坏了」。
+EXIT_OK = 0
+EXIT_CRASH = 1
+EXIT_JOB_FAILED = 2
+
+#: 逐 job 结果摘要的落盘位置（`backend/data/` 已被 .gitignore 忽略，不会脏工作区）。
+RUN_SUMMARY_PATH = Path(__file__).resolve().parents[2] / 'data' / 'last_run_summary.json'
+
+
+def build_run_summary(
+    results: Dict[str, Any],
+    elapsed: float,
+    started_at: Optional[str] = None,
+) -> Dict[str, Any]:
+    """把逐 job 结果整理成机器可读的摘要。
+
+    为什么要有它：告警卡正文要**指名道姓**说出哪几个 job 坏了——
+    只写「运行失败」等于把排查成本推给读日志的人（#2457）。
+    """
+    jobs = {name: (res or {}).get('status', 'unknown') for name, res in (results or {}).items()}
+    failed = sorted(name for name, status in jobs.items() if status != 'success')
+    return {
+        'started_at': started_at or now_shanghai().isoformat(),
+        'elapsed_seconds': round(float(elapsed), 1),
+        'total': len(jobs),
+        'failed': failed,
+        'jobs': jobs,
+    }
+
+
+def write_run_summary(summary: Dict[str, Any], path: Path = RUN_SUMMARY_PATH) -> Path:
+    """原子写摘要：先写临时文件再 replace，避免读到半截 JSON。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + '.tmp')
+    tmp.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding='utf-8')
+    tmp.replace(path)
+    return path
+
+
+def scheduler_exit_code(results: Dict[str, Any]) -> int:
+    """有 job 失败 ⇒ 退出码非 0。
+
+    #2457：旧行为把失败降级成日志里的一行、进程照样退 0，于是 workflow 判绿、
+    末尾的「失败告警」步骤不触发 ⇒ 半个链路坏了却没有任何告警。
+    """
+    failed = [name for name, res in (results or {}).items() if (res or {}).get('status') != 'success']
+    return EXIT_JOB_FAILED if failed else EXIT_OK
+
+
 def main() -> None:
     # 显式指定 backend/.env，避免从 cron 等非项目根目录执行时加载不到
     load_dotenv(Path(__file__).resolve().parents[2] / '.env')
@@ -206,10 +261,24 @@ def main() -> None:
                 start = time.time()
                 results = orch.run_all_jobs(full_sync=args.full)
                 elapsed = time.time() - start
-                failed = [k for k, v in results.items() if v.get('status') != 'success']
+                summary = build_run_summary(results, elapsed)
+                write_run_summary(summary)
+                failed = summary['failed']
                 for name, res in results.items():
                     logger.info(f'  {name}: {res.get("status")}')
                 logger.info(f'每日调度完成，耗时 {elapsed:.1f}s，失败: {failed or "无"}')
+                # 机器可读的一行：告警卡正文与人工排查都直接用它
+                logger.info('DAILY_RUN_SUMMARY ' + json.dumps(summary, ensure_ascii=False))
+                if failed:
+                    # 有 job 失败 ⇒ 退出码非 0（#2457）。
+                    # 旧行为是「失败只打进日志、进程照样退 0」，于是 workflow 判绿、
+                    # 末尾的「失败告警」步骤（if: failure()）不触发 ⇒
+                    # 半个链路坏了却没有任何告警，只能靠人翻日志发现。
+                    logger.error(
+                        f'有 {len(failed)} 个 job 失败：{", ".join(failed)}'
+                        '——退出码非 0，使 workflow 的失败告警生效（#2457）'
+                    )
+                    sys.exit(EXIT_JOB_FAILED)
         except KeyboardInterrupt:
             logger.warning('用户中断调度')
             sys.exit(130)
