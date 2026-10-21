@@ -241,7 +241,7 @@ def test_style_history_wide_and_limit(db):
 
     # 非法/越界 limit 收敛到合法区间，不抛错（负值 → 1，超大 → 全量）
     assert get_fund_style_history(db, '000001', limit=-5)['count'] == 1
-    assert get_fund_style_history(db, '000001', limit=10 ** 6)['count'] == 3
+    assert get_fund_style_history(db, '000001', limit=10**6)['count'] == 3
 
 
 def test_style_history_empty_for_missing(db):

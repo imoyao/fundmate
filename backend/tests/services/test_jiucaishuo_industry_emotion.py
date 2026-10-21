@@ -23,7 +23,13 @@ _MOCK_RESP = {
     'code': 0,
     'msg': '请求成功',
     'data': [
-        {'name': '军工PH值', 'num': 42, 'img_url': 'https://file.jiucaishuo.com/x.png', 'color': '', 'target_url': '/pagesA/tool/fear_greed'},
+        {
+            'name': '军工PH值',
+            'num': 42,
+            'img_url': 'https://file.jiucaishuo.com/x.png',
+            'color': '',
+            'target_url': '/pagesA/tool/fear_greed',
+        },
         {'name': '券商PH值', 'num': 18, 'color': '#1890FF', 'target_url': '/pagesA/tool/fear_greed?kt_type=3'},
         {'name': '新能源TF值', 'num': 9, 'color': '#f5222D', 'target_url': '/pagesA/tool/fear_greed?kt_type=4'},
         {'name': '芯片PH值', 'num': 99.85, 'color': '', 'target_url': '/pagesA/tool/fear_greed'},

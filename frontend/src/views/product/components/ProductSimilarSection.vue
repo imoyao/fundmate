@@ -154,8 +154,8 @@ watch(() => props.symbol, load, { immediate: true });
     gap: var(--space-3);
     align-items: center;
     padding: var(--space-2) var(--space-1);
-    border-radius: var(--radius-sm);
     cursor: pointer;
+    border-radius: var(--radius-sm);
     transition: background-color 0.2s ease;
 
     &:hover,
@@ -177,31 +177,31 @@ watch(() => props.symbol, load, { immediate: true });
 
   &__name {
     overflow: hidden;
+    text-overflow: ellipsis;
     font-size: var(--text-label);
     color: var(--text-primary);
-    text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   &__code {
     font-size: var(--text-label);
-    color: var(--text-tertiary);
     font-variant-numeric: tabular-nums;
+    color: var(--text-tertiary);
   }
 
   &__similarity {
     font-size: var(--text-label);
-    color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
   }
 
   &__income {
     display: inline-flex;
-    align-items: baseline;
     gap: 4px;
+    align-items: baseline;
+    justify-content: flex-end;
     min-width: 88px;
     font-size: var(--text-label);
-    justify-content: flex-end;
     font-variant-numeric: tabular-nums;
 
     /* 涨红跌绿（站点语义 token，禁硬编码） */

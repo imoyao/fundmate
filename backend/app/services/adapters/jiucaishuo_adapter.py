@@ -271,7 +271,9 @@ class JiucaishuoAdapter:
             if not name:
                 raise ValueError(f'风格序列缺少 name 字段（接口形态可能已变更）: {s!r:.200}')
             if len(values) != len(dates):
-                raise ValueError(f'风格序列 {name!r} 与日期轴长度不一致（{len(values)} vs {len(dates)}，接口形态可能已变更）')
+                raise ValueError(
+                    f'风格序列 {name!r} 与日期轴长度不一致（{len(values)} vs {len(dates)}，接口形态可能已变更）'
+                )
             styles.append({'name': name, 'color': s.get('color') or '', 'values': values})
         return {'dates': dates, 'styles': styles}
 

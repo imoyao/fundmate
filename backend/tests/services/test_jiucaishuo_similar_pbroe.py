@@ -35,9 +35,30 @@ _SIMILAR_RESP = {
     'code': 0,
     'message': '相似基金',
     'data': [
-        {'fund_code': '210004', 'fund_simple_name': '金鹰稳健成长混合', 'fund_income_12': '8.33', 'fund_income_1000': '3.3974', 'param': '近1年', 'sml_topn_fd': '100'},
-        {'fund_code': '012428', 'fund_simple_name': '华夏核心制造混合A', 'fund_income_12': '-7.39', 'fund_income_1000': '0.1454', 'param': '近1年', 'sml_topn_fd': '97'},
-        {'fund_code': '000549', 'fund_simple_name': '华安大国新经济股票A', 'fund_income_12': '0.73', 'fund_income_1000': '2.4730', 'param': '近1年', 'sml_topn_fd': None},
+        {
+            'fund_code': '210004',
+            'fund_simple_name': '金鹰稳健成长混合',
+            'fund_income_12': '8.33',
+            'fund_income_1000': '3.3974',
+            'param': '近1年',
+            'sml_topn_fd': '100',
+        },
+        {
+            'fund_code': '012428',
+            'fund_simple_name': '华夏核心制造混合A',
+            'fund_income_12': '-7.39',
+            'fund_income_1000': '0.1454',
+            'param': '近1年',
+            'sml_topn_fd': '97',
+        },
+        {
+            'fund_code': '000549',
+            'fund_simple_name': '华安大国新经济股票A',
+            'fund_income_12': '0.73',
+            'fund_income_1000': '2.4730',
+            'param': '近1年',
+            'sml_topn_fd': None,
+        },
     ],
 }
 
@@ -145,7 +166,9 @@ def test_similar_funds_service_cached(monkeypatch, tmp_path):
 
     monkeypatch.setattr(JiucaishuoAdapter, 'fetch_similar_funds', fake_fetch)
     # 注入 tmp_path 做用例级文件缓存隔离（CacheService 契约，#1531）
-    monkeypatch.setattr(similar_fund_service, '_SIMILAR_CACHE', CacheService(namespace='similar_funds', file_dir=tmp_path))
+    monkeypatch.setattr(
+        similar_fund_service, '_SIMILAR_CACHE', CacheService(namespace='similar_funds', file_dir=tmp_path)
+    )
 
     first = get_similar_funds('000001')
     second = get_similar_funds('000001')

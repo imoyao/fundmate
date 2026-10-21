@@ -186,8 +186,8 @@ onMounted(fetchData);
 
   &__updated {
     font-size: var(--text-label);
-    color: var(--text-tertiary);
     font-variant-numeric: tabular-nums;
+    color: var(--text-tertiary);
   }
 
   &__chart {
@@ -204,10 +204,10 @@ onMounted(fetchData);
     display: flex;
     gap: var(--space-2);
     align-items: center;
+    justify-content: center;
     padding: var(--space-6) var(--space-4);
     font-size: var(--text-label);
     color: var(--text-tertiary);
-    justify-content: center;
   }
 
   &__empty-icon {

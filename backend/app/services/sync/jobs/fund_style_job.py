@@ -215,7 +215,9 @@ class FundStyleSyncJob(SyncJob):
             ):
                 existing.add((fund_code, style_name, stat_date))
         for item in data:
-            item['rows'] = [r for r in item['rows'] if (r['fund_code'], r['style_name'], r['stat_date']) not in existing]
+            item['rows'] = [
+                r for r in item['rows'] if (r['fund_code'], r['style_name'], r['stat_date']) not in existing
+            ]
         return [item for item in data if item['rows']]
 
     def _save_data(self, new_data: List[dict]) -> None:
@@ -251,9 +253,7 @@ class FundStyleSyncJob(SyncJob):
         updated = self._apply_dominant_style(Fund, derivatives)
         self.db.commit()
 
-        self.logger.info(
-            f'风格箱落库 {len(rows)} 行 / 派生主导风格 {updated} 只（本批命中 {len(new_data)} 只基金）'
-        )
+        self.logger.info(f'风格箱落库 {len(rows)} 行 / 派生主导风格 {updated} 只（本批命中 {len(new_data)} 只基金）')
 
     def _apply_dominant_style(self, fund_model, derivatives: List[dict]) -> int:
         """把派生主导风格写回 `funds`。
