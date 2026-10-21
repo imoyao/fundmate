@@ -55,8 +55,13 @@ def test_missing_auth_token_does_not_attempt_connection(monkeypatch):
 
 
 def test_non_turso_url_skips_probe(monkeypatch):
-    """非 Turso（本地 SQLite / Postgres）不做 Hrana 探测，也不因缺 token 而失败。"""
+    """非 Turso（本地 SQLite / Postgres）不做 Hrana 探测，也不因缺 token 而失败。
+
+    #2462 起 user 域（Postgres）**独立**探测；本用例把 user 域也设成非 Postgres，
+    于是两个探测分支都不进入。
+    """
     _prod_env(monkeypatch, 'sqlite:///./invest.db')
+    monkeypatch.setenv('SUPABASE_DATABASE_URL', 'sqlite:///./invest.db')
 
     # 不抛异常即通过（探测分支不进入）
     _diagnose_db()
