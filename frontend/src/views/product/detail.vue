@@ -24,6 +24,7 @@ import ProductPageToc from "./components/ProductPageToc.vue";
 import ProductPerformanceSection from "./components/ProductPerformanceSection.vue";
 import ProductHoldingsSections from "./components/ProductHoldingsSections.vue";
 import ProductSimilarSection from "./components/ProductSimilarSection.vue";
+import ProductStyleSection from "./components/ProductStyleSection.vue";
 import ProductPositionSection from "./components/ProductPositionSection.vue";
 import ProductStockSection from "./components/ProductStockSection.vue";
 import ProductTrendSection from "./components/ProductTrendSection.vue";
@@ -262,6 +263,14 @@ watch(productRef, loadProduct, { immediate: true });
           <ProductSimilarSection
             v-if="product.asset_type === 'fund'"
             id="nav-similar"
+            :symbol="product.symbol"
+          />
+
+          <!-- 投资风格（#2478）：韭圈儿月度风格箱，晨星式 8 分类 + 漂移信号 +
+               历史走势。仅基金品类渲染（股票/ETF/指数不在风格箱口径内）。 -->
+          <ProductStyleSection
+            v-if="product.asset_type === 'fund'"
+            id="nav-style"
             :symbol="product.symbol"
           />
 

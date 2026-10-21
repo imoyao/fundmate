@@ -9,6 +9,7 @@ from apiflask import APIBlueprint
 from flask import jsonify, request
 
 from app.core.database import get_db
+from app.services.industry_emotion_service import get_latest_industry_emotion
 from app.services.industry_pbroe_service import get_latest_industry_pbroe
 from app.services.market_snapshot_store import resolve_overview
 
@@ -58,4 +59,27 @@ def get_industry_pbroe():
     """
     with get_db() as db:
         data = get_latest_industry_pbroe(db)
+    return jsonify({'data': data, 'message': 'success'})
+
+
+@market_bp.get('/industry-emotion/', strict_slashes=False)
+def get_industry_emotion():
+    """行业恐贪快照（探市「行业情绪」档，#2479）。
+
+    GET /api/market/industry-emotion
+
+    Response:
+      {"data": {"updated_at": "2026-10-21",
+                "items": [{"name": "军工PH值", "industry": "军工", "metric": "PH",
+                           "value": 34.0, "history_days": 12}, ...],
+                "source": "jiucaishuo_industry"},
+       "message": "success"}
+
+    快照 = 最新 collected_at 当日全部行；上游免登录端点每次只返回**轮换的少数
+    行业**（2026-10-21 实测 4 条），行业清单逐日可能不同——前端如实呈现，
+    不假设全集。metric（PH/TF）为上游原文后缀、语义未实证，仅透出不解读；
+    history_days 为该指标自建历史的累积天数。无数据 data=null。
+    """
+    with get_db() as db:
+        data = get_latest_industry_emotion(db)
     return jsonify({'data': data, 'message': 'success'})
