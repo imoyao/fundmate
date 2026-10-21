@@ -18,6 +18,7 @@ from app.services.sync.jobs import index_daily_job as index_daily_job_module
 from app.services.sync.jobs.index_daily_job import (
     CSINDEX_INDEX_TARGETS,
     DEFAULT_TARGETS,
+    KNOWN_UNLISTED,
     TENCENT_INDEX_TARGETS,
     WIND_INDEX_TARGETS,
     IndexDailySyncJob,
@@ -126,6 +127,12 @@ class TestJiucaishuoParse:
         assert detail_payload['date'] == 'all'
 
 
+def test_known_unlisted_codes_are_in_default_targets():
+    """KNOWN_UNLISTED 必须是清单内真实存在的码：打错一个字的后果是**静默失效**
+    （该码照样每天记 error），而「每天 8 条 error」正是这次要消灭的形态（#2475）。"""
+    assert KNOWN_UNLISTED <= set(DEFAULT_TARGETS)
+
+
 class TestIndexDailySyncJob:
     @pytest.fixture
     def job(self, db):
@@ -151,12 +158,106 @@ class TestIndexDailySyncJob:
         assert row.index_code == '881001.WI'
         assert float(row.close) == 6457.3
 
-    def test_single_target_failure_tolerated(self, job, db):
-        """单目标失败不阻断（best-effort 数据源）。"""
+    def test_partial_failure_tolerated(self, job, db):
+        """单目标失败不阻断其它目标（best-effort 数据源）。
+
+        注意「不阻断」≠「报绿」：目标全挂时终态必须是 FAILED（见下一个用例），
+        这里两个目标成功一个，属于正常的部分失败，日志明细靠 failed / errors 可见。
+        """
+
+        def fake_fetch(code, months=12):
+            if code == '881001.WI':
+                return {
+                    'gu_code': '881001.WI',
+                    'gu_name': '万得全A',
+                    'price_mode': 'anchored',
+                    'rows': [{'trade_date': date(2026, 10, 20), 'close': 6457.3, 'ret_pct': 48.32}],
+                }
+            raise RuntimeError('down')
+
+        job.adapter.fetch_index_daily.side_effect = fake_fetch
+        result = job.run(full_sync=True, targets=['881001.WI', '889999.WI'])
+        assert result['status'] == 'success', '部分失败不该天天红（红灯常态化的代价是真故障被淹没）'
+        assert result['stats']['success'] == 1
+        assert result['stats']['failed'] == 1
+        assert [e['gu_code'] for e in result['stats']['errors']] == ['889999.WI']
+        # total 必须含失败目标：否则「2 个目标挂了 1 个」记成 total=1/success=1
+        assert result['stats']['total'] == 2
+        assert db.query(IndexDaily).count() == 1
+
+    def test_all_targets_failed_marks_job_failed(self, job, db):
+        """全部目标失败 ⇒ FAILED：那是数据源整体不可用，不能与「今天没数据」同形（#2475）。"""
         job.adapter.fetch_index_daily.side_effect = RuntimeError('down')
         result = job.run(full_sync=True, targets=['881001.WI'])
-        assert result['status'] == 'success'
+        assert result['status'] == 'failed'
+        assert result['stats']['success'] == 0
+        assert result['stats']['failed'] == 1
         assert db.query(IndexDaily).count() == 0
+
+    def test_known_unlisted_is_quiet_not_error(self, job, db):
+        """源侧确实未收录的 8 个码：不算失败、不进 errors，只记 info + 计数（#2475）。"""
+
+        def fake_fetch(code, months=12):
+            if code in KNOWN_UNLISTED:
+                raise ValueError('fundindex/detail 响应无序列数据（接口形态可能已变更）')
+            return {
+                'gu_code': code,
+                'gu_name': code,
+                'price_mode': 'normalized',
+                'rows': [{'trade_date': date(2026, 10, 20), 'close': 1000.0, 'ret_pct': 0.0}],
+            }
+
+        job.adapter.fetch_index_daily.side_effect = fake_fetch
+        result = job.run(full_sync=False, targets=['881001.WI', '885005.WI', '885072.WI'])
+        assert result['status'] == 'success'
+        assert result['stats']['errors'] == [], '已知未收录不该污染 errors'
+        assert result['stats']['failed'] == 0
+        assert result['stats']['unlisted'] == 2
+        assert result['stats']['total'] == 3
+
+    def test_default_run_total_covers_all_targets(self, job, db, monkeypatch):
+        """生产实际形态（targets=None，源侧 8 码未收录）的口径回归（#2475）。
+
+        修复前：total=24 / success=24 / failed=0 / errors=8 条 ——
+        分母被失败者吃掉，看板上是 100% 成功，而 errors 里躺着 8 条「故障」。
+        修复后：分母是 32（真的试过 32 个），未收录的 8 个既不进 errors 也不算失败。
+        """
+        monkeypatch.setattr(index_daily_job_module, 'fetch_daily_tencent', lambda *a, **k: [('2026-10-20', 100.0)])
+        monkeypatch.setattr(index_daily_job_module, 'fetch_daily_csindex', lambda *a, **k: [('2026-10-20', 100.0)])
+
+        def fake_fetch(code, months=12):
+            if code in KNOWN_UNLISTED:
+                raise ValueError('fundindex/detail 响应无序列数据（接口形态可能已变更）')
+            return {
+                'gu_code': code,
+                'gu_name': code,
+                'price_mode': 'normalized',
+                'rows': [{'trade_date': date(2026, 10, 20), 'close': 1000.0, 'ret_pct': 0.0}],
+            }
+
+        job.adapter.fetch_index_daily.side_effect = fake_fetch
+        result = job.run(full_sync=False, targets=None)
+        listed = len(DEFAULT_TARGETS) - len(KNOWN_UNLISTED)
+        assert result['status'] == 'success'
+        assert result['stats']['total'] == len(DEFAULT_TARGETS)
+        assert result['stats']['success'] == listed
+        assert result['stats']['failed'] == 0
+        assert result['stats']['unlisted'] == len(KNOWN_UNLISTED)
+        assert result['stats']['errors'] == []
+
+    def test_full_placeholder_expands_to_default_targets(self, job, db, monkeypatch):
+        """编排队列传 ['__full__']：total 必须展开成默认清单，否则记成 total=1/success=24（#2475）。"""
+        monkeypatch.setattr(index_daily_job_module, 'fetch_daily_tencent', lambda *a, **k: [('2026-10-20', 100.0)])
+        monkeypatch.setattr(index_daily_job_module, 'fetch_daily_csindex', lambda *a, **k: [('2026-10-20', 100.0)])
+        job.adapter.fetch_index_daily.return_value = {
+            'gu_code': '881001.WI',
+            'gu_name': '万得全A',
+            'price_mode': 'anchored',
+            'rows': [{'trade_date': date(2026, 10, 20), 'close': 6457.3, 'ret_pct': 48.32}],
+        }
+        result = job.run(full_sync=False, targets=['__full__'])
+        assert result['stats']['total'] == len(DEFAULT_TARGETS)
+        assert result['stats']['success'] == len(DEFAULT_TARGETS)
 
     def test_default_targets_cover_wind_family(self):
         """默认目标 = #275 定稿的万得系全家桶（含万得全A）+ 韭圈儿已收录的宽基/风格指数。
