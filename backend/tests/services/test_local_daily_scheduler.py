@@ -68,7 +68,9 @@ class TestLoadConfig:
             'position_price',
             'advisor_portfolio',
             'fund_position',
+            'fund_style',
             'market_asset_daily',
+            'industry_pbroe',
             'index_valuation',
             'convertible_bond',
             'dividend_split',
@@ -91,7 +93,9 @@ class TestLoadConfig:
         assert crons['position_price'] == ds.DEFAULT_POSITION_PRICE_CRON
         assert crons['advisor_portfolio'] == ds.DEFAULT_ADVISOR_CRON
         assert crons['fund_position'] == ds.DEFAULT_FUND_HOLDING_CRON
+        assert crons['fund_style'] == ds.DEFAULT_FUND_STYLE_CRON
         assert crons['market_asset_daily'] == ds.DEFAULT_MARKET_ASSET_DAILY_CRON
+        assert crons['industry_pbroe'] == ds.DEFAULT_INDUSTRY_PBROE_CRON
         assert crons['index_valuation'] == ds.DEFAULT_INDEX_VALUATION_CRON
         assert crons['convertible_bond'] == ds.DEFAULT_CONVERTIBLE_BOND_CRON
         assert crons['dividend_split'] == ds.DEFAULT_DIVIDEND_SPLIT_CRON
@@ -131,6 +135,26 @@ class TestLoadConfig:
         assert fire.strftime('%a') == 'Mon'
         assert (fire.hour, fire.minute) == (23, 0)
 
+    def test_fund_style_is_monthly_not_daily(self):
+        """回归（#2478）：风格箱上游按月更新（月末点 + 当月最新点），日变更量为 0。
+
+        必须是**每月一次**：每日跑既无新数据，又白占上游请求配额（逐只 1 请求/只）。
+        选 2 日而非 1 日：上游当月首个时点约月中刷新，1 日跑会系统性漏掉当月新点。
+        """
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        from apscheduler.triggers.cron import CronTrigger
+
+        cfg = ds.load_config({})
+        spec = next(s for s in cfg.jobs if s.job_name == 'fund_style')
+        tz = ZoneInfo(cfg.timezone)
+        trigger = CronTrigger.from_crontab(spec.cron, timezone=tz)
+        # 2026-10-05 周一 → 下一次触发应落在 11 月 2 日 22:30（非次日）
+        fire = trigger.get_next_fire_time(None, datetime(2026, 10, 5, 22, 35, tzinfo=tz))
+        assert (fire.month, fire.day) == (11, 2)
+        assert (fire.hour, fire.minute) == (22, 30)
+
     def test_position_price_job_has_no_target_kind(self):
         """现价回写的目标池是**持仓表本身**（user 域），不是 fund/stock 代码池。
 
@@ -164,7 +188,9 @@ class TestLoadConfig:
             'index_daily',
             'position_price',
             'fund_position',
+            'fund_style',
             'market_asset_daily',
+            'industry_pbroe',
             'index_valuation',
             'convertible_bond',
             'dividend_split',
@@ -201,7 +227,9 @@ class TestLoadConfig:
             'fund_valuation_snapshot',
             'fund_valuation_reconcile',
             'nav_backfill',
+            'fund_style',
             'market_asset_daily',
+            'industry_pbroe',
             'index_valuation',
             'convertible_bond',
             'dividend_split',
@@ -216,7 +244,7 @@ class TestLoadConfig:
         """#1934 补进的四项目标池都不是「持仓+自选」，target_kind 必须为 None。
 
         套成 'fund' / 'stock' 会拿到不相干的代码池：market_asset_daily 的对象是
-        「要落快照的大类资产」、index_valuation 是固定指数清单、convertible_bond
+        「要落快照的大类资产」、industry_pbroe 是「全行业矩阵」、index_valuation 是固定指数清单、convertible_bond
         按在库 symbol 全量 upsert、dividend_split 是事件型数据。套错的结果是
         「每天记一条 success 但什么都没同步」的静默空跑。
         #2142 的 fund_valuation_reconcile 同理：目标池是「库里全部 estimated 行」，
@@ -225,6 +253,8 @@ class TestLoadConfig:
         cfg = ds.load_config({})
         for name in (
             'market_asset_daily',
+            'industry_pbroe',
+            'industry_pbroe',
             'index_valuation',
             'convertible_bond',
             'dividend_split',

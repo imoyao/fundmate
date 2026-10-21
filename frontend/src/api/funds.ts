@@ -183,3 +183,43 @@ export function getAdvisorAdjusts(code: string, limit = 3) {
     { params: { limit } }
   );
 }
+
+// ── 相似基金只读接口（#2480）──
+// 韭圈儿相似度名单（免登录，按需取 + 后端 6h 两级缓存）。
+// 降级契约（与后端 issue 验收第 3 条对应）：degraded=true 时 items 为空、error
+// 有值——前端显示「暂时取不到」，**不渲染空表格、不当成无相似基金**。
+
+/** 单只相似基金 */
+export interface SimilarFundItem {
+  fund_code: string;
+  fund_name: string;
+  /**
+   * 0-100 相似度分。null = 上游未打分（只给前若干名打分）——
+   * 与「得分 0」是两件事，渲染「—」，不补 0。
+   */
+  similarity: number | null;
+  /** 近 1 年收益率(%)；null = 上游未提供 */
+  income_1y_pct: number | null;
+  /** 上游收益口径标签（如「近1年」），原样展示 */
+  window: string | null;
+}
+
+export interface SimilarFundsResult {
+  fund_code: string;
+  items: SimilarFundItem[];
+  /** true = 上游取数失败（items 恒空），前端给「暂时取不到」而非空态 */
+  degraded: boolean;
+  error: string | null;
+  /** 数据来源标记（恒为 jiucaishuo_similar，展示层据此注明来源） */
+  source: string;
+  /** 本次取数耗时（秒，调试用） */
+  fetched_at: number | null;
+}
+
+/** 获取相似基金列表（详情页「相似基金」块，仅基金品类渲染） */
+export function getSimilarFunds(fundCode: string) {
+  return http.request<ApiResponse<SimilarFundsResult>>(
+    "get",
+    `/api/funds/${fundCode}/similar/`
+  );
+}

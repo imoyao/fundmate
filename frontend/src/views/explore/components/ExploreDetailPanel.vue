@@ -157,6 +157,11 @@
     <!-- 拥挤度趋势（周度 / 月度；随上方分类联动「申万行业 / 热门赛道」） -->
     <IndustryCrowdingTrend :category="rankCategory" />
 
+    <!-- 行业 PB-ROE 散点（#2481）：韭圈儿免登录源日频快照，读库即回。
+         负 ROE 行业在 PB-ROE 模型下有效（x 轴 scale 不裁负值 + ROE=0 参考线）；
+         无快照（job 失败日）显示「暂无数据」提示，不影响其它区块。 -->
+    <IndustryPbroeScatter />
+
     <!-- 全部市场温度指标：紧凑表格 -->
     <MetricDetailTable :items="detailMetrics" />
 
@@ -188,6 +193,7 @@ import {
 } from "@/constants/temperature";
 import TemperatureTrendChart from "./TemperatureTrendChart.vue";
 import IndustryCrowdingTrend from "./IndustryCrowdingTrend.vue";
+import IndustryPbroeScatter from "./IndustryPbroeScatter.vue";
 import ExploreAssetOverview from "./ExploreAssetOverview.vue";
 import BiasTable from "./detail/BiasTable.vue";
 import CrowdingTable from "./detail/CrowdingTable.vue";

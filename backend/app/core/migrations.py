@@ -1372,3 +1372,40 @@ def migrate_asset_major_category_current_to_cash(engine: Engine) -> str:
     msg = f'major_category 归一 current→cash：{n} 行'
     logger.info('[OK] {}', msg)
     return '[OK] ' + msg
+
+
+def migrate_fund_style_columns(engine: Engine) -> str:
+    """funds 补 dominant_style / style_period 列（#2478 风格箱接入）。
+
+    `fund_style_exposures`（long 明细表）由 create_all 建，无需迁移；本迁移只补
+    `funds` 上的两个**派生标量**：当前主导风格 + 对应时点。派生口径与
+    `equity_position` 同构——「明细是源、标量是派生，无源即不派生」，故存量行
+    **故意留 NULL**（从未抓到风格箱的基金不冒充 '未知'）。
+
+    两列均可空：SQLite / libsql 支持对可空列直接 ALTER ADD COLUMN；非 SQLite 引擎
+    由 ORM 模型 / 迁移工具负责，直接跳过。幂等：列已存在则跳过。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，列由 ORM 模型/迁移工具负责'
+
+    if 'funds' not in inspect(engine).get_table_names():
+        return '[SKIP] funds 表不存在（空库，init_db 将按新模型建表）'
+
+    existing = {c['name'] for c in inspect(engine).get_columns('funds')}
+    cols = [
+        ('dominant_style', 'VARCHAR(20)'),
+        ('style_period', 'VARCHAR(10)'),
+    ]
+    added = []
+    with engine.connect() as conn:
+        for name, typ in cols:
+            if name not in existing:
+                conn.execute(text(f'ALTER TABLE funds ADD COLUMN {name} {typ}'))
+                added.append(name)
+        conn.commit()
+
+    if added:
+        logger.info(f'[OK] funds 增加风格箱派生列: {added}（#2478）')
+        return f'[OK] funds 增加风格箱派生列 {added}'
+    return '[SKIP] funds 风格箱派生列已存在'
