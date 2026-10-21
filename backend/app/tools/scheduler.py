@@ -29,6 +29,7 @@ SCF cron / 系统 cron）每日触发本脚本，复用 DataSyncOrchestrator 跑
 import argparse
 import json
 import os
+import socket
 import sys
 import time
 import urllib.parse
@@ -96,6 +97,58 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _resolve_ip_families(host: str, port: int) -> set:
+    """解析 host 的地址族集合（{'IPv4', 'IPv6'}）；解析失败返回空集。
+
+    用途：判断「这个 host 只有 IPv6 记录」——那是「无 IPv6 出口的环境连不上」
+    的判据（#2462）。
+    """
+    if not host:
+        return set()
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError:
+        return set()
+    return {'IPv6' if info[0] == socket.AF_INET6 else 'IPv4' for info in infos}
+
+
+def _user_domain_failure_message(parsed: 'urllib.parse.ParseResult', exc: Exception) -> str:
+    """把 user 域连接失败翻译成**可操作**的结论（纯函数，便于单测钉住）。
+
+    #2462：Supabase 的直连端口 5432 **只提供 IPv6**，而 CI runner 没有 IPv6 出口
+    ⇒ libpq 报 `Network is unreachable`。这句话看不出
+    「该换 pooler 端点」或「该把调度换到有 IPv6 的机器上」，于是排查只能靠猜。
+    """
+    msg = ' '.join(str(exc).split())
+    families = _resolve_ip_families(parsed.hostname or '', parsed.port or 5432)
+    if 'unreachable' in msg.lower() and families == {'IPv6'}:
+        return (
+            f'[DB诊断] user 域连接失败：{parsed.hostname} **只有 IPv6 记录**（无 IPv4）——'
+            'Supabase 直连端口 5432 是 IPv6-only，而本机（GitHub Actions runner）没有 IPv6 出口，'
+            'libpq 因此报 Network is unreachable。两条出路：'
+            '(1) 把 SUPABASE_DATABASE_URL 换成 Supavisor pooler 端点（IPv4，形如 '
+            'postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres）；'
+            '(2) 把每日调度放到有 IPv6 出口的机器上跑（见 daily-snapshot.yml 头部「部署说明」b 项）。'
+            f'原始错误：{msg}'
+        )
+    return f'[DB诊断] user 域连接失败：{msg}'
+
+
+def _probe_user_domain(parsed: 'urllib.parse.ParseResult') -> None:
+    """user 域（Postgres）连通性探测；失败时给出**可操作**的结论（见 _user_domain_failure_message）。"""
+    from sqlalchemy import create_engine, text
+
+    url = parsed.geturl()
+    engine = create_engine(url, connect_args={'connect_timeout': 10})
+    try:
+        with engine.connect() as conn:
+            conn.execute(text('SELECT 1'))
+        logger.info('[DB诊断] user 域 连接 OK')
+    except Exception as e:  # noqa: BLE001 - 诊断失败要重新抛出，由调用方统一上抛
+        logger.error(_user_domain_failure_message(parsed, e))
+        raise
+
+
 def _diagnose_db() -> None:
     """启动期 DB 连接诊断（#1490 根因排查）。
 
@@ -125,44 +178,58 @@ def _diagnose_db() -> None:
     is_app_turso = _describe(DOMAIN_APP, app_parsed)
     _describe(DOMAIN_USER, user_parsed)
 
-    # 仅对走 Hrana(HTTP) 的 market 域做轻量连接探测（本地 SQLite 无需、也避免开文件锁）
-    if not is_app_turso:
-        return
+    # 两域**各自独立**探测、**各自报结论**，全部探完再抛第一个错——
+    # 撞上哪一域就停在哪一域，排查就得多跑一轮（#2462）。
+    failures = []
 
-    # 缺 authToken 的 Turso 连接串**必然连不上**（服务端回 308 / 401），
-    # 而这两种状态码都看不出「压根没配 token」——#1490 实测：每日调度连续 25 天全红，
-    # 根因就是注入的 secret 里的连接串只有 host、没有 ?authToken=。
-    # **先查这一条**：它比「host 被服务端重定向」常见得多，修法也只是补一个 query 参数。
-    if turso_auth_token(app_url) is None:
-        logger.error(
-            '[DB诊断] market 域的 Turso 连接串里**没有 authToken**，必然连不上。'
-            '生产下生效的变量是 TURSO_DATABASE_URL（优先）或 DATABASE_URL，'
-            '请确认注入的 secret 是 Turso 控制台给出的**完整**连接串'
-            '（形如 turso://<host>?authToken=<token>），而不是只有 host。'
-        )
-        raise RuntimeError('Turso 连接串缺少 authToken（详见上一行日志）')
-
-    # 实际会用哪条 URL 连（token 已打码）：`secure=true` 决定走 https 还是明文 http，
-    # 明文 http 会被 Turso 边缘 308 跳 https 而失败（#1490 根因之一）。
-    logger.info(f'[DB诊断] 归一后的 market 域连接串: {normalized_app_db_url_preview(env)}')
-
-    engine = DatabaseFactory.create(DOMAIN_APP)
-    try:
-        with engine.connect() as conn:
-            conn.execute(text('SELECT 1'))
-        logger.info('[DB诊断] market 域(Turso/Hrana) 连接 OK')
-    except Exception as e:  # noqa: BLE001 - 连接层异常需重新抛出，由 main 兜底捕获上抛
-        msg = str(e)
-        if '308' in msg or 'Hrana' in msg or 'Permanent Redirect' in msg:
+    # ── market 域（Turso / Hrana）──
+    if is_app_turso:
+        # 缺 authToken 的 Turso 连接串**必然连不上**（服务端回 308 / 401），
+        # 而这两种状态码都看不出「压根没配 token」——#1490 实测：每日调度连续 25 天全红，
+        # 根因就是注入的 secret 里的连接串只有 host、没有 ?authToken=。
+        # **先查这一条**：它比「host 被服务端重定向」常见得多，修法也只是补一个 query 参数。
+        if turso_auth_token(app_url) is None:
             logger.error(
-                '[DB诊断] market 域 Hrana 连接收到 HTTP 308 永久重定向。'
-                '两种可能，**先查前者**（成本最低、修法最简单）：'
-                '(1) 连接串缺 authToken——上面已单独检查过，若补了 token 仍 308 请重跑；'
-                '(2) Turso 侧 host 确实变更（区域 / 组织后缀）——'
-                '到 Turso 控制台取当前地址后更新注入的 secret。'
-                '原始错误：' + msg
+                '[DB诊断] market 域的 Turso 连接串里**没有 authToken**，必然连不上。'
+                '生产下生效的变量是 TURSO_DATABASE_URL（优先）或 DATABASE_URL，'
+                '请确认注入的 secret 是 Turso 控制台给出的**完整**连接串'
+                '（形如 turso://<host>?authToken=<token>），而不是只有 host。'
             )
-        raise
+            raise RuntimeError('Turso 连接串缺少 authToken（详见上一行日志）')
+
+        # 实际会用哪条 URL 连（token 已打码）：`secure=true` 决定走 https 还是明文 http，
+        # 明文 http 会被 Turso 边缘 308 跳 https 而失败（#1490 根因之一）。
+        logger.info(f'[DB诊断] 归一后的 market 域连接串: {normalized_app_db_url_preview(env)}')
+
+        try:
+            engine = DatabaseFactory.create(DOMAIN_APP)
+            with engine.connect() as conn:
+                conn.execute(text('SELECT 1'))
+            logger.info('[DB诊断] market 域(Turso/Hrana) 连接 OK')
+        except Exception as e:  # noqa: BLE001 - 连接层异常要继续探另一域，最后统一抛出
+            msg = str(e)
+            if '308' in msg or 'Hrana' in msg or 'Permanent Redirect' in msg:
+                logger.error(
+                    '[DB诊断] market 域 Hrana 连接收到 HTTP 308 永久重定向。'
+                    '两种可能，**先查前者**（成本最低、修法最简单）：'
+                    '(1) 连接串缺 authToken——上面已单独检查过，若补了 token 仍 308 请重跑；'
+                    '(2) Turso 侧 host 确实变更（区域 / 组织后缀）——'
+                    '到 Turso 控制台取当前地址后更新注入的 secret。'
+                    '原始错误：' + msg
+                )
+            else:
+                logger.error(f'[DB诊断] market 域连接失败：{msg}')
+            failures.append(e)
+
+    # ── user 域（Postgres）──
+    if user_parsed.scheme.startswith('postgres'):
+        try:
+            _probe_user_domain(user_parsed)
+        except Exception as e:  # noqa: BLE001
+            failures.append(e)
+
+    if failures:
+        raise failures[0]
 
 
 # ── 每日调度的退出码与运行摘要（#2457）────────────────────────────────────
