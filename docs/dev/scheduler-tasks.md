@@ -59,9 +59,16 @@ daily-snapshot 因 secrets 缺失连续 7 天全红，本地库净值止于 2026
 - **启动补跑**：应用启动后延迟 180s 检查「当天已过触发时刻、却还没有成功记录」的任务并补跑。
   早上 9 点启动不会抢跑（那时数据还没发布），晚上到家开机则能把当天漏掉的补上。
 - **抓取礼仪**：每个任务开工前做随机延迟，窗口复用 `SYNC_JITTER_SECONDS`（#1400）。
-- **扩任务**：想再加一项（如 `asset_snapshot`，纯本地计算无外部数据源、是前端「每日收益」的
-  数据源），在 `app/services/daily_scheduler.py` 的 `_JOB_TEMPLATES` 加一行即可，
-  配置项会自动出现在 `--status` 里。
+- **扩任务**：想再加一项，在 `app/services/daily_scheduler.py` 的 `_JOB_TEMPLATES` 加一行即可，
+  配置项会自动出现在 `--status` 里；**同时**要在 `backend/.env.example` 登记开关
+  （守卫 `scripts/guard_scheduler_env_example.py` 断言「每个进每日调度的 job 都有开关」，
+  漏写即 CI 红——本段曾因此漏掉 7 个 job，见 #1186），并从 `_NOT_SCHEDULED` 移除
+  （若它原先在那张表里；守卫 `guard_job_schedule_coverage.py` 断言两张表覆盖编排器全集）。
+- **`asset_snapshot` 已在每日调度里**（23:45，#2132 / D63）：此前它只靠用户进全景页 /
+  手动点触发（`sync_logs` 零运行记录），于是「资产走势」缺 19 个工作日
+  （真库体检）。它必须晚于当日所有落库类 job（净值 21:30 / 现价 22:15 / 回填 22:35 /
+  孤儿挂回 23:30），且不能跨零点（否则 `snapshot_date` 变成次日、标签日错位）；
+  休市日照跑（补日历连续性）。口径边界见 `docs/spec/decisions.md` D62 / D63。
 
 ### 配置（`backend/.env`，全部可选）
 
@@ -74,6 +81,7 @@ SCHEDULER_ENABLED=1                    # 总开关（模板 .env.example 已默�
 # SCHEDULER_INDEX_DAILY_CRON=0 18 * * *      # 指数日线（万得系 + 交易所宽基）
 # SCHEDULER_POSITION_PRICE_CRON=15 22 * * *
 # SCHEDULER_ADVISOR_CRON=0 22 * * *
+# SCHEDULER_ASSET_SNAPSHOT_CRON=45 23 * * *  # 资产快照（#2132 / D63）
 # SCHEDULER_SKIP_NON_TRADING_DAY=true  # 休市不抓
 # SCHEDULER_RUN_ON_START=true          # 启动补跑
 # SCHEDULER_STARTUP_DELAY_SECONDS=180
