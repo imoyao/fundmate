@@ -18,7 +18,6 @@ import pytest
 from app.domains.funds.models import Fund, FundStyleExposure
 from app.services.adapters.jiucaishuo_adapter import API_STYLE_HISTORY, JiucaishuoAdapter
 from app.services.fund_style_service import (
-    HISTORY_DEFAULT_LIMIT,
     STYLE_DISPLAY_ORDER,
     get_fund_style_box,
     get_fund_style_history,

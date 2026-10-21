@@ -17,7 +17,9 @@ const point = (over: Partial<IndustryPbroePoint>): IndustryPbroePoint => ({
 
 describe("toScatterPoints", () => {
   it("负 ROE 行业保留（房地产 -16.78 是有效点）", () => {
-    const pts = toScatterPoints([point({ industry: "房地产", roe: -16.78, pb: 0.78 })]);
+    const pts = toScatterPoints([
+      point({ industry: "房地产", roe: -16.78, pb: 0.78 })
+    ]);
     expect(pts).toHaveLength(1);
     expect(pts[0].roe).toBe(-16.78);
   });

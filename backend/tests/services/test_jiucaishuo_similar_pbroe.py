@@ -210,8 +210,6 @@ def test_pbroe_read_service_none_when_empty(db):
 
 
 def test_pbroe_read_service_returns_latest(db):
-    from app.services.sync.jobs.industry_pbroe_job import IndustryPbroeSyncJob
-
     parsed = JiucaishuoAdapter.parse_industry_pbroe(_PBROE_RESP)
     db.add(MarketComposite(source=PBROE_SOURCE, data=parsed, collected_at=date.today(), stale=False))
     db.commit()
