@@ -318,6 +318,18 @@ class TestRestDay:
         assert isinstance(result, bool)
         assert result is (not ds.is_trading_day(ds.today_shanghai()))
 
+    def test_uncovered_year_is_not_treated_as_rest_day(self):
+        """日历未覆盖该年时**不能**整天跳过。
+
+        `is_trading_day` 对未覆盖年份保守判休市 ⇒ 若这里照用，调度会整年
+        静默跳过（净值/温度/指数估值全部停更且无报错）。正确行为是「照常跑 +
+        ERROR 留痕」——多跑几次最多白送几个请求，整年跳过则是静默停摆。
+        """
+        from app.core.trading_calendar import calendar_coverage
+
+        _, high = calendar_coverage()
+        assert ds.is_rest_day(date(high + 1, 6, 1)) is False
+
 
 # ── 触发时刻解析 ────────────────────────────────────────────────────────
 
