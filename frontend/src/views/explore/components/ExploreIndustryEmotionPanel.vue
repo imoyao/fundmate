@@ -126,6 +126,8 @@ onMounted(fetchData);
 </template>
 
 <style lang="scss" scoped>
+@use "@/style/breakpoints" as bp;
+
 .emotion-panel {
   display: flex;
   flex-direction: column;
