@@ -137,3 +137,37 @@ export const getIndustryPbroe = () => {
     "/api/market/industry-pbroe/"
   );
 };
+
+/** 行业恐贪单条（#2479 · 韭圈儿 ins-emotion，免登录） */
+export interface IndustryEmotionItem {
+  /** 上游原文（如「军工PH值」），契约要求保留不解读 */
+  name: string;
+  /** 展示派生：去掉指标后缀的行业名（军工）；解析不出时 = name 原文 */
+  industry: string;
+  /** 指标后缀（PH/TF）。上游原文、语义未实证，仅透出不解读 */
+  metric: string | null;
+  /** 恐贪值 0-100 */
+  value: number | null;
+  /** 该指标在库内的自建历史累积天数（含当日）；1 = 当日首次出现 */
+  history_days: number;
+}
+
+export interface IndustryEmotionData {
+  /** 快照日期（YYYY-MM-DD）= 最新 collected_at */
+  updated_at: string;
+  /** value 降序；上游每次只返回轮换的少数行业，清单逐日可能不同 */
+  items: IndustryEmotionItem[];
+  source: string;
+}
+
+export interface IndustryEmotionResponse {
+  /** 无快照（job 从未成功）时为 null，前端显示「暂无数据」 */
+  data: IndustryEmotionData | null;
+  message: string;
+}
+
+export const getIndustryEmotion = () => {
+  return http.get<IndustryEmotionResponse, unknown>(
+    "/api/market/industry-emotion/"
+  );
+};

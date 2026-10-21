@@ -125,3 +125,53 @@ def test_industry_emotion_history_accumulates(db):
     assert len(hist['dates']) == 12
     assert sorted(set(hist['dates'])) == sorted((today - timedelta(days=i)).strftime('%Y-%m-%d') for i in (2, 1, 0))
     assert len(hist['values']) == 12
+
+
+# ── 读取服务（#2479 前端出口 /api/market/industry-emotion）──
+
+
+def test_split_emotion_name_strips_metric_suffix():
+    """'军工PH值' → ('军工','PH')；解析不出后缀保留原文、不猜语义。"""
+    from app.services.industry_emotion_service import split_emotion_name
+
+    assert split_emotion_name('军工PH值') == ('军工', 'PH')
+    assert split_emotion_name('新能源TF值') == ('新能源', 'TF')
+    assert split_emotion_name('军工') == ('军工', None)
+    assert split_emotion_name('') == ('', None)
+
+
+def test_read_service_empty_db_returns_none(db):
+    """无数据 → None（前端显示「暂无数据」，不编造空快照）。"""
+    from app.services.industry_emotion_service import get_latest_industry_emotion
+
+    assert get_latest_industry_emotion(db) is None
+
+
+def test_read_service_returns_latest_snapshot(db):
+    """最新快照 = 最新 collected_at 当日全部行；value 降序 + history_days 累积。"""
+    from app.services.industry_emotion_service import get_latest_industry_emotion
+
+    today = date.today()
+    TemperatureService.save_singles(_emotion_records(today - timedelta(days=1)))
+    TemperatureService.save_singles(_emotion_records(today))
+
+    data = get_latest_industry_emotion(db)
+    assert data is not None
+    assert data['updated_at'] == today.isoformat()
+    assert data['source'] == SOURCE
+    assert len(data['items']) == 4
+
+    # value 降序（芯片 99.85 > 军工 42 > 券商 18 > 新能源 9）
+    values = [it['value'] for it in data['items']]
+    assert values == sorted(values, reverse=True)
+    top = data['items'][0]
+    assert top['name'] == '芯片PH值'
+    assert top['industry'] == '芯片'
+    assert top['metric'] == 'PH'
+
+    # 同 name 累积 2 天
+    assert all(it['history_days'] == 2 for it in data['items'])
+
+    # 只取最新日：昨日行不重复出现（4 行而非 8 行）
+    names = {it['name'] for it in data['items']}
+    assert names == {'军工PH值', '券商PH值', '新能源TF值', '芯片PH值'}
