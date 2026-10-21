@@ -38,6 +38,10 @@
       进 REST_DAY_JOB_NAMES：周末 fund_nav 补昨日净值后，周六晨间即可对照周五预估。
     - `position_price` 22:15 —— 把已确认净值回写 `positions.current_price`（#1104）。
       **必须晚于 `fund_nav`**：它读的就是后者刚落库的净值；早了会写入昨天的口径。
+    - `asset_snapshot` 23:45 —— 家庭/账户当日资产快照落账（#2132 / D63）。
+      **必须晚于当日所有落库类 job**（净值 21:30 / 现价 22:15 / 回填 22:35 /
+      孤儿挂回 23:30），且**不能跨零点**（否则 `snapshot_date` 变成次日，标签日错位）。
+      休市日照跑（`REST_DAY_JOB_NAMES`）：它的用途是**日历连续**的当日账面值。
 
 用法
     - 应用内：`.env` 里置 `SCHEDULER_ENABLED=1`，`create_app()` 自动启动（默认路径）。
@@ -121,6 +125,11 @@ ENV_VALUATION_RECONCILE_ENABLED = 'SCHEDULER_VALUATION_RECONCILE_ENABLED'
 ENV_VALUATION_RECONCILE_CRON = 'SCHEDULER_VALUATION_RECONCILE_CRON'
 ENV_NAV_BACKFILL_ENABLED = 'SCHEDULER_NAV_BACKFILL_ENABLED'
 ENV_NAV_BACKFILL_CRON = 'SCHEDULER_NAV_BACKFILL_CRON'
+# #2132 / D63：资产快照（`asset_snapshots`）纳回本机每日调度。
+# 此前 D21 把它排除在外（"按用户手动触发"），实测结果是快照**只能靠用户行为产生**
+# （`sync_logs` 里零运行记录），于是「资产走势」= 用户哪天打开过那个页面。
+ENV_ASSET_SNAPSHOT_ENABLED = 'SCHEDULER_ASSET_SNAPSHOT_ENABLED'
+ENV_ASSET_SNAPSHOT_CRON = 'SCHEDULER_ASSET_SNAPSHOT_CRON'
 
 DEFAULT_TIMEZONE = 'Asia/Shanghai'
 # 温度计：集思录中位 PB / 韭圈儿 / 行业拥挤度盘后即出
@@ -144,6 +153,15 @@ DEFAULT_VALUATION_RECONCILE_CRON = '30 8,22 * * *'
 # 节奏（#824，day-D 官方净值最早 D+1 21:30 落库），排在对照之后 5 分钟；
 # 晨 08:35 兜底（休市日 catch-up、源延迟恢复）。纯 DB 零外部请求。
 DEFAULT_NAV_BACKFILL_CRON = '35 8,22 * * *'
+# 资产快照落账（#2132 / D63）：纯本地计算、零外部请求，但**时刻是硬约束**——
+# 它要拍的是「当日收盘后的账面值」，所以必须晚于所有会改动账面值的 job：
+#   fund_nav 21:30（当日净值）→ position_price 22:15（现价回写）→
+#   nav_backfill 22:35（pending_nav 重算）→ orphan_backfill 23:30（孤儿流水挂回，
+#   影响类现金与总资产）。
+# 又**不能晚于 24:00**：跨零点落库会让 `snapshot_date` 变成次日，标签日与
+# 「当刻状态」错位（那正是 D62 禁止的「标签非时点」）。
+# 故取 23:45——排在当日最后一个落库类 job 之后，且不跨日。
+DEFAULT_ASSET_SNAPSHOT_CRON = '45 23 * * *'
 # 场内日线（#1104）：A 股 15:00 收盘，日线数据盘后发布（ETF 两源当日 K 线常要次日才齐，
 # 由缺口回补在下一次运行时补齐）。**必须早于持仓现价回写**——后者读的就是这里落库的收盘价。
 DEFAULT_PRICE_HISTORY_CRON = '30 17 * * *'
@@ -413,6 +431,21 @@ _JOB_TEMPLATES: Tuple[Tuple[str, str, str, str, Optional[Union[str, Tuple[str, .
         None,
         '孤儿交易回填（position_id IS NULL → 按 symbol 身份挂回持仓；不联网、幂等；#950）',
     ),
+    (
+        # 资产快照落账（#2132 / D63）：target_kind=None —— 与目标池无关，纯本地计算
+        # （家庭/账户两级当日账面值 + 当日货基收益），零外部请求。
+        # 纳回本机每日调度的理由（实测，2026-10-21）：此前 D21 把它排除在外、
+        # 只能靠用户进全景页/手动点触发，`sync_logs` 里**零运行记录**，
+        # 于是「资产走势」= 用户哪天打开过那个页面（真库 44 天里缺 19 个工作日）。
+        # 口径边界（D62）：这批行只做「**当日账面值**」的日历连续展示，
+        # **不是**收益序列——时点序列归 `pnl_snapshot_store`（懒物化 + 失效重算）。
+        'asset_snapshot',
+        ENV_ASSET_SNAPSHOT_ENABLED,
+        ENV_ASSET_SNAPSHOT_CRON,
+        DEFAULT_ASSET_SNAPSHOT_CRON,
+        None,
+        '家庭/账户每日资产快照（当日账面值；幂等 upsert、零外部请求；#2132 / D63）',
+    ),
 )
 
 # 编排器已注册、但**明确不进每日调度**的 job（#1934）。
@@ -452,7 +485,10 @@ _NOT_SCHEDULED: Dict[str, Tuple[str, str]] = {
     'index_valuation_lg': ('乐咕月频估值基线（月末采样），日变更量为 0；分位窗口 5 年、月度够用', '月度 / 手动'),
     'channel_link': ('跨渠道关联：随基金列表与指数名录变化，重跑需前置已更新', '周（依赖上游先更新）'),
     'amac_institution': ('公募机构持仓，季报级披露', '季度'),
-    'asset_snapshot': ('D21 明确把 asset_snapshot 排除在本机通道之外（资产快照按用户手动触发）', '手动'),
+    # #2132 / D63：`asset_snapshot` 已**移出本表**——D21 当年「按用户手动触发」的判断，
+    # 在实测里站不住：`sync_logs` 零运行记录 ⇒ 快照只能靠用户行为产生，
+    # 「资产走势」缺 19 个工作日（真库体检，2026-10-21）。它日变、用户直接看得见
+    # （#1934 的两个判据都满足），且纯本地零外部请求，故改进每日调度（23:45）。
     # #2255：CNB 侧 #167 收敛带入的逐标的派生 job——从净值历史现算 3 年窗口风险指标，
     # 指标日变更极小（窗口指标平滑），且需按目标池限量回填（见 SYMBOL_BACKFILL_JOBS 纪律），
     # 不满足「日变 + 用户直接可见」双条件，故登记本表而非每日调度。
@@ -621,6 +657,10 @@ REST_DAY_JOB_NAMES: frozenset = frozenset(
         'fund_valuation_reconcile',  # 预估→正式对照（#2142）：周末 fund_nav 补昨日净值后，
         # 周六晨间即可对照周五预估；纯 DB 零成本，休市日空跑无害
         'nav_backfill',  # 净值缺失流水回填：官方净值 T-1 落库，休市日 catch-up 同理，纯 DB 零成本
+        # 资产快照（#2132 / D63）：**刻意**在休市日照跑——它的用途是「日历连续的
+        # 当日账面值」，周末不做就多两个断点；且休市日账面值只差「净值没变」，
+        # 落一行零成本、零外部请求。与其它「回补型」不同：它不是补缺口，是补日历。
+        'asset_snapshot',
     }
 )
 
