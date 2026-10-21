@@ -117,6 +117,42 @@ class SyncJob(ABC):
         """是否允许数据源返回空（如非交易日）"""
         return False
 
+    def _decide_final_status(self) -> JobStatus:
+        """终态判定钩子：默认 SUCCESS（保持既有语义，零行为变化）。
+
+        为什么要有这个钩子而不是基类直接判：**基类不知道 errors 里每一条的量纲**。
+        多数 job 一条 errors 就等于一个失败目标（`fund_nav` / `price_history` …），
+        但也有 job 把「逐记录失败」塞进 errors（一条 ≠ 一个目标），对它而言
+        「有 errors」并不等于「这个 job 无事可做」。是否把 errors 升级成 FAILED
+        必须由子类按自己的口径决定（#2475）。
+
+        基类只负责把 ``stats['failed']`` 与 ``errors`` 对齐（见 run() 末尾），
+        让「failed=0 但 errors 有 8 条」这种自相矛盾的组合不再出现。
+        """
+        return JobStatus.SUCCESS
+
+    def _failed_target_count(self) -> int:
+        """失败目标数 = errors 条数（基类里 errors 只由子类 `_fetch_data` 写入）。"""
+        return len(self.stats.get('errors') or [])
+
+    def _count_total(self, targets: Optional[List[str]], fetched: int) -> int:
+        """本轮「试过多少个目标」= `stats['total']` 的分母。
+
+        为什么不能只数「拿到的」：``total`` 若只等于抓取结果条数，失败 / 跳过的目标
+        就从分母里消失了 ——「32 个目标里挂 8 个、成功 24 个」会被记成
+        total=24 / success=24，看板上是 100% 成功（#2475）。
+
+        默认口径：有外部目标列表就数列表长度；自己取全量则 = 拿到 + 失败。
+        子类知道得更多（占位符展开、抓取阶段主动跳过）时必须覆盖。
+        """
+        if targets is None:
+            return fetched + self._failed_target_count()
+        return self._count_targets(targets)
+
+    def _count_targets(self, targets: List[str]) -> int:
+        """外部目标列表的实际条数（默认即列表长度；支持占位符的子类须展开后再数）。"""
+        return len(targets)
+
     # ── 通用工具 ──
 
     def _require_non_empty(self, rows: List[dict], *, source: str) -> List[dict]:
@@ -220,6 +256,9 @@ class SyncJob(ABC):
                     raw_data = self._fetch_data(full_sync, [])
                     if not raw_data:
                         if self._allow_empty_data:
+                            # 全挂也走这里：分母取「试过的目标数」，再由 `_decide_final_status`
+                            # 决定这是「今天没数据」（errors 为空）还是「全都失败了」（#2475）
+                            self.stats['total'] = self._count_total(None, 0)
                             self.logger.info('数据源返回空数据（已允许），跳过同步')
                             self.status = JobStatus.SUCCESS
                             break
@@ -231,7 +270,10 @@ class SyncJob(ABC):
                             )
                     validated = self._validate_data(raw_data)
                     new_data = self._deduplicate(validated)
-                    self.stats['total'] = len(raw_data)
+                    # total 必须含失败目标与主动跳过的目标：否则「32 个目标里 8 个没数据、
+                    # 24 个成功」会被记成 total=24/success=24 —— 分母被吃掉，
+                    # 看板上 100% 成功（#2475）
+                    self.stats['total'] = self._count_total(None, len(raw_data))
                     self.stats['skipped'] = len(validated) - len(new_data)
                     if new_data:
                         self._save_data(new_data)
@@ -252,7 +294,7 @@ class SyncJob(ABC):
                             status_code=503,
                         )
 
-                self.stats['total'] = len(targets)
+                self.stats['total'] = self._count_total(targets, 0)
                 self._execute_batches(targets)
                 self.status = JobStatus.SUCCESS
                 break
@@ -279,6 +321,15 @@ class SyncJob(ABC):
                     self.stats['error'] = str(e)
                     self.logger.error('超过最大重试次数，需人工介入')
                     break
+
+        # failed 以 errors 为准：`_execute_batches` 只累加 success，failed 恒 0，
+        # 于是「failed=0 但 errors 有 8 条」长期自相矛盾（#2475）。
+        # 用 max 而非赋值：若某 job 自行维护 failed（逐记录失败，与目标数不同量纲），不得被抹掉。
+        self.stats['failed'] = max(self.stats.get('failed', 0), self._failed_target_count())
+
+        # 终态收敛：SUCCESS 只是基类默认值，子类可把「确实全挂」升级为 FAILED（#2475）。
+        if self.status is JobStatus.SUCCESS:
+            self.status = self._decide_final_status()
 
         if self.status is not JobStatus.SUCCESS:
             # 终态非成功：把 Session 交还给编排器时必须是干净的，
