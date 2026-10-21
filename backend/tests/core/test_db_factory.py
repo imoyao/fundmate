@@ -160,7 +160,8 @@ def test_normalize_db_url_turso_rewrites_scheme_and_extracts_auth():
 
 def test_normalize_db_url_libsql_rewrites_scheme():
     url, extra = db_factory._normalize_db_url('libsql://foo.turso.io/mydb')
-    assert url == 'sqlite+libsql://foo.turso.io/mydb'
+    # #1490：Turso 云端一律补 secure=true（明文 http 会被服务端 308 跳 https 而失败）
+    assert url == 'sqlite+libsql://foo.turso.io/mydb?secure=true'
     assert extra == {}
 
 
@@ -176,11 +177,71 @@ def test_normalize_db_url_non_turso_unchanged():
     for raw in (
         'sqlite:///./invest.db',
         'postgresql://u:p@db.supabase.co:5432/postgres',
-        'sqlite+libsql://foo.turso.io/mydb?auth_token=tk',  # 已归一，幂等
     ):
         url, extra = db_factory._normalize_db_url(raw)
         assert url == raw
         assert extra == {}
+
+
+# ── #1490：secure=true（明文 http → Turso 回 308 → 每天必挂） ──────────────
+#
+# 事故形态：sqlalchemy-libsql 0.2.0 的方言默认 `secure=False`，连接串里没有
+# `secure=true` 时客户端走明文 http，Turso 边缘回 308 Permanent Redirect
+# （Location 指向同路径 https），客户端不自动跟随 ⇒ 每日调度 25 次全红、零成功。
+
+
+def test_normalize_db_url_adds_secure_for_turso_cloud():
+    """Turso 云端连接串必须带 secure=true（否则明文 http → 308）。"""
+    url, _ = db_factory._normalize_db_url('turso://foo.turso.io/mydb?authToken=tk')
+    assert 'secure=true' in url
+    assert 'authToken' not in url
+
+
+def test_normalize_db_url_respects_explicit_secure_false():
+    """显式写 secure=false 的按它说的算（自建 sqld 走明文 http 是正常用法）。"""
+    url, _ = db_factory._normalize_db_url('turso://foo.turso.io/mydb?authToken=tk&secure=false')
+    assert 'secure=false' in url
+    assert 'secure=true' not in url
+
+
+def test_normalize_db_url_local_sqld_not_forced_to_https():
+    """本机 sqld（localhost）走明文 http 正常，不该被强制 https。"""
+    for raw in ('libsql://localhost:8080', 'turso://127.0.0.1:8080'):
+        url, _ = db_factory._normalize_db_url(raw)
+        assert 'secure' not in url
+
+
+def test_normalize_db_url_is_idempotent():
+    """已归一过的 URL 再归一一次，结果不变（secure 不会重复叠加）。"""
+    once, _ = db_factory._normalize_db_url('turso://foo.turso.io/mydb?authToken=tk')
+    twice, _ = db_factory._normalize_db_url(once)
+    assert once == twice
+    assert twice.count('secure=') == 1
+
+
+def test_normalize_db_url_already_normalized_gains_secure():
+    """已是 sqlite+libsql:// 的旧写法（本次事故的形态）也会被补上 secure=true。"""
+    raw = 'sqlite+libsql://foo.turso.io/mydb?auth_token=tk'
+    url, extra = db_factory._normalize_db_url(raw)
+    assert 'secure=true' in url
+    assert extra == {}, '已归一的 URL 不该顺手搬走 auth_token'
+
+
+def test_turso_auth_token_reads_token():
+    assert db_factory.turso_auth_token('turso://h/mydb?authToken=abc') == 'abc'
+    assert db_factory.turso_auth_token('turso://h/mydb?auth_token=abc') == 'abc'
+
+
+def test_turso_auth_token_missing_is_none():
+    assert db_factory.turso_auth_token('turso://h/mydb') is None
+    assert db_factory.turso_auth_token('turso://h/mydb?authToken=') is None
+
+
+def test_redact_db_url_masks_token():
+    masked = db_factory.redact_db_url('turso://h/mydb?authToken=secret&region=x')
+    assert 'secret' not in masked
+    assert 'authToken=***' in masked
+    assert 'region=x' in masked
 
 
 def test_factory_build_prod_turso_normalizes_scheme_and_auth(monkeypatch):

@@ -19,6 +19,7 @@ FLASK_DEBUG 仅控制调试器，不再混用作环境开关。
 from __future__ import annotations
 
 import os
+import re
 import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -109,6 +110,71 @@ def _development_user_url() -> str:
     return os.getenv('DEV_USER_DATABASE_URL') or os.getenv('DEV_DATABASE_URL') or _DEFAULT_DEV_DB
 
 
+def turso_auth_token(url: str) -> str | None:
+    """取出 Turso 连接串里的 ``authToken``；没有（或为空串）返回 ``None``。
+
+    为什么值得单独一个函数：缺 token 的 Turso 连接串**必然连不上**，
+    而服务端的反应是 308 / 401 这类**看不出「压根没配 token」**的状态码——
+    排查时极易被带偏。#1490 实测：每日调度连续 25 天全红，根因就是仓库 secret
+    里的连接串只有 host、没有 authToken；而当时的诊断文案写的是
+    「host 被服务端重定向（旧地址 / 区域变更）」，把排查引到了错误方向，
+    白白绕了一圈（上游同族：dependabot 坏锁那次的「空 ≠ 没拿到」）。
+    """
+    parsed = urllib.parse.urlparse(url)
+    qp = urllib.parse.parse_qs(parsed.query)
+    token = qp.get('authToken') or qp.get('auth_token')
+    if not token or not token[0]:
+        return None
+    return token[0]
+
+
+#: 本机地址：本地 sqld 走明文 http 是正常用法，不该被强制 https。
+_LOCAL_HOSTS = ('localhost', '127.0.0.1', '::1', '0.0.0.0')
+
+
+def _needs_secure_transport(scheme: str, netloc: str) -> bool:
+    """Turso **云端**连接是否必须走 https。
+
+    为什么必须显式 secure=true：`sqlalchemy-libsql` 0.2.0 的方言默认
+    ``secure=False``，连接串里没有 ``secure=true`` 时，客户端会用**明文 http**
+    去连 Turso；而 Turso 边缘对明文请求一律回 **308 Permanent Redirect**
+    （Location 指向同路径的 https），客户端不自动跟随 ⇒ 每次连接都失败。
+
+    #1490 实测：每日调度自 2026-09-04 起 **25 次全红、零成功**，报错是
+    ``Hrana: api error: status=308 Permanent Redirect, body=Redirecting``——
+    看上去像「host 被服务端重定向」（原诊断文案正是这么写的，把排查带偏了），
+    实际只差一个 ``secure=true``。实测对照：
+    ``http://<host>/v3/pipeline`` → 308 → ``https://<host>/v3/pipeline`` → 200。
+
+    本机 sqld（localhost/127.0.0.1）走明文 http 是正常用法，不在此列。
+    """
+    host = netloc.split('@')[-1].split(':')[0].lower()
+    if host in _LOCAL_HOSTS:
+        return False
+    if scheme in ('turso', 'libsql'):
+        return True
+    return host.endswith('.turso.io')
+
+
+def redact_db_url(url: str) -> str:
+    """把连接串里的 token 参数打码——给日志用。
+
+    token 出现在日志里就等于泄露：它同时是数据库凭证与（历史上）可读数据的钥匙。
+    """
+    return re.sub(r'(auth[Tt]oken)=[^&\s]+', r'\1=***', url)
+
+
+def normalized_app_db_url_preview(env: str | None = None) -> str:
+    """归一后的 market 域连接串（token 已打码）——给启动日志看「实际会用哪条 URL 连」。
+
+    #1490：这条日志的价值是让「实际连的是 http 还是 https」一眼可见——
+    明文 http 连 Turso 会被服务端 308 跳 https 而失败（见 _needs_secure_transport）。
+    """
+    url = DatabaseConfig.for_app(env).url
+    normalized, _ = _normalize_db_url(url)
+    return redact_db_url(normalized)
+
+
 def _normalize_db_url(url: str) -> tuple[str, Dict]:
     """把 Turso / libSQL 连接串归一为 sqlalchemy-libsql 可解析的 scheme。
 
@@ -120,32 +186,47 @@ def _normalize_db_url(url: str) -> tuple[str, Dict]:
     统一重写为 `sqlite+libsql://`，并把 Turso 下发的 `authToken` 从 query
     提取到 connect_args（libsql 驱动要求以 connect arg 传入，而非 URL query）。
 
+    另补一条 **`secure=true`**（#1490）：方言默认 `secure=False` 会让客户端
+    走明文 http，Turso 边缘回 308 跳 https ⇒ 每天必挂。Turso 云端一律强制 https；
+    本机 sqld 不动；URL 里显式写了 `secure=` 的按它说的算。
+
     对 SQLite / Postgres 等非 Turso URL 原样返回，connect_args 为空字典。
-    本函数幂等：已是 `sqlite+libsql://` 的 URL 直接透传。
+    本函数幂等：已是 `sqlite+libsql://` 的 URL 只补 `secure`（若缺），其余透传。
     """
     extra_connect_args: Dict = {}
     parsed = urllib.parse.urlparse(url)
     scheme = parsed.scheme.lower()
+    original_url = url
 
     # 判定是否 Turso / libSQL 连接（裸 turso://、libsql://、或 https://*.turso.io）
     is_turso = scheme in ('turso', 'libsql') or (scheme == 'https' and 'turso' in parsed.netloc.lower())
-    if not is_turso:
+    # 已归一过的 sqlite+libsql://：幂等路径，只允许补 secure
+    is_normalized = scheme == 'sqlite+libsql' and bool(parsed.netloc)
+    if not (is_turso or is_normalized):
+        return url, extra_connect_args
+
+    qp = urllib.parse.parse_qs(parsed.query)
+    host_part = parsed.netloc + parsed.path
+
+    if is_normalized:
+        if 'secure' not in qp and _needs_secure_transport(scheme, parsed.netloc):
+            qp['secure'] = ['true']
+            return 'sqlite+libsql://' + host_part + '?' + urllib.parse.urlencode(qp, doseq=True), extra_connect_args
         return url, extra_connect_args
 
     # scheme 归一为 sqlalchemy-libsql 认识的 `sqlite+libsql://`
-    host_part = parsed.netloc + parsed.path
     url = 'sqlite+libsql://' + host_part
-    if parsed.query:
-        # 提取 authToken 到 connect_args，避免 URL 上残留（libsql 要求 connect arg）
-        qp = urllib.parse.parse_qs(parsed.query)
-        token = qp.get('authToken') or qp.get('auth_token')
-        if token:
-            extra_connect_args['auth_token'] = token[0]
-        # 非认证参数（如 region=...）一律保留：#1491 评审——原实现只在存在 authToken 时
-        # 才把剩余 query 拼回，无 token 的 URL 上其余查询参数会被整体丢弃
-        remaining = {k: v for k, v in qp.items() if k not in ('authToken', 'auth_token')}
-        if remaining:
-            url += '?' + urllib.parse.urlencode(remaining, doseq=True)
+    # 提取 authToken 到 connect_args，避免 URL 上残留（libsql 要求 connect arg）
+    token = turso_auth_token(original_url)
+    if token:
+        extra_connect_args['auth_token'] = token
+    # 非认证参数（如 region=...）一律保留：#1491 评审——原实现只在存在 authToken 时
+    # 才把剩余 query 拼回，无 token 的 URL 上其余查询参数会被整体丢弃
+    remaining = {k: v for k, v in qp.items() if k not in ('authToken', 'auth_token')}
+    if 'secure' not in remaining and _needs_secure_transport(scheme, parsed.netloc):
+        remaining['secure'] = ['true']
+    if remaining:
+        url += '?' + urllib.parse.urlencode(remaining, doseq=True)
     return url, extra_connect_args
 
 

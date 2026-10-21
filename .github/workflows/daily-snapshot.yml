@@ -13,6 +13,14 @@
 #     会以退出码 1 结束，本 workflow 随之标红，并由末尾「失败告警」步骤自动开/更新 issue。
 #   - 失败审计：每个 job 的结果已写入 SyncLog（Orchestrator._save_sync_log），可在库内追溯。
 #
+# ── #1490 修复要点（2026-10-21）──
+#   0) **根因**：market 域走 Turso，连接串**必须带 authToken**。此前本 workflow 只注入
+#      `DATABASE_URL`，而那条 secret 里的连接串只有 host、没有 `?authToken=` ⇒
+#      服务端回 308，调度自 2026-09-04 起 **25 次全红、零成功**（数据新鲜度断了一个多月）。
+#      现在同时注入 `TURSO_DATABASE_URL`（production 下**优先**用它，见
+#      `backend/app/core/db_factory.py::resolve_app_db`），并在 secrets 预检里
+#      提前判定「缺 authToken」——一分钟内失败，而不是等装完依赖再撞一个看不懂的 308。
+#
 # ── #1434 修复要点 ──
 #   1) 调度分支：`schedule` 事件只读取**默认分支（main）**上的本文件，而 main 长期落后 dev。
 #      故 workflow 定义仍从 main 读取，但 **checkout 显式取 `SCHEDULER_REF`（默认 dev）**，
@@ -76,6 +84,7 @@ jobs:
         env:
           APP_ENV: ${{ secrets.APP_ENV }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
         run: |
           missing=""
@@ -90,9 +99,34 @@ jobs:
           fi
           echo "secrets 预检通过（APP_ENV=$APP_ENV）"
 
+          # #1490：缺 authToken 的 Turso 连接串**必然连不上**（服务端回 308/401），
+          # 而这两种状态码都看不出「压根没配 token」。此前只注入无 token 的
+          # DATABASE_URL ⇒ 每日调度连续 25 天全红、零成功（2026-09-04 起）。
+          # 这里提前一分钟失败，而不是等装完依赖再撞 308。
+          #
+          # 生效优先级：TURSO_DATABASE_URL > DATABASE_URL（backend/app/core/db_factory.py）
+          EFFECTIVE_DB_URL="${TURSO_DATABASE_URL:-$DATABASE_URL}"
+          case "$EFFECTIVE_DB_URL" in
+            turso://*|libsql://*|https://*.turso.io*)
+              case "$EFFECTIVE_DB_URL" in
+                *authToken=*|*auth_token=*) ;;
+                *)
+                  echo "::error title=数据库连接串缺 authToken::生效的连接串（${EFFECTIVE_DB_URL%%\?*}）里没有 authToken，必然连不上。"
+                  echo "请把 Turso 控制台给出的完整连接串（turso://<host>?authToken=<token>）写进对应 secret（优先 TURSO_DATABASE_URL）。"
+                  exit 1
+                  ;;
+              esac
+              ;;
+          esac
+
       - name: 运行每日调度
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # production 下 market 域**优先**用 TURSO_DATABASE_URL（见 db_factory.resolve_app_db），
+          # 且它才是 Turso 控制台直接下发的完整连接串（含 authToken）。
+          # #1490：此前只注入 DATABASE_URL（当时那条 secret 里没有 authToken），
+          # 每日调度自 2026-09-04 起 25 次全红、零成功。
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
