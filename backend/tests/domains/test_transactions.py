@@ -12,6 +12,7 @@ from app.core.database import get_db
 from app.core.money import Money
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
+from app.services.transaction_service import fee_breakdown_yuan
 from tests.domains.test_positions import _get, _post
 
 
@@ -598,3 +599,245 @@ class TestTransactionSource:
         resp2 = _post(client, '/api/positions/', payload)
         assert resp2.status_code == 409
         assert '已记录' in (resp2.get_json() or {}).get('message', '')
+
+
+def _txn_kwargs(**kw):
+    """费用拆分测试共用的流水构造参数（family_id=1，金额单位分）。"""
+    base = {
+        'family_id': 1,
+        'txn_type': 'buy',
+        'quantity': 0,
+        'price': 0,
+        'amount': 0,
+        'position_name': '测试',
+        'account_name': '测试账户',
+    }
+    base.update(kw)
+    return base
+
+
+class TestTransactionFeeBreakdown:
+    """#2137 费用拆分四列（commission/stamp_duty/transfer_fee/other_fee，分）。
+
+    不变量由 Transaction 的 before_insert / before_update 兜底：
+    - 四列全 NULL = 未拆分（存量数据与未提供拆分的路径的默认态）；
+    - 一旦拆分必须四列齐全，且其和必须等于聚合 fee。
+    """
+
+    def test_unsplit_fee_accepted_and_reads_as_none(self, db):
+        """未拆分：四列全 NULL + 聚合 fee，存量行为不变（不报错、明细读作 None）。"""
+        txn = Transaction(**_txn_kwargs(fee=1500))
+        db.add(txn)
+        db.flush()
+        assert txn.commission is None
+        assert txn.stamp_duty is None
+        assert fee_breakdown_yuan(txn) is None
+
+    def test_consistent_breakdown_accepted(self, db):
+        """四列齐全且和=fee：正常落库，明细按元读出。"""
+        txn = Transaction(
+            **_txn_kwargs(
+                fee=1500,
+                commission=500,
+                stamp_duty=850,
+                transfer_fee=100,
+                other_fee=50,
+            )
+        )
+        db.add(txn)
+        db.flush()
+        assert fee_breakdown_yuan(txn) == {
+            'commission': 5.0,
+            'stamp_duty': 8.5,
+            'transfer_fee': 1.0,
+            'other_fee': 0.5,
+        }
+
+    def test_zero_fee_with_zero_breakdown_accepted(self, db):
+        """分红/兑付等零费用行也可显式拆分（四列全 0，和=fee=0）。"""
+        txn = Transaction(
+            **_txn_kwargs(
+                fee=0,
+                commission=0,
+                stamp_duty=0,
+                transfer_fee=0,
+                other_fee=0,
+            )
+        )
+        db.add(txn)
+        db.flush()
+        assert fee_breakdown_yuan(txn) == {
+            'commission': 0.0,
+            'stamp_duty': 0.0,
+            'transfer_fee': 0.0,
+            'other_fee': 0.0,
+        }
+
+    def test_sum_mismatch_rejected_on_insert(self, db):
+        """拆分之和不等于 fee → before_insert fail closed。"""
+        with pytest.raises(ValueError, match='不一致'):
+            txn = Transaction(
+                **_txn_kwargs(
+                    fee=1500,
+                    commission=500,
+                    stamp_duty=800,  # 850 → 800，和 1450 ≠ 1500
+                    transfer_fee=100,
+                    other_fee=50,
+                )
+            )
+            db.add(txn)
+            db.flush()
+
+    def test_partial_breakdown_rejected_on_insert(self, db):
+        """只给部分拆分列 → before_insert fail closed（缺的类别必须显式传 0）。"""
+        with pytest.raises(ValueError, match='四列齐全'):
+            txn = Transaction(**_txn_kwargs(fee=500, commission=500))
+            db.add(txn)
+            db.flush()
+
+    def test_sum_mismatch_rejected_on_update(self, db):
+        """存量未拆分行被改坏时，before_update 同样拦截。"""
+        txn = Transaction(**_txn_kwargs(fee=1500))
+        db.add(txn)
+        db.flush()
+        db.refresh(txn)
+        txn.commission = 500
+        txn.stamp_duty = 800
+        txn.transfer_fee = 100
+        txn.other_fee = 50
+        with pytest.raises(ValueError, match='不一致'):
+            db.flush()
+        db.rollback()
+
+    def test_manual_buy_carries_breakdown_via_api(self, client, db):
+        """记一笔带四类费用 → 流水四列落库，列表接口回显 fee_breakdown（元）。"""
+        resp = _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': '00700.HK',
+                'name': '腾讯',
+                'type': 'stock',
+                'market': 'CN_HK',
+                'account_name': '富途',
+                'quantity': 100,
+                'avg_price': 350,
+                'currency': 'HKD',
+                'trade_date': '2026-05-01',
+                'fee': 15,
+                'fee_commission': 5,
+                'fee_stamp_duty': 8.5,
+                'fee_transfer_fee': 1,
+                'fee_other': 0.5,
+            },
+        )
+        assert resp.status_code == 200
+        pos_id = resp.get_json()['data']['id']
+        txn = db.query(Transaction).filter_by(position_id=pos_id).first()
+        assert txn is not None
+        assert txn.fee == 1500
+        assert (txn.commission, txn.stamp_duty, txn.transfer_fee, txn.other_fee) == (500, 850, 100, 50)
+
+        list_resp = _get(client, '/api/transactions')
+        row = next(t for t in list_resp.get_json()['data'] if t['id'] == txn.id)
+        assert row['fee_breakdown'] == {
+            'commission': 5.0,
+            'stamp_duty': 8.5,
+            'transfer_fee': 1.0,
+            'other_fee': 0.5,
+        }
+
+    def test_manual_buy_without_breakdown_reads_none(self, client, db):
+        """不带拆分的记一笔：fee_breakdown 为 None（前端按单值展示，存量语义）。"""
+        resp = _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': 'AAPL',
+                'name': '苹果',
+                'type': 'stock',
+                'market': 'US',
+                'account_name': '富途',
+                'quantity': 10,
+                'avg_price': 180,
+                'currency': 'USD',
+                'trade_date': '2026-05-01',
+                'fee': 3,
+            },
+        )
+        assert resp.status_code == 200
+        list_resp = _get(client, '/api/transactions')
+        row = next(t for t in list_resp.get_json()['data'] if t['symbol'] == 'US:AAPL')
+        assert row['fee_breakdown'] is None
+        assert row['fee'] == 3.0
+
+    def test_edit_transaction_sets_breakdown(self, client, db):
+        """编辑交易可补录四类费用（PATCH ledgers 域交易编辑入口）。"""
+        ledger = client.post('/api/ledgers/', json={'name': '华泰证券'}).get_json()['data']
+        resp = _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': '600519',
+                'name': '贵州茅台',
+                'type': 'stock',
+                'market': 'CN_A',
+                'account_name': '华泰证券',
+                'ledger_id': ledger['id'],
+                'quantity': 100,
+                'avg_price': 1500,
+                'trade_date': '2026-05-01',
+            },
+        )
+        assert resp.status_code == 200
+        txn = db.query(Transaction).filter_by(symbol='SH600519').first()
+        assert txn is not None
+
+        patch_resp = client.patch(
+            f"/api/ledgers/{ledger['id']}/transactions/{txn.id}/",
+            json={
+                'fee': 15,
+                'fee_commission': 5,
+                'fee_stamp_duty': 8.5,
+                'fee_transfer_fee': 1,
+                'fee_other': 0.5,
+            },
+        )
+        assert patch_resp.status_code == 200
+        data = patch_resp.get_json()['data']
+        assert data['fee_breakdown'] == {
+            'commission': 5.0,
+            'stamp_duty': 8.5,
+            'transfer_fee': 1.0,
+            'other_fee': 0.5,
+        }
+        db.refresh(txn)
+        assert (txn.commission, txn.stamp_duty, txn.transfer_fee, txn.other_fee) == (500, 850, 100, 50)
+
+    def test_edit_transaction_partial_breakdown_rejected(self, client, db):
+        """编辑交易只给部分拆分列 → 400（而不是撞模型不变量变 500）。"""
+        ledger = client.post('/api/ledgers/', json={'name': '华泰证券'}).get_json()['data']
+        resp = _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': '600519',
+                'name': '贵州茅台',
+                'type': 'stock',
+                'market': 'CN_A',
+                'account_name': '华泰证券',
+                'ledger_id': ledger['id'],
+                'quantity': 100,
+                'avg_price': 1500,
+                'trade_date': '2026-05-01',
+            },
+        )
+        assert resp.status_code == 200
+        txn = db.query(Transaction).filter_by(symbol='SH600519').first()
+        assert txn is not None
+        patch_resp = client.patch(
+            f"/api/ledgers/{ledger['id']}/transactions/{txn.id}/",
+            json={'fee': 15, 'fee_commission': 5},
+        )
+        assert patch_resp.status_code == 400
+        assert '四类齐全' in (patch_resp.get_json() or {}).get('message', '')

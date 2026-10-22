@@ -13,7 +13,19 @@ confirmed（已确认）
 关系	一条孤立的卖出记录，交易本身是成功的	但它关联不到持仓，需要标记处理阶段
 """
 
-from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Index, Integer, String, Text, text
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    event,
+    text,
+)
 from sqlalchemy.orm import validates
 
 from app.core.constants import POSITION_SOURCE_LABELS, PositionSource
@@ -31,6 +43,16 @@ class Transaction(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     price = Column(Integer, default=0, comment='成交价(0.0001元)')
     confirm_date = Column(Date, comment='确认日期')
     fee = Column(Integer, default=0, comment='手续费(分)')
+    # ── #2137 费用拆分列（分）──
+    # 与聚合 fee 的关系：fee 仍是唯一权威总额（已实现盈亏结转、卖出回款净额都读它），
+    # 四列是「总额从哪来」的结构化明细。四列全为 NULL = 未拆分，是存量数据与
+    # 未提供拆分的写入路径（现金/分红/转换等 fee=0 场景）的默认态；
+    # 一旦拆分，四列必须齐全（缺的类别显式传 0），且其和必须等于 fee——
+    # 该不变量由文件末尾的 mapper 事件 fail closed 保证，写入路径无需自觉。
+    commission = Column(Integer, nullable=True, comment='佣金(分，#2137 拆分列；NULL=未拆分)')
+    stamp_duty = Column(Integer, nullable=True, comment='印花税(分，#2137 拆分列；NULL=未拆分)')
+    transfer_fee = Column(Integer, nullable=True, comment='过户费等税费(分，#2137 拆分列；NULL=未拆分)')
+    other_fee = Column(Integer, nullable=True, comment='其他费用(分，#2137 拆分列；NULL=未拆分)')
     amount = Column(Integer, default=0, comment='交易总金额(分)')
     realized_pnl = Column(
         Integer,
@@ -96,3 +118,32 @@ class Transaction(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         Index('idx_txn_symbol', 'symbol'),
         Index('idx_txn_account_name', 'account_name'),
     )
+
+
+# #2137 费用拆分列名（与上方四个 Column 一一对应，供事件与读取端共用）
+FEE_BREAKDOWN_COLUMNS = ('commission', 'stamp_duty', 'transfer_fee', 'other_fee')
+
+
+@event.listens_for(Transaction, 'before_insert')
+@event.listens_for(Transaction, 'before_update')
+def _validate_transaction_fee_breakdown(mapper, connection, target: 'Transaction') -> None:
+    """费用拆分不变量（#2137）：要么四列全 NULL（未拆分），要么四列齐全且和=fee。
+
+    为什么挂 mapper 事件而不是靠各写入路径自觉传对：本仓写流水的入口有近十处
+    （买入/卖出/孤儿/现金/分红/转换/导入……），「拆分和=总额」这种跨字段约束
+    漏任何一处都会静默落出错数（费用汇总对不上、用户以为漏记一笔佣金）。
+    事件挂在模型上，写入路径无论怎么绕都会经过，与
+    ``positions`` 的 ``symbol_norm`` / ``account_name`` 回填同法。
+
+    全 NULL 不校验：存量数据与现金/分红/转换等 fee=0 场景没有拆分事实，
+    强行要求四列反而是逼写入方编 0。
+    """
+    parts = [getattr(target, col) for col in FEE_BREAKDOWN_COLUMNS]
+    if all(p is None for p in parts):
+        return
+    if any(p is None for p in parts):
+        missing = [c for c, p in zip(FEE_BREAKDOWN_COLUMNS, parts) if p is None]
+        raise ValueError(f'费用拆分必须四列齐全（缺的类别显式传 0）：未提供 {missing}')
+    total = sum(parts)
+    if total != (target.fee or 0):
+        raise ValueError(f'费用拆分之和({total})与聚合 fee({target.fee or 0})不一致（#2137）')

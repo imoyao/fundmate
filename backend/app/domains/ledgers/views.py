@@ -34,6 +34,7 @@ from app.services.position_aggregation import (  # noqa: E402
     get_securities_aggregation as svc_get_securities_aggregation,
 )
 from app.services.position_presenter import enrich_position_dict
+from app.services.transaction_service import fee_breakdown_yuan
 
 ledgers_bp = APIBlueprint('ledgers', __name__, url_prefix='/api/ledgers')
 
@@ -638,6 +639,8 @@ def update_ledger_transaction(ledger_id: int, transaction_id: int):
                     'price': Money.price_units_to_yuan(txn.price),
                     'amount': Money.cents_to_yuan(txn.amount),
                     'fee': Money.cents_to_yuan(txn.fee),
+                    # #2137 费用拆分明细（元）：未拆分为 None，前端按 fee 单值展示
+                    'fee_breakdown': fee_breakdown_yuan(txn),
                     'trade_date': _ymd(txn.trade_date),
                     'confirm_date': _ymd(txn.confirm_date),
                     'notes': txn.notes,

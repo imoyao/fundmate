@@ -228,6 +228,29 @@ class THSStockParser(BaseImportParser):
         except (ValueError, TypeError):
             return default
 
+    # #2137：同花顺交割单费用明细的源列（与 _preprocess_dataframe 的 fee_cols 同源）
+    FEE_BREAKDOWN_SOURCE_COLUMNS = ('佣金', '印花税', '过户费', '其他杂费')
+
+    @classmethod
+    def _parse_fee_breakdown(
+        cls, raw: dict
+    ) -> Tuple[Optional[Decimal], Optional[Decimal], Optional[Decimal], Optional[Decimal]]:
+        """读取交割单四列费用明细（#2137），返回 (佣金, 印花税, 过户费, 其他杂费)，单位元。
+
+        四列**全在**才拆分；任一缺列 → 全 None（未拆分）。模型的拆分不变量是
+        「四列齐全且其和=fee」，缺列时按 0 补齐会把「来源没给这一列」演成
+        「来源给了 0」——费用汇总时两类无法区分。缺列的老模板退回聚合 fee
+        单值（_preprocess_dataframe 的合并逻辑），行为与改造前一致。
+        """
+        if any(col not in raw for col in cls.FEE_BREAKDOWN_SOURCE_COLUMNS):
+            return (None, None, None, None)
+        return (
+            cls._safe_decimal(cls._safe_float(raw, '佣金')),
+            cls._safe_decimal(cls._safe_float(raw, '印花税')),
+            cls._safe_decimal(cls._safe_float(raw, '过户费')),
+            cls._safe_decimal(cls._safe_float(raw, '其他杂费')),
+        )
+
     # ── 行解析 ──
 
     def _parse_row(self, raw: dict, line_num: int) -> Optional[StandardTransactionRecord]:
@@ -286,6 +309,10 @@ class THSStockParser(BaseImportParser):
         quantity = self._safe_float(raw, '成交数量')
         price = self._safe_float(raw, '成交均价')
         fee = self._safe_float(raw, 'fee')
+        # 费用拆分（#2137）：同花顺交割单固定带 佣金/印花税/过户费/其他杂费 四列
+        # （_preprocess_dataframe 已保留原列，仅另算合并值 df['fee']），逐类透传；
+        # 源文件缺列时（老模板 / 资金划转等无费用行）四列留 None = 未拆分。
+        fee_breakdown = self._parse_fee_breakdown(raw)
         # 金融口径收口（#1375 阶段二）：金额域直接进 Decimal，raw→float→Decimal 的桥接收敛为一处
         trade_amount = self._safe_decimal(self._safe_float(raw, '成交金额'))
         net_amount_raw = self._safe_decimal(self._safe_float(raw, '发生金额'))
@@ -305,6 +332,11 @@ class THSStockParser(BaseImportParser):
             shares=self._safe_decimal(quantity),
             nav=self._safe_decimal(price),
             fee=self._safe_decimal(fee),
+            # #2137：交割单费用明细逐类透传（缺列时为 None=未拆分）
+            fee_commission=fee_breakdown[0],
+            fee_stamp_duty=fee_breakdown[1],
+            fee_transfer_fee=fee_breakdown[2],
+            fee_other=fee_breakdown[3],
             transaction_id=contract_id,
             source=self.source,
             raw_op_type=op_type_cn,  # 保留原始中文操作类型

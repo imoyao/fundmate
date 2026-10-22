@@ -51,6 +51,51 @@ class TestStandardFundParser:
         assert r.account_name == ''
         assert r.amount == Decimal('10.00')
 
+    # ── 费用拆分（#2137，可选列）────────────────────────
+    def test_parse_fee_breakdown_columns(self, parser):
+        """模板带 佣金/印花税/过户费/其他费用 四列 → 逐类透传。"""
+        csv_content = (
+            '确认日期,基金代码,业务类型,金额,手续费,佣金,印花税,过户费,其他费用\n'
+            '2023-06-01,014330,申购,10.00,1.50,1.50,0.00,0.00,0.00\n'
+        )
+        records, errors = parser.parse(csv_content.encode('utf-8'))
+        assert len(records) == 1
+        assert len(errors) == 0
+        r = records[0]
+        assert r.fee == Decimal('1.50')
+        assert r.fee_commission == Decimal('1.50')
+        assert r.fee_stamp_duty == Decimal('0.00')
+        assert r.fee_transfer_fee == Decimal('0.00')
+        assert r.fee_other == Decimal('0.00')
+
+    def test_parse_without_breakdown_columns_stays_unsplit(self, parser):
+        """模板不带拆分列（存量模板）→ 四列全 None（未拆分），聚合 fee 不变。"""
+        csv_content = (
+            '确认日期,基金代码,业务类型,金额,手续费\n'
+            '2023-06-01,014330,申购,10.00,1.50\n'
+        )
+        records, errors = parser.parse(csv_content.encode('utf-8'))
+        assert len(records) == 1
+        r = records[0]
+        assert r.fee == Decimal('1.50')
+        assert r.fee_commission is None
+        assert r.fee_stamp_duty is None
+        assert r.fee_transfer_fee is None
+        assert r.fee_other is None
+
+    def test_parse_breakdown_sum_mismatch_falls_back_unsplit(self, parser):
+        """拆分明细与手续费对不上 → 整体回落未拆分（以聚合 fee 为权威，不撞模型不变量）。"""
+        csv_content = (
+            '确认日期,基金代码,业务类型,金额,手续费,佣金,印花税,过户费,其他费用\n'
+            '2023-06-01,014330,申购,10.00,1.50,1.00,0.20,0.10,0.05\n'
+        )
+        records, errors = parser.parse(csv_content.encode('utf-8'))
+        assert len(records) == 1
+        r = records[0]
+        assert r.fee == Decimal('1.50')
+        assert r.fee_commission is None
+        assert r.fee_other is None
+
     def test_parse_missing_required_column(self, parser):
         """缺少必填列"""
         csv_content = '确认日期,基金代码,业务类型\n2023-06-01,014330,申购\n'

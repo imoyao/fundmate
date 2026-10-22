@@ -57,6 +57,51 @@ class TestTHSStockParserRowLogic:
         # 买入金额 = abs(发生金额) = 165015
         assert record.amount == Decimal('165015.00')
 
+    # ── 费用拆分（#2137）────────────────────────────────
+    def test_parse_buy_carries_fee_breakdown(self, parser):
+        """交割单四列费用明细逐类透传（佣金/印花税/过户费/其他杂费）。"""
+        row = self._make_series()
+        record = parser._parse_row(row, line_num=2)
+        assert record is not None
+        assert record.fee_commission == Decimal('5.00')
+        assert record.fee_stamp_duty == Decimal('8.50')
+        assert record.fee_transfer_fee == Decimal('1.00')
+        assert record.fee_other == Decimal('0.50')
+
+    def test_parse_fee_breakdown_missing_column_falls_back_unsplit(self, parser):
+        """源文件缺任一费用列（老模板）→ 整体回落未拆分（四列全 None），不按 0 编。"""
+        row = self._make_series()
+        del row['过户费']
+        record = parser._parse_row(row, line_num=2)
+        assert record is not None
+        assert record.fee_commission is None
+        assert record.fee_stamp_duty is None
+        assert record.fee_transfer_fee is None
+        assert record.fee_other is None
+        # 聚合 fee 仍是合并值（存量行为不变）
+        assert record.fee == Decimal('15.00')
+
+    def test_parse_zero_fee_rows_keep_zero_breakdown(self, parser):
+        """分红等零费用行：四列在且均为 0（显式 0 ≠ 未拆分）。"""
+        row = self._make_series(
+            操作='红利入账',
+            成交数量='0',
+            成交均价='0',
+            成交金额='0',
+            发生金额='500.00',
+            佣金='0',
+            印花税='0',
+            过户费='0',
+            其他杂费='0',
+            fee='0',
+        )
+        record = parser._parse_row(row, line_num=2)
+        assert record is not None
+        assert record.fee_commission == Decimal('0')
+        assert record.fee_stamp_duty == Decimal('0')
+        assert record.fee_transfer_fee == Decimal('0')
+        assert record.fee_other == Decimal('0')
+
     def test_parse_sell(self, parser):
         """卖出：金额应为发生金额本身（到账金额）"""
         row = self._make_series(
@@ -255,3 +300,19 @@ class TestTHSStockParserIntegration:
         assert len(records) == 1
         assert records[0].fee == Decimal('15.00')
         assert records[0].transaction_id == '0000000123'
+
+    def test_parse_integration_carries_fee_breakdown(self, parser):
+        """#2137：完整 parse 流程（DataFrame 路径）费用四列明细幸存。"""
+        csv_content = (
+            '证券代码\t证券名称\t操作\t成交数量\t成交均价\t成交金额\t发生金额\t佣金\t印花税\t过户费\t其他杂费\t合同编号\t交收日期\n'
+            '600519\t测试股票\t证券买入\t100\t1650.00\t165000.00\t-165015.00\t5.00\t8.50\t1.00\t0.50\t123\t20220101\n'
+        )
+        records, errors = parser.parse(csv_content.encode('utf-8'))
+        assert len(errors) == 0
+        assert len(records) == 1
+        r = records[0]
+        assert r.fee == Decimal('15.00')
+        assert r.fee_commission == Decimal('5.00')
+        assert r.fee_stamp_duty == Decimal('8.50')
+        assert r.fee_transfer_fee == Decimal('1.00')
+        assert r.fee_other == Decimal('0.50')
