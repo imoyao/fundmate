@@ -119,7 +119,9 @@ DEFAULT_TARGETS = [code for code, _name in WIND_INDEX_TARGETS + TENCENT_INDEX_TA
 # 降级为 info 并单独计数（`stats['unlisted']`），失败明细仍可查。
 KNOWN_UNLISTED: frozenset = frozenset(
     {
-        '885002.WI',  # 万得平衡混合型基金指数（另见 #2476：fund_benchmark 的映射形同虚设）
+        '885002.WI',  # 万得平衡混合型基金指数（#2476：fund_benchmark 已把「平衡混合」降级为
+        #               「暂无基准」，故它不再是任何映射的目标；仍留在此清单是为了源侧收录后
+        #               能被 WIND_INDEX_TARGETS 自动捡起，届时再决定是否恢复映射）
         '885005.WI',  # 万得债券型基金指数
         '885006.WI',  # 万得混合债券型一级基金指数
         '885008.WI',  # 万得中长期纯债型基金指数

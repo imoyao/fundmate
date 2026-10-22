@@ -4,8 +4,9 @@
 重点不是「跑起来」，而是三条口径纪律：
 1. **偏债不能被「混合」抢走**——规则表的顺序就是判据本身，顺序错了它照样绿；
 2. **命不中一律 None，不猜**——拿沪深300 顶替债基是「看起来有数、其实没比」；
-3. **映射出的代码必须真的取得到序列**（在 `index_daily_job` 目标清单里），
-   否则映射等于「选了一个我们没数据的基准」。
+3. **映射出的代码必须真的取得到序列**：既要在 `index_daily_job` 目标清单里，
+   又不能在 `KNOWN_UNLISTED`（源侧确实未收录）里——否则映射等于「选了一个我们没数据的基准」
+   （#2476：只查前一条时，`885002.WI` 这种「清单里有、源侧零序列」的码能一路通过）。
 """
 
 import pytest
@@ -90,6 +91,17 @@ class TestNoGuessFallback:
         for t in ('', None, '   ', '某个新品类', '基金型'):
             assert resolve(t) is None
 
+    def test_balanced_hybrid_returns_none_not_a_wrong_direction_peer(self):
+        """平衡混合：显式不给基准，也不许被「混合」那条规则捡走（#2476）。
+
+        唯一语义对得上的同类基准 `885002.WI`（万得平衡混合型基金指数）源侧未收录、
+        库里 0 行；近义的 `885001.WI`（偏股混合）与 `885003.WI`（偏债混合）虽都有序列，
+        但权益中枢一高一低，换上去会让平衡混合长期「系统性跑输/跑赢」——
+        这是把「没有参照」换成「错方向的参照」，比不给更误导（见本文件头那段注释）。
+        """
+        for t in ('混合型-平衡', '平衡混合型', '混合型-平衡混合'):
+            assert resolve(t) is None, f'{t} 被映射到了一个错方向的基准'
+
     def test_none_is_not_confused_with_unavailable(self):
         """「没给基准」与「选了基准但取不到」是两种状态，返回值形态必须不同。"""
         assert resolve('货币型') is None
@@ -110,9 +122,28 @@ class TestVarietyFallback:
 
 
 class TestTargetsConsistency:
-    """映射出的基准代码必须真的在 `index_daily` 目标清单里（否则是「没数据的基准」）。"""
+    """映射出的基准代码必须真能取到序列（否则是「选了一个我们没数据的基准」）。
 
-    def test_all_mapped_codes_are_declared_or_marked_unavailable(self):
+    两层判据（#2476）：
+    1. 代码必须在 `index_daily_job` 的目标清单里（#167 的原判据）；
+    2. **且不得在 `KNOWN_UNLISTED`（源侧确实未收录）里**。
+
+    只做 1 不做 2 就是 #2476 的成因：`885002.WI` 一直在目标清单里，但源侧零序列，
+    于是「清单里有」看起来等于「有数据」，而映射照样算不出任何参照。
+    """
+
+    @staticmethod
+    def _mapped_codes() -> set:
+        """从**规则表本身**取全部被映射的代码，不手写类型名清单。
+
+        手写清单会随规则表漂移——老用例只挑了 5 个类型名（股票/偏股/灵活/纯债/偏债），
+        「平衡」那条从未被执行过，这就是 #2476 能长期绿着的原因。
+        """
+        from app.services.fund_benchmark import _RULES
+
+        return {code for _rule, _needles, code in _RULES if code}
+
+    def test_every_rule_target_is_declared(self):
         from app.services.sync.jobs.index_daily_job import (
             CSINDEX_INDEX_TARGETS,
             TENCENT_INDEX_TARGETS,
@@ -120,15 +151,22 @@ class TestTargetsConsistency:
         )
 
         declared = {c for c, _ in WIND_INDEX_TARGETS + TENCENT_INDEX_TARGETS + CSINDEX_INDEX_TARGETS}
-        # 逐个类型名跑一遍，收集所有会被映射出来的代码
-        mapped = set()
-        for t in ('股票型', '混合型-偏股', '混合型-灵活', '债券型-长期纯债', '混合型-偏债'):
-            choice = resolve(t)
-            assert choice is not None
-            mapped.add(choice.code)
-        missing = mapped - declared
-        # 允许「已登记但源侧未收录」的基准（resolve 会标 unavailable），其余必须真在清单里
-        assert missing <= {BENCH_BOND_FUND}, f'映射出了未登记为同步目标的基准：{missing}'
+        assert self._mapped_codes() <= declared, '映射出了未登记为同步目标的基准'
+
+    def test_no_rule_targets_a_known_unlisted_code(self):
+        from app.services.sync.jobs.index_daily_job import KNOWN_UNLISTED
+
+        offenders = self._mapped_codes() & set(KNOWN_UNLISTED)
+        assert not offenders, (
+            f'映射指向源侧未收录的代码：{sorted(offenders)}；'
+            '这类基准永远取不到序列，应改为 None（前端「暂无基准」，不猜）'
+        )
+
+    def test_every_mapped_code_has_a_label(self):
+        """`BenchmarkChoice.name` 由 `BENCHMARK_LABELS` 取；漏一个就展示成裸代码。"""
+        from app.services.fund_benchmark import BENCHMARK_LABELS
+
+        assert self._mapped_codes() <= set(BENCHMARK_LABELS)
 
 
 def test_load_index_points_reads_market_domain():
