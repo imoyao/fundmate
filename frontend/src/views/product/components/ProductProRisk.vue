@@ -9,6 +9,11 @@ import {
 import { formatAmount } from "@/utils/currency";
 import { biasColorClass } from "@/utils/temperatureFormat";
 import { BIAS_HIGH_THRESHOLD } from "@/constants/temperature";
+import ProductProEntitlementNotice from "./ProductProEntitlementNotice.vue";
+import {
+  classifyProPanelFailure,
+  type ProPanelFailure
+} from "./proEntitlement";
 
 /**
  * Pro 模块二「偏离与风险控制」——风险指标内容（#994 Phase 2）。
@@ -32,7 +37,9 @@ import { BIAS_HIGH_THRESHOLD } from "@/constants/temperature";
  *    用户换窗口能对上账。
  *
  * 挂载：ProductProSection 在 pro 状态位 `risk.available=true` 时渲染，
- * 挂载即取数；接口失败整块降级，不阻塞 Pro 卡内其余内容。
+ * 挂载即取数；失败只降级本块，不阻塞 Pro 卡内其余内容。失败分两种态
+ * （见 `proEntitlement.ts`）：家庭未开通回 `403 + error_code=1007` ⇒ 渲染权益未开通态；
+ * 其余（超时 / 5xx）才说「暂时取不到」。
  */
 const props = defineProps<{
   /** 产品代码（与状态位同源） */
@@ -44,7 +51,8 @@ const props = defineProps<{
 const DASH = "—";
 
 const loading = ref(false);
-const failed = ref(false);
+/** 失败态三选一（`none` / `entitlement` / `error`），判据见 `proEntitlement.ts` */
+const failure = ref<ProPanelFailure>("none");
 const data = ref<ProRiskResult | null>(null);
 
 const bias = computed<ProRiskBias | null>(() => data.value?.bias ?? null);
@@ -116,9 +124,9 @@ const footnote = computed(() => {
   return parts.join(" · ");
 });
 
-/** 三块全不可用且无持仓 → 引导文案（不是错误态） */
+/** 三块全不可用且无持仓 → 引导文案（不是错误态，也不是权益态） */
 const nothingAvailable = computed(() => {
-  if (failed.value || loading.value) return false;
+  if (failure.value !== "none" || loading.value) return false;
   return (
     bias.value?.available !== true &&
     risk.value?.available !== true &&
@@ -129,14 +137,15 @@ const nothingAvailable = computed(() => {
 async function load() {
   if (!props.symbol) return;
   loading.value = true;
-  failed.value = false;
+  failure.value = "none";
   data.value = null;
   try {
     const res = await fetchProRisk(props.symbol, props.assetType);
     data.value = res.data;
-  } catch {
-    // 接口失败：整块降级，不阻塞 Pro 卡内其余内容（详情页各区块独立降级）
-    failed.value = true;
+  } catch (error) {
+    // 权益未开通（403 + error_code=1007）≠ 故障：前者讲边界、后者讲「稍后再试」。
+    // 两种态都只降级本块，不阻塞 Pro 卡内其余内容（详情页各区块独立降级）
+    failure.value = classifyProPanelFailure(error);
   } finally {
     loading.value = false;
   }
@@ -149,7 +158,12 @@ watch(() => props.symbol, load, { immediate: true });
   <section class="pro-risk">
     <p v-if="loading" class="pro-risk__hint">正在计算乖离率与风险指标…</p>
 
-    <p v-else-if="failed" class="pro-risk__hint">
+    <ProductProEntitlementNotice
+      v-else-if="failure === 'entitlement'"
+      subject="风险指标"
+    />
+
+    <p v-else-if="failure === 'error'" class="pro-risk__hint">
       风险指标暂时取不到，稍后再来看看
     </p>
 

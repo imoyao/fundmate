@@ -9,6 +9,7 @@ from loguru import logger
 from sqlalchemy import desc, func, or_
 from sqlalchemy.orm import Session
 
+from app.core.asset_types import MAJOR_CATEGORY_CASH
 from app.core.constants import ALLOCATION_LABELS, LEDGER_TYPE_LABELS, TYPE_LABELS
 from app.core.money import Money
 from app.core.time_utils import today_shanghai
@@ -282,7 +283,7 @@ class LedgerService:
             db.query(func.coalesce(func.sum(Asset.amount), 0))
             .filter(
                 Asset.ledger_id == cash_ledger.id,
-                Asset.major_category == 'current',
+                Asset.major_category == MAJOR_CATEGORY_CASH,
             )
             .scalar()
         )
@@ -336,7 +337,7 @@ class LedgerService:
         - 货基持仓市值（positions 里有持仓的部分，含净值换算）；
         - 孤儿货基 / 逆回购流水净额（position_service 对这两类只建孤立流水，
           不建持仓，需按流水净额并入，否则会漏计）；
-        - 账户内现金（Asset.major_category='current'）。
+        - 账户内现金（Asset.major_category='cash'）。
 
         债券基金**不计入**：它有净值波动、XIRR 也未排除，属中低风险投资而非现金。
 
@@ -348,7 +349,7 @@ class LedgerService:
         - `orphan_income_amount`：孤儿流水里的渠道**收益桶**（#863 D1）——它同样不建持仓，
           但**已计入家庭总资产**。⚠️ 它**不在** `cash_like_amount` 的加总里（合计口径
           维持 #1137 原样不变）；列出来是因为「账外类现金对总资产的贡献」= 本金 + 收益。
-        - `account_cash_amount`：账户现金（`Asset.major_category='current'`）。
+        - `account_cash_amount`：账户现金（`Asset.major_category='cash'`）。
         - `cash_like_breakdown`：账外孤儿流水按**产品**归组的明细，供页面解释
           「这笔钱是什么、为什么不在持仓里」。
         """
@@ -356,10 +357,10 @@ class LedgerService:
         # 孤儿流水净额（分）→ 元
         orphan_net_cents = orphan_money_fund_totals_by_ledger(db, family_id)[0].get(ledger_id, 0)
         orphan_amount = Money.cents_to_yuan(orphan_net_cents)
-        # 账户内现金（current 类资产，分）→ 元
+        # 账户内现金（cash 类资产，分）→ 元
         cash_cents = (
             db.query(func.coalesce(func.sum(Asset.amount), 0))
-            .filter(Asset.ledger_id == ledger_id, Asset.major_category == 'current')
+            .filter(Asset.ledger_id == ledger_id, Asset.major_category == MAJOR_CATEGORY_CASH)
             .scalar()
             or 0
         )
@@ -394,7 +395,7 @@ class LedgerService:
         ⚠️ 「投资资产」只能减**持仓内的**类现金（货基/逆回购持仓市值）——
         只有它是 `total_market_value` 的子集，减完仍是一个真实存在的量。
 
-        「账外类现金」= 孤儿货基/逆回购流水净额 + 账户现金（major_category='current'）。
+        「账外类现金」= 孤儿货基/逆回购流水净额 + 账户现金（major_category='cash'）。
         这类**不建持仓**、不进 `total_market_value`，从总市值里扣掉等于减了两遍。
         真机实证：账户「同花顺——银河」（id=12，stock）孤儿货基流水净额 476,951 元，
         而持仓总市值仅 296,042 元 —— 旧式 `总市值 - cash_like_amount` 算出
@@ -422,7 +423,7 @@ class LedgerService:
         # 1. 现金/活期余额
         current_amount = (
             db.query(func.coalesce(func.sum(Asset.amount), 0))
-            .filter(Asset.ledger_id == ledger_id, Asset.major_category == 'current')
+            .filter(Asset.ledger_id == ledger_id, Asset.major_category == MAJOR_CATEGORY_CASH)
             .scalar()
         )
         # 2. 理财/基金持仓

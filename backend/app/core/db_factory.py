@@ -19,6 +19,7 @@ FLASK_DEBUG 仅控制调试器，不再混用作环境开关。
 from __future__ import annotations
 
 import os
+import re
 import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -109,6 +110,159 @@ def _development_user_url() -> str:
     return os.getenv('DEV_USER_DATABASE_URL') or os.getenv('DEV_DATABASE_URL') or _DEFAULT_DEV_DB
 
 
+def turso_auth_token(url: str) -> str | None:
+    """取出 Turso 连接串里的 ``authToken``；没有（或为空串）返回 ``None``。
+
+    为什么值得单独一个函数：缺 token 的 Turso 连接串**必然连不上**，
+    而服务端的反应是 308 / 401 这类**看不出「压根没配 token」**的状态码——
+    排查时极易被带偏。#1490 实测：每日调度连续 25 天全红，根因就是仓库 secret
+    里的连接串只有 host、没有 authToken；而当时的诊断文案写的是
+    「host 被服务端重定向（旧地址 / 区域变更）」，把排查引到了错误方向，
+    白白绕了一圈（上游同族：dependabot 坏锁那次的「空 ≠ 没拿到」）。
+    """
+    parsed = urllib.parse.urlparse(url)
+    qp = urllib.parse.parse_qs(parsed.query)
+    token = qp.get('authToken') or qp.get('auth_token')
+    if not token or not token[0]:
+        return None
+    return token[0]
+
+
+#: 本机地址：本地 sqld 走明文 http 是正常用法，不该被强制 https。
+_LOCAL_HOSTS = ('localhost', '127.0.0.1', '::1', '0.0.0.0')
+
+
+def _needs_secure_transport(scheme: str, netloc: str) -> bool:
+    """Turso **云端**连接是否必须走 https。
+
+    为什么必须显式 secure=true：`sqlalchemy-libsql` 0.2.0 的方言默认
+    ``secure=False``，连接串里没有 ``secure=true`` 时，客户端会用**明文 http**
+    去连 Turso；而 Turso 边缘对明文请求一律回 **308 Permanent Redirect**
+    （Location 指向同路径的 https），客户端不自动跟随 ⇒ 每次连接都失败。
+
+    #1490 实测：每日调度自 2026-09-04 起 **25 次全红、零成功**，报错是
+    ``Hrana: api error: status=308 Permanent Redirect, body=Redirecting``——
+    看上去像「host 被服务端重定向」（原诊断文案正是这么写的，把排查带偏了），
+    实际只差一个 ``secure=true``。实测对照：
+    ``http://<host>/v3/pipeline`` → 308 → ``https://<host>/v3/pipeline`` → 200。
+
+    本机 sqld（localhost/127.0.0.1）走明文 http 是正常用法，不在此列。
+    """
+    host = netloc.split('@')[-1].split(':')[0].lower()
+    if host in _LOCAL_HOSTS:
+        return False
+    if scheme in ('turso', 'libsql'):
+        return True
+    return host.endswith('.turso.io')
+
+
+def redact_db_url(url: str) -> str:
+    """把连接串里的 token 参数打码——给日志用。
+
+    token 出现在日志里就等于泄露：它同时是数据库凭证与（历史上）可读数据的钥匙。
+    """
+    return re.sub(r'(auth[Tt]oken)=[^&\s]+', r'\1=***', url)
+
+
+# ── Supabase 直连 → pooler 端点改写（#2460 / #2462）────────────────────────
+#
+# 事实（实测，非推断）：Supabase 新项目的**直连**端点 `db.<ref>.supabase.co:5432`
+# 只给 IPv6；GitHub Actions runner 没有 IPv6 出口 ⇒ libpq 报
+# `Network is unreachable`，每日调度从 2026-09 起整轮跑不起来（#1490）。
+# pooler（Supavisor）端点有 A 记录，且**用同一份 DB 密码**（用户名改为
+# `postgres.<ref>`），因此不需要改 secret、更不需要把密码写进仓库——
+# 只要给出端点，本模块就地改写 URL。
+#
+# 实测（2026-10-22，12 个候选端点逐个连、用**故意错误的**密码区分
+# 「租户不在该 region」与「租户在、仅密码错」）：
+#   只有 `aws-1-ap-southeast-1.pooler.supabase.com` 返回
+#   `password authentication failed`（= 租户存在），其余 `aws-0-*` / `aws-1-*`
+#   一律 `tenant/user postgres.<ref> not found`。#2462 卡面「13 个 region 全查不到
+#   该租户」的结论是**错的**——它只试了 `aws-0-` 前缀，而本项目在 `aws-1-`。
+#
+# 端口：5432 = session 模式（连接与后端一一绑定，语义最接近直连），
+# 6543 = transaction 模式（每条语句可能换后端连接）。本仓是一次性批处理、
+# 短事务、无 LISTEN/临时表（已全仓 grep 核实），故默认 **5432 session**，
+# 少一层语义差异；需要压缩连接数时用 `SUPABASE_POOLER_PORT=6543` 覆盖。
+_SUPABASE_DIRECT_SUFFIX = '.supabase.co'
+_SUPABASE_DIRECT_PREFIX = 'db.'
+POOLER_HOST_ENV = 'SUPABASE_POOLER_HOST'
+POOLER_PORT_ENV = 'SUPABASE_POOLER_PORT'
+POOLER_DEFAULT_PORT = 5432
+
+
+def rewrite_supabase_direct_to_pooler(
+    url: str,
+    pooler_host: str | None = None,
+    pooler_port: int | str | None = None,
+) -> str:
+    """把 Supabase **直连**串改写为 **pooler** 串；不满足条件时原样返回。
+
+    触发条件（三条全中才改写，避免误伤其它库）：
+
+    1. host 形如 `db.<ref>.supabase.co`（直连端点）；已经是 pooler 的串**幂等**不动；
+    2. 给出了 pooler 端点：参数优先，其次环境变量 `SUPABASE_POOLER_HOST`；
+    3. 端口：参数 → `SUPABASE_POOLER_PORT` → 默认 5432（session 模式）。
+
+    改写内容：host → pooler 端点、端口 → pooler 端口、**用户名** → `postgres.<ref>`
+    （pooler 要求租户限定用户名）；**密码、库名、scheme 与全部 query 参数原样保留**。
+
+    为什么用环境变量而不是把端点写死：同一份代码要能在「有 IPv6 的本机直连」与
+    「无 IPv6 出口的 CI 走 pooler」两种环境下都正确，端点属于**部署事实**而非代码事实
+    （将来迁 region、换库都会变）。
+    """
+    if not url:
+        return url
+
+    parsed = urllib.parse.urlparse(url)
+    host = (parsed.hostname or '').lower()
+    if not (host.startswith(_SUPABASE_DIRECT_PREFIX) and host.endswith(_SUPABASE_DIRECT_SUFFIX)):
+        return url
+
+    target_host = (pooler_host if pooler_host is not None else os.getenv(POOLER_HOST_ENV, '')).strip()
+    if not target_host:
+        return url
+
+    raw_port = pooler_port if pooler_port is not None else os.getenv(POOLER_PORT_ENV, '')
+    port = POOLER_DEFAULT_PORT
+    if str(raw_port).strip():
+        try:
+            port = int(str(raw_port).strip())
+        except ValueError:
+            logger.warning(f'{POOLER_PORT_ENV}={raw_port!r} 不是合法端口，回退 {POOLER_DEFAULT_PORT}（session 模式）')
+
+    ref = host[len(_SUPABASE_DIRECT_PREFIX) : -len(_SUPABASE_DIRECT_SUFFIX)]
+    user = f'postgres.{ref}'
+    # 密码按**原始百分号编码**原样搬运：`urlparse().password` 在 3.12 返回的仍是编码后的
+    # 文本，若再 quote 一次会二次编码（`p%40ss` → `p%2540ss`），连库时报密码错，
+    # 而报错点离真因极远。故这里只改 user 段，密码段一个字节都不碰。
+    netloc = parsed.netloc
+    at = netloc.rfind('@')
+    userinfo = netloc[:at] if at >= 0 else ''
+    raw_password = userinfo.split(':', 1)[1] if ':' in userinfo else None
+    if raw_password is not None:
+        netloc = f'{user}:{raw_password}@{target_host}:{port}'
+    else:
+        netloc = f'{user}@{target_host}:{port}'
+
+    rewritten = urllib.parse.urlunparse(
+        (parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment)
+    )
+    logger.info(f'Supabase 直连端点 IPv6-only，已改写为 pooler：{host} → {target_host}:{port}（#2460）')
+    return rewritten
+
+
+def normalized_app_db_url_preview(env: str | None = None) -> str:
+    """归一后的 market 域连接串（token 已打码）——给启动日志看「实际会用哪条 URL 连」。
+
+    #1490：这条日志的价值是让「实际连的是 http 还是 https」一眼可见——
+    明文 http 连 Turso 会被服务端 308 跳 https 而失败（见 _needs_secure_transport）。
+    """
+    url = DatabaseConfig.for_app(env).url
+    normalized, _ = _normalize_db_url(url)
+    return redact_db_url(normalized)
+
+
 def _normalize_db_url(url: str) -> tuple[str, Dict]:
     """把 Turso / libSQL 连接串归一为 sqlalchemy-libsql 可解析的 scheme。
 
@@ -120,32 +274,47 @@ def _normalize_db_url(url: str) -> tuple[str, Dict]:
     统一重写为 `sqlite+libsql://`，并把 Turso 下发的 `authToken` 从 query
     提取到 connect_args（libsql 驱动要求以 connect arg 传入，而非 URL query）。
 
+    另补一条 **`secure=true`**（#1490）：方言默认 `secure=False` 会让客户端
+    走明文 http，Turso 边缘回 308 跳 https ⇒ 每天必挂。Turso 云端一律强制 https；
+    本机 sqld 不动；URL 里显式写了 `secure=` 的按它说的算。
+
     对 SQLite / Postgres 等非 Turso URL 原样返回，connect_args 为空字典。
-    本函数幂等：已是 `sqlite+libsql://` 的 URL 直接透传。
+    本函数幂等：已是 `sqlite+libsql://` 的 URL 只补 `secure`（若缺），其余透传。
     """
     extra_connect_args: Dict = {}
     parsed = urllib.parse.urlparse(url)
     scheme = parsed.scheme.lower()
+    original_url = url
 
     # 判定是否 Turso / libSQL 连接（裸 turso://、libsql://、或 https://*.turso.io）
     is_turso = scheme in ('turso', 'libsql') or (scheme == 'https' and 'turso' in parsed.netloc.lower())
-    if not is_turso:
+    # 已归一过的 sqlite+libsql://：幂等路径，只允许补 secure
+    is_normalized = scheme == 'sqlite+libsql' and bool(parsed.netloc)
+    if not (is_turso or is_normalized):
+        return url, extra_connect_args
+
+    qp = urllib.parse.parse_qs(parsed.query)
+    host_part = parsed.netloc + parsed.path
+
+    if is_normalized:
+        if 'secure' not in qp and _needs_secure_transport(scheme, parsed.netloc):
+            qp['secure'] = ['true']
+            return 'sqlite+libsql://' + host_part + '?' + urllib.parse.urlencode(qp, doseq=True), extra_connect_args
         return url, extra_connect_args
 
     # scheme 归一为 sqlalchemy-libsql 认识的 `sqlite+libsql://`
-    host_part = parsed.netloc + parsed.path
     url = 'sqlite+libsql://' + host_part
-    if parsed.query:
-        # 提取 authToken 到 connect_args，避免 URL 上残留（libsql 要求 connect arg）
-        qp = urllib.parse.parse_qs(parsed.query)
-        token = qp.get('authToken') or qp.get('auth_token')
-        if token:
-            extra_connect_args['auth_token'] = token[0]
-        # 非认证参数（如 region=...）一律保留：#1491 评审——原实现只在存在 authToken 时
-        # 才把剩余 query 拼回，无 token 的 URL 上其余查询参数会被整体丢弃
-        remaining = {k: v for k, v in qp.items() if k not in ('authToken', 'auth_token')}
-        if remaining:
-            url += '?' + urllib.parse.urlencode(remaining, doseq=True)
+    # 提取 authToken 到 connect_args，避免 URL 上残留（libsql 要求 connect arg）
+    token = turso_auth_token(original_url)
+    if token:
+        extra_connect_args['auth_token'] = token
+    # 非认证参数（如 region=...）一律保留：#1491 评审——原实现只在存在 authToken 时
+    # 才把剩余 query 拼回，无 token 的 URL 上其余查询参数会被整体丢弃
+    remaining = {k: v for k, v in qp.items() if k not in ('authToken', 'auth_token')}
+    if 'secure' not in remaining and _needs_secure_transport(scheme, parsed.netloc):
+        remaining['secure'] = ['true']
+    if remaining:
+        url += '?' + urllib.parse.urlencode(remaining, doseq=True)
     return url, extra_connect_args
 
 
@@ -233,6 +402,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'advisor_adjust_histories': DOMAIN_MARKET,  # 投顾组合历史调仓明细（#1167）
     'fund_holdings': DOMAIN_MARKET,  # 基金持仓明细（#870：报告期快照，前十大与全量并存）
     'fund_industry_allocs': DOMAIN_MARKET,  # 基金行业配置（#870：csrc/gics 双体系分区）
+    'fund_style_exposures': DOMAIN_MARKET,  # 基金风格箱暴露（#2478：韭圈儿 8 分类，月度，公开无家庭字段）
     'convertible_bond_terms': DOMAIN_MARKET,  # 可转债条款（#1285/#1393：强赎/回售/转股）
     'daily_worth': DOMAIN_MARKET,  # 基金净值（最大体积表）
     'fund_valuation_daily': DOMAIN_MARKET,  # 场外基金收盘估值定格（#2141）
@@ -251,6 +421,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'market_composites': DOMAIN_MARKET,
     'market_multi_items': DOMAIN_MARKET,
     'sync_logs': DOMAIN_MARKET,  # 系统同步审计（随市场同步任务）
+    'mcp_call_logs': DOMAIN_MARKET,  # MCP 调用审计（与 sync_logs 同域、同写方，S2 #2490）
     # ── user 域（Supabase）：含 family_id/user_id 的用户私有数据 ──
     'families': DOMAIN_USER,
     'users': DOMAIN_USER,
@@ -462,6 +633,9 @@ class DatabaseConfig:
         1. 显式配置 SUPABASE_DATABASE_URL → 真 Supabase（生产 / 最终验证）。
            注：development 下需同时设 DEV_FORCE_SUPABASE=1 才走本分支（见实现），
            否则仍按第 2 条本地回退。
+           注：直连端点 `db.<ref>.supabase.co` 是 **IPv6-only**；若同时配置了
+           `SUPABASE_POOLER_HOST`，本方法会把 URL 就地改写为 pooler（IPv4）端点
+           —— 见 `rewrite_supabase_direct_to_pooler()`（#2460 / #2462）。
         2. development 且未走真库：显式配置 DEV_USER_DATABASE_URL → 独立
            本地文件（本地双库模拟）；否则与 market 域共用 DEV_DATABASE_URL 同库
            （默认单库，本地既有 invest.db 数据立即可见，零迁移）。
@@ -476,6 +650,10 @@ class DatabaseConfig:
             return cls(name=DOMAIN_USER, url=url, connect_args=_sqlite_connect_args(url), pool_pre_ping=False)
         url = os.getenv('SUPABASE_DATABASE_URL')
         if url:
+            # 直连端点（db.<ref>.supabase.co:5432）是 IPv6-only，无 IPv6 出口的环境
+            # （CI runner 即此形态）连不上 ⇒ 配了 pooler 端点就就地改写（#2460 / #2462）。
+            # 未配 `SUPABASE_POOLER_HOST` 时零行为变化（本机有 IPv6 时直连仍可用）。
+            url = rewrite_supabase_direct_to_pooler(url)
             # Postgres 不需要 SQLite 专用 connect_args
             return cls(name=DOMAIN_USER, url=url, connect_args={}, pool_pre_ping=True)
 

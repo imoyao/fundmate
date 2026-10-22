@@ -931,8 +931,12 @@ class AkshareAdapter(DataSourceAdapter):
                 )
             return out
         except Exception as e:
+            # 不降级成空列表（#1179）：「空」与「没拿到」必须区分得开。
+            # 旧写法把上游腐烂吞成 []，job 于是照常报 success、数据一条不进，
+            # 只能靠人翻日志发现（#1179 评论实测：`~50 fetched` 全失败仍 success）。
+            # 异常交回 job 层计数并由它决定终态（全失败 → failed）。
             self.logger.error(f'获取股票 {symbol} 分红失败: {e}')
-            return []
+            raise
 
     def fetch_fund_dividend(self, fund_code: str) -> List[dict]:
         """基金分红送配详情（ak.fund_open_fund_info_em，indicator='分红送配详情'）。
@@ -973,8 +977,10 @@ class AkshareAdapter(DataSourceAdapter):
                 )
             return out
         except Exception as e:
+            # 同上（#1179）：空表 = 这只基金确实没分红过；抛异常 = 接口坏了。
+            # 只有前者可以当成功，后者必须让 job 失败。
             self.logger.error(f'获取基金 {fund_code} 分红失败: {e}')
-            return []
+            raise
 
     def fetch_fund_split(self, fund_code: str) -> List[dict]:
         """基金拆分（ak.fund_open_fund_info_em，indicator='基金拆分'）。
@@ -1006,8 +1012,9 @@ class AkshareAdapter(DataSourceAdapter):
                 )
             return out
         except Exception as e:
+            # 同上（#1179）：拆分与分红同源（fund_open_fund_info_em），一起坏。
             self.logger.error(f'获取基金 {fund_code} 拆分失败: {e}')
-            return []
+            raise
 
     def fetch_stock_rights_issue(self, symbols: Optional[List[str]] = None) -> List[dict]:
         """配股方案（ak.stock_pg_em，单次返回全市场全历史）。
@@ -1055,8 +1062,10 @@ class AkshareAdapter(DataSourceAdapter):
                 )
             return out
         except Exception as e:
+            # 同上（#1179）：配股是全市场单次调用，失败会影响所有目标的配股事件，
+            # 不能被吞成「本轮没有配股方案」。
             self.logger.error(f'获取配股方案失败: {e}')
-            return []
+            raise
 
     # ── 基金规模 / 近似股票仓位（#1286 数据底座，复用 akshare 现成接口） ──
 

@@ -37,7 +37,7 @@ from loguru import logger
 
 from app.domains.indices.models import IndexDaily
 from app.services.adapters.direct_feeds import fetch_daily_csindex, fetch_daily_tencent
-from app.services.job_base import SyncJob
+from app.services.job_base import JobStatus, SyncJob
 
 # 万得系指数目标清单（#275 定稿）：韭圈儿 gu_code 原生形态（.WI 后缀）。
 # 来源：#275 2022 年评论梳理的「适用性广泛」万得基金系列指数 + 万得全A；
@@ -107,6 +107,29 @@ CSINDEX_INDEX_TARGETS: List[tuple] = [
 
 DEFAULT_TARGETS = [code for code, _name in WIND_INDEX_TARGETS + TENCENT_INDEX_TARGETS + CSINDEX_INDEX_TARGETS]
 
+# ── 源侧「确实未收录」的代码清单（#2475）──────────────────────────────────────
+# 判据不是「猜」，是 2026-10-21 逐码实测：韭圈儿 fundindex/detail 返回 HTTP 200 +
+# `code=0`，但 `data={}` / `tb_data.x_data=None` / `series` 长度 0，且 index-basic 带
+# `disabled=True`；同时 `index_daily` 表这 8 码**一行历史都没有**，
+# `sync_logs` 自 2026-10-08 起每天同样的 8 条 error_detail。
+#
+# 保留在 WIND_INDEX_TARGETS 里是刻意的：源侧收录后自动生效，无需改代码。
+# 但它们不该每天记一条 error —— 每天 8 条「假故障」会把 `errors` 变成噪音，
+# 真出故障时没人看得出（红灯一旦常态化就没人看）。
+# 降级为 info 并单独计数（`stats['unlisted']`），失败明细仍可查。
+KNOWN_UNLISTED: frozenset = frozenset(
+    {
+        '885002.WI',  # 万得平衡混合型基金指数（另见 #2476：fund_benchmark 的映射形同虚设）
+        '885005.WI',  # 万得债券型基金指数
+        '885006.WI',  # 万得混合债券型一级基金指数
+        '885008.WI',  # 万得中长期纯债型基金指数
+        '885072.WI',  # 万得混合型FOF指数
+        '885073.WI',  # 万得偏股混合型FOF指数
+        '885074.WI',  # 万得平衡混合型FOF指数
+        '885075.WI',  # 万得偏债混合型FOF指数
+    }
+)
+
 
 class IndexDailySyncJob(SyncJob):
     batch_size = 5  # 每目标 2 个 HTTP 请求，batch 无需大
@@ -119,11 +142,45 @@ class IndexDailySyncJob(SyncJob):
     def get_name(self) -> str:
         return 'index_daily'
 
+    @staticmethod
+    def _resolve_targets(targets: List[str]) -> List[str]:
+        """`'__full__'` 是编排器的全量占位符，不是真实代码；空清单即取默认全清单。"""
+        return [t for t in targets if t != '__full__'] or DEFAULT_TARGETS
+
+    def _count_total(self, targets: Optional[List[str]], fetched: int) -> int:
+        """分母 = 本次真的会去试的代码数（`'__full__'` 展开；`targets=None` 也取默认全清单）。
+
+        未收录的 8 个码照样算进分母（「试过了，源侧没有」是事实），但不进
+        `failed` / `errors` —— 它们不是故障（#2475）。
+        """
+        return len(self._resolve_targets(targets or []))
+
+    def _decide_final_status(self) -> JobStatus:
+        """**全部**目标都失败才判 FAILED；部分失败保留 SUCCESS（#2475）。
+
+        这是基类兜底的**更严口径**，保留覆盖的理由：本 job 的 `_count_total` 把源侧
+        未收录、因而不记 failed 的代码也计进分母（`total > 可失败目标数`），于是基类那句
+        `failed >= total` 在这里永远不会成立 —— 若删掉本方法，「30 个已收录目标全挂 +
+        8 个未收录」会退回假绿。基类口径见 `SyncJob._decide_final_status`（#2495）。
+
+        为什么部分失败不红：本 job 每天跑，30+ 个目标里偶发单点抖动是常态，
+        「有一个挂掉就红」会让它天天红；红灯常态化的代价是真故障被淹没
+        （同族教训见 #1179 / #171）。失败明细仍通过 `stats['failed']` 与 `errors`
+        落在 sync_logs 里，排查时看得见。
+
+        为什么全部失败必须红：那是数据源整体不可用，与「今天没有新数据」是两件事
+        —— 后者是本 job 合法状态（非交易日 / 源侧未收录），前者必须有人知道。
+        """
+        failed = self._failed_target_count()
+        if failed and not self.stats.get('success'):
+            self.logger.error(f'{failed} 个指数日线目标全部失败，判定为 FAILED')
+            return JobStatus.FAILED
+        return JobStatus.SUCCESS
+
     # ── 抓取 ──
 
     def _fetch_data(self, full_sync: bool, targets: List[str]) -> List[dict]:
-        # '__full__' 是编排器的全量占位符，不是真实代码
-        codes = [t for t in targets if t != '__full__'] or DEFAULT_TARGETS
+        codes = self._resolve_targets(targets)
         names = dict(WIND_INDEX_TARGETS + TENCENT_INDEX_TARGETS + CSINDEX_INDEX_TARGETS)
         out = []
         for code in codes:
@@ -147,6 +204,12 @@ class IndexDailySyncJob(SyncJob):
                         }
                     )
                 except Exception as e:
+                    if code in KNOWN_UNLISTED:
+                        # 源侧确实没有这只（#2475 实测 disabled=True / data={}）：
+                        # 不是故障，降级 info 且不进 errors，只计数
+                        self.stats['unlisted'] = self.stats.get('unlisted', 0) + 1
+                        self.logger.info(f'指数日线 {code} 源侧未收录（已知），跳过: {e}')
+                        continue
                     # 单目标失败不阻断其他目标（best-effort 数据源，fallback 见 #275）
                     self.logger.warning(f'指数日线 {code} 获取失败: {e}')
                     # #1833：记 errors —— 否则 targets 非空时基类一律记 success，

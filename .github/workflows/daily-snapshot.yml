@@ -13,16 +13,36 @@
 #     会以退出码 1 结束，本 workflow 随之标红，并由末尾「失败告警」步骤自动开/更新 issue。
 #   - 失败审计：每个 job 的结果已写入 SyncLog（Orchestrator._save_sync_log），可在库内追溯。
 #
+# ── #1490 修复要点（2026-10-21）──
+#   0) **根因**：market 域走 Turso，连接串**必须带 authToken**。此前本 workflow 只注入
+#      `DATABASE_URL`，而那条 secret 里的连接串只有 host、没有 `?authToken=` ⇒
+#      服务端回 308，调度自 2026-09-04 起 **25 次全红、零成功**（数据新鲜度断了一个多月）。
+#      现在同时注入 `TURSO_DATABASE_URL`（production 下**优先**用它，见
+#      `backend/app/core/db_factory.py::resolve_app_db`），并在 secrets 预检里
+#      提前判定「缺 authToken」——一分钟内失败，而不是等装完依赖再撞一个看不懂的 308。
+#
 # ── #1434 修复要点 ──
 #   1) 调度分支：`schedule` 事件只读取**默认分支（main）**上的本文件，而 main 长期落后 dev。
 #      故 workflow 定义仍从 main 读取，但 **checkout 显式取 `SCHEDULER_REF`（默认 dev）**，
 #      保证实际执行的是 dev 代码，而不是 main 上的旧代码。
+#      手动触发可用 `inputs.scheduler_ref` 覆盖（#2460）：验证**未合并**的修复时必须填功能
+#      分支名——否则 checkout 的仍是 dev 旧代码，跑一遍也证明不了修复有效。
 #   2) secrets 预检：必需 secrets 缺失时**立即失败并列出缺失项**。此前 workflow 把不存在的
 #      secret 展开成**空串**注入 env，覆盖了代码里的默认值 → `create_engine('')` →
 #      `sqlalchemy.exc.ArgumentError`，启动即崩且真因不可见（连续 7 天全红无人知）。
 #   3) 失败告警：job 失败时自动开/更新一个 tracking issue（见 job 末尾），不再静默。
 #   4) 告警生命周期（2026-09-18 补）：**成功运行即自动关闭**仍开着的告警卡——
 #      「7 天全红无人知」的另一半是「恢复了也没人收口」，自愈型告警是通行做法。
+#
+# ── #2460 修复要点（2026-10-22）──
+#   Turso 侧修好之后，user 域仍然连不上：Supabase **直连**端点
+#   `db.<ref>.supabase.co:5432` 在新项目上**只给 IPv6**，而 GitHub Actions runner
+#   **没有 IPv6 出口** ⇒ libpq 报 `Network is unreachable`。修法是换 **pooler 端点**
+#   （IPv4，沿用同一份 DB 密码，用户名改 `postgres.<ref>`）：本文件把端点写进
+#   `SUPABASE_POOLER_HOST`，由 `backend/app/core/db_factory.py` 的
+#   `rewrite_supabase_direct_to_pooler()` 就地改写——**不改 secret、不把密码搬进仓库**。
+#   端点已实测定位（`aws-1-ap-southeast-1`，见该 step 的注释：`aws-0-*` 前缀会得到
+#   `tenant/user not found` 的假阴性）。端口默认 5432（session 模式）。
 name: 每日定时调度
 
 on:
@@ -30,7 +50,12 @@ on:
     # 每天 UTC 17:00（北京时间次日凌晨 01:00）跑一次
     - cron: '0 17 * * *'
   # 手动触发，便于验证
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      scheduler_ref:
+        description: '实际执行的代码分支（留空 = dev）。验证未合并的修复时填功能分支名——否则 checkout 的仍是 dev 旧代码，跑了也证明不了修复有效（#2460）'
+        required: false
+        default: ''
 
 concurrency:
   group: daily-scheduler
@@ -42,11 +67,15 @@ permissions:
 
 env:
   # 实际执行代码的分支（main 只承载 workflow 定义）——见文件头 #1434 说明 1)
-  SCHEDULER_REF: dev
+  # 手动触发可用 inputs.scheduler_ref 覆盖（#2460：合并前验证修复的必要条件）
+  SCHEDULER_REF: ${{ github.event.inputs.scheduler_ref || 'dev' }}
 
 jobs:
   daily-scheduler:
-    timeout-minutes: 30
+    # 30 → 90 分钟（#2506）：调度的真实耗时是「起跑 jitter（最多 10 分钟）+ 20 个 job 的
+    # 逐标的抓取」，实测 26 分钟仍在第一个 job 上、30 分钟被 job 超时掐掉。
+    # 超时掐掉 = 一整天的数据刷新白跑，且日志里看不出它卡在哪。
+    timeout-minutes: 90
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -76,6 +105,7 @@ jobs:
         env:
           APP_ENV: ${{ secrets.APP_ENV }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
         run: |
           missing=""
@@ -90,10 +120,48 @@ jobs:
           fi
           echo "secrets 预检通过（APP_ENV=$APP_ENV）"
 
+          # #1490：缺 authToken 的 Turso 连接串**必然连不上**（服务端回 308/401），
+          # 而这两种状态码都看不出「压根没配 token」。此前只注入无 token 的
+          # DATABASE_URL ⇒ 每日调度连续 25 天全红、零成功（2026-09-04 起）。
+          # 这里提前一分钟失败，而不是等装完依赖再撞 308。
+          #
+          # 生效优先级：TURSO_DATABASE_URL > DATABASE_URL（backend/app/core/db_factory.py）
+          EFFECTIVE_DB_URL="${TURSO_DATABASE_URL:-$DATABASE_URL}"
+          case "$EFFECTIVE_DB_URL" in
+            turso://*|libsql://*|https://*.turso.io*)
+              case "$EFFECTIVE_DB_URL" in
+                *authToken=*|*auth_token=*) ;;
+                *)
+                  echo "::error title=数据库连接串缺 authToken::生效的连接串（${EFFECTIVE_DB_URL%%\?*}）里没有 authToken，必然连不上。"
+                  echo "请把 Turso 控制台给出的完整连接串（turso://<host>?authToken=<token>）写进对应 secret（优先 TURSO_DATABASE_URL）。"
+                  exit 1
+                  ;;
+              esac
+              ;;
+          esac
+
       - name: 运行每日调度
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # production 下 market 域**优先**用 TURSO_DATABASE_URL（见 db_factory.resolve_app_db），
+          # 且它才是 Turso 控制台直接下发的完整连接串（含 authToken）。
+          # #1490：此前只注入 DATABASE_URL（当时那条 secret 里没有 authToken），
+          # 每日调度自 2026-09-04 起 25 次全红、零成功。
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          # #2460：Supabase **直连**端点（db.<ref>.supabase.co:5432）在新项目上只给 IPv6，
+          # 而 GitHub Actions runner 没有 IPv6 出口 ⇒ libpq 报 `Network is unreachable`，
+          # 每日调度自 2026-09 起整轮跑不起来（#1490 挂了 58 天）。
+          # pooler 端点有 A 记录，且沿用同一份 DB 密码（用户名改 postgres.<ref>），
+          # 所以**不需要改 secret、也不把密码搬进仓库**：这里只给出端点，由
+          # backend/app/core/db_factory.py::rewrite_supabase_direct_to_pooler() 就地改写。
+          # 端点已实测（2026-10-22：用故意错误的密码区分「租户不在该 region」与「仅密码错」）：
+          # 12 个候选里只有 aws-1-ap-southeast-1 返回 `password authentication failed`，
+          # 其余（含全部 aws-0-*）一律 `tenant/user ... not found` —— #2462 卡面
+          # 「13 个 region 全查不到该租户」的结论是错的（只试了 aws-0- 前缀）。
+          SUPABASE_POOLER_HOST: aws-1-ap-southeast-1.pooler.supabase.com
+          # 端口取默认 5432（session 模式）：本仓是一次性批处理、短事务，
+          # 且全仓无 LISTEN / advisory lock / 临时表，session 语义最接近直连。
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -101,9 +169,26 @@ jobs:
           APP_ENV: ${{ secrets.APP_ENV }}
         run: pdm run scheduler
 
+      # job 级失败明细（#2457）：调度进程在「有 job 失败」时以退出码 2 结束
+      # （EXIT_JOB_FAILED，见 backend/app/tools/scheduler.py），
+      # 于是本 workflow 判红、下面那张告警卡会被建/更新。
+      # 但卡片正文若只写「运行失败」，排查的人还得自己翻 20 个 job 的日志——
+      # 这里把逐 job 状态渲染成可直接贴进卡片正文的片段。
+      # 摘要文件不存在时也要如实说「无法确认 job 级结果」，不能当成「无失败」。
+      - name: 渲染 job 级失败明细
+        if: always()
+        id: job-failures
+        run: |
+          set -euo pipefail
+          python3 ../scripts/daily_run_alert.py \
+            --summary data/last_run_summary.json \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: 失败告警（自动开/更新 issue）
         if: failure()
         uses: actions/github-script@v7
+        env:
+          JOB_FAILURE_DETAIL: ${{ steps.job-failures.outputs.job_failure_detail }}
         with:
           script: |
             const owner = context.repo.owner;
@@ -118,6 +203,9 @@ jobs:
               `- 执行代码 ref：\`${process.env.SCHEDULER_REF || 'dev'}\``,
               `- 时间（UTC）：${new Date().toISOString()}`,
               `- 运行日志：${runUrl}`,
+              '',
+              '### job 级结果',
+              process.env.JOB_FAILURE_DETAIL || '（未取到 job 级明细，请直接看运行日志）',
               '',
               '> 本 issue 由 workflow 自动创建/更新；下次调度成功时会自动关闭（见末尾步骤）。',
             ].join('\n');

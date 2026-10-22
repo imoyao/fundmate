@@ -6,6 +6,9 @@
   · monkeypatch 环境变量 ``QIEMAN_API_KEY``——CI 未配置该 secret，缺 key 会让被测方法
     在调用 ``_call_tool`` **之前**就早退，这正是本文件此前在 CI 全红（返回空列表）的根因。
 
+S2（#2490）起**失败不再吞成空**：未配置 key 抛 ``McpTokenMissing``、调用失败抛分类后的
+``McpError``（可由调用方按平台隔离），故「未配置 / 调用失败」两条用例断言的是异常类型。
+
 覆盖三档形状：
   · 真实结构（实测 2026-09）：{strategy_code: {基金类别: {持有成分: [...]}}}，占比为 "4.54%" 字符串；
   · 扁平容器兜底：顶层 list / {result|data: [...]}，字段为英文键；
@@ -17,6 +20,7 @@ import json
 import pytest
 
 from app.services.adapters.qieman_fetcher import QiemanFetcher
+from app.services.mcp.errors import McpTokenMissing, McpUnavailable
 
 # 归一化后每条记录的字段集合，用于校验 schema 稳定（新增字段时此处会先失败）
 SCHEMA_KEYS = {'code', 'name', 'ratio', 'category', 'nav', 'nav_date', 'adj_time', 'fund_type'}
@@ -184,24 +188,34 @@ def test_fetch_strategy_composition_skips_non_dict_bucket(monkeypatch):
 
 
 def test_fetch_strategy_composition_without_api_key(monkeypatch):
-    """未配置 key 时早退并返回空列表，不发起任何 MCP 调用。"""
+    """未配置 key：抛 ``McpTokenMissing`` 且**不发起任何 MCP 调用**。
+
+    S2 前这里是「早退并返回空列表」——返回空字典会被上层读成「这些组合没有持仓」，
+    与「这次根本没调成」混成一件事。现在类型化上抛，health 由 env 判断报 ``disabled``。
+    """
     monkeypatch.delenv('QIEMAN_API_KEY', raising=False)
     f = QiemanFetcher()
     monkeypatch.setattr(f, '_call_tool', lambda *a, **kw: pytest.fail('未配置 key 时不应调用 MCP'))
 
-    assert f.fetch_strategy_composition('ZH008005') == []
+    with pytest.raises(McpTokenMissing):
+        f.fetch_strategy_composition('ZH008005')
 
 
-def test_fetch_strategy_composition_call_failure(monkeypatch):
-    """MCP 调用抛异常（网络/协议错误）时吞掉并返回空列表，不影响聚合主链路。"""
+def test_fetch_strategy_composition_call_failure_propagates(monkeypatch):
+    """MCP 调用失败时**上抛**而不是吞成空列表。
+
+    判据是「异常类型原样到达调用方」：job 层靠 ``except McpError`` 做按平台隔离，
+    吞成 ``[]`` 会让隔离逻辑永远不触发（故障零信号）。
+    """
 
     def _boom(*_args, **_kwargs):
-        raise RuntimeError('MCP 调用返回为空')
+        raise McpUnavailable('MCP 调用返回为空', provider='qieman')
 
     f = QiemanFetcher()
     monkeypatch.setattr(f, '_call_tool', _boom)
 
-    assert f.fetch_strategy_composition('ZH008005') == []
+    with pytest.raises(McpUnavailable):
+        f.fetch_strategy_composition('ZH008005')
 
 
 def test_fetch_temperature_still_works(monkeypatch):

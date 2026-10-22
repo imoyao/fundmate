@@ -161,6 +161,23 @@ export function txnTypeLabel(type: string): string {
   return TXN_TYPE_LABELS[type] ?? type;
 }
 
+/** 对账差异类型标签（quantity/cost/cash/orphan）
+ *
+ * 单一来源：对账工作台（`reconcile-workbench/utils/discFormat.ts`）与全局差异提醒
+ * （`components/DiscrepancyBanner`）都要用这张表。此前各自维护一份，类型一旦新增
+ * 就会一边有中文、一边露出英文原值（`map[t] || t` 的兜底），用户看到的是两种语言。
+ */
+export const DISCREPANCY_TYPE_LABELS: Record<string, string> = {
+  quantity: "数量",
+  cost: "成本",
+  cash: "资金",
+  orphan: "孤儿"
+};
+
+export function discrepancyTypeLabel(type: string): string {
+  return DISCREPANCY_TYPE_LABELS[type] ?? type;
+}
+
 // 建议放在 src/constants/index.ts 末尾
 export const ALLOCATION_COLORS: Record<string, string> = {
   liquid: "#7A9AA8",

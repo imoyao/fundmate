@@ -23,6 +23,8 @@ import ProductPageNav from "./components/ProductPageNav.vue";
 import ProductPageToc from "./components/ProductPageToc.vue";
 import ProductPerformanceSection from "./components/ProductPerformanceSection.vue";
 import ProductHoldingsSections from "./components/ProductHoldingsSections.vue";
+import ProductSimilarSection from "./components/ProductSimilarSection.vue";
+import ProductStyleSection from "./components/ProductStyleSection.vue";
 import ProductPositionSection from "./components/ProductPositionSection.vue";
 import ProductStockSection from "./components/ProductStockSection.vue";
 import ProductTrendSection from "./components/ProductTrendSection.vue";
@@ -197,6 +199,7 @@ watch(productRef, loadProduct, { immediate: true });
             id="nav-position"
             :symbol="product.symbol"
             :market="product.market"
+            :asset-type="product.asset_type"
           />
 
           <!-- 走势（#1967）：默认 3M、无数据显空态、口径脚注写明数据日期与来源。
@@ -249,6 +252,25 @@ watch(productRef, loadProduct, { immediate: true });
           <ProductHoldingsSections
             v-if="product.asset_type === 'fund'"
             anchor-id="nav-holdings"
+            :symbol="product.symbol"
+          />
+
+          <!-- 相似基金（#2480）：仅基金品类渲染。韭圈儿相似度名单（免登录、
+               按需取 + 后端 6h 缓存，不落库）。上游取数失败按「暂时取不到」
+               降级，与「上游无相似名单」的空态分开渲染——契约要求，
+               详见 services/similar_fund_service.py。相似度口径是上游黑盒，
+               区块脚注注明来源；similarity 为 null（上游未打分）渲染「—」。 -->
+          <ProductSimilarSection
+            v-if="product.asset_type === 'fund'"
+            id="nav-similar"
+            :symbol="product.symbol"
+          />
+
+          <!-- 投资风格（#2478）：韭圈儿月度风格箱，晨星式 8 分类 + 漂移信号 +
+               历史走势。仅基金品类渲染（股票/ETF/指数不在风格箱口径内）。 -->
+          <ProductStyleSection
+            v-if="product.asset_type === 'fund'"
+            id="nav-style"
             :symbol="product.symbol"
           />
 

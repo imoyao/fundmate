@@ -7,10 +7,24 @@
 thermometer 家族反过来依赖本模块（合法方向），方向自洽。
 
 包含：``QIEMAN_*`` 常量、3 个归一化助手、``QiemanFetcher``（自原文件**逐字搬运**）。
+
+调用量（2026-10 实测量级）：且慢投顾 job 每晚抓 111 只 QIEMAN 组合的持仓 + 概览。
+原始实现每只组合**各调一次**工具、且**每次调用都重新握手**（initialize + initialized +
+tools/call = 3 个 HTTP 请求），于是 111×2 = 222 次工具调用 = 666 个请求。本模块有三处收敛：
+
+1. **会话复用**：``Mcp-Session-Id`` 缓存在 fetcher 实例上（且慢服务端**不回**该响应头，
+   实测 2026-10-20）——故「已握手」本身也要缓存，否则连续调用会退回逐次握手；
+2. **概览批量**：:meth:`QiemanFetcher.fetch_strategy_details` 本就按 ``batch_size`` 分批，
+   适配器改为一次传入全部 code ⇒ 111 只 = 3 次调用；
+3. **持仓批量**：``strategyCodes`` 传多只，响应 ``{code: {...}}`` 按 code 切分；
+   批量语义未被上游文档保证，故**缺键即该批降级逐只**（批量拿不到 ≠ 数据变空）。
+
+2026-10-21（MCP S1）：上面第 1 条的**实现**（会话缓存 / 握手 / 失效重握 / SSE 解析）已抽到
+``app/services/mcp/``（传输层与 provider 基类），本模块只保留业务解析与批量策略；
+调用量收敛的三条结论不变，且 Wind 接入不再需要照抄这份传输。
 """
 
 import json
-import os
 import re
 import time
 from datetime import datetime
@@ -19,17 +33,34 @@ from typing import Any, Dict, List, Optional
 import requests
 from loguru import logger
 
-from app.core.constants import USER_AGENT
+from app.core.constants import DEFAULT_REQUEST_TIMEOUT, USER_AGENT
 from app.core.utils import to_float as _to_float
 from app.services.adapters.fetcher_base import SingleValueFetcher
+from app.services.mcp import McpTransport, get_provider
+from app.services.mcp.credentials import resolve_token
+from app.services.mcp.errors import McpBadResponse, McpError, classify_exception
+from app.services.mcp.providers.qieman import (  # noqa: F401  兼容再导出：既有导入点（含测试）不必改
+    QIEMAN_CLIENT_INFO,
+    QIEMAN_MCP_URL,
+    QIEMAN_PROTOCOL_VERSION,
+    QIEMAN_STRATEGY_COMPOSITION_TOOL,
+    QIEMAN_STRATEGY_DETAIL_TOOL,
+    QIEMAN_TOOL,
+)
 
 # ─── 且慢 MCP（Streamable HTTP）───
-QIEMAN_MCP_URL = 'https://stargate.yingmi.com/mcp/v2'
-QIEMAN_PROTOCOL_VERSION = '2024-11-05'
-QIEMAN_CLIENT_INFO = {'name': 'fundmate', 'version': '1.0.0'}
-QIEMAN_TOOL = 'GetLatestQuotations'  # 市场温度计
-QIEMAN_STRATEGY_DETAIL_TOOL = 'GetStrategyDetails'  # 投顾组合概览/风险收益指标
-QIEMAN_STRATEGY_COMPOSITION_TOOL = 'BatchGetStrategiesComposition'  # 投顾组合持仓
+# 服务地址 / 协议版本 / 客户端信息 / 工具名已搬去 ``app/services/mcp/providers/qieman.py``
+# （2026-10-21，MCP S1）：它们描述「这家服务长什么样」，不属于取数逻辑，Wind 接入时同理。
+# 上面那行 import 是**兼容再导出** —— 旧导入点（含测试）取到的仍是同一批值。
+
+#: 工具名 → 能力名（S2 记账用）。能力名是业务侧稳定词，工具名可能随上游变化（§4.2），
+#: 故 ``mcp_call_logs.capability`` 落前者。反查表放在这里而不是 provider 上：它是
+#: 「记账口径」，不是「服务长什么样」。
+_TOOL_CAPABILITY: Dict[str, str] = {
+    QIEMAN_TOOL: 'latest_quotations',
+    QIEMAN_STRATEGY_DETAIL_TOOL: 'strategy_details',
+    QIEMAN_STRATEGY_COMPOSITION_TOOL: 'strategy_composition',
+}
 
 # 且慢组合概览（GetStrategyDetails）中文字段 → 归一化英文键（实测 2026-09）。
 # 集中在此便于接口扩字段时只改一处，勿散落到 fetcher / job。
@@ -167,104 +198,166 @@ def _normalize_strategy_detail(item: dict) -> Optional[dict]:
     return rec
 
 
+def _normalize_codes(strategy_codes: Any) -> List[str]:
+    """组合代码去空、去重、保序（批量调用前统一口径，避免空串污染 ``strategyCodes``）。"""
+    out: List[str] = []
+    seen: set = set()
+    for c in strategy_codes or []:
+        s = str(c).strip()
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
+def _flat_holding_rows(parsed: Any) -> Optional[list]:
+    """取扁平形态的持仓数组（顶层 list / ``{result|data: [...]}``）；无则 None。
+
+    用「键是否存在 + 是否 list」判定，不用真值判定：``{'result': []}`` 是合法的空持仓，
+    而 ``[] or None`` 会把它误判成「认不出这个 code」，白白多打一次批量外的单只请求。
+    """
+    if isinstance(parsed, list):
+        return parsed
+    if isinstance(parsed, dict):
+        for key in ('result', 'data'):
+            rows = parsed.get(key)
+            if isinstance(rows, list):
+                return rows
+    return None
+
+
+def _flatten_flat_holdings(rows: Any) -> List[dict]:
+    """扁平形态（旧版 / 单组合响应）：无类别信息，逐条归一化。"""
+    out: List[dict] = []
+    for item in rows or []:
+        if not isinstance(item, dict):
+            continue
+        rec = _normalize_holding(item)
+        if rec:
+            out.append(rec)
+    return out
+
+
+def _flatten_category_block(block: dict) -> List[dict]:
+    """真实结构 ``{基金类别: {持有成分: [...], 分类占比}}``：遍历类别打平并保留类别归属。"""
+    out: List[dict] = []
+    for category, body in block.items():
+        if not isinstance(body, dict):
+            continue
+        for item in body.get('持有成分') or []:
+            if not isinstance(item, dict):
+                continue
+            rec = _normalize_holding(item, category)
+            if rec:
+                out.append(rec)
+    return out
+
+
+def _parse_composition(parsed: Any, code: str) -> Optional[List[dict]]:
+    """解析响应中 ``code`` 的持仓；返回 ``None`` 表示**响应里认不出该 code**。
+
+    调用方据此决定是否降级逐只（``None`` = 缺键，``[]`` = 确认没有持仓）——
+    这两种情况必须分开，否则「批量拿不到」会被静默写成「持仓变空」。
+    """
+    rows = _flat_holding_rows(parsed)
+    if rows is not None:
+        return _flatten_flat_holdings(rows)
+    if isinstance(parsed, dict):
+        block = parsed.get(code)
+        if isinstance(block, dict):
+            return _flatten_category_block(block)
+        if block is not None:
+            # 键在但不是对象（脏数据）：该组合确认为空，不触发降级
+            return []
+    return None
+
+
 class QiemanFetcher(SingleValueFetcher):
-    """且慢：市场温度计（中证全A），通过 MCP Streamable HTTP 协议获取。"""
+    """且慢：市场温度计（中证全A），通过 MCP Streamable HTTP 协议获取。
+
+    传输（会话缓存 / 握手 / SSE 解析 / 失效重握）自 2026-10-21（MCP S1）起由
+    :class:`app.services.mcp.McpTransport` 承担；本类保留「这家服务怎么调」——
+    地址与请求头来自 :class:`app.services.mcp.providers.qieman.QiemanProvider`，
+    业务解析（归一化助手、批量与降级）仍全部在本模块。
+    """
 
     source = 'qieman'
     name = '市场温度计(中证全A)'
     unit = '%'
 
+    def __init__(self, timeout: int = DEFAULT_REQUEST_TIMEOUT):
+        super().__init__(timeout)
+        self._provider = get_provider('qieman')
+        #: 传输对象**惰性构造**：构造时才捕获 ``self._mcp_post``（测试会 monkeypatch 它）。
+        #: 若在 ``__init__`` 里就绑定，被替换掉的替身不会被看到，测试会静默失效。
+        self._transport_obj: Optional[McpTransport] = None
+
     # ---- 且慢 MCP（Streamable HTTP）----
+    @property
+    def _transport(self) -> McpTransport:
+        """本实例的传输（首次调用时构造，理由见 :meth:`__init__`）。"""
+        if self._transport_obj is None:
+            self._transport_obj = self._provider.build_transport(self._mcp_post, auth=self._apply_token)
+        return self._transport_obj
+
     def _mcp_post(self, payload: dict, sid: Optional[str]) -> requests.Response:
+        """且慢网关的 HTTP 细节：地址、来源头、会话头、超时。"""
         headers = {
-            'x-api-key': self.session.headers.get('x-api-key'),
+            **self._provider.auth_headers(self.session.headers.get('x-api-key') or ''),
             'Accept': 'application/json, text/event-stream',
             'Content-Type': 'application/json',
             'User-Agent': USER_AGENT,
-            'Origin': QIEMAN_MCP_URL,
-            'Referer': QIEMAN_MCP_URL + '/',
         }
         if sid:
             headers['Mcp-Session-Id'] = sid
-        return self.session.post(QIEMAN_MCP_URL, json=payload, headers=headers, timeout=20)
+        return self.session.post(self._provider.base_url(), json=payload, headers=headers, timeout=20)
 
-    def _mcp_handshake(self, api_key: str) -> Optional[str]:
-        """MCP 握手（initialize + notifications/initialized），返回会话 sid。
-
-        且慢 Streamable HTTP：tools/call 必须在同会话（同一 Mcp-Session-Id）内调用。
-        """
-        self.session.headers['x-api-key'] = api_key
-        sid: Optional[str] = None
-        r = self._mcp_post(
-            {
-                'jsonrpc': '2.0',
-                'id': 1,
-                'method': 'initialize',
-                'params': {
-                    'protocolVersion': QIEMAN_PROTOCOL_VERSION,
-                    'capabilities': {},
-                    'clientInfo': QIEMAN_CLIENT_INFO,
-                },
-            },
-            sid,
-        )
-        if r.status_code != 200:
-            raise RuntimeError(f'MCP initialize 失败: HTTP {r.status_code}')
-        return r.headers.get('Mcp-Session-Id') or sid
+    def _apply_token(self, token: str) -> None:
+        """把 token 写进 session 头（:meth:`_mcp_post` 从中取 ``x-api-key``）。"""
+        self.session.headers['x-api-key'] = token
 
     def _call_tool(self, api_key: str, tool: str, arguments: dict) -> str:
-        """完成 MCP 握手并调用任意工具，返回解析出的文本片段（兼容 SSE / JSON 两种响应）。
+        """调用任意 MCP 工具，返回解析出的文本片段（兼容 SSE / JSON 两种响应）。
 
-        #1392 扩展点：原 `_call_mcp` 只调 `GetLatestQuotations`；抽成通用方法后，
-        且慢组合持仓（BatchGetStrategiesComposition）等可复用同一传输，无需重复握手逻辑。
+        ``#1392`` 扩展点：原 `_call_mcp` 只调 `GetLatestQuotations`；抽成通用方法后，
+        且慢组合持仓（BatchGetStrategiesComposition）等可复用同一传输。
+
+        **会话复用 / 失效重握**（2026-10-20 落地，S1 搬进传输层）：正常路径下连续 N 次
+        调用**只握手一次**；仅当服务端明确不认当前会话（400/404/非 JSON）时**重新握手
+        一次**再重试同一次调用，仍失败则抛错——不做无限重试，也不把失败吞成空结果
+        （空结果会被上层读成「这组合没持仓」）。
+
+        本方法是本模块**唯一**的工具调用入口，且保持同名可替换：测试与适配器都
+        monkeypatch 它。S2 起同时承担**记账**（``mcp_call_logs``）：能力名由工具名反查，
+        数据归属由 provider 声明 —— 调用点不需要各自记得写审计。
+
+        Raises:
+            McpError: 类型化失败（授权 / 额度 / 服务不可用 / 结构异常）。
         """
-        sid = self._mcp_handshake(api_key)
-        r2 = self._mcp_post({'jsonrpc': '2.0', 'method': 'notifications/initialized'}, sid)
-        if r2.status_code >= 400:
-            raise RuntimeError(f'MCP initialized 通知失败: HTTP {r2.status_code}')
-        sid = r2.headers.get('Mcp-Session-Id') or sid
-
-        r3 = self._mcp_post(
-            {
-                'jsonrpc': '2.0',
-                'id': 2,
-                'method': 'tools/call',
-                'params': {'name': tool, 'arguments': arguments},
-            },
-            sid,
+        capability = _TOOL_CAPABILITY.get(tool)
+        return self._transport.call_tool(
+            tool,
+            arguments,
+            token=api_key,
+            capability=capability,
+            scope=self._provider.scope_of(capability) if capability else None,
         )
-        if r3.status_code != 200:
-            raise RuntimeError(f'MCP tools/call 失败: HTTP {r3.status_code}')
 
-        content_type = (r3.headers.get('content-type') or '').lower()
-        if 'text/event-stream' in content_type:
-            text = ''
-            for line in r3.iter_lines(decode_unicode=True):
-                if line and line.startswith('data:'):
-                    data = line[len('data:') :].strip()
-                    try:
-                        msg = json.loads(data)
-                    except json.JSONDecodeError:
-                        continue
-                    if msg.get('id') == 2 and 'result' in msg:
-                        content = msg['result'].get('content', [])
-                        text = ''.join(c.get('text', '') for c in content if c.get('type') == 'text')
-                        break
-        else:
-            try:
-                msg = r3.json()
-            except ValueError:
-                raise RuntimeError('MCP tools/call 返回非 JSON（疑似 WAF 拦截）')
-            if 'error' in msg:
-                raise RuntimeError(f'MCP tools/call 返回错误: {msg["error"]}')
-            content = msg.get('result', {}).get('content', [])
-            text = ''.join(c.get('text', '') for c in content if c.get('type') == 'text')
-        if not text:
-            raise RuntimeError('MCP 调用返回为空')
-        return text
+    def _system_token(self, capability: str) -> str:
+        """取该能力对应的凭据（S2：原先散在三处的 ``os.getenv('QIEMAN_API_KEY')`` 收口到这里）。
+
+        数据归属由 provider 声明（且慢三类能力均为 ``PLATFORM_PUBLIC``），故这里
+        **只问归属、不写 if/else**：将来同一家服务出现用户私有能力时，凭据路由自动分流，
+        不需要在取数方法里加分支。
+
+        Raises:
+            McpTokenMissing: 未配置（可选组件不可用，不是故障 —— health 报 ``disabled``）。
+            McpUserTokenMissing: 能力归属用户私有但用户没配 Token（**绝不回退系统 Token**）。
+        """
+        return resolve_token(self._provider.name, self._provider.scope_of(capability))
 
     def fetch_strategy_composition(self, strategy_code: str) -> List[dict]:
-        """且慢组合持仓（#1392）：BatchGetStrategiesComposition。
+        """且慢组合持仓（#1392）：BatchGetStrategiesComposition（单只入口）。
 
         真实返回结构（实测 2026-09）：
             {"<code>": {"<基金类别>": {"持有成分":[{"基金代码","基金名称","持仓占比":"4.54%",
@@ -272,47 +365,114 @@ class QiemanFetcher(SingleValueFetcher):
         即**按基金类别分桶**，故需遍历每个类别的 ``持有成分`` 列表并打平，
         这样单靠外层 code 取不到任何持仓（早期按扁平结构解析会静默返回空列表）。
 
-        另保留两种扁平形态兜底（旧版/其他版本工具）：顶层 list，或 ``{result|data: [...]}``。
+        实现委托给 :meth:`fetch_strategy_composition_batch`（单只即长度为 1 的批量），
+        保证单只与批量走**同一条解析/回退路径**，不会各修一半。
 
         返回归一化列表：[{code, name, ratio, category, nav, nav_date, adj_time, fund_type}]。
         ratio 由 "4.54%" 解析为 float(4.54)；字段缺失一律置 None。
         无 key / code 不存在 / 结构不可识别时返回 []。
         """
-        api_key = os.getenv('QIEMAN_API_KEY')
-        if not api_key:
-            logger.warning('QIEMAN_API_KEY 未配置，跳过且慢组合持仓')
-            return []
-        try:
-            text = self._call_tool(api_key, QIEMAN_STRATEGY_COMPOSITION_TOOL, {'strategyCodes': [strategy_code]})
-            parsed = json.loads(text)
-        except Exception as e:  # noqa: BLE001
-            logger.error(f'且慢组合持仓获取失败 {strategy_code}: {e}')
-            return []
+        code = str(strategy_code).strip()
+        return self.fetch_strategy_composition_batch([code]).get(code, [])
 
-        # 收集 (原始记录, 所属类别)；扁平形态没有类别信息，故为 None
-        raw_items: List[tuple] = []
-        if isinstance(parsed, list):
-            raw_items.extend((i, None) for i in parsed if isinstance(i, dict))
-        elif isinstance(parsed, dict):
-            code_block = parsed.get(strategy_code)
-            if isinstance(code_block, dict):
-                # 主路径：{strategy_code: {类别: {持有成分: [...]}}}
-                for category, body in code_block.items():
-                    if not isinstance(body, dict):
-                        continue
-                    raw_items.extend((i, category) for i in body.get('持有成分') or [] if isinstance(i, dict))
-            else:
-                # 兜底：{result|data: [...]} 扁平容器
-                flat = parsed.get('result') or parsed.get('data') or []
-                if isinstance(flat, list):
-                    raw_items.extend((i, None) for i in flat if isinstance(i, dict))
+    def fetch_strategy_composition_batch(
+        self, strategy_codes: List[str], batch_size: int = QIEMAN_STRATEGY_BATCH_SIZE
+    ) -> Dict[str, List[dict]]:
+        """批量抓取组合持仓：一次 ``tools/call`` 传多个 ``strategyCodes``。
 
-        out = []
-        for raw, category in raw_items:
-            rec = _normalize_holding(raw, category)
-            if rec:
-                out.append(rec)
+        **按 ``batch_size`` 分批**（与概览同一常量 50）：单请求的 code 上限未被上游文档
+        或实测覆盖（只证实了 2 只可同批返回），分批把「未知上限」的风险限制在一批之内，
+        且 111 只 = 3 次调用，相对逐只仍是 37 倍收敛。
+
+        **批量语义的防御性回退**：响应按 code 分键（``{code: {...}}``）。逐只看：
+        - 键在且是对象 ⇒ 按类别打平（正常路径）；
+        - 键在但不是对象 ⇒ 该组合确认为空（``[]``），**不**降级；
+        - **键不在 ⇒ 该 code 进降级名单**，整批解析完后逐只重取一次，
+          避免「批量拿不到」被静默读成「这只组合没有持仓」。
+        扁平形态（顶层 list / ``{result|data: [...]}``，旧版只支持单只）在多 code 时
+        无法归属，同样全部降级逐只。
+
+        返回 ``{code: [归一化持仓]}``，键覆盖**全部请求的 code**（拿不到的为 ``[]``）。
+
+        Raises:
+            McpTokenMissing: 未配置 Token（S2 起**不再静默返回空字典**：空字典会被上层读成
+                「这些组合没有持仓」，而事实是「这次根本没调成」）。
+            McpError: 传输 / 协议层失败，由 job 按平台隔离并记 ``degraded``。
+        """
+        codes = _normalize_codes(strategy_codes)
+        if not codes:
+            return {}
+
+        # 未配置 ⇒ McpTokenMissing（health 报 disabled）；配了但失效 ⇒ McpAuthError。
+        # 「没配」与「配错」在类型上分开，故障现场才分得清该改哪个。
+        api_key = self._system_token('strategy_composition')
+
+        out: Dict[str, List[dict]] = {}
+        for i in range(0, len(codes), batch_size):
+            out.update(self._fetch_composition_chunk(api_key, codes[i : i + batch_size]))
         return out
+
+    def _fetch_composition_chunk(self, api_key: str, codes: List[str]) -> Dict[str, List[dict]]:
+        """单批持仓（含缺键降级逐只）。
+
+        **失败语义（S2 收口）**：调用失败不再 ``return {c: [] for c in codes}``。
+        旧行为把「这批没调成」写成了「这些组合没有持仓」——上层据此落库空持仓，
+        ``sync_logs`` 全绿，故障零信号（#1179 / #171 同族形态）。现在一律上抛：
+        传输失败是 ``McpError`` 子类，响应不是 JSON 是 ``McpBadResponse``，
+        由 job 按平台隔离并记 ``degraded``。
+
+        注意区分两种「拿到空」：**缺键**（响应里认不出该 code）仍按原逻辑降级逐只，
+        那是「批量语义未被上游保证」（数据形态问题），不是失败。
+        """
+        try:
+            text = self._call_tool(api_key, self._provider.tool_for('strategy_composition'), {'strategyCodes': codes})
+            parsed = json.loads(text)
+        except McpError:
+            raise
+        except json.JSONDecodeError as e:
+            raise McpBadResponse(f'持仓批量响应不是合法 JSON: {e}', provider=self._provider.name) from e
+
+        out: Dict[str, List[dict]] = {}
+        missing: List[str] = []
+        flat_rows = _flat_holding_rows(parsed)
+        if flat_rows is not None:
+            # 扁平形态（旧版/单组合响应）没有 code 归属信息：单只采信，多只无法归属 ⇒ 全部降级
+            if len(codes) == 1:
+                out[codes[0]] = _flatten_flat_holdings(flat_rows)
+            else:
+                missing = list(codes)
+        else:
+            for code in codes:
+                items = _parse_composition(parsed, code)
+                if items is None:
+                    missing.append(code)
+                else:
+                    out[code] = items
+
+        if missing:
+            logger.warning(
+                f'且慢组合持仓批量响应里认不出 {len(missing)}/{len(codes)} 个组合（如 {missing[:3]}），降级逐只重取'
+            )
+            for code in missing:
+                out[code] = self._fetch_composition_single(api_key, code)
+        return out
+
+    def _fetch_composition_single(self, api_key: str, code: str) -> List[dict]:
+        """单只重取（批量响应缺键时的兜底）。
+
+        Raises:
+            McpError: 调用失败一律上抛（S2 前是「返回 ``[]`` + 记日志」，等于把一次失败
+                伪装成「该组合已清仓」）。缺键降级本来就是**很少发生**的兜底路径，
+                它失败时更不该静默。
+        """
+        try:
+            text = self._call_tool(api_key, self._provider.tool_for('strategy_composition'), {'strategyCodes': [code]})
+            parsed = json.loads(text)
+        except McpError:
+            raise
+        except json.JSONDecodeError as e:
+            raise McpBadResponse(f'持仓响应不是合法 JSON（{code}）: {e}', provider=self._provider.name) from e
+        return _parse_composition(parsed, code) or []
 
     def fetch_strategy_details(
         self, strategy_codes: List[str], batch_size: int = QIEMAN_STRATEGY_BATCH_SIZE
@@ -330,15 +490,20 @@ class QiemanFetcher(SingleValueFetcher):
               ...],"status":"查询成功","hasMoreRows":false}
 
         归一化交给 :func:`_normalize_strategy_detail`（中文键 → 英文键 + 百分号剥除）。
-        按 ``batch_size`` 分批调用（接口 pageSize 上限 100，且显式传 pageSize 避免默认 20 截断），
-        单批失败只跳过该批、不影响其余批次；无 key 或全部失败时返回 []，不抛错。
-        """
-        api_key = os.getenv('QIEMAN_API_KEY')
-        if not api_key:
-            logger.warning('QIEMAN_API_KEY 未配置，跳过且慢组合概览')
-            return []
+        按 ``batch_size`` 分批调用（接口 pageSize 上限 100，且显式传 pageSize 避免默认 20 截断）。
 
-        codes = [str(c).strip() for c in (strategy_codes or []) if str(c).strip()]
+        **失败语义（S2 收口）**：任一批调用失败即上抛，不再 ``continue`` 静默跳过
+        （旧行为的后果是「今晚少了 37 只组合的概览」，而 sync_logs 全绿）。代价是
+        一批抖动会让该平台本轮整体重试——但组合概览是**覆盖式更新**，漏掉的那批
+        下轮补上，且不会被写成空数据；用「可能少一次更新」换「故障可见」，是本轮的取舍。
+
+        Raises:
+            McpTokenMissing: 未配置 Token。
+            McpError: 传输 / 协议层失败。
+        """
+        api_key = self._system_token('strategy_details')
+
+        codes = _normalize_codes(strategy_codes)
         if not codes:
             return []
 
@@ -349,13 +514,14 @@ class QiemanFetcher(SingleValueFetcher):
             try:
                 text = self._call_tool(
                     api_key,
-                    QIEMAN_STRATEGY_DETAIL_TOOL,
+                    self._provider.tool_for('strategy_details'),
                     {'strategyCodes': chunk, 'pageSize': min(len(chunk), 100)},
                 )
                 parsed = json.loads(text)
-            except Exception as e:  # noqa: BLE001
-                logger.error(f'且慢组合概览获取失败（{len(chunk)} 个，如 {chunk[:3]}）: {e}')
-                continue
+            except McpError:
+                raise
+            except json.JSONDecodeError as e:
+                raise McpBadResponse(f'组合概览响应不是合法 JSON: {e}', provider=self._provider.name) from e
             rows = parsed.get('rows') if isinstance(parsed, dict) else parsed
             for raw in rows or []:
                 rec = _normalize_strategy_detail(raw)
@@ -366,16 +532,23 @@ class QiemanFetcher(SingleValueFetcher):
         return out
 
     def fetch(self) -> Optional[Dict[str, Any]]:
-        api_key = os.getenv('QIEMAN_API_KEY')
-        if not api_key:
-            logger.warning('QIEMAN_API_KEY 未配置，跳过且慢温度')
-            return None
+        """市场温度（中证全A）。
+
+        两次尝试是**本地退避**（且慢偶发 502 / 会话失效），仍失败则上抛而不是返回 ``None``：
+        ``None`` 在调用方（``TemperatureJob``）的语义是「这个源今天没有数据」，与「调不通」
+        在展示层是同一句话——正是需要分开的两件事。真正的「调通了但没有记录」仍返回 ``None``。
+
+        Raises:
+            McpTokenMissing: 未配置 Token（可选组件不可用）。
+            McpError: 两次尝试后仍失败（含网络 / 授权 / 额度 / 结构异常）。
+        """
+        api_key = self._system_token('latest_quotations')
 
         records = updated = None
         last_err: Optional[Exception] = None
         for attempt in range(2):
             try:
-                text = self._call_tool(api_key, QIEMAN_TOOL, {})
+                text = self._call_tool(api_key, self._provider.tool_for('latest_quotations'), {})
                 parsed = json.loads(text)
                 if isinstance(parsed, dict):
                     records = parsed.get('temperatureList') or parsed.get('result') or []
@@ -389,14 +562,15 @@ class QiemanFetcher(SingleValueFetcher):
                     )
                 if records:
                     break
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 - 逐次尝试都要记下原因，最后一次决定抛什么
                 last_err = e
                 logger.warning(f'且慢 MCP 第 {attempt + 1} 次尝试失败: {e}')
                 time.sleep(2 * (attempt + 1))
 
         if not records:
             if last_err:
-                logger.error(f'且慢温度获取失败: {last_err}')
+                # 失败不再伪装成「今天没有温度」：类型化上抛，由 TemperatureJob 按数据源隔离上报
+                raise classify_exception(last_err, provider=self._provider.name)
             return None
 
         main = next((r for r in records if r.get('temperatureIndexCode') == '000985'), records[0])

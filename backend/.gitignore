@@ -65,6 +65,13 @@ env/
 # 体积常达 GB 级，且名字以 .backup<...> 结尾、**不被上面的 *.db 命中**，必须显式忽略——
 # 否则 git add -A 会把上 GB 的备份直接塞进仓库（#1661 venue 迁移实测 1.2GB）
 *.db.backup*
+# 另一种备份命名（形如 invest.db.bak_20261018_anchor）：同样**不被 *.db 命中**
+# （`*.db` 只匹配以 .db 结尾的文件名），实测 git check-ignore 退出码 1 ⇒ 漏网。
+# 2026-10-19 实测：一个 145MB 的 `invest.db.bak_20261018_anchor` 曾以未跟踪文件
+# 躺在 backend/ 里，一次 `git add -A` 就会把**用户私有数据**提交进仓库。
+*.db.bak*
+# SQLiteStudio 导出的备份副本（体积同上，同样是私有数据）
+*.sqbpro
 # 乖离率价格缓存安全网（自 #1540 起缓存改落 $CACHE_FILE_DIR，本目录已不再是落点）
 data/bias_price_cache/
 # 温度计运行时缓存安全网（自 #1539 起缓存改落 $CACHE_FILE_DIR，本目录已不再是落点，见 cache/README.md）

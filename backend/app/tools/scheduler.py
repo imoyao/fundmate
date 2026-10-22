@@ -27,11 +27,14 @@ SCF cron / 系统 cron）每日触发本脚本，复用 DataSyncOrchestrator 跑
 """
 
 import argparse
+import json
 import os
+import socket
 import sys
 import time
 import urllib.parse
 from pathlib import Path
+from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -65,12 +68,15 @@ from app.core.db_factory import (  # noqa: E402
     DatabaseConfig,
     DatabaseFactory,
     get_app_env,
+    normalized_app_db_url_preview,
+    turso_auth_token,
 )
 from app.core.jitter import (  # noqa: E402
     apply_jitter,
     random_gap,
     resolve_jitter_seconds,
 )
+from app.core.time_utils import now_shanghai  # noqa: E402
 from app.services.jsl_session import keepalive_jsl_session  # noqa: E402
 from app.services.sync.orchestrator import DataSyncOrchestrator  # noqa: E402
 
@@ -91,6 +97,78 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _resolve_ip_families(host: str, port: int) -> set:
+    """解析 host 的地址族集合（{'IPv4', 'IPv6'}）；解析失败返回空集。
+
+    用途：判断「这个 host 只有 IPv6 记录」——那是「无 IPv6 出口的环境连不上」
+    的判据（#2462）。
+    """
+    if not host:
+        return set()
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError:
+        return set()
+    return {'IPv6' if info[0] == socket.AF_INET6 else 'IPv4' for info in infos}
+
+
+def _safe_dsn_target(parsed: 'urllib.parse.ParseResult') -> str:
+    """把连接串的「目标」渲染成**可进日志**的文本：只留 user / host / port。
+
+    ⚠️ 不能用 `parsed.netloc`：它含 `user:password@host`，直接打日志等于把数据库
+    密码写进 Actions 日志——而**公开仓库的 Actions 日志是公开的**。2026-10-22
+    实测已发生一次（每日调度诊断把 Supabase 密码明文打进了 run 日志），
+    故这里显式丢掉密码段，并给 `_describe` 加源码级回归守卫。
+    """
+    host = parsed.hostname or '?'
+    port = f':{parsed.port}' if parsed.port else ''
+    user = f'{parsed.username}@' if parsed.username else ''
+    return f'{user}{host}{port}'
+
+
+def _user_domain_failure_message(parsed: 'urllib.parse.ParseResult', exc: Exception) -> str:
+    """把 user 域连接失败翻译成**可操作**的结论（纯函数，便于单测钉住）。
+
+    #2462：Supabase 的直连端口 5432 **只提供 IPv6**，而 CI runner 没有 IPv6 出口
+    ⇒ libpq 报 `Network is unreachable`。这句话看不出
+    「该换 pooler 端点」或「该把调度换到有 IPv6 的机器上」，于是排查只能靠猜。
+
+    端点已在 #2460 定位并机器化：配 `SUPABASE_POOLER_HOST`
+    （本项目实测为 `aws-1-ap-southeast-1.pooler.supabase.com`）即在
+    `DatabaseConfig.for_user` 里自动改写（见 `rewrite_supabase_direct_to_pooler`）。
+    """
+    msg = ' '.join(str(exc).split())
+    families = _resolve_ip_families(parsed.hostname or '', parsed.port or 5432)
+    if 'unreachable' in msg.lower() and families == {'IPv6'}:
+        return (
+            f'[DB诊断] user 域连接失败：{parsed.hostname} **只有 IPv6 记录**（无 IPv4）——'
+            'Supabase 直连端口 5432 是 IPv6-only，而本机（GitHub Actions runner）没有 IPv6 出口，'
+            'libpq 因此报 Network is unreachable。两条出路：'
+            '(1) 设环境变量 `SUPABASE_POOLER_HOST=<端点>`，由 '
+            '`db_factory.rewrite_supabase_direct_to_pooler()` 把直连串就地改写为 pooler '
+            '（IPv4；本项目实测端点为 `aws-1-ap-southeast-1.pooler.supabase.com`，'
+            '端口默认 5432 session 模式，可用 `SUPABASE_POOLER_PORT` 覆盖）；'
+            '(2) 把每日调度放到有 IPv6 出口的机器上跑（见 daily-snapshot.yml 头部「部署说明」b 项）。'
+            f'原始错误：{msg}'
+        )
+    return f'[DB诊断] user 域连接失败：{msg}'
+
+
+def _probe_user_domain(parsed: 'urllib.parse.ParseResult') -> None:
+    """user 域（Postgres）连通性探测；失败时给出**可操作**的结论（见 _user_domain_failure_message）。"""
+    from sqlalchemy import create_engine, text
+
+    url = parsed.geturl()
+    engine = create_engine(url, connect_args={'connect_timeout': 10})
+    try:
+        with engine.connect() as conn:
+            conn.execute(text('SELECT 1'))
+        logger.info('[DB诊断] user 域 连接 OK')
+    except Exception as e:  # noqa: BLE001 - 诊断失败要重新抛出，由调用方统一上抛
+        logger.error(_user_domain_failure_message(parsed, e))
+        raise
+
+
 def _diagnose_db() -> None:
     """启动期 DB 连接诊断（#1490 根因排查）。
 
@@ -104,11 +182,12 @@ def _diagnose_db() -> None:
     env = get_app_env()
     logger.info(f'[DB诊断] APP_ENV={env}')
 
-    app_parsed = urllib.parse.urlparse(DatabaseConfig.for_app(env).url)
+    app_url = DatabaseConfig.for_app(env).url
+    app_parsed = urllib.parse.urlparse(app_url)
     user_parsed = urllib.parse.urlparse(DatabaseConfig.for_user(env).url)
 
     def _describe(label: str, parsed: 'urllib.parse.ParseResult') -> bool:
-        logger.info(f'[DB诊断] 域={label} scheme={parsed.scheme} host={parsed.netloc}')
+        logger.info(f'[DB诊断] 域={label} scheme={parsed.scheme} target={_safe_dsn_target(parsed)}')
         is_turso = parsed.scheme in ('turso', 'libsql') or (
             parsed.scheme == 'https' and 'turso' in parsed.netloc.lower()
         )
@@ -119,25 +198,110 @@ def _diagnose_db() -> None:
     is_app_turso = _describe(DOMAIN_APP, app_parsed)
     _describe(DOMAIN_USER, user_parsed)
 
-    # 仅对走 Hrana(HTTP) 的 market 域做轻量连接探测（本地 SQLite 无需、也避免开文件锁）
-    if not is_app_turso:
-        return
-    engine = DatabaseFactory.create(DOMAIN_APP)
-    try:
-        with engine.connect() as conn:
-            conn.execute(text('SELECT 1'))
-        logger.info('[DB诊断] market 域(Turso/Hrana) 连接 OK')
-    except Exception as e:  # noqa: BLE001 - 连接层异常需重新抛出，由 main 兜底捕获上抛
-        msg = str(e)
-        if '308' in msg or 'Hrana' in msg or 'Permanent Redirect' in msg:
+    # 两域**各自独立**探测、**各自报结论**，全部探完再抛第一个错——
+    # 撞上哪一域就停在哪一域，排查就得多跑一轮（#2462）。
+    failures = []
+
+    # ── market 域（Turso / Hrana）──
+    if is_app_turso:
+        # 缺 authToken 的 Turso 连接串**必然连不上**（服务端回 308 / 401），
+        # 而这两种状态码都看不出「压根没配 token」——#1490 实测：每日调度连续 25 天全红，
+        # 根因就是注入的 secret 里的连接串只有 host、没有 ?authToken=。
+        # **先查这一条**：它比「host 被服务端重定向」常见得多，修法也只是补一个 query 参数。
+        if turso_auth_token(app_url) is None:
             logger.error(
-                '[DB诊断] market 域 Hrana 连接收到 HTTP 308 永久重定向。'
-                '通常意味着 TURSO_DATABASE_URL/DATABASE_URL 指向的 host 已被服务端重定向'
-                '（旧地址 / 应为 https / 区域或组织后缀变更）。请到仓库 Settings → Secrets'
-                ' 核对该 secret 的真实 host，改用 Turso 当前要求的地址'
-                '（如 libsql://<db>.turso.io?authToken=...）。原始错误：' + msg
+                '[DB诊断] market 域的 Turso 连接串里**没有 authToken**，必然连不上。'
+                '生产下生效的变量是 TURSO_DATABASE_URL（优先）或 DATABASE_URL，'
+                '请确认注入的 secret 是 Turso 控制台给出的**完整**连接串'
+                '（形如 turso://<host>?authToken=<token>），而不是只有 host。'
             )
-        raise
+            raise RuntimeError('Turso 连接串缺少 authToken（详见上一行日志）')
+
+        # 实际会用哪条 URL 连（token 已打码）：`secure=true` 决定走 https 还是明文 http，
+        # 明文 http 会被 Turso 边缘 308 跳 https 而失败（#1490 根因之一）。
+        logger.info(f'[DB诊断] 归一后的 market 域连接串: {normalized_app_db_url_preview(env)}')
+
+        try:
+            engine = DatabaseFactory.create(DOMAIN_APP)
+            with engine.connect() as conn:
+                conn.execute(text('SELECT 1'))
+            logger.info('[DB诊断] market 域(Turso/Hrana) 连接 OK')
+        except Exception as e:  # noqa: BLE001 - 连接层异常要继续探另一域，最后统一抛出
+            msg = str(e)
+            if '308' in msg or 'Hrana' in msg or 'Permanent Redirect' in msg:
+                logger.error(
+                    '[DB诊断] market 域 Hrana 连接收到 HTTP 308 永久重定向。'
+                    '两种可能，**先查前者**（成本最低、修法最简单）：'
+                    '(1) 连接串缺 authToken——上面已单独检查过，若补了 token 仍 308 请重跑；'
+                    '(2) Turso 侧 host 确实变更（区域 / 组织后缀）——'
+                    '到 Turso 控制台取当前地址后更新注入的 secret。'
+                    '原始错误：' + msg
+                )
+            else:
+                logger.error(f'[DB诊断] market 域连接失败：{msg}')
+            failures.append(e)
+
+    # ── user 域（Postgres）──
+    if user_parsed.scheme.startswith('postgres'):
+        try:
+            _probe_user_domain(user_parsed)
+        except Exception as e:  # noqa: BLE001
+            failures.append(e)
+
+    if failures:
+        raise failures[0]
+
+
+# ── 每日调度的退出码与运行摘要（#2457）────────────────────────────────────
+#
+# 0 = 全部 job 成功；1 = 调度过程崩溃（未捕获异常）；2 = 跑完了，但有 job 失败。
+# 区分 1 与 2，是为了让看日志的人一眼分清「调度本身炸了」与「某个任务/数据源坏了」。
+EXIT_OK = 0
+EXIT_CRASH = 1
+EXIT_JOB_FAILED = 2
+
+#: 逐 job 结果摘要的落盘位置（`backend/data/` 已被 .gitignore 忽略，不会脏工作区）。
+RUN_SUMMARY_PATH = Path(__file__).resolve().parents[2] / 'data' / 'last_run_summary.json'
+
+
+def build_run_summary(
+    results: Dict[str, Any],
+    elapsed: float,
+    started_at: Optional[str] = None,
+) -> Dict[str, Any]:
+    """把逐 job 结果整理成机器可读的摘要。
+
+    为什么要有它：告警卡正文要**指名道姓**说出哪几个 job 坏了——
+    只写「运行失败」等于把排查成本推给读日志的人（#2457）。
+    """
+    jobs = {name: (res or {}).get('status', 'unknown') for name, res in (results or {}).items()}
+    failed = sorted(name for name, status in jobs.items() if status != 'success')
+    return {
+        'started_at': started_at or now_shanghai().isoformat(),
+        'elapsed_seconds': round(float(elapsed), 1),
+        'total': len(jobs),
+        'failed': failed,
+        'jobs': jobs,
+    }
+
+
+def write_run_summary(summary: Dict[str, Any], path: Path = RUN_SUMMARY_PATH) -> Path:
+    """原子写摘要：先写临时文件再 replace，避免读到半截 JSON。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + '.tmp')
+    tmp.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding='utf-8')
+    tmp.replace(path)
+    return path
+
+
+def scheduler_exit_code(results: Dict[str, Any]) -> int:
+    """有 job 失败 ⇒ 退出码非 0。
+
+    #2457：旧行为把失败降级成日志里的一行、进程照样退 0，于是 workflow 判绿、
+    末尾的「失败告警」步骤不触发 ⇒ 半个链路坏了却没有任何告警。
+    """
+    failed = [name for name, res in (results or {}).items() if (res or {}).get('status') != 'success']
+    return EXIT_JOB_FAILED if failed else EXIT_OK
 
 
 def main() -> None:
@@ -184,10 +348,24 @@ def main() -> None:
                 start = time.time()
                 results = orch.run_all_jobs(full_sync=args.full)
                 elapsed = time.time() - start
-                failed = [k for k, v in results.items() if v.get('status') != 'success']
+                summary = build_run_summary(results, elapsed)
+                write_run_summary(summary)
+                failed = summary['failed']
                 for name, res in results.items():
                     logger.info(f'  {name}: {res.get("status")}')
                 logger.info(f'每日调度完成，耗时 {elapsed:.1f}s，失败: {failed or "无"}')
+                # 机器可读的一行：告警卡正文与人工排查都直接用它
+                logger.info('DAILY_RUN_SUMMARY ' + json.dumps(summary, ensure_ascii=False))
+                if failed:
+                    # 有 job 失败 ⇒ 退出码非 0（#2457）。
+                    # 旧行为是「失败只打进日志、进程照样退 0」，于是 workflow 判绿、
+                    # 末尾的「失败告警」步骤（if: failure()）不触发 ⇒
+                    # 半个链路坏了却没有任何告警，只能靠人翻日志发现。
+                    logger.error(
+                        f'有 {len(failed)} 个 job 失败：{", ".join(failed)}'
+                        '——退出码非 0，使 workflow 的失败告警生效（#2457）'
+                    )
+                    sys.exit(EXIT_JOB_FAILED)
         except KeyboardInterrupt:
             logger.warning('用户中断调度')
             sys.exit(130)

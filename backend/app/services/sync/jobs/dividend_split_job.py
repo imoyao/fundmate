@@ -32,6 +32,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Dict, List, Optional
 
+from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
 from app.core.venues import EXCHANGE, OTC
 from app.domains.positions.models import Position, PositionImportMeta
@@ -191,18 +192,32 @@ class DividendSplitSyncJob(SyncJob):
     def _fetch_data(self, full_sync: bool, targets: List[str]) -> List[dict]:
         events: List[dict] = []
         stock_bare: List[str] = []
+        # 「抓取成功」按**标的**计：一个标的至少有一个数据源调用返回成功即算成功。
+        # 只统计事件条数是不够的——没有分红事件的标的（大多数年份）本来就会返回空表，
+        # 那与「接口坏了」在数值上完全一样（都是 0 条）。
+        ok = 0
+        failed = 0
         for code in targets:
+            fetched = False  # 该标的至少一个数据源调用成功
             try:
                 rows = self._position_rows(code)
                 if self._fetch_as_stock(code, rows or []):
                     stock_bare.append(code)
                     events.extend(self.adapter.fetch_stock_dividend(code))
+                    fetched = True
                 else:
                     events.extend(self.adapter.fetch_fund_dividend(code))
+                    # 分红成功即算该标的抓取成功：拆分与分红同源，拆分单独失败
+                    # （如该基金没有拆分记录但上游报结构错）不该把已拿到的分红一并判死。
+                    fetched = True
                     events.extend(self.adapter.fetch_fund_split(code))
             except Exception as e:
                 self.logger.warning(f'{code} 分红/送转抓取跳过: {e}')
                 self.stats.setdefault('errors', []).append({'code': code, 'error': str(e)})
+            if fetched:
+                ok += 1
+            else:
+                failed += 1
 
         # 配股：接口单次返回全市场，**在这里按目标池过滤**，不退化成全库（数据策略 §3）
         if stock_bare and hasattr(self.adapter, 'fetch_stock_rights_issue'):
@@ -211,6 +226,22 @@ class DividendSplitSyncJob(SyncJob):
             except Exception as e:
                 self.logger.warning(f'配股方案抓取跳过: {e}')
                 self.stats.setdefault('errors', []).append({'stage': 'rights_issue', 'error': str(e)})
+
+        self.stats['fetch_ok'] = ok
+        self.stats['fetch_failed'] = failed
+        # 汇总行要能自证（#1179）：调度日志里一眼看出「这轮到底抓没抓到」，
+        # 而不是从 imported=0 反推「是没事件还是接口坏了」。
+        self.logger.info(f'分红/送转抓取汇总: 成功 {ok} / 失败 {failed} / 目标 {len(targets)}')
+
+        # 全部目标都失败 ≠ 这一轮没有分红事件。前者是数据源坏了，必须让 job 失败，
+        # 否则上游腐烂时每天都是绿的、数据一条不进（#1179 实测的形态）。
+        # 部分失败仍算成功：本轮已有可用数据，失败明细留在 stats.errors 供追查。
+        if targets and failed and not ok:
+            raise SBException(
+                code=ErrorCode.DATA_SOURCE_ERROR.code,
+                message=f'分红/送转数据源全部失败：{failed} 个目标无一抓取成功',
+                status_code=503,
+            )
         return events
 
     # ── 转换为统一记录 ──

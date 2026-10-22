@@ -6,7 +6,7 @@
 市场温度同步任务（SyncJob）
 
 每日定时拉取所有数据源，写入数据库
-调度建议：每日 21:30
+调度时间：每日 20:00（见 daily_scheduler.py `DEFAULT_TEMPERATURE_CRON = '0 20 * * *'`）
 """
 
 from datetime import datetime
@@ -156,6 +156,43 @@ class TemperatureJob(SyncJob):
             logger.error(f'韭圈儿异常: {e}')
             errors.append({'source': 'jiucaishuo', 'error': str(e)})
 
+        # ---- 2b. 韭圈儿·行业恐贪 PH/TF（ins-emotion，免登录；落 single 保历史） ----
+        # 落 single（每行业一条）而非 multi：cleanup_old_data 只清理 composite/multi 的
+        # 超 1 年数据，single 无限保留，后续才能做行业恐贪历史分位（设计文档见
+        # temperature_industry_emotion_design.md §3）。
+        try:
+            from app.services.adapters.jiucaishuo_adapter import JiucaishuoAdapter
+
+            emotion_rows = JiucaishuoAdapter().fetch_industry_emotion()
+            emotion_count = 0
+            for row in emotion_rows:
+                name = row.get('name')
+                num = row.get('num')
+                if not name or num is None:
+                    continue
+                try:
+                    value = float(num)
+                except (TypeError, ValueError):
+                    logger.warning(f'行业恐贪数值无法解析: {name}={num!r}，跳过')
+                    continue
+                records.append(
+                    {
+                        'kind': 'single',
+                        'source': 'jiucaishuo_industry',
+                        'name': name,
+                        'value': value,
+                        'label': '',
+                        'unit': '',
+                        'collected_at': collected_at,
+                        'stale': False,
+                    }
+                )
+                emotion_count += 1
+            logger.info(f'行业恐贪获取成功: {emotion_count} 个行业')
+        except Exception as e:
+            logger.error(f'行业恐贪异常: {e}')
+            errors.append({'source': 'jiucaishuo_industry', 'error': str(e)})
+
         # ---- 3. 复合指标 ----
         for source, fetcher in COMPOSITE_FETCHERS.items():
             try:
@@ -198,9 +235,9 @@ class TemperatureJob(SyncJob):
         # ---- 5. 多维列表（预留，如乖离度、行业拥挤度等） ----
         # 此处可添加 bias、industry_crowding 等
         # ---- 乖离率（午间/盘后双次） ----
-        # TODO(乖离率): 当前乖离率计算在运行时会出错，暂时整体跳过，待后期找到可行方案后放开。
-        #  放开方式：将 SKIP_BIAS 置 False，并取消下方被注释的原逻辑块。
-        #  原逻辑（保留备查，不要删除）：
+        # 历史注释（保留备查）：乖离率一度因运行时报错被整体跳过（SKIP_BIAS=True）。
+        # 数据源改为直连后已放开（SKIP_BIAS=False），下方 if/else 的 else 分支就是真实在跑的路径；
+        # 下面被注释的原逻辑块仅为「当时长什么样」留档，不要再按它恢复。
         #  try:
         #      bias_job = BiasJob(self.adapter, self.db)
         #      # 判断当前时间，决定上下文（午间 11:00-13:00，其余视为收盘）
@@ -217,8 +254,8 @@ class TemperatureJob(SyncJob):
         #      errors.append({'source': 'bias', 'error': str(e)})
         if SKIP_BIAS:
             logger.warning(
-                '乖离率计算已跳过（SKIP_BIAS=True）：当前乖离率逻辑运行时会出错，'
-                '待后期修复后放开（见 jobs.py 中 TODO(乖离率) 注释块）。本次同步不含乖离率数据。'
+                '乖离率计算已跳过（SKIP_BIAS=True）：本次同步不含乖离率数据。'
+                '该开关当前为 False（数据源已改直连），仅在需要临时摘除乖离率时置 True。'
             )
         else:
             try:
@@ -226,12 +263,20 @@ class TemperatureJob(SyncJob):
                 # 判断当前时间，决定上下文（午间 11:00-13:00，其余视为收盘）
                 now = datetime.now()
                 context = '午间' if 11 <= now.hour < 13 else '收盘'
-                bias_data = bias_job.run_with_context(context)
-                if bias_data:
-                    records.extend(bias_data)
-                    logger.info(f'乖离率数据获取成功 ({context}): {len(bias_data)} 条')
-                else:
-                    logger.warning('乖离率数据获取失败')
+                bias_run = bias_job.run_with_context(context)
+                if bias_run.records:
+                    records.extend(bias_run.records)
+                    logger.info(f'乖离率数据获取成功 ({context}): {len(bias_run.records)} 条')
+                # 逐标的失败必须进 errors：此前这里只有一句 logger.warning，于是
+                # 「37 个标的全挂」在 sync_logs 里与「今天没数据」完全同形（本卡）。
+                # 只记**一条** summary：温度任务聚合 6 个数据源，逐标的明细留在
+                # BiasJob 自己的 sync_logs（stats['errors']）里，这里要的是「有人能看见」。
+                if bias_run.failed:
+                    summary = f'乖离率 {bias_run.failed}/{bias_run.total} 标的失败'
+                    if not bias_run.records:
+                        summary += '（全部失败）'
+                    logger.warning(summary)
+                    errors.append({'source': 'bias', 'error': summary})
             except Exception as e:
                 logger.error(f'乖离率计算异常: {e}')
                 errors.append({'source': 'bias', 'error': str(e)})

@@ -32,7 +32,7 @@ from app.domains.ledgers.constants import (
     map_org_type_to_channel_category,
 )
 from app.domains.ledgers.models import Ledger
-from app.domains.positions.models import Position, SalesInstitution
+from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 from app.domains.transactions.models import Transaction
 from app.services.fund_service import FundService
 from app.services.position_service import PositionService
@@ -457,6 +457,66 @@ def update_ledger(db, ledger: Ledger, data: dict, family_id: int) -> Ledger:
     db.flush()
     db.refresh(ledger)
     return ledger
+
+
+def delete_ledger(db, ledger: Ledger, delete_positions: bool, family_id: int) -> None:
+    """删除账户，可选级联删除关联持仓/资产/交易（业务规则下沉，原视图 500 修复）。
+
+    WHY 下沉
+        「有数据的账户只能归档、不可删除」是业务规则；删除时还要清理
+        :class:`PositionImportMeta` 这类**不随持仓级联消失的引用**。留在视图里
+        既没有服务层单测入口，也容易只盯着持仓/资产/交易而漏掉第二类引用。
+
+    WHY 必须显式处理 position_import_meta
+        它有两列指向 ``ledgers``，且都不随持仓删除而消失：
+        - ``ledger_id``：本账户下持仓的溯源元数据；
+        - ``attributed_to_ledger_id``：E账户影子记录**归因到的目标账户**。
+
+        影子记录本身属于渠道账户（``ledger_id`` 为 NULL 或其渠道账户），只有归因目标
+        指向本账户 —— 删持仓删不到它，删账户则被外键拦下（2026-10-22 线上实测：
+        ``DELETE FROM ledgers`` 报 ``FOREIGN KEY constraint failed``）。
+
+        归因目标即将不存在，``is_attributed=True`` 的「防复活」语义也随之失效
+        （该标的已不在任何账户里），故一并复位，允许后续导入重新归因。
+    """
+    if delete_positions:
+        # 级联删除关联数据（基于 ledger_id）：先删交易与溯源元数据，再删持仓/资产
+        db.query(Transaction).filter(Transaction.ledger_id == ledger.id, Transaction.family_id == family_id).delete()
+        # 先删溯源元数据再删持仓：DB 侧虽有 positions → position_import_meta 的
+        # ON DELETE CASCADE，但历史迁移过的库未必保留该约束（线上库实测
+        # position_import_meta 有外键、positions 一张都没有），显式删除不依赖库结构。
+        db.query(PositionImportMeta).filter(PositionImportMeta.ledger_id == ledger.id).delete(synchronize_session=False)
+        db.query(Position).filter(Position.ledger_id == ledger.id).delete()
+        db.query(Asset).filter(Asset.ledger_id == ledger.id, Asset.family_id == family_id).delete()
+    else:
+        # 检查是否存在关联持仓/资产/交易（任一存在即拒绝，防止产生孤儿数据）
+        position_count = db.query(Position).filter(Position.ledger_id == ledger.id).count()
+        asset_count = db.query(Asset).filter(Asset.ledger_id == ledger.id, Asset.family_id == family_id).count()
+        transaction_count = (
+            db.query(Transaction).filter(Transaction.ledger_id == ledger.id, Transaction.family_id == family_id).count()
+        )
+        if position_count > 0 or asset_count > 0 or transaction_count > 0:
+            raise LedgerWriteError(
+                f'无法删除：账户「{ledger.name}」下还有 {position_count} 笔持仓、'
+                f'{asset_count} 项资产、{transaction_count} 笔交易，请先迁移或勾选"同时删除"',
+                400,
+                1001,
+            )
+        # 无持仓时也可能残留溯源元数据（历史导入 / 迁移），否则删账户仍会被外键拦下
+        db.query(PositionImportMeta).filter(PositionImportMeta.ledger_id == ledger.id).delete(synchronize_session=False)
+
+    # 解除「归因到本账户」的影子记录：目标账户即将删除，归因关系不再成立
+    db.query(PositionImportMeta).filter(PositionImportMeta.attributed_to_ledger_id == ledger.id).update(
+        {
+            PositionImportMeta.attributed_to_ledger_id: None,
+            PositionImportMeta.attributed_at: None,
+            PositionImportMeta.is_attributed: False,
+        },
+        synchronize_session=False,
+    )
+
+    db.delete(ledger)
+    db.flush()
 
 
 def update_ledger_transaction(db, ledger, txn, data: dict) -> Transaction:

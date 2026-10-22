@@ -59,9 +59,16 @@ daily-snapshot 因 secrets 缺失连续 7 天全红，本地库净值止于 2026
 - **启动补跑**：应用启动后延迟 180s 检查「当天已过触发时刻、却还没有成功记录」的任务并补跑。
   早上 9 点启动不会抢跑（那时数据还没发布），晚上到家开机则能把当天漏掉的补上。
 - **抓取礼仪**：每个任务开工前做随机延迟，窗口复用 `SYNC_JITTER_SECONDS`（#1400）。
-- **扩任务**：想再加一项（如 `asset_snapshot`，纯本地计算无外部数据源、是前端「每日收益」的
-  数据源），在 `app/services/daily_scheduler.py` 的 `_JOB_TEMPLATES` 加一行即可，
-  配置项会自动出现在 `--status` 里。
+- **扩任务**：想再加一项，在 `app/services/daily_scheduler.py` 的 `_JOB_TEMPLATES` 加一行即可，
+  配置项会自动出现在 `--status` 里；**同时**要在 `backend/.env.example` 登记开关
+  （守卫 `scripts/guard_scheduler_env_example.py` 断言「每个进每日调度的 job 都有开关」，
+  漏写即 CI 红——本段曾因此漏掉 7 个 job，见 #1186），并从 `_NOT_SCHEDULED` 移除
+  （若它原先在那张表里；守卫 `guard_job_schedule_coverage.py` 断言两张表覆盖编排器全集）。
+- **`asset_snapshot` 已在每日调度里**（23:45，#2132 / D63）：此前它只靠用户进全景页 /
+  手动点触发（`sync_logs` 零运行记录），于是「资产走势」缺 19 个工作日
+  （真库体检）。它必须晚于当日所有落库类 job（净值 21:30 / 现价 22:15 / 回填 22:35 /
+  孤儿挂回 23:30），且不能跨零点（否则 `snapshot_date` 变成次日、标签日错位）；
+  休市日照跑（补日历连续性）。口径边界见 `docs/spec/decisions.md` D62 / D63。
 
 ### 配置（`backend/.env`，全部可选）
 
@@ -74,6 +81,7 @@ SCHEDULER_ENABLED=1                    # 总开关（模板 .env.example 已默�
 # SCHEDULER_INDEX_DAILY_CRON=0 18 * * *      # 指数日线（万得系 + 交易所宽基）
 # SCHEDULER_POSITION_PRICE_CRON=15 22 * * *
 # SCHEDULER_ADVISOR_CRON=0 22 * * *
+# SCHEDULER_ASSET_SNAPSHOT_CRON=45 23 * * *  # 资产快照（#2132 / D63）
 # SCHEDULER_SKIP_NON_TRADING_DAY=true  # 休市不抓
 # SCHEDULER_RUN_ON_START=true          # 启动补跑
 # SCHEDULER_STARTUP_DELAY_SECONDS=180
@@ -170,6 +178,46 @@ pdm run invoke sched.status     # 或 pdm run scheduler --status（只读）
 > `position_price` / `advisor_portfolio`），不含资产快照——资产快照只在 CI 侧做，
 > 本机不做落账。（`price_history` 自 #1104 起进本机任务：它是场内「最新价 / 持仓盈亏 /
 > 每日收益日历」的数据底座，只靠 CI 一次/天不足以自愈断档。）
+
+### 连接生产库：user 域必须走 pooler（#2460 / #2462）
+
+**根因（实测）**：Supabase 新项目的**直连**端点 `db.<ref>.supabase.co:5432` **只给 IPv6**
+（CI 日志里解析出 `2406:da18:…`），而 **GitHub Actions runner 没有 IPv6 出口**，
+libpq 直接报 `Network is unreachable`。于是即便 market 域（Turso）已修好，
+调度仍在 user 域连接这一步整轮失败——#1490 那张告警卡因此挂了 58 天。
+
+**修法**：换 pooler（Supavisor）端点（IPv4，有 A 记录），它**沿用同一份 DB 密码**，
+用户名改 `postgres.<ref>`。故只需给出端点，由代码就地改写连接串：
+
+```bash
+# backend/.env（或 CI 的 env）
+SUPABASE_POOLER_HOST=aws-1-ap-southeast-1.pooler.supabase.com
+# 可选，默认 5432（session 模式；语义最接近直连）
+# SUPABASE_POOLER_PORT=6543
+```
+
+实现：`app/core/db_factory.py::rewrite_supabase_direct_to_pooler()`，
+在 `DatabaseConfig.for_user()` 里调用——**它是 user 域 URL 的唯一入口**，
+故 engine 与 `[DB诊断]` 两条路都拿到改写后的 URL。未配 `SUPABASE_POOLER_HOST`
+时**零行为变化**（本机有 IPv6 时直连照旧可用）；已经是 pooler 串时幂等不动。
+
+**端口选 5432（session）而非 6543（transaction）**：本仓是一次性批处理、短事务，
+且全仓 grep 无 `LISTEN` / `pg_advisory_*` / 临时表，session 模式少一层「每条语句可能
+换后端连接」的语义差异。需要压连接数时用 `SUPABASE_POOLER_PORT=6543` 覆盖。
+
+**定位端点的坑（#2462 卡面结论作废的原因）**：pooler 域名有 `aws-0-<region>` 与
+`aws-1-<region>` **两套前缀**。本项目实测端点是 **`aws-1-`** 那一套；
+只试 `aws-0-` 会一律得到 `FATAL: tenant/user postgres.<ref> not found`，
+看起来像「该租户在 pooler 里查不到 / 项目被暂停」，其实只是前缀不对。
+
+区分「租户不在该 region」与「租户在、仅密码错」不需要真密码——Supavisor 在鉴权**之前**
+先校验租户，故用**故意错误的**密码连一次即可（`password authentication failed` = 租户存在，
+`tenant/user ... not found` = 不在该 region）。2026-10-22 对 12 个候选端点的实测结论：
+只有 `aws-1-ap-southeast-1`（新加坡）返回前者，5432 / 6543 两个端口都如此。
+
+**验证方式**：`gh workflow run daily-snapshot.yml` 后看日志里
+`[DB诊断] user 域 连接 OK`；若仍失败，诊断行会直接说明「只有 IPv6 记录」并给出两条出路
+（配 `SUPABASE_POOLER_HOST`，或把调度挪到有 IPv6 的机器）。
 
 ### 每日更新的信息
 

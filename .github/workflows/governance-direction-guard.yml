@@ -47,8 +47,17 @@ jobs:
         run: |
           set -euo pipefail
           # 逐页拉全（默认 30 条/页），避免改动多的 PR 漏掉后面的治理文件（假绿）。
-          gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
-            --jq '.[].filename' > /tmp/pr_files.txt
+          #
+          # ⚠️ 失败语义分层（#171 / #450 纪律，2026-10-21 修正，源 issue #2482）：
+          #   - **拉取失败** ⇒ 显式红（拿不到输入，本轮结论不可信）；
+          #   - **拉取成功但列表为空** ⇒ PR 零文件改动，是**事实**而非「输入缺失」。
+          # 旧写法把「列表为空」一律当「输入缺失」，而拉取失败早已被 set -euo pipefail
+          # 中断作业 ⇒ 那条分支永远走不到拉取失败、只会被零文件改动的 PR 触发（假红）。
+          if ! gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
+            --jq '.[].filename' > /tmp/pr_files.txt; then
+            echo "::error::拉取 PR 改动文件列表失败 —— 本轮结论不可信，不得当作「未改动治理文件」"
+            exit 1
+          fi
           echo "改动文件数：$(wc -l < /tmp/pr_files.txt)"
 
       - name: 判定并提示
@@ -59,12 +68,12 @@ jobs:
           set -euo pipefail
 
           # 用 Node 跑判据（与单测同一份代码，避免「测的是一份、跑的是另一份」）。
-          # 拿不到输入文件 ⇒ 显式失败，不退化成一个看起来正常的结论（#171 / #450 纪律）。
-          if [ ! -s /tmp/pr_files.txt ]; then
-            echo "::error::未取到 PR 改动文件列表 —— 本轮结论不可信，不得当作「未改动治理文件」"
-            exit 1
-          fi
-
+          #
+          # ⚠️ 空列表 ≠ 拿不到输入（2026-10-21 修正，源 issue #2482）：列表为空有两种来源——
+          #   - **拉取失败** ⇒ 已在第一步显式红（::error:: + exit 1），走不到这里；
+          #   - **PR 确实零文件改动** ⇒ 没有任何文件可命中治理清单 ⇒ 判 OK。
+          # 因此这里**不再**把空列表当失败；判据交给同一份 scripts/governance_files_rule.js
+          # （它对空列表返回 ok=true，见 scripts/tests/governance_files_rule.test.js）。
           node - <<'NODE' > /tmp/governance_result.txt
           const fs = require('node:fs');
           const rule = require('./scripts/governance_files_rule.js');
@@ -76,7 +85,7 @@ jobs:
 
           verdict=$(head -1 /tmp/governance_result.txt)
           if [ "$verdict" = "OK" ]; then
-            echo "✅ 本 PR 未改动治理文件。"
+            echo "✅ 本 PR 未改动治理文件（改动文件数：$(wc -l < /tmp/pr_files.txt)）。"
             exit 0
           fi
 

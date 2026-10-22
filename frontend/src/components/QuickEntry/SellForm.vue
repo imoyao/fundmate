@@ -518,8 +518,10 @@ async function fetchPositionsByAccount() {
     const res = await getPositionsGroupedByAccount();
     positionsByAccount.value = res?.data ?? {};
     const ids = new Set<number>();
-    for (const accountName in positionsByAccount.value) {
-      const positions = positionsByAccount.value[accountName];
+    // #2405：分组键是 ledger_id 字符串（重名账户各成一组），不是账户名——
+    // 变量名曾叫 accountName，键改造后纯属误导（看着像按名回查，实际键不可编辑）。
+    for (const ledgerKey in positionsByAccount.value) {
+      const positions = positionsByAccount.value[ledgerKey];
       positions.forEach(p => {
         if (p.ledger_id) ids.add(p.ledger_id);
       });

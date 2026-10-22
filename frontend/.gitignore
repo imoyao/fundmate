@@ -26,3 +26,12 @@ playwright/.cache/
 *.njsproj
 *.sln
 tsconfig.tsbuildinfo
+
+# 一次性实测探针产物（#2453）：手工连真机/浏览器确认「有没有画出来」时的
+# 截图与探针脚本。单次诊断用完即弃，入库只会让评审多看一堆二进制 diff。
+# 判据落点是真机走查的截图评论 + trendViewMetrics.spec.ts / echartsRegistry.spec.ts，
+# 不是仓库里躺着的 probe-*.png。
+probe-*.png
+probe*.png
+tools/probe_*.mjs
+tools/_probe_*.mjs

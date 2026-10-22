@@ -290,6 +290,16 @@ jobs:
       - name: 扫描密钥引用位置回潮（阻断）
         run: python scripts/guard_secret_imports.py
 
+      # 数据库/备份文件必须受 gitignore 保护（2026-10-19 实测事故）：
+      # `*.db` 只匹配「以 .db 结尾」的文件名 ⇒ `invest.db.bak_20261018_anchor`
+      # 这类备份**不被任何规则命中**（实测 git check-ignore 退出码 1），
+      # 而一个 145MB 的备份曾以未跟踪文件躺在 backend/，一次 `git add -A`
+      # 就会把**用户私有数据**（持仓 / 流水 / 账户）提交进公开仓库。
+      # 本步骤做两件事：① 合成探针必须全部被忽略；② 工作区里不得有漏网的未跟踪 db 文件。
+      # 回归网在 scripts/tests/test_guard_db_backup_ignored.py（含回退探针）。
+      - name: 校验数据库备份文件受 ignore 保护（阻断）
+        run: python scripts/guard_db_backup_ignored.py
+
       # .cnb.yml 重复键守卫（源 CNB #458，2026-10-15）<!-- cross-repo-ref-allow -->：跨仓收敛合并把两侧各写一份的
       # `main:` / `dev:` / `pull_request:` 并进了同一层 ⇒ 两个 `dev:` 键、两个 `pull_request`
       # 键。YAML 规范允许重复键（后者覆盖前者），所以 PyYAML safe_load 与本仓全部
@@ -498,6 +508,20 @@ jobs:
         run: python -m unittest scripts.tests.test_detail_tables_guard -v
         working-directory: ${{ github.workspace }}
 
+      # 价格 / 净值精度契约守卫（用户实测：走势图 y 轴没设 formatter，净值 4.8124
+      # 在轴上只剩 4.8）。契约 `pricePrecision` 早就在，问题是只有表格类组件遵守，
+      # 其它出口各写各的 `.toFixed(n)`——写进 AGENTS.md 的软约束管不住，故做成判据：
+      # 新增硬编码一律拦，存量 13 处冻结为基线（只减不增）。
+      - name: 守卫:价格/净值精度契约
+        run: node ../scripts/guard_price_precision.mjs
+
+      # 上条的回归网（含反向验证：喂一处新增硬编码必须转红）。
+      # 与表格守卫同理，cwd 要回到仓库根。
+      - name: 价格精度守卫回归网
+        if: ${{ always() }}
+        run: node --test scripts/tests/guard_price_precision.test.js
+        working-directory: ${{ github.workspace }}
+
       - name: 构建
         run: pnpm build
 
@@ -676,6 +700,14 @@ jobs:
       - name: 安装 pyyaml + pytest
         run: python -m pip install pyyaml pytest
 
+      # dependabot 锁重生成通道（#2434）：dependabot 不跑 pnpm，文本级重写锁会丢
+      # peer-suffixed 条目 ⇒ `--frozen-lockfile` 报 MISSING_DEPENDENCY（一天三连踩）。
+      # 判据只查「通道会不会真的发生」：workflow 是否执行脚本、带 --apply、推回、
+      # 不吞失败态、按 dependabot + base=dev 设闸。放在 pyyaml 安装之后（守卫要解 YAML）。
+      # 回归网 scripts/tests/test_dependabot_lockfile_regen.py（6 个变异探针）。
+      - name: dependabot 锁重生成通道（阻断）
+        run: python scripts/guard_dependabot_lockfile_regen.py
+
       - name: 跑 scripts/ 下的 Python 守卫/桥接脚本单测
         run: python -m unittest discover -s scripts/tests -p "test_*.py" -v
 
@@ -807,6 +839,16 @@ jobs:
       - name: 机器分支单写者回归网（阻断）
         run: python scripts/tests/test_bridge_single_writer.py
 
+      # Pro 端点权益接线（#2324 验收第 2 条「新增 Pro 端点未登记权益位 → CI 报错」）。
+      #
+      # WHY：`@require_pro_feature` 只在**被调用**时拦未登记 feature；一个**根本没挂装饰器**
+      # 的新 Pro 端点不会报任何错，它会安静地对未付费用户返回完整数据——付费墙又只剩 UI 层。
+      # 本步骤静态扫路由：Pro 形路由必须挂装饰器、feature 必须在 PRO_FEATURES、
+      # 公开端点必须在白名单里写明理由（当前只有 /pro/ 状态位）。
+      # 回归网在 scripts/tests/test_guard_pro_endpoint_registry.py（含真实代码变异探针）。
+      - name: 校验 Pro 端点权益接线（阻断）
+        run: python scripts/guard_pro_endpoint_registry.py
+
       # 规则登记与生命周期守卫（源：用户问「写进 AGENTS.md 的规则，别的 Agent 不遵守怎么办」）。
       #
       # WHY：本仓有 30+ 个守门脚本，但**从没有人问过「AGENTS.md 里那些『强制 / 禁止』
@@ -841,6 +883,19 @@ jobs:
       # （12 条，含失败态 + 真实文件删行探针 + 修复前 baseline 回退探针）。
       - name: 检查每日调度开关是否都登记在 .env.example（阻断）
         run: python scripts/guard_scheduler_env_example.py
+
+      # 硬编码密钥守卫（源 #2486，2026-10-21）：接 MCP（Wind / 且慢）后 Token 会以三种
+      # 最平常的方式进仓库——适配器常量、测试夹具、文档示例——而现有守卫没有一条看**值**：
+      # `guard_secret_imports.py` 管 `.cnb.yml` 的引用**方式**，`guard_mojibake.py` 管编码，
+      # `guard_scheduler_env_example.py` 管开关有没有登记。于是那条红线此前只有一道防线：
+      # 「记得别写」——而它失败时不可逆（Token 进了历史就得改写历史或轮换）。
+      # 白名单只认语义（占位值、Supabase `anon` JWT），不按路径开口子；
+      # 拿不到输入（不是 git 仓库 / 跟踪文件读不了）退 2，**不得**当成通过。
+      # 不新增 job：并入本 job，也就不必动 gate.needs（#1559/#1560 两次事故都是合并冲突弄丢 needs）。
+      # 判据边界（不覆盖提交信息 / PR 正文 / 历史提交 / 拆分拼接的密钥）见脚本 docstring；
+      # 回归网在 scripts/tests/test_no_hardcoded_secrets.py（含临时仓库灵敏度探针 + 失败态用例）。
+      - name: 检查仓库里是否写死了密钥（阻断）
+        run: python scripts/guard_no_hardcoded_secrets.py
 
   gate:
     name: 质量门禁汇总

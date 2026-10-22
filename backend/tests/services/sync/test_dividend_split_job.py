@@ -354,3 +354,88 @@ def test_no_holding_yields_no_records_and_no_error(db):
     records = job._events_to_records({'symbol': 'SH600000', 'ex_date': RECENT, 'cash_ratio': 2.0})
     assert records == []
     assert job.stats.get('errors', []) == []
+
+
+# ── ⑨ 失败语义：「空」与「没拿到」必须分开（#1179 收尾） ──────────────────
+#
+# #1179 评论实测的形态：上游接口腐烂后 `fetch_*` 把异常吞成 `return []`，
+# job 于是报 success、数据一条不进，调度日志一片绿。下面三条用例分别钉住
+# 「全失败要红」「空但成功要绿」「部分失败仍算成功但留痕」。
+
+
+class _AllFailAdapter:
+    """四个数据源全部抛异常（模拟上游结构变更 / 接口下线）。"""
+
+    def fetch_stock_dividend(self, symbol):
+        raise RuntimeError('upstream broken')
+
+    def fetch_fund_dividend(self, symbol):
+        raise RuntimeError('upstream broken')
+
+    def fetch_fund_split(self, symbol):
+        raise RuntimeError('upstream broken')
+
+    def fetch_stock_rights_issue(self, symbols):
+        raise RuntimeError('upstream broken')
+
+
+class _EmptyAdapter:
+    """四个数据源都成功，但确实没有任何事件（大多数年份的真实形态）。"""
+
+    def fetch_stock_dividend(self, symbol):
+        return []
+
+    def fetch_fund_dividend(self, symbol):
+        return []
+
+    def fetch_fund_split(self, symbol):
+        return []
+
+    def fetch_stock_rights_issue(self, symbols):
+        return []
+
+
+class _PartialAdapter(_EmptyAdapter):
+    """一个标的正常、另一个抛错。"""
+
+    def fetch_stock_dividend(self, symbol):
+        if '600001' in str(symbol):
+            raise RuntimeError('upstream broken')
+        return []
+
+
+def test_all_fetch_failures_mark_job_failed(db):
+    """全部目标抓取失败 → job 必须 failed，不能报 success。"""
+    job = DividendSplitSyncJob(_AllFailAdapter(), db)
+    job._position_rows = lambda s: []
+
+    result = job.run(targets=['600000'])
+
+    assert result['status'] == 'failed', '上游全挂仍报 success 就是 #1179 的假成功'
+    assert result['stats']['fetch_failed'] == 1
+    assert result['stats']['fetch_ok'] == 0
+
+
+def test_empty_but_successful_fetch_stays_success(db):
+    """抓取成功但零事件（确实没分红）→ 仍 success。空 ≠ 没拿到。"""
+    job = DividendSplitSyncJob(_EmptyAdapter(), db)
+    job._position_rows = lambda s: []
+
+    result = job.run(targets=['600000'])
+
+    assert result['status'] == 'success'
+    assert result['stats']['fetch_ok'] == 1
+    assert result['stats']['fetch_failed'] == 0
+
+
+def test_partial_failure_stays_success_but_reports_counts(db):
+    """部分标的失败、部分成功 → 成功（本轮有可用结果），但失败数必须可见。"""
+    job = DividendSplitSyncJob(_PartialAdapter(), db)
+    job._position_rows = lambda s: []
+
+    result = job.run(targets=['600000', '600001'])
+
+    assert result['status'] == 'success'
+    assert result['stats']['fetch_ok'] == 1
+    assert result['stats']['fetch_failed'] == 1
+    assert any(e.get('code') for e in result['stats']['errors'])

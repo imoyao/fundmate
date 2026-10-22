@@ -7,6 +7,11 @@ import {
   type ProInsightXirr
 } from "@/api/products";
 import { formatAmount } from "@/utils/currency";
+import ProductProEntitlementNotice from "./ProductProEntitlementNotice.vue";
+import {
+  classifyProPanelFailure,
+  type ProPanelFailure
+} from "./proEntitlement";
 
 /**
  * Pro 模块一「深度绩效与归因」——账户级指标内容（#994 Phase 2）。
@@ -23,7 +28,9 @@ import { formatAmount } from "@/utils/currency";
  * - 指标 null → 「—」不编数；平仓样本量 / 未配对排除数进脚注（口径透明）。
  *
  * 挂载：ProductProSection 在 pro 状态位 `performance.available=true` 时渲染，
- * 挂载即取数；接口失败整块降级，不阻塞 Pro 卡内其余内容。
+ * 挂载即取数；失败只降级本块，不阻塞 Pro 卡内其余内容。失败分两种态
+ * （见 `proEntitlement.ts`）：家庭未开通回 `403 + error_code=1007` ⇒ 渲染权益未开通态；
+ * 其余（超时 / 5xx）才说「暂时取不到」。
  */
 const props = defineProps<{
   /** 产品代码（与状态位同源，后端按 symbol_scope 收敛流水） */
@@ -35,7 +42,14 @@ const props = defineProps<{
 const DASH = "—";
 
 const loading = ref(false);
-const failed = ref(false);
+/**
+ * 失败态（三选一，见 `proEntitlement.ts`）：
+ * `none` 正常 / `entitlement` 权益未开通（403 + 1007）/ `error` 其它失败。
+ *
+ * 旧实现是一个布尔 `failed`，把 403 与超时 / 5xx 合并成「暂时取不到」——
+ * 对权益边界说「稍后再来」等于让用户等一个不会自己变好的状态。
+ */
+const failure = ref<ProPanelFailure>("none");
 const data = ref<ProInsightResult | null>(null);
 
 const xirr = computed<ProInsightXirr | null>(() => data.value?.xirr ?? null);
@@ -162,14 +176,15 @@ function toneClass(value: number | null): string {
 async function load() {
   if (!props.symbol) return;
   loading.value = true;
-  failed.value = false;
+  failure.value = "none";
   data.value = null;
   try {
     const res = await fetchProInsight(props.symbol, props.assetType);
     data.value = res.data;
-  } catch {
-    // 接口失败：整块降级，不阻塞 Pro 卡内其余内容（详情页各区块独立降级）
-    failed.value = true;
+  } catch (error) {
+    // 权益未开通（403 + error_code=1007）与故障分开：前者讲边界、后者讲「稍后再试」。
+    // 两种态都只降级本块，不阻塞 Pro 卡内其余内容（详情页各区块独立降级）
+    failure.value = classifyProPanelFailure(error);
   } finally {
     loading.value = false;
   }
@@ -182,7 +197,12 @@ watch(() => props.symbol, load, { immediate: true });
   <section class="pro-perf">
     <p v-if="loading" class="section-footnote">正在计算你的账户级指标…</p>
 
-    <p v-else-if="failed" class="section-footnote">
+    <ProductProEntitlementNotice
+      v-else-if="failure === 'entitlement'"
+      subject="账户级指标"
+    />
+
+    <p v-else-if="failure === 'error'" class="section-footnote">
       账户级指标暂时取不到，稍后再来看看
     </p>
 

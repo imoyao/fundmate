@@ -28,7 +28,14 @@ class PriceHistory(Base, PrimaryKeyMixin, TimestampMixin):
     low = Column(Float, comment='最低价')
     close = Column(Float, nullable=False, comment='收盘价')
     volume = Column(Float, comment='成交量')
-    adj_close = Column(Float, comment='复权收盘价（后复权）')
+    adj_close = Column(
+        Float,
+        comment=(
+            '复权收盘价（**前复权 qfq**；口径见 adapters/akshare_adapter.py 的 '
+            'fetch_stock_price docstring——#1104 拍板：close=未复权、adj_close=前复权，'
+            '两者不可混用。本注释曾误写「后复权」，与实现相反，已更正）'
+        ),
+    )
     source = Column(String(20), default='akshare', comment='数据源')
 
     # 复合唯一索引

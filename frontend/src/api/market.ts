@@ -99,3 +99,75 @@ export const getMarketOverview = (force = false) => {
     { timeout: 25000 }
   );
 };
+
+// ── 行业 PB-ROE 散点（#2481）──
+// 韭圈儿免登录源，日频快照（sync/jobs/industry_pbroe_job.py）读库即回。
+// 口径：ROE 为 TTM（**可负**——负盈利行业在 PB-ROE 模型下有效，图表不得裁掉负轴），
+// PB 为最新；update_time 是上游数据日期，前端须原样标注「数据更新至 X」。
+
+/** 单个行业散点 */
+export interface IndustryPbroePoint {
+  industry: string;
+  /** ROE(%)，TTM；可负 */
+  roe: number | null;
+  /** PB，最新 */
+  pb: number | null;
+}
+
+export interface IndustryPbroeData {
+  title: string;
+  x_label: string;
+  y_label: string;
+  /** 上游数据日期（YYYY-MM-DD）；null = 上游未给（理论不存在，解析层有兜底） */
+  update_time: string | null;
+  series: IndustryPbroePoint[];
+  /** 本地落库日（YYYY-MM-DD） */
+  collected_at: string;
+  source: string;
+}
+
+export interface IndustryPbroeResponse {
+  /** 无快照（job 失败日 / 从未成功）时为 null，前端显示「暂无数据」 */
+  data: IndustryPbroeData | null;
+  message: string;
+}
+
+export const getIndustryPbroe = () => {
+  return http.get<IndustryPbroeResponse, unknown>(
+    "/api/market/industry-pbroe/"
+  );
+};
+
+/** 行业恐贪单条（#2479 · 韭圈儿 ins-emotion，免登录） */
+export interface IndustryEmotionItem {
+  /** 上游原文（如「军工PH值」），契约要求保留不解读 */
+  name: string;
+  /** 展示派生：去掉指标后缀的行业名（军工）；解析不出时 = name 原文 */
+  industry: string;
+  /** 指标后缀（PH/TF）。上游原文、语义未实证，仅透出不解读 */
+  metric: string | null;
+  /** 恐贪值 0-100 */
+  value: number | null;
+  /** 该指标在库内的自建历史累积天数（含当日）；1 = 当日首次出现 */
+  history_days: number;
+}
+
+export interface IndustryEmotionData {
+  /** 快照日期（YYYY-MM-DD）= 最新 collected_at */
+  updated_at: string;
+  /** value 降序；上游每次只返回轮换的少数行业，清单逐日可能不同 */
+  items: IndustryEmotionItem[];
+  source: string;
+}
+
+export interface IndustryEmotionResponse {
+  /** 无快照（job 从未成功）时为 null，前端显示「暂无数据」 */
+  data: IndustryEmotionData | null;
+  message: string;
+}
+
+export const getIndustryEmotion = () => {
+  return http.get<IndustryEmotionResponse, unknown>(
+    "/api/market/industry-emotion/"
+  );
+};

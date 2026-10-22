@@ -6,6 +6,7 @@ import SectionHeader from "@/components/SectionHeader/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import {
   TREND_VIEW_OPTIONS,
+  effectiveUseCandle,
   overlayAvailable,
   showViewToggle,
   showVolumeSeries,
@@ -34,6 +35,7 @@ import {
   getCssVar,
   useThemeTick
 } from "@/composables/echarts/theme";
+import { formatPrice, priceAxisLabelFormatter } from "@/utils/pricePrecision";
 
 /**
  * 详情页「走势」区块（#1967 · 设计 §5 B 区块）。
@@ -169,9 +171,14 @@ const canToggleView = computed(() =>
   showViewToggle(trend.value?.ohlc?.length ?? 0)
 );
 
-/** 当前**真的**在画 K 线 = 具备能力 **且** 选的是 K 线视图 */
-const useCandle = computed(
-  () => isCandle.value && candleView.value === "candle"
+/**
+ * 当前**真的**在画 K 线 = 具备能力 **且** 选的是 K 线视图。
+ *
+ * 走 `effectiveUseCandle`（含单测）而不是在组件里再拼一次 `isCandle && view === 'candle'`：
+ * 拼漏、或改用「切换器选中值」代替「实际视图」，都会让叠加层判定与画面脱节（#2453）。
+ */
+const useCandle = computed(() =>
+  effectiveUseCandle(trend.value?.ohlc?.length ?? 0, candleView.value)
 );
 
 /**
@@ -424,21 +431,41 @@ const costSeriesData = computed(() => {
 });
 
 /**
- * 叠加层是否有效：开关开着 + 有交易点 + **折线视图**。
+ * 叠加层在当前**实际**视图下是否可用（#2453 修复）。
  *
- * `overlayAvailable` 收口在 `trendViewMetrics`：K 线视图是未复权价 + cross tooltip +
- * 双 grid（量能副图），叠加属另一套坐标语义。场内要看买卖点 → 切折线视图（#2171 后续）。
+ * 传 `useCandle`（真的在画 K 线）而不是 `candleView`（切换器选中值）：场外基金没有
+ * OHLCV，切换器根本不渲染，而选中值初值是 `'candle'` —— 按选中值判就成了「画的是
+ * 折线、叠加层却不可用」，勾选框照常显示而买卖点一个都不画。判据与语义说明见
+ * `trendViewMetrics.overlayAvailable`。
  */
-const markersActive = computed(
+const overlayUsable = computed(() => overlayAvailable(useCandle.value));
+
+/**
+ * 有交易点**且当前视图能叠**（决定开关可不可见）。
+ *
+ * 与 `markersActive` 的区别是不受开关自身影响——关掉开关后开关本身不能跟着消失
+ * （否则用户再也开不回来）。视图不可叠时开关**必须隐藏**：显示一个点了没反应的
+ * 勾选框是假可操作性，比不显示更糟。
+ */
+const hasMarkers = computed(
   () =>
-    showMarkers.value &&
-    overlayAvailable(candleView.value) &&
+    overlayUsable.value &&
     markerData.value.buy.length + markerData.value.sell.length > 0
 );
 
-/** 有交易点（决定开关可不可见；与 markersActive 的区别是不受开关自身影响） */
-const hasMarkers = computed(
-  () => markerData.value.buy.length + markerData.value.sell.length > 0
+/** 叠加层是否真的要画：开关开着 + 有交易点 + 当前视图能叠 */
+const markersActive = computed(() => showMarkers.value && hasMarkers.value);
+
+/**
+ * 有交易点但被当前视图挡住（场内 K 线视图）：给一句明话。
+ *
+ * 开关隐藏了却什么都不说，用户只会以为「买卖点功能没了」。这句话同时也是
+ * 「折线视图为什么存在」的答案——它的唯一理由就是让叠加层能叠上来。
+ */
+const tradesHiddenByView = computed(
+  () =>
+    !overlayUsable.value &&
+    markerData.value.buy.length + markerData.value.sell.length > 0
 );
 
 /** 有流水（决定累计收益面板可不可见；含只有分红没有买卖的边界） */
@@ -564,7 +591,14 @@ const chartOption = computed(() => {
         }
       ],
       yAxis: [
-        { scale: true, axisLabel: { fontSize: 11 }, splitLine },
+        {
+          scale: true,
+          axisLabel: {
+            fontSize: 11,
+            formatter: priceAxisLabelFormatter(props.assetType)
+          },
+          splitLine
+        },
         {
           gridIndex: 1,
           splitNumber: 2,
@@ -642,7 +676,7 @@ const chartOption = computed(() => {
       } else {
         const v = Array.isArray(p.value) ? Number(p.value[1]) : Number(p.value);
         rows.push(
-          `${p.marker ?? ""}${seriesName}：${Number.isFinite(v) ? v.toFixed(4) : "—"}`
+          `${p.marker ?? ""}${seriesName}：${formatPrice(v, props.assetType)}`
         );
       }
     }
@@ -661,7 +695,12 @@ const chartOption = computed(() => {
     yAxis: {
       type: "value",
       scale: true,
-      axisLabel: { fontSize: 11 },
+      // 净值 4 位、股价 2 位：不设 formatter 时 echarts 默认只给 1 位，
+      // 净值 4.8124 在轴上会显示成 4.8（用户实测反馈）
+      axisLabel: {
+        fontSize: 11,
+        formatter: priceAxisLabelFormatter(props.assetType)
+      },
       splitLine
     },
     series: [
@@ -862,6 +901,11 @@ watch(firstTradeDate, () => {
         class="trend-section__chart"
       />
       <p v-if="spanNotice" class="trend-section__hint">{{ spanNotice }}</p>
+      <!-- 买卖点开关被视图挡住时给一句明话（#2453）：开关不渲染 + 一句话解释，
+           比留一个点了没反应的勾选框诚实，也让「折线视图为什么存在」有答案。 -->
+      <p v-if="tradesHiddenByView" class="trend-section__hint">
+        买卖点与成本线在「折线」视图中叠加显示
+      </p>
       <!-- 来源说「哪个网站」，口径说「怎么算的」——后端分开给，前端只排版，
            不在这里推断「close 就等于前复权」（#1969）。
            空心买卖点（#2171 P1）：成交价低于当时持仓成本——低吸 / 割肉。 -->

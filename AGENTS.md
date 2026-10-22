@@ -788,6 +788,7 @@ if code == 1:
 - 份额：最小单位（份×10000）。
 - 净值：`DECIMAL(18,6)`。
 - 换算必须走 `app/core/money.py` 的 `Money`（`yuan_to_cents`/`shares_to_min_unit`），业务代码禁止直接乘除 float。
+- **前端价格 / 净值展示的位数一律走 `@/utils/pricePrecision`**（基金 / ETF / 货币基金 4 位，其余 2 位）；组件用 `:precision="pricePrecision(assetType)"`，echarts 轴标签 / tooltip / 标注这类非组件出口用 `formatPrice(v, assetType)`。禁止在各处手写 `.toFixed(n)`——契约早在，但只有表格类组件遵守，走势图 y 轴就因此只剩 1 位（净值 4.8124 显示成 4.8）。判据：`scripts/guard_price_precision.mjs`（存量 13 处冻结为基线，只拦新增）。
 
 ### 资产正负
 
@@ -1667,6 +1668,7 @@ GitHub: - Required status check "质量门禁汇总" is expected.
 工作流 `.github/workflows/pr-four-questions-guard.yml`（`pull_request_target`，不检出 PR 代码）：
 
 - 判据脚本 `scripts/guard_pr_four_questions.mjs`：PR 描述须含四问小节——**谁的什么问题 / 验收标准 / 风险 / 替代方案**；
+- **验收标准每条须带判据引用**（`scripts/guard_pr_four_questions.mjs` 第二层判据）：反引号里的测试名 / 文件 / 命令，或 `测试：` / `判据：` / `走查：` / `验证：` 等冒号前缀标记；真机走查类验收没有测试名，写「走查：dev 环境点击截图」即合格。这拦的是「验收标准写成愿望清单」——条目既无测试名也无走查点，收口时只能靠回忆判断过没过（#2449）；
 - **只检查「有没有写」，不判断「写得对不对」**。这是有意的降级：「需求是否合理」是主观判断（写进文档就会被绕开），「有没有写这四行」是客观存在性（CI 拦得住）。守卫保证的是**判断发生过并留下痕迹**，四问内容是否成立仍由 owner 评审时判断；
 - 「风险」写「无风险」算通过，**留空标题不算**（有标题没思考是最常见的假通过）；
 - 豁免：机器人作者（dependabot / github-actions / claude …）/ draft PR / 描述含 `four-questions-skip`（豁免留痕）。**豁免面收得越紧，守卫活得越久**——天天误伤真实工作就没人看它了；
@@ -1916,6 +1918,12 @@ GitHub: - Required status check "质量门禁汇总" is expected.
 - **提交信息同样受约束**：`pre-commit` 的 `guard-mojibake-commit-msg` 钩子会在 `commit-msg` 阶段拦截乱码提交信息；CI 的 `mojibake_guard` job 作为兜底，扫描 PR 变更文件，防止经 `--no-verify` 或 `gh api` / MCP 直推绕过本地钩子。
 - **禁止 `git commit -m "中文..."` 内联写法**（PowerShell 等控制台会把中文按 GBK 传给 git 造成永久乱码历史）。一律用 `git commit -F <utf8文件>` 或 `scripts/commit_changes.py --message-file <...>`。
 - 本地 `guard_mojibake.py`（文件）与 `guard-mojibake-commit-msg`（提交信息）会拦截疑似乱码，禁止 `--no-verify` 绕过。
+
+### AI 编码防密钥硬编码（强制，2026-10-21）
+
+- **Token / API Key / Cookie 一律禁止写进仓库文件**（文档、代码、注释、测试夹具、提交信息、PR 正文），只能读环境变量（如 `WIND_MCP_TOKEN` / `QIEMAN_API_KEY`）；示例一律写 `xxxx`。判据 `scripts/guard_no_hardcoded_secrets.py`（并入 `ci.yml` 的 `scripts_test`，阻断）。
+- 白名单只认**语义**、不按路径开口子：占位值（含 `test` / `fake` / `xxxx` 等）与 Supabase `anon` key（JWT payload `role=anon`，公开是设计如此）放行，同形的 `service_role` key 必须报。判据同上（`scripts/guard_no_hardcoded_secrets.py`）。
+- 边界（**不覆盖**提交信息 / PR 正文 / 历史提交 / 运行时拼接）见该守卫 docstring；凭据分层（系统 Token vs 用户 Token）与上位设计见 `docs/dev/mcp-integration.md` §1、§5。
 
 ---
 

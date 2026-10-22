@@ -42,6 +42,9 @@ class ErrorCode(Enum):
     OPERATION_FAILED = (1004, '操作失败', 400)
     UNAUTHORIZED = (1005, '未授权，请先登录', 401)
     FORBIDDEN = (1006, '没有权限执行此操作', 403)
+    # 权益分隔（#2324）：与通用 FORBIDDEN 分开，前端才能把「Pro 未开通」
+    # 渲染成付费墙/权益态，而不是「暂时取不到」。通用 403 仍用 1006。
+    PRO_NOT_ENTITLED = (1007, 'Pro 功能未开通', 403)
 
     # 业务错误 2xxx（持仓/交易相关）
     INSUFFICIENT_QUANTITY = (2001, '持仓数量不足', 400)

@@ -144,6 +144,31 @@ class AdvisorPortfolioSource(ABC):
     def fetch_rebalances(self, code: str) -> List[Dict[str, Any]]:
         """官方历史调仓 ``[{adjust_date, reason, funds: [...]}]``；无该数据面返回 ``[]``。"""
 
+    # ── 可选批量数据面（有则覆盖，无则逐只回退） ──
+    #
+    # 为什么是**可选**方法而不是抽象方法：批量能力是平台各自的优化（且慢 MCP 的
+    # ``GetStrategyDetails`` / ``BatchGetStrategiesComposition`` 天然收多个 code），
+    # 把它写进抽象契约会逼着「只能逐只查」的平台也实现一遍逐只循环，等于把
+    # 「平台无关」换成「每个适配器都抄同一段循环」。故此处给默认实现：
+    # 基类按 :meth:`fetch_overview` / :meth:`fetch_holdings` 逐只回退，
+    # job 侧只管调批量方法，**新增平台零改动**（#1876：111 只组合 222 次工具调用 → 3 次）。
+
+    def fetch_overviews(self, codes: List[str]) -> Dict[str, Dict[str, Any]]:
+        """批量概览：``{code: canonical}``；默认逐只调 :meth:`fetch_overview`。
+
+        返回字典**不必覆盖全部请求 code**（拿不到的缺席即可，job 视同空概览）。
+        """
+        return {c: self.fetch_overview(c) for c in codes or []}
+
+    def fetch_holdings_batch(self, codes: List[str]) -> Dict[str, Dict[str, Any]]:
+        """批量持仓：``{code: {'as_of_date':…, 'funds': […]}}``；默认逐只调 :meth:`fetch_holdings`。
+
+        语义要求（有批量实现的平台必须满足）：**某只拿不到时不得让该组合的持仓变成空快照**
+        ——批量响应里认不出某 code 时必须降级逐只重取，否则「批量失败」会被落库层读成
+        「这只组合清仓了」。
+        """
+        return {c: self.fetch_holdings(c) for c in codes or []}
+
 
 #: platform → 适配器类（由 :func:`register_advisor_source` 填充）
 _SOURCES: Dict[str, type] = {}

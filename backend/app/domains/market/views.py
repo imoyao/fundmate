@@ -8,6 +8,9 @@
 from apiflask import APIBlueprint
 from flask import jsonify, request
 
+from app.core.database import get_db
+from app.services.industry_emotion_service import get_latest_industry_emotion
+from app.services.industry_pbroe_service import get_latest_industry_pbroe
 from app.services.market_snapshot_store import resolve_overview
 
 market_bp = APIBlueprint('market', __name__, url_prefix='/api/market')
@@ -34,4 +37,49 @@ def get_market_overview():
     """
     force = request.args.get('force', 'false').lower() in ('1', 'true', 'yes')
     data = resolve_overview(force)
+    return jsonify({'data': data, 'message': 'success'})
+
+
+@market_bp.get('/industry-pbroe/', strict_slashes=False)
+def get_industry_pbroe():
+    """行业 PB-ROE 散点矩阵（探市行业比较，#2481）。
+
+    GET /api/market/industry-pbroe
+
+    Response:
+      {"data": {"title": "A股行业PB-ROE", "x_label": "ROE(%)", "y_label": "PB",
+                "update_time": "2026-10-21",
+                "series": [{"industry": "农林牧渔", "roe": 2.71, "pb": 2.4}, ...],
+                "collected_at": "2026-10-21", "source": "jiucaishuo_pbroe"},
+       "message": "success"}
+
+    读库即回（日频快照由 sync/jobs/industry_pbroe_job.py 写入）；无快照时
+    data=null，前端显示「暂无数据」。负 ROE 行业有效，不剔除；
+    update_time 为上游数据日期，前端原样标注。
+    """
+    with get_db() as db:
+        data = get_latest_industry_pbroe(db)
+    return jsonify({'data': data, 'message': 'success'})
+
+
+@market_bp.get('/industry-emotion/', strict_slashes=False)
+def get_industry_emotion():
+    """行业恐贪快照（探市「行业情绪」档，#2479）。
+
+    GET /api/market/industry-emotion
+
+    Response:
+      {"data": {"updated_at": "2026-10-21",
+                "items": [{"name": "军工PH值", "industry": "军工", "metric": "PH",
+                           "value": 34.0, "history_days": 12}, ...],
+                "source": "jiucaishuo_industry"},
+       "message": "success"}
+
+    快照 = 最新 collected_at 当日全部行；上游免登录端点每次只返回**轮换的少数
+    行业**（2026-10-21 实测 4 条），行业清单逐日可能不同——前端如实呈现，
+    不假设全集。metric（PH/TF）为上游原文后缀、语义未实证，仅透出不解读；
+    history_days 为该指标自建历史的累积天数。无数据 data=null。
+    """
+    with get_db() as db:
+        data = get_latest_industry_emotion(db)
     return jsonify({'data': data, 'message': 'success'})

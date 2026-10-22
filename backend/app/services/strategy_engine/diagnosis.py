@@ -14,12 +14,18 @@ P0 不落库的原因（避免过度工程）
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Mapping, Sequence
 
 from app.services.strategy_engine import strategies  # noqa: F401  —— 导入即完成策略注册
-from app.services.strategy_engine.behavior_profile import BehaviorProfile, build_behavior_profile
-from app.services.strategy_engine.contracts import StrategyContext
-from app.services.strategy_engine.data_provider import DataProvider
+from app.services.strategy_engine.behavior_profile import (
+    BehaviorProfile,
+    TradeRecord,
+    account_actual_vs_hold,
+    build_behavior_profile,
+)
+from app.services.strategy_engine.contracts import SeriesPoint, StrategyContext
+from app.services.strategy_engine.data_provider import DataProvider, extract_fund_code
 from app.services.strategy_engine.registry import registry
 
 #: 诊断默认只用「数据已具备」的策略：P0 只供 nav，故估值型/配置型策略不会出现在结果里
@@ -118,6 +124,11 @@ def behavior_profiles(
     """行为反推：用真实流水 + 净值，算出用户**实际**在用什么策略（#2225）。
 
     输出只陈述用户自己的历史事实，不给出任何未来倾向性意见。
+
+    买入侧指标（#2382）
+        - `forward_return`（买点质量）与 `buy_percentile`（是否追高）逐标的计算；
+          同类分位需要同类型基金净值，由 provider 分步查询（本地库，无外部请求）；
+        - 账户层 `actual_vs_hold` 进 summary：实际收益 vs「每笔买入后持有到期末」。
     """
     holdings = provider.holdings(family_id)
     target_symbols = list(symbols) if symbols else [h.symbol for h in holdings]
@@ -129,22 +140,57 @@ def behavior_profiles(
     grouped = provider.group_trades_by_symbol(trades)
 
     profiles: list[dict] = []
+    series_by_symbol: dict[str, tuple[SeriesPoint, ...]] = {}
     for symbol in target_symbols:
         series = provider.nav_series(symbol, limit=limit)
+        series_by_symbol[symbol] = series
+        symbol_trades = grouped.get(symbol, [])
+        peer_map = _peer_year_returns_for_symbol(provider, symbol, symbol_trades)
         profile = build_behavior_profile(
             symbol=symbol,
-            trades=grouped.get(symbol, []),
+            trades=symbol_trades,
             series=series,
+            peer_year_returns=peer_map,
         )
         payload = profile.to_dict()
         payload['name'] = name_by_symbol.get(symbol, '')
         profiles.append(payload)
 
+    summary = _summarize(profiles)
+    summary['actual_vs_hold'] = account_actual_vs_hold(
+        [t for t in trades if t.symbol in series_by_symbol],
+        series_by_symbol,
+    )
     return {
         'family_id': family_id,
         'profiles': profiles,
-        'summary': _summarize(profiles),
+        'summary': summary,
     }
+
+
+def _peer_year_returns_for_symbol(
+    provider: DataProvider,
+    symbol: str,
+    trades: Sequence[TradeRecord],
+) -> dict[date, tuple[float, ...]]:
+    """逐**唯一买入日**取同类近 1 年收益率（#2382）。
+
+    去重键 = (symbol, 买入日)：同一 symbol 同一天的多笔买入共享一次查库。
+    取数失败（库异常等）按「无同类数据」降级，不阻断画像其余字段。
+    """
+    code = extract_fund_code(symbol)
+    if not code:
+        return {}
+    buy_dates = sorted({t.trade_date for t in trades if t.side == 'buy'})
+    out: dict[date, tuple[float, ...]] = {}
+    for day in buy_dates:
+        try:
+            peers = provider.peer_year_returns(code, day)
+        except Exception:  # 取数失败不阻断画像（诚实降级）
+            peers = None
+        if peers:
+            out[day] = peers
+    return out
 
 
 def _empty_summary() -> dict:
@@ -155,6 +201,7 @@ def _empty_summary() -> dict:
         'avg_chase_buy_ratio': None,
         'dominant_style': 'unknown',
         'dominant_label': '暂无样本',
+        'actual_vs_hold': None,
     }
 
 
@@ -170,6 +217,7 @@ def _summarize(profiles: Sequence[Mapping[str, object]]) -> dict:
     costs = [float(p['early_exit_cost']) for p in scored if p.get('early_exit_cost') is not None]
     holds = [float(p['avg_hold_days']) for p in scored if p.get('avg_hold_days') is not None]
     chases = [float(p['chase_buy_ratio']) for p in scored if p.get('chase_buy_ratio') is not None]
+    pcts = [float(p['buy_percentile']) for p in scored if p.get('buy_percentile') is not None]
 
     tally: dict[str, int] = {}
     for p in scored:
@@ -182,6 +230,7 @@ def _summarize(profiles: Sequence[Mapping[str, object]]) -> dict:
         'total_early_exit_cost': round(sum(costs), 2) if costs else None,
         'avg_hold_days': round(sum(holds) / len(holds), 1) if holds else None,
         'avg_chase_buy_ratio': round(sum(chases) / len(chases), 1) if chases else None,
+        'avg_buy_percentile': round(sum(pcts) / len(pcts), 1) if pcts else None,
         'dominant_style': dominant,
         'dominant_label': label,
     }

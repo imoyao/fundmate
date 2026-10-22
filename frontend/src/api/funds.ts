@@ -183,3 +183,106 @@ export function getAdvisorAdjusts(code: string, limit = 3) {
     { params: { limit } }
   );
 }
+
+// ── 相似基金只读接口（#2480）──
+// 韭圈儿相似度名单（免登录，按需取 + 后端 6h 两级缓存）。
+// 降级契约（与后端 issue 验收第 3 条对应）：degraded=true 时 items 为空、error
+// 有值——前端显示「暂时取不到」，**不渲染空表格、不当成无相似基金**。
+
+/** 单只相似基金 */
+export interface SimilarFundItem {
+  fund_code: string;
+  fund_name: string;
+  /**
+   * 0-100 相似度分。null = 上游未打分（只给前若干名打分）——
+   * 与「得分 0」是两件事，渲染「—」，不补 0。
+   */
+  similarity: number | null;
+  /** 近 1 年收益率(%)；null = 上游未提供 */
+  income_1y_pct: number | null;
+  /** 上游收益口径标签（如「近1年」），原样展示 */
+  window: string | null;
+}
+
+export interface SimilarFundsResult {
+  fund_code: string;
+  items: SimilarFundItem[];
+  /** true = 上游取数失败（items 恒空），前端给「暂时取不到」而非空态 */
+  degraded: boolean;
+  error: string | null;
+  /** 数据来源标记（恒为 jiucaishuo_similar，展示层据此注明来源） */
+  source: string;
+  /** 本次取数耗时（秒，调试用） */
+  fetched_at: number | null;
+}
+
+/** 获取相似基金列表（详情页「相似基金」块，仅基金品类渲染） */
+export function getSimilarFunds(fundCode: string) {
+  return http.request<ApiResponse<SimilarFundsResult>>(
+    "get",
+    `/api/funds/${fundCode}/similar/`
+  );
+}
+
+// ── 基金投资风格箱只读接口（#2478）──
+// 数据来自 fund_style_exposures（韭圈儿 get-style-history，月度，job 落库）。
+// 风格箱只覆盖基金与 ETF，股票持仓不在口径内；QDII 上游映射存疑，后端原样透出
+// （fund_style_service 注释：270042 纳指100 实测「固收风格 81.28」），前端按需注明。
+// 后端不返回颜色（契约：风格名是稳定字符串枚举，配色由前端令牌决定）。
+
+/** 单风格暴露（0-100，合计应为 100；null = 该时点该风格缺失，不补 0） */
+export interface FundStyleItem {
+  style_name: string;
+  value: number | null;
+}
+
+/** 最新风格箱（详情页首屏） */
+export interface FundStyleBox {
+  fund_code: string;
+  /** 箱体系最新时点（YYYY-MM-DD） */
+  stat_date: string;
+  styles: FundStyleItem[];
+  /** 暴露值最大的风格；并列取展示序首位 */
+  dominant_style: string | null;
+  style_period: string;
+  /** 上一时点的主导风格（若有）；用于漂移信号 */
+  prev_dominant_style: string | null;
+  prev_period: string | null;
+  /** 主导风格是否相较上一时点发生切换 */
+  dominant_changed: boolean;
+  /** 数据来源标记（恒为 jiucaishuo_style，展示层据此注明来源） */
+  source: string;
+}
+
+/** 单一时点的 wide 风格快照（风格名 → 暴露值） */
+export interface FundStyleHistoryPoint {
+  stat_date: string;
+  styles: Record<string, number | null>;
+}
+
+/** 风格漂移序列（月度倒序，wide 形态） */
+export interface FundStyleHistory {
+  fund_code: string;
+  points: FundStyleHistoryPoint[];
+  count: number;
+}
+
+/** 获取最新风格箱（详情页首屏）。无数据后端返回 data=null，前端降级「—」 */
+export function getFundStyleLatest(fundCode: string) {
+  return http.request<ApiResponse<FundStyleBox | null>>(
+    "get",
+    `/api/funds/${fundCode}/style/latest/`
+  );
+}
+
+/**
+ * 获取风格漂移序列（月度倒序，wide）。
+ * @param limit 时点数上限（默认 60 ≈ 5 年，后端硬上限 500）
+ */
+export function getFundStyleHistory(fundCode: string, limit?: number) {
+  return http.request<ApiResponse<FundStyleHistory>>(
+    "get",
+    `/api/funds/${fundCode}/style/history/`,
+    { params: limit ? { limit } : undefined }
+  );
+}

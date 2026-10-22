@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { fetchProAllocation } from "@/api/products";
+import ProductProEntitlementNotice from "./ProductProEntitlementNotice.vue";
+import {
+  classifyProPanelFailure,
+  type ProPanelFailure
+} from "./proEntitlement";
 
 /**
  * Pro 模块三「资产配置与相关性」——组合相关性内容（#994 Phase 2，#2400 画法修订）。
@@ -59,7 +64,8 @@ const MID_THRESHOLD = 0.4;
 const DASH = "—";
 
 const loading = ref(false);
-const failed = ref(false);
+/** 失败态三选一（`none` / `entitlement` / `error`），判据见 `proEntitlement.ts` */
+const failure = ref<ProPanelFailure>("none");
 const data = ref<Awaited<ReturnType<typeof fetchProAllocation>>["data"] | null>(
   null
 );
@@ -118,14 +124,15 @@ const footnote = computed(() => {
 async function load() {
   if (!props.symbol) return;
   loading.value = true;
-  failed.value = false;
+  failure.value = "none";
   data.value = null;
   try {
     const res = await fetchProAllocation(props.symbol, props.assetType);
     data.value = res.data;
-  } catch {
-    // 接口失败：整块降级，不阻塞 Pro 卡内其余内容
-    failed.value = true;
+  } catch (error) {
+    // 权益未开通（403 + error_code=1007）≠ 故障：前者讲边界、后者讲「稍后再试」。
+    // 两种态都只降级本块，不阻塞 Pro 卡内其余内容
+    failure.value = classifyProPanelFailure(error);
   } finally {
     loading.value = false;
   }
@@ -138,7 +145,12 @@ watch(() => props.symbol, load, { immediate: true });
   <section class="pro-alloc">
     <p v-if="loading" class="pro-alloc__hint">正在计算与你其余持仓的相关性…</p>
 
-    <p v-else-if="failed" class="pro-alloc__hint">
+    <ProductProEntitlementNotice
+      v-else-if="failure === 'entitlement'"
+      subject="相关性分析"
+    />
+
+    <p v-else-if="failure === 'error'" class="pro-alloc__hint">
       相关性暂时取不到，稍后再来看看
     </p>
 

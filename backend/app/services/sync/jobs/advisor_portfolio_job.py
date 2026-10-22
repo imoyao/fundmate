@@ -47,7 +47,8 @@ from app.services.adapters.advisor_source import (
     AdvisorSourceRegistry,
     UnknownAdvisorPlatform,
 )
-from app.services.job_base import SyncJob
+from app.services.job_base import JobStatus, SyncJob
+from app.services.mcp.errors import McpError, McpTokenMissing
 
 #: 数据来源标识（落 advisor_holdings / advisor_adjust_histories / advisor_industry_allocs 的 source 列）。
 #: 自动抓取统一取 ``platform.lower()``——tiantian / qieman，与 #1167/#1468 起已落库的数据同口径；
@@ -121,7 +122,7 @@ def flatten_qieman_composition(data: dict, strategy_code: Optional[str] = None) 
 class AdvisorPortfolioSyncJob(SyncJob):
     """投顾组合概览 + 持仓/行业/调仓历史同步（多平台，Ports & Adapters）。"""
 
-    batch_size = 10  # 每批组合数（每个组合 4 个接口请求，batch 过大拉长单事务）
+    batch_size = 10  # 每批组合数（批量抓取后每个平台每轮 2 次工具调用；batch 过大拉长单事务）
 
     def __init__(
         self,
@@ -196,40 +197,113 @@ class AdvisorPortfolioSyncJob(SyncJob):
     # ── 抓取 ──
 
     def _fetch_data(self, full_sync: bool, targets: List[str]) -> List[dict]:
-        """按平台取适配器抓四个数据面——本方法**不含任何平台分支**。"""
+        """按平台**分组批量**抓取四个数据面——本方法**不含任何平台分支**。
+
+        按平台批量而不是逐只：且慢 MCP 的概览与持仓接口都天然收多个 code，
+        逐只调等于把 111 只的 3 次调用放大成 111 次（#1876 的调用量根因）。
+        批量能力是「可选数据面」：适配器没实现批量方法时由 Port 基类
+        （``AdvisorPortfolioSource.fetch_overviews`` / ``fetch_holdings_batch``）
+        逐只回退，故新增平台零改动、也不会因为没实现批量而漏抓。
+
+        **失败隔离（S2）**：一个平台的 MCP 调用失败**不再炸掉整轮**（否则且慢挂掉时
+        天天基金的数据也拿不到），而是就地隔离为 ``degraded``：
+
+        - ``McpTokenMissing``：**未配置 Token = 该平台功能关闭**，不进 ``errors``
+          （与 health 的 ``disabled`` 同口径，#1720：关闭态要可见，但不算故障），
+          只记 ``degraded`` 说明"本轮没更新"；
+        - 其它 ``McpError``：进 ``errors``（人话）+ ``degraded``，该平台本轮跳过；
+        - 全部平台都失败 ⇒ 由 :meth:`_decide_final_status` 判 FAILED。
+
+        为什么以前没有这段：S1 之前 fetcher 把失败吞成 ``[]`` / ``{}``，上层看到的是
+        「这些组合没有持仓」，于是这里**根本不会抛异常**——故障零信号不是疏忽，
+        是被上游吞掉了。
+        """
         pairs = self._resolve_targets(targets)
         if not pairs:
             return []
-        payloads = []
+
+        # 平台 → 本轮 code 列表（保序去重由适配器侧兜底；这里保留原始顺序与重复，语义同原逐只实现）
+        by_platform: Dict[str, List[str]] = {}
         for code, platform in pairs:
             code = (code or '').strip()
             if not code:
                 continue
+            by_platform.setdefault(platform, []).append(code)
+
+        payloads = []
+        for platform, codes in by_platform.items():
             try:
                 src = self._source(platform)
             except UnknownAdvisorPlatform as e:
                 # 库内可能存在尚无适配器的平台（如蛋卷）：跳过该组合即可，不炸整轮同步
-                self.logger.warning(f'跳过投顾组合 {code}：{e}')
+                for code in codes:
+                    self.logger.warning(f'跳过投顾组合 {code}：{e}')
                 continue
-            overview = src.fetch_overview(code)
-            holdings = src.fetch_holdings(code)
-            self.logger.info(
-                f'抓取投顾组合 {code}({platform})：概览 {"有" if overview else "无"} / '
-                f'持仓 {len((holdings or {}).get("funds") or [])} 条'
-            )
-            payloads.append(
-                {
-                    'code': code,
-                    'platform': platform,
-                    # 能力位随 payload 走：落库层无需再回查注册表
-                    'derive_rebalances': src.derive_rebalances_from_snapshots,
-                    'overview': overview,
-                    'holdings': holdings,
-                    'industries': src.fetch_industries(code),
-                    'rebalances': src.fetch_rebalances(code),
-                }
-            )
+            try:
+                overviews = src.fetch_overviews(codes) or {}
+                holdings_by_code = src.fetch_holdings_batch(codes) or {}
+            except McpTokenMissing as e:
+                # 未配置 → 可选组件关闭：可见（degraded）但不制造红灯，否则每天一次假故障
+                self.logger.warning(f'投顾组合平台 {platform} 跳过：{e.user_message}')
+                self._mark_degraded(len(codes), e.user_message)
+                continue
+            except McpError as e:
+                self.logger.error(f'投顾组合平台 {platform} 取数失败（{len(codes)} 个）：{e}')
+                self.stats['errors'].append(f'{platform} 取数失败：{e.user_message}')
+                self._mark_degraded(len(codes), e.user_message)
+                continue
+            for code in codes:
+                overview = overviews.get(code) or {}
+                holdings = holdings_by_code.get(code) or {}
+                self.logger.info(
+                    f'抓取投顾组合 {code}({platform})：概览 {"有" if overview else "无"} / '
+                    f'持仓 {len(holdings.get("funds") or [])} 条'
+                )
+                payloads.append(
+                    {
+                        'code': code,
+                        'platform': platform,
+                        # 能力位随 payload 走：落库层无需再回查注册表
+                        'derive_rebalances': src.derive_rebalances_from_snapshots,
+                        'overview': overview,
+                        'holdings': holdings,
+                        'industries': src.fetch_industries(code),
+                        'rebalances': src.fetch_rebalances(code),
+                    }
+                )
         return payloads
+
+    # ── 降级记账 / 终态 ──
+
+    def _mark_degraded(self, affected: int, reason: str) -> None:
+        """记一次「本轮有 ``affected`` 个组合没更新，原因是 ``reason``」。
+
+        为什么单独记而不塞进 ``errors``：``errors`` 的语义是**失败目标数**
+        （基类据此算 ``failed``），而「未配置 Token」不是失败、也不该把 job 判红。
+        但「没更新」是事实，必须留在 ``sync_logs.stats`` 里可见 —— 否则又变成
+        「一片绿，但数据没动」。
+
+        ``reason`` 去重：一个平台失败时 111 个组合是同一句话，重复 111 次只会淹没日志。
+        """
+        self.stats['degraded'] = int(self.stats.get('degraded') or 0) + affected
+        reasons: List[str] = self.stats.setdefault('degraded_reasons', [])
+        if reason not in reasons:
+            reasons.append(reason)
+
+    def _decide_final_status(self) -> JobStatus:
+        """**所有**平台都失败才判 FAILED；部分失败 / 未配置保留 SUCCESS（+ ``degraded``）。
+
+        与 ``index_daily_job`` 同口径（#2475）：本 job 每天跑、跨多个平台，
+        「一个平台抖动就红」会让红灯常态化，真故障反而被淹没。区分靠三处：
+        ``stats['degraded']``（多少个组合没更新）、``stats['degraded_reasons']``（为什么）、
+        ``sync_logs.error_detail``（人话）。
+
+        但**全挂必须红**：一条 ``success`` 都没有、又有 ``errors``，说明这轮什么都没拿到，
+        再报绿就是假绿。
+        """
+        if self.stats.get('errors') and not self.stats.get('success'):
+            return JobStatus.FAILED
+        return JobStatus.SUCCESS
 
     # ── 校验 / 去重 ──
 

@@ -183,25 +183,45 @@ BASELINE: dict[str, dict[str, int]] = {
         "max_func": 22,
     },
     "backend/app/domains/funds/views.py": {
-        "lines": 197,
+        "lines": 263,
         "orm_queries": 2,
         "commits": 0,
         "max_func": 39,
     },
+    # 2026-10-21 重取（#2478 / #2480，**新增端点**，非放宽）：基金域加 4 个只读端点——
+    # 风格箱 3 个（style/latest、style/history、style/portfolio，#2478，日频快照由
+    # sync/jobs/fund_style_job.py 写入，视图只做 normalize_fund_code + 调
+    # services/fund_style_service + 信封）+ 相似基金 1 个（similar/，#2480，
+    # 降级契约在 services/similar_fund_service，视图零 try/except）。orm_queries /
+    # commits / max_func 三项实测不动（2/0/39），唯 lines 197 → 263（+66，含端点签名与
+    # 口径 docstring）。无可下沉的业务规则，按 `--report` 实测回写。
     "backend/app/domains/importers/views.py": {
         "lines": 249,
         "orm_queries": 1,
         "commits": 0,
         "max_func": 53,
     },
+    # 2026-10-22 收紧（#2497，**下沉**而非放宽）：删除账户的「有数据不可删 + 级联删除
+    # 关联数据 + 清理 position_import_meta 引用」下沉到
+    # `services/ledger_write_service.delete_ledger`（视图只留归属校验 / 调服务 / 异常→信封），
+    # 视图层少 5 处 `db.query` ⇒ orm_queries 16 → 10、lines 728 → 701。
+    # 起因是线上 500：影子记录的 `attributed_to_ledger_id` 未随持仓删除清理，
+    # `DELETE FROM ledgers` 被外键拦下；该清理逻辑正属于业务规则，不该留在视图。
+    # 按 `--report` 实测回写，基线只减不增。
     "backend/app/domains/ledgers/views.py": {
-        "lines": 728,
-        "orm_queries": 16,
+        "lines": 701,
+        "orm_queries": 10,
         "commits": 0,
         "max_func": 60,
     },
+    # 2026-10-21 重取（#2481，**新增端点**，非放宽）：加 `GET /api/market/industry-pbroe/`
+    # （探市行业 PB-ROE 散点，日频快照由 sync/jobs/industry_pbroe_job.py 写入）——
+    # 视图侧只有「get_db() + 调 services/industry_pbroe_service + 信封」，orm_queries /
+    # commits / max_func 三项实测不动（0/0/21），唯 lines 61 → 85（+24，新增
+    # /industry-emotion/ 端点，纯 HTTP 编排：开 db → 调 service → jsonify，无内联
+    # 业务逻辑；增长来自端点签名与口径 docstring）。按 `--report` 实测回写。
     "backend/app/domains/market/views.py": {
-        "lines": 37,
+        "lines": 85,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 21,

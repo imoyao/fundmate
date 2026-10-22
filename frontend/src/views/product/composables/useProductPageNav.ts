@@ -68,6 +68,10 @@ const NAV_LABELS: Record<string, string> = {
   "nav-performance": "业绩与风险",
   // 「行业配置 + 持仓明细」共用一个容器端点（#2029 卡 C），合并为一个入口
   "nav-holdings": "行业与持仓",
+  // 相似基金（#2480）：韭圈儿 simfund，详情页独立区块，需可点击跳转
+  "nav-similar": "相似基金",
+  // 投资风格（#2478）：韭圈儿月度风格箱，晨星式 8 分类 + 漂移信号，需可点击跳转
+  "nav-style": "投资风格",
   "nav-index": "指数资料",
   "nav-manager": "基金经理",
   "nav-advisor": "投顾组合",

@@ -45,7 +45,7 @@ class FundScaleSyncJob(SyncJob):
 
     def _fetch_data(self, full_sync: bool, targets: List[str]) -> List[dict]:
         # 全市场维度：单次调用即返回全市场列表，与 targets 无关（§4.3.3 的全量例外）
-        return self.adapter.fetch_fund_scale()
+        return self._require_non_empty(self.adapter.fetch_fund_scale(), source='基金规模列表')
 
     def _validate_data(self, raw_data: List[dict]) -> List[dict]:
         out = []

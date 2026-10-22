@@ -190,6 +190,17 @@
     />
 
     <!-- ============================================================ -->
+    <!-- 行业情绪档：韭圈儿行业恐贪快照（#2479，与深度档平级）          -->
+    <!-- ============================================================ -->
+    <ExploreIndustryEmotionPanel
+      v-if="emotionMounted"
+      v-show="activePanel === 'emotion'"
+      id="panel-emotion"
+      role="tabpanel"
+      aria-labelledby="panel-tab-emotion"
+    />
+
+    <!-- ============================================================ -->
     <!-- 底部（公共组件）：数据来源 + 免责声明                         -->
     <!-- ============================================================ -->
     <PageFooter
@@ -222,6 +233,7 @@ import { useTemperatureOverview } from "@/composables/temperature/useTemperature
 import ExploreTemperatureDashboard from "./components/ExploreTemperatureDashboard.vue";
 import { ASSET_CATEGORIES, ASSET_CATEGORY_TOKEN } from "@/constants/market";
 import ExploreDetailPanel from "./components/ExploreDetailPanel.vue";
+import ExploreIndustryEmotionPanel from "./components/ExploreIndustryEmotionPanel.vue";
 import { useExploreWatchlist } from "./composables/useExploreWatchlist";
 
 defineOptions({
@@ -249,22 +261,27 @@ const route = useRoute();
 const router = useRouter();
 
 // ================================================================
-// 档位切换：概览 / 深度，与 ?view= 查询参数双向同步
+// 档位切换：概览 / 深度 / 行业情绪，与 ?view= 查询参数双向同步
 // ================================================================
-type PanelKey = "overview" | "detail";
+type PanelKey = "overview" | "detail" | "emotion";
 
 const panelTabs: Array<{ key: PanelKey; label: string }> = [
   { key: "overview", label: "概览" },
-  { key: "detail", label: "深度" }
+  { key: "detail", label: "深度" },
+  { key: "emotion", label: "行业情绪" }
 ];
 
 const PANEL_HINTS: Record<PanelKey, string> = {
   overview: "一屏看懂市场冷热，并建立自己的观察列表",
-  detail: "行业维度、趋势与全部指标明细"
+  detail: "行业维度、趋势与全部指标明细",
+  emotion: "韭圈儿行业恐贪快照，辅助判断行业冷热（标注韭圈儿行业口径）"
 };
 
-const normalizePanel = (raw: unknown): PanelKey =>
-  raw === "detail" ? "detail" : "overview";
+const normalizePanel = (raw: unknown): PanelKey => {
+  if (raw === "detail") return "detail";
+  if (raw === "emotion") return "emotion";
+  return "overview";
+};
 
 const activePanel = ref<PanelKey>(normalizePanel(route.query.view));
 const activeHint = computed(() => PANEL_HINTS[activePanel.value]);
@@ -282,7 +299,7 @@ const switchPanel = (key: PanelKey) => {
   // replace 而非 push：切换档位不应污染历史栈，避免返回键在档位间循环
   router.replace({
     path: "/explore",
-    query: key === "detail" ? { view: "detail" } : {}
+    query: key === "overview" ? {} : { view: key }
   });
 };
 
@@ -337,7 +354,14 @@ const onTabKeydown = (event: KeyboardEvent, index: number) => {
 const detailMounted = ref(activePanel.value === "detail");
 watch(activePanel, val => {
   if (val === "detail") detailMounted.value = true;
+  if (val === "emotion") emotionMounted.value = true;
 });
+
+/**
+ * 「行业情绪」档同样用懒挂载（emotionMounted）：它只打一个轻量端点，但用户从不进
+ * 该档就不该产生这次请求；首次进入才挂载、之后常驻只切显示（v-show）。
+ */
+const emotionMounted = ref(activePanel.value === "emotion");
 
 // ================================================================
 // 观察列表：数据与行为收口在 composable（见 #980 第三步）

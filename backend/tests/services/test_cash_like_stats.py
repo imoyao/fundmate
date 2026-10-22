@@ -5,7 +5,7 @@
 口径与 XIRR 的 EXCLUDED_ASSET_TYPES = ('money_fund','reverse_repo','cash') 一致：
 - 货基持仓市值（positions）
 - 孤儿货基 / 逆回购流水净额（不建持仓，按流水净额并入）
-- 账户内现金（Asset.major_category='current'）
+- 账户内现金（Asset.major_category='cash'）
 
 债券基金不计入（有净值波动、XIRR 未排除，属中低风险投资而非现金）。
 
@@ -74,14 +74,14 @@ class TestCashLikeStats:
         assert stats['cash_like_amount'] == expected
 
     def test_cash_asset_counted(self, db):
-        """账户内现金（current 类资产）计入类现金"""
+        """账户内现金（cash 类资产）计入类现金"""
         ledger = _make_ledger(db)
         # Asset.amount 单位为分：30000 分 = 300 元
         db.add(
             Asset(
                 name='账户余额',
                 amount=30000,
-                major_category='current',
+                major_category='cash',
                 ledger_id=ledger.id,
                 family_id=1,
             )
@@ -288,7 +288,7 @@ class TestCashLikeBreakdown:
             Asset(
                 name='账户余额',
                 amount=50000,
-                major_category='current',
+                major_category='cash',
                 ledger_id=ledger.id,
                 family_id=1,
             )

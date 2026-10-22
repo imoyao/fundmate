@@ -68,11 +68,15 @@ class TestLoadConfig:
             'position_price',
             'advisor_portfolio',
             'fund_position',
+            'fund_style',
             'market_asset_daily',
+            'industry_pbroe',
             'index_valuation',
             'convertible_bond',
             'dividend_split',
             'orphan_backfill',
+            # #2132 / D63：资产快照纳回本机每日调度（此前只靠用户行为触发）
+            'asset_snapshot',
         ]
         assert cfg.timezone == ds.DEFAULT_TIMEZONE
         assert cfg.skip_non_trading_day is True
@@ -89,20 +93,26 @@ class TestLoadConfig:
         assert crons['position_price'] == ds.DEFAULT_POSITION_PRICE_CRON
         assert crons['advisor_portfolio'] == ds.DEFAULT_ADVISOR_CRON
         assert crons['fund_position'] == ds.DEFAULT_FUND_HOLDING_CRON
+        assert crons['fund_style'] == ds.DEFAULT_FUND_STYLE_CRON
         assert crons['market_asset_daily'] == ds.DEFAULT_MARKET_ASSET_DAILY_CRON
+        assert crons['industry_pbroe'] == ds.DEFAULT_INDUSTRY_PBROE_CRON
         assert crons['index_valuation'] == ds.DEFAULT_INDEX_VALUATION_CRON
         assert crons['convertible_bond'] == ds.DEFAULT_CONVERTIBLE_BOND_CRON
         assert crons['dividend_split'] == ds.DEFAULT_DIVIDEND_SPLIT_CRON
         assert crons['orphan_backfill'] == ds.DEFAULT_ORPHAN_BACKFILL_CRON
+        assert crons['asset_snapshot'] == ds.DEFAULT_ASSET_SNAPSHOT_CRON
         # 顺序即依赖（#1104）：现价回写读的是净值 job 刚落库的 daily_worth、
         # 以及场内日线 job 刚落库的 price_history.close，早于两者会写到旧口径。
         names = cfg.job_names()
         assert names.index('fund_nav') < names.index('position_price')
         assert names.index('price_history') < names.index('position_price')
-        # 孤儿回填（#950）必须排在本机调度的**最后**：它按身份把孤儿流水挂回持仓，
+        # 孤儿回填（#950）必须排在 fund_position 之后：它按身份把孤儿流水挂回持仓，
         # 看到的是当天最终状态。排在 fund_position 之前会因「持仓尚未建好」，
         # 把本可挂上的流水继续留在孤儿态——而那正是本 job 要消灭的东西。
-        assert names.index('orphan_backfill') == len(names) - 1
+        # #2132 / D63 后它**不再排最后**：资产快照（23:45）要拍「当日收盘后的账面值」，
+        # 必须晚于孤儿挂回（23:30，影响类现金与总资产）——故末位换成快照。
+        assert names.index('orphan_backfill') < names.index('asset_snapshot')
+        assert names.index('asset_snapshot') == len(names) - 1
 
     def test_fund_position_is_weekly_not_daily(self):
         """回归（#870）：持仓是季报数据，日变更量为 0——必须是每周，不能是每日。
@@ -124,6 +134,26 @@ class TestLoadConfig:
         fire = trigger.get_next_fire_time(None, datetime(2026, 9, 30, 23, 30, tzinfo=tz))
         assert fire.strftime('%a') == 'Mon'
         assert (fire.hour, fire.minute) == (23, 0)
+
+    def test_fund_style_is_monthly_not_daily(self):
+        """回归（#2478）：风格箱上游按月更新（月末点 + 当月最新点），日变更量为 0。
+
+        必须是**每月一次**：每日跑既无新数据，又白占上游请求配额（逐只 1 请求/只）。
+        选 2 日而非 1 日：上游当月首个时点约月中刷新，1 日跑会系统性漏掉当月新点。
+        """
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        from apscheduler.triggers.cron import CronTrigger
+
+        cfg = ds.load_config({})
+        spec = next(s for s in cfg.jobs if s.job_name == 'fund_style')
+        tz = ZoneInfo(cfg.timezone)
+        trigger = CronTrigger.from_crontab(spec.cron, timezone=tz)
+        # 2026-10-05 周一 → 下一次触发应落在 11 月 2 日 22:30（非次日）
+        fire = trigger.get_next_fire_time(None, datetime(2026, 10, 5, 22, 35, tzinfo=tz))
+        assert (fire.month, fire.day) == (11, 2)
+        assert (fire.hour, fire.minute) == (22, 30)
 
     def test_position_price_job_has_no_target_kind(self):
         """现价回写的目标池是**持仓表本身**（user 域），不是 fund/stock 代码池。
@@ -158,11 +188,14 @@ class TestLoadConfig:
             'index_daily',
             'position_price',
             'fund_position',
+            'fund_style',
             'market_asset_daily',
+            'industry_pbroe',
             'index_valuation',
             'convertible_bond',
             'dividend_split',
             'orphan_backfill',
+            'asset_snapshot',
         ]
 
     def test_price_history_job_targets_stock_pool(self):
@@ -194,11 +227,14 @@ class TestLoadConfig:
             'fund_valuation_snapshot',
             'fund_valuation_reconcile',
             'nav_backfill',
+            'fund_style',
             'market_asset_daily',
+            'industry_pbroe',
             'index_valuation',
             'convertible_bond',
             'dividend_split',
             'orphan_backfill',
+            'asset_snapshot',
         ]
         assert cfg.jobs[0].cron == '5 22 * * 1-5'
         # target_kind 必须留着：丢了它净值 job 会拿到空目标池并「成功」空跑
@@ -208,7 +244,7 @@ class TestLoadConfig:
         """#1934 补进的四项目标池都不是「持仓+自选」，target_kind 必须为 None。
 
         套成 'fund' / 'stock' 会拿到不相干的代码池：market_asset_daily 的对象是
-        「要落快照的大类资产」、index_valuation 是固定指数清单、convertible_bond
+        「要落快照的大类资产」、industry_pbroe 是「全行业矩阵」、index_valuation 是固定指数清单、convertible_bond
         按在库 symbol 全量 upsert、dividend_split 是事件型数据。套错的结果是
         「每天记一条 success 但什么都没同步」的静默空跑。
         #2142 的 fund_valuation_reconcile 同理：目标池是「库里全部 estimated 行」，
@@ -217,6 +253,8 @@ class TestLoadConfig:
         cfg = ds.load_config({})
         for name in (
             'market_asset_daily',
+            'industry_pbroe',
+            'industry_pbroe',
             'index_valuation',
             'convertible_bond',
             'dividend_split',
@@ -318,6 +356,18 @@ class TestRestDay:
         assert isinstance(result, bool)
         assert result is (not ds.is_trading_day(ds.today_shanghai()))
 
+    def test_uncovered_year_is_not_treated_as_rest_day(self):
+        """日历未覆盖该年时**不能**整天跳过。
+
+        `is_trading_day` 对未覆盖年份保守判休市 ⇒ 若这里照用，调度会整年
+        静默跳过（净值/温度/指数估值全部停更且无报错）。正确行为是「照常跑 +
+        ERROR 留痕」——多跑几次最多白送几个请求，整年跳过则是静默停摆。
+        """
+        from app.core.trading_calendar import calendar_coverage
+
+        _, high = calendar_coverage()
+        assert ds.is_rest_day(date(high + 1, 6, 1)) is False
+
 
 # ── 触发时刻解析 ────────────────────────────────────────────────────────
 
@@ -390,7 +440,16 @@ class TestCatchUpTargets:
         （增量窗口为空即不抓取，只花一次库内查询、0 次外部请求）。
         """
         assert ds.REST_DAY_JOB_NAMES == frozenset(
-            {'price_history', 'fund_nav', 'position_price', 'fund_valuation_reconcile', 'nav_backfill'}
+            {
+                'price_history',
+                'fund_nav',
+                'position_price',
+                'fund_valuation_reconcile',
+                'nav_backfill',
+                # #2132 / D63：资产快照休市日照跑——它补的是**日历**不是缺口
+                # （用途是「日历连续的当日账面值」），周末不做就多两个断点。
+                'asset_snapshot',
+            }
         )
         assert ds.runs_on_rest_day('price_history') is True
         assert ds.runs_on_rest_day('fund_nav') is True
@@ -649,3 +708,71 @@ class TestFileLock:
         from app.core.file_lock import release_lock
 
         release_lock(None)  # 不抛异常即可
+
+
+# ══════════════════════════════════════════════════════════════════
+# #2132 / D63：asset_snapshot 纳回本机每日调度
+# ══════════════════════════════════════════════════════════════════
+
+
+class TestAssetSnapshotScheduled:
+    """`asset_snapshot` 进每日调度（D63）：表项 / 开关 / 时刻依赖 / 休市日。"""
+
+    def test_in_job_templates(self):
+        """调度表里必须有它，且不在「明确不调度」表里（两表互斥）。"""
+        names = [t[0] for t in ds._JOB_TEMPLATES]
+        assert 'asset_snapshot' in names
+        assert 'asset_snapshot' not in ds._NOT_SCHEDULED
+
+    def test_env_switch_can_disable_it(self):
+        """开关关掉 ⇒ 不进调度（与其它 job 同一套开关语义）。"""
+        cfg = ds.load_config({ds.ENV_ASSET_SNAPSHOT_ENABLED: '0'})
+        assert 'asset_snapshot' not in [j.job_name for j in cfg.jobs]
+        cfg_on = ds.load_config({})
+        assert 'asset_snapshot' in [j.job_name for j in cfg_on.jobs]
+
+    def test_cron_default_is_2345(self):
+        """默认 23:45——晚于当日所有落库类 job，且不跨零点。"""
+        assert ds.DEFAULT_ASSET_SNAPSHOT_CRON == '45 23 * * *'
+
+    def test_cron_later_than_every_ledger_writing_job(self):
+        """必须晚于所有会改动账面值的 job（净值 / 现价 / 回填 / 孤儿挂回）。
+
+        这是**顺序硬约束**：早了会把「昨天的口径」拍成今天的快照。
+        用 cron 的「时:分」分钟数比较（同一时区、同一日内）。
+        """
+
+        def minute_of(cron: str) -> int:
+            """cron 的**最晚**触发时刻（当日分钟数）。
+
+            crontab 格式是「**分 时**」（不是 HH:MM）；多时点（如 `'35 8,22 * * *'`）
+            取最晚那个小时——依赖顺序看的是「最晚一次也别早于对方」。
+            """
+            minute_part, hour_part = cron.split()[0], cron.split()[1]
+            hour = max(int(x) for x in hour_part.split(','))
+            return hour * 60 + int(minute_part)
+
+        snap = minute_of(ds.DEFAULT_ASSET_SNAPSHOT_CRON)
+        must_precede = [
+            ds.DEFAULT_NAV_CRON,
+            ds.DEFAULT_POSITION_PRICE_CRON,
+            ds.DEFAULT_NAV_BACKFILL_CRON,
+            ds.DEFAULT_ORPHAN_BACKFILL_CRON,
+        ]
+        for cron in must_precede:
+            assert snap > minute_of(cron), f'快照 {ds.DEFAULT_ASSET_SNAPSHOT_CRON} 必须晚于 {cron}'
+
+    def test_runs_on_rest_day(self):
+        """休市日照跑（补日历连续性，不是补缺口）。"""
+        assert ds.runs_on_rest_day('asset_snapshot') is True
+
+    def test_target_kind_is_none(self):
+        """目标池无关（job 自扫 family）——不能套 resolve_targets 的 fund/stock 池。"""
+        spec = next(t for t in ds._JOB_TEMPLATES if t[0] == 'asset_snapshot')
+        assert spec[4] is None
+
+    def test_description_mentions_boundary(self):
+        """说明里必须写清口径边界（只做当日账面值，不是收益序列）。"""
+        spec = next(t for t in ds._JOB_TEMPLATES if t[0] == 'asset_snapshot')
+        assert '账面值' in spec[5]
+        assert 'D63' in spec[5] or '#2132' in spec[5]

@@ -10,7 +10,14 @@ from datetime import date
 import pytest
 from chinese_calendar import is_workday
 
-from app.core.trading_calendar import is_trading_day, next_trading_day
+from app.core.trading_calendar import (
+    CalendarCoverageError,
+    calendar_coverage,
+    calendar_covers,
+    ensure_calendar_covers,
+    is_trading_day,
+    next_trading_day,
+)
 from app.core.utils import get_confirm_date
 
 
@@ -67,6 +74,53 @@ class TestNextTradingDay:
     def test_invalid_delta_raises(self):
         with pytest.raises(ValueError):
             next_trading_day(date(2026, 8, 31), delta_days=0)
+
+
+class TestCalendarCoverage:
+    """日历**覆盖年份**的显式判定（#2139 的 2027 陷阱）。
+
+    背景：`chinese_calendar` 按年发布数据（实测 1.11.0 覆盖 2004~2026），
+    查未覆盖年份抛 `NotImplementedError`；旧实现一律吞掉并按休市处理
+    ⇒ 未覆盖年份**整年**被判休市（调度整天跳过、收益日历整年显示休市）。
+    本组用例锁住「覆盖不足时必须显式喊出来」。
+    """
+
+    def test_covers_today(self):
+        assert calendar_covers(date.today()) is True
+
+    def test_coverage_range_is_ordered(self):
+        low, high = calendar_coverage()
+        assert 2004 <= low <= high
+
+    def test_does_not_cover_year_after_data(self):
+        _, high = calendar_coverage()
+        assert calendar_covers(date(high + 1, 6, 1)) is False
+
+    def test_ensure_calendar_covers_raises_for_uncovered_year(self):
+        _, high = calendar_coverage()
+        with pytest.raises(CalendarCoverageError) as exc:
+            ensure_calendar_covers(date(high + 1, 6, 1))
+        assert '未覆盖' in str(exc.value)
+
+    def test_ensure_calendar_covers_passes_for_covered_year(self):
+        ensure_calendar_covers(date.today())
+
+    def test_ensure_calendar_covers_respects_lookahead(self):
+        """前瞻天数也算进去：跨年前一天开始就应报覆盖不足。"""
+        _, high = calendar_coverage()
+        with pytest.raises(CalendarCoverageError):
+            ensure_calendar_covers(date(high, 12, 30), lookahead_days=5)
+
+    def test_is_trading_day_stays_false_for_uncovered_year(self):
+        """用户可见路径保持 fail-closed（判休市），但不再静默：异常在别处显式抛。"""
+        _, high = calendar_coverage()
+        assert is_trading_day(date(high + 1, 6, 1)) is False
+
+    def test_next_trading_day_raises_calendar_error_not_scan_timeout(self):
+        """未覆盖年份 ⇒ 立刻抛 CalendarCoverageError，而不是扫满 730 天后抛看不懂的 ValueError。"""
+        _, high = calendar_coverage()
+        with pytest.raises(CalendarCoverageError):
+            next_trading_day(date(high + 1, 6, 1))
 
 
 class TestConfirmDateUsesTradingDay:

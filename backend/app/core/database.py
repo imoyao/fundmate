@@ -32,12 +32,14 @@ from app.core.migrations import (
     migrate_advisor_portfolio_metadata,
     migrate_advisor_portfolio_metrics,
     migrate_advisor_portfolio_provenance,
+    migrate_asset_major_category_current_to_cash,
     migrate_channel_link_indexes,
     migrate_conversion_in_leg_snapshot,
     migrate_fee_unique_indexes,
     migrate_fund_equity_position_period,
     migrate_fund_managers_split_tenures,
     migrate_fund_risk_metrics_period_returns,
+    migrate_fund_style_columns,
     migrate_fund_valuation_official_columns,
     migrate_positions_cleared_at,
     migrate_positions_money_fund_flag,
@@ -47,6 +49,7 @@ from app.core.migrations import (
     migrate_watchlist_family_scoped_unique_key,
     migrate_watchlist_name_snapshot,
     migrate_watchlist_unique_key,
+    migrate_watchlist_user_domain_columns,
     migrate_watchlist_venue_not_null,
 )
 
@@ -589,12 +592,18 @@ def init_db():
     # 且必须早于下面这行结构校验 —— 校验只查「模型有列、库没列」，而本次是
     # 「库多两列 + 缺唯一约束」，漏挂在库上不会报错，表会带着重复行一直跑下去。
     migrate_fund_managers_split_tenures(app_eng)
+    # funds.dominant_style / style_period 列（#2478）：create_all 不替存量表加列，
+    # 同上须先于结构校验；fund_style_exposures 新表由 create_all 建，无需迁移。
+    migrate_fund_style_columns(app_eng)
     _validate_schema(app_eng, market_meta, label='market')
     # user 域表 → 用户引擎
     user_meta = MetaData()
     for t in grouped[DOMAIN_USER]:
         t.to_metadata(user_meta)
     user_meta.create_all(bind=user_eng)
+    # assets.major_category 归一 current→cash（#2136）：读侧已改回词表里的 'cash'，
+    # 存量 'current' 行否则仍是隐形行（钱在库里、页面读不到）。只改数据不改结构、幂等。
+    migrate_asset_major_category_current_to_cash(user_eng)
     # watchlist.name 名称快照列（#1508）：create_all 不替存量表加列，迁移须先于结构校验，
     # 否则 _validate_schema 会因模型列多于库表而报错阻断启动（与下方投顾列同因）。
     migrate_watchlist_name_snapshot(user_eng)
@@ -618,6 +627,12 @@ def init_db():
     # 同一份 in_data dict 的 name / market 漏传（#2406）：存量行 name 按基金名录回填、
     # market 收编为契约值（'UNKNOWN' 系 presenter 旧变异落库的污染值，已修读函数写库）。
     migrate_conversion_in_leg_snapshot(user_eng)
+    # watchlist 三表补模型列（#2469）：生产 user 域（Supabase Postgres）上的
+    # watchlist_groups / watchlist_item_tags 是旧结构，缺列会让 _validate_schema
+    # 判「库结构与模型不一致」并**拒绝启动** → 每日调度（#1490）全线停摆。
+    # 与既有 watchlist 迁移不同：这条**管 PG 侧**（生产 user 域就是 Postgres，
+    # 而仓内既有迁移全是 SQLite-only —— 那正是漂移一直没人补上的原因）。
+    migrate_watchlist_user_domain_columns(user_eng)
     _validate_schema(user_eng, user_meta, label='user')
     # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键 (symbol, venue)
     # → (symbol, market, venue) 防跨市场同码冲突。create_all 只增表不改表，旧库
@@ -686,6 +701,9 @@ def init_db_split():
     # 且必须早于下面这行结构校验 —— 校验只查「模型有列、库没列」，而本次是
     # 「库多两列 + 缺唯一约束」，漏挂在库上不会报错，表会带着重复行一直跑下去。
     migrate_fund_managers_split_tenures(app_eng)
+    # funds.dominant_style / style_period 列（#2478）：create_all 不替存量表加列，
+    # 同上须先于结构校验；fund_style_exposures 新表由 create_all 建，无需迁移。
+    migrate_fund_style_columns(app_eng)
     _validate_schema(app_eng, market_meta, label='market')
     # user 域表 → 用户引擎（若已配置）
     if user_eng is not None:
@@ -693,6 +711,8 @@ def init_db_split():
         for t in grouped[DOMAIN_USER]:
             t.to_metadata(user_meta)
         user_meta.create_all(bind=user_eng)
+        # assets.major_category 归一 current→cash（#2136）：只改数据、幂等，同上须先于结构校验
+        migrate_asset_major_category_current_to_cash(user_eng)
         # watchlist.name 名称快照列（#1508）：同上，须先于结构校验
         migrate_watchlist_name_snapshot(user_eng)
         # positions.symbol_norm 归一身份列 + 唯一索引（#1662 后续）：create_all 不替存量表加列，
@@ -710,6 +730,9 @@ def init_db_split():
         migrate_account_name_snapshot(user_eng)
         # 转入腿 name / market 漏传的存量收编（#2406），与单库模式同口径
         migrate_conversion_in_leg_snapshot(user_eng)
+        # watchlist 三表补模型列（#2469）：与单库模式同口径，双库模式也必须补
+        # （生产 user 域是 Postgres，旧结构会挡住结构校验 → 拒绝启动）
+        migrate_watchlist_user_domain_columns(user_eng)
         _validate_schema(user_eng, user_meta, label='user')
         # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键回归基线，
         # 双库模式同样按 user 域引擎自动执行，幂等。

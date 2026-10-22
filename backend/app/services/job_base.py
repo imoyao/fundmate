@@ -117,7 +117,91 @@ class SyncJob(ABC):
         """是否允许数据源返回空（如非交易日）"""
         return False
 
+    def _decide_final_status(self) -> JobStatus:
+        """终态判定：**每一个目标都失败、且一条都没写成功 ⇒ FAILED**，其余 SUCCESS（#2495）。
+
+        为什么基类要兜这一层：逐标的 job 把单只异常收进 ``stats['errors']`` 后继续
+        （一只坏不该拖垮整批，这是对的），但「全部目标都失败」意味着本轮**没有产出
+        任何数据**。旧实现一律报 SUCCESS，于是 ``sync_logs.status`` 是绿的，而
+        ``success=0 / failed=N`` 只落在另一个字段里——任何按 status 过滤的看板、
+        降级与告警都读到假绿（#2495 实测形态）。
+
+        判据为什么是「failed >= total」而不是「failed > 0」或「success == 0」：
+        ``stats['success']`` 数的是**落库行数**，不是成功的目标数。分红/送转这类 job
+        一个标的抓取成功也可能产出 0 行（确实没分红），只按 success==0 判会把它误判成
+        故障（``test_dividend_split_job.py::test_partial_failure_stays_success_but_reports_counts``
+        就是这个形态）。故这里用与量纲无关的「试过的目标全都失败」+
+        「一条都没写成功」双条件：
+        ``total`` 由 ``_count_total`` 给出（试过几个目标），``failed`` 由 errors 对齐，
+        两者都不依赖单条 errors 的含义。
+
+        三条刻意不动的语义：
+
+        - **部分失败仍 SUCCESS**：30+ 个目标里偶发单点抖动是常态，「挂一个就红」
+          会让红灯常态化，真故障反而被淹没（同族教训 #1179 / #171）。失败明细照旧
+          落 ``stats['failed']`` 与 ``errors``，排查时看得见。
+        - **``failed == 0`` 的「空」仍 SUCCESS**：那是「今天没有新数据 / 库内已最新 /
+          停牌」的合法状态（非交易日等）。真正的「没拿到」由 ``_require_non_empty``
+          或 ``errors`` 表达，不在这里猜。
+        - **抓到数据但全被去重**：``success=0 / skipped>0 / failed=0``，不受本判据影响
+          ——「一条都没新增」不等于「一条都没拿到」。
+
+        子类知道自己分母的口径更细时仍可覆盖（现有：``index_daily``，它把源侧未收录的
+        代码算进 ``total`` 却不记 failed，故按自己的「任何失败 + 零写入」判，见 #2475）。
+        """
+        failed = self.stats.get('failed', 0)
+        total = self.stats.get('total', 0)
+        if failed and failed >= total and not self.stats.get('success'):
+            self.logger.error(f'{failed}/{total} 个目标全部失败，本次没有任何产出 ⇒ FAILED')
+            return JobStatus.FAILED
+        return JobStatus.SUCCESS
+
+    def _failed_target_count(self) -> int:
+        """失败目标数 = errors 条数（基类里 errors 只由子类 `_fetch_data` 写入）。"""
+        return len(self.stats.get('errors') or [])
+
+    def _count_total(self, targets: Optional[List[str]], fetched: int) -> int:
+        """本轮「试过多少个目标」= `stats['total']` 的分母。
+
+        为什么不能只数「拿到的」：``total`` 若只等于抓取结果条数，失败 / 跳过的目标
+        就从分母里消失了 ——「32 个目标里挂 8 个、成功 24 个」会被记成
+        total=24 / success=24，看板上是 100% 成功（#2475）。
+
+        默认口径：有外部目标列表就数列表长度；自己取全量则 = 拿到 + 失败。
+        子类知道得更多（占位符展开、抓取阶段主动跳过）时必须覆盖。
+        """
+        if targets is None:
+            return fetched + self._failed_target_count()
+        return self._count_targets(targets)
+
+    def _count_targets(self, targets: List[str]) -> int:
+        """外部目标列表的实际条数（默认即列表长度；支持占位符的子类须展开后再数）。"""
+        return len(targets)
+
     # ── 通用工具 ──
+
+    def _require_non_empty(self, rows: List[dict], *, source: str) -> List[dict]:
+        """全市场列表类抓取：**0 条一律当上游异常**（抛错 ⇒ job 失败）。
+
+        为什么需要它：这类 job 的目标是**全市场**（基金上万只、证券数千只），
+        「一条都没抓到」只可能是上游结构变更 / 接口异常 / 解析失配，
+        绝不可能是「今天没有数据」。
+
+        旧行为是「空 ⇒ success」（``_allow_empty_data=True``），
+        于是上游一坏，市场底座就静默停更、且日志一片绿——
+        与 #1179（分红 job 把抓取失败吞成空列表）同族：
+        **空 ≠ 没拿到**。
+
+        注意区分：「今天没有**新**基金」是**去重之后**的概念（``skipped``），
+        与这里的「抓取阶段一条都没有」不是一回事。
+        """
+        if rows:
+            return rows
+        raise SBException(
+            code=ErrorCode.DATA_SOURCE_ERROR.code,
+            message=f'{source} 返回空数据：全市场列表类 job 抓不到任何记录，判定为上游异常',
+            status_code=503,
+        )
 
     def _deduplicate_by_unique_key(self, data: List[dict], model, unique_key: str) -> List[dict]:
         """根据单一唯一键去重"""
@@ -197,6 +281,9 @@ class SyncJob(ABC):
                     raw_data = self._fetch_data(full_sync, [])
                     if not raw_data:
                         if self._allow_empty_data:
+                            # 全挂也走这里：分母取「试过的目标数」，再由 `_decide_final_status`
+                            # 决定这是「今天没数据」（errors 为空）还是「全都失败了」（#2475）
+                            self.stats['total'] = self._count_total(None, 0)
                             self.logger.info('数据源返回空数据（已允许），跳过同步')
                             self.status = JobStatus.SUCCESS
                             break
@@ -208,7 +295,10 @@ class SyncJob(ABC):
                             )
                     validated = self._validate_data(raw_data)
                     new_data = self._deduplicate(validated)
-                    self.stats['total'] = len(raw_data)
+                    # total 必须含失败目标与主动跳过的目标：否则「32 个目标里 8 个没数据、
+                    # 24 个成功」会被记成 total=24/success=24 —— 分母被吃掉，
+                    # 看板上 100% 成功（#2475）
+                    self.stats['total'] = self._count_total(None, len(raw_data))
                     self.stats['skipped'] = len(validated) - len(new_data)
                     if new_data:
                         self._save_data(new_data)
@@ -229,7 +319,7 @@ class SyncJob(ABC):
                             status_code=503,
                         )
 
-                self.stats['total'] = len(targets)
+                self.stats['total'] = self._count_total(targets, 0)
                 self._execute_batches(targets)
                 self.status = JobStatus.SUCCESS
                 break
@@ -256,6 +346,15 @@ class SyncJob(ABC):
                     self.stats['error'] = str(e)
                     self.logger.error('超过最大重试次数，需人工介入')
                     break
+
+        # failed 以 errors 为准：`_execute_batches` 只累加 success，failed 恒 0，
+        # 于是「failed=0 但 errors 有 8 条」长期自相矛盾（#2475）。
+        # 用 max 而非赋值：若某 job 自行维护 failed（逐记录失败，与目标数不同量纲），不得被抹掉。
+        self.stats['failed'] = max(self.stats.get('failed', 0), self._failed_target_count())
+
+        # 终态收敛：SUCCESS 只是基类默认值，子类可把「确实全挂」升级为 FAILED（#2475）。
+        if self.status is JobStatus.SUCCESS:
+            self.status = self._decide_final_status()
 
         if self.status is not JobStatus.SUCCESS:
             # 终态非成功：把 Session 交还给编排器时必须是干净的，

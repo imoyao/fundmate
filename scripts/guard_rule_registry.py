@@ -144,6 +144,17 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/guard_col_divider.test.js',
         'covered': '只认 1px + --border-light 的形态；3px 语义强调条有意放行',
     },
+    'scripts/guard_db_backup_ignored.py': {
+        'rule': '数据库/备份文件必须被 gitignore 忽略（`*.db` 只匹配以 .db 结尾的名字）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_db_backup_ignored.py',
+        'covered': (
+            '只判**文件名模式**与 ignore 规则命中与否；不判文件内容、不管已跟踪文件、'
+            '不处理 GitHub 侧历史（已推上去的备份要人工清历史）。'
+            '探针覆盖 .db / .db-wal / .db-shm / .db.bak* / .db.backup* / .sqbpro，'
+            '根目录与 backend/ 两个位置都测。'
+        ),
+    },
     'scripts/forbid_bp_input.py': {
         'rule': '禁止 @bp.input() 自动范式',
         'runner': 'both',
@@ -305,6 +316,16 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/check_css_vars.test.js',
         'covered': '存量 12 处幽灵令牌冻结为基线，只拦新增',
     },
+    'scripts/guard_price_precision.mjs': {
+        'rule': '价格 / 净值展示一律走 @/utils/pricePrecision 契约（禁止硬编码 toFixed）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/guard_price_precision.test.js',
+        'covered': (
+            '只拦**新增**硬编码；存量 13 处冻结为基线（只减不增）。'
+            '运算回写 / 金额 / 份额 / 百分比形态靠正则豁免，形态写怪了会漏；'
+            '位数写对与否不判（那是代码审查的事，守卫只保证新增处被人看过一眼）'
+        ),
+    },
     'scripts/check_router_links.mjs': {
         'rule': '路由目标必须存在（无死链）',
         'runner': 'ci',
@@ -334,6 +355,14 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'runner': 'ci',
         'tests': 'scripts/tests/guard_workflow_inputs_interpolation.test.js',
         'covered': '只扫 .github/workflows；`.cnb.yml` 里同型写法不在判据内',
+    },
+    'scripts/guard_dependabot_lockfile_regen.py': {
+        'rule': 'dependabot 的 pnpm 锁必须能被自动重生成并推回',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_dependabot_lockfile_regen.py',
+        # 只查「通道会不会真的发生」（调用 / --apply / push / 不吞失败态 / 设闸）。
+        # 锁生成得对不对要 pnpm + 网络，属端到端验证，不在这里假装。
+        'covered': '不校验重生成产出的锁内容；workflow 实际能否推送成功取决于 GitHub 侧权限',
     },
     'scripts/guard_cross_repo_refs.mjs': {
         'rule': '提到 GitHub 的 issue / PR 编号必须挂源',
@@ -467,6 +496,17 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             '收编前须先判定该表语义（资产 / 探市 / 自选是另一种密度语义）。'
         ),
     },
+    'scripts/guard_pro_endpoint_registry.py': {
+        'rule': 'Pro 端点必须挂 @require_pro_feature，权益位必须登记在 PRO_FEATURES',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_pro_endpoint_registry.py',
+        'covered': (
+            '只认 `bp.get/post/put/delete/patch/route` 的静态路由；`add_url_rule` 动态注册、'
+            '自定义装饰器别名不在判据内。不判断响应里有没有 Pro 数据（那是业务逻辑），'
+            '也不判断装饰器实现是否正确（交由 test_pro_entitlement_gate.py）。'
+            '`PUBLIC_PRO_ROUTES` 的豁免是**逐条带理由**的，不是按目录/前缀批量放行。'
+        ),
+    },
     'scripts/guard_bridge_machine_branch_single_writer.py': {
         'rule': '`bridge/github-dev` 只能有一个写者（GitHub reconcile 写、CNB 只读探针）',
         'runner': 'ci',
@@ -515,6 +555,22 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         # 只预警不阻断：阻止会惩罚先动手的人，要的是**可发现**不是禁止。
         # 取数失败时**什么都不做**——误标占用比没标记更糟。
         'covered': '不判「谁该做」；只把 PR 的客观存在投影到 issue 标签上',
+    },
+    'scripts/guard_no_hardcoded_secrets.py': {
+        'rule': 'Token / API Key 一律走环境变量，仓库文件里不得出现密钥字面量',
+        # 源 #2486（MCP 接入 S0）。上位约束是 `docs/dev/mcp-integration.md` §1 红线一。
+        # 在它之前，「别把 Token 写进仓库」只有一道防线：**记得别写**——而它失败时不可逆
+        # （Token 进了历史，删文件不够，要改写历史或轮换）。故把它机械化。
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_no_hardcoded_secrets.py',
+        # 边界写清楚，避免下一个人以为它在管提交信息或历史。
+        'covered': (
+            '只看工作区里的**跟踪文件**：提交信息 / PR 正文 / issue 不在仓库里，读不到'
+            '（同 guard_mojibake 的边界）；历史提交不追（要清历史得人工）；'
+            '二进制与 >512KB 文件、锁文件跳过；运行时拼接的密钥（`ak_` + 变量）静态看不见'
+            '——那正是测试夹具构造假 Token 的办法，也是本守卫能自洽的前提。'
+            '白名单只认语义（占位值 + Supabase anon JWT），不按路径放行'
+        ),
     },
 }
 
