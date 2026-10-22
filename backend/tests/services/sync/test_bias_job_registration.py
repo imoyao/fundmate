@@ -41,6 +41,12 @@ class TestBiasJobRegistered:
         assert 'bias' not in scheduled
         # 连模板都不许出现：只看 config 的话，「默认关闭的模板」能绕过这条判据
         assert 'bias' not in {template[0] for template in daily_scheduler._JOB_TEMPLATES}
+        # 但必须登记进「明确不调度」表——这是 scripts/guard_job_schedule_coverage.py
+        # （#1934）的口径：注册过的 job 只能在「每日调度」或「明确不调度」之一，
+        # 两边都没有就是「静默永不更新」。登记也要有理由，空理由等于没登记。
+        reason, frequency = daily_scheduler._NOT_SCHEDULED['bias']
+        assert 'TemperatureJob' in reason
+        assert frequency
 
     def test_bias_fetch_runs_once_without_target_pool(self, db, monkeypatch):
         """targets=None ⇒ 只取一次全量清单。
