@@ -49,6 +49,7 @@ from app.core.migrations import (
     migrate_watchlist_family_scoped_unique_key,
     migrate_watchlist_name_snapshot,
     migrate_watchlist_unique_key,
+    migrate_watchlist_user_domain_columns,
     migrate_watchlist_venue_not_null,
 )
 
@@ -626,6 +627,12 @@ def init_db():
     # 同一份 in_data dict 的 name / market 漏传（#2406）：存量行 name 按基金名录回填、
     # market 收编为契约值（'UNKNOWN' 系 presenter 旧变异落库的污染值，已修读函数写库）。
     migrate_conversion_in_leg_snapshot(user_eng)
+    # watchlist 三表补模型列（#2469）：生产 user 域（Supabase Postgres）上的
+    # watchlist_groups / watchlist_item_tags 是旧结构，缺列会让 _validate_schema
+    # 判「库结构与模型不一致」并**拒绝启动** → 每日调度（#1490）全线停摆。
+    # 与既有 watchlist 迁移不同：这条**管 PG 侧**（生产 user 域就是 Postgres，
+    # 而仓内既有迁移全是 SQLite-only —— 那正是漂移一直没人补上的原因）。
+    migrate_watchlist_user_domain_columns(user_eng)
     _validate_schema(user_eng, user_meta, label='user')
     # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键 (symbol, venue)
     # → (symbol, market, venue) 防跨市场同码冲突。create_all 只增表不改表，旧库
@@ -723,6 +730,9 @@ def init_db_split():
         migrate_account_name_snapshot(user_eng)
         # 转入腿 name / market 漏传的存量收编（#2406），与单库模式同口径
         migrate_conversion_in_leg_snapshot(user_eng)
+        # watchlist 三表补模型列（#2469）：与单库模式同口径，双库模式也必须补
+        # （生产 user 域是 Postgres，旧结构会挡住结构校验 → 拒绝启动）
+        migrate_watchlist_user_domain_columns(user_eng)
         _validate_schema(user_eng, user_meta, label='user')
         # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键回归基线，
         # 双库模式同样按 user 域引擎自动执行，幂等。
