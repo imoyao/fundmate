@@ -201,9 +201,16 @@ BASELINE: dict[str, dict[str, int]] = {
         "commits": 0,
         "max_func": 53,
     },
+    # 2026-10-22 收紧（#2497，**下沉**而非放宽）：删除账户的「有数据不可删 + 级联删除
+    # 关联数据 + 清理 position_import_meta 引用」下沉到
+    # `services/ledger_write_service.delete_ledger`（视图只留归属校验 / 调服务 / 异常→信封），
+    # 视图层少 5 处 `db.query` ⇒ orm_queries 16 → 10、lines 728 → 701。
+    # 起因是线上 500：影子记录的 `attributed_to_ledger_id` 未随持仓删除清理，
+    # `DELETE FROM ledgers` 被外键拦下；该清理逻辑正属于业务规则，不该留在视图。
+    # 按 `--report` 实测回写，基线只减不增。
     "backend/app/domains/ledgers/views.py": {
-        "lines": 728,
-        "orm_queries": 16,
+        "lines": 701,
+        "orm_queries": 10,
         "commits": 0,
         "max_func": 60,
     },

@@ -16,7 +16,6 @@ from app.core.constants import ALLOCATION_LABELS, LEDGER_TYPE_LABELS
 from app.core.database import get_db
 from app.core.money import Money
 from app.core.retry import retry_on_db_locked
-from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, SalesInstitution
 from app.domains.transactions.models import Transaction
@@ -307,43 +306,17 @@ def update_ledger(ledger_id: int):
 
 @ledgers_bp.delete('/<int:ledger_id>/')
 def delete_ledger(ledger_id: int):
-    """删除账户，可选择同时删除关联持仓"""
+    """删除账户，可选择同时删除关联持仓（业务规则下沉至 ledger_write_service）"""
     delete_positions = request.args.get('delete_positions', 'false').lower() == 'true'
 
     with get_db() as db:
         ledger = get_owned_or_404(db, Ledger, ledger_id)
         if not ledger:
             abort(404, '账户不存在')
-
-        if delete_positions:
-            # 级联删除关联数据（基于 ledger_id）：先删交易，再删持仓/资产，最后删账户
-            db.query(Transaction).filter(
-                Transaction.ledger_id == ledger_id, Transaction.family_id == get_family_id()
-            ).delete()
-            db.query(Position).filter(Position.ledger_id == ledger_id).delete()
-            db.query(Asset).filter(Asset.ledger_id == ledger_id, Asset.family_id == get_family_id()).delete()
-        else:
-            # 检查是否存在关联持仓/资产/交易（任一存在即拒绝，防止产生孤儿数据）
-            position_count = db.query(Position).filter(Position.ledger_id == ledger_id).count()
-            asset_count = (
-                db.query(Asset).filter(Asset.ledger_id == ledger_id, Asset.family_id == get_family_id()).count()
-            )
-            transaction_count = (
-                db.query(Transaction)
-                .filter(Transaction.ledger_id == ledger_id, Transaction.family_id == get_family_id())
-                .count()
-            )
-            if position_count > 0 or asset_count > 0 or transaction_count > 0:
-                return jsonify(
-                    {
-                        'data': None,
-                        'message': f'无法删除：账户「{ledger.name}」下还有 {position_count} 笔持仓、{asset_count} 项资产、{transaction_count} 笔交易，请先迁移或勾选"同时删除"',
-                        'error_code': 1001,
-                    }
-                ), 400
-
-        db.delete(ledger)
-        db.flush()
+        try:
+            ledger_write_svc.delete_ledger(db, ledger, delete_positions, get_family_id())
+        except ledger_write_svc.LedgerWriteError as e:
+            return jsonify({'data': None, 'message': e.message, 'error_code': e.error_code}), e.status_code
         return jsonify({'data': {}, 'message': 'ok'})
 
 
