@@ -42,6 +42,7 @@ from app.services.adapters.jiucaishuo_adapter import JiucaishuoAdapter
 from app.services.adapters.manager_tenure import ManagerTenureAdapter
 from app.services.adapters.null_adapter import NullAdapter
 from app.services.adapters.xalpha_adapter import XalphaAdapter
+from app.services.bias.job import BiasJob
 from app.services.fund_utils import normalize_fund_code
 from app.services.sync.jobs.advisor_portfolio_job import AdvisorPortfolioSyncJob
 from app.services.sync.jobs.amac_institution_job import AmacInstitutionJob
@@ -248,6 +249,16 @@ class DataSyncOrchestrator:
         # 无外部目标池依赖（targets 传空）；落 market_composites 供探市读库即回。
         self.jobs['industry_pbroe'] = IndustryPbroeSyncJob(JiucaishuoAdapter(), self.db)
         self.jobs['temperature'] = TemperatureJob(NullAdapter(), self.db)
+        # #2494：乖离率注册进来，只为两件事——「能单独补跑某一天」与「有自己的 sync_logs」
+        # （此前它的统计只以一条 summary 挂在 temperature 的 errors 里，逐标的明细看不见）。
+        #
+        # 两条**不得**，都由 tests/services/sync/test_bias_job_registered.py 钉住：
+        #   1. 不挂每日调度：日常仍由 TemperatureJob._fetch_data 内联跑一次，两边都调度
+        #      会让 37 个标的每天算两遍（每遍 ≈ 37 × request_interval 3s）。
+        #   2. 不进 sync_metadata.DB_POOL_JOBS：`BiasJob._fetch_data` 不读 targets，
+        #      一旦按目标池分批，就是「每批重算一次全量」，在东财限流下等于制造封禁。
+        #      注册在 `self.jobs` 而不进池 ⇒ CLI 传 targets=None ⇒ 单次全量（job_base.run 首支）。
+        self.jobs['bias'] = BiasJob(NullAdapter(), self.db)
         # AMAC 名录为 HTTP JSON 直抓（非 akshare/xalpha 数据源），NullAdapter 占位；
         # 此前仅 invoke grab.* 通道可达，注册后 pdm run sync --job 亦可直达（#1081 策展应用入口）
         self.jobs['amac_institution'] = AmacInstitutionJob(NullAdapter(), self.db)
