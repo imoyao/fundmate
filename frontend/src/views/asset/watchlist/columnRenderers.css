@@ -285,6 +285,32 @@
   color: var(--text-tertiary-ink);
 }
 
+/* 关联浮层（#2503）：分组标题 + 组内条目。
+   浮层被 ElTooltip teleport 到 body，`.el-table` 前缀够不到，故本段不带表格前缀；
+   表面色 / 描边 / 浮动阴影 / 行高 / 左对齐由 `rich-tip` 提供（src/style/el-tooltip.css），
+   这里只补本列的分组排版与宽度，不另写一套悬浮层规范。
+
+   ⚠️ 选择器写三级（`.el-popper.rich-tip.watchlist-link-pop`）而不是两级：`rich-tip` 的
+   `max-width: 380px` 是 `.el-popper.rich-tip`（两级），两级 + 同名属性只能靠引入顺序决胜；
+   本列的表格宽 112px，320px 浮层才不至于比整列宽出一截。同陷阱的成因记在 el-tooltip.css
+   的 `rich-tip` 注释里（2026-10-07 实测：顺序不站在我们这边）。 */
+.el-popper.rich-tip.watchlist-link-pop {
+  max-width: 320px;
+}
+
+.el-popper.rich-tip.watchlist-link-pop .link-pop-group + .link-pop-group {
+  margin-top: 8px;
+}
+
+.el-popper.rich-tip.watchlist-link-pop .link-pop-title {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.el-popper.rich-tip.watchlist-link-pop .link-pop-more {
+  color: var(--text-tertiary-ink);
+}
+
 /* ── 且慢组合补充列（#1468）── */
 /* 策略简介：单行省略，完整内容挂 title（列宽 200px 装不下整段简介） */
 .el-table .ellipsis-cell {

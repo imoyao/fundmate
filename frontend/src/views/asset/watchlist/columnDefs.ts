@@ -357,14 +357,23 @@ export const watchlistColumnDefs: ColumnDef[] = [
     draggable: true
   },
   {
-    // 跨渠道关联入口（#1285 §3.8「数量标记 + 浮层」）：hover 浮层列出关联标的名。
-    // 本期仅指数↔ETF 且只覆盖主流宽基（实测 akshare 无「跟踪标的」字段，总名称
-    // 匹配覆盖 41.1% < 90% 门槛 → 按设计降级）；无关联渲染 `—`。
+    // 跨渠道关联入口（#1285 §3.8「数量标记 + 浮层」，#2503 补场外入口与分组）。
+    // 两类关系：`index_etf`（指数↔场内 ETF）、`etf_feeder`（场内 ETF↔场外联接），
+    // 后端按裸代码双向查后把「另一侧」下发到行里，故**三个品类**都有入口：
+    // 指数行→场内 ETF、ETF 行→跟踪指数 + 场外联接、场外联接行→对应场内 ETF。
+    // 组标题/角标语义由行品类 × link_type 共同决定，见 linkGroups.ts 文件头矩阵。
+    // 无关联渲染 `—`（沿用全表约定）。
+    // 覆盖率口径两个数字并存且未定论（本处旧注 41.1%、frontend/src/api/products.ts 66.4%，
+    // 见 #1419）——本列不动匹配规则，两个数字原样保留，不要合并成一个。
+    // 宽度：两组角标「指数 1 · 场外 3」实测约 100px，minWidth 112 留余量。
+    // 本列 scope 缺省 = category，不出现于混合视图 ⇒ 默认视图 1040px 预算不受影响；
+    // 基金品类视图本就超预算（含 trend 92px / fund_max_drawdown 96px），
+    // 本次 +28px 不改变该视图「表格内部横滚」的既有形态。
     key: "links",
     label: "关联",
     renderer: "links",
-    appliesTo: ["index", "etf"],
-    minWidth: 84,
+    appliesTo: ["index", "etf", "fund"],
+    minWidth: 112,
     align: "center",
     hideable: true,
     draggable: true

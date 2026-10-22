@@ -37,6 +37,14 @@ import {
 import { formatDate } from "@/utils/date";
 import { pricePrecision } from "@/utils/pricePrecision";
 import type { ColumnDef, ColumnRenderer, WatchlistRow } from "./columnDefs";
+import {
+  groupLinks,
+  linkBadgeText,
+  linkItemText,
+  splitForTooltip,
+  type LinkGroup,
+  type WatchlistLink
+} from "./linkGroups";
 // renderer DOM 不携带页面 scoped 属性，配套样式必须随渲染器走（见 css 文件头注释）
 import "./columnRenderers.css";
 
@@ -940,11 +948,26 @@ const renderDrawdown: FunctionalComponent<{
 };
 
 /**
- * 跨渠道关联入口（#1285 设计 §3.8「数量标记 + 浮层」）。
+ * 跨渠道关联入口（#1285 设计 §3.8「数量标记 + 浮层」，#2503 补分组与场外入口）。
  *
- * 数量角标 + hover 浮层列出关联标的全名；数据来自后端 `channel_links`
- *（index_etf 指数↔场内 ETF、etf_feeder 场内 ETF↔场外联接，两类混排）。
+ * 数量角标 + hover 浮层；数据来自后端 `channel_links`：
+ * `index_etf`（指数↔场内 ETF）与 `etf_feeder`（场内 ETF↔场外联接）。
  * 无关联渲染 `—`——不用「0 个」，与全表「无数据一律 —」的约定保持一致。
+ *
+ * 为什么浮层要分组（#2503）：原先两类关系拼成一句平铺文本，用户看不出「哪些能场内买、
+ * 哪些只能场外申购」。分组语义（组标题 / 角标短词）全部收在 `linkGroups.ts`，
+ * 本渲染器只负责把分组结果画成 VNode —— 纯函数可单测，renderer 不必进 DOM 环境。
+ *
+ * 为什么用 `content` 插槽而不是 `content` 字符串：分组要「组标题 + 组内多条」两层结构，
+ * 压缩成一行会退回到本卡要修的那个形态。插槽是 ElTooltip 的公开 API（EP 文档：
+ * `content` 属性「can be overridden by slot#content」），不引入新依赖。
+ *
+ * 为什么挂 `rich-tip`（而不是自己调深色气泡）：仓库已有富内容气泡的统一样式
+ * （`src/style/el-tooltip.css` 的 `.el-popper.rich-tip`：软表面 + 描边 + 浮动阴影 +
+ * 左对齐 + 宽度上限），专为「多行结构化说明」而设——收益日历的口径说明用的就是它。
+ * 再写一份会把两套悬浮层规范分叉（那份样式里还记着一处特异性陷阱：
+ * EP 的 `.el-popper.is-dark` 同为两级类选择器，靠引入顺序决胜，故 rich-tip 写成三级）。
+ * `watchlist-link-pop` 只补本列的分组排版，不覆盖颜色。
  */
 const renderLinks: FunctionalComponent<{
   row: WatchlistRow;
@@ -952,19 +975,44 @@ const renderLinks: FunctionalComponent<{
   ctx: RenderCtx;
 }> = props => {
   const links =
-    (field(props.row, "links") as
-      { code: string; name: string | null }[] | undefined) ?? [];
+    (field(props.row, "links") as WatchlistLink[] | undefined) ?? [];
   if (!links.length) return h("span", { class: "link-empty" }, "—");
 
-  const content = links
-    .map(l => (l.name ? `${l.name}（${l.code}）` : l.code))
-    .join("、");
+  const groups = groupLinks(links, assetTypeOf(props.row));
+  const badge = linkBadgeText(groups);
+  // 断言其实不会发生（links 非空 ⇒ 至少一组），但空角标会渲染成一个空胶囊，
+  // 按「无数据一律 —」的约定收口
+  if (!badge) return h("span", { class: "link-empty" }, "—");
+
+  const renderGroup = (group: LinkGroup) => {
+    const [shown, rest] = splitForTooltip(group);
+    return h("div", { class: "link-pop-group", key: group.linkType }, [
+      h(
+        "div",
+        { class: "link-pop-title" },
+        `${group.title} · ${group.items.length}`
+      ),
+      ...shown.map(item =>
+        h("div", { class: "link-pop-item", key: item.code }, linkItemText(item))
+      ),
+      rest > 0
+        ? h("div", { class: "link-pop-more", key: "__rest" }, `另有 ${rest} 只`)
+        : null
+    ]);
+  };
+
   return h(
     ElTooltip,
-    // content 走 props（字符串），避免为浮层引入额外渲染分支；showAfter 稍延迟，
-    // 避免鼠标掠过整列时浮层乱闪
-    { content, placement: "top", showAfter: 120, effect: "dark" },
-    { default: () => h("span", { class: "link-badge" }, `${links.length} 个`) }
+    // showAfter 稍延迟，避免鼠标掠过整列时浮层乱闪
+    {
+      placement: "top",
+      showAfter: 120,
+      popperClass: "rich-tip watchlist-link-pop"
+    },
+    {
+      content: () => h("div", { class: "link-pop" }, groups.map(renderGroup)),
+      default: () => h("span", { class: "link-badge" }, badge)
+    }
   );
 };
 
