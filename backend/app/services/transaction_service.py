@@ -43,6 +43,39 @@ def fee_breakdown_yuan(txn: Transaction):
     return {key: Money.cents_to_yuan(v) for (_col, key), v in zip(_FEE_BREAKDOWN_FIELDS, values)}
 
 
+def transaction_edit_payload(txn: Transaction) -> dict:
+    """交易编辑接口的响应 data（#2137 起含 fee_breakdown）。
+
+    组装从 `ledgers/views.py` 下沉至此（该视图文件被 `check_view_thickness.py`
+    冻结「只减不增」）：Money 反算 + 日期归一属展示组装，放 services 可脱离
+    HTTP 栈单测，也让编辑响应与列表响应共用同一套拆分口径。
+    """
+    from datetime import datetime as _dt
+
+    def _ymd(value):
+        # trade_date 为 DateTime 列（读回为 datetime），confirm_date 为 Date 列（date）；
+        # 若本次仅赋过 .date() 则为 date。统一输出 YYYY-MM-DD。
+        if not value:
+            return None
+        if isinstance(value, _dt):
+            value = value.date()
+        return value.isoformat()
+
+    return {
+        'id': txn.id,
+        'quantity': Money.min_unit_to_shares(txn.quantity),
+        'price': Money.price_units_to_yuan(txn.price),
+        'amount': Money.cents_to_yuan(txn.amount),
+        'fee': Money.cents_to_yuan(txn.fee),
+        # #2137 费用拆分明细（元）：未拆分为 None，前端按 fee 单值展示
+        'fee_breakdown': fee_breakdown_yuan(txn),
+        'trade_date': _ymd(txn.trade_date),
+        'confirm_date': _ymd(txn.confirm_date),
+        'notes': txn.notes,
+        'import_hash': txn.import_hash,
+    }
+
+
 def build_transaction_list(db, family_id: int, page: int, per_page: int, filters: dict) -> dict:
     """交易流水列表：多维筛选 + 分页 + 行组装（#1642 B 块，从视图层下沉）。
 
