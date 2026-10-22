@@ -794,7 +794,7 @@ class TestTransactionFeeBreakdown:
         assert txn is not None
 
         patch_resp = client.patch(
-            f"/api/ledgers/{ledger['id']}/transactions/{txn.id}/",
+            f'/api/ledgers/{ledger["id"]}/transactions/{txn.id}/',
             json={
                 'fee': 15,
                 'fee_commission': 5,
@@ -836,7 +836,7 @@ class TestTransactionFeeBreakdown:
         txn = db.query(Transaction).filter_by(symbol='SH600519').first()
         assert txn is not None
         patch_resp = client.patch(
-            f"/api/ledgers/{ledger['id']}/transactions/{txn.id}/",
+            f'/api/ledgers/{ledger["id"]}/transactions/{txn.id}/',
             json={'fee': 15, 'fee_commission': 5},
         )
         assert patch_resp.status_code == 400

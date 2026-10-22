@@ -70,10 +70,7 @@ class TestStandardFundParser:
 
     def test_parse_without_breakdown_columns_stays_unsplit(self, parser):
         """模板不带拆分列（存量模板）→ 四列全 None（未拆分），聚合 fee 不变。"""
-        csv_content = (
-            '确认日期,基金代码,业务类型,金额,手续费\n'
-            '2023-06-01,014330,申购,10.00,1.50\n'
-        )
+        csv_content = '确认日期,基金代码,业务类型,金额,手续费\n2023-06-01,014330,申购,10.00,1.50\n'
         records, errors = parser.parse(csv_content.encode('utf-8'))
         assert len(records) == 1
         r = records[0]
