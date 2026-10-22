@@ -158,6 +158,11 @@ class IndexDailySyncJob(SyncJob):
     def _decide_final_status(self) -> JobStatus:
         """**全部**目标都失败才判 FAILED；部分失败保留 SUCCESS（#2475）。
 
+        这是基类兜底的**更严口径**，保留覆盖的理由：本 job 的 `_count_total` 把源侧
+        未收录、因而不记 failed 的代码也计进分母（`total > 可失败目标数`），于是基类那句
+        `failed >= total` 在这里永远不会成立 —— 若删掉本方法，「30 个已收录目标全挂 +
+        8 个未收录」会退回假绿。基类口径见 `SyncJob._decide_final_status`（#2495）。
+
         为什么部分失败不红：本 job 每天跑，30+ 个目标里偶发单点抖动是常态，
         「有一个挂掉就红」会让它天天红；红灯常态化的代价是真故障被淹没
         （同族教训见 #1179 / #171）。失败明细仍通过 `stats['failed']` 与 `errors`
