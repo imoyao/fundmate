@@ -245,6 +245,13 @@ watch(productRef, loadProduct, { immediate: true });
             :symbol="product.symbol"
           />
 
+          <!-- 高级洞察 Pro（#2272 · #994）：**紧跟业绩与风险**（用户反馈：高价值模块
+               不该沉在关联标的之后——业绩与风险答「这只产品本身表现如何」，高级洞察答
+               「为什么、接下来怎样」，是同一问题的自然延伸，放一起形成
+               「表现 → 归因 → 风险 → 配置」的递进动线）。建设期只放占位 + 付费墙壳，
+               模块内容随后端 Phase 位逐个上线。自门控 fund / etf，见组件头。 -->
+          <ProductProSection id="nav-pro" :product="product" />
+
           <!-- 行业配置 + 持仓明细（#2029 卡 C）：仅基金品类渲染。两张卡共用一个端点，
                容器组件取一次数分发给两个纯展示子组件（各自取数就是重复往返）。
                无披露数据时整块不渲染——持仓明细没有这层壳会渲染出一个只有标题和
@@ -326,7 +333,6 @@ watch(productRef, loadProduct, { immediate: true });
                故不按asset_type 过滤（持仓里的债券/基金同样可能有联接基金）。
                无关联降级「—」并附覆盖率说明；关系覆盖率约 66.4%（缺口见 #1419）。 -->
           <ProductRelatedSection id="nav-related" :symbol="product.symbol" />
-          <ProductProSection id="nav-pro" :product="product" />
           <!-- 后续区块槽位：走势 / 基金资料 等由 #1967-#1971 各自注入。
                刻意不渲染 mock 占位（设计 §10「不用 mock / 演示数据占位」）。 -->
           <slot name="sections" />
