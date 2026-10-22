@@ -361,7 +361,7 @@ def clamp_since(since: date, *, allow_full: bool = False) -> date: ...
 | **S0** | 新增 `scripts/guard_no_hardcoded_secrets.py` 并入 `ci.yml` 的 `scripts_test`；登记 `RULE_REGISTRY`；`AGENTS.md` 落一条带判据的红线 | 守卫在真实仓库跑出 0 命中；回退探针（把假 Token 写进真实文件）必须转红；拿不到输入退 2 |
 | **S1** | 抽 `transport` + `base` + `QiemanProvider`，且慢切过去 | `tests/services/thermometer/test_qieman_fetcher.py`、`test_qieman_batch_transport.py` 全绿；握手仍只 1 次；请求数不增 |
 | **S2** ✅ | `credentials` + `errors` + 调用落库（`mcp_call_logs`）+ `health` 段 | 注入额度异常 ⇒ health 转 `degraded`（不是「成功 + 空」） |
-| **S3** | `WindProvider` + 只读探针 + 真实错误报文采样 | 接第二家（Wind）**不改 `transport.py`** |
+| **S3** ✅ | `WindProvider` + 只读探针 + 真实错误报文采样 | 接第二家（Wind）**不改 `transport.py`**（采样待 Token，见下方 S3 偏离说明） |
 | **S4** | 第一个 Wind job（业绩比较基准回填）+ 展示窗口策略 | API 默认 ≤5 年；基准数据与 Wind 一致 |
 | **S5** | `user_mcp_credentials` + `PRO_FEATURES` 门禁 | 用户无 Token ⇒ 明确提示，不回退系统 Token |
 
@@ -388,6 +388,18 @@ def clamp_since(since: date, *, allow_full: bool = False) -> date: ...
 > `error_detail`，后者装的还是 `stats['errors']` 的串形），故「降级原因写人话」落
 > `stats['degraded']` 与 `stats['degraded_reasons']`，而非新加列——
 > 新增列须先答准入四问，而 `stats` 现有结构本就够用（详见 §5.3 第 3 段）。
+
+> **S3 落地偏离 §9 两处（2026-10-22，源 #2502）**，两处同一判据「**拿不到输入就别输出一个像样的值**」：
+>
+> | 原计划 | 实际 | 为什么 |
+> |---|---|---|
+> | `base_url()` = `WIND_MCP_URL or WIND_DEFAULT_URL` | **没有默认值**，缺 env 抛 `WindEndpointMissing` | 仓库、文档、历史卡里都没有可确认的网关地址。猜一个默认值的失效形态是 **DNS / WAF 报错** —— 现场会去查网络与鉴权，而真因是「地址没配」（#171 同族：拿不到输入却输出一个看起来正常的结论） |
+> | 能力表按 Wind 全量工具登记 | 只登记**实测确认过工具名**的两项（`get_index_fundamentals` / `market_search_tools`） | 工具名猜错只会换来上游 `Invalid value`，且生产链路本就不做自然语言检索（§6.3）；探针提供 `--list` 与检索能力给人探索 |
+>
+> **仍未验证的一件事**：响应侧沿用 JSON-RPC 的 `result.content[].text`（请求侧已由 `_wire`
+> 覆盖并有测试）。真实报文采样需要 `WIND_MCP_TOKEN` + `WIND_MCP_URL`，两者当前均未配置；
+> 若响应形状不同，处置是「给传输层加 provider 级解包扩展点」，**不是**在传输层里写 provider 名字分支
+> ——后者会让 §10 第 1 条判据（接第二家不改 `transport.py`）变成一句口号。
 
 方法搬移清单（S1 的施工单）：
 
@@ -417,7 +429,8 @@ def clamp_since(since: date, *, allow_full: bool = False) -> date: ...
 
 ## 12. 待办与已知缺口
 
-- Wind 的额度 / 欠费报文形态待采样（S3）；采样前 429 一律按**频控**（可重试），不猜死分类；
+- Wind 的额度 / 欠费报文形态待采样（S3 已就绪探针，缺 `WIND_MCP_TOKEN` / `WIND_MCP_URL`）；
+  采样前 429 一律按**频控**（可重试），不猜死分类；采样命令见 `app/tools/mcp_probe.py` 的模块 docstring；
 - ✅ **已拉平（2026-10-21，S2/#2490）**：`backend/app/services/thermometer/README.md`
   原称 `QIEMAN_API_KEY` 缺省「用内置 key」/「覆盖内置」，与代码冲突。代码内**从无内置 key**
   （`credentials._TOKEN_ENV` 是唯一来源，S0 的 `guard_no_hardcoded_secrets` 守着这条），

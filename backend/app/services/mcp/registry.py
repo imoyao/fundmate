@@ -53,6 +53,6 @@ def _load_builtins() -> None:
     if _BUILTINS_LOADED:
         return
     # 局部 import：注册表不持有对 provider 的模块级依赖（见模块 docstring）
-    from app.services.mcp.providers import qieman  # noqa: F401  # 导入即注册
+    from app.services.mcp.providers import qieman, wind  # noqa: F401  # 导入即注册
 
     _BUILTINS_LOADED = True
