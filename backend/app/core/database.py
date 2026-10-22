@@ -536,6 +536,10 @@ def _validate_schema(bind, metadata, label: str = 'app') -> None:
             f'[{label}] 数据库结构与模型不一致（{len(drifts)} 处漂移），拒绝启动：\n'
             + '\n'.join(drifts)
             + '\n修复路径：开发环境重建 DB 文件；生产环境补迁移脚本后再启动。'
+            + '\n查看全貌：pdm run user-schema-report'
+            '（只读：逐表列出缺列 / 库多列 / 主键形态 / 存量行数）。'
+            + '\n注意：init_db 里的存量迁移只对 SQLite 生效，Postgres（Supabase）不会被自动补列（#2498）；'
+            '「补非主键列」与「给存量表补主键（需重建表或加约束）」是两类活，后者先看行数再拍板。'
         )
 
 
