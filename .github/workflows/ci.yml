@@ -648,6 +648,7 @@ jobs:
       - name: 扫描跨仓引用是否挂源（阻断）
         run: node scripts/guard_cross_repo_refs.mjs
 
+
       # 付费卡违规占用 NOW 档位（源 #1288 实测）：付费里程碑上的卡带了 `Q1-RED`。
       # 首次上线时违规项**已经存在**且不是 PR 作者能修的（要改的是 owner 的优先级判断），
       # 故当前为**报告模式**（BLOCKING=false），待 owner 在 #2416 裁定后转阻断。
@@ -707,6 +708,29 @@ jobs:
       # 回归网 scripts/tests/test_dependabot_lockfile_regen.py（6 个变异探针）。
       - name: dependabot 锁重生成通道（阻断）
         run: python scripts/guard_dependabot_lockfile_regen.py
+
+      # MiSans 子集字形覆盖（源 https://github.com/imoyao/fundmate/issues/2402）：用户截图报
+      # 「荃」「鑫」渲染不对。实测真因不是「按字频裁剪」——`subset_misans.py` 的字表压根
+      # 没有 GB2312 **二级**（区 56~87，按笔画排序，装的全是姓氏 / 人名 / 地名用字），
+      # 而二级的 3008 字里 2987 个不在产物里；用户举的 10 个字中有 7 个连二级都不在
+      # （属 GBK 扩展区）。旧口径「生僻字属可接受长尾」是错的。
+      #
+      # 贵在这条根本没有观测手段：`scan_frontend_chars()` 只能扫写死的文案，覆盖不了
+      # 用户输入，于是只能等用户截图。本判据让它变成一个数字：
+      #   GB2312 一级必须 100%（界面文案不跳字体的底线）
+      #   GBK 汉字必须 ≥ 98%（用户可能输入什么的上界，与 Windows CP936 一致）
+      #
+      # 依赖 fonttools：**刻意不自研 woff2/cmap 解析**——首版手写 format 4 的偏移，
+      # 在 idRangeOffset 段算错、把 3823 个码位读成 2667 个且**不抛异常**，输出照样
+      # "成功"。判据自己错了，只会更响亮地重复错结论（同 CNB #450 的形态）。
+      # 不新增 job：并入本 job，也就不必动 gate.needs。
+      # 判据边界与不覆盖项见脚本 docstring；回归网在
+      # scripts/tests/test_font_glyph_coverage.py（13 条，含 2 个变异探针）。
+      - name: 安装 fonttools（字形覆盖判据用）
+        run: python -m pip install fonttools brotli
+
+      - name: 检查 MiSans 子集字形覆盖（阻断）
+        run: python scripts/guard_font_glyph_coverage.py
 
       - name: 跑 scripts/ 下的 Python 守卫/桥接脚本单测
         run: python -m unittest discover -s scripts/tests -p "test_*.py" -v

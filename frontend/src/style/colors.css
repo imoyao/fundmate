@@ -351,7 +351,17 @@
      否则会先于 MiSans 命中中文、导致 MiSans 实际不生效（评审 2026-09-04）
      半角数字由 Inter 承担，等宽对齐走 font-variant-numeric: tabular-nums */
   --font-latin: "Inter";
-  --font-cjk-list: "MiSans", "PingFang SC", "Microsoft YaHei";
+  /* 回退栈按「平台各自的最优中文字体」排，缺一个就掉到 system-ui 默认字形，
+     与 MiSans 混排是肉眼可见的两种字（#2402）：
+       - PingFang SC      macOS / iOS
+       - Microsoft YaHei  Windows
+       - Noto Sans CJK SC / Source Han Sans SC  Linux（无前两者）
+       - WenQuanYi Micro Hei  老发行版兜底
+     MiSans 子集扩到 GBK 之后（见 backend/scripts/subset_misans.py），
+     这里仍必须保留完整中文栈：母本缺字、Unicode 扩展区、旧浏览器都可能走到这里。 */
+  --font-cjk-list:
+    "MiSans", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
+    "Source Han Sans SC", "WenQuanYi Micro Hei";
   --font-cjk: var(--font-cjk-list), system-ui, sans-serif;
   --font-sans: var(--font-latin), var(--font-cjk);
   /* 等宽（代码/代码-like 场景：基金代码、OCR 文本域等）：真等宽字体优先；

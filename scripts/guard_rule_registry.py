@@ -144,6 +144,19 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'tests': 'scripts/tests/guard_col_divider.test.js',
         'covered': '只认 1px + --border-light 的形态；3px 语义强调条有意放行',
     },
+    'scripts/guard_font_glyph_coverage.py': {
+        'rule': 'MiSans 子集必须覆盖 GB2312 一级（100%）与 GBK 汉字（≥98%），不许退回仅一级',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_font_glyph_coverage.py',
+        'covered': (
+            '只比 cmap 有无该码位，**不检查字形画得对不对**；不检查母本是否缺字'
+            '（缺字时请调 GBK_MIN_COVERAGE 并在 PR 写明）；不扫用户输入；不判体积'
+            '（字表扩到 GBK 后单字重约 2.8 MB，首屏预算属另一件事）。'
+            '刻意用 fontTools 解 woff2，不自研 cmap 解析——首版手写 format 4 偏移在'
+            'idRangeOffset 段算错、3823 读成 2667 且不抛异常（同 CNB #450 形态）。'
+            '回归网 13 条，含 2 个变异探针（阈值调 0 / 删一级判据，均须转红）。'
+        ),
+    },
     'scripts/guard_db_backup_ignored.py': {
         'rule': '数据库/备份文件必须被 gitignore 忽略（`*.db` 只匹配以 .db 结尾的名字）',
         'runner': 'ci',
