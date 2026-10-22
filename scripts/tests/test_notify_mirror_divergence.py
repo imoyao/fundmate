@@ -40,10 +40,17 @@ def test_body_contains_the_report(tmp_path):
 
 
 def test_body_keeps_all_four_essentials(tmp_path):
-    """现场 / 修法 / 禁令 / 溯源 —— 缺任何一个，卡就失去可照做性。"""
+    """现场 / 修法 / 禁令 / 溯源 —— 缺任何一个，卡就失去可照做性。
+
+    ⚠️ 修法一节在源 CNB #607 改成**分情况**：旧版无条件叫人去 cherry-pick，
+    而最常见的退出码其实是 2（拿不到输入），照着做等于解空气。故这里断言的
+    「可照做性」= 三种情形都给出了各自的处置，而不是某一句话还在不在。
+    """
     body = m.build_body([str(_report(tmp_path))])
     assert '## 现场' in body
-    assert 'cherry-pick' in body and 'GitHub 开 PR' in body
+    assert '新形态' in body and '走 PR' in body
+    assert '合规发版' in body and '假红' in body
+    assert '判据不可用' in body
     assert 'force push' in body and '不要' in body
     assert '#123' in body  # 溯源
 
@@ -246,3 +253,65 @@ def test_cnb_yml_has_reverse_guard_on_pull_request():
         assert 'exit 1' in script, '少 exit 1 就是「喊了口号但放行」，与 #118 的静默失效同型'
         assert '只读' in script
         assert 'GitHub' in script
+
+
+def test_divergence_stage_fetches_main_before_check():
+    """被判据比较的 ref 必须**先存在于工作区**（源 CNB #607，2026-10-22）。
+
+    实测形态：cron 构建里该 stage 每轮都走建卡分支，而卡面「现场」恒为
+    `_（未拿到现场报告…）_`，连挂三轮（10-20 / 10-21 / 10-22）。根因不是分叉，
+    是**runner 的定时构建只 fetch 分支键那一条**（`dev`），`origin/main` 压根不在
+    工作区里 ⇒ `check_branch_divergence.py` 退 2 ⇒ 建卡 ⇒ 卡面空着。
+
+    「卡建出来了」看起来像自检在工作，其实它**什么都没比** —— 与 #517 同族：
+    信号响亮 ≠ 信号正确。故断言：检查命令之前，必须有一条**只读 refspec**的 fetch。
+    """
+    script = _divergence_stage_script()
+    lines = script.splitlines()
+    check_idx = next(i for i, line in enumerate(lines) if 'check_branch_divergence.py' in line)
+    fetch_lines = [ln for ln in lines[:check_idx] if 'git fetch' in ln and 'origin/main' in ln]
+    assert fetch_lines, (
+        '分叉自检前没有 fetch `origin/main` —— 定时构建只拉分支键那一条，'
+        '`origin/main` 不存在时判据退 2，每轮都会建一张「现场为空」的卡。'
+    )
+    # 只读 refspec：不得出现「把远端 ref 摊进本地分支」的形态（改写工作区 = 另一种风险）。
+    for ln in fetch_lines:
+        assert 'refs/remotes/origin/main' in ln, 'refspec 要落到 `refs/remotes/`，不要写本地分支'
+        assert '|| true' in ln, 'fetch 失败不该让 `set -e` 之外的路径把自检一起吞掉'
+
+
+def test_body_template_does_not_claim_code_mirror():
+    """卡面措辞必须对得上**真正的判据**（源 CNB #607）。
+
+    旧模板写着「GitHub→CNB 的**代码镜像**判定两侧已分叉……每小时自动跟上」，
+    而建出这张卡的是**仓内** `main` ↔ `dev` 自检（每日一次）。
+    把两个判据混为一谈的代价很具体：看卡的人会去查跨仓镜像日志，那里一切正常，
+    于是「怎么回事？」——本卡就是那么来的。
+    """
+    text = m.BODY_TEMPLATE
+    # 「## 发生了什么」是给读者定性的那一段，它不能谎报判据来源。
+    why = text.split('## 现场')[0]
+    assert '代码镜像' not in why, '卡面把「仓内 main↔dev 分叉」说成了「跨仓代码镜像停摆」'
+    assert '每小时' not in text, '仓内分叉自检是每日 cron，不是每小时'
+    assert 'check_branch_divergence.py' in text, '要说清是哪条判据建的卡'
+    assert '退出码 **2' in text, '退 2 = 拿不到输入，必须与「已分叉」分开说，否则会去 cherry-pick 空气'
+
+
+def test_divergence_stage_worktree_has_both_refs_before_check():
+    """钉住「自检的工作区里两条 ref 都在」——这是退 2 的唯一成因。
+
+    实测（2026-10-22，临时仓复现）：在只有 `origin/dev` 的工作区里跑该 stage 的脚本，
+    `check_branch_divergence.py` 直接退 2 且**不落报告文件**，建卡脚本拿不到现场。
+    补上只读 refspec 的 fetch 之后，同一条命令退 0 并落盘 42 行报告。
+
+    本用例不去跑 stage 本身（要网络），只判「脚本里那条命令的顺序与形态」——
+    因为**顺序**才是判据：fetch 放在 check 之后等于没放。
+    """
+    script = _divergence_stage_script()
+    lines = script.splitlines()
+    check_idx = next(i for i, line in enumerate(lines) if 'check_branch_divergence.py' in line)
+    before = '\n'.join(lines[:check_idx])
+    assert 'git fetch' in before, 'fetch 必须在 check 之前，否则 origin/main 仍不存在'
+    assert 'notify_mirror_divergence.py' in '\n'.join(lines[check_idx:]), (
+        '建卡必须在 check 之后（它读的是 check 落盘的那份报告）'
+    )

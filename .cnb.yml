@@ -173,6 +173,13 @@
           echo "❌ 容器无 git 且安装失败 —— 分叉自检**本轮没跑**，结论不可信"
           exit 0
         fi
+        # ⚠️ 必须先 fetch `main`（源 CNB #607，2026-10-22）：runner 的定时构建只 fetch
+        # **分支键那一条**（这里就是 `dev`），`origin/main` 压根不在工作区里 ⇒ 判据退 2。
+        # 于是本 stage 每轮都走建卡分支，而卡面「现场」永远是「未拿到现场报告」——
+        # 2026-10-20 ~ 10-22 实测连挂三轮，看卡的人只能猜是「真分叉」还是「没跑起来」。
+        # 只读 refspec（不写任何本地分支）⇒ 不改工作区、不动 `dev`。
+        # （单行写，不用续行 `\`：YAML 块标量里换行的续行在 strip 后可能被拼成两行。）
+        git fetch --no-tags origin 'refs/heads/main:refs/remotes/origin/main' >/dev/null 2>&1 || true
         set +e
         python scripts/bridge/check_branch_divergence.py --report --explain --out report-divergence.md
         rc=$?
