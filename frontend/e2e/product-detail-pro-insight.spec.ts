@@ -5,9 +5,9 @@ import { injectSupabaseSession } from "./support/session";
  * 详情页 Pro 模块一「深度绩效与归因」回归网（#994 Phase 2：账户级指标接线）。
  *
  * 钉四条不变式：
- * 1. **状态位驱动挂载**：`performance.available=true` → 模块徽标「已上线」+
- *    risk / allocation 同批翻真（#994 Phase 2 模块二、三），report 仍为占位；
- *    保持「Phase N 建设中」占位；
+ * 1. **状态位驱动挂载**：`performance.available=true` → 模块内容渲染；
+ *    risk / allocation 同批翻真（#994 Phase 2 模块二、三），report 仍为占位
+ *    （#2523 两态拆分后已开通态无介绍卡，徽标信号并入「模块进度」行）；
  * 2. **账户级指标诚实渲染**：XIRR 百分比带符号、金额千分位、平仓胜率/盈亏比/
  *    持有天数逐项对齐打桩数据，脚注带 FIFO 口径与样本量；
  * 3. **「可用」≠「有数据」**：`has_account_data=false` → 引导文案（不是错误态），
@@ -184,9 +184,10 @@ test.describe("详情页 Pro 模块一账户级指标（#994 Phase 2）", () => 
     await page.goto(`/#/fund/${SYMBOL}`);
 
     const pro = page.locator(".pro-section");
-    // 状态位驱动：模块一/二徽标翻「已上线」，其余保持建设中占位
-    await expect(pro.getByText("已上线")).toHaveCount(3);
-    await expect(pro.getByText("Phase 4 建设中")).toBeVisible(); // report
+    // 状态位驱动（#2523 两态拆分后）：已开通态无介绍卡，徽标信号并入「模块进度」行
+    await expect(pro.locator(".pro-section__progress-text")).toHaveText(
+      "已上线 3/4 · 智能报告与自动化 Phase 4 建设中"
+    );
 
     // 内容区：XIRR 小数转百分比 + 符号；金额千分位
     const perf = page.locator(".pro-perf");
@@ -239,8 +240,10 @@ test.describe("详情页 Pro 模块一账户级指标（#994 Phase 2）", () => 
       perf.getByText("账户级指标暂时取不到，稍后再来看看")
     ).toBeVisible();
 
-    // 独立降级：模块占位卡照常渲染（断网/接口失败不拖垮 Pro 卡）
+    // 独立降级：模块进度行照常渲染（断网/接口失败不拖垮 Pro 卡，#2523）
     const pro = page.locator(".pro-section");
-    await expect(pro.getByText("已上线")).toHaveCount(3);
+    await expect(pro.locator(".pro-section__progress-text")).toHaveText(
+      "已上线 3/4 · 智能报告与自动化 Phase 4 建设中"
+    );
   });
 });
