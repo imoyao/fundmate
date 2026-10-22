@@ -291,7 +291,10 @@ test.describe("详情页页内导航（#1968）", () => {
             symbol: SYMBOL,
             asset_type: "fund",
             pro_enabled: true,
-            paywall_required: false,
+            // 未开通态（#2523 两态拆分）：介绍卡只有未开通家庭看得到。
+            // 原 stub 是 false（已开通）——拆分后已开通整组隐藏，徽标断言
+            // 属引导态，故改 true；遮罩本体仍由 env 显式关闭，与此无关。
+            paywall_required: true,
             modules: {
               performance: { available: false, phase: 2 },
               risk: { available: false, phase: 2 },

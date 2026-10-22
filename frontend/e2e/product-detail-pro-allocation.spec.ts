@@ -5,8 +5,9 @@ import { injectSupabaseSession } from "./support/session";
  * 详情页 Pro 模块三「资产配置与相关性」回归网（#994 Phase 2 接线；#2400 画法修订）。
  *
  * 钉五条不变式：
- * 1. **状态位驱动挂载**：`allocation.available=true` → 该模块徽标「已上线」+
- *    内容区块渲染（注意：phase 仍是 3，徽标看的是 available 不是 phase）；
+ * 1. **状态位驱动挂载**：`allocation.available=true` → 模块内容渲染（注意：phase
+ *    仍是 3，挂载看的是 available 不是 phase；#2523 两态拆分后已开通态无介绍卡，
+ *    徽标信号并入「模块进度」行）；
  * 2. **相关系数诚实渲染**：ρ 带符号 + |ρ| 降序；ρ ≥ 0.8 的标的必须触发
  *    「账面分散、风险未必」的总结句——这是本模块唯一真正要讲的话；
  * 3. **配色纪律（#2400 的核心修复）**：档位→颜色的映射被断言成**具体色值**。
@@ -239,9 +240,10 @@ test.describe("详情页 Pro 模块三相关性（#994 Phase 2）", () => {
     await page.goto(`/#/fund/${SYMBOL}`);
 
     const pro = page.locator(".pro-section");
-    // 模块一/二/三均已上线，report 仍是 Phase 4
-    await expect(pro.getByText("已上线")).toHaveCount(3);
-    await expect(pro.getByText("Phase 4 建设中")).toBeVisible();
+    // 状态位驱动（#2523 两态拆分后）：已开通态无介绍卡，徽标信号并入「模块进度」行
+    await expect(pro.locator(".pro-section__progress-text")).toHaveText(
+      "已上线 3/4 · 智能报告与自动化 Phase 4 建设中"
+    );
 
     const alloc = page.locator(".pro-alloc");
 
@@ -335,8 +337,11 @@ test.describe("详情页 Pro 模块三相关性（#994 Phase 2）", () => {
       alloc.getByText("相关性暂时取不到，稍后再来看看")
     ).toBeVisible();
 
-    // 独立降级：兄弟模块的状态位与内容不受影响
+    // 独立降级：兄弟模块的状态位与内容不受影响。allocStatus=500 只打桩内容端点
+    // pro-allocation，状态位 pro/** 仍回三模块已上线（report Phase 4）
     const pro = page.locator(".pro-section");
-    await expect(pro.getByText("已上线")).toHaveCount(3);
+    await expect(pro.locator(".pro-section__progress-text")).toHaveText(
+      "已上线 3/4 · 智能报告与自动化 Phase 4 建设中"
+    );
   });
 });
