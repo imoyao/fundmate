@@ -651,7 +651,7 @@ class DatabaseConfig:
         url = os.getenv('SUPABASE_DATABASE_URL')
         if url:
             # 直连端点（db.<ref>.supabase.co:5432）是 IPv6-only，无 IPv6 出口的环境
-            # （GitHub Actions runner）连不上 ⇒ 配了 pooler 端点就改写（#2460 / #2462）。
+            # （CI runner 即此形态）连不上 ⇒ 配了 pooler 端点就就地改写（#2460 / #2462）。
             # 未配 `SUPABASE_POOLER_HOST` 时零行为变化（本机有 IPv6 时直连仍可用）。
             url = rewrite_supabase_direct_to_pooler(url)
             # Postgres 不需要 SQLite 专用 connect_args
