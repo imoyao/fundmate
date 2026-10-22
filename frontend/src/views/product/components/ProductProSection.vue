@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { useRoute } from "vue-router";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import {
@@ -25,13 +26,15 @@ import { resolvePaywallEnabled } from "./proEntitlement";
  * 的品类扩展决策，届时改 PRO_ASSET_TYPES 一处白名单，不动挂载点。
  *
  * 两条已拍板约束（#994 评论 2026-10-08；第 1 条已随 #2324 权益落地改写）：
- * 1. **付费墙由后端权益驱动，env 只是显式覆盖**：`GET /api/products/pro/` 的
+ * 1. **付费墙由后端权益驱动，env / URL 只是显式覆盖**：`GET /api/products/pro/` 的
  *    `paywall_required` 已按家庭权益算（`backend/app/services/product_pro_status.py`），
  *    未配置 `VITE_PRO_PAYWALL_ENABLED` 时以它为准；env 传 "true" / "false" 可强制开 / 关
- *    （e2e 与本地预览用，见 `playwright.config.ts` 的 webServer env）。状态位取不到
- *    （null）时**不显示遮罩**——「还没问出来」不等于「未开通」。三态实现见
+ *    （e2e 与本地预览用，见 `playwright.config.ts` 的 webServer env），URL
+ *    `?pro_paywall=0|1` 同义且优先级更高（免重建dev server 的运行时放行口）。
+ *    状态位取不到（null）时**不显示遮罩**——「还没问出来」不等于「未开通」。四态实现见
  *    `proEntitlement.ts` 的 `resolvePaywallEnabled`；三个内容端点在未开通时回
  *    `403 + error_code=1007`，各内容块自行渲染权益未开通态（块级自治，互不阻塞）；
+ *    **env / URL 只决定遮罩显隐，不改权益事实**——介绍卡两态（#2523）只认后端；
  * 2. **不用 mock / 演示数据占位**：徽标（Phase N 建设中）来自后端状态位，
  *    取不到就不显示徽标，绝不编造"已上线"。
  *
@@ -87,13 +90,30 @@ const MODULE_META = [
 const status = ref<ProStatusResult | null>(null);
 
 /**
- * 付费墙开关（三态）：env 显式覆盖优先，未配置时用后端 `paywall_required`；
- * 状态位未回来 / 取不到 ⇒ 不显示遮罩。判定逻辑与单测见 `proEntitlement.ts`。
+ * 付费墙开关（四层，优先级从高到低，URL 层 #2527）：URL `?pro_paywall=0|1` >
+ * env `VITE_PRO_PAYWALL_ENABLED` > 后端 `paywall_required`。URL 与 env 都是
+ * **显式覆盖**——只管遮罩显不显示，不改权益事实（介绍卡两态只认后端，
+ * 见 entitled 的注释）。判定逻辑与单测见 `proEntitlement.ts`。
+ *
+ * URL 读取形态（hash 路由）：`/#/fund/<symbol>?pro_paywall=1`——查询串在
+ * hash 里由 vue-router 解析。重复参数（`?pro_paywall=1&pro_paywall=0`）会
+ * 解析成数组，按「不猜」处理：非字符串一律当没给，逐层往下落。
  */
+const route = useRoute();
+
+const paywallUrlFlag = computed(() => {
+  const raw = route.query.pro_paywall;
+  return typeof raw === "string" ? raw : null;
+});
+
 const PAYWALL_ENV_FLAG = import.meta.env.VITE_PRO_PAYWALL_ENABLED;
 
 const paywallEnabled = computed(() =>
-  resolvePaywallEnabled(PAYWALL_ENV_FLAG, status.value?.paywall_required)
+  resolvePaywallEnabled(
+    paywallUrlFlag.value,
+    PAYWALL_ENV_FLAG,
+    status.value?.paywall_required
+  )
 );
 
 onMounted(async () => {
