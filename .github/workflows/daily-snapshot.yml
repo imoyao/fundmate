@@ -25,12 +25,24 @@
 #   1) 调度分支：`schedule` 事件只读取**默认分支（main）**上的本文件，而 main 长期落后 dev。
 #      故 workflow 定义仍从 main 读取，但 **checkout 显式取 `SCHEDULER_REF`（默认 dev）**，
 #      保证实际执行的是 dev 代码，而不是 main 上的旧代码。
+#      手动触发可用 `inputs.scheduler_ref` 覆盖（#2460）：验证**未合并**的修复时必须填功能
+#      分支名——否则 checkout 的仍是 dev 旧代码，跑一遍也证明不了修复有效。
 #   2) secrets 预检：必需 secrets 缺失时**立即失败并列出缺失项**。此前 workflow 把不存在的
 #      secret 展开成**空串**注入 env，覆盖了代码里的默认值 → `create_engine('')` →
 #      `sqlalchemy.exc.ArgumentError`，启动即崩且真因不可见（连续 7 天全红无人知）。
 #   3) 失败告警：job 失败时自动开/更新一个 tracking issue（见 job 末尾），不再静默。
 #   4) 告警生命周期（2026-09-18 补）：**成功运行即自动关闭**仍开着的告警卡——
 #      「7 天全红无人知」的另一半是「恢复了也没人收口」，自愈型告警是通行做法。
+#
+# ── #2460 修复要点（2026-10-22）──
+#   Turso 侧修好之后，user 域仍然连不上：Supabase **直连**端点
+#   `db.<ref>.supabase.co:5432` 在新项目上**只给 IPv6**，而 GitHub Actions runner
+#   **没有 IPv6 出口** ⇒ libpq 报 `Network is unreachable`。修法是换 **pooler 端点**
+#   （IPv4，沿用同一份 DB 密码，用户名改 `postgres.<ref>`）：本文件把端点写进
+#   `SUPABASE_POOLER_HOST`，由 `backend/app/core/db_factory.py` 的
+#   `rewrite_supabase_direct_to_pooler()` 就地改写——**不改 secret、不把密码搬进仓库**。
+#   端点已实测定位（`aws-1-ap-southeast-1`，见该 step 的注释：`aws-0-*` 前缀会得到
+#   `tenant/user not found` 的假阴性）。端口默认 5432（session 模式）。
 name: 每日定时调度
 
 on:
@@ -38,7 +50,12 @@ on:
     # 每天 UTC 17:00（北京时间次日凌晨 01:00）跑一次
     - cron: '0 17 * * *'
   # 手动触发，便于验证
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      scheduler_ref:
+        description: '实际执行的代码分支（留空 = dev）。验证未合并的修复时填功能分支名——否则 checkout 的仍是 dev 旧代码，跑了也证明不了修复有效（#2460）'
+        required: false
+        default: ''
 
 concurrency:
   group: daily-scheduler
@@ -50,7 +67,8 @@ permissions:
 
 env:
   # 实际执行代码的分支（main 只承载 workflow 定义）——见文件头 #1434 说明 1)
-  SCHEDULER_REF: dev
+  # 手动触发可用 inputs.scheduler_ref 覆盖（#2460：合并前验证修复的必要条件）
+  SCHEDULER_REF: ${{ github.event.inputs.scheduler_ref || 'dev' }}
 
 jobs:
   daily-scheduler:
@@ -128,6 +146,19 @@ jobs:
           # 每日调度自 2026-09-04 起 25 次全红、零成功。
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          # #2460：Supabase **直连**端点（db.<ref>.supabase.co:5432）在新项目上只给 IPv6，
+          # 而 GitHub Actions runner 没有 IPv6 出口 ⇒ libpq 报 `Network is unreachable`，
+          # 每日调度自 2026-09 起整轮跑不起来（#1490 挂了 58 天）。
+          # pooler 端点有 A 记录，且沿用同一份 DB 密码（用户名改 postgres.<ref>），
+          # 所以**不需要改 secret、也不把密码搬进仓库**：这里只给出端点，由
+          # backend/app/core/db_factory.py::rewrite_supabase_direct_to_pooler() 就地改写。
+          # 端点已实测（2026-10-22：用故意错误的密码区分「租户不在该 region」与「仅密码错」）：
+          # 12 个候选里只有 aws-1-ap-southeast-1 返回 `password authentication failed`，
+          # 其余（含全部 aws-0-*）一律 `tenant/user ... not found` —— #2462 卡面
+          # 「13 个 region 全查不到该租户」的结论是错的（只试了 aws-0- 前缀）。
+          SUPABASE_POOLER_HOST: aws-1-ap-southeast-1.pooler.supabase.com
+          # 端口取默认 5432（session 模式）：本仓是一次性批处理、短事务，
+          # 且全仓无 LISTEN / advisory lock / 临时表，session 语义最接近直连。
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

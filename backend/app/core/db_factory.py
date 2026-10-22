@@ -164,6 +164,94 @@ def redact_db_url(url: str) -> str:
     return re.sub(r'(auth[Tt]oken)=[^&\s]+', r'\1=***', url)
 
 
+# ── Supabase 直连 → pooler 端点改写（#2460 / #2462）────────────────────────
+#
+# 事实（实测，非推断）：Supabase 新项目的**直连**端点 `db.<ref>.supabase.co:5432`
+# 只给 IPv6；GitHub Actions runner 没有 IPv6 出口 ⇒ libpq 报
+# `Network is unreachable`，每日调度从 2026-09 起整轮跑不起来（#1490）。
+# pooler（Supavisor）端点有 A 记录，且**用同一份 DB 密码**（用户名改为
+# `postgres.<ref>`），因此不需要改 secret、更不需要把密码写进仓库——
+# 只要给出端点，本模块就地改写 URL。
+#
+# 实测（2026-10-22，12 个候选端点逐个连、用**故意错误的**密码区分
+# 「租户不在该 region」与「租户在、仅密码错」）：
+#   只有 `aws-1-ap-southeast-1.pooler.supabase.com` 返回
+#   `password authentication failed`（= 租户存在），其余 `aws-0-*` / `aws-1-*`
+#   一律 `tenant/user postgres.<ref> not found`。#2462 卡面「13 个 region 全查不到
+#   该租户」的结论是**错的**——它只试了 `aws-0-` 前缀，而本项目在 `aws-1-`。
+#
+# 端口：5432 = session 模式（连接与后端一一绑定，语义最接近直连），
+# 6543 = transaction 模式（每条语句可能换后端连接）。本仓是一次性批处理、
+# 短事务、无 LISTEN/临时表（已全仓 grep 核实），故默认 **5432 session**，
+# 少一层语义差异；需要压缩连接数时用 `SUPABASE_POOLER_PORT=6543` 覆盖。
+_SUPABASE_DIRECT_SUFFIX = '.supabase.co'
+_SUPABASE_DIRECT_PREFIX = 'db.'
+POOLER_HOST_ENV = 'SUPABASE_POOLER_HOST'
+POOLER_PORT_ENV = 'SUPABASE_POOLER_PORT'
+POOLER_DEFAULT_PORT = 5432
+
+
+def rewrite_supabase_direct_to_pooler(
+    url: str,
+    pooler_host: str | None = None,
+    pooler_port: int | str | None = None,
+) -> str:
+    """把 Supabase **直连**串改写为 **pooler** 串；不满足条件时原样返回。
+
+    触发条件（三条全中才改写，避免误伤其它库）：
+
+    1. host 形如 `db.<ref>.supabase.co`（直连端点）；已经是 pooler 的串**幂等**不动；
+    2. 给出了 pooler 端点：参数优先，其次环境变量 `SUPABASE_POOLER_HOST`；
+    3. 端口：参数 → `SUPABASE_POOLER_PORT` → 默认 5432（session 模式）。
+
+    改写内容：host → pooler 端点、端口 → pooler 端口、**用户名** → `postgres.<ref>`
+    （pooler 要求租户限定用户名）；**密码、库名、scheme 与全部 query 参数原样保留**。
+
+    为什么用环境变量而不是把端点写死：同一份代码要能在「有 IPv6 的本机直连」与
+    「无 IPv6 出口的 CI 走 pooler」两种环境下都正确，端点属于**部署事实**而非代码事实
+    （将来迁 region、换库都会变）。
+    """
+    if not url:
+        return url
+
+    parsed = urllib.parse.urlparse(url)
+    host = (parsed.hostname or '').lower()
+    if not (host.startswith(_SUPABASE_DIRECT_PREFIX) and host.endswith(_SUPABASE_DIRECT_SUFFIX)):
+        return url
+
+    target_host = (pooler_host if pooler_host is not None else os.getenv(POOLER_HOST_ENV, '')).strip()
+    if not target_host:
+        return url
+
+    raw_port = pooler_port if pooler_port is not None else os.getenv(POOLER_PORT_ENV, '')
+    port = POOLER_DEFAULT_PORT
+    if str(raw_port).strip():
+        try:
+            port = int(str(raw_port).strip())
+        except ValueError:
+            logger.warning(f'{POOLER_PORT_ENV}={raw_port!r} 不是合法端口，回退 {POOLER_DEFAULT_PORT}（session 模式）')
+
+    ref = host[len(_SUPABASE_DIRECT_PREFIX) : -len(_SUPABASE_DIRECT_SUFFIX)]
+    user = f'postgres.{ref}'
+    # 密码按**原始百分号编码**原样搬运：`urlparse().password` 在 3.12 返回的仍是编码后的
+    # 文本，若再 quote 一次会二次编码（`p%40ss` → `p%2540ss`），连库时报密码错，
+    # 而报错点离真因极远。故这里只改 user 段，密码段一个字节都不碰。
+    netloc = parsed.netloc
+    at = netloc.rfind('@')
+    userinfo = netloc[:at] if at >= 0 else ''
+    raw_password = userinfo.split(':', 1)[1] if ':' in userinfo else None
+    if raw_password is not None:
+        netloc = f'{user}:{raw_password}@{target_host}:{port}'
+    else:
+        netloc = f'{user}@{target_host}:{port}'
+
+    rewritten = urllib.parse.urlunparse(
+        (parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment)
+    )
+    logger.info(f'Supabase 直连端点 IPv6-only，已改写为 pooler：{host} → {target_host}:{port}（#2460）')
+    return rewritten
+
+
 def normalized_app_db_url_preview(env: str | None = None) -> str:
     """归一后的 market 域连接串（token 已打码）——给启动日志看「实际会用哪条 URL 连」。
 
@@ -545,6 +633,9 @@ class DatabaseConfig:
         1. 显式配置 SUPABASE_DATABASE_URL → 真 Supabase（生产 / 最终验证）。
            注：development 下需同时设 DEV_FORCE_SUPABASE=1 才走本分支（见实现），
            否则仍按第 2 条本地回退。
+           注：直连端点 `db.<ref>.supabase.co` 是 **IPv6-only**；若同时配置了
+           `SUPABASE_POOLER_HOST`，本方法会把 URL 就地改写为 pooler（IPv4）端点
+           —— 见 `rewrite_supabase_direct_to_pooler()`（#2460 / #2462）。
         2. development 且未走真库：显式配置 DEV_USER_DATABASE_URL → 独立
            本地文件（本地双库模拟）；否则与 market 域共用 DEV_DATABASE_URL 同库
            （默认单库，本地既有 invest.db 数据立即可见，零迁移）。
@@ -559,6 +650,10 @@ class DatabaseConfig:
             return cls(name=DOMAIN_USER, url=url, connect_args=_sqlite_connect_args(url), pool_pre_ping=False)
         url = os.getenv('SUPABASE_DATABASE_URL')
         if url:
+            # 直连端点（db.<ref>.supabase.co:5432）是 IPv6-only，无 IPv6 出口的环境
+            # （GitHub Actions runner）连不上 ⇒ 配了 pooler 端点就改写（#2460 / #2462）。
+            # 未配 `SUPABASE_POOLER_HOST` 时零行为变化（本机有 IPv6 时直连仍可用）。
+            url = rewrite_supabase_direct_to_pooler(url)
             # Postgres 不需要 SQLite 专用 connect_args
             return cls(name=DOMAIN_USER, url=url, connect_args={}, pool_pre_ping=True)
 
