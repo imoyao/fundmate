@@ -358,12 +358,16 @@ export const watchlistColumnDefs: ColumnDef[] = [
   },
   {
     // 跨渠道关联入口（#1285 §3.8「数量标记 + 浮层」）：hover 浮层列出关联标的名。
-    // 本期仅指数↔ETF 且只覆盖主流宽基（实测 akshare 无「跟踪标的」字段，总名称
-    // 匹配覆盖 41.1% < 90% 门槛 → 按设计降级）；无关联渲染 `—`。
+    // #2503：appliesTo 补 `fund` —— `etf_feeder` 层数据已入库（本地实测 1486 条），
+    // 但本列只认 index/etf，场外联接行看不到「对应场内」入口：数据双向可查、
+    // 界面上查不到，等于只写不读（与数据策略「新表必须有读路径」相反）。
+    // **不新增列**（列宽预算 ≤1040px，见文件头「加一列必须减一列」）：复用本列，
+    // 靠 `link_type` 在浮层里分区块区分场内/场外。
+    // 覆盖率口径（名称匹配 41.1% < 90% 门槛）本期不动；无关联渲染 `—`。
     key: "links",
     label: "关联",
     renderer: "links",
-    appliesTo: ["index", "etf"],
+    appliesTo: ["index", "etf", "fund"],
     minWidth: 84,
     align: "center",
     hideable: true,
