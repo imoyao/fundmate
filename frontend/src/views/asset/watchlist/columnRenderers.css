@@ -285,6 +285,36 @@
   color: var(--text-tertiary-ink);
 }
 
+/* 关联浮层分区块（#2503）：组标题带数量，组内一行一条「名称（代码）」。
+   ⚠️ 刻意**不加** `.el-table` 前缀：ElTooltip 的浮层走 Teleport 挂到 body，
+   带祖先前缀的选择器命中不到（与上面 .link-badge 不同——角标在单元格内）。
+   配色写死浅色而非用 --text-*-ink 变量：本浮层 effect="dark"，背景是深色的，
+   套用正文墨色变量会看不见。 */
+.link-tip {
+  display: flex;
+  flex-direction: column;
+  max-width: 280px;
+  gap: 8px;
+}
+
+.link-tip-group + .link-tip-group {
+  padding-top: 6px;
+  border-top: 1px solid rgb(255 255 255 / 18%);
+}
+
+.link-tip-title {
+  margin-bottom: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgb(255 255 255 / 65%);
+}
+
+.link-tip-item {
+  font-size: 12px;
+  line-height: 18px;
+  color: #fff;
+}
+
 /* ── 且慢组合补充列（#1468）── */
 /* 策略简介：单行省略，完整内容挂 title（列宽 200px 装不下整段简介） */
 .el-table .ellipsis-cell {
