@@ -14,9 +14,201 @@
 
 import os
 import re
+from typing import List
 
 from loguru import logger
 from sqlalchemy import Engine, inspect, text
+
+# ── user 域 watchlist 表补列（#2469）────────────────────────────────────────
+#
+# 生产 user 域（Supabase Postgres）上的 watchlist 三表是**旧结构**：
+#   - watchlist_groups：缺 sort_order / is_visible / entity_type / family_id；
+#   - watchlist_item_tags：缺 id（自增主键）。
+# 后果：`_validate_schema` 判「库结构与模型不一致」→ init_db 直接拒绝启动
+# → 每日调度（#1490）全线停摆（实测 run 39773356610，2026-10-22）。
+#
+# ⚠️ 与仓内既有 watchlist 迁移的关键区别：那些迁移都**只跑 SQLite**
+# （「非 SQLite 引擎，列由 ORM 模型/迁移工具负责」）——而生产 user 域恰恰是 Postgres，
+# 且没有任何工具会替它补列（Supabase 侧是手工建表）。**本条是第一条管 PG 侧��**
+_WATCHLIST_GROUP_COLUMNS = (
+    # (列名, 类型与默认值 DDL 片段)
+    ('sort_order', 'INTEGER DEFAULT 0'),
+    ('is_visible', 'BOOLEAN DEFAULT TRUE'),
+    ('entity_type', "VARCHAR(20) DEFAULT 'ASSET'"),
+    # family_id 来自 FamilyScopedMixin（default=1）：存量行按「默认家庭 1」收编，
+    # 与该 mixin 的语义一致（默认家庭 1 兼容既有单用户数据）。
+    ('family_id', 'INTEGER NOT NULL DEFAULT 1'),
+)
+
+#: watchlist_groups.family_id 的索引（模型声明 index=True → 默认名 ix_<表>_<列>）
+_WATCHLIST_GROUP_FAMILY_INDEX = 'ix_watchlist_groups_family_id'
+
+
+def _is_postgres(engine: Engine) -> bool:
+    url = str(getattr(engine, 'url', '') or '')
+    return url.startswith('postgres')
+
+
+def _add_column_sql(table: str, name: str, ddl: str, is_pg: bool) -> str:
+    """加列 SQL：PG 用 ``IF NOT EXISTS``（并发友好），SQLite 不支持该语法故不加。"""
+    if is_pg:
+        return f'ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {name} {ddl}'
+    return f'ALTER TABLE {table} ADD COLUMN {name} {ddl}'
+
+
+def _add_id_serial_sql(table: str, is_pg: bool) -> str:
+    """加自增主键列 SQL：PG 用 ``SERIAL``（自带序列默认值，新行自动取号）。"""
+    if is_pg:
+        return f'ALTER TABLE {table} ADD COLUMN IF NOT EXISTS id SERIAL'
+    return f'ALTER TABLE {table} ADD COLUMN id INTEGER'
+
+
+def _sqlite_rebuild_watchlist_item_tags(engine: Engine) -> str:
+    """SQLite：给 watchlist_item_tags 补自增主键 id（SQLite 不许 ALTER 加主键列）。
+
+    走标准重建流程：建新表 → 拷贝（id 取旧表 rowid，唯一且非空）→ 删旧 → 改名。
+    旧 DDL 的其余部分（唯一约束、外键、列序）原样保留，只插入 id 列与主键。
+    """
+    with engine.connect() as conn:
+        ddl = conn.execute(
+            text("SELECT sql FROM sqlite_master WHERE type='table' AND name='watchlist_item_tags'")
+        ).scalar()
+        if ddl is None:
+            return '[SKIP] watchlist_item_tags 表不存在（空库，init_db 将按新模型建表）'
+        # ⚠️ 不能用子串判断「id 是否已存在」：`item_id INTEGER NOT NULL` 里也含
+        # `id INTEGER NOT NULL` —— 那会让「缺 id 的旧表」被误判成「已有 id」而跳过重建
+        # （本迁移首版即如此，被收尾自校验当场抓住）。故按**列名**判断。
+        if 'id' in {c['name'] for c in inspect(engine).get_columns('watchlist_item_tags')}:
+            return '[SKIP] watchlist_item_tags.id 已存在'
+
+        new_ddl = ddl.replace(
+            'CREATE TABLE watchlist_item_tags',
+            'CREATE TABLE watchlist_item_tags_new',
+            1,
+        )
+        # 插入 id 列（紧跟表名后）与主键（追加在末尾括号前）
+        new_ddl = new_ddl.replace(
+            'CREATE TABLE watchlist_item_tags_new (',
+            'CREATE TABLE watchlist_item_tags_new (id INTEGER NOT NULL, ',
+            1,
+        )
+        if 'PRIMARY KEY' in new_ddl:
+            # 旧表已有主键（可能是复合键）⇒ 只能追加 id，不能再加一个 PRIMARY KEY
+            logger.warning('[watchlist_item_tags] 旧表已有主键，id 仅作为普通列补入（不覆盖既有主键）')
+        else:
+            new_ddl = re.sub(r'\)\s*$', ', PRIMARY KEY (id))', new_ddl, count=1)
+        if not re.search(r'\bid\s+INTEGER\s+NOT\s+NULL', new_ddl):
+            raise RuntimeError(f'watchlist_item_tags 重建 DDL 拼装失败：\n{ddl}')
+
+        cols = [c['name'] for c in inspect(engine).get_columns('watchlist_item_tags')]
+        if 'id' in cols:  # 竞态：别处已加
+            return '[SKIP] watchlist_item_tags.id 已存在'
+        col_list = ', '.join(cols)
+
+        conn.execute(text('PRAGMA foreign_keys=OFF'))
+        conn.execute(text(new_ddl))
+        # id 取旧表 rowid：唯一且非空；SQLite 的 rowid 从 1 起
+        conn.execute(
+            text(
+                f'INSERT INTO watchlist_item_tags_new (id, {col_list}) '
+                f'SELECT rowid, {col_list} FROM watchlist_item_tags'
+            )
+        )
+        conn.execute(text('DROP TABLE watchlist_item_tags'))
+        conn.execute(text('ALTER TABLE watchlist_item_tags_new RENAME TO watchlist_item_tags'))
+        conn.commit()
+    return '[OK] watchlist_item_tags 已重建并补上 id 主键'
+
+
+def migrate_watchlist_user_domain_columns(engine: Engine) -> str:
+    """user 域 watchlist 三表补齐模型列（#2469）。
+
+    ## 为什么需要
+
+    生产 user 域（Supabase Postgres）上的 watchlist 表是**旧结构**：
+    ``watchlist_groups`` 缺 ``sort_order`` / ``is_visible`` / ``entity_type`` / ``family_id``，
+    ``watchlist_item_tags`` 缺 ``id``（自增主键）。
+    于是 ``_validate_schema`` 判「库结构与模型不一致」并**拒绝启动**，
+    每日调度（#1490）随之全线停摆——净值刷新、温度计、资产快照全部拿不到新数据。
+
+    ## 与既有迁移的关键区别
+
+    仓内既有的 watchlist 迁移都**只跑 SQLite**（注释写「非 SQLite 引擎，列由 ORM 模型 /
+    迁移工具负责」）。但生产 user 域恰恰是 Postgres，而那套「迁移工具」在本仓并不存在
+    （Supabase 侧是手工建表）——**这就是漂移一直没人补上的原因**。
+    本迁移是**第一条管 PG 侧**的，故不能沿用「非 SQLite 就跳过」的写法。
+
+    ## 做法
+
+    - **只加列**：不改既有列、不删数据、不回填业务数据；
+    - 已有列一律跳过（**幂等**，可重复跑）；
+    - 新列带默认值，存量行按默认值收编（family_id=1 即「默认家庭」，与
+      ``FamilyScopedMixin.default=1`` 一致）；
+    - ``watchlist_item_tags.id``：PG 用 ``SERIAL``（自带序列默认值，新行自动取号）；
+      SQLite 走「建新表→拷贝→删旧→改名」重建（SQLite 不许 ALTER 加主键列）；
+    - **收尾自校验**：目标列必须在，缺了直接抛错——迁移失败必须显性，不留半截状态。
+    """
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    notes: List[str] = []
+
+    # ── watchlist_groups：四列 + family_id 索引 ──
+    if 'watchlist_groups' in tables:
+        existing = {c['name'] for c in inspector.get_columns('watchlist_groups')}
+        added: List[str] = []
+        with engine.connect() as conn:
+            for name, ddl in _WATCHLIST_GROUP_COLUMNS:
+                if name in existing:
+                    continue
+                conn.execute(text(_add_column_sql('watchlist_groups', name, ddl, _is_postgres(engine))))
+                added.append(name)
+            conn.commit()
+        if added:
+            notes.append(f'watchlist_groups 加列 {added}')
+    else:
+        notes.append('watchlist_groups 表不存在（空库，交给 create_all 建表）')
+
+    # ── watchlist_item_tags：id 主键 ──
+    if 'watchlist_item_tags' in tables:
+        existing = {c['name'] for c in inspector.get_columns('watchlist_item_tags')}
+        if 'id' in existing:
+            notes.append('watchlist_item_tags.id 已存在')
+        elif _is_postgres(engine):
+            with engine.connect() as conn:
+                # SERIAL = INTEGER + 序列默认值 + NOT NULL：存量行按 nextval 补号，新行自动取号
+                conn.execute(text(_add_id_serial_sql('watchlist_item_tags', True)))
+                conn.commit()
+            notes.append('watchlist_item_tags 加 id 列（SERIAL）')
+        else:
+            notes.append(_sqlite_rebuild_watchlist_item_tags(engine))
+    else:
+        notes.append('watchlist_item_tags 表不存在（空库，交给 create_all 建表）')
+
+    # ── 自校验：目标列必须在（迁移失败必须显性）──
+    inspector = inspect(engine)
+    if 'watchlist_groups' in set(inspector.get_table_names()):
+        cols = {c['name'] for c in inspector.get_columns('watchlist_groups')}
+        missing = [name for name, _ in _WATCHLIST_GROUP_COLUMNS if name not in cols]
+        if missing:
+            raise RuntimeError(f'watchlist_groups 补列后仍缺列：{missing}')
+    if 'watchlist_item_tags' in set(inspector.get_table_names()):
+        cols = {c['name'] for c in inspector.get_columns('watchlist_item_tags')}
+        if 'id' not in cols:
+            raise RuntimeError('watchlist_item_tags 补列后仍缺 id 列')
+
+    # ── family_id 索引：放在自校验**之后**建 ──
+    # 顺序有讲究：列没补上时建索引会先炸一个「no such column」，
+    # 报错误导（像是索引的问题），而真实原因是「列没加上」。自校验先跑，错误才说人话。
+    if 'watchlist_groups' in set(inspector.get_table_names()):
+        with engine.connect() as conn:
+            conn.execute(
+                text(f'CREATE INDEX IF NOT EXISTS {_WATCHLIST_GROUP_FAMILY_INDEX} ON watchlist_groups (family_id)')
+            )
+            conn.commit()
+
+    summary = '；'.join(notes)
+    logger.info(f'[watchlist 补列] {summary}')
+    return f'[OK] {summary}'
 
 
 def migrate_watchlist_unique_key(engine: Engine) -> str:
