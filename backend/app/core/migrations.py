@@ -1601,3 +1601,55 @@ def migrate_fund_style_columns(engine: Engine) -> str:
         logger.info(f'[OK] funds 增加风格箱派生列: {added}（#2478）')
         return f'[OK] funds 增加风格箱派生列 {added}'
     return '[SKIP] funds 风格箱派生列已存在'
+
+
+def migrate_transaction_fee_breakdown(engine: Engine) -> str:
+    """transactions 补费用拆分四列（#2137）：佣金 / 印花税 / 过户费等税费 / 其他费用。
+
+    ## 为什么需要
+
+    交割单（同花顺导出）本就带四列费用明细，解析器此前只能合并成聚合 ``fee``
+    落库——「这笔 15 元手续费里佣金/印花税/过户费各多少」无从回答。
+    四列让费用结构可记、可查、可按类别汇总。
+
+    ## 与聚合 fee 的关系（存量兼容策略）
+
+    ``fee`` 仍是唯一权威总额（已实现盈亏结转、卖出回款净额等口径都不动）；
+    四列全 NULL = 未拆分，是存量数据与未提供拆分的写入路径的默认态，
+    读取端按 ``fee`` 展示，**行为与迁移前完全一致**（不造错数、不改写历史）。
+
+    ## 加列方式
+
+    四列均为**可空**列：SQLite / libsql 对可空列支持直接 ALTER ADD COLUMN
+    （无需整表重建）；幂等：列已存在则跳过。非 SQLite 引擎
+    （Supabase Postgres）由 ORM 模型 / 迁移工具负责，直接跳过。
+
+    ⚠️ 本迁移**只加列、不回填**：历史行的拆分事实已随合并丢失，唯一的总额
+    ``fee`` 无法反推四类各是多少——盲猜等于编数，宁空不猜。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎，费用拆分列由 ORM 模型/迁移工具负责'
+
+    if 'transactions' not in inspect(engine).get_table_names():
+        return '[SKIP] transactions 表不存在（空库，init_db 将按新模型建表）'
+
+    cols = [
+        ('commission', 'INTEGER'),
+        ('stamp_duty', 'INTEGER'),
+        ('transfer_fee', 'INTEGER'),
+        ('other_fee', 'INTEGER'),
+    ]
+    added = []
+    with engine.connect() as conn:
+        existing = {c['name'] for c in inspect(engine).get_columns('transactions')}
+        for name, typ in cols:
+            if name not in existing:
+                conn.execute(text(f'ALTER TABLE transactions ADD COLUMN {name} {typ}'))
+                added.append(name)
+        conn.commit()
+
+    if added:
+        logger.info(f'[OK] transactions 增加费用拆分列: {added}（#2137，存量留 NULL=未拆分）')
+        return f'[OK] transactions 增加费用拆分列 {added}'
+    return '[SKIP] transactions 费用拆分四列已存在'

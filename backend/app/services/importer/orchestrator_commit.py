@@ -9,6 +9,7 @@
 
 from datetime import date, datetime
 from decimal import Decimal
+from decimal import InvalidOperation as decimal_InvalidOperation
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
@@ -28,6 +29,20 @@ from app.services.trading import TransactionService
 # 确定性（不带随机数）即自幂等——同一行再次「勾选保留」导入时命中已存在的 suffixed hash，
 # 走去重拦截计数，不会叠出第三份记录。
 KEEP_HASH_SUFFIX = ':keep'
+
+
+def _opt_decimal(value) -> Optional[Decimal]:
+    """可空十进制（#2137 费用拆分回传）：None / 空值 → None（未拆分），否则 Decimal。
+
+    预览行由前端原样回传，字段可能是 None、缺键、'' 或数字；统一在这里收敛，
+    避免在记录构造处散落四份 try/except。
+    """
+    if value is None or value == '':
+        return None
+    try:
+        return Decimal(str(value))
+    except (decimal_InvalidOperation, ValueError):
+        return None
 
 
 def refresh_prices_best_effort(db) -> Optional[dict]:
@@ -128,6 +143,11 @@ class CommitMixin:
                     shares=Decimal(str(row.get('quantity') or 0)) if row.get('quantity') else None,
                     nav=Decimal(str(row.get('price') or 0)) if row.get('price') else None,
                     fee=Decimal(str(row.get('fee') or 0)),
+                    # #2137 费用拆分（元）：预览行原样回传；None/缺键 = 未拆分
+                    fee_commission=_opt_decimal(row.get('fee_commission')),
+                    fee_stamp_duty=_opt_decimal(row.get('fee_stamp_duty')),
+                    fee_transfer_fee=_opt_decimal(row.get('fee_transfer_fee')),
+                    fee_other=_opt_decimal(row.get('fee_other')),
                     transaction_id=row.get('contract_id', ''),
                     import_hash=row.get('import_hash'),
                     source=row.get('source', ''),

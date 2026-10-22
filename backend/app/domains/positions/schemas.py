@@ -52,6 +52,12 @@ class PositionCreate(BaseModel):
     allocation: Optional[str] = Field(None, description='配置目标')
     notes: Optional[str] = Field(None, description='备注')
     fee: Optional[float] = Field(0.0, description='手续费')
+    # #2137 费用拆分（元）：四类齐全才落拆分列，缺类显式传 0；全不传 = 未拆分
+    # （存量语义，聚合 fee 为权威）。与 Transaction 的拆分不变量同口径。
+    fee_commission: Optional[float] = Field(None, description='佣金(元，#2137)')
+    fee_stamp_duty: Optional[float] = Field(None, description='印花税(元，#2137)')
+    fee_transfer_fee: Optional[float] = Field(None, description='过户费等税费(元，#2137)')
+    fee_other: Optional[float] = Field(None, description='其他费用(元，#2137)')
     confirm_date: Optional[date] = Field(None, description='确认日期')
     op_type: Optional[str] = Field('buy', description='操作类型')
     position_id: Optional[int] = Field(None, description='关联持仓ID')

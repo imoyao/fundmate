@@ -565,6 +565,24 @@ def update_ledger_transaction(db, ledger, txn, data: dict) -> Transaction:
     if 'fee' in data:
         txn.fee = Money.yuan_to_cents(_non_negative('fee', data['fee']))
         touched = True
+    # #2137 费用拆分（元 → 分）：显式传才改；四类必须齐全（缺的传 0 表示该类为 0），
+    # 否则与 Transaction 的 before_insert 不变量冲突会在 flush 时炸——
+    # 这里先校验，把错误变成 400 而不是 500。传 null 一律按「不修改」处理
+    # （与上方 _non_negative 的 None 语义一致），不提供「拆分明细置空」操作。
+    fee_breakdown_keys = (
+        ('fee_commission', 'commission'),
+        ('fee_stamp_duty', 'stamp_duty'),
+        ('fee_transfer_fee', 'transfer_fee'),
+        ('fee_other', 'other_fee'),
+    )
+    provided = {k: data[k] for k, _col in fee_breakdown_keys if data.get(k) is not None}
+    if provided:
+        if len(provided) != len(fee_breakdown_keys):
+            missing = [k for k, _col in fee_breakdown_keys if k not in provided]
+            raise LedgerWriteError(f'费用拆分必须四类齐全（缺的类别显式传 0）：未提供 {missing}', 400, None)
+        for key, col in fee_breakdown_keys:
+            setattr(txn, col, Money.yuan_to_cents(_non_negative(key, provided[key])))
+        touched = True
     if 'amount' in data:
         txn.amount = Money.yuan_to_cents(_non_negative('amount', data['amount']))
         touched = True

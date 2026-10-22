@@ -5,7 +5,6 @@
 """资金容器 API — 基本 CRUD"""
 
 import json
-from datetime import datetime
 
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
@@ -34,6 +33,7 @@ from app.services.position_aggregation import (  # noqa: E402
     get_securities_aggregation as svc_get_securities_aggregation,
 )
 from app.services.position_presenter import enrich_position_dict
+from app.services.transaction_service import transaction_edit_payload
 
 ledgers_bp = APIBlueprint('ledgers', __name__, url_prefix='/api/ledgers')
 
@@ -591,7 +591,9 @@ def update_ledger_transaction(ledger_id: int, transaction_id: int):
 
     - 归属类字段（ledger_id/symbol/account 等）由本入口拦截；
     - 金额类/日期/备注字段的改写、金额重算、import_hash 清空下沉至 ledger_write_service；
-    - 响应体（含 Money 反算）在此组装，保持展示职责在视图。
+    - 响应体组装（含 Money 反算与 #2137 fee_breakdown）下沉至
+      `transaction_service.transaction_edit_payload`，视图只做 HTTP 编排
+      （#1606 视图职责边界；本文件被 check_view_thickness 冻结「只减不增」）。
     """
     data = request.get_json() or {}
     forbidden = {'id', 'ledger_id', 'symbol', 'account', 'family_id', 'created_at', 'updated_at'}
@@ -615,37 +617,13 @@ def update_ledger_transaction(ledger_id: int, transaction_id: int):
             abort(404, '交易不存在或不属于该账户')
 
         try:
-            ledger_write_svc.update_ledger_transaction(db, ledger, txn, data)
+            txn = ledger_write_svc.update_ledger_transaction(db, ledger, txn, data)
         except ledger_write_svc.LedgerWriteError as e:
             if e.error_code is None:
                 abort(e.status_code, e.message)
             return jsonify({'data': None, 'message': e.message, 'error_code': e.error_code}), e.status_code
 
-        def _ymd(value):
-            # trade_date 为 DateTime 列（读回为 datetime），confirm_date 为 Date 列（date）；
-            # 若本次仅赋过 .date() 则为 date。统一输出 YYYY-MM-DD。
-            if not value:
-                return None
-            if isinstance(value, datetime):
-                value = value.date()
-            return value.isoformat()
-
-        return jsonify(
-            {
-                'data': {
-                    'id': txn.id,
-                    'quantity': Money.min_unit_to_shares(txn.quantity),
-                    'price': Money.price_units_to_yuan(txn.price),
-                    'amount': Money.cents_to_yuan(txn.amount),
-                    'fee': Money.cents_to_yuan(txn.fee),
-                    'trade_date': _ymd(txn.trade_date),
-                    'confirm_date': _ymd(txn.confirm_date),
-                    'notes': txn.notes,
-                    'import_hash': txn.import_hash,
-                },
-                'message': 'ok',
-            }
-        )
+        return jsonify({'data': transaction_edit_payload(txn), 'message': 'ok'})
 
 
 # ────────────────────────────── 未归置数据（orphan）归入/清理 ──────────────────────────────

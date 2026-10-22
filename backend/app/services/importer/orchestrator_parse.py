@@ -133,6 +133,11 @@ class ParsingMixin:
                     'price': float(rec.nav) if rec.nav and not rec.error else 0,
                     'amount': float(rec.amount),
                     'fee': float(rec.fee),
+                    # #2137 费用拆分（元）：未拆分为 None，前端原样回传即可
+                    'fee_commission': float(rec.fee_commission) if rec.fee_commission is not None else None,
+                    'fee_stamp_duty': float(rec.fee_stamp_duty) if rec.fee_stamp_duty is not None else None,
+                    'fee_transfer_fee': float(rec.fee_transfer_fee) if rec.fee_transfer_fee is not None else None,
+                    'fee_other': float(rec.fee_other) if rec.fee_other is not None else None,
                     'trade_date': rec.confirm_date.isoformat() if rec.confirm_date else '',
                     'account_name': rec.account_name,
                     'ledger_id': rec.ledger_id,  # 回传 confirm 用：缺了它落库不挂账户且去重失效
@@ -447,6 +452,11 @@ class ParsingMixin:
             'confirm_date': confirm_date,
             'trade_date': trade_date,
             'fee': fee_val,  # 原始元
+            # #2137 费用拆分（原始元，None=未拆分）：随数据字典一路带到写入层
+            'fee_commission': record.fee_commission,
+            'fee_stamp_duty': record.fee_stamp_duty,
+            'fee_transfer_fee': record.fee_transfer_fee,
+            'fee_other': record.fee_other,
             # raw_text 承载上游说明（自动抓取的分红/配股会把「10派2元 × 持有1000股」写在这里）：
             # 自动记账的流水没有人工输入，notes 空着等于用户看不懂这笔钱从哪来（#541）。
             'notes': record.raw_text or '',

@@ -59,6 +59,27 @@ from app.services.watchlist_service import (
 # 单用户遗留口径：离线脚本（无请求上下文）且入参也没给 family_id 时的唯一退路。
 _LEGACY_SINGLE_FAMILY_ID = 1
 
+# #2137 费用拆分数据键（元）→ Transaction 列名（分）。四键全空 = 未拆分。
+_FEE_BREAKDOWN_KEYS = ('fee_commission', 'fee_stamp_duty', 'fee_transfer_fee', 'fee_other')
+_FEE_BREAKDOWN_COLUMNS = ('commission', 'stamp_duty', 'transfer_fee', 'other_fee')
+
+
+def _fee_breakdown_kwargs(data: dict) -> dict:
+    """从数据字典提取费用拆分 kwargs（#2137，元 → 分）。
+
+    四键**全空**（缺键 / None / 0 之外的未提供）→ 返回空 dict：Transaction 四列
+    留 NULL = 未拆分，聚合 fee 为权威，行为与改造前一致。
+    任一键有值 → 四键必须齐全（缺的显式补 0），否则抛 ValueError——
+    与 Transaction 的 before_insert 不变量同口径，fail closed 在写入前。
+    """
+    raw = [data.get(k) for k in _FEE_BREAKDOWN_KEYS]
+    if all(v is None or v == '' for v in raw):
+        return {}
+    if any(v is None or v == '' for v in raw):
+        missing = [k for k, v in zip(_FEE_BREAKDOWN_KEYS, raw) if v is None or v == '']
+        raise ValueError(f'费用拆分必须四类齐全（缺的类别显式传 0）：未提供 {missing}')
+    return {col: Money.yuan_to_cents(v) for col, v in zip(_FEE_BREAKDOWN_COLUMNS, raw)}
+
 
 def _resolve_family_id(data: dict) -> int:
     """解析本次写入归属的家庭 ID（#1305 #22）。
@@ -591,6 +612,8 @@ def _create_orphan_transaction(
     price_units = Money.yuan_to_price_units(price)
     amount_cents = Money.yuan_to_cents(amount) if amount else Money.multiply_price_quantity(price_units, qty_units)
     fee_cents = Money.yuan_to_cents(data.get('fee', 0) or 0)
+    # #2137 费用拆分：data 带明细才落四列，否则四列留 NULL（未拆分）
+    fee_breakdown = _fee_breakdown_kwargs(data)
 
     TransactionService.create(
         db=db,
@@ -603,6 +626,7 @@ def _create_orphan_transaction(
         quantity=qty_units,
         price=price_units,
         fee=fee_cents,
+        **fee_breakdown,
         amount=amount_cents,
         ledger_id=data.get('ledger_id'),
         status='success',
@@ -1555,6 +1579,8 @@ class PositionService:
                 quantity=qty_units,
                 price=price_units,
                 fee=Money.yuan_to_cents(data.get('fee', 0) or 0),
+                # #2137 费用拆分：data 带明细才落四列，否则四列留 NULL（未拆分）
+                **_fee_breakdown_kwargs(data),
                 # balance 模式没有 price×qty 可算，流水金额直接取用户录入的金额
                 amount=amount_cents if is_balance else Money.multiply_price_quantity(price_units, qty_units),
                 status='success',
@@ -1710,6 +1736,8 @@ class PositionService:
                 quantity=qty_units,
                 price=price_units,
                 fee=fee_cents,
+                # #2137 费用拆分：data 带明细才落四列，否则四列留 NULL（未拆分）
+                **_fee_breakdown_kwargs(data),
                 amount=Money.multiply_price_quantity(price_units, qty_units),
                 realized_pnl=realized_cents,
                 status='success',

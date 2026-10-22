@@ -46,6 +46,7 @@ from app.core.migrations import (
     migrate_positions_price_columns,
     migrate_positions_snapshot_anchor,
     migrate_positions_symbol_norm,
+    migrate_transaction_fee_breakdown,
     migrate_watchlist_family_scoped_unique_key,
     migrate_watchlist_name_snapshot,
     migrate_watchlist_unique_key,
@@ -627,6 +628,9 @@ def init_db():
     # 同一份 in_data dict 的 name / market 漏传（#2406）：存量行 name 按基金名录回填、
     # market 收编为契约值（'UNKNOWN' 系 presenter 旧变异落库的污染值，已修读函数写库）。
     migrate_conversion_in_leg_snapshot(user_eng)
+    # transactions 费用拆分四列（#2137）：佣金/印花税/过户费等税费/其他费用，可空、
+    # 只加列不回填（存量拆分事实已随合并丢失，总额 fee 反推不出四类各多少，宁空不猜）。
+    migrate_transaction_fee_breakdown(user_eng)
     # watchlist 三表补模型列（#2469）：生产 user 域（Supabase Postgres）上的
     # watchlist_groups / watchlist_item_tags 是旧结构，缺列会让 _validate_schema
     # 判「库结构与模型不一致」并**拒绝启动** → 每日调度（#1490）全线停摆。
@@ -730,6 +734,8 @@ def init_db_split():
         migrate_account_name_snapshot(user_eng)
         # 转入腿 name / market 漏传的存量收编（#2406），与单库模式同口径
         migrate_conversion_in_leg_snapshot(user_eng)
+        # transactions 费用拆分四列（#2137）：与单库模式同口径，只加列不回填
+        migrate_transaction_fee_breakdown(user_eng)
         # watchlist 三表补模型列（#2469）：与单库模式同口径，双库模式也必须补
         # （生产 user 域是 Postgres，旧结构会挡住结构校验 → 拒绝启动）
         migrate_watchlist_user_domain_columns(user_eng)

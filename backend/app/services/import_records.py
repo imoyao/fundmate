@@ -95,7 +95,16 @@ class StandardTransactionRecord:
     trade_date: Optional[date] = None  # 交易申请日期（下单日，用于持有天数计算）
     shares: Optional[Decimal] = None  # 确认份额
     nav: Optional[Decimal] = None  # 确认净值
-    fee: Decimal = Decimal('0')  # 手续费
+    fee: Decimal = Decimal('0')  # 手续费（聚合总额，元）
+    # ── #2137 费用拆分（元）──
+    # 交割单（同花顺）/ 标准模板带明细列时逐类透传；四列全 None = 未拆分
+    # （解析器没给明细、或来源只有聚合手续费），落库时四列留 NULL。
+    # 与 fee 的关系：四列之和必须等于 fee（不变量在 Transaction 模型层兜底），
+    # 缺的类别由解析方显式给 0，不在此处猜。
+    fee_commission: Optional[Decimal] = None  # 佣金
+    fee_stamp_duty: Optional[Decimal] = None  # 印花税
+    fee_transfer_fee: Optional[Decimal] = None  # 过户费等税费
+    fee_other: Optional[Decimal] = None  # 其他费用
     transaction_id: Optional[str] = None  # 平台交易流水号（去重核心）
 
     # ── 金融口径（#1375 阶段二）：金额字段一律 Decimal，禁止 float 域中转 ──
