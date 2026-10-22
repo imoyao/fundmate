@@ -112,12 +112,30 @@ def _resolve_ip_families(host: str, port: int) -> set:
     return {'IPv6' if info[0] == socket.AF_INET6 else 'IPv4' for info in infos}
 
 
+def _safe_dsn_target(parsed: 'urllib.parse.ParseResult') -> str:
+    """把连接串的「目标」渲染成**可进日志**的文本：只留 user / host / port。
+
+    ⚠️ 不能用 `parsed.netloc`：它含 `user:password@host`，直接打日志等于把数据库
+    密码写进 Actions 日志——而**公开仓库的 Actions 日志是公开的**。2026-10-22
+    实测已发生一次（每日调度诊断把 Supabase 密码明文打进了 run 日志），
+    故这里显式丢掉密码段，并给 `_describe` 加源码级回归守卫。
+    """
+    host = parsed.hostname or '?'
+    port = f':{parsed.port}' if parsed.port else ''
+    user = f'{parsed.username}@' if parsed.username else ''
+    return f'{user}{host}{port}'
+
+
 def _user_domain_failure_message(parsed: 'urllib.parse.ParseResult', exc: Exception) -> str:
     """把 user 域连接失败翻译成**可操作**的结论（纯函数，便于单测钉住）。
 
     #2462：Supabase 的直连端口 5432 **只提供 IPv6**，而 CI runner 没有 IPv6 出口
     ⇒ libpq 报 `Network is unreachable`。这句话看不出
     「该换 pooler 端点」或「该把调度换到有 IPv6 的机器上」，于是排查只能靠猜。
+
+    端点已在 #2460 定位并机器化：配 `SUPABASE_POOLER_HOST`
+    （本项目实测为 `aws-1-ap-southeast-1.pooler.supabase.com`）即在
+    `DatabaseConfig.for_user` 里自动改写（见 `rewrite_supabase_direct_to_pooler`）。
     """
     msg = ' '.join(str(exc).split())
     families = _resolve_ip_families(parsed.hostname or '', parsed.port or 5432)
@@ -126,8 +144,10 @@ def _user_domain_failure_message(parsed: 'urllib.parse.ParseResult', exc: Except
             f'[DB诊断] user 域连接失败：{parsed.hostname} **只有 IPv6 记录**（无 IPv4）——'
             'Supabase 直连端口 5432 是 IPv6-only，而本机（GitHub Actions runner）没有 IPv6 出口，'
             'libpq 因此报 Network is unreachable。两条出路：'
-            '(1) 把 SUPABASE_DATABASE_URL 换成 Supavisor pooler 端点（IPv4，形如 '
-            'postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres）；'
+            '(1) 设环境变量 `SUPABASE_POOLER_HOST=<端点>`，由 '
+            '`db_factory.rewrite_supabase_direct_to_pooler()` 把直连串就地改写为 pooler '
+            '（IPv4；本项目实测端点为 `aws-1-ap-southeast-1.pooler.supabase.com`，'
+            '端口默认 5432 session 模式，可用 `SUPABASE_POOLER_PORT` 覆盖）；'
             '(2) 把每日调度放到有 IPv6 出口的机器上跑（见 daily-snapshot.yml 头部「部署说明」b 项）。'
             f'原始错误：{msg}'
         )
@@ -167,7 +187,7 @@ def _diagnose_db() -> None:
     user_parsed = urllib.parse.urlparse(DatabaseConfig.for_user(env).url)
 
     def _describe(label: str, parsed: 'urllib.parse.ParseResult') -> bool:
-        logger.info(f'[DB诊断] 域={label} scheme={parsed.scheme} host={parsed.netloc}')
+        logger.info(f'[DB诊断] 域={label} scheme={parsed.scheme} target={_safe_dsn_target(parsed)}')
         is_turso = parsed.scheme in ('turso', 'libsql') or (
             parsed.scheme == 'https' and 'turso' in parsed.netloc.lower()
         )
