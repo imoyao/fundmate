@@ -53,7 +53,7 @@ WIND_INDEX_TARGETS: List[tuple] = [
     ('8841431.WI', '万得微盘股指数'),  # ✅ normalized（12月242条，源未给收盘锚）
     ('885000.WI', '万得普通股票型基金指数'),  # ✅ normalized 5503 条
     ('885001.WI', '万得偏股混合型基金指数'),  # ✅ normalized 5508 条
-    ('885002.WI', '万得平衡混合型基金指数'),  # ⏳ 未收录
+    ('885002.WI', '万得平衡混合型基金指数'),  # ⏳ 未收录（#2476：映射已改走 H11022.CSI，本码留待源侧收录）
     ('885003.WI', '万得偏债混合型基金指数'),  # ✅ normalized 5502 条
     ('885005.WI', '万得债券型基金指数'),  # ⏳ 未收录
     ('885006.WI', '万得混合债券型一级基金指数'),  # ⏳ 未收录
@@ -103,6 +103,9 @@ CSINDEX_INDEX_TARGETS: List[tuple] = [
     # （2005-01-04 起，真实收盘）⇒ 用 `.CSI` 路补上。它替换了原先挂在映射上、却
     # 因韭圈儿未收录而永远取不到序列的 `885005.WI`（见 `fund_benchmark.BENCH_BOND_FUND`）。
     ('H11001.CSI', '中证全债指数'),  # ✅ 2026-10-14 实测 5287 条（2005 起）
+    # 平衡混合族基准（#2476 收口）：中证「混合型基金」是同类基金聚合，能取到真实收盘，
+    # 替换掉映射上挂了却 0 行的 `885002.WI`。2026-10-23 实测 5290 条（2005-01-01 起）。
+    ('H11022.CSI', '中证混合型基金指数'),  # ✅ 2026-10-23 实测 5290 条（2005 起）
 ]
 
 DEFAULT_TARGETS = [code for code, _name in WIND_INDEX_TARGETS + TENCENT_INDEX_TARGETS + CSINDEX_INDEX_TARGETS]
@@ -119,7 +122,7 @@ DEFAULT_TARGETS = [code for code, _name in WIND_INDEX_TARGETS + TENCENT_INDEX_TA
 # 降级为 info 并单独计数（`stats['unlisted']`），失败明细仍可查。
 KNOWN_UNLISTED: frozenset = frozenset(
     {
-        '885002.WI',  # 万得平衡混合型基金指数（另见 #2476：fund_benchmark 的映射形同虚设）
+        '885002.WI',  # 万得平衡混合型基金指数（#2476：映射已改用 H11022.CSI，本码仍待源侧收录）
         '885005.WI',  # 万得债券型基金指数
         '885006.WI',  # 万得混合债券型一级基金指数
         '885008.WI',  # 万得中长期纯债型基金指数

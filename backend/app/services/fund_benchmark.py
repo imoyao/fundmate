@@ -47,7 +47,17 @@ from typing import Dict, List, Optional
 # 交易所以外的「同类平均」用它最贴切（基金指数本身就是同类基金的加权组合）。
 BENCH_EQUITY_FUND = '885000.WI'  # 万得普通股票型基金指数
 BENCH_HYBRID_FUND = '885001.WI'  # 万得偏股混合型基金指数
-BENCH_BALANCED_HYBRID_FUND = '885002.WI'  # 万得平衡混合型基金指数
+# 平衡混合族基准：**中证混合型基金指数**（中证官网 `.CSI` 路）。
+#
+# ⚠️ 为什么不是「万得平衡混合型基金指数」885002.WI（#2476）：它在韭圈儿**源侧未收录**
+# ——2026-10-21 逐项实测 index-basic `data={}`、fundindex/detail `x_data=None`、
+# `disabled=True`，且 `index_daily` 该码 0 行。挂在映射上只会让前端显示
+# 「基准已选定但暂无数据」：映射看着完整，用户拿不到任何参照。
+# 中证官网有「混合型基金」这一层同类聚合（偏股/平衡/偏债/灵活混在一起），
+# 2026-10-23 实测可取 5290 条（2005-01-01 起真实收盘）⇒ 是当前**取得到**的、
+# 最贴近「平衡混合」的公开同类指数。语义上它比「平衡」宽（不止平衡类），
+# 故展示名与 `matched_by` 都写「中证混合型基金指数」，**不冒充**「平衡」。
+BENCH_BALANCED_HYBRID_FUND = 'H11022.CSI'  # 中证混合型基金指数
 # 债券族基准：**中证全债指数**（中证官网 `.CSI` 路，真实收盘，2005 年至今 5287 条）。
 #
 # ⚠️ 为什么不是「万得债券型基金指数」885005.WI：它在韭圈儿**源侧未收录**
@@ -67,7 +77,7 @@ BENCH_SSE_GOV_BOND = '000012.SH'  # 上证国债指数（纯债类的近似旁�
 BENCHMARK_LABELS: Dict[str, str] = {
     BENCH_EQUITY_FUND: '万得普通股票型基金指数',
     BENCH_HYBRID_FUND: '万得偏股混合型基金指数',
-    BENCH_BALANCED_HYBRID_FUND: '万得平衡混合型基金指数',
+    BENCH_BALANCED_HYBRID_FUND: '中证混合型基金指数',
     BENCH_BOND_FUND: '中证全债指数',
     BENCH_HS300: '沪深300',
     BENCH_CSI500: '中证500',
@@ -124,7 +134,7 @@ _RULES: List[tuple] = [
     # ── 权益族 ──
     ('股票型 → 万得普通股票型基金指数', ('股票型',), BENCH_EQUITY_FUND),
     ('偏股混合 → 万得偏股混合型基金指数', ('偏股',), BENCH_HYBRID_FUND),
-    ('平衡混合 → 万得平衡混合型基金指数', ('平衡',), BENCH_BALANCED_HYBRID_FUND),
+    ('平衡混合 → 中证混合型基金指数（万得 885002 源侧未收录，见 #2476）', ('平衡',), BENCH_BALANCED_HYBRID_FUND),
     ('灵活 / 混合型 → 万得偏股混合型基金指数', ('混合',), BENCH_HYBRID_FUND),
     # ── QDII / 其他 ──
     # 海外资产不该比 A 股宽基（货币、交易时段、估值口径都不同）⇒ 不猜。
