@@ -112,6 +112,20 @@ def _resolve_ip_families(host: str, port: int) -> set:
     return {'IPv6' if info[0] == socket.AF_INET6 else 'IPv4' for info in infos}
 
 
+def _safe_dsn_target(parsed: 'urllib.parse.ParseResult') -> str:
+    """把连接串的「目标」渲染成**可进日志**的文本：只留 user / host / port。
+
+    ⚠️ 不能用 `parsed.netloc`：它含 `user:password@host`，直接打日志等于把数据库
+    密码写进 Actions 日志——而**公开仓库的 Actions 日志是公开的**。2026-10-22
+    实测已发生一次（每日调度诊断把 Supabase 密码明文打进了 run 日志），
+    故这里显式丢掉密码段，并给 `_describe` 加源码级回归守卫。
+    """
+    host = parsed.hostname or '?'
+    port = f':{parsed.port}' if parsed.port else ''
+    user = f'{parsed.username}@' if parsed.username else ''
+    return f'{user}{host}{port}'
+
+
 def _user_domain_failure_message(parsed: 'urllib.parse.ParseResult', exc: Exception) -> str:
     """把 user 域连接失败翻译成**可操作**的结论（纯函数，便于单测钉住）。
 
@@ -173,7 +187,7 @@ def _diagnose_db() -> None:
     user_parsed = urllib.parse.urlparse(DatabaseConfig.for_user(env).url)
 
     def _describe(label: str, parsed: 'urllib.parse.ParseResult') -> bool:
-        logger.info(f'[DB诊断] 域={label} scheme={parsed.scheme} host={parsed.netloc}')
+        logger.info(f'[DB诊断] 域={label} scheme={parsed.scheme} target={_safe_dsn_target(parsed)}')
         is_turso = parsed.scheme in ('turso', 'libsql') or (
             parsed.scheme == 'https' and 'turso' in parsed.netloc.lower()
         )

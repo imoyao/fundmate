@@ -115,3 +115,39 @@ def test_user_domain_is_probed_even_when_market_probe_fails(monkeypatch):
         scheduler._diagnose_db()
 
     assert user_probed, 'user 域没有被探测'
+
+
+# ── 凭据不得进日志（2026-10-22 实测事故的回归网）──
+
+
+def test_safe_dsn_target_never_includes_password():
+    """`_safe_dsn_target` 只放行 user / host / port —— 密码段必须被丢掉。"""
+    parsed = _parsed(
+        'postgresql://postgres.owhbssypqaghpnjoxlkx:s3cretpw@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres'
+    )
+
+    target = scheduler._safe_dsn_target(parsed)
+
+    assert target == 'postgres.owhbssypqaghpnjoxlkx@aws-1-ap-southeast-1.pooler.supabase.com:5432'
+    assert 's3cretpw' not in target
+
+
+def test_safe_dsn_target_handles_missing_user_and_port():
+    """无 userinfo / 无端口的连接串也要能渲染（否则诊断自己会抛异常）。"""
+    assert scheduler._safe_dsn_target(_parsed('sqlite:///./invest.db')) == '?'
+    assert scheduler._safe_dsn_target(_parsed('libsql://foo.turso.io/mydb')) == 'foo.turso.io'
+
+
+def test_describe_must_not_log_netloc():
+    """源码级守卫：`_describe` 里不许再出现 netloc（它含 `user:password@host`）。
+
+    钉的是一次真实泄漏：**公开仓库**的 Actions 日志里出现过 Supabase 密码明文
+    （`host={parsed.netloc}`，2026-10-22）。只钉 `_safe_dsn_target` 不够——
+    有人把 `_describe` 改回 `parsed.netloc` 时，纯函数用例照样全绿。
+    """
+    import inspect
+
+    # `_describe` 是 `_diagnose_db` 内部的嵌套函数，取不到模块属性 ⇒ 检查外层源码。
+    src = inspect.getsource(scheduler._diagnose_db)
+    assert '_safe_dsn_target(parsed)' in src, '_describe 必须用 _safe_dsn_target 渲染目标'
+    assert '{parsed.netloc}' not in src, '`_describe` 又把它整个 netloc（含密码段）插进日志了'
