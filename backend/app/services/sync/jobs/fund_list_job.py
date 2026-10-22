@@ -12,13 +12,15 @@
 （见 #1402）。
 """
 
+from time import perf_counter
 from typing import List
 
 from loguru import logger
 
 from app.domains.funds.models import Fund
-from app.services.job_base import SyncJob
-from app.services.sync.company_resolver import get_or_create_fund_company
+from app.services.job_base import IN_CHUNK_SIZE, SyncJob
+from app.services.sync.bulk_ops import bulk_insert_rows, chunked
+from app.services.sync.company_resolver import build_fund_company_index, get_or_create_fund_company
 
 
 class FundListSyncJob(SyncJob):
@@ -71,10 +73,20 @@ class FundListSyncJob(SyncJob):
         # 1. 处理基金公司
         company_names = {item.get('company_name', '') for item in new_data if item.get('company_name')}
         company_cache = {}
+        companies_started = perf_counter()
 
-        for name in company_names:
-            # 唯一写入口（company_resolver）：精确名 → 归一化名 + 业务族 → 才新建
-            company_cache[name] = get_or_create_fund_company(self.db, name, cache=company_cache)
+        if company_names:
+            # 索引只建一次：`get_or_create_fund_company` 内部未命中时会自己重建
+            # 「全量公司索引」（1 次 FundCompany 全扫 + 2 个 group by），
+            # 全市场名录有 100+ 家公司 ⇒ 逐个调用就是 100+ 次全量索引重建。
+            # #2522 实测这个 job 在写库阶段 52 分钟零日志，这是两处嫌疑之一。
+            company_index = build_fund_company_index(self.db)
+            for name in company_names:
+                # 唯一写入口（company_resolver）：精确名 → 归一化名 + 业务族 → 才新建
+                company_cache[name] = get_or_create_fund_company(
+                    self.db, name, cache=company_cache, index=company_index
+                )
+        logger.info(f'基金公司解析：{len(company_names)} 家 / {perf_counter() - companies_started:.1f}s')
 
         # 2. 构建基金记录
         fund_records = list()
@@ -88,15 +100,16 @@ class FundListSyncJob(SyncJob):
             )
 
         # 3. 去重后批量插入基金记录
-        existing_codes = {
-            row[0]
-            for row in self.db.query(Fund.fund_code)
-            .filter(Fund.fund_code.in_([r['fund_code'] for r in fund_records]))
-            .all()
-        }
+        # `in_` 必须分批（同 `_deduplicate_by_unique_key`）：全市场 28149 只，
+        # 单条 SQL 塞 28k 个绑定参数在 Turso/Hrana 上会长时间不返回（#2522）。
+        existing_codes = set()
+        for chunk in chunked([r['fund_code'] for r in fund_records], IN_CHUNK_SIZE):
+            existing_codes.update(
+                row[0] for row in self.db.query(Fund.fund_code).filter(Fund.fund_code.in_(chunk)).all()
+            )
         new_records = [r for r in fund_records if r['fund_code'] not in existing_codes]
 
         if new_records:
-            self.db.bulk_insert_mappings(Fund, new_records)
+            bulk_insert_rows(self.db, Fund, new_records, log_scope='基金名录')
             logger.info(f'新增 {len(new_records)} 只基金')
         self.db.commit()
