@@ -72,7 +72,10 @@ env:
 
 jobs:
   daily-scheduler:
-    timeout-minutes: 30
+    # 30 → 90 分钟（#2506）：调度的真实耗时是「起跑 jitter（最多 10 分钟）+ 20 个 job 的
+    # 逐标的抓取」，实测 26 分钟仍在第一个 job 上、30 分钟被 job 超时掐掉。
+    # 超时掐掉 = 一整天的数据刷新白跑，且日志里看不出它卡在哪。
+    timeout-minutes: 90
     runs-on: ubuntu-latest
     defaults:
       run:
