@@ -80,6 +80,33 @@ def _combine_pools(resolved: dict, keys) -> list:
     return list(dict.fromkeys(out))
 
 
+def render_job_result(result: dict) -> tuple[str, str, bool]:
+    """把 `run_job` / `run_all_jobs` 的结果**字典**渲染成 `(状态标记, 一行摘要, 是否成功)`。
+
+    为什么要这层：调用点原先写的是 `result.success` / `result.message` /
+    `result.duration_ms` —— 这三个属性在 dict 上都不存在。于是**任务已经跑完之后**
+    才抛 `AttributeError`，被外层 `except` 兜住后 `sys.exit(1)`：`sync_logs` 里明明是
+    success，命令行却报失败。2026-10-22 实测 `--job bias`（37/37 成功、落 37 条）
+    以 exit 1 收尾——排障的人只会以为同步没跑成，而真正的原因在渲染那一行。
+
+    `run_all_jobs` 返回的是 `{job_name: result}` 字典（不是列表），旧代码在 `--all`
+    路径上还按列表遍历，同样是在**全量同步全部跑完之后**才崩。
+
+    抽成纯函数是为了能被单测直接钉住（不必拉起真实 orchestrator 与数据库）。
+    """
+    ok = str(result.get('status')) == 'success'
+    stats = result.get('stats') or {}
+    parts = [f'total={stats.get("total", 0)}', f'success={stats.get("success", 0)}']
+    if stats.get('failed'):
+        parts.append(f'failed={stats["failed"]}')
+    if result.get('error'):
+        parts.append(f'error={result["error"]}')
+    duration = result.get('duration')
+    if isinstance(duration, (int, float)):
+        parts.append(f'{duration:.1f}s')
+    return ('✅' if ok else '❌'), ' '.join(parts), ok
+
+
 def _resolve_targets_from_file(target_file: str) -> list:
     """从 CSV 文件读取标的代码（支持单列或多列，取第一列）。"""
     import csv
@@ -241,10 +268,13 @@ def main():
                 results = orchestrator.run_all_jobs(full_sync=args.full_sync, target_file=args.target_file)
                 elapsed = time.time() - start
                 print(f'✅ 全量同步完成，耗时 {elapsed:.1f}s')
-                for r in results:
-                    status = '✅' if r.success else '❌'
-                    print(f'  {status} {r.job_name}: {r.message} ({r.duration_ms}ms)')
-                if any(not r.success for r in results):
+                failed_jobs = []
+                for job_name, result in results.items():
+                    mark, detail, ok = render_job_result(result)
+                    print(f'  {mark} {job_name}: {detail}')
+                    if not ok:
+                        failed_jobs.append(job_name)
+                if failed_jobs:
                     sys.exit(1)
             else:
                 # 单 job
@@ -279,9 +309,9 @@ def main():
                         )
 
                     result = orchestrator.run_job(args.job, full_sync=args.full_sync, targets=targets)
-                    status = '✅' if result.success else '❌'
-                    print(f'{status} {result.job_name}: {result.message} ({result.duration_ms}ms)')
-                    if not result.success:
+                    mark, detail, ok = render_job_result(result)
+                    print(f'{mark} {result.get("job_name", args.job)}: {detail}')
+                    if not ok:
                         sys.exit(1)
                 else:
                     # 列表型 / 指数型 / 温度计型 job：单次调用换全市场，裸 --full-sync 为正常模式
@@ -290,9 +320,9 @@ def main():
                             f'{args.job} 裸带 --full-sync（列表/指数/温度计型 job 单次即换全市场，目标参数被忽略）。'
                         )
                     result = orchestrator.run_job(args.job, full_sync=args.full_sync)
-                    status = '✅' if result.success else '❌'
-                    print(f'{status} {result.job_name}: {result.message} ({result.duration_ms}ms)')
-                    if not result.success:
+                    mark, detail, ok = render_job_result(result)
+                    print(f'{mark} {result.get("job_name", args.job)}: {detail}')
+                    if not ok:
                         sys.exit(1)
         except Exception as e:
             logger.exception('同步执行异常: {}', e)
