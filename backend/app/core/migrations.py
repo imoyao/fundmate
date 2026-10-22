@@ -29,7 +29,7 @@ from sqlalchemy import Engine, inspect, text
 #
 # ⚠️ 与仓内既有 watchlist 迁移的关键区别：那些迁移都**只跑 SQLite**
 # （「非 SQLite 引擎，列由 ORM 模型/迁移工具负责」）——而生产 user 域恰恰是 Postgres，
-# 且没有任何工具会替它补列（Supabase 侧是手工建表）。**本条是第一条管 PG 侧��**
+# 且没有任何工具会替它补列（Supabase 侧是手工建表）。**本条是第一条管 PG 侧的**
 _WATCHLIST_GROUP_COLUMNS = (
     # (列名, 类型与默认值 DDL 片段)
     ('sort_order', 'INTEGER DEFAULT 0'),
