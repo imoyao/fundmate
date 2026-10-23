@@ -9,7 +9,8 @@
 - **保原值**：名录无此码 / 类型未知 / market 域不可达 → **一行都不动**（把「查不到」
   当成「不是货基」会在一次 market 域抖动里清空全库货基标记，这是本迁移的硬边界）；
 - 显式非基金类型（stock / bond …）仍标 1 → 清零（历史污染，会让价格任务按面值 1.0000 回写）；
-- 幂等（第二次跑 SKIP）、空库 / 非 SQLite / 缺列 SKIP。
+- 幂等（第二次跑 SKIP）、空库 / PG / 缺列 SKIP（**PG 不再早退**，#2534：
+  生产 user 域是 Postgres，存量污染标记不能因为引擎不同而留在库里）。
 
 `type` 是 asset_type 的**实际库列名**（ORM 里 `asset_type = Column('type', ...)`），不是笔误。
 """
@@ -20,6 +21,8 @@ import pytest
 from sqlalchemy import create_engine, text
 
 from app.core.migrations import migrate_positions_money_fund_flag
+
+from .migrations_pg_fake import PgFake
 
 pytestmark = pytest.mark.usefixtures('app')
 
@@ -183,15 +186,21 @@ def test_skips_when_table_or_column_missing(tmp_path):
     assert migrate_positions_money_fund_flag(_engine_for(db)).startswith('[SKIP]')
 
 
-def test_skips_on_non_sqlite_engine():
-    """非 SQLite 引擎（postgres）→ SKIP，不抛错、不阻断启动。
+def test_pg_branch_no_longer_skips(monkeypatch):
+    """#2534：PG 不再早退——回填迁移对 Postgres 也执行（无持仓行时安全 SKIP）。
 
-    构造 postgres engine 需要 psycopg2 驱动，而 pyproject 对
-    psycopg2-binary 设了 `sys_platform != "win32"` 平台标记（#1434/#1514：
-    Windows 本机只用 SQLite 不装）——平台标记与测试互相矛盾，全新
-    Windows venv 必挂 ModuleNotFoundError（#1701）。主仓旧 venv 恰好
-    装过 psycopg2 才侥幸通过，掩盖了矛盾。故缺驱动时跳过；Linux CI
-    （标记允许安装）照常真跑。
+    旧行为（「非 SQLite 就跳过」）用**真连** postgres 的方式测，需要 psycopg2；
+    而 pyproject 对 psycopg2-binary 设了 `sys_platform != "win32"` 平台标记
+    （#1434/#1514：Windows 本机只用 SQLite 不装），平台标记与测试互相矛盾。
+    现在 PG 分支要在**假引擎**上钉「不早退 + 走完整流程」（SQL 只有标准
+    SELECT/UPDATE，无方言差异），不再需要真驱动——那个矛盾随之消失。
     """
-    pytest.importorskip('psycopg2')
-    assert migrate_positions_money_fund_flag(create_engine('postgresql://u:p@h/db')).startswith('[SKIP]')
+    fake = PgFake({'positions': ['id', 'symbol', 'type', 'is_money_fund']})
+    fake.install(monkeypatch)
+
+    result = migrate_positions_money_fund_flag(fake.engine)
+
+    assert '非 SQLite' not in result
+    # 无持仓行 → 走完流程后安全 SKIP（不抛错、不阻断启动）
+    assert result.startswith('[SKIP]')
+    assert any('FROM positions' in s for s in fake.sql), f'PG 上应真实发起查询：{fake.sql}'

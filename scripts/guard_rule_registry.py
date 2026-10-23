@@ -364,6 +364,15 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         # 锁生成得对不对要 pnpm + 网络，属端到端验证，不在这里假装。
         'covered': '不校验重生成产出的锁内容；workflow 实际能否推送成功取决于 GitHub 侧权限',
     },
+    'scripts/guard_migrations_pg_aware.py': {
+        'rule': '启动期迁移不许写「非 SQLite 就跳过」早退（存量按函数指纹基线冻结）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_migrations_pg_aware.py',
+        # 只判「return 一个含『非 SQLite』的字符串常量」这一种早退形态。裸写
+        # ALTER/CREATE INDEX、数据回填的方言差异不在判据内（前者由 migrations.py
+        # module docstring 的单一通道约定管，后者两种引擎本就通用）。
+        'covered': '不校验 PG 分支 SQL 的正确性——那由 backend/tests/core/ 的 PgFake 用例钉形态；本地无 PG 可连',
+    },
     'scripts/guard_cross_repo_refs.mjs': {
         'rule': '提到 GitHub 的 issue / PR 编号必须挂源',
         'runner': 'ci',

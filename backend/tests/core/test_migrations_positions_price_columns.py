@@ -9,7 +9,9 @@
   的**同一批**里取到，事后凭历史数据补不出时点正确的值（补错比空着更糟）；
 - 幂等：重复执行不报错、不重复加列；
 - 空库（表不存在）安全 skip，交给 create_all 建表；
-- 非 SQLite 引擎（Supabase Postgres）安全 skip，避免误跑 SQLite 专属 SQL。
+- **PG 分支不再早退**（#2534）：生产 user 域是 Supabase Postgres，本仓没有
+  Alembic、create_all 也不给存量表加列——「非 SQLite 就跳过」等于生产永远缺列
+  并被 `_validate_schema` 拒绝启动（#2469 / #2532 两次停摆的根因）。
 """
 
 import sqlite3
@@ -17,6 +19,8 @@ import sqlite3
 from sqlalchemy import create_engine, inspect, text
 
 from app.core.migrations import migrate_positions_price_columns
+
+from .migrations_pg_fake import PgFake
 
 
 def _make_old_db(path) -> None:
@@ -85,13 +89,35 @@ def test_missing_table_skipped(tmp_path):
     assert migrate_positions_price_columns(engine).startswith('[SKIP]')
 
 
-class _FakeEngine:
-    """只需 url 属性的假引擎：非 SQLite 分支在读 url 后即返回，不会真正连库。"""
+def test_pg_branch_adds_columns_with_if_not_exists(monkeypatch):
+    """#2534：PG 不再早退，两列各发一条 `ADD COLUMN IF NOT EXISTS`。"""
+    fake = PgFake({'positions': ['id', 'symbol', 'current_price']})
+    fake.install(monkeypatch)
 
-    def __init__(self, url: str):
-        self.url = url
+    result = migrate_positions_price_columns(fake.engine)
+
+    assert result.startswith('[OK]'), f'PG 分支不许再返回跳过：{result}'
+    assert '非 SQLite' not in result
+    assert {'prev_close', 'price_date'} <= set(fake.columns['positions'])
+    for name, ddl in (('prev_close', 'INTEGER'), ('price_date', 'DATE')):
+        expected = f'ALTER TABLE positions ADD COLUMN IF NOT EXISTS {name} {ddl}'
+        assert expected in fake.sql, f'{name} 的 DDL 形态不对：{fake.sql}'
 
 
-def test_non_sqlite_skipped():
-    assert migrate_positions_price_columns(_FakeEngine('postgresql://u:p@host/db')).startswith('[SKIP]')
-    assert migrate_positions_price_columns(_FakeEngine('mysql+pymysql://u:p@host/db')).startswith('[SKIP]')
+def test_pg_branch_idempotent(monkeypatch):
+    """PG 上列已齐：不发 DDL，返回已存在。"""
+    fake = PgFake({'positions': ['id', 'symbol', 'current_price', 'prev_close', 'price_date']})
+    fake.install(monkeypatch)
+
+    result = migrate_positions_price_columns(fake.engine)
+
+    assert result.startswith('[SKIP]') and '已存在' in result
+    assert fake.sql == [], f'列已齐时不该发 DDL：{fake.sql}'
+
+
+def test_pg_branch_missing_table_skips(monkeypatch):
+    """PG 上表不存在（空库）：安全 skip，不抛错阻断启动。"""
+    fake = PgFake({})
+    fake.install(monkeypatch)
+
+    assert migrate_positions_price_columns(fake.engine).startswith('[SKIP]')
