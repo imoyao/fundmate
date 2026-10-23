@@ -42,6 +42,7 @@ from app.services.adapters.jiucaishuo_adapter import JiucaishuoAdapter
 from app.services.adapters.manager_tenure import ManagerTenureAdapter
 from app.services.adapters.null_adapter import NullAdapter
 from app.services.adapters.xalpha_adapter import XalphaAdapter
+from app.services.bias.job import BiasJob
 from app.services.fund_utils import normalize_fund_code
 from app.services.sync.jobs.advisor_portfolio_job import AdvisorPortfolioSyncJob
 from app.services.sync.jobs.amac_institution_job import AmacInstitutionJob
@@ -248,6 +249,17 @@ class DataSyncOrchestrator:
         # 无外部目标池依赖（targets 传空）；落 market_composites 供探市读库即回。
         self.jobs['industry_pbroe'] = IndustryPbroeSyncJob(JiucaishuoAdapter(), self.db)
         self.jobs['temperature'] = TemperatureJob(NullAdapter(), self.db)
+        # #2494：乖离率（31 个申万一级 + 6 个宽基，**固定清单**）——只注册、不调度。
+        # 注册解决两件事：sync_logs 里有自己的一行（此前结果只以一条 summary 挂在
+        # temperature 的 errors 里，逐标的明细只能翻日志），以及 `pdm run sync --job bias`
+        # 可单独补跑（重跑 temperature 会连带另外 6 个数据源一起打上游）。
+        # 刻意不做两件事，缺一条都会退化成事故：
+        #   ① 不进 daily_scheduler：日常仍由 TemperatureJob._fetch_data 内联跑一次
+        #      （thermometer/jobs.py），同时调度会**同一天算两遍**（每遍 37 × request_interval 3s）；
+        #      真要把它变成独立数据源，得先摘掉内联那段并切换探市读库来源——那是另一张卡。
+        #   ② 不设目标池：_fetch_data 不消费 targets，按目标池分批会让**每批重算全量**
+        #      ⇒ N 批 × 37 次外部请求（东财限流/封禁风险）。CLI 传 targets=None 即单次全量。
+        self.jobs['bias'] = BiasJob(NullAdapter(), self.db)
         # AMAC 名录为 HTTP JSON 直抓（非 akshare/xalpha 数据源），NullAdapter 占位；
         # 此前仅 invoke grab.* 通道可达，注册后 pdm run sync --job 亦可直达（#1081 策展应用入口）
         self.jobs['amac_institution'] = AmacInstitutionJob(NullAdapter(), self.db)
