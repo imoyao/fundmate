@@ -173,7 +173,9 @@ export function supabaseEnvGuard(): Plugin {
         );
         return;
       }
-      const root = server.config.envDir;
+      // Vite 把 envDir 声明为 `string | false`（false = 用户显式禁用 .env 加载）；
+      // 此时守卫仍要拿入库的 .env.production 做基线，故回退到项目根目录（envDir 的默认值）。
+      const root = server.config.envDir || server.config.root;
       const prodEnvContent = readEnvFile(root, ".env.production");
       const prodFileUrl = prodEnvContent
         ? (parseEnvFile(prodEnvContent)[SUPABASE_URL_KEY] ?? null)
