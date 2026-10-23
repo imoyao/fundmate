@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
 """指数日线点位同步任务（#275 基准对比 / #861 绩效分析底座）。
 
-三路数据源（按代码后缀分流，同一个 Job 内）：
+四路数据源（**先按代码显式指派、再按后缀兜底**，同一个 Job 内）：
 - **万得系**（`.WI` 后缀）→ 韭圈儿公开接口（JiucaishuoAdapter，免登录 best-effort）。
-  点位口径双模式：
+  **例外**：`885002.WI` 在韭圈儿未收录，改由万得官方 MCP 取真实收盘
+  （`WIND_MCP_INDEX_CODES` + `adapters/wind_index.py`，2026-10-23 实测 5537 条）。
+  点位口径双模式（**仅韭圈儿路**）：
   - anchored：有真实收盘锚（如 881001 万得全A），反推派生、锚随最新收盘平移；
   - normalized：无估值锚的指数（885 系基金指数等）起点归一化 1000，逐日确定不漂移。
-  口径与风险细节见 jiucaishuo_adapter.py 模块注释。
+  口径与风险细节见 jiucaishuo_adapter.py 模块注释。万得 MCP 路是 `raw`（真实点位），
+  **不参与**上面两种口径 —— 三种口径混在同一序列里会拼出凭空涨跌（同族教训 #2464）。
 - **交易所指数**（`.SH` / `.SZ` 后缀）→ 腾讯日线直连（`adapters/direct_feeds.py`，
   2026-10-01 引入）。点位为**真实收盘价**，口径 `price_mode='raw'`。
 - **中证专属码**（`.CSI` 后缀）→ 中证指数官网（`fetch_daily_csindex`，2026-10-14
@@ -36,6 +39,7 @@ from typing import List, Optional
 from loguru import logger
 
 from app.domains.indices.models import IndexDaily
+from app.services.adapters import wind_index
 from app.services.adapters.direct_feeds import fetch_daily_csindex, fetch_daily_tencent
 from app.services.job_base import JobStatus, SyncJob
 from app.services.sync.bulk_ops import bulk_insert_rows
@@ -43,8 +47,10 @@ from app.services.sync.bulk_ops import bulk_insert_rows
 # 万得系指数目标清单（#275 定稿）：韭圈儿 gu_code 原生形态（.WI 后缀）。
 # 来源：#275 2022 年评论梳理的「适用性广泛」万得基金系列指数 + 万得全A；
 # 新增品种在此追加一行即可（接口通用，无每指数特判）。
-# 可用性（2026-09-09 实测）：✅=韭圈儿已收录可取；⏳=暂未收录（detail 无序列），
+# 可用性（2026-09-09 实测）：✅=韭圈儿已收录可取；⏳=韭圈儿暂未收录（detail 无序列），
 # 保留在清单中——收录后自动生效（每日增量 warning 即跟进信号）。
+# ⚠️ `885002.WI` 已改走万得 MCP（见下方 `WIND_MCP_INDEX_CODES`），此处保留行只为
+# 「清单 = 我们跟踪哪些指数」这一件事，**不代表**数据源归属。
 WIND_INDEX_TARGETS: List[tuple] = [
     ('881001.WI', '万得全A'),  # ✅ anchored 6464 条
     # 以下 4 只宽基/风格指数为 2026-09-09 复核补齐（用户在韭圈儿页面可见，此前漏抓）
@@ -54,7 +60,7 @@ WIND_INDEX_TARGETS: List[tuple] = [
     ('8841431.WI', '万得微盘股指数'),  # ✅ normalized（12月242条，源未给收盘锚）
     ('885000.WI', '万得普通股票型基金指数'),  # ✅ normalized 5503 条
     ('885001.WI', '万得偏股混合型基金指数'),  # ✅ normalized 5508 条
-    ('885002.WI', '万得平衡混合型基金指数'),  # ⏳ 未收录
+    ('885002.WI', '万得平衡混合型基金指数'),  # ✅ 万得 MCP（WIND_MCP_INDEX_CODES）
     ('885003.WI', '万得偏债混合型基金指数'),  # ✅ normalized 5502 条
     ('885005.WI', '万得债券型基金指数'),  # ⏳ 未收录
     ('885006.WI', '万得混合债券型一级基金指数'),  # ⏳ 未收录
@@ -108,19 +114,34 @@ CSINDEX_INDEX_TARGETS: List[tuple] = [
 
 DEFAULT_TARGETS = [code for code, _name in WIND_INDEX_TARGETS + TENCENT_INDEX_TARGETS + CSINDEX_INDEX_TARGETS]
 
-# ── 源侧「确实未收录」的代码清单（#2475）──────────────────────────────────────
-# 判据不是「猜」，是 2026-10-21 逐码实测：韭圈儿 fundindex/detail 返回 HTTP 200 +
-# `code=0`，但 `data={}` / `tb_data.x_data=None` / `series` 长度 0，且 index-basic 带
-# `disabled=True`；同时 `index_daily` 表这 8 码**一行历史都没有**，
-# `sync_logs` 自 2026-10-08 起每天同样的 8 条 error_detail。
+# ── 数据源归属（同后缀 ≠ 同源）────────────────────────────────────────────────
+# `.WI` 只是代码形态，**不决定数据源**。`885002.WI`（万得平衡混合型基金指数）在韭圈儿
+# **未收录**（2026-10-21 实测 `disabled=True` / `data={}` / `series` 长度 0），但万得
+# 官方 MCP **可取真实收盘**（2026-10-23 实测 5537 条，2003-12-31 起，2026-10-22 收
+# 7206.3199）。`#2476` 曾把它记成「源侧没有这个指数」，实际是「我们没接这条源」——
+# 归因错了差点把映射换成语义不符的 `H11022.CSI`（万得平衡混合型 ≠ 中证红利低波）。
 #
-# 保留在 WIND_INDEX_TARGETS 里是刻意的：源侧收录后自动生效，无需改代码。
-# 但它们不该每天记一条 error —— 每天 8 条「假故障」会把 `errors` 变成噪音，
+# 为什么是**显式清单**、而不是「韭圈儿失败就自动回退万得」：运行时回退会在某天韭圈儿
+# 恢复时**静默换源**，而两条源**不是同一尺度**（2026-10-23 实测同日同码：
+# `885001.WI` 韭圈儿 925.6 / 万得 10877.345；`885000.WI` 935.7 / 14769.2608）——
+# 拼接后就是一段凭空涨跌（同族教训 #2464）。源归属必须是代码里的常量，不是当天谁先失败。
+WIND_MCP_INDEX_CODES: frozenset = frozenset({'885002.WI'})
+
+# ── 源侧「确实未收录」的代码清单（#2475）──────────────────────────────────────
+# 判据不是「猜」，是 2026-10-21 逐码实测：**韭圈儿** fundindex/detail 返回 HTTP 200 +
+# `code=0`，但 `data={}` / `tb_data.x_data=None` / `series` 长度 0，且 index-basic 带
+# `disabled=True`；同时 `index_daily` 表这些码**一行历史都没有**。
+#
+# ⚠️ 这里的「未收录」**只指韭圈儿**，不等于万得没有：`885002.WI` 已证万得可取
+# （见上方 `WIND_MCP_INDEX_CODES`）。说「源侧没有」时必须说清是哪条源，否则下一个人
+# 会重演 #2476 的误判 —— 把「我们没接」当成「数据不存在」。
+#
+# 保留在 WIND_INDEX_TARGETS 里是刻意的：韭圈儿收录后自动生效，无需改代码。
+# 但它们不该每天记一条 error —— 每天 7 条「假故障」会把 `errors` 变成噪音，
 # 真出故障时没人看得出（红灯一旦常态化就没人看）。
 # 降级为 info 并单独计数（`stats['unlisted']`），失败明细仍可查。
 KNOWN_UNLISTED: frozenset = frozenset(
     {
-        '885002.WI',  # 万得平衡混合型基金指数（另见 #2476：fund_benchmark 的映射形同虚设）
         '885005.WI',  # 万得债券型基金指数
         '885006.WI',  # 万得混合债券型一级基金指数
         '885008.WI',  # 万得中长期纯债型基金指数
@@ -151,7 +172,7 @@ class IndexDailySyncJob(SyncJob):
     def _count_total(self, targets: Optional[List[str]], fetched: int) -> int:
         """分母 = 本次真的会去试的代码数（`'__full__'` 展开；`targets=None` 也取默认全清单）。
 
-        未收录的 8 个码照样算进分母（「试过了，源侧没有」是事实），但不进
+        未收录的码（现 7 个）照样算进分母（「试过了，韭圈儿没有」是事实），但不进
         `failed` / `errors` —— 它们不是故障（#2475）。
         """
         return len(self._resolve_targets(targets or []))
@@ -162,7 +183,7 @@ class IndexDailySyncJob(SyncJob):
         这是基类兜底的**更严口径**，保留覆盖的理由：本 job 的 `_count_total` 把源侧
         未收录、因而不记 failed 的代码也计进分母（`total > 可失败目标数`），于是基类那句
         `failed >= total` 在这里永远不会成立 —— 若删掉本方法，「30 个已收录目标全挂 +
-        8 个未收录」会退回假绿。基类口径见 `SyncJob._decide_final_status`（#2495）。
+        7 个韭圈儿未收录」会退回假绿。基类口径见 `SyncJob._decide_final_status`（#2495）。
 
         为什么部分失败不红：本 job 每天跑，30+ 个目标里偶发单点抖动是常态，
         「有一个挂掉就红」会让它天天红；红灯常态化的代价是真故障被淹没
@@ -193,7 +214,13 @@ class IndexDailySyncJob(SyncJob):
                 if item:
                     out.append(item)
             elif code.upper().endswith('.WI'):
-                # 万得系：全量取成立来（date='all'）；增量拉近 12 月（自愈缺口，2 请求/目标）
+                if code.upper() in WIND_MCP_INDEX_CODES:
+                    # 韭圈儿未收录、万得 MCP 可取：源归属是常量，不做运行时回退
+                    item = self._fetch_wind_mcp_target(code, names.get(code, code), full_sync)
+                    if item:
+                        out.append(item)
+                    continue
+                # 万得系（韭圈儿）：全量取成立来（date='all'）；增量拉近 12 月（自愈缺口，2 请求/目标）
                 months = 'all' if full_sync else 12
                 try:
                     out.append(
@@ -262,6 +289,42 @@ class IndexDailySyncJob(SyncJob):
             # 故单列 raw 口径，避免下游把三种口径混为一谈
             'price_mode': 'raw',
             'rows': [{'trade_date': date.fromisoformat(d), 'close': close} for d, close in rows],
+        }
+
+    def _fetch_wind_mcp_target(self, code: str, name: Optional[str], full_sync: bool) -> Optional[dict]:
+        """万得 MCP 路（`WIND_MCP_INDEX_CODES`）：真实收盘，`price_mode='raw'`。
+
+        与另两路的差别只有「源」与「口径」：
+        - `source='wind'` / `price_mode='raw'`（真实点位，非反推锚、非归一化）；
+        - 全量/增量都是**一次请求**（上游按日期区间返回，实测全历史 5537 条），
+          与中证官网同理，增量优化的收益是零。
+
+        降级语义（#2476 / §9）：**未配置**（缺 Token 或地址）只记 `stats['degraded']` +
+        warning，不记 errors —— 「可选组件没配」不是数据源故障；但**绝不静默返回空**，
+        否则前端「暂无基准」会被当成「这只指数没有数据」。配置了却失败则照常进 errors。
+        """
+        if not wind_index.is_available():
+            self.stats['degraded'] = self.stats.get('degraded', 0) + 1
+            self.logger.warning(
+                f'指数日线 {code} 需要 Wind MCP，但 WIND_MCP_TOKEN / WIND_MCP_URL 未配置，本次跳过（降级，不当作无数据）'
+            )
+            return None
+        try:
+            rows = wind_index.fetch_index_daily(code, full_sync=full_sync)
+        except Exception as e:
+            # 配置齐了还失败 = 真故障（鉴权 / 额度 / 上游形态变更），必须进 errors
+            self.logger.warning(f'指数日线 {code} Wind 取数失败: {e}')
+            self.stats.setdefault('errors', []).append({'gu_code': code, 'stage': 'fetch_daily_wind', 'error': str(e)})
+            return None
+        if not rows:
+            self.logger.warning(f'指数日线 {code}({name or code}) Wind 无数据，跳过')
+            return None
+        return {
+            'gu_code': code,
+            'gu_name': name or code,
+            'source': 'wind',
+            'price_mode': 'raw',
+            'rows': rows,
         }
 
     # ── 校验 / 去重 ──
