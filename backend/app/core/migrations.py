@@ -1618,19 +1618,30 @@ def migrate_transaction_fee_breakdown(engine: Engine) -> str:
     四列全 NULL = 未拆分，是存量数据与未提供拆分的写入路径的默认态，
     读取端按 ``fee`` 展示，**行为与迁移前完全一致**（不造错数、不改写历史）。
 
-    ## 加列方式
+    ## 加列方式（2026-10-23 修正：PG 也必须由本迁移负责）
 
-    四列均为**可空**列：SQLite / libsql 对可空列支持直接 ALTER ADD COLUMN
-    （无需整表重建）；幂等：列已存在则跳过。非 SQLite 引擎
-    （Supabase Postgres）由 ORM 模型 / 迁移工具负责，直接跳过。
+    四列均为**可空**列，两种引擎都能直接 ``ALTER TABLE ADD COLUMN``：
+    SQLite / libsql 无需整表重建，Postgres 用 ``IF NOT EXISTS`` 保证幂等
+    （见 ``_add_column_sql``）；列已存在则跳过。
+
+    ⚠️ **这里曾经对非 SQLite 引擎直接早退**（原文写「由 ORM 模型 / 迁移工具负责」），
+    而那前提在本仓**不成立**：
+
+    - 本仓没有 Alembic，迁移都是本文件里手写的函数；
+    - ``create_all()`` **只建缺失的表，不会给已有表加列**；
+    - 生产 user 域是 Supabase Postgres（手工建表，与模型不同步）。
+
+    三者叠加 ⇒ 四列在生产**永远加不上**，而 ``init_db()`` 末尾的 ``_validate_schema``
+    又会因「表 transactions 缺列」**拒绝启动** ⇒ 每日调度（#1490）死在 ``init_db()``，
+    一个 job 都跑不到。实测：schedule 运行 39848022855（2026-10-22T20:20:42Z）。
+    与 #2469（watchlist 三表补列）是同一类错——迁移写成 SQLite-only，本地全绿、生产必崩。
+
+    收尾有**自校验**：加列后四列必须都在，缺了直接抛错。迁移失败必须显性，
+    不能返回一个「看起来 OK」的字符串让调用方继续往下走。
 
     ⚠️ 本迁移**只加列、不回填**：历史行的拆分事实已随合并丢失，唯一的总额
     ``fee`` 无法反推四类各是多少——盲猜等于编数，宁空不猜。
     """
-    url = str(getattr(engine, 'url', '') or '')
-    if not url.startswith(('sqlite://', 'sqlite+')):
-        return '[SKIP] 非 SQLite 引擎，费用拆分列由 ORM 模型/迁移工具负责'
-
     if 'transactions' not in inspect(engine).get_table_names():
         return '[SKIP] transactions 表不存在（空库，init_db 将按新模型建表）'
 
@@ -1640,14 +1651,22 @@ def migrate_transaction_fee_breakdown(engine: Engine) -> str:
         ('transfer_fee', 'INTEGER'),
         ('other_fee', 'INTEGER'),
     ]
+    is_pg = _is_postgres(engine)
     added = []
     with engine.connect() as conn:
         existing = {c['name'] for c in inspect(engine).get_columns('transactions')}
         for name, typ in cols:
             if name not in existing:
-                conn.execute(text(f'ALTER TABLE transactions ADD COLUMN {name} {typ}'))
+                conn.execute(text(_add_column_sql('transactions', name, typ, is_pg)))
                 added.append(name)
         conn.commit()
+
+    # 收尾自校验：缺列即抛错（PG 上若 DDL 被静默忽略，这里必须让调用方看到）
+    missing = [name for name, _ in cols if name not in {c['name'] for c in inspect(engine).get_columns('transactions')}]
+    if missing:
+        raise RuntimeError(
+            f'transactions 补费用拆分列失败，仍缺列: {missing}（引擎 {"Postgres" if is_pg else "SQLite"}）'
+        )
 
     if added:
         logger.info(f'[OK] transactions 增加费用拆分列: {added}（#2137，存量留 NULL=未拆分）')
