@@ -662,8 +662,13 @@ def build_daily_pnl_series(
 
      Returns:
          {'ledger_id': int|None, 'scope': 'family'|'ledger', 'start_date': ..., 'end_date': ...,
-          'month_total': float, 'range_rate': float|None, 'has_any_price': bool,
-          'days': [{'date','daily_pnl','rate','state'}, ...]}
+          'month_total': float, 'range_rate': float|None, 'range_baseline': float|None,
+          'has_any_price': bool, 'days': [{'date','daily_pnl','rate','state'}, ...]}
+
+         `range_baseline` = `range_rate` 的分母（区间前一天净资产，元；None 同
+         `range_rate` 的 None 条件）。#2134 组合级聚合拿它拼 Σ成员基线——与本
+         函数算 rate 用的是**同一个值**，保证组合口径与引擎同源；**前端仍禁止
+         拿它二次计算**（组合级聚合只在服务端做）。
 
          `rate` = 当日盈亏 / 前一日总资产；`range_rate` = 区间盈亏 / **区间前一天**总资产
          （两者同分母口径，单位均为 %）。**前端禁止二次计算**，一切数值出口在此。
@@ -828,6 +833,8 @@ def build_daily_pnl_series(
         'end_date': end.isoformat(),
         'month_total': round(Money.cents_to_yuan(total_cents), 2),
         'range_rate': range_rate,
+        # 分母与 rate 同源（同一 range_baseline），#2134 组合级聚合用；见 docstring。
+        'range_baseline': None if range_baseline is None else round(Money.cents_to_yuan(range_baseline), 2),
         'has_any_price': any(d['state'] in (STATE_UPDOWN, STATE_ZERO) for d in days),
         # ── 覆盖率诊断（前端据此区分「你的标的无估值」与「这个月没数据」）──
         # 这两件事对用户完全不同的处置：前者是持仓属性（本来就不该有日估值），
@@ -1424,6 +1431,10 @@ def build_pnl_series(
         if baseline not in (None, 0) and any(d['daily_pnl'] is not None for d in in_range)
         else None
     )
+    # 分母同步覆盖：`build_daily_pnl_series` 自带的 range_baseline 锚在它内部的
+    # start−1（= base_start−2，因为这里把 start 挪到了 scan_start），与刚覆盖的
+    # range_rate 对不上；baseline（scan_start 净资产）才是上面这个 rate 的分母。
+    payload['range_baseline'] = baseline
     payload['has_any_price'] = any(d['state'] in (STATE_UPDOWN, STATE_ZERO) for d in in_range)
     payload['periods'] = _aggregate_periods(in_range, granularity, baseline)
     payload['days'] = []  # 聚合下推：期间视图不再回日明细
@@ -1439,6 +1450,7 @@ def _empty_payload(ledger_id: Optional[int], start: dt.date, end: dt.date) -> di
         'month_total': 0.0,
         # 无持仓 / 区间不合法时没有基准可言 ⇒ None（不是 0%，见 build_daily_pnl_series）
         'range_rate': None,
+        'range_baseline': None,
         'has_any_price': False,
         'coverage': {'total_positions': 0, 'priced_positions': 0, 'unpriced_positions': 0},
         'latest_price_date': None,
