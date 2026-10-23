@@ -14,6 +14,7 @@ from loguru import logger
 
 from app.domains.indices.models import IndexConstituent
 from app.services.job_base import SyncJob
+from app.services.sync.bulk_ops import bulk_insert_rows
 
 # 目标宽基 / 主流指数（plain code，不含交易所后缀）。
 # csindex 系列优先走 index_stock_cons_csindex，其余回退 sina。
@@ -87,15 +88,19 @@ class IndexConstituentSyncJob(SyncJob):
             self.db.query(IndexConstituent).filter(IndexConstituent.index_code == index_code).delete(
                 synchronize_session=False
             )
+            inserts: List[dict] = []
             for r in rows:
-                self.db.add(
-                    IndexConstituent(
-                        index_code=r['index_code'],
-                        index_name=r.get('index_name'),
-                        symbol=r['symbol'],
-                        stock_name=r.get('stock_name'),
-                        in_date=r.get('in_date'),
-                    )
+                inserts.append(
+                    {
+                        'index_code': r['index_code'],
+                        'index_name': r.get('index_name'),
+                        'symbol': r['symbol'],
+                        'stock_name': r.get('stock_name'),
+                        'in_date': r.get('in_date'),
+                    }
                 )
+            # 批量写：Turso 上逐行 INSERT = 每行一次 HTTP 往返（~0.2s/行）。
+            # 本 job 每次「删除 + 重建」整份成分，行数 = 全部指数的成分总数，逐行必超预算。
+            bulk_insert_rows(self.db, IndexConstituent, inserts, log_scope=f'指数成分 {index_code}')
             logger.info(f'写入指数 {index_code} 成分 {len(rows)} 条')
         self.db.commit()

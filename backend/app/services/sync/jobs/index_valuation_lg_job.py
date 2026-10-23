@@ -18,7 +18,12 @@ from loguru import logger
 
 from app.domains.indices.models import IndexValuationBaseline
 from app.services.index_percentile import PERCENTILE_WINDOW_DAYS
-from app.services.job_base import SyncJob
+from app.services.job_base import IN_CHUNK_SIZE, SyncJob
+from app.services.sync.bulk_ops import bulk_insert_rows, chunked
+
+# 可写列（不含业务键与带默认值的 source）；批量写要求整批键集完全一致
+_VALUE_COLUMNS = ('pe_ttm', 'index_name')
+_DEFAULT_SOURCE = 'lg'
 
 # 分位基线目标池：乐咕有覆盖的 9 个宽基（与 adapter.LG_INDEX_NAMES 同步维护）。
 # 单次调用换整条月频序列，非逐条外部请求，裸 full-sync 即正常模式。
@@ -74,21 +79,45 @@ class IndexValuationLgSyncJob(SyncJob):
         return out
 
     def _save_data(self, new_data: List[dict]) -> None:
-        saved = 0
+        if not new_data:
+            return
+        existing = self._load_existing(new_data)
+        inserts: List[dict] = []
         for r in new_data:
-            row = (
-                self.db.query(IndexValuationBaseline)
-                .filter_by(index_code=r['index_code'], trade_date=r['trade_date'])
-                .first()
-            )
+            row = existing.get((r['index_code'], r['trade_date']))
             if row is None:
-                row = IndexValuationBaseline(index_code=r['index_code'], trade_date=r['trade_date'])
-                self.db.add(row)
+                item = {'index_code': r['index_code'], 'trade_date': r['trade_date']}
+                item.update({k: r.get(k) for k in _VALUE_COLUMNS})
+                item['source'] = r.get('source') or _DEFAULT_SOURCE
+                inserts.append(item)
+                continue
             for k, v in r.items():
                 if k in ('index_code', 'trade_date'):
                     continue
                 if v is not None:
                     setattr(row, k, v)
-            saved += 1
+        # 批量写：原实现逐行 SELECT + 逐行 `db.add`，Turso 上每行 2 次往返。
+        # 本 job 一次回填 9 个指数 × 近 5 年约 60 个采样 = 500+ 行，逐行即分钟级停摆。
+        if inserts:
+            bulk_insert_rows(self.db, IndexValuationBaseline, inserts, log_scope='指数估值基线')
         self.db.commit()
-        logger.info(f'写入指数估值基线 {saved} 条')
+        logger.info(f'写入指数估值基线 {len(new_data)} 条（新增 {len(inserts)}）')
+
+    def _load_existing(self, new_data: List[dict]) -> dict:
+        """一次查回本批已有行，键 = ``(index_code, trade_date)``（按较小一维过滤，理由同 ``index_valuation``）。"""
+        codes = sorted({r['index_code'] for r in new_data})
+        dates = sorted({r['trade_date'] for r in new_data})
+        out: dict = {}
+        if len(dates) <= len(codes):
+            for part in chunked(dates, IN_CHUNK_SIZE):
+                for row in (
+                    self.db.query(IndexValuationBaseline).filter(IndexValuationBaseline.trade_date.in_(part)).all()
+                ):
+                    out[(row.index_code, row.trade_date)] = row
+        else:
+            for part in chunked(codes, IN_CHUNK_SIZE):
+                for row in (
+                    self.db.query(IndexValuationBaseline).filter(IndexValuationBaseline.index_code.in_(part)).all()
+                ):
+                    out[(row.index_code, row.trade_date)] = row
+        return out
