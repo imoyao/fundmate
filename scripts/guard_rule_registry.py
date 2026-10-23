@@ -572,6 +572,24 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             '白名单只认语义（占位值 + Supabase anon JWT），不按路径放行'
         ),
     },
+    'scripts/guard_supabase_env_separation.py': {
+        'rule': '入库的前端 env 文件必须给出完整的 Supabase 凭证，示例文件只放占位值（#1028）',
+        # 源 #1028。开发/生产共用同一个 Supabase 项目时，开发期注册的测试账号会写进
+        # **生产** Auth 用户表，而当时没有任何一处会报错。
+        # 只在 CI 里跑：判据全是**仓库内入库文件**的静态检查（纯读文件、不拉网络），
+        # 挂本地钩子没有额外收益，还会让人分不清「谁负责哪一半」。
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_supabase_env_separation.py',
+        # 边界写清楚：**dev 与 prod 是否同项目不归它管**——那条要读不入库的
+        # `frontend/.env.development`，CI 看不到，由 `frontend/build/supabase-env-guard.ts`
+        # 在 dev server 启动时兜。两条规则不重叠、各有唯一实现。
+        'covered': (
+            '只看入库的 frontend/.env.production / .env.staging / .env.example；'
+            '不入库的 frontend/.env 与 .env.development 读不到；'
+            '只判「凭证在不在、形态对不对、示例里有没有真实值」，'
+            '不判 anon key 是否有效、也不判 dev 与 prod 是否同项目'
+        ),
+    },
 }
 
 

@@ -389,6 +389,14 @@ job 名与 stage 名都要写（后者是查询锚点）。
 - **禁止 `any` / `Record<string, any>`** 作为 API 入参/响应类型。
 - 列表增删改成功后**必须主动清空列表缓存**。
 - 禁止 Emoji，涨红跌绿必须使用语义变量。
+- **前端 Supabase 环境隔离**：`frontend/.env.development`（本地、不入库）与 `frontend/.env.production`（入库）
+  **不得**指向同一个 Supabase 项目——开发期注册的测试账号会直接写进**生产** Auth 用户表，
+  且当时没有任何报错。两条判据各管一半、互不重叠：
+  入库文件的凭证完整性（`.env.production` / `.env.staging` 必须给出 URL + anon key；
+  `.env.example` 只放占位）由 `scripts/guard_supabase_env_separation.py` 在 CI 拦合并；
+  「dev 与 prod 是否同项目」要读**不入库**的 `.env.development`、CI 看不到，
+  由 `frontend/build/supabase-env-guard.ts` 在 **dev server 启动**时兜（命中即拒绝启动）。
+  本地排查可临时 `DISABLE_SUPABASE_ENV_GUARD=1 pnpm dev`（该开关只关本地这一半，CI 那半照拦）。
 
 ---
 
