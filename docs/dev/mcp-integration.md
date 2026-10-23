@@ -311,21 +311,29 @@ S2 落地时判据写成 8 条**变异探针**（改生产代码 → 用例必�
 
 capability 声明 `tier`，`invoke()` 据此决定落库 / TTL / 是否记账。
 
-### 6.2 Wind 的四个实测坑（全部收在 `map_args`）
+### 6.2 Wind 的实测坑（2026-10-23 真机采样后重写，源 #2516）
 
-| 坑 | 处理 |
-|---|---|
-| `period` 必须是 `"10"`（日 K），传 `"D"` 直接 `Invalid value` | adapter 内映射，不暴露给业务 |
-| `get_index_fundamentals` 认名称（`沪深300`）不认代码（`000300.SH`） | 维护 `code → 查询名` 映射 |
-| 批量参数是逗号分隔字符串，不是数组 | adapter 归一化 |
-| 返回是 `{columnNames, rows}` 多块表格 | `extract()` 按列名取，缺列显式 `None` |
+| 坑 | 实测事实 | 处理 |
+|---|---|---|
+| 工具清单只有两个 | `market_search_tools`（自然语言 → 工具清单）、`market_call_tool`（`toolName` + `arguments` JSON 串）；**没有** `get_index_fundamentals` | 数据工具一律经 `market_call_tool` 转发；能力表只登记实测工具名 |
+| 工具名错时 **HTTP 200 + `isError: true`** | 报文：`工具不存在: vserver_wind_tools, get_index_fundamentals` | 传输层检查 `result.isError` 并当失败上抛（不许当数据返回） |
+| 请求体必须是 JSON-RPC | 发 `{'toolName': …}` 直接 **HTTP 400** + 11 条 `JSONRPCMessage` 校验错 | `_wire` 仍是标准 `tools/call`，只把 `params.name` 换成网关入口 |
+| `period` 必须是 `"10"`（日 K） | 传 `"D"` → `Invalid value` | `_normalize_period` 映射；未知取值**报错**，不猜 |
+| 返回**不是** `{columnNames, rows}` | `get_index_kline` → `data.columns[].name` + `data.rows`；`get_index_basicinfo` → 还多包一层 `data.data[]` | `extract()` 两种都认，另兼容旧 `columnNames` |
+| SSE 响应无 charset | requests 猜 ISO-8859-1 ⇒ 中文乱码；更致命的是 UTF-8 续字节 `0x85` 被当换行把 JSON 折断 ⇒ 报「调用返回为空」 | 一律用 `resp.content` 按 UTF-8 解码，再按 SSE 事件块解析 |
+
+⚠️ **不要反推代码**：同一个问题两次采样，`get_index_basicinfo` 分别返回过 `000300.SH` 与
+`399300.SZ`。上游会按问题重排结果，故「拿返回的代码回查」不可靠 —— 要代码就用请求侧给的。
 
 ### 6.3 生产链路不做自然语言检索
 
-`market_search_tools` 每次 1–2s 且结果依赖语义。**工具名走 registry 静态映射**；
-检索只留给人工探针（`pdm run mcp-probe "<问题>"`）。否则线上会出现「同一份代码今天取不到、
-明天又好了」的不可复现故障。
+`market_search_tools` 每次 1–2s 且结果依赖语义。**工具名走静态常量表**（`_CAPABILITY_TOOLS`），
+数据查询经 `market_call_tool` 转发；检索只留给人工探针（`pdm run mcp-probe --question ...`）。
+否则线上会出现「同一份代码今天取不到、明天又好了」的不可复现故障。
 
+实测补充（2026-10-23）：**不先 search 也能调** —— `market_call_tool` 的 `toolName` 填裸名
+（`get_index_kline`）即可，不需要 `serverId` 前缀。故「不做检索」在生产链路上是可执行的，
+代价只有一个常量表要随上游工具变更手工维护（工具名写错会被 `isError` 当场挡住，不会静默）。
 ## 7. 展示窗口：3~5 年，在后端截断
 
 ```python
@@ -400,6 +408,22 @@ def clamp_since(since: date, *, allow_full: bool = False) -> date: ...
 > 覆盖并有测试）。真实报文采样需要 `WIND_MCP_TOKEN` + `WIND_MCP_URL`，两者当前均未配置；
 > 若响应形状不同，处置是「给传输层加 provider 级解包扩展点」，**不是**在传输层里写 provider 名字分支
 > ——后者会让 §10 第 1 条判据（接第二家不改 `transport.py`）变成一句口号。
+>
+> **S3 采样后修正（2026-10-23，源 #2516）：上面那几条「未验证假设」已被真机推翻。**
+> 采样对象：`mcp.wind.com.cn/vserver_wind_tools/mcp/`，`wind-mcp-streamable-http-stateless` v1.25.0，
+> 无 `Mcp-Session-Id`（无状态）。四处偏离全部落在**既有扩展点**上，没有新增 provider 名字分支：
+>
+> | 原假设 | 实测 | 落点 |
+> |---|---|---|
+> | 请求体是 `{'toolName':…, 'arguments':'…'}`（非 JSON-RPC） | HTTP 400 + 11 条 `JSONRPCMessage` 校验错 | `_wire` 改回标准 `tools/call`，数据工具经 `market_call_tool` 转发 |
+> | 存在 `get_index_fundamentals` 这类直连工具 | 上游只有 `market_search_tools` / `market_call_tool`；调不存在的工具是 **200 + `isError`** | 能力表改为实测工具名；传输层检查 `isError` |
+> | 返回是 `{columnNames, rows}` | `data.columns[].name` + `data.rows`；`get_index_basicinfo` 还多包一层 `data.data[]` | `extract()` 两种都认（旧形状保留） |
+> | 400 一律是会话失效 | 400 也可能只是「body 不符合 JSON-RPC」 | 400 先看 JSON-RPC `error`：有则按 payload 分类、**不重握手**；无才当会话失效，且**报文进 `detail`** |
+> | SSE 用 `iter_lines(decode_unicode=True)` | 无 charset ⇒ ISO-8859-1 ⇒ `0x85` 当换行把 JSON 折断 ⇒ 报「调用返回为空」 | 用 `resp.content` 按 UTF-8 解码 + SSE 事件块解析 |
+>
+> 真机验收（同一提交）：`index_kline`（000300.SH，2026-10-15..22）→ 6 行日 K；
+> `index_basicinfo`（沪深300）→ 1 行（发布机构 / 基期 / 基点 / 成份个数）。
+> 工具名与参数坑的完整清单见 §6.2。
 
 方法搬移清单（S1 的施工单）：
 
