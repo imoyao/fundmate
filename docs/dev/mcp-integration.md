@@ -36,7 +36,7 @@ title: MCP 接入层设计
 | 服务端**不回** `Mcp-Session-Id`（nginx 无状态网关）⇒「已握手」本身要记位 | `:276-279`、`:298-299`（实测 2026-10-20） |
 | 凭据走 `os.getenv('QIEMAN_API_KEY')`，散落 **3 处**，缺则 warning + 跳过 | `:461`、`:534`、`:567` |
 | 服务地址 / 协议版本 / 工具名硬编码在业务适配器 | `:38-43` |
-| Wind MCP 未落地（仅协议探测，零代码） | 仓库内 `git grep -i mcp` 无 Wind 痕迹 |
+| Wind MCP 已落地并**完成真实报文采样**（S3，2026-10-23） | `backend/app/services/mcp/providers/wind.py`；采样见 §6.2 / §9 的 S3 说明 |
 | 投顾服务已有 Ports & Adapters 先例可对齐 | `services/adapters/advisor_source.py:90-189` |
 | 分层方向受守卫约束 | `backend/tests/core/test_layer_direction.py:44-68`（R1–R7，R7 由 S1 新增） |
 
@@ -131,7 +131,7 @@ class McpProvider(ABC):
 
     def extract(self, payload) -> McpResult: ...          # 表格 / 文本 → McpResult
 
-    def _wire(self, tool: str, args: dict) -> dict:       # 网关型服务覆盖（Wind）
+    def _wire(self, tool: str, args: dict) -> dict:       # 网关型服务可覆盖（**Wind 实测后不需要**）
         return {'tool': tool, 'arguments': args}
 
     # ── 基类唯一实现：子类不得覆盖，也不得自己发 HTTP ──
@@ -178,16 +178,17 @@ class QiemanProvider(McpProvider):          # 直调型：工具名已知
     def scope_of(self, cap): return DataScope.PLATFORM_PUBLIC
 
 @register_provider
-class WindProvider(McpProvider):            # 网关型：先检索再调用
-    name, source_label = 'wind', 'wind'
+class WindProvider(McpProvider):            # 网关型：只有两个 MCP 工具，业务工具经 market_call_tool 转发
+    name = 'wind'
     protocol_version = '2025-06-18'
-    def base_url(self): return os.getenv('WIND_MCP_URL') or WIND_DEFAULT_URL
+    def base_url(self): return os.getenv('WIND_MCP_URL')     # 无默认值，缺 env 当场抛
     def auth_headers(self, token): return {'Authorization': f'Bearer {token}'}
-    def _wire(self, tool, args):
-        return {'toolName': tool, 'arguments': json.dumps(args)}
-    def map_args(self, cap, **kw):
-        ...   # 见 §6.2 的四个实测坑
+    def tool_for(self, cap):                                     # market_call_tool / market_search_tools
+        return _CAPABILITY_TOOLS[cap]
+    def map_args(self, cap, **kw):                               # 业务参数 → 上游参数（含转发包裹）
+        ...   # 见 §6.2 的实测坑
     def scope_of(self, cap): return DataScope.PUBLIC_MARKET
+    # 请求体走基类的标准 JSON-RPC：实测真网关不接受 {toolName, arguments} 当整个请求体（§6.2）
 ```
 
 **继承与组合的分工**：继承承载「每服务一套元信息」，组合承载「传输只有一份」。
@@ -311,14 +312,20 @@ S2 落地时判据写成 8 条**变异探针**（改生产代码 → 用例必�
 
 capability 声明 `tier`，`invoke()` 据此决定落库 / TTL / 是否记账。
 
-### 6.2 Wind 的四个实测坑（全部收在 `map_args`）
+### 6.2 Wind 的实测坑（全部收在 `map_args` / `extract`）
+
+> **2026-10-23 真实报文采样（`#2516`）**：S3 首版是**按文档推断**实现的（当时凭据未配），
+> 采样后推翻了其中两条，且两条当时的失败形态都是**静默**的 —— 这是本节最重要的经验。
 
 | 坑 | 处理 |
 |---|---|
-| `period` 必须是 `"10"`（日 K），传 `"D"` 直接 `Invalid value` | adapter 内映射，不暴露给业务 |
-| `get_index_fundamentals` 认名称（`沪深300`）不认代码（`000300.SH`） | 维护 `code → 查询名` 映射 |
-| 批量参数是逗号分隔字符串，不是数组 | adapter 归一化 |
-| 返回是 `{columnNames, rows}` 多块表格 | `extract()` 按列名取，缺列显式 `None` |
+| `period` 必须是 `"10"`（日 K），传 `"D"` 直接 `Invalid value` | `map_args` 映射，不暴露给业务 |
+| `get_index_fundamentals` 认名称（`沪深300`）不认代码（`000300.SH`） | `INDEX_QUERY_NAMES` 显式映射；**只适用该能力**，`get_index_kline` 认代码 |
+| 批量参数是逗号分隔字符串，不是数组 | `map_args` 归一化 |
+| **网关只有两个 MCP 工具**：`market_search_tools` / `market_call_tool` | 业务工具经 `market_call_tool` 转发，`arguments` 是 **JSON 字符串**；在 `map_args` 里包一层 |
+| **请求体是标准 JSON-RPC**（`{toolName, arguments}` 当整体 ⇒ **HTTP 400** `JSONRPCRequest.method Field required`） | **不覆盖 `_wire`**，走基类形状 |
+| **表格形状是 `{data: {columns: [{name}], rows: [[...]]}}`**（非 `{columnNames, rows}`） | `extract()` 两种都认；旧实现会返回「行数对、值全 None」的空记录（**不报错**） |
+| **SSE 响应不带 `charset`** ⇒ `requests` 按 ISO-8859-1 解码，中文被打成乱码 | `transport._sse_events` 优先按 UTF-8 解原始字节；JSON 结构仍合法，故失败形态同样是静默 |
 
 ### 6.3 生产链路不做自然语言检索
 
@@ -361,7 +368,7 @@ def clamp_since(since: date, *, allow_full: bool = False) -> date: ...
 | **S0** | 新增 `scripts/guard_no_hardcoded_secrets.py` 并入 `ci.yml` 的 `scripts_test`；登记 `RULE_REGISTRY`；`AGENTS.md` 落一条带判据的红线 | 守卫在真实仓库跑出 0 命中；回退探针（把假 Token 写进真实文件）必须转红；拿不到输入退 2 |
 | **S1** | 抽 `transport` + `base` + `QiemanProvider`，且慢切过去 | `tests/services/thermometer/test_qieman_fetcher.py`、`test_qieman_batch_transport.py` 全绿；握手仍只 1 次；请求数不增 |
 | **S2** ✅ | `credentials` + `errors` + 调用落库（`mcp_call_logs`）+ `health` 段 | 注入额度异常 ⇒ health 转 `degraded`（不是「成功 + 空」） |
-| **S3** ✅ | `WindProvider` + 只读探针 + 真实错误报文采样 | 接第二家（Wind）**不改 `transport.py`**（采样待 Token，见下方 S3 偏离说明） |
+| **S3** ✅ | `WindProvider` + 只读探针 + 真实错误报文采样 | 接第二家（Wind）**不改 `transport.py` 的 provider 分支**；**真实报文已采样（2026-10-23）**，见下 |
 | **S4** | 第一个 Wind job（业绩比较基准回填）+ 展示窗口策略 | API 默认 ≤5 年；基准数据与 Wind 一致 |
 | **S5** | `user_mcp_credentials` + `PRO_FEATURES` 门禁 | 用户无 Token ⇒ 明确提示，不回退系统 Token |
 
@@ -394,12 +401,23 @@ def clamp_since(since: date, *, allow_full: bool = False) -> date: ...
 > | 原计划 | 实际 | 为什么 |
 > |---|---|---|
 > | `base_url()` = `WIND_MCP_URL or WIND_DEFAULT_URL` | **没有默认值**，缺 env 抛 `WindEndpointMissing` | 仓库、文档、历史卡里都没有可确认的网关地址。猜一个默认值的失效形态是 **DNS / WAF 报错** —— 现场会去查网络与鉴权，而真因是「地址没配」（#171 同族：拿不到输入却输出一个看起来正常的结论） |
-> | 能力表按 Wind 全量工具登记 | 只登记**实测确认过工具名**的两项（`get_index_fundamentals` / `market_search_tools`） | 工具名猜错只会换来上游 `Invalid value`，且生产链路本就不做自然语言检索（§6.3）；探针提供 `--list` 与检索能力给人探索 |
+> | 能力表按 Wind 全量工具登记 | 只登记**实测确认过工具名**的能力（`index_fundamentals` / `index_kline` / `market_search`） | 工具名猜错只会换来上游 `Invalid value`，且生产链路本就不做自然语言检索（§6.3）；探针提供 `--list` 与检索能力给人探索 |
 >
-> **仍未验证的一件事**：响应侧沿用 JSON-RPC 的 `result.content[].text`（请求侧已由 `_wire`
-> 覆盖并有测试）。真实报文采样需要 `WIND_MCP_TOKEN` + `WIND_MCP_URL`，两者当前均未配置；
-> 若响应形状不同，处置是「给传输层加 provider 级解包扩展点」，**不是**在传输层里写 provider 名字分支
-> ——后者会让 §10 第 1 条判据（接第二家不改 `transport.py`）变成一句口号。
+> **采样已完成（2026-10-23，源 #2516）**，结论：`result.content[].text` 这一层假设**成立**，
+> 但里面装的表格形状与请求体形状**都不对**，两处都**没有**在 `transport.py` 里写 provider 分支：
+>
+> | 假设 | 实测 | 修法 |
+> |---|---|---|
+> | 请求体 `{toolName, arguments}` | **HTTP 400**（`JSONRPCRequest.method Field required`） | 删掉 `_wire` 覆盖，走基类标准 JSON-RPC；业务工具名在 `map_args` 里作为 `market_call_tool` 的参数转发 |
+> | 返回 `{columnNames, rows}` | `{data: {columns: [{name}], rows: [[...]]}}` | `extract()` 两种形状都认；`error` 非空显式抛错 |
+>
+> 另有第三处：SSE 响应头不带 `charset` ⇒ `requests` 按 ISO-8859-1 解码，中文被打成乱码，
+> 而 JSON 结构仍合法 ⇒ **不报错、数据被悄悄改坏**。修在 `transport._sse_events`
+> （按 UTF-8 解原始字节），仍然与 provider 名字无关（`test_transport_stays_provider_agnostic` 钉住）。
+>
+> 判据：`backend/tests/services/mcp/test_wind_provider.py`（含真实形状 / 错误 / 转发三层）、
+> `test_mcp_transport.py::test_sse_is_decoded_as_utf8_from_raw_bytes`；真机验证可用
+> `pdm run mcp-probe --capability index_kline --args '{"windcode":"885002.WI","begin_date":"2026-10-10","end_date":"2026-10-23"}'`。
 
 方法搬移清单（S1 的施工单）：
 
@@ -429,8 +447,11 @@ def clamp_since(since: date, *, allow_full: bool = False) -> date: ...
 
 ## 12. 待办与已知缺口
 
-- Wind 的额度 / 欠费报文形态待采样（S3 已就绪探针，缺 `WIND_MCP_TOKEN` / `WIND_MCP_URL`）；
-  采样前 429 一律按**频控**（可重试），不猜死分类；采样命令见 `app/tools/mcp_probe.py` 的模块 docstring；
+- Wind 的额度 / 欠费报文形态**仍待采样**（探针已可用，`#2516` 本次采到的是形状与解析，
+  未触发额度上限）：采样前 429 一律按**频控**（可重试），不猜死分类；
+- ✅ **已采样（2026-10-23，`#2516`）**：真实网关的请求体 / 表格形状 / SSE 编码三处与文档推断不符，已修在
+  `providers/wind.py` 与 `transport._sse_events`，判据见 §6.2；`885002.WI` 实测可取日 K
+  （2020-01-02 起，2026-10-22 收 7206.3199）；
 - ✅ **已拉平（2026-10-21，S2/#2490）**：`backend/app/services/thermometer/README.md`
   原称 `QIEMAN_API_KEY` 缺省「用内置 key」/「覆盖内置」，与代码冲突。代码内**从无内置 key**
   （`credentials._TOKEN_ENV` 是唯一来源，S0 的 `guard_no_hardcoded_secrets` 守着这条），

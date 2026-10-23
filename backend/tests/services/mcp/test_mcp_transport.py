@@ -23,12 +23,13 @@ from app.services.mcp.errors import McpBadResponse, McpUnavailable
 class _Resp:
     """``requests.Response`` 的最小替身（只实现传输层用到的成员）。"""
 
-    def __init__(self, status_code=200, headers=None, payload=None, lines=None, bad_json=False):
+    def __init__(self, status_code=200, headers=None, payload=None, lines=None, bad_json=False, content=None):
         self.status_code = status_code
         self.headers = headers or {}
         self._payload = payload
         self._lines = lines
         self._bad_json = bad_json
+        self.content = content
 
     def json(self):
         if self._bad_json:
@@ -104,6 +105,26 @@ def test_sse_response_is_parsed():
 
     assert transport.call_tool('SomeTool', {}, token='k') == '来自SSE'
     assert post.methods == ['initialize', 'notifications/initialized', 'tools/call']
+
+
+def test_sse_is_decoded_as_utf8_from_raw_bytes():
+    """SSE 必须按 UTF-8 解原始字节（实测 Wind 网关 2026-10-23）。
+
+    响应头 ``text/event-stream`` 不带 ``charset``，``requests`` 按 HTTP 旧规约当
+    ISO-8859-1：``resp.text`` / ``iter_lines(decode_unicode=True)`` 会把中文打成乱码。
+    JSON 结构仍然合法 ⇒ **不报错、数据被悄悄改坏**（#171 同族），故钉在字节层。
+    """
+    body = (
+        'event: message\n'
+        'data: {"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\\"name\\": \\"万得平衡混合型基金指数\\"}"}]}}\n'
+        '\n'
+    ).encode('utf-8')
+    post = _Post([_Resp(headers={'content-type': 'text/event-stream'}, content=body)])
+    transport = McpTransport(post, _Provider())
+
+    text = transport.call_tool('SomeTool', {}, token='k')
+
+    assert '万得平衡混合型基金指数' in text
 
 
 def test_sse_without_matching_message_raises():

@@ -55,7 +55,11 @@ from app.core.constants import DEFAULT_REQUEST_TIMEOUT, USER_AGENT  # noqa: E402
 from app.services.mcp import get_provider  # noqa: E402
 from app.services.mcp.credentials import resolve_token  # noqa: E402
 from app.services.mcp.errors import McpError, McpTokenMissing, sanitize  # noqa: E402
-from app.services.mcp.providers.wind import WindEndpointMissing, WindProvider  # noqa: E402
+from app.services.mcp.providers.wind import (  # noqa: E402
+    _WIND_TOOLS,
+    WindEndpointMissing,
+    WindProvider,
+)
 
 _PROVIDER = 'wind'
 
@@ -83,7 +87,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 def _print_capabilities(provider: WindProvider) -> None:
     print(f'{provider.name} 的能力（工具名走静态映射，生产链路不用检索）：')
     for capability in provider.capabilities():
-        print(f'  {capability:<20} -> {provider.tool_for(capability)}')
+        tool = provider.tool_for(capability)
+        wind_tool = _WIND_TOOLS.get(capability)
+        suffix = f'（经 {tool} 转发 {wind_tool}）' if wind_tool else ''
+        print(f'  {capability:<20} -> {tool}{suffix}')
 
 
 def _post_factory(provider: WindProvider, token: str, timeout: int):
@@ -163,9 +170,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     try:
         arguments = _parse_args_json(ns.args_json)
-        if ns.question and 'query' not in arguments:
-            # 参数名未实测：只做「把问题塞进 query」的便利，报错时提示改用 --args
-            arguments = {**arguments, 'query': ns.question}
+        if ns.question and 'question' not in arguments:
+            # 参数名以实测为准（`market_search_tools` 的入参是 `question` + `topK`）
+            arguments = {**arguments, 'question': ns.question}
         arguments = provider.map_args(capability, **arguments)
         token = resolve_token(_PROVIDER, provider.scope_of(capability))
         base_url = provider.base_url()

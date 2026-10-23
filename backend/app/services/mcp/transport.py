@@ -26,7 +26,7 @@ WAF 拦截返回非 JSON、会话失效后必须重握一次。重写等于把�
 
 import hashlib
 import json
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from loguru import logger
 
@@ -249,20 +249,51 @@ class McpTransport:
         return text
 
     @staticmethod
+    def _sse_events(resp: Any) -> List[str]:
+        """把 SSE 响应切成事件载荷（每个事件的多个 ``data:`` 行按规范以换行拼接）。
+
+        **必须优先用原始字节按 UTF-8 解码**（实测 2026-10-23，见 ``#2516``）：响应头是
+        ``text/event-stream`` 且不带 ``charset``，``requests`` 于是按 HTTP 旧规约把它当
+        ISO-8859-1 ⇒ ``resp.text`` / ``iter_lines(decode_unicode=True)`` 会把中文打成
+        latin-1 乱码。JSON 结构仍是合法的（所以不会报错，只是**数据被悄悄改坏**），
+        属于 #171 同族的静默失效。没有 ``content`` 的替身对象才回落到 ``iter_lines``。
+        """
+        raw = getattr(resp, 'content', None)
+        if isinstance(raw, (bytes, bytearray)):
+            lines = bytes(raw).decode('utf-8', errors='replace').splitlines()
+        else:
+            lines = [line for line in resp.iter_lines(decode_unicode=True) if isinstance(line, str)]
+
+        events: List[str] = []
+        buf: List[str] = []
+        for line in lines:
+            if line.startswith('data:'):
+                buf.append(line[len('data:') :].lstrip())
+            elif not line.strip():
+                if buf:
+                    events.append('\n'.join(buf))
+                    buf = []
+        if buf:
+            events.append('\n'.join(buf))
+        return events
+
+    @staticmethod
     def _text_from_sse(resp: Any) -> str:
-        """从事件流里取 ``id == 2``（tools/call）那条消息的文本片段。"""
-        text = ''
-        for line in resp.iter_lines(decode_unicode=True):
-            if line and line.startswith('data:'):
-                data = line[len('data:') :].strip()
+        """从事件流里取 ``id == 2``（tools/call）那条消息的文本片段。
+
+        先按「一个事件 = 多行 data 拼接」解析；拼不上时**再逐行回退**解析——
+        部分实现不按规范发空行分隔（每行一个完整消息），回退让两种都认。
+        """
+        for data in McpTransport._sse_events(resp):
+            candidates = [data, *data.split('\n')] if '\n' in data else [data]
+            for candidate in candidates:
                 try:
-                    msg = json.loads(data)
+                    msg = json.loads(candidate)
                 except json.JSONDecodeError:
                     continue
-                if msg.get('id') == 2 and 'result' in msg:
-                    text = McpTransport._text_from_result(msg['result'])
-                    break
-        return text
+                if isinstance(msg, dict) and msg.get('id') == 2 and 'result' in msg:
+                    return McpTransport._text_from_result(msg['result'])
+        return ''
 
     @staticmethod
     def _text_from_result(result: Dict[str, Any]) -> str:

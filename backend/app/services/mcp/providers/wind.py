@@ -1,12 +1,17 @@
 # -*- coding: utf-8 -*-
-"""Wind（万得）MCP provider：网关型请求形状 + 四个实测坑的归一化（S3）。
+"""Wind（万得）MCP provider：网关型「检索 / 调用」两段式 + 四个实测坑的归一化（S3）。
 
 与且慢（:mod:`app.services.mcp.providers.qieman`）的差别只有「这家服务长什么样」两点，
 都落在基类的扩展点上，**不改** :mod:`app.services.mcp.transport`：
 
-1. 请求体不是 JSON-RPC，而是 ``{'toolName': <工具名>, 'arguments': '<JSON 字符串>'}``
-   （覆盖 :meth:`WindProvider._wire`）；
+1. 网关对外只暴露**两个** MCP 工具：``market_search_tools``（自然语言检索工具名）与
+   ``market_call_tool``（按工具名取数）。真实业务工具（``get_index_kline`` 等）必须
+   经 ``market_call_tool`` 二次调用，参数形态是
+   ``{'toolName': <业务工具名>, 'arguments': '<业务参数 JSON 字符串>'}``
+   （在 :meth:`WindProvider.map_args` 里组装）；
 2. 鉴权头是 ``Authorization: Bearer <token>``，且 **服务地址没有内置默认值**。
+
+请求体是**标准 JSON-RPC**（见下「真实报文」），因此本类**不再覆盖** ``_wire``。
 
 地址为什么不做默认值
 --------------------
@@ -16,7 +21,23 @@
 「地址没配」。这与 #171 同族（拿不到输入却输出一个看起来正常的结论），故：
 
 ``WIND_MCP_URL`` 未设置 ⇒ :class:`WindEndpointMissing` **当场抛出**，文案直接点名该变量。
-配好地址后本模块的行为与 §4.3 完全一致（env 覆盖点仍在 §8 的预留里）。
+
+真实报文（2026-10-23 采样，`#2516`）
+-----------------------------------
+``initialize`` 返回 ``serverInfo = wind-mcp-streamable-http-stateless 1.25.0``，
+``tools/list`` 只有 ``market_search_tools`` / ``market_call_tool`` 两个工具。
+本次采样推翻了两条**按文档写的假设**（都曾是 S3 的实现依据，且失败形态是静默的）：
+
+===============================  ==============================================
+旧假设                            实测
+===============================  ==============================================
+请求体是 ``{toolName, arguments}``  HTTP 400：``JSONRPCRequest.method Field required``
+返回是 ``{columnNames, rows}``      ``{data: {columns: [{name, type}], rows: [[...]]}}``
+===============================  ==============================================
+
+第二条尤其危险：旧 :meth:`extract` 在 ``data`` 节点上看到 ``rows`` 就取表，
+``columnNames`` 取不到 ⇒ 列名列表为空 ⇒ 每行都变成 ``{}``（**行数对、值全 None，不报错**）。
+故现在两种形状都认，且 ``error`` 非空时**显式抛错**。
 
 四个实测坑（设计文档 §6.2）
 --------------------------
@@ -24,13 +45,14 @@
 坑                               处理
 ===============================  ==============================================
 ``period`` 必须是 ``"10"``（日 K）  :func:`_normalize_period`：``D``/``1d``/``day`` → ``"10"``
-指数接口认**名称**不认代码          :data:`INDEX_QUERY_NAMES` 显式映射；未登记**报错，不猜**
+``get_index_fundamentals`` 认名称  :data:`INDEX_QUERY_NAMES` 显式映射；未登记**报错，不猜**
 批量参数是**逗号分隔字符串**        list / tuple / set → ``','.join``
-返回是 ``{columnNames, rows}``      :meth:`extract`：按列名出行，**缺列显式为 ``None``**
+返回是表格（两种形状）              :meth:`extract`：按列名出行，**缺列显式为 ``None``**
 ===============================  ==============================================
 
-第 2、4 条是「宁可显式报错，不要猜一个像样的值」：猜错时上游只回一句 ``Invalid value``，
-排查者拿不到「我们传了什么」这一半事实。
+坑②只适用于 ``index_fundamentals``：``get_index_kline`` 的 ``windcode`` **认代码**
+（实测 ``885002.WI`` 直接可用），故 K 线路径不做名称映射 —— 多做一步映射反而会
+把能取到的代码挡在门外。
 """
 
 import json
@@ -50,15 +72,28 @@ WIND_PROTOCOL_VERSION = '2025-06-18'
 #: 握手时上报的客户端信息（不含凭据）
 WIND_CLIENT_INFO = {'name': 'fundmate', 'version': '1.0.0'}
 
-#: 能力名 → 工具名（**只登记实测确认过工具名的能力**；生产链路不做自然语言检索，§6.3）
+#: 网关唯一入口工具（实测 ``tools/list`` 只有这两个）
+SEARCH_TOOL = 'market_search_tools'
+CALL_TOOL = 'market_call_tool'
+
+#: 能力名 → **网关 MCP 工具名**（``market_call_tool`` 是二次调用的统一入口）
 _CAPABILITY_TOOLS: Dict[str, str] = {
+    'index_fundamentals': CALL_TOOL,
+    'index_kline': CALL_TOOL,
+    'market_search': SEARCH_TOOL,
+}
+
+#: 能力名 → **上游业务工具名**（经 ``market_call_tool`` 转发的那个名字）。
+#: 只登记实测确认过的工具名；不在此表的能力（``market_search``）直接走 MCP 工具。
+_WIND_TOOLS: Dict[str, str] = {
     'index_fundamentals': 'get_index_fundamentals',
-    'market_search': 'market_search_tools',
+    'index_kline': 'get_index_kline',
 }
 
 #: 指数代码 → 上游查询名（坑②：``get_index_fundamentals`` 认名称不认代码）。
 #: 只登记核心宽基；未登记的代码**报错**而不是原样透传 —— 透传的结果是上游回
 #: ``Invalid value``，现场看不出是我们没做映射。
+#: **``index_kline`` 不走这张表**（``windcode`` 认代码，实测 ``885002.WI`` 可用）。
 INDEX_QUERY_NAMES: Dict[str, str] = {
     '000300.SH': '沪深300',
     '000905.SH': '中证500',
@@ -99,7 +134,7 @@ def _normalize_period(value: object) -> str:
 
 
 def index_query_name(code: str) -> str:
-    """指数代码 → 上游查询名（坑②）。未登记代码抛 ``ValueError``（不静默透传）。"""
+    """指数代码 → 上游查询名（坑②，**仅 ``index_fundamentals``**）。未登记抛 ``ValueError``。"""
     key = (code or '').strip().upper()
     try:
         return INDEX_QUERY_NAMES[key]
@@ -141,10 +176,6 @@ class WindProvider(McpProvider):
         """
         return DataScope.PUBLIC_MARKET if capability in _CAPABILITY_TOOLS else DataScope.USER_PRIVATE
 
-    def _wire(self, tool: str, arguments: dict) -> Dict[str, Any]:
-        """网关型请求体（覆盖基类的 JSON-RPC 形状）：``arguments`` 是 **JSON 字符串**。"""
-        return {'toolName': tool, 'arguments': json.dumps(arguments, ensure_ascii=False)}
-
     # ── 能力清单（探针与报错文案的读者）──
     @classmethod
     def capabilities(cls) -> Tuple[str, ...]:
@@ -166,6 +197,11 @@ class WindProvider(McpProvider):
 
         只做**值级**归一化（不发明参数名）：参数名由调用方按上游文档写，这里负责
         「日期 / 代码 / 批量」三种值的形态差异。这样即使上游改了参数名，本方法也不需要跟着改。
+
+        走 ``market_call_tool`` 的能力（``_WIND_TOOLS``）在这里**再包一层**：
+        网关要 ``{'toolName': ..., 'arguments': '<JSON 字符串>'}``，其中 ``arguments``
+        必须是字符串（实测传对象会被拒）。这一层收在 provider 内，业务侧看到的仍是
+        ``windcode=...`` 这样的普通参数。
         """
         args: Dict[str, Any] = {}
         for key, value in kwargs.items():
@@ -175,7 +211,11 @@ class WindProvider(McpProvider):
                 args[key] = ','.join(str(item) for item in normalized)
             else:
                 args[key] = self._normalize_value(capability, key, value)
-        return args
+
+        wind_tool = _WIND_TOOLS.get(capability)
+        if wind_tool is None:
+            return args
+        return {'toolName': wind_tool, 'arguments': json.dumps(args, ensure_ascii=False)}
 
     @staticmethod
     def _normalize_value(capability: str, key: str, value: Any) -> Any:
@@ -188,7 +228,11 @@ class WindProvider(McpProvider):
 
     # ── 结果解析（坑④）──
     def extract(self, text: str, columns: Optional[Sequence[str]] = None) -> List[Dict[str, Any]]:
-        """``{columnNames, rows}`` 多块表格 → 行字典列表。
+        """表格 → 行字典列表（**两种形状都认**）。
+
+        实测形状：``{'data': {'columns': [{'name': 'TIME', 'type': 'string'}, ...],
+        'rows': [['2026-07-01T00:00:00.000+08:00', '8636.7147', ...]]}, 'error': None}``；
+        文档形状：``{'columnNames': [...], 'rows': [[...]]}``。
 
         Args:
             text: 传输层返回的文本片段（网关的 JSON 字符串）。
@@ -196,20 +240,27 @@ class WindProvider(McpProvider):
                 让「上游这期没给这一列」与「我们没取这一列」在数据上可区分。
 
         Raises:
-            McpBadResponse: 不是 JSON，或里面没有 ``columnNames`` / ``rows`` 形状的表格。
-                不返回空列表 —— 空列表在上层会被读成「这只指数没有数据」。
+            McpBadResponse: 不是 JSON，或上游 ``error`` 非空，或里面没有表格形状。
+                **不返回空列表** —— 空列表在上层会被读成「这只指数没有数据」。
         """
-        tables = list(self._iter_tables(self._decode(text)))  # 必须物化：生成器恒为真，`if not tables` 会失效
+        payload = self._decode(text)
+        if isinstance(payload, dict) and payload.get('error'):
+            raise McpBadResponse(
+                f'Wind 返回错误：{json.dumps(payload["error"], ensure_ascii=False)[:200]}', provider=self.name
+            )
+        tables = list(self._iter_tables(payload))  # 必须物化：生成器恒为真，`if not tables` 会失效
+        if not tables:
+            raise McpBadResponse(
+                f'Wind 返回里没有表格（columnNames / columns + rows）：{text[:120]}', provider=self.name
+            )
         rows: List[Dict[str, Any]] = []
         for table in tables:
-            names = list(table.get('columnNames') or [])
+            names = self._column_names(table)
             for raw_row in table.get('rows') or []:
                 record = self._row_to_record(names, raw_row)
                 for column in columns or ():
                     record.setdefault(column, None)
                 rows.append(record)
-        if not tables:
-            raise McpBadResponse(f'Wind 返回里没有 columnNames / rows 表格：{text[:120]}', provider=self.name)
         return rows
 
     def _decode(self, text: str) -> Any:
@@ -222,7 +273,7 @@ class WindProvider(McpProvider):
     def _iter_tables(cls, node: Any) -> Iterable[Dict[str, Any]]:
         """递归找出所有表格块（网关可能把多张表并列放在一层 dict 里）。"""
         if isinstance(node, dict):
-            if 'columnNames' in node or 'rows' in node:
+            if 'rows' in node and ('columnNames' in node or 'columns' in node):
                 yield node
                 return
             for value in node.values():
@@ -230,6 +281,21 @@ class WindProvider(McpProvider):
         elif isinstance(node, list):
             for item in node:
                 yield from cls._iter_tables(item)
+
+    @staticmethod
+    def _column_names(table: Dict[str, Any]) -> List[str]:
+        """列名：兼容 ``columnNames: ['a']`` 与 ``columns: [{'name': 'a'}]`` 两种形态。"""
+        flat = table.get('columnNames')
+        if flat:
+            return [str(name) for name in flat]
+        columns = table.get('columns') or []
+        names: List[str] = []
+        for column in columns:
+            if isinstance(column, dict):
+                names.append(str(column.get('name')))
+            else:
+                names.append(str(column))
+        return names
 
     @staticmethod
     def _row_to_record(names: Sequence[str], raw_row: Any) -> Dict[str, Any]:
