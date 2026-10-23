@@ -334,6 +334,27 @@ capability 声明 `tier`，`invoke()` 据此决定落库 / TTL / 是否记账。
 实测补充（2026-10-23）：**不先 search 也能调** —— `market_call_tool` 的 `toolName` 填裸名
 （`get_index_kline`）即可，不需要 `serverId` 前缀。故「不做检索」在生产链路上是可执行的，
 代价只有一个常量表要随上游工具变更手工维护（工具名写错会被 `isError` 当场挡住，不会静默）。
+
+### 6.4 同后缀 ≠ 同源：源归属必须是常量（2026-10-23，源 #2476）
+
+`index_daily_job` 按**代码后缀**分流（`.WI` / `.CSI` / 其余），但后缀只描述代码形态，
+**不描述数据源归属**。`885002.WI` 在韭圈儿未收录、在万得 MCP 可取，就是这么一处错位：
+
+| 事实 | 证据 |
+|---|---|
+| 韭圈儿无序列 | 2026-10-21：`disabled=True` / `data={}` / `series` 长度 0 |
+| 万得 MCP 可取 | 2026-10-23：5537 条，2003-12-31 起（1000.0），2026-10-22 收 7206.3199 |
+| 两源**不同尺度** | 同日同码：`885001.WI` 韭圈儿 925.6 / 万得 10877.345；`885000.WI` 935.7 / 14769.2608 |
+
+- **源归属写成常量**（`index_daily_job.WIND_MCP_INDEX_CODES`），**不做**「A 失败就试 B」：
+  两道源尺度差一个数量级，回退一旦真的发生，序列会在换源那天拼出一段凭空涨跌（#2464 同族）。
+- **「未配置」与「上游失败」必须分开**：前者只记 `stats['degraded']` + warning（可选组件
+  不可用），后者进 `errors`（真故障）。混成一个 `except` 会让「今天没配 Token」长期显示成
+  「数据源故障」——反过来，静默返回空会让前端「暂无基准」与「这只指数没数据」同形（#171）。
+- 判据：`backend/tests/services/sync/test_index_daily_job.py::TestWindMcpIndex`（写入口径 /
+  降级不装正常 / 配了失败必进 errors 三条）与
+  `backend/tests/services/adapters/test_wind_index.py`。
+
 ## 7. 展示窗口：3~5 年，在后端截断
 
 ```python
@@ -369,8 +390,8 @@ def clamp_since(since: date, *, allow_full: bool = False) -> date: ...
 | **S0** | 新增 `scripts/guard_no_hardcoded_secrets.py` 并入 `ci.yml` 的 `scripts_test`；登记 `RULE_REGISTRY`；`AGENTS.md` 落一条带判据的红线 | 守卫在真实仓库跑出 0 命中；回退探针（把假 Token 写进真实文件）必须转红；拿不到输入退 2 |
 | **S1** | 抽 `transport` + `base` + `QiemanProvider`，且慢切过去 | `tests/services/thermometer/test_qieman_fetcher.py`、`test_qieman_batch_transport.py` 全绿；握手仍只 1 次；请求数不增 |
 | **S2** ✅ | `credentials` + `errors` + 调用落库（`mcp_call_logs`）+ `health` 段 | 注入额度异常 ⇒ health 转 `degraded`（不是「成功 + 空」） |
-| **S3** ✅ | `WindProvider` + 只读探针 + 真实错误报文采样 | 接第二家（Wind）**不改 `transport.py`**（采样待 Token，见下方 S3 偏离说明） |
-| **S4** | 第一个 Wind job（业绩比较基准回填）+ 展示窗口策略 | API 默认 ≤5 年；基准数据与 Wind 一致 |
+| **S3** ✅ | `WindProvider` + 只读探针 + 真实错误报文采样 | 接第二家（Wind）**不改 `transport.py` 的 provider 分支**；真实报文已采样（2026-10-23，见 §9 修正块） |
+| **S4** ⏳ | 第一个 Wind job（`index_daily` 的 `885002.WI` 走万得）+ 展示窗口策略 | ✅ 已接万得 MCP（真实点位、`price_mode='raw'`）；⏳ 展示窗口策略未做 |混合基准可用（S4 / #2476）)
 | **S5** | `user_mcp_credentials` + `PRO_FEATURES` 门禁 | 用户无 Token ⇒ 明确提示，不回退系统 Token |
 
 > **S0 收窄过（2026-10-21，源 #2486）**：S0 原本还包含「`WIND_MCP_TOKEN` / `WIND_MCP_URL`
