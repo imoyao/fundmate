@@ -347,8 +347,16 @@ BASELINE: dict[str, dict[str, int]] = {
     # `orm_queries` / `commits` 仍为 **0**、`max_func` 不变（31）。summary 245 → 272 行
     # （+27，含端点签名与 3 行 docstring——口径说明留在 service，视图不重复）。
     # 同 #2141「新增功能但视图变薄」先例：无可下沉的业务规则，按 `--report` 实测回写。
+    # 2026-10-23 重取（#2134，**新增端点**，非放宽）：给 summary 加 `GET /summary/benchmark-excess/`
+    # （账户/组合/家庭区间收益 vs 基准指数超额收益，账本对齐-D 卡）——三条口径（scope 区间
+    # 收益 / 指数区间涨跌幅 / 超额）与全部降级原因全在 `services/analytics/benchmark_excess.py`，
+    # 视图侧只有「入参解析 + 必填校验 + 调服务 + 信封」，`orm_queries` / `commits` 仍为 **0**、
+    # `max_func` 不变（31；新端点 span 29 ≤ penetration 的 31）。summary 272 → 305 行
+    # （+33：import 1 + 空行 2 + 装饰器/签名/docstring 9 + 编排 21；docstring 写清
+    # 「互斥参数 / 诚实降级不造数」口径，同 #2141「口径 docstring 值得写清」之例）。
+    # 同 #2131（账本对齐 A'，上一张同系列卡）先例：无可下沉的业务规则，按 `--report` 实测回写。
     "backend/app/domains/summary/views.py": {
-        "lines": 272,
+        "lines": 305,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 31,
