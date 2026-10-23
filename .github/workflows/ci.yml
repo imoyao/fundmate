@@ -708,6 +708,16 @@ jobs:
       - name: dependabot 锁重生成通道（阻断）
         run: python scripts/guard_dependabot_lockfile_regen.py
 
+      # 迁移 PG-aware 守卫（#2534，源 #2469 / #2532 两次生产停摆）：迁移里再出现
+      # 「非 SQLite 就跳过」早退即红——本仓没有 Alembic、create_all 不给存量表加列，
+      # 生产 user 域是 Supabase PG，那句「由 ORM 模型/迁移工具负责」是假前提。
+      # 存量 4 个函数（整表重建 / SQLite 专属 SQL）按指纹基线冻结，收敛一个删一个；
+      # 「已无早退但条目还在」同样红，逼基线与代码同一个 PR 贴合。自带变异探针
+      # （--self-test）；回归网 scripts/tests/test_guard_migrations_pg_aware.py。
+      # 不新增 job——并入本 job，也就不必动 gate.needs。
+      - name: 迁移 PG-aware 守卫（阻断）
+        run: python scripts/guard_migrations_pg_aware.py
+
       - name: 跑 scripts/ 下的 Python 守卫/桥接脚本单测
         run: python -m unittest discover -s scripts/tests -p "test_*.py" -v
 
