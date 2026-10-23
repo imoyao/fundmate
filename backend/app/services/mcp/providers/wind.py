@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
-"""Wind（万得）MCP provider：网关型请求形状 + 四个实测坑的归一化（S3）。
+"""Wind（万得）MCP provider：两级网关 + 真机报文形状（S3，2026-10-23 采样后重写）。
 
-与且慢（:mod:`app.services.mcp.providers.qieman`）的差别只有「这家服务长什么样」两点，
+与且慢（:mod:`app.services.mcp.providers.qieman`）的差别只有「这家服务长什么样」三点，
 都落在基类的扩展点上，**不改** :mod:`app.services.mcp.transport`：
 
-1. 请求体不是 JSON-RPC，而是 ``{'toolName': <工具名>, 'arguments': '<JSON 字符串>'}``
-   （覆盖 :meth:`WindProvider._wire`）；
-2. 鉴权头是 ``Authorization: Bearer <token>``，且 **服务地址没有内置默认值**。
+1. 上游只暴露**两个**工具：``market_search_tools``（自然语言 → 工具清单）与
+   ``market_call_tool``（``toolName`` + ``arguments`` JSON 串 → 取数）。**没有**
+   ``get_index_fundamentals`` 这类直连工具 —— 调它只会拿到 ``isError: true``；
+2. 数据工具一律经 ``market_call_tool`` 转发（:meth:`WindProvider._wire`），
+   请求体本身仍是标准 JSON-RPC ``tools/call``；
+3. 鉴权头是 ``Authorization: Bearer <token>``，且 **服务地址没有内置默认值**。
 
 地址为什么不做默认值
 --------------------
@@ -18,19 +21,26 @@
 ``WIND_MCP_URL`` 未设置 ⇒ :class:`WindEndpointMissing` **当场抛出**，文案直接点名该变量。
 配好地址后本模块的行为与 §4.3 完全一致（env 覆盖点仍在 §8 的预留里）。
 
-四个实测坑（设计文档 §6.2）
---------------------------
+实测坑（2026-10-23 真机采样，#2516）
+-----------------------------------
 ===============================  ==============================================
 坑                               处理
 ===============================  ==============================================
 ``period`` 必须是 ``"10"``（日 K）  :func:`_normalize_period`：``D``/``1d``/``day`` → ``"10"``
-指数接口认**名称**不认代码          :data:`INDEX_QUERY_NAMES` 显式映射；未登记**报错，不猜**
-批量参数是**逗号分隔字符串**        list / tuple / set → ``','.join``
-返回是 ``{columnNames, rows}``      :meth:`extract`：按列名出行，**缺列显式为 ``None``**
+``question`` 类工具只吃自然语言      :data:`INDEX_QUERY_NAMES` 映射代码→名称，再拼进问题
+返回**不是** ``{columnNames, rows}``  :meth:`extract`：认 ``data.columns[].name``，也认
+                                   多包一层的 ``data.data[].columns``（两个工具形状不同）
+工具名错时是 **HTTP 200 + isError**  传输层检查 ``isError``（采样后补，见 #2516）
 ===============================  ==============================================
 
 第 2、4 条是「宁可显式报错，不要猜一个像样的值」：猜错时上游只回一句 ``Invalid value``，
 排查者拿不到「我们传了什么」这一半事实。
+
+为什么不做「代码 → 上游代码」的反推
+-----------------------------------
+实测：同一个问题（「沪深300的发布机构、基日基点与成份数量」）两次采样，
+``get_index_basicinfo`` 分别返回过 ``399300.SZ`` 与 ``000300.SH``。上游会按问题重排结果，
+两个代码空间**不一致**，故任何「拿返回的代码回查」都不可靠；需要代码时用请求侧的代码。
 """
 
 import json
@@ -40,7 +50,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from app.services.mcp.base import McpProvider
 from app.services.mcp.credentials import DataScope
-from app.services.mcp.errors import McpBadResponse
+from app.services.mcp.errors import McpBadResponse, classify_payload
 from app.services.mcp.registry import register_provider
 
 #: 服务地址所在环境变量（**没有默认值**，理由见模块 docstring）
@@ -50,13 +60,24 @@ WIND_PROTOCOL_VERSION = '2025-06-18'
 #: 握手时上报的客户端信息（不含凭据）
 WIND_CLIENT_INFO = {'name': 'fundmate', 'version': '1.0.0'}
 
-#: 能力名 → 工具名（**只登记实测确认过工具名的能力**；生产链路不做自然语言检索，§6.3）
+#: 网关的二级入口：除检索外的工具都经它转发（实测形状，见模块 docstring 第 1 条）
+GATEWAY_CALL_TOOL = 'market_call_tool'
+#: 人工探针用的自然语言检索工具（生产链路不用它，§6.3）
+MARKET_SEARCH_TOOL = 'market_search_tools'
+
+#: 能力名 → 上游工具名（**只登记实测确认过工具名的能力**；生产链路不做自然语言检索，§6.3）
 _CAPABILITY_TOOLS: Dict[str, str] = {
-    'index_fundamentals': 'get_index_fundamentals',
-    'market_search': 'market_search_tools',
+    'index_kline': 'get_index_kline',
+    'index_basicinfo': 'get_index_basicinfo',
+    'index_technicals': 'get_index_technicals',
+    'market_search': MARKET_SEARCH_TOOL,
 }
 
-#: 指数代码 → 上游查询名（坑②：``get_index_fundamentals`` 认名称不认代码）。
+#: 只吃自然语言 ``question`` 的能力（上游的 ``inputSchema`` 里就只有这一个必填键）。
+#: 用于「代码 → 名称」的归一化：这些工具认名称，``get_index_kline`` 两种都认。
+_QUESTION_CAPABILITIES = frozenset({'index_basicinfo', 'index_technicals', 'market_search'})
+
+#: 指数代码 → 上游查询名（``question`` 类工具用名称更稳）。
 #: 只登记核心宽基；未登记的代码**报错**而不是原样透传 —— 透传的结果是上游回
 #: ``Invalid value``，现场看不出是我们没做映射。
 INDEX_QUERY_NAMES: Dict[str, str] = {
@@ -99,7 +120,7 @@ def _normalize_period(value: object) -> str:
 
 
 def index_query_name(code: str) -> str:
-    """指数代码 → 上游查询名（坑②）。未登记代码抛 ``ValueError``（不静默透传）。"""
+    """指数代码 → 上游查询名。未登记代码抛 ``ValueError``（不静默透传）。"""
     key = (code or '').strip().upper()
     try:
         return INDEX_QUERY_NAMES[key]
@@ -110,7 +131,7 @@ def index_query_name(code: str) -> str:
 
 @register_provider
 class WindProvider(McpProvider):
-    """Wind MCP：公开市场数据（指数点位 / 估值 / 档案）。"""
+    """Wind MCP：公开市场数据（指数点位 / 档案 / 技术指标）。"""
 
     name = 'wind'
     protocol_version = WIND_PROTOCOL_VERSION
@@ -142,8 +163,21 @@ class WindProvider(McpProvider):
         return DataScope.PUBLIC_MARKET if capability in _CAPABILITY_TOOLS else DataScope.USER_PRIVATE
 
     def _wire(self, tool: str, arguments: dict) -> Dict[str, Any]:
-        """网关型请求体（覆盖基类的 JSON-RPC 形状）：``arguments`` 是 **JSON 字符串**。"""
-        return {'toolName': tool, 'arguments': json.dumps(arguments, ensure_ascii=False)}
+        """``tools/call`` 请求体（标准 JSON-RPC，但数据工具要过二级网关）。
+
+        实测（2026-10-23）：直接 POST ``{'toolName': …}`` 会被上游按 pydantic 校验拒收
+        （``HTTP 400`` + 11 条 ``JSONRPCMessage`` 字段缺失），所以**请求体仍是 JSON-RPC**；
+        而**工具**只有 ``market_call_tool`` 能转发数据查询 —— 于是「形状」与「转发」两件事
+        分开：形状走基类，转发在这里。
+
+        ``market_search_tools`` 是上游的检索入口，直接以工具名调用即可。
+        """
+        if tool == MARKET_SEARCH_TOOL:
+            return super()._wire(tool, arguments)
+        return super()._wire(
+            GATEWAY_CALL_TOOL,
+            {'toolName': tool, 'arguments': json.dumps(arguments, ensure_ascii=False)},
+        )
 
     # ── 能力清单（探针与报错文案的读者）──
     @classmethod
@@ -160,7 +194,7 @@ class WindProvider(McpProvider):
         """
         return tuple(sorted(set(_CAPABILITY_TOOLS.values())))
 
-    # ── 参数归一化（§6.2 四个坑）──
+    # ── 参数归一化（§6.2）──
     def map_args(self, capability: str, **kwargs: Any) -> Dict[str, Any]:
         """业务参数 → 上游参数。
 
@@ -182,13 +216,29 @@ class WindProvider(McpProvider):
         """单个值的归一化（``period`` 别名 / 指数代码 → 查询名），其余原样。"""
         if key == 'period':
             return _normalize_period(value)
-        if capability == 'index_fundamentals' and isinstance(value, str) and _INDEX_CODE_RE.match(value.strip()):
+        if capability in _QUESTION_CAPABILITIES and isinstance(value, str) and _INDEX_CODE_RE.match(value.strip()):
             return index_query_name(value)
         return value
 
     # ── 结果解析（坑④）──
     def extract(self, text: str, columns: Optional[Sequence[str]] = None) -> List[Dict[str, Any]]:
-        """``{columnNames, rows}`` 多块表格 → 行字典列表。
+        """上游表格 → 行字典列表。
+
+        实测（2026-10-23）**两种**形状都要认，且都**不是** ``{columnNames, rows}``：
+
+        ``get_index_kline``::
+
+            {"data": {"columns": [{"name": "TIME", "type": "string"}, ...],
+                      "rows": [["2026-10-15T00:00:00.000+08:00", "4145.95", ...]],
+                      "unit": {"TURNOVER 单位": "元"}}, "error": null}
+
+        ``get_index_basicinfo``（**多包一层** ``data.data`` 且是个数组）::
+
+            {"data": {"data": [{"columns": [{"name": "Wind代码"}, ...],
+                                "rows": [["399300.SZ", "沪深300", ...]]}]}, "error": null}
+
+        旧的 ``{columnNames: [str], rows: [[...]]}`` 一并保留（``market_search_tools``
+        与历史夹具都是这个形状）。
 
         Args:
             text: 传输层返回的文本片段（网关的 JSON 字符串）。
@@ -196,20 +246,21 @@ class WindProvider(McpProvider):
                 让「上游这期没给这一列」与「我们没取这一列」在数据上可区分。
 
         Raises:
-            McpBadResponse: 不是 JSON，或里面没有 ``columnNames`` / ``rows`` 形状的表格。
+            McpBadResponse: 不是 JSON、``error`` 非空，或里面没有可识别的表格。
                 不返回空列表 —— 空列表在上层会被读成「这只指数没有数据」。
         """
-        tables = list(self._iter_tables(self._decode(text)))  # 必须物化：生成器恒为真，`if not tables` 会失效
+        payload = self._decode(text)
+        self._raise_for_error(payload)
+        tables = list(self._iter_tables(payload))  # 必须物化：生成器恒为真，`if not tables` 会失效
         rows: List[Dict[str, Any]] = []
-        for table in tables:
-            names = list(table.get('columnNames') or [])
-            for raw_row in table.get('rows') or []:
+        for names, raw_rows in tables:
+            for raw_row in raw_rows:
                 record = self._row_to_record(names, raw_row)
                 for column in columns or ():
                     record.setdefault(column, None)
                 rows.append(record)
         if not tables:
-            raise McpBadResponse(f'Wind 返回里没有 columnNames / rows 表格：{text[:120]}', provider=self.name)
+            raise McpBadResponse(f'Wind 返回里没有可识别的表格：{text[:120]}', provider=self.name)
         return rows
 
     def _decode(self, text: str) -> Any:
@@ -218,18 +269,47 @@ class WindProvider(McpProvider):
         except (TypeError, ValueError):
             raise McpBadResponse(f'Wind 返回非 JSON：{text[:120]}', provider=self.name) from None
 
+    def _raise_for_error(self, payload: Any) -> None:
+        """``error`` 非空即抛（顶层与 ``data.error`` 都要看）。
+
+        实测上游成功时两个位置都是 ``null``；但「工具名不存在」这类失败是
+        ``{"data": ..., "error": {"code": 400, "message": "..."}}`` —— 只有当
+        ``isError`` 被传输层漏看时才轮到它兜底，故照样分类，不静默。
+        """
+        if not isinstance(payload, dict):
+            return
+        candidates = [payload.get('error')]
+        data = payload.get('data')
+        if isinstance(data, dict):
+            candidates.append(data.get('error'))
+        for err in candidates:
+            if err:
+                raise classify_payload(err, provider=self.name)
+
     @classmethod
-    def _iter_tables(cls, node: Any) -> Iterable[Dict[str, Any]]:
-        """递归找出所有表格块（网关可能把多张表并列放在一层 dict 里）。"""
+    def _iter_tables(cls, node: Any) -> Iterable[Tuple[List[str], List[Any]]]:
+        """递归找出所有表格块，产出 ``(列名, 行)``（网关会把多张表并列 / 多包一层）。"""
         if isinstance(node, dict):
-            if 'columnNames' in node or 'rows' in node:
-                yield node
+            if 'columnNames' in node or 'rows' in node or 'columns' in node:
+                yield cls._column_names(node), list(node.get('rows') or [])
                 return
             for value in node.values():
                 yield from cls._iter_tables(value)
         elif isinstance(node, list):
             for item in node:
                 yield from cls._iter_tables(item)
+
+    @staticmethod
+    def _column_names(node: Dict[str, Any]) -> List[str]:
+        """两种列名形状 → ``[str]``：``columnNames: ["日期"]`` 或 ``columns: [{"name": "日期"}]``。"""
+        legacy = node.get('columnNames')
+        if isinstance(legacy, list):
+            return [str(name) for name in legacy]
+        columns = node.get('columns')
+        if isinstance(columns, list):
+            names = [item.get('name') for item in columns if isinstance(item, dict) and item.get('name')]
+            return [str(name) for name in names]
+        return []
 
     @staticmethod
     def _row_to_record(names: Sequence[str], raw_row: Any) -> Dict[str, Any]:
