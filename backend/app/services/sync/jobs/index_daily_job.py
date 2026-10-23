@@ -38,6 +38,7 @@ from loguru import logger
 from app.domains.indices.models import IndexDaily
 from app.services.adapters.direct_feeds import fetch_daily_csindex, fetch_daily_tencent
 from app.services.job_base import JobStatus, SyncJob
+from app.services.sync.bulk_ops import bulk_insert_rows
 
 # 万得系指数目标清单（#275 定稿）：韭圈儿 gu_code 原生形态（.WI 后缀）。
 # 来源：#275 2022 年评论梳理的「适用性广泛」万得基金系列指数 + 万得全A；
@@ -306,26 +307,33 @@ class IndexDailySyncJob(SyncJob):
                 )
                 .all()
             }
-            inserted = updated = 0
+            inserts: List[dict] = []
+            updated = 0
             for r in rows:
                 row = existing.get(r['trade_date'])
                 if row is None:
-                    self.db.add(
-                        IndexDaily(
-                            index_code=index_code,
-                            trade_date=r['trade_date'],
-                            close=r['close'],
-                            ret_pct=r.get('ret_pct'),
-                            source=source,
-                            price_mode=price_mode,
-                        )
+                    # 批量写：Turso（Hrana/HTTP）上逐行 `db.add` = 每行一次往返，实测
+                    # ~0.2s/行。本 job 24 个指数 1.3 万行 → 45 分钟，把 90 分钟的每日
+                    # 调度吃掉一半（run 39943903338：index_daily 58.8 分钟）。#2522 同族。
+                    inserts.append(
+                        {
+                            'index_code': index_code,
+                            'trade_date': r['trade_date'],
+                            'close': r['close'],
+                            'ret_pct': r.get('ret_pct'),
+                            'source': source,
+                            'price_mode': price_mode,
+                        }
                     )
-                    inserted += 1
                 else:
                     row.close = r['close']
                     row.ret_pct = r.get('ret_pct')
                     row.price_mode = price_mode
                     row.source = source
                     updated += 1
+            if inserts:
+                bulk_insert_rows(self.db, IndexDaily, inserts, log_scope=f'指数日线 {index_code}')
             self.db.commit()
-            logger.info(f'指数日线 {index_code}({price_mode}): 新增 {inserted} / 更新 {updated}（共 {len(rows)} 条）')
+            logger.info(
+                f'指数日线 {index_code}({price_mode}): 新增 {len(inserts)} / 更新 {updated}（共 {len(rows)} 条）'
+            )
