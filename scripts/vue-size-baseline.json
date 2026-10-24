@@ -7,7 +7,6 @@
     "components/Aggregation/AggregationHero.vue": 434,
     "components/Aggregation/AggregationPage.vue": 465,
     "components/Aggregation/AggregationProductCard.vue": 449,
-    "components/Aggregation/AggregationProductDetail.vue": 782,
     "components/Charts/SankeyChart.vue": 448,
     "components/DiscrepancyBanner/index.vue": 408,
     "components/PnlAttribution/index.vue": 402,
