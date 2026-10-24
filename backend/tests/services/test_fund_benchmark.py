@@ -21,6 +21,20 @@ from app.services.fund_benchmark import (
 )
 
 
+def _mapped_codes() -> set:
+    """从**规则表本身**取全部被映射的基准代码，不手写类型名清单。
+
+    手写清单会随规则表漂移，而漂移的后果是**静默的**：`#2476` 当年「平衡混合」那条
+    规则一直在表里，但测试只挑了 5 个类型名去跑，从未执行到它 ⇒ 映射指向
+    「韭圈儿未收录」的 `885002.WI` 这件事，在很长一段时间里都是全绿的。
+
+    故输入只能是 `fund_benchmark._RULES`：新增一条规则，判据自动覆盖到它。
+    """
+    from app.services.fund_benchmark import _RULES
+
+    return {code for _rule_name, _needles, code in _RULES if code}
+
+
 class TestResolveRouting:
     """按 fund_type.name 的具体形态验证分流。"""
 
@@ -121,13 +135,8 @@ class TestTargetsConsistency:
         )
 
         declared = {c for c, _ in WIND_INDEX_TARGETS + TENCENT_INDEX_TARGETS + CSINDEX_INDEX_TARGETS}
-        # 逐个类型名跑一遍，收集所有会被映射出来的代码
-        mapped = set()
-        for t in ('股票型', '混合型-偏股', '混合型-灵活', '混合型-平衡', '债券型-长期纯债', '混合型-偏债'):
-            choice = resolve(t)
-            assert choice is not None
-            mapped.add(choice.code)
-        missing = mapped - declared
+        # 直接从规则表取，不手写类型名清单（见 `_mapped_codes` 的注释）
+        missing = _mapped_codes() - declared
         # 允许「已登记但源侧未收录」的基准（resolve 会标 unavailable），其余必须真在清单里
         assert missing <= {BENCH_BOND_FUND}, f'映射出了未登记为同步目标的基准：{missing}'
 
@@ -143,24 +152,38 @@ class TestMappedCodeHasUsableSource:
     新判据：映射出的每个 code 必须有一个**可用数据源**：要么不在 `KNOWN_UNLISTED`
     （主源覆盖），要么在 `WIND_MCP_INDEX_CODES`（另有源显式接管）。两者都不满足 ⇒
     这条映射就是「选了一个我们没数据的基准」，直接红。
-    """
 
-    #: 走一遍所有会被映射出来的类型名（与 `_RULES` 一一对应）。
-    MAPPED_TYPES = (
-        '股票型',
-        '混合型-偏股',
-        '混合型-灵活',
-        '混合型-平衡',
-        '债券型-长期纯债',
-        '混合型-偏债',
-    )
+    判据的输入取自规则表本身（`_mapped_codes`），不是手写的类型名清单——
+    后者正是本卡能长期绿着的原因（见 `_mapped_codes` 的注释）。
+    """
 
     def test_no_mapped_code_is_unavailable_without_alternative_source(self):
         from app.services.sync.jobs.index_daily_job import KNOWN_UNLISTED, WIND_MCP_INDEX_CODES
 
-        mapped = {choice.code for choice in (resolve(t) for t in self.MAPPED_TYPES) if choice}
+        mapped = _mapped_codes()
+        # 取不到任何代码 ⇒ 判据在空转（「空 ⇒ 正常」是最贵的一类假绿）
+        assert mapped, '规则表里一个带代码的映射都没有，这条判据在空转'
         orphan = (mapped & KNOWN_UNLISTED) - WIND_MCP_INDEX_CODES
         assert orphan == set(), f'这些基准在韭圈儿未收录、且没有替代源接管：{orphan}'
+
+    def test_every_rule_with_a_code_is_reachable(self):
+        """每条带代码的规则都必须真的能被 `resolve` 走到（顺序不能把它挡死）。
+
+        「规则在表里」不等于「规则能被命中」：规则表是**有序**前缀表，靠前的规则先命中，
+        所以一条排在别人后面的规则可能永远拿不到调用（`#2476` 的同族形态）。
+        这里用规则自己的 needles 拼一个最小类型名去验证，被截走即说明它已变成死规则。
+        """
+        from app.services.fund_benchmark import _RULES
+
+        shadowed = []
+        for rule_name, needles, code in _RULES:
+            if not code:
+                continue
+            probe = ''.join(needles)
+            choice = resolve(probe)
+            if choice is None or choice.code != code:
+                shadowed.append((rule_name, probe, getattr(choice, 'code', None)))
+        assert not shadowed, f'这些规则被更靠前的规则挡死：{shadowed}'
 
     def test_balanced_hybrid_benchmark_source_is_declared_not_incidental(self):
         """`885002.WI` 的源归属必须**显式声明**，而不是「碰巧能取到」。
