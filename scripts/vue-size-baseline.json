@@ -23,7 +23,6 @@
     "views/asset/favorites/components/RoadCard.vue": 509,
     "views/asset/inventory/components/AllocationTargetCard.vue": 506,
     "views/asset/inventory/components/StrategyDiagnosisCard.vue": 402,
-    "views/asset/investment/import/components/BatchFixPanel.vue": 842,
     "views/asset/investment/import/components/ResultStep.vue": 440,
     "views/asset/investment/manual/index.vue": 711,
     "views/asset/investment/reconcile-workbench/index.vue": 406,
