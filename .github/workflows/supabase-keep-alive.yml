@@ -1,5 +1,17 @@
 name: Supabase Keep-Alive
 
+# 目的：Supabase 免费层项目连续 7 天无活动会被暂停（paused），
+# 表现是前端登录/注册直接报 `Invalid API key`、接口 5xx。
+# 本工作流每 6 天打一次 Auth 与 REST 端点，让项目保持活跃。
+#
+# 两套仓库 Secrets：
+#   生产：SUPABASE_URL        + SUPABASE_ANON_KEY      ← 已有
+#   开发：SUPABASE_DEV_URL    + SUPABASE_DEV_ANON_KEY  ← 新增；未配置时跳过 dev 保活（不红灯）
+#
+# 注意：schedule 事件只读**默认分支（main）**上的工作流文件，
+# 因此新增的 dev 保活要合到 main 之后才会按计划执行；
+# 合入前想手动验证，可在 Actions 页对 dev 分支跑一次 workflow_dispatch。
+
 on:
   schedule:
     - cron: '0 10 */6 * *'
@@ -7,18 +19,71 @@ on:
 
 jobs:
   ping-supabase:
+    name: 生产项目保活
     runs-on: ubuntu-latest
     steps:
       - name: Wake up Supabase Auth & DB
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
-          echo "正在唤醒 Supabase..."
+          echo "正在唤醒 Supabase 生产项目..."
           HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-            "${{ secrets.SUPABASE_URL }}/auth/v1/settings")
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            "$SUPABASE_URL/auth/v1/settings")
 
           if [ "$HTTP_STATUS" -eq 200 ]; then
             echo "✅ 唤醒成功！HTTP 状态码: $HTTP_STATUS"
           else
             echo "❌ 唤醒异常！HTTP 状态码: $HTTP_STATUS"
             exit 1
-          fi   # ← 修正为 fi
+          fi
+
+  ping-supabase-dev:
+    name: 开发/测试项目保活
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检查 dev 凭据是否已配置
+        id: cfg
+        env:
+          DEV_URL: ${{ secrets.SUPABASE_DEV_URL }}
+          DEV_KEY: ${{ secrets.SUPABASE_DEV_ANON_KEY }}
+        run: |
+          if [ -z "$DEV_URL" ] || [ -z "$DEV_KEY" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::未配置 SUPABASE_DEV_URL / SUPABASE_DEV_ANON_KEY，跳过 dev 项目保活"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 唤醒 dev Supabase（Auth）
+        if: steps.cfg.outputs.configured == 'true'
+        env:
+          DEV_URL: ${{ secrets.SUPABASE_DEV_URL }}
+          DEV_KEY: ${{ secrets.SUPABASE_DEV_ANON_KEY }}
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "apikey: $DEV_KEY" \
+            "$DEV_URL/auth/v1/settings")
+          echo "dev /auth/v1/settings => HTTP $code"
+          if [ "$code" -ne 200 ]; then
+            echo "❌ dev 项目 Auth 保活异常！HTTP 状态码: $code"
+            exit 1
+          fi
+          echo "✅ dev Auth 保活成功"
+
+      - name: 唤醒 dev Supabase（REST / DB）
+        if: steps.cfg.outputs.configured == 'true'
+        env:
+          DEV_URL: ${{ secrets.SUPABASE_DEV_URL }}
+          DEV_KEY: ${{ secrets.SUPABASE_DEV_ANON_KEY }}
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "apikey: $DEV_KEY" \
+            "$DEV_URL/rest/v1/")
+          echo "dev /rest/v1/ => HTTP $code"
+          if [ "$code" -ne 200 ]; then
+            echo "❌ dev 项目 REST/DB 保活异常！HTTP 状态码: $code"
+            exit 1
+          fi
+          echo "✅ dev REST/DB 保活成功"
