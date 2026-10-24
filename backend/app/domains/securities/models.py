@@ -129,3 +129,50 @@ class ConvertibleBondTerm(Base, PrimaryKeyMixin, TimestampMixin):
             '算出来是 -500% 这种无意义数）'
         ),
     )
+
+
+class ConvertibleBondAdjustLog(Base, PrimaryKeyMixin, TimestampMixin):
+    """可转债**下修历史**（#2585；market 域）。
+
+    ## 为什么单开一张表，而不是塞进 `convertible_bond_terms`
+
+    `convertible_bond_terms` 是**一只债一行**的当前状态表（按 `symbol` 覆盖式
+    upsert）。下修是**一对多**的历史事件：一只债可能下修 0 次，也可能下修 5 次
+    （实测洪涛转债 128013 有 3 次），且每次的「下修前/后转股价」「生效日」
+    「下修底价」都不同。塞进条款表只能保留最后一次，而**最近一次下修的时间与
+    幅度**恰是判断「下修意愿」的信号（频繁下修的发行人后续再下修概率更高）。
+
+    ## 为什么唯一键是 (symbol, 股东大会日)
+
+    下修必须经股东大会决议，**同一只债在同一天不可能决议两次**；而
+    `生效日期` 可能被后续公告顺延，不适合作幂等键。故按 `(symbol, 股东大会日)`
+    去重，重复抓取走覆盖式 upsert（不会长出重复行）。
+
+    ## 下修底价为什么每行都要存
+
+    底价不是固定条款：它取「股东大会召开前一日 / 前二十交易日」的每股净资产与
+    股票面值（多数条款为二者孰高），**随年报净资产变化**。实测洪涛转债三次下修
+    的底价分别是 3.100 / 3.120 / 2.320——同一条款读出来的数不一样。所以它必须
+    跟着事件走，不能提到条款表当单一列。
+    """
+
+    __tablename__ = 'convertible_bond_adjust_logs'
+
+    symbol = Column(String(30), nullable=False, comment='标准转债代码，如 SH128013')
+    bond_code = Column(String(10), comment='转债原始 6 位代码')
+    name = Column(String(50), comment='转债名称')
+    shareholder_meeting_date = Column(Date, nullable=False, comment='股东大会日（下修决议日）')
+    convert_price_before = Column(SafeNumeric(18, 6), comment='下修前转股价（元）')
+    convert_price_after = Column(SafeNumeric(18, 6), comment='下修后转股价（元）')
+    effective_date = Column(Date, comment='新转股价生效日期（可被公告顺延，不作幂等键）')
+    adjust_floor_price = Column(SafeNumeric(18, 6), comment='该次下修的底价（元，随每股净资产变化）')
+    source = Column(String(20), comment='数据来源')
+
+    __table_args__ = (
+        UniqueConstraint(
+            'symbol',
+            'shareholder_meeting_date',
+            name='uq_cb_adjust_log_symbol_meeting',
+        ),
+        Index('ix_cb_adjust_log_symbol_effective', 'symbol', 'effective_date'),
+    )

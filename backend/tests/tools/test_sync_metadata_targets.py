@@ -22,6 +22,7 @@ import pytest
 from app.tools.sync_metadata import (
     DB_POOL_JOBS,
     FUND_TARGET_JOBS,
+    STOCK_TARGET_JOBS,
     _combine_pools,
     resolve_job_targets,
 )
@@ -87,9 +88,21 @@ def test_unknown_job_with_target_file_stays_none(orch):
     assert resolve_job_targets(orch, 'temperature', None, 'codes.csv') is None
 
 
-def test_db_pool_jobs_only_contains_fund_position():
-    """锁住范围：这份表只应放「None 会被当成显式跳过」的 job；值为池键元组。"""
-    assert DB_POOL_JOBS == {'fund_position': ('fund', 'etf')}
+def test_db_pool_jobs_scope_is_explicit():
+    """锁住范围：这份表只放「`None` 会被当成显式跳过」的 job，值为池键（str 或元组）。"""
+    assert DB_POOL_JOBS == {'fund_position': ('fund', 'etf'), 'bond_adjust_log': 'stock'}
+
+
+def test_bond_adjust_log_takes_stock_pool_and_filters_nothing(orch):
+    """#2585：转债落在 stock 池（带前缀符号），池里混着股票/ETF —— 由 job 按前缀过滤。
+
+    CLI 这一层不做转债过滤：它只负责「把用户触达范围交出去」，
+    多交出来的股票/ETF 会被 job 记进 `not_bond`（不是失败）。
+    """
+    assert resolve_job_targets(orch, 'bond_adjust_log', None, None) == STOCK_CODES
+    # --target-file 同样走 stock 池（漏登记会静默退化成 0 只处理）
+    assert 'bond_adjust_log' in STOCK_TARGET_JOBS
+    assert resolve_job_targets(orch, 'bond_adjust_log', None, 'codes.csv') == STOCK_CODES
 
 
 def test_combine_pools_dedup_preserves_order():
