@@ -30,9 +30,9 @@ export function useBuyNavSync(deps: {
    */
   navMissing: Ref<boolean>;
   /** 净值回填后回写脏基线（系统派生值不算用户编辑） */
-  markClean: () => void;
+  markFormClean: () => void;
 }) {
-  const { form, selectedSecurityOption, navMissing, markClean } = deps;
+  const { form, selectedSecurityOption, navMissing, markFormClean } = deps;
 
   const isTradingDay = ref<boolean | null>(null);
 
@@ -85,7 +85,7 @@ export function useBuyNavSync(deps: {
         // 净值是系统回填的派生值。用户还没录入金额/份额时，回填完即视为新的干净基线：
         // 否则「带预填进入页面、什么都不做就切操作类型」会被判成有未保存修改。
         // 用户已录入金额/份额时**不能**回写基线，否则那部分编辑会被洗掉。
-        if (form.buyAmount == null && form.shares == null) markClean();
+        if (form.buyAmount == null && form.shares == null) markFormClean();
       } else {
         navMissing.value = false;
       }

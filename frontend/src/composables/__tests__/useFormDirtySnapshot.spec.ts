@@ -24,28 +24,28 @@ describe("useFormDirtySnapshot", () => {
     expect(isDirty.value).toBe(true);
   });
 
-  it("markClean 后回到干净（值相同也算干净）", () => {
+  it("markFormClean 后回到干净（值相同也算干净）", () => {
     const form = reactive({ amount: 100 });
-    const { isDirty, markClean } = useFormDirtySnapshot(() => form);
+    const { isDirty, markFormClean } = useFormDirtySnapshot(() => form);
     form.amount = 200;
-    markClean();
+    markFormClean();
     expect(isDirty.value).toBe(false);
   });
 
   it("先重置再记基线：重置动作本身不算「用户编辑」", () => {
     const form = reactive({ amount: 100, symbol: "110011" });
-    const { isDirty, markClean } = useFormDirtySnapshot(() => form);
+    const { isDirty, markFormClean } = useFormDirtySnapshot(() => form);
     // 模拟 resetForm：先改回默认值，再记基线（正确范式）
     form.amount = 0;
     form.symbol = "";
-    markClean();
+    markFormClean();
     expect(isDirty.value).toBe(false);
   });
 
   it("记完基线再改回原值：仍算干净（按值比对，不按事件）", () => {
     const form = reactive({ amount: 100 });
-    const { isDirty, markClean } = useFormDirtySnapshot(() => form);
-    markClean();
+    const { isDirty, markFormClean } = useFormDirtySnapshot(() => form);
+    markFormClean();
     form.amount = 200;
     expect(isDirty.value).toBe(true);
     form.amount = 100;

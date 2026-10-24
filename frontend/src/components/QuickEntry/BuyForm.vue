@@ -244,7 +244,7 @@ const { priceRange: stockPriceRange, refresh: refreshStockRange } =
 
 // 未保存离开保护（#1853）：脏状态住在本子组件里（父组件 TransactionDrawer 拿不到），
 // 故 expose 出去。快照声明必须在 resetForm 之前——它被 resetForm 调用。
-const { markClean, isDirty } = useFormDirtySnapshot(() => form);
+const { markFormClean, isDirty } = useFormDirtySnapshot(() => form);
 
 // ── 账户切换 ──
 function onAccountSelected() {
@@ -283,7 +283,7 @@ const {
   confirmDate,
   calcConfirmAndNav,
   resetTradeDate
-} = useBuyNavSync({ form, selectedSecurityOption, navMissing, markClean });
+} = useBuyNavSync({ form, selectedSecurityOption, navMissing, markFormClean });
 
 // ── 选中标的：回填价格与费率 ──
 const { onSecuritySelected } = useBuySecuritySelection({
@@ -329,7 +329,7 @@ onMounted(() => {
     // 「重记一笔」的预填是**程序化初始值**，不是用户编辑。不回写脏基线的话，
     // 页面一挂载 `isDirty` 就是 true —— 用户什么都不填、只切一下操作类型，
     // 就被弹「记账表单已填写，确定放弃吗？」（#2305 引入的回归）。
-    markClean();
+    markFormClean();
   });
 });
 
@@ -352,7 +352,7 @@ function resetForm() {
   // TransactionDrawer 走 v-model setter 关闭时读到脏，弹出「交易表单已填写，确定
   // 放弃吗？」，且点「继续编辑」留下的是一个已被清空的表单。正确范式见
   // DividendForm.resetForm（先重置、后记快照）。
-  markClean();
+  markFormClean();
 }
 
 watch(

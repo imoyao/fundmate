@@ -248,7 +248,7 @@ const {
 
 // 未保存离开保护（#1853）：脏状态住在本子组件里（父组件 TransactionDrawer 拿不到），
 // 故 expose 出去。快照声明必须在 resetForm 之前——它被 resetForm 调用。
-const { markClean, isDirty } = useFormDirtySnapshot(() => form);
+const { markFormClean, isDirty } = useFormDirtySnapshot(() => form);
 
 // 账户切换 / 选持仓
 const { clearFormData, onAccountChange, onPositionSelect } = useSellFormActions(
@@ -334,7 +334,7 @@ function resetForm() {
   // 未保存离开保护的脏基线（#1853）：必须在**全部重置动作之后**再记快照。
   // 记在前面会把「本轮刚填的值」记成基线，紧接着 Object.assign 重置成默认值，
   // 于是 isDirty 为 true——提交成功后关闭抽屉时被问「确定放弃吗？」。
-  markClean();
+  markFormClean();
 }
 
 // ---------- 监听 ----------

@@ -17,6 +17,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { formatPrice } from "@/utils/pricePrecision";
 
 const props = defineProps<{
   /** 已回填的净值；未拿到时显示 "--" */
@@ -27,8 +28,12 @@ const props = defineProps<{
   fallbackDate?: string;
 }>();
 
+// 位数走契约（净值固定 4 位），不自己写 toFixed —— 见 scripts/guard_price_precision.mjs。
+// 占位仍保留原文案 "--"（不是契约里的 "—"）：这是既有 UI 文案，改了要牵动 e2e 断言。
 const priceText = computed(() =>
-  props.price !== undefined && props.price > 0 ? props.price.toFixed(4) : "--"
+  props.price !== undefined && props.price > 0
+    ? formatPrice(props.price, "fund")
+    : "--"
 );
 const navDateText = computed(() => props.navDate || props.fallbackDate || "--");
 </script>

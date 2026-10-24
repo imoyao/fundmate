@@ -31,7 +31,7 @@
 //
 // ## 基线只减不增
 //
-// 存量 15 处冻结在 BASELINE（值目前都是对的，逐个改会牵动 e2e 文案断言，
+// 存量 12 处冻结在 BASELINE（值目前都是对的，逐个改会牵动 e2e 文案断言，
 // 单独立项收敛）。修掉一处就从 BASELINE 移除一处；脚本对「已消失却仍留在基线」
 // 的项打印提示（不阻断）。
 
@@ -57,10 +57,9 @@ const MULT_AMOUNT_RE = /\*\s*(form\.)?price\b|price\s*\*|\*\s*nav\b/i;
 const CONTRACT_FILE = "utils/pricePrecision.ts";
 
 const BASELINE = new Set([
-  // 存量 15 处（2026-10-20 冻结）：值目前正确，改它会牵动 e2e 文案断言，
+  // 存量 12 处（2026-10-20 冻结，之后随 #980 拆分逐步下修）：值目前正确，改它会牵动 e2e 文案断言，
   // 单独立项收敛。修一处 → 从这里删一处。
   'nav != null ? nav.toFixed(4) : "--"',
-  "? form.price.toFixed(4)",
   'p.toNumber(row.price) != null ? Number(row.price).toFixed(4) : "--"',
   "{{ estimate.out.nav.toFixed(4) }}",
   "{{ estimate.in.nav.toFixed(4) }} = ¥{{",
