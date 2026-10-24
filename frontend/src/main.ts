@@ -8,6 +8,7 @@ import { initFeedlogWidget } from "@/plugins/feedlog";
 import { createApp, type Directive } from "vue";
 import { useElementPlus } from "@/plugins/elementPlus";
 import { injectResponsiveStorage } from "@/utils/responsive";
+import { redirectLegacyUrlToHash } from "@/utils/appUrl";
 
 import Table from "@pureadmin/table";
 // import PureDescriptions from "@pureadmin/descriptions";
@@ -37,6 +38,12 @@ import "./assets/iconfont/iconfont.css";
 import { addCollection } from "@iconify/vue";
 import { icons as epIcons } from "@iconify-json/ep";
 addCollection(epIcons);
+
+// 旧式「路径式」回链归一化（邮件/书签里的 `/reset-password?code=…`）：
+// hash 模式下 pathname 命中而 hash 为空，vue-router 会按根路由处理，已登录时被守卫送去
+// `/welcome`，地址栏出现 `/reset-password#/welcome` 这种畸形 URL（2026-10-24 实测）。
+// 必须早于 createApp / router.isReady 执行。
+redirectLegacyUrlToHash();
 
 const app = createApp(App);
 
