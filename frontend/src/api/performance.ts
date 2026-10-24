@@ -1,26 +1,61 @@
 import { http } from "@/utils/http";
 import type { ApiResponse } from "@/api/types";
 
-/** 年化收益率（XIRR）响应数据，字段与后端 XirrResponse 保持一致 */
+/**
+ * 收益率方法（#871）：
+ * - `xirr`：年化资金加权（默认）。对申赎时点敏感——同一组合不同人介入时点
+ *   数字不可比；
+ * - `twr`：时间加权。日因子连乘（`pnl_calendar` 的 daily_pnl 口径，#2133
+ *   引擎 + #871 组合级扩展），剔除「何时进钱」的影响，跨账户 / 跨人可比；
+ * - `dietz`：Modified Dietz 区间收益（线性近似，不年化），答「本月贡献多少」。
+ */
+export type ReturnMethod = "xirr" | "twr" | "dietz";
+
+/**
+ * 收益率响应数据，字段与后端 XirrResponse 保持一致。
+ *
+ * #871：`method` 决定哪个率值字段有值——
+ * - `method=xirr`（默认，含不传 method 的历史调用）⇒ `xirr` 有值；
+ * - `method=dietz` ⇒ `dietz` 有值（不年化）；
+ * - `method=twr` ⇒ `twr` / `twr_annualized` 有值；无数据时为 `null`，
+ *   调用方须降级显示 `—`，**不得**当成 0%。TWR 为总资产口径（日净资产
+ *   序列天然含货币基金等现金等价物），`include_cash_equivalents` 对它不生效。
+ */
 export interface XirrData {
-  /** 年化收益率（小数，如 0.1234 表示 12.34%） */
-  xirr: number;
+  /** 实际使用的收益率方法 */
+  method?: ReturnMethod;
+  /** 年化收益率（小数，如 0.1234 表示 12.34%；method=xirr） */
+  xirr?: number;
+  /** Modified Dietz 区间收益率，不年化（method=dietz） */
+  dietz?: number;
+  /** 时间加权区间收益率（method=twr；无数据时为 null） */
+  twr?: number | null;
+  /** 时间加权年化收益率（method=twr；无数据时为 null） */
+  twr_annualized?: number | null;
   /** 总投入金额 */
   total_invested: number;
   /** 当前市值 */
   current_value: number;
+  /** 历史收回金额（不含当前市值） */
+  total_withdrawn: number;
   /** 总收益 */
   total_return: number;
   /** 参与计算的现金流笔数 */
   cashflow_count: number;
+  /** TWR 参与连乘的天数（method=twr） */
+  days_used?: number;
+  /** TWR 因缺数据被跳过的天数（method=twr；跳过而非当 0，>0 时结果只覆盖有数据的天） */
+  days_skipped?: number;
 }
 
-/** 获取年化收益率（scope 传 portfolio；portfolioId 省略时按家庭整体计算）
- *  @param includeCashEquivalents 是否将货币基金/逆回购/现金纳入年化收益分母；默认 false=仅算主动投资 */
+/** 获取收益率（scope 传 portfolio；portfolioId 省略时按家庭整体计算）
+ *  @param includeCashEquivalents 是否将货币基金/逆回购/现金纳入年化收益分母；默认 false=仅算主动投资
+ *  @param method 收益率方法（#871）；不传走后端默认 xirr，与历史行为一致 */
 export function getPortfolioXirr(
   scope: string,
   portfolioId?: number,
-  includeCashEquivalents?: boolean
+  includeCashEquivalents?: boolean,
+  method?: ReturnMethod
 ) {
   const params: Record<string, string | number | boolean> = {
     scope,
@@ -28,6 +63,7 @@ export function getPortfolioXirr(
   };
   if (includeCashEquivalents != null)
     params.include_cash_equivalents = includeCashEquivalents;
+  if (method != null) params.method = method;
   return http.request<ApiResponse<XirrData>>("get", "/api/performance/xirr/", {
     params
   });
@@ -54,7 +90,7 @@ export interface TwrData {
   net_worth_end: number | null;
   /** 固定为 daily_chained（逐日因子连乘） */
   method: string;
-  /** family / ledger */
+  /** family / ledger / portfolio（#871 起组合级也走同一引擎） */
   scope: string;
   ledger_id: number | null;
 }

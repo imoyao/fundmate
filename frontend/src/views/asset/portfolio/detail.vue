@@ -65,56 +65,8 @@
         />
       </MetricGrid>
 
-      <!-- 组合收益 (XIRR) -->
-      <CardBlock class="mb-6">
-        <SectionHeader title="组合收益 (XIRR)">
-          <template #action>
-            <IncludeCashSwitch
-              v-model="includeCashEquivalents"
-              @change="fetchXirr"
-            />
-            <el-button size="small" :loading="xirrLoading" @click="fetchXirr">
-              <IconifyIconOffline icon="ep:refresh" class="mr-1" /> 刷新
-            </el-button>
-          </template>
-        </SectionHeader>
-        <div v-if="xirrData" class="xirr-grid">
-          <div class="xirr-item">
-            <span class="xirr-label">年化收益率</span>
-            <div class="xirr-value--lg">
-              <RiseFallText :value="xirrData.xirr * 100" />
-            </div>
-          </div>
-          <div class="xirr-item xirr-item--ml">
-            <span class="xirr-label">当前市值</span>
-            <div class="xirr-value">
-              <MoneyDisplay
-                :value="xirrData.current_value"
-                :show-sign="false"
-              />
-            </div>
-          </div>
-          <div class="xirr-item">
-            <span class="xirr-label">总投入</span>
-            <div class="xirr-value">
-              <MoneyDisplay
-                :value="xirrData.total_invested"
-                :show-sign="false"
-              />
-            </div>
-          </div>
-          <div class="xirr-item">
-            <span class="xirr-label">总收益</span>
-            <div class="xirr-value">
-              <MoneyDisplay :value="xirrData.total_return" />
-            </div>
-          </div>
-        </div>
-        <div v-else-if="!xirrLoading" class="xirr-empty">
-          点击刷新获取收益数据
-        </div>
-        <div v-else class="xirr-empty">计算中...</div>
-      </CardBlock>
+      <!-- 组合收益（#871 三口径卡，#980 拆出）；v-if=portfolio 复刻拆出前「组合存在才拉」 -->
+      <PortfolioReturnCard v-if="portfolio" :portfolio-id="portfolioId" />
 
       <!-- 货基收益（组合维度：按 ledger_id 聚合关联账户；与 XIRR 并列，不与 XIRR 相加） -->
       <CardBlock v-if="moneyFundData || moneyFundLoading" class="mb-6">
@@ -402,9 +354,7 @@ import {
   type PortfolioDetail
 } from "@/api/portfolio";
 import {
-  getPortfolioXirr,
   getMoneyFundIncome,
-  type XirrData,
   type MoneyFundIncomeData
 } from "@/api/performance";
 import { getLedgers, type LedgerItem } from "@/api/ledger";
@@ -420,7 +370,6 @@ import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
-import IncludeCashSwitch from "@/components/IncludeCashSwitch/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
@@ -429,6 +378,7 @@ import PnlAttribution from "@/components/PnlAttribution/index.vue";
 import RealtimeEstimateToggle from "@/components/RealtimeEstimateToggle/index.vue";
 import PortfolioEditDialog from "@/components/PortfolioEditDialog/index.vue";
 import PenetrationPanel from "./PenetrationPanel.vue";
+import PortfolioReturnCard from "./PortfolioReturnCard.vue";
 import { useEnumLabels } from "@/composables/useEnumLabels";
 import {
   confirmedPnl,
@@ -481,13 +431,12 @@ const portfolioId = computed(() => Number(route.params.id));
 const loading = ref(true);
 const portfolio = ref<PortfolioDetail | null>(null);
 const linkedLedgers = ref<LinkedLedger[]>([]);
-const xirrData = ref<XirrData | null>(null);
-const xirrLoading = ref(false);
 // 组合货基收益（组合维度，按 ledger_id 聚合关联账户；与 XIRR 并列展示，不相加）
 const moneyFundData = ref<MoneyFundIncomeData | null>(null);
 const moneyFundLoading = ref(false);
-// #1354：年化收益是否纳入现金等价物；默认 false=仅主动投资，反映真实投资水准
-const includeCashEquivalents = ref(false);
+
+// #871：组合收益（三口径）已拆为 PortfolioReturnCard——自含取数与口径切换，
+// 父页只传 portfolioId（#980 上帝页面拆分）。
 const sortProp = ref<string | null>(null);
 const sortOrder = ref<"ascending" | "descending" | null>(null);
 
@@ -637,22 +586,6 @@ async function fetchHoldings() {
   }
 }
 
-async function fetchXirr() {
-  xirrLoading.value = true;
-  try {
-    const res = await getPortfolioXirr(
-      "portfolio",
-      portfolioId.value,
-      includeCashEquivalents.value
-    );
-    xirrData.value = res.data;
-  } catch {
-    ElMessage.error("获取收益率失败");
-  } finally {
-    xirrLoading.value = false;
-  }
-}
-
 async function fetchMoneyFund() {
   moneyFundLoading.value = true;
   try {
@@ -759,7 +692,6 @@ onMounted(async () => {
   void ensureEnums(); // 预热枚举标签缓存（来源徽标）
   await fetchDetail();
   if (portfolio.value) {
-    void fetchXirr(); // 自动加载收益率
     void fetchMoneyFund(); // 自动加载组合货基收益
     void fetchExcess(); // #2134 区间收益 vs 基准（近 90 天）
     await fetchUnarchived(); // 加载未归档持仓（探市录入等）
@@ -776,41 +708,43 @@ onMounted(async () => {
   font-variant-numeric: tabular-nums;
 }
 
-/* XIRR 指标区 */
-.xirr-grid {
+/* XIRR 指标区：组合收益卡与组合货基卡共用——收益卡已拆为 PortfolioReturnCard
+   子组件（#980），跨子组件的规则统一用 :deep() 包裹（作用域仍限定在本页树内，
+   welcome/index.vue 同款约定） */
+:deep(.xirr-grid) {
   display: flex;
   gap: var(--space-5);
   align-items: center;
 }
 
-.xirr-item {
+:deep(.xirr-item) {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.xirr-item--ml {
+:deep(.xirr-item--ml) {
   margin-left: auto;
 }
 
-.xirr-label {
+:deep(.xirr-label) {
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
 
-.xirr-value {
+:deep(.xirr-value) {
   font-size: var(--text-body);
   font-weight: 700;
   color: var(--text-primary);
 }
 
-.xirr-value--lg {
+:deep(.xirr-value--lg) {
   font-size: var(--text-display);
   font-weight: 700;
   line-height: 1.1;
 }
 
-.xirr-empty {
+:deep(.xirr-empty) {
   padding: var(--space-compact);
   color: var(--text-tertiary-ink);
   text-align: center;

@@ -13,23 +13,24 @@ from app.core.database import get_db
 from app.core.validation import parse_query
 from app.domains.performance.schemas import MoneyFundIncomeRequest, TwrRequest, XirrRequest
 from app.services.money_fund_income import calculate_money_fund_income, resolve_money_fund_scope
-from app.services.performance import XirrScopeParameterError, calculate_twr, calculate_xirr_by_scope
+from app.services.performance import XirrScopeParameterError, calculate_return_by_scope, calculate_twr
 
 bp = APIBlueprint('performance', __name__, url_prefix='/api/performance')
 
 
 @bp.get('/xirr/')
 def get_xirr():
-    """查询年化收益率（scope=position / portfolio / symbol，分派下沉 services）"""
+    """查询收益率（scope=position / portfolio / symbol；method=xirr / twr / dietz，#871）"""
     query_data: XirrRequest = parse_query(XirrRequest)
 
     with get_db() as db:
-        # scope 校验 / 分派 / 归属校验全部下沉 services（#1929 / #1972）：
+        # scope / method 校验 / 分派 / 归属校验全部下沉 services（#1929 / #1972）：
         # XirrScopeParameterError 必须排在 ValueError 之前捕获（它是其子类），
         # 否则「参数缺失」会被归属校验的 404 分支吃掉。
         try:
-            result = calculate_xirr_by_scope(
+            result = calculate_return_by_scope(
                 db,
+                method=query_data.method,
                 scope=query_data.scope,
                 position_id=query_data.position_id,
                 portfolio_id=query_data.portfolio_id,
@@ -42,13 +43,9 @@ def get_xirr():
         except ValueError as e:
             abort(404, str(e))
         except Exception as e:
-            logger.exception('年化收益率计算异常')
-            abort(500, f'年化收益率计算失败，请稍后重试: {str(e)}')
+            logger.exception('收益率计算异常')
+            abort(500, f'收益率计算失败，请稍后重试: {str(e)}')
 
-    logger.info(
-        f'年化收益率计算完成(scope={query_data.scope}, position_id={query_data.position_id}, '
-        f'portfolio_id={query_data.portfolio_id}, symbol={query_data.symbol}): {result}'
-    )
     return jsonify({'data': result, 'message': 'ok'})
 
 
@@ -58,6 +55,8 @@ def get_twr():
 
     `scope` 只有家庭级 / 账户级两种（不传 `ledger_id` 即家庭级）：TWR 依赖「每日净资产」
     序列，产品级与单持仓没有这条序列。算法与口径见 `services/performance/twr.py`。
+    组合级 TWR 走 `/xirr/?method=twr&scope=portfolio&portfolio_id=...`（#871），
+    与本端点共用同一套 `chain_twr` 引擎。
     """
     q: TwrRequest = parse_query(TwrRequest)
     start = q.start_date.isoformat() if q.start_date else None
@@ -72,7 +71,6 @@ def get_twr():
             logger.exception('时间加权收益率计算异常')
             abort(500, f'时间加权收益率计算失败，请稍后重试: {str(e)}')
 
-    logger.info(f'时间加权收益率计算完成(ledger_id={q.ledger_id}): {result}')
     return jsonify({'data': result, 'message': 'ok'})
 
 

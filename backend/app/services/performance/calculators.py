@@ -24,12 +24,17 @@ from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
 from app.domains.transactions.models import Transaction
 from app.services.nav_service import NavService
-from app.services.performance.xirr_engine import calculate_xirr, generate_cashflows, generate_portfolio_cashflows
+from app.services.performance.xirr_engine import (
+    calculate_modified_dietz,
+    calculate_xirr,
+    generate_cashflows,
+    generate_portfolio_cashflows,
+)
 from app.services.symbol_scope import collect_transaction_symbol_variants, query_positions_by_symbol
 
 
 class XirrScopeParameterError(ValueError):
-    """scope 参数缺失 / 非法。
+    """scope / method 查询参数缺失 / 非法。
 
     单独成类而不是裸 `ValueError`：HTTP 层要把它映射成 **400**（客户端参数错），
     而 `ValueError` 在这条链路上已经被用作**归属校验失败 → 404**（如「持仓不存在」），
@@ -155,16 +160,16 @@ def _empty_xirr_result() -> Dict[str, Any]:
 def _calculate_xirr_for_cashflows(
     cashflows: List[Tuple[dt.date, float]],
     current_market_value: float = 0.0,
+    method: str = 'xirr',
 ) -> Dict[str, Any]:
     """
-    根据现金流计算 XIRR 并返回标准结构。
+    根据现金流计算收益率并返回标准结构。
 
     Args:
         cashflows: 完整现金流列表
         current_market_value: 当前持仓总市值（由调用方传入，不从现金流反推）
+        method: 'xirr'（默认，年化资金加权）/ 'dietz'（Modified Dietz 区间，不年化，#871）
     """
-    xirr_val = calculate_xirr(cashflows)
-
     # 总投入：所有负现金流的绝对值之和
     total_invested = sum(abs(a) for _, a in cashflows if a < 0)
     # 总收回：所有正现金流之和（包含虚拟卖出）
@@ -174,10 +179,25 @@ def _calculate_xirr_for_cashflows(
     # 总收益 = 当前市值 + 历史收回 - 总投入
     total_return = current_market_value + historical_withdrawn - total_invested
 
+    if method == 'dietz':
+        dietz_val = calculate_modified_dietz(cashflows)
+        return {
+            'method': 'dietz',
+            'dietz': round(dietz_val, 4),
+            'total_invested': round(total_invested, 2),
+            'current_value': round(current_market_value, 2),
+            'total_withdrawn': round(historical_withdrawn, 2),
+            'total_return': round(total_return, 2),
+            'cashflow_count': len(cashflows),
+        }
+
+    xirr_val = calculate_xirr(cashflows)
+
     logger.info(
         f'XIRR计算详情: cashflows前5笔={cashflows[:5]}, total_invested={total_invested}, current_market_value={current_market_value}'
     )
     return {
+        'method': 'xirr',
         'xirr': round(xirr_val, 4),
         'total_invested': round(total_invested, 2),
         'current_value': round(current_market_value, 2),
@@ -210,7 +230,11 @@ def _position_scope_transactions(db: Session, position: Position, include_cash_e
 
 
 def calculate_position_xirr(
-    db: Session, position_id: int, family_id: int = 1, include_cash_equivalents: bool = False
+    db: Session,
+    position_id: int,
+    family_id: int = 1,
+    include_cash_equivalents: bool = False,
+    method: str = 'xirr',
 ) -> Dict[str, Any]:
     """计算单持仓**行**的年化收益率 (XIRR)。
 
@@ -243,11 +267,15 @@ def calculate_position_xirr(
 
     current_value = _get_position_current_value(db, position)
     cashflows = generate_cashflows(transactions, current_value, include_cash_equivalents=include_cash_equivalents)
-    return _calculate_xirr_for_cashflows(cashflows, current_value)
+    return _calculate_xirr_for_cashflows(cashflows, current_value, method=method)
 
 
 def calculate_symbol_xirr(
-    db: Session, symbol: str, family_id: int = 1, include_cash_equivalents: bool = False
+    db: Session,
+    symbol: str,
+    family_id: int = 1,
+    include_cash_equivalents: bool = False,
+    method: str = 'xirr',
 ) -> Dict[str, Any]:
     """
     计算**产品级**持有年化：跨账户按 symbol 汇总现金流（#1972）。
@@ -298,10 +326,15 @@ def calculate_symbol_xirr(
         f'现金流笔数={len(cashflows)}, 含现金等价物={include_cash_equivalents}'
     )
 
-    return _calculate_xirr_for_cashflows(cashflows, total_value)
+    return _calculate_xirr_for_cashflows(cashflows, total_value, method=method)
 
 
-def calculate_portfolio_xirr(db: Session, family_id: int = 1, include_cash_equivalents: bool = False) -> Dict[str, Any]:
+def calculate_portfolio_xirr(
+    db: Session,
+    family_id: int = 1,
+    include_cash_equivalents: bool = False,
+    method: str = 'xirr',
+) -> Dict[str, Any]:
     """
     计算整个投资组合的年化收益率 (XIRR)。
     通过 asset_type 字段直接过滤，孤儿交易默认纳入计算（asset_type 为 NULL 不会被 NOT IN 排除）。
@@ -333,11 +366,15 @@ def calculate_portfolio_xirr(db: Session, family_id: int = 1, include_cash_equiv
         f'现金流笔数={len(cashflows)}, 含现金等价物={include_cash_equivalents}'
     )
 
-    return _calculate_xirr_for_cashflows(cashflows, total_value)
+    return _calculate_xirr_for_cashflows(cashflows, total_value, method=method)
 
 
 def calculate_portfolio_xirr_by_id(
-    db: Session, portfolio_id: int, family_id: int = 1, include_cash_equivalents: bool = False
+    db: Session,
+    portfolio_id: int,
+    family_id: int = 1,
+    include_cash_equivalents: bool = False,
+    method: str = 'xirr',
 ) -> Dict[str, Any]:
     """
     计算指定投资组合的年化收益率 (XIRR)。
@@ -401,6 +438,7 @@ def calculate_xirr_by_scope(
     portfolio_id: int | None = None,
     symbol: str | None = None,
     include_cash_equivalents: bool = False,
+    method: str = 'xirr',
 ) -> Dict[str, Any]:
     """按 scope 分派年化收益率计算（#1929 / #1972：视图只做 HTTP 编排，分派逻辑在 service）。
 
@@ -413,19 +451,38 @@ def calculate_xirr_by_scope(
     - ``position``：单持仓行的年化（须传 ``position_id``）；
     - ``portfolio``：指定组合（须传 ``portfolio_id``）；不传组合 id 时退化为**家庭整体**；
     - ``symbol``：产品级持有年化，跨账户按 symbol 汇总现金流（须传 ``symbol``，#1972）。
+
+    method 取值（#871）：
+    - ``xirr``（默认）：年化资金加权；
+    - ``dietz``：Modified Dietz 区间收益（不年化）；
+    - ``twr``：时间加权——不在此函数内（走 `pnl_calendar` 日因子连乘引擎），
+      由包门面 `calculate_return_by_scope` 转派 `twr.calculate_twr_by_scope`；
+      scope=symbol / position 明确 400 不支持（无每日净资产序列）。
     """
     if scope == 'position':
         if not position_id:
             raise XirrScopeParameterError('缺少 position_id 参数')
         return calculate_position_xirr(
-            db, position_id, family_id=family_id, include_cash_equivalents=include_cash_equivalents
+            db,
+            position_id,
+            family_id=family_id,
+            include_cash_equivalents=include_cash_equivalents,
+            method=method,
         )
     if scope == 'portfolio' and portfolio_id:
         return calculate_portfolio_xirr_by_id(
-            db, portfolio_id, family_id=family_id, include_cash_equivalents=include_cash_equivalents
+            db,
+            portfolio_id,
+            family_id=family_id,
+            include_cash_equivalents=include_cash_equivalents,
+            method=method,
         )
     if scope == 'symbol':
         if not symbol:
             raise XirrScopeParameterError('缺少 symbol 参数')
-        return calculate_symbol_xirr(db, symbol, family_id=family_id, include_cash_equivalents=include_cash_equivalents)
-    return calculate_portfolio_xirr(db, family_id=family_id, include_cash_equivalents=include_cash_equivalents)
+        return calculate_symbol_xirr(
+            db, symbol, family_id=family_id, include_cash_equivalents=include_cash_equivalents, method=method
+        )
+    return calculate_portfolio_xirr(
+        db, family_id=family_id, include_cash_equivalents=include_cash_equivalents, method=method
+    )

@@ -13,8 +13,9 @@
  *    且不再内联 el-radio-button」——比原来的「两页各自抄对同一段 markup」
  *    更强：抄错的可能性被结构性消除了。
  *
- * 边界：组合详情页（portfolio/detail.vue）是 portfolio_id 级、scope 不同，
- * 不在本守卫范围（#2153 只约束投资概览与智能分析两页）。
+ * 边界：组合详情页（portfolio/detail.vue，及其 #871 拆出的
+ * PortfolioReturnCard.vue）是 portfolio_id 级、scope 不同，不在本守卫范围
+ * （#2153 只约束投资概览与智能分析两页）。
  *
  * 判据纪律（AGENTS「正则/字符串类判据」）：
  * - 调用抽取用 `getPortfolioXirr\([^)]*\)`：实参内无嵌套括号，[^)]* 不会截错；
@@ -28,7 +29,10 @@ import { fileURLToPath } from "node:url";
 const read = (rel: string) =>
   readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf-8");
 
-const analysis = read("../IntelligentAnalysis.vue");
+// #871：收益概览区块（原 IntelligentAnalysis.vue 内联，#980 拆出）——
+// 调用点 / 口径状态 / 开关都随区块迁移，本守卫跟着调用点走：约束的是
+// 「收益取数必须显式带口径」这条语义，不是某个文件名。
+const analysis = read("../ReturnOverviewSection.vue");
 const welcomeData = read("../../welcome/composables/useWelcomeData.ts");
 const welcomeUi = read("../../welcome/components/WelcomeXirrTemperature.vue");
 
@@ -39,7 +43,7 @@ const xirrCalls = (src: string) =>
 describe("XIRR 口径一致性守卫（#2153）", () => {
   it("两页调用点都显式传 includeCashEquivalents（漏传 → 静默回退默认 → 数值分叉）", () => {
     const callSites = [
-      ["智能分析 IntelligentAnalysis.vue", analysis],
+      ["智能分析收益概览 ReturnOverviewSection.vue", analysis],
       ["投资概览 useWelcomeData.ts", welcomeData]
     ] as const;
     for (const [name, src] of callSites) {

@@ -151,6 +151,55 @@ def calculate_xirr(cashflows: List[Tuple[dt.date, float]]) -> float:
         return 0.0
 
 
+def calculate_modified_dietz(cashflows: List[Tuple[dt.date, float]]) -> float:
+    """
+    Modified Dietz 区间收益率（#871）：线性近似，**不年化**。
+
+    回答「这一段（本月 / 本年）贡献多少」，与 XIRR 的分工见 #796 存档论证：
+    XIRR 作主口径（年化、资金加权，对申赎时点敏感），Modified Dietz 作区间
+    归因辅助（无需求解、无迭代，权重按持有天数线性折减）。
+
+    标准式：R = (EMV − BMV − C) / (BMV + Σ w_i·C_i)，C_i 为外部流入（正），
+    w_i = (T − t_i)/T。换算到本仓现金流约定（支出为负、收入为正，末笔虚拟
+    卖出即 EMV，BMV=0 因首笔流前无持仓记录）：
+
+        R = −Σa_i / Σ(w_i·a_i)        （虚拟卖出 w=0，自动出局）
+
+    验证（单利场景必须与直觉一致）：D0 买 100、D365 值 110 ⇒ R=+10%；
+    D0/D182 各买 100、D365 值 230 ⇒ R≈+19.97%（同期 XIRR≈19.5%，差异来自
+    线性近似本身，属预期）。
+
+    退化处理（不造数字）：
+    - 权重分母 ≈ 0（如全部资金最后一天才进仓）：无持续在仓资本即无区间
+      收益，返回 0.0；
+    - 所有流同一天（T=0）：权重无定义，退化为简单回报（净增益 ÷ 总成本）。
+    """
+    if not cashflows or len(cashflows) < 2:
+        return 0.0
+
+    # 过滤零值现金流并确保按日期升序（与 calculate_xirr 同一前置口径）
+    cf = [(d, a) for d, a in cashflows if abs(a) > 1e-8]
+    if len(cf) < 2:
+        return 0.0
+    cf.sort(key=lambda x: x[0])
+
+    d0, d_end = cf[0][0], cf[-1][0]
+    total_days = (d_end - d0).days
+    net = sum(a for _, a in cf)
+
+    if total_days <= 0:
+        cost = -sum(a for _, a in cf if a < 0)
+        return _safe_return(net / cost) if cost > 1e-8 else 0.0
+
+    weighted = 0.0
+    for d, a in cf:
+        weight = (total_days - (d - d0).days) / total_days
+        weighted += weight * a
+    if abs(weighted) < 1e-8:
+        return 0.0
+    return _safe_return(-net / weighted)
+
+
 def generate_cashflows(
     transactions: list[Transaction],
     current_value: float = 0.0,
