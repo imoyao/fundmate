@@ -68,7 +68,9 @@ def test_ledger_owner_user_is_writable_and_readable(client, db):
 def test_ledger_owner_rejects_other_family_member(client, db):
     """跨家庭串人必须拦住：users.id 全局唯一，只校验「存在」就会挂到别人名下。"""
     stranger = _user(db, username='stranger', family_id=2)
-    resp = client.post('/api/ledgers/', json={'name': '越权账户', 'channel_category': 'bank', 'owner_user_id': stranger.id})
+    resp = client.post(
+        '/api/ledgers/', json={'name': '越权账户', 'channel_category': 'bank', 'owner_user_id': stranger.id}
+    )
     assert resp.status_code == 400
     assert '不属于当前家庭' in resp.get_json()['message']
 
