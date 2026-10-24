@@ -87,31 +87,31 @@ onMounted(load);
 <style scoped lang="scss">
 .rule-tips {
   &__hint {
-    margin: 0;
     padding: 12px 0;
-    font-size: var(--text-body-sm);
+    margin: 0;
+    font-size: var(--text-small);
     color: var(--text-tertiary-ink);
   }
 
   &__error {
     display: flex;
-    align-items: center;
     gap: 8px;
+    align-items: center;
     padding: 8px 0;
   }
 
   &__error-text {
-    font-size: var(--text-body-sm);
-    color: var(--text-secondary-ink);
+    font-size: var(--text-small);
+    color: var(--text-secondary);
   }
 
   &__list {
-    margin: 0;
-    padding: 0;
-    list-style: none;
     display: flex;
     flex-direction: column;
     gap: 12px;
+    padding: 0;
+    margin: 0;
+    list-style: none;
   }
 
   &__item {
@@ -125,16 +125,16 @@ onMounted(load);
     width: 6px;
     height: 6px;
     margin-top: 7px;
-    border-radius: var(--radius-pill);
     background: var(--text-tertiary-ink);
+    border-radius: var(--radius-pill);
   }
 
   &__item--risk &__dot {
-    background: var(--color-danger, #d64545);
+    background: var(--color-danger);
   }
 
   &__item--warn &__dot {
-    background: var(--color-warning, #d99b1f);
+    background: var(--color-warning-fill);
   }
 
   &__body {
@@ -145,15 +145,15 @@ onMounted(load);
   }
 
   &__title {
-    font-size: var(--text-body-sm);
+    font-size: var(--text-small);
     font-weight: 600;
     color: var(--text-primary);
   }
 
   &__message {
-    font-size: var(--text-body-sm);
+    font-size: var(--text-small);
     line-height: 1.55;
-    color: var(--text-secondary-ink);
+    color: var(--text-secondary);
   }
 }
 </style>
