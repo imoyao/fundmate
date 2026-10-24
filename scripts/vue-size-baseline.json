@@ -16,7 +16,6 @@
     "components/Watchlist/SettingsDrawer.vue": 434,
     "components/WatchlistWidget/index.vue": 468,
     "layout/components/lay-setting/index.vue": 648,
-    "views/asset/AssetEntry.vue": 667,
     "views/asset/favorites/components/RoadCard.vue": 509,
     "views/asset/inventory/components/AllocationTargetCard.vue": 506,
     "views/asset/inventory/components/StrategyDiagnosisCard.vue": 402,
