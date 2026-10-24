@@ -50,6 +50,18 @@ repos:
         language: python
         files: ^backend/app/services/thermometer/data/all_pb\.csv$
         pass_filenames: false
+      # 字体产物完整性（2026-10-24）：字体是**本机产物依赖**（MiSans 中文子集由本机
+      # 子集化脚本产出、Inter 是裁剪的可变字体）。它们提交进仓库，但前端构建**不校验**
+      # ——public/ 下的静态文件由 Vite 原样拷贝，字体缺失/截断时 build 照样成功，页面只是
+      # 静默 fallback 到系统字体。判据三条：引用完整性 + 文件头魔数（wOF2/wOFF/OTTO）+
+      # 无孤儿产物。脚本扫全仓（引用↔产物的一致性是全局的），故 pass_filenames: false；
+      # files 只用来限定「什么时候值得跑」。
+      - id: guard-font-assets
+        name: guard font assets integrity (missing / truncated / orphan)
+        entry: python scripts/check_font_assets.py
+        language: python
+        files: ^(frontend/public/fonts/.*|frontend/src/assets/iconfont/.*|frontend/src/.*\.(css|scss|sass|vue))$
+        pass_filenames: false
       - id: guard-mojibake
         name: guard Chinese mojibake in source files
         entry: python scripts/guard_mojibake.py
