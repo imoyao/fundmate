@@ -674,11 +674,11 @@ jobs:
       # 以为「暗色有独立分支」并照着继续写（MoneyDisplay / RiseFallText 各躺了两块）。
       # 判据自带失败态：扫不到输入时 exit 2（结论不可信），不会退化成「零命中 = 通过」。
       # 回归网 scripts/tests/guard_no_data_theme_dark.test.js（真实扫描 + 三种写法注入探针
-      # + 两条失败态探针 + 一条「配色主题选择器不得误伤」反向探针）。
+      # + 两条失败态探针 + 一条「配色主题选择器不得误伤」反向探针）由上面的
+      # `node --test "scripts/tests/*.test.js"` 统一跑，此处不再重复执行：
+      # 同一份回归网跑两遍只是多花几秒，而「哪个 job 才是真的」会多一处说不清。
       - name: 暗色模式：禁止 data-theme 等于 dark 的死选择器
-        run: |
-          node scripts/guard_no_data_theme_dark.mjs
-          node --test scripts/tests/guard_no_data_theme_dark.test.js
+        run: node scripts/guard_no_data_theme_dark.mjs
 
       # 付费卡违规占用 NOW 档位（源 #1288 实测）：付费里程碑上的卡带了 `Q1-RED`。
       # 首次上线时违规项**已经存在**且不是 PR 作者能修的（要改的是 owner 的优先级判断），
