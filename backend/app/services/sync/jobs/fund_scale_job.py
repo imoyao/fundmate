@@ -20,6 +20,7 @@ from typing import Dict, Iterator, List
 
 from app.domains.funds.models import Fund
 from app.services.job_base import IN_CHUNK_SIZE, SyncJob
+from app.services.sync.bulk_ops import bulk_update_by_key, values_equal
 
 # 亿元换算：份额(份) × 单位净值(元) ÷ 1e8 = 亿元
 YI = Decimal('100000000')
@@ -75,15 +76,30 @@ class FundScaleSyncJob(SyncJob):
             self.db.commit()
             return
 
-        updated = 0
+        # 只把**真的变了**的行交给批量更新：
+        # 1. 未变的行不必写（周末/节假日净值不动，全市场 7125 行一条都不用发）；
+        # 2. 判等必须用 `values_equal` 而不是 `set_if_changed`——后者会 setattr 把 ORM 对象
+        #    标脏，commit 时又变回逐行 UPDATE，正好抵消下面要做的事。
+        updates: List[dict] = []
+        unchanged = 0
         for item in new_data:
             fund = existing.get(item['fund_code'])
             if fund is None:
                 continue  # 全市场列表里的基金本地没有 → 不新建
             shares = Decimal(str(item['shares']))
             nav = Decimal(str(item['nav']))
-            fund.scale = (shares * nav / YI).quantize(SCALE_QUANT)
-            fund.recent_shares = shares
-            updated += 1
+            scale = (shares * nav / YI).quantize(SCALE_QUANT)
+            if values_equal(fund.scale, scale) and values_equal(fund.recent_shares, shares):
+                unchanged += 1
+                continue
+            updates.append({'fund_code': fund.fund_code, 'scale': scale, 'recent_shares': shares})
+
+        # 逐行赋值 / bulk_update_mappings 在 Turso 上都是每行一次 HTTP 往返：实测
+        # 7125 只 × 0.16 s = 1139.6 s（run 40044659739 的「写库」阶段），把每日调度
+        # 又吃回去 19 分钟。批量更新把 7125 次往返压到 40 条语句（#2522）。
+        if updates:
+            bulk_update_by_key(self.db, Fund, 'fund_code', updates, log_scope='基金规模')
         self.db.commit()
-        self.logger.info(f'规模回填：全市场 {len(new_data)} 条 → 命中本地并更新 {updated} 只')
+        self.logger.info(
+            f'规模回填：全市场 {len(new_data)} 条 → 命中本地 {len(existing)} 只，更新 {len(updates)} / 未变 {unchanged}'
+        )

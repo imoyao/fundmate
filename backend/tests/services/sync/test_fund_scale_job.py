@@ -5,7 +5,9 @@
 1. 规模 = 份额 × 单位净值 ÷ 1e8，按 Decimal 精度落库；
 2. 只更新本地已存在的基金，**不新建**（L3 不预建全库）；
 3. 份额/净值缺一的条目在校验阶段剔除；
-4. 第二次运行覆盖旧值（不是「已存在即跳过」）。
+4. 第二次运行覆盖旧值（不是「已存在即跳过」）；
+5. 稳态重跑**一条 UPDATE 都不发**；多行变更必须压成几条 `CASE` 语句
+   （Turso 上「每行一次往返」实测 0.16 s/行，见 #2522）。
 """
 
 from unittest.mock import MagicMock
@@ -108,3 +110,68 @@ def test_in_query_is_chunked_beyond_sqlite_variable_limit(job, db):
     result = job.run(full_sync=True, targets=['__full__'])
     assert result['status'] == 'success'
     assert db.query(Fund).filter(Fund.scale.isnot(None)).count() == 1500
+
+
+def _capture_updates(db):
+    """收集本 session 引擎上的 UPDATE 语句（'#'2522 的判据：数语句，不数代码路径）。"""
+    from sqlalchemy import event
+
+    updates = []
+    engine = db.get_bind()
+
+    def before(conn, cursor, statement, parameters, context, executemany):  # noqa: ANN001
+        sql = ' '.join(statement.split())
+        if sql.upper().startswith('UPDATE'):
+            updates.append(sql)
+
+    event.listen(engine, 'before_cursor_execute', before)
+    return updates, lambda: event.remove(engine, 'before_cursor_execute', before)
+
+
+def test_rerun_with_same_values_emits_no_update(job, db):
+    """同数据重跑：**一条 UPDATE 都不发**（规模没变就不该写库）。"""
+    db.add(Fund(fund_code='000001', name='测试基金A'))
+    db.commit()
+
+    job.adapter.fetch_fund_scale.return_value = [{'fund_code': '000001', 'shares': 1.0e9, 'nav': 1.5}]
+    job.run(full_sync=True, targets=['__full__'])
+
+    job2 = FundScaleSyncJob(job.adapter, db)
+    updates, stop = _capture_updates(db)
+    try:
+        result = job2.run(full_sync=True, targets=['__full__'])
+    finally:
+        stop()
+
+    assert result['status'] == 'success'
+    assert updates == [], f'规模没变却发了 {len(updates)} 条 UPDATE'
+
+
+def test_many_changed_rows_are_written_in_a_few_statements(job, db):
+    """400 只基金净值全变 ⇒ 必须压成几条语句，而不是 400 条逐行 UPDATE。
+
+    生产实测（run `40044659739`）：7125 只 × 0.16 s = 写库 1139.6 s，
+    而其中 1139.6 s 全部花在「每行一次 HTTP 往返」上——本条钉住的就是这个形状。
+    """
+    codes = [f'{i:06d}' for i in range(400)]
+    db.add_all([Fund(fund_code=c, name=f'基金{c}') for c in codes])
+    db.commit()
+
+    job.adapter.fetch_fund_scale.return_value = [{'fund_code': c, 'shares': 1.0e9, 'nav': 1.5} for c in codes]
+    job.run(full_sync=True, targets=['__full__'])
+
+    job2 = FundScaleSyncJob(job.adapter, db)
+    job.adapter.fetch_fund_scale.return_value = [{'fund_code': c, 'shares': 1.0e9, 'nav': 1.6} for c in codes]
+    updates, stop = _capture_updates(db)
+    try:
+        job2.run(full_sync=True, targets=['__full__'])
+    finally:
+        stop()
+
+    assert len(updates) <= 4, f'400 行应压成 ≤4 条语句（每批 179 行），实际 {len(updates)} 条'
+    assert all('CASE' in sql for sql in updates), '每条都必须是 CASE 批量形态，不得逐行 WHERE 主键'
+    assert all('fund_code = ?' not in sql for sql in updates)
+
+    db.expire_all()
+    values = {f.fund_code: float(f.scale) for f in db.query(Fund).all()}
+    assert set(values.values()) == {16.0}, f'新净值必须真的落库，实际 {sorted(set(values.values()))[:5]}'
