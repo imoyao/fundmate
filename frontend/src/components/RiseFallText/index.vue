@@ -31,10 +31,10 @@
     ]"
     :style="{ color: customColor }"
   >
-    <!-- 正负号 -->
-    <span v-if="showSign && !isZero" class="sign">
-      {{ isRise ? "+" : "-" }}
-    </span>
+    <!-- 正负号。⚠️ 插值必须与标签**同一行**：多行写法（`>` 换行缩进再 `{{ }}`）
+         会把那串空白渲染成可见空格，"-" 与数字之间凭空多出 3px 的缝，
+         看上去像「减号是单独一个东西」。 -->
+    <span v-if="showSign && !isZero" class="sign">{{ isRise ? "+" : "-" }}</span>
 
     <!-- 数值 -->
     <span class="number font-mono">{{ formattedValue }}</span>
@@ -134,7 +134,16 @@ const sizeClass = computed(() => {
 .rise-fall-text .sign {
   margin-right: 1px;
   font-family: var(--font-sans, Inter, -apple-system, sans-serif);
-  font-size: 0.9em;
+  /* ⚠️ 必须关掉 tabular-nums：它是继承来的（根节点给数字开的等宽对齐），
+     而 Inter 的 tnum 特性能把连字符/减号换成**等宽数字格**里那个居中的版本
+     ——实测 "-" 从 6.02px 变成 8.44px，减号因此离数字 2px 远、笔画也变淡，
+     看上去像「一个单独的小横线」。数字仍保持 tabular-nums（小数点对齐），
+     符号回到比例宽（此规则只作用于 .sign）。 */
+  font-variant-numeric: normal;
+  /* 与数字同号（1em）：0.9em 时减号比数字小一号、笔画细，13px 的小字里
+     会被读成「一个灰点」而不是数字的一部分（用户报的「符号像浅灰」）。
+     符号本身照常继承 .is-rise / .is-fall 的颜色。 */
+  font-size: 1em;
   font-weight: 500;
 }
 

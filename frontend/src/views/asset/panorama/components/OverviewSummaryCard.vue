@@ -262,11 +262,20 @@ const { render, charts } = useEchartsLifecycle(
             fall: getCSSColor("--color-fall"),
             info: getCSSColor("--color-info"),
             neutral: getCSSColor("--color-neutral"),
-            textSecondary: getCSSColor("--text-secondary"),
             // 轴标签也是文字：design.md 规定 `color:` 用途一律走 --text-tertiary-ink
             //（--text-tertiary 白底仅 3.69:1，达不到正文 4.5:1）
             axis: getCSSColor("--text-tertiary-ink"),
-            border: getCSSColor("--border-light")
+            border: getCSSColor("--border-light"),
+            // 连接线取 --text-tertiary：colors.css 把它定义为「辅助底色/描边/图形」级，
+            // 正好是瀑布台阶的语义。--border-default 在白卡上只有 ~11% 明度差，
+            // 1px 虚线实际看不见（实测），等于白画。
+            connector: getCSSColor("--text-tertiary"),
+            // 柱标签文字色：**必须传解析后的颜色**（这里是 getCssVar 读出来的实际值），
+            // 传给 echarts canvas 的 `var(--x)` 会被静默忽略 ⇒ 标签颜色不可控
+            riseInk: getCSSColor("--color-rise-ink"),
+            fallInk: getCSSColor("--color-fall-ink"),
+            neutralInk: getCSSColor("--text-secondary"),
+            primaryInk: getCSSColor("--text-primary")
           })
         );
         return chart;
@@ -403,11 +412,14 @@ onMounted(() => {
   color: var(--text-tertiary-ink);
 }
 
+/* 环比 / 同比成对出现：行内两列，列间距 20px（4px 基数）。
+   与上方大数字拉开 16px —— 这三行是「一个数 + 它的两个参照」，
+   12px 会让参照读起来像数字的注解，20px 又只剩空。 */
 .summary-card__deltas {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 24px;
-  margin-top: 14px;
+  gap: 8px 20px;
+  margin-top: 16px;
 }
 
 .summary-card__delta {
@@ -426,6 +438,11 @@ onMounted(() => {
   color: var(--text-tertiary-ink);
 }
 
+/* 卡片内部两级分割线：
+   · 摘要区 → 三指标这一道是**结构性断点**，与卡片外框同重量（--border-light）；
+   · 三列之间的竖线是**同级并列**的弱分隔，降到 --border-subtle（design.md：
+     卡片内部降权分割线用它）。
+   两级都走令牌，且竖线明显轻于横线——顺序反过来会让三列看起来像一张表格。 */
 .summary-card__rule {
   height: 1px;
   background-color: var(--border-light);
@@ -438,7 +455,8 @@ onMounted(() => {
 
 .summary-card__metric {
   min-width: 0;
-  padding: 0 12px;
+  /* 竖线与两侧内容各留 16px：线是分隔，不是内容边界，贴上去会读成「线压着字」 */
+  padding: 0 var(--space-compact);
 }
 
 .summary-card__metric:first-child {
@@ -450,11 +468,13 @@ onMounted(() => {
 }
 
 .summary-card__metric + .summary-card__metric {
-  border-left: 1px solid var(--border-light);
+  border-left: 1px solid var(--border-subtle);
 }
 
+/* 标签与数字的层级：13px 辅助色标签 + 16px 主文字数字，标签不抢数字。
+   6px 间距让「标签→数字」成为一组，而不是两行无关文字。 */
 .summary-card__metric-label {
-  margin: 0 0 4px;
+  margin: 0 0 6px;
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }
