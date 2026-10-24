@@ -11,6 +11,7 @@
 import pytest
 
 from app.services.fund_benchmark import (
+    BENCH_BALANCED_HYBRID_FUND,
     BENCH_BOND_FUND,
     BENCH_EQUITY_FUND,
     BENCH_HS300,
@@ -122,13 +123,57 @@ class TestTargetsConsistency:
         declared = {c for c, _ in WIND_INDEX_TARGETS + TENCENT_INDEX_TARGETS + CSINDEX_INDEX_TARGETS}
         # 逐个类型名跑一遍，收集所有会被映射出来的代码
         mapped = set()
-        for t in ('股票型', '混合型-偏股', '混合型-灵活', '债券型-长期纯债', '混合型-偏债'):
+        for t in ('股票型', '混合型-偏股', '混合型-灵活', '混合型-平衡', '债券型-长期纯债', '混合型-偏债'):
             choice = resolve(t)
             assert choice is not None
             mapped.add(choice.code)
         missing = mapped - declared
         # 允许「已登记但源侧未收录」的基准（resolve 会标 unavailable），其余必须真在清单里
         assert missing <= {BENCH_BOND_FUND}, f'映射出了未登记为同步目标的基准：{missing}'
+
+
+class TestMappedCodeHasUsableSource:
+    """#2476 的教训：**在目标清单里 ≠ 取得到**。
+
+    `885002.WI` 当年既在 `WIND_INDEX_TARGETS` 里、又被映射成平衡混合型基准，
+    但它同时落在韭圈儿的未收录集合里 ⇒ 前端只能显示「基准已选定但暂无数据」。
+    旧判据（`TestTargetsConsistency`）只查「在清单里」，于是这种形态一路绿灯 ——
+    「清单」回答的是「我们打算抓谁」，「取得到」是另一个问题。
+
+    新判据：映射出的每个 code 必须有一个**可用数据源**：要么不在 `KNOWN_UNLISTED`
+    （主源覆盖），要么在 `WIND_MCP_INDEX_CODES`（另有源显式接管）。两者都不满足 ⇒
+    这条映射就是「选了一个我们没数据的基准」，直接红。
+    """
+
+    #: 走一遍所有会被映射出来的类型名（与 `_RULES` 一一对应）。
+    MAPPED_TYPES = (
+        '股票型',
+        '混合型-偏股',
+        '混合型-灵活',
+        '混合型-平衡',
+        '债券型-长期纯债',
+        '混合型-偏债',
+    )
+
+    def test_no_mapped_code_is_unavailable_without_alternative_source(self):
+        from app.services.sync.jobs.index_daily_job import KNOWN_UNLISTED, WIND_MCP_INDEX_CODES
+
+        mapped = {choice.code for choice in (resolve(t) for t in self.MAPPED_TYPES) if choice}
+        orphan = (mapped & KNOWN_UNLISTED) - WIND_MCP_INDEX_CODES
+        assert orphan == set(), f'这些基准在韭圈儿未收录、且没有替代源接管：{orphan}'
+
+    def test_balanced_hybrid_benchmark_source_is_declared_not_incidental(self):
+        """`885002.WI` 的源归属必须**显式声明**，而不是「碰巧能取到」。
+
+        两个方向都要钉：从 `WIND_MCP_INDEX_CODES` 里摘掉 ⇒ 无源可用；把它塞回
+        `KNOWN_UNLISTED` ⇒ 被当成「源侧没有」而吞掉。任一发生，这条基准就退回
+        #2476 的状态（映射在、数据不在），所以两条断言缺一不可。
+        """
+        from app.services.sync.jobs.index_daily_job import KNOWN_UNLISTED, WIND_MCP_INDEX_CODES
+
+        assert resolve('混合型-平衡').code == BENCH_BALANCED_HYBRID_FUND
+        assert BENCH_BALANCED_HYBRID_FUND in WIND_MCP_INDEX_CODES
+        assert BENCH_BALANCED_HYBRID_FUND not in KNOWN_UNLISTED
 
 
 def test_load_index_points_reads_market_domain():
