@@ -87,7 +87,6 @@ BASELINE: dict[str, int] = {
     "frontend/src/style/sidebar.scss::screen and (width >= 150px) and (width <= 420px)": 1,
     "frontend/src/style/sidebar.scss::screen and (width >= 420px)": 1,
     "frontend/src/views/asset/ledgers/index.vue::(width <= 767px)": 1,
-    "frontend/src/views/explore/components/ExploreAssetOverview.vue::(width <= 480px)": 1,
     "frontend/src/views/explore/components/ExploreAssetOverview.vue::(width <= 768px)": 1,
     "frontend/src/views/explore/components/ExploreDetailPanel.vue::(width <= 768px)": 1,
     "frontend/src/views/explore/components/ExploreDetailPanel.vue::(width <= 960px)": 1,
