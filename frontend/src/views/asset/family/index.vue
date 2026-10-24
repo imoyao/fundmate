@@ -247,7 +247,7 @@ const handleSave = async () => {
 
 const handleDeactivate = async (member: FamilyMemberProfile) => {
   if (!canDeactivate(member)) {
-    ElMessage.warning(deactivateBlockedReason(member));
+    ElMessage.warning("该成员已停用，无需重复停用");
     return;
   }
   try {

@@ -34,21 +34,25 @@ const member = (
 
 describe("成员表单校验（#1173）", () => {
   it("空称谓被拒", () => {
-    expect(validateMemberForm({ name: "", role: "other" })).toBe(
-      "成员称谓不能为空"
-    );
-    expect(validateMemberForm({ name: "   ", role: "other" })).toBe(
-      "成员称谓不能为空"
-    );
+    expect(
+      validateMemberForm({ name: "", role: "other", is_active: true })
+    ).toBe("成员称谓不能为空");
+    expect(
+      validateMemberForm({ name: "   ", role: "other", is_active: true })
+    ).toBe("成员称谓不能为空");
   });
 
   it("超长称谓被拒（上限与后端模型列宽一致）", () => {
     const long = "a".repeat(MEMBER_NAME_MAX + 1);
-    expect(validateMemberForm({ name: long, role: "other" })).toContain("过长");
+    expect(
+      validateMemberForm({ name: long, role: "other", is_active: true })
+    ).toContain("过长");
   });
 
   it("合法称谓通过", () => {
-    expect(validateMemberForm({ name: "老婆", role: "spouse" })).toBe("");
+    expect(
+      validateMemberForm({ name: "老婆", role: "spouse", is_active: true })
+    ).toBe("");
   });
 
   it("空表单初值的称谓为空（对话框打开即触发校验失败，符合预期）", () => {
