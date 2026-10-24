@@ -27,8 +27,10 @@ from app.services.sync.bulk_ops import (
     MAX_CHUNK_ROWS,
     MAX_PARAMS_PER_STATEMENT,
     bulk_insert_rows,
+    bulk_update_by_key,
     chunk_row_count,
     chunked,
+    update_batch_size,
 )
 from app.services.sync.jobs.fund_list_job import FundListSyncJob
 from app.services.sync.jobs.stock_list_job import StockListSyncJob
@@ -225,3 +227,83 @@ def test_run_logs_phase_costs(db):
     assert phase_lines, 'run() 必须输出「阶段耗时：…」一行'
     for phase in ('抓取', '校验', '去重', '写库'):
         assert phase in phase_lines[0], phase_lines[0]
+
+
+# ── 批量更新：一条语句按唯一键展开 CASE（SQLite 没有「多行 UPDATE」）──
+
+
+def _writes(statements):
+    return [s for s in statements if s['sql'].upper().startswith(('INSERT', 'UPDATE'))]
+
+
+def test_bulk_update_is_one_statement_with_case(db):
+    bulk_insert_rows(db, Fund, [{'fund_code': f'{i:06d}', 'name': f'f{i}'} for i in range(3)])
+    db.commit()
+
+    rows = [{'fund_code': f'{i:06d}', 'scale': 1.5 + i} for i in range(3)]
+    statements, stop = _capture(db)
+    try:
+        count = bulk_update_by_key(db, Fund, 'fund_code', rows)
+    finally:
+        stop()
+    db.commit()
+
+    updates = _writes(statements)
+    assert count == 3
+    assert len(updates) == 1, f'3 行必须压成 1 条语句，实际 {len(updates)} 条'
+    sql = updates[0]['sql']
+    assert sql.count('CASE') == 1, sql  # 只有 1 个被更新列
+    assert 'WHEN' in sql and 'IN (' in sql
+    assert 'fund_code = ?' not in sql, '不得退化成逐行 WHERE 主键 = ?'
+
+    stored = {f.fund_code: float(f.scale) for f in db.query(Fund).all()}
+    assert stored == {'000000': 1.5, '000001': 2.5, '000002': 3.5}
+
+
+def test_bulk_update_chunk_width_respects_param_limit(db):
+    total = 300
+    bulk_insert_rows(db, Fund, [{'fund_code': f'{i:06d}', 'name': f'f{i}'} for i in range(total)])
+    db.commit()
+
+    rows = [{'fund_code': f'{i:06d}', 'scale': 1.0, 'recent_shares': 100.0} for i in range(total)]
+    statements, stop = _capture(db)
+    try:
+        bulk_update_by_key(db, Fund, 'fund_code', rows)
+    finally:
+        stop()
+    db.commit()
+
+    updates = _writes(statements)
+    per_stmt = update_batch_size(Fund, 2)  # 两个被更新列：scale / recent_shares
+    assert len(updates) == math.ceil(total / per_stmt), f'{total} 行应压成 {math.ceil(total / per_stmt)} 条'
+    # 参数上限是硬约束：updated_at=? 那个固定参数曾让 180 行一批编译出 901 个参数
+    assert all(s['params'] <= MAX_PARAMS_PER_STATEMENT for s in updates), [s['params'] for s in updates]
+    assert db.query(Fund).filter(Fund.scale == 1.0).count() == total
+
+
+def test_bulk_update_7125_rows_fit_in_40_statements():
+    """生产实测 7125 只基金 / 写库 1139.6s（= 7125 次往返）。
+
+    按本模块批宽应是 **40 条语句**——这就是「19 分钟 → 个位数秒」的全部算术。
+    """
+    per_stmt = update_batch_size(Fund, 2)
+    assert per_stmt == 179, '两列 + updated_at 固定参数 ⇒ (900-1)//5 = 179 行/条'
+    assert math.ceil(7125 / per_stmt) == 40
+
+
+def test_bulk_update_rejects_missing_key(db):
+    bulk_insert_rows(db, Fund, [{'fund_code': '000001', 'name': 'f'}])
+    db.commit()
+    with pytest.raises(ValueError, match='fund_code'):
+        bulk_update_by_key(db, Fund, 'fund_code', [{'name': '只有名字'}])
+    with pytest.raises(ValueError, match='键集一致'):
+        bulk_update_by_key(db, Fund, 'fund_code', [{'fund_code': '000001'}, {'fund_code': '000002', 'scale': 1.0}])
+
+
+def test_bulk_update_empty_rows_emit_nothing(db):
+    statements, stop = _capture(db)
+    try:
+        assert bulk_update_by_key(db, Fund, 'fund_code', []) == 0
+    finally:
+        stop()
+    assert statements == []

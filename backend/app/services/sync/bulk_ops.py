@@ -1,6 +1,13 @@
 # -*- coding: utf-8 -*-
 # app/services/sync/bulk_ops.py
-"""批量写库工具：把「逐行一次往返」收敛为「一条语句多组 VALUES」（#2522）。
+"""批量写库工具：把「逐行一次往返」收敛为「一条语句多行」（#2522）。
+
+两条路各管一半：
+
+- **插入** → `bulk_insert_rows`：一条语句多组 `VALUES (...), (...)`；
+- **更新** → `bulk_update_by_key`：一条语句按唯一键展开 `CASE`（SQLite 没有多行 UPDATE）。
+  两者都**不依赖驱动的 `executemany`**——那条路在远端是否被合并成一次往返无保证，
+  而慢起来的时候，本地 SQLite 一秒都测不出来（见下）。
 
 ## 为什么需要这个模块
 
@@ -44,7 +51,7 @@ from time import perf_counter
 from typing import Iterable, List, Sequence
 
 from loguru import logger
-from sqlalchemy import insert
+from sqlalchemy import case, insert, update
 
 from app.services.job_base import IN_CHUNK_SIZE
 
@@ -166,12 +173,130 @@ def set_if_changed(obj, field: str, value) -> bool:
     任一侧是 `Decimal` 就归一成 `Decimal(str(v))` 再比（尾随零不影响：
     `Decimal('6457.300000')` == `Decimal('6457.3')`）；其余类型直接 `==`。
     """
-    current = getattr(obj, field)
-    if isinstance(current, Decimal) or isinstance(value, Decimal):
-        unchanged = _as_decimal(current) == _as_decimal(value)
-    else:
-        unchanged = current == value
-    if unchanged:
+    if values_equal(getattr(obj, field), value):
         return False
     setattr(obj, field, value)
     return True
+
+
+def values_equal(current, value) -> bool:
+    """判等（`Decimal` 与 `float` 归一化后比较）。
+
+    单独暴露出来的唯一理由是：**不改对象、只做判定**。
+    批量 UPDATE 的调用方要在「发给数据库之前」筛掉未变的行，而 `set_if_changed`
+    会 `setattr` 把 ORM 对象标脏——之后 `commit()` 又会为这些行逐条发 UPDATE，
+    刚省下的往返全花回去。故「判定」与「赋值」拆成两个函数。
+    """
+    if isinstance(current, Decimal) or isinstance(value, Decimal):
+        return _as_decimal(current) == _as_decimal(value)
+    return current == value
+
+
+def update_batch_size(
+    model,
+    num_value_columns: int,
+    *,
+    max_params: int = MAX_PARAMS_PER_STATEMENT,
+    max_rows: int = MAX_CHUNK_ROWS,
+) -> int:
+    """一条多行 UPDATE 里最多放几行（两个上限取小，至少 1 行）。
+
+    参数构成：
+
+    - **随行数增长**：`SET col = CASE key WHEN ? THEN ? …` ⇒ 每个被更新列 2 个参数
+      （WHEN 的键 + THEN 的值），外加 `WHERE key IN (…)` 的 1 个参数（每行一个键）；
+    - **与行数无关**：ORM 对带 `onupdate` 的列会**自动补一个**参数（如 `updated_at=?`）。
+      这一项不扣掉，180 行一批就会编译出 901 个参数、踩着 900 的上限过去
+      （首版就是这么错的，被 `test_bulk_update_chunk_width_respects_param_limit` 抓到）。
+    """
+    per_row = 2 * num_value_columns + 1
+    fixed = sum(1 for column in getattr(model, '__table__').columns if column.onupdate is not None)
+    return max(1, min(max_rows, (max_params - fixed) // per_row))
+
+
+def bulk_update_by_key(
+    db,
+    model,
+    key_attr: str,
+    rows: List[dict],
+    *,
+    max_params: int = MAX_PARAMS_PER_STATEMENT,
+    max_rows: int = MAX_CHUNK_ROWS,
+    log_scope: str = '',
+) -> int:
+    """按业务键把 `rows` 一次性更新成**一条语句一批**，返回更新行数。
+
+    ## 为什么不是 `bulk_update_mappings` / `executemany`
+
+    与 `bulk_insert_rows` 同一个理由（见模块 docstring）：市场域是 Turso，经
+    `sqlalchemy-libsql` 走 Hrana(HTTP)，逐行语句 = 每行一次往返。`bulk_update_mappings`
+    在远端同样退化成逐行 UPDATE；`executemany` 是否被该方言合并成一次往返**没有保证**
+    （本地 SQLite 根本测不出来，而这条链路只有真机日志才暴露），故这里走**确定**的写法：
+    SQL 文本里直接带 N 行，一条语句就是一次往返。
+
+    SQLite 方言没有「多行 UPDATE ... VALUES」，等价写法是按唯一键展开 `CASE`：
+
+    ```sql
+    UPDATE funds SET
+      scale         = CASE fund_code WHEN ? THEN ? WHEN ? THEN ? … ELSE funds.scale END,
+      recent_shares = CASE fund_code WHEN ? THEN ? WHEN ? THEN ? … ELSE funds.recent_shares END
+    WHERE fund_code IN (?, ?, …)
+    ```
+
+    批宽 = `900 ÷ (2×被更新列数 + 1)`（再封顶 500 行）：两列 ⇒ **180 行/条**，
+    7125 只基金从 7125 次往返降到 **40 条语句**（生产实测 0.16 s/行 ⇒ 约 6 秒）。
+
+    ## 契约
+
+    - `rows` 每行必须含 `key_attr`，且**键集一致**（同 `bulk_insert_rows`：宁可当场失败，
+      也不静默丢列）；同一键重复出现时后者生效。
+    - 调用方负责 `db.commit()`（本函数只发语句，不决定事务边界）。
+    - **不参与 ORM 身份映射同步**（`synchronize_session=False`）：`'fetch'` 会为每条语句
+      多加一次 RETURNING 往返，`'evaluate'` 可能退化成逐行处理，两者都会把省下的往返花回去。
+      由此带来的约束是：**同一 session 里已加载的对象在 commit 前仍是旧值**（commit 默认
+      `expire_on_commit=True`，之后的读取会重新查库）。
+    """
+    if not rows:
+        return 0
+
+    keys = _uniform_keys(rows)
+    if key_attr not in keys:
+        raise ValueError(f'bulk_update_by_key 要求每行都含键 {key_attr!r}（实际键集 {sorted(keys)}）')
+    value_columns = [k for k in keys if k != key_attr]
+    if not value_columns:
+        return 0
+
+    key_column = getattr(model, key_attr)
+    per_stmt = update_batch_size(
+        model,
+        len(value_columns),
+        max_params=max_params,
+        max_rows=max_rows,
+    )
+    table = getattr(model, '__tablename__', model.__name__)
+    scope = f'[{log_scope}] ' if log_scope else ''
+    started = perf_counter()
+    statements = 0
+
+    for chunk in chunked(rows, per_stmt):
+        by_key = {r[key_attr]: r for r in chunk}
+        set_clause = {
+            col: case(
+                {key: r[col] for key, r in by_key.items()},
+                value=key_column,
+                else_=getattr(model, col),
+            )
+            for col in value_columns
+        }
+        stmt = (
+            update(model)
+            .where(key_column.in_(list(by_key)))
+            .values(set_clause)
+            .execution_options(synchronize_session=False)
+        )
+        db.execute(stmt)
+        statements += 1
+
+    elapsed = perf_counter() - started
+    logger.info(f'{scope}批量更新 {table}：{len(rows)} 行 / {statements} 条语句（每批≤{per_stmt} 行）/ {elapsed:.2f}s')
+    return len(rows)
