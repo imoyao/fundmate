@@ -10,6 +10,7 @@ from app.services.performance.calculators import (
     calculate_symbol_xirr,
     calculate_xirr_by_scope,
 )
+from app.services.performance.twr import calculate_twr, chain_twr
 
 __all__ = [
     'calculate_position_xirr',
@@ -17,4 +18,6 @@ __all__ = [
     'calculate_symbol_xirr',
     'calculate_xirr_by_scope',
     'XirrScopeParameterError',
+    'calculate_twr',
+    'chain_twr',
 ]

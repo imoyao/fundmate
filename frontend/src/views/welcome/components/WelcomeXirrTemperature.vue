@@ -39,6 +39,45 @@
             }}</span
           >
         </div>
+        <!-- TWR：与 XIRR 并列的第二口径（#2133）。XIRR 是资金加权（受投入时点影响），
+             TWR 剔除出入金节奏、衡量组合本身表现；两者差值即「择时」的贡献。
+             数据取不到时显示「—」而不是 0——0 代表「持平」，是另一个事实。 -->
+        <div
+          v-if="!error"
+          class="flex flex-wrap items-baseline gap-2 pt-3"
+          :style="{ borderTop: '1px dashed var(--border-light)' }"
+        >
+          <el-tooltip
+            content="时间加权收益率：剔除申购/赎回/定投的时点影响，衡量组合本身表现。与上面的年化（XIRR，资金加权）并列展示，两者差值即择时贡献。"
+            placement="top"
+          >
+            <span
+              class="text-xs cursor-help"
+              :style="{ color: 'var(--text-tertiary-ink)' }"
+              >时间加权（TWR）</span
+            >
+          </el-tooltip>
+          <span
+            v-if="twr?.twr == null"
+            class="text-sm"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
+            >—</span
+          >
+          <RiseFallText
+            v-else
+            :value="twr.twr * 100"
+            size="md"
+            :precision="2"
+          />
+          <span
+            v-if="twr?.twr != null"
+            class="text-[10px]"
+            :style="{ color: 'var(--text-tertiary-ink)' }"
+            >{{ twr.days_used }} 天{{
+              twr.days_skipped ? `，缺数据 ${twr.days_skipped} 天已跳过` : ""
+            }}</span
+          >
+        </div>
         <!-- 市值 / 总投入两行同样要进失败态（#1832 复核发现）：只把年化百分比挪进错误分支时，
              这两行仍在渲染空值兜底的 0，于是错误态里并排出现「年化数据加载失败」与两个零值。
              注：本注释刻意不写那个金额字面量——E2E 用 getByText 断言「页面不出现该金额」，
@@ -138,7 +177,8 @@
 </template>
 
 <script setup lang="ts">
-import type { XirrData } from "@/api/performance";
+import { onMounted, ref } from "vue";
+import { getTwr, type TwrData, type XirrData } from "@/api/performance";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
@@ -177,4 +217,23 @@ const emit = defineEmits<{
 const onIncludeCashChange = (value: boolean | string | number) => {
   emit("update:includeCashEquivalents", Boolean(value));
 };
+
+/**
+ * TWR（时间加权收益率，#2133）——与 XIRR 并列的第二口径。
+ *
+ * 由**本组件自己拉**，不走页面的 `useWelcomeData`：它只是卡片内的对照数字，
+ * 让首页那个 441 行的上帝页面再长 5 行会直接撞上页面规模门禁（#980 只减不增）。
+ * 失败时静默降级为 `null`（显示 `—`），**不并入 `error` 整卡失败态**：
+ * 辅助口径的失败不该把主口径 XIRR 的数字一起藏起来。
+ */
+const twr = ref<TwrData | null>(null);
+onMounted(async () => {
+  try {
+    const res = await getTwr();
+    twr.value = res.data;
+  } catch (e) {
+    console.debug("[welcome] TWR 拉取失败，降级显示 —", e);
+    twr.value = null;
+  }
+});
 </script>

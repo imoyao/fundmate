@@ -11,9 +11,9 @@ from loguru import logger
 from app.core.auth import get_family_id
 from app.core.database import get_db
 from app.core.validation import parse_query
-from app.domains.performance.schemas import MoneyFundIncomeRequest, XirrRequest
+from app.domains.performance.schemas import MoneyFundIncomeRequest, TwrRequest, XirrRequest
 from app.services.money_fund_income import calculate_money_fund_income, resolve_money_fund_scope
-from app.services.performance import XirrScopeParameterError, calculate_xirr_by_scope
+from app.services.performance import XirrScopeParameterError, calculate_twr, calculate_xirr_by_scope
 
 bp = APIBlueprint('performance', __name__, url_prefix='/api/performance')
 
@@ -49,6 +49,30 @@ def get_xirr():
         f'年化收益率计算完成(scope={query_data.scope}, position_id={query_data.position_id}, '
         f'portfolio_id={query_data.portfolio_id}, symbol={query_data.symbol}): {result}'
     )
+    return jsonify({'data': result, 'message': 'ok'})
+
+
+@bp.get('/twr/')
+def get_twr():
+    """时间加权收益率（TWR）——与 XIRR 并列的第二口径（#2133）。
+
+    `scope` 只有家庭级 / 账户级两种（不传 `ledger_id` 即家庭级）：TWR 依赖「每日净资产」
+    序列，产品级与单持仓没有这条序列。算法与口径见 `services/performance/twr.py`。
+    """
+    q: TwrRequest = parse_query(TwrRequest)
+    start = q.start_date.isoformat() if q.start_date else None
+    end = q.end_date.isoformat() if q.end_date else None
+
+    with get_db() as db:
+        try:
+            result = calculate_twr(db, family_id=get_family_id(), start_date=start, end_date=end, ledger_id=q.ledger_id)
+        except ValueError as e:
+            abort(400, str(e))
+        except Exception as e:
+            logger.exception('时间加权收益率计算异常')
+            abort(500, f'时间加权收益率计算失败，请稍后重试: {str(e)}')
+
+    logger.info(f'时间加权收益率计算完成(ledger_id={q.ledger_id}): {result}')
     return jsonify({'data': result, 'message': 'ok'})
 
 

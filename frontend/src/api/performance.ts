@@ -33,6 +33,42 @@ export function getPortfolioXirr(
   });
 }
 
+/**
+ * 时间加权收益率（TWR）响应数据，字段与后端 `services/performance/twr.py` 一致（#2133）。
+ *
+ * 与 XIRR 的区别：XIRR 是资金加权（受投入时点影响），TWR 剔除出入金节奏、衡量组合本身表现。
+ * 两者并列展示、不相加。**无数据时后端给 `null` 而不是 0**，展示层据此降级为 `—`。
+ */
+export interface TwrData {
+  /** 区间累计 TWR（小数，如 0.0521 表示 5.21%）；无数据为 null */
+  twr: number | null;
+  /** 区间年化 TWR（小数）；有效跨度 <2 天时为 null */
+  twr_annualized: number | null;
+  /** 参与连乘的天数 */
+  days_used: number;
+  /** 因缺数据被跳过的天数（不是 0 收益，而是没数） */
+  days_skipped: number;
+  start_date: string | null;
+  end_date: string | null;
+  net_worth_start: number | null;
+  net_worth_end: number | null;
+  /** 固定为 daily_chained（逐日因子连乘） */
+  method: string;
+  /** family / ledger */
+  scope: string;
+  ledger_id: number | null;
+}
+
+/** 获取时间加权收益率（TWR，家庭级；传 ledgerId 则账户级）
+ *  @param ledgerId 账户 ID；省略时按家庭整体计算 */
+export function getTwr(ledgerId?: number) {
+  const params: Record<string, string | number> = {};
+  if (ledgerId != null) params.ledger_id = ledgerId;
+  return http.request<ApiResponse<TwrData>>("get", "/api/performance/twr/", {
+    params
+  });
+}
+
 /** 获取持仓年化收益率 */
 export function getPositionXirr(positionId: number) {
   return http.request<ApiResponse<XirrData>>("get", "/api/performance/xirr/", {
