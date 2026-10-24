@@ -636,6 +636,18 @@ jobs:
       - name: 跑 scripts/ 下的守卫脚本单测
         run: node --test "scripts/tests/*.test.js"
 
+      # 字体产物完整性（2026-10-24）：字体是**本机产物依赖**——MiSans 中文子集由本机
+      # 子集化脚本产出（4 个子集各约 3.5 MB）、Inter 是裁剪的可变字体。它们提交进仓库，
+      # 但**前端构建不校验它们**：public/ 下的静态文件由 Vite 原样拷贝，字体缺失或被截断时
+      # `pnpm build` 照样成功，页面照常渲染、只是静默 fallback 到系统字体——本地有字体、
+      # CI 没有，两边长得不一样却没有任何红灯（假绿比红灯贵）。
+      # 判据三条：引用完整性（样式 url() 指到的文件必须在）+ 文件头魔数（wOF2 / wOFF / OTTO，
+      # 防被占位符替换或写坏）+ 无孤儿产物（改名残留/多余副本）。并入本 job 而不另起 job
+      # （不新增 job 就不必改 gate.needs）。
+      # 回归网在 scripts/tests/check_font_assets.test.js（4 条变异探针 + 失败态探针）。
+      - name: 字体产物完整性（阻断）
+        run: python scripts/check_font_assets.py
+
       # workflow `inputs` 插值守卫（源 CNB #148，2026-10-12）：`inputs` 只有
       # workflow_dispatch / workflow_call 才定义，`schedule` 下写进 `run:` 会留**字面量**
       # ⇒ `bash: bad substitution`，步骤首行即挂。`cnb-github-backfill.yml` 因此
