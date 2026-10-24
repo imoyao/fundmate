@@ -6,10 +6,32 @@ Mi Sans 首屏子集化脚本（多多贝 应用站字体资产）。
 产物入库 frontend/public/fonts/，由 EdgeOne/Cloudflare/Vercel 分发（自托管）。
 
 字表策略（首屏子集）：
-  1. GB2312 一级汉字（3755 个，覆盖常见界面文案与用户动态内容大头）；
+  1. GBK 汉字全集（20,902 个，含 GB2312 一级 / 二级 / 扩展区）；
   2. frontend/src 源码实际用到的 CJK 字符（扫描补全，覆盖业务特有字）；
   3. 常用全角标点 / 符号（CJK 符号区 + 全角 ASCII 区）；
 半角数字 / 拉丁字母由 Inter（latin 子集）承担，不落入本子集。
+
+为什么从「GB2312 一级」扩到「GBK 全集」（#2402 / CNB #640）
+-----------------------------------------------------------
+首版字表只取了 GB2312 **一级**（3755 个），于是「荃」「鑫」这类**名字用字**全部缺失
+（用户截图实测渲染不良）。当时的判断是「生僻字属可接受长尾」——这个判断是错的：
+
+- GB2312 二级的 3008 个字**不是**低频字表，它按**笔画**排序，装的是姓氏 / 人名 /
+  地名用字（亓、仉、芮、覃、邬、睢……），恰好是**用户昵称 / 自选备注 / 账户名 /
+  导入文件名**每天都要碰到的那一批；
+- 而且用户举的例子有**一半连二级都不在**：实测 `犇 喆 堃 赟 燚 彧 玊` 七个字
+  不在 GB2312 任何一级里（它们属 GBK 扩展区）。只补二级，这张卡一半的验收仍不达标。
+- 这不是「工具按字频裁掉了」，是**字表边界画错了**——工具没做判断，它只是没往上看。
+
+所以直接以 **GBK 汉字全集**为边界：它是当前中文环境的事实可用字符集（与 Windows
+中文代码页 936 一致），也是「用户可能输入什么」的合理上界。
+
+代价要说清楚：字表 3755 → 20,902（5.6 倍），按实测 ~150 B/字估算单字重约 2.8 MB，
+首屏 preload 的 400 直接翻数倍。**因此伴生体积治理由 `cn-font-split` 分片承担**
+（见 docs/design/font-design.md §11.2），本脚本只负责「字表不缺字」这一半。
+这个交换的账必须记在 PR 里，不许默默合并。
+
+判据：`scripts/guard_font_glyph_coverage.py`（GBK 覆盖 ≥ 98%，且 GB2312 一级必须 100%）。
 
 授权说明：MiSans 全球免费商用；嵌入式使用需在产品内注明「使用了 MiSans 字体」。
 子集化属「使用」而非对字体外观进行更改，合规（font-design.md §6 / §11）。
@@ -40,12 +62,48 @@ WEIGHTS = [
 
 
 def gb2312_level1_chars() -> set[str]:
-    """生成 GB2312 一级汉字（区 16~55，3755 个常用字）。"""
+    """生成 GB2312 一级汉字（区 16~55，3755 个常用字，按拼音排序）。"""
     chars: set[str] = set()
     for hi in range(0xB0, 0xD8):  # 0xB0A1 ~ 0xD7F9
         for lo in range(0xA1, 0xFF):
             if hi == 0xD7 and lo > 0xF9:
                 break
+            try:
+                chars.add(bytes([hi, lo]).decode('gb2312'))
+            except UnicodeDecodeError:
+                continue
+    return chars
+
+
+def gbk_hanzi_chars() -> set[str]:
+    """生成 GBK 汉字全集（20,902 个，含 GB2312 一级 / 二级 / 扩展区）。
+
+    GBK 双字节区：首字节 0x81~0xFE，次字节 0x40~0xFE（跳过 0x7F）。解码为单字符
+    且落在 CJK 统一表意区（U+4E00~U+9FFF）的即是汉字。
+    """
+    chars: set[str] = set()
+    for hi in range(0x81, 0xFF):
+        for lo in range(0x40, 0xFF):
+            if lo == 0x7F:
+                continue
+            try:
+                ch = bytes([hi, lo]).decode('gbk')
+            except UnicodeDecodeError:
+                continue
+            if len(ch) == 1 and 0x4E00 <= ord(ch) <= 0x9FFF:
+                chars.add(ch)
+    return chars
+
+
+def gb2312_level2_chars() -> set[str]:
+    """生成 GB2312 二级汉字（区 56~87，3008 个，按笔画排序）。
+
+    这批是**姓氏 / 人名 / 地名用字**（荃、鑫、淼、犇、喆、堃、赟、燚…），
+    不是低频长尾——详见模块 docstring。区 56 起始字节 0xD8，到 0xF7 结束。
+    """
+    chars: set[str] = set()
+    for hi in range(0xD8, 0xF8):  # 0xD8A1 ~ 0xF7FE
+        for lo in range(0xA1, 0xFF):
             try:
                 chars.add(bytes([hi, lo]).decode('gb2312'))
             except UnicodeDecodeError:
@@ -84,7 +142,7 @@ def extra_symbols() -> set[str]:
 
 
 def build_charset() -> str:
-    chars = gb2312_level1_chars() | scan_frontend_chars() | extra_symbols()
+    chars = gbk_hanzi_chars() | scan_frontend_chars() | extra_symbols()
     # 排序稳定输出，便于 diff / 复现
     return ''.join(sorted(chars))
 

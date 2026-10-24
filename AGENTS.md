@@ -829,6 +829,31 @@ if code == 1:
 - 样式/设计类改动必须同步 `frontend/design.md` / `design.dark.md`。
 - 注释过期须自主更新，注释用中文。
 
+### 字体与字符集（MiSans 子集）
+
+- **入库子集的字符集目标是 GBK 汉字全集（20,902），不是 GB2312 一级**。GB2312 二级的
+  3008 字按**笔画**排序，装的全是姓氏 / 人名 / 地名用字（亓、仉、芮、覃、邬、睢…），
+  恰好是**用户昵称 / 自选备注 / 账户名 / 导入文件名**每天碰到的那一批——它不是低频长尾。
+  用户举的「犇 喆 堃 赟 燚 彧 玊」七字连二级都不在（属 GBK 扩展区），只补二级交不了差。
+- `docs/design/font-design.md` §5.2 里「生僻字回退系统字体，属可接受长尾」**这句已作废**，
+  修改该文档时一并修正；现行口径以本节与 `backend/scripts/subset_misans.py` 的 docstring 为准。
+- 判据：`scripts/guard_font_glyph_coverage.py`（GB2312 一级必须 100%、GBK ≥ 98%，
+  并入 `ci.yml` 的 `scripts_test`）。改字表后**必须重生成 4 个字重产物**——只改脚本不改
+  产物，守卫照样红，因为产物才是浏览器真正加载的东西。
+- 母本路径写死在本机（`D:\MiSans\MiSans\woff2`），CI 跑不出字来 ⇒ **子集产物是
+  「本机生成、入库提交」**。任何人改字表都得先在 Windows 上备好母本，这条不是疏漏
+  而是现状，改之前请先看脚本 docstring。
+- **不要手写 woff2 / cmap 二进制解析**：首版守卫自研 format 4 解析，在 `idRangeOffset`
+  段算错偏移、把 3823 个码位读成 2667 个，且**不抛异常**——输出照样"成功"、数字全假
+  （同「缓存被当成判据」一族）。解字体交给 `fontTools`，守卫只负责判据。
+- 回退栈 `--font-cjk-list`（`frontend/src/style/colors.css`）按平台排全
+  `PingFang SC` / `Microsoft YaHei` / `Noto Sans CJK SC`。少一个就掉到 `system-ui`
+  默认字形，与 MiSans 混排是肉眼可见的两种字（目前靠 review 看，无机器判据：
+  按字体名做白名单只能拦「删字」，拦不住「换成一个同样存在的坏字体」）。
+- **体积是伴生账，不许默默合并**：字表扩到 GBK 后单字重约 2.8 MB（实测 ~150 B/字），
+  首屏 preload 的 400 直接翻数倍。真要压回去得靠 `cn-font-split` 分片
+  （`font-design.md` §11.2），那是独立工程量，不在补字这一张卡里做。
+
 ### 东方财富 WAF 与 akshare
 
 - 已由 `core/requests_patch.py` 全局修复（`impersonate chrome`），**不要**靠加 UA/Referer 头硬修。
