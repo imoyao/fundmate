@@ -206,13 +206,9 @@ import {
 import PnlCalendar from "@/components/PnlCalendar/index.vue";
 import PnlCalendarCaliberIcon from "@/components/PnlCalendar/PnlCalendarCaliberIcon.vue";
 import echarts from "@/plugins/echarts";
-import { getCssVar } from "@/composables/echarts/theme";
 import { useEchartsLifecycle } from "@/composables/echarts/useEchartsLifecycle";
-import {
-  buildWaterfallBars,
-  buildWaterfallOption,
-  hasWaterfallData
-} from "./assetWaterfall";
+import { hasWaterfallData } from "./assetWaterfall";
+import { buildWaterfallViewOption } from "./waterfallView";
 
 /**
  * 本卡允许的收益日历粒度（#2033）：**只有月 / 年，没有日**。
@@ -255,19 +251,10 @@ const { render, charts } = useEchartsLifecycle(
           chart.dispose();
           return chart;
         }
-        const bars = buildWaterfallBars(props.distributions!);
+        // 取色与 option 组装在 `waterfallView.ts`（本文件在 #980 的页面规模基线内，
+        // 只减不增）；高度只有容器自己知道，故由这里读出来递进去。
         chart.setOption(
-          buildWaterfallOption(bars, {
-            rise: getCSSColor("--color-rise"),
-            fall: getCSSColor("--color-fall"),
-            info: getCSSColor("--color-info"),
-            neutral: getCSSColor("--color-neutral"),
-            textSecondary: getCSSColor("--text-secondary"),
-            // 轴标签也是文字：design.md 规定 `color:` 用途一律走 --text-tertiary-ink
-            //（--text-tertiary 白底仅 3.69:1，达不到正文 4.5:1）
-            axis: getCSSColor("--text-tertiary-ink"),
-            border: getCSSColor("--border-light")
-          })
+          buildWaterfallViewOption(props.distributions!, el.clientHeight)
         );
         return chart;
       }
@@ -296,11 +283,6 @@ async function toggleCalendar() {
   }
   initWaterfallChart();
 }
-
-// 工具函数：安全读取 CSS 变量（无 fallback 硬编码）
-const getCSSColor = (varName: string): string => {
-  return getCssVar(varName);
-};
 
 function initWaterfallChart() {
   // 日历态下容器不存在（v-else 已摘掉），交给 toggleCalendar 统一处理；
@@ -403,11 +385,14 @@ onMounted(() => {
   color: var(--text-tertiary-ink);
 }
 
+/* 环比 / 同比成对出现：行内两列，列间距 20px（4px 基数）。
+   与上方大数字拉开 16px —— 这三行是「一个数 + 它的两个参照」，
+   12px 会让参照读起来像数字的注解，20px 又只剩空。 */
 .summary-card__deltas {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 24px;
-  margin-top: 14px;
+  gap: 8px 20px;
+  margin-top: 16px;
 }
 
 .summary-card__delta {
@@ -426,6 +411,11 @@ onMounted(() => {
   color: var(--text-tertiary-ink);
 }
 
+/* 卡片内部两级分割线：
+   · 摘要区 → 三指标这一道是**结构性断点**，与卡片外框同重量（--border-light）；
+   · 三列之间的竖线是**同级并列**的弱分隔，降到 --border-subtle（design.md：
+     卡片内部降权分割线用它）。
+   两级都走令牌，且竖线明显轻于横线——顺序反过来会让三列看起来像一张表格。 */
 .summary-card__rule {
   height: 1px;
   background-color: var(--border-light);
@@ -438,7 +428,9 @@ onMounted(() => {
 
 .summary-card__metric {
   min-width: 0;
-  padding: 0 12px;
+
+  /* 竖线与两侧内容各留 16px：线是分隔，不是内容边界，贴上去会读成「线压着字」 */
+  padding: 0 var(--space-compact);
 }
 
 .summary-card__metric:first-child {
@@ -450,11 +442,13 @@ onMounted(() => {
 }
 
 .summary-card__metric + .summary-card__metric {
-  border-left: 1px solid var(--border-light);
+  border-left: 1px solid var(--border-subtle);
 }
 
+/* 标签与数字的层级：13px 辅助色标签 + 16px 主文字数字，标签不抢数字。
+   6px 间距让「标签→数字」成为一组，而不是两行无关文字。 */
 .summary-card__metric-label {
-  margin: 0 0 4px;
+  margin: 0 0 6px;
   font-size: var(--text-label);
   color: var(--text-tertiary-ink);
 }

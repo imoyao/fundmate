@@ -10,7 +10,7 @@
  *   · **元样本** —— 报错行号必须指到出问题的那一行（行号指错 = 判据等于查不到，
  *     AGENTS「正则/字符串类判据的两个常见错」记着这个坑）。
  *
- * 最后跑**真实文件**：基线 4 处必须静默、全仓扫描必须零命中；再把裸声明注回真实文件的
+ * 最后跑**真实文件**：基线 3 处必须静默、全仓扫描必须零命中；再把裸声明注回真实文件的
  * 副本 —— 只有这条红了，才知道前面那条「零命中」不是空转。
  */
 import { spawnSync } from "node:child_process";
@@ -30,10 +30,14 @@ const REAL_WITH_SEMANTIC_BAR = join(
 const STYLE_ENTRY = join(ROOT, "frontend/src/style/index.scss");
 const BASELINE_FILES = [
   "frontend/src/components/Watchlist/ColumnSettingsModal.vue",
-  "frontend/src/views/asset/panorama/components/OverviewSummaryCard.vue",
   "frontend/src/views/asset/watchlist/components/FilterPanelBody.vue",
   "frontend/src/views/product/components/ProductPageToc.vue"
 ].map((rel) => join(ROOT, rel));
+
+const OVERVIEW_CARD = join(
+  ROOT,
+  "frontend/src/views/asset/panorama/components/OverviewSummaryCard.vue"
+);
 
 /**
  * 解释器探测与「静默绿」（#119，同 guard_control_clip.test.js）。
@@ -342,13 +346,34 @@ test("元样本：两条命中的行号分别指向各自的声明行", () => {
 
 /* ---------- 真实文件：正反两面 ---------- */
 
-test("真实文件：4 处存量基线文件必须静默（在预算内不算新增）", () => {
+test("真实文件：3 处存量基线文件必须静默（在预算内不算新增）", () => {
   const out = run(BASELINE_FILES);
   assert.doesNotMatch(out, NO_HIT, `基线文件不该报红：\n${out}`);
   assert.match(
     out,
-    /存量基线剩余 4 \/ 4 处，已逐处复核为保留原样/,
+    /存量基线剩余 3 \/ 3 处，已逐处复核为保留原样/,
     `基线计数不对：\n${out}`
+  );
+});
+
+test("真实文件：OverviewSummaryCard 三列竖线走 --border-subtle（故已从基线移出）", () => {
+  // 2026-10-23 基线 4→3 的依据：这道竖线降成「卡片内并列列的降权分割」。
+  // 只删基线条目不足以说明理由，故把「为什么删」也钉住：它若被改回 --border-light，
+  // 预算已为 0 ⇒ 全仓扫描会红，而这条先给出可读的原因。
+  const src = readFileSync(OVERVIEW_CARD, "utf8");
+  const block = src.match(
+    /\.summary-card__metric \+ \.summary-card__metric \{([\s\S]*?)\}/
+  );
+  assert.ok(block, "找不到三列竖线选择器，样式可能被改名，请同步本断言。");
+  assert.match(
+    block[1],
+    /border-left:\s*1px solid var\(--border-subtle\)/,
+    `三列竖线应走 --border-subtle：\n${block[1]}`
+  );
+  assert.doesNotMatch(
+    src,
+    /border-(?:left|right):\s*1px solid var\(--border-light\)/,
+    "本文件不该再有裸的 --border-light 竖线（基线预算已移除）"
   );
 });
 
@@ -361,7 +386,7 @@ test("真实文件：frontend/src/style 整目录跳过（.soft-col-divider 的�
 test("真实文件：全仓扫描（含全部基线）必须零命中", () => {
   const out = run([]);
   assert.doesNotMatch(out, NO_HIT, `仓内存在新增的裸栏间分割线：\n${out}`);
-  assert.match(out, /存量基线剩余 4 \/ 4 处，已逐处复核为保留原样/, out);
+  assert.match(out, /存量基线剩余 3 \/ 3 处，已逐处复核为保留原样/, out);
 });
 
 test("回退探针：把裸声明注回真实文件副本 → 必须报红", () => {

@@ -432,4 +432,6 @@
    第三部分：暗色模式变量（规划中，供 dark.scss 引用）
    ============================================================ */
 
-/* 暗色模式变量在 dark.scss 中通过 [data-theme="dark"] 选择器覆盖 */
+/* 暗色模式变量在 dark.scss 的 `:root.dark` 块中覆盖同名变量。
+   注意不是 `data-theme` 属性：该属性只承载配色主题名（light/default/.../showbuy），
+   暗色由挂到 <html> 上的 .dark 类切换（useDataThemeChange.ts）。 */

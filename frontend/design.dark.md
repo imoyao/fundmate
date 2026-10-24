@@ -37,8 +37,8 @@
 >   --brand-l: 55%;
 > }
 >
-> /* 暗色模式：基于基础值计算 */
-> [data-theme="dark"] {
+> /* 暗色模式：基于基础值计算（暗色由 <html> 的 .dark 类驱动，见下方「机制说明」） */
+> :root.dark {
 >   --brand-700: hsl(var(--brand-h) calc(var(--brand-s) * 0.8) var(--brand-l));
 > }
 > ```
@@ -48,7 +48,7 @@
 > **声明顺序（强制降级防线）**：
 >
 > ```css
-> [data-theme="dark"] {
+> :root.dark {
 >   /* 第一步：写 Fallback（静态色值），确保旧浏览器至少能显示正确颜色 */
 >   --brand-700: #D45A44;
 >   /* 第二步：写 Calc（动态计算），现代浏览器自动覆盖上一行 */
@@ -497,8 +497,8 @@
   /* ... 其他亮色变量 */
 }
 
-/* 暗色模式：基于基础值计算 */
-[data-theme="dark"] {
+/* 暗色模式：基于基础值计算（选择器即实际生效的 `:root.dark`） */
+:root.dark {
   /* 第一步：Fallback（静态色值），确保旧浏览器至少能显示正确颜色 */
   --bg-page: #1A1816;
   --bg-card: #242120;
@@ -515,19 +515,34 @@
 }
 ```
 
+### 机制说明：`.dark` 类驱动暗色，`data-theme` 只承载配色主题名
+
+> **两者是两个正交的维度，不要混用**：
+>
+> | 维度 | 载体 | 取值 |
+> |---|---|---|
+> | 明暗 | `<html>` 上的 **`.dark` 类** | 有 / 无 |
+> | 配色主题名 | `<html>` 上的 `data-theme` 属性 | `light` / `default` / `saucePurple` / `pink` / `dusk` / `volcano` / `mingQing` / `auroraGreen` / `showbuy` |
+>
+> **`data-theme` 永远不会是 `"dark"`** —— 如果你写出「选择器里判 data-theme 等于 dark」这类条件，
+> 它一次都不会命中（不报错，只是不生效），是最难被发现的一种死代码。
+> 暗色样式一律这样写：`dark.scss` 里用 `:root.dark { … }` 覆盖同名语义变量，
+> 业务组件只引用变量，不做任何主题判断。
+> 防回潮判据：`scripts/guard_no_data_theme_dark.mjs`（扫前端源码，命中即红）。
+
 ### JavaScript 切换
 
 ```javascript
-// 切换暗色模式
+// 切换暗色模式：切 .dark 类，不动 data-theme（后者是配色主题名）
 function toggleDarkMode(enabled) {
-  document.documentElement.setAttribute('data-theme', enabled ? 'dark' : 'light');
-  localStorage.setItem('theme', enabled ? 'dark' : 'light');
+  document.documentElement.classList.toggle('dark', enabled);
+  localStorage.setItem('theme-mode', enabled ? 'dark' : 'light');
 }
 
 // 初始化
-const savedTheme = localStorage.getItem('theme');
+const savedTheme = localStorage.getItem('theme-mode');
 if (savedTheme === 'dark') {
-  document.documentElement.setAttribute('data-theme', 'dark');
+  document.documentElement.classList.add('dark');
 }
 ```
 
@@ -536,8 +551,8 @@ if (savedTheme === 'dark') {
 ```javascript
 // 检测系统偏好
 const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
-if (prefersDark.matches && !localStorage.getItem('theme')) {
-  document.documentElement.setAttribute('data-theme', 'dark');
+if (prefersDark.matches && !localStorage.getItem('theme-mode')) {
+  document.documentElement.classList.add('dark');
 }
 ```
 
@@ -546,10 +561,10 @@ if (prefersDark.matches && !localStorage.getItem('theme')) {
 如果检测到浏览器不支持 CSS 自定义属性（`CSS Variables`），页面将强制使用亮色模式并隐藏暗色模式切换按钮，避免样式错乱。
 
 ```javascript
-// 检测 CSS 变量支持
+// 检测 CSS 变量支持：不支持则强制亮色（摘掉 .dark 类）
 const supportsCSSVars = window.CSS && CSS.supports('color', 'var(--test)');
 if (!supportsCSSVars) {
-  document.documentElement.setAttribute('data-theme', 'light');
+  document.documentElement.classList.remove('dark');
   document.querySelector('.theme-toggle')?.style.display = 'none';
 }
 ```
@@ -592,7 +607,7 @@ if (!supportsCSSVars) {
 
 | 变更类型 | 影响范围 | 兼容性 |
 |----------|----------|--------|
-| 新增 `data-theme="dark"` 选择器 | 全局 | ✅ 纯新增 |
+| 新增 `.dark`（`dark.scss` 的 `:root.dark`）选择器 | 全局 | ✅ 纯新增 |
 | 新增所有暗色变量值 | 全局 | ✅ 纯新增 |
 | `--color-rise` / `--color-fall` 动态切换 | 涨跌语义 | ✅ 纯新增（亮色值不变） |
 | 品牌色饱和度降低 | 品牌元素 | ✅ 仅暗色模式下生效 |

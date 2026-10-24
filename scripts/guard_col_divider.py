@@ -16,7 +16,7 @@ WHY
 （``frontend/src/style/index.scss``：lg 以上才 ``padding-left: 24px`` + 画线，
 lg 以下不画）——#2157。
 
-本守卫防的是**第 5 份手写拷贝**：业务样式里再裸写
+本守卫防的是**第 4 份手写拷贝**：业务样式里再裸写
 ``border-left|border-right: 1px solid var(--border-light)`` 即 CI 变红。
 没有它，「这次收口完下次还会散开」——散文规范拦不住抄粘贴。
 
@@ -54,9 +54,6 @@ lg 以下不画）——#2157。
                       ``.soft-col-divider``（给 24px padding）会让指示条脱离轨道。
                       且该线本就在 ``bp.above("xl")`` 内（lg 以下 rail 整体
                       ``display: none``），不存在孤线；文字距线 12px。
-``OverviewSummaryCard``  ``.summary-card__metric`` 已有 ``padding: 0 12px``（两侧各
-  ``.vue``              12px，不贴字），且固定 3 列**任何视口都不堆叠**，
-                      断点语义对它不适用。
 ``ColumnSettingsModal``  ``.cs-nav`` 是模态框内**恒并排**的左导航轨（宽 168px、
   ``.vue``              ``padding-right: 8px`` + item ``padding: 8px 10px`` ⇒
                       角标距线 18px、不贴字）。``.soft-col-divider`` 只在 lg 以上
@@ -65,8 +62,13 @@ lg 以下不画）——#2157。
   ``.vue``              导航项 ``padding: 10px 12px`` ⇒ 距线 12px。
 ===================  ==========================================================
 
-⇒ 结论：这 4 处都**不同时具备**「贴字」与「孤线」两条症状，故保留原样并登记；
-本守卫防的是**新增第 5 份**。
+⇒ 结论：这 3 处都**不同时具备**「贴字」与「孤线」两条症状，故保留原样并登记；
+本守卫防的是**新增第 4 份**。
+
+2026-10-23 基线由 4 降为 3：``OverviewSummaryCard.vue`` 的三列竖线改用
+``--border-subtle``（卡片内并列列的降权分割，design.md §边框与分割线）——
+它本来就不贴字（两侧各 12px）、也不会堆叠（恒 3 列），降的只是装饰强度，
+所以从「豁免名单」里除掉，今后它若回到 ``--border-light`` 应当报红。
 
 用法
 ----
@@ -103,8 +105,6 @@ DIVIDER_VALUE_RE = re.compile(r"^1px\s+solid\s+var\(\s*--border-light\s*\)$")
 BASELINE: dict[str, int] = {
     "frontend/src/components/Watchlist/ColumnSettingsModal.vue::"
     "border-right: 1px solid var(--border-light)": 1,
-    "frontend/src/views/asset/panorama/components/OverviewSummaryCard.vue::"
-    "border-left: 1px solid var(--border-light)": 1,
     "frontend/src/views/asset/watchlist/components/FilterPanelBody.vue::"
     "border-right: 1px solid var(--border-light)": 1,
     "frontend/src/views/product/components/ProductPageToc.vue::"
@@ -263,7 +263,7 @@ def main(argv: list[str]) -> int:
             print("OK: 栏间分割线基线已清零，可把本守卫改为零容忍模式")
         else:
             remain = sum(min(seen.get(k, 0), v) for k, v in BASELINE.items())
-            # 措辞刻意写「已逐处复核为保留原样」而非「待收口」：这 4 处是 #2157
+            # 措辞刻意写「已逐处复核为保留原样」而非「待收口」：这 3 处是 #2157
             # 「逐处确认」的**结论**（不同时具备「贴字」「孤线」两条症状），不是欠账。
             # 写成「待收口」会误导下一个人去「统一」掉它们——那恰恰是本判据要防的事。
             print(

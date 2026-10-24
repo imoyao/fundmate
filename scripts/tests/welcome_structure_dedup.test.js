@@ -68,6 +68,10 @@ const WATERFALL = 'frontend/src/views/asset/panorama/components/OverviewSummaryC
 // #2093：瀑布图的几何与 option 构造被抽到此模块（纯计算，不碰 DOM / 实例），
 // `category_distribution` 的消费随之搬来这里；组件侧只留「何时画 / 画在哪 / 何时 dispose」。
 const WATERFALL_HELPER = 'frontend/src/views/asset/panorama/components/assetWaterfall.ts';
+// 2026-10-24（#980 页面规模基线）：取色与 option 组装再从组件抽到本模块，
+// 组件里只剩「何时画 / 画在哪 / 何时 dispose」。委托点跟着搬——判据因此查
+// 「组件 → 取色/组装模块 → 计算模块」这条链路，而不是钉死在一个文件上。
+const WATERFALL_VIEW = 'frontend/src/views/asset/panorama/components/waterfallView.ts';
 
 /**
  * 判据 A：welcome 资产看板里不得出现「结构图」的两个特征——
@@ -114,8 +118,16 @@ test('#2034：panorama 瀑布图仍应合法消费这些字段（不得误报）
     helper && helper.includes('category_distribution'),
     '瀑布图计算模块应消费 category_distribution'
   );
+  const view = readCode(WATERFALL_VIEW);
+  assert.ok(
+    view && view.includes('buildWaterfallBars'),
+    '取色/组装模块应委托 buildWaterfallBars 画瀑布图'
+  );
   const comp = readCode(WATERFALL);
-  assert.ok(comp && comp.includes('buildWaterfallBars'), '组件应委托 buildWaterfallBars 画瀑布图');
+  assert.ok(
+    comp && comp.includes('buildWaterfallViewOption'),
+    '组件应委托 buildWaterfallViewOption 画瀑布图，不得把数据逻辑搬回组件'
+  );
 });
 
 test('#2034：welcome 不再请求 distributions（少一次无消费方的请求）', () => {
