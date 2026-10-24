@@ -112,3 +112,19 @@ class ConvertibleBondTerm(Base, PrimaryKeyMixin, TimestampMixin):
     issue_size = Column(SafeNumeric(18, 4), comment='发行规模（亿元）')
     remain_size = Column(SafeNumeric(18, 4), comment='剩余规模（亿元）')
     source = Column(String(20), comment='数据来源')
+
+    # ── 条款增强两列（#1400 / #2575）────────────────────────────────────────
+    # 数据源：东财 RPT_BOND_CB_LIST 批量报表口（带 quoteColumns），免 cookie。
+    # 「三个缺口需登录态」的前提在 2026-10-24 实测后被推翻。
+    stock_pb = Column(
+        SafeNumeric(10, 4),
+        comment='正股市净率 PB（东财 quoteColumns 关联带出；覆盖 99.1%）',
+    )
+    ytm = Column(
+        SafeNumeric(12, 4),
+        comment=(
+            '到期税前收益 YTM（%，单利年化持有到期总回报，自算；'
+            '口径同集思录。**深度价内债不出此值**——持有到期不成立，'
+            '算出来是 -500% 这种无意义数）'
+        ),
+    )
