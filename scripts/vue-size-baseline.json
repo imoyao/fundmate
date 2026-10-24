@@ -12,7 +12,6 @@
     "components/DiscrepancyBanner/index.vue": 408,
     "components/PnlAttribution/index.vue": 402,
     "components/PnlCalendar/index.vue": 580,
-    "components/QuickEntry/OcrImportModal.vue": 952,
     "components/QuickEntry/RecognizerImportModal.vue": 657,
     "components/Watchlist/GroupItemsDialog.vue": 487,
     "components/Watchlist/SettingsDrawer.vue": 434,
