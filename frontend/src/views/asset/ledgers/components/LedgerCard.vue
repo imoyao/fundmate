@@ -1,12 +1,28 @@
 <script setup lang="ts">
-import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
+import LedgerCardMetrics from "./ledgerCard/LedgerCardMetrics.vue";
+import {
+  archiveAriaLabel,
+  archiveToggleLabel,
+  deleteAriaLabel,
+  dragAriaLabel,
+  dragTitle,
+  hasRowActions,
+  isArchived,
+  reorderTargetOf,
+  showStaleBadge,
+  type ReorderKey
+} from "./ledgerCard/ledgerCardModel";
 
 /**
  * 账户卡片（#984 ledgers/index.vue 拆分）。
  * 从 index.vue 原样迁移：标题行/核心指标/关联负债的展示逻辑不变；
  * 点击进详情、删除按钮经事件上抛，路由与删除流程仍由父页面编排。
+ *
+ * #980 再拆一层：核心指标区（总资产 / 当日盈亏 / 持仓盈亏 / 关联负债）挪进
+ * `ledgerCard/LedgerCardMetrics.vue`，本文件只留「标题行 + 归档徽标 + 事件上抛」；
+ * 文案与 aria-label 的三元判断收进 `ledgerCard/ledgerCardModel.ts`。
  */
 defineProps<{
   ledger: any;
@@ -34,12 +50,21 @@ const emit = defineEmits<{
    */
   reorderKey: [payload: { ledger: any; to: number }];
 }>();
+
+function onReorderKey(
+  ledger: any,
+  key: ReorderKey,
+  index?: number,
+  total?: number
+) {
+  emit("reorderKey", { ledger, to: reorderTargetOf(key, index, total) });
+}
 </script>
 
 <template>
   <div
     class="ledger-card"
-    :class="{ 'is-archived': ledger.is_active === false }"
+    :class="{ 'is-archived': isArchived(ledger) }"
     role="button"
     tabindex="0"
     :aria-label="`查看账户 ${ledger.name}`"
@@ -56,20 +81,18 @@ const emit = defineEmits<{
           class="drag-handle"
           role="button"
           tabindex="0"
-          :aria-label="`调整顺序：${ledger.name}，当前第 ${(index ?? 0) + 1} / ${total ?? 1} 位，用上下方向键移动`"
-          :title="`拖拽或用方向键调整顺序：${ledger.name}`"
+          :aria-label="dragAriaLabel(ledger.name, index, total)"
+          :title="dragTitle(ledger.name)"
           @click.stop
           @keydown.enter.stop
-          @keydown.up.stop.prevent="
-            emit('reorderKey', { ledger, to: (index ?? 0) - 1 })
-          "
+          @keydown.up.stop.prevent="onReorderKey(ledger, 'up', index, total)"
           @keydown.down.stop.prevent="
-            emit('reorderKey', { ledger, to: (index ?? 0) + 1 })
+            onReorderKey(ledger, 'down', index, total)
           "
-          @keydown.home.stop.prevent="emit('reorderKey', { ledger, to: 0 })"
-          @keydown.end.stop.prevent="
-            emit('reorderKey', { ledger, to: (total ?? 1) - 1 })
+          @keydown.home.stop.prevent="
+            onReorderKey(ledger, 'home', index, total)
           "
+          @keydown.end.stop.prevent="onReorderKey(ledger, 'end', index, total)"
         >
           <!-- 卡片拖拽：四向「移动」双箭头，暗示单张卡片可上下/左右重排，与分组抓手（纵向三横线）明确区分 -->
           <svg
@@ -103,7 +126,7 @@ const emit = defineEmits<{
         <AssetTypeBadge :type="ledger.ledger_type" />
         <!-- 温柔提醒角标（#1133 §4）：中性信息色，不红不阻断；hover 提示建议核对 -->
         <el-tooltip
-          v-if="(staleCount ?? 0) > 0"
+          v-if="showStaleBadge(staleCount)"
           content="持仓记录可能滞后，建议核对一下"
           placement="top"
           effect="light"
@@ -120,8 +143,8 @@ const emit = defineEmits<{
       <div class="ledger-row-actions">
         <!-- 归档 / 激活切换：text 图标按钮，hover 显主题色；tooltip 说明用途 -->
         <el-tooltip
-          v-if="typeof ledger.id === 'number'"
-          :content="ledger.is_active === false ? '激活' : '归档'"
+          v-if="hasRowActions(ledger)"
+          :content="archiveToggleLabel(isArchived(ledger))"
           placement="top"
           effect="light"
         >
@@ -130,20 +153,17 @@ const emit = defineEmits<{
             size="small"
             circle
             class="ledger-row-action"
-            :aria-label="
-              (ledger.is_active === false ? '激活账户 ' : '归档账户 ') +
-              ledger.name
-            "
+            :aria-label="archiveAriaLabel(ledger.name, isArchived(ledger))"
             @click.stop="emit('toggleArchive', ledger)"
           >
             <IconifyIconOffline
-              :icon="ledger.is_active === false ? 'ep:refresh-left' : 'ep:box'"
+              :icon="isArchived(ledger) ? 'ep:refresh-left' : 'ep:box'"
             />
           </el-button>
         </el-tooltip>
         <!-- 删除按钮：text 图标按钮，hover 显 danger 红（破坏性操作） -->
         <el-tooltip
-          v-if="typeof ledger.id === 'number'"
+          v-if="hasRowActions(ledger)"
           :content="'删除'"
           placement="top"
           effect="light"
@@ -154,7 +174,7 @@ const emit = defineEmits<{
             size="small"
             circle
             class="ledger-row-action ledger-row-action--danger"
-            :aria-label="`删除账户 ${ledger.name}`"
+            :aria-label="deleteAriaLabel(ledger.name)"
             @click.stop="emit('delete', ledger)"
           >
             <IconifyIconOffline icon="ep:delete" />
@@ -164,111 +184,12 @@ const emit = defineEmits<{
     </div>
 
     <!-- 已归档徽标：灰化提示，数据仍参与收益计算 -->
-    <div v-if="ledger.is_active === false" class="ledger-card__archived">
+    <div v-if="isArchived(ledger)" class="ledger-card__archived">
       <IconifyIconOffline icon="ep:box" class="mr-1" /> 已归档 · 数据仍计入收益
     </div>
 
-    <!-- 核心指标：左右两列 flex（总资产为左侧大数字锚点，右侧两指标独立竖排，
-         避免大数字撑高整行把右侧指标挤到下方） -->
-    <div class="ledger-metrics">
-      <div class="metric metric--main">
-        <span
-          class="metric-label"
-          :style="{ color: 'var(--text-tertiary-ink)' }"
-          >总资产</span
-        >
-        <span class="metric-value" :style="{ color: 'var(--text-primary)' }">
-          <MoneyDisplay
-            :value="ledger.total_market_value || 0"
-            :show-sign="false"
-            :auto-color="false"
-            size="lg"
-          />
-        </span>
-      </div>
-      <!-- 右侧两指标：独立竖排容器，垂直居中于卡片高度，互不挤压 -->
-      <div class="metric-side">
-        <!-- 当日盈亏：暂无当日行情数据，保留占位符 -->
-        <div class="metric">
-          <span
-            class="metric-label"
-            :style="{ color: 'var(--text-tertiary-ink)' }"
-            >当日盈亏</span
-          >
-          <span
-            class="metric-value"
-            :style="{ color: 'var(--text-tertiary-ink)' }"
-            >--</span
-          >
-        </div>
-        <!-- 持仓盈亏：银行显示活期余额、实物显示估值项数 -->
-        <div class="metric">
-          <span
-            class="metric-label"
-            :style="{ color: 'var(--text-tertiary-ink)' }"
-          >
-            {{
-              ledger.ledger_type === "bank"
-                ? "活期余额"
-                : ledger.ledger_type === "property"
-                  ? "估值"
-                  : "持仓盈亏"
-            }}
-          </span>
-          <template
-            v-if="
-              ledger.ledger_type === 'bank' &&
-              ledger.cash_balance !== undefined &&
-              ledger.cash_balance !== null
-            "
-          >
-            <span
-              class="metric-value"
-              :style="{ color: 'var(--text-secondary)' }"
-            >
-              <MoneyDisplay
-                :value="ledger.cash_balance"
-                :show-sign="false"
-                :auto-color="false"
-                size="sm"
-              />
-            </span>
-          </template>
-          <template v-else-if="ledger.ledger_type === 'property'">
-            <span
-              class="metric-value"
-              :style="{ color: 'var(--text-secondary)' }"
-            >
-              {{ ledger.position_count || 0 }} 项
-            </span>
-          </template>
-          <span v-else class="metric-value">
-            <!-- 盈亏数字走 MoneyDisplay 自动涨红跌绿 -->
-            <MoneyDisplay :value="ledger.pnl || 0" size="sm" />
-          </span>
-        </div>
-      </div>
-    </div>
-
-    <!-- 关联负债（仅银行账户且存在房贷时显示；负债属中性信息，用 text-secondary） -->
-    <div
-      v-if="ledger.ledger_type === 'bank' && ledger.linked_liability > 0"
-      class="ledger-liability"
-    >
-      <span class="text-xs" :style="{ color: 'var(--text-tertiary-ink)' }"
-        >关联负债</span
-      >
-      <span
-        class="text-xs font-medium"
-        :style="{ color: 'var(--text-secondary)' }"
-      >
-        <MoneyDisplay
-          :value="-ledger.linked_liability"
-          :auto-color="false"
-          size="xs"
-        />
-      </span>
-    </div>
+    <!-- 核心指标 + 关联负债 -->
+    <LedgerCardMetrics :ledger="ledger" />
   </div>
 </template>
 
@@ -300,55 +221,6 @@ const emit = defineEmits<{
   cursor: grabbing;
   box-shadow: var(--shadow-float);
   transform: scale(1.02);
-}
-
-/* ===== 核心指标：左右两列 flex（总资产大数字锚点 + 右侧两指标独立竖排） ===== */
-.ledger-metrics {
-  display: flex;
-  gap: var(--space-3);
-  align-items: stretch;
-}
-
-.metric--main {
-  display: flex;
-  flex: 1.25;
-  flex-direction: column;
-  gap: 2px;
-  justify-content: center;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.metric-side {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: var(--space-2);
-  justify-content: center;
-  min-width: 0;
-}
-
-.metric-label {
-  display: block;
-  font-size: var(--text-label, 13px);
-  line-height: 18px;
-}
-
-.metric-value {
-  display: block;
-  font-size: var(--text-small, 14px);
-  font-variant-numeric: tabular-nums;
-  line-height: 22px;
-}
-
-.ledger-liability {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-top: var(--space-2);
-  margin-top: var(--space-3);
-  font-variant-numeric: tabular-nums;
-  border-top: 1px solid var(--border-subtle);
 }
 
 .ledger-row-actions {
