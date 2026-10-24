@@ -1,12 +1,7 @@
 import { ref, onUnmounted, computed } from "vue";
 import { getSummary } from "@/api/summary";
 import { getUnreadCount } from "@/api/notification";
-import {
-  getPortfolioXirr,
-  getTwr,
-  type TwrData,
-  type XirrData
-} from "@/api/performance";
+import { getPortfolioXirr, type XirrData } from "@/api/performance";
 import { getRecordStats } from "@/api/users";
 import { useTemperatureOverview } from "@/composables/temperature/useTemperatureOverview";
 import type { SummaryData } from "@/api/types";
@@ -301,24 +296,6 @@ export function useWelcomeData() {
   };
 
   /**
-   * TWR（时间加权收益率，#2133）——与 XIRR 并列的第二口径。
-   *
-   * 失败**静默降级为 null**（卡片显示 `—`），不并入 `xirrError`：
-   * 主口径 XIRR 与辅助口径 TWR 出自两个端点，把辅助口径的失败做成整卡失败态，
-   * 等于让一个「对照数字」把主数字一起藏起来。
-   */
-  const twr = ref<TwrData | null>(null);
-  const fetchTwr = async () => {
-    try {
-      const res = await getTwr();
-      twr.value = res.data;
-    } catch (e) {
-      console.debug("[welcome] TWR 拉取失败，降级显示 —", e);
-      twr.value = null;
-    }
-  };
-
-  /**
    * 未读站内信数（#2228）。
    *
    * 失败必须静默降级：这条提示不是首屏主体，一个超时不能把欢迎语整块带崩。
@@ -349,7 +326,7 @@ export function useWelcomeData() {
     xirrError,
     /** 资产关键数据重试（汇总 + 年化），供页面「重试」按钮调用 */
     retryAssetLoad: async () => {
-      await Promise.all([fetchSummary(), fetchXirr(), fetchTwr()]);
+      await Promise.all([fetchSummary(), fetchXirr()]);
     },
     welcomeState,
     greetingText,
@@ -363,8 +340,6 @@ export function useWelcomeData() {
     // 汇总 / XIRR
     summary,
     portfolioXirr,
-    // TWR（与 XIRR 并列的第二口径，#2133）
-    twr,
     includeCashEquivalents,
     // 温度
     compositeTemperature,
@@ -377,7 +352,6 @@ export function useWelcomeData() {
     // 请求入口（页面 onMounted 编排，保持拆分前的调用顺序）
     fetchSummary,
     fetchXirr,
-    fetchTwr,
     fetchTemperature,
     fetchRecordStats,
     fetchUnreadNotifications

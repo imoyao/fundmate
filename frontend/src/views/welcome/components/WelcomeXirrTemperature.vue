@@ -177,7 +177,8 @@
 </template>
 
 <script setup lang="ts">
-import type { TwrData, XirrData } from "@/api/performance";
+import { onMounted, ref } from "vue";
+import { getTwr, type TwrData, type XirrData } from "@/api/performance";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
@@ -193,8 +194,6 @@ defineOptions({ name: "WelcomeXirrTemperature" });
 
 defineProps<{
   portfolioXirr: XirrData | null;
-  /** 时间加权收益率（#2133）：与 XIRR 并列的第二口径；null = 取不到数据（显示 —） */
-  twr?: TwrData | null;
   includeCashEquivalents: boolean;
   compositeTemperature: CompositeTemperature | null;
   temperatureBands: TemperatureBands | null;
@@ -218,4 +217,23 @@ const emit = defineEmits<{
 const onIncludeCashChange = (value: boolean | string | number) => {
   emit("update:includeCashEquivalents", Boolean(value));
 };
+
+/**
+ * TWR（时间加权收益率，#2133）——与 XIRR 并列的第二口径。
+ *
+ * 由**本组件自己拉**，不走页面的 `useWelcomeData`：它只是卡片内的对照数字，
+ * 让首页那个 441 行的上帝页面再长 5 行会直接撞上页面规模门禁（#980 只减不增）。
+ * 失败时静默降级为 `null`（显示 `—`），**不并入 `error` 整卡失败态**：
+ * 辅助口径的失败不该把主口径 XIRR 的数字一起藏起来。
+ */
+const twr = ref<TwrData | null>(null);
+onMounted(async () => {
+  try {
+    const res = await getTwr();
+    twr.value = res.data;
+  } catch (e) {
+    console.debug("[welcome] TWR 拉取失败，降级显示 —", e);
+    twr.value = null;
+  }
+});
 </script>
