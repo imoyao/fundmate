@@ -1,0 +1,144 @@
+/**
+ * 组合详情页的纯函数层（#980 拆分自 views/asset/portfolio/detail.vue）。
+ *
+ * 收口三件事：接口信封解包、持仓排序/分页、区间超额（#2134）的文案与配色。
+ * 全是「输入 → 输出」，不碰响应式，便于直接喂数据断言。
+ */
+
+import type { LedgerItem } from "@/api/ledger";
+import type { BenchmarkExcessResult } from "@/api/summary";
+import { excessDegradHint, formatSignedPct } from "@/utils/benchmarkExcess";
+
+/** 组合持仓（后端 /api/portfolios/{id}/holdings/ 返回，字段按现有代码使用为准） */
+export interface PortfolioHolding {
+  symbol?: string;
+  name?: string | null;
+  type_label?: string;
+  market_value?: number;
+  pnl?: number;
+  pnl_rate?: number;
+  account_name?: string;
+  source?: string | null;
+  /**
+   * #1104：盈亏双线要用到的最小字段集（后端本就下发，此前页面类型没声明）。
+   *
+   * 注意 `type` 与 `quantity` 对**资产行**（`api/portfolio.ts` 注释：资产行 id = asset.id
+   * + 100000）是空的——`confirmedPnl` 会返回 `null` 显示 `--`，这是正确行为：
+   * 那些行没有「份额 × 现价」的口径，不该硬凑一个 0 出来。
+   */
+  type?: string | null;
+  quantity?: number | null;
+  current_price?: number | null;
+  avg_price?: number | null;
+  /** 价格时点（#2140 / #2210）：后端行级 price_date，部分路径缺省为 null */
+  price_date?: string | null;
+  /**
+   * 当日确认口径是否已定型（#2210）：true = 估值副行应隐藏；null / 缺省 = 不隐藏。
+   * **状态 = 后端字段契约**，前端禁止拿 price_date 自己跟今天比对推断。
+   */
+  settled_today?: boolean | null;
+}
+
+/** 关联账户：账户 + 组合关联字段 */
+export interface LinkedLedger extends LedgerItem {
+  portfolio_id?: number | null;
+}
+
+/** 从接口信封（{ data, message } 或 { data: { data, message } }）中安全取出列表 */
+export function unwrapList<T>(res: unknown): T[] {
+  const d = (res as { data?: unknown })?.data;
+  if (Array.isArray(d)) return d as T[];
+  const nested = (d as { data?: unknown })?.data;
+  return Array.isArray(nested) ? (nested as T[]) : [];
+}
+
+/**
+ * 持仓排序。
+ *
+ * 无排序字段时**返回原序**（后端下发顺序，通常按市值降序），不在这里另立默认；
+ * 排序键统一 `Number(... ?? 0)`——持仓行里 `pnl` / `pnl_rate` 对资产行是空值，
+ * 不兜 0 会让 `undefined` 参与比较得到 NaN，整表顺序变随机。
+ */
+export function sortHoldings(
+  holdings: PortfolioHolding[],
+  prop: string | null,
+  order: "ascending" | "descending" | null
+): PortfolioHolding[] {
+  if (!prop || !order) return [...holdings];
+  const sorted = [...holdings];
+  sorted.sort((a, b) => {
+    const key = prop as keyof PortfolioHolding;
+    const valA = Number(a[key] ?? 0);
+    const valB = Number(b[key] ?? 0);
+    return order === "ascending" ? valA - valB : valB - valA;
+  });
+  return sorted;
+}
+
+/** 前端分页切片（页码从 1 开始） */
+export function slicePage<T>(list: T[], page: number, pageSize: number): T[] {
+  const start = (page - 1) * pageSize;
+  return list.slice(start, start + pageSize);
+}
+
+/** 账户类型中文名 */
+export function ledgerTypeLabel(type: string): string {
+  if (type === "cash") return "现金账户";
+  if (type === "family") return "家庭账户";
+  return "通用账户";
+}
+
+/** 基准名：优先后端归一后的宽基名；未加载 / 未识别时回落用户所设原文 */
+export function benchmarkLabelOf(
+  excess: BenchmarkExcessResult | null,
+  portfolioBenchmark: string | null | undefined
+): string | null {
+  const b = excess?.benchmark;
+  return b?.name ?? b?.code ?? portfolioBenchmark ?? null;
+}
+
+/** 基准卡说明：同期基准收益 + 区间；拿不到时降级说明 */
+export function benchmarkCaptionOf(
+  excess: BenchmarkExcessResult | null,
+  rangeLabel: string
+): string {
+  const b = excess?.benchmark;
+  if (b?.range_return != null) {
+    return `同期 ${formatSignedPct(b.range_return)} · ${rangeLabel}`;
+  }
+  const hint = excessDegradHint(excess);
+  return hint ? `${hint} · ${rangeLabel}` : rangeLabel;
+}
+
+/** 超额收益值：MetricCard 空值显示「--」，故 toFixed 前判 null，绝不上 0 占位 */
+export function excessValueText(
+  excess: BenchmarkExcessResult | null
+): string | null {
+  const v = excess?.excess_return;
+  return v == null ? null : v.toFixed(2);
+}
+
+/** 超额收益配色：正涨负跌，0 与空值不上色（不着任何颜色，交给默认文本色） */
+export function excessColorOf(excess: BenchmarkExcessResult | null): string {
+  const v = excess?.excess_return;
+  if (v == null || v === 0) return "";
+  return v > 0 ? "var(--color-rise)" : "var(--color-fall)";
+}
+
+/** 超额收益卡说明：三条数据齐全才给对比式，否则降级说明 */
+export function excessCaptionOf(
+  excess: BenchmarkExcessResult | null,
+  rangeLabel: string
+): string {
+  const d = excess;
+  if (!d) return rangeLabel;
+  if (
+    d.excess_return != null &&
+    d.range_rate != null &&
+    d.benchmark?.range_return != null
+  ) {
+    return `${rangeLabel} · ${formatSignedPct(d.range_rate)} vs ${formatSignedPct(d.benchmark.range_return)}`;
+  }
+  const hint = excessDegradHint(d);
+  return hint || rangeLabel;
+}
