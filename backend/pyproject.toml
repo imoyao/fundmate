@@ -138,3 +138,5 @@ scheduler-daemon = "python app/tools/scheduler_daemon.py"
 agent-mcp = "python -m app.services.ai_recognizer.mcp_server"
 # Wind MCP 只读探针（S3）：人工探测 + 真实错误报文采样；生产链路不走这里
 mcp-probe = "python app/tools/mcp_probe.py"
+# user 域结构漂移只读报告（#2498）：不建表、不补列，只列出「补列 vs 重建」的事实
+user-schema-report = "python app/tools/user_schema_report.py"
