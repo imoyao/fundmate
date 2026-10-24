@@ -655,6 +655,18 @@ jobs:
       - name: 扫描跨仓引用是否挂源（阻断）
         run: node scripts/guard_cross_repo_refs.mjs
 
+      # 暗色模式死选择器（本轮 panorama 页清理时一并扫出的同型问题）：
+      # 暗色由 <html> 上的 `.dark` 类驱动、变量由 dark.scss 的 `:root.dark` 覆盖同名令牌；
+      # `data-theme` 属性只承载**配色主题名**（light/default/.../showbuy），永远不会是 dark。
+      # 因此 `[data-theme="dark"]` 选择器永不命中：不报错、构建绿，只让下一个人
+      # 以为「暗色有独立分支」并照着继续写（MoneyDisplay / RiseFallText 各躺了两块）。
+      # 判据自带失败态：扫不到输入时 exit 2（结论不可信），不会退化成「零命中 = 通过」。
+      # 回归网 scripts/tests/guard_no_data_theme_dark.test.js（真实扫描 + 三种写法注入探针
+      # + 两条失败态探针 + 一条「配色主题选择器不得误伤」反向探针）。
+      - name: 暗色模式：禁止 data-theme 等于 dark 的死选择器
+        run: |
+          node scripts/guard_no_data_theme_dark.mjs
+          node --test scripts/tests/guard_no_data_theme_dark.test.js
 
       # 付费卡违规占用 NOW 档位（源 #1288 实测）：付费里程碑上的卡带了 `Q1-RED`。
       # 首次上线时违规项**已经存在**且不是 PR 作者能修的（要改的是 owner 的优先级判断），

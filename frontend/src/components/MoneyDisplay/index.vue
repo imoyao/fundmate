@@ -29,10 +29,14 @@
       <span class="number">{{ emptyText }}</span>
     </template>
     <template v-else>
-      <!-- 正负号。⚠️ 插值必须与标签**同一行**：写成多行时模板里的换行/缩进会被
-           渲染成一个可见空格，"-" 与数字之间就多出一道 3px 的缝（数字是等宽字体，
-           这道缝在百分比里尤其突兀）。 -->
-      <span v-if="showSign && !isZero" class="sign">{{ isRise ? "+" : "-" }}</span>
+      <!-- 正负号。⚠️ 换行只能落在 `{{ }}` **内部**（那是 JS 表达式源码，不产生
+           文本节点）；`>` 与 `{{` 之间、`}}` 与 `<` 之间的换行/缩进则会被渲染成
+           一个可见空格，"-" 与数字之间就多出一道 3px 的缝（数字是等宽字体，
+           这道缝在百分比里尤其突兀）。本行超出行宽时 prettier 会把表达式折成
+           多行 —— 那是安全的：@vue/compiler-sfc 实测两种写法的 render 代码逐字相同。 -->
+      <span v-if="showSign && !isZero" class="sign">{{
+        isRise ? "+" : "-"
+      }}</span>
 
       <!-- 货币符号 -->
       <span v-if="showCurrency" class="currency">{{ currencySymbol }}</span>
@@ -159,12 +163,13 @@ const currencySymbol = computed(() => {
 .money-display .sign {
   margin-right: 1px;
   font-family: var(--font-sans, Inter, -apple-system, sans-serif);
+  font-size: 0.9em;
+  font-weight: 500;
+
   /* 同 RiseFallText：关掉继承来的 tabular-nums。Inter 的 tnum 会把减号换成
      数字格宽的居中版本（"-" 6.02px → 8.44px），负号与数字之间于是多出一道缝。
      数字本身仍是 tabular-nums（小数点对齐），只有符号回到比例宽。 */
   font-variant-numeric: normal;
-  font-size: 0.9em;
-  font-weight: 500;
 }
 
 /* ===== 后缀 ===== */
@@ -233,9 +238,9 @@ const currencySymbol = computed(() => {
    此前的突兀来自「太小」而不是「对齐方式」。 */
 .money-display.size-hero .currency {
   margin-right: 2px;
+  font-size: 0.4em;
   font-weight: 500;
   opacity: 0.8;
-  font-size: 0.4em;
 }
 
 .money-display.size-hero .sign {
@@ -336,12 +341,9 @@ const currencySymbol = computed(() => {
   color: var(--text-primary, #2d2a24);
 }
 
-/* ===== 暗色模式适配 ===== */
-[data-theme="dark"] .money-display.is-rise {
-  color: var(--color-rise-ink, #ef8a78);
-}
-
-[data-theme="dark"] .money-display.is-fall {
-  color: var(--color-fall-ink, #8fd4ad);
-}
+/* 暗色不需要单独分支：--color-rise-ink / --color-fall-ink 由 dark.scss 的
+   `:root.dark` 覆盖同名变量，本组件只引用变量即可。
+   历史上这里写过「把 data-theme 属性等于 dark 当暗色开关」的 CSS 选择器，
+   但 data-theme 只承载配色主题名（light/default/.../showbuy），永远不会是 dark，
+   那条选择器永不命中，已删除。防回潮判据：scripts/guard_no_data_theme_dark.mjs */
 </style>

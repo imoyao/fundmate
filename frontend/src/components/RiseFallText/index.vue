@@ -31,10 +31,14 @@
     ]"
     :style="{ color: customColor }"
   >
-    <!-- 正负号。⚠️ 插值必须与标签**同一行**：多行写法（`>` 换行缩进再 `{{ }}`）
-         会把那串空白渲染成可见空格，"-" 与数字之间凭空多出 3px 的缝，
-         看上去像「减号是单独一个东西」。 -->
-    <span v-if="showSign && !isZero" class="sign">{{ isRise ? "+" : "-" }}</span>
+    <!-- 正负号。⚠️ 换行只能落在 `{{ }}` **内部**（那是 JS 表达式源码，不产生
+         文本节点）；`>` 与 `{{` 之间、`}}` 与 `<` 之间的换行缩进则会被渲染成
+         可见空格，"-" 与数字之间凭空多出 3px 的缝，看上去像「减号是单独一个东西」。
+         超出行宽时 prettier 会把表达式折行 —— 安全：@vue/compiler-sfc 实测
+         两种写法的 render 代码逐字相同。 -->
+    <span v-if="showSign && !isZero" class="sign">{{
+      isRise ? "+" : "-"
+    }}</span>
 
     <!-- 数值 -->
     <span class="number font-mono">{{ formattedValue }}</span>
@@ -134,17 +138,19 @@ const sizeClass = computed(() => {
 .rise-fall-text .sign {
   margin-right: 1px;
   font-family: var(--font-sans, Inter, -apple-system, sans-serif);
+
+  /* 与数字同号（1em）：0.9em 时减号比数字小一号、笔画细，13px 的小字里
+     会被读成「一个灰点」而不是数字的一部分（用户报的「符号像浅灰」）。
+     符号本身照常继承 .is-rise / .is-fall 的颜色。 */
+  font-size: 1em;
+  font-weight: 500;
+
   /* ⚠️ 必须关掉 tabular-nums：它是继承来的（根节点给数字开的等宽对齐），
      而 Inter 的 tnum 特性能把连字符/减号换成**等宽数字格**里那个居中的版本
      ——实测 "-" 从 6.02px 变成 8.44px，减号因此离数字 2px 远、笔画也变淡，
      看上去像「一个单独的小横线」。数字仍保持 tabular-nums（小数点对齐），
      符号回到比例宽（此规则只作用于 .sign）。 */
   font-variant-numeric: normal;
-  /* 与数字同号（1em）：0.9em 时减号比数字小一号、笔画细，13px 的小字里
-     会被读成「一个灰点」而不是数字的一部分（用户报的「符号像浅灰」）。
-     符号本身照常继承 .is-rise / .is-fall 的颜色。 */
-  font-size: 1em;
-  font-weight: 500;
 }
 
 /* ===== 后缀 ===== */
@@ -176,14 +182,11 @@ const sizeClass = computed(() => {
   color: var(--text-primary, #2d2a24);
 }
 
-/* ===== 暗色模式适配 ===== */
-[data-theme="dark"] .rise-fall-text.is-rise {
-  color: var(--color-rise-ink, #ef8a78);
-}
-
-[data-theme="dark"] .rise-fall-text.is-fall {
-  color: var(--color-fall-ink, #8fd4ad);
-}
+/* 暗色不需要单独分支：--color-rise-ink / --color-fall-ink 由 dark.scss 的
+   `:root.dark` 覆盖同名变量，本组件只引用变量即可。
+   历史上这里写过「把 data-theme 属性等于 dark 当暗色开关」的 CSS 选择器，
+   但 data-theme 只承载配色主题名（light/default/.../showbuy），永远不会是 dark，
+   那条选择器永不命中，已删除。防回潮判据：scripts/guard_no_data_theme_dark.mjs */
 
 /* ===== 尺寸变体 ===== */
 .rise-fall-text.text-sm {
