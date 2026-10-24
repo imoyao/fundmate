@@ -21,6 +21,14 @@ class XirrRequest(BaseModel):
     include_cash_equivalents: bool = Field(
         False, description='是否将货币基金/逆回购/现金等现金等价物纳入年化收益分母；默认 False=仅主动投资'
     )
+    method: str = Field(
+        'xirr',
+        description=(
+            '收益率方法（#871）：xirr=年化资金加权（默认，对申赎时点敏感）；'
+            'twr=时间加权（剔除自身现金流影响，跨账户/跨人可比，需历史估值）；'
+            'dietz=Modified Dietz 区间收益（线性近似，不年化，答「本月贡献多少」）'
+        ),
+    )
 
 
 class TwrRequest(BaseModel):
@@ -28,6 +36,7 @@ class TwrRequest(BaseModel):
 
     只支持家庭级 / 账户级：TWR 需要「每日净资产」序列，产品级与单持仓没有这条序列，
     硬算会把家庭净资产当成某个标的的分母。前端 / 调用方请勿传其它作用域。
+    组合级 TWR 走 `/xirr/?method=twr&scope=portfolio&portfolio_id=...`（#871）。
     """
 
     ledger_id: Optional[int] = Field(None, description='账户ID；不传=家庭级（与收益日历同语义）')
@@ -48,8 +57,25 @@ class MoneyFundIncomeRequest(BaseModel):
 
 
 class XirrResponse(BaseModel):
-    xirr: float = Field(..., description='年化收益率，如 0.1234 表示 12.34%')
+    """收益率查询响应（#871：method 决定哪些字段有值，其余为 None）
+
+    - ``method=xirr``：``xirr`` 年化资金加权（默认，历史行为不变）；
+    - ``method=dietz``：``dietz`` 区间收益（不年化）；
+    - ``method=twr``：``twr`` 区间 + ``twr_annualized`` 年化，另附
+      ``days_used`` / ``days_skipped``（缺数据跳过的天数，见
+      `services/performance/twr.py` 的诚实降级）。TWR 口径为总资产
+      （日净资产序列天然含货币基金等现金等价物）。
+    """
+
+    method: str = Field('xirr', description='实际使用的收益率方法')
+    xirr: Optional[float] = Field(None, description='年化收益率，如 0.1234 表示 12.34%（method=xirr）')
+    dietz: Optional[float] = Field(None, description='区间收益率，不年化（method=dietz）')
+    twr: Optional[float] = Field(None, description='时间加权区间收益率（method=twr；无数据时为 None）')
+    twr_annualized: Optional[float] = Field(None, description='时间加权年化收益率（method=twr）')
     total_invested: float = Field(..., description='总投入金额')
     current_value: float = Field(..., description='当前市值')
+    total_withdrawn: float = Field(..., description='历史收回金额（不含当前市值）')
     total_return: float = Field(..., description='总收益')
     cashflow_count: int = Field(..., description='参与计算的现金流笔数')
+    days_used: Optional[int] = Field(None, description='TWR 参与连乘的天数（method=twr）')
+    days_skipped: Optional[int] = Field(None, description='TWR 因缺数据被跳过的天数（method=twr；跳过而非当 0）')

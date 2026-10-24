@@ -163,6 +163,13 @@ NEW_FILE_LIMITS = {
 # 名录查询（orm 的 query）在 service 内做（视图层零 db.query 红线不动），`orm_queries` /
 # `commits` 仍为 **0**、`max_func` 不变（30）。docstring 在写「数据链为何中证官网优先 /
 # 降级语义」的口径，值得留。products 458 → 502（`--report` 实测，其余三维不动）。
+# 2026-10-24 收紧（#871，**非放宽**）：收益率三口径（xirr / twr / dietz）落地时，
+# `get_xirr` 视图里长的「成功日志」5 行 f-string 下沉到门面
+# `services/performance/__init__.py::calculate_return_by_scope`（与计算同生命周期，
+# services 侧 loguru 是既有惯例），注释压一行；视图回到「解析 + 调服务 + 异常→HTTP」。
+# 按 `--report` 实测回写：performance lines 86 → 83（max_func 31 不动——最长函数是
+# money-fund-income，本 PR 未触碰）。教训与 #1642 相同：**给视图加功能前先想好日志/校验
+# 落点**，否则「只加 5 行日志」也能顶穿冻结基线。
 BASELINE: dict[str, dict[str, int]] = {
     "backend/app/domains/assets/views.py": {
         "lines": 208,
@@ -238,14 +245,14 @@ BASELINE: dict[str, dict[str, int]] = {
         "commits": 0,
         "max_func": 48,
     },
-    # 2026-10-24 重取（#2133，**新增端点**，非放宽）：TWR 时间加权收益率
-    # `GET /api/performance/twr/`。视图侧只有「parse_query → 调
-    # services/performance/twr.py → jsonify」，连乘算式与缺失日处理全在 services；
-    # orm_queries / commits / max_func 三项实测不动（0/0/31），唯 lines 86 → 110（+24，
-    # 增长来自端点签名与口径 docstring，与 /industry-emotion/ 同形态）。
+    # 2026-10-24 重取（#871 / #2133 收敛，**方案 C**，非放宽）：TWR 两套实现二选一，
+    # 保留 `#2133` 的日因子引擎（pnl_calendar daily_pnl 连乘，与收益日历同源），
+    # `#2133` 的 `GET /api/performance/twr/` 端点**恢复在役**（welcome 页在用）；
+    # `#871` 的组合级 TWR 走既有 `/xirr/` 的 `method=twr` 分派（新增 1 参 + 日志
+    # 下沉 services）。故 lines 由 D 化时的 83 回到 108（dev 原版 110 − 日志下沉 2）。
     # 按 `--report` 实测回写。
     "backend/app/domains/performance/views.py": {
-        "lines": 110,
+        "lines": 108,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 31,

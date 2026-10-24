@@ -165,7 +165,7 @@ async function loadXirr() {
     const res = await getSymbolXirr(props.symbol);
     // cashflow_count = 0 表示该产品无成交：后端给的是全 0 结构，按「无数据」显示 `—`
     const data = res.data;
-    xirr.value = data && data.cashflow_count > 0 ? data.xirr : null;
+    xirr.value = data && data.cashflow_count > 0 ? (data.xirr ?? null) : null;
   } catch {
     // 持有年化是锦上添花的指标，拉不到就降级 `—`，不惊动整块持仓列表
     xirr.value = null;

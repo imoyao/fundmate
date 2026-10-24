@@ -87,51 +87,9 @@
     />
 
     <template v-else>
-      <!-- 收益概览（真实 XIRR，无预测） -->
-      <section>
-        <SectionHeader title="收益概览" :info="xirrScopeInfo">
-          <!-- #2153：口径开关与投资概览（首页）逐字同款——同一时刻两页绑定的
-               参数一致，数值天然一致；口径说明挂在 info（tooltip），随开关联动 -->
-          <template #action>
-            <IncludeCashSwitch
-              v-model="includeCashEquivalents"
-              @change="loadXirr"
-            />
-          </template>
-        </SectionHeader>
-        <MetricGrid>
-          <!-- value-color：本页主数字统一走品牌文字色 `--brand-ink`
-               （WCAG AA：白底 5.86:1）。默认 `--text-primary` 是中性暖黑 #2d2a24，
-               作为「这一页的主角数字」缺少品牌识别，看不出是可交互的分析结论区。
-               ⚠️ 不要用 `--brand-700`：它作文字仅 3.73:1，不达标。 -->
-          <MetricCard
-            title="年化收益率 (XIRR)"
-            :value="xirrRateLabel"
-            unit="%"
-            featured
-            value-color="var(--brand-ink)"
-            :caption="xirrCaption"
-          />
-          <MetricCard
-            title="总收益"
-            :value="xirrReturnLabel"
-            value-color="var(--brand-ink)"
-            caption="含已赎回部分"
-          />
-          <MetricCard
-            title="当前市值"
-            :value="xirrCurrentValueLabel"
-            value-color="var(--brand-ink)"
-            caption="在投本金的当前价值"
-          />
-          <MetricCard
-            title="总投入"
-            :value="xirrInvestedLabel"
-            value-color="var(--brand-ink)"
-            caption="累计投入本金"
-          />
-        </MetricGrid>
-      </section>
+      <!-- 收益概览（真实 XIRR，无预测）#871：拆为 ReturnOverviewSection，
+            自含取数与口径切换（#980）；父页持 ref 供「刷新数据」联动 -->
+      <ReturnOverviewSection ref="returnOverview" />
 
       <!-- 货币基金收益（#947：万份收益口径，独立于 XIRR） -->
       <section v-if="moneyFundIncome">
@@ -195,16 +153,14 @@ import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
-import IncludeCashSwitch from "@/components/IncludeCashSwitch/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import ClearedCyclesSection from "@/views/asset/cleared-cycles/ClearedCyclesSection.vue";
+import ReturnOverviewSection from "./ReturnOverviewSection.vue";
 import { getSnapshots, type AssetSnapshotItem } from "@/api/summary";
 import {
   getMoneyFundIncome,
-  getPortfolioXirr,
-  type MoneyFundIncomeData,
-  type XirrData
+  type MoneyFundIncomeData
 } from "@/api/performance";
 import { getCssVar, getCssVarWithAlpha } from "@/composables/echarts/theme";
 import { useEchartsLifecycle } from "@/composables/echarts/useEchartsLifecycle";
@@ -217,14 +173,10 @@ const router = useRouter();
 const profitTrendChartRef = ref<HTMLElement | null>(null);
 
 // 真实数据源：#2150 删掉 distribution / positions 两条链路后，本页只读两处 ——
-// 净值走势 /summary/snapshots/、收益 /performance/xirr/（+ 货基 /performance/money-fund-income/）。
+// 净值走势 /summary/snapshots/、货基 /performance/money-fund-income/；
+// 收益 /performance/xirr/ 改由 #871 拆出的 ReturnOverviewSection 自含读取（#980）。
 const profitTrendData = ref<Array<{ date: string; net: number }>>([]);
 const latestSnapshot = ref<AssetSnapshotItem | null>(null);
-const xirr = ref<XirrData | null>(null);
-// #2153：XIRR「是否含现金等价物」口径——与投资概览（welcome）同语义、同默认值
-// （false=剔除现金，与后端 include_cash_equivalents 默认值一致）。两页各自持本地
-// 状态（issue 方案 1「切换后本地生效」），但开关与口径文案逐字一致，任一处可见、语义相同。
-const includeCashEquivalents = ref(false);
 const moneyFundIncome = ref<MoneyFundIncomeData | null>(null);
 
 const initialLoading = ref(true);
@@ -234,37 +186,8 @@ const updatedAtLabel = computed(() =>
   latestSnapshot.value ? `${latestSnapshot.value.snapshot_date} 更新` : ""
 );
 
-// ── XIRR（真实收益；cashflow_count=0 视为无数据，不显示假 0%） ──
-const xirrRateLabel = computed(() => {
-  const d = xirr.value;
-  return d && d.cashflow_count > 0 ? (d.xirr * 100).toFixed(2) : null;
-});
-const xirrReturnLabel = computed(() => {
-  const d = xirr.value;
-  return d && d.cashflow_count > 0 ? formatSignedYuan(d.total_return) : null;
-});
-const xirrCurrentValueLabel = computed(() => {
-  const d = xirr.value;
-  return d && d.cashflow_count > 0 ? formatYuan(d.current_value) : null;
-});
-const xirrInvestedLabel = computed(() => {
-  const d = xirr.value;
-  return d && d.cashflow_count > 0 ? formatYuan(d.total_invested) : null;
-});
-const xirrCaption = computed(() => {
-  const d = xirr.value;
-  return d && d.cashflow_count > 0
-    ? `基于 ${d.cashflow_count} 笔交易现金流`
-    : "录入交易流水后自动计算";
-});
-
-/** #2153：收益概览口径说明——沿用首段说明 + 当前口径，后半句与首页
- *  WelcomeXirrTemperature 的口径小字逐字一致（验收「语义一致」） */
-const xirrScopeInfo = computed(() =>
-  includeCashEquivalents.value
-    ? "XIRR 由已录入的交易现金流真实计算，录入交易后自动生成；本页不做收益预测。当前口径：含货币基金/逆回购/现金，反映账户总收益"
-    : "XIRR 由已录入的交易现金流真实计算，录入交易后自动生成；本页不做收益预测。当前口径：基于主动投资交易，不含货币基金等现金等价物"
-);
+// #871：收益率口径切换与四张收益指标卡已拆为 ReturnOverviewSection（#980），
+// 口径状态 / 取数 / 降级规则随子组件自含；本页只经 ref 联动「刷新数据」。
 
 const formatYuan = (n: number, p = 0) => `¥${formatAmount(n || 0, p)}`;
 const formatSignedYuan = (n: number) =>
@@ -369,24 +292,6 @@ const loadProfitTrend = async () => {
   }
 };
 
-// #2153：请求序号——快速切换口径时丢弃过期响应，防止旧口径数据覆盖新口径
-// （否则会出现「开关显示剔除现金、数字却是含现金」的显示与开关失步）。
-let xirrReqSeq = 0;
-const loadXirr = async () => {
-  const seq = ++xirrReqSeq;
-  try {
-    const res = await getPortfolioXirr(
-      "portfolio",
-      undefined,
-      includeCashEquivalents.value
-    );
-    if (seq !== xirrReqSeq) return;
-    xirr.value = res?.data ?? null;
-  } catch {
-    if (seq === xirrReqSeq) xirr.value = null;
-  }
-};
-
 /** 货币基金收益（#947）：接口异常时置 null，页面隐藏该区块而不是显示 0 */
 const loadMoneyFundIncome = async () => {
   try {
@@ -397,14 +302,20 @@ const loadMoneyFundIncome = async () => {
   }
 };
 
-const loadAll = () =>
-  Promise.all([loadProfitTrend(), loadXirr(), loadMoneyFundIncome()]);
+// #871：收益概览自带取数与装载（ReturnOverviewSection）；loadAll 不再含它，
+// 页头「刷新数据」经 ref 显式联动，避免「本页刷新了、收益卡还是旧数」。
+const returnOverview = ref<InstanceType<typeof ReturnOverviewSection> | null>(
+  null
+);
+
+const loadAll = () => Promise.all([loadProfitTrend(), loadMoneyFundIncome()]);
 
 /** 页头「刷新数据」：真刷新，不摆样子 */
 const reloadAll = async () => {
   loading.value = true;
   try {
     await loadAll();
+    await returnOverview.value?.refresh();
     await nextTick();
     initCharts();
   } finally {
