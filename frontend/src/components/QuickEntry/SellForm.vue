@@ -7,231 +7,114 @@
     size="large"
     class="flex flex-col gap-5"
   >
-    <!-- 账户选择（可被外部隐藏） -->
-    <template v-if="!hideAccountSelect">
-      <el-form-item label="选择账户" prop="ledger_id">
-        <el-select
-          v-model="form.ledger_id"
-          class="w-full"
-          placeholder="选择交易账户"
-          filterable
-          @change="onAccountChange"
-        >
-          <el-option
-            v-for="acc in availableAccounts"
-            :key="acc.id"
-            :label="acc.name"
-            :value="acc.id"
-          >
-            <div class="flex items-center justify-between w-full">
-              <span>{{ acc.name }}</span>
-              <AssetTypeBadge :type="acc.ledger_type" variant="tag" />
-            </div>
-          </el-option>
-        </el-select>
-        <div
-          v-if="availableAccounts.length === 0"
-          class="mt-2 p-3 bg-gray-50 rounded-lg text-xs"
-          style="color: var(--text-secondary)"
-        >
-          暂无拥有持仓的账户。如需卖出，请先前往
-          <a
-            class="text-[var(--color-primary)] cursor-pointer"
-            @click="$emit('go-to-inventory')"
-            >全面盘点</a
-          >
-          导入或录入持仓。
-        </div>
-      </el-form-item>
-    </template>
+    <!-- 账户 + 持仓 -->
+    <SellPositionField
+      v-model:ledger-id="form.ledger_id"
+      v-model:position-id="form.positionId"
+      :accounts="availableAccounts"
+      :positions="accountPositions"
+      :hide-account-select="hideAccountSelect"
+      :show-position-select="showPositionSelect"
+      :select-key="positionSelectKey"
+      @account-change="onAccountChange"
+      @position-change="onPositionSelect"
+      @go-to-inventory="emit('go-to-inventory')"
+    />
 
-    <!-- 选择持仓 -->
-    <template v-if="form.ledger_id">
-      <el-form-item label="选择持仓" prop="positionId">
-        <el-select
-          v-if="showPositionSelect"
-          :key="positionSelectKey"
-          v-model="form.positionId"
-          class="w-full"
-          filterable
-          placeholder="选择持仓"
-          @change="onPositionSelect"
-        >
-          <el-option
-            v-for="pos in accountPositions"
-            :key="pos.id"
-            :value="pos.id"
-            :label="pos.name || pos.symbol"
-          >
-            <div class="flex justify-between items-center w-full">
-              <span
-                class="truncate"
-                :style="{ color: 'var(--text-primary)' }"
-                >{{ pos.name || pos.symbol }}</span
-              >
-              <span
-                class="text-xs whitespace-nowrap"
-                :style="{ color: 'var(--text-tertiary-ink)' }"
-              >
-                可用 {{ Number(pos.quantity).toFixed(2) }} 份
-              </span>
-            </div>
-          </el-option>
-        </el-select>
-        <div
-          v-if="accountPositions.length === 0"
-          class="text-xs mt-1"
-          style="color: var(--text-tertiary-ink)"
-        >
-          当前账户无可用持仓，无法执行卖出/赎回操作。
+    <template v-if="form.positionId">
+      <!-- 1. 交易日期 -->
+      <el-form-item label="交易日期" prop="trade_date">
+        <div class="flex items-center gap-3 w-full">
+          <!-- 日期框外层自带弹性：DatePicker 是 inheritAttrs:false，写它身上的
+               `:class` 落不到 DOM（曾用 `showIsAfter15 ? 'flex-1' : 'w-full'`）。 -->
+          <div class="min-w-0 flex-1">
+            <el-date-picker
+              v-model="form.trade_date"
+              type="date"
+              style="width: 100%"
+              value-format="YYYY-MM-DD"
+              :clearable="false"
+              :disabled-date="disabledDate"
+            />
+          </div>
+          <TradeSlotSwitch v-if="showIsAfter15" v-model="form.isAfter15" />
+        </div>
+        <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
+          <span v-if="form.isAfter15 && selectedPosition?.type === 'fund'">
+            15:00后赎回，按下一交易日（T+1）净值计算
+          </span>
+          <span v-if="selectedPosition?.type === 'fund' && confirmDate">
+            · 预计确认日：{{ confirmDate }}
+          </span>
         </div>
       </el-form-item>
 
-      <template v-if="form.positionId">
-        <!-- 1. 交易日期 -->
-        <el-form-item label="交易日期" prop="trade_date">
-          <div class="flex items-center gap-3 w-full">
-            <!-- 日期框外层自带弹性：DatePicker 是 inheritAttrs:false，写它身上的
-                 `:class` 落不到 DOM（曾用 `showIsAfter15 ? 'flex-1' : 'w-full'`）。 -->
-            <div class="min-w-0 flex-1">
-              <el-date-picker
-                v-model="form.trade_date"
-                type="date"
-                style="width: 100%"
-                value-format="YYYY-MM-DD"
-                :clearable="false"
-                :disabled-date="disabledDate"
+      <!-- 2. 卖出份额 / 数量 -->
+      <SellQuantityField
+        v-model:quantity="form.quantity"
+        :max="maxQuantity"
+        :min="sellMin"
+        :type="form.type"
+        :step="stepForSecurity"
+        :show-qty-hint="showQtyHint"
+        :is-odd-lot="isOddLot"
+        :placeholder="placeholderText"
+        @touched="qtyTouched = true"
+      />
+
+      <!-- 3. 卖出价格（仅股票显示） -->
+      <el-form-item v-if="form.type !== 'fund'" label="卖出价格" prop="price">
+        <el-input-number
+          v-model="form.price"
+          style="width: 100%"
+          :controls="false"
+          :min="0"
+          :step="0.01"
+          :precision="2"
+          placeholder="卖出价格"
+        />
+        <span class="text-xs text-gray-500 mt-1"
+          >默认为成本价，可按实际成交价修改</span
+        >
+      </el-form-item>
+
+      <!-- 4. 卖出费用（纯金额模式） -->
+      <template v-if="form.type === 'fund'">
+        <el-form-item label="卖出费用" prop="fee">
+          <div class="flex flex-col gap-2 w-full">
+            <div class="flex items-center gap-3 w-full">
+              <el-input-number
+                v-model="form.fee"
+                class="flex-1"
+                :controls="false"
+                :precision="2"
+                :min="0"
+                placeholder="输入手续费金额"
+                @change="onFeeManualChange"
               />
+              <el-button @click="openFeeRateDialog">查询费率</el-button>
             </div>
-            <TradeSlotSwitch v-if="showIsAfter15" v-model="form.isAfter15" />
           </div>
           <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
-            <span v-if="form.isAfter15 && selectedPosition?.type === 'fund'">
-              15:00后赎回，按下一交易日（T+1）净值计算
-            </span>
-            <span v-if="selectedPosition?.type === 'fund' && confirmDate">
-              · 预计确认日：{{ confirmDate }}
-            </span>
+            按持仓天数自动匹配费率，可手动修改
           </div>
-        </el-form-item>
-
-        <!-- 2. 卖出份额 / 数量 -->
-        <el-form-item
-          :label="form.type === 'fund' ? '卖出份额' : '卖出数量'"
-          prop="quantity"
-        >
-          <div class="flex flex-col gap-2 w-full">
-            <el-input-number
-              v-model="form.quantity"
-              :min="sellMin"
-              style="width: 100%"
-              :controls="false"
-              :max="maxQuantity"
-              :step="form.type === 'fund' ? 0.0001 : stepForSecurity"
-              :precision="form.type === 'fund' ? 4 : 0"
-              :placeholder="placeholderText"
-              @blur="qtyTouched = true"
-            />
-            <!-- 快捷档位：与转换表单同一组件（档位表 / 取整 / 选中态唯一实现） -->
-            <div class="flex items-center justify-between w-full">
-              <QuickRatioPicker
-                v-model="form.quantity"
-                :total="maxQuantity"
-                :type="form.type"
-                :step="stepForSecurity"
-                aria-label="卖出份额比例"
-              />
-            </div>
-            <div
-              v-if="showQtyHint"
-              class="text-xs"
-              style="color: var(--color-danger)"
-            >
-              <template v-if="form.type === 'fund'"
-                >每笔最少 0.0001 份</template
-              >
-              <template v-else>每笔最少卖出 {{ sellMin }} 股/张</template>
-            </div>
-            <div
-              v-else-if="isOddLot && form.type !== 'fund'"
-              class="text-xs"
-              style="color: var(--color-warning-ink)"
-            >
-              （含碎股，可全部卖出）
-            </div>
-          </div>
-        </el-form-item>
-
-        <!-- 3. 卖出价格（仅股票显示） -->
-        <el-form-item v-if="form.type !== 'fund'" label="卖出价格" prop="price">
-          <el-input-number
-            v-model="form.price"
-            style="width: 100%"
-            :controls="false"
-            :min="0"
-            :step="0.01"
-            :precision="2"
-            placeholder="卖出价格"
-          />
-          <span class="text-xs text-gray-500 mt-1"
-            >默认为成本价，可按实际成交价修改</span
-          >
-        </el-form-item>
-
-        <!-- 4. 卖出费用（纯金额模式） -->
-        <template v-if="form.type === 'fund'">
-          <el-form-item label="卖出费用" prop="fee">
-            <div class="flex flex-col gap-2 w-full">
-              <div class="flex items-center gap-3 w-full">
-                <el-input-number
-                  v-model="form.fee"
-                  class="flex-1"
-                  :controls="false"
-                  :precision="2"
-                  :min="0"
-                  placeholder="输入手续费金额"
-                  @change="onFeeManualChange"
-                />
-                <el-button @click="openFeeRateDialog">查询费率</el-button>
-              </div>
-            </div>
-            <div class="text-xs mt-1" style="color: var(--text-tertiary-ink)">
-              按持仓天数自动匹配费率，可手动修改
-            </div>
-          </el-form-item>
-        </template>
-
-        <!-- 5. 对应净值（提升视觉层级：净值是基金买入/赎回到账的核心依据，信息层级应与重要性匹配） -->
-        <div
-          v-if="form.type === 'fund'"
-          class="text-sm flex items-center gap-2 mt-2 pl-[90px]"
-          style="color: var(--text-secondary)"
-        >
-          <span>对应净值</span>
-          <span class="font-semibold" style="color: var(--text-primary)">
-            {{
-              form.price !== undefined && form.price > 0
-                ? form.price.toFixed(4)
-                : "--"
-            }}
-          </span>
-          <span class="text-xs" style="color: var(--text-tertiary-ink)">
-            · {{ actualNavDate || form.trade_date || "--" }}
-          </span>
-        </div>
-
-        <!-- 6. 预估金额 -->
-        <el-form-item label="预估金额">
-          <el-input
-            :model-value="sellEstimate"
-            class="w-full"
-            readonly
-            disabled
-          >
-            <template #append>元</template>
-          </el-input>
         </el-form-item>
       </template>
+
+      <!-- 5. 对应净值（提升视觉层级：净值是基金买入/赎回到账的核心依据，信息层级应与重要性匹配） -->
+      <TradeNavPriceRow
+        v-if="form.type === 'fund'"
+        :price="form.price"
+        :nav-date="actualNavDate"
+        :fallback-date="form.trade_date"
+      />
+
+      <!-- 6. 预估金额 -->
+      <el-form-item label="预估金额">
+        <el-input :model-value="sellEstimate" class="w-full" readonly disabled>
+          <template #append>元</template>
+        </el-input>
+      </el-form-item>
     </template>
 
     <!-- 备注 -->
@@ -256,92 +139,42 @@
     </div>
 
     <!-- 费率查询弹窗（根据是否有输入份额动态显示列） -->
-    <el-dialog
+    <SellFeeRateDialog
       v-model="feeRateDialogVisible"
-      title="赎回费率分布"
-      width="600px"
-      destroy-on-close
-    >
-      <div v-if="!selectedPosition" class="text-center py-8 text-secondary">
-        请先选择持仓
-      </div>
-      <template v-else>
-        <div class="text-sm mb-3" style="color: var(--text-secondary)">
-          当前持有 {{ maxQuantity.toFixed(4) }} 份
-          <template v-if="enteredShares > 0">
-            ，拟赎回 {{ enteredShares.toFixed(4) }} 份
-          </template>
-        </div>
-        <el-table :data="mergedFeeData" stripe style="width: 100%">
-          <el-table-column prop="range" label="持有天数" min-width="100" />
-          <el-table-column prop="rate" label="费率" align="right" width="80">
-            <template #default="{ row }">
-              {{ (row.rate * 100).toFixed(2) }}%
-            </template>
-          </el-table-column>
-          <el-table-column
-            prop="holdShares"
-            label="持有份额"
-            align="right"
-            width="110"
-          />
-          <el-table-column
-            v-if="enteredShares > 0"
-            prop="sellShares"
-            label="卖出份额"
-            align="right"
-            width="110"
-          >
-            <template #default="{ row }">
-              {{ row.sellShares !== null ? row.sellShares : "--" }}
-            </template>
-          </el-table-column>
-        </el-table>
-        <div
-          v-if="maxQuantity > totalCalculatedHold"
-          class="text-xs mt-2"
-          style="color: var(--color-warning-ink)"
-        >
-          注：当前持有 {{ maxQuantity.toFixed(4) }} 份，其中
-          {{ totalCalculatedHold.toFixed(4) }}
-          份有买入记录，可用于费率计算，其余份额未纳入分布。
-        </div>
-        <div class="mt-4 text-xs" style="color: var(--text-tertiary-ink)">
-          注：卖出份额按先进先出（FIFO）规则，从最早买入份额开始扣减。
-        </div>
-      </template>
-      <template #footer>
-        <el-button type="primary" @click="feeRateDialogVisible = false"
-          >确定</el-button
-        >
-      </template>
-    </el-dialog>
+      :has-position="!!selectedPosition"
+      :max-quantity="maxQuantity"
+      :entered-shares="enteredShares"
+      :merged-fee-data="mergedFeeData"
+      :total-calculated-hold="totalCalculatedHold"
+    />
   </el-form>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch, nextTick } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
-import type { FormInstance, FormRules } from "element-plus";
-import { getPositionsGroupedByAccount } from "@/api/positions";
+import { ref, reactive, computed, onMounted, watch } from "vue";
+import { ElMessage } from "element-plus";
+import type { FormInstance } from "element-plus";
+import { validateTradeOrder } from "@/api/positions";
 import { usePositionSubmit } from "@/composables/usePositionSubmit";
+import { useFormDirtySnapshot } from "@/composables/useFormDirtySnapshot";
 import {
   useSecurityPriceRange,
-  createStockPriceValidator,
   checkPriceInRange
 } from "@/composables/useSecurityPrice";
-import { validateTradeOrder } from "@/api/positions";
-import type { Position } from "@/api/types";
-import { IconifyIconOffline } from "@/components/ReIcon";
-import { LEDGER_TYPE_SHORT } from "@/constants";
-import { getLedgerColor } from "@/utils/ledger";
 import { disabledTradeDate } from "@/utils/date";
-import { getStep } from "@/utils/trading";
-import { estimateRedeemFee, syncFundFees } from "@/api/funds";
-import { useFundTradeDate } from "@/composables/useFundTradeDate";
-import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
+import { IconifyIconOffline } from "@/components/ReIcon";
 import TradeSlotSwitch from "@/components/TradeSlotSwitch/index.vue";
-import QuickRatioPicker from "@/components/QuickRatioPicker/index.vue";
+import SellPositionField from "./components/SellPositionField.vue";
+import SellQuantityField from "./components/SellQuantityField.vue";
+import SellFeeRateDialog from "./components/SellFeeRateDialog.vue";
+import TradeNavPriceRow from "./components/TradeNavPriceRow.vue";
+import { defaultSellForm } from "./sellFormModel";
+import { buildSellPayload } from "./sellFormPayload";
+import { createSellRules } from "./sellFormRules";
+import { useSellPositions } from "./composables/useSellPositions";
+import { useSellFee } from "./composables/useSellFee";
+import { useSellNavSync } from "./composables/useSellNavSync";
+import { useSellFormActions } from "./composables/useSellFormActions";
 
 const props = defineProps<{
   ledgers: any[];
@@ -356,369 +189,89 @@ const emit = defineEmits<{
   (e: "go-sync"): void;
 }>();
 
-const feeError = ref("");
-
-const defaultForm = () => ({
-  ledger_id: null as number | null,
-  positionId: null as number | null,
-  symbol: "",
-  name: "",
-  market: "CN_A",
-  type: "stock",
-  quantity: undefined as number | undefined,
-  price: undefined as number | undefined,
-  trade_date: new Date().toISOString().slice(0, 10),
-  isAfter15: false,
-  notes: "",
-  currency: "CNY",
-  fee: 0 as number | undefined
-});
-
 const positionSelectKey = ref(0);
 const showPositionSelect = ref(true);
-const form = reactive(defaultForm());
+const form = reactive(defaultSellForm());
 const formRef = ref<FormInstance>();
-const positionsByAccount = ref<Record<string, Position[]>>({});
 const selectedPosition = ref<any>(null);
+
+// 交易日期禁用规则收敛到 utils/date（#1835）
+const disabledDate = disabledTradeDate;
+
+// 账户 → 持仓 → 可卖量 / 步长 / 快捷档位
+const {
+  qtyTouched,
+  availableAccounts,
+  currentLedger,
+  accountPositions,
+  maxQuantity,
+  stepForSecurity,
+  sellMin,
+  placeholderText,
+  isOddLot,
+  showQtyHint,
+  sellEstimate,
+  showIsAfter15,
+  fetchPositionsByAccount,
+  resetPositions
+} = useSellPositions({
+  getLedgers: () => props.ledgers,
+  form,
+  selectedPosition,
+  onLoaded: ids => emit("positions-loaded", ids)
+});
+
 // 股票价格区间（#948）：卖出价校验用，随持仓选择与交易日刷新（统一走 useSecurityPriceRange）
 const { priceRange: stockPriceRange } = useSecurityPriceRange(
   computed(() => selectedPosition.value?.symbol),
   computed(() => form.trade_date),
   computed(() => form.type === "stock")
 );
-const feeRateDialogVisible = ref(false);
-const feeRateTableData = ref<any[]>([]); // 保留用于兼容，但主要使用 holdFeeDetails
-const holdFeeDetails = ref<any[]>([]); // 全仓持有分布
-const sellFeeData = ref<any[]>([]); // 指定份额分布
-const feeManuallyChanged = ref(false);
-const qtyTouched = ref(false);
 
+const { confirmDate, actualNavDate, resetTradeDate } = useSellNavSync({
+  form,
+  selectedPosition
+});
+
+// 赎回费用与费率分布
 const {
-  confirmDate,
-  actualNavDate,
-  calcConfirmAndNav,
-  reset: resetTradeDate
-} = useFundTradeDate();
+  feeRateDialogVisible,
+  totalCalculatedHold,
+  enteredShares,
+  mergedFeeData,
+  calculateFeeAndRate,
+  onFeeManualChange,
+  openFeeRateDialog,
+  resetFeeState,
+  resetFeeManualFlag
+} = useSellFee({ form, selectedPosition });
 
-// #2372：持仓分组键是 ledger_id（后端 group_by=account 按真外键分组）——
-// 账户名可编辑且真库有重名，按名回查会落空或串到别的账户
-const availableAccounts = computed(() =>
-  props.ledgers.filter(l => positionsByAccount.value[String(l.id)]?.length > 0)
+// 未保存离开保护（#1853）：脏状态住在本子组件里（父组件 TransactionDrawer 拿不到），
+// 故 expose 出去。快照声明必须在 resetForm 之前——它被 resetForm 调用。
+const { markClean, isDirty } = useFormDirtySnapshot(() => form);
+
+// 账户切换 / 选持仓
+const { clearFormData, onAccountChange, onPositionSelect } = useSellFormActions(
+  {
+    form,
+    formRef,
+    selectedPosition,
+    accountPositions,
+    qtyTouched,
+    showPositionSelect,
+    positionSelectKey,
+    resetTradeDate,
+    resetFeeState,
+    resetFeeManualFlag,
+    calculateFeeAndRate
+  }
 );
-const currentLedger = computed(
-  () => props.ledgers.find(l => l.id === form.ledger_id) ?? null
-);
-const accountPositions = computed(() => {
-  if (!currentLedger.value) return [];
-  return positionsByAccount.value[String(currentLedger.value.id)] || [];
+
+// 校验规则：份额文案随品类变，价格区间只在股票生效（#948 统一约束）
+const rules = createSellRules({
+  getType: () => form.type,
+  stockPriceRange
 });
-const maxQuantity = computed(() => selectedPosition.value?.quantity ?? 1);
-const stepForSecurity = computed(() => {
-  if (!selectedPosition.value) return 1;
-  return getStep({ type: form.type, market: form.market, symbol: form.symbol });
-});
-const sellMin = computed(() => {
-  const total = maxQuantity.value;
-  if (form.type === "fund") return total > 0 ? 0.0001 : 0;
-  return total < stepForSecurity.value ? total : stepForSecurity.value;
-});
-const placeholderText = computed(() => {
-  const total = maxQuantity.value;
-  const unit =
-    form.type === "fund" ? " 份" : form.type === "bond" ? " 张" : " 股/张";
-  return `最多可卖出 ${total}${unit}`;
-});
-const isOddLot = computed(() => {
-  const total = maxQuantity.value;
-  return total > 0 && total < stepForSecurity.value;
-});
-const showQtyHint = computed(() => {
-  if (!qtyTouched.value) return false;
-  const q = form.quantity;
-  if (q == null) return true;
-  return q < sellMin.value;
-});
-const sellEstimate = computed(() => {
-  const q = form.quantity || 0;
-  const p = form.price || 0;
-  const f = form.fee || 0;
-  const amount = q * p - f;
-  return amount > 0 ? amount.toFixed(2) : "-";
-});
-// 交易日期禁用规则收敛到 utils/date（#1835）
-const disabledDate = disabledTradeDate;
-const showIsAfter15 = computed(() => {
-  const type = currentLedger.value?.ledger_type;
-  if (type === "fund" || type === "bank") return true;
-  if (type === "stock" && selectedPosition.value?.type === "fund") return true;
-  return false;
-});
-
-// 计算实际可用于费率计算的买入总份额
-const totalCalculatedHold = computed(() => {
-  return holdFeeDetails.value.reduce((sum, item) => sum + item.shares, 0);
-});
-
-// 当前输入的份额（>0 时有效）
-const enteredShares = computed(() => {
-  const q = form.quantity;
-  return q !== undefined && q !== null && q > 0 ? q : 0;
-});
-
-// 合并全仓和指定份额数据，用于弹窗表格
-const mergedFeeData = computed(() => {
-  const holdData = holdFeeDetails.value;
-  const sellData = sellFeeData.value;
-  if (holdData.length === 0) return [];
-  const sellMap: Record<number, number> = {};
-  sellData.forEach((item: any) => {
-    sellMap[item.rate] = (sellMap[item.rate] || 0) + item.shares;
-  });
-  return holdData.map((h: any) => ({
-    range: h.range,
-    rate: h.rate,
-    holdShares: h.shares,
-    sellShares: sellMap[h.rate] ?? 0
-  }));
-});
-
-const validateQuantity = (_rule: any, value: any, callback: any) => {
-  if (value === undefined || value === null || value === "") {
-    callback(
-      new Error(form.type === "fund" ? "请输入卖出份额" : "请输入卖出数量")
-    );
-  } else {
-    callback();
-  }
-};
-
-// 股票成交价区间校验已统一到 useSecurityPrice.createStockPriceValidator（#948 统一约束）
-
-const rules: FormRules = {
-  ledger_id: [{ required: true, message: "请选择账户", trigger: "change" }],
-  positionId: [
-    { required: true, message: "请选择持仓产品", trigger: "change" }
-  ],
-  quantity: [{ validator: validateQuantity, trigger: "blur" }],
-  price: [
-    {
-      validator: createStockPriceValidator(
-        () => stockPriceRange.value,
-        () => form.type === "stock"
-      ),
-      trigger: "blur"
-    }
-  ],
-  trade_date: [{ required: true, message: "请选择日期", trigger: "change" }]
-};
-
-// ---------- 数据获取 ----------
-async function fetchPositionsByAccount() {
-  try {
-    const res = await getPositionsGroupedByAccount();
-    positionsByAccount.value = res?.data ?? {};
-    const ids = new Set<number>();
-    // #2405：分组键是 ledger_id 字符串（重名账户各成一组），不是账户名——
-    // 变量名曾叫 accountName，键改造后纯属误导（看着像按名回查，实际键不可编辑）。
-    for (const ledgerKey in positionsByAccount.value) {
-      const positions = positionsByAccount.value[ledgerKey];
-      positions.forEach(p => {
-        if (p.ledger_id) ids.add(p.ledger_id);
-      });
-    }
-    emit("positions-loaded", Array.from(ids));
-  } catch {
-    positionsByAccount.value = {};
-    emit("positions-loaded", []);
-  }
-}
-
-// ---------- 交互方法 ----------
-function clearFormData() {
-  qtyTouched.value = false;
-  showPositionSelect.value = false;
-  nextTick(() => {
-    const currentLedgerId = form.ledger_id;
-    const defaults = defaultForm();
-    Object.keys(defaults).forEach(key => {
-      (form as any)[key] = defaults[key];
-    });
-    form.ledger_id = currentLedgerId;
-    form.positionId = null;
-
-    selectedPosition.value = null;
-    feeManuallyChanged.value = false;
-    resetTradeDate();
-    holdFeeDetails.value = [];
-    sellFeeData.value = [];
-    feeRateDialogVisible.value = false;
-
-    +positionSelectKey.value++;
-    formRef.value?.clearValidate();
-    showPositionSelect.value = true;
-  });
-}
-
-function onAccountChange(_ledgerId: number) {
-  // 直接调用 clearFormData，它内部会保存并恢复 ledger_id
-  clearFormData();
-}
-
-function onPositionSelect(positionId: number) {
-  const pos = accountPositions.value.find(p => p.id === positionId);
-  if (!pos) return;
-  selectedPosition.value = pos;
-  form.symbol = pos.symbol;
-  form.name = pos.name;
-  form.market = pos.market;
-  form.type = pos.type;
-  form.currency = pos.currency;
-  form.price = pos.current_price ?? pos.avg_price;
-  form.quantity = undefined;
-  qtyTouched.value = false;
-  form.fee = 0;
-  feeManuallyChanged.value = false;
-  resetTradeDate();
-  calculateFeeAndRate();
-  // 股票价格区间由 useSecurityPriceRange 随持仓/交易日自动刷新（#948 统一约束）
-}
-
-// fetchConfirmAndNavDate 已移至 useFundTradeDate composable，与其他组件共用
-
-// ---------- 费率请求（改造为使用新后端接口） ----------
-const fetchFundFeeRules = async (
-  positionId: number,
-  tradeDate: string,
-  shares?: number
-) => {
-  const payload: any = {
-    position_id: positionId,
-    sell_date: tradeDate
-  };
-  if (shares !== undefined && shares !== null && shares > 0) {
-    payload.shares = shares;
-  }
-  const res: any = await estimateRedeemFee(payload);
-  const data = res.data;
-  return {
-    total_fee: data?.total_fee || 0,
-    holdings: (data?.holdings || []).map((r: any) => ({
-      range: r.range,
-      shares: r.shares,
-      rate: r.rate
-    })),
-    sell: (data?.sell || []).map((r: any) => ({
-      range: r.range,
-      shares: r.shares,
-      rate: r.rate
-    }))
-  };
-};
-
-const calculateFeeAndRate = async () => {
-  if (!selectedPosition.value || form.type !== "fund" || !form.trade_date) {
-    form.fee = 0;
-    holdFeeDetails.value = [];
-    sellFeeData.value = [];
-    feeError.value = "";
-    return;
-  }
-  const buyDate = selectedPosition.value.confirm_date;
-  if (!buyDate) {
-    holdFeeDetails.value = [];
-    sellFeeData.value = [];
-    feeError.value = "";
-    return;
-  }
-
-  try {
-    const { total_fee, holdings, sell } = await fetchFundFeeRules(
-      selectedPosition.value.id,
-      form.trade_date,
-      form.quantity || 0
-    );
-    if (!feeManuallyChanged.value) {
-      form.fee = total_fee;
-    }
-    holdFeeDetails.value = holdings;
-    sellFeeData.value = sell.length > 0 ? sell : [];
-    feeRateTableData.value = holdings;
-    feeError.value = "";
-  } catch (e: any) {
-    // 从 Axios 错误中提取后端返回的 message
-    let msg = "暂时无法获取费率分布";
-    if (e?.response?.data?.message) {
-      msg = e.response.data.message; // 后端返回的业务错误消息
-    } else if (e?.message) {
-      msg = e.message;
-    }
-    console.warn("费率查询失败", msg, e);
-    holdFeeDetails.value = [];
-    sellFeeData.value = [];
-    feeError.value = msg;
-  }
-};
-
-function onFeeManualChange() {
-  feeManuallyChanged.value = true;
-}
-
-const openFeeRateDialog = async () => {
-  if (!selectedPosition.value) {
-    ElMessage.info("请先选择持仓");
-    return;
-  }
-  if (!selectedPosition.value.confirm_date) {
-    ElMessage.warning(
-      "该持仓缺少买入确认日期，无法查询费率。请先在持仓详情中补充确认日期。"
-    );
-    return;
-  }
-  await calculateFeeAndRate();
-
-  if (holdFeeDetails.value.length === 0) {
-    if (feeError.value.includes("暂无赎回费率规则")) {
-      // 自定义弹窗：提供“更新费率”按钮
-      ElMessageBox.confirm(
-        "该基金尚未收录费率信息，是否立即更新？",
-        "费率数据缺失",
-        {
-          confirmButtonText: "立即更新",
-          cancelButtonText: "我知道了",
-          type: "warning",
-          beforeClose: async (action, instance, done) => {
-            if (action === "confirm") {
-              instance.confirmButtonLoading = true;
-              try {
-                await syncFundFees(selectedPosition.value.symbol);
-                ElMessage.success("费率更新成功");
-                // 重新计算费率（此时应该能获取到数据）
-                await calculateFeeAndRate();
-                if (holdFeeDetails.value.length > 0) {
-                  feeRateDialogVisible.value = true; // 打开费率分布弹窗
-                } else {
-                  ElMessage.info("费率已更新但仍无法计算，请手动输入费用");
-                }
-              } catch (e: any) {
-                ElMessage.error("更新失败，请稍后重试或手动输入费用");
-              } finally {
-                instance.confirmButtonLoading = false;
-                done();
-              }
-            } else {
-              done();
-            }
-          }
-        }
-      );
-    } else {
-      ElMessage.error(feeError.value || "暂时无法获取费率分布");
-    }
-    return;
-  }
-  // 正常打开费率分布
-  feeRateDialogVisible.value = true;
-};
 
 // ---------- 提交 ----------
 async function handleSubmit() {
@@ -752,26 +305,11 @@ async function handleSubmit() {
     return;
   }
 
-  const body = {
-    symbol: form.symbol,
-    name: form.name,
-    op_type: "sell",
-    position_id: form.positionId,
-    market: form.market || "CN_A",
-    type: form.type,
-    ledger_id: form.ledger_id,
-    account_name: currentLedger.value?.name || "",
-    quantity,
-    avg_price: form.price,
-    amount: quantity * form.price,
-    currency: form.currency,
-    trade_date: form.trade_date,
-    confirm_date: form.type === "fund" ? null : form.trade_date,
-    fee: form.fee || 0,
-    notes: form.notes,
-    allocation: null,
-    isAfter15: form.isAfter15
-  };
+  const body = buildSellPayload({
+    form,
+    accountName: currentLedger.value?.name || "",
+    quantity
+  });
 
   // 统一提交层（#933）：修复原空 catch 吞错——失败提示由本层统一弹出
   const { submitPosition } = usePositionSubmit();
@@ -782,10 +320,10 @@ async function handleSubmit() {
 }
 
 function resetForm() {
-  Object.assign(form, defaultForm());
+  Object.assign(form, defaultSellForm());
   selectedPosition.value = null;
-  positionsByAccount.value = {};
-  feeManuallyChanged.value = false;
+  resetPositions();
+  resetFeeManualFlag();
   formRef.value?.resetFields();
   positionSelectKey.value++;
 
@@ -795,33 +333,11 @@ function resetForm() {
 
   // 未保存离开保护的脏基线（#1853）：必须在**全部重置动作之后**再记快照。
   // 记在前面会把「本轮刚填的值」记成基线，紧接着 Object.assign 重置成默认值，
-  // 于是 isDirty 为 true——提交成功后关闭抽屉时被问「确定放弃吗？」。正确范式见
-  // DividendForm.resetForm。
-  markFormClean();
+  // 于是 isDirty 为 true——提交成功后关闭抽屉时被问「确定放弃吗？」。
+  markClean();
 }
 
 // ---------- 监听 ----------
-// 交易日期/15点后/标的 变化：基金拉取当日净值回填，股票刷新价格区间。
-// 不依赖 form.price，避免回填净值时触发自身监听造成循环或覆盖用户手动改价。
-watch(
-  [() => form.trade_date, () => form.isAfter15, () => selectedPosition.value],
-  async () => {
-    if (!selectedPosition.value) return;
-    if (form.type === "fund" && form.trade_date) {
-      const pos = selectedPosition.value;
-      const result = await calcConfirmAndNav({
-        tradeDate: form.trade_date,
-        symbol: pos.symbol,
-        isAfter15: form.isAfter15
-      });
-      if (result?.nav != null) {
-        form.price = result.nav;
-      }
-    }
-    // 股票价格区间由 useSecurityPriceRange 随持仓/交易日自动刷新（#948 统一约束）
-  }
-);
-
 // 价格/数量/交易日期变化：重算费用与费率（与净值回填解耦，避免循环）。
 watch(
   [
@@ -851,28 +367,11 @@ onMounted(() => {
   fetchPositionsByAccount();
 });
 
-// ── 未保存离开保护（#1853）──
-// 脏状态住在本子组件里（父组件 TransactionDrawer 拿不到），故 expose 出去。
-// 快照声明必须在 resetForm 之前——它被 resetForm 调用。
-const initialSnapshot = ref("");
-
-function markFormClean() {
-  initialSnapshot.value = JSON.stringify(form);
-}
-
-const isDirty = computed(() => JSON.stringify(form) !== initialSnapshot.value);
-
-// 初次挂载即视为干净（父组件可能用 v-if 只挂其中一个 tab）
-markFormClean();
-
 defineExpose({ handleSubmit, resetForm, isDirty });
 </script>
 
 <style scoped>
-.text-xs {
-  font-size: 0.75rem;
-}
-
+/* .text-xs 由全局原子类提供，不再本地重复声明 */
 :deep(.el-button--primary) {
   height: 40px;
   transition:
