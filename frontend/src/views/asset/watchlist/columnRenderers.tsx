@@ -929,7 +929,8 @@ const renderBond: FunctionalComponent<{
   }
 
   if (def.key === "bond_adjust_floor_price") {
-    const v = field(row, "bond_adjust_floor_price") as number | null | undefined;
+    const v = field(row, "bond_adjust_floor_price") as
+      number | null | undefined;
     return h(
       "span",
       {
