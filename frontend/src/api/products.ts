@@ -70,6 +70,13 @@ export interface FundProfileResult {
   create_time: string | null;
   risk_level: number | null;
   benchmark: string | null;
+  /** 晨星 3 年期星级 1~5（#1440）；null = 该基金无晨星评级（货基/新基金常态），
+   *  不是「采集失败」。源为东财评级总汇页，与净值/费率链路口径不同，故单列。 */
+  morningstar_rating: number | null;
+  /** 晨星评级较上期变化（-4~4）；null = 未知。0 = 与上期持平（前端不展示） */
+  morningstar_rating_delta: number | null;
+  /** 评级快照日期 YYYY-MM-DD（东财页当日 / 最近一次变化日） */
+  morningstar_rating_asof: string | null;
   /** 基金经理列表；缺字段时为 null（与接口契约一致：缺失一律降级为「—」） */
   managers: FundProfileManager[] | null;
   /** 费率阶梯；取不到时为 null（不阻断其余字段） */

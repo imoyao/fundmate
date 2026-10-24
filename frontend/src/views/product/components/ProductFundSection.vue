@@ -5,6 +5,7 @@ import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import { getFundProfile, type FundProfileResult } from "@/api/products";
+import { formatRatingDeltaText, formatRatingText } from "./fundRatingFormat";
 
 /**
  * 详情页「基金资料」区块（#1968 · 设计 §5 C 区块）。
@@ -56,6 +57,17 @@ const redeemRate = computed(() => {
  *  统一收敛为空数组——模板不裸取 .length（#2191：缺字段时渲染抛错，Vue 中止
  *  更新，整个区块永远停在「正在读取」）。 */
 const managerList = computed(() => profile.value?.managers ?? []);
+
+/** 晨星评级文案（#1440）：口径与守卫都在纯函数里（`fundRatingFormat.ts`），
+ *  组件只做取数——模板里内联的 `v-if` 没人能钉住「缺失 ≠ 0 星」这类口径。 */
+const ratingText = computed(() =>
+  formatRatingText(profile.value?.morningstar_rating)
+);
+
+/** 评级较上期的变化：只表达方向与幅度（上期值不展示——当期值列不存历史）。 */
+const ratingDeltaText = computed(() =>
+  formatRatingDeltaText(profile.value?.morningstar_rating_delta)
+);
 
 async function load() {
   if (!props.symbol) return;
@@ -147,6 +159,20 @@ watch(() => props.symbol, load, { immediate: true });
         <div class="facts-grid__cell">
           <dt class="facts-grid__label">成立日期</dt>
           <dd class="facts-grid__value">{{ profile.create_time || DASH }}</dd>
+        </div>
+        <!-- 晨星 3 年期星级（#1440）：源为东财评级总汇页，与净值/费率链路不同源，
+             故在格内自带机构与期限口径，不并入页脚「数据来源」标签。 -->
+        <div class="facts-grid__cell">
+          <dt class="facts-grid__label">晨星评级</dt>
+          <dd class="facts-grid__value facts-grid__value--wrap">
+            <template v-if="ratingText">
+              {{ ratingText
+              }}<span v-if="ratingDeltaText" class="fund-section__tier"
+                >（{{ ratingDeltaText }}）</span
+              >
+            </template>
+            <template v-else>{{ DASH }}</template>
+          </dd>
         </div>
         <div class="facts-grid__cell">
           <dt class="facts-grid__label">申购费率</dt>
