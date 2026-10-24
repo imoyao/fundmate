@@ -41,8 +41,8 @@ frontend/src/views/temperature/     (Vue 温度视图) + explore 温度区
 |---|---|---|---|
 | 全市场成交额（东财） | `SINGLE_FETCHERS['eastmoney_volume']` | ✅ 已接入 | 零凭据；偶发连不通时 `stale` 标灰 |
 | 韭圈儿·恐贪 + 中长期温度 | `JiucaishuoFetcher` | ✅ 已接入 | **API 优先**：POST `apiv2.jiucaishuo.com/site/indexes`；失败降级 Playwright 渲染 |
-| 集思录·可转债温度（官方） | `SINGLE_FETCHERS['jisilu_cb']` | ✅ 已接入 | 需 `JISILU_COOKIE`；失效降级近似 |
-| 集思录·全市场估值（中位 PB/PE 温度） | `COMPOSITE_FETCHERS['jisilu_indicator']` | ✅ 已接入 | 需 cookie |
+| 集思录·可转债温度（官方） | `SINGLE_FETCHERS['jisilu_cb']` | ✅ 已接入 | 免登录（2026-10-24 实测匿名 200）；失效降级近似 |
+| 集思录·全市场估值（中位 PB/PE 温度） | `COMPOSITE_FETCHERS['jisilu_indicator']` | ✅ 已接入 | 免登录（同上实测） |
 | 且慢·指数温度 | `SINGLE_FETCHERS['qieman']` | ✅ 已接入 | 官方 MCP `GetLatestQuotations` |
 | 有知有行·全市场/债市温度 | `SINGLE_FETCHERS['youzhiyouxing']` | ✅ 已接入 | SSR `/data` 解析 |
 | 自算·股债利差分位 | `COMPOSITE_FETCHERS['self_calc']` | ✅ 已接入 | 沪深 300/中证 500；对外已去 PE，只出利差分位 |

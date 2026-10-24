@@ -71,8 +71,8 @@ A 股数据的**真实上游只有几家**：东财 / 腾讯 / 新浪 / 天天�
 | `fund_nav` | 天天基金直连 | **xalpha** | `fund_open_fund_info_em`（已腐） | xalpha 主源 |
 | `fund_meta` | — | — | `fund_name_em` / `fund_info_ths` / `fund_manager_em` | 依赖 akshare，关注断更 |
 | `market_volume` | 东财 push2 | — | — | 已用 |
-| `cb_temperature` | — | — | — | 集思录（需 Cookie）主 |
-| `valuation_indicator` | — | — | — | 集思录（需 Cookie） |
+| `cb_temperature` | — | — | — | 集思录（免登录，2026-10-24 实测）主 |
+| `valuation_indicator` | — | — | — | 集思录（免登录，同上实测） |
 | `market_thermometer` | — | — | — | 且慢 MCP（需 key）/ 有知有行 |
 | `fear_greed` | — | — | — | 韭圈儿（API + Playwright） |
 | `equity_bond_spread` | — | — | `stock_index_pe_lg` / `bond_zh_us_rate` / `macro_china_cpi` | 自算层，缓存 12h |
