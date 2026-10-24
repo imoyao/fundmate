@@ -32,7 +32,6 @@
     "views/asset/watchlist/index.vue": 404,
     "views/explore/components/ExploreWatchlistTable.vue": 491,
     "views/explore/components/detail/CrowdingTable.vue": 508,
-    "views/explore/index.vue": 723,
     "views/login/reset-password.vue": 538,
     "views/product/components/ProductAdvisorSection.vue": 414,
     "views/product/components/ProductEtfCompare.vue": 611,
