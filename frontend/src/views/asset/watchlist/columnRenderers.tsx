@@ -910,7 +910,10 @@ const renderBond: FunctionalComponent<{
     if (v == null) return dash();
     return h(
       "span",
-      { class: "bond-num", title: "历史下修次数（下修决议经股东大会，按次落库）" },
+      {
+        class: "bond-num",
+        title: "历史下修次数（下修决议经股东大会，按次落库）"
+      },
       `${v} 次`
     );
   }
@@ -926,10 +929,7 @@ const renderBond: FunctionalComponent<{
   }
 
   if (def.key === "bond_adjust_floor_price") {
-    const v = field(row, "bond_adjust_floor_price") as
-      | number
-      | null
-      | undefined;
+    const v = field(row, "bond_adjust_floor_price") as number | null | undefined;
     return h(
       "span",
       {
