@@ -875,6 +875,32 @@ const renderBond: FunctionalComponent<{
     return rating ? h("span", { class: "bond-rating" }, rating) : dash();
   }
 
+  if (def.key === "bond_stock_pb") {
+    const v = field(row, "bond_stock_pb") as number | null | undefined;
+    if (v == null) return dash();
+    // 负 PB（净资产为负）是真实值，**不能当缺值处理**
+    return h(
+      "span",
+      { class: "bond-num", title: "正股市净率（东财）" },
+      v.toFixed(2)
+    );
+  }
+
+  if (def.key === "bond_ytm") {
+    const v = field(row, "bond_ytm") as number | null | undefined;
+    if (v == null) return dash();
+    // 口径 = 单利年化持有到期总回报（同集思录）。**深度价内债后端不出此值**
+    // （持有到期不成立，算出来是 -500% 这类无意义数），此处只渲染真值。
+    return h(
+      "span",
+      {
+        class: ["bond-num", v < 0 ? "is-ytm-down" : "is-ytm-up"],
+        title: "到期税前收益（单利年化持有到期总回报，自算）"
+      },
+      `${v.toFixed(2)}%`
+    );
+  }
+
   return dash();
 };
 

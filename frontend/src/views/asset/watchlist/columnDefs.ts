@@ -318,6 +318,31 @@ export const watchlistColumnDefs: ColumnDef[] = [
     hideable: true,
     draggable: true
   },
+  {
+    // 正股市净率（#1400 / #2575）：判断转债贵不贵的分母。
+    // 数据源东财 RPT_BOND_CB_LIST 的 quoteColumns 关联带出（免 cookie，覆盖 99.1%）。
+    key: "bond_stock_pb",
+    label: "正股PB",
+    renderer: "bond",
+    appliesTo: ["bond"],
+    minWidth: 92,
+    align: "right",
+    hideable: true,
+    draggable: true
+  },
+  {
+    // 到期税前收益 YTM（#1400 / #2575）：单利年化持有到期总回报，口径同集思录。
+    // **深度价内债后端不出此值**（持有到期不成立，算出来是 -500% 这类无意义数），
+    // 故缺值显 `—`，不用 0 兜底。
+    key: "bond_ytm",
+    label: "到期收益",
+    renderer: "bond",
+    appliesTo: ["bond"],
+    minWidth: 96,
+    align: "right",
+    hideable: true,
+    draggable: true
+  },
   // ── 指数品类专属列（#1285 消费侧「指数」/ #1394）──
   // 来源中证指数官方估值文件（免 cookie）。官方只下发近约 20 个交易日，
   // 故「历史分位」暂不提供（见 #1394 讨论）；估值日期挂在 title 上，口径透明。
@@ -863,6 +888,8 @@ const COLUMN_GROUP_MAP: Record<string, ColumnGroup> = {
   bond_redeem: "bond",
   bond_remain_years: "bond",
   bond_rating: "bond",
+  bond_stock_pb: "bond",
+  bond_ytm: "bond",
   // 指数估值
   index_pe: "index",
   index_dividend_yield: "index",

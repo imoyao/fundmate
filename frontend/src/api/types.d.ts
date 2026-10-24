@@ -274,6 +274,12 @@ export interface WatchlistItem {
   bond_remain_size?: number | null; // 剩余规模（亿元）
   bond_issue_size?: number | null; // 发行规模（亿元）
   bond_stock_name?: string | null; // 正股名称
+  // ── 可转债条款增强（#1400 / #2575）──
+  // 数据源：东财 RPT_BOND_CB_LIST 批量报表口（带 quoteColumns），免 cookie。
+  bond_stock_pb?: number | null; // 正股市净率 PB（覆盖 99.1%）
+  // 到期税前收益 YTM（%）：**单利年化持有到期总回报**，口径同集思录（非 IRR）。
+  // 深度价内债后端**不出此值**（持有到期不成立，算出来是 -500% 这类无意义数）→ null。
+  bond_ytm?: number | null; // 到期税前收益 YTM（%）
   // ── 指数估值（#1285 消费侧「指数」品类 / #1394）──
   // 仅 asset_type=index 且后端 index_valuations 命中时有值；来源中证官方（免 cookie）。
   index_pe?: number | null; // 市盈率（官方列「市盈率1」）
