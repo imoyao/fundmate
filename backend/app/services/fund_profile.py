@@ -153,9 +153,7 @@ def build_fund_profile(db: Session, fund_code: str) -> Optional[Dict[str, Any]]:
         # 故一律给 None 由前端显示「—」，不猜 0、不编默认值。
         'morningstar_rating': fund.morningstar_rating,
         'morningstar_rating_delta': fund.morningstar_rating_delta,
-        'morningstar_rating_asof': (
-            fund.morningstar_rating_asof.isoformat() if fund.morningstar_rating_asof else None
-        ),
+        'morningstar_rating_asof': (fund.morningstar_rating_asof.isoformat() if fund.morningstar_rating_asof else None),
         'managers': _managers_of(db, fund),
         'fee_rates': _fee_rates_of(db, code),
         # 数据来源（#1969）：净值 / 费率 / 基础资料整条链路都走天天基金（东方财富），

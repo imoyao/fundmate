@@ -1,6 +1,6 @@
 # 晨星星级评级采集设计（#1440 落地）
 
-> 状态：**已实现**（PR #2565；设计 → 后端 → 前端展示三段同 PR 交付） · 2026-10-24 · 关联 [issue #1440](https://github.com/imoyao/fundmate/issues/1440)
+> 状态：**已实现**（PR [`#2565`](https://github.com/imoyao/fundmate/pull/2565)；设计 → 后端 → 前端展示三段同 PR 交付） · 2026-10-24 · 关联 [issue `#1440`](https://github.com/imoyao/fundmate/issues/1440)
 
 ---
 
