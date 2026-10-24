@@ -355,8 +355,13 @@ BASELINE: dict[str, dict[str, int]] = {
     # （+33：import 1 + 空行 2 + 装饰器/签名/docstring 9 + 编排 21；docstring 写清
     # 「互斥参数 / 诚实降级不造数」口径，同 #2141「口径 docstring 值得写清」之例）。
     # 同 #2131（账本对齐 A'，上一张同系列卡）先例：无可下沉的业务规则，按 `--report` 实测回写。
+    # 2026-10-24 重取（#2135，**新增端点**，非放宽）：加 `GET /summary/pnl-attribution/`
+    # （区间收益归因）——业务逻辑全在 `services/pnl_calendar.py`（`compute_range_attribution`），
+    # 视图侧只有「入参解析 + 互斥校验 + 调服务 + 信封」，`orm_queries` / `commits` 仍 **0**、
+    # `max_func` 不变（31）。含 #2134 端点在内按 `--report` 实测回写（rebase 两卡叠加后重测）。
+    # 同 #2131 先例：新增端点但纯 HTTP 编排，按 `--report` 实测回写基线。
     "backend/app/domains/summary/views.py": {
-        "lines": 305,
+        "lines": 327,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 31,

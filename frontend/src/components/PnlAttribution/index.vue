@@ -244,7 +244,9 @@ const sectionInfo = computed(
 );
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
+@use "@/style/breakpoints" as bp;
+
 .pnl-attribution__toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -391,7 +393,7 @@ const sectionInfo = computed(
   line-height: 20px;
 }
 
-@media (width <= 640px) {
+@include bp.below("sm") {
   .pnl-attribution__row {
     grid-template-columns: minmax(0, 1fr) minmax(80px, 1.5fr) auto;
   }
