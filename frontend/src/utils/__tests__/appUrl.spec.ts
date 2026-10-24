@@ -107,6 +107,34 @@ describe("toHashUrl：旧式路径链接归一化", () => {
     ).toBeNull();
   });
 
+  it("畸形 URL（pathname 与 hash 各指向一个页面）以 hash 路由为准", () => {
+    // 上一轮被守卫重定向后留下的地址栏形态：pathname 已经没用了，不能再留着
+    expect(
+      toHashUrl("/reset-password", "", "#/welcome", {
+        base: "/",
+        historyMode: "hash"
+      })
+    ).toBe("/#/welcome");
+  });
+
+  it("`#/` 等同于空 hash（vue-router 会把空 hash 规整成它）", () => {
+    expect(
+      toHashUrl("/reset-password", "?code=abc", "#/", {
+        base: "/",
+        historyMode: "hash"
+      })
+    ).toBe("/#/reset-password?code=abc");
+  });
+
+  it("base 带子路径 + 已有 hash 路由：只留一次子路径", () => {
+    expect(
+      toHashUrl("/sub/reset-password", "", "#/welcome", {
+        base: "/sub/",
+        historyMode: "hash"
+      })
+    ).toBe("/sub/#/welcome");
+  });
+
   it("根路径不需要跳转", () => {
     expect(
       toHashUrl("/", "", "", { base: "/", historyMode: "hash" })

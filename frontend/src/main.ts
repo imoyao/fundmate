@@ -42,7 +42,11 @@ addCollection(epIcons);
 // 旧式「路径式」回链归一化（邮件/书签里的 `/reset-password?code=…`）：
 // hash 模式下 pathname 命中而 hash 为空，vue-router 会按根路由处理，已登录时被守卫送去
 // `/welcome`，地址栏出现 `/reset-password#/welcome` 这种畸形 URL（2026-10-24 实测）。
-// 必须早于 createApp / router.isReady 执行。
+// 注意执行时机：`import router from "./router"` 在模块求值阶段就建好了 hash history，
+// 并已把空 hash 规整成 `#/`（浏览器实测导航序列：`/reset-password` → `/reset-password#/`），
+// 所以这里读到的 hash 往往是 `#/` 而不是空串。`toHashUrl` 因此把 `#/` 与空 hash 等价处理，
+// 否则这条兜底会直接失效。必须早于 createApp / router.isReady 执行 —— 装配之后再改，
+// 路由已按 `/` 跑完首轮导航并完成重定向。
 redirectLegacyUrlToHash();
 
 const app = createApp(App);
