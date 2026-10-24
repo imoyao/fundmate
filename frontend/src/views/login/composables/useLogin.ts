@@ -7,6 +7,7 @@ import type { FormInstance, FormRules } from "element-plus";
 import { initRouter } from "@/router/utils";
 import { supabase } from "@/utils/supabase";
 import { resolveIdentifier } from "@/api/auth";
+import { toAuthErrorMessage } from "@/utils/authError";
 
 /**
  * 登录 / 注册页状态单体（#980 P1-C 结构拆分）：
@@ -142,7 +143,7 @@ export function useLogin() {
       if (error) throw error;
       // 成功时 Supabase 会重定向到 GitHub，无需手动处理
     } catch (err: any) {
-      message(err.message || "GitHub 登录失败，请稍后再试", { type: "error" });
+      message(toAuthErrorMessage(err), { type: "error" });
       githubLoading.value = false;
     }
   };
@@ -188,7 +189,7 @@ export function useLogin() {
         message("重置邮件已发送，请查收邮箱", { type: "success" });
         forgotVisible.value = false;
       } catch (err: any) {
-        message(err.message || "发送失败，请稍后再试", { type: "error" });
+        message(toAuthErrorMessage(err), { type: "error" });
       } finally {
         forgotLoading.value = false;
       }
@@ -260,7 +261,7 @@ export function useLogin() {
           router.push("/welcome");
         }
       } catch (err: any) {
-        message(err.message || "操作失败，请重试", { type: "error" });
+        message(toAuthErrorMessage(err), { type: "error" });
       } finally {
         disabled.value = false;
         loading.value = false;
