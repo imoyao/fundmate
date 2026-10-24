@@ -822,7 +822,8 @@ const renderNotes: FunctionalComponent<{
 /**
  * 可转债条款列（#1285 消费侧 / #1393）。
  *
- * 一个 renderer 覆盖 4 列（按 def.key 分派）：溢价率 / 强赎状态 / 剩余年限 / 评级。
+ * 一个 renderer 覆盖 7 列（按 def.key 分派）：溢价率 / 强赎状态 / 剩余年限 / 评级 /
+ * 正股PB / YTM / 下修历史三列（次数 / 最近下修日 / 下修底价，#2585）。
  * 数据缺席（表未落库 / 非转债）统一渲染 `—`，不用 0 兜底（0 溢价率是真实值）。
  * 剩余年限由 `bond_maturity_date` 现算，避免为展示多存一个口径字段。
  */
@@ -898,6 +899,45 @@ const renderBond: FunctionalComponent<{
         title: "到期税前收益（单利年化持有到期总回报，自算）"
       },
       bondNumberText(v, "%")
+    );
+  }
+
+  // ── 下修历史三列（#2585 PR2）──
+  // 未落库（job 未抓过）与确无下修记录后端均不出值 → `—`；不用 0 兜底，
+  // 避免「确有下修但尚未抓取」与「抓过确认为 0」两种口径在前端混淆。
+  if (def.key === "bond_adjust_count") {
+    const v = field(row, "bond_adjust_count") as number | null | undefined;
+    if (v == null) return dash();
+    return h(
+      "span",
+      {
+        class: "bond-num",
+        title: "历史下修次数（下修决议经股东大会，按次落库）"
+      },
+      `${v} 次`
+    );
+  }
+
+  if (def.key === "bond_last_adjust_date") {
+    const v = field(row, "bond_last_adjust_date") as string | null | undefined;
+    if (!v) return dash();
+    return h(
+      "span",
+      { class: "bond-num", title: "最近一次下修的股东大会日（下修决议日）" },
+      v
+    );
+  }
+
+  if (def.key === "bond_adjust_floor_price") {
+    const v = field(row, "bond_adjust_floor_price") as
+      number | null | undefined;
+    return h(
+      "span",
+      {
+        class: "bond-num",
+        title: "最近一次下修的底价（元）——随每股净资产逐次变化，非固定条款"
+      },
+      bondNumberText(v)
     );
   }
 

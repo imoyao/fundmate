@@ -141,6 +141,17 @@ class WatchlistItemOut(BaseModel):
     # 未落库 / 本期无意义时保持 None，前端显 `—`（不用 0 兜底，避免与真实 0 混淆）。
     bond_stock_pb: Optional[float] = None  # 正股市净率 PB
     bond_ytm: Optional[float] = None  # 到期税前收益 YTM（%）
+    # 下修历史三列（#2585 PR2）：仅 asset_type=bond 且 convertible_bond_adjust_logs
+    # 命中该 symbol 时有值（即 job 已抓过该券且确有下修记录），其余恒 null；
+    # 前端「可转债」品类专属列据此渲染，未落库时列内显示 `—`。
+    # 「次数 / 日期 / 底价」取自**最近一次**下修记录——下修底价随每股净资产逐次变化，
+    # 只随最新事件下发（历史明细留在落库表，供后续下修详情浮层消费）。
+    bond_adjust_count: Optional[int] = None  # 下修次数（落库记录条数）
+    # 日期 / 底价随行 dict 手工填入（enrich 层直接写 out），date 对象若不过
+    # pydantic 重校验会被 Flask 序列化成 RFC 1123（「Tue, 23 Feb ...」），展示难读，
+    # 故此处按 ISO 字符串（YYYY-MM-DD）下发，前端原样渲染。
+    bond_last_adjust_date: Optional[str] = None  # 最近下修日（YYYY-MM-DD）
+    bond_adjust_floor_price: Optional[float] = None  # 最近一次下修的底价（元）
     # 指数估值补充信息（#1285 消费侧「指数」品类 / #1394）：仅 asset_type=index 且
     # index_valuations 存在该指数记录时下发；口径见后端 IndexValuation 模型注释。
     index_pe: Optional[float] = None  # 市盈率（中证官方列「市盈率1」）
