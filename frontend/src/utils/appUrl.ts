@@ -67,6 +67,15 @@ export function buildAppUrl(path = "/", opts: AppUrlOptions = {}): string {
 /**
  * 把「路径式 URL」换算成 hash 式（纯函数）。
  *
+ * 只在 **pathname 带了一段不该出现在 hash 模式地址里的路径** 时才动手：
+ *
+ * | 输入 | 输出 | 说明 |
+ * |---|---|---|
+ * | `/reset-password?code=abc` | `/#/reset-password?code=abc` | 旧邮件里的路径式链接 |
+ * | `/reset-password#/welcome` | `/#/welcome` | 畸形 URL：pathname 已经没用了，以 hash 路由为准 |
+ * | `/reset-password#/` | `/#/reset-password` | `#/` 是空路由（vue-router 会把空 hash 规整成它） |
+ * | `/#/welcome` | `null` | 正常地址，不动 |
+ *
  * @returns 需要跳转的目标（`/` 开头的站内地址，含 search）；无需跳转返回 `null`
  */
 export function toHashUrl(
@@ -76,8 +85,10 @@ export function toHashUrl(
   opts: AppUrlOptions = {}
 ): string | null {
   if (!isHashHistory(opts.historyMode)) return null;
-  // 已经有 hash 路由（`#/x`）或 hash 锚点，不重复加工
-  if (hash && hash !== "#") return null;
+
+  // vue-router 建 history 时会把空 hash 规整成 `#/`，因此 `#/` 与「没有 hash」等价；
+  // 只有 `#/x` 这类真实路由才算「已经有路由」，不能当成空 hash 再搬一次 pathname。
+  const emptyHash = !hash || hash === "#" || hash === "#/";
 
   const base = normalizeBase(
     opts.base ?? (import.meta.env.BASE_URL as string | undefined)
@@ -96,7 +107,12 @@ export function toHashUrl(
   if (base !== "/" && (p === baseNoSlash || p.startsWith(base))) {
     p = `/${p.slice(base.length)}`;
   }
-  return `${base}#${p}${search}`;
+
+  // 走到这里说明 pathname 是站内深链接：它必须被搬进 hash，否则会留下
+  // `/reset-password#/welcome` 这种「路径 + 另一个页面」的畸形地址。
+  // 有真实 hash 路由时以 hash 为准 —— 那才是路由实际解析出的页面。
+  const route = emptyHash ? `${p}${search}` : hash.slice(1);
+  return `${base}#${route.startsWith("/") ? route : `/${route}`}`;
 }
 
 /**
@@ -113,6 +129,6 @@ export function redirectLegacyUrlToHash(): boolean {
     window.location.hash
   );
   if (!target) return false;
-  window.location.replace(target);
+  window.history.replaceState(null, "", target);
   return true;
 }
