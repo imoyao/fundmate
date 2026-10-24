@@ -1,13 +1,21 @@
 /**
  * ============================================================
  * feedlog.ts
- * FeedLog 反馈 widget 接入（#1997）
+ * FeedLog 反馈 widget 接入（#1997；#1998 任务 B 起接 SSO 身份）
  *
- * 形态决策（卡里「先开游客提交跑通链路，不做 SSO」）：
- *   - **不传 auth**：widget 以游客身份运行，由 embed 页首条消息时铸造游客。
- *     SSO（Flask 加 /api/feedlog-token 签 JWT）是后续独立卡，不塞进本卡。
- *   - 游客提交开关已由 owner 在 FeedLog workspace 打开
+ * 形态演进：
+ *   - #1997 起先跑**游客模式**（不传 auth），embed 页首条消息时铸造游客；
+ *   - #1998 任务 B 起传 `auth`：**已登录用户的反馈带上真实身份**，
+ *     未登录仍自动落回游客模式（后端回 `token: null` ⇒ widget 按游客处理）。
+ *   游客提交开关已由 owner 在 FeedLog workspace 打开
  *     （2026-10-20 实测 /api/widget/config 返回 allowGuest: true）。
+ *
+ * `getToken` 的返回/抛错语义是**硬约束**（官方 SDK 原文，勿改）：
+ *   "Throwing signals a temporary failure — the SDK surfaces a retryable
+ *    error instead of treating it as signed out."
+ *   —— 只有「确认已登出」才回 `null`；网络错误 / 超时 / 响应结构异常一律
+ *   **throw**。把临时故障吞成 null 会让 widget 清掉缓存会话，
+ *   表现为「用户莫名频繁掉线」（卡面点名的严重回归）。
  *
  * 主题同步为什么不直接用 theme: 'auto'：
  *   'auto' 跟随**系统偏好**；但本仓的主题是用户可覆盖的（utils/theme.ts 的
@@ -25,6 +33,8 @@
  */
 
 import { createWidget, updateWidget, type WidgetTheme } from "@feedlog/widget";
+import { getFeedlogToken } from "@/api/feedlog";
+import router from "@/router";
 
 /** 反馈站地址（公开端点，无敏感信息；各环境同值，见 .env.example） */
 const BASE_URL = import.meta.env.VITE_FEEDLOG_BASE_URL as string | undefined;
@@ -35,6 +45,40 @@ let initialized = false;
 /** 当前应用主题：真相源是 <html> 的 dark class（utils/theme.ts 的唯一落点） */
 function currentTheme(): WidgetTheme {
   return document.documentElement.classList.contains("dark") ? "dark" : "light";
+}
+
+/**
+ * widget 的身份回调：向后端换一个 FeedLog SSO 令牌（#1998 任务 B）。
+ *
+ * 三种返回必须严格区分（错一种就出用户可见的回归）：
+ * - 拿到令牌 → 返回该字符串（反馈带真实身份）；
+ * - 后端明确回 `token: null` → 返回 `null`（**确认未登录**，widget 走游客模式）；
+ * - 网络错误 / 超时 / 非 2xx / 响应结构异常 → **throw**（临时故障，SDK 会
+ *   提示可重试；吞成 null 会被当成登出，用户缓存会话被清 → 频繁掉线）。
+ */
+async function getFeedlogTokenForWidget(): Promise<string | null> {
+  // 不 catch：让 http 层的失败原样抛给 SDK（它区分「登出」与「临时故障」）
+  const res = await getFeedlogToken();
+  const payload = res?.data;
+  if (!payload || !("token" in payload)) {
+    // 结构异常不是「未登录」——按临时故障抛，别让 widget 清会话
+    throw new Error("[feedlog] feedlog-token 响应结构异常");
+  }
+  return payload.token ?? null;
+}
+
+/**
+ * widget 的「去登录」回调：跳到登录页。
+ *
+ * SDK 契约：login 返回的 Promise 必须在用户**退出登录 UI 时也 settle**
+ * （取消也要 resolve），否则 widget 会一直隐藏。导航失败同样要 settle。
+ */
+async function loginForWidget(): Promise<void> {
+  try {
+    await router.push("/login");
+  } catch {
+    // 导航失败也必须 settle（否则 widget 卡在「等待登录」永不显示）
+  }
 }
 
 /**
@@ -61,9 +105,14 @@ export function initFeedlogWidget(): void {
     baseUrl: BASE_URL,
     theme: currentTheme(),
     zIndex: 1050,
-    launcher: { alignment: "right", state: "button" }
+    launcher: { alignment: "right", state: "button" },
     // locale 不传：SDK 默认 auto（按浏览器语言解析中/英）
-    // auth 不传：游客模式（见文件头形态决策）
+    // auth（#1998）：已登录用户带真实身份提交反馈；未登录由 getToken 回 null
+    // 自动落回游客模式（allowGuest 已开），两种身份都能提交。
+    auth: {
+      getToken: getFeedlogTokenForWidget,
+      login: loginForWidget
+    }
   });
 
   // 暗色同步：观测 <html> class 的最终落点，见文件头「主题同步」节。
