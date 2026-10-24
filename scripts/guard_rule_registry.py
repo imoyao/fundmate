@@ -358,9 +358,9 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         'covered': '只比声明集合；传递依赖漂移要 pnpm install 才看得见',
     },
     'scripts/check_vue_size.mjs': {
-        'rule': '单文件规模门禁（页面组件行数）',
+        'rule': '单文件规模门禁（页面组件行数，存量基线只减不增）',
         'runner': 'ci',
-        'tests': 'scripts/tests/test_rule_registry_guard.py',
+        'tests': 'scripts/tests/check_vue_size.test.js',
         'covered': '只数行数；把逻辑挪进 composable 但组件仍混乱不会被拦',
     },
     'scripts/guard_workflow_inputs_interpolation.py': {
