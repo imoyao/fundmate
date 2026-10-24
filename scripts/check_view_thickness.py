@@ -238,8 +238,14 @@ BASELINE: dict[str, dict[str, int]] = {
         "commits": 0,
         "max_func": 48,
     },
+    # 2026-10-24 重取（#2133，**新增端点**，非放宽）：TWR 时间加权收益率
+    # `GET /api/performance/twr/`。视图侧只有「parse_query → 调
+    # services/performance/twr.py → jsonify」，连乘算式与缺失日处理全在 services；
+    # orm_queries / commits / max_func 三项实测不动（0/0/31），唯 lines 86 → 110（+24，
+    # 增长来自端点签名与口径 docstring，与 /industry-emotion/ 同形态）。
+    # 按 `--report` 实测回写。
     "backend/app/domains/performance/views.py": {
-        "lines": 86,
+        "lines": 110,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 31,
