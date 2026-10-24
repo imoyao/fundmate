@@ -270,6 +270,10 @@
     <PnlCalendar :ledger-id="p.ledgerId ? Number(p.ledgerId) : undefined" />
   </div>
 
+  <!-- #2135：收益归因（区间逐品种 / 大类贡献）——复用 pnl 引擎唯一盈亏口径，
+       Σ品种 ≡ 同窗收益日历月合计由后端构造保证，前端只展示。 -->
+  <PnlAttribution :ledger-id="p.ledgerId ? Number(p.ledgerId) : undefined" />
+
   <!-- 账户深度分析其余项（持仓集中度 / 行业分布）仍规划中，
        详见内部工作记录 ledger-detail-info-redesign-plan-2026-08-27 -->
   <CardBlock class="mb-6">
@@ -292,6 +296,7 @@ import SectionHeader from "@/components/SectionHeader/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import PnlCalendar from "@/components/PnlCalendar/index.vue";
+import PnlAttribution from "@/components/PnlAttribution/index.vue";
 import AssetAllocationDonut from "@/components/Charts/AssetAllocationDonut.vue";
 import LedgerCashLikeCard from "./LedgerCashLikeCard.vue";
 import { getBenchmarkExcess, type BenchmarkExcessResult } from "@/api/summary";

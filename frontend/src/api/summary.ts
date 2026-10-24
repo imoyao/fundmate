@@ -328,6 +328,51 @@ export type BenchmarkExcessResult = {
   excess_return: number | null;
 };
 
+/** 收益归因的品种行（#2135）：区间盈亏 + 占比 */
+export type PnlAttributionRow = {
+  position_id: number;
+  symbol: string;
+  name: string | null;
+  asset_type: string | null;
+  ledger_id: number | null;
+  /** 区间盈亏（元，已含已实现） */
+  pnl: number;
+  /** 占区间合计的百分比；合计为 0（没赚没赔）时为 null（不是 0%） */
+  pct: number | null;
+};
+
+/** 收益归因的大类聚合行（#2135）：按 asset_type 分桶 */
+export type PnlAttributionCategory = {
+  asset_type: string;
+  pnl: number;
+  positions_count: number;
+  pct: number | null;
+};
+
+/** 无价降级行（#2135）：持有但整窗无价格数据，不进合计 */
+export type PnlAttributionUnpricedRow = Omit<PnlAttributionRow, "pnl" | "pct">;
+
+export type PnlAttributionPayload = {
+  scope: "family" | "ledger" | "portfolio";
+  ledger_id: number | null;
+  portfolio_id: number | null;
+  start_date: string;
+  end_date: string;
+  /**
+   * 区间合计盈亏（元）；整窗无可算日时为 null——诚实降级，不是 0
+   *（0 会被读成「没赚没赔」，而真相是「算不了」）。
+   * Σ positions[].pnl ≡ 同窗 pnl-calendar 的 month_total（构造保证）。
+   */
+  total_pnl: number | null;
+  has_any_computable: boolean;
+  /** 逐品种贡献，按 |pnl| 降序 */
+  positions: PnlAttributionRow[];
+  /** 大类贡献，按 |pnl| 降序 */
+  categories: PnlAttributionCategory[];
+  /** 持有但整窗无价的持仓——不进合计，前端折叠提示 */
+  unpriced_positions: PnlAttributionUnpricedRow[];
+};
+
 /**
  * 查询区间收益 vs 基准指数超额收益（#2134 账本对齐-D）
  *
@@ -344,6 +389,28 @@ export function getBenchmarkExcess(params: {
   return http.request<ApiResponse<BenchmarkExcessResult>>(
     "get",
     BASE_URL + "benchmark-excess/",
+    {
+      params
+    }
+  );
+}
+
+/**
+ * 查询区间收益归因（#2135）
+ *
+ * 复用 pnl 引擎唯一盈亏口径（同一次 _compute_days 遍历、同一条基准推进），
+ * Σ positions[].pnl 与同窗 pnl-calendar 的 month_total 由构造保证一致。
+ * `ledger_id` 与 `portfolio_id` 互斥；不传两者 = 家庭级。
+ */
+export function getPnlAttribution(params?: {
+  start_date?: string;
+  end_date?: string;
+  ledger_id?: number;
+  portfolio_id?: number;
+}) {
+  return http.request<ApiResponse<PnlAttributionPayload>>(
+    "get",
+    BASE_URL + "pnl-attribution/",
     {
       params
     }
