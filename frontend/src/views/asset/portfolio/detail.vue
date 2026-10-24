@@ -157,6 +157,9 @@
         <PenetrationPanel />
       </div>
 
+      <!-- #2135：收益归因（组合口径 = 成员账本继承 + 持仓显式归属） -->
+      <PnlAttribution :portfolio-id="portfolioId" />
+
       <!-- 持仓明细（#1104：盈亏双线 —— 已确认 / 当日预估） -->
       <CardBlock class="mb-6">
         <SectionHeader title="持仓明细" :info="PNL_DUAL_SCOPE_TIP">
@@ -422,6 +425,7 @@ import MetricGrid from "@/components/MetricGrid/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import PnlDualLine from "@/components/PnlDualLine/index.vue";
+import PnlAttribution from "@/components/PnlAttribution/index.vue";
 import RealtimeEstimateToggle from "@/components/RealtimeEstimateToggle/index.vue";
 import PortfolioEditDialog from "@/components/PortfolioEditDialog/index.vue";
 import PenetrationPanel from "./PenetrationPanel.vue";

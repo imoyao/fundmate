@@ -79,6 +79,8 @@ from app.core.time_utils import now_shanghai
 from app.core.trading_calendar import is_trading_day
 from app.core.venues import EXCHANGE, OTC, venue_of_row
 from app.domains.funds.models import DailyWorth, FundValuationDaily
+from app.domains.ledgers.models import Ledger
+from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.transactions.models import Transaction
@@ -861,6 +863,7 @@ def _compute_days(
     no_price_ids: set,
     shares: Dict[int, Dict[dt.date, int]],
     txns: Dict[int, List[Transaction]],
+    attribution: Optional[dict] = None,
 ) -> List[dict]:
     """现算 `[loop_start, end]` 并返回**存储形态**（整数分 / 整数基点，供 `save_days`）。
 
@@ -873,6 +876,12 @@ def _compute_days(
       `price_series` 推导——本函数的取价窗口已前扩，推出来的集合会不一样；
     - 输出条件是 `day >= loop_start` 而非 `>= start`，否则会把 `loop_start - 1`
       也写进结果，与前段的物化行重复。
+
+    `attribution`（#2135 收益归因）非 None 时，同一次遍历顺带收集逐持仓区间
+    盈亏并就地写入该 dict（`pnl` / `priced` / `unpriced` / `days` 四键，见
+    `compute_range_attribution`）。**日历主路径传 None，零额外分配、零行为变化**；
+    归因镜像同一循环、同一条基准推进、同一套状态门控，故
+    `Σ attribution['pnl'] ≡ month_total`（同窗全现算下）由构造保证，不是对账出来的。
     """
     # 往前多取一天，**只为给区间首日建立差分基准**。
     # 否则每月 1 号都因「无前一日」而不可算（#1942 起报 no_data，而不是「休市」，
@@ -955,12 +964,32 @@ def _compute_days(
 
     # ── 逐日推进：维护每笔持仓的 as-of 份额与累计已实现 ──
     decision_per_pos = _build_per_pos(decision_positions, shares, txns, scan_start)
-    value_per_pos = decision_per_pos if ledger_id is None else _build_per_pos(positions, shares, txns, scan_start)
+    # 值集与决策集是否**同一对象**（而非按 `ledger_id` 判）：#2135 组合级归因传入
+    # 「成员账户持仓子集 + 家庭级决策集」且 `ledger_id` 为 None，按参数判会把
+    # 决策集误当值集。家庭级调用两列表本就是同一对象（`build_daily_pnl_series`
+    # 内 `decision_positions = positions if ledger_id is None else ...`），
+    # 按身份判对既有路径逐位等价。
+    value_per_pos = (
+        decision_per_pos if positions is decision_positions else _build_per_pos(positions, shares, txns, scan_start)
+    )
 
     days: List[dict] = []
     day = scan_start
     prev_net_worth: Optional[int] = None
     prev_total_pnl: Optional[int] = None
+
+    # ── 归因收集（#2135）：与 scope 差分同构的逐持仓水平值链 ──
+    # `attribution` 非 None 时启用；日历主路径（None）不写一个键。三件套与
+    # scope 严格同口径：
+    #   · `day_level`        当日计入 day_total_pnl 的逐持仓水平值（无价 / 份额≤0
+    #                          的持仓不进，与值循环的 continue 同步 ⇒ 缺席 = 0）；
+    #   · `day_opening_level` 建仓持仓的水平值（`opening_pnl` 的逐笔拆分）；
+    #   · `prev_level`        差分基准，与 `prev_total_pnl` **同一推进条件**冻结 /
+    #                          前进（循环末尾一处收口，见 `if trading_today ...`）。
+    collect = attribution is not None
+    prev_level: Dict[int, int] = {}
+    day_level: Dict[int, int] = {}
+    day_opening_level: Dict[int, int] = {}
 
     # 账户级调用时决策集（家庭全集）与值集（本账户）是两套；家庭级调用时同一套。
     per_pos_sets = (value_per_pos,) if value_per_pos is decision_per_pos else (decision_per_pos, value_per_pos)
@@ -974,6 +1003,11 @@ def _compute_days(
         # #2141：本日是否有持仓用上收盘估值（仅 day==today 可能为 True），
         # 有则当日行附 estimated 标记——前端徽标/开关据此展示，不再前端猜。
         day_uses_estimate = False
+        # 归因三件套按日重建；`forced_zero` 标记状态链把 daily_pnl **改写成 0**
+        # 的全建仓日（其逐笔原始差分之和是 −prev_total_pnl，与强制值不等）。
+        day_level = {}
+        day_opening_level = {}
+        forced_zero = False
         for per_pos in per_pos_sets:
             for state in per_pos.values():
                 # 建仓日标记：份额由 0 变正的那一天。前一日基准是「未持有」，
@@ -993,6 +1027,10 @@ def _compute_days(
             pos: Position = state['pos']
             price = price_of(pos, day)
             if price is None:
+                if collect and state['shares'] > 0:
+                    # 持有但当日无价：进降级清单（输出时与「曾有价」集合做差，
+                    # 只留**整窗无价**的持仓，见 compute_range_attribution）。
+                    attribution['unpriced'].add(pos.id)
                 continue
             held_shares = state['shares']
             if held_shares <= 0:
@@ -1008,12 +1046,18 @@ def _compute_days(
             if rate != 1.0:
                 market_value = int(Decimal(market_value) * Decimal(str(rate)))
                 cost = int(Decimal(cost) * Decimal(str(rate)))
-            day_total_pnl += market_value - cost + state['realized']
+            level = market_value - cost + state['realized']
+            day_total_pnl += level
             day_net_worth += market_value + state['realized']
             if state['is_opening']:
                 # 建仓持仓的浮盈是「今天新出现的」，不是「今天赚的」。
                 # 记进水平值（次日差分的基准要用），但从当日差分里剔掉。
-                opening_pnl += market_value - cost + state['realized']
+                opening_pnl += level
+            if collect:
+                day_level[pos.id] = level
+                attribution['priced'].add(pos.id)
+                if state['is_opening']:
+                    day_opening_level[pos.id] = level
 
         daily_pnl = None
         if prev_total_pnl is not None:
@@ -1163,6 +1207,9 @@ def _compute_days(
             # （建仓那一刻浮盈本来就是 0，不是「没数据」）。
             state_code = STATE_ZERO
             daily_pnl = 0
+            # 归因跳过该日：逐笔原始差分之和 = −prev_total_pnl，与强制值 0 不等，
+            # 照折会破坏 Σ品种 ≡ month_total（见下方折叠门控）。
+            forced_zero = True
         elif not day_has_price or (day_present_count == 0 and day_missing_ids):
             # 「当天一个可用价都没有」的两种情形（全部标的都取不到价 / 全体标的
             # 当天都没出真报价，全靠前值回填）在这里合流，一律按 **A 股开盘日历**分派：
@@ -1212,6 +1259,23 @@ def _compute_days(
             state_code = STATE_UPDOWN
         else:
             state_code = STATE_ZERO
+
+        # ── 归因折叠（#2135）：仅在**进入月合计**的日产上累加逐持仓差分 ──
+        # 门控与 month_total 的求和口径逐位对齐：
+        #   · `daily_pnl is None` 的日（休市 / 无价 / 无持仓 / 无数据 / 扫描首日）
+        #     不进月合计 ⇒ 这里同样不折；
+        #   · 全建仓强制 0 日（forced_zero）跳过——那天的逐笔原始差分之和是
+        #     −prev_total_pnl，与状态链强制的 0 不等，照折 Σ 就对不上；
+        #   · 其余日（updown / 自然 0 / partial）`daily_pnl` 即原始差分，
+        #     Σ逐笔 diff = day_total − prev_total − opening = daily_pnl，
+        #     由「同一批水平值、同一条基准」构造保证，不是对账出来的。
+        if collect and day >= loop_start and daily_pnl is not None:
+            attribution['days'] += 1
+            if not forced_zero:
+                pos_pnl = attribution['pnl']
+                for pid in day_level.keys() | prev_level.keys():
+                    diff = day_level.get(pid, 0) - prev_level.get(pid, 0) - day_opening_level.get(pid, 0)
+                    pos_pnl[pid] = pos_pnl.get(pid, 0) + diff
 
         rate_pct = None
         if daily_pnl is not None and prev_net_worth not in (None, 0):
@@ -1271,6 +1335,10 @@ def _compute_days(
         if trading_today or prev_total_pnl is None or day_opening:
             prev_total_pnl = day_total_pnl
             prev_net_worth = day_net_worth
+            if collect:
+                # 归因基准与 scope 基准**同一时刻、同一条件**冻结 / 前进——
+                # 两套基准一旦分叉，逐笔差分与 daily_pnl 就错位了。
+                prev_level = dict(day_level)
         day += dt.timedelta(days=1)
 
     return days
@@ -1456,4 +1524,184 @@ def _empty_payload(ledger_id: Optional[int], start: dt.date, end: dt.date) -> di
         'latest_price_date': None,
         'first_txn_date': None,
         'days': [],
+    }
+
+
+# ──────────────────── 区间收益归因（#2135）────────────────────────────
+
+
+def _empty_attribution(
+    ledger_id: Optional[int],
+    portfolio_id: Optional[int],
+    start: dt.date,
+    end: dt.date,
+) -> dict:
+    """无可算区间（无持仓 / 区间不合法）的归因空载荷。
+
+    `total_pnl` 用 None 而不是 0.0：0.0 会被读成「区间没赚没赔」，
+    而真相是「算不了」——「数据不足诚实降级」是 #2135 的验收项。
+    """
+    return {
+        'scope': 'portfolio' if portfolio_id is not None else ('ledger' if ledger_id is not None else 'family'),
+        'ledger_id': ledger_id,
+        'portfolio_id': portfolio_id,
+        'start_date': start.isoformat(),
+        'end_date': end.isoformat(),
+        'total_pnl': None,
+        'has_any_computable': False,
+        'positions': [],
+        'categories': [],
+        'unpriced_positions': [],
+    }
+
+
+def _attribution_meta(pos: Position) -> dict:
+    """归因明细行的身份字段（品种行与 unpriced 行共用）。"""
+    return {
+        'position_id': pos.id,
+        'symbol': pos.symbol,
+        'name': pos.name,
+        'asset_type': pos.asset_type,
+        'ledger_id': pos.ledger_id,
+    }
+
+
+def compute_range_attribution(
+    db: Session,
+    family_id: int = 1,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    ledger_id: Optional[int] = None,
+    portfolio_id: Optional[int] = None,
+) -> dict:
+    """区间逐品种 / 大类收益归因（#2135）：`Σ positions[].pnl ≡ 引擎区间合计`。
+
+    口径铁律——**复用 pnl 引擎的唯一盈亏口径，不存在第二套算账**：
+    与 `build_daily_pnl_series` 的月合计走**同一次** `_compute_days` 遍历、
+    同一条基准推进、同一套状态门控（归因收集是循环内的镜像分支，见该函数
+    docstring）。故同窗全现算下 `Σ attribution['pnl'] ≡ month_total` 由
+    **构造保证**，不是对账出来的——引擎怎么算合计，归因就怎么拆到品种。
+
+    - **强制全现算**：`loop_start = start`，不读不写物化行。物化只有日级
+      `daily_pnl`，没有逐持仓水平值；从日级差分反拆品种不可逆
+      （同一天多个品种一涨一跌会互相抵消）。
+    - **已实现盈亏含在水平值里**（`level = 市值 − 成本 + 累计已实现`）：
+      区间内清仓的品种仍带着它的贡献，不会在退出那天凭空消失。
+    - **组合口径**与 `portfolio_service.build_portfolio_holdings` 一致：
+      显式 `positions.portfolio_id` 归属 + 成员账本（`Ledger.portfolio_id`）
+      的继承归属（持仓未显式指定组合时继承账户默认组合）。
+    - **降级**：持有但整窗无价的持仓进 `unpriced_positions`、不进合计；
+      整窗无任何可算日时 `total_pnl=None`、`positions=[]`（不造 0 明细）。
+    - `ledger_id` 与 `portfolio_id` 互斥；组合不存在 / 非本家庭抛 ValueError
+      （与 portfolio_service 同文案，视图转 404）。
+    """
+    if ledger_id is not None and portfolio_id is not None:
+        raise ValueError('ledger_id 与 portfolio_id 互斥')
+
+    start, end = _resolve_range(start_date, end_date)
+    if start > end:
+        return _empty_attribution(ledger_id, portfolio_id, start, end)
+
+    # 决策集恒为家庭全量（#1916：流水不按 ledger 过滤，份额 / 已实现按持仓归集，
+    # 归因沿用才保「Σ账户 ≡ 家庭」的可加性）。
+    decision_positions = _positions(db, family_id, None)
+    if ledger_id is not None:
+        positions = _positions(db, family_id, ledger_id)
+    elif portfolio_id is not None:
+        portfolio = (
+            db.query(Portfolio)
+            .filter(Portfolio.id == portfolio_id, Portfolio.is_deleted.is_(False), Portfolio.family_id == family_id)
+            .first()
+        )
+        if not portfolio:
+            raise ValueError('投资组合不存在')
+        member_ids = {
+            row[0]
+            for row in db.query(Ledger.id)
+            .filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == family_id)
+            .all()
+        }
+        # 显式归属覆盖继承，与 portfolio_service.build_portfolio_holdings 的两路径口径一致。
+        positions = [
+            p
+            for p in decision_positions
+            if p.portfolio_id == portfolio_id or (p.portfolio_id is None and p.ledger_id in member_ids)
+        ]
+    else:
+        positions = decision_positions
+
+    if not positions:
+        return _empty_attribution(ledger_id, portfolio_id, start, end)
+
+    no_price_ids, _ = _price_presence(db, decision_positions, start, end)
+    shares, txns = _as_of_shares(db, family_id, end)
+    attribution: dict = {'pnl': {}, 'priced': set(), 'unpriced': set(), 'days': 0}
+    _compute_days(
+        db,
+        family_id,
+        positions,
+        decision_positions,
+        start,
+        end,
+        ledger_id,
+        start,  # 归因强制全现算：loop_start = start，不读不写物化
+        no_price_ids,
+        shares,
+        txns,
+        attribution=attribution,
+    )
+
+    if not attribution['days']:
+        # 整窗无任何可算日：合计与明细一起降级；unpriced 照报（它是真实信息）。
+        payload = _empty_attribution(ledger_id, portfolio_id, start, end)
+        never = attribution['unpriced'] - attribution['priced']
+        payload['unpriced_positions'] = [_attribution_meta(p) for p in positions if p.id in never]
+        return payload
+
+    total_cents = sum(attribution['pnl'].values())
+    pos_by_id = {p.id: p for p in positions}
+    rows: List[dict] = []
+    categories_map: Dict[str, dict] = {}
+    for pid in attribution['priced']:
+        pos = pos_by_id.get(pid)
+        if pos is None:
+            continue  # 防御：值集 ⊆ 决策集，正常不会缺
+        pnl_cents = attribution['pnl'].get(pid, 0)
+        rows.append(
+            {
+                **_attribution_meta(pos),
+                'pnl': round(Money.cents_to_yuan(pnl_cents), 2),
+                # 合计为 0（没赚没赔）时占比无意义 ⇒ None，不是 0%
+                'pct': round(pnl_cents / total_cents * 100, 2) if total_cents else None,
+            }
+        )
+        key = pos.asset_type or '未分类'
+        cat = categories_map.setdefault(key, {'asset_type': key, 'pnl_cents': 0, 'positions_count': 0})
+        cat['pnl_cents'] += pnl_cents
+        cat['positions_count'] += 1
+    rows.sort(key=lambda r: abs(r['pnl']), reverse=True)
+
+    categories = [
+        {
+            'asset_type': c['asset_type'],
+            'pnl': round(Money.cents_to_yuan(c['pnl_cents']), 2),
+            'positions_count': c['positions_count'],
+            'pct': round(c['pnl_cents'] / total_cents * 100, 2) if total_cents else None,
+        }
+        for c in sorted(categories_map.values(), key=lambda c: abs(c['pnl_cents']), reverse=True)
+    ]
+    never = attribution['unpriced'] - attribution['priced']
+    unpriced_rows = [_attribution_meta(p) for p in sorted(positions, key=lambda p: p.id) if p.id in never]
+
+    return {
+        'scope': 'portfolio' if portfolio_id is not None else ('ledger' if ledger_id is not None else 'family'),
+        'ledger_id': ledger_id,
+        'portfolio_id': portfolio_id,
+        'start_date': start.isoformat(),
+        'end_date': end.isoformat(),
+        'total_pnl': round(Money.cents_to_yuan(total_cents), 2),
+        'has_any_computable': True,
+        'positions': rows,
+        'categories': categories,
+        'unpriced_positions': unpriced_rows,
     }

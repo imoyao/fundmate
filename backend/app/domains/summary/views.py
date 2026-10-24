@@ -17,7 +17,7 @@ from app.core.time_utils import today_shanghai
 from app.services.analytics.benchmark_excess import build_scope_excess
 from app.services.analytics.cleared_cycles import build_cleared_cycles
 from app.services.penetration import SCHEME_LABELS, build_penetration
-from app.services.pnl_calendar import GRANULARITY_DAY, build_pnl_series
+from app.services.pnl_calendar import GRANULARITY_DAY, build_pnl_series, compute_range_attribution
 from app.services.summary_service import (
     get_account_groups,
     get_distributions,
@@ -191,6 +191,28 @@ def pnl_calendar():
         granularity = request.args.get('granularity', GRANULARITY_DAY)
         with get_db() as db:
             data = build_pnl_series(db, get_family_id(), start_date, end_date, ledger_id, granularity)
+        return jsonify({'data': data, 'message': 'ok'})
+    except ValueError as e:
+        return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400
+    except Exception as e:
+        return jsonify({'data': None, 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500
+
+
+@bp.get('/summary/pnl-attribution/')
+def pnl_attribution():
+    """#2135 区间收益归因（逐品种 / 大类贡献；复用 pnl 引擎唯一盈亏口径）。
+
+    `start_date` / `end_date` 缺省同 pnl-calendar（end=今日，start=end−29）；
+    `ledger_id` 与 `portfolio_id` 互斥（同时传 400）。Σ positions[].pnl ≡
+    同窗 pnl-calendar 的 month_total（构造保证，见 services/pnl_calendar.py）。
+    """
+    try:
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        ledger_id = request.args.get('ledger_id', type=int)
+        portfolio_id = request.args.get('portfolio_id', type=int)
+        with get_db() as db:
+            data = compute_range_attribution(db, get_family_id(), start_date, end_date, ledger_id, portfolio_id)
         return jsonify({'data': data, 'message': 'ok'})
     except ValueError as e:
         return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400

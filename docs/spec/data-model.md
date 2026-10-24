@@ -381,7 +381,6 @@ GICS 板块（`gics`，两位数字）。两套体系语义不重叠（GICS 的�
 调度：`fund_position` 已注册进本机调度，但 cron 是**每周一次**（周一 23:00）而非每日——持仓是季报数据、
 日变更量恒为 0，每日跑只浪费外部请求并叠加东财限流风险（#1403 的原始形态）。
 
-
 ### 5.17 区间收益 vs 基准指数同期口径（新增 2026-10-23，源 #2134）
 
 **唯一实现**：`services/analytics/benchmark_excess.py`（端点 `GET /api/summary/benchmark-excess/`，
@@ -418,3 +417,29 @@ GICS 板块（`gics`，两位数字）。两套体系语义不重叠（GICS 的�
 
 **数据准入**：零新增表、零新增外部请求——指数序列复用 `index_daily_job` 已同步的
 `index_daily`（公开市场数据、已在本地库）。
+
+### 5.18 收益归因（pnl-attribution，派生口径，源 #2135）
+
+**不新增任何表 / 列**——区间收益归因是 pnl 日历引擎的派生视图，端点
+`GET /summary/pnl-attribution/`（`start_date` / `end_date` 必填缺省同日历；`ledger_id` 与
+`portfolio_id` 互斥，同时传 400 / `error_code 1001`）。
+
+- **唯一口径**：与 `build_daily_pnl_series` 的月合计走**同一次** `_compute_days` 遍历、同一条
+  基准推进（`prev_level` 与 `prev_total_pnl` 同条件冻结）、同一套状态门控；日历主路径
+  `attribution=None` 零额外分配、零行为变化。故同窗全现算下
+  **`Σ positions[].pnl ≡ month_total` 由构造保证**，不是对账出来的——不存在第二套算账。
+- **强制全现算**（`loop_start = start`，不读不写物化行）：物化只有日级 `daily_pnl`，没有逐持仓
+  水平值；从日级差分反拆品种不可逆（同日多品种一涨一跌互相抵消）。
+- **门控三则**：`daily_pnl is None` 的日不折（与月合计同口径）；全建仓强制 0 日不折（其逐笔原始
+  差分之和 = −prev_total_pnl，与强制值不等，照折破坏 Σ）；建仓水平值经 `day_opening_level`
+  剔除（「今天新出现的」不是「今天赚的」）。
+- **已实现含在水平值内**（`level = 市值 − 成本 + 累计已实现`，`transactions.realized_pnl` 单位为分）：
+  区间内部分清仓的品种不丢失贡献。
+- **响应**（`ApiResponse` 信封）：`total_pnl`（元；整窗无可算日 = **null** 不造 0——0 会被读成
+  「没赚没赔」）、`positions[]`（pnl + pct，`|pnl|` 降序；合计为 0 时 pct = null 不是 0%）、
+  `categories[]`（asset_type 聚合）、`unpriced_positions[]`（整窗无价，**不进合计**，前端折叠提示）、
+  `has_any_computable`。
+- **组合口径**与 `portfolio_service.build_portfolio_holdings` 一致：持仓显式 `portfolio_id` 归属 +
+  成员账本（`Ledger.portfolio_id`）继承归属，显式覆盖继承。
+- **已知边界**：引擎「部分清仓抹浮盈」的既有口径怪癖不在本卡范围（归因镜像同门控故 Σ 仍成立，
+  单品种数值与经济真相的偏差沿用引擎口径，另行开卡登记）。

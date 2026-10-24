@@ -215,6 +215,7 @@ title: 核心 API 端点清单（api）
 | GET | `/api/summary/ghost-duplicates/` | `ghost_duplicates` |
 | GET | `/api/summary/groups/` | `position_groups` |
 | GET | `/api/summary/penetration/` | `penetration` |
+| GET | `/api/summary/pnl-attribution/` | `pnl_attribution` |
 | GET | `/api/summary/pnl-calendar/` | `pnl_calendar` |
 | GET | `/api/summary/sankey/` | `sankey` |
 | GET | `/api/summary/snapshots/` | `list_snapshots` |
