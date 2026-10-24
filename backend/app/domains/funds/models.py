@@ -14,6 +14,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     String,
     UniqueConstraint,
     text,
@@ -136,6 +137,15 @@ class Fund(Base, PrimaryKeyMixin, TimestampMixin):
     # 见 fund_style_tag_feasibility.md §4），筛选场景应排除 QDII 后使用本字段。
     dominant_style = Column(String(20), comment='当前主导风格（韭圈儿风格箱暴露值最大项，上游原文）')
     style_period = Column(String(10), comment='上述主导风格对应的时点，如 2026-10-16（口径与版本留痕）')
+    # ── #1440 晨星星级评级（当期值，3 年期口径）──
+    # 数据源：东财评级总汇页 fundrating.html（晨星授权、东财聚合展示），job 为
+    # FundRatingSyncJob。口径坐实：三家机构专页反证字段顺序（pos14=晨星）+
+    # 晨星官方 MCP starRatingDetails ratingPeriod=36；探针对账 000001/110011/161725
+    # 逐只一致。存储为当期值列而非快照表（D1：无消费者即无历史需求，delta 含义
+    # 在写入期已定格）；空=无评级（货基/新基金常态，见 migrations 同名校验）。
+    morningstar_rating = Column(SmallInteger, comment='晨星星级评级 1-5（3年期口径，东财评级总汇页），空=无评级')
+    morningstar_rating_delta = Column(SmallInteger, comment='晨星评级较上期变化（-4~4，如 000001=-1 降一星），空=未知')
+    morningstar_rating_asof = Column(Date, comment='评级数据快照日期（东财页当日），供前端标注时效')
     risk_level = Column(Integer, comment='风险等级 1-5')
     is_fe_charge = Column(Boolean, default=False, comment='前端收费')
     benchmark = Column(String(200), comment='业绩比较基准')

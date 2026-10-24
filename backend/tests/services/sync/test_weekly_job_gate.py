@@ -153,6 +153,7 @@ class TestExecutionPlanOrder:
                 'fund_detail_enrich',
                 'fund_type',
                 'fund_scale',
+                'fund_rating',
                 'fund_position',
                 'fund_style',
                 'fund_manager',

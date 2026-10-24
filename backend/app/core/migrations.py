@@ -1588,6 +1588,40 @@ def migrate_fund_style_columns(engine: Engine) -> str:
     return '[SKIP] funds 风格箱派生列已存在'
 
 
+def migrate_fund_rating_columns(engine: Engine) -> str:
+    """funds 补晨星星级评级当期值三列（#1440）：morningstar_rating / _delta / _asof。
+
+    数据源为东财评级总汇页（fund.eastmoney.com/data/fundrating.html，akshare
+    `fund_rating_all` 同源），采**晨星 3 年期**星级。口径已双重坐实：
+    - 三家机构评级专页反证综合页字段顺序（招商 15576/15576、上海 382/382、
+      济安 46/46，pos14=晨星）；
+    - 晨星官方 MCP `getFundPerformance` 的 `starRatingDetails` 标注
+      `ratingPeriod: 36`，三只探针（000001/110011/161725）与 pos14 逐只一致。
+
+    存储为**当期值列**而非快照表（D1 拍板）：全仓无评级消费方即无历史需求，
+    delta 的含义在写入期已定格；升级路径 = 换 job 的 `_save_data`，解析层复用。
+
+    三列均可空：SQLite / libsql 支持对可空列直接 ALTER ADD COLUMN；幂等：列已存在
+    则跳过。两种引擎都由本迁移负责（走 ``_add_columns_if_missing``，PG 用
+    ``ADD COLUMN IF NOT EXISTS``）——生产 user 域是 Postgres，本仓没有 Alembic、
+    ``create_all()`` 也不给存量表加列（#2534）。存量行留 NULL = 未采集，
+    job 首次跑后按 fund_code 覆盖写（同 scale 先例）。
+    """
+    if not _table_exists(engine, 'funds'):
+        return '[SKIP] funds 表不存在（空库，init_db 将按新模型建表）'
+
+    cols = [
+        ('morningstar_rating', 'SMALLINT'),
+        ('morningstar_rating_delta', 'SMALLINT'),
+        ('morningstar_rating_asof', 'DATE'),
+    ]
+    added = _add_columns_if_missing(engine, 'funds', cols)
+    if added:
+        logger.info(f'[OK] funds 增加晨星星级评级列: {added}（#1440）')
+        return f'[OK] funds 增加晨星星级评级列 {added}'
+    return '[SKIP] funds 晨星星级评级列已存在'
+
+
 def migrate_transaction_fee_breakdown(engine: Engine) -> str:
     """transactions 补费用拆分四列（#2137）：佣金 / 印花税 / 过户费等税费 / 其他费用。
 

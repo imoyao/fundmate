@@ -56,6 +56,7 @@ from app.services.sync.jobs.fund_list_job import FundListSyncJob
 from app.services.sync.jobs.fund_manager_job import FundManagerSyncJob
 from app.services.sync.jobs.fund_nav_job import FundNavSyncJob
 from app.services.sync.jobs.fund_position_job import FundPositionSyncJob
+from app.services.sync.jobs.fund_rating_job import FundRatingSyncJob
 from app.services.sync.jobs.fund_risk_metrics_job import FundRiskMetricsSyncJob
 from app.services.sync.jobs.fund_scale_job import FundScaleSyncJob
 from app.services.sync.jobs.fund_style_job import FundStyleSyncJob
@@ -131,8 +132,9 @@ PRICE_BACKFILL_JOBS = frozenset({'fund_nav', 'price_history'})
 #
 # 判据：距上次**成功**（`sync_logs.status='success'`）不足 N 天即跳过。取 6 而非 7，
 # 是因为 CI 起跑有最长约 10 分钟的 jitter，卡 7 天会让「每周一次」漂成 8 天。
+# fund_rating（#1440）同判据：晨星评级**月度更新**，日跑是 3MB×365 的无效下载。
 WEEKLY_JOB_MIN_INTERVAL_DAYS = 6
-WEEKLY_JOBS = ('stock_list', 'fund_list', 'index_catalog')
+WEEKLY_JOBS = ('stock_list', 'fund_list', 'index_catalog', 'fund_rating')
 
 
 def require_full_sync_scope(job_name: str, full_sync: bool, has_targets: bool) -> None:
@@ -212,6 +214,9 @@ def build_execution_plan(targets: Dict[str, List[str]]) -> List[tuple]:
         #   fund_scale —— 单次 HTTP 返回全市场列表，§4.3.3 允许全量
         #   fund_position —— 逐只 HTTP（≈1.8s/只），§4.3.3 强制按目标池限量
         ('fund_scale', ['__full__']),
+        # #1440：晨星星级评级——同 fund_scale 的单次全市场列表（§4.3.3 例外），
+        # 解析契约与口径实证见 docs/dev/fund-rating-collection.md。
+        ('fund_rating', ['__full__']),
         ('fund_position', fund_targets + etf_targets),
         # #2478：风格箱与持仓明细同目标池（持仓+自选，含场内 ETF 裸码）；
         # 上游月度更新，job 内按 (fund_code, style_name, stat_date) 去重做增量。
@@ -288,6 +293,10 @@ class DataSyncOrchestrator:
         # 挂回货基/逆回购，其余标的建仓时不管，孤儿会永久滞留（tech-debt.md §1）。
         self.jobs['orphan_backfill'] = OrphanBackfillJob(NullAdapter(), self.db)
         self.jobs['fund_scale'] = FundScaleSyncJob(self.data_sources['akshare'], self.db)
+        # #1440：晨星星级评级（东财评级总汇页，3 年期口径）。同为「单次 HTTP
+        # 返回全市场列表」的全量例外，与 fund_scale 并列第三梯队；上游月度
+        # 更新，入 WEEKLY_JOBS（日跑是 3MB×365 的无效下载）。
+        self.jobs['fund_rating'] = FundRatingSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['fund_position'] = FundPositionSyncJob(self.data_sources['akshare'], self.db)
         # #2478：基金风格箱（韭圈儿免登录 API）。逐只 1 次请求，同 fund_position
         # 按目标池限量；JiucaishuoAdapter 直接实例化（同 manager_tenure 的处理，

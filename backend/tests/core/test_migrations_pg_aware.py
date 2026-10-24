@@ -33,6 +33,7 @@ from app.core.migrations import (
     migrate_conversion_in_leg_snapshot,
     migrate_fee_unique_indexes,
     migrate_fund_equity_position_period,
+    migrate_fund_rating_columns,
     migrate_fund_risk_metrics_period_returns,
     migrate_fund_style_columns,
     migrate_fund_valuation_official_columns,
@@ -128,6 +129,15 @@ _ADD_COLUMN_CASES = [
         migrate_fund_style_columns,
         'funds',
         {'dominant_style': 'VARCHAR(20)', 'style_period': 'VARCHAR(10)'},
+    ),
+    (
+        migrate_fund_rating_columns,
+        'funds',
+        {
+            'morningstar_rating': 'SMALLINT',
+            'morningstar_rating_delta': 'SMALLINT',
+            'morningstar_rating_asof': 'DATE',
+        },
     ),
 ]
 
