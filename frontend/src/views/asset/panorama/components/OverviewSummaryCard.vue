@@ -206,13 +206,9 @@ import {
 import PnlCalendar from "@/components/PnlCalendar/index.vue";
 import PnlCalendarCaliberIcon from "@/components/PnlCalendar/PnlCalendarCaliberIcon.vue";
 import echarts from "@/plugins/echarts";
-import { getCssVar } from "@/composables/echarts/theme";
 import { useEchartsLifecycle } from "@/composables/echarts/useEchartsLifecycle";
-import {
-  buildWaterfallBars,
-  buildWaterfallOption,
-  hasWaterfallData
-} from "./assetWaterfall";
+import { hasWaterfallData } from "./assetWaterfall";
+import { buildWaterfallViewOption } from "./waterfallView";
 
 /**
  * 本卡允许的收益日历粒度（#2033）：**只有月 / 年，没有日**。
@@ -255,39 +251,10 @@ const { render, charts } = useEchartsLifecycle(
           chart.dispose();
           return chart;
         }
-        const bars = buildWaterfallBars(props.distributions!);
+        // 取色与 option 组装在 `waterfallView.ts`（本文件在 #980 的页面规模基线内，
+        // 只减不增）；高度只有容器自己知道，故由这里读出来递进去。
         chart.setOption(
-          buildWaterfallOption(
-            bars,
-            {
-              rise: getCSSColor("--color-rise"),
-              fall: getCSSColor("--color-fall"),
-              info: getCSSColor("--color-info"),
-              neutral: getCSSColor("--color-neutral"),
-              // 轴标签也是文字：design.md 规定 `color:` 用途一律走 --text-tertiary-ink
-              //（--text-tertiary 白底仅 3.69:1，达不到正文 4.5:1）
-              axis: getCSSColor("--text-tertiary-ink"),
-              border: getCSSColor("--border-light"),
-              // 连接线取 --text-tertiary：colors.css 把它定义为「辅助底色/描边/图形」级，
-              // 正好是瀑布台阶的语义。--border-default 在白卡上只有 ~11% 明度差，
-              // 1px 虚线实际看不见（实测），等于白画。
-              connector: getCSSColor("--text-tertiary"),
-              // 柱标签文字色：**必须传解析后的颜色**（这里是 getCssVar 读出来的实际值），
-              // 传给 echarts canvas 的 `var(--x)` 会被静默忽略 ⇒ 标签颜色不可控
-              riseInk: getCSSColor("--color-rise-ink"),
-              fallInk: getCSSColor("--color-fall-ink"),
-              neutralInk: getCSSColor("--text-secondary"),
-              primaryInk: getCSSColor("--text-primary"),
-              // 极小值标注条的垫底色 = 卡片底色：它压在绘图区上，没有垫底就会
-              // 与网格线、相邻柱体的边缘糊在一起（暗色自动跟随令牌）
-              surface: getCSSColor("--bg-card")
-            },
-            // 绘图区高度只有容器自己知道：极小值柱按**像素高度**判定（见
-            // assetWaterfall.ts 的 TINY_BAR_PX），而那个模块不碰 DOM，故把真实高度递进去。
-            // **宽度刻意不传**：缩放时 chart.resize() 只重排、不会重跑这里，
-            // 按宽度算出来的结论会在缩放后失真（详见 WaterfallLayout 注释）。
-            { height: el.clientHeight }
-          )
+          buildWaterfallViewOption(props.distributions!, el.clientHeight)
         );
         return chart;
       }
@@ -316,11 +283,6 @@ async function toggleCalendar() {
   }
   initWaterfallChart();
 }
-
-// 工具函数：安全读取 CSS 变量（无 fallback 硬编码）
-const getCSSColor = (varName: string): string => {
-  return getCssVar(varName);
-};
 
 function initWaterfallChart() {
   // 日历态下容器不存在（v-else 已摘掉），交给 toggleCalendar 统一处理；

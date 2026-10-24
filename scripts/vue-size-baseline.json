@@ -38,7 +38,7 @@
     "views/asset/ledgers/components/LedgerCard.vue": 501,
     "views/asset/ledgers/components/PositionTransactionsDrawer.vue": 494,
     "views/asset/ledgers/components/TransactionEditDialog.vue": 509,
-    "views/asset/panorama/components/OverviewSummaryCard.vue": 469,
+    "views/asset/panorama/components/OverviewSummaryCard.vue": 463,
     "views/asset/portfolio/detail.vue": 826,
     "views/asset/strategies/index.vue": 716,
     "views/asset/watchlist/WatchlistFilterBar.vue": 498,
