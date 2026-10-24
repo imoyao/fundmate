@@ -43,6 +43,7 @@ from app.core.migrations import (
     migrate_fund_risk_metrics_period_returns,
     migrate_fund_style_columns,
     migrate_fund_valuation_official_columns,
+    migrate_ledgers_owner_user,
     migrate_positions_cleared_at,
     migrate_positions_money_fund_flag,
     migrate_positions_price_columns,
@@ -651,6 +652,9 @@ def init_db():
     # 与既有 watchlist 迁移不同：这条**管 PG 侧**（生产 user 域就是 Postgres，
     # 而仓内既有迁移全是 SQLite-only —— 那正是漂移一直没人补上的原因）。
     migrate_watchlist_user_domain_columns(user_eng)
+    # ledgers.owner_user_id 归属成员列 + 索引（#1173）：同上须先于结构校验，
+    # 否则「模型有列、库没列」会让生产（Supabase PG）拒绝启动
+    migrate_ledgers_owner_user(user_eng)
     _validate_schema(user_eng, user_meta, label='user')
     # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键 (symbol, venue)
     # → (symbol, market, venue) 防跨市场同码冲突。create_all 只增表不改表，旧库
@@ -760,6 +764,8 @@ def init_db_split():
         # watchlist 三表补模型列（#2469）：与单库模式同口径，双库模式也必须补
         # （生产 user 域是 Postgres，旧结构会挡住结构校验 → 拒绝启动）
         migrate_watchlist_user_domain_columns(user_eng)
+        # ledgers.owner_user_id 归属成员列 + 索引（#1173）：与单库模式同口径
+        migrate_ledgers_owner_user(user_eng)
         _validate_schema(user_eng, user_meta, label='user')
         # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键回归基线，
         # 双库模式同样按 user 域引擎自动执行，幂等。

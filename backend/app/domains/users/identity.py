@@ -15,6 +15,7 @@ core.auth 依赖的接口（改动这里等于改 core 侧契约，须两边同�
 """
 
 from loguru import logger
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from app.domains.users.models import ROLE_MEMBER, User
@@ -43,11 +44,39 @@ class UserIdentity:
         否则新用户将永远 401，无法使用任何受保护功能。
 
         角色默认 member（普通成员），归属默认家庭 1，后续可经家庭管理调整。
+
+        ## 先认领「被邀请」的预建行（#1173）
+
+        家庭管理员邀请成员时，后端没有 service-role 密钥无法创建 Supabase Auth 账号，
+        只能先按邮箱建一条 `supabase_id` 为空的本地映射行。对方用同一邮箱首次登录时，
+        这里按邮箱认领该行并绑定 `sub`——**保留邀请时设定的 family_id / role**，
+        否则「邀请」形同虚设（对方会另建新号落到默认家庭 1）。
+        认领条件是 `supabase_id IS NULL`，已绑定的行永不被改写（一个邮箱只认一次）。
         """
         sub = claims.get('sub')
         email = claims.get('email') or ''
         user_metadata = claims.get('user_metadata') or {}
         username = user_metadata.get('username') or email.split('@')[0] or f'user_{sub[:8]}'
+
+        pending = None
+        if email:
+            pending = db.query(User).filter(func.lower(User.email) == email.lower(), User.supabase_id.is_(None)).first()
+        if pending is not None:
+            pending.supabase_id = sub
+            pending.username = pending.username or username
+            pending.nickname = pending.nickname or username
+            try:
+                db.commit()
+            except IntegrityError:
+                # 并发首次登录：另一请求已认领/建号，回查即可
+                db.rollback()
+                claimed = db.query(User).filter_by(supabase_id=sub).first()
+                if claimed is None:
+                    raise
+                return claimed
+            db.refresh(pending)
+            logger.info('首次登录认领邀请记录 sub={} family_id={} role={}', sub, pending.family_id, pending.role)
+            return pending
 
         user = User(
             supabase_id=sub,

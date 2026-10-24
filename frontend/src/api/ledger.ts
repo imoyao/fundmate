@@ -33,6 +33,10 @@ export interface LedgerItem {
   display_order?: number | null;
   /** 渠道分组（用户可见分组，后端返回；列表按此分组，后端据其派生 ledger_type） */
   channel_category?: string | null;
+  /** 归属家庭成员 id（#1173）；null/缺省=未指定（按家庭共享） */
+  owner_user_id?: number | null;
+  /** 归属成员展示名（后端按 id 回填，只读出参） */
+  owner_user_name?: string | null;
 }
 
 /**
@@ -102,6 +106,8 @@ export function createLedger(data: {
   linked_money_fund_code?: string | null;
   /** 卖出/赎回回款是否自动申购该类现金产品（需先绑定，否则后端 400） */
   auto_purchase_money_fund?: boolean;
+  /** 归属家庭成员 id（#1173）：null/缺省=未指定；必须是当前家庭成员，否则后端 400 */
+  owner_user_id?: number | null;
 }) {
   return http.request<ApiResponse<LedgerItem>>("post", "/api/ledgers/", {
     data
@@ -125,6 +131,8 @@ export function updateLedger(
     linked_money_fund_code?: string | null;
     /** 卖出/赎回回款是否自动申购该类现金产品（需先绑定，否则后端 400） */
     auto_purchase_money_fund?: boolean;
+    /** 归属家庭成员 id（#1173）：传 null 表示取消归属，不传表示不改动 */
+    owner_user_id?: number | null;
   }
 ) {
   return http.request("patch", `/api/ledgers/${id}/`, { data });

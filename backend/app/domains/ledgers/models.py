@@ -88,6 +88,19 @@ class Ledger(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         comment='组内手动排序序号（null=按持仓金额降序默认排序）；同类型内有序',
     )
 
+    # 归属家庭成员（#1173）：账户维度区分「这笔资产是谁的」。
+    # - 与 family_id 正交：family_id 是**隔离**口径（跨家庭不可见），本列是**家庭内切片**口径
+    #   （按人汇总/筛选），两者不可互相替代；
+    # - 可空且**不声明 ForeignKey**：存量账户没有归属（NULL = 未指定，按家庭共享处理），
+    #   而 users 表在双库模式下与 ledgers 同属 user 域，约束有效性由应用层校验
+    #   （写入前校验 `User.family_id == 当前家庭`，防跨家庭串人）。
+    owner_user_id = Column(
+        Integer,
+        nullable=True,
+        index=True,
+        comment='归属家庭成员（users.id，NULL=未指定）；家庭内切片口径，与 family_id 隔离口径正交',
+    )
+
     portfolio_id = Column(
         Integer,
         ForeignKey('portfolios.id', ondelete='SET NULL'),

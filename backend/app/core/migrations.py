@@ -1726,3 +1726,40 @@ def migrate_transaction_fee_breakdown(engine: Engine) -> str:
         logger.info(f'[OK] transactions 增加费用拆分列: {added}（#2137，存量留 NULL=未拆分）')
         return f'[OK] transactions 增加费用拆分列 {added}'
     return '[SKIP] transactions 费用拆分四列已存在'
+
+
+def migrate_ledgers_owner_user(engine: Engine) -> str:
+    """ledgers 补「归属家庭成员」列与索引（#1173）。
+
+    ## 为什么需要
+
+    账户原先只能靠名字区分「这是谁的」（如「老婆的招行」），系统层面无法按人切片/
+    汇总/看走势。`owner_user_id` 指向同域 `users.id`，与 `family_id` 正交：
+
+    - `family_id` = **隔离**口径（跨家庭不可见），查询一律经它过滤，不可替代；
+    - `owner_user_id` = **家庭内切片**口径（按成员筛选/汇总），可空。
+
+    存量行留 NULL = 未指定归属（按家庭共享处理），读取端行为与迁移前一致。
+
+    ## 加列方式
+
+    可空列，两种引擎都能直接 ``ALTER TABLE ADD COLUMN``（走 ``_add_columns_if_missing``：
+    PG 用 ``IF NOT EXISTS`` 保证幂等，SQLite 由本函数先反射判存在）。
+    索引走 ``_ensure_index``（``CREATE INDEX IF NOT EXISTS``，两引擎都支持）。
+
+    ⚠️ 本迁移**不管 market 域**：`ledgers` 属 user 域，调用方须传 user 域引擎
+    （`init_db()` 与 `init_db_split()` 两处都要挂，且必须在 `_validate_schema` 之前，
+    否则「模型有列、库没列」会让生产直接拒绝启动——#2469 / #2532 两次停摆同因）。
+    """
+    added = _add_columns_if_missing(engine, 'ledgers', [('owner_user_id', 'INTEGER')])
+    # 索引：成员筛选（`Ledger.owner_user_id == X`）每次都要走它
+    _ensure_index(
+        engine,
+        'ix_ledgers_owner_user_id',
+        'CREATE INDEX IF NOT EXISTS ix_ledgers_owner_user_id ON ledgers (owner_user_id)',
+        table='ledgers',
+    )
+    if added:
+        logger.info(f'[OK] ledgers 增加归属成员列: {added}（#1173）')
+        return f'[OK] ledgers 增加归属成员列 {added}'
+    return '[SKIP] ledgers.owner_user_id 已存在'

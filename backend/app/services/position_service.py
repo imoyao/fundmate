@@ -46,6 +46,7 @@ from app.domains.transactions.models import Transaction
 from app.services import async_backfill
 from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_money_fund_symbol, normalize_fund_code
 from app.services.import_records import compute_position_hash
+from app.services.owner_scope import owner_ledger_ids
 from app.services.pnl_service import compute_sell_realized_cents
 from app.services.position_presenter import enrich_position_dict
 from app.services.position_scope import exclude_cleared
@@ -2206,6 +2207,7 @@ class PositionService:
         ledger_id_raw: str,
         symbol: str = '',
         market: str = '',
+        owner_user_id: Optional[int] = None,
     ) -> dict:
         """list_positions 的核心：过滤 + 按账户分组 / 分页组装（#1642 B 块，从 views 下沉）。
 
@@ -2216,6 +2218,11 @@ class PositionService:
 
         ``symbol`` / ``market``（#1966）：产品维度过滤，供详情页「我的持仓」区块用。
         **下推到 SQL**——取全表后内存筛违反数据策略硬约束 §6。
+
+        ``owner_user_id``（#1173）：按归属成员过滤。换算「成员 → ledger_id 集合」统一走
+        `services.owner_scope`（与首页汇总同源），这里只把集合下推成 ``IN``。
+        成员名下无账户时集合为空 ⇒ ``IN ()`` 恒假 ⇒ 返回空列表，
+        **不会**退化成「不过滤」（那会把全家持仓当成某个人的）。
         """
         query = db.query(Position).filter(Position.family_id == family_id)
         # 已清仓行保留在表里（锚点/成本基线不灭），但不属于「当前持仓」视图。
@@ -2226,6 +2233,8 @@ class PositionService:
             query = query.filter(Position.ledger_id.is_(None))
         elif ledger_id_raw:
             query = query.filter(Position.ledger_id == int(ledger_id_raw))
+        if owner_user_id is not None:
+            query = query.filter(Position.ledger_id.in_(owner_ledger_ids(db, family_id, owner_user_id)))
         if symbol:
             # symbol 同时匹配「展示形态」与 #1662 的「归一身份键」，取并集：存量行
             # symbol_norm 可能为空、只有新写入行保证有值，只用其一都会漏命中。

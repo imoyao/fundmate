@@ -31,6 +31,9 @@
         >
           <IconifyIconOffline icon="ep:data-analysis" class="mr-1" /> 策略分析
         </el-button>
+        <el-button class="btn-ghost-text" @click="showMembersDialog = true">
+          <IconifyIconOffline icon="ep:user" class="mr-1" /> 家庭成员
+        </el-button>
         <el-button type="primary" @click="openCreateDialog()">
           <IconifyIconOffline icon="ep:plus" class="mr-1" /> 新增账户
         </el-button>
@@ -95,6 +98,9 @@
       @created="fetchData"
     />
 
+    <!-- 家庭成员管理（#1173）：账户归属成员的维护入口 -->
+    <FamilyMembersDialog v-model:visible="showMembersDialog" />
+
     <!-- 删除确认对话框 -->
     <DeleteLedgerDialog
       v-model:visible="deleteDialogVisible"
@@ -107,9 +113,11 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from "vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import DeleteLedgerDialog from "./components/DeleteLedgerDialog.vue";
 import CreateAccountDialog from "./components/CreateAccountDialog.vue";
+import FamilyMembersDialog from "./components/FamilyMembersDialog.vue";
 import OrphanCleanupDialogs from "./components/OrphanCleanupDialogs.vue";
 import LedgerOverviewSection from "./components/LedgerOverviewSection.vue";
 import LedgerGroupsList from "./components/LedgerGroupsList.vue";
@@ -137,6 +145,9 @@ const {
   deleteDialogVisible,
   deletingAccount
 } = page;
+
+// 家庭成员弹窗（#1173）：只被本页按钮打开，无需进 composable
+const showMembersDialog = ref(false);
 </script>
 
 <style scoped>

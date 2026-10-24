@@ -35,6 +35,7 @@ from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 from app.domains.transactions.models import Transaction
 from app.services.fund_service import FundService
+from app.services.owner_scope import is_family_member
 from app.services.position_service import PositionService
 from app.services.trading import TransactionService
 
@@ -231,6 +232,23 @@ def swap_linked_money_fund(db, ledger: Ledger, old_fund: Fund, new_fund: Fund, f
     )
 
 
+def _validate_owner_user(db, family_id: int, raw) -> int | None:
+    """校验并归一「归属成员」（#1173）：None=未指定，非空时必须是当前家庭成员。
+
+    跨家庭串人是这里唯一的风险面：`users.id` 全局唯一，若只校验「用户存在」，
+    传入别家成员 id 就会把自家账户挂到别人名下（数据不丢，但按人汇总会串）。
+    故校验条件必须同时含 `family_id`，见 `services/owner_scope.is_family_member`。
+    """
+    if raw is None:
+        return None
+    # bool 是 int 的子类，`True` 会被当成 id=1 —— 显式拦掉
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise LedgerWriteError('归属成员格式无效（需为整数用户 id）', 400, 1001)
+    if not is_family_member(db, family_id, raw):
+        raise LedgerWriteError('归属成员不存在或不属于当前家庭', 400, 1001)
+    return raw
+
+
 def create_ledger(db, family_id: int, data: dict) -> Ledger:
     """创建新账户的业务规则（与下沉前视图层行为逐字一致）。
 
@@ -303,6 +321,7 @@ def create_ledger(db, family_id: int, data: dict) -> Ledger:
         linked_money_fund_id=linked_money_fund_id,
         auto_purchase_money_fund=auto_purchase_money_fund,
         sales_institution_id=sales_institution_id,
+        owner_user_id=_validate_owner_user(db, family_id, data.get('owner_user_id')),
         family_id=family_id,
     )
 
@@ -373,6 +392,10 @@ def update_ledger(db, ledger: Ledger, data: dict, family_id: int) -> Ledger:
     # 更新 portfolio_id（允许设置为 None）
     if 'portfolio_id' in data:
         ledger.portfolio_id = data['portfolio_id']
+
+    # 归属成员（#1173）：显式传 null 表示「取消归属」，不传则不改动
+    if 'owner_user_id' in data:
+        ledger.owner_user_id = _validate_owner_user(db, family_id, data['owner_user_id'])
 
     # 更新 linked_cash_ledger_id（允许设置为 None）
     if 'linked_cash_ledger_id' in data:

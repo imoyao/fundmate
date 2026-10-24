@@ -23,6 +23,7 @@ from app.services import ledger_write_service as ledger_write_svc
 
 # #1132 场内证券聚合：与 #1101 基金聚合并列，纯 position 级聚合，零 schema 迁移。
 from app.services.ledger_service import LedgerService  # noqa: E402
+from app.services.owner_scope import owner_name_map  # noqa: E402
 from app.services.position_aggregation import (
     DEFAULT_PAGE_SIZE,
 )
@@ -38,7 +39,7 @@ from app.services.transaction_service import transaction_edit_payload
 ledgers_bp = APIBlueprint('ledgers', __name__, url_prefix='/api/ledgers')
 
 
-def _ledger_to_dict(ledger: Ledger, last_used_at=None) -> dict:
+def _ledger_to_dict(ledger: Ledger, last_used_at=None, owner_names=None) -> dict:
     """将 Ledger 模型实例转为字典"""
     # 处理 fee_config：数据库中是字符串，需要反序列化
     fee_config = None
@@ -51,6 +52,9 @@ def _ledger_to_dict(ledger: Ledger, last_used_at=None) -> dict:
     return {
         'id': ledger.id,
         'name': ledger.name,
+        # 归属家庭成员（#1173）：可写可读；null=未指定（按家庭共享）
+        'owner_user_id': ledger.owner_user_id,
+        'owner_user_name': (owner_names or {}).get(ledger.owner_user_id),
         'ledger_type': ledger.ledger_type,
         'default_allocation': ledger.default_allocation,
         'default_allocation_label': ALLOCATION_LABELS.get(ledger.default_allocation, '未配置'),
@@ -82,6 +86,15 @@ def _ledger_to_dict(ledger: Ledger, last_used_at=None) -> dict:
         # 用于导入向导步骤一下拉的"最近使用优先"排序。
         'last_used_at': last_used_at.isoformat() if last_used_at else None,
     }
+
+
+def _ledger_payload(db, ledger: Ledger, last_used_at=None) -> dict:
+    """单账户出参：序列化 + 归属成员展示名（#1173）。
+
+    收成一个入口是为了让「创建/详情/编辑/归档/激活」五个返回点拿到同一份字段集——
+    各自拼会让新字段只在其中几处出现（前端按账户类型分支展示时会忽有忽无）。
+    """
+    return _ledger_to_dict(ledger, last_used_at, owner_name_map(db, [ledger.owner_user_id]))
 
 
 @ledgers_bp.get('/overview/')
@@ -197,7 +210,7 @@ def create_ledger():
             if e.error_code is None:
                 abort(e.status_code, e.message)
             return jsonify({'data': None, 'message': e.message, 'error_code': e.error_code}), e.status_code
-        return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
+        return jsonify({'data': _ledger_payload(db, ledger), 'message': 'ok'})
 
 
 @ledgers_bp.get('/')
@@ -230,9 +243,11 @@ def list_ledgers():
             .all()
         )
         last_used_map = {row.ledger_id: row.last_date for row in last_used_rows}
+        # 归属成员展示名：整页一次查询（避免逐账户查 users）
+        owner_names = owner_name_map(db, [lg.owner_user_id for lg in ledgers])
         result = []
         for ledger in ledgers:
-            item = _ledger_to_dict(ledger, last_used_map.get(ledger.id))
+            item = _ledger_to_dict(ledger, last_used_map.get(ledger.id), owner_names)
             item['total_market_value'] = 0.0
             item['pnl'] = 0.0
             item['position_count'] = 0
@@ -283,7 +298,7 @@ def get_ledger(ledger_id: int):
         ledger = get_owned_or_404(db, Ledger, ledger_id)
         if not ledger:
             abort(404, '账户不存在')
-        return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
+        return jsonify({'data': _ledger_payload(db, ledger), 'message': 'ok'})
 
 
 @ledgers_bp.patch('/<int:ledger_id>/')
@@ -301,7 +316,7 @@ def update_ledger(ledger_id: int):
             if e.error_code is None:
                 abort(e.status_code, e.message)
             return jsonify({'data': None, 'message': e.message, 'error_code': e.error_code}), e.status_code
-        return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
+        return jsonify({'data': _ledger_payload(db, ledger), 'message': 'ok'})
 
 
 @ledgers_bp.delete('/<int:ledger_id>/')
@@ -334,7 +349,7 @@ def archive_ledger(ledger_id: int):
         ledger.is_active = False
         db.flush()
         db.refresh(ledger)
-        return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
+        return jsonify({'data': _ledger_payload(db, ledger), 'message': 'ok'})
 
 
 @ledgers_bp.post('/<int:ledger_id>/unarchive/')
@@ -347,7 +362,7 @@ def unarchive_ledger(ledger_id: int):
         ledger.is_active = True
         db.flush()
         db.refresh(ledger)
-        return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
+        return jsonify({'data': _ledger_payload(db, ledger), 'message': 'ok'})
 
 
 # ────────────────────────── 账本批量迁移（两段式：预览 → 提交） ──────────────────────────

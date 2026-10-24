@@ -29,9 +29,9 @@ export function getPositions(params?: PositionListParams) {
  * 账户名是可编辑字段，重名会并组、改名会令按名回查落空；行内仍带 account_name 快照供展示。
  * 独立函数而非给 getPositions 传 { group_by }，保证两条路径的信封类型互不混淆。
  */
-export function getPositionsGroupedByAccount() {
+export function getPositionsGroupedByAccount(ownerUserId?: number) {
   return http.request<PositionGroupedResponse>("get", BASE_URL, {
-    params: { group_by: "account" }
+    params: { group_by: "account", owner_user_id: ownerUserId }
   });
 }
 

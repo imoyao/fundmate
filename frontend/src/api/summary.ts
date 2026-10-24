@@ -5,8 +5,9 @@ import type { ApiResponse, SummaryData } from "./types";
 const BASE_URL = "/api/summary/";
 
 /** 获取首页仪表盘聚合数据 */
-export function getSummary() {
-  return http.request<ApiResponse<SummaryData>>("get", BASE_URL);
+export function getSummary(params?: { owner_user_id?: number }) {
+  // `owner_user_id`（#1173）：按归属家庭成员切片；缺省=家庭全量（既有语义不变）
+  return http.request<ApiResponse<SummaryData>>("get", BASE_URL, { params });
 }
 
 /** 桑基图数据 */

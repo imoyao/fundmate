@@ -36,12 +36,17 @@ bp = APIBlueprint('summary', __name__, url_prefix='/api')
 
 @bp.get('/summary/')
 def summary():
-    """返回首页仪表盘聚合数据"""
+    """返回首页仪表盘聚合数据。
+
+    `owner_user_id`（#1173）：可选，按归属家庭成员切片。缺省=家庭全量（既有语义不变）；
+    传入时持仓/资产/盈亏/孤儿流水全部按该成员名下账户过滤，`account_groups` 同口径。
+    """
     try:
+        owner_user_id = request.args.get('owner_user_id', type=int)
         with get_db() as db:
             family_id = get_family_id()
-            data = get_summary_data(db, family_id)
-            account_groups = get_account_groups(db, family_id)
+            data = get_summary_data(db, family_id, owner_user_id=owner_user_id)
+            account_groups = get_account_groups(db, family_id, owner_user_id=owner_user_id)
             data['account_groups'] = account_groups
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:

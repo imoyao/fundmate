@@ -183,9 +183,16 @@ BASELINE: dict[str, dict[str, int]] = {
         "commits": 0,
         "max_func": 45,
     },
+    # 2026-10-24 重取（#1173，**新增端点 + 下沉**，非放宽）：家庭成员管理补齐
+    # 邀请 / 改角色 / 移除三个端点（+38 行，含口径 docstring：邀请是「按邮箱预建
+    # 映射行 + 首次登录认领」，写成一行注释等于没说）。业务规则（邮箱唯一性、
+    # 最后一名主理人守卫、移除时账户归属置空与偏好清理）全部下沉到
+    # `services/family_member_service`，视图只留 `_assert_own_family` 作用域守卫 +
+    # 调服务 + 异常→信封 ⇒ orm_queries **2 → 1**（收紧）、commits 0、max_func 22 不动。
+    # 按 `--report` 实测回写。
     "backend/app/domains/families/views.py": {
-        "lines": 72,
-        "orm_queries": 2,
+        "lines": 110,
+        "orm_queries": 1,
         "commits": 0,
         "max_func": 22,
     },
@@ -221,11 +228,18 @@ BASELINE: dict[str, dict[str, int]] = {
     # 视图里必然变厚（lines 701 → 704 已被守卫拦），而组装属展示职责、本就该在
     # services；顺带删除 `_ymd` 闭包与 10 字段字典。orm_queries / commits 不动
     # （10/0），lines 701 → 679、max_func 60 → 44。按 `--report` 实测回写。
+    # 2026-10-24 重取（#1173，**新增字段**，非放宽）：账户出参加「归属成员」
+    # `owner_user_id` / `owner_user_name`。成员名解析（id → 昵称）下沉到
+    # `services/owner_scope.owner_name_map`（整页一次查询，避免逐账户查 users），
+    # 视图侧只多 3 行字段声明 + 一个 `_ledger_payload` 薄封装（创建/详情/编辑/
+    # 归档/激活五个返回点共用同一份字段集，否则新字段只在其中几处出现）。
+    # orm_queries 10 不动，lines 679 → 694、max_func 44 → 47（`_ledger_to_dict`
+    # 多两行字段）。按 `--report` 实测回写。
     "backend/app/domains/ledgers/views.py": {
-        "lines": 679,
+        "lines": 694,
         "orm_queries": 10,
         "commits": 0,
-        "max_func": 44,
+        "max_func": 47,
     },
     # 2026-10-21 重取（#2481，**新增端点**，非放宽）：加 `GET /api/market/industry-pbroe/`
     # （探市行业 PB-ROE 散点，日频快照由 sync/jobs/industry_pbroe_job.py 写入）——
@@ -276,8 +290,14 @@ BASELINE: dict[str, dict[str, int]] = {
     # `query_transactions_by_identity` 按 (ledger_id, symbol) 收敛，两处共用同一份判据；
     # 视图层因此少了 2 处 `db.query(Transaction)` ⇒ orm_queries 6 → 4（**收紧**）。
     # lines 320、commits 0、max_func 57 均不动。按本文件既有先例以 `--report` 实测回写。
+    # 2026-10-24 重取（#1173，**新增查询参数**，非放宽）：`GET /api/positions/`
+    # 支持 `owner_user_id`（按归属成员筛选）。视图侧只多一个实参（多行是因为
+    # 位置参数本就 8 个，加关键字实参并保持可读）；「成员 → ledger_id 集合」
+    # 的换算收口在 `services/owner_scope`，SQL 过滤在 `PositionService`。
+    # orm_queries / commits / max_func 三项实测不动（4/0/57），唯 lines 320 → 328。
+    # 按 `--report` 实测回写。
     "backend/app/domains/positions/views.py": {
-        "lines": 320,
+        "lines": 328,
         "orm_queries": 4,
         "commits": 0,
         "max_func": 57,
@@ -373,8 +393,14 @@ BASELINE: dict[str, dict[str, int]] = {
     # 视图侧只有「入参解析 + 互斥校验 + 调服务 + 信封」，`orm_queries` / `commits` 仍 **0**、
     # `max_func` 不变（31）。含 #2134 端点在内按 `--report` 实测回写（rebase 两卡叠加后重测）。
     # 同 #2131 先例：新增端点但纯 HTTP 编排，按 `--report` 实测回写基线。
+    # 2026-10-24 再取（#1173，**新增查询参数**，非放宽）：首页汇总支持
+    # `owner_user_id`（按归属成员切片）。视图侧只多「解析 query 参数 + 把同一个
+    # 成员口径同时传给 get_summary_data / get_account_groups」（两边必须同口径，
+    # 否则总额与账户分组对不上）；换算在 `services/owner_scope`、聚合仍在
+    # `summary_service`。orm_queries / commits / max_func 三项实测不动（0/0/31），
+    # 唯 lines 327 → 332。同 #2131 先例按 `--report` 实测回写。
     "backend/app/domains/summary/views.py": {
-        "lines": 327,
+        "lines": 332,
         "orm_queries": 0,
         "commits": 0,
         "max_func": 31,

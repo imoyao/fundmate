@@ -25,6 +25,8 @@
           />
         </el-select>
       </el-form-item>
+      <OwnerMemberSelect v-model="editForm.owner_user_id" />
+
       <AccountFormFields
         v-model:ledger-type="editForm.ledger_type"
         v-model:linked-cash-id="editForm.linked_cash_ledger_id"
@@ -70,6 +72,7 @@ import {
   useDialogForm
 } from "@/composables/useUnsavedChangesGuard";
 import AccountFormFields from "./AccountFormFields.vue";
+import OwnerMemberSelect from "./OwnerMemberSelect.vue";
 import type { SalesInstitution } from "@/api/ledger";
 
 interface EditAccountForm {
@@ -83,6 +86,8 @@ interface EditAccountForm {
   auto_purchase_money_fund: boolean;
   fee_config: Record<string, unknown> | null;
   sales_institution_id: number | null;
+  /** 归属家庭成员（#1173）：null=未指定 */
+  owner_user_id: number | null;
 }
 
 const props = defineProps<{
@@ -111,7 +116,8 @@ function emptyEditForm(): EditAccountForm {
     linked_money_fund_code: null,
     auto_purchase_money_fund: false,
     fee_config: null,
-    sales_institution_id: null
+    sales_institution_id: null,
+    owner_user_id: null
   };
 }
 
@@ -148,7 +154,8 @@ watch(
             linked_money_fund_code: info.linked_money_fund_code ?? null,
             auto_purchase_money_fund: info.auto_purchase_money_fund ?? false,
             fee_config: info.fee_config,
-            sales_institution_id: info.sales_institution_id ?? null
+            sales_institution_id: info.sales_institution_id ?? null,
+            owner_user_id: info.owner_user_id ?? null
           }
         : emptyEditForm()
     );

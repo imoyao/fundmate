@@ -17,6 +17,8 @@ class PositionListRequest(BaseModel):
     - `market`：市场过滤，与 symbol 组合用于同码跨市场消歧。
     - `ledger_id`：传字符串 `'null'` 表示仅查未归档持仓（`ledger_id IS NULL`）。
     - `group_by`：目前仅支持 `'account'`（按账户分组）。
+    - `owner_user_id`：按归属家庭成员过滤（#1173）。成员 → 其名下 `ledger_id` 集合的
+      换算收口在 `services/owner_scope`，**不**在此处拼 SQL。
     """
 
     group_by: str = Field('', description="分组维度，仅 'account' 生效")
@@ -25,6 +27,7 @@ class PositionListRequest(BaseModel):
     ledger_id: str = Field('', description="账户 ID；'null' 表示仅未归档持仓")
     symbol: str = Field('', description='产品代码过滤（#1966）')
     market: str = Field('', description='市场过滤（#1966），与 symbol 组合消歧')
+    owner_user_id: Optional[int] = Field(None, description='归属家庭成员 id（#1173）；缺省=全家庭')
 
 
 class PositionCreate(BaseModel):
