@@ -43,6 +43,17 @@
 #   `rewrite_supabase_direct_to_pooler()` 就地改写——**不改 secret、不把密码搬进仓库**。
 #   端点已实测定位（`aws-1-ap-southeast-1`，见该 step 的注释：`aws-0-*` 前缀会得到
 #   `tenant/user not found` 的假阴性）。端口默认 5432（session 模式）。
+#
+# ── 单 job 验证入口（#2522，2026-10-24）──
+#   缘起：`stock_list` / `fund_list` / `index_catalog` 三个名录类 job 被周频门控
+#   （`orchestrator.WEEKLY_JOBS` + `_skip_if_recent` 6 天）挡着，于是「写库耗时是否降下来」
+#   这类**只能靠生产日志回答**的判据，在两次窗口之间**根本没法验证**——#2522 卡在
+#   「本机 SQLite 测不出 Turso 的往返代价，而生产又不让单独跑一次」上两个星期。
+#   故加 `job` 输入：填了就 `pdm run scheduler --job <name>`，直连 `orchestrator.run_job`，
+#   **不经过**每日计划 ⇒ 不受周频门控；同时 `--no-jitter`（抓取礼仪针对的是定时指纹，
+#   手动验证要即时反馈，6 分钟随机抖动只会让人以为卡住了）。
+#   ⚠️ 单 job 运行**不会**写 `data/last_run_summary.json`，也**不参与**告警卡生命周期
+#   （否则「只跑了一个 job 成功」会被当成「每日调度已恢复」，把真故障的卡关掉）。
 name: 每日定时调度
 
 on:
@@ -54,6 +65,10 @@ on:
     inputs:
       scheduler_ref:
         description: '实际执行的代码分支（留空 = dev）。验证未合并的修复时填功能分支名——否则 checkout 的仍是 dev 旧代码，跑了也证明不了修复有效（#2460）'
+        required: false
+        default: ''
+      job:
+        description: '只跑指定 job（如 stock_list；留空 = 跑完整每日调度）。绕过周频门控、跳过起跑抖动，不写运行摘要、不动告警卡（#2522）'
         required: false
         default: ''
 
@@ -167,7 +182,22 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           AUTH_ENABLED: ${{ secrets.AUTH_ENABLED }}
           APP_ENV: ${{ secrets.APP_ENV }}
-        run: pdm run scheduler
+          # 单 job 模式（#2522）：见文件头「单 job 验证入口」。用 env 而不是把
+          # `${{ … }}` 拼进脚本——用户输入直接进 shell 文本等于把注入面交给调用方。
+          SINGLE_JOB: ${{ github.event.inputs.job }}
+        run: |
+          if [ -n "${SINGLE_JOB}" ]; then
+            case "${SINGLE_JOB}" in
+              *[!A-Za-z0-9_]*)
+                echo "::error title=job 名称非法::只接受字母/数字/下划线，收到 '${SINGLE_JOB}'"
+                exit 1
+                ;;
+            esac
+            echo "::notice title=单 job 模式::只跑 ${SINGLE_JOB}（绕过周频门控、跳过起跑抖动、不写运行摘要）"
+            pdm run scheduler --job "${SINGLE_JOB}" --no-jitter
+          else
+            pdm run scheduler
+          fi
 
       # job 级失败明细（#2457）：调度进程在「有 job 失败」时以退出码 2 结束
       # （EXIT_JOB_FAILED，见 backend/app/tools/scheduler.py），
@@ -184,8 +214,14 @@ jobs:
             --summary data/last_run_summary.json \
             --github-output "$GITHUB_OUTPUT"
 
+      # ⚠️ 下面两个告警步骤只在**完整每日调度**上生效（`!github.event.inputs.job`）。
+      # 单 job 手动验证既不该开也不该关这张卡：
+      #   - 「只跑 stock_list 成功」不等于「每日调度已恢复」，却会把仍开着的真告警卡关掉
+      #     （假自愈信号，比不开卡更危险）；
+      #   - 「单 job 失败」是验证结论，不是调度故障，写进卡面会把真故障淹没。
+      # 单 job 运行失败时 workflow 照样判红（退出码非 0），人工看得到。
       - name: 失败告警（自动开/更新 issue）
-        if: failure()
+        if: failure() && !github.event.inputs.job
         uses: actions/github-script@v7
         env:
           JOB_FAILURE_DETAIL: ${{ steps.job-failures.outputs.job_failure_detail }}
@@ -230,8 +266,9 @@ jobs:
 
       # 告警生命周期收口（#1434）：「7 天全红无人知」的另一半是「恢复了也没人收口」——
       # 成功运行即自动关闭仍开着的告警卡，避免「已恢复但卡还开着」的假信号（自愈型告警的通行做法）。
+      # ⚠️ 只对**完整每日调度**成立：单 job 手动验证成功不构成「调度已恢复」（理由见上方注释）。
       - name: 调度成功则自动关闭告警 issue
-        if: success()
+        if: success() && !github.event.inputs.job
         uses: actions/github-script@v7
         with:
           script: |
