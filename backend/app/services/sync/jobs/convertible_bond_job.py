@@ -80,7 +80,7 @@ class ConvertibleBondSyncJob(SyncJob):
         # 三源按 bond_code 合并：基本信息（东财 bond_zh_cov：评级/发行规模/转股价值/溢价率/
         # 正股）打底，强赎数据（集思录 bond_cb_redeem_jsl：现价/强赎触发价·比/天计数/
         # 强赎状态/到期日/剩余规模）以非空值覆盖；条款增强（东财 RPT_BOND_CB_LIST：
-        # 正股 PB/下修触发价/条款原文）再覆盖一层。仅有单侧来源的也落库，保证名录完整。
+        # 正股 PB/条款原文）再覆盖一层。仅有单侧来源的也落库，保证名录完整。
         basic = {b['bond_code']: dict(b) for b in self.adapter.fetch_convertible_bond_basic()}
         redeem = self.adapter.fetch_convertible_bond_redeem()
         enhanced = list(self.adapter.fetch_convertible_bond_terms())

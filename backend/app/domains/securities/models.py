@@ -80,7 +80,8 @@ class ConvertibleBondTerm(Base, PrimaryKeyMixin, TimestampMixin):
 
     可转债的决策核心是**条款博弈**（强赎 / 下修 / 回售），条款状态优先于行情。
     本表落**静态条款**：触发价、转股价值/溢价率、评级、到期日、规模、强赎天计数
-    （akshare `bond_cb_redeem_jsl` 已含计数）。动态计数（自算、含取整规则）为后期项。
+    （akshare `bond_cb_redeem_jsl` 已含计数），外加**正股 PB** 与**到期收益 YTM**
+    （#1400 / #2575；二者均为当期快照值，不回填历史行）。动态计数（自算、含取整规则）为后期项。
 
     命名遵循「自解释、禁拼音简称」：`premium_rate` 而非 `syl_*`，`redeem_count` 而非缩写。
     """

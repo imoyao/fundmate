@@ -606,8 +606,8 @@ def init_db():
     # 同上须先于结构校验；解析契约与口径实证见 docs/dev/fund-rating-collection.md，
     # job 为 FundRatingSyncJob（orchestrator 第三梯队 + WEEKLY_JOBS）。
     migrate_fund_rating_columns(app_eng)
-    # convertible_bond_terms 条款增强三列（#1400 / #2575）：正股 PB / 下修触发价 / YTM。
-    # create_all 不替存量表加列，同上须先于结构校验；三列都是当期快照值、不回填
+    # convertible_bond_terms 条款增强两列（#1400 / #2575）：正股 PB / YTM。
+    # create_all 不替存量表加列，同上须先于结构校验；两列都是当期快照值、不回填
     # （回填等于用今天的数贴到历史行），存量行留 NULL 由下次调度补齐。
     migrate_convertible_bond_enhanced_columns(app_eng)
     _validate_schema(app_eng, market_meta, label='market')
@@ -725,8 +725,8 @@ def init_db_split():
     # funds 晨星星级评级当期值三列（#1440）：同上须先于结构校验；解析契约与
     # 口径实证见 docs/dev/fund-rating-collection.md，job 为 FundRatingSyncJob。
     migrate_fund_rating_columns(app_eng)
-    # convertible_bond_terms 条款增强三列（#1400 / #2575）：正股 PB / 下修触发价 / YTM。
-    # create_all 不替存量表加列，同上须先于结构校验；三列都是当期快照值、不回填
+    # convertible_bond_terms 条款增强两列（#1400 / #2575）：正股 PB / YTM。
+    # create_all 不替存量表加列，同上须先于结构校验；两列都是当期快照值、不回填
     # （回填等于用今天的数贴到历史行），存量行留 NULL 由下次调度补齐。
     migrate_convertible_bond_enhanced_columns(app_eng)
     _validate_schema(app_eng, market_meta, label='market')
