@@ -41,8 +41,8 @@ from loguru import logger
 from app.domains.indices.models import IndexDaily
 from app.services.adapters import wind_index
 from app.services.adapters.direct_feeds import fetch_daily_csindex, fetch_daily_tencent
-from app.services.job_base import JobStatus, SyncJob
-from app.services.sync.bulk_ops import bulk_insert_rows
+from app.services.job_base import IN_CHUNK_SIZE, JobStatus, SyncJob
+from app.services.sync.bulk_ops import bulk_insert_rows, chunked, set_if_changed
 
 # 万得系指数目标清单（#275 定稿）：韭圈儿 gu_code 原生形态（.WI 后缀）。
 # 来源：#275 2022 年评论梳理的「适用性广泛」万得基金系列指数 + 万得全A；
@@ -361,17 +361,17 @@ class IndexDailySyncJob(SyncJob):
             # 2026-10-01 起本 job 是双源（韭圈儿 / 腾讯），source 不能再写死成 jiucaishuo
             source = item.get('source', 'jiucaishuo')
             rows = item['rows']
-            existing = {
-                r.trade_date: r
-                for r in self.db.query(IndexDaily)
-                .filter(
+            # 一次查回本批已有行：按 `IN_CHUNK_SIZE` 分块——单个指数最多 5295 个交易日，
+            # 一次性 `in_()` 就是 5295 个绑定参数（SQL 变量上限防御，理由同 bulk_ops）。
+            existing = {}
+            for part in chunked([r['trade_date'] for r in rows], IN_CHUNK_SIZE):
+                for row in self.db.query(IndexDaily).filter(
                     IndexDaily.index_code == index_code,
-                    IndexDaily.trade_date.in_([r['trade_date'] for r in rows]),
-                )
-                .all()
-            }
+                    IndexDaily.trade_date.in_(part),
+                ):
+                    existing[row.trade_date] = row
             inserts: List[dict] = []
-            updated = 0
+            updated = unchanged = 0
             for r in rows:
                 row = existing.get(r['trade_date'])
                 if row is None:
@@ -389,14 +389,21 @@ class IndexDailySyncJob(SyncJob):
                         }
                     )
                 else:
-                    row.close = r['close']
-                    row.ret_pct = r.get('ret_pct')
-                    row.price_mode = price_mode
-                    row.source = source
-                    updated += 1
+                    # 只在值真的变了时赋值：`Decimal('6457.3') != 6457.3`（float 的二进制
+                    # 表示不同），裸 setattr 会让**全部**行判脏 ⇒ 每行一条 UPDATE。
+                    # 生产实测 run 39958611684：新增 0 / 更新 13680，写库 2957 秒（0.216s/行）。
+                    changed = set_if_changed(row, 'close', r['close'])
+                    changed |= set_if_changed(row, 'ret_pct', r.get('ret_pct'))
+                    changed |= set_if_changed(row, 'price_mode', price_mode)
+                    changed |= set_if_changed(row, 'source', source)
+                    if changed:
+                        updated += 1
+                    else:
+                        unchanged += 1
             if inserts:
                 bulk_insert_rows(self.db, IndexDaily, inserts, log_scope=f'指数日线 {index_code}')
             self.db.commit()
             logger.info(
-                f'指数日线 {index_code}({price_mode}): 新增 {len(inserts)} / 更新 {updated}（共 {len(rows)} 条）'
+                f'指数日线 {index_code}({price_mode}): 新增 {len(inserts)} / 更新 {updated} / '
+                f'未变 {unchanged}（共 {len(rows)} 条）'
             )

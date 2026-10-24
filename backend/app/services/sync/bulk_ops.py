@@ -39,6 +39,7 @@ db.bulk_insert_mappings(Security, rows)
 立即 `ValueError`（宁可当场失败，也不静默丢列）。
 """
 
+from decimal import Decimal, InvalidOperation
 from time import perf_counter
 from typing import Iterable, List, Sequence
 
@@ -131,3 +132,46 @@ def bulk_insert_rows(
     elapsed = perf_counter() - started
     logger.info(f'{scope}批量写库 {table}：{len(rows)} 行 / {statements} 条语句（每批≤{per_stmt} 行）/ {elapsed:.2f}s')
     return len(rows)
+
+
+def _as_decimal(value):
+    """把数值归一成 `Decimal` 以便比较（`None` 原样返回）。"""
+    if value is None or isinstance(value, Decimal):
+        return value
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        # 不是数值（如 `str` 混进 Numeric 列）：返回原值，让 `==` 兜底判等
+        return value
+
+
+def set_if_changed(obj, field: str, value) -> bool:
+    """只在值**真的变了**时 `setattr`，返回是否写入了变更。
+
+    ## 为什么不能直接 `setattr`
+
+    `SafeNumeric` 列读回来是 `Decimal`，而数据源给的是 `float`：
+
+    ```python
+    Decimal('6457.3') == 6457.3   # False —— float 6457.3 的二进制值是 6457.2999…
+    ```
+
+    于是「把同一个数再赋一遍」在 SQLAlchemy 眼里也是**变脏**，flush 时每行发一条
+    UPDATE。生产实测（run `39958611684`，2026-10-23）：`index_daily` 24 个指数
+    **新增 0 / 更新 13680**，写库 2957 秒（0.216 s/行 —— Turso 一行一次 HTTP 往返），
+    而数值一个都没变。
+
+    ## 判据
+
+    任一侧是 `Decimal` 就归一成 `Decimal(str(v))` 再比（尾随零不影响：
+    `Decimal('6457.300000')` == `Decimal('6457.3')`）；其余类型直接 `==`。
+    """
+    current = getattr(obj, field)
+    if isinstance(current, Decimal) or isinstance(value, Decimal):
+        unchanged = _as_decimal(current) == _as_decimal(value)
+    else:
+        unchanged = current == value
+    if unchanged:
+        return False
+    setattr(obj, field, value)
+    return True
