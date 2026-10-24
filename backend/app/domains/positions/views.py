@@ -44,7 +44,7 @@ def list_positions():
 
     with get_db() as db:
         payload = PositionService.build_position_list(
-            db, get_family_id(), q.group_by, q.page, q.per_page, q.ledger_id, q.symbol, q.market
+            db, get_family_id(), q.group_by, q.page, q.per_page, q.ledger_id, q.symbol, q.market, q.member_id
         )
         return jsonify({**payload, 'message': 'ok'})
 

@@ -273,6 +273,8 @@ export function useImportWizard() {
   const newLedgerPortfolioId = ref<number | null>(null);
   const newLedgerFeeConfig = ref<any>(null);
   const newLedgerSalesInstitutionId = ref<number | null>(null);
+  /** 归属家庭成员（#1173，null=未归属/家庭共有）：向导内新建账户同样要能指定归属 */
+  const newLedgerOwnerMemberId = ref<number | null>(null);
   /** 基金销售机构候选（AMAC 名录，向导内新建账户可选关联） */
   const salesInstitutionsForImport = ref<SalesInstitution[]>([]);
   /** 步骤3 软提示横幅：用户现场选中的现金账户 */
@@ -2218,6 +2220,7 @@ export function useImportWizard() {
     newLedgerPortfolioId.value = null;
     newLedgerFeeConfig.value = null;
     newLedgerSalesInstitutionId.value = null;
+    newLedgerOwnerMemberId.value = null;
     newLedgerAllocation.value = "longterm";
   }
 
@@ -2229,6 +2232,7 @@ export function useImportWizard() {
     newLedgerPortfolioId.value = null;
     newLedgerFeeConfig.value = null;
     newLedgerSalesInstitutionId.value = null;
+    newLedgerOwnerMemberId.value = null;
     newLedgerAllocation.value = "liquid";
     showCreateLedgerDialog.value = true;
   }
@@ -2332,6 +2336,9 @@ export function useImportWizard() {
     if (newLedgerFeeConfig.value) payload.fee_config = newLedgerFeeConfig.value;
     if (newLedgerSalesInstitutionId.value)
       payload.sales_institution_id = newLedgerSalesInstitutionId.value;
+    // 归属成员（#1173）：null=家庭共有，不下发（后端默认未归属）
+    if (newLedgerOwnerMemberId.value)
+      payload.owner_member_id = newLedgerOwnerMemberId.value;
     if (newLedgerAllocation.value)
       payload.default_allocation = newLedgerAllocation.value;
     try {
@@ -2571,6 +2578,7 @@ export function useImportWizard() {
     newLedgerFeeConfig,
     salesInstitutionsForImport,
     newLedgerSalesInstitutionId,
+    newLedgerOwnerMemberId,
     bannerCashLedgerId,
     resetNewLedgerForm,
     openCreateCashFromBanner,

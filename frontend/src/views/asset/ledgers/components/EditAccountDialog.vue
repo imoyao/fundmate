@@ -38,6 +38,8 @@
         :portfolio-list="portfolioList"
         :sales-institutions="salesInstitutions"
       />
+      <!-- 归属成员（#1173）：组件自带成员候选加载，宿主只传 v-model -->
+      <OwnerMemberSelect v-model="editForm.owner_member_id" />
       <el-form-item label="备注">
         <el-input v-model="editForm.notes" type="textarea" :rows="2" />
       </el-form-item>
@@ -70,6 +72,7 @@ import {
   useDialogForm
 } from "@/composables/useUnsavedChangesGuard";
 import AccountFormFields from "./AccountFormFields.vue";
+import OwnerMemberSelect from "./OwnerMemberSelect.vue";
 import type { SalesInstitution } from "@/api/ledger";
 
 interface EditAccountForm {
@@ -83,6 +86,8 @@ interface EditAccountForm {
   auto_purchase_money_fund: boolean;
   fee_config: Record<string, unknown> | null;
   sales_institution_id: number | null;
+  /** 归属家庭成员 ID（#1173，null=未归属/家庭共有） */
+  owner_member_id: number | null;
 }
 
 const props = defineProps<{
@@ -111,7 +116,8 @@ function emptyEditForm(): EditAccountForm {
     linked_money_fund_code: null,
     auto_purchase_money_fund: false,
     fee_config: null,
-    sales_institution_id: null
+    sales_institution_id: null,
+    owner_member_id: null
   };
 }
 
@@ -148,7 +154,8 @@ watch(
             linked_money_fund_code: info.linked_money_fund_code ?? null,
             auto_purchase_money_fund: info.auto_purchase_money_fund ?? false,
             fee_config: info.fee_config,
-            sales_institution_id: info.sales_institution_id ?? null
+            sales_institution_id: info.sales_institution_id ?? null,
+            owner_member_id: info.owner_member_id ?? null
           }
         : emptyEditForm()
     );
