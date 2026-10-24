@@ -597,6 +597,11 @@ def _apply_bond_fields(out: dict, symbol: str, db) -> None:
     out['bond_remain_size'] = _to_float(term.remain_size)
     out['bond_issue_size'] = _to_float(term.issue_size)
     out['bond_stock_name'] = term.stock_name
+    # 条款增强两列（#1400 / #2575）：正股 PB / YTM。
+    # 均为**当期快照值**，未落库或本期无意义时保持 None（前端显 `—`）。
+    # ytm 尤其要注意：深度价内债的 YTM 是 -500% 这类无意义数，**宁缺勿滥**。
+    out['bond_stock_pb'] = _to_float(term.stock_pb)
+    out['bond_ytm'] = _to_float(term.ytm)
 
 
 def _apply_index_valuation_fields(out: dict, symbol: str, db) -> None:
@@ -697,6 +702,11 @@ def _apply_bond_fields_cached(out: dict, symbol: str, ctx: BatchContext) -> None
     out['bond_remain_size'] = _to_float(term.remain_size)
     out['bond_issue_size'] = _to_float(term.issue_size)
     out['bond_stock_name'] = term.stock_name
+    # 条款增强两列（#1400 / #2575）：正股 PB / YTM。
+    # 均为**当期快照值**，未落库或本期无意义时保持 None（前端显 `—`）。
+    # ytm 尤其要注意：深度价内债的 YTM 是 -500% 这类无意义数，**宁缺勿滥**。
+    out['bond_stock_pb'] = _to_float(term.stock_pb)
+    out['bond_ytm'] = _to_float(term.ytm)
 
 
 def _apply_index_valuation_fields_cached(out: dict, symbol: str, ctx: BatchContext) -> None:

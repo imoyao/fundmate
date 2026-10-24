@@ -1882,3 +1882,92 @@ class AkshareAdapter(DataSourceAdapter):
         except Exception as e:
             self.logger.warning(f'获取可转债基本信息失败: {e}')
             return []
+
+    def fetch_convertible_bond_terms(self) -> List[dict]:
+        """可转债条款增强数据（东财 ``RPT_BOND_CB_LIST`` 批量报表口，#1400 / #2575）。
+
+        **为什么必须带 `quoteColumns`**：正股 PB（``PBV_RATIO``）在**不带**该参数时
+        是 0/1065 全空列（实测 2026-10-24）——它不是报表自带字段，而是靠
+        ``quoteColumns`` 的「按正股关联取行情」能力带出来的：
+
+            f23~01~CONVERT_STOCK_CODE~PBV_RATIO
+            f2~01~CONVERT_STOCK_CODE~CONVERT_STOCK_PRICE
+            f235~10~SECURITY_CODE~TRANSFER_PRICE
+
+        ``f23`` = 正股市净率，``quoteType=01`` = 按正股关联。带上后实测
+        ``PBV_RATIO`` 覆盖 1048/1058（99.1%），**一次分页拉完全量（3 次请求）**，
+        远比「逐只 ``bond_zh_cov_info``」（500+ 次）便宜。
+
+        同时带出 **YTM 自算所需条款原文**（``INTEREST_RATE_EXPLAIN`` 逐年票息、
+        ``REDEEM_CLAUSE`` 到期赎回条款、``EXPIRE_DATE`` / ``BOND_START_DATE`` /
+        ``PAY_INTEREST_DAY``）。
+
+        ⚠️ **不要把 ``EXECUTE_PRICE_HS/SH`` 当成「下修触发价」**：实测该字段按
+        ``EXECUTE_REASON`` 分组为「历史赎回执行价」（REASON 3/4/1 = 到期赎回价，
+        REASON 5 含强赎线 130），且 ``EXECUTE_START_DATESH`` 是 2009/2010 一类的
+        **历史日期**——它是「当年赎回时用的价格」，不是下修触发价。该报表**没有**
+        下修触发价字段（全文搜「下修」仅 12/1065 条的条款说明里出现），故本期
+        不落「下修触发价」列（见 #2575 的口径更正）。
+
+        ⚠️ **走 `datacenter-web` 域，不走 `push2`**：2026-10-24 本机实测
+        ``push2.eastmoney.com`` 系 6 个 host 全部 ``RemoteDisconnected``（直连与
+        代理均失败），而 ``datacenter-web`` 正常。关键路径不能压在 push2 上。
+        """
+        url = 'https://datacenter-web.eastmoney.com/api/data/v1/get'
+        quote_columns = (
+            'f23~01~CONVERT_STOCK_CODE~PBV_RATIO,'
+            'f2~01~CONVERT_STOCK_CODE~CONVERT_STOCK_PRICE,'
+            'f235~10~SECURITY_CODE~TRANSFER_PRICE'
+        )
+        out: List[dict] = []
+        try:
+            page = 1
+            while True:
+                params = {
+                    'reportName': 'RPT_BOND_CB_LIST',
+                    'columns': 'ALL',
+                    'quoteColumns': quote_columns,
+                    'quoteType': '0',
+                    'source': 'WEB',
+                    'client': 'WEB',
+                    'pageSize': 500,
+                    'pageNumber': page,
+                    'sortColumns': 'SECURITY_CODE',
+                    'sortTypes': '1',
+                }
+                resp = requests.get(url, params=params, timeout=30)
+                resp.raise_for_status()
+                payload = resp.json()
+                result = payload.get('result') or {}
+                rows = result.get('data') or []
+                for row in rows:
+                    code = str(row.get('SECURITY_CODE') or '').strip()
+                    if not code:
+                        continue
+                    out.append(
+                        {
+                            'bond_code': code.zfill(6),
+                            'name': str(row.get('SECURITY_NAME_ABBR') or ''),
+                            # 正股 PB：quoteColumns 关联带出，缺列时为 None（不用 0 兜底）
+                            'stock_pb': self._num(row.get('PBV_RATIO')),
+                            'stock_price': self._num(row.get('CONVERT_STOCK_PRICE')),
+                            'transfer_price_em': self._num(row.get('TRANSFER_PRICE')),
+                            # YTM 自算所需条款原文
+                            'coupon_schedule_text': str(row.get('INTEREST_RATE_EXPLAIN') or ''),
+                            'redeem_clause': str(row.get('REDEEM_CLAUSE') or ''),
+                            'expire_date': row.get('EXPIRE_DATE'),
+                            'start_date': row.get('BOND_START_DATE'),
+                            'pay_interest_day': str(row.get('PAY_INTEREST_DAY') or ''),
+                            'par_value': self._num(row.get('PAR_VALUE')),
+                            'source': 'eastmoney_RPT_BOND_CB_LIST',
+                        }
+                    )
+                pages = result.get('pages') or 1
+                if page >= pages:
+                    break
+                page += 1
+            self.logger.info(f'获取到 {len(out)} 条可转债条款增强数据（东财批量）')
+            return out
+        except Exception as e:
+            self.logger.warning(f'获取可转债条款增强数据失败: {e}')
+            return []

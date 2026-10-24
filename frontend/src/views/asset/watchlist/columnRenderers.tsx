@@ -37,6 +37,7 @@ import {
 import { formatDate } from "@/utils/date";
 import { pricePrecision } from "@/utils/pricePrecision";
 import type { ColumnDef, ColumnRenderer, WatchlistRow } from "./columnDefs";
+import { bondNumberText, bondYtmClass } from "./bondFormats";
 // #2503：关联列的分组 / 措辞整形（纯模块，不牵动本文件的组件依赖链）
 import {
   buildLinkTip,
@@ -873,6 +874,31 @@ const renderBond: FunctionalComponent<{
   if (def.key === "bond_rating") {
     const rating = (field(row, "bond_rating") as string) || "";
     return rating ? h("span", { class: "bond-rating" }, rating) : dash();
+  }
+
+  if (def.key === "bond_stock_pb") {
+    const v = field(row, "bond_stock_pb") as number | null | undefined;
+    // 负 PB（净资产为负）是真实值，**不能当缺值处理**；0 也是真实值
+    return h(
+      "span",
+      { class: "bond-num", title: "正股市净率（东财）" },
+      bondNumberText(v)
+    );
+  }
+
+  if (def.key === "bond_ytm") {
+    const v = field(row, "bond_ytm") as number | null | undefined;
+    // 口径 = 单利年化持有到期总回报（同集思录）。**深度价内债后端不出此值**
+    // （持有到期不成立，算出来是 -500% 这类无意义数），此处只渲染真值。
+    const cls = bondYtmClass(v);
+    return h(
+      "span",
+      {
+        class: cls ? ["bond-num", cls] : "bond-num",
+        title: "到期税前收益（单利年化持有到期总回报，自算）"
+      },
+      bondNumberText(v, "%")
+    );
   }
 
   return dash();

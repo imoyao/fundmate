@@ -230,6 +230,16 @@
   color: var(--text-secondary);
 }
 
+/* 到期收益 YTM（#1400/#2575）：正收益涨色、负收益跌色（A 股惯例：涨红跌绿）。
+   不用 is-positive/is-negative 这类通用名——避免与其他列的语义类撞名。 */
+.el-table .bond-num.is-ytm-up {
+  color: var(--color-rise-ink);
+}
+
+.el-table .bond-num.is-ytm-down {
+  color: var(--color-fall-ink);
+}
+
 /* 强赎状态：文本可超列宽，省略并以 title 看全文；含「强赎」的状态用涨色高亮 */
 .el-table .bond-redeem {
   display: inline-block;

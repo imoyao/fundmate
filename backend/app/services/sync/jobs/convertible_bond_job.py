@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
-"""可转债条款同步任务（#1285 消费侧 / #1393）。
+"""可转债条款同步任务（#1285 消费侧 / #1393；条款增强见 #1400 / #2575）。
 
 可转债决策核心是「条款博弈」：强赎状态优先于行情。本 job 落**静态条款**：
 - 强赎数据：akshare `bond_cb_redeem_jsl`（含**强赎天计数**，本期即可显示真实 `3/15`）；
-- 基本信息：akshare `bond_zh_cov`（评级 / 到期日，宽松，接口不可用则为空）。
+- 基本信息：akshare `bond_zh_cov`（评级 / 到期日，宽松，接口不可用则为空）；
+- **条款增强两列**（#2575）：东财 `RPT_BOND_CB_LIST` 批量报表口（带 `quoteColumns`）——
+  正股 PB / YTM 自算所需条款原文。两项**全部免 cookie**
+  （2026-10-24 实测翻案，原卡面「集思录需登录态」的前提不成立）。
 
 按 `symbol` 覆盖式 upsert（条款变化即整行更新）。**动态**强赎 / 下修计数（自算、
 含取整规则）为后期项，本 job 不做。
@@ -16,6 +19,12 @@ from loguru import logger
 
 from app.core.symbol_utils import get_normalizer
 from app.domains.securities.models import ConvertibleBondTerm
+from app.services.convertible_bond_ytm import (
+    compute_ytm,
+    count_remaining_coupons,
+    parse_coupon_schedule,
+    parse_redeem_price,
+)
 from app.services.job_base import SyncJob
 
 
@@ -56,6 +65,10 @@ def _bond_symbol(code: str) -> Optional[str]:
 class ConvertibleBondSyncJob(SyncJob):
     """可转债静态条款回填（全量，无需 targets）。"""
 
+    #: 「本期确定算不出来」的字段：``None`` 表示**结论**（该值本期无意义），
+    #: 不是「这轮没取到」，故落库时必须显式清空旧值（见 `_save_data`）。
+    _CLEARABLE_FIELDS = ('ytm',)
+
     @property
     def _allow_empty_data(self) -> bool:
         return True
@@ -64,29 +77,36 @@ class ConvertibleBondSyncJob(SyncJob):
         return 'convertible_bond'
 
     def _fetch_data(self, full_sync: bool, targets: List[str]) -> List[dict]:
-        # 两源按 bond_code 合并：基本信息（东财 bond_zh_cov：评级/发行规模/转股价值/溢价率/
+        # 三源按 bond_code 合并：基本信息（东财 bond_zh_cov：评级/发行规模/转股价值/溢价率/
         # 正股）打底，强赎数据（集思录 bond_cb_redeem_jsl：现价/强赎触发价·比/天计数/
-        # 强赎状态/到期日/剩余规模）以非空值覆盖。仅有单侧来源的也落库，保证名录完整。
+        # 强赎状态/到期日/剩余规模）以非空值覆盖；条款增强（东财 RPT_BOND_CB_LIST：
+        # 正股 PB/条款原文）再覆盖一层。仅有单侧来源的也落库，保证名录完整。
         basic = {b['bond_code']: dict(b) for b in self.adapter.fetch_convertible_bond_basic()}
         redeem = self.adapter.fetch_convertible_bond_redeem()
+        enhanced = list(self.adapter.fetch_convertible_bond_terms())
 
         merged: Dict[str, dict] = dict(basic)
-        for r in redeem:
-            code = r.get('bond_code')
-            if not code:
-                continue
-            target = merged.setdefault(code, {})
-            for k, v in r.items():
-                # 空串等同缺失（#1491 评审）：下游 _validate_data 用 `or None` 把空串视为缺失，
-                # 若此处让空串覆盖 basic 的有效值，名称/评级等字段会被清空。
-                if v is not None and v != '':
-                    target[k] = v
-        logger.info(f'可转债条款原始记录 {len(merged)} 条（基本信息 {len(basic)} + 强赎 {len(redeem)}）')
+        for group in (redeem, enhanced):
+            for r in group:
+                code = r.get('bond_code')
+                if not code:
+                    continue
+                target = merged.setdefault(code, {})
+                for k, v in r.items():
+                    # 空串等同缺失（#1491 评审）：下游 _validate_data 用 `or None` 把空串视为缺失，
+                    # 若此处让空串覆盖 basic 的有效值，名称/评级等字段会被清空。
+                    if v is not None and v != '':
+                        target[k] = v
+        logger.info(
+            f'可转债条款原始记录 {len(merged)} 条'
+            f'（基本信息 {len(basic)} + 强赎 {len(redeem)} + 条款增强 {len(enhanced)}）'
+        )
         return list(merged.values())
 
     def _validate_data(self, raw_data: List[dict]) -> List[dict]:
         out = []
         normalizer = get_normalizer()
+        today = date.today()
         for r in raw_data:
             code = str(r.get('bond_code') or '').strip()
             if not code:
@@ -122,10 +142,45 @@ class ConvertibleBondSyncJob(SyncJob):
                     'maturity_date': _parse_date(r.get('maturity_date')),
                     'issue_size': r.get('issue_size'),
                     'remain_size': r.get('remain_size'),
+                    # ── 条款增强两列（#2575）─────────────────────────────────────
+                    'stock_pb': r.get('stock_pb'),
+                    'ytm': self._compute_ytm(r, today),
                     'source': r.get('source') or 'akshare',
                 }
             )
         return out
+
+    @staticmethod
+    def _compute_ytm(r: dict, today: date) -> Optional[float]:
+        """自算 YTM（单利年化持有到期总回报，口径同集思录）。
+
+        任何一环缺输入 / 触发护栏 → 返回 None（**不用 0 兜底**：0 会被读成
+        「收益率为零」，那是编造）。口径与三道护栏见
+        `app/services/convertible_bond_ytm.py` 的模块 docstring。
+        """
+        price = r.get('price')
+        coupons = parse_coupon_schedule(r.get('coupon_schedule_text'))
+        redeem_pct, incl_last = parse_redeem_price(r.get('redeem_clause'))
+        expire = _parse_date(r.get('expire_date'))
+        start = _parse_date(r.get('start_date'))
+        if expire is None or price is None:
+            return None
+        remaining_years = (expire - today).days / 365.0
+        k = count_remaining_coupons(
+            start_date=start,
+            expire_date=expire,
+            pay_month_day=r.get('pay_interest_day'),
+            today=today,
+        )
+        ytm, _reason = compute_ytm(
+            price=float(price),
+            coupons=coupons,
+            redeem_pct=redeem_pct,
+            redeem_includes_last_coupon=incl_last,
+            remaining_coupon_count=k,
+            remaining_years=remaining_years,
+        )
+        return ytm
 
     def _deduplicate(self, data: List[dict]) -> List[dict]:
         seen = set()
@@ -154,5 +209,11 @@ class ConvertibleBondSyncJob(SyncJob):
                 # 仅在拿到新值时覆盖（避免用 None 抹掉上一轮已落库的字段）
                 if v is not None:
                     setattr(row, k, v)
+                elif k in self._CLEARABLE_FIELDS:
+                    # 例外：**本期确定算不出来**的字段必须显式清空，否则上一轮的值
+                    # 会残留成脏数据。ytm 正是这种字段——深度价内豁免 / 条款解析失败
+                    # 都是「本期这个数没有意义」的**结论**，不是「这轮没取到」，
+                    # 留着旧值等于让用户看到一只早已不该有 YTM 的债的过期收益率。
+                    setattr(row, k, None)
         self.db.commit()
         logger.info(f'写入可转债条款 {len(new_data)} 条')

@@ -134,6 +134,13 @@ class WatchlistItemOut(BaseModel):
     bond_remain_size: Optional[float] = None  # 剩余规模（亿元）
     bond_issue_size: Optional[float] = None  # 发行规模（亿元）
     bond_stock_name: Optional[str] = None  # 正股名称
+    # 条款增强两列（#1400 / #2575）：正股 PB / YTM。
+    # 口径见 `services/convertible_bond_ytm.py`：
+    # - `bond_ytm` 是**单利年化持有到期总回报**（与集思录同口径，非 IRR），
+    #   **深度价内债不出此值**（持有到期不成立，算出来是 -500% 这类无意义数）；
+    # 未落库 / 本期无意义时保持 None，前端显 `—`（不用 0 兜底，避免与真实 0 混淆）。
+    bond_stock_pb: Optional[float] = None  # 正股市净率 PB
+    bond_ytm: Optional[float] = None  # 到期税前收益 YTM（%）
     # 指数估值补充信息（#1285 消费侧「指数」品类 / #1394）：仅 asset_type=index 且
     # index_valuations 存在该指数记录时下发；口径见后端 IndexValuation 模型注释。
     index_pe: Optional[float] = None  # 市盈率（中证官方列「市盈率1」）

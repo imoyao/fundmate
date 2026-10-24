@@ -1588,6 +1588,41 @@ def migrate_fund_style_columns(engine: Engine) -> str:
     return '[SKIP] funds 风格箱派生列已存在'
 
 
+def migrate_convertible_bond_enhanced_columns(engine: Engine) -> str:
+    """convertible_bond_terms 补条款增强两列（#1400 / #2575）。
+
+    新增 ``stock_pb``（正股市净率）/ ``ytm``（到期税前收益，自算）。
+
+    ## 为什么是「加列」而不是「建表」
+
+    `convertible_bond_terms` 已有存量行（约 300+ 只转债），本迁移**只加可空列**：
+    SQLite / libsql 支持对可空列直接 `ALTER TABLE ADD COLUMN`（无需整表重建），
+    PG 用 `ADD COLUMN IF NOT EXISTS`。两种引擎都由本迁移负责（走
+    ``_add_columns_if_missing``）——生产 user 域是 Postgres，本仓没有 Alembic、
+    ``create_all()`` 也不给存量表加列（#2534）。
+
+    ## 为什么不回填
+
+    两列都是**当期快照值**（PB / YTM 随行情与条款变动），存量行没有「当时的值」
+    可回填——回填等于用今天的数贴到历史行。故存量行保持 NULL，读侧降级为「—」，
+    由下次 `convertible_bond` 调度自然补齐。
+
+    幂等：列已存在则跳过，可重复跑。
+    """
+    if not _table_exists(engine, 'convertible_bond_terms'):
+        return '[SKIP] convertible_bond_terms 表不存在（空库，init_db 将按新模型建表）'
+
+    cols = [
+        ('stock_pb', 'NUMERIC(10, 4)'),
+        ('ytm', 'NUMERIC(12, 4)'),
+    ]
+    added = _add_columns_if_missing(engine, 'convertible_bond_terms', cols)
+    if added:
+        logger.info(f'[OK] convertible_bond_terms 增加条款增强列: {added}（#2575）')
+        return f'[OK] 增加列 {added}'
+    return '[SKIP] convertible_bond_terms 条款增强列已存在'
+
+
 def migrate_fund_rating_columns(engine: Engine) -> str:
     """funds 补晨星星级评级当期值三列（#1440）：morningstar_rating / _delta / _asof。
 
