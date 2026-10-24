@@ -486,11 +486,18 @@ jobs:
       - name: 单元测试
         run: pnpm test:unit
 
-      # 页面规模门禁（#980 治本项）：扫描 .vue 文件行数，超出阈值报告。
-      # 当前为 warn 模式（不阻断 CI），仅让存量大页面趋势可见；
-      # 待存量大页面拆分完成后再切 --mode fail 冻结增量（避免误伤既有 PR）。
+      # 页面规模门禁（#980 治本项）：扫描 .vue 文件行数，**只减不增**。
+      #
+      # 2026-10-24 从 warn 切 fail（源 #980 实测）：warn 模式只打印不拦截，本卡拆过的
+      # 9 个页面里有 8 个在涨、4 个已重新越过 400 行（WatchlistFilterBar 332→497 /
+      # welcome 370→440 / reconcile-workbench 336→405 / watchlist/index 369→403）。
+      # 口径改为「存量登记基线 + 增量判红」：基线内涨一行、或新增超阈文件即红；
+      # 拆小了不判红（否则谁拆谁被拦，闸门会被绕开）。基线只能下调，脚本拒绝上调。
+      # 回归网 `scripts/tests/check_vue_size.test.js`（17 条，含 GROW/NEW 变异探针）
+      # 由 scripts_test job 的 `node --test "scripts/tests/*.test.js"` 收进来。
+      # 不新增 job ⇒ 不必动 gate.needs。
       - name: 页面规模门禁（行数检查）
-        run: node ../scripts/check_vue_size.mjs --threshold 400 --mode warn
+        run: node ../scripts/check_vue_size.mjs --threshold 400 --mode fail --baseline ../scripts/vue-size-baseline.json
 
       # 详情页表格约定守卫（源 CNB #553）：产品详情页 5 处手写 <table> 曾各写各的
       # padding / 分隔线 / 表头 / 数字列对齐，收进 `style/_detail-table.scss` 后，本守卫

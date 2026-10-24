@@ -387,8 +387,15 @@ job 名与 stage 名都要写（后者是查询锚点）。
 ### 前端约束
 
 - **禁止 `any` / `Record<string, any>`** 作为 API 入参/响应类型。
-- 列表增删改成功后**必须主动清空列表缓存**。
+- **列表增删改成功后**必须主动清空列表缓存。
 - 禁止 Emoji，涨红跌绿必须使用语义变量。
+- **页面规模只减不增**（源 #980）：`.vue` 单文件超 400 行即登记进 `scripts/vue-size-baseline.json`
+  作为存量基线，此后**只能降不能涨**——基线内文件涨一行、或新增一个超阈文件，`scripts/check_vue_size.mjs`
+  在 `frontend` job 直接判红（`--mode fail`），基线只接受下调（`--update-baseline` 上调会被脚本拒绝）。
+  为什么这道闸非设不可：本卡拆过的 9 个页面里有 8 个在涨、4 个已重新越过 400 行
+  （WatchlistFilterBar 332→497 / welcome 370→440 / reconcile-workbench 336→405 / watchlist/index 369→403），
+  warn 模式只打印不拦截，等于没设。确实拆不动时，须在同一 PR 内腾出等量行数（净零也合规），
+  不允许「先加功能、以后再拆」。
 - **前端 Supabase 环境隔离**：`frontend/.env.development`（本地、不入库）与 `frontend/.env.production`（入库）
   **不得**指向同一个 Supabase 项目——开发期注册的测试账号会直接写进**生产** Auth 用户表，
   且当时没有任何报错。两条判据各管一半、互不重叠：
