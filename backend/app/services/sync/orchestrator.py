@@ -39,6 +39,7 @@ from app.services.adapters.advisor_source import AdvisorSourceRegistry
 from app.services.adapters.akshare_adapter import AkshareAdapter
 from app.services.adapters.eastmoney_adapter import EastmoneyAdapter
 from app.services.adapters.jiucaishuo_adapter import JiucaishuoAdapter
+from app.services.adapters.jsl_bond_adjust_adapter import JslBondAdjustAdapter
 from app.services.adapters.manager_tenure import ManagerTenureAdapter
 from app.services.adapters.null_adapter import NullAdapter
 from app.services.adapters.xalpha_adapter import XalphaAdapter
@@ -47,6 +48,7 @@ from app.services.fund_utils import normalize_fund_code
 from app.services.sync.jobs.advisor_portfolio_job import AdvisorPortfolioSyncJob
 from app.services.sync.jobs.amac_institution_job import AmacInstitutionJob
 from app.services.sync.jobs.asset_snapshot_job import AssetSnapshotJob
+from app.services.sync.jobs.bond_adjust_log_job import BondAdjustLogSyncJob
 from app.services.sync.jobs.channel_link_job import ChannelLinkSyncJob
 from app.services.sync.jobs.convertible_bond_job import ConvertibleBondSyncJob
 from app.services.sync.jobs.dividend_split_job import DividendSplitSyncJob
@@ -107,6 +109,10 @@ SYMBOL_BACKFILL_JOBS = frozenset(
         # 而是因为裸 --full-sync 会对全库 3 万只逐只读 3 年净值（十分钟级），
         # 明显不是调用方想要的事。要走全库，显式写 `--targets __full__`。
         'fund_risk_metrics',
+        # #2585：下修历史是**逐只一次 HTTP**（集思录 HTML 片段接口）。裸 --full-sync
+        # 会对全市场 500+ 只转债各发一次请求，既慢又是限流诱因；显式 --targets 才是
+        # 「一次性全市场验证」的正确入口。
+        'bond_adjust_log',
     }
 )
 
@@ -329,6 +335,10 @@ class DataSyncOrchestrator:
         self.jobs['channel_link'] = ChannelLinkSyncJob(self.data_sources['akshare'], self.db)
         # #1285/#1393：可转债条款（强赎状态 + 静态条款，akshare 集思录）
         self.jobs['convertible_bond'] = ConvertibleBondSyncJob(self.data_sources['akshare'], self.db)
+        # #2585：可转债**下修历史**（逐只一次 HTTP、按目标池限量；手动回填型，
+        # 不进每日调度，登记见 daily_scheduler._NOT_SCHEDULED）。
+        # 数据源是集思录 HTML 片段接口（免 cookie），故不走 data_sources。
+        self.jobs['bond_adjust_log'] = BondAdjustLogSyncJob(JslBondAdjustAdapter(), self.db)
         # #1286：指数名录（聚合搜索可搜索的指数条目，与成分互补）
         self.jobs['index_catalog'] = IndexCatalogSyncJob(self.data_sources['akshare'], self.db)
         # #1981：个股 / 可转债 → 行业映射（申万宏源全量 31 请求 + 巨潮按 targets 补）。
