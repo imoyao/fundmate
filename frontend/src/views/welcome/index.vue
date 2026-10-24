@@ -29,6 +29,7 @@
     <WelcomeXirrTemperature
       v-model:includeCashEquivalents="includeCashEquivalents"
       :portfolio-xirr="portfolioXirr"
+      :twr="twr"
       :composite-temperature="compositeTemperature"
       :temperature-bands="temperatureBands"
       :temperature-conclusion="temperatureConclusion"
@@ -128,6 +129,7 @@ defineOptions({
 const {
   summary,
   portfolioXirr,
+  twr,
   includeCashEquivalents,
   recordDays,
   welcomeState,
@@ -146,6 +148,7 @@ const {
   mentalAccounts,
   fetchSummary,
   fetchXirr,
+  fetchTwr,
   fetchTemperature,
   fetchRecordStats,
   fetchUnreadNotifications,
@@ -223,6 +226,8 @@ const onRetryAsset = async () => {
 onMounted(() => {
   fetchSummary();
   fetchXirr();
+  // TWR 是辅助口径：独立请求、失败静默降级（不并入 xirrError 的整卡失败态）
+  fetchTwr();
   fetchTemperature();
   fetchRecordStats();
   fetchUnreadNotifications();

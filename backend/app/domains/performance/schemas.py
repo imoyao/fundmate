@@ -23,6 +23,18 @@ class XirrRequest(BaseModel):
     )
 
 
+class TwrRequest(BaseModel):
+    """时间加权收益率查询参数（#2133）。
+
+    只支持家庭级 / 账户级：TWR 需要「每日净资产」序列，产品级与单持仓没有这条序列，
+    硬算会把家庭净资产当成某个标的的分母。前端 / 调用方请勿传其它作用域。
+    """
+
+    ledger_id: Optional[int] = Field(None, description='账户ID；不传=家庭级（与收益日历同语义）')
+    start_date: Optional[date] = Field(None, description='起始日期(YYYY-MM-DD)，默认近 30 天（与收益日历同一缺省规则）')
+    end_date: Optional[date] = Field(None, description='结束日期(YYYY-MM-DD)，默认今天')
+
+
 class MoneyFundIncomeRequest(BaseModel):
     """货币基金每日收益查询参数"""
 
