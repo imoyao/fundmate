@@ -732,6 +732,16 @@ jobs:
       - name: 检查 MiSans 子集字形覆盖（阻断）
         run: python scripts/guard_font_glyph_coverage.py
 
+      # 迁移 PG-aware 守卫（#2534，源 #2469 / #2532 两次生产停摆）：迁移里再出现
+      # 「非 SQLite 就跳过」早退即红——本仓没有 Alembic、create_all 不给存量表加列，
+      # 生产 user 域是 Supabase PG，那句「由 ORM 模型/迁移工具负责」是假前提。
+      # 存量 4 个函数（整表重建 / SQLite 专属 SQL）按指纹基线冻结，收敛一个删一个；
+      # 「已无早退但条目还在」同样红，逼基线与代码同一个 PR 贴合。自带变异探针
+      # （--self-test）；回归网 scripts/tests/test_guard_migrations_pg_aware.py。
+      # 不新增 job——并入本 job，也就不必动 gate.needs。
+      - name: 迁移 PG-aware 守卫（阻断）
+        run: python scripts/guard_migrations_pg_aware.py
+
       - name: 跑 scripts/ 下的 Python 守卫/桥接脚本单测
         run: python -m unittest discover -s scripts/tests -p "test_*.py" -v
 
@@ -920,6 +930,25 @@ jobs:
       # 回归网在 scripts/tests/test_no_hardcoded_secrets.py（含临时仓库灵敏度探针 + 失败态用例）。
       - name: 检查仓库里是否写死了密钥（阻断）
         run: python scripts/guard_no_hardcoded_secrets.py
+
+      # 前端 env 的 Supabase 凭证（#1028）：开发/生产共用同一个 Supabase 项目时，
+      # 开发期注册的测试账号会写进**生产** Auth 用户表，而当时没有任何一处会报错。
+      # 本守卫只管**入库文件**（CI 看得见的那些）：`.env.production` / `.env.staging`
+      # 必须给出完整的 URL + anon key（缺项 ⇒ 浏览器里才炸，构建期就该红），
+      # `.env.example` 只允许占位值（它是新人抄配置的入口）。
+      # ⚠️ 「dev 与 prod 是否同项目」这条**不在本守卫范围内**——它要读**不入库**的
+      # `frontend/.env.development`，CI 看不到，由 `frontend/build/supabase-env-guard.ts`
+      # 在 dev server 启动时兜。两条规则不重叠、各有唯一实现。
+      # 不新增 job：并入本 job，也就不必动 gate.needs（#1559/#1560 两次事故都是合并冲突弄丢 needs）。
+      # 判据边界见脚本 docstring；回归网在 scripts/tests/test_supabase_env_separation.py
+      # （含 3 个变异探针，均已实测转红）。
+      - name: 检查前端 env 的 Supabase 凭证（阻断）
+        run: python scripts/guard_supabase_env_separation.py
+
+      - name: 前端 env 凭证守门回归网（阻断）
+        if: ${{ always() }}
+        run: python -m unittest scripts.tests.test_supabase_env_separation -v
+        working-directory: ${{ github.workspace }}
 
   gate:
     name: 质量门禁汇总

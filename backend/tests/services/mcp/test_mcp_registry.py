@@ -36,7 +36,7 @@ def test_qieman_provider_is_registered_with_matching_metadata():
 
 def test_unknown_provider_raises_with_registered_names():
     with pytest.raises(UnknownMcpProvider, match='已注册'):
-        get_provider('wind')
+        get_provider('newco')
 
 
 def test_unknown_capability_raises_key_error():

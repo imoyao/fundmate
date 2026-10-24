@@ -30,7 +30,7 @@ from app.core.database import SQLALCHEMY_DATABASE_URL as DB_URL
 # 调用方与测试的 monkeypatch 目标（`app.services.sync.orchestrator.acquire_lock`）。
 from app.core.file_lock import acquire_lock
 from app.core.symbol_utils import derive_security_type, split_symbol
-from app.core.time_utils import now_shanghai
+from app.core.time_utils import as_shanghai, now_shanghai
 from app.domains.positions.models import Position
 from app.domains.watchlist.models import WatchlistItem
 from app.models.sync_log import SyncLog
@@ -42,6 +42,7 @@ from app.services.adapters.jiucaishuo_adapter import JiucaishuoAdapter
 from app.services.adapters.manager_tenure import ManagerTenureAdapter
 from app.services.adapters.null_adapter import NullAdapter
 from app.services.adapters.xalpha_adapter import XalphaAdapter
+from app.services.bias.job import BiasJob
 from app.services.fund_utils import normalize_fund_code
 from app.services.sync.jobs.advisor_portfolio_job import AdvisorPortfolioSyncJob
 from app.services.sync.jobs.amac_institution_job import AmacInstitutionJob
@@ -120,6 +121,19 @@ SYMBOL_BACKFILL_JOBS = frozenset(
 # 那些行早已落库，只有整表清才能保证读到的不是回填前的旧值。
 PRICE_BACKFILL_JOBS = frozenset({'fund_nav', 'price_history'})
 
+# 周频 job：抓的是**全市场名录**（8000+ / 26000+ 条），业务上一周才变一次，没必要每天全量重抓。
+#
+# 实测（2026-10-22，run 39797606370）：每日调度在 CI 上 90 分钟被掐，而时间全花在这两个
+# 名录 job 上——`stock_list` 29.4 分钟（东财 ETF 名录 502 → 回退同花顺）、`fund_list` 又跑了
+# 52 分钟未完；它们当时排在执行计划**最前面**，于是 `fund_nav` / `price_history` /
+# `asset_snapshot` 这些「当天必须刷新」的 job 一次都没轮到 ⇒ 用户看到的净值永远是旧值，
+# 连「部分完成」都做不到（#1490）。
+#
+# 判据：距上次**成功**（`sync_logs.status='success'`）不足 N 天即跳过。取 6 而非 7，
+# 是因为 CI 起跑有最长约 10 分钟的 jitter，卡 7 天会让「每周一次」漂成 8 天。
+WEEKLY_JOB_MIN_INTERVAL_DAYS = 6
+WEEKLY_JOBS = ('stock_list', 'fund_list', 'index_catalog')
+
 
 def require_full_sync_scope(job_name: str, full_sync: bool, has_targets: bool) -> None:
     """校验 --full-sync 是否带了范围。
@@ -140,6 +154,80 @@ def require_full_sync_scope(job_name: str, full_sync: bool, has_targets: bool) -
             f"'{job_name}' 的回填标的；禁止裸 --full-sync"
             '（逐标的全市场全量回填会触发数据源封禁且耗时极长）。'
         )
+
+
+# ============================================================
+# 执行计划（顺序即优先级）
+# ============================================================
+
+
+def build_execution_plan(targets: Dict[str, List[str]]) -> List[tuple]:
+    """按「当天必须刷新的先跑」排出执行计划（#1490）。
+
+    为什么顺序要这样定：旧顺序把头两个**周频名录 job**（`stock_list` / `fund_list`）放在
+    最前面，实测它们吃光 90 分钟预算后，`fund_nav` / `asset_snapshot` 一次都没轮到 ⇒
+    用户看到的净值与快照永远是旧值，**连「部分完成」都做不到**。
+
+    分梯队的原则只有一句：**越影响用户当天所见，越靠前**；跑不完就丢队尾的元数据维护。
+    （名录类已同时改为周频，见 `WEEKLY_JOBS`——两道保险：常态下它们根本不执行。）
+
+    Args:
+        targets: `resolve_targets()` 的结果，含 `fund` / `stock` / `etf` 三个键。
+
+    Returns:
+        `[(job_name, job_targets), ...]`，顺序即执行顺序。
+    """
+    fund_targets = targets.get('fund', [])
+    stock_targets = targets.get('stock', [])
+    # #1983：场内 ETF 的裸码只进 fund_position / fund_style（抓底层持仓 / 行业配置），
+    # 不进 fund_nav / fund_type 等其他 job——它们对 ETF 的既有语义不变。
+    etf_targets = targets.get('etf', [])
+
+    return [
+        # ── 第一梯队：用户当天就要看的数据 ──
+        ('fund_nav', fund_targets),  # 净值增量同步（核心池）
+        ('price_history', stock_targets),  # 行情增量同步（核心池）
+        ('dividend_split', stock_targets + fund_targets),  # 分红/送股抓取（#1179）
+        # #1104：持仓现价回写——必须排在净值/行情之后、资产快照之前：
+        # 快照的市值/盈亏读的正是 positions.current_price，顺序错了快照就还是旧价。
+        # 不联网（只读库内已确认净值），故无请求风暴风险。
+        ('position_price', []),
+        # #167：风险指标快照必须排在净值之后（它读的就是 fund_nav 刚落库的序列），
+        # 又要排在资产快照之前——快照锁的是「当日状态」，指标是状态的一部分。
+        ('fund_risk_metrics', fund_targets),
+        # #1182：资产快照落账放本梯队末尾，确保前面的净值/行情已刷新，快照取到最新值
+        ('asset_snapshot', []),
+        # ── 第二梯队：探市 / 指数快照（读库即回的数据底座）──
+        # #1460：探市大类资产日频快照（20 资产 + 债券收益率轨）——每日落库一次，
+        # 让 /api/market/overview 读库即回（毫秒级）；无外部目标池依赖，targets 传空。
+        ('market_asset_daily', []),
+        # #2481：行业 PB-ROE 日频快照（一次请求拿申万一级全行业矩阵），落 market_composites。
+        ('industry_pbroe', []),
+        ('index_daily', ['__full__']),  # 指数日线（万得全A 全量 10 年，#275）
+        ('index_constituents', INDEX_TARGETS),  # 指数成分回填（#1286 数据底座）
+        # ── 第三梯队：基金元数据维护（目标池级；缺一天不影响记账准确性）──
+        ('fund_detail_enrich', fund_targets),  # 补充基金详情（核心池）
+        ('fund_type', fund_targets),  # 回填基金类型（核心池，#1155 根治项）
+        # #1286 数据底座：拆成两条成本量级不同的链路（原 fund_meta 一条全干，见 #1403）
+        #   fund_scale —— 单次 HTTP 返回全市场列表，§4.3.3 允许全量
+        #   fund_position —— 逐只 HTTP（≈1.8s/只），§4.3.3 强制按目标池限量
+        ('fund_scale', ['__full__']),
+        ('fund_position', fund_targets + etf_targets),
+        # #2478：风格箱与持仓明细同目标池（持仓+自选，含场内 ETF 裸码）；
+        # 上游月度更新，job 内按 (fund_code, style_name, stat_date) 去重做增量。
+        ('fund_style', fund_targets + etf_targets),
+        ('fund_manager', fund_targets),  # 回填基金经理并关联基金公司（核心池）
+        # 导入侧观察值 → funds.company_id（不联网、幂等、只填空缺）
+        ('fund_company_backfill', []),
+        # 孤儿交易回填（#950）：只补 position_id，不碰金额/确认日，故与外部数据源无关；
+        # 排在分红拆分之后即可（它自己查库，不依赖任何 target 池）。
+        ('orphan_backfill', []),
+        ('advisor_portfolio', ['__full__']),  # 投顾组合持仓/调仓回填（#1167）
+        # ── 第四梯队：全市场名录（周频，见 WEEKLY_JOBS）──
+        ('stock_list', ['__full__']),  # 全量刷新股票列表，不需要目标列表
+        ('fund_list', ['__full__']),  # 全量刷新基金列表
+        ('index_catalog', ['__full__']),  # 指数名录重建（#1286 聚合搜索底座）
+    ]
 
 
 # ============================================================
@@ -248,6 +336,17 @@ class DataSyncOrchestrator:
         # 无外部目标池依赖（targets 传空）；落 market_composites 供探市读库即回。
         self.jobs['industry_pbroe'] = IndustryPbroeSyncJob(JiucaishuoAdapter(), self.db)
         self.jobs['temperature'] = TemperatureJob(NullAdapter(), self.db)
+        # #2494：乖离率（31 个申万一级 + 6 个宽基，**固定清单**）——只注册、不调度。
+        # 注册解决两件事：sync_logs 里有自己的一行（此前结果只以一条 summary 挂在
+        # temperature 的 errors 里，逐标的明细只能翻日志），以及 `pdm run sync --job bias`
+        # 可单独补跑（重跑 temperature 会连带另外 6 个数据源一起打上游）。
+        # 刻意不做两件事，缺一条都会退化成事故：
+        #   ① 不进 daily_scheduler：日常仍由 TemperatureJob._fetch_data 内联跑一次
+        #      （thermometer/jobs.py），同时调度会**同一天算两遍**（每遍 37 × request_interval 3s）；
+        #      真要把它变成独立数据源，得先摘掉内联那段并切换探市读库来源——那是另一张卡。
+        #   ② 不设目标池：_fetch_data 不消费 targets，按目标池分批会让**每批重算全量**
+        #      ⇒ N 批 × 37 次外部请求（东财限流/封禁风险）。CLI 传 targets=None 即单次全量。
+        self.jobs['bias'] = BiasJob(NullAdapter(), self.db)
         # AMAC 名录为 HTTP JSON 直抓（非 akshare/xalpha 数据源），NullAdapter 占位；
         # 此前仅 invoke grab.* 通道可达，注册后 pdm run sync --job 亦可直达（#1081 策展应用入口）
         self.jobs['amac_institution'] = AmacInstitutionJob(NullAdapter(), self.db)
@@ -521,6 +620,33 @@ class DataSyncOrchestrator:
             logger.exception(f'{job_name} 审计落库二次失败，降级为最小记录（原始错误: {exc}）')
             self._save_error_sync_log(job_name, full_sync, exc, status=str(result.get('status', 'error')))
 
+    def _skip_if_recent(self, job_name: str) -> Optional[Dict[str, Any]]:
+        """周频 job 距上次成功不足 N 天 ⇒ 返回「跳过」结果；否则返回 None（照常执行）。
+
+        只认 `sync_logs.status == 'success'`：失败的那次不该计入频控，否则
+        「昨天失败、今天该重试」会被当成「刚跑过」而**永久跳过** —— 那等于把
+        一个会自愈的 job 变成死的。
+
+        `started_at` 读回来是 naive 的东八区墙钟时间，与 `now_shanghai()` 直接相减会
+        抛 TypeError（同 #1793 的形态），故两侧都过 `as_shanghai`。
+        """
+        if job_name not in WEEKLY_JOBS:
+            return None
+        last = SyncLog.get_last_sync_time(self.db, job_name)
+        if last is None:
+            return None
+        elapsed_days = (now_shanghai() - as_shanghai(last)).total_seconds() / 86400
+        if elapsed_days < WEEKLY_JOB_MIN_INTERVAL_DAYS:
+            return {
+                'job_name': job_name,
+                'status': 'skipped',
+                'reason': (f'周频 job：距上次成功 {elapsed_days:.1f} 天，未到 {WEEKLY_JOB_MIN_INTERVAL_DAYS} 天'),
+                'stats': {'last_success_at': last.isoformat()},
+                'duration': 0.0,
+            }
+        logger.info(f'{job_name} 距上次成功 {elapsed_days:.1f} 天 ≥ {WEEKLY_JOB_MIN_INTERVAL_DAYS} 天，本次执行')
+        return None
+
     def _execute_job(self, job_name: str, full_sync: bool, targets: Optional[List[str]] = None) -> Dict[str, Any]:
         """
         执行单个 Job 并处理异常。
@@ -548,8 +674,8 @@ class DataSyncOrchestrator:
         """
         按依赖顺序执行所有同步任务。
 
-        执行顺序:
-            stock_list → fund_list → fund_detail_enrich → fund_nav → price_history
+        执行顺序由 `build_execution_plan()` 决定——**顺序即优先级**：当天必须刷新的
+        净值/行情/快照排第一梯队，全市场名录（周频）排最后（#1490）。
 
         单实例锁保证同时只有一个同步进程运行。
         """
@@ -563,66 +689,19 @@ class DataSyncOrchestrator:
 
             # 解析目标代码列表
             targets = self.resolve_targets(target_file)
-            fund_targets = targets.get('fund', [])
-            stock_targets = targets.get('stock', [])
-            # #1983：场内 ETF 的裸码只进 fund_position（抓底层持仓 / 行业配置），
-            # 不进 fund_nav / fund_type 等其他 job——它们对 ETF 的既有语义不变。
-            etf_targets = targets.get('etf', [])
-
-            # 执行顺序：列表类 Job 不需要目标列表，净值/行情需要
-            execution_plan = [
-                ('stock_list', ['__full__']),  # 全量刷新股票列表，不需要目标列表
-                ('fund_list', ['__full__']),  # 全量刷新基金列表
-                ('fund_detail_enrich', fund_targets),  # 补充基金详情（核心池）
-                ('fund_type', fund_targets),  # 回填基金类型（核心池，#1155 根治项）
-                # #1286 数据底座：拆成两条成本量级不同的链路（原 fund_meta 一条全干，见 #1403）
-                #   fund_scale —— 单次 HTTP 返回全市场列表，§4.3.3 允许全量
-                #   fund_position —— 逐只 HTTP（≈1.8s/只），§4.3.3 强制按目标池限量
-                ('fund_scale', ['__full__']),
-                (
-                    'fund_position',
-                    fund_targets + etf_targets,
-                ),  # 空 targets 显式跳过，不退化为全库（#1983：含场内 ETF 裸码）
-                # #2478：风格箱与持仓明细同目标池（持仓+自选，含场内 ETF 裸码）；
-                # 上游月度更新，job 内按 (fund_code, style_name, stat_date) 去重做增量。
-                ('fund_style', fund_targets + etf_targets),
-                ('fund_manager', fund_targets),  # 回填基金经理并关联基金公司（核心池）
-                # 导入侧观察值 → funds.company_id（不联网、幂等、只填空缺）：
-                # 紧跟基金公司相关任务，且 funds 已由 fund_list 建好
-                ('fund_company_backfill', []),
-                ('fund_nav', fund_targets),  # 净值增量同步（核心池）
-                ('price_history', stock_targets),  # 行情增量同步（核心池）
-                ('index_constituents', INDEX_TARGETS),  # 指数成分回填（#1286 数据底座）
-                ('index_catalog', ['__full__']),  # 指数名录重建（#1286 聚合搜索底座）
-                ('index_daily', ['__full__']),  # 指数日线（万得全A 全量 10 年，#275）
-                # #1460：探市大类资产日频快照（20 资产 + 债券收益率轨）—— 每日落库一次，
-                # 让 /api/market/overview 读库即回（毫秒级）；无外部目标池依赖，targets 传空。
-                ('market_asset_daily', []),
-                # #2481：行业 PB-ROE 日频快照（一次请求拿申万一级全行业矩阵）——
-                # 同 market_asset_daily 的日频快照范式，落 market_composites；
-                # 探市行业比较读库即回，不每次请求打上游。
-                ('industry_pbroe', []),
-                ('dividend_split', stock_targets + fund_targets),  # 分红/送股抓取（#1179）
-                # 孤儿交易回填（#950）：只补 position_id，不碰金额/确认日，故与外部数据源无关，
-                # 排在分红拆分之后即可（它自己查库，不依赖任何 target池）。
-                ('orphan_backfill', []),
-                ('advisor_portfolio', ['__full__']),  # 投顾组合持仓/调仓回填（#1167，组合数少且自带节流）
-                # #1104：持仓现价回写——必须排在净值/行情之后、资产快照之前：
-                # 快照的市值/盈亏读的正是 positions.current_price，顺序错了快照就还是旧价。
-                # 不联网（只读库内已确认净值），故无请求风暴风险；目标池自持仓表，targets 传空。
-                ('position_price', []),
-                # #167：风险指标快照必须排在净值之后（它读的就是 fund_nav 刚落库的序列），
-                # 又要排在资产快照之前——快照锁的是「当日状态」，指标是状态的一部分。
-                # 不联网，故不占外部请求窗口。
-                ('fund_risk_metrics', fund_targets),
-                # #1182：资产快照落账放最后，确保前面的净值/行情已刷新，快照取到最新值
-                ('asset_snapshot', []),
-            ]
+            execution_plan = build_execution_plan(targets)
 
             results = {}
             for job_name, job_targets in execution_plan:
-                if job_name in self.jobs:
-                    results[job_name] = self._execute_job(job_name, full_sync, job_targets)
+                if job_name not in self.jobs:
+                    continue
+                # full_sync 是显式回填，不受周频频控约束（运维要能强制重抓）
+                skipped = None if full_sync else self._skip_if_recent(job_name)
+                if skipped is not None:
+                    logger.info(f'跳过 {job_name}：{skipped["reason"]}')
+                    results[job_name] = skipped
+                    continue
+                results[job_name] = self._execute_job(job_name, full_sync, job_targets)
             return results
         finally:
             if fd is not None:

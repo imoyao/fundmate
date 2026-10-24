@@ -13,6 +13,13 @@ import {
   type TrendView
 } from "./trendViewMetrics";
 import {
+  formatReturnPercent,
+  toCumulativeReturn,
+  toReturnPct,
+  trendBasisOptions,
+  type TrendBasis
+} from "./trendBasisMetrics";
+import {
   getProductTrend,
   getTradeTimeline,
   type ProductTrendResult,
@@ -95,6 +102,23 @@ import { formatPrice, priceAxisLabelFormatter } from "@/utils/pricePrecision";
  * - **时间线不分区间**：后端一次返回全量重放结果，前端按当前区间过滤展示；
  * - 拉取失败 / 未持有 → 静默不渲染叠加层，主曲线不受影响（设计 §6）。
  *
+ * ## 口径维度：净值 / 业绩（#2454）
+ *
+ * 走势图原来只有**净值/收盘价**一条线，答的是「现在多少钱」；用户要的**业绩走势**
+ * 答的是「这段时间赚了多少」——后者从对前者的**纯派生**算出，不新开接口：
+ *
+ * - **基准 = 窗口首日**（不是成立以来）：用户问的是「这段」时间。成立以来收益是
+ *   业绩卡的口径，同页不造第二个数字（#2171 决策）；
+ * - 计算收口在 `trendBasisMetrics`（含单测）：首日恒 0、非有限值回落 0
+ *   （ECharts 遇 NaN 会**默默跳过该点**，等于藏数据——`trendMarkerMetrics` 同款教训）；
+ * - **业绩口径强制折线**：K 线画 OHLC 价格，没有「收益率 K 线」。合成判据是
+ *   `basis === 'nav' && effectiveUseCandle(...)`——「实际在画什么」而不是
+ *   「切换器选中什么」（#2453 纪律，选中值在切换器不渲染时没有语义）；
+ * - 业绩口径下叠加层**重新锚定**到收益率空间（买卖点 y、成本线都按同一基准换算），
+ *   tooltip 主行给 `收益率%（当日净值/成本 价格）`——只看 % 不知道当时多少钱；
+ * - 画一条 **0% 基准线**：曲线本身从 0 出发，但没有这条线时「高于/低于基准」
+ *  要靠眼估刻度；红涨绿跌沿用中国市场惯例（CHART_TOKENS.rise/fall）。
+ *
  * ## 累计收益面板（P1，见 ProductProfitPanel.vue）
  *
  * 与叠加层共用同一次时间线请求（detail 层不重复取数）：累计已实现盈亏 +
@@ -155,6 +179,16 @@ function hexToRgba(hex: string, alpha: number): string {
 
 const hasData = computed(() => (trend.value?.values.length ?? 0) >= 2);
 
+/**
+ * 业绩序列（#2454）：区间累计收益率（%），基准 = 窗口首日。
+ *
+ * 与 `values` **等长按位对齐**（category 轴错位 = 整张图漂移）；非有限值已在
+ * `trendBasisMetrics` 内回落 0——NaN 会被 ECharts 静默跳过，等于把数据藏了。
+ */
+const returnSeries = computed(() =>
+  toCumulativeReturn(trend.value?.values ?? [])
+);
+
 /** 场内 = 有 OHLCV（具备画 K 线的能力）；场外基金 / 指数只有一条净值线（品类差异化） */
 const isCandle = computed(() => (trend.value?.ohlc?.length ?? 0) >= 2);
 
@@ -166,19 +200,38 @@ const isCandle = computed(() => (trend.value?.ohlc?.length ?? 0) >= 2);
  */
 const candleView = ref<TrendView>("candle");
 
-/** 是否显示视图切换器：有 OHLCV 才谈得上「K 线」（场外给切换器是假选择） */
-const canToggleView = computed(() =>
-  showViewToggle(trend.value?.ohlc?.length ?? 0)
+/**
+ * 口径（#2454）：`nav` = 净值/收盘价绝对值；`return` = 区间累计收益率。
+ *
+ * 默认 `nav`（既有观感不变，K 线默认视图也不动）；「业绩」是用户明确要的第二个
+ * 答案（「这段时间赚了多少」），与视图维度正交——口径决定 y 轴画什么，视图决定
+ * 用什么画。场内外都给这个切换器：场外没有 K 线，但同样有「赚了多少」这个问题。
+ */
+const basis = ref<TrendBasis>("nav");
+
+/** 口径切换器选项：第一项标签随品类变（场内「价格」/ 场外「净值」，#2171 后续） */
+const basisOptions = computed(() => trendBasisOptions(isCandle.value));
+
+/** 是否显示视图切换器：有 OHLCV 才谈得上「K 线」（场外给切换器是假选择）；
+ **业绩口径下隐藏**——K 线没有收益率画法，留着一个点了没反应的选项是假可操作性。 */
+const canToggleView = computed(
+  () => showViewToggle(trend.value?.ohlc?.length ?? 0) && basis.value === "nav"
 );
 
 /**
- * 当前**真的**在画 K 线 = 具备能力 **且** 选的是 K 线视图。
+ * 当前**真的**在画 K 线 = 具备能力 **且** 选的是 K 线视图 **且** 是净值口径。
  *
- * 走 `effectiveUseCandle`（含单测）而不是在组件里再拼一次 `isCandle && view === 'candle'`：
- * 拼漏、或改用「切换器选中值」代替「实际视图」，都会让叠加层判定与画面脱节（#2453）。
+ * 走 `effectiveUseCandle`（含单测）而不是在组件里再拼一次
+ * `isCandle && view === 'candle'`：拼漏、或改用「切换器选中值」代替「实际视图」，
+ * 都会让叠加层判定与画面脱节（#2453）。
+ *
+ * `basis === 'nav'` 是第三道合取（#2454）：业绩口径没有 K 线这种画法
+ * （K 线是 OHLC 价格），勾上「业绩」时无论视图选中值是什么，画的都是折线。
  */
-const useCandle = computed(() =>
-  effectiveUseCandle(trend.value?.ohlc?.length ?? 0, candleView.value)
+const useCandle = computed(
+  () =>
+    basis.value === "nav" &&
+    effectiveUseCandle(trend.value?.ohlc?.length ?? 0, candleView.value)
 );
 
 /**
@@ -294,11 +347,17 @@ const clearingMarksList = computed(() => {
   return from ? all.filter(m => m.date >= from) : all;
 });
 
-/** 日期 → 净值：买卖点画在当日净值位置（用户实际按净值成交，#2171 定稿） */
-const navByDate = computed(() => {
+/**
+ * 日期 → 当前口径下的绘制值。
+ *
+ * 净值口径：买卖点画在**当日净值**位置（用户实际按净值成交，#2171 定稿）；
+ * 业绩口径（#2454）：换算成**当日累计收益率**——y 轴已是 %，点还挂在净值上就悬空了。
+ */
+const plotValueByDate = computed(() => {
   const m = new Map<string, number>();
   const dates = trend.value?.dates ?? [];
-  const values = trend.value?.values ?? [];
+  const values =
+    basis.value === "return" ? returnSeries.value : (trend.value?.values ?? []);
   dates.forEach((d, i) => m.set(d, values[i]));
   return m;
 });
@@ -316,7 +375,7 @@ const navByDate = computed(() => {
  * 不判——没有参照就不下结论。
  */
 const markerData = computed(() => {
-  const nav = navByDate.value;
+  const nav = plotValueByDate.value;
   type MarkerMeta = {
     side: "buy" | "sell";
     date: string;
@@ -428,6 +487,19 @@ const costSeriesData = computed(() => {
     if (m.has(d)) last = m.get(d) ?? null;
     return last;
   });
+});
+
+/**
+ * 成本线的**绘制值**（#2454）：业绩口径下按同一基准（窗口首日）换算成收益率。
+ *
+ * 首笔交易前为 null 的位置**保持 null**——换算成 0 会画出一条假的 0% 成本线，
+ * 用户会以为「最初的持仓成本就是基准」。
+ */
+const costPlotSeries = computed(() => {
+  const raw = costSeriesData.value;
+  if (basis.value !== "return") return raw;
+  const base = trend.value?.values?.[0] ?? NaN;
+  return raw.map(v => (v === null ? null : toReturnPct(v, base)));
 });
 
 /**
@@ -629,7 +701,12 @@ const chartOption = computed(() => {
 
   // 场外（累计净值，#2171）或没有 OHLCV 的场内：一条线。
   // **不平滑**：平滑会画出实际不存在的峰谷，价格序列上那是失真（#1969）。
-  const rising = values.length >= 2 && values[values.length - 1] >= values[0];
+  const isReturn = basis.value === "return";
+  // 业绩口径画收益率序列（与 values 等长按位对齐），否则画原始净值/收盘价
+  const plotValues = isReturn ? returnSeries.value : values;
+  const rising =
+    plotValues.length >= 2 &&
+    plotValues[plotValues.length - 1] >= plotValues[0];
   const lineColor = rising ? rise : fall;
   // 叠加层取色刻意避开 rise（红）/ fall（绿）：买卖点不是涨跌语义，
   // 涂红涂绿会让用户把「我买过」误读成「涨了」。蓝=买入、橙=卖出、
@@ -648,10 +725,22 @@ const chartOption = computed(() => {
     CHART_TOKENS.textTertiary,
     CHART_FALLBACKS.textTertiary
   );
+  // 业绩口径的 0% 基准线（#2454）：中性灰**实线**——与点线竖线（事件）、
+  // 虚线成本线（水平）三层形态分层，不靠颜色区分（色弱用户也读得出）
+  const zeroLineColor = getCssVar(
+    CHART_TOKENS.textTertiary,
+    CHART_FALLBACKS.textTertiary
+  );
 
   /** 轴触发 tooltip：净值行 + 当日成本线 + 当日买卖汇总（#2171）。
       同日多笔在 markerData 已聚合，这里直接显示「N 笔合计」；
-      低于当时成本线的点附偏离度（空心编码的文字版，色弱用户也能读到）。 */
+      低于当时成本线的点附偏离度（空心编码的文字版，色弱用户也能读到）。
+
+      ⚠️ null 值行必须**整行跳过**（#2454 实测发现的既有缺陷）：成本线在首笔交易前
+      为 null（那时还没有持仓成本），ECharts 会把 null 原样放进 params。旧代码
+      `Number(p.value)` 把 null 压成 0，tooltip 于是显示一行「成本线：0.0000」——
+      把「没有数据」伪装成「成本是 0」，正是设计 §6 禁的造假。业绩口径下同行
+      会显示「0.00%」，同样必须跳过。 */
   const tooltipFormatter = (params: Array<Record<string, unknown>>) => {
     if (!params?.length) return "";
     const date = String(params[0].axisValue ?? "");
@@ -673,8 +762,29 @@ const chartOption = computed(() => {
         rows.push(
           `${p.marker ?? ""}${seriesName}${merged}：¥${amount}${closed}${deviationText}${confirm}`
         );
+      } else if (isReturn) {
+        // 首笔交易前成本线为 null：整行跳过（见 tooltipFormatter 头注释）
+        const rawValue = Array.isArray(p.value) ? p.value[1] : p.value;
+        if (rawValue === null || rawValue === undefined) continue;
+        // 业绩口径（#2454）：主行给收益率，括号附当日净值/收盘价（或成本）——
+        // 只看 % 不知道当时多少钱。tooltip 是解释层不是压缩层，两个数都给。
+        const idx = Number(p.dataIndex ?? -1);
+        const plotted = Number(rawValue);
+        const isCost = seriesName === "成本线";
+        const orig = isCost ? costSeriesData.value[idx] : values[idx];
+        const origLabel = isCost ? "成本" : isCandle.value ? "收盘价" : "净值";
+        const origText =
+          orig === null || orig === undefined || !Number.isFinite(orig)
+            ? ""
+            : `（${origLabel} ${formatPrice(orig, props.assetType)}）`;
+        rows.push(
+          `${p.marker ?? ""}${seriesName}：${formatReturnPercent(plotted)}${origText}`
+        );
       } else {
-        const v = Array.isArray(p.value) ? Number(p.value[1]) : Number(p.value);
+        // 同上：null 行跳过，不把「没有数据」显示成 0
+        const rawValue = Array.isArray(p.value) ? p.value[1] : p.value;
+        if (rawValue === null || rawValue === undefined) continue;
+        const v = Number(rawValue);
         rows.push(
           `${p.marker ?? ""}${seriesName}：${formatPrice(v, props.assetType)}`
         );
@@ -682,6 +792,35 @@ const chartOption = computed(() => {
     }
     return rows.join("<br/>");
   };
+
+  /**
+   * 主系列 markLine 数据（#2171 P2 + #2454）。
+   *
+   * 清仓轮次竖线与 0% 基准线共用一次 markLine 配置（ECharts 一个系列只能挂一个
+   * markLine），但**形态分层**：竖线是点线 + 编号（标事件），基准线是实线 + 无标签
+   * （标水平）——不靠颜色区分，色弱用户也读得出。
+   */
+  const markLineData: Array<Record<string, unknown>> = [];
+  if (markersActive.value) {
+    for (const m of clearingMarksList.value) {
+      markLineData.push({
+        xAxis: m.date,
+        label: {
+          formatter: clearingLabel(m.round, clearingMarksList.value.length),
+          position: "insideEndTop"
+        }
+      });
+    }
+  }
+  if (isReturn) {
+    // 0% 基准线：收益率曲线本身从 0 出发，但没有这条线时「高于/低于基准」
+    // 要靠眼估刻度——一条实线把上下分区画出来（业绩走势的标准配法）。
+    markLineData.push({
+      yAxis: 0,
+      lineStyle: { color: zeroLineColor, type: "solid", width: 1 },
+      label: { show: false }
+    });
+  }
 
   return {
     tooltip: { trigger: "axis", formatter: tooltipFormatter },
@@ -696,43 +835,39 @@ const chartOption = computed(() => {
       type: "value",
       scale: true,
       // 净值 4 位、股价 2 位：不设 formatter 时 echarts 默认只给 1 位，
-      // 净值 4.8124 在轴上会显示成 4.8（用户实测反馈）
+      // 净值 4.8124 在轴上会显示成 4.8（用户实测反馈）。
+      // 业绩口径（#2454）画**带符号百分比**：「+12.3%」比「12.3」多一个「赚了」的确认。
       axisLabel: {
         fontSize: 11,
-        formatter: priceAxisLabelFormatter(props.assetType)
+        formatter: isReturn
+          ? (v: number) => formatReturnPercent(v, 1)
+          : priceAxisLabelFormatter(props.assetType)
       },
       splitLine
     },
     series: [
       {
         // 场内折线视图画的是**收盘价**（与持仓成本同口径），场外才是净值——
-        // 名字不能都叫「净值」，否则场内用户会拿它去对比基金净值（#2171 后续）
-        name: isCandle.value ? "收盘价" : "净值",
+        // 名字不能都叫「净值」，否则场内用户会拿它去对比基金净值（#2171 后续）；
+        // 业绩口径（#2454）叫「业绩」：曲线画的是收益率，名字得跟着口径走
+        name: isReturn ? "业绩" : isCandle.value ? "收盘价" : "净值",
         type: "line",
-        data: values,
+        data: plotValues,
         smooth: false,
         symbol: "none",
         lineStyle: { color: lineColor, width: 2 },
         areaStyle: { color: hexToRgba(lineColor, 0.08) },
         // 清仓轮次标记（#2171 P2）：每轮结束画一条点线竖线并编号。
         // `silent: true` —— 它只是刻度，不该抢 tooltip（悬停仍显示当日净值 / 成本 / 买卖）。
-        ...(markersActive.value && clearingMarksList.value.length
+        // 业绩口径另含一条 0% 基准线（#2454，见 markLineData 构造处）。
+        ...(markLineData.length
           ? {
               markLine: {
                 silent: true,
                 symbol: ["none", "none"],
                 lineStyle: { color: clearingColor, type: "dotted", width: 1 },
                 label: { fontSize: 10, color: clearingColor },
-                data: clearingMarksList.value.map(m => ({
-                  xAxis: m.date,
-                  label: {
-                    formatter: clearingLabel(
-                      m.round,
-                      clearingMarksList.value.length
-                    ),
-                    position: "insideEndTop"
-                  }
-                }))
+                data: markLineData
               }
             }
           : {})
@@ -740,12 +875,13 @@ const chartOption = computed(() => {
       // 成本线（#2171）：移动加权（含手续费），非交易日前向延续；清仓日断在
       // 最后一笔（costSeriesData 在首笔前为 null，天然不画）。虚线 + 中性灰，
       // 与净值曲线（实线 + 涨跌色）形态分层，不抢主视觉。
+      // 业绩口径（#2454）下换算成同基准收益率（costPlotSeries）——y 轴已是 %。
       ...(markersActive.value
         ? [
             {
               name: "成本线",
               type: "line",
-              data: costSeriesData.value,
+              data: costPlotSeries.value,
               symbol: "none",
               smooth: false,
               lineStyle: { color: costLineColor, width: 1, type: "dashed" }
@@ -850,8 +986,19 @@ watch(firstTradeDate, () => {
             size="small"
             ariaLabel="切换走势区间"
           />
+          <!-- 口径切换（#2454）：净值/价格 vs 业绩（区间累计收益率）。场内外都给——
+               「现在多少钱」与「这段时间赚了多少」是两个问题，后者由业绩线答。
+               与视图切换**正交**：口径决定 y 轴画什么，视图决定用什么画。 -->
+          <SegmentedControl
+            v-model="basis"
+            :options="basisOptions"
+            size="small"
+            ariaLabel="切换走势口径"
+          />
           <!-- 场内视图切换（#2171 后续）：K 线 / 折线。折线视图让买卖点与成本线能叠上来
-               （它们都是「元/股」日序列，只能与折线同轴）；场外只有一条线，不显示该切换器。 -->
+               （它们都是「元/股」日序列，只能与折线同轴）；场外只有一条线，不显示该切换器。
+               **业绩口径下同样隐藏**（canToggleView 已含 basis 判定）——K 线没有收益率
+               画法，留一个点了没反应的选项是假可操作性（#2453 同款纪律）。 -->
           <SegmentedControl
             v-if="canToggleView"
             v-model="candleView"
@@ -914,6 +1061,11 @@ watch(firstTradeDate, () => {
         {{ trend?.dates?.[trend.dates.length - 1] }}
         <template v-if="trend?.source">
           · 数据来源：{{ trend.source }}（{{ trend.basis }}）
+        </template>
+        <!-- 业绩口径（#2454）：口径说明——基准是区间首日（不是成立以来），
+             与「这段时间赚了多少」这个问题对齐；成立以来收益归业绩卡，不重复造。 -->
+        <template v-if="basis === 'return'">
+          · 业绩以区间首日{{ isCandle ? "收盘价" : "净值" }}为基准
         </template>
         <template v-if="hasMarkers"> · 空心△ = 低于当时成本</template>
       </p>

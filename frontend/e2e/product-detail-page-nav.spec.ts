@@ -244,9 +244,14 @@ test.describe("详情页页内导航（#1968）", () => {
       "交易记录",
       "基金资料",
       "业绩与风险",
-      "行业与持仓",
-      "关联标的",
+      // 高级洞察 Pro 紧跟业绩与风险（高价值模块不沉底；详情页区块顺序的投影）
       "高级洞察 Pro",
+      "行业与持仓",
+      // 相似基金（#2480）/ 投资风格（#2478）：两区块合入 dev 时漏更新本断言，
+      // 因 E2E 不进 per-PR 门禁（#1568）而一直没转红——本 PR 连过期项一并修正
+      "相似基金",
+      "投资风格",
+      "关联标的",
       "更多数据"
     ]);
 
@@ -286,7 +291,10 @@ test.describe("详情页页内导航（#1968）", () => {
             symbol: SYMBOL,
             asset_type: "fund",
             pro_enabled: true,
-            paywall_required: false,
+            // 未开通态（#2523 两态拆分）：介绍卡只有未开通家庭看得到。
+            // 原 stub 是 false（已开通）——拆分后已开通整组隐藏，徽标断言
+            // 属引导态，故改 true；遮罩本体仍由 env 显式关闭，与此无关。
+            paywall_required: true,
             modules: {
               performance: { available: false, phase: 2 },
               risk: { available: false, phase: 2 },

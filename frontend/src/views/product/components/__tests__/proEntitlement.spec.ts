@@ -1,11 +1,12 @@
 /**
- * Pro 区块的失败态分类与付费墙三态（#2324 前端跟进）。
+ * Pro 区块的失败态分类与付费墙开关（#2324 前端跟进；#2527 URL 运行时覆盖）。
  *
  * 钉两件事：
  * 1. **403 不等于「权益未开通」**：必须 `status=403` **且** `error_code=1007` 才算。
  *    只认状态码会把别的 403 权限错误也画成「开通 Pro 就好」——那是在骗用户；
- * 2. **付费墙三态的顺序**：env 显式覆盖 > 后端 `paywall_required`；
- *    状态位取不到（null）时**不开遮罩**（「没问出来」不是「未开通」）。
+ * 2. **付费墙开关的顺序**：URL 覆盖（`?pro_paywall=0|1`）> env 显式覆盖 >
+ *    后端 `paywall_required`；状态位取不到（null）时**不开遮罩**
+ *    （「没问出来」不是「未开通」）。
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -67,32 +68,59 @@ describe("classifyProPanelFailure：403 + 1007 才是权益边界", () => {
   });
 });
 
-describe("resolvePaywallEnabled：三态（env 覆盖 > 后端状态位）", () => {
-  it('env="false" → 关，哪怕后端说该挂遮罩（本地预览 / e2e 的放行口）', () => {
-    expect(resolvePaywallEnabled("false", true)).toBe(false);
+describe("resolvePaywallEnabled：开关顺序（URL > env > 后端状态位）", () => {
+  it('URL "1" → 开，压过 env="false" 与后端已开通（运行时强制演示遮罩）', () => {
+    expect(resolvePaywallEnabled("1", "false", false)).toBe(true);
+    expect(resolvePaywallEnabled("1", undefined, false)).toBe(true);
   });
 
-  it('env="true" → 开，哪怕本户已开通（强制演示遮罩）', () => {
-    expect(resolvePaywallEnabled("true", false)).toBe(true);
+  it('URL "0" → 关，压过 env="true" 与后端未开通（运行时强制隐藏遮罩）', () => {
+    expect(resolvePaywallEnabled("0", "true", true)).toBe(false);
+    expect(resolvePaywallEnabled("0", undefined, true)).toBe(false);
+  });
+
+  it("URL 也认 true/false 拼写（查询串里两种写法都常见，不猜其它）", () => {
+    expect(resolvePaywallEnabled("true", "false", false)).toBe(true);
+    expect(resolvePaywallEnabled("false", "true", true)).toBe(false);
+  });
+
+  it("URL 缺省 / 不认识的取值 → 落到 env（?pro_paywall=yes 不猜）", () => {
+    expect(resolvePaywallEnabled(undefined, "false", true)).toBe(false);
+    expect(resolvePaywallEnabled("", "true", false)).toBe(true);
+    expect(resolvePaywallEnabled("yes", "false", true)).toBe(false);
+    expect(resolvePaywallEnabled("2", "true", false)).toBe(true);
+  });
+
+  it("URL 首尾空白归一（?pro_paywall=%201 不该静默失效）", () => {
+    expect(resolvePaywallEnabled(" 1 ", "false", false)).toBe(true);
+    expect(resolvePaywallEnabled(" 0 ", "true", true)).toBe(false);
+  });
+
+  it('env="false" → 关，哪怕后端说该挂遮罩（本地预览 / e2e 的放行口）', () => {
+    expect(resolvePaywallEnabled(undefined, "false", true)).toBe(false);
+  });
+
+  it('env="true" → 开，哪怕本户已开通（构建期强制演示遮罩）', () => {
+    expect(resolvePaywallEnabled(undefined, "true", false)).toBe(true);
   });
 
   it("env 未配置 → 以后端 paywall_required 为准", () => {
-    expect(resolvePaywallEnabled(undefined, true)).toBe(true);
-    expect(resolvePaywallEnabled(undefined, false)).toBe(false);
+    expect(resolvePaywallEnabled(undefined, undefined, true)).toBe(true);
+    expect(resolvePaywallEnabled(undefined, undefined, false)).toBe(false);
   });
 
   it("状态位取不到（null / undefined）→ 不显示遮罩（不是「未开通」）", () => {
-    expect(resolvePaywallEnabled(undefined, null)).toBe(false);
-    expect(resolvePaywallEnabled("", undefined)).toBe(false);
+    expect(resolvePaywallEnabled(undefined, undefined, null)).toBe(false);
+    expect(resolvePaywallEnabled(undefined, "", undefined)).toBe(false);
   });
 
-  it("不认识的取值按未配置处理（开关值不猜）", () => {
-    expect(resolvePaywallEnabled("0", true)).toBe(true);
-    expect(resolvePaywallEnabled("yes", false)).toBe(false);
+  it("env 不认识的取值按未配置处理（开关值不猜）", () => {
+    expect(resolvePaywallEnabled(undefined, "0", true)).toBe(true);
+    expect(resolvePaywallEnabled(undefined, "yes", false)).toBe(false);
   });
 
-  it("首尾空白归一（.env 里多一个空格不该翻转开关）", () => {
-    expect(resolvePaywallEnabled(" false ", true)).toBe(false);
-    expect(resolvePaywallEnabled(" true ", false)).toBe(true);
+  it("env 首尾空白归一（.env 里多一个空格不该翻转开关）", () => {
+    expect(resolvePaywallEnabled(undefined, " false ", true)).toBe(false);
+    expect(resolvePaywallEnabled(undefined, " true ", false)).toBe(true);
   });
 });

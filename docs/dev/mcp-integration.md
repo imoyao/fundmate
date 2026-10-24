@@ -311,20 +311,49 @@ S2 落地时判据写成 8 条**变异探针**（改生产代码 → 用例必�
 
 capability 声明 `tier`，`invoke()` 据此决定落库 / TTL / 是否记账。
 
-### 6.2 Wind 的四个实测坑（全部收在 `map_args`）
+### 6.2 Wind 的实测坑（2026-10-23 真机采样后重写，源 #2516）
 
-| 坑 | 处理 |
-|---|---|
-| `period` 必须是 `"10"`（日 K），传 `"D"` 直接 `Invalid value` | adapter 内映射，不暴露给业务 |
-| `get_index_fundamentals` 认名称（`沪深300`）不认代码（`000300.SH`） | 维护 `code → 查询名` 映射 |
-| 批量参数是逗号分隔字符串，不是数组 | adapter 归一化 |
-| 返回是 `{columnNames, rows}` 多块表格 | `extract()` 按列名取，缺列显式 `None` |
+| 坑 | 实测事实 | 处理 |
+|---|---|---|
+| 工具清单只有两个 | `market_search_tools`（自然语言 → 工具清单）、`market_call_tool`（`toolName` + `arguments` JSON 串）；**没有** `get_index_fundamentals` | 数据工具一律经 `market_call_tool` 转发；能力表只登记实测工具名 |
+| 工具名错时 **HTTP 200 + `isError: true`** | 报文：`工具不存在: vserver_wind_tools, get_index_fundamentals` | 传输层检查 `result.isError` 并当失败上抛（不许当数据返回） |
+| 请求体必须是 JSON-RPC | 发 `{'toolName': …}` 直接 **HTTP 400** + 11 条 `JSONRPCMessage` 校验错 | `_wire` 仍是标准 `tools/call`，只把 `params.name` 换成网关入口 |
+| `period` 必须是 `"10"`（日 K） | 传 `"D"` → `Invalid value` | `_normalize_period` 映射；未知取值**报错**，不猜 |
+| 返回**不是** `{columnNames, rows}` | `get_index_kline` → `data.columns[].name` + `data.rows`；`get_index_basicinfo` → 还多包一层 `data.data[]` | `extract()` 两种都认，另兼容旧 `columnNames` |
+| SSE 响应无 charset | requests 猜 ISO-8859-1 ⇒ 中文乱码；更致命的是 UTF-8 续字节 `0x85` 被当换行把 JSON 折断 ⇒ 报「调用返回为空」 | 一律用 `resp.content` 按 UTF-8 解码，再按 SSE 事件块解析 |
+
+⚠️ **不要反推代码**：同一个问题两次采样，`get_index_basicinfo` 分别返回过 `000300.SH` 与
+`399300.SZ`。上游会按问题重排结果，故「拿返回的代码回查」不可靠 —— 要代码就用请求侧给的。
 
 ### 6.3 生产链路不做自然语言检索
 
-`market_search_tools` 每次 1–2s 且结果依赖语义。**工具名走 registry 静态映射**；
-检索只留给人工探针（`pdm run mcp-probe "<问题>"`）。否则线上会出现「同一份代码今天取不到、
-明天又好了」的不可复现故障。
+`market_search_tools` 每次 1–2s 且结果依赖语义。**工具名走静态常量表**（`_CAPABILITY_TOOLS`），
+数据查询经 `market_call_tool` 转发；检索只留给人工探针（`pdm run mcp-probe --question ...`）。
+否则线上会出现「同一份代码今天取不到、明天又好了」的不可复现故障。
+
+实测补充（2026-10-23）：**不先 search 也能调** —— `market_call_tool` 的 `toolName` 填裸名
+（`get_index_kline`）即可，不需要 `serverId` 前缀。故「不做检索」在生产链路上是可执行的，
+代价只有一个常量表要随上游工具变更手工维护（工具名写错会被 `isError` 当场挡住，不会静默）。
+
+### 6.4 同后缀 ≠ 同源：源归属必须是常量（2026-10-23，源 #2476）
+
+`index_daily_job` 按**代码后缀**分流（`.WI` / `.CSI` / 其余），但后缀只描述代码形态，
+**不描述数据源归属**。`885002.WI` 在韭圈儿未收录、在万得 MCP 可取，就是这么一处错位：
+
+| 事实 | 证据 |
+|---|---|
+| 韭圈儿无序列 | 2026-10-21：`disabled=True` / `data={}` / `series` 长度 0 |
+| 万得 MCP 可取 | 2026-10-23：5537 条，2003-12-31 起（1000.0），2026-10-22 收 7206.3199 |
+| 两源**不同尺度** | 同日同码：`885001.WI` 韭圈儿 925.6 / 万得 10877.345；`885000.WI` 935.7 / 14769.2608 |
+
+- **源归属写成常量**（`index_daily_job.WIND_MCP_INDEX_CODES`），**不做**「A 失败就试 B」：
+  两道源尺度差一个数量级，回退一旦真的发生，序列会在换源那天拼出一段凭空涨跌（#2464 同族）。
+- **「未配置」与「上游失败」必须分开**：前者只记 `stats['degraded']` + warning（可选组件
+  不可用），后者进 `errors`（真故障）。混成一个 `except` 会让「今天没配 Token」长期显示成
+  「数据源故障」——反过来，静默返回空会让前端「暂无基准」与「这只指数没数据」同形（#171）。
+- 判据：`backend/tests/services/sync/test_index_daily_job.py::TestWindMcpIndex`（写入口径 /
+  降级不装正常 / 配了失败必进 errors 三条）与
+  `backend/tests/services/adapters/test_wind_index.py`。
 
 ## 7. 展示窗口：3~5 年，在后端截断
 
@@ -361,8 +390,8 @@ def clamp_since(since: date, *, allow_full: bool = False) -> date: ...
 | **S0** | 新增 `scripts/guard_no_hardcoded_secrets.py` 并入 `ci.yml` 的 `scripts_test`；登记 `RULE_REGISTRY`；`AGENTS.md` 落一条带判据的红线 | 守卫在真实仓库跑出 0 命中；回退探针（把假 Token 写进真实文件）必须转红；拿不到输入退 2 |
 | **S1** | 抽 `transport` + `base` + `QiemanProvider`，且慢切过去 | `tests/services/thermometer/test_qieman_fetcher.py`、`test_qieman_batch_transport.py` 全绿；握手仍只 1 次；请求数不增 |
 | **S2** ✅ | `credentials` + `errors` + 调用落库（`mcp_call_logs`）+ `health` 段 | 注入额度异常 ⇒ health 转 `degraded`（不是「成功 + 空」） |
-| **S3** | `WindProvider` + 只读探针 + 真实错误报文采样 | 接第二家（Wind）**不改 `transport.py`** |
-| **S4** | 第一个 Wind job（业绩比较基准回填）+ 展示窗口策略 | API 默认 ≤5 年；基准数据与 Wind 一致 |
+| **S3** ✅ | `WindProvider` + 只读探针 + 真实错误报文采样 | 接第二家（Wind）**不改 `transport.py` 的 provider 分支**；真实报文已采样（2026-10-23，见 §9 修正块） |
+| **S4** ⏳ | 第一个 Wind job（`index_daily` 的 `885002.WI` 走万得）+ 展示窗口策略 | ✅ 已接万得 MCP（真实点位、`price_mode='raw'`）；⏳ 展示窗口策略未做 |混合基准可用（S4 / #2476）)
 | **S5** | `user_mcp_credentials` + `PRO_FEATURES` 门禁 | 用户无 Token ⇒ 明确提示，不回退系统 Token |
 
 > **S0 收窄过（2026-10-21，源 #2486）**：S0 原本还包含「`WIND_MCP_TOKEN` / `WIND_MCP_URL`
@@ -388,6 +417,34 @@ def clamp_since(since: date, *, allow_full: bool = False) -> date: ...
 > `error_detail`，后者装的还是 `stats['errors']` 的串形），故「降级原因写人话」落
 > `stats['degraded']` 与 `stats['degraded_reasons']`，而非新加列——
 > 新增列须先答准入四问，而 `stats` 现有结构本就够用（详见 §5.3 第 3 段）。
+
+> **S3 落地偏离 §9 两处（2026-10-22，源 #2502）**，两处同一判据「**拿不到输入就别输出一个像样的值**」：
+>
+> | 原计划 | 实际 | 为什么 |
+> |---|---|---|
+> | `base_url()` = `WIND_MCP_URL or WIND_DEFAULT_URL` | **没有默认值**，缺 env 抛 `WindEndpointMissing` | 仓库、文档、历史卡里都没有可确认的网关地址。猜一个默认值的失效形态是 **DNS / WAF 报错** —— 现场会去查网络与鉴权，而真因是「地址没配」（#171 同族：拿不到输入却输出一个看起来正常的结论） |
+> | 能力表按 Wind 全量工具登记 | 只登记**实测确认过工具名**的两项（`get_index_fundamentals` / `market_search_tools`） | 工具名猜错只会换来上游 `Invalid value`，且生产链路本就不做自然语言检索（§6.3）；探针提供 `--list` 与检索能力给人探索 |
+>
+> **仍未验证的一件事**：响应侧沿用 JSON-RPC 的 `result.content[].text`（请求侧已由 `_wire`
+> 覆盖并有测试）。真实报文采样需要 `WIND_MCP_TOKEN` + `WIND_MCP_URL`，两者当前均未配置；
+> 若响应形状不同，处置是「给传输层加 provider 级解包扩展点」，**不是**在传输层里写 provider 名字分支
+> ——后者会让 §10 第 1 条判据（接第二家不改 `transport.py`）变成一句口号。
+>
+> **S3 采样后修正（2026-10-23，源 #2516）：上面那几条「未验证假设」已被真机推翻。**
+> 采样对象：`mcp.wind.com.cn/vserver_wind_tools/mcp/`，`wind-mcp-streamable-http-stateless` v1.25.0，
+> 无 `Mcp-Session-Id`（无状态）。四处偏离全部落在**既有扩展点**上，没有新增 provider 名字分支：
+>
+> | 原假设 | 实测 | 落点 |
+> |---|---|---|
+> | 请求体是 `{'toolName':…, 'arguments':'…'}`（非 JSON-RPC） | HTTP 400 + 11 条 `JSONRPCMessage` 校验错 | `_wire` 改回标准 `tools/call`，数据工具经 `market_call_tool` 转发 |
+> | 存在 `get_index_fundamentals` 这类直连工具 | 上游只有 `market_search_tools` / `market_call_tool`；调不存在的工具是 **200 + `isError`** | 能力表改为实测工具名；传输层检查 `isError` |
+> | 返回是 `{columnNames, rows}` | `data.columns[].name` + `data.rows`；`get_index_basicinfo` 还多包一层 `data.data[]` | `extract()` 两种都认（旧形状保留） |
+> | 400 一律是会话失效 | 400 也可能只是「body 不符合 JSON-RPC」 | 400 先看 JSON-RPC `error`：有则按 payload 分类、**不重握手**；无才当会话失效，且**报文进 `detail`** |
+> | SSE 用 `iter_lines(decode_unicode=True)` | 无 charset ⇒ ISO-8859-1 ⇒ `0x85` 当换行把 JSON 折断 ⇒ 报「调用返回为空」 | 用 `resp.content` 按 UTF-8 解码 + SSE 事件块解析 |
+>
+> 真机验收（同一提交）：`index_kline`（000300.SH，2026-10-15..22）→ 6 行日 K；
+> `index_basicinfo`（沪深300）→ 1 行（发布机构 / 基期 / 基点 / 成份个数）。
+> 工具名与参数坑的完整清单见 §6.2。
 
 方法搬移清单（S1 的施工单）：
 
@@ -417,7 +474,8 @@ def clamp_since(since: date, *, allow_full: bool = False) -> date: ...
 
 ## 12. 待办与已知缺口
 
-- Wind 的额度 / 欠费报文形态待采样（S3）；采样前 429 一律按**频控**（可重试），不猜死分类；
+- Wind 的额度 / 欠费报文形态待采样（S3 已就绪探针，缺 `WIND_MCP_TOKEN` / `WIND_MCP_URL`）；
+  采样前 429 一律按**频控**（可重试），不猜死分类；采样命令见 `app/tools/mcp_probe.py` 的模块 docstring；
 - ✅ **已拉平（2026-10-21，S2/#2490）**：`backend/app/services/thermometer/README.md`
   原称 `QIEMAN_API_KEY` 缺省「用内置 key」/「覆盖内置」，与代码冲突。代码内**从无内置 key**
   （`credentials._TOKEN_ENV` 是唯一来源，S0 的 `guard_no_hardcoded_secrets` 守着这条），

@@ -23,6 +23,58 @@ from app.domains.transactions.models import Transaction
 from app.services.symbol_scope import collect_transaction_symbol_variants, query_positions_by_symbol
 from app.services.txn_name_resolver import resolve_transaction_display_names
 
+# #2137 费用拆分：Transaction 列名 → 输出键（元）
+_FEE_BREAKDOWN_FIELDS = (
+    ('commission', 'commission'),
+    ('stamp_duty', 'stamp_duty'),
+    ('transfer_fee', 'transfer_fee'),
+    ('other_fee', 'other_fee'),
+)
+
+
+def fee_breakdown_yuan(txn: Transaction):
+    """流水费用拆分明细（#2137，分 → 元）；未拆分（四列全 NULL）返回 None。
+
+    与模型不变量同口径：要么四列齐全、要么全空，不存在「拆了一半」的行。
+    """
+    values = [getattr(txn, col) for col, _key in _FEE_BREAKDOWN_FIELDS]
+    if any(v is None for v in values):
+        return None
+    return {key: Money.cents_to_yuan(v) for (_col, key), v in zip(_FEE_BREAKDOWN_FIELDS, values)}
+
+
+def transaction_edit_payload(txn: Transaction) -> dict:
+    """交易编辑接口的响应 data（#2137 起含 fee_breakdown）。
+
+    组装从 `ledgers/views.py` 下沉至此（该视图文件被 `check_view_thickness.py`
+    冻结「只减不增」）：Money 反算 + 日期归一属展示组装，放 services 可脱离
+    HTTP 栈单测，也让编辑响应与列表响应共用同一套拆分口径。
+    """
+    from datetime import datetime as _dt
+
+    def _ymd(value):
+        # trade_date 为 DateTime 列（读回为 datetime），confirm_date 为 Date 列（date）；
+        # 若本次仅赋过 .date() 则为 date。统一输出 YYYY-MM-DD。
+        if not value:
+            return None
+        if isinstance(value, _dt):
+            value = value.date()
+        return value.isoformat()
+
+    return {
+        'id': txn.id,
+        'quantity': Money.min_unit_to_shares(txn.quantity),
+        'price': Money.price_units_to_yuan(txn.price),
+        'amount': Money.cents_to_yuan(txn.amount),
+        'fee': Money.cents_to_yuan(txn.fee),
+        # #2137 费用拆分明细（元）：未拆分为 None，前端按 fee 单值展示
+        'fee_breakdown': fee_breakdown_yuan(txn),
+        'trade_date': _ymd(txn.trade_date),
+        'confirm_date': _ymd(txn.confirm_date),
+        'notes': txn.notes,
+        'import_hash': txn.import_hash,
+    }
+
 
 def build_transaction_list(db, family_id: int, page: int, per_page: int, filters: dict) -> dict:
     """交易流水列表：多维筛选 + 分页 + 行组装（#1642 B 块，从视图层下沉）。
@@ -130,6 +182,9 @@ def build_transaction_list(db, family_id: int, page: int, per_page: int, filters
                 'quantity': Money.min_unit_to_shares(t.quantity),
                 'price': Money.price_units_to_yuan(t.price),
                 'fee': Money.cents_to_yuan(t.fee),
+                # #2137 费用拆分：四列齐全才给明细（元），未拆分为 None——
+                # 前端 None 时按聚合 fee 单值展示，与存量行为一致。
+                'fee_breakdown': fee_breakdown_yuan(t),
                 'amount': Money.cents_to_yuan(t.amount),
                 'status': t.status,
                 'account_name': t.account_name or ledger_names.get(t.id) or '未知账户',

@@ -6,6 +6,8 @@ from datetime import date
 from decimal import Decimal
 from typing import List, Optional, Tuple
 
+from loguru import logger
+
 from app.core.constants import PositionSource
 from app.core.venues import EXCHANGE, OTC
 from app.services.import_records import SBImportError, StandardTransactionRecord
@@ -154,6 +156,9 @@ class StandardTemplateParser(BaseImportParser):
             raise ValueError('红利再投资必须提供净值')
 
         fee = clean_amount(row.get('fee', '')) or Decimal('0')
+        # #2137 费用拆分（可选列）：模板带明细列才拆分，四列齐全且其和=fee 才认，
+        # 否则整体回落 None=未拆分（与模型不变量同口径：缺的类别显式给 0）。
+        fee_breakdown = self._parse_fee_breakdown(row)
         name = row.get('name', '')
         account_name = row.get('account_name', '')
         transaction_id = row.get('transaction_id', '') or None
@@ -170,9 +175,41 @@ class StandardTemplateParser(BaseImportParser):
             shares=shares,
             nav=nav,
             fee=fee,
+            fee_commission=fee_breakdown[0],
+            fee_stamp_duty=fee_breakdown[1],
+            fee_transfer_fee=fee_breakdown[2],
+            fee_other=fee_breakdown[3],
             transaction_id=transaction_id,
             source=self.source,
         )
+
+    # #2137：标准模板费用拆分的可选列（std_key → 中文列名见各子类 _column_map）
+    _FEE_BREAKDOWN_KEYS = ('fee_commission', 'fee_stamp_duty', 'fee_transfer_fee', 'fee_other')
+
+    @classmethod
+    def _parse_fee_breakdown(cls, row: dict) -> tuple:
+        """从映射后的行字典读四列费用明细（#2137），单位元。
+
+        只有**四列全部有值**且**其和等于聚合手续费**才返回拆分（四个 Decimal）；
+        缺列 / 无法解析 / 与手续费对不上 → 全 None（未拆分，以聚合 fee 为权威）。
+        模板没带明细列时 ``_column_map`` 里没有这些键，``row.get`` 得空串，
+        自然落到未拆分。对账回落是为防「只填明细没填手续费」的脏行撞模型的
+        拆分不变量（Transaction before_insert 会 fail closed）。
+        """
+        values = []
+        for key in cls._FEE_BREAKDOWN_KEYS:
+            raw_val = (row.get(key) or '').strip()
+            if not raw_val:
+                return (None, None, None, None)
+            parsed = clean_amount(raw_val)
+            if parsed is None:
+                return (None, None, None, None)
+            values.append(parsed)
+        fee_val = clean_amount(row.get('fee', '')) or Decimal('0')
+        if sum(values) != fee_val:
+            logger.warning(f'费用拆分四列之和({sum(values)})与手续费({fee_val})不一致，按未拆分入库（#2137）')
+            return (None, None, None, None)
+        return tuple(values)
 
     # ── 校验 ──
     def validate(
@@ -214,6 +251,11 @@ class FundStandardParser(StandardTemplateParser):
             '份额': 'shares',
             '金额': 'amount',
             '手续费': 'fee',
+            # #2137 费用拆分（可选列，缺省即未拆分）：模板带明细列才逐类落库
+            '佣金': 'fee_commission',
+            '印花税': 'fee_stamp_duty',
+            '过户费': 'fee_transfer_fee',
+            '其他费用': 'fee_other',
             '净值': 'nav',
             '账户名称': 'account_name',
             '交易流水号': 'transaction_id',
@@ -251,6 +293,11 @@ class StockStandardParser(StandardTemplateParser):
             '成交均价': 'nav',
             '成交金额': 'amount',
             '手续费': 'fee',
+            # #2137 费用拆分（可选列，缺省即未拆分）：模板带明细列才逐类落库
+            '佣金': 'fee_commission',
+            '印花税': 'fee_stamp_duty',
+            '过户费': 'fee_transfer_fee',
+            '其他费用': 'fee_other',
             '账户名称': 'account_name',
             '合同编号': 'transaction_id',
         }

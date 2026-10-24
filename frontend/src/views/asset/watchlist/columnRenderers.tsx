@@ -37,6 +37,13 @@ import {
 import { formatDate } from "@/utils/date";
 import { pricePrecision } from "@/utils/pricePrecision";
 import type { ColumnDef, ColumnRenderer, WatchlistRow } from "./columnDefs";
+// #2503：关联列的分组 / 措辞整形（纯模块，不牵动本文件的组件依赖链）
+import {
+  buildLinkTip,
+  groupLinks,
+  linkBadgeText,
+  type WatchlistLinkItem
+} from "./linkGroups";
 // renderer DOM 不携带页面 scoped 属性，配套样式必须随渲染器走（见 css 文件头注释）
 import "./columnRenderers.css";
 
@@ -943,8 +950,14 @@ const renderDrawdown: FunctionalComponent<{
  * 跨渠道关联入口（#1285 设计 §3.8「数量标记 + 浮层」）。
  *
  * 数量角标 + hover 浮层列出关联标的全名；数据来自后端 `channel_links`
- *（index_etf 指数↔场内 ETF、etf_feeder 场内 ETF↔场外联接，两类混排）。
+ *（index_etf 指数↔场内 ETF、etf_feeder 场内 ETF↔场外联接）。
+ * #2503：浮层从平铺一句改为**按 link_type 分区块**——此前场内 ETF 与场外联接
+ * 混在一句里，看不出「哪些能场内买、哪些只能场外申购」，而这两类恰恰是用户
+ * 需要区分的信息（同一暴露的不同购买渠道）。
  * 无关联渲染 `—`——不用「0 个」，与全表「无数据一律 —」的约定保持一致。
+ *
+ * 分组与文案整形在 `./linkGroups`（纯模块，可独立于本文件的组件依赖被测）；
+ * 这里只负责把它们包进 ElTooltip。
  */
 const renderLinks: FunctionalComponent<{
   row: WatchlistRow;
@@ -952,19 +965,25 @@ const renderLinks: FunctionalComponent<{
   ctx: RenderCtx;
 }> = props => {
   const links =
-    (field(props.row, "links") as
-      { code: string; name: string | null }[] | undefined) ?? [];
-  if (!links.length) return h("span", { class: "link-empty" }, "—");
+    (field(props.row, "links") as WatchlistLinkItem[] | undefined) ?? [];
+  const groups = groupLinks(links);
+  // 无关联（或分组后为空）一律降级 `—`：宁可少显示，也不给一个空浮层
+  if (!groups.length) return h("span", { class: "link-empty" }, "—");
 
-  const content = links
-    .map(l => (l.name ? `${l.name}（${l.code}）` : l.code))
-    .join("、");
+  // 浮层走 content slot（VNode）而不是 props 字符串：分组是结构化的，
+  // 拼成字符串会丢失区块边界。showAfter 稍延迟，避免鼠标掠过整列时浮层乱闪。
   return h(
     ElTooltip,
-    // content 走 props（字符串），避免为浮层引入额外渲染分支；showAfter 稍延迟，
-    // 避免鼠标掠过整列时浮层乱闪
-    { content, placement: "top", showAfter: 120, effect: "dark" },
-    { default: () => h("span", { class: "link-badge" }, `${links.length} 个`) }
+    { placement: "top", showAfter: 120, effect: "dark" },
+    {
+      default: () =>
+        h(
+          "span",
+          { class: "link-badge" },
+          linkBadgeText(groups, assetTypeOf(props.row))
+        ),
+      content: () => buildLinkTip(groups)
+    }
   );
 };
 

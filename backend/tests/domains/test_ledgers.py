@@ -4,13 +4,13 @@
 # File : test_ledgers.py
 """测试资金容器 CRUD"""
 
-from datetime import date
+from datetime import date, datetime
 
 from app.core.money import Money
 from app.domains.assets.models import Asset
 from app.domains.funds.models import Fund
 from app.domains.ledgers.models import Ledger
-from app.domains.positions.models import Position, SalesInstitution
+from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 
 
 class TestLedgerCRUD:
@@ -137,6 +137,87 @@ class TestLedgerCRUD:
         assert pos is None
         # 验证账户不存在
         assert db.query(Ledger).get(ledger.id) is None
+
+    def test_delete_ledger_force_clears_attributed_import_meta(self, client, db, make_position):
+        """删除账户时，归因到它的 E账户影子记录不得让外键拦住删除。
+
+        线上实测（2026-10-22）：影子持仓属于渠道账户，其溯源元数据只有
+        ``attributed_to_ledger_id`` 指向被删账户，删持仓删不到它，于是
+        ``DELETE FROM ledgers`` 报 FOREIGN KEY constraint failed（500）。
+        """
+        target = Ledger(name='待删账户', ledger_type='stock')
+        channel = Ledger(name='渠道账户', ledger_type='stock')
+        db.add_all([target, channel])
+        db.commit()
+
+        shadow = make_position(
+            symbol='034567',
+            name='示例基金',
+            ledger_id=channel.id,
+            account_name='渠道账户',
+            ownership_status='shadow',
+            quantity=100,
+            avg_price=1.0,
+            current_price=1.0,
+        )
+        db.add(
+            PositionImportMeta(
+                position_id=shadow.id,
+                symbol='034567',
+                ledger_id=None,
+                source='e_account_holding',
+                source_broker='示例银行',
+                is_attributed=True,
+                attributed_at=datetime.now(),
+                attributed_to_ledger_id=target.id,
+                family_id=1,
+            )
+        )
+        db.commit()
+
+        resp = client.delete(f'/api/ledgers/{target.id}/?delete_positions=true')
+        assert resp.status_code == 200
+
+        db.expire_all()
+        meta = db.query(PositionImportMeta).filter(PositionImportMeta.position_id == shadow.id).one()
+        # 归因目标已不存在 ⇒ 归因信息必须失效，否则「防复活」会挡住后续重新导入/归因
+        assert meta.attributed_to_ledger_id is None
+        assert meta.attributed_at is None
+        assert meta.is_attributed is False
+        # 影子持仓本身属于渠道账户，不应被连带删除
+        assert db.query(Position).get(shadow.id) is not None
+
+    def test_delete_ledger_force_removes_import_meta_of_its_positions(self, client, db, make_position):
+        """本账户持仓的溯源元数据必须一并清掉（不依赖库结构是否保留 ON DELETE CASCADE）。"""
+        ledger = Ledger(name='带溯源账户', ledger_type='stock')
+        db.add(ledger)
+        db.commit()
+        pos = make_position(
+            symbol='110011',
+            name='示例基金',
+            ledger_id=ledger.id,
+            account_name='带溯源账户',
+            quantity=100,
+            avg_price=1.0,
+            current_price=1.0,
+        )
+        db.add(
+            PositionImportMeta(
+                position_id=pos.id,
+                symbol='110011',
+                ledger_id=ledger.id,
+                source='e_account_holding',
+                family_id=1,
+            )
+        )
+        db.commit()
+        meta_id = db.query(PositionImportMeta).filter(PositionImportMeta.position_id == pos.id).one().id
+
+        resp = client.delete(f'/api/ledgers/{ledger.id}/?delete_positions=true')
+        assert resp.status_code == 200
+
+        db.expire_all()
+        assert db.query(PositionImportMeta).get(meta_id) is None
 
 
 class TestLedgerWithAllocation:

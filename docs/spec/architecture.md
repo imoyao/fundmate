@@ -63,7 +63,8 @@ title: 架构与技术设计（architecture）
 
 - `run(full_sync, targets)` 不再被子类覆盖。
 - 分批逻辑内置，子类只需设置 `batch_size`。
-- 空数据保护通过 `_allow_empty_data` 控制。
+- 空数据保护通过 `_allow_empty_data` 控制（**空 ≠ 没拿到**：全市场列表类抓 0 条由 `_require_non_empty` 直接抛错，见 #2467）。
+- **终态判定**收敛在 `_decide_final_status()`：默认「每一个目标都失败（`failed >= total`）且一条都没写成功 ⇒ `FAILED`」，部分失败仍 `SUCCESS`（失败明细留在 `stats['failed']` / `errors`），`failed == 0` 的「今天没有新数据」与「全被去重」也仍是 `SUCCESS`（#2495）。子类可覆盖更细口径（现有 `index_daily`，其分母含源侧未收录代码，见 #2475）。
 - 目标代码由 `DataSyncOrchestrator.resolve_targets()` 统一解析后注入。
 
 #### 3.3.3 静默历史数据回填

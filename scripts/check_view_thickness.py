@@ -201,11 +201,24 @@ BASELINE: dict[str, dict[str, int]] = {
         "commits": 0,
         "max_func": 53,
     },
+    # 2026-10-22 收紧（#2497，**下沉**而非放宽）：删除账户的「有数据不可删 + 级联删除
+    # 关联数据 + 清理 position_import_meta 引用」下沉到
+    # `services/ledger_write_service.delete_ledger`（视图只留归属校验 / 调服务 / 异常→信封），
+    # 视图层少 5 处 `db.query` ⇒ orm_queries 16 → 10、lines 728 → 701。
+    # 起因是线上 500：影子记录的 `attributed_to_ledger_id` 未随持仓删除清理，
+    # `DELETE FROM ledgers` 被外键拦下；该清理逻辑正属于业务规则，不该留在视图。
+    # 按 `--report` 实测回写，基线只减不增。
+    # 2026-10-22 再收紧（#2137，**下沉**而非放宽）：交易编辑 PATCH 的响应组装
+    # （Money 反算 + 日期归一 + 新增 fee_breakdown）下沉到
+    # `services/transaction_service.transaction_edit_payload`——给响应加字段若写在
+    # 视图里必然变厚（lines 701 → 704 已被守卫拦），而组装属展示职责、本就该在
+    # services；顺带删除 `_ymd` 闭包与 10 字段字典。orm_queries / commits 不动
+    # （10/0），lines 701 → 679、max_func 60 → 44。按 `--report` 实测回写。
     "backend/app/domains/ledgers/views.py": {
-        "lines": 728,
-        "orm_queries": 16,
+        "lines": 679,
+        "orm_queries": 10,
         "commits": 0,
-        "max_func": 60,
+        "max_func": 44,
     },
     # 2026-10-21 重取（#2481，**新增端点**，非放宽）：加 `GET /api/market/industry-pbroe/`
     # （探市行业 PB-ROE 散点，日频快照由 sync/jobs/industry_pbroe_job.py 写入）——

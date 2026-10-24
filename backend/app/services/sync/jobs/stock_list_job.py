@@ -5,6 +5,7 @@ from typing import List
 
 from app.domains.securities.models import Security
 from app.services.job_base import IN_CHUNK_SIZE, SyncJob
+from app.services.sync.bulk_ops import bulk_insert_rows, chunked
 
 
 class StockListSyncJob(SyncJob):
@@ -66,6 +67,9 @@ class StockListSyncJob(SyncJob):
         为什么必须更新存量：ETF / 可转债原先要么没进名录、要么被硬编码的 type='stock' 落库；
         若只插不更新，名录补齐后这些记录仍然是「股票」，按 type 分派的日线取数照样走错接口。
         in_ 分批查询防 SQLite 变量上限（名录 7000+ 条，超 999 变量会 OperationalError）。
+
+        写库走 `bulk_insert_rows`（多行 VALUES，#2522）：Turso/Hrana 上
+        `bulk_insert_mappings` 是逐行 HTTP 往返，8407 行实测 28 分 16 秒。
         """
         if not new_data:
             return
@@ -88,9 +92,13 @@ class StockListSyncJob(SyncJob):
                 updates.append({'id': row.id, 'name': item['name'], 'market': market, 'type': item['type']})
 
         if inserts:
-            self.db.bulk_insert_mappings(Security, inserts)
+            # #2522：必须走多行 VALUES 批量，不能用 bulk_insert_mappings——
+            # 后者在 Turso/Hrana 上退化成逐行 HTTP 往返（8407 行实测 28 分 16 秒）。
+            bulk_insert_rows(self.db, Security, inserts, log_scope='证券名录')
         if updates:
-            self.db.bulk_update_mappings(Security, updates)
+            # 更新通常为 0（名录稳定）；一旦有，也分批下发，避免单条语句过大
+            for chunk in chunked(updates, IN_CHUNK_SIZE):
+                self.db.bulk_update_mappings(Security, chunk)
 
         self.db.commit()
         self.logger.info(f'证券名录同步完成：新增 {len(inserts)}，更新 {len(updates)}')

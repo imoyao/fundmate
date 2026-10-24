@@ -179,6 +179,46 @@ pdm run invoke sched.status     # 或 pdm run scheduler --status（只读）
 > 本机不做落账。（`price_history` 自 #1104 起进本机任务：它是场内「最新价 / 持仓盈亏 /
 > 每日收益日历」的数据底座，只靠 CI 一次/天不足以自愈断档。）
 
+### 连接生产库：user 域必须走 pooler（#2460 / #2462）
+
+**根因（实测）**：Supabase 新项目的**直连**端点 `db.<ref>.supabase.co:5432` **只给 IPv6**
+（CI 日志里解析出 `2406:da18:…`），而 **GitHub Actions runner 没有 IPv6 出口**，
+libpq 直接报 `Network is unreachable`。于是即便 market 域（Turso）已修好，
+调度仍在 user 域连接这一步整轮失败——#1490 那张告警卡因此挂了 58 天。
+
+**修法**：换 pooler（Supavisor）端点（IPv4，有 A 记录），它**沿用同一份 DB 密码**，
+用户名改 `postgres.<ref>`。故只需给出端点，由代码就地改写连接串：
+
+```bash
+# backend/.env（或 CI 的 env）
+SUPABASE_POOLER_HOST=aws-1-ap-southeast-1.pooler.supabase.com
+# 可选，默认 5432（session 模式；语义最接近直连）
+# SUPABASE_POOLER_PORT=6543
+```
+
+实现：`app/core/db_factory.py::rewrite_supabase_direct_to_pooler()`，
+在 `DatabaseConfig.for_user()` 里调用——**它是 user 域 URL 的唯一入口**，
+故 engine 与 `[DB诊断]` 两条路都拿到改写后的 URL。未配 `SUPABASE_POOLER_HOST`
+时**零行为变化**（本机有 IPv6 时直连照旧可用）；已经是 pooler 串时幂等不动。
+
+**端口选 5432（session）而非 6543（transaction）**：本仓是一次性批处理、短事务，
+且全仓 grep 无 `LISTEN` / `pg_advisory_*` / 临时表，session 模式少一层「每条语句可能
+换后端连接」的语义差异。需要压连接数时用 `SUPABASE_POOLER_PORT=6543` 覆盖。
+
+**定位端点的坑（#2462 卡面结论作废的原因）**：pooler 域名有 `aws-0-<region>` 与
+`aws-1-<region>` **两套前缀**。本项目实测端点是 **`aws-1-`** 那一套；
+只试 `aws-0-` 会一律得到 `FATAL: tenant/user postgres.<ref> not found`，
+看起来像「该租户在 pooler 里查不到 / 项目被暂停」，其实只是前缀不对。
+
+区分「租户不在该 region」与「租户在、仅密码错」不需要真密码——Supavisor 在鉴权**之前**
+先校验租户，故用**故意错误的**密码连一次即可（`password authentication failed` = 租户存在，
+`tenant/user ... not found` = 不在该 region）。2026-10-22 对 12 个候选端点的实测结论：
+只有 `aws-1-ap-southeast-1`（新加坡）返回前者，5432 / 6543 两个端口都如此。
+
+**验证方式**：`gh workflow run daily-snapshot.yml` 后看日志里
+`[DB诊断] user 域 连接 OK`；若仍失败，诊断行会直接说明「只有 IPv6 记录」并给出两条出路
+（配 `SUPABASE_POOLER_HOST`，或把调度挪到有 IPv6 的机器）。
+
 ### 每日更新的信息
 
 - [x] 基金最新净值（`fund_nav` job，增量同步最近 N 天）

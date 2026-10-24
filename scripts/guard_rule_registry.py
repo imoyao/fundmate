@@ -377,6 +377,15 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
         # 锁生成得对不对要 pnpm + 网络，属端到端验证，不在这里假装。
         'covered': '不校验重生成产出的锁内容；workflow 实际能否推送成功取决于 GitHub 侧权限',
     },
+    'scripts/guard_migrations_pg_aware.py': {
+        'rule': '启动期迁移不许写「非 SQLite 就跳过」早退（存量按函数指纹基线冻结）',
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_guard_migrations_pg_aware.py',
+        # 只判「return 一个含『非 SQLite』的字符串常量」这一种早退形态。裸写
+        # ALTER/CREATE INDEX、数据回填的方言差异不在判据内（前者由 migrations.py
+        # module docstring 的单一通道约定管，后者两种引擎本就通用）。
+        'covered': '不校验 PG 分支 SQL 的正确性——那由 backend/tests/core/ 的 PgFake 用例钉形态；本地无 PG 可连',
+    },
     'scripts/guard_cross_repo_refs.mjs': {
         'rule': '提到 GitHub 的 issue / PR 编号必须挂源',
         'runner': 'ci',
@@ -583,6 +592,24 @@ RULE_REGISTRY: dict[str, dict[str, str]] = {
             '二进制与 >512KB 文件、锁文件跳过；运行时拼接的密钥（`ak_` + 变量）静态看不见'
             '——那正是测试夹具构造假 Token 的办法，也是本守卫能自洽的前提。'
             '白名单只认语义（占位值 + Supabase anon JWT），不按路径放行'
+        ),
+    },
+    'scripts/guard_supabase_env_separation.py': {
+        'rule': '入库的前端 env 文件必须给出完整的 Supabase 凭证，示例文件只放占位值（#1028）',
+        # 源 #1028。开发/生产共用同一个 Supabase 项目时，开发期注册的测试账号会写进
+        # **生产** Auth 用户表，而当时没有任何一处会报错。
+        # 只在 CI 里跑：判据全是**仓库内入库文件**的静态检查（纯读文件、不拉网络），
+        # 挂本地钩子没有额外收益，还会让人分不清「谁负责哪一半」。
+        'runner': 'ci',
+        'tests': 'scripts/tests/test_supabase_env_separation.py',
+        # 边界写清楚：**dev 与 prod 是否同项目不归它管**——那条要读不入库的
+        # `frontend/.env.development`，CI 看不到，由 `frontend/build/supabase-env-guard.ts`
+        # 在 dev server 启动时兜。两条规则不重叠、各有唯一实现。
+        'covered': (
+            '只看入库的 frontend/.env.production / .env.staging / .env.example；'
+            '不入库的 frontend/.env 与 .env.development 读不到；'
+            '只判「凭证在不在、形态对不对、示例里有没有真实值」，'
+            '不判 anon key 是否有效、也不判 dev 与 prod 是否同项目'
         ),
     },
 }

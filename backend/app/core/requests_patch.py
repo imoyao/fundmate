@@ -25,6 +25,7 @@
 #
 # 覆盖范围：只要在 app 进程内（所有 akshare 调用点共用），一处安装，全进程生效。
 import functools
+import os
 import random
 import re
 import time
@@ -45,6 +46,29 @@ _EM_HEADERS = {
 }
 
 _INSTALLED = False
+
+#: 默认 HTTP 超时（秒）。调用方显式传了 timeout（或显式传 None 表示「不限时」）时不干预。
+#:
+#: 为什么必须有（#2506 实测）：上游挂住时 requests **无限期**等下去——重试救不了
+#: 「连上了但不回数据」这种情况。实测每日调度在第一个 job「stock_list」上
+#: 卡了 23 分钟没有任何日志，最终被 workflow 的 30 分钟 job 超时掐掉，
+#: 整条数据新鲜度链路一天都没跑成（且日志里看不出它卡在哪）。
+#: 给一个默认超时，挂住的上游就变成「这个源失败」而不是「整个调度挂死」。
+_DEFAULT_TIMEOUT_ENV = 'FUNDMATE_HTTP_TIMEOUT'
+_DEFAULT_TIMEOUT_SECONDS = 30.0
+
+
+def _default_timeout() -> float:
+    """默认超时（秒）；可用环境变量调整（慢源需要更宽松时调大）。"""
+    raw = os.getenv(_DEFAULT_TIMEOUT_ENV)
+    if raw:
+        try:
+            value = float(raw)
+            if value > 0:
+                return value
+        except ValueError:
+            pass
+    return _DEFAULT_TIMEOUT_SECONDS
 
 
 def _make_nid_cookie() -> str:
@@ -86,6 +110,11 @@ def _wrap_request(original):
             headers = dict(_EM_HEADERS) | headers  # 东财默认头打底，调用方头覆盖
             headers['Cookie'] = _make_nid_cookie()
             kwargs['headers'] = headers
+        # 默认超时（#2506）：调用方**没传** timeout 时补一个。
+        # ⚠️ 必须用 `'timeout' not in kwargs` 判断「未传」——显式传 `timeout=None`
+        # 是调用方在说「不限时」，不能被我们改掉（改了就等于剥夺调用方的选择权）。
+        if 'timeout' not in kwargs:
+            kwargs['timeout'] = _default_timeout()
         return original(self, method, url, *args, **kwargs)
 
     return _request
