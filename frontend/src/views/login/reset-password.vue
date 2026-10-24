@@ -147,6 +147,7 @@ import { useRenderIcon } from "@/components/ReIcon/src/hooks";
 import nautilusSvg from "@/assets/login/nautilus-light.svg?raw";
 import Lock from "~icons/ri/lock-fill";
 import { supabase } from "@/utils/supabase";
+import { toAuthErrorMessage } from "@/utils/authError";
 
 defineOptions({
   name: "ResetPassword"
@@ -231,7 +232,7 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       await supabase.auth.signOut();
       router.replace("/login");
     } catch (err: any) {
-      message(err.message || "重置失败，请稍后再试", { type: "error" });
+      message(toAuthErrorMessage(err), { type: "error" });
     } finally {
       loading.value = false;
     }
