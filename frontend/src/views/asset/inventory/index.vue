@@ -111,6 +111,12 @@
             @retry="loadDiagnosis"
           />
         </section>
+
+        <!-- 持仓小贴士（#1017）：规则驱动的静态提示，与上面「策略诊断」分工——
+             诊断说的是「标的处于什么状态」，小贴士说的是「这笔账有什么结构风险」。 -->
+        <section class="inventory-section">
+          <RuleTipsCard />
+        </section>
       </template>
 
       <!-- ==================== 场景 B：其他大类 ==================== -->
@@ -182,6 +188,7 @@ import CashLikeTable from "./components/CashLikeTable.vue";
 import CategoryAssetTable from "./components/CategoryAssetTable.vue";
 import AssetEditDialog from "./components/AssetEditDialog.vue";
 import AllocationTargetCard from "./components/AllocationTargetCard.vue";
+import RuleTipsCard from "./components/RuleTipsCard.vue";
 import StrategyDiagnosisCard from "./components/StrategyDiagnosisCard.vue";
 
 // 与路由 `router/modules/home.ts` 的 name 保持一致，保证 keep-alive 命中
