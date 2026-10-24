@@ -19,7 +19,7 @@ from loguru import logger
 from app.domains.indices.models import IndexValuationBaseline
 from app.services.index_percentile import PERCENTILE_WINDOW_DAYS
 from app.services.job_base import IN_CHUNK_SIZE, SyncJob
-from app.services.sync.bulk_ops import bulk_insert_rows, chunked
+from app.services.sync.bulk_ops import bulk_insert_rows, chunked, set_if_changed
 
 # 可写列（不含业务键与带默认值的 source）；批量写要求整批键集完全一致
 _VALUE_COLUMNS = ('pe_ttm', 'index_name')
@@ -83,6 +83,7 @@ class IndexValuationLgSyncJob(SyncJob):
             return
         existing = self._load_existing(new_data)
         inserts: List[dict] = []
+        updated = unchanged = 0
         for r in new_data:
             row = existing.get((r['index_code'], r['trade_date']))
             if row is None:
@@ -91,17 +92,24 @@ class IndexValuationLgSyncJob(SyncJob):
                 item['source'] = r.get('source') or _DEFAULT_SOURCE
                 inserts.append(item)
                 continue
+            changed = False
             for k, v in r.items():
                 if k in ('index_code', 'trade_date'):
                     continue
                 if v is not None:
-                    setattr(row, k, v)
+                    # 值真变了才赋值：Numeric 列读回来是 Decimal、源给的是 float，
+                    # 裸 setattr 会让每行判脏 ⇒ 每行一条 UPDATE（Turso 0.2s/行）。
+                    changed |= set_if_changed(row, k, v)
+            if changed:
+                updated += 1
+            else:
+                unchanged += 1
         # 批量写：原实现逐行 SELECT + 逐行 `db.add`，Turso 上每行 2 次往返。
         # 本 job 一次回填 9 个指数 × 近 5 年约 60 个采样 = 500+ 行，逐行即分钟级停摆。
         if inserts:
             bulk_insert_rows(self.db, IndexValuationBaseline, inserts, log_scope='指数估值基线')
         self.db.commit()
-        logger.info(f'写入指数估值基线 {len(new_data)} 条（新增 {len(inserts)}）')
+        logger.info(f'写入指数估值基线 {len(new_data)} 条（新增 {len(inserts)} / 更新 {updated} / 未变 {unchanged}）')
 
     def _load_existing(self, new_data: List[dict]) -> dict:
         """一次查回本批已有行，键 = ``(index_code, trade_date)``（按较小一维过滤，理由同 ``index_valuation``）。"""

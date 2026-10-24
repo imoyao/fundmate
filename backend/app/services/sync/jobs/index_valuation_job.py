@@ -16,7 +16,7 @@ from loguru import logger
 
 from app.domains.indices.models import IndexValuation
 from app.services.job_base import IN_CHUNK_SIZE, SyncJob
-from app.services.sync.bulk_ops import bulk_insert_rows, chunked
+from app.services.sync.bulk_ops import bulk_insert_rows, chunked, set_if_changed
 
 # 可写列（不含 `index_code`/`trade_date` 业务键，也不含带 Python 默认值的 `source`）。
 # 批量写要求整批**键集完全一致**，所以缺的列显式填 None，不能只塞 row 里有的键。
@@ -81,6 +81,7 @@ class IndexValuationSyncJob(SyncJob):
             return
         existing = self._load_existing(new_data)
         inserts: List[dict] = []
+        updated = unchanged = 0
         for r in new_data:
             row = existing.get((r['index_code'], r['trade_date']))
             if row is None:
@@ -90,19 +91,26 @@ class IndexValuationSyncJob(SyncJob):
                 item['source'] = r.get('source') or _DEFAULT_SOURCE
                 inserts.append(item)
                 continue
+            changed = False
             for k, v in r.items():
                 if k in ('index_code', 'trade_date'):
                     continue
                 # 仅在拿到新值时覆盖（避免用 None 抹掉上一轮已落库的口径值）
                 if v is not None:
-                    setattr(row, k, v)
+                    # 值真变了才赋值：Numeric 列读回来是 Decimal、源给的是 float，
+                    # 裸 setattr 会让每行判脏 ⇒ 每行一条 UPDATE（Turso 0.2s/行）。
+                    changed |= set_if_changed(row, k, v)
+            if changed:
+                updated += 1
+            else:
+                unchanged += 1
         # 批量写：原实现逐行 `filter_by().first()` + 逐行 `db.add`，Turso（Hrana/HTTP）
         # 上每行 2 次往返（~0.4s/行）。#2522 同族——每日调度被写库吃光预算
         # （run 39943903338 实测 index_daily 58.8 分钟）。
         if inserts:
             bulk_insert_rows(self.db, IndexValuation, inserts, log_scope='指数估值')
         self.db.commit()
-        logger.info(f'写入指数估值 {len(new_data)} 条（新增 {len(inserts)}）')
+        logger.info(f'写入指数估值 {len(new_data)} 条（新增 {len(inserts)} / 更新 {updated} / 未变 {unchanged}）')
 
     def _load_existing(self, new_data: List[dict]) -> dict:
         """一次查回本批已有行，键 = ``(index_code, trade_date)``。
