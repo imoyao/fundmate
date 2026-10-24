@@ -48,7 +48,9 @@ from app.services.sync.orchestrator import DataSyncOrchestrator  # noqa: E402
 FUND_TARGET_JOBS = ('fund_nav', 'fund_detail_enrich', 'fund_manager', 'fund_position')
 
 # Stock 类 job（--target-file 走 stock 池）。
-STOCK_TARGET_JOBS = ('price_history', 'fund_position_legacy')
+# #2585：`bond_adjust_log` 吃的是 stock 池里的转债（11x/12x），job 内部再按前缀过滤；
+# 漏登记会让 `--target-file` 静默退化成「0 只处理」（见本段上方的 ⚠️）。
+STOCK_TARGET_JOBS = ('price_history', 'fund_position_legacy', 'bond_adjust_log')
 
 # 受限目标池 job：**未给任何显式目标时，从库内核心池（持仓 + 自选）现取**。
 #
@@ -67,7 +69,11 @@ STOCK_TARGET_JOBS = ('price_history', 'fund_position_legacy')
 # ⚠️ 不要顺手把 fund_nav / fund_detail_enrich / fund_manager 一并放进这里：
 # 它们的 `targets=None` 是「子类自取核心池」的既有语义，赋成显式列表会把执行
 # 切成 `_execute_batches` 分批路径，属行为变更，需单独评估。
-DB_POOL_JOBS = {'fund_position': ('fund', 'etf')}
+#
+# #2585 `bond_adjust_log`：它的 `targets=None` 语义是「**空目标池 ⇒ 跳过**」
+# （逐只抓取、按用户触达范围限量）。CLI 不给它解析核心池，就等于 `pdm run sync
+# --job bond_adjust_log` 抓 0 只、报 success —— 也就是本段上方那个 ⚠️ 说的静默坑。
+DB_POOL_JOBS = {'fund_position': ('fund', 'etf'), 'bond_adjust_log': 'stock'}
 
 
 def _combine_pools(resolved: dict, keys) -> list:
@@ -319,7 +325,17 @@ def main():
                         logger.warning(
                             f'{args.job} 裸带 --full-sync（列表/指数/温度计型 job 单次即换全市场，目标参数被忽略）。'
                         )
-                    result = orchestrator.run_job(args.job, full_sync=args.full_sync)
+                    # #2585：DB_POOL_JOBS 里的**逐标的** job（bond_adjust_log）不属
+                    # FUND_TARGET_JOBS（它不按日期回填），但同样必须解析库内核心池：
+                    # `targets=None` 在它那里是「空目标池 ⇒ 跳过」，
+                    # 直接透传 None 会让命令报 success 而实际一只都没抓。
+                    job_targets = None
+                    if args.job in DB_POOL_JOBS:
+                        job_targets = resolve_job_targets(orchestrator, args.job, args.targets, args.target_file)
+                        if not job_targets:
+                            print(f'ℹ️ {args.job}: 库内核心池（持仓+自选）中没有可处理标的，跳过')
+                            return
+                    result = orchestrator.run_job(args.job, full_sync=args.full_sync, targets=job_targets)
                     mark, detail, ok = render_job_result(result)
                     print(f'{mark} {result.get("job_name", args.job)}: {detail}')
                     if not ok:
