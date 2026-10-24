@@ -151,6 +151,33 @@ def industry_scheme_of(industry_code) -> str:
     return _HY_SCHEME_UNKNOWN
 
 
+# ── 晨星星级评级（#1440） ──────────────────────────────────────────────
+# 东财评级总汇页：akshare `fund_rating_all()` 的同源端点。**不走 akshare 的解析**——
+# 其内部是 `split("var")[6]` + 27 列按序号硬映射，上游改版时要么字段数对不上
+# 响亮报错、要么**数量不变仅换序 → 静默错位**（把招商证券的值当晨星落库），
+# 黑箱漂移时我们无感知（实证见 docs/dev/fund-rating-collection.md §1.3）。
+_EM_FUND_RATING_URL = 'https://fund.eastmoney.com/data/fundrating.html'
+
+# `var fundinfos` 字段位置契约（0-based；2026-10-24 实测 + 三重坐实）：
+#   ① 三家机构专页反证链 100% 命中：招商 pos10 15576/15576、上海 pos12 382/382、
+#      济安 pos16 46/46（akshare fund_rating_zs/_sh/_ja 同源专页回查综合页）；
+#   ② 晨星官方 MCP `getFundPerformance.starRatingDetails` 标注 ratingPeriod=36，
+#      探针 000001/110011/161725 的 3 年期评级与 pos14 逐只一致；
+#   ③ pos7「5星评级家数」== 四家 5 星列计数之和，18568/18568 自洽。
+# 位置即契约——调整任何一行前先重跑反证链与 MCP 对账。
+_FR_CODE, _FR_NAME, _FR_TYPE = 0, 1, 2
+_FR_STAR_COUNT = 7  # 5星评级家数（仅统计下面四家）
+_FR_ZS, _FR_SH, _FR_MS, _FR_JA = 10, 12, 14, 16  # 招商 / 上海 / 晨星 / 济安（均 3 年期）
+_FR_MS_DELTA = 15  # 晨星较上期（实测 -4~+3；000001=-1 与晨星官方历史 2026-06→09 降星吻合）
+_FR_FIELDS = 27
+# 存在性探针：用**存在性**而非固定星级值——评级月度会变，固定值会误报。
+# 三只覆盖混合 / QDII / 行业指数三种类型，且均与晨星官方 MCP 对过账。
+_FR_PROBES = ('000001', '110011', '161725')
+# 规模下限（无历史存储时的「分布漂移」等价物）：低于经验值即 WARNING 人工复核
+_FR_MIN_RECORDS = 10000
+_FR_MIN_RATED = 5000
+
+
 class AkshareAdapter(DataSourceAdapter):
     def __init__(self):
         self._fund_manager_cache = None
@@ -1099,6 +1126,111 @@ class AkshareAdapter(DataSourceAdapter):
         except Exception as e:
             self.logger.error(f'获取基金规模失败: {e}')
             return []
+
+    # ── 晨星星级评级（#1440，3 年期口径，自写解析） ──
+
+    @staticmethod
+    def _parse_rating_star(value) -> Optional[int]:
+        """晨星星级：``'' → None``（无评级，货基/新基金常态）；``'1'~'5' → int``。
+
+        越界（``'0'`` / ``'6'`` / 非数字）⇒ **抛错**：这是字段错位或上游结构
+        漂移的信号，宁可失败也不把错位列的值当星级落库。
+        """
+        s = str(value if value is not None else '').strip()
+        if s == '':
+            return None
+        if s in ('1', '2', '3', '4', '5'):
+            return int(s)
+        raise ValueError(f'晨星评级值越域: {value!r}（期望 "" 或 1~5）')
+
+    @staticmethod
+    def _parse_rating_delta(value) -> Optional[int]:
+        """晨星评级较上期：``'' → None``；整数且 ``|v| ≤ 4``（星级 1~5，单期理论
+        最大变 4；实测仅见 -4~+3）。越界 ⇒ 抛错（同 _parse_rating_star 的理由）。
+        """
+        s = str(value if value is not None else '').strip()
+        if s == '':
+            return None
+        try:
+            v = int(s)
+        except ValueError:
+            raise ValueError(f'晨星评级 delta 非整数: {value!r}')
+        if abs(v) > 4:
+            raise ValueError(f'晨星评级 delta 越域: {v}（|v| ≤ 4）')
+        return v
+
+    def fetch_fund_rating(self) -> List[dict]:
+        """全市场晨星星级评级（东财评级总汇页，#1440，3 年期口径）。
+
+        返回 ``[{fund_code, rating, delta}]``：rating 为 1~5 或 None（无评级）；
+        delta 为较上期变化（None=未知）。asof（快照日期）不在这里产出——
+        页面无评级生效日字段，由 job 按「rating/delta 变化日」落库。
+
+        单次 HTTP 返回全市场（实测 3.1MB / 18,568 只），不产生逐条外部请求，
+        满足 data-strategy.md §4.3.3 全量例外（同 fetch_fund_scale 先例）。
+
+        **结构不符即抛错、不写库**（校验规则全量见 docs/dev/fund-rating-collection.md
+        §2.4）：字段数恒等 27、代码 6 位数字、评级值域 1~5、delta |v|≤4、
+        5星家数自洽、三探针存在。akshare 黑箱的前车之鉴是「静默错位」——
+        所有漂移信号都必须当场响亮，由 job 基类记 failed 并保留上期数据。
+        """
+        try:
+            resp = requests.get(_EM_FUND_RATING_URL, timeout=30)
+            resp.raise_for_status()
+        except Exception as e:  # noqa: BLE001
+            # 网络/5xx：不吞成空列表——「空」与「没拿到」必须区分（#1179 同族）
+            self.logger.error(f'晨星评级页请求失败: {e}')
+            raise
+
+        m = re.search(r'var\s+fundinfos\s*=\s*"(.*?)";', resp.text or '', re.S)
+        if not m:
+            raise ValueError('晨星评级页未找到 var fundinfos（上游结构变更？）')
+
+        out: List[dict] = []
+        seen = set()
+        for raw in m.group(1).strip('|').split('|_'):
+            fields = raw.split('|')
+            # 校验 1：字段数恒等——27 列位置映射的前提，不等即整体抛错
+            if len(fields) != _FR_FIELDS:
+                raise ValueError(f'晨星评级记录字段数 {len(fields)} ≠ {_FR_FIELDS}（上游结构漂移）: {raw[:80]!r}')
+            code = fields[_FR_CODE].strip()
+            # 校验 2：代码形态（前导零保留，如 '000001'）
+            if not re.fullmatch(r'[0-9]{6}', code):
+                raise ValueError(f'晨星评级记录代码形态异常: {code!r}')
+            if code in seen:
+                continue  # 重复行先到先得（实测无重复，防御性）
+            seen.add(code)
+            rating = self._parse_rating_star(fields[_FR_MS])  # 校验 3（值域）
+            delta = self._parse_rating_delta(fields[_FR_MS_DELTA])  # 校验 4（|v|≤4）
+            # 校验 5：5星评级家数自洽——pos7 == 招商/上海/晨星/济安四家 5 星计数。
+            # 实测 18568/18568 成立；不等基本就是字段错位（把别家星级读成了 5 星）。
+            star_count = fields[_FR_STAR_COUNT].strip()
+            if star_count.isdigit():
+                n5 = sum(1 for p in (_FR_ZS, _FR_SH, _FR_MS, _FR_JA) if fields[p].strip() == '5')
+                if int(star_count) != n5:
+                    raise ValueError(
+                        f'{code} 5星评级家数 {star_count} ≠ 四家5星计数 {n5}'
+                        f'（招商{fields[_FR_ZS]}/上海{fields[_FR_SH]}/晨星{fields[_FR_MS]}/济安{fields[_FR_JA]}，字段错位信号）'
+                    )
+            else:
+                self.logger.warning(f'{code} 5星评级家数非数字 {star_count!r}，跳过自洽校验')
+            out.append({'fund_code': code, 'rating': rating, 'delta': delta})
+
+        # 校验 6：存在性探针（不锁星级值——评级月度会变，固定值会误报）
+        missing = [c for c in _FR_PROBES if c not in seen]
+        if missing:
+            raise ValueError(f'晨星评级探针缺失: {missing}（上游覆盖异常或结构漂移）')
+
+        # 校验 7（等价物）：规模下限告警。设计文档原案为「与上期偏差 >30%」，
+        # 但当期值列不存历史计数，改用经验下限——低于即 WARNING 人工复核，不阻断。
+        rated = sum(1 for r in out if r['rating'] is not None)
+        self.logger.info(f'获取到 {len(out)} 只基金晨星评级（有效 {rated}，覆盖率 {rated / len(out) * 100:.1f}%）')
+        if len(out) < _FR_MIN_RECORDS or rated < _FR_MIN_RATED:
+            self.logger.warning(
+                f'晨星评级规模异常：总记录 {len(out)} / 有效 {rated}，低于经验下限'
+                f'（{_FR_MIN_RECORDS}/{_FR_MIN_RATED}），请人工复核上游'
+            )
+        return out
 
     def fetch_fund_top_holdings(self, fund_code: str, year: Optional[int] = None) -> Dict[str, Any]:
         """单只基金**最近一期**的持仓明细（ak.fund_portfolio_hold_em / 东财基金档案）。

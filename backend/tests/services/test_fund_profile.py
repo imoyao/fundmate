@@ -6,6 +6,9 @@
 2. **只有一条净值时返回 None 而不是 0** ——「没数据」不能被读成「今天没涨」；
 3. **基金经理从关联表取**（funds 域此前没有任何端点能给出「某只基金的经理」）。
 
+另覆盖第 4 件（#1440）：**晨星 3 年期评级三列**随资料一并带出，且「无评级」降级为
+None 而不是 0（详情页「基金资料」区展示用）。
+
 ⚠️ 测试数据一律造在 **market 域**会话：`funds` / `daily_worth` 属 market 域，生产下是
 独立引擎，端点与「读市场数据必须经 market_session_factory」的硬规则都要求如此。
 """
@@ -195,6 +198,59 @@ def test_fee_rates_degrade_to_none():
 
     assert profile is not None
     assert 'fee_rates' in profile
+
+
+# ── 晨星评级（#1440）────────────────────────────────────────────────────
+def _seed_rating(fund_code='004369', rating=None, delta=None, asof=None):
+    """写入晨星评级三列（#1440）。
+
+    **每次都显式覆盖**（含 None）：`_seed_fund` 只在基金不存在时才建，market 域
+    残留不保证被 conftest 清掉——不覆盖的话，本轮的 None 断言会被上一轮残留
+    的评级值改掉（与 `_seed_navs` 先删后插同因）。
+    """
+    with closing(market_session_factory()()) as db:
+        fund = db.query(Fund).filter(Fund.fund_code == fund_code).first()
+        if fund is None:
+            return
+        fund.morningstar_rating = rating
+        fund.morningstar_rating_delta = delta
+        fund.morningstar_rating_asof = asof
+        db.commit()
+
+
+def test_profile_carries_morningstar_rating():
+    """资料页带出晨星 3 年期评级三列：值 + 较上期变化 + 快照日期。
+
+    数据源是东财评级总汇页，与净值/费率链路**不同源**——故三列单列，
+    不并入页脚的 `source` 标签（前端在格内自带「3年期」口径）。
+    """
+    _seed_fund()
+    _seed_rating(rating=3, delta=-1, asof=date(2026, 10, 24))
+
+    with closing(_market_db()) as db:
+        profile = build_fund_profile(db, '004369')
+
+    assert profile is not None
+    assert profile['morningstar_rating'] == 3
+    assert profile['morningstar_rating_delta'] == -1
+    assert profile['morningstar_rating_asof'] == '2026-10-24'
+
+
+def test_profile_rating_none_when_not_collected():
+    """未采集到评级 → 三字段全 None。
+
+    「没有评级」是货基 / 新基金的**常态**，不是故障；显示「0 星」是编造数据。
+    """
+    _seed_fund()
+    _seed_rating(rating=None, delta=None, asof=None)
+
+    with closing(_market_db()) as db:
+        profile = build_fund_profile(db, '004369')
+
+    assert profile is not None
+    assert profile['morningstar_rating'] is None
+    assert profile['morningstar_rating_delta'] is None
+    assert profile['morningstar_rating_asof'] is None
 
 
 # ── 端点 ──────────────────────────────────────────────────────────────

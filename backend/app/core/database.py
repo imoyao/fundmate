@@ -38,6 +38,7 @@ from app.core.migrations import (
     migrate_fee_unique_indexes,
     migrate_fund_equity_position_period,
     migrate_fund_managers_split_tenures,
+    migrate_fund_rating_columns,
     migrate_fund_risk_metrics_period_returns,
     migrate_fund_style_columns,
     migrate_fund_valuation_official_columns,
@@ -600,6 +601,10 @@ def init_db():
     # funds.dominant_style / style_period 列（#2478）：create_all 不替存量表加列，
     # 同上须先于结构校验；fund_style_exposures 新表由 create_all 建，无需迁移。
     migrate_fund_style_columns(app_eng)
+    # funds 晨星星级评级当期值三列（#1440）：create_all 不替存量表加列，
+    # 同上须先于结构校验；解析契约与口径实证见 docs/dev/fund-rating-collection.md，
+    # job 为 FundRatingSyncJob（orchestrator 第三梯队 + WEEKLY_JOBS）。
+    migrate_fund_rating_columns(app_eng)
     _validate_schema(app_eng, market_meta, label='market')
     # user 域表 → 用户引擎
     user_meta = MetaData()
@@ -712,6 +717,9 @@ def init_db_split():
     # funds.dominant_style / style_period 列（#2478）：create_all 不替存量表加列，
     # 同上须先于结构校验；fund_style_exposures 新表由 create_all 建，无需迁移。
     migrate_fund_style_columns(app_eng)
+    # funds 晨星星级评级当期值三列（#1440）：同上须先于结构校验；解析契约与
+    # 口径实证见 docs/dev/fund-rating-collection.md，job 为 FundRatingSyncJob。
+    migrate_fund_rating_columns(app_eng)
     _validate_schema(app_eng, market_meta, label='market')
     # user 域表 → 用户引擎（若已配置）
     if user_eng is not None:
