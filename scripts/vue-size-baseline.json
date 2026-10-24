@@ -60,7 +60,6 @@
     "views/product/components/ProductProAllocation.vue": 468,
     "views/product/components/ProductProSection.vue": 539,
     "views/product/components/ProductTransactionSection.vue": 402,
-    "views/product/components/ProductTrendSection.vue": 1118,
     "views/product/detail.vue": 428,
     "views/status/index.vue": 442,
     "views/welcome/index.vue": 441
