@@ -92,8 +92,9 @@ defineProps<{ bondYield: BondYield }>();
 }
 
 /* 断点原样搬迁（阈值随样式块从 ExploreAssetOverview.vue 搬来）：`<=768` 与
-   `bp.below("md")` 的 `<768` 差 1px，iPad 竖屏恰好落在这个像素上，改写法即改行为。 */
-@media (width <= 768px) { /* breakpoint-allow 原样搬迁的存量阈值 */
+   `bp.below("md")` 的 `<768` 差 1px，iPad 竖屏恰好落在这个像素上，改写法即改行为。
+   breakpoint-allow 原样搬迁的存量阈值 */
+@media (width <= 768px) {
   .bond-yield__hint {
     margin-left: 0;
   }

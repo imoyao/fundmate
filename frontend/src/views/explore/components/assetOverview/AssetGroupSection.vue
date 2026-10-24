@@ -55,14 +55,17 @@ defineProps<{ group: MarketGroup }>();
    `bp.below()`：mixin 展开是 `width < 48rem`，会把「≤768」收紧成「<768」，iPad 竖屏
    恰好 768px，落档从「两列」变成 auto-fill 三列以上 —— 那是行为变更，不只是写法问题。
    480 也不在断点表档位（sm=640），映射过去会让 481–640px 区间从两列掉成单列。 */
-@media (width <= 768px) { /* breakpoint-allow 原样搬迁的存量阈值，迁 mixin 会改 iPad 竖屏落档 */
+
+/* breakpoint-allow 原样搬迁的存量阈值，迁 mixin 会改 iPad 竖屏落档 */
+@media (width <= 768px) {
   /* 481–768px：两列（每列 218–368px），横向留白充足 */
   .asset-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (width <= 480px) { /* breakpoint-allow 480 不在断点表档位；映射 sm(640) 会让 481–640px 掉成单列 */
+/* breakpoint-allow 480 不在断点表档位；映射 sm(640) 会让 481–640px 掉成单列 */
+@media (width <= 480px) {
   /* 375px 档：可用宽度 343px，两列仅 ~165px 过挤 → 单列满宽 */
   .asset-grid {
     grid-template-columns: minmax(0, 1fr);

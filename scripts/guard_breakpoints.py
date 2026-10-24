@@ -59,7 +59,7 @@ SCAN_SUFFIXES = {".vue", ".css", ".scss", ".sass"}
 # 断点单一来源：本文件就是「裸值」的定义处，允许出现字面量
 SINGLE_SOURCE = Path("frontend/src/style/_breakpoints.scss")
 
-# 同行加此注释可显式豁免（须在 PR 里说明理由）
+# 加此注释可显式豁免（须在 PR 里说明理由）：写在 @media 同行，或紧邻的上一行。
 SKIP_MARKER = "breakpoint-allow"
 
 MEDIA_RE = re.compile(r"@media\b([^{]*)\{")
@@ -132,9 +132,13 @@ def _scan(path: Path) -> collections.Counter[str]:
 
     lines = text.splitlines()
     for match in MEDIA_RE.finditer(text):
-        # 定位该 @media 所在行，供 SKIP_MARKER 判断
+        # 定位该 @media 所在行，供 SKIP_MARKER 判断。
+        # 同行或**紧邻上一行**都算：prettier 的 `prettier/prettier` 规则会把
+        # `@media (...) { /* 说明 */` 里的行尾注释拆到下一行（Insert `⏎·`），
+        # 只认同行的话，豁免写法与格式化规则互斥，改一个文件就要二选一。
         lineno = text.count("\n", 0, match.start())
-        if SKIP_MARKER in lines[lineno]:
+        prev = lines[lineno - 1] if lineno > 0 else ""
+        if SKIP_MARKER in lines[lineno] or SKIP_MARKER in prev:
             continue
         cond = " ".join(match.group(1).split())
         if "width" not in cond or not LENGTH_RE.search(cond):
@@ -193,7 +197,8 @@ def main(argv: list[str]) -> int:
     print(
         "\n      断点表：frontend/src/style/_breakpoints.scss（对齐 Tailwind v4 默认断点）\n"
         "      规范：frontend/design.md §Viewport「断点单一来源」\n"
-        "      确需例外：在同行加注释 %s 并说明理由" % SKIP_MARKER,
+        "      确需例外：在 @media 同行或紧邻上一行加注释 %s 并说明理由"
+        % SKIP_MARKER,
         file=sys.stderr,
     )
     return 1
