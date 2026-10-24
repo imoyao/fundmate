@@ -55,7 +55,12 @@ PUBLIC_PREFIXES = (
 #   services/product_identity.resolve_product_identity 的 include_user_state 参数）。
 #   **不能放 PUBLIC_PREFIXES**：那样 g.current_user 永远不存在，登录用户也永远拿不到
 #   私有状态，登录与未登录的响应将完全一致——等于把该功能砍了。
-OPTIONAL_AUTH_PREFIXES = ('/api/products/resolve',)
+# - /api/feedlog-token（#1998）：FeedLog SSO 令牌。未登录回 {"token": null}
+#   （widget 的游客模式），**不能返回 401**——前端 http 拦截器见 401 会强制
+#   登出，把「widget 探测登录态」变成「用户被踢下线」。
+#   同样**不能放 PUBLIC_PREFIXES**：那样 g.current_user 永远不存在，登录用户
+#   也拿不到令牌，等于把 SSO 砍了。
+OPTIONAL_AUTH_PREFIXES = ('/api/products/resolve', '/api/feedlog-token')
 # 免登录精确路径
 # - logout：允许无有效 token 也返回成功（由前端清理本地会话）
 # - auth/resolve：登录前的"标识→邮箱"解析，帮助 Supabase 完成用户名登录（D10）
