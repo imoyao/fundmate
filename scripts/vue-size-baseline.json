@@ -28,7 +28,6 @@
     "views/asset/investment/reconcile/index.vue": 691,
     "views/asset/ledgers/components/AccountFormFields.vue": 587,
     "views/asset/ledgers/components/PositionTransactionsDrawer.vue": 494,
-    "views/asset/ledgers/components/TransactionEditDialog.vue": 509,
     "views/asset/panorama/components/OverviewSummaryCard.vue": 463,
     "views/asset/portfolio/detail.vue": 760,
     "views/asset/strategies/index.vue": 716,
