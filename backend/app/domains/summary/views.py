@@ -14,6 +14,7 @@ from flask import jsonify, request
 from app.core.auth import get_family_id
 from app.core.database import get_db
 from app.core.time_utils import today_shanghai
+from app.services.analytics.benchmark_excess import build_scope_excess
 from app.services.analytics.cleared_cycles import build_cleared_cycles
 from app.services.penetration import SCHEME_LABELS, build_penetration
 from app.services.pnl_calendar import GRANULARITY_DAY, build_pnl_series
@@ -221,6 +222,38 @@ def cleared_cycles():
         return jsonify(
             {'data': {'cycles': [], 'summary': {}}, 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}
         ), 500
+
+
+@bp.get('/summary/benchmark-excess/')
+def benchmark_excess():
+    """#2134 账户/组合/家庭区间收益 vs 基准指数超额收益（账本对齐-D）。
+
+    查询参数：`start_date` / `end_date`（YYYY-MM-DD，**必填**）、`ledger_id` /
+    `portfolio_id`（互斥，均不传=家庭级）。三条口径（scope 区间收益 / 指数区间
+    涨跌幅 / 超额）与全部降级原因见 services/analytics/benchmark_excess.py——
+    基准缺失一律诚实降级 None，不拿别的指数顶替。
+    """
+    try:
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        if not start_date or not end_date:
+            raise ValueError('start_date 与 end_date 必填（YYYY-MM-DD）')
+        ledger_id = request.args.get('ledger_id', type=int)
+        portfolio_id = request.args.get('portfolio_id', type=int)
+        with get_db() as db:
+            data = build_scope_excess(
+                db,
+                get_family_id(),
+                start_date,
+                end_date,
+                ledger_id=ledger_id,
+                portfolio_id=portfolio_id,
+            )
+        return jsonify({'data': data, 'message': 'ok'})
+    except ValueError as e:
+        return jsonify({'data': None, 'message': str(e), 'error_code': 1001}), 400
+    except Exception as e:
+        return jsonify({'data': None, 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500
 
 
 @bp.get('/summary/fund-valuation/')

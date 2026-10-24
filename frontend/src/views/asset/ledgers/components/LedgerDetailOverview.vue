@@ -172,6 +172,64 @@
               >--</span
             >
           </div>
+          <!-- #2134：近 90 天区间收益 vs 基准同期 vs 超额。
+               三值全部来自 /summary/benchmark-excess/，缺数据一律「--」（不造 0）；
+               区间由首格 label 点明，后两格与之同区间（同期口径见后端 docstring）。 -->
+          <div class="flex flex-col">
+            <span
+              class="text-xs mb-1"
+              :style="{ color: 'var(--text-tertiary-ink)' }"
+              >近 90 天收益</span
+            >
+            <span
+              class="text-lg font-semibold"
+              :style="{ color: 'var(--text-primary)' }"
+            >
+              <RiseFallText
+                v-if="rangeRate != null"
+                :value="rangeRate"
+                size="lg"
+              />
+              <template v-else>--</template>
+            </span>
+          </div>
+          <div class="flex flex-col">
+            <span
+              class="text-xs mb-1"
+              :style="{ color: 'var(--text-tertiary-ink)' }"
+              >基准同期</span
+            >
+            <span
+              class="text-lg font-semibold"
+              :style="{ color: 'var(--text-primary)' }"
+            >
+              <RiseFallText
+                v-if="benchReturn != null"
+                :value="benchReturn"
+                size="lg"
+              />
+              <template v-else>--</template>
+            </span>
+          </div>
+          <div class="flex flex-col">
+            <span
+              class="text-xs mb-1"
+              :style="{ color: 'var(--text-tertiary-ink)' }"
+              :title="excessHint || undefined"
+              >超额收益</span
+            >
+            <span
+              class="text-lg font-semibold"
+              :style="{ color: 'var(--text-primary)' }"
+            >
+              <RiseFallText
+                v-if="excessReturn != null"
+                :value="excessReturn"
+                size="lg"
+              />
+              <template v-else>--</template>
+            </span>
+          </div>
         </div>
       </div>
 
@@ -228,13 +286,16 @@
 </template>
 
 <script setup lang="ts">
-import { reactive } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import RiseFallText from "@/components/RiseFallText/index.vue";
 import PnlCalendar from "@/components/PnlCalendar/index.vue";
 import AssetAllocationDonut from "@/components/Charts/AssetAllocationDonut.vue";
 import LedgerCashLikeCard from "./LedgerCashLikeCard.vue";
+import { getBenchmarkExcess, type BenchmarkExcessResult } from "@/api/summary";
+import { excessDateRange, excessDegradHint } from "@/utils/benchmarkExcess";
 import type { useLedgerDetailPage } from "../composables/useLedgerDetailPage";
 
 defineOptions({ name: "LedgerDetailOverview" });
@@ -243,6 +304,40 @@ defineOptions({ name: "LedgerDetailOverview" });
 // 状态单体经 page prop 注入，p. 前缀替换与拆分前的绑定表达式一一对应。
 const props = defineProps<{ page: ReturnType<typeof useLedgerDetailPage> }>();
 const p = reactive(props.page);
+
+// ---------- #2134：近 90 天区间收益 vs 基准（缺数据诚实降级 null → 模板「--」）----------
+const excess = ref<BenchmarkExcessResult | null>(null);
+const rangeRate = computed(() => excess.value?.range_rate ?? null);
+const benchReturn = computed(
+  () => excess.value?.benchmark?.range_return ?? null
+);
+const excessReturn = computed(() => excess.value?.excess_return ?? null);
+const excessHint = computed(() => excessDegradHint(excess.value));
+
+async function fetchExcess() {
+  const ledgerId = p.ledgerId ? Number(p.ledgerId) : undefined;
+  if (!ledgerId) {
+    excess.value = null;
+    return;
+  }
+  try {
+    const res = await getBenchmarkExcess({
+      ...excessDateRange(),
+      ledger_id: ledgerId
+    });
+    excess.value = res.data;
+  } catch {
+    // 拿不到就整组降级「--」：概览区不因超额计算失败而打断
+    excess.value = null;
+  }
+}
+
+// ledgerId 随路由注入，切换账户时重取（与页内 PnlCalendar 同一数据源）
+watch(
+  () => p.ledgerId,
+  () => void fetchExcess(),
+  { immediate: true }
+);
 </script>
 
 <style scoped>

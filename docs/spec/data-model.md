@@ -380,3 +380,41 @@ GICS 板块（`gics`，两位数字）。两套体系语义不重叠（GICS 的�
 
 调度：`fund_position` 已注册进本机调度，但 cron 是**每周一次**（周一 23:00）而非每日——持仓是季报数据、
 日变更量恒为 0，每日跑只浪费外部请求并叠加东财限流风险（#1403 的原始形态）。
+
+
+### 5.17 区间收益 vs 基准指数同期口径（新增 2026-10-23，源 #2134）
+
+**唯一实现**：`services/analytics/benchmark_excess.py`（端点 `GET /api/summary/benchmark-excess/`，
+前端两处容器 `portfolio/detail.vue` / `LedgerDetailOverview.vue`）。三条口径与服务 docstring
+互为镜像，**改一处须同步另一处**：
+
+1. **scope 区间收益率 `range_rate`**：一律复用 `pnl_calendar.build_daily_pnl_series`
+   （= 区间盈亏 ÷ 区间前一天净资产，%）——**唯一口径，前端禁止二次计算**。
+   - 账户级 / 家庭级直接取引擎返回值；组合级 = **Σ成员区间盈亏 ÷ Σ成员区间前一天净资产**
+     （成员各自走同一引擎，分母取引擎 payload 的 `range_baseline` 字段——#2134 起新增，
+     与 `range_rate` 的分母同源）。**不是**成员收益率做平均（平均无视资产规模：
+     10 万跌 50% 与 1 千涨 50% 平均出 +25% 是错数）。
+2. **「同期」= 同一区间 `[start, end]`**（#2134 拍板口径）：指数侧取 `index_daily` 在区间内
+   **首、末两个可得交易日收盘**之比 − 1。降级条件（任一命中 → `range_return=null`，不造 0）：
+   - 区间内不足 2 个可得收盘点（`index_insufficient_data`）；
+   - 首 / 末点距区间边界 > **7 天容差**（`coverage_start_insufficient` /
+     `coverage_end_insufficient`——该指数在区间边界没有报价，涨跌幅覆盖的不是整段；
+     7 天吸收周末与节假日，也拦得住「2015 年查 2019 年才上市的科创50 拿 2020 年涨幅冒充」）。
+   响应带 `bench_start_date` / `bench_end_date`，供复核实际取数首末日。
+3. **超额 `excess_return` = range_rate − 指数区间涨跌幅**（百分点）；任一侧为 null → null，
+   前端显示「--」。清仓周期的「同期基准」不走本节（清仓明细表已死列，周期级走
+   `cleared_cycles` 活算，见 #2131）。
+
+**基准选取链**（`resolve_benchmark_code`，降级一律不顶替）：
+
+| 顺序 | 条件 | 结果 |
+|---|---|---|
+| 1 | scope 持仓含非 `CN_A` 市场（`CN_HK` / `US` / `CRYPTO` 及未识别值） | `null` + `non_cn_a_holdings`（宽基表没有对应序列，拿沪深300 代表港美持仓是造数） |
+| 2 | `Portfolio.benchmark` 非空 | 按 code / 中文名 / 别名（`CSI300`/`CSI500`/`HS300`/`ZZ500`…）归一到 `bias/constants.BENCHMARK_INDICES`；**认不出（恒生/标普…）→ `null` + `unrecognized_benchmark`** |
+| 3 | 空（组合未设 / 账户级无此字段） | 默认 `000300.SH` 沪深300 |
+
+> `BENCHMARK_INDICES` 是映射**唯一真相源**；`benchmark_excess._BENCHMARK_TEXT_ALIASES`
+> 只是 text→code 的归一化糖，归一结果必须落在 `BENCHMARK_INDICES`——**不是第二份指数映射表**。
+
+**数据准入**：零新增表、零新增外部请求——指数序列复用 `index_daily_job` 已同步的
+`index_daily`（公开市场数据、已在本地库）。

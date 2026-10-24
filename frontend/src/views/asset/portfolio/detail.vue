@@ -50,7 +50,19 @@
           :value="portfolio.target_return ?? null"
           unit="%"
         />
-        <MetricCard title="基准指数" :value="portfolio.benchmark || '--'" />
+        <MetricCard
+          title="基准指数"
+          :value="benchmarkLabel"
+          :caption="benchmarkCaption"
+        />
+        <!-- #2134：区间超额（近 90 天 vs 基准同期）；缺数据由 MetricCard 显示「--」，不造 0 -->
+        <MetricCard
+          title="超额收益"
+          :value="excessValue"
+          unit="%"
+          :caption="excessCaption"
+          :value-color="excessColor"
+        />
       </MetricGrid>
 
       <!-- 组合收益 (XIRR) -->
@@ -394,6 +406,13 @@ import {
 } from "@/api/performance";
 import { getLedgers, type LedgerItem } from "@/api/ledger";
 import { getPositions, updatePosition } from "@/api/positions";
+import { getBenchmarkExcess, type BenchmarkExcessResult } from "@/api/summary";
+import {
+  excessDateRange,
+  excessDegradHint,
+  formatSignedPct,
+  EXCESS_RANGE_DAYS
+} from "@/utils/benchmarkExcess";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
@@ -645,6 +664,64 @@ async function fetchMoneyFund() {
   }
 }
 
+// ---------- 区间收益 vs 基准（#2134）----------
+const excess = ref<BenchmarkExcessResult | null>(null);
+const RANGE_LABEL = `近 ${EXCESS_RANGE_DAYS} 天`;
+
+async function fetchExcess() {
+  try {
+    const res = await getBenchmarkExcess({
+      ...excessDateRange(),
+      portfolio_id: portfolioId.value
+    });
+    excess.value = res.data;
+  } catch {
+    // 拿不到就整卡降级「--」：详情页主体不因超额计算失败而打断
+    excess.value = null;
+  }
+}
+
+/** 基准名：优先后端归一后的宽基名；未加载 / 未识别时回落用户所设原文 */
+const benchmarkLabel = computed(() => {
+  const b = excess.value?.benchmark;
+  return b?.name ?? b?.code ?? portfolio.value?.benchmark ?? null;
+});
+
+const benchmarkCaption = computed(() => {
+  const b = excess.value?.benchmark;
+  if (b?.range_return != null) {
+    return `同期 ${formatSignedPct(b.range_return)} · ${RANGE_LABEL}`;
+  }
+  const hint = excessDegradHint(excess.value);
+  return hint ? `${hint} · ${RANGE_LABEL}` : RANGE_LABEL;
+});
+
+/** MetricCard 空值显示「--」：toFixed 前判 null，绝不上 0 占位 */
+const excessValue = computed(() => {
+  const v = excess.value?.excess_return;
+  return v == null ? null : v.toFixed(2);
+});
+
+const excessColor = computed(() => {
+  const v = excess.value?.excess_return;
+  if (v == null || v === 0) return "";
+  return v > 0 ? "var(--color-rise)" : "var(--color-fall)";
+});
+
+const excessCaption = computed(() => {
+  const d = excess.value;
+  if (!d) return RANGE_LABEL;
+  if (
+    d.excess_return != null &&
+    d.range_rate != null &&
+    d.benchmark?.range_return != null
+  ) {
+    return `${RANGE_LABEL} · ${formatSignedPct(d.range_rate)} vs ${formatSignedPct(d.benchmark.range_return)}`;
+  }
+  const hint = excessDegradHint(d);
+  return hint || RANGE_LABEL;
+});
+
 // ---------- 删除 / 跳转 ----------
 async function handleDelete() {
   try {
@@ -680,6 +757,7 @@ onMounted(async () => {
   if (portfolio.value) {
     void fetchXirr(); // 自动加载收益率
     void fetchMoneyFund(); // 自动加载组合货基收益
+    void fetchExcess(); // #2134 区间收益 vs 基准（近 90 天）
     await fetchUnarchived(); // 加载未归档持仓（探市录入等）
   }
 });

@@ -295,6 +295,61 @@ export function getPnlCalendar(params?: {
   );
 }
 
+/** #2134 基准超额收益结果：区间收益 vs 基准指数同期涨跌幅（缺数据一侧为 null，不造 0） */
+export type BenchmarkExcessResult = {
+  scope: "family" | "ledger" | "portfolio";
+  ledger_id: number | null;
+  portfolio_id: number | null;
+  start_date: string;
+  end_date: string;
+  /** scope 区间收益率（%）；为 null 的原因见 range_reason */
+  range_rate: number | null;
+  /** 区间盈亏（元） */
+  range_pnl: number | null;
+  /**
+   * range_rate 的分母（区间前一天净资产，元）——仅服务端组合级聚合使用；
+   * 前端**禁止**拿它二次计算收益率（口径唯一，见 AGENTS.md）。
+   */
+  range_baseline: number | null;
+  /** null=正常；否则 range_rate 为 null 的原因（no_position / no_members / baseline_missing…） */
+  range_reason: string | null;
+  benchmark: {
+    code: string | null;
+    name: string | null;
+    /** 指数区间涨跌幅（%） */
+    range_return: number | null;
+    /** 指数实际取数首 / 末交易日（ISO），供复核「同期」是否对齐 */
+    bench_start_date: string | null;
+    bench_end_date: string | null;
+    /** null=正常；否则降级原因（non_cn_a_holdings / unrecognized_benchmark / index_insufficient_data…） */
+    reason: string | null;
+  } | null;
+  /** 超额（百分点）= range_rate − benchmark.range_return；任一侧为 null 则为 null */
+  excess_return: number | null;
+};
+
+/**
+ * 查询区间收益 vs 基准指数超额收益（#2134 账本对齐-D）
+ *
+ * `start_date` / `end_date`（YYYY-MM-DD）必填；`ledger_id` 与 `portfolio_id`
+ * 互斥。基准缺失（港美股持仓 / 未识别基准 / 指数数据不足）一律诚实降级 null，
+ * 前端显示「--」，不显示 0。
+ */
+export function getBenchmarkExcess(params: {
+  start_date: string;
+  end_date: string;
+  ledger_id?: number;
+  portfolio_id?: number;
+}) {
+  return http.request<ApiResponse<BenchmarkExcessResult>>(
+    "get",
+    BASE_URL + "benchmark-excess/",
+    {
+      params
+    }
+  );
+}
+
 /** 跨账本疑似重复组（幽灵重复扫描结果）：同一笔交易疑似出现在多个账本 */
 export type GhostDuplicateGroup = {
   symbol: string;
