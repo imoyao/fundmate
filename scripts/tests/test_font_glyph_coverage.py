@@ -93,7 +93,7 @@ class TestGuardOnRepo(unittest.TestCase):
 
     def test_report_runs_and_prints_numbers(self):
         code, out = _run('--report')
-        # 现状是红的（字表还没重生成），但必须**报出数字**而不是崩掉退 2。
+        # 产物已重生成（#2402 收尾）：守卫应判绿；但无论红绿，必须**报出数字**而不是崩掉退 2。
         self.assertIn(code, (0, 1), f'守卫不该因解析失败退出，输出：{out}')
         self.assertIn('cmap', out, f'报告应打印每个字重的覆盖数，输出：{out}')
         self.assertIn('GBK', out, f'报告应打印 GBK 覆盖率，输出：{out}')
@@ -107,12 +107,13 @@ class TestGuardOnRepo(unittest.TestCase):
             covered, total, _cov = row['level1']
             self.assertEqual(covered, total, f'{row["font"]} 的一级覆盖掉了：{covered}/{total}')
 
-    def test_current_fonts_fail_gbk_coverage(self):
-        """现状必须判红——这是本卡的起点，绿了说明要么字表已补、要么判据失效。"""
+    def test_current_fonts_meet_gbk_coverage(self):
+        """产物已重生成（#2402 收尾）——必须达标；掉下去说明产物被换成更浅的字表。"""
         guard = _load_guard()
         result = guard.check()
+        self.assertFalse(result.get('unreachable'), '字体产物应可达')
         gbk_cov = min(row['gbk'][2] for row in result['rows'])
-        self.assertLess(gbk_cov, guard.GBK_MIN_COVERAGE, '当前产物不该达到 GBK 下限')
+        self.assertGreaterEqual(gbk_cov, guard.GBK_MIN_COVERAGE, '当前产物应达到 GBK 下限')
 
 
 class TestFailureModes(unittest.TestCase):
