@@ -32,6 +32,7 @@ from app.domains.health import bp as health_bp  # noqa: E402
 from app.domains.importers.e_account_views import e_account_bp  # noqa: E402
 from app.domains.importers.views import importers_bp  # noqa: E402
 from app.domains.indices import models  # noqa: F401, E402  # 确保 index_constituents 表随 init_db 建表
+from app.domains.insight.views import insight_bp  # noqa: E402
 from app.domains.ledgers.views import ledgers_bp  # noqa: E402
 from app.domains.market.views import market_bp  # noqa: E402
 from app.domains.notification.views import notification_bp  # noqa: E402
@@ -122,6 +123,7 @@ def create_app() -> APIFlask:
     app.register_blueprint(strategy_bp)
     app.register_blueprint(allocation_bp)
     app.register_blueprint(strategy_engine_bp)
+    app.register_blueprint(insight_bp)
     app.register_blueprint(thermometer_bp)
     app.register_blueprint(users_bp)
     app.register_blueprint(families_bp)
