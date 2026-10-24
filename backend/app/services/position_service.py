@@ -21,7 +21,7 @@ from typing import Optional
 
 from flask import has_app_context
 from loguru import logger
-from sqlalchemy import func, or_
+from sqlalchemy import false, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -44,6 +44,7 @@ from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, resolve_sales_institution_id
 from app.domains.transactions.models import Transaction
 from app.services import async_backfill
+from app.services.family_member_service import ledger_ids_for_member
 from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_money_fund_symbol, normalize_fund_code
 from app.services.import_records import compute_position_hash
 from app.services.pnl_service import compute_sell_realized_cents
@@ -2206,6 +2207,7 @@ class PositionService:
         ledger_id_raw: str,
         symbol: str = '',
         market: str = '',
+        member_id_raw: str = '',
     ) -> dict:
         """list_positions 的核心：过滤 + 按账户分组 / 分页组装（#1642 B 块，从 views 下沉）。
 
@@ -2216,6 +2218,12 @@ class PositionService:
 
         ``symbol`` / ``market``（#1966）：产品维度过滤，供详情页「我的持仓」区块用。
         **下推到 SQL**——取全表后内存筛违反数据策略硬约束 §6。
+
+        ``member_id``（#1173）：按家庭成员筛选。持仓**经账户间接归属**
+        （``Position.ledger_id → Ledger.owner_member_id``），不在持仓表冗余成员列——
+        冗余列要跟着导入/转换/清仓等所有写路径双写，一处漏了就出「同一笔持仓在两个
+        成员名下」的矛盾账。过滤同样**下推 SQL**（``ledger_id IN (子查询)``）。
+        注意：未绑定账户的持仓（``ledger_id IS NULL``）不属于任何成员，不会被命中。
         """
         query = db.query(Position).filter(Position.family_id == family_id)
         # 已清仓行保留在表里（锚点/成本基线不灭），但不属于「当前持仓」视图。
@@ -2226,6 +2234,17 @@ class PositionService:
             query = query.filter(Position.ledger_id.is_(None))
         elif ledger_id_raw:
             query = query.filter(Position.ledger_id == int(ledger_id_raw))
+        if member_id_raw:
+            # 成员 → 账户 → 持仓：下推过滤，避免取全表后内存筛。
+            # 账户集合口径收口在 `family_member_service.ledger_ids_for_member`
+            # （与汇总/盈亏拿同一份集合，见 #1173 单一出口纪律）。
+            member_ledger_ids = ledger_ids_for_member(db, family_id, int(member_id_raw))
+            if not member_ledger_ids:
+                # 该成员名下没有账户 → 结果必为空；直接给恒假条件，
+                # 不用 `IN ()`（各方言行为不一致，PG 会直接语法错）
+                query = query.filter(false())
+            else:
+                query = query.filter(Position.ledger_id.in_(member_ledger_ids))
         if symbol:
             # symbol 同时匹配「展示形态」与 #1662 的「归一身份键」，取并集：存量行
             # symbol_norm 可能为空、只有新写入行保证有值，只用其一都会漏命中。

@@ -4,9 +4,15 @@ import type { ApiResponse, SummaryData } from "./types";
 
 const BASE_URL = "/api/summary/";
 
-/** 获取首页仪表盘聚合数据 */
-export function getSummary() {
-  return http.request<ApiResponse<SummaryData>>("get", BASE_URL);
+/**
+ * 获取首页仪表盘聚合数据。
+ * `memberId`（#1173）：按家庭成员切片；不传 = 家庭级全量。
+ */
+export function getSummary(memberId?: number) {
+  return http.request<ApiResponse<SummaryData>>(
+    "get",
+    BASE_URL + (memberId ? `?member_id=${memberId}` : "")
+  );
 }
 
 /** 桑基图数据 */
@@ -38,10 +44,11 @@ export type DistributionsData = {
 };
 
 /** 获取家庭级多维市值分布 */
-export function getDistributions() {
+/** 家庭级多维市值分布（`memberId`：按家庭成员切片，#1173） */
+export function getDistributions(memberId?: number) {
   return http.request<ApiResponse<DistributionsData>>(
     "get",
-    BASE_URL + "distributions/"
+    BASE_URL + "distributions/" + (memberId ? `?member_id=${memberId}` : "")
   );
 }
 
@@ -75,12 +82,19 @@ export type PositionGroup = {
 export type GroupDimension = "type" | "account" | "allocation";
 
 /** 获取持仓/资产按维度分组汇总（含 items 明细，后端唯一聚合出口） */
-export function getPositionGroups(dimension: GroupDimension) {
+/** 持仓/资产分组明细（`memberId`：按家庭成员切片，#1173） */
+export function getPositionGroups(
+  dimension: GroupDimension,
+  memberId?: number
+) {
   return http.request<ApiResponse<PositionGroup[]>>(
     "get",
     BASE_URL + "groups/",
     {
-      params: { dimension }
+      params: {
+        dimension,
+        ...(memberId ? { member_id: memberId } : {})
+      }
     }
   );
 }

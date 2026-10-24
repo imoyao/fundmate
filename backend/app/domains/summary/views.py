@@ -14,6 +14,8 @@ from flask import jsonify, request
 from app.core.auth import get_family_id
 from app.core.database import get_db
 from app.core.time_utils import today_shanghai
+from app.core.validation import parse_query
+from app.domains.summary.schemas import MemberSliceQuery
 from app.services.analytics.benchmark_excess import build_scope_excess
 from app.services.analytics.cleared_cycles import build_cleared_cycles
 from app.services.penetration import SCHEME_LABELS, build_penetration
@@ -37,11 +39,13 @@ bp = APIBlueprint('summary', __name__, url_prefix='/api')
 @bp.get('/summary/')
 def summary():
     """返回首页仪表盘聚合数据"""
+    # 参数解析放在 try 之外：try 里的 `except Exception` 会把 abort(422) 吞成 500
+    member_id = parse_query(MemberSliceQuery).member_id
     try:
         with get_db() as db:
             family_id = get_family_id()
-            data = get_summary_data(db, family_id)
-            account_groups = get_account_groups(db, family_id)
+            data = get_summary_data(db, family_id, member_id)
+            account_groups = get_account_groups(db, family_id, member_id)
             data['account_groups'] = account_groups
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
@@ -66,9 +70,10 @@ def cash_like():
 @bp.get('/summary/sankey/')
 def sankey():
     """返回桑基图数据"""
+    member_id = parse_query(MemberSliceQuery).member_id
     try:
         with get_db() as db:
-            data = get_sankey_data(db, get_family_id())
+            data = get_sankey_data(db, get_family_id(), member_id)
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
         return jsonify(
@@ -79,9 +84,10 @@ def sankey():
 @bp.get('/summary/distributions/')
 def distributions():
     """返回家庭级多维市值分布（Overview/AssetPanorama 分布图表消费）"""
+    member_id = parse_query(MemberSliceQuery).member_id
     try:
         with get_db() as db:
-            data = get_distributions(db, get_family_id())
+            data = get_distributions(db, get_family_id(), member_id)
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
         return jsonify({'data': {}, 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500
@@ -127,9 +133,10 @@ def position_groups():
     dimension = request.args.get('dimension', 'type')
     if dimension not in ('type', 'account', 'allocation'):
         return jsonify({'data': [], 'message': f'不支持的维度: {dimension}', 'error_code': 1001}), 400
+    member_id = parse_query(MemberSliceQuery).member_id
     try:
         with get_db() as db:
-            data = get_position_groups(db, get_family_id(), dimension)
+            data = get_position_groups(db, get_family_id(), dimension, member_id)
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
         return jsonify({'data': [], 'message': f'服务器内部错误: {str(e)}', 'error_code': 5004}), 500

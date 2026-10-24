@@ -92,6 +92,12 @@ export interface PositionListParams {
   market?: string;
   /** 按关联账户ID精确过滤；传字符串 'null' 表示仅查未归档持仓（对齐后端 views.py） */
   ledger_id?: string | number;
+  /**
+   * 按家庭成员过滤（#1173）：持仓经账户间接归属
+   * （`Position.ledger_id → Ledger.owner_member_id`），后端下推到 SQL。
+   * 未绑定账户的持仓不命中。
+   */
+  member_id?: number;
 }
 
 /** 持仓分页响应（对齐后端分页信封：{ data, total, page, per_page, message }） */

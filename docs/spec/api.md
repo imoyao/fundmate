@@ -61,7 +61,7 @@ title: 核心 API 端点清单（api）
 
 <!-- AUTO-ENDPOINTS:START（由 scripts/check_api_conventions.py --write 生成，勿手改） -->
 
-全量端点清单（共 **198** 条）：由 `scripts/check_api_conventions.py --write` 从
+全量端点清单（共 **202** 条）：由 `scripts/check_api_conventions.py --write` 从
 `backend/app/domains/**/views.py` 的 `@<bp>.<method>(...)` 装饰器静态生成，**禁止手改**——
 改路由后重跑该命令即可；CI 守卫会校验本段与实现逐条一致（不一致即红灯）。
 
@@ -87,6 +87,10 @@ title: 核心 API 端点清单（api）
 | GET | `/api/e-account/reconciliation/` | `reconciliation` |
 | POST | `/api/families/` | `create_family` |
 | GET | `/api/families/<int:family_id>/members/` | `list_family_members` |
+| GET | `/api/families/members/profiles/` | `list_member_profiles` |
+| POST | `/api/families/members/profiles/` | `create_member_profile` |
+| DELETE | `/api/families/members/profiles/<int:member_id>/` | `delete_member_profile` |
+| PATCH | `/api/families/members/profiles/<int:member_id>/` | `update_member_profile` |
 | GET | `/api/feedlog-token/` | `feedlog_token` |
 | POST | `/api/feedlog-token/` | `feedlog_token` |
 | GET | `/api/funds/<string:fund_code>/fee-rates/` | `get_fund_fee_rates` |
