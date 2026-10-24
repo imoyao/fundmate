@@ -8,6 +8,7 @@ import { initRouter } from "@/router/utils";
 import { supabase } from "@/utils/supabase";
 import { resolveIdentifier } from "@/api/auth";
 import { toAuthErrorMessage } from "@/utils/authError";
+import { buildAppUrl, DOCS_SITE_URL } from "@/utils/appUrl";
 
 /**
  * 登录 / 注册页状态单体（#980 P1-C 结构拆分）：
@@ -116,12 +117,14 @@ export function useLogin() {
   // ============================================
   // 打开隐私政策
   // ============================================
+  // 隐私政策 / 用户协议在**文档站**（docs.duoduobei.com），应用站没有这两条路由：
+  // 此前 window.open("/privacy") 打开的是应用站根路径，hash 为空 ⇒ 落到 /welcome。
   const openPrivacyPolicy = () => {
-    window.open("/privacy", "_blank");
+    window.open(`${DOCS_SITE_URL}/privacy`, "_blank");
   };
 
   const openTerms = () => {
-    window.open("/terms", "_blank");
+    window.open(`${DOCS_SITE_URL}/terms`, "_blank");
   };
 
   // ============================================
@@ -137,7 +140,7 @@ export function useLogin() {
           // 会被 Supabase 编码成 ?redirect_to=/welcome 塞进 hash，变成
           // welcome#/welcome 导致无法正确匹配路由。回到根后由路由守卫
           // getSession() 识别已登录态，自动 redirect 到 /welcome 概览页。
-          redirectTo: `${window.location.origin}/`
+          redirectTo: buildAppUrl("/")
         }
       });
       if (error) throw error;
@@ -181,7 +184,7 @@ export function useLogin() {
           {
             // 同源回跳路径：规避 PKCE code_verifier 跨域丢失；
             // 回跳后由 onAuthStateChange 的 PASSWORD_RECOVERY 事件接管（detectSessionInUrl 已开）
-            redirectTo: `${window.location.origin}/reset-password`
+            redirectTo: buildAppUrl("/reset-password")
           }
         );
         if (error) throw error;
@@ -215,8 +218,8 @@ export function useLogin() {
             email: ruleForm.email.trim(),
             password: ruleForm.password,
             options: {
-              // 邮箱验证回调同样回根路径，由前端守卫接管跳转，避免 hash 模式编码异常
-              emailRedirectTo: `${window.location.origin}/`,
+              // 邮箱验证回调回根路径，由前端守卫接管跳转；hash 模式由 buildAppUrl 拼 `#/`
+              emailRedirectTo: buildAppUrl("/"),
               data: {
                 username: ruleForm.username.trim()
               }
