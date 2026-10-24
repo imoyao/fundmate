@@ -31,7 +31,7 @@
 | **#3** | 本机不稳定 | 现有调度已具备 `misfire_grace_time=6h`、`coalesce`、启动补跑；**缺口**：>6h 过夜休眠整天不跑、无跨天重试、无告警 | 读 `daily_scheduler.py` + 真机进程探测（运行中的后端锁空闲） |
 | **#4** | 更新频率 | 当前：温度 20:00、净值 21:30、探市 08:00（建议）；盘口指数 ~22:00 后更新 → 探市 08:00 取的是前一日收盘（可接受），净值 21:30 可能漏抓晚发布 | 读 `scheduler-tasks.md` + `daily_scheduler.py` 配置 |
 | **#8** | 后端部署 | **未部署**：`vercel.json` 只构建 `build:landing`；计划 = EdgeOne Pages Python 函数 + 双库（Supabase 用户 + Turso 行情） | 读 `vercel.json`、`docs/ops/deployment.md` |
-| **#1** | 温度历史补齐 | **官方合成温度（且慢/有知有行/韭圈儿）无历史 API**，只能从存储起始日算起；**可补齐 = 自算项**（股债利差/成交额/乖离率/拥挤度）+ **集思录中位 PB/PE**（历史下载 CSV，需 Cookie）；`all_pb.csv` 基线已在 `services/thermometer/data/` | 读 `fetchers.py`、`all_pb.csv` 实际路径；源码无历史接口 |
+| **#1** | 温度历史补齐 | **官方合成温度（且慢/有知有行/韭圈儿）无历史 API**，只能从存储起始日算起；**可补齐 = 自算项**（股债利差/成交额/乖离率/拥挤度）+ **集思录中位 PB/PE**（历史下载 CSV，**需登录/会员态**，与实时指标端点不同）；`all_pb.csv` 基线已在 `services/thermometer/data/` | 读 `fetchers.py`、`all_pb.csv` 实际路径；源码无历史接口 |
 
 ---
 
@@ -46,14 +46,14 @@
 | 东财两市成交额 | ✅ 指数日线含成交量历史 | **可**重算历史 |
 | 乖离率（31 行业 + 6 宽基） | ✅ 价格历史可得 | **可**重算历史 |
 | 行业拥挤度 | ✅ 行情历史可得 | **可**重算历史 |
-| 集思录中位 PB/PE 温度 | ✅ 集思录有历史下载 CSV（`data/indicator/download/...`） | **可**补齐，但**需 JSL Cookie**（与现有抓取同源） |
+| 集思录中位 PB/PE 温度 | ✅ 集思录有历史下载 CSV（`data/indicator/download/...`） | **可**补齐，但**需登录/会员态 Cookie**（`JSL_COOKIE`）。⚠ **不与现有抓取同源**（2026-10-24 实测：实时指标端点 `get_cb_temperature`/`get_last_indicator` 匿名即可 200；需登录的是**历史下载**页面，其 JS 有 `该数据需要登录查看`/`该数据需要会员权限` 分支） |
 
 **结论**：温度页面的「组件」大多可回补，**「官方合成温度」本身不可回补**。这恰好印证 v2 的结论——历史分位依赖的历史**不依赖本库**，可以从数据源现算/回算。
 
 ### 2.2 实施规划
 
 - **PR-E1（一次性回补脚本）**：`scripts/backfill_temperature_history.py`，对「自算项 + 成交额 + 乖离率 + 拥挤度」按各资产历史起点回算并写入 `market_composites` / `market_multi_items` / `market_single_values`。纯本地计算，无外部增量风险。
-- **PR-E2（集思录历史 fetcher）**：在 `thermometer/fetchers.py` 增加「历史下载」入口（复用 JSL session），把中位 PB/PE 温度回补到可获取的起点；受 Cookie 有效性约束，失败则跳过该项（不阻断）。
+- **PR-E2（集思录历史 fetcher）**：在 `thermometer/fetchers.py` 增加「历史下载」入口（复用 JSL session），把中位 PB/PE 温度回补到可获取的起点；受 Cookie 有效性约束，失败则跳过该项（不阻断）。⚠ 此处是**唯一**真正需要 `JSL_COOKIE` 的集思录链路（历史下载页需登录/会员态），与实时指标抓取（免登录）无关。
 - **不在范围**：官方合成温度的史前补齐（无源）。
 
 ---
