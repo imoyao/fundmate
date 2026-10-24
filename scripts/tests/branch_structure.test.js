@@ -49,6 +49,15 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { pythonOrFail } from "./_python-interpreter.mjs";
+
+// 解释器探测只此一份（`_python-interpreter.mjs`）。原先这里硬写 `"python3"`，
+// 而本机（Windows，只有 `python`）跑起来子进程直接 ENOENT —— 于是所有
+// 「必须报红」的断言一起崩，看起来像守卫失效，其实守卫一次都没跑。
+// 取不到解释器就在**模块加载期**抛错（不是 skip），「解释器不在」必须看得见。
+const PY = pythonOrFail();
+const PY_BIN = PY[0];
+const PY_ARGS = PY.slice(1);
 
 const GUARD = join(process.cwd(), "scripts", "check_cnb_events.py");
 const src = readFileSync(GUARD, "utf8");
@@ -58,7 +67,7 @@ function expectGuard(content, expectStatus, msg) {
   const tmp = join(process.cwd(), ".cnb.yml.branch-structure-test-tmp");
   writeFileSync(tmp, content, "utf8");
   try {
-    const r = spawnSync("python3", [GUARD, "--file", tmp], { encoding: "utf8" });
+    const r = spawnSync(PY_BIN, [...PY_ARGS, GUARD, "--file", tmp], { encoding: "utf8" });
     assert.equal(r.status, expectStatus, `${msg}（stdout=${r.stdout} stderr=${r.stderr}）`);
     return r;
   } finally {

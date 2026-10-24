@@ -46,15 +46,23 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { pythonOrFail } from "./_python-interpreter.mjs";
 
 const ROOT = process.cwd();
 const CNB_YML = readFileSync(join(ROOT, ".cnb.yml"), "utf8");
 const GUARD = join(ROOT, "scripts", "guard_git_sync_push_scope.py");
 
+// 解释器探测只此一份（`_python-interpreter.mjs`）。本文件原先四处硬写 `"python3"`：
+// 在只有 `python` 的机器上子进程 ENOENT，「守卫应当通过」与「变异体应当报红」
+// 会**同时**失败，读起来像判据坏了，实际是守卫一次都没跑。取不到解释器即加载期抛错。
+const PY = pythonOrFail();
+const PY_BIN = PY[0];
+const PY_ARGS = PY.slice(1);
+
 /** 跑守卫；path 为 null 时用仓库根 .cnb.yml。 */
 function runGuard(path = null) {
   const args = path ? [GUARD, "--file", path] : [GUARD];
-  return spawnSync("python3", args, { encoding: "utf8" });
+  return spawnSync(PY_BIN, [...PY_ARGS, ...args], { encoding: "utf8" });
 }
 
 /** 用变异后的内容跑一次守卫（写临时文件，跑完删）。 */
@@ -235,7 +243,7 @@ test("check_cnb_events.py 接受 glob 顶层分支键，但仍拦事件名（两
   const eventsGuard = join(ROOT, "scripts", "check_cnb_events.py");
 
   // 正向：仓库当前 .cnb.yml 含 `"**" + "/!(main|dev)"` 段，应当通过。
-  const ok = spawnSync("python3", [eventsGuard], { encoding: "utf8" });
+  const ok = spawnSync(PY_BIN, [...PY_ARGS, eventsGuard], { encoding: "utf8" });
   assert.equal(ok.status, 0, `含 glob 段的 .cnb.yml 应当通过，实际：${ok.stdout}${ok.stderr}`);
 
   // 反向：把 glob 段换成事件名 `push:`，必须仍被判非法——
@@ -245,7 +253,9 @@ test("check_cnb_events.py 接受 glob 顶层分支键，但仍拦事件名（两
   const tmp = join(ROOT, ".cnb.yml.events-tmp");
   writeFileSync(tmp, mutated, "utf8");
   try {
-    const bad = spawnSync("python3", [eventsGuard, "--file", tmp], { encoding: "utf8" });
+    const bad = spawnSync(PY_BIN, [...PY_ARGS, eventsGuard, "--file", tmp], {
+      encoding: "utf8",
+    });
     assert.equal(bad.status, 1, "顶层 `push:` 没被判非法（#152 判据被架空）。");
   } finally {
     rmSync(tmp, { force: true });
@@ -401,8 +411,11 @@ test("守卫能抓到「挂 main 键下推 dev」这一真实形态（探针）"
   const tmp = join(ROOT, ".cnb.yml.branchkey-tmp");
   writeFileSync(tmp, mutated, "utf8");
   try {
-    const parsed = spawnSync("python3", ["-c",
-      "import sys,yaml;yaml.safe_load(open(sys.argv[1],encoding='utf-8'))", tmp
+    const parsed = spawnSync(PY_BIN, [
+      ...PY_ARGS,
+      "-c",
+      "import sys,yaml;yaml.safe_load(open(sys.argv[1],encoding='utf-8'))",
+      tmp
     ], { encoding: "utf8" });
     assert.equal(parsed.status, 0,
       `变异体不是合法 YAML（守卫会红在解析上，探针失去意义）：${parsed.stderr}`);

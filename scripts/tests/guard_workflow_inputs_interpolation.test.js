@@ -42,15 +42,24 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { pythonOrFail } from "./_python-interpreter.mjs";
 
 const ROOT = process.cwd();
 const GUARD = join(ROOT, "scripts", "guard_workflow_inputs_interpolation.py");
+
+// 解释器探测只此一份（`_python-interpreter.mjs`）。原先硬写 `"python3"`：本机
+// （Windows，只有 `python`）上子进程 ENOENT，「守卫应当通过」与「回退必须报红」
+// 会同时崩，看起来像判据失效，其实守卫一次都没跑。取不到解释器即加载期抛错。
+const PY = pythonOrFail();
+const PY_BIN = PY[0];
+const PY_ARGS = PY.slice(1);
+
 const BACKFILL = join(ROOT, ".github", "workflows", "cnb-github-backfill.yml");
 const MOJIBAKE = join(ROOT, ".github", "workflows", "mojibake-dev-guard.yml");
 
 function runGuard(file) {
   const args = file ? [GUARD, "--file", file] : [GUARD];
-  return spawnSync("python3", args, { encoding: "utf8" });
+  return spawnSync(PY_BIN, [...PY_ARGS, ...args], { encoding: "utf8" });
 }
 
 /** 用临时文件跑守卫，断言退出码与输出，最后一定清理。 */
