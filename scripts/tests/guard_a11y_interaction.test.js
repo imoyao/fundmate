@@ -21,6 +21,7 @@
  * 绝不静默跳过。「解释器不在」与「判据没命中」是两件事，必须报出前者。
  */
 import { spawnSync } from "node:child_process";
+import { pythonOrFail } from "./_python-interpreter.mjs";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,30 +30,10 @@ import test from "node:test";
 
 const SCRIPT = join(process.cwd(), "scripts", "guard_a11y_interaction.py");
 
-/** 探测可用的 Python 解释器（`$PYTHON` 优先；按平台试常见命令）。 */
-function findPython() {
-  const candidates = [];
-  if (process.env.PYTHON) candidates.push([process.env.PYTHON]);
-  if (process.platform === "win32") {
-    candidates.push(["python"], ["py", "-3"]);
-  } else {
-    candidates.push(["python3"], ["python"]);
-  }
-  for (const args of candidates) {
-    const r = spawnSync(args[0], [...args.slice(1), "--version"], { encoding: "utf8" });
-    if (!r.error && r.status === 0) return args;
-  }
-  return null;
-}
-
-const PY = findPython();
-if (!PY) {
-  throw new Error(
-    "找不到 Python 解释器（试过 $PYTHON / python3 / python）。\n" +
-      "本文件的所有断言都靠子进程跑守卫脚本，没有解释器就没有判据。\n" +
-      "请安装 Python，或把解释器路径写进 $PYTHON 环境变量。"
-  );
-}
+// 解释器探测只此一份（`_python-interpreter.mjs`，源 #119）：本文件原先复制了一份
+// `findPython()`，改一处修不齐一处。探测不到就**在模块加载期抛错**，绝不静默跳过——
+// 「解释器不在」与「判据没命中」是两件事，必须报出前者。
+const PY = pythonOrFail();
 const PY_BIN = PY[0];
 const PY_ARGS = PY.slice(1);
 

@@ -14,6 +14,7 @@
  * 副本 —— 只有这条红了，才知道前面那条「零命中」不是空转。
  */
 import { spawnSync } from "node:child_process";
+import { pythonOrFail } from "./_python-interpreter.mjs";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -38,32 +39,10 @@ const BASELINE_FILES = [
  * 解释器探测与「静默绿」（#119，同 guard_control_clip.test.js）。
  *
  * 写死 `python` 在 Debian/Ubuntu、容器、CNB 工作区都会 ENOENT；此时子进程根本没跑，
- * 而放行断言恰好因为「什么都没跑」而全部假通过 —— 最坏的一种绿。故先探测，探测不到
- * 就**显式失败**，并把原因写给下一个人。
+ * 而放行断言恰好因为「什么都没跑」而全部假通过 —— 最坏的一种绿。故探测交给唯一一份
+ * `_python-interpreter.mjs`（本文件原先是 6 份拷贝之一），探测不到就在加载期抛错。
  */
-function findPython() {
-  const candidates = [];
-  if (process.env.PYTHON) candidates.push([process.env.PYTHON]);
-  if (process.platform === "win32") {
-    candidates.push(["python"], ["py", "-3"]);
-  } else {
-    candidates.push(["python3"], ["python"]);
-  }
-  for (const args of candidates) {
-    const r = spawnSync(args[0], [...args.slice(1), "--version"], { encoding: "utf8" });
-    if (!r.error && r.status === 0) return args;
-  }
-  return null;
-}
-
-const PY = findPython();
-if (!PY) {
-  throw new Error(
-    "找不到 Python 解释器（试过 $PYTHON / python3 / python）。\n" +
-      "本文件所有断言都靠子进程跑守卫脚本；没有解释器时放行断言会因「什么都没跑」而假通过。\n" +
-      "请安装 Python，或把解释器路径写进 $PYTHON 环境变量。"
-  );
-}
+const PY = pythonOrFail();
 const PY_BIN = PY[0];
 const PY_ARGS = PY.slice(1);
 
