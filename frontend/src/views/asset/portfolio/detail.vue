@@ -71,9 +71,9 @@
       <!-- 货基收益（组合维度：按 ledger_id 聚合关联账户；与 XIRR 并列，不与 XIRR 相加） -->
       <PortfolioMoneyFundCard :portfolio-id="portfolioId" />
 
-      <!-- 持仓穿透（#870 B2：钱最终压在哪些行业/个股） -->
+      <!-- 持仓穿透（#870 B2：钱最终压在哪些行业/个股；#2595 组合级口径） -->
       <div class="mb-6">
-        <PenetrationPanel />
+        <PenetrationPanel :portfolio-id="portfolioId" />
       </div>
 
       <!-- #2135：收益归因（组合口径 = 成员账本继承 + 持仓显式归属） -->
@@ -118,7 +118,7 @@ import MetricCard from "@/components/MetricCard/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import PnlAttribution from "@/components/PnlAttribution/index.vue";
 import PortfolioEditDialog from "@/components/PortfolioEditDialog/index.vue";
-import PenetrationPanel from "./PenetrationPanel.vue";
+import PenetrationPanel from "@/components/PenetrationPanel/index.vue";
 import PortfolioReturnCard from "./PortfolioReturnCard.vue";
 import PortfolioMoneyFundCard from "./portfolioDetail/PortfolioMoneyFundCard.vue";
 import PortfolioHoldingsCard from "./portfolioDetail/PortfolioHoldingsCard.vue";

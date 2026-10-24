@@ -506,6 +506,10 @@ export type PenetrationData = {
   as_of: string;
   scheme: string;
   scheme_label: string;
+  /** #2595 三级口径标记：family / ledger / portfolio（与归因、超额同枚举） */
+  scope: "family" | "ledger" | "portfolio";
+  ledger_id: number | null;
+  portfolio_id: number | null;
   total_value_cny: number;
   coverage: PenetrationCoverage;
   industries: PenetrationIndustry[];
@@ -525,14 +529,19 @@ export type PenetrationData = {
 };
 
 /**
- * 获取持仓穿透聚合（#870）。
+ * 获取持仓穿透聚合（#870；#2595 三级口径）。
  * @param scheme 主口径分类体系，默认 csrc（实测只有 2 只基金缺 csrc，口径最全）
+ * @param scope 账户级 / 组合级：`ledger_id` 与 `portfolio_id` 互斥（后端 400）；
+ *   均不传 = 家庭级。组合级语义同归因（#2135）：显式归属 + 成员账本继承。
  */
-export function getPenetration(scheme: "csrc" | "gics" = "csrc") {
+export function getPenetration(
+  scheme: "csrc" | "gics" = "csrc",
+  scope?: { ledger_id?: number; portfolio_id?: number }
+) {
   return http.request<ApiResponse<PenetrationData>>(
     "get",
     BASE_URL + "penetration/",
-    { params: { scheme } }
+    { params: { scheme, ...(scope ?? {}) } }
   );
 }
 

@@ -5,7 +5,9 @@
       :info="
         '你的钱最终压在哪些行业与个股上（' +
         (data?.scheme_label ?? '') +
-        '口径）。穿透仅覆盖持仓，不含房产/现金等通用资产。'
+        '口径' +
+        scopeSuffix +
+        '）。穿透仅覆盖持仓，不含房产/现金等通用资产。'
       "
     >
       <template #action>
@@ -197,7 +199,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
@@ -205,6 +207,24 @@ import MetricCard from "@/components/MetricCard/index.vue";
 import SegmentedControl from "@/components/SegmentedControl/index.vue";
 import { getPenetration, type PenetrationData } from "@/api/summary";
 import { formatAmount } from "@/utils/currency";
+
+/**
+ * 持仓穿透面板（#870 B2；#2595 三级口径化）。
+ *
+ * 从 `views/asset/portfolio/` 上移到共享组件：穿透是三级口径（家庭 / 账户 /
+ * 组合）都能消费的面板，而非组合详情页私产。原实现在组合详情页**不传 scope**，
+ * 实际展示的是家庭级数据（口径错位，#2595 修复）——现在由父页显式传：
+ *
+ * - 不传 props：家庭级（既有行为，向后兼容）；
+ * - `portfolio-id`：组合级（组合详情页应传这个）；
+ * - `ledger-id`：账户级；两者互斥（后端 400），父页自行保证。
+ */
+const props = defineProps<{
+  /** 账户级口径；与 portfolioId 互斥 */
+  ledgerId?: number;
+  /** 组合级口径；与 ledgerId 互斥 */
+  portfolioId?: number;
+}>();
 
 /** 穿透口径档位（#2339：字符串维度的「多选一」，走 SegmentedControl 而非实底 radio） */
 const SCHEME_OPTIONS = [
@@ -221,7 +241,10 @@ async function load() {
   loading.value = true;
   error.value = "";
   try {
-    const res = await getPenetration(scheme.value);
+    const scope: { ledger_id?: number; portfolio_id?: number } = {};
+    if (props.ledgerId != null) scope.ledger_id = props.ledgerId;
+    if (props.portfolioId != null) scope.portfolio_id = props.portfolioId;
+    const res = await getPenetration(scheme.value, scope);
     data.value = res?.data ?? null;
     if (!data.value) error.value = "穿透数据为空。";
   } catch {
@@ -231,6 +254,16 @@ async function load() {
     loading.value = false;
   }
 }
+
+watch(() => [props.ledgerId, props.portfolioId], load);
+
+/** 口径后缀：家庭级不缀词，账户 / 组合级明示作用域（与出参 scope 字段同源） */
+const scopeSuffix = computed(() => {
+  const s = data.value?.scope;
+  if (s === "ledger") return "·账户级";
+  if (s === "portfolio") return "·组合级";
+  return "";
+});
 
 /** 比率一律按后端给的 0~1 值格式化；分母口径由后端决定，前端不重算 */
 function percent(ratio: number) {

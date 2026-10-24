@@ -629,12 +629,13 @@ def _turnover_rank(ind_hist: Optional[pd.DataFrame]) -> Optional[dict]:
     }
 
 
-def _extra_dims(code: str, mkt_cs: Optional[pd.DataFrame]) -> dict:
+def _extra_dims(name: str, code: str, mkt_cs: Optional[pd.DataFrame]) -> dict:
     """两维（成交额占比分位 + 换手率分位）合并结果；任一失败对应字段为 None。
 
     #1431 去东财单点：
       · 成交额占比分位 → **中证指数官网**（非东财）优先，与分母同源；
-      · 换手率分位     → 中证官网不提供，仍走东财 push2his（限流敏感，配长退避）；不可用则置 None。
+      · 换手率分位     → #1502 步骤 1 起 **Wind EDB 为主**（授权源，31 行业日频
+        1999 起），东财 push2his 降为兜底（限流敏感，配长退避）；两者皆不可用则 None。
     内部已 try/except 兜底，绝不抛异常阻塞主链路。
     """
     out = {'amount_pct': None, 'amount_pct_rank': None, 'turnover': None, 'turnover_rank': None}
@@ -645,13 +646,17 @@ def _extra_dims(code: str, mkt_cs: Optional[pd.DataFrame]) -> dict:
             out.update(ar)
     except Exception as e:  # noqa
         _log(f'  [warn] 中证成交额分位计算失败({code}):', str(e)[:60])
-    # 换手率：仅东财提供（长退避；拿不到则该维为 None，不影响成交额维）
+    # 换手率：Wind EDB 为主（#1502），东财兜底（长退避；拿不到则该维为 None，不影响成交额维）
     try:
-        tr = _turnover_rank(_em_industry_hist(code))
+        from app.services.thermometer.wind_turnover import wind_turnover_rank
+
+        tr = wind_turnover_rank(code, name)
+        if tr is None:
+            tr = _turnover_rank(_em_industry_hist(code))
         if tr:
             out.update(tr)
     except Exception as e:  # noqa
-        _log(f'  [warn] 东财换手率分位计算失败({code}):', str(e)[:60])
+        _log(f'  [warn] 换手率分位计算失败({code}):', str(e)[:60])
     return out
 
 
@@ -903,13 +908,37 @@ def _sw_share_records() -> List[dict]:
 
         note = (
             '成交额占比分位与乖离率来自申万宏源官网（非东财）；'
+            '换手率分位来自 Wind EDB（#1502 步骤 1，授权源）；'
             'PB 分位需行业 PB 源（legulegu/baostock/tushare），本路径下为空'
         )
+        # 换手率（#1502 步骤 1）：Wind EDB 逐行业查（精确指标名 + 文件缓存增量）。
+        # 31 行业首次全量 31 次请求、之后每天增量 31 次；行业间留间隔保持克制。
+        # 失败/未配置回 None —— 行为与接入前一致（该维缺失不阻塞成交额/BIAS）。
+        turnover_by_code: dict = {}
+        try:
+            import time as _time
+
+            from app.services.thermometer.wind_turnover import _REQUEST_GAP_SECONDS, wind_turnover_rank
+
+            if os.getenv('WIND_MCP_URL', '').strip():
+                for _code, _name in names.items():
+                    try:
+                        tr = wind_turnover_rank(_code, _name)
+                        if tr:
+                            turnover_by_code[_code] = tr
+                    except Exception as e:  # noqa
+                        _log(f'  [warn] Wind 换手率({_code})失败:', str(e)[:50])
+                    _time.sleep(_REQUEST_GAP_SECONDS)
+                _log(f'Wind 换手率：{len(turnover_by_code)}/31 行业取得分位')
+        except Exception as e:  # noqa
+            _log('  [warn] Wind 换手率路径异常（降级 None）:', str(e)[:60])
+
         records = []
         for code, name in names.items():
             m = metrics.get(code)
             if not m or m.get('amount_pct_rank') is None:
                 continue
+            turnover_dims = turnover_by_code.get(code) or {}
             records.append(
                 {
                     'kind': 'multi',
@@ -926,8 +955,8 @@ def _sw_share_records() -> List[dict]:
                         'hist_ok': False,
                         'amount_pct': m.get('amount_pct'),
                         'amount_pct_rank': m.get('amount_pct_rank'),
-                        'turnover': None,
-                        'turnover_rank': None,
+                        'turnover': turnover_dims.get('turnover'),
+                        'turnover_rank': turnover_dims.get('turnover_rank'),
                         'bias6': m.get('bias6'),
                         'bias20': m.get('bias20'),
                         'bias60': m.get('bias60'),
@@ -1057,8 +1086,8 @@ def fetch_industry_crowding() -> List[dict]:
                 if c is None:
                     continue
                 if mode == 'legulegu':
-                    # 两维：成交额占比分位（中证官网） + 换手率分位（东财长退避）；失败降级 None，不阻塞主链路
-                    c.update(_extra_dims(code, mkt_cs))
+                    # 两维：成交额占比分位（中证官网） + 换手率分位（#1502 Wind 为主，东财兜底）
+                    c.update(_extra_dims(name, code, mkt_cs))
                 records.append(_record(name, code, c))
             except Exception as e:  # noqa
                 _log(f'  {name} 异常: {str(e)[:40]}')

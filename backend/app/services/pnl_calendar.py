@@ -79,8 +79,6 @@ from app.core.time_utils import now_shanghai
 from app.core.trading_calendar import is_trading_day
 from app.core.venues import EXCHANGE, OTC, venue_of_row
 from app.domains.funds.models import DailyWorth, FundValuationDaily
-from app.domains.ledgers.models import Ledger
-from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.transactions.models import Transaction
@@ -89,6 +87,7 @@ from app.services.pnl_service import (
     _DIVEST_TXN_TYPES,
     _INVEST_TXN_TYPES,
 )
+from app.services.scope import filter_positions_by_scope
 
 # 单价精度：场内 adj_close 为「元」浮点，需放大到 0.0001 元整数再喂 Money.multiply_price_quantity
 _PRICE_SCALE = Decimal('10000')
@@ -1608,25 +1607,11 @@ def compute_range_attribution(
     if ledger_id is not None:
         positions = _positions(db, family_id, ledger_id)
     elif portfolio_id is not None:
-        portfolio = (
-            db.query(Portfolio)
-            .filter(Portfolio.id == portfolio_id, Portfolio.is_deleted.is_(False), Portfolio.family_id == family_id)
-            .first()
+        # #2595：组合级解析收敛到唯一出口（显式归属 + 成员账本继承，语义不变），
+        # 此前的内联实现已抽到 services/scope.py，供穿透等端点共用同一口径。
+        positions = filter_positions_by_scope(
+            db, family_id, decision_positions, portfolio_id=portfolio_id
         )
-        if not portfolio:
-            raise ValueError('投资组合不存在')
-        member_ids = {
-            row[0]
-            for row in db.query(Ledger.id)
-            .filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == family_id)
-            .all()
-        }
-        # 显式归属覆盖继承，与 portfolio_service.build_portfolio_holdings 的两路径口径一致。
-        positions = [
-            p
-            for p in decision_positions
-            if p.portfolio_id == portfolio_id or (p.portfolio_id is None and p.ledger_id in member_ids)
-        ]
     else:
         positions = decision_positions
 

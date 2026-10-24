@@ -265,6 +265,21 @@ const AssetRouteConfig = {
         showLink: true
       }
     },
+    // 持仓分析聚合页（#2595）：全家庭 / 单账户 / 组合三级口径切换，
+    // 复用归因（#2135）/ 穿透（#870）/ 日历（#1812）/ 超额（#2134）既有端点。
+    // 与「复盘」（时间维度表现）的分工见页面头注释——本页回答「三级口径下的
+    // 持仓表现与结构」，复盘回答「净值怎么走、收益从哪来」。
+    {
+      path: "/asset/position-analysis",
+      name: "PositionAnalysis",
+      component: () => import("@/views/asset/position-analysis/index.vue"),
+      meta: {
+        title: "持仓分析",
+        icon: "ep:pie-chart",
+        rank: 7,
+        showLink: true
+      }
+    },
     // 统一对账工作台（#1240 P0-C）：三域 Tab 入口，P1/P2 逐域接入
     {
       path: "/investment/reconcile-workbench",
@@ -274,7 +289,7 @@ const AssetRouteConfig = {
       meta: {
         title: "对账工作台",
         icon: "ep:finished",
-        rank: 7,
+        rank: 8,
         showLink: true,
         hideQuickEntry: true
       }
